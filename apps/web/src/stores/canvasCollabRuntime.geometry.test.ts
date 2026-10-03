@@ -254,22 +254,22 @@ describe('O0b-0 web 读侧版本门（DEV——收到的版本四档同条件）
 // ══════════ O0b-1 reconcile 单内核（Spec B——写域四类+源矩阵+零差异短路）══════════
 
 describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=doc 侧键）', () => {
-  it('manual/storyboard 全三字段+auto 展开档 origin（wh 写入面分档——见 reconcile 头偏差登记：auto wh 留现状链随 O0b-2 收口）', () => {
+  it('manual/storyboard/auto 展开档全三字段（O0b-2 接管——台账 a：auto wh=deriveGroupFrame 派生值）', () => {
     openRwWindow();
     const d = buildFlippedDoc();
     applyDocToStore(d);
     // manual g1：密封三键=doc 值（写侧键集表可往返——doc 镜像同值零差异）
     expect(csNode('g1').width).toBe(400);
     expect(csNode('g1').height).toBe(300);
-    // auto g2：origin=写域① 派生；wh 留现状链（cs auto 携派生 wh 会被写侧误判 manual 键泄漏进 doc
-    // ——终裁 44 死锁经写侧复现，O0b-2 doc-oracle 进键集判定后接手）
+    // auto g2：全三字段=写域① 派生（O0b-2 接管——wh 不再留现状链；doc 面零泄漏由差分出口
+    // oracle 化保证，见 canvasO0b2.sizing.test『applyGroupFrame 帧键零泄漏』锚）
     const b2 = calcGroupBounds([
       { x: 300, y: 100, width: 200, height: 100 },
       { x: 550, y: 100, width: 150, height: 80 },
     ]);
     expect(csNode('g2').position).toEqual({ x: b2.x, y: b2.y });
-    expect(csNode('g2').width).toBeUndefined();
-    expect(csNode('g2').height).toBeUndefined();
+    expect(csNode('g2').width).toBe(b2.width);
+    expect(csNode('g2').height).toBe(b2.height);
     // storyboard sb1：尺寸=config 权威 calcStoryboardSize（无 padding；写侧键集表剥 wh——零泄漏）；
     // position=doc 键
     const sb = calcStoryboardSize(1, 1, '16:9');
@@ -294,8 +294,9 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     )));
     reconcileGroupGeometry(d, 'doc');
     expect(csNode('g2').position).toEqual({ x: b2.x, y: b2.y });   // 非 {9999,9999}——mode 恒 auto
-    // wh=现状链不写（R2 分档——伪造值不被 reconcile 消费也不被清洗，O0b-2 doc-oracle 进键集判定收口）
-    expect(csNode('g2').width).toBe(999);
+    // O0b-2 写域① 接管：伪造 wh 被 reconcile 重写=deriveGroupFrame 派生值（非 999 现状链）
+    expect(csNode('g2').width).toBe(b2.width);
+    expect(csNode('g2').height).toBe(b2.height);
   });
 
   it('写域①折叠档（终裁 82）：manual 组 collapsed⇒cs 帧≡COLLAPSED_SIZE、优先级最高∧doc 三键保持展开态值不动', () => {

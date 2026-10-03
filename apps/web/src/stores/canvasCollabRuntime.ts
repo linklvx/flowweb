@@ -18,7 +18,8 @@ export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import {
   ensureSchemaVersion, DEFAULT_CHILD_SIZE, shouldAutoRefit,
-  deriveGroupFrame, frameMode, isCollapsed, hasStoryboardConfig, type Rect,
+  deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
+  assertDocAbsMatchesCsRel, assertStoryboardMembership,
 } from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
@@ -226,13 +227,29 @@ export function recomputeConnStatus() {
  *  data 按所有权分型（F42）委托 projectCanvasNodes 单源——组取 cs/普通节点取 ns+回落。
  *  断言说明：NodeData interface 无隐式索引签名，不结构兼容 Record<string, unknown>——
  *  运行时 data 就是普通对象，消费侧（fillDoc/applyRecordToYMap 只做 Object.entries）安全 */
-function storeProjection() {
+function storeProjection(d?: Y.Doc) {
   const cs = useCanvasStore.getState();
   const ns = useNodeStore.getState();
   return {
-    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any),
+    // O0b-2 台账 a：投影出口键集判定吃 doc-oracle（cs auto 组携派生帧三键不再被 record 形态
+    // 误判 manual——invariant 双侧同变换的关键：doc 侧 0 帧键⇄records 侧 0 键）
+    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any, d ? readGroupFrameModes(d) : undefined),
     edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   };
+}
+
+/** O0b-2 台账 a：键集判定 doc-oracle 表（每组 frameMode——oracle=doc 侧键，终裁 44；
+ *  captureStoreProjection/storeProjection 差分与 invariant 两侧共此一源，禁双实现）。 */
+export function readGroupFrameModes(d: Y.Doc): ReadonlyMap<string, FrameMode> {
+  const modes = new Map<string, FrameMode>();
+  for (const rec of readCanvasFromDoc(d).nodes) {
+    if (rec.type !== 'group') continue;
+    modes.set(rec.id, frameMode({
+      data: rec.data,
+      storedFrame: { position: rec.position, width: rec.width, height: rec.height },
+    }));
+  }
+  return modes;
 }
 
 /** 批4a：doc⇄store 投影不变量（红1-不变量安全网）——projectionFromDoc(doc) ≡ storeProjection()。
@@ -254,7 +271,7 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
     nodes: byId(withStoryboardChildDefault(nodes)),
     edges,
   };
-  const sp = storeProjection();
+  const sp = storeProjection(d);
   return isEqual(fromDoc, {
     nodes: byId(withStoryboardChildDefault(sp.nodes as any)),
     edges: sp.edges,
@@ -297,13 +314,10 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
  *  覆写、优先级最高，doc 三键保持展开态值不动[终裁 82]）②非组非分镜子 position（顶层=doc.abs 直拷/
  *  子=abs−本 tick 新 origin，rel 不量化）③非组 wh doc→cs 直拷（缺键保留 cs 现值禁 undefined）
  *  ④分镜子 position=构造默认 {0,0} 停住。
- *  ⚠️ 写域① wh 写入面分档（O0b-1 偏差登记，O0b-2 随投影层几何键全删收口）：manual/storyboard/
- *  collapsed 档写全三字段（写侧键集表可往返：manual=doc 镜像同值零差异/storyboard wh 被键集表
- *  无条件剥/collapsed=终裁 82 语义迁移）；**auto 展开档只写 origin（position）——wh 留现状链**
- * （命令体 applyGroupFrame 暂维持）：cs auto 组若携派生 wh，写侧 applyKeySetTable 按 record 形态
- *  误判 manual（hasValidStoredFrameKeys 恒真）→ 键泄漏进 doc=终裁 44 auto→manual 死锁经写侧复现
- * （实证：web 几何测试二次打开不变量红+addToGroup doc 0 帧键红）。doc-oracle 进写侧键集判定=
- *  O0b-2 结构动作，本批不提前（精准修改）。
+ *  O0b-2 写域① 全档写三字段（O0b-1 分档退役——台账 a/b 收口）：auto 展开档 wh=deriveGroupFrame
+ *  派生值接管（现状链 applyGroupFrame 的 cs 写面由 reconcile 单写者承接）；泄漏面根修=差分出口
+ *  键集判定 doc-oracle 化（toDocRecords 第三参 groupFrameModes——captureStoreProjection 从 doc 读，
+ *  cs auto 组携派生帧三键不再被 record 形态误判 manual，auto 帧键零泄漏进 doc=终裁 44 死锁根除）。
  *  一写者通则：doc 无该键⇒唯一写者=派生①，直拷②③跳过；写前 Number.isFinite 守卫；
  *  零差异短路（EPS=1e-6——量化后应严格相等，EPS 只防浮点噪声）：同值 return 原 nd 保对象引用
  * （RF 全量重渲染消解），全表零差异⇒零 setState。
@@ -349,30 +363,30 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
     const data = (rec?.data ?? nd.data ?? {}) as Record<string, unknown>;
     // mode oracle 恒=doc 侧记录键（终裁 44——禁 cs 派生帧当 storedFrame，auto 组防 manual 死锁）
     const storedFrame = { position: rec?.position, width: rec?.width, height: rec?.height };
-    const mode = frameMode({ data, storedFrame });
-    // 写域① wh 写入面分档（见函数头偏差登记）：auto 展开档只写 origin——wh 留现状链（O0b-2 收口）
-    writeWH.set(nd.id, mode !== 'auto' || isCollapsed(data));
+    // 写域①（O0b-2 接管——台账 a/b）：全档写三字段。auto wh=deriveGroupFrame 派生值（现状链
+    // applyGroupFrame 的 cs 写面由本写者承接；doc 面零泄漏由差分出口 oracle 化保证——见函数头）
+    writeWH.set(nd.id, true);
     if (import.meta.env.DEV && data.groupType === 'storyboard' && !hasStoryboardConfig(data)) {
       throw new Error(`[O0b-1] 分镜组 ${nd.id} 缺 storyboard config（建组/转换命令体必写完整 config——gate-seed 一次到位）`);
     }
     // 子 abs：'doc' 源=doc.abs 直读；'cs' 源=cs.rel+旧 origin（cs 组 position 活值——命令几何已落 cs）。
-    // 尺寸链=doc wh 第一/measured(cs) 第二/常量最后（固化后 doc 尺寸——O0b-2 同批完善）。
+    // 尺寸链=doc wh 第一/measured(cs) 第二/常量最后（O0b-2 定档——C0-3 三档链）。
     const oldOrigin = source === 'cs' && nd.position ? nd.position : undefined;
-    const childrenAbs = (childrenByParent.get(nd.id) ?? []).map((c) => {
+    const childrenAbs = (childrenByParent.get(nd.id) ?? []).flatMap((c) => {
       const crec = docById.get(c.id);
-      // 不可达防御路径：source='doc' 时 cs 有子而 doc 无记录=漏斗结构性不可达（dispatch 尾 doc⊇cs/
-      // applyDocToStore 尾 cs=doc 投影）；oldOrigin 在 'doc' 源恒 undefined ⇒ 此处 fallbackAbs=cs rel
-      // 被当 abs 仅防 throw，值不承担语义——O0b-2 尺寸链重写时按'缺键保留现值/排除该子'收口
+      // O0b-2 台账(c) 结构修法（O0b-1 注释声明的不可达路径收口）：source='doc' 时 cs 有子而 doc
+      // 无记录⇒排除该子（缺键排除——cs rel 不再被 fallbackAbs 当 abs 掺进帧算术的维度混用）。
+      if (source === 'doc' && !crec) return [];
       const fallbackAbs = oldOrigin
         ? { x: c.position.x + oldOrigin.x, y: c.position.y + oldOrigin.y }
         : c.position;
-      const abs = source === 'doc' ? (crec?.position ?? fallbackAbs) : fallbackAbs;
-      return {
+      const abs = source === 'doc' ? (crec!.position ?? fallbackAbs) : fallbackAbs;
+      return [{
         x: abs.x,
         y: abs.y,
         width: crec?.width ?? c.width ?? DEFAULT_CHILD_SIZE.width,
         height: crec?.height ?? c.height ?? DEFAULT_CHILD_SIZE.height,
-      };
+      }];
     });
     // 'cs' 源：manual/storyboard 组帧值取 cs 活值（命令中间态——auto 恒派生，liveFrame 不参与模式判定）
     const liveFrame = source === 'cs'
@@ -483,7 +497,31 @@ export function applyDocToStore(d: Y.Doc) {
   // O0b-1 挂点③=applyDocToStore 尾（source:'doc'——doc 权威直拷；漏斗尾/diff 首行随 O0b-1 同批落，
   // abs 过渡态在函数出前修正为 cs 语义：顶层 abs 直拷/子 rel/组帧 origin+wh 同 tick）
   reconcileGroupGeometry(d, 'doc');
+  // O0b-2 it.todo 转实：尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership）。
+  // DEV 直抛；prod 转 id 去重 log（reportShapeViolation 计数载体归 O0d——本批只留接缝）。
+  // 帧表=reconcile 写域①产物（cs 组 position 即本 tick 新帧 origin；wh 消费面=origin 对照无关——置 0）。
+  if (nodes.length > 0) {
+    const csAfter = useCanvasStore.getState().nodes;
+    const frames = new Map(
+      (csAfter as any[]).filter((n) => n.type === 'group')
+        .map((n) => [n.id, { x: n.position.x, y: n.position.y, width: n.width ?? 0, height: n.height ?? 0 }]),
+    );
+    try {
+      assertDocAbsMatchesCsRel({ docRecords: nodes, csNodes: csAfter as never, frames });
+      assertStoryboardMembership(nodes);
+    } catch (e) {
+      if (import.meta.env.DEV) throw e;
+      const key = (e as Error).message;
+      if (!reportedShapeViolations.has(key)) {
+        reportedShapeViolations.add(key);
+        console.warn('[O0b-2 shape violation]', key);
+      }
+    }
+  }
 }
+
+/** prod 侧形状违例去重 log 表（DEV 直抛不经过；O0d reportShapeViolation 计数载体接入时收编） */
+const reportedShapeViolations = new Set<string>();
 
 // 批4b-2（组 2 收口）退役：store→doc 订阅翻译桥（写路径唯一入口已收口
 // dispatchCanvasIntent，"store 变更→doc"翻译层整体消失；R17 切项目防线由"store 直写不再有

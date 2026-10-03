@@ -214,6 +214,12 @@ export function stripDerivedKeys(records: readonly DocNodeRecord[]): string[] {
 // 两函数同表禁复制；stripDerivedKeys 预扫同源）──
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+/** 尺寸取整单源（O0b-2——终裁 59③：Math.ceil 落 docShape，固化/内容事件/contain-fit 共用；
+ *  防同一节点两来源差 1px）。 */
+export function normalizeSize(n: number): number {
+  return Math.ceil(n);
+}
+
 /** storedFrame 有效性三态内联判定：三键齐且有限且宽高>0——O0b-1 起 isValidStoredFrame 单源实装，
  *  本谓词降为记录形入参的薄委托（消同语义双实现——frameMode/键集表同源）。 */
 function hasValidStoredFrameKeys(n: DocNodeRecord): boolean {
@@ -231,8 +237,16 @@ function storyboardGroupIds(records: readonly DocNodeRecord[]): Set<string> {
 
 /** 键集表④应用（spec ④字段×模式——O0a-2 从 stripAuthorState 提取为家族共用单实现）：
  *  组 position⟺manual∨storyboard；组 width/height⟺manual only；auto/collapsed 组=0 帧键；
- *  分镜子无 position；非组节点信封键自由原样。纯剥不补：输入无键⇄输出无键。 */
-function applyKeySetTable(records: readonly DocNodeRecord[]): DocNodeRecord[] {
+ *  分镜子无 position；非组节点信封键自由原样。纯剥不补：输入无键⇄输出无键。
+ *  O0b-2 键集判定 doc-oracle 化（台账 a——终裁 44 写侧死锁根修）：groupFrameModes 有该组 id⇒
+ *  按 doc 侧 oracle 裁 manual/auto（cs auto 组携派生帧三键不再被 record 形态误判 manual——
+ *  hasValidStoredFrameKeys 三键齐在写域① auto 档接管后恒真=泄漏面）；缺省（api 种子路径——
+ *  输入已是作者态，无 cs 派生键混入）=现状 record 形态判定，语义不变。oracle 只裁 manual/auto
+ *  二态——storyboard 判定恒走 data.groupType（权威）。 */
+function applyKeySetTable(
+  records: readonly DocNodeRecord[],
+  groupFrameModes?: ReadonlyMap<string, FrameMode>,
+): DocNodeRecord[] {
   const storyboardIds = storyboardGroupIds(records);
   return records.map((n) => {
     const data = (n.data ?? {}) as Record<string, unknown>;
@@ -244,10 +258,13 @@ function applyKeySetTable(records: readonly DocNodeRecord[]): DocNodeRecord[] {
     if (isGroup) {
       if (isStoryboard) {
         keepFrame = false; // 尺寸=config 权威故剥（position 留）
-      } else if (!hasValidStoredFrameKeys(n)) {
-        keepPosition = false; // auto/collapsed 组=0 帧键
-        keepFrame = false;
-      } // manual（三键齐且有效）：全留——含折叠态（折叠恢复唯一密封源）
+      } else {
+        const mode = groupFrameModes?.get(n.id) ?? (hasValidStoredFrameKeys(n) ? 'manual' : 'auto');
+        if (mode === 'auto') {
+          keepPosition = false; // auto/collapsed 组=0 帧键
+          keepFrame = false;
+        } // manual（oracle 或三键齐且有效）：全留——含折叠态（折叠恢复唯一密封源）
+      }
     }
     if (n.parentId != null && storyboardIds.has(n.parentId)) keepPosition = false; // 分镜子无 position
     if (keepPosition) out.position = n.position;
@@ -304,6 +321,7 @@ export interface MinimalCSNode {
 export function toDocRecords(
   csNodes: readonly MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
+  groupFrameModes?: ReadonlyMap<string, FrameMode>,
 ): DocNodeRecord[] {
   // 组帧 origin 表：cs 组 position 现值（一次预扫——子翻转只查表，不做遍历内推算）
   const origins = new Map<string, { x: number; y: number }>();
@@ -328,7 +346,7 @@ export function toDocRecords(
       data: nd.type === 'group' ? (nd.data ?? {}) : (nsNodes[nd.id]?.data ?? nd.data ?? {}),
     };
   });
-  return applyKeySetTable(merged);
+  return applyKeySetTable(merged, groupFrameModes);
 }
 
 /** 冻结帧/快照 rect（DragSession 的 baseline/groupBaseline/frozenFrames 共用）。 */

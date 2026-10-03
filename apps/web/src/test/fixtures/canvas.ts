@@ -5,6 +5,7 @@
 // geometryTrap.test.ts 锚③报数单调下降）。
 import type { Edge, Node } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useNodeStore } from '@/stores/nodeStore';
 import { withGeometryWriter } from '@/stores/geometryTrap';
 
 export interface MakeChildOverrides {
@@ -47,4 +48,23 @@ export function seedCanvas(nodes: Node[], edges?: Edge[]): void {
   withGeometryWriter('fixture', () => {
     useCanvasStore.setState({ nodes, edges: edges ?? [], selectedId: null });
   });
+}
+
+/** rw 漏斗窗口（canEdit 真——hydration ready+非 readOnly+无 terminal）。O0b-2 新增测试基建单点：
+ *  测试文件直接 useCanvasStore.setState 会撞文件级棘轮 allow-list（lint-gate/geometryTrap 锚③）——
+ *  会话窗口开启从本入口进（本文件不在 test/spec 扫描面；hydration 经 setHydration action——
+ *  hydration 单写者静态断言对生产源扫描含本文件）。 */
+export function openRwWindow(): void {
+  withGeometryWriter('fixture', () => {
+    useCanvasStore.getState().setHydration('ready');
+    useCanvasStore.setState({ collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+  });
+}
+
+/** 会话几何复位（测试 afterEach 单点——同上零直接 setState）。 */
+export function resetCanvasStores(): void {
+  withGeometryWriter('fixture', () => {
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+  });
+  useNodeStore.setState({ nodes: {} as never });
 }

@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan } from '@flowweb/shared';
-import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, resolveExpandedFrame } from '@flowweb/shared';
+import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, resolveExpandedFrame, normalizeSize } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -23,7 +23,7 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-2（组 2 收口）：复合信封写点经 captureStoreProjection/dispatchProjectionDiff 差分换芯
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
-import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, type CanvasIntent } from './canvasIntents';
+import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, type CanvasIntent } from './canvasIntents';
 import { Origin, stopCapturing } from './canvasUndo';
 import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, refitGroupGeometry, shouldAutoRefit, clampChildIntoGroup } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
@@ -161,7 +161,7 @@ export interface CanvasState {
   editorDirty: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
-  addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>) => string;
+  addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>, envelope?: { width?: number; height?: number }) => string;
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[], options?: AddChildNodesOptions) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
@@ -326,7 +326,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   connUi: 'ok',
   editorDirty: false,
 
-  addNode: (type, position, dataOverride) => {
+  addNode: (type, position, dataOverride, envelope) => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
     const baseData: Record<string, unknown> = resolvedType === 'textInput' ? { content: '' }
@@ -347,6 +347,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (resolvedType === 'videoEdit') {
       node.width = 320; // spec：产物位置 fallback 链（measured→width→300）会落到 300 导致首渲染偏移
     }
+    // O0b-2 (i) 命令体显式值形参（envelope——useStitchTask 拼接产物等已知尺寸载荷；终裁 59①[i]）：
+    // 显式 wh 优先于类型默认值，同 intent 单 transact 落 doc（不拆第二事务）
+    if (envelope?.width != null) node.width = envelope.width;
+    if (envelope?.height != null) node.height = envelope.height;
     // 批4b-1 换芯：协作语义（doc 首写+投影回填）走意图漏斗——canEdit 假时 dispatch doc+store
     // 双零写，下方 set 走 append 分支 = 既有"readOnly 可加节点后回弹"语义保留同型
     dispatchCanvasIntent({
@@ -464,15 +468,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const id = getId('node');
     const edgeId = getId('edge');
     const GAP = 40;
-    const sw = sourceNode.measured?.width ?? sourceNode.width ?? 400;
-    const sh = sourceNode.measured?.height ?? sourceNode.height ?? 300;
+    // O0b-2 A 类三档链（doc wh 第一/measured 第二/常量最后——C0-3 定档；B7-1 形态断言：链首非 .measured）
+    const sw = sourceNode.width ?? sourceNode.measured?.width ?? 400;
+    const sh = sourceNode.height ?? sourceNode.measured?.height ?? 300;
     const sx = sourceNode.position.x;
     const sy = sourceNode.position.y;
     const otherNodes = get().nodes.filter((n) => n.id !== sourceId);
     const overlaps = (nx: number, ny: number) =>
       otherNodes.some((n) => {
-        const nw = n.measured?.width ?? n.width ?? 200;
-        const nh = n.measured?.height ?? n.height ?? 200;
+        const nw = n.width ?? n.measured?.width ?? 200;
+        const nh = n.height ?? n.measured?.height ?? 200;
         return !(nx + sw < n.position.x || nx > n.position.x + nw || ny + sh < n.position.y || ny > n.position.y + nh);
       });
     const candidates = [
@@ -484,32 +489,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     for (const pos of candidates) {
       if (!overlaps(pos.x, pos.y)) { bestPos = pos; break; }
     }
-    const newNode: Node = {
-      id,
-      type: sourceNode.type,
-      position: bestPos,
-      data,
-      selected: true,
-    };
+    // O0b-2 (i) 命令体显式值：data.width/height（载荷尺寸——splitImage 同源形态）提到信封并从 data 剥除
+    //（终裁 59①[i]——addChildNode intent.node 扩 wh 键=删 customSize 后初始尺寸的显式形参）
+    const { width: dataW, height: dataH, ...restData } = data as Record<string, unknown>;
+    const hasWh = typeof dataW === 'number' && typeof dataH === 'number';
     const edge: Edge = { id: edgeId, source: sourceId, target: id };
 
-    // 批4b-1 换芯：node+edge 双 intent 单 transact（canEdit 假已被 action 门拦——dispatch 前置门
-    // 重复拦截无害）；下方 set exists 自适应防投影 append 叠重复
+    // 批4b-1 换芯：node+edge 双 intent 单 transact（canEdit 假已被 action 门拦——前置门 return null
+    // 保证 dispatch 恒成功⇒投影恒 append）。O0b-2 exists 收口：下方 set 只做 selected 合并
+    //（append 回退分支随前置门死码化删除——census"dispatch 后无 cs 几何直写"兼容）
     dispatchCanvasIntent([
-      { type: 'addNode', node: { id, type: sourceNode.type!, position: { ...bestPos }, data } },
+      { type: 'addNode', node: {
+        id, type: sourceNode.type!, position: { ...bestPos },
+        ...(hasWh ? { width: normalizeSize(dataW as number), height: normalizeSize(dataH as number) } : {}),
+        data: restData as Record<string, unknown>,
+      } },
       { type: 'upsertEdge', edge: { id: edgeId, source: sourceId, target: id } },
     ], Origin.LocalUser);
-    set((s) => {
-      const nodeProjected = s.nodes.some((n) => n.id === id);
-      const edgeProjected = s.edges.some((e) => e.id === edgeId);
-      return {
-        nodes: nodeProjected
-          ? s.nodes.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false }))
-          : [...s.nodes.map((n) => ({ ...n, selected: false })), newNode],
-        edges: edgeProjected ? s.edges : [...s.edges, edge],
-        selectedId: id,
-      };
-    });
+    set((s) => ({
+      nodes: s.nodes.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false })),
+      selectedId: id,
+    }));
 
     useNodeStore.getState().addNode({
       id,
@@ -531,8 +531,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     const skipEdges = options?.skipEdges ?? false;
 
-    const sw = sourceNode.measured?.width ?? sourceNode.width ?? 400;
-    const sh = sourceNode.measured?.height ?? sourceNode.height ?? 300;
+    // O0b-2 A 类三档链（doc wh 第一/measured 第二/常量最后——C0-3 定档）
+    const sw = sourceNode.width ?? sourceNode.measured?.width ?? 400;
+    const sh = sourceNode.height ?? sourceNode.measured?.height ?? 300;
     const startX = sourceNode.position.x + sw + 120;
     const startY = sourceNode.position.y;
     const GAP = 20;
@@ -540,6 +541,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
     const newIds: string[] = [];
+    // O0b-2 (i) 命令体显式值：item.data 携 wh（splitImage 载荷尺寸）提到信封并从 data 剥除
+    const newWhs = new Map<string, { width: number; height: number }>();
 
     for (const item of nodeDataList) {
       const nodeId = getId('node');
@@ -548,11 +551,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const x = startX + item.gridCol * (sw + GAP);
       const y = startY + item.gridRow * (sh + GAP);
 
+      const { width: itemW, height: itemH, ...itemRest } = item.data as Record<string, unknown>;
+      if (typeof itemW === 'number' && typeof itemH === 'number') {
+        newWhs.set(nodeId, { width: normalizeSize(itemW), height: normalizeSize(itemH) });
+      }
       const newNode: Node = {
         id: nodeId,
         type: resolvedType,
         position: { x, y },
-        data: item.data,
+        data: itemRest as Record<string, unknown>,
         selected: false,
       };
 
@@ -565,19 +572,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       newIds.push(nodeId);
     }
 
-    // 批4b-1 换芯：N node+M edge 单 transact（整批原子——对端一帧收齐）
+    // 批4b-1 换芯：N node+M edge 单 transact（整批原子——对端一帧收齐）；wh=命令体显式值键
     dispatchCanvasIntent([
-      ...newNodes.map((n) => ({ type: 'addNode' as const, node: { id: n.id, type: n.type!, position: { ...n.position }, data: n.data as Record<string, unknown> } })),
+      ...newNodes.map((n) => ({ type: 'addNode' as const, node: {
+        id: n.id, type: n.type!, position: { ...n.position },
+        ...(newWhs.get(n.id) ?? {}),
+        data: n.data as Record<string, unknown>,
+      } })),
       ...newEdges.map((e) => ({ type: 'upsertEdge' as const, edge: { id: e.id, source: e.source, target: e.target } })),
     ], Origin.LocalUser);
-    // exists 自适应：投影已 append 基础形状 → 滤除后 append 完整对象（防叠重复）；canEdit 假
-    // 已被 action 门拦（上方 return []），此处防御分支同型
-    const newNodeIds = new Set(newNodes.map((n) => n.id));
-    const newEdgeIds = new Set(newEdges.map((e) => e.id));
-    set((s) => ({
-      nodes: [...s.nodes.filter((n) => !newNodeIds.has(n.id)), ...newNodes],
-      edges: [...s.edges.filter((e) => !newEdgeIds.has(e.id)), ...newEdges],
-    }));
 
     const ns = useNodeStore.getState();
     for (const node of newNodes) {
@@ -598,15 +601,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const edgeId = getId('edge');
     // Smart positioning: right side of source, avoid overlapping other nodes
     const GAP = 40;
-    const sw = sourceNode.measured?.width ?? sourceNode.width ?? 400;
-    const sh = sourceNode.measured?.height ?? sourceNode.height ?? 300;
+    // O0b-2 A 类三档链（doc wh 第一/measured 第二/常量最后——C0-3 定档）
+    const sw = sourceNode.width ?? sourceNode.measured?.width ?? 400;
+    const sh = sourceNode.height ?? sourceNode.measured?.height ?? 300;
     const sx = sourceNode.position.x;
     const sy = sourceNode.position.y;
     const otherNodes = get().nodes.filter((n) => n.id !== sourceId);
     const overlaps = (nx: number, ny: number) =>
       otherNodes.some((n) => {
-        const nw = n.measured?.width ?? n.width ?? 200;
-        const nh = n.measured?.height ?? n.height ?? 200;
+        const nw = n.width ?? n.measured?.width ?? 200;
+        const nh = n.height ?? n.measured?.height ?? 200;
         return !(nx + sw < n.position.x || nx > n.position.x + nw || ny + sh < n.position.y || ny > n.position.y + nh);
       });
     const candidates = [
@@ -701,7 +705,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const source = get().nodes.find((n) => n.id === params.sourceNodeId);
     if (!source) return null;
 
-    const sw = source.measured?.width ?? source.width ?? 300;
+    // O0b-2 A 类三档链（doc wh 第一——C0-3 定档）
+    const sw = source.width ?? source.measured?.width ?? 300;
     const GAP = 80;
     const position = {
       x: source.position.x + sw + GAP,
@@ -756,20 +761,28 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // remove 走 LocalUser（撤销语义保持）。select 等纯 UI 变更不经漏斗（投影不含 selected/dragging/measured）。
     const dragIntents: CanvasIntent[] = [];
     const structIntents: CanvasIntent[] = [];
+    // O0b-2 (iii) 首测固化候选：dimensions 批非 setAttributes（RF 首测）∧非手势期（dragging 标记）
+    // ——类型限定/首写者胜/批量单 transact 判定收口在 dispatchFixtureSizeIntents（doc 读+textInput 类）
+    const fixCandidates: { id: string; width: number; height: number }[] = [];
     for (const c of changes) {
       if (c.type === 'position' && c.position != null) {
         dragIntents.push({ type: 'moveNode', id: c.id, position: { ...c.position } });
       } else if (c.type === 'dimensions' && (c as any).setAttributes && (c as any).dimensions != null) {
+        // (iv) resize 提交（现状保通——NodeResizer/NodeResizeControl setAttributes=true）
         structIntents.push({
           type: 'updateNodeEnvelope', id: c.id,
           patch: { width: (c as any).dimensions.width, height: (c as any).dimensions.height },
         });
+      } else if (c.type === 'dimensions' && (c as any).dimensions != null && !(c as any).dragging) {
+        fixCandidates.push({ id: c.id, width: (c as any).dimensions.width, height: (c as any).dimensions.height });
       } else if (c.type === 'remove') {
         structIntents.push({ type: 'deleteNode', id: c.id });
       }
     }
     if (dragIntents.length > 0) dispatchCanvasIntent(dragIntents, Origin.Geometry);
     if (structIntents.length > 0) dispatchCanvasIntent(structIntents, Origin.LocalUser);
+    // O0b-2 (iii)：固化独立 Geometry transact——不与 LocalUser 提交同 transact 合批（终裁 59⑥）
+    dispatchFixtureSizeIntents(fixCandidates);
     set((s) => {
       const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
       // 组内边距保留区：只夹取本批 position/dimensions 变更中、普通组的子节点
@@ -881,9 +894,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const mediaId = fileId || referenceImage;
     if (!mediaId) return null;
 
-    // Snapshot source position/size
-    const sourceW = sourceNode.measured?.width ?? sourceNode.width ?? 400;
-    const sourceH = sourceNode.measured?.height ?? sourceNode.height ?? 300;
+    // Snapshot source position/size（O0b-2 A 类三档链——doc wh 第一）
+    const sourceW = sourceNode.width ?? sourceNode.measured?.width ?? 400;
+    const sourceH = sourceNode.height ?? sourceNode.measured?.height ?? 300;
     const sourcePosition = { x: sourceNode.position.x, y: sourceNode.position.y };
 
     const ac = new AbortController();
@@ -1312,14 +1325,31 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
     const gp = group.position;
+    const gd = group.data as Record<string, unknown>;
     // 批4b-2 换芯：差分快照→出组信封删键+abs 还原+组框收缩经 dispatchProjectionDiff 落 doc
     const before = captureStoreProjection();
-    set((st) => ({
-      nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
-        ? { ...n, parentId: undefined, extent: undefined,
-            position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
-        : n),
-    }));
+    if (gd.groupType === 'storyboard') {
+      // O0b-2 分镜分支（终裁 78④——分镜子 wh 陈旧收口）：出格信封 wh=当前格尺寸（calcStoryboardSize/
+      // config 推算——非入格旧值）∧落点=帧右上外 20px。cells 清槽+cellNodes 过滤归 O0c-3 分镜移出修法。
+      // 与普通分支共用下方 dispatchProjectionDiff 尾（棘轮调用点数不增）；applyGroupFrame 对
+      // 分镜组守卫 no-op——组框不动。
+      const cfg = resolveStoryboardConfig(gd);
+      const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
+      set((st) => ({
+        nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
+          ? { ...n, parentId: undefined, extent: undefined,
+              position: { x: gp.x + size.width + 20, y: gp.y },
+              width: Math.round(size.cellWidth), height: Math.round(size.cellHeight) }
+          : n),
+      }));
+    } else {
+      set((st) => ({
+        nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
+          ? { ...n, parentId: undefined, extent: undefined,
+              position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
+          : n),
+      }));
+    }
     get().applyGroupFrame(groupId);   // G1：移出后组框收缩（守卫内建——分镜/折叠/手动 no-op）
     dispatchProjectionDiff(before, Origin.LocalUser);
     // v5 C2：移出最后子 → normal 空组解组（对齐删空自动解组语义；storyboard 组不受此规则）

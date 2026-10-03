@@ -27,3 +27,6 @@ export * from './canvas/expandedFrame';
 export * from './canvas/validateParentGraph';
 export * from './canvas/arrangeSelection';
 export * from './canvas/copyPlan';
+// O0b-2（Spec B）：assertions 出口接入——六条模型断言+membership 写侧断言真实实现（C0-2 骨架
+// O0b-1 转实），web 侧 applyDocToStore 尾挂消费（assertDocAbsMatchesCsRel/assertStoryboardMembership）。
+export * from './canvas/assertions';

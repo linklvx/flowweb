@@ -191,10 +191,11 @@ export class AiImageEditProcessor extends WorkerHost {
         }
       }
 
-      // 8. Write fileId/尺寸 to server doc；socket 仅进度通知
+      // 8. Write fileId to server doc；socket 仅进度通知。
+      // O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（改写 envelope 会让 api
+      // 成信封第 4 写者撞冻结表"信封写者=3"）；尺寸由 web 内容事件路径决定（load/换图 contain-fit）。
       await this.collabDoc.writeNodeData(projectId, nodeId, {
         fileId: media.id,
-        ...(job.data.imageWidth ? { width: job.data.imageWidth, height: job.data.imageHeight } : {}),
       });
       this.gateway.emitNodeStatus(projectId, {
         nodeId,

@@ -10,8 +10,9 @@ export function createProductNode(editNodeId: string, videoProjectId: string, fi
   const { nodes, addNode, addEdge } = useCanvasStore.getState();
   const editNode = nodes.find((n) => n.id === editNodeId);
   if (!editNode) throw new Error(`剪辑节点不存在: ${editNodeId}`);
-  const sw = (editNode as { measured?: { width?: number }; width?: number }).measured?.width
-    ?? (editNode as { width?: number }).width ?? 320;
+  // O0b-2 A 类三档链（doc wh 第一/measured 第二/常量最后——C0-3 定档；B7-1 形态断言：链首非 .measured）
+  const sw = (editNode as { width?: number }).width
+    ?? (editNode as { measured?: { width?: number } }).measured?.width ?? 320;
   const count = nodes.filter(
     (n) => (n as { data?: Record<string, unknown> }).data?.origin === 'video-edit'
       && (n as { data?: Record<string, unknown> }).data?.videoProjectId === videoProjectId,

@@ -33,42 +33,17 @@ import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/inten
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
-import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
+// O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——web 三份逐字重复收编；census 定义点=1）
+import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds } from '@flowweb/shared';
+import { reportNodeSize } from '@/stores/canvasIntents';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 100;
-
-function calcConstrainedSize(naturalW: number, naturalH: number) {
-  let w = naturalW;
-  let h = naturalH;
-
-  // Scale down to max dimensions maintaining aspect ratio
-  if (w > MAX_WIDTH) {
-    h = Math.round(h * (MAX_WIDTH / w));
-    w = MAX_WIDTH;
-  }
-  if (h > MAX_HEIGHT) {
-    w = Math.round(w * (MAX_HEIGHT / h));
-    h = MAX_HEIGHT;
-  }
-  // Enforce minimum dimensions
-  if (w < MIN_WIDTH) w = MIN_WIDTH;
-  if (h < MIN_HEIGHT) h = MIN_HEIGHT;
-
-  return { w, h };
-}
-
-function ratioDimensions(ratio: string) {
-  const [rw, rh] = ratio.split(':').map(Number);
-  if (!rw || !rh) return { w: 548, h: 306 };
-  // Use a large base to compute aspect ratio accurately, then constrain
-  const base = 1000;
-  const w = rw >= rh ? base : Math.round(base * (rw / rh));
-  const h = rh >= rw ? base : Math.round(base * (rh / rw));
-  return calcConstrainedSize(w, h);
-}
+// O0b-2 约束 bounds（原本地 calcConstrainedSize 内联常量参数化——shared 单源入参）
+const IMG_SIZE_BOUNDS: SizeBounds = { maxW: MAX_WIDTH, maxH: MAX_HEIGHT, minW: MIN_WIDTH, minH: MIN_HEIGHT };
 
 function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
@@ -77,7 +52,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const splitImageNode = useCanvasStore((s) => s.splitImageNode);
   const isSplitting = useCanvasStore((s) => s.nodeProcessMap[id]?.processType === 'splitting');
   const { zoom, x: vpX, y: vpY } = useViewport();
-  const { fitView, getNodes, setNodes, setCenter } = useReactFlow();
+  const { fitView, getNodes, setCenter } = useReactFlow();
   const isSingleSelected = useIsSingleSelected(selected);
   const internalNode = useInternalNode(id);
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
@@ -262,40 +237,32 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
 
+  // O0b-2 (ii) 内容事件写者（终裁 59①[ii]+76）：仅 DOM load 事件触发——决策纯函数只吃事件参数
+  //（禁测量触发/禁 cs.wh 变更触发/禁 data 变更触发——防内容事件↔reconcile 直拷回路 live-lock）。
+  // wh=滚动约束框（终裁 75）：现值从 cs 信封读（reconcile 写域③同步 doc），changed⇒envelope 提交
+  //（Origin.Geometry 允许覆盖；reportNodeSize 同值去重——同值重复 load 零 intent）；沿用档零写。
   const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    const newAspectRatio = img.naturalWidth / img.naturalHeight;
+    const csCur = useCanvasStore.getState().nodes.find((n: any) => n.id === id);
+    const currentWH = csCur?.width != null && csCur?.height != null
+      ? { width: csCur.width, height: csCur.height }
+      : null;
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
-    const existingCustomSize = currentData?.customSize;
-    const existingAspectRatio = currentData?.aspectRatio;
+    const decision = contentEventSize({
+      currentWH,
+      existingAspectRatio: currentData?.aspectRatio,
+      naturalW: img.naturalWidth,
+      naturalH: img.naturalHeight,
+      bounds: IMG_SIZE_BOUNDS,
+    });
 
-    // Tolerance 0.01: avoid unnecessary adaptation from floating-point noise
-    const ratioChanged = existingCustomSize && existingAspectRatio &&
-      Math.abs(newAspectRatio - existingAspectRatio) > 0.01;
-
-    let size: { w: number; h: number };
-    if (ratioChanged) {
-      const adapted = adaptCustomSize(existingCustomSize!, newAspectRatio);
-      updateConfig(id, { customSize: adapted, aspectRatio: newAspectRatio } as any);
-      size = { w: adapted.width, h: adapted.height };
-    } else if (existingCustomSize && !ratioChanged) {
-      size = { w: existingCustomSize.width, h: existingCustomSize.height };
-    } else {
-      size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
-      updateConfig(id, { aspectRatio: newAspectRatio } as any);
-    }
-
-    setImgSize(size);
+    setImgSize({ w: decision.size.width, h: decision.size.height });  // 局部态保留（等价守卫②）
     setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-
-    // Sync display size to React Flow node
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id !== id) return n;
-        return { ...n, width: size.w, height: size.h };
-      }),
-    );
-  }, [id, updateConfig, setNodes]);
+    if (decision.changed) {
+      updateConfig(id, { aspectRatio: decision.aspectRatio } as any);  // aspectRatio 键保留（守卫③）
+      reportNodeSize(id, decision.size.width, decision.size.height);   // 内容事件提交（envelope）
+    }
+  }, [id, updateConfig]);
 
   // Reset dimensions when image URL changes
   useEffect(() => {
@@ -303,8 +270,16 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
     setNaturalSize(null);
   }, [displayUrl]);
 
+  // O0b-2 锚⑥（终裁 91 落位）：onError/broken fileId 兜底——错误路径也提交 envelope{wh=ratio 默认
+  // 约束尺寸}，否则 broken 节点永久无 wh 与"收敛步数=1/帧≡bbox+padding"锚直接冲突。
+  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    (resultUrl ? onResultError : onRefPreviewError)(e);
+    const fallback = ratioDimensions(nodeData?.ratio ?? '16:9', IMG_SIZE_BOUNDS);
+    reportNodeSize(id, fallback.w, fallback.h);
+  }, [id, resultUrl, onResultError, onRefPreviewError, nodeData?.ratio]);
+
   const ratio = nodeData?.ratio ?? '16:9';
-  const ratioSize = ratioDimensions(ratio);
+  const ratioSize = ratioDimensions(ratio, IMG_SIZE_BOUNDS);
   const baseWidth = imgSize ? imgSize.w : ratioSize.w;
   const baseHeight = imgSize ? imgSize.h : ratioSize.h;
   let containerWidth = baseWidth;
@@ -710,41 +685,30 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   // ── Effects ──
 
-  // Restore customSize dimensions on mount
+  // O0b-2 挂载恢复=读 cs.wh（reconcile 写域③已从 doc 同步——customSize 并入 envelope 后恢复源=信封）：
+  // 镜像进 imgSize 局部态（edit overlay 必需——等价守卫②）；无 wh（从未 load/固化）⇒不动，等 load 内容事件。
   useEffect(() => {
-    const cs = nodeData?.customSize as { width: number; height: number } | undefined;
-    if (!cs || cs.width <= 0 || cs.height <= 0) return;
+    const n = useCanvasStore.getState().nodes.find((x: any) => x.id === id);
+    if (n?.width != null && n.height != null) {
+      setImgSize({ w: n.width, h: n.height });
+    }
+  }, [id]);
 
-    const currentNodes = getNodes();
-    const currentNode = currentNodes.find((n) => n.id === id);
-    if (!currentNode || (currentNode.width === cs.width && currentNode.height === cs.height)) return;
-
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id !== id) return n;
-        return { ...n, width: cs.width, height: cs.height };
-      }),
-    );
-    setImgSize({ w: cs.width, h: cs.height });
-  }, [nodeData?.customSize, id, getNodes, setNodes]);
-
-  // Persist customSize when resize handles disappear mid-resize (e.g. edit mode entered)
+  // O0b-2 resize 中途消失持久化（终裁 75⑤——挂 resize 提交族）：envelope intent（同值去重——
+  // resize 提交已落 doc 时零 intent）
   useEffect(() => {
     if (!showResizeHandles && isResizing) {
-      const currentNodes = getNodes();
-      const currentNode = currentNodes.find((n) => n.id === id);
+      const currentNode = getNodes().find((n) => n.id === id);
       if (currentNode) {
         const w = currentNode.width ?? nodeWidth;
         const h = currentNode.height ?? nodeHeight;
         if (w > 0 && h > 0) {
-          updateConfig(id, {
-            customSize: { width: w, height: h },
-          } as any);
+          reportNodeSize(id, w, h);
         }
       }
       setIsResizing(false);
     }
-  }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes, updateConfig]);
+  }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes]);
 
   // Register save handler for cross-node invocation
   useEffect(() => {
@@ -941,20 +905,18 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
 
   const handleResizeEnd = useCallback(() => {
     setIsResizing(false);
-    const currentNodes = getNodes();
-    const currentNode = currentNodes.find((n) => n.id === id);
-    if (!currentNode) return;
-    const w = currentNode.width ?? nodeWidth;
-    const h = currentNode.height ?? nodeHeight;
-    if (w > 0 && h > 0) {
-      updateConfig(id, {
-        customSize: { width: w, height: h },
-      } as any);
-      // Immediately sync local size state so edit overlays use the new dimensions
-      setImgSize({ w, h });
+    // O0b-2 (iv) resize 提交写者=onNodesChange setAttributes dimensions（envelope intent——
+    // 已在松手时落 doc）；此处只同步 imgSize 局部态（edit overlay 用新尺寸——等价守卫②）
+    const currentNode = getNodes().find((n) => n.id === id);
+    if (currentNode) {
+      const w = currentNode.width ?? nodeWidth;
+      const h = currentNode.height ?? nodeHeight;
+      if (w > 0 && h > 0) {
+        setImgSize({ w, h });
+      }
     }
     stopCapturing();
-  }, [id, getNodes, updateConfig, nodeWidth, nodeHeight]);
+  }, [id, getNodes, nodeWidth, nodeHeight]);
 
   // 刷新恢复竞态：canvasStore 有节点但 nodeStore 尚无数据时渲染占位（TD-7，原 return null 空白）
   if (!nodeData) return (
@@ -1180,7 +1142,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
                   ...(previewTransform ? { transform: previewTransform } : {}),
                 }}
                 onLoad={handleImageLoad}
-                onError={resultUrl ? onResultError : onRefPreviewError}
+                onError={handleImageError}
               />
               {/* Edit mode overlays */}
               {editMode === 'crop' && (

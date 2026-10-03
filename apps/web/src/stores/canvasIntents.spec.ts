@@ -772,8 +772,11 @@ describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
     // 恰 1 个 updateNodeData：data 增量落 doc（差分非空且被消费）
     const m = doc.getMap('nodes').get('g1') as Y.Map<any>;
     expect((m.get('data') as Y.Map<any>).get('name')).toBe('b');
-    // 零 envelope/moveNode：cs 组对象身份不变（同值 no-op 不适用——投影回填恒重建对象）
-    expect(useCanvasStore.getState().nodes[0]).toBe(gBefore);
+    // 零 envelope/moveNode：origin 值不变 ∧ doc 几何键零写入（下方三断言）。
+    // O0b-2 写域① 接管（台账 a）：cs 组对象可被漏斗尾 reconcile 重建（wh=派生值接管——空 auto 组
+    // COLLAPSED_SIZE 档），对象身份不再是不变量——零几何意图的观察面收敛到 origin 值+doc 侧键集。
+    void gBefore;
+    expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 10, y: 20 });
     // doc 几何不变：auto 组 doc 无 position 键（键集表形态）∧无 wh 键写入
     expect(m.has('position')).toBe(false);
     expect(m.has('width')).toBe(false);

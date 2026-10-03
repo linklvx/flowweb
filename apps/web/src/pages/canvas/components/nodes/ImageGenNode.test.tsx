@@ -115,6 +115,8 @@ const {
       selectedId: null,
       lastPointerShiftKey: mockLastPointerShiftKey,
       marqueeSelecting: mockMarqueeSelecting,
+      // O0b-2 挂载恢复 effect 读 cs.wh——夹具不带 wh（undefined⇒不镜像 imgSize，渲染仍走 ratio 默认）
+      nodes: [] as any[],
       selectNode,
       addChildNode,
       addNodeWithEdge,
@@ -159,6 +161,7 @@ vi.mock('@/stores/nodeStore', () => ({
   isImageNode: (node: any) => node?.type === 'imageGen' || node?.type === 'imageExtGen',
 }));
 
+vi.mock('@/stores/canvasIntents', () => ({ reportNodeSize: vi.fn() }));
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: mockUseCanvasStoreFn,
 }));

@@ -185,3 +185,75 @@ describe('deriveGroupFrame（O0b-1 写域①四模式单源——reconcile 与�
     expect(frame).toEqual({ x: 12, y: 34, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
   });
 });
+
+// ══════════ O0b-2（Spec B）：尺寸取整单源 ceil + contain-fit 单源 + multiImage 公式单源 ══════════
+// 终裁 59③/75/83④/91——adaptToFit 新名独立纯函数（不复用 adaptCustomSize 名）+calcConstrainedSize/
+// ratioDimensions 三份逐字重复收编 shared 单源（web census：定义点=1）+normalizeSize=Math.ceil 落 docShape
+//（geometry 消费同源）。round 同批改 ceil（差 ≤1px——防同一节点两来源差 1px）。
+import { adaptToFit, calcConstrainedSize, ratioDimensions, multiImageSize,
+  MULTI_IMAGE_STACKED_SIZE } from './geometry';
+
+describe('O0b-2 adaptToFit（contain-fit 单源——wh=滚动约束框：以当前框为约束适配新比例）', () => {
+  it('新比例更宽（fitByWidth>height）⇒高约束：保 height，width=ceil(height*ratio)', () => {
+    const out = adaptToFit({ width: 1600, height: 900 }, 1); // 方形内容进 16:9 框
+    expect(out).toEqual({ width: 900, height: 900 });
+  });
+
+  it('新比例更窄（fitByWidth≤height）⇒宽约束：保 width，height=ceil(width/ratio)', () => {
+    const out = adaptToFit({ width: 400, height: 1200 }, 16 / 9);
+    expect(out).toEqual({ width: 400, height: Math.ceil(400 / (16 / 9)) });
+  });
+
+  it('整除不尽时 ceil 取整（round 同批改 ceil——终裁 59③）', () => {
+    // 100/3 = 33.33… ⇒ ceil=34（round 会得 33——锚鉴别力）
+    const out = adaptToFit({ width: 100, height: 100 }, 3);
+    expect(out).toEqual({ width: 100, height: 34 });
+  });
+});
+
+describe('O0b-2 calcConstrainedSize（shared 单源——参数化 bounds；round 改 ceil）', () => {
+  const bounds = { maxW: 548, maxH: 500, minW: 200, minH: 100 };
+
+  it('超 max 缩到 max 内（保比例，ceil）；低于 min 抬到 min', () => {
+    // 2000x1200 → 宽超 548：h=ceil(1200*548/2000)=ceil(328.8)=329 ≤500 ⇒ {548,329}
+    expect(calcConstrainedSize(2000, 1200, bounds)).toEqual({ w: 548, h: 329 });
+    // 100x60 → 低于 min：{200,100}
+    expect(calcConstrainedSize(100, 60, bounds)).toEqual({ w: 200, h: 100 });
+  });
+
+  it('区间内原样返回（ceil 恒等）', () => {
+    expect(calcConstrainedSize(300, 200, bounds)).toEqual({ w: 300, h: 200 });
+  });
+
+  it('ceil 鉴别力：分数 <0.5 档 ceil 向上（round 会向下——266.34 ⇒ ceil 267 / round 266）', () => {
+    // 823x400，maxW=548：h=ceil(400*548/823)=ceil(266.34)=267（round 会得 266）
+    expect(calcConstrainedSize(823, 400, bounds)).toEqual({ w: 548, h: 267 });
+  });
+});
+
+describe('O0b-2 ratioDimensions（shared 单源——比例名→约束尺寸；ceil；非法比例兜底 548×306）', () => {
+  const bounds = { maxW: 548, maxH: 500, minW: 200, minH: 100 };
+
+  it("16:9 ⇒ base 1000 约束 ⇒ {548, ceil(548*9/16)=309}", () => {
+    expect(ratioDimensions('16:9', bounds)).toEqual({ w: 548, h: 309 });
+  });
+
+  it('非法比例⇒兜底 {548,306}', () => {
+    expect(ratioDimensions('bogus', bounds)).toEqual({ w: 548, h: 306 });
+    expect(ratioDimensions('0:0', bounds)).toEqual({ w: 548, h: 306 });
+  });
+});
+
+describe('O0b-2 multiImageSize（组件显式上报公式单源——四类触发点共用同一纯函数，终裁 91）', () => {
+  it('展开档：gridCols(≤4 图=2/否则 3)+gridRows ⇒ expandedW/H 公式', () => {
+    // 3 图：cols=2 rows=2 → W=min(2*150+8+24,548)=332；H=2*150+8+48=356
+    expect(multiImageSize(3, true)).toEqual({ width: 332, height: 356 });
+    // 6 图：cols=3 rows=2 → W=min(3*150+2*8+24,548)=490；H=356
+    expect(multiImageSize(6, true)).toEqual({ width: 490, height: 356 });
+  });
+
+  it('非展开档：stackedSize 缺省⇒MULTI_IMAGE_STACKED_SIZE；显式 stackedSize 透传', () => {
+    expect(multiImageSize(4, false)).toEqual(MULTI_IMAGE_STACKED_SIZE);
+    expect(multiImageSize(4, false, { width: 321, height: 123 })).toEqual({ width: 321, height: 123 });
+  });
+});

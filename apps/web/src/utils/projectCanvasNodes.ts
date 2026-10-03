@@ -1,4 +1,4 @@
-import { toDocRecords, type CanvasNodeRecord, type MinimalCSNode } from '@flowweb/shared';
+import { toDocRecords, type CanvasNodeRecord, type FrameMode, type MinimalCSNode } from '@flowweb/shared';
 
 /** ephemeral 键集（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode=本地瞬态
  *  UI 键（编辑态只活在 ns data 本地面），禁入 doc/cs 持久面；expanded 是 doc 态
@@ -20,12 +20,18 @@ export function stripEphemeralDataKeys(data: Record<string, unknown>): Record<st
  *  cs 投影面适配）：ephemeral 键剥（口径 13——shared 不可见的 web 键集）。
  *  O0b-0：剥键形态原样直构（normalizeCanvasRecord 内核 position 无条件写键——必填类型，不满足
  *  剥键形态；cs 回填逆映射也一并删——把键集剥掉的 position/wh 拼回会破 doc≡store 同形。
- *  doc 缺键⇄出口无键同形——fast-deep-equal keys 长度敏感）。O0b-2 投影层几何键全删时本面随收口。 */
+ *  doc 缺键⇄出口无键同形——fast-deep-equal keys 长度敏感）。
+ *  O0b-2 前瞻注释兑现说明：投影回填面几何直写已删（projectIntentToStore addNode/moveNode/
+ *  envelope 三处——cs 几何=reconcile 单写者）；本函数的几何透传=差分快照面保留（captureStoreProjection
+ *  before/after 差分的 moveNode intent 构造源——moveNode 构造点=提交/差分域，投影域 0）。
+ *  O0b-2 台账 a：第三可选参 groupFrameModes 透传 toDocRecords（键集判定 doc-oracle 化——web 差分
+ *  面从 doc 读 oracle 传入；缺省=record 形态判定，api 种子路径语义不变）。 */
 export function projectCanvasNodes(
   csNodes: MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
+  groupFrameModes?: ReadonlyMap<string, FrameMode>,
 ): CanvasNodeRecord[] {
-  return toDocRecords(csNodes, nsNodes).map((r) => ({
+  return toDocRecords(csNodes, nsNodes, groupFrameModes).map((r) => ({
     id: r.id,
     type: r.type,
     ...(r.parentId != null ? { parentId: r.parentId } : {}),

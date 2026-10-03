@@ -363,13 +363,16 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.reserve).not.toHaveBeenCalled();
     });
 
-    it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {
+    it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常（O0b-2——AI 只写 fileId，data.{width,height} 键整删）', async () => {
       mockResult();
       await processor.process(makeIntentJob());
       expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-new');
       expect(collabDoc.writeNodeData).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ fileId: 'media-new' }),
       );
+      const payload = collabDoc.writeNodeData.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+      expect('width' in payload).toBe(false);    // 终裁 59⑤——api 非信封写者（尺寸归 web 内容事件）
+      expect('height' in payload).toBe(false);
     });
 
     it('complete 门序闭（count===0，reconcile 已 VOIDED）：writeNodeData/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {

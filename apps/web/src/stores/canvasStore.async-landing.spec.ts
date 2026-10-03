@@ -4,9 +4,11 @@
 // 未插入画布——可从素材库手动插入」；canEdit 真时正常加（回归锚）。
 // 产物已落素材库（presign/confirm 先于本回调）——丢弃的仅是"插入画布"这一步，可手动补。
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import * as Y from 'yjs';
 import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { _setIntentDocForTest } from './canvasIntents';
 
 /** 会话电平：默认 idle+readonly（无会话）/ pending+rw（未水合窗口）/ ready+rw（编辑者） */
 const noSession = () =>
@@ -32,7 +34,10 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
     seedSource();
     warnSpy = vi.spyOn(message, 'warning');
   });
-  afterEach(() => warnSpy.mockRestore());
+  afterEach(() => {
+    warnSpy.mockRestore();
+    _setIntentDocForTest(null);
+  });
 
   it('canEdit 假（无会话）：addChildNode 静默 null——节点/边零加入 + toast 指引素材库', () => {
     const ret = useCanvasStore.getState().addChildNode('src1', { fileId: 'f1', status: 'done' });
@@ -63,6 +68,9 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
 
   it('canEdit 真（回归锚）：addChildNode 正常加节点+边并返回 id', () => {
     readWriteSession();
+    // O0b-2 exists 收口：dispatch 恒成功⇒投影恒 append（append 回退分支删除）——canEdit 真=完整
+    // 漏斗可用，测试装置补 doc（生产 rw 会话 doc 恒在；doc 缺席=canEdit 假语义域，上方用例覆盖）
+    _setIntentDocForTest(new Y.Doc());
     const ret = useCanvasStore.getState().addChildNode('src1', { fileId: 'f1', status: 'done' });
     expect(typeof ret).toBe('string');
     expect(useCanvasStore.getState().nodes.find((n: any) => n.id === ret)).toBeDefined();
@@ -72,6 +80,7 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
 
   it('canEdit 真（回归锚）：addChildNodes 正常加并返回 id 列表', () => {
     readWriteSession();
+    _setIntentDocForTest(new Y.Doc());   // 同上——exists 收口后投影恒 append 的会话前提
     const ret = useCanvasStore.getState().addChildNodes('src1', [
       { data: { fileId: 'f1', status: 'done' }, gridRow: 0, gridCol: 0 },
     ]);

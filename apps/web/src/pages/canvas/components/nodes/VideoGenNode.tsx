@@ -23,45 +23,23 @@ import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { canvasProjectId } from '@/utils/uploadContext';
 import { uploadImageBlob } from '@/utils/mediaUploadUtils';
 import { downloadMediaFile } from '@/utils/mediaDownload';
-import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS, adaptCustomSize } from '@/utils/resizeUtils';
+import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
+// O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——三份逐字重复收编；census 定义点=1）
+import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds } from '@flowweb/shared';
+import { reportNodeSize } from '@/stores/canvasIntents';
 import axios from 'axios';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 100;
-
-function calcConstrainedSize(naturalW: number, naturalH: number) {
-  let w = naturalW;
-  let h = naturalH;
-
-  if (w > MAX_WIDTH) {
-    h = Math.round(h * (MAX_WIDTH / w));
-    w = MAX_WIDTH;
-  }
-  if (h > MAX_HEIGHT) {
-    w = Math.round(w * (MAX_HEIGHT / h));
-    h = MAX_HEIGHT;
-  }
-  if (w < MIN_WIDTH) w = MIN_WIDTH;
-  if (h < MIN_HEIGHT) h = MIN_HEIGHT;
-
-  return { w, h };
-}
-
-function ratioDimensions(ratio: string) {
-  const [rw, rh] = ratio.split(':').map(Number);
-  if (!rw || !rh) return { w: 548, h: 309 };
-  const base = 1000;
-  const w = rw >= rh ? base : Math.round(base * (rw / rh));
-  const h = rh >= rw ? base : Math.round(base * (rh / rw));
-  return calcConstrainedSize(w, h);
-}
+// O0b-2 约束 bounds（原本地内联常量参数化——shared 单源入参）
+const VID_SIZE_BOUNDS: SizeBounds = { maxW: MAX_WIDTH, maxH: MAX_HEIGHT, minW: MIN_WIDTH, minH: MIN_HEIGHT };
 
 function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const { getNodes, setNodes } = useReactFlow();
+  const { getNodes } = useReactFlow();
   const isSingleSelected = useIsSingleSelected(selected);
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
   const status = useNodeStore((s) => selectExecStatus(s, id));
@@ -271,48 +249,47 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const [vidSize, setVidSize] = useState<{ w: number; h: number } | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
 
+  // O0b-2 (ii) 内容事件写者（loadedmetadata——仅 DOM 事件触发；禁测量/cs.wh/data 变更触发）：
+  // 决策纯函数只吃事件参数；changed⇒envelope 提交（reportNodeSize 同值去重）；沿用档零写。
   const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     const vidW = vid.videoWidth || 548;
     const vidH = vid.videoHeight || 306;
     setNaturalSize({ w: vid.videoWidth || vidW, h: vid.videoHeight || vidH });
-    const newAspectRatio = vidW / vidH;
+    const csCur = useCanvasStore.getState().nodes.find((n: any) => n.id === id);
+    const currentWH = csCur?.width != null && csCur?.height != null
+      ? { width: csCur.width, height: csCur.height }
+      : null;
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
-    const existingCustomSize = currentData?.customSize;
-    const existingAspectRatio = currentData?.aspectRatio;
+    const decision = contentEventSize({
+      currentWH,
+      existingAspectRatio: currentData?.aspectRatio,
+      naturalW: vidW,
+      naturalH: vidH,
+      bounds: VID_SIZE_BOUNDS,
+    });
 
-    const ratioChanged = existingCustomSize && existingAspectRatio &&
-      Math.abs(newAspectRatio - existingAspectRatio) > 0.01;
-
-    let size: { w: number; h: number };
-    if (ratioChanged) {
-      const adapted = adaptCustomSize(existingCustomSize!, newAspectRatio);
-      updateConfig(id, { customSize: adapted, aspectRatio: newAspectRatio } as any);
-      size = { w: adapted.width, h: adapted.height };
-    } else if (existingCustomSize && !ratioChanged) {
-      size = { w: existingCustomSize.width, h: existingCustomSize.height };
-    } else {
-      size = calcConstrainedSize(vidW, vidH);
-      updateConfig(id, { aspectRatio: newAspectRatio } as any);
+    setVidSize({ w: decision.size.width, h: decision.size.height });  // 局部态保留（等价守卫②）
+    if (decision.changed) {
+      updateConfig(id, { aspectRatio: decision.aspectRatio } as any);  // aspectRatio 键保留（守卫③）
+      reportNodeSize(id, decision.size.width, decision.size.height);
     }
-
-    setVidSize(size);
-
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id !== id) return n;
-        return { ...n, width: size.w, height: size.h };
-      }),
-    );
-  }, [id, updateConfig, setNodes]);
+  }, [id, updateConfig]);
 
   useEffect(() => {
     setVidSize(null);
     setNaturalSize(null);
   }, [displayUrl]);
 
+  // O0b-2 锚⑥（终裁 91 落位）：onError/broken fileId 兜底——错误路径也提交 envelope{wh=ratio 默认约束尺寸}
+  const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    (resultUrl ? onResultError : onRefVideoError)(e);
+    const fallback = ratioDimensions(nodeData?.ratio ?? '16:9', VID_SIZE_BOUNDS);
+    reportNodeSize(id, fallback.w, fallback.h);
+  }, [id, resultUrl, onResultError, onRefVideoError, nodeData?.ratio]);
+
   const ratio = nodeData?.ratio ?? '16:9';
-  const ratioSize = ratioDimensions(ratio);
+  const ratioSize = ratioDimensions(ratio, VID_SIZE_BOUNDS);
   const containerWidth = vidSize ? vidSize.w : ratioSize.w;
   const containerHeight = vidSize ? vidSize.h : ratioSize.h;
 
@@ -508,17 +485,16 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   // ── Aspect-ratio-locked resize handlers ──
 
   const finishResize = useCallback(() => {
+    // O0b-2 (iv) resize 提交写者=onNodesChange setAttributes dimensions（已在松手落 doc）——
+    // 此处只同步 vidSize 局部态（等价守卫②）
     const currentNodes = getNodes();
     const currentNode = currentNodes.find((n) => n.id === id);
-    if (!currentNode) return;
-
-    const w = currentNode.width ?? containerWidth;
-    const h = currentNode.height ?? containerHeight;
-    if (w > 0 && h > 0) {
-      updateConfig(id, {
-        customSize: { width: w, height: h },
-      } as any);
-      setVidSize({ w, h });
+    if (currentNode) {
+      const w = currentNode.width ?? containerWidth;
+      const h = currentNode.height ?? containerHeight;
+      if (w > 0 && h > 0) {
+        setVidSize({ w, h });
+      }
     }
 
     if (videoRef.current) {
@@ -528,7 +504,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
       fallbackCleanupRef.current();
       fallbackCleanupRef.current = null;
     }
-  }, [id, getNodes, updateConfig, containerWidth, containerHeight]);
+  }, [id, getNodes, containerWidth, containerHeight]);
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);
@@ -558,34 +534,23 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
     stopCapturing();
   }, [finishResize]);
 
-  // Restore customSize dimensions on mount
+  // O0b-2 挂载恢复=读 cs.wh（reconcile 写域③已同步 doc——customSize 并入 envelope 后恢复源=信封）
   useEffect(() => {
-    const cs = nodeData?.customSize as { width: number; height: number } | undefined;
-    if (!cs || cs.width <= 0 || cs.height <= 0) return;
+    const n = useCanvasStore.getState().nodes.find((x: any) => x.id === id);
+    if (n?.width != null && n.height != null) {
+      setVidSize({ w: n.width, h: n.height });
+    }
+  }, [id]);
 
-    const currentNodes = getNodes();
-    const currentNode = currentNodes.find((n) => n.id === id);
-    if (!currentNode || (currentNode.width === cs.width && currentNode.height === cs.height)) return;
-
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.id !== id) return n;
-        return { ...n, width: cs.width, height: cs.height };
-      }),
-    );
-    setVidSize({ w: cs.width, h: cs.height });
-  }, [nodeData?.customSize, id, getNodes, setNodes]);
-
-  // Persist customSize when resize handles disappear mid-resize (e.g. edit mode entered)
+  // O0b-2 resize 中途消失持久化（终裁 75⑤——挂 resize 提交族）：envelope intent（同值去重）
   useEffect(() => {
     if (!showResizeHandles && isResizing) {
-      const currentNodes = getNodes();
-      const currentNode = currentNodes.find((n) => n.id === id);
+      const currentNode = getNodes().find((n) => n.id === id);
       if (currentNode) {
         const w = currentNode.width ?? nodeWidth;
         const h = currentNode.height ?? nodeHeight;
         if (w > 0 && h > 0) {
-          updateConfig(id, { customSize: { width: w, height: h } } as any);
+          reportNodeSize(id, w, h);
         }
       }
       if (fallbackCleanupRef.current) {
@@ -594,7 +559,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
       }
       setIsResizing(false);
     }
-  }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes, updateConfig]);
+  }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes]);
 
   return (
     <div className="relative canvas-node">
@@ -735,7 +700,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
               controls
               style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
               onLoadedMetadata={handleVideoLoad}
-              onError={resultUrl ? onResultError : onRefVideoError}
+              onError={handleVideoError}
             />
           ) : status === 'loading' ? (
             <span className="text-yellow-400 text-xs">⏳ 生成中...</span>

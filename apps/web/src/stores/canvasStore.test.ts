@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { _setIntentDocForTest } from './canvasIntents';
 import type { AiToolId, ImageNodeData } from './nodeStore';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 
@@ -61,8 +63,11 @@ describe('canvasStore', () => {
     const parentId = useCanvasStore.getState().addNode('imageExt', { x: 100, y: 100 });
     // 批2-3：addChildNodes 走 canEdit 门——rw 会话电平（默认 idle/readonly 会被静默拒，见 async-landing.spec）
     useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    // O0b-2 exists 收口：dispatch 恒成功⇒投影恒 append——canEdit 真=完整漏斗可用（装置补 doc）
+    _setIntentDocForTest(new Y.Doc());
     const { addChildNodes } = useCanvasStore.getState() as any;
     const childIds = addChildNodes(parentId, [{ data: { fileId: 'test' }, gridRow: 0, gridCol: 0 }]);
+    _setIntentDocForTest(null);
     const child = useCanvasStore.getState().nodes.find((n: any) => n.id === childIds[0])!;
     expect(child.type).toBe('imageExtGen');
     const nsChild = useNodeStore.getState().nodes[childIds[0]];

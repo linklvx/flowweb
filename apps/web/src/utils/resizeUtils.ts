@@ -1,4 +1,6 @@
 // ratio = width / height
+// O0b-2（Spec B）：adaptCustomSize 随 customSize 并入 envelope 删除（contain-fit 单源=shared
+// adaptToFit——新名独立纯函数，终裁 75；round→ceil 单源 normalizeSize，终裁 59③）。
 export const RESIZE_CONFIG = {
   minSide: 100,
   maxSide: 3000,
@@ -47,21 +49,6 @@ export function clampWithAspectRatio(
     w = Math.round(min * ratio);
   }
   return { w, h };
-}
-
-/**
- * Adapt customSize to a new aspect ratio using contain-fit.
- * New content fits entirely within the existing rect.
- */
-export function adaptCustomSize(
-  customSize: { width: number; height: number },
-  newRatio: number,
-): { width: number; height: number } {
-  const fitByWidth = Math.round(customSize.width / newRatio);
-  if (fitByWidth <= customSize.height) {
-    return { width: customSize.width, height: fitByWidth };
-  }
-  return { width: Math.round(customSize.height * newRatio), height: customSize.height };
 }
 
 /**

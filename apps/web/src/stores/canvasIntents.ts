@@ -12,17 +12,18 @@
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
-import type { CanvasNodeRecord, DocMapLike, DocNodeRecord } from '@flowweb/shared';
-import { setDocPosition, stripDerivedKeys, readRecordsFromMaps } from '@flowweb/shared';
+import type { CanvasNodeRecord, DocMapLike, DocNodeRecord, FrameMode } from '@flowweb/shared';
+import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize } from '@flowweb/shared';
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
 import { canEdit } from './syncStatus';
+import { Origin } from './canvasUndo';
 // doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）；
 // O0b-1 挂点：漏斗尾 reconcile（source:'doc'）+dispatchProjectionDiff 首行 reconcile（source:'cs'
 // ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
-import { getDoc, reconcileGroupGeometry } from './canvasCollabRuntime';
+import { getDoc, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
 
 /** 信封 patch（updateNodeEnvelope 专域）：type/parentId/width/height 任意子集；
  *  值 undefined=删键（对齐 applyRecordToYMap 缺键→delete 语义——入组/出组/resize/convert 写点共用）。 */
@@ -135,32 +136,30 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
   }
 }
 
-/** cs 几何回填换算（O0b-0 翻转连带面——最小语义修正）：intent.position=doc abs 空间；
- *  cs 面=rel 语义（RF parent 相对坐标）。回填写 cs 前换算 rel=abs−组帧 origin（cs 组 position
- *  现值）；分镜子（storyboard 父）cs={0,0} 构造默认。O0b-2 投影层几何键全删后本换算随 moveNode/
- *  addNode position 直写一起退役（reconcile 同 tick 补齐承接）。 */
-function absToCsPosition(
-  s: { nodes: any[] },
-  abs: { x: number; y: number },
-  parentId: string | null | undefined,
-): { x: number; y: number } {
-  if (parentId != null) {
-    const parent = s.nodes.find((p: any) => p.id === parentId);
-    if (parent?.type === 'group') {
-      if ((parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard') {
-        return { x: 0, y: 0 };   // 分镜子：cs 构造默认（纯 DOM 宫格无坐标语义）
-      }
-      return { x: abs.x - parent.position.x, y: abs.y - parent.position.y }; // 普通组子：abs−origin
-    }
-  }
-  return { ...abs };   // 顶层：cs≡abs 同语义直拷
+/** O0b-2 (ii) 内容事件写者统一入口（允许覆盖——终裁 59①[ii]）：图片 load/换图比例/替换/拼接完成/
+ *  视频元数据/multiImage 组件上报 经本函数提交 updateNodeEnvelope{width,height}（Origin.Geometry——
+ *  不入撤销栈）。同值去重（终裁 83⑥）：写前比对 cs 现值同值⇒零 intent（收敛锚"上报后一致⇒不再上报，
+ *  收敛步数=1"）；doc 面另有 applyIntentToEnvelope 逐键同值 no-op 双保险。触发禁令（终裁 76）由
+ *  调用方结构保证：仅 DOM/回调事件调用本函数——禁测量触发/禁 cs.wh 变更触发/禁 data 变更触发。 */
+export function reportNodeSize(id: string, width: number, height: number): void {
+  const cur = useCanvasStore.getState().nodes.find((n: any) => n.id === id);
+  if (cur && cur.width === width && cur.height === height) return; // 同值去重——零 intent
+  dispatchCanvasIntent(
+    { type: 'updateNodeEnvelope', id, patch: { width, height } },
+    Origin.Geometry,
+  );
 }
 
 /** store 投影回填（doc 为真相、store 为投影；写形状对齐 storeProjection 读取面：
  *  结构+组 data 取 cs，普通节点 data 取 ns）。undefined=删键约定在此兑现（遍历原始 patch：
  *  清洗式滤除只防"新增 undefined 键"，不删已有键——删键语义必须显式 delete）。
  *  ⚠️ 只做直写、不反调换芯 store action——dispatch→action→dispatch 递归在此断链
- *  （action 层的写入体保留，与本投影双写同值幂等——组 2 删旧路径后本投影是唯一 store 写者）。 */
+ *  （action 层的写入体保留，与本投影双写同值幂等——组 2 删旧路径后本投影是唯一 store 写者）。
+ *  O0b-2 投影层几何键全删（plan Step 3/4）：①addNode 只写 id/type/parentId/data——position 恒
+ *  {0,0} 结构默认（RF 必需——reconcile 写域② 同 tick 从 doc.abs 直拷补齐）、wh 删（写域③ 补齐；
+ *  doc 侧仍写——applyIntentToDoc addNode 经 fillDoc 落 position/wh）；②moveNode case 整删（投影域 0
+ *  ——moveNode 构造点=提交/差分域，卡二）；③updateNodeEnvelope 只投影 type/parentId（几何键=
+ *  reconcile 写域③ 单写者）；absToCsPosition 过渡换算随删（O0b-0 前瞻注释兑现）。 */
 export function projectIntentToStore(intent: CanvasIntent): void {
   switch (intent.type) {
     case 'addNode': {
@@ -172,12 +171,8 @@ export function projectIntentToStore(intent: CanvasIntent): void {
           nodes: [...s.nodes, {
             id: n.id,
             type: n.type,
-            // O0b-0：intent.position=doc abs——cs 面 rel 换算（absToCsPosition；三层表第三层
-            // 分镜子 cs {0,0} 构造默认随换算落）
-            position: n.position ? absToCsPosition(s, n.position, n.parentId) : { x: 0, y: 0 },
+            position: { x: 0, y: 0 },   // 结构默认（O0b-2——几何由漏斗尾 reconcile 同 tick 补齐）
             ...(n.parentId != null ? { parentId: n.parentId } : {}),
-            ...(n.width != null ? { width: n.width } : {}),
-            ...(n.height != null ? { height: n.height } : {}),
             data: stripEphemeralDataKeys(n.data ?? {}), // cs 持久面禁入 ephemeral（口径 13）
           } as any],
         }));
@@ -200,19 +195,13 @@ export function projectIntentToStore(intent: CanvasIntent): void {
       });
       break;
     }
-    case 'moveNode':
-      useCanvasStore.setState((s) => ({
-        nodes: s.nodes.map((n: any) => (n.id === intent.id
-          ? { ...n, position: absToCsPosition(s, intent.position, n.parentId) } // O0b-0：abs→cs rel 换算
-          : n)),
-      }));
-      break;
     case 'updateNodeEnvelope': {
       useCanvasStore.setState((s) => ({
         nodes: s.nodes.map((n: any) => {
           if (n.id !== intent.id) return n;
           const next = { ...n };
           for (const [k, v] of Object.entries(intent.patch)) {
+            if (k !== 'type' && k !== 'parentId') continue;  // O0b-2：几何键不投影（reconcile 写域③）
             if (v === undefined) delete next[k]; else (next as any)[k] = v;
           }
           return next;
@@ -281,12 +270,49 @@ export interface StoreProjectionSnapshot {
   edges: PlainEdge[];
 }
 
+/** O0b-2 (iii) 首测固化兜底（降兜底档——终裁 59①[iii]+83①/91）：dimensions 批（非 setAttributes∧
+ *  非手势期[dragging 标记]）∧doc 无 wh∧**仅 textInput 类**（imageGen/videoGen/multiImage 内容型退出
+ *  ——首写者胜仅本类）⇒同 tick 批量合并**单 transact** 恰一次 updateNodeEnvelope{width,height}
+ *  （Origin.Geometry 不入撤销栈；值 normalizeSize=Math.ceil 单源）。doc 有 wh（或部分键在）⇒零固化
+ *  intent（后续测量≠doc 不写）；固化独立 Geometry transact——不与 LocalUser 提交合批（终裁 59⑥，
+ *  防首次 Ctrl+Z 把固化吃进撤销项）。 */
+export function dispatchFixtureSizeIntents(
+  candidates: { id: string; width: number; height: number }[],
+): void {
+  if (candidates.length === 0) return;
+  const d = resolveDoc();
+  if (!d) return;
+  const nodesMap = d.getMap('nodes');
+  const csById = new Map(useCanvasStore.getState().nodes.map((n: any) => [n.id, n]));
+  const intents: CanvasIntent[] = [];
+  for (const c of candidates) {
+    if (csById.get(c.id)?.type !== 'textInput') continue;  // 仅 textInput 类（内容型退出/被删节点 skip）
+    const m: unknown = nodesMap.get(c.id);
+    if (m instanceof Y.Map && (m.get('width') != null || m.get('height') != null)) continue; // 首写者胜
+    intents.push({
+      type: 'updateNodeEnvelope', id: c.id,
+      patch: { width: normalizeSize(c.width), height: normalizeSize(c.height) },
+    });
+  }
+  if (intents.length > 0) dispatchCanvasIntent(intents, Origin.Geometry);
+}
+
+/** 键集判定 doc-oracle 表（O0b-2 台账 a——applyKeySetTable doc-oracle 化的 web 取数点）：
+ *  薄委托 canvasCollabRuntime.readGroupFrameModes（差分/invariant 两侧共一源——禁双实现）。
+ *  无 doc（会话外/测试裸 store）⇒undefined=applyKeySetTable 回落 record 形态判定。 */
+function readGroupFrameModesFromDoc(): ReadonlyMap<string, FrameMode> | undefined {
+  const d = resolveDoc();
+  return d ? readGroupFrameModes(d) : undefined;
+}
+
 /** 复合 action 起点捕获投影快照（dispatchProjectionDiff 的 before 侧）。 */
 export function captureStoreProjection(): StoreProjectionSnapshot {
   const cs = useCanvasStore.getState();
   const ns = useNodeStore.getState();
   return {
-    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any),
+    // O0b-2 台账 a：差分快照出口键集判定吃 doc-oracle——cs auto 组携派生帧三键（reconcile 写域①
+    // 接管后恒有）不再被 record 形态误判 manual，auto 帧键零泄漏进 doc（applyGroupFrame 现状链收口）
+    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any, readGroupFrameModesFromDoc()),
     edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   };
 }

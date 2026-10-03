@@ -59,6 +59,7 @@ vi.mock('@/stores/nodeStore', () => ({
 
 let mockMarqueeSelecting = false;
 
+vi.mock('@/stores/canvasIntents', () => ({ reportNodeSize: vi.fn() }));
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: vi.fn((selector?: any) => {
     const state = { selectedId: null, selectNode: vi.fn(), marqueeSelecting: mockMarqueeSelecting };

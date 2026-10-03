@@ -98,15 +98,17 @@ const { mockCanvasProjectId } = vi.hoisted(() => {
 
 let mockMarqueeSelecting = false;
 
+vi.mock('@/stores/canvasIntents', () => ({ reportNodeSize: vi.fn() }));
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
-      const state = { projectId: mockCanvasProjectId(), marqueeSelecting: mockMarqueeSelecting };
+      // O0b-2 挂载恢复 effect 读 cs.wh——nodes 夹具不带 wh（undefined⇒不镜像 vidSize）
+      const state = { projectId: mockCanvasProjectId(), marqueeSelecting: mockMarqueeSelecting, nodes: [] as any[] };
       if (typeof selector === 'function') return selector(state);
       return state;
     }),
     {
-      getState: () => ({ projectId: mockCanvasProjectId() }),
+      getState: () => ({ projectId: mockCanvasProjectId(), nodes: [] as any[] }),
     },
   ),
 }));

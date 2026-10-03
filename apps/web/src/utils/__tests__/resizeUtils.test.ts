@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { clampWithAspectRatio, adaptCustomSize } from '../resizeUtils';
+import { clampWithAspectRatio } from '../resizeUtils';
+// O0b-2：adaptCustomSize 随 customSize 并入 envelope 删除——contain-fit 语义由 shared adaptToFit
+// 承接（单源：packages/shared/src/canvas/geometry.test.ts『O0b-2 adaptToFit』describe——ceil 锚）
+import { adaptToFit } from '@flowweb/shared';
 
 describe('clampWithAspectRatio', () => {
   // ratio = width / height
@@ -42,20 +45,20 @@ describe('clampWithAspectRatio', () => {
   });
 });
 
-describe('adaptCustomSize', () => {
-  // adaptCustomSize does CONTAIN-fit: new content must fit ENTIRELY within customSize rect
+describe('adaptToFit（O0b-2——customSize 并入 envelope 后 contain-fit 单源=shared adaptToFit；web 面消费路径回归锚）', () => {
+  // contain-fit: new content must fit ENTIRELY within the constraint rect
   it('should fit by height when new ratio is wider than rect', () => {
-    // customSize 1600x900 (ratio ~1.78), new ratio 1:1
+    // constraint 1600x900 (ratio ~1.78), new ratio 1:1
     // 1600/1 = 1600 > 900 → height-constrained: keep height=900, width=900*1=900
-    const result = adaptCustomSize({ width: 1600, height: 900 }, 1);
+    const result = adaptToFit({ width: 1600, height: 900 }, 1);
     expect(result.width).toBe(900);
     expect(result.height).toBe(900);
   });
 
   it('should fit by width when new ratio is taller than rect', () => {
-    // customSize 400x1200 (ratio ~0.33), new ratio 16:9 (~1.78)
-    // 400/1.78 = 225 ≤ 1200 → width-constrained: keep width=400, height=225
-    const result = adaptCustomSize({ width: 400, height: 1200 }, 16 / 9);
+    // constraint 400x1200 (ratio ~0.33), new ratio 16:9 (~1.78)
+    // ceil(400/1.78) = 225 ≤ 1200 → width-constrained: keep width=400, height=225
+    const result = adaptToFit({ width: 400, height: 1200 }, 16 / 9);
     expect(result.width).toBe(400);
     expect(result.height).toBe(225);
   });

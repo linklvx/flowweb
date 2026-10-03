@@ -3,6 +3,8 @@
 // 输入形状：DocNodeRecord[]（doc 作者态可选键）+ ② 的 cs 侧三方快照 {docRecords, csNodes, frames}。
 // 帧模式判定走被测模块内联实现（frameMode/isCollapsed 已 O0b-1 转实），O0b 接线后换单源。
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import * as path from 'path';
 import type { DocNodeRecord, RenderNode, Rect } from './docShape';
 import { toDocRecords } from './docShape';
 import type { AbsCoord, RelCoord } from './brands';
@@ -358,8 +360,21 @@ describe('GeometryWriteLedger（字段级一写者框架：接口+计数器）',
 // O0b-1（2026-10-03）已转实：见下方『reconcile 尾挂①③先决契约』describe——
 // 生产热路径接线（reconcile DEV 尾跑①③）随 O0b-5 折叠分支 envelope 写删解锁（原 it.todo
 // 点名的"onNodesChange 尾挂"窗口本身归 O0b-6/B4'-2——本片先钉契约面与解锁条件）。
+// O0b-2（2026-10-03）已转实：applyDocToStore 尾挂两断言——census 锚+web 行为锚
+// （apps/web/src/stores/canvasO0b2.sizing.test.ts 台账面/挂载断言 throw 档）双载体。
 describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', () => {
-  it.todo('O0b-2 接线：applyDocToStore 尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership，prod 转 id 去重 log）');
+  // repo root 定位（shared 包 cwd=packages/shared——web 侧 canvasCollabRuntime 相对路径两 级上溯）
+  const REPO_ROOT = path.resolve(process.cwd(), '../..');
+  it('O0b-2 接线：applyDocToStore 尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership，prod 转 id 去重 log）', () => {
+    // census：web 侧 applyDocToStore 尾两断言接线行在场（行为面=所有 applyDocToStore 消费用例
+    // 恒过+违例构造档——分镜子 parentId∉cells→DEV throw；prod 转 id 去重 log 接缝在 catch 段）
+    const runtime = readFileSync(
+      path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8',
+    );
+    expect(runtime).toContain('assertDocAbsMatchesCsRel(');
+    expect(runtime).toContain('assertStoryboardMembership(');
+    expect(runtime).toContain('reportedShapeViolations');   // prod 去重 log 接缝
+  });
   it.todo('O0b-3 接线：dispatchProjectionDiff 尾挂 assertStoryboardChildNoPosition + assertNoCsDerivedKeysInData + assertNoDunderKeysInGroupData');
   it.todo('O0b-4 接线：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界');
   it.todo('O0b-5 接线：assertAllPositionsFinite 挂 assertInvariant 收口点');

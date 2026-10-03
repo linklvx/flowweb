@@ -240,10 +240,10 @@ describe('setDocPosition（doc position 写原语唯一单源——fillDoc/apply
   });
 });
 
-describe('O0a-3 签名（结构性最小入参——零 xyflow/yjs import）', () => {
-  it('toDocRecords(csNodes: readonly MinimalCSNode[], nsNodes)→DocNodeRecord[]；setDocPosition(m, pos, createMap)', () => {
+describe('O0a-3 签名（结构性最小入参——零 xyflow/yjs import；O0b-2 扩第三可选参 groupFrameModes）', () => {
+  it('toDocRecords(csNodes, nsNodes, groupFrameModes?)→DocNodeRecord[]；setDocPosition(m, pos, createMap)', () => {
     expectTypeOf<Parameters<typeof toDocRecords>>().toEqualTypeOf<
-      [readonly MinimalCSNode[], Record<string, { data?: Record<string, unknown> }>]
+      [readonly MinimalCSNode[], Record<string, { data?: Record<string, unknown> }>, ReadonlyMap<string, FrameMode>?]
     >();
     expectTypeOf<ReturnType<typeof toDocRecords>>().toEqualTypeOf<DocNodeRecord[]>();
     expectTypeOf<Parameters<typeof setDocPosition>>().toEqualTypeOf<
@@ -258,3 +258,71 @@ describe('O0a-3 签名（结构性最小入参——零 xyflow/yjs import）', (
 // apps/web/src/stores/canvasCollabRuntime.geometry.test.ts『O0b-1 单遍单 origin+零差异短路』块
 // （'cs' 源与 'doc' 源各一条：第二次订阅计数不增）。shared 侧纯函数幂等等价锚=上文『纯函数幂等』
 // describe（reconcile 幂等的可测等价锚，两锚并存互注）。
+
+// ══════════ O0b-2（Spec B）：normalizeSize=Math.ceil 单源 + 键集判定 doc-oracle 化（台账 a）══════════
+// 终裁 59③：normalizeSize=Math.ceil 落 docShape——固化/内容事件共用取整单源。
+// 台账(a)（O0b-1 记档）：applyKeySetTable 按 record 形态（hasValidStoredFrameKeys 三键齐）判 manual
+// 的缺陷——cs auto 组携派生 wh（reconcile 写域① auto 档接管后恒有）经 toDocRecords 三键齐⇒误判
+// manual⇒帧键泄漏进 doc=终裁 44 auto→manual 死锁经写侧复现。修法=键集判定 doc-oracle 化：toDocRecords
+// 第三可选参 groupFrameModes（web 差分面从 doc 读 oracle 传入）；缺省=现状形态判定（api 种子路径
+// 输入已是作者态，无此问题——语义不变）。
+import { normalizeSize, type FrameMode } from './docShape';
+
+describe('O0b-2 normalizeSize（尺寸取整单源——Math.ceil；固化/内容事件共用）', () => {
+  it('整数原样；分数向上取整（266.34⇒267——round 会得 266，锚鉴别力）', () => {
+    expect(normalizeSize(300)).toBe(300);
+    expect(normalizeSize(266.34)).toBe(267);
+    expect(normalizeSize(0.5)).toBe(1);
+  });
+});
+
+describe('O0b-2 键集判定 doc-oracle 化（台账 a——applyKeySetTable oracle 入参经 toDocRecords 第三参）', () => {
+  const autoGroupWithDerivedFrame = [
+    csNode({ id: 'ga', type: 'group', position: { x: 280, y: 30 }, width: 490, height: 170, data: { groupType: 'normal' } }),
+    csNode({ id: 'ca', parentId: 'ga', position: { x: 20, y: 50 }, width: 200, height: 100 }),
+  ];
+
+  it('oracle=auto：cs auto 组携派生帧三键⇒输出 0 帧键（position/width/height 全剥——泄漏面收口）', () => {
+    const oracle = new Map<string, FrameMode>([['ga', 'auto']]);
+    const out = toDocRecords(autoGroupWithDerivedFrame, {}, oracle);
+    const g = out.find((n) => n.id === 'ga')!;
+    expect(g.position).toBeUndefined();
+    expect(g.width).toBeUndefined();
+    expect(g.height).toBeUndefined();
+  });
+
+  it('oracle=manual：三键全留（manual 组命令帧经差分落 doc 通道保持）', () => {
+    const oracle = new Map<string, FrameMode>([['ga', 'manual']]);
+    const out = toDocRecords(autoGroupWithDerivedFrame, {}, oracle);
+    const g = out.find((n) => n.id === 'ga')!;
+    expect(g.position).toEqual({ x: 280, y: 30 });
+    expect(g.width).toBe(490);
+    expect(g.height).toBe(170);
+  });
+
+  it('oracle 缺省=现状形态判定：三键齐⇒manual 全留（api 种子路径语义不变——stripAuthorState 无 oracle 同构）', () => {
+    const out = toDocRecords(autoGroupWithDerivedFrame, {});
+    const g = out.find((n) => n.id === 'ga')!;
+    expect(g.position).toEqual({ x: 280, y: 30 });
+    expect(g.width).toBe(490);
+  });
+
+  it('oracle 缺省+无 position（auto 组现状形态）⇒0 键（回归锚）', () => {
+    const out = toDocRecords([csNode({ id: 'gb', type: 'group', data: { groupType: 'normal' } })], {});
+    const g = out.find((n) => n.id === 'gb')!;
+    expect(g.position).toBeUndefined();
+    expect(g.width).toBeUndefined();
+  });
+
+  it('oracle 不覆盖 storyboard 判定（data.groupType 权威——oracle 只裁 manual/auto 二态）', () => {
+    const records = [
+      csNode({ id: 'sb', type: 'group', position: { x: 0, y: 400 }, width: 642, height: 182, data: { groupType: 'storyboard', cells: [], storyboard: {} } }),
+    ];
+    const oracle = new Map<string, FrameMode>([['sb', 'manual']]);
+    const out = toDocRecords(records, {}, oracle);
+    const g = out.find((n) => n.id === 'sb')!;
+    expect(g.position).toEqual({ x: 0, y: 400 });  // storyboard position 留
+    expect(g.width).toBeUndefined();                // wh 恒剥（config 权威）
+    expect(g.height).toBeUndefined();
+  });
+});

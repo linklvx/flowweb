@@ -165,7 +165,8 @@ export function deriveGroupFrame(input: {
   fallbackOrigin?: { x: number; y: number };
 }): Rect {
   const { data, childrenAbs, storedFrame, liveFrame, fallbackOrigin } = input;
-  if (data.groupType === 'storyboard') {
+  const mode = frameMode({ data, storedFrame });
+  if (mode === 'storyboard') {
     const cfg = resolveStoryboardConfig(data);
     const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
     const origin = liveFrame?.position ?? storedFrame?.position ?? fallbackOrigin ?? { x: 0, y: 0 };
@@ -175,7 +176,6 @@ export function deriveGroupFrame(input: {
       height: liveFrame?.height ?? size.height,
     };
   }
-  const mode = frameMode({ data, storedFrame });
   if (isCollapsed(data)) {
     const sealedOrigin = mode === 'manual' ? (liveFrame?.position ?? storedFrame?.position) : undefined;
     // sealedOrigin 命中⇒bbox 惰性跳过（origin 消费面只认密封 origin——O0b-1 质评一行版）
@@ -198,4 +198,116 @@ export function deriveGroupFrame(input: {
   }
   const b = calcGroupBounds([...childrenAbs]);
   return { x: b.x, y: b.y, width: b.width, height: b.height };
+}
+
+// ══════════ O0b-2（Spec B）：尺寸取整/contain-fit/内容事件决策/multiImage 公式 单源 ══════════
+// 终裁 59③/75/83④/91：adaptToFit 新名独立纯函数（不复用 web adaptCustomSize 名——该符号随
+// customSize 并入 envelope 同批删除）；calcConstrainedSize/ratioDimensions 三份逐字重复收编单源
+//（web census：定义点=1）；round 同批改 ceil（normalizeSize=Math.ceil 单源落 docShape——差 ≤1px）。
+
+/** 尺寸约束 bounds（calcConstrainedSize/ratioDimensions 参数化——三组件常量不同）。 */
+export interface SizeBounds {
+  maxW: number;
+  maxH: number;
+  minW: number;
+  minH: number;
+}
+
+/** contain-fit 约束尺寸（ImageGenNode/VideoGenNode/MultiImageNode 三份逐字重复收编单源——终裁 83④；
+ *  Math.round 改 Math.ceil——终裁 59③ 取整单源，防同一节点两来源差 1px）。
+ *  顺序：缩到 max 内（保比例）→ 抬到 min（可破 max——与 web 原实现同语义）。 */
+export function calcConstrainedSize(
+  naturalW: number,
+  naturalH: number,
+  bounds: SizeBounds,
+): { w: number; h: number } {
+  let w = naturalW;
+  let h = naturalH;
+  if (w > bounds.maxW) {
+    h = Math.ceil(h * (bounds.maxW / w));
+    w = bounds.maxW;
+  }
+  if (h > bounds.maxH) {
+    w = Math.ceil(w * (bounds.maxH / h));
+    h = bounds.maxH;
+  }
+  if (w < bounds.minW) w = bounds.minW;
+  if (h < bounds.minH) h = bounds.minH;
+  return { w, h };
+}
+
+/** contain-fit 适配（终裁 75——wh=滚动约束框：以当前框为约束适配新比例；新内容完整装入现框）。
+ *  新名 adaptToFit（不复用 adaptCustomSize 名）；Math.round 改 Math.ceil（终裁 59③）。 */
+export function adaptToFit(
+  size: { width: number; height: number },
+  newRatio: number,
+): { width: number; height: number } {
+  const fitByWidth = Math.ceil(size.width / newRatio);
+  if (fitByWidth <= size.height) {
+    return { width: size.width, height: fitByWidth };
+  }
+  return { width: Math.ceil(size.height * newRatio), height: size.height };
+}
+
+/** ratio 比例名（'16:9'）→约束尺寸（三份重复收编单源；非法比例兜底 548×306——原 web 实现同值）。 */
+export function ratioDimensions(ratio: string, bounds: SizeBounds): { w: number; h: number } {
+  const [rw, rh] = ratio.split(':').map(Number);
+  if (!rw || !rh) return { w: 548, h: 306 };
+  // 大 base 精确算比例再约束（原 web 实现同构）
+  const base = 1000;
+  const w = rw >= rh ? base : Math.round(base * (rw / rh));
+  const h = rh >= rw ? base : Math.round(base * (rh / rw));
+  return calcConstrainedSize(w, h, bounds);
+}
+
+/** multiImage 展开档宫格常量（MultiImageNode 本地常量上移单源——公式与组件共用同一纯函数，终裁 91）。 */
+export const MULTI_IMAGE_CELL_SIZE = 150;
+export const MULTI_IMAGE_GAP = 8;
+export const MULTI_IMAGE_MAX_WIDTH = 548;
+export const MULTI_IMAGE_STACKED_SIZE = { width: 400, height: 300 } as const;
+
+/** multiImage 宫格列数（≤4 图 2 列/否则 3 列——组件 JSX 与尺寸公式共用单源）。 */
+export function multiImageGridCols(imageCount: number): number {
+  return imageCount <= 4 ? 2 : 3;
+}
+
+/** multiImage 尺寸纯函数（组件显式上报四类触发点共用——挂载首帧∪toggleExpanded∪增删图∪非展开态
+ *  主图 load；收敛锚"上报后一致⇒不再上报"由调用侧同值去重承担）。 */
+export function multiImageSize(
+  imageCount: number,
+  expanded: boolean,
+  stackedSize?: { width: number; height: number },
+): { width: number; height: number } {
+  if (!expanded) return stackedSize ?? { ...MULTI_IMAGE_STACKED_SIZE };
+  const gridCols = multiImageGridCols(imageCount);
+  const gridRows = Math.ceil(imageCount / gridCols);
+  return {
+    width: Math.min(gridCols * MULTI_IMAGE_CELL_SIZE + (gridCols - 1) * MULTI_IMAGE_GAP + 24, MULTI_IMAGE_MAX_WIDTH),
+    height: gridRows * MULTI_IMAGE_CELL_SIZE + (gridRows - 1) * MULTI_IMAGE_GAP + 48,
+  };
+}
+
+/** 内容事件尺寸决策纯函数（终裁 59①[ii]+76+83⑤——三分支；handler 只吃 DOM 事件参数，禁测量/
+ *  cs.wh/data 变更触发的结构性收口=决策不读 store）。changed=false ⇒ 调用方零 dispatch（沿用档
+ *  "以当前 wh 为准"）；changed=true ⇒ updateNodeEnvelope{wh}（Origin.Geometry——允许覆盖）。
+ *  aspectRatio 回传供调用方 updateConfig（键保留——ratioChanged 判定依赖，终裁 83⑤③）。 */
+export function contentEventSize(input: {
+  currentWH?: { width: number; height: number } | null;
+  existingAspectRatio?: number;
+  naturalW: number;
+  naturalH: number;
+  bounds: SizeBounds;
+}): { size: { width: number; height: number }; aspectRatio: number; changed: boolean } {
+  const { currentWH, existingAspectRatio, naturalW, naturalH, bounds } = input;
+  const aspectRatio = naturalW / naturalH;
+  const ratioChanged = currentWH && existingAspectRatio != null
+    && Math.abs(aspectRatio - existingAspectRatio) > 0.01;
+  if (currentWH && !ratioChanged) {
+    return { size: { ...currentWH }, aspectRatio: existingAspectRatio!, changed: false };  // 沿用档
+  }
+  if (currentWH && ratioChanged) {
+    return { size: adaptToFit(currentWH, aspectRatio), aspectRatio, changed: true };        // contain-fit 重算
+  }
+  const c = calcConstrainedSize(naturalW, naturalH, bounds);                                // 冷启动首帧
+  return { size: { width: c.w, height: c.h }, aspectRatio, changed: true };
 }

@@ -117,7 +117,6 @@ export interface ImageNodeData {
   flipV?: boolean;
   transformMode?: boolean;
   editMode?: 'crop' | 'outpaint' | 'erase' | 'redraw' | 'annotate' | null;
-  customSize?: { width: number; height: number };
   aspectRatio?: number;
   allImages?: ImageItem[];
 
@@ -140,7 +139,6 @@ export interface VideoNodeData {
   model: string;
   status: 'idle' | 'loading' | 'done' | 'error';
   fileId?: string;
-  customSize?: { width: number; height: number };
   aspectRatio?: number;
   referenceVideo?: string;
   ratio?: string;

@@ -8,27 +8,17 @@ import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { MultiImageConfigPanel } from './MultiImageConfigPanel';
+// O0b-2 组件显式上报（终裁 83③/91——四类触发点共用 shared 纯函数公式单源+约束尺寸单源）
+import { calcConstrainedSize, multiImageSize, multiImageGridCols, MULTI_IMAGE_GAP, type SizeBounds } from '@flowweb/shared';
+import { reportNodeSize } from '@/stores/canvasIntents';
 import axios from 'axios';
 
-const STACKED_W = 400;
-const STACKED_H = 300;
 const STACKED_MAX_W = 450;
 const STACKED_MAX_H = 450;
 const STACKED_MIN_W = 150;
 const STACKED_MIN_H = 100;
-const MAX_WIDTH = 548;
-const CELL_SIZE = 150;
-const GAP = 8;
-
-function calcConstrainedSize(naturalW: number, naturalH: number) {
-  let w = naturalW;
-  let h = naturalH;
-  if (w > STACKED_MAX_W) { h = Math.round(h * (STACKED_MAX_W / w)); w = STACKED_MAX_W; }
-  if (h > STACKED_MAX_H) { w = Math.round(w * (STACKED_MAX_H / h)); h = STACKED_MAX_H; }
-  if (w < STACKED_MIN_W) w = STACKED_MIN_W;
-  if (h < STACKED_MIN_H) h = STACKED_MIN_H;
-  return { w, h };
-}
+// O0b-2 约束 bounds（stacked 主图 load 档——原本地内联常量参数化）
+const STACKED_BOUNDS: SizeBounds = { maxW: STACKED_MAX_W, maxH: STACKED_MAX_H, minW: STACKED_MIN_W, minH: STACKED_MIN_H };
 
 const STACK_LAYERS = [
   { rotate: 5, scale: 0.965, left: 12, top: 4, zIndex: 3 },
@@ -109,23 +99,28 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
     setImgSize(null);
   }, [mainImageFileId]);
 
+  // 非展开态主图 load（触发点④）：calcConstrainedSize 单源 → imgSize 局部态 → 上报 effect 收敛
   const handleMainImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight);
+    const size = calcConstrainedSize(img.naturalWidth, img.naturalHeight, STACKED_BOUNDS);
     setImgSize(size);
   }, []);
 
-  // ---------- Computed sizes ----------
+  // ---------- Computed sizes（公式单源 shared multiImageSize——组件渲染与 envelope 上报共用） ----------
   const imageCount = images.length;
-  const gridCols = imageCount <= 4 ? 2 : 3;
-  const gridRows = Math.ceil(imageCount / gridCols);
-  const expandedW = Math.min(gridCols * CELL_SIZE + (gridCols - 1) * GAP + 24, MAX_WIDTH);
-  const expandedH = gridRows * CELL_SIZE + (gridRows - 1) * GAP + 48;
+  const gridCols = multiImageGridCols(imageCount);
+  const stackedSize = imgSize ? { width: imgSize.w, height: imgSize.h } : undefined;
+  const containerSize = multiImageSize(imageCount, expanded, stackedSize);
+  const containerWidth = containerSize.width;
+  const containerHeight = containerSize.height;
 
-  const stackedW = imgSize ? imgSize.w : STACKED_W;
-  const stackedH = imgSize ? imgSize.h : STACKED_H;
-  const containerWidth = expanded ? expandedW : stackedW;
-  const containerHeight = expanded ? expandedH : stackedH;
+  // O0b-2 组件显式上报（终裁 83③/91——四类触发点收敛单 effect）：挂载首帧（初始跑）∪ toggleExpanded
+  //（expanded 依赖）∪ 增删图（imageCount 依赖）∪ 非展开态主图 load（imgSize 依赖）。收敛锚
+  // "上报后一致⇒不再上报，收敛步数=1"由 reportNodeSize 同值去重承担；expanded=doc 态决定渲染尺寸
+  //（editMode 分片口径）——wh 随形态经命令体/组件回调提交进 envelope。
+  useEffect(() => {
+    reportNodeSize(id, containerSize.width, containerSize.height);
+  }, [id, containerSize.width, containerSize.height]);
 
   // ---------- Upload ----------
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -298,7 +293,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                 className="grid"
                 style={{
                   gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-                  gap: GAP,
+                  gap: MULTI_IMAGE_GAP,
                   paddingTop: 20,
                   paddingRight: 20,
                   paddingBottom: 20,

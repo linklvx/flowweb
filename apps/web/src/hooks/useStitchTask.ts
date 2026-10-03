@@ -19,18 +19,18 @@ export function useStitchTask(projectId: string) {
         : undefined;
       const gx = group ? group.position.x + (group.width ?? 0) + 40 : 100;
       const gy = group?.position.y ?? 100;
+      // O0b-2 (i) 命令体显式值（终裁 59①[i]+59⑤——删 customSize 后初始尺寸的显式形参）：
+      // 拼接尺寸已知⇒envelope wh 随 addNode intent 单 transact 落 doc（非内容事件——产物节点
+      // 的尺寸来源=命令载荷）
       const nodeId = add(
         'image',
         { x: gx, y: gy },
         {
           fileId: r.fileId,
           status: 'done',
-          customSize:
-            r.width && r.height
-              ? { width: r.width, height: r.height }
-              : undefined,
           // 不写 mediaUrl：后端无直链端点，ImageGenNode 按 fileId 自行解析
-        }
+        },
+        r.width && r.height ? { width: r.width, height: r.height } : undefined,
       );
     },
     []
