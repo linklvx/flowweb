@@ -1,5 +1,5 @@
 // packages/shared/src/canvas/geometryWriterRegistry.ts
-// C0-2 写者名单落盘（Spec B）：几何写者类别枚举 + 全量归类账本（28 处外部 useCanvasStore.setState
+// C0-2 写者名单落盘（Spec B）：几何写者类别枚举 + 全量归类账本（29 处外部 useCanvasStore.setState
 // + canvasStore.ts 内部 set( 逐函数归类）。
 //
 // 纯常量零依赖（不 import 任何 web/api 代码——文件路径用字符串，键=相对 apps/web 的 posix 路径）。
@@ -56,8 +56,8 @@ export interface GeometryWriterSite {
 }
 
 /**
- * 全量归类账本（2026-10-02 逐文件读码归类）：外部 useCanvasStore.setState 28 处
- * （canvasIntents 6/canvasCollabRuntime 8/CanvasView 6/VideoEditorShell 3/page 2/nodeStore 1/
+ * 全量归类账本（2026-10-02 逐文件读码归类）：外部 useCanvasStore.setState 29 处
+ * （canvasIntents 6/canvasCollabRuntime 9/CanvasView 6/VideoEditorShell 3/page 2/nodeStore 1/
  * guard 1/pointerShift 1）+ canvasStore.ts 内部 set( 44 处（排除方法调用口径，见文件头口径备注）按函数归并。
  * 几何写点（position/width/height 落节点信封）标写者类别；其余逐处确认非几何字段并注写明。
  */
@@ -112,7 +112,7 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'removeStoryboardCell', category: 'non-geometry', note: '结构删除' },
     { fn: 'appendCopyPlan', category: 'node-create', note: '经 setWithParentOrder——副本信封携 position（duplicateNodes/pasteGroupClipboard 共用段）' },
   ],
-  // —— 外部 useCanvasStore.setState 28 处 ——
+  // —— 外部 useCanvasStore.setState 29 处 ——
   'src/stores/canvasIntents.ts': [
     { fn: 'projectIntentToStore/addNode', category: 'projection-default', note: '投影回填 append 新节点信封（position/width/height）' },
     { fn: 'projectIntentToStore/deleteNode', category: 'non-geometry', note: 'nodes/edges filter' },
@@ -130,6 +130,7 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'hydrate/viewport 恢复', category: 'non-geometry', note: 'viewport 相机恢复（本地偏好非协作数据）' },
     { fn: '登出/切用户复位', category: 'non-geometry', note: 'collabReadOnly 复位（G27）' },
     { fn: 'reconcileGroupGeometry', category: 'reconcile', note: "写域四类+双源矩阵（'doc' 漏斗尾/applyDocToStore 尾、'cs' diff 首行全仓唯一）+单遍单 origin+零差异短路（O0b-1 内核化）；O0b-2 写域①全档写三字段（auto wh 接管——doc 面零泄漏由差分出口 oracle 化保证）" },
+    { fn: 'reapplyGestureProtection', category: 'gesture', note: "O0b-3 保护回写——捕获快照仅几何字段覆盖（applyDocToStore 同步块内，B4'-1 接真 session 后生效）" },
   ],
   'src/pages/canvas/components/CanvasView.tsx': [
     { fn: 'pendingFillCell 清理×2', category: 'non-geometry', note: 'UI 交互态（拖放完成/Escape 清理）' },

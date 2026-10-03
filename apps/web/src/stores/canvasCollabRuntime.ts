@@ -366,11 +366,11 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   for (const nd of csNodes) {
     if (nd.type !== 'group') continue;
     oldOrigins.set(nd.id, nd.position);
-    // O0b-3 让位硬规则（终裁 66③）：帧三字段全保护的组（freeze/resize 档）跳过派生——
+    // O0b-3 让位硬规则（终裁 66③）：position 让位的组跳过派生——
     // 帧原样=cs 当前值（手势内核写者面/冻结帧），仅作子代 rebase 的 origin 源。
     // 组帧=写域① 单写者语义（position/wh 同源同写）——让位按组帧整体豁免，不做半帧态。
     const gg = gestureGuard.get(nd.id);
-    if (gg?.position && gg.wh) {
+    if (gg?.position) {
       frames.set(nd.id, {
         x: nd.position?.x ?? 0, y: nd.position?.y ?? 0,
         width: nd.width ?? 0, height: nd.height ?? 0,
@@ -595,8 +595,8 @@ export function resolveDraggingIdsFromGesture(nodes: ReadonlyArray<{ id: string 
  *  O0b-0：S1 停写（捕获/refit/diff 回写段整删——恢复链零回写）+读侧版本门 DEV 断言+
  *  尾挂 reconcileGroupGeometry（写域②直拷）。
  *  O0b-3 保护序 v2（卡一/hydrate 过渡态例外窗口——寿命=同一同步块）：
- *  read→assert→保护捕获→hydrate setState[abs 过渡态]→保护回写→reconcile(doc)→hidden 现状步骤
- *  →ns→尾挂断言。全程同步无 await/渲染分隔；session 缺席⇒捕获 null=零保护=现状行为。 */
+ *  read→assert→保护捕获→hydrate setState[abs 过渡态]→保护回写→hidden（applyGroupDerivations）
+ *  →ns→reconcile(doc)→尾挂断言。全程同步无 await/渲染分隔；session 缺席⇒捕获 null=零保护=现状行为。 */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
   // 批5 判据⑥ dev 巡检：影子信箱已删——nodes 出现 /^shadow-/ 即结构性违例（存量数据须 truncate

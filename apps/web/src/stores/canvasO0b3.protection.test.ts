@@ -22,7 +22,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 import * as Y from 'yjs';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import { useCanvasStore } from './canvasStore';
 import {
@@ -139,6 +139,7 @@ describe('O0b-3 同步块：applyDocToStore 全程无 await/渲染分隔（锚�
     const startIdx = lines.findIndex((l) => l.includes('export function applyDocToStore('));
     expect(startIdx).toBeGreaterThanOrEqual(0);
     expect(lines[startIdx]).not.toMatch(/\basync\b/);
+    // 假设：body 内字符串/注释无不成对花括号（词法层不解析——棘轮锚脆弱面已知）
     let depth = 0;
     let seen = false;
     const body: string[] = [];
@@ -299,6 +300,3 @@ describe('O0b-3 draggingIds 第三参解析（OnNodeDrag=(event,node,nodes)—�
     expect(ids.has('solo')).toBe(true);
   });
 });
-
-// 基线自证（防 walk 路径漂移静默通过）
-void existsSync;
