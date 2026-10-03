@@ -3,6 +3,7 @@
  * 节点体命中由 isPointOnAnyNode(绝对矩形) 单独承保。
  * B6-1（Spec B 终裁 57①）自 pages/canvas/components/ 迁入 utils/（13 符号全量）：
  * DRAG_THRESHOLD_PX 补导出=B6-3 点击/连线唯一阈值；clientPoint 多指落点修（终裁 37⑤）。 */
+import type { HandleSide } from '@flowweb/shared';
 
 export const HANDLE_MENU_NODE_TYPES = new Set(['imageGen', 'imageExtGen']);
 export const DRAG_THRESHOLD_PX = 5;
@@ -65,7 +66,7 @@ export interface HandleMenuPayload {
   x: number;
   y: number;
   nodeId: string;
-  side: 'source' | 'target';
+  side: HandleSide;
   flowPoint: { x: number; y: number };
 }
 
@@ -99,7 +100,7 @@ export type HandleMenuDecision =
 
 /** 决策+载荷组装一并纯函数化：Task 9 的 onConnectEnd 退化为"取 event/state → 调本函数 → open"。 */
 export function decideHandleMenu(
-  args: HandleMenuGuardArgs & { nodeId: string; side: 'source' | 'target'; clientX: number; clientY: number },
+  args: HandleMenuGuardArgs & { nodeId: string; side: HandleSide; clientX: number; clientY: number },
 ): HandleMenuDecision {
   if (!shouldOpenHandleMenu(args)) return { kind: 'ignore' };
   return {

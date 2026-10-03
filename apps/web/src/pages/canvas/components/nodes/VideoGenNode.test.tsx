@@ -268,7 +268,7 @@ describe('VideoGenNode', () => {
   });
 
   // Spec B editMode 分片行为变更登记：videoGen 双 handle 不设 editMode/transformMode 门=有意保留
-  // （现状锚——imageGen 有 !editMode 门，videoGen 无门直渲染；与 VideoGenNode.tsx 源码注释同源）
+  // （现状锚——B6-1 起经 getAvailableHandles 谓词默认分支恒双 handle，imageGen 族才有门）
   it('editMode/transformMode 下双 handle 仍渲染（无门=有意保留）', () => {
     setMockNodeData({ fileId: 'f1', status: 'done', model: '', referenceVideo: undefined, editMode: 'crop' });
     const { container } = renderNode();
