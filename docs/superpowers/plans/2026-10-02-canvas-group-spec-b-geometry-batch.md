@@ -181,16 +181,18 @@
 
 ### Task O0b-1：reconcile 单内核
 
-- [ ] **Step 1: 红测试**（对 C0-2 断言骨架转绿+新锚）
+- [x] **Step 1: 红测试**（对 C0-2 断言骨架转绿+新锚）
   - 写域四类逐条：组帧三字段≡deriveGroupFrame 输出（**帧模式 oracle=doc 侧键——cs 派生帧不参与 frameMode 判定**[终裁 44——auto 组防 manual 死锁]）；新顶层节点（粘贴/复制/建点/建组/差分新增）同 tick cs.position≡doc.abs 逐位∧渲染位≠{0,0}（**前提=applyIntentToDoc addNode 经 fillDoc 落 position——显式锚**）；非组 wh 直拷；分镜子 {0,0} 停住
   - 一写者通则：auto 组 doc 无帧键⇒②③跳过；缺键分支保留 cs 现值禁 undefined；全节点 Number.isFinite
   - 单遍单 origin：auto 组因成员移动整体位移⇒子 abs 逐位不变∧cs.rel 与新 origin 同 tick 自洽
   - 零差异短路：renameGroup⇒reconcile 零 setState（订阅计数=0）∧几何变更恰一次
   - 源矩阵：diff 首行 cs 源下 addToGroup/arrange 命令几何不丢；source:'cs' 全仓恰 1 处；**远端改任意无关节点⇒本地其它节点 cs 几何零变化**（防直拷回灌——v3.15 评审二锚）；**投影派发前非让位节点 doc.abs==cs.rel+origin 逐位成立（"网格内"限定删——终裁 78⑦：量化单侧后远端非网格值等式成立但网格性不成立，防锚误红；网格性只对本地量化产出断言）**
-- [ ] **Step 2: 绿实现**：reconcileGroupGeometry 落 canvasStore（**挂点 3+1（v3.17 终裁 65①——O0b 期三元组**：3=漏斗尾[投影循环后，两早退不挂，禁 finally]+dispatchProjectionDiff 首行+applyDocToStore 尾；第 4 处"中止/零提交收尾"宿主随 B4'-1 endGesture 落地补第 4 成员——**O0b 期按三元组写过渡断言，四元组 census 断言留 B7-1**，否则 O0b 出现无法构造的红测试）；**doc 读取路径=readRecordsFromMaps[docShape 单源，终裁 77——禁从 nsNodes/csNodes 反推=直拷回灌；census"reconcile 内不得出现 applyIntentToDoc/setDocPosition 写原语"]**；deriveGroupFrame 四模式（storyboard=calcStoryboardSize[resolveStoryboardConfig 单源，无 padding]；**normal 档=calcGroupBounds(childrenAbs) 单源[geometry.ts:68-74 非对称 padding GROUP_PADDING=20/GROUP_PADDING_TOP=50——禁 deriveGroupFrame 自写 padding 公式成第二实现；census"**帧装配算术实现点=1（calcGroupBounds）**"[第二十五轮 A3+第二十六轮限定：calcGroupMinSize[最小尺寸约束]/clampPositionToPadding/clampChildIntoGroup[子位夹取]的 padding=**被约束量非帧装配不在计数域**——照合并=改语义；refitGroupGeometry[:126 委托 calcGroupBounds]随 refit 族退役]**；空 auto 组→COLLAPSED_SIZE；**childrenAbs 尺寸=固化后 doc 尺寸——O0b-2 同批**）
-- [ ] **Step 3: commit** `feat(canvas): O0b reconcile 单内核——doc 侧 oracle+写域四类+单遍单 origin+零差异短路（Spec B O0b-1）`
+- [x] **Step 2: 绿实现**：reconcileGroupGeometry 落 canvasStore（**挂点 3+1（v3.17 终裁 65①——O0b 期三元组**：3=漏斗尾[投影循环后，两早退不挂，禁 finally]+dispatchProjectionDiff 首行+applyDocToStore 尾；第 4 处"中止/零提交收尾"宿主随 B4'-1 endGesture 落地补第 4 成员——**O0b 期按三元组写过渡断言，四元组 census 断言留 B7-1**，否则 O0b 出现无法构造的红测试）；**doc 读取路径=readRecordsFromMaps[docShape 单源，终裁 77——禁从 nsNodes/csNodes 反推=直拷回灌；census"reconcile 内不得出现 applyIntentToDoc/setDocPosition 写原语"]**；deriveGroupFrame 四模式（storyboard=calcStoryboardSize[resolveStoryboardConfig 单源，无 padding]；**normal 档=calcGroupBounds(childrenAbs) 单源[geometry.ts:68-74 非对称 padding GROUP_PADDING=20/GROUP_PADDING_TOP=50——禁 deriveGroupFrame 自写 padding 公式成第二实现；census"**帧装配算术实现点=1（calcGroupBounds）**"[第二十五轮 A3+第二十六轮限定：calcGroupMinSize[最小尺寸约束]/clampPositionToPadding/clampChildIntoGroup[子位夹取]的 padding=**被约束量非帧装配不在计数域**——照合并=改语义；refitGroupGeometry[:126 委托 calcGroupBounds]随 refit 族退役]**；空 auto 组→COLLAPSED_SIZE；**childrenAbs 尺寸=固化后 doc 尺寸——O0b-2 同批**）
+- [x] **Step 3: commit** `feat(canvas): O0b reconcile 单内核——doc 侧 oracle+写域四类+单遍单 origin+零差异短路（Spec B O0b-1）`
 
 ### Task O0b-2：尺寸真源完整链（v3.16 终裁 49）+投影层几何键全删
+
+**【O0b-1 台账（O0b-1 spec/质评评审义务记档）】**：①**写域① auto 展开档 wh 留现状链**（命令体 applyGroupFrame——O0b-1 写域收缩[manual/storyboard/collapsed 档仍写全三字段]）：根因=写侧 applyKeySetTable 按 record 形态（hasValidStoredFrameKeys）判 manual，cs auto 组携派生 wh 即帧键泄漏进 doc（终裁 44 死锁写侧复现——O0b-0"二次打开不变量+doc 0 帧键"两锚实测红）；**本批必须同批五件**：(a) 写域① auto 展开档 wh 接管+键集判定 doc-oracle 化（或差分面几何键收口）——缺一则重踩泄漏 (b) 现状链 applyGroupFrame 帧键落 doc 面一并收口 (c) reconcile 'doc' 源 crec 缺失子 fallbackAbs 维度混用的结构修法（O0b-1 已注释声明不可达——canvasCollabRuntime:364） (d) deriveGroupFrame storyboard 分支 groupType 直查与 frameMode 冗余顺手并 (e) DEV 分镜 config 门 throw 窗口（cs 已写 doc 未写）批后复核；②B7-2 性能锚补"全表 setState→RF reconciliation"口径；③it.todo 计数=8（shared 4[O0b-2~5]+web 4[O0b-6~9]——O0b-1 已转实 2：reconcile 幂等双源+断言①③先决契约）。
 
 - [ ] **Step 1: 红测试——尺寸真源四写者（v3.16 终裁 49+v3.17 终裁 59——[ii] 内容事件升格为第四类：三写者+"首写者胜永不覆盖"会把图片加载/换图自适应锁死在首测兜底值，比现状更糟）**
   - **命令体显式值**：粘贴/复制节点（copyPlan 已有 wh）⇒intent.node 带值⇒fillDoc 落 doc（:34-35 已支持）⇒**副本 cs.wh=原件逐位+同 tick**（reconcile 写域③）；建组⇒组行带 deriveGroupFrame 输出；锚：新建节点（建点/粘贴/建组/差分新增）首帧 cs.position≠{0,0}∧doc 落 position
@@ -362,7 +364,7 @@
 
 **卡一 reconcile 源矩阵+写域四类**
 - `reconcileGroupGeometry({source:'cs'|'doc'})`：diff 首行='cs'（cs 活值反推 abs——doc 未更新，doc 源会吞命令写）；漏斗尾/applyDocToStore 尾/中止零提交收尾='doc'；不变量 source='cs' 只允许 diff 首行
-- 写域四类：①组帧三字段（deriveGroupFrame 派生——组 position 唯一写者；**collapsed（非 storyboard）⇒cs 帧≡COLLAPSED_SIZE 派生档、优先级最高——doc 三键保持展开态值不动[终裁 82]**）②全部**非组非分镜子**节点 position（顶层=doc.abs 直拷/子=doc.abs−frameOrigin；rel 不量化）③**非组节点** width/height（doc→cs 直拷——**尺寸输入=固化后 doc 值**）④分镜子 position=构造默认 {0,0}
+- 写域四类：①组帧三字段（deriveGroupFrame 派生——组 position 唯一写者；**collapsed（非 storyboard）⇒cs 帧≡COLLAPSED_SIZE 派生档、优先级最高——doc 三键保持展开态值不动[终裁 82]**；**O0b-1 过渡分档：auto 展开档 wh 留现状链（命令体 applyGroupFrame），O0b-2 接管+键集判定 doc-oracle 化同批——见 O0b-2 段台账**）②全部**非组非分镜子**节点 position（顶层=doc.abs 直拷/子=doc.abs−frameOrigin；rel 不量化）③**非组节点** width/height（doc→cs 直拷——**尺寸输入=固化后 doc 值**）④分镜子 position=构造默认 {0,0}
 - 一写者通则：doc 无该键⇒唯一写者=派生①，直拷②③跳过；缺键分支=保留 cs 现值+DEV 禁写 undefined；写前 Number.isFinite 守卫
 - **帧模式 oracle=doc 侧记录键（终裁 44）——禁 cs 派生帧当 storedFrame**（auto 组防 manual 死锁）；cs 源仅 manual/storyboard 组用 cs 活值帧（命令中间态）；~~dirty-manual 档~~ **已删（终裁 50——manuallyResized 整链删除；"三键齐"异常态检测由断言①[auto 组 doc 无帧键]承担）**
 - 单遍单 origin 快照：帧集合=freeze 层原样∪其余组派生——同一步产出，之后才写子 rel（本 tick 新 origin）
