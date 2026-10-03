@@ -326,12 +326,19 @@ export class GeometryWriteLedger implements IGeometryWriteLedger {
 const shapeViolationCounts = new Map<string, number>();
 /** 采样日志表（同 key 仅首报 log——去重）。 */
 const loggedShapeViolations = new Set<string>();
+/** key 上限（质评加固：违例消息嵌节点 id/浮点坐标——坐标漂移病态下 key 空间非有限，
+ *  超限折叠到 __overflow__，两表有界+采样日志每会话封顶）。 */
+const SHAPE_VIOLATION_KEY_LIMIT = 1000;
+const SHAPE_VIOLATION_OVERFLOW_KEY = '__overflow__';
 
 /** prod 侧形状违例集中上报：每报必计数、同 key 仅首报采样日志（变更 id 去重 log）；
  *  永不 throw（终裁 85① prod 降级——按字面实现会白屏）。DEV 直抛由调用方分流，不经本函数。
  *  B7-2 锚：prod 注入脏 doc ⇒ 不抛 + 计数 +1（读数面=shapeViolationStats）。 */
 export function reportShapeViolation(e: unknown): void {
-  const key = e instanceof Error ? e.message : String(e);
+  const raw = e instanceof Error ? e.message : String(e);
+  const key = shapeViolationCounts.size < SHAPE_VIOLATION_KEY_LIMIT || shapeViolationCounts.has(raw)
+    ? raw
+    : SHAPE_VIOLATION_OVERFLOW_KEY;
   shapeViolationCounts.set(key, (shapeViolationCounts.get(key) ?? 0) + 1);
   if (!loggedShapeViolations.has(key)) {
     loggedShapeViolations.add(key);
@@ -339,7 +346,7 @@ export function reportShapeViolation(e: unknown): void {
   }
 }
 
-/** 违例计数读数面（只读快照语义——Map 视图，测试/B7-2 census 消费）。 */
+/** 违例计数读数面（实时 Map 视图非快照——reset 后引用见清空；测试/B7-2 census 消费）。 */
 export function shapeViolationStats(): ReadonlyMap<string, number> {
   return shapeViolationCounts;
 }

@@ -417,6 +417,28 @@ describe('reportShapeViolation（O0d prod 侧集中上报：每报必计数+同 
       warn.mockRestore();
     }
   });
+
+  it('key 上限加固：超限新 key 折叠到 __overflow__（两表有界+采样日志每会话封顶——坐标漂移病态下 key 空间非有限）', () => {
+    // 占满上限（0..999 恰 1000 个互异 key——不触发 warn 断言噪声，mock 吸掉）
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (let i = 0; i < 1000; i++) reportShapeViolation(new Error(`drift-${i}`));
+      expect(shapeViolationStats().size).toBe(1000);
+      expect(warn).toHaveBeenCalledTimes(1000);
+      // 第 1001 个互异 key：折叠——不进新表项；__overflow__ 首报采样一次后封顶
+      reportShapeViolation(new Error('drift-new'));
+      reportShapeViolation(new Error('drift-newer'));
+      expect(shapeViolationStats().size).toBe(1001);   // 仅 +__overflow__ 一项
+      expect(shapeViolationStats().get('__overflow__')).toBe(2);
+      expect(warn).toHaveBeenCalledTimes(1001);        // 1000 互异 key + __overflow__ 首报——此后封顶零新增
+      // 既有 key 不受上限影响：仍原 key 计数（不误折叠）
+      reportShapeViolation(new Error('drift-0'));
+      expect(shapeViolationStats().get('drift-0')).toBe(2);
+      expect(shapeViolationStats().get('__overflow__')).toBe(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 // —— O0b 挂点（it.todo 先建后清：各分片 unskip 接线，B7-1 归零——it.todo 计数锚）——
