@@ -273,8 +273,9 @@
 
 ## O0d 两咽喉+形状断言（收口门禁）
 
-- [ ] **Step 1:** doc 读写两咽喉（docShape 单源）+形状断言 DEV 全表抛/prod 变更 id 去重 log（**reportShapeViolation 落点：计数+采样日志，断言路径禁 console 直喷**）；hydrateNodes extent 补全删（nodeOrder:33-38+用例 :55-70）；旧档拒读 e2e（四档处置表验收）
-- [ ] **Step 2: commit** `feat(canvas): O0d 两咽喉+形状断言 DEV/prod 分野（Spec B O0d）`
+- [x] **Step 1:** doc 读写两咽喉（docShape 单源）+形状断言 DEV 全表抛/prod 变更 id 去重 log（**reportShapeViolation 落点：计数+采样日志，断言路径禁 console 直喷**）；hydrateNodes extent 补全删（nodeOrder:33-38+用例 :55-70）；旧档拒读 e2e（四档处置表验收）
+- [x] **Step 2: commit** `feat(canvas): O0d 两咽喉+形状断言 DEV/prod 分野（Spec B O0d）`
+  - 完成注记（2026-10-03）：commit d5e0131e+7dbc08d3（质评收口：reportShapeViolation key 上限 1000 加固——超限折叠 __overflow__ 两表有界+采样日志封顶[坐标漂移病态下 key 空间非有限]+stats 注释校准实时视图）；两咽喉=O0a 收编验收+envelope-guard allow 3 死行删[唯 docShape.ts]+web 侧 readDocCanvas/writeNodeToYMap 符号 census 新增；四档×两路 8 格全覆盖验收（WS persist-status.spec 4 档+REST collab-document.service.spec 4 档——真 Y.Doc vitest 档，Playwright 档归 B7-2）；hydrateNodes 整删[extent:'parent' hydration 分片——canvasStore 10 写点留 Inner 化批]；web 计数 3420→3418 对账[-3 hydrateNodes describe+1 guard census——reportShapeViolation +4 在 shared]
 
 ---
 
