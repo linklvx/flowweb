@@ -223,15 +223,16 @@
 
 ### Task O0b-5：refit 族退役+帧写者收口
 
-- [ ] **Step 1: 红测试**
+- [x] **Step 1: 红测试**
   - census：`refitGroupGeometry(`/`shouldAutoRefit`/`applyGroupFrame`/`refitExpandedGroups` 生产调用全仓 0 命中**且函数本体+shared 导出删**（refit 4 处：arrange:1153/addToGroup:1279/dropIntoGroup:1376/applyGroupFrame:1830；applyGroupFrame 6 处：:422/:826/:1300/:1323/:1396/:1697；定义 shared geometry.ts:123/:133——**计数形态含非定义行豁免，终裁 54②**；测试用例随迁 shared/geometry.test 删）
   - isContentDerivedFrame({data,storedFrame})=auto∧!collapsed：折叠 auto 组入组 abs 落点逐位
   - updateStoryboardConfig 改配置⇒cs 帧≡calcStoryboardSize∧doc 单 transact∧零 moveNode 意图；resizeStoryboardGrid 溢出落位用本命令 calcStoryboardSize 返回值（非回读 cs）
   - 配置型命令体前写四处（mergeStoryboard:1585-1593/convertGroup:1651-1659/:1682-1688/resizeStoryboardGrid:1900-1914）保留+两断言（写入值≡派生值逐位+doc 零帧意图）
   - manual 组折叠→展开 doc 帧三键逐位不变（今天红）∧每步 transact=1；**折叠帧语义定稿（终裁 82——卡二"auto/collapsed=0 键"字面=手动尺寸不可逆丢失）**：**collapsed 不剥键——doc 三键=展开态值=密封源**（savedSize 删除后唯一恢复源）；**折叠分支 envelope 写删（canvasStore:1776 COLLAPSED_SIZE 不写 doc——toggleCollapse 仅 updateNodeData{collapsed}）**；**cs 折叠渲染档=COLLAPSED_SIZE 派生（reconcile 写域① 内 collapsed⇒覆写、优先级最高——normalizeLoadedCanvas:45-50 语义迁移）**；storyboard 不可折叠[canvasStore:1766-1768 现状锚]；展开恢复=manual 读 doc 三键/auto 重派生 bbox；锚两条：单元"collapsed manual 组 toDocRecords 输出仍含帧三键（键集表逐格）"+行为"折叠 manual 组⇒cs 帧≡COLLAPSED_SIZE∧doc 三键逐位不变⇒展开逐位还原"；组 resize 松手 afterTransaction=1∧cs.width 逐帧单调不回落；**resize 提交=单 updateNodeEnvelope{三键}（v3.16 终裁 50——不带 data 标记）**
   - **manuallyResized 整链删除（v3.16 终裁 50）**：markManuallyResized 符号级不存在（canvasStore:1746-1752+GroupNode:31 onResizeEnd 改纯 stopCapturing）；GROUP_NODE_DATA_KEYS 减键；快照白名单剥离+克隆断言改写（snapshot-filter.util.spec:255-264/video-work-clone.service.spec:22/:179——savedSize 键同批）；**折叠安全网（v3.17 终裁 61③+v3.20 终裁 89 改写——原"双安全网②提交剥键"随终裁 82 撤销[它本身就是错的——折叠 manual 组剥键=不可逆丢手动尺寸]）：唯一边界守卫=①collapsed⇒无 resizer（GroupNode:43 selected∧!collapsed∧!marqueeSelecting 渲染条件不许在 O0 改造中丢）；**键集表不因 collapsed 改变**（auto 组恒 0 键[折叠态同——本就无键可剥]；manual 组折叠态不动帧三键=展开恢复唯一密封源——终裁 82）；折叠/展开不写 doc 帧键；auto/manual 折叠双档单测钉 toDocRecords 输出键集逐格（**文本 census 删——第二十五轮：中文语义串在代码扫描域恒零命中无鉴别力，双档单测+键集表逐格行为锚即守卫）**
-- [ ] **Step 2: 删除/实现**：applyGroupFrameRect 删；updateStoryboardConfig 改单次 patchGroupDataInner({storyboard})；toggleCollapse 单意图化（只留 [updateNodeData{collapsed}]；**viewer 折叠=本地视图折叠（终裁 58⑥——localCollapsed 渲染层 override，功能保留非禁用）**）；markManuallyResized 删
-- [ ] **Step 3: commit** `refactor(canvas): O0b refit 族退役+manuallyResized 整链删+toggleCollapse 单意图（Spec B O0b-5）`
+- [x] **Step 2: 删除/实现**：applyGroupFrameRect 删；updateStoryboardConfig 改单次 patchGroupDataInner({storyboard})；toggleCollapse 单意图化（只留 [updateNodeData{collapsed}]；**viewer 折叠=本地视图折叠（终裁 58⑥——localCollapsed 渲染层 override，功能保留非禁用）**）；markManuallyResized 删
+- [x] **Step 3: commit** `refactor(canvas): O0b refit 族退役+manuallyResized 整链删+toggleCollapse 单意图（Spec B O0b-5）`
+  - 完成注记（2026-10-03）：三 commit 收口——d97e53cb（实现）+93cd2eda（spec 评审收口：refitContentDerivedFrame 垫片删+addToGroup/dropIntoGroup 分支A/arrangeGroupChildren 内联帧写删+裸 store 夹具迁 doc 装置——帧写归 reconcile 单写者，F33/扩框/§4.8 全族 doc 装置同值）+3c7c735a（质评收口：C-1 resize 提交恒三键密封[pos 回填——RF 右/下把手 dimensions-only 批]+auto 组不回弹锚+localCollapsed 生命周期[initCollab/destroyCollab/resetCanvasStores]+groupNodes undo 合并锚+guard 排除 .d.ts）；**偏差已评审采纳**：groupNodes author 形预注册（新组 0 帧键先入 doc——差分出口 record 形态判 manual 泄漏帧键的根修；dispatch ratchet 不破[新增的是 dispatchCanvasIntent 不在门内]）；NodeEnvelopePatch 增 position（resize 提交=单 envelope{三键} 终裁 50 的题中之义；doc 侧经 setDocPosition 单源；卡二"只写 type/parentId"=cs 投影侧口径维持）；updateStoryboardConfig 用 patchGroupData（=Inner+单次 dispatch，plan 字面 Inner 会使 doc 零写）；clamp 红测试算术修正 (500,500)→(100,90)；viewer localCollapsed 子 hidden 面归 O0c（半状态窗口已注释登记）；lint-gate 棘轮 221/40→213/40 单调降
 
 ---
 
