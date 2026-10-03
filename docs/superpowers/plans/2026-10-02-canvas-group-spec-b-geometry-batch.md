@@ -290,9 +290,10 @@
 
 ### Task B6-2：AddOutputHandle+BatchConnectLines（B 案）
 
-- [ ] **红测试**：多选框 ≥2 显示/marquee 进行中隐藏/普通组未折叠显示/折叠组+分镜组不渲染/**!canEdit 不渲染**（useCanvasStore(s=>canEdit(s)) 订阅）/isLocked 不响应/Esc 取消；**+号圆心外移框外 12px 屏幕像素常量+反缩放层（transform:scale(1/zoom)）——尺寸与偏移均屏幕 px（组恒顶层[组深≤1]⇒rel≡abs——**rect 读 cs（v3.16 终裁 57②：useCanvasStore 订阅组帧三字段+useViewport；编辑器渲染面=cs，deriveRenderCanvas=第 4 面专用防层倒置；对 O0c 排序依赖解除——排序维持=锚稳定选择）**）**；**elementFromPoint 零交叠三元组断言 zoom∈{0.5,1,2} 三档各跑（v3.17 终裁 67④——三元组写死：+号↔本组框零交叠/同屏+号之间零交叠/+号↔其它节点框允许交叠[靠 z-index 保证可点]；"0.5 必过档"=最严格档语义[zoom=0.5 节点屏幕尺寸减半而+号恒 12 屏幕 px——交叠概率最高档]；若"同屏+号间"0.5 档不成立⇒降级"视觉偏移随 zoom 收缩[max(1/zoom,1) 与 RF 角柄同规则]"进 §5 台账届时再裁）+直径/偏移三档屏幕值相等——挪 B7 Playwright 执行（jsdom 无布局）**；撞车①三条（handle 兄弟 portal/nodrag nopan+stopPropagation/shouldOpenHandleMenu ignore）
-- [ ] **绿实现**：pages/canvas/components/ 新组件（portal #node-toolbar-portal；useViewport+internals.positionAbsolute）
-- [ ] commit `feat(canvas): B6-2 +号输出按钮（B 案——屏幕恒定+反缩放层）+批量连线拖线层（Spec B B6-2）`
+- [x] **红测试**：多选框 ≥2 显示/marquee 进行中隐藏/普通组未折叠显示/折叠组+分镜组不渲染/**!canEdit 不渲染**（useCanvasStore(s=>canEdit(s)) 订阅）/isLocked 不响应/Esc 取消；**+号圆心外移框外 12px 屏幕像素常量+反缩放层（transform:scale(1/zoom)）——尺寸与偏移均屏幕 px（组恒顶层[组深≤1]⇒rel≡abs——**rect 读 cs（v3.16 终裁 57②：useCanvasStore 订阅组帧三字段+useViewport；编辑器渲染面=cs，deriveRenderCanvas=第 4 面专用防层倒置；对 O0c 排序依赖解除——排序维持=锚稳定选择）**）**；**elementFromPoint 零交叠三元组断言 zoom∈{0.5,1,2} 三档各跑（v3.17 终裁 67④——三元组写死：+号↔本组框零交叠/同屏+号之间零交叠/+号↔其它节点框允许交叠[靠 z-index 保证可点]；"0.5 必过档"=最严格档语义[zoom=0.5 节点屏幕尺寸减半而+号恒 12 屏幕 px——交叠概率最高档]；若"同屏+号间"0.5 档不成立⇒降级"视觉偏移随 zoom 收缩[max(1/zoom,1) 与 RF 角柄同规则]"进 §5 台账届时再裁）+直径/偏移三档屏幕值相等——挪 B7 Playwright 执行（jsdom 无布局）**；撞车①三条（handle 兄弟 portal/nodrag nopan+stopPropagation/shouldOpenHandleMenu ignore）
+- [x] **绿实现**：pages/canvas/components/ 新组件（portal #node-toolbar-portal；useViewport+internals.positionAbsolute）
+- [x] commit `feat(canvas): B6-2 +号输出按钮（B 案——屏幕恒定+反缩放层）+批量连线拖线层（Spec B B6-2）`
+  - 完成注记（2026-10-03）：commit 7f5633b1+9272d246（质评收口：ro 窗口 plusZones 断言防空转——节点种子保持=canEdit 门控唯一变量）；纯函数层 groups/addOutput.ts（显隐/几何单源）+AddOutputHandle（portal #node-toolbar-portal 屏幕空间层=反缩放层等价[SelectionBoxOverlay 同式 flow*zoom+vp]；24px 圆/offset 12/hit 40×56=selectionTokens 常量；手势机 pending→≥5px[DRAG_THRESHOLD_PX 单源]→click/drop 分类+Esc/pointercancel/buttons===0 全取消）+BatchConnectLines（SVG 多段线）；撞车①c=shouldOpenHandleMenu 增 plusZones 参[CanvasView onConnectEnd 同源三函数喂入]；B6-3 缝=onGestureEnd{click|drop} 载荷类型；**登记三项**：①悬停渲染未实现（终裁 26 有"选中/悬停"——plan 红测试清单无悬停且 selected-only 更严满足无歧义前提；悬停渲染排 B6-3/B7 或降级裁定）②右键未过滤（onPointerDown 不判 e.button——B6-3 接线 onGestureEnd 时须滤）③手势期滚轮缩放（锚点实时 vp vs drop 冻结 vp——B7 Playwright 实证）；质评 Minor：absPositionOf 与 handleMenu absPos 15 行同口径重复（漂移风险登记）+flow→screen 换算仓内既有 ~11 处惯例（全仓重构超本片辖域）
 
 ### Task B6-3：batchConnect+点击建点
 
