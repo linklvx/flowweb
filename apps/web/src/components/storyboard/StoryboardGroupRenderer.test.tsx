@@ -1,4 +1,6 @@
-// StoryboardGroupRenderer.test.tsx
+// apps/web/src/components/storyboard/StoryboardGroupRenderer.test.tsx
+// O0c-2（Spec B）：随组件自 canvas 页目录抽迁（零 store 纯组件）；新增两形态用例：
+// 公开页形态（onRemoveCell 缺省——零 Delete 键监听）与公开页取图通道（thumbnailUrl）。
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
@@ -118,5 +120,29 @@ describe('StoryboardGroupRenderer', () => {
   it('无 storyboard 的克隆体渲染不崩且按 1×1 默认网格（F2 消费点①）', () => {
     const noStoryboardData = { groupType: 'storyboard', cells: [null] } as any;
     expect(() => render(<StoryboardGroupRenderer id="g1" data={noStoryboardData} cellNodes={[]} />)).not.toThrow();
+  });
+});
+
+describe('StoryboardGroupRenderer（O0c-2 零 store 抽迁——两形态）', () => {
+  it('公开页取图通道：cellNodes 仅 thumbnailUrl（fileId 缺席）→ img src=thumbnailUrl 直用', () => {
+    render(<StoryboardGroupRenderer {...(props() as any)} cellNodes={[{ id: 'a', thumbnailUrl: '/th/a.webp' }, { id: 'b', thumbnailUrl: '/th/b.webp' }]} />);
+    const imgs = screen.getAllByRole('presentation').filter((el) => el.tagName === 'IMG');
+    expect((imgs[0] as HTMLImageElement).getAttribute('src')).toBe('/th/a.webp');
+    expect((imgs[1] as HTMLImageElement).getAttribute('src')).toBe('/th/b.webp');
+  });
+
+  it('公开页形态（onRemoveCell 缺省）：零 window keydown 监听注册（只读分享页无删除热键）', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    render(<StoryboardGroupRenderer {...(props() as any)} />);
+    expect(addSpy.mock.calls.filter(([type]) => type === 'keydown')).toHaveLength(0);
+    addSpy.mockRestore();
+  });
+
+  it('主画布形态：选中格后 Delete 键经 onRemoveCell 回调（参数化——组件不直连 store）', () => {
+    const onRemoveCell = vi.fn();
+    const { container } = render(<StoryboardGroupRenderer {...(props() as any)} onRemoveCell={onRemoveCell} />);
+    fireEvent.click((container.firstElementChild as HTMLElement).children[0]); // 选中格 0
+    fireEvent(window, new KeyboardEvent('keydown', { key: 'Delete' }));
+    expect(onRemoveCell).toHaveBeenCalledWith(0);
   });
 });

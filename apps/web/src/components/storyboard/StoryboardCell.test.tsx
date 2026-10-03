@@ -1,4 +1,6 @@
-// StoryboardCell.test.tsx — R2b-7 mediaUrl 读点清零：陈旧持久化 URL 不得短路 useMediaUrl
+// apps/web/src/components/storyboard/StoryboardCell.test.tsx
+// O0c-2 随组件自 canvas 页目录抽迁；新增公开页 thumbnailUrl 通道用例（双通道同形）。
+// R2b-7 mediaUrl 读点清零：陈旧持久化 URL 不得短路 useMediaUrl
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
@@ -44,5 +46,11 @@ describe('StoryboardCell（R2b-7 mediaUrl 读点清零）', () => {
     const info: CellNodeInfo = { id: 'c1', fileId: 'f2' };
     render(<StoryboardCell {...(baseProps(info) as any)} />);
     expect(getImg().getAttribute('src')).toBe('/flowai/f2');
+  });
+
+  it('公开页通道（O0c-2）：fileId 缺席（公开 payload 泄漏红线剥除）→ img src=thumbnailUrl 直用', () => {
+    const info: CellNodeInfo = { id: 'c1', thumbnailUrl: '/th/c1.webp' };
+    render(<StoryboardCell {...(baseProps(info) as any)} />);
+    expect(getImg().getAttribute('src')).toBe('/th/c1.webp');
   });
 });

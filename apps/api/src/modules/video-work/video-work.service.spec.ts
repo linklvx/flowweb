@@ -414,7 +414,9 @@ describe('getProcessSnapshot（安全验收）', () => {
   const rawCanvas = {
     nodes: [
       { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '<p>一只猫在窗台上</p>', prompt: 'p' } },
-      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png' } },
+      // O0c-1 质评随 O0c-2 补种：storageKey/userId/email 三键入夹具——泄漏红线（键级 collectKeys+JSON 级）
+      // 原先对这三键无牙齿（夹具无键 ⇒ 白名单漏剥也绿）；种入后两断言可判别（imageGen 白名单必剥）。
+      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png', storageKey: 'uploads/raw/n2.bin', userId: 'u-secret', email: 'author@x.test' } },
       { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f3' } },
       { id: 'n35', type: 'videoEdit', position: { x: 0, y: 0 }, data: { timeline: [1], draft: '内部时间轴' } }, // 第八轮：快照保留 videoEdit（仅结构字段，spec:228）
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },

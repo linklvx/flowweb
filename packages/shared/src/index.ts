@@ -27,6 +27,8 @@ export * from './canvas/expandedFrame';
 export * from './canvas/validateParentGraph';
 export * from './canvas/arrangeSelection';
 export * from './canvas/copyPlan';
+// O0c-2（Spec B）：第 4 渲染面唯一写者——records(abs)→RenderNode(rel+派生帧)（ProcessSnapshot/分享）。
+export * from './canvas/renderCanvas';
 // O0b-2（Spec B）：assertions 出口接入——六条模型断言+membership 写侧断言真实实现（C0-2 骨架
 // O0b-1 转实），web 侧 applyDocToStore 尾挂消费（assertDocAbsMatchesCsRel/assertStoryboardMembership）。
 export * from './canvas/assertions';

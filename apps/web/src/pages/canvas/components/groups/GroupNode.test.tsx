@@ -22,7 +22,7 @@ vi.mock('@/stores/canvasStore', () => ({
   ),
 }));
 
-vi.mock('./StoryboardGroupRenderer', () => ({
+vi.mock('@/components/storyboard/StoryboardGroupRenderer', () => ({
   StoryboardGroupRenderer: (p: any) => (
     <div data-testid="renderer" data-cellnodes={JSON.stringify(p.cellNodes)} />
   ),

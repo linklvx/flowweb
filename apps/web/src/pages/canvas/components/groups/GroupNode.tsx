@@ -1,13 +1,13 @@
 // apps/web/src/pages/canvas/components/groups/GroupNode.tsx
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { NodeResizer, type NodeProps } from '@xyflow/react';
 import { NormalGroupRenderer } from './NormalGroupRenderer';
-import { StoryboardGroupRenderer } from './StoryboardGroupRenderer';
+import { StoryboardGroupRenderer } from '@/components/storyboard/StoryboardGroupRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { execOverrideOf } from '@/stores/nodeStore';
 import { stopCapturing } from '@/stores/canvasUndo';
 import { calcGroupMinSize } from '@/utils/groupLayout';
-import type { CellNodeInfo } from './StoryboardCell';
+import type { CellNodeInfo } from '@/components/storyboard/StoryboardCell';
 import { HANDLE } from './selectionTokens';
 
 function GroupNodeResizer({ id }: { id: string }) {
@@ -56,13 +56,16 @@ function GroupNodeComponent({ id, data, selected }: NodeProps) {
 }
 
 function StoryboardGroupRendererCellNodes({ id, data }: { id: string; data: any }) {
+  const removeStoryboardCell = useCanvasStore((s) => s.removeStoryboardCell);
   const cellNodes = useCanvasStore((s) =>
     s.nodes
       .filter((n) => (data.cells ?? []).includes(n.id))
       // 批1-6（B2）：status 读点换源——exec 覆盖值优先，回落本组件数据源（canvasStore 节点）的 data.status。
       // canvasStore 选择器内快照读（exec 投影落地伴随 doc nodes 变更 → applyDocToStore 重渲本组件）
       .map((n) => ({ id: n.id, fileId: (n.data as any).fileId || (n.data as any).referenceImage, status: execOverrideOf(n.id) ?? (n.data as any).status })));
-  return <StoryboardGroupRenderer id={id} data={data} cellNodes={cellNodes as CellNodeInfo[]} />;
+  // O0c-2：删除回调参数化（抽取组件零 store——主画布通道在此注入；useCallback 稳定引用防键监听重挂）
+  const onRemoveCell = useCallback((index: number) => removeStoryboardCell(id, index), [id, removeStoryboardCell]);
+  return <StoryboardGroupRenderer id={id} data={data} cellNodes={cellNodes as CellNodeInfo[]} onRemoveCell={onRemoveCell} />;
 }
 
 export const GroupNode = memo(GroupNodeComponent);
