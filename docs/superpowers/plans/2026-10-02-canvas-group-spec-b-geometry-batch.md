@@ -240,9 +240,10 @@
 
 ### Task O0c-1：入口 clone 种子+出口快照白名单
 
-- [ ] **Step 1: 红测试**：clone 种子后 doc 形状断言全绿（auto 组零帧键∧分镜子无 position——stripAuthorState 幂等+键集表逐格）；快照 payload"派生输入完备"断言（storyboard/collapsed 保留——否则派生退化 auto）∧**公开 payload 泄漏测试**（JSON 无 fileId/storageKey/userId/email——cellNodes 载荷 [{id,thumbnailUrl}]）；~~Redis 快照缓存键拼 schema 常量~~（**挪 O0b-0 原子批——v3.16 终裁 51④**）
-- [ ] **Step 2: 绿实现**：project.service 种子路径走 stripAuthorState（writeNodeToYMap 只接受其输出——O0a-2 已收编）；snapshot-filter WHITELIST 重算（group 补 storyboard/collapsed；**CellNodeInfo 双通道**：主画布 fileId/公开页 thumbnailUrl——组件入参同形）；video-work-clone 种子 stamp=已由 create withDoc 统一覆盖（第二十五轮 A1——本步仅验收断言 clone 产物 doc 含戳）；**template.service import 改 doc 直读+templateData 列 drop=已随 M0-1 同批落地（v3.19 终裁 80 前移——本步仅验收断言：templateData 符号四面零残留[schema 列/TS 类型/组件文案/夹具]+**import 直读锚两条已随 (a1) 消解不复跑**）**
-- [ ] **Step 3: commit** `feat(api): O0c 记录契约收缩版——stripAuthorState 种子+白名单派生输入完备+泄漏测试（Spec B O0c-1）`
+- [x] **Step 1: 红测试**：clone 种子后 doc 形状断言全绿（auto 组零帧键∧分镜子无 position——stripAuthorState 幂等+键集表逐格）；快照 payload"派生输入完备"断言（storyboard/collapsed 保留——否则派生退化 auto）∧**公开 payload 泄漏测试**（JSON 无 fileId/storageKey/userId/email——cellNodes 载荷 [{id,thumbnailUrl}]）；~~Redis 快照缓存键拼 schema 常量~~（**挪 O0b-0 原子批——v3.16 终裁 51④**）
+- [x] **Step 2: 绿实现**：project.service 种子路径走 stripAuthorState（writeNodeToYMap 只接受其输出——O0a-2 已收编）；snapshot-filter WHITELIST 重算（group 补 storyboard/collapsed；**CellNodeInfo 双通道**：主画布 fileId/公开页 thumbnailUrl——组件入参同形）；video-work-clone 种子 stamp=已由 create withDoc 统一覆盖（第二十五轮 A1——本步仅验收断言 clone 产物 doc 含戳）；**template.service import 改 doc 直读+templateData 列 drop=已随 M0-1 同批落地（v3.19 终裁 80 前移——本步仅验收断言：templateData 符号四面零残留[schema 列/TS 类型/组件文案/夹具]+**import 直读锚两条已随 (a1) 消解不复跑**）**
+- [x] **Step 3: commit** `feat(api): O0c 记录契约收缩版——stripAuthorState 种子+白名单派生输入完备+泄漏测试（Spec B O0c-1）`
+  - 完成注记（2026-10-03）：commit b31ebff5（生产变更仅 snapshot-filter WHITELIST.group +storyboard/collapsed 四行；种子路径/幂等/stamp/templateData 四面均已在位→验收断言落地）；质评 Approved 留一项 Important 非阻塞——泄漏红线 storageKey/userId/email 三键未种入夹具（无牙齿），随 O0c-2 一行夹具补种
 
 ### Task O0c-2：ProcessSnapshot deriveRenderCanvas 换芯+组件抽取
 
