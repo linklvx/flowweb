@@ -305,10 +305,11 @@
 
 ## Inner 化+去闸门（B4'/B5' 前置）
 
-- [ ] 六 action Inner 抽取（removeNodeFromGroup/dropIntoGroup/ungroup/addNode[attachMember 已在 O0c]/dropImageIntoStoryboard/toggleCollapse）；薄壳=分镜域守卫+capture+Inner+dispatchProjectionDiff；守卫收窄 R4（removeNodeFromGroup:1307/ungroup:1201/dropIntoGroup:1337 薄壳移除 hasActiveProcessInGroup）；ALLOW_FN 条目随迁改名
-- [ ] **去闸门（终裁 43——需求 5 物理前提）**：**extent:'parent' 10 生产写点全链清零**（canvasStore:255/1187/1274/1289/1371/1386/1442/1559/1601/1951）+nodeOrder:37 恢复期补全删（断言"cs 节点不存在 extent 键"）；**拖拽期 clamp 块 canvasStore:782-799 整删**（placement 分支 B 两处 :1268/:1365 保留——F4 维持）；**groups.test:328-396 夹取用例三条改写为"不夹取"断言+夹具 extent:'parent' ~35 行同批清理（终裁 54⑤——断言改而夹具仍构造被禁键=垫片式夹具；加"夹具不得含 extent"守卫）**；锚：子节点拖出组帧外松手⇒脱离∧拖回位置逐位保留
-- [ ] **两个旧基线同批重算**：group-frame-writer-guard ALLOW_FN（终态={reconcileGroupGeometry}——arrangeSelection 等既有合法项随 refit 退役移除）+canvas-dispatch-ratchet BASELINE（O0b 删项后重算——commit message 注明理由）
-- [ ] commit `refactor(canvas): Inner 化六 action+extent/clamp 去闸门+两基线重算（Spec B Inner+终裁43）`
+- [x] 六 action Inner 抽取（removeNodeFromGroup/dropIntoGroup/ungroup/addNode[attachMember 已在 O0c]/dropImageIntoStoryboard/toggleCollapse）；薄壳=分镜域守卫+capture+Inner+dispatchProjectionDiff；守卫收窄 R4（removeNodeFromGroup:1307/ungroup:1201/dropIntoGroup:1337 薄壳移除 hasActiveProcessInGroup）；ALLOW_FN 条目随迁改名
+- [x] **去闸门（终裁 43——需求 5 物理前提）**：**extent:'parent' 10 生产写点全链清零**（canvasStore:255/1187/1274/1289/1371/1386/1442/1559/1601/1951）+nodeOrder:37 恢复期补全删（断言"cs 节点不存在 extent 键"）；**拖拽期 clamp 块 canvasStore:782-799 整删**（placement 分支 B 两处 :1268/:1365 保留——F4 维持）；**groups.test:328-396 夹取用例三条改写为"不夹取"断言+夹具 extent:'parent' ~35 行同批清理（终裁 54⑤——断言改而夹具仍构造被禁键=垫片式夹具；加"夹具不得含 extent"守卫）**；锚：子节点拖出组帧外松手⇒脱离∧拖回位置逐位保留
+- [x] **两个旧基线同批重算**：group-frame-writer-guard ALLOW_FN（终态={reconcileGroupGeometry}——arrangeSelection 等既有合法项随 refit 退役移除）+canvas-dispatch-ratchet BASELINE（O0b 删项后重算——commit message 注明理由）
+- [x] commit `refactor(canvas): Inner 化六 action+extent/clamp 去闸门+两基线重算（Spec B Inner+终裁43）`
+  - 完成注记（2026-10-03）：commit 28c95b10+d953c198（质评收口：嵌套事务注记[dropIntoGroupInner→ungroup 壳/dropImageIntoStoryboardInner→attachMember patchGroupData=非传递性 dispatch-free——B4'/B5' 消费注记]+ALLOW_FN 名义强制注+geometryWriterRegistry stale 清）；extent 实测 15 写点（9×'parent'+6×undefined）非 plan 估 10——全清零+生产 census 守卫+夹具纯度守卫[stores 测试面+fixtures]；ratchet BASELINE=14 维持（B6-3 所记+1 为 dispatchCanvasIntent 面非 dispatchProjectionDiff——理由入 commit message）；R4 收窄后过渡洞=B5'-2 紧随接管（plan 授权相邻批过渡；三面守卫从未有测试断言）；**实现期发现**：dropImageIntoStoryboard 载荷零命中路径守卫前置薄壳（空 diff 仍触发 reconcile('cs') DEV config 门对旧克隆缺 config 抛——F2 契约）；addNodeAndBatchConnect 收敛单行消费 addNodeInner（B6-3 迁移注释核销；selected:true 逐位保持——spec 评审误报由质评勘误）
 
 ---
 
