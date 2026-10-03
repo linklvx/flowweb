@@ -141,7 +141,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     expect(slot).toBe(1);                                     // 首空槽（cells=['c1',null]——槽序语义）
     const z = csNode('z');
     expect(z.parentId).toBe('sb');
-    expect(z.extent).toBe('parent');
+    expect('extent' in z).toBe(false);                          // 去闸门（终裁 43）：cs 节点无 extent 键
     expect(z.position).toEqual({ x: 0, y: 0 });               // 分镜子坐标无意义（mergeStoryboard/addImageToStoryboardCell 同款归零）
     expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);
     // doc 面（membership=内容真源）：parentId 落键；position 剥键（键集表"分镜子无 position"——
@@ -167,7 +167,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     const beforeDoc = Y.encodeStateAsUpdate(d);
     useCanvasStore.getState().addToGroup('sb', 'z');
     useCanvasStore.getState().dropIntoGroup('z', 'sb');
-    expect(snapCs()).toBe(beforeCs);                          // cs 零写（parentId/extent/cells 全不动）
+    expect(snapCs()).toBe(beforeCs);                          // cs 零写（parentId/cells 全不动）
     expect(Buffer.from(Y.encodeStateAsUpdate(d))).toEqual(Buffer.from(beforeDoc));   // doc 零写
   });
 

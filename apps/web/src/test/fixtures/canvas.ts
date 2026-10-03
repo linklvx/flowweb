@@ -25,7 +25,7 @@ export function makeChild(o: MakeChildOverrides): Node {
     id: o.id,
     type: o.type ?? 'imageGen',
     position: o.position ?? { x: 0, y: 0 },
-    ...(o.parentId != null ? { parentId: o.parentId, extent: 'parent' as const } : {}),
+    ...(o.parentId != null ? { parentId: o.parentId } : {}),
     ...(o.width != null ? { width: o.width } : {}),
     ...(o.height != null ? { height: o.height } : {}),
     data: o.data ?? {},

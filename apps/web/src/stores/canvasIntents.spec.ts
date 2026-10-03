@@ -821,7 +821,7 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     const before = captureStoreProjection();
     // 新子落 cs：position {0,0}=构造默认（dropImageIntoStoryboard/mergeStoryboard 同款——纯 DOM 宫格坐标无意义）
     const child = {
-      id: 'c1', type: 'imageGen', parentId: 'sb1', extent: 'parent',
+      id: 'c1', type: 'imageGen', parentId: 'sb1',
       position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done' },
     };
     useCanvasStore.setState({ nodes: [sbGroup, child] as any });
@@ -871,7 +871,7 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
       data: { groupType: 'normal' },
     };
     const c1 = {
-      id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent',
+      id: 'c1', type: 'imageGen', parentId: 'g1',
       position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done' },
     };
     fillDoc(doc, toDocRecords([g1, c1] as any, {}) as any, []);   // O0b-0 同构链（manual 组保留/子 abs）

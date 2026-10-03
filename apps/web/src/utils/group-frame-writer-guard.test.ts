@@ -37,14 +37,47 @@ function collectProdFiles(): string[] {
 }
 
 describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为证明靠守恒/幂等/rel 界断言）', () => {
-  // 函数级允许清单（R2a-5 扩 arrangeSelection: / R2c-4 扩 arrangeGroupChildren:——新命令是合法几何写者，登记而非绕开。
-  // O0b-5：applyGroupFrame 退役摘除——组框收缩/重算统一归 reconcile 单写者）
-  const ALLOW_FN = new Set(['addToGroup:', 'dropIntoGroup:', 'arrangeSelection:', 'arrangeGroupChildren:']);
+  // 函数级允许清单终态（Inner 化批重算——组帧唯一合法写者）：reconcileGroupGeometry（canvasCollabRuntime
+  // 实现，O0b-5 帧写单写者）。旧条目清退：addToGroup/dropIntoGroup=O0b-5 起组帧零写（placement 域仅新子
+  // rel，扩框归差分首行 reconcile('cs') 派生）；arrangeSelection/arrangeGroupChildren=refit 退役后帧改
+  // reconcile 派生（跃迁表 arrange 行——命令体直写面=position，帧三键经漏斗尾/差分首行 reconcile 单写）
+  const ALLOW_FN = new Set(['reconcileGroupGeometry']);
   // 函数声明行形态 "  name: (…) => {"（store 工厂两空格缩进）——块从声明行到下一个声明行
   const declRe = /^  ([a-zA-Z]+):/;
 
   it('refitGroupBounds 零残留', () => {
     expect(readFileSync(FILE, 'utf8')).not.toMatch(/refitGroupBounds/);
+  });
+
+  it('ALLOW_FN 终态锚（Inner 化批重算）：组帧唯一写者 reconcileGroupGeometry 在册且实现驻 canvasCollabRuntime', () => {
+    expect([...ALLOW_FN]).toEqual(['reconcileGroupGeometry']);
+    const rt = readFileSync(path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8');
+    expect(rt).toMatch(/export function reconcileGroupGeometry\(/);
+  });
+
+  it('去闸门（终裁 43）：canvasStore 生产代码零 extent 写点（cs 节点不存在 extent 键；nodeOrder 恢复期补全已随 O0d 删，此处守 canvasStore 面）', () => {
+    const src = readFileSync(FILE, 'utf8');
+    const codeLines = src.split('\n').map((l) => l.trim())
+      .filter((l) => !l.startsWith('//') && !l.startsWith('*') && !l.startsWith('/*'));
+    expect(codeLines.filter((l) => l.includes('extent'))).toEqual([]);
+  });
+
+  it('夹具纯度守卫（终裁 54⑤）：stores 测试面+夹具构造器零 extent 键构造（断言改而夹具仍构造被禁键=垫片式夹具）', () => {
+    const storesDir = path.join(REPO_ROOT, 'apps/web/src/stores');
+    const files = readdirSync(storesDir)
+      .filter((f) => /\.(test|spec)\.ts$/.test(f))
+      .map((f) => path.join(storesDir, f));
+    files.push(path.join(REPO_ROOT, 'apps/web/src/test/fixtures/canvas.ts'));
+    const offenders: string[] = [];
+    for (const file of files) {
+      for (const raw of readFileSync(file, 'utf8').split('\n')) {
+        // 键构造形态 `extent:`（断言形如 `.get('extent')` / `'extent' in n` 无冒号——不误伤）
+        if (/extent\s*:/.test(raw) && !raw.trim().startsWith('//')) {
+          offenders.push(`${path.basename(file)}: ${raw.trim()}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it('O0b-5 census：refit 族+markManuallyResized+manuallyResized 生产 0 命中（计数形态=非注释/import/re-export/类型声明/函数定义行；扫描域=apps+packages 生产源码）', () => {
@@ -75,8 +108,7 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
     expect((shared as unknown as Record<string, unknown>).shouldAutoRefit).toBeUndefined();
   });
 
-  it('arrangeSelection 内允许直写 position（R2a-5 几何写者登记正例——ALLOW_FN 白名单在册 + 块内直写 position 实证）', () => {
-    expect(ALLOW_FN.has('arrangeSelection:')).toBe(true);
+  it('arrangeSelection 命令体直写 position 实证（R2a-5——帧写不涉：帧三键经 runCommand 尾差分首行 reconcile 派生，跃迁表 arrange 行）', () => {
     const lines = readFileSync(FILE, 'utf8').split('\n');
     const block: string[] = [];
     let inBlock = false;
@@ -91,8 +123,7 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
     expect(block.some((l) => l.includes('position:'))).toBe(true);  // 块内直写 position（排列写回语义）
   });
 
-  it('arrangeGroupChildren 内允许直写 position（R2c-4 几何写者登记正例——子 rel 直写是合法几何写）', () => {
-    expect(ALLOW_FN.has('arrangeGroupChildren:')).toBe(true);
+  it('arrangeGroupChildren 命令体直写 position 实证（R2c-4——子 rel 直写；帧写不涉，同 arrangeSelection 口径）', () => {
     const lines = readFileSync(FILE, 'utf8').split('\n');
     const block: string[] = [];
     let inBlock = false;
@@ -103,7 +134,7 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
       if (inBlock) block.push(line);
     }
     expect(block.length).toBeGreaterThan(0);                        // 块存在（防正例对空集恒真）
-    expect(block.some((l) => l.includes('position:'))).toBe(true);  // 块内直写 position（子 rel+组框写回语义）
+    expect(block.some((l) => l.includes('position:'))).toBe(true);  // 块内直写 position（子 rel 写回语义）
   });
 
   it('折叠尺寸直写零处（O0b-5——折叠分支 envelope 写删：折叠档尺寸派生统一归 reconcile 写域① collapsed 档；canvasStore 代码行零引用+220×160 字面量零命中——R2d-2 起禁当前值内联，防回退硬编码）', () => {

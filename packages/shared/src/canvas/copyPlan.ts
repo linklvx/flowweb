@@ -5,8 +5,8 @@ import type { CanvasNodeRecord } from './nodeEnvelope';
  *  records=调用方经 resolveNodeData 组装的记录集（组=cs data、普通=ns 全量）；含 ids 全员的父记录
  *  超集（detached 绝对位换算需父 position——父仅作坐标参照，不被复制）。 */
 
-/** 副本记录：信封 + selected（UI 选择态，store 落位时逐字映射）。extent 不落信封（doc 无此键）——
- *  子副本 extent='parent' 由 store 落位层按 parentId 推导补齐，detached 顶层化副本无键（=undefined）。 */
+/** 副本记录：信封 + selected（UI 选择态，store 落位时逐字映射）。extent 不落信封（doc 无此键；
+ *  去闸门终裁 43 后 cs 节点亦无 extent 键——落位层只补 parentId，detached 顶层化副本无键）。 */
 export interface CopyRecord extends CanvasNodeRecord {
   selected?: boolean;
 }

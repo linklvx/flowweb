@@ -36,7 +36,7 @@ const expectParentBeforeChild = (groupId: string, childId: string) => {
 };
 
 describe('groupNodes', () => {
-  it('创建组节点并挂靠子节点（相对坐标 + extent）', () => {
+  it('创建组节点并挂靠子节点（相对坐标——去闸门终裁 43：cs 节点不存在 extent 键）', () => {
     const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     const s = useCanvasStore.getState();
     const group = s.nodes.find((n) => n.id === groupId)!;
@@ -48,7 +48,7 @@ describe('groupNodes', () => {
     expect(group.height).toBe(370);
     const child1 = s.nodes.find((n) => n.id === 'n1')!;
     expect(child1.parentId).toBe(groupId);
-    expect(child1.extent).toBe('parent');
+    expect('extent' in child1).toBe(false);   // 去闸门（终裁 43 需求 5 物理前提）：cs 节点无 extent 键
     expect(child1.position).toEqual({ x: 20, y: 100 }); // 相对组左上角：100 - 0
     const child2 = s.nodes.find((n) => n.id === 'n2')!;
     expect(child2.position).toEqual({ x: 420, y: 50 });
@@ -104,8 +104,8 @@ describe('ungroup', () => {
           groupType: 'storyboard', cells: ['c1', 'c2'],
           storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
         } },
-        { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'c2', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'c2', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
       ] as any,
       edges: [], selectedId: null,
     });
@@ -176,8 +176,8 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
     // 播种乱序组：子在前父在后（历史数据/快照恢复可能出现的顺序）
     useCanvasStore.setState({
       nodes: [
-        { id: 'c1', type: 'imageGen', parentId: 'g', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'c2', type: 'imageGen', parentId: 'g', extent: 'parent', position: { x: 340, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'c1', type: 'imageGen', parentId: 'g', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'c2', type: 'imageGen', parentId: 'g', position: { x: 340, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
         { id: 'g', type: 'group', position: { x: 100, y: 100 }, width: 700, height: 220, data: { groupType: 'normal' } },
       ] as any,
     });
@@ -233,8 +233,8 @@ describe('renameGroup（2d-6）', () => {
   // doc 写路径零验证、断言恒绿。
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
   ];
   const setupRig = () => {
     const d = new Y.Doc();
@@ -300,8 +300,8 @@ describe('convertGroup 清键（F18——savedSize 键已随 O0c-3 全链删；�
     useCanvasStore.setState({
       nodes: [
         { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 220, data: { groupType: 'normal', collapsed: true, name: '旧名' } },
-        { id: 'img1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'img2', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
       ] as any,
       edges: [], selectedId: null,
     });
@@ -317,37 +317,39 @@ describe('convertGroup 清键（F18——savedSize 键已随 O0c-3 全链删；�
   });
 });
 
-describe('组内边距保留区夹取（onNodesChange）', () => {
+describe('去闸门（终裁 43 需求 5 物理前提）：拖拽期不夹取（onNodesChange）', () => {
   // groupNodes(['n1','n2']) 后：group(80,0,740×370)；n1 rel(20,100) 300×200；n2 rel(420,50) 300×300
   const setupGroup = () => useCanvasStore.getState().groupNodes(['n1', 'n2']);
 
-  it('顶排子节点 y<50 的 position 变更被夹回 50', () => {
+  // 锚：子节点拖出组帧外 ⇒ cs 位置逐位保留（不夹回）——脱离判定归 B5' 松手路由；
+  // placement 域 clamp（addToGroup/dropIntoGroup 分支 B）是另一域（F4 维持）
+  it('顶排子节点 y<50 的 position 变更原样保留（不夹回）', () => {
     setupGroup();
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n2', position: { x: 420, y: 10 }, dragging: true },
     ]);
     expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n2')!.position)
-      .toEqual({ x: 420, y: 50 });
+      .toEqual({ x: 420, y: 10 });
   });
 
-  it('x<20 夹回 20；x 超出右边距夹回 组宽-20-子宽', () => {
+  it('x<20 与 x 超出右边距均原样保留（不夹回）', () => {
     setupGroup();
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 5, y: 100 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(20);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(5);
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 500, y: 100 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(420);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(500);
   });
 
-  it('y 超出下边距夹回 组高-20-子高', () => {
+  it('y 超出下边距原样保留（不夹回）', () => {
     setupGroup();
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 20, y: 300 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.y).toBe(150);
+    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.y).toBe(300);
   });
 
   it('无父节点的 position 变更不受影响', () => {
@@ -358,25 +360,7 @@ describe('组内边距保留区夹取（onNodesChange）', () => {
       .toEqual({ x: -999, y: -999 });
   });
 
-  it('分镜组子节点不受影响（groupType 门控）', () => {
-    useCanvasStore.setState({
-      nodes: [
-        { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182, data: {
-          groupType: 'storyboard', cells: ['c1'],
-          storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
-        } },
-        { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: {} },
-      ] as any,
-      edges: [], selectedId: null,
-    });
-    useCanvasStore.getState().onNodesChange([
-      { type: 'position', id: 'c1', position: { x: -999, y: -999 } },
-    ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'c1')!.position)
-      .toEqual({ x: -999, y: -999 });
-  });
-
-  it('子节点 dimensions 变更（setAttributes）触发即时夹取', () => {
+  it('子节点 dimensions 变更（setAttributes）wh 落键且 position 不夹取', () => {
     setupGroup();
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 420, y: 100 } },
@@ -386,18 +370,8 @@ describe('组内边距保留区夹取（onNodesChange）', () => {
     ]);
     const n1 = useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!;
     expect(n1.width).toBe(500);
-    expect(n1.position.x).toBe(220); // 740-20-500
-    expect(n1.position.y).toBe(100); // yMax=370-20-100=250 > 100，不动
-  });
-
-  it('select-only 与无 position 字段的变更不夹取', () => {
-    setupGroup();
-    useCanvasStore.getState().onNodesChange([
-      { type: 'select', id: 'n1', selected: true },
-      { type: 'position', id: 'n1', dragging: false } as any,
-    ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position)
-      .toEqual({ x: 20, y: 100 });
+    expect(n1.position.x).toBe(420); // 不夹回（旧夹取值=740-20-500=220）
+    expect(n1.position.y).toBe(100);
   });
 });
 
@@ -542,7 +516,7 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
     _setIntentDocForTest(d);
     const rig = [
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
       ...extra,
     ];
     fillDoc(d, toDocRecords(rig as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
@@ -769,8 +743,8 @@ describe('runCommand 公共件（2a-0）', () => {
   // doc 写路径零验证、断言恒绿。
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
   ];
   const setupRig = () => {
     const d = new Y.Doc();
@@ -883,7 +857,7 @@ describe('arrangeSelection（§4.3）', () => {
   it('参与项 <2 → no-op（组内单节点 detached 不动）+ 参与项 0/1 分别提示', () => {
     seed([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal' } },
-      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
       { id: 'r1', type: 'imageGen', position: { x: 500, y: 500 }, width: 100, height: 60, data: {} },
     ]);
     const warnSpy = vi.spyOn(message, 'warning');
@@ -905,8 +879,8 @@ describe('arrangeSelection（§4.3）', () => {
   it('detached 排除零位移 + excludedCount 计数提示（N 个组内节点未参与排列）', () => {
     seed([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 600, height: 400, data: { groupType: 'normal' } },
-      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-      { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 200, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 200, y: 50 }, width: 100, height: 60, data: {} },
       { id: 'r1', type: 'imageGen', position: { x: 1000, y: 0 }, width: 100, height: 60, data: {} },
       { id: 'r2', type: 'imageGen', position: { x: 1300, y: 300 }, width: 100, height: 60, data: {} },
     ]);
@@ -955,9 +929,9 @@ describe('arrangeSelection（§4.3）', () => {
     // 两框故意大于各自子 bbox（不满足 §4.8 不变量）——排列后仍一字不改=证明未 refit
     const { d } = seed([
       { id: 'gA', type: 'group', position: { x: 0, y: 0 }, width: 800, height: 600, data: { groupType: 'normal' } },
-      { id: 'a1', type: 'imageGen', parentId: 'gA', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'a1', type: 'imageGen', parentId: 'gA', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
       { id: 'gB', type: 'group', position: { x: 1200, y: 900 }, width: 400, height: 300, data: { groupType: 'normal' } },
-      { id: 'b1', type: 'imageGen', parentId: 'gB', extent: 'parent', position: { x: 30, y: 60 }, width: 100, height: 60, data: {} },
+      { id: 'b1', type: 'imageGen', parentId: 'gB', position: { x: 30, y: 60 }, width: 100, height: 60, data: {} },
     ]);
     const childrenBefore = JSON.stringify(useCanvasStore.getState().nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId, n.position]));
     useCanvasStore.getState().arrangeSelection(['gA', 'gB'], 'grid');
@@ -1050,8 +1024,8 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
     const d = new Y.Doc();
     _setIntentDocForTest(d);
     const group = { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } };
-    const a = { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {}, selected: true };
-    const b = { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} };
+    const a = { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {}, selected: true };
+    const b = { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} };
     try {
       fillDoc(d, toDocRecords([group, a, b] as any, {}) as any, []);   // O0b-0 同构链
       useCanvasStore.setState({ nodes: [group, a, b] as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
@@ -1081,8 +1055,8 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
   // dispatchProjectionDiff 算 0 intents 后直接 return，doc 写路径零验证、断言恒绿。
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A', color: 'red' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f1', prompt: 'ns-fresh' } },
-    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f2', prompt: 'p-b' } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f1', prompt: 'ns-fresh' } },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f2', prompt: 'p-b' } },
   ];
   const seed = (nodes: unknown[], edges: unknown[] = []) => {
     const d = new Y.Doc();
@@ -1132,7 +1106,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     seed([
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240,
         data: { groupType: 'normal', name: 'A', color: 'red', collapsed: true } },
-      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: { fileId: 'f1' } },
+      { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: { fileId: 'f1' } },
     ]);
     try {
       useCanvasStore.getState().duplicateNodes(['g1']);
@@ -1146,7 +1120,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
         data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
       // cs 面 position {0,0}=构造默认（三层表第三层）；doc 面剥键由 seed helper 统一处理（O0a-1）
-      { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
     ]);
     try {
       useCanvasStore.getState().duplicateNodes(['sg']);
@@ -1251,8 +1225,8 @@ describe('setGroupColor（2c-3）', () => {
   // doc 写路径零验证、断言恒绿。
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
   ];
   const setupRig = () => {
     const d = new Y.Doc();
@@ -1348,8 +1322,8 @@ describe('arrangeGroupChildren（2c-4）', () => {
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 100, y: 100 },
       data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
   ];
   const setupRig = (nodes: unknown[] = rigNodes()) => {
     const d = new Y.Doc();
@@ -1420,8 +1394,8 @@ describe('arrangeGroupChildren（2c-4）', () => {
     const { d } = setupRig([
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 800, height: 600,
         data: { groupType: 'normal', collapsed: true } },
-      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-      { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
+      { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
     ]);
     try {
       let transacts = 0;
@@ -1440,8 +1414,8 @@ describe('arrangeGroupChildren（2c-4）', () => {
       { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182,
         data: { groupType: 'storyboard', cells: ['c1', 'c2'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
-      { id: 'c1', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-      { id: 'c2', type: 'imageGen', parentId: 'sg', extent: 'parent', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
     ]);
     try {
       let transacts = 0;
@@ -1458,7 +1432,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
   it('仅普通组：<2 子节点 no-op+提示', () => {
     const { d } = setupRig([
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250, data: { groupType: 'normal' } },
-      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
     ]);
     try {
       let transacts = 0;
@@ -1507,8 +1481,8 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
   const rigNodes = () => [
     // auto 组夹具：g1 带子、无帧键（O0b-5：auto=cs 派生帧——doc 恒 0 帧键；折叠 cs=COLLAPSED_SIZE 派生、展开重派生 bbox）
     { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 300, y: 200 }, width: 120, height: 80, data: {} },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 300, y: 200 }, width: 120, height: 80, data: {} },
     // manual 组夹具：gm 500×350 帧三键（O0b-5：manual oracle=doc 帧键形态——终裁 82 折叠不剥键，doc 三键=展开态密封源）
     { id: 'gm', type: 'group', position: { x: 1000, y: 1000 }, width: 500, height: 350,
       data: { groupType: 'normal' } },

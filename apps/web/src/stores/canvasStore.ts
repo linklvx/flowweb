@@ -173,6 +173,10 @@ export interface CanvasState {
   hasActiveProcessInGroup: (groupId: string) => boolean;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>, envelope?: { width?: number; height?: number }) => string;
+  /** Inner 化（Spec B B4'/B5' 前置）：建点命令体纯构造核——id 生成+类型解析+类型默认 data/wh+
+   *  envelope 显式值覆写。零 store 写；addNode 薄壳与 addNodeAndBatchConnect（B6-3 收敛）共用，
+   *  B4'/B5' 手势路径直接消费。返回 type 恒非空（构造即落 resolvedType——收窄 RF Node 可选类型）。 */
+  addNodeInner: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>, envelope?: { width?: number; height?: number }) => Node & { type: string };
   addChildNode: (sourceId: string, data: Record<string, unknown>) => string | null;
   addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[], options?: AddChildNodesOptions) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
@@ -205,11 +209,18 @@ export interface CanvasState {
   cancelNodeProcess: (nodeId: string) => void;
   groupNodes: (nodeIds: string[]) => string;
   ungroup: (groupId: string) => void;
+  /** Inner 化（Spec B）：解散纯变更核（分镜 placeGrid 重排+子出组 abs 还原+ns 组条目删）——
+   *  capture/dispatch 归薄壳 ungroup；B4'/B5' 手势路径直接消费。 */
+  ungroupInner: (groupId: string) => void;
   addToGroup: (groupId: string, nodeId: string) => void;
   /** O0c-3 分镜组纯成员原语（membership=内容真源、cells=槽序——卡三）——见实现 JSDoc。
    *  返回入格槽 index；非分镜组/满员/非法入参 → null 零写。 */
   attachMember: (groupId: string, nodeId: string) => number | null;
   removeNodeFromGroup: (groupId: string, nodeId: string) => void;
+  /** Inner 化（Spec B）：移出组纯变更核（分镜/普通两分支 cs 写）——返回分镜清槽后的 cells
+   *  （null=非分镜/未命中槽；清槽时序归薄壳=信封差分之后）。capture/dispatch/空组善后归薄壳；
+   *  B4'/B5' 手势路径直接消费。 */
+  removeNodeFromGroupInner: (groupId: string, nodeId: string) => (string | null)[] | null;
   renameGroup: (groupId: string, name: string) => void;
   /** 2d-6 右键重命名请求（UI 瞬态信号，不入 doc）——见实现 JSDoc */
   renameRequest: { groupId: string; nonce: number } | null;
@@ -217,6 +228,9 @@ export interface CanvasState {
   /** R2c-3 组色写点：合法 palette key 落 data.color，undefined=清色；未知 key 拒写（守卫先于 runCommand——零 transact） */
   setGroupColor: (groupId: string, key?: GroupColorKey) => void;
   toggleCollapse: (groupId: string) => void;
+  /** Inner 化（Spec B）：折叠/展开纯变更核（cs 先写+折叠分支子 selected 清——O0b-4 序）——
+   *  dispatch 归薄壳（同 patchGroupData/patchGroupDataInner 拆层先例）；B4'/B5' 手势路径直接消费。 */
+  toggleCollapseInner: (groupId: string, collapsing: boolean) => void;
   patchGroupData: (groupId: string, patch: Record<string, unknown>) => void;
   /** 组 data 纯写层（v2.1 拆层）：patchGroupData 去 dispatch 的零 dispatch 版——runCommand.fn 内专用 */
   patchGroupDataInner: (groupId: string, patch: Record<string, unknown>) => void;
@@ -230,7 +244,14 @@ export interface CanvasState {
    *  守卫先于 runCommand（零 transact）：缺失/折叠/分镜/<2 子 → 提示早退。见实现 JSDoc。 */
   arrangeGroupChildren: (groupId: string, mode: ArrangeMode) => void;
   dropIntoGroup: (nodeId: string, groupId: string) => void;
+  /** Inner 化（Spec B）：拖放入组纯变更核——跨组 abs 还原+auto/manual 分档 rel（placement 域 B：
+   *  clamp 夹入界内——F4 维持）+新子 membership 写+源组空解组善后。入参守卫/折叠展开/capture/
+   *  dispatch 归薄壳；B5' 松手路径直接消费。 */
+  dropIntoGroupInner: (nodeId: string, groupId: string) => void;
   dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
+  /** Inner 化（Spec B）：分镜落图纯变更核——multiImage 展开/完成图经 attachMember 入格+溢出落组旁
+   *  +源组善后。执行中守卫/分镜域守卫/capture/dispatch 归薄壳；B5' 松手路径直接消费。 */
+  dropImageIntoStoryboardInner: (groupId: string, nodeId: string) => void;
   mergeStoryboard: (nodeIds: string[]) => string;
   convertGroup: (groupId: string, target: 'normal' | 'storyboard') => void;
   updateStoryboardConfig: (groupId: string, patch: Partial<StoryboardConfig>) => void;
@@ -273,7 +294,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const copyEnvelopes = plan.copies.map((c) => ({
       id: c.id,
       type: c.type,
-      ...(c.parentId != null ? { parentId: c.parentId, extent: 'parent' as const } : {}),
+      ...(c.parentId != null ? { parentId: c.parentId } : {}),
       ...(c.width != null ? { width: c.width } : {}),
       ...(c.height != null ? { height: c.height } : {}),
       position: c.position,
@@ -362,14 +383,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   connUi: 'ok',
   editorDirty: false,
 
-  addNode: (type, position, dataOverride, envelope) => {
+  /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（纯函数出参）。 */
+  addNodeInner: (type, position, dataOverride, envelope): Node & { type: string } => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
     const baseData: Record<string, unknown> = resolvedType === 'textInput' ? { content: '' }
       : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片', extConfig: { ...IMAGE_EXT_DEFAULTS }, allImages: [] }
       : {};
     const nodeData = dataOverride ? { ...baseData, ...dataOverride } : baseData;
-    const node: Node = {
+    const node: Node & { type: string } = {
       id,
       type: resolvedType,
       position,
@@ -387,15 +409,22 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // 显式 wh 优先于类型默认值，同 intent 单 transact 落 doc（不拆第二事务）
     if (envelope?.width != null) node.width = envelope.width;
     if (envelope?.height != null) node.height = envelope.height;
+    return node;
+  },
+
+  addNode: (type, position, dataOverride, envelope) => {
+    // Inner 化薄壳：构造核归 addNodeInner + dispatch + 选择态/ns 双写
+    const node = get().addNodeInner(type, position, dataOverride, envelope);
+    const id = node.id;
     // 批4b-1 换芯：协作语义（doc 首写+投影回填）走意图漏斗——canEdit 假时 dispatch doc+store
     // 双零写，下方 set 走 append 分支 = 既有"readOnly 可加节点后回弹"语义保留同型
     dispatchCanvasIntent({
       type: 'addNode',
       node: {
-        id, type: resolvedType, position,
+        id, type: node.type, position,
         ...(node.width != null ? { width: node.width } : {}),
         ...(node.height != null ? { height: node.height } : {}),
-        data: nodeData,
+        data: node.data as Record<string, unknown>,
       },
     }, Origin.LocalUser);
     set((s) => {
@@ -411,8 +440,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // Also populate nodeStore so ImageGenNode/ImageConfigPanel can read node data
     useNodeStore.getState().addNode({
       id,
-      type: resolvedType,
-      data: nodeData as any,
+      type: node.type,
+      data: node.data as any,
     });
     return id;
   },
@@ -750,31 +779,20 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   addNodeAndBatchConnect: (type, position, sourceIds) => {
-    // B6-3 点击建点/+号拖线落空=建点+连线（拍板②）：建点命令体=复用 addNode 类型默认体（v3.17 终裁
-    // 65③——执行序在 Inner 化批前，addNodeInner 尚未抽取，此处内联同形段；Inner 化批抽取时收敛）
-    // +源集→新节点 N 边同批单 transact（addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
-    const id = getId('node');
-    const resolvedType = nodeTypeMap[type] || type;
-    const baseData: Record<string, unknown> = resolvedType === 'textInput' ? { content: '' }
-      : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片', extConfig: { ...IMAGE_EXT_DEFAULTS }, allImages: [] }
-      : {};
-    const node: Node = { id, type: resolvedType, position, data: baseData, selected: true };
-    if (resolvedType === 'textInput') {
-      node.width = 300;
-      node.height = 300;
-    }
-    if (resolvedType === 'videoEdit') {
-      node.width = 320; // addNode 同款：产物位置 fallback 链落 300 会致首渲染偏移
-    }
+    // B6-3 点击建点/+号拖线落空=建点+连线（拍板②）：建点命令体=addNodeInner（Inner 化批收敛——
+    // v3.17 终裁 65③ 的"Inner 化批随迁改名"迁移注释核销）+源集→新节点 N 边同批单 transact
+    // （addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
+    const node = get().addNodeInner(type, position);
+    const id = node.id;
     const edges = batchConnectEdges(sourceIds, id); // 新目标 id ⇒ 全新 handle: 边
     dispatchCanvasIntent([
       {
         type: 'addNode',
         node: {
-          id, type: resolvedType, position,
+          id, type: node.type, position,
           ...(node.width != null ? { width: node.width } : {}),
           ...(node.height != null ? { height: node.height } : {}),
-          data: baseData,
+          data: node.data as Record<string, unknown>,
         },
       },
       ...edges.map((e) => ({ type: 'upsertEdge' as const, edge: { id: e.id, source: e.source, target: e.target } })),
@@ -789,7 +807,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         selectedId: id,
       };
     });
-    useNodeStore.getState().addNode({ id, type: resolvedType, data: baseData as any });
+    useNodeStore.getState().addNode({ id, type: node.type, data: node.data as any });
     return id;
   },
 
@@ -895,35 +913,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (structIntents.length > 0) dispatchCanvasIntent(structIntents, Origin.LocalUser);
     // O0b-2 (iii)：固化独立 Geometry transact——不与 LocalUser 提交同 transact 合批（终裁 59⑥）
     dispatchFixtureSizeIntents(fixCandidates);
-    set((s) => {
-      const nextNodes = applyNodeChanges(changes, s.nodes) as Node[];
-      // 组内边距保留区：只夹取本批 position/dimensions 变更中、普通组的子节点
-      const changedIds = new Set(
-        changes
-          .filter((c) => (c.type === 'position' && c.position != null) || c.type === 'dimensions')
-          .map((c) => (c as any).id),
-      );
-      let nodes = nextNodes;
-      if (changedIds.size > 0) {
-        const byId = new Map(nextNodes.map((n) => [n.id, n]));
-        nodes = nextNodes.map((n) => {
-          if (!changedIds.has(n.id) || !n.parentId) return n;
-          const parent = byId.get(n.parentId);
-          if (!parent || parent.type !== 'group' || (parent.data as any)?.groupType === 'storyboard') return n;
-          // 共享守卫 clampChildIntoGroup（Task 18——与 placement 分支 B 同源）：组宽高不可用/退化跳过夹取。
-          // 子尺寸 measured 夹层保留（纪律三例外域——measured 唯一保留域=拖拽期 clamp）
-          const clamped = clampChildIntoGroup(
-            n.position,
-            { width: n.width ?? n.measured?.width ?? DEFAULT_CHILD_SIZE.width,
-              height: n.height ?? n.measured?.height ?? DEFAULT_CHILD_SIZE.height },
-            { width: parent.width ?? parent.measured?.width, height: parent.height ?? parent.measured?.height },
-          );
-          if (clamped.x === n.position.x && clamped.y === n.position.y) return n;
-          return { ...n, position: clamped };
-        });
-      }
-      return { nodes };
-    });
+    // 去闸门（终裁 43 需求 5 物理前提）：拖拽期 clamp 块整删——子节点拖出组帧外 cs 位置原样保留
+    // （脱离判定归 B5' 松手路由）；placement 域 clamp（addToGroup/dropIntoGroup 分支 B）是另一域（F4 维持）
+    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) as Node[] }));
 
     // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套
     // （DB 同步由 bindCanvasSync 订阅判脏 → 统一 runtime debounce 保存承担）
@@ -1245,7 +1237,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  （laid=绝对坐标——bbox 中心不变、平移不变）；③ 子 rel 写回（O0b-5 评审收口：组帧写删——
    *  帧≡bbox(laid)+padding 由 runCommand 尾差分首行 reconcile('cs') 派生[跃迁表 arrange 行]、
    *  子 rel 随新 origin 重基[写域②]——子新绝对位置恒=laid 守恒；命令体仅子 rel 直写
-   *  =abs−组当前 origin，group-frame-writer-guard ALLOW_FN 登记的合法几何写）。 */
+   *  =abs−组当前 origin——帧写不涉，ALLOW_FN 终态={reconcileGroupGeometry} 后命令体 position 直写
+   *  仍属合法（group-frame-writer-guard 正例锚））。 */
   arrangeGroupChildren: (groupId, mode) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
@@ -1294,7 +1287,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     setWithParentOrder((st) => ({
       nodes: [
         ...st.nodes.map((n) => nodeIds.includes(n.id)
-          ? { ...n, selected: false, parentId: id, extent: 'parent' as const,
+          ? { ...n, selected: false, parentId: id,
               position: { x: n.position.x - bounds.x, y: n.position.y - bounds.y } }
           : { ...n, selected: false }),
         groupNode,
@@ -1315,19 +1308,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     return id;
   },
 
-  ungroup: (groupId) => {
-    if (get().hasActiveProcessInGroup(groupId)) {
-      message.warning('组内有节点正在执行，请等待完成后再操作');
-      return;
-    }
+  /** Inner 化（Spec B）：解散纯变更核——见接口 JSDoc。 */
+  ungroupInner: (groupId) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
     const gd = group.data as any;
     const gp = group.position;
-    const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-    // 批4b-2 换芯：差分快照→组删+出组信封删键+abs 坐标还原经 dispatchProjectionDiff 落 doc
-    const before = captureStoreProjection();
     if (gd.groupType === 'storyboard') {
       const cfg = resolveStoryboardConfig(gd);
       const ratioKey = cfg.aspectRatio as keyof typeof ASPECT_RATIO_MAP;
@@ -1352,12 +1339,23 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       nodes: st.nodes
         .filter((n) => n.id !== groupId)
         .map((n) => n.parentId === groupId
-          ? { ...n, parentId: undefined, extent: undefined,
+          ? { ...n, parentId: undefined,
               position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
           : n),
       selectedId: st.selectedId === groupId ? null : st.selectedId,
     }));
     useNodeStore.getState().deleteNode(groupId);
+  },
+
+  ungroup: (groupId) => {
+    // R4 守卫收窄（Inner 化批）：组内执行中守卫移除——新家=B5'-2 松手路由预检（单一路由）；
+    // 键盘/程序化路由不再拦（守卫窄化）。执行中守卫仍驻 dropImageIntoStoryboard/convertGroup/
+    // resizeStoryboardGrid/clearStoryboard/removeStoryboardCell。
+    const group = get().nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    // 批4b-2 换芯：差分快照→组删+出组信封删键+abs 坐标还原经 dispatchProjectionDiff 落 doc
+    const before = captureStoreProjection();
+    get().ungroupInner(groupId);
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 
@@ -1397,7 +1395,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           );
       return {
         nodes: st.nodes.map((n) =>
-          n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: rel } : n),
+          n.id === nodeId ? { ...n, parentId: groupId, position: rel } : n),
       };
     });
     if (oldParent && node.parentId !== groupId && oldParent.type === 'group'
@@ -1412,8 +1410,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   /** O0c-3 attachMember：分镜组纯成员原语（membership=内容真源、cells=槽序——卡三）。分镜入格
    *  唯一通道（addToGroup/dropIntoGroup 公开面已挂分镜组守卫，与本法双向互斥）：
-   *  ① cs membership 写（parentId/extent/position 归零——分镜子坐标无意义，mergeStoryboard/
-   *    addImageToStoryboardCell 同款）；② 首空槽入格（cells 经 patchGroupData 单 set 单
+   *  ① cs membership 写（parentId/position 归零——分镜子坐标无意义，mergeStoryboard/
+   *    addImageToStoryboardCell 同款；去闸门终裁 43：cs 节点无 extent 键）；② 首空槽入格（cells 经 patchGroupData 单 set 单
    *    updateNodeData intent）；③ doc membership 信封（updateNodeEnvelope{parentId, position:
    *    undefined}——分镜子无 position 键集表，顶层入格前的 position 剥键走本 intent）。
    *  满员/非分镜组/非法入参 → null 零写（溢出处置=caller 策略——dropImageIntoStoryboard 落组旁）。 */
@@ -1434,7 +1432,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (slot < 0 || slot >= capacity) return null;    // 满员——零写
     setWithParentOrder((st) => ({
       nodes: st.nodes.map((n) =>
-        n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: { x: 0, y: 0 } } : n),
+        n.id === nodeId ? { ...n, parentId: groupId, position: { x: 0, y: 0 } } : n),
     }));
     while (cells.length < slot) cells.push(null);
     cells[slot] = nodeId;
@@ -1446,25 +1444,20 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     return slot;
   },
 
-  removeNodeFromGroup: (groupId, nodeId) => {
-    if (get().hasActiveProcessInGroup(groupId)) {
-      message.warning('组内有节点正在执行，请等待完成后再操作');
-      return;
-    }
+  /** Inner 化（Spec B）：移出组纯变更核——见接口 JSDoc。 */
+  removeNodeFromGroupInner: (groupId, nodeId) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
-    if (!group) return;
+    if (!group) return null;
     const gp = group.position;
     const gd = group.data as Record<string, unknown>;
-    // 批4b-2 换芯：差分快照→出组信封删键+abs 还原+组框收缩经 dispatchProjectionDiff 落 doc
-    const before = captureStoreProjection();
     let cellsClear: (string | null)[] | null = null;
     if (gd.groupType === 'storyboard') {
       // O0c-3 分镜移出三坏收口：①cells 清槽（槽=null——membership[parentId]与槽序[cells]两通道
       //   同步断开；此前槽位残留⇒GroupNode cellNodes 谓词漏渲染已移出节点）；②落位=
       //   placementBesideGroup 共享（基准=cs 派生帧 calcStoryboardSize——与 resizeStoryboardGrid
       //   溢出同源）；③出格信封 wh=当前格尺寸（O0b-2 终裁 78④——非入格旧值）。分镜组帧=config
-      //   权威不动；与普通分支共用下方 dispatchProjectionDiff 尾（棘轮调用点数不增）。
+      //   权威不动；与普通分支共用薄壳 dispatchProjectionDiff 尾（棘轮调用点数不增）。
       const cfg = resolveStoryboardConfig(gd);
       const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
       const cells = [...(gd.cells as (string | null)[] ?? [])];
@@ -1472,7 +1465,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       if (slot >= 0) { cells[slot] = null; cellsClear = cells; }   // 清槽非紧凑前移——cells=槽序语义（resize keep 切片同族）
       set((st) => ({
         nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
-          ? { ...n, parentId: undefined, extent: undefined,
+          ? { ...n, parentId: undefined,
               position: placementBesideGroup({ x: gp.x, y: gp.y, width: size.width }),
               width: normalizeSize(size.cellWidth), height: normalizeSize(size.cellHeight) }
           : n),
@@ -1480,11 +1473,22 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     } else {
       set((st) => ({
         nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
-          ? { ...n, parentId: undefined, extent: undefined,
+          ? { ...n, parentId: undefined,
               position: { x: n.position.x + gp.x, y: n.position.y + gp.y } }
           : n),
       }));
     }
+    return cellsClear;
+  },
+
+  removeNodeFromGroup: (groupId, nodeId) => {
+    // R4 守卫收窄（Inner 化批）：组内执行中守卫移除——新家=B5'-2 松手路由预检（单一路由）
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    // 批4b-2 换芯：差分快照→出组信封删键+abs 还原+组框收缩经 dispatchProjectionDiff 落 doc
+    const before = captureStoreProjection();
+    const cellsClear = get().removeNodeFromGroupInner(groupId, nodeId);
     // G1：移出后组框收缩归下方差分首行 reconcile('cs')（O0b-5 帧写单写者——manual/折叠/分镜档恒不动）
     dispatchProjectionDiff(before, Origin.LocalUser);
     // cells 清槽在信封差分之后（O0c-3 序）：反序会让 cells intent 漏斗尾 reconcile('doc') 以 doc 旧
@@ -1500,22 +1504,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     }
   },
 
-  dropIntoGroup: (nodeId, groupId) => {
-    if (get().hasActiveProcessInGroup(groupId)) {
-      message.warning('组内有节点正在执行，请等待完成后再操作');
-      return;
-    }
+  /** Inner 化（Spec B）：拖放入组纯变更核——见接口 JSDoc。 */
+  dropIntoGroupInner: (nodeId, groupId) => {
     const s = get();
-    let group = s.nodes.find((n) => n.id === groupId);
+    const group = s.nodes.find((n) => n.id === groupId);
     if (!group) return;
     const node = s.nodes.find((n) => n.id === nodeId);
     if (!node || node.type === 'group' || node.parentId === groupId) return;  // 守卫同 addToGroup（已在组 no-op）
-    // O0c-3 公开面 groupType 守卫（同 addToGroup）：分镜组成员写唯一通道=attachMember——拒零写
-    // （先于折叠展开——分镜组不可折叠，toggleCollapse 亦 no-op，守卫前置保语义零写）
-    if ((group.data as any).groupType === 'storyboard') return;
-    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开
-    group = get().nodes.find((n) => n.id === groupId);   // 展开三分派可能重算组框——重读防 gp 陈旧
-    if (!group) return;
     const gp = group.position;
     // 跨组：node.position 是相对旧父的 rel——先还原绝对坐标（守卫同 addToGroup）
     let absX = node.position.x, absY = node.position.y;
@@ -1527,9 +1522,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
                         height: node.height ?? DEFAULT_CHILD_SIZE.height };
     // O0b-5：auto 判定=isContentDerivedFrame（shouldAutoRefit 退役——addToGroup 同款）
     const auto = isContentDerivedGroup(group);
-    // 批4b-2 换芯：差分快照→入组信封+新子 rel 经 dispatchProjectionDiff 落 doc（addToGroup 同款；
-    // 前置 toggleCollapse 展开自带 dispatch，与本差分幂等）
-    const before = captureStoreProjection();
     setWithParentOrder((st) => {
       // 命令体仅 placement 域新子位写（addToGroup 同款——组帧零写）：auto 组扩框归收尾差分首行
       // reconcile('cs') 派生（既有成员绝对守恒 F33）；manual/折叠/分镜组帧一字不改、rel 夹入界内。
@@ -1541,7 +1533,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           );
       return {
         nodes: st.nodes.map((n) =>
-          n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: rel } : n),
+          n.id === nodeId ? { ...n, parentId: groupId, position: rel } : n),
       };
     });
     if (oldParent && node.parentId !== groupId && oldParent.type === 'group'
@@ -1549,14 +1541,31 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       // 源组善后（同 addToGroup——ungroup 对空组安全）；仍有子 → 源组收缩归收尾差分首行 reconcile('cs')
       get().ungroup(oldParent.id);
     }
+  },
+
+  dropIntoGroup: (nodeId, groupId) => {
+    // R4 守卫收窄（Inner 化批）：组内执行中守卫移除——新家=B5'-2 松手路由预检（单一路由）
+    const s = get();
+    let group = s.nodes.find((n) => n.id === groupId);
+    if (!group) return;
+    const node = s.nodes.find((n) => n.id === nodeId);
+    if (!node || node.type === 'group' || node.parentId === groupId) return;  // 守卫同 addToGroup（已在组 no-op）
+    // O0c-3 公开面 groupType 守卫（同 addToGroup）：分镜组成员写唯一通道=attachMember——拒零写
+    // （先于折叠展开——分镜组不可折叠，toggleCollapse 亦 no-op，守卫前置保语义零写）
+    if ((group.data as any).groupType === 'storyboard') return;
+    if ((group.data as any).collapsed) get().toggleCollapse(groupId); // 折叠态先展开（B5'-2：预检/折叠展开留在本函数体单层）
+    group = get().nodes.find((n) => n.id === groupId);   // 展开三分派可能重算组框——重读防 gp 陈旧
+    if (!group) return;
+    // 批4b-2 换芯：差分快照→入组信封+新子 rel 经 dispatchProjectionDiff 落 doc（addToGroup 同款；
+    // 前置 toggleCollapse 展开自带 dispatch，与本差分幂等）
+    const before = captureStoreProjection();
+    get().dropIntoGroupInner(nodeId, groupId);
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 
-  dropImageIntoStoryboard: (groupId, nodeId) => {
-    if (get().hasActiveProcessInGroup(groupId)) {
-      message.warning('组内有节点正在执行，请等待完成后再操作');
-      return;
-    }
+  /** Inner 化（Spec B）：分镜落图纯变更核——见接口 JSDoc。零命中分支（非完成图/其他类型/空展开）
+   *  早退零写——薄壳收尾差分零差异短路（无 transact）。 */
+  dropImageIntoStoryboardInner: (groupId, nodeId) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
     const node = s.nodes.find((n) => n.id === nodeId);
@@ -1569,9 +1578,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const cells = [...(gd.cells ?? [])];
     const gp = group.position;
     const gw = group.width ?? 0;
-    // 批4b-2 换芯：差分快照（multiImage 分支的展开+删源/溢出移位经收尾差分单 transact 落 doc；
-    // imageGen 分支的 attachMember 自带 dispatch[cells+信封]，差分幂等收其余）
-    const before = captureStoreProjection();
 
     // 判断节点类型
     if (node.type === 'multiImageGen') {
@@ -1592,7 +1598,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         const img = successImages[i];
         const id = newIds[i];
         const newNode: Node = {
-          id, type: 'imageGen', parentId: groupId, extent: 'parent' as const,
+          id, type: 'imageGen', parentId: groupId,
           position: { x: 0, y: 0 }, width: 320, height: 180,
           data: { status: 'done', fileId: img.id, __fromMulti: nodeId },
           selected: false,
@@ -1616,7 +1622,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           overflowNodes.push({
             ...newNode,
             parentId: undefined,
-            extent: undefined,
             position: placementBesideGroup({ x: gp.x, y: gp.y, width: gw }, overflowIdx),
           });
         }
@@ -1659,7 +1664,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         set((st) => ({
           nodes: st.nodes.map((n) =>
             n.id === nodeId ?
-              { ...n, parentId: undefined, extent: undefined,
+              { ...n, parentId: undefined,
                 position: placementBesideGroup({ x: gp.x, y: gp.y, width: gw }) } :
               n
           ),
@@ -1679,7 +1684,34 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       // 非完成图/其他类型：不处理
       return;
     }
+  },
 
+  dropImageIntoStoryboard: (groupId, nodeId) => {
+    if (get().hasActiveProcessInGroup(groupId)) {
+      message.warning('组内有节点正在执行，请等待完成后再操作');
+      return;
+    }
+    const s = get();
+    const group = s.nodes.find((n) => n.id === groupId);
+    const node = s.nodes.find((n) => n.id === nodeId);
+    if (!group || !node) return;
+    // 分镜域守卫①：非分镜组拒零写
+    if ((group.data as any).groupType !== 'storyboard') return;
+    // 分镜域守卫②（载荷域）：零命中路径（multiImage 无成功图/完成图未完成/其他类型）早退零写零
+    // diff——空 diff 也免（diff 首行 reconcile('cs') 的 DEV config 门对旧克隆缺 config 组会抛，
+    // F2 契约"克隆体上 store 命令不崩"；与旧分支内 return 同构，Inner 内同款守卫为直调防御）
+    const nd = node.data as any;
+    if (node.type === 'multiImageGen') {
+      if (!(nd.images ?? []).some((i: any) => i.status === 'success')) return;
+    } else if (node.type === 'imageGen' || node.type === 'imageExtGen') {
+      if (nd.status !== 'done') return;
+    } else {
+      return;
+    }
+    // 批4b-2 换芯：差分快照（multiImage 分支的展开+删源/溢出移位经收尾差分单 transact 落 doc；
+    // imageGen 分支的 attachMember 自带 dispatch[cells+信封]，差分幂等收其余）
+    const before = captureStoreProjection();
+    get().dropImageIntoStoryboardInner(groupId, nodeId);
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 
@@ -1701,7 +1733,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         for (const img of d.images.filter((i: any) => i.status === 'success')) {
           const id = getId('node');
           expanded.push({
-            id, type: 'imageGen', parentId: gid, extent: 'parent' as const,
+            id, type: 'imageGen', parentId: gid,
             // 暂留原 multi 位置：字典序排序依据（P1-新1——若归零则展开图永远插队排最前）；
             // 追加进 nodes 时统一归零（分镜组子节点坐标无意义）
             position: { x: n.position.x, y: n.position.y }, width: 320, height: 180,
@@ -1743,7 +1775,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         ...st.nodes
           .filter((n) => !(n.type === 'multiImageGen' && nodeIds.includes(n.id)))
           .map((n) => images.some((i) => i.id === n.id)
-            ? { ...n, selected: false, parentId: gid, extent: 'parent' as const,
+            ? { ...n, selected: false, parentId: gid,
                 position: { x: 0, y: 0 } } // 分镜组子节点坐标无意义（纯 DOM 宫格渲染），归零
             : { ...n, selected: false }),
         ...expanded.map((e) => ({ ...e, position: { x: 0, y: 0 } })), // 排序已完成，入组归零
@@ -1897,6 +1929,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     get().runCommand(() => { get().patchGroupDataInner(groupId, { color: key }); });
   },
 
+  /** Inner 化（Spec B）：折叠/展开纯变更核——见接口 JSDoc（O0b-4 序：cs 先写后 dispatch 由薄壳承接）。 */
+  toggleCollapseInner: (groupId, collapsing) => {
+    get().patchGroupDataInner(groupId, { collapsed: collapsing });
+    if (collapsing) {
+      // hidden 写入侧不变量（v2.1）：折叠⇒子节点 selected 清 false（selected 不进投影——
+      // B 端 stale selected+hidden 形态由显示侧读点过滤兜，SelectionBoxOverlay）
+      set((st) => ({
+        nodes: st.nodes.map((n) => (n.parentId === groupId ? { ...n, selected: false } : n)),
+      }));
+    }
+  },
+
   /** O0b-5 单意图化（终裁 82——折叠分支 envelope 写删）：折叠/展开=唯 [updateNodeData{collapsed}]
    *  单意图单 transact 落 doc。doc 帧三键=展开态密封源全程不动（manual 读回/auto 折叠态本无键）；
    *  cs 折叠渲染档=COLLAPSED_SIZE 由 reconcile 写域① collapsed 档派生（优先级最高）——本 action
@@ -1922,14 +1966,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const collapsing = d0.collapsed !== true;
     // O0b-4 序：cs 先写后 dispatch——漏斗尾 reconcile 的 hidden 派生读 cs 活值
     // （原序 dispatch→cs 写会让漏斗尾读到旧 data，折叠 hidden 断链）
-    get().patchGroupDataInner(groupId, { collapsed: collapsing });
-    if (collapsing) {
-      // hidden 写入侧不变量（v2.1）：折叠⇒子节点 selected 清 false（selected 不进投影——
-      // B 端 stale selected+hidden 形态由显示侧读点过滤兜，SelectionBoxOverlay）
-      set((st) => ({
-        nodes: st.nodes.map((n) => (n.parentId === groupId ? { ...n, selected: false } : n)),
-      }));
-    }
+    get().toggleCollapseInner(groupId, collapsing);
     dispatchCanvasIntent({ type: 'updateNodeData', id: groupId, patch: { collapsed: collapsing } }, Origin.LocalUser);
   },
 
@@ -1976,7 +2013,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         }
         if (overflowIds.includes(n.id) && n.parentId === groupId) {
           const idx = overflowIds.indexOf(n.id);
-          return { ...n, parentId: undefined, extent: undefined,
+          return { ...n, parentId: undefined,
             position: placementBesideGroup({ x: gp.x, y: gp.y, width: size.width }, idx) };
         }
         return n;
@@ -2018,7 +2055,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const before = captureStoreProjection();
     set((st) => ({
       nodes: st.nodes.concat([{
-        id, type: 'imageGen', parentId: groupId, extent: 'parent',
+        id, type: 'imageGen', parentId: groupId,
         position: { x: 0, y: 0 }, width: 320, height: 180,
         data: { status: 'done', fileId }, selected: false,
       } as Node]),
