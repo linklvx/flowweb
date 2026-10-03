@@ -15,7 +15,6 @@ vi.mock('@/components/AuthProvider', () => ({
 vi.mock('@/stores/canvasCollabRuntime', () => ({
   initCollab: vi.fn().mockResolvedValue(undefined),
   destroyCollab: vi.fn().mockResolvedValue(undefined),
-  refitExpandedGroups: vi.fn(),
   getAwareness: () => null,
 }));
 
@@ -69,7 +68,6 @@ vi.mock('@/stores/canvasStore', () => ({
         setTeamId: setTeamIdMock,
         setNodeDraggable: vi.fn(),
         nodeProcessMap: {},
-        applyGroupDerivations: vi.fn(),
       })),
       setState: useCanvasStoreSetState,
     }

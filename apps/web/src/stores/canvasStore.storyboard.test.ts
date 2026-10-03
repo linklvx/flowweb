@@ -1,14 +1,19 @@
 // apps/web/src/stores/canvasStore.storyboard.test.ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { _setIntentDocForTest } from './canvasIntents';
 import { GROUP_PADDING, GROUP_PADDING_TOP } from '@flowweb/shared';
 
 const doneImage = (id: string, x: number, y: number) =>
   ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180,
      data: { status: 'done', fileId: `file-${id}` } });
 
+// O0b-4：hidden 派生并入 reconcile（挂点=命令尾 diff 首行/漏斗尾——消费前提=会话 doc 在）；
+// 裸 store 无 doc 形态不再是合法装置（旧聚合入口无 doc 也能跑——已整删）
 beforeEach(() => {
+  _setIntentDocForTest(new Y.Doc());
   useCanvasStore.setState({
     nodes: [
       doneImage('a', 100, 100), doneImage('b', 500, 100),
@@ -23,6 +28,10 @@ beforeEach(() => {
     edges: [], selectedId: null,
   });
   useNodeStore.setState({ nodes: {} });
+});
+
+afterEach(() => {
+  _setIntentDocForTest(null);
 });
 
 describe('mergeStoryboard', () => {

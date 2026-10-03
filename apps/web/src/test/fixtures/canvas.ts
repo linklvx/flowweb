@@ -62,6 +62,14 @@ export function openRwWindow(): void {
   });
 }
 
+/** ro 窗口（canEdit 假——dispatch 门同款判据档；O0b-4 与 openRwWindow 对偶单点）。 */
+export function openRoWindow(): void {
+  withGeometryWriter('fixture', () => {
+    useCanvasStore.getState().setHydration('ready');
+    useCanvasStore.setState({ collabReadOnly: true, wsAuthNotice: null, projectId: 'p1' });
+  });
+}
+
 /** 会话几何复位（测试 afterEach 单点——同上零直接 setState）。 */
 export function resetCanvasStores(): void {
   withGeometryWriter('fixture', () => {

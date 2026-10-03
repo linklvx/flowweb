@@ -6,8 +6,8 @@
 // + applyIntentToDoc（doc 首写，单 transact 包序列）+ projectIntentToStore（store 投影回填）。
 // 批4b-2（组 2 收口）：全量换芯完成——bindBridge/syncStoreToDoc 旧路径已删，dispatch 是
 // store→doc 用户写唯一入口；复合信封写点经 captureStoreProjection/dispatchProjectionDiff
-// （before/after 差分翻译，删除半边=显式成员差而非 doc 扫描）；S1 系统几何修复走
-// dispatchSystemIntents（doc-only，门=collabReadOnly）。
+// （before/after 差分翻译，删除半边=显式成员差而非 doc 扫描）；S1 系统修复回写通道已随
+// O0b-0 停写、doc-only 系统写入口随 O0b-4 模块清理删除（恢复链结构性零回写）。
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：与 canvasStore/nodeStore/canvasCollabRuntime 互为顶层
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
@@ -415,7 +415,7 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
   const intents = diffProjectionToIntents(before, captureStoreProjection());
   if (intents.length === 0) return;
   dispatchCanvasIntent(intents, origin);
-  // M-1（O0a-1 质评）挂点覆盖面注：直发路径（dispatchCanvasIntent/dispatchSystemIntents）靠
+  // M-1（O0a-1 质评）挂点覆盖面注：直发路径（dispatchCanvasIntent）靠
   // applyIntentToDoc 分支自剥、无批尾断言——挂点选 dispatchProjectionDiff 因单原子 dispatch
   // 会误抓 convertGroup patchGroupData 中间态。
   if (import.meta.env.DEV) {
@@ -430,17 +430,4 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
       assertNoDunderKeysInGroupData(tailRecords);
     }
   }
-}
-
-/** 批4b-2：doc-only 意图写（S1 系统几何修复回写专用入口）——无 store 投影（store 已持值，
- *  投影会与 applyDocToStore 的重建窗口互踩）；门=collabReadOnly（S1 在水合窗口内执行，canEdit
- *  的 ready 分量结构性为假——批2-2 判据沿袭，用 canEdit 会误杀 rw 会话既有回写）。
- *  用户写路径唯一入口仍是 dispatchCanvasIntent；本入口是系统维护写（origin=Geometry，
- *  不入撤销栈、onRemote LOCAL_ORIGINS 跳过）。 */
-export function dispatchSystemIntents(d: Y.Doc, intents: CanvasIntent[], origin: string): void {
-  if (useCanvasStore.getState().collabReadOnly) return;
-  if (intents.length === 0) return;
-  d.transact(() => {
-    for (const i of intents) applyIntentToDoc(d, i);
-  }, origin);
 }

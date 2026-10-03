@@ -120,7 +120,7 @@ describe('O0b-0 S1 停写：恢复链零回写（applyDocToStore 直驱——结
 });
 
 // 乒乓夹具（Task 18 沿革——O0b-0 后语义=重开逐位不变）：doc=abs 空间，g1(0.1,0.1) 140×130；
-// c1 abs(20,50) → cs rel=(20−0.1, 50−0.1)。S1 停写后恢复链结构上零回写（无 refit 无 diff 回写通道）。
+// c1 abs(20,50) → cs rel=(20−0.1, 50−0.1)。S1 停写后恢复链结构上零回写（无几何修正无 diff 回写通道）。
 describe('恢复链重开逐位不变（Task 18 沿革——S1 停写后结构零回写）', () => {
   it('远程 apply → store 与 doc 原文逐节点深等 + doc 无回写（小数坐标）', () => {
     useCanvasStore.setState({ nodes: [], edges: [] });

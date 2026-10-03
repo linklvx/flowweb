@@ -1,7 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
+import { _setIntentDocForTest } from './canvasIntents';
+import { openRwWindow } from '@/test/fixtures/canvas';
 
+// O0b-4：hidden 派生并入 reconcile+toggleCollapse 只读 no-op——命令路径装置需会话 doc+rw 窗口
 beforeEach(() => {
+  _setIntentDocForTest(new Y.Doc());
+  openRwWindow();
   useCanvasStore.setState({
     nodes: [
       { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, width: 300, height: 200, data: {} },
@@ -10,6 +16,10 @@ beforeEach(() => {
     ] as any,
     edges: [], selectedId: null,
   });
+});
+
+afterEach(() => {
+  _setIntentDocForTest(null);
 });
 
 describe('dropIntoGroup', () => {

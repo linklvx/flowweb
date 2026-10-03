@@ -60,7 +60,7 @@ describe('dispatchProjectionDiff 写路径棘轮门禁（R2d-8 Step 4c——14 �
     ).toBe(1);
   });
 
-  it('canvasIntents.ts 零 dispatchProjectionDiff 调用形态（dispatchSystemIntents 兼容通道不落 diff——第三写轨禁入 intents 层）', () => {
+  it('canvasIntents.ts 零 dispatchProjectionDiff 调用形态（第三写轨禁入 intents 层——S1 系统写通道已随 O0b-4 删除）', () => {
     const calls = callLines(readFileSync(INTENTS, 'utf8')).filter((l) => !l.includes('function dispatchProjectionDiff'));
     expect(
       calls,

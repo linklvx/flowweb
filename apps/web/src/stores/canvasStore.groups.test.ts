@@ -12,6 +12,7 @@ import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './c
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { openRwWindow, seedCanvas } from '@/test/fixtures/canvas';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -456,14 +457,22 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     expect(Object.keys(d).every((k) => (GROUP_NODE_DATA_KEYS as readonly string[]).includes(k))).toBe(true);
   });
 
-  it('patch collapsed:true → applyGroupDerivations → 子节点 hidden===true（derivations 配对契约——patch 不内嵌派生，调用方负责）', () => {
-    useCanvasStore.setState({ nodes: [
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 10, y: 10 }, data: {} },
-    ] as any, edges: [] });
-    useCanvasStore.getState().patchGroupData('g1', { collapsed: true });
-    useCanvasStore.getState().applyGroupDerivations();
-    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).hidden).toBe(true);
+  it('patch collapsed:true → 子节点 hidden===true（O0b-4 单内核——patchGroupData cs 先写后 dispatch，漏斗尾 reconcile 即时派生，无配对义务）', () => {
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    try {
+      fillDoc(d, [
+        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal' } },
+        { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 10, y: 10 }, width: 100, height: 60, data: {} },
+      ] as any, []);
+      stampDocSchema(toDocLike(d));
+      openRwWindow();
+      applyDocToStore(d);
+      useCanvasStore.getState().patchGroupData('g1', { collapsed: true });
+      expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).hidden).toBe(true);
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   it('undo 语义：patchGroupData 入栈+500ms 合并+undo 恢复旧 data', async () => {
@@ -936,7 +945,7 @@ describe('arrangeSelection（§4.3）', () => {
     teardown();
   });
 
-  it('组=原子块 stored rect：组 position 重排、组内子节点 rel 不变；排列后不 refit 组框（applyGroupDerivations 仅派生 hidden——refit 属 2c-4 显式几何命令语义，两 task 口径不同非矛盾）', () => {
+  it('组=原子块 stored rect：组 position 重排、组内子节点 rel 不变；排列后不 refit 组框（hidden 派生已并入 reconcile——O0b-4；refit 属 2c-4 显式几何命令语义，两 task 口径不同非矛盾）', () => {
     // 两框故意大于各自子 bbox（不满足 §4.8 不变量）——排列后仍一字不改=证明未 refit
     const { d } = seed([
       { id: 'gA', type: 'group', position: { x: 0, y: 0 }, width: 800, height: 600, data: { groupType: 'normal' } },
@@ -980,29 +989,55 @@ describe('arrangeSelection（§4.3）', () => {
 
 describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
   it('折叠组：子节点 selected 全部清 false（toggleCollapse 折叠分支）', () => {
-    useCanvasStore.setState({ nodes: [
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal' } },
-      { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {}, selected: true },
-      { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
-    ] as any, edges: [], hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
-    useCanvasStore.getState().toggleCollapse('g1');
-    const a = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
-    const b = useCanvasStore.getState().nodes.find((n) => n.id === 'b') as any;
-    expect(a.selected).toBe(false);
-    expect(a.hidden).toBe(true);   // deriveHidden 折叠推导到位
-    expect(b.selected).toBe(false);
+    // O0b-4：hidden 派生并入 reconcile（挂点=dispatch 尾/差分首行——需会话 doc）；idle 无会话形态
+    // 不再是合法装置（旧聚合入口无 doc 也能跑——整删后生产路径恒有会话）
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    try {
+      fillDoc(d, [
+        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 340, height: 240, data: { groupType: 'normal' } },
+        { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+        { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
+      ] as any, []);
+      stampDocSchema(toDocLike(d));
+      openRwWindow();
+      applyDocToStore(d);
+      seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
+        n.id === 'a' ? { ...n, selected: true } : n
+      )), useCanvasStore.getState().edges as any);
+      useCanvasStore.getState().toggleCollapse('g1');
+      const a = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
+      const b = useCanvasStore.getState().nodes.find((n) => n.id === 'b') as any;
+      expect(a.selected).toBe(false);
+      expect(a.hidden).toBe(true);   // reconcile hidden 派生（O0b-4 并入单内核）折叠推导到位
+      expect(b.selected).toBe(false);
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   it('转分镜组：子节点 selected 清 false（convertGroup→storyboard）', () => {
-    useCanvasStore.setState({ nodes: [
-      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal' } },
-      { id: 'img1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' }, selected: true },
-      { id: 'img2', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
-    ] as any, edges: [], hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
-    useCanvasStore.getState().convertGroup('g1', 'storyboard');
-    const img1 = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
-    expect(img1.selected).toBe(false);
-    expect(img1.hidden).toBe(true);   // storyboard 组 hidden 推导
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    try {
+      fillDoc(d, [
+        { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal' } },
+        { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
+        { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
+      ] as any, []);
+      stampDocSchema(toDocLike(d));
+      openRwWindow();
+      applyDocToStore(d);
+      seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
+        n.id === 'img1' ? { ...n, selected: true } : n
+      )), useCanvasStore.getState().edges as any);
+      useCanvasStore.getState().convertGroup('g1', 'storyboard');
+      const img1 = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
+      expect(img1.selected).toBe(false);
+      expect(img1.hidden).toBe(true);   // storyboard 组 hidden 推导
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   it('B 端兜底（v2.1）：selected 不进投影键集（projectCanvasNodes.ts:11-19 无 selected、diffProjectionToIntents 只 diff envelope/position/data）→ A 端折叠清 selected 不同步 B 端；B 端 stale selected+hidden 由显示侧读点过滤兜住（组件级钉死 SelectionBoxOverlay.test.tsx；动作消费者面登记 R3：显示侧过滤兜不住键盘命令——B 端 stale selected hidden 子按 Delete/Ctrl+G 仍作用于不可见节点）', () => {

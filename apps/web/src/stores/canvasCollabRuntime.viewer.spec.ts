@@ -167,7 +167,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     p.emit('synced', {});
     await done0;
 
-    // cs 侧：无几何修正（S1 停写——refitExpandedGroups 调用摘除），g1=doc 原值
+    // cs 侧：无几何修正（S1 停写——恢复链零回写），g1=doc 原值
     const g1 = useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any;
     expect(g1.position).toEqual({ x: 0, y: 0 });
     expect(g1.width).toBe(100);

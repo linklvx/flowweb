@@ -4,8 +4,7 @@
 //   （O0b-1 单内核——写域四类+单遍单 origin+零差异短路，source:'doc'）；
 //   写方向 store→doc = canvasIntents dispatchCanvasIntent（action 层唯一入口；漏斗尾挂 reconcile
 //   source:'doc'、dispatchProjectionDiff 首行挂 source:'cs'——全仓唯一）——S1 系统几何修复
-//   回写已随 O0b-0 格式批停写（structDiffToIntents/dispatchSystemIntents 调用点摘除；
-//   canvasHistory/canvasIntents 模块清理归 O0b-4）。
+//   回写已随 O0b-0 格式批停写（O0b-4 模块清理完毕：恢复链结构性零回写）。
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
@@ -17,12 +16,13 @@ import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import {
-  ensureSchemaVersion, DEFAULT_CHILD_SIZE, shouldAutoRefit,
+  ensureSchemaVersion, DEFAULT_CHILD_SIZE,
   deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
   type DragSession,
   assertDocAbsMatchesCsRel, assertStoryboardMembership,
 } from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
+import { deriveHiddenMap, edgeHidden } from '@/utils/groupDerive';
 import { AwarenessBridge } from '@/collab/awareness';
 // 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
 // import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
@@ -259,6 +259,9 @@ export function readGroupFrameModes(d: Y.Doc): ReadonlyMap<string, FrameMode> {
  *  toDocRecords 同变换出 abs（共同变换两侧各跑一遍自然相等）；normalizeLoadedCanvas 双侧包裹
  *  随模块整删（补缺层退役——无设计内分叉源）。withStoryboardChildDefault 保留（分镜子
  *  doc 无键⇄cs {0,0} 构造默认——三层表仍需双侧同变换）。
+ *  O0b-4 拖动期豁免=让位集合同一函数（resolveGestureYield——与 reconcile 单源）：手势保护期
+ *  让位节点 cs=手势活值≠doc 旧值是设计内分叉（不豁免则每帧 DEV 假报）；豁免面=几何字段按
+ *  手势分型（drag⇒position/resize⇒三字段），data/结构字段仍如实比较（哨兵双侧同值即视为相等）。
  *  批5 删信箱：shadow- 双侧过滤条款随信箱移除——doc 出现 /^shadow-/ 改由 applyDocToStore 的
  *  DEV 巡检抛出（判据⑥），不变量对 doc/store 分叉如实报告。
  *  只读不写——测试缝直驱做非恒真式变异实验。
@@ -268,13 +271,25 @@ export function readGroupFrameModes(d: Y.Doc): ReadonlyMap<string, FrameMode> {
 export function checkProjectionInvariant(d: Y.Doc): boolean {
   const { nodes, edges } = readCanvasFromDoc(d);
   const byId = (ns: typeof nodes) => [...ns].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // O0b-4 让位豁免（在 withStoryboardChildDefault 之后剥——防 {0,0} 构造默认回补干扰哨兵）
+  const st = useCanvasStore.getState();
+  const guard = resolveGestureYield(st.dragSession, st.nodes as any[]);
+  const GUARDED = '__yield-guarded__' as any;
+  const stripGuarded = (n: any) => {
+    const gg = guard.get(n.id);
+    if (!gg) return n;
+    const out = { ...n };
+    if (gg.position) out.position = GUARDED;
+    if (gg.wh) { out.width = GUARDED; out.height = GUARDED; }
+    return out;
+  };
   const fromDoc = {
-    nodes: byId(withStoryboardChildDefault(nodes)),
+    nodes: byId(withStoryboardChildDefault(nodes)).map(stripGuarded),
     edges,
   };
   const sp = storeProjection(d);
   return isEqual(fromDoc, {
-    nodes: byId(withStoryboardChildDefault(sp.nodes as any)),
+    nodes: byId(withStoryboardChildDefault(sp.nodes as any)).map(stripGuarded),
     edges: sp.edges,
   });
 }
@@ -300,10 +315,9 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
 // （flowweb/no-delete-scan）防回归。
 // 批5 删信箱退役：isShadowOnlyEvents（影子事务短路判定）与 readNodeFileIdFromDoc（影子产物轮询）
 // 随信箱整体消失——shadow- 字面量零回流由 lint-gate flowweb/no-shadow-literal 兜。
-// O0b-0 S1 停写退役：structDiffToIntents 本地死函数+pickStructNodes/dispatchSystemIntents import
-// 随调用点同删（恢复链零回写——几何修复职责移交 reconcile 写 cs 面；canvasHistory.ts 整模块与
-// dispatchSystemIntents 定义删除留 O0b-4）。
-// refitExpandedGroups（:650 定义——O0b-0 摘调用后零生产调用者，O0b-4 与 canvasHistory 同批删，连带 page.test.tsx:18 mock+shouldAutoRefit import）。
+// O0b-0 S1 停写退役：恢复链 diff 回写通道摘除（几何修复职责移交 reconcile 写 cs 面）。
+// O0b-4 模块清理：canvasHistory 整模块/dispatchSystemIntents 定义/refitExpandedGroups 随本批删除
+// （O0b-0 已摘全部调用点——符号级 census 断言在 canvasO0b4.derivation.test.ts）。
 
 /** O0b-1 reconcile 单内核（cs 几何唯一写者——写域四类+单遍单 origin+零差异短路；源矩阵见下）。
  *  doc 读取=readRecordsFromMaps（readCanvasFromDoc 薄委托——docShape 单源，禁从 nsNodes/csNodes
@@ -327,7 +341,9 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
  *  O0b-3 让位豁免（卡一让位硬规则——终裁 66③）：canvasStore.dragSession 非空时让位两层
  * （freeze=frozenFrames.keys()/live=dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)）
  * 跳过派生与直拷——字段面 drag⇒{position}/resize⇒帧三字段/freeze⇒三字段（resolveGestureYield）。
- * 拖动期 invariant 豁免=让位集合同一函数（checkProjectionInvariant 改写归 O0b-4）。
+ *  O0b-4 hidden 派生并入（写域⑤——终裁 54④）：deriveHiddenMap 单源推导（组 data 依据=cs 活值
+ *  ——'cs' 源命令已写 cs/'doc' 源 hydrate 已装 doc 最新）；数据域非几何保护域——不受让位影响、
+ *  每调用必跑（豁免零差异短路——终裁 88⑨）；同值保引用+undefined≡false 免写（零 setState 锚不破）。
  *  纯 cs 写零 doc 写（恢复链零回写锚的结构性保证——本函数不持有任何 doc 写原语，census 锚在
  *  canvasCollabRuntime.geometry.test.ts）。 */
 export type ReconcileSource = 'cs' | 'doc';
@@ -484,7 +500,30 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
     mutated = true;
     return { ...nd, position, width, height };
   });
-  if (mutated) useCanvasStore.setState({ nodes: nextNodes });
+
+  // —— 写域⑤（O0b-4 hidden 派生——终裁 54④ 并入单内核）——数据域非几何保护域：不受让位影响、
+  // 每调用必跑（豁免零差异短路——终裁 88⑨）；同值保引用+undefined≡false 免写（全表零差异
+  // （含 hidden）⇒零 setState——O0b-1 锚维持）。组 data 依据=cs 活值（见函数头）。
+  const hiddenMap = deriveHiddenMap(nextNodes);
+  let hiddenMutated = false;
+  const withHidden = nextNodes.map((nd: any) => {
+    const h = hiddenMap.get(nd.id) ?? false;
+    if (nd.hidden === h || (nd.hidden == null && !h)) return nd;
+    hiddenMutated = true;
+    return { ...nd, hidden: h };
+  });
+  const prevEdges = useCanvasStore.getState().edges as any[];
+  const nextEdges = prevEdges.map((e) => {
+    const h = edgeHidden(e, hiddenMap);
+    if (e.hidden === h || (e.hidden == null && !h)) return e;
+    hiddenMutated = true;
+    return { ...e, hidden: h };
+  });
+  if (mutated || hiddenMutated) {
+    useCanvasStore.setState(
+      hiddenMutated ? { nodes: withHidden, edges: nextEdges } : { nodes: nextNodes },
+    );
+  }
 }
 
 // ══════════ O0b-3 保护序 v2：手势保护面（三层一函数——捕获/hydrate/回写） ══════════
@@ -595,8 +634,9 @@ export function resolveDraggingIdsFromGesture(nodes: ReadonlyArray<{ id: string 
  *  O0b-0：S1 停写（捕获/refit/diff 回写段整删——恢复链零回写）+读侧版本门 DEV 断言+
  *  尾挂 reconcileGroupGeometry（写域②直拷）。
  *  O0b-3 保护序 v2（卡一/hydrate 过渡态例外窗口——寿命=同一同步块）：
- *  read→assert→保护捕获→hydrate setState[abs 过渡态]→保护回写→hidden（applyGroupDerivations）
- *  →ns→reconcile(doc)→尾挂断言。全程同步无 await/渲染分隔；session 缺席⇒捕获 null=零保护=现状行为。 */
+ *  read→assert→保护捕获→hydrate setState[abs 过渡态]→保护回写→ns→reconcile(doc，含 hidden
+ *  派生——O0b-4 并入单内核，独立派生步骤核销)→尾挂断言。全程同步无 await/渲染分隔；
+ *  session 缺席⇒捕获 null=零保护=现状行为。 */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
   // 批5 判据⑥ dev 巡检：影子信箱已删——nodes 出现 /^shadow-/ 即结构性违例（存量数据须 truncate
@@ -626,7 +666,6 @@ export function applyDocToStore(d: Y.Doc) {
   });
   // 保护回写：仅几何字段覆盖（data/type/parentId/hidden/selected 取 doc 最新值——硬规则终裁 71）
   if (protection) reapplyGestureProtection(protection);
-  useCanvasStore.getState().applyGroupDerivations();
   // C1（Task 17 审查沿革）：ns 刷新在投影读点之前——storeProjection→projectCanvasNodes 对普通节点
   // data 是 ns 优先，陈旧 ns 会把协作者刚提交的编辑投影丢（S1 停写后无回写通道，此处保序仍成立）
   useNodeStore.setState({ nodes: Object.fromEntries(nodes.map((n) => [n.id, toAppNode(n)])) });
@@ -932,13 +971,6 @@ export async function destroyCollab(): Promise<void> {
   if (session !== null) return;
   useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
   useCanvasStore.setState({ collabReadOnly: true }); // G27：登出/切用户经页面卸载路径显式复位
-}
-
-/** P0-4：展开态普通组按子节点包围盒重算（加载回放共用） */
-export function refitExpandedGroups() {
-  for (const g of useCanvasStore.getState().nodes.filter((n) => shouldAutoRefit(n))) {
-    useCanvasStore.getState().applyGroupFrame(g.id);   // 守卫内建——分镜/折叠/手动 no-op；epsilon 防桥乒乓
-  }
 }
 
 /** 执行请求附带的本端状态向量（spec 3.1，base64） */

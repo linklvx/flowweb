@@ -226,8 +226,8 @@ describe('批6：红2f″ beforeunload 全组判据（defaultPrevented 场景矩
   it('仅几何回写（Origin.Geometry 不入编辑器链）→ 不拦', async () => {
     await openReady();
     // 结构性保证：editorDirty 唯一置位源=autosave.onDirtyChange（editorStore.data 订阅触发）；
-    // S1 几何回写（dispatchSystemIntents origin=Geometry）只写 canvasStore/doc，不触碰
-    // editorStore.data。此处以画布侧几何变化代表该路径——editorDirty 保持 false
+    // S1 回写通道已删（O0b-0 停写/O0b-4 模块清理）——画布侧几何变化只写 canvasStore/doc，
+    // 不触碰 editorStore.data，editorDirty 保持 false
     act(() => {
       useCanvasStore.setState({ nodes: [{ id: 'g1', type: 'group', position: { x: 99, y: 99 }, data: {} } as any] });
     });

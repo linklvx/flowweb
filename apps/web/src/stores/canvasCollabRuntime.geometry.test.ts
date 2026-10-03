@@ -181,7 +181,7 @@ describe('O0b-0 翻转主锚（几何）：打开 ⇒ cs 子 rel 逐位≡doc.ab
     expect(checkProjectionInvariant(d)).toBe(true);
   });
 
-  it('恢复链零回写锚：远端 apply 后 doc 写入计数=0（S1 停写——dispatchSystemIntents 回写通道摘除）', () => {
+  it('恢复链零回写锚：远端 apply 后 doc 写入计数=0（S1 停写——系统回写通道已随 O0b-4 删除）', () => {
     openRwWindow();
     const d = buildFlippedDoc();
     applyDocToStore(d);
@@ -648,7 +648,7 @@ describe('O0b-1 census：挂点三元组过渡断言（B7-1 升四元组——en
     const block = body.join('\n');
     expect(block).toContain('readCanvasFromDoc(');   // docShape 单源读取
     for (const banned of ['applyIntentToDoc(', 'setDocPosition(', 'fillDoc(', '.transact(',
-      'dispatchCanvasIntent(', 'dispatchSystemIntents(']) {
+      'dispatchCanvasIntent(']) {
       expect(block, `reconcile 内出现 doc 写原语 ${banned}（禁 doc 写——纯 cs 写）`).not.toContain(banned);
     }
   });

@@ -58,6 +58,9 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   'src/utils/viewportPersistence.test.ts',
   // —— C0-2 sanctioned 例外（陷阱守卫造案夹具——见头注）——
   'src/stores/geometryTrap.test.ts',
+  // O0b-0（2026-10-03）造案 +5 已入有效基线 221/40，allow-list 当时漏列（报数≤基线不进破线
+  // 分支从未暴露——O0b-4 质评补登，两处登记对齐；翻转主锚/S1 停写/读侧版本门装置）。
+  'src/stores/canvasCollabRuntime.geometry.test.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */

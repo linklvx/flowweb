@@ -1,7 +1,10 @@
 // canvasStore.storyboardConfig.test.ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
+import { _setIntentDocForTest } from './canvasIntents';
+import { openRwWindow } from '@/test/fixtures/canvas';
 import { CONVERT_GAP, calcStoryboardSize } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { ASPECT_RATIOS } from '@/types/group';
@@ -9,7 +12,10 @@ import { ASPECT_RATIOS } from '@/types/group';
 const doneImage = (id: string, x = 100, y = 100) =>
   ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
 
+// O0b-4：hidden 派生并入 reconcile（挂点=命令尾 diff——消费前提=会话 doc 在）；裸 store 装置升级
 beforeEach(() => {
+  _setIntentDocForTest(new Y.Doc());
+  openRwWindow();
   useCanvasStore.setState({
     nodes: [doneImage('a'), doneImage('b', 500, 100), doneImage('c', 100, 400), doneImage('d', 500, 400)] as any,
     edges: [], selectedId: null,
@@ -23,6 +29,10 @@ beforeEach(() => {
       d: { id: 'd', type: 'imageGen', position: { x: 500, y: 400 }, data: { status: 'done', fileId: 'f-d' } },
     } as any,
   });
+});
+
+afterEach(() => {
+  _setIntentDocForTest(null);
 });
 
 describe('updateStoryboardConfig', () => {
@@ -136,6 +146,12 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
   });
 
   it('updateStoryboardConfig：组宽高有限 + 写进 doc 的 aspectRatio ∈ 枚举 + gridRows 整数（NaN 面⑥全维）', () => {
+    // O0b-4 装置升级：完整 config 分镜组（applyGroupFrameRect→reconcile 的 DEV 门=缺 config 抛——
+    // 配置型命令生产宿主恒完整分镜组；"缺 config 容忍"面由 ungroup/convertGroup 三用例继续覆盖）
+    useCanvasStore.setState({ nodes: [
+      { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', cells: ['img1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ] as any, edges: [] });
     useCanvasStore.getState().updateStoryboardConfig('g1', { aspectRatio: '9:16' });
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
     expect(Number.isFinite(g.width)).toBe(true);
@@ -145,6 +161,10 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
   });
 
   it('updateStoryboardConfig：patch 带 NaN 被外层归一钳制（双层设计的直接断言——简化回单层必红）', () => {
+    useCanvasStore.setState({ nodes: [
+      { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', cells: ['img1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ] as any, edges: [] });
     useCanvasStore.getState().updateStoryboardConfig('g1', { gridRows: Number.NaN } as any);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
     expect(Number.isFinite((g.data as any).storyboard.gridRows)).toBe(true);

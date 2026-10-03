@@ -91,7 +91,6 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'setProjectId', category: 'non-geometry', note: 'projectId' },
     { fn: 'setTeamId', category: 'non-geometry', note: 'teamId' },
     { fn: 'setHydration', category: 'non-geometry', note: 'hydration 单写者 action' },
-    { fn: 'applyGroupDerivations', category: 'non-geometry', note: 'hidden 派生写（cs-only 顶层字段，非节点几何三键）' },
     { fn: 'arrangeSelection', category: 'structure-command', note: '排列选区 position 重排（runCommand fn 内）' },
     { fn: 'arrangeGroupChildren', category: 'structure-command', note: '经 setWithParentOrder——组框+子 rel 守恒写回' },
     { fn: 'ungroup', category: 'structure-command', note: '2 处：storyboard 分支 placeGrid 重排+主段 abs 还原/组删' },
@@ -129,7 +128,7 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'onClose/失败路径', category: 'non-geometry', note: 'collabReadOnly fail-closed' },
     { fn: 'hydrate/viewport 恢复', category: 'non-geometry', note: 'viewport 相机恢复（本地偏好非协作数据）' },
     { fn: '登出/切用户复位', category: 'non-geometry', note: 'collabReadOnly 复位（G27）' },
-    { fn: 'reconcileGroupGeometry', category: 'reconcile', note: "写域四类+双源矩阵（'doc' 漏斗尾/applyDocToStore 尾、'cs' diff 首行全仓唯一）+单遍单 origin+零差异短路（O0b-1 内核化）；O0b-2 写域①全档写三字段（auto wh 接管——doc 面零泄漏由差分出口 oracle 化保证）" },
+    { fn: 'reconcileGroupGeometry', category: 'reconcile', note: "写域四类+双源矩阵（'doc' 漏斗尾/applyDocToStore 尾、'cs' diff 首行全仓唯一）+单遍单 origin+零差异短路（O0b-1 内核化）；O0b-2 写域①全档写三字段（auto wh 接管——doc 面零泄漏由差分出口 oracle 化保证）；O0b-4 写域⑤ hidden 派生并入（deriveHiddenMap 单源——数据域不受让位+每调用必跑；旧聚合派生入口整删后本函数=cs hidden 唯一写者）" },
     { fn: 'reapplyGestureProtection', category: 'gesture', note: "O0b-3 保护回写——捕获快照仅几何字段覆盖（applyDocToStore 同步块内，B4'-1 接真 session 后生效）" },
   ],
   'src/pages/canvas/components/CanvasView.tsx': [
