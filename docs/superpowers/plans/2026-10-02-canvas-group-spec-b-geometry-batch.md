@@ -207,12 +207,12 @@
 
 ### Task O0b-3：applyDocToStore 保护序 v2+draggingIds 第三参
 
-- [ ] **Step 1: 红测试**（**行为锚分两档——v3.15 降级**）
+- [x] **Step 1: 红测试**（**行为锚分两档——v3.15 降级**）
   - 结构锚（本分片）：三层一函数（保护捕获[setState 前 live 活值 rel+freeze 冻结帧三字段]→hydrate setState[abs 过渡态]→保护回写）导出+单测（**对 store 手动注入 session 状态骨架**[frozenFrames/dragProtectedIds/resizeTargetId——C0-1 类型已有，B4' 才开始写]：注入后远端 apply ⇒ 冻结帧与保护节点逐位不变）；同步块：全程无 await/渲染分隔；**捕获/回写字段集按手势分型写死（v3.18 终裁 71）：drag⇒{position}；resize⇒{position,width,height}[帧三字段]；freeze 层⇒{position,width,height}；硬规则"让位只保护几何，不保护数据"——回写仅覆盖上述几何字段，data/type/parentId/hidden/selected 一律取 doc 最新值[=v3.9 终裁 7 字段域的 O0b-3 实现落位——防整节点对象回写吃掉远端 data 并发写]**；单测两锚（B4'-1 行为锚前置）：注入 session+远端 apply 改被拖节点 data.status⇒data.status===远端值∧cs.position===末帧；resize 会话骨架+远端写同节点⇒cs.width/height≡保护值不被 doc 旧值覆盖
   - 行为锚（随 B4'-1 补）：拖子中远端改无关节点⇒冻结组帧与全部子 rel 逐帧不变；拖动中远端写⇒松手后 doc.abs≡末帧 cs.abs；resize 扩子代锚；**拖动中远端改本节点 data⇒data 保留远端值（B7-2 e2e 补——现有清单只有改 parentId，终裁 71③）**
   - **draggingIds=onNodeDragStart 第三参 nodes 的 id 集**（OnNodeDrag=(event,node,nodes)——types/nodes.d.ts:36；v3.15 勘误"第二参"——照字面写第二参会退化单节点）：三选一拖三节点⇒doc 落 3 组 abs 键∧保护集合含 3 个 id
-- [ ] **Step 2: 绿实现**：canvasCollabRuntime applyDocToStore 重构为保护序 v2（read→assert→保护捕获→hydrate→保护回写→reconcile(doc)→deriveHidden→ns→invariant）
-- [ ] **Step 3: commit** `feat(canvas): O0b 保护序 v2——三层一函数+同步块+draggingIds 第三参（Spec B O0b-3）`
+- [x] **Step 2: 绿实现**：canvasCollabRuntime applyDocToStore 重构为保护序 v2（read→assert→保护捕获→hydrate→保护回写→reconcile(doc)→deriveHidden→ns→invariant）
+- [x] **Step 3: commit** `feat(canvas): O0b 保护序 v2——三层一函数+同步块+draggingIds 第三参（Spec B O0b-3）`
 
 ### Task O0b-4：S1 整删+repairStoryboardCells 同批删
 
