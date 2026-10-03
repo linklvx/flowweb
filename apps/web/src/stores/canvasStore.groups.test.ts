@@ -101,14 +101,25 @@ describe('ungroup', () => {
 });
 
 describe('addToGroup / removeNodeFromGroup', () => {
-  it('addToGroup 后子节点相对坐标正确、组框扩展', () => {
-    const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
-    useCanvasStore.getState().addToGroup(groupId, 'free');
-    const s = useCanvasStore.getState();
-    const free = s.nodes.find((n) => n.id === 'free')!;
-    expect(free.parentId).toBe(groupId);
-    expect(free.position.x).toBe(2000 - 80); // 绝对 - 组左上角
-    expect(s.nodes.find((n) => n.id === groupId)!.width).toBeGreaterThan(740); // 扩展
+  it('addToGroup 后子节点相对坐标正确、组框扩展（O0b-5 评审收口装置迁移：auto 组扩框=diff 首 reconcile 派生——裸 store 直写兜底已删）', () => {
+    // 真装置（照 :558 先例）：真 Y.Doc + fillDoc(toDocRecords) + _setIntentDocForTest——
+    // 落点在当前 bbox 界外 ⇒ 帧扩至 bbox+padding（新子入组后 reconcile('cs') 派生）
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    try {
+      const rig = seedNodes();
+      fillDoc(d, toDocRecords(rig as any, {}) as any, []);
+      useCanvasStore.setState({ nodes: rig as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+      const groupId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+      useCanvasStore.getState().addToGroup(groupId, 'free');
+      const s = useCanvasStore.getState();
+      const free = s.nodes.find((n) => n.id === 'free')!;
+      expect(free.parentId).toBe(groupId);
+      expect(free.position.x).toBe(2000 - 80); // 绝对 - 组左上角（扩框后新 origin 仍 (80,0)——free 是右下外落点）
+      expect(s.nodes.find((n) => n.id === groupId)!.width).toBeGreaterThan(740); // 扩展（reconcile 派生）
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   it('removeNodeFromGroup 坐标转绝对', () => {
@@ -503,12 +514,22 @@ describe('cells 修复（第 7 写者——键盘 Delete 路径）', () => {
 });
 
 describe('F33——重算型守恒（左上落点才拉动 frame——右下恒绿是 v1 盲区）', () => {
-  const seed = () => useCanvasStore.setState({
-    nodes: [
-      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250, data: { groupType: 'normal' } },
+  // O0b-5 评审收口装置迁移：帧重算（守恒扩框/收缩+rel 重基）统一=diff 首 reconcile('cs') 派生——
+  // 裸 store 直写兜底已删，本族改真 Y.Doc 装置（照 :569 manual 反向断言先例）。g1=auto 组夹具
+  //（无帧键——toDocRecords 剥键后 doc oracle=auto，帧随内容派生；旧 300×250 初帧与本族断言无涉故不携）。
+  const setupRig = (extra: unknown[] = []) => {
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    const rig = [
+      { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    ] as any, edges: [],
-  });
+      ...extra,
+    ];
+    fillDoc(d, toDocRecords(rig as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
+    useCanvasStore.setState({ nodes: rig as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return d;
+  };
+  const teardown = () => { _setIntentDocForTest(null); };
   const absOf = (id: string) => {
     const n = useCanvasStore.getState().nodes.find((x) => x.id === id) as any;
     const p = n.parentId ? (useCanvasStore.getState().nodes.find((x) => x.id === n.parentId) as any).position : { x: 0, y: 0 };
@@ -516,43 +537,49 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
   };
 
   it('addToGroup（新成员落左上 {10,10}）：既有成员绝对坐标不变 + 新成员落点=放置点', () => {
-    seed();
-    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
-      { id: 'c2', type: 'imageGen', position: { x: 10, y: 10 }, width: 100, height: 60, data: {} }] as any });
-    const before = absOf('c1');
-    useCanvasStore.getState().addToGroup('g1', 'c2');
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
-    expect(g.position).toEqual({ x: 10 - GROUP_PADDING, y: 10 - GROUP_PADDING_TOP });
-    expect(absOf('c1')).toEqual(before);
-    expect(absOf('c2')).toEqual({ x: 10, y: 10 });
+    setupRig([{ id: 'c2', type: 'imageGen', position: { x: 10, y: 10 }, width: 100, height: 60, data: {} }]);
+    try {
+      const before = absOf('c1');
+      useCanvasStore.getState().addToGroup('g1', 'c2');
+      const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
+      expect(g.position).toEqual({ x: 10 - GROUP_PADDING, y: 10 - GROUP_PADDING_TOP });   // 帧扩至 bbox+padding（reconcile 派生）
+      expect(absOf('c1')).toEqual(before);
+      expect(absOf('c2')).toEqual({ x: 10, y: 10 });
+    } finally {
+      teardown();
+    }
   });
 
   it('dropIntoGroup 同款（c3 落左上 {5,15}）', () => {
-    seed();
-    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
-      { id: 'c3', type: 'imageGen', position: { x: 5, y: 15 }, width: 100, height: 60, data: {} }] as any });
-    const before = absOf('c1');
-    useCanvasStore.getState().dropIntoGroup('c3', 'g1');
-    expect(absOf('c1')).toEqual(before);
-    expect(absOf('c3')).toEqual({ x: 5, y: 15 });
+    setupRig([{ id: 'c3', type: 'imageGen', position: { x: 5, y: 15 }, width: 100, height: 60, data: {} }]);
+    try {
+      const before = absOf('c1');
+      useCanvasStore.getState().dropIntoGroup('c3', 'g1');
+      expect(absOf('c1')).toEqual(before);
+      expect(absOf('c3')).toEqual({ x: 5, y: 15 });
+      const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
+      expect(g.position).toEqual({ x: 5 - GROUP_PADDING, y: 15 - GROUP_PADDING_TOP });   // 同款派生扩框
+    } finally {
+      teardown();
+    }
   });
 
-  it('守卫：已在组 no-op；跨组移动先摘除（旧组 refit）再入新组（现状红：rel 被当绝对坐标双重偏移）', () => {
-    seed();
-    const before = JSON.stringify(useCanvasStore.getState().nodes.map((n: any) => [n.id, n.parentId, n.position]));
-    useCanvasStore.getState().addToGroup('g1', 'c1');   // 已在 g1
-    expect(JSON.stringify(useCanvasStore.getState().nodes.map((n: any) => [n.id, n.parentId, n.position]))).toBe(before);
+  it('守卫：已在组 no-op；跨组移动先摘除（源组善后）再入新组（rel 被当绝对坐标双重偏移根修锚）', () => {
+    setupRig([{ id: 'gA', type: 'group', position: { x: 500, y: 500 }, data: { groupType: 'normal' } }]);
+    try {
+      const before = JSON.stringify(useCanvasStore.getState().nodes.map((n: any) => [n.id, n.parentId, n.position]));
+      useCanvasStore.getState().addToGroup('g1', 'c1');   // 已在 g1
+      expect(JSON.stringify(useCanvasStore.getState().nodes.map((n: any) => [n.id, n.parentId, n.position]))).toBe(before);
 
-    // 跨组：c1 从 g1 移到 gA
-    useCanvasStore.setState({ nodes: [
-      ...(useCanvasStore.getState().nodes as any[]),
-      { id: 'gA', type: 'group', position: { x: 500, y: 500 }, width: 300, height: 250, data: { groupType: 'normal' } },
-    ] as any });
-    const absBefore = absOf('c1');
-    useCanvasStore.getState().addToGroup('gA', 'c1');
-    expect(absOf('c1')).toEqual(absBefore);   // 绝对坐标不变（现状：rel 当绝对用——必红）
-    // 源组 g1 失去唯一子 → 空组解组（对齐删除路径语义——v4）
-    expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
+      // 跨组：c1 从 g1 移到 gA（auto 组——收养后帧=内容派生）
+      const absBefore = absOf('c1');
+      useCanvasStore.getState().addToGroup('gA', 'c1');
+      expect(absOf('c1')).toEqual(absBefore);   // 绝对坐标不变（rel 双重偏移根修）
+      // 源组 g1 失去唯一子 → 空组解组（对齐删除路径语义——v4）
+      expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
+    } finally {
+      teardown();
+    }
   });
 
   it('不 refit 组的反向断言（O0b-5——manual oracle=doc 帧三键形态（isContentDerivedFrame 接替 shouldAutoRefit）；真装置：gm 帧三键入 doc→addToGroup 框不变。落点选框内 padding 区外使 clamp 不触发）', () => {
@@ -598,6 +625,16 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
 });
 
 describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGroupBounds(childrenAbs) ∧ rel ≥ padding）', () => {
+  // O0b-5 评审收口装置迁移：帧重算=diff 首 reconcile('cs') 派生——裸 store 直写兜底已删，
+  // 本族改真 Y.Doc 装置（照 F33 setupRig/arrangeSelection seed 先例）。
+  const setupRig = (nodes: unknown[]) => {
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    fillDoc(d, toDocRecords(nodes as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
+    useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    return d;
+  };
+  const teardown = () => { _setIntentDocForTest(null); };
   const assertInvariant = () => {
     const nodes = useCanvasStore.getState().nodes as any[];
     // O0b-5：shouldAutoRefit 退役——auto 域谓词=groupType!=='storyboard'∧!collapsed（isContentDerivedFrame 的 cs 侧同构）
@@ -613,59 +650,69 @@ describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGr
       });
     }
   };
-  const seedTwoNodes = () => useCanvasStore.setState({ nodes: [
+  const twoNodes = () => [
     { id: 'a', type: 'imageGen', position: { x: 100, y: 150 }, width: 100, height: 60, data: {} },
     { id: 'b', type: 'imageGen', position: { x: 300, y: 260 }, width: 80, height: 90, data: {} },
-  ] as any, edges: [] });
+  ];
 
   it('groupNodes 后不变量成立', () => {
-    seedTwoNodes();
-    useCanvasStore.getState().groupNodes(['a', 'b']);
-    assertInvariant();
+    setupRig(twoNodes());
+    try {
+      useCanvasStore.getState().groupNodes(['a', 'b']);
+      assertInvariant();
+    } finally { teardown(); }
   });
   it('addToGroup 后不变量成立', () => {
-    seedTwoNodes();
-    useCanvasStore.getState().groupNodes(['a', 'b']);
-    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
-      { id: 'c', type: 'imageGen', position: { x: 40, y: 60 }, width: 60, height: 40, data: {} }] as any });
-    useCanvasStore.getState().addToGroup(useCanvasStore.getState().nodes.find((n: any) => n.type === 'group')!.id, 'c');
-    assertInvariant();
+    setupRig([...twoNodes(),
+      { id: 'c', type: 'imageGen', position: { x: 40, y: 60 }, width: 60, height: 40, data: {} }]);
+    try {
+      useCanvasStore.getState().groupNodes(['a', 'b']);
+      useCanvasStore.getState().addToGroup(useCanvasStore.getState().nodes.find((n: any) => n.type === 'group')!.id, 'c');
+      assertInvariant();
+    } finally { teardown(); }
   });
   it('dropIntoGroup 后不变量成立', () => {
-    seedTwoNodes();
-    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
-    useCanvasStore.setState({ nodes: [...useCanvasStore.getState().nodes,
-      { id: 'c', type: 'imageGen', position: { x: 40, y: 60 }, width: 60, height: 40, data: {} }] as any });
-    useCanvasStore.getState().dropIntoGroup('c', gid);
-    assertInvariant();
+    setupRig([...twoNodes(),
+      { id: 'c', type: 'imageGen', position: { x: 40, y: 60 }, width: 60, height: 40, data: {} }]);
+    try {
+      const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+      useCanvasStore.getState().dropIntoGroup('c', gid);
+      assertInvariant();
+    } finally { teardown(); }
   });
   it('removeNodeFromGroup 后不变量成立', () => {
-    seedTwoNodes();
-    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
-    useCanvasStore.getState().removeNodeFromGroup(gid, 'a');
-    assertInvariant();
+    setupRig(twoNodes());
+    try {
+      const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+      useCanvasStore.getState().removeNodeFromGroup(gid, 'a');
+      assertInvariant();
+    } finally { teardown(); }
   });
   it('ungroup(normal) 后子绝对坐标还原（无组——不变量空集）', () => {
-    seedTwoNodes();
-    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
-    const absBefore = { a: { x: 100, y: 150 }, b: { x: 300, y: 260 } };
-    useCanvasStore.getState().ungroup(gid);
-    const st = useCanvasStore.getState().nodes as any[];
-    expect({ x: st.find((n) => n.id === 'a')!.position.x, y: st.find((n) => n.id === 'a')!.position.y }).toEqual(absBefore.a);
-    expect({ x: st.find((n) => n.id === 'b')!.position.x, y: st.find((n) => n.id === 'b')!.position.y }).toEqual(absBefore.b);
+    setupRig(twoNodes());
+    try {
+      const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+      const absBefore = { a: { x: 100, y: 150 }, b: { x: 300, y: 260 } };
+      useCanvasStore.getState().ungroup(gid);
+      const st = useCanvasStore.getState().nodes as any[];
+      expect({ x: st.find((n) => n.id === 'a')!.position.x, y: st.find((n) => n.id === 'a')!.position.y }).toEqual(absBefore.a);
+      expect({ x: st.find((n) => n.id === 'b')!.position.x, y: st.find((n) => n.id === 'b')!.position.y }).toEqual(absBefore.b);
+    } finally { teardown(); }
   });
   it('convertGroup 两方向后不变量成立', () => {
-    useCanvasStore.setState({ nodes: [
+    setupRig([
       { id: 'a', type: 'imageGen', position: { x: 100, y: 150 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
       { id: 'b', type: 'imageGen', position: { x: 300, y: 260 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
-    ] as any, edges: [] });
-    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
-    useCanvasStore.getState().convertGroup(gid, 'storyboard');
-    const sg = useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any;
-    expect((sg.data as any).groupType).toBe('storyboard');   // storyboard 不在重算域（data 断言自证——O0b-5 shouldAutoRefit 退役）
-    assertInvariant();
-    useCanvasStore.getState().convertGroup(gid, 'normal');
-    assertInvariant();
+    ]);
+    try {
+      const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+      useCanvasStore.getState().convertGroup(gid, 'storyboard');
+      const sg = useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any;
+      expect((sg.data as any).groupType).toBe('storyboard');   // storyboard 不在重算域（data 断言自证——O0b-5 shouldAutoRefit 退役）
+      assertInvariant();
+      useCanvasStore.getState().convertGroup(gid, 'normal');
+      assertInvariant();
+    } finally { teardown(); }
   });
 });
 
@@ -1274,10 +1321,12 @@ describe('arrangeGroupChildren（2c-4）', () => {
   // 真装置（照 setGroupColor 2c-3 / arrangeSelection 2a-5 骨架）：真 Y.Doc + fillDoc +
   // _setIntentDocForTest + attachUndoManager。禁止 vi.mock canvasIntents——mock 空投影会让
   // dispatchProjectionDiff 算 0 intents 后直接 return，doc 写路径零验证、断言恒绿。
-  // 夹具要点：g1 带 savedSize（O0b-5 后唯一遗留清键——manuallyResized 整链删除；savedSize 键删归 O0c-3）；
+  // 夹具要点（O0b-5 评审收口改 auto 形态）：g1=auto 组（无帧键——跃迁表 arrange 行"帧≡bbox+padding"
+  // 的派生断言面；旧 800×600 帧三键夹具经 toDocRecords 判 manual[密封源不动]则派生断言必红）且带
+  // savedSize（O0b-5 后唯一遗留清键——manuallyResized 整链删除；savedSize 键删归 O0c-3）；
   // 子 a/b 绝对 rect 分行错列（(120,150) / (600,400)——horizontal 排列必有位移，防 diff=0 假绿）。
   const rigNodes = () => [
-    { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 800, height: 600,
+    { id: 'g1', type: 'group', position: { x: 100, y: 100 },
       data: { groupType: 'normal', name: 'A', savedSize: { width: 800, height: 600 } } },
     { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
     { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
@@ -1308,7 +1357,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
       useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
       const gd = nodeOf('g1').data as any;
       expect('savedSize' in gd).toBe(false);         // in 断言——patchGroupDataInner delete 语义（P0-2 同源坑；R2d-1 域切换同清 F18 先例）
-      // 排列生效：组框 refit 到 bbox(children laid)+padding（期望来自纯函数——手动标记不阻断 refit）
+      // 排列生效：组框派生到 bbox(children laid)+padding（O0b-5 评审收口——帧写归 reconcile，期望来自纯函数）
       const items = sortForArrange([
         { id: 'a', x: 120, y: 150, width: 100, height: 60 },
         { id: 'b', x: 600, y: 400, width: 300, height: 200 },
@@ -1322,7 +1371,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
     }
   });
 
-  it('子节点绝对 rect → sortForArrange → arrangeRects → 守恒写回：子新绝对位置−新组原点=rel 写回+组框=bbox(children)+padding', () => {
+  it('子节点绝对 rect → sortForArrange → arrangeRects → 守恒写回：子新绝对位置恒=laid+组框=bbox(children)+padding（reconcile 派生——O0b-5 评审收口帧写归单写者）', () => {
     const { d } = setupRig();
     try {
       const before = snapshot();

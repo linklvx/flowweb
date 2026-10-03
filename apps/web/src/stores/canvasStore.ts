@@ -308,7 +308,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     return [...records.values()];
   };
 
-  // ══ O0b-5（Spec B）：refit 族退役内联件（applyGroupFrame/shouldAutoRefit/refitGroupGeometry 删除）══
+  // ══ O0b-5（Spec B）：refit 族退役——帧写归 reconcile 单写者（applyGroupFrame/shouldAutoRefit/
+  //  refitGroupGeometry/refitContentDerivedFrame 内联件全删；组框重算恒经 dispatchProjectionDiff
+  //  首行 reconcile('cs')/漏斗尾 reconcile('doc') 派生）══
   /** auto 组谓词（isContentDerivedFrame 消费点——帧由内容派生 bbox+padding 的组）：
    *  storedFrame 优先取 doc 侧记录键（终裁 44 oracle——readGroupStoredFrameFromDoc 单源取数）；
    *  无 doc/组未注册 ⇒ 空帧形态（=auto——裸 store 与旧 shouldAutoRefit 的 data 形态判据同构：
@@ -318,36 +320,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       data: (group.data ?? {}) as Record<string, unknown>,
       storedFrame: readGroupStoredFrameFromDoc(group.id) ?? {},
     });
-
-  /** auto 组守恒收缩/重算内联写（applyGroupFrame action 退役后的命令内保留件——6 调用点：
-   *  deleteNode/onNodesChange 善后/addToGroup/dropIntoGroup 源组善后/removeNodeFromGroup/
-   *  convertGroup→normal）。有 doc 会话与 reconcile 写域① 同值幂等（O0b-2 台账 a 先例）；
-   *  无 doc 会话（裸 store）由本写兜底派生（dispatchProjectionDiff 无 doc 跳过 reconcile）。
-   *  帧算术=calcGroupBounds 单源；守卫=auto∧有子；epsilon no-op（1ULP 抖动防乒乓）。 */
-  const refitContentDerivedFrame = (groupId: string) => {
-    const s = get();
-    const group = s.nodes.find((n) => n.id === groupId);
-    if (!group || !isContentDerivedGroup(group)) return;
-    const children = s.nodes.filter((n) => n.parentId === groupId);
-    if (children.length === 0) return;
-    const frame = calcGroupBounds(children.map((n) => ({
-      x: n.position.x + group.position.x, y: n.position.y + group.position.y,
-      width: n.width ?? DEFAULT_CHILD_SIZE.width,      // 三档链（O0b-2——doc wh 第一/常量最后）
-      height: n.height ?? DEFAULT_CHILD_SIZE.height,
-    })));
-    const rels = children.map((c) => ({ x: c.position.x + group.position.x - frame.x, y: c.position.y + group.position.y - frame.y }));
-    const EPS = 1e-6;
-    const moved = Math.abs(group.position.x - frame.x) > EPS || Math.abs(group.position.y - frame.y) > EPS
-      || Math.abs((group.width ?? 0) - frame.width) > EPS || Math.abs((group.height ?? 0) - frame.height) > EPS;
-    if (!moved && children.every((c, i) => Math.abs(c.position.x - rels[i].x) <= EPS && Math.abs(c.position.y - rels[i].y) <= EPS)) return;
-    set((st) => ({
-      nodes: st.nodes.map((n) => {
-        if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
-        const i = children.findIndex((c) => c.id === n.id);
-        return i === -1 ? n : { ...n, position: rels[i] };
-      }),
-    }));
-  };
 
   return {
   nodes: [],
@@ -428,7 +400,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   deleteNode: (id) => {
     // 批4b-2：差分快照在 cascade/结构删/组善后全动作之前捕获——收尾 dispatchProjectionDiff
-    // 覆盖级联子删+父组框收缩（refitContentDerivedFrame 自身不 dispatch——几何写回统一归调用方差分）。
+    // 覆盖级联子删+父组框收缩（首行 reconcile('cs')——O0b-5 帧写单写者）。
     // 与显式 deleteNode intent 幂等共存（同值 no-op，撤销栈同窗合并）
     const before = captureStoreProjection();
     // v6：被删节点是组 → 级联删子（对齐菜单 GroupContextMenu 先删子再删组的既有语义——
@@ -463,13 +435,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       if ((parent.data as any)?.cells) {
         // 分镜组：cells 移除该 id（宫格不收缩）——patchGroupData 唯一通道（对齐 onNodesChange removes 段同款清理）
         get().patchGroupData(parent.id, { cells: ((parent.data as any).cells as string[]).filter((c) => c !== id) });
-      } else if ((parent.data as any).groupType === 'normal') {
-        // 普通组：删空自动解组；仍有子 → 组框收缩（G1——refit 守卫内建：manual/折叠/分镜 no-op）
-        if (!after.nodes.some((c) => c.parentId === parent.id)) {
-          get().ungroup(parent.id);
-        } else {
-          refitContentDerivedFrame(parent.id);
-        }
+      } else if ((parent.data as any).groupType === 'normal'
+        && !after.nodes.some((c) => c.parentId === parent.id)) {
+        // 普通组：删空自动解组；仍有子 → 组框收缩归收尾差分首行 reconcile('cs')（O0b-5 帧写单写者）
+        get().ungroup(parent.id);
       }
     }
     const ns = useNodeStore.getState();
@@ -892,13 +861,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       if (parent?.type === 'group') {
         if ((parent.data as any)?.cells) {
           get().patchGroupData(parent.id, { cells: ((parent.data as any).cells as string[]).filter((c) => c !== change.id) });
-        } else if ((parent.data as any).groupType === 'normal') {
-          // 普通组：删空自动解组；仍有子 → 组框收缩（G1——对齐 deleteNode 同款）
-          if (!get().nodes.some((c) => c.parentId === parent.id)) {
-            get().ungroup(parent.id);
-          } else {
-            refitContentDerivedFrame(parent.id);
-          }
+        } else if ((parent.data as any).groupType === 'normal'
+          && !get().nodes.some((c) => c.parentId === parent.id)) {
+          // 普通组：删空自动解组；仍有子 → 组框收缩归收尾差分首行 reconcile('cs')（对齐 deleteNode 同款）
+          get().ungroup(parent.id);
         }
       }
     }
@@ -1195,10 +1161,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  ① patchGroupDataInner 清守恒域标记（savedSize 键删除——runCommand.fn 契约：fn 内一律纯写层；
    *  O0b-5 后唯一遗留清键，savedSize 键本身全链删除归 O0c-3）；
    *  ② 子绝对 rect（rel+组原点，尺寸 DEFAULT_CHILD_SIZE 兜底）→ sortForArrange 行优先 → arrangeRects
-   *  （laid=绝对坐标——bbox 中心不变、平移不变）；③ 守恒写回（O0b-5 refitGroupGeometry 退役——
-   *  帧算术=calcGroupBounds 单源内联）：frame=bbox(laid)、rel=abs−新 frame 原点 → 子新绝对位置恒=laid；
-   *  单次 setWithParentOrder（组框+子 rel 同事务——拆两次 setState 分写闪烁）。
-   *  几何写点门禁：本函数已登记 group-frame-writer-guard ALLOW_FN（子 rel 直写=合法几何写）。 */
+   *  （laid=绝对坐标——bbox 中心不变、平移不变）；③ 子 rel 写回（O0b-5 评审收口：组帧写删——
+   *  帧≡bbox(laid)+padding 由 runCommand 尾差分首行 reconcile('cs') 派生[跃迁表 arrange 行]、
+   *  子 rel 随新 origin 重基[写域②]——子新绝对位置恒=laid 守恒；命令体仅子 rel 直写
+   *  =abs−组当前 origin，group-frame-writer-guard ALLOW_FN 登记的合法几何写）。 */
   arrangeGroupChildren: (groupId, mode) => {
     const s = get();
     const group = s.nodes.find((n) => n.id === groupId);
@@ -1216,13 +1182,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
       })));
       const laid = arrangeRects(items.map(({ id, ...r }) => r), mode);
-      const frame = calcGroupBounds(laid);
-      const rels = laid.map((r) => ({ x: r.x - frame.x, y: r.y - frame.y }));
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
-          if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
           const i = items.findIndex((it) => it.id === n.id);
-          return i === -1 ? n : { ...n, position: rels[i] };
+          return i === -1 ? n : { ...n, position: { x: laid[i].x - group.position.x, y: laid[i].y - group.position.y } };
         }),
       }));
     });
@@ -1335,50 +1298,31 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // O0b-5：auto 判定=isContentDerivedFrame（shouldAutoRefit 退役——doc 帧键形态 oracle：manual
     //（三键齐）/storyboard/collapsed 走分支 B 帧不动；auto 守恒扩框）
     const auto = isContentDerivedGroup(group);
-    // 批4b-2 换芯：差分快照→入组信封+组框+既有成员 rel 补偿经 dispatchProjectionDiff 落 doc
+    // 批4b-2 换芯：差分快照→入组信封+新子 rel 经 dispatchProjectionDiff 落 doc
     const before = captureStoreProjection();
     setWithParentOrder((st) => {
-      if (!auto) {
-        // 分支 B（v5）：不 refit 组——组框一字不改；新子 rel=abs−组原点，过 clampChildIntoGroup
-        //（共享守卫：组宽高不可用/退化时跳过夹取——与 Task 14 拖拽路径的守卫同源）
-        const clamped = clampChildIntoGroup(
-          { x: absX - gp.x, y: absY - gp.y }, childSize,
-          { width: group.width, height: group.height },
-        );
-        return {
-          nodes: st.nodes.map((n) =>
-            n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: clamped } : n),
-        };
-      }
-      // 分支 A：守恒 refit（既有成员绝对不变——F33 根修；O0b-5 refitGroupGeometry 退役——帧算术
-      // calcGroupBounds 单源内联，rel=abs−新 origin 补偿）
-      const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
-      const frame = calcGroupBounds(
-        siblings.map((n) => ({
-          x: n.id === nodeId ? absX : n.position.x + gp.x,
-          y: n.id === nodeId ? absY : n.position.y + gp.y,
-          width: n.width ?? DEFAULT_CHILD_SIZE.width,       // v6 纪律三：无 measured
-          height: n.height ?? DEFAULT_CHILD_SIZE.height,
-        })),
-      );
-      const rels = siblings.map((n) => ({
-        x: (n.id === nodeId ? absX : n.position.x + gp.x) - frame.x,
-        y: (n.id === nodeId ? absY : n.position.y + gp.y) - frame.y,
-      }));
+      // 命令体仅 placement 域新子位写（跃迁表 addToGroup 行"cs 子=新子 clamp rel"——组帧零写）：
+      //  · auto 组不夹取——扩框归收尾差分首行 reconcile('cs') 派生（childrenAbs=cs rel+旧 origin
+      //    反推 → calcGroupBounds；既有成员 rel 随新 origin 重基[写域②]——绝对坐标守恒，F33 根修）；
+      //  · manual/折叠/分镜组帧一字不改，rel 过 clampChildIntoGroup 夹入界内（共享守卫：组宽高
+      //    不可用/退化时跳过夹取——与 Task 14 拖拽路径的守卫同源）。
+      const rel = auto
+        ? { x: absX - gp.x, y: absY - gp.y }
+        : clampChildIntoGroup(
+            { x: absX - gp.x, y: absY - gp.y }, childSize,
+            { width: group.width, height: group.height },
+          );
       return {
-        nodes: st.nodes.map((n) => {
-          if (n.id === nodeId) return { ...n, parentId: groupId, extent: 'parent' as const, position: rels[siblings.findIndex((sm) => sm.id === nodeId)] };
-          if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
-          const i = siblings.findIndex((sm) => sm.id === n.id);
-          return i === -1 ? n : { ...n, position: rels[i] };   // 既有成员 rel 补偿——绝对坐标不变（F33）
-        }),
+        nodes: st.nodes.map((n) =>
+          n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: rel } : n),
       };
     });
-    if (oldParent && node.parentId !== groupId && oldParent.type === 'group') {
+    if (oldParent && node.parentId !== groupId && oldParent.type === 'group'
+      && !get().nodes.some((c) => c.parentId === oldParent.id)) {
       // 源组善后（v5）：失去最后子 → 解组（对齐删除路径语义；plan 原文 ungroupForce 已随 Task 11
-      //  v6 级联裁决撤销——现场改调 ungroup，已验证其空组路径无子排序依赖不会炸）；仍有子 → 收缩
-      if (!get().nodes.some((c) => c.parentId === oldParent.id)) get().ungroup(oldParent.id);
-      else refitContentDerivedFrame(oldParent.id);
+      //  v6 级联裁决撤销——现场改调 ungroup，已验证其空组路径无子排序依赖不会炸）；
+      // 仍有子 → 源组收缩归收尾差分首行 reconcile('cs')（O0b-5 帧写单写者）
+      get().ungroup(oldParent.id);
     }
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
@@ -1398,8 +1342,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (gd.groupType === 'storyboard') {
       // O0b-2 分镜分支（终裁 78④——分镜子 wh 陈旧收口）：出格信封 wh=当前格尺寸（calcStoryboardSize/
       // config 推算——非入格旧值）∧落点=帧右上外 20px。cells 清槽+cellNodes 过滤归 O0c-3 分镜移出修法。
-      // 与普通分支共用下方 dispatchProjectionDiff 尾（棘轮调用点数不增）；applyGroupFrame 对
-      // 分镜组守卫 no-op——组框不动。
+      // 与普通分支共用下方 dispatchProjectionDiff 尾（棘轮调用点数不增）；分镜组帧=config 权威不动。
       const cfg = resolveStoryboardConfig(gd);
       const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
       set((st) => ({
@@ -1417,7 +1360,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           : n),
       }));
     }
-    refitContentDerivedFrame(groupId);   // G1：移出后组框收缩（守卫内建——manual/折叠/分镜 no-op）
+    // G1：移出后组框收缩归下方差分首行 reconcile('cs')（O0b-5 帧写单写者——manual/折叠/分镜档恒不动）
     dispatchProjectionDiff(before, Origin.LocalUser);
     // v5 C2：移出最后子 → normal 空组解组（对齐删空自动解组语义；storyboard 组不受此规则）
     const after = get();
@@ -1453,48 +1396,27 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
                         height: node.height ?? DEFAULT_CHILD_SIZE.height };
     // O0b-5：auto 判定=isContentDerivedFrame（shouldAutoRefit 退役——addToGroup 同款）
     const auto = isContentDerivedGroup(group);
-    // 批4b-2 换芯：差分快照→入组信封+组框+rel 补偿经 dispatchProjectionDiff 落 doc（addToGroup 同款；
+    // 批4b-2 换芯：差分快照→入组信封+新子 rel 经 dispatchProjectionDiff 落 doc（addToGroup 同款；
     // 前置 toggleCollapse 展开自带 dispatch，与本差分幂等）
     const before = captureStoreProjection();
     setWithParentOrder((st) => {
-      if (!auto) {
-        // 分支 B（v5）：不 refit 组——组框一字不改；新子 rel=abs−组原点，过 clampChildIntoGroup
-        const clamped = clampChildIntoGroup(
-          { x: absX - gp.x, y: absY - gp.y }, childSize,
-          { width: group.width, height: group.height },
-        );
-        return {
-          nodes: st.nodes.map((n) =>
-            n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: clamped } : n),
-        };
-      }
-      // 分支 A：守恒 refit（既有成员绝对不变——F33 根修；与 addToGroup 同款——O0b-5 calcGroupBounds 内联）
-      const siblings = st.nodes.filter((n) => n.parentId === groupId || n.id === nodeId);
-      const frame = calcGroupBounds(
-        siblings.map((n) => ({
-          x: n.id === nodeId ? absX : n.position.x + gp.x,
-          y: n.id === nodeId ? absY : n.position.y + gp.y,
-          width: n.width ?? DEFAULT_CHILD_SIZE.width,       // v6 纪律三：无 measured
-          height: n.height ?? DEFAULT_CHILD_SIZE.height,
-        })),
-      );
-      const rels = siblings.map((n) => ({
-        x: (n.id === nodeId ? absX : n.position.x + gp.x) - frame.x,
-        y: (n.id === nodeId ? absY : n.position.y + gp.y) - frame.y,
-      }));
+      // 命令体仅 placement 域新子位写（addToGroup 同款——组帧零写）：auto 组扩框归收尾差分首行
+      // reconcile('cs') 派生（既有成员绝对守恒 F33）；manual/折叠/分镜组帧一字不改、rel 夹入界内。
+      const rel = auto
+        ? { x: absX - gp.x, y: absY - gp.y }
+        : clampChildIntoGroup(
+            { x: absX - gp.x, y: absY - gp.y }, childSize,
+            { width: group.width, height: group.height },
+          );
       return {
-        nodes: st.nodes.map((n) => {
-          if (n.id === nodeId) return { ...n, parentId: groupId, extent: 'parent' as const, position: rels[siblings.findIndex((sm) => sm.id === nodeId)] };
-          if (n.id === groupId) return { ...n, position: { x: frame.x, y: frame.y }, width: frame.width, height: frame.height };
-          const i = siblings.findIndex((sm) => sm.id === n.id);
-          return i === -1 ? n : { ...n, position: rels[i] };   // 既有成员 rel 补偿——绝对坐标不变（F33）
-        }),
+        nodes: st.nodes.map((n) =>
+          n.id === nodeId ? { ...n, parentId: groupId, extent: 'parent' as const, position: rel } : n),
       };
     });
-    if (oldParent && node.parentId !== groupId && oldParent.type === 'group') {
-      // 源组善后（同 addToGroup——ungroup 对空组安全；仍有子 → 收缩）
-      if (!get().nodes.some((c) => c.parentId === oldParent.id)) get().ungroup(oldParent.id);
-      else refitContentDerivedFrame(oldParent.id);
+    if (oldParent && node.parentId !== groupId && oldParent.type === 'group'
+      && !get().nodes.some((c) => c.parentId === oldParent.id)) {
+      // 源组善后（同 addToGroup——ungroup 对空组安全）；仍有子 → 源组收缩归收尾差分首行 reconcile('cs')
+      get().ungroup(oldParent.id);
     }
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
@@ -1790,8 +1712,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         nameCustom: undefined, storyboard: undefined, cells: undefined,
         savedSize: undefined, collapsed: undefined,
       });
-      // 组框重算（守恒——rel 随 frame 补偿，子绝对不变）
-      refitContentDerivedFrame(groupId);
+      // 组框重算（守恒）归下方差分首行 reconcile('cs')——auto 组从子 abs（网格 rel+组原点）重派生
+      // bbox+padding、子 rel 随新 origin 重基（O0b-5 帧写单写者）
     }
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
@@ -1883,9 +1805,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     dispatchCanvasIntent({ type: 'updateNodeData', id: groupId, patch: { collapsed: collapsing } }, Origin.LocalUser);
   },
 
-  // O0b-5（Spec B）：applyGroupFrame/applyGroupFrameRect 两 action 整删（refit 族退役）——
-  // 守恒收缩/重算归 refitContentDerivedFrame 内联件+diff 首 reconcile('cs')；配置型组框直写归
-  // mergeStoryboard/convertGroup/resizeStoryboardGrid 命令体前写（S2 裁决保持原事务结构）。
+  // O0b-5（Spec B）：applyGroupFrame/applyGroupFrameRect 两 action 整删（refit 族退役——含
+  // refitContentDerivedFrame 内联件）——守恒收缩/重算统一归 diff 首 reconcile('cs')/漏斗尾
+  // reconcile('doc') 单写者；配置型组框直写归 mergeStoryboard/convertGroup/resizeStoryboardGrid
+  // 命令体前写（S2 裁决保持原事务结构）。
 
   /** O0b-5 单意图化：改配置=单次 updateNodeData{storyboard} 落 doc（单 transact，零 moveNode/
    *  envelope 意图——applyGroupFrameRect 退役）；cs 帧=reconcile 写域① storyboard 档同 tick 派生
