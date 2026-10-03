@@ -127,10 +127,10 @@ describe('ProjectService', () => {
       const doc = new Y.Doc();
       (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
 
-      // clone 产物形状（CLONE_WHITELIST group 8 键含 storyboard/collapsed/savedSize；auto 组=readCanvas 键集表输出 0 帧键——
+      // clone 产物形状（CLONE_WHITELIST group 7 键含 storyboard/collapsed——O0c-3 摘 savedSize；auto 组=readCanvas 键集表输出 0 帧键——
       // 此处额外塞脏帧键模拟退化输入，验收 stripAuthorState 守卫）：manual/storyboard/auto 三档组+分镜子
       const nodes = [
-        { id: 'mg', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true, savedSize: { width: 300, height: 200 }, cells: ['mc1'] } },
+        { id: 'mg', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true, cells: ['mc1'] } },
         { id: 'mc1', type: 'imageGen', parentId: 'mg', position: { x: 1, y: 1 }, data: { prompt: 'p' } },
         { id: 'ag', type: 'group', position: { x: 9, y: 9 }, width: 100, data: { groupType: 'normal', collapsed: false } }, // 脏帧键（缺 height→非 manual）→ auto
         { id: 'sb', type: 'group', position: { x: 500, y: 0 }, width: 642, height: 362, data: { groupType: 'storyboard', cells: ['sc1', null], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false } },
@@ -145,8 +145,7 @@ describe('ProjectService', () => {
       expect(mg.get('width')).toBe(300);
       expect(mg.get('height')).toBe(200);
       const mgData = mg.get('data') as Y.Map<any>;
-      expect(mgData.get('collapsed')).toBe(true);          // clone 8 键 data 原样落 doc
-      expect(mgData.get('savedSize')).toEqual({ width: 300, height: 200 });
+      expect(mgData.get('collapsed')).toBe(true);          // clone 7 键 data 原样落 doc（O0c-3 摘 savedSize）
       const ag = nodesMap.get('ag') as Y.Map<any>;
       expect(ag.get('position')).toBeUndefined();          // auto 组 0 帧键（脏输入被剥）
       expect(ag.get('width')).toBeUndefined();

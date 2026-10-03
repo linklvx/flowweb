@@ -422,7 +422,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
       // O0c-1 派生输入完备夹具：storyboard 组带完整 config+collapsed；g2=折叠 manual 组（collapsed:true——公开白名单两键都进 payload）
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['n1', 'ghost-id', null], name: '分镜1', storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false } },
-      { id: 'g2', type: 'group', position: { x: 500, y: 0 }, width: 320, height: 180, data: { groupType: 'normal', cells: ['n2'], name: '手动组', collapsed: true, savedSize: { width: 100, height: 60 } } },
+      { id: 'g2', type: 'group', position: { x: 500, y: 0 }, width: 320, height: 180, data: { groupType: 'normal', cells: ['n2'], name: '手动组', collapsed: true } },
     ],
     edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
   };
@@ -470,7 +470,6 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect(g.data.collapsed).toBe(false);
     const g2 = out.nodes.find((n: any) => n.id === 'g2')!;
     expect(g2.data.collapsed).toBe(true);           // 折叠 manual 组公开面保折叠态（cs 折叠渲染档派生输入）
-    expect(g2.data.savedSize).toBeUndefined();      // savedSize 折叠快照键公开面仍剥（键删归 O0c-3）
     const edit = out.nodes.find((n: any) => n.id === 'n35')!;
     expect(edit).toBeTruthy();      // videoEdit 节点保留（spec:228，第八轮）
     expect(edit.data).toEqual({});  // data 全剥（timeline/draft 不外泄）

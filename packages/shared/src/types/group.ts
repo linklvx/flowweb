@@ -3,7 +3,7 @@
  *  注意 color 是 R2c 前向键——现状 store 不产出，为克隆/公开过滤契约预置；nameCustom 已由
  *  canvasStore convertGroup 产出（→storyboard 设 false，→normal 删键）。
  *  O0b-5（终裁 50）：manuallyResized 整链删除（manual 判定=doc 帧三键形态 oracle）；
- *  savedSize 折叠快照键留至 O0c-3 全链清理。 */
+ *  O0c-3：savedSize 折叠快照键全链删除（折叠恢复唯一来源=doc 帧三键密封——终裁 82）。 */
 export interface GroupNodeDataShape {
   groupType: 'normal' | 'storyboard';
   name?: string;
@@ -16,7 +16,6 @@ export interface GroupNodeDataShape {
     showIndex: boolean;
     stitchResolution: '2K' | '4K';
   };
-  savedSize?: { width: number; height: number };
   nameCustom?: boolean;
   color?: string;
 }
@@ -26,7 +25,7 @@ export interface GroupNodeDataShape {
  *  API 生产源码已切值导入（snapshot-filter.util.ts 的 CLONE_WHITELIST.group 用 [...GROUP_NODE_DATA_KEYS]）。 */
 export const GROUP_NODE_DATA_KEYS = [
   'groupType', 'cells', 'name', 'storyboard', 'collapsed',
-  'savedSize', 'nameCustom', 'color',
+  'nameCustom', 'color',
 ] as const satisfies readonly (keyof GroupNodeDataShape)[];
 
 // 双向编译锚定（spec §4.6：satisfies 防多余键 + Exclude 防缺键——两向任一漂移 tsc 红）。

@@ -51,8 +51,8 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
         id: 'g1', type: 'group', position: { x: 0, y: 0 },
         data: { groupType: 'storyboard', cells: ['c1', 'c2'] },
       },
-      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-1' } },
-      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-2' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-2' } },
     ]);
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1', 'c2'] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
@@ -65,7 +65,7 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
   it('R2b-7 读点清零：节点 data 含遗留 mediaUrl 键 → cellNodes 不透传 url（陈旧 URL 不进读路径）', () => {
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'] } },
-      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1', mediaUrl: 'http://stale/presigned' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1', mediaUrl: 'http://stale/presigned' } },
     ]);
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1'] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
@@ -73,10 +73,25 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
     expect(JSON.stringify(cellNodes)).not.toContain('stale');
   });
 
+  it('O0c-3 分镜移出：cells 残留 id 但 parentId 已解（移出后未清槽脏态）→ cellNodes 不渲染该节点', () => {
+    // 移出双通道=membership[parentId]+槽序[cells]——谓词须双满足（仅 cells.includes 会渲染已移出节点）
+    setMockNodes([
+      {
+        id: 'g1', type: 'group', position: { x: 0, y: 0 },
+        data: { groupType: 'storyboard', cells: ['c1', 'c2'] },
+      },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'a' } },
+      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'b' } },
+    ]);
+    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1', 'c2'] }} selected={false} {...{} as any} />);
+    const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
+    expect(cellNodes).toEqual([{ id: 'c1', fileId: 'a', status: 'done' }]);
+  });
+
   it('批1-6 合并视图：data.status=loading 但 exec 投影 done → cellNodes status=done（读点换源）', () => {
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'] } },
-      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'loading' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'loading' } },
     ]);
     useNodeStore.setState({ execStatus: new Map([['c1', { status: 'done' }]]), execAligned: new Map() });
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1'] }} selected={false} {...{} as any} />);

@@ -52,7 +52,7 @@ function throwIfViolations(assertName: string, violations: string[]): void {
 
 /**
  * 断言①：auto 组 doc 无帧键。auto 组（非分镜、非 manual）永无 position/width/height——
- * 折叠态同（折叠由 data.collapsed+savedSize 表达，帧键不落 doc）；manual 组（三键齐且有效）
+ * 折叠态同（折叠由 data.collapsed 表达，帧键不落 doc）；manual 组（三键齐且有效）
  * 折叠态不动帧三键（键在即放行）；分镜组豁免（帧走配置型公式）。
  * 判定口径：任一帧键存在而 storedFrame 不齐/无效（=frameMode 判 auto）→ 违例。
  */

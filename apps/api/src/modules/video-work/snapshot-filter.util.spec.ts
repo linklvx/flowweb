@@ -84,11 +84,11 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.nodes[0].data.images).toBeUndefined();
   });
 
-  it('group（O0c-1 派生输入完备）：groupType/cells/name/storyboard/collapsed 保留——否则 O0c-2 deriveRenderCanvas 派生退化 auto；savedSize/nameCustom/color 仍剥；真悬空 id（非 dropped）本层原样返回', () => {
+  it('group（O0c-1 派生输入完备）：groupType/cells/name/storyboard/collapsed 保留——否则 O0c-2 deriveRenderCanvas 派生退化 auto；nameCustom/color 仍剥（savedSize 键已随 O0c-3 全链删）；真悬空 id（非 dropped）本层原样返回', () => {
     const input: RawCanvasData = { nodes: [rawNode('n1', 'group', {
       groupType: 'storyboard', cells: ['ghost-id', null], name: '分镜1', collapsed: true,
       storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' },
-      savedSize: { width: 100, height: 60 }, nameCustom: true, color: 'red',
+      nameCustom: true, color: 'red',
     })], edges: [] };
     const out = buildFilteredSnapshot(input, base);
     const d = out.nodes[0].data;
@@ -97,7 +97,6 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(d.name).toBe('分镜1');
     expect(d.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
     expect(d.collapsed).toBe(true);
-    expect(d.savedSize).toBeUndefined();  // savedSize 折叠快照键删归 O0c-3
     expect(d.nameCustom).toBeUndefined();
     expect(d.color).toBeUndefined();
   });
@@ -254,12 +253,12 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
 
   // ↓↓↓ 以下追加进既有外层 describe 内部 ↓↓↓
 
-  it('clone 表 group 保留全部 8 键（R0a——manuallyResized 整链删除随 O0b-5 摘键；savedSize 留至 O0c-3）', () => {
+  it('clone 表 group 保留全部 7 键（R0a——manuallyResized 随 O0b-5 摘键、savedSize 随 O0c-3 全链删）', () => {
     const input: RawCanvasData = {
       nodes: [rawNode('g1', 'group', {
         groupType: 'storyboard', cells: ['n1', null], name: '分镜',
         storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' },
-        collapsed: false, savedSize: { width: 100, height: 60 },
+        collapsed: false,
         nameCustom: true, color: 'red',
       })],
       edges: [],
@@ -269,15 +268,15 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       whitelist: CLONE_WHITELIST,
     });
     expect(Object.keys(out.nodes[0].data).sort()).toEqual(
-      ['cells', 'collapsed', 'color', 'groupType', 'name', 'nameCustom', 'savedSize', 'storyboard'].sort(),
+      ['cells', 'collapsed', 'color', 'groupType', 'name', 'nameCustom', 'storyboard'].sort(),
     );
   });
 
-  it('不传 whitelist 维持 snapshot 表（group 5 键——O0c-1 派生输入完备：storyboard/collapsed 入表；savedSize 仍剥）', () => {
+  it('不传 whitelist 维持 snapshot 表（group 5 键——O0c-1 派生输入完备：storyboard/collapsed 入表；nameCustom/color 仍剥）', () => {
     const input: RawCanvasData = {
       nodes: [rawNode('g1', 'group', {
         groupType: 'storyboard', cells: ['n1'], name: '分镜',
-        storyboard: { aspectRatio: '16:9' }, collapsed: true, savedSize: { width: 1, height: 1 },
+        storyboard: { aspectRatio: '16:9' }, collapsed: true, nameCustom: true, color: 'red',
       })],
       edges: [],
     };

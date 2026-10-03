@@ -46,7 +46,7 @@ describe('assertNoAutoGroupFrameKeys（断言①：auto 组 doc 无帧键）', (
   it('auto 组无帧键（含折叠态）→ 不抛', () => {
     expect(() => assertNoAutoGroupFrameKeys([
       groupRec({ id: 'g1' }),
-      groupRec({ id: 'g2', data: { groupType: 'normal', collapsed: true, savedSize: { width: 300, height: 200 } } }),
+      groupRec({ id: 'g2', data: { groupType: 'normal', collapsed: true } }),
     ])).not.toThrow();
   });
 
@@ -424,9 +424,9 @@ describe('O0b-1 接线：reconcile 尾挂①③先决契约（toDocRecords 出�
     expect(() => assertExpandedAutoFrameEqualsBounds(out)).not.toThrow();
   });
 
-  it('①鉴别力：auto 组折叠态带 w/h-only 键（当前 toggleCollapse 折叠分支产物形态）⇒ throw（热路径接线随 O0b-5 解锁）', () => {
+  it('①鉴别力：auto 组折叠态带 w/h-only 键（折叠组帧键泄漏形态）⇒ throw（热路径接线随 O0b-5 解锁）', () => {
     expect(() => assertNoAutoGroupFrameKeys([
-      groupRec({ id: 'gc', data: { groupType: 'normal', collapsed: true, savedSize: { width: 530, height: 560 } }, width: 220, height: 160 }),
+      groupRec({ id: 'gc', data: { groupType: 'normal', collapsed: true }, width: 220, height: 160 }),
     ])).toThrow(/gc/);
   });
 });

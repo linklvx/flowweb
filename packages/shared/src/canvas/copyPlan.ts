@@ -58,8 +58,8 @@ export function buildCopyPlan(
       throw new Error(`buildCopyPlan: records 缺父记录 ${rec.parentId}`);   // 绝对位换算无据——fail-fast
     }
     const parent = rec.parentId ? byId.get(rec.parentId) : undefined;
-    // data 逐字保真（collapsed/savedSize/color/name/storyboard 配置原样）；仅组副本 cells 重映射
-    //（悬空 id → null 占位——禁 || id 兜底，与 clone remapIds 红线同款）
+    // data 逐字保真（collapsed/color/name/storyboard 配置原样——savedSize 键已随 O0c-3 全链删）；
+    // 仅组副本 cells 重映射（悬空 id → null 占位——禁 || id 兜底，与 clone remapIds 红线同款）
     const data: Record<string, unknown> = structuredClone(rec.data ?? {});
     if (rec.type === 'group' && Array.isArray(data.cells)) {
       data.cells = (data.cells as string[]).map((c) => idMap.get(c) ?? null);

@@ -31,7 +31,7 @@ export class VideoWorkCloneService {
 
     const run = async () => {
       const raw = await this.collabDoc.readCanvas(w.canvasProjectId!) as RawCanvasData;
-      // 克隆走 CLONE_WHITELIST 分表（R0a）：group 9 键（storyboard/collapsed/savedSize 等——F2 根因半边+G1 手动尺寸保持）；
+      // 克隆走 CLONE_WHITELIST 分表（R0a）：group 7 键（storyboard/collapsed 等——F2 根因半边；O0b-5 摘 manuallyResized、O0c-3 摘 savedSize）；
       // 其余同快照（D9）：resetStatusIdle + 不注入缩略图 + 剥 videoEdit
       // （剥 videoEdit 是克隆独有差异——快照保留该节点类型只剥 data，spec:228/D9 第八轮归一；
       //  批5-1 删信箱后 shadow- 前缀剥除随行消失——id 前缀零特殊处理）

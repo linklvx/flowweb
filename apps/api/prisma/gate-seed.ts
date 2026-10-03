@@ -1,16 +1,17 @@
 // A0-0 门禁 fixtures（Playwright globalSetup 调用）：USER 账号 + 最小画布（gate-node-1/2 保留 +
-// O0b-0 一次到位：auto 组 1+分镜组 1——O0c-3 只留断言）+ 工作空间模板行 + 最小视频作品。
+// O0b-0 一次到位：auto 组 1+分镜组 1——形状验收断言见 src/gate-canvas-state.spec.ts）+
+// 工作空间模板行 + 最小视频作品。
 // 幂等：USER 存在即跳过、其余 upsert；重跑零增量残留。
 // 常量契约：apps/web/e2e/global-setup.ts（账号）与 apps/web/e2e/a0-0-env.spec.ts（projectId）引用同值。
-// O0b-0 格式批：buildCanvasState 经 shared docShape（fillDoc——O0a-2 裁定 load-bearing：
+// O0b-0 格式批：buildGateCanvasState 经 shared docShape（fillDoc——O0a-2 裁定 load-bearing：
 // applyRecordToYMap 不写 data 键，种子走它会复现 F29 丢数据；禁自建 Y.Map 绕咽喉）+显式
 // stampDocSchema（fillDoc 不写 meta——戳源唯一化，WS loadDocument 版本门 v2.1 放行前提）。
+// O0c-3：二进制构造抽 src/gate-canvas-state.ts 纯模块（零 prisma/auth 副作用——验收断言直解二进制）。
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build（scripts/check-shared-dist.mjs 可校验）。
 import 'dotenv/config';
-import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
-import { fillDoc, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 import { auth } from '../src/auth/auth';
+import { buildGateCanvasState } from '../src/gate-canvas-state';
 
 const prisma = new PrismaClient();
 
@@ -22,42 +23,6 @@ const GATE = {
   templateId: 'gate-template-1',
   videoWorkId: 'gate-video-1',
 };
-
-/** Y.Doc→DocLike 结构性适配（doc-like.util 同构——gate-seed 不 import api src 编译面外的模块） */
-function toDocLike(doc: Y.Doc): DocLike {
-  return {
-    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
-    createMap: () => new Y.Map() as unknown as DocMapLike,
-  };
-}
-
-/** 画布 yjs 快照（O0b-0 一次到位——doc=abs 空间 v2 档）：
- *  - gate-node-1/2 保留不动（a0-0-env.spec:27-28 兼容）
- *  - auto 组 1（组+2 子：组无帧三键[键集表]、子带 abs position）
- *  - 分镜组 1（组带 position+storyboard 完整 config+cells；分镜子无 position 带 width/height）
- *  - meta 戳（stampDocSchema——WS loadDocument 版本门放行）
- *  collab.gateway.loadDocument 直接 applyUpdate 本二进制。 */
-function buildCanvasState(): Buffer {
-  const doc = new Y.Doc();
-  const docLike = toDocLike(doc);
-  fillDoc(docLike, [
-    // gate-node-1/2（a0-0 兼容——顶层 abs）
-    { id: 'gate-node-1', type: 'videoGen', position: { x: 0, y: 0 }, data: {} },
-    { id: 'gate-node-2', type: 'videoGen', position: { x: 360, y: 120 }, data: {} },
-    // auto 组 1（组无帧三键——键集表"auto/collapsed 组=0 帧键"；子带 abs position）
-    { id: 'gate-auto-group', type: 'group', data: { groupType: 'normal', name: 'Gate Auto 组' } },
-    { id: 'gate-auto-child-1', type: 'textInput', parentId: 'gate-auto-group', position: { x: 40, y: 70 }, width: 200, height: 80, data: { content: 'auto child 1' } },
-    { id: 'gate-auto-child-2', type: 'textInput', parentId: 'gate-auto-group', position: { x: 280, y: 70 }, width: 200, height: 80, data: { content: 'auto child 2' } },
-    // 分镜组 1（组带 position；storyboard 完整 config+cells；分镜子无 position 带 width/height）
-    { id: 'gate-sb-group', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', cells: ['gate-sb-cell-1', 'gate-sb-cell-2'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
-    { id: 'gate-sb-cell-1', type: 'imageGen', parentId: 'gate-sb-group', width: 320, height: 180, data: { status: 'done' } },
-    { id: 'gate-sb-cell-2', type: 'imageGen', parentId: 'gate-sb-group', width: 320, height: 180, data: { status: 'idle' } },
-  ], [
-    { id: 'gate-edge-1', source: 'gate-node-1', target: 'gate-node-2' },
-  ]);
-  stampDocSchema(docLike);   // O0b-0：v2 戳（戳源唯一化——fillDoc 不写 meta）
-  return Buffer.from(Y.encodeStateAsUpdate(doc));
-}
 
 async function main() {
   // 门禁 USER：与管理员同路径（seed.ts:218-228）——signUpEmail 建号（argon2 哈希 + databaseHooks bootstrap 个人团队），不提权
@@ -78,7 +43,7 @@ async function main() {
     update: {},
     create: { id: GATE.projectId, name: 'A0-0 门禁画布', userId: user.id, teamId: team.id },
   });
-  const state = buildCanvasState();
+  const state = buildGateCanvasState();
   await prisma.canvasDocUpdate.deleteMany({ where: { projectId: GATE.projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId: GATE.projectId },

@@ -63,7 +63,7 @@ function buildFlippedDoc(): Y.Doc {
 function buildCollapsedManualDoc(): Y.Doc {
   const d = new Y.Doc();
   const records: DocNodeRecord[] = [
-    { id: 'g3', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'm', collapsed: true, savedSize: { width: 400, height: 300 } } },
+    { id: 'g3', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'm', collapsed: true } },
     { id: 'c9', type: 'imageGen', parentId: 'g3', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   ];
   fillDoc(d, records, []);
@@ -359,7 +359,6 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     expect(g.get('width')).toBe(400);    // 终裁 82：doc 三键=展开态密封值——折叠不写 COLLAPSED_SIZE
     expect(g.get('height')).toBe(300);
     expect((g.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
-    expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeUndefined();   // savedSize 写点已删（O0b-5）
     // 幂等：二次全流全节点几何逐位不变
     const geoOf = (s: { nodes: any[] }) => s.nodes.map((n) => `${n.id}:${n.position?.x},${n.position?.y},${n.width},${n.height}`).join('|');
     const geoSnap = geoOf(useCanvasStore.getState());

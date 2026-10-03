@@ -471,7 +471,7 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('toggleCollapse（O0b-5 单意图）：唯 updateNodeData{collapsed} 落 doc——auto 组恒 0 帧键（折叠分支 envelope 写删，终裁 82）∧零 savedSize', () => {
+  it('toggleCollapse（O0b-5 单意图）：唯 updateNodeData{collapsed} 落 doc——auto 组恒 0 帧键（折叠分支 envelope 写删，终裁 82）∧组 data 键集恰两键（savedSize 随 O0c-3 全链删）', () => {
     const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
     const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
     const gid = useCanvasStore.getState().groupNodes([n1, n2]);
@@ -479,8 +479,9 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
     expect(g.get('width')).toBeUndefined(); // auto 组折叠不写帧键——cs 折叠渲染档=COLLAPSED_SIZE 由 reconcile 派生
     expect(g.get('height')).toBeUndefined();
-    expect((g.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
-    expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeUndefined();   // savedSize 写点已删（O0b-5）
+    const data = g.get('data') as Y.Map<any>;
+    expect(data.get('collapsed')).toBe(true);
+    expect([...data.keys()].sort()).toEqual(['collapsed', 'groupType']);   // 唯 collapsed 写——零快照/标记键
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 

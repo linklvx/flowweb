@@ -446,7 +446,7 @@ describe('O0b-5 质评收口 C-1：auto 组 dimensions-only resize 提交——p
 // ══════════ 连带面：removeNodeFromGroup 分镜分支（分镜子 wh 陈旧收口——终裁 78④）══════════
 
 describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGroup envelope{wh=当前格尺寸}', () => {
-  it('resizeStoryboardGrid 后移出格子⇒尺寸=当前格尺寸（非入格旧值）∧落点=帧右上外 20px', () => {
+  it('resizeStoryboardGrid 后移出格子⇒尺寸=当前格尺寸（非入格旧值）∧落点=帧右上外 20px∧cells 清槽（O0c-3）', () => {
     openRwWindow();
     const d = new Y.Doc();
     const records: DocNodeRecord[] = [
@@ -466,9 +466,13 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
     expect(out?.width).toBe(normalizeSize(sbSize.cellWidth));   // 当前格尺寸（normalizeSize=Math.ceil 单源——非入格旧 180 高）
     expect(out?.height).toBe(normalizeSize(sbSize.cellHeight));
     expect(out?.height).not.toBe(180);                        // 鉴别力：height 随当前 config 而非入格旧值
-    expect(out?.position).toEqual({ x: 100 + sbSize.width + 20, y: 50 });   // 帧右上外 20px
+    expect(out?.position).toEqual({ x: 100 + sbSize.width + 20, y: 50 });   // 帧右上外 20px（placementBesideGroup——基准=cs 派生帧）
     expect(out?.parentId).toBeUndefined();
     expect(csNode('c1').width).toBe(normalizeSize(sbSize.cellWidth));
+    // O0c-3 分镜移出三坏收口锚：cells 清槽（槽===null——此前槽位残留 'c1' ⇒ GroupNode cellNodes
+    // 谓词[cells.includes]漏渲染已移出节点；移出后 cellNodes 消失=槽 null ∧ parentId 已解双通道断开）
+    expect(docRecord(d, 'sb')?.data.cells).toEqual([null]);
+    expect((csNode('sb').data as any).cells).toEqual([null]);
   });
 });
 

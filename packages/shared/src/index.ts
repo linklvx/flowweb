@@ -23,7 +23,8 @@ export * from './canvas/docShape';
 export * from './canvas/geometryWriterRegistry';
 export * from './canvas/geometry';
 export * from './canvas/storyboardConfig';
-export * from './canvas/expandedFrame';
+// O0c-3（终裁 88②）：展开帧单源模块整删——toggleCollapse 展开档消费已随 O0b-5 单意图化消失，
+// 折叠恢复唯一来源=doc 帧三键密封（reconcile 写域①）/auto 重派生 bbox。
 export * from './canvas/validateParentGraph';
 export * from './canvas/arrangeSelection';
 export * from './canvas/copyPlan';

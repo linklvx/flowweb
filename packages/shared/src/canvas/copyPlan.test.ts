@@ -33,9 +33,9 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
     const plan = buildCopyPlan(records, dupIds(records, ['n1']), { offset: { x: 40, y: 0 } }, () => 'c1');
     expect((plan.copies[0].data as any).prompt).toBe('用户改过的长提示词');
   });
-  it('hidden 保真：折叠组成员随组入副本集（parentId=组副本 id、rel 保留）+ 副本组继承 collapsed/savedSize；分镜子副本 position 归零 {0,0}', () => {
+  it('hidden 保真：折叠组成员随组入副本集（parentId=组副本 id、rel 保留）+ 副本组继承 collapsed；分镜子副本 position 归零 {0,0}', () => {
     const records: any[] = [
-      G('g2', ['x'], { collapsed: true, savedSize: { width: 600, height: 400 } }), N('x', 'g2'),
+      G('g2', ['x'], { collapsed: true }), N('x', 'g2'),
       G('s1', ['p'], { groupType: 'storyboard' }), N('p', 's1'),
     ];
     const dup = buildCopyPlan(records, dupIds(records, ['g2']), { offset: { x: 40, y: 0 } }, () => 'd');
