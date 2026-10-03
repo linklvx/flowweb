@@ -761,8 +761,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // remove 走 LocalUser（撤销语义保持）。select 等纯 UI 变更不经漏斗（投影不含 selected/dragging/measured）。
     const dragIntents: CanvasIntent[] = [];
     const structIntents: CanvasIntent[] = [];
-    // O0b-2 (iii) 首测固化候选：dimensions 批非 setAttributes（RF 首测）∧非手势期（dragging 标记）
-    // ——类型限定/首写者胜/批量单 transact 判定收口在 dispatchFixtureSizeIntents（doc 读+textInput 类）
+    // O0b-2 (iii) 首测固化候选：dimensions 批非 setAttributes（RF 首测）。dimensions change 类型面
+    // 无 dragging 字段（RF NodeDimensionChange 只有 resizing/setAttributes）——手势期隔离由
+    // setAttributes 分支上游分流承担（resizer 调整中恒 setAttributes truthy）；拖动期 dimensions
+    // 不产生（RF 拖动只发 position change）。类型限定/首写者胜/批量单 transact 判定收口在
+    // dispatchFixtureSizeIntents（doc 读+textInput 类）
     const fixCandidates: { id: string; width: number; height: number }[] = [];
     for (const c of changes) {
       if (c.type === 'position' && c.position != null) {
@@ -773,7 +776,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           type: 'updateNodeEnvelope', id: c.id,
           patch: { width: (c as any).dimensions.width, height: (c as any).dimensions.height },
         });
-      } else if (c.type === 'dimensions' && (c as any).dimensions != null && !(c as any).dragging) {
+      } else if (c.type === 'dimensions' && (c as any).dimensions != null) {
         fixCandidates.push({ id: c.id, width: (c as any).dimensions.width, height: (c as any).dimensions.height });
       } else if (c.type === 'remove') {
         structIntents.push({ type: 'deleteNode', id: c.id });
@@ -1339,7 +1342,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         nodes: st.nodes.map((n) => n.parentId === groupId && n.id === nodeId
           ? { ...n, parentId: undefined, extent: undefined,
               position: { x: gp.x + size.width + 20, y: gp.y },
-              width: Math.round(size.cellWidth), height: Math.round(size.cellHeight) }
+              width: normalizeSize(size.cellWidth), height: normalizeSize(size.cellHeight) }
           : n),
       }));
     } else {

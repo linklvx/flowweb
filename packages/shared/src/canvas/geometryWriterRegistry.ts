@@ -96,7 +96,7 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'arrangeGroupChildren', category: 'structure-command', note: '经 setWithParentOrder——组框+子 rel 守恒写回' },
     { fn: 'ungroup', category: 'structure-command', note: '2 处：storyboard 分支 placeGrid 重排+主段 abs 还原/组删' },
     { fn: 'addToGroup', category: 'structure-command', note: '经 setWithParentOrder——分支 A 守恒 refit/分支 B clamp' },
-    { fn: 'removeNodeFromGroup', category: 'structure-command', note: 'abs 还原' },
+    { fn: 'removeNodeFromGroup', category: 'structure-command', note: 'abs 还原；分镜分支：出格 wh=当前格尺寸（信封显式值，O0b-2）' },
     { fn: 'dropIntoGroup', category: 'structure-command', note: '经 setWithParentOrder——addToGroup 同构' },
     { fn: 'dropImageIntoStoryboard', category: 'structure-command', note: '2 处：multiImage 展开重写+溢出移位落位' },
     { fn: 'mergeStoryboard', category: 'structure-command', note: '经 setWithParentOrder——组建+子归零' },

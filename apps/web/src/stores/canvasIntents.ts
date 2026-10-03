@@ -270,8 +270,10 @@ export interface StoreProjectionSnapshot {
   edges: PlainEdge[];
 }
 
-/** O0b-2 (iii) 首测固化兜底（降兜底档——终裁 59①[iii]+83①/91）：dimensions 批（非 setAttributes∧
- *  非手势期[dragging 标记]）∧doc 无 wh∧**仅 textInput 类**（imageGen/videoGen/multiImage 内容型退出
+/** O0b-2 (iii) 首测固化兜底（降兜底档——终裁 59①[iii]+83①/91）：dimensions 批（非 setAttributes。
+ *  注：dimensions change 类型面无 dragging 字段（RF NodeDimensionChange 只有 resizing/
+ *  setAttributes）——手势期隔离由 setAttributes 分支上游分流承担（resizer 调整中恒 setAttributes
+ *  truthy）；拖动期 dimensions 不产生（RF 拖动只发 position change））∧doc 无 wh∧**仅 textInput 类**（imageGen/videoGen/multiImage 内容型退出
  *  ——首写者胜仅本类）⇒同 tick 批量合并**单 transact** 恰一次 updateNodeEnvelope{width,height}
  *  （Origin.Geometry 不入撤销栈；值 normalizeSize=Math.ceil 单源）。doc 有 wh（或部分键在）⇒零固化
  *  intent（后续测量≠doc 不写）；固化独立 Geometry transact——不与 LocalUser 提交合批（终裁 59⑥，

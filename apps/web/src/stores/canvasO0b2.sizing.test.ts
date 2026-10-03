@@ -30,7 +30,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { applyDocToStore, reconcileGroupGeometry } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, calcStoryboardSize, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, calcStoryboardSize, normalizeSize, type DocNodeRecord } from '@flowweb/shared';
 import {
   _setIntentDocForTest, dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff,
   reportNodeSize,
@@ -368,12 +368,12 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
     const sbSize = calcStoryboardSize(2, 2, '1:1');   // {width:642, height:642, cellWidth:320, cellHeight:320}
     useCanvasStore.getState().removeNodeFromGroup('sb', 'c1');
     const out = docRecord(d, 'c1');
-    expect(out?.width).toBe(Math.round(sbSize.cellWidth));   // 当前格尺寸（config 推算——非入格旧 180 高）
-    expect(out?.height).toBe(Math.round(sbSize.cellHeight));
+    expect(out?.width).toBe(normalizeSize(sbSize.cellWidth));   // 当前格尺寸（normalizeSize=Math.ceil 单源——非入格旧 180 高）
+    expect(out?.height).toBe(normalizeSize(sbSize.cellHeight));
     expect(out?.height).not.toBe(180);                        // 鉴别力：height 随当前 config 而非入格旧值
     expect(out?.position).toEqual({ x: 100 + sbSize.width + 20, y: 50 });   // 帧右上外 20px
     expect(out?.parentId).toBeUndefined();
-    expect(csNode('c1').width).toBe(Math.round(sbSize.cellWidth));
+    expect(csNode('c1').width).toBe(normalizeSize(sbSize.cellWidth));
   });
 });
 

@@ -303,6 +303,8 @@ export function contentEventSize(input: {
   const ratioChanged = currentWH && existingAspectRatio != null
     && Math.abs(aspectRatio - existingAspectRatio) > 0.01;
   if (currentWH && !ratioChanged) {
+    // 类型谎言注明：ratio 未立档（cs 有 wh 但从未 load）时 existingAspectRatio 为 undefined——
+    // changed=false 分支零消费；未来消费前需放宽返回类型。
     return { size: { ...currentWH }, aspectRatio: existingAspectRatio!, changed: false };  // 沿用档
   }
   if (currentWH && ratioChanged) {
