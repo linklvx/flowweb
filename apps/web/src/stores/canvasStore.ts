@@ -181,7 +181,8 @@ export interface CanvasState {
    *  参与集=UI 层原样（addOutputSourceIds 产物，不经 participation 组原子块裁决）。见实现 JSDoc。 */
   batchConnect: (sourceIds: string[], targetNodeId: string) => void;
   /** B6-3 点击建点/落空建点+连线（拍板②——HandleAddNodeMenu:82-92 同手势先例）：建点命令体
-   *  （addChildNode 等价路径——Inner 化批随迁 addNodeInner）+源集→新节点 N 边单 transact 单 undo。 */
+   *  （复用 addNode 类型默认体[与 addChildNode 同款双意图单 transact 形——终裁 65③ 禁前向引用
+   *  addNodeInner，Inner 化批抽取时收敛）+源集→新节点 N 边单 transact 单 undo。 */
   addNodeAndBatchConnect: (type: string, position: XYPosition, sourceIds: string[]) => string | null;
   removeEdge: (id: string) => void;
   deleteNode: (id: string) => void;
@@ -734,7 +735,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   batchConnect: (sourceIds, targetNodeId) => {
-    // B6-3（Spec B 需求 7）：多源→单目标=N 条边——batchConnectEdges 装配（canConnect 禁自环+双侧
+    // B6-3（Spec B 需求 7）：多源→单目标=N 条边——batchConnectEdges 装配（禁自环+双侧
     // 对称+handleEdgeId 单源）；既有边过滤（幂等收敛——addEdge deterministicId no-op 守卫同源）后
     // N intent 单 transact（对端一帧收齐+撤销栈单捕获窗=单 undo 步）。参与集=UI 层原样（+号
     // addOutputSourceIds 产物——'connect' 不进 participation 组原子块，arrangeSelection :57 陷阱）。
@@ -749,9 +750,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   addNodeAndBatchConnect: (type, position, sourceIds) => {
-    // B6-3 点击建点/+号拖线落空=建点+连线（拍板②）：建点命令体=addChildNode 等价路径（v3.17 终裁
-    // 65③——执行序在 Inner 化批前，addNodeInner 尚未抽取；Inner 化批随迁改名）+源集→新节点 N 边
-    // 同批单 transact（addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
+    // B6-3 点击建点/+号拖线落空=建点+连线（拍板②）：建点命令体=复用 addNode 类型默认体（v3.17 终裁
+    // 65③——执行序在 Inner 化批前，addNodeInner 尚未抽取，此处内联同形段；Inner 化批抽取时收敛）
+    // +源集→新节点 N 边同批单 transact（addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
     const baseData: Record<string, unknown> = resolvedType === 'textInput' ? { content: '' }

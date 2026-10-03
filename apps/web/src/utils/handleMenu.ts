@@ -125,8 +125,8 @@ export function handleEdgeId(sourceNodeId: string, targetNodeId: string): string
   return `handle:${sourceNodeId}:${targetNodeId}`;
 }
 
-/** B6-3（Spec B 需求 7）：批量连线边装配——多源→单目标=N 条边；canConnect 禁自环（源=目标剔除，
- *  双侧对称——同规则不分手势方向）+源集去重；id=handleEdgeId 单源（幂等收敛：与 addEdge
+/** B6-3（Spec B 需求 7）：批量连线边装配——多源→单目标=N 条边；连接合法性规则（禁自环：源=目标剔除、
+ *  双侧对称：同规则不分手势方向）+源集去重；id=handleEdgeId 单源（幂等收敛：与 addEdge
  *  deterministicId no-op 守卫、upsertEdge 同值 no-op 三机制一源）。既有边过滤归 store 调用点。 */
 export function batchConnectEdges(
   sourceIds: string[],

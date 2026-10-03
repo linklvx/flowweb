@@ -4,7 +4,7 @@ import { useNodeStore } from './nodeStore';
 
 describe('menuStore', () => {
   beforeEach(() => {
-    useMenuStore.setState({ isOpen: false, position: undefined, triggerEl: null, lastMousePos: { x: 0, y: 0 }, handleMenu: undefined, styleLibrary: null });
+    useMenuStore.setState({ isOpen: false, position: undefined, triggerEl: null, lastMousePos: { x: 0, y: 0 }, handleMenu: undefined, styleLibrary: null, batchMenu: undefined });
   });
 
   describe('open', () => {
@@ -81,6 +81,27 @@ describe('menuStore', () => {
       useMenuStore.setState({ styleLibrary: { nodeId: 'img1' } });
       useMenuStore.getState().openHandleMenu({ x: 0, y: 0, nodeId: 'n', side: 'source', flowPoint: { x: 0, y: 0 } });
       expect(useMenuStore.getState().styleLibrary).toBeNull();
+    });
+
+    it('openBatchMenu 清 isOpen/handleMenu/styleLibrary（B6-3 四向互斥——spec §4.1 同款）', () => {
+      useMenuStore.setState({ isOpen: true, position: { x: 1, y: 1 }, handleMenu: { x: 0, y: 0, nodeId: 'n', side: 'source', flowPoint: { x: 0, y: 0 } } as any, styleLibrary: { nodeId: 'img1' } });
+      useMenuStore.getState().openBatchMenu({ x: 10, y: 10, flowPoint: { x: 100, y: 100 }, sourceIds: ['a'] });
+      expect(useMenuStore.getState().batchMenu).toEqual({ x: 10, y: 10, flowPoint: { x: 100, y: 100 }, sourceIds: ['a'] });
+      expect(useMenuStore.getState().isOpen).toBe(false);
+      expect(useMenuStore.getState().handleMenu).toBeUndefined();
+      expect(useMenuStore.getState().styleLibrary).toBeNull();
+    });
+
+    it('openStyleLibrary/open/openHandleMenu 各清 batchMenu（四向互斥反向）', () => {
+      useMenuStore.getState().openBatchMenu({ x: 10, y: 10, flowPoint: { x: 100, y: 100 }, sourceIds: ['a'] });
+      useMenuStore.getState().openStyleLibrary('img1');
+      expect(useMenuStore.getState().batchMenu).toBeUndefined();
+      useMenuStore.getState().openBatchMenu({ x: 10, y: 10, flowPoint: { x: 100, y: 100 }, sourceIds: ['a'] });
+      useMenuStore.getState().open();
+      expect(useMenuStore.getState().batchMenu).toBeUndefined();
+      useMenuStore.getState().openBatchMenu({ x: 10, y: 10, flowPoint: { x: 100, y: 100 }, sourceIds: ['a'] });
+      useMenuStore.getState().openHandleMenu({ x: 0, y: 0, nodeId: 'n', side: 'source', flowPoint: { x: 0, y: 0 } });
+      expect(useMenuStore.getState().batchMenu).toBeUndefined();
     });
 
     it('closeStyleLibrary 清切片', () => {
