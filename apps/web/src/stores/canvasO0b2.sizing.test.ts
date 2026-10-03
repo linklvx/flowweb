@@ -28,7 +28,7 @@ import { readFileSync, existsSync } from 'fs';
 import * as path from 'path';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { applyDocToStore, reconcileGroupGeometry } from './canvasCollabRuntime';
+import { applyDocToStore, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 import { stampDocSchema, calcStoryboardSize, normalizeSize, type DocNodeRecord } from '@flowweb/shared';
 import {
@@ -395,6 +395,51 @@ describe('O0b-5 组 resize 提交（manual 组 rig——doc 帧三键齐）', ()
       seen.push(csNode('gm').width);
     }
     expect(seen).toEqual(frames);   // 每帧 cs.width=本帧活值（含收缩帧 280——回落 400/340 即红）
+  });
+});
+
+// ══════════ O0b-5 质评收口 C-1：auto 组 dimensions-only 批（右/下柄）——恒三键密封 ══════════
+// RF ResizeControl 仅左上方向柄同批发 position 变更；右/下柄发 dimensions-only 批（setAttributes）。
+// 无 pos 回填时 auto 组（doc 0 帧键）resize 提交落 2 键部分帧形态——frameMode 判 auto ⇒ 漏斗尾
+// reconcile('doc') 重派生 bbox 帧（resize 静默回弹）+违 assertNoAutoGroupFrameKeys 形态。
+// 修=缺位回填 cs 现节点 position（手势末 auto 组=reconcile 派生帧 origin）——提交恒三键密封
+// {position,width,height}，auto→manual 经 resize 转换（manuallyResized 删除后唯一通道）。
+describe('O0b-5 质评收口 C-1：auto 组 dimensions-only resize 提交——pos 回填恒三键密封（终裁 50）', () => {
+  function setupAutoGroupDoc(): Y.Doc {
+    const d = new Y.Doc();
+    const records: DocNodeRecord[] = [
+      { id: 'ga', type: 'group', data: { groupType: 'normal' } },
+      { id: 'k1', type: 'imageGen', parentId: 'ga', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
+      { id: 'k2', type: 'imageGen', parentId: 'ga', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
+    ];
+    fillDoc(d, records, []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);
+    _setIntentDocForTest(d);
+    return d;
+  }
+
+  it('右/下柄批（无 position change）：doc 落三键∧frameMode=manual∧后续 reconcile 不回弹（2 键部分帧即红）', () => {
+    openRwWindow();
+    const d = setupAutoGroupDoc();
+    // bbox: x∈[300,700] y∈[100,200] ⇒ 派生帧=(280,50,440,170)（applyDocToStore 尾 reconcile）
+    expect(csNode('ga').position).toEqual({ x: 280, y: 50 });
+    // RF 右/下柄方向：同批只有 dimensions（setAttributes:true）——无 position 变更
+    useCanvasStore.getState().onNodesChange([
+      { id: 'ga', type: 'dimensions', dimensions: { width: 800, height: 600 }, setAttributes: true } as any,
+    ]);
+    // (a) doc 组记录三键齐（2 键部分帧形态即红——auto 组携带帧键违 invariant 形态）
+    const rec = docRecord(d, 'ga');
+    expect(rec?.position).toEqual({ x: 280, y: 50 });   // 回填值=手势末 cs 帧 origin（reconcile 派生）
+    expect(rec?.width).toBe(800);
+    expect(rec?.height).toBe(600);
+    // (c) 帧模式 auto→manual（resize=manuallyResized 删除后唯一密封转换通道）
+    expect(readGroupFrameModes(d).get('ga')).toBe('manual');
+    // (b) 下一次漏斗尾 reconcile('doc')：manual 密封源不动——帧不回弹到 bbox 派生值（440×170）
+    reconcileGroupGeometry(d, 'doc');
+    expect(csNode('ga').width).toBe(800);
+    expect(csNode('ga').height).toBe(600);
+    expect(csNode('ga').position).toEqual({ x: 280, y: 50 });
   });
 });
 

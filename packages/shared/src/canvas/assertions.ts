@@ -12,7 +12,7 @@
 import type { DocNodeRecord, RenderNode, Rect } from './docShape';
 import { COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, calcGroupBounds } from './geometry';
 
-/** 浮点等价容差（与 canvasStore.applyGroupFrame 的 EPS 同值——RF 小数坐标 1ULP 抖动）。 */
+/** 浮点等价容差（对齐 reconcile 单内核零差异短路的同值 1e-6——RF 小数坐标 1ULP 抖动）。 */
 const EPS = 1e-6;
 
 /** cs-only 派生字段块名单（禁入 doc data——⑤）。hidden=deriveHidden 派生；selected/dragging=

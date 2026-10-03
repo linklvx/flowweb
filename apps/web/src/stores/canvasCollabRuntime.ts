@@ -799,9 +799,10 @@ export async function initCollab(projectId: string): Promise<void> {
   const epoch = ++sessionEpoch;
   session = { pid: projectId, startedAt: Date.now(), epoch };
   // 批2-1 会话起点：hydration=pending（openSession 已先置——此处覆盖入口清理期）+
-  // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）
+  // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）；
+  // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户
   useCanvasStore.getState().setHydration('pending');
-  useCanvasStore.setState({ collabReadOnly: true });
+  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {} });
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
   attemptId = 0;
@@ -970,7 +971,7 @@ export async function destroyCollab(): Promise<void> {
   // 陈旧 destroy 不得复位新会话的 hydration/collabReadOnly（交错写防线）
   if (session !== null) return;
   useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
-  useCanvasStore.setState({ collabReadOnly: true }); // G27：登出/切用户经页面卸载路径显式复位
+  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {} }); // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）
 }
 
 /** 执行请求附带的本端状态向量（spec 3.1，base64） */

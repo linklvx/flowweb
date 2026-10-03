@@ -339,7 +339,8 @@ export function captureStoreProjection(): StoreProjectionSnapshot {
   const ns = useNodeStore.getState();
   return {
     // O0b-2 台账 a：差分快照出口键集判定吃 doc-oracle——cs auto 组携派生帧三键（reconcile 写域①
-    // 接管后恒有）不再被 record 形态误判 manual，auto 帧键零泄漏进 doc（applyGroupFrame 现状链收口）
+    // 接管后恒有）不再被 record 形态误判 manual，auto 帧键零泄漏进 doc（帧 cs 写面已归
+    //  reconcile 写域① 派生——deriveGroupFrame 单源，O0b-5 收口）
     nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any, readGroupFrameModesFromDoc()),
     edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   };

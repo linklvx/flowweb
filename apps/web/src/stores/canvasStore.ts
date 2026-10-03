@@ -148,7 +148,8 @@ export interface CanvasState {
   collabReadOnly: boolean;
   /** O0b-5 viewer 折叠本地 override（终裁 58⑥ 渲染层最小落地）：只读会话折叠/展开的本地视图态
    *  （id→有效折叠态；undefined=未 override 走 data.collapsed）。UI 瞬态——不进 doc/投影/history/
-   *  localStorage 快照；消费点=GroupNode（resizer 守卫+折叠卡）/CanvasView（GroupToolbar）。
+   *  localStorage 快照；initCollab/destroyCollab 会话边界复位（视图态不跨会话/跨用户）；
+   *  消费点=GroupNode（resizer 守卫+折叠卡）/CanvasView（GroupToolbar）。
    *  子 hidden 派生消费面扩展（reconcile 读 localCollapsed）归 O0c。 */
   localCollapsed: Record<string, boolean>;
   /** WS 侧唯一鉴权载体（批2-1 立字段；reason 五档 CollabAuthReason 落 shared 后收紧类型——批3 接入） */
@@ -799,11 +800,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }
     }
     for (const [id, wh] of resizeCommits) {
-      const pos = positionChanges.get(id);
-      if (pos) positionChanges.delete(id);   // resize 位移并入 envelope 三键（不另发 moveNode）
+      // 质评收口 C-1（终裁 50 恒三键密封）：RF ResizeControl 仅左上方向柄同批发 position 变更，
+      // 右/下柄批 dimensions-only——缺位时回填 cs 现节点 position（手势末 auto 组=reconcile 派生帧
+      // origin；回填即全量密封：auto→manual 经 resize 转换的唯一通道）。缺位不回填会落 2 键部分
+      // 帧形态——frameMode 判 auto ⇒ 漏斗尾 reconcile('doc') 重派生 bbox 帧，resize 静默回弹。
+      const pos = positionChanges.get(id) ?? get().nodes.find((n) => n.id === id)?.position;
+      positionChanges.delete(id);   // resize 位移并入 envelope 三键（不另发 moveNode）
       structIntents.push({
         type: 'updateNodeEnvelope', id,
-        patch: pos ? { position: pos, width: wh.width, height: wh.height } : { width: wh.width, height: wh.height },
+        patch: { position: pos, width: wh.width, height: wh.height },
       });
     }
     for (const [id, pos] of positionChanges) {
@@ -1650,7 +1655,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const gd = group.data as any;
     const childIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
     // 批4b-2 换芯：差分快照→组框配置化+子归零/网格重排+data 键迁移经 dispatchProjectionDiff 落 doc
-    // （patchGroupData/applyGroupFrame 的变更收在差分内，自带 dispatch 部分幂等）
+    // （patchGroupData 的变更收在差分内，自带 dispatch 部分幂等；组帧重算=差分首行
+    //  reconcile('cs') 派生——帧写者=deriveGroupFrame 单源）
     const before = captureStoreProjection();
 
     if (target === 'storyboard') {

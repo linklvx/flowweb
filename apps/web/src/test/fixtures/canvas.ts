@@ -70,10 +70,11 @@ export function openRoWindow(): void {
   });
 }
 
-/** 会话几何复位（测试 afterEach 单点——同上零直接 setState）。 */
+/** 会话几何复位（测试 afterEach 单点——同上零直接 setState）。localCollapsed=viewer 折叠
+ *  UI 瞬态随会话复位（纯 UI map——零 doc/几何写）。 */
 export function resetCanvasStores(): void {
   withGeometryWriter('fixture', () => {
-    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
+    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, localCollapsed: {} });
   });
   useNodeStore.setState({ nodes: {} as never });
 }

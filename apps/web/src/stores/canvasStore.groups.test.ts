@@ -21,7 +21,7 @@ const seedNodes = () => [
 ];
 
 beforeEach(() => {
-  useCanvasStore.setState({ nodes: seedNodes() as any, edges: [], selectedId: null, projectId: null });
+  useCanvasStore.setState({ nodes: seedNodes() as any, edges: [], selectedId: null, projectId: null, localCollapsed: {} });
   useNodeStore.setState({ nodes: {} });
 });
 
@@ -61,6 +61,27 @@ describe('groupNodes', () => {
 
   it('少于 2 个节点抛错', () => {
     expect(() => useCanvasStore.getState().groupNodes(['n1'])).toThrow(/至少/);
+  });
+
+  it('单 undo 步锚（O0b-5 author 形预注册）：预注册 addNode+差分两 LocalUser transact 同步块——captureTimeout 捕获窗合并单 undo 项', () => {
+    // 真装置（照 :451 undo 语义先例）：真 Y.Doc + attachUndoManager + fillDoc(toDocRecords)
+    // + _setIntentDocForTest + rw 会话电平（groupNodes 的 dispatch 走 canEdit 门）
+    const d = new Y.Doc();
+    const um = attachUndoManager(d);
+    _setIntentDocForTest(d);
+    try {
+      const rig = seedNodes();
+      fillDoc(d, toDocRecords(rig as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+      useCanvasStore.setState({ nodes: rig as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+      let transacts = 0;
+      d.on('afterTransaction', (tr: any) => { if (tr.origin === Origin.LocalUser) transacts++; });   // 观察器在 fillDoc 后挂
+      useCanvasStore.getState().groupNodes(['n1', 'n2']);
+      expect(transacts).toBe(2);   // 预注册 addNode + 差分 dispatch 两 transact（同 origin 同步块）
+      expect(um.undoStack.length).toBe(1);   // captureTimeout 500ms 捕获窗合并单 undo 项（拆两步即红）
+    } finally {
+      _setIntentDocForTest(null);
+      detachUndoManager();
+    }
   });
 });
 

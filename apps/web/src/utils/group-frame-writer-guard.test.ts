@@ -26,7 +26,7 @@ function collectProdFiles(): string[] {
       if (entry.isDirectory()) {
         if (['node_modules', 'dist', 'docs', 'vendor', 'backups'].includes(entry.name)) continue;
         walk(full);
-      } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(test|spec)\./.test(entry.name)) {
+      } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(test|spec)\./.test(entry.name) && !/\.d\.ts$/.test(entry.name)) {
         out.push(full);
       }
     }
