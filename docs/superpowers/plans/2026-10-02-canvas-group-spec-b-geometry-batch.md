@@ -281,9 +281,10 @@
 
 ## B6-1 谓词单源+分层迁移（与 O0 并行——文件不相交）
 
-- [ ] getAvailableHandles（shared/canvas/handles.ts）——imageGen+editMode⇒双侧无（**谓词覆盖 transformMode**[isEditMode=!!editMode||!!transformMode]+videoGen 现状保留）；ImageGenNode :1158/:1254 改消费（删 !editMode 直判防双轨）
-- [ ] **handleMenu 13 符号迁移（v3.16 终裁 57①——两文件合并清点）**：handleMenu.ts 全部导出（HANDLE_MENU_NODE_TYPES/DRAG_THRESHOLD_PX[**值 5 未导出——补 export 且=B6-3 点击/连线唯一阈值**]/HandleMenuNodeLike[+hidden]/NodeRect/absoluteRectsOf[加 !n.hidden+尺寸 width 优先；**拍板终裁 57③：组 continue 维持⇒折叠组区域=空白⇒弹菜单（渲染面≡命中面）；"折叠组命中区=折叠帧"表述废止**]/isPointOnAnyNode/HandleMenuPayload/GuardArgs/shouldOpenHandleMenu[撞车① ignore 行]/Decision/decideHandleMenu/handleEdgeId/**clientPoint**）+**SOURCE_ITEMS/TARGET_ITEMS 在 HandleAddNodeMenu.tsx:41-50（组件文件——一并迁）**；**clientPoint 多指落点修（:117-121 changedTouches[0]——终裁 37⑤ 承接：双指期间松第二指以第二指坐标弹菜单，本批修）**→ apps/web/src/utils/
-- [ ] commit `feat(canvas): B6-1 谓词单源+handleMenu 六符号迁移（Spec B B6-1）`
+- [x] getAvailableHandles（shared/canvas/handles.ts）——imageGen+editMode⇒双侧无（**谓词覆盖 transformMode**[isEditMode=!!editMode||!!transformMode]+videoGen 现状保留）；ImageGenNode :1158/:1254 改消费（删 !editMode 直判防双轨）
+- [x] **handleMenu 13 符号迁移（v3.16 终裁 57①——两文件合并清点）**：handleMenu.ts 全部导出（HANDLE_MENU_NODE_TYPES/DRAG_THRESHOLD_PX[**值 5 未导出——补 export 且=B6-3 点击/连线唯一阈值**]/HandleMenuNodeLike[+hidden]/NodeRect/absoluteRectsOf[加 !n.hidden+尺寸 width 优先；**拍板终裁 57③：组 continue 维持⇒折叠组区域=空白⇒弹菜单（渲染面≡命中面）；"折叠组命中区=折叠帧"表述废止**]/isPointOnAnyNode/HandleMenuPayload/GuardArgs/shouldOpenHandleMenu[撞车① ignore 行]/Decision/decideHandleMenu/handleEdgeId/**clientPoint**）+**SOURCE_ITEMS/TARGET_ITEMS 在 HandleAddNodeMenu.tsx:41-50（组件文件——一并迁）**；**clientPoint 多指落点修（:117-121 changedTouches[0]——终裁 37⑤ 承接：双指期间松第二指以第二指坐标弹菜单，本批修）**→ apps/web/src/utils/
+- [x] commit `feat(canvas): B6-1 谓词单源+handleMenu 六符号迁移（Spec B B6-1）`
+  - 完成注记（2026-10-03）：commit 5720fe67+4a935b54（质评收口：HandleSide 类型单源+VideoGen 锚注释校准）；getAvailableHandles 新建落 shared/canvas/handles.ts（editMode 分片未交付本批从零建；imageExtGen 同族纳入——ImageExtNode 直通包装防静默回归；VideoGenNode 同批切消费零行为变更）；13 符号+SOURCE_ITEMS/TARGET_ITEMS/MenuItemDef/icons 全迁 utils/（旧文件删+全仓导入更新）；clientPoint 修复=changedTouches 末位——spec 评审对 @xyflow/system 0.0.76 源码实证：RF onConnectEnd 仅末指 touchend 触发（onPointerUp touches.length>0 早退守卫）⇒修复在合并松指路径生效[changedTouches 创建序，旧 [0]=首指错位]、顺序松指路径 no-op[RF 刻意抑制非本层辖域]；DRAG_THRESHOLD_PX=5 补导出；absoluteRectsOf !n.hidden+width 优先[双缺/0 排除不产 NaN]
 
 ## B6-2/B6-3：+号输出按钮+批量连线（**O0c 后——排序=锚稳定选择非硬依赖[rect 读 cs，终裁 57②]**）
 
