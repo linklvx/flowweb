@@ -18,9 +18,11 @@ interface Props {
   cellNodes: CellNodeInfo[];
   /** 主画布通道注入（公开页缺省——无删除热键） */
   onRemoveCell?: (index: number) => void;
+  /** 主画布通道注入（公开页缺省——空格无 + 按钮死交互） */
+  onFillEmpty?: (index: number) => void;
 }
 
-function StoryboardGroupRendererComponent({ id, data, cellNodes, onRemoveCell }: Props) {
+function StoryboardGroupRendererComponent({ id, data, cellNodes, onRemoveCell, onFillEmpty }: Props) {
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const cfg = resolveStoryboardConfig(data);
   // 2d-7（F28/v10 裁决 4）：shell 背景/边框换分镜专属 token；组色描边吃组色，
@@ -68,7 +70,7 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes, onRemoveCell }:
           <StoryboardCell key={i} index={i}
             info={info} showIndex={cfg.showIndex}
             selectedCell={selectedCell} onSelectCell={setSelectedCell}
-            onFillEmpty={(idx) => window.dispatchEvent(new CustomEvent('storyboard:fill-cell', { detail: { groupId: id, index: idx } }))} />
+            onFillEmpty={onFillEmpty} />
         );
       })}
     </div>

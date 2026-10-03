@@ -5,7 +5,7 @@
 // ④边集无悬空 ⑤父先子后+环守卫 ⑥初始 bounds 不含 (0,0) 邻域（分镜子 {0,0} 不进 RF 数组）。
 import { describe, it, expect } from 'vitest';
 import { deriveRenderCanvas } from './renderCanvas';
-import { deriveGroupFrame, calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE } from './geometry';
+import { deriveGroupFrame, calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, GROUP_PADDING, GROUP_PADDING_TOP } from './geometry';
 import { groupHidesChildren } from './arrangeSelection';
 import type { DocNodeRecord } from './docShape';
 
@@ -24,6 +24,10 @@ const records: DocNodeRecord[] = [
   // collapsed∧manual：三键密封——origin=密封 origin（帧键保持展开态值不动，终裁 82）
   { id: 'gCM', type: 'group', position: { x: 1800, y: 40 }, width: 400, height: 300, data: { groupType: 'normal', collapsed: true, cells: ['c4'] } },
   { id: 'c4', type: 'textInput', parentId: 'gCM', position: { x: 1850, y: 100 }, data: {} },
+  // expanded∧auto（质评补档——最常见真实形态）：0 帧键——origin+尺寸均由 childrenAbs 驱动；
+  // c5 无 wh ⇒ childrenAbs 走 DEFAULT_CHILD_SIZE 档（该兜底链在此用例生效）
+  { id: 'gA', type: 'group', data: { groupType: 'normal', cells: ['c5'] } },
+  { id: 'c5', type: 'textInput', parentId: 'gA', position: { x: 2600, y: 300 }, data: {} },
   // storyboard 2×2：尺寸=config 权威（calcStoryboardSize，无 padding）；分镜子无 position（键集表）
   {
     id: 'gSB', type: 'group', position: { x: 2200, y: 60 },
@@ -73,11 +77,14 @@ describe('deriveRenderCanvas（O0c-2 第 4 渲染面——快照≡主画布）'
     expect(node('gCA')).toMatchObject({ position: { x: 1480, y: 150 }, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
     // collapsed∧manual：origin=密封 origin、尺寸=COLLAPSED_SIZE（帧键保持展开态值不动）
     expect(node('gCM')).toMatchObject({ position: { x: 1800, y: 40 }, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
+    // expanded∧auto：origin+尺寸均=bbox 派生——c5 无 wh ⇒ DEFAULT_CHILD_SIZE 兜底档在此生效
+    expect(frameDirect('gA')).toEqual(calcGroupBounds(childrenAbsOf('gA')));
+    expect(node('gA').position).toEqual({ x: 2600 - GROUP_PADDING, y: 300 - GROUP_PADDING_TOP });
     // storyboard：尺寸=calcStoryboardSize(config)（2×2 16:9 → 642×362）、origin=帧 position 键
     const sbSize = calcStoryboardSize(2, 2, '16:9');
     expect(node('gSB')).toMatchObject({ position: { x: 2200, y: 60 }, width: sbSize.width, height: sbSize.height });
     // 逐位≡直接调 deriveGroupFrame（主画布唯一写者同参同源——几何逐位锚）
-    for (const gid of ['gM', 'gCA', 'gCM', 'gSB']) {
+    for (const gid of ['gM', 'gCA', 'gCM', 'gA', 'gSB']) {
       const f = frameDirect(gid);
       expect(node(gid).position).toEqual({ x: f.x, y: f.y });
       expect(node(gid).width).toBe(f.width);
@@ -90,6 +97,7 @@ describe('deriveRenderCanvas（O0c-2 第 4 渲染面——快照≡主画布）'
   it('rel=abs−frameOrigin（子 RenderNode rel；顶层=abs 原样）——单遍：帧集合先产出后才写子 rel', () => {
     expect(node('c1').position).toEqual({ x: 60, y: 80 }); // abs(660,120) − gM 帧原点(600,40)
     expect(node('c1').parentId).toBe('gM');
+    expect(node('c5').position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP }); // abs(2600,300) − gA bbox 原点(2600−PAD,300−PAD_TOP)
     expect(node('n1').position).toEqual({ x: 300, y: 400 }); // 顶层 abs 直拷
     expect(node('img2').position).toEqual({ x: 1000, y: 500 });
   });
@@ -103,7 +111,7 @@ describe('deriveRenderCanvas（O0c-2 第 4 渲染面——快照≡主画布）'
       records.filter((r) => r.parentId != null && hidesChildrenIds.has(r.parentId)).map((r) => r.id),
     );
     expect([...expectedInvisible].sort()).toEqual(['c2', 'c3', 'c4', 's1', 's2']);
-    expect(outIds).toEqual(['n1', 'img1', 'img2', 'gM', 'c1', 'gCA', 'gCM', 'gSB']);
+    expect(outIds).toEqual(['n1', 'img1', 'img2', 'gM', 'c1', 'gCA', 'gCM', 'gA', 'c5', 'gSB']);
     // 锚（v3.12 评审三 P1-1）：payload 无 parentId=分镜组独立节点
     expect(out.nodes.filter((n) => n.parentId === 'gSB')).toEqual([]);
     // 输出零 hidden 节点（剔除式——hidden 键不出现即非 true）

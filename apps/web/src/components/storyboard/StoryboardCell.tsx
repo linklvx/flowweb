@@ -14,7 +14,8 @@ interface Props {
   showIndex: boolean;
   selectedCell: number | null;
   onSelectCell: (index: number | null) => void;
-  onFillEmpty: (index: number) => void;
+  /** 主画布通道注入（公开页缺省——空格不渲染 + 按钮，只读页无死交互） */
+  onFillEmpty?: (index: number) => void;
 }
 
 function StoryboardCellComponent(p: Props) {
@@ -33,8 +34,10 @@ function StoryboardCellComponent(p: Props) {
   if (!p.info) {
     return (
       <div style={{ ...style, border: '1px dashed #444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <button onClick={() => p.onFillEmpty(p.index)}
-          style={{ background: 'none', border: 'none', color: '#666', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>+</button>
+        {p.onFillEmpty && (
+          <button onClick={() => p.onFillEmpty!(p.index)}
+            style={{ background: 'none', border: 'none', color: '#666', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>+</button>
+        )}
       </div>
     );
   }

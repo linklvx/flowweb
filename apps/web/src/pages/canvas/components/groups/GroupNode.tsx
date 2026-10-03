@@ -65,7 +65,12 @@ function StoryboardGroupRendererCellNodes({ id, data }: { id: string; data: any 
       .map((n) => ({ id: n.id, fileId: (n.data as any).fileId || (n.data as any).referenceImage, status: execOverrideOf(n.id) ?? (n.data as any).status })));
   // O0c-2：删除回调参数化（抽取组件零 store——主画布通道在此注入；useCallback 稳定引用防键监听重挂）
   const onRemoveCell = useCallback((index: number) => removeStoryboardCell(id, index), [id, removeStoryboardCell]);
-  return <StoryboardGroupRenderer id={id} data={data} cellNodes={cellNodes as CellNodeInfo[]} onRemoveCell={onRemoveCell} />;
+  // O0c-2 质评收口：fill-cell 事件分发随参数化上移主画布注入（公开页无 + 按钮死交互）
+  const onFillEmpty = useCallback(
+    (index: number) => window.dispatchEvent(new CustomEvent('storyboard:fill-cell', { detail: { groupId: id, index } })),
+    [id],
+  );
+  return <StoryboardGroupRenderer id={id} data={data} cellNodes={cellNodes as CellNodeInfo[]} onRemoveCell={onRemoveCell} onFillEmpty={onFillEmpty} />;
 }
 
 export const GroupNode = memo(GroupNodeComponent);

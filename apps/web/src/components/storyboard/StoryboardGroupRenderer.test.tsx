@@ -37,8 +37,8 @@ describe('StoryboardGroupRenderer', () => {
     expect(imgs[0] as HTMLImageElement).toHaveProperty('src', expect.stringContaining('/flowai/f1'));
   });
 
-  it('空宫格显示 + 占位（2x2 只有 2 图 → 2 个空位）', () => {
-    render(<StoryboardGroupRenderer {...(props() as any)} />);
+  it('空宫格显示 + 占位（2x2 只有 2 图 → 2 个空位——主画布形态注入 onFillEmpty）', () => {
+    render(<StoryboardGroupRenderer {...(props() as any)} onFillEmpty={vi.fn()} />);
     expect(screen.getAllByText('+')).toHaveLength(2);
   });
 
@@ -56,13 +56,11 @@ describe('StoryboardGroupRenderer', () => {
     expect(screen.queryByText('01')).toBeNull();
   });
 
-  it('空宫格 + 按钮 dispatch fill-cell 事件携带 groupId（P0-新2）', () => {
-    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
-    render(<StoryboardGroupRenderer {...(props() as any)} />);
+  it('空宫格 + 按钮点击经 onFillEmpty 回调携带格序（O0c-2 参数化——事件分发上移 GroupNode 注入，组件零 window 依赖）', () => {
+    const onFillEmpty = vi.fn();
+    render(<StoryboardGroupRenderer {...(props() as any)} onFillEmpty={onFillEmpty} />);
     fireEvent.click(screen.getAllByText('+')[0]);
-    const evt = dispatchSpy.mock.calls.map((c) => c[0]).find((e) => (e as Event).type === 'storyboard:fill-cell');
-    expect(evt).toBeTruthy();
-    expect((evt as CustomEvent).detail.groupId).toBe('g1'); // 来自 NodeProps.id，非 data.groupId
+    expect(onFillEmpty).toHaveBeenCalledWith(2); // 2x2 宫格首个空位=index 2（cells=['a','b',...]）
   });
 
   it('根容器 absolute inset:0 + 格子 100% 填充轨道（RF .react-flow__node-group 默认 padding 10px，静态 100% 尺寸 + 固定格子像素会溢出节点盒）', () => {
@@ -131,11 +129,16 @@ describe('StoryboardGroupRenderer（O0c-2 零 store 抽迁——两形态）', (
     expect((imgs[1] as HTMLImageElement).getAttribute('src')).toBe('/th/b.webp');
   });
 
-  it('公开页形态（onRemoveCell 缺省）：零 window keydown 监听注册（只读分享页无删除热键）', () => {
+  it('公开页形态（onRemoveCell/onFillEmpty 缺省）：零 window keydown 监听注册（只读分享页无删除热键）', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     render(<StoryboardGroupRenderer {...(props() as any)} />);
     expect(addSpy.mock.calls.filter(([type]) => type === 'keydown')).toHaveLength(0);
     addSpy.mockRestore();
+  });
+
+  it('公开页形态：空格不渲染 + 按钮（参数化对称——只读页无死交互可供性）', () => {
+    render(<StoryboardGroupRenderer {...(props() as any)} />);
+    expect(screen.queryAllByText('+')).toEqual([]);
   });
 
   it('主画布形态：选中格后 Delete 键经 onRemoveCell 回调（参数化——组件不直连 store）', () => {
