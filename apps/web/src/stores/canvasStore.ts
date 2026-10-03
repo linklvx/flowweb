@@ -6,7 +6,7 @@ import {
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
-import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan } from '@flowweb/shared';
+import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession } from '@flowweb/shared';
 import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, resolveExpandedFrame, normalizeSize } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
@@ -149,6 +149,11 @@ export interface CanvasState {
   collabReadOnly: boolean;
   /** WS 侧唯一鉴权载体（批2-1 立字段；reason 五档 CollabAuthReason 落 shared 后收紧类型——批3 接入） */
   wsAuthNotice: { reason: string; terminal: boolean } | null;
+  /** O0b-3 手势会话宿主（C0-1 DragSession 类型——保护序 v2 的让位两层解析源：
+   *  freeze=frozenFrames.keys()/live=dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)）。
+   *  本批只落骨架字段（测试手动注入+applyDocToStore 保护捕获/回写+reconcile 让位豁免消费）——
+   *  begin/end/watchdog 生命周期管理归 B4'-1。null=无活跃手势。不进 history/localStorage 快照 */
+  dragSession: DragSession | null;
   /** sessionExpiry 401 面电平（批3 接线；canEdit 不读——反向断言锚）。不进快照 */
   httpExpired: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
@@ -321,6 +326,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   hydration: 'idle',
   collabReadOnly: true,
   wsAuthNotice: null,
+  dragSession: null,
   httpExpired: false,
   connStatus: 'connecting',
   connUi: 'ok',

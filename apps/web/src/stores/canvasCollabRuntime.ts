@@ -19,6 +19,7 @@ import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import {
   ensureSchemaVersion, DEFAULT_CHILD_SIZE, shouldAutoRefit,
   deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
+  type DragSession,
   assertDocAbsMatchesCsRel, assertStoryboardMembership,
 } from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
@@ -323,6 +324,10 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
  * （RF 全量重渲染消解），全表零差异⇒零 setState。
  *  单遍单 origin：帧集合 Pass 1 一步产出（子 abs 用旧 origin 反推），之后 Pass 2 才写子 rel
  * （本 tick 新 origin）——组因成员移动整体位移时子 abs 逐位不变。
+ *  O0b-3 让位豁免（卡一让位硬规则——终裁 66③）：canvasStore.dragSession 非空时让位两层
+ * （freeze=frozenFrames.keys()/live=dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)）
+ * 跳过派生与直拷——字段面 drag⇒{position}/resize⇒帧三字段/freeze⇒三字段（resolveGestureYield）。
+ * 拖动期 invariant 豁免=让位集合同一函数（checkProjectionInvariant 改写归 O0b-4）。
  *  纯 cs 写零 doc 写（恢复链零回写锚的结构性保证——本函数不持有任何 doc 写原语，census 锚在
  *  canvasCollabRuntime.geometry.test.ts）。 */
 export type ReconcileSource = 'cs' | 'doc';
@@ -336,6 +341,8 @@ const near = (a: number | null | undefined, b: number | null | undefined): boole
 export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'): void {
   const { nodes: docNodes } = readCanvasFromDoc(d);
   const csNodes = useCanvasStore.getState().nodes as any[];
+  // O0b-3 让位两层解析（卡一——session 活跃期豁免面；null session⇒空 Map=零让位=现状行为）
+  const gestureGuard = resolveGestureYield(useCanvasStore.getState().dragSession, csNodes);
   // M-5（O0b-0 质评）：预建 Map 消内层 find/filter（O(N²)→O(N)）
   const docById = new Map(docNodes.map((r) => [r.id, r]));
   const childrenByParent = new Map<string, any[]>();
@@ -359,6 +366,17 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   for (const nd of csNodes) {
     if (nd.type !== 'group') continue;
     oldOrigins.set(nd.id, nd.position);
+    // O0b-3 让位硬规则（终裁 66③）：帧三字段全保护的组（freeze/resize 档）跳过派生——
+    // 帧原样=cs 当前值（手势内核写者面/冻结帧），仅作子代 rebase 的 origin 源。
+    // 组帧=写域① 单写者语义（position/wh 同源同写）——让位按组帧整体豁免，不做半帧态。
+    const gg = gestureGuard.get(nd.id);
+    if (gg?.position && gg.wh) {
+      frames.set(nd.id, {
+        x: nd.position?.x ?? 0, y: nd.position?.y ?? 0,
+        width: nd.width ?? 0, height: nd.height ?? 0,
+      });
+      continue;
+    }
     const rec = docById.get(nd.id);
     const data = (rec?.data ?? nd.data ?? {}) as Record<string, unknown>;
     // mode oracle 恒=doc 侧记录键（终裁 44——禁 cs 派生帧当 storedFrame，auto 组防 manual 死锁）
@@ -396,10 +414,15 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   }
 
   // —— Pass 2：写域①②③④——零差异短路（同值保对象引用）+isFinite 守卫；全表零差异⇒零 setState ——
+  // O0b-3 让位硬规则（终裁 66③）：让位集合成员跳过直拷与派生写（锚：session 活跃期任意命令尾
+  // reconcile⇒让位集合节点 cs 几何零变化，含 doc 有键）。
   let mutated = false;
   const nextNodes = csNodes.map((nd: any) => {
+    const gg = gestureGuard.get(nd.id);
     if (nd.type === 'group') {
-      // 写域①：组帧=deriveGroupFrame 派生——组 position 唯一写者（wh 写入面分档见函数头）
+      // 写域①：组帧=deriveGroupFrame 派生——组 position 唯一写者（wh 写入面分档见函数头）；
+      // position 让位 ⇒ 帧整体让位（组帧单写者语义，见 Pass 1 注）
+      if (gg?.position) return nd;
       const f = frames.get(nd.id);
       if (!f || !Number.isFinite(f.x) || !Number.isFinite(f.y)) return nd;
       const withWH = writeWH.get(nd.id) === true;
@@ -420,14 +443,14 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
     if (nd.parentId == null) {
       // 写域②顶层：doc.abs 直拷（缺键/非有限保留现值——禁 undefined）；'cs' 源跳过（doc 落后，防吞命令写）
       const dp = source === 'doc' ? rec?.position : undefined;
-      if (dp != null && Number.isFinite(dp.x) && Number.isFinite(dp.y)
+      if (dp != null && Number.isFinite(dp.x) && Number.isFinite(dp.y) && !gg?.position
         && !(near(position?.x, dp.x) && near(position?.y, dp.y))) {
         position = { x: dp.x, y: dp.y };
         changed = true;
       }
     } else if (sbGroups.has(nd.parentId)) {
       // 写域④：分镜子 position=构造默认 {0,0} 停住（'cs' 源跳过——命令中间态为更新值）
-      if (source === 'doc' && !(near(position?.x, 0) && near(position?.y, 0))) {
+      if (source === 'doc' && !gg?.position && !(near(position?.x, 0) && near(position?.y, 0))) {
         position = { x: 0, y: 0 };
         changed = true;
       }
@@ -435,7 +458,7 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
       // 写域②组子：rel=abs−本 tick 新 origin（Pass 1 帧集合已产出）
       //（'doc' 源 abs=doc.abs；'cs' 源 abs=cs.rel+旧 origin——保命令几何再按新 origin 重基）
       const f = frames.get(nd.parentId);
-      if (f && Number.isFinite(f.x) && Number.isFinite(f.y)) {
+      if (f && Number.isFinite(f.x) && Number.isFinite(f.y) && !gg?.position) {
         const abs = source === 'doc'
           ? rec?.position
           : (() => {
@@ -451,8 +474,9 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
         }
       }
     }
-    // 写域③：非组 wh doc→cs 直拷（缺键/非有限保留现值）；'cs' 源跳过（doc 落后）
-    if (source === 'doc') {
+    // 写域③：非组 wh doc→cs 直拷（缺键/非有限保留现值）；'cs' 源跳过（doc 落后）；
+    // wh 让位（resize 档/freeze 相交）跳过
+    if (source === 'doc' && !gg?.wh) {
       if (typeof rec?.width === 'number' && Number.isFinite(rec.width) && !near(width, rec.width)) { width = rec.width; changed = true; }
       if (typeof rec?.height === 'number' && Number.isFinite(rec.height) && !near(height, rec.height)) { height = rec.height; changed = true; }
     }
@@ -463,9 +487,116 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   if (mutated) useCanvasStore.setState({ nodes: nextNodes });
 }
 
+// ══════════ O0b-3 保护序 v2：手势保护面（三层一函数——捕获/hydrate/回写） ══════════
+// 让位两层（卡一）：freeze=frozenFrames.keys()（让位即冻结）；live=dragProtectedIds∪
+// {resizeTargetId}∪children(resizeTargetId)。字段级分型写死（v3.18 终裁 71）：
+// drag⇒{position}/resize⇒{position,width,height}[帧三字段]/freeze⇒三字段。
+// 硬规则"让位只保护几何，不保护数据"：回写仅覆盖捕获的几何字段——data/type/parentId/hidden/
+// selected 一律取 doc 最新值（防整节点对象回写吃掉远端 data 并发写）。
+// 会话宿主=canvasStore.dragSession（C0-1 DragSession 骨架——生命周期管理归 B4'-1，本批只落
+// 保护序结构+解析入口；测试经 fixtures seedDragSession 手动注入）。
+
+/** 单节点让位字段面：position/wh 各自是否被手势保护（字段级——drag 只保 position）。 */
+export interface GestureGeoGuard {
+  position: boolean;
+  wh: boolean;
+}
+
+/** 捕获的几何活值（缺键字段不回写——hydrate 后该节点无该键时 writeback 也跳过）。 */
+export interface GestureGeo {
+  position?: { x: number; y: number };
+  width?: number;
+  height?: number;
+}
+
+/** 保护面快照（capture 层产物——reapply 层输入；跨 hydrate setState 传递）。 */
+export interface GestureProtectionSnapshot {
+  readonly nodes: ReadonlyMap<string, GestureGeo>;
+}
+
+/** 让位两层解析（卡一）：返回 nodeId→字段保护面。纯函数——children(resizeTargetId) 从 csNodes
+ *  现取。session 缺省/空集 ⇒ 空 Map=零让位（reconcile/apply 现状行为）。freeze 层与 live 层
+ *  同 id 相交时字段面取并（拖组档：被拖组帧在 frozenFrames[三字段]∧组内子代在 dragProtectedIds）。 */
+export function resolveGestureYield(
+  session: DragSession | null | undefined,
+  csNodes: ReadonlyArray<{ id: string; parentId?: string | null }>,
+): ReadonlyMap<string, GestureGeoGuard> {
+  const out = new Map<string, GestureGeoGuard>();
+  if (!session) return out;
+  // freeze 层：frozenFrames.keys()——帧三字段（让位即冻结，终裁 66③）
+  for (const id of session.frozenFrames.keys()) out.set(id, { position: true, wh: true });
+  // live 层：dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)
+  const liveIds = new Set(session.dragProtectedIds);
+  if (session.resizeTargetId != null) {
+    liveIds.add(session.resizeTargetId);
+    for (const n of csNodes) {
+      if (n.parentId === session.resizeTargetId) liveIds.add(n.id);
+    }
+  }
+  // 字段分型（终裁 71）：drag⇒仅 position；resize⇒帧三字段（子代 rel 逐帧不变+wh 手势面）
+  const protectWh = session.gestureKind === 'resize';
+  for (const id of liveIds) {
+    const prev = out.get(id);
+    out.set(id, { position: true, wh: protectWh || (prev?.wh ?? false) });
+  }
+  return out;
+}
+
+/** 保护捕获（applyDocToStore hydrate setState 前一层）：live 活值 rel（手势内核末帧/预览——
+ *  cs 当前值即真值）+freeze 冻结帧三字段（frozenFrames 值=手势起点捕获，权威于 cs）。
+ *  session 缺席/让位集合空 ⇒ null（零保护=现状行为）。 */
+export function captureGestureProtection(): GestureProtectionSnapshot | null {
+  const s = useCanvasStore.getState();
+  const guard = resolveGestureYield(s.dragSession, s.nodes as ReadonlyArray<{ id: string }>);
+  if (guard.size === 0) return null;
+  const byId = new Map(s.nodes.map((n: any) => [n.id, n]));
+  const nodes = new Map<string, GestureGeo>();
+  // freeze 层先落（帧三字段 ⊇ live 字段——同 id 相交时 freeze 值权威）
+  for (const [id, f] of s.dragSession!.frozenFrames) {
+    nodes.set(id, { position: { x: f.x, y: f.y }, width: f.width, height: f.height });
+  }
+  for (const [id, g] of guard) {
+    if (nodes.has(id)) continue;
+    const n = byId.get(id) as any;
+    if (!n) continue; // cs 无该节点（远端新增未 hydrate/已删）——无保护对象
+    nodes.set(id, g.wh
+      ? { position: n.position == null ? undefined : { ...n.position }, width: n.width, height: n.height }
+      : { position: n.position == null ? undefined : { ...n.position } });
+  }
+  return { nodes };
+}
+
+/** 保护回写（applyDocToStore hydrate setState 后一层）：仅覆盖捕获的几何字段——
+ *  data/type/parentId/hidden/selected 一律保留 hydrate 的 doc 最新值（硬规则，终裁 71）。 */
+export function reapplyGestureProtection(snap: GestureProtectionSnapshot): void {
+  if (snap.nodes.size === 0) return;
+  useCanvasStore.setState((s) => ({
+    nodes: s.nodes.map((n: any) => {
+      const geo = snap.nodes.get(n.id);
+      if (!geo) return n;
+      const next = { ...n };
+      if (geo.position) next.position = geo.position;
+      if (geo.width !== undefined) next.width = geo.width;
+      if (geo.height !== undefined) next.height = geo.height;
+      return next;
+    }),
+  }));
+}
+
+/** draggingIds=onNodeDragStart 第三参 nodes 的 id 集（OnNodeDrag=(event,node,nodes)——
+ *  @xyflow/react types/nodes.d.ts:36；v3.15 勘误"第二参"——照字面写第二参会退化单节点）。
+ *  三选一拖三节点⇒保护集合含 3 个 id；单节点拖动={node.id}。纯解析——session 装配与
+ *  UI 接线（onNodeDragStart={begin}）归 B4'-1。 */
+export function resolveDraggingIdsFromGesture(nodes: ReadonlyArray<{ id: string }>): ReadonlySet<string> {
+  return new Set(nodes.map((n) => n.id));
+}
+
 /** server doc → store——同款形参化（undo/乒乓断言的读回驱动）。
  *  O0b-0：S1 停写（捕获/refit/diff 回写段整删——恢复链零回写）+读侧版本门 DEV 断言+
- *  尾挂 reconcileGroupGeometry（写域②直拷）。 */
+ *  尾挂 reconcileGroupGeometry（写域②直拷）。
+ *  O0b-3 保护序 v2（卡一/hydrate 过渡态例外窗口——寿命=同一同步块）：
+ *  read→assert→保护捕获→hydrate setState[abs 过渡态]→保护回写→reconcile(doc)→hidden 现状步骤
+ *  →ns→尾挂断言。全程同步无 await/渲染分隔；session 缺席⇒捕获 null=零保护=现状行为。 */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
   // 批5 判据⑥ dev 巡检：影子信箱已删——nodes 出现 /^shadow-/ 即结构性违例（存量数据须 truncate
@@ -479,6 +610,9 @@ export function applyDocToStore(d: Y.Doc) {
   if (import.meta.env.DEV) {
     ensureSchemaVersion(toDocLike(d));
   }
+  // 保护捕获（hydrate setState 前）：live 活值 rel+freeze 冻结帧三字段（手势活值只存在于此——
+  // hydrate 全量重建后即丢失）
+  const protection = captureGestureProtection();
   // hydrate 直吃作者态记录（O0b-0：normalizeLoadedCanvas 补缺层整删——doc=abs 空间过渡态直拷，
   // 子节点 rel 语义由尾挂 reconcile 同 tick 修正）
   useCanvasStore.setState({
@@ -490,6 +624,8 @@ export function applyDocToStore(d: Y.Doc) {
     }))) as any,
     edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   });
+  // 保护回写：仅几何字段覆盖（data/type/parentId/hidden/selected 取 doc 最新值——硬规则终裁 71）
+  if (protection) reapplyGestureProtection(protection);
   useCanvasStore.getState().applyGroupDerivations();
   // C1（Task 17 审查沿革）：ns 刷新在投影读点之前——storeProjection→projectCanvasNodes 对普通节点
   // data 是 ns 优先，陈旧 ns 会把协作者刚提交的编辑投影丢（S1 停写后无回写通道，此处保序仍成立）

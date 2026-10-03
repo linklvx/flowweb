@@ -13,7 +13,8 @@
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord, DocMapLike, DocNodeRecord, FrameMode } from '@flowweb/shared';
-import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize } from '@flowweb/shared';
+import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
+  assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData } from '@flowweb/shared';
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -419,7 +420,15 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
   // 会误抓 convertGroup patchGroupData 中间态。
   if (import.meta.env.DEV) {
     const d = resolveDoc();
-    if (d) assertDocKeySetInvariants(d);
+    if (d) {
+      assertDocKeySetInvariants(d);
+      // O0b-3 接线（it.todo 转实）：批尾同读 doc 记录挂三断言——分镜子无 position④/
+      // cs-only 派生键禁入 data⑤/组 data 禁 __ 键⑥（违例 DEV 抛——prod 只读零动作同 stripDerivedKeys 口径）
+      const { nodes: tailRecords } = readRecordsFromMaps(toDocLike(d));
+      assertStoryboardChildNoPosition(tailRecords);
+      assertNoCsDerivedKeysInData(tailRecords);
+      assertNoDunderKeysInGroupData(tailRecords);
+    }
   }
 }
 

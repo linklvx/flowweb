@@ -375,7 +375,17 @@ describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', (
     expect(runtime).toContain('assertStoryboardMembership(');
     expect(runtime).toContain('reportedShapeViolations');   // prod 去重 log 接缝
   });
-  it.todo('O0b-3 接线：dispatchProjectionDiff 尾挂 assertStoryboardChildNoPosition + assertNoCsDerivedKeysInData + assertNoDunderKeysInGroupData');
+  // O0b-3（2026-10-03）已转实：census 断言 web 侧挂点行在场（行为面=断言族本文件逐条用例恒过
+  // +web 全量 dispatchProjectionDiff 消费用例 DEV 尾跑零违例）。
+  it('O0b-3 接线：dispatchProjectionDiff 尾挂 assertStoryboardChildNoPosition + assertNoCsDerivedKeysInData + assertNoDunderKeysInGroupData', () => {
+    // census：web 侧 dispatchProjectionDiff DEV 批尾三断言接线行在场
+    const intents = readFileSync(
+      path.join(REPO_ROOT, 'apps/web/src/stores/canvasIntents.ts'), 'utf8',
+    );
+    expect(intents).toContain('assertStoryboardChildNoPosition(');
+    expect(intents).toContain('assertNoCsDerivedKeysInData(');
+    expect(intents).toContain('assertNoDunderKeysInGroupData(');
+  });
   it.todo('O0b-4 接线：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界');
   it.todo('O0b-5 接线：assertAllPositionsFinite 挂 assertInvariant 收口点');
 });

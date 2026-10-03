@@ -4,6 +4,7 @@
 // （无需写者上下文）。测试禁再手写几何 useCanvasStore.setState（静态棘轮守新文件，
 // geometryTrap.test.ts 锚③报数单调下降）。
 import type { Edge, Node } from '@xyflow/react';
+import type { DragSession } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { withGeometryWriter } from '@/stores/geometryTrap';
@@ -67,4 +68,13 @@ export function resetCanvasStores(): void {
     useCanvasStore.setState({ nodes: [], edges: [], selectedId: null });
   });
   useNodeStore.setState({ nodes: {} as never });
+}
+
+/** O0b-3 session 骨架注入单点（DragSession 宿主=canvasStore.dragSession——C0-1 类型，
+ *  生命周期管理归 B4'-1，本批测试手动注入）。null=清除。session 字段非节点几何面
+ *  （陷阱只查 position/width/height），withGeometryWriter 包裹对齐夹具纪律。 */
+export function seedDragSession(session: DragSession | null): void {
+  withGeometryWriter('fixture', () => {
+    useCanvasStore.setState({ dragSession: session });
+  });
 }
