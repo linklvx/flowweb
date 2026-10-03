@@ -80,7 +80,7 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'requestAddMediaNode', category: 'non-geometry', note: 'pendingMediaFile' },
     { fn: 'requestFillStoryboardCell', category: 'non-geometry', note: 'pendingFillCell' },
     { fn: 'updateViewport', category: 'non-geometry', note: 'viewport 相机——非节点几何' },
-    { fn: 'onNodesChange', category: 'reconcile', note: 'applyNodeChanges 吞 RF position/dimensions/select/dragging + clampChildIntoGroup——O0b-1 挂点（dimensions setAttributes 细分 dimensions-attribute 写者）' },
+    { fn: 'onNodesChange', category: 'reconcile', note: 'applyNodeChanges 吞 RF position/dimensions/select/dragging——O0b-1 挂点（dimensions setAttributes 细分 dimensions-attribute 写者；拖拽期 clamp 已随终裁 43 去闸门整删，clampChildIntoGroup 现仅 placement 域）' },
     { fn: 'onEdgesChange', category: 'non-geometry', note: 'edges' },
     { fn: 'onConnect', category: 'non-geometry', note: 'edges' },
     { fn: 'splitImageNode', category: 'non-geometry', note: 'nodeProcessMap（2 处：启动+finally 清理）' },

@@ -246,11 +246,15 @@ export interface CanvasState {
   dropIntoGroup: (nodeId: string, groupId: string) => void;
   /** Inner 化（Spec B）：拖放入组纯变更核——跨组 abs 还原+auto/manual 分档 rel（placement 域 B：
    *  clamp 夹入界内——F4 维持）+新子 membership 写+源组空解组善后。入参守卫/折叠展开/capture/
-   *  dispatch 归薄壳；B5' 松手路径直接消费。 */
+   *  dispatch 归薄壳；B5' 松手路径直接消费。**嵌套事务注记**：源组空解组善后经薄壳 ungroup()
+   *  [自带 capture+diff]——本 Inner 非传递性 dispatch-free；B4'/B5' 消费方如在自有 capture 窗内
+   *  调用会产生中间事务（换 ungroupInner 可折叠 diff 但改 undo 粒度——届时随手势路径裁决）。 */
   dropIntoGroupInner: (nodeId: string, groupId: string) => void;
   dropImageIntoStoryboard: (groupId: string, nodeId: string) => void;
   /** Inner 化（Spec B）：分镜落图纯变更核——multiImage 展开/完成图经 attachMember 入格+溢出落组旁
-   *  +源组善后。执行中守卫/分镜域守卫/capture/dispatch 归薄壳；B5' 松手路径直接消费。 */
+   *  +源组善后。执行中守卫/分镜域守卫/capture/dispatch 归薄壳；B5' 松手路径直接消费。
+   *  **嵌套事务注记**：入格经 attachMember[内含 patchGroupData 单意图 dispatch]——差分幂等收其余；
+   *  同 dropIntoGroupInner 的非传递性 dispatch-free 语义。 */
   dropImageIntoStoryboardInner: (groupId: string, nodeId: string) => void;
   mergeStoryboard: (nodeIds: string[]) => string;
   convertGroup: (groupId: string, target: 'normal' | 'storyboard') => void;

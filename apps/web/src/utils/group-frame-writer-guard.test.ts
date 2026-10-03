@@ -41,6 +41,8 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
   // 实现，O0b-5 帧写单写者）。旧条目清退：addToGroup/dropIntoGroup=O0b-5 起组帧零写（placement 域仅新子
   // rel，扩框归差分首行 reconcile('cs') 派生）；arrangeSelection/arrangeGroupChildren=refit 退役后帧改
   // reconcile 派生（跃迁表 arrange 行——命令体直写面=position，帧三键经漏斗尾/差分首行 reconcile 单写）
+  // **执行形态注记（Inner 化批）**：块扫描消费者随 refitGroupGeometry 符号消亡已退役——ALLOW_FN
+  // 是注册表+终态锚形态（名义强制）；实际牙齿=符号 census（refit 族/COLLAPSED_SIZE）+行为锚。
   const ALLOW_FN = new Set(['reconcileGroupGeometry']);
   // 函数声明行形态 "  name: (…) => {"（store 工厂两空格缩进）——块从声明行到下一个声明行
   const declRe = /^  ([a-zA-Z]+):/;
