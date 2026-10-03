@@ -33,20 +33,12 @@ function listTsFiles(dir: string): string[] {
 
 /** 整信封写者不变量：`.set('position'` / `.set("position"`（构造 position 子 Map）只允许出现在
  *  信封单源与 Y.Map 适配器内。position 子 Map 构造是整信封写入的最强单判据。
- *  gate-seed.ts 豁免登记（v6 裁决）：2 节点 e2e fixture 非产品写者——接 writeNodeToYMap 会给
- *  Playwright tsx 直跑路径引入 shared→dist 新鲜度耦合（e2e 无内联门禁），接受手写例外。 */
+ *  O0d（Spec B）census 清扫：nodeEnvelope.ts/ydocBuilder.ts（O0a-1 起零命中——函数迁入 docShape）
+ *  + gate-seed.ts（O0b-0 gate-seed 经 docShape 一次到位后零命中）三死行撤——position 子 Map
+ *  构造唯一在位者=docShape（fillDoc/setDocPosition/applyRecordToYMap——两咽喉单源）。 */
 const ALLOW_FILES = new Set([
-  'packages/shared/src/canvas/nodeEnvelope.ts',
-  // O0a-1（Spec B）：fillDoc/applyRecordToYMap 收编 docShape 单源——position 子 Map 构造随函数迁移
+  // O0a-1（Spec B）：fillDoc/applyRecordToYMap/setDocPosition 收编 docShape 单源——position 子 Map 构造随函数迁移
   'packages/shared/src/canvas/docShape.ts',
-  'apps/web/src/collab/ydocBuilder.ts',
-  // O0a-2（Spec B）：api node-doc.util 随读写收编 docShape 整删（writeNodeToYMap 符号消失）——
-  // allow 行同批撤（符号删除 census 纪律）
-  'apps/api/prisma/gate-seed.ts',
-  // O0a-3（Spec B）：canvasIntents moveNode 的 position 子 Map 构造收编 docShape setDocPosition
-  // （写原语唯一单源）——allow 行同批撤（若复活本门禁即红）
-  // TODO(O0b 批尾)：nodeEnvelope.ts/ydocBuilder.ts 两行自 O0a-1 起已零命中（`.set('position'` 随函数
-  // 迁入 docShape）=死条目——按"allow 行同批撤"census 纪律应清扫，留 O0b 批尾统一处理。
 ]);
 
 describe('信封序列化门禁（R1a——防手抄本复活）', () => {
@@ -65,6 +57,16 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
       const rel = path.relative(ROOT, file).split(path.sep).join('/');
       if (ALLOW_FILES.has(rel)) continue;
       if (/\.set\(['"]position['"]/.test(readFileSync(file, 'utf8'))) offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('doc 读写两咽喉符号级（O0d）：readDocCanvas/writeNodeToYMap 在 web 生产面零命中（O0a-2 收编 shared docShape 单源后符号整删；api 侧同款断言=doc-shape-single-source.guard.spec.ts）', () => {
+    const offenders: string[] = [];
+    for (const file of listTsFiles(path.join(ROOT, 'apps/web/src'))) {
+      if (/readDocCanvas|writeNodeToYMap/.test(readFileSync(file, 'utf8'))) {
+        offenders.push(path.relative(ROOT, file).split(path.sep).join('/'));
+      }
     }
     expect(offenders).toEqual([]);
   });

@@ -3,7 +3,7 @@
 // + 字段级一写者计数框架（GeometryWriteLedger）。
 //
 // 语义分野：断言函数本身=纯谓词的 throw 形态（违例即抛、消息列结构化违例清单）——
-// 调用方决定吞不吞（DEV 直抛 / prod catch 转 id 去重 log；log 计数载体后续分片落，本片只留接缝注释）。
+// 调用方决定吞不吞（DEV 直抛 / prod 转 reportShapeViolation 集中上报——O0d 落计数+采样日志载体）。
 //
 // 数据形状假设：输入=DocNodeRecord[]（doc 作者态可选键——docShape.ts）；② 额外吃 cs 侧三方快照
 // {docRecords, csNodes, frames}。帧模式判定内联实现（frameMode/isCollapsed 是 C0-1 stub，调不得——
@@ -318,4 +318,34 @@ export class GeometryWriteLedger implements IGeometryWriteLedger {
   reset(): void {
     this.counts = new Map();
   }
+}
+
+// ── O0d prod 侧集中上报（计数+采样日志——断言调用点禁 console 直喷，违例全部经此口）──
+
+/** 违例计数表（key=违例消息——含节点 id 与细节，即"变更 id 去重"的去重键）。 */
+const shapeViolationCounts = new Map<string, number>();
+/** 采样日志表（同 key 仅首报 log——去重）。 */
+const loggedShapeViolations = new Set<string>();
+
+/** prod 侧形状违例集中上报：每报必计数、同 key 仅首报采样日志（变更 id 去重 log）；
+ *  永不 throw（终裁 85① prod 降级——按字面实现会白屏）。DEV 直抛由调用方分流，不经本函数。
+ *  B7-2 锚：prod 注入脏 doc ⇒ 不抛 + 计数 +1（读数面=shapeViolationStats）。 */
+export function reportShapeViolation(e: unknown): void {
+  const key = e instanceof Error ? e.message : String(e);
+  shapeViolationCounts.set(key, (shapeViolationCounts.get(key) ?? 0) + 1);
+  if (!loggedShapeViolations.has(key)) {
+    loggedShapeViolations.add(key);
+    console.warn(`[shape violation] ${key}`);
+  }
+}
+
+/** 违例计数读数面（只读快照语义——Map 视图，测试/B7-2 census 消费）。 */
+export function shapeViolationStats(): ReadonlyMap<string, number> {
+  return shapeViolationCounts;
+}
+
+/** 清空计数与采样表（测试隔离面——生产不消费）。 */
+export function resetShapeViolationStats(): void {
+  shapeViolationCounts.clear();
+  loggedShapeViolations.clear();
 }

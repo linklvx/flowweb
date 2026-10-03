@@ -19,7 +19,7 @@ import {
   ensureSchemaVersion, DEFAULT_CHILD_SIZE,
   deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
   type DragSession,
-  assertDocAbsMatchesCsRel, assertStoryboardMembership,
+  assertDocAbsMatchesCsRel, assertStoryboardMembership, reportShapeViolation,
 } from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
 import { deriveHiddenMap, edgeHidden } from '@/utils/groupDerive';
@@ -30,7 +30,7 @@ import { fetchNodeIntents } from '@/api/executionApi';
 import type { ExecStatusEntry } from './execStatusView';
 // 批1-0 transport 薄层（门 B 裁决）：自持传输——瞬态恢复=reconnect()，kick 方案 ㉕/㉝ 约束已删
 import { createReconnectingWebSocket, type ReconnectHandle } from '@/collab/reconnectTransport';
-import { hydrateNodes } from '@/utils/nodeOrder';
+import { ensureParentOrder } from '@/utils/nodeOrder';
 import { readViewport } from '@/utils/viewportPersistence';
 // 批1-1：连接状态机纯函数（零 Math.random——jitter 阈值生成后入参传入）
 import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
@@ -656,7 +656,7 @@ export function applyDocToStore(d: Y.Doc) {
   // hydrate 直吃作者态记录（O0b-0：normalizeLoadedCanvas 补缺层整删——doc=abs 空间过渡态直拷，
   // 子节点 rel 语义由尾挂 reconcile 同 tick 修正）
   useCanvasStore.setState({
-    nodes: hydrateNodes(nodes.map((n: any) => ({
+    nodes: ensureParentOrder(nodes.map((n: any) => ({
       ...n,
       // O0a-1 cs 构造默认 {0,0}（三层表第三层——doc 无键分镜子 hydrate 落 {0,0}；RF Node position 必需）
       position: n.position ?? { x: 0, y: 0 },
@@ -673,7 +673,7 @@ export function applyDocToStore(d: Y.Doc) {
   // abs 过渡态在函数出前修正为 cs 语义：顶层 abs 直拷/子 rel/组帧 origin+wh 同 tick）
   reconcileGroupGeometry(d, 'doc');
   // O0b-2 it.todo 转实：尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership）。
-  // DEV 直抛；prod 转 id 去重 log（reportShapeViolation 计数载体归 O0d——本批只留接缝）。
+  // DEV 直抛；prod 转 reportShapeViolation（O0d 收编——计数+采样日志单源）。
   // 帧表=reconcile 写域①产物（cs 组 position 即本 tick 新帧 origin；wh 消费面=origin 对照无关——置 0）。
   if (nodes.length > 0) {
     const csAfter = useCanvasStore.getState().nodes;
@@ -685,18 +685,13 @@ export function applyDocToStore(d: Y.Doc) {
       assertDocAbsMatchesCsRel({ docRecords: nodes, csNodes: csAfter as never, frames });
       assertStoryboardMembership(nodes);
     } catch (e) {
+      // O0d 收编：DEV 直抛 / prod 转 shared reportShapeViolation（计数+采样日志——变更 id 去重单源，
+      // 断言路径禁 console 直喷）
       if (import.meta.env.DEV) throw e;
-      const key = (e as Error).message;
-      if (!reportedShapeViolations.has(key)) {
-        reportedShapeViolations.add(key);
-        console.warn('[O0b-2 shape violation]', key);
-      }
+      reportShapeViolation(e);
     }
   }
 }
-
-/** prod 侧形状违例去重 log 表（DEV 直抛不经过；O0d reportShapeViolation 计数载体接入时收编） */
-const reportedShapeViolations = new Set<string>();
 
 // 批4b-2（组 2 收口）退役：store→doc 订阅翻译桥（写路径唯一入口已收口
 // dispatchCanvasIntent，"store 变更→doc"翻译层整体消失；R17 切项目防线由"store 直写不再有

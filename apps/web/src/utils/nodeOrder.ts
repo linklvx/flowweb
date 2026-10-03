@@ -28,13 +28,3 @@ export function ensureParentOrder<T extends { id: string; parentId?: string | nu
   }
   return nodes;
 }
-
-/** 恢复路径共用辅助：有 parentId 节点补 extent（仅无值时）→ 父前子后重排 */
-export function hydrateNodes<T extends { id: string; parentId?: string | null; extent?: unknown }>(
-  nodes: T[],
-): T[] {
-  const withExtent = nodes.map((n) =>
-    n.parentId != null && n.extent == null ? { ...n, extent: 'parent' as const } : n,
-  );
-  return ensureParentOrder(withExtent);
-}

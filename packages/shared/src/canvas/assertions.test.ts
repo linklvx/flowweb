@@ -2,7 +2,7 @@
 // C0-2 断言族行为测试（Spec B）：先红后绿——每断言用构造输入证 throw/不 throw。
 // 输入形状：DocNodeRecord[]（doc 作者态可选键）+ ② 的 cs 侧三方快照 {docRecords, csNodes, frames}。
 // 帧模式判定走被测模块内联实现（frameMode/isCollapsed 已 O0b-1 转实），O0b 接线后换单源。
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'fs';
 import * as path from 'path';
 import type { DocNodeRecord, RenderNode, Rect } from './docShape';
@@ -21,6 +21,9 @@ import {
   assertAllPositionsFinite,
   GeometryWriteLedger,
   CS_ONLY_DERIVED_DATA_KEYS,
+  reportShapeViolation,
+  shapeViolationStats,
+  resetShapeViolationStats,
 } from './assertions';
 
 // —— 夹具助手：品牌坐标打点（测试构造受信字面量——cast 即打点）——
@@ -365,6 +368,57 @@ describe('GeometryWriteLedger（字段级一写者框架：接口+计数器）',
   });
 });
 
+// —— O0d（Spec B）：prod 侧集中上报——计数+采样日志（断言路径禁 console 直喷）——
+describe('reportShapeViolation（O0d prod 侧集中上报：每报必计数+同 key 首报采样日志）', () => {
+  beforeEach(() => {
+    resetShapeViolationStats();
+  });
+
+  it('每报必计数：同 key 重复报 count 累加（B7-2 "prod 注入脏 doc⇒不抛+计数+1" 锚的读数面）', () => {
+    reportShapeViolation(new Error('v1'));
+    reportShapeViolation(new Error('v1'));
+    reportShapeViolation(new Error('v2'));
+    expect(shapeViolationStats().get('v1')).toBe(2);
+    expect(shapeViolationStats().get('v2')).toBe(1);
+  });
+
+  it('采样日志去重：同 key 仅首报 console.warn 一次、不同 key 各一次（每报必 log 不成立——去重载体）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      reportShapeViolation(new Error('k1'));
+      reportShapeViolation(new Error('k1'));
+      reportShapeViolation(new Error('k1'));
+      reportShapeViolation(new Error('k2'));
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(String(warn.mock.calls[0][0])).toContain('k1');
+      expect(String(warn.mock.calls[1][0])).toContain('k2');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('永不 throw：非 Error 输入（字符串/undefined）安全计数不抛（prod 降级——终裁 85① 按字面实现会白屏）', () => {
+    expect(() => reportShapeViolation('raw-string')).not.toThrow();
+    expect(() => reportShapeViolation(undefined)).not.toThrow();
+    expect(shapeViolationStats().get('raw-string')).toBe(1);
+    expect(shapeViolationStats().get('undefined')).toBe(1);
+  });
+
+  it('reset 清空计数与采样表：同 key 再报重新采样日志（测试隔离面）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      reportShapeViolation(new Error('r1'));
+      resetShapeViolationStats();
+      expect(shapeViolationStats().size).toBe(0);
+      reportShapeViolation(new Error('r1'));
+      expect(warn).toHaveBeenCalledTimes(2);   // 采样表随 reset 清空——同 key 再报即"新 key"
+      expect(shapeViolationStats().get('r1')).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
 // —— O0b 挂点（it.todo 先建后清：各分片 unskip 接线，B7-1 归零——it.todo 计数锚）——
 // O0b-1（2026-10-03）已转实：见下方『reconcile 尾挂①③先决契约』describe——
 // 生产热路径接线（reconcile DEV 尾跑①③）随 O0b-5 折叠分支 envelope 写删解锁（原 it.todo
@@ -382,7 +436,7 @@ describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', (
     );
     expect(runtime).toContain('assertDocAbsMatchesCsRel(');
     expect(runtime).toContain('assertStoryboardMembership(');
-    expect(runtime).toContain('reportedShapeViolations');   // prod 去重 log 接缝
+    expect(runtime).toContain('reportShapeViolation(');   // O0d 收编：prod 去重 log 接缝（计数+采样日志单源）
   });
   // O0b-3（2026-10-03）已转实：census 断言 web 侧挂点行在场（行为面=断言族本文件逐条用例恒过
   // +web 全量 dispatchProjectionDiff 消费用例 DEV 尾跑零违例）。
