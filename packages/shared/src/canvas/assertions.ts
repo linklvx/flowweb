@@ -97,19 +97,21 @@ export function assertDocAbsMatchesCsRel(snapshot: {
   throwIfViolations('assertDocAbsMatchesCsRel', violations);
 }
 
-/** manual 域标记内联判定（③/+条口径——shouldAutoRefit 同源：manuallyResized=true 的组帧
- *  不归 bbox/COLLAPSED_SIZE 公式管）。O0b 接线后换 frameMode 单源——终裁 50 删标记后 manual 由
- *  帧键形态定义，届时 ③ 的校验对象域随之重定义（随 O0b-5 manuallyResized 整删批改写，本片不动——
- *  既有 ③ 用例编码旧语义，动谓词即红两用例）。 */
-const isManualDomain = (r: DocNodeRecord): boolean => r.data.manuallyResized === true;
+/** manual 域判定（③/+条口径——O0b-5 随 manuallyResized 整链删除改帧键形态 oracle，终裁 50）：
+ *  manual=doc 帧三键齐且有效（hasValidStoredFrame——frameMode 单源同谓词）——帧不归
+ *  bbox/COLLAPSED_SIZE 公式管（展开恢复唯一密封源，终裁 82）。 */
+const isManualDomain = (r: DocNodeRecord): boolean => hasValidStoredFrame(r);
 
 /**
  * 断言③：展开态 auto 组 frame ≡ bbox+padding（成员≥1 才断言——空组归
- * assertEmptyAutoGroupCollapsedSize）。auto 判定=非分镜/非折叠/非 manual 域（manuallyResized
- * 域标记——shouldAutoRefit 同口径）；对照公式单源 geometry.calcGroupBounds（padding 常量内嵌，
- * 禁自写公式）；成员缺尺寸按 DEFAULT_CHILD_SIZE 兜底（与 applyGroupFrame 同源）；成员缺 position
+ * assertEmptyAutoGroupCollapsedSize）。O0b-5 校验域重定义（manuallyResized 整链删除，终裁 50）：
+ * auto 判定=非分镜/非折叠/非 manual（manual=帧三键齐且有效——hasValidStoredFrame，帧≠bbox 合法
+ * 密封源[终裁 82]）；③ 可校验对象=携帧键而三键无效的脏形态（① 辖区的 bbox 鉴别力半边）。
+ * 对照公式单源 geometry.calcGroupBounds（padding 常量内嵌，
+ * 禁自写公式）；成员缺尺寸按 DEFAULT_CHILD_SIZE 兜底（与旧 applyGroupFrame 同源）；成员缺 position
  * 即违例（普通组子节点 doc 恒有 position）。记录无帧键（auto 组 doc 目标形态）→ 无校验对象跳过。
- * 输入空间无关：doc 快照（过渡/混合形态）与 cs 信封快照均可喂。
+ * 输入空间无关：doc 快照（过渡/混合形态）与 cs 信封快照均可喂（cs 信封快照的 auto/manual 判别
+ * 需 frameModes oracle 扩展——随 O0b 接线批评估）。
  */
 export function assertExpandedAutoFrameEqualsBounds(records: readonly DocNodeRecord[]): void {
   const violations: string[] = [];
@@ -183,7 +185,7 @@ export function assertNoDunderKeysInGroupData(records: readonly DocNodeRecord[])
 /**
  * +条：空 auto 组 → COLLAPSED_SIZE。空（无成员）auto 组必须折叠（data.collapsed===true），
  * 且帧键若在则 width/height ≡ COLLAPSED_SIZE；帧键缺省（doc 目标形态）只查折叠标记。
- * manual 域（manuallyResized）/storyboard/有成员 → 跳过。
+ * manual 域（O0b-5 起帧三键形态判定——isManualDomain）/storyboard/有成员 → 跳过。
  */
 export function assertEmptyAutoGroupCollapsedSize(records: readonly DocNodeRecord[]): void {
   const violations: string[] = [];

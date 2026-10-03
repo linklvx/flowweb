@@ -154,6 +154,27 @@ describe('键集表逐格（auto 组无三键/storyboard 组无 wh/分镜子无 
     expect(out[0].height).toBe(200);
     expect(stripDerivedKeys(out)).toEqual([]);
   });
+
+  // O0b-5（Spec B）：auto/manual 折叠双档键集逐格（终裁 82/89——键集表不因 collapsed 改变：
+  // auto 组恒 0 键[折叠态同——本就无键可剥]；manual 组折叠态不动帧三键=展开恢复唯一密封源）
+  it('折叠双档（O0b-5）：auto collapsed（oracle=auto）⇒0 帧键；manual collapsed（三键齐）⇒三键全留——键集不因 collapsed 改变', () => {
+    // auto 折叠档：cs 携派生帧三键（reconcile 写域① collapsed 档 COLLAPSED_SIZE 派生值）+oracle=auto
+    // ⇒全剥（折叠不落帧键——cs 渲染档不导出 doc）
+    const autoOut = toDocRecords([
+      csNode({ id: 'ga', type: 'group', position: { x: 7, y: 8 }, width: 220, height: 160, data: { groupType: 'normal', collapsed: true } }),
+    ], {}, new Map([['ga', 'auto' as FrameMode]]));
+    expect(autoOut[0].position).toBeUndefined();
+    expect('width' in autoOut[0]).toBe(false);
+    expect('height' in autoOut[0]).toBe(false);
+    expect((autoOut[0].data as Record<string, unknown>).collapsed).toBe(true);   // 折叠标志照常导出
+    // manual 折叠档：三键=展开态密封源逐格全留（auto 档的对照半边）
+    const manualOut = toDocRecords([
+      csNode({ id: 'gm', type: 'group', position: { x: 5, y: 6 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true } }),
+    ], {});
+    expect(manualOut[0].position).toEqual({ x: 5, y: 6 });
+    expect(manualOut[0].width).toBe(300);
+    expect(manualOut[0].height).toBe(200);
+  });
 });
 
 describe('双源合并（F42：组 data 取 cs/普通节点取 ns/ns 缺席回落 cs——projectCanvasNodes 旧契约上移单源）', () => {

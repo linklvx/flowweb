@@ -18,8 +18,8 @@
  *  - gesture：手势内核（拖拽/缩放手势显式写体——O0b 显式挂，现状与 reconcile 同窗）
  *  - projection-default：投影结构写（意图漏斗 projectIntentToStore 回填 / doc→store 水合
  *    applyDocToStore / 差分 dispatchProjectionDiff 窗内的结构写）
- *  - config-command：配置型命令体（applyGroupFrameRect/updateStoryboardConfig/resizeStoryboardGrid
- *    ——frame 由配置公式直写，无守恒语义）
+ *  - config-command：配置型命令体（O0b-5 后=mergeStoryboard/convertGroup/resizeStoryboardGrid
+ *    命令体前写+updateStoryboardConfig 经 reconcile storyboard 档派生——frame 由配置公式单源，无守恒语义）
  *  - structure-command：结构命令体（组/解组/入出组/排列/折叠展开/守恒 refit——结构重排携带几何写）
  *  - node-create：节点创建 append（新节点信封携 position/width/height 落 store）
  *  - dimensions-attribute：RF dimensions change（setAttributes=true）写 node.width/height
@@ -102,9 +102,8 @@ export const GEOMETRY_WRITER_ALLOWLIST: Readonly<Record<string, readonly Geometr
     { fn: 'convertGroup', category: 'structure-command', note: '经 setWithParentOrder 2 处：转分镜（配置框+子归零）/转普通（网格重排）' },
     { fn: 'patchGroupDataInner', category: 'non-geometry', note: '纯 data 合并/物理删键（runCommand.fn 契约写层）' },
     { fn: 'requestGroupRename', category: 'non-geometry', note: 'renameRequest UI 瞬态' },
-    { fn: 'toggleCollapse', category: 'structure-command', note: '2 处：折叠信封 COLLAPSED_SIZE+子 selected / 展开帧 resolveExpandedFrame+落位' },
-    { fn: 'applyGroupFrame', category: 'structure-command', note: '组几何唯一守恒重算写者（refitGroupGeometry）' },
-    { fn: 'applyGroupFrameRect', category: 'config-command', note: '配置型唯一出口（§4.8 v11）——frame 直写' },
+    { fn: 'toggleCollapse', category: 'structure-command', note: 'O0b-5 单意图化：唯折叠子 selected 清写（帧档=reconcile 写域① collapsed 派生——零帧写）；只读档 localCollapsed 本地 override（UI 瞬态非几何）' },
+    { fn: 'refitContentDerivedFrame（O0b-5 内联件——applyGroupFrame 退役）', category: 'structure-command', note: 'auto 组守恒收缩/重算（calcGroupBounds 单源+epsilon no-op）——与 reconcile 写域① 同值幂等；无 doc 会话兜底派生' },
     { fn: 'resizeStoryboardGrid', category: 'config-command', note: '配置组框 calcStoryboardSize+溢出移位' },
     { fn: 'clearStoryboard', category: 'non-geometry', note: 'cells 成员结构删除' },
     { fn: 'addImageToStoryboardCell', category: 'node-create', note: '槽位建图节点 append（position 归零）' },

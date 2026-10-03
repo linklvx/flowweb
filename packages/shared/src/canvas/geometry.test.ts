@@ -1,7 +1,7 @@
 // packages/shared/src/canvas/geometry.test.ts
 import { describe, it, expect } from 'vitest';
 import {
-  refitGroupGeometry, shouldAutoRefit, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
+  isContentDerivedFrame, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
   GROUP_PADDING, GROUP_PADDING_TOP, clampChildIntoGroup, clampPositionToPadding,
   deriveGroupFrame, calcGroupBounds, calcStoryboardSize,
 } from './geometry';
@@ -9,53 +9,30 @@ import { resolveStoryboardConfig } from './storyboardConfig';
 
 const rect = (x: number, y: number, width = 100, height = 60) => ({ x, y, width, height });
 
-describe('refitGroupGeometry（契约 2 v11 绝对 rect——守恒，无 clamp）', () => {
-  it('bbox(子)+padding == frame（双侧非对称 padding：上 50/余 20）；rel = abs − frame.origin；子绝对坐标守恒', () => {
-    const children = [rect(120, 150), rect(300, 260, 80, 90), rect(150, 170, 40, 30)];
-    const { frame, rels } = refitGroupGeometry(children);
-    expect(frame).toEqual({ x: 120 - GROUP_PADDING, y: 150 - GROUP_PADDING_TOP,
-      width: 300 + 80 + GROUP_PADDING - (120 - GROUP_PADDING), height: 260 + 90 + GROUP_PADDING - (150 - GROUP_PADDING_TOP) });
-    children.forEach((c, i) => {
-      expect(rels[i].x + frame.x).toBe(c.x);
-      expect(rels[i].y + frame.y).toBe(c.y);
-    });
+// ══════════ O0b-5（Spec B）：refit 族退役——isContentDerivedFrame 接替谓词 ══════════
+// refitGroupGeometry/shouldAutoRefit 整删（函数本体+shared 导出）——守恒重算统一归 reconcile 单写者
+//（calcGroupBounds 派生帧），clamp 谓词从"标记域"（data.manuallyResized）改 doc 帧键形态 oracle。
+describe('isContentDerivedFrame（O0b-5 refit 退役接替谓词——auto∧!collapsed）', () => {
+  it('auto 展开 → true；collapsed（含 auto 折叠）/storyboard/manual（doc 帧三键齐）→ false', () => {
+    expect(isContentDerivedFrame({ data: { groupType: 'normal' }, storedFrame: {} })).toBe(true);
+    // 折叠档锚（plan O0b-5）：isContentDerivedFrame=auto∧!collapsed——折叠组恒 false（帧固定语义，
+    // 入组落点走 clamp 档；cs 帧≡COLLAPSED_SIZE 派生由 reconcile 写域① collapsed 分支承担）
+    expect(isContentDerivedFrame({ data: { groupType: 'normal', collapsed: true }, storedFrame: {} })).toBe(false);
+    expect(isContentDerivedFrame({ data: { groupType: 'storyboard' }, storedFrame: { position: { x: 0, y: 400 } } })).toBe(false);
+    expect(isContentDerivedFrame({
+      data: { groupType: 'normal' },
+      storedFrame: { position: { x: 100, y: 50 }, width: 400, height: 300 },
+    })).toBe(false);
   });
 
-  it('min(rel) ≠ padding 的分布（F33 缺陷形态）守恒仍成立', () => {
-    const children = [rect(0, 0), rect(200, 200)];
-    const { frame, rels } = refitGroupGeometry(children);
-    children.forEach((c, i) => {
-      expect(rels[i].x + frame.x).toBe(c.x);
-      expect(rels[i].y + frame.y).toBe(c.y);
-    });
-  });
-
-  it('幂等 + N5 构造保证：rel.y ≥ GROUP_PADDING_TOP、rel.x ≥ GROUP_PADDING 恒成立（clamp 推翻后的行为锚。注：同输入两次调用是确定性断言——真复合幂等 f(f(x))=f(x) 的证明在 Task 18 applyGroupFrame 二次 no-op 用例（store 层），此处是回归锚）', () => {
-    const children = [rect(50, 80), rect(260, 190, 120, 70)];
-    const once = refitGroupGeometry(children);
-    const twice = refitGroupGeometry(children);
-    expect(twice.frame).toEqual(once.frame);
-    expect(twice.rels).toEqual(once.rels);
-    expect(once.rels.every((r) => r.y >= GROUP_PADDING_TOP && r.x >= GROUP_PADDING)).toBe(true);
-  });
-
-  it('小数坐标守恒（v3 补——RF 拖拽产小数，浮点还原是乒乓风险面）', () => {
-    const children = [rect(100.3, 200.7), rect(250.1, 310.9, 99.6, 59.4)];
-    const { frame, rels } = refitGroupGeometry(children);
-    children.forEach((c, i) => {
-      expect(Math.abs(rels[i].x + frame.x - c.x)).toBeLessThan(1e-9);
-      expect(Math.abs(rels[i].y + frame.y - c.y)).toBeLessThan(1e-9);
-    });
-  });
-});
-
-describe('shouldAutoRefit（契约 2 scope 门禁）', () => {
-  it('normal 展开 → true；storyboard/collapsed/manuallyResized/非组 → false', () => {
-    expect(shouldAutoRefit({ type: 'group', data: { groupType: 'normal' } })).toBe(true);
-    expect(shouldAutoRefit({ type: 'group', data: { groupType: 'storyboard' } })).toBe(false);
-    expect(shouldAutoRefit({ type: 'group', data: { groupType: 'normal', collapsed: true } })).toBe(false);
-    expect(shouldAutoRefit({ type: 'group', data: { groupType: 'normal', manuallyResized: true } })).toBe(false);
-    expect(shouldAutoRefit({ type: 'imageGen', data: {} })).toBe(false);
+  it('折叠 auto 组入组 abs 落点逐位锚（纯函数形态——collapsed⇒false ⇒ 入组 rel 过 clampChildIntoGroup：' +
+    '远点 rel 夹进折叠帧内 xMax/yMax 界=abs−组原点逐位）', () => {
+    // 折叠组 cs 帧=COLLAPSED_SIZE 220×160；子 100×50：xMax=220−20−100=100 ≥GROUP_PADDING 不退化、
+    // yMax=160−20−50=90 ≥GROUP_PADDING_TOP 不退化——远点 (500,500) 夹到 xMax/yMax 界 (100,90)；
+    // 此处锚谓词分档与 clamp 守卫的同构（真行为锚在 store 层 addToGroup 折叠组用例）
+    expect(isContentDerivedFrame({ data: { groupType: 'normal', collapsed: true }, storedFrame: {} })).toBe(false);
+    const rel = clampChildIntoGroup({ x: 500, y: 500 }, { width: 100, height: 50 }, COLLAPSED_SIZE);
+    expect(rel).toEqual({ x: 220 - GROUP_PADDING - 100, y: 160 - GROUP_PADDING - 50 });
   });
 });
 

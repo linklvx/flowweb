@@ -59,6 +59,7 @@ vi.mock('@/stores/canvasStore', () => ({
         nodes: mockNodes,
         lastPointerShiftKey: mockLastPointerShiftKey,
         marqueeSelecting: mockMarqueeSelecting,
+        localCollapsed: {},
         toggleCollapse: vi.fn(),
         ungroup: mockUngroup,
         convertGroup: mockConvertGroup,

@@ -119,25 +119,17 @@ export function calcGroupMinSize(
   };
 }
 
-/** 组几何唯一重算纯函数（契约 2/§4.8 v11）：输入子节点绝对 rect，输出 frame + 每子 rel（= abs − frame.origin）。
- *  rels[i] 与入参 children[i] 按索引一一对应——消费方（applyGroupFrame；normalizeLoadedCanvas 已随 O0b-0 整删、reconcile 沿用此序）依赖此序写回，
- *  喂入前重排即静默错位。
- *  守恒：重算型调用下子绝对坐标不变（rel 随 frame 补偿）——F33 整类根修。
- *  无 clamp（v11 推翻）：frame = bbox+padding 使 rel ∈ [padding, frame−padding−size] 恒成立（数学构造保证）；
- *  拖拽期真 clamp 在 onNodesChange（帧固定时）；placement 对不 refit 组的 clamp 见 addToGroup（Task 18）。 */
-export function refitGroupGeometry(
-  children: { x: number; y: number; width: number; height: number }[],
-): { frame: { x: number; y: number; width: number; height: number }; rels: { x: number; y: number }[] } {
-  const frame = calcGroupBounds(children);
-  const rels = children.map((c) => ({ x: c.x - frame.x, y: c.y - frame.y }));
-  return { frame, rels };
-}
-
-/** 契约 2 scope 门禁：组框 ≡ bbox+padding 仅适用于 normal && !collapsed && !manuallyResized。
- *  type 可选（RF Node.type?: string）——谓词内部判 type，非 group 节点恒 false。 */
-export function shouldAutoRefit(group: { type?: string; data?: Record<string, unknown> }): boolean {
-  const d = (group.data ?? {}) as Record<string, unknown>;
-  return group.type === 'group' && d.groupType !== 'storyboard' && !d.collapsed && !d.manuallyResized;
+/** O0b-5 refit 退役接替谓词（shouldAutoRefit 整删——终裁 50 manuallyResized 标记域废除，clamp
+ *  谓词从"标记域"（data.manuallyResized）改 doc 帧键形态 oracle）：auto ∧ !collapsed——
+ *  即"帧由内容派生（bbox+padding）"的组。manual（storedFrame 三键齐）/storyboard/collapsed → false
+ *  （帧固定语义——折叠组入组落点走 clamp 档；cs 折叠渲染档=COLLAPSED_SIZE 由 reconcile 写域①
+ *  collapsed 分支承担）。mode oracle=frameMode(doc 侧键)——storedFrame 禁喂 cs 派生帧（终裁 44）。 */
+export function isContentDerivedFrame(input: {
+  data: Record<string, unknown>;
+  storedFrame?: { position?: { x: number; y: number }; width?: number; height?: number };
+}): boolean {
+  const mode = frameMode(input);
+  return mode === 'auto' && !isCollapsed(input.data);
 }
 
 /** 帧值面（doc 侧帧三键/cs 活值帧共用形——deriveGroupFrame 入参）。 */

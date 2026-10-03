@@ -348,6 +348,56 @@ describe('O0b-2 (iii) 首测固化：onNodesChange dimensions 批（非 setAttri
   });
 });
 
+// ══════════ O0b-5（Spec B）：组 resize 提交=单 updateNodeEnvelope{三键}（终裁 50——不带 data 标记）══════════
+// manual 组（doc 帧三键齐）是 resize 写者的密封面：提交=帧三键（position+width+height）单 intent
+// 单 transact；markManuallyResized 删除后零 data 写。手势期 cs.width 每帧=活值（reconcile manual
+// 档读 doc 活帧——无"回落到手势前 doc 值"档）。
+describe('O0b-5 组 resize 提交（manual 组 rig——doc 帧三键齐）', () => {
+  function setupManualGroupDoc(): Y.Doc {
+    const d = new Y.Doc();
+    const records: DocNodeRecord[] = [
+      { id: 'gm', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } },
+      { id: 'c1', type: 'imageGen', parentId: 'gm', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
+    ];
+    fillDoc(d, records, []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);
+    _setIntentDocForTest(d);
+    return d;
+  }
+
+  it('松手 afterTransaction=1：position+dimensions(setAttributes) 同批 ⇒ 单 updateNodeEnvelope{三键} 单 transact∧零 data 标记', () => {
+    openRwWindow();
+    const d = setupManualGroupDoc();
+    let tx = 0;
+    d.on('afterTransaction', () => { tx++; });   // 观察器在 setup 后挂——只计本次提交
+    useCanvasStore.getState().onNodesChange([
+      { id: 'gm', type: 'position', position: { x: 90, y: 40 } } as any,
+      { id: 'gm', type: 'dimensions', dimensions: { width: 500, height: 380 }, setAttributes: true } as any,
+    ]);
+    expect(tx).toBe(1);   // 单 transact（拆 moveNode+envelope 双 dispatch / 外加 data 标记 dispatch 均红）
+    const dm = d.getMap('nodes').get('gm') as Y.Map<any>;
+    expect((dm.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 90, y: 40 });   // 三键齐落 doc
+    expect(dm.get('width')).toBe(500);
+    expect(dm.get('height')).toBe(380);
+    expect([...(dm.get('data') as Y.Map<any>).keys()]).toEqual(['groupType']);   // resize 提交不带 data 标记（manuallyResized 整链删）
+  });
+
+  it('cs.width 逐帧不回落：手势帧序列 340→280→500 每帧终值=活值（无回落到手势前 doc 值的档）', () => {
+    openRwWindow();
+    setupManualGroupDoc();
+    const frames = [340, 280, 500];
+    const seen: number[] = [];
+    for (const w of frames) {
+      useCanvasStore.getState().onNodesChange([
+        { id: 'gm', type: 'dimensions', dimensions: { width: w, height: 300 }, setAttributes: true } as any,
+      ]);
+      seen.push(csNode('gm').width);
+    }
+    expect(seen).toEqual(frames);   // 每帧 cs.width=本帧活值（含收缩帧 280——回落 400/340 即红）
+  });
+});
+
 // ══════════ 连带面：removeNodeFromGroup 分镜分支（分镜子 wh 陈旧收口——终裁 78④）══════════
 
 describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGroup envelope{wh=当前格尺寸}', () => {

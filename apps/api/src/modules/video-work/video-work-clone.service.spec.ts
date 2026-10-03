@@ -18,7 +18,7 @@ describe('VideoWorkCloneService.clone', () => {
   const rawCanvas = () => ({
     nodes: [
       { id: 'child1', type: 'videoGen', parentId: 'grp', position: { x: 1, y: 1 }, width: 320, height: 240, data: { model: 'm', fileId: 'f1', status: 'done', label: 'L' } }, // width/height——spec §7 后端7 透传断言（第十一轮补）
-      { id: 'grp', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['child1', 'edit1', null, 'ghost'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false, savedSize: { width: 100, height: 60 }, manuallyResized: true } }, // 后四键——克隆走 CLONE_WHITELIST 保留断言（F2 根因半边+G1；F27 storyboard）
+      { id: 'grp', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['child1', 'edit1', null, 'ghost'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false, savedSize: { width: 100, height: 60 } } }, // 后三键——克隆走 CLONE_WHITELIST 保留断言（F2 根因半边+G1；F27 storyboard；manuallyResized 随 O0b-5 整链删除）
       { id: 'child2', type: 'imageGen', position: { x: 2, y: 2 }, data: { prompt: { text: 'p', html: 'h' }, fileId: 'f-img', allImages: [{ url: 'u' }], __fromMulti: 'x' } }, // 组外节点；__fromMulti 清单外字段，克隆不得带走（spec:385）；fileId——F20 政策断言源值（Task 3：无源值则 toBeUndefined 真空绿）。第十一轮删 parentId:'grp'——原值与 cells 不含 child2 自相矛盾，测试不变量会把 child2 计入 aliveChildren 而"不在 cells"假红
       { id: 'edit1', type: 'videoEdit', parentId: 'grp', position: { x: 3, y: 3 }, data: { timeline: [] } },
       { id: 'child3', type: 'imageGen', parentId: 'edit1', position: { x: 5, y: 5 }, data: { prompt: { text: 'orphan-p', html: 'x' } } }, // 存活但 parentId 指向被剥 videoEdit 节点——克隆体降级 null（批次6 Minor；批5-1 前挂 shadow-，删信箱后降级语义由 videoEdit 承载）；标记用 prompt 因 imageGen 白名单无 label
@@ -172,11 +172,10 @@ describe('VideoWorkCloneService.clone', () => {
     const createdNodes = projectService.create.mock.calls[0][2] as any[];
     const group = createdNodes.find((n: any) => n.type === 'group');
     expect(group.data.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
-    // O0b-0：normalizeLoadedCanvas 剥键层整删——clone 直读 CLONE_WHITELIST（group 9 键含
-    // collapsed/savedSize 原样保留；脏键整链清理归 O0b-5 savedSize 删除批）
+    // O0b-0：normalizeLoadedCanvas 剥键层整删——clone 直读 CLONE_WHITELIST（group 8 键含
+    // collapsed/savedSize 原样保留；manuallyResized 随 O0b-5 摘键、savedSize 键删归 O0c-3）
     expect(group.data.collapsed).toBe(false);
     expect(group.data.savedSize).toEqual({ width: 100, height: 60 });
-    expect(group.data.manuallyResized).toBe(true);
     expect(group.data.cells).toBeDefined();
   });
 

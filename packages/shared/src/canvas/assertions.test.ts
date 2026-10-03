@@ -148,13 +148,20 @@ describe('assertExpandedAutoFrameEqualsBounds（断言③：展开态 auto 组 f
     expect(() => assertExpandedAutoFrameEqualsBounds([goodGroup(), ...members()])).not.toThrow();
   });
 
-  it('任一维度偏离 bbox+padding → throw', () => {
+  it('任一维度偏离 bbox+padding → throw（O0b-5 校验域重定义：有效三键=manual 密封帧合法偏离——可校验对象=帧键无效的脏形态）', () => {
+    // O0b-5（终裁 50/82）：三键齐且有效 ⇒ manual——帧≠bbox 合法（密封源），③ 跳过（下方反向锚）；
+    // 本正向锚用脏帧键形态（width 非法⇒hasValidStoredFrame 假⇒非 manual）——auto 携帧键=①辖区，
+    // ③ 对其 bbox 鉴别力保持。
+    expect(() => assertExpandedAutoFrameEqualsBounds([
+      groupRec({ id: 'G', position: abs(-20, 0), width: -340, height: 370 }), ...members(),
+    ])).toThrow(/G/);
+    expect(() => assertExpandedAutoFrameEqualsBounds([
+      groupRec({ id: 'G', position: abs(-20, 0), width: 340, height: -370 }), ...members(),
+    ])).toThrow(/G/);
+    // 反向锚（新语义）：有效三键但帧≠bbox（-19 偏移）= manual 密封帧——不抛（旧语义此处 throw）
     expect(() => assertExpandedAutoFrameEqualsBounds([
       groupRec({ id: 'G', position: abs(-19, 0), width: 340, height: 370 }), ...members(),
-    ])).toThrow(/G/);
-    expect(() => assertExpandedAutoFrameEqualsBounds([
-      groupRec({ id: 'G', position: abs(-20, 0), width: 341, height: 370 }), ...members(),
-    ])).toThrow(/G/);
+    ])).not.toThrow();
   });
 
   it('成员缺尺寸 → DEFAULT_CHILD_SIZE 兜底（与 applyGroupFrame 同源）', () => {
@@ -173,8 +180,9 @@ describe('assertExpandedAutoFrameEqualsBounds（断言③：展开态 auto 组 f
       groupRec({ id: 'G', data: { groupType: 'normal', collapsed: true }, position: abs(0, 0), width: 1, height: 1 }),
       rec({ id: 'm1', parentId: 'G', position: abs(0, 0), width: 100, height: 100 }),
     ])).not.toThrow();
+    // O0b-5：manual=doc 帧三键形态（manuallyResized 标记整链删除——终裁 50；帧偏离 bbox 合法=密封源）
     expect(() => assertExpandedAutoFrameEqualsBounds([
-      groupRec({ id: 'G', data: { groupType: 'normal', manuallyResized: true }, position: abs(7, 7), width: 1, height: 1 }),
+      groupRec({ id: 'G', position: abs(7, 7), width: 1, height: 1 }),
       rec({ id: 'm1', parentId: 'G', position: abs(0, 0), width: 100, height: 100 }),
     ])).not.toThrow();
     expect(() => assertExpandedAutoFrameEqualsBounds([
@@ -188,9 +196,9 @@ describe('assertExpandedAutoFrameEqualsBounds（断言③：展开态 auto 组 f
     expect(() => assertExpandedAutoFrameEqualsBounds([groupRec({ id: 'G', position: abs(1, 1), width: 1, height: 1 })])).not.toThrow();
   });
 
-  it('成员缺 position → throw（普通组子节点 doc 恒有 position——数据形状违例）', () => {
+  it('成员缺 position → throw（普通组子节点 doc 恒有 position——数据形状违例；O0b-5：脏帧键形态保留鉴别力）', () => {
     expect(() => assertExpandedAutoFrameEqualsBounds([
-      goodGroup(),
+      groupRec({ id: 'G', position: abs(-20, 0), width: -340, height: 370 }),   // 脏帧键（非 manual——③ 可校验域）
       rec({ id: 'bad', parentId: 'G', width: 100, height: 100 }),
     ])).toThrow(/bad/);
   });
@@ -279,8 +287,9 @@ describe('assertEmptyAutoGroupCollapsedSize（+：空 auto 组 → COLLAPSED_SIZ
       groupRec({ id: 'g', data: { groupType: 'normal', collapsed: true }, width: 1, height: 1 }),
       rec({ id: 'm1', parentId: 'g', position: abs(0, 0), width: 10, height: 10 }),
     ])).not.toThrow();
+    // O0b-5：manual=doc 帧三键形态（三键齐⇒manual 跳过——manuallyResized 标记删除，终裁 50）
     expect(() => assertEmptyAutoGroupCollapsedSize([
-      groupRec({ id: 'm', data: { groupType: 'normal', manuallyResized: true }, width: 1, height: 1 }),
+      groupRec({ id: 'm', position: abs(7, 7), width: 1, height: 1 }),
     ])).not.toThrow();
     expect(() => assertEmptyAutoGroupCollapsedSize([
       groupRec({ id: 's', data: { groupType: 'storyboard', cells: [null] } }),

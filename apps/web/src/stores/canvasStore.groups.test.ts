@@ -7,12 +7,12 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, shouldAutoRefit, sortForArrange, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, sortForArrange, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { openRwWindow, seedCanvas } from '@/test/fixtures/canvas';
+import { openRwWindow, openRoWindow, seedCanvas } from '@/test/fixtures/canvas';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -167,7 +167,7 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
   });
 });
 
-describe('renameGroup / markManuallyResized（F42 镜像退役——组 data 所有权单一归 cs）', () => {
+describe('renameGroup（F42 镜像退役——组 data 所有权单一归 cs；markManuallyResized 随 O0b-5 整链删除）', () => {
   it('groupNodes 创建不设初始 name（默认名由渲染层兜底「分组」，数量由徽标动态显示）', () => {
     const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gId);
@@ -190,12 +190,6 @@ describe('renameGroup / markManuallyResized（F42 镜像退役——组 data 所
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组');
     useCanvasStore.getState().renameGroup(gId, '分组');
     expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).name).toBe('分组');
-  });
-
-  it('markManuallyResized 设标记（F42 镜像退役——只写 cs）', () => {
-    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
-    useCanvasStore.getState().markManuallyResized(gId);
-    expect((useCanvasStore.getState().nodes.find((n) => n.id === gId)!.data as any).manuallyResized).toBe(true);
   });
 });
 
@@ -268,41 +262,12 @@ describe('renameGroup（2d-6）', () => {
   });
 });
 
-describe('组尺寸持久化行为', () => {
-  it('折叠保存 savedSize；无手动标记展开 refit 重算', () => {
-    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
-    const before = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
-    const beforeWidth = before.width ?? 0;
-    const beforeHeight = before.height ?? 0;
-    useCanvasStore.getState().toggleCollapse(gId); // 折叠
-    const collapsed = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
-    expect((collapsed.data as any).collapsed).toBe(true);
-    expect(collapsed.width).toBe(COLLAPSED_SIZE.width);
-    expect((collapsed.data as any).savedSize).toEqual({ width: beforeWidth, height: beforeHeight });
-    useCanvasStore.getState().toggleCollapse(gId); // 展开 → refit
-    const expanded = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
-    expect((expanded.data as any).collapsed).toBe(false);
-    expect(expanded.width).toBeGreaterThan(COLLAPSED_SIZE.width);
-  });
-
-  it('manuallyResized 组展开恢复 savedSize（不 refit）', () => {
-    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
-    useCanvasStore.getState().toggleCollapse(gId); // 折叠（savedSize 已存）
-    useCanvasStore.getState().markManuallyResized(gId);
-    // 模拟用户在折叠前手动 resize 过：直接改 savedSize 为自定义值
-    useCanvasStore.setState({ nodes: useCanvasStore.getState().nodes.map((n) =>
-      n.id === gId ? { ...n, data: { ...n.data, savedSize: { width: 777, height: 555 } } } : n) });
-    useCanvasStore.getState().toggleCollapse(gId); // 展开
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
-    expect(g.width).toBe(777);
-    expect(g.height).toBe(555);
-  });
-
-  it('convertGroup 增量 patch 清除 manuallyResized/savedSize，非空 name 跨转换保留（F18）', () => {
+describe('convertGroup 清键（F18——O0b-5 后唯一遗留清键 savedSize；键本身全链删除归 O0c-3）', () => {
+  it('convertGroup 增量 patch 清除 savedSize，非空 name 跨转换保留（F18）', () => {
     // convertGroup normal→storyboard 需要图片节点，这里手工播种图片节点组
     useCanvasStore.setState({
       nodes: [
-        { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 220, data: { groupType: 'normal', manuallyResized: true, savedSize: { width: 999, height: 888 }, name: '旧名' } },
+        { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 220, data: { groupType: 'normal', savedSize: { width: 999, height: 888 }, name: '旧名' } },
         { id: 'img1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
         { id: 'img2', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
       ] as any,
@@ -310,12 +275,10 @@ describe('组尺寸持久化行为', () => {
     });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
     let d = (useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any);
-    expect('manuallyResized' in d).toBe(false);
     expect('savedSize' in d).toBe(false);
     expect(d.name).toBe('旧名');   // F18：非空 name 保留（现状整块替换丢名——红）
     useCanvasStore.getState().convertGroup('g1', 'normal');
     d = (useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any);
-    expect('manuallyResized' in d).toBe(false);
     expect('savedSize' in d).toBe(false);
     expect('storyboard' in d).toBe(false);
     expect('cells' in d).toBe(false);
@@ -418,10 +381,10 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     expect(g.name).toBe('A');
   });
 
-  it('F18——convertGroup 增量 patch：normal→storyboard 保 name/color + savedSize/manuallyResized 删除（in 断言）+ storyboard 注入', () => {
+  it('F18——convertGroup 增量 patch：normal→storyboard 保 name/color + savedSize 删除（in 断言）+ storyboard 注入', () => {
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
-        data: { groupType: 'normal', name: '我的组', color: 'red', manuallyResized: true, savedSize: { width: 300, height: 250 } } },
+        data: { groupType: 'normal', name: '我的组', color: 'red', savedSize: { width: 300, height: 250 } } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { status: 'done', fileId: 'f1' } },
     ] as any, edges: [] });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
@@ -429,7 +392,6 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     expect(d.name).toBe('我的组');
     expect(d.color).toBe('red');
     expect('savedSize' in d).toBe(false);
-    expect('manuallyResized' in d).toBe(false);
     expect('storyboard' in d).toBe(true);
   });
 
@@ -447,10 +409,10 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     expect('collapsed' in d).toBe(false);
   });
 
-  it('组 data 键 ⊆ GROUP_NODE_DATA_KEYS（合并不发明新键——9 键白名单门禁）', () => {
+  it('组 data 键 ⊆ GROUP_NODE_DATA_KEYS（合并不发明新键——8 键白名单门禁；manuallyResized 随 O0b-5 摘键）', () => {
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 },
-        data: { groupType: 'normal', name: 'A', color: 'red', nameCustom: true, manuallyResized: true, savedSize: { width: 1, height: 1 } } },
+        data: { groupType: 'normal', name: 'A', color: 'red', nameCustom: true, savedSize: { width: 1, height: 1 } } },
     ] as any, edges: [] });
     useCanvasStore.getState().patchGroupData('g1', { collapsed: false, cells: [] });
     const d = (useCanvasStore.getState().nodes[0] as any).data;
@@ -593,59 +555,53 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
   });
 
-  it('不 refit 组的反向断言（v5 夹具修正——v4 落点 (210,210) 的 rel=(10,10) 在 clamp 下界 (20,50) 内被夹、与"落点=放置点"断言互斥必红。按纪律二拆两条：本条只声明"框不变"，落点选框内 padding 区外使 clamp 不触发）', () => {
-    useCanvasStore.setState({ nodes: [
-      { id: 'gm', type: 'group', position: { x: 200, y: 200 }, width: 600, height: 400, data: { groupType: 'normal', manuallyResized: true } },
-      { id: 'k1', type: 'imageGen', position: { x: 250, y: 300 }, width: 100, height: 60, data: {} },   // rel=(50,100)——界外不触发 clamp
-    ] as any, edges: [] });
-    const frameBefore = JSON.stringify(['gm', useCanvasStore.getState().nodes.find((n) => n.id === 'gm')?.position, (useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any).width, (useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any).height]);
-    useCanvasStore.getState().addToGroup('gm', 'k1');
-    const gm = useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any;
-    expect(JSON.stringify(['gm', gm.position, gm.width, gm.height])).toBe(frameBefore);   // 框一字不改
-    const k1 = useCanvasStore.getState().nodes.find((n) => n.id === 'k1') as any;
-    expect(k1.parentId).toBe('gm');
-    expect(k1.position).toEqual({ x: 50, y: 100 });   // 落点=放置点（rel=abs−组原点）
+  it('不 refit 组的反向断言（O0b-5——manual oracle=doc 帧三键形态（isContentDerivedFrame 接替 shouldAutoRefit）；真装置：gm 帧三键入 doc→addToGroup 框不变。落点选框内 padding 区外使 clamp 不触发）', () => {
+    // 真装置（O0b-4 装置纪律——manual 档读取经 doc）：真 Y.Doc + fillDoc(toDocRecords) + _setIntentDocForTest
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    try {
+      const rig = [
+        { id: 'gm', type: 'group', position: { x: 200, y: 200 }, width: 600, height: 400, data: { groupType: 'normal' } },
+        { id: 'k1', type: 'imageGen', position: { x: 250, y: 300 }, width: 100, height: 60, data: {} },   // rel=(50,100)——界外不触发 clamp
+      ];
+      fillDoc(d, toDocRecords(rig as any, {}) as any, []);   // gm 三键齐→doc=manual 档（isContentDerivedFrame=false）
+      useCanvasStore.setState({ nodes: rig as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+      const frameBefore = JSON.stringify(['gm', useCanvasStore.getState().nodes.find((n) => n.id === 'gm')?.position, (useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any).width, (useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any).height]);
+      useCanvasStore.getState().addToGroup('gm', 'k1');
+      const gm = useCanvasStore.getState().nodes.find((n) => n.id === 'gm') as any;
+      expect(JSON.stringify(['gm', gm.position, gm.width, gm.height])).toBe(frameBefore);   // 框一字不改
+      const k1 = useCanvasStore.getState().nodes.find((n) => n.id === 'k1') as any;
+      expect(k1.parentId).toBe('gm');
+      expect(k1.position).toEqual({ x: 50, y: 100 });   // 落点=放置点（rel=abs−组原点）
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   it('clamp 生效分支（v5 独立用例——只声明"被修正"：落点 rel 在 padding 界内 → 拉回 (GROUP_PADDING, GROUP_PADDING_TOP)，用户可见行为变更已登记 spec）', () => {
-    useCanvasStore.setState({ nodes: [
-      { id: 'gm', type: 'group', position: { x: 200, y: 200 }, width: 600, height: 400, data: { groupType: 'normal', manuallyResized: true } },
-      { id: 'k2', type: 'imageGen', position: { x: 205, y: 205 }, width: 100, height: 60, data: {} },   // rel=(5,5)——界内
-    ] as any, edges: [] });
-    useCanvasStore.getState().addToGroup('gm', 'k2');
-    const k2 = useCanvasStore.getState().nodes.find((n) => n.id === 'k2') as any;
-    expect(k2.position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP });   // 夹回界
-  });
-});
-
-describe('epsilon 守卫——浮点乒乓', () => {
-  it('applyGroupFrame 对 1ULP 级差异 no-op（桥 isEqual 深比较不产生新 diff）', () => {
-    // 夹具（v5 补全+修正）：组 g1(0,0) normal；子 c1 rel(100.3,200.7) 100×60（小数——整数恒绿是盲区）
-    useCanvasStore.setState({ nodes: [
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250, data: { groupType: 'normal' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 100.3, y: 200.7 }, width: 100, height: 60, data: {} },
-    ] as any, edges: [] });
-    const pick = () => JSON.stringify(useCanvasStore.getState().nodes
-      .filter((n: any) => ['g1', 'c1'].includes(n.id))
-      .map((n: any) => [n.id, n.position, n.width, n.height]));
-    useCanvasStore.getState().applyGroupFrame('g1');   // 第一次：归位到不变量态（守恒——c1 绝对坐标不变）
-    const afterFirst = pick();
-    const st1 = useCanvasStore.getState().nodes;
-    const c1AbsAfterFirst = { x: (st1.find((n: any) => n.id === 'c1') as any).position.x + (st1.find((n: any) => n.id === 'g1') as any).position.x,
-                              y: (st1.find((n: any) => n.id === 'c1') as any).position.y + (st1.find((n: any) => n.id === 'g1') as any).position.y };
-    useCanvasStore.getState().applyGroupFrame('g1');   // 第二次：几何已满足不变量 → epsilon 内 no-op
-    expect(pick()).toBe(afterFirst);   // 位位同（1ULP 抖动不产生新写——桥 isEqual 不见 diff，乒乓消失）
-    const st2 = useCanvasStore.getState().nodes;
-    expect({ x: (st2.find((n: any) => n.id === 'c1') as any).position.x + (st2.find((n: any) => n.id === 'g1') as any).position.x,
-             y: (st2.find((n: any) => n.id === 'c1') as any).position.y + (st2.find((n: any) => n.id === 'g1') as any).position.y })
-      .toEqual(c1AbsAfterFirst);   // 守恒锚（v6 补断言——首次 refit 前后子绝对坐标也应相等：100.3/200.7）
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    try {
+      const rig = [
+        { id: 'gm', type: 'group', position: { x: 200, y: 200 }, width: 600, height: 400, data: { groupType: 'normal' } },
+        { id: 'k2', type: 'imageGen', position: { x: 205, y: 205 }, width: 100, height: 60, data: {} },   // rel=(5,5)——界内
+      ];
+      fillDoc(d, toDocRecords(rig as any, {}) as any, []);
+      useCanvasStore.setState({ nodes: rig as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+      useCanvasStore.getState().addToGroup('gm', 'k2');
+      const k2 = useCanvasStore.getState().nodes.find((n) => n.id === 'k2') as any;
+      expect(k2.position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP });   // 夹回界
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 });
 
 describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGroupBounds(childrenAbs) ∧ rel ≥ padding）', () => {
   const assertInvariant = () => {
     const nodes = useCanvasStore.getState().nodes as any[];
-    for (const g of nodes.filter((n) => n.type === 'group' && shouldAutoRefit(n))) {
+    // O0b-5：shouldAutoRefit 退役——auto 域谓词=groupType!=='storyboard'∧!collapsed（isContentDerivedFrame 的 cs 侧同构）
+    for (const g of nodes.filter((n) => n.type === 'group' && (n.data as any).groupType !== 'storyboard' && !(n.data as any).collapsed)) {
       const children = nodes.filter((n) => n.parentId === g.id);
       const abs = children.map((c) => ({ x: c.position.x + g.position.x, y: c.position.y + g.position.y,
         width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height }));
@@ -706,27 +662,10 @@ describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGr
     const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
     useCanvasStore.getState().convertGroup(gid, 'storyboard');
     const sg = useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any;
-    expect(shouldAutoRefit(sg)).toBe(false);   // storyboard 不在重算域——下方 assertInvariant 断言空集的前提自证
+    expect((sg.data as any).groupType).toBe('storyboard');   // storyboard 不在重算域（data 断言自证——O0b-5 shouldAutoRefit 退役）
     assertInvariant();
     useCanvasStore.getState().convertGroup(gid, 'normal');
     assertInvariant();
-  });
-});
-
-describe('collapse→expand 往返（R2d-1 v2——三分派删除，展开走 resolveExpandedFrame 单源）', () => {
-  it('normal 组展开后 frame 恢复（纯函数期望——calcGroupBounds(子绝对)）', () => {
-    const gId = useCanvasStore.getState().groupNodes(['n1', 'n2']);
-    const st0 = useCanvasStore.getState();
-    const g0 = st0.nodes.find((n) => n.id === gId)!;
-    const abs = st0.nodes.filter((n) => n.parentId === gId).map((c) => ({
-      x: c.position.x + g0.position.x, y: c.position.y + g0.position.y,
-      width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height,
-    }));
-    const expectFrame = calcGroupBounds(abs);
-    useCanvasStore.getState().toggleCollapse(gId);   // 折叠
-    useCanvasStore.getState().toggleCollapse(gId);   // 展开
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gId)!;
-    expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height }).toEqual(expectFrame);
   });
 });
 
@@ -1335,11 +1274,11 @@ describe('arrangeGroupChildren（2c-4）', () => {
   // 真装置（照 setGroupColor 2c-3 / arrangeSelection 2a-5 骨架）：真 Y.Doc + fillDoc +
   // _setIntentDocForTest + attachUndoManager。禁止 vi.mock canvasIntents——mock 空投影会让
   // dispatchProjectionDiff 算 0 intents 后直接 return，doc 写路径零验证、断言恒绿。
-  // 夹具要点：g1 带 manuallyResized+savedSize（显式命令清标记是本 task 语义核心）；
+  // 夹具要点：g1 带 savedSize（O0b-5 后唯一遗留清键——manuallyResized 整链删除；savedSize 键删归 O0c-3）；
   // 子 a/b 绝对 rect 分行错列（(120,150) / (600,400)——horizontal 排列必有位移，防 diff=0 假绿）。
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 800, height: 600,
-      data: { groupType: 'normal', name: 'A', manuallyResized: true, savedSize: { width: 800, height: 600 } } },
+      data: { groupType: 'normal', name: 'A', savedSize: { width: 800, height: 600 } } },
     { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
     { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
   ];
@@ -1363,13 +1302,12 @@ describe('arrangeGroupChildren（2c-4）', () => {
   };
   const snapshot = () => JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position, n.width, n.height, n.data]));
 
-  it('显式几何命令：先清手动/守恒域标记（manuallyResized+savedSize 键删除——R2d-1 savedSize 存在⟺collapsed）再走 applyGroupFrame——手动组排列生效', () => {
+  it('显式几何命令：先清守恒域标记（savedSize 键删除——O0b-5 后唯一遗留清键，manuallyResized 已整链删）——排列生效', () => {
     const { d } = setupRig();
     try {
       useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
       const gd = nodeOf('g1').data as any;
-      expect('manuallyResized' in gd).toBe(false);   // in 断言——patchGroupDataInner delete 语义（P0-2 同源坑）
-      expect('savedSize' in gd).toBe(false);         // R2d-1：展开组杂散 savedSize 域切换同清（F18 先例）
+      expect('savedSize' in gd).toBe(false);         // in 断言——patchGroupDataInner delete 语义（P0-2 同源坑；R2d-1 域切换同清 F18 先例）
       // 排列生效：组框 refit 到 bbox(children laid)+padding（期望来自纯函数——手动标记不阻断 refit）
       const items = sortForArrange([
         { id: 'a', x: 120, y: 150, width: 100, height: 60 },
@@ -1421,7 +1359,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
       d.on('afterTransaction', () => { transacts++; });
       const before = snapshot();
       useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
-      expect(snapshot()).toBe(before);   // 位位同（几何+data 一字不改——含 manuallyResized 不被误清路径）
+      expect(snapshot()).toBe(before);   // 位位同（几何+data 一字不改——折叠守卫先于一切写点）
       expect(transacts).toBe(0);         // 守卫先于 runCommand——零 transact（照 setGroupColor 未知 key 先例 :1201）
     } finally {
       teardownRig();
@@ -1498,13 +1436,13 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
   };
   const rigNodes = () => [
-    // 守恒往返夹具：g1 600×400 带子（展开走 savedSize 恢复——等价性仅 normal 组；脏种无 savedSize 时走守恒档）
-    { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 600, height: 400, data: { groupType: 'normal', name: 'A' } },
+    // auto 组夹具：g1 带子、无帧键（O0b-5：auto=cs 派生帧——doc 恒 0 帧键；折叠 cs=COLLAPSED_SIZE 派生、展开重派生 bbox）
+    { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal', name: 'A' } },
     { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
     { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 300, y: 200 }, width: 120, height: 80, data: {} },
-    // 手动组夹具：gm 500×350（savedSize 预置——手动域尺寸往返不变）
+    // manual 组夹具：gm 500×350 帧三键（O0b-5：manual oracle=doc 帧键形态——终裁 82 折叠不剥键，doc 三键=展开态密封源）
     { id: 'gm', type: 'group', position: { x: 1000, y: 1000 }, width: 500, height: 350,
-      data: { groupType: 'normal', manuallyResized: true, savedSize: { width: 500, height: 350 } } },
+      data: { groupType: 'normal' } },
     // 分镜守卫夹具：sg（不可折叠——双向 no-op）
     { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182, data: { ...sgData } },
     // 分镜脏数据夹具：sg2（杂散 collapsed——展开方向守卫判别力）
@@ -1525,65 +1463,72 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
   };
   const groupOf = (id: string) => useCanvasStore.getState().nodes.find((n) => n.id === id)!;
 
-  it('不变量①：折叠瞬间 savedSize == 折叠前 envelope 且 envelope == COLLAPSED_SIZE', () => {
+  it('不变量①（auto 组·终裁 82/89）：折叠只写 data.collapsed——doc 恒 0 帧键（auto 零接触）∧cs 帧=COLLAPSED_SIZE 派生（reconcile 写域① collapsed 档优先级最高）', () => {
     const { d } = setupRig();
     try {
       useCanvasStore.getState().toggleCollapse('g1');
       const g = groupOf('g1') as any;
-      expect(g.data.savedSize).toEqual({ width: 600, height: 400 });   // 密封快照=折叠前可见盒
-      expect(g.width).toBe(COLLAPSED_SIZE.width);                      // 信封恒等可见盒
-      expect(g.height).toBe(COLLAPSED_SIZE.height);
       expect(g.data.collapsed).toBe(true);
-      // doc 面（意图漏斗单源——同值落 doc）
+      expect(g.width).toBe(COLLAPSED_SIZE.width);                      // cs 折叠渲染档
+      expect(g.height).toBe(COLLAPSED_SIZE.height);
+      expect(g.position).toEqual({ x: 100, y: 100 });                  // origin=bbox 派生（折叠 auto 档 origin 照旧）
+      // doc 面（意图漏斗单源——单 updateNodeData；auto 组折叠/展开均不写帧键）
       const dm = d.getMap('nodes').get('g1') as Y.Map<any>;
-      expect(dm.get('width')).toBe(COLLAPSED_SIZE.width);
-      expect((dm.get('data') as Y.Map<any>).get('savedSize')).toEqual({ width: 600, height: 400 });
+      expect(dm.get('width')).toBeUndefined();                          // auto 组 doc 恒 0 帧键（含折叠态）
+      expect(dm.get('height')).toBeUndefined();
+      expect((dm.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
     } finally {
       teardownRig();
     }
   });
 
-  it('不变量②：展开后 savedSize 键不存在（存在 ⟺ collapsed）+ envelope == 折叠前尺寸', () => {
+  it('不变量②（manual 组·终裁 82）：折叠不剥键——doc 帧三键逐位不变（展开态密封源）∧折叠→展开 envelope 逐位还原（500×350@1000,1000）', () => {
     const { d } = setupRig();
     try {
-      useCanvasStore.getState().toggleCollapse('g1');
-      useCanvasStore.getState().toggleCollapse('g1');
-      const g = groupOf('g1') as any;
-      expect('savedSize' in g.data).toBe(false);   // in 断言——密封快照展开即删
-      expect(g.width).toBe(600);
-      expect(g.height).toBe(400);
-      expect(g.position).toEqual({ x: 100, y: 100 });   // savedSize 档无 origin——位置不动
-      const dm = d.getMap('nodes').get('g1') as Y.Map<any>;
-      expect((dm.get('data') as Y.Map<any>).has('savedSize')).toBe(false);   // doc 面同构删键
-      expect(dm.get('width')).toBe(600);
+      useCanvasStore.getState().toggleCollapse('gm');
+      const collapsed = groupOf('gm') as any;
+      expect(collapsed.data.collapsed).toBe(true);
+      expect(collapsed.width).toBe(COLLAPSED_SIZE.width);               // cs 折叠渲染档（reconcile collapsed 档覆写 manual——优先级最高）
+      expect(collapsed.position).toEqual({ x: 1000, y: 1000 });         // origin 密封不动
+      const dm = d.getMap('nodes').get('gm') as Y.Map<any>;
+      expect(dm.get('width')).toBe(500);                                // doc 三键密封——折叠不写 COLLAPSED_SIZE
+      expect(dm.get('height')).toBe(350);
+      expect((dm.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 1000, y: 1000 });
+      useCanvasStore.getState().toggleCollapse('gm');                   // 展开=读密封源
+      const g = groupOf('gm') as any;
+      expect(g.width).toBe(500);
+      expect(g.height).toBe(350);
+      expect(g.position).toEqual({ x: 1000, y: 1000 });
+      expect(g.data.collapsed).toBe(false);
+      expect(dm.get('width')).toBe(500);                                // 全程未扰动
+      expect(dm.get('height')).toBe(350);
     } finally {
       teardownRig();
     }
   });
 
-  it('undo 往返（复审补测）：折叠→展开→undo 一次 → doc 面回到折叠态（collapsed 复位+savedSize 删键逆转回填+信封 COLLAPSED_SIZE+原位——delete-reversal 钉死）', () => {
+  it('undo 往返（manual gm）：折叠→展开→undo 一次 → doc 回折叠态（collapsed 复位）；帧三键全程零接触（终裁 82 密封源不被 undo 扰动——非 delete-reversal）', () => {
     const { d, um } = setupRig();
     try {
-      useCanvasStore.getState().toggleCollapse('g1');   // 折叠
+      useCanvasStore.getState().toggleCollapse('gm');   // 折叠
       // toggleCollapse 直派意图不经 runCommand 入口 stopCapturing（runCommand 系 undo 测试先例靠其
       // 入口分步）——装置显式分步模拟现实时序（折叠/展开是 >500ms 捕获窗的独立用户动作；
       // 缺此步两 transact 会被 captureTimeout 合并，单 undo 连回初态）
       stopCapturing();
-      useCanvasStore.getState().toggleCollapse('g1');   // 展开
+      useCanvasStore.getState().toggleCollapse('gm');   // 展开
       expect(um.undoStack.length).toBe(2);              // 独立成步（合并则本断言先红）
       um.undo();                                        // 撤销展开
-      const dm = d.getMap('nodes').get('g1') as Y.Map<any>;   // doc 读点同不变量②
+      const dm = d.getMap('nodes').get('gm') as Y.Map<any>;   // doc 读点同不变量②
       expect((dm.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
-      expect((dm.get('data') as Y.Map<any>).get('savedSize')).toEqual({ width: 600, height: 400 });   // 删键逆转回填
-      expect(dm.get('width')).toBe(COLLAPSED_SIZE.width);    // 信封回折叠态
-      expect(dm.get('height')).toBe(COLLAPSED_SIZE.height);
-      expect((dm.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 100, y: 100 });   // moveNode 逆转——原位
+      expect(dm.get('width')).toBe(500);                // 帧三键全程未写——undo 前后逐位不变（密封）
+      expect(dm.get('height')).toBe(350);
+      expect((dm.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 1000, y: 1000 });
     } finally {
       teardownRig();
     }
   });
 
-  it('原子性：折叠/展开各恰 1 次 doc transact（Y.Doc afterTransaction 计数——2a-0 先例；现状红：折叠=patchGroupData+信封两 dispatch、展开=patchGroupData+applyGroupFrameRect 两 dispatch）', () => {
+  it('原子性（O0b-5 单意图化）：折叠/展开各恰 1 次 doc transact（Y.Doc afterTransaction 计数——折叠分支 envelope 写已删，唯 updateNodeData{collapsed}）', () => {
     const { d } = setupRig();
     try {
       let transacts = 0;
@@ -1593,24 +1538,24 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
       expect((groupOf('g1').data as any).collapsed).toBe(true);   // 真写了（防零写假绿）
       useCanvasStore.getState().toggleCollapse('g1');
       expect(transacts).toBe(2);
-      expect('savedSize' in (groupOf('g1').data as any)).toBe(false);
+      expect((groupOf('g1').data as any).collapsed).toBe(false);
     } finally {
       teardownRig();
     }
   });
 
-  it('折叠往返双夹具：手动组 500×350 往返不变（savedSize 恢复）；守恒组子 rel 恒定（脏种 collapsed 无 savedSize → 守恒档展开）', () => {
+  it('折叠往返双夹具（O0b-5）：manual 组 500×350 往返不变（doc 密封源读回）；auto 脏种展开=重派生 bbox（子 rel 恒定）', () => {
     const { d } = setupRig();
     try {
-      // 手动组：折叠→展开尺寸不变（savedSize 档）
+      // manual 组：折叠→展开尺寸不变（doc 帧三键=密封源，非 savedSize）
       useCanvasStore.getState().toggleCollapse('gm');
       useCanvasStore.getState().toggleCollapse('gm');
       const gm = groupOf('gm') as any;
       expect(gm.width).toBe(500);
       expect(gm.height).toBe(350);
       expect(gm.position).toEqual({ x: 1000, y: 1000 });
-      expect('savedSize' in gm.data).toBe(false);
-      // 守恒组：折叠不挪子（rel 恒定）；脏种（无 savedSize 的 collapsed 组）展开走守恒档
+      expect(gm.data.collapsed).toBe(false);
+      // auto 脏种：cs 直写 collapsed+COLLAPSED_SIZE（远端同步/崩溃残留形态）→ 展开走重派生档
       useCanvasStore.setState({ nodes: useCanvasStore.getState().nodes.map((n) => {
         if (n.id === 'g1') return { ...n, data: { ...n.data, collapsed: true }, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height };
         return n;
@@ -1626,17 +1571,17 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
         width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height,
       }));
       expect({ x: g1.position.x, y: g1.position.y, width: g1.width, height: g1.height })
-        .toEqual(calcGroupBounds(abs));   // 守恒档期望来自纯函数
+        .toEqual(calcGroupBounds(abs));   // auto 展开期望=重派生 bbox（纯函数）
       expect(checkProjectionInvariant(d)).toBe(true);
     } finally {
       teardownRig();
     }
   });
 
-  it('空组展开（store 路径，复审补测）：折叠组子节点删空 → toggleCollapse 展开 envelope 恒 COLLAPSED_SIZE 原位不挪 + collapsed 清（false）+savedSize 键删（shared 空组档已钉 expandedFrame.test——本条钉 store 装配链）', () => {
+  it('空组展开（store 路径，复审补测）：折叠空组 → toggleCollapse 展开 envelope 恒 COLLAPSED_SIZE 原位不挪 + collapsed 清（false）（O0b-5：manual 密封源=doc 帧三键读回——本条夹具帧三键恰=COLLAPSED_SIZE）', () => {
     // 夹具=子删空后的折叠组终态：本地 deleteNode 对 normal 组删空走自动解组不经此态（远端同步/
-    // 运行中会话脏种才到达——19b(k) 登记同源）；无 savedSize 脏种（有效 savedSize 走等价档恢复
-    // 原尺寸——resolveExpandedFrame 阶梯①先于空组档④，恒 COLLAPSED_SIZE 仅无快照空组形态）
+    // 运行中会话脏种才到达——19b(k) 登记同源）；O0b-5 语义：doc 帧三键=密封源读回——夹具 220×160
+    // 读回恒 COLLAPSED_SIZE 原位
     const { d } = setupRig([
       { id: 'ge', type: 'group', position: { x: 100, y: 100 }, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height,
         data: { groupType: 'normal', collapsed: true } },
@@ -1644,11 +1589,10 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     try {
       useCanvasStore.getState().toggleCollapse('ge');
       const g = groupOf('ge') as any;
-      expect(g.width).toBe(COLLAPSED_SIZE.width);       // envelope 恒 COLLAPSED_SIZE
+      expect(g.width).toBe(COLLAPSED_SIZE.width);       // 密封源读回（恰=COLLAPSED_SIZE）
       expect(g.height).toBe(COLLAPSED_SIZE.height);
-      expect(g.position).toEqual({ x: 100, y: 100 });   // 原位（空组档无 origin——moveNode 同值）
-      expect(g.data.collapsed).toBe(false);             // 标志清（现状=值写 false 非删键——collapsed:false 残留对加载边界 falsy 无害）
-      expect('savedSize' in g.data).toBe(false);        // 快照键删（in 断言——P0-2 同源坑）
+      expect(g.position).toEqual({ x: 100, y: 100 });   // 原位（密封 origin）
+      expect(g.data.collapsed).toBe(false);             // 标志清（值写 false 非删键——collapsed:false 残留对加载边界 falsy 无害）
       expect(checkProjectionInvariant(d)).toBe(true);
     } finally {
       teardownRig();
@@ -1674,37 +1618,40 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     }
   });
 
-  it('密封性：折叠期间 markManuallyResized 拒写（守卫 no-op——savedSize 手动/守恒域仅折叠态可入）', () => {
+  it('展开走 doc 密封源/auto 重派生（O0b-5——resolveExpandedFrame 消费删除，源码扫描断言）', () => {
+    // 源码扫描（readFileSync——非 mock 断言面；vitest cwd=包根 apps/web）：三分派展开体已删，
+    // 展开=manual 读 doc 帧三键（reconcile 写域①）/auto 重派生 bbox——resolveExpandedFrame
+    // 消费点清零（模块整删随 O0c-3）
+    const source = readFileSync(path.join(process.cwd(), 'src/stores/canvasStore.ts'), 'utf8');
+    expect(source).not.toContain('resolveExpandedFrame');      // 展开档消费已删（模块整删归 O0c-3）
+    expect(source).not.toMatch(/\.savedSize/);                 // store 内零 savedSize 读点（写键 savedSize: 形态不受限——清键归 O0c-3）
+  });
+
+  it('viewer 折叠（O0b-5 最小落地——终裁 58⑥）：只读会话 toggleCollapse ⇒ localCollapsed 本地 override（nodes/doc 零写——功能保留非禁用）', () => {
     const { d } = setupRig();
     try {
-      useCanvasStore.getState().toggleCollapse('g1');   // 折叠（savedSize 已密封）
-      let transacts = 0;
-      d.on('afterTransaction', () => { transacts++; });
-      useCanvasStore.getState().markManuallyResized('g1');
-      const g = groupOf('g1') as any;
-      expect('manuallyResized' in g.data).toBe(false);   // 拒写
-      expect(g.data.collapsed).toBe(true);               // 折叠态未被扰动
-      expect(transacts).toBe(0);
+      openRoWindow();   // 只读档（canEdit 假——setupRig 的 rw 电平翻 ro）
+      const nodesBefore = JSON.stringify(useCanvasStore.getState().nodes);
+      useCanvasStore.getState().toggleCollapse('g1');
+      // doc/cs nodes 零写（O0b-4 只读 no-op 锚保持——折叠不再产生 cs 与 doc 分叉）
+      expect(JSON.stringify(useCanvasStore.getState().nodes)).toBe(nodesBefore);
+      expect(d.getMap('nodes').get('g1')).toBeTruthy();
+      // 本地 override：渲染层读点（GroupNode/CanvasView）消费 localCollapsed[id] ?? data.collapsed
+      expect(useCanvasStore.getState().localCollapsed['g1']).toBe(true);
+      useCanvasStore.getState().toggleCollapse('g1');   // 再点=展开（本地翻转）
+      expect(useCanvasStore.getState().localCollapsed['g1']).toBe(false);
     } finally {
       teardownRig();
     }
-  });
-
-  it('展开走 resolveExpandedFrame 单源（store 内三分派代码删除——源码扫描断言）', () => {
-    // 源码扫描（readFileSync——非 mock 断言面；vitest cwd=包根 apps/web）：三分派展开体的
-    // savedSize 读点必被删除，展开帧计算单源化到 @flowweb/shared resolveExpandedFrame
-    const source = readFileSync(path.join(process.cwd(), 'src/stores/canvasStore.ts'), 'utf8');
-    expect(source).toContain('resolveExpandedFrame');          // 展开档已接单源
-    expect(source).not.toMatch(/\.savedSize/);                 // store 内零 savedSize 读点（三分派删除——写键 savedSize: 形态不受限）
   });
 
   it('checkProjectionInvariant：折叠/展开后 doc≡store', () => {
     const { d } = setupRig();
     try {
       useCanvasStore.getState().toggleCollapse('g1');
-      expect(checkProjectionInvariant(d)).toBe(true);   // 折叠后
+      expect(checkProjectionInvariant(d)).toBe(true);   // 折叠后（auto 组 cs 折叠档不导出帧键——两侧同空间 abs 深等）
       useCanvasStore.getState().toggleCollapse('g1');
-      expect(checkProjectionInvariant(d)).toBe(true);   // 展开后（守恒档+savedSize 档均过归一）
+      expect(checkProjectionInvariant(d)).toBe(true);   // 展开后（auto 重派生 bbox）
     } finally {
       teardownRig();
     }

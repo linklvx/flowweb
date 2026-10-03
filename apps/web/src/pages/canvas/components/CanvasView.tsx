@@ -140,6 +140,8 @@ function CanvasViewComponent(_props: Props) {
   useTrackCanvasPointerShift(reactFlowWrapper);
   useMarqueeSelectionGuard();
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
+  // O0b-5 viewer 折叠本地 override（终裁 58⑥）：GroupToolbar 折叠/展开按钮态读有效折叠态
+  const localCollapsed = useCanvasStore((s) => s.localCollapsed);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const convertGroup = useCanvasStore((s) => s.convertGroup);
   const addImageToStoryboardCell = useCanvasStore((s) => s.addImageToStoryboardCell);
@@ -705,7 +707,7 @@ function CanvasViewComponent(_props: Props) {
             <GroupToolbar
               groupId={selectedGroup.id}
               groupType="normal"
-              collapsed={!!gd.collapsed}
+              collapsed={localCollapsed[selectedGroup.id] ?? !!gd.collapsed}
               executing={groupExecuting}
               onCollapse={toggleCollapse}
               onExecute={async (groupId) => {

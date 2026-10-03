@@ -26,11 +26,14 @@ import { Origin } from './canvasUndo';
 // ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
 import { getDoc, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
 
-/** 信封 patch（updateNodeEnvelope 专域）：type/parentId/width/height 任意子集；
- *  值 undefined=删键（对齐 applyRecordToYMap 缺键→delete 语义——入组/出组/resize/convert 写点共用）。 */
+/** 信封 patch（updateNodeEnvelope 专域）：type/parentId/position/width/height 任意子集；
+ *  值 undefined=删键（对齐 applyRecordToYMap 缺键→delete 语义——入组/出组/resize/convert 写点共用）。
+ *  O0b-5（终裁 50）：position 入域——组 resize 提交=单 updateNodeEnvelope{三键}（position+width+height
+ *  单 intent 单 transact，不带 data 标记——markManuallyResized 整链删除）；position 写原语走 setDocPosition 单源。 */
 export interface NodeEnvelopePatch {
   type?: string;
   parentId?: string;
+  position?: { x: number; y: number };
   width?: number;
   height?: number;
 }
@@ -114,6 +117,13 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
     case 'updateNodeEnvelope': {
       const m = d.getMap('nodes').get(intent.id);
       if (!(m instanceof Y.Map)) return;
+      // O0b-5：position 经 setDocPosition 单源（子 Map 构造唯一原语——envelope-serialization 门禁口径；
+      // 逐键 diff no-op 同 moveNode）
+      if ('position' in intent.patch) {
+        const p = intent.patch.position;
+        if (p === undefined) { if (m.has('position')) m.delete('position'); }
+        else setDocPosition(m as unknown as DocMapLike, p, () => new Y.Map() as unknown as DocMapLike);
+      }
       for (const key of ['type', 'parentId', 'width', 'height'] as const) {
         if (!(key in intent.patch)) continue;
         const v = intent.patch[key];
@@ -306,6 +316,21 @@ export function dispatchFixtureSizeIntents(
 function readGroupFrameModesFromDoc(): ReadonlyMap<string, FrameMode> | undefined {
   const d = resolveDoc();
   return d ? readGroupFrameModes(d) : undefined;
+}
+
+/** O0b-5 命令面 auto 组谓词取数：组 doc 侧帧键（isContentDerivedFrame 的 storedFrame 入参——
+ *  终裁 44 oracle=doc 侧记录键，禁 cs 派生帧当 storedFrame）。无 doc/组未注册 ⇒ undefined
+ *  =调用方回落空帧形态（auto——裸 store 与旧 shouldAutoRefit 的 data 形态判据同构）。 */
+export function readGroupStoredFrameFromDoc(groupId: string): {
+  position?: { x: number; y: number };
+  width?: number;
+  height?: number;
+} | undefined {
+  const d = resolveDoc();
+  if (!d) return undefined;
+  const rec = readRecordsFromMaps(toDocLike(d)).nodes.find((n) => n.id === groupId);
+  if (!rec) return undefined;
+  return { position: rec.position, width: rec.width, height: rec.height };
 }
 
 /** 复合 action 起点捕获投影快照（dispatchProjectionDiff 的 before 侧）。 */

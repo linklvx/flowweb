@@ -28,20 +28,29 @@ function GroupNodeResizer({ id }: { id: string }) {
       minWidth={minSize.minWidth}
       minHeight={minSize.minHeight}
       handleStyle={HANDLE}
-      onResizeEnd={() => { useCanvasStore.getState().markManuallyResized(id); stopCapturing(); }}
+      // O0b-5（终裁 50）：markManuallyResized 整链删——resize 提交=单 updateNodeEnvelope{三键}
+      // （帧键本身即 manual oracle）；onResizeEnd 仅关闭撤销捕获窗（手势=单 undo 步）
+      onResizeEnd={() => { stopCapturing(); }}
     />
   );
 }
 
 function GroupNodeComponent({ id, data, selected }: NodeProps) {
   const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
+  // O0b-5 viewer 折叠本地 override（终裁 58⑥）：有效折叠态=localCollapsed[id] ?? data.collapsed
+  const localCollapsed = useCanvasStore((s) => s.localCollapsed[id]);
+  const effCollapsed = localCollapsed ?? (data as any).collapsed === true;
   if ((data as any).groupType === 'storyboard') {
     return <StoryboardGroupRendererCellNodes id={id} data={data as any} />;
   }
   return (
     <>
-      {selected && !(data as any).collapsed && !marqueeSelecting && <GroupNodeResizer id={id} />}
-      <NormalGroupRenderer groupId={id} data={data as any} selected={!!selected} />
+      {selected && !effCollapsed && !marqueeSelecting && <GroupNodeResizer id={id} />}
+      <NormalGroupRenderer
+        groupId={id}
+        data={(localCollapsed == null ? data : { ...data, collapsed: localCollapsed }) as any}
+        selected={!!selected}
+      />
     </>
   );
 }

@@ -13,8 +13,11 @@ const doneImage = (id: string, x = 100, y = 100) =>
   ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
 
 // O0b-4：hidden 派生并入 reconcile（挂点=命令尾 diff——消费前提=会话 doc 在）；裸 store 装置升级
+// O0b-5：doc 句柄留存（配置型命令体 doc 面断言——零帧意图键集检查）
+let doc: Y.Doc;
 beforeEach(() => {
-  _setIntentDocForTest(new Y.Doc());
+  doc = new Y.Doc();
+  _setIntentDocForTest(doc);
   openRwWindow();
   useCanvasStore.setState({
     nodes: [doneImage('a'), doneImage('b', 500, 100), doneImage('c', 100, 400), doneImage('d', 500, 400)] as any,
@@ -82,6 +85,47 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)!;
     expect(g.data.cells).toHaveLength(2);
     expect((g.data as any).storyboard!.gridRows).toBe(2);
+  });
+});
+
+// ══════════ O0b-5（Spec B）：配置型命令体前写四处锚——两断言（写入值≡派生值逐位+doc 零帧意图）══════════
+// 命令体直接写组框（配置型——mergeStoryboard/convertGroup→storyboard/resizeStoryboardGrid）保留，
+// 断言面：①cs 帧 wh ≡ calcStoryboardSize 本命令实参逐位（配置单源——非手写第二实现）；
+// ②doc 侧组记录零 wh 键（storyboard 尺寸=config 权威，键集表剥 wh——帧意图不落 doc）。
+describe('O0b-5 配置型命令体前写（cs 帧≡calcStoryboardSize 逐位+doc 零 wh）', () => {
+  it('mergeStoryboard：cs 帧 ≡ calcStoryboardSize(calcDefaultGrid, 16:9) 逐位∧doc 组记录无 width/height 键', () => {
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']);
+    const size = calcStoryboardSize(2, 2, '16:9');   // 4 图 → calcDefaultGrid(4)={2,2}（命令体同源实参）
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)! as any;
+    expect(g.width).toBe(size.width);
+    expect(g.height).toBe(size.height);
+    const dm = doc.getMap('nodes').get(gid) as any;
+    expect(dm.get('width')).toBeUndefined();   // doc 零帧意图（storyboard 组 wh 恒剥——config 权威）
+    expect(dm.get('height')).toBeUndefined();
+  });
+
+  it('convertGroup→storyboard：cs 帧 ≡ calcStoryboardSize(1,2, 16:9) 逐位∧doc 组记录无 width/height 键', () => {
+    const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    const size = calcStoryboardSize(1, 2, '16:9');   // 2 图 → calcDefaultGrid(2)={1,2}
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)! as any;
+    expect(g.width).toBe(size.width);
+    expect(g.height).toBe(size.height);
+    const dm = doc.getMap('nodes').get(gid) as any;
+    expect(dm.get('width')).toBeUndefined();
+    expect(dm.get('height')).toBeUndefined();
+  });
+
+  it('resizeStoryboardGrid：cs 帧 ≡ calcStoryboardSize(本命令 rows/cols 实参) 逐位∧doc 组记录无 width/height 键', () => {
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']);
+    useCanvasStore.getState().resizeStoryboardGrid(gid, 1, 2);
+    const size = calcStoryboardSize(1, 2, '16:9');
+    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)! as any;
+    expect(g.width).toBe(size.width);
+    expect(g.height).toBe(size.height);
+    const dm = doc.getMap('nodes').get(gid) as any;
+    expect(dm.get('width')).toBeUndefined();
+    expect(dm.get('height')).toBeUndefined();
   });
 });
 

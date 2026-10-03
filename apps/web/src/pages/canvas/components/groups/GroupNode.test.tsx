@@ -17,8 +17,8 @@ const { getMockNodes, setMockNodes, getMockMarqueeSelecting, setMockMarqueeSelec
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
-    vi.fn((selector?: any) => selector({ nodes: getMockNodes(), marqueeSelecting: getMockMarqueeSelecting() })),
-    { getState: () => ({ nodes: getMockNodes(), markManuallyResized: vi.fn() }) },
+    vi.fn((selector?: any) => selector({ nodes: getMockNodes(), marqueeSelecting: getMockMarqueeSelecting(), localCollapsed: {} })),
+    { getState: () => ({ nodes: getMockNodes() }) },
   ),
 }));
 

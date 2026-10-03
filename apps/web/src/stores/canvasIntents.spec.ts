@@ -19,7 +19,7 @@ import { dispatchCanvasIntent, dispatchProjectionDiff, captureStoreProjection, _
 import { applyDocToStore } from './canvasCollabRuntime';
 import { seedCanvas } from '@/test/fixtures/canvas';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, toDocRecords } from '@flowweb/shared';
+import { stampDocSchema, toDocRecords, calcStoryboardSize, resolveStoryboardConfig } from '@flowweb/shared';
 import { Origin } from './canvasUndo';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 
@@ -331,13 +331,25 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('updateNodeEnvelope resize 链：applyGroupFrameRect（toggleCollapse/updateStoryboardConfig 消费点）→ doc width/height/position', () => {
-    const gid = useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
-    useCanvasStore.getState().applyGroupFrameRect(gid, { x: 7, y: 8, width: 500, height: 400 });
-    const m = doc.getMap('nodes').get(gid) as Y.Map<any>;
-    expect(m.get('width')).toBe(500);
-    expect(m.get('height')).toBe(400);
-    expect((m.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 7, y: 8 });
+  it('updateStoryboardConfig：改配置⇒cs 帧≡calcStoryboardSize（配置单源重算）+doc 单 transact+零 moveNode 意图（O0b-5——applyGroupFrameRect 退役）', () => {
+    const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { status: 'done', fileId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 300 }, { status: 'done', fileId: 'f2' });
+    const gid = useCanvasStore.getState().groupNodes([id1, id2]);
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    let txCount = 0;
+    doc.on('afterTransaction', () => { txCount++; });   // 观察器在 setup 动作后挂——只计本次改配置
+    useCanvasStore.getState().updateStoryboardConfig(gid, { gridRows: 2, gridCols: 2 });
+    const cfg = resolveStoryboardConfig({ storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2 } } as any);
+    const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
+    const g = useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any;
+    expect(g.width).toBe(size.width);    // cs 帧=calcStoryboardSize 单源（非手写派生第二实现）
+    expect(g.height).toBe(size.height);
+    const dm = doc.getMap('nodes').get(gid) as Y.Map<any>;
+    expect(((dm.get('data') as Y.Map<any>).get('storyboard') as any).gridRows).toBe(2);   // data.storyboard 落 doc
+    expect(txCount).toBe(1);             // 单 transact（applyGroupFrameRect+patchGroupData 双 dispatch 退役）
+    for (const cid of [id1, id2]) {
+      expect((doc.getMap('nodes').get(cid) as Y.Map<any>).has('position')).toBe(false);   // 分镜子无 position——零 moveNode 意图
+    }
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
@@ -401,16 +413,18 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('addToGroup：入组信封+组框+既有成员 rel 补偿落 doc', () => {
+  it('addToGroup：入组信封+组框扩（cs 派生）+既有成员 rel 补偿落 doc（O0b-5：auto 组 doc 恒 0 帧键）', () => {
     const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
     const n1b = useCanvasStore.getState().addNode('text', { x: 100, y: 100 });
     const gid = useCanvasStore.getState().groupNodes([n1, n1b]);
     const n2 = useCanvasStore.getState().addNode('text', { x: 300, y: 300 });
+    const widthBefore = (useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any).width;
     useCanvasStore.getState().addToGroup(gid, n2);
     expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('parentId')).toBe(gid);
     expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('extent')).toBeUndefined(); // extent 不入投影——doc 无此键
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
-    expect(g.get('width')).toBeGreaterThan(0); // 组框随新成员扩
+    expect(g.get('width')).toBeUndefined();   // O0b-5：auto 组 doc 恒 0 帧键（帧=cs 派生——扩框证据在 cs 面）
+    expect((useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any).width).toBeGreaterThan(widthBefore); // cs 组框随新成员扩
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
@@ -457,16 +471,16 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('toggleCollapse：折叠组框 COLLAPSED_SIZE + collapsed/savedSize data 落 doc', () => {
+  it('toggleCollapse（O0b-5 单意图）：唯 updateNodeData{collapsed} 落 doc——auto 组恒 0 帧键（折叠分支 envelope 写删，终裁 82）∧零 savedSize', () => {
     const n1 = useCanvasStore.getState().addNode('text', { x: 10, y: 10 });
     const n2 = useCanvasStore.getState().addNode('text', { x: 200, y: 200 });
     const gid = useCanvasStore.getState().groupNodes([n1, n2]);
     useCanvasStore.getState().toggleCollapse(gid);
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
-    expect(g.get('width')).toBe(220); // COLLAPSED_SIZE 220×160（组框写点=折叠分支直写——非 applyGroupFrameRect）
-    expect(g.get('height')).toBe(160);
+    expect(g.get('width')).toBeUndefined(); // auto 组折叠不写帧键——cs 折叠渲染档=COLLAPSED_SIZE 由 reconcile 派生
+    expect(g.get('height')).toBeUndefined();
     expect((g.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
-    expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeTruthy();
+    expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeUndefined();   // savedSize 写点已删（O0b-5）
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 

@@ -262,7 +262,7 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     expect(csNode('g1').width).toBe(400);
     expect(csNode('g1').height).toBe(300);
     // auto g2：全三字段=写域① 派生（O0b-2 接管——wh 不再留现状链；doc 面零泄漏由差分出口
-    // oracle 化保证，见 canvasO0b2.sizing.test『applyGroupFrame 帧键零泄漏』锚）
+    // oracle 化保证，见 canvasO0b2.sizing.test 帧键零泄漏锚）
     const b2 = calcGroupBounds([
       { x: 300, y: 100, width: 200, height: 100 },
       { x: 550, y: 100, width: 150, height: 80 },
@@ -333,10 +333,9 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     expect(csNode('g4').height).toBe(COLLAPSED_SIZE.height);
   });
 
-  it('toggleCollapse 全流锚（质评 Suggestion）：折叠中间态（cs 直写 COLLAPSED_SIZE envelope、doc 未更新）×reconcile 双档正交兼容——防 O0b-5 重构折叠写法无声断裂', () => {
+  it('toggleCollapse 全流锚（O0b-5 单意图化重写）：doc 注册→折叠=唯 updateNodeData{collapsed} 落 doc∧单 transact∧cs 帧=COLLAPSED_SIZE（reconcile 写域① collapsed 档派生）∧doc 三键密封（终裁 82——折叠分支 envelope 写删）', () => {
     openRwWindow();
-    // 最小 manual 组夹具（无分镜子——I-1 角点补发会使 diff 恒非空、漏斗尾以 doc 展开 oracle
-    // 翻回 cs envelope，本锚钉的是零意图早退档）
+    // 最小 manual 组夹具（无分镜子）：manual oracle=doc 帧三键形态——gm 三键齐⇒manual 档
     const d = new Y.Doc();
     const records: DocNodeRecord[] = [
       { id: 'gm', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
@@ -345,30 +344,25 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     fillDoc(d, records, []);
     stampDocSchema(toDocLike(d));
     applyDocToStore(d);
-    // 现状中间态构造：doc 未注册（dispatchCanvasIntent 无 doc 早退=零写，会话外/readOnly 同构）⇒
-    // toggleCollapse 只落 cs（envelope=COLLAPSED_SIZE 直写+patchGroupDataInner collapsed/savedSize）。
-    // 夹具纪律：生产同构链（applyDocToStore 水合+store action），零裸几何 setState
+    _setIntentDocForTest(d);
+    let txCount = 0;
+    d.on('afterTransaction', () => { txCount++; });   // 观察器在 fillDoc 后挂，初态不计
+    // 全流折叠：store action 经漏斗（doc 注册态）——夹具纪律：生产同构链（applyDocToStore 水合+store action），零裸几何 setState
     useCanvasStore.getState().toggleCollapse('gm');
-    expect(csNode('gm').width).toBe(COLLAPSED_SIZE.width);
+    expect(txCount).toBe(1);                                     // 单意图单 transact
+    expect(csNode('gm').width).toBe(COLLAPSED_SIZE.width);       // cs 折叠渲染档=reconcile 派生（非 cs 直写 envelope）
     expect(csNode('gm').height).toBe(COLLAPSED_SIZE.height);
+    expect(csNode('gm').position).toEqual({ x: 100, y: 50 });    // 密封 origin 不动
+    expect(csNode('cm').position).toEqual({ x: 20, y: 30 });     // 子 rel 不受折叠档影响
     expect((csNode('gm').data as Record<string, unknown>).collapsed).toBe(true);
     const g = d.getMap('nodes').get('gm') as Y.Map<any>;
-    expect(g.get('width')).toBe(400);    // 中间态前提：doc 三键=展开态密封值未更新
+    expect(g.get('width')).toBe(400);    // 终裁 82：doc 三键=展开态密封值——折叠不写 COLLAPSED_SIZE
     expect(g.get('height')).toBe(300);
-    // 全流：diff 首行 reconcile('cs')（data oracle=doc 未更新仍 manual——liveFrame 档吃 cs 活值三键齐
-    // 保折叠 envelope，零差异）+漏斗尾 reconcile('doc')（before/after 同态⇒零意图早退=doc 零写的结构
-    // 保证；reconcile('doc') 档折叠语义由既有'写域①折叠档（终裁 82）'用例钉住）
-    _setIntentDocForTest(d);
+    expect((g.get('data') as Y.Map<any>).get('collapsed')).toBe(true);
+    expect((g.get('data') as Y.Map<any>).get('savedSize')).toBeUndefined();   // savedSize 写点已删（O0b-5）
+    // 幂等：二次全流全节点几何逐位不变
     const geoOf = (s: { nodes: any[] }) => s.nodes.map((n) => `${n.id}:${n.position?.x},${n.position?.y},${n.width},${n.height}`).join('|');
     const geoSnap = geoOf(useCanvasStore.getState());
-    dispatchProjectionDiff(captureStoreProjection(), Origin.LocalUser);
-    expect(csNode('gm').width).toBe(COLLAPSED_SIZE.width);     // 折叠保持
-    expect(csNode('gm').height).toBe(COLLAPSED_SIZE.height);
-    expect(csNode('gm').position).toEqual({ x: 100, y: 50 });  // 密封 origin 不动
-    expect(csNode('cm').position).toEqual({ x: 20, y: 30 });   // 子 rel 不受折叠档影响
-    expect(g.get('width')).toBe(400);                          // doc 三键仍=展开态密封值不动
-    expect(g.get('height')).toBe(300);
-    // 二次全流幂等：全节点几何逐位不变
     dispatchProjectionDiff(captureStoreProjection(), Origin.LocalUser);
     expect(geoOf(useCanvasStore.getState())).toBe(geoSnap);
   });

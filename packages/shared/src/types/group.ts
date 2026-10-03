@@ -1,7 +1,9 @@
 /** 组节点 data 形状（spec §4.6/F30）。R0a 仅作 GROUP_NODE_DATA_KEYS 的锚定面；
  *  web 侧 types/group.ts 的 GroupNodeData 重构切换属 R1（F30），本分片不动它。
  *  注意 color 是 R2c 前向键——现状 store 不产出，为克隆/公开过滤契约预置；nameCustom 已由
- *  canvasStore convertGroup 产出（→storyboard 设 false，→normal 删键）。 */
+ *  canvasStore convertGroup 产出（→storyboard 设 false，→normal 删键）。
+ *  O0b-5（终裁 50）：manuallyResized 整链删除（manual 判定=doc 帧三键形态 oracle）；
+ *  savedSize 折叠快照键留至 O0c-3 全链清理。 */
 export interface GroupNodeDataShape {
   groupType: 'normal' | 'storyboard';
   name?: string;
@@ -17,7 +19,6 @@ export interface GroupNodeDataShape {
   savedSize?: { width: number; height: number };
   nameCustom?: boolean;
   color?: string;
-  manuallyResized?: boolean;
 }
 
 /** 组节点 data 克隆/公开过滤白名单单源（注意：是"过滤契约键"，非组 data 全集——
@@ -25,7 +26,7 @@ export interface GroupNodeDataShape {
  *  API 生产源码已切值导入（snapshot-filter.util.ts 的 CLONE_WHITELIST.group 用 [...GROUP_NODE_DATA_KEYS]）。 */
 export const GROUP_NODE_DATA_KEYS = [
   'groupType', 'cells', 'name', 'storyboard', 'collapsed',
-  'savedSize', 'nameCustom', 'color', 'manuallyResized',
+  'savedSize', 'nameCustom', 'color',
 ] as const satisfies readonly (keyof GroupNodeDataShape)[];
 
 // 双向编译锚定（spec §4.6：satisfies 防多余键 + Exclude 防缺键——两向任一漂移 tsc 红）。
