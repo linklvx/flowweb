@@ -93,4 +93,16 @@ describe('stripAuthorState（键集表④——纯剥不补：输入无键⇄输
     expect('position' in out[1]).toBe(false);
     expect('width' in out[1]).toBe(false);
   });
+
+  it('幂等（O0c-1 验收）：stripAuthorState(stripAuthorState(x)) ≡ stripAuthorState(x)——键集表全档一次入参（种子入口重复剥无害）', () => {
+    const input: DocNodeRecord[] = [
+      rec({ id: 'g1', type: 'group', position: { x: 5, y: 6 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true } }), // manual（折叠不剥）
+      rec({ id: 'ag', type: 'group', position: { x: 9, y: 9 }, width: 100, data: { groupType: 'normal' } }),                              // auto（脏帧键→0 帧键）
+      rec({ id: 'sb', type: 'group', position: { x: 0, y: 0 }, width: 642, height: 362, data: { groupType: 'storyboard', cells: ['c1'] } }), // storyboard（剥 wh 留 position）
+      rec({ id: 'c1', type: 'imageGen', parentId: 'sb', position: { x: 1, y: 1 }, width: 320, height: 180, data: {} }),                   // 分镜子（剥 position）
+      rec({ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { content: 'x' } }),                                             // 非组（原样）
+    ];
+    const once = stripAuthorState(input);
+    expect(stripAuthorState(once)).toEqual(once);
+  });
 });

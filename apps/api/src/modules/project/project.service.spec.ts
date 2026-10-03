@@ -120,6 +120,47 @@ describe('ProjectService', () => {
       expect((c1.get('data') as Y.Map<any>).get('fileId')).toBe('f');
     });
 
+    it('O0c-1 clone 形状种子验收：CLONE_WHITELIST 输出入 create（clone→create→withDoc 同一种子回调）→ doc 键集表逐格+stamp 含戳', async () => {
+      const mockProject = { id: 'p1', name: '春天的背面 (副本)', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+      const doc = new Y.Doc();
+      (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
+
+      // clone 产物形状（CLONE_WHITELIST group 8 键含 storyboard/collapsed/savedSize；auto 组=readCanvas 键集表输出 0 帧键——
+      // 此处额外塞脏帧键模拟退化输入，验收 stripAuthorState 守卫）：manual/storyboard/auto 三档组+分镜子
+      const nodes = [
+        { id: 'mg', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true, savedSize: { width: 300, height: 200 }, cells: ['mc1'] } },
+        { id: 'mc1', type: 'imageGen', parentId: 'mg', position: { x: 1, y: 1 }, data: { prompt: 'p' } },
+        { id: 'ag', type: 'group', position: { x: 9, y: 9 }, width: 100, data: { groupType: 'normal', collapsed: false } }, // 脏帧键（缺 height→非 manual）→ auto
+        { id: 'sb', type: 'group', position: { x: 500, y: 0 }, width: 642, height: 362, data: { groupType: 'storyboard', cells: ['sc1', null], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false } },
+        { id: 'sc1', type: 'imageGen', parentId: 'sb', position: { x: 1, y: 1 }, width: 320, height: 180, data: { thumbnailUrl: 'http://t' } },
+      ];
+      await service.create('春天的背面 (副本)', 'u1', nodes, []);
+
+      expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // clone 产物 doc 含戳（create withDoc 统一戳点——O0b-0，本用例=clone 链验收锚）
+      const nodesMap = doc.getMap('nodes');
+      const mg = nodesMap.get('mg') as Y.Map<any>;
+      expect(mg.get('position')).toBeInstanceOf(Y.Map);   // manual（三键齐）折叠不剥——doc 三键=展开态密封源
+      expect(mg.get('width')).toBe(300);
+      expect(mg.get('height')).toBe(200);
+      const mgData = mg.get('data') as Y.Map<any>;
+      expect(mgData.get('collapsed')).toBe(true);          // clone 8 键 data 原样落 doc
+      expect(mgData.get('savedSize')).toEqual({ width: 300, height: 200 });
+      const ag = nodesMap.get('ag') as Y.Map<any>;
+      expect(ag.get('position')).toBeUndefined();          // auto 组 0 帧键（脏输入被剥）
+      expect(ag.get('width')).toBeUndefined();
+      expect(ag.get('height')).toBeUndefined();
+      const sb = nodesMap.get('sb') as Y.Map<any>;
+      expect(sb.get('position')).toBeInstanceOf(Y.Map);    // storyboard 留 position
+      expect(sb.get('width')).toBeUndefined();             // storyboard 无 wh
+      expect(sb.get('height')).toBeUndefined();
+      expect((sb.get('data') as Y.Map<any>).get('storyboard')).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
+      const sc1 = nodesMap.get('sc1') as Y.Map<any>;
+      expect(sc1.get('position')).toBeUndefined();         // 分镜子无 position
+      expect(sc1.get('width')).toBe(320);                  // 分镜子只剥 position（wh=cell 尺寸自由面）
+    });
+
     it('O0b-0 正锚②：REST 建空项目（controller:17 传 undefined）→ withDoc 仍被调（去 nodes.length 闸门——空画布也落 doc 行+盖章）', async () => {
     const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
     prisma.canvasProject.create.mockResolvedValue(mockProject);

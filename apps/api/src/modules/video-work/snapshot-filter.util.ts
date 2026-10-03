@@ -42,7 +42,10 @@ export const WHITELIST: Record<string, string[]> = {
   audioGen: ['model', 'content'],
   multiImageGen: ['prompt', 'label'],
   videoEdit: [],   // 仅结构字段
-  group: ['groupType', 'cells', 'name'],
+  // O0c-1 派生输入完备：group 补 storyboard/collapsed——缺任一，web deriveRenderCanvas（O0c-2）组模式判定
+  // 退化 auto（frameMode oracle 只认 data.groupType/storedFrame 三键）。savedSize 公开面仍剥（键删归 O0c-3）；
+  // nameCustom/color 仍剥（R2c 前向键，公开渲染不消费）。cells 槽序原样（membership=内容真源、cells=槽序）。
+  group: ['groupType', 'cells', 'name', 'storyboard', 'collapsed'],
 };
 
 /** clone 端白名单（spec F21/R0a）：与 snapshot 表唯一差异是 group 8 键（真源=@flowweb/shared GROUP_NODE_DATA_KEYS 值导入，R1a 起合法；O0b-5 manuallyResized 摘键 9→8）。

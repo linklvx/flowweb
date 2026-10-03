@@ -418,7 +418,9 @@ describe('getProcessSnapshot（安全验收）', () => {
       { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f3' } },
       { id: 'n35', type: 'videoEdit', position: { x: 0, y: 0 }, data: { timeline: [1], draft: '内部时间轴' } }, // 第八轮：快照保留 videoEdit（仅结构字段，spec:228）
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['n1', 'ghost-id', null], name: '分镜1', collapsed: false } },
+      // O0c-1 派生输入完备夹具：storyboard 组带完整 config+collapsed；g2=折叠 manual 组（collapsed:true——公开白名单两键都进 payload）
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['n1', 'ghost-id', null], name: '分镜1', storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' }, collapsed: false } },
+      { id: 'g2', type: 'group', position: { x: 500, y: 0 }, width: 320, height: 180, data: { groupType: 'normal', cells: ['n2'], name: '手动组', collapsed: true, savedSize: { width: 100, height: 60 } } },
     ],
     edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
   };
@@ -442,7 +444,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       Array.isArray(o) ? o.flatMap(collectKeys) :
       o && typeof o === 'object' ? [...Object.keys(o), ...Object.values(o).flatMap(collectKeys)] : [];
     const keys = collectKeys(out);
-    for (const banned of ['html', 'fileId', 'mediaUrl', 'referencedImageIds', 'allImages', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'generationBatchId', 'mediaName', 'videoProjectId', 'origin', 'sourceId']) {
+    for (const banned of ['html', 'fileId', 'mediaUrl', 'referencedImageIds', 'allImages', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'generationBatchId', 'mediaName', 'videoProjectId', 'origin', 'sourceId', 'storageKey', 'userId', 'email']) { // O0c-1：storageKey/userId/email 入泄漏红线
       expect(keys).not.toContain(banned);
     }
   });
@@ -461,6 +463,12 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect(n4.data.prompt).toBe('分镜提示');
     expect(g.data.groupType).toBe('storyboard');
     expect(g.data.cells).toEqual(['n1', 'ghost-id', null]); // 原样返回逐项比对（含悬空 id/null——勿写"全项可在 nodes 中找到"，悬空 id 是已接受行为会红在已知项上）
+    // O0c-1 派生输入完备：storyboard/collapsed 必须进公开 payload——缺任一，O0c-2 deriveRenderCanvas 派生退化 auto
+    expect(g.data.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
+    expect(g.data.collapsed).toBe(false);
+    const g2 = out.nodes.find((n: any) => n.id === 'g2')!;
+    expect(g2.data.collapsed).toBe(true);           // 折叠 manual 组公开面保折叠态（cs 折叠渲染档派生输入）
+    expect(g2.data.savedSize).toBeUndefined();      // savedSize 折叠快照键公开面仍剥（键删归 O0c-3）
     const edit = out.nodes.find((n: any) => n.id === 'n35')!;
     expect(edit).toBeTruthy();      // videoEdit 节点保留（spec:228，第八轮）
     expect(edit.data).toEqual({});  // data 全剥（timeline/draft 不外泄）
@@ -492,6 +500,17 @@ describe('getProcessSnapshot（安全验收）', () => {
     const n2 = out.nodes.find((n: any) => n.id === 'n2')!; // n2 带 fileId:'f1'（rawCanvas）
     expect(n2.data.thumbnailUrl).toBe('http://minio/presigned'); // presign 返回值沿用文件级 setup 的 minio mock
     expect(n2.data).not.toHaveProperty('fileId'); // 注入阶段保留 → 白名单阶段剥除（管线顺序终点形态）
+  });
+
+  it('公开 payload 泄漏红线（O0c-1）：JSON 序列化无 fileId/storageKey/userId/email——媒体引用单通道 thumbnailUrl（cellNodes 公开载荷 [{id,thumbnailUrl}] 的 API 半边：fileId 不进 payload，web 侧映射归 O0c-2）', async () => {
+    setup();
+    prisma.media.findMany = vi.fn().mockResolvedValue([{ id: 'f1', thumbnailKey: 'thumbnails/f1.webp' }]);
+    const out = await service.getProcessSnapshot('w1');
+    const json = JSON.stringify(out);
+    for (const banned of ['fileId', 'storageKey', 'userId', 'email']) {
+      expect(json, `公开 payload 含泄漏键 ${banned}`).not.toContain(`"${banned}"`);
+    }
+    expect(json).toContain('thumbnailUrl'); // 公开页媒体通道（分镜格子取图走此键——主画布 fileId/公开页 thumbnailUrl 双通道）
   });
 
   it('下线失效双机制①（守卫优先于缓存）：DRAFT 翻转后即使缓存有残留也 404 且不触 readCanvas', async () => {

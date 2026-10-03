@@ -84,14 +84,22 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.nodes[0].data.images).toBeUndefined();
   });
 
-  it('group：groupType/cells/name 保留；collapsed/storyboard 剥离；真悬空 id（非 dropped）本层原样返回', () => {
-    const input: RawCanvasData = { nodes: [rawNode('n1', 'group', { groupType: 'storyboard', cells: ['ghost-id', null], name: '分镜1', collapsed: false, storyboard: { x: 1 } })], edges: [] };
+  it('group（O0c-1 派生输入完备）：groupType/cells/name/storyboard/collapsed 保留——否则 O0c-2 deriveRenderCanvas 派生退化 auto；savedSize/nameCustom/color 仍剥；真悬空 id（非 dropped）本层原样返回', () => {
+    const input: RawCanvasData = { nodes: [rawNode('n1', 'group', {
+      groupType: 'storyboard', cells: ['ghost-id', null], name: '分镜1', collapsed: true,
+      storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' },
+      savedSize: { width: 100, height: 60 }, nameCustom: true, color: 'red',
+    })], edges: [] };
     const out = buildFilteredSnapshot(input, base);
     const d = out.nodes[0].data;
     expect(d.groupType).toBe('storyboard');
-    expect(d.cells).toEqual(['ghost-id', null]); // 原样返回（§7.6 断言口径）；Task 21 v4 分层注：本层只清"过滤剥除节点"的槽位（见下方剪枝用例），真悬空 id 由导入档 validateParentGraph 报 violation + remap 折 null
+    expect(d.cells).toEqual(['ghost-id', null]); // 原样返回（§7.6 断言口径）——cells=槽序真源；Task 21 v4 分层注：本层只清"过滤剥除节点"的槽位（见下方剪枝用例），真悬空 id 由导入档 validateParentGraph 报 violation + remap 折 null
     expect(d.name).toBe('分镜1');
-    expect(d.collapsed).toBeUndefined(); expect(d.storyboard).toBeUndefined();
+    expect(d.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
+    expect(d.collapsed).toBe(true);
+    expect(d.savedSize).toBeUndefined();  // savedSize 折叠快照键删归 O0c-3
+    expect(d.nameCustom).toBeUndefined();
+    expect(d.color).toBeUndefined();
   });
 
   it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/dropIdPrefixes——util 机制单测，批5-1 后生产不传前缀）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）；__ephemeral 标记节点存活（批5 评审 L1：写入方已删，标记不再是过滤判据）', () => {
@@ -265,7 +273,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     );
   });
 
-  it('不传 whitelist 维持 snapshot 表（group 3 键——F21 载荷收敛不推翻）', () => {
+  it('不传 whitelist 维持 snapshot 表（group 5 键——O0c-1 派生输入完备：storyboard/collapsed 入表；savedSize 仍剥）', () => {
     const input: RawCanvasData = {
       nodes: [rawNode('g1', 'group', {
         groupType: 'storyboard', cells: ['n1'], name: '分镜',
@@ -274,7 +282,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       edges: [],
     };
     const out = buildFilteredSnapshot(input, base);
-    expect(Object.keys(out.nodes[0].data).sort()).toEqual(['cells', 'groupType', 'name']);
+    expect(Object.keys(out.nodes[0].data).sort()).toEqual(['cells', 'collapsed', 'groupType', 'name', 'storyboard']);
   });
 
   it('CLONE_WHITELIST.group 与 shared GROUP_NODE_DATA_KEYS parity（防 R1a 切值导入漏项）', async () => {
