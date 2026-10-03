@@ -11,6 +11,7 @@ import { RateLimiterService } from '../../common/services/rate-limiter.service';
 import { CollabDocumentService } from '../collab/collab-document.service';        // service 构造注入（Task 5.3 起）
 import { StorageQuotaService } from '../team/storage-quota.service'; // 文件头 import 区追加
 import { MinioService } from '../minio/minio.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import Redis from 'ioredis';
 
 // 第九轮：替身提升为模块级 + any——后续任务（2.3/2.4/2.5/2.6/3.2/3.3/4.2/4.3/5.3）追加的是**同级** describe，
@@ -501,11 +502,18 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect((service as any).collabDoc.readCanvas).toHaveBeenCalledTimes(1); // 守卫在缓存读取之前，未因缓存命中被短路
   });
 
-  it('下线失效双机制②：updateWork → redis.del(videoWork:process:w1)（写路径失效）', async () => {
+  it('下线失效双机制②：updateWork → redis.del(videoWork:process:w1:v2)（写路径失效——O0b-0 键拼 schema 常量）', async () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null });
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     await service.updateWork('w1', { title: 'x' } as any);
-    expect((service as any).redis.del).toHaveBeenCalledWith('videoWork:process:w1');
+    expect((service as any).redis.del).toHaveBeenCalledWith(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}`);
+  });
+
+  it('O0b-0：PROCESS_CACHE 键拼 schema 常量（翻转批 300s 窗口隔离——v1 旧空间载荷不命中新键）', async () => {
+    setup();
+    await service.getProcessSnapshot('w1');
+    const setKey = (service as any).redis.set.mock.calls[0][0] as string;
+    expect(setKey).toBe(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}`);
   });
 
   it('readCanvas 挂起 → 有界超时 503', async () => {

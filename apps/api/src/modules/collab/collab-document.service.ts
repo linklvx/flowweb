@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps } from '@flowweb/shared';
+import { readRecordsFromMaps, ensureSchemaVersion } from '@flowweb/shared';
 import { CollabGateway } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
 import { svSatisfied } from './sv.util';
@@ -35,9 +35,13 @@ export class CollabDocumentService {
 
   /** doc → plain nodes/edges；sv 提供时等待 server doc 追上（超时降级不抛错，spec 3.1）。
    *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
-   *  DocNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。 */
+   *  DocNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
+   *  O0b-0 版本门 v2.1（第五行 REST fail-closed）：ensureSchemaVersion 从全量 doc 读 meta（不依赖
+   *  sv 差量）——v1 档/无戳∧有节点拒（明确信息，非按 abs 解释 rel 静默错位）；无戳∧零节点放行
+   * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。 */
   async readCanvas(projectId: string, sv?: Uint8Array, timeoutMs = 3000): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withDoc(projectId, async (doc) => {
+      ensureSchemaVersion(toDocLike(doc));
       if (sv && !svSatisfied(Y.encodeStateVector(doc), sv)) {
         const ok = await this.waitForSV(doc, sv, timeoutMs);
         if (!ok) {

@@ -1,26 +1,23 @@
 // apps/web/src/stores/canvasCollabRuntime.ts
 // 画布 Yjs 实时协作桥（spec T6 + 批4b-2 写路径收口）：
-//   读方向 doc→store = applyDocToStore（onRemote 50ms 去抖 + 水合窗口）；
-//   写方向 store→doc = canvasIntents dispatchCanvasIntent（action 层唯一入口）+ dispatchSystemIntents
-//   （S1 几何修复，origin=Geometry）——旧"订阅翻译→全量同步+删除扫描"写路径已随批4b-2 整体退役。
+//   读方向 doc→store = applyDocToStore（onRemote 50ms 去抖 + 水合窗口）+ 尾挂 reconcileGroupGeometry
+//   （O0b-0 最小版——写域②abs→rel 直拷+组帧 origin 同 tick）；
+//   写方向 store→doc = canvasIntents dispatchCanvasIntent（action 层唯一入口）——S1 系统几何修复
+//   回写已随 O0b-0 格式批停写（structDiffToIntents/dispatchSystemIntents 调用点摘除；
+//   canvasHistory/canvasIntents 模块清理归 O0b-4）。
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
-import { pickStructNodes } from './canvasHistory';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
-import { normalizeLoadedCanvas, shouldAutoRefit } from '@flowweb/shared';
-import { readCanvasFromDoc } from '@/collab/ydocBuilder';
+import { calcGroupBounds, ensureSchemaVersion, DEFAULT_CHILD_SIZE, shouldAutoRefit } from '@flowweb/shared';
+import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
 import { AwarenessBridge } from '@/collab/awareness';
-// 批4b-2（组 2 收口）：S1 系统几何修复改 intent 直写（dispatchSystemIntents——doc-only，门=
-// collabReadOnly）。循环依赖同裁定：canvasIntents 与本模块互为顶层 import 声明（getDoc 反向），
-// 双方均为函数声明导出——ESM 本地绑定延迟求值安全
-import { dispatchSystemIntents, type CanvasIntent, type NodeEnvelopePatch } from './canvasIntents';
 // 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
 // import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
 import { fetchNodeIntents } from '@/api/executionApi';
@@ -235,36 +232,32 @@ function storeProjection() {
 }
 
 /** 批4a：doc⇄store 投影不变量（红1-不变量安全网）——projectionFromDoc(doc) ≡ storeProjection()。
- *  两侧断言前同过归一：读侧 readCanvasFromDoc 直出（O0a-1：docShape readRecordsFromMaps 直出
- *  作者态 DocNodeRecord，null 消除读侧自做——normalizeCanvasRecord 仅存写侧 projectCanvasNodes）
- *  + normalizeLoadedCanvas（加载几何归一——设计内分叉源必须双侧同变换后才可断言，否则恒假）：
- *  组几何补缺（S1 契约：normalizeLoadedCanvas 补缺是每轮内存重建的确定性纯函数、不写 doc——
- *  doc 保持无几何而 store 有补的几何，before==after ⇒ S1 零回写）。两侧过 normalizeLoadedCanvas
- *  后同形（对有几何侧幂等 no-op）。
- *  批5 删信箱：原 ① shadow- 双侧过滤条款随信箱移除——doc 出现 /^shadow-/ 改由 applyDocToStore 的
+ *  O0b-0 格式批改写：doc=abs 空间（toDocRecords 翻转后），两侧同空间直接深等——读侧
+ *  readCanvasFromDoc 直出 abs（docShape readRecordsFromMaps）、写侧 projectCanvasNodes 经
+ *  toDocRecords 同变换出 abs（共同变换两侧各跑一遍自然相等）；normalizeLoadedCanvas 双侧包裹
+ *  随模块整删（补缺层退役——无设计内分叉源）。withStoryboardChildDefault 保留（分镜子
+ *  doc 无键⇄cs {0,0} 构造默认——三层表仍需双侧同变换）。
+ *  批5 删信箱：shadow- 双侧过滤条款随信箱移除——doc 出现 /^shadow-/ 改由 applyDocToStore 的
  *  DEV 巡检抛出（判据⑥），不变量对 doc/store 分叉如实报告。
- *  只读不写——测试缝直驱做非恒真式变异实验。readOnly 会话不测量（S1 几何止步 store 层是
- *  设计内分叉——调用方负责门）。
+ *  只读不写——测试缝直驱做非恒真式变异实验。
  *  批4b-2：比较按 id 排序——doc 侧是 Y.Map 插入序、store 侧是 ensureParentOrder 父前子后渲染序，
  *  两域顺序契约不同（消费侧 hydrate/ensureParentOrder 各自归一），序敏感比较会把"子先建组后建"
- *  的合法形态误报成违例（groupNodes 直觉序=子在前）。排序后内容等价语义不变、误报面消除。
- *  O0a-1：新增设计内分叉源=分镜子 position（doc 无键⇄cs {0,0} 构造默认——三层表）——比较前双侧
- *  同变换（分镜子补 cs 构造默认 {0,0}）后方可深等。 */
+ *  的合法形态误报成违例（groupNodes 直觉序=子在前）。排序后内容等价语义不变、误报面消除。 */
 export function checkProjectionInvariant(d: Y.Doc): boolean {
   const { nodes, edges } = readCanvasFromDoc(d);
   const byId = (ns: typeof nodes) => [...ns].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const fromDoc = {
-    nodes: byId(withStoryboardChildDefault(normalizeLoadedCanvas(nodes))),
+    nodes: byId(withStoryboardChildDefault(nodes)),
     edges,
   };
   const sp = storeProjection();
   return isEqual(fromDoc, {
-    nodes: byId(withStoryboardChildDefault(normalizeLoadedCanvas(sp.nodes as any))),
+    nodes: byId(withStoryboardChildDefault(sp.nodes as any)),
     edges: sp.edges,
   });
 }
 
-/** O0a-1 分叉源双侧同变换：分镜子（父=storyboard 组）无 position 键 → 补 cs 构造默认 {0,0}
+/** 分叉源双侧同变换：分镜子（父=storyboard 组）无 position 键 → 补 cs 构造默认 {0,0}
  *  （store 侧恒有 position——本函数对其幂等）。 */
 function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>['nodes']) {
   const sbGroups = new Set(
@@ -285,41 +278,67 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
 // （flowweb/no-delete-scan）防回归。
 // 批5 删信箱退役：isShadowOnlyEvents（影子事务短路判定）与 readNodeFileIdFromDoc（影子产物轮询）
 // 随信箱整体消失——shadow- 字面量零回流由 lint-gate flowweb/no-shadow-literal 兜。
+// O0b-0 S1 停写退役：structDiffToIntents 本地死函数+pickStructNodes/dispatchSystemIntents import
+// 随调用点同删（恢复链零回写——几何修复职责移交 reconcile 写 cs 面；canvasHistory.ts 整模块与
+// dispatchSystemIntents 定义删除留 O0b-4）。
 
-/** S1 差分 → intent 序列（pickStructNodes 形状——几何+组 data；普通节点 data 不在 struct 面内，
- *  ns 刷新不入 diff=C1 陈旧 data 不回写的结构性保证）。S1 窗口无新增/删除（refit/derivations
- *  只改既有成员）——before 有 after 无的成员差在此不存在（防御性跳过）。 */
-function structDiffToIntents(
-  before: ReturnType<typeof pickStructNodes>,
-  after: ReturnType<typeof pickStructNodes>,
-): CanvasIntent[] {
-  const intents: CanvasIntent[] = [];
-  for (const b of before) {
-    const a = after.find((n) => n.id === b.id);
-    if (!a) continue;
-    const patch: NodeEnvelopePatch = {};
-    if (b.type !== a.type) patch.type = a.type;
-    if ((b.parentId ?? undefined) !== (a.parentId ?? undefined)) patch.parentId = a.parentId;
-    if (b.width !== a.width) patch.width = a.width;
-    if (b.height !== a.height) patch.height = a.height;
-    if (Object.keys(patch).length > 0) intents.push({ type: 'updateNodeEnvelope', id: a.id, patch });
-    if (b.position?.x !== a.position?.x || b.position?.y !== a.position?.y) {
-      intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
-    }
-    if (a.type === 'group' && !isEqual(b.data, a.data)) {
-      const dp: Record<string, unknown> = {};
-      const bd = (b.data ?? {}) as Record<string, unknown>;
-      const ad = (a.data ?? {}) as Record<string, unknown>;
-      for (const k of new Set([...Object.keys(bd), ...Object.keys(ad)])) {
-        if (!isEqual(bd[k], ad[k])) dp[k] = k in ad ? ad[k] : undefined;
-      }
-      intents.push({ type: 'updateNodeData', id: a.id, patch: dp });
-    }
+/** O0b-0 reconcile 最小实现（读侧——写域②abs→rel 直拷+组帧 origin 同 tick；挂点=applyDocToStore
+ *  尾。O0b-1 完整化源矩阵/写域四类/零差异短路/漏斗尾+diff 首行挂点）。doc 读取=readRecordsFromMaps
+ *  （readCanvasFromDoc 薄委托——docShape 单源，禁从 nsNodes/csNodes 反推=直拷回灌）。
+ *  组帧 origin：manual/storyboard 组=doc position 键（键集表"组 position⟺manual∨storyboard"）；
+ *  auto 组=从成员 doc.abs 推 bbox（calcGroupBounds 单源——帧装配算术实现点=1）；分镜子={0,0}
+ *  不动（doc 无 position 键，cs 构造默认保留）。
+ *  写域②（本批唯一）：cs 顶层=doc.abs 直拷；cs 子=doc.abs−组帧 origin。纯 cs 写零 doc 写
+ * （恢复链零回写锚的结构性保证——本函数不持有任何 doc 写原语）。 */
+export function reconcileGroupGeometry(d: Y.Doc): void {
+  const { nodes } = readCanvasFromDoc(d);
+  const sbGroups = new Set(
+    nodes
+      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
+      .map((n) => n.id),
+  );
+  // 组帧 origin 表：doc position 键（manual/storyboard）优先；auto 组（键集表 0 帧键）从成员 abs 推
+  const origins = new Map<string, { x: number; y: number }>();
+  for (const n of nodes) {
+    if (n.type !== 'group') continue;
+    if (n.position != null) { origins.set(n.id, n.position); continue; }
+    const children = nodes.filter((c) => c.parentId === n.id);
+    if (children.length === 0) continue; // 空 auto 组：无成员可推——cs 保持现值（O0b-1 COLLAPSED_SIZE 档）
+    const bounds = calcGroupBounds(children.map((c) => ({
+      x: c.position?.x ?? 0,
+      y: c.position?.y ?? 0,
+      width: c.width ?? DEFAULT_CHILD_SIZE.width,
+      height: c.height ?? DEFAULT_CHILD_SIZE.height,
+    })));
+    origins.set(n.id, { x: bounds.x, y: bounds.y });
   }
-  return intents;
+  useCanvasStore.setState({
+    nodes: useCanvasStore.getState().nodes.map((nd: any) => {
+      const rec = nodes.find((r) => r.id === nd.id);
+      if (!rec) return nd;
+      let position = nd.position;
+      if (nd.parentId == null) {
+        if (nd.type === 'group') {
+          // 组：cs position=组帧 origin 同 tick（manual/storyboard=doc position 键值；auto=推导 bbox——
+          // doc 无键，origin 只在推导表里——hydrate 的 {0,0} 过渡态在此修正）
+          position = origins.get(nd.id) ?? nd.position;
+        } else {
+          position = rec.position ?? nd.position;               // 非组顶层：doc.abs 直拷
+        }
+      } else if (!sbGroups.has(nd.parentId)) {
+        const origin = origins.get(nd.parentId);
+        if (origin && rec.position != null) {
+          position = { x: rec.position.x - origin.x, y: rec.position.y - origin.y }; // 子：abs→rel
+        }
+      } // 分镜子：cs {0,0} 构造默认不动（doc 无键）
+      return { ...nd, position };
+    }),
+  });
 }
 
-/** server doc → store——同款形参化（undo/乒乓断言的读回驱动） */
+/** server doc → store——同款形参化（undo/乒乓断言的读回驱动）。
+ *  O0b-0：S1 停写（捕获/refit/diff 回写段整删——恢复链零回写）+读侧版本门 DEV 断言+
+ *  尾挂 reconcileGroupGeometry（写域②直拷）。 */
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
   // 批5 判据⑥ dev 巡检：影子信箱已删——nodes 出现 /^shadow-/ 即结构性违例（存量数据须 truncate
@@ -328,10 +347,15 @@ export function applyDocToStore(d: Y.Doc) {
   if (import.meta.env.DEV && nodes.some((n: any) => /^shadow-/.test(n.id))) {
     throw new Error('[collab批5] doc nodes 出现 /^shadow-/ 前缀节点——影子信箱已删（判据⑥），存量 doc 须 truncate');
   }
-  // R1b Task 17：加载几何兜底（守恒归位，幂等早退）——hydrate 与 content 构造都吃 seeded
-  const seeded = normalizeLoadedCanvas(nodes);
+  // O0b-0 web 读侧版本门（DEV）：收到的版本四档同条件（ensureSchemaVersion——戳≠2 拒/
+  // 无戳∧有节点拒/无戳∧零节点放行；真会话由 WS loadDocument 自愈戳兜底）。
+  if (import.meta.env.DEV) {
+    ensureSchemaVersion(toDocLike(d));
+  }
+  // hydrate 直吃作者态记录（O0b-0：normalizeLoadedCanvas 补缺层整删——doc=abs 空间过渡态直拷，
+  // 子节点 rel 语义由尾挂 reconcile 同 tick 修正）
   useCanvasStore.setState({
-    nodes: hydrateNodes(seeded.map((n: any) => ({
+    nodes: hydrateNodes(nodes.map((n: any) => ({
       ...n,
       // O0a-1 cs 构造默认 {0,0}（三层表第三层——doc 无键分镜子 hydrate 落 {0,0}；RF Node position 必需）
       position: n.position ?? { x: 0, y: 0 },
@@ -339,24 +363,13 @@ export function applyDocToStore(d: Y.Doc) {
     }))) as any,
     edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
   });
-  // S1（v5）：hydrate 后（derivations+refit 前）捕获结构投影——几何维护者 refitExpandedGroups 改了
-  // 组框才有 diff 才回写 doc（Origin.Geometry 不入撤销栈；normalizeLoadedCanvas 的缺几何补缺是
-  // 确定性纯函数、每轮内存重建一致，无需写 doc）。节点比较即可：edges 在本管线只加非结构 hidden 键
-  const before = pickStructNodes(useCanvasStore.getState().nodes);
   useCanvasStore.getState().applyGroupDerivations();
-  refitExpandedGroups();
-  // C1（Task 17 审查）：ns 刷新必须在 S1 回写之前——storeProjection→projectCanvasNodes 对普通节点
-  // data 是 ns 优先，回写时 ns 还是旧值会把协作者刚提交的编辑从 doc 回退（doc=旧/本端=新的分裂脑）。
-  // pickStructNodes 只读 cs.nodes，重排对 diff 语义零影响。
-  useNodeStore.setState({ nodes: Object.fromEntries(seeded.map((n) => [n.id, toAppNode(n)])) });
-  // 批4b-2：S1 回写改 intent（envelope/moveNode/组 data 序列单 transact，origin=Geometry——
-  // 不入撤销栈、onRemote LOCAL_ORIGINS 跳过）。readOnly 门在 dispatchSystemIntents 内
-  // （批2-2 判据沿袭：S1 在水合窗口内执行，canEdit 的 ready 分量结构性为假——用它会把 rw
-  // 会话的既有几何回写一并杀掉；rw 回归锚：S1 照常落 doc）
-  const afterStruct = pickStructNodes(useCanvasStore.getState().nodes);
-  if (!isEqual(before, afterStruct)) {
-    dispatchSystemIntents(d, structDiffToIntents(before, afterStruct), Origin.Geometry);
-  }
+  // C1（Task 17 审查沿革）：ns 刷新在投影读点之前——storeProjection→projectCanvasNodes 对普通节点
+  // data 是 ns 优先，陈旧 ns 会把协作者刚提交的编辑投影丢（S1 停写后无回写通道，此处保序仍成立）
+  useNodeStore.setState({ nodes: Object.fromEntries(nodes.map((n) => [n.id, toAppNode(n)])) });
+  // O0b-0 挂点=applyDocToStore 尾（漏斗尾/diff 首行随 O0b-1 补——abs 过渡态在函数出前修正为
+  // cs 语义：顶层 abs 直拷/子 rel/组帧 origin 同 tick）
+  reconcileGroupGeometry(d);
 }
 
 // 批4b-2（组 2 收口）退役：store→doc 订阅翻译桥（写路径唯一入口已收口

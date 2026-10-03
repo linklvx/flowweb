@@ -3,9 +3,11 @@
 // O0a-1 收编（Spec B）：ydocBuilder 的 fillDoc/readCanvasFromDoc/applyRecordToYMap 三写读函数落此
 // （DocLike/DocMapLike 结构性入参——零 yjs import，宿主注入 Y.Map/FakeMap 工厂）+ stripDerivedKeys
 // 键集表只读校验。三 stub 谓词（frameMode/isCollapsed/isValidStoredFrame）本分片不动（实现留 O0b）。
-// O0a-3 收编（Spec B）：toDocRecords（web 投影差分出口——双源合并+键集表内剥键，identity 档）+
+// O0a-3 收编（Spec B）：toDocRecords（web 投影差分出口——双源合并+键集表内剥键）+
 // setDocPosition（doc position 写原语唯一单源）+ 键集表谓词家族化（stripAuthorState/stripDerivedKeys
 // 共用 storyboardGroupIds/hasValidStoredFrameKeys——禁多份键集表）。
+// O0b-0 格式批：doc rel→abs 翻转（toDocRecords 单一翻转点）+版本门 v2.1
+// （stampDocSchema/assertDocSchema/ensureSchemaVersion 三函数——戳源唯一化，fillDoc 不再盖章）。
 import type { RelPos } from './brands';
 
 /** Y.Map 结构性最小面（零 yjs import——防跨实例 instanceof 静默失败，nodeEnvelope 同理由）。
@@ -33,8 +35,47 @@ export interface DocEdgeRecord {
 }
 
 /** 批2-3（R1c 前置物）：doc meta schema 版本——结构迁移判据的持久锚点（随 update 传播/服务端持久）。
- *  O0a-1 常量随 fillDoc 上移 shared（api 无法 import apps/web——防第二真源；O0b-0 只剩改值 1→2）。 */
-export const CANVAS_DOC_SCHEMA_VERSION = 1;
+ *  O0a-1 常量随 fillDoc 上移 shared（api 无法 import apps/web——防第二真源）。
+ *  O0b-0 格式批：1→2——doc 子 position 语义 rel→abs 翻转（toDocRecords 单一翻转点），旧 v1 档
+ *  无迁移直接拒（开发期无用户数据——禁垫片/向后兼容）。 */
+export const CANVAS_DOC_SCHEMA_VERSION = 2;
+
+/** O0b-0 版本门 v2.1：写 meta.schemaVersion=CURRENT（同值 no-op）。
+ *  戳源唯一化：fillDoc 不再盖章——唯一自愈点=WS loadDocument（无戳∧零节点）/api 种子（create
+ *  withDoc 回调无条件 stamp）。函数级无条件写 CURRENT，档判定归门函数（ensureSchemaVersion）。 */
+export function stampDocSchema(doc: DocLike): void {
+  const meta = doc.getMap('meta');
+  if (meta.get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
+    meta.set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
+  }
+}
+
+/** O0b-0 版本门 v2.1：严格读断言——收到的版本==current 否则 throw（无戳/旧档同拒）。
+ *  ensureSchemaVersion 的核心档（复用）——四档门="==current 放行 ∨ 无戳空档放行，其余走本断言"。 */
+export function assertDocSchema(doc: DocLike): void {
+  const sv = doc.getMap('meta').get('schemaVersion');
+  if (sv !== CANVAS_DOC_SCHEMA_VERSION) {
+    throw new Error(
+      `[O0b-0] doc schemaVersion=${String(sv)}（${sv == null ? '无戳' : '旧档'}）≠ current ${CANVAS_DOC_SCHEMA_VERSION}——拒载（开发期无 v1→v2 迁移，禁按 abs 解释 rel 静默错位）`,
+    );
+  }
+}
+
+/** O0b-0 版本门 v2.1：四档门判据（REST 读入口 fail-closed——readCanvas/getProcessSnapshot 共口）：
+ *  戳=2 放行 / 戳=1 拒（throw 带明确信息）/ 无戳∧有节点 ⇒ 拒 / 无戳∧零节点 ⇒ 放行（REST 侧
+ *  不盖戳——空画布合法档）。门判据以 doc meta 为唯一事实、从全量 doc 读（不依赖 sv 差量——
+ *  sv 等待是调用方 readCanvas 的事）。 */
+export function ensureSchemaVersion(doc: DocLike): void {
+  const sv = doc.getMap('meta').get('schemaVersion');
+  if (sv === CANVAS_DOC_SCHEMA_VERSION) return;      // 戳=2 放行
+  if (sv == null) {
+    for (const _ of doc.getMap('nodes').entries()) { // 无戳∧有节点 ⇒ 拒
+      assertDocSchema(doc);
+    }
+    return;                                          // 无戳∧零节点 ⇒ 放行
+  }
+  assertDocSchema(doc);                              // 戳=1（或未来未知档）⇒ 拒
+}
 
 /** 结构性子 Map 判定（零 instanceof——鸭子判定 get/has 方法存在；JSON 纯对象无方法不误判）。 */
 function isDocMap(v: unknown): v is DocMapLike {
@@ -43,8 +84,9 @@ function isDocMap(v: unknown): v is DocMapLike {
     && typeof (v as { has?: unknown }).has === 'function';
 }
 
-/** doc 直写（fillDoc 单源——web ydocBuilder/api 收编共用）：meta schemaVersion stamp（同值 no-op
- *  守卫——addNode 每新建节点也走 fillDoc，防 doc 膨胀）+ 节点/边逐键写入。
+/** doc 直写（fillDoc 单源——web ydocBuilder/api 收编共用）：节点/边逐键写入。
+ *  O0b-0：meta stamp 删除（戳源唯一化——唯一自愈点=WS loadDocument/api 种子显式 stampDocSchema；
+ *  fillDoc 每写盖戳会让"每 doc 至多一次幂等戳"契约与"无戳∧有节点拒"门档失真）。
  *  键集表跳过（O0a-1）：position/parentId/width/height 无键（或 null≡缺，批4a 契约）→ 不写 Y.Map——
  *  分镜子无 position 由上游构造纪律保证（diff 剥键=唯一剥键写者），本函数只认记录键、不做父上下文推算。 */
 export function fillDoc(
@@ -52,10 +94,6 @@ export function fillDoc(
   records: readonly DocNodeRecord[],
   edges: readonly DocEdgeRecord[],
 ): void {
-  const meta = doc.getMap('meta');
-  if (meta.get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
-    meta.set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
-  }
   const nodesMap = doc.getMap('nodes');
   for (const rec of records) {
     const m = doc.createMap();
@@ -81,7 +119,7 @@ export function fillDoc(
 }
 
 /** doc 直读（readRecordsFromMaps 单源）：出口=作者态 DocNodeRecord（键可选——doc 无键⇄records 同形
- *  无键，三层表；position 原样拷贝不解释——identity 档，rel→abs 翻转支点=O0b-0 格式批）。
+ *  无键，三层表；position 原样拷贝——O0b-0 起 doc=abs 空间，读出口即 abs）。
  *  读侧 null 消除（批4a 契约保持：doc 值 null≡缺键→出口 undefined）。 */
 export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edges: DocEdgeRecord[] } {
   const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
@@ -234,8 +272,8 @@ function applyKeySetTable(records: readonly DocNodeRecord[]): DocNodeRecord[] {
  *  assertions.ts 内联判定同语义，O0b 一并换 frameMode 单源）。storyboard 组判定=全量预扫
  * （stripDerivedKeys 同款——不依赖遍历序）。与 toDocRecords 方向不同：本函数=api 种子入口剥、
  *  toDocRecords=web 投影差分出口剥——键集判定共用下方内联谓词（禁复制两份键集表）。
- *  纯剥不补：输入无键⇄输出无键（键集表跳过同构；补几何归 normalizeLoadedCanvas——种子链序
- *  normalize→strip，storyboard 补齐 wh 随即剥回）。data 原样透传不碰内部（白名单/快照域归
+ *  纯剥不补：输入无键⇄输出无键（键集表跳过同构；O0b-0 起 normalizeLoadedCanvas 补几何层整删——
+ *  种子直读作者态，无补齐层）。data 原样透传不碰内部（白名单/快照域归
  *  O0c-1——snapshot-filter normalizeNodeRecord 是相邻物不收敛）。 */
 export function stripAuthorState(records: readonly DocNodeRecord[]): DocNodeRecord[] {
   return applyKeySetTable(records);
@@ -260,23 +298,40 @@ export interface MinimalCSNode {
  *  双源合并（F42：组 data 取 cs[所有权单一]；普通节点取 ns、ns 缺席回落 cs[恢复窗口]）
  *  → 键集表内剥键（applyKeySetTable——与 stripAuthorState 同表同谓词，方向不同：本函数=
  *  web 投影差分出口，stripAuthorState=api 种子入口）。输出已满足字段×模式键集表。
- *  identity 档（O0a 分片不变量①，终裁 69）：position 原样拷贝不解释空间——**rel→abs 翻转
- *  支点=O0b-0 格式批单一 commit，本函数体=唯一翻转点**。type 缺省回落 videoGen（旧投影同
- *  口径）。ephemeral 键（editMode/transformMode）=web 口径 13 键集、shared 不可见——由 web
- *  包装层 projectCanvasNodes 剥除（doc 持久面另有漏斗入口剥键双保险）。 */
+ *  O0b-0 格式批：**rel→abs 翻转切（本函数体=唯一翻转点，无 space 参数）**——子节点输出
+ *  abs=cs.rel+组帧 origin（组帧 origin 取 cs 组 position 现值——含 auto 组：origin 消费在翻转层、
+ *  键集剥在 applyKeySetTable，两者正交）；顶层节点原样（本就是绝对位）；分镜子翻转后仍被剥
+ *  position（剥键优先，翻转可见面为零）；无父上下文的孤儿 parentId 原样输出（无 origin 可加，
+ *  禁 undefined/NaN 发射）。type 缺省回落 videoGen（旧投影同口径）。ephemeral 键
+ * （editMode/transformMode）=web 口径 13 键集、shared 不可见——由 web 包装层 projectCanvasNodes
+ *  剥除（doc 持久面另有漏斗入口剥键双保险）。 */
 export function toDocRecords(
   csNodes: readonly MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
 ): DocNodeRecord[] {
-  const merged: DocNodeRecord[] = csNodes.map((nd) => ({
-    id: nd.id,
-    type: nd.type || 'videoGen',
-    position: nd.position,
-    ...(nd.parentId != null ? { parentId: nd.parentId } : {}),
-    ...(nd.width != null ? { width: nd.width } : {}),
-    ...(nd.height != null ? { height: nd.height } : {}),
-    data: nd.type === 'group' ? (nd.data ?? {}) : (nsNodes[nd.id]?.data ?? nd.data ?? {}),
-  }));
+  // 组帧 origin 表：cs 组 position 现值（一次预扫——子翻转只查表，不做遍历内推算）
+  const origins = new Map<string, { x: number; y: number }>();
+  for (const nd of csNodes) {
+    if (nd.type === 'group') origins.set(nd.id, nd.position);
+  }
+  const merged: DocNodeRecord[] = csNodes.map((nd) => {
+    let position = nd.position;
+    if (nd.parentId != null && nd.position != null) {
+      const origin = origins.get(nd.parentId);
+      if (origin) {
+        position = { x: nd.position.x + origin.x, y: nd.position.y + origin.y }; // rel→abs 翻转
+      }
+    }
+    return {
+      id: nd.id,
+      type: nd.type || 'videoGen',
+      position,
+      ...(nd.parentId != null ? { parentId: nd.parentId } : {}),
+      ...(nd.width != null ? { width: nd.width } : {}),
+      ...(nd.height != null ? { height: nd.height } : {}),
+      data: nd.type === 'group' ? (nd.data ?? {}) : (nsNodes[nd.id]?.data ?? nd.data ?? {}),
+    };
+  });
   return applyKeySetTable(merged);
 }
 
@@ -286,8 +341,8 @@ export type Rect = { x: number; y: number; width: number; height: number };
 /** 作者态 doc 节点记录（docShape 家族出口专用）：键可选——键集表语义：auto 组无帧键 /
  *  manual 组折叠仍保留三键 / storyboard 组无 wh / 分镜子无 position，运行时键集由谓词守卫、
  *  类型层=可选键。与 nodeEnvelope.ts 的 CanvasNodeRecord（cs/渲染/copyPlan 面，必填）分裂并存——不改后者。
- *  position 裸 {x,y} 注（O0a-1）：本族读写管道=identity 档（位置原样拷贝、不解释空间——分片不变量①），
- *  AbsPos 品牌收紧归 O0b-0 翻转批（翻转后 doc=abs 空间，品牌才有运行时判据——随 toDocRecords 签名同批落）。 */
+ *  position 裸 {x,y} 注（O0b-0）：doc=abs 空间（写侧 toDocRecords rel→abs 翻转、读侧直拷）——
+ *  本族读写管道进出同一空间；AbsPos 品牌收紧随翻转批语义落地后按需跟进（本批不加类型层）。 */
 export interface DocNodeRecord {
   id: string;
   type: string;

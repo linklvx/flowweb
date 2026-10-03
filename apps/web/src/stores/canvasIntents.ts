@@ -133,6 +133,28 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
   }
 }
 
+/** cs 几何回填换算（O0b-0 翻转连带面——最小语义修正）：intent.position=doc abs 空间；
+ *  cs 面=rel 语义（RF parent 相对坐标）。回填写 cs 前换算 rel=abs−组帧 origin（cs 组 position
+ *  现值）；分镜子（storyboard 父）cs={0,0} 构造默认。O0b-2 投影层几何键全删后本换算随 moveNode/
+ *  addNode position 直写一起退役（reconcile 同 tick 补齐承接）。 */
+function absToCsPosition(
+  s: { nodes: any[] },
+  id: string,
+  abs: { x: number; y: number },
+  parentId: string | null | undefined,
+): { x: number; y: number } {
+  if (parentId != null) {
+    const parent = s.nodes.find((p: any) => p.id === parentId);
+    if (parent?.type === 'group') {
+      if ((parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard') {
+        return { x: 0, y: 0 };   // 分镜子：cs 构造默认（纯 DOM 宫格无坐标语义）
+      }
+      return { x: abs.x - parent.position.x, y: abs.y - parent.position.y }; // 普通组子：abs−origin
+    }
+  }
+  return { ...abs };   // 顶层：cs≡abs 同语义直拷
+}
+
 /** store 投影回填（doc 为真相、store 为投影；写形状对齐 storeProjection 读取面：
  *  结构+组 data 取 cs，普通节点 data 取 ns）。undefined=删键约定在此兑现（遍历原始 patch：
  *  清洗式滤除只防"新增 undefined 键"，不删已有键——删键语义必须显式 delete）。
@@ -149,8 +171,9 @@ export function projectIntentToStore(intent: CanvasIntent): void {
           nodes: [...s.nodes, {
             id: n.id,
             type: n.type,
-            // cs 层构造默认 {0,0}（三层表第三层——doc 无键分镜子 cs 落 {0,0}；非兜底，是构造语义）
-            position: n.position ? { ...n.position } : { x: 0, y: 0 },
+            // O0b-0：intent.position=doc abs——cs 面 rel 换算（absToCsPosition；三层表第三层
+            // 分镜子 cs {0,0} 构造默认随换算落）
+            position: n.position ? absToCsPosition(s, n.id, n.position, n.parentId) : { x: 0, y: 0 },
             ...(n.parentId != null ? { parentId: n.parentId } : {}),
             ...(n.width != null ? { width: n.width } : {}),
             ...(n.height != null ? { height: n.height } : {}),
@@ -178,7 +201,9 @@ export function projectIntentToStore(intent: CanvasIntent): void {
     }
     case 'moveNode':
       useCanvasStore.setState((s) => ({
-        nodes: s.nodes.map((n: any) => (n.id === intent.id ? { ...n, position: { ...intent.position } } : n)),
+        nodes: s.nodes.map((n: any) => (n.id === intent.id
+          ? { ...n, position: absToCsPosition(s, n.id, intent.position, n.parentId) } // O0b-0：abs→cs rel 换算
+          : n)),
       }));
       break;
     case 'updateNodeEnvelope': {
@@ -278,6 +303,8 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
       // position（纯 DOM 宫格坐标无意义——copyPlan 分镜子 rel 归零 {0,0} 同源；cs 层 {0,0} 构造默认
       // 保留=三层表第三层，doc 层剥=键集表"分镜子无 position"）。本处有 afterNodes 全员父上下文
       //（applyIntentToDoc addNode 逐 intent 无父上下文——剥键只能在此漏斗总口）。
+      // O0b-0：a.position=toDocRecords 出口（doc abs 语义/键集剥形态——projectCanvasNodes 不再
+      // 回填）——auto 组天然无 position（键集表已在 shared 出口剥），intent 侧只判空防 undefined 残键。
       const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
       const isStoryboardChild =
         parent?.type === 'group' &&
@@ -288,7 +315,7 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
           id: a.id,
           type: a.type,
           ...(a.parentId != null ? { parentId: a.parentId } : {}),
-          ...(!isStoryboardChild ? { position: a.position } : {}),
+          ...(a.position != null && !isStoryboardChild ? { position: a.position } : {}),
           ...(a.width != null ? { width: a.width } : {}),
           ...(a.height != null ? { height: a.height } : {}),
           data: a.data,
@@ -302,8 +329,8 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
     if (b.width !== a.width) patch.width = a.width ?? undefined;
     if (b.height !== a.height) patch.height = a.height ?? undefined;
     if (Object.keys(patch).length > 0) intents.push({ type: 'updateNodeEnvelope', id: a.id, patch });
-    if (b.position.x !== a.position.x || b.position.y !== a.position.y) {
-      intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
+    if (b.position?.x !== a.position?.x || b.position?.y !== a.position?.y) {
+      intents.push({ type: 'moveNode', id: a.id, position: { x: a.position?.x ?? 0, y: a.position?.y ?? 0 } });
     } else {
       // I-1 角点（O0a-1 质评）：既有子入分镜组（convertGroup）后 rel 恰 {0,0}=零位移——不补发
       // 则 doc 旧 position 键无写者可剥（剥键唯一载体=applyIntentToDoc moveNode 分支），批尾
@@ -314,7 +341,8 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
         parent?.type === 'group' &&
         (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
       if (isStoryboardChild) {
-        intents.push({ type: 'moveNode', id: a.id, position: { x: a.position.x, y: a.position.y } });
+        // O0b-0：a.position=toDocRecords 出口（分镜子剥键→undefined）——补发 moveNode 语义位={0,0}
+        intents.push({ type: 'moveNode', id: a.id, position: a.position ?? { x: 0, y: 0 } });
       }
     }
     const dataPatch: Record<string, unknown> = {};

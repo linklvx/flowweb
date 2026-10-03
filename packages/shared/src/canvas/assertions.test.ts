@@ -359,7 +359,7 @@ describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', (
   it.todo('O0b-2 接线：applyDocToStore 尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership，prod 转 id 去重 log）');
   it.todo('O0b-3 接线：dispatchProjectionDiff 尾挂 assertStoryboardChildNoPosition + assertNoCsDerivedKeysInData + assertNoDunderKeysInGroupData');
   it.todo('O0b-4 接线：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界');
-  it.todo('O0b-5 接线：assertAllPositionsFinite 挂 normalizeLoadedCanvas/assertInvariant 收口点');
+  it.todo('O0b-5 接线：assertAllPositionsFinite 挂 assertInvariant 收口点');
 });
 
 // —— 测试私有：期望帧计算（与实现同源 calcGroupBounds——只用于构造合法夹具）——

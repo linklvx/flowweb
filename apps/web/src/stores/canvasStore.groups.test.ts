@@ -7,11 +7,11 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, shouldAutoRefit, sortForArrange, arrangeRects } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, shouldAutoRefit, sortForArrange, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
-import { fillDoc } from '@/collab/ydocBuilder';
+import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -213,7 +213,7 @@ describe('renameGroup（2d-6）', () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
-    fillDoc(d, rigNodes() as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    fillDoc(d, toDocRecords(rigNodes() as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0：doc=abs——夹具经生产同构链 toDocRecords 翻转+键集剥）
     useCanvasStore.setState({ nodes: rigNodes() as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     return { d, um };
   };
@@ -477,13 +477,14 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
         id, type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200,
         data: { groupType: 'normal', ...data },
       });
-      fillDoc(d, [groupFixture('g1', { name: 'A' })] as any, []);   // 初态入 doc（server 填充形态——origin=null 不入栈）
+      fillDoc(d, toDocRecords([groupFixture('g1', { name: 'A' })] as any, {}) as any, []);   // 初态入 doc（server 填充形态——origin=null 不入栈；O0b-0 同构链）
       useCanvasStore.setState({ nodes: [groupFixture('g1', { name: 'A' })] as any, edges: [] });
       useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
       useCanvasStore.getState().patchGroupData('g1', { name: 'B' });
       useCanvasStore.getState().patchGroupData('g1', { name: 'C' });
       expect(um.undoStack.length).toBe(1);          // 两次 patch 同批（<500ms）→ captureTimeout 合并为 1 项
       um.undo();
+      stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);                           // 显式读回（替代跑不动的 onRemote——Task 10 形参化测试缝）
       const g = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
       expect(g.name).toBe('A');                     // undo 恢复旧值
@@ -760,7 +761,7 @@ describe('runCommand 公共件（2a-0）', () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
-    fillDoc(d, rigNodes() as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    fillDoc(d, toDocRecords(rigNodes() as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0：doc=abs——夹具经生产同构链 toDocRecords 翻转+键集剥）
     useCanvasStore.setState({ nodes: rigNodes() as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     return { d, um };
   };
@@ -854,7 +855,7 @@ describe('arrangeSelection（§4.3）', () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
-    fillDoc(d, nodes as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    fillDoc(d, toDocRecords(nodes as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
     useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     return { d, um };
   };
@@ -969,7 +970,8 @@ describe('arrangeSelection（§4.3）', () => {
     useCanvasStore.getState().arrangeSelection(['r1', 'r2'], 'vertical');   // 换 mode 保第二命令必产新位置（防 diff=0 不入栈假绿）
     expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
     um.undo();
-    applyDocToStore(d);                    // 显式读回（替代跑不动的 onRemote——照 :413 测试缝）
+    stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
+      applyDocToStore(d);                    // 显式读回（替代跑不动的 onRemote——照 :413 测试缝）
     expect(posOf('r1')).toEqual(afterFirst.r1);
     expect(posOf('r2')).toEqual(afterFirst.r2);
     teardown();
@@ -1010,13 +1012,14 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
     const a = { id: 'a', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 20, y: 50 }, width: 100, height: 60, data: {}, selected: true };
     const b = { id: 'b', type: 'imageGen', parentId: 'g1', extent: 'parent', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} };
     try {
-      fillDoc(d, [group, a, b] as any, []);
+      fillDoc(d, toDocRecords([group, a, b] as any, {}) as any, []);   // O0b-0 同构链
       useCanvasStore.setState({ nodes: [group, a, b] as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
       useCanvasStore.getState().toggleCollapse('g1');
       // 实证：A 端 selected:false 是纯 store 写——doc 面零 selected 键，B 端收不到清除
       const docA = d.getMap('nodes').get('a') as Y.Map<unknown>;
       expect(docA.has('selected')).toBe(false);
       // 模拟远端 applyDocToStore：hidden 推导到位（B 端投影侧真相）
+      stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);
       const aB = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
       expect(aB.hidden).toBe(true);
@@ -1051,7 +1054,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
       const parent = (nodes as any[]).find((p) => p.id === n.parentId);
       return parent?.data?.groupType === 'storyboard' ? { ...n, position: undefined } : n;
     });
-    fillDoc(d, docSeed as any, edges as any);
+    fillDoc(d, toDocRecords(docSeed as any, {}) as any, edges as any);   // O0b-0 同构链
     useCanvasStore.setState({ nodes: csStale as any, edges: edges as any, selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     const nsNodes: Record<string, any> = {};
     for (const n of nodes as any[]) {
@@ -1214,7 +1217,7 @@ describe('setGroupColor（2c-3）', () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
-    fillDoc(d, rigNodes() as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    fillDoc(d, toDocRecords(rigNodes() as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0：doc=abs——夹具经生产同构链 toDocRecords 翻转+键集剥）
     useCanvasStore.setState({ nodes: rigNodes() as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     return { d, um };
   };
@@ -1309,7 +1312,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
-    fillDoc(d, nodes as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    fillDoc(d, toDocRecords(nodes as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
     useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     return { d, um };
   };
@@ -1441,6 +1444,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
       useCanvasStore.getState().arrangeGroupChildren('g1', 'vertical');   // 换 mode 保第二命令必产新位置（防 diff=0 不入栈假绿）
       expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
       um.undo();
+      stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);                    // 显式读回（照 :413/:917 测试缝）
       expect(snapshot()).toBe(afterFirst);   // undo 回到第一次排列后状态
     } finally {
@@ -1476,7 +1480,7 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     const d = new Y.Doc();
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
-    fillDoc(d, nodes as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态）
+    fillDoc(d, toDocRecords(nodes as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
     useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     return { d, um };
   };

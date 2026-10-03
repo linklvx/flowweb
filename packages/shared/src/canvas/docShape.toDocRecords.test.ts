@@ -1,8 +1,7 @@
 // packages/shared/src/canvas/docShape.toDocRecords.test.ts
 // O0a-3（Spec B）：toDocRecords 行为测试——web 投影差分出口（双源合并 F42+键集表内剥键，shared 单源）。
-// 分片不变量（O0a 共用，plan v3.18 终裁 69）：①identity 档——输出 position≡输入 position 逐位
-// [除剥键]，不做 rel→abs 翻转（翻转支点=O0b-0 格式批单一 commit——本函数体=唯一翻转点）；
-// ②键集剥键在本函数内生效（与 stripAuthorState 同表同谓词——禁复制两份键集表）。
+// O0b-0 格式批：写侧 rel→abs 翻转已切——子输出 abs=cs.rel+组帧 origin（本函数体=唯一翻转点）；
+// 顶层原样；键集剥键在本函数内生效（与 stripAuthorState 同表同谓词——禁复制两份键集表）。
 // setDocPosition 同分片落位：doc position 写原语唯一单源（fillDoc/applyRecordToYMap/moveNode 共口）。
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
@@ -35,7 +34,7 @@ const csNode = (over: Partial<MinimalCSNode> & { id: string }): MinimalCSNode =>
   ...over,
 });
 
-describe('toDocRecords：identity 档（终裁 69——输出 position≡输入 position 逐位[除剥键]，翻转不在此分片）', () => {
+describe('toDocRecords：顶层节点 abs 原样（O0b-0 翻转后顶层恒等——abs 空间档）', () => {
   it('普通节点 position 逐位恒等；manual 组（三键齐且有效）帧三键全留', () => {
     const csNodes = [
       csNode({ id: 'n1', position: { x: 10, y: 20 }, width: 320, height: 120, data: { content: 'a' } }),
@@ -49,7 +48,7 @@ describe('toDocRecords：identity 档（终裁 69——输出 position≡输入 
     expect(g.height).toBe(371);
   });
 
-  it('storyboard 组被剥的半边（wh）之外，留存的 position 同样逐位恒等（identity 不因剥键打折）', () => {
+  it('storyboard 组被剥的半边（wh）之外，留存的 position 同样逐位恒等（顶层不因剥键打折）', () => {
     const csNodes = [
       csNode({ id: 'sb1', type: 'group', position: { x: 3, y: 4 }, width: 660, height: 371, data: { groupType: 'storyboard', cells: [] } }),
     ];
@@ -57,6 +56,61 @@ describe('toDocRecords：identity 档（终裁 69——输出 position≡输入 
     expect(out[0].position).toEqual({ x: 3, y: 4 });
     expect(out[0].width).toBeUndefined();
     expect(out[0].height).toBeUndefined();
+  });
+});
+
+// ════════ O0b-0 格式批：写侧 rel→abs 翻转（本函数体=唯一翻转点——不加 space 参数）════════
+// 语义（plan O0b-0 Step 2①）：子节点输出 abs=cs.rel+组帧 origin（组帧 origin 取 cs 组 position
+// 现值）；顶层节点原样（本就是绝对位）；分镜子无 position（剥键已有）；auto 组无帧三键（剥键已有
+// ——applyKeySetTable 不变，本批只改 position 空间语义）。
+describe('O0b-0 写侧翻转：子输出 abs=cs.rel+组帧 origin（origin 取 cs 组 position 现值）', () => {
+  it('manual 组+子：组 abs 原样，子 abs=rel+组 position 逐位（浮点无噪声——整数夹具）', () => {
+    const out = toDocRecords([
+      csNode({ id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } }),
+      csNode({ id: 'c1', parentId: 'g1', position: { x: 10, y: 20 }, width: 100, height: 60, data: {} }),
+    ], {});
+    expect(out.find((n) => n.id === 'g1')!.position).toEqual({ x: 100, y: 50 }); // 组原样（翻转只作用于子面）
+    expect(out.find((n) => n.id === 'c1')!.position).toEqual({ x: 110, y: 70 }); // 10+100 / 20+50
+  });
+
+  it('auto 组（0 帧键）+子：子 abs=rel+cs 组 position 现值（origin 消费在翻转层、剥键在键集层——正交）；组仍 0 帧键', () => {
+    const out = toDocRecords([
+      csNode({ id: 'g2', type: 'group', position: { x: 30, y: 40 }, data: { groupType: 'normal' } }),
+      csNode({ id: 'c2', parentId: 'g2', position: { x: 5, y: 5 }, width: 200, height: 100, data: {} }),
+    ], {});
+    expect(out.find((n) => n.id === 'g2')!.position).toBeUndefined(); // 键集表剥（不变）
+    expect(out.find((n) => n.id === 'c2')!.position).toEqual({ x: 35, y: 45 }); // 5+30 / 5+40
+  });
+
+  it('分镜子：剥 position（剥键优先——翻转可见面为零）；storyboard 组 position 留（origin 面）', () => {
+    const out = toDocRecords([
+      csNode({ id: 'sb1', type: 'group', position: { x: 7, y: 8 }, data: { groupType: 'storyboard', cells: ['c1'] } }),
+      csNode({ id: 'c1', parentId: 'sb1', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done' } }),
+    ], {});
+    expect(out.find((n) => n.id === 'sb1')!.position).toEqual({ x: 7, y: 8 });
+    const child = out.find((n) => n.id === 'c1')!;
+    expect('position' in child).toBe(false);
+  });
+
+  it('无父上下文的孤儿 parentId（组不在输入集）：无 origin 可加——原样输出（禁 undefined/NaN 发射）', () => {
+    const out = toDocRecords([
+      csNode({ id: 'c1', parentId: 'ghost', position: { x: 9, y: 9 }, width: 10, height: 10, data: {} }),
+    ], {});
+    expect(out[0].position).toEqual({ x: 9, y: 9 });
+  });
+
+  it('round-trip 翻转：cs(rel)→toDocRecords(abs)→fillDoc→readRecords 逐位恒等（abs 空间进出——identity 档退役）', () => {
+    const csNodes = [
+      csNode({ id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } }),
+      csNode({ id: 'c1', parentId: 'g1', position: { x: 10, y: 20 }, width: 100, height: 60, data: {} }),
+      csNode({ id: 't1', position: { x: 500, y: 0 }, data: { content: 'a' } }),
+    ];
+    const out = toDocRecords(csNodes, {});
+    const doc = new FakeDoc();
+    fillDoc(doc, out, []);
+    const back = readRecordsFromMaps(doc).nodes;
+    expect(back).toEqual(out); // doc 读回=toDocRecords 出口逐位（abs 空间）
+    expect(back.find((n) => n.id === 'c1')!.position).toEqual({ x: 110, y: 70 });
   });
 });
 

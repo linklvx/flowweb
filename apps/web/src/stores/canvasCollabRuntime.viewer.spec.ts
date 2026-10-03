@@ -1,22 +1,23 @@
 // apps/web/src/stores/canvasCollabRuntime.viewer.spec.ts
-// 批2-2 VIEWER 第一层（doc 硬门）——spec VIEWER 组/canEdit 门组三类入口之 cs 拖拽 + S1 system intent 面：
+// 批2-2 VIEWER 第一层（doc 硬门）——spec VIEWER 组/canEdit 门组三类入口之 cs 拖拽 + 恢复链面：
 // 判据：readOnly 会话（authenticated scope='readonly' → collabReadOnly 粘滞 true）⇒ doc 零写
 //   ①cs 拖拽形态（store 直写 nodes——批4b-2 后无翻译层恒零写；真拖拽路径在 ⑤）
 //   ②ns 数据变更形态 → doc 零写（ns 写点已全量换芯 intent，dispatch 门拦截）
-//   ③S1 几何回写（system intent——Origin.Geometry）同守卫：几何修正在 store 层完成（store g1 框已
-//     被 refit 修正），doc g1 框保持服务端原值（readOnly Update 服务端一律 NACK——写必分叉）
+//   ③S1 停写（O0b-0）：恢复链零回写——cs 与 doc 同持服务端原值（无几何修正无回写）
 //   ④断连窗口仍只读（粘滞锚——onClose 不清 collabReadOnly）
-//   ⑤read-write 回归锚：拖拽（onNodesChange 真路径）照常同步 doc + S1 照常回写（门不过度拦截）
+//   ⑤read-write 回归锚：拖拽（onNodesChange 真路径）照常同步 doc + 恢复链同样零回写（门不过度拦截）
 //   ⑥单路径结构锚：远端应用窗口零本地 doc 写（bindBridge/applyingRemote 随批4b-2 退役）
 // 装置照 conn.spec：mock provider 手写 handlers 表（真 Y.Doc 经 runtime.getDoc() 直驱）；
 // doc 写零判据 = update 事件计数（origin 为字符串的事务 = 本地代码发起的写；fixture 种子写 origin=null 不计）。
+// O0b-0：夹具 fillDoc 后显式 stampDocSchema（fillDoc 已不写 meta——戳源唯一化；读侧版本门要求 v2 戳）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import * as runtime from './canvasCollabRuntime';
-import { fillDoc } from '@/collab/ydocBuilder';
+import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { stampDocSchema } from '@flowweb/shared';
 
 vi.mock('@hocuspocus/provider', () => {
   class MockProvider {
@@ -107,6 +108,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     const p = lastInstance();
     // 种子：服务端 doc 已有 n1（origin=null——种子写不计入本地写计数）
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -129,6 +131,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'server' } } as any], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -145,16 +148,16 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     expect(writes()).toBe(0);
   });
 
-  it('③S1 几何回写（system intent）：readOnly → 几何修正在 store 层完成，doc 组框保持服务端原值', async () => {
+  it('③S1 停写（O0b-0）：readOnly → 无几何修正亦无回写——cs 与 doc 同持服务端原值', async () => {
     const done0 = runtime.initCollab('p1');
     await tick();
     const p = lastInstance();
-    // 组 fixture：g1 携带"错"框（w/h 均有 → normalizeLoadedCanvas 跳过），子 c1 rel(500,500)——
-    // refit 期望框 = bbox+padding：(480,450,320,190) ≠ (0,0,100,100) ⇒ S1 diff 必在
+    // 组 fixture：g1 携带"错"框（违反不变量——历史 S1 会 refit 修复），子 c1 doc abs(500,500)
     fillDoc(runtime.getDoc()!, [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 100, height: 100, data: { groupType: 'normal' } } as any,
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 500 }, data: {} } as any,
     ], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -164,12 +167,15 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     p.emit('synced', {});
     await done0;
 
-    // store 侧：几何修正已发生（refitExpandedGroups 照跑——修正在 store 层完成）
+    // cs 侧：无几何修正（S1 停写——refitExpandedGroups 调用摘除），g1=doc 原值
     const g1 = useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any;
-    expect(g1.position).toEqual({ x: 480, y: 450 });
-    expect(g1.width).toBe(320);
-    expect(g1.height).toBe(190);
-    // doc 侧：零写——组框保持服务端原值（readOnly Update 服务端一律 NACK，写必分叉）
+    expect(g1.position).toEqual({ x: 0, y: 0 });
+    expect(g1.width).toBe(100);
+    expect(g1.height).toBe(100);
+    // c1 rel=abs−origin=(500,500)——reconcile 写域②直拷（只写 cs 不写 doc）
+    const c1 = useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1') as any;
+    expect(c1.position).toEqual({ x: 500, y: 500 });
+    // doc 侧：零写——组框保持服务端原值
     const dg = runtime.getDoc()!.getMap('nodes').get('g1') as Y.Map<any>;
     expect(dg.get('position').toJSON()).toEqual({ x: 0, y: 0 });
     expect(dg.get('width')).toBe(100);
@@ -182,6 +188,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -203,6 +210,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;
@@ -218,7 +226,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     expect(nodePos(runtime.getDoc()!, 'n1')).toEqual({ x: 100, y: 0 }); // 编辑会话照常同步
   });
 
-  it('⑤rw 回归锚：S1 几何回写照常落 doc（Origin.Geometry）', async () => {
+  it('⑤rw 回归锚：S1 停写（O0b-0）——rw 会话恢复链同样零回写（无 Geometry origin 事务）', async () => {
     const done0 = runtime.initCollab('p1');
     await tick();
     const p = lastInstance();
@@ -228,6 +236,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 100, height: 100, data: { groupType: 'normal' } } as any,
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 500 }, data: {} } as any,
     ], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;
@@ -236,9 +245,12 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     p.emit('synced', {});
     await done0;
 
+    // S1 停写：恢复链零 Geometry 回写事务（doc g1 保持原值）
+    expect(origins.filter((o) => o === 'geometry-repair')).toEqual([]);
     const dg = runtime.getDoc()!.getMap('nodes').get('g1') as Y.Map<any>;
-    expect(dg.get('position').toJSON()).toEqual({ x: 480, y: 450 }); // S1 回写发生
-    expect(origins).toContain('geometry-repair');
+    expect(dg.get('position').toJSON()).toEqual({ x: 0, y: 0 });
+    expect(dg.get('width')).toBe(100);
+    expect(dg.get('height')).toBe(100);
   });
 
   it('⑥单路径结构锚：rw 远端应用窗口内零本地 doc 写（批4b-2——store 重建无翻译层，回声路径不存在）', async () => {
@@ -246,6 +258,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'server' } } as any], []);
+    stampDocSchema(toDocLike(runtime.getDoc()!));
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;

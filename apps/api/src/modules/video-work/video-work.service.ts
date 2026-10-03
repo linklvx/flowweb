@@ -12,6 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import Redis from 'ioredis';
 
 @Injectable()
@@ -28,7 +29,9 @@ export class VideoWorkService {
   // —— 类型（改类型后删缓存（tags 公开端无缓存，无需失效），spec §4.2 categories 缓存失效） ——
   private static readonly CATEGORY_CACHE_KEY = 'videoWork:categories';
 
-  private static readonly PROCESS_CACHE = (id: string) => `videoWork:process:${id}`;
+  /** O0b-0（自 O0c-1 提前）：键拼 schema 常量——翻转批后 300s 窗口内 /process 不得命中
+   *  v1 旧空间（rel）载荷（公开页鬼影）。 */
+  private static readonly PROCESS_CACHE = (id: string) => `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}`;
 
   // like 键构造收敛为单一来源（批次 3 登记落点）：getDetail 读 liked / toggleLike 写删共用，防两处模板漂移
   private static likeKey(workId: string, userId: string): string {

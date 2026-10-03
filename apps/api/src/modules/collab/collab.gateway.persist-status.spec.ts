@@ -8,7 +8,16 @@ import { Document } from '@hocuspocus/server';
 import { register } from 'prom-client';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
+import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+/** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——v2 档快照夹具用） */
+function toDocLike(doc: Y.Doc): DocLike {
+  return {
+    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
+    createMap: () => new Y.Map() as unknown as DocMapLike,
+  };
+}
 
 function buildGateway() {
   const prisma = {
@@ -173,15 +182,76 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
   });
 });
 
+describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契约（终裁 51③——原"零写放大"契约由"至多一次幂等戳"接替）', () => {
+  it('无戳∧零节点 → loadDocument stamp 自愈：meta.size===1 ∧ stamp update 进 pending（落库链）', async () => {
+    const { gateway } = buildGateway();
+    const doc = registerDoc(gateway, 'project:p1');
+    await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
+    // 自愈戳落位：meta 只此一键
+    expect(doc.getMap('meta').get('schemaVersion')).toBe(2);
+    expect(doc.getMap('meta').size).toBe(1);
+    // stamp 发生在 replaying 抑制窗外 → update 进 pending（下次 store 落库）
+    const q = (gateway as any).pendingUpdates.get(doc as any);
+    expect(q.length).toBeGreaterThan(0);
+    // epoch 播种契约保留（批3-4）
+    expect(typeof (gateway as any).docEpoch.get(doc as any)).toBe('number');
+  });
+
+  it('幂等契约锚：首次 loadDocument 后 meta.size===1 ∧ 第二实例 load 同 doc 新增 update=0（每 doc 至多一次幂等戳）', async () => {
+    const { gateway, repo } = buildGateway();
+    // 第一实例：空 DB → 无戳零节点 → stamp 自愈 → store 落库（stamp update 持久化）
+    const doc1 = registerDoc(gateway, 'project:p1');
+    await gateway.hooks.onLoadDocument({ document: doc1 as any, documentName: 'project:p1' } as any);
+    await gateway.hooks.onStoreDocument({ document: doc1 as any, documentName: 'project:p1' } as any);
+    expect(repo.append).toHaveBeenCalledTimes(1);
+    // 落库快照回放进 mock DB——第二实例 load 同 doc
+    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({
+      projectId: 'p1', state: Buffer.from(repo.append.mock.calls[0][1] as Uint8Array),
+    });
+    const doc2 = registerDoc(gateway, 'project:p1');
+    await gateway.hooks.onLoadDocument({ document: doc2 as any, documentName: 'project:p1' } as any);
+    expect(doc2.getMap('meta').get('schemaVersion')).toBe(2);   // replay 已戳
+    expect((gateway as any).pendingUpdates.get(doc2 as any)).toHaveLength(0); // 已戳=CURRENT ⇒ no-op 零新增写
+  });
+
+  it('戳=1（人为写 1 的 DB 快照）→ loadDocument 拒（throw 带明确信息——v1 旧档无迁移）', async () => {
+    const { gateway } = buildGateway();
+    const snap = new Y.Doc();
+    snap.getMap('meta').set('schemaVersion', 1);
+    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({
+      projectId: 'p1', state: Buffer.from(Y.encodeStateAsUpdate(snap)),
+    });
+    const doc = registerDoc(gateway, 'project:p1');
+    await expect(gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any))
+      .rejects.toThrow(/schemaVersion/);
+  });
+
+  it('无戳∧有节点（裸 doc 快照——手建节点不经 fillDoc 构造纪律）→ loadDocument 拒', async () => {
+    const { gateway } = buildGateway();
+    const snap = new Y.Doc();
+    const m = new Y.Map();
+    m.set('type', 'textInput');
+    const pos = new Y.Map();
+    pos.set('x', 1); pos.set('y', 2);
+    m.set('position', pos);
+    m.set('data', new Y.Map());
+    snap.getMap('nodes').set('n1', m);
+    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({
+      projectId: 'p1', state: Buffer.from(Y.encodeStateAsUpdate(snap)),
+    });
+    const doc = registerDoc(gateway, 'project:p1');
+    await expect(gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any))
+      .rejects.toThrow(/schemaVersion/);
+  });
+});
+
 describe('批3-4 doc epoch + canvas_doc gauge', () => {
-  it('onLoadDocument 播种 doc epoch（服务端 WeakMap——不写 ydoc meta、不进 pending，零写放大与重放等价契约不破）', async () => {
+  it('onLoadDocument 播种 doc epoch（服务端 WeakMap——重入不换代）', async () => {
     const { gateway } = buildGateway();
     const doc = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
     const epoch = (gateway as any).docEpoch.get(doc as any);
     expect(typeof epoch).toBe('number');
-    expect((gateway as any).pendingUpdates.get(doc as any)).toHaveLength(0);
-    expect(doc.getMap('meta').size).toBe(0);   // 不污染 doc 状态（canonical 重放等价的前提）
     // 重入不换代（同 doc 实例恒定代际）
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
     expect((gateway as any).docEpoch.get(doc as any)).toBe(epoch);
@@ -190,6 +260,7 @@ describe('批3-4 doc epoch + canvas_doc gauge', () => {
   it('canvas_doc 大小 gauge：load 播种快照字节 + append 增量累加', async () => {
     const { gateway, repo } = buildGateway();
     const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
+    stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（版本门放行前提）
     const snap = Buffer.from(Y.encodeStateAsUpdate(snapDoc));
     (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: snap });
     const doc = registerDoc(gateway, 'project:p1');

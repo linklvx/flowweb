@@ -69,5 +69,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
    *  diff 剥键锚需 cs 直写构造 before/after 差，setState 是用例的存在目的——同 sanctioned 例外；
    *  O0a-1 评审收口集成造案再 +2 处——批尾 DEV throw 挂点守卫，镜像 store 构造 before/after；
    *  O0a-1 质评 I-1 零位移角点造案再 +2 处——补发 moveNode 剥键守卫，构造入分镜组零位移差）。 */
-  effective: { count: 216, files: 39 },
+  // O0b-0（2026-10-03）：canvasCollabRuntime.geometry.test.ts 造案 +5 处/1 文件（翻转主锚/S1 停写/
+//   读侧版本门装置——sanctioned 例外同模式，与 geometryTrap.test.ts 锚③注释同步登记）→ 有效基线 221 处 / 40 文件。
+  effective: { count: 221, files: 40 },
 };

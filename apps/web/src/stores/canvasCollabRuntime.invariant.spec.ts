@@ -1,27 +1,27 @@
 // apps/web/src/stores/canvasCollabRuntime.invariant.spec.ts
 // 批4a 安全网组（红1-不变量 + quiescence 判据）：
-// 不变量 = applyRemote 周期末尾（含 S1 补跑）projectionFromDoc(doc) ≡ storeProjection()——
-//   两侧同过双重归一：normalizeCanvasRecord（读侧 readCanvasFromDoc 归一/写侧 projectCanvasNodes）
-//   + normalizeLoadedCanvas（加载几何归一）。两个设计内分叉源必须双侧同变换后才可断言
-//   （单侧/缺层则恒假、安全网失效）：
+// 不变量 = applyRemote 周期末尾 projectionFromDoc(doc) ≡ storeProjection()——
+//   O0b-0 格式批：doc=abs 空间，两侧同空间（doc readCanvasFromDoc 直出 abs / store 侧
+//   projectCanvasNodes 经 toDocRecords 同变换出 abs）直接深等（无归一层）：
 //   ① shadow- 过滤条款已随批5 删信箱移除——doc 出现 /^shadow-/ 改由 DEV 巡检抛出（判据⑥），
 //     不变量对 doc/store 分叉如实报告；
-//   ② 组几何补缺（S1 契约：normalizeLoadedCanvas 补缺每轮内存重建、不写 doc——doc 无几何而
-//     store 有，属设计内分叉——组场景 quiescence 用例实证过：before==after ⇒ S1 零回写）。
+//   ② S1 停写（O0b-0）：恢复链零回写——组几何由 reconcile 写 cs 面承接（doc 不被回写）。
 // 非恒真式 = 变异实验：doc 摆 store 没有的节点（不走 apply 周期——走了会被 store 吸收恢复等价）
 //   → checkProjectionInvariant 必 false，证明断言不是恒真式（安全网有效性）。
-// quiescence = 双端（本端=真 runtime 链：intent 漏斗+onRemote 去抖+S1；对端=裸 doc 直写）burst 后
+// quiescence = 双端（本端=真 runtime 链：intent 漏斗+onRemote 去抖；对端=裸 doc 直写）burst 后
 //   静止窗口零新写（无乒乓）+ 两 doc 收敛 + store/doc 相等。
-// 装置：mock provider（conn.spec 同款契约锁）驱动真 initCollab——onRemote/S1 全链真实接线，
+// 装置：mock provider（conn.spec 同款契约锁）驱动真 initCollab——onRemote 全链真实接线，
 //   仅网络层以 Y.applyUpdate 双向转发模拟（对端 B 的写经 network origin 入 A——触发真实去抖链）。
 //   批4b-2：本地写驱动改 action（addNode/onNodesChange——bindBridge 退役后唯一写路径=dispatch）。
+//   O0b-0：doc 夹具显式 stampDocSchema（fillDoc 不写 meta——读侧版本门要求 v2 戳）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { Origin } from './canvasUndo';
-import { fillDoc } from '@/collab/ydocBuilder';
+import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { stampDocSchema } from '@flowweb/shared';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
 vi.mock('@hocuspocus/provider', () => {
@@ -65,7 +65,8 @@ const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
  *  fake timers 下真 setTimeout 永挂，用 advanceTimersByTimeAsync(0)（timer+微任务双 flush） */
 const tick = () => vi.advanceTimersByTimeAsync(0);
 
-/** rw 会话完整健康序（authenticated read-write → collabReadOnly=false → 可编辑） */
+/** rw 会话完整健康序（authenticated read-write → collabReadOnly=false → 可编辑）。
+ *  O0b-0：done 后显式 stamp（mock provider 无真 loadDocument 自愈——读侧版本门要求 v2 戳）。 */
 async function driveToSyncedRw(pid = 'p1') {
   const done = runtime.initCollab(pid);
   await tick();
@@ -77,6 +78,7 @@ async function driveToSyncedRw(pid = 'p1') {
   p.isSynced = true;
   p.emit('synced', {});
   await done;
+  stampDocSchema(toDocLike(runtime.getDoc()!));
   return p;
 }
 
@@ -92,7 +94,7 @@ function bWriteNode(B: Y.Doc, id: string, x: number) {
   }, 'b-edit');
 }
 
-describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S1 补跑）', () => {
+describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     (HocuspocusProvider as any).instances.length = 0;
@@ -117,7 +119,7 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S
     const B = new Y.Doc();
     bWriteNode(B, 'b1', 9);
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(B), 'network');
-    await vi.advanceTimersByTimeAsync(60); // 50ms 去抖 → apply 周期（applyDocToStore+S1+周期末尾断言）
+    await vi.advanceTimersByTimeAsync(60); // 50ms 去抖 → apply 周期（applyDocToStore+周期末尾断言）
     expect(doc.getMap('nodes').get('b1')).toBeTruthy();
     expect(useCanvasStore.getState().nodes.map((n: any) => n.id).sort()).toEqual([a1, 'b1'].sort());
     expect(runtime.checkProjectionInvariant(doc)).toBe(true);
@@ -161,7 +163,7 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾，含 S
     expect(m).toBeTruthy();
     expect(m![0]).toContain('applyDocToStore(doc!)');
     expect(m![0]).toContain('checkProjectionInvariant');
-    // 周期末尾语义：检查在 apply 之后（S1 补跑已含在 applyDocToStore 内）
+    // 周期末尾语义：检查在 apply 之后（applyDocToStore 内收尾）
     expect(m![0].indexOf('applyDocToStore(doc!)')).toBeLessThan(m![0].indexOf('checkProjectionInvariant'));
   });
 
@@ -195,6 +197,7 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
     await driveToSyncedRw('p1');
     const A = runtime.getDoc()!;
     const B = new Y.Doc();
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));   // O0b-0：对端自 server 载入（A 已有 meta 戳——两 doc 同源）
     // 双向网络：A↔B 互通（applyUpdate 幂等——无新内容的回流不再产生 update，无转发循环）
     A.on('update', (u) => Y.applyUpdate(B, u, 'network'));
     B.on('update', (u) => Y.applyUpdate(A, u, 'network'));
@@ -214,7 +217,7 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
       ]);
     }
     for (let i = 1; i <= 5; i++) bWriteNode(B, 'b1', 100 + i);
-    await vi.advanceTimersByTimeAsync(60); // burst 后 apply 周期（applyDocToStore+S1+周期末尾断言）
+    await vi.advanceTimersByTimeAsync(60); // burst 后 apply 周期（applyDocToStore+周期末尾断言）
 
     // 计数锚点：静止窗口起点
     let aLocalWrites = 0;
@@ -226,7 +229,7 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
 
     await vi.advanceTimersByTimeAsync(500); // 静止窗口 N ms（>50ms 防抖+去抖余量；<3s 心跳不触发）
 
-    // 无乒乓：A 零新本地写（若 apply 幂等性破——S1 回写反复触发，此处>0）+ B 零新入站（链静止）
+    // 无乒乓：A 零新本地写（若 apply 幂等性破——回写反复触发，此处>0）+ B 零新入站（链静止）
     expect(aLocalWrites).toBe(0);
     expect(bInbound).toBe(0);
     // 收敛：两 doc 状态向量相等（见过同一操作集）+ 内容相等
@@ -236,25 +239,25 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
     expect(runtime.checkProjectionInvariant(A)).toBe(true);
   });
 
-  it('组节点场景 quiescence：S1 补几何一轮回写后静止（写放大判据——refit/normalizeLoadedCanvas 幂等）', async () => {
+  it('组节点场景 quiescence：恢复链零回写（S1 停写——B 端 auto 组 apply 后零几何回写）', async () => {
     await driveToSyncedRw('p1');
     const A = runtime.getDoc()!;
     const B = new Y.Doc();
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));   // O0b-0：对端自 server 载入（A 已有 meta 戳——两 doc 同源）
     A.on('update', (u) => Y.applyUpdate(B, u, 'network'));
     B.on('update', (u) => Y.applyUpdate(A, u, 'network'));
 
-    // 对端建"缺几何组"（子相对坐标形态——normalizeLoadedCanvas 守恒归位的目标形状）：
-    // 组 g1 无 width/height，子 c1 parentId=g1、rel 坐标
+    // 对端建 auto 组（O0 键集形态：组无 width/height，子 c1 parentId=g1、doc abs 坐标）
     B.transact(() => {
       fillDoc(B, [
-        { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: {} },
+        { id: 'g1', type: 'group', data: {} },
         { id: 'c1', type: 'textInput', parentId: 'g1', position: { x: 10, y: 10 }, data: {} },
       ] as any, []);
+      stampDocSchema(toDocLike(B));   // O0b-0：v2 戳随 update 传播到 A
     }, 'b-edit');
-    await vi.advanceTimersByTimeAsync(60); // apply 周期：补几何 → S1 回写一轮（Origin.Geometry）
+    await vi.advanceTimersByTimeAsync(60); // apply 周期：恢复链零回写（S1 停写）
 
-    // S1 回写后下一轮静止判据：非几何远端帧触发下一轮 apply——几何已收敛（g1 有 width/height →
-    // normalizeLoadedCanvas continue、refit 幂等），零几何回写即无写放大
+    // 静止判据：非几何远端帧触发下一轮 apply——恢复链结构上零 Geometry 事务（S1 停写）
     let geoWrites = 0;
     A.on('afterTransaction', (tr) => { if (tr.origin === Origin.Geometry) geoWrites++; });
     B.transact(() => {
@@ -264,7 +267,7 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
     }, 'b-edit');
     await vi.advanceTimersByTimeAsync(60);
     await vi.advanceTimersByTimeAsync(500);
-    expect(geoWrites).toBe(0); // 第二轮起零几何回写（无写放大——位置帧会合法触发新一轮 S1，故用 data 帧）
+    expect(geoWrites).toBe(0); // 恢复链零几何回写（S1 停写——结构性）
     expect(Y.encodeStateVector(A)).toEqual(Y.encodeStateVector(B));
     expect(runtime.checkProjectionInvariant(A)).toBe(true);
   });

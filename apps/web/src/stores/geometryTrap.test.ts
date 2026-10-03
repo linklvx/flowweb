@@ -165,10 +165,12 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   // （陷阱守卫测试手写 setState 是造案的存在目的——allow-list 第 39 条 sanctioned 例外）
   // + O0a-1 canvasIntents.spec 剥键锚用例 +2 处（diff 剥键锚需 cs 直写构造 before/after 差——同例外）
   // + O0a-1 评审收口集成造案 +2 处（批尾 DEV throw 挂点守卫——镜像 store 构造 before/after，同例外）
-  // + O0a-1 质评 I-1 零位移角点造案 +2 处（补发 moveNode 剥键守卫——构造入分镜组零位移差，同例外）。
+  // + O0a-1 质评 I-1 零位移角点造案 +2 处（补发 moveNode 剥键守卫——构造入分镜组零位移差，同例外）
+  // + O0b-0 格式批造案 +5 处/1 文件（canvasCollabRuntime.geometry.test.ts——翻转主锚/S1 停写锚/
+  //   读侧版本门的装置清理与 rw 窗口构造，同例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 216;
-  const BASELINE_FILES = 39;
+  const BASELINE_COUNT = 221;
+  const BASELINE_FILES = 40;
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -182,7 +184,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
     }
   }
 
-  it('test/spec 面 store 侧 setState 处数 ≤216 且文件数 ≤39（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案，只降不升）', () => {
+  it('test/spec 面 store 侧 setState 处数 ≤221 且文件数 ≤40（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1，只降不升）', () => {
     let count = 0;
     let files = 0;
     for (const f of walkTestFiles(SRC_ROOT)) {

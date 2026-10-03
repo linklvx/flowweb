@@ -18,7 +18,8 @@ import { checkProjectionInvariant } from './canvasCollabRuntime';
 import { dispatchCanvasIntent, dispatchProjectionDiff, captureStoreProjection, _setIntentDocForTest } from './canvasIntents';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { seedCanvas } from '@/test/fixtures/canvas';
-import { fillDoc } from '@/collab/ydocBuilder';
+import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { stampDocSchema, toDocRecords } from '@flowweb/shared';
 import { Origin } from './canvasUndo';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 
@@ -73,8 +74,9 @@ describe('批4b-1：七 action 三面（doc 直写 + store 投影回填 + 批4a 
   });
 
   it('①addNode 组子形态（parentId/width/height）：信封完整落 doc 与 cs', () => {
+    // O0b-0：auto 组 intent.node 无 position（键集表 0 帧键——cs {0,0} 构造默认随 upsert 落）
     dispatchCanvasIntent({ type: 'addNode', node: {
-      id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' },
+      id: 'g1', type: 'group', data: { groupType: 'normal' },
     } }, Origin.LocalUser);
     dispatchCanvasIntent({ type: 'addNode', node: {
       id: 'c1', type: 'textInput', parentId: 'g1', width: 320, height: 180,
@@ -133,7 +135,7 @@ describe('批4b-1：七 action 三面（doc 直写 + store 投影回填 + 批4a 
 
   it('⑤updateNodeEnvelope：width/height/parentId/type 四键直写 + cs 投影 + 不变量', () => {
     dispatchCanvasIntent({ type: 'addNode', node: {
-      id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' },
+      id: 'g1', type: 'group', data: { groupType: 'normal' },   // O0b-0：auto 组无 position（键集表）
     } }, Origin.LocalUser);
     dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10) }, Origin.LocalUser);
     dispatchCanvasIntent({ type: 'updateNodeEnvelope', id: 'n1', patch: { parentId: 'g1', width: 500, height: 400 } }, Origin.LocalUser);
@@ -155,7 +157,7 @@ describe('批4b-1：七 action 三面（doc 直写 + store 投影回填 + 批4a 
 
   it('⑤updateNodeEnvelope 删键约定：patch 值 undefined ⇒ 信封键删（脱离组形态）', () => {
     dispatchCanvasIntent({ type: 'addNode', node: {
-      id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' },
+      id: 'g1', type: 'group', data: { groupType: 'normal' },   // O0b-0：auto 组无 position（键集表）
     } }, Origin.LocalUser);
     dispatchCanvasIntent({ type: 'addNode', node: {
       id: 'c1', type: 'textInput', parentId: 'g1', width: 320, height: 180,
@@ -235,7 +237,7 @@ describe('批4b-1：dispatch 入口契约（门 C 判据②——拦截点前移
     const origins: unknown[] = [];
     doc.on('afterTransaction', (tr) => { txCount++; origins.push(tr.origin); });
     dispatchCanvasIntent([
-      { type: 'addNode', node: { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal' } } },
+      { type: 'addNode', node: { id: 'g1', type: 'group', data: { groupType: 'normal' } } },   // O0b-0：auto 组无 position
       { type: 'addNode', node: rec('c1', 10) },
       { type: 'updateNodeEnvelope', id: 'c1', patch: { parentId: 'g1' } },
       { type: 'upsertEdge', edge: { id: 'e1', source: 'g1', target: 'c1' } },
@@ -708,6 +710,7 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
       position: { x: 0, y: 0 },
       data: { images: [], mainImageIndex: 0, expanded: true, nodeStatus: 'done' },
     } as any], []);
+    stampDocSchema(toDocLike(doc));   // O0b-0：读侧版本门要求 v2 戳（fillDoc 不写 meta）
     applyDocToStore(doc);
     // expanded 在 doc——远端 apply 重建 ns/cs 后保持源值（渲染尺寸≡doc 尺寸的 data 前提）
     expect((useNodeStore.getState().nodes['m1'].data as any).expanded).toBe(true);
@@ -739,10 +742,9 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
 // 锚语义：auto 组只改 data ⇒ 恰 1 个 updateNodeData ∧ 零 envelope/moveNode（plan O0a-3 Step 1）。
 // 观察面=漏斗出口：data 落 doc 证明 updateNodeData 在场；cs 组对象身份不变证明零 envelope/moveNode
 // （两者的 store 投影会重建 cs 节点对象——同值也重建；updateNodeData 走 ns 面、'name' 非桥键
-// CANVAS_BRIDGE_KEYS 不触 cs）。identity 档下投影几何=换芯前逐位（toDocRecords 剥键在 cs 投影面
-// 经构造回填——剥键可见面=DocNodeRecord 出口非本漏斗），故本锚是跨换芯的行为等价守卫。
-// O0b 挂点：夹具经 fillDoc 给 auto 组落 doc position=现态生产一致（差分 addNode 现状确实写）；
-// O0b 几何锚"打开⇒doc 无 auto 组帧键"落地时本锚夹具需同批重建。
+// CANVAS_BRIDGE_KEYS 不触 cs）。
+// O0b-0 挂点兑现（原预告 2026-10-02）：夹具改键集表形态——auto 组 fillDoc 不落 position 键
+// （O0 键集：auto 组 0 帧键），断言改"doc 无 position 键"。
 describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
   let doc: Y.Doc;
   beforeEach(() => {
@@ -752,7 +754,7 @@ describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
   });
   afterEach(() => _setIntentDocForTest(null));
 
-  it('auto 组只改 data ⇒ 恰 1 个 updateNodeData（data 落 doc）∧ 零 envelope/moveNode（cs 组对象身份不变∧doc 几何逐位不变）', () => {
+  it('auto 组只改 data ⇒ 恰 1 个 updateNodeData（data 落 doc）∧ 零 envelope/moveNode（cs 组对象身份不变∧doc 无 position 键）', () => {
     // auto 组：cs 无 width/height（record 键集判定非 manual——0 帧键形态）。
     // cs 构造走 seedCanvas 夹具入口（C0-2 纪律——几何 setState 棘轮零增长）
     const autoGroup = () => ({
@@ -760,7 +762,8 @@ describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
       data: { groupType: 'normal', name: 'a' },
     } as any);
     seedCanvas([autoGroup()]);
-    fillDoc(doc, [{ id: 'g1', type: 'group', position: { x: 10, y: 20 }, data: { groupType: 'normal', name: 'a' } } as any], []);
+    // O0b-0 键集表形态：doc 面 auto 组无 position 键（cs 层 position 保留=投影面构造）
+    fillDoc(doc, [{ id: 'g1', type: 'group', data: { groupType: 'normal', name: 'a' } } as any], []);
     const before = captureStoreProjection();
     // 只改 data：cs 组 data name a→b（F42——组 data 真值在 cs）
     seedCanvas([{ ...autoGroup(), data: { groupType: 'normal', name: 'b' } }]);
@@ -771,8 +774,8 @@ describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
     expect((m.get('data') as Y.Map<any>).get('name')).toBe('b');
     // 零 envelope/moveNode：cs 组对象身份不变（同值 no-op 不适用——投影回填恒重建对象）
     expect(useCanvasStore.getState().nodes[0]).toBe(gBefore);
-    // doc 几何逐位不变：position 原值∧无 wh 键写入
-    expect((m.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 10, y: 20 });
+    // doc 几何不变：auto 组 doc 无 position 键（键集表形态）∧无 wh 键写入
+    expect(m.has('position')).toBe(false);
     expect(m.has('width')).toBe(false);
     expect(m.has('height')).toBe(false);
     expect(checkProjectionInvariant(doc)).toBe(true);
@@ -796,10 +799,7 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
       data: { groupType: 'storyboard', cells: [] },
     };
     useCanvasStore.setState({ nodes: [sbGroup] as any });
-    fillDoc(doc, [{
-      id: 'sb1', type: 'group', position: { x: 0, y: 0 }, width: 660, height: 371,
-      data: { groupType: 'storyboard', cells: [] },
-    } as any], []);
+    fillDoc(doc, toDocRecords([sbGroup] as any, {}) as any, []);   // O0b-0 同构链（storyboard 组剥 wh）
     const before = captureStoreProjection();
     // 新子落 cs：position {0,0}=构造默认（dropImageIntoStoryboard/mergeStoryboard 同款——纯 DOM 宫格坐标无意义）
     const child = {
@@ -856,7 +856,7 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
       id: 'c1', type: 'imageGen', parentId: 'g1', extent: 'parent',
       position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done' },
     };
-    fillDoc(doc, [g1, c1] as any, []);
+    fillDoc(doc, toDocRecords([g1, c1] as any, {}) as any, []);   // O0b-0 同构链（manual 组保留/子 abs）
     useCanvasStore.setState({ nodes: [g1, c1] as any });
     useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done' } } } as any });
     const before = captureStoreProjection();

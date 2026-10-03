@@ -3,11 +3,24 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
+import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+
+/** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——loadDocument 版本门夹具用） */
+function toDocLike(doc: Y.Doc): DocLike {
+  return {
+    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
+    createMap: () => new Y.Map() as unknown as DocMapLike,
+  };
+}
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 
 function buildDocState(): Buffer {
   const doc = new Y.Doc();
+  // O0b-0：v2 档快照——loadDocument 版本门放行前提（无戳有节点会被拒）
+  stampDocSchema({
+    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
+  } as DocLike);
   const nodes = doc.getMap('nodes');
   const n = new Y.Map();
   n.set('type', 'textInput');
@@ -319,6 +332,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('onLoadDocument：快照 + 增量按序重放', async () => {
       const { onLoadDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
+      stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（版本门放行前提）
       prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
       const incDoc = new Y.Doc(); incDoc.getMap('nodes').set('b', 2);
       repo.loadUpdates.mockResolvedValue([Buffer.from(Y.encodeStateAsUpdate(incDoc))]);
@@ -427,23 +441,26 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const loading = onLoadDocument({ document: doc, documentName: 'project:p1' });
       await new Promise((r) => setImmediate(r));          // 让 loadDocument 跑到 await loadUpdates
       doc.getMap('nodes').set('win1', new Y.Map());       // 加载窗口内写入（模板导入/AI 影子节点场景）
+      stampDocSchema(toDocLike(doc));                     // O0b-0：窗口写入的 doc 视为已盖章形态（版本门放行）
       release();
       await loading;
       const pending = (gateway as any).pendingUpdates.get(doc) as Uint8Array[];
-      expect(pending).toHaveLength(1);                    // 红：现状无监听器概念，pending undefined
+      expect(pending).toHaveLength(2);                    // 窗口写 win1 + 盖章 meta set（两 update 都进 pending）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
       expect(replayOf(appendedRows()).getMap('nodes').has('win1')).toBe(true);
     });
 
-    it('绿1：无变更连续 store 3 次——全部不 append（noop）', async () => {
+    it('绿1（O0b-0 改写）：无戳空档 load 自愈 stamp 恰落库一次——后续连续 store 全部 noop', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);   // stamp 自愈 update 落库（每 doc 至多一次幂等戳）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).not.toHaveBeenCalled();
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });
+      expect(repo.append).toHaveBeenCalledTimes(1);   // 无变更不 append（零写放大契约对已戳 doc 保持）
     });
 
     it('绿1b：tombstone 三段——真实删除落库 / 重复 tombstone 0 事件不落行 / 对端新 struct 必须落库', async () => {
@@ -481,8 +498,9 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('绿1c：重放不进队列——load 完成后 pending 为空', async () => {
       const { onLoadDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
+      stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（已戳重放零新增写——断言前提）
       prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
-      repo.loadUpdates.mockResolvedValue([Buffer.from(Y.encodeStateAsUpdate((() => { const d = new Y.Doc(); d.getMap('nodes').set('b', 2); return d; })()))]);
+      repo.loadUpdates.mockResolvedValue([Buffer.from(Y.encodeStateAsUpdate((() => { const d = new Y.Doc(); d.getMap('nodes').set('b', 2); stampDocSchema(toDocLike(d)); return d; })()))]);
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       expect(doc.getMap('nodes').get('a')).toBe(1);
@@ -553,14 +571,18 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     });
 
     it('绿5b：disconnect 的 wrote 契约——没写就不 compact，写了才 compact（时间窗达标前提）', async () => {
-      const { onLoadDocument, onDisconnect } = extractHooks();
+      const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
       const docA: any = new Y.Doc(); docA.getConnectionsCount = () => 0;
       await onLoadDocument({ document: docA, documentName: 'project:p1' });
+      await onStoreDocument({ document: docA, documentName: 'project:p1' });   // O0b-0：stamp 自愈行先落库——队列净空
+      (repo.append as any).mockClear();
       (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 窗口达标：排除时间门限干扰，只测 wrote 耦合
       await onDisconnect({ document: docA, documentName: 'project:p1' });   // 队列空 → wrote=false
       expect(repo.compact).not.toHaveBeenCalled();
       const docB: any = new Y.Doc(); docB.getConnectionsCount = () => 0;
       await onLoadDocument({ document: docB, documentName: 'project:p2' });
+      await onStoreDocument({ document: docB, documentName: 'project:p2' });   // stamp 落库
+      (repo.append as any).mockClear();
       (gateway as any).lastCompactAt.set('p2', Date.now() - 61_000);
       docB.getMap('nodes').set('x', 1);
       await onDisconnect({ document: docB, documentName: 'project:p2' });
@@ -655,6 +677,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('绿8c：stash-已在-DB 引理——stash 与 DB 同源（同 clientID）→ load 回灌 0 事件 → store 不 append', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
+      stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照
       prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
       (gateway as any).unflushed.set('p1', Y.encodeStateAsUpdate(snapDoc));   // 与快照同源：apply 0 事件
       const doc = new Y.Doc();

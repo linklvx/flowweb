@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { toDocLike } from '../collab/doc-like.util';
-import { fillDoc, normalizeLoadedCanvas, stripAuthorState } from '@flowweb/shared';
+import { fillDoc, stampDocSchema, stripAuthorState } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -54,17 +54,21 @@ export class ProjectService {
       return created;
     });
 
-    if (nodes && nodes.length > 0) {
-      // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）；
-      // 写侧经 shared fillDoc 单源（O0a-2 收编——api 本地手抄本整删，meta 戳/data 全量
-      // 写入/edges 单形状随函数同源）；记录经 stripAuthorState 剥键回作者态（spec ③记录契约：
-      // fillDoc 只接受其输出——分镜子 position/组帧键按组类型键集表）
-      await this.collabDoc.withDoc(project.id, (doc) => {
-        // R1b Task 20：写 doc 前过 normalizeLoadedCanvas（幂等保险——与浏览器 applyDocToStore 同一函数，非补齐依赖）
-        const seeded = normalizeLoadedCanvas(nodes as any);
-        fillDoc(toDocLike(doc), stripAuthorState(seeded), edges ?? []);
-      });
-    }
+    // O0b-0 版本门 v2.1：REST 种子唯一戳点——withDoc 无条件执行（去 nodes.length>0 闸门：
+    // 闸门内=REST 建项目 controller:17 传 undefined 永不落 doc 不盖章；副作用=空画布也稳定
+    // 产生 CanvasDoc 行+盖章——空档无戳∧零节点在 WS loadDocument 自愈兜底前先有确定性戳）。
+    // 带节点链（clone 传数组/import 随 (a1) 删）经同一回调。
+    await this.collabDoc.withDoc(project.id, (doc) => {
+      stampDocSchema(toDocLike(doc));
+      if (nodes && nodes.length > 0) {
+        // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）；
+        // 写侧经 shared fillDoc 单源（O0a-2 收编——data 全量写入/edges 单形状随函数同源）；
+        // 记录经 stripAuthorState 剥键回作者态（spec ③记录契约：fillDoc 只接受其输出——
+        // 分镜子 position/组帧键按组类型键集表）。O0b-0：normalizeLoadedCanvas 补缺层整删
+        //（翻转后 doc=完整作者态，补几何语义死——种子直读 strip 输出）
+        fillDoc(toDocLike(doc), stripAuthorState(nodes as any), edges ?? []);
+      }
+    });
 
     return this.findById(project.id);
   }

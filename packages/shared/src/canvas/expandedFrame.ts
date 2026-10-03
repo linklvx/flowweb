@@ -1,6 +1,6 @@
 // packages/shared/src/canvas/expandedFrame.ts
 // R2d-1（§4.9 改道）：展开帧单源——折叠组展开/加载补缺共用的纯函数阶梯。
-// 消费方：canvasStore.toggleCollapse（展开档）、normalizeLoadedCanvas（加载缺几何补齐/storyboard 脏修复）。
+// 消费方：canvasStore.toggleCollapse（展开档）；normalizeLoadedCanvas 消费点已随 O0b-0 整删。
 import { calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE } from './geometry';
 import { DEFAULT_STORYBOARD_CONFIG } from './storyboardConfig';
 import type { StoryboardConfig } from '../types/group';

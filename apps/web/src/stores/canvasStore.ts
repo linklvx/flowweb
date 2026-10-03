@@ -1830,7 +1830,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const { frame, rels } = refitGroupGeometry(
       children.map((n) => ({
         x: n.position.x + group.position.x, y: n.position.y + group.position.y,
-        width: n.width ?? DEFAULT_CHILD_SIZE.width,      // v6 纪律三：无 measured——与 normalizeLoadedCanvas/assertInvariant 一字不差同源
+        width: n.width ?? DEFAULT_CHILD_SIZE.width,      // v6 纪律三：无 measured——与 assertInvariant 同源（normalizeLoadedCanvas 已随 O0b-0 整删）
         height: n.height ?? DEFAULT_CHILD_SIZE.height,
       })),
     );

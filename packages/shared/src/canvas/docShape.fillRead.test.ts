@@ -79,11 +79,11 @@ describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源—
     expect(out.nodes[0].height).toBeUndefined();
   });
 
-  it('meta.schemaVersion stamp（现状行为保持——O0b-0 才删 stamp 换唯一戳源）', () => {
+  it('fillDoc 不写 meta（O0b-0 戳源唯一化——stamp 唯一自愈点=WS loadDocument/api 种子显式 stampDocSchema）', () => {
     const doc = new FakeDoc();
     fillDoc(doc, [], []);
-    expect(doc.getMap('meta').get('schemaVersion')).toBe(CANVAS_DOC_SCHEMA_VERSION);
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(1);
+    expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined();
+    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(2);
   });
 });
 

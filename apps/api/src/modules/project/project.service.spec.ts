@@ -81,7 +81,7 @@ describe('ProjectService', () => {
       const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
       await service.create('导入', 'u1', nodes, edges);
 
-      expect(doc.getMap('meta').get('schemaVersion')).toBe(1); // fillDoc 戳——web buildDocFromSnapshot 同构
+      expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // O0b-0：种子显式 stampDocSchema（fillDoc 已不写 meta——戳源唯一化）
       const n1 = doc.getMap('nodes').get('n1') as Y.Map<any>;
       expect(n1.get('type')).toBe('textInput');
       expect(n1.get('position')).toBeInstanceOf(Y.Map);
@@ -120,7 +120,21 @@ describe('ProjectService', () => {
       expect((c1.get('data') as Y.Map<any>).get('fileId')).toBe('f');
     });
 
-    it('登录创建者写入 PROJECT_OWNER 成员记录', async () => {
+    it('O0b-0 正锚②：REST 建空项目（controller:17 传 undefined）→ withDoc 仍被调（去 nodes.length 闸门——空画布也落 doc 行+盖章）', async () => {
+    const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+    prisma.canvasProject.create.mockResolvedValue(mockProject);
+    prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+    const doc = new Y.Doc();
+    (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
+
+    await service.create('未命名项目', 'u1');
+
+    expect((service as any).collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
+    expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // 空画布也稳定盖章
+    expect(doc.getMap('nodes').size).toBe(0);                // 无节点写入
+  });
+
+  it('登录创建者写入 PROJECT_OWNER 成员记录', async () => {
       const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);

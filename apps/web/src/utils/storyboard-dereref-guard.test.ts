@@ -36,11 +36,10 @@ function listTsFiles(dir: string): string[] {
  *  预授权=给 R2 开后门（门禁形同虚设）；R2 新命令真需要豁免时扩本表并同步 spec。
  *  R1b Task 17 扩面登记：
  *  - shared canvas/storyboardConfig.ts——解析器本体（自 web 迁入 shared）
- *  - shared canvas/normalizeLoadedCanvas.ts——`d.storyboard` 仅真值判定+原样喂入 resolver，零本地消费 */
+ *  O0b-0：normalizeLoadedCanvas.ts 行随模块整删摘除（剥键/补缺层退役——消费点归 storyboardConfig 本体）。 */
 const ALLOW_FILES = [
   'apps/web/src/utils/storyboardConfig.ts',
   'packages/shared/src/canvas/storyboardConfig.ts',
-  'packages/shared/src/canvas/normalizeLoadedCanvas.ts',
 ];
 
 describe('.storyboard 裸解引用门禁（F2 冻结面——防新消费点绕过 resolver）', () => {
@@ -48,7 +47,7 @@ describe('.storyboard 裸解引用门禁（F2 冻结面——防新消费点绕�
     const files = SCAN_DIRS.flatMap(listTsFiles);
     expect(files.length).toBeGreaterThan(100);
     expect(files.some((f) => f.includes('canvasStore'))).toBe(true);
-    expect(files.some((f) => f.includes('normalizeLoadedCanvas'))).toBe(true);   // 扩面覆盖 shared canvas 的自证
+    expect(files.some((f) => f.includes('docShape'))).toBe(true);   // 扩面覆盖 shared canvas 的自证（O0b-0：自证对象换仍在册模块）
   });
 
   it('allowlist 外零命中', () => {

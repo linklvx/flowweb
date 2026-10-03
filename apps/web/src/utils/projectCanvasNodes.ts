@@ -1,4 +1,4 @@
-import { normalizeCanvasRecord, toDocRecords, type CanvasNodeRecord, type MinimalCSNode } from '@flowweb/shared';
+import { toDocRecords, type CanvasNodeRecord, type MinimalCSNode } from '@flowweb/shared';
 
 /** ephemeral 键集（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode=本地瞬态
  *  UI 键（编辑态只活在 ns data 本地面），禁入 doc/cs 持久面；expanded 是 doc 态
@@ -17,22 +17,21 @@ export function stripEphemeralDataKeys(data: Record<string, unknown>): Record<st
 }
 
 /** store→doc 投影（O0a-3 换芯薄化——双源合并+键集表内剥键单源=shared toDocRecords，本函数只剩
- *  cs 投影面适配）：DocNodeRecord 剥键出口回填 cs 构造几何（三层表第三层：cs 恒有 position——
- *  剥键可见面=toDocRecords 出口非本函数；位置/宽高语义与换芯前逐位等价，diff/invariant 面
- *  行为不变）+ ephemeral 键剥（口径 13——shared 不可见的 web 键集）+ normalizeCanvasRecord
- *  写侧归一（真删键）。width 不含 measured——resize 经 applyNodeChanges 写 cs.width。 */
+ *  cs 投影面适配）：ephemeral 键剥（口径 13——shared 不可见的 web 键集）。
+ *  O0b-0：剥键形态原样直构（normalizeCanvasRecord 内核 position 无条件写键——必填类型，不满足
+ *  剥键形态；cs 回填逆映射也一并删——把键集剥掉的 position/wh 拼回会破 doc≡store 同形。
+ *  doc 缺键⇄出口无键同形——fast-deep-equal keys 长度敏感）。O0b-2 投影层几何键全删时本面随收口。 */
 export function projectCanvasNodes(
   csNodes: MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
 ): CanvasNodeRecord[] {
-  const csById = new Map(csNodes.map((n) => [n.id, n] as const));
-  return toDocRecords(csNodes, nsNodes).map((r) => normalizeCanvasRecord({
+  return toDocRecords(csNodes, nsNodes).map((r) => ({
     id: r.id,
     type: r.type,
-    parentId: r.parentId ?? null,
-    position: r.position ?? csById.get(r.id)!.position, // cs 投影面回填（剥键逆映射——identity 逐位；O0b-2 投影层几何键全删时本回填整删——投影面不再持有几何，勿在此续修）
-    width: r.width ?? csById.get(r.id)!.width ?? null,
-    height: r.height ?? csById.get(r.id)!.height ?? null,
+    ...(r.parentId != null ? { parentId: r.parentId } : {}),
+    ...(r.position != null ? { position: r.position } : {}),
+    ...(r.width != null ? { width: r.width } : {}),
+    ...(r.height != null ? { height: r.height } : {}),
     data: stripEphemeralDataKeys(r.data),
-  }));
+  }) as CanvasNodeRecord);
 }

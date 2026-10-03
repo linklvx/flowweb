@@ -106,27 +106,28 @@ describe('ydocBuilder 信封收敛（R1a）', () => {
   });
 });
 
-describe('批2-3：doc meta schemaVersion（R1c 前置物）', () => {
-  it('fillDoc 写 meta.schemaVersion=1', () => {
+describe('批2-3 沿革（O0b-0 改写）：fillDoc 不写 meta——戳源唯一化（stamp 唯一自愈点=WS loadDocument/api 种子）', () => {
+  it('fillDoc 不写 meta.schemaVersion（meta 零键）', () => {
     const doc = new Y.Doc();
     fillDoc(doc, [], []);
-    expect(doc.getMap('meta').get('schemaVersion')).toBe(1);
+    expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined();
+    expect(doc.getMap('meta').size).toBe(0);
   });
 
-  it('buildDocFromSnapshot 构造入口同携带', () => {
+  it('buildDocFromSnapshot 构造入口同样不写 meta（同函数语义）', () => {
     const doc = buildDocFromSnapshot([], []);
-    expect(doc.getMap('meta').get('schemaVersion')).toBe(1);
+    expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined();
   });
 
-  it('真 Y.Doc 经 fillDoc → encodeStateAsUpdate → 新 doc 读回仍为 1（服务端持久判据：随 update 传播）', () => {
+  it('真 Y.Doc 经 fillDoc → encodeStateAsUpdate → 新 doc 读回仍无戳（update 流不含 meta 写）', () => {
     const a = new Y.Doc();
     fillDoc(a, [], []);
     const b = new Y.Doc();
     Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
-    expect(b.getMap('meta').get('schemaVersion')).toBe(1);
+    expect(b.getMap('meta').get('schemaVersion')).toBeUndefined();
   });
 
-  it('fillDoc 同值重写 no-op（syncStoreToDoc 逐新节点调 fillDoc——防 doc 膨胀）', () => {
+  it('fillDoc 空记录重写 no-op（零 meta 写后天然幂等——防 doc 膨胀契约保持）', () => {
     const doc = new Y.Doc();
     fillDoc(doc, [], []);
     const sv = Y.encodeStateVector(doc);

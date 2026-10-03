@@ -6,7 +6,7 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
 import { buildFilteredSnapshot, CLONE_WHITELIST, type RawCanvasData, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
-import { normalizeLoadedCanvas, validateParentGraph } from '@flowweb/shared';
+import { validateParentGraph } from '@flowweb/shared';
 
 const CLONE_TIMEOUT_MS = 10_000; // read + create 同一有界等待（create 内部 withDoc 同样会挂起）
 
@@ -47,10 +47,9 @@ export class VideoWorkCloneService {
       const { violations } = validateParentGraph(nodes, 'clone');
       if (violations.some((v) => v.kind === 'cycle')) throw new BadRequestException('画布存在组引用环，无法克隆');
       if (violations.some((v) => v.kind === 'nested-group')) throw new BadRequestException('画布存在嵌套组，无法克隆');
-      // R1b Task 20：remap 后喂 doc 前过 normalizeLoadedCanvas（幂等保险——与浏览器 applyDocToStore
-      // 同一函数，非补齐依赖；remap 只换 id 不动几何，此处对带几何克隆体零补缺）
-      const seeded = normalizeLoadedCanvas(nodes as any);
-      const project = await this.projectService.create(`${w.title} (副本)`, userId, seeded, edges);
+      // O0b-0：normalizeLoadedCanvas 补缺层整删——clone 直读 doc（白名单过滤+remap 后直传；
+      // 翻转后 doc=完整作者态，补几何语义整族死；盖章由 create 内种子戳点统一落）
+      const project = await this.projectService.create(`${w.title} (副本)`, userId, nodes, edges);
       return { projectId: project.id };
     };
     let timer: ReturnType<typeof setTimeout>;

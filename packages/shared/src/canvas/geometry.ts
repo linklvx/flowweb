@@ -23,7 +23,7 @@ export const STITCH_WIDTH_MAP = { '2K': 2048, '4K': 3840 } as const;
 
 /** 子节点缺测量时的 rect 基准（`?? 280 / ?? 120` 内联单源化——sweep 必含 Task 14 clamp 守卫
  *  的 canvasStore.ts onNodesChange 内 cw/ch 两行（唯一 measured 夹在 ?? 与字面量之间的位置——漏扫留最隐蔽不同源），
- *  另含 normalizeLoadedCanvas/applyGroupFrame/addToGroup 分支 A/assertInvariant 四处派生公式点） */
+ *  另含 applyGroupFrame/addToGroup 分支 A/assertInvariant 派生公式点；normalizeLoadedCanvas 消费点已随 O0b-0 整删） */
 export const DEFAULT_CHILD_SIZE = { width: 280, height: 120 } as const;
 
 /** 折叠组尺寸（R2d-2 改值 220×160；原 canvasStore.ts/NormalGroupRenderer.tsx 两处内联 200×64——R1b 单源化） */
@@ -115,7 +115,7 @@ export function calcGroupMinSize(
 }
 
 /** 组几何唯一重算纯函数（契约 2/§4.8 v11）：输入子节点绝对 rect，输出 frame + 每子 rel（= abs − frame.origin）。
- *  rels[i] 与入参 children[i] 按索引一一对应——消费方（applyGroupFrame/normalizeLoadedCanvas）依赖此序写回，
+ *  rels[i] 与入参 children[i] 按索引一一对应——消费方（applyGroupFrame；normalizeLoadedCanvas 已随 O0b-0 整删、reconcile 沿用此序）依赖此序写回，
  *  喂入前重排即静默错位。
  *  守恒：重算型调用下子绝对坐标不变（rel 随 frame 补偿）——F33 整类根修。
  *  无 clamp（v11 推翻）：frame = bbox+padding 使 rel ∈ [padding, frame−padding−size] 恒成立（数学构造保证）；

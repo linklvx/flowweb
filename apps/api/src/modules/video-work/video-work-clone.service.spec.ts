@@ -7,7 +7,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
-import { normalizeLoadedCanvas, calcStoryboardSize } from '@flowweb/shared';
 
 describe('VideoWorkCloneService.clone', () => {
   let svc: VideoWorkCloneService;
@@ -173,9 +172,10 @@ describe('VideoWorkCloneService.clone', () => {
     const createdNodes = projectService.create.mock.calls[0][2] as any[];
     const group = createdNodes.find((n: any) => n.type === 'group');
     expect(group.data.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
-    // v2.2 分镜组不可折叠——collapsed/savedSize 属脏键，clone 经 normalizeLoadedCanvas 剥除（R2d-1）
-    expect('collapsed' in group.data).toBe(false);
-    expect('savedSize' in group.data).toBe(false);
+    // O0b-0：normalizeLoadedCanvas 剥键层整删——clone 直读 CLONE_WHITELIST（group 9 键含
+    // collapsed/savedSize 原样保留；脏键整链清理归 O0b-5 savedSize 删除批）
+    expect(group.data.collapsed).toBe(false);
+    expect(group.data.savedSize).toEqual({ width: 100, height: 60 });
     expect(group.data.manuallyResized).toBe(true);
     expect(group.data.cells).toBeDefined();
   });
@@ -192,24 +192,27 @@ describe('VideoWorkCloneService.clone', () => {
     expect(imageGen.data.status).toBe('idle'); // v2 修正：resetStatusIdle 写 'idle' 非剥除
   });
 
-  it('normalizeLoadedCanvas 幂等保险（Task 20）：组带几何时 remap 后过挂载点零补缺——create 收到的 nodes 再过同一函数输出深等', async () => {
+  it('O0b-0：clone 直读 doc 无补缺层——组带几何时 remap 后 create 收到的 nodes 几何原样透传（remap 只换 id 不动几何）', async () => {
     setup();
     const raw = rawCanvas();
     const grp = raw.nodes.find((n: any) => n.id === 'grp') as any;
-    grp.width = 642;   // 源组带几何 → normalizeLoadedCanvas 早退（幂等保险非补齐依赖：几何齐全时不改写）
+    grp.width = 642;   // 源组带几何 → 直读透传（翻转后补几何语义整族死——无幂等保险层）
     grp.height = 362;
     collabDoc.readCanvas.mockResolvedValue(raw);
     await svc.clone('w1', 'u1');
     const passedNodes = projectService.create.mock.calls[0][2] as any[];
-    expect(normalizeLoadedCanvas(structuredClone(passedNodes))).toEqual(passedNodes);
+    const passedGrp = passedNodes.find((n: any) => n.type === 'group');
+    expect(passedGrp.width).toBe(642);
+    expect(passedGrp.height).toBe(362);
   });
 
-  it('缺几何组克隆 → normalizeLoadedCanvas 补齐 width/height（挂载存在性钉子：删 service 内该调用即红）', async () => {
+  it('O0b-0：缺几何组克隆直读无补缺——create 收到的组无 width/height（挂载点已删，补几何语义整族死）', async () => {
     setup(); // rawCanvas 的 grp 本就不带 width/height
     await svc.clone('w1', 'u1');
     const passedNodes = projectService.create.mock.calls[0][2] as any[];
     const grp = passedNodes.find((n: any) => n.type === 'group');
-    expect(grp.width).toBe(calcStoryboardSize(2, 2, '16:9').width); // 补齐走 storyboard cfg 公式（16:9 2×2）
+    expect(grp.width).toBeUndefined();
+    expect(grp.height).toBeUndefined();
   });
 
   it('组引用环（Task 21 clone 档）：remap 后仍存环 → 400 拒绝克隆（环挂死 RF 无降级）', async () => {

@@ -8,8 +8,8 @@ import { useNodeStore } from './nodeStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { attachUndoManager, detachUndoManager } from './canvasUndo';
-import { fillDoc } from '@/collab/ydocBuilder';
-import { calcGroupBounds } from '@flowweb/shared';
+import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { stampDocSchema } from '@flowweb/shared';
 
 /** rw 漏斗窗口（canEdit 真）——dispatch 落注入的裸 doc */
 function openRwWindow() {
@@ -66,10 +66,8 @@ describe('W7 红转绿门槛（几何进 doc——删 W7 不丢链路的锚）',
   });
 });
 
-// S1 装置：doc 里 g1 存量几何违反不变量（10×10 框 100×60 子）——normalizeLoadedCanvas 有几何早退，
-// refitExpandedGroups 重算 frame → S1 diff 非空（回写触发器）。
-// 注：夹具刻意不用"缺几何组"——守恒归位后 refit 与 normalizeLoadedCanvas 同一部法律，幂等同值 →
-// diff 恒空、S1 永不触发；可触发的 repair 向量正是"违反不变量的存量 frame"（plan Task 17 Step 3 ②）。
+// O0b-0 停写装置：doc 里 g1 存量几何违反不变量（10×10 框 100×60 子）——S1 已停写（O0b-0），
+// doc 保持原值；几何修复职责移交 reconcile 写 cs 面（写域②直拷）。
 const S1_DOC = () => {
   useCanvasStore.setState({ nodes: [], edges: [] });
   useNodeStore.setState({ nodes: {} as any });
@@ -79,49 +77,52 @@ const S1_DOC = () => {
     { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 100, height: 60, data: {} },
     { id: 'n1', type: 'textInput', position: { x: 50, y: 50 }, width: 100, height: 40, data: { fileId: 'new' } },
   ] as any, []);
+  stampDocSchema(toDocLike(d));
   return d;
 };
 
-describe('S1 hydrate 收尾回写（Task 17 审查——applyDocToStore 直驱）', () => {
+describe('O0b-0 S1 停写：恢复链零回写（applyDocToStore 直驱——结构锚）', () => {
   afterEach(() => detachUndoManager());
 
-  it('C1 回归：S1 回写须发生在 ns 刷新之后——陈旧 ns data 不得经投影回写覆盖协作者已提交的编辑', () => {
+  it('恢复链零回写+ns 刷新不回退协作者编辑：applyDocToStore 后 doc 零写∧doc fileId 保持远端值', () => {
     const d = S1_DOC();
     // ns 预置陈旧 data：doc 里 fileId 已是协作者刚提交的 'new'，本端 ns 镜像还停在 'old'
     useNodeStore.setState({ nodes: { n1: { id: 'n1', type: 'textInput', data: { fileId: 'old' } } } as any });
+    let docWrites = 0;
+    d.on('afterTransaction', () => { docWrites++; });
     applyDocToStore(d);
+    // ns 刷新发生（C1 语义保留）：storeProjection 普通节点 ns 优先——ns 必须吃到 doc 新值
+    expect((useNodeStore.getState().nodes['n1'].data as any).fileId).toBe('new');
+    // 零回写（S1 停写）：doc 事务计数=0——陈旧 ns 无回写通道（结构性保证取代时序约束）
+    expect(docWrites).toBe(0);
     const m = d.getMap('nodes').get('n1') as any;
     expect(m.get('data').get('fileId')).toBe('new');
-    // 修复前红相：S1 在 ns 刷新前回写，projectCanvasNodes 普通节点 ns 优先 → doc fileId 被 'old' 覆盖（分裂脑）
   });
 
-  it('Geometry 事务不入撤销栈（S1 回写 origin 不在 trackedOrigins——撤销的是修复不是用户编辑）', () => {
+  it('undo 栈零污染：applyDocToStore 无 Geometry 回写事务（S1 停写——撤销面无系统修复项）', () => {
     const d = S1_DOC();
     const um = attachUndoManager(d);
-    applyDocToStore(d);   // 带 S1 diff（g1 refit 改框）→ dispatchSystemIntents(d, intents, Origin.Geometry)
+    applyDocToStore(d);
     expect(um.undoStack.length).toBe(0);
   });
 
-  it('S1 有 diff 时回写发生：doc 违反不变量的组框经 refit 修复写回（回写可见）', () => {
+  it('S1 停写：违反不变量的组框不再回写 doc——doc 原值保持（修复职责移交 reconcile 写 cs 面）', () => {
     const d = S1_DOC();
-    // 批2-2：S1 回写是 rw 会话行为——直驱装置显式置非只读（默认 collabReadOnly=true 会被硬门拦）
     useCanvasStore.setState({ collabReadOnly: false });
-    // 期望 = calcGroupBounds(子绝对 rect)——纯函数期望，非手算（Task 17 四法律同款）
-    const expectFrame = calcGroupBounds([{ x: 0, y: 0, width: 100, height: 60 }]);
     applyDocToStore(d);
     const m = d.getMap('nodes').get('g1') as any;
-    expect(m.get('width')).toBe(expectFrame.width);    // 非 10、非 undefined
-    expect(m.get('height')).toBe(expectFrame.height);
+    expect(m.get('width')).toBe(10);   // 非 calcGroupBounds 修复值、非 undefined——doc 停写
+    expect(m.get('height')).toBe(10);
+    // cs 面：c1 rel=abs−origin=(0−0, 0−0)——reconcile 直拷语义（doc 子 position 现为 abs 空间）
+    const c1 = useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1') as any;
+    expect(c1.position).toEqual({ x: 0, y: 0 });
   });
 });
 
-// 乒乓夹具（Task 18 Step 3）：doc 的组 frame 满足不变量至 1ULP 浮点噪声（整数恒绿是盲区）——
-// g1(0.1,0.1) 140×130；c1 rel(20,50) 100×60 → abs(20.1,50.1)。重算 frame.x = 20.1-20
-// = 0.10000000000000142（node 实证必然漂移 ≈1.4e-15）：旧重算路径（无 epsilon）必写漂移值
-// → store ≠ doc 原文 → S1 回写 → 对端再 apply → 再漂 → 乒乓；epsilon 守卫（EPS=1e-6）使 refit
-// no-op → diff 零 → 无回写。
-describe('协作乒乓（Task 18——守恒+epsilon 使 refit 不产生新 diff）', () => {
-  it('远程 apply → refitExpandedGroups → store 与 doc 原文逐节点深等 + doc 无回写（小数坐标）', () => {
+// 乒乓夹具（Task 18 沿革——O0b-0 后语义=重开逐位不变）：doc=abs 空间，g1(0.1,0.1) 140×130；
+// c1 abs(20,50) → cs rel=(20−0.1, 50−0.1)。S1 停写后恢复链结构上零回写（无 refit 无 diff 回写通道）。
+describe('恢复链重开逐位不变（Task 18 沿革——S1 停写后结构零回写）', () => {
+  it('远程 apply → store 与 doc 原文逐节点深等 + doc 无回写（小数坐标）', () => {
     useCanvasStore.setState({ nodes: [], edges: [] });
     useNodeStore.setState({ nodes: {} as any });
     const d = new Y.Doc();
@@ -129,19 +130,20 @@ describe('协作乒乓（Task 18——守恒+epsilon 使 refit 不产生新 diff
       { id: 'g1', type: 'group', position: { x: 0.1, y: 0.1 }, width: 140, height: 130, data: { groupType: 'normal' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
     ] as any, []);
+    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
-    // 期望 = doc 原文（纯数据夹具——frame 满足不变量至 1ULP 噪声，epsilon 域内 refit 必 no-op）
+    // 期望 = doc 原文（O0b-0：cs g1=origin 直拷；c1 rel=abs−origin 浮点噪声域内 toBeCloseTo）
     const st = useCanvasStore.getState().nodes as any[];
     const g1 = st.find((n) => n.id === 'g1')!;
     const c1 = st.find((n) => n.id === 'c1')!;
     expect({ id: g1.id, position: g1.position, width: g1.width, height: g1.height })
       .toEqual({ id: 'g1', position: { x: 0.1, y: 0.1 }, width: 140, height: 130 });
-    expect({ id: c1.id, parentId: c1.parentId, position: c1.position, width: c1.width, height: c1.height })
-      .toEqual({ id: 'c1', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60 });
-    // 守恒锚：子绝对坐标 = doc 语义位置（20.1, 50.1）——refit 不搬子
-    expect(c1.position.x + g1.position.x).toBeCloseTo(20.1, 12);
-    expect(c1.position.y + g1.position.y).toBeCloseTo(50.1, 12);
-    // doc 无回写（S1 diff 零——现状路径写漂移 position 必产生回写=乒乓；漂移量 1.4e-15 非 toBeCloseTo 可吞）
+    expect({ id: c1.id, parentId: c1.parentId, width: c1.width, height: c1.height })
+      .toEqual({ id: 'c1', parentId: 'g1', width: 100, height: 60 });
+    // 守恒锚：cs rel+origin ≡ doc.abs（20,50）——reconcile 不搬子
+    expect(c1.position.x + g1.position.x).toBeCloseTo(20, 12);
+    expect(c1.position.y + g1.position.y).toBeCloseTo(50, 12);
+    // doc 无回写（S1 停写——结构性零 diff 回写通道）
     const m = d.getMap('nodes').get('g1') as any;
     expect(m.get('position').get('x')).toBe(0.1);
     expect(m.get('position').get('y')).toBe(0.1);
