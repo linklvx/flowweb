@@ -20,6 +20,7 @@ import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { useMarqueeSelectionGuard } from '@/hooks/useMarqueeSelectionGuard';
+import { useDragGestureGuard } from '@/hooks/useDragGestureGuard';
 import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { getMediaUrl } from '@/api/mediaApi';
@@ -142,6 +143,17 @@ function CanvasViewComponent(_props: Props) {
   const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
   useTrackCanvasPointerShift(reactFlowWrapper);
   useMarqueeSelectionGuard();
+  // B4'-1（Spec B）拖动手势基建：常驻指针监听（键控集合/自愈两道/capture 抑制）+pointerdown
+  // 缓存 id（wrapper capture——onNodeDragStart={begin} 以缓存为起始 pointerId）
+  const dragGuard = useDragGestureGuard();
+  const beginDragGesture = useCanvasStore((s) => s.beginDragGesture);
+  // 只读门禁（spec §3.1 8）：canEdit 订阅式消费（viewer 拖动禁用——行为变更随 B4'-1 落地）
+  const editable = useCanvasStore(canEdit);
+  // B4'-1：onNodeDragStart 单接 begin（第三参 nodes→draggingIds——O0b-3 定案）
+  const onNodeDragStart = useCallback(
+    (_e: React.MouseEvent, _node: any, nodes: any[]) => beginDragGesture(nodes, dragGuard.pointerIdRef.current),
+    [beginDragGesture, dragGuard],
+  );
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   // O0b-5 viewer 折叠本地 override（终裁 58⑥）：GroupToolbar 折叠/展开按钮态读有效折叠态
   const localCollapsed = useCanvasStore((s) => s.localCollapsed);
@@ -518,6 +530,7 @@ function CanvasViewComponent(_props: Props) {
       className="w-full h-full overflow-hidden"
       onMouseMove={handleMouseMove}
       onMouseDownCapture={handleWrapperMouseDownCapture}
+      onPointerDownCapture={dragGuard.onPointerDownCapture}
     >
       <ReactFlow
         nodes={nodes}
@@ -543,6 +556,7 @@ function CanvasViewComponent(_props: Props) {
         onPaneContextMenu={onPaneContextMenu}
         onSelectionStart={onSelectionStart}
         onSelectionEnd={onSelectionEnd}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
         deleteKeyCode={isLocked || editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
@@ -555,7 +569,7 @@ function CanvasViewComponent(_props: Props) {
         selectionMode={SelectionMode.Partial}
         panActivationKeyCode={isLocked ? null : 'Space'}
         zoomOnDoubleClick={!isLocked}
-        nodesDraggable={inRefSelect ? false : !isLocked}
+        nodesDraggable={inRefSelect ? false : !isLocked && editable}
         nodesFocusable={!isLocked}
         elementsSelectable={inRefSelect ? false : !isLocked}
         snapToGrid={snapEnabled}

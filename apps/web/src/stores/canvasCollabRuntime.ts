@@ -532,8 +532,8 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
 // drag⇒{position}/resize⇒{position,width,height}[帧三字段]/freeze⇒三字段。
 // 硬规则"让位只保护几何，不保护数据"：回写仅覆盖捕获的几何字段——data/type/parentId/hidden/
 // selected 一律取 doc 最新值（防整节点对象回写吃掉远端 data 并发写）。
-// 会话宿主=canvasStore.dragSession（C0-1 DragSession 骨架——生命周期管理归 B4'-1，本批只落
-// 保护序结构+解析入口；测试经 fixtures seedDragSession 手动注入）。
+// 会话宿主=canvasStore.dragSession（C0-1 DragSession 类型——生命周期管理已随 B4'-1 落
+// canvasStore beginDragGesture/beginResize/endGesture；本族只落保护序结构+解析入口）。
 
 /** 单节点让位字段面：position/wh 各自是否被手势保护（字段级——drag 只保 position）。 */
 export interface GestureGeoGuard {
@@ -666,6 +666,20 @@ export function applyDocToStore(d: Y.Doc) {
   });
   // 保护回写：仅几何字段覆盖（data/type/parentId/hidden/selected 取 doc 最新值——硬规则终裁 71）
   if (protection) reapplyGestureProtection(protection);
+  // B4'-1 remove 谓词：远端删被拖节点 ⇒ 手势中止"事后回滚"（三分支之一经 endGesture 单收尾——
+  // 幸存被拖成员回 baseline；被删成员已不在 cs，回写自然跳过）。置于 hydrate 后：cs 与 doc 已对齐
+  // 删除事实，endGesture 内 invariant 不因"cs 残留待删节点"假红。
+  {
+    const sess = useCanvasStore.getState().dragSession;
+    if (sess && sess.draggingIds.size > 0) {
+      const docIds = new Set(nodes.map((n: any) => n.id));
+      let draggedRemoved = false;
+      for (const id of sess.draggingIds) {
+        if (!docIds.has(id)) { draggedRemoved = true; break; }
+      }
+      if (draggedRemoved) useCanvasStore.getState().endGesture('removed');
+    }
+  }
   // C1（Task 17 审查沿革）：ns 刷新在投影读点之前——storeProjection→projectCanvasNodes 对普通节点
   // data 是 ns 优先，陈旧 ns 会把协作者刚提交的编辑投影丢（S1 停写后无回写通道，此处保序仍成立）
   useNodeStore.setState({ nodes: Object.fromEntries(nodes.map((n) => [n.id, toAppNode(n)])) });

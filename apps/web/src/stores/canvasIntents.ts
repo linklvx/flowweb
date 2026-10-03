@@ -53,7 +53,9 @@ export function _setIntentDocForTest(d: Y.Doc | null): void {
   testDoc = d;
 }
 
-function resolveDoc(): Y.Doc | null {
+/** 会话 doc 单源解析（testDoc 缝 ?? runtime getDoc）——B4'-1 endGesture 收尾链消费
+ *  （reconcile 第 4 挂点同源；禁第二处解析实现）。 */
+export function resolveDoc(): Y.Doc | null {
   return testDoc ?? getDoc();
 }
 

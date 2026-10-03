@@ -4,7 +4,7 @@
 // COLLAPSED_SIZE 优先级最高[终裁 82]／②position abs→rel／③非组 wh 直拷·缺键保留现值／④分镜子
 // {0,0}）+单遍单 origin+零差异短路（EPS=1e-6·同值保对象引用）+源矩阵（漏斗尾 source:'doc'/
 // dispatchProjectionDiff 首行 source:'cs' 全仓恰 1 处/applyDocToStore 尾 source:'doc'）+census
-// 三元组过渡断言（B7-1 升四元组：endGesture 第 4 成员随 B4'-1 落地）。
+// 四元组断言（B4'-1 落第 4 成员 endGesture——终裁 54②/65① 分期兑现）。
 // 几何锚：打开（applyDocToStore）⇒cs 子 rel 逐位≡doc.abs−帧 origin ∧ doc 无 auto 组帧键 ∧
 // 二次打开逐位不变（无 S1 回写）。doc 读取=readRecordsFromMaps（docShape 单源，禁从 nsNodes/csNodes
 // 反推=直拷回灌）。组帧 origin：manual/storyboard 组=doc position 键；auto 组=calcGroupBounds；
@@ -604,16 +604,17 @@ describe('O0b-1 源矩阵：diff 首行 source:\'cs\'——命令几何不丢', 
 
 // ══════════ O0b-1 census（扫描域=apps/*/src+packages/*/src——终裁 54②）══════════
 
-describe('O0b-1 census：挂点三元组过渡断言（B7-1 升四元组——endGesture 第 4 成员随 B4\'-1 落地）', () => {
-  it('reconcileGroupGeometry 调用行恰 3 处：漏斗尾+diff 首行（canvasIntents）+applyDocToStore 尾（canvasCollabRuntime）', () => {
+describe("O0b-1 census：挂点四元组断言（B4'-1 落第 4 成员 endGesture——终裁 54②/65① 分期兑现；B7-1 验终态）", () => {
+  it('reconcileGroupGeometry 调用行恰 4 处：漏斗尾+diff 首行（canvasIntents）+applyDocToStore 尾（canvasCollabRuntime）+endGesture（canvasStore）', () => {
     const calls = reconcileCallLines();
     expect(
       calls.length,
-      `挂点数=${calls.length}（${calls.map((c) => c.rel).join(', ')}）——O0b 期三元组过渡断言：漏斗尾/diff 首行/applyDocToStore 尾恰各 1；第 4 成员（endGesture）随 B4'-1 落地后由 B7-1 升四元组断言`,
-    ).toBe(3);
+      `挂点数=${calls.length}（${calls.map((c) => c.rel).join(', ')}）——四元组：漏斗尾/diff 首行/applyDocToStore 尾/endGesture 恰各 1`,
+    ).toBe(4);
     const byFile = calls.map((c) => c.rel);
     expect(byFile.filter((r) => r.endsWith('apps/web/src/stores/canvasIntents.ts')).length).toBe(2);
     expect(byFile.filter((r) => r.endsWith('apps/web/src/stores/canvasCollabRuntime.ts')).length).toBe(1);
+    expect(byFile.filter((r) => r.endsWith('apps/web/src/stores/canvasStore.ts')).length).toBe(1);
   });
 
   it("source:'cs' 全仓恰 1 处（仅 dispatchProjectionDiff 首行——卡一源矩阵不变量）", () => {

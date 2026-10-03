@@ -6,7 +6,7 @@ import {
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
-import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession } from '@flowweb/shared';
+import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect } from '@flowweb/shared';
 import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, normalizeSize } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
@@ -23,7 +23,11 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-2（组 2 收口）：复合信封写点经 captureStoreProjection/dispatchProjectionDiff 差分换芯
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
-import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, type CanvasIntent } from './canvasIntents';
+import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent } from './canvasIntents';
+// B4'-1（Spec B）：endGesture 单收尾链消费——reconcileGroupGeometry（四元组第 4 成员，终裁 54②/
+// 65①）+checkProjectionInvariant（收尾链第 4 步）。循环依赖裁定同 canvasIntents：顶层仅声明、
+// action 体运行时才调——ESM 本地绑定延迟求值安全。
+import { reconcileGroupGeometry, checkProjectionInvariant, resolveDraggingIdsFromGesture } from './canvasCollabRuntime';
 import { Origin, stopCapturing } from './canvasUndo';
 import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, DEFAULT_CHILD_SIZE, clampChildIntoGroup, isContentDerivedFrame } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
@@ -157,8 +161,9 @@ export interface CanvasState {
   wsAuthNotice: { reason: string; terminal: boolean } | null;
   /** O0b-3 手势会话宿主（C0-1 DragSession 类型——保护序 v2 的让位两层解析源：
    *  freeze=frozenFrames.keys()/live=dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)）。
-   *  本批只落骨架字段（测试手动注入+applyDocToStore 保护捕获/回写+reconcile 让位豁免消费）——
-   *  begin/end/watchdog 生命周期管理归 B4'-1。null=无活跃手势。不进 history/localStorage 快照 */
+   *  B4'-1 落真生命周期（beginDragGesture/beginResize/endGesture/noteDragActivity——watchdog
+   *  STALE_MS=5s）；消费面=applyDocToStore 保护捕获/回写+reconcile 让位豁免+remove 谓词。
+   *  null=无活跃手势。不进 history/localStorage 快照 */
   dragSession: DragSession | null;
   /** sessionExpiry 401 面电平（批3 接线；canEdit 不读——反向断言锚）。不进快照 */
   httpExpired: boolean;
@@ -274,7 +279,64 @@ export interface CanvasState {
   /** R2a-6 副本薄壳④（粘贴）：不重裁决；position=flow 坐标（screenToFlowPosition 换算在调用点） */
   pasteGroupClipboard: (position: { x: number; y: number }) => string | null;
   hasGroupClipboard: () => boolean;
+  /** B4'-1（Spec B）拖动手势开始（单接 CanvasView onNodeDragStart——第三参 nodes→draggingIds，
+   *  O0b-3 定案）：无条件丢弃旧 session（吞 pointerup 兜，终裁 47 场景Ⅱ——静默 drop 不回滚）+
+   *  记 baseline=被拖集合几何快照（终裁 56——非整表）+冻结框（让位即冻结：被拖子父组；被拖组不含
+   *  ——origin 活）+watchdog armed+activePointers={起始 pointerId}（键控集合，终裁 31①）。 */
+  beginDragGesture: (nodes: ReadonlyArray<{ id: string }>, pointerId: number | null) => void;
+  /** B4'-1（Spec B）resize 会话开始：首行 discard 旧 session（终裁 31⑤——abort 后立即 resize ⇒
+   *  让位集合只含 resizeTargetId∪children）。生产接线（三叶子 resizer+GroupNode）归 B4'-2。 */
+  beginResize: (targetId: string, pointerId?: number | null) => void;
+  /** B4'-1（Spec B）单收尾函数（终裁 54②——中止/自愈/remove 谓词三分支共用，其内唯一 1 处
+   *  reconcile[收尾链：回滚→清 session（frozenFrames 同步块+watchdog clearTimeout）→reconcile('doc')
+   *  →invariant]——reconcile census 四元组第 4 成员）。reason：'aborted'=watchdog 终结（指针已抬+
+   *  会话残留，终裁 47 场景Ⅰ）/ 'healed'=常驻监听自愈（pointermove[buttons===0]/blur 检出吞
+   *  pointerup）/ 'removed'=remove 谓词（远端删被拖节点，事后回滚）/ 'completed'=提交后收尾
+   *  （不回滚——B5'-1 commitIntents 不经本函数，本分支为语义最小锚）。幂等：无 session=no-op。 */
+  endGesture: (reason: 'aborted' | 'healed' | 'removed' | 'completed') => void;
+  /** B4'-1（Spec B）手势活动刷新（常驻监听 pointermove[buttons!==0] 消费）：lastActivityAt 置位
+   *  +watchdog 重挂（每次活动重挂——主道）。会话非渲染面，lastActivityAt 原位刷新零订阅广播。 */
+  noteDragActivity: () => void;
 }
+
+// ══════════ B4'-1（Spec B）：dragSession 生命周期 + watchdog（STALE_MS=5s——plan 数字冻结表） ══════════
+// watchdog 分场景（终裁 47）：指针已抬+会话残留（activePointers 空——正常 pointerup 后 abort 形态）
+// ⇒ 秒级丢弃+cs 回滚 baseline；指针仍按住（集合非空——按住不动/多指暂停，无事件≠抬起）⇒ 续挂
+// 观察不丢弃不告警（终裁 16/25①）；pointerup 被吞（集合非空且不可判定）⇒ 常驻监听自愈（healed）
+// 或下一次 begin 无条件丢弃兜——watchdog 不承诺"吞 pointerup 也救"（否决清单，物理不可判定）。
+/** STALE_MS 冻结值（5s——watchdog 秒级定值单源，测试引用） */
+export const DRAG_STALE_MS = 5_000;
+
+let dragWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearDragWatchdog(): void {
+  if (dragWatchdogTimer != null) {
+    clearTimeout(dragWatchdogTimer);
+    dragWatchdogTimer = null;
+  }
+}
+
+function armDragWatchdog(): void {
+  clearDragWatchdog();
+  dragWatchdogTimer = setTimeout(() => {
+    dragWatchdogTimer = null;
+    const s = useCanvasStore.getState().dragSession;
+    if (!s) return;
+    if (s.activePointers.size > 0) {
+      armDragWatchdog();   // 指针仍按住——续挂观察（非孤儿会话）
+      return;
+    }
+    useCanvasStore.getState().endGesture('aborted');   // 终裁 47 场景Ⅰ：秒级丢弃+回滚
+  }, DRAG_STALE_MS);
+}
+
+/** cs 节点→冻结帧 rect（begin 快照装配共用；width/height 缺省 0——drag 档回滚只消费 position）。 */
+const rectOf = (n: Node | undefined): Rect => ({
+  x: n?.position?.x ?? 0,
+  y: n?.position?.y ?? 0,
+  width: n?.width ?? 0,
+  height: n?.height ?? 0,
+});
 
 export const useCanvasStore = create<CanvasState>()((set, get) => {
   // 组结构写入统一包装：对 updater 产出的 nodes 应用父前子后重排
@@ -855,6 +917,123 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     set({ pendingFillCell: { groupId, cellIndex } }),
 
   updateViewport: (vp) => set({ viewport: vp }),
+
+  // ══ B4'-1（Spec B）：dragSession 生命周期（begin/end/watchdog——C0-1 只落骨架字段，本批真生命周期）══
+  beginDragGesture: (nodes, pointerId) => {
+    clearDragWatchdog();   // 旧 session 无条件丢弃（吞 pointerup 兜，终裁 47 场景Ⅱ——静默 drop：pointerup
+                           // 未达=手势结果不可判定，doc 落后 cs 由下一命令差分补上，spec §5；不回滚）
+    const byId = new Map(get().nodes.map((n) => [n.id, n]));
+    const draggingIds = resolveDraggingIdsFromGesture(nodes);   // 第三参全 id 集（O0b-3 定案）
+    const baseline = new Map<string, Rect>();
+    const groupBaseline = new Map<string, Rect>();
+    const draggedGroupIds = new Set<string>();
+    for (const id of draggingIds) {
+      const n = byId.get(id);
+      if (!n) continue;
+      if (n.type === 'group') {
+        draggedGroupIds.add(id);
+        groupBaseline.set(id, rectOf(n));
+      } else {
+        baseline.set(id, rectOf(n));
+      }
+    }
+    // 冻结框（让位即冻结——spec §3.2.2）：受影响组=被拖子的父组；被拖组不含（拖组档 origin 活/
+    // 尺寸冻结——B4'-2 手势内核）；同父去重（多选拖子共享父组）。
+    const frozenFrames = new Map<string, Rect>();
+    for (const id of draggingIds) {
+      const n = byId.get(id) as Node | undefined;
+      if (n?.parentId == null || draggedGroupIds.has(n.parentId)) continue;
+      const p = byId.get(n.parentId);
+      if (p?.type === 'group' && !frozenFrames.has(n.parentId)) {
+        frozenFrames.set(n.parentId, rectOf(p));
+      }
+    }
+    set({
+      dragSession: {
+        baseline,                       // 被拖集合几何快照（终裁 56——非整表，回滚域）
+        groupBaseline,                  // 被拖组帧快照（resize 档回滚=帧三键）
+        delta: { x: 0, y: 0 },          // 手势内核写者面（B4'-2 编排）
+        draggingIds,
+        dragProtectedIds: new Set(draggingIds),   // live 层=被拖集合（让位两层——卡一）
+        draggedGroupIds,
+        frozenFrames,
+        gestureKind: 'drag',
+        resizePending: false,
+        lastActivityAt: Date.now(),
+        activePointers: new Set(pointerId != null ? [pointerId] : []),   // 键控集合（终裁 31①）
+        gestureAbandoned: false,
+        resizeTargetId: null,
+      },
+    });
+    armDragWatchdog();
+  },
+
+  beginResize: (targetId, pointerId = null) => {
+    const target = get().nodes.find((n) => n.id === targetId);
+    if (!target) return;   // 目标缺席=no-op（不拆旧 session 的 watchdog——防孤儿会话）
+    clearDragWatchdog();   // 首行 discard（终裁 31⑤）：旧 session 静默清——让位集合只含 resizeTargetId
+    set({
+      dragSession: {
+        baseline: new Map(),
+        groupBaseline: new Map([[targetId, rectOf(target)]]),   // resize 回滚=帧三键（提交值=末帧，B4'-2）
+        delta: { x: 0, y: 0 },
+        draggingIds: new Set(),
+        dragProtectedIds: new Set(),
+        draggedGroupIds: new Set(),
+        frozenFrames: new Map(),
+        gestureKind: 'resize',
+        resizePending: true,
+        lastActivityAt: Date.now(),
+        activePointers: new Set(pointerId != null ? [pointerId] : []),
+        gestureAbandoned: false,
+        resizeTargetId: targetId,
+      },
+    });
+    armDragWatchdog();
+  },
+
+  endGesture: (reason) => {
+    const s = get().dragSession;
+    if (!s) return;   // 收尾幂等锚（终裁 66④②）：松手后再触发=no-op（cs 不回跳）
+    // 收尾链（v3.10 终裁 3 冻结序——禁改序：reconcile 提前则让位残留致被拖节点 cs 停旧值≠doc）。
+    // ①回滚：abort 族（aborted/healed/removed）被拖集合回 baseline；completed=提交已落 doc 不回滚
+    //   （cs≡末帧锚——终裁 66④①）。drag 档只回 position；resize 档回帧三键。
+    if (reason !== 'completed') {
+      const resize = s.gestureKind === 'resize';
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          const b = s.baseline.get(n.id);
+          if (b) return { ...n, position: { x: b.x, y: b.y } };
+          const gb = s.groupBaseline.get(n.id);
+          if (gb) {
+            return resize
+              ? { ...n, position: { x: gb.x, y: gb.y }, width: gb.width, height: gb.height }
+              : { ...n, position: { x: gb.x, y: gb.y } };
+          }
+          return n;
+        }),
+      }));
+    }
+    // ②清 session 同步块：frozenFrames/activePointers/gestureAbandoned/resizePending/resizeTargetId
+    //   随 dragSession=null 整对象清（与 frozenFrames 同步块——终裁 23）+watchdog clearTimeout
+    clearDragWatchdog();
+    set({ dragSession: null });
+    // ③reconcile('doc')：清后让位失效，doc 权威直拷=终态（拖动中被远端写的被拖节点取 doc 远端值
+    //   非 baseline——终裁 66④；四元组第 4 成员——census 锚在 canvasCollabRuntime.geometry.test）
+    const d = resolveDoc();
+    if (d) reconcileGroupGeometry(d, 'doc');
+    // ④invariant（DEV）：收尾后 doc≡store 收敛断言（非让位态——session 已清）
+    if (import.meta.env.DEV && d && !checkProjectionInvariant(d)) {
+      throw new Error("[B4'-1] endGesture 收尾后投影不变量破缺（doc≡store 应收敛）");
+    }
+  },
+
+  noteDragActivity: () => {
+    const s = get().dragSession;
+    if (!s) return;
+    s.lastActivityAt = Date.now();   // 原位刷新——会话非渲染面（零订阅广播；draggingIds 等只读集不变）
+    armDragWatchdog();               // 每次活动重挂（主道——spec §3.2.2）
+  },
 
   onNodesChange: (changes) => {
     // C1：键盘 Delete 手势路径——videoEdit 节点 remove 需在 applyNodeChanges 移除节点前用变更前 state 判型级联删工程
