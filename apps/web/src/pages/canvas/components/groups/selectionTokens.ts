@@ -39,6 +39,17 @@ export const HANDLE: CSSProperties = {
 export const SELECTION_TOOLBAR = { height: 48, offset: 14 } as const;
 export const GROUP_TOOLBAR = { height: 52, offset: 12 } as const;
 
+/** B6-2（Spec B 撞车② B 案）：+号输出按钮屏幕像素常量——portal #node-toolbar-portal 天然
+ * 屏幕空间层（与反缩放层 transform:scale(1/zoom) 等价——终裁 19 两前提之①：尺寸与偏移均
+ * 屏幕 px 不随 zoom）；圆心外移框外 offset=12；命中区只向框外展开（框内右缘归 resizer/子节点）。 */
+export const ADD_OUTPUT_HANDLE = {
+  diameter: 24,   // 圆形指示器直径（屏幕 px）
+  iconSize: 14,   // 加号 SVG 边长
+  offset: 12,     // 圆心距框右缘（屏幕 px）
+  hitWidth: 40,   // 命中区宽（自框右缘向框外）
+  hitHeight: 56,  // 命中区高（框右缘垂直中点居中）
+} as const;
+
 /** R2d-5 分镜智能标题双带（屏幕像素常量）：标题带锚 = frame.top−gap（行高 rowH，
  * translateY(-100%) 后占 [锚−rowH, 锚]）；工具条带锚 = 标题带顶 = frame.top−gap−rowH。
  * 消费面：StoryboardTitlesLayer（标题带）/ GroupToolbar storyboard 分支（STORYBOARD_TOOLBAR_OFFSET=32，

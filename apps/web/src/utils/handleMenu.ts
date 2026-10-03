@@ -80,6 +80,9 @@ export interface HandleMenuGuardArgs {
   dragDistancePx: number;
   flowPoint: { x: number; y: number };
   rects: NodeRect[];
+  /** B6-2（Spec B 撞车①c）：+号输出按钮命中区（流坐标）——源 handle 拖≥5px 落+号 ⇒ 零菜单零连线。
+   *  区在节点框外（isPointOnAnyNode(rects) 不覆盖），须单列；空数组=当前无 +号渲染。 */
+  plusZones: NodeRect[];
 }
 
 export function shouldOpenHandleMenu(args: HandleMenuGuardArgs): boolean {
@@ -91,6 +94,7 @@ export function shouldOpenHandleMenu(args: HandleMenuGuardArgs): boolean {
   if (args.isLocked) return false;
   if (args.dragDistancePx < DRAG_THRESHOLD_PX) return false;
   if (isPointOnAnyNode(args.flowPoint, args.rects)) return false;
+  if (args.plusZones.length > 0 && isPointOnAnyNode(args.flowPoint, args.plusZones)) return false;
   return true;
 }
 

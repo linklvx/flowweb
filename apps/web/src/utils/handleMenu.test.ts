@@ -17,6 +17,7 @@ const baseArgs = {
   dragDistancePx: 30,
   flowPoint: { x: 1000, y: 1000 },
   rects,
+  plusZones: [] as Array<{ x: number; y: number; w: number; h: number }>,
 };
 
 describe('shouldOpenHandleMenu', () => {
@@ -59,6 +60,15 @@ describe('shouldOpenHandleMenu', () => {
   it('⑦ 非 imageGen/imageExtGen → false', () => {
     expect(shouldOpenHandleMenu({ ...baseArgs, nodeType: 'videoGen' })).toBe(false);
     expect(shouldOpenHandleMenu({ ...baseArgs, nodeType: undefined })).toBe(false);
+  });
+
+  // ── B6-2（Spec B 撞车①c）：源 handle 拖≥5px 落+号命中区 ⇒ 零菜单零连线 ──
+
+  it('⑧ flowPoint 落入+号命中区 → false（+号交互不触发 handle 菜单）', () => {
+    const plusZones = [{ x: 900, y: 900, w: 40, h: 56 }];
+    expect(shouldOpenHandleMenu({ ...baseArgs, plusZones, flowPoint: { x: 920, y: 920 } })).toBe(false);
+    // 区外不受影响——菜单照弹（既有行为）
+    expect(shouldOpenHandleMenu({ ...baseArgs, plusZones })).toBe(true);
   });
 });
 

@@ -5,6 +5,7 @@ import { render, act } from '@testing-library/react';
 import { ReactFlowProvider, SelectionMode } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { seedCanvas, openRwWindow, openRoWindow } from '@/test/fixtures/canvas';
 
 const captured = vi.hoisted(() => ({ props: null as any }));
 
@@ -141,5 +142,28 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     p.onConnectEnd(ev, { isValid: null, toHandle: null, toNode: null });
     expect(handleMenuSpy.seen).toBeTruthy();
     expect(handleMenuSpy.seen.isLocked).toBe(true);
+  });
+
+  // ── B6-2（Spec B 撞车①c）：+号命中区喂 shouldOpenHandleMenu——源 handle 拖线落+号 ⇒ 零菜单 ──
+  it('onConnectEnd → decideHandleMenu args 含 plusZones（+号可见时=命中区流矩形；!canEdit 时空）', () => {
+    // a=(100,100,200,100) b=(200,300,200,100) 双选中 → bbox {100,100,300,300}：right=400, vcy=250
+    seedCanvas([
+      { id: 'a', type: 'imageGen', position: { x: 100, y: 100 }, width: 200, height: 100, selected: true, data: {} },
+      { id: 'b', type: 'imageGen', position: { x: 200, y: 300 }, width: 200, height: 100, selected: true, data: {} },
+    ] as any);
+    openRwWindow(); // canEdit 真（hydration ready+非 readOnly）
+    act(() => { useCanvasStore.setState({ viewport: { x: 0, y: 0, zoom: 1 } }); });
+    const p = renderCapture();
+    const ev = new MouseEvent('mouseup', { clientX: 10, clientY: 10 });
+    p.onConnectStart(ev, { nodeId: 'n1', handleId: null, handleType: 'source' });
+    p.onConnectEnd(ev, { isValid: null, toHandle: null, toNode: null });
+    expect(handleMenuSpy.seen.plusZones).toEqual([{ x: 400, y: 222, w: 40, h: 56 }]); // 250−56/2
+    seedCanvas([]);
+    // !canEdit（ro 窗口）→ +号不渲染 ⇒ 命中区空
+    openRoWindow();
+    p.onConnectStart(ev, { nodeId: 'n1', handleId: null, handleType: 'source' });
+    p.onConnectEnd(ev, { isValid: null, toHandle: null, toNode: null });
+    expect(handleMenuSpy.seen.plusZones).toEqual([]);
+    seedCanvas([]);
   });
 });

@@ -43,6 +43,9 @@ import { ConnectionLine } from './edges/ConnectionLine';
 import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';
 import { SelectionBoxOverlay } from './groups/SelectionBoxOverlay';
+import { AddOutputHandle } from './groups/AddOutputHandle';
+import { resolveAddOutputTarget, addOutputFrameFlow, addOutputHitZoneFlow } from './groups/addOutput';
+import { canEdit } from '@/stores/syncStatus';
 import { StoryboardTitlesLayer } from './groups/StoryboardTitlesLayer';
 import { GroupToolbar } from './groups/GroupToolbar';
 import { GroupContextMenu } from './groups/GroupContextMenu';
@@ -322,12 +325,22 @@ function CanvasViewComponent(_props: Props) {
 
     const p = clientPoint(event);
     const flowPoint = screenToFlowPosition(p);
-    const nodes = useCanvasStore.getState().nodes;
+    const csState = useCanvasStore.getState();
+    const nodes = csState.nodes;
     const node = nodes.find((n) => n.id === dragStart.nodeId);
     // isLocked 命令式消费点（原"双定义第二处"，spec §3）：selectIsLocked 单源取当前快照——
     // 与订阅式同口径（编辑中或 transform 调整中），喂 decideHandleMenu——
     // 只改订阅式漏此处会「画布锁了 handle 菜单没锁」。
     const isLockedNow = selectIsLocked(useNodeStore.getState());
+    // B6-2（Spec B 撞车①c）：+号命中区（流坐标）——与 AddOutputHandle 渲染同源
+    // （resolveAddOutputTarget 单源：canEdit/marquee/折叠/分镜全口径）；源 handle 拖线落+号 ⇒ 零菜单。
+    const plusTarget = resolveAddOutputTarget(csState.nodes, {
+      marqueeSelecting: csState.marqueeSelecting,
+      canEdit: canEdit(csState),
+      localCollapsed: csState.localCollapsed,
+    });
+    const plusFrame = plusTarget ? addOutputFrameFlow(csState.nodes, plusTarget) : null;
+    const plusZones = plusFrame ? [addOutputHitZoneFlow(plusFrame, csState.viewport.zoom)] : [];
 
     const decision = decideHandleMenu({
       reconnecting: wasReconnecting,
@@ -339,6 +352,7 @@ function CanvasViewComponent(_props: Props) {
       dragDistancePx: Math.hypot(p.x - dragStart.x, p.y - dragStart.y),
       flowPoint,
       rects: absoluteRectsOf(nodes),
+      plusZones,
       nodeId: dragStart.nodeId,
       side: dragStart.handleType === 'target' ? 'target' : 'source',
       clientX: p.x,
@@ -575,6 +589,8 @@ function CanvasViewComponent(_props: Props) {
         />
         <CanvasReferenceSelectBanner />
         <SelectionBoxOverlay />
+        {/* B6-2（Spec B 需求 6）：+号输出按钮——多选框/普通组批量连线入口（手势语义归 B6-3 接线 onGestureEnd） */}
+        <AddOutputHandle />
         <StoryboardTitlesLayer />
         {selectedGroup && (() => {
           const gd = selectedGroup.data as any;
