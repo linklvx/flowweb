@@ -121,6 +121,16 @@ describe("B4'-1 常驻监听（[] 依赖——终裁 37①）", () => {
     act(() => { window.dispatchEvent(new Event('blur')); });
     expect(session()).toBeNull();
   });
+
+  it('unmount 时会话仍活 ⇒ endGesture("aborted") 兜底（监听摘除后 activePointers 永不可排空——防僵尸会话 watchdog 无限续挂/让位保护悬挂）', () => {
+    const { unmount } = renderHook(() => useDragGestureGuard());
+    begin(['t1'], 1);
+    dragFrame('t1', { x: 800, y: 10 });
+    unmount();
+    expect(session()).toBeNull();                                       // 会话不残留
+    expect(useCanvasStore.getState().nodes.find((n: any) => n.id === 't1')!.position)
+      .toEqual({ x: 700, y: 0 });                                       // abort 族回滚 baseline
+  });
 });
 
 describe("B4'-1 pointerdown 缓存 id（wrapper capture——终裁 58 小项）", () => {

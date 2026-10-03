@@ -64,6 +64,10 @@ export function useDragGestureGuard() {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('touchmove', onTouchMove, { capture: true });
+      // 卸载兜底（路由切走/组件树拆）：监听摘除后 activePointers 永不可排空（up/cancel 通道已亡）
+      // ⇒ watchdog 无限续挂僵尸会话——让位保护悬挂、远端几何写被吞直至下一次 begin。会话仍活
+      // ⇒ abort 族收尾（回滚 baseline+清 session/watchdog+reconcile）。
+      if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('aborted');
     };
   }, []);
 

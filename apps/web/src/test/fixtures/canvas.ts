@@ -71,17 +71,21 @@ export function openRoWindow(): void {
 }
 
 /** 会话几何复位（测试 afterEach 单点——同上零直接 setState）。localCollapsed=viewer 折叠
- *  UI 瞬态随会话复位（纯 UI map——零 doc/几何写）。 */
+ *  UI 瞬态随会话复位（纯 UI map——零 doc/几何写）。B4'-1 起真生命周期 session 经公开
+ *  endGesture 兜底清（watchdog clearTimeout 同步块内——防跨用例悬挂 timer；骨架注入面
+ *  无 timer，seedDragSession(null) 等效）。 */
 export function resetCanvasStores(): void {
+  if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('aborted');
   withGeometryWriter('fixture', () => {
     useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, localCollapsed: {} });
   });
   useNodeStore.setState({ nodes: {} as never });
 }
 
-/** O0b-3 session 骨架注入单点（DragSession 宿主=canvasStore.dragSession——C0-1 类型，
- *  生命周期管理归 B4'-1，本批测试手动注入）。null=清除。session 字段非节点几何面
- *  （陷阱只查 position/width/height），withGeometryWriter 包裹对齐夹具纪律。 */
+/** O0b-3 session 骨架注入单点（DragSession 宿主=canvasStore.dragSession——C0-1 类型；
+ *  B4'-1 已落真生命周期 begin/end——注入面保留给保护族测试构造非活态会话）。null=清除。
+ *  session 字段非节点几何面（陷阱只查 position/width/height），withGeometryWriter 包裹
+ *  对齐夹具纪律。 */
 export function seedDragSession(session: DragSession | null): void {
   withGeometryWriter('fixture', () => {
     useCanvasStore.setState({ dragSession: session });
