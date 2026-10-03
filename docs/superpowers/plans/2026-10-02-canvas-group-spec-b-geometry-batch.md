@@ -259,14 +259,15 @@
 
 ### Task O0c-3：attachMember 分层+分镜移出三坏+整模块三删
 
-- [ ] **Step 1: 红测试**
+- [x] **Step 1: 红测试**
   - 分镜落子仍绿（dropImageIntoStoryboard 改调 attachMember）；addToGroup/dropIntoGroup(分镜组)⇒拒绝零写；直调 attachMember 到分镜组走正常入格
   - 分镜移出：cellNodes 过滤加 n.parentId===id；removeNodeFromGroup 分镜分支清槽+placementBesideGroup（基准=cs 派生帧；锚：移出后 abs=帧右上角外 20px∧cells 槽===null∧cellNodes 消失）
   - normalizeLoadedCanvas 符号级不存在（**已随 O0b-0 格式批整删——本步验收断言**，终裁 69③）；resolveExpandedFrame 符号级不存在
   - gate-seed 断言（**O0b-0 已一次到位[meta 戳+auto 组+分镜组]——本步只验收**：fixture 含 auto 组形状[零帧键]∧分镜组形状[分镜子无 position]∧gate-node-1/2 仍在[a0-0-env.spec:27-28]）
-- [ ] **Step 2: 绿实现/删除**：attachMember 纯成员原语；addToGroup/dropIntoGroup 公开面挂 groupType 守卫；分镜移出修法（GroupNode cellNodes+removeNodeFromGroup 分支+placementBesideGroup 抽共享）；**expandedFrame 整模块删（终裁 88②——normalizeLoadedCanvas 已随 O0b-0 删[本步仅验收断言]；expandedFrame 整删时点=本批：toggleCollapse:1799 消费已随 O0b-5 单意图化消失，O0b-0→O0c-3 死模块窗口写实放行[无读者依赖]；**calcDefaultGrid 调用面随 normalizeLoadedCanvas 死、本体保留（v3.20 终裁 91 修正 88①——本体活消费=arrangeSelection:97+canvasStore:1578/:1645[建组/转换写 config]——照字面删本体=tsc 红；"缺 config=DEV 抛"限 reconcile/deriveGroupFrame 侧[建组/转换命令体必写完整 config+gate-seed 分镜组带完整 storyboard config——O0b-0 要求]**）**；savedSize 全链清理（接口+GROUP_NODE_DATA_KEYS+toggleCollapse+convertGroup 两处代码[:1666/:1694]+arrange 清键[:1146]——**'savedSize' in 断言改写为帧键三键存在性四格矩阵+savedSize 测试改写面扩容（终裁 82：groups.test 实测 46 行 grep——五条密封往返不变量[:1483/:1488/:1501/:1519/:1591]重新设计为"doc 三键=密封源"语义+markManuallyResized describe[:169/:194/:196]随 O0b-5 删+convertGroup/arrange 清键[:300/:318/:420/:430/:452/:1294/:1298/:1322/:1328/:1371]改帧键语义+canvasIntents.spec:452-461+GroupNode.test:21 mock）**）
+- [x] **Step 2: 绿实现/删除**：attachMember 纯成员原语；addToGroup/dropIntoGroup 公开面挂 groupType 守卫；分镜移出修法（GroupNode cellNodes+removeNodeFromGroup 分支+placementBesideGroup 抽共享）；**expandedFrame 整模块删（终裁 88②——normalizeLoadedCanvas 已随 O0b-0 删[本步仅验收断言]；expandedFrame 整删时点=本批：toggleCollapse:1799 消费已随 O0b-5 单意图化消失，O0b-0→O0c-3 死模块窗口写实放行[无读者依赖]；**calcDefaultGrid 调用面随 normalizeLoadedCanvas 死、本体保留（v3.20 终裁 91 修正 88①——本体活消费=arrangeSelection:97+canvasStore:1578/:1645[建组/转换写 config]——照字面删本体=tsc 红；"缺 config=DEV 抛"限 reconcile/deriveGroupFrame 侧[建组/转换命令体必写完整 config+gate-seed 分镜组带完整 storyboard config——O0b-0 要求]**）**；savedSize 全链清理（接口+GROUP_NODE_DATA_KEYS+toggleCollapse+convertGroup 两处代码[:1666/:1694]+arrange 清键[:1146]——**'savedSize' in 断言改写为帧键三键存在性四格矩阵+savedSize 测试改写面扩容（终裁 82：groups.test 实测 46 行 grep——五条密封往返不变量[:1483/:1488/:1501/:1519/:1591]重新设计为"doc 三键=密封源"语义+markManuallyResized describe[:169/:194/:196]随 O0b-5 删+convertGroup/arrange 清键[:300/:318/:420/:430/:452/:1294/:1298/:1322/:1328/:1371]改帧键语义+canvasIntents.spec:452-461+GroupNode.test:21 mock）**）
   - **现状测试同批改写**：normalizeLoadedCanvas.test 10 处（随模块删）+invariant.spec:5/9/239/246/257+projection.test:69-71+viewer.spec:152+video-work-clone.spec:204/207
-- [ ] **Step 3: commit** `refactor(canvas): O0c attachMember+分镜移出修法+normalizeLoadedCanvas/expandedFrame/savedSize 全链删（Spec B O0c-3）`
+- [x] **Step 3: commit** `refactor(canvas): O0c attachMember+分镜移出修法+normalizeLoadedCanvas/expandedFrame/savedSize 全链删（Spec B O0c-3）`
+  - 完成注记（2026-10-03）：commit 0d0e6fa5（26 文件 +387/−272）+01d3d201（质评收口：GroupNode cellNodes 谓词注释校准）；双评审通过——质评 mutation 实证"cells 清槽必须在信封差分后"时序锚有判别力；四格矩阵判断落为既有锚聚合（auto 0 帧键/manual 折叠密封/storyboard 无 wh/分镜子无 position 各有真实锚——零重复建面，spec 评审采纳）；attachMember 零善后=刻意分层（caller 补源组善后+专测）；placementBesideGroup 单源 4 落点（removeNodeFromGroup+resizeStoryboardGrid+dropImageIntoStoryboard 两溢出）；gate-canvas-state.ts 抽纯模块（spec 直解二进制 3 断言）；质评 Minor 留 Inner 化批：gate-canvas-state toDocLike 与 doc-like.util 六行重复+placementBesideGroup 帧 basis 两源[calcStoryboardSize 重算 vs cs.width 缓存读]+attachMember null 语义混淆[already-member vs full——UI 现不可达]
 
 ---
 
