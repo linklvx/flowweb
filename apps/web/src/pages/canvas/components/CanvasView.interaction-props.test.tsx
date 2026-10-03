@@ -158,8 +158,8 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     p.onConnectStart(ev, { nodeId: 'n1', handleId: null, handleType: 'source' });
     p.onConnectEnd(ev, { isValid: null, toHandle: null, toNode: null });
     expect(handleMenuSpy.seen.plusZones).toEqual([{ x: 400, y: 222, w: 40, h: 56 }]); // 250−56/2
-    seedCanvas([]);
-    // !canEdit（ro 窗口）→ +号不渲染 ⇒ 命中区空
+    // !canEdit（ro 窗口）→ +号不渲染 ⇒ 命中区空。节点种子保持不清（B6-2 质评：先清空会使断言空转
+    // ——canEdit 门从 CanvasView 数据面拆除时本行不红；选中种子在位=门控唯一变量）
     openRoWindow();
     p.onConnectStart(ev, { nodeId: 'n1', handleId: null, handleType: 'source' });
     p.onConnectEnd(ev, { isValid: null, toHandle: null, toNode: null });
