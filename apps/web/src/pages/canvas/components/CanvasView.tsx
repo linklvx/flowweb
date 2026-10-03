@@ -28,7 +28,7 @@ import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { collectDownloadables } from '@/utils/collectDownloadables';
 import { runBatchDownload } from '@/utils/batchDownload';
 import type { CanvasNodeRecord } from '@flowweb/shared';
-import { clientPoint, decideHandleMenu, absoluteRectsOf } from './handleMenu';
+import { clientPoint, decideHandleMenu, absoluteRectsOf } from '@/utils/handleMenu';
 import { decideReferencePick } from './referenceSelect';
 import { TextInputNode } from './nodes/TextInputNode';
 import { ImageGenNode } from './nodes/ImageGenNode';

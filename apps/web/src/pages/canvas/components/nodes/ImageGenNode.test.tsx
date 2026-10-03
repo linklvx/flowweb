@@ -828,14 +828,12 @@ describe('ImageGenNode', () => {
     expect(container.querySelector('.resize-control-top-left')).toBeNull();
   });
 
-  // Spec B editMode 分片谓词现状锚：handle 门消费裸 editMode（ImageGenNode.tsx :1158/:1254 直判），
-  // transformMode 下双 handle 仍渲染=现状（isEditMode=!!editMode||!!transformMode 只喂 resize 门——
-  // 上一用例锚）。handle 谓词收敛 getAvailableHandles 是 B6-1 的事（删 !editMode 直判防双轨）——
-  // B6-1 改消费时本锚随改写为"transformMode ⇒ 双 handle 隐藏"。
-  it('双 handle 在 transformMode 下仍渲染（handle 门只吃裸 editMode=现状；B6-1 收敛时随改）', () => {
+  // Spec B B6-1 锚：handle 门已收敛 getAvailableHandles（isEditMode=!!editMode||!!transformMode）——
+  // transformMode 下双 handle 隐藏（editMode 分片期"handle 门只吃裸 editMode"的现状锚随谓词收敛改写）。
+  it('双 handle 在 transformMode 下隐藏（handle 门消费 getAvailableHandles 单源谓词）', () => {
     mockNodeData = { status: 'done', fileId: 'cat-file-id', transformMode: true, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     const { container } = renderNode(true);
-    expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
+    expect(container.querySelectorAll('.react-flow__handle').length).toBe(0);
   });
 
   it('TD-7: renders loading placeholder (not blank) when nodeData is undefined (refresh restore race)', () => {

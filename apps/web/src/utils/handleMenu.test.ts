@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  HANDLE_MENU_NODE_TYPES, DRAG_THRESHOLD_PX,
   shouldOpenHandleMenu, decideHandleMenu, absoluteRectsOf,
   isPointOnAnyNode, handleEdgeId, clientPoint,
 } from './handleMenu';
@@ -101,6 +102,24 @@ describe('absoluteRectsOf', () => {
     const out = absoluteRectsOf(nodes);
     expect(out).toHaveLength(1);
   });
+
+  // ── B6-1（Spec B 终裁 57③）：hidden 子代旧 rect 排除（折叠组区域=空白⇒弹菜单——渲染面≡命中面）──
+
+  it('hidden 节点不产出命中矩形（折叠组内子节点旧 rect 排除）', () => {
+    const nodes = [
+      { id: 'g1', type: 'group', position: { x: 500, y: 400 }, width: 600, height: 400 },
+      { id: 'cell1', type: 'imageGen', parentId: 'g1', position: { x: 100, y: 50 }, measured: { width: 200, height: 150 } },
+      { id: 'cell2', type: 'imageGen', parentId: 'g1', hidden: true, position: { x: 200, y: 60 }, measured: { width: 200, height: 150 } },
+    ] as any[];
+    expect(absoluteRectsOf(nodes)).toEqual([{ x: 600, y: 450, w: 200, h: 150 }]);
+  });
+
+  it('尺寸 width 优先于 measured（envelope 尺寸真源——measured 一帧滞后）', () => {
+    const nodes = [
+      { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, width: 100, height: 80, measured: { width: 222, height: 166 } },
+    ] as any[];
+    expect(absoluteRectsOf(nodes)).toEqual([{ x: 0, y: 0, w: 100, h: 80 }]);
+  });
 });
 
 describe('isPointOnAnyNode', () => {
@@ -126,12 +145,36 @@ describe('decideHandleMenu', () => {
   });
 });
 
-describe('handleEdgeId / clientPoint', () => {
+describe('handleEdgeId / clientPoint / 常量出口', () => {
   it('确定性 id 前缀 handle:（不走 auto 通道，spec §2.1）', () => {
     expect(handleEdgeId('a', 'b')).toBe('handle:a:b');
   });
   it('clientPoint 兼容 MouseEvent 与 TouchEvent', () => {
     expect(clientPoint({ clientX: 10, clientY: 20 } as MouseEvent)).toEqual({ x: 10, y: 20 });
     expect(clientPoint({ changedTouches: [{ clientX: 5, clientY: 6 }] } as unknown as TouchEvent)).toEqual({ x: 5, y: 6 });
+  });
+
+  // ── B6-1（Spec B 终裁 37⑤）：双指期间松第二指以第二指坐标弹菜单 ──
+  // changedTouches 末位=最后落下的指；[0] 在多指齐松/次序落点时会取首指坐标致落点错位。
+  it('多指 touchend 取末位 changedTouch（第二指坐标）——单指不受影响', () => {
+    expect(clientPoint({
+      changedTouches: [
+        { clientX: 100, clientY: 200 },
+        { clientX: 300, clientY: 400 },
+      ],
+    } as unknown as TouchEvent)).toEqual({ x: 300, y: 400 });
+  });
+  it('空 changedTouches 兜底 {0,0}（不抛）', () => {
+    expect(clientPoint({ changedTouches: [] } as unknown as TouchEvent)).toEqual({ x: 0, y: 0 });
+  });
+
+  // ── B6-1（Spec B 终裁 57①）：DRAG_THRESHOLD_PX 补导出且=B6-3 点击/连线唯一阈值 ──
+  it('DRAG_THRESHOLD_PX 导出且值为 5（B6-3 点击/连线唯一阈值）', () => {
+    expect(DRAG_THRESHOLD_PX).toBe(5);
+  });
+  it('HANDLE_MENU_NODE_TYPES 导出（imageGen/imageExtGen 两类）', () => {
+    expect(HANDLE_MENU_NODE_TYPES.has('imageGen')).toBe(true);
+    expect(HANDLE_MENU_NODE_TYPES.has('imageExtGen')).toBe(true);
+    expect(HANDLE_MENU_NODE_TYPES.has('videoGen')).toBe(false);
   });
 });

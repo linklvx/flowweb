@@ -23,7 +23,7 @@ vi.mock('@xyflow/react', async () => {
 
 // 捕获 decideHandleMenu 入参——验证 onConnectEnd 内 isLockedNow 双定义同口径（spec §3）
 const handleMenuSpy = vi.hoisted(() => ({ seen: null as any }));
-vi.mock('./handleMenu', () => ({
+vi.mock('@/utils/handleMenu', () => ({
   clientPoint: (e: any) => ({ x: e.clientX ?? 0, y: e.clientY ?? 0 }),
   absoluteRectsOf: () => [],
   decideHandleMenu: (args: any) => { handleMenuSpy.seen = args; return { kind: 'ignore' }; },

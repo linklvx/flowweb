@@ -26,6 +26,8 @@ import { downloadMediaFile } from '@/utils/mediaDownload';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 // O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——三份逐字重复收编；census 定义点=1）
 import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds } from '@flowweb/shared';
+// B6-1（Spec B）：handle 可用性单源谓词——videoGen 现状保留（无 editMode 门、双侧常开=谓词默认分支）
+import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 import axios from 'axios';
 
@@ -36,7 +38,7 @@ const MIN_HEIGHT = 100;
 // O0b-2 约束 bounds（原本地内联常量参数化——shared 单源入参）
 const VID_SIZE_BOUNDS: SizeBounds = { maxW: MAX_WIDTH, maxH: MAX_HEIGHT, minW: MIN_WIDTH, minH: MIN_HEIGHT };
 
-function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
+function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const { getNodes } = useReactFlow();
@@ -54,6 +56,8 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
   const hasMedia = !!displayUrl;
   const isEditMode = !!(nodeData?.editMode);
   const showResizeHandles = isSingleSelected && hasMedia && !isEditMode;
+  // B6-1（Spec B）：handle 门单源谓词（videoGen=默认分支双侧常开）
+  const availableHandles = getAvailableHandles(type, nodeData);
 
   // Fullscreen state
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
@@ -684,10 +688,9 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
             : {}),
         }}
       >
-        {/* videoGen 双 handle 不设 editMode 门=有意保留（Spec B editMode 分片行为变更登记——
-            imageGen 有 !editMode 双侧隐藏门，videoGen 现状无门直渲染；getAvailableHandles
-            统一谓词收敛是 B6-1 的事，本片不动消费面） */}
-        <NodeHandle type="target" testId="target-handle" />
+        {/* B6-1（Spec B）：handle 可用性已收敛 getAvailableHandles 单源谓词——videoGen 现状保留
+            （无 editMode 门、双侧常开=谓词默认分支；行为零变更，仅消双轨） */}
+        {availableHandles.includes('target') && <NodeHandle type="target" testId="target-handle" />}
         <div
           className="flex items-center justify-center overflow-hidden rounded-lg transition-colors duration-300 relative group"
           style={{ width: '100%', height: '100%' }}
@@ -728,7 +731,7 @@ function VideoGenNodeComponent({ id, selected, dragging }: NodeProps) {
             </button>
           )}
         </div>
-        <NodeHandle type="source" testId="source-handle" />
+        {availableHandles.includes('source') && <NodeHandle type="source" testId="source-handle" />}
       </div>
 
       {/* Trim panel — shown below the node when trimMode is active */}

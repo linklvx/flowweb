@@ -36,6 +36,8 @@ import axios from 'axios';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 // O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——web 三份逐字重复收编；census 定义点=1）
 import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds } from '@flowweb/shared';
+// B6-1（Spec B）：handle 可用性单源谓词——编辑中（editMode 或 transformMode）双侧无（删 !editMode 直判防双轨）
+import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 
 const MAX_WIDTH = 548;
@@ -45,7 +47,7 @@ const MIN_HEIGHT = 100;
 // O0b-2 约束 bounds（原本地 calcConstrainedSize 内联常量参数化——shared 单源入参）
 const IMG_SIZE_BOUNDS: SizeBounds = { maxW: MAX_WIDTH, maxH: MAX_HEIGHT, minW: MIN_WIDTH, minH: MIN_HEIGHT };
 
-function ImageGenNodeComponent({ id, selected }: NodeProps) {
+function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const addNodeWithEdge = useCanvasStore((s) => s.addNodeWithEdge);
@@ -70,6 +72,8 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
   const hasMedia = !!displayUrl;
   const isEditMode = !!nodeData?.editMode || !!transformMode;
   const showResizeHandles = isSingleSelected && hasMedia && !isEditMode;
+  // B6-1（Spec B）：handle 门单源谓词（isEditMode=!!editMode||!!transformMode——与 resize 门同口径）
+  const availableHandles = getAvailableHandles(type, nodeData);
   const imageRotation = (nodeData?.imageRotation ?? 0) as 0 | 90 | 180 | 270;
   const flipH = nodeData?.flipH ?? false;
   const flipV = nodeData?.flipV ?? false;
@@ -1117,7 +1121,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
               : { border: '1px solid var(--fw-border)' }),
         }}
       >
-        {!editMode && <NodeHandle type="target" testId="target-handle" />}
+        {availableHandles.includes('target') && <NodeHandle type="target" testId="target-handle" />}
         <div
           className="flex items-center justify-center overflow-hidden transition-colors duration-300 relative group"
           style={{
@@ -1213,7 +1217,7 @@ function ImageGenNodeComponent({ id, selected }: NodeProps) {
             </button>
           )}
         </div>
-        {!editMode && <NodeHandle type="source" testId="source-handle" />}
+        {availableHandles.includes('source') && <NodeHandle type="source" testId="source-handle" />}
       </div>
       {isSingleSelected && editMode !== 'outpaint' && editMode !== 'erase' && editMode !== 'redraw' && !fileId && !referenceImage && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 pt-4">

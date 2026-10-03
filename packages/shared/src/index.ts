@@ -33,3 +33,6 @@ export * from './canvas/renderCanvas';
 // O0b-2（Spec B）：assertions 出口接入——六条模型断言+membership 写侧断言真实实现（C0-2 骨架
 // O0b-1 转实），web 侧 applyDocToStore 尾挂消费（assertDocAbsMatchesCsRel/assertStoryboardMembership）。
 export * from './canvas/assertions';
+// B6-1（Spec B）：handle 可用性单源谓词——imageGen/imageExtGen 编辑中（含 transformMode）双侧无，
+// videoGen 现状保留无门双侧；web 节点组件消费（删组件内 !editMode 直判）。
+export * from './canvas/handles';
