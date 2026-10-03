@@ -60,7 +60,8 @@ function StoryboardGroupRendererCellNodes({ id, data }: { id: string; data: any 
   const cellNodes = useCanvasStore((s) =>
     s.nodes
       // O0c-3 分镜移出修法：双通道谓词 parentId∈本组 ∧ id∈cells（membership=内容真源、cells=槽序——
-      // 仅 cells.includes 会渲染"已移出但槽未清"的脏态节点；renderCanvas childrenByParent 同口径）
+      // 仅 cells.includes 会渲染"已移出但槽未清"的脏态节点；较 renderCanvas[纯 parentId 键控]更严，
+      // 双通道不变量成立时两者同集合——本谓词额外兜"槽未清"过渡窗）
       .filter((n) => n.parentId === id && (data.cells ?? []).includes(n.id))
       // 批1-6（B2）：status 读点换源——exec 覆盖值优先，回落本组件数据源（canvasStore 节点）的 data.status。
       // canvasStore 选择器内快照读（exec 投影落地伴随 doc nodes 变更 → applyDocToStore 重渲本组件）
