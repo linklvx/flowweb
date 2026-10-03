@@ -232,4 +232,23 @@ describe('AddOutputHandle 手势（B6-2 拖线层——语义归 B6-3，本片�
     firePointer(window, 'pointerup', 500, 250);
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('右键不启手势（B6-2 移交项——pointerdown button!==0 零载荷：click/drop 均不产生）', () => {
+    cs.state.nodes = twoSelected();
+    const spy = vi.fn();
+    render(<AddOutputHandle onGestureEnd={spy} />);
+    // 右键按下（button=2）：位移零（若无过滤会以 click 载荷发出）
+    act(() => {
+      btn().dispatchEvent(new MouseEvent('pointerdown', { button: 2, buttons: 2, clientX: 412, clientY: 250, bubbles: true, cancelable: true }));
+    });
+    firePointer(window, 'pointerup', 413, 251);
+    expect(spy).not.toHaveBeenCalled();
+    // 右键拖动（button=2 按下+位移达标）：若无过滤会以 drop 载荷发出
+    act(() => {
+      btn().dispatchEvent(new MouseEvent('pointerdown', { button: 2, buttons: 2, clientX: 412, clientY: 250, bubbles: true, cancelable: true }));
+    });
+    firePointer(window, 'pointermove', 500, 250);
+    firePointer(window, 'pointerup', 550, 250);
+    expect(spy).not.toHaveBeenCalled();
+  });
 });

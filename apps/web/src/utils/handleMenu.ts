@@ -125,6 +125,25 @@ export function handleEdgeId(sourceNodeId: string, targetNodeId: string): string
   return `handle:${sourceNodeId}:${targetNodeId}`;
 }
 
+/** B6-3（Spec B 需求 7）：批量连线边装配——多源→单目标=N 条边；canConnect 禁自环（源=目标剔除，
+ *  双侧对称——同规则不分手势方向）+源集去重；id=handleEdgeId 单源（幂等收敛：与 addEdge
+ *  deterministicId no-op 守卫、upsertEdge 同值 no-op 三机制一源）。既有边过滤归 store 调用点。 */
+export function batchConnectEdges(
+  sourceIds: string[],
+  targetId: string,
+): Array<{ id: string; source: string; target: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ id: string; source: string; target: string }> = [];
+  for (const s of sourceIds) {
+    if (s === targetId) continue; // 禁自环（resolveBatchDropTarget 排除源自身外的第二道守卫）
+    const id = handleEdgeId(s, targetId);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, source: s, target: targetId });
+  }
+  return out;
+}
+
 /** B6-1（Spec B 终裁 37⑤）：多指落点修——双指期间松第二指以第二指坐标弹菜单。
  * changedTouches 末位=最后落下的指；[0] 在多指齐松/次序落点时会取首指坐标致落点错位。 */
 export function clientPoint(e: MouseEvent | TouchEvent): { x: number; y: number } {

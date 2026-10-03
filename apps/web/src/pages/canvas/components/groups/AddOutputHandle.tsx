@@ -72,6 +72,7 @@ function AddOutputHandleComponent({ onGestureEnd }: Props) {
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     e.stopPropagation(); // 撞车①b：RF 不平移不拖拽（与 nodrag/nopan class 双保险）
+    if (e.button !== 0) return; // B6-3（B6-2 移交项）：仅左键启手势——右/中键零载荷零拖线
     if (!geo) return;
     if (selectIsLocked(useNodeStore.getState())) return; // F10：isLocked 态不响应
     const s = useCanvasStore.getState();

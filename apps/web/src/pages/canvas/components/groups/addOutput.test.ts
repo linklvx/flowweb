@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveAddOutputTarget, addOutputFrameFlow, addOutputSourceIds,
-  addOutputHitZoneFlow, resolveBatchDropTarget,
+  addOutputHitZoneFlow, resolveBatchDropTarget, decideBatchGestureEnd,
 } from './addOutput';
 import { ADD_OUTPUT_HANDLE } from './selectionTokens';
 
@@ -139,5 +139,32 @@ describe('resolveBatchDropTarget（松手落点——absoluteRectsOf 同口径�
   });
   it('落空 → null', () => {
     expect(resolveBatchDropTarget(withHidden, { x: 1000, y: 1000 }, ['src'])).toBeNull();
+  });
+});
+
+// ── B6-3（Spec B 需求 7）：+号手势终态决策——命中=batchConnect / 点击·落空=建点+连线菜单（拍板②）──
+
+describe('decideBatchGestureEnd', () => {
+  const toFlow = (p: { x: number; y: number }) => ({ x: p.x - 10, y: p.y - 20 });
+
+  it('drop 命中节点 → connect（源集原样直通）', () => {
+    expect(decideBatchGestureEnd(
+      { kind: 'drop', sourceIds: ['a', 'b'], clientPoint: { x: 550, y: 150 }, flowPoint: { x: 550, y: 150 }, hitNodeId: 'tgt' },
+      toFlow,
+    )).toEqual({ kind: 'connect', sourceIds: ['a', 'b'], targetId: 'tgt' });
+  });
+
+  it('drop 落空（含 hidden——resolveBatchDropTarget 排除=落空同语义）→ menu：clientPoint 定位+flowPoint 建点', () => {
+    expect(decideBatchGestureEnd(
+      { kind: 'drop', sourceIds: ['a'], clientPoint: { x: 900, y: 800 }, flowPoint: { x: 1200, y: 1000 }, hitNodeId: null },
+      toFlow,
+    )).toEqual({ kind: 'menu', sourceIds: ['a'], client: { x: 900, y: 800 }, flow: { x: 1200, y: 1000 } });
+  });
+
+  it('click → menu：anchorClient 定位+toFlow(anchorClient) 换算建点落位（点击建点=落空退化情形）', () => {
+    expect(decideBatchGestureEnd(
+      { kind: 'click', sourceIds: ['a', 'b'], anchorClient: { x: 412, y: 250 } },
+      toFlow,
+    )).toEqual({ kind: 'menu', sourceIds: ['a', 'b'], client: { x: 412, y: 250 }, flow: { x: 402, y: 230 } });
   });
 });

@@ -44,7 +44,7 @@ import { CanvasToolbar } from './CanvasToolbar';
 import { CanvasReferenceSelectBanner } from './CanvasReferenceSelectBanner';
 import { SelectionBoxOverlay } from './groups/SelectionBoxOverlay';
 import { AddOutputHandle } from './groups/AddOutputHandle';
-import { resolveAddOutputTarget, addOutputFrameFlow, addOutputHitZoneFlow } from './groups/addOutput';
+import { resolveAddOutputTarget, addOutputFrameFlow, addOutputHitZoneFlow, decideBatchGestureEnd, type BatchConnectGestureEnd } from './groups/addOutput';
 import { canEdit } from '@/stores/syncStatus';
 import { StoryboardTitlesLayer } from './groups/StoryboardTitlesLayer';
 import { GroupToolbar } from './groups/GroupToolbar';
@@ -367,6 +367,23 @@ function CanvasViewComponent(_props: Props) {
   // 双保险复位：Esc 取消重连走 cancelConnection、不触发 onConnectEnd（spec §3.3）；正常结束时紧随其后的重复复位无副作用
   const onReconnectEnd = useCallback(() => { reconnectingRef.current = false; }, []);
 
+  // ── B6-3（Spec B 需求 7）：+号手势终态接线 ──
+  // 命中节点=batchConnect（N 条边单 transact）；点击/拖线落空（含 hidden——resolveBatchDropTarget
+  // 排除=落空同语义）=建点+连线菜单（拍板②——HandleAddNodeMenu:82-92 同手势先例）。
+  const onBatchGestureEnd = useCallback((end: BatchConnectGestureEnd) => {
+    const decision = decideBatchGestureEnd(end, screenToFlowPosition);
+    if (decision.kind === 'connect') {
+      useCanvasStore.getState().batchConnect(decision.sourceIds, decision.targetId);
+      return;
+    }
+    useMenuStore.getState().openBatchMenu({
+      x: decision.client.x,
+      y: decision.client.y,
+      flowPoint: decision.flow,
+      sourceIds: decision.sourceIds,
+    });
+  }, [screenToFlowPosition]);
+
   const onPaneContextMenu = useCallback(
     (event: MouseEvent | React.MouseEvent) => {
       event.preventDefault();
@@ -589,8 +606,8 @@ function CanvasViewComponent(_props: Props) {
         />
         <CanvasReferenceSelectBanner />
         <SelectionBoxOverlay />
-        {/* B6-2（Spec B 需求 6）：+号输出按钮——多选框/普通组批量连线入口（手势语义归 B6-3 接线 onGestureEnd） */}
-        <AddOutputHandle />
+        {/* B6-2（Spec B 需求 6）：+号输出按钮——多选框/普通组批量连线入口（B6-3 手势语义经 onGestureEnd 接线） */}
+        <AddOutputHandle onGestureEnd={onBatchGestureEnd} />
         <StoryboardTitlesLayer />
         {selectedGroup && (() => {
           const gd = selectedGroup.data as any;

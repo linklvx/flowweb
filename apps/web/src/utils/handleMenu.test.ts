@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   HANDLE_MENU_NODE_TYPES, DRAG_THRESHOLD_PX,
   shouldOpenHandleMenu, decideHandleMenu, absoluteRectsOf,
-  isPointOnAnyNode, handleEdgeId, clientPoint,
+  isPointOnAnyNode, handleEdgeId, clientPoint, batchConnectEdges,
 } from './handleMenu';
 
 const rects = [{ x: 0, y: 0, w: 200, h: 150 }];
@@ -186,5 +186,36 @@ describe('handleEdgeId / clientPoint / 常量出口', () => {
     expect(HANDLE_MENU_NODE_TYPES.has('imageGen')).toBe(true);
     expect(HANDLE_MENU_NODE_TYPES.has('imageExtGen')).toBe(true);
     expect(HANDLE_MENU_NODE_TYPES.has('videoGen')).toBe(false);
+  });
+});
+
+// ── B6-3（Spec B 需求 7）：批量连线边装配——handleEdgeId 单源+canConnect 禁自环 ──
+
+describe('batchConnectEdges', () => {
+  it('多源→单目标=N 条边（id=handle:source:target——handleEdgeId 单源）', () => {
+    expect(batchConnectEdges(['a', 'b', 'c'], 't')).toEqual([
+      { id: 'handle:a:t', source: 'a', target: 't' },
+      { id: 'handle:b:t', source: 'b', target: 't' },
+      { id: 'handle:c:t', source: 'c', target: 't' },
+    ]);
+  });
+
+  it('canConnect 禁自环：源集含目标 → 该源剔除（resolveBatchDropTarget 排除源自身外的第二道守卫）', () => {
+    expect(batchConnectEdges(['a', 't'], 't')).toEqual([
+      { id: 'handle:a:t', source: 'a', target: 't' },
+    ]);
+    expect(batchConnectEdges(['t'], 't')).toEqual([]);
+  });
+
+  it('双侧对称：a→t 与 t→a 并存不互斥（同规则不分手势方向——方向不特权）', () => {
+    expect(batchConnectEdges(['t'], 'a')).toEqual([
+      { id: 'handle:t:a', source: 't', target: 'a' },
+    ]);
+  });
+
+  it('源集去重：重复源只产出一条（幂等第一道——与 addEdge deterministicId no-op 同源收敛）', () => {
+    expect(batchConnectEdges(['a', 'a'], 't')).toEqual([
+      { id: 'handle:a:t', source: 'a', target: 't' },
+    ]);
   });
 });

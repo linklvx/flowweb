@@ -16,6 +16,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { canEdit } from './syncStatus';
+import { batchConnectEdges } from '@/utils/handleMenu';
 // 批4b-2：auto 边确定性 id 判定（addEdge/removeEdge 的 origin 分流——AutoEdge 不入撤销栈契约）
 import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-1 换芯（门 C 裁决·意图漏斗）：协作语义写点经 dispatchCanvasIntent doc 直写+投影回填。
@@ -176,6 +177,12 @@ export interface CanvasState {
   addChildNodes: (sourceId: string, nodeDataList: AddChildNodeItem[], options?: AddChildNodesOptions) => string[];
   addNodeWithEdge: (sourceId: string) => string | null;
   addEdge: (source: string, target: string, sourceHandle?: string, targetHandle?: string, deterministicId?: string) => string;
+  /** B6-3（Spec B 需求 7）：多源→单目标=N 条边（handleEdgeId 单源幂等+禁自环+单 transact）——
+   *  参与集=UI 层原样（addOutputSourceIds 产物，不经 participation 组原子块裁决）。见实现 JSDoc。 */
+  batchConnect: (sourceIds: string[], targetNodeId: string) => void;
+  /** B6-3 点击建点/落空建点+连线（拍板②——HandleAddNodeMenu:82-92 同手势先例）：建点命令体
+   *  （addChildNode 等价路径——Inner 化批随迁 addNodeInner）+源集→新节点 N 边单 transact 单 undo。 */
+  addNodeAndBatchConnect: (type: string, position: XYPosition, sourceIds: string[]) => string | null;
   removeEdge: (id: string) => void;
   deleteNode: (id: string) => void;
   deleteTransformNode: (id: string) => void;
@@ -724,6 +731,65 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       isAutoEdgeId(id) ? Origin.AutoEdge : Origin.LocalUser,
     );
     set((s) => ({ edges: s.edges.filter(e => e.id !== id) }));
+  },
+
+  batchConnect: (sourceIds, targetNodeId) => {
+    // B6-3（Spec B 需求 7）：多源→单目标=N 条边——batchConnectEdges 装配（canConnect 禁自环+双侧
+    // 对称+handleEdgeId 单源）；既有边过滤（幂等收敛——addEdge deterministicId no-op 守卫同源）后
+    // N intent 单 transact（对端一帧收齐+撤销栈单捕获窗=单 undo 步）。参与集=UI 层原样（+号
+    // addOutputSourceIds 产物——'connect' 不进 participation 组原子块，arrangeSelection :57 陷阱）。
+    const edges = batchConnectEdges(sourceIds, targetNodeId);
+    if (edges.length === 0) return;
+    const existing = new Set(get().edges.map((e) => e.id));
+    const intents = edges
+      .filter((e) => !existing.has(e.id))
+      .map((e) => ({ type: 'upsertEdge' as const, edge: { id: e.id, source: e.source, target: e.target } }));
+    if (intents.length === 0) return; // 幂等：全部已存在=零 intent 零 transact
+    dispatchCanvasIntent(intents, Origin.LocalUser);
+  },
+
+  addNodeAndBatchConnect: (type, position, sourceIds) => {
+    // B6-3 点击建点/+号拖线落空=建点+连线（拍板②）：建点命令体=addChildNode 等价路径（v3.17 终裁
+    // 65③——执行序在 Inner 化批前，addNodeInner 尚未抽取；Inner 化批随迁改名）+源集→新节点 N 边
+    // 同批单 transact（addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
+    const id = getId('node');
+    const resolvedType = nodeTypeMap[type] || type;
+    const baseData: Record<string, unknown> = resolvedType === 'textInput' ? { content: '' }
+      : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片', extConfig: { ...IMAGE_EXT_DEFAULTS }, allImages: [] }
+      : {};
+    const node: Node = { id, type: resolvedType, position, data: baseData, selected: true };
+    if (resolvedType === 'textInput') {
+      node.width = 300;
+      node.height = 300;
+    }
+    if (resolvedType === 'videoEdit') {
+      node.width = 320; // addNode 同款：产物位置 fallback 链落 300 会致首渲染偏移
+    }
+    const edges = batchConnectEdges(sourceIds, id); // 新目标 id ⇒ 全新 handle: 边
+    dispatchCanvasIntent([
+      {
+        type: 'addNode',
+        node: {
+          id, type: resolvedType, position,
+          ...(node.width != null ? { width: node.width } : {}),
+          ...(node.height != null ? { height: node.height } : {}),
+          data: baseData,
+        },
+      },
+      ...edges.map((e) => ({ type: 'upsertEdge' as const, edge: { id: e.id, source: e.source, target: e.target } })),
+    ], Origin.LocalUser);
+    set((s) => {
+      // 投影已 append（canEdit 真窗口）→ 本 set 只补 UI 选择态；dispatch 被拦 → 原 append（addNode 同款）
+      const projected = s.nodes.some((n) => n.id === id);
+      return {
+        nodes: projected
+          ? s.nodes.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false }))
+          : [...s.nodes.map((n) => ({ ...n, selected: false })), node],
+        selectedId: id,
+      };
+    });
+    useNodeStore.getState().addNode({ id, type: resolvedType, data: baseData as any });
+    return id;
   },
 
   createDerivedExtNode: (params) => {

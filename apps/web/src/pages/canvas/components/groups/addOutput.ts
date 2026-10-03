@@ -163,6 +163,27 @@ export interface BatchConnectDropEnd {
 
 export type BatchConnectGestureEnd = BatchConnectClickEnd | BatchConnectDropEnd;
 
+/** B6-3 手势终态决策：命中节点=直接批量连线；点击/拖线落空（含 hidden——resolveBatchDropTarget
+ * 排除=落空同语义）=建点+连线菜单（拍板②——HandleAddNodeMenu:82-92 同手势先例；需求 7"点击建点"
+ * =落空退化情形）。toFlow=client→流坐标换算（CanvasView screenToFlowPosition 注入——click 载荷
+ * 只有 client 锚，drop 载荷自带 flowPoint 不换算）。 */
+export type BatchGestureDecision =
+  | { kind: 'connect'; sourceIds: string[]; targetId: string }
+  | { kind: 'menu'; sourceIds: string[]; client: { x: number; y: number }; flow: { x: number; y: number } };
+
+export function decideBatchGestureEnd(
+  end: BatchConnectGestureEnd,
+  toFlow: (p: { x: number; y: number }) => { x: number; y: number },
+): BatchGestureDecision {
+  if (end.kind === 'click') {
+    return { kind: 'menu', sourceIds: end.sourceIds, client: end.anchorClient, flow: toFlow(end.anchorClient) };
+  }
+  if (end.hitNodeId != null) {
+    return { kind: 'connect', sourceIds: end.sourceIds, targetId: end.hitNodeId };
+  }
+  return { kind: 'menu', sourceIds: end.sourceIds, client: end.clientPoint, flow: end.flowPoint };
+}
+
 /** 松手落点（absoluteRectsOf 同口径）：组/hidden 不产出命中矩形 + 排除源自身（F9——
  * hidden 目标会建出永远看不见的边）。连线动作归 B6-3，本函数只解析落点。 */
 export function resolveBatchDropTarget(
