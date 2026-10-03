@@ -297,8 +297,9 @@
 
 ### Task B6-3：batchConnect+点击建点
 
-- [ ] **participation 不进 arrangeSelection**（:57 组闭包陷阱——**action 白名单：仅 action==='arrange' 组原子块；'connect' 不进[参与集原样多选]——UI 层参与集原样**）；canConnect 禁自环+双侧对称；**幂等收敛=handleEdgeId 单源**（addEdge deterministicId no-op 守卫既有——三机制一源）；单 transact；点击建点（**用当时等价路径 addChildNode 命令体——v3.17 终裁 65③：执行序 B6-3 在 Inner 化批前，addNodeInner 尚未抽取[按字面引用编译不过]；Inner 化批随迁改名 addNodeInner**+batchConnect 同 runCommand 单 undo）；指针状态机（<阈值=点击/≥=连线；落空不弹菜单不建点[handle 拖线侧]；**+号拖线落空=建点+连线（v3.18 拍板项②——HandleAddNodeMenu:82-92 addNode+addEdge 同手势先例+需求 7“点击建点”=退化情形；**已确认 2026-10-02 用户拍板②=建点+连线**，终裁 78 小项）**）；**需求 7 规则锚**：多源→单目标=N 条边/落 hidden 不响应/auto-edge origin 路由不受影响（HandleAddNodeMenu:82-92 同手势先例）
-- [ ] commit `feat(canvas): B6-3 批量连线+点击建点——handleEdgeId 单源+单 transact（Spec B B6-3）`
+- [x] **participation 不进 arrangeSelection**（:57 组闭包陷阱——**action 白名单：仅 action==='arrange' 组原子块；'connect' 不进[参与集原样多选]——UI 层参与集原样**）；canConnect 禁自环+双侧对称；**幂等收敛=handleEdgeId 单源**（addEdge deterministicId no-op 守卫既有——三机制一源）；单 transact；点击建点（**用当时等价路径 addChildNode 命令体——v3.17 终裁 65③：执行序 B6-3 在 Inner 化批前，addNodeInner 尚未抽取[按字面引用编译不过]；Inner 化批随迁改名 addNodeInner**+batchConnect 同 runCommand 单 undo）；指针状态机（<阈值=点击/≥=连线；落空不弹菜单不建点[handle 拖线侧]；**+号拖线落空=建点+连线（v3.18 拍板项②——HandleAddNodeMenu:82-92 addNode+addEdge 同手势先例+需求 7“点击建点”=退化情形；**已确认 2026-10-02 用户拍板②=建点+连线**，终裁 78 小项）**）；**需求 7 规则锚**：多源→单目标=N 条边/落 hidden 不响应/auto-edge origin 路由不受影响（HandleAddNodeMenu:82-92 同手势先例）
+- [x] commit `feat(canvas): B6-3 批量连线+点击建点——handleEdgeId 单源+单 transact（Spec B B6-3）`
+  - 完成注记（2026-10-03）：commit 36209740+5ee34e0c（质评收口：注释归属校准[建点体=addNode 类型默认体——spec 评审勘误"addChildNode 等价"指错源]+canConnect 措辞+menuStore 四向互斥双向断言[beforeEach 补 batchMenu 复位]）；participation 陷阱=真实约束非空洞（spec 评审实证：'connect' 未加白名单+batchConnect 不经 participation+参与集原样锚测试[detached 子双源不丢+组 id 不入源]）；先例语义=picker 菜单（HandleAddNodeMenu:42-53 实读——点击与落空均弹类型选择，非直接建点）；落 hidden=resolveBatchDropTarget 排除⇒落空同语义；右键过滤落地（红测实证修复前 click 载荷确发）；**B6-2 悬停渲染顺延至 B7**（plan 红测清单两片均未收——selected-only 满足无歧义前提）；质评登记：menuShell 第三副本 ~70 行（BatchAddNodeMenu↔HandleAddNodeMenu↔AddNodeMenu——第 4 副本出现时抽 MenuShell）+4 向互斥 N² 触点（第 5 菜单时重构 activeMenu 判别联合）+~15 行建点体重复（Inner 化批收敛）
 
 ---
 
