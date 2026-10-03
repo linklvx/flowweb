@@ -247,14 +247,15 @@
 
 ### Task O0c-2：ProcessSnapshot deriveRenderCanvas 换芯+组件抽取
 
-- [ ] **Step 1: 红测试**
+- [x] **Step 1: 红测试**
   - /process 快照≡主画布（几何逐位+可见节点集合一致——用例含 manual/collapsed/storyboard 三形态+分镜组≥1 子+**≥1 从未 resize 图片节点**[尺寸固化验证面]）
   - RF 数组剔除 hidden∧分镜子独立节点（payload 保留 data）∧collapsed 子代剔除∧边集无悬空∧输出父先子后+环守卫
   - 快照组帧≡deriveGroupFrame 四模式逐位；初始 bounds 不含 (0,0) 邻域；分镜组 4 格⇒MiniMap 不出现 4 个叠原点
   - import 图断言："ProcessSnapshot 传递依赖不含 useCanvasStore"
-- [ ] **Step 2: 绿实现**：deriveRenderCanvas（records→RenderNode[rel+hidden+派生帧+cellNodes 双通道映射+边集过滤]）；StoryboardGroupRenderer 抽零 store 纯组件落 **apps/web/src/components/storyboard/**（CellNodeInfo 随迁[双通道]+removeStoryboardCell 回调与 window Delete 键 effect 参数化/剥离；resolveStoryboardConfig 改 import shared 直连）；ProcessSnapshot :62-80 自建映射删改 deriveRenderCanvas；FALLBACK.group+FALLBACK_DEFAULT 组路径双删（符号级断言"FALLBACK 不含 group 键"）
-- [ ] **Step 3: 现状测试改写**：ProcessSnapshot.test:99-104 translate(1020)→按 RenderNode rel 语义改写；:70-80→"节点数=可见节点数"
-- [ ] **Step 4: commit** `feat(canvas): O0c 第 4 渲染面——deriveRenderCanvas 换芯+组件抽取+FALLBACK 双删（Spec B O0c-2）`
+- [x] **Step 2: 绿实现**：deriveRenderCanvas（records→RenderNode[rel+hidden+派生帧+cellNodes 双通道映射+边集过滤]）；StoryboardGroupRenderer 抽零 store 纯组件落 **apps/web/src/components/storyboard/**（CellNodeInfo 随迁[双通道]+removeStoryboardCell 回调与 window Delete 键 effect 参数化/剥离；resolveStoryboardConfig 改 import shared 直连）；ProcessSnapshot :62-80 自建映射删改 deriveRenderCanvas；FALLBACK.group+FALLBACK_DEFAULT 组路径双删（符号级断言"FALLBACK 不含 group 键"）
+- [x] **Step 3: 现状测试改写**：ProcessSnapshot.test:99-104 translate(1020)→按 RenderNode rel 语义改写；:70-80→"节点数=可见节点数"
+- [x] **Step 4: commit** `feat(canvas): O0c 第 4 渲染面——deriveRenderCanvas 换芯+组件抽取+FALLBACK 双删（Spec B O0c-2）`
+  - 完成注记（2026-10-03）：commit 68b5c9b3（deriveRenderCanvas 落 shared/canvas/renderCanvas.ts 新文件——避免 geometry↔docShape 循环依赖；帧单源 deriveGroupFrame+hidden 谓词 groupHidesChildren 与 deriveHiddenMap 同源+父先子后环守卫）+b0c520b3（质评收口：onFillEmpty 参数化——公开页空格无 + 死按钮[事件分发上移 GroupNode 注入]+expanded∧auto 夹具补档[DEFAULT_CHILD_SIZE 兜底链生效]）；O0c-1 遗留泄漏红线三键种夹具随本批补；登记两项：①jsdom 不可观测 RF 边——边过滤锚在 renderCanvas.test 逻辑级（DOM 级归 B7 Playwright）②空 auto 组公开页 {0,0}=记录契约固有极限（doc 零帧键+payload 归一——修法将违冻结键集表，§5 台账候选=buildFilteredSnapshot 丢弃空组）
 
 ### Task O0c-3：attachMember 分层+分镜移出三坏+整模块三删
 
