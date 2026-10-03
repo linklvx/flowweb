@@ -3,7 +3,7 @@
 // 三函数行为测试（shared 单源，FakeDoc 零 yjs——fillRead.test 同款装置）。
 // 门判据四档（plan O0b-0 Step 2⑤）：戳=2 放行 / 戳=1 拒（throw 带明确信息）/
 // 无戳∧有节点 ⇒ 拒 / 无戳∧零节点 ⇒ 放行（REST 侧不盖戳——空画布合法档）。
-// "无戳∧有节点"档锚构造纪律（终裁 92）：裸 doc+applyRecordToYMap 不经 fillDoc——防未来
+// "无戳∧有节点"档锚构造纪律（终裁 92）：裸 doc+手建节点 Map 不经 fillDoc——防未来
 // stamp 回归 fillDoc 时测试假绿（本批起 fillDoc 不写 meta，构造纪律仍保持）。
 import { describe, it, expect } from 'vitest';
 import {
@@ -31,7 +31,7 @@ class FakeDoc implements DocLike {
   createMap = (): FakeMap => new FakeMap();
 }
 
-/** "无戳∧有节点"构造纪律（终裁 92）：裸 doc+applyRecordToYMap 写节点——不经 fillDoc（若未来
+/** "无戳∧有节点"构造纪律（终裁 92）：裸 doc+手建节点 Map 写节点——不经 fillDoc（若未来
  *  fillDoc 回归盖章，本装置产出的仍是无戳档——锚不假绿）。 */
 function bareDocWithNode(doc: DocLike): void {
   const m = doc.createMap();
@@ -100,7 +100,7 @@ describe('ensureSchemaVersion（四档门判据——REST 读入口 fail-closed�
     expect(() => ensureSchemaVersion(doc)).toThrow(/schemaVersion/);
   });
 
-  it('无戳∧有节点 ⇒ 拒（裸 doc+applyRecordToYMap 构造纪律——终裁 92 防假绿）', () => {
+  it('无戳∧有节点 ⇒ 拒（裸 doc+手建节点 Map 构造纪律——终裁 92 防假绿）', () => {
     const doc = new FakeDoc();
     bareDocWithNode(doc);
     expect(() => ensureSchemaVersion(doc)).toThrow(/schemaVersion/);

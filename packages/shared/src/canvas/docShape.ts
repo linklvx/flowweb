@@ -69,10 +69,8 @@ export function ensureSchemaVersion(doc: DocLike): void {
   const sv = doc.getMap('meta').get('schemaVersion');
   if (sv === CANVAS_DOC_SCHEMA_VERSION) return;      // 戳=2 放行
   if (sv == null) {
-    for (const _ of doc.getMap('nodes').entries()) { // 无戳∧有节点 ⇒ 拒
-      assertDocSchema(doc);
-    }
-    return;                                          // 无戳∧零节点 ⇒ 放行
+    if ([...doc.getMap('nodes').entries()].length > 0) assertDocSchema(doc); // 无戳∧有节点 ⇒ 拒
+    return;                                                               // 无戳∧零节点 ⇒ 放行
   }
   assertDocSchema(doc);                              // 戳=1（或未来未知档）⇒ 拒
 }

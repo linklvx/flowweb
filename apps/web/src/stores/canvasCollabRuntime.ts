@@ -281,6 +281,7 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
 // O0b-0 S1 停写退役：structDiffToIntents 本地死函数+pickStructNodes/dispatchSystemIntents import
 // 随调用点同删（恢复链零回写——几何修复职责移交 reconcile 写 cs 面；canvasHistory.ts 整模块与
 // dispatchSystemIntents 定义删除留 O0b-4）。
+// refitExpandedGroups（:650 定义——O0b-0 摘调用后零生产调用者，O0b-4 与 canvasHistory 同批删，连带 page.test.tsx:18 mock+shouldAutoRefit import）。
 
 /** O0b-0 reconcile 最小实现（读侧——写域②abs→rel 直拷+组帧 origin 同 tick；挂点=applyDocToStore
  *  尾。O0b-1 完整化源矩阵/写域四类/零差异短路/漏斗尾+diff 首行挂点）。doc 读取=readRecordsFromMaps

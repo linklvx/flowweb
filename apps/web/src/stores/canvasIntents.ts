@@ -139,7 +139,6 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
  *  addNode position 直写一起退役（reconcile 同 tick 补齐承接）。 */
 function absToCsPosition(
   s: { nodes: any[] },
-  id: string,
   abs: { x: number; y: number },
   parentId: string | null | undefined,
 ): { x: number; y: number } {
@@ -173,7 +172,7 @@ export function projectIntentToStore(intent: CanvasIntent): void {
             type: n.type,
             // O0b-0：intent.position=doc abs——cs 面 rel 换算（absToCsPosition；三层表第三层
             // 分镜子 cs {0,0} 构造默认随换算落）
-            position: n.position ? absToCsPosition(s, n.id, n.position, n.parentId) : { x: 0, y: 0 },
+            position: n.position ? absToCsPosition(s, n.position, n.parentId) : { x: 0, y: 0 },
             ...(n.parentId != null ? { parentId: n.parentId } : {}),
             ...(n.width != null ? { width: n.width } : {}),
             ...(n.height != null ? { height: n.height } : {}),
@@ -202,7 +201,7 @@ export function projectIntentToStore(intent: CanvasIntent): void {
     case 'moveNode':
       useCanvasStore.setState((s) => ({
         nodes: s.nodes.map((n: any) => (n.id === intent.id
-          ? { ...n, position: absToCsPosition(s, n.id, intent.position, n.parentId) } // O0b-0：abs→cs rel 换算
+          ? { ...n, position: absToCsPosition(s, intent.position, n.parentId) } // O0b-0：abs→cs rel 换算
           : n)),
       }));
       break;

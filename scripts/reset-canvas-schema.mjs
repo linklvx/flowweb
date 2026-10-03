@@ -48,6 +48,12 @@ if (!databaseUrl) {
   console.error('[reset-canvas-schema] apps/api/.env 缺 DATABASE_URL');
   process.exit(1);
 }
+// 非本地库防误清：host 非 localhost/127.0.0.1 时需显式 --force（不加 stdin 确认——本机开发流程要可重复执行）
+const dbHost = new URL(databaseUrl).hostname;
+if (!['localhost', '127.0.0.1'].includes(dbHost) && !process.argv.includes('--force')) {
+  console.error(`[reset-canvas-schema] 非本地库拒绝执行（当前 host=${dbHost}）需 --force`);
+  process.exit(1);
+}
 // 脱敏展示（不打印密码）
 const safeDb = databaseUrl.replace(/:\/\/([^:/@]+):[^@]*@/, '://$1:***@');
 console.log(`[reset-canvas-schema] DB=${safeDb}  REDIS=${redisUrl.replace(/:\/\/([^:/@]+):[^@]*@/, '://$1:***@')}`);

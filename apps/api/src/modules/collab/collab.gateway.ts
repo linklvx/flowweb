@@ -12,7 +12,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
 import { collabSweepCloseTotal, yjsCanvasDocBytes, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsUnflushedProjects } from './store.metrics';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 
 /** 批3-4：compact 门限由行数（原 COMPACT_THRESHOLD=32）改时间门限——debounce 收紧（5s→1/2s）会让
@@ -224,21 +224,19 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const stash = this.takeStash(projectId);
       if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
       await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
-      // O0b-0 版本门 v2.1（唯一戳源——replay 完成后同步判；stamp 的 update 不在 replaying 抑制
-      // 窗内 → 进 pending → 下次 store 落库）
-      const sv = document.getMap('meta').get('schemaVersion');
-      if (sv !== CANVAS_DOC_SCHEMA_VERSION) {
-        const hasNodes = [...document.getMap('nodes').keys()].length > 0;
-        if (sv == null && !hasNodes) {
-          stampDocSchema(toDocLike(document));   // 无戳∧零节点 ⇒ stamp 唯一自愈点（新建空画布合法档）
-        } else {
-          const reason = sv != null
-            ? `schemaVersion=${String(sv)}（旧档）≠ current ${CANVAS_DOC_SCHEMA_VERSION}`
-            : `无 schemaVersion 戳且有 ${[...document.getMap('nodes').keys()].length} 节点（旧档形态）`;
-          this.logger.error(`[O0b-0] 版本门拒绝载入 ${documentName}：${reason}——开发期无 v1→v2 迁移`);
-          // schemaRefusal 标记：外层 catch 透传（版本门拒≠db-unavailable——不折瞬态桶）
-          throw Object.assign(new Error(`[O0b-0] doc 版本门拒绝载入：${reason}`), { schemaRefusal: true });
-        }
+      // O0b-0 版本门 v2.1（判据单源=shared ensureSchemaVersion——本处只留 stamp 自愈分支+拒绝日志+
+      // refusal 标记；replay 完成后同步判，stamp 的 update 不在 replaying 抑制窗内 → 进 pending →
+      // 下次 store 落库）
+      const nodeCount = [...document.getMap('nodes').keys()].length;
+      try {
+        ensureSchemaVersion(toDocLike(document));
+      } catch (e) {
+        this.logger.error(`[O0b-0] 版本门拒绝载入 ${documentName}：${(e as Error).message}（${nodeCount} 节点）`);
+        // schemaRefusal 标记：外层 catch 透传（版本门拒≠db-unavailable——不折瞬态桶）
+        throw Object.assign(e as Error, { schemaRefusal: true });
+      }
+      if (document.getMap('meta').get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
+        stampDocSchema(toDocLike(document));   // 无戳∧零节点 ⇒ stamp 唯一自愈点（新建空画布合法档——门对该档放行后仅存此档）
       }
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
