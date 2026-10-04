@@ -148,6 +148,7 @@
       "path": "docs/superpowers/plans/socketio-retirement-assessment.md",
       "criteria": "C4",
       "evidence": [
+        "入引用自 docs/README.md",
         "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
         "入引用自 docs/superpowers/tech-debt.md"
       ]
@@ -222,9 +223,18 @@
       ]
     },
     {
+      "path": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "criteria": "C4",
+      "evidence": [
+        "入引用自 docs/README.md",
+        "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md"
+      ]
+    },
+    {
       "path": "docs/superpowers/specs/admin-console-refactor.md",
       "criteria": "C4",
       "evidence": [
+        "入引用自 docs/README.md",
         "入引用自 docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
         "入引用自 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md"
       ]

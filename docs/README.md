@@ -66,6 +66,7 @@
 | socket.io 通道现状与退役计划 | plans/socketio-retirement-assessment.md + tech-debt TD-21 |
 | 技术债台账 | superpowers/tech-debt.md |
 | 部署/DB 迁移 | superpowers/deployment-db-baseline.md |
+| 订阅域索引断言 | `pnpm --filter @flowweb/api run verify:indexes`（运行时机：**上线前/订阅迁移后**——逐块断言 ≥1 行，消灭空集假绿） |
 | 团队协作产品口径 | 团队功能说明.md |
 
 ## verified_at 操作规则（新鲜度是改代码时的义务）
