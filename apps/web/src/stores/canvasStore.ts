@@ -321,8 +321,8 @@ export interface CanvasState {
   endGesture: (reason: 'aborted' | 'healed' | 'removed') => void;
   /** B5'-1（Spec B 终裁 48/66④/78⑩）拖动松手提交——三段式终裁序：①构造 intents（被拖集合末帧
    *  →moveNode 载荷=abs：顶层 cs.position 即 abs、子 rel+组 origin 翻转[拖叶档父组帧冻结/拖组档
-   *  origin 活]；被拖 manual/storyboard 组附带帧三键 envelope——手势三行表"拖组 提交=N 子 abs（manual
-   *  组+帧三键）"；末帧≡doc 零净变更剔除）→②清 session 同步块（无条件先于判空）→③单 transact
+   *  origin 活]；被拖 manual 展开态组附带帧三键 envelope——手势三行表"拖组 提交=N 子 abs（manual
+   *  组+帧三键）"[折叠 manual/storyboard=position-only：终裁 82 密封源/键集表]；末帧≡doc 零净变更剔除）→②清 session 同步块（无条件先于判空）→③单 transact
    *  dispatch（Origin.LocalUser——拖动入栈=一步 undo，旧锚"拖动不入栈"反转入栈）+漏斗尾 reconcile
    *  （让位集合已废止⇒终末对齐=reconcile 全域）→invariant（DEV）。**调用图不含 endGesture**
    *  （终裁 78⑩——abort 族收尾回滚会吃掉提交；防复用重演 P0-10）。幂等：无 drag 会话=no-op
@@ -1110,8 +1110,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       intents.push({ type: 'moveNode', id, position: abs });
     }
     // ②被拖组：随组位移的子代（不在 draggingIds 的成员——RF 拖组只动组节点，子 rel 不变、abs 随
-    // origin 平移；直拖子①已提交去重）+manual/storyboard 组帧三键密封（auto 恒无帧键——帧归
-    // reconcile 派生；折叠档 cs wh=COLLAPSED_SIZE 派生禁入 doc[终裁 82 doc 三键=展开态密封]⇒position-only）
+    // origin 平移；直拖子①已提交去重）+manual 展开态组帧三键密封（手势三行表"拖组=manual 组+帧三键"；
+    // 折叠 manual/storyboard=position-only[终裁 82 密封源/键集表 storyboard 无 wh]；auto 恒无帧键
+    // ——帧归 reconcile 派生；折叠档 cs wh=COLLAPSED_SIZE 派生禁入 doc[终裁 82 doc 三键=展开态密封]）
     for (const gid of s.draggedGroupIds) {
       const g = byId.get(gid);
       if (!g) continue;
@@ -1126,10 +1127,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const gcur = docPosById?.get(gid);
       if (!isContentDerivedGroup(g) && gcur != null
         && !(near(g.position.x, gcur.x) && near(g.position.y, gcur.y))) {
-        const collapsed = (g.data as Record<string, unknown>).collapsed === true;
+        const gdata = (g.data ?? {}) as Record<string, unknown>;
+        // 帧键发射档（spec 评 P1-A 收口）：manual 展开态=三键密封；折叠 manual=position-only
+        //（终裁 82 doc 三键=展开态密封源——COLLAPSED_SIZE 派生值禁入 doc）；storyboard=position-only
+        //（键集表"storyboard 组无 wh"——cs wh 为 calcStoryboardSize 派生值非作者态）。
+        const positionOnly = gdata.collapsed === true || gdata.groupType === 'storyboard';
         intents.push({
           type: 'updateNodeEnvelope', id: gid,
-          patch: collapsed
+          patch: positionOnly
             ? { position: { x: g.position.x, y: g.position.y } }
             : { position: { x: g.position.x, y: g.position.y }, width: g.width, height: g.height },
         });

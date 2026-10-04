@@ -275,10 +275,17 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
   const st = useCanvasStore.getState();
   const guard = resolveGestureYield(st.dragSession, st.nodes as any[]);
   const GUARDED = '__yield-guarded__' as any;
+  // B5'-1 spec 评 P1-B：折叠（非 storyboard）组 wh 豁免——cs 帧=COLLAPSED_SIZE 派生档 vs doc
+  // 三键=展开态密封源是终裁 82 设计内分叉（O0b-5 起存在、挂上提交主路径后暴露）；哨兵双侧同值
+  //（与让位豁免同型），position 仍如实比较（密封 origin 两域一致）。
+  const collapsedWhGuarded = (n: any) => {
+    if (n.type !== 'group' || (n.data as Record<string, unknown> | undefined)?.collapsed !== true) return n;
+    return { ...n, width: GUARDED, height: GUARDED };
+  };
   const stripGuarded = (n: any) => {
     const gg = guard.get(n.id);
-    if (!gg) return n;
-    const out = { ...n };
+    if (!gg) return collapsedWhGuarded(n);
+    const out = { ...collapsedWhGuarded(n) };
     if (gg.position) out.position = GUARDED;
     if (gg.wh) { out.width = GUARDED; out.height = GUARDED; }
     return out;

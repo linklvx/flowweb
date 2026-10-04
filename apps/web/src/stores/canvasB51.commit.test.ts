@@ -275,6 +275,34 @@ describe("B5'-1 终末对齐（集合废止——reconcile 全域）", () => {
   });
 });
 
+// ══════════ spec 评审收口 P1 两件（2026-10-03） ══════════
+
+describe("B5'-1 spec 评审收口（P1：storyboard 组键集违例+折叠组 invariant 豁免）", () => {
+  it('P1-A 拖 storyboard 组：envelope=position-only（键集表"storyboard 组无 wh"）——doc 零 wh 键+不抛+子 abs 随组', () => {
+    const d = hydrate();
+    begin(['sb1']);
+    frame('sb1', 100, 420);                                     // 组位移（origin 活）
+    useCanvasStore.getState().commitIntents();                  // 修复前：envelope 三键⇒doc 落 wh 键+invariant 抛
+    expect(docPos(d, 'sb1')).toEqual({ x: 100, y: 420 });       // position 更新
+    expect(nodeMap(d, 'sb1').get('width')).toBeUndefined();     // 键集表：storyboard 组零 wh 键
+    expect(nodeMap(d, 'sb1').get('height')).toBeUndefined();
+    expect(docPos(d, 's1')).toBeUndefined();                    // 分镜子 doc 恒无 position 键（键集表——格位由组渲染派生）
+  });
+
+  it('P1-B 画布含折叠 manual 组：拖无关顶层节点提交不抛（cs 帧=COLLAPSED_SIZE 派生 vs doc 三键展开态密封=终裁 82 设计内分叉——invariant 折叠档豁免）', () => {
+    const d = hydrate();
+    // 折叠 g1（单意图 data.collapsed——O0b-5；cs 帧由 reconcile 写域① collapsed 档派生 COLLAPSED_SIZE）
+    useCanvasStore.getState().toggleCollapse('g1');
+    expect(csNode('g1').width).toBe(220);                       // COLLAPSED_SIZE（cs 派生档）
+    expect(nodeMap(d, 'g1').get('width')).toBe(400);            // doc 密封展开态（终裁 82）
+    begin(['t1']);
+    frame('t1', 900, 30);
+    expect(() => useCanvasStore.getState().commitIntents()).not.toThrow();   // 修复前：invariant 全表比较必抛
+    expect(docPos(d, 't1')).toEqual({ x: 900, y: 30 });         // 提交照常落 doc
+    expect(nodeMap(d, 'g1').get('width')).toBe(400);            // 密封值不被腐蚀
+  });
+});
+
 // ══════════ ⑦⑧ 结构断言+会话分型守卫 ══════════
 
 describe("B5'-1 结构断言（终裁 78⑩——commitIntents 调用图不含 endGesture）", () => {
