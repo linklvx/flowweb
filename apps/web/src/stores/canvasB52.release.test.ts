@@ -242,7 +242,7 @@ describe("B5'-2 tie-break（overlapArea>0 面积最大胜/max===0⇒顶层化/�
     frame('t', 150, 10);            // t rect(150..430,10..130)：ga 交叠 50×40=2000；gb 交叠 100×40=4000
     release();
     expect(csNode('t').parentId).toBe('gb');
-    expect(d).toBeTruthy();
+    void d;   // 面积档无需 doc 面（归属断言=cs 侧权威；质评 Minor-4 删凑数断言）
   });
 
   it('并列 id 最小：交叠面积恰相等（各 190×120）⇒ ga 胜（字典序最小——面积优先、并列才比 id）', () => {

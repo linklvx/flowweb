@@ -326,7 +326,7 @@ export interface CanvasState {
    *  dispatch（Origin.LocalUser——拖动入栈=一步 undo，旧锚"拖动不入栈"反转入栈）+漏斗尾 reconcile
    *  （让位集合已废止⇒终末对齐=reconcile 全域）→invariant（DEV）。**调用图不含 endGesture**
    *  （终裁 78⑩——abort 族收尾回滚会吃掉提交；防复用重演 P0-10）。幂等：无 drag 会话=no-op
-   *  （resize 会话归 commitResizeGesture）。生产接线=CanvasView onNodeDragStop 头部。 */
+   *  （resize 会话归 commitResizeGesture）。生产接线=handleDragRelease 零归属档 passthrough。 */
   commitIntents: () => void;
   /** B5'-2（Spec B 终裁 38①/24/17）：拖动松手单一路由——旧链（CanvasView handleNodeDragStop→
    *  onNodeDragStopIntoGroup→findDropGroup[groupDrop.ts 整模块删]）整链替换；生产接线=ReactFlow
@@ -420,6 +420,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     set({ dragSession: null });
   };
 
+  /** 冻结/活 origin 翻转单源（B5'-2 质评 Minor-2）：拖组档 origin 活=cs[G].position / 拖叶档父组
+   *  帧冻结（frozenFrames 优先 ?? cs 现值）——提交载荷（buildDragCommitIntents ①）与松手裁决
+   *  （handleDragRelease 落点）共用同一式，防单边漂移致裁决≠提交。 */
+  const dragOriginOf = (
+    s: DragSession,
+    byId: Map<string, Node>,
+    parentId: string,
+  ): { x: number; y: number } | undefined =>
+    s.draggedGroupIds.has(parentId)
+      ? byId.get(parentId)?.position   // 拖组档：origin 活
+      : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position;   // 拖叶档：父组帧冻结
+
   /** B5'-2（Spec B）：拖动提交意图构造单源——原 commitIntents ①②（被拖叶末帧→moveNode 载荷=abs
    *  [冻结/活 origin 翻转]+被拖组子代 abs+manual 展开态组帧三键 envelope；末帧≡doc 零净变更剔除
    *  [LWW 末帧胜出]）。commitIntents 与 handleDragRelease（归属信封同批单 transact——B5'-2
@@ -433,21 +445,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       : null;
     const near = (a: number, b: number) => Math.abs(a - b) <= RECONCILE_EPS;   // 单源导入（量化契约表冻结——浮点往返噪声域）
     const intents: CanvasIntent[] = [];
-    // ①被拖叶：末帧→moveNode 载荷=abs（量化契约表：顶层 cs.position 即 abs；子 rel+组 origin 翻转
-    // ——拖叶档父组帧冻结[origin=frozenFrames]/拖组档 origin 活=cs[G].position）。零净变更剔除：
-    // 末帧 abs≡doc 现值⇒零 intent——空操作/往返 exact 同档零事务；无远端写时 doc 现值≡baseline。
+    // ①被拖叶：末帧→moveNode 载荷=abs（量化契约表：顶层 cs.position 即 abs；子 rel+组 origin 翻转）。
+    // 零净变更剔除：末帧 abs≡doc 现值⇒零 intent——空操作/往返 exact 同档零事务；无远端写时 doc 现值≡baseline。
     // **LWW 语义**：被拖节点被远端写（让位保护窗）时末帧≠doc 现值⇒末帧胜出提交——与"让位=手势期
     // 本地几何权威"（终裁 71 保护回写 {position}=末帧）连续；baseline 比较反会把 cs 拉回远端值，
     // 违 66④①"提交后 cs≡末帧"。
     for (const id of s.draggingIds) {
       const n = byId.get(id);
       if (!n || n.type === 'group') continue;   // 被拖组归②；手势期被删（remove 谓词应已收尾）防御跳过
-      const parentId = n.parentId;
-      const origin = parentId != null
-        ? (s.draggedGroupIds.has(parentId)
-            ? byId.get(parentId)?.position   // 拖组档：origin 活
-            : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position)   // 拖叶档：父组帧冻结
-        : undefined;
+      const origin = n.parentId != null ? dragOriginOf(s, byId, n.parentId) : undefined;
       const abs = origin
         ? { x: n.position.x + origin.x, y: n.position.y + origin.y }
         : { x: n.position.x, y: n.position.y };
@@ -1206,12 +1212,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       const n = byId.get(id);
       if (!n || n.type === 'group') continue;
       const parentId = n.parentId;
-      // 末帧 abs（buildDragCommitIntents ① 同式：父∈被拖组⇒活 origin/否则冻结帧优先）
-      const origin = parentId != null
-        ? (s.draggedGroupIds.has(parentId)
-            ? byId.get(parentId)?.position
-            : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position)
-        : undefined;
+      // 末帧 abs（dragOriginOf 单源——与提交载荷共用同一翻转式）
+      const origin = parentId != null ? dragOriginOf(s, byId, parentId) : undefined;
       const absX = n.position.x + (origin?.x ?? 0);
       const absY = n.position.y + (origin?.y ?? 0);
       const nw = n.width ?? DEFAULT_CHILD_SIZE.width;
