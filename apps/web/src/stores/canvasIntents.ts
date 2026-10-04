@@ -295,6 +295,10 @@ export function dispatchFixtureSizeIntents(
   candidates: { id: string; width: number; height: number }[],
 ): void {
   if (candidates.length === 0) return;
+  // B4'-2 非手势期门（终裁 59①[iii]"session∨resizePending 不固化"）：手势会话（drag/resize）
+  // 或叶子 resize 标记期间零固化——RF 尾批/测量批不产 envelope（组目标另由类型限定排除）。
+  const st = useCanvasStore.getState();
+  if (st.dragSession != null || st.resizePending) return;
   const d = resolveDoc();
   if (!d) return;
   const nodesMap = d.getMap('nodes');

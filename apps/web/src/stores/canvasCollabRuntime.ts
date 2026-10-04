@@ -553,9 +553,13 @@ export interface GestureProtectionSnapshot {
   readonly nodes: ReadonlyMap<string, GestureGeo>;
 }
 
-/** 让位两层解析（卡一）：返回 nodeId→字段保护面。纯函数——children(resizeTargetId) 从 csNodes
- *  现取。session 缺省/空集 ⇒ 空 Map=零让位（reconcile/apply 现状行为）。freeze 层与 live 层
- *  同 id 相交时字段面取并（拖组档：被拖组帧在 frozenFrames[三字段]∧组内子代在 dragProtectedIds）。 */
+/** 让位两层解析（卡一）：返回 nodeId→字段保护面。纯函数——children(draggedGroupIds)与
+ *  children(resizeTargetId) 从 csNodes 现取。session 缺省/空集 ⇒ 空 Map=零让位（reconcile/apply
+ *  现状行为）。freeze 层与 live 层同 id 相交时字段面取并。
+ *  B4'-2：live 层补 children(draggedGroupIds)（手势三行表"拖组 live=draggedGroupIds∪组内子代"——
+ *  RF 拖组不发子批[getDragItems isParentSelected 排除]但 reconcile 会按活 origin rebase 子 rel，
+ *  不让位则远端 apply 夹档下子代按 doc.abs−活origin 被反向推移=视觉跳变；同因
+ *  assertDocAbsMatchesCsRel 的让位豁免也依赖本扩展）。 */
 export function resolveGestureYield(
   session: DragSession | null | undefined,
   csNodes: ReadonlyArray<{ id: string; parentId?: string | null }>,
@@ -564,8 +568,13 @@ export function resolveGestureYield(
   if (!session) return out;
   // freeze 层：frozenFrames.keys()——帧三字段（让位即冻结，终裁 66③）
   for (const id of session.frozenFrames.keys()) out.set(id, { position: true, wh: true });
-  // live 层：dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)
+  // live 层：dragProtectedIds∪children(draggedGroupIds)∪{resizeTargetId}∪children(resizeTargetId)
   const liveIds = new Set(session.dragProtectedIds);
+  for (const gid of session.draggedGroupIds) {
+    for (const n of csNodes) {
+      if (n.parentId === gid) liveIds.add(n.id);
+    }
+  }
   if (session.resizeTargetId != null) {
     liveIds.add(session.resizeTargetId);
     for (const n of csNodes) {
@@ -583,12 +592,19 @@ export function resolveGestureYield(
 
 /** 保护捕获（applyDocToStore hydrate setState 前一层）：live 活值 rel（手势内核末帧/预览——
  *  cs 当前值即真值）+freeze 冻结帧三字段（frozenFrames 值=手势起点捕获，权威于 cs）。
- *  session 缺席/让位集合空 ⇒ null（零保护=现状行为）。 */
-export function captureGestureProtection(): GestureProtectionSnapshot | null {
+ *  session 缺席/让位集合空 ⇒ null（零保护=现状行为）。
+ *  B4'-2（plan 拖动锚）：docRecords 传入时，远端已改 parentId 的保护节点放弃保护（对端 undo
+ *  删组——旧父空间 rel 回写=rel 被当 abs 跳组原点；放弃后 hydrate+reconcile 按 doc 基准重算）。 */
+export function captureGestureProtection(
+  docRecords?: ReadonlyArray<{ id: string; parentId?: string | null }>,
+): GestureProtectionSnapshot | null {
   const s = useCanvasStore.getState();
   const guard = resolveGestureYield(s.dragSession, s.nodes as ReadonlyArray<{ id: string }>);
   if (guard.size === 0) return null;
   const byId = new Map(s.nodes.map((n: any) => [n.id, n]));
+  const docParent = docRecords
+    ? new Map(docRecords.map((r) => [r.id, (r.parentId ?? null) as string | null]))
+    : null;
   const nodes = new Map<string, GestureGeo>();
   // freeze 层先落（帧三字段 ⊇ live 字段——同 id 相交时 freeze 值权威）
   for (const [id, f] of s.dragSession!.frozenFrames) {
@@ -598,6 +614,7 @@ export function captureGestureProtection(): GestureProtectionSnapshot | null {
     if (nodes.has(id)) continue;
     const n = byId.get(id) as any;
     if (!n) continue; // cs 无该节点（远端新增未 hydrate/已删）——无保护对象
+    if (docParent && docParent.get(id) !== ((n.parentId ?? null) as string | null)) continue; // 远端改 parentId——放弃保护
     nodes.set(id, g.wh
       ? { position: n.position == null ? undefined : { ...n.position }, width: n.width, height: n.height }
       : { position: n.position == null ? undefined : { ...n.position } });
@@ -651,8 +668,8 @@ export function applyDocToStore(d: Y.Doc) {
     ensureSchemaVersion(toDocLike(d));
   }
   // 保护捕获（hydrate setState 前）：live 活值 rel+freeze 冻结帧三字段（手势活值只存在于此——
-  // hydrate 全量重建后即丢失）
-  const protection = captureGestureProtection();
+  // hydrate 全量重建后即丢失）；B4'-2：传入 doc 记录——远端改被拖节点 parentId 者放弃保护
+  const protection = captureGestureProtection(nodes);
   // hydrate 直吃作者态记录（O0b-0：normalizeLoadedCanvas 补缺层整删——doc=abs 空间过渡态直拷，
   // 子节点 rel 语义由尾挂 reconcile 同 tick 修正）
   useCanvasStore.setState({
@@ -666,16 +683,20 @@ export function applyDocToStore(d: Y.Doc) {
   });
   // 保护回写：仅几何字段覆盖（data/type/parentId/hidden/selected 取 doc 最新值——硬规则终裁 71）
   if (protection) reapplyGestureProtection(protection);
-  // B4'-1 remove 谓词：远端删被拖节点 ⇒ 手势中止"事后回滚"（三分支之一经 endGesture 单收尾——
-  // 幸存被拖成员回 baseline；被删成员已不在 cs，回写自然跳过）。置于 hydrate 后：cs 与 doc 已对齐
-  // 删除事实，endGesture 内 invariant 不因"cs 残留待删节点"假红。
+  // B4'-1 remove 谓词+B4'-2 扩展（质评结转缺口）：远端删被拖节点∨resize 目标 ⇒ 手势中止
+  // "事后回滚"（三分支之一经 endGesture 单收尾——幸存被拖成员回 baseline；被删成员已不在 cs，
+  // 回写自然跳过）。置于 hydrate 后：cs 与 doc 已对齐删除事实，endGesture 内 invariant 不因
+  // "cs 残留待删节点"假红。
   {
     const sess = useCanvasStore.getState().dragSession;
-    if (sess && sess.draggingIds.size > 0) {
+    if (sess && (sess.draggingIds.size > 0 || sess.resizeTargetId != null)) {
       const docIds = new Set(nodes.map((n: any) => n.id));
       let draggedRemoved = false;
       for (const id of sess.draggingIds) {
         if (!docIds.has(id)) { draggedRemoved = true; break; }
+      }
+      if (!draggedRemoved && sess.resizeTargetId != null && !docIds.has(sess.resizeTargetId)) {
+        draggedRemoved = true;   // resize 档：目标被远端删（draggingIds 空集守卫不覆盖——B4'-2 补）
       }
       if (draggedRemoved) useCanvasStore.getState().endGesture('removed');
     }
@@ -689,14 +710,19 @@ export function applyDocToStore(d: Y.Doc) {
   // O0b-2 it.todo 转实：尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership）。
   // DEV 直抛；prod 转 reportShapeViolation（O0d 收编——计数+采样日志单源）。
   // 帧表=reconcile 写域①产物（cs 组 position 即本 tick 新帧 origin；wh 消费面=origin 对照无关——置 0）。
+  // B4'-2 让位豁免（手势期零 doc 写后该窗收口）：让位节点 cs=手势活值≠doc 旧值=设计内分叉
+  //（被拖子 rel 已动而 doc.abs 未写/拖组子代 rel 未随活 origin rebase）——豁免集合与 reconcile
+  // 让位同源（resolveGestureYield 同函数，checkProjectionInvariant 同式）。
   if (nodes.length > 0) {
     const csAfter = useCanvasStore.getState().nodes;
     const frames = new Map(
       (csAfter as any[]).filter((n) => n.type === 'group')
         .map((n) => [n.id, { x: n.position.x, y: n.position.y, width: n.width ?? 0, height: n.height ?? 0 }]),
     );
+    const gestureGuard = resolveGestureYield(useCanvasStore.getState().dragSession, csAfter as never[]);
+    const unguardedRecords = nodes.filter((r) => !gestureGuard.get(r.id)?.position);
     try {
-      assertDocAbsMatchesCsRel({ docRecords: nodes, csNodes: csAfter as never, frames });
+      assertDocAbsMatchesCsRel({ docRecords: unguardedRecords, csNodes: csAfter as never, frames });
       assertStoryboardMembership(nodes);
     } catch (e) {
       // O0d 收编：DEV 直抛 / prod 转 shared reportShapeViolation（计数+采样日志——变更 id 去重单源，

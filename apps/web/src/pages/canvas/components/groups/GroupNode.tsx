@@ -5,7 +5,6 @@ import { NormalGroupRenderer } from './NormalGroupRenderer';
 import { StoryboardGroupRenderer } from '@/components/storyboard/StoryboardGroupRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { execOverrideOf } from '@/stores/nodeStore';
-import { stopCapturing } from '@/stores/canvasUndo';
 import { calcGroupMinSize } from '@/utils/groupLayout';
 import type { CellNodeInfo } from '@/components/storyboard/StoryboardCell';
 import { HANDLE } from './selectionTokens';
@@ -13,6 +12,8 @@ import { HANDLE } from './selectionTokens';
 function GroupNodeResizer({ id }: { id: string }) {
   // 取稳定引用的 nodes 数组，filter/useMemo 在组件内算，避免新对象选择器的快照问题
   const nodes = useCanvasStore((s) => s.nodes);
+  const beginResize = useCanvasStore((s) => s.beginResize);
+  const commitResizeGesture = useCanvasStore((s) => s.commitResizeGesture);
   const minSize = useMemo(
     () => calcGroupMinSize(nodes.filter((n) => n.parentId === id).map((n) => ({
       x: n.position.x,
@@ -22,15 +23,22 @@ function GroupNodeResizer({ id }: { id: string }) {
     }))),
     [nodes, id],
   );
+  // B4'-2（Spec B 终裁 44③/56）：组 resize=会话（懒激活——onResizeStart 建 session[首行 discard
+  // 旧 session]+手势期零 intent[doc 零帧键，auto 组不中途变 manual]）；onResizeEnd 单提交
+  // updateNodeEnvelope{三键}=末帧 cs 帧三键（零子代——RF 反向补偿值即终值；stopCapturing
+  // 语义随迁 commitResizeGesture）。先于尾批 onEnd（F10）⇒尾批落 session 外零意图。
+  const onResizeStart = useCallback((e: unknown) => {
+    beginResize(id, (e as { sourceEvent?: { pointerId?: number } })?.sourceEvent?.pointerId ?? null);
+  }, [beginResize, id]);
+  const onResizeEnd = useCallback(() => { commitResizeGesture(); }, [commitResizeGesture]);
   return (
     <NodeResizer
       isVisible
       minWidth={minSize.minWidth}
       minHeight={minSize.minHeight}
       handleStyle={HANDLE}
-      // O0b-5（终裁 50）：markManuallyResized 整链删——resize 提交=单 updateNodeEnvelope{三键}
-      // （帧键本身即 manual oracle）；onResizeEnd 仅关闭撤销捕获窗（手势=单 undo 步）
-      onResizeEnd={() => { stopCapturing(); }}
+      onResizeStart={onResizeStart}
+      onResizeEnd={onResizeEnd}
     />
   );
 }

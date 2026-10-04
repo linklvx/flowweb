@@ -148,4 +148,8 @@ export function isGeometryTrapEnabled(): boolean {
 }
 
 // 生产构建默认启用（计数+采样日志模式）；vitest/DEV 不自装（见头注三模式表）。
-if (resolveMode() === 'prod') enableGeometryTrap();
+// B4'-2（O0b-6 接线）起本模块进入生产 import 图（canvasStore→withGeometryWriter）——与
+// canvasStore 构成 ESM 循环：模块求值期 canvasStore 的 useCanvasStore 尚在 TDZ，同步自装会
+// ReferenceError。queueMicrotask 延后到模块图求值完毕后装（早于首帧渲染/任何用户交互——
+// 计数模式语义不变）。
+if (resolveMode() === 'prod') queueMicrotask(() => enableGeometryTrap());

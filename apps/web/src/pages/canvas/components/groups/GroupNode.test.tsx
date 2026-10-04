@@ -1,23 +1,33 @@
 // apps/web/src/pages/canvas/components/groups/GroupNode.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { GroupNode } from './GroupNode';
 import { useNodeStore } from '@/stores/nodeStore';
 
-const { getMockNodes, setMockNodes, getMockMarqueeSelecting, setMockMarqueeSelecting } = vi.hoisted(() => {
+const { getMockNodes, setMockNodes, getMockMarqueeSelecting, setMockMarqueeSelecting, getResizeCalls, resetResizeCalls } = vi.hoisted(() => {
   let mockNodes: any[] = [];
   let mockMarqueeSelecting = false;
+  let resizeCalls: { start: unknown[]; end: number } = { start: [], end: 0 };
   return {
     getMockNodes: () => mockNodes,
     setMockNodes: (n: any[]) => { mockNodes = n; },
     getMockMarqueeSelecting: () => mockMarqueeSelecting,
     setMockMarqueeSelecting: (v: boolean) => { mockMarqueeSelecting = v; },
+    getResizeCalls: () => resizeCalls,
+    resetResizeCalls: () => { resizeCalls = { start: [], end: 0 }; },
   };
 });
 
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: Object.assign(
-    vi.fn((selector?: any) => selector({ nodes: getMockNodes(), marqueeSelecting: getMockMarqueeSelecting(), localCollapsed: {} })),
+    vi.fn((selector?: any) => selector({
+      nodes: getMockNodes(),
+      marqueeSelecting: getMockMarqueeSelecting(),
+      localCollapsed: {},
+      // B4'-2：组 resizer 接线（beginResize/commitResizeGesture——行为断言经 getResizeCalls）
+      beginResize: (id: string, pointerId: number | null) => { getResizeCalls().start.push({ id, pointerId }); },
+      commitResizeGesture: () => { getResizeCalls().end += 1; },
+    })),
     { getState: () => ({ nodes: getMockNodes() }) },
   ),
 }));
@@ -40,6 +50,8 @@ vi.mock('@xyflow/react', async (orig) => ({
       data-visible={String(p.isVisible)}
       data-minw={String(p.minWidth)}
       data-minh={String(p.minHeight)}
+      onClick={() => p.onResizeStart?.({ sourceEvent: { pointerId: 9 } })}
+      onDoubleClick={() => p.onResizeEnd?.()}
     />
   ),
 }));
@@ -114,6 +126,30 @@ describe('GroupNode（普通组 NodeResizer）', () => {
     setMockNodes([]);
     render(<GroupNode id="g1" data={{ groupType: 'normal', collapsed: true }} selected={true} {...{} as any} />);
     expect(screen.queryByTestId('node-resizer')).toBeNull();
+  });
+
+  it("B4'-2 分镜组现状锚（终裁 57④）：storyboard 分支早退——选中也不出现 resizer（防 O0 改造丢结构）", () => {
+    setMockNodes([]);
+    render(
+      <GroupNode
+        id="g1"
+        data={{ groupType: 'storyboard', cells: [], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } }}
+        selected={true}
+        {...{} as any}
+      />,
+    );
+    expect(screen.queryByTestId('node-resizer')).toBeNull();
+    expect(screen.getByTestId('renderer')).toBeTruthy();   // 分镜渲染分支在位
+  });
+
+  it("B4'-2 组 resizer 接线（终裁 44③/56）：onResizeStart→beginResize(id, pointerId)+onResizeEnd→commitResizeGesture", async () => {
+    setMockNodes([]);
+    resetResizeCalls();
+    render(<GroupNode id="g1" data={{ groupType: 'normal' }} selected={true} {...{} as any} />);
+    await fireEvent.click(screen.getByTestId('node-resizer'));           // 模拟 resize 手势开始（sourceEvent.pointerId=9）
+    expect(getResizeCalls().start).toEqual([{ id: 'g1', pointerId: 9 }]);  // 懒激活——会话即建
+    await fireEvent.doubleClick(screen.getByTestId('node-resizer'));     // 模拟松手（onResizeEnd）
+    expect(getResizeCalls().end).toBe(1);                                 // 单提交路径
   });
 });
 

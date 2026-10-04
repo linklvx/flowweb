@@ -317,13 +317,15 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     expect(useCanvasStore.getState().nodes).toEqual([]);
   });
 
-  it('moveNode 拖拽：onNodesChange position 批量变更 → doc position 直写 + 不变量（origin=Geometry）', () => {
+  it("moveNode 漏斗锚（B4'-2 后无 session 常规路径=叶子 resize position 批）：doc position 直写 + 不变量（origin=Geometry）——拖动批已改手势期零 intent（session 驱动，提交归 B5'-1）", () => {
     const id = useCanvasStore.getState().addNode('text', { x: 10, y: 0 });
     const origins: unknown[] = [];
     doc.on('afterTransaction', (tr) => origins.push(tr.origin));
+    useCanvasStore.getState().beginLeafResize();   // 叶子 resize 标记（终裁 30——position-only 批照常派发）
     useCanvasStore.getState().onNodesChange([
-      { type: 'position', id, position: { x: 99, y: 88 }, dragging: true },
+      { type: 'position', id, position: { x: 99, y: 88 }, dragging: false },
     ]);
+    useCanvasStore.getState().endLeafResize();
     const pos = ((doc.getMap('nodes').get(id) as Y.Map<any>).get('position') as Y.Map<any>).toJSON();
     expect(pos).toEqual({ x: 99, y: 88 });
     expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 99, y: 88 });

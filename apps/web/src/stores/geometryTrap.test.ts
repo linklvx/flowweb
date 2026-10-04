@@ -1,7 +1,7 @@
 // apps/web/src/stores/geometryTrap.test.ts
 // C0-2 dev-only cs 几何写陷阱守卫测试（Spec B）：三锚（造案抛/夹具不抛/静态棘轮单调下降）
 // + 三键辖域/写者上下文/身份 diff/模式骨架行为。
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Node } from '@xyflow/react';
@@ -200,8 +200,24 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
 });
 
 // —— O0b 挂点（it.todo 先建后清：接线归各分片，B7-1 归零——it.todo 计数锚）——
-describe('O0b 陷阱接线挂点（C0-2 只落骨架，本片不接线生产链路）', () => {
-  it.todo('O0b-6 接线：onNodesChange reconcile 窗标写者上下文——applyNodeChanges 前 setGeometryWriter("reconcile")，dimensions setAttributes 变更细分 "dimensions-attribute"（首测固化路径）');
+describe('O0b 陷阱接线挂点（C0-2 只落骨架，接线归各分片）', () => {
+  it("O0b-6 接线（B4'-2 落地）：onNodesChange applyNodeChanges 窗写者上下文——position 批标 'reconcile'、dimensions setAttributes 批细分 'dimensions-attribute'", () => {
+    seedCanvas([makeChild({ id: 'n1', position: { x: 1, y: 2 }, width: 100, height: 50 })]);
+    enableGeometryTrap();
+    // 门判据②的 DEV 告警（无 session position 批）与本锚无关——静音 spy
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() =>
+      useCanvasStore.getState().onNodesChange([
+        { type: 'position', id: 'n1', position: { x: 9, y: 9 }, dragging: true } as any,
+      ]),
+    ).not.toThrow();   // applyNodeChanges 窗标 'reconcile' 在位
+    expect(() =>
+      useCanvasStore.getState().onNodesChange([
+        { type: 'dimensions', id: 'n1', setAttributes: true, resizing: true, dimensions: { width: 320, height: 180 } } as any,
+      ]),
+    ).not.toThrow();   // 批含 dimensions setAttributes ⇒ 细分 'dimensions-attribute'（首测固化路径同窗）
+    errSpy.mockRestore();
+  });
   it.todo('O0b-7 接线：canvasIntents/canvasCollabRuntime 投影写体标 "projection-default"（projectIntentToStore/applyDocToStore/dispatchProjectionDiff 窗）');
   it.todo('O0b-8 接线：应用 bootstrap（canvas/page 会话入口）enableGeometryTrap()——DEV 抛模式进入点（写者上下文接线完成后开放）');
   it.todo('O0b-9 接线：canvasStore 结构命令体（structure-command/config-command/node-create 写点）逐函数标写者上下文——以 geometryWriterRegistry 账本为底册');

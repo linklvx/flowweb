@@ -221,7 +221,10 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     expect(useCanvasStore.getState().collabReadOnly).toBe(false);
 
     useCanvasStore.getState().onNodesChange([
-      { type: 'position', id: 'n1', position: { x: 100, y: 0 }, dragging: true },
+      { type: 'position', id: 'n1', position: { x: 100, y: 0 } },
+      // B4'-2 后无 session 常规几何路径=叶子 resize（position 并入 envelope 三键——门判据②分型）；
+      // 拖动批=手势期零 intent（session 驱动）。本锚验证 rw 门不过度拦截 intent 漏斗。
+      { type: 'dimensions', id: 'n1', setAttributes: true, resizing: true, dimensions: { width: 320, height: 180 } },
     ]);
     expect(nodePos(runtime.getDoc()!, 'n1')).toEqual({ x: 100, y: 0 }); // 编辑会话照常同步
   });

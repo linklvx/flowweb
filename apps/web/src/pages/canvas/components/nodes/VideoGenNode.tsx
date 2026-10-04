@@ -512,6 +512,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);
+    useCanvasStore.getState().beginLeafResize();   // B4'-2（终裁 30）：叶子 resize 标记（门判据②豁免+固化抑制）
     if (videoRef.current) {
       videoRef.current.style.pointerEvents = 'none';
     }
@@ -519,6 +520,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
     const onFallback = () => {
       finishResize();
       setIsResizing(false);
+      useCanvasStore.getState().endLeafResize();   // fallback 路径（mouseup/blur 兜底）同样复位——防标记悬挂
     };
     window.addEventListener('mouseup', onFallback);
     window.addEventListener('blur', onFallback);
@@ -534,6 +536,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
 
   const handleResizeEnd = useCallback(() => {
     setIsResizing(false);
+    useCanvasStore.getState().endLeafResize();     // B4'-2：标记复位
     finishResize();
     stopCapturing();
   }, [finishResize]);
@@ -561,6 +564,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
         fallbackCleanupRef.current();
         fallbackCleanupRef.current = null;
       }
+      useCanvasStore.getState().endLeafResize();   // B4'-2：消失路径标记复位（onResizeEnd 不达——防悬挂）
       setIsResizing(false);
     }
   }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes]);

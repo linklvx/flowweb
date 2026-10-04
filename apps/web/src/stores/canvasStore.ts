@@ -29,6 +29,10 @@ import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, d
 // action 体运行时才调——ESM 本地绑定延迟求值安全。
 import { reconcileGroupGeometry, checkProjectionInvariant, resolveDraggingIdsFromGesture } from './canvasCollabRuntime';
 import { Origin, stopCapturing } from './canvasUndo';
+// B4'-2（O0b-6 接线）：onNodesChange applyNodeChanges 窗的 geometryTrap 写者上下文。
+// 循环依赖裁定同 canvasIntents：geometryTrap 顶层仅 import 声明+纯函数定义（prod 自装经
+// queueMicrotask 延后——见彼处注释），action 体运行时才调——安全。
+import { withGeometryWriter } from './geometryTrap';
 import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, DEFAULT_CHILD_SIZE, clampChildIntoGroup, isContentDerivedFrame } from '@/utils/groupLayout';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
@@ -165,6 +169,11 @@ export interface CanvasState {
    *  STALE_MS=5s）；消费面=applyDocToStore 保护捕获/回写+reconcile 让位豁免+remove 谓词。
    *  null=无活跃手势。不进 history/localStorage 快照 */
   dragSession: DragSession | null;
+  /** B4'-2（终裁 30）叶子 resize 标记（非会话——resize 会话仅对组）：三处叶子 resizer
+   *  （ImageGen/VideoGen/TextInput NodeResizeControl）onResizeStart/End 接线。消费面=门判据②
+   *  豁免（position 批∧无 session∧无同批 resize∧无本标记⇒DEV 告警）+首测固化抑制
+   *  （session∨resizePending 不固化，终裁 59①[iii]）。UI 瞬态——不进 history/localStorage 快照 */
+  resizePending: boolean;
   /** sessionExpiry 401 面电平（批3 接线；canEdit 不读——反向断言锚）。不进快照 */
   httpExpired: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
@@ -285,8 +294,18 @@ export interface CanvasState {
    *  ——origin 活）+watchdog armed+activePointers={起始 pointerId}（键控集合，终裁 31①）。 */
   beginDragGesture: (nodes: ReadonlyArray<{ id: string }>, pointerId: number | null) => void;
   /** B4'-1（Spec B）resize 会话开始：首行 discard 旧 session（终裁 31⑤——abort 后立即 resize ⇒
-   *  让位集合只含 resizeTargetId∪children）。生产接线（三叶子 resizer+GroupNode）归 B4'-2。 */
+   *  让位集合只含 resizeTargetId∪children）。B4'-2 生产接线=GroupNode NodeResizer onResizeStart
+   *  （会话仅对组目标——叶子走 resizePending 标记，终裁 30）。 */
   beginResize: (targetId: string, pointerId?: number | null) => void;
+  /** B4'-2（Spec B 终裁 56）resize 会话松手提交：单 updateNodeEnvelope{三键}（提交值=会话末帧
+   *  cs 帧三键——"回调第二参值"语义；零子代——子 rel 不随提交重算，RF 反向补偿值即终值）+
+   *  单 transact（LocalUser=单 undo 步）→ endGesture('completed') 收尾（不回滚）。生产接线=
+   *  GroupNode NodeResizer onResizeEnd（先于尾批 onEnd——F10）。幂等：无 resize 会话=no-op。 */
+  commitResizeGesture: () => void;
+  /** B4'-2（终裁 30）叶子 resize 标记置位/复位（三叶子 resizer onResizeStart/End 接线）——
+   *  见 resizePending 字段 JSDoc。 */
+  beginLeafResize: () => void;
+  endLeafResize: () => void;
   /** B4'-1（Spec B）单收尾函数（终裁 54②——中止/自愈/remove 谓词三分支共用，其内唯一 1 处
    *  reconcile[收尾链：回滚→清 session（frozenFrames 同步块+watchdog clearTimeout）→reconcile('doc')
    *  →invariant]——reconcile census 四元组第 4 成员）。reason：'aborted'=watchdog 终结（指针已抬+
@@ -306,6 +325,11 @@ export interface CanvasState {
 // 或下一次 begin 无条件丢弃兜——watchdog 不承诺"吞 pointerup 也救"（否决清单，物理不可判定）。
 /** STALE_MS 冻结值（5s——watchdog 秒级定值单源，测试引用） */
 export const DRAG_STALE_MS = 5_000;
+
+/** B4'-2（终裁 16/30）abandon 静默标记：endGesture abort 族（aborted/healed/removed）置位，
+ *  下一次 beginDragGesture/beginResize 复位。heal 后同手势尾批（session 已清、无 resize 批的
+ *  position 批）静默零 intent 不告警——门判据②的豁免面。 */
+let gestureAbandoned = false;
 
 let dragWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -444,6 +468,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   localCollapsed: {},
   wsAuthNotice: null,
   dragSession: null,
+  resizePending: false,
   httpExpired: false,
   connStatus: 'connecting',
   connUi: 'ok',
@@ -921,6 +946,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   // ══ B4'-1（Spec B）：dragSession 生命周期（begin/end/watchdog——C0-1 只落骨架字段，本批真生命周期）══
   beginDragGesture: (nodes, pointerId) => {
     clearDragWatchdog();   // 旧 session 无条件丢弃（吞 pointerup 兜，终裁 47 场景Ⅱ——静默 drop：pointerup
+    gestureAbandoned = false;   // B4'-2：新手势开始——abandon 静默窗复位
                            // 未达=手势结果不可判定，doc 落后 cs 由下一命令差分补上，spec §5；不回滚）
     const byId = new Map(get().nodes.map((n) => [n.id, n]));
     const draggingIds = resolveDraggingIdsFromGesture(nodes);   // 第三参全 id 集（O0b-3 定案）
@@ -972,6 +998,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const target = get().nodes.find((n) => n.id === targetId);
     if (!target) return;   // 目标缺席=no-op（不拆旧 session 的 watchdog——防孤儿会话）
     clearDragWatchdog();   // 首行 discard（终裁 31⑤）：旧 session 静默清——让位集合只含 resizeTargetId
+    gestureAbandoned = false;   // B4'-2：新手势开始——abandon 静默窗复位
     set({
       dragSession: {
         baseline: new Map(),
@@ -992,9 +1019,34 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     armDragWatchdog();
   },
 
+  commitResizeGesture: () => {
+    const s = get().dragSession;
+    if (!s || s.gestureKind !== 'resize' || s.resizeTargetId == null) return;   // 幂等（只点不拖无提交）
+    const target = get().nodes.find((n) => n.id === s.resizeTargetId);
+    // 提交值=会话末帧 cs 帧三键（终裁 56——"回调第二参值"语义，读 cs 末帧单源）；
+    // 恒三键密封（pos 回填——auto→manual 经 resize 转换的唯一通道）；零子代（子 rel 不随提交
+    // 重算——RF 反向补偿值即终值，doc 子 abs 不动，提交后 reconcile 同值收敛）。
+    if (target && Number.isFinite(target.width) && Number.isFinite(target.height)) {
+      dispatchCanvasIntent([{
+        type: 'updateNodeEnvelope', id: s.resizeTargetId,
+        patch: {
+          position: { x: target.position.x, y: target.position.y },
+          width: target.width,
+          height: target.height,
+        },
+      }], Origin.LocalUser);   // 单 transact=单 undo 步（LocalUser 入栈）
+    }
+    stopCapturing();   // 手势=单 undo 步（捕获窗关闭——旧 GroupNode onResizeEnd 语义随迁）
+    get().endGesture('completed');   // 提交后收尾（不回滚——doc 已提交）
+  },
+
+  beginLeafResize: () => set({ resizePending: true }),
+  endLeafResize: () => set({ resizePending: false }),
+
   endGesture: (reason) => {
     const s = get().dragSession;
     if (!s) return;   // 收尾幂等锚（终裁 66④②）：松手后再触发=no-op（cs 不回跳）
+    gestureAbandoned = reason !== 'completed';   // B4'-2（终裁 16/30）：abort 族置位——同手势尾批静默
     // 收尾链（v3.10 终裁 3 冻结序——禁改序：reconcile 提前则让位残留致被拖节点 cs 停旧值≠doc）。
     // ①回滚：abort 族（aborted/healed/removed）被拖集合回 baseline；completed=提交已落 doc 不回滚
     //   （cs≡末帧锚——终裁 66④①）。drag 档只回 position；resize 档回帧三键。
@@ -1047,50 +1099,95 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const parentOfRemoved = new Map(   // set 之前捕获——filter 后丢失父子关系（deleteNode 同款）
       removedIds.map((id) => [id, get().nodes.find((n) => n.id === id)?.parentId]),
     );
-    // 批4b-1 换芯：协作语义变更走意图漏斗（doc 首写；投影回填与下方 set 同值幂等收敛）——
-    // 置于捕获段之后（上方 cascade/父子捕获须读变更前 state——投影已 filter 会致判型失效）、
-    // 结构 set 之前。拖拽 position 批 origin=Geometry（高频路径不入撤销栈——canvasUndo
-    // trackedOrigins 契约）；NodeResizer resize（setAttributes dimensions 写 width/height）与
-    // remove 走 LocalUser（撤销语义保持）。select 等纯 UI 变更不经漏斗（投影不含 selected/dragging/measured）。
-    const dragIntents: CanvasIntent[] = [];
-    const structIntents: CanvasIntent[] = [];
-    // O0b-2 (iii) 首测固化候选：dimensions 批非 setAttributes（RF 首测）。dimensions change 类型面
-    // 无 dragging 字段（RF NodeDimensionChange 只有 resizing/setAttributes）——手势期隔离由
-    // setAttributes 分支上游分流承担（resizer 调整中恒 setAttributes truthy）；拖动期 dimensions
-    // 不产生（RF 拖动只发 position change）。类型限定/首写者胜/批量单 transact 判定收口在
-    // dispatchFixtureSizeIntents（doc 读+textInput 类）
-    const fixCandidates: { id: string; width: number; height: number }[] = [];
-    // O0b-5（终裁 50）：resize 提交=单 updateNodeEnvelope{三键}——同批 position 变更属 resize 手势位移
-    // （非拖拽），并入 envelope 单 intent 单 transact；两遍装配（先收集后路由——position 与 dimensions
-    // 在 changes 内的相对序不保证）
-    const positionChanges = new Map<string, { x: number; y: number }>();
-    const resizeCommits = new Map<string, { width: number; height: number }>();
-    for (const c of changes) {
-      if (c.type === 'position' && c.position != null) {
-        positionChanges.set(c.id, { ...c.position });
-      } else if (c.type === 'dimensions' && (c as any).setAttributes && (c as any).dimensions != null) {
-        // (iv) resize 提交（现状保通——NodeResizer/NodeResizeControl setAttributes=true）
-        resizeCommits.set(c.id, { width: (c as any).dimensions.width, height: (c as any).dimensions.height });
-      } else if (c.type === 'dimensions' && (c as any).dimensions != null) {
-        fixCandidates.push({ id: c.id, width: (c as any).dimensions.width, height: (c as any).dimensions.height });
-      } else if (c.type === 'remove') {
-        structIntents.push({ type: 'deleteNode', id: c.id });
+    // ══ B4'-2（Spec B §3.2.1）首行两件事：自愈副道+分镜丢弃 → 整批预扫描 → 手势期/门判据分型 ══
+    // ①自愈副道（watchdog 主道的冗余检查——终裁 16/31①）：activePointers 空∧idle>STALE_MS ⇒
+    //   abort 收尾（回滚+清+reconcile）；触发批自身随后按普通流程路由（gestureAbandoned 静默）。
+    {
+      const s0 = get().dragSession;
+      if (s0 && s0.activePointers.size === 0 && Date.now() - s0.lastActivityAt > DRAG_STALE_MS) {
+        get().endGesture('aborted');
       }
     }
-    for (const [id, wh] of resizeCommits) {
-      // 质评收口 C-1（终裁 50 恒三键密封）：RF ResizeControl 仅左上方向柄同批发 position 变更，
-      // 右/下柄批 dimensions-only——缺位时回填 cs 现节点 position（手势末 auto 组=reconcile 派生帧
-      // origin；回填即全量密封：auto→manual 经 resize 转换的唯一通道）。缺位不回填会落 2 键部分
-      // 帧形态——frameMode 判 auto ⇒ 漏斗尾 reconcile('doc') 重派生 bbox 帧，resize 静默回弹。
-      const pos = positionChanges.get(id) ?? get().nodes.find((n) => n.id === id)?.position;
-      positionChanges.delete(id);   // resize 位移并入 envelope 三键（不另发 moveNode）
-      structIntents.push({
-        type: 'updateNodeEnvelope', id,
-        patch: { position: pos, width: wh.width, height: wh.height },
-      });
+    const gesture = get().dragSession;
+    // ②分镜子 position 批=按条目数据层丢弃（卡三 cs 死字段：cs {0,0} 构造默认不可移；识别按父组
+    //   groupType==='storyboard' 非 position 值——多选混批普通条目照常路由）
+    let routed: NodeChange[] = changes;
+    if (changes.some((c) => c.type === 'position')) {
+      const sbParents = new Set(
+        get().nodes
+          .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
+          .map((n) => n.id),
+      );
+      if (sbParents.size > 0) {
+        const parentIdOf = new Map(get().nodes.map((n: any) => [n.id, (n.parentId ?? null) as string | null]));
+        routed = changes.filter((c) => !(c.type === 'position' && parentIdOf.get(c.id) != null && sbParents.has(parentIdOf.get(c.id)!)));
+      }
     }
-    for (const [id, pos] of positionChanges) {
-      dragIntents.push({ type: 'moveNode', id, position: pos });
+    // 整批预扫描（changes.some 先于分类——门判据②分型判据，终裁 30/44③）
+    const hasPosition = routed.some((c) => c.type === 'position');
+    const hasResizeAttr = routed.some((c) => c.type === 'dimensions' && (c as any).setAttributes);
+
+    // remove 结构批：手势内外都照常路由（结构域非几何域——deleteNode intent + 下方三件套善后）
+    const structIntents: CanvasIntent[] = [];
+    for (const c of routed) {
+      if (c.type === 'remove') structIntents.push({ type: 'deleteNode', id: c.id });
+    }
+
+    const dragIntents: CanvasIntent[] = [];
+    // O0b-2 (iii) 首测固化候选：dimensions 批非 setAttributes（RF 首测）。手势期隔离=session∨
+    // resizePending 不固化（终裁 59①[iii]——dispatchFixtureSizeIntents 门）；类型限定/首写者胜/
+    // 批量单 transact 判定收口在彼处（doc 读+textInput 类）。
+    const fixCandidates: { id: string; width: number; height: number }[] = [];
+    // O0b-5（终裁 50）：resize 提交=单 updateNodeEnvelope{三键}——同批 position 变更属 resize 手势
+    // 位移（非拖拽），并入 envelope 单 intent 单 transact；两遍装配（position 与 dimensions 相对序不保证）
+    const positionChanges = new Map<string, { x: number; y: number }>();
+    const resizeCommits = new Map<string, { width: number; height: number }>();
+
+    if (gesture) {
+      // ── 手势期零 intent（终裁 44①/56——"拖动单帧 doc 写入=0"根因锚）：session 活跃期
+      // position/dimensions 批只落 cs（下方 applyNodeChanges 统一应用）。RF 对子发 rel、cs 即 rel
+      // 空间——旧路径 moveNode 把 rel 写进 doc.abs 槽=B4'-1 登记的 rel-as-abs 洞，此处结构性关闭
+      //（松手 finalize 的 reconcile('doc') 不再腐蚀覆盖）。提交归松手路径：组 resize=
+      // commitResizeGesture（本批）；拖动=B5'-1 commitIntents（过渡期 abort/healed 收尾回 baseline）。
+      // end 重放批（dragging:false——F1）落 session 内零告警；remove 见上方 structIntents。
+    } else if (hasPosition && !hasResizeAttr && !get().resizePending) {
+      // ── 门判据②（终裁 30 分型）：position 批∧无 session∧无 resize 批（同批无 dimensions/
+      // setAttributes 且无 resizePending 叶子标记）⇒ 零 intent+DEV 告警——外视写入（不变量
+      // "cs position 批⇐session∨resize 批，否则告警"）；cs 照常吞 RF 批（受控面一致，下一
+      // applyDocToStore 回滚对齐 doc）。gestureAbandoned 置位后静默（heal 后同手势尾批——终裁 16/30）。
+      if (!gestureAbandoned && import.meta.env.DEV) {
+        const ids = routed.filter((c) => c.type === 'position').map((c) => c.id).join(',');
+        console.error(`[B4'-2] 无 session 的 position 批（外视写入——cs position 批⇐session∨resize 批）: ${ids}`);
+      }
+    } else {
+      // ── 无 session 的常规路由（批4b-1 换芯语义保持）：叶子 resize 现状（setAttributes 三态+
+      // position 逐帧落 doc 零告警——终裁 30"有 resize 批⇒照常派发"）；resize 走 LocalUser
+      // （撤销语义），拖拽 position 走 Geometry（高频不入栈——canvasUndo trackedOrigins 契约）。
+      for (const c of routed) {
+        if (c.type === 'position' && c.position != null) {
+          positionChanges.set(c.id, { ...c.position });
+        } else if (c.type === 'dimensions' && (c as any).setAttributes && (c as any).dimensions != null) {
+          // (iv) resize 提交（现状保通——NodeResizer/NodeResizeControl setAttributes=true）
+          resizeCommits.set(c.id, { width: (c as any).dimensions.width, height: (c as any).dimensions.height });
+        } else if (c.type === 'dimensions' && (c as any).dimensions != null) {
+          fixCandidates.push({ id: c.id, width: (c as any).dimensions.width, height: (c as any).dimensions.height });
+        }
+      }
+      for (const [id, wh] of resizeCommits) {
+        // 质评收口 C-1（终裁 50 恒三键密封）：RF ResizeControl 仅左上方向柄同批发 position 变更，
+        // 右/下柄批 dimensions-only——缺位时回填 cs 现节点 position（手势末 auto 组=reconcile 派生帧
+        // origin；回填即全量密封：auto→manual 经 resize 转换的唯一通道）。缺位不回填会落 2 键部分
+        // 帧形态——frameMode 判 auto ⇒ 漏斗尾 reconcile('doc') 重派生 bbox 帧，resize 静默回弹。
+        const pos = positionChanges.get(id) ?? get().nodes.find((n) => n.id === id)?.position;
+        positionChanges.delete(id);   // resize 位移并入 envelope 三键（不另发 moveNode）
+        structIntents.push({
+          type: 'updateNodeEnvelope', id,
+          patch: { position: pos, width: wh.width, height: wh.height },
+        });
+      }
+      for (const [id, pos] of positionChanges) {
+        dragIntents.push({ type: 'moveNode', id, position: pos });
+      }
     }
     if (dragIntents.length > 0) dispatchCanvasIntent(dragIntents, Origin.Geometry);
     if (structIntents.length > 0) dispatchCanvasIntent(structIntents, Origin.LocalUser);
@@ -1098,7 +1195,22 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     dispatchFixtureSizeIntents(fixCandidates);
     // 去闸门（终裁 43 需求 5 物理前提）：拖拽期 clamp 块整删——子节点拖出组帧外 cs 位置原样保留
     // （脱离判定归 B5' 松手路由）；placement 域 clamp（addToGroup/dropIntoGroup 分支 B）是另一域（F4 维持）
-    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) as Node[] }));
+    // O0b-6（geometryTrap 写者上下文接线）：applyNodeChanges 窗标 'reconcile'；批含 dimensions
+    // setAttributes（RF resize 写 node.width/height）细分 'dimensions-attribute'——两类皆合法
+    // registry 上下文；单一 set 窗按批主导面取类（混批[position+setAttributes 同批=左上柄]时
+    // dimensions 写优先标——首测固化路径的写者面）
+    withGeometryWriter(hasResizeAttr ? 'dimensions-attribute' : 'reconcile', () => {
+      set((s) => ({ nodes: applyNodeChanges(routed, s.nodes) as Node[] }));
+    });
+    // B4'-2 手势期本地自删：remove 命中被拖集合/resize 目标 ⇒ 会话收尾（'removed'——幸存者回
+    // baseline 事后回滚；doc 删已在上 structIntents 落地）
+    {
+      const s1 = get().dragSession;
+      if (s1 && removedIds.length > 0
+        && removedIds.some((id) => s1.draggingIds.has(id) || id === s1.resizeTargetId)) {
+        get().endGesture('removed');
+      }
+    }
 
     // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套
     // （DB 同步由 bindCanvasSync 订阅判脏 → 统一 runtime debounce 保存承担）
