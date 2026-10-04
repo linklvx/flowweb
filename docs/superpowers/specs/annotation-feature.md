@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 图片标注功能 (Image Annotation)
 
 > 状态: 待确认  

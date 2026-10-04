@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Audio Waveform V2 — 固定采样 + 自定义 Canvas 渲染
 
 ## 概述

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 打光透视视图功能 — 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.

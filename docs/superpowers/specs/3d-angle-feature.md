@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 3D 角度功能 (3D Angle)
 
 > 状态: 待确认  

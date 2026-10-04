@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 后台管理重构实施计划（admin-console-refactor）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

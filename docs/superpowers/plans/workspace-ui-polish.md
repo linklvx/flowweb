@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 工作空间 UI 微调（第二轮视觉打磨）
 
 > 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文相关表述仅存历史档。

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 会员中心集成微信支付
 
 ## 目标

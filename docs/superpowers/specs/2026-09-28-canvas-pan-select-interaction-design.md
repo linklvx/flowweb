@@ -1,4 +1,7 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 画布平移/框选交互重构（spec）
+
+> 【2026-10-05 校准】本文 :150-:151/:202/:250 提及的 pickStructNodes/canvasSnapshot/useCanvasPersistence/canvasHistory/canvasCollabRuntime 均为**已删符号**（Yjs 上线后随投影/快照链退役——marqueeSelecting 白名单护栏的对象已消失；该护栏语义由批 4b 后的 doc 写路径收口承载）。交互行为描述（平移/框选/锁定态）仍为有效历史设计。
 
 - 日期：2026-09-28（同日五修：二至五修逐轮吸收共 12 份外部审核报告全部核实成立项；六修：plan 三轮外审实锤锁定态中键特例击穿，补 wrapper 闸门）
 - 状态：已确认（设计经五轮外部审核、逐条对照实装源码核实修订）

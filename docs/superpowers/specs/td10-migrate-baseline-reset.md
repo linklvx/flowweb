@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: TD-10 Prisma migrate 基线重置（子批 3b）
 
 日期：2026-08-21

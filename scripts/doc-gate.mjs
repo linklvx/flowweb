@@ -344,7 +344,47 @@ if (expiredCount > 0) violations.push(`[exemption] 已到期豁免 ${expiredCoun
 
 const summary = `doc-gate: 语料 ${docs.length} 份 | canonical ${counts.canonical} / active ${counts.active} / historical ${counts.historical} / ordinary ${counts.ordinary} | 代码域 ${codeTexts.length} 文件 | 新增豁免待登记 ${vocabHits.length} / 已到期 ${expiredCount} | 违规 ${violations.length}${activeVocabWarn.length ? `（另有 active 文档叙述性命中 ${activeVocabWarn.length} 条警告）` : ''}`;
 
-// ── 15. CLI 分支
+// ── 15. --write-status（批 4 Task 6-2/6-3）：historical 首行状态行写回 + canonical 状态行注入
+// 硬要求：①按文件探测 EOL 写回（CRLF 文件 LF 注入会产出 w/mixed）②幂等——首行已有 doc-status：
+// canonical 行=机器所有可刷新（verified_at_commit 随跑更新）；historical/active 行=手写含注记，跳过防覆盖。
+if (args.has('--write-status')) {
+  const supersedeMap = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/_meta/supersede-map.json'), 'utf8')).map;
+  let headCommit = '';
+  try {
+    headCommit = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+  } catch { /* 仓库无 commit 时留空 */ }
+  const now = new Date();
+  const todayStr2 = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  let wrote = 0, skipped = 0, refreshed = 0;
+  for (const d of docs) {
+    const state = cls.get(d.rel);
+    if (state !== 'historical' && state !== 'canonical') continue;
+    const eol = d.text.includes('\r\n') ? '\r\n' : '\n';
+    const lines = d.text.split(/\r?\n/);
+    const first = lines[0] || '';
+    if (first.startsWith('<!-- doc-status:')) {
+      if (first.includes('doc-status: canonical') && state === 'canonical') {
+        const fresh = `<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: ${todayStr2} | verified_at_commit: ${headCommit || 'n/a'} -->`;
+        if (first !== fresh) { lines[0] = fresh; fs.writeFileSync(path.join(ROOT, d.rel), lines.join(eol)); refreshed++; }
+        else skipped++;
+      } else skipped++;
+      continue;
+    }
+    let line;
+    if (state === 'canonical') {
+      line = `<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: ${todayStr2} | verified_at_commit: ${headCommit || 'n/a'} -->`;
+    } else {
+      const sup = supersedeMap[d.rel];
+      line = `<!-- doc-status: historical | ${sup ? `superseded-by: ${sup} | ` : ''}verified_at: n/a -->`;
+    }
+    lines.unshift(line);
+    fs.writeFileSync(path.join(ROOT, d.rel), lines.join(eol));
+    wrote++;
+  }
+  console.log(`--write-status: 新注入 ${wrote}（historical+canonical）/ 刷新 ${refreshed} / 幂等跳过 ${skipped}（active 与手写 historical）`);
+}
+
+// ── 16. CLI 分支
 if (args.has('--list-canonical')) {
   for (const c of canonical) console.log(`${c.criteria}\t${c.path}`);
 }

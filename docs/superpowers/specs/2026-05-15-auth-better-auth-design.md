@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Phase 7: Better Auth User Authentication Design
 
 > **Status:** Approved

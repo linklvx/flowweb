@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 视频裁剪缩略图时间轴 + 白色选区样式
 
 **日期**: 2026-07-02

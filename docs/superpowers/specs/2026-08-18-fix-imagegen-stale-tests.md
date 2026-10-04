@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 规格说明：修复 ImageGenNode 5 个预存失败测试 + outpaint 补退出按钮
 
 **日期**：2026-08-18

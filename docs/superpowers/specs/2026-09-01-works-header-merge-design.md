@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 工作空间头部合并一行 UI 改版 Spec
 
 日期：2026-09-01

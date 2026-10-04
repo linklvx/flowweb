@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # MultiImageNode 多图堆叠节点 — 功能规格说明书
 
 **版本**: 1.3

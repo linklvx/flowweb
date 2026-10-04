@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Canvas 参考选择模式与风格库 — 设计 Spec
 
 日期：2026-09-26

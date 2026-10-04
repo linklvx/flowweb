@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Canvas 组升级 Spec A — R0 事故面热修 实施计划（v5）
 
 > **当前版本：v5（2026-09-28 第四轮三份外部评审核实后修订；文内 v2/v3/v4 字样为历史修订注记）**

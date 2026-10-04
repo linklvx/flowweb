@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频截帧功能 Spec（v2 — 审核修订版）
 
 ## 参考方案评估

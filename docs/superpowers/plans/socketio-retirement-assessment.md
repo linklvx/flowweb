@@ -1,3 +1,4 @@
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
 # socket.io /execution 通道退役评估（批 1-7 前移——只盘点出结论，不退役）
 
 > 【2026-10-05 状态注】/execution 为**现行通道**（node:status 主路径 dual-write 已落）；本文结论=**保留+冻结分两步退役（TD-21）**——"退役"为计划态非既成事实。

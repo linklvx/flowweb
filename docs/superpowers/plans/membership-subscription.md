@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 会员订阅功能
 
 ## 文件变更总览

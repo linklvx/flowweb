@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # TextNode 可调整大小 — 功能规格说明书 v3.0
 
 **版本**: 3.0

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 图片节点悬浮工具条 Ctrl+滚轮缩放后 z-order 异常
 
 ## 问题描述

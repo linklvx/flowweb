@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: TD-15 删除清理链路实况对齐（方案 B：移除死调用）
 
 日期：2026-08-22

@@ -1,4 +1,7 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频作品展示页（Video Works Showcase）设计文档
+
+> 【2026-10-05 校准】/candidates 端点已删（生产 controller 零路由——admin 候选池现为 VideoProject 直查口径）；本文 D16/路由红线节仅存历史档。
 
 - 日期：2026-09-16
 - 状态：已确认（brainstorming 三节呈现 + 三轮架构审核均通过）

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: TD-11 删除链路断裂修复（子批 3a）
 
 日期：2026-08-21

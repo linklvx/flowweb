@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 微信支付 Native 扫码支付集成
 
 ## 背景

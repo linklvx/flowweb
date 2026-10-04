@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 个人中心页面 — 设计文档
 
 **日期**: 2026-05-15

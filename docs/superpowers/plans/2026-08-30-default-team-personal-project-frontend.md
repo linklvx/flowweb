@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 默认团队个人项目化 — 前端实施计划（Plan B：Phase 7-9 + Phase 10）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

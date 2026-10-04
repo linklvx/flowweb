@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 协作删除持久化缺陷修复（R1 判据 2 FAIL · 变更驱动落库）
 
 日期：2026-09-29（v4，吸收第 10/11/12 轮评审：封顶真原地+身份恒定、抑制窗口收窄同步段、stash 提前 drain）

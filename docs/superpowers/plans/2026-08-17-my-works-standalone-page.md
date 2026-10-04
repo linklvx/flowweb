@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 实施计划：我的作品独立页面（/works）
 
 > 对应规格：[2026-08-17-my-works-standalone-page-design.md](../specs/2026-08-17-my-works-standalone-page-design.md)

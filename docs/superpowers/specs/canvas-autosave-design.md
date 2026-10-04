@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 画布自动保存（去手动保存 + 乐观锁 + 三态指示器）
 
 日期：2026-08-26

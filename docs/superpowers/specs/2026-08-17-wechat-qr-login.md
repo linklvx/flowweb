@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 微信扫码登录（开放平台网站应用）
 
 **日期**: 2026-08-17

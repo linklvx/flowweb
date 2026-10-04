@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 空白媒体节点保存重载后尺寸缩水修复
 
 ## 背景 / Bug 现象

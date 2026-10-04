@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频高清面板 — TDD 实施计划 (v2)
 
 ## 关联 Spec

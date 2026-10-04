@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec/Plan: 快捷键 — Tab / Ctrl+0 / Alt+Shift+F
 
 **日期:** 2026-06-07 | **TDD 三步流程**

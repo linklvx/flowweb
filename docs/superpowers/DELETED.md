@@ -1,3 +1,4 @@
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
 # 已删除文档索引（DELETED）
 
 > 可发现性载体（spec §5.5）：git 为归档、"在 git 里"只在知道文件名时成立。批 2 起逐行登记。
@@ -14,5 +15,6 @@
 | specs 与 plans · 2026-08-23-group-bugs-fix | 批 2 commit | Fix 全是 REST+localStorage 机制，照做会复活已删代码 | 组升级 Spec A/B + 2026-08-24 spec :10 前轮注 |
 | plans · smoke-dual-client | 批 2 commit | 已被 gate-checklist 归并节显式归并（e2e 判据源注随批 2 改指） | collab-e2e-gate-checklist + master plan 批注 |
 | specs · account_balance | 批 2 commit | UserBalance 方案从未落地；积分池冲突动机已被 TeamBalance 双池吸收（schema.prisma:712-713 credits+subscriptionCredits；reserve/settle/void_ 三方法现行=team-credit.service.ts:58/164/202，双池 11 处引用） | TeamBalance 双字段现行实现 |
+| specs · 2026-05-16-template-marketplace-design | 批 4 commit | 市场机制被 M0 整删（市场页/两卡/保存对话框/templateApi 拆除——commit f0bdbdd2）；8 处死符号命中（saveCanvas/templateData 等） | M0 commit f0bdbdd2 + tech-debt 台账 |
 | docs 根 · AI多模态内容创作SaaS平台产品设计文档（txt 与 docx 两份） | 批 2 commit | 6 个死/未实现机制+零引用孤岛；txt/docx 归一化后**逐节完全一致**（4290 字符，无裁决分歧）。内部矛盾：:11 技术栈 Better Auth vs :102 Keycloak 用户隔离；:102"仅创建者可查看编辑修改自己的数据"=个人隔离模型，与团队协作模型（teamId 非空+两层角色）方向相反。未建设项：APISIX/Prometheus/Grafana/Loki/Jaeger/ECharts | 定位句+现行技术栈萃取入 README ⑥ ARCHITECTURE 节 |
 

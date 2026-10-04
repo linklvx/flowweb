@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 裁剪保存改为创建新节点 + 连线
 
 ## 变更文件

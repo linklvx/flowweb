@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 移除自动续费（连续包月/包季/包年）功能
 
 ## 背景

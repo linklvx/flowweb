@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 图片节点 AI 编辑功能（剪切 / 扩图 / 擦除 / 重绘）
 
 ## 背景

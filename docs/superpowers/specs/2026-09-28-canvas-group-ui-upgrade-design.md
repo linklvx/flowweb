@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Canvas 组与分镜组 UI 升级（Spec A）— 设计 spec
 
 - 日期：2026-09-28（第十一轮评审修订版 v11——R1b docs 先行，后续代码 task 以本版为契约基准；**2026-10-01 v12 补订：R2 plan 阶段四路复证改道三裁决——折叠收口改道"信封恒等可见盒"/F7 自愈两条补齐归 2b/副本统一 buildCopyPlan，见 §0 v12 块；2026-10-02 v12 补订 2：分镜组不可折叠（双向守卫+脏 collapsed 加载边界自愈，废除前稿让位子句）**）

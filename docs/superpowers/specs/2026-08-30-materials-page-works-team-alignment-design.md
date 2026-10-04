@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 素材库独立页 + works 团队页对齐 设计文档
 
 日期：2026-08-30

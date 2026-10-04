@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 图片站标替换为 Flow123 斜体文字 — TDD 实施计划
 
 日期：2026-09-02

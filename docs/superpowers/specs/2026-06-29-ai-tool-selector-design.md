@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # AI 工具选择器 — 扩展图片节点
 
 ## 概述

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Tiptap 富文本编辑器 — 实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

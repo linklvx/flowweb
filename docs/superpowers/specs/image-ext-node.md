@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 扩展图片节点 (Image Extension Node)
 
 > 日期: 2026-06-28

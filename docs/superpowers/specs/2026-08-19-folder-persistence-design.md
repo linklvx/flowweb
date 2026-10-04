@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 文件夹持久化（后端阶段）设计
 
 日期：2026-08-19

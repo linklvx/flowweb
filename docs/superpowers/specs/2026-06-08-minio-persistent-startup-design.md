@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # MinIO 持久化启动方案
 
 ## 背景

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 团队设置页左侧团队列表（无刷新切换）实施计划
 
 > 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文 preflight 目检等相关表述仅存历史档。

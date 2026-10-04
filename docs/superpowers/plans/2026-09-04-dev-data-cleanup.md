@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 开发测试环境数据清理 — 实施计划
 
 日期：2026-09-04

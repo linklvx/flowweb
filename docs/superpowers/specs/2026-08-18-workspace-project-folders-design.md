@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 工作空间项目文件夹功能 — 前端 UI 设计 Spec
 
 日期：2026-08-18

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 扩图功能交互重做（Win11 截图式）
 
 ## 背景

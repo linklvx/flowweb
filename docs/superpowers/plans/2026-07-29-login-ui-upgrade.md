@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Login UI Upgrade — 实施计划
 
 ## 总览

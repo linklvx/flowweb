@@ -1,4 +1,4 @@
-<!-- doc-status: historical | superseded-by: specs/2026-09-29-collab-conn-status-recovery-design.md | verified_at: n/a | note: §4.1/§7/§8 持久化机制已死（指针已加）；ReactFlow 选型论证保留原位 -->
+<!-- doc-status: historical | superseded-by: specs/2026-09-29-collab-conn-status-recovery-design.md | verified_at: n/a | note: §4.1/§7/§8 持久化机制已死（指针已加）；批 4 核查=文内无 ReactFlow 选型论证段（spec 自始假设 xyflow，ADR-0002 无源萃取——登记） -->
 # Phase 2: Canvas Engine + Node System Design
 
 > **Status:** Approved

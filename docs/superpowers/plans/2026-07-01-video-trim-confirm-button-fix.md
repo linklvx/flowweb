@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频剪辑确认按钮无效 — 实施 Plan
 
 ## 总体策略

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # MinIO 对象存储集成 — 设计文档
 
 **版本**: 1.1  

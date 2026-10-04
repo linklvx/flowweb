@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: Shift 多选操作抑制节点悬浮工具条
 
 日期：2026-08-24（v3，两轮外部评审逐条对照项目实际核验吸收）

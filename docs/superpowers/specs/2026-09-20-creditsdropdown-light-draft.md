@@ -1,3 +1,4 @@
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
 # CreditsDropdown 浅色主题设计稿（C8 Task 19 / P5）
 
 > 产出：ui-ux-pro-max skill（浅深配对规则：分层方向反转 / 对比度对等 / 辉光降 alpha / token 驱动）。

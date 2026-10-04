@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 组框非对称内边距 + 打组后悬浮层定位修复 — 设计文档
 
 日期：2026-08-24

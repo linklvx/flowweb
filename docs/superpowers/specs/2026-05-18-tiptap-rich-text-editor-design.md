@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Tiptap 富文本编辑器 — 设计文档
 
 **日期**: 2026-05-18  

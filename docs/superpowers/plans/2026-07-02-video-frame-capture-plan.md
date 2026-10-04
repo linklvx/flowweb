@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 视频截帧功能（当前帧 / 首帧 / 尾帧）v3
 
 **日期**: 2026-07-02

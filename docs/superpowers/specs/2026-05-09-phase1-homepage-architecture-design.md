@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Phase 1: Homepage + Base Architecture Design
 
 > **Status:** Approved

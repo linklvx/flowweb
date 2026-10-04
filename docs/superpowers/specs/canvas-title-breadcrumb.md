@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Canvas 标题栏面包屑改造设计
 
 日期：2026-08-25

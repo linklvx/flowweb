@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频作品预览弹层五问题修复 Spec（v3.1）
 
 日期：2026-09-17

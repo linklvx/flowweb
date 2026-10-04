@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 随手清批次（4a/4b/4c + 台账 docs commit）
 
 日期：2026-08-21

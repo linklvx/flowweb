@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 规格说明：「我的作品」更名为「工作空间」
 
 **日期**：2026-08-18

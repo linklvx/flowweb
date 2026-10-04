@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 登录 UI 升级 Spec — 手机号验证码 + 微信扫码登录
 
 ## 概述

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 文本节点缩放手柄灵敏度优化与按需显示 — 功能规格说明书
 
 **版本**: 1.1

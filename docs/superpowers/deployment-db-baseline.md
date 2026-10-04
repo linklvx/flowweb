@@ -1,3 +1,4 @@
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
 # 数据库部署与基线指南（TD-10 基线重置后）
 
 > 背景：2026-08-21 基线重置（commit d2cae05）——旧迁移链 19 个目录自起点断裂（无基础 schema init 迁移，任何 fresh 环境 `migrate deploy` 必失败），已 squash 为单一 `20260821000000_init` 并在本地 dev 库完成基线标记。

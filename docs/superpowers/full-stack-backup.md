@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 全栈快照备份 (Full-Stack Snapshot Backup)
 
 版本节点（核心功能稳定后）执行完整备份，覆盖应用层、数据层、存储层、缓存层。每层独立备份独立恢复，不依赖任何单一工具。

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Canvas 组升级 Spec A — R1 基建+单源 / 几何与快照根修 实施计划（v6）
 
 > **全局纪律三（v6 新增——几何派生公式同源）：** 子节点 rect 派生公式全 plan **一字不差同源**：`width ?? DEFAULT_CHILD_SIZE.width / height ?? DEFAULT_CHILD_SIZE.height`——**不含 measured**（measured 是渲染期 ResizeObserver 量：帧变渲染时序函数 → 跨客户端漂移；现状 refitGroupBounds:1293 刻意不用正是回避此）。measured **唯一保留域=拖拽期 clamp**（Task 14——width 暂缺时不能钉死子节点）。v5 的四处不同源（normalizeLoadedCanvas 无 measured/applyGroupFrame 有/assertInvariant 无/addToGroup 有）会使 store 级不变量断言对正确实现恒红（夹具恒红第四形态，公式层）。

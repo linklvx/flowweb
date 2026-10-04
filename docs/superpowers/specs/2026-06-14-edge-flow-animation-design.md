@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Edge Flow Animation — 选中节点连线动画
 
 **日期**: 2026-06-14

@@ -55,10 +55,12 @@ describe('批3-2 B6 模块工厂源码收口', () => {
       expect(src, `${site} 应使用 createManagedRedis`).toContain('createManagedRedis(');
     }
   });
-  it('auth.service.ts 拔除硬编码 new Redis({host:"localhost"})，改注入 REDIS_CLIENT', () => {
+  it('auth.service.ts 拔除硬编码 new Redis({host:"localhost"})（批 1 后零 redis 依赖——blacklist 双方法退役）', () => {
     const src = readFileSync(resolve(APP_ROOT, 'auth/auth.service.ts'), 'utf8');
     expect(src).not.toContain('new Redis');
-    expect(src).toContain("Inject(REDIS_CLIENT)");
+    // 文档治理批 1 Task 3-2：signOutWithBlacklist/isBlacklisted 删除后 this.redis 零使用，
+    // service 级注入随之退役；模块级 REDIS_CLIENT 工厂仍在（auth.controller/rate-limiter 消费）
+    expect(src).not.toContain('REDIS_CLIENT');
   });
   it('auth.ts 顶层单例统一 createManagedRedis，AuthModule module 钩子关闭', () => {
     const authSrc = readFileSync(resolve(APP_ROOT, 'auth/auth.ts'), 'utf8');

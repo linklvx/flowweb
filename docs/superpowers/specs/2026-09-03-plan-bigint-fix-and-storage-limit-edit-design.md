@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 订阅套餐 BigInt 序列化修复 + 后台存储上限编辑 — 设计 Spec
 
 日期：2026-09-03（v4，吸收三轮评审：修 toStorageBytes 伪代码缺陷——fallback 收敛 number 空间；删冗余 BigInt() 嵌套；两个实现提示留痕）

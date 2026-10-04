@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # TextNode Resize 实施计划 v2.0
 
 > **Goal:** 为 TextInputNode 添加 NodeResizer，支持拖拽调整大小，尺寸持久化到数据库

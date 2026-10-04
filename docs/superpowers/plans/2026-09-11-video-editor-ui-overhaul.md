@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 多轨道剪辑器 UI/交互层深度改造 Implementation Plan
 
 > 【已废止 2026-09-19】preflight:false 红线已被 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md 推翻并重开（A 段落地）；本文"preflight 关闭无 base 层兜底"等相关论证仅存历史档。

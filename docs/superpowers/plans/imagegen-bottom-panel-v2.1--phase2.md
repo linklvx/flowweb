@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 实施计划：ImageGen 底部面板 v2.1 — Phase 2（修订版）
 
 > 参考 Specs：`docs/superpowers/specs/imagegen-bottom-panel-v2.1.md`

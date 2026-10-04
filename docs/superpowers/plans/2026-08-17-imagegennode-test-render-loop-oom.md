@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # ImageGenNode 测试无限渲染 OOM 修复 — 实施 Plan
 
 ## 总体策略

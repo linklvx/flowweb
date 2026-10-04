@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 技术规格：ImageGen 底部面板 v2.1（最终版）
 
 > 状态：待确认 | 嵌套 store + ReactFlow 同步 + 指令删除同步 + Phase 1

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Canvas 键盘快捷键面板 — 设计规格
 
 ## 概述

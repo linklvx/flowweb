@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 图片节点宫格切分 (Image Grid Split)
 
 > 版本: 6.0 | 日期: 2026-06-17

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 创建画布链路统一 + 默认命名 + 项目切换混淆修复
 
 日期：2026-08-20

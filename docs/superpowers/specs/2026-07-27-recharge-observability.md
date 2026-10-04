@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 微信支付充值模块可观测性 (Phase 9)
 
 **日期**: 2026-07-27  

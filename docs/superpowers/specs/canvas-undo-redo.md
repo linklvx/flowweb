@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 画布 Undo/Redo（结构层，zundo 快照式）
 
 日期：2026-08-25（v5，同日四轮评审修订）

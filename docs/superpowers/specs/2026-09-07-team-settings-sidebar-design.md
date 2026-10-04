@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 团队设置页左侧团队列表（无刷新切换）设计文档
 
 日期：2026-09-07

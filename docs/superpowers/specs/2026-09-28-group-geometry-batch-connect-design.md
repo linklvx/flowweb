@@ -1,3 +1,4 @@
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
 # 组几何所有权变更与 +号批量连线（Spec B）— 设计 spec v3.20
 
 - 日期：2026-10-02（**v3.20：第二十四轮三份 plan v3.5 终审——终裁 89-92+冻结协议[plan v3.6-FROZEN 停止版本迭代：变更传播矩阵十镜像/评审白名单三类禁新增终裁/数字脚本化/未知项交给门禁]**：89 折叠简写作用域定稿[61③=auto 组空操作/82=manual 组密封源——根修一句"auto 组永无帧键（折叠态同）；manual 组折叠态不动帧三键"+4 处 stale 同批改齐+census 零命中串+双档单测]；90 M0 前向引用禁令[读链零新符号——stripAuthorState=O0a 产物；coverUrl 零写者死列 drop；三索引两枚举写全；副本能力 (a1)import 净删[推荐]/(a2)卡片入口]；91 尺寸模型补全[缺键档三档 doc wh→cs.wh→DEFAULT+multiImage 四类触发点+收敛锚+calcDefaultGrid 本体保留[活消费 arrangeSelection:97+canvasStore:1578/:1645]+A 类三档链保留 measured[形态断言]+节点类型×wh 权威表进 C0-3+A 类 18 行逐行义务+量化落点口径修正]；92 清库 FK 面全覆盖[DELETE 子表先行+补 ProjectMember/VideoProject+孤儿列三处+api 健康断言]+版本门两侧统一 fail-closed[零节点=唯一 stamp 自愈点]+裸 doc 无戳锚+网格校验分型[仅 Origin.LocalUser；投影差分只校验有限性]+_padding 夹具 config 键+写者名单落盘+census 模板扩改名/迁移任务——**详细全文=plan v3.6 头部 v3.20 终裁段（冻结协议：spec 不再扩块，plan 头部为唯一全文载体）**）

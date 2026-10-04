@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # VIP 促销 Banner 后台管理 — 设计文档
 
 ## 概述

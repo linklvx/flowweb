@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 打光预览手电筒锥形光束
 
 ## Context

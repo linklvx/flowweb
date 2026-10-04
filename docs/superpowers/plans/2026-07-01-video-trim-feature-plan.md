@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频剪辑按钮功能 — TDD 实施计划
 
 ## 前置依赖

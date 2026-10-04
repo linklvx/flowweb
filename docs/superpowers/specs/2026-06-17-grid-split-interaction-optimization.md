@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 宫格切分自定义选择器交互优化
 
 ## 问题

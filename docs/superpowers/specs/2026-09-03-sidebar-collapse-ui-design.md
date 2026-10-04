@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec：侧边栏收起与视觉对齐（UI 优化）
 
 日期：2026-09-03

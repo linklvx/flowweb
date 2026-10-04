@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 音视频分离功能 Spec（v5 — 终版）
 
 ## 变更记录

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 旋转与镜像 — 保存/取消/互斥/快捷键
 
 ## 背景

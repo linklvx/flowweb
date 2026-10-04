@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # MinIO Bucket 自动创建方案
 
 ## 背景

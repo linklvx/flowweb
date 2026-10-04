@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: TD-9 API 既有测试失败 9 例修复
 
 日期：2026-08-21

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 随手清批次（第四批：TD-3/7/12/13/14/16 + TD-15 实证升级）
 
 日期：2026-08-21

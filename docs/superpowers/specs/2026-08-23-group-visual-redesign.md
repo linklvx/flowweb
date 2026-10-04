@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 打组功能视觉与交互优化
 
 日期：2026-08-23

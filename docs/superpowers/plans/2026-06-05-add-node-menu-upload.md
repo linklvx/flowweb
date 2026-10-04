@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: AddNodeMenu 上传按钮功能实现
 
 ## Spec 版本: 1.1 | 日期: 2026-06-07

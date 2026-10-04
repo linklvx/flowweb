@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 团队功能 + 画布实时协作（Team + Yjs）Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

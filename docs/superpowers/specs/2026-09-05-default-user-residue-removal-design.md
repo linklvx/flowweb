@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # default-user 生产代码回退残留清除设计
 
 - 日期：2026-09-05

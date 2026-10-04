@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 画布打组与分镜组功能 — 设计规格说明书
 
 | 项 | 值 |

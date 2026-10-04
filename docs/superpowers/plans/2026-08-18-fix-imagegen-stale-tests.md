@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 实施计划：修复 ImageGenNode 5 个预存失败测试 + outpaint 补退出按钮
 
 **日期**：2026-08-18（已按审核意见修订）

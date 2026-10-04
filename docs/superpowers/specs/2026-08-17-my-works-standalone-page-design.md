@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 规格说明：我的作品独立页面（/works）
 
 ## 背景与目标

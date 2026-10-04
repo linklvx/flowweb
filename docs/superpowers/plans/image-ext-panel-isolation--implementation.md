@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 扩展图片节点底部面板独立化 — 实现计划
 
 > 日期: 2026-06-30

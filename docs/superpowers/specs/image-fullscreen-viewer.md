@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Image Fullscreen Viewer Spec
 
 ## 概述

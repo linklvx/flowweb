@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # ImageNodeToolbar 悬浮工具条 UI 设计
 
 ## 背景

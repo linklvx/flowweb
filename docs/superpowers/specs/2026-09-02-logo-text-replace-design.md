@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 规格说明：图片站标替换为 Flow123 文字站标（斜体流动感）
 
 **日期**：2026-09-02

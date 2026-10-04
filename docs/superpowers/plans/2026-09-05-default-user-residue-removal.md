@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # default-user 残留清除实施计划
 
 - 日期：2026-09-05

@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: Image & Video Node Resize
 
 **Date:** 2026-06-14

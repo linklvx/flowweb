@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 团队 + 协作完善（多团队/项目权限/审计/增量日志/多实例/SV 等待/UndoManager）
 
 日期：2026-08-28

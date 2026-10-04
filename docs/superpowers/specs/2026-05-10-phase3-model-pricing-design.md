@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Phase 3: Model Configuration & Pricing Engine Design
 
 > **Status:** Approved

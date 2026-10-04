@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # teamStore 换账号失效 + 团队入口重入刷新 设计文档
 
 日期：2026-09-08

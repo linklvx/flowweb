@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 悬浮工具栏 AI 工具扩展 — 弹出面板与派生节点创建
 
 > 日期: 2026-06-30

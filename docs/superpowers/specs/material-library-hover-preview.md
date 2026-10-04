@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 素材库文件卡片 Hover 预览弹窗
 
 > 版本：v2（整合架构审核反馈）

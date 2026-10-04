@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 会员订阅引导弹窗 (VipSubscribeModal)
 
 ## 目标

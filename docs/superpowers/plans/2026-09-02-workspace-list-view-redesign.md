@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 工作空间列表视图 UI 改版 — TDD 实施计划
 
 日期：2026-09-02

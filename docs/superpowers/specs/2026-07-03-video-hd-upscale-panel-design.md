@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 视频高清面板 Spec (v3)
 
 ## 变更记录

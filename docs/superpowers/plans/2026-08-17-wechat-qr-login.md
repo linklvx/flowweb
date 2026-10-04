@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 微信扫码登录（WxLogin iframe 方案）
 
 **日期**: 2026-08-17

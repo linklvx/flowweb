@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 图片节点旋转与镜像功能
 
 ## 实施顺序（TDD 每阶段 test → implement → pass）

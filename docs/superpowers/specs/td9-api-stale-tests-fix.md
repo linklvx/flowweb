@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: TD-9 API 既有测试失败 9 例修复（测试卫生批次）
 
 日期：2026-08-21

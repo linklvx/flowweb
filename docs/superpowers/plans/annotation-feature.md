@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 图片标注功能 (Image Annotation)
 
 > 日期: 2026-06-28

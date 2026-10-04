@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 历史记录页面 需求规格
 
 > 2026-06-06 | 参考：我的素材库页面（MaterialLibraryModal）

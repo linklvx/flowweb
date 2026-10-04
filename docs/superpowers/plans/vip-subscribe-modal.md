@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 会员订阅引导弹窗 (VipSubscribeModal)
 
 ## 实施概览

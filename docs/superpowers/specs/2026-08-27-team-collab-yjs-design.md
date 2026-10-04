@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Spec: 团队功能 + 画布实时协作（Team + Yjs）
 
 日期：2026-08-27

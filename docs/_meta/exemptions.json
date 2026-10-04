@@ -1,170 +1,765 @@
 {
-  "comment": "叙述性豁免（v1.2 §5.3）：canonical 文档中合法提及死符号的窄通道。键=file:line:symbol 三元组（行漂移即失效迫使复核）；expires_at 仅绝对日期、距登记 ≤90 天；到期门禁红。独立通道不进棘轮。批 0 生成面=105 条（Spec B spec/plan 91+master plan 6+tech-debt 4+css-base-layer 两份 4——均为拆除/台账/选型历史叙述）。",
+  "comment": "叙述性豁免（v1.2 §5.3）：canonical 文档中合法提及死符号的窄通道。键=file:line:symbol 三元组（行漂移即失效迫使复核）；expires_at 仅绝对日期 ≤90 天；到期门禁红。独立通道不进棘轮。批 4 --write-status 首行注入致全量 +1 漂移→全量重登记（同文件同符号沿用理由；行漂移机制按设计工作）。",
   "items": [
     {
       "file": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
-      "line": 45,
+      "line": 46,
       "symbol": "Keycloak",
       "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
-      "line": 87,
+      "line": 88,
       "symbol": "Keycloak",
       "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 64,
+      "line": 65,
       "symbol": "isHydrating",
       "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1926,
+      "line": 1927,
       "symbol": "isHydrating",
       "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1933,
+      "line": 1934,
       "symbol": "isHydrating",
       "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1935,
+      "line": 1936,
       "symbol": "isHydrating",
       "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1953,
+      "line": 1955,
       "symbol": "isHydrating",
       "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 6,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 8,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 16,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 20,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 28,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 28,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 38,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 38,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 38,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 82,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 125,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 125,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 125,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 126,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 131,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 131,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 131,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 131,
+      "symbol": "CanvasNode",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 131,
+      "symbol": "CanvasEdge",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 133,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 133,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 133,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 175,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 221,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 245,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 245,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 247,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 377,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 377,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "line": 474,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
+      "line": 226,
+      "symbol": "Keycloak",
+      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
+      "line": 273,
+      "symbol": "Keycloak",
+      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 6,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 96,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 96,
+      "symbol": "CanvasNode",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 96,
+      "symbol": "CanvasEdge",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 100,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 111,
+      "symbol": "CanvasNode",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 111,
+      "symbol": "CanvasEdge",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 111,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 111,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 127,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 127,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 127,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 127,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 127,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 127,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 141,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 141,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 141,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 163,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 167,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 180,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 180,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 180,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 180,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 180,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 180,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 199,
+      "symbol": "CanvasNode",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 199,
+      "symbol": "CanvasEdge",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 199,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 199,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 201,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 203,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 203,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 231,
+      "symbol": "CanvasNode",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 231,
+      "symbol": "CanvasEdge",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 233,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 233,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 279,
+      "symbol": "pickStructNodes",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 279,
+      "symbol": "CanvasNode",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 279,
+      "symbol": "CanvasEdge",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 279,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 405,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 405,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 421,
+      "symbol": "templateData",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "line": 431,
+      "symbol": "saveCanvas",
+      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 122,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 123,
+      "symbol": "pickStructNodes",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 131,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 191,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 191,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 214,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 461,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 475,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 521,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/tech-debt.md",
+      "line": 96,
+      "symbol": "isHydrating",
+      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 12,
+      "symbol": "deleteRefs",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 13,
+      "symbol": "isHydrating",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 14,
+      "symbol": "flowweb_canvas_v2",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 17,
+      "symbol": "UserBalance",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 18,
+      "symbol": "saveCanvas",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 18,
+      "symbol": "templateData",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 19,
+      "symbol": "Keycloak",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
       "line": 1954,
       "symbol": "isHydrating",
-      "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+      "reason": "完成记录表叙述删除锚",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 5,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 7,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 15,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 19,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 27,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 27,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 37,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 37,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 37,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 81,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 124,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 124,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 124,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 124,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 124,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 124,
+      "line": 125,
       "symbol": "templateData",
       "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
       "expires_at": "2027-01-02"
@@ -178,15 +773,8 @@
     },
     {
       "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 129,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 129,
-      "symbol": "saveCanvas",
+      "line": 125,
+      "symbol": "templateData",
       "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
       "expires_at": "2027-01-02"
     },
@@ -200,127 +788,8 @@
     {
       "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
       "line": 130,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 130,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 130,
-      "symbol": "CanvasNode",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 130,
-      "symbol": "CanvasEdge",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 132,
       "symbol": "saveCanvas",
       "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 132,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 132,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 174,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 220,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 244,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 244,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 246,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 376,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 376,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "line": 473,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 plan 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
-      "line": 225,
-      "symbol": "Keycloak",
-      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
-      "line": 272,
-      "symbol": "Keycloak",
-      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 4,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
       "expires_at": "2027-01-02"
     },
     {
@@ -332,260 +801,8 @@
     },
     {
       "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 95,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 95,
-      "symbol": "CanvasNode",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 95,
-      "symbol": "CanvasEdge",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 99,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 110,
-      "symbol": "CanvasNode",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 110,
-      "symbol": "CanvasEdge",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 110,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 110,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 126,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 126,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 126,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 126,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 126,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 126,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 140,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 140,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 140,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 162,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 166,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 179,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 179,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 179,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 179,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 179,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 179,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 197,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 197,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 197,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 197,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
       "line": 198,
-      "symbol": "CanvasNode",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 198,
-      "symbol": "CanvasEdge",
+      "symbol": "templateData",
       "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
       "expires_at": "2027-01-02"
     },
@@ -605,247 +822,44 @@
     },
     {
       "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 200,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 202,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 202,
+      "line": 198,
       "symbol": "templateData",
       "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 230,
-      "symbol": "CanvasNode",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 230,
-      "symbol": "CanvasEdge",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 232,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 232,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 278,
-      "symbol": "pickStructNodes",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 278,
-      "symbol": "CanvasNode",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 278,
-      "symbol": "CanvasEdge",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 278,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 404,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 404,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 420,
-      "symbol": "templateData",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "line": 430,
-      "symbol": "saveCanvas",
-      "reason": "Spec B O0/M0 拆除符号的叙述载体——该 spec 即删除决策本体",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 90,
-      "symbol": "deleteRefs",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 95,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 96,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 96,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 121,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 122,
-      "symbol": "pickStructNodes",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 129,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 129,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
       "line": 130,
       "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "reason": "现行 collab 权威 spec 的删除判据记录（退役叙述=机制决策本体）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 190,
+      "line": 130,
       "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "reason": "现行 collab 权威 spec 的删除判据记录（退役叙述=机制决策本体）",
       "expires_at": "2027-01-02"
     },
     {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 190,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 213,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 460,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 474,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 520,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/DELETED.md",
-      "line": 11,
+      "file": "docs/superpowers/tech-debt.md",
+      "line": 91,
       "symbol": "deleteRefs",
-      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "reason": "TD 台账已清账行的历史记录（退役指针已落地）",
       "expires_at": "2027-01-02"
     },
     {
-      "file": "docs/superpowers/DELETED.md",
-      "line": 12,
+      "file": "docs/superpowers/tech-debt.md",
+      "line": 97,
       "symbol": "isHydrating",
-      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "reason": "TD 台账已清账行的历史记录（退役指针已落地）",
       "expires_at": "2027-01-02"
     },
     {
-      "file": "docs/superpowers/DELETED.md",
-      "line": 13,
-      "symbol": "flowweb_canvas_v2",
-      "reason": "删除登记表死因列——登记已删符号即本表功能",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/DELETED.md",
-      "line": 16,
-      "symbol": "UserBalance",
-      "reason": "删除登记表死因列——登记已删符号即本表功能",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/DELETED.md",
-      "line": 17,
-      "symbol": "Keycloak",
-      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "file": "docs/superpowers/tech-debt.md",
+      "line": 97,
+      "symbol": "isHydrating",
+      "reason": "TD 台账已清账行的历史记录（退役指针已落地）",
       "expires_at": "2027-01-02"
     }
   ]

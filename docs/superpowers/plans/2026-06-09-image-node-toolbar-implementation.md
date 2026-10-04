@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # ImageNodeToolbar 实施计划
 
 ## 概述

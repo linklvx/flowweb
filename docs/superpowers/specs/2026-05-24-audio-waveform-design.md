@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Audio Waveform Design (Phase 1 — Frontend Only)
 
 **Date:** 2026-05-24

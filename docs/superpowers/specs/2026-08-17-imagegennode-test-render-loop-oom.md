@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # ImageGenNode 测试无限渲染导致 OOM 修复 Spec
 
 ## 问题现象

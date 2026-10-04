@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Plan: 素材库文件卡片 Hover 预览弹窗
 
 > 基于 Spec v2 + 架构审核 v4，TDD 红-绿-重构循环

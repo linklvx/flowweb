@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # 历史记录页面 实现计划
 
 > 2026-06-06 | Spec: [history-page-design](../specs/2026-06-06-history-page-design.md)

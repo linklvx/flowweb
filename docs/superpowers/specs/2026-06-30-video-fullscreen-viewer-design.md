@@ -1,3 +1,4 @@
+<!-- doc-status: historical | verified_at: n/a -->
 # Video Fullscreen Viewer Design
 
 ## Overview
