@@ -1,4 +1,5 @@
 # Collab 会话断连恢复 Master Plan（spec v5.10 全批次：批 0c → 批 7）
+> ⛔ **本 plan 已完成（2026-10-01 批 7 gate 9/9 绿）。状态真源=下方「完成记录表」。正文 `- [ ]` 为任务模板，非待办——请勿按 checkbox 执行。**
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -62,7 +63,7 @@ git add <本批文件> && git commit -m "feat(collab): 批 X …"
 | 1 | **完成** | bcfa2ac3/bd2c317b/315665fd/2049996a/f2edc493/0fe95f67/e11444f0/fb74cb1d | **批尾备注（2026-09-30）**：8 任务（含门 B 裁决新增 1-0 transport 薄层）全 TDD 落地，spec 评审 ✅ 全 PASS（含 watchdog 与 recompute 一致性专项——watchdog 严格更强系设计意图）。**浏览器验收达成**：杀 API→offline→断连期 UI 加节点→重启→自动恢复 connected（connUi=hint 分级正确）→**reload 后断连期编辑仍在（L19 持久化实证）**。**transport 裁定**：close(1000) 对 OPEN socket 足够（库自接管）、needKick 仅非 OPEN 四态。**socket.io 退役评估（前移完毕）**：已死 1（execution:complete 零消费）+仍活 23 调用点（node:status 17〔主路径 dual-write 已落、缺口=reserve-fail 2 分支+credits 推送〕+trim/separate/stitch 6〔唯一通道但 web 轮询兜底在〕）——建议保留+冻结分两步退役（trim/separate/stitch 补 6 写点后切 doc；包级移除被 /payment gateway 阻塞另立评估）；评估文件 docs/superpowers/plans/socketio-retirement-assessment.md。**瑕疵登记**：①runtime :407 注释"七监听"实为 6（顺手可改）②1012 处 Math.random 在 runtime（无纯度要求，合规）。admin 页 4 测试曾现 flaky（干净树复现+单跑绿+后续 3 轮全量未复现——登记观察）。web 2958/api 全量绿。 |
 | 2 | **完成** | 025bd5e0/10ce8f15/f4840ecf + /videos 白名单补 24 用例 | **批尾备注（2026-09-30）**：3 任务全 TDD 落地，合并评审 ✅ 通过（修 D 结构性验证成立：超时不 destroy+heartbeat 先启动+failed 态 watchdog 可达；S1 偏差〔collabReadOnly 单键代 canEdit——水合窗口 ready 分量结构性为假〕论证与回归锚互证）。isHydrating 删净（12 命中全注释）；latch 职责迁 applyingRemote 模块级（R17 双门保留）。VIEWER：硬门三路径+wrapper 10+1 处（setFileResult AI 落地含）+ESLint C 条豁免收窄（四 ConfigPanel 删条目+负例 31 绿）。redirect 17→**19 条矩阵**（评审补 /videos 真实路由）。**用户可见变更登记**：register 无 next 登录后默认 /canvas→/works（spec"无参→/works"既定语义）。Info 登记不修：wsAuthNotice.reason 暂宽 string（批 3 五档收紧）。web 全量 3047（theme-perf 超时系环境 flaky——热机 stash 基线复现+隔离跑恒绿，登记观察）+verify 绿。 |
 | 3 | **完成**（评审进行中） | 01171e4c/b56deac4/072d40ec/518d4416 | **批尾备注（2026-09-30）**：4 任务全 TDD 落地+verify 绿（api 1462/web 3060）。**.reason 直达链源码钉死**（hocuspocus-server esm:939 writePermissionDenied(error.reason)——A1 维持）；真协议 DENY{reason} 透传+socket 不关用例在案。**B6 现场清单 13 实例**：已有钩子 3+本次收口 10（8 工厂→createManagedRedis 统一 REDIS_CLIENT 常量+auth.service 硬编码拔除+auth.ts 顶层单例受管化）。touch 四处统一（含 execution.gateway 顺统一——鉴权读面续期语义一致；过期→null 零写禁复活）。**sweep 灰度锚钉死**（关=零查询零通知零关闭）；复验含移除成员也踢；fail-open 5 次上限。**裁定登记**：①persist-status 退避梯 1s/2s/5s/15s/30s（spec 定值——任务文字 15m/30m 系笔误）②doc epoch 落服务端 WeakMap 非 meta（不持久化伪红重放判据+持久化破零写放大双重排除）③COMPACT_THRESHOLD(32 行)→COMPACT_INTERVAL_MS(≥60s 时间门限)——主 spec 绿5/5b/6/10 契约更新④me 探活对有效 session 重发 cookie（F8 cookie 滑动续期必要半边）⑤theme-perf 预算 15s→30s（满载实测 14.3s 贴线+干净树取证）。遗留：repo.count() 无调用方（API 保留）；apiFetch 401 电平未甄别登录失败（横幅消费批 2 域）。 |
-| 4a | 待执行 | — | — |
+| 4a | 完成 | 62b5d314 | 读归一/不变量/quiescence（依据 4b 行备注引用） |
 | 门 C（F5） | **完成** | spike 报告回写（本行） | 意图漏斗可行性：**可行，裁漏斗**。成本比 **1.75:1**（17.5 vs ~10 人日）——判据③单看超 1.5 带宽，但①六+1 action 全覆盖（envelope 变更需第 7 个 updateNodeEnvelope ~15 行；复合=intent 序列单 transact）②VIEWER 硬门**更优**（拦截点从 bindBridge 订阅层前移到 dispatch 入口——回弹结构性消失）+架构权重条款（成本接近必倾向漏斗）+diff 引擎自认非终局需 ADR 弃用计划+全生命周期维护反超——综合裁漏斗。**关键发现**：最小迁移=store action 内换芯（setState→dispatch intent），UI 调用点/ESLint 门零改动（写点实底=51 store action，UI 消费 24 文件；syncStoreToDoc 生产调用仅 3 处全在 runtime）。**baseline 存续条款兑现**：裁漏斗⇒prevNodeIds/prevEdgeIds/leafDiff/对账/latch 四件套+0b baseline 随 bindBridge 删除——删除语义由 deleteNode/deleteEdge intent 显式携带（committed intent 即删除答案），initCollab 基线播种同删。Spike 文件未 commit（留工作区参考）。**批 4b 分两批落地**（首批六+1 action+高频写点 ≈7 人日，bindBridge 过渡兜底）。 |
 | 4b | **完成**（漏斗分支） | 91819cf0/b7aa31f0 | **批尾备注（2026-09-30）**：**走漏斗**（门 C 裁决）。组1 七 action（+updateNodeEnvelope 第 7 个）+dispatch 入口（canEdit 前置=doc+store 双零写——判据②前移）+首批换芯；组2 全量换芯（51 store action——复合写点差分换芯 captureStoreProjection/dispatchProjectionDiff 单 transact）+**四件套退役**（syncStoreToDoc/bindBridge 写半边/applyingRemote latch/prevNodeIds baseline——R17 新防线三层：结构无翻译路径+teardown doc 生命周期+epoch）+lint-gate 第四条 no-delete-scan 静态断言。**伴生修复**：①组1 抓真 bug——dispatch 前置投影 filter 破坏级联删除判型（已修+rw 回归锚）②组2 不变量序敏感误报（子先建组后建插入序 vs 渲染序——按 id 排序内容等价）。批 4a 不变量/quiescence 单路径终态绿。评审 ✅（4 Minor：M1 addNode no-op 守卫/M2 applyRecordToYMap 残留导出——顺手修；M3 红1b④ 由机制消失间接覆盖——登记）。**批 4a**（62b5d314）：读归一单源 normalizeCanvasRecord+真不变量（变异实验非恒真）+**S1 组几何=第二个设计内分叉源发现**（双重归一扩展）+quiescence 无乒乓+getMap 门三文件复核通过；评审 ✅（1 Minor 注释措辞）。web 3116 绿+verify 绿。 |
 | 门 D（E1/E2） | **完成** | 结论回写（本行） | E1：**可**——execute 节点唯一来源 readCanvas doc nodes（getScope 过滤后 doc 外节点静默空跑假成功），但批 5 落点 B=retake 直连**真实节点**（天然在 doc）零改造可跑；shadow- 白名单 hack（:107）仅放行已在 doc 的影子——现状影子本就先 insertNode。**批 5 附带清理清单**（非 gating）：shadow- 白名单/is-executable-node __ephemeral 排除/collab.gateway SHADOW_TTL_MS 影子 GC 三处死代码（均有行内注释预告）。E2：**成立**——sv=null（controller :44 ?? null→processor :29 undefined）跳过 SV 等待直读服务端当前 doc 全量（collab-document :38 `if (sv && ...)` 旁路+spec"无 sv 直接读"用例佐证）；影子由服务端 insertNode 写同一 doc 必可见；直连真实节点更无牵连。唯一语义损失：sv=null 放弃"等客户端最新编辑同步"——参数新鲜度靠 WS 常规同步+intent 幂等兜底，无新增风险。**门 D 通过，批 5 按落点 B 开工**。 |
@@ -85,9 +86,9 @@ git add <本批文件> && git commit -m "feat(collab): 批 X …"
 **Files:**
 - Create: `apps/api/src/modules/collab/health-carrier.gate.spec.ts`（@Gate 注记，结论落 plan 后**保留**为契约锁夹具——它就是"kick 后只建一个 socket"红测的宿主）
 
-- [ ] **Step 1: 读夹具先例**——通读 `apps/api/src/modules/collab/collab.gateway.spec.ts`（R12：随机端口真 Server + 真 provider + mock Prisma 的搭法），照抄其建 Server/provider 手法。
+- **Step 1: 读夹具先例**——通读 `apps/api/src/modules/collab/collab.gateway.spec.ts`（R12：随机端口真 Server + 真 provider + mock Prisma 的搭法），照抄其建 Server/provider 手法。
 
-- [ ] **Step 2: 写夹具**（先写断言占位——本夹具的"断言"是**记录事件序**，跑完人工判定后固化断言）：
+- **Step 2: 写夹具**（先写断言占位——本夹具的"断言"是**记录事件序**，跑完人工判定后固化断言）：
 
 ```ts
 // apps/api/src/modules/collab/health-carrier.gate.spec.ts
@@ -150,7 +151,7 @@ describe('F11 健康判据载体裁决夹具', () => {
 });
 ```
 
-- [ ] **Step 3: 跑夹具并记录**
+- **Step 3: 跑夹具并记录**
 
 Run: `pnpm --filter @flowweb/api test -- --run health-carrier.gate`
 Expected: 输出完整事件序日志。**人工判定三件事并写入完成记录表**：
@@ -158,7 +159,7 @@ Expected: 输出完整事件序日志。**人工判定三件事并写入完成�
 2. `'message'` 事件与第二次 status:connected 的先后（候选 1 的 inboundAttemptId 在 message 时才写——若 connected 先于本 attempt 首个 message，则 healthy 合取在 connected 重算时短暂为假=防早宣成立）；
 3. kick 后 socket 只建一个（㉝ 同栈锚——此断言固化常驻）。
 
-- [ ] **Step 4: 固化裁决**——按结论在批 0a Task 0a-1 的 `recomputeConnStatus` 里二选一（两版代码都在该任务中给出），并把夹具中的占位断言改为实测事件序断言。Commit：
+- **Step 4: 固化裁决**——按结论在批 0a Task 0a-1 的 `recomputeConnStatus` 里二选一（两版代码都在该任务中给出），并把夹具中的占位断言改为实测事件序断言。Commit：
 
 ```bash
 git add apps/api/src/modules/collab/health-carrier.gate.spec.ts
@@ -186,7 +187,7 @@ git commit -m "test(collab): F11 载体裁决夹具（决策门 A）——事件
 
 **Task 0c-1：ai-image-edit 三端点 perm.assertEditor**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/ai-image-edit/ai-image-edit.controller.spec.ts
@@ -221,9 +222,9 @@ describe('AiImageEditController 安全止血（spec 批0c 判据①：非成员 
 });
 ```
 
-- [ ] **Step 2: 跑红**——Run: `pnpm --filter @flowweb/api test -- --run ai-image-edit.controller.spec`，Expected: FAIL（controller 构造器现只收 1 参 / assertEditor 未被调）。
+- **Step 2: 跑红**——Run: `pnpm --filter @flowweb/api test -- --run ai-image-edit.controller.spec`，Expected: FAIL（controller 构造器现只收 1 参 / assertEditor 未被调）。
 
-- [ ] **Step 3: 实现**——controller 注入 `ProjectPermissionService`（复用 lighting.controller.ts:10 同款 import：`../team/project-permission.service`），三端点首行加：
+- **Step 3: 实现**——controller 注入 `ProjectPermissionService`（复用 lighting.controller.ts:10 同款 import：`../team/project-permission.service`），三端点首行加：
 
 ```ts
 await this.perm.assertEditor(body.projectId, req.user.id);
@@ -238,11 +239,11 @@ constructor(
 ) {}
 ```
 
-- [ ] **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-1 ai-image-edit 三端点补 assertEditor（越权扣费止血）`
+- **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-1 ai-image-edit 三端点补 assertEditor（越权扣费止血）`
 
 **Task 0c-2：processor consume 返回值检查（免费算力）+ getMediaKey 归属**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/ai-image-edit/ai-image-edit.processor.spec.ts
@@ -283,8 +284,8 @@ describe('AiImageEditProcessor 扣费守卫（spec 批0c：consume 失败→不�
 
 注：Processor 构造器参数序以实际文件为准（Step 1 前先读 `ai-image-edit.processor.ts:1-60` 对照并修正装置的注入顺序——mock 顺序错了就照实际构造器调整，断言不变）。
 
-- [ ] **Step 2: 跑红**（现状 :152 丢弃返回值⇒走 completed+writeNodeData）。
-- [ ] **Step 3: 实现**——`ai-image-edit.processor.ts` :152 改：
+- **Step 2: 跑红**（现状 :152 丢弃返回值⇒走 completed+writeNodeData）。
+- **Step 3: 实现**——`ai-image-edit.processor.ts` :152 改：
 
 ```ts
 // 7. Deduct credit (team pool)——返回值必须检查（批0c：免费算力止血）
@@ -310,13 +311,13 @@ private async getMediaKey(fileId: string, userId: string, projectId: string): Pr
 
 （调用点 :79/:84 同步传 `userId, projectId`。）
 
-- [ ] **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-2 ai-image-edit consume 检查+getMediaKey 归属（免费算力/越权产物双堵）`
+- **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-2 ai-image-edit consume 检查+getMediaKey 归属（免费算力/越权产物双堵）`
 
 **Task 0c-3：lighting 无条件守卫 + consumer consume 检查 + originalImageUrl 越权面根修**
 
-- [ ] **Step 1: 写失败测试**（新建 `lighting.controller.spec.ts`：省略 projectId 的请求也必须触发 assertEditor→抛错；`lighting.consumer.spec.ts`：consume 失败→task failed+writeNodeData 零调用——手法与 0c-2 装置同构，从 lighting.consumer.ts 实际构造器照抄注入顺序）。
-- [ ] **Step 2: 跑红**。
-- [ ] **Step 3: 实现**——lighting.controller.ts:16 删条件式：
+- **Step 1: 写失败测试**（新建 `lighting.controller.spec.ts`：省略 projectId 的请求也必须触发 assertEditor→抛错；`lighting.consumer.spec.ts`：consume 失败→task failed+writeNodeData 零调用——手法与 0c-2 装置同构，从 lighting.consumer.ts 实际构造器照抄注入顺序）。
+- **Step 2: 跑红**。
+- **Step 3: 实现**——lighting.controller.ts:16 删条件式：
 
 ```ts
 await this.perm.assertEditor(body.projectId, userId); // 无条件（批0c：省略 projectId 即旁路）
@@ -325,11 +326,11 @@ await this.perm.assertEditor(body.projectId, userId); // 无条件（批0c：省
 DTO `create-lighting-task.dto.ts` 的 projectId 改必填（`@IsNotEmpty()`/必填校验——按仓内 class-validator 风格）。lighting.consumer.ts:175 同 0c-3 手法检查返回值，失败→`lightingTask.update status=FAILED`+return `{status:'failed', reason}`，不走 :180 writeNodeData。
 **B1 根修（第九轮评估）**：DTO 的 `originalImageUrl: string`（presigned URL 直传，consumer :112 对任意路径截取重签=任意 media 越权读）**改 `originalImageId: string`**（mediaId 引用）——consumer 内走 getMediaKey 归属校验后自签 presigned；web 调用点（grep `lighting/tasks`）同步改传 mediaId（dev 阶段无兼容包袱，正该这么干——不加 URL 归属校验层）。
 **预检口径对齐（顺手）**：lighting.service.ts:100 `estimatedCost = 15`（TODO 自证未接定价）与实扣 `CREDIT_COST_PER_EDIT = 1`（ai-image-edit.constants.ts:3）不一致——余额 1~14 的团队被误拦；改引用同一常量（真正接定价随批 0.5 paramsHash 白名单一起做，本批先消口径分叉）。
-- [ ] **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-3 lighting 守卫无条件化+consumer 扣费检查+originalImageId 根修`
+- **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-3 lighting 守卫无条件化+consumer 扣费检查+originalImageId 根修`
 
 **Task 0c-4：F4 execution text/video 产物序（免费产品洞）**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/execution/execution.security.spec.ts
@@ -386,13 +387,13 @@ describe('F4 产物序（spec v5.10：看到产物 ⇒ 已扣费）', () => {
 
 Step 1b：装置里 readCanvas 返回的 nodes 决定走哪条分支——text 用例返回 `[{ id: 'n1', type: 'textInput', data: { model: 'seed-model-kimi' } }]`；video 用例返回 `[{ id: 'n1', type: 'videoGen', data: { model: 'v1' } }]`（validation/isExecutableNode 的放行以实际实现 mock 掉——`validationService` 若独立注入则 mock 其通过）。
 
-- [ ] **Step 2: 跑红**（text/video 两用例今天必失败）。
-- [ ] **Step 3: 实现**——`execution.service.ts` 把 text 的 `writeNodeData({content,result})`（:96-99）移到 consume 成功之后（即 `totalDeducted += cost;` 后、`getBalanceView` 前）；video 的 `writeNodeData({videoUrl})`（:138）同样移到 `vDeduct` 成功后。**不变量注释写进代码**：`// 看到产物 ⇒ 已扣费（F4：text/video 曾先写产物后扣费=免费产品洞）`。image 路径（:212 已正确）不动。
-- [ ] **Step 4: 跑绿**（三用例全过）+ Step 5: Commit `fix(collab): 批0c-4 F4 产物序统一"扣费成功才写产物"（text/video 免费产品洞）`
+- **Step 2: 跑红**（text/video 两用例今天必失败）。
+- **Step 3: 实现**——`execution.service.ts` 把 text 的 `writeNodeData({content,result})`（:96-99）移到 consume 成功之后（即 `totalDeducted += cost;` 后、`getBalanceView` 前）；video 的 `writeNodeData({videoUrl})`（:138）同样移到 `vDeduct` 成功后。**不变量注释写进代码**：`// 看到产物 ⇒ 已扣费（F4：text/video 曾先写产物后扣费=免费产品洞）`。image 路径（:212 已正确）不动。
+- **Step 4: 跑绿**（三用例全过）+ Step 5: Commit `fix(collab): 批0c-4 F4 产物序统一"扣费成功才写产物"（text/video 免费产品洞）`
 
 **Task 0c-5：execution.gateway cors 收口 + handleJoin 鉴权 + jobs/:id 归属**
 
-- [ ] **Step 1: 写失败测试**（`execution.gateway.spec.ts`：handleJoin 传伪造 cookie→session 查无→不 join 且 client 被断开；合法 session+成员→join。`execution.security.spec.ts` 增补：jobs/:id 的 job.data.projectId 非本人项目→404。装置：gateway 直构（注入 mock PrismaService），client 用 `{ join: vi.fn(), leave: vi.fn(), handshake: { headers: { cookie } } }`。）
+- **Step 1: 写失败测试**（`execution.gateway.spec.ts`：handleJoin 传伪造 cookie→session 查无→不 join 且 client 被断开；合法 session+成员→join。`execution.security.spec.ts` 增补：jobs/:id 的 job.data.projectId 非本人项目→404。装置：gateway 直构（注入 mock PrismaService），client 用 `{ join: vi.fn(), leave: vi.fn(), handshake: { headers: { cookie } } }`。）
 
 ```ts
 // execution.gateway.spec.ts 核心断言
@@ -405,8 +406,8 @@ it('handleJoin：无有效 session → 拒绝 join', async () => {
 });
 ```
 
-- [ ] **Step 2: 跑红**。
-- [ ] **Step 3: 实现**——`execution.gateway.ts`：
+- **Step 2: 跑红**。
+- **Step 3: 实现**——`execution.gateway.ts`：
 
 ```ts
 @WebSocketGateway({ namespace: '/execution', cors: { origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173'] } })
@@ -454,18 +455,18 @@ async getJob(@Param('id') id: string, @Req() req: Request) {
 }
 ```
 
-- [ ] **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-5 execution gateway 鉴权收口（cors/handleJoin/jobs 归属）`
+- **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-5 execution gateway 鉴权收口（cors/handleJoin/jobs 归属）`
 
 **Task 0c-6：存在性 oracle 重排（assertEditor 早于 findUnique）**
 
-- [ ] **Step 1: 读 `execution.service.ts:30-60`**，确认现状反序（findUnique 先于 assertEditor）。
-- [ ] **Step 2: 测试**——`execution.security.spec.ts` 增补：`perm.assertEditor` mock 抛错时，`prisma.canvasProject.findUnique` 零调用（重排锚）。装置的 makeService 增加 `perm` 注入。
-- [ ] **Step 3: 实现**——execute() 入口段重排为 `assertEditor(projectId, userId)` 最先（assertEditor 自带存在性判定——非成员枚举 projectId 无法区分"不存在"vs"无权"）。
-- [ ] **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-6 存在性 oracle 重排（assertEditor 先于 findUnique）`
+- **Step 1: 读 `execution.service.ts:30-60`**，确认现状反序（findUnique 先于 assertEditor）。
+- **Step 2: 测试**——`execution.security.spec.ts` 增补：`perm.assertEditor` mock 抛错时，`prisma.canvasProject.findUnique` 零调用（重排锚）。装置的 makeService 增加 `perm` 注入。
+- **Step 3: 实现**——execute() 入口段重排为 `assertEditor(projectId, userId)` 最先（assertEditor 自带存在性判定——非成员枚举 projectId 无法区分"不存在"vs"无权"）。
+- **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-6 存在性 oracle 重排（assertEditor 先于 findUnique）`
 
 **Task 0c-7：队列 attempts:1（两队列）**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // apps/api/src/modules/execution/execution.queue-options.spec.ts
@@ -481,8 +482,8 @@ describe('队列重试配置（批0c：全局 attempts:3 继承链=重试重复�
 });
 ```
 
-- [ ] **Step 2: 跑红**（两文件不存在）。
-- [ ] **Step 3: 实现**——新建 `execution.queue-options.ts`：
+- **Step 2: 跑红**（两文件不存在）。
+- **Step 3: 实现**——新建 `execution.queue-options.ts`：
 
 ```ts
 /** 批0c：付费任务队列禁自动重试（全局 defaultJobOptions attempts:3 继承链下 processor 内扣费后抛错
@@ -491,11 +492,11 @@ export const EXECUTION_JOB_OPTIONS = { attempts: 1 } as const;
 ```
 
 `ai-image-edit.queue-options.ts` 同款（`AI_IMAGE_EDIT_JOB_OPTIONS`）。`execution.module.ts:33-36` 的 EXECUTION_QUEUE registerQueue 加 `defaultJobOptions: { ...EXECUTION_JOB_OPTIONS }`；`ai-image-edit.module.ts:19` 的 registerQueue 同样加。**顺手（第九轮评估）**：`app.module.ts` BullModule.forRoot 的 connection 增 `maxRetriesPerRequest: null`（BullMQ 要求——Redis 抖动时阻塞式连接会抛错）。
-- [ ] **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-7 付费队列 attempts:1（堵重试重复扣费）`
+- **Step 4: 跑绿** + Step 5: Commit `fix(collab): 批0c-7 付费队列 attempts:1（堵重试重复扣费）`
 
 **Task 0c-8：ThrottlerGuard 挂载（B3 约束：首屏零 429）**
 
-- [ ] **Step 1: 实现**——`app.module.ts:55` 抬全局上限 + 挂 guard：
+- **Step 1: 实现**——`app.module.ts:55` 抬全局上限 + 挂 guard：
 
 ```ts
 ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]), // B3：现值 10/min 会打死画布首屏——全局抬至安全带宽，敏感端点显式收紧
@@ -515,16 +516,16 @@ import { Throttle } from '@nestjs/throttler';
 // LightingController.createTask、ExecutionController.execute/enqueue、auth 登录端点：同上 20/min
 ```
 
-- [ ] **Step 2: 验证**——`pnpm --filter @flowweb/api test -- --run`（既有套件零 429 类破坏）+ 手动起 API 打开画布首屏（dev 双击 D 之外的最小验证——`GET /api/projects` 序列无 429，network 面板确认）。**两个部署前提注记（第九轮评估，写进代码注释）**：①APP_GUARD 会触达 socket.io WS context（AdminGuard 注释自证）——throttler 在 WS 上的 IP 解析行为未验证，ExecutionGateway 类级加 `@SkipThrottle()` 豁免；②反代（nginx）后 `req.ip` 全是代理 IP——300/min 会变成全站共享单桶，生产部署前需 `app.set('trust proxy', 1)` 或 throttler 自定义 tracker（登记 tech-debt）。
-- [ ] **Step 3: Commit** `feat(collab): 批0c-8 ThrottlerGuard 挂载（全局 300/min+敏感端点 20/min，首屏零 429）`
+- **Step 2: 验证**——`pnpm --filter @flowweb/api test -- --run`（既有套件零 429 类破坏）+ 手动起 API 打开画布首屏（dev 双击 D 之外的最小验证——`GET /api/projects` 序列无 429，network 面板确认）。**两个部署前提注记（第九轮评估，写进代码注释）**：①APP_GUARD 会触达 socket.io WS context（AdminGuard 注释自证）——throttler 在 WS 上的 IP 解析行为未验证，ExecutionGateway 类级加 `@SkipThrottle()` 豁免；②反代（nginx）后 `req.ip` 全是代理 IP——300/min 会变成全站共享单桶，生产部署前需 `app.set('trust proxy', 1)` 或 throttler 自定义 tracker（登记 tech-debt）。
+- **Step 3: Commit** `feat(collab): 批0c-8 ThrottlerGuard 挂载（全局 300/min+敏感端点 20/min，首屏零 429）`
 
 **显式跳过登记**：spec 0c 行原列"shadow- 白名单改内部参数 allowEphemeral"——**本 plan 跳过**（v5.10 后裁决：批 5 删信箱时该机制随行消失，中间改参数是纯浪费；spec 切批表已加跳过注记）。
 
 **Task 0c-9：批尾收尾**
 
-- [ ] **Step 1**: `pnpm --filter @flowweb/api test -- --run` 全绿 + `pnpm verify`。
-- [ ] **Step 2**: 完成记录表填 0c 行。双客户端冒烟**挂到批 0a 尾**（其判据"杀 API→双端自动恢复"依赖 0a 的 connStatus 修复——执行顺序注记，spec 内容不变）。
-- [ ] **Step 3**: Commit（若有收尾文件）。
+- **Step 1**: `pnpm --filter @flowweb/api test -- --run` 全绿 + `pnpm verify`。
+- **Step 2**: 完成记录表填 0c 行。双客户端冒烟**挂到批 0a 尾**（其判据"杀 API→双端自动恢复"依赖 0a 的 connStatus 修复——执行顺序注记，spec 内容不变）。
+- **Step 3**: Commit（若有收尾文件）。
 
 ---
 
@@ -538,7 +539,7 @@ import { Throttle } from '@nestjs/throttler';
 
 **Task 0a-1：recomputeConnStatus 唯一写点 + 代际制（缺陷 A 根修）**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/stores/canvasCollabRuntime.conn.spec.ts
@@ -617,9 +618,9 @@ describe('红1：connStatus 派生（真实事件序）', () => {
 
 （若 vi.mock 时序导致 `instances` 取不到——用 `beforeEach` 里 `instances[instances.length-1] ?? (await runtime.initCollab('p1'), instances[instances.length-1])` 兜底；装置服务于断言。）
 
-- [ ] **Step 2: 跑红**——Run: `pnpm --filter @flowweb/web test -- --run canvasCollabRuntime.conn.spec`，Expected: FAIL（现状 :249-253 把 connected 映射成 connecting）。
+- **Step 2: 跑红**——Run: `pnpm --filter @flowweb/web test -- --run canvasCollabRuntime.conn.spec`，Expected: FAIL（现状 :249-253 把 connected 映射成 connecting）。
 
-- [ ] **Step 3: 实现**——`canvasCollabRuntime.ts`：
+- **Step 3: 实现**——`canvasCollabRuntime.ts`：
 
 模块级新增（`let currentPid` 声明旁）：
 
@@ -671,12 +672,12 @@ provider.on('close', () => recomputeConnStatus());
 
 `await new Promise` 的 synced 处理维持（水合驱动不动）；:282 的 `connStatus: 'connected'` 直写删除，改 `useCanvasStore.setState({ syncFailed: false }); recomputeConnStatus();`。
 
-- [ ] **Step 4: 跑绿** + 全量 `pnpm --filter @flowweb/web test -- --run`（既有 page.test 若锁了旧行为需同步更新——用 grep `connStatus` 于 apps/web/src 找断言）。
-- [ ] **Step 5: Commit** `fix(collab): 批0a-1 recomputeConnStatus 派生+代际制（缺陷A 根修——connStatus 唯一写点）`
+- **Step 4: 跑绿** + 全量 `pnpm --filter @flowweb/web test -- --run`（既有 page.test 若锁了旧行为需同步更新——用 grep `connStatus` 于 apps/web/src 找断言）。
+- **Step 5: Commit** `fix(collab): 批0a-1 recomputeConnStatus 派生+代际制（缺陷A 根修——connStatus 唯一写点）`
 
 **Task 0a-2：destroyCollab 实例守卫（R23）**
 
-- [ ] **Step 1: 写失败测试**（追加到 conn.spec.ts）
+- **Step 1: 写失败测试**（追加到 conn.spec.ts）
 
 ```ts
 describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
@@ -696,8 +697,8 @@ describe('红1-并发：destroyCollab 实例守卫（R23）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红**。
-- [ ] **Step 3: 实现**——destroyCollab 改实例守卫版：
+- **Step 2: 跑红**。
+- **Step 3: 实现**——destroyCollab 改实例守卫版：
 
 ```ts
 export async function destroyCollab(): Promise<void> {
@@ -718,13 +719,13 @@ export async function destroyCollab(): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: 跑绿** + **Step 5: Commit** `fix(collab): 批0a-2 destroyCollab 实例守卫（R23 交错置空）`
+- **Step 4: 跑绿** + **Step 5: Commit** `fix(collab): 批0a-2 destroyCollab 实例守卫（R23 交错置空）`
 
 **Task 0a-3：openSession 单一漏斗 + resetSession 原子 + 403/404 分义（R5 三路径）**
 
-- [ ] **Step 1: 通读 `apps/web/src/pages/canvas/page.tsx:40-150`**——确认四条就绪路径现状锚点：正常加载（fetch 后 initCollab）、新建（:130 附近 finish）、404 回退（:110-114）、`json.code!==0` 早退（:50 附近只 finish）、切项目 effect 清空（:88-93）、unmount destroyCollab（:141-144）。
+- **Step 1: 通读 `apps/web/src/pages/canvas/page.tsx:40-150`**——确认四条就绪路径现状锚点：正常加载（fetch 后 initCollab）、新建（:130 附近 finish）、404 回退（:110-114）、`json.code!==0` 早退（:50 附近只 finish）、切项目 effect 清空（:88-93）、unmount destroyCollab（:141-144）。
 
-- [ ] **Step 2: 写失败测试**（page.test.tsx 增补——spec 新建画布组判据）
+- **Step 2: 写失败测试**（page.test.tsx 增补——spec 新建画布组判据）
 
 ```ts
 // 新建画布组（批0a）：三条"可编辑但无 doc 会话"路径走 openSession；5xx 走错误态（F14）
@@ -742,8 +743,8 @@ it('403：不清 localStorage、不自动新建、loadError=inaccessible（与 4
 
 （page.test.tsx 现有 mock 骨架照抄——文件内已有 initCollab mock 先例 :368。）
 
-- [ ] **Step 3: 跑红**（三条今天全失败——早退/403 现状行为相反）。
-- [ ] **Step 4: 实现**——page.tsx 引入漏斗（完整目标代码；锚点按 Step 1 实读微调）：
+- **Step 3: 跑红**（三条今天全失败——早退/403 现状行为相反）。
+- **Step 4: 实现**——page.tsx 引入漏斗（完整目标代码；锚点按 Step 1 实读微调）：
 
 ```ts
 const sessionEpochRef = useRef(0);
@@ -777,15 +778,15 @@ async function openSession(id: string, name: string) {
 
 **过渡注记**：openSession 用的 `setHydrating(true/false)` 是现状字段——批 2-1 整体替换为 hydration 四态后此处随改（本 plan 内自注，防 executor 困惑）。
 
-- [ ] **Step 5: 跑绿**（新三条 + 既有 page.test 全量）+ **Step 6: Commit** `fix(collab): 批0a-3 openSession 漏斗+resetSession+403/404 分义（R5 三路径蒸发根修）`
+- **Step 5: 跑绿**（新三条 + 既有 page.test 全量）+ **Step 6: Commit** `fix(collab): 批0a-3 openSession 漏斗+resetSession+403/404 分义（R5 三路径蒸发根修）`
 
 **Task 0a-4：最小双客户端冒烟（自批 0c 前移至此——判据依赖本批 connStatus 修复）**
 
-- [ ] **Step 1: 手动冒烟**（文件化到 `docs/superpowers/plans/smoke-dual-client.md`，批 7 脚本化的底稿）：
+- **Step 1: 手动冒烟**（文件化到 `docs/superpowers/plans/smoke-dual-client.md`，批 7 脚本化的底稿）：
   1. 起 api（`pnpm --filter @flowweb/api dev`）+ web dev server；两个浏览器 profile 开同一项目；
   2. `pm2 restart` 或杀 API 进程 → 等 ~10s 重启 → 两端 connStatus 指示器回到"已连接"（本批后 ≤ 自动重连周期）；
   3. 断连期 A 端加节点 → 重连后 B 端可见（编辑合并在批 1 前靠 library 重连+SS2——若合并失败登记批 1 验证，不阻塞本批）。
-- [ ] **Step 2**: 完成记录表填 0a 行 + Commit smoke 文档 `docs(collab): 批0a-4 双客户端最小冒烟清单文件化`
+- **Step 2**: 完成记录表填 0a 行 + Commit smoke 文档 `docs(collab): 批0a-4 双客户端最小冒烟清单文件化`
 
 ---
 
@@ -797,7 +798,7 @@ async function openSession(id: string, name: string) {
 
 **Task 0b-1：delete-scan 收窄为"只删上次投影内、本次消失的 key"**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // apps/web/src/stores/canvasCollabRuntime.baseline.spec.ts
@@ -844,8 +845,8 @@ describe('批0b：deletion baseline 守卫', () => {
 });
 ```
 
-- [ ] **Step 2: 跑红**（前两条失败）。
-- [ ] **Step 3: 实现**——`canvasCollabRuntime.ts`：
+- **Step 2: 跑红**（前两条失败）。
+- **Step 3: 实现**——`canvasCollabRuntime.ts`：
 
 ```ts
 /** 批0b deletion baseline：只删"上次投影内、本次消失"的 key——doc 独有（影子/对端刚写）不删。
@@ -880,13 +881,13 @@ prevEdgeIds = new Set(edgeIds);
 
 initCollab 会话起点复位：`prevNodeIds = null; prevEdgeIds = null;`
 
-- [ ] **Step 4: 跑绿** + 全量 web 回归。
-- [ ] **Step 5: Commit** `fix(collab): 批0b-1 deletion baseline 守卫（影子确定性删除+50ms 窗口误删双修）`
+- **Step 4: 跑绿** + 全量 web 回归。
+- **Step 5: Commit** `fix(collab): 批0b-1 deletion baseline 守卫（影子确定性删除+50ms 窗口误删双修）`
 
 **Task 0b-2：孤儿影子生命周期决策（R32）——GC 归服务端，不在客户端建机制**
 
-- [ ] **决策落地（第九轮评估修订——所有权归位）**：~~客户端 initCollab 内 purgeAgedShadowNodes~~ **移除**——服务端实体（shadow- 影子）的生命周期由客户端连接时清理是所有权错位：批 2 VIEWER doc 零写落地后，VIEWER 首连触发 purge 会被服务端 NACK、造成只读连接本地分叉（L20 形态）；且批 5 信箱整体删除前客户端建 GC=注定要删的机制。
-- [ ] **实现（~15 行，服务端）**：`collab.gateway.ts` 内原生 `setInterval(每小时).unref()` + **onLoadDocument 完成后对该 doc 顺手跑一次同款检查**——24h interval×hocuspocus.documents 只含内存中 doc×短会话 ≈ 永远扫不到（10 分钟会话撞 24h 定时器概率 ~0.7%，加载时点单查才是有效触发；第十轮评估）。API 形状**已核实（第十轮）**：`this.server.hocuspocus.documents` 的值即 `Document extends Y.Doc`（@hocuspocus/server 4.6.0 d.ts:747），getMap/transact 直接可用，gateway:233 已有 `documents.get(name)` 先例——不需要走 withDoc 通道。
+- **决策落地（第九轮评估修订——所有权归位）**：~~客户端 initCollab 内 purgeAgedShadowNodes~~ **移除**——服务端实体（shadow- 影子）的生命周期由客户端连接时清理是所有权错位：批 2 VIEWER doc 零写落地后，VIEWER 首连触发 purge 会被服务端 NACK、造成只读连接本地分叉（L20 形态）；且批 5 信箱整体删除前客户端建 GC=注定要删的机制。
+- **实现（~15 行，服务端）**：`collab.gateway.ts` 内原生 `setInterval(每小时).unref()` + **onLoadDocument 完成后对该 doc 顺手跑一次同款检查**——24h interval×hocuspocus.documents 只含内存中 doc×短会话 ≈ 永远扫不到（10 分钟会话撞 24h 定时器概率 ~0.7%，加载时点单查才是有效触发；第十轮评估）。API 形状**已核实（第十轮）**：`this.server.hocuspocus.documents` 的值即 `Document extends Y.Doc`（@hocuspocus/server 4.6.0 d.ts:747），getMap/transact 直接可用，gateway:233 已有 `documents.get(name)` 先例——不需要走 withDoc 通道。
 
 ```ts
 /** 批0b：孤儿影子 GC（服务端所有权）——id 内嵌时间戳（video-project.service:93），删除失败/响应丢失
@@ -911,9 +912,9 @@ private async sweepAgedShadows() {
 }
 ```
 
-- [ ] **Step 2: 测试**——gateway 单测（mock documents map 摆新旧影子，断言只删旧的）；R32 绑定条件②（同批决策孤儿生命周期）由此满足：**决策=服务端 7 天年龄清理，批 5 随信箱消失**。
-- [ ] **Step 3: 跑绿** + **Step 4: Commit** `fix(collab): 批0b-2 孤儿影子服务端年龄清理（R32 GC 出口——所有权归位）`
-- [ ] **Step 5**: 完成记录表填 0b 行（孤儿生命周期决策：服务端 7 天清理）。
+- **Step 2: 测试**——gateway 单测（mock documents map 摆新旧影子，断言只删旧的）；R32 绑定条件②（同批决策孤儿生命周期）由此满足：**决策=服务端 7 天年龄清理，批 5 随信箱消失**。
+- **Step 3: 跑绿** + **Step 4: Commit** `fix(collab): 批0b-2 孤儿影子服务端年龄清理（R32 GC 出口——所有权归位）`
+- **Step 5**: 完成记录表填 0b 行（孤儿生命周期决策：服务端 7 天清理）。
 
 ---
 
@@ -928,7 +929,7 @@ private async sweepAgedShadows() {
 
 **Task 0d-1：F3 删 isConnected 门 + B4 editorDirty 单向 latch + flush 判据**
 
-- [ ] **Step 1: 写失败测试**
+- **Step 1: 写失败测试**
 
 ```ts
 // autosave.spec.ts（批0d 组——装置照现有 autosave 测试骨架；此处列新增用例全文语义）
@@ -972,8 +973,8 @@ it('保存成功清 latch：onDirtyChange(false) 恰在成功路径', async () =
 });
 ```
 
-- [ ] **Step 2: 跑红**（第一条：isConnected 缺省 undefined→!undefined 为真反而…——装置不传 isConnected 时现状 `!deps.isConnected()` 为 false 早退⇒patch 零调用，红；后三条按现状判据/标志语义红）。
-- [ ] **Step 3: 实现**——`autosave.ts`：
+- **Step 2: 跑红**（第一条：isConnected 缺省 undefined→!undefined 为真反而…——装置不传 isConnected 时现状 `!deps.isConnected()` 为 false 早退⇒patch 零调用，红；后三条按现状判据/标志语义红）。
+- **Step 3: 实现**——`autosave.ts`：
 
 ```ts
 export interface AutosaveDeps {
@@ -1003,11 +1004,11 @@ return !dirtyLatch; // B4：latch 判据（409/耗尽不清⇒拦截；成功清
 ```
 
 `flush()` 内 `if (!deps.isConnected()) return false;` 删除；`notifyConnected` 从 AutosaveController 接口与实现整体删除。**顺手修（第九轮评估发现的真实缺陷）**：`const body = deps.getData();`（现 :43）在 try **之外**——getData 抛错则 `finally { inFlight = false }` 不执行、inFlight 永久 true、flush() 的 while 循环每 10ms 自旋（编辑器假死且 handleClose 的 .catch 因永远 pending 不触发）——getData 调用移入 try 块首行。
-- [ ] **Step 4: 跑绿** + **Step 5: Commit** `fix(collab): 批0d-1 autosave 删 isConnected 门+editorDirty 单向 latch+flush 判据（409/耗尽/早退三洞）`
+- **Step 4: 跑绿** + **Step 5: Commit** `fix(collab): 批0d-1 autosave 删 isConnected 门+editorDirty 单向 latch+flush 判据（409/耗尽/早退三洞）`
 
 **Task 0d-2：Shell 接线（.catch 不 close + beforeunload 补绑）**
 
-- [ ] **Step 1: 实现**——`VideoEditorShell.tsx`：
+- **Step 1: 实现**——`VideoEditorShell.tsx`：
   - 删 `:96` `isConnected: ...` 与 `notifyConnected` 的全部调用点（connStatus 订阅若只为它存在则一并删）；
   - deps 增 `onDirtyChange: (d) => useCanvasStore.setState({ editorDirty: d })`；
   - `:117-121` handleClose 的 `.catch(()=>{releaseEditorRuntime(); close();})` 改：
@@ -1046,13 +1047,13 @@ export function hasUnsyncedCanvasChanges(): boolean {
 }
 ```
 
-- [ ] **Step 2: 测试**——Shell 现有测试更新 + 两条必红：①flush reject 时 handleClose 不调 close（今天直接 close——必红）②editorDirty true 时 beforeunload preventDefault。
-- [ ] **Step 3: 跑绿** + 全量 web 回归 + **Step 4: Commit** `fix(collab): 批0d-2 Shell 接线（catch不放行+beforeunload+editorDirty 入 store）`
+- **Step 2: 测试**——Shell 现有测试更新 + 两条必红：①flush reject 时 handleClose 不调 close（今天直接 close——必红）②editorDirty true 时 beforeunload preventDefault。
+- **Step 3: 跑绿** + 全量 web 回归 + **Step 4: Commit** `fix(collab): 批0d-2 Shell 接线（catch不放行+beforeunload+editorDirty 入 store）`
 
 **Task 0d-3：同类门控扫描 + 批尾**
 
-- [ ] **Step 1**: `grep -rn "connStatus" apps/web/src --include="*.ts*" | grep -v canvasCollabRuntime | grep -v canvasStore | grep -v test` ——逐条人工审：是否有别的 HTTP/REST 功能被 connStatus 门控（F3 同类）；发现即同批拆（登记完成记录表）。
-- [ ] **Step 2**: `pnpm --filter @flowweb/web test -- --run` + `pnpm verify`；完成记录表填 0d 行。
+- **Step 1**: `grep -rn "connStatus" apps/web/src --include="*.ts*" | grep -v canvasCollabRuntime | grep -v canvasStore | grep -v test` ——逐条人工审：是否有别的 HTTP/REST 功能被 connStatus 门控（F3 同类）；发现即同批拆（登记完成记录表）。
+- **Step 2**: `pnpm --filter @flowweb/web test -- --run` + `pnpm verify`；完成记录表填 0d 行。
 
 ---
 
@@ -1067,8 +1068,8 @@ export function hasUnsyncedCanvasChanges(): boolean {
 
 **Task 0e-1：pin 精确版本 + 漂移检查脚本**
 
-- [ ] **Step 1: pin**——`apps/web/package.json:23` `"@hocuspocus/provider": "^4.6.0"` → `"4.6.0"`；api devDependencies 同款处理（若有）→ `pnpm install`（更新 lockfile）。
-- [ ] **Step 2: 写检查脚本**
+- **Step 1: pin**——`apps/web/package.json:23` `"@hocuspocus/provider": "^4.6.0"` → `"4.6.0"`；api devDependencies 同款处理（若有）→ `pnpm install`（更新 lockfile）。
+- **Step 2: 写检查脚本**
 
 ```js
 // scripts/check-hocuspocus-pin.mjs
@@ -1085,12 +1086,12 @@ if (bad.length) { console.error('契约锁：@hocuspocus 版本漂移（必须 p
 console.log('hocuspocus pinned @4.6.0 ✓', [...found]);
 ```
 
-- [ ] **Step 3: 验证**——`node scripts/check-hocuspocus-pin.mjs` 输出 ✓；临时改 lock 测负例（改回）。
-- [ ] **Step 4: Commit** `build(collab): 批0e-1 @hocuspocus pin 4.6.0+漂移检查脚本（F9）`
+- **Step 3: 验证**——`node scripts/check-hocuspocus-pin.mjs` 输出 ✓；临时改 lock 测负例（改回）。
+- **Step 4: Commit** `build(collab): 批0e-1 @hocuspocus pin 4.6.0+漂移检查脚本（F9）`
 
 **Task 0e-2：CI workflow（PG+Redis service）**
 
-- [ ] **Step 1: 写 workflow**
+- **Step 1: 写 workflow**
 
 ```yaml
 # .github/workflows/ci.yml
@@ -1141,13 +1142,13 @@ jobs:
 
 （migrate deploy 为批 0.5 真库集成测试预留——0.5 落地时启用且**必须上移到 verify 之前**：int spec 的 skip 条件只看 DATABASE_URL 存在，CI env 有值而表未建则 verify 必炸〔第十轮评估修正〕；int spec 随 verify 全量跑，本地跑需 shell 显式 export DATABASE_URL——vitest 不自动加载 .env。另批 7 启用独立 `e2e-collab` job：nightly schedule + workflow_dispatch 手动触发，**PR 不跑**——双客户端 E2E+起停 API 时长不适合逐 PR，发布门禁语义=发布前必绿〔本地 gate 清单+nightly CI 双保险〕。）
 
-- [ ] **Step 2: 本地等价验证**——`pnpm verify` 全绿（CI 是 verify 的云端化）。
-- [ ] **Step 3: Commit** `ci(collab): 批0e-2 最小 CI（PG+Redis service+api/web test+pin 检查）`
+- **Step 2: 本地等价验证**——`pnpm verify` 全绿（CI 是 verify 的云端化）。
+- **Step 3: Commit** `ci(collab): 批0e-2 最小 CI（PG+Redis service+api/web test+pin 检查）`
 
 **Task 0e-3：api eslint 从零**
 
-- [ ] **Step 1: 安装**——`pnpm --filter @flowweb/api add -D eslint typescript-eslint @eslint/js`
-- [ ] **Step 2: 配置**
+- **Step 1: 安装**——`pnpm --filter @flowweb/api add -D eslint typescript-eslint @eslint/js`
+- **Step 2: 配置**
 
 ```js
 // apps/api/eslint.config.mjs
@@ -1167,18 +1168,18 @@ export default tseslint.config(
 );
 ```
 
-- [ ] **Step 3: 跑通**——`pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"`：修复 error 级违规（warn 放行）；若存量 error 超过 ~30 处，error 一律最小改动修复（dev 阶段无豁免清单）。**B3 门禁规则占位（spec 0c 行"门禁 AST/ESLint 规则"的载体）**：底座建好后先挂一条最小规则——`no-restricted-syntax` 禁止在**未注入 ProjectPermissionService** 的 service 文件中出现 `queue.add(`/`teamCredit.consume(`/`writeNodeData(` 调用（B3 完整形态"副作用前置守卫"的 AST 规则随批 0.5 三模块 claim 接线稳定后挂——断言形态依赖接线范式；短期负例判据测试已在 0c 兜底）。
-- [ ] **Step 4: Commit** `build(collab): 批0e-3 api eslint 从零建（B3 门禁/B6 的载体）`
+- **Step 3: 跑通**——`pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"`：修复 error 级违规（warn 放行）；若存量 error 超过 ~30 处，error 一律最小改动修复（dev 阶段无豁免清单）。**B3 门禁规则占位（spec 0c 行"门禁 AST/ESLint 规则"的载体）**：底座建好后先挂一条最小规则——`no-restricted-syntax` 禁止在**未注入 ProjectPermissionService** 的 service 文件中出现 `queue.add(`/`teamCredit.consume(`/`writeNodeData(` 调用（B3 完整形态"副作用前置守卫"的 AST 规则随批 0.5 三模块 claim 接线稳定后挂——断言形态依赖接线范式；短期负例判据测试已在 0c 兜底）。
+- **Step 4: Commit** `build(collab): 批0e-3 api eslint 从零建（B3 门禁/B6 的载体）`
 
 **Task 0e-4：lint-gate 静态断言扩容（3 条）**
 
-- [ ] **Step 1: 读 `apps/web/scripts/lint-gate.mjs`** 全文，按其规则形态追加（同构退出码约定）：
+- **Step 1: 读 `apps/web/scripts/lint-gate.mjs`** 全文，按其规则形态追加（同构退出码约定）：
   - **A. connStatus 单写点**：生产代码中 `connStatus:` 出现的文件 ⊆ `{canvasCollabRuntime.ts, canvasStore.ts}`（测试豁免）——违例 exit 1，message 说明"唯一写点 recomputeConnStatus（批0a）"；
   - **B. getMap 三文件门**：生产代码 `getMap(` 仅 `{canvasCollabRuntime.ts, ydocBuilder.ts, canvasUndo.ts}`（测试豁免；exec map 读点批 0.5 落地时增补 `ydocBuilder`/runtime 内聚合）；
   - **C. setState 白名单**：`useCanvasStore.setState(`/`useNodeStore.setState(` 仅 `{canvasStore.ts, nodeStore.ts, canvasCollabRuntime.ts, canvasHistory.ts}`+生命周期豁免点 `page.tsx`/`nodeStore.ts` 桥——按 spec 静态断言⑤清单，测试豁免。
-- [ ] **Step 2: 跑通**——`pnpm --filter @flowweb/web lint` 全绿（存量违例按白名单/豁免清单核清——这正是"旁路枚举"本身）。
-- [ ] **Step 3: Commit** `build(collab): 批0e-4 lint-gate 静态断言 3 条（connStatus 单写点/getMap 门/setState 白名单）`
-- [ ] **Step 4**: push 后确认 CI 首绿；完成记录表填 0e 行（CI 首绿 commit）。
+- **Step 2: 跑通**——`pnpm --filter @flowweb/web lint` 全绿（存量违例按白名单/豁免清单核清——这正是"旁路枚举"本身）。
+- **Step 3: Commit** `build(collab): 批0e-4 lint-gate 静态断言 3 条（connStatus 单写点/getMap 门/setState 白名单）`
+- **Step 4**: push 后确认 CI 首绿；完成记录表填 0e 行（CI 首绿 commit）。
 
 ---
 
@@ -1199,7 +1200,7 @@ export default tseslint.config(
 
 **Task 0.5-1：schema + 迁移（复合唯一 + 活跃 partial unique + F13 补列/索引）**
 
-- [ ] **Step 1: schema 追加**（`schema.prisma` 文件尾）：
+- **Step 1: schema 追加**（`schema.prisma` 文件尾）：
 
 ```prisma
 /// 会话恢复 spec v5.10 B1/F1/F13——幂等与在飞互斥载体（净删 SETNX/dedup/五段键/失败重放计数）
@@ -1236,7 +1237,7 @@ enum IntentStatus {
 }
 ```
 
-- [ ] **Step 2: 生成迁移并手改**——`pnpm --filter @flowweb/api exec prisma migrate dev --name generation_intent`；打开生成 的 `migration.sql` **末尾追加**（Prisma schema 不支持 partial index 声明——SQL 层唯一真相）：
+- **Step 2: 生成迁移并手改**——`pnpm --filter @flowweb/api exec prisma migrate dev --name generation_intent`；打开生成 的 `migration.sql` **末尾追加**（Prisma schema 不支持 partial index 声明——SQL 层唯一真相）：
 
 ```sql
 -- F1: per-node in-flight mutex (takes over from SETNX) — at most one active intent per node;
@@ -1247,8 +1248,8 @@ ON "GenerationIntent"("projectId", "nodeId")
 WHERE status = 'RUNNING';
 ```
 
-- [ ] **Step 3: fresh replay 验证**（记忆纪律：迁移必 fresh replay）——`pnpm --filter @flowweb/api exec prisma migrate reset` 全量重放成功；`psql` 确认 partial index 存在（`\d "GenerationIntent"`）。
-- [ ] **Step 3b: 真库集成测试（F13——全方案唯一"只被 mock 验证过的数据库行为"）**——新建 `apps/api/src/modules/execution/generation-intent.int.spec.ts`（本地直连 DATABASE_URL 跑，CI 随 0e workflow 的 migrate deploy+int 步骤）：
+- **Step 3: fresh replay 验证**（记忆纪律：迁移必 fresh replay）——`pnpm --filter @flowweb/api exec prisma migrate reset` 全量重放成功；`psql` 确认 partial index 存在（`\d "GenerationIntent"`）。
+- **Step 3b: 真库集成测试（F13——全方案唯一"只被 mock 验证过的数据库行为"）**——新建 `apps/api/src/modules/execution/generation-intent.int.spec.ts`（本地直连 DATABASE_URL 跑，CI 随 0e workflow 的 migrate deploy+int 步骤）：
 
 ```ts
 // 并发双 claim 真库行为：P2002 meta.target 的真实形态（字符串 or 数组）与等值匹配——
@@ -1276,12 +1277,12 @@ describe('GenerationIntent 真库并发行为（int）', () => {
 ```
 
 （vitest 配置需让 `*.int.spec.ts` 在无 DATABASE_URL 时 skip：文件首 `const hasDb = !!process.env.DATABASE_URL; (hasDb ? describe : describe.skip)`。）
-- [ ] **Step 4: Commit** `feat(collab): 批0.5-1 GenerationIntent 表（复合唯一+活跃 partial unique+保留索引）`
+- **Step 4: Commit** `feat(collab): 批0.5-1 GenerationIntent 表（复合唯一+活跃 partial unique+保留索引）`
 
 **Task 0.5-2：normalizeIntentParams（五扣费点共用规范化）**
 
-- [ ] **Step 1: 写失败测试**——`normalize-intent-params.spec.ts`：①同 payload 两次 → 同 hash；②同 payload 键序打乱 → 同 hash；③`sv/nonce/ts/requestId` 字段差异 → 同 hash；④`model` 差异 → 异 hash；⑤同步/异步同逻辑意图（execution image vs ai-image-edit redraw 的 prompt+strength 集）→ 同 hash。
-- [ ] **Step 2: 跑红** → **Step 3: 实现**：
+- **Step 1: 写失败测试**——`normalize-intent-params.spec.ts`：①同 payload 两次 → 同 hash；②同 payload 键序打乱 → 同 hash；③`sv/nonce/ts/requestId` 字段差异 → 同 hash；④`model` 差异 → 异 hash；⑤同步/异步同逻辑意图（execution image vs ai-image-edit redraw 的 prompt+strength 集）→ 同 hash。
+- **Step 2: 跑红** → **Step 3: 实现**：
 
 ```ts
 // apps/api/src/modules/execution/normalize-intent-params.ts
@@ -1309,11 +1310,11 @@ export function normalizeIntentParams(kind: string, params: Record<string, unkno
 ```
 
 （白名单覆盖面以五扣费点实读为准补齐——Step 1 前通读 execution.service :85-135/:176-200 与 ai-image-edit/lighting 的外呼参数集。）
-- [ ] **Step 4: 跑绿** + Commit。
+- **Step 4: 跑绿** + Commit。
 
 **Task 0.5-3：GenerationIntentService（claim 完整状态机——F13 重写版）**
 
-- [ ] **Step 1: 写失败测试**（`generation-intent.service.spec.ts`，mock Prisma 的事务/异常码）：
+- **Step 1: 写失败测试**（`generation-intent.service.spec.ts`，mock Prisma 的事务/异常码）：
   - **同项目同 intentId 异上下文 → 409 INTENT_CONTEXT_MISMATCH**（B1 必红）；
   - **同 intentId 同 jobId 命中 RUNNING → 可重入续跑（equivalent created:true）**——stalled 重排同 jobId 重进 claim 不得自锁（F13 必红：`@Processor{maxStalledCount:1}` 的"部署杀任务自动恢复"以此为前提）；
   - **同 intentId 异 jobId 命中 RUNNING → NodeBusy**；
@@ -1323,7 +1324,7 @@ export function normalizeIntentParams(kind: string, params: Record<string, unkno
   - **P2002 catch 路径同上下文异 jobId（并发同 intentId 超时重发）→ NodeBusy 非 INTENT_CONTEXT_MISMATCH**（第十轮必红——mismatch 标签对在飞请求是误导）；
   - **attempts≥3 的 FAILED/VOIDED → 409 INTENT_EXHAUSTED；rearm 成功 → attempts 自增**（免费重放上限锚——第十轮必红）；
   - complete/fail 幂等迁移：SUCCEEDED 行再 fail → 零变更（`updateMany where status in active` 天然幂等）；complete 返回 count 0/1 两锚（产物门序消费端判据在 0.5-6）。
-- [ ] **Step 2: 跑红** → **Step 3: 实现**：
+- **Step 2: 跑红** → **Step 3: 实现**：
 
 ```ts
 // apps/api/src/modules/execution/generation-intent.service.ts
@@ -1441,17 +1442,17 @@ export class GenerationIntentService {
 ```
 
 （错误抛出形态若与仓内 BusinessException 惯例不一致——先读一处现有用法对齐，保持 errorCode 透出链路一致。）
-- [ ] **Step 4: 跑绿** + Commit `feat(collab): 批0.5-3 意图表服务（claim 409 分义/幂等迁移/恢复查询）`
+- **Step 4: 跑绿** + Commit `feat(collab): 批0.5-3 意图表服务（claim 409 分义/幂等迁移/恢复查询）`
 
 **Task 0.5-4：consume $transaction 原子化 + CAS 扣费门 + 流水键意图维度（F13）**
 
-- [ ] **Step 1: 通读 `team-credit.service.ts:55-135`**（现有余额拆分/乐观循环/两行记账逻辑全貌）。
-- [ ] **Step 2: 写失败测试**（`team-credit.atomic.spec.ts`——mock prisma.$transaction 直接执行回调（透传 tx=prisma mock））：
+- **Step 1: 通读 `team-credit.service.ts:55-135`**（现有余额拆分/乐观循环/两行记账逻辑全貌）。
+- **Step 2: 写失败测试**（`team-credit.atomic.spec.ts`——mock prisma.$transaction 直接执行回调（透传 tx=prisma mock））：
   - **QUOTA_EXCEEDED → 余额不变 + 零流水**（现状 :103 return 前余额已扣无补偿——必红）；
   - **正常成功 → claim+扣减+两行记账同一 tx**（断言 createMany 在 tx 内调用）；
   - **CAS 扣费门（F13 必红）：同 intent 第二次 consume → 意图行 updateMany creditsConsumed:0 匹配零行 ⇒ 不扣余额零流水返回 alreadyCharged**（崩溃/重跑/重试全组合只扣一次——净删五套机制后的扣费幂等接替物）；
   - 充值/订阅路径零影响（回归）。
-- [ ] **Step 3: 实现**——consume 增可选 intentGuard 参数（保留现有余额拆分算法，整体搬进 $transaction 回调）：
+- **Step 3: 实现**——consume 增可选 intentGuard 参数（保留现有余额拆分算法，整体搬进 $transaction 回调）：
 
 ```ts
 // 骨架（余额拆分/乐观循环原逻辑原样内联到 tx——以下为结构契约）
@@ -1488,16 +1489,16 @@ async consume(
 ```
 
 **调用点改造（F13）**：execution.service 三处 + ai-image-edit processor + lighting consumer 的 consume 调用全部改传 `intentGuard: { intentRowId: intent.id }`——referenceId `node:`/`edit:`/`lighting:` 前缀**退役**（同节点两次生成共享键=对账数学上不可判定；意图表既是幂等载体、流水键必须同粒度才能精确 join）。
-- [ ] **Step 4: 跑绿**（含既有 team-credit 测试更新——单测④补余额断言，spec v5.8 ⑤勘正）+ Commit `fix(collab): 批0.5-4 consume 原子化+CAS 扣费门+流水键 intent: 维度（F13）`
+- **Step 4: 跑绿**（含既有 team-credit 测试更新——单测④补余额断言，spec v5.8 ⑤勘正）+ Commit `fix(collab): 批0.5-4 consume 原子化+CAS 扣费门+流水键 intent: 维度（F13）`
 
 **Task 0.5-5：exec map 服务端唯一写者（writeExecStatus）**
 
-- [ ] **Step 1: 写失败测试**（`collab-document.exec-map.spec.ts`——真 Y.Doc 直驱，装置照 collab.gateway.spec 的 mock gateway 直构）：
+- **Step 1: 写失败测试**（`collab-document.exec-map.spec.ts`——真 Y.Doc 直驱，装置照 collab.gateway.spec 的 mock gateway 直构）：
   - writeExecStatus 写 `doc.getMap('exec')` 的 nodeId 条目（status/jobId/intentId）；
   - **终态防倒退**：已 `{status:'done'}` 再写 loading → 仍 done（幂等读锚）；
   - **节点不存在**：nodes 无该 id 时仍写 exec 条目（异步落地竞态——best-effort 语义）；
   - 同 nodeId 第二次写补键不覆盖已有键（patch 语义）。
-- [ ] **Step 2: 跑红** → **Step 3: 实现**（`collab-document.service.ts` 追加）：
+- **Step 2: 跑红** → **Step 3: 实现**（`collab-document.service.ts` 追加）：
 
 ```ts
 /** B2/F2：exec map 服务端唯一写者（客户端零 exec 写——批0.5 起静态断言）。
@@ -1519,17 +1520,17 @@ async writeExecStatus(projectId: string, nodeId: string, patch: Record<string, u
 }
 ```
 
-- [ ] **Step 4: 跑绿** + Commit `feat(collab): 批0.5-5 exec map 服务端唯一写者（终态防倒退+patch 语义）`
+- **Step 4: 跑绿** + Commit `feat(collab): 批0.5-5 exec map 服务端唯一写者（终态防倒退+patch 语义）`
 
 **Task 0.5-6：execution 全链挂意图（claim→外呼→扣费→产物→complete）+ failed 钩子 + GET intents**
 
-- [ ] **Step 1: 写失败测试**（`execution.security.spec.ts` 扩展 + 新 `execution.intent.spec.ts`）：
+- **Step 1: 写失败测试**（`execution.security.spec.ts` 扩展 + 新 `execution.intent.spec.ts`）：
   - **幂等重放**：claim 返回 created=false（既有 RUNNING/SUCCEEDED）→ 外呼零调用（apiCaller mock 计数）；SUCCEEDED 同上下文 → 返回既有结果引用（不再扣费——幂等组②）；
   - **双击 409**：NodeBusyError 冒泡为 `{success:false, errors:['节点生成中']}`（幂等组语境）；
   - **job failed 钩子**：@OnWorkerEvent('failed') 调 writeExecStatus {status:'error'}（mock 断言）；
   - **complete 门序（F13 补强必红）**：complete 返回 0（行已 VOIDED——mock updateMany count=0）→ writeNodeData 零调用 + 告警计数；count===1 → writeNodeData 正常（"看到产物 ⇒ 意图仍有效"锚）；
   - **GET intents**：非成员 404（不泄露存在性——与 jobs/:id 同口径）；**VIEWER（成员非 editor）200**（第十轮：assertEditor 会把批 1-6 判据④ VIEWER 恢复对齐的 REST 兜底挡掉）；成员返回 listByNode 投影。
-- [ ] **Step 2: 跑红** → **Step 3: 实现**：
+- **Step 2: 跑红** → **Step 3: 实现**：
   - `execution.controller.ts`：enqueue body 增 `intentId`（透传 job.data）；execute 读 `@Headers('x-intent-id') intentId`；新增：
 
 ```ts
@@ -1578,11 +1579,11 @@ async onFailed({ job, failedReason }: { job: Job<any>; failedReason: string }) {
 
   （enqueue 时 job.data 增传 intentRowId=intent.id。）
   - `execution.module.ts` providers 增 GenerationIntentService + IntentReconcileService。
-- [ ] **Step 4: 跑绿** + Commit `feat(collab): 批0.5-6 execution 全链挂意图表（幂等重放/双击409/failed 终态兜底/GET intents）`
+- **Step 4: 跑绿** + Commit `feat(collab): 批0.5-6 execution 全链挂意图表（幂等重放/双击409/failed 终态兜底/GET intents）`
 
 **Task 0.5-7：客户端意图记录 + 每日资损对账 job**
 
-- [ ] **Step 1: 实现**（`apps/web/src/utils/intentRecord.ts`）：
+- **Step 1: 实现**（`apps/web/src/utils/intentRecord.ts`）：
 
 ```ts
 /** 批0.5：客户端意图记录（B1 同批硬约束）——失败重试复用同 intentId ⇒ 表命中 ⇒ 不双扣；
@@ -1602,7 +1603,7 @@ export function currentIntentId(projectId: string, nodeId: string): string {
 
 （生成按钮调用点：grep `executionSocket` / fetch '/execution' 的发起处——新点击 `newIntentId`、失败态「重试」`currentIntentId`；发起时随 body/header 上送。INTENT_EXHAUSTED 处理：web 侧收到该 409 → 调 `newIntentId` rotate 并提示"请重新发起生成"〔免费重放上限到达，attempts≥3〕。）
 
-- [ ] **Step 2: 实现**（`intent-reconcile.service.ts`——F12+F13 重写版：**两档三查**，修"RUNNING 孤儿把节点锁死 ≤24h"）：
+- **Step 2: 实现**（`intent-reconcile.service.ts`——F12+F13 重写版：**两档三查**，修"RUNNING 孤儿把节点锁死 ≤24h"）：
 
 ```ts
 /** 意图表对账与回收（F12 每日全量 + F13 活跃核验 5min）——R28 纪律：原生 setInterval+unref。
@@ -1649,19 +1650,19 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 }
 ```
 
-- [ ] **Step 2b: 测试**——三查三态各一锚（F13 判据 ④：已扣+产物在→SUCCEEDED 回填；已扣无产物→VOIDED+退款流水+**creditsConsumed 归零**；未扣→VOIDED）；锁死窗口锚（RUNNING 孤儿 age>15min 后新 claim 不再 NodeBusy——**F13 判据 ⑤**）；启动扫描触发锚；**F13 补强四锚（第十轮）**：①退款幂等——同孤儿连续两轮 verifyActive 只退一次（第二轮守卫 count===0 零流水零回滚）②退款后同 intentId 重试 → consume 正常扣费（真值表 VOIDED 格——"退款+白送"必红）③rearm 竞态——updatedAt 新鲜（<15min）的 RUNNING 行三查零动作 ④退款两池拆分——逆向流水金额=原扣费流水的 credits/subscriptionCredits 各自拆分（非 creditsConsumed 单值）。
-- [ ] **Step 3: 测试**——intentRecord 单测（rotate/复用语义）+ reconcile 三面各一条（mock prisma）。
-- [ ] **Step 4: 跑绿** + `pnpm verify` + 完成记录表填 0.5 行（保留策略 N=7 天）+ Commit `feat(collab): 批0.5-7 客户端意图记录+两档三查对账 job`
+- **Step 2b: 测试**——三查三态各一锚（F13 判据 ④：已扣+产物在→SUCCEEDED 回填；已扣无产物→VOIDED+退款流水+**creditsConsumed 归零**；未扣→VOIDED）；锁死窗口锚（RUNNING 孤儿 age>15min 后新 claim 不再 NodeBusy——**F13 判据 ⑤**）；启动扫描触发锚；**F13 补强四锚（第十轮）**：①退款幂等——同孤儿连续两轮 verifyActive 只退一次（第二轮守卫 count===0 零流水零回滚）②退款后同 intentId 重试 → consume 正常扣费（真值表 VOIDED 格——"退款+白送"必红）③rearm 竞态——updatedAt 新鲜（<15min）的 RUNNING 行三查零动作 ④退款两池拆分——逆向流水金额=原扣费流水的 credits/subscriptionCredits 各自拆分（非 creditsConsumed 单值）。
+- **Step 3: 测试**——intentRecord 单测（rotate/复用语义）+ reconcile 三面各一条（mock prisma）。
+- **Step 4: 跑绿** + `pnpm verify` + 完成记录表填 0.5 行（保留策略 N=7 天）+ Commit `feat(collab): 批0.5-7 客户端意图记录+两档三查对账 job`
 
 **Task 0.5-8：意图表扩面 ai-image-edit + lighting（F13——五扣费点兑现，~1 天）**
 
-- [ ] **Step 1: 写失败测试**——两模块 processor 各增：双击生成（同节点两个不同 intentId 并发）→ 第二个 409 NODE_BUSY（attempts:1 只堵队列重试，双击双扣只有意图表互斥能堵——A3 必红）；同 intentId 重放 → 零外呼零扣费返回既有。
-- [ ] **Step 2: 实现**——三模块共用同一条链：
+- **Step 1: 写失败测试**——两模块 processor 各增：双击生成（同节点两个不同 intentId 并发）→ 第二个 409 NODE_BUSY（attempts:1 只堵队列重试，双击双扣只有意图表互斥能堵——A3 必红）；同 intentId 重放 → 零外呼零扣费返回既有。
+- **Step 2: 实现**——三模块共用同一条链：
   - `ai-image-edit.controller.ts` 三端点：body 增 intentId（web 调用点随 0.5-7 intentRecord 上送）→ enqueue 前 `claim`（nodeId=body.nodeId、kind=outpaint/erase/redraw、paramsHash 用 0.5-2 白名单）→ `const job = await queue.add(...)` 后 **`await intentService.attachJob(intent.id, job.id)`**（F13 补强：不回写则 reconcile A 路径〔查 BullMQ〕对两模块永久失效，且与同步路径〔合法无 jobId〕不可区分——20min lighting 任务第 15min 被三查②误判 VOIDED、第 20min 照常扣费=资损盲区；claim→attach 间崩溃窗口由 15min 三查兜底）→ intentRowId 随 job.data 下传；
   - `ai-image-edit.processor.ts`：consume 调用带 `intentGuard`（0.5-4）；产物链序同 0.5-6 门序——`complete(media.id)` 返回 1 才 writeNodeData/emit（F13 补强——"看到产物 ⇒ 意图仍有效"）；catch 路径 `fail()` + `writeExecStatus error`；`@Processor` 第二参补 `{ maxStalledCount: 1, lockDuration: 60_000 }`；failed 钩子同 0.5-6 双写；
   - `lighting.controller.ts`/`lighting.consumer.ts` 同构（kind=lighting）；
   - web 侧：`getOrCreateIntentId` 调用点覆盖 image-edit/lighting 的发起按钮（grep `image-edit/`、`lighting/tasks` 的 fetch 处）。
-- [ ] **Step 3: 跑绿** + Commit `feat(collab): 批0.5-8 意图表扩面三模块（五扣费点兑现+双击互斥）`
+- **Step 3: 跑绿** + Commit `feat(collab): 批0.5-8 意图表扩面三模块（五扣费点兑现+双击互斥）`
 
 **Task 0.5-9：reserve→settle 两阶段扣费（spec F1"落地后首个 P1"——任务化，防静默掉落）**
 
@@ -1670,9 +1671,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 - Modify: `apps/api/src/modules/team/team-credit.service.ts`（reserve/settle/void 三方法）
 - Modify: `apps/api/src/modules/execution/intent-reconcile.service.ts`（三查切两阶段口径——只改 isCharged/refund 单入口）
 
-- [ ] **Step 1: 设计落位**（~半天）：consume 拆 `reserve(intentGuard, amount)`（事务内 CAS 门+冻结额+流水 type='reserve'）与 `settle(intentRowId)`（冻结核销 type='settle'）/`void(intentRowId)`（解冻+反向流水）——**余额不足在 reserve 即失败**（消灭"白付外呼"沉没面）；组执行"前 N 已扣第 N+1 失败整批 return"改为逐节点 reserve→执行→settle（消灭"组执行部分成功"沉没面）。**三条设计约束（第十轮评估——executor 必读，防按 0.5-4 既有 CAS 语义惯性实现）**：①**reserve 事务内置位 CAS 标记**——冻结载体用列不用 PENDING 状态（已删，不复活）；reserve 不置位则 stalled 同 job 重入二次通过 CAS 门=双冻结；②**reserve-only 行的退款=解冻非补记**——档一三查经 isCharged 单入口切到两阶段口径后（isCharged=已 reserve），void 走解冻+反向 reserve 流水，不得再走 refund 正向记账（否则双倍回滚）；③**组执行 void 边界**——前 N 已 settle 保留产物；第 N+1 reserve 失败即 void 该行意图（重试=新意图照常扣费），与 FAILED 分义不混。**实现顺序契约：0.5-7 的 isCharged/refund 单入口在本任务一次性切换——reconcile 不重写第二遍（防两次返工）。**
-- [ ] **Step 2: 测试**——余额不足 → 外呼零调用（reserve 先行）；组执行第 N+1 失败 → 前 N 已 settle 保留产物、第 N+1 零扣费；void 后重试 → 新意图照常；**reserve 孤儿（reserve 后进程死、无 settle/void）→ 档一第四查按超龄解冻回收（冻结额不永久占用）**；stalled 同 job 重入 → 冻结只发生一次（约束①锚）；reserve-only 退款走解冻而非 refund 补记（约束②锚）。
-- [ ] **Step 3: 跑绿** + Commit `feat(collab): 批0.5-9 reserve→settle 两阶段扣费（余额不足不再白付外呼）`
+- **Step 1: 设计落位**（~半天）：consume 拆 `reserve(intentGuard, amount)`（事务内 CAS 门+冻结额+流水 type='reserve'）与 `settle(intentRowId)`（冻结核销 type='settle'）/`void(intentRowId)`（解冻+反向流水）——**余额不足在 reserve 即失败**（消灭"白付外呼"沉没面）；组执行"前 N 已扣第 N+1 失败整批 return"改为逐节点 reserve→执行→settle（消灭"组执行部分成功"沉没面）。**三条设计约束（第十轮评估——executor 必读，防按 0.5-4 既有 CAS 语义惯性实现）**：①**reserve 事务内置位 CAS 标记**——冻结载体用列不用 PENDING 状态（已删，不复活）；reserve 不置位则 stalled 同 job 重入二次通过 CAS 门=双冻结；②**reserve-only 行的退款=解冻非补记**——档一三查经 isCharged 单入口切到两阶段口径后（isCharged=已 reserve），void 走解冻+反向 reserve 流水，不得再走 refund 正向记账（否则双倍回滚）；③**组执行 void 边界**——前 N 已 settle 保留产物；第 N+1 reserve 失败即 void 该行意图（重试=新意图照常扣费），与 FAILED 分义不混。**实现顺序契约：0.5-7 的 isCharged/refund 单入口在本任务一次性切换——reconcile 不重写第二遍（防两次返工）。**
+- **Step 2: 测试**——余额不足 → 外呼零调用（reserve 先行）；组执行第 N+1 失败 → 前 N 已 settle 保留产物、第 N+1 零扣费；void 后重试 → 新意图照常；**reserve 孤儿（reserve 后进程死、无 settle/void）→ 档一第四查按超龄解冻回收（冻结额不永久占用）**；stalled 同 job 重入 → 冻结只发生一次（约束①锚）；reserve-only 退款走解冻而非 refund 补记（约束②锚）。
+- **Step 3: 跑绿** + Commit `feat(collab): 批0.5-9 reserve→settle 两阶段扣费（余额不足不再白付外呼）`
 
 ---
 
@@ -1684,7 +1685,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 
 **Task B-1：兼容性 spike（丢弃式，不写生产代码）**
 
-- [ ] **Step 1: 写 spike 夹具**（`apps/api/src/modules/collab/ws-polyfill.gate.spec.ts`）：
+- **Step 1: 写 spike 夹具**（`apps/api/src/modules/collab/ws-polyfill.gate.spec.ts`）：
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -1724,8 +1725,8 @@ describe('F6 WebSocketPolyfill spike', () => {
 });
 ```
 
-- [ ] **Step 2: 跑并判定**——四点全过 ⇒ 结论"改道 transport"（批 1 Task 1-3 的瞬态分支换成自持传输薄层方案，工作量 +~100 行，㉕/㉝ 相关约束整体删除）；任一失败 ⇒ kick 方案。**通过权重（第九轮评估抬高）：即使四点只过三点、补齐成本 +50 行，也倾向改道传输层**——kick 这条路依赖的 ㉕/㉝ 两条契约锁本身就是"库行为不可依赖"的实证，留越久越危险（pin+契约锁夹具只是兜底不是豁免）。**结论写完成记录表（门 B 行）**，批 1 按结论走对应分支（两分支代码都给在 Task 1-3）。
-- [ ] **Step 3: Commit** `test(collab): F6 WebSocketPolyfill spike 夹具（决策门 B）`
+- **Step 2: 跑并判定**——四点全过 ⇒ 结论"改道 transport"（批 1 Task 1-3 的瞬态分支换成自持传输薄层方案，工作量 +~100 行，㉕/㉝ 相关约束整体删除）；任一失败 ⇒ kick 方案。**通过权重（第九轮评估抬高）：即使四点只过三点、补齐成本 +50 行，也倾向改道传输层**——kick 这条路依赖的 ㉕/㉝ 两条契约锁本身就是"库行为不可依赖"的实证，留越久越危险（pin+契约锁夹具只是兜底不是豁免）。**结论写完成记录表（门 B 行）**，批 1 按结论走对应分支（两分支代码都给在 Task 1-3）。
+- **Step 3: Commit** `test(collab): F6 WebSocketPolyfill spike 夹具（决策门 B）`
 
 ---
 
@@ -1741,8 +1742,8 @@ describe('F6 WebSocketPolyfill spike', () => {
 
 **Task 1-1：connectionMachine 纯函数 + watchdog tick + 恢复门**
 
-- [ ] **Step 1: 写失败测试**（spec 红2 组逐条：快线 15s / unhealthy 45s 含从未健康初值 / jitter / 冷却 ≥15s / 退避 5→10→20→30 封顶永不停止 / 打扰分层 45s 轻提示·90s 横幅 / terminal·hidden·offline 零自动——装置用 fake timers 驱动 reduce）。断言源=spec 判据表"红2-恢复组"行（executor 逐条照抄判据栏写用例）。
-- [ ] **Step 2: 跑红** → **Step 3: 实现**：
+- **Step 1: 写失败测试**（spec 红2 组逐条：快线 15s / unhealthy 45s 含从未健康初值 / jitter / 冷却 ≥15s / 退避 5→10→20→30 封顶永不停止 / 打扰分层 45s 轻提示·90s 横幅 / terminal·hidden·offline 零自动——装置用 fake timers 驱动 reduce）。断言源=spec 判据表"红2-恢复组"行（executor 逐条照抄判据栏写用例）。
+- **Step 2: 跑红** → **Step 3: 实现**：
 
 ```ts
 // apps/web/src/stores/connectionMachine.ts
@@ -1825,11 +1826,11 @@ heartbeat.unref?.();
 ```
 
 （awareness 本地态自愈/visible 宽限 5-10s/offline 抑制/online 复评/hidden 挂起——照 spec 修 B §1 全段落位；红2-awareness/红2-健康前提 两条判据照 spec 写。）
-- [ ] **Step 4: 跑绿** + Commit `feat(collab): 批1-1 恢复门+心跳+connectionMachine 纯函数（快线/unhealthy/jitter/分层）`
+- **Step 4: 跑绿** + Commit `feat(collab): 批1-1 恢复门+心跳+connectionMachine 纯函数（快线/unhealthy/jitter/分层）`
 
 **Task 1-2：1012 计划内重启短退避**
 
-- [ ] **Step 1: 实现**（runtime 内）：
+- **Step 1: 实现**（runtime 内）：
 
 ```ts
 provider.on('close', ({ event }: any) => {
@@ -1842,12 +1843,12 @@ provider.on('close', ({ event }: any) => {
 ```
 
 横幅抑制：connectionMachine 的 ui 分级在 `plannedRestartUntil` 窗口内强制 'ok'→'hint'（不弹 banner）。判据：收到 1012 后 1~3s 内首重连发出、该窗口无失联横幅（fake timers 用例）。
-- [ ] **Step 2: 测试+Commit** `feat(collab): 批1-2 1012 短退避+横幅抑制窗口`
+- **Step 2: 测试+Commit** `feat(collab): 批1-2 1012 短退避+横幅抑制窗口`
 
 **Task 1-3：recoverConnection 两级原语（含门 B 两分支）**
 
-- [ ] **Step 1: 写失败测试**——spec 红2-恢复组余下判据：级别选择（`!provider.isAttached || !ws.shouldConnect` ⇒ 终态重建——瞬态 kick 在此是空操作必红）；瞬态=实例不变（provider 引用同一、六监听不重挂、消息队列保留）；终态=实例变更+同 doc+本地编辑在+hydration 保持+clock 播种（读 destroy 后值）；单飞互斥；用户点击同原语。
-- [ ] **Step 2: 跑红** → **Step 3: 实现**（runtime）：
+- **Step 1: 写失败测试**——spec 红2-恢复组余下判据：级别选择（`!provider.isAttached || !ws.shouldConnect` ⇒ 终态重建——瞬态 kick 在此是空操作必红）；瞬态=实例不变（provider 引用同一、六监听不重挂、消息队列保留）；终态=实例变更+同 doc+本地编辑在+hydration 保持+clock 播种（读 destroy 后值）；单飞互斥；用户点击同原语。
+- **Step 2: 跑红** → **Step 3: 实现**（runtime）：
 
 ```ts
 let recovering = false;
@@ -1878,12 +1879,12 @@ export async function recoverConnection(): Promise<void> {
 ```
 
 配套：`createProvider(doc)` 工厂 + `bindProviderListeners(p)`（六监听单函数——status/message/synced/authenticated/authenticationFailed/close 全收口）+ `readClockAfterDestroy`（`p.awareness.meta.get(clientID)?.clock ?? 0`）+ `seedAwarenessClock`（新实例 `awareness.meta.set(clientID, { clock, lastUpdated: Date.now() })`）。守卫：terminal/document.hidden/offline 不下手（回前台/上线复评——visibilitychange/online 监听模块级一次）。
-- [ ] **Step 4: 跑绿** + Commit `feat(collab): 批1-3 recoverConnection 两级原语（kick/重建+clock 播种/级别选择）`
+- **Step 4: 跑绿** + Commit `feat(collab): 批1-3 recoverConnection 两级原语（kick/重建+clock 播种/级别选择）`
 
 **Task 1-4：rebuildPending 标记制（实例绑定）+ hasUnsyncedCanvasChanges 完整谓词**
 
-- [ ] **Step 1: 测试**（spec 护栏组判据——真库事件序建模：终态重建置位 → synced（计数仍 1）仍真 → `unsyncedChanges{number:0}` 才解除；旧实例 emit 不清新实例标记）。mock 补：startSync 置 1、synced 时计数仍 1、decrement 归零同置 synced=true（HP:333-335）。
-- [ ] **Step 2: 实现**：
+- **Step 1: 测试**（spec 护栏组判据——真库事件序建模：终态重建置位 → synced（计数仍 1）仍真 → `unsyncedChanges{number:0}` 才解除；旧实例 emit 不清新实例标记）。mock 补：startSync 置 1、synced 时计数仍 1、decrement 归零同置 synced=true（HP:333-335）。
+- **Step 2: 实现**：
 
 ```ts
 let rebuildPending = false;
@@ -1896,7 +1897,7 @@ export function hasUnsyncedCanvasChanges(): boolean {
 }
 ```
 
-- [ ] **Step 3: 跑绿** + Commit。
+- **Step 3: 跑绿** + Commit。
 
 **Task 1-5：awareness 即刻播种/自愈 + bridge 稳定对象化 + session 对象化 + R33 + collabDiagnostics**
 
@@ -1906,16 +1907,16 @@ export function hasUnsyncedCanvasChanges(): boolean {
 
 **Task 1-6：执行状态恢复客户端半边（B2 合并视图）**
 
-- [ ] **Step 1: 测试**——spec 执行态组客户端侧：①exec map 变更（服务端写）→ useNodeStore.status 到达（桥监听 `doc.getMap('exec')` observeDeep）；②读合并视图 `execStatusOf(nodeId) = exec[id]?.status ?? data.status`（isImageCompletedNode 等读点换源——grep `data.status`/`isImageCompletedNode` 于 apps/web/src 改）；③终态优先不回退；④刷新/断连后 `GET intents?projectId&nodeId` 对齐（loading 且无 exec 条目 → 查表终态写 UI）；⑤storyboard/裁剪/标注/拼接客户端终态刷新仍在（回归锚——这些写 data 不受影响）；⑥visibilitychange 回前台对齐一次。
-- [ ] **Step 2: 实现**——runtime 内 exec 监听（`doc.getMap('exec').observeDeep` → 投影进 useNodeStore 新字段 `execStatus`）+ `execStatusOf` 工具 + 发起处带 intentId（Task 0.5-7 接线点）+ 恢复对齐函数（connect 边沿+visibilitychange 调 GET intents）。
-- [ ] **Step 3: 跑绿** + Commit `feat(collab): 批1-6 执行态客户端半边（exec 合并视图+intents 恢复对齐+终态优先）`
+- **Step 1: 测试**——spec 执行态组客户端侧：①exec map 变更（服务端写）→ useNodeStore.status 到达（桥监听 `doc.getMap('exec')` observeDeep）；②读合并视图 `execStatusOf(nodeId) = exec[id]?.status ?? data.status`（isImageCompletedNode 等读点换源——grep `data.status`/`isImageCompletedNode` 于 apps/web/src 改）；③终态优先不回退；④刷新/断连后 `GET intents?projectId&nodeId` 对齐（loading 且无 exec 条目 → 查表终态写 UI）；⑤storyboard/裁剪/标注/拼接客户端终态刷新仍在（回归锚——这些写 data 不受影响）；⑥visibilitychange 回前台对齐一次。
+- **Step 2: 实现**——runtime 内 exec 监听（`doc.getMap('exec').observeDeep` → 投影进 useNodeStore 新字段 `execStatus`）+ `execStatusOf` 工具 + 发起处带 intentId（Task 0.5-7 接线点）+ 恢复对齐函数（connect 边沿+visibilitychange 调 GET intents）。
+- **Step 3: 跑绿** + Commit `feat(collab): 批1-6 执行态客户端半边（exec 合并视图+intents 恢复对齐+终态优先）`
 
 **Task 1-7：库行为锚 5 条 + 批尾验收**
 
-- [ ] **Step 1**: `collab.gateway.spec.ts` 增补 fixture 回放锚（onClose 不 emit 'close'/destroy 双推 clock 仅首帧发布/send 未 attach 静默 return/SS1 应答帧序先 SS1 后 SS2/synced 时计数=1+decrement 归零置 synced=true）——fixture JSON 固化供单测重放（G24）。
-- [ ] **Step 1b: socket.io 退役评估前移至本批末**（spec 批 1 行 v5.10 后增——三评估共识）：emitNodeStatus 已随批 0.5 扩面全改 writeExecStatus → 盘点 /execution 通道剩余载荷（grep emitNodeStatus/emitTrimStatus/emitSeparateStatus/emitStitchStatus/emitExecutionComplete 调用点清单文件化）→ "退役 or 保留+冻结"结论回写完成记录表（退役本身另立批，不塞批 1）。越早退役 cors/join 鉴权/adapter 不对称三个 tech-debt 越早消失。
-- [ ] **Step 2**: 浏览器验收（spec 浏览器验收行逐条：重启 API 恢复链/杀 API 90s 横幅/断连期编辑重连仍在/恢复后 presence 两级各验/后台标签 5 分钟/首帧黑洞 routeWebSocket 挂起 95s/AI 执行中重启对齐/慢任务 >2min 无墙钟误判）——dev 手动跑，结果记完成记录表。
-- [ ] **Step 3**: `pnpm verify` + 完成记录表填批 1 行 + Commit。
+- **Step 1**: `collab.gateway.spec.ts` 增补 fixture 回放锚（onClose 不 emit 'close'/destroy 双推 clock 仅首帧发布/send 未 attach 静默 return/SS1 应答帧序先 SS1 后 SS2/synced 时计数=1+decrement 归零置 synced=true）——fixture JSON 固化供单测重放（G24）。
+- **Step 1b: socket.io 退役评估前移至本批末**（spec 批 1 行 v5.10 后增——三评估共识）：emitNodeStatus 已随批 0.5 扩面全改 writeExecStatus → 盘点 /execution 通道剩余载荷（grep emitNodeStatus/emitTrimStatus/emitSeparateStatus/emitStitchStatus/emitExecutionComplete 调用点清单文件化）→ "退役 or 保留+冻结"结论回写完成记录表（退役本身另立批，不塞批 1）。越早退役 cors/join 鉴权/adapter 不对称三个 tech-debt 越早消失。
+- **Step 2**: 浏览器验收（spec 浏览器验收行逐条：重启 API 恢复链/杀 API 90s 横幅/断连期编辑重连仍在/恢复后 presence 两级各验/后台标签 5 分钟/首帧黑洞 routeWebSocket 挂起 95s/AI 执行中重启对齐/慢任务 >2min 无墙钟误判）——dev 手动跑，结果记完成记录表。
+- **Step 3**: `pnpm verify` + 完成记录表填批 1 行 + Commit。
 
 ---
 
@@ -1931,9 +1932,9 @@ export function hasUnsyncedCanvasChanges(): boolean {
 
 **Task 2-1：hydration 四态 + canEdit + 蒙层（含 isHydrating 删除）**
 
-- [ ] **Step 1: 重跑承重数字**（spec R13 纪律）——`grep -rn "isHydrating" apps/web/src --include="*.ts*" | grep -v test` 列出生产写/读点；`grep -rl "vi.mock('@/stores/canvasStore')" apps/web/src | wc -l`（预期 30——mock 计数以现场为准）。
-- [ ] **Step 2: 写失败测试**——spec hydration 组+canEdit 门组判据：四态定向断言（getInitialState 'idle'/openSession 首行 'pending'/synced→'ready'/超时→'failed'/destroy→'idle'）；canEdit 合取（ready && !collabReadOnly && !terminal）+ httpExpired 反向断言；粘滞（openSession 初值 true/onClose 后仍 true/authenticated(scope) 权威覆盖/登出复位）；idle→蒙层+dev console.error（非抛错）。
-- [ ] **Step 3: 实现**——canvasStore：
+- **Step 1: 重跑承重数字**（spec R13 纪律）——`grep -rn "isHydrating" apps/web/src --include="*.ts*" | grep -v test` 列出生产写/读点；`grep -rl "vi.mock('@/stores/canvasStore')" apps/web/src | wc -l`（预期 30——mock 计数以现场为准）。
+- **Step 2: 写失败测试**——spec hydration 组+canEdit 门组判据：四态定向断言（getInitialState 'idle'/openSession 首行 'pending'/synced→'ready'/超时→'failed'/destroy→'idle'）；canEdit 合取（ready && !collabReadOnly && !terminal）+ httpExpired 反向断言；粘滞（openSession 初值 true/onClose 后仍 true/authenticated(scope) 权威覆盖/登出复位）；idle→蒙层+dev console.error（非抛错）。
+- **Step 3: 实现**——canvasStore：
 
 ```ts
 hydration: 'idle' as 'idle' | 'pending' | 'ready' | 'failed',  // 默认 idle（无会话）；openSession→pending；synced→ready；10s 超时→failed；destroy→idle
@@ -1950,16 +1951,16 @@ export const canEdit = (s: CanvasState) =>
 ```
 
 isHydrating 字段删除：写点全改 setHydration 四态；两生产读点（viewportPersistence.ts:14/useGroupKeyboard.ts:51）改 `hydration !== 'ready'`；点名更新的 mock 测试文件（useGroupKeyboard.test 等按 Step 1 清单）。蒙层：page.tsx 按 idle/pending/failed 分型（idle=「画布会话未建立」+dev console.error；pending=「正在同步」非阻断骨架；failed=「重试连接/刷新」行动）+ R27 首屏可达性（!projectId 分支按 hydration 分档——projectId/name 提前落地的二选一按实读 page.tsx 定）。
-- [ ] **Step 4: 跑绿** + Commit `feat(collab): 批2-1 hydration 四态+canEdit+蒙层分型（isHydrating 删除）`
+- **Step 4: 跑绿** + Commit `feat(collab): 批2-1 hydration 四态+canEdit+蒙层分型（isHydrating 删除）`
 
 **Task 2-2：VIEWER 双层（doc 硬门 + store wrapper + ESLint 门）**
 
-- [ ] **Step 1: 测试**——spec VIEWER 组+canEdit 门组三类入口判据：readOnly ⇒ ①cs 拖拽/doc 零写+store 零变更 ②组配置面板同 ③AI 状态落地同（第三类现零测试）；断连窗口仍只读（粘滞锚）。
-- [ ] **Step 2: 实现**：
+- **Step 1: 测试**——spec VIEWER 组+canEdit 门组三类入口判据：readOnly ⇒ ①cs 拖拽/doc 零写+store 零变更 ②组配置面板同 ③AI 状态落地同（第三类现零测试）；断连窗口仍只读（粘滞锚）。
+- **Step 2: 实现**：
   - 第一层（硬门）：bindBridge 两订阅回调 + S1 回写点 + syncAutoEdgesToDoc 调用点统一前置 `if (!canEdit(useCanvasStore.getState())) return;`（readOnly 会话 doc 零写含 system intent——几何修正在 store 层完成）；
   - 第二层（UX 预检）：ns 内容写收口 wrapper——四 ConfigPanel 10 处（AudioConfigPanel:67/93/146/200、ImageConfigPanel:58、TextConfigPanel:62/88/147/200、VideoConfigPanel:185）+ nodeStore.ts:243 桥直灌改走 action 入口（`nodeStore.ts` 内 `applyNodeDataPatch(nodeId, patch)` action，canEdit 假时早退+toast 节流）；page.tsx:92 清空/runtime hydrate 生命周期豁免；
   - ESLint 正式化：`apps/web/eslint.config`（若无则建 flat config）加 no-restricted-syntax 规则——`useCanvasStore.setState(`/`useNodeStore.setState(` 仅白名单文件（store 文件/canvasCollabRuntime/nodeStore 桥/page 生命周期）——lint-gate 的 C 条同步退役或保留双保险。
-- [ ] **Step 3: 跑绿**（含"readOnly 拖拽零写 doc"必红转绿）+ Commit `feat(collab): 批2-2 VIEWER 双层强制点（doc 硬门+store wrapper+ESLint setState 门）`
+- **Step 3: 跑绿**（含"readOnly 拖拽零写 doc"必红转绿）+ Commit `feat(collab): 批2-2 VIEWER 双层强制点（doc 硬门+store wrapper+ESLint setState 门）`
 
 **Task 2-3：异步落地单列 + schemaVersion + redirect 收口**
 
@@ -2001,7 +2002,7 @@ export function resolvePostLoginTarget(next: string | null): string {
 
 **Task 3-2：shutdown 有界化 + close(1012) + B6 Redis 收口**
 
-- [ ] 实现三件：
+- 实现三件：
   1. `new Server({ ..., stopOnSignals: false })`（默认 true 会 process.exit(0) 抢跑 Nest drain 链）；
   2. 关停前对存活连接 `webSocket.close(1012, 'service restart')`——自遍历 `this.server.hocuspocus.documents` + `document.connections` **先复制后关**（库不暴露清单）；
   3. `onApplicationShutdown = Promise.race([server.destroy(), 8s 超时])` + 超时点名 doc + metric（总预算 ≤8s 计入 Redis disconnectDelay 累计）。
@@ -2011,7 +2012,7 @@ export function resolvePostLoginTarget(next: string | null): string {
 
 **Task 3-3：SessionService.touch + AuthGuard 修正 + 401 契约 + me 探活**
 
-- [ ] `session.service.ts`：
+- `session.service.ts`：
 
 ```ts
 @Injectable()
@@ -2045,23 +2046,23 @@ export class SessionService {
 
 **Files:** `apps/web/src/utils/normalizeCanvasRecord.ts`（或落 ydocBuilder）、`apps/web/src/stores/canvasCollabRuntime.ts`、测试。
 
-- [ ] 读出口归一：`readCanvasFromDoc` 输出过 `normalizeCanvasRecord`（消除"null 键真删 vs normalize 真删键"形状差）——写侧 projectCanvasNodes→normalize 同形；
-- [ ] 真不变量：读归一后断言 `projectionFromDoc(doc) ≡ storeProjection()`（测量点=一次 apply 周期末尾含 S1 补跑；dev 断言双向、prod 只 log+metric）——**非恒真式**（红1-不变量判据）；**shadow 排除条款（第九轮评估——消除与批 5 的时序矛盾）**：批 5 删信箱前 doc 仍含 shadow- 节点而 store 投影经 isShadowOnlyEvents 挡在其外——不变量**两侧都显式过滤 `/^shadow-/` 键**后断言（否则从第一天起对每个含影子 doc 恒假，安全网失效/executor 被迫放宽断言）；
-- [ ] 双端 quiescence：两端并发 burst 后 N ms 内 doc 写次数归零 + 两 doc/store 相等（判据=写放大/乒乓可机检——applyGroupDerivations/applyGroupFrame 是"派生写 doc"写者）；
-- [ ] getMap 三文件门复核（批 0e 已建——本批确认 exec 读点收口后仍三文件+runtime）。
+- 读出口归一：`readCanvasFromDoc` 输出过 `normalizeCanvasRecord`（消除"null 键真删 vs normalize 真删键"形状差）——写侧 projectCanvasNodes→normalize 同形；
+- 真不变量：读归一后断言 `projectionFromDoc(doc) ≡ storeProjection()`（测量点=一次 apply 周期末尾含 S1 补跑；dev 断言双向、prod 只 log+metric）——**非恒真式**（红1-不变量判据）；**shadow 排除条款（第九轮评估——消除与批 5 的时序矛盾）**：批 5 删信箱前 doc 仍含 shadow- 节点而 store 投影经 isShadowOnlyEvents 挡在其外——不变量**两侧都显式过滤 `/^shadow-/` 键**后断言（否则从第一天起对每个含影子 doc 恒假，安全网失效/executor 被迫放宽断言）；
+- 双端 quiescence：两端并发 burst 后 N ms 内 doc 写次数归零 + 两 doc/store 相等（判据=写放大/乒乓可机检——applyGroupDerivations/applyGroupFrame 是"派生写 doc"写者）；
+- getMap 三文件门复核（批 0e 已建——本批确认 exec 读点收口后仍三文件+runtime）。
 - 判据：红1-不变量 + quiescence；Commit `feat(collab): 批4a 读归一+真不变量+quiescence（安全网先行）`
 
 ## 决策门 C（F5）：意图漏斗 spike（gating 批 4b，1~2 天）
 
 **裁决问题**：批 4b 走意图漏斗（action→doc 意图直写+store 投影回填，删 committed/leafDiff/投影对账/applyRemote latch 四件套）vs diff 引擎+弃用 ADR。
 
-- [ ] **Spike 内容**：最活跃三类变更（add/update/delete node、edges、ConfigPanel 写）各选一代表改"action 直写"：
+- **Spike 内容**：最活跃三类变更（add/update/delete node、edges、ConfigPanel 写）各选一代表改"action 直写"：
   1. 写面枚举核对：`grep -rn "syncStoreToDoc\|Origin.LocalUser" apps/web/src --include="*.ts"` 现场重跑；
   2. 三类各实现 `applyIntentToDoc(doc, intent, origin)` 最小版（addNode/updateNodeData/deleteNode/moveNode/upsertEdge/deleteEdge 六 action）+ store 投影回填点；
   3. 估算全量迁移成本（剩余写点数×单位成本）vs diff 引擎（committed 基线+leafDiff+latch+对账四件实现成本）。
-- [ ] **判据（可行性）**：①六 action 覆盖三类无残留旁路 ②VIEWER doc 硬门零改动仍成立（都走 action=同构）③成本比 ≤ ~1.5×。**架构权重（第九轮评估）**：27+ 写点 action 化是把本仓从"全量同步+删除扫描"结构性反模式里捞出来的唯一根治路径——diff 引擎只是把同一反模式做得更精细；门 C 比较的不只是成本，还有终局架构，成本比接近时**必须倾向漏斗**。
-- [ ] **baseline 存续条款（第九轮评估）**：0b deletion baseline 的存续绑定在门 C 选"漏斗"上——**若门 C 裁走 diff 引擎分支，必须同时给出 baseline 的替代删除语义**（committed 基线本身就是答案——delta 写的删除半边回归 committed 驱动）**或 0b 升级方案**，否则一个靠"上次投影"猜测删除意图的间接层会成为常驻机制（正是要杜绝的形态）——无此条款则成本比再高也倾向漏斗分支。
-- [ ] **结论回写**完成记录表门 C 行（含成本比数据+baseline 条款裁决）；可行→批 4b 走漏斗分支，不可行→diff 分支+**显式 ADR 弃用计划**（触发条件+拆除路径，防"非终局"成永久遗产）+baseline 条款裁决。
+- **判据（可行性）**：①六 action 覆盖三类无残留旁路 ②VIEWER doc 硬门零改动仍成立（都走 action=同构）③成本比 ≤ ~1.5×。**架构权重（第九轮评估）**：27+ 写点 action 化是把本仓从"全量同步+删除扫描"结构性反模式里捞出来的唯一根治路径——diff 引擎只是把同一反模式做得更精细；门 C 比较的不只是成本，还有终局架构，成本比接近时**必须倾向漏斗**。
+- **baseline 存续条款（第九轮评估）**：0b deletion baseline 的存续绑定在门 C 选"漏斗"上——**若门 C 裁走 diff 引擎分支，必须同时给出 baseline 的替代删除语义**（committed 基线本身就是答案——delta 写的删除半边回归 committed 驱动）**或 0b 升级方案**，否则一个靠"上次投影"猜测删除意图的间接层会成为常驻机制（正是要杜绝的形态）——无此条款则成本比再高也倾向漏斗分支。
+- **结论回写**完成记录表门 C 行（含成本比数据+baseline 条款裁决）；可行→批 4b 走漏斗分支，不可行→diff 分支+**显式 ADR 弃用计划**（触发条件+拆除路径，防"非终局"成永久遗产）+baseline 条款裁决。
 
 ## 批 4b：按门 C 结论执行（两分支预写）
 
@@ -2074,18 +2075,18 @@ export class SessionService {
 
 ## 决策门 D（E1/E2 核验，gating 批 5，各 ~30min）
 
-- [ ] **E1**：execute() 对"不在 doc nodes 的虚拟节点"能否运行——读 `execution.service.ts:70-80`（shadow- 白名单 hack）+ 拓扑 getScope 判定；结论=可/不可+最小改造清单；
-- [ ] **E2**：retake 入队 `sv=null` 契约——确认 processor 透传 job.data.sv（execution.processor.ts:22-25）与 sv 裁剪语义（video-project.service.ts:84 注释）；结论=sv=null 时影子可见性成立与否。
+- **E1**：execute() 对"不在 doc nodes 的虚拟节点"能否运行——读 `execution.service.ts:70-80`（shadow- 白名单 hack）+ 拓扑 getScope 判定；结论=可/不可+最小改造清单；
+- **E2**：retake 入队 `sv=null` 契约——确认 processor 透传 job.data.sv（execution.processor.ts:22-25）与 sv 裁剪语义（video-project.service.ts:84 注释）；结论=sv=null 时影子可见性成立与否。
 - 结论不出 ⇒ 批 5 冻结（绑定条件⑤）。回写完成记录表门 D 行。
 
 ## 批 5：删信箱（默认落点 B）+ socket.io 退役评估
 
 **Files:** `apps/api/src/modules/video-project/*`（regenerate 直连化）、`shadowJob.ts` 删除、`collab-document.service.ts`（insertNode/removeNode/shadows 容器随信箱消失）、web `readNodeFileIdFromDoc` 改读真实节点、R19 接触面/回流守卫/`isShadowOnlyEvents` 整套删除、`video-separate.cron` 处置。
 
-- [ ] retakeId 客户端生成（`intentRecord.ts` 复用）随请求上送；execute 对虚拟节点按 E1 结论处理（若 E1=不可，最小=在 doc 放真实占位节点后执行——**不复活信箱**）；retake 结果落 Media（projectId/nodeId 关联）+ writeNodeData 写真实节点 + socket 通知；
-- [ ] 恢复：`GET intents` + Media 按 (projectId,nodeId) 查询（组合索引成本已计入 E4 结论——现场核对 schema.prisma Media 索引）；
-- [ ] **shadow- 前缀机器全量删除静态断言**（lint-gate：`shadow-` 字面量仅存在于本 plan 历史文档）；nodes 出现 `/^shadow-/` dev 抛；`truncate canvas_doc, canvas_doc_update` 原子切换（同 commit——dev 零存量）；
-- [ ] **F7 socket.io 退役：按批 1 末（Task 1-7 Step 1b）结论执行**——评估已前移批 1，本批不再重复盘点；若批 1 结论=退役，退役工作另立批不塞本批；若=保留+冻结，本批仅确认冻结契约未被违反。
+- retakeId 客户端生成（`intentRecord.ts` 复用）随请求上送；execute 对虚拟节点按 E1 结论处理（若 E1=不可，最小=在 doc 放真实占位节点后执行——**不复活信箱**）；retake 结果落 Media（projectId/nodeId 关联）+ writeNodeData 写真实节点 + socket 通知；
+- 恢复：`GET intents` + Media 按 (projectId,nodeId) 查询（组合索引成本已计入 E4 结论——现场核对 schema.prisma Media 索引）；
+- **shadow- 前缀机器全量删除静态断言**（lint-gate：`shadow-` 字面量仅存在于本 plan 历史文档）；nodes 出现 `/^shadow-/` dev 抛；`truncate canvas_doc, canvas_doc_update` 原子切换（同 commit——dev 零存量）；
+- **F7 socket.io 退役：按批 1 末（Task 1-7 Step 1b）结论执行**——评估已前移批 1，本批不再重复盘点；若批 1 结论=退役，退役工作另立批不塞本批；若=保留+冻结，本批仅确认冻结契约未被违反。
 - 判据：regenerate 真产物；刷新/断连后 retake 状态从 Media+doc 恢复；shadow 静态断言。Commit `feat(collab): 批5 删信箱——retake 直连真实节点（R19 接触面整体消失）`
 
 ## 批 6：护栏收尾
@@ -2097,13 +2098,13 @@ export class SessionService {
 
 **Files:** `e2e/collab-recovery.e2e.spec.ts`（新）+ `e2e/fixtures/`（双 context）+ `scripts/gate-collab.sh`（自拉 API）+ `docs/superpowers/plans/collab-e2e-gate-checklist.md`（手动清单文件化）。
 
-- [ ] **外呼 stub 策略（第九轮评估）**：E2E 真起 API 会打真外呼（KIMI 等）——API 侧加 dev-only fake provider 开关（env `COLLAB_FAKE_AI=1` → ApiCallerService 各 callXxx 返回固定结果，生产 env 校验拒绝该值），gate 脚本与 CI E2E job 统一带上；不做则 E2E 随机失败或产生真实账单。
-- [ ] **三个最值钱场景脚本化**（0e CI 落地后立即做，不等全批）：杀 API→自动恢复；断连期双端编辑合并；AI 执行态对齐——gate 脚本自拉 API（playwright webServer 自起服务杀不掉——v5.7 注记）；
-- [ ] **CI 形态写死（第十轮裁决）**：独立 `e2e-collab` job——nightly schedule + workflow_dispatch 手动触发，**PR 不跑**（双客户端 E2E+起停 API 时长不适合逐 PR；发布门禁语义=发布前必绿——本地 gate 清单 + nightly CI 双保险）；0e workflow 预留注释行，本批启用；
-- [ ] 全链路：会话过期→重登重连；VIEWER 只读横幅；新建画布刷新仍在；编辑器打开杀 API→横幅可见；
-- [ ] **恢复风暴用例（F12）**：10+ 并发客户端同时重连（脚本多 context/headless 并行）+ collabDiagnostics 服务端 reconnect 突刺计数观测（先观测后谈 shed；多实例退避协调已登记 tech-debt）；
-- [ ] e2e routeWebSocket 掐断→编辑→恢复→内容仍在且回"已连接"；
-- [ ] 手动 gate 清单文件化（CI 缺位期防退化）；判据=目标 8 链路全绿。
+- **外呼 stub 策略（第九轮评估）**：E2E 真起 API 会打真外呼（KIMI 等）——API 侧加 dev-only fake provider 开关（env `COLLAB_FAKE_AI=1` → ApiCallerService 各 callXxx 返回固定结果，生产 env 校验拒绝该值），gate 脚本与 CI E2E job 统一带上；不做则 E2E 随机失败或产生真实账单。
+- **三个最值钱场景脚本化**（0e CI 落地后立即做，不等全批）：杀 API→自动恢复；断连期双端编辑合并；AI 执行态对齐——gate 脚本自拉 API（playwright webServer 自起服务杀不掉——v5.7 注记）；
+- **CI 形态写死（第十轮裁决）**：独立 `e2e-collab` job——nightly schedule + workflow_dispatch 手动触发，**PR 不跑**（双客户端 E2E+起停 API 时长不适合逐 PR；发布门禁语义=发布前必绿——本地 gate 清单 + nightly CI 双保险）；0e workflow 预留注释行，本批启用；
+- 全链路：会话过期→重登重连；VIEWER 只读横幅；新建画布刷新仍在；编辑器打开杀 API→横幅可见；
+- **恢复风暴用例（F12）**：10+ 并发客户端同时重连（脚本多 context/headless 并行）+ collabDiagnostics 服务端 reconnect 突刺计数观测（先观测后谈 shed；多实例退避协调已登记 tech-debt）；
+- e2e routeWebSocket 掐断→编辑→恢复→内容仍在且回"已连接"；
+- 手动 gate 清单文件化（CI 缺位期防退化）；判据=目标 8 链路全绿。
 - Commit `feat(collab): 批7 双客户端 E2E 发布门禁+恢复风暴观测`
 
 ## R1c 登记（本轮不实施——立项要件随 tech-debt.md 更新）
