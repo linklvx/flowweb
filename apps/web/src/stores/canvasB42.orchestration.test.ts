@@ -322,6 +322,34 @@ describe("B4'-2 门判据②分型", () => {
     expect(docPos(d, 't1')).toEqual({ x: 695, y: 8 });           // 逐帧落 doc（叶子 resize 现状）
     useCanvasStore.getState().endLeafResize();
   });
+
+  it('resizePending 悬挂兜底（spec 评发现#1——RF resizeDetected 守卫跳过 onResizeEnd 的只点不拖）：'
+    + 'pointerup 一次性兜底清 ⇒ 标记不悬挂（后续 position 批恢复门判据②告警+固化不再被永久抑制）', () => {
+    openRwWindow();
+    const d = buildDoc();
+    _setIntentDocForTest(d);
+    applyDocToStore(d);
+    useCanvasStore.getState().beginLeafResize();
+    expect(useCanvasStore.getState().resizePending).toBe(true);
+    window.dispatchEvent(new Event('pointerup'));                 // 只点不拖：无 onResizeEnd、pointerup 兜底
+    expect(useCanvasStore.getState().resizePending).toBe(false);  // 悬挂关闭
+  });
+
+  it('混批固化不丢（spec 评发现#2）：position+非 setAttributes dimensions 同批（无 session）⇒ 告警照发'
+    + '且首测固化候选仍收集（告警分支不吞 fixCandidates）', () => {
+    openRwWindow();
+    const d = buildDoc();
+    _setIntentDocForTest(d);
+    applyDocToStore(d);
+    // t1=textInput 且 doc 无 wh ⇒ 首测固化候选（dispatchFixtureSizeIntents 类型限定）
+    expect((d.getMap('nodes').get('t1') as any).get('width')).toBeUndefined();
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 't1', position: { x: 33, y: 44 } } as any,                       // 外视 position（告警面）
+      { type: 'dimensions', id: 't1', dimensions: { width: 300, height: 300 } } as any,        // 首测批（非 setAttributes）
+    ]);
+    expect(warnSpy).toHaveBeenCalled();                            // 门判据②告警照发
+    expect((d.getMap('nodes').get('t1') as any).get('width')).toBe(300);   // 固化候选未被同批 position 吞
+  });
 });
 
 // ══════════ ④b resize 会话（组目标——终裁 56） ══════════

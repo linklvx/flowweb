@@ -1040,7 +1040,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     get().endGesture('completed');   // 提交后收尾（不回滚——doc 已提交）
   },
 
-  beginLeafResize: () => set({ resizePending: true }),
+  beginLeafResize: () => {
+    set({ resizePending: true });
+    // 悬挂兜底（B4'-2 spec 评发现#1）：只点不拖（RF resizeDetected 守卫跳过 onResizeEnd）⇒ 标记
+    // 永悬（固化被永久抑制+门判据②错路由）。pointerup/pointercancel 一次性兜底清——真 resize 的
+    // 末批自带 setAttributes（批内判据照常 else 路由），两类清零幂等无冲突。
+    const clear = () => set({ resizePending: false });
+    window.addEventListener('pointerup', clear, { capture: true, once: true });
+    window.addEventListener('pointercancel', clear, { capture: true, once: true });
+  },
   endLeafResize: () => set({ resizePending: false }),
 
   endGesture: (reason) => {
@@ -1138,6 +1146,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // resizePending 不固化（终裁 59①[iii]——dispatchFixtureSizeIntents 门）；类型限定/首写者胜/
     // 批量单 transact 判定收口在彼处（doc 读+textInput 类）。
     const fixCandidates: { id: string; width: number; height: number }[] = [];
+    // 首测固化候选预收集（B4'-2 spec 评发现#2——非 setAttributes dimensions 与 position 混批时
+    // 告警分支不吞固化候选：收集先于三分路由，仅手势期（gesture 分支）由 dispatchFixtureSizeIntents
+    // 的 session∨resizePending 门拦下）
+    for (const c of routed) {
+      if (c.type === 'dimensions' && !(c as any).setAttributes && (c as any).dimensions != null) {
+        fixCandidates.push({ id: c.id, width: (c as any).dimensions.width, height: (c as any).dimensions.height });
+      }
+    }
     // O0b-5（终裁 50）：resize 提交=单 updateNodeEnvelope{三键}——同批 position 变更属 resize 手势
     // 位移（非拖拽），并入 envelope 单 intent 单 transact；两遍装配（position 与 dimensions 相对序不保证）
     const positionChanges = new Map<string, { x: number; y: number }>();
@@ -1169,8 +1185,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         } else if (c.type === 'dimensions' && (c as any).setAttributes && (c as any).dimensions != null) {
           // (iv) resize 提交（现状保通——NodeResizer/NodeResizeControl setAttributes=true）
           resizeCommits.set(c.id, { width: (c as any).dimensions.width, height: (c as any).dimensions.height });
-        } else if (c.type === 'dimensions' && (c as any).dimensions != null) {
-          fixCandidates.push({ id: c.id, width: (c as any).dimensions.width, height: (c as any).dimensions.height });
         }
       }
       for (const [id, wh] of resizeCommits) {
