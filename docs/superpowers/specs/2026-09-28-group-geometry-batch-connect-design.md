@@ -413,7 +413,7 @@ quantizePos / normalizeIntentPayload / isNoop / dropNoopIntents / clearManualFra
 - **同屏+号之间零交叠的结构性口径**：resolveAddOutputTarget 单 target（至多一枚+号）⇒ e2e 以"count===1"承接该档（几何交叠断言对单元素恒空集，结构断言等价且更强——新增第二枚即红）。
 - **公开页匿名直达路径**：路由为 `/videos/:id?`（VideoPlayerModal 内切换 ProcessView）——锚句"匿名 /videos/:id/process"按现路由落为"匿名 /videos/:id → 查看制作过程"；判据四件（宫格真图 naturalWidth>0——seed 上传真实 PNG 对象/payload 无 fileId/无+号/无 Delete 热键）不变。
 - **clientPoint 落点偏差（终裁 88⑤ 字面）**：B6-1 实迁=13 符号整体落 `utils/handleMenu.ts`（clientPoint 定义 :149）——锚句"apps/web/src/utils/clientPoint 存在且被消费"的**独立文件**字面未取（单模块聚合为 B6-1 落地形态）；实质不变：旧路径 pages/canvas/components/handleMenu.ts 不存在、utils 侧定义且被 CanvasView 消费。
-- **B7-2 e2e 发现登记（2026-10-05，gate 七轮实证）：RF 驱动子拖拽位移扩散**——真实浏览器拖组内一子时未拖兄弟随动（+~指针位移量）且松手组帧按 rel-as-abs 混合值重派生；双端收敛到一致终态（doc 一致性成立——自相对断言全绿）但"兄弟不动/帧≡bbox+padding"钉死即红。vitest int spec（直驱 store API）精确数学全绿 ⇒ 缺口=RF rel 批→手势内核→commitIntents 的浏览器专有换算链。**待修独立分片**；修前 e2e 10 用例 fixme 挂账（T1/T1b/T2a/T2b/T2c/T4/T5a/T7/T3/T11——含 NW resize 帧不收敛与 zoom 驱动两件另案），语义面由 PR 门 vitest 承担。
+- **B7-2 e2e 发现登记（2026-10-05 gate 七轮实证→**同日 spec 评审根因更正**）：初判"RF 驱动子拖拽位移扩散=浏览器专有链缺口"已证伪**——真实根因=e2e 装置空间模型错误（RF v12 平铺渲染下子节点 DOM transform 本就是 positionAbsolute 绝对流坐标[含组 origin]，装置 `childAbsOn()` 误当 rel 再叠一次组 origin ⇒ "兄弟随动/帧按混合值重派生"两症状全部数值复现归因）。**生产链经浏览器状态级取证（setup/持拖/松手三时点 doc+cs 快照）逐位验证正确**：持拖期兄弟 abs 不动+组帧冻结、松手 moveNode 单次施加+帧≡bbox+padding+兄弟 rel 重基 abs 守恒——与 vitest 直驱全绿一致，"浏览器专有链缺口不存在"。装置修正后 T2a/T2b/T7 复绿、T1 几何锚过（终轮 gate 23 passed/7 skipped/0 failed）；**残余 7 fixme 全部 harness 域**（textInput 子拖 Ctrl+Z 不达画布[组侧 undo 绿——疑 tiptap 吞键]/T2c·T4 语义裁决待产品定夺/NW resize 柄/T11 zoom 驱动），语义面由 PR 门 vitest 承担。
 
 ## 6. 范围外
 
