@@ -1,17 +1,12 @@
 import { Injectable, Inject } from '@nestjs/common';
-import type Redis from 'ioredis';
 import { auth } from './auth';
 import { parseSessionToken } from '../common/utils/parse-session-token';
-import { REDIS_CLIENT } from '../common/redis/managed-redis';
 import { SessionService } from './session.service';
 
 @Injectable()
 export class AuthService {
-  /** 批3-2 B6：拔除硬编码 localhost 直连 Redis——注入本模块受管 REDIS_CLIENT
-   *  （env.REDIS_URL + onApplicationShutdown 收口，本机无 Redis 的环境不再隐性连 localhost）。
-   *  批3-3：getSession 的手写 prisma.session.findUnique（每调用临时建 PrismaClient）统一走 SessionService.touch。 */
+  /** 批3-3：getSession 的手写 prisma.session.findUnique（每调用临时建 PrismaClient）统一走 SessionService.touch。 */
   constructor(
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(SessionService) private readonly sessions: SessionService,
   ) {}
 
@@ -27,26 +22,6 @@ export class AuthService {
     return auth.api.signOut({
       headers: new Headers({ cookie: `flowweb.session_token=${sessionToken}` }),
     });
-  }
-
-  async signOutWithBlacklist(sessionToken: string) {
-    const session = await auth.api.getSession({
-      headers: new Headers({ cookie: `flowweb.session_token=${sessionToken}` }),
-    });
-    if (session?.session?.expiresAt) {
-      const ttl = Math.max(1, Math.floor(
-        (new Date(session.session.expiresAt).getTime() - Date.now()) / 1000
-      ));
-      await this.redis.set(`blacklist:rt:${sessionToken}`, '1', 'EX', ttl);
-    }
-    return auth.api.signOut({
-      headers: new Headers({ cookie: `flowweb.session_token=${sessionToken}` }),
-    });
-  }
-
-  async isBlacklisted(token: string): Promise<boolean> {
-    const exists = await this.redis.exists(`blacklist:rt:${token}`);
-    return exists === 1;
   }
 
   async phoneLogin(phoneNumber: string, code: string) {

@@ -27,11 +27,9 @@ vi.mock('./auth', () => ({
 import { AuthService } from './auth.service';
 import { SessionService } from './session.service';
 import { auth } from './auth';
-import { REDIS_CLIENT } from '../common/redis/managed-redis';
 
 describe('AuthService', () => {
   let service: AuthService;
-  const mockRedis = { exists: vi.fn().mockResolvedValue(0), set: vi.fn().mockResolvedValue('OK') };
   const mockTouch = vi.fn();
 
   beforeEach(async () => {
@@ -39,7 +37,6 @@ describe('AuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: REDIS_CLIENT, useValue: mockRedis },   // 批3-2 B6：硬编码 localhost Redis 拔除，注入收口实例
         { provide: SessionService, useValue: { touch: mockTouch } },   // 批3-3：getSession 统一走 touch
       ],
     }).compile();
@@ -120,14 +117,6 @@ describe('AuthService', () => {
         },
       });
       expect(result.token).toBe('tok_abc');
-    });
-  });
-
-  describe('批3-2 B6：blacklist 走注入的 REDIS_CLIENT（非硬编码 localhost 实例）', () => {
-    it('isBlacklisted 调用注入实例 exists', async () => {
-      mockRedis.exists.mockResolvedValueOnce(1);
-      await expect(service.isBlacklisted('tok1')).resolves.toBe(true);
-      expect(mockRedis.exists).toHaveBeenCalledWith('blacklist:rt:tok1');
     });
   });
 });
