@@ -1,3 +1,4 @@
+<!-- doc-status: active | note: Spec B 结项前在用的验收输入（第七轮裁决：从 ordinary 转 active——ordinary 曾为零检查类） | verified_at: n/a -->
 # Spec B 多指/capture 抑制/watchdog 真机验证协议（B7-2 交付物——非 CI）
 
 范围：Playwright 无多指 API、jsdom 无触摸布局——以下手势面**只能真机（触屏/触笔）人工验证**。

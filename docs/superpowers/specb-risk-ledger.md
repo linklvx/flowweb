@@ -1,3 +1,4 @@
+<!-- doc-status: active | note: Spec B 结项前在用的验收输入（第七轮裁决：从 ordinary 转 active——ordinary 曾为零检查类） | verified_at: n/a -->
 # Spec B 风险台账一页（B7-2 交付物——v3.17 终裁 68⑤）
 
 来源：spec §5 已接受项（2026-09-28-group-geometry-batch-connect-design.md）生成速查表。

@@ -180,10 +180,17 @@ for (const it of manualItems) {
 }
 
 // ── 8. C4：被 C1 命中文档引用（入引用 ≥2；仅统计 C1 命中文档的入引用——打破"清单派生依赖清单"的自引用递归）
+// 索引/登记表不得成为权威性来源（第七轮复核 P0：README 经 verify-indexes.sql 注释入 C1 源集后，
+// 4 条 C4 晋升的首证全是 README 目录式提及——"被 README 列出"≠"被内容引用"）。冻结文档（决策记录）同理不赋权威。
+const CANONICAL_META = new Set(['docs/README.md', 'docs/superpowers/DELETED.md']);
+function head12(text) { return text.split('\n').slice(0, 12).join('\n'); }
+const frozenSet = new Set(docs.filter((d) => /doc-status:\s*frozen/.test(head12(d.text))).map((d) => d.rel));
+const authoritySources = (candidates) => candidates.filter((p) => !CANONICAL_META.has(p) && !frozenSet.has(p));
+
 const c4Refs = new Map();
 {
   const rx = boundaryRegex(formsToDocs.keys());
-  for (const srcRel of c1Docs) {
+  for (const srcRel of authoritySources(c1Docs)) {
     const srcDoc = corpusMap.get(srcRel);
     rx.lastIndex = 0;
     let m;
@@ -199,22 +206,29 @@ const c4Refs = new Map();
 const c4Docs = [...c4Refs.entries()].filter(([, refs]) => refs.size >= 2).map(([d]) => d)
   .filter((d) => !c1Docs.includes(d) && !manualItems.some((it) => it.path === d));
 
-// ── 9. canonical 终判与落盘（确定性输出：无时间戳——verify 运行后树应保持干净，漂移即可见）
+// ── 9. canonical 终判（比较模式——ratchet 同型基线范式；第七轮 P0：查询/verify 不写盘，漂移显式红）
+// 冻结文档不进权威链（spec §5.4 排除条款：status≠ACTIVE/CANONICAL 者）。
+let canonicalDrift = false;
 const canonicalByPath = new Map();
-for (const d of c1Docs) canonicalByPath.set(d, { path: d, criteria: 'C1', evidence: c1Evidence.get(d).slice(0, 3) });
-for (const d of c4Docs) canonicalByPath.set(d, { path: d, criteria: 'C4', evidence: [...c4Refs.get(d)].map((s) => `入引用自 ${s}`) });
+for (const d of c1Docs) if (!frozenSet.has(d)) canonicalByPath.set(d, { path: d, criteria: 'C1', evidence: c1Evidence.get(d).slice(0, 3) });
+for (const d of c4Docs) if (!frozenSet.has(d)) canonicalByPath.set(d, { path: d, criteria: 'C4', evidence: [...c4Refs.get(d)].map((s) => `入引用自 ${s}`) });
 for (const it of manualItems) canonicalByPath.set(it.path, { path: it.path, criteria: it.criteria, evidence: [{ src: 'docs/_meta/canonical-manual.json', text: it.reason }] });
 const canonical = [...canonicalByPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
-fs.writeFileSync(
-  path.join(ROOT, 'docs/_meta/canonical.json'),
-  JSON.stringify({ comment: '由 scripts/doc-gate.mjs 派生（C1/C4）+ canonical-manual.json（C2/C3）合并。勿手改派生条目——人工增补走 canonical-manual.json（criteria+reason 强制）。', items: canonical }, null, 2) + '\n',
-);
+const CANONICAL_JSON = path.join(ROOT, 'docs/_meta/canonical.json');
+const derivedJson = JSON.stringify({ comment: '由 scripts/doc-gate.mjs 派生（C1/C4）+ canonical-manual.json（C2/C3）合并。勿手改——更新走 --write-canonical（漂移红后显式落盘并 review）。', items: canonical }, null, 2) + '\n';
+if (args.has('--write-canonical')) {
+  fs.writeFileSync(CANONICAL_JSON, derivedJson);
+  console.log(`--write-canonical: 已落盘 ${canonical.length} 条`);
+} else {
+  const onDisk = fs.existsSync(CANONICAL_JSON) ? fs.readFileSync(CANONICAL_JSON, 'utf8') : '';
+  canonicalDrift = onDisk !== derivedJson;
+}
 const canonicalSet = new Set(canonical.map((c) => c.path));
 
-// ── 10. 状态四分（§5.6：canonical 身份优先——"含 dead 符号"是校验输出非分类输入）
+// ── 10. 状态五分（§5.6：canonical 身份优先——"含 dead 符号"是校验输出非分类输入）
+// frozen=冻结决策记录/登记表（Spec B 两份 FROZEN、DELETED.md 索引）——不进权威链、不查 vocabulary/引用/路径（内容本体不动）。
 // active 机器形态=首部 doc-status: active 行（唯一判据——遗留"状态：待确认"字样是 18 份旧文档的陈旧文本，不作数）。
-// vocabulary：canonical 违规即红；active（在建）文档天然以其主题符号为叙述对象（如本治理 spec），
-// 其命中降为警告不阻断——离开 active 态（批 5 翻 historical/canonical）时硬化：historical 豁免、canonical 须清理或登记豁免。
+// vocabulary：canonical 违规即红；active/ordinary 命中降为警告（在建文档以主题符号为叙述对象；ordinary=完成态单发文档）。
 function head(text) { return text.split('\n').slice(0, 12).join('\n'); }
 function isActive(doc) {
   return /doc-status:\s*active/.test(head(doc.text));
@@ -223,16 +237,16 @@ function isActive(doc) {
 const canonicalInRefs = new Map();
 {
   const rx = boundaryRegex(formsToDocs.keys());
-  for (const c of canonical) {
-    const srcDoc = corpusMap.get(c.path);
-    if (!srcDoc) fail(`canonical 清单项指向不存在文件：${c.path}`);
+  for (const c of authoritySources(canonical.map((x) => x.path))) {
+    const srcDoc = corpusMap.get(c);
+    if (!srcDoc) fail(`canonical 清单项指向不存在文件：${c}`);
     rx.lastIndex = 0;
     let m;
     while ((m = rx.exec(srcDoc.text)) !== null) {
       for (const t of formsToDocs.get(m[0])) {
-        if (t === c.path) continue;
+        if (t === c) continue;
         if (!canonicalInRefs.has(t)) canonicalInRefs.set(t, new Set());
-        canonicalInRefs.get(t).add(c.path);
+        canonicalInRefs.get(t).add(c);
       }
     }
   }
@@ -240,15 +254,16 @@ const canonicalInRefs = new Map();
 
 const cls = new Map();
 for (const d of docs) {
-  if (canonicalSet.has(d.rel)) cls.set(d.rel, 'canonical');
+  if (frozenSet.has(d.rel)) cls.set(d.rel, 'frozen');
+  else if (canonicalSet.has(d.rel)) cls.set(d.rel, 'canonical');
   else if (isActive(d)) cls.set(d.rel, 'active');
   else if (d.rel.startsWith('docs/superpowers/plans/') || !((canonicalInRefs.get(d.rel) || new Set()).size > 0)) cls.set(d.rel, 'historical');
   else cls.set(d.rel, 'ordinary');
 }
-const counts = { canonical: 0, active: 0, historical: 0, ordinary: 0 };
+const counts = { canonical: 0, active: 0, frozen: 0, historical: 0, ordinary: 0 };
 for (const c of cls.values()) counts[c]++;
-if (counts.canonical + counts.active + counts.historical + counts.ordinary !== docs.length)
-  fail(`分类完备性失败：四态之和 ${counts.canonical + counts.active + counts.historical + counts.ordinary} ≠ 扫描总数 ${docs.length}`);
+if (counts.canonical + counts.active + counts.frozen + counts.historical + counts.ordinary !== docs.length)
+  fail(`分类完备性失败：五态之和 ${counts.canonical + counts.active + counts.frozen + counts.historical + counts.ordinary} ≠ 扫描总数 ${docs.length}`);
 
 // ── 11. 双向自校验（按 kind 分流）：dead=scope 内零存在（剥注释——墓碑注释不算存在）；never-built/frozen 不做代码存在性校验
 // 代码存在性扫描域=apps/*/src + packages/*/src + apps/api/prisma/verify-indexes.sql（现行断言载体）的**生产代码**；
@@ -300,8 +315,8 @@ const exemptKeys = new Set(exemptions.map((e) => `${e.file}:${e.line}:${e.symbol
 const vocabSymbols = deadInfo.symbols.filter((s) => (s.kind === 'dead' || s.kind === 'never-built') && s.scope === 'repo');
 const vRegex = boundaryRegex(vocabSymbols.map((s) => s.symbol));
 const vocabHits = []; // canonical 违规（红）
-const activeVocabWarn = []; // active 在建文档命中（警告不阻断）
-for (const d of docs.filter((x) => canonicalSet.has(x.rel) || cls.get(x.rel) === 'active')) {
+const activeVocabWarn = []; // active/ordinary 文档命中（警告不阻断——第七轮：ordinary 原为唯一零检查类）
+for (const d of docs.filter((x) => canonicalSet.has(x.rel) || cls.get(x.rel) === 'active' || cls.get(x.rel) === 'ordinary')) {
   vRegex.lastIndex = 0;
   let m;
   while ((m = vRegex.exec(d.text)) !== null) {
@@ -314,35 +329,68 @@ for (const d of docs.filter((x) => canonicalSet.has(x.rel) || cls.get(x.rel) ===
 }
 
 // ── 13. 引用存在性：canonical 文档内目录限定 md 路径必须存在（不查行号/锚点——锚点安全靠"指针化保留原标题行"保障）
+//    + 死路径检查（第七轮）：canonical 文档提及的**代码文件**（.ts/.tsx/… 含裸文件名）在仓内无同名文件 ⇒ 分级红/警——
+//      不依赖死符号清单、无归属歧义（master plan 引已删 canvasHistory.ts——读者照做即扑空）；豁免走同一 file:line:symbol 通道。
 const badRefs = [];
+const deadPaths = [];
+const codeRefWarn = [];
+const ordinaryRefWarn = [];
 {
-  // 引用形态：[text](path) 链接目标/散文路径——含相对 ./ ../ 前缀；剥离代码围栏（命令输出路径非文档引用，如 --out e2e/audit/xxx）
   const mdRef = /(?:\.{1,2}\/)*[A-Za-z0-9_][A-Za-z0-9_\-./]*\/[A-Za-z0-9_\-.]+\.md/g;
+  const codeRef = /[A-Za-z0-9_\-./]*[A-Za-z0-9_\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|sql|vue|css|scss)\b/g;
   const resolveExists = (token, docDir) => {
     const norm = token.replace(/\/+/g, '/');
     const cands = [norm, `${docDir}/${norm}`, `docs/superpowers/${norm}`, `docs/${norm}`, `apps/web/${norm}`, `apps/api/${norm}`];
     return cands.some((c) => fs.existsSync(path.join(ROOT, c)));
   };
-  for (const d of docs.filter((x) => canonicalSet.has(x.rel))) {
-    const prose = d.text.replace(/```[\s\S]*?```/g, '');
+  const trackedBasenames = new Set(
+    execSync('git ls-files', { cwd: ROOT, encoding: 'utf8' }).split(/\r?\n/).map((l) => l.split('/').pop()).filter(Boolean),
+  );
+  const resolveCodeExists = (token, docDir) =>
+    resolveExists(token, docDir) || trackedBasenames.has(token.split('/').pop()); // 裸文件名按全仓 basename 索引判活
+  const deadStems = new Set(deadInfo.symbols.filter((s) => s.kind === 'dead' || s.kind === 'never-built').map((s) => s.symbol));
+  for (const d of docs.filter((x) => canonicalSet.has(x.rel) || cls.get(x.rel) === 'ordinary')) {
+    const prose = d.text.replace(/```[\s\S]*?```/g, (s) => s.replace(/[^\n]/g, '')); // 保留行结构——行号与原文件一致
+    const isCanon = canonicalSet.has(d.rel);
+    const docDir = path.posix.dirname(d.rel);
     mdRef.lastIndex = 0;
     let m;
     while ((m = mdRef.exec(prose)) !== null) {
       if (m[0].includes('://')) continue;
-      if (!resolveExists(m[0], path.posix.dirname(d.rel))) badRefs.push({ file: d.rel, token: m[0] });
+      if (!resolveExists(m[0], docDir)) (isCanon ? badRefs : ordinaryRefWarn).push({ file: d.rel, token: m[0] });
+    }
+    codeRef.lastIndex = 0;
+    while ((m = codeRef.exec(prose)) !== null) {
+      const token = m[0].replace(/^[./]+/, '');
+      if (!token || token.includes('://')) continue;
+      const { line } = lineAt(prose, m.index);
+      if (exemptKeys.has(`${d.rel}:${line}:${token}`)) continue;
+      if (resolveCodeExists(token, docDir)) continue;
+      // 分级：带路径前缀缺失⇒红；裸文件名缺失且词干∈死符号清单⇒红（canvasHistory.ts 类）；
+      // 裸名未知或 vendor 构建产物段（dist//es//lib/）⇒警——node_modules 引源不可判（collab spec F11 引库内部文件实证）
+      const stem = token.replace(/\.[a-z]+$/, '');
+      const vendorArtifact = /(^|\/)(dist|es|lib|cjs|node_modules)\//.test(token) || /^(lib0|yjs|@hocuspocus|@xyflow)\//.test(token);
+      const nameList = token.split('/').length > 1 && token.split('/').every((seg) => /^[A-Za-z0-9_.-]+\.[a-z]+$/.test(seg)); // "Server.ts/Hocuspocus.ts" 双名连写
+      if (!isCanon || vendorArtifact || nameList) { ordinaryRefWarn.push({ file: d.rel, token }); continue; }
+      if (token.includes('/') || deadStems.has(stem)) deadPaths.push({ file: d.rel, line, token });
+      else codeRefWarn.push({ file: d.rel, line, token });
     }
   }
 }
 
 // ── 14. 汇总输出与退出码
 const violations = [];
+if (canonicalDrift) violations.push('[canonical-drift] 派生清单与 docs/_meta/canonical.json 落盘不一致（判据面已变动）——跑 `node scripts/doc-gate.mjs --write-canonical` 更新并 review diff');
 for (const h of codeHits) violations.push(`[self-check] dead 符号 \`${h.symbol}\` 仍存在于代码：${h.src}:${h.line} ${h.lineText}`);
 for (const h of vocabHits) violations.push(`[vocabulary] canonical 文档含死符号 \`${h.symbol}\`：${h.file}:${h.line}（叙述性合法提及→docs/_meta/exemptions.json 登记，TTL≤90 天）`);
 for (const b of badRefs) violations.push(`[ref-existence] canonical 文档引用不存在的 md：${b.file} → ${b.token}`);
+for (const p of deadPaths) violations.push(`[dead-path] canonical 文档引用不存在的代码文件：${p.file}:${p.line} → ${p.token}（历史记录性提及→exemptions 登记同名 symbol）`);
 for (const e of badExemptions) violations.push(`[exemption] 非法条目（expires_at 须绝对日期且距今 ≤90 天）：${JSON.stringify(e)}`);
 if (expiredCount > 0) violations.push(`[exemption] 已到期豁免 ${expiredCount} 条（复核后删除或续期重登记）`);
 
-const summary = `doc-gate: 语料 ${docs.length} 份 | canonical ${counts.canonical} / active ${counts.active} / historical ${counts.historical} / ordinary ${counts.ordinary} | 代码域 ${codeTexts.length} 文件 | 新增豁免待登记 ${vocabHits.length} / 已到期 ${expiredCount} | 违规 ${violations.length}${activeVocabWarn.length ? `（另有 active 文档叙述性命中 ${activeVocabWarn.length} 条警告）` : ''}`;
+const injectedCount = canonical.filter((c) => (corpusMap.get(c.path)?.text || '').startsWith('<!-- doc-status: canonical')).length;
+const warnTotal = activeVocabWarn.length + ordinaryRefWarn.length + codeRefWarn.length;
+const summary = `doc-gate: 语料 ${docs.length} 份 | canonical ${counts.canonical}（状态行注入 ${injectedCount}）/ active ${counts.active} / frozen ${counts.frozen} / historical ${counts.historical} / ordinary ${counts.ordinary} | 代码域 ${codeTexts.length} 文件 | 新增豁免待登记 ${vocabHits.length + deadPaths.length} / 已到期 ${expiredCount} | 违规 ${violations.length}${warnTotal ? `（另有警告 v${activeVocabWarn.length}/p${codeRefWarn.length + ordinaryRefWarn.length}）` : ''}`;
 
 // ── 15. --write-status（批 4 Task 6-2/6-3）：historical 首行状态行写回 + canonical 状态行注入
 // 硬要求：①按文件探测 EOL 写回（CRLF 文件 LF 注入会产出 w/mixed）②幂等——首行已有 doc-status：
@@ -397,17 +445,25 @@ if (args.has('--stats')) {
   for (const c of canonical) console.log(`  [${c.criteria}] ${c.path}`);
   console.log('\n-- active --');
   for (const [r, c] of cls) if (c === 'active') console.log(`  ${r}`);
+  console.log('\n-- frozen --');
+  for (const [r, c] of cls) if (c === 'frozen') console.log(`  ${r}`);
   console.log('\n-- ordinary --');
   for (const [r, c] of cls) if (c === 'ordinary') console.log(`  ${r}`);
   console.log(`\n-- historical ${counts.historical} 份（略；--list-historical 全量）--`);
 }
 if (args.has('--sample')) {
-  const n = Number([...args].find((a) => a.startsWith('--sample='))?.split('=')[1] ?? [...process.argv].find((a) => a === '--sample') ? 10 : 10);
-  const nonCanonical = [...cls.entries()].filter(([, c]) => c !== 'canonical').map(([r]) => r);
-  for (let i = 0; i < Math.min(n, nonCanonical.length); i++) console.log(nonCanonical[Math.floor(Math.random() * nonCanonical.length)]);
+  // 确定性抽样（第七轮：G4 可复算纪律）：sha1(path+seed) 升序取前 N——无放回、可复现、--seed= 可变
+  const { createHash } = await import('node:crypto');
+  const nArg = [...args].find((a) => a.startsWith('--sample='));
+  const n = Math.min(Number(nArg?.split('=')[1]) || 10, 200);
+  const seedArg = [...args].find((a) => a.startsWith('--seed='));
+  const seed = seedArg?.split('=')[1] ?? '';
+  const pool = [...cls.entries()].filter(([r, c]) => c !== 'canonical' && !frozenSet.has(r)).map(([r]) => r);
+  pool.sort((a, b) => (createHash('sha1').update(a + seed).digest('hex') < createHash('sha1').update(b + seed).digest('hex') ? -1 : 1));
+  for (let i = 0; i < Math.min(n, pool.length); i++) console.log(pool[i]);
 }
 if (args.has('--gen-exemptions')) {
-  console.log(JSON.stringify(vocabHits.map((h) => ({ file: h.file, line: h.line, symbol: h.symbol, reason: '', expires_at: capStr })), null, 2));
+  console.log(JSON.stringify([...vocabHits, ...deadPaths].map((h) => ({ file: h.file, line: h.line, symbol: h.symbol, reason: '', expires_at: capStr })), null, 2));
 }
 if (args.has('--fill-removed-in')) {
   let changed = false;

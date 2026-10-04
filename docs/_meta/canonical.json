@@ -1,5 +1,5 @@
 {
-  "comment": "由 scripts/doc-gate.mjs 派生（C1/C4）+ canonical-manual.json（C2/C3）合并。勿手改派生条目——人工增补走 canonical-manual.json（criteria+reason 强制）。",
+  "comment": "由 scripts/doc-gate.mjs 派生（C1/C4）+ canonical-manual.json（C2/C3）合并。勿手改——更新走 --write-canonical（漂移红后显式落盘并 review）。",
   "items": [
     {
       "path": "docs/README.md",
@@ -9,14 +9,6 @@
           "src": "docs/_meta/canonical-manual.json",
           "text": "权威链入口面（spec §5.1 六节载体）——canonical 清单/兜底规则/排除声明/verified_at 操作规则的宿主"
         }
-      ]
-    },
-    {
-      "path": "docs/superpowers/DELETED.md",
-      "criteria": "C4",
-      "evidence": [
-        "入引用自 docs/README.md",
-        "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md"
       ]
     },
     {
@@ -120,17 +112,6 @@
       ]
     },
     {
-      "path": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
-      "criteria": "C1",
-      "evidence": [
-        {
-          "src": "apps/web/src/utils/spec-version-consistency.guard.test.ts",
-          "line": 19,
-          "text": "const PLAN = join(REPO_ROOT, 'docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md');"
-        }
-      ]
-    },
-    {
       "path": "docs/superpowers/plans/collab-e2e-gate-checklist.md",
       "criteria": "C1",
       "evidence": [
@@ -150,7 +131,6 @@
       "path": "docs/superpowers/plans/socketio-retirement-assessment.md",
       "criteria": "C4",
       "evidence": [
-        "入引用自 docs/README.md",
         "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
         "入引用自 docs/superpowers/tech-debt.md"
       ]
@@ -214,21 +194,9 @@
       ]
     },
     {
-      "path": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
-      "criteria": "C1",
-      "evidence": [
-        {
-          "src": "apps/web/src/utils/spec-version-consistency.guard.test.ts",
-          "line": 20,
-          "text": "const SPEC = join(REPO_ROOT, 'docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md');"
-        }
-      ]
-    },
-    {
       "path": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
       "criteria": "C4",
       "evidence": [
-        "入引用自 docs/README.md",
         "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
         "入引用自 docs/superpowers/tech-debt.md"
       ]
@@ -237,7 +205,6 @@
       "path": "docs/superpowers/specs/admin-console-refactor.md",
       "criteria": "C4",
       "evidence": [
-        "入引用自 docs/README.md",
         "入引用自 docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
         "入引用自 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md"
       ]

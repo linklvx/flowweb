@@ -169,6 +169,27 @@
       "scope": "apps/api/prisma/verify-indexes.sql",
       "removedIn": "ee5e92e7",
       "reason": "查询已 drop 的 UserBalance 约束（死 CHECK 块，批 1 Task 3-4 删块）"
+    },
+    {
+      "symbol": "canvasHistory",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "c6cccad5",
+      "reason": "结构投影模块整删（Spec B O0b-4 S1 退役）"
+    },
+    {
+      "symbol": "syncNodes",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "81cc196d",
+      "reason": "REST 批量同步端点客户端随画布 REST 链路退役"
+    },
+    {
+      "symbol": "syncEdges",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "81cc196d",
+      "reason": "REST 批量同步端点客户端随画布 REST 链路退役"
     }
   ]
 }

@@ -1,4 +1,4 @@
-<!-- doc-status: historical | verified_at: n/a -->
+<!-- doc-status: historical | superseded-by: specs/2026-09-29-collab-conn-status-recovery-design.md | verified_at: n/a | note: zundo 引擎已退役——现行=Y.UndoManager（撤销仅本人操作；canvasUndo.ts:12 STACK_LIMIT=100 现行）；机制描述仅存历史档 -->
 # Spec: 画布 Undo/Redo（结构层，zundo 快照式）
 
 日期：2026-08-25（v5，同日四轮评审修订）

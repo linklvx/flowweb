@@ -1,3 +1,4 @@
+<!-- doc-status: active | note: Spec B 结项前在用的验收输入（第七轮裁决：从 ordinary 转 active——ordinary 曾为零检查类） | verified_at: n/a -->
 # Spec B 需求 5/6/7 用户可见验收清单（B7-2 交付物——v3.17 终裁 68⑤）
 
 口径：**非实现者可判**的「打开画布→操作→看到什么」半小时人工判定表。判定环境：本地双浏览器

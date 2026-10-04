@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
+<!-- doc-status: frozen | note: Spec B FROZEN——实施计划定稿（spec-version 守卫锚；vocabulary/引用检查豁免——决策记录体裁） | verified_at: n/a -->
 # Canvas 组升级 Spec B — 组几何所有权 + 批量连线 实施计划（**v3.6-FROZEN** 终裁版）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

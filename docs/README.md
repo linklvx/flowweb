@@ -12,7 +12,7 @@
 
 ## ② canonical 清单（当前值）
 
-生成命令：`node scripts/doc-gate.mjs --list-canonical`（判据 C1~C4 见 spec §5.4；清单是判据的派生物，可被判据推翻）。
+生成命令：`node scripts/doc-gate.mjs --list-canonical`（判据 C1~C4 见 spec §5.4；清单是判据的派生物，可被判据推翻；**索引与登记表不计为入引用来源**——被 README 列出≠权威）。
 
 | 判据 | 文档 |
 |---|---|
@@ -21,22 +21,24 @@
 | C1 | superpowers/plans/2026-09-20-canvas-domain-theme.md |
 | C1 | superpowers/plans/2026-09-26-image-node-panel-redesign.md |
 | C1 | superpowers/plans/2026-09-30-collab-recovery-master-plan.md（批 7 完成态——判据源锚） |
-| C1 | superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md（spec-version 守卫锚） |
 | C1 | superpowers/plans/collab-e2e-gate-checklist.md（ci.yml 锚；含 smoke-dual-client 归并节——原文件批 2 退役） |
 | C1 | superpowers/specs/2026-09-18-css-base-layer-theme-design.md |
 | C1 | superpowers/specs/2026-09-20-creditsdropdown-light-draft.md |
 | C1 | superpowers/specs/2026-09-26-image-node-panel-redesign.md |
-| C1 | superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md（spec-version 守卫锚） |
 | C1 | superpowers/specs/video-editor.md（视频剪辑域需求锚点） |
 | C1 | superpowers/tech-debt.md（TD 台账） |
 | C4 | superpowers/plans/socketio-retirement-assessment.md |
+| C4 | superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md（现行 collab 架构权威） |
 | C4 | superpowers/specs/admin-console-refactor.md |
-| C4 | superpowers/DELETED.md（删除登记表——可发现性机制，死因列含符号名属登记功能） |
 | C3 | superpowers/deployment-db-baseline.md（运维基线） |
 | C3 | 团队功能说明.md（面向用户的产品说明） |
 | C3 | README.md（本文件——权威链入口面） |
 
-新增 canonical 必须登记命中依据（criteria+evidence，人工增补走 `docs/_meta/canonical-manual.json`）。
+**frozen（冻结决策记录——不进权威链、门禁检查豁免，内容本体不动）**：Spec B 两份（specs/2026-09-28-group-geometry-batch-connect-design.md + plans/2026-10-02-canvas-group-spec-b-geometry-batch.md——spec-version 守卫锚）；DELETED.md（删除登记表——索引性载体）。
+
+**active（在建/在用——vocabulary 告警级）**：specb-acceptance-checklist / specb-device-protocol / specb-risk-ledger（Spec B 结项前在用的验收输入，结项后翻 historical）。
+
+新增 canonical 必须登记命中依据（criteria+evidence，人工增补走 `docs/_meta/canonical-manual.json`）。清单基线比较制：判据面变动时 doc-gate 报 canonical-drift 红，跑 `--write-canonical` 落盘并 review。
 
 ## ③ 兜底规则
 
@@ -95,3 +97,5 @@ PRD 剔除项（均未建设，全文决策见 DELETED.md）：Apache APISIX（�
 - **dead 符号登记是删除动作的一部分**：删除清单外既存无效代码者，须在同一 commit 内登记 `docs/_meta/dead-symbols.json`（symbol/removedIn/reason）。
 - **到期复核**：豁免 `expires_at` 到期由门禁红强制触发（谁触发谁处理）；canonical `warn_deadline` 到期由 doc-gate 输出清单驱动。
 - **元规则**：任何新增门禁规则必须同时定义其**误报率测试**与**豁免通道（含 TTL）**——无测试的规则=假绿，无 TTL 的豁免=永久豁免。
+- **执行频率**：文档门禁挂在 `pnpm verify` 链首（阻塞态）——执行频率=PR/push（CI test job）；nightly 的 e2e-collab job **不跑 verify**。查询模式（--stats/--list-*/--sample）只读；canonical.json 唯一写者=`--write-canonical`。
+- **验证链纪律（TD-26）**：门禁命令禁接管道（`| tail` 掩退出码）；flaky 必须隔离复跑并显式记录；派生器源集不得包含索引/登记表。

@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
+<!-- doc-status: frozen | note: 删除登记表（索引性载体——不进权威链，死因列即其职能） | verified_at: n/a -->
 # 已删除文档索引（DELETED）
 
 > 可发现性载体（spec §5.5）：git 为归档、"在 git 里"只在知道文件名时成立。批 2 起逐行登记。
