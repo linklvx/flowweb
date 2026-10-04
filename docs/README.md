@@ -99,3 +99,4 @@ PRD 剔除项（均未建设，全文决策见 DELETED.md）：Apache APISIX（�
 - **元规则**：任何新增门禁规则必须同时定义其**误报率测试**与**豁免通道（含 TTL）**——无测试的规则=假绿，无 TTL 的豁免=永久豁免。
 - **执行频率**：文档门禁挂在 `pnpm verify` 链首（阻塞态）——执行频率=PR/push（CI test job）；nightly 的 e2e-collab job **不跑 verify**。查询模式（--stats/--list-*/--sample）只读；canonical.json 唯一写者=`--write-canonical`。
 - **验证链纪律（TD-26）**：门禁命令禁接管道（`| tail` 掩退出码）；flaky 必须隔离复跑并显式记录；派生器源集不得包含索引/登记表。
+- **文件修改纪律（TD-26⑥）**：仓内既有文件的内容变更一律 edit/patch 语义；整文件覆写必须先产出 diff 审阅——禁 `node -e`/`sed -i` 类单行命令改仓内文件（doc-gate.mjs 单行覆写+tech-debt.md NUL 两事故成文）。doc-gate 退出码三分：0=PASS／1=违规／2=结构性或环境错误（apps/web/scripts/lint-gate.mjs:271 先例）；语料文档含 NUL 字节 ⇒ 红（[binary-corpus]，TD-26 第四例）。

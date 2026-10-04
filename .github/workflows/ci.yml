@@ -50,6 +50,18 @@ jobs:
       # api eslint（批0e-3 起 verify 未含 api lint，单独一步挂门禁）
       - run: pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
 
+  # 第八轮拆分：文档门禁独立 job——verify && 链内 doc-gate 的红会掩掉下游测试信号、自身红绿也被
+  # flaky 噪声吞掉（TD-26②）；required check 粒度需单独可读（test+doc-gate 双 required=机制+强制）。
+  # doc-gate 零 npm 依赖（node 内建+git），无需 pnpm install。
+  doc-gate:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node scripts/doc-gate.mjs
+
   # 批7 双客户端 E2E 发布门禁（spec v5.10 目标 8 链路）：nightly schedule + workflow_dispatch，
   # PR 不跑；步骤=gate 脚本单一真相源（预检→自拉 API(COLLAB_FAKE_AI=1)→playwright collab-recovery→清理）。
   # 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md

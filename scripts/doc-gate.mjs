@@ -2,6 +2,8 @@
 // docs 门禁本体（spec docs/superpowers/specs/2026-10-05-doc-governance-closure-design.md §5.2/5.3/5.4/5.6；plan Task 1-3）
 // 接入形态：批 0 以 --warn-only 挂 verify 链首 → 批 4 Task 6-3 转阻塞（去 --warn-only）。
 // CLI 随批次扩充：--write-status（批 4）、--audit-sample（批 5）。
+// 退出码三分契约（apps/web/scripts/lint-gate.mjs:271 先例）：0=PASS；1=门禁违规；2=结构性/环境错误
+// （fail() 与外部依赖不可用——受限沙箱跑出的是"环境跑不了"而非"文档违规"，二者不得共用 exit 1）。
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -25,8 +27,8 @@ const ROOT = findRepoRoot(path.dirname(fileURLToPath(import.meta.url)));
 const toRel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 
 function fail(msg) {
-  console.error(`doc-gate: 结构性错误（exit 1）——${msg}`);
-  process.exit(1);
+  console.error(`doc-gate: 结构性错误（exit 2）——${msg}`);
+  process.exit(2);
 }
 
 // ── 2. 语料（口径唯一权威；排除域=docs/vendor、.worktrees、.claude/worktrees、backups、brainstorm——见 docs/README.md 排除声明）
@@ -343,9 +345,15 @@ const ordinaryRefWarn = [];
     const cands = [norm, `${docDir}/${norm}`, `docs/superpowers/${norm}`, `docs/${norm}`, `apps/web/${norm}`, `apps/api/${norm}`];
     return cands.some((c) => fs.existsSync(path.join(ROOT, c)));
   };
-  const trackedBasenames = new Set(
-    execSync('git ls-files', { cwd: ROOT, encoding: 'utf8' }).split(/\r?\n/).map((l) => l.split('/').pop()).filter(Boolean),
-  );
+  // 运行时依赖：需 PATH 可执行 git（CI checkout 环境成立；受限沙箱 fail→exit 2 环境错误，不误报文档红）。
+  // ls-files 只列 tracked 文件——本地未跟踪新文件按"不存在"判（裸文件名判活以 git 基线为准）。
+  let trackedList;
+  try {
+    trackedList = execSync('git ls-files', { cwd: ROOT, encoding: 'utf8' });
+  } catch (e) {
+    fail(`git ls-files 不可执行——本门禁需可执行 git 的环境（受限沙箱/无 git）：${e.message}`);
+  }
+  const trackedBasenames = new Set(trackedList.split(/\r?\n/).map((l) => l.split('/').pop()).filter(Boolean));
   const resolveCodeExists = (token, docDir) =>
     resolveExists(token, docDir) || trackedBasenames.has(token.split('/').pop()); // 裸文件名按全仓 basename 索引判活
   const deadStems = new Set(deadInfo.symbols.filter((s) => s.kind === 'dead' || s.kind === 'never-built').map((s) => s.symbol));
@@ -380,6 +388,10 @@ const ordinaryRefWarn = [];
 
 // ── 14. 汇总输出与退出码
 const violations = [];
+// binary 守卫（TD-26 第四例）：语料含 NUL ⇒ git 判二进制→diff 永久失明、.gitattributes text 声明失真，门禁必须自暴露
+for (const d of docs.filter((x) => x.text.includes('\u0000'))) {
+  violations.push(`[binary-corpus] 语料文档含 NUL 字节（文件已二进制化，git diff 失明而门禁报绿=静默失败）：${d.rel}——定位 0x00 还原本意文本后重 commit`);
+}
 if (canonicalDrift) violations.push('[canonical-drift] 派生清单与 docs/_meta/canonical.json 落盘不一致（判据面已变动）——跑 `node scripts/doc-gate.mjs --write-canonical` 更新并 review diff');
 for (const h of codeHits) violations.push(`[self-check] dead 符号 \`${h.symbol}\` 仍存在于代码：${h.src}:${h.line} ${h.lineText}`);
 for (const h of vocabHits) violations.push(`[vocabulary] canonical 文档含死符号 \`${h.symbol}\`：${h.file}:${h.line}（叙述性合法提及→docs/_meta/exemptions.json 登记，TTL≤90 天）`);

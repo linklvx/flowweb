@@ -117,7 +117,7 @@
       "evidence": [
         {
           "src": ".github/workflows/ci.yml",
-          "line": 55,
+          "line": 67,
           "text": "# 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md"
         },
         {
