@@ -328,6 +328,22 @@ export interface CanvasState {
    *  （终裁 78⑩——abort 族收尾回滚会吃掉提交；防复用重演 P0-10）。幂等：无 drag 会话=no-op
    *  （resize 会话归 commitResizeGesture）。生产接线=CanvasView onNodeDragStop 头部。 */
   commitIntents: () => void;
+  /** B5'-2（Spec B 终裁 38①/24/17）：拖动松手单一路由——旧链（CanvasView handleNodeDragStop→
+   *  onNodeDragStopIntoGroup→findDropGroup[groupDrop.ts 整模块删]）整链替换；生产接线=ReactFlow
+   *  onNodeDragStop={handleDragRelease}（唯一直连）。终裁序：幂等早退→stopCapturing（第 2 行——
+   *  release 单 undo 步左边界，锚"拖完立即 Ctrl+Z⇒只回退拖动不回退前一条命令"）→裁决（冻结帧+
+   *  交叠面积——候选=全部组含当前组、排除被拖集合[被拖组不是合法落点]；tie-break：overlapArea>0
+   *  面积最大胜/max===0⇒顶层化/并列 id 最小——新路由规则非迁移）→R4 预检（Inner 化批守卫收窄的
+   *  新家：受影响组执行中⇒message+跳过该叶归属变更，位置照常提交）→位置提交+脱离信封同批单
+   *  transact（buildDragCommitIntents 构造单源+updateNodeEnvelope{parentId:undefined}；清 session
+   *  先于 dispatch——脱离经投影先落 cs membership⇒漏斗尾按最终归属一次派生：空组档=
+   *  COLLAPSED_SIZE@冻结原位、同命令内无中间尺寸、1 子组不解散）→入组分派壳（storyboard⇒
+   *  dropImageIntoStoryboard/normal⇒dropIntoGroup——doc 已新鲜+session 已清，壳行为≡直调：clamp
+   *  placement/折叠先展开/源组善后留函数体单层，全量 rebase F33 abs 守恒；归属分发先于位置提交
+   *  会被漏斗尾以 baseline 位置蚀刻 cs——探针实证禁序）→stopCapturing（窗右边界）。零归属决策⇒
+   *  commitIntents() 原样（B5'-1 路径）。幂等：无会话/resize 会话 no-op（resize 提交=
+   *  commitResizeGesture 专属）。 */
+  handleDragRelease: () => void;
   /** B4'-1（Spec B）手势活动刷新（常驻监听 pointermove[buttons!==0] 消费）：lastActivityAt 置位
    *  +watchdog 重挂（每次活动重挂——主道）。会话非渲染面，lastActivityAt 原位刷新零订阅广播。 */
   noteDragActivity: () => void;
@@ -401,6 +417,76 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   const finalizeGestureSession = () => {
     clearDragWatchdog();
     set({ dragSession: null });
+  };
+
+  /** B5'-2（Spec B）：拖动提交意图构造单源——原 commitIntents ①②（被拖叶末帧→moveNode 载荷=abs
+   *  [冻结/活 origin 翻转]+被拖组子代 abs+manual 展开态组帧三键 envelope；末帧≡doc 零净变更剔除
+   *  [LWW 末帧胜出]）。commitIntents 与 handleDragRelease（归属信封同批单 transact——B5'-2
+   *  单一路由）共用，构造数学禁双实现。 */
+  const buildDragCommitIntents = (s: DragSession): CanvasIntent[] => {
+    const nodes = get().nodes;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const d = resolveDoc();
+    const docPosById = d
+      ? new Map(readCanvasFromDoc(d).nodes.map((r) => [r.id, r.position]))
+      : null;
+    const near = (a: number, b: number) => Math.abs(a - b) <= RECONCILE_EPS;   // 单源导入（量化契约表冻结——浮点往返噪声域）
+    const intents: CanvasIntent[] = [];
+    // ①被拖叶：末帧→moveNode 载荷=abs（量化契约表：顶层 cs.position 即 abs；子 rel+组 origin 翻转
+    // ——拖叶档父组帧冻结[origin=frozenFrames]/拖组档 origin 活=cs[G].position）。零净变更剔除：
+    // 末帧 abs≡doc 现值⇒零 intent——空操作/往返 exact 同档零事务；无远端写时 doc 现值≡baseline。
+    // **LWW 语义**：被拖节点被远端写（让位保护窗）时末帧≠doc 现值⇒末帧胜出提交——与"让位=手势期
+    // 本地几何权威"（终裁 71 保护回写 {position}=末帧）连续；baseline 比较反会把 cs 拉回远端值，
+    // 违 66④①"提交后 cs≡末帧"。
+    for (const id of s.draggingIds) {
+      const n = byId.get(id);
+      if (!n || n.type === 'group') continue;   // 被拖组归②；手势期被删（remove 谓词应已收尾）防御跳过
+      const parentId = n.parentId;
+      const origin = parentId != null
+        ? (s.draggedGroupIds.has(parentId)
+            ? byId.get(parentId)?.position   // 拖组档：origin 活
+            : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position)   // 拖叶档：父组帧冻结
+        : undefined;
+      const abs = origin
+        ? { x: n.position.x + origin.x, y: n.position.y + origin.y }
+        : { x: n.position.x, y: n.position.y };
+      const cur = docPosById?.get(id);
+      if (cur == null) continue;   // doc 无记录/分镜子无 position 键（剥键域非本提交面——membership 归 B5'-2）
+      if (near(abs.x, cur.x) && near(abs.y, cur.y)) continue;   // 零净变更
+      intents.push({ type: 'moveNode', id, position: abs });
+    }
+    // ②被拖组：随组位移的子代（不在 draggingIds 的成员——RF 拖组只动组节点，子 rel 不变、abs 随
+    // origin 平移；直拖子①已提交去重）+manual 展开态组帧三键密封（手势三行表"拖组=manual 组+帧三键"；
+    // 折叠 manual/storyboard=position-only[终裁 82 密封源/键集表 storyboard 无 wh]；auto 恒无帧键
+    // ——帧归 reconcile 派生；折叠档 cs wh=COLLAPSED_SIZE 派生禁入 doc[终裁 82 doc 三键=展开态密封]）
+    for (const gid of s.draggedGroupIds) {
+      const g = byId.get(gid);
+      if (!g) continue;
+      for (const c of nodes) {
+        if (c.parentId !== gid || s.draggingIds.has(c.id)) continue;
+        const abs = { x: c.position.x + g.position.x, y: c.position.y + g.position.y };
+        const cur = docPosById?.get(c.id);
+        if (cur == null) continue;
+        if (near(abs.x, cur.x) && near(abs.y, cur.y)) continue;
+        intents.push({ type: 'moveNode', id: c.id, position: abs });
+      }
+      const gcur = docPosById?.get(gid);
+      if (!isContentDerivedGroup(g) && gcur != null
+        && !(near(g.position.x, gcur.x) && near(g.position.y, gcur.y))) {
+        const gdata = (g.data ?? {}) as Record<string, unknown>;
+        // 帧键发射档（spec 评 P1-A 收口）：manual 展开态=三键密封；折叠 manual=position-only
+        //（终裁 82 doc 三键=展开态密封源——COLLAPSED_SIZE 派生值禁入 doc）；storyboard=position-only
+        //（键集表"storyboard 组无 wh"——cs wh 为 calcStoryboardSize 派生值非作者态）。
+        const positionOnly = gdata.collapsed === true || gdata.groupType === 'storyboard';
+        intents.push({
+          type: 'updateNodeEnvelope', id: gid,
+          patch: positionOnly
+            ? { position: { x: g.position.x, y: g.position.y } }
+            : { position: { x: g.position.x, y: g.position.y }, width: g.width, height: g.height },
+        });
+      }
+    }
+    return intents;
   };
 
   // R2a-6 副本落位公共段（duplicateNodes/pasteGroupClipboard 两薄壳共用）：cs 结构 set（副本信封
@@ -1084,68 +1170,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   commitIntents: () => {
     const s = get().dragSession;
     if (!s || s.gestureKind !== 'drag') return;   // 幂等：无会话/resize 会话（提交=commitResizeGesture 专属）no-op
-    const nodes = get().nodes;
-    const byId = new Map(nodes.map((n) => [n.id, n]));
     const d = resolveDoc();
-    const docPosById = d
-      ? new Map(readCanvasFromDoc(d).nodes.map((r) => [r.id, r.position]))
-      : null;
-    const near = (a: number, b: number) => Math.abs(a - b) <= RECONCILE_EPS;   // 单源导入（量化契约表冻结——浮点往返噪声域）
-    const intents: CanvasIntent[] = [];
-    // ①被拖叶：末帧→moveNode 载荷=abs（量化契约表：顶层 cs.position 即 abs；子 rel+组 origin 翻转
-    // ——拖叶档父组帧冻结[origin=frozenFrames]/拖组档 origin 活=cs[G].position）。零净变更剔除：
-    // 末帧 abs≡doc 现值⇒零 intent——空操作/往返 exact 同档零事务；无远端写时 doc 现值≡baseline。
-    // **LWW 语义**：被拖节点被远端写（让位保护窗）时末帧≠doc 现值⇒末帧胜出提交——与"让位=手势期
-    // 本地几何权威"（终裁 71 保护回写 {position}=末帧）连续；baseline 比较反会把 cs 拉回远端值，
-    // 违 66④①"提交后 cs≡末帧"。
-    for (const id of s.draggingIds) {
-      const n = byId.get(id);
-      if (!n || n.type === 'group') continue;   // 被拖组归②；手势期被删（remove 谓词应已收尾）防御跳过
-      const parentId = n.parentId;
-      const origin = parentId != null
-        ? (s.draggedGroupIds.has(parentId)
-            ? byId.get(parentId)?.position   // 拖组档：origin 活
-            : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position)   // 拖叶档：父组帧冻结
-        : undefined;
-      const abs = origin
-        ? { x: n.position.x + origin.x, y: n.position.y + origin.y }
-        : { x: n.position.x, y: n.position.y };
-      const cur = docPosById?.get(id);
-      if (cur == null) continue;   // doc 无记录/分镜子无 position 键（剥键域非本提交面——membership 归 B5'-2）
-      if (near(abs.x, cur.x) && near(abs.y, cur.y)) continue;   // 零净变更
-      intents.push({ type: 'moveNode', id, position: abs });
-    }
-    // ②被拖组：随组位移的子代（不在 draggingIds 的成员——RF 拖组只动组节点，子 rel 不变、abs 随
-    // origin 平移；直拖子①已提交去重）+manual 展开态组帧三键密封（手势三行表"拖组=manual 组+帧三键"；
-    // 折叠 manual/storyboard=position-only[终裁 82 密封源/键集表 storyboard 无 wh]；auto 恒无帧键
-    // ——帧归 reconcile 派生；折叠档 cs wh=COLLAPSED_SIZE 派生禁入 doc[终裁 82 doc 三键=展开态密封]）
-    for (const gid of s.draggedGroupIds) {
-      const g = byId.get(gid);
-      if (!g) continue;
-      for (const c of nodes) {
-        if (c.parentId !== gid || s.draggingIds.has(c.id)) continue;
-        const abs = { x: c.position.x + g.position.x, y: c.position.y + g.position.y };
-        const cur = docPosById?.get(c.id);
-        if (cur == null) continue;
-        if (near(abs.x, cur.x) && near(abs.y, cur.y)) continue;
-        intents.push({ type: 'moveNode', id: c.id, position: abs });
-      }
-      const gcur = docPosById?.get(gid);
-      if (!isContentDerivedGroup(g) && gcur != null
-        && !(near(g.position.x, gcur.x) && near(g.position.y, gcur.y))) {
-        const gdata = (g.data ?? {}) as Record<string, unknown>;
-        // 帧键发射档（spec 评 P1-A 收口）：manual 展开态=三键密封；折叠 manual=position-only
-        //（终裁 82 doc 三键=展开态密封源——COLLAPSED_SIZE 派生值禁入 doc）；storyboard=position-only
-        //（键集表"storyboard 组无 wh"——cs wh 为 calcStoryboardSize 派生值非作者态）。
-        const positionOnly = gdata.collapsed === true || gdata.groupType === 'storyboard';
-        intents.push({
-          type: 'updateNodeEnvelope', id: gid,
-          patch: positionOnly
-            ? { position: { x: g.position.x, y: g.position.y } }
-            : { position: { x: g.position.x, y: g.position.y }, width: g.width, height: g.height },
-        });
-      }
-    }
+    const intents = buildDragCommitIntents(s);   // ①②构造（B5'-2 抽取单源——构造数学与 handleDragRelease 共享）
     // ③清 session 同步块（无条件先于判空——零 intents 亦清+watchdog clearTimeout）→ 单 transact
     // dispatch（Origin.LocalUser=拖动入栈一步 undo，终裁 48）。**清先于 dispatch**：漏斗尾 reconcile
     // 随 dispatch 跑时让位集合已废止⇒终末对齐=reconcile 全域（auto 父组帧重派生——冻结帧不滞留；
@@ -1160,6 +1186,92 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (import.meta.env.DEV && d && canEdit(get()) && !checkProjectionInvariant(d)) {
       throw new Error("[B5'-1] commitIntents 提交后投影不变量破缺（doc≡store 应收敛）");
     }
+  },
+
+  handleDragRelease: () => {
+    const s = get().dragSession;
+    if (!s || s.gestureKind !== 'drag') return;   // 幂等早退：无会话/resize 会话（提交=commitResizeGesture 专属）no-op
+    stopCapturing();   // 终裁序第 2 行（旧链随迁）——release 单 undo 步左边界：归属+位置同窗一步 undo
+    const nodes = get().nodes;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    // ── 裁决（纯计算——全部决策先于任何写，无序依赖）：冻结帧+交叠面积 ──
+    // 被拖组零归属变更（终裁 24①——组深≤1）；被拖叶逐个判落点：候选=全部组（含当前组）排除被拖
+    // 集合 draggingIds（⊇draggedGroupIds∪{每个被拖 id}）；组帧=会话冻结帧优先（源组判定界=冻结帧）
+    // else cs 帧；tie-break：overlapArea>0 面积最大胜/max===0⇒顶层化/并列 id 最小。目标=当前组⇒
+    // no-op（分镜壳无"已在组"守卫——路由层统一拦截防格内成员被误弹到组旁）。
+    type Decision = { id: string; kind: 'into' | 'detach'; groupId: string };
+    const decisions: Decision[] = [];
+    for (const id of s.draggingIds) {
+      const n = byId.get(id);
+      if (!n || n.type === 'group') continue;
+      const parentId = n.parentId;
+      // 末帧 abs（buildDragCommitIntents ① 同式：父∈被拖组⇒活 origin/否则冻结帧优先）
+      const origin = parentId != null
+        ? (s.draggedGroupIds.has(parentId)
+            ? byId.get(parentId)?.position
+            : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position)
+        : undefined;
+      const absX = n.position.x + (origin?.x ?? 0);
+      const absY = n.position.y + (origin?.y ?? 0);
+      const nw = n.width ?? DEFAULT_CHILD_SIZE.width;
+      const nh = n.height ?? DEFAULT_CHILD_SIZE.height;
+      let best: { id: string; area: number } | null = null;
+      for (const g of nodes) {
+        if (g.type !== 'group' || s.draggingIds.has(g.id)) continue;
+        const f = s.frozenFrames.get(g.id)
+          ?? { x: g.position.x, y: g.position.y, width: g.width ?? 0, height: g.height ?? 0 };
+        const ox = Math.min(absX + nw, f.x + f.width) - Math.max(absX, f.x);
+        const oy = Math.min(absY + nh, f.y + f.height) - Math.max(absY, f.y);
+        if (ox <= 0 || oy <= 0) continue;
+        const area = ox * oy;
+        if (best == null || area > best.area || (area === best.area && g.id < best.id)) best = { id: g.id, area };
+      }
+      if (best == null) {
+        if (parentId != null) decisions.push({ id, kind: 'detach', groupId: parentId });   // 越界脱离（max===0⇒顶层化）
+        continue;
+      }
+      if (best.id === parentId) continue;   // 落回当前组=no-op（拖回位置逐位保留——commitIntents 提交）
+      decisions.push({ id, kind: 'into', groupId: best.id });
+    }
+    // ── R4 预检（Inner 化批守卫收窄的新家——单一路由）：受影响组执行中⇒message+跳过该叶归属
+    // 变更（位置照常提交——拒绝面=归属非位置）；分镜目标守卫留 dropImageIntoStoryboard 函数体（单层）──
+    const effective = decisions.filter((dc) => {
+      if (dc.kind === 'into' && (byId.get(dc.groupId)?.data as any)?.groupType === 'storyboard') return true;
+      if (get().hasActiveProcessInGroup(dc.groupId)) {
+        message.warning('组内有节点正在执行，请等待完成后再操作');
+        return false;
+      }
+      return true;
+    });
+    if (effective.length === 0) {
+      get().commitIntents();   // 纯拖动/守卫拒绝=B5'-1 路径原样（含窗右边界 stopCapturing）
+      return;
+    }
+    // ── 位置提交+脱离信封同批单 transact（B5'-2 关键序）：任何归属分发先于位置提交，都会让该分发
+    // 的漏斗尾 reconcile('doc') 读到 baseline 位置（手势期 doc 零写）把 cs/目标组帧拉回拖前值
+    // （探针实证）。故脱离=信封与位置同批（投影先落 cs membership⇒漏斗尾按最终归属一次派生：
+    // 空组档=COLLAPSED_SIZE@冻结原位、同命令内无中间尺寸——1 子组不解散，removeNodeFromGroup
+    // 薄壳的空组解组善后不随行）；入组=壳后置——dispatch 后 doc 已新鲜+session 已清，壳行为≡
+    // 直调（clamp placement/折叠先展开/源组善后留函数体单层；全量 rebase，F33 abs 守恒）。
+    const intents = buildDragCommitIntents(s);
+    for (const dc of effective) {
+      if (dc.kind === 'detach') {
+        intents.push({ type: 'updateNodeEnvelope', id: dc.id, patch: { parentId: undefined } });
+      }
+    }
+    finalizeGestureSession();   // 清 session 先于 dispatch（B5'-1 终裁序同款——让位废止⇒漏斗尾全域）
+    dispatchCanvasIntent(intents, Origin.LocalUser);
+    for (const dc of effective) {
+      if (dc.kind !== 'into') continue;
+      const g = get().nodes.find((n) => n.id === dc.groupId);
+      if (!g) continue;
+      if ((g.data as any).groupType === 'storyboard') {
+        get().dropImageIntoStoryboard(dc.groupId, dc.id);   // 落分镜组⇒入格（载荷/执行中守卫留函数体）
+      } else {
+        get().dropIntoGroup(dc.id, dc.groupId);             // 落 normal 组（折叠先展开留函数体单层）
+      }
+    }
+    stopCapturing();   // 窗右边界（commitIntents 同款——归属+位置同窗=一步 undo，下一步命令不并栈）
   },
 
   beginLeafResize: () => {

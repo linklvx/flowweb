@@ -114,6 +114,13 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     unsub();
   });
 
+  // ── B5'-2（Spec B 终裁 38①）：单一路由 handleDragRelease——旧链（handleNodeDragStop→
+  //    onNodeDragStopIntoGroup→findDropGroup[groupDrop.ts 整删]）整链替换，onNodeDragStop 直连 store action ──
+  it('onNodeDragStop=store handleDragRelease（引用相等——单一路由防薄包装重生）', () => {
+    const p = renderCapture();
+    expect(p.onNodeDragStop).toBe(useCanvasStore.getState().handleDragRelease);
+  });
+
   it('常量引用稳定：rerender 后 panOnDrag/snapGrid 同引用（hoist 收益的直达断言——toBe 非 toEqual）', () => {
     const { rerender } = render(
       <ReactFlowProvider>

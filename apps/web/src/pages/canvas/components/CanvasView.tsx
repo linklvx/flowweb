@@ -1,5 +1,4 @@
 import { memo, useCallback, useMemo, useRef, useState, useEffect, type DragEvent } from 'react';
-import { stopCapturing } from '@/stores/canvasUndo';
 import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow, SelectionMode,
@@ -21,7 +20,6 @@ import { useMaterialLibraryStore } from '@/stores/materialLibraryStore';
 import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { useMarqueeSelectionGuard } from '@/hooks/useMarqueeSelectionGuard';
 import { useDragGestureGuard } from '@/hooks/useDragGestureGuard';
-import { findDropGroup } from '@/utils/groupDrop';
 import { executeGroupNodes } from '@/api/executionApi';
 import { getMediaUrl } from '@/api/mediaApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
@@ -147,8 +145,6 @@ function CanvasViewComponent(_props: Props) {
   // 缓存 id（wrapper capture——onNodeDragStart={begin} 以缓存为起始 pointerId）
   const dragGuard = useDragGestureGuard();
   const beginDragGesture = useCanvasStore((s) => s.beginDragGesture);
-  // B5'-1（Spec B 终裁 48）：拖动松手提交（三段式——构造/清 session/单 transact LocalUser 入栈）
-  const commitIntents = useCanvasStore((s) => s.commitIntents);
   // 只读门禁（spec §3.1 8）：canEdit 订阅式消费（viewer 拖动禁用——行为变更随 B4'-1 落地）
   const editable = useCanvasStore(canEdit);
   // B4'-1：onNodeDragStart 单接 begin（第三参 nodes→draggingIds——O0b-3 定案）
@@ -474,29 +470,11 @@ function CanvasViewComponent(_props: Props) {
     useMenuStore.getState().updateMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const onNodeDragStopIntoGroup = useCallback(
-    (_e: any, draggedNode: any) => {
-      const s = useCanvasStore.getState();
-      const groups = s.nodes.filter((n) => n.type === 'group' && n.id !== draggedNode.id);
-      const target = findDropGroup(draggedNode, groups);
-      if (target) {
-        if ((target.data as any).groupType === 'storyboard') {
-          s.dropImageIntoStoryboard(target.id, draggedNode.id); // Task 12 正式实现（当前 no-op）
-        } else {
-          s.dropIntoGroup(draggedNode.id, target.id);
-        }
-      }
-    },
-    [],
-  );
-
-  const handleNodeDragStop = useCallback((e: any, node: any) => {
-    // B5'-1（Spec B 终裁 48）：松手先提交拖动（commitIntents 内含 stopCapturing——单 undo 步）。
-    // RF 顺序：尾批（dragging:false）先于本回调落 session 内零告警；session 清后 heal 再触发=no-op。
-    commitIntents();
-    stopCapturing();                    // 分隔拖动手势：手势内连续变更合并为一个 undo 项（幂等——零意图手势无窗）
-    onNodeDragStopIntoGroup(e, node);   // 既有拖入组逻辑保持（B5'-2 单一路径 handleDragRelease 整链替换）
-  }, [commitIntents, onNodeDragStopIntoGroup]);
+  // B5'-2（Spec B 终裁 38①/24/17）：单一路由 handleDragRelease——旧拖入组路由一条链（stop 提交+
+  // 旧落组判定[utils/groupDrop 模块已整删]）整链删除，冻结帧+交叠面积裁决与位置提交（commitIntents
+  // 构造单源）全部收进 store action；RF 顺序注记：尾批（dragging:false）先于本回调落 session 内
+  // 零告警；session 清后 heal 再触发=no-op（B5'-1 同款）。
+  const handleDragRelease = useCanvasStore((s) => s.handleDragRelease);
 
   // 选中组节点时显示 GroupToolbar；多选（≥2）、Shift 加选意图或框选拖拽中不显示（spec §5-1 消费点 2）
   const selectedGroup = useMemo(() => {
@@ -562,7 +540,7 @@ function CanvasViewComponent(_props: Props) {
         onSelectionStart={onSelectionStart}
         onSelectionEnd={onSelectionEnd}
         onNodeDragStart={onNodeDragStart}
-        onNodeDragStop={handleNodeDragStop}
+        onNodeDragStop={handleDragRelease}
         deleteKeyCode={isLocked || editorOpen || inRefSelect ? [] : ['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
