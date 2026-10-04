@@ -328,7 +328,8 @@ export const DRAG_STALE_MS = 5_000;
 
 /** B4'-2（终裁 16/30）abandon 静默标记：endGesture abort 族（aborted/healed/removed）置位，
  *  下一次 beginDragGesture/beginResize 复位。heal 后同手势尾批（session 已清、无 resize 批的
- *  position 批）静默零 intent 不告警——门判据②的豁免面。 */
+ *  position 批）静默零 intent 不告警——门判据②的豁免面。**窗口无界**（置位到下一手势开始
+ *  之间真实外视写入也被静默）——仅 DEV 诊断面（prod 该分支零 intent 与标记无关），质评接受。 */
 let gestureAbandoned = false;
 
 let dragWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1026,6 +1027,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // 提交值=会话末帧 cs 帧三键（终裁 56——"回调第二参值"语义，读 cs 末帧单源）；
     // 恒三键密封（pos 回填——auto→manual 经 resize 转换的唯一通道）；零子代（子 rel 不随提交
     // 重算——RF 反向补偿值即终值，doc 子 abs 不动，提交后 reconcile 同值收敛）。
+    // isFinite 守卫（质评 Minor-3）：目标缺席/wh 非有限（如整帧被远端删的窄窗）⇒ 跳过提交 intent
+    // 但仍走"跳过但完成"收尾——stopCapturing+endGesture('completed') 无条件执行（会话必须终结，
+    // 残帧不落 doc=保守不写而非写脏值）。
     if (target && Number.isFinite(target.width) && Number.isFinite(target.height)) {
       dispatchCanvasIntent([{
         type: 'updateNodeEnvelope', id: s.resizeTargetId,
@@ -1045,9 +1049,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // 悬挂兜底（B4'-2 spec 评发现#1）：只点不拖（RF resizeDetected 守卫跳过 onResizeEnd）⇒ 标记
     // 永悬（固化被永久抑制+门判据②错路由）。pointerup/pointercancel 一次性兜底清——真 resize 的
     // 末批自带 setAttributes（批内判据照常 else 路由），两类清零幂等无冲突。
-    const clear = () => set({ resizePending: false });
-    window.addEventListener('pointerup', clear, { capture: true, once: true });
-    window.addEventListener('pointercancel', clear, { capture: true, once: true });
+    // 质评 Minor-1 有界化：once 对只各自摘自身——未触发的孪生监听器会跨手势滞留（慢泄漏），
+    // 共享 clear 双摘封顶每手势零残留。
+    const clear = () => {
+      window.removeEventListener('pointerup', clear, { capture: true });
+      window.removeEventListener('pointercancel', clear, { capture: true });
+      set({ resizePending: false });
+    };
+    window.addEventListener('pointerup', clear, { capture: true });
+    window.addEventListener('pointercancel', clear, { capture: true });
   },
   endLeafResize: () => set({ resizePending: false }),
 
