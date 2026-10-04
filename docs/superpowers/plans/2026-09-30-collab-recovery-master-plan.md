@@ -782,7 +782,7 @@ async function openSession(id: string, name: string) {
 
 **Task 0a-4：最小双客户端冒烟（自批 0c 前移至此——判据依赖本批 connStatus 修复）**
 
-- **Step 1: 手动冒烟**（文件化到 `docs/superpowers/plans/smoke-dual-client.md`，批 7 脚本化的底稿）：
+- **Step 1: 手动冒烟**（原文件化手册已删——内容归并 gate-checklist 历史底稿节，见 DELETED.md；批 7 脚本化的底稿）：
   1. 起 api（`pnpm --filter @flowweb/api dev`）+ web dev server；两个浏览器 profile 开同一项目；
   2. `pm2 restart` 或杀 API 进程 → 等 ~10s 重启 → 两端 connStatus 指示器回到"已连接"（本批后 ≤ 自动重连周期）；
   3. 断连期 A 端加节点 → 重连后 B 端可见（编辑合并在批 1 前靠 library 重连+SS2——若合并失败登记批 1 验证，不阻塞本批）。

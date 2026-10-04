@@ -22,8 +22,7 @@
 | C1 | superpowers/plans/2026-09-26-image-node-panel-redesign.md |
 | C1 | superpowers/plans/2026-09-30-collab-recovery-master-plan.md（批 7 完成态——判据源锚） |
 | C1 | superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md（spec-version 守卫锚） |
-| C1 | superpowers/plans/collab-e2e-gate-checklist.md（ci.yml 锚） |
-| C1 | superpowers/plans/smoke-dual-client.md（批 2 退役对象——e2e 判据源注随批 2 改指） |
+| C1 | superpowers/plans/collab-e2e-gate-checklist.md（ci.yml 锚；含 smoke-dual-client 归并节——原文件批 2 退役） |
 | C1 | superpowers/specs/2026-09-18-css-base-layer-theme-design.md |
 | C1 | superpowers/specs/2026-09-20-creditsdropdown-light-draft.md |
 | C1 | superpowers/specs/2026-09-26-image-node-panel-redesign.md |
@@ -32,6 +31,7 @@
 | C1 | superpowers/tech-debt.md（TD 台账） |
 | C4 | superpowers/plans/socketio-retirement-assessment.md |
 | C4 | superpowers/specs/admin-console-refactor.md |
+| C4 | superpowers/DELETED.md（删除登记表——可发现性机制，死因列含符号名属登记功能） |
 | C3 | superpowers/deployment-db-baseline.md（运维基线） |
 | C3 | 团队功能说明.md（面向用户的产品说明） |
 | C3 | README.md（本文件——权威链入口面） |
@@ -46,7 +46,7 @@
 
 - `docs/vendor/`（22 份，外部资料）
 - `.worktrees/`、`.claude/worktrees/`、`backups/`、`.superpowers/brainstorm/`（工作区副产物/用户资产，处置对照表见 spec §十）
-- docs 根逐名（禁通配，防新增文件自动豁免）：`README.md`、`团队功能说明.md`、`_meta/`（门禁数据面）、`AI多模态内容创作SaaS平台产品设计文档.txt/.docx`（批 2 退役对象，不扫）
+- docs 根逐名（禁通配，防新增文件自动豁免）：`README.md`、`团队功能说明.md`、`_meta/`（门禁数据面）；PRD txt/docx 已于批 2 退役（见 DELETED.md，萃取入本文件 ⑥ 节）
 - `superpowers/adr/`：**显式说明其在 vocabulary 扫描域外**——ADR 是已否决决策的历史档案（不在 canonical 清单即自然豁免），其引用受 md 存在性检查约束（唯一机器约束，防孤岛化）
 
 ## ⑤ plan checkbox 全局声明
@@ -55,7 +55,21 @@
 
 ## ⑥ ARCHITECTURE（现行架构速览）
 
-> 占位：批 2 Task 4-3 填入 PRD 萃取（产品定位句+现行技术栈）；冲突按权威链第①条裁决。
+> 萃取自 PRD（AI多模态内容创作SaaS平台产品设计文档，2026-10-05 批 2 退役；txt/docx 归一化后逐节一致，无裁决分歧）。技术栈已按仓内实态核对剔除未建设项。
+
+**产品定位**：Web 端的 AI 多模态内容创作 SaaS 平台——基于无限画布和节点，通过调用大模型 API 实现文生文、文生图、图生图、图生视频、文生视频等功能。
+
+**现行技术栈**（PRD 原文剔死项+注记）：
+
+| 层 | 技术 |
+|---|---|
+| 前端 | React 18.3 / TypeScript 5.6（strict）/ Vite 5.4 / Ant Design 5.22 / Zustand 4.5 / Tailwind 3.4 |
+| 无限画布与节点 | @xyflow/react 12.10 + Zustand + **Yjs/Hocuspocus 4.6 协同**（PRD 原列 Socket.io——现仅剩 /execution 执行通道，画布协同已迁移，见 TD-21） |
+| 后端 | Node.js 20 LTS / NestJS 10.4 / Prisma 5 / PostgreSQL 16 / Better Auth（session cookie） |
+| 中间件 | Redis 7 / BullMQ 5.75 / MinIO |
+| 可观测 | Sentry（@sentry/nestjs + @sentry/node，api 已接线） |
+
+PRD 剔除项（均未建设，全文决策见 DELETED.md）：Apache APISIX（网关实为 Nginx）、Prometheus/Grafana/Loki/Jaeger 自建观测族、ECharts。
 
 | 域 | 权威指针 |
 |---|---|

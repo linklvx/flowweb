@@ -812,6 +812,41 @@
       "symbol": "isHydrating",
       "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
       "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 11,
+      "symbol": "deleteRefs",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 12,
+      "symbol": "isHydrating",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 13,
+      "symbol": "flowweb_canvas_v2",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 16,
+      "symbol": "UserBalance",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/DELETED.md",
+      "line": 17,
+      "symbol": "Keycloak",
+      "reason": "删除登记表死因列——登记已删符号即本表功能",
+      "expires_at": "2027-01-02"
     }
   ]
 }

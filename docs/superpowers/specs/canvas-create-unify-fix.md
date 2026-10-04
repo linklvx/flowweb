@@ -2,7 +2,7 @@
 
 日期：2026-08-20
 状态：待确认
-前置：canvas-refresh-data-loss-fix.md（上一轮修复，本轮在其基础上继续）
+前置：上一轮 canvas-refresh 修复已随 localStorage 链路退役（决策与清账见 tech-debt.md TD-5/6 行；文档已删，见 DELETED.md）
 
 ## 问题清单
 

@@ -3,7 +3,7 @@
 // （scripts/gate-collab.mjs 自拉 API：COLLAB_FAKE_AI=1 + COLLAB_SWEEP_ENABLED=true）。
 // 前置：必须经 `node scripts/gate-collab.mjs` 运行（playwright webServer 自起的 API 杀不掉——
 // 直跑时 killApi/startApi 会因控制面缺失而报错，这是有意设计）。
-// 判据源：master plan 批7 行 + smoke-dual-client.md 底稿；串行执行（config workers:1）。
+// 判据源：master plan 批7 行 + collab-e2e-gate-checklist.md 历史底稿归并节；串行执行（config workers:1）。
 import { test, expect, type Page } from '@playwright/test';
 import {
   COLLAB_GATE,

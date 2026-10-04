@@ -12,6 +12,14 @@
       ]
     },
     {
+      "path": "docs/superpowers/DELETED.md",
+      "criteria": "C4",
+      "evidence": [
+        "入引用自 docs/README.md",
+        "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md"
+      ]
+    },
+    {
       "path": "docs/superpowers/deployment-db-baseline.md",
       "criteria": "C3",
       "evidence": [
@@ -107,7 +115,7 @@
         {
           "src": "apps/web/e2e/collab-recovery.e2e.spec.ts",
           "line": 6,
-          "text": "// 判据源：master plan 批7 行 + smoke-dual-client.md 底稿；串行执行（config workers:1）。"
+          "text": "// 判据源：master plan 批7 行 + collab-e2e-gate-checklist.md 历史底稿归并节；串行执行（config workers:1）。"
         }
       ]
     },
@@ -130,17 +138,11 @@
           "src": ".github/workflows/ci.yml",
           "line": 55,
           "text": "# 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md"
-        }
-      ]
-    },
-    {
-      "path": "docs/superpowers/plans/smoke-dual-client.md",
-      "criteria": "C1",
-      "evidence": [
+        },
         {
           "src": "apps/web/e2e/collab-recovery.e2e.spec.ts",
           "line": 6,
-          "text": "// 判据源：master plan 批7 行 + smoke-dual-client.md 底稿；串行执行（config workers:1）。"
+          "text": "// 判据源：master plan 批7 行 + collab-e2e-gate-checklist.md 历史底稿归并节；串行执行（config workers:1）。"
         }
       ]
     },
