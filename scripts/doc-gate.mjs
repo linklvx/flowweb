@@ -283,6 +283,8 @@ for (const s of deadInfo.symbols.filter((x) => x.kind === 'dead')) {
 }
 
 // ── 12. vocabulary：canonical（∪ 机器形态 active）禁 dead/never-built 符号；frozen 是活通道不查
+// 仅查 **repo-scope** dead 符号：文件级 scope=登记时已确认撞名（如 projectApi 的 ProjectData vs video-editor/types 活同名），
+// 文档提及裸名无法归属死/活——词法检查按符号名归属即可判（video-editor.md 实证 5 条假阳性）。
 const exemptions = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/_meta/exemptions.json'), 'utf8')).items;
 const today = new Date();
 const todayStr = today.toISOString().slice(0, 10);
@@ -295,7 +297,7 @@ for (const e of exemptions) {
   if (e.expires_at > capStr) badExemptions.push(e); // 距今 >90 天=非法（无期豁免防护）
 }
 const exemptKeys = new Set(exemptions.map((e) => `${e.file}:${e.line}:${e.symbol}`));
-const vocabSymbols = deadInfo.symbols.filter((s) => s.kind === 'dead' || s.kind === 'never-built');
+const vocabSymbols = deadInfo.symbols.filter((s) => (s.kind === 'dead' || s.kind === 'never-built') && s.scope === 'repo');
 const vRegex = boundaryRegex(vocabSymbols.map((s) => s.symbol));
 const vocabHits = []; // canonical 违规（红）
 const activeVocabWarn = []; // active 在建文档命中（警告不阻断）
