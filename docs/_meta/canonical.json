@@ -229,7 +229,8 @@
       "criteria": "C4",
       "evidence": [
         "入引用自 docs/README.md",
-        "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md"
+        "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+        "入引用自 docs/superpowers/tech-debt.md"
       ]
     },
     {

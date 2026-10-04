@@ -1,5 +1,7 @@
 # socket.io /execution 通道退役评估（批 1-7 前移——只盘点出结论，不退役）
 
+> 【2026-10-05 状态注】/execution 为**现行通道**（node:status 主路径 dual-write 已落）；本文结论=**保留+冻结分两步退役（TD-21）**——"退役"为计划态非既成事实。
+
 日期：2026-09-30。依据：F7 ADR（新实时面一律走 Yjs doc/stateless；/execution socket.io 通道冻结不再扩展）+ master plan Task 1-7 Step 1b。
 盘点命令：`grep -rn "emitNodeStatus\|emitTrimStatus\|emitSeparateStatus\|emitStitchStatus\|emitExecutionComplete\|executionSocket" apps/api/src apps/web/src --include="*.ts*"`（剔除 *.spec/*.test）。
 
