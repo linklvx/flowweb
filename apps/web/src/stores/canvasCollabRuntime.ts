@@ -275,9 +275,10 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
   const st = useCanvasStore.getState();
   const guard = resolveGestureYield(st.dragSession, st.nodes as any[]);
   const GUARDED = '__yield-guarded__' as any;
-  // B5'-1 spec 评 P1-B：折叠（非 storyboard）组 wh 豁免——cs 帧=COLLAPSED_SIZE 派生档 vs doc
-  // 三键=展开态密封源是终裁 82 设计内分叉（O0b-5 起存在、挂上提交主路径后暴露）；哨兵双侧同值
-  //（与让位豁免同型），position 仍如实比较（密封 origin 两域一致）。
+  // B5'-1 spec 评 P1-B：折叠组 wh 豁免——cs 帧=COLLAPSED_SIZE 派生档 vs doc 三键=展开态密封源
+  // 是终裁 82 设计内分叉（O0b-5 起存在、挂上提交主路径后暴露）；哨兵双侧同值（与让位豁免同型），
+  // position 仍如实比较（密封 origin 两域一致）。守卫按 collapsed===true 判（storyboard 不可折叠
+  // ⇒域内天然不达；即便脏 data 达亦豁免 wh 无害——storyboard 组 wh 两域同为派生值或空）。
   const collapsedWhGuarded = (n: any) => {
     if (n.type !== 'group' || (n.data as Record<string, unknown> | undefined)?.collapsed !== true) return n;
     return { ...n, width: GUARDED, height: GUARDED };
@@ -356,7 +357,8 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
 export type ReconcileSource = 'cs' | 'doc';
 
 /** 零差异短路 EPS（量化契约表冻结值） */
-const RECONCILE_EPS = 1e-6;
+/** 量化契约表冻结 EPS（B5'-1 起导出——commitIntents 零净变更剔除同值单源）。 */
+export const RECONCILE_EPS = 1e-6;
 
 const near = (a: number | null | undefined, b: number | null | undefined): boolean =>
   a == null && b == null ? true : a != null && b != null && Math.abs(a - b) <= RECONCILE_EPS;

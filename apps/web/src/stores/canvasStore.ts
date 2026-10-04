@@ -30,7 +30,7 @@ import { readCanvasFromDoc } from '@/collab/ydocBuilder';
 // B4'-1（Spec B）：endGesture 单收尾链消费——reconcileGroupGeometry（四元组第 4 成员，终裁 54②/
 // 65①）+checkProjectionInvariant（收尾链第 4 步）。循环依赖裁定同 canvasIntents：顶层仅声明、
 // action 体运行时才调——ESM 本地绑定延迟求值安全。
-import { reconcileGroupGeometry, checkProjectionInvariant, resolveDraggingIdsFromGesture } from './canvasCollabRuntime';
+import { reconcileGroupGeometry, checkProjectionInvariant, resolveDraggingIdsFromGesture, RECONCILE_EPS } from './canvasCollabRuntime';
 import { Origin, stopCapturing } from './canvasUndo';
 // B4'-2（O0b-6 接线）：onNodesChange applyNodeChanges 窗的 geometryTrap 写者上下文。
 // 循环依赖裁定同 canvasIntents：geometryTrap 顶层仅 import 声明+纯函数定义（prod 自装经
@@ -1057,7 +1057,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // isFinite 守卫（质评 Minor-3）：目标缺席/wh 非有限（如整帧被远端删的窄窗）⇒ 跳过提交 intent
     // 但仍走"跳过但完成"收尾——清 session 同步块无条件执行（会话必须终结，
     // 残帧不落 doc=保守不写而非写脏值）。
-    if (target && Number.isFinite(target.width) && Number.isFinite(target.height)) {
+    if (target && Number.isFinite(target.width) && Number.isFinite(target.height)) {   // isFinite 失败档（质评 Minor-3）
       finalizeGestureSession();   // 提交族收尾（不回滚、不走 abort 族收尾链——B5'-1 终裁 78⑩）
       dispatchCanvasIntent([{
         type: 'updateNodeEnvelope', id: s.resizeTargetId,
@@ -1069,6 +1069,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }], Origin.LocalUser);   // 单 transact=单 undo 步（LocalUser 入栈）
       stopCapturing();   // 手势=单 undo 步（捕获窗关闭——旧 GroupNode onResizeEnd 语义随迁）
     } else {
+      // isFinite 失败/目标缺席档（质评 Minor-3）：零提交 intent ⇒ 无 dispatch ⇒ 无漏斗尾 reconcile
+      //——cs 预览帧停末值（下一命令差分首行收敛）；此处随后的 invariant 在该窄窗可假红（fail-loud
+      // 方向、可达性极低——守卫本身防御态）。
       finalizeGestureSession();
     }
     // canEdit 门拦（viewer 窗口）⇒ dispatch 零写、cs 停末帧=设计内分叉（下一 reconcile 收敛）——
@@ -1087,11 +1090,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const docPosById = d
       ? new Map(readCanvasFromDoc(d).nodes.map((r) => [r.id, r.position]))
       : null;
-    const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6;   // RECONCILE_EPS 同值（量化契约表冻结——浮点往返噪声域）
+    const near = (a: number, b: number) => Math.abs(a - b) <= RECONCILE_EPS;   // 单源导入（量化契约表冻结——浮点往返噪声域）
     const intents: CanvasIntent[] = [];
     // ①被拖叶：末帧→moveNode 载荷=abs（量化契约表：顶层 cs.position 即 abs；子 rel+组 origin 翻转
     // ——拖叶档父组帧冻结[origin=frozenFrames]/拖组档 origin 活=cs[G].position）。零净变更剔除：
-    // 末帧 abs≡doc 现值（手势期 doc 零写⇒≡baseline）⇒零 intent——空操作/往返 exact 同档零事务。
+    // 末帧 abs≡doc 现值⇒零 intent——空操作/往返 exact 同档零事务；无远端写时 doc 现值≡baseline。
+    // **LWW 语义**：被拖节点被远端写（让位保护窗）时末帧≠doc 现值⇒末帧胜出提交——与"让位=手势期
+    // 本地几何权威"（终裁 71 保护回写 {position}=末帧）连续；baseline 比较反会把 cs 拉回远端值，
+    // 违 66④①"提交后 cs≡末帧"。
     for (const id of s.draggingIds) {
       const n = byId.get(id);
       if (!n || n.type === 'group') continue;   // 被拖组归②；手势期被删（remove 谓词应已收尾）防御跳过
