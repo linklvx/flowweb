@@ -43,7 +43,8 @@ let installed = false;
 let unsubscribe: (() => void) | null = null;
 let snapshot = new Map<string, NodeGeomSnapshot>();
 let lastNodesRef: readonly Node[] | null = null;
-/** 模块级写者上下文（reconcile/手势内核/投影结构默认/配置型命令体前写/夹具入口各自 set）。 */
+/** 模块级写者上下文（B7-1 全接线：reconcile/手势内核/投影结构默认[projection-default]/结构命令
+ *  [structure-command]/建点[node-create]/配置命令[config-command]/dimensions-attribute/夹具入口）。 */
 let currentGeometryWriter: GeometryWriterCategory | null = null;
 let violationCount = 0;
 let sampledLogs = 0;

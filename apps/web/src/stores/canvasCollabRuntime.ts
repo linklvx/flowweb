@@ -375,7 +375,10 @@ export const RECONCILE_EPS = 1e-6;
  *  assert+reset，见 canvasIntents.dispatchCanvasIntent 尾）。辖域=三键全覆盖（data.{width,height}
  *  豁免废止——AI 键已随终裁 49④ 删，GeometryField 无豁免面）。只记 reconcile 实际写：跨写者
  *  （结构命令 placement 写+reconcile('cs') rebase 链/addNode 结构默认+同 tick 写域②补齐）在
- *  同窗口按设计即双写者——本账本不捕（越权写者的运行时牙齿=geometryTrap 写者上下文，两机制分立）。 */
+ *  同窗口按设计即双写者——本账本不捕（越权写者的运行时牙齿=geometryTrap 写者上下文，两机制分立）。
+ *  **牙齿状态如实标注（B7-1 质评 Important-1）**：当前唯一登记 writer 恒 'reconcile'——
+ *  assertExactlyOneWriter 对单名恒过=框架态零牙齿（待第二登记者[如手势内核直写]落地才有判别力）；
+ *  现值=断言窗口+reset 纪律先行，防后续接入者误以为已有强制。 */
 export const reconcileWriteLedger = new GeometryWriteLedger();
 
 /** O0b-4：漏斗尾（transact 边界）字段级一写者断言+窗口 reset（DEV；prod 零成本跳过——计数面
@@ -391,8 +394,10 @@ export function assertReconcileSingleWriterWindow(): void {
   }
 }
 
-/** reconcile 实际写登记（Pass 2 各写点消费——writer 恒 'reconcile'）。 */
+/** reconcile 实际写登记（Pass 2 各写点消费——writer 恒 'reconcile'；DEV 门=prod 零成本
+ *  [B7-1 质评 Minor-2]；窗口 reset 归漏斗尾 assert 的 finally）。 */
 const recordReconcileWrite = (id: string, fields: GeometryField[]): void => {
+  if (!import.meta.env.DEV) return;
   for (const f of fields) reconcileWriteLedger.record('reconcile', f, id);
 };
 

@@ -367,6 +367,15 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
   const intents: CanvasIntent[] = [];
   const beforeNodes = new Map(before.nodes.map((n) => [n.id, n]));
   const afterNodes = new Map(after.nodes.map((n) => [n.id, n]));
+  // 分镜子判定单源（B7-1 质评 Minor-4——addNode/B7-1 修/I-1 角点三处同构收口）：after 侧全员
+  // 父上下文可查（applyIntentToDoc 逐 intent 无父上下文——剥键只能在此漏斗总口判）。
+  const sbChildIds = new Set(
+    after.nodes.filter((n) => {
+      if (n.parentId == null) return false;
+      const p = afterNodes.get(n.parentId);
+      return p?.type === 'group' && (p.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+    }).map((n) => n.id),
+  );
   for (const id of beforeNodes.keys()) {
     if (!afterNodes.has(id)) intents.push({ type: 'deleteNode', id });
   }
@@ -379,17 +388,13 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
       //（applyIntentToDoc addNode 逐 intent 无父上下文——剥键只能在此漏斗总口）。
       // O0b-0：a.position=toDocRecords 出口（doc abs 语义/键集剥形态——projectCanvasNodes 不再
       // 回填）——auto 组天然无 position（键集表已在 shared 出口剥），intent 侧只判空防 undefined 残键。
-      const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
-      const isStoryboardChild =
-        parent?.type === 'group' &&
-        (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
       intents.push({
         type: 'addNode',
         node: {
           id: a.id,
           type: a.type,
           ...(a.parentId != null ? { parentId: a.parentId } : {}),
-          ...(a.position != null && !isStoryboardChild ? { position: a.position } : {}),
+          ...(a.position != null && !sbChildIds.has(a.id) ? { position: a.position } : {}),
           ...(a.width != null ? { width: a.width } : {}),
           ...(a.height != null ? { height: a.height } : {}),
           data: a.data,
@@ -408,11 +413,7 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
       // 0 帧键）——moveNode {x:0,y:0} 载体只对分镜子合法（applyIntentToDoc moveNode 分支按父组
       // 剥键；组无父上下文 ⇒ {0,0} 垃圾写入 doc=frameMode auto 违例形态）。改走 envelope 删键
       // 语义（applyIntentToEnvelope position undefined → delete——键集表剥键的差分域载体）。
-      const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
-      const isStoryboardChild =
-        parent?.type === 'group' &&
-        (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
-      if (a.position == null && !isStoryboardChild) {
+      if (a.position == null && !sbChildIds.has(a.id)) {
         intents.push({ type: 'updateNodeEnvelope', id: a.id, patch: { position: undefined } });
       } else {
         intents.push({ type: 'moveNode', id: a.id, position: { x: a.position?.x ?? 0, y: a.position?.y ?? 0 } });
@@ -421,12 +422,8 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
       // I-1 角点（O0a-1 质评）：既有子入分镜组（convertGroup）后 rel 恰 {0,0}=零位移——不补发
       // 则 doc 旧 position 键无写者可剥（剥键唯一载体=applyIntentToDoc moveNode 分支），批尾
       // stripDerivedKeys 误捕合法操作。补发 moveNode（after 位置=当前 cs 位置——doc 面剥键、
-      // store 面同值 no-op；父上下文取 afterNodes，同上方 addNode 分支口径）。
-      const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
-      const isStoryboardChild =
-        parent?.type === 'group' &&
-        (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
-      if (isStoryboardChild) {
+      // store 面同值 no-op；分镜子判定同 sbChildIds 单源）。
+      if (sbChildIds.has(a.id)) {
         // O0b-0：a.position=toDocRecords 出口（分镜子剥键→undefined）——补发 moveNode 语义位={0,0}
         intents.push({ type: 'moveNode', id: a.id, position: a.position ?? { x: 0, y: 0 } });
       }
