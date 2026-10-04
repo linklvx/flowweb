@@ -142,6 +142,20 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾）', ()
     expect(runtime.checkProjectionInvariant(doc)).toBe(false); // 断言非恒真——变异必被抓
   });
 
+  it('B7-1（O0b-5 接线）变异实验：doc 节点 position 非有限（NaN）→ assertAllPositionsFinite 挂点如实报 false', async () => {
+    await driveToSyncedRw('p1');
+    const doc = runtime.getDoc()!;
+    expect(runtime.checkProjectionInvariant(doc)).toBe(true); // 基线绿
+    doc.transact(() => {
+      const m = new Y.Map(); m.set('type', 'textInput');
+      const pos = new Y.Map(); pos.set('x', Number.NaN); pos.set('y', 0); m.set('position', pos);
+      m.set('data', new Y.Map());
+      doc.getMap('nodes').set('nan-1', m);
+    }, 'network');
+    // NaN 坐标=不变量破坏（除零/脏数据传播终点）——挂点首行捕获，不再依赖深等的 NaN≠NaN 巧合
+    expect(runtime.checkProjectionInvariant(doc)).toBe(false);
+  });
+
   it('批5 判据⑥ dev 巡检：doc 含 shadow- 节点 → applyDocToStore DEV 抛 + 不变量不再双侧过滤（违例如实报告）', async () => {
     await driveToSyncedRw('p1');
     const doc = runtime.getDoc()!;

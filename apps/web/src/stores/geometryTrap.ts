@@ -16,7 +16,9 @@
 // dimensions（RF setAttributes=true 写 node.width/height）按写者上下文放行非按字段放行——
 // 合法写者类别 'dimensions-attribute'（O0b-6 在 reconcile 内按变更类型细分挂点）。
 // 作用域：生产源码（apps/web/src，*.test.*/*.spec.* 与 test/ 目录天然不经生产链路）。
-// 本片不接线生产链路（挂点=geometryTrap.test.ts 的 it.todo；唯一接线=守卫测试内造案）。
+// B7-1（O0b-7/8/9 接线完毕）：生产写体已逐函数标写者上下文（registry 账本为底册——
+// canvasStore/canvasIntents/canvasCollabRuntime 三文件），应用 bootstrap=bootstrapGeometryTrap()
+// （canvas/page 会话入口调用，DEV 抛模式进入点）。
 import type { Node } from '@xyflow/react';
 import { GEOMETRY_WRITER_CATEGORIES, type GeometryWriterCategory } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
@@ -145,6 +147,16 @@ export function getGeometryViolationCount(): number {
 
 export function isGeometryTrapEnabled(): boolean {
   return installed;
+}
+
+/**
+ * B7-1（O0b-8 接线）：应用 bootstrap DEV 抛模式进入点——canvas/page 会话入口调用。
+ * 自守卫：仅 DEV（import.meta.env.DEV 且非 vitest）启用；vitest 保持默认禁（守卫测试显式
+ * enableGeometryTrap 造案——测试面 217+ 处存量 setState 不入运行时陷阱辖域）；prod 不经本函数
+ * （模块导入即 queueMicrotask 自装计数模式）。
+ */
+export function bootstrapGeometryTrap(): void {
+  if (resolveMode() === 'dev') enableGeometryTrap();
 }
 
 // 生产构建默认启用（计数+采样日志模式）；vitest/DEV 不自装（见头注三模式表）。

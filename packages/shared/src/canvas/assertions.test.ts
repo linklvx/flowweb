@@ -471,8 +471,33 @@ describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', (
     expect(intents).toContain('assertNoCsDerivedKeysInData(');
     expect(intents).toContain('assertNoDunderKeysInGroupData(');
   });
-  it.todo('O0b-4 接线：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界');
-  it.todo('O0b-5 接线：assertAllPositionsFinite 挂 assertInvariant 收口点');
+  it('O0b-4 接线（B7-1 转实）：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界（漏斗尾）', () => {
+    // census：reconcile 写点登记+漏斗尾（dispatchCanvasIntent 尾=transact 边界）断言窗口接线行在场。
+    // 辖域注记：三键全覆盖无 data.wh 豁免（GeometryField 无豁免面——AI 键已随终裁 49④ 删）；
+    // 账本只记 reconcile 实际写（跨写者链[结构命令 placement 写+reconcile rebase/addNode 结构默认
+    // +同 tick 补齐]在同窗口按设计即多写者——运行时越权写者牙齿=geometryTrap 写者上下文，两机制分立）。
+    const runtime = readFileSync(
+      path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8',
+    );
+    expect(runtime).toContain('export const reconcileWriteLedger = new GeometryWriteLedger()');
+    expect(runtime).toContain('recordReconcileWrite(');   // Pass 2 写点登记
+    expect(runtime).toContain('assertReconcileSingleWriterWindow');   // 边界断言（导出+漏斗尾消费）
+    const intents = readFileSync(
+      path.join(REPO_ROOT, 'apps/web/src/stores/canvasIntents.ts'), 'utf8',
+    );
+    expect(intents).toContain('assertReconcileSingleWriterWindow();');   // 漏斗尾（transact 边界）消费点
+  });
+  it('O0b-5 接线（B7-1 转实）：assertAllPositionsFinite 挂 assertInvariant 收口点（checkProjectionInvariant 首）', () => {
+    // census：invariant 收口点接线行在场（非有限坐标=不变量破坏→如实 false；行为锚=web 侧
+    // canvasCollabRuntime.invariant.spec"NaN position⇒false"变异实验档）。
+    const runtime = readFileSync(
+      path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8',
+    );
+    const fnStart = runtime.indexOf('export function checkProjectionInvariant(');
+    expect(fnStart).toBeGreaterThanOrEqual(0);   // 收口点符号在场（防对空文件恒真）
+    const fnBody = runtime.slice(fnStart, fnStart + 800);
+    expect(fnBody).toContain('assertAllPositionsFinite(');
+  });
 });
 
 // —— O0b-1 转实（Spec B，2026-10-03）：reconcile 尾挂①③的先决契约面 ——

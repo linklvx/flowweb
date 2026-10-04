@@ -1,4 +1,5 @@
 import { initCollab, destroyCollab } from '@/stores/canvasCollabRuntime';
+import { bootstrapGeometryTrap } from '@/stores/geometryTrap';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
 import { message, Spin } from 'antd';
@@ -92,6 +93,9 @@ export function CanvasPage() {
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
+    // B7-1（O0b-8 接线）：会话入口 bootstrap geometryTrap——DEV 抛模式进入点（写者上下文已随
+    // O0b-6/7/9 逐函数接线完毕；vitest/prod 自守卫——见 geometryTrap.bootstrapGeometryTrap）
+    bootstrapGeometryTrap();
     // 每轮开局归零：清上一轮 cancelled 遗留的悬停态（三保险之一——批2-1 四态：idle=无会话）
     useCanvasStore.getState().setHydration('idle');
 

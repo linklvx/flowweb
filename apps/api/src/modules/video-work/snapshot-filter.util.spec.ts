@@ -3,6 +3,19 @@ import {
   type RawCanvasData, type FilterOptions,
 } from './snapshot-filter.util';
 import { VIDEO_WORK_NODE_TYPES } from '@flowweb/shared'; // 测试文件值导入（vitest 转译；tsconfig exclude **/*.spec.ts，永不进 dist）。生产源码值导入自 R1a 起合法（shared main→dist CJS 真构建+内联 check-shared-dist 门禁，见 admin.guard.ts:3-4 注释）——勿删本导入（:154-156/:269-271 键集锚定依赖，删了退回自指清单）
+// B7-1 四兜底 census（repo 根发现——vitest cwd=apps/api 包根）
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+function findRepoRoot(start: string): string {
+  let cur = start;
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(join(cur, 'pnpm-workspace.yaml'))) return cur;
+    cur = join(cur, '..');
+  }
+  throw new Error('repo root not found');
+}
+const REPO_ROOT = findRepoRoot(process.cwd());
 
 const rawNode = (id: string, type: string, data: Record<string, unknown>, extra: any = {}) =>
   ({ id, type, position: { x: 0, y: 0 }, data, ...extra });
@@ -306,5 +319,36 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     const out2 = normalizeNodeRecord({ id: 'n1', type: 'textInput', data: undefined, position: undefined } as any);
     expect(out2.position).toEqual({ x: 0, y: 0 });
     expect(out2.data).toEqual({});
+  });
+
+  // ── B7-1（Spec B）：四兜底 census（终裁 54③——C0-3 四兜底表核对）──
+  // 四项：①normalizeCanvasRecord[nodeEnvelope]（O0a-1 删✓）②snapshot-filter normalizeNodeRecord
+  // （**登记偏差**——见下）③readDocCanvas[collab-document.service]（O0a-2 收编删✓——api 侧同款
+  // 断言=doc-shape-single-source.guard.spec）④template.service:286（随 M0 删✓）。
+  // ②偏差理由（B7-1 对账，2026-10-03）：O0c-2 起 /process 载荷=作者态记录（auto 组 doc 无
+  // position），web 端 deriveRenderCanvas（第 4 渲染面）单点派生——payload 归一行为 JSON 序列化
+  // 边界兜底（SnapshotNode.position 必填类型）；克隆链 doc 面由 create 内 stripAuthorState 剥键
+  // 回作者态（帧键不泄漏）。"空 auto 组公开页 {0,0}"=O0c-2 已登记记录契约固有极限（§5 台账候选
+  // =buildFilteredSnapshot 丢弃空组）——删除本兜底须连同 SnapshotNode.position 可选化+公开页
+  // 渲染面改造，非 B7-1 辖域。census 钉其辖域收敛：兜底恰 1 处（normalizeNodeRecord 内）+doc 面
+  // 剥键保护接线在场。
+  describe('B7-1 四兜底 census（终裁 54③）', () => {
+    const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), 'utf8');
+    // 注：literal 扫描不做全仓——cs 构造默认 {0,0}（三层表第三层：hydrate/结构默认/determine 帧
+    // 兜底）在 web/shared 是合法写，与本 census 的"api 读侧/记录归一侧兜底"分属两域。辖域=四兜底
+    // 表点名的四个文件。
+    it('①nodeEnvelope.normalizeCanvasRecord 无 position 兜底（O0a-1 删）+④template.service 无 position 兜底（M0 删）', () => {
+      expect(read('packages/shared/src/canvas/nodeEnvelope.ts')).not.toContain('?? { x: 0, y: 0 }');
+      expect(read('apps/api/src/modules/template/template.service.ts')).not.toContain('?? { x: 0, y: 0 }');
+    });
+
+    it('②snapshot-filter position 兜底辖域收敛：本文件恰 1 处（normalizeNodeRecord 内）+③readDocCanvas 符号零命中', () => {
+      const src = read('apps/api/src/modules/video-work/snapshot-filter.util.ts');
+      expect(src.split('?? { x: 0, y: 0 }').length - 1,
+        'position 兜底唯一合法落点=normalizeNodeRecord（JSON 序列化边界——登记偏差见上）；出现第二处即红')
+        .toBe(1);
+      // ③readDocCanvas/writeNodeToYMap 符号级不存在（O0a-2 收编——同款主断言在 doc-shape-single-source.guard.spec）
+      expect(read('apps/api/src/modules/collab/collab-document.service.ts')).not.toContain('readDocCanvas');
+    });
   });
 });

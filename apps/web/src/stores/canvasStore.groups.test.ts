@@ -11,7 +11,7 @@ import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_S
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
-import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { fillDoc, toDocLike, readCanvasFromDoc } from '@/collab/ydocBuilder';
 import { openRwWindow, openRoWindow, seedCanvas } from '@/test/fixtures/canvas';
 
 const seedNodes = () => [
@@ -314,6 +314,35 @@ describe('convertGroup 清键（F18——savedSize 键已随 O0c-3 全链删；�
     expect('storyboard' in d).toBe(false);
     expect('cells' in d).toBe(false);
     expect(d.name).toBe('旧名');
+  });
+});
+
+describe('B7-1 修（O0b-9 接线发现）：auto 组分镜往返转回 normal——doc 组零帧键（键集表①收口）', () => {
+  it('groupNodes 建 auto 组→转分镜→转回 normal ⇒ doc 组 position/width/height 全无键+invariant true（moveNode {0,0} 垃圾写入→envelope 删键）', () => {
+    // 真装置：auto 组经分镜往返后回 auto——键集表"auto 组恒 0 帧键"。旧缺陷：差分 moveNode
+    // {x:0,y:0} 载体（a.position ?? 0）把 {0,0} 写进 doc 组（该载体只对分镜子合法——其
+    // applyIntentToDoc 分支按父组剥键）；组无父上下文 ⇒ {0,0} 残留=frameMode auto 形态违例，
+    // endGesture/commitResizeGesture 的 DEV invariant 即刻假红（B7-1 结构命令全链测试实证）。
+    openRwWindow();
+    const d = new Y.Doc();
+    fillDoc(d, [
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done' } },
+      { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done' } },
+    ], []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);
+    _setIntentDocForTest(d);
+    useCanvasStore.getState().groupNodes(['img1', 'img2']);
+    const gid = useCanvasStore.getState().nodes.find((n: any) => n.type === 'group')!.id as string;
+    useCanvasStore.getState().convertGroup(gid, 'storyboard');
+    expect(checkProjectionInvariant(d)).toBe(true);   // 分镜组 position=合法键（组 position ⟺ manual∨storyboard）
+    useCanvasStore.getState().convertGroup(gid, 'normal');
+    const docGroup = readCanvasFromDoc(d).nodes.find((n) => n.id === gid)!;
+    expect(docGroup.position).toBeUndefined();   // 键集表①：auto 组零帧键
+    expect(docGroup.width).toBeUndefined();
+    expect(docGroup.height).toBeUndefined();
+    expect(checkProjectionInvariant(d)).toBe(true);
+    _setIntentDocForTest(null);
   });
 });
 

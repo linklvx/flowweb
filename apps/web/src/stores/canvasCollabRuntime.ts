@@ -20,6 +20,7 @@ import {
   deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
   type DragSession,
   assertDocAbsMatchesCsRel, assertStoryboardMembership, reportShapeViolation,
+  assertAllPositionsFinite, GeometryWriteLedger, type GeometryField,
 } from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
 import { deriveHiddenMap, edgeHidden } from '@/utils/groupDerive';
@@ -32,6 +33,9 @@ import type { ExecStatusEntry } from './execStatusView';
 import { createReconnectingWebSocket, type ReconnectHandle } from '@/collab/reconnectTransport';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { readViewport } from '@/utils/viewportPersistence';
+// B7-1（O0b-7 接线）：投影/手势/reconcile 写体 geometryTrap 写者上下文。循环依赖裁定同上：
+// geometryTrap 顶层仅 import 声明+纯函数定义，调用体运行时才执行——安全。
+import { withGeometryWriter } from './geometryTrap';
 // 批1-1：连接状态机纯函数（零 Math.random——jitter 阈值生成后入参传入）
 import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
 // 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
@@ -270,6 +274,13 @@ export function readGroupFrameModes(d: Y.Doc): ReadonlyMap<string, FrameMode> {
  *  的合法形态误报成违例（groupNodes 直觉序=子在前）。排序后内容等价语义不变、误报面消除。 */
 export function checkProjectionInvariant(d: Y.Doc): boolean {
   const { nodes, edges } = readCanvasFromDoc(d);
+  // B7-1（O0b-5 接线）：assertAllPositionsFinite 挂 invariant 收口点——非有限坐标（NaN/Infinity，
+  // 除零/脏数据传播终点）=不变量破坏，如实报 false（谓词 boolean 契约保持；DEV 调用点照常抛/console）。
+  try {
+    assertAllPositionsFinite(nodes);
+  } catch {
+    return false;
+  }
   const byId = (ns: typeof nodes) => [...ns].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // O0b-4 让位豁免（在 withStoryboardChildDefault 之后剥——防 {0,0} 构造默认回补干扰哨兵）
   const st = useCanvasStore.getState();
@@ -359,6 +370,31 @@ export type ReconcileSource = 'cs' | 'doc';
 /** 零差异短路 EPS（量化契约表冻结值） */
 /** 量化契约表冻结 EPS（B5'-1 起导出——commitIntents 零净变更剔除同值单源）。 */
 export const RECONCILE_EPS = 1e-6;
+
+/** B7-1（O0b-4 接线）：reconcile 内建计数账本——字段级一写者断言窗口（漏斗尾=transact 边界
+ *  assert+reset，见 canvasIntents.dispatchCanvasIntent 尾）。辖域=三键全覆盖（data.{width,height}
+ *  豁免废止——AI 键已随终裁 49④ 删，GeometryField 无豁免面）。只记 reconcile 实际写：跨写者
+ *  （结构命令 placement 写+reconcile('cs') rebase 链/addNode 结构默认+同 tick 写域②补齐）在
+ *  同窗口按设计即双写者——本账本不捕（越权写者的运行时牙齿=geometryTrap 写者上下文，两机制分立）。 */
+export const reconcileWriteLedger = new GeometryWriteLedger();
+
+/** O0b-4：漏斗尾（transact 边界）字段级一写者断言+窗口 reset（DEV；prod 零成本跳过——计数面
+ *  归 geometryTrap 违例计数）。导出供 dispatchCanvasIntent 尾消费。 */
+export function assertReconcileSingleWriterWindow(): void {
+  if (!import.meta.env.DEV) { reconcileWriteLedger.reset(); return; }
+  try {
+    reconcileWriteLedger.assertExactlyOneWriter('position');
+    reconcileWriteLedger.assertExactlyOneWriter('width');
+    reconcileWriteLedger.assertExactlyOneWriter('height');
+  } finally {
+    reconcileWriteLedger.reset();
+  }
+}
+
+/** reconcile 实际写登记（Pass 2 各写点消费——writer 恒 'reconcile'）。 */
+const recordReconcileWrite = (id: string, fields: GeometryField[]): void => {
+  for (const f of fields) reconcileWriteLedger.record('reconcile', f, id);
+};
 
 const near = (a: number | null | undefined, b: number | null | undefined): boolean =>
   a == null && b == null ? true : a != null && b != null && Math.abs(a - b) <= RECONCILE_EPS;
@@ -456,6 +492,7 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
       const whSame = !withWH || (near(nd.width, f.width) && near(nd.height, f.height));
       if (posSame && whSame) return nd;
       mutated = true;
+      recordReconcileWrite(nd.id, withWH ? ['position', 'width', 'height'] : ['position']);
       return withWH
         ? { ...nd, position: { x: f.x, y: f.y }, width: f.width, height: f.height }
         : { ...nd, position: { x: f.x, y: f.y } };
@@ -507,6 +544,11 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
     }
     if (!changed) return nd;
     mutated = true;
+    recordReconcileWrite(nd.id, [
+      ...(position !== nd.position ? ['position' as const] : []),
+      ...(width !== nd.width ? ['width' as const] : []),
+      ...(height !== nd.height ? ['height' as const] : []),
+    ]);
     return { ...nd, position, width, height };
   });
 
@@ -529,9 +571,12 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
     return { ...e, hidden: h };
   });
   if (mutated || hiddenMutated) {
-    useCanvasStore.setState(
-      hiddenMutated ? { nodes: withHidden, edges: nextEdges } : { nodes: nextNodes },
-    );
+    // O0b-7：reconcile 写体写者上下文（registry reconcileGroupGeometry 条目——cs 几何唯一写者）
+    withGeometryWriter('reconcile', () => {
+      useCanvasStore.setState(
+        hiddenMutated ? { nodes: withHidden, edges: nextEdges } : { nodes: nextNodes },
+      );
+    });
   }
 }
 
@@ -635,17 +680,20 @@ export function captureGestureProtection(
  *  data/type/parentId/hidden/selected 一律保留 hydrate 的 doc 最新值（硬规则，终裁 71）。 */
 export function reapplyGestureProtection(snap: GestureProtectionSnapshot): void {
   if (snap.nodes.size === 0) return;
-  useCanvasStore.setState((s) => ({
-    nodes: s.nodes.map((n: any) => {
-      const geo = snap.nodes.get(n.id);
-      if (!geo) return n;
-      const next = { ...n };
-      if (geo.position) next.position = geo.position;
-      if (geo.width !== undefined) next.width = geo.width;
-      if (geo.height !== undefined) next.height = geo.height;
-      return next;
-    }),
-  }));
+  // O0b-7：保护回写=手势写者面（registry reapplyGestureProtection 条目 gesture）
+  withGeometryWriter('gesture', () => {
+    useCanvasStore.setState((s) => ({
+      nodes: s.nodes.map((n: any) => {
+        const geo = snap.nodes.get(n.id);
+        if (!geo) return n;
+        const next = { ...n };
+        if (geo.position) next.position = geo.position;
+        if (geo.width !== undefined) next.width = geo.width;
+        if (geo.height !== undefined) next.height = geo.height;
+        return next;
+      }),
+    }));
+  });
 }
 
 /** draggingIds=onNodeDragStart 第三参 nodes 的 id 集（OnNodeDrag=(event,node,nodes)——
@@ -681,14 +729,17 @@ export function applyDocToStore(d: Y.Doc) {
   const protection = captureGestureProtection(nodes);
   // hydrate 直吃作者态记录（O0b-0：normalizeLoadedCanvas 补缺层整删——doc=abs 空间过渡态直拷，
   // 子节点 rel 语义由尾挂 reconcile 同 tick 修正）
-  useCanvasStore.setState({
-    nodes: ensureParentOrder(nodes.map((n: any) => ({
-      ...n,
-      // O0a-1 cs 构造默认 {0,0}（三层表第三层——doc 无键分镜子 hydrate 落 {0,0}；RF Node position 必需）
-      position: n.position ?? { x: 0, y: 0 },
-      width: n.width ?? undefined, height: n.height ?? undefined,
-    }))) as any,
-    edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
+  // O0b-7：水合投影写体写者上下文（registry applyDocToStore 条目 projection-default）
+  withGeometryWriter('projection-default', () => {
+    useCanvasStore.setState({
+      nodes: ensureParentOrder(nodes.map((n: any) => ({
+        ...n,
+        // O0a-1 cs 构造默认 {0,0}（三层表第三层——doc 无键分镜子 hydrate 落 {0,0}；RF Node position 必需）
+        position: n.position ?? { x: 0, y: 0 },
+        width: n.width ?? undefined, height: n.height ?? undefined,
+      }))) as any,
+      edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
+    });
   });
   // 保护回写：仅几何字段覆盖（data/type/parentId/hidden/selected 取 doc 最新值——硬规则终裁 71）
   if (protection) reapplyGestureProtection(protection);

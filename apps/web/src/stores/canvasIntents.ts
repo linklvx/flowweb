@@ -24,7 +24,10 @@ import { Origin } from './canvasUndo';
 // doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）；
 // O0b-1 挂点：漏斗尾 reconcile（source:'doc'）+dispatchProjectionDiff 首行 reconcile（source:'cs'
 // ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
-import { getDoc, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
+// B7-1（O0b-7 投影写体 + O0b-4 transact 边界断言）追加同裁定：withGeometryWriter/
+// assertReconcileSingleWriterWindow 顶层仅 import 声明，调用体运行时才执行。
+import { getDoc, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow } from './canvasCollabRuntime';
+import { withGeometryWriter } from './geometryTrap';
 
 /** 信封 patch（updateNodeEnvelope 专域）：type/parentId/position/width/height 任意子集；
  *  值 undefined=删键（对齐 applyRecordToYMap 缺键→delete 语义——入组/出组/resize/convert 写点共用）。
@@ -180,15 +183,18 @@ export function projectIntentToStore(intent: CanvasIntent): void {
       useNodeStore.getState().addNode(toAppNode(n));
       // cs upsert：已存在（同 id 重放）跳过——防 append 叠重复
       if (!useCanvasStore.getState().nodes.some((x: any) => x.id === n.id)) {
-        useCanvasStore.setState((s) => ({
-          nodes: [...s.nodes, {
-            id: n.id,
-            type: n.type,
-            position: { x: 0, y: 0 },   // 结构默认（O0b-2——几何由漏斗尾 reconcile 同 tick 补齐）
-            ...(n.parentId != null ? { parentId: n.parentId } : {}),
-            data: stripEphemeralDataKeys(n.data ?? {}), // cs 持久面禁入 ephemeral（口径 13）
-          } as any],
-        }));
+        // O0b-7：投影回填 append=投影写体（registry projectIntentToStore/addNode 条目 projection-default）
+        withGeometryWriter('projection-default', () => {
+          useCanvasStore.setState((s) => ({
+            nodes: [...s.nodes, {
+              id: n.id,
+              type: n.type,
+              position: { x: 0, y: 0 },   // 结构默认（O0b-2——几何由漏斗尾 reconcile 同 tick 补齐）
+              ...(n.parentId != null ? { parentId: n.parentId } : {}),
+              data: stripEphemeralDataKeys(n.data ?? {}), // cs 持久面禁入 ephemeral（口径 13）
+            } as any],
+          }));
+        });
       }
       break;
     }
@@ -257,6 +263,9 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   }, origin);
   for (const i of seq) projectIntentToStore(i);
   reconcileGroupGeometry(d, 'doc');
+  // B7-1（O0b-4 接线）：transact 边界字段级一写者断言（reconcileWriteLedger 窗口收口+reset——
+  // 窗口=本次 dispatch 全链[diff 首行 reconcile('cs') 携前序命令体写]至漏斗尾 reconcile 后）
+  assertReconcileSingleWriterWindow();
 }
 
 /** O0a-1 键集表 DEV 校验（三层防线②挂载点=复合批尾 dispatchProjectionDiff——非每个原子
@@ -395,7 +404,19 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
     if (b.height !== a.height) patch.height = a.height ?? undefined;
     if (Object.keys(patch).length > 0) intents.push({ type: 'updateNodeEnvelope', id: a.id, patch });
     if (b.position?.x !== a.position?.x || b.position?.y !== a.position?.y) {
-      intents.push({ type: 'moveNode', id: a.id, position: { x: a.position?.x ?? 0, y: a.position?.y ?? 0 } });
+      // B7-1 修（键集表①收口）：after 无 position 且非分镜子（auto 组 sb→normal 往返=auto 档
+      // 0 帧键）——moveNode {x:0,y:0} 载体只对分镜子合法（applyIntentToDoc moveNode 分支按父组
+      // 剥键；组无父上下文 ⇒ {0,0} 垃圾写入 doc=frameMode auto 违例形态）。改走 envelope 删键
+      // 语义（applyIntentToEnvelope position undefined → delete——键集表剥键的差分域载体）。
+      const parent = a.parentId != null ? afterNodes.get(a.parentId) : undefined;
+      const isStoryboardChild =
+        parent?.type === 'group' &&
+        (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+      if (a.position == null && !isStoryboardChild) {
+        intents.push({ type: 'updateNodeEnvelope', id: a.id, patch: { position: undefined } });
+      } else {
+        intents.push({ type: 'moveNode', id: a.id, position: { x: a.position?.x ?? 0, y: a.position?.y ?? 0 } });
+      }
     } else {
       // I-1 角点（O0a-1 质评）：既有子入分镜组（convertGroup）后 rel 恰 {0,0}=零位移——不补发
       // 则 doc 旧 position 键无写者可剥（剥键唯一载体=applyIntentToDoc moveNode 分支），批尾

@@ -199,8 +199,8 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   });
 });
 
-// —— O0b 挂点（it.todo 先建后清：接线归各分片，B7-1 归零——it.todo 计数锚）——
-describe('O0b 陷阱接线挂点（C0-2 只落骨架，接线归各分片）', () => {
+// —— O0b 挂点（B7-1 归零——it.todo 先建后清兑现：O0b-6/7/8/9 全转实，it.todo 计数=0 终裁 58③）——
+describe('O0b 陷阱接线挂点（C0-2 骨架→O0b-6/7/8/9 逐片接线→B7-1 全转实）', () => {
   it("O0b-6 接线（B4'-2 落地）：onNodesChange applyNodeChanges 窗写者上下文——position 批标 'reconcile'、dimensions setAttributes 批细分 'dimensions-attribute'", () => {
     seedCanvas([makeChild({ id: 'n1', position: { x: 1, y: 2 }, width: 100, height: 50 })]);
     enableGeometryTrap();
@@ -218,7 +218,119 @@ describe('O0b 陷阱接线挂点（C0-2 只落骨架，接线归各分片）', (
     ).not.toThrow();   // 批含 dimensions setAttributes ⇒ 细分 'dimensions-attribute'（首测固化路径同窗）
     errSpy.mockRestore();
   });
-  it.todo('O0b-7 接线：canvasIntents/canvasCollabRuntime 投影写体标 "projection-default"（projectIntentToStore/applyDocToStore/dispatchProjectionDiff 窗）');
-  it.todo('O0b-8 接线：应用 bootstrap（canvas/page 会话入口）enableGeometryTrap()——DEV 抛模式进入点（写者上下文接线完成后开放）');
-  it.todo('O0b-9 接线：canvasStore 结构命令体（structure-command/config-command/node-create 写点）逐函数标写者上下文——以 geometryWriterRegistry 账本为底册');
+  it('O0b-7 接线（B7-1 转实）：投影写体标 projection-default——projectIntentToStore append 窗+applyDocToStore 水合窗，陷阱开启下全链零抛', async () => {
+    const { openRwWindow, openRoWindow, resetCanvasStores } = await import('@/test/fixtures/canvas');
+    const { applyDocToStore } = await import('./canvasCollabRuntime');
+    const { _setIntentDocForTest } = await import('./canvasIntents');
+    const { fillDoc, toDocLike } = await import('@/collab/ydocBuilder');
+    const { stampDocSchema } = await import('@flowweb/shared');
+    openRwWindow();
+    const d = new (await import('yjs')).Doc();
+    fillDoc(d, [
+      { id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} },
+      { id: 'a2', type: 'textInput', position: { x: 360, y: 0 }, data: {} },
+    ], []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);           // 水合投影（projection-default）+ 尾挂 reconcile（reconcile）——陷阱开启下不抛
+    _setIntentDocForTest(d);
+    enableGeometryTrap();
+    expect(() => useCanvasStore.getState().addNode('textInput', { x: 50, y: 60 })).not.toThrow();
+    // 投影 append 回退分支（ro 窗 dispatch 被拦 → node-create 标注的原 append）同窗不抛
+    openRoWindow();
+    expect(() => useCanvasStore.getState().addNode('textInput', { x: 70, y: 80 })).not.toThrow();
+    // 反证：陷阱确实在装（无写者上下文的越权写仍抛——非空转绿；目标=a1，applyDocToStore 后在场）
+    const unlabeledMove = () => useCanvasStore.setState((s) => ({
+      nodes: s.nodes.map((n: any) => (n.id === 'a1' ? { ...n, position: { x: 9, y: 9 } } : n)),
+    }));
+    expect(unlabeledMove).toThrow(/越权写者/);
+    _setIntentDocForTest(null);
+    resetCanvasStores();
+  });
+  it('O0b-8 接线（B7-1 转实）：应用 bootstrap（canvas/page 会话入口）bootstrapGeometryTrap()——vitest 自守卫不装+page 接线行在场（DEV 抛模式进入点）', async () => {
+    const { bootstrapGeometryTrap } = await import('./geometryTrap');
+    // vitest 模式自守卫：bootstrap 不装（守卫测试显式 enableGeometryTrap 造案——测试面存量 setState 不入辖域）
+    bootstrapGeometryTrap();
+    expect(isGeometryTrapEnabled()).toBe(false);
+    // census：会话入口接线行在场（page.tsx 会话 useEffect 首段）
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const pageSrc = readFileSync(join(process.cwd(), 'src/pages/canvas/page.tsx'), 'utf8');
+    expect(pageSrc).toContain('bootstrapGeometryTrap();');
+  });
+  it('O0b-9 接线（B7-1 转实）：canvasStore 结构/配置/建点命令体逐函数标写者上下文（registry 账本为底册）——陷阱开启下结构命令全链零抛', async () => {
+    const { openRwWindow, resetCanvasStores } = await import('@/test/fixtures/canvas');
+    const { applyDocToStore } = await import('./canvasCollabRuntime');
+    const { _setIntentDocForTest } = await import('./canvasIntents');
+    const { fillDoc, toDocLike } = await import('@/collab/ydocBuilder');
+    const { stampDocSchema } = await import('@flowweb/shared');
+    openRwWindow();
+    const d = new (await import('yjs')).Doc();
+    fillDoc(d, [
+      { id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} },
+      { id: 'a2', type: 'textInput', position: { x: 360, y: 0 }, data: {} },
+      { id: 'a3', type: 'textInput', position: { x: 720, y: 0 }, data: {} },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done' } },
+      { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done' } },
+    ], []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);
+    _setIntentDocForTest(d);
+    enableGeometryTrap();
+    const st = useCanvasStore.getState;
+    const groupIdOf = (which: number) =>
+      (useCanvasStore.getState().nodes.filter((n: any) => n.type === 'group')[which] as any).id as string;
+    // structure-command 族（经 setWithParentOrder 包装/直接 set 均已标）
+    expect(() => st().groupNodes(['a1', 'a2'])).not.toThrow();
+    const gid = useCanvasStore.getState().nodes.find((n: any) => n.type === 'group')!.id as string;
+    expect(() => st().addToGroup(gid, 'a3')).not.toThrow();
+    expect(() => st().arrangeSelection(['a1', 'a2'], 'horizontal')).not.toThrow();
+    expect(() => st().arrangeGroupChildren(gid, 'vertical')).not.toThrow();
+    expect(() => st().toggleCollapse(gid)).not.toThrow();
+    expect(() => st().removeNodeFromGroup(gid, 'a3')).not.toThrow();
+    // 分镜转换组=图片节点组（convertGroup 分镜分支守卫"仅图片"）
+    expect(() => st().groupNodes(['img1', 'img2'])).not.toThrow();
+    const imgGid = groupIdOf(1);
+    expect(() => st().convertGroup(imgGid, 'storyboard')).not.toThrow();
+    // config-command 族
+    expect(() => st().resizeStoryboardGrid(imgGid, 3, 3)).not.toThrow();
+    expect(() => st().convertGroup(imgGid, 'normal')).not.toThrow();
+    // node-create 族（appendCopyPlan 副本信封经 setWithParentOrder('node-create')）
+    expect(() => st().duplicateNodes(['a1'])).not.toThrow();
+    // 手势内核（begin/endGesture 回滚写='gesture'）
+    expect(() => st().beginDragGesture([{ id: 'a1' }, { id: 'a2' }], 1)).not.toThrow();
+    expect(() => st().endGesture('aborted')).not.toThrow();
+    // 反证：陷阱在装（越权写仍抛——非空转绿；目标=a3，结构命令链后在场）
+    const unlabeledMove = () => useCanvasStore.setState((s) => ({
+      nodes: s.nodes.map((n: any) => (n.id === 'a3' ? { ...n, position: { x: 9, y: 9 } } : n)),
+    }));
+    expect(unlabeledMove).toThrow(/越权写者/);
+    _setIntentDocForTest(null);
+    resetCanvasStores();
+  });
+});
+
+// —— B7-1 census（终裁 58③）：it.todo 计数=0（分片 unskip 全部转实）——
+describe('B7-1 census：全仓 it.todo 计数=0（先建后清兑现——C0-2 建 8/分片 unskip/B7-1 归零）', () => {
+  it('apps/*/src+packages/*/src 全量（含 test/spec）代码行 it.todo 调用零命中', () => {
+    // 自证豁免构造（本行不拼出可命中的字面量——拼接而非直写）
+    const NEEDLE = ['it', '.todo('].join('');
+    // 扫描域=apps/*/src+packages/*/src（vitest cwd=apps/web——api 经相对路径纳入）
+    const dirs = [join(process.cwd(), 'src'), join(process.cwd(), '../api/src'), join(process.cwd(), '../../packages')];
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (!/\.(ts|tsx|js|mjs)$/.test(entry.name)) continue;
+        for (const raw of readFileSync(full, 'utf8').split('\n')) {
+          const t = raw.trim();
+          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) continue;
+          if (raw.includes(NEEDLE)) hits.push(`${full}: ${t}`);
+        }
+      }
+    };
+    for (const dir of dirs) walk(dir);
+    expect(hits, JSON.stringify(hits, null, 2)).toEqual([]);
+  });
 });
