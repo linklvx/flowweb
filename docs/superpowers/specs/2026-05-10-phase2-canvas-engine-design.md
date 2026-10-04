@@ -1,3 +1,4 @@
+<!-- doc-status: historical | superseded-by: specs/2026-09-29-collab-conn-status-recovery-design.md | verified_at: n/a | note: §4.1/§7/§8 持久化机制已死（指针已加）；ReactFlow 选型论证保留原位 -->
 # Phase 2: Canvas Engine + Node System Design
 
 > **Status:** Approved
@@ -71,6 +72,8 @@ Three independent node types with standard input/output ports:
 ## 4. Architecture
 
 ### 4.1 Data Flow
+
+> 【2026-10-05 指针】本节数据流（localStorage 缓存+REST 防抖同步）已由 Yjs 协同文档+服务端 doc 持久化取代，见 specs/2026-09-29-collab-conn-status-recovery-design.md。
 
 ```
 User Interaction → @xyflow/react (controlled mode)
@@ -212,6 +215,8 @@ apps/web/src/pages/canvas/
 
 ## 7. Backend API
 
+> 【2026-10-05 指针】本节 REST 批量同步端点（nodes/edges 批量 PUT）已随 REST 画布链路退役；现行=项目 CRUD 元数据 + Yjs doc 持久化，见 specs/2026-09-29-collab-conn-status-recovery-design.md。
+
 **New module:** `apps/api/src/modules/project/`
 
 | Method | Path | Description |
@@ -226,6 +231,8 @@ apps/web/src/pages/canvas/
 **Response format:** Same as Phase 1 — `{ code: 0, data: T, message: "ok" }`
 
 ## 8. Persistence Strategy
+
+> 【2026-10-05 指针】本节机制（localStorage 增量+防抖 REST 快照）已由服务端 doc 持久化取代（CanvasDoc 增量日志+快照），见 specs/2026-09-29-collab-conn-status-recovery-design.md。
 
 | Layer | Mechanism | Trigger | Data |
 |-------|-----------|---------|------|

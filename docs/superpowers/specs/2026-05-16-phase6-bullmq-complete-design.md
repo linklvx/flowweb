@@ -1,3 +1,4 @@
+<!-- doc-status: historical | superseded-by: docs/superpowers/tech-debt.md | verified_at: n/a | note: bull→bullmq 迁移决策史保留；attempts 现状=分层（见 §3.4 校准注） -->
 # Phase 6: BullMQ Async Queue — 完成设计
 
 > **Status:** Approved
@@ -72,6 +73,8 @@ REDIS_URL: z.string().default('redis://localhost:6379/0'),
 ```
 
 ### 3.4 全局默认任务选项
+
+> 【2026-10-05 校准·attempts 分层】attempts **非"被推翻"而是分层精准覆盖**：全局默认仍=3（app.module.ts:49）；付费能力队列显式=1（execution/ai-image-edit——批 0c 防重复扣费）；storyboard=2、subscription=3（免费/低风险域保留重试）。风险登记：付费能力新队列静默继承全局 3——见 tech-debt 对应条目。
 
 ```typescript
 BullModule.forRoot({

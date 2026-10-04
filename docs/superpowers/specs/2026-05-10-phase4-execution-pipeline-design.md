@@ -1,3 +1,4 @@
+<!-- doc-status: historical | superseded-by: specs/2026-09-29-collab-conn-status-recovery-design.md | verified_at: n/a | note: 扣费与执行数据流章节已死，现行机制见 tech-debt.md -->
 # Phase 4: Execution Pipeline + Credit System + Real-time Sync Design
 
 > **Status:** Approved
@@ -29,6 +30,8 @@ model UserBalance {
 ```
 
 Credit deduction uses optimistic locking via `updateMany` with version condition.
+
+> 【2026-10-05 校准·扣费】**已死**——现行=TeamCreditService `reserve→settle/void`（TeamBalance 双池 credits+subscriptionCredits，账本唯一）；UserBalance 模型已删（commit 74b86e92）。
 
 ## 4. Backend Architecture
 
@@ -88,6 +91,8 @@ POST /api/execution/execute { projectId, nodeId? }
   └─ 6. emit execution:complete { totalCost }
 ```
 
+> 【2026-10-05 校准·执行】同步 HTTP 与 BullMQ 队列**并存**（TD-18 统一入队未做）；幂等与在飞互斥由 GenerationIntent 表承载；执行读 Yjs doc 真实节点（非 REST 行式模型）；`execution:complete` 载荷已死（零消费，随 TD-21 退役清理）。
+
 ### 4.4 Multi-Upstream Data Injection
 
 | Node Type | Injection Strategy |
@@ -118,6 +123,8 @@ Return fixed placeholder image URL after simulated delay (1-2 seconds). Interfac
 ## 5. Socket.io Design
 
 ### 5.1 Namespace: `/execution`
+
+> 【2026-10-05 校准·socket】/execution **仍为现行通道**（node:status 主路径 dual-write 已落）；退役计划见 TD-21（保留+冻结分两步）——非"已退役"。
 
 ### 5.2 Events
 

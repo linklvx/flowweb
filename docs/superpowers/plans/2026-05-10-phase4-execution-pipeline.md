@@ -1,6 +1,9 @@
+<!-- doc-status: historical | superseded-by: plans/2026-09-30-collab-recovery-master-plan.md | verified_at: n/a | note: 扣费与执行数据流任务已死，现行机制见 tech-debt.md -->
 # Phase 4: Execution Pipeline + Credit System + Real-time Sync Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+> ⛔ 本 plan 已完成（历史档）。【2026-10-05 校准】扣费=TeamCreditService `reserve→settle/void`（TeamBalance 双池，UserBalance 乐观锁已死）；执行=同步 HTTP 与 BullMQ **并存**（TD-18 未做）+ GenerationIntent 幂等 + 读 doc 真实节点；socket=/execution **仍为现行通道**（TD-21 分两步退役）。
 
 **Goal:** Build the complete generation execution loop: user clicks generate → pre-validation → topological execution → mock API call → optimistic-lock credit deduction → Socket.io real-time broadcast → frontend status/result/balance update.
 

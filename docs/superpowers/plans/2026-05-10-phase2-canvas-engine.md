@@ -1,3 +1,4 @@
+<!-- doc-status: historical | superseded-by: plans/2026-09-30-collab-recovery-master-plan.md | verified_at: n/a | note: 持久化任务组（Group 5/Task 16 localStorage 链）已死，现行=Yjs doc 持久化 -->
 # Phase 2: Canvas Engine + Node System Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -1691,6 +1692,8 @@ git commit -m "feat: add CanvasView with ReactFlow, DnD, custom nodes/edges"
 ---
 
 ## Group 5: Assembly & Persistence
+
+> 【2026-10-05 指针】本组持久化机制（localStorage 缓存+防抖 REST 同步）已由 Yjs doc+服务端 CanvasDoc 持久化取代，见 specs/2026-09-29-collab-conn-status-recovery-design.md。
 
 ### Task 14: Frontend projectApi Client
 

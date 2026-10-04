@@ -1,6 +1,9 @@
+<!-- doc-status: historical | superseded-by: docs/superpowers/tech-debt.md | verified_at: n/a | note: bull→bullmq 迁移决策史保留；attempts 现状=分层 -->
 # Phase 6 BullMQ 完成 — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+> ⛔ 本 plan 已完成（历史档）。【2026-10-05 校准】attempts 分层现状：全局 app.module.ts:49=3；execution/ai-image-edit 付费队列显式=1（批 0c 防重复扣费）；storyboard=2、subscription=3。
 
 **Goal:** 清理 Phase 6 半成品代码，升级 bull→bullmq，完成 NestJS BullModule 集成（forRoot + registerQueue + @Processor + @InjectQueue），移除所有 require('bull') 代码。
 
@@ -163,7 +166,7 @@ Add BullModule.forRoot as first item in imports array:
       connection: { url: env.REDIS_URL },
       connectionName: 'default',
       defaultJobOptions: {
-        attempts: 3,
+        attempts: 3, // 【校准】全局默认；付费队列（execution/ai-image-edit）显式 attempts:1——分层见 tech-debt
         backoff: { type: 'exponential', delay: 2000 },
         removeOnComplete: { age: 3600, count: 1000 },
         removeOnFail: { age: 86400 * 7 },

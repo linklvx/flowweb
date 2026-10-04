@@ -69,6 +69,12 @@
 - **来源**：批 0c-8 注记（app.module.ts 代码注释同步登记）
 - **修复方向**：生产部署前 `app.set('trust proxy', 1)` 或 throttler 自定义 tracker——反代后 `req.ip` 全是代理 IP，300/min 会退化成全站共享单桶
 
+### TD-25 付费能力新队列静默继承全局 attempts:3
+
+- **来源**：文档治理批 1.5 措辞三定（2026-10-05）——attempts 现状=分层精准覆盖（全局 app.module.ts:49=3；execution/ai-image-edit 付费队列显式=1〔批 0c 防重复扣费〕；storyboard=2、subscription=3），但分层靠**逐队列显式覆盖**，无机制兜底
+- **风险**：新增付费能力队列若忘写 `attempts: 1`，静默继承全局 3——失败重试可能造成重复扣费/重复外呼
+- **修复方向**：守卫断言提案——静态扫描（AST 或 lint-gate 规则）：`@nestjs/bullmq` registerQueue 落在付费域模块（execution/ai-image-edit 等）时必须显式携带 `attempts: 1`，缺失即红
+
 ## 集中修复建议批次
 
 1. ~~**第二批（测试卫生）**：TD-9~~ ✅ 已完成（2026-08-21，3bcd50c）

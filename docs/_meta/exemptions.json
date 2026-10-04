@@ -710,28 +710,28 @@
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 84,
+      "line": 90,
       "symbol": "deleteRefs",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 89,
+      "line": 95,
       "symbol": "isHydrating",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 90,
+      "line": 96,
       "symbol": "isHydrating",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 90,
+      "line": 96,
       "symbol": "isHydrating",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
       "expires_at": "2027-01-02"
