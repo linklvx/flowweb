@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect } from '@flowweb/shared';
-import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, normalizeSize } from '@flowweb/shared';
+import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -336,8 +336,9 @@ export interface CanvasState {
    *  面积最大胜/max===0⇒顶层化/并列 id 最小——新路由规则非迁移）→R4 预检（Inner 化批守卫收窄的
    *  新家：受影响组执行中⇒message+跳过该叶归属变更，位置照常提交）→位置提交+脱离信封同批单
    *  transact（buildDragCommitIntents 构造单源+updateNodeEnvelope{parentId:undefined}；清 session
-   *  先于 dispatch——脱离经投影先落 cs membership⇒漏斗尾按最终归属一次派生：空组档=
-   *  COLLAPSED_SIZE@冻结原位、同命令内无中间尺寸、1 子组不解散）→入组分派壳（storyboard⇒
+   *  先于 dispatch——脱离经投影先落 cs membership⇒漏斗尾按最终归属一次派生：空组档=manual 三键
+   *  密封@冻结原位[emptyGroupSealFrame 单源——auto 空档 position 无 doc 载体会跨端分叉，B5'-2
+   *  手测实证]、同命令内无中间尺寸、1 子组不解散）→入组分派壳（storyboard⇒
    *  dropImageIntoStoryboard/normal⇒dropIntoGroup——doc 已新鲜+session 已清，壳行为≡直调：clamp
    *  placement/折叠先展开/源组善后留函数体单层，全量 rebase F33 abs 守恒；归属分发先于位置提交
    *  会被漏斗尾以 baseline 位置蚀刻 cs——探针实证禁序）→stopCapturing（窗右边界）。零归属决策⇒
@@ -1254,9 +1255,25 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // 薄壳的空组解组善后不随行）；入组=壳后置——dispatch 后 doc 已新鲜+session 已清，壳行为≡
     // 直调（clamp placement/折叠先展开/源组善后留函数体单层；全量 rebase，F33 abs 守恒）。
     const intents = buildDragCommitIntents(s);
+    const effectiveIds = new Set(effective.map((dc) => dc.id));
     for (const dc of effective) {
       if (dc.kind === 'detach') {
         intents.push({ type: 'updateNodeEnvelope', id: dc.id, patch: { parentId: undefined } });
+        // 拖出最后成员⇒空组档密封（B5'-2 双标签页手测发现的跨端收敛缺口）：auto 组空档 position
+        // 无 doc 载体（键集表 auto 恒 0 帧键）——B 端/重载按缺键 fallback (0,0) 派发 ⇒A/B 分叉；
+        // 修法=空组帧 manual 三键密封@冻结原位（emptyGroupSealFrame 单源——resize 同款
+        // auto→manual envelope 通道，B5'-2 第二通道随批 spec 回写）。剩余成员口径=本批归属决策
+        // 全部移出后为空（detach+into 同批清空同一组也命中）。
+        const g = byId.get(dc.groupId);
+        const remaining = nodes.filter((n) => n.parentId === dc.groupId && !effectiveIds.has(n.id));
+        if (g && g.type === 'group' && remaining.length === 0 && isContentDerivedGroup(g)) {
+          const f = s.frozenFrames.get(dc.groupId) ?? g.position;
+          const seal = emptyGroupSealFrame(f);
+          intents.push({
+            type: 'updateNodeEnvelope', id: dc.groupId,
+            patch: { position: { x: seal.x, y: seal.y }, width: seal.width, height: seal.height },
+          });
+        }
       }
     }
     finalizeGestureSession();   // 清 session 先于 dispatch（B5'-1 终裁序同款——让位废止⇒漏斗尾全域）

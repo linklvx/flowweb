@@ -192,6 +192,21 @@ export function deriveGroupFrame(input: {
   return { x: b.x, y: b.y, width: b.width, height: b.height };
 }
 
+/** B5'-2（Spec B）：空组档密封帧——拖出最后成员松手⇒组不解散+帧=COLLAPSED_SIZE@冻结原位
+ *（空组档）。auto 组空档的 position 无 doc 载体（键集表 auto 恒 0 帧键）——跨端/重载按缺键
+ * fallback (0,0) 派发会 A/B 分叉（B5'-2 双标签页手测实证）；修法=空组帧以 manual 三键密封
+ * 落 doc（resize 提交同款 auto→manual envelope 通道——B5'-2 第二通道，随批 spec 回写）。
+ * 值与 deriveGroupFrame 空 auto 档同源（COLLAPSED_SIZE@冻结 origin）——store 侧经本单源
+ * 取值（canvasStore 代码行零 COLLAPSED_SIZE 引用——O0b-5 census 维持）。 */
+export function emptyGroupSealFrame(frozenOrigin: { x: number; y: number }): Rect {
+  return {
+    x: frozenOrigin.x,
+    y: frozenOrigin.y,
+    width: COLLAPSED_SIZE.width,
+    height: COLLAPSED_SIZE.height,
+  };
+}
+
 // ══════════ O0b-2（Spec B）：尺寸取整/contain-fit/内容事件决策/multiImage 公式 单源 ══════════
 // 终裁 59③/75/83④/91：adaptToFit 新名独立纯函数（不复用 web adaptCustomSize 名——该符号随
 // customSize 并入 envelope 同批删除）；calcConstrainedSize/ratioDimensions 三份逐字重复收编单源

@@ -186,7 +186,7 @@ describe("B5'-2 拖组零归属变更与多选顶层化", () => {
 // ══════════ ⑪ 拖出最后成员（空组档——同命令内无中间尺寸） ══════════
 
 describe("B5'-2 拖出最后成员（1 子组不解散）", () => {
-  it('拖出唯一子松手⇒组不解散+帧=COLLAPSED_SIZE@原位（空组档——漏斗尾单次派生，组不随远拖成员漂移）+undo 一步恢复 frame≡bbox', () => {
+  it('拖出唯一子松手⇒组不解散+帧=COLLAPSED_SIZE@原位 manual 三键密封（空组档——跨端收敛载体）+undo 一步恢复 frame≡bbox', () => {
     const d = hydrate();
     const um = attachUndoManager(d);
     begin(['c3']);
@@ -196,7 +196,9 @@ describe("B5'-2 拖出最后成员（1 子组不解散）", () => {
     expect(csNode('g3').position).toEqual({ x: 680, y: 550 });     // 原位（冻结 origin——不随成员漂移）
     expect(csNode('g3').width).toBe(COLLAPSED_SIZE.width);         // 空组档=COLLAPSED_SIZE（220）
     expect(csNode('g3').height).toBe(COLLAPSED_SIZE.height);       // 160
-    expect(nodeMap(d, 'g3').get('width')).toBeUndefined();         // auto 恒 0 帧键（doc 无中间尺寸）
+    expect(nodeMap(d, 'g3').get('width')).toBe(COLLAPSED_SIZE.width);   // manual 三键密封落 doc（auto 空档 position
+    expect(nodeMap(d, 'g3').get('height')).toBe(COLLAPSED_SIZE.height); // 无载体⇒B 端/重载 fallback(0,0) 分叉——手测实证）
+    expect(docPos(d, 'g3')).toEqual({ x: 680, y: 550 });
     expect(csNode('c3').parentId).toBeUndefined();                 // 脱离=顶层化
     expect(docPos(d, 'c3')).toEqual({ x: 1000, y: 900 });          // 位置逐位保留
     expect(um.undoStack.length).toBe(1);                           // 松手=一步 undo
@@ -207,6 +209,20 @@ describe("B5'-2 拖出最后成员（1 子组不解散）", () => {
     const expectFrame = calcGroupBounds([{ x: 700, y: 600, width: 100, height: 60 }]);
     expect(csNode('g3').position).toEqual({ x: expectFrame.x, y: expectFrame.y }); // frame≡bbox+padding
     expect(csNode('g3').width).toBe(expectFrame.width);
+  });
+
+  it('空组档跨端收敛（B 端模拟）：拖出唯一子后 applyDocToStore 重水合 ⇒ 空组帧逐位=COLLAPSED_SIZE@原位（非 (0,0) fallback）', () => {
+    const d = hydrate();
+    begin(['c3']);
+    frame('c3', 320, 350);
+    release();
+    applyDocToStore(d);                                             // B 端/重载等价：doc 权威重水合
+    expect(csNode('g3')).toBeTruthy();
+    expect(csNode('g3').position).toEqual({ x: 680, y: 550 });     // 非 fallback (0,0)——跨端一致
+    expect(csNode('g3').width).toBe(COLLAPSED_SIZE.width);
+    expect(csNode('g3').height).toBe(COLLAPSED_SIZE.height);
+    expect(csNode('c3').parentId).toBeUndefined();                 // B 端成员关系一致
+    expect(csNode('c3').position).toEqual({ x: 1000, y: 900 });
   });
 });
 

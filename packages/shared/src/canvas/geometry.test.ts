@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isContentDerivedFrame, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
   GROUP_PADDING, GROUP_PADDING_TOP, clampChildIntoGroup, clampPositionToPadding,
-  deriveGroupFrame, calcGroupBounds, calcStoryboardSize,
+  deriveGroupFrame, calcGroupBounds, calcStoryboardSize, emptyGroupSealFrame,
 } from './geometry';
 import { resolveStoryboardConfig } from './storyboardConfig';
 
@@ -160,6 +160,14 @@ describe('deriveGroupFrame（O0b-1 写域①四模式单源——reconcile 与�
       fallbackOrigin: { x: 12, y: 34 },
     });
     expect(frame).toEqual({ x: 12, y: 34, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
+  });
+
+  it('emptyGroupSealFrame（B5'-2 空组档密封）≡deriveGroupFrame 空 auto 档同值@冻结 origin（跨端收敛 doc 载体单源）', () => {
+    const seal = emptyGroupSealFrame({ x: 680, y: 550 });
+    expect(seal).toEqual({ x: 680, y: 550, width: COLLAPSED_SIZE.width, height: COLLAPSED_SIZE.height });
+    expect(seal).toEqual(deriveGroupFrame({
+      data: { groupType: 'normal' }, childrenAbs: [], storedFrame: {}, fallbackOrigin: { x: 680, y: 550 },
+    }));
   });
 });
 
