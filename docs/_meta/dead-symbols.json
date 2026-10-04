@@ -111,63 +111,63 @@
       "symbol": "ProjectData",
       "kind": "dead",
       "scope": "apps/web/src/api/projectApi.ts",
-      "removedIn": null,
+      "removedIn": "5f725ea4",
       "reason": "REST 画布客户端死导出（撞名：@flowweb/shared 与 video-editor/types 各有活 ProjectData——文件级 scope）"
     },
     {
       "symbol": "getProject",
       "kind": "dead",
       "scope": "apps/web/src/api/projectApi.ts",
-      "removedIn": null,
+      "removedIn": "5f725ea4",
       "reason": "REST 画布客户端死导出（撞名：project.controller.ts:23 活方法——文件级 scope）"
     },
     {
       "symbol": "SyncCanvasPayload",
       "kind": "dead",
       "scope": "apps/web/src/api/projectApi.ts",
-      "removedIn": null,
+      "removedIn": "5f725ea4",
       "reason": "REST 画布同步死类型"
     },
     {
       "symbol": "syncCanvas",
       "kind": "dead",
       "scope": "apps/web/src/api/projectApi.ts",
-      "removedIn": null,
+      "removedIn": "5f725ea4",
       "reason": "REST 画布同步死函数（批 1 Task 3-1）"
     },
     {
       "symbol": "signOutWithBlacklist",
       "kind": "dead",
       "scope": "repo",
-      "removedIn": null,
+      "removedIn": "507e5c3a",
       "reason": "JWT 双令牌方案残留——从未接线（实为 session cookie，批 1 Task 3-2）"
     },
     {
       "symbol": "isBlacklisted",
       "kind": "dead",
       "scope": "repo",
-      "removedIn": null,
+      "removedIn": "507e5c3a",
       "reason": "JWT 双令牌方案残留——仅自测引用（批 1 Task 3-2）"
     },
     {
       "symbol": "consume",
       "kind": "dead",
       "scope": "apps/api/src/modules/team/team-credit.service.ts",
-      "removedIn": null,
+      "removedIn": "c456ac47",
       "reason": "单阶段扣费退役（五扣费点已切 reserve→settle/void，批 1 Task 3-3）；文件级 scope=裸英文词在文档叙述面歧义（master plan 完成记录提及）"
     },
     {
       "symbol": "UserSubscription_userId_active_key",
       "kind": "dead",
       "scope": "apps/api/prisma/verify-indexes.sql",
-      "removedIn": null,
+      "removedIn": "ee5e92e7",
       "reason": "全仓从未存在的索引名（真名 user_subscription_one_active——verify-indexes 假绿块，批 1 Task 3-4 修正）"
     },
     {
       "symbol": "UserBalance_subscription_credits_check",
       "kind": "dead",
       "scope": "apps/api/prisma/verify-indexes.sql",
-      "removedIn": null,
+      "removedIn": "ee5e92e7",
       "reason": "查询已 drop 的 UserBalance 约束（死 CHECK 块，批 1 Task 3-4 删块）"
     }
   ]
