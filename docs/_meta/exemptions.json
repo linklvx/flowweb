@@ -735,6 +735,83 @@
       "symbol": "isHydrating",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针批 3 落地）",
       "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 121,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 122,
+      "symbol": "pickStructNodes",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 129,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 129,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 130,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 190,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 190,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 213,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 460,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 474,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+      "line": 520,
+      "symbol": "isHydrating",
+      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+      "expires_at": "2027-01-02"
     }
   ]
 }
