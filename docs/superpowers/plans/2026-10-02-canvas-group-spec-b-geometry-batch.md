@@ -328,7 +328,7 @@
 - [x] **绿实现**：onNodesChange 首行两件事+手势期零 intent+门判据分型；三处叶子 resizer（ImageGen:1130-1145/VideoGen:693-703/TextInput:149-170）+GroupNode resizer 接 resizePending；resize 会话（懒激活+resizeTargetId 入让位与 merge 保护+第二参值单次提交零子代）
 - [x] commit `feat(canvas): B4'-2 拖动编排+门判据叶/组分型+resize 会话（Spec B B4'-2）`
   - 完成注记（2026-10-03）：commit 7f19b616+bfd2c457（spec 收口：resizePending 悬挂兜底[pointerup/pointercancel 一次性清——RF resizeDetected 只点不拖防永悬]+混批固化候选预收集[告警分支不吞 fixCandidates]——两锚红→绿）+4f139ed3（质评收口：监听有界化共享 clear 双摘+gestureAbandoned 无界窗注记[仅 DEV 诊断面]+isFinite 守卫"跳过但完成"语义注）；实现者被 API 限流中断（250 工具调用后 429），controller 直接接手完成——编排三分路[手势期零 intent/门判据②告警+gestureAbandoned 静默窗/常规路由]+commitResizeGesture[末帧密封单 envelope+stopCapturing 随迁+endGesture('completed')]+三叶子 resizePending 标记+GroupNode 会话接线[onResizeStart=beginResize/onResizeEnd=commitResizeGesture——先于尾批 F10]+resolveGestureYield 补 children(draggedGroupIds)[拖组档 reconcile rebase 保护]+captureGestureProtection(docRecords) parentId 放弃+remove 谓词扩 resizeTargetId+手势期本地自删+O0b-6 接线[it.todo 4→3；prod 自装 queueMicrotask TDZ 修]+dispatchFixtureSizeIntents 手势门；canvasB42.orchestration.test 29 用例（19 项 plan 红测清单 18 有锚+阈值内微动由 RF 默认 nodeDragThreshold 承担——spec 评接受）；**rel-as-abs 洞结构性关闭**（拖叶子 RF 发 rel⇒cs 落 rel∧doc.abs 逐位不动——B4'-1 登记过渡洞根治）；DragSession.gestureAbandoned/resizePending 休眠字段登记 O0 清理（质评 Minor-4）；**过渡期语义**：拖动提交归 B5'-1（B4'-2→B5'-1 窗口内拖动被 abort/healed 回滚=plan 排序明确）
-- [ ] **双标签页手测**（A 拖→B 收敛无抖动→A undo→B 一致）——**随 B5'-2 批尾手测合并执行**（B4'-2 过渡期拖动提交归 B5'-1，先行手测拖动必回滚无验收意义）
+- [x] **双标签页手测**（A 拖→B 收敛无抖动→A undo→B 一致）——**随 B5'-2 批尾手测合并执行完毕**（B4'-2 过渡期拖动提交归 B5'-1，先行手测拖动必回滚无验收意义；执行证据=B5'-2 完成注记"手测五场景全过含 B4'-2 补测"——终审翻正陈旧框）
 
 ---
 

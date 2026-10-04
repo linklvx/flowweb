@@ -287,20 +287,13 @@ async function dragNodeToFlow(page: Page, nodeId: string, flowX: number, flowY: 
 /** 手势保持期的收敛判据：双端子 abs 数值收敛（rel 字符串在此期不收敛=设计内——A 帧冻结/B 帧派生） */
 async function expectChildAbsConverged(pageA: Page, pageB: Page, childId: string, timeout = 30_000): Promise<void> {
   await expect.poll(async () => {
-    const a = await childAbsOn(pageA, childId, (await currentParent(pageA, childId)) ?? '');
-    const b = await childAbsOn(pageB, childId, (await currentParent(pageB, childId)) ?? '');
+    const a = await childAbsOn(pageA, childId);
+    const b = await childAbsOn(pageB, childId);
     if (a == null || b == null) return false;
     return Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1;
   }, { timeout, message: `节点 ${childId} 双端 abs 未收敛（手势保持窗）` }).toBe(true);
 }
 
-/** 节点当前父组 id（顶层=''——出组后 childAbsOn 的组 origin 取自顶层自身） */
-async function currentParent(page: Page, nodeId: string): Promise<string | null> {
-  return page.locator(`.react-flow__node[data-id="${nodeId}"]`).evaluate((el) => {
-    const parentEl = (el.parentElement?.closest('.react-flow__node')) as HTMLElement | null;
-    return parentEl?.dataset.id ?? null;
-  });
-}
 
 /** 等双端某节点 transform 逐位相等（收敛判据——字符串全等） */
 async function expectTransformsConverged(pageA: Page, pageB: Page, nodeId: string, timeout = 30_000): Promise<string> {
@@ -322,9 +315,8 @@ async function groupFrame(page: Page, groupId: string): Promise<{ x: number; y: 
 }
 
 /** B 端子节点 abs（RF v12 transform=positionAbsolute——已是绝对流坐标，勿再叠组 origin：
- *  B7-2 首跑把 transform 误当 rel 双计 origin，制造"兄弟随动/帧偏差=组 origin"假象[评审实证]；
- *  groupId 参数仅为调用面签名兼容保留） */
-async function childAbsOn(page: Page, childId: string, _groupId: string | null): Promise<{ x: number; y: number; w: number; h: number }> {
+ *  B7-2 首跑把 transform 误当 rel 双计 origin，制造"兄弟随动/帧偏差=组 origin"假象[评审实证]） */
+async function childAbsOn(page: Page, childId: string): Promise<{ x: number; y: number; w: number; h: number }> {
   const abs = parseTransform(await nodeTransform(page, childId));
   const s = await nodeSize(page, childId);
   return { x: abs.x, y: abs.y, w: s.w, h: s.h };
@@ -368,7 +360,7 @@ async function dual(browser: import('@playwright/test').Browser) {
 }
 
 // ── T1：帧原点逐帧恒等 + 松手收敛 + 零提交分支 ─────────────────────────────────
-test.fixme('T1 A 拖子T1 A 拖子：拖动期 B 帧逐帧恒等（手势期 doc 零写）；松手双端收敛+帧≡bbox+padding（具名常量）；undo 只回拖动', async ({ browser }) => {
+test.fixme('T1 A 拖子：拖动期 B 帧逐帧恒等（手势期 doc 零写）；松手双端收敛+帧≡bbox+padding（具名常量）；undo 只回拖动', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -419,7 +411,7 @@ test.fixme('T1 A 拖子T1 A 拖子：拖动期 B 帧逐帧恒等（手势期 doc
   }
 });
 
-test.fixme('T1b 零提交分支T1b 零提交分支：拖回原位松手⇒零 undo 项（Ctrl+Z 回退的是[分离]——零净拖动不占栈顶）', async ({ browser }) => {
+test.fixme('T1b 零提交分支：拖回原位松手⇒零 undo 项（Ctrl+Z 回退的是[分离]——零净拖动不占栈顶）', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -456,7 +448,7 @@ test.fixme('T1b 零提交分支T1b 零提交分支：拖回原位松手⇒零 un
 });
 
 // ── T2：拖动中远端写入让位锚 ──────────────────────────────────────────────────
-test('T2a A 拖子中T2a A 拖子中 B 拖同组兄弟：A 帧冻结恒等，松手后双端按新成员集收敛', async ({ browser }) => {
+test('T2a A 拖子中：A 帧冻结恒等，松手后双端按新成员集收敛', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -493,7 +485,7 @@ test('T2a A 拖子中T2a A 拖子中 B 拖同组兄弟：A 帧冻结恒等，松
   }
 });
 
-test('T2b A 拖组中T2b A 拖组中 B 拖组员出组（减成员）：双端收敛=剩余子派生帧+出组子顶层化', async ({ browser }) => {
+test('T2b A 拖组中：双端收敛=剩余子派生帧+出组子顶层化', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -524,7 +516,7 @@ test('T2b A 拖组中T2b A 拖组中 B 拖组员出组（减成员）：双端�
   }
 });
 
-test.fixme('T2c A 拖子中T2c A 拖子中 B 拖走同节点（改被拖节点 parentId）：保护放弃按 doc 基准重算，最终双端收敛于顶层', async ({ browser }) => {
+test.fixme('T2c A 拖子中：保护放弃按 doc 基准重算，最终双端收敛于顶层', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -619,7 +611,7 @@ test('T2e A 拖子中 B resize 同组（冻结组帧写）：A 帧让位不动�
 });
 
 // ── T3：resize 远端锚（含子 rel 补偿——NW 角 origin 位移档） ────────────────────
-test.fixme('T3 A NW 角 resizeT3 A NW 角 resize 组：B 收敛帧三键+子 rel 反向补偿（子 abs 不动）', async ({ browser }) => {
+test.fixme('T3 A NW 角 resize：B 收敛帧三键+子 rel 反向补偿（子 abs 不动）', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -652,7 +644,7 @@ test.fixme('T3 A NW 角 resizeT3 A NW 角 resize 组：B 收敛帧三键+子 rel
 });
 
 // ── T4：undo 合成（单人 undo 部分回退） ───────────────────────────────────────
-test.fixme('T4 A 拖组→B 改子T4 A 拖组→B 改子→A undo：单人 undo 部分回退（组位移回滚/子位移保留——接受登记语义）', async ({ browser }) => {
+test.fixme('T4 A 拖组→B 改子：单人 undo 部分回退（组位移回滚/子位移保留——接受登记语义）', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -690,7 +682,7 @@ test.fixme('T4 A 拖组→B 改子T4 A 拖组→B 改子→A undo：单人 undo 
 });
 
 // ── T5：redo 三锚 ────────────────────────────────────────────────────────────
-test.fixme('T5a 拖 c1→拖 c2T5a 拖 c1→拖 c2→undo→redo：redo 帧逐位=提交时值（双端）', async ({ browser }) => {
+test.fixme('T5a 拖 c1→拖 c2：redo 帧逐位=提交时值（双端）', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -801,7 +793,7 @@ test('T6 拖子后双端 reload：transform 逐位=reload 前捕获值（doc 密
 });
 
 // ── T7：并发登记（不同节点交错拖拽——逐节点 LWW） ──────────────────────────────
-test('T7 A/B 各拖不同子T7 A/B 各拖不同子交错松手：两提交都落，双端逐位收敛（c1=A 末帧/c2=B 末帧）', async ({ browser }) => {
+test('T7 A/B 各拖不同子：两提交都落，双端逐位收敛（c1=A 末帧/c2=B 末帧）', async ({ browser }) => {
   const { ctxA, ctxB, pageA, pageB } = await dual(browser);
   try {
     await openFreshCanvas(pageA, pageB);
@@ -950,7 +942,7 @@ test('T10 三端：A 拖组→B 拖子→C（只读 viewer）同步——三方�
 });
 
 // ── T11：elementFromPoint 零交叠 zoom∈{0.5,1,2}（B6-2 挪入） ────────────────────
-test.fixme('T11 +号零交叠三档 zoomT11 +号零交叠三档 zoom：+号↔本组框零交叠/同屏至多一枚（单 target 单源）/elementFromPoint 命中+号；直径 24/偏移 12 三档屏幕值相等', async ({ browser }) => {
+test.fixme('T11 +号零交叠三档 zoom：+号↔本组框零交叠/同屏至多一枚（单 target 单源）/elementFromPoint 命中+号；直径 24/偏移 12 三档屏幕值相等', async ({ browser }) => {
   const ctxA = await browser.newContext({ storageState: STATE_A });
   const pageA = await ctxA.newPage();
   try {
