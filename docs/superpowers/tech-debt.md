@@ -53,7 +53,7 @@
 ### TD-21 socket.io 分两步退役
 
 - **来源**：批 1 末评估（前移）+ 批 5 冻结确认；结论文档 `docs/superpowers/plans/socketio-retirement-assessment.md`
-- **结论**：已死 1（execution:complete 零消费）+ 活 23（node:status 17 主路径 dual-write 已落；trim/separate/stitch 6 唯一通道、web 轮询兜底在）。保留 + 冻结分两步退役：trim/separate/stitch 补 6 个 writeExecStatus 写点后切 doc；包级移除被 /payment gateway 阻塞（另立评估）
+- **结论**：已死 1（execution:complete 零消费）+ 活 23（node:status 17 主路径 dual-write 已落；trim/separate/stitch 6 唯一通道、web 轮询兜底在）。保留 + 冻结分两步退役：trim/separate/stitch 补 6 个 writeExecStatus 写点后切 doc；包级移除被 /payment gateway 阻塞（另立评估）；批 5a 注记（plan Task 7-1 Step 2）：credits UI 刷新覆盖面=退役前置条件（DB 不变量断言不覆盖表现层——generation-intent.int.spec 双池和式已落地）
 
 ### TD-22 多实例退避协调（F12）
 

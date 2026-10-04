@@ -6,6 +6,7 @@ import {
   NodeBusyError,
   IntentContextMismatchError,
 } from './generation-intent.service';
+import { TeamCreditService } from '../team/team-credit.service';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入
 const hasDb = !!process.env.DATABASE_URL;
@@ -82,5 +83,98 @@ const input = (over: Record<string, unknown> = {}) => ({
     });
     expect(after?.status).toBe('RUNNING');
     expect(after?.attempts).toBe(2); // 双并发只赢一次——守卫式 updateMany 原子性
+  });
+});
+
+// 批 5a Task 7-1（plan 5a）：扣费不变量——增量式断言（共享库上绝对值不稳），fixture 隔离+测后清理。
+// 弱化点（显式登记）：GenerationIntent 无 creditType 列（池归属只存在于 TeamCreditTransaction）——
+// intent↔balance 对账面只能双池和式：验总量守恒（抓扣费遗漏/重复扣费），不验池归属。
+// 池级断言路径=TeamCreditTransaction 按 referenceId=intent:* 分组求和（下方补充覆盖）。
+const creditSvc = new TeamCreditService(prisma as unknown as PrismaService);
+
+(hasDb ? describe : describe.skip)('批 5a Task 7-1 credits 双池不变量（int）', () => {
+  const INV = { uid: 'int-gi-053-inv-u', email: 'int-gi-053-inv@test.local' };
+  const teamIds: string[] = [];
+
+  afterAll(async () => {
+    for (const tid of teamIds) {
+      await prisma.teamCreditTransaction.deleteMany({ where: { teamId: tid } });
+      await prisma.teamBalance.deleteMany({ where: { teamId: tid } });
+      await prisma.teamMember.deleteMany({ where: { teamId: tid } });
+      await prisma.team.deleteMany({ where: { id: tid } });
+    }
+    await prisma.generationIntent.deleteMany({ where: { projectId: PID, nodeId: { in: ['n-credit-a', 'n-credit-b'] } } });
+    await prisma.user.deleteMany({ where: { id: INV.uid } });
+  });
+
+  async function mkTeam(credits: number, subscriptionCredits: number): Promise<string> {
+    await prisma.user.upsert({
+      where: { id: INV.uid },
+      create: { id: INV.uid, name: 'int-inv', email: INV.email, emailVerified: false },
+      update: {},
+    });
+    const team = await prisma.team.create({ data: { name: `int-gi-053-inv-team-${teamIds.length}`, ownerId: INV.uid } });
+    teamIds.push(team.id);
+    await prisma.teamMember.create({ data: { teamId: team.id, userId: INV.uid, role: 'OWNER', monthlyQuota: 0 } });
+    await prisma.teamBalance.create({ data: { teamId: team.id, credits, subscriptionCredits } });
+    return team.id;
+  }
+
+  it('reserve→settle：Δ双池和==creditsConsumed ∧ 终态唯一（重复 settle 零动作）', async () => {
+    const tid = await mkTeam(30, 50); // amount=60 跨两池：订阅 50 全扣+常规 10（拆分路径真实发生）
+    const intent = await prisma.generationIntent.create({
+      data: { projectId: PID, nodeId: 'n-credit-a', userId: INV.uid, intentId: 'i-credit-a', kind: 'image', paramsHash: 'h1' },
+    });
+    const before = await prisma.teamBalance.findUnique({ where: { teamId: tid } });
+
+    const r = await creditSvc.reserve(tid, INV.uid, 60, { intentRowId: intent.id, intentId: 'i-credit-a' });
+    expect(r.success).toBe(true);
+    const s = await creditSvc.settle({ intentRowId: intent.id, intentId: 'i-credit-a' });
+    expect(s).toEqual({ success: true, settled: true });
+
+    const after = await prisma.teamBalance.findUnique({ where: { teamId: tid } });
+    const row = await prisma.generationIntent.findUnique({ where: { id: intent.id } });
+    expect(row?.creditsConsumed).toBe(60); // TDD 牙齿验证后翻正（红值 61 实测 expected 60 to be 61）
+    expect(row?.reservedCredits).toBe(0);
+    // 主断言（和式——intent 侧无池维度，唯一可落形态）
+    expect((before!.credits - after!.credits) + (before!.subscriptionCredits - after!.subscriptionCredits)).toBe(row!.creditsConsumed);
+
+    // 池级补充对账（Δ分池 == reserve 负流水分池合计；settle 流水是记账镜像不动余额）
+    const dReg = before!.credits - after!.credits;
+    const dSub = before!.subscriptionCredits - after!.subscriptionCredits;
+    const negs = await prisma.teamCreditTransaction.findMany({
+      where: { teamId: tid, type: 'reserve', amount: { lt: 0 }, referenceId: 'intent:i-credit-a' },
+    });
+    const sum = (t: string) => negs.filter((x) => x.creditType === t).reduce((a, x) => a + Math.abs(x.amount), 0);
+    expect(dReg).toBe(sum('regular'));
+    expect(dSub).toBe(sum('subscription'));
+
+    // 终态唯一：重复 settle 零动作（幂等）——settle 型流水不增
+    const again = await creditSvc.settle({ intentRowId: intent.id, intentId: 'i-credit-a' });
+    expect(again).toEqual({ success: true, settled: false });
+    const settleCount = await prisma.teamCreditTransaction.count({ where: { teamId: tid, type: 'settle' } });
+    expect(settleCount).toBe(2); // 两池镜像恰两条
+  });
+
+  it('reserve→void_：余额复原 ∧ creditsConsumed==0（不变量零侧：Σ==Δ==0）', async () => {
+    const tid = await mkTeam(20, 0); // 单池场景
+    const intent = await prisma.generationIntent.create({
+      data: { projectId: PID, nodeId: 'n-credit-b', userId: INV.uid, intentId: 'i-credit-b', kind: 'image', paramsHash: 'h1' },
+    });
+    const before = await prisma.teamBalance.findUnique({ where: { teamId: tid } });
+
+    const r = await creditSvc.reserve(tid, INV.uid, 15, { intentRowId: intent.id, intentId: 'i-credit-b' });
+    expect(r.success).toBe(true);
+    await creditSvc.void_({ intentRowId: intent.id, intentId: 'i-credit-b' });
+
+    const after = await prisma.teamBalance.findUnique({ where: { teamId: tid } });
+    const row = await prisma.generationIntent.findUnique({ where: { id: intent.id } });
+    expect(row?.creditsConsumed).toBe(0);
+    expect(row?.reservedCredits).toBe(0);
+    expect((before!.credits - after!.credits) + (before!.subscriptionCredits - after!.subscriptionCredits)).toBe(0);
+    expect(after!.credits).toBe(20);
+    expect(after!.subscriptionCredits).toBe(0);
+    const member = await prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: tid, userId: INV.uid } } });
+    expect(member?.monthlyUsed).toBe(0); // void 连带回滚月度用量
   });
 });
