@@ -5,7 +5,7 @@
 //   ②ns 数据变更形态 → doc 零写（ns 写点已全量换芯 intent，dispatch 门拦截）
 //   ③S1 停写（O0b-0）：恢复链零回写——cs 与 doc 同持服务端原值（无几何修正无回写）
 //   ④断连窗口仍只读（粘滞锚——onClose 不清 collabReadOnly）
-//   ⑤read-write 回归锚：拖拽（onNodesChange 真路径）照常同步 doc + 恢复链同样零回写（门不过度拦截）
+//   ⑤read-write 回归锚：拖拽（B5'-1 真路径=手势期零 intent+commitIntents 提交）照常同步 doc + 恢复链同样零回写（门不过度拦截）
 //   ⑥单路径结构锚：远端应用窗口零本地 doc 写（bindBridge/applyingRemote 随批4b-2 退役）
 // 装置照 conn.spec：mock provider 手写 handlers 表（真 Y.Doc 经 runtime.getDoc() 直驱）；
 // doc 写零判据 = update 事件计数（origin 为字符串的事务 = 本地代码发起的写；fixture 种子写 origin=null 不计）。
@@ -205,7 +205,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     expect(writes()).toBe(0);
   });
 
-  it('⑤rw 回归锚：read-write 拖拽照常同步 doc（门不过度拦截——批4b-2 真拖拽路径=onNodesChange→intent）', async () => {
+  it("⑤rw 回归锚：read-write 拖拽照常同步 doc（门不过度拦截——B5'-1 真拖拽路径=手势期零 intent+commitIntents 提交）", async () => {
     const done0 = runtime.initCollab('p1');
     await tick();
     const p = lastInstance();
@@ -220,13 +220,14 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await done0;
     expect(useCanvasStore.getState().collabReadOnly).toBe(false);
 
+    // B5'-1 真拖拽路径：begin（session）→ 手势期 position 批=零 intent 落 cs → commitIntents 松手提交
+    useCanvasStore.getState().beginDragGesture([{ id: 'n1' }], 1);
     useCanvasStore.getState().onNodesChange([
-      { type: 'position', id: 'n1', position: { x: 100, y: 0 } },
-      // B4'-2 后无 session 常规几何路径=叶子 resize（position 并入 envelope 三键——门判据②分型）；
-      // 拖动批=手势期零 intent（session 驱动）。本锚验证 rw 门不过度拦截 intent 漏斗。
-      { type: 'dimensions', id: 'n1', setAttributes: true, resizing: true, dimensions: { width: 320, height: 180 } },
+      { type: 'position', id: 'n1', position: { x: 100, y: 0 }, dragging: true } as any,
     ]);
-    expect(nodePos(runtime.getDoc()!, 'n1')).toEqual({ x: 100, y: 0 }); // 编辑会话照常同步
+    expect(nodePos(runtime.getDoc()!, 'n1')).toEqual({ x: 0, y: 0 }); // 手势期 doc 零写（B4'-2）
+    useCanvasStore.getState().commitIntents();
+    expect(nodePos(runtime.getDoc()!, 'n1')).toEqual({ x: 100, y: 0 }); // 编辑会话照常同步（提交经 intent 漏斗）
   });
 
   it('⑤rw 回归锚：S1 停写（O0b-0）——rw 会话恢复链同样零回写（无 Geometry origin 事务）', async () => {

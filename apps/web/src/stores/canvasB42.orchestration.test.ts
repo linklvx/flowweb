@@ -94,7 +94,13 @@ beforeEach(() => {
 
 afterEach(() => {
   _setIntentDocForTest(null);
-  if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('completed');
+  // B5'-1：清残留会话走提交族收尾（doc 已摘 ⇒ commit 零写仅清 session——与旧 'completed' 清理
+  // 同型）且不置 gestureAbandoned——abort 族清理会静默下一用例的门判据②告警（无界窗语义）
+  const st = useCanvasStore.getState();
+  if (st.dragSession) {
+    if (st.dragSession.gestureKind === 'drag') st.commitIntents();
+    else st.commitResizeGesture();
+  }
   useCanvasStore.getState().endLeafResize();
   warnSpy?.mockRestore();
   resetCanvasStores();

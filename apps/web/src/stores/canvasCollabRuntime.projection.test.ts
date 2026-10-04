@@ -121,6 +121,36 @@ describe('O0b-0 S1 停写：恢复链零回写（applyDocToStore 直驱——结
 
 // 乒乓夹具（Task 18 沿革——O0b-0 后语义=重开逐位不变）：doc=abs 空间，g1(0.1,0.1) 140×130；
 // c1 abs(20,50) → cs rel=(20−0.1, 50−0.1)。S1 停写后恢复链结构上零回写（无几何修正无 diff 回写通道）。
+// ═══ B5'-1（Spec B 终裁 48）：拖动入栈——本文件旧锚"Geometry 事务不入撤销栈"（:102 沿革——
+// 当时拖动经 dragIntents origin=Geometry 不入栈）的拖动域反转锚：拖动提交=commitIntents 单
+// transact Origin.LocalUser ⇒ 入撤销栈一步（undo 只回拖动）。S1/恢复链面（:102 现测体）不受
+// 影响——applyDocToStore 零回写与拖动入栈正交。
+describe("B5'-1 拖动入栈（终裁 48——旧锚反转为入栈）", () => {
+  afterEach(() => { _setIntentDocForTest(null); detachUndoManager(); });
+
+  it('拖动松手提交 origin=LocalUser ⇒ undoStack 1 项；undo 一步只回退拖动（doc 回 baseline）', () => {
+    useCanvasStore.setState({ nodes: [], edges: [] });
+    useNodeStore.setState({ nodes: {} as any });
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    openRwWindow();
+    fillDoc(d, [{ id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} } as any], []);
+    stampDocSchema(toDocLike(d));
+    applyDocToStore(d);
+    const um = attachUndoManager(d);
+    useCanvasStore.getState().beginDragGesture([{ id: 't1' }], 1);
+    useCanvasStore.getState().onNodesChange([
+      { type: 'position', id: 't1', position: { x: 820, y: 12 }, dragging: true } as any,
+    ]);
+    useCanvasStore.getState().commitIntents();
+    expect(um.undoStack.length).toBe(1);   // 拖动=一步 undo（旧锚"不入栈"反转）
+    um.undo();
+    const m = d.getMap('nodes').get('t1') as any;
+    expect(m.get('position').get('x')).toBe(700);   // undo 只回退拖动
+    expect(m.get('position').get('y')).toBe(0);
+  });
+});
+
 describe('恢复链重开逐位不变（Task 18 沿革——S1 停写后结构零回写）', () => {
   it('远程 apply → store 与 doc 原文逐节点深等 + doc 无回写（小数坐标）', () => {
     useCanvasStore.setState({ nodes: [], edges: [] });

@@ -7,8 +7,8 @@
 //      丢弃旧 session——静默 drop 非回滚：pointerup 未达=结果不可判定，doc 落后 cs 由下一命令差分补上）。
 //   ② 按住不动 60s / 双指→抬第二指→首指停 5s / 35s 慢拖 ⇒ 不丢不告警（activePointers 键控集合
 //      非空=指针仍按住——watchdog 续挂观察而非误杀，终裁 16/25①）。
-//   ③ endGesture 语义两锚（终裁 66④）：拖动提交后同 tick cs.position≡末帧拖动位置（cs 侧显式）；
-//      松手后人为再触发 endGesture⇒cs 不回跳（收尾幂等）。
+//   ③ endGesture 语义两锚（终裁 66④）：拖动提交后同 tick cs.position≡末帧拖动位置（cs 侧显式；
+//      B5'-1 起提交面=commitIntents）；松手后人为再触发 abort 族收尾⇒cs 不回跳（收尾幂等）。
 //   ④ 中止回滚补强：cs≡baseline ∧ doc 零几何写入 ∧ 拖动中被远端写的被拖节点 cs≡doc 远端值
 //      （清 session 后 reconcile 直拷 doc=终态正确——非 baseline）∧ 无关节点保留远端值（baseline=
 //      被拖集合快照非整表，终裁 56）。
@@ -21,7 +21,7 @@
 // 测试纪律：零裸 useCanvasStore.setState（文件级棘轮——几何经 seedCanvas、session 经 store action）；
 // applyDocToStore 尾挂 assertDocAbsMatchesCsRel 自 B4'-2 起对让位集合豁免（resolveGestureYield 同源）
 // ——手势期 doc 零写下被拖节点 doc.abs≠rel+活 origin=设计内分叉；部分用例仍手动写 doc 是为钉
-// "doc 已提交手势值"档的收尾期望值（提交面真路径=B5'-1）。
+// "doc 已提交手势值"档的收尾期望值（提交面真路径=commitIntents——B5'-1）。
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 import * as Y from 'yjs';
@@ -76,7 +76,7 @@ const begin = (ids: string[], pointerId: number | null) =>
 
 afterEach(() => {
   _setIntentDocForTest(null);
-  if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('completed');
+  if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('aborted');
   vi.useRealTimers();
   resetCanvasStores();
 });
@@ -174,14 +174,15 @@ describe("B4'-1 watchdog 分场景（终裁 47）", () => {
     expect(s).not.toBeNull();
     expect(s!.gestureAbandoned).toBe(false);        // 不告警
     // 继续拖（真实 position 批路径——B4'-2 手势期零 intent：doc 零写、cs 落末帧）⇒ 末帧保留
-    //（delta 正确不丢——watchdog 未杀会话；提交面归 B5'-1）
+    //（delta 正确不丢——watchdog 未杀会话；提交面=commitIntents[B5'-1]）
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 't1', position: { x: 750, y: 20 }, dragging: true } as any,
     ]);
     expect(csNode('t1').position).toEqual({ x: 750, y: 20 });   // 手势活值保留（会话未死）
     expect(docPos(d, 't1')).toEqual({ x: 700, y: 0 });          // B4'-2：手势期 doc 零写
-    useCanvasStore.getState().endGesture('completed');
-    expect(csNode('t1').position).toEqual({ x: 700, y: 0 });    // 过渡期收尾=reconcile 直拷 doc（提交归 B5'-1）
+    useCanvasStore.getState().commitIntents();                  // B5'-1：松手提交（终裁 48）
+    expect(docPos(d, 't1')).toEqual({ x: 750, y: 20 });         // doc=末帧（LocalUser 单 transact）
+    expect(csNode('t1').position).toEqual({ x: 750, y: 20 });   // cs≡末帧（66④①——提交不回跳）
   });
 
   it('双指→抬第二指→首指停 5s→继续拖不丢（remove 无命中幂等——集合仍含首指 id）', () => {
@@ -198,8 +199,9 @@ describe("B4'-1 watchdog 分场景（终裁 47）", () => {
       { type: 'position', id: 't1', position: { x: 760, y: 25 }, dragging: true } as any,
     ]);
     expect(csNode('t1').position).toEqual({ x: 760, y: 25 });   // 末帧保留（B4'-2 手势期 cs 活值）
-    useCanvasStore.getState().endGesture('completed');
-    expect(csNode('t1').position).toEqual({ x: 700, y: 0 });    // 过渡期收尾语义（提交归 B5'-1）
+    useCanvasStore.getState().commitIntents();                  // B5'-1：松手提交
+    expect(docPos(d, 't1')).toEqual({ x: 760, y: 25 });         // doc=末帧
+    expect(csNode('t1').position).toEqual({ x: 760, y: 25 });   // cs≡末帧（提交不回跳）
   });
 
   it('35s 慢拖不丢（活动重挂——noteDragActivity 刷新 lastActivityAt+watchdog）', () => {
@@ -221,7 +223,7 @@ describe("B4'-1 watchdog 分场景（终裁 47）", () => {
     seedCanvas([{ id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} } as any]);
     begin(['t1'], 1);
     expect(vi.getTimerCount()).toBe(1);             // watchdog armed
-    useCanvasStore.getState().endGesture('completed');
+    useCanvasStore.getState().endGesture('aborted');
     expect(session()).toBeNull();                   // frozenFrames/activePointers/gestureAbandoned/resizePending/resizeTargetId 随整对象清
     expect(vi.getTimerCount()).toBe(0);             // clearTimeout 同步块内
     const frozen = JSON.stringify(useCanvasStore.getState().nodes);
@@ -233,7 +235,7 @@ describe("B4'-1 watchdog 分场景（终裁 47）", () => {
 // ══════════ endGesture 语义（终裁 66④ 两锚+中止回滚补强） ══════════
 
 describe("B4'-1 endGesture 语义（终裁 66④）", () => {
-  it("①手势期 cs.position≡末帧拖动位置（真实 onNodesChange 路径——cs 侧显式；doc 零写——B4'-2 零 intent，提交面归 B5'-1）", () => {
+  it("①手势期 cs.position≡末帧拖动位置+松手提交后同 tick 保持（真实 onNodesChange 路径——cs 侧显式；B5'-1 提交=doc 同值）", () => {
     openRwWindow();
     const d = buildDoc();
     _setIntentDocForTest(d);
@@ -244,11 +246,12 @@ describe("B4'-1 endGesture 语义（终裁 66④）", () => {
     ]);
     expect(csNode('t1').position).toEqual({ x: 800, y: 10 });   // cs≡末帧（手势内核写者面）
     expect(docPos(d, 't1')).toEqual({ x: 700, y: 0 });          // B4'-2：手势期 doc 零写
-    useCanvasStore.getState().endGesture('completed');
-    expect(csNode('t1').position).toEqual({ x: 700, y: 0 });    // 过渡期收尾=reconcile 直拷 doc（未提交即回 doc 态）
+    useCanvasStore.getState().commitIntents();                  // B5'-1：松手提交
+    expect(csNode('t1').position).toEqual({ x: 800, y: 10 });   // 提交后同 tick cs≡末帧（66④①）
+    expect(docPos(d, 't1')).toEqual({ x: 800, y: 10 });         // doc=末帧提交
   });
 
-  it('②收尾幂等：松手后再人为触发一次 endGesture ⇒ cs 不回跳（无 session=no-op）', () => {
+  it('②收尾幂等：松手提交后再人为触发一次 abort 族收尾 ⇒ cs 不回跳（无 session=no-op）', () => {
     openRwWindow();
     const d = buildDoc();
     _setIntentDocForTest(d);
@@ -257,9 +260,9 @@ describe("B4'-1 endGesture 语义（终裁 66④）", () => {
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 't1', position: { x: 800, y: 10 }, dragging: true } as any,
     ]);
-    useCanvasStore.getState().endGesture('completed');       // 过渡期：cs 收敛 doc（700,0）
-    useCanvasStore.getState().endGesture('aborted');        // 人为再触发（含回滚分支）
-    expect(csNode('t1').position).toEqual({ x: 700, y: 0 });   // 不回跳（收尾后值稳定）
+    useCanvasStore.getState().commitIntents();              // B5'-1：提交（doc+cs=末帧 800,10）
+    useCanvasStore.getState().endGesture('aborted');        // 人为再触发（含回滚分支——session 已清 no-op）
+    expect(csNode('t1').position).toEqual({ x: 800, y: 10 });   // 不回跳（提交值稳定）
     expect(session()).toBeNull();
   });
 
@@ -350,7 +353,7 @@ describe("B4'-1 O0b-3 行为锚补齐（真实生命周期——非骨架注入�
     expect(csNode('t1').position).toEqual({ x: 960, y: 6 });
   });
 
-  it("拖动中远端写 ⇒ 让位保护维持末帧 cs 活值+手势期 doc 零写（真实路径+远端无关节点写夹档；松手 doc.abs≡末帧提交锚归 B5'-1）", () => {
+  it("拖动中远端写 ⇒ 让位保护维持末帧 cs 活值+手势期 doc 零写+松手 doc.abs≡末帧提交（真实路径+远端无关节点写夹档；B5'-1 提交锚）", () => {
     openRwWindow();
     const d = buildDoc();
     _setIntentDocForTest(d);
@@ -367,9 +370,9 @@ describe("B4'-1 O0b-3 行为锚补齐（真实生命周期——非骨架注入�
     expect(csNode('t1').position).toEqual({ x: 810, y: 15 });   // 让位保护维持末帧
     expect(docPos(d, 't1')).toEqual({ x: 700, y: 0 });          // B4'-2：手势期 doc 零写（被拖节点）
     expect(csNode('c1').position).toEqual({ x: 50, y: 50 });    // 远端值落位（(150,100)−origin）
-    useCanvasStore.getState().endGesture('completed');
-    expect(csNode('t1').position).toEqual({ x: 700, y: 0 });    // 过渡期收尾=reconcile 直拷 doc（提交归 B5'-1）
-    expect(docPos(d, 't1')).toEqual({ x: 700, y: 0 });
+    useCanvasStore.getState().commitIntents();                  // B5'-1：松手提交（被拖集 LWW——末帧赢）
+    expect(csNode('t1').position).toEqual({ x: 810, y: 15 });   // cs≡末帧（66④①）
+    expect(docPos(d, 't1')).toEqual({ x: 810, y: 15 });         // 松手后 doc.abs≡末帧 cs.abs（B5'-1 锚兑现）
   });
 
   it('resize 扩子代：beginResize+远端写 ⇒ 组帧≡预览+子代三字段保护（让位两层 live 扩展）', () => {

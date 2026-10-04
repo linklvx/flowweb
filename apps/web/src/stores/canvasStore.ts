@@ -24,6 +24,9 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
 import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent } from './canvasIntents';
+// B5'-1（Spec B）：commitIntents 末帧差分读 doc.abs 单源（readCanvasFromDoc——docShape 单源薄委托）。
+// 循环依赖裁定同 canvasIntents：顶层仅声明，action 体运行时才调——安全。
+import { readCanvasFromDoc } from '@/collab/ydocBuilder';
 // B4'-1（Spec B）：endGesture 单收尾链消费——reconcileGroupGeometry（四元组第 4 成员，终裁 54②/
 // 65①）+checkProjectionInvariant（收尾链第 4 步）。循环依赖裁定同 canvasIntents：顶层仅声明、
 // action 体运行时才调——ESM 本地绑定延迟求值安全。
@@ -299,8 +302,10 @@ export interface CanvasState {
   beginResize: (targetId: string, pointerId?: number | null) => void;
   /** B4'-2（Spec B 终裁 56）resize 会话松手提交：单 updateNodeEnvelope{三键}（提交值=会话末帧
    *  cs 帧三键——"回调第二参值"语义；零子代——子 rel 不随提交重算，RF 反向补偿值即终值）+
-   *  单 transact（LocalUser=单 undo 步）→ endGesture('completed') 收尾（不回滚）。生产接线=
-   *  GroupNode NodeResizer onResizeEnd（先于尾批 onEnd——F10）。幂等：无 resize 会话=no-op。 */
+   *  单 transact（LocalUser=单 undo 步）。B5'-1 起终裁序对齐 commitIntents：清 session 同步块
+   *  （finalizeGestureSession）先于 dispatch ⇒ 漏斗尾 reconcile 全域（子 rel 随新 origin 重基），
+   *  不经 abort 族收尾链。生产接线=GroupNode NodeResizer onResizeEnd（先于尾批 onEnd——F10）。
+   *  幂等：无 resize 会话=no-op。 */
   commitResizeGesture: () => void;
   /** B4'-2（终裁 30）叶子 resize 标记置位/复位（三叶子 resizer onResizeStart/End 接线）——
    *  见 resizePending 字段 JSDoc。 */
@@ -310,9 +315,19 @@ export interface CanvasState {
    *  reconcile[收尾链：回滚→清 session（frozenFrames 同步块+watchdog clearTimeout）→reconcile('doc')
    *  →invariant]——reconcile census 四元组第 4 成员）。reason：'aborted'=watchdog 终结（指针已抬+
    *  会话残留，终裁 47 场景Ⅰ）/ 'healed'=常驻监听自愈（pointermove[buttons===0]/blur 检出吞
-   *  pointerup）/ 'removed'=remove 谓词（远端删被拖节点，事后回滚）/ 'completed'=提交后收尾
-   *  （不回滚——B5'-1 commitIntents 不经本函数，本分支为语义最小锚）。幂等：无 session=no-op。 */
-  endGesture: (reason: 'aborted' | 'healed' | 'removed' | 'completed') => void;
+   *  pointerup）/ 'removed'=remove 谓词（远端删被拖节点，事后回滚）。**提交族不经本函数**
+   *  （B5'-1 终裁 78⑩——commitIntents/commitResizeGesture 走 finalizeGestureSession 清 session
+   *  同步块+漏斗尾 reconcile；本函数恒回滚）。幂等：无 session=no-op。 */
+  endGesture: (reason: 'aborted' | 'healed' | 'removed') => void;
+  /** B5'-1（Spec B 终裁 48/66④/78⑩）拖动松手提交——三段式终裁序：①构造 intents（被拖集合末帧
+   *  →moveNode 载荷=abs：顶层 cs.position 即 abs、子 rel+组 origin 翻转[拖叶档父组帧冻结/拖组档
+   *  origin 活]；被拖 manual/storyboard 组附带帧三键 envelope——手势三行表"拖组 提交=N 子 abs（manual
+   *  组+帧三键）"；末帧≡doc 零净变更剔除）→②清 session 同步块（无条件先于判空）→③单 transact
+   *  dispatch（Origin.LocalUser——拖动入栈=一步 undo，旧锚"拖动不入栈"反转入栈）+漏斗尾 reconcile
+   *  （让位集合已废止⇒终末对齐=reconcile 全域）→invariant（DEV）。**调用图不含 endGesture**
+   *  （终裁 78⑩——abort 族收尾回滚会吃掉提交；防复用重演 P0-10）。幂等：无 drag 会话=no-op
+   *  （resize 会话归 commitResizeGesture）。生产接线=CanvasView onNodeDragStop 头部。 */
+  commitIntents: () => void;
   /** B4'-1（Spec B）手势活动刷新（常驻监听 pointermove[buttons!==0] 消费）：lastActivityAt 置位
    *  +watchdog 重挂（每次活动重挂——主道）。会话非渲染面，lastActivityAt 原位刷新零订阅广播。 */
   noteDragActivity: () => void;
@@ -378,6 +393,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   const placementBesideGroup =
     (frame: { x: number; y: number; width: number }, index = 0): { x: number; y: number } =>
       ({ x: frame.x + frame.width + 20, y: frame.y + index * 200 });
+
+  /** B5'-1（Spec B 终裁 78⑩）提交族收尾同步块：清 session（frozenFrames/activePointers/
+   *  gestureAbandoned/resizePending/resizeTargetId 随 dragSession=null 整对象清）+watchdog
+   *  clearTimeout。零回滚零自有 reconcile——提交族（commitIntents/commitResizeGesture）专用；
+   *  abort 族（endGesture 中止/自愈/remove 谓词）的回滚+reconcile+invariant 链在彼处、不经本块。 */
+  const finalizeGestureSession = () => {
+    clearDragWatchdog();
+    set({ dragSession: null });
+  };
 
   // R2a-6 副本落位公共段（duplicateNodes/pasteGroupClipboard 两薄壳共用）：cs 结构 set（副本信封
   // +选择态+新边，父前子后）先于 ns.addNode（B-2 纪律）；返回首个顶层副本 id（=组复制的新组 id）
@@ -1024,13 +1048,17 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const s = get().dragSession;
     if (!s || s.gestureKind !== 'resize' || s.resizeTargetId == null) return;   // 幂等（只点不拖无提交）
     const target = get().nodes.find((n) => n.id === s.resizeTargetId);
+    const d = resolveDoc();
     // 提交值=会话末帧 cs 帧三键（终裁 56——"回调第二参值"语义，读 cs 末帧单源）；
     // 恒三键密封（pos 回填——auto→manual 经 resize 转换的唯一通道）；零子代（子 rel 不随提交
-    // 重算——RF 反向补偿值即终值，doc 子 abs 不动，提交后 reconcile 同值收敛）。
+    // 重算——RF 反向补偿值即终值，doc 子 abs 不动；清 session 先于 dispatch[B5'-1 终裁序对齐]
+    // ⇒漏斗尾 reconcile 全域：子 rel 随新 origin 重基[abs 守恒]——旧 endGesture('completed')
+    // 收尾链的清后 reconcile 由漏斗尾承接）。
     // isFinite 守卫（质评 Minor-3）：目标缺席/wh 非有限（如整帧被远端删的窄窗）⇒ 跳过提交 intent
-    // 但仍走"跳过但完成"收尾——stopCapturing+endGesture('completed') 无条件执行（会话必须终结，
+    // 但仍走"跳过但完成"收尾——清 session 同步块无条件执行（会话必须终结，
     // 残帧不落 doc=保守不写而非写脏值）。
     if (target && Number.isFinite(target.width) && Number.isFinite(target.height)) {
+      finalizeGestureSession();   // 提交族收尾（不回滚、不走 abort 族收尾链——B5'-1 终裁 78⑩）
       dispatchCanvasIntent([{
         type: 'updateNodeEnvelope', id: s.resizeTargetId,
         patch: {
@@ -1039,9 +1067,88 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           height: target.height,
         },
       }], Origin.LocalUser);   // 单 transact=单 undo 步（LocalUser 入栈）
+      stopCapturing();   // 手势=单 undo 步（捕获窗关闭——旧 GroupNode onResizeEnd 语义随迁）
+    } else {
+      finalizeGestureSession();
     }
-    stopCapturing();   // 手势=单 undo 步（捕获窗关闭——旧 GroupNode onResizeEnd 语义随迁）
-    get().endGesture('completed');   // 提交后收尾（不回滚——doc 已提交）
+    // canEdit 门拦（viewer 窗口）⇒ dispatch 零写、cs 停末帧=设计内分叉（下一 reconcile 收敛）——
+    // invariant 断言面只覆盖 dispatch 真跑（rw）窗
+    if (import.meta.env.DEV && d && canEdit(get()) && !checkProjectionInvariant(d)) {
+      throw new Error("[B5'-1] commitResizeGesture 提交后投影不变量破缺（doc≡store 应收敛）");
+    }
+  },
+
+  commitIntents: () => {
+    const s = get().dragSession;
+    if (!s || s.gestureKind !== 'drag') return;   // 幂等：无会话/resize 会话（提交=commitResizeGesture 专属）no-op
+    const nodes = get().nodes;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const d = resolveDoc();
+    const docPosById = d
+      ? new Map(readCanvasFromDoc(d).nodes.map((r) => [r.id, r.position]))
+      : null;
+    const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6;   // RECONCILE_EPS 同值（量化契约表冻结——浮点往返噪声域）
+    const intents: CanvasIntent[] = [];
+    // ①被拖叶：末帧→moveNode 载荷=abs（量化契约表：顶层 cs.position 即 abs；子 rel+组 origin 翻转
+    // ——拖叶档父组帧冻结[origin=frozenFrames]/拖组档 origin 活=cs[G].position）。零净变更剔除：
+    // 末帧 abs≡doc 现值（手势期 doc 零写⇒≡baseline）⇒零 intent——空操作/往返 exact 同档零事务。
+    for (const id of s.draggingIds) {
+      const n = byId.get(id);
+      if (!n || n.type === 'group') continue;   // 被拖组归②；手势期被删（remove 谓词应已收尾）防御跳过
+      const parentId = n.parentId;
+      const origin = parentId != null
+        ? (s.draggedGroupIds.has(parentId)
+            ? byId.get(parentId)?.position   // 拖组档：origin 活
+            : s.frozenFrames.get(parentId) ?? byId.get(parentId)?.position)   // 拖叶档：父组帧冻结
+        : undefined;
+      const abs = origin
+        ? { x: n.position.x + origin.x, y: n.position.y + origin.y }
+        : { x: n.position.x, y: n.position.y };
+      const cur = docPosById?.get(id);
+      if (cur == null) continue;   // doc 无记录/分镜子无 position 键（剥键域非本提交面——membership 归 B5'-2）
+      if (near(abs.x, cur.x) && near(abs.y, cur.y)) continue;   // 零净变更
+      intents.push({ type: 'moveNode', id, position: abs });
+    }
+    // ②被拖组：随组位移的子代（不在 draggingIds 的成员——RF 拖组只动组节点，子 rel 不变、abs 随
+    // origin 平移；直拖子①已提交去重）+manual/storyboard 组帧三键密封（auto 恒无帧键——帧归
+    // reconcile 派生；折叠档 cs wh=COLLAPSED_SIZE 派生禁入 doc[终裁 82 doc 三键=展开态密封]⇒position-only）
+    for (const gid of s.draggedGroupIds) {
+      const g = byId.get(gid);
+      if (!g) continue;
+      for (const c of nodes) {
+        if (c.parentId !== gid || s.draggingIds.has(c.id)) continue;
+        const abs = { x: c.position.x + g.position.x, y: c.position.y + g.position.y };
+        const cur = docPosById?.get(c.id);
+        if (cur == null) continue;
+        if (near(abs.x, cur.x) && near(abs.y, cur.y)) continue;
+        intents.push({ type: 'moveNode', id: c.id, position: abs });
+      }
+      const gcur = docPosById?.get(gid);
+      if (!isContentDerivedGroup(g) && gcur != null
+        && !(near(g.position.x, gcur.x) && near(g.position.y, gcur.y))) {
+        const collapsed = (g.data as Record<string, unknown>).collapsed === true;
+        intents.push({
+          type: 'updateNodeEnvelope', id: gid,
+          patch: collapsed
+            ? { position: { x: g.position.x, y: g.position.y } }
+            : { position: { x: g.position.x, y: g.position.y }, width: g.width, height: g.height },
+        });
+      }
+    }
+    // ③清 session 同步块（无条件先于判空——零 intents 亦清+watchdog clearTimeout）→ 单 transact
+    // dispatch（Origin.LocalUser=拖动入栈一步 undo，终裁 48）。**清先于 dispatch**：漏斗尾 reconcile
+    // 随 dispatch 跑时让位集合已废止⇒终末对齐=reconcile 全域（auto 父组帧重派生——冻结帧不滞留；
+    // 收尾链不可交换）；空批也走 dispatch——零意图手势的冻结帧/远端漂移同样经漏斗尾终末收敛
+    // （空 transact 零 update 零栈项——"零净变更=零事务"判据面不破）。提交不经 endGesture
+    // （终裁 78⑩——abort 族收尾回滚会吃掉提交；防复用重演 P0-10）。
+    finalizeGestureSession();
+    dispatchCanvasIntent(intents, Origin.LocalUser);
+    if (intents.length > 0) stopCapturing();   // 手势=单 undo 步（commitResizeGesture 同款——下一步命令不并栈）
+    // canEdit 门拦（viewer 窗口）⇒ dispatch 零写、cs 停末帧=设计内分叉（下一 reconcile 收敛）——
+    // invariant 断言面只覆盖 dispatch 真跑（rw）窗
+    if (import.meta.env.DEV && d && canEdit(get()) && !checkProjectionInvariant(d)) {
+      throw new Error("[B5'-1] commitIntents 提交后投影不变量破缺（doc≡store 应收敛）");
+    }
   },
 
   beginLeafResize: () => {
@@ -1062,32 +1169,30 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   endLeafResize: () => set({ resizePending: false }),
 
   endGesture: (reason) => {
+    void reason;   // 三分支（aborted/healed/removed）收尾同构——reason 仅诊断面（单收尾终裁 54②）
     const s = get().dragSession;
     if (!s) return;   // 收尾幂等锚（终裁 66④②）：松手后再触发=no-op（cs 不回跳）
-    gestureAbandoned = reason !== 'completed';   // B4'-2（终裁 16/30）：abort 族置位——同手势尾批静默
+    gestureAbandoned = true;   // B4'-2（终裁 16/30）：abort 族置位——同手势尾批静默
     // 收尾链（v3.10 终裁 3 冻结序——禁改序：reconcile 提前则让位残留致被拖节点 cs 停旧值≠doc）。
-    // ①回滚：abort 族（aborted/healed/removed）被拖集合回 baseline；completed=提交已落 doc 不回滚
-    //   （cs≡末帧锚——终裁 66④①）。drag 档只回 position；resize 档回帧三键。
-    if (reason !== 'completed') {
-      const resize = s.gestureKind === 'resize';
-      set((st) => ({
-        nodes: st.nodes.map((n) => {
-          const b = s.baseline.get(n.id);
-          if (b) return { ...n, position: { x: b.x, y: b.y } };
-          const gb = s.groupBaseline.get(n.id);
-          if (gb) {
-            return resize
-              ? { ...n, position: { x: gb.x, y: gb.y }, width: gb.width, height: gb.height }
-              : { ...n, position: { x: gb.x, y: gb.y } };
-          }
-          return n;
-        }),
-      }));
-    }
+    // ①回滚：abort 族（aborted/healed/removed——B5'-1 起提交族不经本函数，恒回滚）被拖集合回
+    //   baseline（cs≡末帧锚归 commitIntents——终裁 66④①）。drag 档只回 position；resize 档回帧三键。
+    const resize = s.gestureKind === 'resize';
+    set((st) => ({
+      nodes: st.nodes.map((n) => {
+        const b = s.baseline.get(n.id);
+        if (b) return { ...n, position: { x: b.x, y: b.y } };
+        const gb = s.groupBaseline.get(n.id);
+        if (gb) {
+          return resize
+            ? { ...n, position: { x: gb.x, y: gb.y }, width: gb.width, height: gb.height }
+            : { ...n, position: { x: gb.x, y: gb.y } };
+        }
+        return n;
+      }),
+    }));
     // ②清 session 同步块：frozenFrames/activePointers/gestureAbandoned/resizePending/resizeTargetId
     //   随 dragSession=null 整对象清（与 frozenFrames 同步块——终裁 23）+watchdog clearTimeout
-    clearDragWatchdog();
-    set({ dragSession: null });
+    finalizeGestureSession();
     // ③reconcile('doc')：清后让位失效，doc 权威直拷=终态（拖动中被远端写的被拖节点取 doc 远端值
     //   非 baseline——终裁 66④；四元组第 4 成员——census 锚在 canvasCollabRuntime.geometry.test）
     const d = resolveDoc();
@@ -1174,8 +1279,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       // position/dimensions 批只落 cs（下方 applyNodeChanges 统一应用）。RF 对子发 rel、cs 即 rel
       // 空间——旧路径 moveNode 把 rel 写进 doc.abs 槽=B4'-1 登记的 rel-as-abs 洞，此处结构性关闭
       //（松手 finalize 的 reconcile('doc') 不再腐蚀覆盖）。提交归松手路径：组 resize=
-      // commitResizeGesture（本批）；拖动=B5'-1 commitIntents（过渡期 abort/healed 收尾回 baseline）。
-      // end 重放批（dragging:false——F1）落 session 内零告警；remove 见上方 structIntents。
+      // commitResizeGesture（B4'-2）；拖动=commitIntents（B5'-1——CanvasView onNodeDragStop 头部，
+      // 拖入组路由 B5'-2 单一路径化）。end 重放批（dragging:false——F1）落 session 内零告警；
+      // remove 见上方 structIntents。
     } else if (hasPosition && !hasResizeAttr && !get().resizePending) {
       // ── 门判据②（终裁 30 分型）：position 批∧无 session∧无 resize 批（同批无 dimensions/
       // setAttributes 且无 resizePending 叶子标记）⇒ 零 intent+DEV 告警——外视写入（不变量
@@ -1188,7 +1294,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     } else {
       // ── 无 session 的常规路由（批4b-1 换芯语义保持）：叶子 resize 现状（setAttributes 三态+
       // position 逐帧落 doc 零告警——终裁 30"有 resize 批⇒照常派发"）；resize 走 LocalUser
-      // （撤销语义），拖拽 position 走 Geometry（高频不入栈——canvasUndo trackedOrigins 契约）。
+      // （撤销语义），position 批走 Geometry（不入栈——canvasUndo trackedOrigins 契约；B5'-1 起
+      // 拖动提交=commitIntents 单 transact LocalUser 入栈，本路由不再承载拖动）。
       for (const c of routed) {
         if (c.type === 'position' && c.position != null) {
           positionChanges.set(c.id, { ...c.position });

@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('completed');
+  if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('aborted');
   vi.useRealTimers();
   resetCanvasStores();
 });
@@ -139,7 +139,7 @@ describe("B4'-1 pointerdown 缓存 id（wrapper capture——终裁 58 小项）
     act(() => { result.current.onPointerDownCapture({ pointerId: 7 } as never); });
     begin(['t1'], result.current.pointerIdRef.current);
     expect([...session()!.activePointers]).toEqual([7]);
-    useCanvasStore.getState().endGesture('completed');
+    useCanvasStore.getState().endGesture('aborted');
     act(() => { result.current.onPointerDownCapture({ pointerId: 9 } as never); });   // 第二次拖动
     begin(['t1'], result.current.pointerIdRef.current);
     expect([...session()!.activePointers]).toEqual([9]);           // 覆盖
@@ -163,12 +163,12 @@ describe("B4'-1 capture 抑制（终裁 31③——不含 touchcancel）", () =>
     begin(['t1'], 1);
     expect(fireTouch(2).defaultPrevented).toBe(true);       // RF 多指 pan/zoom 抑制窗
     expect(fireTouch(1).defaultPrevented).toBe(false);      // 单指不抑制
-    useCanvasStore.getState().endGesture('completed');
+    useCanvasStore.getState().endGesture('aborted');
     // resize 档（drag 限定）
     useCanvasStore.getState().beginResize('t1', 4);
     expect(fireTouch(2).defaultPrevented).toBe(false);
     // touchcancel 不在抑制面（终裁 31③）
-    useCanvasStore.getState().endGesture('completed');
+    useCanvasStore.getState().endGesture('aborted');
     begin(['t1'], 1);
     expect(fireTouch(2, 'touchcancel').defaultPrevented).toBe(false);
   });

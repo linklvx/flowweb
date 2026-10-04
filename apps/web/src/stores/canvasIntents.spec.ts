@@ -250,7 +250,7 @@ describe('批4b-1：dispatch 入口契约（门 C 判据②——拦截点前移
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('拖拽 origin=Geometry：透传不入撤销栈语义（trackedOrigins 判据沿 canvasUndo 契约）', () => {
+  it("origin=Geometry 透传不入撤销栈（内容事件/修复域语义——B5'-1 起拖动提交=commitIntents LocalUser 入栈）", () => {
     dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10) }, Origin.LocalUser);
     const origins: unknown[] = [];
     doc.on('afterTransaction', (tr) => origins.push(tr.origin));
@@ -317,7 +317,7 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     expect(useCanvasStore.getState().nodes).toEqual([]);
   });
 
-  it("moveNode 漏斗锚（B4'-2 后无 session 常规路径=叶子 resize position 批）：doc position 直写 + 不变量（origin=Geometry）——拖动批已改手势期零 intent（session 驱动，提交归 B5'-1）", () => {
+  it("moveNode 漏斗锚（B4'-2 后无 session 常规路径=叶子 resize position 批）：doc position 直写 + 不变量（origin=Geometry）——拖动批=手势期零 intent（session 驱动，B5'-1 提交=commitIntents LocalUser）", () => {
     const id = useCanvasStore.getState().addNode('text', { x: 10, y: 0 });
     const origins: unknown[] = [];
     doc.on('afterTransaction', (tr) => origins.push(tr.origin));
@@ -329,7 +329,7 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     const pos = ((doc.getMap('nodes').get(id) as Y.Map<any>).get('position') as Y.Map<any>).toJSON();
     expect(pos).toEqual({ x: 99, y: 88 });
     expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 99, y: 88 });
-    expect(origins).toContain(Origin.Geometry);  // 拖拽高频路径不入撤销栈
+    expect(origins).toContain(Origin.Geometry);  // 叶子 resize 常规路径不入栈（拖动提交自 B5'-1 起=LocalUser 入栈）
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
