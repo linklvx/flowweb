@@ -40,7 +40,7 @@ export async function assertTeamMember(
   if (!member) throw new ForbiddenException('非团队成员')
 }
 
-/** 双池可用积分口径（与 teamCredit.consume 一致）：credits + subscriptionCredits */
+/** 双池可用积分口径（与 teamCredit 扣减核心一致——"禁拿单值猜池"）：credits + subscriptionCredits */
 export function availableCredits(b: { credits: number; subscriptionCredits: number }): number {
   return b.credits + b.subscriptionCredits;
 }
