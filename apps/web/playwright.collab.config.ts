@@ -8,8 +8,11 @@ import { defineConfig } from '@playwright/test';
 // ③ 串行：单 worker 防多浏览器实例并发写同一画布 doc。
 export default defineConfig({
   testDir: './e2e',
-  // R2 批尾（2d-8 Step 4b）新增 collab-r2-commands 同设施双端回归——testMatch 从单文件字面量扩为正则
-  testMatch: /collab-(recovery|r2-commands)\.e2e\.spec\.ts/,
+  // R2 批尾（2d-8 Step 4b）新增 collab-r2-commands 同设施双端回归——testMatch 从单文件字面量扩为正则；
+  // Spec B B7-2 同批扩容三件：collab-specb-geometry（双端几何矩阵）/collab-specb-public（匿名公开页）/
+  // collab-specb-perf（500 节点性能冒烟——nightly 数字冻结锚）。同批改锚：src/stores/specbE2eGate.test.ts
+  // 断言"命中新增文件数=3"（gate-collab 仅可选 --grep——testMatch 不收即静默不跑，v3.17 终裁 68③）。
+  testMatch: /collab-(recovery|r2-commands|specb-geometry|specb-public|specb-perf)\.e2e\.spec\.ts/,
   timeout: 240_000,
   workers: 1,
   fullyParallel: false,

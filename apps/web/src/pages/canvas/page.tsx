@@ -1,5 +1,6 @@
 import { initCollab, destroyCollab } from '@/stores/canvasCollabRuntime';
 import { bootstrapGeometryTrap } from '@/stores/geometryTrap';
+import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
 import { message, Spin } from 'antd';
@@ -276,6 +277,11 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   useEffect(() => {
     useCanvasStore.getState().setProjectId(projectId);
   }, [projectId]);
+
+  // B7-2 性能冒烟 e2e 探针：?perfProbe=1 显式 opt-in 才挂 window.__specbPerf（普通访问零成本）
+  useEffect(() => {
+    attachSpecbPerfProbe();
+  }, []);
 
   // 标题栏面包屑：folderId → folders 平铺列表沿 parentId 拼「顶层→直接父级」链；任何失败回退主目录
   const [folderPath, setFolderPath] = useState<string[]>([]);

@@ -11,6 +11,8 @@ const BASE_URL = 'http://localhost:5173'; // localhost——better-auth trustedO
 const USERS = [
   { email: 'collab-a@flowweb.local', password: 'collab12345678', state: 'collab-a.json' },
   { email: 'collab-b@flowweb.local', password: 'collab12345678', state: 'collab-b.json' },
+  // Spec B B7-2：C 端账号（三端用例只读端——测试经 collab-db set-viewer 降级）
+  { email: 'collab-c@flowweb.local', password: 'collab12345678', state: 'collab-c.json' },
 ];
 const HERE = import.meta.dirname!; // apps/web 是 ESM 包——无 __dirname
 const AUTH_DIR = path.join(HERE, '.auth');
@@ -58,6 +60,11 @@ async function loginAndSaveState(email: string, password: string, stateFile: str
 
 export default async function globalSetup() {
   execSync('pnpm exec tsx prisma/collab-gate-seed.ts', {
+    cwd: path.resolve(HERE, '../../../apps/api'),
+    stdio: 'inherit',
+  });
+  // Spec B B7-2 fixtures（collab-c/公开页作品/500 节点性能画布——幂等，specb-gate-seed.ts 同款自愈）
+  execSync('pnpm exec tsx prisma/specb-gate-seed.ts', {
     cwd: path.resolve(HERE, '../../../apps/api'),
     stdio: 'inherit',
   });

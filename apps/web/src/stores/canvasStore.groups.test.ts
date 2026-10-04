@@ -1,13 +1,13 @@
 // apps/web/src/stores/canvasStore.groups.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import * as Y from 'yjs';
 import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, sortForArrange, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, deriveGroupFrame, sortForArrange, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
@@ -1720,6 +1720,85 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     } finally {
       teardownRig();
     }
+  });
+
+  it('viewer 折叠展开循环（B7-2 剩余锚——终裁 58⑥/78⑬）：cs 几何零变化贯穿 ∧ 展开恢复后帧逐位≡派生帧（无残留）∧ 重水合后仍≡派生帧', () => {
+    const { d } = setupRig();
+    try {
+      openRoWindow();
+      stampDocSchema(toDocLike(d));   // 读侧版本门要求 v2 戳（fillDoc 不盖章——setupRig 夹具裸 doc）
+      applyDocToStore(d);   // 先水合（reconcile 派生帧落 cs——夹具裸种子无 wh，帧自本步起有值）
+      const frameOf = (id: string) => {
+        const g = groupOf(id) as any;
+        return { position: { ...g.position }, width: g.width, height: g.height };
+      };
+      const frameBefore = frameOf('g1');
+      expect(frameBefore.width).toBeGreaterThan(0);   // 派生帧在场面自证（非 undefined 比较）
+
+      useCanvasStore.getState().toggleCollapse('g1');   // viewer 折叠（本地 override——cs 几何零变化）
+      expect(useCanvasStore.getState().localCollapsed['g1']).toBe(true);
+      expect(frameOf('g1')).toEqual(frameBefore);
+
+      useCanvasStore.getState().toggleCollapse('g1');   // 展开（本地翻转回退）
+      expect(useCanvasStore.getState().localCollapsed['g1']).toBe(false);
+      const frameAfter = frameOf('g1');
+      expect(frameAfter).toEqual(frameBefore);          // 无残留（本地视图态零 cs 足迹）
+
+      // 帧逐位≡派生帧：deriveGroupFrame 单源（doc oracle——auto 组=bbox+padding 派生档）
+      const recs = readCanvasFromDoc(d).nodes;
+      const rec = recs.find((n) => n.id === 'g1')!;
+      const childrenAbs = recs.filter((n) => n.parentId === 'g1').map((n) => ({
+        x: n.position!.x, y: n.position!.y,
+        width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
+      }));
+      const derived = deriveGroupFrame({
+        data: rec.data, storedFrame: { position: rec.position, width: rec.width, height: rec.height },
+        childrenAbs, fallbackOrigin: frameAfter.position,
+      });
+      expect(frameAfter.position).toEqual({ x: derived.x, y: derived.y });
+      expect(frameAfter.width).toBe(derived.width);
+      expect(frameAfter.height).toBe(derived.height);
+
+      // 重水合（远端写触发 applyDocToStore 全量重建）后仍≡派生帧——跨同步无残留
+      applyDocToStore(d);
+      expect(frameOf('g1')).toEqual(frameAfter);
+    } finally {
+      teardownRig();
+    }
+  });
+
+  it('唯一 override 点 census（B7-2——终裁 78⑬ 渲染层帧 override 单点）：localCollapsed 生产消费集合恰=枚举 6 文件 ∧ 帧覆盖形态（collapsed 覆写）仅 GroupNode.tsx 一处', () => {
+    // 集合相等（新增消费点即红——防 override 点散落成第二帧真相）
+    const prodFilesWith = (needle: RegExp): string[] => {
+      const hits: string[] = [];
+      const walk = (dir: string): void => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (entry.name === 'test' || entry.name === '__tests__') continue; // 测试面不入生产 census
+            walk(full);
+          } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(test|spec)\./.test(entry.name)) {
+            if (needle.test(readFileSync(full, 'utf8'))) hits.push(path.relative(process.cwd(), full).split(path.sep).join('/'));
+          }
+        }
+      };
+      walk(path.join(process.cwd(), 'src'));
+      return hits.sort();
+    };
+    expect(prodFilesWith(/localCollapsed/)).toEqual([
+      'src/pages/canvas/components/CanvasView.tsx',            // 工具条 collapsed 属性读点（选择 UI——非帧）
+      'src/pages/canvas/components/groups/AddOutputHandle.tsx', // +号显隐判定（命中测试——非帧）
+      'src/pages/canvas/components/groups/GroupNode.tsx',      // ★渲染层帧 override 单点（effCollapsed+data 覆写）
+      'src/pages/canvas/components/groups/addOutput.ts',       // 显隐纯函数 opt（逻辑——非帧）
+      'src/stores/canvasCollabRuntime.ts',                     // 会话复位点（initCollab/destroyCollab 清 override）
+      'src/stores/canvasStore.ts',                             // owner（state 声明+viewer 折叠写点）
+    ]);
+    // 帧覆盖形态单点：把 localCollapsed 覆写进渲染 data 的生产文件（`collapsed: localCollapsed`——
+    // GroupNode.tsx data 展开）恰一处——CanvasView 工具条 `?? !!gd.collapsed` 是布尔 prop 传参（非帧
+    // 三键覆写）、addOutput 是显隐谓词，均不命中；未来任何第二处 data 覆写即散落信号，本锚红（终裁 78⑬）
+    expect(prodFilesWith(/collapsed:\s*localCollapsed/)).toEqual([
+      'src/pages/canvas/components/groups/GroupNode.tsx',
+    ]);
   });
 
   it('checkProjectionInvariant：折叠/展开后 doc≡store', () => {
