@@ -1,0 +1,3 @@
+# git index 已全 LF（i/crlf=0，2026-10-05 实测）；开发机 core.autocrlf=true 为 system 级（CI/Linux 不生效）。
+# 本文件作用=把 md 的 eol 策略显式化（跨平台一致），非"净化"——renormalize 是空操作，验收=git diff 为空。
+*.md text eol=lf

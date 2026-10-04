@@ -1,0 +1,11 @@
+{
+  "comment": "文档级取代映射（批 4 --write-status 的 superseded-by 数据源）。键值均为仓相对路径。仅收整文档被取代的映射；段落级【已废止】注记（如 preflight:false 红线）不入本表。批 4 现场判定可增补。",
+  "map": {
+    "docs/superpowers/specs/2026-05-10-phase2-canvas-engine-design.md": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+    "docs/superpowers/plans/2026-05-10-phase2-canvas-engine.md": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+    "docs/superpowers/specs/2026-05-10-phase4-execution-pipeline-design.md": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+    "docs/superpowers/plans/2026-05-10-phase4-execution-pipeline.md": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+    "docs/superpowers/specs/2026-05-16-phase6-bullmq-complete-design.md": "docs/superpowers/tech-debt.md",
+    "docs/superpowers/plans/2026-05-16-phase6-bullmq-complete.md": "docs/superpowers/tech-debt.md"
+  }
+}

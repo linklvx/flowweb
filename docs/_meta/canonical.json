@@ -1,0 +1,280 @@
+{
+  "comment": "由 scripts/doc-gate.mjs 派生（C1/C4）+ canonical-manual.json（C2/C3）合并。勿手改派生条目——人工增补走 canonical-manual.json（criteria+reason 强制）。",
+  "items": [
+    {
+      "path": "docs/README.md",
+      "criteria": "C3",
+      "evidence": [
+        {
+          "src": "docs/_meta/canonical-manual.json",
+          "text": "权威链入口面（spec §5.1 六节载体）——canonical 清单/兜底规则/排除声明/verified_at 操作规则的宿主"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/deployment-db-baseline.md",
+      "criteria": "C3",
+      "evidence": [
+        {
+          "src": "docs/_meta/canonical-manual.json",
+          "text": "运维基线（部署/DB 迁移流程）——spec §5.4 C3 判据"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/e2e/audit/c7-accepted-items.md",
+          "line": 30,
+          "text": "| 8 | CanvasView 裁定档案核验 | **在档（历史档）；C8 D2 裁定已反转** | 原 C2-6 裁定（`colorMode=\"dark\"` 钉死 + 两处非零差钉回 + 钉后像素 diff **0/1,024,000*"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-18-video-work-admin-upload.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/prisma/seed.ts",
+          "line": 231,
+          "text": "// ===== 平台资产团队（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户） ====="
+        },
+        {
+          "src": "apps/api/src/modules/team/team.util.ts",
+          "line": 48,
+          "text": "/** 平台资产归属（spec 2026-09-18-video-work-admin-upload §4.1）——api 侧共用（presignVideo/createWork F2/api spec）。"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-20-canvas-domain-theme.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/e2e/audit/canvas-migration-registry.json",
+          "line": 3,
+          "text": "\"task\": \"C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）\","
+        },
+        {
+          "src": "apps/web/e2e/d-segment-probes.spec.ts",
+          "line": 3,
+          "text": "// 探针生命周期表见 docs/superpowers/plans/2026-09-20-canvas-domain-theme.md 执行总纲 §5。"
+        },
+        {
+          "src": "apps/web/scripts/canvas-migration-registry.mjs",
+          "line": 68,
+          "text": "task: 'C8 画布域主题跟随——迁移 registry（spec 2026-09-20-canvas-domain-theme §5；D0-0 产出，D3 逐域核销）',"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-26-image-node-panel-redesign.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/src/pages/canvas/components/CanvasView.tsx",
+          "line": 313,
+          "text": "// ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──"
+        },
+        {
+          "src": "apps/web/src/pages/canvas/components/HandleAddNodeMenu.tsx",
+          "line": 7,
+          "text": "/** spec 2026-09-26-image-node-panel-redesign §3.3：handle 拖拽松手弹出的精简添加节点菜单。"
+        },
+        {
+          "src": "apps/web/src/utils/handleMenu.ts",
+          "line": 1,
+          "text": "/** handle 拖拽弹菜单——守卫/决策纯函数与工具（spec 2026-09-26-image-node-panel-redesign §3.3）"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/prisma/collab-gate-seed.ts",
+          "line": 46,
+          "text": "// null + UI 词表三档规则（cost 1，幂等 upsert），缺陷本体登记 master plan 批7 备注。"
+        },
+        {
+          "src": "apps/api/src/modules/execution/api-caller.fake-ai.spec.ts",
+          "line": 2,
+          "text": "// 断言源：master plan 批7 行——\"env COLLAB_FAKE_AI=1（dev-only fake provider——ApiCallerService 各 callXxx"
+        },
+        {
+          "src": "apps/web/e2e/collab-recovery.e2e.spec.ts",
+          "line": 6,
+          "text": "// 判据源：master plan 批7 行 + smoke-dual-client.md 底稿；串行执行（config workers:1）。"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/src/utils/spec-version-consistency.guard.test.ts",
+          "line": 19,
+          "text": "const PLAN = join(REPO_ROOT, 'docs/superpowers/plans/2026-10-02-canvas-group-spec-b-geometry-batch.md');"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/collab-e2e-gate-checklist.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": ".github/workflows/ci.yml",
+          "line": 55,
+          "text": "# 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/smoke-dual-client.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/e2e/collab-recovery.e2e.spec.ts",
+          "line": 6,
+          "text": "// 判据源：master plan 批7 行 + smoke-dual-client.md 底稿；串行执行（config workers:1）。"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/socketio-retirement-assessment.md",
+      "criteria": "C4",
+      "evidence": [
+        "入引用自 docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+        "入引用自 docs/superpowers/tech-debt.md"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/src/index.css",
+          "line": 5,
+          "text": "/* ===== B0 语义 token 双套（spec 2026-09-18-css-base-layer-theme-design B 段）====="
+        },
+        {
+          "src": "apps/web/tailwind.config.ts",
+          "line": 4,
+          "text": "* 基础层（preflight）必须开启——root-cause 修复 spec docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md："
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-20-creditsdropdown-light-draft.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/e2e/audit/canvas-migration-registry.json",
+          "line": 1953,
+          "text": "\"light\": \"浅档按稿表（2026-09-20-creditsdropdown-light-draft.md §一/二/三）mode 分支：容器渐变/投影/边 rgba(0,0,0,0.08)、光斑 alpha 降+白高光 0.5、总"
+        },
+        {
+          "src": "apps/web/e2e/audit/canvas-migration-registry.json",
+          "line": 2575,
+          "text": "\"why\": \"C8 P5 通道 3：:267 充值钮 bg-white+hover:bg-zinc-100 白系字面冻结（浅色稿 2026-09-20-creditsdropdown-light-draft.md；此钮非邀请卡——邀请钮已"
+        },
+        {
+          "src": "apps/web/src/pages/canvas/components/CreditsDropdown.tsx",
+          "line": 91,
+          "text": "// C8 Task 23：浅色稿分支（2026-09-20-creditsdropdown-light-draft.md）——深档字面冻结（字节等值），"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-image-node-panel-redesign.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/src/pages/canvas/components/CanvasView.tsx",
+          "line": 313,
+          "text": "// ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──"
+        },
+        {
+          "src": "apps/web/src/pages/canvas/components/HandleAddNodeMenu.tsx",
+          "line": 7,
+          "text": "/** spec 2026-09-26-image-node-panel-redesign §3.3：handle 拖拽松手弹出的精简添加节点菜单。"
+        },
+        {
+          "src": "apps/web/src/utils/handleMenu.ts",
+          "line": 1,
+          "text": "/** handle 拖拽弹菜单——守卫/决策纯函数与工具（spec 2026-09-26-image-node-panel-redesign §3.3）"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/src/utils/spec-version-consistency.guard.test.ts",
+          "line": 20,
+          "text": "const SPEC = join(REPO_ROOT, 'docs/superpowers/specs/2026-09-28-group-geometry-batch-connect-design.md');"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/admin-console-refactor.md",
+      "criteria": "C4",
+      "evidence": [
+        "入引用自 docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
+        "入引用自 docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/video-editor.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/web/e2e/a0-collect-baseline.spec.ts",
+          "line": 18,
+          "text": "//     守卫）；videos/video-editor 壳岛已拆除（D3），壳内 --fw-* 直承 html.light；恒深面只剩内容承载面"
+        },
+        {
+          "src": "apps/web/e2e/a0-collect-baseline.spec.ts",
+          "line": 261,
+          "text": "/** video-editor DOM 骨架：真实 UI 流创建 videoEdit 节点（添加节点菜单→多轨道剪辑）→ 打开编辑器 →"
+        },
+        {
+          "src": "apps/web/e2e/a0-collect-baseline.spec.ts",
+          "line": 264,
+          "text": "test('video-editor DOM 骨架（USER 会话，含节点清理）', async ({ browser }) => {"
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/tech-debt.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/src/app.module.ts",
+          "line": 92,
+          "text": "// 部署前提（tech-debt）：反代（nginx）后 req.ip 全是代理 IP——300/min 变全站共享单桶，"
+        },
+        {
+          "src": "apps/api/src/modules/gateway/execution.gateway.ts",
+          "line": 15,
+          "text": "*    或自定义 tracker（已登记 tech-debt）。 */"
+        }
+      ]
+    },
+    {
+      "path": "docs/团队功能说明.md",
+      "criteria": "C3",
+      "evidence": [
+        {
+          "src": "docs/_meta/canonical-manual.json",
+          "text": "面向用户的产品说明（团队协作功能口径）——spec §5.4 C3 判据"
+        }
+      ]
+    }
+  ]
+}

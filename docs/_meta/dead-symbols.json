@@ -1,0 +1,111 @@
+{
+  "comment": "文档门禁唯一输入（v1.2 §5.2）。kind 三分类：dead=曾存在已删（scope 内断言不存在，扫描剥注释）/ never-built=从未实现（不做代码存在性校验）/ frozen=现行通道勿误杀（双不做）。scope：repo=全扫描域；文件路径=仅该文件内断言（裸符号名跨模块撞名时用）。删除授权语义：删除本清单内符号=已授权；删除清单外既存无效代码须先登记本清单（附 removedIn/reason）再删，同一 commit 内完成。",
+  "scan_domain_note": "代码扫描域=apps/*/src+packages/*/src+apps/api/prisma/verify-indexes.sql；不含 migrations/（partial index 真相源在 SQL）。",
+  "symbols": [
+    {
+      "symbol": "zundo",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "6bf7fd90",
+      "reason": "undo 引擎退役，Y.UndoManager 接管"
+    },
+    {
+      "symbol": "flowweb_canvas_v2",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "701d748c",
+      "reason": "localStorage 版本化快照键退役，持久化归服务端 doc（R1b 方案 C）"
+    },
+    {
+      "symbol": "isHydrating",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "b7aa31f0",
+      "reason": "hydration 四态取代（批 2-1/4b-2）"
+    },
+    {
+      "symbol": "UserBalance",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "74b86e92",
+      "reason": "User 级账本删除，账本收敛 TeamBalance 唯一"
+    },
+    {
+      "symbol": "CanvasNode",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "c6cccad5",
+      "reason": "行式节点模型退役，画布数据=Yjs doc（docShape 单源）"
+    },
+    {
+      "symbol": "CanvasEdge",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "4aaf2fd9",
+      "reason": "行式边模型退役（docShape 单源收编）"
+    },
+    {
+      "symbol": "saveCanvas",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "f0bdbdd2",
+      "reason": "REST 画布保存链路整删（M0）"
+    },
+    {
+      "symbol": "deleteRefs",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "a25f2866",
+      "reason": "文件清理死调用删除（TD-15）"
+    },
+    {
+      "symbol": "pickStructNodes",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "c6cccad5",
+      "reason": "结构节点选择器随 S1 整删（Spec B O0b）"
+    },
+    {
+      "symbol": "useCanvasPersistence",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "bccc54a9",
+      "reason": "localStorage 持久化 hook 整删（O0b-0 格式批）"
+    },
+    {
+      "symbol": "canvasSnapshot",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "701d748c",
+      "reason": "快照层退役（R1b 方案 C）"
+    },
+    {
+      "symbol": "loadProjectIntoStore",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "d0c3ec91",
+      "reason": "REST 加载链路蒸发（批 0a-3 openSession 漏斗）"
+    },
+    {
+      "symbol": "templateData",
+      "kind": "dead",
+      "scope": "repo",
+      "removedIn": "f0bdbdd2",
+      "reason": "Template 死列链路拆除（M0，死表已 DROP）"
+    },
+    {
+      "symbol": "Keycloak",
+      "kind": "never-built",
+      "scope": "repo",
+      "removedIn": null,
+      "reason": "登录方案从未实现（实为 Better Auth session cookie）"
+    },
+    {
+      "symbol": "emitNodeStatus",
+      "kind": "frozen",
+      "scope": "repo",
+      "removedIn": null,
+      "reason": "socket.io /execution 现行通道（TD-21 分两步退役），勿当死符号清除"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "comment": "canonical 人工增补面（spec §5.4：C2/C3/C4 人工增补必须带理由；判据可推翻清单、清单不能推翻判据）。脚本派生的 C1/C4 结果每次运行重生成 canonical.json，本文件条目合并进终判。新增条目必须填 criteria（C2|C3|C4）与 reason。",
+  "items": [
+    {
+      "path": "docs/团队功能说明.md",
+      "criteria": "C3",
+      "reason": "面向用户的产品说明（团队协作功能口径）——spec §5.4 C3 判据"
+    },
+    {
+      "path": "docs/superpowers/deployment-db-baseline.md",
+      "criteria": "C3",
+      "reason": "运维基线（部署/DB 迁移流程）——spec §5.4 C3 判据"
+    },
+    {
+      "path": "docs/README.md",
+      "criteria": "C3",
+      "reason": "权威链入口面（spec §5.1 六节载体）——canonical 清单/兜底规则/排除声明/verified_at 操作规则的宿主"
+    }
+  ]
+}
