@@ -393,7 +393,7 @@ quantizePos / normalizeIntentPayload / isNoop / dropNoopIntents / clearManualFra
 - **低 zoom 下+号视觉脱离框（12 屏幕 px≈40 画布 px @zoom 0.3——B 案屏幕恒定代价，登记接受）**
 - 尾批形状复核结论维持；dropNoop 丢弃类网格缺口由对齐先于派生收口
 - ProcessSnapshot 第 4 渲染面（O0 同批——抽取任务终裁 22+落点/不产出节点[**RF 数组剔除表述——终裁 32⑥**]/CellNodeInfo 搬迁+removeStoryboardCell 回调与 Delete 键 effect 参数化[**终裁 39 小项**]）；doc 写者五处随 docShape 收编（**census 修正=3 处节点写者——终裁 33④**）+出口三处随两层记录契约（终裁 27——**含 isPublic=false 非公开分支，终裁 32⑤**）
-- **空 auto 组↔有子尺寸跳变（COLLAPSED_SIZE⇔bbox——终裁 35 登记）**
+- **空 auto 组↔有子尺寸跳变（COLLAPSED_SIZE⇔bbox——终裁 35 登记）**；**空组档 position 载体（B5'-2 实现口径回写 2026-10-03：键集表"auto 恒 0 帧键"对被拖空的组无 position 表达——对端/重载按 fallback 派发致 (0,0) 分叉[双标签页手测实证]；收口=拖出最后成员的松手命令对被空化的 auto 组发 manual 三键密封 envelope@冻结原位[emptyGroupSealFrame 单源=deriveGroupFrame 空 auto 档同值]——auto→manual envelope 通道 2，resize 提交为通道 1；后续成员拖回按 manual clamp 语义一致）**
 - **叶子 resize 远端回弹（无 session 不在保护集合——XYResizer 次帧自愈无数据丢失，接受不扩 scope——终裁 39）**
 - **叶子 resize 每帧全量 reconcile O(N) 两趟（实测掉帧再 rAF 合并——现在不做——终裁 39）**
 - **拖动单帧全表数组替换订阅成本（RF 受控模式现状——拖帧 p95≤16ms 预算覆盖；超标先查全表替换成本再谈局部更新/dragSession 走局部更新——v3.17 登记，评审三"订阅回调≤常数"锚不采纳[YAGNI]）**

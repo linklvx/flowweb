@@ -345,10 +345,11 @@
 
 ### Task B5'-2：单一路由 handleDragRelease+旧路由整链删除
 
-- [ ] **红测试**：**onNodeDragStop={handleDragRelease}**（CanvasView:513；**旧路由一条链整体删除**：handleNodeDragStop :446-449+onNodeDragStopIntoGroup :430-444+findDropGroup——现状实证一条链非"双路由"）；stopCapturing 随迁终裁序第 2 行；锚"拖完立即 Ctrl+Z⇒只回退拖动不回退前一条命令"；跨组 A→B 可达（候选=全部组含当前组，排除 draggedGroupIds∪{dragged.id}）；拖组松手全体 parentId 逐位不变；多选"组+异组叶子"落被拖组⇒叶子顶层化；被拖组不是合法落点；守卫仍生效（落分镜组⇒入格/落折叠组⇒函数体先展开/组内执行中⇒拒绝零写）；松手精度（整数夹具误差 0）；undo 一步全恢复+frame≡bbox；exactly-once；tie-break（overlapArea>0 面积最大胜/max===0⇒顶层化/并列 id 最小——**新路由规则非迁移**）；**拖出最后成员松手⇒组帧=COLLAPSED_SIZE（空组档——同命令内无中间尺寸）**
-- [ ] **绿实现**：handleDragRelease（canvasStore action——冻结帧+交叠判定；分派 storyboard⇒dropImageIntoStoryboard/normal⇒dropIntoGroup；预检/折叠展开留在原函数体内单层）；groupDrop.ts 整模块删
-- [ ] commit `feat(canvas): B5'-2 单一路由+旧路由整链删+stopCapturing 随迁（Spec B B5'-2）`
-- [ ] **双标签页手测**（A 拖出/跨组/落折叠/落分镜→B 一致→A undo→B 一致）
+- [x] **红测试**：**onNodeDragStop={handleDragRelease}**（CanvasView:513；**旧路由一条链整体删除**：handleNodeDragStop :446-449+onNodeDragStopIntoGroup :430-444+findDropGroup——现状实证一条链非"双路由"）；stopCapturing 随迁终裁序第 2 行；锚"拖完立即 Ctrl+Z⇒只回退拖动不回退前一条命令"；跨组 A→B 可达（候选=全部组含当前组，排除 draggedGroupIds∪{dragged.id}）；拖组松手全体 parentId 逐位不变；多选"组+异组叶子"落被拖组⇒叶子顶层化；被拖组不是合法落点；守卫仍生效（落分镜组⇒入格/落折叠组⇒函数体先展开/组内执行中⇒拒绝零写）；松手精度（整数夹具误差 0）；undo 一步全恢复+frame≡bbox；exactly-once；tie-break（overlapArea>0 面积最大胜/max===0⇒顶层化/并列 id 最小——**新路由规则非迁移**）；**拖出最后成员松手⇒组帧=COLLAPSED_SIZE（空组档——同命令内无中间尺寸）**
+- [x] **绿实现**：handleDragRelease（canvasStore action——冻结帧+交叠判定；分派 storyboard⇒dropImageIntoStoryboard/normal⇒dropIntoGroup；预检/折叠展开留在原函数体内单层）；groupDrop.ts 整模块删
+- [x] commit `feat(canvas): B5'-2 单一路由+旧路由整链删+stopCapturing 随迁（Spec B B5'-2）`
+- [x] **双标签页手测**（A 拖出/跨组/落折叠/落分镜→B 一致→A undo→B 一致）
+  - 完成注记（2026-10-03）：commit 2a348712（实现）+65ce9eef（手测发现缺陷修复：空组档跨端分叉——B 端渲染 (0,0)⇒manual 三键密封@冻结原位[emptyGroupSealFrame 单源 shared geometry]）+8a52aac2（spec 评 P0：geometry.test:165 引号语法错误——整文件未运行 shared 实红，修复后 201 pass 全绿）+9470bf6d（质评收口：dragOriginOf 翻转式单源[提交载荷与裁决落点共用]+JSDoc 时效+凑数断言删）；**终裁序**：幂等早退→stopCapturing 首行→裁决（冻结帧优先候选/overlap 面积 tie-break）→R4 预检（Inner 化批守卫收窄的家——拒绝面=归属非位置）→位置+脱离信封+空组密封同批单 transact→finalize 先于 dispatch→入组分派壳后置（**禁序探针实证：归属分发先于位置提交会被漏斗尾以 baseline 蚀刻 cs**——首版被红测抓出重构）→零归属⇒commitIntents passthrough；**spec 回写登记**：键集表"auto 恒 0 帧键"对空组无 position 表达=记录契约缺口（与 O0c-2"空 auto 组公开页 {0,0}"同族）——auto→manual envelope 通道 2（resize 提交为通道 1）收口，语义随批回写 spec；**手测**（真协作双客户端 iframe B 端+DOM/doc 双面取证）：落组/跨组/拖出/拖出最后成员/落折叠 五场景 A 操作→B diff=[]→A undo→B 一致 全过+B4'-2 补测（A 拖→B 收敛无抖动→undo 一致）；**落分镜浏览器档未测**（无完成图夹具需真实媒体——单测覆盖 attachMember 首空槽+position 剥键，B7-2 公开页 e2e 顺带补）；B4'-2 手测合并完成；质评 Minor 登记：R4 多叶全拒时 message 逐条弹（旧路由同量级——去重留后续）+into-清空档（拖最后成员入他组⇒源组解散）无专测锚
 
 ---
 
