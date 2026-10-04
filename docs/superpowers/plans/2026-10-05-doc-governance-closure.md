@@ -46,12 +46,14 @@ commit 规范：纯文档批=`docs(meta)`/`docs`；含代码批（批 0④、批
 
 **批 5a Task 7-3 三树处置对照表（2026-10-05，处置建议交用户拍板后执行）**：
 
-| 对象 | md | 体积 | git 历史（`git log --all --oneline -- <path>` 全量） | 嵌套 .git | worktree 登记 | 独有内容 | 建议 |
-|---|---|---|---|---|---|---|---|
-| .claude/worktrees | 1133 | 420MB/41061 文件 | 不适用（.gitignore 内） | 0 | 仅 D:/flowweb 主仓 | 未比对（用户已直接批准删） | **已删除**（用户批准链：mv 出仓 07:23:15 → pnpm verify EXIT=0+git status 干净 → rm 07:28:01，420MB/41061 文件回收） |
-| .worktrees/edge-flow-animation | 1134 | 419MB | **0 命中**（从未进 git） | 0 | 仅主仓 | 3 文件：PRD txt/docx（批 2 已删、内容已萃取入 README ⑥）+template-marketplace spec（批 4 判定①已删的旧拷贝）——均无未保存工作 | **删**（同款游离整仓快照：无独立历史、独有文件均已完成删除决策） |
-| backups/ | — | v3.x 快照 | 未自证 | — | — | — | 用户定（判据：git 能定位对应 commit 即可删） |
-| .superpowers/brainstorm | 0 | — | — | — | — | 实测零 md | 排除声明已覆盖，无需动作 |
+> 判据声明（第九轮用户裁决修正）：三目录均在 .gitignore 内、从未被 git 跟踪——`git log --all -- <path>` 零命中是**必然结果，不构成内容可回溯的证明**（该判据已从表中移除）。成立的判据=**内容级对比**（独有文件清单及其中未保存价值）；辅证=嵌套 .git=0+worktree 登记仅主仓（⇒游离副本，非独立仓库/工作树）。
+
+| 对象 | md | 体积 | 嵌套 .git | worktree 登记 | 独有内容（内容级对比——唯一成立判据） | 建议 |
+|---|---|---|---|---|---|---|
+| .claude/worktrees | 1133 | 420MB/41061 文件 | 0 | 仅 D:/flowweb 主仓 | 未比对（用户已直接批准删） | **已删除**（用户批准链：mv 出仓 07:23:15 → pnpm verify EXIT=0+git status 干净 → rm 07:28:01，420MB/41061 文件回收） |
+| .worktrees/edge-flow-animation | 1134 | 419MB | 0 | 仅主仓 | 独有仅 3 文件：PRD txt/docx（批 2 已删、内容已萃取入 README ⑥）+template-marketplace spec（批 4 判定①已删的旧拷贝）——其余内容主仓可找回，3 文件均无未保存价值 | **已删除**（第九轮批准：mv 出仓 07:50:40 → pnpm verify EXIT=0+git status 干净 → rm 07:54:37，419MB/1134 md 回收） |
+| backups/ | — | v3.x 快照 | — | — | 未比对（挂起） | 用户定（挂起）；注：原"git 能定位对应 commit 即可删"判据**同样不成立**（.gitignore:14 内必然零命中）——处置时须做内容级对比 |
+| .superpowers/brainstorm | 0 | — | — | — | 实测零 md | 排除声明已覆盖，无需动作 |
 
 **第八轮复核落地（2026-10-05，commit 见 git log）**：①tech-debt.md NUL 字节事故修复——f5f8bbd7 引入的单颗 NUL 实为吞噬了 `$?` 两字符（非多余字节），已还原本意文本（纯删会留语义缺失行）；全仓唯一含 NUL 文本文件，字级 diff 审阅后替换。②doc-gate 三硬化：[binary-corpus] 红守卫（语料含 NUL ⇒ 红，TD-26 第四例）+退出码三分 0=PASS/1=违规/2=结构性环境错误（apps/web/scripts/lint-gate.mjs:271 先例；fail()→2、git ls-files 环境错误显式化）+ls-files tracked-only 假设注记。③CI 拆 doc-gate 独立 job（required check 粒度——TD-26②：verify && 链内红绿互掩）。④TD-26 第四例登记+文件修改纪律成文（README 治理节+tech-debt 处置⑥）。**驳回/已满足**：报告一"--write-canonical 报错须含修复命令"——doc-gate :383 本就含（基于旧版）；报告二 frozen 读者指针、报告一 frozen→historical 终态语义已并入 5b 行。**红绿实证**：临时 NUL md → [binary-corpus] 红 EXIT=1 → 清理复绿 EXIT=0；PATH 清空模拟 git 不可用 → 结构错误 EXIT=2（与违规 1 区分）。**.claude/worktrees 删除前凭据**：1133 md／41061 文件／420 MB（du 块计）／git worktree list 仅 D:/flowweb 主仓／嵌套 .git 指针 0——目录副本非 worktree 登记，.gitignore 内不进 git 历史，删除零门禁接触面（等用户明示后执行）。
 
