@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 122cdf81 -->
 # 后台管理重构 Spec（admin-console-refactor）
 
 > 状态：v2.4 — 五轮审核意见均已并入（全部断言经源码/WCAG 实算/npm registry 验证属实），Q1-Q4 全部终版决议，待用户最终确认后冻结进入 plan

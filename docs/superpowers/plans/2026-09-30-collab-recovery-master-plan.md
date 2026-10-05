@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 122cdf81 -->
 # Collab 会话断连恢复 Master Plan（spec v5.10 全批次：批 0c → 批 7）
 > ⛔ **本 plan 已完成（2026-10-01 批 7 gate 9/9 绿）。状态真源=下方「完成记录表」。正文 `- [ ]` 为任务模板，非待办——请勿按 checkbox 执行。**
 

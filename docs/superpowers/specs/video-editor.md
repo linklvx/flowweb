@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 122cdf81 -->
 # Spec: Canvas 视频剪辑器（多轨时间轴 + 纯浏览器导出）v3.6
 
 > **v3.7 勘误（2026-09-11，用户拍板）**：本文 7 处条款被 [2026-09-11-video-editor-ui-overhaul-design.md](2026-09-11-video-editor-ui-overhaul-design.md) 修订——①:287 亮色视觉→暗黑扁平（#141414 系）②:287 语义色→opencut 色表（subtitle #5DBAA0/audio #8F5DBA+白波形/video #1f1f1f 兜底）③默认 4 轨→初始 1 空视频轨+动态建轨 ④:49/:279/§十 固定 16:9→C 档多比例（canvasSize+6 档+全消费方）⑤§七 FSA 直写→FSA/OPFS 中转+目的地后置 ⑥:283 控制条文字按钮→图标化+Tooltip ⑦分辨率两档→480P/720P/1080P 三档（DTO+@Max(900)+metadata w/h）。冲突处以新 spec 为准。

@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 122cdf81 -->
 # Canvas 图片节点面板与交互改造 — 设计 spec
 
 - 日期：2026-09-26
