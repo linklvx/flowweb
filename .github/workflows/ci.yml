@@ -80,21 +80,15 @@ jobs:
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-      # 第九轮修复：api 启动路径（minio.module OnModuleInit→ensureBucket）真实连接 MinIO 并 ensure
-      # bucket——假凭据即 ECONNREFUSED 退出（nightly 2026-10-01~04 连红 4 晚实证，本地绿被
-      # "本地有真 MinIO" 掩盖）。配置缺陷非容错缺陷：起真 service（root 凭据=可 makeBucket），
-      # 生产 fail-fast 不动（静默降级=用垫片掩盖真实依赖故障）。
-      minio:
-        image: minio/minio:latest
-        env: { MINIO_ROOT_USER: ci-minio, MINIO_ROOT_PASSWORD: ci-minio-secret }
-        ports: ['9000:9000']
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 10s --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
       REDIS_URL: redis://localhost:6379/0
-      # validateEnv 必填键（app.module 链路真启动）——与上方 minio service 真值对应。
+      # validateEnv 必填键（app.module 链路真启动）——api 启动路径（minio.module
+      # OnModuleInit→ensureBucket）真实连接 MinIO：CI 无 MinIO 时本 job 启动即红
+      # （ECONNREFUSED，nightly 2026-10-01 起实证；本地绿=本地有真 MinIO 掩盖）。
+      # 2026-10-05 裁决：真 MinIO service 不可得（镜像分发全网下架：docker.io/minio/minio
+      # repo 404、bitnami tags 清零、quay 匿名不可拉、dl.min.io 二进制 410）且修复需动
+      # api 启动逻辑（上线风险）——**跳过，nightly 此红点为已知红锚（TD-26⑤）**，非新回归。
       MINIO_ENDPOINT: http://localhost:9000
       MINIO_ACCESS_KEY: ci-minio
       MINIO_SECRET_KEY: ci-minio-secret
