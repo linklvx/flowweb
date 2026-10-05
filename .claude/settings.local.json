@@ -28,7 +28,14 @@
       "Bash(cp .claude/launch.json .claude/settings.local.json backups/v3.10/config-files/claude/)",
       "Bash(cp -r .superpowers backups/v3.10/config-files/superpowers)",
       "Bash(cp services/redis/redis.windows.conf services/redis/redis.windows-service.conf backups/v3.10/config-files/services/redis/)",
-      "Bash(cp .gitignore package.json turbo.json tsconfig.base.json pnpm-workspace.yaml pnpm-lock.yaml backups/v3.10/config-files/)"
+      "Bash(cp .gitignore package.json turbo.json tsconfig.base.json pnpm-workspace.yaml pnpm-lock.yaml backups/v3.10/config-files/)",
+      "Bash(git show *)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('C:/Users/link/AppData/Local/Temp/reg.json',encoding='utf-8'\\)\\) if False else None\")",
+      "Bash(git cat-file *)",
+      "Bash(python -c ' *)",
+      "Bash(rm reg-tmp.json)",
+      "Bash(curl -sS --proxy http://127.0.0.1:7890 -o /tmp_q.json -w \"%{http_code}\\\\n\" \"https://quay.io/api/v1/repository/minio/minio/tag/?limit=5&onlyActiveTags=true\")",
+      "Bash(cat /tmp_q.json)"
     ],
     "deny": [],
     "defaultMode": "bypassPermissions"
