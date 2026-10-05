@@ -19,6 +19,8 @@ const API_ENV = {
   ...process.env,
   COLLAB_FAKE_AI: '1',        // 批7 fake provider（api-caller.service 生产 env 拒绝）
   COLLAB_SWEEP_ENABLED: 'true', // S4 会话过期 sweep（灰度开关——门禁环境显式开）
+  MINIO_INIT: 'skip',         // B′（第九轮）：gate 场景零 MinIO 产物消费，显式裁剪 ensureBucket——
+                              // 本地/CI 行为一致（原依赖本地真 MinIO 掩盖；CI 无 service 即启动红）
 };
 
 /** TCP 端口可连（有监听者）探测 */

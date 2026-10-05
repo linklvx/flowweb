@@ -83,12 +83,11 @@ jobs:
     env:
       DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
       REDIS_URL: redis://localhost:6379/0
-      # validateEnv 必填键（app.module 链路真启动）——api 启动路径（minio.module
-      # OnModuleInit→ensureBucket）真实连接 MinIO：CI 无 MinIO 时本 job 启动即红
-      # （ECONNREFUSED，nightly 2026-10-01 起实证；本地绿=本地有真 MinIO 掩盖）。
-      # 2026-10-05 裁决：真 MinIO service 不可得（镜像分发全网下架：docker.io/minio/minio
-      # repo 404、bitnami tags 清零、quay 匿名不可拉、dl.min.io 二进制 410）且修复需动
-      # api 启动逻辑（上线风险）——**跳过，nightly 此红点为已知红锚（TD-26⑤）**，非新回归。
+      # validateEnv 必填键（app.module 链路真启动）。MinIO 初始化由 gate-collab.mjs 注入
+      # MINIO_INIT=skip 显式裁剪（B′，2026-10-05 终裁）：gate 场景零 MinIO 产物消费；真
+      # service 不可得——镜像分发 2025 全网下架（docker.io repo 404/bitnami tags 清零/
+      # quay 匿名不可拉/dl.min.io 410）。生产 fail-fast 不动（不设 env 即真连失败 throw）。
+      # 下方 MINIO_* 值仅满足 validateEnv 必填校验——skip 路径无连接发生。
       MINIO_ENDPOINT: http://localhost:9000
       MINIO_ACCESS_KEY: ci-minio
       MINIO_SECRET_KEY: ci-minio-secret
