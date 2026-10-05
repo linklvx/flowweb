@@ -2,10 +2,11 @@ name: ci
 on:
   push: { branches: [master] }
   pull_request:
-  schedule:
-    # 批7 e2e-collab（nightly 03:17 UTC——避开整点突刺；PR 不跑：双客户端 E2E+起停 API 时长不适合逐 PR，
-    # 发布门禁语义=发布前必绿：本地 gate 清单 + nightly CI 双保险〔第十轮裁决〕）
-    - cron: '17 19 * * *' # UTC 19:17 = 北京 03:17
+  # schedule 已摘（C′ 终裁 2026-10-05）：nightly 自动跑取消——specb 套件真消费 MinIO（putObject
+  # 素材+公开页 e2e）而 MinIO 容器镜像 2025 全网下架（Hub repo 404/bitnami tags 清零/quay 私有/
+  # dl.min.io 410），runner 上必红；发布门禁以**本地 gate 人工跑**为准（本地有真 MinIO：
+  # node scripts/gate-collab.mjs）。dispatch 保留=环境修复（如换 S3 兼容源）后的回归入口，
+  # 当下 dispatch 仍会红在 specb-gate-seed 的 MinIO 段——属已知，非新回归（TD-26⑤）。
   workflow_dispatch:
 jobs:
   test:
@@ -66,7 +67,7 @@ jobs:
   # PR 不跑；步骤=gate 脚本单一真相源（预检→自拉 API(COLLAB_FAKE_AI=1)→playwright collab-recovery→清理）。
   # 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md
   e2e-collab:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' # schedule 已摘（C′）——dispatch-only 回归入口，当下 runner 上仍红（MinIO，见上方摘 cron 注记）
     runs-on: ubuntu-latest
     services:
       postgres:
