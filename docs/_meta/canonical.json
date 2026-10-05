@@ -37,11 +37,6 @@
       "criteria": "C1",
       "evidence": [
         {
-          "src": "apps/api/prisma/platform-team.seed.ts",
-          "line": 3,
-          "text": "/** 平台资产团队域 seed（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户）。"
-        },
-        {
           "src": "apps/api/prisma/seed.ts",
           "line": 232,
           "text": "// ===== 平台资产团队（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户） ====="
@@ -50,6 +45,11 @@
           "src": "apps/api/src/modules/team/team.util.ts",
           "line": 48,
           "text": "/** 平台资产归属（spec 2026-09-18-video-work-admin-upload §4.1）——api 侧共用（presignVideo/createWork F2/api spec）。"
+        },
+        {
+          "src": "apps/api/src/prisma/platform-team.seed.ts",
+          "line": 3,
+          "text": "/** 平台资产团队域 seed（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户）。"
         }
       ]
     },

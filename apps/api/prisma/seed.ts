@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { auth } from '../src/auth/auth';
-import { seedPlatformTeam } from './platform-team.seed';
+import { seedPlatformTeam } from '../src/prisma/platform-team.seed';
 
 const prisma = new PrismaClient();
 

@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { TeamSubscriptionService } from './team-subscription.service';
-import { seedPlatformTeam } from '../../../prisma/platform-team.seed';
+import { seedPlatformTeam } from '../../prisma/platform-team.seed';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 // 连真库（apps/api/src/auth/auth.role.spec.ts:5 先例：new PrismaClient() 直连）。
