@@ -112,4 +112,14 @@
 | TD-12 PromptValue.allImages 僵尸字段移除：54 处锚点 mock 迁移（8 文件）+ PromptInput 类型化字面量/断言同步 + 产品侧双 ConfigPanel 嵌套写入点清理 + mergeImageRefs 参数与 PromptValue 解耦（legacy 兼容读取保留） | 2026-08-21 | c939c20 |
 | TD-14 spec 编译安全网：tsconfig.spec.json（vitest/globals types）接入 test script 前置 tsc；清零 13 处潜伏类型错误（S2 单独清零 commit c43ccc0） | 2026-08-21 | c43ccc0 / de9b744 |
 | TD-13 三分支覆盖补齐：interceptor @NoTransform 直通不包装 / sms SendStatusSet 非 Ok 拒绝（含状态码透传与 SMS_SEND_REJECTED 兜底）/ file controller type 非空过滤透传 | 2026-08-21 | 257d86b |
+
+## 资产处置记录（非债务——处置事实留档）
+
+### backups/ 快照序列处置（2026-10-06，用户拍板启动）
+
+- **处置结果**：删 v3.3~v3.9 七目录（回收 ≈11.87G，12G→135M）；留存 v3.10（135M——最近版本节点完整恢复点：bundle+config-files+db dump+minio zip+redis rdb 全组件）+2026-09-04-cleanup（102K——孤岛清理 pre/post 审计 JSON，被删对象清单唯一决策凭证）
+- **保留规则**：最新完整快照+决策审计档；代码域权威=git tags（v3.01~v3.10 备份时点 commit 经对象级验证全为 HEAD 祖先）；旧 minio/db 域=2026-09-04 孤岛清理判废域+Prisma 旧基线断裂 dump，不具恢复价值
+- **内容级证据要点**：source.zip/源码树=tag 态 CRLF 变体（归一 hash 抽验 MATCH）；v3.7~v3.9 bundle 全 refs（含侧分支）主仓对象存在；v3.9 minio zip 独有 19 文件全为 .minio.sys/.trash 回收站元数据（flowai 业务对象 ⊆ v3.10）；v3.8 minio zip 头部非 PK 魔数=坏档（声称的 2.4G 备份从未有效存在）；v3.4=v3.5 前 7 分钟前身残件
+- **验证链**：mv 出仓 → pnpm verify（1 failed=collab.gateway ② onLoadDocument 已知 flaky〔TD-26 ⑤族〕，隔离复跑 41/41 绿）→ rm → git status 干净
+- **后续义务**：full-stack-backup.md SOP 引用 backups/ 路径不变（新版本节点备份续写该处）；v3.10 恢复步骤见其 BACKUP.md
 | TD-15 双实证（断路+埋雷，b3eafad）→ 方案 B 收口：移除 6 处死调用（deleteNode 四分支 + useImageUpload）固化「画布删除不触文件清理」语义——Media 行是素材库/历史资产（软删为产品语义）、生成结果不随节点删除（TD-11 D1 扩展至 imageGen/trim）；mergeImageRefs 随调用方退役 → 删除语义现行承载：committed intent 显式携带删除答案（批 4b 四件套退役），见 plans/2026-09-30-collab-recovery-master-plan.md 批 4b 行 | 2026-08-22 | b3eafad / a25f286 |
