@@ -5,7 +5,7 @@
 > 约定：每项含【来源】【现状核查日期】【修复方向】；完成一项移入文末「已清账」并注明 commit。
 > 新债发现时随手追加，修复前先核查现状（文件/行为可能已变化）。
 
-最近核查：2026-10-01
+最近核查：2026-10-06
 
 ## 前端（apps/web）
 
@@ -65,10 +65,11 @@
 - **来源**：collab spec R3 登记
 - **修复方向**：批 1 已落单实例 watchdog（connectionMachine 3s tick + 恢复门）；配对式（进程对互监）属 R3 域
 
-### TD-24 Throttler trust proxy / tracker
+### TD-24 Throttler trust proxy 取值收紧
 
 - **来源**：批 0c-8 注记（app.module.ts 代码注释同步登记）
-- **修复方向**：生产部署前 `app.set('trust proxy', 1)` 或 throttler 自定义 tracker——反代后 `req.ip` 全是代理 IP，300/min 会退化成全站共享单桶
+- **现状（2026-10-06 例行核查漂移）**：main.ts:85 已设 `app.set('trust proxy', true)`（b9fa64a4 随 SmsModule 接线）——「未设置」原债已消，但 `true`=信任全链跃点，客户端可自带伪造 X-Forwarded-For 使 Express 取最左假 IP，限流桶仍可被轮换伪造绕过；部署形态=Nginx 单层反代
+- **修复方向**：`true` → `1`（只信任一层）；同批更新过时锚点注释 app.module.ts:93/execution.gateway.ts:14
 
 ### TD-25 付费能力新队列静默继承全局 attempts:3
 
@@ -81,6 +82,12 @@
 - **来源**：文档治理工程执行期三次实证（第七轮复核归并立项）——①管道 `| tail` 掩 doc-gate exit 1（一次带红 commit 落地）；②verify && 链在 web flaky 段中断，api 下游真回归（managed-redis B6 断言过时）被"看起来是 flaky"吸收；③派生器自引用——README 经代码注释入 C1 源集后成为 C4 晋升首证（索引赋权威）；④canonical 文档静默二进制化——tech-debt.md 自身被写入单颗 NUL 字节（f5f8bbd7 引入、第八轮复核发现，NUL 实为吞噬了 `$?` 两字符），git diff 判 binary 对该文件永久失明而门禁报绿（全仓唯一含 NUL 文本文件）；⑤nightly e2e-collab 连红 4 晚无人消费——MinIO 容器分发 2025 全网下架（docker.io repo 404/bitnami tags 清零/quay 匿名不可拉/dl.min.io 410）致 CI 上 api 启动 ensureBucket 连不上退出（本地绿=本地有真 MinIO 掩盖；当日一度裁决跳过——**同日终裁 B′ 已修**：gate-collab.mjs 注入 MINIO_INIT=skip 显式场景裁剪〔minio.module.spec 断言双路径〕，生产不设 env 即真连失败 throw，fail-fast 原样）；specb 套件段（collab-global-setup→specb-gate-seed putObject 素材+公开页 e2e）真消费 MinIO 且无镜像源可替代——**C′ 终裁（同日）：nightly schedule 已摘**（e2e-collab 转 dispatch-only 回归入口，runner 上当下仍红属已知非新回归；发布门禁以本地 gate 人工跑为准——本地有真 MinIO）
 - **共性**：验证链里存在"看起来在验证、实际不验证"的环节——失败被掩成成功（①②）或成功被掩成失败（只读环境写副作用=EPERM 假红，第七轮 P0）；或验证对象自身已损坏而门禁无感（④：文档二进制化后"可读可 diff"前提被击穿），或文档红与环境红共用 exit 1 不可区分（第八轮复核者沙箱实证——修：三分契约）
 - **处置**：①门禁命令禁接管道（判绿用 `>file; echo $?`）；②flaky 必须隔离复跑并显式记录（admin 页家族先例）；③派生器源集排除索引/登记表（doc-gate CANONICAL_META 已修）；④查询模式只读+比较模式漂移红（--write-canonical 唯一写者，已修）；⑤语料含 NUL ⇒ 红（doc-gate [binary-corpus] 守卫）+退出码三分 0=PASS/1=违规/2=结构性环境错误（lint-gate.mjs:271 先例）；⑥仓内既有文件内容变更一律 edit/patch 语义，整文件覆写必须先产出 diff 审阅——禁 node -e/sed -i 类单行命令改仓内文件（①写入事故与④NUL 同根源：整文件覆写 I/O 单次跳过校验直接产生不可逆结果）；⑦跳过的已知红必须登记红锚（⑤ nightly——后人见红先查 TD 防误判新回归，修复方案待 api 启动逻辑可安全变更时重启）
+
+### TD-27 分支保护付费墙（纪律代强制的防线缺口）
+
+- **来源**：CI 收口步骤 2（2026-10-05 用户终裁）——GitHub required checks 需 Pro 或公仓库（API 原文 "Upgrade to GitHub Pro or make this repository public to enable this feature"），维持现状
+- **现状**：四道防线全为纪律性、无机器强制（可直接 push master 跳过）：①push master 自动跑 CI（test+doc-gate 双绿基线 97bd5dd2）②doc-gate 阻塞态挂 verify 链首 ③推送前本地全量 verify 纪律 ④TD-26 纪律族在档
+- **修复方向**：多人协作/对外交付时升 GitHub Pro → 一行 API 启用 required checks（届时空 PR 验证+Require PR 再开四步序，续跑路径见 doc-governance plan 完成记录表 CI 三族收口段）
 
 ## 集中修复建议批次
 
