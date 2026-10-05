@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
 # CSS 基础层根因修复 + 浅色/深色主题切换 设计文档（spec）
 
 - 日期：2026-09-18　|　版本：v1.9（吸收实施期实证订正，修订记录见 §10）

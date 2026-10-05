@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
 # Collab E2E 发布门禁清单（批 7 文件化——CI 缺位期/发布前手动 gate）
 
 > 用途：双客户端 E2E（`apps/web/e2e/collab-recovery.e2e.spec.ts`）对应的 8 链路发布 gate 清单。

@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
 # docs 权威链与文档状态机（入口面）
 
 > 本文件是 docs 语料的权威链入口（spec `docs/superpowers/specs/2026-10-05-doc-governance-closure-design.md` §5.1）。

@@ -1,4 +1,4 @@
-<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-05 | verified_at_commit: 95f32cb9 -->
+<!-- doc-status: canonical | anchors: - | superseded_by: - | verified_at: 2026-10-06 | verified_at_commit: 4af57719 -->
 # CSS 基础层根因修复 + 浅色/深色主题切换 实施计划（plan）
 
 - 日期：2026-09-18　|　版本：v1.3（吸收第十轮三份复核；关键实证：**hex+斜杠正常**（`rgb(74 222 128 / 0.5)`，"丢 alpha"复核实为误测）/ **divide 线现状全站不可见**（宽度在子元素+UA style:none，preflight 开后涌现）/ 涌现裁定维度拆列（裸 border ~324 逐处裁定 vs 带色 ~238 几乎全保留）/ ring 5 处 ≥4 跟随域 / login 岛根无 border 声明（岛根 computed 断言取代探针注入）/ --ve-border 间接链 index.css:31）
