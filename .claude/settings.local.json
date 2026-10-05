@@ -35,7 +35,12 @@
       "Bash(python -c ' *)",
       "Bash(rm reg-tmp.json)",
       "Bash(curl -sS --proxy http://127.0.0.1:7890 -o /tmp_q.json -w \"%{http_code}\\\\n\" \"https://quay.io/api/v1/repository/minio/minio/tag/?limit=5&onlyActiveTags=true\")",
-      "Bash(cat /tmp_q.json)"
+      "Bash(cat /tmp_q.json)",
+      "Bash(cp apps/api/.env backups/v4.0/config-files/api.env)",
+      "Bash(cp .claude/launch.json .claude/settings.local.json backups/v4.0/config-files/claude/)",
+      "Bash(cp -r .superpowers/* backups/v4.0/config-files/superpowers/)",
+      "Bash(cp services/redis/*.conf backups/v4.0/config-files/services/redis/)",
+      "Bash(cp .gitignore package.json turbo.json tsconfig.base.json pnpm-workspace.yaml pnpm-lock.yaml backups/v4.0/config-files/)"
     ],
     "deny": [],
     "defaultMode": "bypassPermissions"
