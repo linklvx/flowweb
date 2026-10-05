@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Wechatpay, Aes } from 'wechatpay-axios-plugin';
 import type { IPaymentProvider, CreatePaymentResult, NotifyResult } from './payment.provider.interface';
+import { formatBeijingRfc3339 } from '../../../common/utils/beijing-time';
 
 @Injectable()
 export class WechatPaymentProvider implements IPaymentProvider {
@@ -40,14 +41,10 @@ export class WechatPaymentProvider implements IPaymentProvider {
     return key.replace(/\\n/g, '\n');
   }
 
+  /** 微信 v3 time_expire 契约（RFC3339 +08:00）——委托 beijing-time util
+   *  （时区族修复三处合一：原本地时区方法在 UTC runner 上错位，CI 实证）。 */
   static formatTimeExpire(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    const ss = String(date.getSeconds()).padStart(2, '0');
-    return `${y}-${m}-${d}T${hh}:${mm}:${ss}+08:00`;
+    return formatBeijingRfc3339(date);
   }
 
   async createPayment(order: {

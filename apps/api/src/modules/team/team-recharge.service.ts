@@ -1,4 +1,5 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
+import { formatBeijingRfc3339 } from '../../common/utils/beijing-time';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,10 +18,6 @@ export function generateTeamOrderNo(): string {
   return `TEAM${ts}${random}`;
 }
 
-function formatTimeExpire(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
-}
 
 @Injectable()
 export class TeamRechargeService {
@@ -83,7 +80,7 @@ export class TeamRechargeService {
       userId: payerUserId,
       description: `Flow123 团队积分充值 - ${order.amountFen / 100}元`,
       notifyUrl: process.env.WECHAT_PAY_NOTIFY_URL || `${process.env.CORS_ORIGIN}/api/recharge/notify/wechat`,
-      timeExpire: formatTimeExpire(new Date(order.createdAt.getTime() + 2 * 60 * 60 * 1000)),
+      timeExpire: formatBeijingRfc3339(new Date(order.createdAt.getTime() + 2 * 60 * 60 * 1000)),
     });
 
     await this.prisma.teamRechargeOrder.updateMany({

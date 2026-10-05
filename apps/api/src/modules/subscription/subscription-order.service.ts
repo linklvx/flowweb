@@ -8,6 +8,7 @@ import { PricingService } from './pricing.service';
 import { MetricsService } from '../../metrics/metrics.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { generateOrderNo } from '../../common/utils/order-no';
+import { formatBeijingRfc3339 } from '../../common/utils/beijing-time';
 import { QUEUE_NAMES } from '../../config/queue.constants';
 
 const TIER_ORDER: Record<string, number> = { basic: 0, pro: 1, max: 2, ultra: 3 };
@@ -233,7 +234,7 @@ export class SubscriptionOrderService {
         userId: order.userId,
         description: '会员订阅',
         notifyUrl: process.env.WECHAT_PAY_NOTIFY_URL || `${process.env.CORS_ORIGIN}/api/recharge/notify/wechat`,
-        timeExpire: formatTimeExpire(new Date(Date.now() + 2 * 60 * 60 * 1000)),
+        timeExpire: formatBeijingRfc3339(new Date(Date.now() + 2 * 60 * 60 * 1000)),
       });
 
       await this.prisma.subscriptionOrder.update({
@@ -389,12 +390,3 @@ export class SubscriptionOrderService {
   }
 }
 
-function formatTimeExpire(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mm = String(date.getMinutes()).padStart(2, '0');
-  const ss = String(date.getSeconds()).padStart(2, '0');
-  return `${y}-${m}-${d}T${hh}:${mm}:${ss}+08:00`;
-}
