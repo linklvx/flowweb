@@ -6,6 +6,8 @@
 #                         前置依赖：远端需先跑过一次 full 部署（workspace 结构/pnpm install/prisma/scripts 在位）
 #
 # 注意：deploy.sh 不会覆盖服务器上的 .env 文件，环境变量需在服务器上手动管理。
+# 发布门禁（0 号动作 E69①）：full/api 模式部署前本地跑 pnpm verify + gate-collab，
+# 远端 prisma generate 后跑 migrate deploy（幂等），任一失败即中止（set -e）。
 
 SERVER="ubuntu@101.42.94.107"
 KEY="$HOME/.ssh/flowweb_server"
@@ -13,6 +15,16 @@ REMOTE_DIR="/home/ubuntu/flowweb"
 MODE="${1:-full}"
 
 set -e
+
+# 发布前置：verify（doc-gate+verify-indexes+全量 typecheck/test/lint）+ collab e2e gate。
+# 需本地基础设施在位（PG/Redis/MinIO——gate 自拉 API + playwright）。
+preflight() {
+  echo "=== 发布前置：pnpm verify ==="
+  cd "$(dirname "$0")" && pnpm verify
+
+  echo "=== 发布前置：gate-collab ==="
+  node scripts/gate-collab.mjs
+}
 
 deploy_full() {
   echo "=== 上传源码 ==="
@@ -29,6 +41,9 @@ deploy_full() {
 
   echo "=== 生成 Prisma Client ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx prisma generate"
+
+  echo "=== 应用数据库迁移（幂等） ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx prisma migrate deploy"
 
   echo "=== 构建 shared ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/packages/shared && rm -rf dist && npx tsc -p tsconfig.build.json && node ../../scripts/check-shared-dist.mjs --write"
@@ -68,6 +83,9 @@ deploy_api() {
   echo "=== 生成 Prisma Client ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx prisma generate"
 
+  echo "=== 应用数据库迁移（幂等） ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && npx prisma migrate deploy"
+
   echo "=== 构建 shared 与后端（与 deploy_full 同一条命令） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/packages/shared && rm -rf dist && npx tsc -p tsconfig.build.json && node ../../scripts/check-shared-dist.mjs --write"
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && rm -rf dist && npx nest build"
@@ -78,9 +96,9 @@ deploy_api() {
 }
 
 case "$MODE" in
-  full) deploy_full ;;
+  full) preflight; deploy_full ;;
   web)  deploy_web ;;
-  api)  deploy_api ;;
+  api)  preflight; deploy_api ;;
   *)
     echo "用法: ./deploy.sh [full|web|api]"
     exit 1

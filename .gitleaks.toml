@@ -1,0 +1,48 @@
+# gitleaks 配置——防未来回归门禁（0 号动作 E41：判定标准=零新增命中）
+# 豁免基线=2026-10-06 全量扫描（2199 commits，602 命中）中已裁定公开无妨的存量：
+#   - E41 用户裁定：源码 sk- 密钥均为测试临时密钥，仓库转公有后暴露不构成泄密
+#   - backups/：E41 裁定恢复点保留不动（当前零跟踪，命中均为历史 commit，不增长）
+#   - gate seed / e2e 固定密码：本地与 CI 测试账号凭证
+#   - 微信支付：测试商户（商户号 1234567890）私钥 / mock PEM / 文档示例
+#   - 腾讯云 SMS SecretId/Key：按真实处理（2026-10-06 裁定轮换，值已暴露于公开
+#     历史，豁免不扩大暴露面；轮换确认后此注释更新，豁免保留作死值）
+# 新增密钥必须显式登记到此文件，否则 CI/pre-commit 红。
+title = "flowweb gitleaks"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "历史备份目录（零跟踪，纯历史命中）"
+paths = ['''^backups/''']
+
+[[allowlists]]
+description = "手动副本目录（零跟踪，纯历史命中）"
+paths = ['''^docs/superpowers - 副本/''']
+
+[[allowlists]]
+description = "已删除文件（纯历史命中）"
+paths = ['''^apps/web/src/pages/admin/components/SettingsTab\.tsx$''']
+
+[[allowlists]]
+description = "微信支付测试域（测试商户私钥/mock PEM/文档示例）"
+paths = [
+  '''^scripts/seed-wechat-pay\.js$''',
+  '''^apps/api/src/modules/recharge/providers/wechat-payment\.provider\.spec\.ts$''',
+  '''^docs/superpowers/specs/wechat-pay-integration\.md$''',
+]
+
+[[allowlists]]
+description = "E41 测试密钥+测试固定密码（值级豁免：同文件未来真密钥仍会红；勿加 ^$ 锚定——Secret 字段可能带尾随换行，锚定后豁免失效已实证）"
+regexTarget = "secret"
+regexes = [
+  '''sk-3spY8oRUCrMphKWPwS8I8jKxTGH9LyCaDrxfhucZFpi02y2''',
+  '''sk-ExGrYNI3bpflDLRMq3oZWBiJ1LXo8jfiFWoFL4xuxb9FvW4''',
+  '''sk-ODTW9ypl2G5G4xcFNR6IJCbr2ZRY07mPEZuNvySYzotpwlF''',
+  '''tuFbi4cYKyNC2D106IT9fsK3Xybue3wP''',
+  '''collab12345678''',
+  '''gate12345678''',
+  '''DevTest123456''',
+  '''AKIDQm047NQHwOiqnZAYlkXBd5Xpuy42ta9d''',
+  '''MYYMzPceeWDl6NTQQKA963qhMp57zgAR''',
+]

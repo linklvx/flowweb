@@ -63,6 +63,22 @@ jobs:
         with: { node-version: 22 }
       - run: node scripts/doc-gate.mjs
 
+  # 0 号动作 E41：密钥防回归门禁（判定标准=零新增命中，非吊销已知密钥——2026-10-06
+  # 用户裁定源码存量均为测试密钥公开无妨）。全历史扫描+仓根 .gitleaks.toml 豁免存量；
+  # 本地等价：gitleaks detect --source .；pre-commit 侧 protect --staged（scripts/hooks/）。
+  # 故意变红证据（D13）：高熵假密钥 sk-9fQ2…入暂存区 → protect --staged exit 1（2026-10-06）。
+  # gitleaks 版本 pin 8.30.1（与本地验证同版本，配置即契约）。
+  gitleaks:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar xz -C /usr/local/bin gitleaks
+          gitleaks detect --source . --config .gitleaks.toml --redact -v
+
   # 批7 双客户端 E2E 发布门禁（spec v5.10 目标 8 链路）：nightly schedule + workflow_dispatch，
   # PR 不跑；步骤=gate 脚本单一真相源（预检→自拉 API(COLLAB_FAKE_AI=1)→playwright collab-recovery→清理）。
   # 本地等价：node scripts/gate-collab.mjs。手动清单：docs/superpowers/plans/collab-e2e-gate-checklist.md

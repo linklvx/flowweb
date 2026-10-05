@@ -1,0 +1,10 @@
+#!/bin/sh
+# gitleaks 暂存区门禁（0 号动作 E41：零新增命中标准）。
+# 启用（克隆后一次性）：git config core.hooksPath scripts/hooks
+# 依赖本地 gitleaks：winget install Gitleaks.gitleaks（Windows）/ brew install gitleaks（macOS）。
+# 豁免清单与判定口径单一真相源=仓根 .gitleaks.toml；CI 侧同配置（ci.yml gitleaks job）。
+command -v gitleaks >/dev/null 2>&1 || {
+  echo "pre-commit: gitleaks 未安装——安装后重试（winget install Gitleaks.gitleaks）"
+  exit 1
+}
+gitleaks protect --staged --config "$(git rev-parse --show-toplevel)/.gitleaks.toml" --redact -v
