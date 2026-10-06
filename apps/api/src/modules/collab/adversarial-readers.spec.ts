@@ -31,18 +31,23 @@ describe('api 读者全函数（E68 读侧铁律：任意语料要么产出结�
   // E68 断言适配注记（实证）：yjs 写侧只收 JSON 值——Map/类实例值（语料 data 内嵌 FakeMap）
   // ⇒ Y.Map.set 抛 typed Error "Unexpected content type"（undefined 可往返、plain JSON 可写）。
   // typed Error=E68 允许的拒绝档（产出∨typed 拒绝，绝不崩）——按铁律原义断言而非 not.toThrow。
+  // try 范围只包 fillDoc 写侧：读侧断言放 catch 后（防 AssertionError 被 catch 吞=假绿，且
+  // 读侧自身崩溃不得与写侧 typed 拒绝混淆）。
   it.each(cases.map((c) => [c.name]))('%s：真 Y.Doc 路径（fillDoc→toDocLike 读写双侧适配）——产出或 typed 拒绝', (name) => {
     const doc = new Y.Doc();
+    const r = readRecordsFromMaps(byName(name).build());
+    let wrote = false;
     try {
       // 写侧同样走 toDocLike（Y.Doc 无 createMap——裸传 fillDoc 会 throw 被 catch 吞=断言真空）
-      const r = readRecordsFromMaps(byName(name).build());
       fillDoc(toDocLike(doc), r.nodes, r.edges);
-      const out = readRecordsFromMaps(toDocLike(doc));
-      expect(Array.isArray(out.nodes)).toBe(true);
-      expect(Array.isArray(out.edges)).toBe(true);
+      wrote = true;
     } catch (e) {
       expect(e).toBeInstanceOf(Error); // typed 拒绝合法档；非 Error 崩溃在此失败
     }
+    const out = readRecordsFromMaps(toDocLike(doc));
+    expect(Array.isArray(out.nodes)).toBe(true);
+    expect(Array.isArray(out.edges)).toBe(true);
+    if (wrote && r.nodes.length > 0) expect(out.nodes.length).toBeGreaterThan(0);   // 成功支非空转（输入有节点则往返后仍在——scalar-node 输入空集除外）
   });
 
   it('ensureSchemaVersion：要么放行要么抛 typed Error（畸形 meta 不崩进程）', () => {
