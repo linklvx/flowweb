@@ -142,3 +142,72 @@ maybe('loadForHydration（真 PG）', () => {
     }
   });
 });
+
+maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如实声明）', () => {
+  // 自包含作用域：既有 describe 的 prisma/repo 声明在其内部（非文件顶部），提升须搬动已绿用例的
+  // beforeAll/afterAll——取最小 diff 备选：本 describe 自持实例+自清理，零改动既有代码
+  const prisma = new PrismaClient();
+  const repo = new CanvasDocUpdateRepository(prisma as any);
+
+  beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
+  afterAll(async () => { await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+
+  async function reset() {
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+  }
+
+  it('RR 事务装载中途并发 compact 提交：事务内行集不变（MVCC 快照一致性——v3 确定序：compact 提交后才放行行读）', async () => {
+    await reset();
+    const base = new Y.Doc(); base.getMap('nodes').set('s', new Y.Map([['x', 0]]));
+    await repo.append(PID, Y.encodeStateAsUpdate(base));
+    await repo.compact(PID);
+    for (let i = 0; i < 3; i++) {
+      const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(base));
+      d.getMap('nodes').set(`c${i}`, new Y.Map([['x', i]]));
+      await repo.append(PID, Y.encodeStateAsUpdate(d));
+    }
+    let started = false;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));   // 无时间兜底——挂死由 vitest 超时兜底=真红
+    const loading = prisma.$transaction(
+      async (tx) => {
+        const snap = await tx.canvasDoc.findUnique({ where: { projectId: PID } });
+        started = true;                                      // 首语句即建 RR 快照
+        await gate;
+        const rows = await tx.$queryRaw<{ update: Buffer }[]>`
+          SELECT update FROM "CanvasDocUpdate" WHERE "projectId" = ${PID} ORDER BY seq ASC`;
+        return { snap, rows };
+      },
+      { isolationLevel: 'RepeatableRead', timeout: 8_000, maxWait: 2_000 },
+    );
+    loading.catch(() => {});   // race 兜底：异常退出路径下 loading 的迟到拒绝不成为 unhandled
+    const t0 = Date.now();
+    while (!started && Date.now() - t0 < 2_000) await new Promise((r) => setTimeout(r, 20));
+    if (!started) throw new Error('loading transaction did not take snapshot');
+    try {
+      await repo.compact(PID);   // 先提交（装载事务只持快照不持锁——advisory lock 无竞争，不被阻塞）
+    } finally {
+      release();                 // 提交后放行：rows 读确定发生在 compact 提交之后
+    }
+    const { snap, rows } = await loading;
+    expect(snap).not.toBeNull();
+    expect(rows.length).toBe(3);   // 已提交 DELETE 对 RR 快照不可见——装载不缺行
+    // 反证注释（结构锚红相演示，勿写成会跑的断言）：若装载拆成两条独立语句且 compact 先提交，
+    // 此处 rows=0 → 装载撕裂（对破坏后实现红）
+  });
+
+  it('装载进行中直调 compact：装载结果完整（可达性固化——锚 A4 回归防线，防未来 fire-and-forget）', async () => {
+    await reset();
+    const d = new Y.Doc(); d.getMap('nodes').set('z', new Y.Map([['x', 0]]));
+    await repo.append(PID, Y.encodeStateAsUpdate(d));
+    const [loaded] = await Promise.all([
+      repo.loadForHydration(PID),
+      (async () => { await new Promise((r) => setTimeout(r, 10)); await repo.compact(PID); })(),
+    ]);
+    const revived = new Y.Doc();
+    if (loaded.state) Y.applyUpdate(revived, new Uint8Array(loaded.state));
+    for (const u of loaded.updates) Y.applyUpdate(revived, new Uint8Array(u));
+    expect(revived.getMap('nodes').has('z')).toBe(true);
+  });
+});
