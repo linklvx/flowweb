@@ -35,7 +35,7 @@ describe('A8 store 跳过判据（公开导出，禁手写等价物）', () => {
 });
 
 describe('A1/A5/A6（独立最小 Server——库直挂钩子）', () => {
-  it('A1+A5：store 钩子抛错→doc 留内存且库不再自动重试（debounce 不重武装）', async () => {
+  it('A5：store 钩子抛错→库不再自动重试（失败不重武装 debounce——gateway 自管退避是唯一重试源；"doc 留内存"仅 WS 断连面成立，A9 注释有分立实证）', async () => {
     let calls = 0;
     const server = new Server({
       port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
@@ -96,6 +96,7 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
       await pollUntil(() => !debouncer.isDebounced(debounceId) && !debouncer.isCurrentlyExecuting(debounceId), 5_000);
       expect(appendFail.mock.calls.length).toBeGreaterThanOrEqual(1);   // store 确已失败过（防"未触发即断开"的通过无意义竞态）
       await provider.destroy();
+      kit.forget(provider);   // 自管 destroy 后移出 dispose 数组——防双 destroy（flaky 源，惯例同 gateway.spec:262）
       await pollUntil(() => !kit.gateway.server.hocuspocus.documents.has(name), 8_000);   // A2 四条件不含"store 成功"
       expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(false);
     } finally {

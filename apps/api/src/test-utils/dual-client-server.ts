@@ -23,6 +23,8 @@ export interface DualClientKit {
   emitter: EventEmitter2;
   permSvc: { resolve: ReturnType<typeof vi.fn> };
   connect(name: string, token?: string): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
+  /** 用例自管 destroy 后调——从 dispose 清理数组移除（双 destroy 是本仓已知 flaky 源，惯例同 collab.gateway.spec.ts:262） */
+  forget(provider: HocuspocusProvider): void;
   dispose: () => Promise<void>;
 }
 
@@ -54,6 +56,10 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
       providers.push(provider);
       const synced = new Promise<void>((resolve) => provider.on('synced', () => resolve()));
       return { ydoc, provider, synced };
+    },
+    forget(provider: HocuspocusProvider) {
+      const i = providers.indexOf(provider);
+      if (i >= 0) providers.splice(i, 1);
     },
     async dispose() {
       for (const p of providers.splice(0)) await p.destroy();
