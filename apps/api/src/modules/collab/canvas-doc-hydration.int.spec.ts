@@ -185,11 +185,13 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
     const t0 = Date.now();
     while (!started && Date.now() - t0 < 2_000) await new Promise((r) => setTimeout(r, 20));
     if (!started) throw new Error('loading transaction did not take snapshot');
+    let compacted!: { compacted: boolean };
     try {
-      await repo.compact(PID);   // 先提交（装载事务只持快照不持锁——advisory lock 无竞争，不被阻塞）
+      compacted = await repo.compact(PID);   // 先提交（装载事务只持快照不持锁——advisory lock 无竞争，不被阻塞）
     } finally {
       release();                 // 提交后放行：rows 读确定发生在 compact 提交之后
     }
+    expect(compacted.compacted).toBe(true);   // 前提锚：compact 未提交 DELETE 则 rows===3 属平凡通过——锚失效
     const { snap, rows } = await loading;
     expect(snap).not.toBeNull();
     expect(rows.length).toBe(3);   // 已提交 DELETE 对 RR 快照不可见——装载不缺行
