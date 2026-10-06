@@ -304,13 +304,22 @@ export class CollabSpoolService {
         off += FRAME_HEADER_BYTES + len;
       }
       if (off >= buf.byteLength) continue;                     // 干净段
-      meta.quarantinedRange = { fromOffset: off };             // 区间事实：坏帧起始偏移→EOF
+      // I1（质量审查 Important 1）：sidecar 先落盘后记账——写失败即异常上抛且 meta 三字段未动
+      // （quarantinedRange 仍 null）：段保留、坏尾字节保留、下次调用重算 offset 重试（保守正确）。
+      // 反序（先记账后落盘）在 ENOSPC 下内存已隔离而证据无持久记录→后续 confirm 判 tailSettled
+      // 整段 unlink=取证事实销毁。close 失败不掩盖 write/sync 原因（吞掉——close 无增量信息）。
+      const line = JSON.stringify({ segSeq: parsed.segSeq, quarantinedFromOffset: off, toOffset: buf.byteLength, reason: 'truncated-or-crc', firstSeenAt: new Date().toISOString() }) + '\n';
+      const sc = await open(join(this.dir, `${f}.quarantine`), 'a');
+      try {
+        await sc.writeFile(line);
+        await sc.sync();
+      } finally {
+        await sc.close().catch(() => {});
+      }
+      meta.quarantinedRange = { fromOffset: off };             // 区间事实：坏帧起始偏移→EOF（sidecar 落盘成功后才记）
       meta.sealed = true;                                      // V2：含坏尾的段封禁（永不再追加）
       meta.quarantinedBytes = buf.byteLength - off;
       newQuarantined += 1;
-      const line = JSON.stringify({ segSeq: parsed.segSeq, quarantinedFromOffset: off, toOffset: buf.byteLength, reason: 'truncated-or-crc', firstSeenAt: new Date().toISOString() }) + '\n';
-      const sc = await open(join(this.dir, `${f}.quarantine`), 'a');
-      try { await sc.writeFile(line); await sc.sync(); } finally { await sc.close(); }
     }
     if (newQuarantined > 0) yjsSpoolQuarantinedTotal.inc(newQuarantined);
     return newQuarantined;
@@ -372,6 +381,7 @@ export class CollabSpoolService {
     const maxAttempts = opts?.maxAttempts ?? CollabSpoolService.REPLAY_MAX_ATTEMPTS;
     let replayed = 0, failed = 0, discarded = 0;
     for (const projectId of opts?.projectIds ?? this.keys()) {
+      if (Date.now() > deadline) return { replayed, failed, discarded };   // I2：项目间守预算（PG 挂起下逐项目挂起 append 串行累加=稀释 5s 总预算）
       for (;;) {                                                 // X8：分轮合并（每轮 ≤8 帧且 ≤4MB）
         const frames = (await this.peek(projectId)).slice(0, CollabSpoolService.REPLAY_MERGE_MAX_FRAMES);
         if (frames.length === 0) break;

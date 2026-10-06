@@ -7,7 +7,7 @@
 // confirm 一帧（段保留）——confirmed 集在内存、崩溃即丢，重启后含已 confirm 帧在内全部帧重新
 // 可见，正是「幂等降级」要验证的完整语义（service 头注释同款表述）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import * as Y from 'yjs';
@@ -156,6 +156,21 @@ describe('spool quarantine sidecar（v2.4：标记不搬字节——追加-only 
     const d = s2.depth();
     expect(d.quarantinedBytes).toBe(520);                             // 1552-1032=520（v1 的 -8 off-by-8 必红）
     expect(d.bytes).toBe(1552);                                       // V14：容量核算=总字节（含隔离）
+  });
+
+  it('sidecar 写失败→异常上抛且 meta 未动（quarantinedRange 仍 null）——段与坏尾证据保留可重试（ENOSPC 同型：先记账后落盘=证据销毁必红）', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));                          // 好帧 0:0（9B）
+    const bad = Buffer.alloc(8 + 2);                                    // 坏尾（CRC 错）
+    bad.writeUInt32LE(2, 0); bad.writeUInt32LE(0xdeadbeef, 4); bad[8] = 1; bad[9] = 2;
+    await writeFile(join(dir, 'p1.0.spool'), Buffer.concat([await readFile(join(dir, 'p1.0.spool')), bad]));
+    const s2 = svc(); await s2.scan();
+    await mkdir(join(dir, 'p1.0.spool.quarantine'));                    // 目录占位 sidecar 路径→open('a') throw（同幻影 meta 用例 EISDIR 形态）
+    await expect(s2.quarantineTruncatedFrames('p1')).rejects.toBeInstanceOf(Error);
+    expect((s2 as any).index.get('p1').get(0).quarantinedRange).toBeNull();   // 白盒：sidecar 未落盘则 meta 三字段不改（现状先改 meta 必红）
+    await rm(join(dir, 'p1.0.spool.quarantine'), { recursive: true });   // 清占位目录（重试路径——重算 offset 保守正确）
+    expect(await s2.quarantineTruncatedFrames('p1')).toBe(1);            // 重试成功（现状 meta 已改→重试跳段返回 0 同红）
+    expect(await readFile(join(dir, 'p1.0.spool.quarantine'), 'utf8')).toContain('"quarantinedFromOffset":9');
   });
 });
 
