@@ -10,12 +10,6 @@ export class CanvasDocUpdateRepository {
   // 显式 @Inject：vitest esbuild 不生成设计时类型元数据（同 collab-document.service 模式）
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  /** 全局 Postgres SEQUENCE 取号：多实例并发下全局单调（spec 2.1） */
-  async nextSeq(): Promise<bigint> {
-    const rows = await this.prisma.$queryRaw<{ seq: bigint }[]>`SELECT nextval('canvas_doc_update_seq') AS seq`;
-    return rows[0].seq;
-  }
-
   /** Y0a-1：单语句原子 append（取号+插入同一语句——消灭两语句间进程死窗口）。
    *  返回契约（spec v2.4 §1.2/契约 15）：AppendResult 判别类型——fenced=0 行**不抛异常**，调用方
    *  禁以"未抛错"判成功；本批无租约断言恒 {ok:true}（WHERE owner+TTL 断言 Y0a-3 追加，届时 0 行
