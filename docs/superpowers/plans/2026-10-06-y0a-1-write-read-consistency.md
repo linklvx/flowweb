@@ -858,7 +858,7 @@ git add apps/api/src/modules/collab apps/api/src/test-utils/mock-repo.ts && git 
 **Files:**
 - Test: `apps/api/src/modules/collab/canvas-doc-hydration.int.spec.ts`（追加 describe）
 
-- [ ] **Step 1: 追加隔离性质用例（gate 用 try/finally+race 兜底）**
+- [x] **Step 1: 追加隔离性质用例（gate 用 try/finally+race 兜底）**（裁定偏差：作用域取自包含 describe（既有 describe 的 prisma/repo 在其内部非文件顶部——提升须搬动已绿用例生命周期，最小 diff 取自持实例）；`$queryRaw<{update:Buffer}[]>` 修正 plan 片段的 Buffer[] 类型误）
 
 ```typescript
 maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如实声明）', () => {
@@ -918,7 +918,7 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
 
 （`prisma/repo/PID` 已在文件顶部作用域——Task 4 Step 2 的 describe 变量提升共用；afterAll 清理仅一处。）
 
-- [ ] **Step 2: 跑绿+commit**
+- [x] **Step 2: 跑绿+commit**（commit `76840b5a`；9/9 文件+20 文件/145 全量绿；审查 Minor 1 加固后续 commit `dfef4dfc`——MVCC 锚加 compacted 前提断言防平凡通过；审查注记：用例 2 为性质金丝雀非确定性撕裂红机——确定性角色专属用例 1 的 gate 定序）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-hydration.int.spec.ts
