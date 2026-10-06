@@ -107,4 +107,38 @@ maybe('loadForHydration（真 PG）', () => {
       compactSpy.mockRestore();
     }
   });
+
+  it('分类终判锚：code 存在（P2024）即使 message 含 timeout 字样也不自愈（防 Prisma 措辞漂移把池饥饿拉回自愈集——对 message 回退实现红）', async () => {
+    await reset();
+    const loadSpy = vi.spyOn(repo, 'loadForHydration')
+      .mockRejectedValueOnce(Object.assign(new Error('connection pool timeout'), { code: 'P2024' }));
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true });
+    try {
+      await expect(repo.hydrateWithRecovery(PID)).rejects.toMatchObject({ code: 'P2024' });
+      expect(compactSpy).not.toHaveBeenCalled();
+      expect(loadSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      loadSpy.mockRestore();
+      compactSpy.mockRestore();
+    }
+  });
+
+  it('message 回退正例：code 缺失但 message 含 timeout → 走自愈（回退仅对无 code 错误生效）', async () => {
+    await reset();
+    const d = new Y.Doc(); d.getMap('nodes').set('t', new Y.Map([['x', 1]]));
+    await repo.append(PID, Y.encodeStateAsUpdate(d));
+    await repo.compact(PID);
+    const loadSpy = vi.spyOn(repo, 'loadForHydration')
+      .mockRejectedValueOnce(new Error('statement timeout'));   // 无 code
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true });
+    try {
+      const { state } = await repo.hydrateWithRecovery(PID);
+      expect(state).not.toBeNull();
+      expect(compactSpy).toHaveBeenCalledTimes(1);
+      expect(loadSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      loadSpy.mockRestore();
+      compactSpy.mockRestore();
+    }
+  });
 });

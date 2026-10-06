@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { yjsCompactAbandonedTotal, yjsStoreCompactFailureTotal } from './store.metrics';
+import { yjsCompactAbandonedTotal, yjsHydrationHugeRowTotal, yjsStoreCompactFailureTotal } from './store.metrics';
 
 @Injectable()
 export class CanvasDocUpdateRepository {
@@ -55,6 +55,7 @@ export class CanvasDocUpdateRepository {
           for (const r of page) {
             if (r.update.length > 4 * 1024 * 1024) {
               // 单行巨帧：观测不拒绝（源头治理归 Y0b 配额批——已入库数据不该在装载侧 DoS 自己）
+              yjsHydrationHugeRowTotal.inc();
               this.logger.warn(`huge hydration row ${projectId} seq=${r.seq} bytes=${r.update.length}`);
             }
             updates.push(r.update);
@@ -80,7 +81,9 @@ export class CanvasDocUpdateRepository {
   private static readonly RETRYABLE_HYDRATION_CODES = new Set(['P2028', 'P1008']);   // v2.4：P2024 移出（池饥饿）
   private isRetryableHydrationError(e: unknown): boolean {
     const code = (e as { code?: string })?.code;
-    if (code != null && CanvasDocUpdateRepository.RETRYABLE_HYDRATION_CODES.has(code)) return true;
+    // code 存在即终判（不走 message 回退）：P2024 的排除不得依赖 Prisma 措辞——未来消息若改成
+    // "connection pool timeout" 字样，message 回退会把池饥饿重新拉进自愈集=饥饿期零成功率纯放大
+    if (code != null) return CanvasDocUpdateRepository.RETRYABLE_HYDRATION_CODES.has(code);
     return e instanceof Error && /timeout/i.test(e.message);
   }
 

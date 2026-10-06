@@ -568,6 +568,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 | `yjs_snapshot_read_total{reason}` | counter | 投影类快照读（readSnapshotOnly，v2.1 替 degraded_read） |
 | ~~`yjs_compact_sv_violation_total`~~ | — | **v2.2 删除**（inline 哨兵随探针证伪移除） |
 | `yjs_compact_abandoned_total` | counter | pendingStructs!=null 放弃本次——**P0 告警线**（v2.2 升格：compact 健康度唯一真实指标，连续命中即人工介入=collab-compact.mjs；本批无 Alertmanager，载体=启动自检外另加"计数>0 即 ERROR 结构化日志"） |
+| `yjs_hydration_huge_row_total` | counter | loadForHydration 读到单行 >4MB（Y0a-1 §1.4"WARN+计数"的计数载体——v2.4 执行时补入本表；硬拒归 Y0b 配额批） |
 | `yjs_spool_depth{files,bytes}` / `yjs_spool_write_failures_total` / `yjs_spool_truncated_total` / `yjs_spool_capacity_total` / `yjs_spool_quarantined_total` | gauge/counter | Y0a-2（quarantine 为 v2.1 新增） |
 | `yjs_stash_discarded_deleted_total` | counter | project.gone 终态拦截（Y0a-2） |
 | `yjs_store_tail_anomaly_total` | counter | afterStoreDocument 对账（Y0a-2） |

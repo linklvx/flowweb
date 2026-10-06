@@ -50,3 +50,10 @@ export const yjsCompactAbandonedTotal = new Counter({
   help: 'compact 写快照前 pendingStructs!=null 放弃本次的次数（放弃不开窗·下次 store 立即重试；连续命中=P0 人工介入信号）',
   registers: [register],
 });
+
+/** Y0a-1：装载单行 >4MB 观测计数（spec §1.4 WARN+计数——硬拒绝归 Y0b 配额批，本批只观测不 DoS 自己） */
+export const yjsHydrationHugeRowTotal = new Counter({
+  name: 'yjs_hydration_huge_row_total',
+  help: 'loadForHydration 读到单行 >4MB 的次数（观测不拒绝；源头治理归 Y0b 配额批）',
+  registers: [register],
+});
