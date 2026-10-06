@@ -81,8 +81,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly persistUnhealthy = new Set<string>();
   private readonly persistRetry = new Map<string, { rung: number; timer: ReturnType<typeof setTimeout> | null }>();
   private readonly persistStatusPushed = new WeakSet<object>();
-  /** retryPersist 内层 storeDocument 不再自排定时器（梯子推进只归 retryPersist——否则档位取值错档） */
-  private retryingPersist = false;
+  /** 审查 I-2：retryPersist 在飞标志改 per-documentName 集合——单布尔在 A 项目在飞窗（跨 saveMutex
+   *  等待+append 5s 事务上界）会误罩 B 项目（独立 saveMutex）的三处排程守卫（降级支 spool 失败/
+   *  spool 回退 catch/尾部守卫）→ B 批滞留无恢复路径。retryPersist 内层 storeDocument 仍不自排
+   *  定时器（梯子推进只归 retryPersist——否则档位取值错档）。 */
+  private readonly retryingPersistDocs = new Set<string>();
   /** Y0a-2（契约 14/P5）：in-flight 口径（projectId 键控——与队列归属同键）；维护对见 enterInFlight/leaveInFlight */
   private readonly inFlightProjects = new Set<string>();
   /** X6：熔断期退避梯暂停标志（probe 恢复经 onRecovered seam→rearmQueues 清除） */
@@ -342,9 +345,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // 不再上抛 Y2 兜底；本支在 append 尝试前，fenced 恒 false）
           this.logger.error(`spool append failed for ${projectId}, batch retained in queue: ${(e2 as Error).message}`);
           this.setPersistStatus(documentName, false);
-          // T3 残留收口：retryingPersist 在飞（doc 级重试通道）不自排——梯子推进只归 retryPersist catch
-          //（守卫为 I-1 两处同款；缺失只致档位节奏漂移，无数据风险）
-          if (!this.retryingPersist) this.schedulePersistRetry(documentName);
+          // T3 残留收口：retryingPersistDocs 在飞（doc 级重试通道）不自排——梯子推进只归 retryPersist catch
+          //（审查 I-2：per-doc 集合——A 项目在飞不误罩本项目；缺失只致档位节奏漂移，无数据风险）
+          if (!this.retryingPersistDocs.has(documentName)) this.schedulePersistRetry(documentName);
           return false;
         }
       }
@@ -420,15 +423,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // finally 形态会把 G-2a ii 档清零=自断言红）
           this.logger.error(`spool append failed for ${projectId}, batch retained in queue: ${(e2 as Error).message}`);
           this.setPersistStatus(documentName, false);
-          // I-1：retryingPersist 在飞（doc 级重试通道）不自排——梯子推进只归 retryPersist catch
-          //（此处自排会取错档位+与 catch 重排叠加；守卫为 BASE 先例形态，Task 3 重写时丢失，恢复）
-          if (!fenced && !this.retryingPersist) this.schedulePersistRetry(documentName);
+          // 审查 I-2：retryingPersistDocs 在飞（doc 级重试通道）不自排——梯子推进只归 retryPersist catch
+          //（per-doc 集合：A 项目在飞不误罩本项目；此处自排会取错档位+与 catch 重排叠加——守卫为 BASE 先例形态）
+          if (!fenced && !this.retryingPersistDocs.has(documentName)) this.schedulePersistRetry(documentName);
           return false;                                            // 任何路径不 throw（契约 3）——熔断计数在 spool 内
         }
       }
       if (queue.length === 0) this.leaveInFlight(projectId);       // 队列空=批全在 spool（fsync 已完成=契约 14 落定点；帧后续落 PG 归回灌——非 at-risk，J4 注）
       this.setPersistStatus(documentName, false);
-      if (!fenced && !this.retryingPersist) this.schedulePersistRetry(documentName);        // fenced=终态禁退避梯；I-1：retryingPersist 在飞不自排（档位推进归 retryPersist catch）
+      if (!fenced && !this.retryingPersistDocs.has(documentName)) this.schedulePersistRetry(documentName);        // fenced=终态禁退避梯；审查 I-2：per-doc 在飞不自排（A 项目在飞不误罩本项目；档位推进归 retryPersist catch）
       return false;                                                // 任何路径不 throw（契约 3）
     } catch (err) {   // Y2 兜底：意外异常（Y.mergeUpdates 炸/IO 逃逸等）——leave 防漂移+ERROR 留痕；正常失败路径（上文 return false）不经此
       this.leaveInFlight(projectId);
@@ -596,7 +599,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     const document = this.server.hocuspocus.documents.get(documentName);
     try {
       if (document && (this.pendingQueues.get(this.docProject.get(document) ?? '')?.length ?? 0) > 0) {
-        this.retryingPersist = true;
+        this.retryingPersistDocs.add(documentName);   // 审查 I-2：per-doc 在飞标志（旧单布尔跨项目误罩）
         try {
           // I-1：消费布尔返回——false=批滞留队列/spool，必须 throw 进 catch（rung 推进+退避重排+
           // 电平维持 unhealthy）。旧实现忽略 false → 尾部无条件 cancel+setPersistStatus(true)：
@@ -604,7 +607,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           const ok = await this.storeDocumentSerialized({ document, documentName });   // doc 级：doc 仍被观察且队列非空（A14——saveMutex 串行）
           if (!ok) throw new Error('persist retry failed（批保留——退避梯续排）');
         } finally {
-          this.retryingPersist = false;
+          this.retryingPersistDocs.delete(documentName);
         }
       } else {
         // X5：detached 态（doc 不活/队列空）双通道——先看 gateway 队列（V4 后 doc 卸载队列仍在），
@@ -689,10 +692,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 启动自检（spec §5.2 口径——ERROR 结构化日志；Y0a-3 起随 ready.spoolQuarantined 可见）
       this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', quarantined, replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded, truncatedSegments }));
     }
+    // 审查 I-1（X5 必修漏落）：回灌失败残帧必须落梯——onRecovered seam 只在 ioBroken 翻转时回调，
+    // spool 健康时永不触发；缺此行则回灌失败项目零恢复路径（yjs_spool_depth_* 永不清零，
+    // R1「回灌失败项目经退避梯运行期自愈」破约）。listen 前调用=先备恢复路径后受理。
+    // 幂等安全：schedulePersistRetry 对已有 timer return。
+    this.rearmQueues();
+    // 审查 M-1：validateDir 的启动调用点（V15——生产相对路径拒绝构造时不判；缺此调用=V15 fail-fast 死代码）
+    this.logger.log(JSON.stringify({ event: 'spool_dir', dir: this.spool.validateDir() }));
     await this.server.listen();   // Y0a-1 P1-1：await listen——onModuleInit 返回即端口就绪（消端口竞态）
     this.startSessionSweep();   // 批3-4：过期 session 连接清扫（灰度默认关——tick 内自检开关）
-    // Y10 seam：spool IO 熔断恢复→统一唤醒退避梯+清 inFlight（启动回灌接线归 Task 4——本批仅 seam 注入；
-    // 幂等安全：schedulePersistRetry 对已有 timer return）
+    // Y10 seam：spool IO 熔断恢复→统一唤醒退避梯+清 inFlight（运行期恢复缝——启动回灌失败的排程由上方
+    // rearmQueues 直调承接，seam 只管运行期 ioBroken 翻转；幂等安全：schedulePersistRetry 对已有 timer return）
     this.spool.onRecovered = () => this.rearmQueues();
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {

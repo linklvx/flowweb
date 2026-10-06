@@ -74,7 +74,7 @@ export function unregisterPendingCollector(): void { pendingCollector = null; } 
  *  X11/X17：depth 双 gauge 改 collect 形态（经 pendingCollector 现算——scrape 崩=整个 /api/metrics 500，故 collect 体 try/catch）。 */
 export const yjsSpoolDepthFiles = new Gauge({
   name: 'yjs_spool_depth_files',
-  help: 'spool 段文件数（键集缓存 size 口径）',
+  help: 'spool 段文件数（depth 现算口径）',
   registers: [register],
   collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolFiles : 0); } catch { this.set(0); } },
 });

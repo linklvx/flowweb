@@ -17,6 +17,7 @@ import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { CollabSpoolService } from './collab-spool.service';
+import { unregisterPendingCollector } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { failingRepo } from '../../test-utils/failing-repo';
 import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
@@ -1017,5 +1018,58 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
         expect(p).toMatchObject({ projects: 1, batches: 2, spoolFiles: 1, spoolBytes: 8 + 2 });
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
+  });
+});
+
+// Y0a-2 Task 4 审查修复（红相先行）：I-1 回灌后 rearm 排程（X5 必修漏落——onRecovered seam 只在
+// ioBroken 翻转时回调，spool 健康时启动回灌失败无任何唤醒路径）+ I-2 retryingPersist 单布尔改
+// per-doc 集合（A 项目梯在飞窗跨 saveMutex 等待+append 5s 上界，误罩 B 项目三处守卫→B 批滞留无恢复）
+// + M-2 unregisterPendingCollector 后 pending gauge 读 0（collect 现算形态的缺位语义）。
+describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / M-2 unregister gauge', () => {
+  it('审查 I-1 红相（回灌后 rearm 漏排）：启动回灌失败（PG down）→ spool 残帧必须有退避梯排程——旧实现仅 seam 注入不调用=梯空转（R1 自愈承诺破约）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-i1-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      await spool.append('p-i1', Y.encodeStateAsUpdate(new Y.Doc()));   // 预投帧：kit onModuleInit 的 scan+replayAll 读它（append 永败→3 次尝试≈400ms 后 failed=1，帧保留）
+      const kit = await startDualClientServer({ append: vi.fn(async () => { throw new Error('pg down'); }) }, 200, spool);
+      try {
+        // 判定点：回灌失败项目必须经退避梯运行期自愈（R1 拒绝理由的自洽前提）——梯入口=onModuleInit 回灌后 rearmQueues()
+        expect((kit.gateway as any).persistRetry.get('project:p-i1')).toBeTruthy();   // 旧实现 undefined → 红
+        expect(await spool.peek('p-i1')).toHaveLength(1);   // 对照组：帧保留（回灌失败不删帧）
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  }, 15_000);
+
+  it('审查 I-2 红相（retryingPersist 单布尔跨项目误罩）：A 项目梯在飞 → B 项目（独立 saveMutex）store 失败仍必须自排退避梯——旧实现共享布尔=被 A 误罩（B 批滞留无恢复路径）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-i2-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 200, spool);
+      try {
+        const g = kit.gateway as any;
+        // 双形态装置（红绿同源）：旧代码读布尔 retryingPersist=true → B 守卫被罩（红相条件）；
+        // 新代码读 Set → add('project:p-i2-a') 等价语义（旧代码字段不存在，可选链无害）
+        g.retryingPersist = true;
+        g.retryingPersistDocs?.add('project:p-i2-a');
+        g.pendingQueues.set('p-i2-b', [new Uint8Array([1])]);   // Y19：projectId 键控装置（B 独立批）
+        const r = await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p-i2-b' } as any);
+        expect(r).toBe(false);   // 契约 3：任何路径不 throw
+        expect(await spool.peek('p-i2-b')).toHaveLength(1);   // 对照组：B 失败批已入 spool（fsync 落定，spool 腿独立可用）
+        expect(g.persistRetry.get('project:p-i2-b')).toBeTruthy();   // 判定点：旧实现被 A 的布尔误罩 → undefined → 红
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  }, 15_000);
+
+  it('审查 M-2：unregisterPendingCollector 后 pending gauge 读 0（collect 现算——collector 缺位=0，防 destroy 后闭包悬挂）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const g = kit.gateway as any;
+      g.pendingQueues.set('p-m2', [new Uint8Array([1])]);   // 前置：collector 在位且队列非空 → gauge 读 1
+      const before = (await register.getSingleMetric('yjs_pending_projects')!.get()).values[0]?.value ?? 0;
+      expect(before).toBe(1);
+      unregisterPendingCollector();   // onApplicationShutdown 首行同源调用（本用例为文件末测试——不再注册无污染）
+      const after = (await register.getSingleMetric('yjs_pending_projects')!.get()).values[0]?.value ?? 0;
+      expect(after).toBe(0);
+    } finally { await kit.dispose(); }
   });
 });
