@@ -4,6 +4,7 @@ import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync, COLLAB_REDIS } from './collab-redis-sync.service';
+import { CollabSpoolService } from './collab-spool.service';
 import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
 
@@ -24,6 +25,7 @@ import { TeamModule } from '../team/team.module';
     CollabGateway,
     CollabDocumentService,
     CanvasDocUpdateRepository,
+    CollabSpoolService,
     CollabRedisSync,
   ],
   exports: [CollabDocumentService],

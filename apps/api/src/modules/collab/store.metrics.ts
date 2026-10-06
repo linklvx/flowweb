@@ -57,3 +57,36 @@ export const yjsHydrationHugeRowTotal = new Counter({
   help: 'loadForHydration 读到单行 >4MB 的次数（观测不拒绝；源头治理归 Y0b 配额批）',
   registers: [register],
 });
+
+/** Y0a-2：spool 族指标（spec §5.2——事后取证口径：PROMETHEUS_TOKEN 手 curl；告警路由归 Y0b/E54）。
+ *  V14：容量口径含隔离字节（隔离段同占盘——"排除"=磁盘被隔离字节填满而熔断永不触发）。 */
+export const yjsSpoolDepthFiles = new Gauge({
+  name: 'yjs_spool_depth_files',
+  help: 'spool 段文件数（键集缓存 size 口径）',
+  registers: [register],
+});
+export const yjsSpoolDepthBytes = new Gauge({
+  name: 'yjs_spool_depth_bytes',
+  help: 'spool 段文件字节总和（**含**隔离字节——容量核算同口径，V14）',
+  registers: [register],
+});
+export const yjsSpoolTruncatedTotal = new Counter({
+  name: 'yjs_spool_truncated_total',
+  help: '尾部截断/坏帧停读次数（禁静默续读；连续命中=磁盘故障信号）',
+  registers: [register],
+});
+export const yjsSpoolWriteFailuresTotal = new Counter({
+  name: 'yjs_spool_write_failures_total',
+  help: 'spool append/fsync 失败次数（ioBroken 熔断素材——批次留队列，BOI）',
+  registers: [register],
+});
+export const yjsSpoolCapacityTotal = new Counter({
+  name: 'yjs_spool_capacity_total',
+  help: 'spool 容量超限熔断次数（overCapacity 态——与 ioBroken 分离，V14；不丢最旧）',
+  registers: [register],
+});
+export const yjsSpoolQuarantinedTotal = new Counter({
+  name: 'yjs_spool_quarantined_total',
+  help: '隔离帧计数（已接受但无法落库的编辑——显式接受的有界丢失，需人工判定；启动 scan 不重复递增，V3）',
+  registers: [register],
+});
