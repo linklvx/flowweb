@@ -87,6 +87,23 @@ describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源—
   });
 });
 
+describe('E68 读侧全函数：非 map 节点/边值跳过不抛（Y.Map 值可为任意 JSON——Step 0 探针实证 plain object 曾抛 m.get is not a function）', () => {
+  it('非 map 节点值（plain object 含 data.content）⇒ 跳过（nodes 空）不抛', () => {
+    const doc = new FakeDoc();
+    doc.getMap('nodes').set('n1', { type: 'textInput', data: { content: 'x' } }); // 节点值=plain object 非 map
+    const out = readRecordsFromMaps(doc);
+    expect(out.nodes).toEqual([]);
+    expect(out.edges).toEqual([]);
+  });
+
+  it('非 map 边值（字符串）⇒ 跳过（edges 空）不抛', () => {
+    const doc = new FakeDoc();
+    doc.getMap('edges').set('e1', 'just-a-string'); // 边值=scalar 非 map
+    const out = readRecordsFromMaps(doc);
+    expect(out.edges).toEqual([]);
+  });
+});
+
 describe('键集表：分镜子两侧无键恒等（三层表：doc 无键⇄records 同形无键⇄cs {0,0} 构造默认）', () => {
   it('分镜子 records 无 position ⇒ doc 无 position 子 Map ⇒ 读回同形无键（round-trip 恒等）', () => {
     const doc = new FakeDoc();

@@ -120,8 +120,9 @@ export function fillDoc(
  *  无键，三层表；position 原样拷贝——O0b-0 起 doc=abs 空间，读出口即 abs）。
  *  读侧 null 消除（批4a 契约保持：doc 值 null≡缺键→出口 undefined）。 */
 export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edges: DocEdgeRecord[] } {
-  const nodes = [...doc.getMap('nodes').entries()].map(([id, v]) => {
-    const m = v as DocMapLike;
+  const nodes = [...doc.getMap('nodes').entries()].flatMap(([id, v]) => {
+    if (!isDocMap(v)) return []; // E68 读侧全函数：doc 值可为任意 JSON——非 map 值跳过不抛
+    const m = v;
     const posV = m.get('position');
     const position: DocNodeRecord['position'] | undefined = isDocMap(posV)
       ? { x: posV.get('x') as number, y: posV.get('y') as number }
@@ -140,8 +141,9 @@ export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edg
       data: isDocMap(dataV) ? Object.fromEntries([...dataV.entries()]) : {},
     };
   });
-  const edges = [...doc.getMap('edges').entries()].map(([id, v]) => {
-    const m = v as DocMapLike;
+  const edges = [...doc.getMap('edges').entries()].flatMap(([id, v]) => {
+    if (!isDocMap(v)) return []; // E68 读侧全函数：边值同样可为任意 JSON——非 map 值跳过不抛
+    const m = v;
     return { id, source: m.get('source') as string | undefined, target: m.get('target') as string | undefined };
   });
   return { nodes, edges };

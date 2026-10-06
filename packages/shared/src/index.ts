@@ -36,3 +36,5 @@ export * from './canvas/assertions';
 // B6-1（Spec B）：handle 可用性单源谓词——imageGen/imageExtGen 编辑中（含 transformMode）双侧无，
 // videoGen 现状保留无门双侧；web 节点组件消费（删组件内 !editMode 直判）。
 export * from './canvas/handles';
+// Y0a-1（E70 最小版）：对抗 DocLike 语料工厂（FakeMap 全量嵌套——读者全函数 E68 测试消费）。
+export * from './testing/adversarial-doc';
