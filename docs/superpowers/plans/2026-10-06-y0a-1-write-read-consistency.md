@@ -1224,11 +1224,11 @@ git add apps/api/tsconfig.json apps/api/src/test-utils/failing-repo.ts scripts/c
 - Modify: `packages/shared/src/index.ts`（追加一行导出）
 - Test: `apps/api/src/modules/collab/adversarial-readers.spec.ts`
 
-- [ ] **Step 0: 探针（纪律 10）——值守卫缺失现状实证**
+- [x] **Step 0: 探针（纪律 10）——值守卫缺失现状实证**（实测：plain-object 节点值 → `TypeError: m.get is not a function`，docShape.ts:125 `const posV = m.get('position')` 裸调——E68 真违例确认，探针文件不入库）
 
 docShape.ts:124-125 节点值 `v as DocMapLike → m.get('position')` **无守卫**（:140 data 值有 isDocMap 守卫；:143-145 边值同样裸 `.get`）——Y.Map 值可为任意 JSON，纯对象节点值 ⇒ `m.get is not a function` TypeError。这是 E68 读侧铁律的真违例（v2 语料 plain-object 值全部撞此处=语料"空转"根因）。守卫落地前先用一例 FakeMap 塞 `data.content` 节点跑 `readRecordsFromMaps` 确认现状抛错留档，改后同语料产出记录。
 
-- [ ] **Step 1: docShape 节点/边值守卫（真缺陷修复——读侧全函数）**
+- [x] **Step 1: docShape 节点/边值守卫（真缺陷修复——读侧全函数）**（nodes/edges 各 3 行：flatMap+`if (!isDocMap(v)) return []`+窄化别名——复用文件内既有谓词，函数体其余逐行不变；fillRead 补两用例）
 
 `readRecordsFromMaps` 的 nodes/edges 值先经 `isDocMap` 判定（本文件 :79 既有内部谓词——同文件复用非新造），非 map 值跳过：
 
@@ -1256,7 +1256,7 @@ export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edg
 pnpm --filter @flowweb/shared build && pnpm --filter @flowweb/shared test -- --run
 ```
 
-- [ ] **Step 2: 生成器（全量 FakeMap 嵌套——语料必须真的到达读者深分支）**
+- [x] **Step 2: 生成器（全量 FakeMap 嵌套——语料必须真的到达读者深分支）**（15 例（7 命名+8 fuzz），mulberry32 种子化确定性；适配：fm() 元组显式注解过 strict）
 
 ```typescript
 // packages/shared/src/testing/adversarial-doc.ts
@@ -1313,7 +1313,7 @@ export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
 
 `packages/shared/src/index.ts` 追加：`export * from './testing/adversarial-doc';`
 
-- [ ] **Step 3: 读者断言（双路径+非空转锚）**
+- [x] **Step 3: 读者断言（双路径+非空转锚）**（33 断言；**E68 断言适配裁定**：yjs 写侧对 Map/类实例值抛 typed `Error: Unexpected content type`（9/15 例）=铁律允许的拒绝档——plan 的 `not.toThrow` 与自身语料互斥，改 try/catch 双支（成功支断言双侧读回+非空转、拒绝支 instanceof Error）；审查加固后续 `c17e9ec7`（try 收缩到 fillDoc 写侧——AssertionError 防吞+读侧崩溃不与写侧拒绝混淆）+`6c4854c0`（throw 计数防退化））
 
 ```typescript
 // adversarial-readers.spec.ts
@@ -1361,7 +1361,7 @@ describe('api 读者全函数（E68 读侧铁律：任意语料要么产出结�
 });
 ```
 
-- [ ] **Step 4: 构建+导出面更新+跑绿+commit**
+- [x] **Step 4: 构建+导出面更新+跑绿+commit**（commit `8181d358`；事实修正：check-shared-dist=内容哈希新鲜度门禁非导出面清单，build 脚本已内联 --write，dist 整体 gitignore——无清单 diff 入 git 属预期；shared 205+api 33+collab 全量 22 文件/184 用例绿。**登记（审查+自审）**：①readRecordsFromMaps 的 data 出口仅展开顶层——嵌套 Y.Map 实例透传、JSON 投影得 `{}`（静默丢内容不崩，既有行为非本批引入）——写读语义深水区，随 Y2 投影读者接入裁定②fuzz 例全落 yjs typed 拒绝档（成功档仅 5 命名例覆盖）——加 JSON-only fuzz 变体属可选加固）
 
 ```bash
 pnpm --filter @flowweb/shared build && node scripts/check-shared-dist.mjs --write && git diff --stat packages/shared
