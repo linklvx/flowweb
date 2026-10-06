@@ -87,6 +87,15 @@ export const yjsSpoolCapacityTotal = new Counter({
 });
 export const yjsSpoolQuarantinedTotal = new Counter({
   name: 'yjs_spool_quarantined_total',
-  help: '隔离帧计数（已接受但无法落库的编辑——显式接受的有界丢失，需人工判定；启动 scan 不重复递增，V3）',
+  help: '隔离处置段数（坏尾字节区间隔离——显式接受的有界丢失，需人工判定；重复调用不重复递增，V3）',
+  registers: [register],
+});
+
+/** Y0a-2（X17 更名+标签统一口径）：已删项目的更新丢弃计数——source 标签区分 gateway 终态拦截与
+ *  spool 回灌 FK 收割两条路径（无标签调用会产出 source="" 的脏 series——禁）。 */
+export const yjsUpdatesDiscardedDeletedTotal = new Counter({
+  name: 'yjs_updates_discarded_deleted_total',
+  help: '项目已删的更新丢弃数（gateway 拦截/spool FK 收割——显式接受的有界丢失）',
+  labelNames: ['source'],
   registers: [register],
 });
