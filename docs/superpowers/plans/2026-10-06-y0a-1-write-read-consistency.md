@@ -538,7 +538,7 @@ git add apps/api/src/modules/collab/canvas-doc-update.repository.ts apps/api/src
 - Create: `apps/api/src/test-utils/mock-repo.ts`
 - Test: `apps/api/src/modules/collab/canvas-doc-hydration.int.spec.ts`
 
-- [ ] **Step 1: 落 mock-repo 工厂（5 个既有 spec 的收敛点）**
+- [x] **Step 1: 落 mock-repo 工厂（5 个既有 spec 的收敛点）**（裁定偏差：hydrateWithRecovery 默认委托改 `vi.fn(async (pid)=>…)` 包装——plan 原普通函数形态不支持 `.mockResolvedValueOnce`，委托/挂起转发语义无损）
 
 ```typescript
 // apps/api/src/test-utils/mock-repo.ts
@@ -570,7 +570,7 @@ export function createMockRepo(over: Partial<MockRepo> = {}): MockRepo {
 }
 ```
 
-- [ ] **Step 2: 写失败测试（水位过滤+分页取尽+超时自愈）**
+- [x] **Step 2: 写失败测试（水位过滤+分页取尽+超时自愈）**
 
 `canvas-doc-hydration.int.spec.ts`：
 
@@ -689,14 +689,14 @@ maybe('loadForHydration（真 PG）', () => {
 
 （vi.spyOn 建实例自有属性——`this.loadForHydration`/`this.compact` 在方法体内经实例访问均穿透（实例属性遮蔽原型）；正例先真 compact 造快照行使重试装载拿到非空 state。）
 
-- [ ] **Step 3: 跑红**
+- [x] **Step 3: 跑红**（实测 5/5 `loadForHydration is not a function`）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-hydration.int.spec.ts
 ```
 Expected: FAIL（`loadForHydration is not a function`）。留档。
 
-- [ ] **Step 4: 实现 loadForHydration+hydrateWithRecovery（最终形态，删 loadUpdates）**
+- [x] **Step 4: 实现 loadForHydration+hydrateWithRecovery（最终形态，删 loadUpdates）**（审查加固后续 commit `be1ae151`：自愈分类改"code 存在即终判"不走 message 回退——防 Prisma 措辞漂移把 P2024 拉回自愈集（I-1）+巨帧 WARN+计数 `yjs_hydration_huge_row_total` 补 spec §1.4 计数载体（M-1）+两 int 用例（分类终判钉子/message 回退正例 M-4））
 
 ```typescript
   private static readonly PAGE_ROWS = 500;
@@ -773,7 +773,7 @@ Expected: FAIL（`loadForHydration is not a function`）。留档。
 
 **同时**：①删除 `loadUpdates` 方法（契约"唯一入口靠删除保证"——本文件 Task 2 用例已改为 count/seq 断言，无 loadUpdates 消费）②logger 直连形态已在 Task 3 落地（`new Logger(CanvasDocUpdateRepository.name)`）——本步 loadForHydration 巨帧 WARN 与 hydrateWithRecovery 均用 `this.logger.warn(...)` 直调，无 `?.` 链③文件头 import 补 `yjsStoreCompactFailureTotal`（hydrate 自愈 compact 失败计数——store.metrics.ts 同文件族，spec §1.4 v2.4"WARN+计数"）。
 
-- [ ] **Step 5: gateway 切换+stash peek/consume（关闭第四条蒸发路径——v3 撤"搬移"方案）**
+- [x] **Step 5: gateway 切换+stash peek/consume（关闭第四条蒸发路径——v3 撤"搬移"方案）**（peek/consume 用例经 extractHooks harness 直调钩子落地；审查 M-2 登记 Y0a-2：peek→consume 窗口与 storeDocument takeStash 并发的重复持久化行（CRDT 幂等仅成本面）+gateway :78/:287 两处注释随 takeStash 统一 peek 化同批更新）
 
 `collab.gateway.ts` loadDocument：数据源两步读（:218-223）替换；stash 改 **peek→apply→…→consume**（原 takeStash 在此先删——syncFromPeers/版本门抛错时库卸载 doc，stash 已删又随 doc 消失=净丢；单纯"搬到门后"也不对——门看到的是没有 stash 的旧状态，若 stash 带正确 schema 戳合法档会被误拒。peek 推迟删除是唯一两全形态）：
 
@@ -838,7 +838,7 @@ Expected: FAIL（`loadForHydration is not a function`）。留档。
   });
 ```
 
-- [ ] **Step 6: 既有 spec 切 mock-repo+跑绿+commit**
+- [x] **Step 6: 既有 spec 切 mock-repo+跑绿+commit**（commit `ebc932cf`；5 spec 切工厂（gateway/persist-status/auth-reason/sweep/shutdown）断言不变；mock+int 双绿 20 文件/141→加固后 143 用例；loadUpdates 零代码引用（grep 证）；审查 M-3 登记：sweep/shutdown 的防御性 canvasDoc 死 stub 随下次触碰移除）
 
 把 5 个 gateway spec 文件的 repo stub（collab.gateway.spec.ts:71-77 等 15+ 处）改为 `createMockRepo(...)`（各自覆盖项不变：durableRows 台账 append/loadForHydration 喂行/红4 stalling 改 `loadForHydration: vi.fn(() => new Promise(() => {}))`——**保持用例名与断言不变，只换注入形态**；`loadUpdates` 的 mock 全删。hydrateWithRecovery 由工厂默认委托——挂起的 loadForHydration 使委托调用同样挂起，红4 语义等价：挂起不 reject、不进 catch）。
 
