@@ -494,6 +494,11 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 
 新增参数（LEASE_TTL/HEARTBEAT/FORCE_TAKEOVER/SPOOL_DIR/MAX_LOADED_DOCS 预留）+既有 `COLLAB_PORT/COLLAB_DEBOUNCE/COLLAB_TIMEOUT/COLLAB_SWEEP_ENABLED/COMPACT_INTERVAL_MS` 一并进 config/env.ts zod（同批收口，消灭第三套 env 读法）。
 
+**4.7 复审登记（Y0a-2 Task 5 复审遗留，随本批收口）**
+
+- **M-2 装置收口**：dual-client kit 无"只关 listener"出口（dispose=整 server.destroy——种子 doc 留 documents Map 时库 destroy memoized 等 documents 清空永不满足，用例只能 destroy 打桩/摘 doc 规避）。collab-core 演练若复用该装置，先补 `closeListener()`（只关 HTTP listener 不动 documents Map）。
+- **M-3 destroy 快速 reject 误分型**：onApplicationShutdown 步骤 5——destroy 快速 reject 时 catch 吞错且 `destroyed` 不置位→恒走 `destroy_timeout` 且 hangReason 按 pending 分型（"失败"误报成"挂起"）。演练采样/告警口径按 destroy-failed≠destroy-timeout 区分读日志；修复归 Y0a-3 destroy 链或独立小批，不随本批。
+
 ---
 
 ## 4. 出口判据+回滚动作+冻结契约

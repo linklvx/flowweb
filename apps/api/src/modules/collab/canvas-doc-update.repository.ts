@@ -15,10 +15,16 @@ export class CanvasDocUpdateRepository {
    *  禁以"未抛错"判成功；本批无租约断言恒 {ok:true}（WHERE owner+TTL 断言 Y0a-3 追加，届时 0 行
    *  返回 {ok:false,reason:'fenced'}——签名本批一步定死，防 Y0a-3 中途改签名连锁）。 */
   async append(projectId: string, update: Uint8Array): Promise<{ ok: true; seq: bigint } | { ok: false; reason: 'fenced' | 'no-row' }> {
-    const rows = await this.prisma.$queryRaw<{ seq: bigint }[]>`
+    // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——裸 $queryRaw 无超时=挂起的 PG append
+    // 无上界持 saveMutex→shutdown drain 等 doc 归零永不满足→恒走 destroy_timeout。与 loadForHydration
+    // 同族（单语句事务体）；P2024（事务超时）以 throw 形态冒出——isRetryableAppendError 已含 P2024。
+    const rows = await this.prisma.$transaction(
+      (tx) => tx.$queryRaw<{ seq: bigint }[]>`
       INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
       SELECT gen_random_uuid()::text, ${projectId}, nextval('canvas_doc_update_seq')::bigint, ${Buffer.from(update)}, now()
-      RETURNING seq`;
+      RETURNING seq`,
+      { timeout: 5_000, maxWait: 1_000 },
+    );
     return rows.length === 0 ? { ok: false, reason: 'no-row' } : { ok: true, seq: rows[0].seq };
   }
 

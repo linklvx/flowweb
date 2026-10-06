@@ -141,4 +141,47 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       expect(Date.now() - t0).toBeLessThan(22_000);
     } finally { await kit.dispose(); }
   }, 22_000);
+
+  it('force-spool 成功腿（白盒 drainAllDocuments）：store 全败批留队 → 批 splice 出队+帧入 spool（forcedSpool=1）——M-1 保守口径：不补打 drain_complete，undrained 如实含 forcedSpool', async () => {
+    const kit = await startDualClientServer();
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②（dispose 复用同一 mock，禁先 restore）
+      vi.spyOn(kit.gateway as any, 'storeDocumentSerialized').mockResolvedValue(false);   // 主循环全败=批留队（8s 总闸耗尽后的纯 force-spool 等效态）
+      const spies = installLogSpies(kit.gateway);   // Y16：动作前安装
+      await seedPendingDoc(kit, 'project:p-dr6', 2);
+      await (kit.gateway as any).drainAllDocuments(Date.now() + 3_000);
+      const q = (kit.gateway as any).pendingQueues.get('p-dr6');
+      expect(q).toHaveLength(0);                               // 批出队列（J5：真写成才 splice）
+      expect(await kit.spool.peek('p-dr6')).toHaveLength(1);   // 批入 spool（磁盘落定）
+      const events = collectEvents(spies);
+      expect(events.find((e) => e.event === 'shutdown_drain_complete')).toBeUndefined();   // M-1：成功腿不补打（保守口径锁定）
+      const undrained = events.find((e) => e.event === 'shutdown_undrained');
+      expect(undrained).toMatchObject({ batches: 0, projects: 0, forcedSpool: 1, storeInFlight: 0 });
+    } finally { await kit.dispose(); }
+  }, 15_000);
+
+  it('J5 反向：force-spool race 超时 → ids===null 不 splice（批保留）且不 leave（storeInFlight 点名一致）', async () => {
+    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append });
+    const releases: ((v: string[]) => void)[] = [];
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
+      vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<string[]>((resolve) => { releases.push(resolve); }));   // spool 挂起（主循环 V1 支+force-spool 双挂）
+      const spies = installLogSpies(kit.gateway);
+      await seedPendingDoc(kit, 'project:p-dr7', 2);
+      await (kit.gateway as any).drainAllDocuments(Date.now() + 400);   // 短 deadline——两腿 race 超时路径
+      const q = (kit.gateway as any).pendingQueues.get('p-dr7');
+      expect(q).toHaveLength(2);                               // J5：null 不 splice（真写成才出队——批蒸发防线）
+      const events = collectEvents(spies);
+      const undrained = events.find((e) => e.event === 'shutdown_undrained');
+      expect(undrained).toMatchObject({ batches: 2, projects: 1, storeInFlight: 1, forcedSpool: 0 });   // Y12：race 超时不 leave——点名一致
+    } finally {
+      for (const release of releases) release(['y0a2-late-release']);   // 释放挂起 append（结果已被 race 弃——防悬挂）
+      vi.restoreAllMocks();   // Y13：先还原（spool mock+destroy mock）
+      (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr7');   // 种子 doc 摘除（真 destroy 等 documents 清空——见文件头②）
+      await kit.dispose();
+      for (const [name] of [...((kit.gateway as any).persistRetry as Map<string, unknown>)]) {   // 释放引发的迟到 V1 成功腿会排重试定时器——dispose 后收口
+        (kit.gateway as any).cancelPersistRetry(name);
+      }
+    }
+  }, 15_000);
 });

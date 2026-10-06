@@ -852,7 +852,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  race 超时且 append 实际失败时 splice=批蒸发；超时后成功=重复帧由 CRDT 幂等吸收，宁可重复不误删）。
    *  **race 超时分支不 leave**（Y12 修正 X7 注记错误：超时=store 挂起=批未落定=undrained 点名应含它——
    *  leave 会破坏 G-2a ii 的 storeInFlight===projects 断言；仅 catch（意外异常）leave）。
-   *  G-2a：归属要么落定、要么被如实点名。 */
+   *  G-2a：归属要么落定、要么被如实点名。
+   *  M-1（复审登记，保守方向不修）：force-spool 成功清空后不回打 drain_complete（drain_complete 只在
+   *  主循环后判定点打一次）——统一落 shutdown_undrained（batches=0+forcedSpool≥1）；race 超时后迟到的
+   *  真成功=spool 重复回灌且 undrained 仍点名——虚报偏保守（宁多点名，不虚报成功）。 */
   private async drainAllDocuments(hardDeadline: number): Promise<void> {
     const drainStart = Date.now();
     for (const [projectId, q] of [...this.pendingQueues]) {      // V4：单源遍历
@@ -903,13 +906,18 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return Promise.race([op, new Promise<T>((r) => { setTimeout(() => r(fallback), ms).unref?.(); })]);
   }
 
-  /** V4：doc 已卸载但归属仍在——spool 帧三段式直灌（append→confirm，每帧套剩余预算） */
+  /** V4：doc 已卸载但归属仍在——spool 帧三段式直灌（append→confirm，每帧套剩余预算）。
+   *  I-2（复审）：整腿 deadline 背书——peek 套 500ms race（磁盘挂起防护，与主循环同口径）；
+   *  append 套 race min(5s, remaining)——race 超时 r===null→不 confirm→帧保留点名（J5 同哲学；
+   *  V8 修复后 repo.append 自身 5s 事务上界是第二道）。 */
   private async drainDetachedProject(projectId: string, hardDeadline: number): Promise<void> {
-    for (const f of await this.peekSpoolFrames(projectId)) {
+    const frames = await this.raceDeadline(this.peekSpoolFrames(projectId), 500, []);   // I-2：磁盘挂起防护（与主循环 500ms 同口径）
+    for (const f of frames) {
       if (Date.now() > hardDeadline) return;
+      const remaining = Math.max(200, Math.min(5_000, hardDeadline - Date.now()));
       try {
-        const r = await this.repo.append(projectId, f.payload);
-        if (r.ok) await this.spool.confirm(projectId, [f.frameId]);
+        const r = await this.raceDeadline(this.repo.append(projectId, f.payload), remaining, null);
+        if (r?.ok) await this.spool.confirm(projectId, [f.frameId]);
       } catch { /* 帧保留——点名 */ }
     }
   }

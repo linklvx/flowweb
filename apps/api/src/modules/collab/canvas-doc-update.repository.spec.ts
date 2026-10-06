@@ -31,12 +31,16 @@ describe('CanvasDocUpdateRepository', () => {
     repo = mod.get(CanvasDocUpdateRepository);
   });
 
-  it('append 单语句：$queryRaw 取号+INSERT 同语句，返回 AppendResult；不经 canvasDocUpdate.create', async () => {
+  it('append 单语句：$queryRaw 取号+INSERT 同语句，返回 AppendResult；不经 canvasDocUpdate.create；V8 事务上界 5s/1s', async () => {
+    // mock $transaction 直接执行回调（tx 即 prisma 自身——同 compact 三例先例）
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
     prisma.$queryRaw.mockResolvedValue([{ seq: 7n }]);
     const r = await repo.append('p1', new Uint8Array([1, 2]));
     expect(r).toEqual({ ok: true, seq: 7n });
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.canvasDocUpdate.create).not.toHaveBeenCalled();
+    // V8（Y0a-2 复审 I-1）：append 包交互式事务——5s 上界/maxWait 1s（挂起的 PG append 不得无上界持 saveMutex）
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000, maxWait: 1_000 });
   });
 
   it('compact：advisory lock + 按实读行 id 精确删除 + stateSeq 精确 =maxSeq', async () => {
