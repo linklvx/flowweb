@@ -6,7 +6,7 @@ import { CollabDocumentService } from './collab-document.service';
 /** B2/F2 批0.5-5：exec map 服务端唯一写者。真 Y.Doc 直驱——
  *  mock withDoc 直接执行回调传 doc（gateway 直连细节与本任务无关）。 */
 function buildService(doc: Y.Doc): CollabDocumentService {
-  const service = new CollabDocumentService({} as any);
+  const service = new CollabDocumentService({ isWritableOrDegraded: () => 'ok' } as any);   // Y0a-2 X9 写意图受理门——stub 恒 ok（本 spec 焦点在写路径语义）
   (service as any).withDoc = (_projectId: string, fn: (doc: Y.Doc) => unknown) => fn(doc);
   return service;
 }

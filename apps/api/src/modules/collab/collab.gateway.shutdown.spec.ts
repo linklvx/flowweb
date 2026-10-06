@@ -6,8 +6,20 @@
 // 句柄使进程退不出 → pm2 SIGKILL → stash 丢。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
-import { describe, it, expect, vi } from 'vitest';
+import { CollabSpoolService } from './collab-spool.service';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
+import { makeSpoolDir } from '../../test-utils/spool-dir';
+
+// Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
+let spoolDir: string;
+let spoolCleanup: () => Promise<void> = async () => {};
+beforeEach(async () => {
+  const d = await makeSpoolDir('y0a2-shutdown-');
+  spoolDir = d.dir;
+  spoolCleanup = d.cleanup;
+});
+afterEach(async () => { await spoolCleanup(); });
 
 function buildGateway() {
   const prisma = { canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) } };
@@ -16,6 +28,7 @@ function buildGateway() {
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
     { resolve: vi.fn() } as any, 43000 + Math.floor(Math.random() * 20000),
+    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
   );
   return { gateway };
 }

@@ -4,10 +4,16 @@
 // 连接用 fake（context 快照 + sendStateless + webSocket.close），文档塞 server.hocuspocus.documents。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
+import { CollabSpoolService } from './collab-spool.service';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
+import { makeSpoolDir } from '../../test-utils/spool-dir';
+
+// Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
+let spoolDir: string;
+let spoolCleanup: () => Promise<void> = async () => {};
 
 function buildGateway() {
   const prisma = {
@@ -24,6 +30,7 @@ function buildGateway() {
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
     perm as any, 47000 + Math.floor(Math.random() * 5000),
+    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
   );
   return { gateway, prisma };
 }
@@ -50,10 +57,16 @@ function seedDocument(gateway: CollabGateway, name: string, conns: FakeConn[]) {
   return connections;
 }
 
-beforeEach(() => { vi.useFakeTimers(); });
-afterEach(() => {
+beforeEach(async () => {
+  vi.useFakeTimers();
+  const d = await makeSpoolDir('y0a2-sweep-');
+  spoolDir = d.dir;
+  spoolCleanup = d.cleanup;
+});
+afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  await spoolCleanup();
 });
 
 describe('批3-4 session sweep', () => {

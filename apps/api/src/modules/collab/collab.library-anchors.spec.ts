@@ -104,3 +104,21 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
     }
   }, 20_000);
 });
+
+describe('A14 store 钩子锁形态（v2：结论已实测写死——探针降级为回归断言，防升级漂移）', () => {
+  it('A14 store 钩子在 saveMutex 内执行（esm:1536-1539——onStore/afterStore 同包 saveMutex.runExclusive；重入加锁=死锁防线）', async () => {
+    const order: string[] = [];
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 50, maxDebounce: 80,
+      onStoreDocument: async ({ document }) => { order.push('hook'); expect(document.saveMutex.isLocked()).toBe(true); },
+    });
+    await server.listen();
+    try {
+      const conn = await server.hocuspocus.openDirectConnection('p-mutex');   // 直连入口在 Hocuspocus 实例（Server 不透传——A5 同款）
+      await conn.transact((doc) => { doc.getMap('nodes').set('n', new Y.Map()); });
+      await conn.disconnect();
+      await pollUntil(() => order.length >= 1, 3_000);
+      expect(order).toContain('hook');   // 断言实质：钩子被调且 isLocked 通过（钩子体内 expect 已红则本轮不会到达）
+    } finally { await server.destroy(); }
+  });
+});

@@ -11,7 +11,9 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
-import { collabSweepCloseTotal, yjsCanvasDocBytes, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsUnflushedProjects } from './store.metrics';
+import { collabSweepCloseTotal, yjsCanvasDocBytes, storeInFlightDocs, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreTailAnomalyTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { CollabSpoolService } from './collab-spool.service';
+import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 
@@ -45,13 +47,24 @@ export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
 }
 
+/** ===== Y0a-2 持久化契约声明（spec v2.4 §2.1，钉死）=====
+ *  PG=单实例 delta 并集日志（append-only）；CRDT 幂等收敛（重复/乱序 apply 安全）；锁只管 compact；
+ *  内存 pending 队列=去抖窗口非持久层；spool 文件=store 故障期唯一权威待落库台账；
+ *  onStoreDocument 任何路径不 throw（失败→spool→返回 false；自有 hook 抛错跳链=库锚 A1/A5 前提）。
+ *  BOI（契约 §4.3-11）：任何批次任意时刻至少归属于 {doc 队列, spool 已 fsync, PG 已提交} 之一；
+ *  离开旧归属必须先进入新归属——queue.splice 永远在新家落定之后。 */
 @Injectable()
 export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(CollabGateway.name);
   readonly server: Server;
-  /** 每文档待落库增量队列。键为 doc 实例（生产中同文档名同实例）；数组身份在 doc 生命周期内恒定——
-   *  一切变更只允许原地 push/splice/unshift，禁止任何 set 替换/重绑定（不变量 6：断引用 = 失败回灌写孤儿数组） */
-  private readonly pendingUpdates = new WeakMap<Y.Doc, Uint8Array[]>();
+  /** Y0a-2（V4）：批次第一归属地=gateway 权威 Map（projectId 键控）——库 onClose 无条件卸载
+   *  会销毁 Document 与一切 WeakMap 键控态；队列改自有 Map 后 doc 消亡≠批消失（P0-3）。
+   *  数组身份恒定不变量沿用：一切变更只 push/splice，禁 set 替换。 */
+  private readonly pendingQueues = new Map<string, Uint8Array[]>();
+  /** doc→projectId 关联（loadDocument 播种；update 回调/stash 检查用）——doc 消亡仅失关联不失批 */
+  private readonly docProject = new WeakMap<Y.Doc, string>();
+  /** Y11：update 监听注册判定源（原 pendingUpdates.has 的"已注册"语义——V4 拆键后与队列条目解耦） */
+  private readonly docListeners = new WeakSet<Y.Doc>();
   /** 批3-3：session 查询/滑动续期统一入口（手写 findUnique 收口；直构测试不传时以注入的 prisma 兜底自建） */
   private readonly sessionSvc: SessionService;
   /** 批3-4：compact 时间门限基线（projectId → 上次 compact 时点；loadDocument 播种） */
@@ -66,6 +79,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly persistStatusPushed = new WeakSet<object>();
   /** retryPersist 内层 storeDocument 不再自排定时器（梯子推进只归 retryPersist——否则档位取值错档） */
   private retryingPersist = false;
+  /** Y0a-2（契约 14/P5）：in-flight 口径（projectId 键控——与队列归属同键）；维护对见 enterInFlight/leaveInFlight */
+  private readonly inFlightProjects = new Set<string>();
+  /** X6：熔断期退避梯暂停标志（probe 恢复经 onRecovered seam→rearmQueues 清除） */
+  private retryPausedByCircuit = false;
+  /** Y0a-2：draining 状态位（isShuttingDown 读点=authenticate 受理门；置位者=Task 5 关停编排——本批无写入者=常 false） */
+  private draining = false;
+  /** V10：已删项目终态缓存（storeDocumentUnlocked 终态拦截读点；写入者=Task 6 删除链 emit——本批空集=门常开） */
+  private readonly deletedProjects = new Set<string>();
   /** 批3-4 sweep：grace 在途去重 + 连续复验失败计数（WeakMap/WeakSet——连接回收即散） */
   private readonly sweepGrace = new WeakSet<object>();
   private readonly sweepRecheckFails = new WeakMap<object, number>();
@@ -73,10 +94,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 重放抑制：只包裹每个 applyReplayed 的同步段（yjs update 事件在事务清理期同步发放——实测重放行与
    *  pendingDs 延迟整合均在 apply 同步栈内发放、被精确抑制；await 窗口内写入不被抑制、进 pending） */
   private readonly replaying = new WeakSet<Y.Doc>();
-  /** flush 失败兜底：projectId → 未落库合并行（跨 doc 卸载存活；进程重启丢失=既有接受项）。
-   *  单行存续，追加即 mergeUpdates 收敛（有界）。禁止 drop：Yjs 缺失 struct 会悬挂 pendingStructs。
-   *  变更只经 takeStash/putStash（内部维护 gauge） */
-  private readonly unflushed = new Map<string, Uint8Array>();
+  /** flush 失败兜底（内存 unflushed Map）已随 Y0a-2 stash 族退役——spool=唯一权威待落库台账 */
   readonly hooks: {
     onAuthenticate: (p: onAuthenticatePayload) => Promise<any>;
     onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
@@ -90,16 +108,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly repo: CanvasDocUpdateRepository,
     private readonly redisSync: CollabRedisSync,
     private readonly perm: ProjectPermissionService,
-    @Optional() @Inject('COLLAB_PORT') port?: number,
-    @Optional() @Inject('COLLAB_DEBOUNCE') debounce?: number,
-    @Optional() @Inject('COLLAB_TIMEOUT') timeout?: number,
-    @Optional() @Inject(SessionService) sessions?: SessionService,
+    // Y0a-2 C6：spool=必填位置参数（漏参即编译红；TS1016 禁"必参随可选参"——前置可选参数全部改
+    // 显式 `T | undefined` 形态，@Optional() 运行时语义不变，位置个数十参恒定）。
+    // Nest 按类型自动注入（module providers 已注册）。
+    @Optional() @Inject('COLLAB_PORT') port: number | undefined,
+    @Optional() @Inject('COLLAB_DEBOUNCE') debounce: number | undefined,
+    @Optional() @Inject('COLLAB_TIMEOUT') timeout: number | undefined,
+    @Optional() @Inject(SessionService) sessions: SessionService | undefined,
+    private readonly spool: CollabSpoolService,
   ) {
     this.sessionSvc = sessions ?? new SessionService(prisma);
     this.hooks = {
       onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
-      onStoreDocument: (p) => this.storeDocument(p),
+      onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
       onDisconnect: (p) => this.disconnect(p),
     };
     const debounceMs = resolveCollabDebounce(debounce);
@@ -143,6 +165,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const token = requestParameters?.get('token')
         ?? parseSessionToken(requestHeaders?.get('cookie'));
       if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
+      // Y0a-2（X9）：受理门分层——draining=关停期拒新连接（DRAINING 瞬态档，客户端继续重连）；
+      // spool 熔断=只读降级（新连接放行但 readOnly——复用 VIEWER 机制+stateless 通告；存量连接不动）
+      if (this.isShuttingDown()) throw deny(CollabAuthReason.DRAINING, 'service restarting');
+      const spoolState = this.isWritableOrDegraded();
+      if (spoolState !== 'ok') {
+        connectionConfig.readOnly = true;          // X9：只读降级（协议层拒写更新）
+        this.broadcastSpoolDegraded(documentName); // Y9：独立通告通道（pushPersistStatus 有 persistUnhealthy 早退——spool 熔断不在其中=静默只读）
+      }
       const { session, expired } = await this.sessionSvc.touchWithReason(token);
       if (!session) throw deny(expired ? CollabAuthReason.SESSION_EXPIRED : CollabAuthReason.UNAUTHENTICATED, expired ? '会话过期' : '未登录');
       const projectId = parseProjectId(documentName);
@@ -195,15 +225,21 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
     const projectId = parseProjectId(documentName);
     try {
-      if (!this.pendingUpdates.has(document)) {   // 防重复注册（行数翻倍）；has ⟺ 已注册（单状态源）
-        this.pendingUpdates.set(document, []);    // eager 建条目：条目缺失 ⟺ 监听未注册（storeDocument/监听器双向 tripwire）
+      // Y11：队列 get-or-create——卸载交接失败遗留的批必须在重连后存活（set 替换=静默丢批，V4 要消灭的形态）；
+      // docProject 播种（update 回调经它解析队列）；数组身份恒定不变量沿用（只 push/splice）。
+      this.docProject.set(document, projectId);
+      if (!this.docEpoch.has(document)) this.docEpoch.set(document, Date.now());
+      if (!this.pendingQueues.has(projectId)) this.pendingQueues.set(projectId, []);
+      if (!this.docListeners.has(document)) {   // 监听防重复注册（update 事件一次）
+        this.docListeners.add(document);
         document.on('update', (u: Uint8Array) => {
           if (this.replaying.has(document)) return;
-          const q = this.pendingUpdates.get(document);
+          const q = this.pendingQueues.get(this.docProject.get(document)!);
           if (!q) { this.logger.error(`update for untracked doc ${documentName}: dropped`); return; }
           q.push(u);
           // 原地封顶（禁 set 新数组——数组身份恒定）。计数阈值：折叠后恰剩 1 条需再积 64 条才复发；
           // 字节阈值会"折完仍超限→每条 update 全量重编码"（3000 条积压实测 4.8s vs 103ms 同步阻塞）
+          // （Task 7：折叠逻辑随 X10 闩锁改造移除——本批保留原折叠行为）
           if (q.length > PENDING_MAX_ENTRIES) q.splice(0, q.length, Y.mergeUpdates(q));
         });
       }
@@ -211,8 +247,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         this.replaying.add(document);
         try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
       };
-      // 批3-4 doc epoch（R1c 前置物）：本 doc 实例代际播种（WeakMap——见字段注记）
-      if (!this.docEpoch.has(document)) this.docEpoch.set(document, Date.now());
+      // 批3-4 doc epoch 播种已并入上方 Y11 get-or-create 块
       // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗）
       if (!this.lastCompactAt.has(projectId)) this.lastCompactAt.set(projectId, Date.now());
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
@@ -222,10 +257,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         applyReplayed(new Uint8Array(state));
       }
       for (const u of updates) applyReplayed(new Uint8Array(u));
-      // Y0a-1（v3）：stash=peek→apply→…→consume（consume 在门+stamp 全过后的 try 块末尾）。
-      // apply 位次与现状逐位一致（:224 原位）——门的输入语义不变；删除是唯一破坏性动作，恒在最后。
-      const stash = this.peekStash(projectId);
-      if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
+      // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。
+      // apply 事件进 pending（窗口外回灌）；帧的 confirm 出口=下次 store 提前 drain / 断连 flush / 启动回灌。
+      for (const f of await this.peekSpoolFrames(projectId)) Y.applyUpdate(document, f.payload);
       await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
       // O0b-0 版本门 v2.1（判据单源=shared ensureSchemaVersion——本处只留 stamp 自愈分支+拒绝日志+
       // refusal 标记；replay 完成后同步判，stamp 的 update 不在 replaying 抑制窗内 → 进 pending →
@@ -241,7 +275,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (document.getMap('meta').get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
         stampDocSchema(toDocLike(document));   // 无戳∧零节点 ⇒ stamp 唯一自愈点（新建空画布合法档——门对该档放行后仅存此档）
       }
-      this.consumeStash(projectId);   // Y0a-1：门+stamp 全过才删（其后无抛错点）
+      // Y0a-2：consumeStash 已退役——帧保留至 append 成功（confirm 恒在成功后，契约 12）
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
@@ -249,71 +283,165 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** unflushed 唯一出入口（内部维护 gauge，防指标与 Map 漂移） */
-  private takeStash(projectId: string): Uint8Array | undefined {
-    const s = this.unflushed.get(projectId);
-    if (s !== undefined) this.unflushed.delete(projectId);
-    yjsUnflushedProjects.set(this.unflushed.size);
-    return s;
-  }
-
-  private putStash(projectId: string, payload: Uint8Array): void {
-    const prev = this.unflushed.get(projectId);
-    this.unflushed.set(projectId, prev ? Y.mergeUpdates([prev, payload]) : payload);   // 单行存续，追加即合并收敛（有界）
-    yjsUnflushedProjects.set(this.unflushed.size);
-  }
-
-  /** Y0a-1：load 路径只读探测（不删——syncFromPeers/版本门抛错时 stash 必须存活于 unflushed） */
-  private peekStash(projectId: string): Uint8Array | undefined {
-    return this.unflushed.get(projectId);
-  }
-
-  /** Y0a-1：load 路径消费（门+stamp 通过后调用——删除恒在最后） */
-  private consumeStash(projectId: string): void {
-    if (this.unflushed.delete(projectId)) yjsUnflushedProjects.set(this.unflushed.size);
-  }
-
-  /** 变更驱动落库（spec v4）：从 pending 队列取批 mergeUpdates 单行 append。
-   *  硬规矩：本方法内不允许存在无日志、无指标、无抛错的提前 return（本次事故的系统性教训）。
-   *  禁止任何"SV 相等 / diff 为空 ⇒ 无变化 ⇒ 跳过 append"判等——删除不产生新 struct、SV 零变化、
-   *  语义相同 doc 双向 diff 恒非空（本次事故根因，实测钉死）。 */
-  private async storeDocument({ document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
+  /** Y0a-2 BOI 主路径（spec v2.4 §2.3 + V1/V12）：copy-first——merge 不动队列，splice 恒在新家
+   *  落定（append r.ok===true 或 spool fsync 成功）之后；任何路径不 throw（契约 3）；
+   *  fenced=终态（契约 15）：批走 spool+不排退避梯（selfIsolate 归 Y0a-3——本批 ERROR 日志+行为用例）。
+   *  **confirm 语义（V1，防 P0-1 蒸发）**：spool 帧只在"内容已被 PG 成功接收"时 confirm（本批 peek 出的
+   *  旧帧集合）；失败路径 spool.append 只写**本批**（旧帧不并入——各自独立帧，防 O(n²) 重写放大）；
+   *  恢复时一次 append 合并全部未 confirm 帧+PG 已有内容，confirm 旧帧→段回收。
+   *  **降级态 spool-first（V12）**：persistUnhealthy 态下批先落 spool（fsync）再试 PG——故障腿窗口
+   *  =一个 debounce 窗+fsync（PG 挂起时 append 有 5s 事务上界兜底）；稳态 PG-first 零写放大。
+   *  storeInFlight（契约 14/P5，**X2 四落定点**——非 try/finally）：①append ok ②spool fsync
+   *  成功（含 V12 降级/交接/force-spool）③FK/终态丢弃 ④project.gone 丢弃；spool 失败回队列**不清**
+   *  （批未落定=flush-at-risk）；意外异常兜底 leave=本方法外层 catch（Y2——钩子路径不经 Serialized，
+   *  兜底必须在此层）。 */
+  private async storeDocumentUnlocked({ document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
     const projectId = parseProjectId(documentName);
-    const queue = this.pendingUpdates.get(document);
+    if (this.deletedProjects.has(projectId)) return this.discardForGoneProject(projectId, documentName);   // V10：显式清账+点名
+    const queue = this.pendingQueues.get(projectId);
     if (!queue) {
-      this.logger.error(`store for unobserved doc ${documentName}: listener never registered`);  // tripwire：!lastSV 同构物不得静默
+      this.logger.error(`store for unobserved doc ${documentName}: listener never registered`);   // tripwire：!lastSV 同构物不得静默
       return false;
     }
-    const stash = this.takeStash(projectId);
-    if (stash) queue.unshift(stash);  // 提前 drain：WS 断连后 doc 驻留缓存不重载时的唯一出口；与 load 路径不双投（takeStash 已 delete）
-    if (queue.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }  // 真·无变化不落行（readCanvas/断连的无条件触发零写放大）
-    const batch = queue.splice(0);   // 同步原子取走（splice 先于任何 await——Skip 路径下 destroy 与 flush 并发，flush 不得依赖 doc 存活）
-    const payload = batch.length === 1 ? batch[0] : Y.mergeUpdates(batch);
-    try {
-      await this.repo.append(projectId, payload);   // 单行原子：全有或全无
-    } catch (err) {
-      const live = this.pendingUpdates.get(document);   // 跨 await 后重新 get（防御：原地封顶下 live===queue，不等=有人违反不变量 6）
-      if (live !== queue) this.logger.error(`pending queue identity changed for ${documentName}`);
-      (live ?? queue).unshift(payload);                 // 回灌合并行（单项）；队列保留 → 下次 store 重试
-      this.logger.error(`store append failed for ${projectId}, ${batch.length} updates retained: ${(err as Error).message}`);
-      yjsStoreAppendFailureTotal.inc();
-      // 批3-4：unhealthy 转折广播 + 有界退避重试（retryPersist 内层调用不排梯——档位推进归 retryPersist）
+    try {   // Y2：兜底 catch 在此层（钩子直通本方法——Serialized 的 catch 盖不到；spool 失败的正常 return false 不经过这里）
+      const degraded = this.persistUnhealthy.has(documentName);    // V12：降级态
+      const stashFrames = await this.peekSpoolFrames(projectId);
+      if (queue.length === 0 && stashFrames.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }
+      this.enterInFlight(projectId);                               // enter storeInFlight（projectId 级）
+      const stashIds = stashFrames.map((f) => f.frameId);
+      // —— 降级态（V12）：本批先落 spool（新家先落定），再连带旧帧试 PG ——
+      if (degraded && queue.length > 0) {
+        const n0 = queue.length;
+        const own = n0 === 1 ? queue[0] : Y.mergeUpdates(queue.slice(0, n0));
+        const ids = await this.spool.append(projectId, own);       // fsync 完成才返回（本批安全先落盘）
+        queue.splice(0, n0);                                       // 本批新家=spool 已落定
+        this.leaveInFlight(projectId);                             // X2 落定点②：spool fsync 成功（批已安全——后续 PG 尝试是回收不是保命）
+        stashFrames.push({ frameId: ids[0], payload: own });       // 并入本次 PG 尝试集
+        stashIds.push(ids[0]);
+      }
+      const n = queue.length;
+      const parts = [...stashFrames.map((f) => f.payload), ...queue.slice(0, n)];
+      const tailRef = parts[parts.length - 1];                     // Y8：取批时批尾引用（身份校验锚——splice 前比较）
+      const payload = parts.length === 1 ? parts[0] : Y.mergeUpdates(parts);
+      let appended = false; let fenced = false;
+      try {
+        const r = await this.repo.append(projectId, payload);      // AppendResult（契约 15）+5s 事务上界（V8）
+        if (r.ok) appended = true;
+        else if (r.reason === 'fenced') {
+          fenced = true;
+          this.logger.error(`append fenced for ${projectId}（租约失守——批走 spool，不排退避梯）`);
+        } else {
+          throw new Error(`append returned no row (${r.reason})`);
+        }
+      } catch (err) {
+        if (isFkGone(err)) {                                       // V6：FK 判别=isFkGone（pg-error.util 单源——X15）
+          queue.splice(0, n);
+          yjsUpdatesDiscardedDeletedTotal.inc({ source: 'gateway' });
+          this.leaveInFlight(projectId);                           // X2 落定点③：FK/终态丢弃
+          this.logger.warn(`store append hit FK for ${projectId}——batch discarded (project deleted)`);
+          return false;
+        }
+        this.logger.error(`store append failed for ${projectId}, ${parts.length} updates: ${(err as Error).message}`);
+        yjsStoreAppendFailureTotal.inc();
+      }
+      if (appended) {
+        // Y8：splice **前**判据（v3 的 splice 后 queue.length<n 恒真=健康路径刷 anomaly）——
+        // await 期间 push 只增不减：length<n ⇒ 有人并发取批（saveMutex 被绕过）；
+        // queue[n-1]!==tailRef ⇒ 结构性变更（Y7 coalesce 竞争——门控下不该发生）→ splice 只删确实还在的前缀
+        if (queue.length < n || (n > 0 && queue[n - 1] !== tailRef)) {
+          yjsStoreTailAnomalyTotal.inc();
+          this.logger.error(`store tail anomaly for ${documentName}: queue mutated during append（并发取批/结构变更——splice(0,n) 按实际存在截断）`);
+        }
+        queue.splice(0, n);                                        // 新家（PG）已落定——移出旧归属
+        this.leaveInFlight(projectId);                             // X2 落定点①：append ok
+        if (stashIds.length) await this.spool.confirm(projectId, stashIds);   // 旧帧内容已入 PG——可回收（契约 12）
+        yjsStoreDrainTotal.inc({ result: 'appended' });
+        yjsCanvasDocBytes.inc({ projectId }, payload.byteLength);   // 批3-4：增量字节累加
+        this.cancelPersistRetry(documentName);   // 批3-4：成功即撤销退避定时器
+        this.setPersistStatus(documentName, true);
+        try { await this.maybeCompact(projectId); }
+        catch (err) {
+          // compact 是优化不是不变量载体：行已落库，失败只 WARN 绝不抛——否则被库当 store 失败 → doc 永不卸载 → destroy 挂死
+          yjsStoreCompactFailureTotal.inc();
+          this.logger.warn(`compact failed for ${projectId} (rows already durable): ${(err as Error).message}`);
+        }
+        return true;
+      }
+      // append 失败（含 fenced）：批必须入账——spool=唯一真修法（E43②：入账先于一切）。
+      // V1：只写"本批"（降级态已提前写过则跳过）——旧帧留在 spool 各自独立，恢复时合并读
+      if (!degraded && queue.length > 0) {
+        try {
+          const n2 = queue.length;
+          const own = n2 === 1 ? queue[0] : Y.mergeUpdates(queue.slice(0, n2));
+          await this.spool.append(projectId, own);                 // fsync 完成才 resolve；新帧不 confirm（V1）
+          queue.splice(0, n2);                                     // 新家（spool）已落定——移出旧归属
+          this.leaveInFlight(projectId);                           // X2 落定点②：spool fsync 成功
+        } catch (e2) {
+          // spool 也失败：队列不动（BOI）——**不清 inFlight 标志**（X2：批未落定=flush-at-risk 口径，契约 14 原文；
+          // finally 形态会把 G-2a ii 档清零=自断言红）
+          this.logger.error(`spool append failed for ${projectId}, batch retained in queue: ${(e2 as Error).message}`);
+          this.setPersistStatus(documentName, false);
+          if (!fenced) this.schedulePersistRetry(documentName);    // X6：熔断态首行自检不排（probe 恢复经 onRecovered seam 唤醒——Y10）
+          return false;                                            // 任何路径不 throw（契约 3）——熔断计数在 spool 内
+        }
+      }
+      if (queue.length === 0) this.leaveInFlight(projectId);       // 队列空=批全在 spool（fsync 已完成=契约 14 落定点；帧后续落 PG 归回灌——非 at-risk，J4 注）
       this.setPersistStatus(documentName, false);
-      if (!this.retryingPersist) this.schedulePersistRetry(documentName);
-      throw err;   // hook 链由 Hocuspocus catch（"Document stays in memory"），doc 留内存重试
+      if (!fenced) this.schedulePersistRetry(documentName);        // fenced=终态禁退避梯（retryingPersist 档位判定归 retryPersist）
+      return false;                                                // 任何路径不 throw（契约 3）
+    } catch (err) {   // Y2 兜底：意外异常（Y.mergeUpdates 炸/IO 逃逸等）——leave 防漂移+ERROR 留痕；正常失败路径（上文 return false）不经此
+      this.leaveInFlight(projectId);
+      this.logger.error(`store unexpected throw for ${documentName}: ${(err as Error).message}——契约 3 最后一道闸（批保留原归属地）`);
+      return false;
     }
-    yjsStoreDrainTotal.inc({ result: 'appended' });
-    yjsCanvasDocBytes.inc({ projectId }, payload.byteLength);   // 批3-4：增量字节累加
-    this.cancelPersistRetry(documentName);   // 批3-4：成功即撤销退避定时器（有机 store 关闭重试）
-    this.setPersistStatus(documentName, true);
-    try {
-      await this.maybeCompact(projectId);
-    } catch (err) {
-      // compact 是优化不是不变量载体：行已落库，失败只 WARN 绝不抛——否则被 Hocuspocus 当 store 失败 → doc 永不卸载 → destroy 挂死
-      yjsStoreCompactFailureTotal.inc();
-      this.logger.warn(`compact failed for ${projectId} (rows already durable): ${(err as Error).message}`);
+  }
+
+  /** V10：终态拦截的显式清账——丢弃是对的，静默丢弃不是。Y1：丢弃=归属落定——leaveInFlight
+   *  （Set.delete 幂等；事件到达时 store 在飞的窗口由此收口，防已删项目永久占用 storeInFlight）。 */
+  private discardForGoneProject(projectId: string, documentName: string): boolean {
+    const q = this.pendingQueues.get(projectId);
+    const batches = q?.length ?? 0;
+    const bytes = (q ?? []).reduce((s, u) => s + u.byteLength, 0);
+    if (q && batches > 0) q.splice(0);
+    this.leaveInFlight(projectId);   // Y1：X2 落定点④（project.gone 丢弃）
+    yjsUpdatesDiscardedDeletedTotal.inc({ source: 'gateway' });
+    this.logger.warn(JSON.stringify({ event: 'project_gone_discard', projectId, batches, bytes }));
+    return false;
+  }
+
+  /** 提前 drain 的帧读（IO 错误不阻断主路径——帧留待下次；正常态键集判定零 IO） */
+  private async peekSpoolFrames(projectId: string): Promise<{ frameId: string; payload: Uint8Array }[]> {
+    try { return this.spool.hasFrames(projectId) ? await this.spool.peek(projectId) : []; }
+    catch (err) {
+      this.logger.error(`spool peek failed for ${projectId}（帧跳过本次合并，留待下次）: ${(err as Error).message}`);
+      return [];
     }
-    return true;
+  }
+
+  /** Y0a-2：gateway 直调点的串行包装（A14——库已持锁调钩子，钩子路径直通 Unlocked 禁再包） */
+  private storeDocumentSerialized(p: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
+    return p.document.saveMutex.runExclusive(() => this.storeDocumentUnlocked(p));
+  }
+
+  /** V13+X9：受理面判据（**粒度修正：只读降级而非停服**——"三入口全拒"会把本地磁盘故障放大成
+   *  全站画布不可读：readCanvas 走 withDoc、装载拒=重连风暴，均超出 spec §2.2"拒新写入"语义）。
+   *  分层：draining=关停期拒一切新连接；spool 熔断=**只读化**（新连接放行但 readOnly——复用
+   *  connectionConfig.readOnly 机制+stateless persist-status 通告；存量连接不动——其批次由 BOI/V5' 承接）；
+   *  loadDocument **永不 gate**；withDoc 只 gate 写意图。Y0a-3 的 /api/ready 消费同一方法。 */
+  isShuttingDown(): boolean { return this.draining; }
+  isWritableOrDegraded(): 'ok' | 'spool-unwritable' {
+    return this.spool.isWritable() && !this.spool.overCapacity() ? 'ok' : 'spool-unwritable';
+  }
+
+  /** V22+X2：storeInFlight 维护对（projectId 键控）。enter=Unlocked 取批路径；leave=**四落定点显式调用**
+   *  （见 storeDocumentUnlocked 头注释）+Y2 兜底 catch+Y1 rearm/detached——非 try/finally 单点。 */
+  private enterInFlight(projectId: string): void {
+    this.inFlightProjects.add(projectId);          // Set.add 幂等——重试再进入不双计（P5）
+    storeInFlightDocs.set(this.inFlightProjects.size);
+  }
+  private leaveInFlight(projectId: string): void { // 唯一减点=归属落定/兜底——drain force-spool 复用（契约 14）
+    this.inFlightProjects.delete(projectId);
+    storeInFlightDocs.set(this.inFlightProjects.size);
   }
 
   /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置）。
@@ -358,7 +486,25 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /** Y0a-2（X9/Y9）：spool 熔断的只读降级通告——best-effort（连接注册后 doc 才存在，500ms 延迟取；
+   *  无 doc 则跳过，重连时 authenticate 再补）。客户端据此展示"暂存不可用"横幅——禁静默只读。 */
+  private broadcastSpoolDegraded(documentName: string): void {
+    const t = setTimeout(() => {
+      const document = this.server.hocuspocus.documents.get(documentName);
+      if (!document) return;
+      try {
+        document.broadcastStateless(JSON.stringify({ type: 'persist-status', healthy: false, reason: 'spool-unwritable' }));
+      } catch (err) {
+        this.logger.warn(`spool degraded broadcast failed for ${documentName}: ${(err as Error).message}`);
+      }
+    }, 500);
+    t.unref?.();
+  }
+
   private schedulePersistRetry(documentName: string) {
+    // Y0a-2（X6）：熔断自检首行——spool 不可写期不排梯（probe 恢复经 onRecovered seam→rearmQueues 唤醒，
+    // 否则梯内 store 首行 spool 失败→批留队列但梯空转烧档位）。
+    if (!this.spool.isWritable()) { this.retryPausedByCircuit = true; return; }
     const entry = this.persistRetry.get(documentName) ?? { rung: 0, timer: null };
     if (entry.timer) return;   // 已排程（失败叠加不提前触发）
     if (entry.rung >= PERSIST_RETRY_DELAYS_MS.length) return;   // 梯子耗尽：等有机 store / 下次 load 回灌
@@ -377,25 +523,42 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.persistRetry.delete(documentName);
   }
 
-  /** 批3-4 有界退避重试（F2 接入点）：doc 级（活 doc 队列再 flush）→ stash 级（doc 已卸载，
-   *  projectId 直写 unflushed 台账）两阶段；成功广播 healthy、耗尽留队（下次 load 回灌兜底仍在）。 */
+  /** Y0a-2（X5）：有界退避重试双通道——doc 级（活 doc 队列再 flush，经 saveMutex 串行）→
+   *  detached 态（doc 不活/队列空）队列通道+spool 帧通道；成功广播 healthy、耗尽留队
+   *  （下次 load 回灌/启动回灌兜底仍在——R1 拒绝理由由此自洽：回灌失败项目经退避梯运行期自愈，
+   *  无需独立后台 timer）。 */
   private async retryPersist(documentName: string) {
     const entry = this.persistRetry.get(documentName);
     if (!entry) return;
     const projectId = parseProjectId(documentName);
     const document = this.server.hocuspocus.documents.get(documentName);
     try {
-      if (document && (this.pendingUpdates.get(document)?.length ?? 0) > 0) {
+      if (document && (this.pendingQueues.get(this.docProject.get(document) ?? '')?.length ?? 0) > 0) {
         this.retryingPersist = true;
         try {
-          await this.storeDocument({ document, documentName });   // doc 级：doc 仍被观察且队列非空
+          await this.storeDocumentSerialized({ document, documentName });   // doc 级：doc 仍被观察且队列非空（A14——saveMutex 串行）
         } finally {
           this.retryingPersist = false;
         }
       } else {
-        const stash = this.takeStash(projectId);   // stash 级：doc 不活/队列空（tripwire 同源判定）
-        if (!stash) { this.cancelPersistRetry(documentName); return; }   // 无可重试（已被 drain）
-        await this.repo.append(projectId, stash);
+        // X5：detached 态（doc 不活/队列空）双通道——先看 gateway 队列（V4 后 doc 卸载队列仍在），
+        // 再看 spool 帧；皆空才 cancel。队列通道=spool-first（写 spool 成功即归属落定，帧由后续三段式回灌）。
+        const queue = this.pendingQueues.get(projectId);
+        if (queue && queue.length > 0) {
+          const n = queue.length;
+          const payload = n === 1 ? queue[0] : Y.mergeUpdates(queue.slice(0, n));
+          await this.spool.append(projectId, payload);           // 失败 throw 重走 catch 退避（不 cancel——批仍需保活）
+          queue.splice(0, n);
+          this.leaveInFlight(projectId);                         // Y1：detached 队列通道落定点②（批可能带着 Unlocked 留下的在飞标志进梯——此处落 spool 即落定）
+        } else {
+          const frames = await this.peekSpoolFrames(projectId);  // 帧通道=三段式（peek→append→confirm）
+          if (frames.length === 0) { this.cancelPersistRetry(documentName); return; }
+          for (const f of frames) {
+            const r = await this.repo.append(projectId, f.payload);
+            if (!r.ok) throw new Error(`append returned no row (${r.reason})`);   // 重走 catch 退避（帧未 confirm——安全）
+            await this.spool.confirm(projectId, [f.frameId]);
+          }
+        }
       }
       this.cancelPersistRetry(documentName);
       this.setPersistStatus(documentName, true);
@@ -411,40 +574,40 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /** X5+Y1+Y10：统一唤醒——"每个非空队列恒有恢复路径"单一不变量。Y1：覆盖面=pendingQueues 非空
+   *  ∪ spool.keys()（帧-only 滞留面：重启回灌预算耗尽残留/卸载交接后的帧——只遍历队列会漏）；
+   *  排程前清 inFlight（rearm 时旧 store 尝试已死——批带着标志滞留会永久抬高 yjs_store_in_flight_docs；
+   *  重试 enter 幂等重新置位）。 */
+  private rearmQueues(): void {
+    const ids = new Set<string>([
+      ...[...this.pendingQueues.entries()].filter(([, q]) => q.length > 0).map(([pid]) => pid),
+      ...this.spool.keys(),
+    ]);
+    for (const pid of ids) {
+      this.leaveInFlight(pid);
+      this.schedulePersistRetry(`project:${pid}`);
+    }
+    this.retryPausedByCircuit = false;
+  }
+
   /** 最后连接断开：flush →（写了才）compact。
    *  绝不抛出（覆盖含 redlock Skip 在内的全部路径，spec v4）：onDisconnect 是 onClose 的 async 回调、
    *  注册方 forEach 不 await——抛错 = unhandled rejection = 进程退出；DirectConnection 路径是 await 的，
    *  抛错冒泡出 withDoc finally → API 500 → 前端重试 → 重复插入。Skip 路径下 saveMutex 在回调抛错时
-   *  先释放 → onDisconnect 一定被调用 → 本契约面更宽。 */
+   *  先释放 → onDisconnect 一定被调用 → 本契约面更宽。
+   *  Y0a-2：storeDocument 不再 throw（BOI 契约 3）——失败路径自处理（批在 spool/队列），stashPending 退役。 */
   private async disconnect({ document, documentName }: onDisconnectPayload) {
     if (document.getConnectionsCount() > 0) return;
     const projectId = parseProjectId(documentName);
-    try {
-      const wrote = await this.storeDocument({ document, documentName });
-      if (wrote) {
-        try {
-          await this.maybeCompact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
-        } catch (err) {
-          yjsStoreCompactFailureTotal.inc();
-          this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);   // 行已落库，非 flush 失败
-        }
+    const wrote = await this.storeDocumentSerialized({ document, documentName });
+    if (wrote) {
+      try {
+        await this.maybeCompact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
+      } catch (err) {
+        yjsStoreCompactFailureTotal.inc();
+        this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);   // 行已落库，非 flush 失败
       }
-    } catch (err) {
-      this.stashPending(document, projectId, err as Error);   // 只兜 flush（append）失败（storeDocument 已排退避）
     }
-  }
-
-  /** flush 失败兜底：pending 转移到 projectId 键控 Map（跨 doc 卸载存活）——doc 卸载不再等于数据蒸发 */
-  private stashPending(document: Y.Doc, projectId: string, error: Error) {
-    const q = this.pendingUpdates.get(document);
-    let retained = 0;
-    if (q?.length) {
-      const batch = q.splice(0);
-      retained = batch.length;
-      const payload = batch.length === 1 ? batch[0] : Y.mergeUpdates(batch);
-      this.putStash(projectId, payload);
-    }
-    this.logger.error(`collab flush failed for ${projectId}, ${retained} updates stashed for next load: ${error.message}`);
   }
 
   async onModuleInit(): Promise<void> {
@@ -452,6 +615,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.redisSync.getDocument = (name) => this.server.hocuspocus.documents.get(name);
     await this.server.listen();   // Y0a-1 P1-1：await listen——onModuleInit 返回即端口就绪（消端口竞态）
     this.startSessionSweep();   // 批3-4：过期 session 连接清扫（灰度默认关——tick 内自检开关）
+    // Y10 seam：spool IO 熔断恢复→统一唤醒退避梯+清 inFlight（启动回灌接线归 Task 4——本批仅 seam 注入；
+    // 幂等安全：schedulePersistRetry 对已有 timer return）
+    this.spool.onRecovered = () => this.rearmQueues();
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
       this.closeTeamDocuments(payload.projectIds);

@@ -1,5 +1,6 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import { Document } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
@@ -14,6 +15,11 @@ function toDocLike(doc: Y.Doc): DocLike {
 }
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
+import { CollabSpoolService } from './collab-spool.service';
+import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { failingRepo } from '../../test-utils/failing-repo';
+import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
+import { pollUntil } from '../../test-utils/poll-until';
 
 
 function buildDocState(): Buffer {
@@ -50,6 +56,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   let service: CollabDocumentService;
   let emitter: EventEmitter2;
   let url: string;
+  let spool: CollabSpoolService;   // Y0a-2：kit 注入的 spool 实例（peek 断言与装置用）
   const providers: HocuspocusProvider[] = [];
 
   beforeEach(async () => {
@@ -57,9 +64,9 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     // Y0a-1：装置提取——fixture 构造收敛 dual-client-server（repo 台账经 over.append 注入；
     // prisma/permSvc/emitter 注入面随 kit 暴露，既有覆写路径不变）
     const kit = await startDualClientServer({
-      append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); }),   // 台账：once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
+      append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); return { ok: true as const, seq: 1n }; }),   // AppendResult 契约（Y0a-2 判别消费——禁 resolve undefined）；once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
     }, 300);
-    ({ gateway, repo, url, prisma, permSvc, emitter, docService: service } = kit);
+    ({ gateway, repo, url, prisma, permSvc, emitter, spool, docService: service } = kit);
   });
 
   afterEach(async () => {
@@ -98,9 +105,11 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     };
     /** 已落库的 append 行（台账快照）——失败注入用例里被 reject 的批不得算作持久化状态（Step 1a 台账保证） */
     const appendedRows = (): Uint8Array[] => durableRows.slice();
-    /** 持久化等价断言（唯一入口）：前置——pending 必须已 drain（否则"等价"无意义）；重放成功行 ≡ 内存 doc（canonical + 语义双判据） */
+    /** 持久化等价断言（唯一入口）：前置——pending 必须已 drain（否则"等价"无意义）；重放成功行 ≡ 内存 doc（canonical + 语义双判据）。
+     *  Y0a-2（Y4）：队列读点两跳（pendingQueues[docProject[doc]]——V4 projectId 键控化后 doc 直取恒 undefined） */
     const expectDurableEquivalent = (doc: Y.Doc) => {
-      const pending = (gateway as any).pendingUpdates.get(doc) as Uint8Array[] | undefined;
+      const g = gateway as any;
+      const pending = g.pendingQueues.get(g.docProject.get(doc)) as Uint8Array[] | undefined;
       expect(pending).toBeDefined();   // 前置实在化：未注册 doc 的"等价"无意义（防 vacuous 通过）
       expect(pending!).toHaveLength(0);   // 前置——pending 必须已 drain
       const d = new Y.Doc();
@@ -320,8 +329,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('onDisconnect：最后连接断开触发 flush-then-compact', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc();
-      doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（disconnect 走 storeDocumentSerialized——saveMutex 需真锁载体；连接数缺省=0）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });   // 同实例建立队列
       (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4 时间门限：窗口达标才 compact（本例焦点是 flush-then-compact 耦合）
       doc.getMap('nodes').set('x', 1);
@@ -333,8 +341,8 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('onDisconnect：非最后连接早退——不 flush 不 compact', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc();
-      doc.getConnectionsCount = () => 1;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（saveMutex）——非最后连接形态
+      (doc as any).getConnectionsCount = () => 1;
       await onLoadDocument({ document: doc, documentName: 'project:p1' });   // 同实例：queue 有内容，若早退守卫被删则 append 会被调 → 红
       doc.getMap('nodes').set('x', 1);
       await onDisconnect({ document: doc, documentName: 'project:p1' });
@@ -364,8 +372,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('红2a：判据2 精复现——纯删除后无编辑，断连 flush 落库', async () => {
       const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc();
-      doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（disconnect 走 storeDocumentSerialized——saveMutex 需真锁载体；连接数缺省=0）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4：compact 时间窗达标（焦点在 flush 不在门限）
       doc.getMap('nodes').set('n1', new Y.Map());
@@ -381,8 +388,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('红2b：删完断连后同 doc 再变更——重放等价（次数从序列推导，旧实现=1、新实现=3）', async () => {
       const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc();
-      doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（disconnect 走 storeDocumentSerialized——saveMutex 需真锁载体；连接数缺省=0）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('n1', new Y.Map());
       await onStoreDocument({ document: doc, documentName: 'project:p1' });   // #1 插入
@@ -398,8 +404,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('红3：117 直测——flush 删 SV 后同 doc 写入不得静默丢', async () => {
       const { onLoadDocument, onDisconnect, onStoreDocument } = extractHooks();
-      const doc: any = new Y.Doc();
-      doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（disconnect 走 storeDocumentSerialized——saveMutex 需真锁载体；连接数缺省=0）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('u1', new Y.Map());
       await onDisconnect({ document: doc, documentName: 'project:p1' });   // #1 flush（现状 append 成功 + finally 删 SV）
@@ -421,7 +426,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       stampDocSchema(toDocLike(doc));                     // O0b-0：窗口写入的 doc 视为已盖章形态（版本门放行）
       release();
       await loading;
-      const pending = (gateway as any).pendingUpdates.get(doc) as Uint8Array[];
+      const pending = (gateway as any).pendingQueues.get((gateway as any).docProject.get(doc)) as Uint8Array[];   // Y4：两跳（V4 projectId 键控）
       expect(pending).toHaveLength(2);                    // 窗口写 win1 + 盖章 meta set（两 update 都进 pending）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
@@ -481,7 +486,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       expect(doc.getMap('nodes').get('a')).toBe(1);
       expect(doc.getMap('nodes').get('b')).toBe(2);
-      expect((gateway as any).pendingUpdates.get(doc)).toHaveLength(0);   // 重放被抑制，不污染队列
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toHaveLength(0);   // 重放被抑制，不污染队列（Y4：两跳）
     });
 
     it('绿2：append 失败抛错回灌——再 store 重试成功，无部分批', async () => {
@@ -491,11 +496,11 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       doc.getMap('nodes').set('n1', new Y.Map());
       doc.getMap('nodes').set('n2', new Y.Map());
       repo.append.mockRejectedValueOnce(new Error('db down'));
-      await expect(onStoreDocument({ document: doc, documentName: 'project:p1' })).rejects.toThrow('db down');
-      expect((gateway as any).pendingUpdates.get(doc)).toHaveLength(1);   // 队列保留——回灌的是合并单行 payload（batch.length===2 但 unshift(payload) 单元素）
+      await expect(onStoreDocument({ document: doc, documentName: 'project:p1' })).resolves.toBe(false);   // Y0a-2 契约 3 反转：任何路径不 throw（失败批走 spool——旧断言 rejects.toThrow 必红点）
+      expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：失败批已入 spool 帧（新家落定——旧实现批留队列，V4 后批的失败归属=spool）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(2);   // 重试成功（第一次失败 + 第二次成功）
-      expect((gateway as any).pendingUpdates.get(doc)).toHaveLength(0);
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toHaveLength(0);
       expectDurableEquivalent(doc);
     });
 
@@ -548,14 +553,14 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('绿5b：disconnect 的 wrote 契约——没写就不 compact，写了才 compact（时间窗达标前提）', async () => {
       const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
-      const docA: any = new Y.Doc(); docA.getConnectionsCount = () => 0;
+      const docA = new Document('project:p1');   // Y0a-2：真 Document（saveMutex——disconnect 直调路径）
       await onLoadDocument({ document: docA, documentName: 'project:p1' });
       await onStoreDocument({ document: docA, documentName: 'project:p1' });   // O0b-0：stamp 自愈行先落库——队列净空
       (repo.append as any).mockClear();
       (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 窗口达标：排除时间门限干扰，只测 wrote 耦合
       await onDisconnect({ document: docA, documentName: 'project:p1' });   // 队列空 → wrote=false
       expect(repo.compact).not.toHaveBeenCalled();
-      const docB: any = new Y.Doc(); docB.getConnectionsCount = () => 0;
+      const docB = new Document('project:p2');
       await onLoadDocument({ document: docB, documentName: 'project:p2' });
       await onStoreDocument({ document: docB, documentName: 'project:p2' });   // stamp 落库
       (repo.append as any).mockClear();
@@ -567,7 +572,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('绿6：disconnect 不抛——compact reject 时 onDisconnect 必须 resolve（进程守门）', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc(); doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（saveMutex——disconnect 直调路径）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       (gateway as any).lastCompactAt.set('p1', Date.now() - 61_000);   // 批3-4 时间门限：窗口达标才会碰 compact
       doc.getMap('nodes').set('x', 1);
@@ -578,13 +583,13 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('绿6b：flush 失败吞错契约——append reject 时 onDisconnect 仍 resolve（stash 兜底不抛）', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc(); doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（saveMutex——disconnect 直调路径）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('x', 1);
       repo.append.mockRejectedValueOnce(new Error('db down'));
       // 吞错契约显式断言（进程守门）：onDisconnect 是 onClose 的不-await 回调，抛错 = unhandled rejection = 进程退出
       await expect(onDisconnect({ document: doc, documentName: 'project:p1' })).resolves.toBeUndefined();
-      expect((gateway as any).unflushed.get('p1')).toBeTruthy();   // 兜底生效：pending 已转移 stash
+      expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：失败批已入 spool（fsync 落定——兜底生效，契约清单 A peek 替换）
     });
 
     it('绿7：tripwire 双向——未注册 doc 的 store / update 事件都 ERROR 且不静默', async () => {
@@ -598,7 +603,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
         expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('unobserved'));
         const doc = new Y.Doc();   // ② 监听器侧：注册后条目异常丢失 → update 事件 ERROR
         await onLoadDocument({ document: doc, documentName: 'project:p1' });
-        (gateway as any).pendingUpdates.delete(doc);
+        (gateway as any).pendingQueues.delete('p1');   // Y4：条目丢失模拟改 projectId 键控形态（update 回调经 docProject 解析队列——条目缺失=untracked）
         doc.getMap('nodes').set('y', 1);
         expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('untracked'));
       } finally {
@@ -606,9 +611,9 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       }
     });
 
-    it('绿8：unflushed 兜底全链——flush 失败 → stash → 新实例 load（不编辑）→ store 落库 → 再 store 不 append', async () => {
+    it('绿8：spool 帧兜底全链——flush 失败 → 批入 spool → 新实例 load（帧保留回灌）→ store 落库并 confirm → 再 store 不 append', async () => {
       const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
-      const docA: any = new Y.Doc(); docA.getConnectionsCount = () => 0;
+      const docA = new Document('project:p1');   // Y0a-2：真 Document（saveMutex——disconnect 直调路径）
       await onLoadDocument({ document: docA, documentName: 'project:p1' });
       docA.getMap('nodes').set('n1', new Y.Map());
       docA.getMap('nodes').set('n2', new Y.Map());
@@ -616,15 +621,16 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const insertRow = appendedRows()[0];   // 显式捕获插入行（避免对 append 调用序的隐式依赖）
       docA.getMap('nodes').delete('n2');
       repo.append.mockRejectedValueOnce(new Error('db down'));
-      await onDisconnect({ document: docA, documentName: 'project:p1' });      // flush 失败 → stash（吞错）
-      expect((gateway as any).unflushed.get('p1')).toBeTruthy();
+      await onDisconnect({ document: docA, documentName: 'project:p1' });      // flush 失败 → 批入 spool（契约 3 不抛）
+      expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：失败批已入 spool（fsync 落定）
       repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [insertRow], stateSeq: 0n });   // 新实例从"DB"重放插入行
       const docB = new Y.Doc();
       await onLoadDocument({ document: docB, documentName: 'project:p1' });
-      expect((gateway as any).pendingUpdates.get(docB)).toHaveLength(1);   // stash 窗口外回灌进 pending（不编辑）
-      expect((gateway as any).unflushed.has('p1')).toBe(false);
-      await onStoreDocument({ document: docB, documentName: 'project:p1' });   // stash 落库
-      expect(repo.append).toHaveBeenCalledTimes(3);   // #1 成功 + #2 失败 + #3 stash 落库
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(docB))).toHaveLength(1);   // 帧窗口外回灌进 pending（不编辑）
+      expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：帧保留至 append 成功（confirm 恒在成功后，契约 12）——段回收见下方落库断言
+      await onStoreDocument({ document: docB, documentName: 'project:p1' });   // 提前 drain：帧随本批落库并 confirm
+      expect(await spool.peek('p1')).toHaveLength(0);   // 段回收（append 成功 → confirm → unlink）
+      expect(repo.append).toHaveBeenCalledTimes(3);   // #1 成功 + #2 失败 + #3 帧落库
       const all = appendedRows();
       expect(replayOf([all[0]]).getMap('nodes').has('n2')).toBe(true);    // 插入行真实含 n2
       expect(replayOf(all).getMap('nodes').has('n2')).toBe(false);        // stash（删除）生效
@@ -634,17 +640,17 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('绿8b：stash 提前 drain——disconnect 失败产生 stash 后，同 doc（不重载）下次 store 即落 stash', async () => {
       const { onLoadDocument, onStoreDocument, onDisconnect } = extractHooks();
-      const doc: any = new Y.Doc(); doc.getConnectionsCount = () => 0;
+      const doc = new Document('project:p1');   // Y0a-2：真 Document（saveMutex——disconnect 直调路径）
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('n1', new Y.Map());
       await onStoreDocument({ document: doc, documentName: 'project:p1' });   // #1 插入成功
       doc.getMap('nodes').delete('n1');
       repo.append.mockRejectedValueOnce(new Error('db down'));
-      await onDisconnect({ document: doc, documentName: 'project:p1' });      // flush 失败 → stash
-      expect((gateway as any).unflushed.get('p1')).toBeTruthy();
+      await onDisconnect({ document: doc, documentName: 'project:p1' });      // flush 失败 → 批入 spool（契约 3 不抛）
+      expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：失败批已入 spool
       const wrote = await onStoreDocument({ document: doc, documentName: 'project:p1' });   // 提前 drain 随本批落库
       expect(wrote).toBe(true);
-      expect((gateway as any).unflushed.has('p1')).toBe(false);
+      expect(await spool.peek('p1')).toHaveLength(0);   // 段回收（append 成功 → confirm → unlink）
       const all = appendedRows();
       expect(replayOf([all[0]]).getMap('nodes').has('n1')).toBe(true);
       expect(replayOf(all).getMap('nodes').has('n1')).toBe(false);   // 删除随 stash 落库
@@ -655,13 +661,14 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
       stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照
       repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [], stateSeq: 0n });
-      (gateway as any).unflushed.set('p1', Y.encodeStateAsUpdate(snapDoc));   // 与快照同源：apply 0 事件
+      await spool.append('p1', Y.encodeStateAsUpdate(snapDoc));   // Y0a-2：装置行改 spool 帧（与快照同源——apply 0 事件）
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
-      expect((gateway as any).unflushed.has('p1')).toBe(false);
-      expect((gateway as any).pendingUpdates.get(doc)).toHaveLength(0);
-      await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).not.toHaveBeenCalled();
+      expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：帧保留至 append 成功（Y0a-1"消费后清空"语义随契约 12 反转）
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toHaveLength(0);   // 同源 apply=0 事件，队列零污染
+      await onStoreDocument({ document: doc, documentName: 'project:p1' });   // 帧回收行（与 DB 同源=幂等冗余——confirm 恒在 append 成功后）
+      expect(repo.append).toHaveBeenCalledTimes(1);   // 帧回收落库（零写放大契约由"帧保留"语义取代）
+      expect(await spool.peek('p1')).toHaveLength(0);   // confirm → 段回收
     });
 
     it('Y0a-1 peek/consume：版本门拒绝 ⇒ stash 存活；正常档 ⇒ 消费后清空', async () => {
@@ -671,23 +678,26 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       bad.getMap('meta').set('schemaVersion', 999);
       bad.getMap('nodes').set('n', new Y.Map());
       repo.hydrateWithRecovery.mockResolvedValueOnce({ state: Buffer.from(Y.encodeStateAsUpdate(bad)), updates: [], stateSeq: 0n });
-      (gateway as any).putStash('p-peek', Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())));
+      await spool.append('p-peek', Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())));   // Y0a-2：装置行改 spool 帧
       await expect(onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-peek' }))
         .rejects.toMatchObject({ schemaRefusal: true });
-      expect((gateway as any).unflushed.has('p-peek')).toBe(true);      // 未消费——蒸发路径已关
-      // 正常档：无戳空 doc（stamp 自愈路径）⇒ stash 被消费
+      expect(await spool.peek('p-peek')).toHaveLength(1);      // 拒档：帧存活（蒸发路径已关）
+      // 正常档：无戳空 doc（stamp 自愈路径）⇒ 帧 apply 保留（confirm 出口=下次 store 提前 drain）
       repo.hydrateWithRecovery.mockResolvedValueOnce({ state: null, updates: [], stateSeq: 0n });
-      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-peek' });
-      expect((gateway as any).unflushed.has('p-peek')).toBe(false);
+      const okDoc = new Y.Doc();
+      await onLoadDocument({ document: okDoc, documentName: 'project:p-peek' });
+      expect(await spool.peek('p-peek')).toHaveLength(1);      // Y0a-2：帧保留（Y0a-1"消费后清空"随契约 12 反转）
+      await gateway.hooks.onStoreDocument({ document: okDoc, documentName: 'project:p-peek' } as any);   // store 直调：帧随批落库并 confirm（白盒直调）
+      expect(await spool.peek('p-peek')).toHaveLength(0);      // confirm → 段回收
     });
 
     it('绿9：队列身份恒定——计数封顶原地合并（禁 set 替换数组）', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
-      const firstRef = (gateway as any).pendingUpdates.get(doc);
+      const firstRef = (gateway as any).pendingQueues.get((gateway as any).docProject.get(doc));   // Y4：两跳取队列
       for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, { v: i });   // >64 触发原地折叠（第 65 条时折为 1，继续 push）
-      expect((gateway as any).pendingUpdates.get(doc)).toBe(firstRef);   // toBe 同一对象（set 替换写法必红）
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toBe(firstRef);   // toBe 同一对象（set 替换写法必红；折叠断言本批保留——Task 7 随闩锁改造落地）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);   // 折叠 + drain 合并 = 单行
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
@@ -695,23 +705,25 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       expectDurableEquivalent(doc);
     });
 
-    it('绿9b：失败+交错回归——await 窗口注入更新触发封顶后 reject，失败批仍在活队列', async () => {
+    it('绿9b：失败+交错回归——await 窗口注入更新触发封顶后 append 失败，失败批仍在归属地（契约 3：任何路径不 throw）', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       doc.getMap('nodes').set('n1', new Y.Map());
       let rejectAppend!: (e: Error) => void;
       repo.append.mockImplementationOnce(() => new Promise((_res, rej) => { rejectAppend = rej; }));
+      const g = gateway as any;
       const storePromise = onStoreDocument({ document: doc, documentName: 'project:p1' });
       await new Promise((r) => setImmediate(r));   // 跑到 await append
       for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, { v: i });   // 窗口内注入 >64 条 → 原地折叠
       rejectAppend(new Error('db down'));
-      await expect(storePromise).rejects.toThrow('db down');
-      const queue = (gateway as any).pendingUpdates.get(doc);
-      expect(queue.length).toBeGreaterThan(0);   // 失败批经 WeakMap 读出仍在（孤儿数组形态 = 队列空/丢失）
+      await expect(storePromise).resolves.toBe(false);   // Y0a-2 契约 3 反转：任何路径不 throw（旧断言 rejects.toThrow 必红点）
+      const queue = g.pendingQueues.get(g.docProject.get(doc)) as Uint8Array[];
+      const frames = await spool.peek('p1');
+      expect(queue.length + frames.length).toBeGreaterThan(0);   // BOI：失败批仍在归属地（V4 队列 ∪ spool 帧——两者其一非空）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(2);   // 失败 1 + 重试成功 1
-      expect((gateway as any).pendingUpdates.get(doc)).toHaveLength(0);
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toHaveLength(0);
       expectDurableEquivalent(doc);
     });
 
@@ -728,7 +740,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
         expect(wrote).toBe(true);
         expect(repo.append).toHaveBeenCalledTimes(1);
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('compact failed'));
-        expect((gateway as any).unflushed.has('p1')).toBe(false);
+        expect(await spool.peek('p1')).toHaveLength(0);   // Y0a-2：健康路径零 spool 写入（清单 A peek 替换）
       } finally {
         warnSpy.mockRestore();
       }
@@ -761,5 +773,111 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
         expect(oneShot.getMap('nodes').toJSON()).toEqual(piecewise.getMap('nodes').toJSON());
       }
     });
+  });
+});
+
+// Y0a-2 BOI 用例（白盒层直调 storeDocumentUnlocked——不经库 debouncer/saveMutex 包裹，V19 红相层注记）
+describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三代见用例名）', () => {
+  it('BOI-1 一代红相（splice-first）：append 挂起 → 批必须仍在队列（copy-first）——旧实现 splice(0) 先取走=队列空（进程死即蒸发）', async () => {
+    let release!: (v: { ok: true; seq: bigint }) => void;                       // Y13：可释放 deferred（永挂 promise 留悬挂引用）
+    const kit = await startDualClientServer({ append: vi.fn(() => new Promise((r) => { release = r; })) }, 200);
+    try {
+      const doc = new Y.Doc();
+      const name = 'project:p-boi1';
+      const g = kit.gateway as any;
+      g.pendingQueues.set('p-boi1', [new Uint8Array([1, 2, 3])]);                // Y19：projectId 键控装置（V4——旧字段 pendingUpdates 直插=种子不可见）
+      const errSpy = vi.spyOn(g.logger, 'error');
+      void kit.gateway.hooks.onStoreDocument({ document: doc, documentName: name } as any);   // 不 await——append 挂起（白盒直调：Y.Doc 非 Document 满型——Step 3b 注）
+      await pollUntil(() => (kit.repo.append as MockRepo['append']).mock.calls.length >= 1, 2_000);   // Y4：等 append 真被调——防 tripwire 早退的空转绿
+      expect(errSpy.mock.calls.some((c) => String(c[0]).includes('unobserved'))).toBe(false);   // Y4 反向断言：tripwire 未吞掉用例
+      expect(g.pendingQueues.get('p-boi1')).toHaveLength(1);                     // copy-first：批仍在旧归属地（旧实现 splice 后=0 → 红）
+      release({ ok: true, seq: 1n });                                            // 释放挂起（dispose 干净）
+    } finally { await kit.dispose(); }
+  });
+
+  it('BOI-2 三代红相（fenced 0 行不抛错）：append resolve {ok:false,reason:"fenced"} → 批走 spool（新家）+不排重试——旧实现不检查返回值照常 splice=帧蒸发', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-boi2-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      const repo = createMockRepo({ append: vi.fn(async () => ({ ok: false as const, reason: 'fenced' as const })) });
+      const kit = await startDualClientServer({ ...repo }, 200, spool);
+      try {
+        const g = kit.gateway as any;
+        g.pendingQueues.set('p-boi2', [new Uint8Array([9, 9])]);                 // Y19：projectId 键控
+        const r = await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p-boi2' } as any);   // 白盒直调（Y.Doc 非 Document 满型）
+        expect(r).toBe(false);
+        expect(g.pendingQueues.get('p-boi2')).toHaveLength(0);                   // 批已迁 spool 新家（splice 恒在新家 fsync 落定之后——旧实现 splice 后批两头蒸发：队列空∧spool 空，红相由下行 peek 断言承担）
+        expect(await spool.peek('p-boi2')).toHaveLength(1);                      // 批入 spool（旧实现无 spool 写入 → 红）
+        expect(g.persistRetry.size).toBe(0);                                     // fenced=终态禁退避梯（契约 15）
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('BOI-3 一代断链：append 持续失败 → 断连卸载 doc → 批必须在 spool（磁盘）——旧实现 stash 进内存 unflushed=崩溃丢（红）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-boi3-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 200, spool);
+      try {
+        const name = 'project:p-boi3';
+        const { provider, synced } = kit.connect(name);
+        await synced;
+        provider.document.getMap('nodes').set('n', new Y.Map([['x', 1]]));
+        await pollUntil(() => (kit.repo.append as MockRepo['append']).mock.calls.length >= 1, 5_000);   // 首次 store 已失败
+        // 注意时序：repo.append 调用点先于 spool fsync 完成（copy-first：splice 恒在新家落定之后）——
+        // 全量并发下断言与 fsync 竞速会伪红，peek 落定必须轮询（帧可见=fsync 完成的直接证据）
+        await pollUntil(async () => (await spool.peek('p-boi3')).length >= 1, 5_000);   // BOI 失败路径：新家=spool 已 fsync（旧实现=内存 Map，spool 空 → 红）
+        await provider.destroy();
+        kit.forget(provider);   // 自管 destroy 后移出 dispose 清理数组——防双 destroy（flaky 源，惯例同上方 spec:262）
+        await pollUntil(() => !kit.gateway.server.hocuspocus.documents.has(name), 8_000);   // A9：卸载发生
+        expect(await spool.peek('p-boi3')).toHaveLength(1);       // 卸载后批仍在磁盘（旧实现随 doc 消失+内存 Map 崩溃丢 → 红）
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('BOI-4 崩溃模拟（V19 红相层）：append 失败 → 丢弃 gateway 实例（等价进程死）→ 同 spool 目录新实例 → 批存活可回灌（旧实现批在内存=红）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-boi4-');
+    try {
+      const kit1 = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 200, new CollabSpoolService(dir));
+      const { provider, synced } = kit1.connect('project:p-boi4');
+      await synced;
+      provider.document.getMap('nodes').set('k', new Y.Map([['x', 1]]));
+      await pollUntil(() => (kit1.repo.append as MockRepo['append']).mock.calls.length >= 1, 5_000);   // 失败已发生 → 批已入 spool
+      await provider.destroy();
+      kit1.forget(provider);                    // 自管 destroy 后移出 dispose 清理数组——防双 destroy（惯例同上）
+      await kit1.dispose();                     // 丢弃实例=进程死（内存队列随之消失——旧实现红相源）
+      const kit2 = await startDualClientServer({}, 200, new CollabSpoolService(dir));   // 同 spool 目录新实例
+      // 启动接线（onModuleInit 内 scan+replayAll 回灌）归 Task 4——本 Task 显式调 spool 公共 API scan()
+      // 重建帧索引（新实例 index 空、磁盘帧不可见=无 scan 时空转假绿），再经"load 帧回灌 + store confirm"链验证批存活。
+      await kit2.spool.scan();
+      const { provider: p2, synced: s2 } = kit2.connect('project:p-boi4');
+      await s2;
+      p2.document.getMap('nodes').set('k2', new Y.Map([['x', 1]]));
+      await pollUntil(async () => (await kit2.spool.peek('p-boi4')).length === 0, 5_000);   // 段回收（peek 必经 kit2 同一实例——新开实例 index 空=恒真假绿）
+      const rows = kit2.repo.append.mock.calls;    // 回灌 append 的 payload 含所写节点
+      const revived = new Y.Doc();
+      for (const c of rows) Y.applyUpdate(revived, new Uint8Array(c[1] as Uint8Array));
+      expect(revived.getMap('nodes').has('k')).toBe(true);   // 批经 spool 存活——旧实现（内存 unflushed）必红
+      await p2.destroy();
+      kit2.forget(p2);
+      await kit2.dispose();
+    } finally { await cleanup(); }
+  });
+
+  it('Y9/X9 降级通告：spool 白盒熔断 → 新连接放行但 readOnly + stateless persist-status{healthy:false,reason:"spool-unwritable"}（静默只读=禁）', async () => {
+    const kit = await startDualClientServer({}, 200);
+    try {
+      (kit.spool as any).ioBroken = true;   // V14 白盒：IO 熔断态字段直置（绕过 5 连败触发——白盒更稳）
+      const stateless: string[] = [];
+      const { provider, synced } = kit.connect('project:p-y9');
+      provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(payload));
+      await synced;                                          // ① 连接成功（只读降级不停服——V13 粒度修正）
+      const doc = kit.gateway.server.hocuspocus.documents.get('project:p-y9')!;
+      const conn = [...doc.connections.keys()][0] as any;
+      expect(conn.readOnly).toBe(true);                      // ② 协议层拒写（复用 VIEWER readOnly 机制）
+      await pollUntil(() => stateless.some((p) => p.includes('spool-unwritable')), 1_500);   // ③ Y9 通告（broadcastSpoolDegraded 500ms 延迟窗内必达）
+      const parsed = JSON.parse(stateless.find((p) => p.includes('spool-unwritable'))!);
+      expect(parsed).toMatchObject({ type: 'persist-status', healthy: false, reason: 'spool-unwritable' });
+    } finally { await kit.dispose(); }
   });
 });

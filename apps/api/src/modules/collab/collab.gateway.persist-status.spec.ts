@@ -8,9 +8,12 @@ import { Document } from '@hocuspocus/server';
 import { register } from 'prom-client';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
+import { CollabSpoolService } from './collab-spool.service';
 import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
+import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { pollUntil } from '../../test-utils/poll-until';
 
 /** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——v2 档快照夹具用） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -32,14 +35,16 @@ function buildGateway() {
   const appends: Uint8Array[] = [];
   // Y0a-1：repo stub 收敛 mock-repo 工厂（快照经 hydrateWithRecovery 喂——装载读唯一入口）
   const repo = createMockRepo({
-    append: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); }),
+    append: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); return { ok: true as const, seq: 1n }; }),   // AppendResult 契约（Y0a-2 判别消费）
   });
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
+  const spool = new CollabSpoolService(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
     { resolve: vi.fn() } as any, 44500 + Math.floor(Math.random() * 2000),
+    undefined, undefined, undefined, spool,
   );
-  return { gateway, repo, appends };
+  return { gateway, repo, appends, spool };
 }
 
 function registerDoc(gateway: CollabGateway, name: string): Document {
@@ -48,8 +53,19 @@ function registerDoc(gateway: CollabGateway, name: string): Document {
   return doc;
 }
 
-beforeEach(() => { vi.useFakeTimers(); });
-afterEach(() => { vi.useRealTimers(); });
+// Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
+let spoolDir: string;
+let spoolCleanup: () => Promise<void> = async () => {};
+beforeEach(async () => {
+  vi.useFakeTimers();
+  const d = await makeSpoolDir('y0a2-persist-');
+  spoolDir = d.dir;
+  spoolCleanup = d.cleanup;
+});
+afterEach(async () => {
+  vi.useRealTimers();
+  await spoolCleanup();
+});
 
 describe('批3-4 persist-status 电平 + 退避重试', () => {
   it('append 失败 → broadcastStateless(healthy:false) + 1s 后重试成功 → broadcastStateless(healthy:true)、电平清除', async () => {
@@ -61,19 +77,23 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     repo.append.mockRejectedValueOnce(new Error('db down'));
 
     await expect(gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any))
-      .rejects.toThrow('db down');
+      .resolves.toBe(false);   // Y0a-2 契约 3 反转：任何路径不 throw（旧断言 rejects.toThrow 必红点）
     expect(bcSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: false }));
     expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(1_000);   // 1s 后第一档重试
+    await vi.advanceTimersByTimeAsync(1_000);   // 1s 后第一档重试触发
+    // Y0a-2：重试帧通道 peek/append/confirm 走真实 fs IO（异步于 fake timer 触发点）——真实窗口等其落定
+    await vi.useRealTimers();
+    await pollUntil(() => repo.append.mock.calls.length >= 2, 2_000);
+    vi.useFakeTimers();
     expect(repo.append).toHaveBeenCalledTimes(2);   // 失败 1 + 重试成功 1
     expect(bcSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: true }));
     expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(false);
     expect((gateway as any).persistRetry.get('project:p1')).toBeUndefined();
   });
 
-  it('梯子有界：持续失败恰重试 5 次（1s/2s/5s/15s/30s ≈53s）后耗尽——数据留队等下次 load 回灌', async () => {
-    const { gateway, repo } = buildGateway();
+  it('梯子有界：持续失败恰重试 5 次（1s/2s/5s/15s/30s ≈53s）后耗尽——数据留 spool 帧等下次 load 回灌', async () => {
+    const { gateway, repo, spool } = buildGateway();
     const doc = registerDoc(gateway, 'project:p1');
     vi.spyOn(doc, 'broadcastStateless').mockImplementation(() => {});
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
@@ -85,8 +105,8 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
       await vi.advanceTimersByTimeAsync(delay);
       repo.append.mockClear();
     }
-    expect(repo.append).not.toHaveBeenCalled();   // 第 5 档已耗尽：无第 6 个定时器
-    expect((gateway as any).pendingUpdates.get(doc as any)).toHaveLength(1);   // 数据仍留活队列
+    expect(repo.append).not.toHaveBeenCalled();   // 第 5 档已耗尽：无第 6 个定时器（退避无上限改造随 Task 4——本批此断言不动）
+    expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：数据仍在 spool 帧（内存 unflushed 退役——清单 A peek 替换；:89 装置随 V4 换键）
   });
 
   it('持续失败不刷屏：退避梯多级推进（1+5 次失败）→ unhealthy 广播恰 1 次（电平翻转才广播）', async () => {
@@ -107,19 +127,23 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 电平保持 unhealthy
   });
 
-  it('两阶段·stash 级：doc 已不在内存（卸载）→ 重试直写 repo.append(stash)，unflushed 清空', async () => {
-    const { gateway, repo } = buildGateway();
+  it('两阶段·detached：doc 已不在内存（卸载）→ 重试经 spool 帧通道直写 repo.append，帧回收', async () => {
+    const { gateway, repo, spool } = buildGateway();
     // 不 registerDoc——doc 不在 server.documents（卸载形态）
-    const doc: any = new Y.Doc(); doc.getConnectionsCount = () => 0;
+    const doc = new Document('project:p1');   // Y0a-2：真 Document（disconnect 走 storeDocumentSerialized——saveMutex 需真锁载体）
     await gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p1' } as any);
     doc.getMap('nodes').set('n1', 1);
     repo.append.mockRejectedValueOnce(new Error('db down'));
-    await gateway.hooks.onDisconnect({ document: doc, documentName: 'project:p1' } as any);   // flush 失败 → stash
-    expect((gateway as any).unflushed.get('p1')).toBeTruthy();
+    await gateway.hooks.onDisconnect({ document: doc, documentName: 'project:p1' } as any);   // flush 失败 → 批入 spool（契约 3 不抛）
+    expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：失败批已入 spool（fsync 落定）
 
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(repo.append).toHaveBeenCalledTimes(2);   // stash 直写（projectId 级二阶段）
-    expect((gateway as any).unflushed.has('p1')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);   // 触发 1s 档
+    // Y0a-2：帧通道 peek/append/confirm 走真实 fs IO——真实窗口等其落定再断言
+    await vi.useRealTimers();
+    await pollUntil(() => repo.append.mock.calls.length >= 2, 2_000);
+    vi.useFakeTimers();
+    expect(repo.append).toHaveBeenCalledTimes(2);   // 帧直写（projectId 级二阶段——X5 detached 帧通道）
+    expect(await spool.peek('p1')).toHaveLength(0);   // confirm → 段回收
   });
 
   it('成功转折由有机 store 也能关闭：用户继续编辑触发的 store 成功 → 定时器撤销 + healthy 广播', async () => {
@@ -190,7 +214,7 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
     expect(doc.getMap('meta').get('schemaVersion')).toBe(2);
     expect(doc.getMap('meta').size).toBe(1);
     // stamp 发生在 replaying 抑制窗外 → update 进 pending（下次 store 落库）
-    const q = (gateway as any).pendingUpdates.get(doc as any);
+    const q = (gateway as any).pendingQueues.get((gateway as any).docProject.get(doc as any));   // Y4：两跳（V4 projectId 键控）
     expect(q.length).toBeGreaterThan(0);
     // epoch 播种契约保留（批3-4）
     expect(typeof (gateway as any).docEpoch.get(doc as any)).toBe('number');
@@ -210,7 +234,7 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
     const doc2 = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc2 as any, documentName: 'project:p1' } as any);
     expect(doc2.getMap('meta').get('schemaVersion')).toBe(2);   // replay 已戳
-    expect((gateway as any).pendingUpdates.get(doc2 as any)).toHaveLength(0); // 已戳=CURRENT ⇒ no-op 零新增写
+    expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc2 as any))).toHaveLength(0); // 已戳=CURRENT ⇒ no-op 零新增写（Y4 两跳）
   });
 
   it('戳=1（人为写 1 的 DB 快照）→ loadDocument 拒（throw 带明确信息——v1 旧档无迁移）', async () => {

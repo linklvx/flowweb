@@ -3,16 +3,29 @@
 // COLLAB_TIMEOUT（双语义：同一值驱动握手超时+检查周期）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { CollabSpoolService } from './collab-spool.service';
+import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-afterEach(() => vi.unstubAllEnvs());
+// Y0a-2：gateway 构造签名扩必填 spool——各直构 spec 的临时目录域（beforeEach 建/afterEach 清）
+let spoolDir: string;
+let spoolCleanup: () => Promise<void> = async () => {};
+beforeEach(async () => {
+  const d = await makeSpoolDir('y0a2-env-');
+  spoolDir = d.dir;
+  spoolCleanup = d.cleanup;
+});
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await spoolCleanup();
+});
 
 function buildGateway(opts?: { debounce?: number; timeout?: number }) {
   return new CollabGateway(
     {} as any, new EventEmitter2() as any, {} as any, { syncFromPeers: vi.fn(async () => {}) } as any,
     { resolve: vi.fn() } as any,
     48000 + Math.floor(Math.random() * 4000),
-    opts?.debounce, opts?.timeout,
+    opts?.debounce, opts?.timeout, undefined, new CollabSpoolService(spoolDir),
   );
 }
 

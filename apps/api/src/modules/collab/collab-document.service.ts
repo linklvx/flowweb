@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
 import * as Y from 'yjs';
 import { readRecordsFromMaps, ensureSchemaVersion } from '@flowweb/shared';
 import { CollabGateway } from './collab.gateway';
@@ -64,8 +64,11 @@ export class CollabDocumentService {
     });
   }
 
-  /** 服务端写节点 data 字段（逐键写入，禁止整块替换） */
+  /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。
+   *  Y0a-2（X9）：写意图受理门——spool 熔断/容量熔断期拒服务端写（503 瞬态，客户端重试）；
+   *  readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）。 */
   async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>) {
+    if (this.gateway.isWritableOrDegraded() !== 'ok') throw new ServiceUnavailableException('collab degraded: spool unwritable');
     await this.withDoc(projectId, (doc) => {
       const nodeMap = doc.getMap('nodes').get(nodeId);
       if (!(nodeMap instanceof Y.Map)) return;
@@ -83,6 +86,7 @@ export class CollabDocumentService {
    *  patch 语义：逐键补写不整块替换，v undefined 跳过。
    *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
   async writeExecStatus(projectId: string, nodeId: string, patch: Record<string, unknown>) {
+    if (this.gateway.isWritableOrDegraded() !== 'ok') throw new ServiceUnavailableException('collab degraded: spool unwritable');   // X9：写意图受理门
     await this.withDoc(projectId, (doc) => {
       const exec = doc.getMap('exec');
       let m = exec.get(nodeId) as Y.Map<any> | undefined;

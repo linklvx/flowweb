@@ -7,10 +7,14 @@
 // 既有用例的失败注入面（session/teamMember 置 null、VIEWER 覆写、disband 事件）原样保留。
 import { vi } from 'vitest';
 import * as Y from 'yjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { CollabGateway } from '../modules/collab/collab.gateway';
 import { CollabDocumentService } from '../modules/collab/collab-document.service';
+import { CollabSpoolService } from '../modules/collab/collab-spool.service';
 import { createMockRepo, type MockRepo } from './mock-repo';
 
 export interface DualClientKit {
@@ -22,13 +26,17 @@ export interface DualClientKit {
   prisma: Record<string, any>;
   emitter: EventEmitter2;
   permSvc: { resolve: ReturnType<typeof vi.fn> };
+  /** Y0a-2：spool 实例（BOI 用例/降级用例的帧断言与白盒注入面） */
+  spool: CollabSpoolService;
   connect(name: string, token?: string): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
   /** 用例自管 destroy 后调——从 dispose 清理数组移除（双 destroy 是本仓已知 flaky 源，惯例同 collab.gateway.spec.ts:262） */
   forget(provider: HocuspocusProvider): void;
   dispose: () => Promise<void>;
 }
 
-export async function startDualClientServer(over: Partial<MockRepo> = {}, debounce = 300): Promise<DualClientKit> {
+/** Y0a-2：spool 第三参（缺省内部 mkdtemp tmpdir——dispose 只清**自建**目录，注入目录归用例的
+ *  makeSpoolDir.cleanup，防 BOI-4 崩溃模拟等"跨实例共享目录"场景被 dispose 误清）。 */
+export async function startDualClientServer(over: Partial<MockRepo> = {}, debounce = 300, spool?: CollabSpoolService): Promise<DualClientKit> {
   const prisma: Record<string, any> = {
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }) },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
@@ -38,7 +46,9 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   const permSvc = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const emitter = new EventEmitter2();
   const port = 20000 + Math.floor(Math.random() * 20000);
-  const gateway = new CollabGateway(prisma as any, emitter as any, repo as any, { syncFromPeers: vi.fn(async () => {}) } as any, permSvc as any, port, debounce);
+  const ownedSpoolDir = spool ? null : await mkdtemp(join(tmpdir(), 'y0a2-kit-'));
+  const spoolSvc = spool ?? new CollabSpoolService(ownedSpoolDir!);
+  const gateway = new CollabGateway(prisma as any, emitter as any, repo as any, { syncFromPeers: vi.fn(async () => {}) } as any, permSvc as any, port, debounce, undefined, undefined, spoolSvc);
   await gateway.onModuleInit();   // async+await listen——无端口竞态
   const url = `ws://127.0.0.1:${port}`;
   const providers: HocuspocusProvider[] = [];
@@ -50,6 +60,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     prisma,
     emitter,
     permSvc,
+    spool: spoolSvc,
     connect(name: string, token = 'tok') {
       const ydoc = new Y.Doc();
       const provider = new HocuspocusProvider({ url: `${url}?token=${token}`, name, document: ydoc });
@@ -64,6 +75,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     async dispose() {
       for (const p of providers.splice(0)) await p.destroy();
       await (gateway as any).server.destroy();
+      if (ownedSpoolDir) await rm(ownedSpoolDir, { recursive: true, force: true }).catch(() => {});   // mkdtemp tmpdir 域——自建才清
     },
   };
 }

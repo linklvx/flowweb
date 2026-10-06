@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CollabAuthReason, isTerminalReason } from './collab-auth-reason';
 
-describe('批3-1 CollabAuthReason 五档', () => {
+describe('批3-1 CollabAuthReason 六档（Y0a-2 X9 增 draining）', () => {
   it('档值恰为契约串（gateway .reason 直达 writePermissionDenied，客户端按串分型）', () => {
     expect(Object.values(CollabAuthReason)).toEqual([
       'unauthenticated',
@@ -9,6 +9,7 @@ describe('批3-1 CollabAuthReason 五档', () => {
       'not-found',
       'forbidden',
       'db-unavailable',
+      'draining',
     ]);
   });
 });
@@ -20,8 +21,9 @@ describe('批3-1 isTerminalReason 终态白名单（契约锁㉙）', () => {
     expect(isTerminalReason(CollabAuthReason.NOT_FOUND)).toBe(true);
     expect(isTerminalReason(CollabAuthReason.FORBIDDEN)).toBe(true);
   });
-  it('db-unavailable / 裸 permission-denied / undefined / 未知串一律 false（瞬态桶）', () => {
+  it('db-unavailable / draining / 裸 permission-denied / undefined / 未知串一律 false（瞬态桶——draining 误入白名单=关停期客户端停止重连）', () => {
     expect(isTerminalReason(CollabAuthReason.DB_UNAVAILABLE)).toBe(false);
+    expect(isTerminalReason(CollabAuthReason.DRAINING)).toBe(false);
     expect(isTerminalReason('permission-denied')).toBe(false);
     expect(isTerminalReason(undefined)).toBe(false);
     expect(isTerminalReason('whatever-else')).toBe(false);

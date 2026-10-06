@@ -13,15 +13,17 @@ export const yjsStoreAppendFailureTotal = new Counter({
   registers: [register],
 });
 
-export const yjsStoreCompactFailureTotal = new Counter({
-  name: 'yjs_store_compact_failure_total',
-  help: 'compaction 失败次数（行已落库，仅一致性问题）',
+/** Y0a-2（Y8）：取批后队列被并发改动的探测计数（splice 前 length<n 或批尾引用不符）；
+ *  真对账=storeDocument 成功路径自检（collect 注册模式归 Task 4 观测批——定义先行供 Task 3 编译）。 */
+export const yjsStoreTailAnomalyTotal = new Counter({
+  name: 'yjs_store_tail_anomaly_total',
+  help: '取批后队列被并发改动（splice 前 length<n 或批尾引用不符——Y8）的探测计数；真对账=storeDocument 成功路径自检',
   registers: [register],
 });
 
-export const yjsUnflushedProjects = new Gauge({
-  name: 'yjs_unflushed_projects',
-  help: 'unflushed 兜底 Map 当前条目数',
+export const yjsStoreCompactFailureTotal = new Counter({
+  name: 'yjs_store_compact_failure_total',
+  help: 'compaction 失败次数（行已落库，仅一致性问题）',
   registers: [register],
 });
 
@@ -97,5 +99,15 @@ export const yjsUpdatesDiscardedDeletedTotal = new Counter({
   name: 'yjs_updates_discarded_deleted_total',
   help: '项目已删的更新丢弃数（gateway 拦截/spool FK 收割——显式接受的有界丢失）',
   labelNames: ['source'],
+  registers: [register],
+});
+
+/** Y0a-2（V22+X2）：flush-at-risk 口径（契约 14/P5）=承载"进过取批且未落定批次"的项目数——
+ *  enter=storeDocumentUnlocked 取批路径开始；leave=四落定点（①append ok ②spool fsync 成功含降级/
+ *  交接/force-spool ③FK 丢弃 ④project.gone 丢弃——Y1/retryPersist detached/意外异常兜底 leave 同源）；
+ *  spool 失败回队列不清（批未落定）；drain force-spool 复用 leave 点；库去抖窗口不属此口径。 */
+export const storeInFlightDocs = new Gauge({
+  name: 'yjs_store_in_flight_docs',
+  help: '进入取批未落定（append/spool）的项目数（G-2 断言对象；spec §5.2 表同批改名）',
   registers: [register],
 });
