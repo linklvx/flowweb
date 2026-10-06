@@ -203,6 +203,26 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(repo.append.mock.calls.length).toBe(calls);   // 无重试触发
   });
+
+  it('I-1 红相：retryPersist doc 级通道消费布尔返回——store 失败须走 catch 梯（批滞留时禁 cancel+healthy 广播）', async () => {
+    const { gateway, repo } = buildGateway();
+    const doc = registerDoc(gateway, 'project:p1');
+    const bcSpy = vi.spyOn(doc, 'broadcastStateless').mockImplementation(() => {});
+    await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
+    doc.getMap('nodes').set('n1', 1);
+    repo.append.mockRejectedValue(new Error('db down'));
+    await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any).catch(() => {});   // 首败：批入 spool+电平 unhealthy+梯 rung0
+    doc.getMap('nodes').set('n2', 2);   // 再编辑 → 队列非空（doc 级通道前提：doc 活跃∧队列非空）
+    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 前置：电平已 unhealthy
+
+    await (gateway as any).retryPersist('project:p1');   // 白盒直调一轮（既有梯子用例同形）
+    const entry = (gateway as any).persistRetry.get('project:p1');
+    expect(entry).toBeDefined();                     // 旧实现尾部无条件 cancel → undefined → 红
+    expect(entry?.timer).toBeTruthy();               // 重试定时器真值（刚排的梯未被杀）
+    expect(entry?.rung).toBe(1);                     // rung 推进按既有 catch 形态（失败恰一次）
+    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 电平不翻 healthy（旧实现 false → 红）
+    expect(bcSpy).not.toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: true }));   // 无虚假 healthy 广播
+  });
 });
 
 describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契约（终裁 51③——原"零写放大"契约由"至多一次幂等戳"接替）', () => {

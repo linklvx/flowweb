@@ -119,6 +119,7 @@ export class CollabSpoolService {
       } else if (this.overCapacityFlag && d.bytes <= CollabSpoolService.SPOOL_CAPACITY_BYTES * 0.9) {
         this.overCapacityFlag = false;                        // 滞回解除（10% 余量防抖动）
         this.logger.log('spool capacity recovered');
+        try { this.onRecovered?.(); } catch { /* I-3：容量恢复缝与 confirm 自评对称——唤醒 gateway rearm */ }
       }
       if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
     }
@@ -282,6 +283,18 @@ export class CollabSpoolService {
       segs.delete(segSeq);
     }
     if (segs.size === 0) this.index.delete(projectId);
+    // I-3：容量滞回自评——confirm 是 depth 回落的观测点（段回收时）。解除时唤醒 onRecovered
+    //（rearm 退避梯+受理面恢复——容量态下 X6 停排+X9 readOnly 在 PG 完全健康时也会死锁，需要显式
+    // 恢复缝；与 ioBroken 探针闭合对称）。探针键排除——V14 裁定"探针无权关容量态"（probe 只证 IO，
+    // 不因探针路径误关容量；真实段回收带来的 depth 回落才解除）。
+    if (projectId !== '__probe__' && this.overCapacityFlag) {
+      const d = this.depth();
+      if (d.bytes <= CollabSpoolService.SPOOL_CAPACITY_BYTES * 0.9) {
+        this.overCapacityFlag = false;
+        this.logger.log('spool capacity recovered（confirm 时点自评）');
+        try { this.onRecovered?.(); } catch { /* 同 noteWriteSuccess seam 形态：回调异常不损恢复事实 */ }
+      }
+    }
   }
 
   /** V3：坏帧段处置=**字节区间**隔离（坏帧起始偏移→EOF）——截断是字节事实非帧号集合

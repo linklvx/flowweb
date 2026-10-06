@@ -13,6 +13,7 @@ function toDocLike(doc: Y.Doc): DocLike {
     createMap: () => new Y.Map() as unknown as DocMapLike,
   };
 }
+import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { CollabSpoolService } from './collab-spool.service';
@@ -789,9 +790,12 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       const errSpy = vi.spyOn(g.logger, 'error');
       void kit.gateway.hooks.onStoreDocument({ document: doc, documentName: name } as any);   // 不 await——append 挂起（白盒直调：Y.Doc 非 Document 满型——Step 3b 注）
       await pollUntil(() => (kit.repo.append as MockRepo['append']).mock.calls.length >= 1, 2_000);   // Y4：等 append 真被调——防 tripwire 早退的空转绿
-      expect(errSpy.mock.calls.some((c) => String(c[0]).includes('unobserved'))).toBe(false);   // Y4 反向断言：tripwire 未吞掉用例
-      expect(g.pendingQueues.get('p-boi1')).toHaveLength(1);                     // copy-first：批仍在旧归属地（旧实现 splice 后=0 → 红）
-      release({ ok: true, seq: 1n });                                            // 释放挂起（dispose 干净）
+      try {
+        expect(errSpy.mock.calls.some((c) => String(c[0]).includes('unobserved'))).toBe(false);   // Y4 反向断言：tripwire 未吞掉用例
+        expect(g.pendingQueues.get('p-boi1')).toHaveLength(1);                   // copy-first：批仍在旧归属地（旧实现 splice 后=0 → 红）
+      } finally {
+        release({ ok: true, seq: 1n });                                          // M8：断言红时也释放挂起——dispose 不挂死
+      }
     } finally { await kit.dispose(); }
   });
 
@@ -878,6 +882,66 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       await pollUntil(() => stateless.some((p) => p.includes('spool-unwritable')), 1_500);   // ③ Y9 通告（broadcastSpoolDegraded 500ms 延迟窗内必达）
       const parsed = JSON.parse(stateless.find((p) => p.includes('spool-unwritable'))!);
       expect(parsed).toMatchObject({ type: 'persist-status', healthy: false, reason: 'spool-unwritable' });
+    } finally { await kit.dispose(); }
+  });
+
+  it('I-2 红相（Y8 判据命中后旧代码无条件 splice=折并交织窗丢"快照后"更新）：append deferred 挂起 → 取批后白盒模拟折并 → release 成功 → 合并元素必须存活+tail anomaly 计数递增', async () => {
+    let release!: (v: { ok: true; seq: bigint }) => void;
+    const kit = await startDualClientServer({ append: vi.fn(() => new Promise<{ ok: true; seq: bigint }>((r) => { release = r; })) }, 200);
+    try {
+      const g = kit.gateway as any;
+      const upd = (n: number) => { const d = new Y.Doc(); d.getMap('nodes').set(`k${n}`, n); return Y.encodeStateAsUpdate(d); };   // 合法 Y update（mergeUpdates 对裸字节 throw——Y2 兜底吞错必 pollUntil 超时）
+      g.pendingQueues.set('p-i2', [upd(1), upd(2), upd(3)]);   // Y19：projectId 键控装置（3 条——折并后 1 条，判据 length<n 必命中）
+      const readAnomaly = async () => {
+        const metrics = await register.getMetricsAsJSON();
+        return ((metrics.find((m: any) => m.name === 'yjs_store_tail_anomaly_total') as any)?.values?.[0]?.value ?? 0) as number;
+      };
+      const before = await readAnomaly();
+      const storeP = kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p-i2' } as any);   // 不 await——append 挂起（白盒直调同 BOI-1）
+      await pollUntil(() => (kit.repo.append as MockRepo['append']).mock.calls.length >= 1, 2_000);
+      const q = g.pendingQueues.get('p-i2') as Uint8Array[];
+      q.splice(0, q.length, Y.mergeUpdates(q));   // 白盒模拟 update 监听器封顶折并（await 交织窗——合并元素含快照后内容）
+      try {
+        expect(q).toHaveLength(1);                // 前置：折并已发生（1 < n=3 → Y8 判据必命中）
+      } finally { release({ ok: true, seq: 1n }); }
+      await storeP;
+      const qAfter = g.pendingQueues.get('p-i2') as Uint8Array[];
+      expect(qAfter).toBe(q);                     // 数组身份恒定不变量（合并元素存活其中）
+      expect(qAfter).toHaveLength(1);             // 旧实现 splice(0,n) 连合并元素一起删=队列空 → 红；修后留队重发（CRDT 幂等吸收）
+      expect(await readAnomaly()).toBe(before + 1);   // Y8 探测计数命中
+    } finally { await kit.dispose(); }
+  });
+
+  it('I-3 红相（X6×X9 容量恢复死锁缝）：容量态白盒置位 → store 成功 confirm 旧帧段回收 → confirm 自评必须解除容量态+唤醒 onRecovered（旧实现容量滞留=全恢后受理面半瘫需重启）', async () => {
+    const kit = await startDualClientServer({}, 200);
+    try {
+      const spool = kit.spool;
+      await spool.append('p-cap', Y.encodeStateAsUpdate(new Y.Doc()));   // 先 append 真帧（合法 update 且零节点——有节点无戳会被 O0b-0 版本门拒载；容量态 append throw——先落帧再白盒置位）
+      (spool as any).overCapacityFlag = true;                   // 白盒：容量态（同 Y9 ioBroken 白盒形态）
+      spool.onRecovered = vi.fn();
+      expect(spool.overCapacity()).toBe(true);                  // 前置：容量态就位
+      const doc = new Y.Doc();
+      await kit.gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p-cap' } as any);
+      doc.getMap('nodes').set('n1', new Y.Map());
+      const wrote = await kit.gateway.hooks.onStoreDocument({ document: doc, documentName: 'project:p-cap' } as any);
+      expect(wrote).toBe(true);                                 // PG 腿健康：容量态不挡 store（帧消化到 PG——独立故障域）
+      expect(await spool.peek('p-cap')).toHaveLength(0);        // confirm → 段回收 → depth 回落
+      expect((spool as any).overCapacityFlag).toBe(false);      // confirm 自评解除（旧实现滞留 true → 红）
+      expect(spool.onRecovered).toHaveBeenCalledTimes(1);       // 唤醒 seam（rearm 退避梯+受理面恢复）
+    } finally { await kit.dispose(); }
+  });
+
+  it('M1：draining 白盒——受理门拒新连接 reason=draining（瞬态档：客户端继续重连，DRAINING 非 terminal）', async () => {
+    const kit = await startDualClientServer({}, 200);
+    try {
+      (kit.gateway as any).draining = true;
+      expect(kit.gateway.isShuttingDown()).toBe(true);   // X9 受理门读点翻转
+      await expect(kit.gateway.hooks.onAuthenticate({
+        requestHeaders: new Headers(),
+        requestParameters: new URLSearchParams('token=tok'),
+        documentName: 'project:p-m1',
+        connectionConfig: { readOnly: false, isAuthenticated: false },
+      } as any)).rejects.toMatchObject({ reason: 'draining' });   // reason 即线上协议串（shared 枚举同源）
     } finally { await kit.dispose(); }
   });
 });
