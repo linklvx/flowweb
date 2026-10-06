@@ -447,10 +447,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.logger.error(`collab flush failed for ${projectId}, ${retained} updates stashed for next load: ${error.message}`);
   }
 
-  onModuleInit() {
+  async onModuleInit(): Promise<void> {
     // 跨实例同步：仅回复本实例已打开的文档（Document extends Y.Doc，内存态最新）
     this.redisSync.getDocument = (name) => this.server.hocuspocus.documents.get(name);
-    this.server.listen();
+    await this.server.listen();   // Y0a-1 P1-1：await listen——onModuleInit 返回即端口就绪（消端口竞态）
     this.startSessionSweep();   // 批3-4：过期 session 连接清扫（灰度默认关——tick 内自检开关）
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {

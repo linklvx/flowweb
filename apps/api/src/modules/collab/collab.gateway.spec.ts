@@ -13,7 +13,7 @@ function toDocLike(doc: Y.Doc): DocLike {
   };
 }
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createMockRepo } from '../../test-utils/mock-repo';
+import { startDualClientServer } from '../../test-utils/dual-client-server';
 
 
 function buildDocState(): Buffer {
@@ -53,31 +53,13 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   const providers: HocuspocusProvider[] = [];
 
   beforeEach(async () => {
-    permSvc = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
-    prisma = {
-      session: {
-        findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }),
-      },
-      canvasProject: {
-        findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }),
-      },
-      teamMember: {
-        findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }),
-      },
-    };
     durableRows = [];
-    // Y0a-1：repo stub 收敛 mock-repo 工厂（快照/增量经 loadForHydration 喂——gateway 装载读唯一入口 hydrateWithRecovery）
-    repo = createMockRepo({
+    // Y0a-1：装置提取——fixture 构造收敛 dual-client-server（repo 台账经 over.append 注入；
+    // prisma/permSvc/emitter 注入面随 kit 暴露，既有覆写路径不变）
+    const kit = await startDualClientServer({
       append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); }),   // 台账：once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
-    });
-
-
-    emitter = new EventEmitter2();
-    const port = 20000 + Math.floor(Math.random() * 20000);
-    gateway = new CollabGateway(prisma as any, emitter as any, repo, { syncFromPeers: vi.fn(async () => {}) } as any, permSvc as any, port, 300);
-    await gateway.onModuleInit();
-    url = `ws://127.0.0.1:${port}`;
-    service = new CollabDocumentService(gateway);
+    }, 300);
+    ({ gateway, repo, url, prisma, permSvc, emitter, docService: service } = kit);
   });
 
   afterEach(async () => {
