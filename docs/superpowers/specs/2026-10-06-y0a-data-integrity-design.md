@@ -264,7 +264,7 @@ RETURNING seq
 - **超时自愈一次（v2.2 改预检形态——原前置预检=每次装载全量 `sum(length(update))` detoast 聚合，且 48MB 阈对 116KB 存量永不触发=纯成本零收益；plan 外审证伪；v2.4 修分类与预算）**："装载超时 fail-closed→doc 打不开→无 store→compact 60s 门限不触发→积压永不消化"自锁闭环仍须消灭，但触发时机=**真实超时**而非前置探测：`loadForHydration` 捕获装载事务失败后**先分类（v2.4：仅 P2028/P1008 或 timeout 语义错误触发自愈；**P2024（连接池取连接超时——池饥饿，非事务超时）排除**：自愈的 compact 是交互式事务、自身需持池连接，饥饿期执行=零成功率纯放大，直接 fail-closed；P1000/P1001/P1010/P1017 认证/不可达/拒连类同不放大）**→**串行**跑一次 compact，**自愈增量预算 ≤8s（v2.4 从 60s 下调——60s 挂在客户端已放弃的请求上下文里零收益、纯挂住 Nest handler 与池连接）：compact `{timeout:6_000, maxWait:1_000}`（装载事务已回滚，无并发装载——与 E42⑤"装载进行中 compact"警示不同态，注释写明时序）→重试装载一次 `{timeout:2_000, maxWait:500}`**；compact 自身失败→WARN+计数（**不构成新 fail-closed 死锁**）→仍以剩余预算重试装载→仍失败才 fail-closed。零常态成本。`scripts/collab-compact.mjs` 为最终人工出口（compact+装载双失败时运维动作）。自愈路径（连同崩溃接管租约等待）为 §7.2 预算规则的两条例外路径——预期超出客户端 synced 死线，客户端承接归 Y0b 同批发布（§9.7）。
 - 单行 update>4MB：WARN+计数（硬拒绝归 Y0b 配额批——已入库数据不该在装载侧 DoS 自己）。
 - MVCC 语义注记（写进方法头注释）：RR 快照下 compact 的 DELETE 对本事务不可见——缺口结构性不存在。
-- **人工出口**：`scripts/collab-compact.mjs <projectId>`（直调 repo.compact+打印前后水位/行数/字节）。脚本属运维工具非运行时路径，与"compact 必须 await"扫描门禁的边界在门禁声明中写清（扫描范围=src/）。
+- **人工出口**：`scripts/collab-compact.mjs <projectId>`（直调 repo.compact+打印前后水位/行数/字节）。脚本属运维工具非运行时路径，与"compact 必须 await"扫描门禁的边界在门禁声明中写清（扫描范围=src/）。（**Y0a-1 执行载体裁定**：落地为 `apps/api/scripts/collab-compact.ts`+tsx——静态 typecheck 载体（tsconfig.scripts.json 经 verify 常检）+直调 TS repo 单源；输出=前后行数+`{compacted,reason}` 契约（水位/字节从简）。）
 
 **1.5 库行为锚断言（§1.2 表承重锚，每条一用例）**
 

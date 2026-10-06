@@ -32,4 +32,4 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+void main().catch((e) => { console.error(e); process.exitCode = 1; });   // 退出码契约自包含——不依赖 Node unhandled-rejections 默认策略（warn 策略下会假成功 exit 0）

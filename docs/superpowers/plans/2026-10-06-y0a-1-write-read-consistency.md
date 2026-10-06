@@ -1377,7 +1377,7 @@ git add packages/shared apps/api/src/modules/collab/adversarial-readers.spec.ts 
 **Files:**
 - Create: `apps/api/scripts/collab-compact.ts`
 
-- [ ] **Step 1: 实现（CJS 安全形态：禁 import.meta/顶层 await——tsconfig module=commonjs）**
+- [x] **Step 1: 实现（CJS 安全形态：禁 import.meta/顶层 await——tsconfig module=commonjs）**（审查 Minor 1 加固：`void main().catch(…exitCode=1)`——退出码契约不依赖 Node unhandled-rejections 默认策略；spec §1.4 补载体裁定注记 .ts+tsx）
 
 ```typescript
 // apps/api/scripts/collab-compact.ts —— Y0a-1 compact 人工出口（装载超时自愈也失败时的最终运维动作）
@@ -1419,7 +1419,7 @@ void main();
 
 （`as any`：scripts 目录不在 eslint `{src,test}` 范围，tsc 经 tsconfig.scripts.json 通过即可。服务器场景 runbook 注明同命令或指向 dist 产物。）
 
-- [ ] **Step 2: 本地真库跑+typecheck 载体验证+commit**
+- [x] **Step 2: 本地真库跑+typecheck 载体验证+commit**（commit `29e27725`；empty 分支 `reason=empty`+EXIT=2、compacted 分支 scratch 项目 `{"compacted":true,"before":1,"after":0}`+EXIT=0 且清理干净；tsc exit 0。**runbook 注记**：pnpm --filter exec 在 Git Bash 吞非零退出码（改写 1+伪 tsx 噪音）——运维从 apps/api 目录 `pnpm exec tsx scripts/collab-compact.ts` 直跑）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec tsx scripts/collab-compact.ts y0a1-compact-int
