@@ -87,8 +87,8 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
       await synced;
       provider.document.getMap('nodes').set('n', new Y.Map([['x', 1]]));
       await pollUntil(() => kit.gateway.server.hocuspocus.documents.get(name)?.getMap('nodes').has('n') === true, 5_000);  // 写已达服务端（destroy 前确认——防"update 未达即断开"的通过无意义竞态）
-      // 探针修正（v1 断言红+stderr 实证）：debounce 在途时断连走 executeNow 分支（hocuspocus-server.esm.js:1383），
-      // store 失败被库吞（"Document stays in memory to avoid data loss" :1528）→ doc 不卸载（A1 的 WS 面——
+      // 探针修正（v1 断言红+stderr 实证）：debounce 在途时断连走 executeNow 分支（hocuspocus-server.esm.js:1384-1385），
+      // store 失败被库吞（"Document stays in memory to avoid data loss" :1547）→ doc 不卸载（A1 的 WS 面——
       // 此时唯一恢复源是 gateway 自管退避）。本锚改锚分立的 else 分支（:1386）：等库侧 debounce 完成
       // （isDebounced/isCurrentlyExecuting 双 false——onClose 分支判据的直读形态）再断开。
       const debouncer = (kit.gateway.server.hocuspocus as any).debouncer;
