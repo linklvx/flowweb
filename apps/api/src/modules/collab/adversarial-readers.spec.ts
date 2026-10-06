@@ -51,8 +51,10 @@ describe('api 读者全函数（E68 读侧铁律：任意语料要么产出结�
   });
 
   it('ensureSchemaVersion：要么放行要么抛 typed Error（畸形 meta 不崩进程）', () => {
+    let threw = 0;
     for (const c of cases) {
-      try { ensureSchemaVersion(c.build()); } catch (e) { expect(e).toBeInstanceOf(Error); }
+      try { ensureSchemaVersion(c.build()); } catch (e) { expect(e).toBeInstanceOf(Error); threw += 1; }
     }
+    expect(threw).toBeGreaterThan(0);   // 防退化空转：全放行（或语料全合法化）时此组断言不空转
   });
 });
