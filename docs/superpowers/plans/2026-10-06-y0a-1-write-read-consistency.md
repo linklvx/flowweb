@@ -108,8 +108,16 @@ DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb node scripts/ver
 （runner 自带 findRepoRoot——命令统一从仓根执行，不再 `cd apps/api`。）Expected: FAIL（新块 0 行/`CollabLease` 不存在计为错误块——**四个新块全部出现在失败清单**）。**把输出粘进本文件此步骤下方留档**：
 
 ```
-（执行时粘贴）
+[块 1] 1 行: user_subscription_one_active
+[块 2] 2 行: UserSubscription_status_nextGrantDate_idx, UserSubscription_status_currentPeriodEnd_idx
+[块 3] 空（索引/约束不存在）——SQL: SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass AND conty…
+[块 4] 空（索引/约束不存在）——SQL: SELECT column_name FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND colu…
+[块 5] SQL 错误: 关系 "CollabLease" 不存在——SQL: SELECT scope FROM "CollabLease" WHERE scope = 'primary' AND owner IS NULL AND epoch = 0;…
+[块 6] 空（索引/约束不存在）——SQL: SELECT 'redundant_index_absent' AS ok WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tab…
+verify-indexes: 4/6 块断言失败
 ```
+
+（exit 1；四个新块全部在列——块 5 的 SQL 错误被 Step 2 容错捕获继续执行，块 6 才得以出现在失败清单。本机 DATABASE_URL 实际密码为 `flowweb_dev`（apps/api/.env 同源），本文档命令中 `123456` 系笔误口径，执行时以 .env 为准。）
 
 - [ ] **Step 3: 改 schema.prisma**
 
