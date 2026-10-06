@@ -40,3 +40,13 @@ export const collabSweepCloseTotal = new Counter({
   labelNames: ['cause'],
   registers: [register],
 });
+
+/** Y0a-1：compact 健康度唯一真实指标（v2.2 升 P0 告警线）——pendingStructs!=null 放弃本次；
+ *  放弃不开窗=下次 store 立即重试（spec v2.4 E23——pendingStructs!=null 是需人工介入的异常态，
+ *  活跃编辑期每 debounce 窗一次 ERROR+计数递增正是 P0 线要的最响信号；未编辑 doc 无 store 触发源不空转）。
+ *  计数+ERROR 单点落 repo 的 abandoned 分支（gateway 与装载自愈两路覆盖，防双计）。 */
+export const yjsCompactAbandonedTotal = new Counter({
+  name: 'yjs_compact_abandoned_total',
+  help: 'compact 写快照前 pendingStructs!=null 放弃本次的次数（放弃不开窗·下次 store 立即重试；连续命中=P0 人工介入信号）',
+  registers: [register],
+});

@@ -73,7 +73,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); }),   // 台账：once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
       loadUpdates: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
-      compact: vi.fn().mockResolvedValue(undefined),
+      compact: vi.fn().mockResolvedValue({ compacted: true }),
     };
 
 

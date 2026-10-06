@@ -302,12 +302,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return true;
   }
 
-  /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置） */
+  /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置）。
+   *  Y0a-1（spec v2.4 §1.3）：仅 compacted===true 开新窗——abandoned 不开窗（窗口仍从上次成功起算，
+   *  早已过期⇒下次 store 立即重试）；empty 同不开窗（无行时 attempt=一次 findMany(0)，代价可忽略）。 */
   private async maybeCompact(projectId: string): Promise<void> {
     const last = this.lastCompactAt.get(projectId);
     if (last !== undefined && Date.now() - last < COMPACT_INTERVAL_MS) return;
-    await this.repo.compact(projectId);
-    this.lastCompactAt.set(projectId, Date.now());
+    const r = await this.repo.compact(projectId);
+    if (r.compacted) this.lastCompactAt.set(projectId, Date.now());
   }
 
   /** 批3-4 persist-status：成功/失败转折点广播（只在电平翻转时发——重试期重复失败不刷屏；

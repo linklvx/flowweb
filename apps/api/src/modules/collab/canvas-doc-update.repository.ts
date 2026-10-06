@@ -1,9 +1,12 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { yjsCompactAbandonedTotal } from './store.metrics';
 
 @Injectable()
 export class CanvasDocUpdateRepository {
+  private readonly logger = new Logger(CanvasDocUpdateRepository.name);
+
   // 显式 @Inject：vitest esbuild 不生成设计时类型元数据（同 collab-document.service 模式）
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
@@ -38,40 +41,47 @@ export class CanvasDocUpdateRepository {
     return this.prisma.canvasDocUpdate.count({ where: { projectId } });
   }
 
-  /**
-   * flush-then-compact 的 compaction 事务（spec 2.2）：
-   * 快照从 Postgres 权威数据重放构建（不信任内存）；DELETE 带 seq <= maxSeq
-   * 防误删事务期间其他实例新 append 的行。
-   * 调用方（gateway）不消费返回值——水位由 pending 队列自身表达。
-   * 临时 doc 用完即弃、不广播，不违反"严禁自建 Y.Doc"双轨铁律。
-   */
-  async compact(projectId: string): Promise<void> {
-    await this.prisma.$transaction(
+  /** Y0a-1 compact（spec v2.4 §1.3）：按实读行 id 精确删除（被删集≡被重放集）；stateSeq 精确 =maxSeq
+   *  （精确赋值依赖 advisory lock 串行——去锁并发化必须先落 Y1c-1 CAS 形态，禁 GREATEST/单调化包装）；
+   *  返回契约 {compacted,reason}：empty=无行静默；abandoned=pendingStructs!=null 放弃本次——计数+ERROR
+   *  落本分支单点（gateway 与装载自愈两路覆盖，防双计），**禁 throw**（gateway :297-301 catch 会把它计入
+   *  yjsStoreCompactFailureTotal=污染 abandoned 的 P0 告警线）。
+   *  （SV inline 哨兵已删——pendingStructs 检查通过前提下 per-row SV 支配性恒真，探针证伪见 spec §1.5。）
+   *  opts：交互式事务独立预算（自愈路径 6s/1s·运维脚本 120s/5s；默认 5s/2s 与 Prisma 隐含值对齐）。 */
+  async compact(
+    projectId: string,
+    opts?: { timeoutMs?: number; maxWaitMs?: number },
+  ): Promise<{ compacted: boolean; reason?: 'abandoned' | 'empty' }> {
+    return this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
-        const maxRows = await tx.$queryRaw<{ max: bigint | null }[]>`
-          SELECT max(seq) AS max FROM "CanvasDocUpdate" WHERE "projectId" = ${projectId}`;
-        const maxSeq = maxRows[0]?.max;
-        if (maxSeq == null) return;
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
-        const updates = await tx.canvasDocUpdate.findMany({
-          where: { projectId, seq: { lte: maxSeq } },
+        const rows = await tx.canvasDocUpdate.findMany({
+          where: { projectId },
           orderBy: { seq: 'asc' },
-          select: { update: true },
+          select: { id: true, seq: true, update: true },
         });
+        if (rows.length === 0) return { compacted: false, reason: 'empty' as const };
+        const maxSeq = rows[rows.length - 1].seq;
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
         const temp = new Y.Doc();
         if (docRow) Y.applyUpdate(temp, new Uint8Array(docRow.state));
-        for (const u of updates) Y.applyUpdate(temp, new Uint8Array(u.update));
+        for (const r of rows) Y.applyUpdate(temp, new Uint8Array(r.update));
+        if (temp.store.pendingStructs !== null) {
+          yjsCompactAbandonedTotal.inc();
+          this.logger.error(`compact abandoned (pendingStructs non-null) for ${projectId}——保留全部行，下次 store 立即重试`);
+          return { compacted: false, reason: 'abandoned' as const };   // 空事务提交：不写不删，行全保留
+        }
         const newSnapshot = Y.encodeStateAsUpdate(temp);
         temp.destroy();
         await tx.canvasDoc.upsert({
           where: { projectId },
-          update: { state: Buffer.from(newSnapshot) },
-          create: { projectId, state: Buffer.from(newSnapshot) },
+          update: { state: Buffer.from(newSnapshot), stateSeq: maxSeq },
+          create: { projectId, state: Buffer.from(newSnapshot), stateSeq: maxSeq },
         });
-        await tx.canvasDocUpdate.deleteMany({ where: { projectId, seq: { lte: maxSeq } } });
+        await tx.canvasDocUpdate.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+        return { compacted: true };
       },
-      { isolationLevel: 'RepeatableRead' },
+      { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
   }
 }

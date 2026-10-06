@@ -33,7 +33,7 @@ function buildGateway() {
   const repo = {
     append: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); }),
     loadUpdates: vi.fn().mockResolvedValue([]),
-    compact: vi.fn().mockResolvedValue(undefined),
+    compact: vi.fn().mockResolvedValue({ compacted: true }),
   };
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const gateway = new CollabGateway(
