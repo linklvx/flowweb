@@ -86,9 +86,11 @@ export class CollabSpoolService {
   }
   keys(): string[] { return [...this.index.keys()].filter((k) => k !== '__probe__' && (this.index.get(k)?.size ?? 0) > 0); }
 
-  /** V14+裁定：综合可写判定——无 IO 熔断、无容量超限、无未恢复的写失败 streak。
-   *  streak≥1 即不可写（用例语义：首败即收受理面）；streak 由 noteWriteSuccess（成功写或探针）清零。 */
-  isWritable(): boolean { return !this.ioBroken && !this.overCapacityFlag && this.writeFailureStreak === 0; }
+  /** V14 原语义：综合可写判定——无 IO 熔断、无容量超限。写失败 streak 不参与：
+   *  streak 1-4 区间探针未启动（5 连败 WRITE_FAILURE_CIRCUIT 才 startProbe），若 streak 条件收窄
+   *  isWritable，单次瞬时失败即令 X6 重试梯首行 return 停排+受理面只读，且无人再写 spool→streak
+   *  永不清零=单败停摆窗口。持续故障由 5 连败置 ioBroken 后才收窄受理面（onRecovered seam 唤醒）。 */
+  isWritable(): boolean { return !this.ioBroken && !this.overCapacityFlag; }
   /** 分型查询：容量超限态（gateway 的 reason 区分与 Task 5 白盒注入消费）。 */
   overCapacity(): boolean { return this.overCapacityFlag; }
   /** 连续写失败计数（ioBroken 熔断判定素材——观测与测试消费）。 */

@@ -160,16 +160,26 @@ describe('spool quarantine sidecar（v2.4：标记不搬字节——追加-only 
 });
 
 describe('spool 熔断与探针解熔断（V14 两态：ioBroken 探针可解 / overCapacity 仅 depth 回落可解）', () => {
-  it('目录不可写（路径被文件占位）→append throw+isWritable()=false+yjs_spool_write_failures_total 递增', async () => {
+  it('目录不可写（路径被文件占位）→连败累计→第 5 次熔断 isWritable()=false+yjs_spool_write_failures_total 递增', async () => {
+    const count = async () => { const m = (await import('prom-client')).register.getSingleMetric('yjs_spool_write_failures_total')!; return (await m.get()).values[0]?.value ?? 0; };   // V17⑥：metric.get() 公开 API（须 await）
+    const before = await count();
     const { dir: d2, cleanup: c2 } = await makeSpoolDir('y0a2-spool-fail-');
     try {
       const file = join(d2, 'occupied');      // spool 目录指向一个文件 → mkdir 失败 → 写必败
       await writeFile(file, 'x');
       const s = new CollabSpoolService(file);
+      // 前 2 次失败只累计 streak：受理面不被瞬时失败触发（防单败停摆语义锚——streak 1-4 区间探针
+      // 未启动，若 isWritable 随 streak 收窄，则 X6 重试梯停排且无人再驱动 spool=永无自愈）
       await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
-      expect(s.isWritable()).toBe(false);
       await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
       expect(s.failureStreak()).toBeGreaterThanOrEqual(2);   // 连败计数（ioBroken 熔断判定素材）
+      expect(s.isWritable()).toBe(true);                     // 未达 WRITE_FAILURE_CIRCUIT 不熔断
+      // 目录被文件占位=持续故障，5 连败必达：置 ioBroken
+      await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
+      await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
+      await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
+      expect(s.isWritable()).toBe(false);                    // 连续 5 次写失败→ioBroken
+      expect((await count()) - before).toBe(5);              // 逐败递增（用例名 metric 口径）
     } finally { await c2(); }
   });
 
