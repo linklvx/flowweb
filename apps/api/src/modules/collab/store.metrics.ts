@@ -60,16 +60,45 @@ export const yjsHydrationHugeRowTotal = new Counter({
   registers: [register],
 });
 
+/** Y0a-2（P1）：pending 快照 gauges（collect 注册模式——采集时现算，零手动维护点）。
+ *  Y5：字段/指标名统一 projects 口径（V4 后按 projectId 计——字段名诚实；drill barrier 同步读
+ *  yjs_pending_projects）。G-1/G-2 演练经 /api/metrics 轮询；Y0a-3 /api/ready.pending 消费同一 computePending()。
+ *  稳态行为（spec §3.3）：活跃编辑时 batches>0 恒成立——只能作"停止写入后是否排空"的判据。 */
+type PendingSnapshot = { projects: number; batches: number; spoolFiles: number; spoolBytes: number };
+let pendingCollector: (() => PendingSnapshot) | null = null;
+export function registerPendingCollector(fn: () => PendingSnapshot): void { pendingCollector = fn; }
+export function unregisterPendingCollector(): void { pendingCollector = null; }   // Y5：onApplicationShutdown 调用——防多 gateway 覆盖+destroy 后闭包悬挂
+
 /** Y0a-2：spool 族指标（spec §5.2——事后取证口径：PROMETHEUS_TOKEN 手 curl；告警路由归 Y0b/E54）。
- *  V14：容量口径含隔离字节（隔离段同占盘——"排除"=磁盘被隔离字节填满而熔断永不触发）。 */
+ *  V14：容量口径含隔离字节（隔离段同占盘——"排除"=磁盘被隔离字节填满而熔断永不触发）。
+ *  X11/X17：depth 双 gauge 改 collect 形态（经 pendingCollector 现算——scrape 崩=整个 /api/metrics 500，故 collect 体 try/catch）。 */
 export const yjsSpoolDepthFiles = new Gauge({
   name: 'yjs_spool_depth_files',
   help: 'spool 段文件数（键集缓存 size 口径）',
   registers: [register],
+  collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolFiles : 0); } catch { this.set(0); } },
 });
 export const yjsSpoolDepthBytes = new Gauge({
   name: 'yjs_spool_depth_bytes',
   help: 'spool 段文件字节总和（**含**隔离字节——容量核算同口径，V14）',
+  registers: [register],
+  collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolBytes : 0); } catch { this.set(0); } },
+});
+export const yjsPendingProjects = new Gauge({
+  name: 'yjs_pending_projects',
+  help: 'pending 队列非空的项目数（G-1 演练 quiescence 判据；Y0a-3 ready.pending.projects 同源）',
+  registers: [register],
+  collect() { try { this.set(pendingCollector?.().projects ?? 0); } catch { this.set(0); } },
+});
+export const yjsPendingBatches = new Gauge({
+  name: 'yjs_pending_batches',
+  help: 'pending 队列 update 条数（update 条数口径，非合并后批数——与 storeInFlight 不同量纲）',
+  registers: [register],
+  collect() { try { this.set(pendingCollector?.().batches ?? 0); } catch { this.set(0); } },
+});
+export const yjsStoreHookCallsTotal = new Counter({
+  name: 'yjs_store_hook_calls_total',
+  help: 'afterStoreDocument 钩子链存活计数（V22 收缩形态——库钩子健康面）',
   registers: [register],
 });
 export const yjsSpoolTruncatedTotal = new Counter({

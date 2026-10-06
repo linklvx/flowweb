@@ -945,3 +945,77 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
     } finally { await kit.dispose(); }
   });
 });
+
+// Y0a-2 Task 4：退避无上限+afterStoreDocument 最小对账+computePending（plan Step 1——红相先行）
+describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () => {
+  it('persistRetryDelayMs 纯函数：前 5 档 [1,2,5,15,30]s，rung≥5 恒 60s（永不耗尽——锚 A5：库不补）', async () => {
+    const { persistRetryDelayMs } = await import('./collab.gateway');
+    expect([0, 1, 2, 3, 4].map(persistRetryDelayMs)).toEqual([1_000, 2_000, 5_000, 15_000, 30_000]);
+    expect(persistRetryDelayMs(5)).toBe(60_000);
+    expect(persistRetryDelayMs(999)).toBe(60_000);
+  });
+
+  it('持续失败不弃批：append 永败+spool 可用 → 退避排程永不耗尽（rung=7 仍重排——旧实现 :541 耗尽 return → timer null=红）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-retry-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      const repo = failingRepo({ failAppend: 99 });
+      const kit = await startDualClientServer({ append: repo.append }, 10_000 /* 大 debounce：只走 retry 梯 */, spool);
+      try {
+        const doc = new Y.Doc();
+        const name = 'project:p-retry';
+        (kit.gateway as any).pendingQueues.set('p-retry', [new Uint8Array([1])]);   // Y19：projectId 键控装置
+        const r1 = await kit.gateway.hooks.onStoreDocument({ document: doc, documentName: name } as any);
+        expect(r1).toBe(false);
+        // 第一次失败即入 spool（BOI）+排程——spool 键命中 ⇒ 本用例只验证"排程不耗尽"：
+        // 手工把 rung 推到 5+（模拟多轮失败）再断言 schedulePersistRetry 仍重排
+        const entry = (kit.gateway as any).persistRetry.get(name);
+        expect(entry).toBeTruthy();
+        // V17⑤：先作废既有 1s 档定时器再推 rung——不清则 schedulePersistRetry 因已有 timer 早退=恒真绿
+        clearTimeout(entry.timer); entry.timer = null;
+        entry.rung = 7;
+        (kit.gateway as any).schedulePersistRetry(name);
+        const entry2 = (kit.gateway as any).persistRetry.get(name);
+        expect(entry2.timer).toBeTruthy();     // rung 7 仍重排（旧实现 :541 耗尽 return → timer null=红）
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('V22 afterStoreDocument=存活计数（yjs_store_hook_calls_total）；去抖窗新写入零误报（v1 判据已撤——真对账=Task 3 splice 点自检）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const callsBefore = (await register.getSingleMetric('yjs_store_hook_calls_total')!.get()).values[0]?.value ?? 0;
+      const g = kit.gateway as any;
+      const doc = new Y.Doc();
+      g.docProject.set(doc, 'p-tail'); g.pendingQueues.set('p-tail', [new Uint8Array([1])]);
+      await kit.gateway.hooks.onStoreDocument({ document: doc, documentName: 'project:p-tail' } as any);   // append ok→队列清空
+      await kit.gateway.hooks.afterStoreDocument({ document: doc, documentName: 'project:p-tail' } as any);
+      const callsAfter = (await register.getSingleMetric('yjs_store_hook_calls_total')!.get()).values[0]?.value ?? 0;
+      expect(callsAfter - callsBefore).toBe(1);          // 存活计数（V17⑥：metric.get() 公开 API——hashMap 内部读取作废）
+      const anomalyBefore = (await register.getSingleMetric('yjs_store_tail_anomaly_total')!.get()).values[0]?.value ?? 0;
+      const q = g.pendingQueues.get('p-tail') as Uint8Array[];
+      q.push(new Uint8Array([2]));                       // 白盒模拟 store 完成后去抖窗内新写入（合法归属）
+      await kit.gateway.hooks.afterStoreDocument({ document: doc, documentName: 'project:p-tail' } as any);
+      const anomalyAfter = (await register.getSingleMetric('yjs_store_tail_anomaly_total')!.get()).values[0]?.value ?? 0;
+      expect(anomalyAfter - anomalyBefore).toBe(0);      // 零误报（v1 判据在此场景必计 1=红——判据已撤；delta 形态：I-2 先行用例已推高计数，绝对 0 恒假红）
+    } finally { await kit.dispose(); }
+  });
+
+  it('computePending：projects=队列非空项目数/batches=条数（空条目不计）；spool 深度并入（G-1 演练的轮询面——P1/Y5）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-cp-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      const kit = await startDualClientServer({}, 300, spool);
+      try {
+        // 装置行在 kit 起动之后：onModuleInit 启动回灌（scan+replayAll→confirm→段回收）会消费 kit 前已存在的帧，
+        // 先投帧则 spoolFiles 断言恒 0 假红——本用例焦点是 computePending 口径，非回灌链（BOI-4 已覆盖）
+        await spool.append('p-cp', new Uint8Array([1, 1]));
+        const g = kit.gateway as any;
+        g.pendingQueues.set('pd1', [new Uint8Array([1]), new Uint8Array([2])]);
+        g.pendingQueues.set('pd2', []);   // 空条目不计 projects（验证语义）
+        const p = g.computePending();
+        expect(p).toMatchObject({ projects: 1, batches: 2, spoolFiles: 1, spoolBytes: 8 + 2 });
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+});

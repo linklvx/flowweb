@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
 import { Redis as RedisExtension } from '@hocuspocus/extension-redis';
 import Redis from 'ioredis';
 import * as Y from 'yjs';
@@ -11,7 +11,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
-import { collabSweepCloseTotal, yjsCanvasDocBytes, storeInFlightDocs, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreTailAnomalyTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabSweepCloseTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
@@ -31,9 +31,13 @@ export function resolveCollabDebounce(explicit?: number): number {
   return process.env.NODE_ENV === 'development' ? 1000 : 2000;
 }
 
-/** 批3-4 persist-status 退避梯：doc 级（活 doc 队列再 flush）+ stash 级（projectId 直写）两阶段，
- *  5 次 ≈53s 耗尽后数据留队/stash——下次 load 回灌兜底（既有契约）仍在。 */
-const PERSIST_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 15_000, 30_000];
+/** 批3-4 persist-status 退避梯（doc 级活 doc 队列再 flush+detached spool 帧通道两阶段）。
+ *  Y0a-2（spec v2.4 §2.3）：退避**无上限**——spool 已保底（BOI），梯子只加速恢复，永不"耗尽"弃守；
+ *  前 5 档 [1,2,5,15,30]s，rung≥5 恒 60s 封顶循环（锚 A5：库不补——重试由梯子自身永续承担）。 */
+export function persistRetryDelayMs(rung: number): number {
+  const table = [1_000, 2_000, 5_000, 15_000, 30_000];
+  return rung < table.length ? table[rung] : 60_000;
+}
 /** 批3-4 sweep 轮询与 grace 窗 */
 const SESSION_SWEEP_INTERVAL_MS = 60_000;
 const SESSION_SWEEP_GRACE_MS = 5_000;
@@ -99,6 +103,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     onAuthenticate: (p: onAuthenticatePayload) => Promise<any>;
     onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
     onStoreDocument: (p: onStoreDocumentPayload) => Promise<boolean>;
+    afterStoreDocument: (p: afterStoreDocumentPayload) => Promise<void>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
   };
 
@@ -122,6 +127,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
       onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
+      afterStoreDocument: (p) => this.afterStoreDocument(p),
       onDisconnect: (p) => this.disconnect(p),
     };
     const debounceMs = resolveCollabDebounce(debounce);
@@ -138,6 +144,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onAuthenticate: this.hooks.onAuthenticate,
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
+      afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
       onDisconnect: this.hooks.onDisconnect,
       extensions: [
         // v4.6.0 无 url 选项——createClient 直建 ioredis（吃 REDIS_URL，pub/sub 各一连接）
@@ -149,6 +156,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         }),
       ],
     });
+    // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
+    // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
+    registerPendingCollector(() => this.computePending());
   }
 
   /** 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
@@ -332,7 +342,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // 不再上抛 Y2 兜底；本支在 append 尝试前，fenced 恒 false）
           this.logger.error(`spool append failed for ${projectId}, batch retained in queue: ${(e2 as Error).message}`);
           this.setPersistStatus(documentName, false);
-          this.schedulePersistRetry(documentName);
+          // T3 残留收口：retryingPersist 在飞（doc 级重试通道）不自排——梯子推进只归 retryPersist catch
+          //（守卫为 I-1 两处同款；缺失只致档位节奏漂移，无数据风险）
+          if (!this.retryingPersist) this.schedulePersistRetry(documentName);
           return false;
         }
       }
@@ -473,6 +485,26 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     storeInFlightDocs.set(this.inFlightProjects.size);
   }
 
+  /** Y0a-2（V22 收缩）：afterStoreDocument=**存活计数探针**（yjs_store_hook_calls_total——钩子链健康面）。
+   *  v1 的"队列非空∧非 spool 键"对账判据**撤**（去抖窗内正常新写入必命中=纯噪声——外审 E4 成立）；
+   *  真对账=Task 3 storeDocumentUnlocked 成功路径的 **splice 点队首前进自检**（零误报）。
+   *  钩子体 try/catch 永不抛（在库 saveMutex 锁内执行——A14）。 */
+  private async afterStoreDocument(_p: Pick<afterStoreDocumentPayload, 'document' | 'documentName'>): Promise<void> {
+    try { yjsStoreHookCallsTotal.inc(); } catch { /* 探针钩子永不抛 */ }
+  }
+
+  /** Y0a-2（P1+V4 单源派生+Y5 键名）：pending 快照——遍历**自有 pendingQueues**（B2：不依赖库
+   *  documents Map，测试与生产同构）；字段 `projects`（按 projectId 计——drain/日志/用例/drill 同名消费）；
+   *  G-1/G-2 演练轮询面（/api/metrics collect 回调）+Y0a-3 /api/ready.pending 消费同一实现 */
+  computePending(): { projects: number; batches: number; spoolFiles: number; spoolBytes: number } {
+    let projects = 0, batches = 0;
+    for (const q of this.pendingQueues.values()) {
+      if (q.length > 0) { projects += 1; batches += q.length; }
+    }
+    const d = this.spool.depth();
+    return { projects, batches, spoolFiles: d.files, spoolBytes: d.bytes };
+  }
+
   /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置）。
    *  Y0a-1（spec v2.4 §1.3）：仅 compacted===true 开新窗——abandoned 不开窗（窗口仍从上次成功起算，
    *  早已过期⇒下次 store 立即重试）；empty 同不开窗（无行时 attempt=一次 findMany(0)，代价可忽略）。 */
@@ -538,11 +570,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (!this.spool.isWritable() && !this.spool.overCapacity()) { this.retryPausedByCircuit = true; return; }
     const entry = this.persistRetry.get(documentName) ?? { rung: 0, timer: null };
     if (entry.timer) return;   // 已排程（失败叠加不提前触发）
-    if (entry.rung >= PERSIST_RETRY_DELAYS_MS.length) return;   // 梯子耗尽：等有机 store / 下次 load 回灌
-    entry.timer = setTimeout(() => {
+    entry.timer = setTimeout(() => {   // Y0a-2：耗尽 return 删——退避无上限，rung≥5 恒 60s 封顶重排
       entry.timer = null;
       void this.retryPersist(documentName);
-    }, PERSIST_RETRY_DELAYS_MS[entry.rung]);
+    }, persistRetryDelayMs(entry.rung));
     entry.timer.unref?.();
     this.persistRetry.set(documentName, entry);
   }
@@ -554,10 +585,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.persistRetry.delete(documentName);
   }
 
-  /** Y0a-2（X5）：有界退避重试双通道——doc 级（活 doc 队列再 flush，经 saveMutex 串行）→
-   *  detached 态（doc 不活/队列空）队列通道+spool 帧通道；成功广播 healthy、耗尽留队
-   *  （下次 load 回灌/启动回灌兜底仍在——R1 拒绝理由由此自洽：回灌失败项目经退避梯运行期自愈，
-   *  无需独立后台 timer）。 */
+  /** Y0a-2（X5）：无界退避重试双通道——doc 级（活 doc 队列再 flush，经 saveMutex 串行）→
+   *  detached 态（doc 不活/队列空）队列通道+spool 帧通道；成功广播 healthy、失败留队续排
+   *  （退避无上限——60s 封顶循环永不"耗尽"；下次 load 回灌/启动回灌兜底仍在，R1 拒绝理由
+   *  由此自洽：回灌失败项目经退避梯运行期自愈，无需独立后台 timer）。 */
   private async retryPersist(documentName: string) {
     const entry = this.persistRetry.get(documentName);
     if (!entry) return;
@@ -599,12 +630,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.setPersistStatus(documentName, true);
     } catch (err) {
       entry.rung += 1;
-      this.logger.error(`persist retry ${entry.rung}/${PERSIST_RETRY_DELAYS_MS.length} failed for ${projectId}: ${(err as Error).message}`);
-      if (entry.rung >= PERSIST_RETRY_DELAYS_MS.length) {
-        this.cancelPersistRetry(documentName);
-        this.logger.error(`persist retry exhausted for ${projectId}; updates retained (recovered on next load)`);
-        return;
-      }
+      // Y0a-2：退避无上限（60s 封顶循环）——"耗尽"分支删除；批的归属地（队列/spool）不变，梯子永续
+      //（下次 load 回灌/启动回灌仍为兜底——R1 拒绝理由由此自洽：回灌失败项目经退避梯运行期自愈）
+      this.logger.error(`persist retry ${entry.rung} failed for ${projectId}: ${(err as Error).message}`);
       this.schedulePersistRetry(documentName);
     }
   }
@@ -648,6 +676,19 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   async onModuleInit(): Promise<void> {
     // 跨实例同步：仅回复本实例已打开的文档（Document extends Y.Doc，内存态最新）
     this.redisSync.getDocument = (name) => this.server.hocuspocus.documents.get(name);
+    // Y0a-2：启动回灌（先于 listen——fail-closed：先服务后回灌=第二次撕裂）。坏帧 scan 报告→隔离处置；
+    // 回灌失败不阻塞启动（帧保留待下次+自检点名）；FK 帧（P2003）随 replayAll 收割。
+    const { truncatedSegments } = await this.spool.scan();
+    let quarantined = 0;
+    for (const seg of truncatedSegments) {
+      const projectId = seg.replace(/\.\d+\.spool$/, '');
+      quarantined += await this.spool.quarantineTruncatedFrames(projectId);
+    }
+    const replay = await this.spool.replayAll(this.repo);
+    if (quarantined > 0 || replay.failed > 0) {
+      // 启动自检（spec §5.2 口径——ERROR 结构化日志；Y0a-3 起随 ready.spoolQuarantined 可见）
+      this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', quarantined, replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded, truncatedSegments }));
+    }
     await this.server.listen();   // Y0a-1 P1-1：await listen——onModuleInit 返回即端口就绪（消端口竞态）
     this.startSessionSweep();   // 批3-4：过期 session 连接清扫（灰度默认关——tick 内自检开关）
     // Y10 seam：spool IO 熔断恢复→统一唤醒退避梯+清 inFlight（启动回灌接线归 Task 4——本批仅 seam 注入；
@@ -748,6 +789,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 批3-2：shutdown 有界化——destroy 与 8s 超时 race。无界形态下 ioredis 等保活句柄使
    *  destroy 永挂 → 进程退不出 → pm2 SIGKILL → stash 丢；超时分支点名内存 doc 数供对账。 */
   async onApplicationShutdown() {
+    unregisterPendingCollector();   // Y5：collect 注册面随停——防多 gateway 覆盖+destroy 后闭包悬挂
     if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // 批3-4：sweep 定时器随停
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);   // 批3-4：退避定时器随停（stash 留待下次 load）
     this.closeAllConnections1012();

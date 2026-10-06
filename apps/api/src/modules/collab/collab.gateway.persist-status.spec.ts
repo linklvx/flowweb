@@ -15,6 +15,11 @@ import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { pollUntil } from '../../test-utils/poll-until';
 
+/** 真实定时器捕获（模块求值期=useFakeTimers 安装前）：退避梯重试链含真实 fsync IO，fake 推进后需
+ *  realSleep 让链在真实事件环落定并在 fake 时钟上排下一档——单 fake 会话设计（切 useRealTimers 杀在途定时器=链断）。 */
+const realSetTimeout = setTimeout.bind(globalThis);
+const realSleep = (ms: number) => new Promise<void>((r) => realSetTimeout(r, ms));
+
 /** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——v2 档快照夹具用） */
 function toDocLike(doc: Y.Doc): DocLike {
   return {
@@ -92,7 +97,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     expect((gateway as any).persistRetry.get('project:p1')).toBeUndefined();
   });
 
-  it('梯子有界：持续失败恰重试 5 次（1s/2s/5s/15s/30s ≈53s）后耗尽——数据留 spool 帧等下次 load 回灌', async () => {
+  it('退避无上限：梯子永不耗尽——5 档走完后 60s 封顶档仍排程重试（数据留 spool 帧等下次 load 回灌；梯子只加速恢复）', async () => {
     const { gateway, repo, spool } = buildGateway();
     const doc = registerDoc(gateway, 'project:p1');
     vi.spyOn(doc, 'broadcastStateless').mockImplementation(() => {});
@@ -101,11 +106,24 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     repo.append.mockRejectedValue(new Error('db down'));
 
     await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any).catch(() => {});
-    for (const delay of [1_000, 2_000, 5_000, 15_000, 30_000]) {
-      await vi.advanceTimersByTimeAsync(delay);
+    // Y0a-2 Task 4（耗尽语义→永续语义，plan Step 3 首用例+V17⑤ 形态）：重试链含真实 fsync IO——全梯在
+    // **单一 fake 会话**内推进（切 useRealTimers 会杀在途 fake 定时器=链断裂）；每轮 60s 推进恒覆盖链式
+    // 定时器到期（各档 ≤60s 封顶），realSleep 让链落定并在 fake 时钟上排下一档。链可能级联超跑 → rung 断言下界。
+    const g = gateway as any;
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(60_000);
+      await realSleep(50);
       repo.append.mockClear();
     }
-    expect(repo.append).not.toHaveBeenCalled();   // 第 5 档已耗尽：无第 6 个定时器（退避无上限改造随 Task 4——本批此断言不动）
+    expect(g.persistRetry.get('project:p1')?.rung).toBeGreaterThanOrEqual(5);   // 5 档全走完
+    const entry = g.persistRetry.get('project:p1');
+    clearTimeout(entry.timer); entry.timer = null;   // V17⑤：作废在途定时器后，在当前时钟断言重排（不清则 schedule 早退=恒真绿）
+    g.schedulePersistRetry('project:p1');
+    expect(g.persistRetry.get('project:p1').timer).toBeTruthy();   // rung≥5 → 60s 封顶档（旧实现 :603 耗尽 cancel → timer null=红）
+    repo.append.mockClear();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await realSleep(50);
+    expect(repo.append).toHaveBeenCalledTimes(1);   // 第 6 次重试仍触发（永不耗尽；旧实现无第 6 档 → 红）
     expect(await spool.peek('p1')).toHaveLength(1);   // Y0a-2：数据仍在 spool 帧（内存 unflushed 退役——清单 A peek 替换；:89 装置随 V4 换键）
   });
 
