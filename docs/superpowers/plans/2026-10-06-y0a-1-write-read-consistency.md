@@ -1144,7 +1144,7 @@ git add apps/api/src/test-utils/dual-client-server.ts apps/api/src/test-utils/po
 - Modify: `apps/api/tsconfig.json`
 - Create: `scripts/check-no-testutils-in-dist.mjs`
 
-- [ ] **Step 1: failingRepo（repo 边界 stub——循既有 stub 惯例）**
+- [x] **Step 1: failingRepo（repo 边界 stub——循既有 stub 惯例）**（审查 Minor 1 登记 Y0a-2：post-N 调用 resolve undefined 而非工厂默认形状——消费方写"失败 N 次后成功"用例时须先修（闭包取 getMockImplementation 兜底），本批零消费者）
 
 ```typescript
 // apps/api/src/test-utils/failing-repo.ts
@@ -1171,7 +1171,7 @@ export function failingRepo(opts: { failAppend?: number; failCompact?: number } 
 }
 ```
 
-- [ ] **Step 2: tsconfig 排除+dist 断言（SKIP guard）+verify 链接线（spec §4.5 v2.4——构建产物检查归 verify 职责，不入 collab-core）**
+- [x] **Step 2: tsconfig 排除+dist 断言（SKIP guard）+verify 链接线（spec §4.5 v2.4——构建产物检查归 verify 职责，不入 collab-core）**（`join` bug 用 `path.join` 修正+`.mjs` 去 TS 注解；审查加固后续 `5ca31066`+段相等匹配：路径段覆盖无魔法串文件名单独泄漏且防祖先目录误报。informational 登记：nest build 无 deleteOutDir——dist 断言语义=历史并集（累积更灵敏），精确到本次构建可加 `nest-cli.json deleteOutDir:true`）
 
 `apps/api/tsconfig.json` exclude 数组追加 `"**/test-utils/**"`。
 
@@ -1203,7 +1203,7 @@ pnpm --filter @flowweb/api exec nest build && node scripts/check-no-testutils-in
 
 （构建一次 api 使断言在 verify 内非 SKIP——代价=每次 verify 多一次 nest build（~20-40s），spec §4.5 v2.4 明确"构建产物检查属 verify 职责"故接受；test job 因此天然覆盖。）
 
-- [ ] **Step 3: 三态验证（正/反/SKIP——D13 红证据）+commit**
+- [x] **Step 3: 三态验证（正/反/SKIP——D13 红证据）+commit**（commit `dd6d7823`；红证据=移除 exclude→build→FAIL exit 1 列 dual-client-server.js/failing-repo.js(+maps)→还原（nest 增量不清 dist 需 rm 后重建）；SKIP 态实证；pnpm verify 全绿（api 168 文件/1478 tests，链内 nest build+断言段实际执行））
 
 ```bash
 cd apps/api && npx nest build && node ../../scripts/check-no-testutils-in-dist.mjs
