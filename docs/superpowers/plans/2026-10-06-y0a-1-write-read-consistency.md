@@ -50,7 +50,7 @@
 
 **不改**：storeDocument/失败路径/spool（Y0a-2）；租约消费代码（Y0a-3，本批只建表+seed）；extension-redis（Y0a-3）；putStash 与 store 提前 drain(:273)/retry stash 级(:380) 两处 takeStash（Y0a-2 统一 peek 化——本批只改 load 侧读路径）。
 
-**命令口径**：int 用例本地跑=Git Bash 前缀赋值 `DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run <path>`（仓内无 cross-env，勿引入）。
+**命令口径**：int 用例本地跑=Git Bash 前缀赋值 `DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run <path>`（仓内无 cross-env，勿引入）。
 
 ---
 
@@ -60,7 +60,7 @@
 - Modify: `apps/api/prisma/schema.prisma:808-843`
 - Modify: `apps/api/prisma/verify-indexes.sql`
 
-- [ ] **Step 1: 先写 verify-indexes 新块（对现状留红相——D13）**
+- [x] **Step 1: 先写 verify-indexes 新块（对现状留红相——D13）**
 
 `verify-indexes.sql` 末尾追加（**注意：runner 按空行分块且判据=每块 ≥1 行，块内禁空行**）：
 
@@ -75,7 +75,7 @@ SELECT scope FROM "CollabLease" WHERE scope = 'primary' AND owner IS NULL AND ep
 SELECT 'redundant_index_absent' AS ok WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'CanvasDocUpdate' AND indexdef LIKE '%CREATE INDEX%' AND indexdef NOT LIKE '%UNIQUE%' AND indexdef LIKE '%projectId%' AND indexdef LIKE '%seq%');
 ```
 
-- [ ] **Step 2: verify-indexes runner 块级容错+跑红并留档**
+- [x] **Step 2: verify-indexes runner 块级容错+跑红并留档**
 
 runner 现状 `await client.query(b)` 无 try/catch——首个 SQL 错误整轮崩溃，红证据只能拿到第一块。改 `scripts/verify-indexes.mjs` 循环体（:51-61）：
 
@@ -103,7 +103,7 @@ for (const b of blocks) {
 （既有块在容错前后都必须全绿——本改动只影响失败时的报告完整性。）
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb node scripts/verify-indexes.mjs
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb node scripts/verify-indexes.mjs
 ```
 （runner 自带 findRepoRoot——命令统一从仓根执行，不再 `cd apps/api`。）Expected: FAIL（新块 0 行/`CollabLease` 不存在计为错误块——**四个新块全部出现在失败清单**）。**把输出粘进本文件此步骤下方留档**：
 
@@ -117,9 +117,9 @@ DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb node scripts/ver
 verify-indexes: 4/6 块断言失败
 ```
 
-（exit 1；四个新块全部在列——块 5 的 SQL 错误被 Step 2 容错捕获继续执行，块 6 才得以出现在失败清单。本机 DATABASE_URL 实际密码为 `flowweb_dev`（apps/api/.env 同源），本文档命令中 `123456` 系笔误口径，执行时以 .env 为准。）
+（exit 1；四个新块全部在列——块 5 的 SQL 错误被 Step 2 容错捕获继续执行，块 6 才得以出现在失败清单。迁移后复跑 6/6 全绿。本机 DATABASE_URL 密码=`flowweb_dev`（apps/api/.env 同源），CI 段 `123456` 为自建 service 容器自洽口径。）
 
-- [ ] **Step 3: 改 schema.prisma**
+- [x] **Step 3: 改 schema.prisma**
 
 `model CanvasDoc` 加 `stateSeq BigInt @default(0)`（state 行后）；`model CanvasDocUpdate` 的 `@@index([projectId, seq])` 替换为 `@@unique([projectId, seq])`；模型区新增：
 
@@ -133,12 +133,12 @@ model CollabLease {
 }
 ```
 
-- [ ] **Step 4: 生成迁移并人工检查**
+- [x] **Step 4: 生成迁移并人工检查**
 
 ```bash
 cd apps/api && npx prisma migrate dev --name y0a_integrity
 ```
-（生成目录自动带本地时间戳前缀，与既有 23 个迁移同形态。）检查 migration.sql：①CREATE UNIQUE INDEX ②DROP INDEX 旧 ③ADD COLUMN stateSeq ④CREATE TABLE CollabLease ⑤**无去重/清洗 SQL**。末尾追加（显式手工段标记）：
+（生成目录自动带本地时间戳前缀，与既有 23 个迁移同形态。）检查 migration.sql：①唯一约束（**执行裁定：ADD CONSTRAINT ... UNIQUE 形态**——Prisma 5.22 对 `@@unique` 生成裸 CREATE UNIQUE INDEX 不进 pg_constraint，与块 3 判据口径冲突；constraint 形态自动建同名唯一索引，写放大/查询语义等价，影子库回放零漂移已证）②DROP INDEX 旧 ③ADD COLUMN stateSeq ④CREATE TABLE CollabLease ⑤**无去重/清洗 SQL**。末尾追加（显式手工段标记）：
 
 ```sql
 -- ============ 手工段（Y0a-1）：租约种子行（幂等）——非 prisma migrate dev 生成 ============
@@ -148,10 +148,10 @@ ON CONFLICT ("scope") DO NOTHING;
 
 存量撞约束（本地 246 行正常 append 不撞；撞=脏数据）→ 先人工 psql 清洗再重跑迁移。
 
-- [ ] **Step 5: verify-indexes 转绿+全量回归+commit**
+- [x] **Step 5: verify-indexes 转绿+全量回归+commit**（commit `6581bf3b`——实际含 runner 补丁文件 `scripts/verify-indexes.mjs`；无 TTY 下 `prisma migrate dev` 拒交互确认，改走 `migrate diff` 产 DDL→组目录→`migrate deploy`+`generate` 等价路径；plan 留档单独 commit `dec3fe81`）
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb node scripts/verify-indexes.mjs && pnpm verify
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb node scripts/verify-indexes.mjs && pnpm verify
 ```
 Expected: 全 PASS（含既有套件——schema 变更不破 mock 套件）。
 
@@ -257,7 +257,7 @@ maybe('append（真 PG）', () => {
 - [ ] **Step 3: 跑（确认 fixture 链可建+用例红/绿状态）**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts
 ```
 Expected: 两用例在迁移后的库上应绿（红相已由 Task 1 Step 2 留档）。
 
@@ -298,7 +298,7 @@ Expected: 两用例在迁移后的库上应绿（红相已由 Task 1 Step 2 留�
 - [ ] **Step 6: 跑绿+commit**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.spec.ts
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.spec.ts
 ```
 （compact 相关 mock 用例本步仍绿——其改写归 Task 3 Step 6；全量 `src/modules/collab` 回归在 Task 3 Step 7。）
 
@@ -428,7 +428,7 @@ maybe('compact（真 PG）', () => {
 - [ ] **Step 4: 跑红**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts
 ```
 Expected: FAIL——①stateSeq 断言（compact 未写 stateSeq，列恒 0≠maxSeq）②svDominates 未导出。留档输出。
 
@@ -519,7 +519,7 @@ Expected: FAIL——①stateSeq 断言（compact 未写 stateSeq，列恒 0≠ma
 - [ ] **Step 7: 跑绿+回归+commit**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-update.repository.spec.ts && pnpm --filter @flowweb/api exec vitest run src/modules/collab
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-update.repository.spec.ts && pnpm --filter @flowweb/api exec vitest run src/modules/collab
 ```
 （全量 collab 回归含 Step 5b 的 gateway 两 spec——stub 补丁后窗口断言链应全绿。）
 
@@ -692,7 +692,7 @@ maybe('loadForHydration（真 PG）', () => {
 - [ ] **Step 3: 跑红**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-hydration.int.spec.ts
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-hydration.int.spec.ts
 ```
 Expected: FAIL（`loadForHydration is not a function`）。留档。
 
@@ -843,7 +843,7 @@ Expected: FAIL（`loadForHydration is not a function`）。留档。
 把 5 个 gateway spec 文件的 repo stub（collab.gateway.spec.ts:71-77 等 15+ 处）改为 `createMockRepo(...)`（各自覆盖项不变：durableRows 台账 append/loadForHydration 喂行/红4 stalling 改 `loadForHydration: vi.fn(() => new Promise(() => {}))`——**保持用例名与断言不变，只换注入形态**；`loadUpdates` 的 mock 全删。hydrateWithRecovery 由工厂默认委托——挂起的 loadForHydration 使委托调用同样挂起，红4 语义等价：挂起不 reject、不进 catch）。
 
 ```bash
-pnpm --filter @flowweb/api exec vitest run src/modules/collab && DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab
+pnpm --filter @flowweb/api exec vitest run src/modules/collab && DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab
 ```
 Expected: mock 与 int 双绿（红4 的"装载窗口挂起"语义等价迁移后仍守护）。
 
@@ -921,7 +921,7 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
 - [ ] **Step 2: 跑绿+commit**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-hydration.int.spec.ts
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-hydration.int.spec.ts
 git add apps/api/src/modules/collab/canvas-doc-hydration.int.spec.ts && git commit -m "test(collab): Y0a-1 真PG隔离性质+可达性固化（gate try/finally 兜底）"
 ```
 
@@ -1422,7 +1422,7 @@ void main();
 - [ ] **Step 2: 本地真库跑+typecheck 载体验证+commit**
 
 ```bash
-DATABASE_URL=postgresql://flowweb:123456@localhost:5432/flowweb pnpm --filter @flowweb/api exec tsx scripts/collab-compact.ts y0a1-compact-int
+DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec tsx scripts/collab-compact.ts y0a1-compact-int
 # 期望：`compact 未执行：reason=empty（0 行 → 0 行增量，行未动）`+退出码 2（int 用例 afterAll 已清理——
 # empty 返回契约即通线证明：连接/迁移/直调/返回契约/断开全链路；顺手验证 compacted 分支可对有行项目跑一次）
 pnpm --filter @flowweb/api exec tsc -p tsconfig.scripts.json --noEmit
