@@ -934,7 +934,7 @@ git add apps/api/src/modules/collab/canvas-doc-hydration.int.spec.ts && git comm
 - Create: `apps/api/src/test-utils/poll-until.ts`
 - Test: `apps/api/src/modules/collab/collab.library-anchors.spec.ts`
 
-- [ ] **Step 1: 落 poll-until + 提取装置（自 collab.gateway.spec.ts:43-107 移植，无占位）**
+- [x] **Step 1: 落 poll-until + 提取装置（自 collab.gateway.spec.ts:43-107 移植，无占位）**（探针修正两处：①`openDirectConnection` 在 `server.hocuspocus` 非 Server 包装（dist:1602，生产同形 collab-document.service.ts:17）②prisma stub 无 canvasDoc——gateway 装载走 repo；kit 暴露 prisma/emitter/permSvc 注入面保既有失败注入用例不变；42 既有用例零改动绿。审查 I-1 后续 `fce3aa8b`：kit.forget 防双 destroy（惯例同 gateway.spec:262））
 
 ```typescript
 // apps/api/src/test-utils/poll-until.ts
@@ -1005,7 +1005,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
 
 （移植完成后 collab.gateway.spec.ts 的 beforeEach 改 import 本 helper，跑一遍保证既有用例不红。）
 
-- [ ] **Step 1b: gateway `onModuleInit` 改 async+await listen（P1-1 端口竞态——生产小改）**
+- [x] **Step 1b: gateway `onModuleInit` 改 async+await listen（P1-1 端口竞态——生产小改）**（调用点：gateway.spec beforeEach 经 kit await；auth-reason.spec:144 本已 await；其余 spec 不调 onModuleInit）
 
 `collab.gateway.ts:434-437` 现状同步签名、`this.server.listen()` 的 Promise 被丢弃——端口可能未绑定即有消费方连接（既有 integration 用例靠 listen 快侥幸通过）。改：
 
@@ -1024,7 +1024,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
 
 （NestJS 生命周期与既有 spec 的 `await gateway.onModuleInit()` 调用点均兼容 async 形态。）
 
-- [ ] **Step 2: 写库锚断言（独立最小 Server 承载 A1/A5/A6；确定性构造 A7；单元 A8；装置 A9）**
+- [x] **Step 2: 写库锚断言（独立最小 Server 承载 A1/A5/A6；确定性构造 A7；单元 A8；装置 A9）**（**A9 探针修正（纪律 10 生效——plan 用例代码丢了 spec §1.2 A9 的"无 debounce 在飞"前置**：debounce 在途断连走 executeNow 分支 dist:1384-1385→store 失败被吞 :1547→doc 留内存（A1 WS 面）；仅 else 分支 :1386 无条件 unloadDocument。修正后锚=等库自身判别式（isDebounced∧isCurrentlyExecuting 双 false）+append 确已失败防空洞+20s 显式超时。**Y0a-2 spool 设计消费注意：脏 doc 卸载仅 else 分支成立——两分支分立已入锚注释**。A1+A5 名随实改：本路径 direct-connection 实际卸载，锚只承载"库不自动重试"；"doc 留内存"WS 面由 A9 注释实证。A7/A8 首跑即绿）
 
 ```typescript
 // collab.library-anchors.spec.ts
@@ -1128,7 +1128,7 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
 
 （**探针前置（纪律第 10 条）**：A1/A5/A6/A9 断言集落库前，先以本文件为探针跑一次——若 A1 用例中 `calls` 恒 0 或 A6 中 doc 永不消失，即库行为与锚假设不符，**停下来核对 dist 行号再改锚**，禁为绿调断言。）
 
-- [ ] **Step 3: 跑绿+既有 spec 换 helper 回归+commit**
+- [x] **Step 3: 跑绿+既有 spec 换 helper 回归+commit**（commit `29258287`；anchors 6/6+gateway 48/48+全量 21 文件/151 用例绿；行号修正 `20a65f72`+I-1/M-2 加固 `fce3aa8b` 后续）
 
 ```bash
 pnpm --filter @flowweb/api exec vitest run src/modules/collab/collab.library-anchors.spec.ts src/modules/collab/collab.gateway.spec.ts

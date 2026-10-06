@@ -80,7 +80,7 @@
 | A6 | DirectConnection.disconnect 的 unloadImmediately 默认 true 且 await store；**destroy() 仅 doc 归零才 resolve** | DirectConnection.ts:47-74 / Hocuspocus.ts:1725-1738 | Y0a-2 drain 有界化 |
 | A7 | `doc.store.pendingStructs` 为 yjs 公开字段（d.ts 声明），只在"收到行且时钟超前"时产生，**整行缺失不产生** | yjs StructStore.d.ts:9-12 / encoding.js:396/416/530 | Y0a-1 compact 前检查 |
 | A8 | store 钩子跳过判据：redis 源→跳过；local→看 skipStoreHooks；connection→不跳过。**`shouldSkipStoreHooks` 是包公开导出（index.d.ts:247）——锚用例直接 import，禁手写等价判据（第二真源）** | types.ts:40-50 | 删 extension-redis 后回归；withDoc 写入（transact source=local 无 skipStoreHooks）必触发 store——断此前提 |
-| A9 | **最后一条连接关闭且无 debounce 在飞时，onClose else 分支直接 unloadDocument——脏 doc 随断连销毁**（pending 队列 WeakMap 随之消失） | Hocuspocus.ts clientConnection.onClose else 分支 | spool 承重性依据（Y0a-2）；v2.1 新增（撤"永不卸载"宽表述） |
+| A9 | **最后一条连接关闭且无 debounce 在飞时，onClose else 分支直接 unloadDocument——脏 doc 随断连销毁**（pending 队列 WeakMap 随之消失）。**分支分立（Y0a-1 库锚探针实证 2026-10-06）**：debounce 在途时断连走 executeNow 分支（dist:1384-1385）→ store 失败被吞（:1547"Document stays in memory"）→ doc **留内存**（A1 WS 面——唯一恢复源=gateway 自管退避）；仅 else 分支（:1386）无条件卸载 | Hocuspocus.ts clientConnection.onClose else 分支 | spool 承重性依据（Y0a-2）；v2.1 新增（撤"永不卸载"宽表述） |
 | A10 | `Document.saveMutex`（async-mutex）为公开字段——gateway 侧 store 直调可统一走 `saveMutex.runExclusive` 串行 | index.d.ts:761 | Y0a-2 入口串行化 |
 
 （E29 全量锚表 5 条扩表仍归 Y0c；本批只固化上述与本批设计承重的锚。）
