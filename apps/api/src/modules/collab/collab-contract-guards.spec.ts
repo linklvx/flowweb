@@ -1,6 +1,7 @@
 // apps/api/src/modules/collab/collab-contract-guards.spec.ts
 // Y0a-1 契约守卫（spec §4.3-1/2/5/10）。范围=collab 目录全部非 spec 生产文件（repository 自身=唯一入口，
 // 豁免"禁直查"三条）；契约 5 只留否定断言（正向断言锚死内部写法——Y0a-2 合法重构会误红）。
+// 注释提及被禁 token 同判（含 stateSeq 词汇本身）——命名即耦合面，有意强 tripwire，勿加注释豁免逻辑。
 // __dirname 可用性：collab.gateway.sweep.spec.ts 同款先例（spec tsconfig commonjs 下 import.meta 被
 // tsc 拒绝，__dirname 恒可用）。
 import { describe, it, expect } from 'vitest';

@@ -1438,7 +1438,7 @@ git add apps/api/scripts/collab-compact.ts && git commit -m "feat(scripts): Y0a-
 - Modify: `apps/api/package.json`（scripts）
 - Modify: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: 四条扫描门禁（v3：范围扩 collab 全目录+只留否定断言——循 doc-shape-single-source.guard 惯例）**
+- [x] **Step 1: 四条扫描门禁（v3：范围扩 collab 全目录+只留否定断言——循 doc-shape-single-source.guard 惯例）**（首跑 5/5 绿；D13 红证据=注入 `void this.maybeCompact(...)` → 契约 5 红 → 还原零残留（spec 审查者独立复现）；加固：头注释明示"注释提及被禁 token 同判"（审查 Minor 3））
 
 ```typescript
 // collab-contract-guards.spec.ts
@@ -1476,7 +1476,7 @@ describe('Y0a-1 冻结契约扫描', () => {
 
 （regex 以实际代码形态校准——**先跑**：现网关应全绿；然后故意注入一处 `void this.maybeCompact()` 验证红（D13），还原。）
 
-- [ ] **Step 2: test:int 脚本+collab-core 最小 job（本子批即建——出口判据 CI 可见）**
+- [x] **Step 2: test:int 脚本+collab-core 最小 job（本子批即建——出口判据 CI 可见）**（本地等价双证：绿 `passed: 15`（≥13 下限=2 用例余量）、skip 红 `FAIL: passed 2 failed 0 skipped 13` exit 1——2=svDominates 纯函数锚无 DB 门（刻意不 maybe 门控）；**条数构成校正（v4 算式 13 已过时）**：15=append 2+compact int 4（svDominates 2+compact 2）+hydration 9（装载 7 含 I-1 钉子/message 回退正例+隔离性质 2）；CI 首跑待 push；加固：双 reporter（审查 Minor 4a）。**GitHub 侧待办（用户）**：分支保护把 collab-core 勾为 required check——spec §5.3 声明 required，代码侧无事可做）
 
 `apps/api/package.json` scripts 加：
 
@@ -1523,7 +1523,7 @@ describe('Y0a-1 冻结契约扫描', () => {
 
 （条数下限=append(2)+compact int(2)+svDominates 纯函数(2，compact int 文件内 describe)+hydration(5：等价/分页/自愈/P1001 负例/P2024 负例)+隔离性质(2)=**13**；redis service 本子批不需要（int 用例零 Redis），Y0a-3 起补。）
 
-- [ ] **Step 3: doc-gate 先验+全量回归**
+- [x] **Step 3: doc-gate 先验+全量回归**（doc-gate PASS 0 违规无 canonical-drift；pnpm verify exit 0——api 170 文件/1516 tests+web lint 绿；eslint 0 errors/39 条存量 warnings）
 
 ```bash
 node scripts/doc-gate.mjs
@@ -1531,7 +1531,7 @@ pnpm verify && pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
 ```
 （doc-gate 违规时**不自动覆写**：仅当输出含 `[canonical-drift]` 才 `node scripts/doc-gate.mjs --write-canonical` 并 review git diff；其他违规（vocabulary/dead-path/ref-existence）修因不修表。）
 
-- [ ] **Step 4: 子批出口清单核对（spec §4.1 Y0a-1 行——逐项打勾+载体）**
+- [x] **Step 4: 子批出口清单核对（spec §4.1 Y0a-1 行——逐项打勾+载体）**（17/17 全 ✅——逐项 commit 证据见 Task 10 实现报告与 spec 审查复核；collab-core 项=本地等价验证过+CI 首跑待 push）
 
 ```
 □ 隔离性质用例绿（真 PG，确定序：compact 提交后放行行读）〔载体：collab-core int〕——Task 5
@@ -1553,7 +1553,7 @@ pnpm verify && pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
 □ commit 历史干净（每 Task 一 commit，显式文件列表）
 ```
 
-- [ ] **Step 5: 向用户汇报出口清单，请求确认进 Y0a-2 plan（执行门）**
+- [x] **Step 5: 向用户汇报出口清单，请求确认进 Y0a-2 plan（执行门）**（controller 汇报；**质量审查跨批登记（Y0a-2 必办）**：①契约 5 裸语句形态盲区——`this.maybeCompact(p)` 漏 await 无 void 前缀不匹配 regex 且 eslint 非 type-aware 无 no-floating-promises 兜底：Y0a-2 gateway 重写触碰调用行时给 collab 目录开 type-aware lint 或扩负向后顾断言②guard 平铺 readdirSync 子目录盲区——未来 collab/spool/ 子目录或 gateway 拆模块即静默失明：Y0a-2 加 spool service 时顺手换 doc-shape 先例递归扫描（5 行）③spec §6.2"装载读唯一入口=src 扫描"与实现（collab 目录扫描）范围措辞分叉——当前全仓无第二消费点等价，Y0a-2/Y0c 扩范围时同步修正）
 
 （Y0a-2 待办已随 spec v2.2/v2.4 登记：storeInFlight Gauge+归属转移同点（增减两点规则=契约 14）；DB 触发器演练注入；BOI 主路径重写+spool——**append 消费按契约 15：`!r.ok`（含 fenced）与 throw 合并走 spool 分支，BOI 红相增补第三种（fenced 0 行不抛错→"未抛错当成功"的旧实现照常 splice=帧蒸发，spec §6.1 v2.4）**。**跨批登记（v3）**：Y0a-3 必办=collab.gateway.spec.ts:242-244 的 elapsed<3000 时序断言/注释建立在 RedisExtension disconnectDelay 2×1000ms 上，随 extension-redis 删除同批重写；multi-instance spec 的 repo 形状随租约改写一并核对——两项已进 spec §3 Y0a-3。**跨批登记（v4）**：Y0a-3 落地 readSnapshotOnly 时提取 `readConsistent` 两出口（契约 1 v2.4——本批 loadForHydration 即实现体，禁复制第二份）；fence WHERE 追加后 append 的 fenced/no-row 分支用例（leaseRowMissing 区分同批）。）
 

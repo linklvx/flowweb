@@ -154,7 +154,7 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
-      - name: collab int（显式清单——本批三个 int spec）
-        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-hydration.int.spec.ts --reporter=json --outputFile=/tmp/int.json
+      - name: collab int（显式清单——本批三个 int spec；双 reporter=失败用例名在 CI 日志可读）
+        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-hydration.int.spec.ts --reporter=json --reporter=default --outputFile=/tmp/int.json
       - name: int 条数断言（passed≥13 且零失败零跳过——红证据：注释 DATABASE_URL 跑一次必红）
         run: node -e "const r=require('/tmp/int.json');const p=r.numPassedTests??0,f=r.numFailedTests??0,s=r.numPendingTests??0;if(f>0||s>0||p<13){console.error('FAIL: passed',p,'failed',f,'skipped',s);process.exit(1)}console.log('collab int passed:',p)"
