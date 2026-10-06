@@ -319,7 +319,7 @@ git add apps/api/src/modules/collab/canvas-doc-update.repository.ts apps/api/src
 - Modify: `apps/api/src/modules/collab/canvas-doc-update.repository.spec.ts`（compact 三用例改写+$transaction 断言补全+放弃用例——冲击面清单见 Step 6）
 - Test: `apps/api/src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts`
 
-- [ ] **Step 1: 加指标（唯一 compact 健康度指标，P0 告警线）**
+- [x] **Step 1: 加指标（唯一 compact 健康度指标，P0 告警线）**
 
 `store.metrics.ts` 追加：
 
@@ -337,7 +337,7 @@ export const yjsCompactAbandonedTotal = new Counter({
 
 （`yjs_compact_sv_violation_total` **不创建**——inline 哨兵已删，spec v2.2 §1.5。）
 
-- [ ] **Step 2: svDominates 落 sv.util.ts 一行委托（单源——禁第二实现）**
+- [x] **Step 2: svDominates 落 sv.util.ts 一行委托（单源——禁第二实现）**（svSatisfied(serverSV, requiredSV) 参数序核对无误）
 
 ```typescript
 /** SV 支配性（Y0a-1 纯函数锚——Y1c-1 破坏后结构锚的基础件）：rowSv 全部 clock ⊆ snapSv。
@@ -346,7 +346,7 @@ export const yjsCompactAbandonedTotal = new Counter({
 export const svDominates = (rowSv: Uint8Array, snapSv: Uint8Array): boolean => svSatisfied(snapSv, rowSv);
 ```
 
-- [ ] **Step 3: 写失败测试**
+- [x] **Step 3: 写失败测试**
 
 ```typescript
 // canvas-doc-update.repository.compact.int.spec.ts
@@ -425,14 +425,14 @@ maybe('compact（真 PG）', () => {
 });
 ```
 
-- [ ] **Step 4: 跑红**
+- [x] **Step 4: 跑红**（实测：svDominates 未导出 TypeError×2+旧 compact 返回 undefined≠契约；spec 审查者独立重现红相——回滚三实现文件跑同命令 3 fail/1 pass 后还原）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts
 ```
 Expected: FAIL——①stateSeq 断言（compact 未写 stateSeq，列恒 0≠maxSeq）②svDominates 未导出。留档输出。
 
-- [ ] **Step 5: 实现 compact 强化（{compacted,reason} 返回契约+opts 独立预算，单 temp）**
+- [x] **Step 5: 实现 compact 强化（{compacted,reason} 返回契约+opts 独立预算，单 temp）**（审查登记 M-3：abandoned ERROR 为模板串而非 spec 结构化 `{event:'compact_abandoned'}` 字段——当前无 JSON 日志管道消费等价，Y0b 观测收口批再统一）
 
 替换 compact（:43-71）：
 
@@ -482,7 +482,7 @@ Expected: FAIL——①stateSeq 断言（compact 未写 stateSeq，列恒 0≠ma
   }
 ```
 
-- [ ] **Step 5b: maybeCompact 消费返回值（仅成功开窗）+gateway spec stub 补丁（v4 冲击面）**
+- [x] **Step 5b: maybeCompact 消费返回值（仅成功开窗）+gateway spec stub 补丁（v4 冲击面）**
 
 `collab.gateway.ts` maybeCompact（:306-311）改：
 
@@ -504,7 +504,7 @@ Expected: FAIL——①stateSeq 断言（compact 未写 stateSeq，列恒 0≠ma
 
 文件头 import 补 `yjsCompactAbandonedTotal`，repository 加 `private readonly logger = new Logger(CanvasDocUpdateRepository.name)`（`@nestjs/common` import——直连形态，hydrateWithRecovery 复用）。
 
-- [ ] **Step 6: 既有 repository.spec 六用例改写（冲击面清单——v3：新实现实测 3 红 3 绿，v2"兼容"结论作废）**
+- [x] **Step 6: 既有 repository.spec 六用例改写（冲击面清单——v3：新实现实测 3 红 3 绿，v2"兼容"结论作废）**（卫生性超额：两用例顺手删死 max mock+补 stateSeq 断言，审查接受）
 
 | 用例（行号） | 冲击 | 处置 |
 |---|---|---|
@@ -516,7 +516,7 @@ Expected: FAIL——①stateSeq 断言（compact 未写 stateSeq，列恒 0≠ma
 | 跨两轮幂等（:113） | deleteMany 两次 nth 断言 `{seq:{lte}}` 红；两处 `$queryRaw.mockResolvedValueOnce` 消费错位 | 删两个 once-mock；两轮 findMany rows 补 id；deleteMany 断言改两轮各自 `{ id: { in: […] } }` |
 | **新增** pendingStructs 放弃 | 旧实现无此分支 | 新 mock 用例：findMany 返回超前行（`Y.diffUpdate(encodeStateAsUpdate(a), svA)` 形态——A7b 同款构造）+canvasDoc null → 断言返回值 `{compacted:false,reason:'abandoned'}`+upsert/deleteMany **均未调用**+`yjsCompactAbandonedTotal` 计数+1（对旧实现红=放弃分支真红门，先红后绿） |
 
-- [ ] **Step 7: 跑绿+回归+commit**
+- [x] **Step 7: 跑绿+回归+commit**（commit `112c08c4`；targeted 11/11+collab 全量 19 文件/135 用例绿+tsc strict exit 0；审查 I-1 加固后续 commit `3acd2256`——updatedAt 断言改两 DB 读值比较堵 vacuous-pass 窗口）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-update.repository.spec.ts && pnpm --filter @flowweb/api exec vitest run src/modules/collab
