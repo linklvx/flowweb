@@ -90,7 +90,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly inFlightProjects = new Set<string>();
   /** X6：熔断期退避梯暂停标志（probe 恢复经 onRecovered seam→rearmQueues 清除） */
   private retryPausedByCircuit = false;
-  /** Y0a-2：draining 状态位（isShuttingDown 读点=authenticate 受理门；置位者=Task 5 关停编排——本批无写入者=常 false） */
+  /** Y0a-2：draining 状态位（isShuttingDown 读点=authenticate 受理门；置位者=onApplicationShutdown 步骤 1——与 Y0a-3 /api/drain 同一状态位（幂等；内存态）） */
   private draining = false;
   /** V10：已删项目终态缓存（storeDocumentUnlocked 终态拦截读点；写入者=Task 6 删除链 emit——本批空集=门常开） */
   private readonly deletedProjects = new Set<string>();
@@ -796,20 +796,121 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** 批3-2：shutdown 有界化——destroy 与 8s 超时 race。无界形态下 ioredis 等保活句柄使
-   *  destroy 永挂 → 进程退不出 → pm2 SIGKILL → stash 丢；超时分支点名内存 doc 数供对账。 */
-  async onApplicationShutdown() {
-    unregisterPendingCollector();   // Y5：collect 注册面随停——防多 gateway 覆盖+destroy 后闭包悬挂
-    if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // 批3-4：sweep 定时器随停
-    for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);   // 批3-4：退避定时器随停（stash 留待下次 load）
-    this.closeAllConnections1012();
-    let destroyed = false;
+  /** Y0a-2 关停 drain 六步（spec v2.4 §2.4 预算表：直连宽限 ≤2s+flush ≤6s+自管 drain+force-spool 硬界
+   *  t0+18s+race ≤4s=合计 ≤22s——Y12：hardDeadline 18s（22s+4s=26s 破表），kill_timeout 30s 内垫 ≥8s
+   *  ——ecosystem Y0a-4）。G-2a：归属要么落定、要么被如实点名（禁声称 0）。
+   *  步骤 6（租约显式释放 ≤2s）Y0a-3 落地——本批占位注释（v2.4"必须执行到"约束随租约同批）。 */
+  async onApplicationShutdown(): Promise<void> {
+    const t0 = Date.now();
+    this.draining = true;                                                        // 步骤 1：停收新写（就绪门对接 Y0a-3）
+    if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }
+    for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);  // 定时器随停——drain 主动接管
+    await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
+    this.closeAllConnections1012();                                              // 步骤 2：瞬时
+    this.server.hocuspocus.flushPendingStores();                                 // 步骤 3：库 debounce 队列（同步触发）
+    await this.pollPendingDrained(6_000);                                        // ≤6s 排空窗口（只管"仍在 debounce 中"的 store——主力是步骤 4）
+    await this.drainAllDocuments(t0 + 18_000);                                   // 步骤 4：自管 drain+force-spool（X7+Y12——硬界 18s，其后 4s race 收在 22s）
+    let destroyed = false;                                                       // 步骤 5：destroy 与 4s race（兜底）
     const destroying = this.server.destroy()
       .then(() => { destroyed = true; })
-      .catch((err) => { this.logger.warn(`collab server destroy failed: ${(err as Error).message}`); });   // 关停窗口禁 unhandled rejection
-    await Promise.race([destroying, new Promise<void>((resolve) => { setTimeout(resolve, 8000).unref?.(); })]);
+      .catch((err) => this.logger.warn(`collab server destroy failed: ${(err as Error).message}`));   // 关停窗口禁 unhandled rejection
+    await Promise.race([destroying, new Promise<void>((r) => { setTimeout(r, 4_000).unref?.(); })]);
     if (!destroyed) {
-      this.logger.warn(`collab server destroy timeout after 8s, ${this.server.hocuspocus.documents.size} docs still in memory (flush at risk)`);
+      const p = this.computePending();
+      const hangReason = p.projects > 0 || p.batches > 0 ? 'store-undrained' : 'direct-open';   // 分型（v2.4；Y5 键名）
+      this.logger.error(JSON.stringify({ event: 'destroy_timeout', ...p, storeInFlight: this.inFlightProjects.size, hangReason }));
+    }
+    unregisterPendingCollector();   // Y5：collect 闭包随 gateway 死——destroy race 判定后（M4：drain 期 pending 可观测性保留）
+    // 步骤 6（≤2s）：租约显式释放——Y0a-3（deploy 不等 TTL；SIGKILL 截断则下实例吃满 TTL=RTO）
+    this.logger.log(JSON.stringify({ event: 'shutdown_complete', elapsedMs: Date.now() - t0 }));
+  }
+
+  /** V9：在飞直连宽限——**入口先判**（无直连立即归还，消灭"每次重启无条件多 2s"）；轮询期间
+   *  directConnectionsCount 归零即返（A3——closeAllConnections1012 只遍历 WS 不触 direct）。 */
+  private async graceDirectConnections(budgetMs: number): Promise<void> {
+    const count = () => { let n = 0; for (const d of this.server.hocuspocus.documents.values()) n += d.directConnectionsCount ?? 0; return n; };
+    if (count() === 0) return;                                   // V9：常见路径零成本
+    const t0 = Date.now();
+    while (Date.now() - t0 < budgetMs) {
+      if (count() === 0) return;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
+  private async pollPendingDrained(budgetMs: number): Promise<void> {
+    const t0 = Date.now();
+    while (Date.now() - t0 < budgetMs) {
+      const p = this.computePending();
+      if (p.projects === 0 && p.batches === 0) return;   // Y5：projects 键名（v3 此处读 p.docs=改名后恒 undefined）
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
+  /** 自管 drain（步骤 4 主力）——X7+Y12：hardDeadline（t0+18s）透传+两级闸（总闸 8s 遍历预算+每 doc
+   *  min(2s, remaining) race）；drain 循环内 peekSpoolFrames 套 500ms race（磁盘挂起穿透防护）；
+   *  force-spool **每次 append 套 Promise.race 可切断+按返回值判定**（J5：`ids!==null` 才 splice——
+   *  race 超时且 append 实际失败时 splice=批蒸发；超时后成功=重复帧由 CRDT 幂等吸收，宁可重复不误删）。
+   *  **race 超时分支不 leave**（Y12 修正 X7 注记错误：超时=store 挂起=批未落定=undrained 点名应含它——
+   *  leave 会破坏 G-2a ii 的 storeInFlight===projects 断言；仅 catch（意外异常）leave）。
+   *  G-2a：归属要么落定、要么被如实点名。 */
+  private async drainAllDocuments(hardDeadline: number): Promise<void> {
+    const drainStart = Date.now();
+    for (const [projectId, q] of [...this.pendingQueues]) {      // V4：单源遍历
+      if (Date.now() - drainStart > 8_000) break;                // X7：总闸——剩余转 force-spool
+      const frames = await this.raceDeadline(this.peekSpoolFrames(projectId), 500, []);   // 磁盘挂起防护
+      if (q.length === 0 && frames.length === 0) continue;
+      const name = `project:${projectId}`;
+      const document = this.server.hocuspocus.documents.get(name);
+      if (!document) {
+        await this.drainDetachedProject(projectId, hardDeadline);
+        continue;
+      }
+      const remaining = Math.max(200, Math.min(2_000, hardDeadline - Date.now()));
+      try {
+        await Promise.race([
+          this.storeDocumentSerialized({ document, documentName: name }),
+          new Promise<void>((r) => { setTimeout(r, remaining).unref?.(); }),
+        ]);   // race 超时=resolve 不进 catch——不 leave（Y12：挂起中批未落定，点名应含）
+      } catch (err) {
+        this.logger.warn(`drain store failed for ${name}: ${(err as Error).message}`);
+        this.leaveInFlight(projectId);                           // 仅意外异常 leave（幂等——迟到的真 leave 无双扣）
+      }
+      if (Date.now() > hardDeadline) break;
+    }
+    const p = this.computePending();
+    if (p.projects === 0 && p.batches === 0) {
+      this.logger.log(JSON.stringify({ event: 'shutdown_drain_complete', pending: p, spoolResidual: { files: p.spoolFiles, bytes: p.spoolBytes }, storeInFlight: this.inFlightProjects.size }));   // X17：spoolResidual 显式（防误读"全部落 PG"）
+      return;
+    }
+    // force-spool（每次 append 可切断——剩余 hardDeadline 为界；J5 按返回值判定）
+    let forced = 0;
+    for (const [projectId, q] of [...this.pendingQueues]) {
+      if (q.length === 0) continue;
+      if (Date.now() > hardDeadline) break;                      // X7：硬切断——点名其余
+      const n = q.length;
+      const payload = n === 1 ? q[0] : Y.mergeUpdates(q.slice());   // copy——不动队列
+      try {
+        const ids = await this.raceDeadline(this.spool.append(projectId, payload), Math.max(200, hardDeadline - Date.now()), null);
+        if (ids !== null) { q.splice(0, n); this.leaveInFlight(projectId); forced += 1; }   // J5：真写成才 splice（null=race 超时未落定——留队列点名；后到的成功帧=重复回灌，幂等吸收）
+      } catch { /* 留队列——点名 */ }
+    }
+    const p2 = this.computePending();
+    this.logger.error(JSON.stringify({ event: 'shutdown_undrained', batches: p2.batches, projects: p2.projects, spoolFiles: p2.spoolFiles, spoolBytes: p2.spoolBytes, storeInFlight: this.inFlightProjects.size, forcedSpool: forced }));
+  }
+
+  /** X7：op 套 deadline——超时返回 fallback（op 自身继续跑，结果被弃） */
+  private async raceDeadline<T>(op: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return Promise.race([op, new Promise<T>((r) => { setTimeout(() => r(fallback), ms).unref?.(); })]);
+  }
+
+  /** V4：doc 已卸载但归属仍在——spool 帧三段式直灌（append→confirm，每帧套剩余预算） */
+  private async drainDetachedProject(projectId: string, hardDeadline: number): Promise<void> {
+    for (const f of await this.peekSpoolFrames(projectId)) {
+      if (Date.now() > hardDeadline) return;
+      try {
+        const r = await this.repo.append(projectId, f.payload);
+        if (r.ok) await this.spool.confirm(projectId, [f.frameId]);
+      } catch { /* 帧保留——点名 */ }
     }
   }
 

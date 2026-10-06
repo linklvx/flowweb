@@ -1,119 +1,144 @@
 // apps/api/src/modules/collab/collab.gateway.shutdown.spec.ts
-// 批3-2：shutdown 有界化 + close(1012) + stopOnSignals。
-// 形态：直构（shadow-sweep spec 先例——mock prisma/repo/redisSync，不调 onModuleInit 不 listen）。
-// 背景：库默认 stopOnSignals:true 在 listen() 注册信号 handler → destroy 后 process.exit(0)
-// 抢跑 Nest drain 链（hocuspocus-server.esm.js:1684-1690）；destroy 无界——ioredis 等保活
-// 句柄使进程退不出 → pm2 SIGKILL → stash 丢。
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { CollabGateway } from './collab.gateway';
+// Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 双档：归属要么落定、要么被如实点名）。
+// 形态：dual-client 装置（真 listen+真 spool tmpdir）+ 直灌 pendingQueues/documents（V4 projectId 键控）。
+// 真实 timers——六步预算依赖真实时钟（勿 fake timers）；用例独立 kit。
+// 装置裁定（执行适配，plan 代码块之外四处）：
+// ①seedPendingDoc 载荷=真 Y update（Y.mergeUpdates 对任意字节 throw——Task 2 勘误④同源；批合并路径
+//   注入 [n] 裸字节会走 Y2 兜底=假红）；
+// ②destroy 生命周期：种子 doc 无连接→库 destroy memoized 等 documents 清空永不满足（hocuspocus-server
+//   esm runDestroy 只在 getDocumentsCount===0 resolve）→用例 1-3 destroy 打桩直通（dispose 复用同一 mock，
+//   禁先 restore）；用例 4 finally 先 restoreAllMocks 再摘除种子 doc 再 dispose（Y13 序）；
+// ③种子 doc 形状补 connections: Map（closeAllConnections1012 对裸 Y.Doc 的 [...document.connections]
+//   会 TypeError——真实 Document 该字段恒在，测试种子同形状）；
+// ④G-2a ii 注入=容量位+append 恒抛双保险：白盒 overCapacityFlag 单独注入会被 append 滞回解除支对空盘
+//   自清（d.bytes=0≤90%×CAP→翻 false→批成功入盘=注入失效）。
+import { describe, it, expect, vi, afterAll } from 'vitest';
+import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { startDualClientServer } from '../../test-utils/dual-client-server';
+import { failingRepo } from '../../test-utils/failing-repo';
 
-// Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
-let spoolDir: string;
-let spoolCleanup: () => Promise<void> = async () => {};
-beforeEach(async () => {
-  const d = await makeSpoolDir('y0a2-shutdown-');
-  spoolDir = d.dir;
-  spoolCleanup = d.cleanup;
-});
-afterEach(async () => { await spoolCleanup(); });
+const cleanups: (() => Promise<void>)[] = [];
+afterAll(async () => { for (const c of cleanups) await c(); });
 
-function buildGateway() {
-  const prisma = { canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) } };
-  const repo = createMockRepo();   // Y0a-1：mock-repo 工厂（loadUpdates 已删）
-  const redisSync = { syncFromPeers: vi.fn(async () => {}) };
-  const gateway = new CollabGateway(
-    prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
-    { resolve: vi.fn() } as any, 43000 + Math.floor(Math.random() * 20000),
-    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
-  );
-  return { gateway };
+/** Y16：spy 必须**动作前**安装（v3 在 shutdown 之后装——mock.calls 恒空=日志断言全假绿）。
+ *  install → 跑 onApplicationShutdown → collectEvents 三段式。 */
+function installLogSpies(gateway: any) {
+  return {
+    log: vi.spyOn(gateway.logger, 'log'),
+    warn: vi.spyOn(gateway.logger, 'warn'),
+    error: vi.spyOn(gateway.logger, 'error'),
+  };
 }
-
-interface FakeConn { webSocket: { close: ReturnType<typeof vi.fn> } }
-
-/** 向 server.hocuspocus.documents 塞 fake doc（connections: Map<Conn, {clients}>——@hocuspocus/server Document 形状） */
-function seedDocument(gateway: CollabGateway, name: string, conns: FakeConn[]) {
-  const connections = new Map(conns.map((c) => [c, { clients: new Set() }]));
-  (gateway.server.hocuspocus.documents as Map<string, any>).set(name, { name, connections });
-  return connections;
-}
-
-describe('批3-2 stopOnSignals', () => {
-  it('Server 构造显式 stopOnSignals:false——禁库信号 handler 的 process.exit(0) 抢跑 Nest drain 链', () => {
-    const { gateway } = buildGateway();
-    expect((gateway.server.configuration as any).stopOnSignals).toBe(false);
-  });
-});
-
-describe('批3-2 关停前 close(1012)', () => {
-  it('对存活连接 close(1012, "service restart")，先于 destroy 调用', async () => {
-    const { gateway } = buildGateway();
-    const c1 = { webSocket: { close: vi.fn() } };
-    const c2 = { webSocket: { close: vi.fn() } };
-    seedDocument(gateway, 'project:p1', [c1]);
-    seedDocument(gateway, 'project:p2', [c2]);
-    const destroySpy = vi.spyOn(gateway.server, 'destroy').mockResolvedValue(undefined as any);
-    await gateway.onApplicationShutdown();
-    expect(c1.webSocket.close).toHaveBeenCalledWith(1012, 'service restart');
-    expect(c2.webSocket.close).toHaveBeenCalledWith(1012, 'service restart');
-    expect((c1.webSocket.close as any).mock.invocationCallOrder[0]).toBeLessThan((destroySpy as any).mock.invocationCallOrder[0]);
-  });
-
-  it('遍历副本（先复制后关）——close 回调中途删除未访问连接不漏关', async () => {
-    const { gateway } = buildGateway();
-    const c1 = { webSocket: { close: vi.fn() } };
-    const c2 = { webSocket: { close: vi.fn() } };
-    const connections = seedDocument(gateway, 'project:p1', [c1, c2]);
-    // c1.close 删未访问的 c2：活 Map 迭代下 c2 漏关；快照迭代两连全关
-    c1.webSocket.close.mockImplementation(() => { connections.delete(c2 as any); });
-    vi.spyOn(gateway.server, 'destroy').mockResolvedValue(undefined as any);
-    await gateway.onApplicationShutdown();
-    expect(c2.webSocket.close).toHaveBeenCalledWith(1012, 'service restart');
-  });
-
-  it('单个 close 抛错各自吞（F11）——其余连接仍关、shutdown 不挂', async () => {
-    const { gateway } = buildGateway();
-    const c1 = { webSocket: { close: vi.fn(() => { throw new Error('already closed'); }) } };
-    const c2 = { webSocket: { close: vi.fn() } };
-    seedDocument(gateway, 'project:p1', [c1, c2]);
-    vi.spyOn(gateway.server, 'destroy').mockResolvedValue(undefined as any);
-    await expect(gateway.onApplicationShutdown()).resolves.toBeUndefined();
-    expect(c2.webSocket.close).toHaveBeenCalledWith(1012, 'service restart');
-  });
-});
-
-describe('批3-2 destroy 8s 有界 race', () => {
-  it('destroy 永挂 → 8s 超时后 onApplicationShutdown 返回不挂 + warn 点名内存 doc 数', async () => {
-    vi.useFakeTimers();
-    try {
-      const { gateway } = buildGateway();
-      seedDocument(gateway, 'project:p1', [{ webSocket: { close: vi.fn() } }]);
-      seedDocument(gateway, 'project:p2', [{ webSocket: { close: vi.fn() } }]);
-      vi.spyOn(gateway.server, 'destroy').mockImplementation(() => new Promise<any>(() => {}));
-      const warnSpy = vi.spyOn((gateway as any).logger, 'warn').mockImplementation(() => {});
-      const shutdown = gateway.onApplicationShutdown();
-      let resolved = false;
-      void shutdown.then(() => { resolved = true; });
-      await vi.advanceTimersByTimeAsync(7999);
-      expect(resolved).toBe(false);   // 未满 8s 不放行（race 上界存在性）
-      await vi.advanceTimersByTimeAsync(1);
-      await shutdown;                 // 超时分支 resolve——进程退出链不被 destroy 挂死
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('destroy'));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('2'));   // 点名内存 doc 数
-    } finally {
-      vi.useRealTimers();
+function collectEvents(spies: ReturnType<typeof installLogSpies>): any[] {
+  const out: any[] = [];
+  for (const spy of [spies.log, spies.warn, spies.error]) {
+    for (const call of spy.mock.calls) {
+      const s = String(call[0]);
+      if (/\{"event":"[a-z_]+"/.test(s)) out.push(JSON.parse(s.slice(s.indexOf('{'))));
     }
-  });
+  }
+  return out;
+}
 
-  it('destroy 正常完成 → 不点名超时', async () => {
-    const { gateway } = buildGateway();
-    vi.spyOn(gateway.server, 'destroy').mockResolvedValue(undefined as any);
-    const warnSpy = vi.spyOn((gateway as any).logger, 'warn').mockImplementation(() => {});
-    await gateway.onApplicationShutdown();
-    expect(warnSpy).not.toHaveBeenCalled();
-  });
+/** Y19：装置=projectId 键控 pendingQueues（V4）+documents Map 保留（drain 循环经它取 document 走
+ *  storeDocumentSerialized——detached 路径只灌帧，队列批出口=store/force-spool）+saveMutex stub
+ *  （裸 Y.Doc 无 saveMutex——drain 取出直调 runExclusive 会 TypeError；stub 直执行 fn）+connections
+ *  Map（closeAllConnections1012 遍历面——见文件头③）。载荷=真 Y update（见文件头①）。 */
+async function seedPendingDoc(kit: any, name: string, updates: number): Promise<Y.Doc> {
+  const projectId = name.replace(/^project:/, '');
+  const doc = Object.assign(new Y.Doc(), {
+    saveMutex: { runExclusive: <T,>(fn: () => Promise<T>) => fn() },
+    connections: new Map(),
+  }) as Y.Doc;
+  const src = new Y.Doc();
+  const us: Uint8Array[] = [];
+  src.on('update', (u: Uint8Array) => us.push(u));
+  for (let i = 0; i < updates; i++) src.getMap('nodes').set(`k${i}`, { i });
+  (kit.gateway as any).pendingQueues.set(projectId, us);
+  (kit.gateway as any).docProject.set(doc, projectId);
+  kit.gateway.server.hocuspocus.documents.set(name, doc);
+  return doc;
+}
+
+describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 双档）', () => {
+  it('drain 主路径：pending 批全部 append 落 PG → shutdown_drain_complete 日志 pending 全 0（G-2a i 档）', async () => {
+    const kit = await startDualClientServer();   // append 工厂默认 ok:true
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
+      const spies = installLogSpies(kit.gateway);   // Y16：动作前安装
+      await seedPendingDoc(kit, 'project:p-dr1', 3);
+      await seedPendingDoc(kit, 'project:p-dr2', 1);
+      await kit.gateway.onApplicationShutdown();
+      expect(kit.repo.append).toHaveBeenCalledTimes(2);        // 两项目各一批单行 append
+      const events = collectEvents(spies);
+      const done = events.find((e) => e.event === 'shutdown_drain_complete');
+      expect(done).toMatchObject({ pending: { projects: 0, batches: 0 } });   // Y5：projects 键名
+      expect(done.storeInFlight).toBe(0);
+    } finally { await kit.dispose(); }
+  }, 15_000);
+
+  it('drain force-spool：append 失败+spool 可用 → 批入 spool（归属落定）→ drain_complete pending.projects===0（批已出队列）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-shut2-'); cleanups.push(cleanup);
+    const spool = new CollabSpoolService(dir);
+    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 300, spool);
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
+      const spies = installLogSpies(kit.gateway);
+      await seedPendingDoc(kit, 'project:p-dr3', 2);
+      await kit.gateway.onApplicationShutdown();
+      expect(await spool.peek('p-dr3')).toHaveLength(1);       // 批在 spool（磁盘）
+      const events = collectEvents(spies);
+      const done = events.find((e) => e.event === 'shutdown_drain_complete');
+      expect(done).toBeTruthy();
+      expect(done.pending.projects).toBe(0);
+    } finally { await kit.dispose(); }
+  }, 15_000);
+
+  it('G-2a ii 档：append 失败+spool 不可写 → shutdown_undrained 点名（batches/projects 与 storeInFlight 一致；不得声称 0）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a2-shut3-'); cleanups.push(cleanup);
+    const spool = new CollabSpoolService(dir);
+    (spool as any).overCapacityFlag = true;                    // Y14：服务态容量位——受理闸/重试梯首行读点同态（mkdir 段路径占位会被 V2 封段滚动绕过：seg0 EISDIR→seg1 可写=注入失效）
+    vi.spyOn(spool, 'append').mockRejectedValue(new Error('spool capacity exceeded'));   // 见文件头④：容量态 append 恒抛且不触盘（滞回解除支对空盘自清白盒位——双保险）
+    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 300, spool);
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
+      const spies = installLogSpies(kit.gateway);
+      await seedPendingDoc(kit, 'project:p-dr4', 2);
+      await kit.gateway.onApplicationShutdown();
+      const events = collectEvents(spies);
+      const undrained = events.find((e) => e.event === 'shutdown_undrained');
+      expect(undrained).toMatchObject({ batches: 2, projects: 1 });   // 如实点名（Y5 键名）
+      expect(undrained.storeInFlight).toBe(1);                        // 与 projects 一致（P5 口径——spool 失败不清标志）
+    } finally { await kit.dispose(); }
+  }, 15_000);
+
+  it('destroy 超时分型：destroy 挂起+pending 已清 → destroy_timeout hangReason=direct-open；未清 → store-undrained', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const spies = installLogSpies(kit.gateway);
+      await seedPendingDoc(kit, 'project:p-dr5', 1);
+      vi.spyOn(kit.gateway.server, 'destroy').mockImplementation(() => new Promise<void>(() => {}) as any);
+      await kit.gateway.onApplicationShutdown();
+      const events = collectEvents(spies);
+      const timeout = events.find((e) => e.event === 'destroy_timeout');
+      expect(timeout).toBeTruthy();
+      expect(['store-undrained', 'direct-open']).toContain(timeout.hangReason);
+      expect(typeof timeout.storeInFlight).toBe('number');
+    } finally {
+      vi.restoreAllMocks();   // Y13：先还原 destroy mock——否则 dispose 的 server.destroy 仍挂起=整套用例超时
+      (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr5');   // 种子 doc 无连接→真 destroy memoized 等 documents 清空永不满足——dispose 前摘除（见文件头②）
+      await kit.dispose();
+    }
+  }, 20_000);
+
+  it('总预算：正常档关停全程 ≤22s（本地实测断言——kill_timeout 30s 余量 ≥8s 由 Y0a-4 ecosystem 承载）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const t0 = Date.now();
+      await kit.gateway.onApplicationShutdown();
+      expect(Date.now() - t0).toBeLessThan(22_000);
+    } finally { await kit.dispose(); }
+  }, 22_000);
 });
