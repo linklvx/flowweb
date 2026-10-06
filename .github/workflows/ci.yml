@@ -128,3 +128,33 @@ jobs:
       - run: pnpm --filter @flowweb/web exec playwright test e2e/b0-token-blocks.spec.ts
       - run: pnpm --filter @flowweb/web exec playwright test e2e/b1-token-migration.spec.ts --grep "B1-4"
       - run: node apps/web/scripts/css-baseline-diff.mjs
+
+  # Y0a-1（E69③ 最小起步·spec §4.5 v2.4 收敛）：collab-core 唯一增量=int 真库显式清单+passed 口径条数
+  # 断言。库锚/语料/契约门禁均为常规 vitest spec——test job 经 verify 已常跑，此处重跑=第二真源（防双源，
+  # "collab 绿"唯一定义=test job）；kill -9/SIGTERM 演练自 Y0a-2 起；dist 泄漏断言已入根 verify（Task 7）。
+  # 条数断言不用 numTotalTests（skip 计入——DATABASE_URL 缺失时全 skip 也过=被它要防的模式击穿）。
+  collab-core:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: flowweb, POSTGRES_PASSWORD: '123456', POSTGRES_DB: flowweb }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @flowweb/api exec prisma generate
+      - run: pnpm --filter @flowweb/shared build
+      - run: pnpm --filter @flowweb/api exec prisma migrate deploy
+      - name: collab int（显式清单——本批三个 int spec）
+        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-hydration.int.spec.ts --reporter=json --outputFile=/tmp/int.json
+      - name: int 条数断言（passed≥13 且零失败零跳过——红证据：注释 DATABASE_URL 跑一次必红）
+        run: node -e "const r=require('/tmp/int.json');const p=r.numPassedTests??0,f=r.numFailedTests??0,s=r.numPendingTests??0;if(f>0||s>0||p<13){console.error('FAIL: passed',p,'failed',f,'skipped',s);process.exit(1)}console.log('collab int passed:',p)"
