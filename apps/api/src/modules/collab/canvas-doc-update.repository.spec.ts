@@ -30,11 +30,12 @@ describe('CanvasDocUpdateRepository', () => {
     repo = mod.get(CanvasDocUpdateRepository);
   });
 
-  it('append 用 nextval 取号并写入', async () => {
-    await repo.append('p1', new Uint8Array([1, 2]));
-    expect(prisma.canvasDocUpdate.create).toHaveBeenCalledWith({
-      data: { projectId: 'p1', seq: 1n, update: Buffer.from([1, 2]) },
-    });
+  it('append 单语句：$queryRaw 取号+INSERT 同语句，返回 AppendResult；不经 canvasDocUpdate.create', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ seq: 7n }]);
+    const r = await repo.append('p1', new Uint8Array([1, 2]));
+    expect(r).toEqual({ ok: true, seq: 7n });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.canvasDocUpdate.create).not.toHaveBeenCalled();
   });
 
   it('compact：advisory lock + 重放构建快照 + 条件删除', async () => {

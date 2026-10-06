@@ -13,11 +13,16 @@ export class CanvasDocUpdateRepository {
     return rows[0].seq;
   }
 
-  async append(projectId: string, update: Uint8Array): Promise<void> {
-    const seq = await this.nextSeq();
-    await this.prisma.canvasDocUpdate.create({
-      data: { projectId, seq, update: Buffer.from(update) },
-    });
+  /** Y0a-1：单语句原子 append（取号+插入同一语句——消灭两语句间进程死窗口）。
+   *  返回契约（spec v2.4 §1.2/契约 15）：AppendResult 判别类型——fenced=0 行**不抛异常**，调用方
+   *  禁以"未抛错"判成功；本批无租约断言恒 {ok:true}（WHERE owner+TTL 断言 Y0a-3 追加，届时 0 行
+   *  返回 {ok:false,reason:'fenced'}——签名本批一步定死，防 Y0a-3 中途改签名连锁）。 */
+  async append(projectId: string, update: Uint8Array): Promise<{ ok: true; seq: bigint } | { ok: false; reason: 'fenced' | 'no-row' }> {
+    const rows = await this.prisma.$queryRaw<{ seq: bigint }[]>`
+      INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
+      SELECT gen_random_uuid()::text, ${projectId}, nextval('canvas_doc_update_seq')::bigint, ${Buffer.from(update)}, now()
+      RETURNING seq`;
+    return rows.length === 0 ? { ok: false, reason: 'no-row' } : { ok: true, seq: rows[0].seq };
   }
 
   async loadUpdates(projectId: string): Promise<Buffer[]> {
