@@ -7,7 +7,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "turbo run lint",
-    "verify": "node scripts/doc-gate.mjs && node scripts/verify-indexes.mjs && pnpm --filter @flowweb/shared build && pnpm --filter @flowweb/shared run typecheck && pnpm --filter @flowweb/shared test -- --run && pnpm --filter @flowweb/web exec tsc --noEmit && pnpm --filter @flowweb/api exec tsc --noEmit && pnpm --filter @flowweb/api exec tsc -p tsconfig.scripts.json --noEmit && pnpm --filter @flowweb/web test -- --run && pnpm --filter @flowweb/api test -- --run && pnpm --filter @flowweb/web lint"
+    "verify": "node scripts/doc-gate.mjs && node scripts/verify-indexes.mjs && pnpm --filter @flowweb/shared build && pnpm --filter @flowweb/shared run typecheck && pnpm --filter @flowweb/shared test -- --run && pnpm --filter @flowweb/web exec tsc --noEmit && pnpm --filter @flowweb/api exec tsc --noEmit && pnpm --filter @flowweb/api exec tsc -p tsconfig.scripts.json --noEmit && pnpm --filter @flowweb/api exec nest build && node scripts/check-no-testutils-in-dist.mjs && pnpm --filter @flowweb/web test -- --run && pnpm --filter @flowweb/api test -- --run && pnpm --filter @flowweb/web lint"
   },
   "devDependencies": {
     "turbo": "^2.0.0",
