@@ -169,7 +169,7 @@ git add apps/api/prisma && git commit -m "feat(collab): Y0a-1 迁移三件套—
 - Create: `apps/api/src/test-utils/db-fixtures.ts`
 - Test: `apps/api/src/modules/collab/canvas-doc-update.repository.append.int.spec.ts`
 
-- [ ] **Step 1: 落 db-fixtures（User→Team→Project FK 链——Team.ownerId NOT NULL+FK→User）**
+- [x] **Step 1: 落 db-fixtures（User→Team→Project FK 链——Team.ownerId NOT NULL+FK→User）**
 
 ```typescript
 // apps/api/src/test-utils/db-fixtures.ts
@@ -207,7 +207,7 @@ export async function cleanupProjectFixture(prisma: PrismaClient, projectId: str
 
 （字段已按 schema 一手核对，无试错项：User 必填 id/name/email/emailVerified（emailVerified Boolean 无默认值）；Team 必填 id/name/ownerId；CanvasProject 必填 id/name/teamId（userId 可空）。）
 
-- [ ] **Step 2: 写失败测试（P2002 行为锚+序列消耗≡插入行数）**
+- [x] **Step 2: 写失败测试（P2002 行为锚+序列消耗≡插入行数）**
 
 ```typescript
 // canvas-doc-update.repository.append.int.spec.ts
@@ -254,14 +254,14 @@ maybe('append（真 PG）', () => {
 });
 ```
 
-- [ ] **Step 3: 跑（确认 fixture 链可建+用例红/绿状态）**
+- [x] **Step 3: 跑（确认 fixture 链可建+用例红/绿状态）**（实测红：旧 append 返回 void，两用例 TypeError reading 'ok'——AppendResult 真红门；fixture 链可建、旧路径真库写入成功）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts
 ```
 Expected: 两用例在迁移后的库上应绿（红相已由 Task 1 Step 2 留档）。
 
-- [ ] **Step 4: 实现单语句 append**
+- [x] **Step 4: 实现单语句 append**
 
 替换 `canvas-doc-update.repository.ts:16-21`：
 
@@ -281,7 +281,7 @@ Expected: 两用例在迁移后的库上应绿（红相已由 Task 1 Step 2 留�
 
 （调用方 `storeDocument` 现不消费返回值——void 兼容；Y0a-2 BOI 重写时按契约 15 消费。）
 
-- [ ] **Step 5: 改写既有 append mock 用例（冲击面清单——v3 新增）**
+- [x] **Step 5: 改写既有 append mock 用例（冲击面清单——v3 新增）**
 
 `canvas-doc-update.repository.spec.ts:33-38` 旧断言 `canvasDocUpdate.create` 被调——单语句路径不再走 Client create，必红。改写为：
 
@@ -295,7 +295,7 @@ Expected: 两用例在迁移后的库上应绿（红相已由 Task 1 Step 2 留�
   });
 ```
 
-- [ ] **Step 6: 跑绿+commit**
+- [x] **Step 6: 跑绿+commit**（commit `a9568cd8`；collab 全量 18 文件/130 用例零意外红；`nextSeq()` 成孤儿留 Y0a-2 裁定）
 
 ```bash
 DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.spec.ts
