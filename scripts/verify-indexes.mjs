@@ -50,7 +50,14 @@ let failed = 0;
 let blockNo = 0;
 for (const b of blocks) {
   blockNo++;
-  const res = await client.query(b);
+  let res;
+  try {
+    res = await client.query(b);
+  } catch (e) {
+    failed++;
+    console.error(`[块 ${blockNo}] SQL 错误: ${e.message}——SQL: ${b.replace(/\s+/g, ' ').slice(0, 90)}…`);
+    continue;
+  }
   const names = res.rows.map((r) => r.indexname ?? r.conname ?? JSON.stringify(r)).join(', ');
   if (res.rowCount === 0) {
     failed++;

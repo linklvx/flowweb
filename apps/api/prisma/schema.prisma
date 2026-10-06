@@ -809,6 +809,7 @@ model CanvasDoc {
   projectId String   @id
   project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   state     Bytes
+  stateSeq  BigInt @default(0)
   updatedAt DateTime @updatedAt
 }
 
@@ -839,7 +840,15 @@ model CanvasDocUpdate {
   createdAt DateTime      @default(now())
   project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@index([projectId, seq])
+  @@unique([projectId, seq])
+}
+
+// Y0a-1：单实例租约行（消费代码在 Y0a-3；本批仅建表+迁移 seed）
+model CollabLease {
+  scope     String    @id
+  owner     String?
+  epoch     BigInt    @default(0)
+  expiresAt DateTime?
 }
 
 // ========== 视频作品展示 ==========

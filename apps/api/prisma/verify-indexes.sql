@@ -15,3 +15,15 @@ WHERE tablename = 'UserSubscription'
     'UserSubscription_status_nextGrantDate_idx',
     'UserSubscription_status_currentPeriodEnd_idx'
   );
+
+-- Y0a-1: unique constraint on CanvasDocUpdate(projectId, seq)（pg_constraint 口径）
+SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass AND contype = 'u' AND pg_get_constraintdef(oid) LIKE '%projectId%seq%';
+
+-- Y0a-1: CanvasDoc.stateSeq column NOT NULL DEFAULT 0
+SELECT column_name FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name = 'stateSeq' AND is_nullable = 'NO' AND column_default LIKE '%0%';
+
+-- Y0a-1: CollabLease seed row
+SELECT scope FROM "CollabLease" WHERE scope = 'primary' AND owner IS NULL AND epoch = 0;
+
+-- Y0a-1: 冗余非唯一 (projectId,seq) 索引必须不存在（否定断言：NOT EXISTS 返回 1 行=通过）
+SELECT 'redundant_index_absent' AS ok WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'CanvasDocUpdate' AND indexdef LIKE '%CREATE INDEX%' AND indexdef NOT LIKE '%UNIQUE%' AND indexdef LIKE '%projectId%' AND indexdef LIKE '%seq%');
