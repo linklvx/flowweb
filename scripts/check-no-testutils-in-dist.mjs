@@ -8,7 +8,9 @@ const bad = [];
 (function walk(d) {
   for (const e of readdirSync(d, { withFileTypes: true })) {
     if (e.isDirectory()) walk(path.join(d, e.name));
-    else if (e.name.includes('test-utils') || e.name.includes('failing-repo') || e.name.includes('dual-client')) bad.push(path.join(d, e.name));
+    // 路径段匹配（d 含 test-utils 目录）覆盖 mock-repo/db-fixtures/poll-until 等无魔法串文件名单独泄漏；
+    // 文件名匹配兜底文件名本身含魔法串的形态
+    else if (d.includes('test-utils') || e.name.includes('test-utils') || e.name.includes('failing-repo') || e.name.includes('dual-client')) bad.push(path.join(d, e.name));
   }
 })(dist);
 if (bad.length) { console.error('FAIL: test-utils leaked into dist:\n' + bad.join('\n')); process.exit(1); }
