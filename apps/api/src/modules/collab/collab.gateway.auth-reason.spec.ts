@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
+import { createMockRepo } from '../../test-utils/mock-repo';
 import { describe, it, expect, vi } from 'vitest';
 
 function buildGateway() {
@@ -18,9 +19,8 @@ function buildGateway() {
     },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
-    canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
   };
-  const repo = { loadUpdates: vi.fn().mockResolvedValue([]) };
+  const repo = createMockRepo();
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const gateway = new CollabGateway(
@@ -122,15 +122,16 @@ describe('批3-1 鉴权拒绝 reason 分型（直构）', () => {
 
 describe('批3-1 onLoadDocument DB 兜底（不折成裸 permission-denied）', () => {
   it('快照查询抛错 → db-unavailable', async () => {
-    const { gateway, prisma } = buildGateway();
-    prisma.canvasDoc.findUnique.mockRejectedValue(new Error('connection terminated'));
+    const { gateway, repo } = buildGateway();
+    // Y0a-1：快照查询已并入 loadForHydration 单事务（注入在其上——经 hydrateWithRecovery 委托传导）
+    repo.loadForHydration.mockRejectedValue(new Error('connection terminated'));
     await expect(gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any))
       .rejects.toMatchObject({ reason: 'db-unavailable' });
   });
 
   it('增量行查询抛错 → db-unavailable', async () => {
     const { gateway, repo } = buildGateway();
-    repo.loadUpdates.mockRejectedValue(new Error('P1001'));
+    repo.hydrateWithRecovery.mockRejectedValue(new Error('P1001'));
     await expect(gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any))
       .rejects.toMatchObject({ reason: 'db-unavailable' });
   });

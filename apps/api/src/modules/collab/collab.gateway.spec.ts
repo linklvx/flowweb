@@ -13,6 +13,7 @@ function toDocLike(doc: Y.Doc): DocLike {
   };
 }
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createMockRepo } from '../../test-utils/mock-repo';
 
 
 function buildDocState(): Buffer {
@@ -63,18 +64,12 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       teamMember: {
         findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }),
       },
-      canvasDoc: {
-        findUnique: vi.fn().mockResolvedValue(null),
-        upsert: vi.fn(),
-      },
     };
     durableRows = [];
-    repo = {
+    // Y0a-1：repo stub 收敛 mock-repo 工厂（快照/增量经 loadForHydration 喂——gateway 装载读唯一入口 hydrateWithRecovery）
+    repo = createMockRepo({
       append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); }),   // 台账：once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
-      loadUpdates: vi.fn().mockResolvedValue([]),
-      count: vi.fn().mockResolvedValue(0),
-      compact: vi.fn().mockResolvedValue({ compacted: true }),
-    };
+    });
 
 
     emitter = new EventEmitter2();
@@ -182,7 +177,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   });
 
   it('② onLoadDocument：有 CanvasDoc 时客户端连后能读到节点', async () => {
-    prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: buildDocState() });
+    repo.hydrateWithRecovery.mockResolvedValue({ state: buildDocState(), updates: [], stateSeq: 1n });
     const { ydoc, synced } = connect('project:p1');
     await synced;
     await vi.waitFor(() => {
@@ -286,11 +281,11 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       await vi.waitFor(() => expect(repo.append).toHaveBeenCalledTimes(2), { timeout: 4000 });
       // 关键：等 doc 真正卸载（disconnectDelay + unload 守卫）——否则重连命中内存缓存、测不到持久层
       await vi.waitFor(() => expect(gateway.server.hocuspocus.documents.has('project:pe1')).toBe(false), { timeout: 4000 });
-      const loadCallsBefore = (repo.loadUpdates as any).mock.calls.length;
-      repo.loadUpdates.mockResolvedValue(appendedRows());   // 持久层 = 已落库行（插入行 + 删除行）
+      const loadCallsBefore = (repo.hydrateWithRecovery as any).mock.calls.length;
+      repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: appendedRows(), stateSeq: 0n });   // 持久层 = 已落库行（插入行 + 删除行）
       const b = connect('project:pe1');
       await b.synced;
-      expect((repo.loadUpdates as any).mock.calls.length).toBeGreaterThan(loadCallsBefore);   // 确实走了持久层重放（非缓存命中）
+      expect((repo.hydrateWithRecovery as any).mock.calls.length).toBeGreaterThan(loadCallsBefore);   // 确实走了持久层重放（非缓存命中）
       expect(replayOf([appendedRows()[0]]).getMap('nodes').has('n1')).toBe(true);   // 判别力锚：插入行真实含 n1（防"空 doc 恒绿"）
       expect(b.ydoc.getMap('nodes').has('n1')).toBe(false);   // 不复活
       expect(errSpy).not.toHaveBeenCalled();   // happy path：tripwire/stash 一次不命中（自动化日志契约，与验收判据同源）
@@ -333,9 +328,8 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const { onLoadDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
       stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（版本门放行前提）
-      prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
       const incDoc = new Y.Doc(); incDoc.getMap('nodes').set('b', 2);
-      repo.loadUpdates.mockResolvedValue([Buffer.from(Y.encodeStateAsUpdate(incDoc))]);
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [Buffer.from(Y.encodeStateAsUpdate(incDoc))], stateSeq: 0n });
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       expect(doc.getMap('nodes').get('a')).toBe(1);
@@ -436,10 +430,11 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('红4：加载窗口（loadUpdates await 挂起期）的真实写入必须进 pending 并落库【白盒防御性构造——生产不可达（loadingDocuments 门控 + redis 在 afterLoadDocument 才订阅），价值是防未来重构退化，勿去浏览器复现】', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       let release!: () => void;
-      repo.loadUpdates.mockImplementationOnce(() => new Promise<Buffer[]>((resolve) => { release = () => resolve([]); }));
+      // Y0a-1：挂起注入移 loadForHydration（gateway 经工厂委托调它——挂起经委托等价传导：不 reject 不进 catch）
+      repo.loadForHydration.mockImplementationOnce(() => new Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }>((resolve) => { release = () => resolve({ state: null, updates: [], stateSeq: 0n }); }));
       const doc = new Y.Doc();
       const loading = onLoadDocument({ document: doc, documentName: 'project:p1' });
-      await new Promise((r) => setImmediate(r));          // 让 loadDocument 跑到 await loadUpdates
+      await new Promise((r) => setImmediate(r));          // 让 loadDocument 跑到 await hydrateWithRecovery（委托内 loadForHydration）
       doc.getMap('nodes').set('win1', new Y.Map());       // 加载窗口内写入（模板导入/AI 影子节点场景）
       stampDocSchema(toDocLike(doc));                     // O0b-0：窗口写入的 doc 视为已盖章形态（版本门放行）
       release();
@@ -499,8 +494,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const { onLoadDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
       stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（已戳重放零新增写——断言前提）
-      prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
-      repo.loadUpdates.mockResolvedValue([Buffer.from(Y.encodeStateAsUpdate((() => { const d = new Y.Doc(); d.getMap('nodes').set('b', 2); stampDocSchema(toDocLike(d)); return d; })()))]);
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [Buffer.from(Y.encodeStateAsUpdate((() => { const d = new Y.Doc(); d.getMap('nodes').set('b', 2); stampDocSchema(toDocLike(d)); return d; })()))], stateSeq: 0n });
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       expect(doc.getMap('nodes').get('a')).toBe(1);
@@ -642,7 +636,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       repo.append.mockRejectedValueOnce(new Error('db down'));
       await onDisconnect({ document: docA, documentName: 'project:p1' });      // flush 失败 → stash（吞错）
       expect((gateway as any).unflushed.get('p1')).toBeTruthy();
-      repo.loadUpdates.mockResolvedValue([insertRow]);   // 新实例从"DB"重放插入行
+      repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [insertRow], stateSeq: 0n });   // 新实例从"DB"重放插入行
       const docB = new Y.Doc();
       await onLoadDocument({ document: docB, documentName: 'project:p1' });
       expect((gateway as any).pendingUpdates.get(docB)).toHaveLength(1);   // stash 窗口外回灌进 pending（不编辑）
@@ -678,7 +672,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
       stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照
-      prisma.canvasDoc.findUnique.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)) });
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [], stateSeq: 0n });
       (gateway as any).unflushed.set('p1', Y.encodeStateAsUpdate(snapDoc));   // 与快照同源：apply 0 事件
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
@@ -686,6 +680,23 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       expect((gateway as any).pendingUpdates.get(doc)).toHaveLength(0);
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).not.toHaveBeenCalled();
+    });
+
+    it('Y0a-1 peek/consume：版本门拒绝 ⇒ stash 存活；正常档 ⇒ 消费后清空', async () => {
+      const { onLoadDocument } = extractHooks();
+      // 拒绝档：meta.schemaVersion=999（ensureSchemaVersion 判据=戳存在且≠当前版本）
+      const bad = new Y.Doc();
+      bad.getMap('meta').set('schemaVersion', 999);
+      bad.getMap('nodes').set('n', new Y.Map());
+      repo.hydrateWithRecovery.mockResolvedValueOnce({ state: Buffer.from(Y.encodeStateAsUpdate(bad)), updates: [], stateSeq: 0n });
+      (gateway as any).putStash('p-peek', Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())));
+      await expect(onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-peek' }))
+        .rejects.toMatchObject({ schemaRefusal: true });
+      expect((gateway as any).unflushed.has('p-peek')).toBe(true);      // 未消费——蒸发路径已关
+      // 正常档：无戳空 doc（stamp 自愈路径）⇒ stash 被消费
+      repo.hydrateWithRecovery.mockResolvedValueOnce({ state: null, updates: [], stateSeq: 0n });
+      await onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-peek' });
+      expect((gateway as any).unflushed.has('p-peek')).toBe(false);
     });
 
     it('绿9：队列身份恒定——计数封顶原地合并（禁 set 替换数组）', async () => {

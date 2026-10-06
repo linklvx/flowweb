@@ -7,10 +7,11 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { describe, it, expect, vi } from 'vitest';
+import { createMockRepo } from '../../test-utils/mock-repo';
 
 function buildGateway() {
   const prisma = { canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) } };
-  const repo = { loadUpdates: vi.fn().mockResolvedValue([]) };
+  const repo = createMockRepo();   // Y0a-1：mock-repo 工厂（loadUpdates 已删）
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,

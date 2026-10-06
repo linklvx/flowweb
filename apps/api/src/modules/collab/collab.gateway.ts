@@ -215,13 +215,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (!this.docEpoch.has(document)) this.docEpoch.set(document, Date.now());
       // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗）
       if (!this.lastCompactAt.has(projectId)) this.lastCompactAt.set(projectId, Date.now());
-      const docRow = await this.prisma.canvasDoc.findUnique({ where: { projectId } });
-      if (docRow) {
-        yjsCanvasDocBytes.set({ projectId }, docRow.state.length);   // 批3-4：快照字节播种
-        applyReplayed(new Uint8Array(docRow.state));
+      // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
+      const { state, updates } = await this.repo.hydrateWithRecovery(projectId);
+      if (state) {
+        yjsCanvasDocBytes.set({ projectId }, state.length);   // 快照字节播种（现状语义保留）
+        applyReplayed(new Uint8Array(state));
       }
-      for (const u of await this.repo.loadUpdates(projectId)) applyReplayed(new Uint8Array(u));
-      const stash = this.takeStash(projectId);
+      for (const u of updates) applyReplayed(new Uint8Array(u));
+      // Y0a-1（v3）：stash=peek→apply→…→consume（consume 在门+stamp 全过后的 try 块末尾）。
+      // apply 位次与现状逐位一致（:224 原位）——门的输入语义不变；删除是唯一破坏性动作，恒在最后。
+      const stash = this.peekStash(projectId);
       if (stash) Y.applyUpdate(document, stash);  // 窗口外回灌：事件进 pending。stash 落库时点=下一次读/写/断连（非显式 flush），出口有二：本处 load 回灌 / storeDocument 取批前 drain
       await this.redisSync.syncFromPeers(documentName, document, 1000);  // 对等更新进 pending（冗余落库策略）
       // O0b-0 版本门 v2.1（判据单源=shared ensureSchemaVersion——本处只留 stamp 自愈分支+拒绝日志+
@@ -238,6 +241,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (document.getMap('meta').get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
         stampDocSchema(toDocLike(document));   // 无戳∧零节点 ⇒ stamp 唯一自愈点（新建空画布合法档——门对该档放行后仅存此档）
       }
+      this.consumeStash(projectId);   // Y0a-1：门+stamp 全过才删（其后无抛错点）
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
@@ -257,6 +261,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     const prev = this.unflushed.get(projectId);
     this.unflushed.set(projectId, prev ? Y.mergeUpdates([prev, payload]) : payload);   // 单行存续，追加即合并收敛（有界）
     yjsUnflushedProjects.set(this.unflushed.size);
+  }
+
+  /** Y0a-1：load 路径只读探测（不删——syncFromPeers/版本门抛错时 stash 必须存活于 unflushed） */
+  private peekStash(projectId: string): Uint8Array | undefined {
+    return this.unflushed.get(projectId);
+  }
+
+  /** Y0a-1：load 路径消费（门+stamp 通过后调用——删除恒在最后） */
+  private consumeStash(projectId: string): void {
+    if (this.unflushed.delete(projectId)) yjsUnflushedProjects.set(this.unflushed.size);
   }
 
   /** 变更驱动落库（spec v4）：从 pending 队列取批 mergeUpdates 单行 append。

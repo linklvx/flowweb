@@ -7,6 +7,7 @@ import { CollabGateway } from './collab.gateway';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createMockRepo } from '../../test-utils/mock-repo';
 
 function buildGateway() {
   const prisma = {
@@ -17,7 +18,7 @@ function buildGateway() {
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
     canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
   };
-  const repo = { loadUpdates: vi.fn().mockResolvedValue([]) };
+  const repo = createMockRepo();   // Y0a-1：mock-repo 工厂（loadUpdates 已删）
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const gateway = new CollabGateway(

@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createMockRepo } from '../../test-utils/mock-repo';
 
 /** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——v2 档快照夹具用） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -27,14 +28,12 @@ function buildGateway() {
     },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
-    canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
   };
   const appends: Uint8Array[] = [];
-  const repo = {
+  // Y0a-1：repo stub 收敛 mock-repo 工厂（快照经 hydrateWithRecovery 喂——装载读唯一入口）
+  const repo = createMockRepo({
     append: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); }),
-    loadUpdates: vi.fn().mockResolvedValue([]),
-    compact: vi.fn().mockResolvedValue({ compacted: true }),
-  };
+  });
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
@@ -205,8 +204,8 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
     await gateway.hooks.onStoreDocument({ document: doc1 as any, documentName: 'project:p1' } as any);
     expect(repo.append).toHaveBeenCalledTimes(1);
     // 落库快照回放进 mock DB——第二实例 load 同 doc
-    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({
-      projectId: 'p1', state: Buffer.from(repo.append.mock.calls[0][1] as Uint8Array),
+    repo.hydrateWithRecovery.mockResolvedValue({
+      state: Buffer.from(repo.append.mock.calls[0][1] as Uint8Array), updates: [], stateSeq: 0n,
     });
     const doc2 = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc2 as any, documentName: 'project:p1' } as any);
@@ -215,11 +214,11 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
   });
 
   it('戳=1（人为写 1 的 DB 快照）→ loadDocument 拒（throw 带明确信息——v1 旧档无迁移）', async () => {
-    const { gateway } = buildGateway();
+    const { gateway, repo } = buildGateway();
     const snap = new Y.Doc();
     snap.getMap('meta').set('schemaVersion', 1);
-    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({
-      projectId: 'p1', state: Buffer.from(Y.encodeStateAsUpdate(snap)),
+    repo.hydrateWithRecovery.mockResolvedValue({
+      state: Buffer.from(Y.encodeStateAsUpdate(snap)), updates: [], stateSeq: 0n,
     });
     const doc = registerDoc(gateway, 'project:p1');
     await expect(gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any))
@@ -227,7 +226,7 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
   });
 
   it('无戳∧有节点（裸 doc 快照——手建节点不经 fillDoc 构造纪律）→ loadDocument 拒', async () => {
-    const { gateway } = buildGateway();
+    const { gateway, repo } = buildGateway();
     const snap = new Y.Doc();
     const m = new Y.Map();
     m.set('type', 'textInput');
@@ -236,8 +235,8 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
     m.set('position', pos);
     m.set('data', new Y.Map());
     snap.getMap('nodes').set('n1', m);
-    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({
-      projectId: 'p1', state: Buffer.from(Y.encodeStateAsUpdate(snap)),
+    repo.hydrateWithRecovery.mockResolvedValue({
+      state: Buffer.from(Y.encodeStateAsUpdate(snap)), updates: [], stateSeq: 0n,
     });
     const doc = registerDoc(gateway, 'project:p1');
     await expect(gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any))
@@ -262,7 +261,7 @@ describe('批3-4 doc epoch + canvas_doc gauge', () => {
     const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
     stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（版本门放行前提）
     const snap = Buffer.from(Y.encodeStateAsUpdate(snapDoc));
-    (gateway as any).prisma.canvasDoc.findUnique.mockResolvedValue({ projectId: 'p1', state: snap });
+    repo.hydrateWithRecovery.mockResolvedValue({ state: snap, updates: [], stateSeq: 0n });
     const doc = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
 
