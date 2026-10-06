@@ -53,10 +53,9 @@ maybe('compact（真 PG）', () => {
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
     // update 分支（v3）：库已清空⇒首次 compact 走 upsert.create；再 append+compact 命中 update 分支
     await repo.append(PID, Y.encodeStateAsUpdate(docWithNodes(2)));
-    const t1 = Date.now() - 5;                                       // 容忍时钟粒度
     await repo.compact(PID);
     const row2 = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
-    expect(row2!.updatedAt.getTime()).toBeGreaterThanOrEqual(t1);    // update 分支 updatedAt 前进
+    expect(row2!.updatedAt.getTime()).toBeGreaterThan(docRow!.updatedAt.getTime());   // update 分支 updatedAt 前进（两 DB 读值比较——免时钟容忍，堵快速机 <5ms roundtrip 的 vacuous-pass 窗口）
   });
 
   it('compact 后新 Y.Doc 重放 state ≡ 原 doc 节点集', async () => {
