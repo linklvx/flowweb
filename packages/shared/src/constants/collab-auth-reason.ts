@@ -17,7 +17,7 @@ export const CollabAuthReason = {
   LEASE_NOT_READY: 'lease-not-ready',
 } as const;
 /** 值序冻结（线上协议串只增不改）——测试 toEqual 锚此数组 */
-export const COLLAB_AUTH_REASONS = Object.values(CollabAuthReason) as string[];
+export const COLLAB_AUTH_REASONS: readonly CollabAuthReasonCode[] = Object.values(CollabAuthReason);
 
 export type CollabAuthReasonCode = (typeof CollabAuthReason)[keyof typeof CollabAuthReason];
 

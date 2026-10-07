@@ -23,7 +23,7 @@ SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass
 SELECT column_name FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name = 'stateSeq' AND is_nullable = 'NO' AND column_default LIKE '%0%';
 
 -- Y0a-3（Z1）：租约行不变量——epoch 恒非空；(owner IS NULL)=(expiresAt IS NULL) 耦合
---（持有者必有过期时刻；释放/break-glass 后两者同 NULL——不再断言"原始态"，本批后可变）。
+--（持有者必有过期时刻；释放后两者同 NULL；break-glass 态 owner='revoked'+expiresAt=now() 双非 NULL——不变量对全五态恒立）。
 SELECT scope FROM "CollabLease" WHERE scope = 'primary' AND epoch IS NOT NULL AND (owner IS NULL) = ("expiresAt" IS NULL);
 
 -- Y0a-3（P2）：AuditTargetType 必含 COLLAB_LEASE（break-glass/drain 审计行依赖——枚举漏迁移即红）。
