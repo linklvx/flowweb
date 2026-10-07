@@ -1142,6 +1142,25 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
     } finally { await kit.dispose(); }
   }, 15_000);
 
+  it('M-4(a) 软阈闩锁去重：同 tick N 次跨阈恰 1 次排程 store（旧实现无 has 守卫=70 次 setImmediate=70 次重入排程——debounce 臂重复调度）', async () => {
+    const kit = await startDualClientServer({}, 60_000);   // 大 debounce：排程全部归软阈闩锁（排除 debounce 竞争）
+    const doc = new Y.Doc();
+    try {
+      const g = kit.gateway as any;
+      kit.gateway.server.hocuspocus.documents.set('project:p-latch', doc as any);   // 闩锁档位查 documents Map——直调路径须自播（I-1 僵尸 doc 同款装置）
+      await kit.gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p-latch' } as any);
+      const storeSpy = vi.spyOn(g, 'storeDocumentSerialized').mockResolvedValue(undefined);   // 白盒 spy：只计排程数，不真落库
+      for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, new Y.Map([['x', i]]));   // 70 次跨阈（>64 严格大于——每条 update 同步触发 scheduleSoftFlush）
+      expect(g.flushScheduled.has('p-latch')).toBe(true);   // 闩锁在位（N 次调用仅排 1 条 immediate）
+      await new Promise((r) => setImmediate(r));   // 闩锁档位执行
+      expect(storeSpy).toHaveBeenCalledTimes(1);   // 旧实现无去重=70 次=红
+      expect(g.flushScheduled.has('p-latch')).toBe(false);   // 档位自清（下次跨阈可重臂——去重非禁用）
+    } finally {
+      kit.gateway.server.hocuspocus.documents.delete('project:p-latch');   // 裸 doc 无 connections——dispose 防毒（I-1 同款）
+      await kit.dispose();
+    }
+  }, 15_000);
+
   it('卸载交接成功：队列批落 spool（append 成功→splice——新家落定后才离旧归属）+leaveInFlight（X2 落定点②）', async () => {
     const kit = await startDualClientServer({}, 60_000);   // 大 debounce：防 debounce store 先行清队列
     try {
@@ -1156,6 +1175,32 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(await kit.spool.peek('p-handoff')).toHaveLength(1);  // 帧在 spool（fsync 已落定）
       expect(g.inFlightProjects.has('p-handoff')).toBe(false);    // X2 落定点②：卸载交接 leave
     } finally { await kit.dispose(); }
+  });
+
+  it('M-4(b) 交接 I-2 anomaly 分支：append 挂起窗内锁内折并改写队列（批尾身份断）→跳过 splice+tail_anomaly 恰 1 计数（旧实现无条件 splice=折并产物被误删=丢更新）', async () => {
+    const kit = await startDualClientServer({}, 60_000);   // 大 debounce：窗内唯一变更=注入的折并交织
+    let release!: () => void;
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<void>((r) => { release = r; }));   // 挂起窗：交接 append 不落定
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-anomaly');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      // >=2 同交接成功用例：stamp+k1 全落队再取身份锚（WS 送达异步——早放行会让锚读到中间水位）
+      await pollUntil(() => ((g.pendingQueues.get('p-anomaly') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
+      const q = g.pendingQueues.get('p-anomaly') as Uint8Array[];
+      const n = q.length; const tailRef = q[n - 1];
+      const anomaly = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
+      const before = (await anomaly.get()).values[0]?.value ?? 0;
+      const unloading = g.hooks.beforeUnloadDocument({ documentName: 'project:p-anomaly', document: provider.document } as any);
+      await pollUntil(() => release !== undefined, 2_000);   // append 挂起窗已开
+      q.unshift(new Uint8Array([9, 9]));                     // 折并交织形态：前缀改写（生产=锁内取批/折并 splice 前缀——n-1 身份破坏）
+      release();
+      await unloading;
+      expect(q).toHaveLength(n + 1);                         // 未 splice（旧实现无条件 splice(0,n)=折并产物被删=红）
+      expect(q[n]).toBe(tailRef);                            // 交接批原样留队（CRDT 幂等重发）
+      expect(((await anomaly.get()).values[0]?.value ?? 0) - before).toBe(1);   // tail_anomaly 恰 1 计数
+    } finally { appendSpy.mockRestore(); await kit.dispose(); }
   });
 
   it('卸载交接失败：钩子 resolves 不 reject（X4）+队列仍在（BOI）+persistRetry 已排（Y3——①cancel 后③重排，entry.timer 真值）+Y18 计数递增', async () => {
