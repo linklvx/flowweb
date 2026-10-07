@@ -112,8 +112,10 @@ export class CollabSpoolService {
   constructor(@Optional() dir?: string) {
     this.rawDir = dir ?? process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool');
     this.dir = resolve(this.rawDir);
-    // R3 容量测试缝（env 读模式构造期已存在——COLLAB_SPOOL_DIR 同族）：缺省/非法回落默认 256MB。
-    this.capacityBytes = Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) || CollabSpoolService.SPOOL_CAPACITY_BYTES;
+    // R3 容量测试缝（env 读模式构造期已存在——COLLAB_SPOOL_DIR 同族）：缺省/NaN/非正数回落默认 256MB
+    //（负值真值会 || 短路通过=永久写锁——显式 >0 判）。
+    const capEnv = Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES);
+    this.capacityBytes = capEnv > 0 ? capEnv : CollabSpoolService.SPOOL_CAPACITY_BYTES;
   }
 
   /** 键集（同步内存——gateway 键集缓存即此，非权威数据副本）。X8'：恒排除 `__probe__`。 */
@@ -328,7 +330,7 @@ export class CollabSpoolService {
 
   /** 读全部未 confirm 好帧（以 index 的 frameCount=可解析帧数为界——坏尾的识别与隔离归 scan/
    *  quarantineTruncatedFrames；循环内解析失败=index 与文件不一致的 tripwire：计数+停读）。
-   *  R3：段按 (seq, dir) 字典序确定性排序（跨 owner 顺序无语义——CRDT 幂等，排序只为测试稳定）；
+   *  R3：段按 (seq 数字升序, dir 字典序) 确定性排序（跨 owner 顺序无语义——CRDT 幂等，排序只为测试稳定）；
    *  frameId=segKey:idx（跨 owner 段含目录前缀）。 */
   async peek(projectId: string): Promise<SpoolFrame[]> {
     const segs = this.index.get(projectId);

@@ -120,6 +120,7 @@ export const yjsSpoolDepthFiles = new Gauge({
   name: 'yjs_spool_depth_files',
   help: 'spool 段文件数（total=own+stranded 磁盘真值——容量告警+G-1 barrier 判据；部署门读 /api/ready.pending 的 own 口径，P16）',
   registers: [register],
+  // ?? 0：容错测试 stub 注入旧快照形态（computePending 自 T4 起恒产 stranded 字段）
   collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolFiles + (p.strandedFiles ?? 0) : 0); } catch { this.set(0); } },
 });
 export const yjsSpoolDepthBytes = new Gauge({
