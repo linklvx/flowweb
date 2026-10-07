@@ -241,6 +241,39 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 电平不翻 healthy（旧实现 false → 红）
     expect(bcSpy).not.toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: true }));   // 无虚假 healthy 广播
   });
+
+  it('I-2 批尾锚（detached 队列通道）：spool.append 挂起窗内折并改写队列前缀 → splice 跳过（merged 留队重发）+tail anomaly 计数+1', async () => {
+    const { gateway, spool } = buildGateway();
+    const g = gateway as any;
+    // 装置：detached 形态（不 registerDoc——doc 不在 server.documents）+梯子 entry+队列 3 条真 Y update
+    const src = new Y.Doc();
+    src.getMap('nodes').set('k1', 1);
+    const u1 = Y.encodeStateAsUpdate(src);
+    src.getMap('nodes').set('k2', 2);
+    const u2 = Y.encodeStateAsUpdate(src);
+    src.getMap('nodes').set('k3', 3);
+    const u3 = Y.encodeStateAsUpdate(src);
+    g.pendingQueues.set('p1', [u1, u2, u3]);
+    g.persistRetry.set('project:p1', { rung: 0, timer: null });
+    let releaseAppend!: () => void;   // Y13 同款：可释放 deferred——append 挂起=锁外 splice 竞态窗的确定性复现
+    const appendSpy = vi.spyOn(spool, 'append').mockImplementation(
+      () => new Promise<string[]>((resolve) => { releaseAppend = () => resolve(['frame-1']); }),
+    );
+    const metric = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
+    const before = (await metric.get()).values[0]?.value ?? 0;   // V17⑥：metric.get() 公开 API
+
+    const done = (gateway as any).retryPersist('project:p1');   // detached 分支（doc 不活∧队列非空）——首段同步，append 已被调用
+    const queue = g.pendingQueues.get('p1') as Uint8Array[];
+    const merged = Y.mergeUpdates(queue);   // 挂起窗内白盒折并（锁内取批点 Y7 同款 splice 原地形态——数组身份恒定）
+    queue.splice(0, 3, merged);
+    releaseAppend();
+    await done;
+    expect(queue).toHaveLength(1);   // merged 存活（旧实现 splice(0,3) 越界误删未落库内容 → 红）
+    expect(queue[0]).toBe(merged);
+    expect(((await metric.get()).values[0]?.value ?? 0) - before).toBe(1);   // tail anomaly 计数+1（批留队=可经下次梯子 store 重发）
+    expect(g.persistRetry.has('project:p1')).toBe(false);   // leave 无条件+spool.append 成功=本批已落定（cancel 正常收尾）
+    appendSpy.mockRestore();
+  });
 });
 
 describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契约（终裁 51③——原"零写放大"契约由"至多一次幂等戳"接替）', () => {

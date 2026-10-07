@@ -1078,7 +1078,7 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
 // mergeUpdates 出 WS 消息路径（X10 入队只 push——软阈 setImmediate 提前 flush+Y7 硬阈异步 coalesce）+
 // 卸载交接三形态（成功/失败/Y11 重连同数组身份）。
 describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
-  it('卸载清理钩子：lastCompactAt/persistUnhealthy/persistRetry 残留随 doc 卸载清（真泄漏唯 lastCompactAt 的修点）', async () => {
+  it('卸载清理钩子：lastCompactAt/persistUnhealthy/persistRetry/pendingQueues 空条目残留随 doc 卸载清（真泄漏唯 lastCompactAt 的修点）', async () => {
     const kit = await startDualClientServer();
     try {
       const g = kit.gateway as any;
@@ -1089,6 +1089,9 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(g.lastCompactAt.has('p-ul')).toBe(false);
       expect(g.persistUnhealthy.has('project:p-ul')).toBe(false);
       expect(g.persistRetry.has('project:p-ul')).toBe(false);   // ①cancelPersistRetry 先于③（Y3 顺序——残留梯随卸载清）
+      g.pendingQueues.set('p-ul2', []);   // X17：空条目装置（非空条目留存语义由卸载交接失败用例覆盖）
+      await g.hooks.beforeUnloadDocument({ documentName: 'project:p-ul2', document: new Y.Doc() } as any);
+      expect(g.pendingQueues.has('p-ul2')).toBe(false);   // X17：空条目回收（交接失败时 q2 非空自然保留）
     } finally { await kit.dispose(); }
   });
 
@@ -1130,7 +1133,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       // >=2（非 >0）：stamp 自愈行+k1 两 update 全部落队再交接——WS 送达异步，>0 会在 stamp 时提前放行（k1 迟到→交接后断言假红）
       await pollUntil(() => ((g.pendingQueues.get('p-handoff') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
       await g.hooks.beforeUnloadDocument({ documentName: 'project:p-handoff', document: provider.document } as any);
-      expect(g.pendingQueues.get('p-handoff')).toHaveLength(0);   // 批新家=spool（splice 在 append 成功后）
+      expect(g.pendingQueues.has('p-handoff')).toBe(false);       // 批新家=spool（splice 后空条目随 X17 回收——卸载后无观察者）
       expect(await kit.spool.peek('p-handoff')).toHaveLength(1);  // 帧在 spool（fsync 已落定）
       expect(g.inFlightProjects.has('p-handoff')).toBe(false);    // X2 落定点②：卸载交接 leave
     } finally { await kit.dispose(); }

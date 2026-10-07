@@ -683,9 +683,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         const queue = this.pendingQueues.get(projectId);
         if (queue && queue.length > 0) {
           const n = queue.length;
+          const tailRef = queue[n - 1];                          // I-2：批尾引用锚（unload 交接/store 三处同款——splice 前身份校验）
           const payload = n === 1 ? queue[0] : Y.mergeUpdates(queue.slice(0, n));
           await this.spool.append(projectId, payload);           // 失败 throw 重走 catch 退避（不 cancel——批仍需保活）
-          queue.splice(0, n);
+          // I-2：await 窗口锁内折并改写前缀（Y7 取批点收口后本通道是唯一锁外 splice）——身份不符跳过 splice：
+          // merged 含未落库新内容留队由梯子重发（CRDT 幂等吸收）；本批已落 spool fsync=归属落定，leave 无条件。
+          if (queue.length < n || (n > 0 && queue[n - 1] !== tailRef)) {
+            yjsStoreTailAnomalyTotal.inc();
+            this.logger.error(`detached retry tail anomaly for ${projectId}: queue mutated during spool append（折并/并发改写——splice 跳过，批留队列重发）`);
+          } else {
+            queue.splice(0, n);                                  // 新家（spool）已落定——移出旧归属
+          }
           this.leaveInFlight(projectId);                         // Y1：detached 队列通道落定点②（批可能带着 Unlocked 留下的在飞标志进梯——此处落 spool 即落定）
         } else {
           const frames = await this.peekSpoolFrames(projectId);  // 帧通道=三段式（peek→append→confirm）
@@ -782,6 +790,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // ④清理残留（M1：project.gone 事件为第一入口——本钩子为卸载路径第二入口）
       this.lastCompactAt.delete(projectId);
       this.persistUnhealthy.delete(documentName);
+      const q2 = this.pendingQueues.get(projectId);
+      if (q2 && q2.length === 0) this.pendingQueues.delete(projectId);   // X17：空条目回收（交接失败时 q2 非空自然保留）
     }
   }
 
