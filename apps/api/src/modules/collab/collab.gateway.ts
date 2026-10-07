@@ -11,7 +11,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
-import { collabSweepCloseTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabSweepCloseTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
@@ -92,7 +92,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private retryPausedByCircuit = false;
   /** Y0a-2：draining 状态位（isShuttingDown 读点=authenticate 受理门；置位者=onApplicationShutdown 步骤 1——与 Y0a-3 /api/drain 同一状态位（幂等；内存态）） */
   private draining = false;
-  /** V10：已删项目终态缓存（storeDocumentUnlocked 终态拦截读点；写入者=Task 6 删除链 emit——本批空集=门常开） */
+  /** Y0a-2（spec §2.5+V10/V11+X1）：项目消失终态集——**永久无界**（spec §9.10：进程寿命内**真删除**项目数
+   *  ——V11 emit 后置后无假终态；可见地接受：yjs_deleted_projects gauge，V25）。
+   *  X1：discardForGoneProject 在**事件处理器内**调用（唯一必然执行点——doc 卸载后 store 拦截分支
+   *  结构性不可达，不清则僵尸队列令 computePending 恒>0→drain_complete 永不打印+G-1 barrier 超时）；
+   *  storeDocumentUnlocked 首行拦截保留兜底（事件与 store 的竞态窗）。spool 段收割=FK 双形状（V6）。 */
   private readonly deletedProjects = new Set<string>();
   /** 批3-4 sweep：grace 在途去重 + 连续复验失败计数（WeakMap/WeakSet——连接回收即散） */
   private readonly sweepGrace = new WeakSet<object>();
@@ -453,6 +457,28 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return false;
   }
 
+  /** Y0a-2（V10/V11 单点收敛）：项目消失终态处理——三删除入口（project.delete/cleanDrafts/
+   *  template.delete 级联）**事务提交后** emit 汇入此点（team.disbanded 同点汇入）。事件处理器
+   *  **禁慢操作**（V11：emitAsync await 监听器——只做内存终态+显式清账+关连接，零磁盘 I/O；
+   *  team.service emitAsync 先例同形）。
+   *  X1：discardForGoneProject 在此调用=**唯一必然执行点**（doc 卸载后 store 拦截分支结构性
+   *  不可达，不清则僵尸队列令 computePending 恒>0→drain_complete 永不打印+G-1 barrier 超时）；
+   *  storeDocumentUnlocked 首行拦截保留兜底（事件与 store 的竞态窗）；
+   *  spool 段收割=FK 双形状（V6——本处理器不触盘）。 */
+  private handleProjectsGone(projectIds: string[]): void {
+    for (const projectId of projectIds) {
+      this.deletedProjects.add(projectId);
+      this.cancelPersistRetry(`project:${projectId}`);            // 定时器随清
+      this.lastCompactAt.delete(projectId);                       // 卸载清理的第二入口（Task 7 钩子为第一入口）
+      this.persistUnhealthy.delete(`project:${projectId}`);       // 陈旧电平（重连会补推失效横幅）
+      this.discardForGoneProject(projectId, `project:${projectId}`);   // X1：显式清队列+点名
+      const q = this.pendingQueues.get(projectId);                // M6：空队列条目回收（X17 同款——discard 后空数组条目随清）
+      if (q && q.length === 0) this.pendingQueues.delete(projectId);
+    }
+    yjsDeletedProjects.set(this.deletedProjects.size);            // V25：永久无界的可见化
+    this.closeTeamDocuments(projectIds);                          // 关连接（payload-only 不查库）
+  }
+
   /** 提前 drain 的帧读（IO 错误不阻断主路径——帧留待下次；正常态键集判定零 IO） */
   private async peekSpoolFrames(projectId: string): Promise<{ frameId: string; payload: Uint8Array }[]> {
     try { return this.spool.hasFrames(projectId) ? await this.spool.peek(projectId) : []; }
@@ -704,9 +730,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // Y10 seam：spool IO 熔断恢复→统一唤醒退避梯+清 inFlight（运行期恢复缝——启动回灌失败的排程由上方
     // rearmQueues 直调承接，seam 只管运行期 ioBroken 翻转；幂等安全：schedulePersistRetry 对已有 timer return）
     this.spool.onRecovered = () => this.rearmQueues();
-    // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 关连接，不查库
+    // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 终态处理（清账+关连接），不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
-      this.closeTeamDocuments(payload.projectIds);
+      this.handleProjectsGone(payload.projectIds);
+    });
+    // Y0a-2（V11）：三删除入口（project.delete/cleanDrafts/template.delete 级联）事务提交后 emit——
+    // 与解散事件汇入同一终态处理（处理器禁慢操作：内存态+关连接，零磁盘 I/O）
+    this.eventEmitter.on('project.gone', (payload: { projectIds: string[] }) => {
+      this.handleProjectsGone(payload.projectIds);
     });
   }
 

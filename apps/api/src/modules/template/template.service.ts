@@ -1,4 +1,5 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TeamService } from '../team/team.service';
@@ -30,6 +31,7 @@ export class TemplateService {
     @Inject(FolderService) private readonly folderService: FolderService,
     @Inject(TeamService) private readonly teamService: TeamService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
+    @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async findMany(query: TemplateListQuery, userId: string) {
@@ -156,6 +158,9 @@ export class TemplateService {
         ? [this.prisma.canvasProject.delete({ where: { id: template.projectId } })]
         : []),
     ]);
+    // Y0a-2（V11）：项目删除入口之三——事务提交后 emit（回滚=无 emit=无假终态；emitAsync await
+    // 监听器——处理器禁慢操作：内存终态+关连接）
+    if (template.projectId) await this.eventEmitter.emitAsync('project.gone', { projectIds: [template.projectId] });
     if (template.folderId) await this.folderService.touch([template.folderId]);
     return null;
   }

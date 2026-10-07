@@ -140,3 +140,12 @@ export const storeInFlightDocs = new Gauge({
   help: '进入取批未落定（append/spool）的项目数（G-2 断言对象；spec §5.2 表同批改名）',
   registers: [register],
 });
+
+/** Y0a-2（V25+V10）：项目消失终态集大小——进程寿命内**真删除**项目数，永久无界的可见化接受
+ *  （spec §9.10）；V11 emit 后置后无假终态（回滚=无 emit=不进集）。写入点=project.gone/
+ *  team.disbanded 事件处理器（Task 6 单点收敛）。 */
+export const yjsDeletedProjects = new Gauge({
+  name: 'yjs_deleted_projects',
+  help: '终态集大小（进程寿命内真删除项目数——永久无界的可见化，spec §9.10）',
+  registers: [register],
+});

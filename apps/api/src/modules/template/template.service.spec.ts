@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TeamService } from '../team/team.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
@@ -34,6 +35,7 @@ describe('TemplateService', () => {
   let folderService: {
     touch: ReturnType<typeof vi.fn>;
   };
+  let emitter: { emitAsync: ReturnType<typeof vi.fn> };
   let perm: {
     resolve: ReturnType<typeof vi.fn>;
     assertEditor: ReturnType<typeof vi.fn>;
@@ -66,6 +68,7 @@ describe('TemplateService', () => {
     folderService = {
       touch: vi.fn(),
     };
+    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };   // Y0a-2 V11：project.gone emit 面
     perm = {
       resolve: vi.fn().mockResolvedValue(null),
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
@@ -78,6 +81,7 @@ describe('TemplateService', () => {
         { provide: FolderService, useValue: folderService },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
         { provide: ProjectPermissionService, useValue: perm },
+        { provide: EventEmitter2, useValue: emitter },
       ],
     }).compile();
 
@@ -216,6 +220,18 @@ describe('TemplateService', () => {
       perm.resolve.mockResolvedValue('PROJECT_OWNER');
       await service.delete('t1', 'team-owner');
       expect(prisma.template.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
+    });
+
+    it('delete：事务提交后 emit project.gone（Y0a-2 V11——projectId 关联时，级联删项目入口之三）', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: 'p1' });
+      await service.delete('t1', 'u1');
+      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['p1'] });
+    });
+
+    it('delete：无关联工程不 emit（仅删模板，非项目删除入口）', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: null });
+      await service.delete('t1', 'u1');
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
     });
 
     describe('级联删除工程', () => {

@@ -1,4 +1,5 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -28,6 +29,7 @@ export class ProjectService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamService) private readonly teamService: TeamService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(name: string, userId?: string, nodes?: any[], edges?: any[], teamId?: string) {
@@ -104,18 +106,29 @@ export class ProjectService {
   }
 
   async delete(id: string) {
-    return this.prisma.canvasProject.delete({ where: { id } });
+    const deleted = await this.prisma.canvasProject.delete({ where: { id } });
+    // Y0a-2（V11）：提交后 emit（emitAsync await 监听器——处理器禁慢操作：内存终态+关连接；
+    // 回滚安全：删除失败=异常上抛=无 emit=该项目协作写不受影响）
+    await this.eventEmitter.emitAsync('project.gone', { projectIds: [id] });
+    return deleted;
   }
 
   async cleanDrafts(userId: string) {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const result = await this.prisma.canvasProject.deleteMany({
-      where: {
-        userId,
-        updatedAt: { lt: cutoff },
-        templates: { none: {} },
-      },
+    // Y0a-2（V11+X13）：**FOR UPDATE 事务**锁定并删除（关掉"查询→deleteMany 间草稿跃过 cutoff→
+    // 活项目进终态集"的毒化窗——deleteMany 不返回被删 id 是 Prisma 既有限制，FOR UPDATE 把窗口归零），
+    // 提交后按**确实被删的集合** emit。
+    const deletedIds = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "CanvasProject"
+        WHERE "userId" = ${userId} AND "updatedAt" < ${cutoff}
+          AND NOT EXISTS (SELECT 1 FROM "Template" WHERE "Template"."projectId" = "CanvasProject"."id")
+        FOR UPDATE`;
+      const ids = rows.map((r) => r.id);
+      if (ids.length > 0) await tx.canvasProject.deleteMany({ where: { id: { in: ids } } });
+      return ids;
     });
-    return { deletedCount: result.count };
+    if (deletedIds.length > 0) await this.eventEmitter.emitAsync('project.gone', { projectIds: deletedIds });
+    return { deletedCount: deletedIds.length };   // Y20：保留既有返回键（controller/前端消费不变——X13 只改 SQL/emit 不破形状）
   }
 }

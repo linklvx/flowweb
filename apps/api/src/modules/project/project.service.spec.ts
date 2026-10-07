@@ -3,12 +3,14 @@ import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
 
 describe('ProjectService', () => {
   let service: ProjectService;
   let prisma: any;
+  let emitter: { emitAsync: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     prisma = {
@@ -31,6 +33,8 @@ describe('ProjectService', () => {
       projectMember: { create: vi.fn().mockResolvedValue({}) },
     };
     prisma.$transaction = vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma));
+    prisma.$queryRaw = vi.fn().mockResolvedValue([]);   // Y0a-2 X13：cleanDrafts FOR UPDATE 锁定集
+    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };   // Y0a-2 V11：project.gone emit 面
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -38,6 +42,7 @@ describe('ProjectService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
         { provide: CollabDocumentService, useValue: { readCanvas: vi.fn(), withDoc: vi.fn() } },
+        { provide: EventEmitter2, useValue: emitter },
       ],
     }).compile();
 
@@ -249,20 +254,32 @@ describe('ProjectService', () => {
       await service.delete('p1');
       expect(prisma.canvasProject.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
     });
+
+    it('delete：删除提交后 emit project.gone（Y0a-2 V11 后置——先 delete 后 emit）', async () => {
+      prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
+      await service.delete('p1');
+      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['p1'] });
+      // 调用序：delete 先于 emit（V11 后置——vitest 无 toHaveBeenCalledBefore，用 invocationCallOrder 比较）
+      expect(prisma.canvasProject.delete.mock.invocationCallOrder[0])
+        .toBeLessThan(emitter.emitAsync.mock.invocationCallOrder[0]);
+    });
+
+    it('delete 回滚（delete reject）→ 不 emit（V11：无假终态——项目仍在，协作写不受影响）', async () => {
+      prisma.canvasProject.delete.mockRejectedValue(new Error('rollback'));
+      await expect(service.delete('p1')).rejects.toThrow('rollback');
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
+    });
   });
 
   describe('cleanDrafts', () => {
-    it('删除无 Template 关联且 24h 未更新的本人工程', async () => {
+    it('cleanDrafts：$queryRaw FOR UPDATE 锁定集合 → deleteMany → 提交后按确实被删集 emit（Y0a-2 V11+X13）', async () => {
+      // X13 重写（原"删除无 Template 关联…"用例——mock 形态全变：$transaction+$queryRaw，Y20 冲击面）
+      prisma.$queryRaw.mockResolvedValue([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]);
       prisma.canvasProject.deleteMany.mockResolvedValue({ count: 4 });
       const result = await service.cleanDrafts('u1');
-      expect(prisma.canvasProject.deleteMany).toHaveBeenCalledWith({
-        where: {
-          userId: 'u1',
-          updatedAt: { lt: expect.any(Date) },
-          templates: { none: {} },
-        },
-      });
-      expect(result).toEqual({ deletedCount: 4 });
+      expect(result).toEqual({ deletedCount: 4 });   // Y20：返回键不变（controller/前端消费不变）
+      expect(prisma.canvasProject.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['a', 'b', 'c', 'd'] } } });   // X13：按锁定集精确删
+      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['a', 'b', 'c', 'd'] });   // V11：提交后按确实被删集 emit
     });
   });
 
