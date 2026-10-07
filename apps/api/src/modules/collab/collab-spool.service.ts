@@ -72,6 +72,14 @@ export class CollabSpoolService {
    *  调用安全（schedulePersistRetry 对已有 timer return）。 */
   onRecovered?: () => void;
 
+  /** Y0a-3 T2 最小缝（R3 前置）：lease owner=spool 子目录名——fs 安全形态校验（V4，构造期同规则）。
+   *  子目录机制本体（activeDir 等）归 T4，本批只落态位+校验（CollabLeaseService=唯一调用方）。 */
+  private owner: string | null = null;
+  setOwner(owner: string): void {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(owner)) throw new Error(`spool owner 非文件系统安全名: ${owner}`);
+    this.owner = owner;
+  }
+
   // @Optional()：Nest DI 对原始类型参数（paramtypes=[String]）无法解析，不加会在模块实例化时
   // 让整个应用 boot 崩（本仓惯例见 collab.gateway.ts @Optional() 注入形态）。
   constructor(@Optional() dir?: string) {

@@ -1,0 +1,6 @@
+-- AlterEnum
+ALTER TYPE "AuditTargetType" ADD VALUE 'COLLAB_LEASE';
+
+-- AlterTable
+ALTER TABLE "CollabLease" ADD COLUMN     "renewedAt" TIMESTAMPTZ(3),
+ALTER COLUMN "expiresAt" SET DATA TYPE TIMESTAMPTZ(3);

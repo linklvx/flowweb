@@ -483,6 +483,7 @@ enum AuditTargetType {
   TEAM_MEMBER
   PROJECT
   PROJECT_MEMBER
+  COLLAB_LEASE   // Y0a-3：break-glass/drain 审计行（targetId=scope 'primary'）
 }
 
 model SubscriptionPlan {
@@ -843,12 +844,13 @@ model CanvasDocUpdate {
   @@unique([projectId, seq])
 }
 
-// Y0a-1：单实例租约行（消费代码在 Y0a-3；本批仅建表+迁移 seed）
+// Y0a-1：单实例租约行（Y0a-3 T2 起消费：expiresAt/renewedAt 用 timestamptz(3)——Z19/P2）
 model CollabLease {
   scope     String    @id
   owner     String?
   epoch     BigInt    @default(0)
-  expiresAt DateTime?
+  expiresAt DateTime? @db.Timestamptz(3)
+  renewedAt DateTime? @db.Timestamptz(3)
 }
 
 // ========== 视频作品展示 ==========

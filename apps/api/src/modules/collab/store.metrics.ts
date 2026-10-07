@@ -43,6 +43,48 @@ export const collabSweepCloseTotal = new Counter({
   registers: [register],
 });
 
+/** Y0a-3（E35/E44/V22）：租约指标族——labelNames 必须与全部 .inc({}) 调用点一一对应
+ *  （B8：prom-client 对未声明标签 throw——隔离路径会炸，先于任何消费方落地）。 */
+export const collabLeaseDeniedTotal = new Counter({
+  name: 'collab_lease_denied_total',
+  help: '租约获取失败次数（reason=contention：CAS 0 行；reason=error：语句失败/超时）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+export const collabLeaseLostTotal = new Counter({
+  name: 'collab_lease_lost_total',
+  help: '租约失守次数（cause=fenced-by-write/heartbeat-fenced/heartbeat-unknown-expired/revoked——gateway.selfIsolate 单点 inc）',
+  labelNames: ['cause'],
+  registers: [register],
+});
+export const collabStartFailureTotal = new Counter({
+  name: 'collab_start_failure_total',
+  help: 'collab 面启动失败次数（scan/listen 抛错；看门狗每 episode 至多补 1 次——W22）',
+  registers: [register],
+});
+export const collabLeaseEpoch = new Gauge({
+  name: 'collab_lease_epoch',
+  help: '当前持有租约的 epoch（onHeld 时 set——单调观测）',
+  registers: [register],
+});
+export const collabLeaseRowMissingTotal = new Counter({
+  name: 'collab_lease_row_missing_total',
+  help: '写路径遇 CollabLease 行缺失次数（配置错误——批走 spool 不排梯，SV13）',
+  registers: [register],
+});
+/** Y0a-3（SV8）：compact 租约档拒绝（与 pendingStructs 的 abandoned 分立——计数不混） */
+export const yjsCompactNotOwnerTotal = new Counter({
+  name: 'yjs_compact_not_owner_total',
+  help: 'compact 因租约档拒绝次数（not-owner——出现即租约与 compact 判据不一致，需值班关注）',
+  registers: [register],
+});
+/** Y0a-3（§3.2）：投影类快照读计数（readSnapshotOnly 出口） */
+export const yjsSnapshotReadTotal = new Counter({
+  name: 'yjs_snapshot_read_total',
+  help: 'readSnapshotOnly 投影出口快照读次数（video-work 快照/克隆）',
+  registers: [register],
+});
+
 /** Y0a-1：compact 健康度唯一真实指标（v2.2 升 P0 告警线）——pendingStructs!=null 放弃本次；
  *  放弃不开窗=下次 store 立即重试（spec v2.4 E23——pendingStructs!=null 是需人工介入的异常态，
  *  活跃编辑期每 debounce 窗一次 ERROR+计数递增正是 P0 线要的最响信号；未编辑 doc 无 store 触发源不空转）。

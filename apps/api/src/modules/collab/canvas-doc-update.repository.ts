@@ -10,6 +10,11 @@ export class CanvasDocUpdateRepository {
   // 显式 @Inject：vitest esbuild 不生成设计时类型元数据（同 collab-document.service 模式）
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  /** Y0a-3 T2 最小缝（契约 16 前置）：租约 owner 写入面——CollabLeaseService=唯一写者；
+   *  写语句 owner 断言（append WHERE / compact 判据）由后续任务接线，本批只落态位。 */
+  private leaseOwner: string | null = null;
+  setLeaseOwner(owner: string | null): void { this.leaseOwner = owner; }
+
   /** Y0a-1：单语句原子 append（取号+插入同一语句——消灭两语句间进程死窗口）。
    *  返回契约（spec v2.4 §1.2/契约 15）：AppendResult 判别类型——fenced=0 行**不抛异常**，调用方
    *  禁以"未抛错"判成功；本批无租约断言恒 {ok:true}（WHERE owner+TTL 断言 Y0a-3 追加，届时 0 行
