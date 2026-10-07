@@ -1,7 +1,7 @@
-<!-- doc-status: draft-v2.4 | created_at: 2026-10-06 | note: Y0a 数据完整性批 design spec v2.4——v2.1 经第四轮外审（2026-10-06，针对 Y0a-1 plan 的三份报告，含 yjs SV 语义探针实证）收敛修订：SV inline 哨兵删除（pendingStructs 检查通过前提下恒真+每 compact N 次编码纯成本——svDominates 沉纯函数锚复用 sv.util decodeStateVector）/预检自愈改"超时自愈一次"（原预检=每次装载全量 detoast 聚合且 48MB 阈对 116KB 存量永不触发）/Proxy 故障器砍除（failingRepo stub+Y0a-2 DB 触发器注入）/storeInFlight 移 Y0a-2（Y0a-1 挂回灌路径恒 0=死代码）；探针前置纪律立项（新守卫/哨兵必须附 5 分钟证伪探针）；v2.3（同日第五轮 plan 外审回馈）：超时自愈改**分类触发**（契约 13/§3-1.4/§7.2——仅 P2028/P2024/P1008/timeout 类自愈+compact 独立预算 maxWait:2s，非可重试类直接 fail-closed；§7.2 残留 v2.1 预检句同步清除）、Y0a-3 登记 gateway.spec disconnectDelay 时序注记重写、E43② 注记 load 回灌位点 peek/consume 已随 Y0a-1 前移落地；v2.4（同日第五~七轮外审收敛）：**append 返回契约 AppendResult**（fenced=0 行不抛异常，BOI 伪代码照常 splice=静默蒸发——fenced 并入失败路径+契约 15）、**readSnapshotOnly 撤"无事务单读者"**（重开 E20 撕裂+违契约 1——改 readConsistent 单 RR 事务两出口）、**自愈分类去 P2024**（池饥饿非事务超时，自愈动作自身需池连接=零成功率纯放大；预算 60s→自愈增量 ≤8s）、**G-1 改双模式 quiescence barrier**（去抖窗观测盲区致已接受集录小=假通过）、**G-2 拆 a/b**（"构造性为 0"不可证伪违 D13）、**部署拒重启改 /api/drain 三步**（前置判据稳态恒假=每次必 force=门禁失效；draining 60s 自动解除防僵尸）、**fence 加 TTL 双校验+leaseRowMissing 区分**（租约行缺失静默 fence 全部写入=伪装正常 fence 的配置错误）、**compact 返回 {compacted,reason}**（实现走 throw 会被 :297-301 catch 记 WARN=污染 abandoned P0 告警线）、**quarantine 改 sidecar**（追加-only 段内移帧物理不可行→坏帧段永不回收→256MB 慢速只读）、**project.gone 不动 spool 段**（emit 先于事务提交，回滚即丢台账）、**关停预算压 ≤22s**（原加算 30s≠28s 且步骤 1 直连无界）、epoch BigInt 序列化改 string、FORCE_TAKEOVER 审计复用 AuditLog、setLeaseOwner 单点注入、冒烟自建 FK 行、§3.1 补 1.10 stash 工作项 -->
-# Y0a 数据完整性批——设计 spec（v2.4）
+<!-- doc-status: draft-v2.5 | created_at: 2026-10-06 | note: Y0a 数据完整性批 design spec v2.5——v2.1 经第四轮外审（2026-10-06，针对 Y0a-1 plan 的三份报告，含 yjs SV 语义探针实证）收敛修订：SV inline 哨兵删除（pendingStructs 检查通过前提下恒真+每 compact N 次编码纯成本——svDominates 沉纯函数锚复用 sv.util decodeStateVector）/预检自愈改"超时自愈一次"（原预检=每次装载全量 detoast 聚合且 48MB 阈对 116KB 存量永不触发）/Proxy 故障器砍除（failingRepo stub+Y0a-2 DB 触发器注入）/storeInFlight 移 Y0a-2（Y0a-1 挂回灌路径恒 0=死代码）；探针前置纪律立项（新守卫/哨兵必须附 5 分钟证伪探针）；v2.3（同日第五轮 plan 外审回馈）：超时自愈改**分类触发**（契约 13/§3-1.4/§7.2——仅 P2028/P2024/P1008/timeout 类自愈+compact 独立预算 maxWait:2s，非可重试类直接 fail-closed；§7.2 残留 v2.1 预检句同步清除）、Y0a-3 登记 gateway.spec disconnectDelay 时序注记重写、E43② 注记 load 回灌位点 peek/consume 已随 Y0a-1 前移落地；v2.4（同日第五~七轮外审收敛）：**append 返回契约 AppendResult**（fenced=0 行不抛异常，BOI 伪代码照常 splice=静默蒸发——fenced 并入失败路径+契约 15）、**readSnapshotOnly 撤"无事务单读者"**（重开 E20 撕裂+违契约 1——改 readConsistent 单 RR 事务两出口）、**自愈分类去 P2024**（池饥饿非事务超时，自愈动作自身需池连接=零成功率纯放大；预算 60s→自愈增量 ≤8s）、**G-1 改双模式 quiescence barrier**（去抖窗观测盲区致已接受集录小=假通过）、**G-2 拆 a/b**（"构造性为 0"不可证伪违 D13）、**部署拒重启改 /api/drain 三步**（前置判据稳态恒假=每次必 force=门禁失效；draining 60s 自动解除防僵尸）、**fence 加 TTL 双校验+leaseRowMissing 区分**（租约行缺失静默 fence 全部写入=伪装正常 fence 的配置错误）、**compact 返回 {compacted,reason}**（实现走 throw 会被 :297-301 catch 记 WARN=污染 abandoned P0 告警线）、**quarantine 改 sidecar**（追加-only 段内移帧物理不可行→坏帧段永不回收→256MB 慢速只读）、**project.gone 不动 spool 段**（emit 先于事务提交，回滚即丢台账）、**关停预算压 ≤22s**（原加算 30s≠28s 且步骤 1 直连无界）、epoch BigInt 序列化改 string、FORCE_TAKEOVER 审计复用 AuditLog、setLeaseOwner 单点注入、冒烟自建 FK 行、§3.1 补 1.10 stash 工作项；v2.5（2026-10-08）：Y0a-3 SV1-16 回填——fence owner-only/break-glass 替 FORCE/rejoin 状态机/八值 ready+collabState/drain 冻结/读侧三分法/spool 子目录+两口径/int 专用池 -->
+# Y0a 数据完整性批——设计 spec（v2.5）
 
-日期：2026-10-06（v1-v2.3 同日；v2.4 第五~七轮外审收敛——新机制失败分支推演回馈 spec）
+日期：2026-10-06（v1-v2.3 同日；v2.4 第五~七轮外审收敛——新机制失败分支推演回馈 spec）；v2.5（2026-10-08，Y0a-3 SV1-16 回填）
 批次定位：Y0 系拆分 1/3（E31）。**上线门槛组成批**（E39：★上线门槛=0 号+**Y0a**+Y0b+Y0.5+Y1a+Y1b+Y1c-2 三项）。
 执行方式：TDD（superpowers，红-绿-重构）；TypeScript strict。
 
@@ -62,7 +62,7 @@
 | `apps/api/src/main.ts:40-51` | ConfigPreload 临时 PrismaClient 用后 $disconnect（容器外，**裁定保持现状**——短暂占用可接受，E46 旁路实例此处置=显式登记非纳管） | E46 |
 | `apps/api/src/modules/health/health.service.ts:14-28` | /api/health 仅 SELECT 1 | E44 |
 | `scripts/gate-collab.mjs:44-59` | waitForApiHealth 轮询 /api/health（3000）+waitForPort(3001) | E44 切换目标 |
-| `deploy.sh:59/:95` | `pm2 restart --kill-timeout 10000` 内联参数；仓内无 ecosystem 文件（**pm2 对旧内联进程的参数归属未验证=换文件后可能起第二实例**） | E43⑤/E46/D-8 |
+| `deploy.sh:59/:95` | `pm2 restart --kill-timeout 10000` 内联参数（**v2.5/SV6：Y0a-3 随批内联改 45000**——HTTP dispose 等在飞请求；ecosystem 归 Y0a-4 取同值）；仓内无 ecosystem 文件（**pm2 对旧内联进程的参数归属未验证=换文件后可能起第二实例**） | E43⑤/E46/D-8 |
 | `deploy.sh:75-81`（deploy_api） | 上传面缺 **apps/api/prisma**（迁移文件到不了服务器，:87 migrate deploy 空转）**与 scripts/**（冒烟/演练脚本不在服务器）——两处均随批补 | E69②/v2 补 scripts |
 | `.github/workflows/ci.yml` | test job（pg+redis+DATABASE_URL+verify）/doc-gate/gitleaks/e2e-collab(dispatch-only)——collab-core 新 job 只跑增量防双源 | E69③ |
 | `apps/api/package.json:18` | `@hocuspocus/extension-redis: 4.6.0` | E23 删除面 |
@@ -108,11 +108,11 @@
 
 **E21（对偶配对）**：失败即入账先于一切/落盘 spool+启动回灌/项目删除清账/关停停收→drain→放行/mergeUpdates 挪出 WS 路径/持久化模型显式声明〔**全部 Y0a-2 执行完毕**（2026-10-07 收口）；"doc bytes/行数按去重口径标注"→**移交 Y0b**（观测收口），§2.2 登记〕。
 
-**E23（拓扑前移，本批取拓扑段）**：单实例+启动租约+删 extension-redis/CollabRedisSync/双 Server 用例改 fail-fast〔**Y0a-3 执行**〕；compact 守卫连续 3 败→世代重建出口〔**v2.4 修订执行**：守卫降为"放弃本次+计数+保留全部行——**放弃不开窗**（`lastCompactAt` 仅 compacted===true 时更新）：下次 store 立即重试（门限从上次成功起算，放弃后窗口早已过）——pendingStructs!=null 属异常态，每次 store 一次尝试是可接受的诊断成本且 abandoned 计数/ERROR 一路涨正是 P0 告警线所要；接口形态见 §1.3 compact 返回契约。**本批自洽，不依赖 Y1c-1**；世代重建手工命令（scripts/collab-compact.mjs 人工出口）随 Y1c-1 落地，§2.2 显式登记为已知限制〕；世代连带（docName 世代 6 处）〔移交 Y1c-1，不属本批〕。
+**E23（拓扑前移，本批取拓扑段）**：单实例+启动租约+删 extension-redis/CollabRedisSync/双 Server 用例改 fail-fast〔**Y0a-3 执行中**〕；compact 守卫连续 3 败→世代重建出口〔**v2.4 修订执行**：守卫降为"放弃本次+计数+保留全部行——**放弃不开窗**（`lastCompactAt` 仅 compacted===true 时更新）：下次 store 立即重试（门限从上次成功起算，放弃后窗口早已过）——pendingStructs!=null 属异常态，每次 store 一次尝试是可接受的诊断成本且 abandoned 计数/ERROR 一路涨正是 P0 告警线所要；接口形态见 §1.3 compact 返回契约。**本批自洽，不依赖 Y1c-1**；世代重建手工命令（scripts/collab-compact.mjs 人工出口）随 Y1c-1 落地，§2.2 显式登记为已知限制〕；世代连带（docName 世代 6 处）〔移交 Y1c-1，不属本批〕。
 
-**E34（修法收敛+判据豁免+可达性）**：单事务 RR 覆盖快照+全部分页+stateSeq 三件套+SV 豁免写死+read fail-closed 降级出口〔**Y0a-1 执行单事务+stateSeq+SV 豁免**；~~同事务复查~~不做了（E42①）；**降级出口随读侧守卫移交 Y1c-1**；lease-lost 场景的降级**读**通道保留在 Y0a-3（租约语义非完整性守卫）〕；可达性证明〔**Y0a-1 固化装置执行**（§6 结构锚）〕。
+**E34（修法收敛+判据豁免+可达性）**：单事务 RR 覆盖快照+全部分页+stateSeq 三件套+SV 豁免写死+read fail-closed 降级出口〔**Y0a-1 执行单事务+stateSeq+SV 豁免**；~~同事务复查~~不做了（E42①）；**v2.5/SV3：装载 `seq>stateSeq` 水位过滤删除**——readConsistent cursor 恒 0n 全量 apply（水位不是正确性载体，正确性=读侧全量+CRDT 幂等；stateSeq 留作诊断/未来增量装载水位，诚实性由 append 同 key advisory lock 保证）；**降级出口随读侧守卫移交 Y1c-1**；lease-lost 场景的降级**读**通道保留在 Y0a-3（租约语义非完整性守卫）〕；可达性证明〔**Y0a-1 固化装置执行**（§6 结构锚）〕。
 
-**E35（租约四语义+fencing）**：TTL≤10s/心跳≤3s 独立 timer/续租失败自隔离（不自杀不硬撑；租约只 gate collab 就绪度）/有界重试+就绪门/FORCE_TAKEOVER 逃生阀/pm2 禁 reload/关停末尾显式释放/fencing token/语义=活性机制非数据完整性〔**Y0a-3 执行**；"独立 timer/子进程"落为独立 unref timer〕。
+**E35（租约四语义+fencing）**：TTL≤10s/心跳≤3s 独立 timer/续租失败自隔离（不自杀不硬撑；租约只 gate collab 就绪度）/有界重试+就绪门/FORCE_TAKEOVER 逃生阀/pm2 禁 reload/关停末尾显式释放/fencing token/语义=活性机制非数据完整性〔**Y0a-3 执行中**；"独立 timer/子进程"落为独立 unref timer；**v2.5/SV2：FORCE_TAKEOVER 逃生阀→break-glass 运维脚本**（'revoked' 哨兵+AuditLog，被撤实例终态不 rejoin）；**v2.5/SV5：续租失败自隔离改 isolate→rejoin 状态机**（关 listener 让位+有界退避重获取+re-listen；revoked 终态除外）〕。
 
 **E37（spool 细则）**：帧格式=长度前缀+CRC/回灌先于对外服务/世代作用域/容量上限明写/写入次序二选一〔**Y0a-2 执行完毕**（2026-10-07 收口）：选"失败→落盘"ms 窗口（与 E43⑥"收即写不采"同判）；世代字段 Y1c-1 引入 generation 时扩展（本批键=projectId）；目录绝对路径随 ecosystem cwd 钉死（Y0a-4）〕。
 
@@ -120,9 +120,9 @@
 
 **E42（装载读一致性终裁）**：①单 RR 事务=(i) 推荐形态+删"同事务复查"假门禁〔**Y0a-1 执行**〕②写侧现状无丢数据，三件套=防走样契约〔**Y0a-1 执行**〕③pendingStructs 判据边界〔**Y0a-1 执行**（compact 前检查）〕④SV 支配性=对账哨兵非放行判据〔**v2.2 修订执行**：inline 哨兵删除（恒真+纯成本，探针证伪）；svDominates 沉**纯函数单测锚**（Y0a-1）+破坏后结构锚随 Y1c-1 评估——E42④ 的"对账"定位不变，载体从 compact 内联改为函数级〕⑤可达性固化〔**Y0a-1 执行**〕。
 
-**E43（store 失败路径终裁+RPO 三腿）**：①库语义锚定〔**Y0a-1 落断言**（§1.2，D-13）〕②stash 级蒸发=spool 唯一真修法+入账先于一切〔**Y0a-2 执行，且 v2 强化**：删失败路径 unshift 回灌+catch 返回 false 不 throw（D-2）+takeStash 全调用点 peek 语义化（D-3；load 回灌位点已随 Y0a-1 前移落地 peek/consume——本批余 store 提前 drain/retry 两处）+spool 单源落盘删内存 unflushed Map〕③拒卸载降 tripwire〔**随单源 spool 吸收**——脏 doc 不再依赖"留在内存"保数据〕④drain 先于放行〔**Y0a-2 执行**〕⑤kill-timeout≥30000〔**Y0a-4 执行**（ecosystem）〕⑥RPO 三腿〔**§5.1 执行**〕。
+**E43（store 失败路径终裁+RPO 三腿）**：①库语义锚定〔**Y0a-1 落断言**（§1.2，D-13）〕②stash 级蒸发=spool 唯一真修法+入账先于一切〔**Y0a-2 执行，且 v2 强化**：删失败路径 unshift 回灌+catch 返回 false 不 throw（D-2）+takeStash 全调用点 peek 语义化（D-3；load 回灌位点已随 Y0a-1 前移落地 peek/consume——本批余 store 提前 drain/retry 两处）+spool 单源落盘删内存 unflushed Map〕③拒卸载降 tripwire〔**随单源 spool 吸收**——脏 doc 不再依赖"留在内存"保数据〕④drain 先于放行〔**Y0a-2 执行**〕⑤kill-timeout 45000〔**Y0a-3 执行中**（deploy.sh 两处内联提前改——HTTP dispose 等在飞请求，v2.5/SV6；ecosystem 归 Y0a-4 取 45000 同值）〕⑥RPO 三腿〔**§5.1 执行**〕。
 
-**E44（租约改 PG+ready 拆分〔v8-A〕）**：PG 租约行 CAS+RETURNING epoch/四语义保留/数据屏障/FORCE_TAKEOVER 打印清单/ready=PG+Redis+租约/gate 与 deploy 等待目标切换〔**Y0a-3 执行，v2 修订**：**删数据屏障与 drainedAt/drainBy 列**（"自然过期∨drainedAt"恒真=空操作；单实例 PG delta 日志=硬保证，屏障是死代码）；**ready 503 判据=PG+租约**（Redis 仅响应体字段不 gating——消灭"Redis 抖动否决部署链"）；**门扩三入口**（loadDocument 钩子+withDoc+onAuthenticate——v1 只 gate listen，REST 写路径在门外=P0-1）；租约行由迁移 seed（本地/生产同路径）；FORCE_TAKEOVER 一次性语义+ready 暴露 forceTakeover:true〕。
+**E44（租约改 PG+ready 拆分〔v8-A〕）**：PG 租约行 CAS+RETURNING epoch/四语义保留/数据屏障/FORCE_TAKEOVER 打印清单/ready=PG+Redis+租约/gate 与 deploy 等待目标切换〔**Y0a-3 执行中，v2 修订**：**删数据屏障与 drainedAt/drainBy 列**（"自然过期∨drainedAt"恒真=空操作；单实例 PG delta 日志=硬保证，屏障是死代码）；**ready 503 判据=PG+租约**（Redis 仅响应体字段不 gating——消灭"Redis 抖动否决部署链"）；**门扩三入口**（loadDocument 钩子+withDoc+onAuthenticate——v1 只 gate listen，REST 写路径在门外=P0-1）；租约行由迁移 seed（本地/生产同路径）；**v2.5/SV2：FORCE_TAKEOVER 一次性语义+ready forceTakeover 字段删除，改 break-glass 运维脚本**（'revoked' 哨兵+AuditLog；ready 改公开/授权两档，SV16）〕。
 
 **E45（注册表准入）**：maxLoadedDocs/装载队列/单 doc 字节上限/LRU/RSS 软阈/内存表清理/上限进 env zod〔**v2 降级执行（用户裁定）**：本批只留 **lastCompactAt 清理**（真泄漏，3 行）+ **env 预留默认关闭**（COLLAB_MAX_LOADED_DOCS=0=不限，仅 zod 解析无消费逻辑）；**准入 deny/LRU/RSS 软阈/字节上限整块移交 Y1c-3**（与 D7 预算同批，数值才有依据；库锚 A2/A5 证明无连接 doc 会被自动卸载，常驻内存场景当期不存在）；"kill -9 前内存曲线落档"降可选〕。
 
@@ -252,7 +252,7 @@ RETURNING seq
 
 - 按实读行 id 精确删除：findMany `select:{id,update}` → `deleteMany({where:{id:{in:ids}}})`（弃水位删除）。
 - 同事务 `stateSeq: maxSeq` **精确赋值**（v2.1 撤 GREATEST——见 §1.5；与本次事务实际删除集严格同批同界。代码注释写死："若未来 compact 去锁并发化，此处必须随 Y1c-1 CAS 形态重设计——GREATEST/单调化包装在此语义下制造静默丢失，禁用"）。Prisma upsert 无法表达 GREATEST 亦非需求（advisory lock 下同 project compact 串行，精确=充分）。
-- **compact 返回契约（v2.4 定形——实现若走 throw 会被 storeDocument 的 compact catch（:297-301）记成 WARN+`yjsStoreCompactFailureTotal`=污染 abandoned 的 P0 告警线）**：`compact(projectId): Promise<{ compacted: boolean; reason?: 'abandoned' | 'empty' }>`。窗口策略（gateway 侧 maybeCompact）：`compacted===true` → `lastCompactAt.set`（**仅成功开新窗**）；`'empty'`（无行）静默。**计数+ERROR 单点落 repo 的 abandoned 分支**（`yjs_compact_abandoned_total`+`{event:'compact_abandoned', projectId}`——覆盖 gateway 与装载自愈两路调用，防双计；P0 线，不走 throw）。
+- **compact 返回契约（v2.4 定形——实现若走 throw 会被 storeDocument 的 compact catch（:297-301）记成 WARN+`yjsStoreCompactFailureTotal`=污染 abandoned 的 P0 告警线）**：`compact(projectId): Promise<{ compacted: boolean; reason?: 'abandoned' | 'empty' | 'not-owner' }>`（**v2.5/SV8：`'not-owner'`=租约失守档（Y0a-3 fence 断言返回），`abandoned`=pendingStructs 专用不再混用**）。窗口策略（gateway 侧 maybeCompact）：`compacted===true` → `lastCompactAt.set`（**仅成功开新窗**）；`'empty'`（无行）静默。**计数+ERROR 单点落 repo 的 abandoned 分支**（`yjs_compact_abandoned_total`+`{event:'compact_abandoned', projectId}`——覆盖 gateway 与装载自愈两路调用，防双计；P0 线，不走 throw）。
 - **写快照前检查**：temp doc `pendingStructs === null`；非 null→**放弃本次（返回 `{compacted:false, reason:'abandoned'}`）+保留全部行**——放弃不开窗，下次 store 立即重试（E23 v2.4；弹性，非永久放弃；fail-stuck 面消灭）。**abandoned 计数为 compact 健康度唯一真实指标，升 P0 告警线（§5.2，v2.2）**。
 - ~~SV 对账哨兵~~（**v2.2 删除 inline 形态**——探针证伪：快照由被删行集构建，pendingStructs 检查通过前提下行 clock 必被快照集成→**inline 恒真**+每 compact N 次 `encodeStateVectorFromUpdate` 编码=纯成本；"delete-only SV≈1 字节"仅对 diffUpdate 形态成立、对全量态编码不成立）。**svDominates 语义沉为纯函数单测锚**（复用 `sv.util.ts` 既有 `decodeStateVector`/`svSatisfied`——同目录现成能力，禁手写 varuint 解码）；"破坏后 compact（重放集≠删除集）"结构锚随 **Y1c-1** 读侧守卫批评估（届时才有判定对象）；`yjs_compact_sv_violation_total` 指标随之删除。
 - **Y0a-3 联动**：事务首行 fence 断言（见 3.2）。
@@ -305,13 +305,15 @@ RETURNING seq
 **2.2 spool 单源落盘（删内存 unflushed Map；P0-3；v2.1 形态=分段+整段 unlink+帧 id confirm+quarantine）**
 
 - `collab-spool.service.ts`，目录 `COLLAB_SPOOL_DIR`（默认 `<repo>/.data/collab-spool/`；ecosystem env 注入绝对路径——Y0a-4）。
+- **每实例子目录（v2.5/SV10，R3）**：段文件落 `dir/<owner>/`——owner=租约 owner 同值（文件系统安全形态，禁路径逃逸字符）；`spool.setOwner(owner)` 必填 fail-closed（未设置即抛——禁"默认单机不分目录"）；多实例并存各写各的子目录互不覆盖。
 - **分段文件形态**：`<projectId>.<segSeq>.spool` 段内追加帧 `[4B len][4B CRC32][payload]`，段满 4MB 滚动新段；**putStash=append 帧到当前段+同步 fsync 文件**（唯一持久动作）。**confirmStash=按帧 id 定位**（peek 返回 `{frameId,payload}[]`；confirm(frameIds) 在内存记 confirmed 集，**某段全部帧 confirmed→整段 unlink**——unlink 原子，天然消灭 v2"重写文件去帧"在重写中途崩溃=台账全丢的窗口；**禁按项目粒度删全部帧**——peek 与 confirm 之间新帧写入窗口会被误删）。**段 unlink 的两个触发点（v2.4 写死）**：①confirm(frameIds) 后段内全 confirmed→unlink；②**启动回灌成功后**对"全部帧已被 PG 覆盖"的段直接 unlink——防跨进程崩溃后"已 append 未 unlink 的段"只进不退；重启致已落库帧被重复回灌=常态，由 CRDT 幂等吸收（重复行性能代价，非正确性）。崩溃语义：confirmed 集丢失→重启重复 peek/append→**幂等降为第二道防线**（只承担重复行性能代价，不承担正确性——CRDT 幂等使重复 apply=no-op）；尾部截断（CRC 不符/长度越界）停在该帧+`yjs_spool_truncated_total`+ERROR，禁静默续读。
 - **写失败（磁盘满/IO 错）不 throw（v2.1 撤 tripwire throw——与主路径 splice 叠加=新蒸发窗口，见 §1.5/2.3 BOI）**：`yjs_spool_write_failures_total` 计数+**批次留在原归属地（doc 队列不动）+调度退避重试**；连续 5 次写失败→**熔断**：collab 转只读（就绪门 not-ready，reason=spool-unwritable，停收新编辑）——"拒绝新写入"而非"丢已收批次"；**解熔断=每 30s 试写探针帧+删除，成功自动恢复**+计数（无手工开关）。容量：单段 4MB/总量 256MB，超限同熔断路径（不丢最旧——丢=蒸发同罪）。
-- **启动回灌（先于一切对外服务）+硬上限（v2.1，防启动死锁）**：init 扫描目录→**单帧颗粒度**逐帧尝试 append+confirm（一帧坏不阻塞整项目）；回灌失败（PG 未起）按退避重试，**硬上限 5 次×指数退避封顶 60s**——超限后不再阻塞 ready：坏帧**记 sidecar 隔离标记**（见下）+`yjs_spool_quarantined_total`+ready 保持绿但响应体带 `spoolQuarantined: N`（与 forceTakeover 同族可见性字段；**>0 应触发运营告警而非仅可见——§9.12 LWW 覆盖语义**）——消灭"坏帧/FK 永久失败→ready 永假→部署拒重启→运维锁死"（v2 会新引入的不可恢复状态，与 fail-stuck 同类错误）。FK 23503 识别=按 project.gone 终态丢弃（2.5）；其余不可解析帧走隔离标记。
+- **启动回灌（先于一切对外服务）+硬上限（v2.1，防启动死锁）**：init 扫描目录→**单帧颗粒度**逐帧尝试 append+confirm（一帧坏不阻塞整项目）；回灌失败（PG 未起）按退避重试，**硬上限 5 次×指数退避封顶 60s**——超限后不再阻塞 ready：坏帧**记 sidecar 隔离标记**（见下）+`yjs_spool_quarantined_total`+ready 保持绿但响应体带 `spoolQuarantined: N`（**>0 应触发运营告警而非仅可见——§9.12 LWW 覆盖语义**）——消灭"坏帧/FK 永久失败→ready 永假→部署拒重启→运维锁死"（v2 会新引入的不可恢复状态，与 fail-stuck 同类错误）。FK 23503 识别=按 project.gone 终态丢弃（2.5）；其余不可解析帧走隔离标记。
+- **外来段收养（v2.5/SV10）**：boot 回灌扫描 `dir/*/*`——**外来段（owner≠本实例）boot 即收养**（前任 kill 后段仍在=数据在，收养不挑 owner）；**截尾分档**：本 owner 段坏尾=truncated 报告+计数（既有语义）；外来段坏尾=**静默截断 sealed**（前任 kill 瞬间半写=常态非异常）；**运行期新出现的外来段归 reconciler**（mtime 静默 60s 后收养——写者死亡的段不再活跃）。
 - **quarantine=sidecar 标记，不搬字节（v2.4——"移入 quarantine/ 子目录"与契约 12"只用追加与整段 unlink"互斥：追加-only 段内移帧物理不可行（重写段=违契约/整段搬=误伤好帧）→含 1 坏帧的段永不满足"全帧 confirmed"→永不 unlink→占用额度→累计 256MB 慢速只读）**：段内坏帧→在 `<seg>.quarantine` sidecar 追加写 `{frameOffset, len, crc, reason, firstSeenAt}`（自身 append-only）；**段 unlink 条件=所有非隔离帧已 confirm**（非"全部帧 confirmed"）；**容量核算含隔离字节**（Y0a-2 V3 执行态——256MB 总口径=段文件字节总和，坏尾字节持续占额度、可正常触发只读熔断：坏帧不豁免，防"隔离区无限增长永不熔断"；独立字段 `quarantinedBytes` 仅观测不豁免，处置出口=collab-spool-quarantine 人工脚本删段）。
 - **逃生阀脚本**：`scripts/collab-spool-quarantine.mjs <projectId|--all> [--dry-run]`（**外置导出+人工判定后删段**——sidecar 形态下唯一允许删段的路径，人工可审计；打印内容摘要供人工判定）——与 collab-compact.mjs/collab-spool-import.mjs 同族（compact 有人工出口而 spool 没有=v2 不一致，v2.1 补齐）。
 - 内存只留**键集缓存**（哪些 projectId 有段——putStash 加键/整段 unlink 删键/启动扫描重建；非权威数据副本）。
-- 指标：`yjs_spool_depth{files,bytes}` gauge+四计数；**启动自检**：spool 非空或回灌失败→ERROR 结构化日志打印清单（§5.2 口径）。
+- 指标：`yjs_spool_depth{files,bytes}` gauge（**total 口径=own+stranded 全目录求和——磁盘真值，容量核算与 G-1 故障腿判据同口径，v2.5/SV11；部署门=own 分区（§3.3 pending）**）+四计数；**启动自检**：spool 非空或回灌失败→ERROR 结构化日志打印清单（§5.2 口径）。
 - **既有断言改造清单（v2.1 登记，N6）**：`unflushed` 被两 spec 12 行消费（collab.gateway.spec.ts:611/633/644/649/668/671/682/685/738 绿8/绿8b/绿8c 三用例链+persist-status.spec.ts:111/119/123）——改断言 spool 帧存在（本就在测"失败后数据还在"，语义升级）；`yjsUnflushedProjects` gauge 改语义为 spool 键集大小（plan 阶段 grep 仪表盘消费者后定删或改）。
 
 **2.3 storeDocument 失败路径重写（D-2/D-3；v2.1 升格为 BOI 不变量）**
@@ -356,7 +358,7 @@ await maybeCompact(projectId);   // 现状语义维持；compact 返回契约（
 
 **2.4 关停 drain（P0-2+A6 语义；v2.1 预算表化+force-spool+直连归还；v2.4 预算压 ≤22s——原表加算 30s≠28s（2+0+8+10+8+2=30 零余量）且步骤 1"直连超时"无界）**
 
-onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，kill_timeout 30s 内留 ≥8s 安全垫；v2.4）**：
+onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，kill_timeout 45s 内留 ≥23s 安全垫——v2.4 定表时按 30s 算垫 ≥8s，v2.5/SV6 随 kill_timeout 45000 同步）**：
 
 | 步 | 内容 | 预算 |
 |----|------|------|
@@ -382,37 +384,38 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
 
 **3.1 删 extension-redis+CollabRedisSync**（§1.3 census 全量）+装载 P95 改善落档（确定性收益，:226 少 1s 阻塞）。`collab.gateway.spec.ts:242-244` 的 elapsed<3000 时序断言/注释建立在 RedisExtension disconnectDelay 2×1000ms 上——随扩展删除同批重写（2026-10-06 登记）；multi-instance spec 的 repo 形状随租约改写一并核对。
 
-**3.2 PG 租约（E44 核心+E35 四语义；v2.1：fence 下沉写语句+心跳三态+FORCE_TAKEOVER SQL 写死）**
+**3.2 PG 租约（E44 核心+E35 四语义；v2.1：fence 下沉写语句+心跳三态；v2.5/SV1：fence/renew 判据 owner-only；v2.5/SV2：break-glass 运维脚本替 FORCE_TAKEOVER）**
 
 - **owner=每次启动 `crypto.randomUUID()`**（v2.1：事实身份而非主机名/常量；epoch 退化为诊断字段——owner 每启动唯一，比 epoch 更严格）。
 - CAS 获取：`UPDATE "CollabLease" SET owner=$me, epoch=epoch+1, expiresAt=now()+$ttl WHERE scope='primary' AND (owner IS NULL OR owner=$me OR expiresAt<now()) RETURNING epoch`（空行=失败）。
-- **FORCE_TAKEOVER SQL 写死（v2.1/N4——普通 CAS 对未过期租约恒返空行=逃生阀拿不到锁）**：`UPDATE "CollabLease" SET owner=$me, epoch=epoch+1, expiresAt=now()+$ttl WHERE scope='primary' RETURNING epoch, owner`（无条件夺取；**epoch 必递增**——fencing 单调性不得被逃生阀破坏，epoch 不变=违规断言）+打印前任 owner/epoch/expiresAt+未 drain doc 清单+审计行落库（v2.4 定形落库对象：**复用既有 AuditLog 表**——`action='collab_force_takeover'`，`operatorId`/`operatorName` 用系统哨兵值（如 `system:force-takeover`，SSH 执行者非 API 身份无用户态），`remark`/`afterValue` 记前任 owner/epoch/expiresAt；`audit.log` 先例 team.service.ts:188；**不新建表**——CollabLease 仅 4 列非审计载体）。
-- **心跳三态（v2.1/P3）**：续租 `UPDATE ... SET expiresAt=now()+$ttl WHERE scope='primary' AND owner=$me AND expiresAt>=now() RETURNING owner` → ①`renewed`（owner=$me）②`fenced`（0 行或 owner≠me=确认被接管→立即自隔离）③`unknown`（**抛错**——PG 抖动≠被接管：每 1s 重试直到 expiresAt，到期才自隔离）。**禁止把 unknown 当 fenced**——一次 PG 1s 抖动不得踢全队。
-- **fence 下沉写语句（v2.1/P3；v2.4 加 TTL 双校验+leaseRowMissing 区分+setLeaseOwner 单点注入）**：入口内存布尔只拦"进入"，事件循环卡顿期（mergeUpdates 批量编码/compact 重放/4MB 帧）"自以为 owner"窗口达秒级=租约要防的双写本身。落法：
+- **break-glass 运维脚本（v2.5/SV2，替 COLLAB_FORCE_TAKEOVER env——普通 CAS 对未过期租约恒返空行=逃生阀拿不到锁）**：`apps/api/scripts/collab-lease-breakglass.ts`——**SELECT 前任 owner/epoch/expiresAt**→`UPDATE "CollabLease" SET owner='revoked', epoch=epoch+1, expiresAt=now() WHERE scope='primary'`（'revoked' 哨兵——**epoch 必递增**，fencing 单调性不得被逃生阀破坏）→**审计行落 AuditLog**（`action='collab_breakglass'`，`operatorId` 用系统哨兵值（SSH 执行者非 API 身份无用户态），`remark`/`afterValue` 记前任 owner/epoch/expiresAt；`audit.log` 先例 team.service.ts:188；审计失败 try/catch+finally 清行；**不新建表**——CollabLease 仅 4 列非审计载体）。**被撤实例续租 0 行且 owner='revoked'→revoked 终态不 rejoin**（进程保活但 collab 永久 not-ready，防 1s 内抢回）；**新实例 CAS 经 `expiresAt<now()` 支路立即可得**（expiresAt=now() 即刻过期）。runbook 三步：①跑脚本（打印前任+未 drain doc 清单）②确认旧实例 `collab_lease_revoked` 日志+listener 释放 ③起新实例。
+- **心跳三态（v2.1/P3；v2.5/SV1：判据 owner-only——`expiresAt>=now()` 条件删除，TTL 只留 CAS 获取谓词）**：续租 `UPDATE ... SET expiresAt=now()+$ttl WHERE scope='primary' AND owner=$me RETURNING owner` → ①`renewed`（owner=$me）②`fenced`（0 行=owner≠me；二次查行分流：owner='revoked'→**revoked 终态不 rejoin**，他人→确认被接管→isolate+rejoin（SV5））③`unknown`（**抛错**——PG 抖动≠被接管：每 1s 重试直到 expiresAt，到期才 isolate）。**禁止把 unknown 当 fenced**——一次 PG 1s 抖动不得踢全队。
+- **fence 下沉写语句（v2.1/P3；v2.5/SV1：判据 owner-only——v2.4 的 TTL 双校验撤销（TTL 只留 CAS 获取谓词），leaseRowMissing 区分+setLeaseOwner 单点注入保留）**：入口内存布尔只拦"进入"，事件循环卡顿期（mergeUpdates 批量编码/compact 重放/4MB 帧）"自以为 owner"窗口达秒级=租约要防的双写本身。落法：
   - **owner 单点注入（契约 16）**：`repo.setLeaseOwner(owner: string | null)`——**唯一写者=lease service**（获取/续租失守/释放时调用），append/compact 内部读取；**禁逐调用点传参**（append/compact/drain force-spool 共 3+ 处，未来新增调用点漏传=静默破防）；`owner===null` ⇒ 断言恒 0 行=天然 fail-closed。
-  - **append 的 INSERT 追加（owner+TTL 双校验，v2.4——原 owner-only 形态两个失败分支：租约行缺失→标量子查询 NULL→静默 fence 全部写入且日志只说 fenced（配置错误伪装正常 fence）；过期自有租约仍可写）**：
+  - **append 的 INSERT 追加（owner-only EXISTS，v2.5/SV1——TTL 双校验撤销：正确性由 owner 单值性+接管顺序保证，"过期自有租约仍可写"属接受态（TTL=RTO 参数）；租约行缺失静默 fence 的 v2.4 顾虑由 leaseRowMissing 区分承接，见下）**：
 
     ```sql
     WHERE EXISTS (SELECT 1 FROM "CollabLease"
-                   WHERE scope = 'primary' AND owner = $myOwner AND "expiresAt" >= now())
+                   WHERE scope = 'primary' AND owner = $myOwner)
     ```
-    **0 行=fenced**（单行 PK 子查询热路径每 2s 一查无感——§7.2 预算表已列，非优化目标禁删）。**0 行时二次查租约行区分两种失败（消除静默）**：`SELECT owner, "expiresAt" FROM "CollabLease" WHERE scope='primary'` 返回空→`leaseRowMissing` 错误（**配置错误不伪装 fenced**：ready reason=`lease-error`+ERROR 日志，**不进自隔离流程**——重试无用；手工 seed 段漏跑/库重建即此态）；有行→确为 fenced，走正常失败路径（AppendResult `{ok:false, reason:'fenced'}`→自隔离+批走 spool，§2.3）。
-  - `repo.compact` 事务首行同款断言→不符即 return `{compacted:false, reason:'abandoned'}`（不删行；leaseRowMissing 同样上抛区分）。落成后"卡顿进程继续写"从 3s 窗口变结构性不可能（G-3b 用例对象）。
-- 参数进 env zod：`COLLAB_LEASE_TTL_MS=10000`/`COLLAB_LEASE_HEARTBEAT_MS=3000`/`COLLAB_FORCE_TAKEOVER`（一次性：成功接管写审计行+ready 暴露 `forceTakeover:true`+要求下轮心跳前清 env；**非持久状态**；kill9 演练子进程用 `COLLAB_FORCE_TAKEOVER=1` 起——防被上一持有者挡住致 CI 必红）。
-- 四语义：独立 unref timer 心跳；续租失败（fenced 或 unknown 到期）=自隔离（拒新 WS+closeAllConnections+ready reason=lease-lost+`collab_lease_denied/lost_total`；**不自杀不硬撑**；租约只 gate collab——纯 DB REST 不受影响）；启动有界重试 30 次（进程保活+ready not-ready 不退出）；关停末尾显式释放（2.4 步骤 6）。**TTL=10s 不为客户端死线下调**（保护对象=秒级同步阻塞；客户端 10s synced 死线改造归 Y0b，§2.2 登记依赖）。
+    **0 行=fenced**（单行 PK 子查询热路径每 2s 一查无感——§7.2 预算表已列，非优化目标禁删）。**0 行时二次查租约行区分两种失败（消除静默）**：`SELECT owner, "expiresAt" FROM "CollabLease" WHERE scope='primary'` 返回空→`leaseRowMissing` 错误（**配置错误不伪装 fenced**：ready reason=`lease-error`+ERROR 日志；**v2.5/SV13：该档写路径=批走 spool（BOI）+不排梯+独立计数 `yjs_lease_row_missing_total`——不早退，内存滞留=重启丢批；修复=补行后重启回灌**；手工 seed 段漏跑/库重建即此态）；有行→确为 fenced，走正常失败路径（AppendResult `{ok:false, reason:'fenced'}`→isolate+批走 spool，§2.3）。
+  - `repo.compact` 事务首行同款断言→不符即 return `{compacted:false, reason:'not-owner'}`（不删行——**v2.5/SV8：`not-owner` 分立档，`abandoned`=pendingStructs 专用不再混用**；leaseRowMissing 同样上抛区分）。落成后"卡顿进程继续写"从 3s 窗口变结构性不可能（G-3b 用例对象）。
+- 参数进 env zod：`COLLAB_LEASE_TTL_MS=10000`/`COLLAB_LEASE_HEARTBEAT_MS=3000`（**v2.5/SV2：`COLLAB_FORCE_TAKEOVER` 删除**——夺锁唯一路径=break-glass 运维脚本；kill9/gate 演练子进程用 `COLLAB_LEASE_TTL_MS=2000` 短 TTL 起+演练脚本清租约行——防被上一持有者挡住致 CI 必红，无 FORCE env）。
+- 四语义：独立 unref timer 心跳；续租失败（fenced 或 unknown 到期）=**isolate→rejoin 状态机（v2.5/SV5，lost 非终态）**：isolate=关 listener 让位（新持有者立即可 CAS）+拒新 WS+closeAllConnections+ready reason=lease-lost+`collab_lease_denied/lost_total`+**documents 清空前置**→有界退避 `[1,2,5,15,30]s`（封顶 30s）重获取+**re-listen**（B7 库实证可行）；**revoked 终态不 rejoin**（SV2）；**不自杀不硬撑**；租约只 gate collab——纯 DB REST 不受影响；启动有界重试 30 次（进程保活+ready not-ready 不退出）；关停末尾显式释放（2.4 步骤 6）。**TTL=10s 不为客户端死线下调**（保护对象=秒级同步阻塞；客户端 10s synced 死线改造归 Y0b，§2.2 登记依赖）。
 - **三入口门（P0-1）**：`lease.isReady()` 统一判据挂三处——onAuthenticate 尾段（WS）、loadDocument 钩子第一行（**唯一汇聚点+正确性权威点**：WS 与 DirectConnection 都经此）、withDoc 入口（REST 直连前置——**只是省一次无谓装载的早退**，openDirectConnection 在 await 前有微窗口；落成注释写死防未来"优化"掉 loadDocument 那道）。未就绪抛 `{reason:'not-ready'}` 家族错误。
-- **readCanvas 按消费者拆分（v2.1 撤 v2 全消费者降级读——计费输入按陈旧快照执行=D1 风险扩大化，违 v8-C/E49 资金 fail-closed；v2.4 撤 readSnapshotOnly"无事务单读者"——该形态重开 E20 撕裂+违冻结契约 1）**：
-  - **计费类（execution.service:74 / video-project.service:92）**：租约失守/装载未就绪→**503 fail-closed**（按陈旧快照烧钱比拒服务更糟，与 E1/E12/E25 口径一致）；
-  - **投影类（video-work.service:328 / video-work-clone.service:33）**：改走 **`repo.readSnapshotOnly(projectId)`**——**与 loadForHydration 共用同一单 RR 事务实现（v2.4"一个实现、两出口"）**：
+- **readCanvas 按消费者拆分（v2.1 撤 v2 全消费者降级读——计费输入按陈旧快照执行=D1 风险扩大化；v2.4 撤 readSnapshotOnly"无事务单读者"——该形态重开 E20 撕裂+违冻结契约 1；v2.5/SV15 改**按可变性三分法**——v2.4"投影类统一 readSnapshotOnly"把语义读错划进快照出口：clone 改读快照=静默丢去抖窗编辑）**：
+  - **只读展示→`repo.readSnapshotOnly`**：仅 video-work.service:328 一处（公开作品页展示）——**与 loadForHydration 共用同一单 RR 事务实现（"一个实现、两出口"）**：
 
     ```
     private readConsistent(projectId): { state, updates, stateSeq }   // 单 RR 事务（loadForHydration 的实现体）
       ├─ loadForHydration(p) = readConsistent(p)      // 装载出口（含超时自愈包装）
-      └─ readSnapshotOnly(p) = readConsistent(p)      // 投影出口（不 apply 到 doc、不触 store/compact）
+      └─ readSnapshotOnly(p) = readConsistent(p)      // 只读展示出口（不 apply 到 doc、不触 store/compact）
     ```
     撤"无事务单读者"的理由（写进契约 1）：单读者无事务时"先读快照（S0）→compact 并发提交（删 ≤S1、快照=S1）→读 `seq>S0` 增量"拿到 (S0,S1] 已删且不在手上 state=**静默缺行**——正是 E20 要消灭的撕裂，且服务公开作品页。收益不变（不经 openDirectConnection/不装载/不触发 store/compact，顺带消一次全量装载=E14 收益前置一小块）+`yjs_snapshot_read_total{reason}` 计数；陈旧度登记 §9（增量已重放，最坏=进行中编辑未含，语义优于纯快照）；
+  - **语义读（clone=video-work-clone.service:33 / video-project.service:92 regenerate 校验）→活读（withDoc）+租约门 503**——克隆/regenerate 产出以活 doc 为准：改读快照=**静默丢去抖窗编辑**（用户刚编辑未落库即克隆=产出缺编辑，比 503 拒服务更糟）；
+  - **计费读（execution.service:74）→活读+503 fail-closed**（按陈旧快照烧钱比拒服务更糟，与 E1/E12/E25 口径一致）；
   - `yjs_doc_degraded_read_total` 与 warning 字段**删除**（少一个状态+少一个客户端契约；Y0b 只需消费 503）。**DB 真挂仍 503**（正确性不可保证≠数据不可得，两者分流）。
-- 语义注释（service 头）：租约=活性机制非数据完整性（数据面=PG delta 并集+CRDT 幂等+compact advisory lock）；防的是两实例各持 doc 客户端互不可见。advisory lock 替代形态→Y7 多实例时再评估（届时需所有权注册表）。
+- 语义注释（service 头，v2.5/SV1 钉死）：租约=**互斥+接管顺序**的活性机制非数据完整性（数据面=PG delta 并集+CRDT 幂等+compact advisory lock）；**TTL=RTO 参数不参与正确性判定**——禁把 TTL 守卫加回 fence/renew 判据；防的是两实例各持 doc 客户端互不可见。advisory lock 替代形态→Y7 多实例时再评估（届时需所有权注册表）。
 
 **3.3 /api/ready 与 /api/health 拆分（v2.1：reason 字面量封闭+独立字段结构）**
 
@@ -420,23 +423,27 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
 
 ```ts
 { ready: boolean,
-  reason?: 'pg-down'|'lease-held'|'lease-lost'|'lease-not-acquired'|'lease-error'|'spool-unwritable'|'draining',  // 字面量联合，tsc 即封闭门（§6.2 锚）
-  holder?: string, epoch?: string,                     // 独立取证字段（owner=hostname:pid:startTs 短哈希），禁入 reason；
+  reason?: 'pg-down'|'lease-held'|'lease-lost'|'not-serving'|'lease-not-acquired'|'lease-error'|'spool-unwritable'|'draining',  // 八值字面量联合（v2.5/SV7 +not-serving），tsc 即封闭门（§6.2 锚）；reason 由 collabState 主导派生，优先级 P6：pg-down > draining > lease-error > lease-lost > not-serving > lease-held > lease-not-acquired > spool-unwritable
+  collabState?: 'initializing'|'acquiring'|'starting'|'serving'|'draining'|'isolated'|'start-failed',  // 七态单枚举（v2.5/SV7——消灭布尔组合，状态机单真源）
+  holder?: string, epoch?: string,                     // 独立取证字段（host/pid 属内部信息——仅授权档透出，v2.5/SV16），禁入 reason；
                                                        // epoch=String(BigInt)——v2.4 撤 number：JSON.stringify(bigint) 抛
                                                        // TypeError（恰在租约路径=最需它的时刻炸）；用例覆盖 lease-held/lease-lost 两态可序列化
   redis: 'up'|'down',                                  // 不参与状态码（残余用途=BullMQ，不获部署链一票否决权）
-  pending: { projects: number, batches: number, spoolFiles: number, spoolBytes: number },  // 三条判据（G-1/G-2/部署拒重启）的唯一 oracle（定义见下注）
-  spoolQuarantined?: number, forceTakeover?: boolean }
+  pending: { projects: number, batches: number, spoolFiles: number, spoolBytes: number, strandedFiles: number, strandedBytes: number },  // 三条判据（G-1/G-2/部署拒重启）的唯一 oracle（定义见下注；spoolFiles/spoolBytes=own 口径+stranded 独立键，v2.5/SV11）
+  spoolQuarantined?: number }
 ```
 
-  **`pending` 字段定义（v2.4 写死——原无计量单位定义，三条判据不可实现）**：
+  **公开/授权两档（v2.5/SV16）**：/api 经 nginx 公网可达——无 `x-prometheus-token`（或无效）仅返回四键 `{ready, reason, redis, epoch}`；有效 token（`COLLAB_ADMIN_TOKEN`/`PROMETHEUS_TOKEN`）返回全字段（collabState/holder/pending 含 stranded/spoolQuarantined）。
+
+  **`pending` 字段定义（v2.4 写死计量单位；v2.5/SV11 改 own 口径+stranded 独立透出——两口径：gauges=total（磁盘真值，容量核算+G-1 故障腿判据口径）、部署门=own（drainable））**：
   - `pending.projects` = pending 队列非空的项目数（pendingQueues 中 length>0 的键数——V4 projectId 键控，Y5 同批改名）；
   - `pending.batches` = 上述 doc 的队列条目总数（**update 条数，非合并后批数**——与 storeInFlight 不同量纲）；
-  - `pending.spoolFiles` = spool 段文件数（键集缓存 size）；`pending.spoolBytes` = 段文件字节总和（**含隔离字节**，与 §2.2 容量核算同口径；`quarantinedBytes` 独立字段仅观测）。
+  - `pending.spoolFiles` = **own** spool 段文件数（本实例子目录内段数）；`pending.spoolBytes` = own 段文件字节总和（**含隔离字节**，与 §2.2 容量核算同口径；`quarantinedBytes` 独立字段仅观测）；
+  - `pending.strandedFiles`/`pending.strandedBytes` = 外来段（owner≠本实例）独立透出——部署门不背外来的账（boot 收养即消化，SV10/SV11）。
   - **稳态行为明示**：活跃编辑者在场时 `batches > 0` 恒成立（去抖窗口定义使然）——**只能作"停止写入后是否排空"的判据（G-1/部署拒重启均以停写为前提），不能作"当前是否安全"的判据**。
   - **可用时点**：Y0a-2 前恒 0（计数器 Y0a-2 才落地）——类型注释写死"恒 0（非缺失）"，防 Y0a-4 部署门拿恒 0 放行=假门禁；Y0a-4 落地时由 G-2b 演练证明该字段真的会非 0。
 
-- **POST /api/drain（v2.4 新增——部署拒重启的"停止写入"入口，无此前置则 `batches===0` 判据在活跃编辑下稳态不可达=门禁失效）**：受 PrometheusAuthGuard 同款保护（`x-prometheus-token` 头；先例 metrics.controller.ts:4——同一 guard 复用）。动作=**置 `draining=true`（与 §2.4 步骤 1 同一状态位，幂等）**：就绪门翻 not-ready（reason=`draining`）、拒新 WS 升级+REST 写路径门关闭；**不触发关停流程**——只停写、等去抖自然排空（≤maxDebounce 3s+store）。排空进度由 `GET /api/ready` 响应体 `pending` 字段轮询——**draining 档 503 属预期，部署判据读响应体不读状态码**。**自动解除：置位后 60s 未收到 SIGTERM 自动解除**（防部署链在 drain 后中止留下只读僵尸进程）；幂等（重复 POST 无副作用）；内存态（重启即失）。消费方=deploy.sh 部署三步（§4.4）。
+- **POST /api/drain（v2.4 新增——部署拒重启的"停止写入"入口，无此前置则 `batches===0` 判据在活跃编辑下稳态不可达=门禁失效；v2.5/SV12：**唯一停止写入入口**——Nest dispose 先于模块 shutdown，SIGTERM 后 ready 不可达，不存在"SIGTERM 后再 drain"的第二入口）**：受 PrometheusAuthGuard 同款保护（`x-prometheus-token` 头；先例 metrics.controller.ts:4——同一 guard 复用）。动作=**置 `draining=true`（与 §2.4 步骤 1 同一状态位，幂等）**：就绪门翻 not-ready（reason=`draining`）、拒新 WS 升级+REST 写路径门关闭、**冻结既有连接（v2.5/SV9：readOnly=true+write-frozen stateless 通告——已连客户端立即停写，不等自然超时）**；**不触发关停流程**——只停写、等去抖自然排空（≤maxDebounce 3s+store）。排空进度由 `GET /api/ready` 响应体 `pending` 字段轮询——**draining 档 503 属预期，部署判据读响应体不读状态码**。**自动解除：置位后 60s 未收到 SIGTERM 自动解除**（防部署链在 drain 后中止留下只读僵尸进程）；**幂等=刷新 60s deadline（v2.5/SV9——重复 POST 是续期非 no-op，防部署链重试中途被 60s 误解除）**；**自动解除时冻结连接 close(1012) 复连（v2.5/SV9——readOnly 直翻 false 会让冻结期单侧编辑静默分叉，1012 触发客户端全量重同步）**；内存态（重启即失）。消费方=deploy.sh 部署三步（§4.4）。
 
   （`lease-error`=PG 通但租约语句自身失败——与 pg-down 是两种运维动作，v2.1 新增档。）
 - 进 PUBLIC_PREFIXES+`@SkipThrottle()`（WS context 先例：execution.gateway.ts:16/payment.gateway.ts:14——v2.4 修正引证：/metrics **未用**该装饰器（自持 PrometheusAuthGuard），但 ThrottlerGuard 全局故 /metrics 实际仍在限流域内；防探针吃全站共享限流桶）。
@@ -479,20 +486,20 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
   3. **构造全新 Y.Doc 重放 DB（state+seq>stateSeq）断言 marker 存在**——证明数据真落 PG（绕过内存 doc）→删除哨兵行（Cascade 清理）。
   附带 /api/ready 轮询（60s 超时）；执行链路冒烟挂 Y0b。
 - **部署拒重启（v2.4 改"先 drain 再判据"三步——原"重启前 curl ready 判 batches===0"无前置停写阶段：活跃编辑下去抖窗口内必有 pending 批→判据稳态不可达→每次 exit 1→force-restart 沦为日常=门禁失效）**：deploy.sh 重启前**服务器侧**：
-  1. `curl -X POST -H "x-prometheus-token: …" 127.0.0.1:3000/api/drain`——进入 draining（停收新写；**60s 未收到 SIGTERM 自动解除，防部署链中止留只读僵尸**；端点不可达=版本过旧未含 Y0a-3，首次部署跳过本步直接 restart——runbook 注明）；
-  2. 轮询 `GET /api/ready`（预算 ≤15s=TTL+maxDebounce+余量；**draining 档 503 属预期，判据读响应体不读状态码**）：判据=`pending.projects===0 ∧ pending.batches===0 ∧ pending.spoolFiles===0 ∧ pending.spoolBytes===0`；ready reason=`spool-unwritable` 时批无法入账、drain 必然超时→直接拒+打印 reason；
+  1. `curl -X POST -H "x-prometheus-token: …" 127.0.0.1:3000/api/drain`——进入 draining（**POST /api/drain=唯一停止写入入口，v2.5/SV12**——Nest dispose 先于模块 shutdown，SIGTERM 后 ready 不可达，停写只能发生在 SIGTERM 之前；停收新写+冻结既有连接；**60s 未收到 SIGTERM 自动解除，防部署链中止留只读僵尸**；端点不可达=版本过旧未含 Y0a-3，首次部署跳过本步直接 restart——runbook 注明）；
+  2. 轮询 `GET /api/ready`（预算 ≤15s=TTL+maxDebounce+余量；**draining 档 503 属预期，判据读响应体不读状态码**）：判据=**own 口径四零**（v2.5/SV11：`pending.projects===0 ∧ pending.batches===0 ∧ pending.spoolFiles===0 ∧ pending.spoolBytes===0`——pending=own 分区，本实例 drainable 账）；**stranded>0 仅 WARNING 不拒**（v2.5/SV4：外来段 boot 收养即消化，不属本实例账）；ready reason=`spool-unwritable` 时批无法入账、drain 必然超时→直接拒+打印 reason；
   3. 达标→`pm2 restart`（SIGTERM→§2.4 关停六步：pending 已空，drain 秒过）；超预算→打印 pending 清单+exit 1；逃生阀 `./deploy.sh api --force-restart`（打印 `WARNING: N batches at risk` 后继续——真实逃生阀非日常）。
   堵"PG 故障期部署=丢整段"人因窗口（spool 之外第二道防线）。
 - **nginx 站点配置 snippet 入库**（deploy/nginx/ 或 docs/deploy/）——v2.1 补齐 `/collab` 的 `proxy_read_timeout`（心跳/长连接）与 `proxy_buffering off`（WS 帧不缓冲），两项现状只存在于服务器。
 
 **4.5 collab-core CI job（E69③；required check；v2.1 补 migrate deploy+执行条数断言）**
 
-- services：postgres+redis（零 MinIO）；步骤（**v2.4 收敛为增量三件+可选一件——原 8 步中④租约 fail-fast 用例/⑤库锚/⑥语料/⑦装置均为常规 vitest spec，`pnpm verify`（test job）已经常跑它们，collab-core 重跑=第二真源，与"防双源"原则自相矛盾**）=①**prisma migrate deploy**（与 test job 同位置——int 用例需要新 schema/约束/租约行 seed）②int 真库用例（显式 DATABASE_URL 跑 *.int.spec.ts）+**"int 用例执行条数 ≥N"断言**（vitest --reporter=json 计数——防"本地跳过+CI 也跳过"双假绿）③kill -9/SIGTERM 演练（collab-kill9-drill.mjs——Y0a-2 产物；子进程+kill -9+DB 触发器注入，test job 无法跑；轮询等待非固定 sleep；子进程 `COLLAB_FORCE_TAKEOVER=1`）④（可选）pin 漂移时锚/语料/装置聚焦重跑（注释写明：这些用例已在 test job 经 verify 常跑，此处仅为 pin 变更的聚焦信号）；**dist 无 test-utils 断言移入 verify 链**（构建产物检查属 verify 职责，非 collab-core）。**不重跑 verify 已含 mock 套件**（防双源——"collab 绿"唯一定义=test job）。seed 不进 CI（int 用例与冒烟均自建 FK 行，自包含）。
+- services：postgres+redis（零 MinIO）；步骤（**v2.4 收敛为增量三件+可选一件——原 8 步中④租约 fail-fast 用例/⑤库锚/⑥语料/⑦装置均为常规 vitest spec，`pnpm verify`（test job）已经常跑它们，collab-core 重跑=第二真源，与"防双源"原则自相矛盾**）=①**prisma migrate deploy**（与 test job 同位置——int 用例需要新 schema/约束/租约行 seed）②int 真库用例（显式 DATABASE_URL 跑 *.int.spec.ts）+**"int 用例执行条数 ≥N"断言**（vitest --reporter=json 计数——防"本地跳过+CI 也跳过"双假绿）+**int spec 专用池（v2.5/SV14，X16 根修）**：*.int.spec.ts 从 vitest 默认池 exclude（防默认池并行双跑同一文件）+`vitest.int.config.ts` 专用配置串行+**CI 文件级集合断言**（git ls-files 的 int 文件集 ≡ 实际执行集+零失败零跳过+条数下限）③kill -9/SIGTERM 演练（collab-kill9-drill.mjs——Y0a-2 产物；子进程+kill -9+DB 触发器注入，test job 无法跑；轮询等待非固定 sleep；**子进程 `COLLAB_LEASE_TTL_MS=2000` 短 TTL 起+演练脚本清租约行（v2.5/SV2——FORCE env 已删）**）④（可选）pin 漂移时锚/语料/装置聚焦重跑（注释写明：这些用例已在 test job 经 verify 常跑，此处仅为 pin 变更的聚焦信号）；**dist 无 test-utils 断言移入 verify 链**（构建产物检查属 verify 职责，非 collab-core）。**不重跑 verify 已含 mock 套件**（防双源——"collab 绿"唯一定义=test job）。seed 不进 CI（int 用例与冒烟均自建 FK 行，自包含）。
 - 本地等价命令标注进 §6 表。
 
 **4.6 env zod 收口（D-12）**
 
-新增参数（LEASE_TTL/HEARTBEAT/FORCE_TAKEOVER/SPOOL_DIR/MAX_LOADED_DOCS 预留）+既有 `COLLAB_PORT/COLLAB_DEBOUNCE/COLLAB_TIMEOUT/COLLAB_SWEEP_ENABLED/COMPACT_INTERVAL_MS` 一并进 config/env.ts zod（同批收口，消灭第三套 env 读法）。
+新增参数（LEASE_TTL/HEARTBEAT/SPOOL_DIR/MAX_LOADED_DOCS 预留——**v2.5/SV2：FORCE_TAKEOVER 不再立项**，夺锁唯一路径=break-glass 运维脚本）+既有 `COLLAB_PORT/COLLAB_DEBOUNCE/COLLAB_TIMEOUT/COLLAB_SWEEP_ENABLED/COMPACT_INTERVAL_MS` 一并进 config/env.ts zod（同批收口，消灭第三套 env 读法）。
 
 **4.7 复审登记（Y0a-2 Task 5 复审遗留，随本批收口）**
 
@@ -512,7 +519,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 | G-1 | kill -9 演练（**双模式 quiescence barrier，v2.4**）：**正常模式**=驱动脚本停写→轮询 `pending.projects===0 ∧ pending.batches===0` **持续 ≥maxDebounce(3s)**→此刻序号集=已接受集→kill -9→重启→断言重放行集 ⊇ 该集合；**故障注入模式**（DB 触发器拒写）=停写→`projects===0 ∧ batches===0 ∧ spoolBytes 连续 2 次采样不变`→已接受集（全部在 spool）→kill -9→重启回灌→断言 ⊇+spool 帧全部 CRC 通过（**目标 1**） | collab-kill9-drill.mjs（collab-core） |
 | G-2 | SIGTERM 演练双判据（**v2.4 拆 a/b——原"storeInFlight===0"单一判据不覆盖"从未取批"的 doc 且"构造性为 0"不可证伪**）：**G-2a**=drain 结束、`server.destroy()` 之前构造性断言 `pending.projects===0 ∧ pending.batches===0`（写入步骤 4 的 `{event:'shutdown_drain_complete', pending}` 可断言字段；spool 不可写注入档=`shutdown_undrained` 日志与 storeInFlight 值一致且 ready 已转 draining——归属要么落定、要么被如实点名）∧ spool 可读帧全部可解析；**G-2b**=注入"append 失败+spool 写失败"→断言批仍在 doc 队列（BOI 红→绿——storeInFlight 口径的机制证明载体，§6.1 已有此门）（**目标 2**） | 同上 --signal 模式 |
 | G-3 | 双进程 fail-fast：第二实例不 listen+WS 拒+REST 写路径拒（三入口门各一用例）（**目标 3 前半**） | collab-core（multi-instance 改写） |
-| G-3b | **fenced-owner**：A 持锁→B FORCE_TAKEOVER→断言 A 的 append 返回 `{ok:false,reason:'fenced'}`/compact 不删行、A 下次心跳自隔离、A 期间 writeExecStatus 不产生行（**目标 3 后半——写语句 fence 的验收**）；**+fenced-append 三断言（v2.4，契约 15 的证明载体）**：注入 A 的 append→断言 (a) A 的 spool 帧仍在（未被 confirm）(b) A 的 doc 队列未被 splice (c) A 在 1 个心跳周期内进入 lease-lost——红相=对"不检查返回值"的实现，帧消失+PG 无行 | vitest+collab-core |
+| G-3b | **fenced-owner**：A 持锁→B break-glass 夺锁→断言 A 的 append 返回 `{ok:false,reason:'fenced'}`/compact 不删行、A 下次心跳自隔离、A 期间 writeExecStatus 不产生行（**目标 3 后半——写语句 fence 的验收**）；**+fenced-append 三断言（v2.4，契约 15 的证明载体）**：注入 A 的 append→断言 (a) A 的 spool 帧仍在（未被 confirm）(b) A 的 doc 队列未被 splice (c) A 在 1 个心跳周期内进入 lease-lost——红相=对"不检查返回值"的实现，帧消失+PG 无行 | vitest+collab-core |
 | G-4 | ready 故障注入：PG 停→pg-down；租约被占→lease-held（+holder 字段）；租约语句失败→lease-error；spool 满→spool-unwritable（**目标 4**） | vitest+collab-core |
 
 **子批出口（达成即请用户确认再进下一子批）**
@@ -521,7 +528,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 |------|------|
 | Y0a-1 | 隔离性质用例绿（真 PG，**载体=collab-core int 步骤**——本子批即建最小 job）；库锚（实际集合=A1/A5/A6/A7/A8/A9，**独立最小 Server 承载**）绿；svDominates 纯函数单测锚绿（阳性+阴性对照）；stateSeq 精确赋值断言绿+updatedAt 回归断言绿；语料全函数绿（DocLike 工厂+真 Y.Doc 双路径）；装置提取后既有 collab 套件全绿（mock-repo 工厂切换）；verify-indexes.sql 新块绿（含冗余索引 NOT EXISTS 否定块）；**四条扫描门禁落**（装载唯一入口/compact await/stateSeq 唯一写者/append 唯一入口）；takeStash 搬移用例绿（第四条蒸发路径本批关闭）；dist 无 test-utils；doc-gate canonical 无漂移 |
 | Y0a-2 | **BOI 红→绿**（对 :276 splice-first 旧逻辑注入 spool 失败=丢批红相留档→copy-first 绿）；G-1/G-2 演练绿（**G-2a/G-2b 双判据口径，v2.4**）；quarantine 硬上限用例绿（坏帧不再阻塞 ready+**sidecar 形态段可回收**）；project.gone 清账+FK 兜底断言绿（**处理器零磁盘 I/O**）；mergeUpdates spy 红→绿；12 处 unflushed 断言改造完成；**pnpm verify 全绿** |
-| Y0a-3 | 删除面 census 清零+pin 三包绿（正则两条——见 §1.3 注）+锚重跑绿；G-3/G-3b/G-4 绿；gate-collab 切 ready（双验+TTL 预算）后全绿；计费类 503/投影类 readSnapshotOnly 用例绿；心跳三态用例绿（unknown 不误隔离） |
+| Y0a-3 | 删除面 census 清零+pin 三包绿（正则两条——见 §1.3 注）+锚重跑绿；G-3/G-3b/G-4 绿；gate-collab 切 ready（双验+TTL 预算）后全绿；读侧三分法用例绿（只读展示=readSnapshotOnly 仅 video-work.service:328/语义读+计费读=活读+租约门 503——v2.5/SV15）；心跳三态用例绿（unknown 不误隔离）+rejoin 状态机用例绿（revoked 不复得） |
 | Y0a-4 | 部署链 dry-run 全绿（preflight+migrate deploy+冒烟三步）；ecosystem+pm2 迁移一次成功+jlist 自证（M1 实测后）；collab-core required 生效（故意注入 failing spec 验证红+int 条数断言）；内存档位实测落档 |
 
 ### 4.2 回滚动作（revert 提交制；开发期回滚=`git revert`+`prisma migrate reset`，**不写 down 迁移**——Prisma 无标准 down 流程，为不存在的生产写 down=纯负债）
@@ -536,8 +543,8 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 
 ### 4.3 冻结契约（本批后不得绕过；11-14 为 v2.1 增补，15-16 为 v2.4 增补）
 
-1. **装载/快照读唯一入口=repository 的单 RR 事务读（v2.4 改写："一个实现、两出口"——`readConsistent` 同一实现，`loadForHydration`（装载出口）/`readSnapshotOnly`（投影出口）共用）；两出口之外任何直读两表拼装的新代码（含"无事务单读者"形态）=违规（扫描门禁锚按"两出口之外零直读"实现）**。
-2. append 唯一入口=`repo.append` 单语句；(projectId,seq) 唯一；INSERT 携带租约断言（**owner+TTL 双校验 EXISTS 形态，v2.4**）；返回 **AppendResult**——fenced=`{ok:false, reason:'fenced'}`（0 行），禁以"未抛错"判成功。
+1. **装载/快照读唯一入口=repository 的单 RR 事务读（v2.4 改写："一个实现、两出口"——`readConsistent` 同一实现，`loadForHydration`（装载出口）/`readSnapshotOnly`（只读展示出口，v2.5/SV15 三分法下唯一快照消费者=video-work.service:328）共用）；**装载游标恒 0n 全量 apply——`seq>stateSeq` 水位过滤已删（v2.5/SV3）**：水位不是正确性载体（正确性=读侧全量+CRDT 幂等），stateSeq 仅作诊断/未来增量装载水位，其诚实性由 append 取 compact 同 key advisory lock 保证——**禁以"有锁了"为由把读侧过滤加回来**；两出口之外任何直读两表拼装的新代码（含"无事务单读者"形态）=违规（扫描门禁锚按"两出口之外零直读"实现）**。
+2. append 唯一入口=`repo.append` 单语句；(projectId,seq) 唯一；INSERT 携带租约断言（**owner-only EXISTS 形态，v2.5/SV1——TTL 只留 CAS 获取谓词，禁把 TTL 守卫加回**）；INSERT 前取 compact 同 key advisory lock（v2.5/SV3——stateSeq 水位诚实性）；返回 **AppendResult**——fenced=`{ok:false, reason:'fenced'}`（0 行），禁以"未抛错"判成功。
 3. **onStoreDocument 任何路径不 throw**（含 spool 失败——熔断语义=停新写入+计数，不是丢批）。
 4. **spool=失败批唯一持久记录**：内存无 unflushed Map；peek→append→confirm 三段式全调用点；入账（fsync 完成前）先于一切返回。
 5. compact 调用必须 await（src/ 范围扫描；scripts/ 运维工具豁免并显式登记）；事务首行租约断言。
@@ -545,7 +552,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 7. /api/ready 语义：503 判据=PG+租约；Redis 仅报不 gating；reason=字面量封闭枚举；holder/epoch/pending 为并列字段禁入 reason。
 8. spool 帧格式（len+CRC32+分段文件名）与目录（ecosystem 绝对路径）冻结——Y1c-1 世代扩展向后兼容。**confirm 语义（Y0a-2 V1）**：帧 confirm 恒在 PG append 成功之后；失败路径落盘的新帧（本批）在 PG 成功前永不 confirm——回收出口=后续恢复路径的 append 成功（store 提前 drain/断连 flush/退避梯/启动回灌）。
 9. 进程定义唯一源=ecosystem.config.cjs（deploy.sh 禁内联 pm2 参数）。
-10. stateSeq 唯一写者=compact 事务，**恒等于本次事务实际删除集的最大 seq（精确赋值）**；append 不触碰；**GREATEST/单调化包装禁用**——并发 compact 需先落 Y1c-1 CAS 形态。
+10. stateSeq 唯一写者=compact 事务，**恒等于本次事务实际删除集的最大 seq（精确赋值）**；append 不触碰；**GREATEST/单调化包装禁用**——并发 compact 需先落 Y1c-1 CAS 形态。**append 取 compact 同 key advisory lock（v2.5/SV3）**——append 与 compact 同键串行，stateSeq 作为诊断/未来增量装载水位的诚实性由锁保证；**读侧 `seq>stateSeq` 水位过滤已删（readConsistent cursor 恒 0n 全量 apply）——水位不是正确性载体，禁以"有锁了"为由把读侧过滤加回来**。
 11. **批次所有权不变量（BOI）**：任何批次任意时刻至少归属于 {doc 队列, spool 已 fsync, PG 已提交} 之一；离开旧归属必须先进入新归属；`queue.splice` 永远在新家落定之后。
 12. **spool 帧删除恒在 append 成功之后**（"删帧先于 append"=数据蒸发，永久禁令——v1 takeStash 先删即此错）；帧文件变更只用追加与整段 unlink（禁原地重写）；**quarantine=sidecar 标记不搬字节；段 unlink 条件=非隔离帧全 confirm（v2.4）**。**truncated 段处置例外（Y0a-2 V2/V3 执行态）：置 `sealed` 标记+sidecar 记录坏尾区间——只置位、不删字节、禁 ftruncate**（坏尾字节保留在段内，unlink 原子性不受损；回收出口=collab-spool-quarantine 人工脚本整段删除）。
 13. **大积压 doc 自愈是装载路径的义务（v2.4 形态=超时自愈一次·仅可重试类：装载事务失败且属 **P2028/P1008/timeout 类**触发——**P2024（池饥饿）排除**：自愈动作自身需持池连接，饥饿期执行=零成功率纯放大，直接 fail-closed→串行 compact{timeout:6s,maxWait:1s}→重试装载{timeout:2s,maxWait:500ms}（**自愈增量总预算 ≤8s**）；非可重试类直接 fail-closed；禁前置全量聚合探测），不是运维脚本的义务**；人工 compact 为最终出口。
@@ -570,11 +577,11 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 
 | 指标/端点 | 类型 | 备注 |
 |-----------|------|------|
-| `yjs_snapshot_read_total{reason}` | counter | 投影类快照读（readSnapshotOnly，v2.1 替 degraded_read） |
+| `yjs_snapshot_read_total{reason}` | counter | 只读展示快照读（readSnapshotOnly，v2.1 替 degraded_read；v2.5/SV15 三分法——消费者仅 video-work.service:328） |
 | ~~`yjs_compact_sv_violation_total`~~ | — | **v2.2 删除**（inline 哨兵随探针证伪移除） |
 | `yjs_compact_abandoned_total` | counter | pendingStructs!=null 放弃本次——**P0 告警线**（v2.2 升格：compact 健康度唯一真实指标，连续命中即人工介入=collab-compact.mjs；本批无 Alertmanager，载体=启动自检外另加"计数>0 即 ERROR 结构化日志"） |
 | `yjs_hydration_huge_row_total` | counter | loadForHydration 读到单行 >4MB（Y0a-1 §1.4"WARN+计数"的计数载体——v2.4 执行时补入本表；硬拒归 Y0b 配额批） |
-| `yjs_spool_depth_files` / `yjs_spool_depth_bytes`（bytes **含隔离字节**，V14——容量核算同口径；双 gauge collect 现算） / `yjs_spool_write_failures_total` / `yjs_spool_truncated_total` / `yjs_spool_capacity_total` / `yjs_spool_quarantined_total` | gauge/counter | Y0a-2（quarantine 为 v2.1 新增） |
+| `yjs_spool_depth_files` / `yjs_spool_depth_bytes`（**total 口径=own+stranded 全目录求和——磁盘真值，容量核算与 G-1 故障腿判据同口径，v2.5/SV11**；bytes **含隔离字节**，V14；双 gauge collect 现算） / `yjs_spool_write_failures_total` / `yjs_spool_truncated_total` / `yjs_spool_capacity_total` / `yjs_spool_quarantined_total` | gauge/counter | Y0a-2（quarantine 为 v2.1 新增） |
 | `yjs_updates_discarded_deleted_total{source=gateway\|spool}` | counter | 项目已删的更新丢弃——gateway 终态拦截/spool FK 收割双路径标签（X17 改名；Y0a-2） |
 | `yjs_store_tail_anomaly_total` | counter | 取批后队列并发改动探测（Y8 splice 前判据：length<n 或批尾引用不符；**V22 收缩**——afterStoreDocument 对账职责由本判据承接，钩子健康面归 `yjs_store_hook_calls_total`）（Y0a-2） |
 | **storeInFlight**=`yjs_store_in_flight_docs` | gauge（**Y0a-2 落地**） | 取批未落定项目数（X2 四落定点口径）——G-2 断言对象+关停日志结构化字段+Y0a-3 ready.pending 消费（v2.2 移批；本表同批落真名） |
@@ -584,7 +591,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 | `yjs_deleted_projects` | gauge | 终态集大小（进程寿命内真删除项目数——永久无界的可见化接受，§9.10）（Y0a-2，V25） |
 | `collab_lease_denied_total` / `collab_lease_lost_total` | counter | Y0a-3 |
 | **启动自检** | ERROR 日志 | spool 非空/回灌失败/quarantine 非空→打印清单 |
-| `/api/ready` | 端点 | reason 封闭枚举+holder/epoch/pending/spoolQuarantined/forceTakeover |
+| `/api/ready` | 端点 | **公开/授权两档（v2.5/SV16）**：无 token={ready,reason,redis,epoch}；有效 x-prometheus-token=全字段（collabState/holder/pending 含 stranded/spoolQuarantined） |
 | 装载 P95+readCanvas P95 | e2e 落档 | 删 extension-redis 后 :226 少 1s+disconnectDelay 消失（withDoc 断连更快）——两处行为变化同批落档防误判回归（v2.1） |
 
 ### 5.3 CI 载体
@@ -603,7 +610,7 @@ collab-core job（§3 Y0a-4.5，required）+既有 test/doc-gate/gitleaks 不变
 | storeDocument 不 throw | vitest（故障器） | 是 | 旧逻辑 :289 throw 被 hook 链吞（A1 锚）→断言队列既空又不丢 |
 | mergeUpdates 出 WS 路径 | vitest spy+src 扫描 | 是 | 恢复 :207 封顶合并→spy 红 |
 | 租约 fail-fast 三入口 | collab-core（双进程/双 gateway 用例） | 是 | 对现状（无租约）写用例：第二 gateway 也能 loadDocument（红）→门后拒（绿） |
-| **fenced-owner 写语句**（G-3b） | vitest+collab-core | 是 | A 持锁→B FORCE_TAKEOVER→A 的 append 照常落行（对"仅内存布尔"实现红）→owner+TTL 断言后 `{ok:false,reason:'fenced'}`（绿）；**+fenced-append 三断言（v2.4）：A 的 spool 帧未被 confirm 删/A 的 doc 队列未 splice/A 1 个心跳周期内 lease-lost——红相=对"不检查 AppendResult"的实现，帧消失+PG 无行**；**leaseRowMissing 用例（v2.4）**：删租约行→append 0 行→断言抛 leaseRowMissing+ready=lease-error（而非伪装 fenced/自隔离） |
+| **fenced-owner 写语句**（G-3b） | vitest+collab-core | 是 | A 持锁→B break-glass 夺锁→A 的 append 照常落行（对"仅内存布尔"实现红）→owner-only 断言后 `{ok:false,reason:'fenced'}`（绿）；**+fenced-append 三断言（v2.4）：A 的 spool 帧未被 confirm 删/A 的 doc 队列未 splice/A 1 个心跳周期内 lease-lost——红相=对"不检查 AppendResult"的实现，帧消失+PG 无行**；**leaseRowMissing 用例（v2.4）**：删租约行→append 0 行→断言抛 leaseRowMissing+ready=lease-error（而非伪装 fenced/自隔离） |
 | project.gone 清账+FK 兜底 | vitest+故障器 | 是 | 旧逻辑删除后 stash 重试撞 FK 无限循环（红）→终态拦截+计数（绿） |
 | svDominates 纯函数锚 | vitest | 是 | 手写 SV 构造 {rowSv ⊄ snapSv}→false/{⊆}→true（阳性+阴性对照——v2.2 替代"SV 豁免"行：inline 哨兵已删，纯函数必须两态都测） |
 | kill -9/SIGTERM 演练 | collab-core（脚本） | 是 | 演练对无 spool 旧代码崩溃丢数据（红）→G-1/G-2 绿（storeInFlight 口径） |
@@ -635,7 +642,7 @@ collab-core job（§3 Y0a-4.5，required）+既有 test/doc-gate/gitleaks 不变
 |----|------|------|
 | 进程定义 | 内联参数→ecosystem.config.cjs 入库（fork/instances:1/kill_timeout 30000/SIGTERM） | Y0a-4 |
 | 内存上限 | max_memory_restart+old-space **实测后定**（服务器画像前置）；结构约束：软阈<硬重启线；准入上限移交 Y1c-3 | Y0a-4 |
-| 关停时长 | 10s→30s（SIGKILL 兜底）；drain/flush/force-spool/释放的预算**单源=§2.4 预算表（v2.4——此处禁复述数字，原"≤5s"残留与 §2.4 双源矛盾）**；destroy race 保留为兜底 | Y0a-2 |
+| 关停时长 | 10s→45s（SIGKILL 兜底——**v2.5/SV6：kill_timeout 45000 提前 Y0a-3 落 deploy.sh 内联两处，HTTP dispose 等在飞请求；ecosystem 归 Y0a-4 取同值**）；drain/flush/force-spool/释放的预算**单源=§2.4 预算表（v2.4——此处禁复述数字，原"≤5s"残留与 §2.4 双源矛盾）**；destroy race 保留为兜底 | Y0a-2/3 |
 
 ### 7.2 同步预算+库选项 pin（纪律 9）
 
@@ -644,9 +651,9 @@ collab-core job（§3 Y0a-4.5，required）+既有 test/doc-gate/gitleaks 不变
 | mergeUpdates | 禁入 WS 消息路径；取批合并每批 <100ms 断言；超预算分块归 Y1c-1 |
 | compact 重放 | 事务内同步重放维持（写侧无丢数据 E42②；精准修改不重写）；耗时 WARN 阈值 500ms/万行；分块+事务外重放归 Y1c-1（E62） |
 | loadForHydration | **{timeout:8s, maxWait:2s}（v2.1 从 15s/5s 下调——预算规则：服务端单次可等待 < 客户端 synced 死线 10s−2s；冷启动排队由 connection_limit=10 承担）**；页 500 行；单行 4MB WARN（硬拒归 Y0b 配额）；超时自愈一次仅可重试类触发（契约 13：**P2028/P1008/timeout——P2024 池饥饿 excluded，v2.4**），**自愈增量预算 compact{timeout:6s,maxWait:1s}+重试装载{timeout:2s,maxWait:500ms} 总 ≤8s（v2.4 从 60s 下调）**；**预算规则适用域（v2.4 声明）：该规则约束稳态路径；两条例外路径（崩溃接管租约等待 TTL 10s、装载超时自愈 ≤8s 增量）按各自上限单独约束且预期超出客户端 synced 死线——客户端承接=Y0b 同批发布（§9.7），非仅登记** |
-| fence 断言开销 | 单行 PK 子查询（owner+TTL EXISTS 形态），append 热路径（~2s 一次）+1 次索引命中（可忽略）——非未来优化目标，禁删（v2.4 登记） |
+| fence 断言开销 | 单行 PK 子查询（owner-only EXISTS 形态，v2.5/SV1——TTL 只留 CAS 谓词），append 热路径（~2s 一次）+1 次索引命中（可忽略）——非未来优化目标，禁删（v2.4 登记） |
 | spool fsync | putStash 同步 fsync（追加帧）；**段 4MB 滚动（v2.1 分段形态）**；演练实测确认不阻塞事件循环（故障路径非常规路径，可接受） |
-| 关停预算 | §2.4 预算表（**v2.4：flush ≤6s+drain ≤8s+race ≤4s+释放 ≤2s=合计 ≤22s，kill_timeout 30s 内垫 ≥8s**） |
+| 关停预算 | §2.4 预算表（**v2.4：flush ≤6s+drain ≤8s+race ≤4s+释放 ≤2s=合计 ≤22s，kill_timeout 45s 内垫 ≥23s（v2.5/SV6 随 45000 同步）**） |
 | 库选项 pin | debounce=env/dev 1000/prod 2000、maxDebounce=×1.5、timeout=30000、stopOnSignals:false 维持；disconnectDelay 随 extension-redis 删除消失；unloadImmediately（默认 true）=锚 A6 固化；yjs pin 精确化归 Y0c（E29 联动） |
 | PENDING_MAX_ENTRIES | 64→语义变更：仅"提前异步 flush"触发阈，不再同步合并 |
 
@@ -672,10 +679,10 @@ Y0a-1（基座先行：库锚+隔离用例+故障器——后续所有门的证�
 6. **Y1c-1 前撕裂不可达前提**：单实例 loadingDocuments 串行化+compact 被 await 于 store 钩子（锚 A2/A4）——前提被破坏（fire-and-forget compact/管理端点直调/多实例）时由结构锚 6.2 拦截；读侧守卫随 Y1c-1 落地。
 7. **Y0a→Y0b 间新信号哑窗**：ready/503 fail-closed/新 reason 客户端无消费（§2.2 硬依赖；客户端 10s synced 死线改造同批——计划内重启已有 1012 短退避覆盖（canvasCollabRuntime:837-847），真缺口=崩溃路径）。**发布顺序约束（v2.4 从"登记"升格）：Y0a 与 Y0b 同批部署上线**——两条例外路径（崩溃接管租约等待/装载超时自愈）预期超出客户端 synced 死线，若 Y0b 未同批上线，崩溃/自愈路径的用户体验=必然失败蒙层。
 8. **对抗语料最小版**只覆盖 api 读者；web 投影读者随 Y2。
-9. **readSnapshotOnly 陈旧度**（v2.1）：投影类消费者拿到 state+已重放增量——最坏缺"进行中未 store 的编辑"（去抖窗口级），语义优于纯快照但仍非实时；公开页/克隆 UX 按此登记。
+9. **readSnapshotOnly 陈旧度**（v2.1）：只读展示消费者（v2.5/SV15 三分法下仅 video-work.service:328）拿到 state+已重放增量——最坏缺"进行中未 store 的编辑"（去抖窗口级），语义优于纯快照但仍非实时；公开页 UX 按此登记（语义读 clone/regenerate 走活读，不在此登记面）。
 10. **`deletedProjects` Set 永久无界**（v2.1）：进程生命周期内单调增长、不可安全清理（量级=寿命内删除项目数，接受）。
 11. **E14（Y0c）×准入上限（Y1c-3）顺序风险**（v2.1 跨批提醒）：若 E14 先落地"doc 常驻"而准入上限未至→"常驻无上限"窗口。**Y0c spec 落 E14 时必须自带最小上限（或把 Y1c-3 准入前移同批）**——登记为 Y0c 立项前置检查项。
 12. **quarantine 帧语义**：被隔离帧代表已接受但无法落库的编辑（该批丢失）——计数+ready 可见+人工脚本判定，属显式接受的有界丢失（远优于 v2 的启动死锁）。**v2.4 补关键事实：Yjs Y.Map 是 LWW——被隔离帧代表的键若之后被编辑，该编辑静默覆盖（无冲突提示）**；因此 `spoolQuarantined>0` 应触发运营告警（非仅 ready 可见），人工判定脚本（内容摘要）为处置必经环节。
-13. **fenced 批的 spool 滞留（v2.4 新增登记）**：被 fence 实例的批落 spool 后，新持有者的启动回灌窗口已过（其回灌在接管前完成）——该批待**下一次**进程重启才回灌落库：数据不丢但滞留；`ready.spoolFiles>0` 可见；FORCE_TAKEOVER 打印未 drain 清单时人工决策（立即重启回灌 vs 等待）。fenced∧spool 写失败双败=极端事故态，批随进程退出丢失（BOI 内存归属地消亡）。
+13. **fenced 批的 spool 滞留（v2.4 新增登记；v2.5/SV4 自愈语义改写）**：被 fence 实例的批落 own 子目录 spool 后，新持有者的启动回灌窗口已过（其回灌在接管前完成）——**≤reconcile 周期自愈（最坏 ≤90s=首 tick 30s+静默窗 60s；boot 收养使重启场景即时）**：数据不丢但短暂滞留；`ready.pending.spoolFiles>0` 可见。fenced∧spool 写失败双败=极端事故态，批随进程退出丢失（BOI 内存归属地消亡）。
 
 
