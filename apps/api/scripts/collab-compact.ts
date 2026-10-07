@@ -7,6 +7,7 @@
 // 持有者（expiresAt>now()）时拒绝——改 owner 会让健康实例立刻 fenced→isolate→踢用户一轮，确认
 // 实例已停或加 --force。60s 接管窗+finally 释放（异常退出也不阻塞生产实例获取——runbook 注明）。
 import { PrismaClient } from '@prisma/client';
+import { REVOKED_OWNER } from '../src/modules/collab/collab-lease.service';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 
 const OPS_OWNER = 'ops:collab-compact';
@@ -26,7 +27,7 @@ async function main(): Promise<void> {
       `SELECT owner, "expiresAt" FROM "CollabLease" WHERE scope = 'primary'`,
     );
     const row = rows[0] ?? null;
-    const healthy = row != null && row.owner != null && row.owner !== 'revoked'
+    const healthy = row != null && row.owner != null && row.owner !== REVOKED_OWNER
       && row.expiresAt != null && row.expiresAt.getTime() > Date.now();
     if (healthy && !process.argv.includes('--force')) {
       console.error(`拒绝：租约有活跃持有者 ${row!.owner}——确认实例已停或加 --force`);

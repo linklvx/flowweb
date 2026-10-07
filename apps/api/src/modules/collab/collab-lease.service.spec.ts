@@ -64,13 +64,13 @@ describe('CollabLeaseService', () => {
   });
 
   it('单点负责制（W5）：成功⇒tryAcquireFast 内已 await onAcquired（kit 不变量：返回即已启动）', async () => {
-    const onAcquired = vi.fn(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    const onAcquired = vi.fn(async () => { await new Promise((r) => setTimeout(r, 50)); });
     const { svc } = buildService(vi.fn().mockResolvedValue([{ epoch: 1n }]), spool);
     svc.onAcquired = onAcquired;
     const t0 = Date.now();
     await svc.tryAcquireFast();
     expect(onAcquired).toHaveBeenCalledTimes(1);
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(20);   // await 穿透（fire-and-forget 则 ≈0）
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(40);   // await 穿透（fire-and-forget 则 ≈0；40/50 留边界余量）
   });
 
   it('onHeld 原子（V4/I1）：spool.setOwner 抛 → state 非 held+租约行已释放（防半 held 僵尸）+rethrow', async () => {

@@ -7,6 +7,7 @@
 import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { REVOKED_OWNER } from '../src/modules/collab/collab-lease.service';
 import { CollabSpoolService } from '../src/modules/collab/collab-spool.service';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
       `SELECT owner, "expiresAt" FROM "CollabLease" WHERE scope = 'primary'`,
     );
     const row = rows[0] ?? null;
-    const healthy = row != null && row.owner != null && row.owner !== 'revoked'
+    const healthy = row != null && row.owner != null && row.owner !== REVOKED_OWNER
       && row.expiresAt != null && row.expiresAt.getTime() > Date.now();
     if (healthy && !process.argv.includes('--force')) {
       console.error(`拒绝：租约有活跃持有者 ${row!.owner}——确认实例已停或加 --force`);
