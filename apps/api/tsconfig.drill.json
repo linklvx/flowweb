@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": ".",
+    "outDir": "./dist",
+    "incremental": true,
+    "sourceMap": false
+  },
+  "include": ["src", "scripts/collab-drill-server.ts"],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/test-utils/**"]
+}
