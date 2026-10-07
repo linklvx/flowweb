@@ -10,7 +10,7 @@ import { PrismaClient } from '@prisma/client';
 import { REVOKED_OWNER } from '../src/modules/collab/collab-lease.service';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 
-const OPS_OWNER = 'ops:collab-compact';
+const OPS_OWNER = 'ops-collab-compact';   // 连字符形态（fs-safe——spool.setOwner 断言禁 ':'，命名与 import 脚本同族）
 
 async function main(): Promise<void> {
   const projectId = process.argv[2];

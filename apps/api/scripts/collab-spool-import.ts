@@ -11,7 +11,7 @@ import { REVOKED_OWNER } from '../src/modules/collab/collab-lease.service';
 import { CollabSpoolService } from '../src/modules/collab/collab-spool.service';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 
-const OPS_OWNER = 'collab-spool-import';   // spool 子目录名形态（fs 安全字符集校验同款）
+const OPS_OWNER = 'ops-collab-spool-import';   // 连字符形态（spool.setOwner fs-safe 断言禁 ':'——与 compact 脚本同族命名）
 
 async function main(): Promise<void> {
   const target = process.argv[2];
