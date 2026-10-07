@@ -11,6 +11,7 @@
 // acquireLoop/rejoinLoop 均不自行调用；lease-stub 同契约。
 // fence 接线（契约 16）：本服务=repo.setLeaseOwner 唯一写者；spool.setOwner 唯一写者
 // （失守/释放均不清 spool owner——残余批次仍落本实例目录供 reconciler 收养）。
+// isServing() 仅供租约状态机内部（acquireLoop/rejoinLoop/看门狗）——对外服务判据唯一源=gateway.collabState（V12）。
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { hostname } from 'node:os';
 import { randomBytes } from 'node:crypto';

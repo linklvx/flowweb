@@ -43,6 +43,7 @@ function buildGateway() {
     perm as any, 43000 + Math.floor(Math.random() * 20000),
     undefined, undefined, undefined, spool,
   );
+  (gateway as any).collabState = 'serving';   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）
   return { gateway, prisma, repo };
 }
 
@@ -157,6 +158,7 @@ describe('批3-1 DENY reason 真协议透传（组④）', () => {
   it('session-expired 经 writePermissionDenied 到达客户端 authenticationFailed，且服务端不关 socket', async () => {
     const { gateway, prisma } = buildGateway();
     prisma.session.findUnique.mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() - 1000) });
+    (gateway as any).collabState = 'initializing';   // 本用例走真实 onModuleInit 启动链——复位直构播种态，让状态机完整合法驱动（listen 单点）
     await gateway.onModuleInit();
     try {
       const url = `ws://127.0.0.1:${(gateway as any).server.configuration.port}`;

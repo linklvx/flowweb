@@ -138,13 +138,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.logger.log(JSON.stringify({ event: 'collab_state', from: this.collabState, to: next, cause }));
     this.collabState = next;
   }
-  /** V12 判据唯一化（锁定适配）：三入口门=非 isolated ∧ lease.isServing()。纯 collabState==='serving'
-   *  会把直构 spec（不跑 onModuleInit——恒 initializing）的全部 hooks 拒掉=测试地基塌；isolated 短路
-   *  =V12 唯一化本体（fenced-by-write 窗口 lease 侧 ≤1 心跳仍 held 时三入口必须已拒——P6 判据不分裂）。 */
-  isLeaseServing(): boolean {
-    if (this.collabState === 'isolated') return false;
-    return this.lease.isServing();
-  }
+  /** V12 判据唯一化：三入口门/写意图门统一读 collabState 派生（serving=唯一放行态）——
+   *  lease.isServing() 仅为租约状态机内部使用（acquireLoop/看门狗），对外服务判据唯一源=collabState。 */
+  isLeaseServing(): boolean { return this.collabState === 'serving'; }
   /** Y0a-2（spec §2.5+V10/V11+X1）：项目消失终态集——**永久无界**（spec §9.10：进程寿命内**真删除**项目数
    *  ——V11 emit 后置后无假终态；可见地接受：yjs_deleted_projects gauge，V25）。
    *  X1：discardForGoneProject 在**事件处理器内**调用（唯一必然执行点——doc 卸载后 store 拦截分支

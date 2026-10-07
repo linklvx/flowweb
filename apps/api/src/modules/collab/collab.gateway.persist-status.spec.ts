@@ -51,6 +51,7 @@ function buildGateway() {
     { resolve: vi.fn() } as any, 44500 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
+  (gateway as any).collabState = 'serving';   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）
   return { gateway, repo, appends, spool };
 }
 

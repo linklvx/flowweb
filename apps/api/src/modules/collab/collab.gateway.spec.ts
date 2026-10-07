@@ -935,7 +935,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
     } finally { await kit.dispose(); }
   });
 
-  it('M1：draining 白盒——受理门拒新连接 reason=draining（瞬态档：客户端继续重连，DRAINING 非 terminal）', async () => {
+  it('M1：draining 白盒——受理门拒新连接（V12 纯态门：serving=唯一放行态，draining 在三入口①即拒 LEASE_NOT_READY 瞬态档）', async () => {
     const kit = await startDualClientServer({}, 200);
     try {
       kit.gateway.beginDraining();   // Y0a-3 T5：draining 布尔退役——beginDraining 置 collabState=draining（isShuttingDown 派生读点不变）
@@ -945,7 +945,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         requestParameters: new URLSearchParams('token=tok'),
         documentName: 'project:p-m1',
         connectionConfig: { readOnly: false, isAuthenticated: false },
-      } as any)).rejects.toMatchObject({ reason: 'draining' });   // reason 即线上协议串（shared 枚举同源）
+      } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });   // 三入口①先于 X9 DRAINING 档（瞬态：客户端继续重连）
     } finally { await kit.dispose(); }
   });
 });
@@ -1288,7 +1288,8 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
 // kit 第 4 参=lease stub（V1 契约三件套：成功⇒repo/spool owner+await onAcquired——缺②则 scan throw=start-failed）。
 describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）', () => {
   it('G-3：lease 未持有→authenticate 拒 LEASE_NOT_READY（瞬态档）+服务端不关 socket（J2 半边）', async () => {
-    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub({ isServing: vi.fn(() => false) }));
+    // V12 纯态门：门读 collabState——boot 期 lease 未持有=tryAcquireFast 失败⇒态停 acquiring（不 listen）⇒门拒
+    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub({ tryAcquireFast: vi.fn(async () => false) }));
     try {
       const conn = { socket: { close: vi.fn() } };
       await expect((kit.gateway as any).hooks.onAuthenticate({
@@ -1303,7 +1304,8 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
   });
 
   it('G-3：lease 未持有→loadDocument 拒（P1：正确性门——与 spool 降级态的"永不 gate"分立）', async () => {
-    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub({ isServing: vi.fn(() => false) }));
+    // V12 纯态门：门读 collabState——boot 期 lease 未持有=tryAcquireFast 失败⇒态停 acquiring（不 listen）⇒门拒
+    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub({ tryAcquireFast: vi.fn(async () => false) }));
     try {
       await expect((kit.gateway as any).hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any))
         .rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });
