@@ -5,7 +5,8 @@
  *  provider 以 authenticationFailed { reason } 原样收到（批 2 wsAuthNotice 消费）。
  *  值即线上协议串——只增不改（改 = 客户端分型断裂）。
  *  Y0a-2（X9）：draining=关停期受理门拒新连接（Y21 追加枚举末尾——瞬态档，客户端继续重连；
- *  复用 db-unavailable 会让客户端停止重连=方向错）。 */
+ *  复用 db-unavailable 会让客户端停止重连=方向错）。
+ *  Y0a-3：lease-not-ready=租约未持有/失守——瞬态档（客户端继续重连；Y0b 终端 UX 分型消费）。 */
 export const CollabAuthReason = {
   UNAUTHENTICATED: 'unauthenticated',
   SESSION_EXPIRED: 'session-expired',
@@ -13,7 +14,10 @@ export const CollabAuthReason = {
   FORBIDDEN: 'forbidden',
   DB_UNAVAILABLE: 'db-unavailable',
   DRAINING: 'draining',
+  LEASE_NOT_READY: 'lease-not-ready',
 } as const;
+/** 值序冻结（线上协议串只增不改）——测试 toEqual 锚此数组 */
+export const COLLAB_AUTH_REASONS = Object.values(CollabAuthReason) as string[];
 
 export type CollabAuthReasonCode = (typeof CollabAuthReason)[keyof typeof CollabAuthReason];
 

@@ -8,6 +8,8 @@ export { SubscriptionError } from './constants/subscription-error';
 export type { SubscriptionErrorCode } from './constants/subscription-error';
 export { CollabAuthReason, isTerminalReason } from './constants/collab-auth-reason';
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
+export { COLLAB_READY_REASONS } from './constants/collab-ready';
+export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending } from './constants/collab-ready';
 export * from './types/home.types';
 export * from './types/role.types';
 export * from './types/video-project';

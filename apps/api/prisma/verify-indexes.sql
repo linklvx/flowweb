@@ -22,8 +22,12 @@ SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass
 -- Y0a-1: CanvasDoc.stateSeq column NOT NULL DEFAULT 0
 SELECT column_name FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name = 'stateSeq' AND is_nullable = 'NO' AND column_default LIKE '%0%';
 
--- Y0a-1: CollabLease seed row
-SELECT scope FROM "CollabLease" WHERE scope = 'primary' AND owner IS NULL AND epoch = 0;
+-- Y0a-3（Z1）：租约行不变量——epoch 恒非空；(owner IS NULL)=(expiresAt IS NULL) 耦合
+--（持有者必有过期时刻；释放/break-glass 后两者同 NULL——不再断言"原始态"，本批后可变）。
+SELECT scope FROM "CollabLease" WHERE scope = 'primary' AND epoch IS NOT NULL AND (owner IS NULL) = ("expiresAt" IS NULL);
+
+-- Y0a-3（P2）：AuditTargetType 必含 COLLAB_LEASE（break-glass/drain 审计行依赖——枚举漏迁移即红）。
+SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'AuditTargetType' AND e.enumlabel = 'COLLAB_LEASE';
 
 -- Y0a-1: 冗余非唯一 (projectId,seq) 索引必须不存在（否定断言：NOT EXISTS 返回 1 行=通过）
 SELECT 'redundant_index_absent' AS ok WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'CanvasDocUpdate' AND indexdef LIKE '%CREATE INDEX%' AND indexdef NOT LIKE '%UNIQUE%' AND indexdef LIKE '%projectId%' AND indexdef LIKE '%seq%');
