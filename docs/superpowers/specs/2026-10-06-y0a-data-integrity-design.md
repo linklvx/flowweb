@@ -126,7 +126,7 @@
 
 **E45（注册表准入）**：maxLoadedDocs/装载队列/单 doc 字节上限/LRU/RSS 软阈/内存表清理/上限进 env zod〔**v2 降级执行（用户裁定）**：本批只留 **lastCompactAt 清理**（真泄漏，3 行）+ **env 预留默认关闭**（COLLAB_MAX_LOADED_DOCS=0=不限，仅 zod 解析无消费逻辑）；**准入 deny/LRU/RSS 软阈/字节上限整块移交 Y1c-3**（与 D7 预算同批，数值才有依据；库锚 A2/A5 证明无连接 doc 会被自动卸载，常驻内存场景当期不存在）；"kill -9 前内存曲线落档"降可选〕。
 
-**E46（进程定义入库+连接池）**：ecosystem/kill_timeout≥30000/DATABASE_URL connection_limit/pool_timeout/旁路 PrismaClient 清或纳管〔**Y0a-4 执行**；main.ts preload=显式登记保持现状（短暂实例用后即断）；auth.ts:10=循 authRedis 受管先例纳管；**内存档位数值=实测前置**（服务器画像 free -m/ps rss 落档后定，结构约束写死：RSS 软阈（若启用）<max_memory_restart；v1 的 1.2GB 软阈>1G 硬重启线=死代码，v2 废弃该组数）〕。
+**E46（进程定义入库+连接池）**：ecosystem/kill_timeout 45000/DATABASE_URL connection_limit/pool_timeout/旁路 PrismaClient 清或纳管〔**Y0a-4 执行**；main.ts preload=显式登记保持现状（短暂实例用后即断）；auth.ts:10=循 authRedis 受管先例纳管；**内存档位数值=实测前置**（服务器画像 free -m/ps rss 落档后定，结构约束写死：RSS 软阈（若启用）<max_memory_restart；v1 的 1.2GB 软阈>1G 硬重启线=死代码，v2 废弃该组数）〕。
 
 **E69（门禁强制基底〔v8-G〕，本批取②③⑥⑦）**：①⑤ 0 号已落地 ✓；②migrate deploy 已进部署链+**本批补 deploy_api 上传面 prisma+scripts 两目录**〔Y0a-4〕；③collab-core PR 必跑 job（零 MinIO）〔**Y0a-4，v2 修订：只跑增量**——int 用例+kill -9/SIGTERM 演练+fail-fast+库锚+对抗语料+双 client 装置；不重跑 verify 已含的 mock 套件（防"collab 绿"双源漂移）；演练用轮询等待非固定 sleep（防 required check 抖红）〕；⑥post-deploy 冒烟〔**Y0a-4，v2 修订**：/api/ready 轮询（60s）+对**既有 seed 项目**一次只读 readCanvas 往返（marker doc 因 FK 必败，弃）；执行链路冒烟挂 Y0b（资金路径批后有意义）〕；⑦每门标注〔§6〕。
 
@@ -259,7 +259,7 @@ RETURNING seq
 
 **1.4 loadForHydration 单 RR 事务（E42① (i) 形态）+ 超时自愈一次（v2.4 分类触发）**
 
-- 事务内只 SELECT，顺序写死：**先读快照行（state, stateSeq）→按 `seq > stateSeq` 分页读增量**（ORDER BY seq ASC，页 500 行，同事务内游标循环至取尽；快照行不存在→全量 seq>0）。apply 全部在事务外（gateway applyReplayed 抑制语义不变）。
+- 事务内只 SELECT，顺序写死：**先读快照行（state, stateSeq——诊断/未来增量装载水位，不作读侧过滤）→按 `seq > cursor` 分页读全量增量（cursor 恒 0n——水位过滤已删，契约 1；正确性=读侧全量+CRDT 幂等）**（ORDER BY seq ASC，页 500 行，同事务内游标循环至取尽）。apply 全部在事务外（gateway applyReplayed 抑制语义不变）。
 - 事务选项显式：`{ isolationLevel: 'RepeatableRead', timeout: 8_000, maxWait: 2_000 }`（v2.1 从 15s/5s 下调）。**预算规则进 spec**：服务端任何单次可等待操作的预算 < 客户端 synced 硬死线（canvasCollabRuntime:985，10s）− 2s；冷启动池排队由 connection_limit=10 承担而非放大 maxWait；超时/异常 fail-closed 抛出，外层折 db-unavailable 不变。
 - **超时自愈一次（v2.2 改预检形态——原前置预检=每次装载全量 `sum(length(update))` detoast 聚合，且 48MB 阈对 116KB 存量永不触发=纯成本零收益；plan 外审证伪；v2.4 修分类与预算）**："装载超时 fail-closed→doc 打不开→无 store→compact 60s 门限不触发→积压永不消化"自锁闭环仍须消灭，但触发时机=**真实超时**而非前置探测：`loadForHydration` 捕获装载事务失败后**先分类（v2.4：仅 P2028/P1008 或 timeout 语义错误触发自愈；**P2024（连接池取连接超时——池饥饿，非事务超时）排除**：自愈的 compact 是交互式事务、自身需持池连接，饥饿期执行=零成功率纯放大，直接 fail-closed；P1000/P1001/P1010/P1017 认证/不可达/拒连类同不放大）**→**串行**跑一次 compact，**自愈增量预算 ≤8s（v2.4 从 60s 下调——60s 挂在客户端已放弃的请求上下文里零收益、纯挂住 Nest handler 与池连接）：compact `{timeout:6_000, maxWait:1_000}`（装载事务已回滚，无并发装载——与 E42⑤"装载进行中 compact"警示不同态，注释写明时序）→重试装载一次 `{timeout:2_000, maxWait:500}`**；compact 自身失败→WARN+计数（**不构成新 fail-closed 死锁**）→仍以剩余预算重试装载→仍失败才 fail-closed。零常态成本。`scripts/collab-compact.mjs` 为最终人工出口（compact+装载双失败时运维动作）。自愈路径（连同崩溃接管租约等待）为 §7.2 预算规则的两条例外路径——预期超出客户端 synced 死线，客户端承接归 Y0b 同批发布（§9.7）。
 - 单行 update>4MB：WARN+计数（硬拒绝归 Y0b 配额批——已入库数据不该在装载侧 DoS 自己）。
@@ -274,7 +274,7 @@ RETURNING seq
 **1.6 真 PG 隔离性质用例（仓库第一条真库隔离验证——现有 collab 套件全 mock）**
 
 - 沿用 hasDb 门控惯例（`*.int.spec.ts`；CI test job 已设 DATABASE_URL 真跑，本地无库跳过）；**int 用例自建所需 FK 行（自包含，不依赖 seed）**；collab-core 加"int 用例执行条数 ≥N"断言（vitest --reporter=json 计数——防"本地跳过+CI 也跳过"双假绿，v2.1）。
-- 用例：真 PG 开 RR 事务走 loadForHydration 分页读（页间 pause）→并发提交一次 compact→断言事务读到的行集与快照水位自洽（MVCC 快照一致性，无缺行）。**不包装为"撕裂复现"**——是隔离级别性质验证（结构锚）。
+- 用例：真 PG 开 RR 事务走 loadForHydration 分页读（页间 pause）→并发提交一次 compact→断言事务读到的行集自洽完整（MVCC 快照一致性，无缺行）。**不包装为"撕裂复现"**——是隔离级别性质验证（结构锚）。
 - 可达性固化：装载进行中直调 compact→断言装载结果完整+库调度串行（锚 A4 的回归防线，防未来 fire-and-forget compact）。
 - stateSeq 一致性：compact 后断言 `stateSeq === max(被删行 seq)`（精确赋值的回归锚，v2.1）。
 
@@ -457,7 +457,7 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
 module.exports = { apps: [{
   name: 'flowweb-api', script: 'apps/api/dist/main.js', cwd: '/home/ubuntu/flowweb',
   instances: 1, exec_mode: 'fork',            // 单实例钉死：禁 reload/cluster（E35）
-  kill_timeout: 30000, kill_signal: 'SIGTERM', // ≥30s：重试梯+加长关停链（E43⑤，替换内联 10000）
+  kill_timeout: 45000, kill_signal: 'SIGTERM', // 45s：HTTP dispose 等在飞请求+关停链 ≤22s+垫（E43⑤/SV6——与 deploy.sh 内联 45000 同值，替换原 10000）
   max_memory_restart: '1G', node_args: '--max-old-space-size=768',
   env: { NODE_ENV: 'production', COLLAB_SPOOL_DIR: '/home/ubuntu/flowweb/.data/collab-spool' },
   merge_logs: true, time: true,
@@ -465,7 +465,7 @@ module.exports = { apps: [{
 ```
 
 - **内存档位=实测前置**（阻塞 Y0a-4 定稿不阻塞前三个子批）：`free -m`+`ps -o rss,comm -C node,postgres,redis-server,minio` 落档服务器画像（含协居组件）→据实测定 old-space/max_memory_restart/软阈组；结构约束写死：**RSS 软阈（Y1c-3 启用时）< max_memory_restart**（v1 的 1.2GB>1G=死代码教训）；三把尺子（堆/RSS/Buffer）不同口径备注。
-- **pm2 一次性迁移 runbook**（D-8；M1 实测 pm2 describe 确认现状后执行）：`pm2 delete flowweb-api && pm2 start ecosystem.config.cjs && pm2 save`——防 startOrReload 对旧内联进程参数归属未明致第二实例（租约 fail-fast 会拦，但=全站 collab not-ready，须一次做对）。**迁移后自证（v2.1）**：`pm2 jlist` 断言 `exec_mode==='fork' && instances===1 && kill_timeout>=30000` 进 runbook（挡"起成 cluster→租约 fail-fast=全站 collab 不可用"）。
+- **pm2 一次性迁移 runbook**（D-8；M1 实测 pm2 describe 确认现状后执行）：`pm2 delete flowweb-api && pm2 start ecosystem.config.cjs && pm2 save`——防 startOrReload 对旧内联进程参数归属未明致第二实例（租约 fail-fast 会拦，但=全站 collab not-ready，须一次做对）。**迁移后自证（v2.1）**：`pm2 jlist` 断言 `exec_mode==='fork' && instances===1 && kill_timeout>=45000` 进 runbook（挡"起成 cluster→租约 fail-fast=全站 collab 不可用"）。
 - spool 目录绝对路径随 env 注入（E37 runbook 闭环：PM2 重启不换 CWD）。
 
 **4.2 DATABASE_URL 连接池显式**
@@ -640,7 +640,7 @@ collab-core job（§3 Y0a-4.5，required）+既有 test/doc-gate/gitleaks 不变
 
 | 项 | 变更 | 落点 |
 |----|------|------|
-| 进程定义 | 内联参数→ecosystem.config.cjs 入库（fork/instances:1/kill_timeout 30000/SIGTERM） | Y0a-4 |
+| 进程定义 | 内联参数→ecosystem.config.cjs 入库（fork/instances:1/kill_timeout 45000/SIGTERM） | Y0a-4 |
 | 内存上限 | max_memory_restart+old-space **实测后定**（服务器画像前置）；结构约束：软阈<硬重启线；准入上限移交 Y1c-3 | Y0a-4 |
 | 关停时长 | 10s→45s（SIGKILL 兜底——**v2.5/SV6：kill_timeout 45000 提前 Y0a-3 落 deploy.sh 内联两处，HTTP dispose 等在飞请求；ecosystem 归 Y0a-4 取同值**）；drain/flush/force-spool/释放的预算**单源=§2.4 预算表（v2.4——此处禁复述数字，原"≤5s"残留与 §2.4 双源矛盾）**；destroy race 保留为兜底 | Y0a-2/3 |
 
