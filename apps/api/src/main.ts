@@ -85,9 +85,9 @@ async function bootstrap() {
 
   app.set('trust proxy', true);
 
-  // Y0a-3（V21）：COLLAB_NOT_SERVING 503 统一附 Retry-After: 2——注册于默认异常处理之前（Nest10
-  // 过滤链首中即止：非标记 503 由其内部委托 HttpExceptionFilter 同壳透出，其余异常类型直接落默认链）
-  app.useGlobalFilters(new CollabNotServingFilter(), new HttpExceptionFilter());
+  // Y0a-3（V21）：COLLAB_NOT_SERVING 503 统一附 Retry-After: 2（过滤链首中即止：非标记 503 由其
+  // 内部委托 HttpExceptionFilter 同壳透出，其余异常类型直接落默认链）
+  app.useGlobalFilters(new HttpExceptionFilter(), new CollabNotServingFilter());   // Nest10 反转求值序——后注册者先求值：窄 Catch 必须排在宽 shell 之后注册（否则被遮蔽）
   app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));
   const corsOrigins = (env.CORS_ORIGIN || 'http://localhost:5173')
     .split(',')
