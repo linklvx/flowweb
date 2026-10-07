@@ -106,7 +106,7 @@
 
 **E20（读侧撕裂+判据升级）**：真路径=读侧撕裂；三守卫；SV 支配性〔**拆分执行（v2.2 修订）**：compact 写快照前 pendingStructs 检查=Y0a-1（compact 健康度唯一真实指标，P0 告警线）；**SV inline 哨兵删除**（恒真+纯成本，探针证伪——svDominates 沉纯函数单测锚 Y0a-1，破坏后结构锚随 Y1c-1）；**读侧守卫三处/readCanvas 独立 reason/装载降级出口→整体移交 Y1c-1**（撕裂真正可达的批次：Y.Text/XmlFragment 使缺行=静默内容丢失在线化之时）——v2 裁定，理由：守卫判据对整行缺失结构性失明（锚 A7）、当期不可达（锚 A4）、防御自身需更多防御（fail-stuck）。§2.2 登记〕"首件事=三方交错红用例"〔**修订执行**（E42⑤ 改判吸收）：改为真 PG 隔离性质验证用例+可达性固化（§6 结构锚），不造"复现撕裂"假红相〕。
 
-**E21（对偶配对）**：失败即入账先于一切/落盘 spool+启动回灌/项目删除清账/关停停收→drain→放行/mergeUpdates 挪出 WS 路径/持久化模型显式声明〔**全部 Y0a-2 执行**；"doc bytes/行数按去重口径标注"→**移交 Y0b**（观测收口），§2.2 登记〕。
+**E21（对偶配对）**：失败即入账先于一切/落盘 spool+启动回灌/项目删除清账/关停停收→drain→放行/mergeUpdates 挪出 WS 路径/持久化模型显式声明〔**全部 Y0a-2 执行完毕**（2026-10-07 收口）；"doc bytes/行数按去重口径标注"→**移交 Y0b**（观测收口），§2.2 登记〕。
 
 **E23（拓扑前移，本批取拓扑段）**：单实例+启动租约+删 extension-redis/CollabRedisSync/双 Server 用例改 fail-fast〔**Y0a-3 执行**〕；compact 守卫连续 3 败→世代重建出口〔**v2.4 修订执行**：守卫降为"放弃本次+计数+保留全部行——**放弃不开窗**（`lastCompactAt` 仅 compacted===true 时更新）：下次 store 立即重试（门限从上次成功起算，放弃后窗口早已过）——pendingStructs!=null 属异常态，每次 store 一次尝试是可接受的诊断成本且 abandoned 计数/ERROR 一路涨正是 P0 告警线所要；接口形态见 §1.3 compact 返回契约。**本批自洽，不依赖 Y1c-1**；世代重建手工命令（scripts/collab-compact.mjs 人工出口）随 Y1c-1 落地，§2.2 显式登记为已知限制〕；世代连带（docName 世代 6 处）〔移交 Y1c-1，不属本批〕。
 
@@ -114,7 +114,7 @@
 
 **E35（租约四语义+fencing）**：TTL≤10s/心跳≤3s 独立 timer/续租失败自隔离（不自杀不硬撑；租约只 gate collab 就绪度）/有界重试+就绪门/FORCE_TAKEOVER 逃生阀/pm2 禁 reload/关停末尾显式释放/fencing token/语义=活性机制非数据完整性〔**Y0a-3 执行**；"独立 timer/子进程"落为独立 unref timer〕。
 
-**E37（spool 细则）**：帧格式=长度前缀+CRC/回灌先于对外服务/世代作用域/容量上限明写/写入次序二选一〔**Y0a-2 执行**：选"失败→落盘"ms 窗口（与 E43⑥"收即写不采"同判）；世代字段 Y1c-1 引入 generation 时扩展（本批键=projectId）；目录绝对路径随 ecosystem cwd 钉死（Y0a-4）〕。
+**E37（spool 细则）**：帧格式=长度前缀+CRC/回灌先于对外服务/世代作用域/容量上限明写/写入次序二选一〔**Y0a-2 执行完毕**（2026-10-07 收口）：选"失败→落盘"ms 窗口（与 E43⑥"收即写不采"同判）；世代字段 Y1c-1 引入 generation 时扩展（本批键=projectId）；目录绝对路径随 ecosystem cwd 钉死（Y0a-4）〕。
 
 **E40（三门装置）**："无 MinIO/无外部依赖的双 client+单进程单 Server 装置"〔**Y0a-1 执行，复用现有 integration 夹具提取**（collab.gateway.spec.ts:43/:95 已是真 Provider+真 WS 形态），不新建〕。
 
@@ -308,7 +308,7 @@ RETURNING seq
 - **分段文件形态**：`<projectId>.<segSeq>.spool` 段内追加帧 `[4B len][4B CRC32][payload]`，段满 4MB 滚动新段；**putStash=append 帧到当前段+同步 fsync 文件**（唯一持久动作）。**confirmStash=按帧 id 定位**（peek 返回 `{frameId,payload}[]`；confirm(frameIds) 在内存记 confirmed 集，**某段全部帧 confirmed→整段 unlink**——unlink 原子，天然消灭 v2"重写文件去帧"在重写中途崩溃=台账全丢的窗口；**禁按项目粒度删全部帧**——peek 与 confirm 之间新帧写入窗口会被误删）。**段 unlink 的两个触发点（v2.4 写死）**：①confirm(frameIds) 后段内全 confirmed→unlink；②**启动回灌成功后**对"全部帧已被 PG 覆盖"的段直接 unlink——防跨进程崩溃后"已 append 未 unlink 的段"只进不退；重启致已落库帧被重复回灌=常态，由 CRDT 幂等吸收（重复行性能代价，非正确性）。崩溃语义：confirmed 集丢失→重启重复 peek/append→**幂等降为第二道防线**（只承担重复行性能代价，不承担正确性——CRDT 幂等使重复 apply=no-op）；尾部截断（CRC 不符/长度越界）停在该帧+`yjs_spool_truncated_total`+ERROR，禁静默续读。
 - **写失败（磁盘满/IO 错）不 throw（v2.1 撤 tripwire throw——与主路径 splice 叠加=新蒸发窗口，见 §1.5/2.3 BOI）**：`yjs_spool_write_failures_total` 计数+**批次留在原归属地（doc 队列不动）+调度退避重试**；连续 5 次写失败→**熔断**：collab 转只读（就绪门 not-ready，reason=spool-unwritable，停收新编辑）——"拒绝新写入"而非"丢已收批次"；**解熔断=每 30s 试写探针帧+删除，成功自动恢复**+计数（无手工开关）。容量：单段 4MB/总量 256MB，超限同熔断路径（不丢最旧——丢=蒸发同罪）。
 - **启动回灌（先于一切对外服务）+硬上限（v2.1，防启动死锁）**：init 扫描目录→**单帧颗粒度**逐帧尝试 append+confirm（一帧坏不阻塞整项目）；回灌失败（PG 未起）按退避重试，**硬上限 5 次×指数退避封顶 60s**——超限后不再阻塞 ready：坏帧**记 sidecar 隔离标记**（见下）+`yjs_spool_quarantined_total`+ready 保持绿但响应体带 `spoolQuarantined: N`（与 forceTakeover 同族可见性字段；**>0 应触发运营告警而非仅可见——§9.12 LWW 覆盖语义**）——消灭"坏帧/FK 永久失败→ready 永假→部署拒重启→运维锁死"（v2 会新引入的不可恢复状态，与 fail-stuck 同类错误）。FK 23503 识别=按 project.gone 终态丢弃（2.5）；其余不可解析帧走隔离标记。
-- **quarantine=sidecar 标记，不搬字节（v2.4——"移入 quarantine/ 子目录"与契约 12"只用追加与整段 unlink"互斥：追加-only 段内移帧物理不可行（重写段=违契约/整段搬=误伤好帧）→含 1 坏帧的段永不满足"全帧 confirmed"→永不 unlink→占用额度→累计 256MB 慢速只读）**：段内坏帧→在 `<seg>.quarantine` sidecar 追加写 `{frameOffset, len, crc, reason, firstSeenAt}`（自身 append-only）；**段 unlink 条件=所有非隔离帧已 confirm**（非"全部帧 confirmed"）；**容量核算排除已隔离字节**（独立字段 `spoolQuarantinedBytes`，熔断只看可回收部分——坏帧不再能触发只读熔断）。
+- **quarantine=sidecar 标记，不搬字节（v2.4——"移入 quarantine/ 子目录"与契约 12"只用追加与整段 unlink"互斥：追加-only 段内移帧物理不可行（重写段=违契约/整段搬=误伤好帧）→含 1 坏帧的段永不满足"全帧 confirmed"→永不 unlink→占用额度→累计 256MB 慢速只读）**：段内坏帧→在 `<seg>.quarantine` sidecar 追加写 `{frameOffset, len, crc, reason, firstSeenAt}`（自身 append-only）；**段 unlink 条件=所有非隔离帧已 confirm**（非"全部帧 confirmed"）；**容量核算含隔离字节**（Y0a-2 V3 执行态——256MB 总口径=段文件字节总和，坏尾字节持续占额度、可正常触发只读熔断：坏帧不豁免，防"隔离区无限增长永不熔断"；独立字段 `quarantinedBytes` 仅观测不豁免，处置出口=collab-spool-quarantine 人工脚本删段）。
 - **逃生阀脚本**：`scripts/collab-spool-quarantine.mjs <projectId|--all> [--dry-run]`（**外置导出+人工判定后删段**——sidecar 形态下唯一允许删段的路径，人工可审计；打印内容摘要供人工判定）——与 collab-compact.mjs/collab-spool-import.mjs 同族（compact 有人工出口而 spool 没有=v2 不一致，v2.1 补齐）。
 - 内存只留**键集缓存**（哪些 projectId 有段——putStash 加键/整段 unlink 删键/启动扫描重建；非权威数据副本）。
 - 指标：`yjs_spool_depth{files,bytes}` gauge+四计数；**启动自检**：spool 非空或回灌失败→ERROR 结构化日志打印清单（§5.2 口径）。
@@ -369,8 +369,8 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
 
 **2.5 项目消失单点收敛（P0-5）**
 
-- 新事件 `project.gone`（payload {projectIds}）：project.service delete(:107)/deleteMany(:112)+template.service:156 删除**前** emit（emitAsync 形态循 team.service:408-429 既有约定——**处理器内禁慢操作**：await 全部监听器会拖长删除请求）；**team.disbanded 监听改双订阅汇入同一处理**（team.service 级联删=第二入口）；template 链 plan 阶段核对删除对象（防把模板删除误当项目消失）。
-- 处理（与 team.disbanded 同址）：关连接（payload-only 不查库——规避 emit/删除时序问题）→清 persistRetry/lastCompactAt（**仅内存终态表——v2.4：spool 段一律不在删除路径上动**：emit 先于删除事务提交，删除回滚/失败则项目仍在而 spool 台账已被删=已接受编辑净丢；且 unlink+fsync 是磁盘 I/O，违反本节"处理器内禁慢操作"）→终态集 `deletedProjects: Set` →putStash/schedulePersistRetry 对已删项目 no-op+`yjs_stash_discarded_deleted_total`。FK 兜底断言：append 撞 FK→捕获识别 23503→按终态丢弃+计数（不进重试梯）。**残留 spool 段的收割路径=FK 23503 识别（下次启动回灌/append 时按终态丢弃）——一条收割路径、零回滚风险、删除请求零磁盘 I/O**。
+- 新事件 `project.gone`（payload {projectIds}）：project.service delete(:112)+cleanDrafts FOR UPDATE 事务(:121-131，Y0a-2 X13——SELECT…FOR UPDATE 锁定集+deleteMany+提交后按确实被删集 emit)+template.service:163 删除**后** emit（Y0a-2 V11 后置——**提交后** emitAsync，回滚=无 emit=无假终态；emitAsync 形态循 team.service:408-429 既有约定——**处理器内禁慢操作**：await 全部监听器会拖长删除请求）；**team.disbanded 监听改双订阅汇入同一处理**（team.service 级联删=第二入口）；template 链 plan 阶段核对删除对象（防把模板删除误当项目消失）。
+- 处理（与 team.disbanded 同址）：关连接（payload-only 不查库——规避 emit/删除时序问题）→清 persistRetry/lastCompactAt（**仅内存终态表——v2.4：spool 段一律不在删除路径上动**；Y0a-2 V11 后置态下"emit 先于提交"的回滚风险面已消（回滚=无 emit=不进终态集）——段不动现由"处理器内禁慢操作"独立承担：unlink+fsync 是磁盘 I/O，违反本节"处理器内禁慢操作"）→终态集 `deletedProjects: Set` →putStash/schedulePersistRetry 对已删项目 no-op+`yjs_stash_discarded_deleted_total`。FK 兜底断言：append 撞 FK→捕获识别 23503→按终态丢弃+计数（不进重试梯）。**残留 spool 段的收割路径=FK 23503 识别（下次启动回灌/append 时按终态丢弃）——一条收割路径、零回滚风险、删除请求零磁盘 I/O**。
 - **`deletedProjects` 永久无界登记 §9**（v2.1：进程生命周期单调增长，不可安全清理——量级=进程寿命内删除项目数，接受并登记，防下轮"census 漏项"）。
 
 **2.6 lastCompactAt 清理 + mergeUpdates 出 WS 路径**
@@ -432,7 +432,7 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
   **`pending` 字段定义（v2.4 写死——原无计量单位定义，三条判据不可实现）**：
   - `pending.docs` = 队列非空的 doc 数（pendingUpdates 中 length>0 的条目数）；
   - `pending.batches` = 上述 doc 的队列条目总数（**update 条数，非合并后批数**——与 storeInFlight 不同量纲）；
-  - `pending.spoolFiles` = spool 段文件数（键集缓存 size）；`pending.spoolBytes` = 段文件字节总和（**排除已隔离字节**，与 §2.2 容量核算同口径）。
+  - `pending.spoolFiles` = spool 段文件数（键集缓存 size）；`pending.spoolBytes` = 段文件字节总和（**含隔离字节**，与 §2.2 容量核算同口径；`quarantinedBytes` 独立字段仅观测）。
   - **稳态行为明示**：活跃编辑者在场时 `batches > 0` 恒成立（去抖窗口定义使然）——**只能作"停止写入后是否排空"的判据（G-1/部署拒重启均以停写为前提），不能作"当前是否安全"的判据**。
   - **可用时点**：Y0a-2 前恒 0（计数器 Y0a-2 才落地）——类型注释写死"恒 0（非缺失）"，防 Y0a-4 部署门拿恒 0 放行=假门禁；Y0a-4 落地时由 G-2b 演练证明该字段真的会非 0。
 
@@ -543,11 +543,11 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 5. compact 调用必须 await（src/ 范围扫描；scripts/ 运维工具豁免并显式登记）；事务首行租约断言。
 6. 租约三入口门：未持租约不 listen、不接 WS、不进 loadDocument/withDoc；fence 落写语句非仅内存布尔。
 7. /api/ready 语义：503 判据=PG+租约；Redis 仅报不 gating；reason=字面量封闭枚举；holder/epoch/pending 为并列字段禁入 reason。
-8. spool 帧格式（len+CRC32+分段文件名）与目录（ecosystem 绝对路径）冻结——Y1c-1 世代扩展向后兼容。
+8. spool 帧格式（len+CRC32+分段文件名）与目录（ecosystem 绝对路径）冻结——Y1c-1 世代扩展向后兼容。**confirm 语义（Y0a-2 V1）**：帧 confirm 恒在 PG append 成功之后；失败路径落盘的新帧（本批）在 PG 成功前永不 confirm——回收出口=后续恢复路径的 append 成功（store 提前 drain/断连 flush/退避梯/启动回灌）。
 9. 进程定义唯一源=ecosystem.config.cjs（deploy.sh 禁内联 pm2 参数）。
 10. stateSeq 唯一写者=compact 事务，**恒等于本次事务实际删除集的最大 seq（精确赋值）**；append 不触碰；**GREATEST/单调化包装禁用**——并发 compact 需先落 Y1c-1 CAS 形态。
 11. **批次所有权不变量（BOI）**：任何批次任意时刻至少归属于 {doc 队列, spool 已 fsync, PG 已提交} 之一；离开旧归属必须先进入新归属；`queue.splice` 永远在新家落定之后。
-12. **spool 帧删除恒在 append 成功之后**（"删帧先于 append"=数据蒸发，永久禁令——v1 takeStash 先删即此错）；帧文件变更只用追加与整段 unlink（禁原地重写）；**quarantine=sidecar 标记不搬字节；段 unlink 条件=非隔离帧全 confirm（v2.4）**。
+12. **spool 帧删除恒在 append 成功之后**（"删帧先于 append"=数据蒸发，永久禁令——v1 takeStash 先删即此错）；帧文件变更只用追加与整段 unlink（禁原地重写）；**quarantine=sidecar 标记不搬字节；段 unlink 条件=非隔离帧全 confirm（v2.4）**。**truncated 段处置例外（Y0a-2 V2/V3 执行态）：置 `sealed` 标记+sidecar 记录坏尾区间——只置位、不删字节、禁 ftruncate**（坏尾字节保留在段内，unlink 原子性不受损；回收出口=collab-spool-quarantine 人工脚本整段删除）。
 13. **大积压 doc 自愈是装载路径的义务（v2.4 形态=超时自愈一次·仅可重试类：装载事务失败且属 **P2028/P1008/timeout 类**触发——**P2024（池饥饿）排除**：自愈动作自身需持池连接，饥饿期执行=零成功率纯放大，直接 fail-closed→串行 compact{timeout:6s,maxWait:1s}→重试装载{timeout:2s,maxWait:500ms}（**自愈增量总预算 ≤8s**）；非可重试类直接 fail-closed；禁前置全量聚合探测），不是运维脚本的义务**；人工 compact 为最终出口。
 14. flush-at-risk 口径=storeInFlight（已取批未落库未入账）；库去抖窗口不属此判据；**增减点恒 2 处：进入取批 / 归属落定（append `r.ok===true` 或 spool fsync 成功）——drain 的 force-spool 必须复用同一落定点（禁旁路直调 spool.append 而不减计数，v2.4）**。
 15. **append 的"成功"判据=`AppendResult.ok===true`（seq 存在）；0 行/undefined 一律视为未写入——任何 confirmStash 与 queue.splice 必须先验 ok。"fenced"是终态：自隔离+批走 spool（spool=本地磁盘不受租约约束），不进退避梯（重试无意义且掩盖租约失守）**（v2.4）。

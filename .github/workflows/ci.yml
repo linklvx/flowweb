@@ -143,8 +143,22 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      # Y0a-2（X3/P7）：演练子进程起 AppModule 含 BullMQ（subscription-scheduler onModuleInit await
+      # getRepeatableJobs——无 Redis 即挂起）——spec §4.5"redis service Y0a-3 起补"按演练实际需求提前（偏差已登记）。
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
+      REDIS_URL: redis://localhost:6379/0
+      # MINIO_*（X3）：占位值仅过 validateEnv，MINIO_INIT=skip 路径零连接（e2e-collab 先例 B′ 终裁）——
+      # 演练子进程由驱动 startServer 内部再注入同款（双保险）。
+      MINIO_INIT: skip
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: drill
+      MINIO_SECRET_KEY: drill-secret
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -154,7 +168,21 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
-      - name: collab int（显式清单——本批三个 int spec；双 reporter=失败用例名在 CI 日志可读）
-        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-hydration.int.spec.ts --reporter=json --reporter=default --outputFile=/tmp/int.json
-      - name: int 条数断言（passed≥13 且零失败零跳过——红证据：注释 DATABASE_URL 跑一次必红）
-        run: node -e "const r=require('/tmp/int.json');const p=r.numPassedTests??0,f=r.numFailedTests??0,s=r.numPendingTests??0;if(f>0||s>0||p<13){console.error('FAIL: passed',p,'failed',f,'skipped',s);process.exit(1)}console.log('collab int passed:',p)"
+      # X16 纪律：新增 *.int.spec.ts ⇒ 同步扩下方显式清单+条数阈值——否则文件永不跑而断言依旧绿（静默漏跑）。
+      - name: collab int（显式清单——本批四个 int spec；双 reporter=失败用例名在 CI 日志可读）
+        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-hydration.int.spec.ts src/modules/collab/collab-spool.int.spec.ts --reporter=json --reporter=default --outputFile=/tmp/int.json
+      - name: int 条数断言（passed≥16=15 现清单+spool int 1，且零失败零跳过——红证据：注释 DATABASE_URL 跑一次必红）
+        # 块标量必修：裸 run 标量含 'FAIL: passed' 的 ": " 序列=整文件 YAML 解析失败（Y0a-1 起本行
+        # 从未可解析——collab-core 实为从未跑过的死 job，Y0a-2 本地 js-yaml 实证并修复）。
+        run: |
+          node -e "const r=require('/tmp/int.json');const p=r.numPassedTests??0,f=r.numFailedTests??0,s=r.numPendingTests??0;if(f>0||s>0||p<16){console.error('FAIL: passed',p,'failed',f,'skipped',s);process.exit(1)}console.log('collab int passed:',p)"
+      # Y0a-2 演练=本 job 真增量（子进程形态 test job 无法跑，spec §4.5③）：四跑必须串行——触发器函数名
+      # 全局共享（Task 9 Minor 5）；驱动 tsx 直跑（驱动自身无 DI），server 侧由驱动先跑 tsconfig.drill.json
+      # 全量 tsc（首次编译时间计入本步预算，不设独立上界）+dist 产物在 job workspace；Linux 走 SIGTERM
+      # 真信号=生产同构通道；env 供给=job 级 DATABASE_URL/REDIS_URL+驱动内注入 MINIO 占位（双保险）。
+      - name: kill -9/SIGTERM 演练（G-1 双模式+G-2a 双档——RPO 契约的唯一测试证明）
+        run: |
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-normal
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-fault
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm --spool-fail
