@@ -14,6 +14,8 @@ const PUBLIC_PREFIXES = [
   '/api/media/by-key',
   '/api/video-works',   // D4：前缀放行 + handler 自守，clone/like 在 handler 内验 req.user
   '/api/recharge/notify',
+  '/api/ready',    // Y0a-3：就绪探针（PUBLIC+@SkipThrottle——503 判据=PG+租约+collabState，Redis 仅报）
+  '/api/drain',    // Y0a-3：部署链停写入口（PUBLIC 放行 AuthGuard，CollabAdminAuthGuard 把关）
   '/metrics',
 ];
 

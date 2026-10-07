@@ -80,10 +80,16 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
       path.join(ROOT, 'apps/api/src/modules/video-work'),
       path.join(ROOT, 'apps/api/src/modules/execution'),
     ];
+    // 审计参数豁免（Y0a-3 T7 Z15）：AuditLogParams 的 targetType/targetId 与 edge 形状同名词——
+    // drain 端点审计写点非边序列化面，显式登记（ALLOW_FILES 同款白名单出口）；新审计消费文件入列须同样登记。
+    const AUDIT_PARAM_FILES = new Set([
+      'apps/api/src/modules/collab/collab-ready.controller.ts',
+    ]);
     const offenders: string[] = [];
     for (const file of EDGE_DIRS.flatMap(listTsFiles)) {
       const rel = path.relative(ROOT, file).split(path.sep).join('/');
       if (/\.(test|spec)\.(ts|tsx)$/.test(file)) continue;   // 夹具在 Task 7 已收敛，tsc 首段把关
+      if (AUDIT_PARAM_FILES.has(rel)) continue;
       if (/(sourceId|targetId)/.test(readFileSync(file, 'utf8'))) offenders.push(rel);
     }
     expect(offenders).toEqual([]);

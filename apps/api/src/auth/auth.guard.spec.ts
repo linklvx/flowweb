@@ -26,6 +26,8 @@ describe('AuthGuard（批3-3：SessionService.touch 注入 + DB 异常不吞 401
     '/api/announcements/active',
     '/api/pricing/calculate',
     '/metrics',
+    '/api/ready',   // Y0a-3：就绪探针（PUBLIC+@SkipThrottle）
+    '/api/drain',   // Y0a-3：部署链停写入口（PUBLIC 放行 AuthGuard，CollabAdminAuthGuard 把关）
   ];
 
   PUBLIC_PATHS.forEach(path => {
