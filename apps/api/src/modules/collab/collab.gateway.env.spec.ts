@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { createLeaseStub } from './test-utils/lease-stub';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Y0a-2：gateway 构造签名扩必填 spool——各直构 spec 的临时目录域（beforeEach 建/afterEach 清）
@@ -22,7 +23,7 @@ afterEach(async () => {
 
 function buildGateway(opts?: { debounce?: number; timeout?: number }) {
   return new CollabGateway(
-    {} as any, new EventEmitter2() as any, {} as any, { syncFromPeers: vi.fn(async () => {}) } as any,
+    {} as any, new EventEmitter2() as any, {} as any, createLeaseStub() as any,   // Y0a-3 T5：参数 4=租约 stub（redisSync 退役）
     { resolve: vi.fn() } as any,
     48000 + Math.floor(Math.random() * 4000),
     opts?.debounce, opts?.timeout, undefined, new CollabSpoolService(spoolDir),

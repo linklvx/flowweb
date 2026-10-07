@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { createLeaseStub } from './test-utils/lease-stub';
 
 // Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
 let spoolDir: string;
@@ -25,10 +26,10 @@ function buildGateway() {
     canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
   };
   const repo = createMockRepo();   // Y0a-1：mock-repo 工厂（loadUpdates 已删）
-  const redisSync = { syncFromPeers: vi.fn(async () => {}) };
+  const lease = createLeaseStub();   // Y0a-3 T5：redisSync 退役——租约 stub（isServing 恒 true）
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const gateway = new CollabGateway(
-    prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
+    prisma as any, new EventEmitter2() as any, repo as any, lease as any,
     perm as any, 47000 + Math.floor(Math.random() * 5000),
     undefined, undefined, undefined, new CollabSpoolService(spoolDir),
   );

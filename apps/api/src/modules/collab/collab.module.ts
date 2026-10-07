@@ -5,6 +5,7 @@ import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync, COLLAB_REDIS } from './collab-redis-sync.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { CollabLeaseService } from './collab-lease.service';
 import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
 
@@ -26,6 +27,7 @@ import { TeamModule } from '../team/team.module';
     CollabDocumentService,
     CanvasDocUpdateRepository,
     CollabSpoolService,
+    CollabLeaseService,   // Y0a-3 T5：PG 租约（gateway 构造参数 4——T5 后必填）；RedisSync provider 留守至 T6 删本体
     CollabRedisSync,
   ],
   exports: [CollabDocumentService],

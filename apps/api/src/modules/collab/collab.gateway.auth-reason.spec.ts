@@ -11,6 +11,7 @@ import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { createLeaseStub } from './test-utils/lease-stub';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
@@ -33,12 +34,12 @@ function buildGateway() {
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
   };
   const repo = createMockRepo();
-  const redisSync = { syncFromPeers: vi.fn(async () => {}) };
+  const lease = createLeaseStub();   // Y0a-3 T5：redisSync 退役——租约 stub（isServing 恒 true=租约已持有形态）
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const spool = new CollabSpoolService(spoolDir);
   spool.setOwner('test-owner');   // R3：onModuleInit 的 scan（Z13）与写路径必先 setOwner
   const gateway = new CollabGateway(
-    prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
+    prisma as any, new EventEmitter2() as any, repo as any, lease as any,
     perm as any, 43000 + Math.floor(Math.random() * 20000),
     undefined, undefined, undefined, spool,
   );

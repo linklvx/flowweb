@@ -4,7 +4,7 @@ import { Document } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
-import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { stampDocSchema, CollabAuthReason, type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——loadDocument 版本门夹具用） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -22,6 +22,9 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { failingRepo } from '../../test-utils/failing-repo';
 import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
 import { pollUntil } from '../../test-utils/poll-until';
+import { createLeaseStub } from './test-utils/lease-stub';
+import { appendFile, stat, utimes } from 'node:fs/promises';
+import { join } from 'node:path';
 
 
 function buildDocState(): Buffer {
@@ -935,7 +938,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
   it('M1：draining 白盒——受理门拒新连接 reason=draining（瞬态档：客户端继续重连，DRAINING 非 terminal）', async () => {
     const kit = await startDualClientServer({}, 200);
     try {
-      (kit.gateway as any).draining = true;
+      kit.gateway.beginDraining();   // Y0a-3 T5：draining 布尔退役——beginDraining 置 collabState=draining（isShuttingDown 派生读点不变）
       expect(kit.gateway.isShuttingDown()).toBe(true);   // X9 受理门读点翻转
       await expect(kit.gateway.hooks.onAuthenticate({
         requestHeaders: new Headers(),
@@ -1279,4 +1282,192 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(g.computePending().batches).toBe(0);
     } finally { appendSpy.mockRestore(); if (release) release({ ok: true, seq: 1n }); await kit.dispose(); }
   }, 20_000);
+});
+
+// Y0a-3 T5（plan Step 2）：租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）——
+// kit 第 4 参=lease stub（V1 契约三件套：成功⇒repo/spool owner+await onAcquired——缺②则 scan throw=start-failed）。
+describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）', () => {
+  it('G-3：lease 未持有→authenticate 拒 LEASE_NOT_READY（瞬态档）+服务端不关 socket（J2 半边）', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub({ isServing: vi.fn(() => false) }));
+    try {
+      const conn = { socket: { close: vi.fn() } };
+      await expect((kit.gateway as any).hooks.onAuthenticate({
+        requestHeaders: new Headers(),
+        requestParameters: new URLSearchParams('token=tok'),
+        documentName: 'project:p1',
+        connectionConfig: {},
+        connection: conn as any,
+      } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });
+      expect(conn.socket.close).not.toHaveBeenCalled();   // 拒绝不关 socket——provider 自动重连消费瞬态档
+    } finally { await kit.dispose(); }
+  });
+
+  it('G-3：lease 未持有→loadDocument 拒（P1：正确性门——与 spool 降级态的"永不 gate"分立）', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub({ isServing: vi.fn(() => false) }));
+    try {
+      await expect((kit.gateway as any).hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any))
+        .rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });
+      expect((kit.repo as any).hydrateWithRecovery).not.toHaveBeenCalled();   // 门在 DB 装载之前（不白打查询）
+    } finally { await kit.dispose(); }
+  });
+
+  it('G-3：tryAcquireFast 失败→onModuleInit 返回但不 listen（detached acquireLoop 接管——W5 单点）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a3-g3-');
+    try {
+      const lease = createLeaseStub({ tryAcquireFast: vi.fn(async () => false) });
+      const gateway = new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
+        lease as any, { resolve: vi.fn() } as any, 48100, 300, undefined, undefined, new CollabSpoolService(dir));
+      const listenSpy = vi.spyOn(gateway as any, 'listenServer').mockResolvedValue(undefined);
+      try {
+        await gateway.onModuleInit();
+        expect(listenSpy).not.toHaveBeenCalled();   // 唯一 listen 单点（旧实现 onModuleInit 直 listen=红）
+        expect(lease.acquireLoop).toHaveBeenCalledTimes(1);
+        expect(gateway.getCollabState()).toBe('acquiring');
+      } finally { listenSpy.mockRestore(); }
+      await gateway.onApplicationShutdown();
+    } finally { await cleanup(); }
+  });
+
+  it('启动链单点（W5）：stub 契约=成功⇒已 await onAcquired——onModuleInit 返回即 serving+已 listen', async () => {
+    const kit = await startDualClientServer();   // 默认 stub（契约形态）
+    try {
+      expect(kit.gateway.getCollabState()).toBe('serving');   // await onModuleInit 后（kit 构造内）
+      expect((kit.gateway as any).server.httpServer?.listening).toBe(true);
+    } finally { await kit.dispose(); }
+  });
+
+  it('G-3b/必办①：append fenced→selfIsolate（closeAll1012+关 listener+lost{cause}）+批走 spool 不排梯', async () => {
+    const kit = await startDualClientServer({ append: vi.fn(async () => ({ ok: false as const, reason: 'fenced' as const })) });
+    try {
+      const g = kit.gateway as any;
+      const closeSpy = vi.spyOn(g, 'closeAllConnections1012').mockImplementation(() => {});   // 1012 面免真关（无连接面）
+      g.pendingQueues.set('pf1', [new Uint8Array([1])]);
+      await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:pf1' } as any);
+      expect(g.getCollabState()).toBe('isolated');
+      expect(closeSpy).toHaveBeenCalled();
+      expect(await kit.spool.peek('pf1')).toHaveLength(1);                 // 批已落 spool（契约 15——fsync 落定）
+      expect(g.persistRetry.has('project:pf1')).toBe(false);               // fenced=终态禁梯
+    } finally { await kit.dispose(); }
+  });
+
+  it('必办⑧/I-3：isolated 后 schedulePersistRetry 不排（梯项目转 fenced 永续重排收口）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const g = kit.gateway as any;
+      g.collabState = 'isolated';
+      g.schedulePersistRetry('project:px');
+      expect(g.persistRetry.has('project:px')).toBe(false);
+    } finally { await kit.dispose(); }
+  });
+
+  it('必办⑨/M3：retryPersist 帧通道 FK 收割——已删项目帧 confirm+cancel 梯+discarded(source=spool) 计数', async () => {
+    const kit = await startDualClientServer({ append: vi.fn(async () => { throw Object.assign(new Error('FK'), { code: 'P2003' }); }) });
+    try {
+      const g = kit.gateway as any;
+      await kit.spool.append('pdel', new Uint8Array([1]));                 // 先落帧（append 注入只作用 repo 腿）
+      g.persistRetry.set('project:pdel', { rung: 0, timer: null });
+      const discarded = register.getSingleMetric('yjs_updates_discarded_deleted_total')!;
+      const before = (await discarded.get()).values.find((v) => v.labels?.source === 'spool')?.value ?? 0;
+      const confirmSpy = vi.spyOn(kit.spool, 'confirm');
+      await g.retryPersist('project:pdel');
+      expect(confirmSpy).toHaveBeenCalledWith('pdel', [expect.any(String)]);   // 旧实现 FK 直接 throw 卡批=红
+      expect(g.persistRetry.has('project:pdel')).toBe(false);
+      expect(((await discarded.get()).values.find((v) => v.labels?.source === 'spool')?.value ?? 0) - before).toBe(1);
+    } finally { await kit.dispose(); }
+  });
+
+  it('SV13/W11：leaseRowMissing→批落 spool（不早退）+不排梯+配置错误重试无用', async () => {
+    const kit = await startDualClientServer({ append: vi.fn(async () => { throw Object.assign(new Error('row missing'), { leaseRowMissing: true }); }) });
+    try {
+      const g = kit.gateway as any;
+      g.pendingQueues.set('prm1', [new Uint8Array([1])]);
+      await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:prm1' } as any);
+      expect(await kit.spool.peek('prm1')).toHaveLength(1);                // 落 spool（早退=批只留内存重启即丢）
+      expect(g.persistRetry.has('project:prm1')).toBe(false);              // 配置错误重试无用（旧实现排梯=红）
+    } finally { await kit.dispose(); }
+  });
+
+  it('SV9/W10：beginDraining 冻结连接+60s 自动解除=1012 复连+响应体 {autoReleaseAt,pending}（fake timers 只罩 beginDraining 窗——kit 真定时器启动）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const frozen = { readOnly: false, sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
+      (kit.gateway as any).server.hocuspocus.documents.set('project:pd1', {
+        name: 'project:pd1', connections: new Map([[frozen as any, null]]),
+      });
+      vi.useFakeTimers();
+      const r = kit.gateway.beginDraining();
+      expect(r.draining).toBe(true);
+      expect(r.phase).toBe('draining');
+      expect(r.pending).toMatchObject({ projects: expect.any(Number) });
+      expect(frozen.readOnly).toBe(true);                    // 冻结（B12）
+      expect(frozen.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'write-frozen', reason: 'draining' }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(frozen.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');   // 解除=1012 复连
+      expect(kit.gateway.getCollabState()).toBe('serving');
+    } finally {
+      vi.useRealTimers();
+      (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:pd1');   // 种子 doc 摘除（destroy 等 documents 清空）
+      await kit.dispose();
+    }
+  });
+
+  it('V12 判据唯一化：collabState=isolated ∧ lease 仍 held（fenced-by-write 窗口）⇒ 双入口全拒 LEASE_NOT_READY', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, createLeaseStub());   // isServing 恒 true（lease 视角仍 held——模拟心跳未到）
+    try {
+      const g = kit.gateway as any;
+      g.selfIsolate('fenced-by-write');   // 写路径立即隔离——lease 侧要等 ≤1 心跳
+      expect(g.getCollabState()).toBe('isolated');
+      await expect(g.hooks.onAuthenticate({
+        requestHeaders: new Headers(),
+        requestParameters: new URLSearchParams('token=tok'),
+        documentName: 'project:p1',
+        connectionConfig: {},
+      } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });   // 若门读 lease.isServing（true）=放行=判据分裂（本用例红）
+      await expect(g.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any))
+        .rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });
+    } finally { await kit.dispose(); }
+  });
+
+  it('I4 rejoin 后 rearm：isolated→listenCollab 重入 ⇒ spool 残留 own 帧项目立即回到退避梯（部署门可收敛）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const g = kit.gateway as any;
+      (kit.spool as any).setOwner('owner-B');   // 残留段制造（前任视角）
+      await kit.spool.append('porphan', new Uint8Array([1]));
+      await kit.spool.scan();   // 重建 index 使 keys() 可见
+      g.selfIsolate('fenced-by-write');
+      g.collabState = 'starting';   // 模拟 rejoin 的 startCollabAfterLease 重入路径
+      await g.listenCollab();       // I4 执行点：listenCollab 末尾 rearmQueues
+      expect(g.getCollabState()).toBe('serving');
+      expect(g.persistRetry.has('project:porphan')).toBe(true);   // 立即断言（1s 档即消费帧——3s 等待后断言恒假）
+    } finally { (kit.gateway as any).cancelPersistRetry('project:porphan'); await kit.dispose(); }
+  });
+
+  it('I4/Y10 seam：onRecovered 接线存在（v3 重排漏接的回归锚——spool IO 熔断恢复唤醒梯）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      expect(typeof (kit.spool as any).onRecovered).toBe('function');
+    } finally { await kit.dispose(); }
+  });
+
+  it('I4/reconciler 收养回收闭环：静默外来段（含坏尾）收养→隔离→回灌→confirm→整段 unlink（契约注记②——adopt 重建 meta 的 quarantinedRange=null ∧ goodBytes<bytes ⇒ tailSettled 恒 false=段永不回收）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a3-rec-');
+    try {
+      const spoolA = new CollabSpoolService(dir);
+      spoolA.setOwner('owner-A');
+      await spoolA.append('prc', Y.encodeStateAsUpdate(new Y.Doc()));
+      const segPath = join(dir, 'owner-A', 'prc.0.spool');
+      await appendFile(segPath, Buffer.alloc(7, 0xAB));   // 1-7B 残尾=truncated（parseSegmentFrames 收口2 同判）
+      const past = new Date(Date.now() - 120_000);
+      await utimes(segPath, past, past);                  // 静默窗（≥60s 无写入=前任已死）
+      const kit = await startDualClientServer({}, 300, spoolA);
+      try {
+        await (kit.gateway as any).reconcileSpool();
+        expect(kit.spool.depth()).toMatchObject({ strandedFiles: 0, ownFiles: 0 });   // 收养+回灌+回收闭环（缺 quarantine 步=段永不 unlink=红）
+        await expect(stat(segPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(stat(`${segPath}.quarantine`)).rejects.toMatchObject({ code: 'ENOENT' });   // sidecar 随段回收
+        expect(kit.repo.append).toHaveBeenCalledWith('prc', expect.anything());   // 好帧已回灌 PG
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
 });

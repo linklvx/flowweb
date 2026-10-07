@@ -73,6 +73,8 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       await seedPendingDoc(kit, 'project:p-dr1', 3);
       await seedPendingDoc(kit, 'project:p-dr2', 1);
       await kit.gateway.onApplicationShutdown();
+      expect(kit.gateway.getCollabState()).toBe('draining');   // W33：collabState draining（步骤 1 语义——V33 状态机）
+      expect(kit.gateway.isShuttingDown()).toBe(true);         // 受理门派生读点翻转
       expect(kit.repo.append).toHaveBeenCalledTimes(2);        // 两项目各一批单行 append
       const events = collectEvents(spies);
       const done = events.find((e) => e.event === 'shutdown_drain_complete');

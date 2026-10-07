@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { pollUntil } from '../../test-utils/poll-until';
+import { createLeaseStub } from './test-utils/lease-stub';
 
 /** 真实定时器捕获（模块求值期=useFakeTimers 安装前）：退避梯重试链含真实 fsync IO，fake 推进后需
  *  realSleep 让链在真实事件环落定并在 fake 时钟上排下一档——单 fake 会话设计（切 useRealTimers 杀在途定时器=链断）。 */
@@ -42,11 +43,11 @@ function buildGateway() {
   const repo = createMockRepo({
     append: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); return { ok: true as const, seq: 1n }; }),   // AppendResult 契约（Y0a-2 判别消费）
   });
-  const redisSync = { syncFromPeers: vi.fn(async () => {}) };
+  const lease = createLeaseStub();   // Y0a-3 T5：redisSync 退役——租约 stub（isServing 恒 true）
   const spool = new CollabSpoolService(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
   spool.setOwner('test-owner');                     // R3：写路径必先 setOwner（Z13 fail-closed）
   const gateway = new CollabGateway(
-    prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
+    prisma as any, new EventEmitter2() as any, repo as any, lease as any,
     { resolve: vi.fn() } as any, 44500 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
