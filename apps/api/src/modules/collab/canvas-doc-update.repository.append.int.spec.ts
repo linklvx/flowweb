@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
-import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
+import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import * as Y from 'yjs';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -13,7 +13,9 @@ maybe('append（真 PG）', () => {
   const repo = new CanvasDocUpdateRepository(prisma as any);
 
   beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
-  afterAll(async () => { await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+  // Y0a-3（P13）：fence 落地后真库 append 需 CollabLease 行 owner 匹配（beforeEach 续 5min 窗）
+  beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
+  afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
   it('append 返回 AppendResult：ok:true 且 seq 严格递增、行数一致（局部不变量——不读全局序列 last_value：vitest 并行 worker 下它反映所有会话取号，跨文件干扰必红）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });

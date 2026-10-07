@@ -29,6 +29,7 @@ describe('CanvasDocUpdateRepository', () => {
       ],
     }).compile();
     repo = mod.get(CanvasDocUpdateRepository);
+    repo.setLeaseOwner('spec-owner');   // Y0a-3 契约 16：append/compact fail-closed——既有用例默认持有人
   });
 
   it('append 单语句：$queryRaw 取号+INSERT 同语句，返回 AppendResult；不经 canvasDocUpdate.create；V8 事务上界 5s/1s', async () => {
@@ -168,5 +169,97 @@ describe('CanvasDocUpdateRepository', () => {
     } finally {
       incSpy.mockRestore();
     }
+  });
+});
+
+describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock SV3）', () => {
+  // B14：Prisma tagged template 传 mock 的第一参是字符串数组、插值在后续参——断言一律
+  // `call[0].join('?')` 看形状 + `call.slice(1)` 看值（仓内惯例 video-work.service.spec:351）；
+  // 文本断言永不红=诱导 $queryRawUnsafe 内插（注入面）。
+  const shape = (c: any[]) => (c[0] as string[]).join('?');
+
+  function buildRepo(opts: {
+    query?: ReturnType<typeof vi.fn>;        // 事务外 $queryRaw（二次查）
+    txQuery?: ReturnType<typeof vi.fn>;      // 事务内 $queryRaw（INSERT/fence/页查询）
+    txExec?: ReturnType<typeof vi.fn>;       // 事务内 $executeRaw（advisory lock）
+    docRow?: { stateSeq: bigint } | null;    // canvasDoc.findUnique 返回（cursor 判别性）
+  } = {}) {
+    const query = opts.query ?? vi.fn().mockResolvedValue([]);
+    const txq = opts.txQuery ?? vi.fn().mockResolvedValue([]);
+    const exec = opts.txExec ?? vi.fn().mockResolvedValue([]);
+    const prisma = {
+      $queryRaw: query,
+      $transaction: vi.fn((fn: any) => fn({
+        $queryRaw: txq,
+        $executeRaw: exec,
+        canvasDocUpdate: { findMany: vi.fn().mockResolvedValue([]), deleteMany: vi.fn() },
+        canvasDoc: { findUnique: vi.fn().mockResolvedValue(opts.docRow ?? null), upsert: vi.fn() },
+      })),
+    };
+    return { repo: new CanvasDocUpdateRepository(prisma as any), prisma, txq, exec, query };
+  }
+
+  it('append：advisory lock（值=p1）+owner-only EXISTS（形状无 TTL 项）——与 compact 同 key', async () => {
+    const txq = vi.fn().mockResolvedValue([{ seq: 1n }]);
+    const exec = vi.fn().mockResolvedValue([]);
+    const { repo, exec: e } = buildRepo({ txQuery: txq, txExec: exec });
+    repo.setLeaseOwner('me');
+    const r = await repo.append('p1', new Uint8Array([1]));
+    expect(r).toEqual({ ok: true, seq: 1n });
+    expect(e.mock.calls.length).toBeGreaterThanOrEqual(1);            // 锁语句被执行
+    expect(shape(e.mock.calls[0])).toContain('pg_advisory_xact_lock(hashtext(?)');   // 占位符形态（禁内插）
+    expect(e.mock.calls[0].slice(1)).toEqual(['p1']);                 // 锁键=projectId（与 compact 同源）
+    const insert = txq.mock.calls[0];
+    expect(shape(insert)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
+    expect(shape(insert)).not.toContain('"expiresAt" >= now()');      // SV1：fence 去 TTL
+    expect(insert.slice(1)).toEqual(expect.arrayContaining(['p1', 'me']));   // owner=绑定值
+  });
+
+  it('owner=null 显式 throw lease-owner-not-set（P7：配置错误不伪装 fenced）', async () => {
+    const { repo } = buildRepo();
+    await expect(repo.append('p1', new Uint8Array([1]))).rejects.toThrow('lease owner not set');
+  });
+
+  it('fenced=0 行不抛异常（B2）→二次查行在→{ok:false,reason:"fenced"}（契约 15；no-row 死值已删）', async () => {
+    const txq = vi.fn().mockResolvedValue([]);                       // INSERT 0 行
+    const query = vi.fn().mockResolvedValue([{ owner: 'other' }]);   // 二次查
+    const { repo } = buildRepo({ query, txQuery: txq });
+    repo.setLeaseOwner('me');
+    await expect(repo.append('p1', new Uint8Array([1]))).resolves.toEqual({ ok: false, reason: 'fenced' });
+  });
+
+  it('leaseRowMissing：二次查空行→throw（不伪装 fenced/不进重试语义）', async () => {
+    const txq = vi.fn().mockResolvedValue([]);
+    const query = vi.fn().mockResolvedValue([]);                     // 二次查空
+    const { repo } = buildRepo({ query, txQuery: txq });
+    repo.setLeaseOwner('me');
+    await expect(repo.append('p1', new Uint8Array([1]))).rejects.toMatchObject({ leaseRowMissing: true });
+  });
+
+  it('compact 事务首行租约断言：不符→{compacted:false,reason:"not-owner"}+零删除+断言先于锁（调用序判据）', async () => {
+    const txq = vi.fn()
+      .mockResolvedValueOnce([])                        // 首行 fence 断言=0 行
+      .mockResolvedValue([{ owner: 'other' }]);         // 二次查
+    const exec = vi.fn().mockResolvedValue([]);
+    const { repo, exec: e } = buildRepo({ txQuery: txq, txExec: exec });
+    repo.setLeaseOwner('me');
+    const r = await repo.compact('p1');
+    expect(r).toEqual({ compacted: false, reason: 'not-owner' });
+    expect(e.mock.calls.length).toBe(0);                // 锁未被调用——fence 断言先于锁（调用序而非文本）
+  });
+
+  it('readSnapshotOnly=第二出口（契约 1"一个实现、两出口"）——同 readConsistent 事务形态', async () => {
+    const { repo } = buildRepo({ docRow: null });
+    const r = await repo.readSnapshotOnly('p1');
+    expect(r).toEqual({ state: null, updates: [], stateSeq: 0n });
+  });
+
+  it('readConsistent 游标初值 0n（SV3 判别性——docRow.stateSeq=42n 时旧实现从 42 起、新实现从 0 起）', async () => {
+    const txq = vi.fn().mockResolvedValue([]);   // 增量页空（首页即止）
+    const { repo, txq: q } = buildRepo({ txQuery: txq, docRow: { stateSeq: 42n } });
+    await repo.loadForHydration('p1');
+    const page = q.mock.calls.find((c) => shape(c).includes('seq >'))!;
+    expect(shape(page)).toContain('seq > ?::bigint');            // 谓词保留（去谓词=满页死循环——W15）
+    expect(page.slice(1)).toEqual(['p1', 0n, 500]);              // 游标=0n 非 42n+页大小绑定值
   });
 });

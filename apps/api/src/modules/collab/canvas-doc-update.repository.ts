@@ -1,7 +1,13 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { yjsCompactAbandonedTotal, yjsHydrationHugeRowTotal, yjsStoreCompactFailureTotal } from './store.metrics';
+import {
+  yjsCompactAbandonedTotal,
+  yjsCompactNotOwnerTotal,
+  yjsHydrationHugeRowTotal,
+  yjsSnapshotReadTotal,
+  yjsStoreCompactFailureTotal,
+} from './store.metrics';
 
 @Injectable()
 export class CanvasDocUpdateRepository {
@@ -10,39 +16,88 @@ export class CanvasDocUpdateRepository {
   // 显式 @Inject：vitest esbuild 不生成设计时类型元数据（同 collab-document.service 模式）
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  /** Y0a-3 T2 最小缝（契约 16 前置）：租约 owner 写入面——CollabLeaseService=唯一写者；
-   *  写语句 owner 断言（append WHERE / compact 判据）由后续任务接线，本批只落态位。 */
+  /** 契约 16（v2.5）：唯一写者=CollabLeaseService（获取/失守/释放时调用）；owner=null ⇒
+   *  append/compact 断言恒不通过=天然 fail-closed（P7：null 显式 throw——"lease service 从未注入"
+   *  是排序/配置 bug，伪装 fenced 会误导自隔离方向）。禁逐调用点传参（漏传=静默破防）。 */
   private leaseOwner: string | null = null;
   setLeaseOwner(owner: string | null): void { this.leaseOwner = owner; }
 
-  /** Y0a-1：单语句原子 append（取号+插入同一语句——消灭两语句间进程死窗口）。
-   *  返回契约（spec v2.4 §1.2/契约 15）：AppendResult 判别类型——fenced=0 行**不抛异常**，调用方
-   *  禁以"未抛错"判成功；本批无租约断言恒 {ok:true}（WHERE owner+TTL 断言 Y0a-3 追加，届时 0 行
-   *  返回 {ok:false,reason:'fenced'}——签名本批一步定死，防 Y0a-3 中途改签名连锁）。 */
-  async append(projectId: string, update: Uint8Array): Promise<{ ok: true; seq: bigint } | { ok: false; reason: 'fenced' | 'no-row' }> {
+  /** P23/V26 锁键单源：append/compact 共用——任何一处漂移=stateSeq 静默变谎话（配合
+   *  canvas-doc-insert-ratchet.spec.ts 静态断言"INSERT 仅在本文件"形成双守卫）。 */
+  private lockProject(
+    tx: { $executeRaw: (q: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> },
+    projectId: string,
+  ): Promise<unknown> {
+    return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
+  }
+
+  /** Y0a-3 T3 fence 下沉：单语句原子 append（取号+插入同一语句——消灭两语句间进程死窗口）+
+   *  owner-only 写断言（SV1：WHERE EXISTS CollabLease owner——去 TTL，TTL 不参与正确性判定）+
+   *  与 compact 同 key advisory lock（SV3：seq 序≡提交序，stateSeq 保持可信水位）。
+   *  返回契约（spec v2.5 契约 15）：AppendResult 判别类型——fenced=0 行**不抛异常**，调用方
+   *  禁以"未抛错"判成功。0 行时二次查区分（v2.5 消静默）：行在=真 fenced；行被删=leaseRowMissing
+   *  throw（配置错误，重试无用——gateway 落 spool 不排梯 SV13）。 */
+  async append(projectId: string, update: Uint8Array): Promise<{ ok: true; seq: bigint } | { ok: false; reason: 'fenced' }> {
+    const owner = this.leaseOwner;
+    if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
     // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——裸 $queryRaw 无超时=挂起的 PG append
     // 无上界持 saveMutex→shutdown drain 等 doc 归零永不满足→恒走 destroy_timeout。与 loadForHydration
     // 同族（单语句事务体）；P2024（事务超时）以 throw 形态冒出——isRetryableAppendError 已含 P2024。
     const rows = await this.prisma.$transaction(
-      (tx) => tx.$queryRaw<{ seq: bigint }[]>`
-      INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
-      SELECT gen_random_uuid()::text, ${projectId}, nextval('canvas_doc_update_seq')::bigint, ${Buffer.from(update)}, now()
-      RETURNING seq`,
+      async (tx) => {
+        // SV3/W14：与 compact 同 key advisory lock——seq 序≡提交序（stateSeq 保持可信水位），
+        // append×compact 竞态结构性消失；单锁无死锁面；亚毫秒级（仅同项目并发写时排队）。
+        await this.lockProject(tx, projectId);
+        return tx.$queryRaw<{ seq: bigint }[]>`
+        INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
+        SELECT gen_random_uuid()::text, ${projectId}, nextval('canvas_doc_update_seq')::bigint, ${Buffer.from(update)}, now()
+        WHERE EXISTS (SELECT 1 FROM "CollabLease"
+                       WHERE scope = 'primary' AND owner = ${owner})
+        RETURNING seq`;
+      },
       { timeout: 5_000, maxWait: 1_000 },
     );
-    return rows.length === 0 ? { ok: false, reason: 'no-row' } : { ok: true, seq: rows[0].seq };
+    if (rows.length > 0) return { ok: true, seq: rows[0].seq };
+    // 0 行=fenced（B2 不抛）。二次查区分（v2.5 消静默）：行被删=配置错误（leaseRowMissing，重试无用
+    // ——gateway 落 spool 不排梯 SV13）；行在=确为 fenced（owner≠me）。
+    const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
+      SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
+    if (lease.length === 0) {
+      throw Object.assign(
+        new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
+        { leaseRowMissing: true },
+      );
+    }
+    return { ok: false, reason: 'fenced' };
   }
 
   private static readonly PAGE_ROWS = 500;
 
-  /** Y0a-1 装载读唯一入口（spec §4.3-1）：单 RR 事务覆盖快照+全部分页增量（E42①(i)——MVCC 使
-   *  compact 的 DELETE 对本快照不可见，撕裂结构性不存在）。apply 由调用方在事务外执行。
-   *  本方法即 spec v2.4 契约 1 的 readConsistent 实现体——Y0a-3 落地 readSnapshotOnly 时提取
-   *  "一个实现、两出口"，禁复制第二份（投影出口只去 apply/store/compact 包装）。
+  /** Y0a-1 装载读唯一入口（spec §4.3-1）：委托 readConsistent（契约 1"一个实现、两出口"——
+   *  装载出口；opts 供自愈路径重试时收紧预算透传）。 */
+  async loadForHydration(
+    projectId: string,
+    opts?: { timeoutMs?: number; maxWaitMs?: number },
+  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
+    return this.readConsistent(projectId, opts);
+  }
+
+  /** 契约 1（"一个实现、两出口"）：投影出口（video-work 快照）——不 apply 到 doc、不触 store/
+   *  compact；与装载出口共用同一单 RR 事务实现，禁复制第二份。 */
+  async readSnapshotOnly(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
+    yjsSnapshotReadTotal.inc();
+    return this.readConsistent(projectId);
+  }
+
+  /** 两出口共用实现体：单 RR 事务覆盖快照+全部分页增量（E42①(i)——MVCC 使 compact 的 DELETE
+   *  对本快照不可见，撕裂结构性不存在）。apply 由调用方在事务外执行。
+   *  SV3/W15：游标初值恒 0n——nextval 取号与提交序无绑定，水位过滤在绕锁路径下=静默丢内容；
+   *  append 侧 advisory lock 已使 seq 序≡提交序（stateSeq 重新可信），读侧全量为双保险且正常路径等价。
+   *  分页 seq>cursor 谓词保留——去掉谓词=满页死循环。
    *  预算规则：timeout 8s < 客户端 synced 死线 10s−2s；maxWait 2s（池排队由 connection_limit 承担）；
    *  opts 供自愈路径重试时收紧预算（契约 13 v2.4）。
    *  raw SQL 规则：bigint 参数一律显式 ::bigint。 */
-  async loadForHydration(
+  private async readConsistent(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
   ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
@@ -50,7 +105,7 @@ export class CanvasDocUpdateRepository {
       async (tx) => {
         const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { state: true, stateSeq: true } });
         const updates: Buffer[] = [];
-        let cursor = docRow?.stateSeq ?? 0n;
+        let cursor = 0n;
         for (;;) {
           const page = await tx.$queryRaw<{ seq: bigint; update: Buffer }[]>`
             SELECT seq, update FROM "CanvasDocUpdate"
@@ -111,20 +166,36 @@ export class CanvasDocUpdateRepository {
     return this.prisma.canvasDocUpdate.count({ where: { projectId } });
   }
 
-  /** Y0a-1 compact（spec v2.4 §1.3）：按实读行 id 精确删除（被删集≡被重放集）；stateSeq 精确 =maxSeq
+  /** Y0a-1 compact（spec v2.5 §1.3）：事务首行租约断言（SV8：owner-only，先于 advisory lock——
+   *  无权者不排队不删行）后按实读行 id 精确删除（被删集≡被重放集）；stateSeq 精确 =maxSeq
    *  （精确赋值依赖 advisory lock 串行——去锁并发化必须先落 Y1c-1 CAS 形态，禁 GREATEST/单调化包装）；
-   *  返回契约 {compacted,reason}：empty=无行静默；abandoned=pendingStructs!=null 放弃本次——计数+ERROR
-   *  落本分支单点（gateway 与装载自愈两路覆盖，防双计），**禁 throw**（gateway :297-301 catch 会把它计入
-   *  yjsStoreCompactFailureTotal=污染 abandoned 的 P0 告警线）。
+   *  返回契约 {compacted,reason}：empty=无行静默；not-owner=租约档拒绝（SV8 分立计数，行数不减）；
+   *  abandoned=pendingStructs!=null 放弃本次——计数+ERROR 落本分支单点（gateway 与装载自愈两路覆盖，
+   *  防双计），**禁 throw**（gateway :297-301 catch 会把它计入 yjsStoreCompactFailureTotal=污染
+   *  abandoned 的 P0 告警线；not-owner 同理不抛——调用方只看 compacted）。
    *  （SV inline 哨兵已删——pendingStructs 检查通过前提下 per-row SV 支配性恒真，探针证伪见 spec §1.5。）
    *  opts：交互式事务独立预算（自愈路径 6s/1s·运维脚本 120s/5s；默认 5s/2s 与 Prisma 隐含值对齐）。 */
   async compact(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ compacted: boolean; reason?: 'abandoned' | 'empty' }> {
+  ): Promise<{ compacted: boolean; reason?: 'abandoned' | 'empty' | 'not-owner' }> {
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
+        const owner = this.leaseOwner;
+        if (owner == null) throw Object.assign(new Error('compact blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
+        const fence = await tx.$queryRaw<{ ok: number }[]>`
+          SELECT 1 AS ok WHERE EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})`;
+        if (fence.length === 0) {
+          const row = await tx.$queryRaw<{ owner: string | null }[]>`
+            SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
+          if (row.length === 0) {
+            throw Object.assign(new Error('CollabLease row missing（compact fence）'), { leaseRowMissing: true });
+          }
+          yjsCompactNotOwnerTotal.inc();   // SV8：not-owner 分立（abandoned=pendingStructs 专用不污染）
+          this.logger.warn(`compact not-owner for ${projectId}（租约档——行数不减）`);
+          return { compacted: false, reason: 'not-owner' as const };
+        }
+        await this.lockProject(tx, projectId);   // P23：锁键单源（与 append 同 helper）
         const rows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },

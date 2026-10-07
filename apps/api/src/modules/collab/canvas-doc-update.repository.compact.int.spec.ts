@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { svDominates } from './sv.util';
-import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
+import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import * as Y from 'yjs';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -36,7 +36,9 @@ maybe('compact（真 PG）', () => {
   const PID = 'y0a1-compact-int';
 
   beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
-  afterAll(async () => { await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+  // Y0a-3（P13）：fence 落地后真库 append/compact 需 CollabLease 行 owner 匹配（beforeEach 续 5min 窗）
+  beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
+  afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
   it('stateSeq 恒等于被删行最大 seq（精确赋值——禁 GREATEST；注释口径：精确 = 依赖 advisory lock 串行，去锁并发化必须先落 Y1c-1 CAS 形态）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });

@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
-import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
+import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import * as Y from 'yjs';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -13,7 +13,9 @@ maybe('loadForHydration（真 PG）', () => {
   const repo = new CanvasDocUpdateRepository(prisma as any);
 
   beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
-  afterAll(async () => { await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+  // Y0a-3（P13）：fence 落地后真库 append/compact 需 CollabLease 行 owner 匹配（两 describe 各自接线）
+  beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
+  afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
   async function reset() {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
@@ -150,7 +152,9 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
   const repo = new CanvasDocUpdateRepository(prisma as any);
 
   beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
-  afterAll(async () => { await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+  // Y0a-3（P13）：fence 落地后真库 append/compact 需 CollabLease 行 owner 匹配（两 describe 各自接线）
+  beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
+  afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
   async function reset() {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });

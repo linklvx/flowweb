@@ -1,13 +1,13 @@
 // Y0a-2（V6）：FK 真库背书——raw 路径 FK 形状（P2010+meta.code='23503'）唯真库可证，mock-only FK 用例一律无效证据。
 // 流程：ensureProjectFixture 建 fixture→spool.append 真帧（真 tmp 目录）→prisma.canvasProject.delete（真删）
 // →replayAll(CanvasDocUpdateRepository 真实例)→断言 report.discarded===1+段文件回收。
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { readdir } from 'node:fs/promises';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
-import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
+import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -23,7 +23,9 @@ maybe('spool replayAll FK 真库背书（V6）', () => {
     await ensureProjectFixture(prisma, PID);
     ({ dir, cleanup } = await makeSpoolDir('y0a2-spool-int-'));
   });
-  afterAll(async () => { await cleanup(); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+  // Y0a-3（P13）：fence 落地后 replayAll 内的 repo.append 需 CollabLease 行 owner 匹配
+  beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
+  afterAll(async () => { await restoreLeaseRow(prisma); await cleanup(); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
   it('项目真删后回灌：raw append FK→帧按终态丢弃+段回收（P2010+meta 23503 形状由 isFkGone 单源判别）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });

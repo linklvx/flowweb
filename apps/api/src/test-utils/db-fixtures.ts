@@ -52,3 +52,24 @@ export async function cleanupCollabSessionFixture(prisma: PrismaClient, projectI
   await prisma.session.deleteMany({ where: { token } });   // V25/M4：session 行清理
   await cleanupProjectFixture(prisma, projectId);
 }
+
+/** Y0a-3（P13/V23）：fence 落地后真库 append/compact 需要 CollabLease 行 owner 匹配——int/演练共用。
+ *  ON CONFLICT DO UPDATE（Z17 同判）；过期 **5min**（非 1h——残留 fixture 不长挡本地 dev/gate，
+ *  干扰窗压到分钟级且 dev API rejoinLoop 自愈）；配套 restoreLeaseRow 供各 int spec afterAll 复原。 */
+export const LEASE_FIXTURE_OWNER = 'int-test-lease';
+export async function ensureLeaseFixture(
+  prisma: PrismaClient, repo?: { setLeaseOwner(o: string | null): void }, owner = LEASE_FIXTURE_OWNER,
+): Promise<void> {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "CollabLease" (scope, owner, epoch, "expiresAt") VALUES ('primary', $1, 1, now() + interval '5 minutes')
+     ON CONFLICT (scope) DO UPDATE SET owner = $1, "expiresAt" = now() + interval '5 minutes'`, owner,
+  );
+  repo?.setLeaseOwner(owner);
+}
+
+/** V23：int 后复原全局租约行（afterAll 调——防残留 fixture 挡本地 dev API/gate 的下一次获取）。 */
+export async function restoreLeaseRow(prisma: PrismaClient): Promise<void> {
+  await prisma.$executeRawUnsafe(
+    `UPDATE "CollabLease" SET owner = NULL, "expiresAt" = NULL, "renewedAt" = NULL WHERE scope = 'primary'`,
+  );
+}

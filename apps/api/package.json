@@ -7,7 +7,7 @@
     "build": "node ../../scripts/check-shared-dist.mjs && nest build",
     "test": "node ../../scripts/check-shared-dist.mjs && tsc -p tsconfig.spec.json --noEmit && vitest run",
     "test:watch": "vitest",
-    "test:int": "vitest run \"src/**/*.int.spec.ts\"",
+    "test:int": "vitest run -c vitest.int.config.ts",
     "verify:indexes": "node ../../scripts/verify-indexes.mjs",
     "lint": "eslint \"{src,test}/**/*.ts\""
   },
