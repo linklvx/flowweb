@@ -55,8 +55,9 @@ deploy_full() {
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/web && npx vite build"
 
   echo "=== 重启后端 ==="
-  # kill_timeout 10000——enableShutdownHooks 后 server.destroy() 逐 doc flush 多次 DB 往返，超 pm2 默认 1600ms 即 SIGKILL 拆承重墙
-  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api --kill-timeout 10000"
+  # kill_timeout 45000（Y0a-3 W18/SV6，B9）——关停链=HTTP dispose 等在飞请求+collab 六步 drain ≤22s+余量；
+  # 超窗 pm2 SIGKILL 截断=租约不显式释放（下实例吃满 TTL）+drain 断言失真
+  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api --kill-timeout 45000"
 }
 
 deploy_web() {
@@ -91,8 +92,9 @@ deploy_api() {
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && rm -rf dist && npx nest build"
 
   echo "=== 重启后端 ==="
-  # kill_timeout 10000——enableShutdownHooks 后 server.destroy() 逐 doc flush 多次 DB 往返，超 pm2 默认 1600ms 即 SIGKILL 拆承重墙
-  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api --kill-timeout 10000"
+  # kill_timeout 45000（Y0a-3 W18/SV6，B9）——关停链=HTTP dispose 等在飞请求+collab 六步 drain ≤22s+余量；
+  # 超窗 pm2 SIGKILL 截断=租约不显式释放（下实例吃满 TTL）+drain 断言失真
+  ssh -i "$KEY" "$SERVER" "pm2 restart flowweb-api --kill-timeout 45000"
 }
 
 case "$MODE" in

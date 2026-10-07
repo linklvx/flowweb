@@ -129,10 +129,10 @@ jobs:
       - run: pnpm --filter @flowweb/web exec playwright test e2e/b1-token-migration.spec.ts --grep "B1-4"
       - run: node apps/web/scripts/css-baseline-diff.mjs
 
-  # Y0a-1（E69③ 最小起步·spec §4.5 v2.4 收敛）：collab-core 唯一增量=int 真库显式清单+passed 口径条数
-  # 断言。库锚/语料/契约门禁均为常规 vitest spec——test job 经 verify 已常跑，此处重跑=第二真源（防双源，
-  # "collab 绿"唯一定义=test job）；kill -9/SIGTERM 演练自 Y0a-2 起；dist 泄漏断言已入根 verify（Task 7）。
-  # 条数断言不用 numTotalTests（skip 计入——DATABASE_URL 缺失时全 skip 也过=被它要防的模式击穿）。
+  # Y0a-1（E69③ 最小起步·spec §4.5 v2.4 收敛）→Y0a-3 演进：int 真库全集（vitest.int.config 专用池
+  # 串行）+check-int-coverage 四判据（集合≡执行集/零失败/零跳过/下限）。库锚/语料/契约门禁均为常规
+  # vitest spec——test job 经 verify 已常跑，此处重跑=第二真源（防双源，"collab 绿"唯一定义=test job）；
+  # kill -9/SIGTERM/handover 演练自 Y0a-2/3 起；dist 泄漏断言已入根 verify（Task 7）。
   collab-core:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -168,21 +168,23 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
-      # X16 纪律：新增 *.int.spec.ts ⇒ 同步扩下方显式清单+条数阈值——否则文件永不跑而断言依旧绿（静默漏跑）。
-      - name: collab int（显式清单——本批四个 int spec；双 reporter=失败用例名在 CI 日志可读）
-        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/canvas-doc-update.repository.append.int.spec.ts src/modules/collab/canvas-doc-update.repository.compact.int.spec.ts src/modules/collab/canvas-doc-hydration.int.spec.ts src/modules/collab/collab-spool.int.spec.ts --reporter=json --reporter=default --outputFile=/tmp/int.json
-      - name: int 条数断言（passed≥16=15 现清单+spool int 1，且零失败零跳过——红证据：注释 DATABASE_URL 跑一次必红）
-        # 块标量必修：裸 run 标量含 'FAIL: passed' 的 ": " 序列=整文件 YAML 解析失败（Y0a-1 起本行
-        # 从未可解析——collab-core 实为从未跑过的死 job，Y0a-2 本地 js-yaml 实证并修复）。
-        run: |
-          node -e "const r=require('/tmp/int.json');const p=r.numPassedTests??0,f=r.numFailedTests??0,s=r.numPendingTests??0;if(f>0||s>0||p<16){console.error('FAIL: passed',p,'failed',f,'skipped',s);process.exit(1)}console.log('collab int passed:',p)"
-      # Y0a-2 演练=本 job 真增量（子进程形态 test job 无法跑，spec §4.5③）：四跑必须串行——触发器函数名
-      # 全局共享（Task 9 Minor 5）；驱动 tsx 直跑（驱动自身无 DI），server 侧由驱动先跑 tsconfig.drill.json
-      # 全量 tsc（首次编译时间计入本步预算，不设独立上界）+dist 产物在 job workspace；Linux 走 SIGTERM
-      # 真信号=生产同构通道；env 供给=job 级 DATABASE_URL/REDIS_URL+驱动内注入 MINIO 占位（双保险）。
-      - name: kill -9/SIGTERM 演练（G-1 双模式+G-2a 双档——RPO 契约的唯一测试证明）
+      # Y0a-3（V27/X16）：专用配置串行（CollabLease 单行全局资源，fileParallelism=false）+集合断言
+      # 单源化——显式清单+条数阈值退役（新增 int 文件漏登记=静默漏跑的根因由 git ls-files 集合比对消除）。
+      - name: collab int（专用配置串行——CollabLease 单行全局资源；双 reporter=失败用例名在 CI 日志可读）
+        run: pnpm --filter @flowweb/api test:int:ci
+      - name: int 完整性断言（V27——集合+零失败+零跳过+下限）
+        run: node scripts/check-int-coverage.mjs
+      # Y0a-2/3 演练=本 job 真增量（子进程形态 test job 无法跑，spec §4.5③）：七跑必须串行——触发器函数名
+      # 全局共享（Task 9 Minor 5）+租约行全局共享（Z25）；驱动 tsx 直跑（驱动自身无 DI），server 侧由驱动
+      # 先跑 tsconfig.drill.json 全量 tsc（首次编译时间计入本步预算，不设独立上界）+dist 产物在 job
+      # workspace；Linux 走 SIGTERM 真信号=生产同构通道；env 供给=job 级 DATABASE_URL/REDIS_URL+驱动内
+      # 注入 MINIO 占位（双保险）。
+      - name: kill -9/SIGTERM/handover 演练（G-1 双模式+G-2a 双档+Z25 三变体——RPO/接管契约的唯一测试证明）
         run: |
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-normal
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-fault
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm --spool-fail
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --graceful
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --usurp

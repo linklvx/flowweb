@@ -29,7 +29,7 @@
       }
     },
     {
-      "name": "api-b",
+      "name": "api-b (handover only——同机第二实例只能错端口跑，且只有先起的那个能持有 collab；N15：3000/3001 端口冲突先于租约，租约价值=TTL 崩溃接管/跨主机/误配快速失败)",
       "runtimeExecutable": "npx",
       "runtimeArgs": [
         "turbo",

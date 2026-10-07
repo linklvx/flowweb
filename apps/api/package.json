@@ -8,6 +8,7 @@
     "test": "node ../../scripts/check-shared-dist.mjs && tsc -p tsconfig.spec.json --noEmit && vitest run",
     "test:watch": "vitest",
     "test:int": "vitest run -c vitest.int.config.ts",
+    "test:int:ci": "vitest run -c vitest.int.config.ts --reporter=default --reporter=json --outputFile=int.json",
     "verify:indexes": "node ../../scripts/verify-indexes.mjs",
     "lint": "eslint \"{src,test}/**/*.ts\""
   },

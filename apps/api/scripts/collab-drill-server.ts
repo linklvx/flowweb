@@ -7,23 +7,27 @@
 // env 全由驱动进程注入：DATABASE_URL/COLLAB_PORT/DRILL_HTTP_PORT/COLLAB_DEBOUNCE/
 // COLLAB_SPOOL_DIR/PROMETHEUS_TOKEN/MINIO_INIT=skip+三占位（X3：skip 不可省——占位只过 zod，
 // MinioModule.onModuleInit 仍 ensureBucket 3 重试后 throw=listen 永不执行）/DRILL_SPOOL_FAIL（Y14）。
-// 关停双通道（controller 裁定 9 实测适配）：enableShutdownHooks 承接 POSIX 语义的 SIGTERM；
-// Windows 下 child.kill('SIGTERM')=libuv TerminateProcess 硬杀（Step 1 探针实证，drill 驱动
-// 登记形态）——备选通道=IPC process.send({type:'shutdown'})，驱动按平台选择主通道。
-// closing 闸：双通道并发到达不双跑 drain（app.close 二次调用=drain_complete 重复打印+断言污染）。
+// 关停双通道（controller 裁定 9 实测适配）：POSIX=真 SIGTERM 信号；Windows 下
+// child.kill('SIGTERM')=libuv TerminateProcess 硬杀（Step 1 探针实证，drill 驱动登记形态）——
+// 备选通道=IPC process.send({type:'shutdown'})，驱动按平台选择主通道。
+// closing 闸（Y0a-3 必办⑩）：原 IPC 支路独享闸+enableShutdownHooks 承接 SIGTERM——POSIX 支路
+// 无闸（双通道并发=app.close 二跑=drain_complete 重复打印+断言污染）。改手动 handler 弃
+// enableShutdownHooks：app.close 本身恒调 onApplicationShutdown（信号接线才是它的职责，B4）；
+// 两支路同一 closing 闸。
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { CollabSpoolService } from '../src/modules/collab/collab-spool.service';
 
 async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
-  app.enableShutdownHooks();   // SIGTERM→onApplicationShutdown（G-2a 演练对象）
   let closing = false;
-  process.on('message', (m: unknown) => {
-    if ((m as { type?: string } | null)?.type !== 'shutdown' || closing) return;
+  const shutdown = () => {
+    if (closing) return;
     closing = true;
-    void app.close().then(() => process.exit(0));   // 显式 exit——IPC 通道句柄不再吊住 event loop
-  });
+    void app.close().then(() => process.exit(0));   // 显式 exit——IPC/信号句柄不吊 event loop
+  };
+  process.on('message', (m: unknown) => { if ((m as { type?: string } | null)?.type === 'shutdown') shutdown(); });
+  process.on('SIGTERM', shutdown);   // POSIX 真信号（CI Linux=生产同构通道）；win32=TerminateProcess 硬杀不走此
   if (process.env.DRILL_SPOOL_FAIL === '1') {
     // Y14 终口径（Task 5 勘误传导）：monkey-patch append 恒抛——overCapacityFlag 单独注入会被
     // 运行期首个 append 的滞回解除支自清（低深度 ≤90%×256MB 翻 false）=注入失效；探针走 appendRaw
