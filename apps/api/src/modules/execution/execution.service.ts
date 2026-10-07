@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
@@ -71,6 +71,11 @@ export class ExecutionService {
     });
     if (!project) return { success: false, errors: ['项目不存在'] };
 
+    // Y0a-3（§3.2 计费读）：租约失守/drain→503 fail-closed（按陈旧快照烧钱比拒服务更糟——E49）。
+    // V21：**对象响应体**（Object.assign 挂异常属性不会进 getResponse()——客户端拿不到 code）；
+    // Retry-After 由 collab-not-serving.filter.ts 统一落。
+    if (!this.collabDoc.isLeaseServing())
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
     const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const allNodes = canvas.nodes as any[];
     const allEdges = canvas.edges as any[];

@@ -1,8 +1,8 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { fillDoc, stampDocSchema, stripAuthorState } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
@@ -28,7 +28,6 @@ export class ProjectService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamService) private readonly teamService: TeamService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -53,23 +52,21 @@ export class ProjectService {
           data: { projectId: created.id, userId, role: 'PROJECT_OWNER' },
         });
       }
+      // Y0a-3（T8①/P1-3/V19）：种子 PG 侧同事务落库——创建原子化（不依赖领导权、不产"行已建无戳"
+      //  半成品、clone 链同受益）；首装载 hydrate state 已含戳——O0b-0 语义不变。
+      //  V19：fillDoc 契约=（DocLike, stripAuthorState 输出, edges）——直传原始记录=往快照写非作者态
+      //  键（分镜子 position/组帧键按组类型键集表——clone 传入的正是作者态记录）。
+      //  O0b-0：无条件盖章（去 nodes.length 闸门——空画布也稳定落 CanvasDoc 行+确定性戳）。
+      const seed = new Y.Doc();
+      stampDocSchema(toDocLike(seed));
+      if (nodes && nodes.length > 0) fillDoc(toDocLike(seed), stripAuthorState(nodes as any), edges ?? []);
+      await tx.canvasDoc.upsert({
+        where: { projectId: created.id },
+        create: { projectId: created.id, state: Buffer.from(Y.encodeStateAsUpdate(seed)), stateSeq: 0n },
+        update: {},
+      });
+      seed.destroy();
       return created;
-    });
-
-    // O0b-0 版本门 v2.1：REST 种子唯一戳点——withDoc 无条件执行（去 nodes.length>0 闸门：
-    // 闸门内=REST 建项目 controller:17 传 undefined 永不落 doc 不盖章；副作用=空画布也稳定
-    // 产生 CanvasDoc 行+盖章——空档无戳∧零节点在 WS loadDocument 自愈兜底前先有确定性戳）。
-    // 带节点链（clone 传数组/import 随 (a1) 删）经同一回调。
-    await this.collabDoc.withDoc(project.id, (doc) => {
-      stampDocSchema(toDocLike(doc));
-      if (nodes && nodes.length > 0) {
-        // 模板导入：经 Hocuspocus 直连写入（走完整 load→transact→flush 生命周期）；
-        // 写侧经 shared fillDoc 单源（O0a-2 收编——data 全量写入/edges 单形状随函数同源）；
-        // 记录经 stripAuthorState 剥键回作者态（spec ③记录契约：fillDoc 只接受其输出——
-        // 分镜子 position/组帧键按组类型键集表）。O0b-0：normalizeLoadedCanvas 补缺层整删
-        //（翻转后 doc=完整作者态，补几何语义死——种子直读 strip 输出）
-        fillDoc(toDocLike(doc), stripAuthorState(nodes as any), edges ?? []);
-      }
     });
 
     return this.findById(project.id);

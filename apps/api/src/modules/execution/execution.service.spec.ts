@@ -9,7 +9,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { GenerationIntentService } from './generation-intent.service';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ExecutionService', () => {
@@ -32,6 +32,7 @@ describe('ExecutionService', () => {
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
+      isLeaseServing: vi.fn().mockReturnValue(true), // Y0a-3 T8 计费读门——默认放行（本文件焦点在执行链）
       writeNodeData: vi.fn(),
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
@@ -128,6 +129,16 @@ describe('ExecutionService', () => {
     permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
     await expect(service.execute('p1', undefined, 'u1', undefined)).rejects.toThrow('无项目编辑权限');
     expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'u1');
+  });
+
+  it('Y0a-3 计费读门（E49/V21）：lease 未持 → 503 且 getResponse().code=COLLAB_NOT_SERVING（对象体），零读零执行', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    collabDoc.isLeaseServing.mockReturnValue(false);
+    const ex = await service.execute('p1', 'n2', 'default-user').catch((e: unknown) => e);
+    expect(ex).toBeInstanceOf(ServiceUnavailableException);
+    expect((ex as ServiceUnavailableException).getResponse()).toMatchObject({ code: 'COLLAB_NOT_SERVING' });
+    expect(collabDoc.readCanvas).not.toHaveBeenCalled(); // fail-closed：不按陈旧快照烧钱
+    expect(apiCaller.callImageGen).not.toHaveBeenCalled();
   });
 
   it('should handle credit deduction failure during execution', async () => {

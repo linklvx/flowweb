@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -478,6 +479,18 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
       expect(doc.getMap('exec').get('ghost-1')).toBeUndefined(); // 孤儿已删
       expect(doc.getMap('exec').get('n1')).toBeDefined(); // 在册保留
+    });
+
+    it('Y0a-3 V20：withDoc 抛 503（lease 失守）→ 捕获后延后重试——单项目失败不阻塞整批，零意图终态误判', async () => {
+      prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
+      collabDoc.withDoc.mockRejectedValueOnce(
+        new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' }),
+      );
+
+      await expect(service.reconcileDaily()).resolves.toBeUndefined(); // 503 被捕获——不外抛
+
+      expect(collabDoc.withDoc).toHaveBeenCalledTimes(2); // p1 失败不阻塞 p2（p1 留待下轮=延后重试）
+      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled(); // 零终态写——未完成投影不被判死
     });
 
     it('video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron 搬入）', async () => {

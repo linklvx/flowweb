@@ -58,7 +58,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   const providers: HocuspocusProvider[] = [];
   return {
     gateway,
-    docService: new CollabDocumentService(gateway),
+    docService: new CollabDocumentService(gateway, repo as any),
     repo,
     url,
     prisma,

@@ -1,5 +1,5 @@
 // apps/api/src/modules/video-project/video-project.service.ts
-import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -89,6 +89,10 @@ export class VideoProjectService {
    */
   async regenerate(userId: string, dto: { sourceNodeId: string; workflowId: string; kind: 'video' | 'audio'; retakeId: string }) {
     await this.perm.assertEditor(dto.workflowId, userId);
+    // Y0a-3（§3.2 语义读）：regenerate 校验读同 execution 计费读分型——租约失守/drain→503 fail-closed
+    // （V21 对象响应体；Retry-After 由 collab-not-serving.filter.ts 统一落）。
+    if (!this.collab.isLeaseServing())
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
     const canvas = await this.collab.readCanvas(dto.workflowId);
     const src = (canvas.nodes as any[]).find(n => n.id === dto.sourceNodeId);
     const wantType = dto.kind === 'video' ? 'videoGen' : 'audioGen';

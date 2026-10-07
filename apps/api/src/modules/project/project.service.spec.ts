@@ -2,10 +2,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
+
+/** T8①：种子 PG 化——upsert.create.state 是 Yjs update 二进制，解码回 Y.Doc 断言内容 */
+const decodeState = (state: Buffer): Y.Doc => {
+  const d = new Y.Doc();
+  Y.applyUpdate(d, new Uint8Array(state));
+  return d;
+};
+const upsertStateDoc = (prisma: any): Y.Doc =>
+  decodeState(prisma.canvasDoc.upsert.mock.calls[0][0].create.state);
 
 describe('ProjectService', () => {
   let service: ProjectService;
@@ -29,6 +37,7 @@ describe('ProjectService', () => {
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
       canvasDoc: {
         findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({}), // Y0a-3 T8①：种子 PG 侧同事务落库
       },
       projectMember: { create: vi.fn().mockResolvedValue({}) },
     };
@@ -41,7 +50,7 @@ describe('ProjectService', () => {
         ProjectService,
         { provide: PrismaService, useValue: prisma },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
-        { provide: CollabDocumentService, useValue: { readCanvas: vi.fn(), withDoc: vi.fn() } },
+        // Y0a-3 T8①：CollabDocumentService 注入随 withDoc 种子块删除（孤儿清理——不再提供替身，注入残留即 compile 红）
         { provide: EventEmitter2, useValue: emitter },
       ],
     }).compile();
@@ -63,29 +72,33 @@ describe('ProjectService', () => {
       });
     });
 
-    it('带 nodes 时经 withDoc 直连写入', async () => {
+    it('带 nodes 时种子经事务 canvasDoc.upsert 同事务落库（T8①/P1-3——创建原子化，不依赖领导权）', async () => {
       const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
 
       const nodes = [{ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { text: 'a' } }];
       const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
-      const collabDoc = (service as any).collabDoc;
       await service.create('导入', 'u1', nodes, edges);
-      expect(collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
+      expect(prisma.canvasDoc.upsert).toHaveBeenCalledWith({
+        where: { projectId: 'p1' },
+        create: { projectId: 'p1', state: expect.any(Buffer), stateSeq: 0n },
+        update: {},
+      });
+      // 行已建无戳半成品消灭：create 与种子同事务（mock 透传 tx——同一次 $transaction 回调内）
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
-    it('种子写侧收编（O0a-2）：fillDoc 单源写真 doc——meta 戳+data 全量写入+edges 单形状', async () => {
+    it('种子写侧收编（O0a-2/V19 形态）：fillDoc 经 toDocLike+stripAuthorState——state 含 meta 戳+data 全量+edges 单形状', async () => {
       const mockProject = { id: 'p1', name: '导入', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
-      const doc = new Y.Doc();
-      (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
 
       const nodes = [{ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { text: 'a' } }];
       const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
       await service.create('导入', 'u1', nodes, edges);
 
+      const doc = upsertStateDoc(prisma);
       expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // O0b-0：种子显式 stampDocSchema（fillDoc 已不写 meta——戳源唯一化）
       const n1 = doc.getMap('nodes').get('n1') as Y.Map<any>;
       expect(n1.get('type')).toBe('textInput');
@@ -101,8 +114,6 @@ describe('ProjectService', () => {
       const mockProject = { id: 'p1', name: '导入', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
-      const doc = new Y.Doc();
-      (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
 
       const nodes = [
         { id: 'grp', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal' } },
@@ -111,7 +122,7 @@ describe('ProjectService', () => {
       ];
       await service.create('导入', 'u1', nodes, []);
 
-      const nodesMap = doc.getMap('nodes');
+      const nodesMap = upsertStateDoc(prisma).getMap('nodes');
       const grp = nodesMap.get('grp') as Y.Map<any>;
       expect(grp.get('width')).toBe(300);          // manual 组（三键齐）帧保留
       expect(grp.get('position')).toBeInstanceOf(Y.Map);
@@ -125,12 +136,10 @@ describe('ProjectService', () => {
       expect((c1.get('data') as Y.Map<any>).get('fileId')).toBe('f');
     });
 
-    it('O0c-1 clone 形状种子验收：CLONE_WHITELIST 输出入 create（clone→create→withDoc 同一种子回调）→ doc 键集表逐格+stamp 含戳', async () => {
+    it('O0c-1 clone 形状种子验收：CLONE_WHITELIST 输出入 create（clone→create→同事务种子）→ state 键集表逐格+stamp 含戳', async () => {
       const mockProject = { id: 'p1', name: '春天的背面 (副本)', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);
       prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
-      const doc = new Y.Doc();
-      (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
 
       // clone 产物形状（CLONE_WHITELIST group 7 键含 storyboard/collapsed——O0c-3 摘 savedSize；auto 组=readCanvas 键集表输出 0 帧键——
       // 此处额外塞脏帧键模拟退化输入，验收 stripAuthorState 守卫）：manual/storyboard/auto 三档组+分镜子
@@ -143,7 +152,8 @@ describe('ProjectService', () => {
       ];
       await service.create('春天的背面 (副本)', 'u1', nodes, []);
 
-      expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // clone 产物 doc 含戳（create withDoc 统一戳点——O0b-0，本用例=clone 链验收锚）
+      const doc = upsertStateDoc(prisma);
+      expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // clone 产物 state 含戳（T8①同事务种子统一戳点——O0b-0，本用例=clone 链验收锚）
       const nodesMap = doc.getMap('nodes');
       const mg = nodesMap.get('mg') as Y.Map<any>;
       expect(mg.get('position')).toBeInstanceOf(Y.Map);   // manual（三键齐）折叠不剥——doc 三键=展开态密封源
@@ -165,19 +175,22 @@ describe('ProjectService', () => {
       expect(sc1.get('width')).toBe(320);                  // 分镜子只剥 position（wh=cell 尺寸自由面）
     });
 
-    it('O0b-0 正锚②：REST 建空项目（controller:17 传 undefined）→ withDoc 仍被调（去 nodes.length 闸门——空画布也落 doc 行+盖章）', async () => {
+    it('O0b-0 正锚②：REST 建空项目（controller:17 传 undefined）→ 同事务 upsert 仍落行（去 nodes.length 闸门——空画布也落 doc 行+盖章）', async () => {
     const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
     prisma.canvasProject.create.mockResolvedValue(mockProject);
     prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
-    const doc = new Y.Doc();
-    (service as any).collabDoc.withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
 
     await service.create('未命名项目', 'u1');
 
-    expect((service as any).collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
+    expect(prisma.canvasDoc.upsert).toHaveBeenCalledTimes(1);
+    const doc = upsertStateDoc(prisma);
     expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // 空画布也稳定盖章
     expect(doc.getMap('nodes').size).toBe(0);                // 无节点写入
   });
+
+    it('T8① 孤儿清理：collabDoc 注入零残留（withDoc 后置种子块删除）', () => {
+      expect((service as any).collabDoc).toBeUndefined();
+    });
 
   it('登录创建者写入 PROJECT_OWNER 成员记录', async () => {
       const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };

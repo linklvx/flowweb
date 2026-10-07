@@ -30,6 +30,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
+      isLeaseServing: vi.fn().mockReturnValue(true), // Y0a-3 T8 计费读门——默认放行
       writeNodeData: vi.fn(),
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };

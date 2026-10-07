@@ -6,6 +6,7 @@
 // 无戳∧零节点放行（REST 不盖戳）、sv 路径两锚（v1 同拒/v2 正常不退化）。
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { CollabDocumentService } from './collab-document.service';
 import { readRecordsFromMaps, stampDocSchema, CANVAS_DOC_SCHEMA_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
 
@@ -49,7 +50,7 @@ function buildDoc(): Y.Doc {
 }
 
 function buildService(doc: Y.Doc): CollabDocumentService {
-  const service = new CollabDocumentService({} as any);
+  const service = new CollabDocumentService({} as any, { readSnapshotOnly: vi.fn() } as any);
   vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) as any);
   return service;
 }
@@ -128,5 +129,72 @@ describe('O0b-0 版本门 v2.1（REST 读入口 fail-closed——第五行：v1 
     const sv = Y.encodeStateVector(doc);
     await expect(service.readCanvas('p1', sv, 50)).resolves.toBeTruthy();
     expect(CANVAS_DOC_SCHEMA_VERSION).toBe(2);
+  });
+});
+
+// Y0a-3 T8：readCanvas 可变性三分法——withDoc 三入口③租约门/投影快照出口/写意图门租约档
+describe('Y0a-3 T8（三分法）', () => {
+  const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }) });
+
+  it('withDoc 三入口③：lease 未持 → 503 早退（不触 openDirectConnection）', async () => {
+    const gateway = { isLeaseServing: vi.fn(() => false) };
+    const service = new CollabDocumentService(gateway as any, repoStub() as any);
+    await expect(service.withDoc('p1', () => 'x')).rejects.toThrow(ServiceUnavailableException);
+    expect(gateway.isLeaseServing).toHaveBeenCalledWith(); // 门读租约态
+    expect((gateway as any).server).toBeUndefined();       // 早退：直连从未开启
+  });
+
+  it('readCanvasFromSnapshot 不走 withDoc/租约：isLeaseServing=false 仍直查 repo 投影（只读档不受租约面影响）', async () => {
+    const doc = buildDoc();
+    stampDocSchema(toDocLike(doc));
+    const repo = { readSnapshotOnly: vi.fn().mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(doc)), updates: [], stateSeq: 1n }) };
+    const gateway = { isLeaseServing: vi.fn(() => false) };
+    const service = new CollabDocumentService(gateway as any, repo as any);
+    const withDocSpy = vi.spyOn(service, 'withDoc');
+
+    const out = await service.readCanvasFromSnapshot('p1');
+
+    expect(repo.readSnapshotOnly).toHaveBeenCalledWith('p1'); // 直查 repo 快照出口
+    expect(withDocSpy).not.toHaveBeenCalled();                // 不经 openDirectConnection/装载
+    expect(gateway.isLeaseServing).not.toHaveBeenCalled();    // 不窥探租约——投影读恒可用
+    expect(out.nodes.map((n: any) => n.id).sort()).toEqual(['bare', 'full']); // 与 readCanvas 同出口 readRecordsFromMaps
+    expect(out.edges).toHaveLength(1);
+  });
+
+  it('readCanvasFromSnapshot：state+分页增量同 doc 重放（投影=state∪updates）', async () => {
+    const base = new Y.Doc();
+    stampDocSchema(toDocLike(base)); // 生产快照恒有戳（种子无条件盖章）——ensureSchemaVersion 契约
+    base.getMap('nodes').set('n1', new Y.Map(Object.entries({ type: 'textInput' })));
+    const state = Buffer.from(Y.encodeStateAsUpdate(base));
+    const inc = new Y.Doc();
+    Y.applyUpdate(inc, new Uint8Array(state));
+    inc.getMap('nodes').set('n2', new Y.Map(Object.entries({ type: 'imageGen' })));
+    const update = Y.encodeStateAsUpdate(inc, Y.encodeStateVector(base)); // 仅增量
+
+    const repo = { readSnapshotOnly: vi.fn().mockResolvedValue({ state, updates: [Buffer.from(update)], stateSeq: 2n }) };
+    const service = new CollabDocumentService({ isLeaseServing: () => true } as any, repo as any);
+
+    const out = await service.readCanvasFromSnapshot('p1');
+    expect(out.nodes.map((n: any) => n.id).sort()).toEqual(['n1', 'n2']);
+  });
+
+  it('writeNodeData 写意图门租约档（R4）：lease 未持∧spool ok → 503（既有门只含 spool 态不含 draining）', async () => {
+    const gateway = { isLeaseServing: vi.fn(() => false), isWritableOrDegraded: vi.fn(() => 'ok') };
+    const service = new CollabDocumentService(gateway as any, repoStub() as any);
+    await expect(service.writeNodeData('p1', 'n1', { k: 'v' })).rejects.toThrow(ServiceUnavailableException);
+    expect((service as any).withDoc).toBeDefined(); // withDoc 未被触（早退在门前）
+  });
+
+  it('writeExecStatus 同款租约档 → 503', async () => {
+    const gateway = { isLeaseServing: vi.fn(() => false), isWritableOrDegraded: vi.fn(() => 'ok') };
+    const service = new CollabDocumentService(gateway as any, repoStub() as any);
+    await expect(service.writeExecStatus('p1', 'n1', { status: 'loading' })).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it('isLeaseServing 透传 gateway（计费/语义读调用面查此档）', () => {
+    const gateway = { isLeaseServing: vi.fn(() => true), isWritableOrDegraded: () => 'ok' as const };
+    const service = new CollabDocumentService(gateway as any, repoStub() as any);
+    expect(service.isLeaseServing()).toBe(true);
+    expect(gateway.isLeaseServing).toHaveBeenCalledTimes(1);
   });
 });

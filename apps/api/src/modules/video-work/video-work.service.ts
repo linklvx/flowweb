@@ -325,7 +325,9 @@ export class VideoWorkService {
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
 
-    const raw = await this.withTimeout(this.collabDoc.readCanvas(w.canvasProjectId), 5000) as RawCanvasData;
+    // Y0a-3（§3.2 只读展示）：快照出口 readCanvasFromSnapshot——不经 openDirectConnection/装载；
+    // 陈旧度=去抖窗级（spec §9.9）。租约失守期公开页照常（PG 数据在——投影读不分型 503）。
+    const raw = await this.withTimeout(this.collabDoc.readCanvasFromSnapshot(w.canvasProjectId), 5000) as RawCanvasData;
     const withThumbs = await this.injectThumbnails(raw);
     const filtered = buildFilteredSnapshot(withThumbs, {
       dropTypes: [], dropIdPrefixes: [],   // 快照不剥任何节点（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定；批5-1 删信箱后 shadow- 前缀剥除随行消失

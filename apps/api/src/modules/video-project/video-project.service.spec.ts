@@ -14,7 +14,7 @@ const mkPrisma = (over: any = {}) => ({
   canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) }, // teamId 派生查询
 });
 const perm = { assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
-const collab = { readCanvas: vi.fn() };
+const collab = { readCanvas: vi.fn(), isLeaseServing: vi.fn(() => true) }; // Y0a-3 T8 计费/语义读门——默认放行
 const execution = { execute: vi.fn() }; // 第 4 参——Task 11 regenerate 用，签名一次到位（避免中途改构造器）
 const quota = { assertCanUpload: vi.fn() }; // 第 5 参——Task 5 exportPrecheck 配额预检
 

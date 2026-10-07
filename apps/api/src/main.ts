@@ -7,6 +7,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
+import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { validateEnv } from './config/env';
 
@@ -84,7 +85,9 @@ async function bootstrap() {
 
   app.set('trust proxy', true);
 
-  app.useGlobalFilters(new HttpExceptionFilter());
+  // Y0a-3（V21）：COLLAB_NOT_SERVING 503 统一附 Retry-After: 2——注册于默认异常处理之前（Nest10
+  // 过滤链首中即止：非标记 503 由其内部委托 HttpExceptionFilter 同壳透出，其余异常类型直接落默认链）
+  app.useGlobalFilters(new CollabNotServingFilter(), new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));
   const corsOrigins = (env.CORS_ORIGIN || 'http://localhost:5173')
     .split(',')

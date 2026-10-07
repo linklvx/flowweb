@@ -41,6 +41,7 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
   const perm = { resolve: vi.fn(), assertEditor: vi.fn().mockResolvedValue(undefined) };
   const collabDoc = {
     readCanvas: vi.fn().mockResolvedValue({ nodes, edges: [] }),
+    isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费读门——默认放行
     writeNodeData: vi.fn(),
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
   };

@@ -14,7 +14,7 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
     prisma = { videoProject: { findUnique: vi.fn() } };
     // insertNode/removeNode 已随信箱删除——mock 不提供（regenerate 误用即红）；
     // writeNodeData 提供并断言零调用：产物落地（fileId/result 写真实节点）由 execute→ai-download 既有链承载
-    collab = { readCanvas: vi.fn(), writeNodeData: vi.fn() };
+    collab = { readCanvas: vi.fn(), isLeaseServing: vi.fn(() => true), writeNodeData: vi.fn() }; // Y0a-3 T8 语义读门——默认放行
     execution = { execute: vi.fn().mockResolvedValue({ success: true, results: [{ nodeId: 'src1', type: 'video', resultUrl: 'https://x/v.mp4' }] }) };
     svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any, quota as any);
   });
@@ -101,6 +101,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
     const perm = { assertEditor: vi.fn().mockResolvedValue(undefined) };
     const collab = {
       readCanvas: vi.fn().mockResolvedValue(CANVAS),
+      isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费/语义读门——默认放行
       writeNodeData: vi.fn(),
       writeExecStatus: vi.fn().mockResolvedValue(undefined),
     };
