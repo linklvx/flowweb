@@ -43,7 +43,7 @@ function buildGateway() {
   const repo = createMockRepo({
     append: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); return { ok: true as const, seq: 1n }; }),   // AppendResult 契约（Y0a-2 判别消费）
   });
-  const lease = createLeaseStub();   // Y0a-3 T5：redisSync 退役——租约 stub（isServing 恒 true）
+  const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true）
   const spool = new CollabSpoolService(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
   spool.setOwner('test-owner');                     // R3：写路径必先 setOwner（Z13 fail-closed）
   const gateway = new CollabGateway(

@@ -205,8 +205,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
       onDisconnect: this.hooks.onDisconnect,
       beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
-      // Y0a-3 T5：Redis extension 挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
-      // 消息同步退役；disconnectDelay 借道语义随之消失）。T6 删 collab-redis-sync.service 本体。
+      // Y0a-3 T5/T6：跨实例扩展挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
+      // 消息同步退役；其固定断开延迟借道语义随之消失，service 本体已删）。
     });
     // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
     // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。

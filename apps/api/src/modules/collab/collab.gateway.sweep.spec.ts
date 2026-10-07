@@ -26,7 +26,7 @@ function buildGateway() {
     canvasDoc: { findUnique: vi.fn().mockResolvedValue(null) },
   };
   const repo = createMockRepo();   // Y0a-1：mock-repo 工厂（loadUpdates 已删）
-  const lease = createLeaseStub();   // Y0a-3 T5：redisSync 退役——租约 stub（isServing 恒 true）
+  const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true）
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,

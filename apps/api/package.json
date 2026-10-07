@@ -16,7 +16,6 @@
     "@aws-sdk/s3-presigned-post": "^3.1049.0",
     "@aws-sdk/s3-request-presigner": "^3.1049.0",
     "@flowweb/shared": "workspace:*",
-    "@hocuspocus/extension-redis": "4.6.0",
     "@hocuspocus/server": "4.6.0",
     "@nestjs/bullmq": "10.2.1",
     "@nestjs/common": "10.4.18",

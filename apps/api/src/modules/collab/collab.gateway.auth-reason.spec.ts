@@ -1,7 +1,7 @@
 // apps/api/src/modules/collab/collab.gateway.auth-reason.spec.ts
 // 批3-1：鉴权拒绝 reason 五档 + onLoadDocument DB 兜底（F6——库把 hook 异常折成裸
 // permission-denied，客户端无法分型"该重登"vs"该重试"）。
-// 形态：直构单元组（shadow-sweep spec 先例——mock prisma/repo/redisSync，不 listen）
+// 形态：直构单元组（shadow-sweep spec 先例——mock prisma/repo/lease，不 listen）
 // + 真协议 DENY 透传一例（collab.gateway.spec 先例——断言 reason 经 writePermissionDenied
 // 到达客户端 authenticationFailed 且服务端不关 socket）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -34,7 +34,7 @@ function buildGateway() {
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
   };
   const repo = createMockRepo();
-  const lease = createLeaseStub();   // Y0a-3 T5：redisSync 退役——租约 stub（isServing 恒 true=租约已持有形态）
+  const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true=租约已持有形态）
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
   const spool = new CollabSpoolService(spoolDir);
   spool.setOwner('test-owner');   // R3：onModuleInit 的 scan（Z13）与写路径必先 setOwner

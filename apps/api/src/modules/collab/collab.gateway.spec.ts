@@ -230,9 +230,9 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     const canvas = await service.readCanvas('p1', requiredSV, 3000);
     const elapsed = Date.now() - t0;
     expect(canvas?.nodes).toHaveLength(1); // 修复前 withDoc 提前返回 undefined → 此处红
-    // 等待成功路径 ≈ 20ms 等待 + RedisExtension disconnect 固定 2×1000ms（disconnectDelay）≈ 2.1s；
-    // 若 SV 等待超时降级（3s）则 >5s——3000ms 稳定区分两路径
-    expect(elapsed).toBeLessThan(3000);
+    // Y0a-3（必办⑦）：跨实例扩展已删——withDoc 直连断开不再有固定 2×1000ms 断开延迟；
+    // 等待成功路径 ≈ 20ms 等待+直连装载/断开（ms 级）。1000ms 稳定区分 SV 等待超时降级路径（3s）。
+    expect(elapsed).toBeLessThan(1000);
   }, 12000);
 
   it('readCanvas 带 sv：doc 落后时等待 update 事件追上', async () => {
@@ -275,7 +275,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       await a.provider.destroy();   // 真实断连 → onClose → onDisconnect flush
       providers.splice(providers.indexOf(a.provider), 1);   // 用例内已销毁——从 afterEach 清理数组移除，防双 destroy（collab.gateway flaky 面收敛）
       await vi.waitFor(() => expect(repo.append).toHaveBeenCalledTimes(2), { timeout: 4000 });
-      // 关键：等 doc 真正卸载（disconnectDelay + unload 守卫）——否则重连命中内存缓存、测不到持久层
+      // 关键：等 doc 真正卸载（卸载交接 + unload 守卫）——否则重连命中内存缓存、测不到持久层
       await vi.waitFor(() => expect(gateway.server.hocuspocus.documents.has('project:pe1')).toBe(false), { timeout: 4000 });
       const loadCallsBefore = (repo.hydrateWithRecovery as any).mock.calls.length;
       repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: appendedRows(), stateSeq: 0n });   // 持久层 = 已落库行（插入行 + 删除行）

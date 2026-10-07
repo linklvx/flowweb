@@ -1,7 +1,7 @@
 // apps/api/src/common/redis/managed-redis.spec.ts
 // 批3-2 B6：Redis 生命周期收口。现场清单（grep "new Redis" apps/api/src，2026-09-30）13 实例：
-//   已有钩子 3：CollabRedisSync pub/sub（onModuleDestroy quit）、gateway RedisExtension
-//   （extension onDestroy 由 server.destroy 驱动，hocuspocus-redis.esm.js:338-342）；
+//   已有钩子 3：collab pub/sub 同步（onModuleDestroy quit；Y0a-3 T6 已删）、gateway 跨实例扩展
+//   （extension onDestroy 由 server.destroy 驱动，hocuspocus-redis.esm.js:338-342；Y0a-3 T5 已删）；
 //   本次收口 10：8 个模块 REDIS_CLIENT 工厂 + auth.service.ts 硬编码 localhost（拔除改注入）
 //   + auth.ts 顶层单例（AuthModule module-class 钩子关闭）。
 // 机制：Nest 对 factory 产物 duck-typing 调用 onApplicationShutdown
