@@ -44,6 +44,7 @@ function buildGateway() {
   });
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const spool = new CollabSpoolService(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
+  spool.setOwner('test-owner');                     // R3：写路径必先 setOwner（Z13 fail-closed）
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
     { resolve: vi.fn() } as any, 44500 + Math.floor(Math.random() * 2000),

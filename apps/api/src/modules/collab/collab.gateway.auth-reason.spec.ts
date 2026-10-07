@@ -35,10 +35,12 @@ function buildGateway() {
   const repo = createMockRepo();
   const redisSync = { syncFromPeers: vi.fn(async () => {}) };
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
+  const spool = new CollabSpoolService(spoolDir);
+  spool.setOwner('test-owner');   // R3：onModuleInit 的 scan（Z13）与写路径必先 setOwner
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, redisSync as any,
     perm as any, 43000 + Math.floor(Math.random() * 20000),
-    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
+    undefined, undefined, undefined, spool,
   );
   return { gateway, prisma, repo };
 }

@@ -106,25 +106,27 @@ export const yjsHydrationHugeRowTotal = new Counter({
  *  Y5：字段/指标名统一 projects 口径（V4 后按 projectId 计——字段名诚实；drill barrier 同步读
  *  yjs_pending_projects）。G-1/G-2 演练经 /api/metrics 轮询；Y0a-3 /api/ready.pending 消费同一 computePending()。
  *  稳态行为（spec §3.3）：活跃编辑时 batches>0 恒成立——只能作"停止写入后是否排空"的判据。 */
-type PendingSnapshot = { projects: number; batches: number; spoolFiles: number; spoolBytes: number };
+type PendingSnapshot = { projects: number; batches: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number };
 let pendingCollector: (() => PendingSnapshot) | null = null;
 export function registerPendingCollector(fn: () => PendingSnapshot): void { pendingCollector = fn; }
 export function unregisterPendingCollector(): void { pendingCollector = null; }   // Y5：onApplicationShutdown 调用——防多 gateway 覆盖+destroy 后闭包悬挂
 
 /** Y0a-2：spool 族指标（spec §5.2——事后取证口径：PROMETHEUS_TOKEN 手 curl；告警路由归 Y0b/E54）。
  *  V14：容量口径含隔离字节（隔离段同占盘——"排除"=磁盘被隔离字节填满而熔断永不触发）。
- *  X11/X17：depth 双 gauge 改 collect 形态（经 pendingCollector 现算——scrape 崩=整个 /api/metrics 500，故 collect 体 try/catch）。 */
+ *  X11/X17：depth 双 gauge 改 collect 形态（经 pendingCollector 现算——scrape 崩=整个 /api/metrics 500，故 collect 体 try/catch）。
+ *  Y0a-3 R3/V2/B15/I8：gauge 取 total=own+stranded 磁盘真值（容量告警+G-1 barrier 判据——外来段同占盘
+ *  不得排除）；部署门读 /api/ready.pending 的 own 口径（P16 双口径分立）。 */
 export const yjsSpoolDepthFiles = new Gauge({
   name: 'yjs_spool_depth_files',
-  help: 'spool 段文件数（depth 现算口径）',
+  help: 'spool 段文件数（total=own+stranded 磁盘真值——容量告警+G-1 barrier 判据；部署门读 /api/ready.pending 的 own 口径，P16）',
   registers: [register],
-  collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolFiles : 0); } catch { this.set(0); } },
+  collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolFiles + (p.strandedFiles ?? 0) : 0); } catch { this.set(0); } },
 });
 export const yjsSpoolDepthBytes = new Gauge({
   name: 'yjs_spool_depth_bytes',
-  help: 'spool 段文件字节总和（**含**隔离字节——容量核算同口径，V14）',
+  help: 'spool 段文件字节总和（total=own+stranded，**含**隔离/外来字节——容量核算同口径，V14）',
   registers: [register],
-  collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolBytes : 0); } catch { this.set(0); } },
+  collect() { try { const p = pendingCollector?.(); this.set(p ? p.spoolBytes + (p.strandedBytes ?? 0) : 0); } catch { this.set(0); } },
 });
 export const yjsPendingProjects = new Gauge({
   name: 'yjs_pending_projects',

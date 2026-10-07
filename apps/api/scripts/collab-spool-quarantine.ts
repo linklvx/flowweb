@@ -4,10 +4,11 @@
 // **先停 gateway 再执行 --delete**（活实例上删除=TOCTOU+内存 index 陈旧——dry-run 可随时跑）。
 // 运行：COLLAB_SPOOL_DIR=... pnpm --filter @flowweb/api exec tsx scripts/collab-spool-quarantine.ts <projectId|--all> --dry-run
 //       判定后：同命令 --delete --yes-i-understand（不可逆；先 --dry-run 审阅将被删除的字节数）
-import { readdir, readFile, unlink } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { crc32 } from 'node:zlib';
 import { join, resolve } from 'node:path';
 import * as Y from 'yjs';
+import { listSpoolFiles } from '../src/modules/collab/collab-spool.service';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -35,14 +36,17 @@ async function main(): Promise<void> {
   let totalDeleteBytes = 0;
   let deleteCount = 0;
   let seen = 0;
-  for (const f of (await readdir(dir)).filter((x) => x.endsWith('.spool') && !x.startsWith('__probe__')).sort()) {   // Y6：探针段过滤
+  const entries = (await listSpoolFiles(dir))   // R3：单源枚举——root 平铺段+一级 owner 子目录段
+    .filter(({ name }) => name.endsWith('.spool') && !name.startsWith('__probe__'))   // Y6：探针段过滤
+    .sort((a, b) => (a.dir + a.name < b.dir + b.name ? -1 : 1));
+  for (const { dir: segDir, name: f } of entries) {
     const projectId = f.split('.').slice(0, -2).join('.');
     if (target !== '--all' && projectId !== target) continue;
     seen += 1;
-    const buf = await readFile(join(dir, f));
-    // sidecar 区间（V3 字节口径——与隔离处置同源）
+    const buf = await readFile(join(segDir, f));
+    // sidecar 区间（V3 字节口径——与隔离处置同源；sidecar 与段同目录）
     let quarantinedFromOffset: number | null = null;
-    const sidecar = await readFile(join(dir, `${f}.quarantine`), 'utf8')
+    const sidecar = await readFile(join(segDir, `${f}.quarantine`), 'utf8')
       .then((t) => t.trim().split('\n').filter(Boolean))
       .catch(() => [] as string[]);
     const last = sidecar[sidecar.length - 1];
@@ -66,7 +70,7 @@ async function main(): Promise<void> {
     if (firstBad < 0 && off !== buf.byteLength) firstBad = off;   // 1-7B 残尾同 scan 口径——坏尾必有可观测面
     const badFrom = quarantinedFromOffset ?? (firstBad >= 0 ? firstBad : null);
     const quarantinedBytes = badFrom != null ? buf.byteLength - badFrom : 0;
-    console.log(`\n=== ${f} (${buf.byteLength}B) ===`);
+    console.log(`\n=== ${f} (${buf.byteLength}B)〔${segDir !== dir ? `owner 目录 ${segDir}` : 'root'}〕 ===`);
     console.log(goodLines.slice(-8).join('\n') || '  （无好帧）');   // 尾部 8 帧（近期编辑——判定主依据）
     if (goodLines.length > 8) console.log(`  …共 ${goodLines.length} 好帧`);
     if (badFrom != null) {
@@ -77,8 +81,8 @@ async function main(): Promise<void> {
     totalDeleteBytes += buf.byteLength;   // --delete 删整段文件（unlink）——dry-run 合计同口径=全段字节
     deleteCount += 1;
     if (del) {
-      await unlink(join(dir, f));
-      await unlink(join(dir, `${f}.quarantine`)).catch(() => {});
+      await unlink(join(segDir, f));
+      await unlink(join(segDir, `${f}.quarantine`)).catch(() => {});
       console.log(`  → 已删除（${buf.byteLength}B）`);
     } else {
       console.log('  → dry-run（--delete --yes-i-understand 才删）');

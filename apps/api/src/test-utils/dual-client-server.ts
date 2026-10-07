@@ -48,6 +48,9 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   const port = 20000 + Math.floor(Math.random() * 20000);
   const ownedSpoolDir = spool ? null : await mkdtemp(join(tmpdir(), 'y0a2-kit-'));
   const spoolSvc = spool ?? new CollabSpoolService(ownedSpoolDir!);
+  // Y0a-3 R3：spool 写/扫路径必先 setOwner（Z13 fail-closed）——kit 即"租约已持有"的生产前置态
+  // （生产由 lease onHeld 接线）。注入实例由 kit 统一设 owner（用例自身早于 kit 的直接 append 需自设）。
+  spoolSvc.setOwner('test-owner');
   const gateway = new CollabGateway(prisma as any, emitter as any, repo as any, { syncFromPeers: vi.fn(async () => {}) } as any, permSvc as any, port, debounce, undefined, undefined, spoolSvc);
   await gateway.onModuleInit();   // async+await listen——无端口竞态
   const url = `ws://127.0.0.1:${port}`;

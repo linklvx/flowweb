@@ -30,8 +30,10 @@ maybe('spool replayAll FK 真库背书（V6）', () => {
   it('项目真删后回灌：raw append FK→帧按终态丢弃+段回收（P2010+meta 23503 形状由 isFkGone 单源判别）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     const s1 = new CollabSpoolService(dir);
+    s1.setOwner('int-owner');                 // R3：写/扫路径必先 setOwner（Z13——预授权适配#3）
     await s1.append(PID, Y.encodeStateAsUpdate(new Y.Doc()));
     const s2 = new CollabSpoolService(dir);   // 重启形态：scan 重建 index 后回灌
+    s2.setOwner('int-owner');
     await s2.scan();
     await prisma.canvasProject.delete({ where: { id: PID } });   // 真删（FK 链唯一父）
     const report = await s2.replayAll(repo);

@@ -1030,6 +1030,7 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
     const { dir, cleanup } = await makeSpoolDir('y0a2-i1-');
     try {
       const spool = new CollabSpoolService(dir);
+      spool.setOwner('test-owner');   // R3：早于 kit 的直接 append 需自设 owner（kit 装置只覆盖 start 之后的路径）
       await spool.append('p-i1', Y.encodeStateAsUpdate(new Y.Doc()));   // 预投帧：kit onModuleInit 的 scan+replayAll 读它（append 永败→3 次尝试≈400ms 后 failed=1，帧保留）
       const kit = await startDualClientServer({ append: vi.fn(async () => { throw new Error('pg down'); }) }, 200, spool);
       try {

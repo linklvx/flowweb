@@ -566,14 +566,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** Y0a-2（P1+V4 单源派生+Y5 键名）：pending 快照——遍历**自有 pendingQueues**（B2：不依赖库
    *  documents Map，测试与生产同构）；字段 `projects`（按 projectId 计——drain/日志/用例/drill 同名消费）；
-   *  G-1/G-2 演练轮询面（/api/metrics collect 回调）+Y0a-3 /api/ready.pending 消费同一实现 */
-  computePending(): { projects: number; batches: number; spoolFiles: number; spoolBytes: number } {
+   *  G-1/G-2 演练轮询面（/api/metrics collect 回调）+Y0a-3 /api/ready.pending 消费同一实现。
+   *  Y0a-3 R3/P16：spoolFiles/spoolBytes=own 口径（部署门）；stranded*=外来段（depth 分区透传——
+   *  gauge 侧取 total）。 */
+  computePending(): { projects: number; batches: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number } {
     let projects = 0, batches = 0;
     for (const q of this.pendingQueues.values()) {
       if (q.length > 0) { projects += 1; batches += q.length; }
     }
     const d = this.spool.depth();
-    return { projects, batches, spoolFiles: d.files, spoolBytes: d.bytes };
+    return { projects, batches, spoolFiles: d.ownFiles, spoolBytes: d.ownBytes, strandedFiles: d.strandedFiles, strandedBytes: d.strandedBytes };
   }
 
   /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置）。
