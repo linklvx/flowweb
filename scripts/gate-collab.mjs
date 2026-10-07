@@ -21,6 +21,8 @@ const API_ENV = {
   COLLAB_SWEEP_ENABLED: 'true', // S4 会话过期 sweep（灰度开关——门禁环境显式开）
   MINIO_INIT: 'skip',         // B′（第九轮）：gate 场景零 MinIO 产物消费，显式裁剪 ensureBucket——
                               // 本地/CI 行为一致（原依赖本地真 MinIO 掩盖；CI 无 service 即启动红）
+  COLLAB_LEASE_TTL_MS: '2000',      // kill/start 循环确定性：taskkill=SIGKILL 不释放租约，TTL 2s
+  COLLAB_LEASE_HEARTBEAT_MS: '500', // 使重启后接管 ≤2s（HB 500 ≤ TTL/2 不变式；W17——无 FORCE，env 已删）
 };
 
 /** TCP 端口可连（有监听者）探测 */
@@ -42,20 +44,26 @@ async function waitForPort(port, timeoutMs, what) {
 }
 
 async function waitForApiHealth(timeoutMs = 60_000) {
+  // 预算 ≥TTL+5s：覆盖租约行残留死 owner 的接管窗（TTL 2s 下实际 ≤2.5s）
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     // 子进程在等待期退出（端口被占等）即失败——防半启动状态被外部占用者冒名顶替
     if (!apiChild) throw new Error('API 子进程在启动等待期退出（见上方 [api] 日志——常见为 3000/3001 被残留进程占用）');
     try {
-      const res = await fetch('http://localhost:3000/api/health');
+      // W17：/api/ready 双验——ready=true（租约在握+Redis 在线+not-serving 解除）≠WS 已监听，
+      // 再补 3001 端口探测（就绪≠监听窗口）
+      const res = await fetch('http://localhost:3000/api/ready');
       if (res.ok) {
-        await waitForPort(3001, 10_000, 'collab WS(3001)');
-        return;
+        const body = await res.json();
+        if (body.ready === true) {
+          await waitForPort(3001, 10_000, 'collab WS(3001)');
+          return;
+        }
       }
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error('API health timeout on :3000');
+  throw new Error('API ready timeout on :3000（/api/ready 未达 ready=true）');
 }
 
 // ── API 子进程管理 ────────────────────────────────────────────────────────────
@@ -88,6 +96,17 @@ function spawnApi() {
   });
 }
 
+/** 每次 API 启动前清租约行（V23/P1-2——必办⑥改判）：TTL env 对未过期的残留行（上轮 taskkill 死 owner/
+ *  本地 test:int fixture）无效，owner=NULL 使新实例 CAS 立即命中（与 drill clearLeaseRow 同款 SQL；
+ *  通道=API_DIR 的 prisma CLI db execute——与既有 migrate deploy 同一 shell-out 形态）。 */
+function clearLeaseRow() {
+  execSync('pnpm exec prisma db execute --stdin', {
+    cwd: API_DIR,
+    input: `UPDATE "CollabLease" SET owner = NULL, "expiresAt" = NULL, "renewedAt" = NULL WHERE scope = 'primary';`,
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+}
+
 /** 临 spawn 复检 + 拉起 + 健康等待——preflight 与此刻之间有 ~1min 构建窗口，
  *  外部残留进程会让子进程 EADDRINUSE 假死、健康探针被冒名顶替（run5 实证）。 */
 async function spawnApiChecked() {
@@ -96,6 +115,7 @@ async function spawnApiChecked() {
       throw new Error(`端口 ${port} 在构建窗口后被外部进程占用——请清除残留 node 进程后重跑（netstat -ano | grep :${port}）`);
     }
   }
+  clearLeaseRow();
   spawnApi();
   await waitForApiHealth();
 }

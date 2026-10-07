@@ -1,4 +1,4 @@
-<!-- doc-status: draft-v2.5 | created_at: 2026-10-06 | note: Y0a 数据完整性批 design spec v2.5——v2.1 经第四轮外审（2026-10-06，针对 Y0a-1 plan 的三份报告，含 yjs SV 语义探针实证）收敛修订：SV inline 哨兵删除（pendingStructs 检查通过前提下恒真+每 compact N 次编码纯成本——svDominates 沉纯函数锚复用 sv.util decodeStateVector）/预检自愈改"超时自愈一次"（原预检=每次装载全量 detoast 聚合且 48MB 阈对 116KB 存量永不触发）/Proxy 故障器砍除（failingRepo stub+Y0a-2 DB 触发器注入）/storeInFlight 移 Y0a-2（Y0a-1 挂回灌路径恒 0=死代码）；探针前置纪律立项（新守卫/哨兵必须附 5 分钟证伪探针）；v2.3（同日第五轮 plan 外审回馈）：超时自愈改**分类触发**（契约 13/§3-1.4/§7.2——仅 P2028/P2024/P1008/timeout 类自愈+compact 独立预算 maxWait:2s，非可重试类直接 fail-closed；§7.2 残留 v2.1 预检句同步清除）、Y0a-3 登记 gateway.spec disconnectDelay 时序注记重写、E43② 注记 load 回灌位点 peek/consume 已随 Y0a-1 前移落地；v2.4（同日第五~七轮外审收敛）：**append 返回契约 AppendResult**（fenced=0 行不抛异常，BOI 伪代码照常 splice=静默蒸发——fenced 并入失败路径+契约 15）、**readSnapshotOnly 撤"无事务单读者"**（重开 E20 撕裂+违契约 1——改 readConsistent 单 RR 事务两出口）、**自愈分类去 P2024**（池饥饿非事务超时，自愈动作自身需池连接=零成功率纯放大；预算 60s→自愈增量 ≤8s）、**G-1 改双模式 quiescence barrier**（去抖窗观测盲区致已接受集录小=假通过）、**G-2 拆 a/b**（"构造性为 0"不可证伪违 D13）、**部署拒重启改 /api/drain 三步**（前置判据稳态恒假=每次必 force=门禁失效；draining 60s 自动解除防僵尸）、**fence 加 TTL 双校验+leaseRowMissing 区分**（租约行缺失静默 fence 全部写入=伪装正常 fence 的配置错误）、**compact 返回 {compacted,reason}**（实现走 throw 会被 :297-301 catch 记 WARN=污染 abandoned P0 告警线）、**quarantine 改 sidecar**（追加-only 段内移帧物理不可行→坏帧段永不回收→256MB 慢速只读）、**project.gone 不动 spool 段**（emit 先于事务提交，回滚即丢台账）、**关停预算压 ≤22s**（原加算 30s≠28s 且步骤 1 直连无界）、epoch BigInt 序列化改 string、FORCE_TAKEOVER 审计复用 AuditLog、setLeaseOwner 单点注入、冒烟自建 FK 行、§3.1 补 1.10 stash 工作项；v2.5（2026-10-08）：Y0a-3 SV1-16 回填——fence owner-only/break-glass 替 FORCE/rejoin 状态机/八值 ready+collabState/drain 冻结/读侧三分法/spool 子目录+两口径/int 专用池 -->
+<!-- doc-status: draft-v2.5 | created_at: 2026-10-06 | note: Y0a 数据完整性批 design spec v2.5——v2.1 经第四轮外审（2026-10-06，针对 Y0a-1 plan 的三份报告，含 yjs SV 语义探针实证）收敛修订：SV inline 哨兵删除（pendingStructs 检查通过前提下恒真+每 compact N 次编码纯成本——svDominates 沉纯函数锚复用 sv.util decodeStateVector）/预检自愈改"超时自愈一次"（原预检=每次装载全量 detoast 聚合且 48MB 阈对 116KB 存量永不触发）/Proxy 故障器砍除（failingRepo stub+Y0a-2 DB 触发器注入）/storeInFlight 移 Y0a-2（Y0a-1 挂回灌路径恒 0=死代码）；探针前置纪律立项（新守卫/哨兵必须附 5 分钟证伪探针）；v2.3（同日第五轮 plan 外审回馈）：超时自愈改**分类触发**（契约 13/§3-1.4/§7.2——仅 P2028/P2024/P1008/timeout 类自愈+compact 独立预算 maxWait:2s，非可重试类直接 fail-closed；§7.2 残留 v2.1 预检句同步清除）、Y0a-3 登记 gateway.spec disconnectDelay 时序注记重写、E43② 注记 load 回灌位点 peek/consume 已随 Y0a-1 前移落地；v2.4（同日第五~七轮外审收敛）：**append 返回契约 AppendResult**（fenced=0 行不抛异常，BOI 伪代码照常 splice=静默蒸发——fenced 并入失败路径+契约 15）、**readSnapshotOnly 撤"无事务单读者"**（重开 E20 撕裂+违契约 1——改 readConsistent 单 RR 事务两出口）、**自愈分类去 P2024**（池饥饿非事务超时，自愈动作自身需池连接=零成功率纯放大；预算 60s→自愈增量 ≤8s）、**G-1 改双模式 quiescence barrier**（去抖窗观测盲区致已接受集录小=假通过）、**G-2 拆 a/b**（"构造性为 0"不可证伪违 D13）、**部署拒重启改 /api/drain 三步**（前置判据稳态恒假=每次必 force=门禁失效；draining 60s 自动解除防僵尸）、**fence 加 TTL 双校验+leaseRowMissing 区分**（租约行缺失静默 fence 全部写入=伪装正常 fence 的配置错误）、**compact 返回 {compacted,reason}**（实现走 throw 会被 :297-301 catch 记 WARN=污染 abandoned P0 告警线）、**quarantine 改 sidecar**（追加-only 段内移帧物理不可行→坏帧段永不回收→256MB 慢速只读）、**project.gone 不动 spool 段**（emit 先于事务提交，回滚即丢台账）、**关停预算压 ≤22s**（原加算 30s≠28s 且步骤 1 直连无界）、epoch BigInt 序列化改 string、FORCE_TAKEOVER 审计复用 AuditLog、setLeaseOwner 单点注入、冒烟自建 FK 行、§3.1 补 1.10 stash 工作项；v2.5（2026-10-08）：Y0a-3 SV1-16 回填——fence owner-only/break-glass 替 FORCE/rejoin 状态机/八值 ready+collabState/drain 冻结/读侧三分法/spool 子目录+两口径/int 专用池；v2.5 落地=Y0a-3 执行（2026-10-08） -->
 # Y0a 数据完整性批——设计 spec（v2.5）
 
 日期：2026-10-06（v1-v2.3 同日；v2.4 第五~七轮外审收敛——新机制失败分支推演回馈 spec）；v2.5（2026-10-08，Y0a-3 SV1-16 回填）
@@ -102,17 +102,17 @@
 
 > 引号为 v8 目录 §0.1 原文（裁剪批次归属句）。〔执行状态〕以 v2 裁定为准。
 
-**E11（P0 持久化三修）**：①硬化三件套+装载事务化〔**Y0a-1 执行**；判据以 E20/E34/E42 修订为准；"重放移出长事务"→**移交 Y1c-1**（E62 快照追加表同批），§2.2 登记〕②失败蒸发〔**Y0a-2 执行**；`yjs_unflushed_projects/bytes` 告警→本批落地为**启动自检+结构化日志**（§5.2，告警路由归 Y0b/E54）；beforeUnloadDocument 队列非空拒卸载→**随单源 spool 不再需要**（E43③ tripwire 裁定吸收）〕③Redlock skip〔**随依赖删除消灭**（Y0a-3）；`afterStoreDocument` 对账→本批最小版（Y0a-2：store 后队列未清空即计数）〕。
+**E11（P0 持久化三修）**：①硬化三件套+装载事务化〔**Y0a-1 执行**（append 侧同 key advisory lock 补强随 **Y0a-3 落地**——SV3 半边，stateSeq 重新可信，详 E34 行）；判据以 E20/E34/E42 修订为准；"重放移出长事务"→**移交 Y1c-1**（E62 快照追加表同批），§2.2 登记〕②失败蒸发〔**Y0a-2 执行**；`yjs_unflushed_projects/bytes` 告警→本批落地为**启动自检+结构化日志**（§5.2，告警路由归 Y0b/E54）；beforeUnloadDocument 队列非空拒卸载→**随单源 spool 不再需要**（E43③ tripwire 裁定吸收）〕③Redlock skip〔**随依赖删除消灭**（Y0a-3）；`afterStoreDocument` 对账→本批最小版（Y0a-2：store 后队列未清空即计数）〕。
 
 **E20（读侧撕裂+判据升级）**：真路径=读侧撕裂；三守卫；SV 支配性〔**拆分执行（v2.2 修订）**：compact 写快照前 pendingStructs 检查=Y0a-1（compact 健康度唯一真实指标，P0 告警线）；**SV inline 哨兵删除**（恒真+纯成本，探针证伪——svDominates 沉纯函数单测锚 Y0a-1，破坏后结构锚随 Y1c-1）；**读侧守卫三处/readCanvas 独立 reason/装载降级出口→整体移交 Y1c-1**（撕裂真正可达的批次：Y.Text/XmlFragment 使缺行=静默内容丢失在线化之时）——v2 裁定，理由：守卫判据对整行缺失结构性失明（锚 A7）、当期不可达（锚 A4）、防御自身需更多防御（fail-stuck）。§2.2 登记〕"首件事=三方交错红用例"〔**修订执行**（E42⑤ 改判吸收）：改为真 PG 隔离性质验证用例+可达性固化（§6 结构锚），不造"复现撕裂"假红相〕。
 
 **E21（对偶配对）**：失败即入账先于一切/落盘 spool+启动回灌/项目删除清账/关停停收→drain→放行/mergeUpdates 挪出 WS 路径/持久化模型显式声明〔**全部 Y0a-2 执行完毕**（2026-10-07 收口）；"doc bytes/行数按去重口径标注"→**移交 Y0b**（观测收口），§2.2 登记〕。
 
-**E23（拓扑前移，本批取拓扑段）**：单实例+启动租约+删 extension-redis/CollabRedisSync/双 Server 用例改 fail-fast〔**Y0a-3 执行中**〕；compact 守卫连续 3 败→世代重建出口〔**v2.4 修订执行**：守卫降为"放弃本次+计数+保留全部行——**放弃不开窗**（`lastCompactAt` 仅 compacted===true 时更新）：下次 store 立即重试（门限从上次成功起算，放弃后窗口早已过）——pendingStructs!=null 属异常态，每次 store 一次尝试是可接受的诊断成本且 abandoned 计数/ERROR 一路涨正是 P0 告警线所要；接口形态见 §1.3 compact 返回契约。**本批自洽，不依赖 Y1c-1**；世代重建手工命令（scripts/collab-compact.mjs 人工出口）随 Y1c-1 落地，§2.2 显式登记为已知限制〕；世代连带（docName 世代 6 处）〔移交 Y1c-1，不属本批〕。
+**E23（拓扑前移，本批取拓扑段）**：单实例+启动租约+删 extension-redis/CollabRedisSync/双 Server 用例改 fail-fast〔**Y0a-3 执行（2026-10-08）**——PG 租约行 CAS（scope 常量 `COLLAB_LEASE_SCOPE` 导出）+extension-redis/CollabRedisSync 整删（census 清零）+双 Server 用例改租约 fail-fast（不 listen+三入口拒）；collabState 七态主导派生（P6）〕；compact 守卫连续 3 败→世代重建出口〔**v2.4 修订执行**：守卫降为"放弃本次+计数+保留全部行——**放弃不开窗**（`lastCompactAt` 仅 compacted===true 时更新）：下次 store 立即重试（门限从上次成功起算，放弃后窗口早已过）——pendingStructs!=null 属异常态，每次 store 一次尝试是可接受的诊断成本且 abandoned 计数/ERROR 一路涨正是 P0 告警线所要；接口形态见 §1.3 compact 返回契约。**本批自洽，不依赖 Y1c-1**；世代重建手工命令（scripts/collab-compact.mjs 人工出口）随 Y1c-1 落地，§2.2 显式登记为已知限制〕；世代连带（docName 世代 6 处）〔移交 Y1c-1，不属本批〕。
 
-**E34（修法收敛+判据豁免+可达性）**：单事务 RR 覆盖快照+全部分页+stateSeq 三件套+SV 豁免写死+read fail-closed 降级出口〔**Y0a-1 执行单事务+stateSeq+SV 豁免**；~~同事务复查~~不做了（E42①）；**v2.5/SV3：装载 `seq>stateSeq` 水位过滤删除**——readConsistent cursor 恒 0n 全量 apply（水位不是正确性载体，正确性=读侧全量+CRDT 幂等；stateSeq 留作诊断/未来增量装载水位，诚实性由 append 同 key advisory lock 保证）；**降级出口随读侧守卫移交 Y1c-1**；lease-lost 场景的降级**读**通道保留在 Y0a-3（租约语义非完整性守卫）〕；可达性证明〔**Y0a-1 固化装置执行**（§6 结构锚）〕。
+**E34（修法收敛+判据豁免+可达性）**：单事务 RR 覆盖快照+全部分页+stateSeq 三件套+SV 豁免写死+read fail-closed 降级出口〔**Y0a-1 执行单事务+stateSeq+SV 豁免**；~~同事务复查~~不做了（E42①）；**v2.5/SV3：装载 `seq>stateSeq` 水位过滤删除**——readConsistent cursor 恒 0n 全量 apply（水位不是正确性载体，正确性=读侧全量+CRDT 幂等；stateSeq 留作诊断/未来增量装载水位，诚实性由 append 同 key advisory lock 保证——**该锁已随 Y0a-3 落地**（取 compact 同 key，INSERT ratchet 静态断言守单源），两出口（readSnapshotOnly/loadForHydration）同构 int 用例同批绿）；**降级出口随读侧守卫移交 Y1c-1**；lease-lost 场景的降级**读**通道保留在 Y0a-3（租约语义非完整性守卫——**已随批执行**：快照出口 readCanvasFromSnapshot 不经租约门）〕；可达性证明〔**Y0a-1 固化装置执行**（§6 结构锚）〕。
 
-**E35（租约四语义+fencing）**：TTL≤10s/心跳≤3s 独立 timer/续租失败自隔离（不自杀不硬撑；租约只 gate collab 就绪度）/有界重试+就绪门/FORCE_TAKEOVER 逃生阀/pm2 禁 reload/关停末尾显式释放/fencing token/语义=活性机制非数据完整性〔**Y0a-3 执行中**；"独立 timer/子进程"落为独立 unref timer；**v2.5/SV2：FORCE_TAKEOVER 逃生阀→break-glass 运维脚本**（'revoked' 哨兵+AuditLog，被撤实例终态不 rejoin）；**v2.5/SV5：续租失败自隔离改 isolate→rejoin 状态机**（关 listener 让位+有界退避重获取+re-listen；revoked 终态除外）〕。
+**E35（租约四语义+fencing）**：TTL≤10s/心跳≤3s 独立 timer/续租失败自隔离（不自杀不硬撑；租约只 gate collab 就绪度）/有界重试+就绪门/FORCE_TAKEOVER 逃生阀/pm2 禁 reload/关停末尾显式释放/fencing token/语义=活性机制非数据完整性〔**Y0a-3 执行（2026-10-08）**——启动链单点负责制（onAcquired 唯一入口+initDone 成功后置，缺②即 start-failed 自愈再调度）；心跳三态 owner-only+单调钟；"独立 timer/子进程"落为独立 unref timer；**v2.5/SV2：FORCE_TAKEOVER 逃生阀→break-glass 运维脚本**（'revoked' 哨兵+AuditLog，被撤实例终态不 rejoin+everHeld 前置门）；**v2.5/SV5：续租失败自隔离改 isolate→rejoin 状态机**（关 listener 让位+有界退避重获取+re-listen；revoked 终态除外）〕。
 
 **E37（spool 细则）**：帧格式=长度前缀+CRC/回灌先于对外服务/世代作用域/容量上限明写/写入次序二选一〔**Y0a-2 执行完毕**（2026-10-07 收口）：选"失败→落盘"ms 窗口（与 E43⑥"收即写不采"同判）；世代字段 Y1c-1 引入 generation 时扩展（本批键=projectId）；目录绝对路径随 ecosystem cwd 钉死（Y0a-4）〕。
 
@@ -120,9 +120,9 @@
 
 **E42（装载读一致性终裁）**：①单 RR 事务=(i) 推荐形态+删"同事务复查"假门禁〔**Y0a-1 执行**〕②写侧现状无丢数据，三件套=防走样契约〔**Y0a-1 执行**〕③pendingStructs 判据边界〔**Y0a-1 执行**（compact 前检查）〕④SV 支配性=对账哨兵非放行判据〔**v2.2 修订执行**：inline 哨兵删除（恒真+纯成本，探针证伪）；svDominates 沉**纯函数单测锚**（Y0a-1）+破坏后结构锚随 Y1c-1 评估——E42④ 的"对账"定位不变，载体从 compact 内联改为函数级〕⑤可达性固化〔**Y0a-1 执行**〕。
 
-**E43（store 失败路径终裁+RPO 三腿）**：①库语义锚定〔**Y0a-1 落断言**（§1.2，D-13）〕②stash 级蒸发=spool 唯一真修法+入账先于一切〔**Y0a-2 执行，且 v2 强化**：删失败路径 unshift 回灌+catch 返回 false 不 throw（D-2）+takeStash 全调用点 peek 语义化（D-3；load 回灌位点已随 Y0a-1 前移落地 peek/consume——本批余 store 提前 drain/retry 两处）+spool 单源落盘删内存 unflushed Map〕③拒卸载降 tripwire〔**随单源 spool 吸收**——脏 doc 不再依赖"留在内存"保数据〕④drain 先于放行〔**Y0a-2 执行**〕⑤kill-timeout 45000〔**Y0a-3 执行中**（deploy.sh 两处内联提前改——HTTP dispose 等在飞请求，v2.5/SV6；ecosystem 归 Y0a-4 取 45000 同值）〕⑥RPO 三腿〔**§5.1 执行**〕。
+**E43（store 失败路径终裁+RPO 三腿）**：①库语义锚定〔**Y0a-1 落断言**（§1.2，D-13）〕②stash 级蒸发=spool 唯一真修法+入账先于一切〔**Y0a-2 执行，且 v2 强化**：删失败路径 unshift 回灌+catch 返回 false 不 throw（D-2）+takeStash 全调用点 peek 语义化（D-3；load 回灌位点已随 Y0a-1 前移落地 peek/consume——本批余 store 提前 drain/retry 两处）+spool 单源落盘删内存 unflushed Map〕③拒卸载降 tripwire〔**随单源 spool 吸收**——脏 doc 不再依赖"留在内存"保数据〕④drain 先于放行〔**Y0a-2 执行**〕⑤kill-timeout 45000〔**Y0a-3 执行（2026-10-08）**（deploy.sh 两处内联已改 45000——HTTP dispose 等在飞请求，v2.5/SV6；ecosystem 归 Y0a-4 取 45000 同值+生效核验）〕⑥RPO 三腿〔**§5.1 执行**〕。
 
-**E44（租约改 PG+ready 拆分〔v8-A〕）**：PG 租约行 CAS+RETURNING epoch/四语义保留/数据屏障/FORCE_TAKEOVER 打印清单/ready=PG+Redis+租约/gate 与 deploy 等待目标切换〔**Y0a-3 执行中，v2 修订**：**删数据屏障与 drainedAt/drainBy 列**（"自然过期∨drainedAt"恒真=空操作；单实例 PG delta 日志=硬保证，屏障是死代码）；**ready 503 判据=PG+租约**（Redis 仅响应体字段不 gating——消灭"Redis 抖动否决部署链"）；**门扩三入口**（loadDocument 钩子+withDoc+onAuthenticate——v1 只 gate listen，REST 写路径在门外=P0-1）；租约行由迁移 seed（本地/生产同路径）；**v2.5/SV2：FORCE_TAKEOVER 一次性语义+ready forceTakeover 字段删除，改 break-glass 运维脚本**（'revoked' 哨兵+AuditLog；ready 改公开/授权两档，SV16）〕。
+**E44（租约改 PG+ready 拆分〔v8-A〕）**：PG 租约行 CAS+RETURNING epoch/四语义保留/数据屏障/FORCE_TAKEOVER 打印清单/ready=PG+Redis+租约/gate 与 deploy 等待目标切换〔**Y0a-3 执行（2026-10-08），v2 修订**：**删数据屏障与 drainedAt/drainBy 列**（"自然过期∨drainedAt"恒真=空操作；单实例 PG delta 日志=硬保证，屏障是死代码）；**ready 503 判据=PG+租约**（Redis 仅响应体字段不 gating——消灭"Redis 抖动否决部署链"；八档矩阵表驱动用例封派生链）；**门扩三入口**（loadDocument 钩子+withDoc+onAuthenticate——v1 只 gate listen，REST 写路径在门外=P0-1）；租约行由迁移 seed（本地/生产同路径）；gate-collab 等待目标已切 /api/ready 双验（T10）；**v2.5/SV2：FORCE_TAKEOVER 一次性语义+ready forceTakeover 字段删除，改 break-glass 运维脚本**（'revoked' 哨兵+AuditLog；ready 公开/授权两档（V17——无 token 四键/持 token 全字段），SV16）〕。
 
 **E45（注册表准入）**：maxLoadedDocs/装载队列/单 doc 字节上限/LRU/RSS 软阈/内存表清理/上限进 env zod〔**v2 降级执行（用户裁定）**：本批只留 **lastCompactAt 清理**（真泄漏，3 行）+ **env 预留默认关闭**（COLLAB_MAX_LOADED_DOCS=0=不限，仅 zod 解析无消费逻辑）；**准入 deny/LRU/RSS 软阈/字节上限整块移交 Y1c-3**（与 D7 预算同批，数值才有依据；库锚 A2/A5 证明无连接 doc 会被自动卸载，常驻内存场景当期不存在）；"kill -9 前内存曲线落档"降可选〕。
 
@@ -589,10 +589,24 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 | `yjs_unload_handoff_failure_total` / `yjs_unload_cleanup_failure_total` | counter | 卸载交接 append 失败（批留队列+退避梯续排，钩子仍 resolve——X4）/清理体异常吞计（钩子永不抛——destroy 不可被取消）（Y0a-2，Y18） |
 | `yjs_store_hook_calls_total` | counter | afterStoreDocument 钩子链存活计数（V22 收缩——库钩子健康面）（Y0a-2） |
 | `yjs_deleted_projects` | gauge | 终态集大小（进程寿命内真删除项目数——永久无界的可见化接受，§9.10）（Y0a-2，V25） |
-| `collab_lease_denied_total` / `collab_lease_lost_total` | counter | Y0a-3 |
+| `collab_lease_lost_total{cause}` | counter | 租约失守（单点=selfIsolate；cause 四值：heartbeat-fenced/heartbeat-unknown-expired/fenced-by-write/revoked）（Y0a-3） |
+| `collab_start_failure_total` | counter | collab 启动失败（scan/listen 类——startCollabAfterLease catch+看门狗每 episode ≤1 次，W22/V14）（Y0a-3） |
+| `collab_lease_epoch` | gauge | 当前租约 epoch（BigInt 序列化 string——断言/告警均按数值变化率）；release 复位 0（Y0a-3） |
+| `collab_lease_denied_total{reason=contention\|revoked\|error}` | counter | CAS 获取被拒三分（Y0a-3） |
+| `collab_lease_row_missing_total` | counter | 租约行缺失（配置错误级——fence 二次查空+spool 落批不排梯，W11）（Y0a-3） |
+| `yjs_compact_not_owner_total` | counter | compact 持锁期被夺（{compacted:false,reason:"not-owner"}——行数不减证明）（Y0a-3） |
+| `yjs_snapshot_read_total` | counter | 只读展示快照读（V18 后 reason 标签撤——消费者仅 video-work.service:328 单点，计数即可）（Y0a-3 形态收敛） |
+
+**PromQL 告警线 5 条（V30——告警路由仍归 Y0b/E54，此处只落判据口径；载体=事后取证+启动自检同口径）**：
+
+1. `increase(collab_lease_lost_total[5m]) > 0`——租约失守（按 cause 分型定位：fenced 族=双实例嫌疑/unknown-expired=心跳阻塞/revoked=人工 break-glass）。
+2. `increase(collab_lease_row_missing_total[1m]) > 0`——立即响应（配置错误：迁移未跑/行被手工删）。
+3. `increase(collab_start_failure_total[10m])` 持续增长——启动反复失败（scan/listen 类，配 start-failed 自愈日志定位）。
+4. `rate(collab_lease_epoch[5m]) > 0`——接管 flapping（epoch 变化率；稳态应恒 0）。
+5. not-serving 持续 >1m——ready `reason=not-serving` 连续 1 分钟（PromQL 无直接表达式，观测口径=对 /api/ready 探针的 reason 字段做持续判定；归 Y0b 告警路由落地）。
 | **启动自检** | ERROR 日志 | spool 非空/回灌失败/quarantine 非空→打印清单 |
 | `/api/ready` | 端点 | **公开/授权两档（v2.5/SV16）**：无 token={ready,reason,redis,epoch}；有效 x-prometheus-token=全字段（collabState/holder/pending 含 stranded/spoolQuarantined） |
-| 装载 P95+readCanvas P95 | e2e 落档 | 删 extension-redis 后 :226 少 1s+disconnectDelay 消失（withDoc 断连更快）——两处行为变化同批落档防误判回归（v2.1） |
+| 装载 P95+readCanvas P95 | e2e/gate 落档 | 删 extension 后装载路径少 1s syncFromPeers 阻塞+disconnectDelay(200ms×2) 消失——两处行为变化随批落档（e2e/gate 观察，非新测试；Y0a-3 gate-collab 本地跑已切 /api/ready 双验） |
 
 ### 5.3 CI 载体
 
@@ -684,5 +698,6 @@ Y0a-1（基座先行：库锚+隔离用例+故障器——后续所有门的证�
 11. **E14（Y0c）×准入上限（Y1c-3）顺序风险**（v2.1 跨批提醒）：若 E14 先落地"doc 常驻"而准入上限未至→"常驻无上限"窗口。**Y0c spec 落 E14 时必须自带最小上限（或把 Y1c-3 准入前移同批）**——登记为 Y0c 立项前置检查项。
 12. **quarantine 帧语义**：被隔离帧代表已接受但无法落库的编辑（该批丢失）——计数+ready 可见+人工脚本判定，属显式接受的有界丢失（远优于 v2 的启动死锁）。**v2.4 补关键事实：Yjs Y.Map 是 LWW——被隔离帧代表的键若之后被编辑，该编辑静默覆盖（无冲突提示）**；因此 `spoolQuarantined>0` 应触发运营告警（非仅 ready 可见），人工判定脚本（内容摘要）为处置必经环节。
 13. **fenced 批的 spool 滞留（v2.4 新增登记；v2.5/SV4 自愈语义改写）**：被 fence 实例的批落 own 子目录 spool 后，新持有者的启动回灌窗口已过（其回灌在接管前完成）——**≤reconcile 周期自愈（最坏 ≤90s=首 tick 30s+静默窗 60s；boot 收养使重启场景即时）**：数据不丢但短暂滞留；`ready.pending.spoolFiles>0` 可见。fenced∧spool 写失败双败=极端事故态，批随进程退出丢失（BOI 内存归属地消亡）。
+14. **租约失守的用户可见窗口（Y0a-3 增补——Y0b UX 阈值输入）**：持有者死亡→新实例 TTL 接管（默认 TTL 10s+心跳余量）→客户端 rejoin 退避+重连蒙层——**用户可见中断上界 ≈11s**（TTL 10s+心跳/重连余量）；客户端 10s synced 死线恰在界上，故 §9.7 同批部署约束成立（Y0b 蒙层分型/阈值按此校准）。
 
 

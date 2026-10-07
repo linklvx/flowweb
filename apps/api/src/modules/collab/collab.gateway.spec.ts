@@ -1338,6 +1338,31 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     } finally { await kit.dispose(); }
   });
 
+  it('I3（V9）可红断言：scan 失败→start-failed+release（非端口类）；重试不跳过 scan——旧形态早置 initDone 会让第二次启动跳过 init 带半截索引上线', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y0a3-i3-');
+    try {
+      const lease = createLeaseStub();
+      const spool = new CollabSpoolService(dir);
+      const scanSpy = vi.spyOn(spool, 'scan')
+        .mockRejectedValueOnce(new Error('scan boom'))
+        .mockResolvedValue({ truncatedSegments: [] });
+      const gateway = new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
+        lease as any, { resolve: vi.fn() } as any, 48100, 300, undefined, undefined, spool);
+      const listenSpy = vi.spyOn(gateway as any, 'listenServer').mockResolvedValue(undefined);
+      try {
+        await (gateway as any).startCollabAfterLease();   // onAcquired 唯一入口直调（watchdog/5s 定时器同点）
+        expect((gateway as any).collabState).toBe('start-failed');
+        expect(lease.release).toHaveBeenCalledTimes(1);   // 非端口类失败→释放（不占租约不服务）
+        expect(scanSpy).toHaveBeenCalledTimes(1);
+        await (gateway as any).startCollabAfterLease();   // 重获租约后的重入
+        expect(scanSpy).toHaveBeenCalledTimes(2);         // 早置 initDone → 本行=1 次=红（init 被跳过）
+        expect((gateway as any).initDone).toBe(true);     // 四步全成才置位（V9）
+        expect((gateway as any).collabState).toBe('serving');
+      } finally { listenSpy.mockRestore(); }
+      await gateway.onApplicationShutdown();
+    } finally { await cleanup(); }
+  });
+
   it('G-3b/必办①：append fenced→selfIsolate（closeAll1012+关 listener+lost{cause}）+批走 spool 不排梯', async () => {
     const kit = await startDualClientServer({ append: vi.fn(async () => ({ ok: false as const, reason: 'fenced' as const })) });
     try {
