@@ -17,7 +17,7 @@ import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { CollabSpoolService } from './collab-spool.service';
-import { unregisterPendingCollector } from './store.metrics';
+import { unregisterPendingCollector, yjsPendingBatches } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { failingRepo } from '../../test-utils/failing-repo';
 import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
@@ -693,15 +693,15 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       expect(await spool.peek('p-peek')).toHaveLength(0);      // confirm → 段回收
     });
 
-    it('绿9：队列身份恒定——计数封顶原地合并（禁 set 替换数组）', async () => {
+    it('绿9：队列身份恒定——软阈跨点闩锁 flush（禁 set 替换数组）', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       const firstRef = (gateway as any).pendingQueues.get((gateway as any).docProject.get(doc));   // Y4：两跳取队列
-      for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, { v: i });   // >64 触发原地折叠（第 65 条时折为 1，继续 push）
-      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toBe(firstRef);   // toBe 同一对象（set 替换写法必红；折叠断言本批保留——Task 7 随闩锁改造落地）
+      for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, { v: i });   // >64 跨软阈（X10：WS 路径零折并——批全留队列，闩锁 setImmediate 提前 store）
+      expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc))).toBe(firstRef);   // toBe 同一对象（数组身份恒定不变量——set 替换写法必红）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).toHaveBeenCalledTimes(1);   // 折叠 + drain 合并 = 单行
+      expect(repo.append).toHaveBeenCalledTimes(1);   // 70 条一次 drain 单行（直调 store 微任务链先于 setImmediate flush 完成——flush 见空队列静默返回）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);   // 无积压重复（drain 后队列净空；身份违例形态由上方 toBe 钉死——突变实证：set 替换下本断言仍绿，勿靠它守身份）
       expectDurableEquivalent(doc);
@@ -717,7 +717,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const g = gateway as any;
       const storePromise = onStoreDocument({ document: doc, documentName: 'project:p1' });
       await new Promise((r) => setImmediate(r));   // 跑到 await append
-      for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, { v: i });   // 窗口内注入 >64 条 → 原地折叠
+      for (let i = 0; i < 70; i++) doc.getMap('nodes').set(`k${i}`, { v: i });   // 窗口内注入 >64 条 → 软阈闩锁（白盒 doc 未注册进库 documents——flush 见无 doc 静默返回，零串扰）
       rejectAppend(new Error('db down'));
       await expect(storePromise).resolves.toBe(false);   // Y0a-2 契约 3 反转：任何路径不 throw（旧断言 rejects.toThrow 必红点）
       const queue = g.pendingQueues.get(g.docProject.get(doc)) as Uint8Array[];
@@ -1072,4 +1072,143 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
       expect(after).toBe(0);
     } finally { await kit.dispose(); }
   });
+});
+
+// Y0a-2 Task 7（plan Step 1——红相先行）：beforeUnloadDocument 清理钩子（X4 永不抛+Y3 顺序）+
+// mergeUpdates 出 WS 消息路径（X10 入队只 push——软阈 setImmediate 提前 flush+Y7 硬阈异步 coalesce）+
+// 卸载交接三形态（成功/失败/Y11 重连同数组身份）。
+describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
+  it('卸载清理钩子：lastCompactAt/persistUnhealthy/persistRetry 残留随 doc 卸载清（真泄漏唯 lastCompactAt 的修点）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const g = kit.gateway as any;
+      g.lastCompactAt.set('p-ul', 1);
+      g.persistUnhealthy.add('project:p-ul');
+      g.persistRetry.set('project:p-ul', { rung: 2, timer: null });
+      await g.hooks.beforeUnloadDocument({ documentName: 'project:p-ul', document: new Y.Doc() } as any);
+      expect(g.lastCompactAt.has('p-ul')).toBe(false);
+      expect(g.persistUnhealthy.has('project:p-ul')).toBe(false);
+      expect(g.persistRetry.has('project:p-ul')).toBe(false);   // ①cancelPersistRetry 先于③（Y3 顺序——残留梯随卸载清）
+    } finally { await kit.dispose(); }
+  });
+
+  it('清理钩子永不抛：内部异常被吞（库对 beforeUnloadDocument 抛错=取消卸载→destroy 永不 resolve→8s race+内存泄漏）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const g = kit.gateway as any;
+      g.spool = { hasFrames: () => { throw new Error('boom'); } };   // 内部依赖炸（整体替换）
+      await expect(g.hooks.beforeUnloadDocument({ documentName: 'project:p-x', document: new Y.Doc() } as any)).resolves.toBeUndefined();
+    } finally { await kit.dispose(); }
+  });
+
+  it('入队只 push 不折叠：70 条全留队列+软阈触发 setImmediate 提前 flush（旧实现 :207 封顶合并后=1=红相）', async () => {
+    let release!: (v: { ok: true; seq: bigint }) => void;   // Y13：可释放 deferred（append 挂起持 saveMutex→不释放则 dispose 挂死）
+    const kit = await startDualClientServer({ append: vi.fn(() => new Promise((r) => { release = r; })) }, 60_000);   // 大 debounce+append 挂起：只看入队形态
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-many');   // 真路径装载（pendingQueues 由 loadDocument 播种——Y19 禁裸插装置）
+      await synced;
+      for (let i = 0; i < 70; i++) provider.document.getMap('nodes').set(`k${i}`, new Y.Map([['x', i]]));
+      await new Promise((r) => setTimeout(r, 300));
+      const q = g.pendingQueues.get('p-many') as Uint8Array[];
+      expect(q).toBeDefined();
+      expect(q.length).toBeGreaterThan(60);      // 不折叠（旧实现第 65 条封顶合并后≈6 条 → 红）；软阈 flush 已尝试（append 挂起=批留队列，BOI copy-first）
+      expect((kit.repo.append as MockRepo['append']).mock.calls.length).toBeGreaterThanOrEqual(1);   // 提前 flush 确已触发（防空转）
+      release({ ok: true, seq: 1n });            // 释放——mutex 归还，dispose 干净
+      await provider.destroy();
+      kit.forget(provider);   // 自管 destroy 后移出 dispose 清理数组（双 destroy=已知 flaky 源，惯例同上）
+    } finally { await kit.dispose(); }
+  }, 15_000);
+
+  it('卸载交接成功：队列批落 spool（append 成功→splice——新家落定后才离旧归属）+leaveInFlight（X2 落定点②）', async () => {
+    const kit = await startDualClientServer({}, 60_000);   // 大 debounce：防 debounce store 先行清队列
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-handoff');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      // >=2（非 >0）：stamp 自愈行+k1 两 update 全部落队再交接——WS 送达异步，>0 会在 stamp 时提前放行（k1 迟到→交接后断言假红）
+      await pollUntil(() => ((g.pendingQueues.get('p-handoff') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
+      await g.hooks.beforeUnloadDocument({ documentName: 'project:p-handoff', document: provider.document } as any);
+      expect(g.pendingQueues.get('p-handoff')).toHaveLength(0);   // 批新家=spool（splice 在 append 成功后）
+      expect(await kit.spool.peek('p-handoff')).toHaveLength(1);  // 帧在 spool（fsync 已落定）
+      expect(g.inFlightProjects.has('p-handoff')).toBe(false);    // X2 落定点②：卸载交接 leave
+    } finally { await kit.dispose(); }
+  });
+
+  it('卸载交接失败：钩子 resolves 不 reject（X4）+队列仍在（BOI）+persistRetry 已排（Y3——①cancel 后③重排，entry.timer 真值）+Y18 计数递增', async () => {
+    const kit = await startDualClientServer({}, 60_000);
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockRejectedValue(new Error('spool down'));   // 裁定 1：恒抛不触盘（禁白盒 overCapacityFlag——滞回自清=断言假红）
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-unload-fail');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      // >=2 同交接成功用例：stamp+k1 全落队再触发（WS 送达异步——>0 提前放行会让 k1 在断言窗内迟到）
+      await pollUntil(() => ((g.pendingQueues.get('p-unload-fail') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
+      const failMetric = register.getSingleMetric('yjs_unload_handoff_failure_total')!;
+      const before = (await failMetric.get()).values[0]?.value ?? 0;   // V17⑥：metric.get() 公开 API（v15 异步）
+      await expect(g.hooks.beforeUnloadDocument({ documentName: 'project:p-unload-fail', document: provider.document } as any)).resolves.toBeUndefined();
+      expect(g.pendingQueues.get('p-unload-fail')).toHaveLength(2);   // 批留队列（唯一归属地仍在——stamp+k1 两 update 原样）
+      expect(g.persistRetry.get('project:p-unload-fail')?.timer).toBeTruthy();   // 保活已排且在 ①cancel 之后（排程在 cancel 前=timer 被①清掉=红）
+      expect(((await failMetric.get()).values[0]?.value ?? 0) - before).toBeGreaterThanOrEqual(1);   // Y18 指标接线
+      appendSpy.mockRestore();
+      await kit.gateway.hooks.onStoreDocument({ document: provider.document, documentName: 'project:p-unload-fail' } as any);   // 直调落库收尾（成功路径 cancel 保活梯）
+      expect(g.pendingQueues.get('p-unload-fail')).toHaveLength(0);
+    } finally { appendSpy.mockRestore(); await kit.dispose(); }
+  });
+
+  it('Y11 重连同数组身份：交接失败→重连 loadDocument get-or-create 撞同一条目（toBe 同引用+长度不减）→批经 store 落库一次', async () => {
+    const kit = await startDualClientServer({}, 60_000);
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockRejectedValue(new Error('spool down'));
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-reconn');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      provider.document.getMap('nodes').set('k2', 2);
+      // >=3（stamp+k1+k2 全落队再取引用——WS 送达异步，>0 会让 beforeLen 读到中间水位）
+      await pollUntil(() => ((g.pendingQueues.get('p-reconn') as Uint8Array[] | undefined)?.length ?? 0) >= 3, 2_000);
+      const before = g.pendingQueues.get('p-reconn');
+      const beforeLen = before.length;
+      await g.hooks.beforeUnloadDocument({ documentName: 'project:p-reconn', document: provider.document } as any);
+      expect(g.pendingQueues.get('p-reconn')).toBe(before);        // 同一数组引用（V4 get-or-create：set 替换写法必红）
+      expect(g.pendingQueues.get('p-reconn')).toHaveLength(beforeLen);   // 批留存
+      g.cancelPersistRetry('project:p-reconn');                    // 梯定时器随断言即清（防 1s 档并发扰动——落库由下方直调承担）
+      appendSpy.mockRestore();
+      await kit.gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-reconn' } as any);   // 重连装载（白盒——库 documents 缓存使真重连不重走 load）
+      expect(g.pendingQueues.get('p-reconn')).toBe(before);        // get-or-create 撞已有条目=同身份（批未因重连蒸发）
+      await kit.gateway.hooks.onStoreDocument({ document: provider.document, documentName: 'project:p-reconn' } as any);
+      expect(g.pendingQueues.get('p-reconn')).toHaveLength(0);     // 批落库
+      expect((kit.repo.append as MockRepo['append']).mock.calls.length).toBe(1);   // 一次（无重复入队）
+    } finally { appendSpy.mockRestore(); await kit.dispose(); }
+  });
+
+  it('Y7 硬阈 coalesce：双败故障期 600 条推入→队列收敛 ≤513（Y24 内存上界门）+yjs_pending_batches 不随 update 数线性增长', async () => {
+    let release!: (v: { ok: true; seq: bigint }) => void;
+    let passthrough = false;   // Y13 增强：release 后二次 append 直通（dispose drain 不挂死）
+    const kit = await startDualClientServer({
+      append: vi.fn(() => new Promise<{ ok: true; seq: bigint }>((r) => { if (passthrough) r({ ok: true, seq: 1n }); else release = r; })),
+    }, 60_000);
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockRejectedValue(new Error('spool down'));   // 双败注入=裁定 1 形态
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-coalesce');
+      await synced;
+      // 确定性装置：600 条经**服务端 doc 直注**——客户端推入经 WS 送达是异步的（实测 loop 完成时队列仅 stamp 1 条，
+      // 软阈 flush 中途取批使水位随机、"600 条在队"不可观测）。直注使入队/软阈闩锁/硬阈折并同步落定，判据零竞态。
+      const serverDoc = kit.gateway.server.hocuspocus.documents.get('project:p-coalesce')!;
+      const src = new Y.Doc(); const ups: Uint8Array[] = [];
+      src.on('update', (u) => ups.push(u));
+      for (let i = 0; i < 600; i++) src.getMap('nodes').set(`k${i}`, new Y.Map([['x', i]]));
+      for (const u of ups) Y.applyUpdate(serverDoc as unknown as Y.Doc, u);   // 600 push 同步入队（第 65 条闩锁 setImmediate）
+      await pollUntil(() => { const b = (g.computePending() as { batches: number }).batches; return b > 0 && b <= 513; }, 5_000);   // 排除空队列空转绿（b>0）+线性增长红（≤512+1——折并 601→1）
+      const gauge = (await yjsPendingBatches.get()).values[0]?.value ?? 0;
+      expect(gauge).toBeLessThanOrEqual(513);   // gauge 与队列同源收敛（不随 update 数线性增长）
+      appendSpy.mockRestore();
+      release({ ok: true, seq: 1n }); passthrough = true;   // 挂起 attempt 释放（Y8 身份判据走 anomaly-skip——合并元素留队重发，CRDT 幂等吸收）
+      await kit.gateway.hooks.onStoreDocument({ document: provider.document, documentName: 'project:p-coalesce' } as any);   // 直调排空（dispose 干净）
+      expect(g.computePending().batches).toBe(0);
+    } finally { appendSpy.mockRestore(); if (release) release({ ok: true, seq: 1n }); await kit.dispose(); }
+  }, 20_000);
 });

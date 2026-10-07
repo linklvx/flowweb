@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
 import { Redis as RedisExtension } from '@hocuspocus/extension-redis';
 import Redis from 'ioredis';
 import * as Y from 'yjs';
@@ -11,7 +11,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRedisSync } from './collab-redis-sync.service';
-import { collabSweepCloseTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabSweepCloseTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
@@ -42,10 +42,22 @@ export function persistRetryDelayMs(rung: number): number {
 const SESSION_SWEEP_INTERVAL_MS = 60_000;
 const SESSION_SWEEP_GRACE_MS = 5_000;
 
-/** pending 队列计数封顶：折叠后恰剩 1 条、需再积 64 条才复发（字节阈值会"折完仍超限→每条 update
- *  全量重编码"——实测 3000 条积压 4.8s vs 计数 103ms 同步阻塞 WS 消息路径）。模块级 const，无测试缝、
- *  无外部消费者（绿9/9b 靠推 70 条触发，不引用常量）——不 export。 */
+/** X10（Y0a-2）：WS 消息路径禁 mergeUpdates——入队只 push，跨软阈（64 条/1MB）才闩锁 setImmediate
+ *  提前 store（跨阈代价=一次整批 store 的 debounce 等待；低于软阈维持库 debounce 批量语义）。
+ *  PENDING_MAX_ENTRIES=64 语义由"原地折叠触发点"改为"提前 flush 触发点"（折叠全部移出 WS 路径）。 */
 const PENDING_MAX_ENTRIES = 64;
+/** 软阈字节档：条数少但字节大（大图/长文本粘贴）同样提前 flush。 */
+const FLUSH_SOFT_BYTES = 1_048_576;
+/** Y7 硬阈（Y24 内存上界）：只在 store 取批点收口——超阈就地折并（splice 原地、数组身份恒定）。
+ *  裁定注记（Y7 gate 裁定）：**不加 inFlight 门**——一切 store 入口（库 debounce/断连/退避梯/drain/
+ *  软阈 flush）都经 saveMutex 串行，取批与折并同锁零交织窗；update 监听器在折并 await 窗口内只会
+ *  push（X10 禁 merge），I-2 批尾引用锚是唯一竞态兜底。门本身结构性死锁（双败故障期 inFlight 恒置位
+ *  ——X2 落定口径——带门的折并永不执行=Y24 上界破约），故直接删除门形态。 */
+const COALESCE_MAX_ENTRIES = 512;
+const COALESCE_MAX_BYTES = 8 * 1024 * 1024;
+
+/** 批字节累加（软阈判定用——Uint8Array.byteLength 求和） */
+const queueBytes = (q: Uint8Array[]): number => q.reduce((s, u) => s + u.byteLength, 0);
 
 export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
@@ -69,6 +81,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly docProject = new WeakMap<Y.Doc, string>();
   /** Y11：update 监听注册判定源（原 pendingUpdates.has 的"已注册"语义——V4 拆键后与队列条目解耦） */
   private readonly docListeners = new WeakSet<Y.Doc>();
+  /** X10：软阈提前 flush 闩锁（projectId 键）——重复跨阈触发合并为一次 setImmediate（WS 路径
+   *  零合并零重复排程；回调内队列空/doc 不在即静默返回，批由退避梯/断连/drain 路径兜底）。 */
+  private readonly flushScheduled = new Set<string>();
   /** 批3-3：session 查询/滑动续期统一入口（手写 findUnique 收口；直构测试不传时以注入的 prisma 兜底自建） */
   private readonly sessionSvc: SessionService;
   /** 批3-4：compact 时间门限基线（projectId → 上次 compact 时点；loadDocument 播种） */
@@ -112,6 +127,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     onStoreDocument: (p: onStoreDocumentPayload) => Promise<boolean>;
     afterStoreDocument: (p: afterStoreDocumentPayload) => Promise<void>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
+    beforeUnloadDocument: (p: beforeUnloadDocumentPayload) => Promise<void>;
   };
 
   constructor(
@@ -136,6 +152,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
       afterStoreDocument: (p) => this.afterStoreDocument(p),
       onDisconnect: (p) => this.disconnect(p),
+      beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
     };
     const debounceMs = resolveCollabDebounce(debounce);
     this.server = new Server({
@@ -153,6 +170,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onStoreDocument: this.hooks.onStoreDocument,
       afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
       onDisconnect: this.hooks.onDisconnect,
+      beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
       extensions: [
         // v4.6.0 无 url 选项——createClient 直建 ioredis（吃 REDIS_URL，pub/sub 各一连接）
         // disconnectDelay 默认 1000ms 使每次直连 disconnect 固定 +2s（afterStoreDocument/beforeUnloadDocument 各等一次），
@@ -253,11 +271,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           if (this.replaying.has(document)) return;
           const q = this.pendingQueues.get(this.docProject.get(document)!);
           if (!q) { this.logger.error(`update for untracked doc ${documentName}: dropped`); return; }
-          q.push(u);
-          // 原地封顶（禁 set 新数组——数组身份恒定）。计数阈值：折叠后恰剩 1 条需再积 64 条才复发；
-          // 字节阈值会"折完仍超限→每条 update 全量重编码"（3000 条积压实测 4.8s vs 103ms 同步阻塞）
-          // （Task 7：折叠逻辑随 X10 闩锁改造移除——本批保留原折叠行为）
-          if (q.length > PENDING_MAX_ENTRIES) q.splice(0, q.length, Y.mergeUpdates(q));
+          q.push(u);   // X10：WS 消息路径只 push（禁合并编码——3000 条积压实测同步折并 4.8s 阻塞消息路径）
+          // 软阈跨点（64 条/1MB）→ 闩锁 setImmediate 提前 store；硬阈折并在 store 取批点收口（同锁零交织）
+          if (q.length > PENDING_MAX_ENTRIES || queueBytes(q) > FLUSH_SOFT_BYTES) this.scheduleSoftFlush(projectId);
         });
       }
       const applyReplayed = (u: Uint8Array) => {
@@ -324,6 +340,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const degraded = this.persistUnhealthy.has(documentName);    // V12：降级态
       const stashFrames = await this.peekSpoolFrames(projectId);
       if (queue.length === 0 && stashFrames.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }
+      // Y7 硬阈（Y24 内存上界）：超阈就地折并——splice 原地保数组身份；内容全保留（合并元素即本批）。
+      // 无 inFlight 门（裁定见常量块注记）：与取批同锁串行，push-only WS 路径零交织；双败期折并照常
+      // 执行=上界收敛（600k 条 → 1 合并元素），I-2 批尾锚为唯一竞态兜底。
+      if (queue.length > COALESCE_MAX_ENTRIES || queueBytes(queue) > COALESCE_MAX_BYTES) {
+        queue.splice(0, queue.length, Y.mergeUpdates(queue));
+      }
       this.enterInFlight(projectId);                               // enter storeInFlight（projectId 级）
       const stashIds = stashFrames.map((f) => f.frameId);
       // —— 降级态（V12）：本批先落 spool（新家先落定），再连带旧帧试 PG ——
@@ -449,11 +471,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private discardForGoneProject(projectId: string, documentName: string): boolean {
     const q = this.pendingQueues.get(projectId);
     const batches = q?.length ?? 0;
-    const bytes = (q ?? []).reduce((s, u) => s + u.byteLength, 0);
-    if (q && batches > 0) q.splice(0);
-    this.leaveInFlight(projectId);   // Y1：X2 落定点④（project.gone 丢弃）
-    yjsUpdatesDiscardedDeletedTotal.inc({ source: 'gateway' });
-    this.logger.warn(JSON.stringify({ event: 'project_gone_discard', projectId, batches, bytes }));
+    if (q && batches > 0) {
+      const bytes = (q ?? []).reduce((s, u) => s + u.byteLength, 0);
+      q.splice(0);
+      // Task 6 Minor 1：零批=没发生丢弃——不计数不点名（告警面干净）；有批才显式接受
+      yjsUpdatesDiscardedDeletedTotal.inc({ source: 'gateway' });
+      this.logger.warn(JSON.stringify({ event: 'project_gone_discard', projectId, batches, bytes }));
+    }
+    this.leaveInFlight(projectId);   // Y1：X2 落定点④无条件执行（幂等 delete——事件到达时 store 在飞窗由此收口）
     return false;
   }
 
@@ -491,6 +516,23 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** Y0a-2：gateway 直调点的串行包装（A14——库已持锁调钩子，钩子路径直通 Unlocked 禁再包） */
   private storeDocumentSerialized(p: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
     return p.document.saveMutex.runExclusive(() => this.storeDocumentUnlocked(p));
+  }
+
+  /** X10 软阈提前 flush（update 监听器跨 64 条/1MB 时闩锁触发）：setImmediate 出 WS 消息路径——
+   *  经 storeDocumentSerialized 与库 debounce/断连同锁串行；doc 已卸载时不触发（批留队列，
+   *  断连/退避梯/shutdown drain 兜底）。storeDocumentUnlocked 契约 3 永不 reject（void 即弃）。 */
+  private scheduleSoftFlush(projectId: string): void {
+    if (this.flushScheduled.has(projectId)) return;
+    this.flushScheduled.add(projectId);
+    setImmediate(() => {
+      this.flushScheduled.delete(projectId);
+      const q = this.pendingQueues.get(projectId);
+      if (!q || q.length === 0) return;
+      const documentName = `project:${projectId}`;
+      const document = this.server.hocuspocus.documents.get(documentName);
+      if (!document) return;
+      void this.storeDocumentSerialized({ document, documentName });
+    });
   }
 
   /** V13+X9：受理面判据（**粒度修正：只读降级而非停服**——"三入口全拒"会把本地磁盘故障放大成
@@ -699,6 +741,47 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         yjsStoreCompactFailureTotal.inc();
         this.logger.warn(`final compact failed for ${projectId}: ${(err as Error).message}`);   // 行已落库，非 flush 失败
       }
+    }
+  }
+
+  /** Y0a-2 Task 7：卸载清理+交接钩子（X4 永不抛——库对钩子抛错=取消卸载→destroy 永不 resolve）。
+   *  Y3 顺序：①cancel 退避梯（残留梯随卸载清）→②交接（队列批 best-effort 落 spool——fsync 落定才
+   *  splice，BOI；失败批留队列+③重排梯保活）→④清理残留（finally 保证）。
+   *  裁定注记：②不进 inFlight（批全程留队列=归属地恒在，BOI 自持）；交接成功的 leave 为防御性
+   *  收口（spool 已落定=at-risk 口径终结）。残留 spool 帧不触盘处理（V11 禁慢操作——由退避梯
+   *  detached 通道/shutdown drain/启动回灌三路径承接）。 */
+  private async unloadDocument({ documentName }: beforeUnloadDocumentPayload): Promise<void> {
+    const projectId = parseProjectId(documentName);
+    try {
+      this.cancelPersistRetry(documentName);                       // ①
+      const queue = this.pendingQueues.get(projectId);
+      if (queue && queue.length > 0) {
+        const n = queue.length;
+        const tailRef = queue[n - 1];                              // I-2：批尾引用锚（splice 前身份校验）
+        try {
+          const payload = n === 1 ? queue[0] : Y.mergeUpdates(queue.slice(0, n));
+          await this.spool.append(projectId, payload);             // fsync 完成才 resolve——新家落定
+          if (queue.length < n || queue[n - 1] !== tailRef) {      // I-2：await 窗口并发取批/折并——跳过 splice
+            yjsStoreTailAnomalyTotal.inc();
+            this.logger.error(`unload handoff tail anomaly for ${documentName}: queue mutated during spool append（批留队列重发——CRDT 幂等吸收）`);
+          } else {
+            queue.splice(0, n);                                    // 新家（spool）已落定——移出旧归属
+          }
+          this.leaveInFlight(projectId);                           // X2 落定点②（卸载交接变体）
+        } catch (err) {
+          yjsUnloadHandoffFailureTotal.inc();
+          this.logger.error(`unload handoff failed for ${documentName}, batch retained in queue: ${(err as Error).message}`);
+          this.schedulePersistRetry(documentName);                 // ③保活梯（①cancel 之后重排——entry.timer 真值）
+        }
+      }
+    } catch (err) {
+      // X4：意外异常一律吞（库语义=钩子抛错取消卸载→destroy 永不 resolve）——计数留痕
+      yjsUnloadCleanupFailureTotal.inc();
+      this.logger.warn(`beforeUnloadDocument swallowed error for ${documentName}: ${(err as Error).message}`);
+    } finally {
+      // ④清理残留（M1：project.gone 事件为第一入口——本钩子为卸载路径第二入口）
+      this.lastCompactAt.delete(projectId);
+      this.persistUnhealthy.delete(documentName);
     }
   }
 

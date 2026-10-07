@@ -149,3 +149,16 @@ export const yjsDeletedProjects = new Gauge({
   help: '终态集大小（进程寿命内真删除项目数——永久无界的可见化，spec §9.10）',
   registers: [register],
 });
+
+/** Y0a-2（Y18）：卸载交接两计数——handoff=spool append 失败（批留队列+退避梯续排，X4 钩子仍 resolve）；
+ *  cleanup=清理体自身异常被吞的计数留痕（X4：库对钩子抛错=取消卸载→destroy 永不 resolve，故只吞+计数）。 */
+export const yjsUnloadHandoffFailureTotal = new Counter({
+  name: 'yjs_unload_handoff_failure_total',
+  help: 'beforeUnloadDocument 卸载交接 spool append 失败次数（批留队列+退避梯续排；钩子仍 resolve——X4）',
+  registers: [register],
+});
+export const yjsUnloadCleanupFailureTotal = new Counter({
+  name: 'yjs_unload_cleanup_failure_total',
+  help: 'beforeUnloadDocument 清理体异常被吞次数（钩子永不抛——X4 destroy 不可被取消）',
+  registers: [register],
+});
