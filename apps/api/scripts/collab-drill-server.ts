@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (closing) return;
     closing = true;
-    void app.close().then(() => process.exit(0));   // 显式 exit——IPC/信号句柄不吊 event loop
+    void app.close().then(() => process.exit(0)).catch((e) => { console.error('drill-server close failed:', e); process.exit(1); });   // 显式 exit——IPC/信号句柄不吊 event loop；close 拒绝走 exit(1)（unhandled rejection 退出无诊断）
   };
   process.on('message', (m: unknown) => { if ((m as { type?: string } | null)?.type === 'shutdown') shutdown(); });
   process.on('SIGTERM', shutdown);   // POSIX 真信号（CI Linux=生产同构通道）；win32=TerminateProcess 硬杀不走此

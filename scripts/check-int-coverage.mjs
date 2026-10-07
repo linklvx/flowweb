@@ -3,6 +3,7 @@
 // 归一——vitest name 是绝对路径）；②numFailedTests===0；③numPendingTests===0（DATABASE_URL 缺失
 // 时 describe.skip 全跳=覆盖为零仍绿——必须挡）；④numTotalTests ≥ MIN。退出码=判据结果。
 // 配套：apps/api package.json test:int:ci（JSON 报告落 apps/api/int.json，已 gitignore）。
+// **必须在仓根运行**（相对路径 apps/api/int.json 与 git ls-files 的 glob 均按根 CWD——CI 步骤即根 CWD）。
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 

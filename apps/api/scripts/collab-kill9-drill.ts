@@ -51,13 +51,16 @@ async function clearLeaseRow(): Promise<void> {
 }
 
 // Z25 usurp：仓内 break-glass 脚本（tsx 子进程跑——脚本无 DI 依赖；同 DATABASE_URL env）。
+// 15s 超时兜底：DB 锁挂起时 kill 子进程并 fail（防演练悬挂+CI 取消时孤儿化）。
 function execScript(script: string): Promise<void> {
   return new Promise((res, rej) => {
     const child = spawn(process.execPath, [resolve(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs'), resolve(__dirname, script)], {
       cwd: resolve(__dirname, '..'), env: process.env, stdio: 'inherit',
     });
-    child.once('exit', (code) => (code === 0 ? res() : rej(new Error(`${script} exit ${code}`))));
-    child.once('error', rej);
+    const timer = setTimeout(() => { child.kill('SIGKILL'); rej(new Error(`${script} 超时（15s——DB 锁挂起？）`)); }, 15_000);
+    timer.unref?.();
+    child.once('exit', (code) => { clearTimeout(timer); (code === 0 ? res() : rej(new Error(`${script} exit ${code}`))); });
+    child.once('error', (e) => { clearTimeout(timer); rej(e); });
   });
 }
 
