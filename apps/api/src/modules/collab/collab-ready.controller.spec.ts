@@ -137,5 +137,15 @@ describe('CollabReadyController', () => {
         remark: `pending=${JSON.stringify(PENDING)}`,
       }));
     });
+
+    it('审计失败容忍：audit.log reject→仍返回 drain 体（drain 已生效不得 500 中断部署链，break-glass 同判）', async () => {
+      gatewayMock.beginDraining.mockReturnValue({ draining: true, phase: 'draining', autoReleaseAt: 1719999999999, pending: PENDING });
+      auditMock.log.mockRejectedValue(new Error('pg down'));
+      const errSpy = vi.spyOn((controller as any).logger, 'error');
+      const r = await controller.drain();
+      expect(r).toEqual({ draining: true, autoReleaseAt: 1719999999999, pending: PENDING });
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(errSpy.mock.calls[0][0]).toEqual(expect.objectContaining({ event: 'drain_audit_failed' }));
+    });
   });
 });

@@ -28,7 +28,9 @@ export class CollabReadyService {
 
   async getReady(): Promise<ReadyResult> {
     if (this.cached && Date.now() - this.cached.at < 1_000) return this.cached.v;   // Z10：1s 缓存
-    this.inflight ??= this.computeReady().then((v) => { this.cached = { at: Date.now(), v }; this.inflight = null; return v; });
+    this.inflight ??= this.computeReady()
+      .then((v) => { this.cached = { at: Date.now(), v }; this.inflight = null; return v; })
+      .catch((e) => { this.inflight = null; throw e; });   // 失败不驻留——下次调用重探（防单飞毒化=永久 500）
     return this.inflight;
   }
 
