@@ -242,9 +242,10 @@ export class CollabLeaseService {
   }
 
   /** 自隔离（E35 不自杀不硬撑）：repo fence 收口（owner=null=断言恒败）+gateway.onLost（关 WS/listener）。
-   *  计数单源=gateway.selfIsolate（{cause} 标签——一次失守至多计 1）。lost→rejoinLoop（SV5）。 */
+   *  计数单源=gateway.selfIsolate（{cause} 标签——一次失守至多计 1）。lost→rejoinLoop（SV5）。
+   *  入口守卫：仅 held 态合法进入（唯一调用面=heartbeat 持有期路径）——非 held/已关停即静默返回。 */
   private isolate(cause: LeaseLostCause): void {
-    if (this.state === 'lost' || this.state === 'revoked') return;
+    if (this.state !== 'held' || this.halted) return;   // 关停/释放后迟到的 renew 0 行不隔离（假失守噪音）
     this.state = 'lost';
     this.statementFailedFlag = false;
     this.stopHeartbeat();

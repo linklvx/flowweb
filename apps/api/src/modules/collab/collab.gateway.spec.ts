@@ -935,7 +935,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
     } finally { await kit.dispose(); }
   });
 
-  it('M1：draining 白盒——受理门拒新连接（V12 纯态门：serving=唯一放行态，draining 在三入口①即拒 LEASE_NOT_READY 瞬态档）', async () => {
+  it('M1：draining 白盒——受理门拒新连接（X9 DRAINING 档前置于租约门——draining 分型准确不误报 lease-not-ready）', async () => {
     const kit = await startDualClientServer({}, 200);
     try {
       kit.gateway.beginDraining();   // Y0a-3 T5：draining 布尔退役——beginDraining 置 collabState=draining（isShuttingDown 派生读点不变）
@@ -945,7 +945,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         requestParameters: new URLSearchParams('token=tok'),
         documentName: 'project:p-m1',
         connectionConfig: { readOnly: false, isAuthenticated: false },
-      } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });   // 三入口①先于 X9 DRAINING 档（瞬态：客户端继续重连）
+      } as any)).rejects.toMatchObject({ reason: CollabAuthReason.DRAINING });   // draining 档先于租约门（瞬态：客户端继续重连）
     } finally { await kit.dispose(); }
   });
 });

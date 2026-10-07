@@ -113,7 +113,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private collabState: CollabState = 'initializing';
   private initDone = false;             // V9/I3：成功后置（scan/隔离/回灌/rearm 四步全成才 true——早置=失败重试跳过 init 带半截索引上线）
   private startInFlight = false;        // V10：starting 在飞闸（watchdog/5s 定时器/fast-path 并发重入防线）
-  private shuttingDown = false;         // V11：关停闸（步骤 1 置位——isolated 态关停时 rejoin 的 CAS 成功也不得 re-listen）
+  private shuttingDown = false;         // V11：关停闸（步骤 1 置位——isolated 态关停时 rejoin 的 CAS 成功也不得 re-listen）（与 isShuttingDown()=draining 态派生不同名同义——前者=进程关停闸含步骤 1 置位时序，后者=对外 draining 判定）
   private listenerClosed: Promise<void> | null = null;   // M2①：isolate 的 close 完成信号（re-listen 前 await）
   private listenRetries = 0;            // V10/N2③：端口类失败的有界持锁重试计数（≤2）
   private watchdogFired = false;        // N3③/V14：episode 计数标志——看门狗每 episode 至多 inc 1 次
@@ -227,10 +227,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const token = requestParameters?.get('token')
         ?? parseSessionToken(requestHeaders?.get('cookie'));
       if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
-      if (!this.isLeaseServing()) throw deny(CollabAuthReason.LEASE_NOT_READY, 'collab lease not held');   // P0-1 三入口①（V12：非 isolated ∧ lease held）
       // Y0a-2（X9）：受理门分层——draining=关停期拒新连接（DRAINING 瞬态档，客户端继续重连）；
-      // spool 熔断=只读降级（新连接放行但 readOnly——复用 VIEWER 机制+stateless 通告；存量连接不动）
+      // spool 熔断=只读降级（新连接放行但 readOnly——复用 VIEWER 机制+stateless 通告；存量连接不动）。
+      // DRAINING 档必须前置于租约门：draining 时 collabState≠'serving'，租约门先行=死代码+误导 reason。
       if (this.isShuttingDown()) throw deny(CollabAuthReason.DRAINING, 'service restarting');
+      if (!this.isLeaseServing()) throw deny(CollabAuthReason.LEASE_NOT_READY, 'collab lease not held');   // P0-1 三入口①（V12：collabState 派生——serving=唯一放行态；draining 由前置 DRAINING 档分型）
       const spoolState = this.isWritableOrDegraded();
       if (spoolState !== 'ok') {
         connectionConfig.readOnly = true;          // X9：只读降级（协议层拒写更新）
@@ -1060,6 +1061,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.server.hocuspocus.documents.size > 0)
       throw Object.assign(new Error(`documents 未卸载（${this.server.hocuspocus.documents.size} 个——mutex 持有），拒绝 re-listen（留 isolated 等下轮退避）`), { code: 'DOCS_NOT_UNLOADED' });   // V10：归端口类=持锁重试
     await this.listenServer();   // Y0a-1 P1-1：await listen——返回即端口就绪（消端口竞态）
+    this.listenRetries = 0;   // 成功即重置端口重试预算（防终身保守漂移）
     this.startSessionSweep();     // W8/M2②：先 clear 再 set（幂等——rejoin 不泄漏定时器）
     this.startSpoolReconciler();
     // Y10 seam（v3 重排漏接=v4 修复，I4）：spool IO 熔断恢复→唤醒退避梯——缺此行=熔断期梯死+恢复后零自愈
