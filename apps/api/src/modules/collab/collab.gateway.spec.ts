@@ -1477,6 +1477,22 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     } finally { await kit.dispose(); }
   });
 
+  it('V11 终审收口：关停期 listen 迟到完成不转 serving（draining ⇒ ready≠true 契约——starting 态 listen 窗撞 SIGTERM 的竞态）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const gw = kit.gateway as any;
+      gw.transition('draining', 'test-shutdown');
+      gw.shuttingDown = true;                        // 模拟 onApplicationShutdown 步骤 1 已置关停闸
+      gw.transition = (next: string, cause?: string) => {   // 复检失败时原实现会调 transition('serving')——捕获即红
+        throw new Error(`关停期非法迁移 → ${next}（${cause ?? ''}）——listenCollab 不得在 shuttingDown 后转 serving`);
+      };
+      const listenSpy = vi.spyOn(gw, 'listenServer').mockImplementation(async () => {});
+      await gw.listenCollab();                       // listen"完成"（mock）——复检应在 transition 前拦下
+      listenSpy.mockRestore();
+      expect(gw.getCollabState()).toBe('draining');  // 仍是 draining（未翻 serving）
+    } finally { await kit.dispose(); }
+  });
+
   it('I4/reconciler 收养回收闭环：静默外来段（含坏尾）收养→隔离→回灌→confirm→整段 unlink（契约注记②——adopt 重建 meta 的 quarantinedRange=null ∧ goodBytes<bytes ⇒ tailSettled 恒 false=段永不回收）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a3-rec-');
     try {

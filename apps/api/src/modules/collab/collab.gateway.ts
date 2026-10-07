@@ -1061,6 +1061,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.server.hocuspocus.documents.size > 0)
       throw Object.assign(new Error(`documents 未卸载（${this.server.hocuspocus.documents.size} 个——mutex 持有），拒绝 re-listen（留 isolated 等下轮退避）`), { code: 'DOCS_NOT_UNLOADED' });   // V10：归端口类=持锁重试
     await this.listenServer();   // Y0a-1 P1-1：await listen——返回即端口就绪（消端口竞态）
+    // V11 收口（终审 Important）：SIGTERM 落在 starting 态 listen 窗时此处才 resolve——不复检即
+    // transition('serving') 会翻转关停已置的 draining（ready 翻 200+authenticate 放行新 WS=
+    // 破"draining ⇒ ready≠true"契约）。不转 serving 直接返回：listener 由关停链步骤 5 destroy 收口；
+    // 窗口内新 WS/直连被 draining/LEASE_NOT_READY 门拒。
+    if (this.shuttingDown) {
+      this.logger.warn('listen 完成但关停已在途——不转 serving（draining 契约保持），listener 随关停链 destroy 销毁');
+      return;
+    }
     this.listenRetries = 0;   // 成功即重置端口重试预算（防终身保守漂移）
     this.startSessionSweep();     // W8/M2②：先 clear 再 set（幂等——rejoin 不泄漏定时器）
     this.startSpoolReconciler();
