@@ -1095,6 +1095,25 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
     } finally { await kit.dispose(); }
   });
 
+  it('I-1 僵尸 doc 空条目禁回收：doc 仍在库 documents Map（钩子后复检取消卸载形态）时空条目必须保留——重连复用 doc 不重跑 loadDocument=条目不重建，删则活编辑命中 !q 静默丢弃；doc 真卸载后 X17 照常回收', async () => {
+    const kit = await startDualClientServer();
+    const g = kit.gateway as any;
+    const zombie = new Y.Doc();
+    kit.gateway.server.hocuspocus.documents.set('project:p-zombie', zombie as any);   // doc 仍活=库复检取消卸载形态
+    try {
+      g.pendingQueues.set('p-zombie', []);   // 空条目装置（store 失败过→交接 splice 清空后的形态）
+      await g.hooks.beforeUnloadDocument({ documentName: 'project:p-zombie', document: zombie } as any);
+      expect(g.pendingQueues.has('p-zombie')).toBe(true);   // 判定点：旧代码无前置删除=红（活编辑丢弃窗）
+      kit.gateway.server.hocuspocus.documents.delete('project:p-zombie');   // doc 真卸载
+      await g.hooks.beforeUnloadDocument({ documentName: 'project:p-zombie', document: zombie } as any);
+      expect(g.pendingQueues.has('p-zombie')).toBe(false);   // X17：doc 真消失才回收
+    } finally {
+      // 红相防御：断言失败不残留裸 doc 毒化 dispose（裸 Y.Doc 无 connections——closeConnections 炸=destroy 挂死）
+      kit.gateway.server.hocuspocus.documents.delete('project:p-zombie');
+      await kit.dispose();
+    }
+  });
+
   it('清理钩子永不抛：内部异常被吞（库对 beforeUnloadDocument 抛错=取消卸载→destroy 永不 resolve→8s race+内存泄漏）', async () => {
     const kit = await startDualClientServer();
     try {
@@ -1133,7 +1152,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       // >=2（非 >0）：stamp 自愈行+k1 两 update 全部落队再交接——WS 送达异步，>0 会在 stamp 时提前放行（k1 迟到→交接后断言假红）
       await pollUntil(() => ((g.pendingQueues.get('p-handoff') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
       await g.hooks.beforeUnloadDocument({ documentName: 'project:p-handoff', document: provider.document } as any);
-      expect(g.pendingQueues.has('p-handoff')).toBe(false);       // 批新家=spool（splice 后空条目随 X17 回收——卸载后无观察者）
+      expect(g.pendingQueues.get('p-handoff')).toHaveLength(0);   // 批新家=spool（splice 落定）；空条目保留（I-1：doc 仍在 documents Map——直调非真卸载，回收禁行）
       expect(await kit.spool.peek('p-handoff')).toHaveLength(1);  // 帧在 spool（fsync 已落定）
       expect(g.inFlightProjects.has('p-handoff')).toBe(false);    // X2 落定点②：卸载交接 leave
     } finally { await kit.dispose(); }

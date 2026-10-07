@@ -272,7 +272,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           const q = this.pendingQueues.get(this.docProject.get(document)!);
           if (!q) { this.logger.error(`update for untracked doc ${documentName}: dropped`); return; }
           q.push(u);   // X10：WS 消息路径只 push（禁合并编码——3000 条积压实测同步折并 4.8s 阻塞消息路径）
-          // 软阈跨点（64 条/1MB）→ 闩锁 setImmediate 提前 store；硬阈折并在 store 取批点收口（同锁零交织）
+          // 软阈跨点（超过 64 条/1MB——严格 >，第 65 条/超 1MB 触发）→ 闩锁 setImmediate 提前 store；硬阈折并在 store 取批点收口（同锁零交织）
           if (q.length > PENDING_MAX_ENTRIES || queueBytes(q) > FLUSH_SOFT_BYTES) this.scheduleSoftFlush(projectId);
         });
       }
@@ -340,7 +340,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const degraded = this.persistUnhealthy.has(documentName);    // V12：降级态
       const stashFrames = await this.peekSpoolFrames(projectId);
       if (queue.length === 0 && stashFrames.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }
-      // Y7 硬阈（Y24 内存上界）：超阈就地折并——splice 原地保数组身份；内容全保留（合并元素即本批）。
+      // Y7 硬阈（Y24 内存上界）：超过 512 条/8MB（严格 >，第 513 条触发）就地折并——splice 原地保数组身份；内容全保留（合并元素即本批）。
       // 无 inFlight 门（裁定见常量块注记）：与取批同锁串行，push-only WS 路径零交织；双败期折并照常
       // 执行=上界收敛（600k 条 → 1 合并元素），I-2 批尾锚为唯一竞态兜底。
       if (queue.length > COALESCE_MAX_ENTRIES || queueBytes(queue) > COALESCE_MAX_BYTES) {
@@ -686,7 +686,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           const tailRef = queue[n - 1];                          // I-2：批尾引用锚（unload 交接/store 三处同款——splice 前身份校验）
           const payload = n === 1 ? queue[0] : Y.mergeUpdates(queue.slice(0, n));
           await this.spool.append(projectId, payload);           // 失败 throw 重走 catch 退避（不 cancel——批仍需保活）
-          // I-2：await 窗口锁内折并改写前缀（Y7 取批点收口后本通道是唯一锁外 splice）——身份不符跳过 splice：
+          // I-2：await 窗口锁内折并改写前缀（两处锁外 splice 之一——unload 交接同为此列，均 I-2 批尾锚守卫）——身份不符跳过 splice：
           // merged 含未落库新内容留队由梯子重发（CRDT 幂等吸收）；本批已落 spool fsync=归属落定，leave 无条件。
           if (queue.length < n || (n > 0 && queue[n - 1] !== tailRef)) {
             yjsStoreTailAnomalyTotal.inc();
@@ -756,8 +756,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  Y3 顺序：①cancel 退避梯（残留梯随卸载清）→②交接（队列批 best-effort 落 spool——fsync 落定才
    *  splice，BOI；失败批留队列+③重排梯保活）→④清理残留（finally 保证）。
    *  裁定注记：②不进 inFlight（批全程留队列=归属地恒在，BOI 自持）；交接成功的 leave 为防御性
-   *  收口（spool 已落定=at-risk 口径终结）。残留 spool 帧不触盘处理（V11 禁慢操作——由退避梯
-   *  detached 通道/shutdown drain/启动回灌三路径承接）。 */
+   *  收口（spool 已落定=at-risk 口径终结）。残留 spool 帧不触盘处理（V11 禁慢操作——仅交接失败支
+   *  需承接：退避梯 detached 通道/shutdown drain/启动回灌三路径；成功支帧已落定非 at-risk——等
+   *  重开/关停/重启回灌入 PG，J4 口径）。 */
   private async unloadDocument({ documentName }: beforeUnloadDocumentPayload): Promise<void> {
     const projectId = parseProjectId(documentName);
     try {
@@ -791,7 +792,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.lastCompactAt.delete(projectId);
       this.persistUnhealthy.delete(documentName);
       const q2 = this.pendingQueues.get(projectId);
-      if (q2 && q2.length === 0) this.pendingQueues.delete(projectId);   // X17：空条目回收（交接失败时 q2 非空自然保留）
+      // I-1：仅当 doc 真已从库 documents Map 消失才回收空条目——库在钩子后复检 shouldUnloadDocument
+      //（mutex 锁定/连接>0 时取消卸载 doc 存活），此时重连复用 doc 不重跑 loadDocument=条目不重建，
+      // 每条 update 命中 !q 丢弃=活编辑静默蒸发窗（X17 与库取消卸载语义的交织）。
+      if (q2 && q2.length === 0 && !this.server.hocuspocus.documents.get(documentName)) this.pendingQueues.delete(projectId);
     }
   }
 
