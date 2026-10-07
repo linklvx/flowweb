@@ -47,7 +47,7 @@ export const collabSweepCloseTotal = new Counter({
  *  （B8：prom-client 对未声明标签 throw——隔离路径会炸，先于任何消费方落地）。 */
 export const collabLeaseDeniedTotal = new Counter({
   name: 'collab_lease_denied_total',
-  help: '租约获取失败次数（reason=contention：CAS 0 行；reason=error：语句失败/超时）',
+  help: '租约获取失败次数（reason=contention：CAS 0 行；reason=revoked：everHeld 门命中 break-glass 哨兵；reason=error：语句失败/超时）',
   labelNames: ['reason'],
   registers: [register],
 });
@@ -59,7 +59,7 @@ export const collabLeaseLostTotal = new Counter({
 });
 export const collabStartFailureTotal = new Counter({
   name: 'collab_start_failure_total',
-  help: 'collab 面启动失败次数（scan/listen 抛错；看门狗每 episode 至多补 1 次——W22）',
+  help: 'collab 面启动失败次数（scan/listen 抛错/onHeld 接线失败；看门狗每 episode 至多补 1 次——W22）',
   registers: [register],
 });
 export const collabLeaseEpoch = new Gauge({

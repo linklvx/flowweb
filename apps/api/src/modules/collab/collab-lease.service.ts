@@ -129,6 +129,7 @@ export class CollabLeaseService {
   private async attemptAcquire(): Promise<boolean> {
     if (this.halted) return false;
     const ttl = this.ttlMs;
+    let revokedGate = false;
     try {
       this.statementFailedFlag = false;
       const rows = await this.prisma.$transaction(
@@ -142,7 +143,7 @@ export class CollabLeaseService {
           if (this.everHeld) {
             const row = await tx.$queryRaw<{ owner: string | null }[]>`
               SELECT owner FROM "CollabLease" WHERE scope = ${COLLAB_LEASE_SCOPE}`;
-            if (row[0]?.owner === REVOKED_OWNER) { this.revoke(); return []; }
+            if (row[0]?.owner === REVOKED_OWNER) { revokedGate = true; this.revoke(); return []; }
           }
           return tx.$queryRaw<{ epoch: bigint }[]>`
             UPDATE "CollabLease" SET owner = ${this.owner}, epoch = epoch + 1,
@@ -153,8 +154,8 @@ export class CollabLeaseService {
         },
         { timeout: 2_000, maxWait: 500 },
       );
-      if (rows.length === 0) { collabLeaseDeniedTotal.inc({ reason: 'contention' }); return false; }
-      this.onHeld(rows[0].epoch);
+      if (rows.length === 0) { collabLeaseDeniedTotal.inc({ reason: revokedGate ? 'revoked' : 'contention' }); return false; }
+      await this.onHeld(rows[0].epoch);
       return true;
     } catch (e) {
       this.statementFailedFlag = true;
@@ -164,8 +165,10 @@ export class CollabLeaseService {
   }
 
   /** V4/I1 原子：state='held' ⟺ 心跳在跑 ∧ repo/spool 接线完成——接线失败即释放租约行并抛
-   *  （调用方见 start-failed 语义，绝不留"持有租约但无心跳/无 spool owner"的半态僵尸）。 */
-  private onHeld(epoch: bigint): void {
+   *  （调用方见 start-failed 语义，绝不留"持有租约但无心跳/无 spool owner"的半态僵尸）。
+   *  释放为 await：acquireLoop 1s 后以同 owner 重试，fire-and-forget 的无界释放若迟到落行，
+   *  WHERE owner=$me 仍命中→清掉重取后的行=假 heartbeat-fenced；await 保证释放先于重试完成。 */
+  private async onHeld(epoch: bigint): Promise<void> {
     this.epoch = epoch;
     this.renewedAt = new Date();
     try {
@@ -175,7 +178,7 @@ export class CollabLeaseService {
       this.state = 'not-acquired';
       collabStartFailureTotal.inc();
       this.logger.error(`lease onHeld 接线失败——释放租约行拒当僵尸: ${(e as Error).message}`);
-      void this.prisma.$queryRaw`
+      await this.prisma.$queryRaw`
         UPDATE "CollabLease" SET owner = NULL, "expiresAt" = NULL, "renewedAt" = NULL
         WHERE scope = ${COLLAB_LEASE_SCOPE} AND owner = ${this.owner}`.catch(() => {});
       throw e;
