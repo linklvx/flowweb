@@ -27,8 +27,13 @@ const COLLAPSE_MS = 3_200;               // ≥maxDebounce(300×1.5) 的持续�
 const TERM_VIA_SIGNAL = process.platform !== 'win32';   // 见文件头探针实证——win32=false→IPC 主通道
 const DRILL_ENTRY = resolve(__dirname, '..', 'dist', 'scripts', 'collab-drill-server.js');
 
-function fail(msg: string): never { console.error(`DRILL FAIL: ${msg}`); process.exit(1); }
+// Task 9 审查 Major-1：fail 改 throw——process.exit(1) 会绕过 main 的 finally（触发器/fixture/spoolDir
+// 清理全跳过，实证残留 DB 2 项目+TEMP 2 目录）；throw 后经 main().catch 统一出口（finally 先行，exitCode 收口）。
+function fail(msg: string): never { throw new Error(`DRILL FAIL: ${msg}`); }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Major-1 配套：spawn 后即登记，main().catch 兜底 SIGKILL——覆盖 ready 60s 超时 reject 与 barrier 中途
+// fail 两类"child 尚活即抛出"路径（正常路径 stopServer 时摘除）。
+const liveChildren = new Set<ChildProcess>();
 
 let compiling: Promise<void> | null = null;
 function ensureCompiled(): Promise<void> {
@@ -67,6 +72,7 @@ async function startServer(env: Record<string, string>): Promise<DrillHandle> {
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],   // ipc=关停通道（controller 裁定 9——win32 主通道）
   });
+  liveChildren.add(child);
   const stdout: string[] = []; const stderr: string[] = [];
   child.stdout!.on('data', (d) => stdout.push(String(d)));
   child.stderr!.on('data', (d) => stderr.push(String(d)));
@@ -80,6 +86,7 @@ async function startServer(env: Record<string, string>): Promise<DrillHandle> {
 
 async function stopServer(h: DrillHandle): Promise<void> {
   h.child.kill('SIGKILL');   // Windows=TerminateProcess（演练外只求收口——不留孤儿进程/端口/DB 连接）
+  liveChildren.delete(h.child);
   await new Promise<void>((r) => { h.child.once('exit', () => r()); setTimeout(r, 2_000).unref?.(); });
 }
 
@@ -87,7 +94,11 @@ async function connectWrite(h: DrillHandle, projectId: string, nodes: number): P
   const ydoc = new Y.Doc();
   // URL 形态照抄 test-utils/dual-client-server.ts:66（仓内实证——token query+name 分离传参）
   const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?token=${DRILL_TOKEN}`, name: `project:${projectId}`, document: ydoc });
-  await new Promise<void>((r, rej) => { provider.on('synced', () => r()); setTimeout(() => rej(new Error('sync 超时')), 15_000); });
+  await new Promise<void>((r, rej) => {
+    provider.on('synced', () => r());
+    // reject 前先 destroy：sync 超时是可抛路径——provider WS 不关会挂住事件循环，exitCode=1 收不了口
+    setTimeout(() => { provider.destroy(); rej(new Error('sync 超时')); }, 15_000);
+  });
   const keys: string[] = [];
   for (let i = 0; i < nodes; i++) ydoc.getMap('nodes').set(`drill-${i}`, new Y.Map([['x', i]]));
   keys.push(...[...ydoc.getMap('nodes').keys()]);
@@ -115,11 +126,13 @@ async function barrier(h: DrillHandle, opts: { withSpoolStable?: boolean; requir
   // spool 尚未接手）：quiescence 达成时批必须已落定，此时故障档 spool 必非空（PG 恒败批只能入 spool）。
   const t0 = Date.now();
   let stableSince: number | null = null; let lastSpoolBytes = -1;
+  let lastSample = '';                        // Minor 3：超时 fail 消息带末次四 gauge 采样（诊断不再只给结论）
   while (Date.now() - t0 < 30_000) {
     const text = await metrics(h.port, h.token);
     const projects = await gauge(text, 'yjs_pending_projects'); const batches = await gauge(text, 'yjs_pending_batches');
     const inFlight = await gauge(text, 'yjs_store_in_flight_docs');
     const spoolBytes = await gauge(text, 'yjs_spool_depth_bytes');
+    lastSample = `projects=${projects} batches=${batches} storeInFlight=${inFlight} spoolBytes=${spoolBytes}`;
     const quiescent = projects === 0 && batches === 0 && inFlight === 0 && (!opts.withSpoolStable || spoolBytes === lastSpoolBytes);
     if (quiescent) {
       if (stableSince === null) stableSince = Date.now();
@@ -134,7 +147,7 @@ async function barrier(h: DrillHandle, opts: { withSpoolStable?: boolean; requir
     lastSpoolBytes = spoolBytes;
     await sleep(400);
   }
-  fail('quiescence barrier 30s 未达成（projects/batches/inFlight 未归零或 spool 不稳定）');
+  fail(`quiescence barrier 30s 未达成（projects/batches/inFlight 未归零或 spool 不稳定）——末次采样 ${lastSample}`);
 }
 
 async function createTrigger(): Promise<void> {
@@ -190,7 +203,7 @@ async function sigtermMode(env: Record<string, string>): Promise<void> {
   const drainDone = /\{"event":"shutdown_drain_complete".*\}/.exec(out)?.[0];
   const undrained = /\{"event":"shutdown_undrained".*\}/.exec(out)?.[0];
   if (spoolFail) {
-    if (!undrained) fail('sigterm --spool-fail：期望 shutdown_undrained 点名（G-2a ii 档——不得声称 0）');
+    if (!undrained) fail(`sigterm --spool-fail：期望 shutdown_undrained 点名（G-2a ii 档——不得声称 0）\n${out.slice(-2000)}`);
     const e = JSON.parse(undrained);
     if (!(e.projects >= 1 && e.batches >= 1 && e.storeInFlight === e.projects)) fail(`undrained 与 storeInFlight 不一致：${undrained}`);   // Y5：projects 键名（docs 键恒 undefined→两档均红且报错指向错误方向）
   } else {
@@ -220,4 +233,8 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((e) => { console.error(e); process.exit(1); });
+void main().catch((e) => {
+  for (const c of liveChildren) c.kill('SIGKILL');   // Major-1 兜底：ready 60s 超时/barrier 中途 fail 时 child 尚活——孤儿化收口（正常路径 stopServer 已摘除）
+  console.error(e);
+  process.exitCode = 1;   // finally（触发器/fixture/spoolDir 清理）已在 main 体内先行执行完
+});
