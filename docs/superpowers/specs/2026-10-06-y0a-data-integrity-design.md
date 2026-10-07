@@ -11,7 +11,7 @@
 
 > **Y0a 出口 = 以下四条全部成立：**
 >
-> 1. **`kill -9` 后重放 ⊇ 崩溃前"已接受"的编辑集**——RPO 故障腿 0 行丢失。**判定 oracle（v2.4 双模式 quiescence barrier——原"轮询 batches===0 即录集"在去抖定时器观测盲区会录小已接受集=假通过）**：`/api/ready` 暴露 `pending{docs,batches,spoolFiles,spoolBytes}`（字段定义见 §3.3）。**正常模式**：驱动脚本**停写**→轮询 `pending.docs===0 ∧ pending.batches===0` 且该状态**持续 ≥maxDebounce(3s)**→此刻序号集=已接受集（全部已落 PG）→kill -9→重启→断言恢复态 ⊇ 该集合。**故障注入模式**（DB 触发器拒写，§2.3 已定）：停写→轮询 `docs===0 ∧ batches===0 ∧ spoolBytes 连续 2 次采样不变`→已接受集=已写序号全集（全部在 spool）→kill -9→重启回灌→断言 ⊇。`spoolFiles>0` 只作故障模式的附加证据，不作接受条件；正常腿 ≤maxDebounce 3s 内存窗口明示不属此判据（见 §5.1）。
+> 1. **`kill -9` 后重放 ⊇ 崩溃前"已接受"的编辑集**——RPO 故障腿 0 行丢失。**判定 oracle（v2.4 双模式 quiescence barrier——原"轮询 batches===0 即录集"在去抖定时器观测盲区会录小已接受集=假通过）**：`/api/ready` 暴露 `pending{projects,batches,spoolFiles,spoolBytes}`（字段定义见 §3.3）。**正常模式**：驱动脚本**停写**→轮询 `pending.projects===0 ∧ pending.batches===0` 且该状态**持续 ≥maxDebounce(3s)**→此刻序号集=已接受集（全部已落 PG）→kill -9→重启→断言恢复态 ⊇ 该集合。**故障注入模式**（DB 触发器拒写，§2.3 已定）：停写→轮询 `projects===0 ∧ batches===0 ∧ spoolBytes 连续 2 次采样不变`→已接受集=已写序号全集（全部在 spool）→kill -9→重启回灌→断言 ⊇。`spoolFiles>0` 只作故障模式的附加证据，不作接受条件；正常腿 ≤maxDebounce 3s 内存窗口明示不属此判据（见 §5.1）。
 > 2. **`SIGTERM` 后批次归属要么落定、要么被如实点名（v2.4 拆 G-2a/G-2b——原"force-spool 使 storeInFlight 构造性为 0"依赖 spool 可写这一 spec 自认可能不成立的先决条件，判据取值由被测对象自身决定=不可证伪，违 D13）**。storeInFlight 口径 v2.1 重定义：**进入过 store 取批路径、但退出时既未 append 成功也未 fsync 入 spool 的批次数**（计数器载体随 Y0a-2 spool 同批落地；形态=prom-client Gauge+enter/leave 与批次归属转移同点，增减点恒 2 处见契约 14）。**G-2a（运维后置条件）**：SIGTERM 演练后——(i) storeInFlight===0；或 (ii) spool 不可写（演练注入磁盘/权限故障）时，关停结构化日志 `{event:'shutdown_undrained', batches, docs}` 与 storeInFlight 值一致、且 ready 在关停前已转 not-ready（熔断可见）——判据是"归属要么落定、要么被如实点名"，不是"恒为 0"；drain 末步**尝试** force-spool：成功则该批归属落定，失败则留 doc 队列并如实点名（不得声称 0）。**G-2b（机制判据，storeInFlight 口径的真正证明载体）**：注入"append 失败+spool 写失败"→断言批仍在 doc 队列（BOI 红→绿，§6.1 已有此门）。库去抖定时器内未被取走的批=正常腿窗口，明示不属此判据（v2 原口径对去抖窗口恒真=假门禁，违 D13）。
 > 3. **第二实例结构性无法接流**——未持租约的进程：不 listen、WS 升级拒绝、REST→doc 写路径（withDoc/loadDocument）被门拒绝（三入口门）；且**被接管的原持有者写语句被 fence**（append 返回 `{ok:false, reason:'fenced'}`（AppendResult，§3.2）/compact 不删行——写语句级断言，非仅内存布尔，见 Y0a-3；**fenced=终态：自隔离+批走 spool，不进退避梯**，契约 15）。
 > 4. **`/api/ready` 在 PG / 租约故障下给出可读 reason**（字面量封闭枚举+holder/epoch 等独立字段；Redis 故障不 gating，仅报状态）。
@@ -178,7 +178,7 @@
 | §3.2"fenced=0 行"仅口头约定；§2.3 BOI 伪代码对"不抛异常的 0 行"照常 splice | **fenced 蒸发**：$queryRaw 0 行不抛异常→splice 出队→批既不在 PG 也不在 spool（spool 回灌路径同构中招：append"无异常"→confirm 删帧→两处皆空）。改 **AppendResult 判别返回**（§1.2）+BOI 把 `!r.ok` 并入失败路径（fenced=终态+批走 spool+自隔离，禁 splice）+契约 15+G-3b 三断言用例 |
 | §3.2 readSnapshotOnly"无事务单读者" | 重开 E20 撕裂：先读快照→compact 并发提交（删 ≤S1）→读 `seq>S0` 增量→(S0,S1] 静默缺行；服务公开作品页+违冻结契约 1。改 **readConsistent 单 RR 事务两出口**（§3.2） |
 | §3-1.4/契约 13：P2024 归可自愈类+compact 独立预算 60s | P2024=**连接池取连接超时**（池饥饿，非事务超时）——自愈动作自身需池连接=饥饿期零成功率纯放大；60s 挂在客户端已放弃的请求=纯池占用且违 §7.2 预算规则。**P2024 移出**（直接 fail-closed）+自愈增量预算 **≤8s**（compact 6s+重试装载 2s，§1.4） |
-| §0 目标 1 oracle"轮询 batches===0 即录集" | 批在去抖定时器的观测盲区→已接受集录小→kill -9 丢批仍断言通过=假门禁。改**双模式 quiescence barrier**（停写+`docs===0 ∧ batches===0` 持续 ≥maxDebounce；故障模式加 spoolBytes 两次采样不变） |
+| §0 目标 1 oracle"轮询 batches===0 即录集" | 批在去抖定时器的观测盲区→已接受集录小→kill -9 丢批仍断言通过=假门禁。改**双模式 quiescence barrier**（停写+`projects===0 ∧ batches===0` 持续 ≥maxDebounce；故障模式加 spoolBytes 两次采样不变） |
 | §0 目标 2"drain force-spool 使 storeInFlight 构造性为 0" | spool 熔断态下 force-spool 失败→判据取值由被测对象自身决定=不可证伪（D13 同罪复发）。改 **G-2a（归属落定或如实点名）/G-2b（BOI 注入=机制载体）**+契约 14 计数器两点+drain force-spool 复用同落定点 |
 | §4.4 部署拒重启无前置停写阶段 | 活跃编辑下去抖窗口内必有 pending 批→`batches===0` 稳态不可达→每次 exit 1→force-restart 沦为日常=门禁失效。改**三步**：`POST /api/drain`（v2.4 新增端点，§3.3）→轮询 pending 排空→restart；draining 60s 未收到 SIGTERM 自动解除（防部署链中止留只读僵尸） |
 | §3.2 fence 仅校验 owner | 租约行缺失→标量子查询 NULL→**静默 fence 全部写入**（配置错误伪装成正常 fence，日志无线索）；过期自有租约仍可写。改 **EXISTS+owner+TTL 双校验**+0 行时二次查租约行区分 `leaseRowMissing`（lease-error 档+ERROR，不进自隔离——重试无用）（§3.2） |
@@ -363,7 +363,7 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
 | 1 | `draining=true`（就绪门翻 not-ready：拒新 WS 升级+REST 写路径门关闭——与 Y0a-3 联动；**与 /api/drain 同一状态位，幂等**）+在飞直连：withDoc 新进入者立即拒；已在飞的**宽限 2s 后不再等待归还**（disconnect 是 await 的，锚 A6；未归还者计入步骤 5 `hangReason:'direct-open'`——直连滞留是 RTO 问题非数据问题，store 不依赖连接计数；closeAllConnections1012 只遍历 WS connections 不触 direct（A3）） | ≤2s |
 | 2 | closeAllConnections1012（停收新写） | 瞬时 |
 | 3 | `flushPendingStores()`（库自持 debounce 队列）**可超时**（Promise.race ≤6s——重试梯 60s 封顶的 doc 会拖过预算；且它只处理"仍在 debounce 中"的 store（≤maxDebounce 3s 窗口），**对已失败队列非空的 doc 无效——主力是步骤 4**，此事实写进代码注释防误判） | ≤6s |
-| 4 | 自管 drain：遍历 pendingUpdates 非空 doc→storeDocument（BOI 主路径）；**末步对仍未落库 doc 尝试 force-spool**（putStash fsync）——成功则该批归属落定；**失败则该批留在 doc 队列并在关停结构化日志中如实点名（不得声称 0）**（v2.4 撤"构造性成立"——G-2a 口径，§0 目标 2）；完成后记 `{event:'shutdown_drain_complete', pending:{docs,batches,spoolFiles,spoolBytes}, storeInFlight}`（**G-2a 可断言字段**） | ≤8s |
+| 4 | 自管 drain：遍历 pendingUpdates 非空 doc→storeDocument（BOI 主路径）；**末步对仍未落库 doc 尝试 force-spool**（putStash fsync）——成功则该批归属落定；**失败则该批留在 doc 队列并在关停结构化日志中如实点名（不得声称 0）**（v2.4 撤"构造性成立"——G-2a 口径，§0 目标 2）；完成后记 `{event:'shutdown_drain_complete', pending:{projects,batches,spoolFiles,spoolBytes}, storeInFlight}`（**G-2a 可断言字段**） | ≤8s |
 | 5 | server.destroy() 与 4s race（兜底——主力是步骤 4，此步只兜 destroy 挂起）；超时日志升**结构化 JSON 可断言**：`{event:'destroy_timeout', docs, pendingBatches, spoolFiles, spoolBytes, storeInFlight, hangReason:'store-undrained'|'direct-open'}`——**分型两种挂起原因**（store 未落库 vs 直连未归还，v2 混在一句），storeInFlight 终值随行输出 | ≤4s |
 | 6 | 租约显式释放（Y0a-3：末尾、drain 之后；deploy 不等 TTL）。**必须执行到（v2.4 显式约束）：预算耗尽时宁可放弃步骤 5 剩余等待也要跑——释放被 SIGKILL 截断则下一实例必须等满 TTL 才 listen，直接吃进 RTO** | ≤2s |
 
@@ -425,12 +425,12 @@ onApplicationShutdown 重排（六步），**预算表写死（合计 ≤22s，k
                                                        // epoch=String(BigInt)——v2.4 撤 number：JSON.stringify(bigint) 抛
                                                        // TypeError（恰在租约路径=最需它的时刻炸）；用例覆盖 lease-held/lease-lost 两态可序列化
   redis: 'up'|'down',                                  // 不参与状态码（残余用途=BullMQ，不获部署链一票否决权）
-  pending: { docs: number, batches: number, spoolFiles: number, spoolBytes: number },  // 三条判据（G-1/G-2/部署拒重启）的唯一 oracle（定义见下注）
+  pending: { projects: number, batches: number, spoolFiles: number, spoolBytes: number },  // 三条判据（G-1/G-2/部署拒重启）的唯一 oracle（定义见下注）
   spoolQuarantined?: number, forceTakeover?: boolean }
 ```
 
   **`pending` 字段定义（v2.4 写死——原无计量单位定义，三条判据不可实现）**：
-  - `pending.docs` = 队列非空的 doc 数（pendingUpdates 中 length>0 的条目数）；
+  - `pending.projects` = pending 队列非空的项目数（pendingQueues 中 length>0 的键数——V4 projectId 键控，Y5 同批改名）；
   - `pending.batches` = 上述 doc 的队列条目总数（**update 条数，非合并后批数**——与 storeInFlight 不同量纲）；
   - `pending.spoolFiles` = spool 段文件数（键集缓存 size）；`pending.spoolBytes` = 段文件字节总和（**含隔离字节**，与 §2.2 容量核算同口径；`quarantinedBytes` 独立字段仅观测）。
   - **稳态行为明示**：活跃编辑者在场时 `batches > 0` 恒成立（去抖窗口定义使然）——**只能作"停止写入后是否排空"的判据（G-1/部署拒重启均以停写为前提），不能作"当前是否安全"的判据**。
@@ -480,7 +480,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
   附带 /api/ready 轮询（60s 超时）；执行链路冒烟挂 Y0b。
 - **部署拒重启（v2.4 改"先 drain 再判据"三步——原"重启前 curl ready 判 batches===0"无前置停写阶段：活跃编辑下去抖窗口内必有 pending 批→判据稳态不可达→每次 exit 1→force-restart 沦为日常=门禁失效）**：deploy.sh 重启前**服务器侧**：
   1. `curl -X POST -H "x-prometheus-token: …" 127.0.0.1:3000/api/drain`——进入 draining（停收新写；**60s 未收到 SIGTERM 自动解除，防部署链中止留只读僵尸**；端点不可达=版本过旧未含 Y0a-3，首次部署跳过本步直接 restart——runbook 注明）；
-  2. 轮询 `GET /api/ready`（预算 ≤15s=TTL+maxDebounce+余量；**draining 档 503 属预期，判据读响应体不读状态码**）：判据=`pending.docs===0 ∧ pending.batches===0 ∧ pending.spoolFiles===0 ∧ pending.spoolBytes===0`；ready reason=`spool-unwritable` 时批无法入账、drain 必然超时→直接拒+打印 reason；
+  2. 轮询 `GET /api/ready`（预算 ≤15s=TTL+maxDebounce+余量；**draining 档 503 属预期，判据读响应体不读状态码**）：判据=`pending.projects===0 ∧ pending.batches===0 ∧ pending.spoolFiles===0 ∧ pending.spoolBytes===0`；ready reason=`spool-unwritable` 时批无法入账、drain 必然超时→直接拒+打印 reason；
   3. 达标→`pm2 restart`（SIGTERM→§2.4 关停六步：pending 已空，drain 秒过）；超预算→打印 pending 清单+exit 1；逃生阀 `./deploy.sh api --force-restart`（打印 `WARNING: N batches at risk` 后继续——真实逃生阀非日常）。
   堵"PG 故障期部署=丢整段"人因窗口（spool 之外第二道防线）。
 - **nginx 站点配置 snippet 入库**（deploy/nginx/ 或 docs/deploy/）——v2.1 补齐 `/collab` 的 `proxy_read_timeout`（心跳/长连接）与 `proxy_buffering off`（WS 帧不缓冲），两项现状只存在于服务器。
@@ -509,8 +509,8 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 
 | # | 判据 | 载体 |
 |---|------|------|
-| G-1 | kill -9 演练（**双模式 quiescence barrier，v2.4**）：**正常模式**=驱动脚本停写→轮询 `pending.docs===0 ∧ pending.batches===0` **持续 ≥maxDebounce(3s)**→此刻序号集=已接受集→kill -9→重启→断言重放行集 ⊇ 该集合；**故障注入模式**（DB 触发器拒写）=停写→`docs===0 ∧ batches===0 ∧ spoolBytes 连续 2 次采样不变`→已接受集（全部在 spool）→kill -9→重启回灌→断言 ⊇+spool 帧全部 CRC 通过（**目标 1**） | collab-kill9-drill.mjs（collab-core） |
-| G-2 | SIGTERM 演练双判据（**v2.4 拆 a/b——原"storeInFlight===0"单一判据不覆盖"从未取批"的 doc 且"构造性为 0"不可证伪**）：**G-2a**=drain 结束、`server.destroy()` 之前构造性断言 `pending.docs===0 ∧ pending.batches===0`（写入步骤 4 的 `{event:'shutdown_drain_complete', pending}` 可断言字段；spool 不可写注入档=`shutdown_undrained` 日志与 storeInFlight 值一致且 ready 已转 draining——归属要么落定、要么被如实点名）∧ spool 可读帧全部可解析；**G-2b**=注入"append 失败+spool 写失败"→断言批仍在 doc 队列（BOI 红→绿——storeInFlight 口径的机制证明载体，§6.1 已有此门）（**目标 2**） | 同上 --signal 模式 |
+| G-1 | kill -9 演练（**双模式 quiescence barrier，v2.4**）：**正常模式**=驱动脚本停写→轮询 `pending.projects===0 ∧ pending.batches===0` **持续 ≥maxDebounce(3s)**→此刻序号集=已接受集→kill -9→重启→断言重放行集 ⊇ 该集合；**故障注入模式**（DB 触发器拒写）=停写→`projects===0 ∧ batches===0 ∧ spoolBytes 连续 2 次采样不变`→已接受集（全部在 spool）→kill -9→重启回灌→断言 ⊇+spool 帧全部 CRC 通过（**目标 1**） | collab-kill9-drill.mjs（collab-core） |
+| G-2 | SIGTERM 演练双判据（**v2.4 拆 a/b——原"storeInFlight===0"单一判据不覆盖"从未取批"的 doc 且"构造性为 0"不可证伪**）：**G-2a**=drain 结束、`server.destroy()` 之前构造性断言 `pending.projects===0 ∧ pending.batches===0`（写入步骤 4 的 `{event:'shutdown_drain_complete', pending}` 可断言字段；spool 不可写注入档=`shutdown_undrained` 日志与 storeInFlight 值一致且 ready 已转 draining——归属要么落定、要么被如实点名）∧ spool 可读帧全部可解析；**G-2b**=注入"append 失败+spool 写失败"→断言批仍在 doc 队列（BOI 红→绿——storeInFlight 口径的机制证明载体，§6.1 已有此门）（**目标 2**） | 同上 --signal 模式 |
 | G-3 | 双进程 fail-fast：第二实例不 listen+WS 拒+REST 写路径拒（三入口门各一用例）（**目标 3 前半**） | collab-core（multi-instance 改写） |
 | G-3b | **fenced-owner**：A 持锁→B FORCE_TAKEOVER→断言 A 的 append 返回 `{ok:false,reason:'fenced'}`/compact 不删行、A 下次心跳自隔离、A 期间 writeExecStatus 不产生行（**目标 3 后半——写语句 fence 的验收**）；**+fenced-append 三断言（v2.4，契约 15 的证明载体）**：注入 A 的 append→断言 (a) A 的 spool 帧仍在（未被 confirm）(b) A 的 doc 队列未被 splice (c) A 在 1 个心跳周期内进入 lease-lost——红相=对"不检查返回值"的实现，帧消失+PG 无行 | vitest+collab-core |
 | G-4 | ready 故障注入：PG 停→pg-down；租约被占→lease-held（+holder 字段）；租约语句失败→lease-error；spool 满→spool-unwritable（**目标 4**） | vitest+collab-core |
@@ -574,10 +574,14 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 | ~~`yjs_compact_sv_violation_total`~~ | — | **v2.2 删除**（inline 哨兵随探针证伪移除） |
 | `yjs_compact_abandoned_total` | counter | pendingStructs!=null 放弃本次——**P0 告警线**（v2.2 升格：compact 健康度唯一真实指标，连续命中即人工介入=collab-compact.mjs；本批无 Alertmanager，载体=启动自检外另加"计数>0 即 ERROR 结构化日志"） |
 | `yjs_hydration_huge_row_total` | counter | loadForHydration 读到单行 >4MB（Y0a-1 §1.4"WARN+计数"的计数载体——v2.4 执行时补入本表；硬拒归 Y0b 配额批） |
-| `yjs_spool_depth{files,bytes}` / `yjs_spool_write_failures_total` / `yjs_spool_truncated_total` / `yjs_spool_capacity_total` / `yjs_spool_quarantined_total` | gauge/counter | Y0a-2（quarantine 为 v2.1 新增） |
-| `yjs_stash_discarded_deleted_total` | counter | project.gone 终态拦截（Y0a-2） |
-| `yjs_store_tail_anomaly_total` | counter | afterStoreDocument 对账（Y0a-2） |
-| **storeInFlight** | prom Gauge（**Y0a-2 落地**） | G-2 断言对象+关停日志结构化字段+Y0a-3 ready.pending 消费（v2.2 移批） |
+| `yjs_spool_depth_files` / `yjs_spool_depth_bytes`（bytes **含隔离字节**，V14——容量核算同口径；双 gauge collect 现算） / `yjs_spool_write_failures_total` / `yjs_spool_truncated_total` / `yjs_spool_capacity_total` / `yjs_spool_quarantined_total` | gauge/counter | Y0a-2（quarantine 为 v2.1 新增） |
+| `yjs_updates_discarded_deleted_total{source=gateway\|spool}` | counter | 项目已删的更新丢弃——gateway 终态拦截/spool FK 收割双路径标签（X17 改名；Y0a-2） |
+| `yjs_store_tail_anomaly_total` | counter | 取批后队列并发改动探测（Y8 splice 前判据：length<n 或批尾引用不符；**V22 收缩**——afterStoreDocument 对账职责由本判据承接，钩子健康面归 `yjs_store_hook_calls_total`）（Y0a-2） |
+| **storeInFlight**=`yjs_store_in_flight_docs` | gauge（**Y0a-2 落地**） | 取批未落定项目数（X2 四落定点口径）——G-2 断言对象+关停日志结构化字段+Y0a-3 ready.pending 消费（v2.2 移批；本表同批落真名） |
+| `yjs_pending_projects` / `yjs_pending_batches` | gauge（collect 现算） | ready.pending 同源（computePending）；G-1 quiescence 判据同读；batches=update 条数口径（与 store_in_flight 不同量纲）（Y0a-2，Y5） |
+| `yjs_unload_handoff_failure_total` / `yjs_unload_cleanup_failure_total` | counter | 卸载交接 append 失败（批留队列+退避梯续排，钩子仍 resolve——X4）/清理体异常吞计（钩子永不抛——destroy 不可被取消）（Y0a-2，Y18） |
+| `yjs_store_hook_calls_total` | counter | afterStoreDocument 钩子链存活计数（V22 收缩——库钩子健康面）（Y0a-2） |
+| `yjs_deleted_projects` | gauge | 终态集大小（进程寿命内真删除项目数——永久无界的可见化接受，§9.10）（Y0a-2，V25） |
 | `collab_lease_denied_total` / `collab_lease_lost_total` | counter | Y0a-3 |
 | **启动自检** | ERROR 日志 | spool 非空/回灌失败/quarantine 非空→打印清单 |
 | `/api/ready` | 端点 | reason 封闭枚举+holder/epoch/pending/spoolQuarantined/forceTakeover |

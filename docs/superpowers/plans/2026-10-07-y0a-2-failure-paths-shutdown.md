@@ -65,7 +65,7 @@
 | P2 | G-2a"ready 已转 draining"半句=**Y0a-3 接入点**（ready 端点同批）；Y0a-2 演练验 `shutdown_undrained` 日志与 storeInFlight 一致+spool 可读帧全可解析 | 不为演练提前落 Y0a-3 端点（防跨批范围漂移） |
 | P3 | spool 熔断**对外面**（v3/X9 修正：本批落**只读降级**——新连接 readOnly+stateless 通告；writeNodeData/writeExecStatus 503）+熔断位+探针解熔断+计数+gauge；ready 503 reason=spool-unwritable 归 Y0a-3 接线 | 原"拒新连接"形态会把本地磁盘故障放大成全站画布不可读（loadDocument/readCanvas 均被拒）——报告二 1.5 成立 |
 | P4 | 运维脚本载体=`apps/api/scripts/*.ts`+tsx（循 collab-compact.ts 先例——tsconfig.scripts.json typecheck 载体）；spec §2.2/§4.2 的 `scripts/collab-spool-quarantine.mjs`/`collab-spool-import.mjs` 名字按此落 `.ts` | Y0a-1 已裁定的静态载体纪律 |
-| P5 | **storeInFlight=doc 级口径**（"承载进过取批且未落定批次的 doc 数"）；enter=storeDocument 取批路径首行（doc 无标志时 set）/leave=归属落定（append `r.ok===true` 或 spool fsync 成功后 clear）；spool 失败回队列**不清标志**（重试 enter 幂等）；drain force-spool 复用 leave 点 | 批次级 token 需跨调用随批走（复杂度不值）；doc 级与 `shutdown_undrained.docs`/`pending.docs` 同量纲，G-2a"值一致"以 docs 字段对齐（契约 14 两点规则完全满足） |
+| P5 | **storeInFlight=doc 级口径**（"承载进过取批且未落定批次的 doc 数"）；enter=storeDocument 取批路径首行（doc 无标志时 set）/leave=归属落定（append `r.ok===true` 或 spool fsync 成功后 clear）；spool 失败回队列**不清标志**（重试 enter 幂等）；drain force-spool 复用 leave 点 | 批次级 token 需跨调用随批走（复杂度不值）；项目级与 `shutdown_undrained.projects`/`pending.projects` 同量纲，G-2a"值一致"以 projects 字段对齐（契约 14 两点规则完全满足） |
 | P6 | FK 违反（Prisma **P2003**，PG SQLSTATE 23503）=项目已删的 **DB 权威证据**：append/回灌撞 FK→按终态丢弃+计数（终态集是事件路径的主动拦截优化，非丢弃前提——重启后终态集空仍可凭 FK 收割残留段） | spec §2.5"收割路径=FK 识别"在重启场景自洽 |
 | P7 | collab-core job 本批**补 redis service**（演练子进程起 AppModule 含 BullMQ）；spec §4.5"redis service Y0a-3 起补"按演练实际需求提前——偏差登记 | 演练是本批出口判据载体 |
 | P8 | `queue.splice` 与批的取批语义：copy-first 重写后 `storeDocument` 取批=**读 queue.length+copy（merge 不动队列）**，`splice(0,n)` 仅在新家落定后执行（n=进入时快照长度；splice 后新 push 的更新自然留存） | BOI 契约 §4.3-11 逐字实现 |
@@ -3038,6 +3038,8 @@ git add docs/superpowers .github/workflows/ci.yml && git commit -m "feat(ci): Y0
 **观察项（不构成必办，防复审翻案）**：T8 帧解析三常量双实现（spool service 未导出，人工脚本现场重复——Y1c-1 段世代同批收口）；pnpm exec Windows 噪音（exit 码正确传播，直呼 tsx bin 更净）；T6 Minor 3（FOR UPDATE 无 ORDER BY——现实风险≈0，防投机加固）；T7 M-5（契约锚边角假阳/假阴——响偏可接受）；T7 M-6（交接成功后运行期无该项目 PG 排空者——J4 非 at-risk 设计内）；T5 M-4（drain 预算 ≈22.2s 读作近似——kill_timeout 30s 垫不受影响）。
 
 **本步执行期新发现（登记）**：**YAML 死 job**——HEAD `ci.yml` 条数断言行裸 run 标量含 `'FAIL: passed'` 的 ": " 序列=整文件 YAML 解析失败（js-yaml 本地实证+GitHub Actions 同规格必拒）——**Y0a-1 起 collab-core job 从未真正跑过**（int 显式清单+passed≥13 断言从未执行，X16 防线对该 job 失效的根因）。本批判定+块标量修复——**Y0a-3 首个 CI run 必须核验 collab-core 真跑绿**。
+
+**终审收口（2026-10-07）**：I-2 终审收口——force-spool 补批尾锚（全仓唯一无锚 splice=残余蒸发窗：关停窗内 append 挂起时并发折并可断批尾身份→`ids!==null` 无条件 splice 误删未落定批→重启蒸发，违 BOI。修=取批同点取 tailRef，append 兑现后身份校验：不符=tail_anomaly 计数+跳过 splice 留队列点名，与队列其余三处同形；红绿双相 shutdown.spec 用例留档；spec §5.2 指标表同批回填 Y5 判据）。
 
 ---
 

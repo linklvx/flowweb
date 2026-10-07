@@ -1180,7 +1180,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
   it('M-4(b) 交接 I-2 anomaly 分支：append 挂起窗内锁内折并改写队列（批尾身份断）→跳过 splice+tail_anomaly 恰 1 计数（旧实现无条件 splice=折并产物被误删=丢更新）', async () => {
     const kit = await startDualClientServer({}, 60_000);   // 大 debounce：窗内唯一变更=注入的折并交织
     let release!: () => void;
-    const appendSpy = vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<void>((r) => { release = r; }));   // 挂起窗：交接 append 不落定
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<string[]>((r) => { release = () => r(['0:0']); }));   // 挂起窗：交接 append 不落定（release 消费端无参调用——ids 以占位帧 id 兑现类型）
     try {
       const g = kit.gateway as any;
       const { provider, synced } = kit.connect('project:p-anomaly');

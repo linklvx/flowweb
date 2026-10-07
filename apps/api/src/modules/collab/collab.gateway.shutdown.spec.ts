@@ -14,10 +14,12 @@
 //   自清（d.bytes=0≤90%×CAP→翻 false→批成功入盘=注入失效）。
 import { describe, it, expect, vi, afterAll } from 'vitest';
 import * as Y from 'yjs';
+import { register } from 'prom-client';
 import { CollabSpoolService } from './collab-spool.service';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { failingRepo } from '../../test-utils/failing-repo';
+import { pollUntil } from '../../test-utils/poll-until';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterAll(async () => { for (const c of cleanups) await c(); });
@@ -180,6 +182,40 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr7');   // 种子 doc 摘除（真 destroy 等 documents 清空——见文件头②）
       await kit.dispose();
       for (const [name] of [...((kit.gateway as any).persistRetry as Map<string, unknown>)]) {   // 释放引发的迟到 V1 成功腿会排重试定时器——dispose 后收口
+        (kit.gateway as any).cancelPersistRetry(name);
+      }
+    }
+  }, 15_000);
+
+  it('I-2 终审收口：force-spool append 挂起窗内白盒折并改写队列（批尾身份断）→ 跳过 splice+tail_anomaly 恰 1 计数（旧实现无条件 splice=折并产物被误删=残余蒸发窗）', async () => {
+    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append });
+    let calls = 0;
+    let release!: (v: string[]) => void;
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
+      vi.spyOn(kit.spool, 'append').mockImplementation(() => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('v1 leg：主循环 spool 兜底拒——批留队进 force-spool'));   // 主循环 V1 支：拒（队列不动）
+        return new Promise<string[]>((r) => { release = r; });   // force-spool 腿：挂起窗（锚已取）
+      });
+      const anomaly = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
+      const before = (await anomaly.get()).values[0]?.value ?? 0;
+      await seedPendingDoc(kit, 'project:p-dr8', 2);
+      const q = (kit.gateway as any).pendingQueues.get('p-dr8') as Uint8Array[];
+      const n = q.length; const tailRef = q[n - 1];   // 与生产锚同点取批尾引用（M-4(b) 同形）
+      const drain = (kit.gateway as any).drainAllDocuments(Date.now() + 5_000);   // 不 await：折并须落挂起窗内
+      await pollUntil(() => calls >= 2, 5_000);   // force-spool append 已挂起（锚已取——主循环 V1 拒在前）
+      q.unshift(new Uint8Array([9, 9]));           // 折并交织形态：前缀改写（q[n-1] 身份破坏）
+      release(['y0a2-force-anchor']);
+      await drain;
+      expect(q).toHaveLength(n + 1);               // 未 splice（旧实现无条件 splice(0,n)=折并产物被删=红）
+      expect(q[n]).toBe(tailRef);                  // 原批尾原样留队（CRDT 幂等重发）
+      expect(((await anomaly.get()).values[0]?.value ?? 0) - before).toBe(1);   // tail_anomaly 恰 1 计数
+    } finally {
+      vi.restoreAllMocks();   // Y13：先还原（spool mock+destroy mock）
+      (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr8');   // 种子 doc 摘除（真 destroy 等 documents 清空——见文件头②）
+      await kit.dispose();
+      for (const [name] of [...((kit.gateway as any).persistRetry as Map<string, unknown>)]) {   // V1 腿败排的退避定时器——dispose 后收口
         (kit.gateway as any).cancelPersistRetry(name);
       }
     }

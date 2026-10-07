@@ -1,5 +1,6 @@
 // apps/api/scripts/collab-spool-quarantine.ts —— Y0a-2 逃生阀（spec §2.2 v2.4：quarantine=sidecar 标记
-// 不搬字节，段内移帧物理不可行；本脚本是唯一删段路径，人工可审计）。
+// 不搬字节，段内移帧物理不可行；本脚本是唯一**人工**删段路径（含坏尾段在好帧全 confirm 后由 confirm
+// 段回收自动 unlink），人工可审计）。
 // **先停 gateway 再执行 --delete**（活实例上删除=TOCTOU+内存 index 陈旧——dry-run 可随时跑）。
 // 运行：COLLAB_SPOOL_DIR=... pnpm --filter @flowweb/api exec tsx scripts/collab-spool-quarantine.ts <projectId|--all> --dry-run
 //       判定后：同命令 --delete --yes-i-understand（不可逆；先 --dry-run 审阅将被删除的字节数）

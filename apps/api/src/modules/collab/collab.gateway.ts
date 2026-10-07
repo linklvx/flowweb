@@ -1019,10 +1019,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (q.length === 0) continue;
       if (Date.now() > hardDeadline) break;                      // X7：硬切断——点名其余
       const n = q.length;
+      const tailRef = q[n - 1];                                  // I-2 终审收口：force-spool 是关停窗内 splice——并发 append 竞速下队列结构可能已变（折并/取批交织），无锚 splice 会误删未落定批（唯一残余蒸发窗）——与队列其余三处 splice 同形补锚
       const payload = n === 1 ? q[0] : Y.mergeUpdates(q.slice());   // copy——不动队列
       try {
         const ids = await this.raceDeadline(this.spool.append(projectId, payload), Math.max(200, hardDeadline - Date.now()), null);
-        if (ids !== null) { q.splice(0, n); this.leaveInFlight(projectId); forced += 1; }   // J5：真写成才 splice（null=race 超时未落定——留队列点名；后到的成功帧=重复回灌，幂等吸收）
+        if (ids !== null) {
+          if (q.length < n || (n > 0 && q[n - 1] !== tailRef)) {   // I-2：await 窗口队列被折并/并发改写（q[n-1] 身份断）——跳过 splice 留队列点名
+            yjsStoreTailAnomalyTotal.inc();
+            this.logger.error(`force-spool tail anomaly for ${projectId}: queue mutated during spool append（折并/并发改写——splice 跳过，批留队列点名）`);
+          } else {
+            q.splice(0, n);                                        // J5：真写成才 splice（null=race 超时未落定——留队列点名；后到的成功帧=重复回灌，幂等吸收）
+            this.leaveInFlight(projectId);
+            forced += 1;
+          }
+        }
       } catch { /* 留队列——点名 */ }
     }
     const p2 = this.computePending();
