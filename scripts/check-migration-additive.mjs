@@ -21,9 +21,12 @@ const WARN_ONLY = /\bDROP\s+INDEX\b/i;
 let bad = 0, warned = 0;
 for (const d of fresh) {
   const sql = readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8');
-  const hit = BREAKING.exec(sql);
+  // 匹配前剥 `--` 注释行——手工两步走注释（如 "-- contract step: 将来 DROP COLUMN legacy_x"）不拦，
+  // 防门禁训练作者删注释；prisma 生成段头驼峰无空格本就不命中，不受影响。
+  const bare = sql.replace(/--[^\n]*/g, '');
+  const hit = BREAKING.exec(bare);
   if (hit) { console.error(`additive FAIL: ${d} 含破坏性变更（${hit[0]}）——drain 期间 HTTP 面旧代码在跑，破坏性变更=两步走（先加可空/带默认新形态、旧代码下线后再删旧）`); bad++; }
-  else if (WARN_ONLY.test(sql)) { console.error(`additive WARNING: ${d} 含 DROP INDEX（旧代码不按名引用索引——性能非正确性影响，登记即可）`); warned++; }
+  else if (WARN_ONLY.test(bare)) { console.error(`additive WARNING: ${d} 含 DROP INDEX（旧代码不按名引用索引——性能非正确性影响，登记即可）`); warned++; }
 }
 if (fresh.length === 0) console.log('check-migration-additive: 尚无基线之后的新迁移——本跑无受检对象（非静默：有新迁移才可能红）');
 console.log(bad ? `check-migration-additive: ${bad} 处违规` : `check-migration-additive OK（受检 ${fresh.length} 个迁移，WARNING ${warned}，基线=${BASELINE}）`);

@@ -29,7 +29,7 @@ for arg in "${@:2}"; do
 done
 GIT_SHA=$(git rev-parse --short HEAD)
 
-set -e
+set -eo pipefail   # pipefail：上传管道（tar | ssh tar）tar 侧失败不被末位命令退 0 吞掉
 
 # D3：trap 分阶段——SWITCH_BEGUN=进入切换（dist 可能已 mv 走）；SWITCHED=切换完整落地
 SWITCHED=0; SWITCH_BEGUN=0

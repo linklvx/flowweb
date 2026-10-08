@@ -24,9 +24,10 @@ catch { console.error('preflight-int FAIL: 解析 vitest 入口失败（apps/api
 
 const r = spawnSync(process.execPath, [vitestEntry, 'run', '-c', 'vitest.int.config.ts',
   '--reporter=default', '--reporter=json', '--outputFile=int.json'],
-  { stdio: 'inherit', env: { ...process.env, DATABASE_URL }, cwd: API_DIR });
-// J6：spawn 失败（ENOENT/EPERM）不抛异常而返回 {status:null,error}——三分法退出码：2=环境错误（防裸 exit 1 诱使 --skip-preflight 绕过唯一强制链）
-if (r.error) { console.error(`preflight-int 环境错误（exit 2）：无法启动 vitest——${r.error.message}（先 pnpm install？）`); process.exit(2); }
+  { stdio: 'inherit', env: { ...process.env, DATABASE_URL }, cwd: API_DIR, timeout: 15 * 60_000 });
+// J6：spawn 失败（ENOENT/EPERM）不抛异常而返回 {status:null,error}；超时（15min）返回 {signal:'SIGTERM'}——
+// 两者均视同环境错误 exit 2（防 vitest 悬挂滞留 preflight；防裸 exit 1 诱使 --skip-preflight 绕过唯一强制链）
+if (r.error || r.signal) { console.error(`preflight-int 环境错误（exit 2）：${r.signal ? `vitest 超时被 SIGTERM（>15min 悬挂——查 DB 锁）` : `无法启动 vitest——${r.error.message}（先 pnpm install？）`}`); process.exit(2); }
 if (r.status !== 0) { console.error(`preflight-int FAIL: int 套件退出 ${r.status}`); process.exit(r.status ?? 1); }
 
 // check-int-coverage 必须在仓根运行（apps/api/int.json 相对路径+git ls-files 按根 CWD）
