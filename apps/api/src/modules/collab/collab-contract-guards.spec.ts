@@ -50,7 +50,7 @@ describe('Y0a-1 冻结契约扫描', () => {
 
   it('契约 mergeUpdates 出 WS 路径（Y0a-2 X10 结构锚）：update 回调体内零 merge 编码（回调体只 push+计数阈）', () => {
     const gw = readFileSync(join(SRC, 'collab.gateway.ts'), 'utf8');
-    const cb = /document\.on\('update',[\s\S]*?\n        \}\);/.exec(gw)?.[0] ?? '';
+    const cb = /document\.on\('update',[\s\S]*?\n {8}\}\);/.exec(gw)?.[0] ?? '';
     expect(cb, 'update 回调体定位失败').not.toBe('');
     expect(cb).not.toMatch(/mergeUpdates/);
   });

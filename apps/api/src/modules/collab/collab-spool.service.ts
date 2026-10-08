@@ -536,7 +536,7 @@ export class CollabSpoolService {
               if (Date.now() > deadline) { failed += 1; this.logger.error(`spool replay budget-exhausted for ${projectId}:${frame.frameId}——帧保留（运行期由退避梯自愈，X5）`); break; }
               try {
                 const r2 = await repo.append(projectId, frame.payload);
-                if (!r2.ok) throw new Error(`append returned no row (${r2.reason})`);
+                if (!r2.ok) throw new Error(`append returned no row (${r2.reason})`, { cause: e });
                 await this.confirm(projectId, [frame.frameId]);
                 replayed += 1;
                 break;
