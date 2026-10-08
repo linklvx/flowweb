@@ -60,8 +60,8 @@ export class ExecutionProcessor extends WorkerHost {
       }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
       if (running) await this.intentService.fail(running.id, reason, job.id);
-    } catch {
-      // best-effort——reconcile 仍是兜底
+    } catch (e) {
+      this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);
     }
   }
 }

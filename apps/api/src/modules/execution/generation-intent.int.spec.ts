@@ -87,7 +87,7 @@ const input = (over: Record<string, unknown> = {}) => ({
     ]);
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     const rej = r.find((x) => x.status === 'rejected') as PromiseRejectedResult;
-    expect(String(rej.reason)).toMatch(/busy|409/i); // "current transaction is aborted"/500=红相（Z33 缺陷形态）
+    expect(rej.reason).toMatchObject({ errorCode: 'NODE_BUSY' }); // aborted-tx/500=红相（Z33 缺陷形态——errorCode 断言 rename-proof）
   });
 
   it('同 intentId 异参数第二次 claim → INTENT_CONTEXT_MISMATCH（真库复合唯一命中路径）', async () => {

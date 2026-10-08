@@ -66,14 +66,14 @@ export class GenerationIntentService {
    *  ④ FAILED/VOIDED 且同上下文 → 守卫式原子再激活（updateMany count===1 才拥有执行权，并发抢走 → NodeBusy）
    *  ⑤ SUCCEEDED 且同上下文 → created:false 幂等重放（调用方返回既有产物引用，零外呼零扣费）
    *  异上下文（nodeId/kind/paramsHash 任一不匹配）→ 409 INTENT_CONTEXT_MISMATCH
-   *  Y0b-1：全部分支包交互式事务——首句 FOR SHARE 准入谓词（Z26：与 disbandTeam 的 FOR UPDATE 互斥，
+   *  Y0b-1：全部分支包交互式事务——首句 FOR SHARE 准入谓词（Z26：与 disbandTeam 事务内 team.update 的行排他锁互斥，
    *  谓词与后续写同事务=穿门窗口真正关闭）；分支① create 改 createMany skipDuplicates（Z33 四轮①：
    *  PG 交互式事务一报错即 aborted——既有 catch-P2002-再查形态在事务内必 25P02；ON CONFLICT DO NOTHING
    *  不抛错，count 判胜后健康事务内分义）。定价快照五字段无条件固化（E1）——rearm 分支④不重写快照
    *  （plan 固化于首次 claim，重试沿用）。 */
   async claim(input: ClaimInput): Promise<{ intent: any; created: boolean }> {
     return this.prisma.$transaction(async (tx) => {
-      // Z26（三轮 P0-4）：准入谓词与后续 create 同事务——FOR SHARE 与 disbandTeam 的 FOR UPDATE 互斥
+      // Z26（三轮 P0-4）：准入谓词与后续 create 同事务——FOR SHARE 与 disbandTeam 事务内 team.update 的行排他锁互斥
       const teamRow = await tx.$queryRaw<{ status: string }[]>`SELECT "status" FROM "Team" WHERE id = ${input.teamId} FOR SHARE`;
       if (teamRow.length !== 1 || teamRow[0].status !== 'ACTIVE') {
         throw new BusinessException('TEAM_CLOSED', `团队不存在或已关闭（teamId=${input.teamId}）`, HttpStatus.CONFLICT);
