@@ -14,22 +14,44 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 // 本地真库可能有开发数据——全部测试行收拢到专属 projectId，清理只删该前缀
 const PID = 'int-gi-053';
+const INT_UID = 'int-gi-053-owner';
 
 const svc = new GenerationIntentService(prisma as unknown as PrismaService);
+
+// Y0b-1：claim 需真团队行（FOR SHARE 准入谓词）与真 PricingRule 行（pricingRuleId FK）——beforeAll 建夹具
+let TID = '';
+let PRICING: { pricingRuleId: string; modelId: string | null; resolutionId: string | null; durationId: string | null; creditCost: number };
 
 const input = (over: Record<string, unknown> = {}) => ({
   projectId: PID,
   nodeId: 'n1',
-  userId: 'u1',
+  userId: INT_UID,
   intentId: 'i1',
   kind: 'image',
   paramsHash: 'h1',
+  teamId: TID,
+  pricing: PRICING,
   ...over,
 });
 
 (hasDb ? describe : describe.skip)('GenerationIntent 真库并发行为（int）', () => {
+  beforeAll(async () => {
+    await prisma.user.upsert({
+      where: { id: INT_UID },
+      create: { id: INT_UID, name: 'int-gi-053-owner', email: 'int-gi-053-owner@test.local', emailVerified: false },
+      update: {},
+    });
+    const team = await prisma.team.create({ data: { name: 'int-gi-053-team', ownerId: INT_UID } });
+    TID = team.id;
+    const rule = await prisma.pricingRule.findFirst({ where: { active: true, modelId: { not: null } }, orderBy: { creditCost: 'asc' } });
+    if (!rule) throw new Error('真库无 active PricingRule——T1b 迁移未 apply？');
+    PRICING = { pricingRuleId: rule.id, modelId: rule.modelId, resolutionId: rule.resolutionId, durationId: rule.durationId, creditCost: rule.creditCost };
+  });
+
   afterAll(async () => {
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
+    await prisma.team.deleteMany({ where: { ownerId: INT_UID } });
+    await prisma.user.deleteMany({ where: { id: INT_UID } });
     await prisma.$disconnect();
   });
 
@@ -41,7 +63,8 @@ const input = (over: Record<string, unknown> = {}) => ({
     let raw: any;
     try {
       await prisma.generationIntent.create({
-        data: { projectId: PID, nodeId: 'n-meta', userId: 'u1', intentId: 'i-meta-b', kind: 'image', paramsHash: 'h1' },
+        data: { projectId: PID, nodeId: 'n-meta', userId: INT_UID, teamId: TID, intentId: 'i-meta-b', kind: 'image', paramsHash: 'h1',
+          pricingRuleId: PRICING.pricingRuleId, modelId: PRICING.modelId, resolutionId: null, durationId: null, creditCost: PRICING.creditCost },
       });
       expect.unreachable('应撞活跃 partial unique');
     } catch (e: any) {
@@ -53,6 +76,18 @@ const input = (over: Record<string, unknown> = {}) => ({
 
     // service 分义路径：异 intentId claim → NodeBusy（非原始 P2002 透传）
     await expect(svc.claim(input({ intentId: 'i-meta-c', nodeId: 'n-meta' }))).rejects.toBeInstanceOf(NodeBusyError);
+  });
+
+  it('Y0b-1/Z33：同节点双 intentId 并发 claim ⇒ 一 created 一 NodeBusy（非 25P02/500）', async () => {
+    const base = { projectId: PID, nodeId: `conc-${Date.now()}`, userId: INT_UID, kind: 'text', paramsHash: 'h',
+      teamId: TID, pricing: PRICING };
+    const r = await Promise.allSettled([
+      svc.claim({ ...base, intentId: `conc-a-${Date.now()}` }),
+      svc.claim({ ...base, intentId: `conc-b-${Date.now()}` }), // 同 nodeId 异 intentId——撞 active partial unique
+    ]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    const rej = r.find((x) => x.status === 'rejected') as PromiseRejectedResult;
+    expect(String(rej.reason)).toMatch(/busy|409/i); // "current transaction is aborted"/500=红相（Z33 缺陷形态）
   });
 
   it('同 intentId 异参数第二次 claim → INTENT_CONTEXT_MISMATCH（真库复合唯一命中路径）', async () => {
@@ -123,7 +158,7 @@ const creditSvc = new TeamCreditService(prisma as unknown as PrismaService);
   it('reserve→settle：Δ双池和==creditsConsumed ∧ 终态唯一（重复 settle 零动作）', async () => {
     const tid = await mkTeam(30, 50); // amount=60 跨两池：订阅 50 全扣+常规 10（拆分路径真实发生）
     const intent = await prisma.generationIntent.create({
-      data: { projectId: PID, nodeId: 'n-credit-a', userId: INV.uid, intentId: 'i-credit-a', kind: 'image', paramsHash: 'h1' },
+      data: { projectId: PID, nodeId: 'n-credit-a', userId: INV.uid, teamId: tid, intentId: 'i-credit-a', kind: 'image', paramsHash: 'h1', creditCost: 0 },
     });
     const before = await prisma.teamBalance.findUnique({ where: { teamId: tid } });
 
@@ -159,7 +194,7 @@ const creditSvc = new TeamCreditService(prisma as unknown as PrismaService);
   it('reserve→void_：余额复原 ∧ creditsConsumed==0（不变量零侧：Σ==Δ==0）', async () => {
     const tid = await mkTeam(20, 0); // 单池场景
     const intent = await prisma.generationIntent.create({
-      data: { projectId: PID, nodeId: 'n-credit-b', userId: INV.uid, intentId: 'i-credit-b', kind: 'image', paramsHash: 'h1' },
+      data: { projectId: PID, nodeId: 'n-credit-b', userId: INV.uid, teamId: tid, intentId: 'i-credit-b', kind: 'image', paramsHash: 'h1', creditCost: 0 },
     });
     const before = await prisma.teamBalance.findUnique({ where: { teamId: tid } });
 

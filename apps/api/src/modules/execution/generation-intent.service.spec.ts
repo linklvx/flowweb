@@ -15,11 +15,17 @@ const row = (over: Record<string, unknown> = {}) => ({
   projectId: 'p1',
   nodeId: 'n1',
   userId: 'u1',
+  teamId: 'team-1',
   intentId: 'i1',
   kind: 'image',
   paramsHash: 'h1',
   status: 'RUNNING',
   jobId: null,
+  pricingRuleId: 'pr1',
+  modelId: 'm1',
+  resolutionId: null,
+  durationId: null,
+  creditCost: 1,
   creditsConsumed: 0,
   attempts: 1,
   resultRef: null,
@@ -30,7 +36,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** claim 输入（默认与 row 同上下文） */
+/** claim 输入（默认与 row 同上下文；Y0b-1：pricing/teamId 必填——固化入参） */
 const input = (over: Record<string, unknown> = {}) => ({
   projectId: 'p1',
   nodeId: 'n1',
@@ -38,16 +44,10 @@ const input = (over: Record<string, unknown> = {}) => ({
   intentId: 'i1',
   kind: 'image',
   paramsHash: 'h1',
+  teamId: 'team-1',
+  pricing: { pricingRuleId: 'pr1', modelId: 'm1', resolutionId: null, durationId: null, creditCost: 1 },
   ...over,
 });
-
-/** Prisma P2002（唯一约束冲突）错误 */
-const p2002 = (target: unknown) => {
-  const err: any = new Error('Unique constraint failed');
-  err.code = 'P2002';
-  err.meta = { target };
-  return err;
-};
 
 describe('GenerationIntentService claim 状态机（F13）', () => {
   let service: GenerationIntentService;
@@ -57,11 +57,18 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     prisma = {
       generationIntent: {
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn(),
+        findFirst: vi.fn(),
         create: vi.fn(),
+        createMany: vi.fn(),
         updateMany: vi.fn(),
         update: vi.fn(),
         findMany: vi.fn(),
       },
+      // Y0b-1（Z26/Z33）：claim 交互式事务——mock 直通（tx=同一 mock 对象）
+      $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
+      // Z26 准入谓词：FOR SHARE 查 Team.status——默认 ACTIVE 放行
+      $queryRaw: vi.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,32 +79,78 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     service = module.get(GenerationIntentService);
   });
 
-  describe('① 无行 → create RUNNING = 新执行权', () => {
-    it('findUnique 空 → create RUNNING → created:true', async () => {
+  describe('Y0b-1（E1/Z26）：claim 无条件固化 + 团队准入谓词', () => {
+    it('E1：creditCost:0 也固化——createMany data 带五字段快照+teamId，skipDuplicates 形态（Z33）', async () => {
       prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      const created = row({ creditCost: 0, pricingRuleId: 'pr1', modelId: 'm1' });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(created);
+
+      const r = await service.claim(input({ pricing: { pricingRuleId: 'pr1', modelId: 'm1', resolutionId: null, durationId: null, creditCost: 0 } }));
+
+      expect(r.created).toBe(true);
+      expect(r.intent).toBe(created);
+      expect(prisma.generationIntent.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({
+          projectId: 'p1', nodeId: 'n1', userId: 'u1', intentId: 'i1',
+          kind: 'image', paramsHash: 'h1', jobId: null, status: 'RUNNING',
+          teamId: 'team-1',
+          pricingRuleId: 'pr1', modelId: 'm1', resolutionId: null, durationId: null, creditCost: 0,
+        })],
+        skipDuplicates: true,
+      });
+    });
+
+    it('pricing 缺省 ⇒ 编译期即拒（必填参数——无条件固化由类型保证非运行时约定）', async () => {
+      prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
+      await expect(
+        // @ts-expect-error pricing 必填——缺省即类型错误（tsc --noEmit 红相=本用例红相）
+        service.claim({ projectId: 'p1', nodeId: 'n1', userId: 'u1', intentId: 'i1', kind: 'image', paramsHash: 'h1', teamId: 'team-1' }),
+      ).rejects.toThrow(); // 运行时：pricing undefined → 固化字段访问 TypeError → 拒绝（无静默免费路径）
+    });
+
+    it('Z26：团队非 ACTIVE（FOR SHARE 谓词）⇒ TEAM_CLOSED 409——零意图行写入', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ status: 'DISBANDED' }]);
+      await expect(service.claim(input())).rejects.toMatchObject({
+        errorCode: 'TEAM_CLOSED',
+        status: HttpStatus.CONFLICT,
+      });
+      expect(prisma.generationIntent.createMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('① 无行 → create RUNNING = 新执行权', () => {
+    it('findUnique 空 → createMany RUNNING（skipDuplicates）→ created:true', async () => {
+      prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
       const created = row({ id: 'gi-new' });
-      prisma.generationIntent.create.mockResolvedValue(created);
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(created);
 
       const r = await service.claim(input());
 
       expect(r.created).toBe(true);
       expect(r.intent).toBe(created);
-      expect(prisma.generationIntent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(prisma.generationIntent.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({
           projectId: 'p1', nodeId: 'n1', userId: 'u1', intentId: 'i1',
           kind: 'image', paramsHash: 'h1', jobId: null, status: 'RUNNING',
-        }),
+        })],
+        skipDuplicates: true,
       });
     });
 
-    it('带 jobId → create data 写入 jobId', async () => {
+    it('带 jobId → createMany data 写入 jobId', async () => {
       prisma.generationIntent.findUnique.mockResolvedValue(null);
-      prisma.generationIntent.create.mockResolvedValue(row({ jobId: 'job-9' }));
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row({ jobId: 'job-9' }));
 
       await service.claim(input({ jobId: 'job-9' }));
 
-      expect(prisma.generationIntent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ jobId: 'job-9', status: 'RUNNING' }),
+      expect(prisma.generationIntent.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ jobId: 'job-9', status: 'RUNNING' })],
+        skipDuplicates: true,
       });
     });
   });
@@ -223,21 +276,21 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     });
   });
 
-  describe('⑧ create P2002 撞 partial unique（同节点异 intentId 在飞）→ NodeBusy', () => {
-    it('真库实测形态 meta.target=null 且本 intentId 无行 → 约束排除 NODE_BUSY', async () => {
+  describe('⑧ createMany 撞 active partial unique（同节点异 intentId 在飞）→ count=0 → NodeBusy', () => {
+    it('count=0 且本 intentId 无行（again=null）→ NODE_BUSY（Z33：健康事务内分义非 25P02）', async () => {
       prisma.generationIntent.findUnique.mockResolvedValue(null); // 本 intentId 无行（异 intentId 才是在飞方）
-      prisma.generationIntent.create.mockRejectedValue(p2002(null)); // int 实测：target 恒 null（partial/复合唯一皆然）
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 0 }); // ON CONFLICT DO NOTHING 吞撞
 
       await expect(service.claim(input({ intentId: 'i2' }))).rejects.toMatchObject({ errorCode: 'NODE_BUSY' });
     });
   });
 
-  describe('⑨ P2002 catch 路径：同上下文异 jobId（并发同 intentId 超时重发）→ NodeBusy 非 mismatch', () => {
+  describe('⑨ createMany count=0 路径：同上下文异 jobId（并发同 intentId 超时重发）→ NodeBusy 非 mismatch', () => {
     it('撞复合唯一 + again 行 RUNNING 异 jobId → NODE_BUSY（mismatch 标签对在飞请求是误导）', async () => {
       prisma.generationIntent.findUnique
-        .mockResolvedValueOnce(null) // 首查无行 → 走 create
-        .mockResolvedValueOnce(row({ status: 'RUNNING', jobId: 'job-first' })); // catch 后复查=并发赢家
-      prisma.generationIntent.create.mockRejectedValue(p2002(null)); // int 实测：target 恒 null
+        .mockResolvedValueOnce(null) // 首查无行 → 走 createMany
+        .mockResolvedValueOnce(row({ status: 'RUNNING', jobId: 'job-first' })); // count=0 后复查=并发赢家
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 0 });
 
       let err: any;
       try {
@@ -249,21 +302,21 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
       expect(err).not.toBeInstanceOf(IntentContextMismatchError);
     });
 
-    it('P2002 catch 路径同 jobId 同 RUNNING → 可重入（create 与重入并发）', async () => {
+    it('count=0 路径同 jobId 同 RUNNING → 可重入（create 与重入并发）', async () => {
       prisma.generationIntent.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(row({ status: 'RUNNING', jobId: 'job-1' }));
-      prisma.generationIntent.create.mockRejectedValue(p2002(null)); // int 实测：target 恒 null
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 0 });
 
       const r = await service.claim(input({ jobId: 'job-1' }));
       expect(r.created).toBe(true);
     });
 
-    it('P2002 catch 路径 again 行异上下文 → INTENT_CONTEXT_MISMATCH', async () => {
+    it('count=0 路径 again 行异上下文 → INTENT_CONTEXT_MISMATCH', async () => {
       prisma.generationIntent.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(row({ status: 'RUNNING', nodeId: 'n2' }));
-      prisma.generationIntent.create.mockRejectedValue(p2002(null)); // int 实测：target 恒 null
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 0 });
 
       await expect(service.claim(input({ jobId: 'job-1' }))).rejects.toMatchObject({
         errorCode: 'INTENT_CONTEXT_MISMATCH',
@@ -300,6 +353,28 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'gi-1', status: { in: ['RUNNING'] } },
         data: { status: 'FAILED', error: 'x'.repeat(500), completedAt: expect.any(Date) },
+      });
+    });
+
+    it('Y0b-1（Z27）：fail 带 jobId → where 补 jobId 限定（迟到钩子不误杀 rearm 换 job 的新活意图）', async () => {
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.fail('gi-1', 'late hook', 'job-old');
+
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
+        where: { id: 'gi-1', status: { in: ['RUNNING'] }, jobId: 'job-old' },
+        data: { status: 'FAILED', error: 'late hook', completedAt: expect.any(Date) },
+      });
+    });
+
+    it('Y0b-1（N4）：findByActiveNode 反查 RUNNING 行——projectId/nodeId/jobId 三键', async () => {
+      prisma.generationIntent.findFirst.mockResolvedValue(row());
+
+      const r = await service.findByActiveNode('p1', 'n1', 'job-1');
+
+      expect(r).toEqual(row());
+      expect(prisma.generationIntent.findFirst).toHaveBeenCalledWith({
+        where: { projectId: 'p1', nodeId: 'n1', status: 'RUNNING', jobId: 'job-1' },
       });
     });
 

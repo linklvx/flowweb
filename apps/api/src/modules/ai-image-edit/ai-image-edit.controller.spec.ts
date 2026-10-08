@@ -5,13 +5,15 @@ import { AiImageEditController } from './ai-image-edit.controller';
 import { AiImageEditService } from './ai-image-edit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService, NodeBusyError } from '../execution/generation-intent.service';
+import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../execution/normalize-intent-params';
 
 describe('AiImageEditController', () => {
   let controller: AiImageEditController;
   let service: { enqueueOutpaint: ReturnType<typeof vi.fn>; enqueueErase: ReturnType<typeof vi.fn>; enqueueRedraw: ReturnType<typeof vi.fn> };
-  let permSvc: { assertEditor: ReturnType<typeof vi.fn> };
+  let permSvc: { assertEditor: ReturnType<typeof vi.fn>; assertEditorWithTeam: ReturnType<typeof vi.fn> };
   let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> };
+  let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -21,11 +23,17 @@ describe('AiImageEditController', () => {
     };
     permSvc = {
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+      // Y0b-1（E1）：claim 团队锚经 assertEditorWithTeam 取（零额外查询）
+      assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'team-1' }),
     };
     intentSvc = {
       claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
       attachJob: vi.fn(),
       fail: vi.fn(),
+    };
+    // Y0b-1（E1）：kind 级定价快照（编辑 4 kind=modelId IS NULL，Z5）
+    resolver = {
+      resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -34,6 +42,7 @@ describe('AiImageEditController', () => {
         { provide: AiImageEditService, useValue: service },
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: GenerationIntentService, useValue: intentSvc },
+        { provide: PricingResolverService, useValue: resolver },
       ],
     }).compile();
     controller = module.get<AiImageEditController>(AiImageEditController);
@@ -178,7 +187,7 @@ describe('AiImageEditController', () => {
 
   describe('安全止血（spec 批0c-1 判据①：非成员 403 且 service 零调用）', () => {
     it('outpaint：assertEditor 拒绝 → 抛错且 service 零调用（越权扣费面）', async () => {
-      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      permSvc.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       const body = {
         projectId: 'p1',
         nodeId: 'n1',
@@ -189,16 +198,16 @@ describe('AiImageEditController', () => {
       };
       const req = { user: { id: 'u1' } } as any;
       await expect(controller.outpaint(body, req)).rejects.toThrow('无项目编辑权限');
-      expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'u1');
+      expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith('p1', 'u1');
       expect(service.enqueueOutpaint).not.toHaveBeenCalled();
     });
 
     it('erase/redraw 同守卫：拒绝 → service 零调用', async () => {
-      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      permSvc.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       const req = { user: { id: 'u1' } } as any;
       await expect(controller.erase({ projectId: 'p1', nodeId: 'n1', fileId: 'f1', maskFileId: 'm1' }, req)).rejects.toThrow('无项目编辑权限');
       await expect(controller.redraw({ projectId: 'p1', nodeId: 'n1', fileId: 'f1', maskFileId: 'm1', prompt: 'x', strength: 0.5 }, req)).rejects.toThrow('无项目编辑权限');
-      expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'u1');
+      expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith('p1', 'u1');
       expect(service.enqueueErase).not.toHaveBeenCalled();
       expect(service.enqueueRedraw).not.toHaveBeenCalled();
     });

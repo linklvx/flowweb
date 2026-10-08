@@ -6,3 +6,12 @@ export const reconcileMismatchTotal = new Counter({
   help: '每日对账：SUCCEEDED creditsConsumed 与消费流水数额不一致次数（资损前兆）',
   registers: [register],
 });
+
+/** Y0b-1（P8/§1.3 第四分支）：settle 未达——外呼成功但核销失败（已消费未计账）。
+ *  执行链语义：totalDeducted 不加 cost（emit 的 totalCost=实扣真值，冻结≠消费）+产物照发（E53），
+ *  账由每日对账第四分支闭环（deliveredAt 有值→补 settle）。 */
+export const settleFailureTotal = new Counter({
+  name: 'execution_settle_failure_total',
+  help: 'settle 未达次数（外呼成功但核销失败——冻结由对账兜底，产物照发）',
+  registers: [register],
+});

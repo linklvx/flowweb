@@ -63,6 +63,7 @@ describe('AiImageEditProcessor', () => {
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
+      findByActiveNode: vi.fn().mockResolvedValue(null), // Y0b-1（N4）：failed 钩子反查
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -399,12 +400,15 @@ describe('AiImageEditProcessor', () => {
       );
     });
 
-    it('failed 钩子（SIGKILL 兜底）：job.data 带 intentRowId → writeExecStatus + fail 双写', async () => {
-      await processor.onFailed(makeIntentJob(), new Error('worker killed'));
+    it('failed 钩子（SIGKILL 兜底）：findByActiveNode(job.id) 反查 → writeExecStatus + fail(jobId 限定)', async () => {
+      intentService.findByActiveNode.mockResolvedValue({ id: 'row-9' });
+      const job = { ...makeIntentJob(), id: 'job-9' };
+      await processor.onFailed(job as any, new Error('worker killed'));
       expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ status: 'error', intentId: 'i-9' }),
       );
-      expect(intentService.fail).toHaveBeenCalledWith('row-9', 'worker killed');
+      expect(intentService.findByActiveNode).toHaveBeenCalledWith('proj1', 'node1', 'job-9'); // Z27：jobId 限定
+      expect(intentService.fail).toHaveBeenCalledWith('row-9', 'worker killed', 'job-9');
     });
 
     it('failed 钩子：job 为 undefined（移除中）→ 零写零抛', async () => {

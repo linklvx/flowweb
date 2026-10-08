@@ -4,12 +4,14 @@ import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { ForbiddenException } from '@nestjs/common';
 import { GenerationIntentService, NodeBusyError } from '../../execution/generation-intent.service';
+import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../../execution/normalize-intent-params';
 
 describe('LightingController', () => {
   let controller: LightingController;
   let service: any;
-  let permSvc: { assertEditor: ReturnType<typeof vi.fn> };
+  let permSvc: { assertEditorWithTeam: ReturnType<typeof vi.fn> };
+  let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
   let intentSvc: any;
 
   beforeEach(async () => {
@@ -18,7 +20,12 @@ describe('LightingController', () => {
       getTask: vi.fn().mockResolvedValue({ id: 'task-1', status: 'pending' }),
     };
     permSvc = {
-      assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+      // Y0b-1（E1）：claim 团队锚经 assertEditorWithTeam 取（零额外查询）
+      assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'team-1' }),
+    };
+    // Y0b-1（E1）：kind 级定价快照（lighting=modelId IS NULL，Z5）
+    resolver = {
+      resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }),
     };
     intentSvc = {
       claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
@@ -32,6 +39,7 @@ describe('LightingController', () => {
         { provide: LightingService, useValue: service },
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: GenerationIntentService, useValue: intentSvc },
+        { provide: PricingResolverService, useValue: resolver },
       ],
     }).compile();
 
@@ -62,12 +70,12 @@ describe('LightingController', () => {
 
     it('EDITOR：assertEditor 放行且 userId 取自 req.user（替换 default-user）', async () => {
       await controller.createTask(body, mockReq('user-1'));
-      expect(permSvc.assertEditor).toHaveBeenCalledWith('proj-1', 'user-1');
+      expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith('proj-1', 'user-1');
       expect(service.createTask).toHaveBeenCalledWith(body, 'user-1', 'row-1', 'i-1');
     });
 
     it('VIEWER：403 拒绝且 service.createTask 未被调用', async () => {
-      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      permSvc.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       await expect(controller.createTask(body, mockReq())).rejects.toThrow('无项目编辑权限');
       expect(service.createTask).not.toHaveBeenCalled();
     });
@@ -75,15 +83,15 @@ describe('LightingController', () => {
     it('body 无 projectId 时也走 assertEditor（无条件守卫；入参防线是 DTO projectId 必填，省略即 422 拒绝）', async () => {
       const { projectId: _ignored, ...noProject } = body;
       await controller.createTask(noProject as any, mockReq());
-      expect(permSvc.assertEditor).toHaveBeenCalledWith(undefined, 'user-1');
+      expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith(undefined, 'user-1');
       expect(service.createTask).toHaveBeenCalled();
     });
 
     it('省略 projectId 且守卫拒绝 → service 零调用（条件旁路根堵，批0c-3）', async () => {
-      permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+      permSvc.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       const { projectId: _ignored2, ...noProject } = body;
       await expect(controller.createTask(noProject as any, mockReq())).rejects.toThrow('无项目编辑权限');
-      expect(permSvc.assertEditor).toHaveBeenCalledWith(undefined, 'user-1');
+      expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith(undefined, 'user-1');
       expect(service.createTask).not.toHaveBeenCalled();
     });
   });

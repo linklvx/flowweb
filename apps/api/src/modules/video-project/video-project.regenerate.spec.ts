@@ -86,7 +86,11 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       sort: realTopo.sort.bind(realTopo),
       collectUpstreamData: realTopo.collectUpstreamData.bind(realTopo),
     };
-    const validation = { validateAll: vi.fn().mockResolvedValue({ valid: true, errors: [] }) };
+    // Y0b-1（E1）：validateAll 产 plans——execution planMap 消费（creditCost:1 对齐 reserve 次数断言）
+    const validation = { validateAll: vi.fn().mockImplementation(async (nodes: any[]) => ({
+      valid: true, errors: [], totalCost: nodes.length,
+      plans: nodes.map((n: any) => ({ nodeId: n.id, pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 })),
+    })) };
     const apiCaller = {
       callTextGen: vi.fn().mockResolvedValue({ content: 'AI结果' }),
       callVideoGen: vi.fn().mockResolvedValue({ url: 'http://v/1.mp4' }),

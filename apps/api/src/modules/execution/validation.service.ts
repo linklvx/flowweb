@@ -5,10 +5,24 @@ import { isExecutableNode } from './is-executable-node';
 import { resolvePricingKey } from './pricing-input.util';
 import { PricingResolverService } from './pricing-resolver.service';
 
+/** Y0b-1（E1）：逐节点定价快照——execute 的 claim 消费（预估=plan 同源，TOCTOU 消除）。
+ *  五字段即 ClaimPricing 形状（pricing-resolver ResolvedPricing 的投影）。 */
+export interface NodePlan {
+  nodeId: string;
+  pricingRuleId: string;
+  modelId: string | null;
+  resolutionId: string | null;
+  durationId: string | null;
+  creditCost: number;
+}
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
   totalCost: number;
+  /** Y0b-1（E1）：节点解析成功即累计——余额不足档 plans 仍完整（用户恰恰这时最需要看构成）；
+   *  仅节点解析错误档为部分集（解析失败的节点无 plan——execute 侧 PLAN_MISSING 显式 4xx 兜底）。 */
+  plans: NodePlan[];
 }
 
 @Injectable()
@@ -21,6 +35,7 @@ export class ValidationService {
   async validateAll(nodes: any[], teamId: string, userId: string): Promise<ValidationResult> {
     const errors: string[] = [];
     let totalCost = 0;
+    const plans: NodePlan[] = [];
 
     for (const node of nodes) {
       if (!isExecutableNode(node)) continue;
@@ -33,12 +48,16 @@ export class ValidationService {
           ? await this.resolver.resolve({ modelId: key.modelId, resolutionId: key.resolutionId, durationId: key.durationId })
           : await this.resolver.resolveByNodeTypeKey(key.pricingKey!);
         totalCost += r.creditCost;
+        plans.push({
+          nodeId: node.id, pricingRuleId: r.pricingRuleId, modelId: r.modelId,
+          resolutionId: r.resolutionId, durationId: r.durationId, creditCost: r.creditCost,
+        });
       } catch (e: any) {
         errors.push(`节点 ${node.id}: ${e.message}`);
       }
     }
 
-    if (errors.length > 0) return { valid: false, errors, totalCost: 0 };
+    if (errors.length > 0) return { valid: false, errors, totalCost: 0, plans };
 
     // 校验口径与 teamCredit.consume 一致：credits + subscriptionCredits（quota 以 consume 为准，不预校验）
     const balance = await this.prisma.teamBalance.findUnique({ where: { teamId } });
@@ -48,9 +67,10 @@ export class ValidationService {
         valid: false,
         errors: [`余额不足: 需要 ${totalCost} 积分，当前 ${available} 积分`],
         totalCost,
+        plans, // 余额不足档 plans 照常累计非 []（三轮 M2——构成可见性）
       };
     }
 
-    return { valid: true, errors: [], totalCost };
+    return { valid: true, errors: [], totalCost, plans };
   }
 }

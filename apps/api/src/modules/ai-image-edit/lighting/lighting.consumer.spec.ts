@@ -8,6 +8,7 @@ import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
+import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { Job } from 'bullmq';
 
 vi.mock('axios', () => ({
@@ -66,6 +67,8 @@ describe('LightingConsumer', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: GenerationIntentService, useValue: intentService },
+        // Y0b-1（§1.2/Z5）：实扣经 resolver（creditCost:1 对齐既有 reserve 断言取值）
+        { provide: PricingResolverService, useValue: { resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }) } },
       ],
     }).compile();
     consumer = module.get<LightingConsumer>(LightingConsumer);

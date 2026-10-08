@@ -3,7 +3,7 @@ import { useViewport } from '@xyflow/react';
 import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { executeWorkflow, enqueueWorkflow } from '@/api/executionApi';
+import { enqueueWorkflow } from '@/api/executionApi';
 import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 
 interface ModelInfo {

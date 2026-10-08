@@ -26,7 +26,13 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
     sort: vi.fn().mockReturnValue(nodes),
     collectUpstreamData: vi.fn().mockReturnValue({ textContents: ['hi'], imageUrl: null }),
   };
-  const validation = { validateAll: vi.fn().mockResolvedValue({ valid: true, errors: [] }) };
+  // Y0b-1（E1）：validation 产 plans——mock 动态生成（nodeId↔plan 一一对应，creditCost 1=reserve 断言锚）
+  const validation = {
+    validateAll: vi.fn().mockImplementation(async (nodes: any[]) => ({
+      valid: true, errors: [], totalCost: nodes.length,
+      plans: nodes.map((n: any) => ({ nodeId: n.id, pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 })),
+    })),
+  };
   const apiCaller = {
     callTextGen: vi.fn().mockResolvedValue({ content: 'AI结果' }),
     callVideoGen: vi.fn().mockResolvedValue({ url: 'http://v' }),
@@ -63,21 +69,25 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
 }
 
 describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
-  it('text：claim 参数含 projectId/nodeId/userId/kind/paramsHash（=外呼实参白名单规范化）', async () => {
+  it('text：claim 参数含 projectId/nodeId/userId/kind/paramsHash + pricing/teamId 固化（=外呼实参白名单规范化）', async () => {
     const { svc, intentService } = makeService([TEXT_NODE]);
     await svc.execute('p1', 'n1', 'u1', undefined, undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledTimes(1);
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'text', intentId: 'hdr-intent',
+      teamId: 't1', // Y0b-1（E1）：teamId 固化入参
+      pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }, // Y0b-1（E1）：plan 快照透传
       paramsHash: normalizeIntentParams('text', { prompt: 'hi', model: 'seed-model-kimi', apiUrl: '' }),
     }));
   });
 
-  it('video：kind=video，paramsHash=视频外呼实参集', async () => {
+  it('video：kind=video，paramsHash=视频外呼实参集 + pricing/teamId 固化', async () => {
     const { svc, intentService } = makeService([VIDEO_NODE]);
     await svc.execute('p1', 'n2', 'u1', undefined, undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'video', intentId: 'hdr-intent',
+      teamId: 't1',
+      pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
       paramsHash: normalizeIntentParams('video', {
         prompt: 'hi', model: 'v1', mode: 'text-to-video',
         imageUrl: undefined, startImageUrl: undefined, endImageUrl: undefined,
@@ -86,11 +96,13 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
     }));
   });
 
-  it('image：kind=image，paramsHash=图片外呼实参集', async () => {
+  it('image：kind=image，paramsHash=图片外呼实参集 + pricing/teamId 固化', async () => {
     const { svc, intentService } = makeService([IMAGE_NODE]);
     await svc.execute('p1', 'n3', 'u1', undefined, undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'image', intentId: 'hdr-intent',
+      teamId: 't1',
+      pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
       paramsHash: normalizeIntentParams('image', {
         prompt: 'hi', extraPrompt: undefined, style: undefined,
         model: 'm1', resolution: undefined, imageUrl: null,
@@ -286,30 +298,46 @@ describe('批0.5-6 组执行 intentId 派生（裁定：每节点独立 UUID，�
 
 /** 装置：processor 直构（构造器序对齐 execution.processor.ts：(executionService, collabDoc, intentService)）。
  *  onFailed 形态按 bullmq Worker 'failed' 实际签名（job, error, prev）位置参数——
- *  @nestjs/bullmq explorer 直绑 worker.on（banner-cleanup.processor.ts:17 先例）。 */
+ *  @nestjs/bullmq explorer 直绑 worker.on（banner-cleanup.processor.ts:17 先例）。
+ *  Y0b-1（N4）：intentRowId 从不入队（死代码）——failed 钩子凭 findByActiveNode 反查在飞行。 */
 function makeProcessor() {
   const executionService = { execute: vi.fn() };
   const collabDoc = { writeExecStatus: vi.fn().mockResolvedValue(undefined) };
-  const intentService = { claim: vi.fn(), complete: vi.fn(), fail: vi.fn().mockResolvedValue(undefined), attachJob: vi.fn(), listByNode: vi.fn() };
+  const intentService = {
+    claim: vi.fn(), complete: vi.fn(), fail: vi.fn().mockResolvedValue(undefined),
+    attachJob: vi.fn(), listByNode: vi.fn(),
+    findByActiveNode: vi.fn().mockResolvedValue(null),
+  };
   const p: any = new (ExecutionProcessor as any)(executionService, collabDoc, intentService);
   return { p, collabDoc, intentService };
 }
 
-describe('批0.5-6 processor failed 钩子（SIGKILL 终态兜底——双写 exec map + 意图表）', () => {
-  it('failed → writeExecStatus(error, intentId) + intentService.fail(intentRowId) 双写', async () => {
+describe('批0.5-6 processor failed 钩子（SIGKILL 终态兜底——exec map + 意图反查 fail）', () => {
+  it('failed → writeExecStatus(error, intentId) + findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
-    const job = { data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1', intentRowId: 'row-1' } };
+    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1' });
+    const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
     await p.onFailed(job as any, new Error('worker died'));
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error', intentId: 'i-1', error: 'worker died' }));
-    expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died');
+    expect(intentService.findByActiveNode).toHaveBeenCalledWith('p1', 'n1', 'job-1'); // Z27：jobId 限定
+    expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died', 'job-1');
   });
 
-  it('无 intentRowId（enqueue 未接 claim——0.5-8 接上后自动全通）→ 只写 exec map', async () => {
+  it('findByActiveNode null（无在飞意图——reconcile 已回收或本 job 已终态）→ 只写 exec map', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
-    const job = { data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
+    const job = { id: 'job-2', data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
     await p.onFailed(job as any, new Error('x'));
     expect(collabDoc.writeExecStatus).toHaveBeenCalled();
     expect(intentService.fail).not.toHaveBeenCalled();
+  });
+
+  it('writeExecStatus 抛错 → 整函数兜底吸收，反查 fail 照走（Z 终裁 P14：钩子绝不外抛 unhandledRejection）', async () => {
+    const { p, collabDoc, intentService } = makeProcessor();
+    collabDoc.writeExecStatus.mockRejectedValue(new Error('doc down'));
+    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1' });
+    const job = { id: 'job-3', data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
+    await expect(p.onFailed(job as any, new Error('x'))).resolves.toBeUndefined();
+    expect(intentService.fail).toHaveBeenCalledWith('row-1', 'x', 'job-3');
   });
 
   it('无 projectId/nodeId → 早退零写', async () => {

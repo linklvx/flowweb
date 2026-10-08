@@ -240,16 +240,23 @@ export class AiImageEditProcessor extends WorkerHost {
 
   /** 批0.5-8 F13 终态兜底（execution.processor 同款）：SIGKILL 场景 process 的 catch 不执行——
    *  意图终态只能靠 worker 钩子。形态按 bullmq Worker 'failed' 实际签名 (job, error, prev) 位置参数；
-   *  job 可为 undefined（移除中）。lighting job 同队列共用本钩子（intentRowId 在 job.data）。 */
+   *  job 可为 undefined（移除中）。lighting job 同队列共用本钩子。
+   *  Y0b-1（§1.3/N4/Z27）：intentRowId 从不入队（死代码）——改凭 partial unique 反查在飞行，
+   *  jobId 限定防迟到钩子误杀 rearm 换 job 的新活意图。Z 终裁（P14）：整函数兜底绝不外抛。 */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<AiImageEditJobData> | undefined, err: Error) {
-    if (!job) return;
-    const { projectId, nodeId, intentId, intentRowId } = job.data ?? {};
-    if (!projectId || !nodeId) return;
-    const reason = String(err?.message ?? err);
-    await this.collabDoc.writeExecStatus(projectId, nodeId, {
-      status: 'error', error: reason.slice(0, 200), intentId: intentId ?? undefined,
-    });
-    if (intentRowId) await this.intentService.fail(intentRowId, reason); // ACTIVE 守卫幂等——与 process catch 双写不冲突
+    try {
+      if (!job) return;
+      const { projectId, nodeId, intentId } = job.data ?? {};
+      if (!projectId || !nodeId) return;
+      const reason = String(err?.message ?? err);
+      await this.collabDoc.writeExecStatus(projectId, nodeId, {
+        status: 'error', error: reason.slice(0, 200), intentId: intentId ?? undefined,
+      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
+      const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
+      if (running) await this.intentService.fail(running.id, reason, job.id); // ACTIVE 守卫幂等——与 process catch 双写不冲突
+    } catch {
+      // best-effort——reconcile 仍是兜底
+    }
   }
 }

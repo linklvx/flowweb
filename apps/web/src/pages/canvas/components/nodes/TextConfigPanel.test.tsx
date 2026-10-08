@@ -61,7 +61,6 @@ const { mockEnqueueWorkflow } = vi.hoisted(() => ({
   mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' })
 }));
 vi.mock('@/api/executionApi', () => ({
-  executeWorkflow: vi.fn(),
   enqueueWorkflow: mockEnqueueWorkflow,
 }));
 import { TextConfigPanel } from './TextConfigPanel';

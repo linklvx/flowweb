@@ -39,7 +39,13 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       sort: vi.fn((nodes: any[]) => nodes),
       collectUpstreamData: vi.fn().mockReturnValue({ textContents: [] }),
     };
-    validation = { validateAll: vi.fn().mockResolvedValue({ valid: true }) };
+    // Y0b-1（E1）：validation 产 plans——动态生成（nodeId↔plan 一一对应）
+    validation = {
+      validateAll: vi.fn().mockImplementation(async (nodes: any[]) => ({
+        valid: true, errors: [], totalCost: nodes.length,
+        plans: nodes.map((n: any) => ({ nodeId: n.id, pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 })),
+      })),
+    };
     apiCaller = {
       callTextGen: vi.fn().mockResolvedValue({ content: 'ok' }),
       callImageGen: vi.fn(),

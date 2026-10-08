@@ -7,15 +7,6 @@ function svHeaders(): Record<string, string> {
   return sv ? { 'x-yjs-sv': sv } : {};
 }
 
-export async function executeWorkflow(projectId: string, nodeId?: string, intentId?: string): Promise<{ success: boolean; errors: string[]; results?: { nodeId: string; type: string; resultUrl?: string }[] }> {
-  return apiFetch('/execution/execute', {
-    method: 'POST',
-    body: JSON.stringify({ projectId, nodeId }),
-    // 批0.5-8b：客户端意图 id（幂等键）——execute 端点读 @Headers('x-intent-id')
-    headers: { ...svHeaders(), ...(intentId ? { 'x-intent-id': intentId } : {}) },
-  });
-}
-
 export async function executeGroupNodes(projectId: string, nodeIds: string[]): Promise<{ success: boolean; errors: string[]; results?: { nodeId: string; type: string; resultUrl?: string }[] }> {
   return apiFetch('/execution/execute', {
     method: 'POST',

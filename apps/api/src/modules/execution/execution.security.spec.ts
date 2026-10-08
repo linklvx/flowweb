@@ -20,7 +20,13 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     sort: vi.fn().mockReturnValue(nodes),
     collectUpstreamData: vi.fn().mockReturnValue({ textContents: ['hi'], imageUrl: null }),
   };
-  const validation = { validateAll: vi.fn().mockResolvedValue({ valid: true, errors: [] }) };
+  // Y0b-1（E1）：validation 产 plans——动态生成（nodeId↔plan 一一对应）
+  const validation = {
+    validateAll: vi.fn().mockImplementation(async (nodes: any[]) => ({
+      valid: true, errors: [], totalCost: nodes.length,
+      plans: nodes.map((n: any) => ({ nodeId: n.id, pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 })),
+    })),
+  };
   const apiCaller = {
     callTextGen: vi.fn().mockResolvedValue({ content: 'AI结果' }),
     callVideoGen: vi.fn().mockResolvedValue({ url: 'http://v' }),

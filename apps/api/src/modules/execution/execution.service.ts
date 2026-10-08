@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Inject, Logger, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
@@ -8,14 +8,13 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { isExecutableNode } from './is-executable-node';
-import { resolvePricingKey } from './pricing-input.util';
-import { PricingResolverService } from './pricing-resolver.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CollabDocumentService } from '../collab/collab-document.service';
-import { GenerationIntentService } from './generation-intent.service';
+import { GenerationIntentService, ClaimPricing } from './generation-intent.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { settleFailureTotal } from './intent-reconcile.metrics';
 
 @Injectable()
 export class ExecutionService {
@@ -32,7 +31,6 @@ export class ExecutionService {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
-    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
   /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
@@ -45,14 +43,21 @@ export class ExecutionService {
    *  组执行 intentId 派生（裁定）：每节点独立 UUID——意图生命周期（attempts/reconcile/退款）按节点独立，
    *  不做 ${intentId}:${nodeId} 派生；入参 intentId 落 scope 内首个 exec 节点（批5 H1 更正：nodeId 模式
    *  scope=上游闭包+自身，首个 exec 是最上游而非目标——intentId 需落特定目标时调用方必须传 nodeIds=[目标]，
-   *  使目标成为唯一 exec 节点，如 video-project regenerate），其余派新 UUID。 */
+   *  使目标成为唯一 exec 节点，如 video-project regenerate），其余派新 UUID。
+   *  Y0b-1（E1）：pricing/teamId 必填透传——定价快照自 validation plans（预估=plan 同源，TOCTOU 消除）。 */
   private claimForNode(
     projectId: string, node: any, userId: string, intentId: string | undefined,
-    kind: string, params: Record<string, unknown>, jobId?: string,
+    kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string, jobId?: string,
   ) {
     return this.intentService.claim({
       projectId, nodeId: node.id, userId, intentId: intentId ?? randomUUID(), kind,
-      paramsHash: normalizeIntentParams(kind, params), jobId,
+      paramsHash: normalizeIntentParams(kind, params),
+      // Y0b-1（E1）：NodePlan → ClaimPricing 五字段投影（nodeId 是 plan 路由键非快照列——不进 claim）
+      pricing: {
+        pricingRuleId: pricing.pricingRuleId, modelId: pricing.modelId, resolutionId: pricing.resolutionId,
+        durationId: pricing.durationId, creditCost: pricing.creditCost,
+      },
+      teamId, jobId,
     });
   }
 
@@ -98,6 +103,8 @@ export class ExecutionService {
     if (!validationResult.valid) {
       return { success: false, errors: validationResult.errors };
     }
+    // Y0b-1（E1/Z10 前半）：plan 快照表——claim 定价与 reserve 金额皆自此读（零额外解析）
+    const planMap = new Map(validationResult.plans.map((p) => [p.nodeId, p]));
 
     // 5. Execute sequentially
     let totalDeducted = 0;
@@ -134,7 +141,11 @@ export class ExecutionService {
             model: data?.model, // Y0b-1（Z30）：删 'seed-model-kimi' 字面量兜底——缺模型走 MODEL_NOT_SELECTED 显式 4xx
             apiUrl: '',
           };
-          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'text', textArgs, jobId);
+          // Y0b-1（E1）：claim 固化 pricing 快照——四轮 P1-6：! 断言=TypeError 500，显式 4xx 暴露节点集分叉
+          const plan = planMap.get(node.id);
+          if (!plan) throw new BusinessException('PLAN_MISSING', `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`, HttpStatus.BAD_REQUEST);
+          const cost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
+          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'text', textArgs, plan, project.teamId, jobId);
           if (!created) {
             // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
             this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
@@ -143,14 +154,6 @@ export class ExecutionService {
           claimed = intent;
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
-          // Y0b-1（E49①/Z20/Z28）：定价单源 resolver——全四键经 resolvePricingKey（归一化单源），
-          // 无规则=业务错误零外呼零冻结（原 ?? 0 旁路消灭）。
-          // 过渡态标注（四轮 C4）：本步 resolvePricingKey 调用在 T3 改 planMap 消费后即退役——改 planMap 快照。
-          const key = await resolvePricingKey(this.prisma, node);
-          const pricing = key.modelId
-            ? await this.resolver.resolve({ modelId: key.modelId, resolutionId: key.resolutionId, durationId: key.durationId })
-            : await this.resolver.resolveByNodeTypeKey(key.pricingKey!);
-          const cost = pricing.creditCost;
           if (cost > 0) {
             const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
             if (!reserveResult.success) {
@@ -164,8 +167,8 @@ export class ExecutionService {
 
           if (cost > 0) {
             const settled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
-            if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 未达（冻结由 reconcile 兜底）`);
-            totalDeducted += cost;
+            if (settled.success) totalDeducted += cost; // P8：已消费才计入——emit 的 totalCost=实扣真值（冻结≠消费）
+            else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
           }
 
           // F13 产物门序：complete count===1（意图仍有效）才写 doc。text 无 Media/URL 锚点——
@@ -206,7 +209,11 @@ export class ExecutionService {
             duration: vData?.duration,
             audio: vData?.audio,
           };
-          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'video', videoArgs, jobId);
+          // Y0b-1（E1）：video duration 维的定价快照已在 validation plans（预检=实扣同键）
+          const plan = planMap.get(node.id);
+          if (!plan) throw new BusinessException('PLAN_MISSING', `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`, HttpStatus.BAD_REQUEST);
+          const vCost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
+          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'video', videoArgs, plan, project.teamId, jobId);
           if (!created) {
             this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
             continue;
@@ -214,14 +221,6 @@ export class ExecutionService {
           claimed = intent;
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
-          // Y0b-1（E49①/Z20/Z28）：定价单源 resolver——video duration 维经 resolvePricingKey 归一化
-          // （预检=实扣同键，旧实现两形状分叉根修）。无规则=业务错误零外呼零冻结（原 ?? 0 旁路消灭）。
-          // 过渡态标注（四轮 C4）：本步 resolvePricingKey 调用在 T3 改 planMap 消费后即退役——改 planMap 快照。
-          const vKey = await resolvePricingKey(this.prisma, node);
-          const vPricing = vKey.modelId
-            ? await this.resolver.resolve({ modelId: vKey.modelId, resolutionId: vKey.resolutionId, durationId: vKey.durationId })
-            : await this.resolver.resolveByNodeTypeKey(vKey.pricingKey!);
-          const vCost = vPricing.creditCost;
           if (vCost > 0) {
             const vReserve = await this.teamCredit.reserve(project.teamId, userId, vCost, { intentRowId: intent.id, intentId: intent.intentId });
             if (!vReserve.success) {
@@ -234,8 +233,8 @@ export class ExecutionService {
 
           if (vCost > 0) {
             const vSettled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
-            if (!vSettled.success) this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 未达（冻结由 reconcile 兜底）`);
-            totalDeducted += vCost;
+            if (vSettled.success) totalDeducted += vCost; // P8：已消费才计入——emit 的 totalCost=实扣真值（冻结≠消费）
+            else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
           }
 
           // F13 产物门序——video 产物锚点 = videoUrl（writeNodeData 所写产物字段值）
@@ -284,22 +283,17 @@ export class ExecutionService {
           resolution: data?.resolution,
           imageUrl,
         };
-        const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'image', imageArgs, jobId);
+        // Y0b-1（E1）：image resolution 维的定价快照已在 validation plans（label→行 id 归一化在预检完成）
+        const plan = planMap.get(node.id);
+        if (!plan) throw new BusinessException('PLAN_MISSING', `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`, HttpStatus.BAD_REQUEST);
+        const cost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
+        const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'image', imageArgs, plan, project.teamId, jobId);
         if (!created) {
           this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
           continue;
         }
         claimed = intent;
         await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
-
-        // Y0b-1（E49①/Z20/Z28）：定价单源 resolver——image resolution 维经 resolvePricingKey 归一化
-        // （label→行 id 禁回退）。无规则=业务错误零外呼零冻结（原 ?? 0 旁路消灭）。
-        // 过渡态标注（四轮 C4）：本步 resolvePricingKey 调用在 T3 改 planMap 消费后即退役——改 planMap 快照。
-        const iKey = await resolvePricingKey(this.prisma, node);
-        const iPricing = iKey.modelId
-          ? await this.resolver.resolve({ modelId: iKey.modelId, resolutionId: iKey.resolutionId, durationId: iKey.durationId })
-          : await this.resolver.resolveByNodeTypeKey(iKey.pricingKey!);
-        const cost = iPricing.creditCost;
 
         if (cost > 0) {
           const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
@@ -315,8 +309,8 @@ export class ExecutionService {
 
         if (cost > 0) {
           const settled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
-          if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 未达（冻结由 reconcile 兜底）`);
-          totalDeducted += cost;
+          if (settled.success) totalDeducted += cost; // P8：已消费才计入——emit 的 totalCost=实扣真值（冻结≠消费）
+          else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
         }
 
         // F13 产物门序——image 产物锚点 = resultUrl（media.create 在 ai-result-download 侧异步落地，

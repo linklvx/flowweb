@@ -44,16 +44,24 @@ export class ExecutionProcessor extends WorkerHost {
   /** F13 终态兜底：SIGKILL 场景 process 的 catch 不执行——意图终态只能靠 worker 钩子。
    *  形态按 bullmq Worker 'failed' 实际签名（job, error, prev）位置参数——@nestjs/bullmq explorer
    *  直绑 worker.on（banner-cleanup.processor.ts 先例）；job 可为 undefined（移除中）。
-   *  intentRowId 现阶段 enqueue 不传（claim 接 enqueue 链路在 0.5-8）——有则双写意图表，无则只写 exec map，接上后自动全通。 */
+   *  Y0b-1（§1.3/N4）：intentRowId 从不入队（死代码）——改凭 partial unique
+   *  generation_intent_active_node_unique 反查在飞行：付费意图悬空从 15min 压到 worker failed 即时。
+   *  Z27：jobId 限定——迟到的失败钩子只 fail 本 job 自己的在飞意图（同节点新活意图归属不同 job）。
+   *  Z 终裁（P14）：未 await 钩子抛错=unhandledRejection=进程退出——整函数兜底，绝不外抛。 */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<any> | undefined, err: Error) {
-    if (!job) return;
-    const { projectId, nodeId, intentId, intentRowId } = job.data ?? {};
-    if (!projectId || !nodeId) return;
-    const reason = String(err?.message ?? err);
-    await this.collabDoc.writeExecStatus(projectId, nodeId, {
-      status: 'error', error: reason.slice(0, 200), intentId: intentId ?? undefined,
-    });
-    if (intentRowId) await this.intentService.fail(intentRowId, reason); // F13：意图终态必达
+    try {
+      if (!job) return;
+      const { projectId, nodeId, intentId } = job.data ?? {};
+      if (!projectId || !nodeId) return;
+      const reason = String(err?.message ?? err);
+      await this.collabDoc.writeExecStatus(projectId, nodeId, {
+        status: 'error', error: reason.slice(0, 200), intentId: intentId ?? undefined,
+      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
+      const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
+      if (running) await this.intentService.fail(running.id, reason, job.id);
+    } catch {
+      // best-effort——reconcile 仍是兜底
+    }
   }
 }

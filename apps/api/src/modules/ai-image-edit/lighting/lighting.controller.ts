@@ -5,6 +5,7 @@ import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
+import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../../execution/normalize-intent-params';
 import { paramsToPrompt } from './lighting.consumer';
 
@@ -14,6 +15,7 @@ export class LightingController {
     @Inject(LightingService) private readonly service: LightingService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
   @Post('tasks')
@@ -21,10 +23,12 @@ export class LightingController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async createTask(@Body() body: CreateLightingTaskDto, @Req() req: any) {
     const userId = (req as any).user?.id;
-    await this.perm.assertEditor(body.projectId, userId); // 无条件（批0c：省略 projectId 即旁路）
+    const { teamId } = await this.perm.assertEditorWithTeam(body.projectId, userId); // 无条件（批0c：省略 projectId 即旁路）
     // 批0.5-8 意图表扩面（F13）：claim（createTask 前）→ attachJob 回写 jobId。
     // paramsHash = paramsToPrompt 纯派生稳定串——与 consumer 外呼 prompt 同函数（两处各自实现=两键双扣）。
     // 意图行管幂等/互斥/对账；LightingTask 照旧管业务状态（两者并存）。
+    // Y0b-1（E1）：claim 前解析 kind 级定价快照（lighting=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
+    const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
     const { intent, created } = await this.intentService.claim({
       projectId: body.projectId,
       nodeId: body.nodeId,
@@ -34,6 +38,8 @@ export class LightingController {
       paramsHash: normalizeIntentParams('lighting', {
         prompt: paramsToPrompt(body.params, body.params.customPrompt),
       }),
+      pricing,
+      teamId,
     });
     if (!created) {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用
