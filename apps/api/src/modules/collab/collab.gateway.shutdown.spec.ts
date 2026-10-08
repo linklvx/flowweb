@@ -53,6 +53,7 @@ async function seedPendingDoc(kit: any, name: string, updates: number): Promise<
   const doc = Object.assign(new Y.Doc(), {
     saveMutex: { runExclusive: <T,>(fn: () => Promise<T>) => fn() },
     connections: new Map(),
+    getConnections: () => [] as { socketId: string }[],   // Y0a-4/N16：server 级 getConnectionsCount 遍历面（库 Document 形状补齐——computePending 关停链采集）
   }) as Y.Doc;
   const src = new Y.Doc();
   const us: Uint8Array[] = [];

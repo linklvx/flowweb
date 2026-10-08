@@ -69,3 +69,21 @@ describe('批3-4 COLLAB_TIMEOUT 接线', () => {
     expect(buildGateway().server.configuration.timeout).toBe(30000);
   });
 });
+
+// Y0a-4/P24/P25（红相先行）：Server 配置显式 pin——B26 实测库 defaultConfiguration 即同值
+//（quiet:false/unloadImmediately:true），pin=文档锚防升级翻转，非行为修复；address=P25 绑定面
+// 收窄支持（默认 0.0.0.0 不变，ecosystem 未来注入 127.0.0.1——nginx 同机唯一合法路径）。
+describe('Y0a-4 Server 配置 pin（unloadImmediately/quiet/address）+COLLAB_BIND_ADDR 接线', () => {
+  it('默认三 pin：address=0.0.0.0（P25 默认不变）/unloadImmediately=true/quiet=false（P24 文档锚）', () => {
+    delete process.env.COLLAB_BIND_ADDR;
+    const g = buildGateway();
+    expect(g.server.configuration.address).toBe('0.0.0.0');              // 旧实现 undefined → 红
+    expect(g.server.configuration.unloadImmediately).toBe(true);         // 旧实现依赖库默认（undefined）→ 红
+    expect(g.server.configuration.quiet).toBe(false);
+  });
+
+  it('COLLAB_BIND_ADDR 注入 127.0.0.1→address 跟随（绑定面收窄——绑定漂移在 listen 启动日志可见）', () => {
+    vi.stubEnv('COLLAB_BIND_ADDR', '127.0.0.1');
+    expect(buildGateway().server.configuration.address).toBe('127.0.0.1');   // 旧实现键未接线 → 红
+  });
+});

@@ -198,3 +198,20 @@ describe('Y0a-3 T8（三分法）', () => {
     expect(gateway.isLeaseServing).toHaveBeenCalledTimes(1);
   });
 });
+
+// Y0a-4/P24（红相先行）：Connection 级 unloadImmediately 双旋钮之一（B20）——A6 锚=DirectConnection
+// disconnect options。B26：库默认即 true（options?.unloadImmediately ?? true），显式 pin=防升级翻转的
+// 文档锚，非行为修复。
+describe('Y0a-4 Connection 级 disconnect pin（unloadImmediately——withDoc finally）', () => {
+  it('withDoc finally disconnect 显式 { unloadImmediately: true }（裸调依赖库默认 → 升级翻转无锚）', async () => {
+    const doc = new Y.Doc();
+    const disconnect = vi.fn(async () => {});
+    const gateway = {
+      isLeaseServing: vi.fn(() => true),
+      server: { hocuspocus: { openDirectConnection: vi.fn(async () => ({ transact: (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect })) } },
+    };
+    const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
+    await service.withDoc('p1', () => 'x');
+    expect(disconnect).toHaveBeenCalledWith({ unloadImmediately: true });   // 旧实现裸调（无参）→ 红
+  });
+});

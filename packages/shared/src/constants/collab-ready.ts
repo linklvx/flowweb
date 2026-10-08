@@ -26,4 +26,6 @@ export interface CollabReadyResponse {
   redis: 'up' | 'down';
   pending: CollabReadyPending;
   spoolQuarantined?: number;
+  loadedDocs?: number;     // Y0a-4/N16：容量观测（在飞 Y.Doc 数）——pending 的兄弟字段，禁进 pending 对象
+  connections?: number;    // Y0a-4/N16：collab 连接数（server.getConnectionsCount() 口径）——同上
 }

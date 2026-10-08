@@ -41,7 +41,6 @@ export const envSchema = z.object({
   // 消费点（不写 default 防双源，P3）。空串=未设（B13：dotenv/shell 清开关常见形态，防拒启动）。
   // COMPACT_INTERVAL_MS=真实键名（gateway:25 无 COLLAB_ 前缀——前缀统一登记 Y0c env 根修）。
   // MAX_LOADED_DOCS=spec §3 4.6:502 原文点名预留（仅解析零消费，enforcement 归 Y1c-3）。
-  // BIND_ADDR 不在此（键随读者——T4 与 gateway listen 同批落地，防方向二死键红）。
   // COLLAB_FAKE_AI 不在此（Y0b 资金批域，结构锚豁免表登记）。
   COLLAB_PORT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_DEBOUNCE: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
@@ -54,6 +53,9 @@ export const envSchema = z.object({
   COLLAB_LEASE_HEARTBEAT_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_ADMIN_TOKEN: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_MAX_LOADED_DOCS: z.preprocess(blankToUnset, z.coerce.number().int().min(0).optional()),
+  // Y0a-4（P25）：绑定面收窄——reader 在 gateway listen 配置（键随读者同批收口，防 T1 结构锚方向二死键红）。
+  // 默认缺省=0.0.0.0 不变；ecosystem 未来注入 127.0.0.1（nginx 同机唯一合法路径）。
+  COLLAB_BIND_ADDR: z.preprocess(blankToUnset, z.string().min(1).optional()),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -99,6 +99,19 @@ describe('CollabReadyController', () => {
     expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['ready', 'redis']);
   });
 
+  it('Y0a-4/N16：授权档透传 loadedDocs/connections（容量观测兄弟字段）；公开档四键裁剪不外泄（V17 契约零动）', async () => {
+    process.env.PROMETHEUS_TOKEN = 'tok';
+    const full = { ready: false, reason: 'lease-held', epoch: '9', redis: 'up' as const, pending: PENDING, spoolQuarantined: 0, loadedDocs: 7, connections: 9 };
+    readyMock.getReady.mockResolvedValue({ status: 503, body: full });
+    const resAuth = fakeRes();
+    await controller.getReady({ headers: { 'x-prometheus-token': 'tok' } } as any, resAuth);
+    expect(resAuth.status).toHaveBeenCalledWith(503);
+    expect(resAuth.json).toHaveBeenCalledWith(full);   // 授权档全字段透传（新键不过滤）
+    const resPub = fakeRes();
+    await controller.getReady({ headers: {} } as any, resPub);
+    expect(wireKeys(resPub.json.mock.calls[0][0])).toEqual(['epoch', 'ready', 'reason', 'redis']);   // 公开档四键——loadedDocs/connections 不外泄
+  });
+
   describe('POST /api/drain（CollabAdminAuthGuard fail-closed）', () => {
     function ctxFor(headers: Record<string, string>) {
       const req = { headers };

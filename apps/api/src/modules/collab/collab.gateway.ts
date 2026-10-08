@@ -199,6 +199,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 批3-2：库默认 stopOnSignals:true 在 listen() 注册信号 handler → destroy 后 process.exit(0)
       // 抢跑 Nest drain 链（hocuspocus-server.esm.js:1684-1690）——信号统一交 app.enableShutdownHooks()
       stopOnSignals: false,
+      // Y0a-4/P25：绑定面收窄支持——默认不变 0.0.0.0；ecosystem 注入 127.0.0.1（nginx 同机唯一合法路径）。
+      // 键随读者：COLLAB_BIND_ADDR 同批进 config/env.ts（T1 结构锚方向二防死键）。
+      address: process.env.COLLAB_BIND_ADDR ?? '0.0.0.0',
+      // Y0a-4/P24 显式 pin 双旋钮 Server 级（B20/B26：库 defaultConfiguration 即 true/false——
+      // 文档锚防升级翻转，非行为修复）
+      unloadImmediately: true,
+      quiet: false,
       onAuthenticate: this.hooks.onAuthenticate,
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
@@ -685,14 +692,22 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  documents Map，测试与生产同构）；字段 `projects`（按 projectId 计——drain/日志/用例/drill 同名消费）；
    *  G-1/G-2 演练轮询面（/api/metrics collect 回调）+Y0a-3 /api/ready.pending 消费同一实现。
    *  Y0a-3 R3/P16：spoolFiles/spoolBytes=own 口径（部署门）；stranded*=外来段（depth 分区透传——
-   *  gauge 侧取 total）。 */
-  computePending(): { projects: number; batches: number; storeInFlight: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number } {
+   *  gauge 侧取 total）。
+   *  Y0a-4/N16：容量观测两字段（loadedDocs/connections）挂同一快照——gauge（yjs_loaded_documents/
+   *  yjs_connection_count）与 /api/ready 授权档同源供数。connections 口径=server.getConnectionsCount()
+   *  （已聚合 WS 连接去重+directConnectionsCount 单独累加——勿再加任何分量）。 */
+  computePending(): { projects: number; batches: number; storeInFlight: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number; loadedDocs: number; connections: number } {
     let projects = 0, batches = 0;
     for (const q of this.pendingQueues.values()) {
       if (q.length > 0) { projects += 1; batches += q.length; }
     }
     const d = this.spool.depth();
-    return { projects, batches, storeInFlight: this.inFlightProjects.size, spoolFiles: d.ownFiles, spoolBytes: d.ownBytes, strandedFiles: d.strandedFiles, strandedBytes: d.strandedBytes };
+    return {
+      projects, batches, storeInFlight: this.inFlightProjects.size,
+      spoolFiles: d.ownFiles, spoolBytes: d.ownBytes, strandedFiles: d.strandedFiles, strandedBytes: d.strandedBytes,
+      loadedDocs: this.server.hocuspocus.documents.size,
+      connections: this.server.hocuspocus.getConnectionsCount(),
+    };
   }
 
   /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置）。
@@ -1065,6 +1080,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.server.hocuspocus.documents.size > 0)
       throw Object.assign(new Error(`documents 未卸载（${this.server.hocuspocus.documents.size} 个——mutex 持有），拒绝 re-listen（留 isolated 等下轮退避）`), { code: 'DOCS_NOT_UNLOADED' });   // V10：归端口类=持锁重试
     await this.listenServer();   // Y0a-1 P1-1：await listen——返回即端口就绪（消端口竞态）
+    // Y0a-4/P25：绑定面漂移在启动日志可见（0.0.0.0=缺省全卡；127.0.0.1=ecosystem 收窄档）
+    {
+      const addr = this.server.httpServer?.address();
+      const bind = typeof addr === 'object' && addr ? `${addr.address}:${addr.port}` : String(addr);
+      this.logger.log(`collab listen ${bind}（COLLAB_BIND_ADDR=${process.env.COLLAB_BIND_ADDR ?? 'unset→0.0.0.0'}）`);
+    }
     // V11 收口（终审 Important）：SIGTERM 落在 starting 态 listen 窗时此处才 resolve——不复检即
     // transition('serving') 会翻转关停已置的 draining（ready 翻 200+authenticate 放行新 WS=
     // 破"draining ⇒ ready≠true"契约）。不转 serving 直接返回：listener 由关停链步骤 5 destroy 收口；

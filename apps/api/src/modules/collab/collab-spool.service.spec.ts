@@ -107,15 +107,19 @@ describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', (
 });
 
 describe('V15 目录 fail-fast（validateDir——gateway 调用点归 Task 3/4）', () => {
-  it('production+相对路径→throw；非 production 返回解析后的绝对路径', () => {
-    const prev = process.env.NODE_ENV;
+  // Y0a-4 重定语义：危险=**显式配置**（COLLAB_SPOOL_DIR）相对路径——CWD 漂移会静默指向另一个空账本，
+  // 与"是否生产"无关；构造参数（测试 DI）与本地默认值（恒绝对）不在此判。
+  it('COLLAB_SPOOL_DIR 显式相对路径→throw（与 NODE_ENV 无关）；显式绝对/本地默认→解析后的绝对路径', () => {
+    const prev = process.env.COLLAB_SPOOL_DIR;
     try {
-      process.env.NODE_ENV = 'production';
-      expect(() => new CollabSpoolService('./relative-spool').validateDir()).toThrow(/绝对路径/);
-      process.env.NODE_ENV = 'development';
-      expect(isAbsolute(new CollabSpoolService('./relative-spool').validateDir())).toBe(true);
+      process.env.COLLAB_SPOOL_DIR = './relative-spool';
+      expect(() => new CollabSpoolService().validateDir()).toThrow(/绝对路径/);   // 旧实现依赖 NODE_ENV=production → 非 production 下不抛=红
+      process.env.COLLAB_SPOOL_DIR = join(process.cwd(), 'abs-spool');
+      expect(isAbsolute(new CollabSpoolService().validateDir())).toBe(true);
+      delete process.env.COLLAB_SPOOL_DIR;   // 本地默认值（恒绝对）——不抛
+      expect(isAbsolute(new CollabSpoolService().validateDir())).toBe(true);
     } finally {
-      process.env.NODE_ENV = prev;
+      if (prev === undefined) delete process.env.COLLAB_SPOOL_DIR; else process.env.COLLAB_SPOOL_DIR = prev;
     }
   });
 });

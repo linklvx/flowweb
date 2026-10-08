@@ -36,7 +36,7 @@ export class CollabDocumentService {
       if (pending) await pending;
       return result!;
     } finally {
-      await connection.disconnect();
+      await connection.disconnect({ unloadImmediately: true });   // Y0a-4/P24：A6 锚=Connection 级旋钮（B20 双旋钮之一）——B26：库默认即 true，显式 pin=防升级翻转的文档锚
     }
   }
 

@@ -105,8 +105,9 @@ export const yjsHydrationHugeRowTotal = new Counter({
 /** Y0a-2（P1）：pending 快照 gauges（collect 注册模式——采集时现算，零手动维护点）。
  *  Y5：字段/指标名统一 projects 口径（V4 后按 projectId 计——字段名诚实；drill barrier 同步读
  *  yjs_pending_projects）。G-1/G-2 演练经 /api/metrics 轮询；Y0a-3 /api/ready.pending 消费同一 computePending()。
- *  稳态行为（spec §3.3）：活跃编辑时 batches>0 恒成立——只能作"停止写入后是否排空"的判据。 */
-type PendingSnapshot = { projects: number; batches: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number };
+ *  稳态行为（spec §3.3）：活跃编辑时 batches>0 恒成立——只能作"停止写入后是否排空"的判据。
+ *  Y0a-4/N16：快照源扩容 loadedDocs/connections——容量观测 gauge 同源供数（同一 setter 注册，禁第二套机制）。 */
+type PendingSnapshot = { projects: number; batches: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number; loadedDocs: number; connections: number };
 let pendingCollector: (() => PendingSnapshot) | null = null;
 export function registerPendingCollector(fn: () => PendingSnapshot): void { pendingCollector = fn; }
 export function unregisterPendingCollector(): void { pendingCollector = null; }   // Y5：onApplicationShutdown 调用——防多 gateway 覆盖+destroy 后闭包悬挂
@@ -140,6 +141,22 @@ export const yjsPendingBatches = new Gauge({
   help: 'pending 队列 update 条数（update 条数口径，非合并后批数——与 storeInFlight 不同量纲）',
   registers: [register],
   collect() { try { this.set(pendingCollector?.().batches ?? 0); } catch { this.set(0); } },
+});
+
+/** Y0a-4/N16：容量观测三件套前二（enforcement 归 Y1c-3）——collect 现算形态（同 pendingCollector 惯例，
+ *  同一快照源供数禁第二套机制；X11/X17：collect 抛错=整个 /api/metrics 500，故 collect 体 catch 后 set(0)）。
+ *  loadedDocs 口径=WS 活跃 doc+在飞直连（REST 直连 disconnect 在 connectionsCount>0 时不卸载 doc）。 */
+export const yjsLoadedDocuments = new Gauge({
+  name: 'yjs_loaded_documents',
+  help: 'Y0a-4/N16: 在飞 Y.Doc 数（Hocuspocus documents.size）——容量三数观测，enforcement 归 Y1c-3',
+  registers: [register],
+  collect() { try { this.set(pendingCollector?.().loadedDocs ?? 0); } catch { this.set(0); } },
+});
+export const yjsConnectionCount = new Gauge({
+  name: 'yjs_connection_count',
+  help: 'Y0a-4/N16: collab WS 连接数（口径=server.getConnectionsCount() 已聚合 WS 连接；documents 的 directConnectionsCount 单独累加、勿重复计）',
+  registers: [register],
+  collect() { try { this.set(pendingCollector?.().connections ?? 0); } catch { this.set(0); } },
 });
 export const yjsStoreHookCallsTotal = new Counter({
   name: 'yjs_store_hook_calls_total',

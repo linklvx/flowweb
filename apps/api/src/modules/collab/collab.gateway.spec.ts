@@ -17,7 +17,7 @@ import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { CollabSpoolService } from './collab-spool.service';
-import { unregisterPendingCollector, yjsPendingBatches } from './store.metrics';
+import { registerPendingCollector, unregisterPendingCollector, yjsPendingBatches } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { failingRepo } from '../../test-utils/failing-repo';
 import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
@@ -1078,6 +1078,26 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
   });
 });
 
+// Y0a-4/N16（红相先行）：容量观测三件套前二——loaded docs/connections gauge。供数必须复用
+// pendingCollector 的快照机制（同一 setter 注册/同一快照源，禁第二套机制）；collect 现算形态
+// （X11/X17：collect 抛错=整个 /api/metrics 500，故 collect 体 catch 后 set(0)）。
+describe('Y0a-4/N16 容量观测 gauge（yjs_loaded_documents/yjs_connection_count——pendingCollector 同源快照）', () => {
+  it('两 gauge 注册且经 registerPendingCollector 快照采数（collect 现算）', async () => {
+    registerPendingCollector(() => ({
+      projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, strandedFiles: 0, strandedBytes: 0,
+      loadedDocs: 7, connections: 9,
+    }));
+    try {
+      const loaded = await register.getSingleMetric('yjs_loaded_documents');
+      const conns = await register.getSingleMetric('yjs_connection_count');
+      expect(loaded).toBeTruthy();   // 旧实现未注册 → 红
+      expect(conns).toBeTruthy();
+      expect((await loaded!.get()).values[0]?.value).toBe(7);   // 采数走 pendingCollector 快照（同源判据）
+      expect((await conns!.get()).values[0]?.value).toBe(9);
+    } finally { unregisterPendingCollector(); }   // 自清理——后续用例零污染
+  });
+});
+
 // Y0a-2 Task 7（plan Step 1——红相先行）：beforeUnloadDocument 清理钩子（X4 永不抛+Y3 顺序）+
 // mergeUpdates 出 WS 消息路径（X10 入队只 push——软阈 setImmediate 提前 flush+Y7 硬阈异步 coalesce）+
 // 卸载交接三形态（成功/失败/Y11 重连同数组身份）。
@@ -1420,6 +1440,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       const frozen = { readOnly: false, sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
       (kit.gateway as any).server.hocuspocus.documents.set('project:pd1', {
         name: 'project:pd1', connections: new Map([[frozen as any, null]]),
+        getConnections: () => [{ socketId: 'sv9-frozen' }],   // Y0a-4/N16：server 级 getConnectionsCount 遍历面（库 Document 形状补齐）
       });
       vi.useFakeTimers();
       const r = kit.gateway.beginDraining();

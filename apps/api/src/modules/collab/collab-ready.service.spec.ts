@@ -29,6 +29,19 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ready: true, redis: 'up', pending: { projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 } });
   });
+  it('Y0a-4/N16：授权档 loadedDocs/connections=pending 兄弟字段（computePending 同源——禁进 pending 对象）', async () => {
+    const gw = {
+      computePending: () => ({ projects: 1, batches: 2, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0, loadedDocs: 7, connections: 9 }),
+      isShuttingDown: () => false,
+      isWritableOrDegraded: () => 'ok' as const,
+      getCollabState: () => 'serving',
+    };
+    const r = await build({ gateway: gw }).svc.getReady();
+    expect(r.body.loadedDocs).toBe(7);       // 旧实现 body 无此键 → 红
+    expect(r.body.connections).toBe(9);
+    expect(Object.keys(r.body.pending)).not.toContain('loadedDocs');   // 兄弟字段——禁进 pending（V17/SV16 pending 形状冻结）
+    expect(Object.keys(r.body.pending)).not.toContain('connections');
+  });
   it('pg-down：SELECT 1 抛错→503 reason=pg-down（最高优先）', async () => {
     const r = await build({ pgOk: false }).svc.getReady();
     expect(r.status).toBe(503);

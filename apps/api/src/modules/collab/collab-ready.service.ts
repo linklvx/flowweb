@@ -35,8 +35,10 @@ export class CollabReadyService {
   }
 
   private async computeReady(): Promise<ReadyResult> {
-    const pending = this.gateway.computePending();
-    const base = { pending, spoolQuarantined: this.spool.quarantinedSegments().length };   // T4 勘误：诊断 LIST 取 .length
+    // Y0a-4/N16：loadedDocs/connections=pending 的**兄弟字段**（禁进 pending 对象——V17/SV16 形状冻结）；
+    // 数值源=gauge 同一快照（gateway.computePending——yjs_loaded_documents/yjs_connection_count 同源）。
+    const { loadedDocs, connections, ...pending } = this.gateway.computePending();
+    const base = { pending, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections };   // T4 勘误：诊断 LIST 取 .length
     let pgOk = true;
     try { await this.prisma.$queryRaw`SELECT 1`; } catch { pgOk = false; }
     if (!pgOk) return { status: 503, body: { ready: false, reason: 'pg-down', redis: await this.redisStatus(), ...base } };

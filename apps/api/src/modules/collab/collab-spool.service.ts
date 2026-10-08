@@ -562,12 +562,13 @@ export class CollabSpoolService {
     return Math.max(i, 1);
   }
 
-  /** V15：构造后路径校验——**本方法只管路径形态**（生产环境相对路径拒绝启动：CWD 漂移=静默换账本）；
+  /** V15：构造后路径校验——**本方法只管路径形态**（Y0a-4 重定语义：危险=**显式配置**（COLLAB_SPOOL_DIR）
+   *  相对路径，与"是否生产"无关——CWD 漂移=静默换账本；构造参数（测试 DI）与本地默认值（恒绝对）不在此判）；
    *  目录可用性（不存在/不可写）不在此判——由 scan() 抛错经 onModuleInit 不捕获实现 fail-fast。
    *  返回解析后的绝对路径供日志。 */
   validateDir(): string {
     const abs = resolve(this.dir);
-    if (process.env.NODE_ENV === 'production' && !isAbsolute(this.rawDir)) {
+    if (process.env.COLLAB_SPOOL_DIR && !isAbsolute(this.rawDir)) {
       throw new Error(`COLLAB_SPOOL_DIR 必须为绝对路径（当前：${this.rawDir}——CWD 漂移会静默指向另一个空账本）`);
     }
     return abs;
