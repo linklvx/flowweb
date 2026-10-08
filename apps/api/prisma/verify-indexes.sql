@@ -70,3 +70,18 @@ SELECT 'release-in-enum' AS assert WHERE EXISTS (
   SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid=t.oid
   WHERE t.typname='TeamCreditTransactionType' AND e.enumlabel='release'
 );
+
+-- ============ Y0b-1 T1b：资金不变量定义断言 ============
+SELECT indexdef FROM pg_indexes WHERE indexname='pricing_rule_natural_key' AND indexdef LIKE '%NULLS NOT DISTINCT%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='money_in_once' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='generation_intent_frozen_partial' AND indexdef LIKE '%WHERE%';
+
+SELECT conname FROM pg_constraint WHERE conname='balance_non_negative';
+
+SELECT conname FROM pg_constraint WHERE conname='ledger_amount_derived';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='ledger_reserve_open_partial' AND indexdef LIKE '%WHERE%';
+
+SELECT COUNT(*) AS n FROM "PricingRule" WHERE "modelId" IS NULL AND active HAVING COUNT(*) >= 4;

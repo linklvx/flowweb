@@ -60,7 +60,7 @@ async function main() {
 
   const hyImage = await prisma.aIModel.upsert({
     where: { id: 'seed-model-hy-image' },
-    update: {},
+    update: { apiKey: process.env.HY_IMAGE_API_KEY }, // Y0b-1：迁移先建行（apiKey NULL），seed 补写 env 密钥——否则 upsert 空更新致 apiKey 永缺失
     create: { id: 'seed-model-hy-image', nodeTypeId: imageNode.id, name: 'HY-Image-V3.0', provider: '腾讯混元', apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/image', apiKey: process.env.HY_IMAGE_API_KEY, sortOrder: 0, recommended: true },
   });
 
@@ -75,6 +75,8 @@ async function main() {
   const hyRes2048 = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-2048' }, update: {}, create: { id: 'seed-res-hy-2048', modelId: hyImage.id, label: '2048×2048', width: 2048, height: 2048 } });
   const hyRes512  = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-512'  }, update: {}, create: { id: 'seed-res-hy-512',  modelId: hyImage.id, label: '512×512',   width: 512,  height: 512 } });
 
+  // ===== 定价真源=迁移（20261009040355_y0b1_funds_columns）——以下 image/text/video 定价段幂等共存：
+  // 迁移以固定 id+自然键先行建行，本段 findFirst(自然键)→update 同值命中迁移行，不产生双行。 =====
   // Image pricing rules
   const imageRules = [
     { nodeTypeId: imageNode.id, modelId: sdXL.id, resolutionId: res1024.id, creditCost: 3 },

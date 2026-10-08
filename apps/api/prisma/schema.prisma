@@ -259,6 +259,8 @@ model PricingRule {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
+  intentSnapshots GenerationIntent[] // Y0b-1：claim 定价快照反向关系（快照 FK SET NULL——规则行删除时快照仍存活）
+
   @@index([nodeTypeId])
   @@index([modelId])
 }
@@ -716,13 +718,17 @@ model TeamBalance {
 
 model TeamCreditTransaction {
   id             String                     @id @default(cuid())
-  teamId         String // Y0b-1 去 FK NOT NULL——解散物理级联删，审计留痕仍按 teamId 查（teamIdSnapshot 不引入）
+  teamId         String // Z4：无 FK NOT NULL——append-only 事实+解散后审计留痕（置空语句已随 T1a 删）
   operatorUserId String?
-  amount         Int
+  amount         Int // 派生显示字段（Z8 CHECK 强制 =balanceDelta≠0?balanceDelta:frozenDelta——由 CreditLedgerService 写入）
   type           TeamCreditTransactionType
   creditType     CreditType
-  referenceId    String?
-  balanceAfter   Int
+  referenceId    String? // intent 域恒 'intent:'+intentRowId；账户域=事件 id（Z9 契约：订单号/subId:period，禁实体 id）
+  balanceDelta   Int // 两列真值（§1.4bis 权威）——Σ(balanceDelta)≡池变化
+  frozenDelta    Int // settle 行=−X（冻结核销）；Σ(frozenDelta)≡intent.reservedCredits（派生审计量）
+  seq            BigInt                     @default(autoincrement()) // 稳定行序——balanceAfter 链按 (teamId,creditType) 分区+seq 排序
+  balanceAfter   Int // 本池分量（行级快照）
+  reversesId     String?                    @unique // Z6 三配对 1:1：settle/release→reserve 行 / refund→settle 行
   createdAt      DateTime                   @default(now())
 
   @@index([teamId, createdAt])
@@ -975,11 +981,18 @@ model GenerationIntent {
   projectId       String
   nodeId          String
   userId          String // F13：退款回滚 monthlyUsed 需归因到人；对账三面 join 键
+  teamId          String // Y0b-1（Z4/E1）：无 FK 纯列（契约 14——Restrict 与物理删不兼容；资金路径直查锚）
   intentId        String // 客户端 runId——与 projectId 复合唯一（F1：跨项目撞键=两行独立不误伤）
   kind            String // text|video|image|outpaint|erase|redraw|lighting
   paramsHash      String // 服务端规范化哈希——命中比对谓词（防客户端改参复用 intentId）
   status          IntentStatus @default(RUNNING)
   jobId           String? // 同步路径为空——reconcile 三查特判（F13）
+  pricingRuleId   String? // 定价快照（FK SET NULL——规则行删除时快照仍可空存活）
+  pricingRule     PricingRule? @relation(fields: [pricingRuleId], references: [id])
+  modelId         String?
+  resolutionId    String?
+  durationId      String?
+  creditCost      Int // NOT NULL——claim 无条件固化（creditCost:0 也固化——E1/A2）
   creditsConsumed Int          @default(0) // F13：扣费时即写（consume 事务内 CAS）——崩溃窗口对账可判；退款事务归零
   reservedCredits Int          @default(0) // 批0.5-9 reserve 冻结载体列（约束①：不用 PENDING 状态）——reserve 事务内置位/settle 清零/void 清零，CAS 锚防 stalled 重入双冻结
   attempts        Int          @default(1) // F13 补强：免费重放上限——rearm 自增，≥3 拒绝再激活
@@ -991,6 +1004,7 @@ model GenerationIntent {
 
   @@unique([projectId, intentId])
   @@index([projectId, nodeId, status])
+  @@index([teamId]) // 资金路径（生命周期门/对账）直查
   @@index([jobId]) // F13：reconcile 活跃核验按 jobId 查 BullMQ 状态
   @@index([status, updatedAt]) // F13：活跃核验扫描（partial index 不进 Prisma 声明——migration SQL 唯一真相）
   @@index([status, completedAt]) // 保留策略清理扫描用（终态 N 天清理——F1）
