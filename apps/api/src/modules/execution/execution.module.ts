@@ -23,6 +23,7 @@ import { VideoSeparateService } from './video-separate.service';
 import { VideoSeparateProcessor } from './video-separate.processor';
 import { MediaProcessModule } from '../media-process/media-process.module';
 import { IntentReconcileService } from './intent-reconcile.service';
+import { PricingResolverService } from './pricing-resolver.service';
 import { VIDEO_SEPARATE_QUEUE } from './video-separate.constants';
 import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
@@ -74,8 +75,9 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     VideoSeparateService,
     VideoSeparateProcessor,
     IntentReconcileService,
+    PricingResolverService,   // Y0b-1：定价唯一解析器（AdminModule/AiImageEditModule 经本模块 imports 消费）
     { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
   ],
-  exports: [ExecutionService, ExecutionGateway, ApiCallerService],
+  exports: [ExecutionService, ExecutionGateway, ApiCallerService, PricingResolverService],
 })
 export class ExecutionModule {}

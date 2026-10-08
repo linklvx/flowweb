@@ -581,7 +581,8 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
     useNodeStore.getState().updateConfig('img1', { style: '动漫' });
     const d = dataOf('img1');
     expect(d.get('style')).toBe('动漫');
-    expect(d.get('model')).toBe('sdxl'); // mergeNodeData defaults 同步落 doc（旧全量同步同语义）
+    // Y0b-1（三轮 Z30）：model/resolution 不在 defaults——缺省不注入字面量（'sdxl'/'2K' 假默认退役）
+    expect(d.get('model')).toBeUndefined();
     expect(d.get('imageRotation')).toBe(0); // 通用 defaults 同
     expect(checkProjectionInvariant(doc)).toBe(true);
   });

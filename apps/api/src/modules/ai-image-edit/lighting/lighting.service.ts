@@ -4,7 +4,8 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { getOwnerTeamId, assertTeamMember } from '../../team/team.util';
-import { AI_IMAGE_EDIT_QUEUE_NAME, CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
+import { PricingResolverService } from '../../execution/pricing-resolver.service';
+import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
 
 const LightingTaskStatus = {
@@ -31,6 +32,7 @@ export class LightingService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly queue: Queue,
+    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
   /** 批0.5-8：intentRowId/intentId 随 job.data 下传 consumer；新入队返回 jobId 供 controller attachJob
@@ -83,7 +85,8 @@ export class LightingService {
     }
 
     // Check credits (team pool pre-check)
-    const estimatedCost = CREDIT_COST_PER_EDIT; // 与实扣同源（批0c：消预检/实扣口径分叉）
+    // Y0b-1（§1.2/Z5）：预检同经 resolver（kind 级 modelId IS NULL）——与实扣（consumer）同源
+    const estimatedCost = (await this.resolver.resolveByNodeTypeKey('lighting')).creditCost;
     if (project) {
       const balance = await this.teamCredit.getBalanceView(teamId, userId);
       if (balance.total < estimatedCost) {

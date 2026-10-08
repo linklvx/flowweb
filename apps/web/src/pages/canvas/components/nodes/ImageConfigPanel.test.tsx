@@ -76,6 +76,8 @@ vi.mock('@/stores/nodeStore', () => {
     updateConfig: mockUpdateConfig,
     updatePromptImages: vi.fn(),
     setStatus: vi.fn(),
+    // Y0b-1：面板自动选首模型/首分辨率走 applyNodeDataPatch（收口 wrapper）
+    applyNodeDataPatch: vi.fn(),
   });
   return {
     isImageNode: (node: unknown) => {
@@ -99,11 +101,24 @@ vi.mock('@/stores/nodeStore', () => {
   };
 });
 
-const { getMockCanvasNodes, mockSubmitGeneration } = vi.hoisted(() => {
+const { getMockCanvasNodes, mockSubmitGeneration, mockFetchModels } = vi.hoisted(() => {
   let mockCanvasNodes: any[] = [];
   return {
     mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
     getMockCanvasNodes: () => mockCanvasNodes,
+    // Y0b-1：模型带声明维度行（resolutions）——分辨率选项/label 自模型声明渲染
+    mockFetchModels: vi.fn().mockResolvedValue([
+      {
+        id: 'sdxl',
+        name: 'SDXL',
+        resolutions: [
+          { id: 'res-1k', label: '1K' },
+          { id: 'res-2k', label: '2K' },
+          { id: 'res-4k', label: '4K' },
+        ],
+        durations: [],
+      },
+    ]),
   };
 });
 
@@ -114,7 +129,7 @@ vi.mock('@/stores/canvasStore', () => ({
 }));
 vi.mock('@/api/imageNodeApi', () => ({
   getCreditCost: vi.fn().mockResolvedValue(0),
-  fetchModels: vi.fn().mockResolvedValue([]),
+  fetchModels: mockFetchModels,
   submitGeneration: mockSubmitGeneration,
 }));
 
@@ -126,6 +141,7 @@ describe('ImageConfigPanel', () => {
       model: 'sdxl',
       quality: 'standard',
       ratio: '1:1',
+      resolution: 'res-2k', // Y0b-1：分辨率存行 id（label 显示由模型声明行解析）
       status: 'idle',
       prompt: { text: '', html: '', referencedImageIds: [] },
     };
@@ -195,15 +211,16 @@ describe('ImageConfigPanel', () => {
     expect(dividers.length).toBe(2);
   });
 
-  it('should render ratio+resolution button with ratio and resolution text', () => {
+  it('should render ratio+resolution button with ratio and resolution text', async () => {
     render(<ImageConfigPanel nodeId="img1" />);
-    const btn = screen.getByTestId('canvas-node-image-ratio-select');
-    expect(btn).toBeTruthy();
-    // Should display ratio and resolution: e.g. "1:1 · 2K"
-    expect(btn.textContent).toContain('1:1');
-    expect(btn.textContent).toContain('2K');
+    // Y0b-1：分辨率显示=模型声明行 label（异步 fetchModels 后渲染；res-2k → '2K'）
+    await vi.waitFor(() => {
+      const btn = screen.getByTestId('canvas-node-image-ratio-select');
+      expect(btn.textContent).toContain('1:1');
+      expect(btn.textContent).toContain('2K');
+    });
     // Should contain a rectangle icon (aspect ratio visual)
-    const icon = btn.querySelector('[style*="border: 1.5px solid"]');
+    const icon = screen.getByTestId('canvas-node-image-ratio-select').querySelector('[style*="border: 1.5px solid"]');
     expect(icon).toBeTruthy();
   });
 
@@ -216,8 +233,10 @@ describe('ImageConfigPanel', () => {
     expect(screen.getByText('比例')).toBeTruthy();
   });
 
-  it('should show resolution options 2K and 4K in popup', () => {
+  it('should show resolution options 2K and 4K in popup', async () => {
     render(<ImageConfigPanel nodeId="img1" />);
+    // Y0b-1：等模型声明行加载完（弹层选项自模型 resolutions 渲染）
+    await vi.waitFor(() => expect(screen.getByTestId('canvas-node-image-ratio-select').textContent).toContain('2K'));
     fireEvent.click(screen.getByTestId('canvas-node-image-ratio-select'));
     expect(screen.getByText('2K')).toBeTruthy();
     expect(screen.getByText('4K')).toBeTruthy();
@@ -262,8 +281,10 @@ describe('ImageConfigPanel', () => {
     expect(screen.queryByText('分辨率')).not.toBeInTheDocument();
   });
 
-  it('should render 1K/2K/4K resolution options (需求9)', () => {
+  it('should render 1K/2K/4K resolution options (需求9——选项自模型 resolutions 渲染)', async () => {
     render(<ImageConfigPanel nodeId="img1" />);
+    // Y0b-1：等模型声明行加载完（弹层选项=resolutions label，非硬编码字面量）
+    await vi.waitFor(() => expect(screen.getByTestId('canvas-node-image-ratio-select').textContent).toContain('2K'));
     fireEvent.click(screen.getByTestId('canvas-node-image-ratio-select'));
     expect(screen.getByText('1K')).toBeTruthy();
     expect(screen.getByText('2K')).toBeTruthy();

@@ -8,6 +8,8 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { isExecutableNode } from './is-executable-node';
+import { resolvePricingKey } from './pricing-input.util';
+import { PricingResolverService } from './pricing-resolver.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -30,6 +32,7 @@ export class ExecutionService {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
   /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
@@ -128,7 +131,7 @@ export class ExecutionService {
         if (node.type === 'textInput') {
           const textArgs = {
             prompt: prompt || 'Hello',
-            model: data?.model || 'seed-model-kimi',
+            model: data?.model, // Y0b-1（Z30）：删 'seed-model-kimi' 字面量兜底——缺模型走 MODEL_NOT_SELECTED 显式 4xx
             apiUrl: '',
           };
           const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'text', textArgs, jobId);
@@ -140,11 +143,14 @@ export class ExecutionService {
           claimed = intent;
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
-          // 批0.5-9 两阶段扣费：reserve 外呼之前（余额不足即拒=零外呼）→ 外呼 → settle 核销
-          const rule = await this.prisma.pricingRule.findFirst({
-            where: { modelId: data?.model || 'seed-model-kimi', resolutionId: null, durationId: null, active: true },
-          });
-          const cost = rule?.creditCost ?? 0;
+          // Y0b-1（E49①/Z20/Z28）：定价单源 resolver——全四键经 resolvePricingKey（归一化单源），
+          // 无规则=业务错误零外呼零冻结（原 ?? 0 旁路消灭）。
+          // 过渡态标注（四轮 C4）：本步 resolvePricingKey 调用在 T3 改 planMap 消费后即退役——改 planMap 快照。
+          const key = await resolvePricingKey(this.prisma, node);
+          const pricing = key.modelId
+            ? await this.resolver.resolve({ modelId: key.modelId, resolutionId: key.resolutionId, durationId: key.durationId })
+            : await this.resolver.resolveByNodeTypeKey(key.pricingKey!);
+          const cost = pricing.creditCost;
           if (cost > 0) {
             const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
             if (!reserveResult.success) {
@@ -208,11 +214,14 @@ export class ExecutionService {
           claimed = intent;
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
-          // 批0.5-9 两阶段扣费：reserve 外呼之前（余额不足即拒=零外呼）
-          const vRule = await this.prisma.pricingRule.findFirst({
-            where: { modelId: vData?.model, resolutionId: null, durationId: null, active: true },
-          });
-          const vCost = vRule?.creditCost ?? 0;
+          // Y0b-1（E49①/Z20/Z28）：定价单源 resolver——video duration 维经 resolvePricingKey 归一化
+          // （预检=实扣同键，旧实现两形状分叉根修）。无规则=业务错误零外呼零冻结（原 ?? 0 旁路消灭）。
+          // 过渡态标注（四轮 C4）：本步 resolvePricingKey 调用在 T3 改 planMap 消费后即退役——改 planMap 快照。
+          const vKey = await resolvePricingKey(this.prisma, node);
+          const vPricing = vKey.modelId
+            ? await this.resolver.resolve({ modelId: vKey.modelId, resolutionId: vKey.resolutionId, durationId: vKey.durationId })
+            : await this.resolver.resolveByNodeTypeKey(vKey.pricingKey!);
+          const vCost = vPricing.creditCost;
           if (vCost > 0) {
             const vReserve = await this.teamCredit.reserve(project.teamId, userId, vCost, { intentRowId: intent.id, intentId: intent.intentId });
             if (!vReserve.success) {
@@ -283,15 +292,14 @@ export class ExecutionService {
         claimed = intent;
         await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
-        // Get cost from pricing rule——批0.5-9 两阶段扣费：reserve 外呼之前（余额不足即拒=零外呼）
-        const rule = await this.prisma.pricingRule.findFirst({
-          where: {
-            modelId: data?.model,
-            resolutionId: data?.resolution || null,
-            active: true,
-          },
-        });
-        const cost = rule?.creditCost ?? 0;
+        // Y0b-1（E49①/Z20/Z28）：定价单源 resolver——image resolution 维经 resolvePricingKey 归一化
+        // （label→行 id 禁回退）。无规则=业务错误零外呼零冻结（原 ?? 0 旁路消灭）。
+        // 过渡态标注（四轮 C4）：本步 resolvePricingKey 调用在 T3 改 planMap 消费后即退役——改 planMap 快照。
+        const iKey = await resolvePricingKey(this.prisma, node);
+        const iPricing = iKey.modelId
+          ? await this.resolver.resolve({ modelId: iKey.modelId, resolutionId: iKey.resolutionId, durationId: iKey.durationId })
+          : await this.resolver.resolveByNodeTypeKey(iKey.pricingKey!);
+        const cost = iPricing.creditCost;
 
         if (cost > 0) {
           const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });

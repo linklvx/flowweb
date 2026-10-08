@@ -2,6 +2,8 @@ import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { availableCredits } from '../team/team.util';
 import { isExecutableNode } from './is-executable-node';
+import { resolvePricingKey } from './pricing-input.util';
+import { PricingResolverService } from './pricing-resolver.service';
 
 export interface ValidationResult {
   valid: boolean;
@@ -11,52 +13,29 @@ export interface ValidationResult {
 
 @Injectable()
 export class ValidationService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
+  ) {}
 
   async validateAll(nodes: any[], teamId: string, userId: string): Promise<ValidationResult> {
     const errors: string[] = [];
     let totalCost = 0;
 
-    // Collect model IDs from non-text nodes
-    const modelIds = [...new Set(
-      nodes.filter(n => isExecutableNode(n) && n.type !== 'textInput')
-        .map(n => n.data?.model)
-        .filter(Boolean)
-    )];
-
-    // Batch check all models
-    const models = modelIds.length > 0
-      ? await this.prisma.aIModel.findMany({ where: { id: { in: modelIds } } })
-      : [];
-    const modelMap = new Map(models.map(m => [m.id, m]));
-
     for (const node of nodes) {
       if (!isExecutableNode(node)) continue;
-      if (node.type === 'textInput') continue;
-      const data = node.data as any;
-
-      // Check model exists and active
-      const model = data.model ? modelMap.get(data.model) : null;
-      if (!model || !model.active) {
-        errors.push(`节点 ${node.id}: 模型不存在或已下线`);
-        continue;
+      // Y0b-1（E48/E49/Z20/Z21/Z28）：textInput 不再跳过（totalCost 曾系统性少算 text）；
+      // 全四键单源 resolvePricingKey（label→id 归一化禁回退；video duration 维预检=实扣同键——
+      // 旧实现两形状分叉：预检随机命中 10/18/25、实扣 ?? 0=免费）
+      try {
+        const key = await resolvePricingKey(this.prisma, node);
+        const r = key.modelId
+          ? await this.resolver.resolve({ modelId: key.modelId, resolutionId: key.resolutionId, durationId: key.durationId })
+          : await this.resolver.resolveByNodeTypeKey(key.pricingKey!);
+        totalCost += r.creditCost;
+      } catch (e: any) {
+        errors.push(`节点 ${node.id}: ${e.message}`);
       }
-
-      // Check pricing rule
-      const rule = await this.prisma.pricingRule.findFirst({
-        where: {
-          modelId: data.model,
-          resolutionId: data.resolution || null,
-          active: true,
-        },
-      });
-
-      if (!rule) {
-        errors.push(`节点 ${node.id}: 无有效定价规则`);
-        continue;
-      }
-
-      totalCost += rule.creditCost;
     }
 
     if (errors.length > 0) return { valid: false, errors, totalCost: 0 };

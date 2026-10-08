@@ -1,27 +1,37 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ValidationService } from './validation.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PricingResolverService } from './pricing-resolver.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ValidationService', () => {
   let service: ValidationService;
   let prisma: any;
+  let resolver: any;
 
   beforeEach(async () => {
     prisma = {
-      aIModel: { findMany: vi.fn() },
-      pricingRule: { findFirst: vi.fn() },
       teamBalance: { findUnique: vi.fn() },
+      modelResolution: { findMany: vi.fn().mockResolvedValue([]) },
+      modelDuration: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    // Y0b-1：定价单源 resolver stub——validation 不再直接查 pricingRule（E48/Z28）
+    resolver = {
+      resolve: vi.fn(),
+      resolveByNodeTypeKey: vi.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ValidationService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        ValidationService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PricingResolverService, useValue: resolver },
+      ],
     }).compile();
     service = module.get<ValidationService>(ValidationService);
   });
 
   it('should pass when all checks succeed', async () => {
-    prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', active: true }]);
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
     prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 100, subscriptionCredits: 0 });
 
     const nodes = [{ id: 'n1', type: 'imageGen', data: { model: 'm1' } }];
@@ -31,8 +41,7 @@ describe('ValidationService', () => {
   });
 
   it('余额校验读项目团队 TeamBalance，口径 credits+subscriptionCredits', async () => {
-    prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', active: true }]);
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
     prisma.teamBalance.findUnique.mockResolvedValue({ credits: 5, subscriptionCredits: 10 });
     const result = await service.validateAll(
       [{ id: 'n1', type: 'imageGen', data: { model: 'm1' } }], 't-team', 'u1',
@@ -42,8 +51,7 @@ describe('ValidationService', () => {
   });
 
   it('总额不足时 invalid 且错误消息含双池合计', async () => {
-    prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', active: true }]);
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
     prisma.teamBalance.findUnique.mockResolvedValue({ credits: 1, subscriptionCredits: 2 });
     const result = await service.validateAll(
       [{ id: 'n1', type: 'imageGen', data: { model: 'm1' } }], 't-team', 'u1',
@@ -52,34 +60,44 @@ describe('ValidationService', () => {
     expect(result.errors[0]).toContain('当前 3 积分');
   });
 
-  it('should skip textInput nodes (no model needed)', async () => {
+  it('textInput 不再跳过（Y0b-1 E48：totalCost 曾系统性少算 text）——经同链 resolver 计价', async () => {
+    resolver.resolve.mockResolvedValue({ creditCost: 2 });
     prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 100, subscriptionCredits: 0 });
-    const nodes = [{ id: 'n1', type: 'textInput', data: { content: 'hello' } }];
+    const nodes = [{ id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } }];
     const result = await service.validateAll(nodes as any, 't-team', 'u1');
     expect(result.valid).toBe(true);
-    expect(result.totalCost).toBe(0);
+    expect(result.totalCost).toBe(2);
+    expect(resolver.resolve).toHaveBeenCalledWith({ modelId: 'm-text', resolutionId: null, durationId: null });
   });
 
-  it('should fail when model not found or inactive', async () => {
-    prisma.aIModel.findMany.mockResolvedValue([]);
-    const nodes = [{ id: 'n1', type: 'imageGen', data: { model: 'm1' } }];
+  it('主链节点缺模型 ⇒ MODEL_NOT_SELECTED 进 errors（Y0b-1 Z21：空值显式 4xx 非静默跳过）', async () => {
+    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 100, subscriptionCredits: 0 });
+    const nodes = [{ id: 'n1', type: 'imageGen', data: {} }];
     const result = await service.validateAll(nodes as any, 't-team', 'u1');
     expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('n1');
     expect(result.errors[0]).toContain('模型');
   });
 
-  it('should fail when pricing rule not found', async () => {
-    prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', active: true }]);
-    prisma.pricingRule.findFirst.mockResolvedValue(null);
+  it('无有效定价规则 ⇒ resolver 抛错转 errors 数组（旧 findFirst null→errors 语义保留，查询改单源）', async () => {
+    resolver.resolve.mockRejectedValue(new Error('无有效定价规则（nodeType=nt1 model=m1 res=null dur=null）'));
     const nodes = [{ id: 'n1', type: 'imageGen', data: { model: 'm1' } }];
     const result = await service.validateAll(nodes as any, 't-team', 'u1');
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain('定价规则');
   });
 
+  it('kind 级节点（erase）不在 EXECUTABLE_TYPES 白名单——validateAll 跳过（计费走 ai-image-edit processor 的 resolver）', async () => {
+    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 100, subscriptionCredits: 0 });
+    const nodes = [{ id: 'n1', type: 'erase', data: {} }];
+    const result = await service.validateAll(nodes as any, 't-team', 'u1');
+    expect(result.valid).toBe(true);
+    expect(result.totalCost).toBe(0);
+    expect(resolver.resolveByNodeTypeKey).not.toHaveBeenCalled();
+  });
+
   it('should fail when balance insufficient', async () => {
-    prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', active: true }]);
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 10 });
+    resolver.resolve.mockResolvedValue({ creditCost: 10 });
     prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 5, subscriptionCredits: 0 });
 
     const nodes = [

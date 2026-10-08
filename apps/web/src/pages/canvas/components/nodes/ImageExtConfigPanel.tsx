@@ -6,7 +6,6 @@ import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 import { ModelSelector } from './config-panel/ModelSelector';
-import type { ModelInfo } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
 import type { RatioOption } from './config-panel/RatioResolutionPopover';
 import { GenerateCountSelector } from './config-panel/GenerateCountSelector';
@@ -52,8 +51,9 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   const allImages = nodeData?.allImages ?? [];
   const aiTool = nodeData?.aiTool;
 
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [creditCost, setCreditCost] = useState<number>(0);
+  const [models, setModels] = useState<imageExtNodeApi.ModelWithDimensions[]>([]);
+  // Y0b-1：null=定价不可用（无规则/解析失败）——0 是合法免费报价不可挪用
+  const [creditCost, setCreditCost] = useState<number | null>(0);
   const [executing, setExecuting] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [aiToolOpen, setAiToolOpen] = useState(false);
@@ -116,11 +116,15 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Calculate price
+  // Y0b-1（三轮 P3）：报价带维度参数透传（resolution 存量 label/新行 id 均可归一化）；失败=null 定价不可用（禁 .catch(0) 免费假象）
+  const currentModel = models.find((m) => m.id === extConfig.model);
   useEffect(() => {
     if (extConfig.model) {
-      imageExtNodeApi.getCreditCost(extConfig.model).then(setCreditCost).catch(() => setCreditCost(0));
+      imageExtNodeApi.getCreditCost(extConfig.model, extConfig.resolution).then(setCreditCost).catch(() => setCreditCost(null));
+    } else {
+      setCreditCost(null);
     }
-  }, [extConfig.model]);
+  }, [extConfig.model, extConfig.resolution]);
 
   const handleGenerate = useCallback(async () => {
     if (!nodeData?.prompt?.text?.trim()) return;
@@ -206,6 +210,7 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
               ratioOptions={RATIO_OPTIONS}
               ratio={extConfig.ratio || '16:9'}
               resolution={extConfig.resolution || '2K'}
+              resolutionOptions={currentModel?.resolutions ?? []}
               onRatioChange={(ratio) => updateExtConfig({ ratio })}
               onResolutionChange={(resolution) => updateExtConfig({ resolution })}
             />

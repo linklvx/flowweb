@@ -159,7 +159,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
       // Create a new child video node with the trimmed result
       useCanvasStore.getState().addChildNode(id, {
         fileId: trimStatus.outputFileId,
-        model: nodeData?.model ?? 'hyvideo-v1.5',
+        model: nodeData?.model, // Y0b-1（四轮 Z30/P0-6）：删 'hyvideo-v1.5' 字面量兜底——缺模型走 MODEL_NOT_SELECTED
         status: 'done',
         ratio: nodeData?.ratio ?? '16:9',
       });
@@ -185,7 +185,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
         {
           data: {
             fileId: videoFileId,
-            model: nodeData?.model ?? 'hyvideo-v1.5',
+            model: nodeData?.model, // Y0b-1（四轮 Z30/P0-6）：删 'hyvideo-v1.5' 字面量兜底
             status: 'done',
             ratio: nodeData?.ratio ?? '16:9',
             label: `${sourceTitle}-无音频`,

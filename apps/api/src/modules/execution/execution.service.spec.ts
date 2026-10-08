@@ -9,6 +9,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { GenerationIntentService } from './generation-intent.service';
+import { PricingResolverService } from './pricing-resolver.service';
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -23,12 +24,19 @@ describe('ExecutionService', () => {
   let gateway: any;
   let mockDownloadQueue: any;
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
+  let resolver: any;
 
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
-      pricingRule: { findFirst: vi.fn() },
+      modelResolution: { findMany: vi.fn().mockResolvedValue([]) },
+      modelDuration: { findMany: vi.fn().mockResolvedValue([]) },
       style: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    // Y0b-1：定价单源 resolver stub（E49①/Z28——三链不再直接查 pricingRule）
+    resolver = {
+      resolve: vi.fn(),
+      resolveByNodeTypeKey: vi.fn(),
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
@@ -38,11 +46,11 @@ describe('ExecutionService', () => {
     };
     topology = {
       getScope: vi.fn().mockReturnValue([
-        { id: 'n1', type: 'textInput', data: { content: 'hello' } },
+        { id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } },
       ]),
       sort: vi.fn().mockReturnValue([
-        { id: 'n1', type: 'textInput', data: { content: 'hello' } },
+        { id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } },
       ]),
       collectUpstreamData: vi.fn().mockReturnValue({ textContents: ['hello'], imageUrl: undefined }),
@@ -89,6 +97,7 @@ describe('ExecutionService', () => {
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: GenerationIntentService, useValue: intentSvc },
+        { provide: PricingResolverService, useValue: resolver },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);
@@ -96,7 +105,7 @@ describe('ExecutionService', () => {
 
   it('should execute single node successfully', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
 
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
@@ -143,7 +152,7 @@ describe('ExecutionService', () => {
 
   it('should handle credit deduction failure during execution', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
     teamCredit.reserve.mockResolvedValue({ success: false });
 
     const result = await service.execute('p1', 'n2', 'u1');
@@ -153,7 +162,7 @@ describe('ExecutionService', () => {
 
   it('should enqueue ai-result-download after AI returns resultUrl', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
 
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
@@ -171,7 +180,7 @@ describe('ExecutionService', () => {
 
   it('node:status credits 为完整余额对象（文本/图片节点），total = credits + subscriptionCredits', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
     teamCredit.getBalanceView.mockResolvedValue({ credits: 60, subscriptionCredits: 40, total: 100, quota: 0, used: 0 });
 
     await service.execute('p1', 'n1', 'default-user');
@@ -188,7 +197,7 @@ describe('ExecutionService', () => {
   it('node:status credits 为完整余额对象（视频节点）', async () => {
     topology.sort.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
-    prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 });
+    resolver.resolve.mockResolvedValue({ creditCost: 5 });
     teamCredit.getBalanceView.mockResolvedValue({ credits: 60, subscriptionCredits: 40, total: 100, quota: 0, used: 0 });
 
     await service.execute('p1', 'n3', 'default-user');
@@ -201,7 +210,7 @@ describe('ExecutionService', () => {
   describe('风格拼接与面板 prompt 断链（spec §7.1/§7.2，D12/D28）', () => {
     beforeEach(() => {
       prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' }); // :40 早退基线（B5）
-      prisma.pricingRule.findFirst.mockResolvedValue({ creditCost: 5 }); // 对齐既有 12 处基线取值——0 会走 if(vCost>0) 另一分支（P3-5）
+      resolver.resolve.mockResolvedValue({ creditCost: 5 }); // 对齐既有 12 处基线取值——0 会走 if(vCost>0) 另一分支（P3-5）
       prisma.style.findMany.mockResolvedValue([]);
     });
 
@@ -218,7 +227,7 @@ describe('ExecutionService', () => {
     it('风格拼接：styleId → 批量 findMany 取 active promptText，join(", ") 到 prompt', async () => {
       prisma.style.findMany.mockResolvedValue([{ id: 'st1', active: true, promptText: '风格词' }]);
       topology.sort.mockReturnValue([
-        { id: 'n1', type: 'textInput', data: { content: '上游词' } },
+        { id: 'n1', type: 'textInput', data: { content: '上游词', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
       ]);
       topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
@@ -251,7 +260,7 @@ describe('ExecutionService', () => {
 
     it('B21：有上游文本时面板 prompt 被忽略（|| 链上游优先——有意语义，防误改合并）', async () => {
       topology.sort.mockReturnValue([
-        { id: 'n1', type: 'textInput', data: { content: '上游词' } },
+        { id: 'n1', type: 'textInput', data: { content: '上游词', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
       ]);
       topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });

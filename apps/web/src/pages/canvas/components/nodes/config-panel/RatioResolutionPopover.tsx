@@ -6,10 +6,17 @@ export interface RatioOption {
   h: number;
 }
 
+/** Y0b-1（四轮 Z36②a）：分辨率选项自模型声明行渲染——label 显示、onResolutionChange 写行 id */
+export interface ResolutionOption {
+  id: string;
+  label: string;
+}
+
 interface RatioResolutionPopoverProps {
   ratioOptions: RatioOption[];
   ratio: string;
   resolution: string;
+  resolutionOptions: ResolutionOption[];
   onRatioChange: (ratio: string) => void;
   onResolutionChange: (resolution: string) => void;
 }
@@ -25,7 +32,7 @@ function ratioIcon(r: string, options: RatioOption[]) {
   return found ? { w: found.w, h: found.h } : { w: 12, h: 12 };
 }
 
-function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRatioChange, onResolutionChange }: RatioResolutionPopoverProps) {
+function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, resolutionOptions, onRatioChange, onResolutionChange }: RatioResolutionPopoverProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -49,7 +56,7 @@ function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRa
         <div className="flex items-center justify-center shrink-0" style={{ width: 16, height: 16 }}>
           <div className="rounded-[2px]" style={{ width: icon.w, height: icon.h, border: '1.5px solid currentColor' }} />
         </div>
-        <span className="whitespace-nowrap text-xs">{ratio} · {resolution}</span>
+        <span className="whitespace-nowrap text-xs">{ratio} · {resolutionOptions.find((o) => o.id === resolution)?.label ?? resolution}</span>
       </button>
       {open && (
         <div
@@ -60,15 +67,15 @@ function RatioResolutionPopoverComponent({ ratioOptions, ratio, resolution, onRa
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-[#999]"><span>分辨率</span></div>
             <div className="flex gap-2">
-              {['1K', '2K', '4K'].map((res) => (
+              {resolutionOptions.map((res) => (
                 <button
-                  key={res}
+                  key={res.id}
                   type="button"
-                  onClick={() => onResolutionChange(res)}
+                  onClick={() => onResolutionChange(res.id)}
                   className={`flex h-8 flex-1 items-center justify-center rounded-lg border border-solid text-[13px] transition-colors duration-200 ${
-                    resolution === res ? 'border-[#4a4a4a] bg-overlay-2 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
+                    resolution === res.id ? 'border-[#4a4a4a] bg-overlay-2 text-[#f5f5f5]' : 'border-[#363636] text-[#999] bg-transparent'
                   }`}
-                >{res}</button>
+                >{res.label}</button>
               ))}
             </div>
           </div>

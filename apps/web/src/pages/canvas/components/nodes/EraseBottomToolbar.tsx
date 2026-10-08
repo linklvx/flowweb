@@ -65,12 +65,13 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const nodeData = (isImageNode(node) ? node.data : undefined) as ImageNodeData | undefined;
 
-  const model = nodeData?.model ?? 'sdxl';
+  // Y0b-1（三轮 Z30/P0-6）：删 ?? 'sdxl' 字面量兜底——空值走 MODEL_NOT_SELECTED 显式 4xx
+  const model = nodeData?.model;
   const ratio = nodeData?.ratio ?? '16:9';
   const resolution = nodeData?.resolution ?? '2K';
 
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [creditCost, setCreditCost] = useState(0);
+  const [creditCost, setCreditCost] = useState<number | null>(0);
   const [modelOpen, setModelOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
   const [resOpen, setResOpen] = useState(false);
@@ -95,12 +96,12 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
 
   // Calculate credits
   useEffect(() => {
-    if (!model) return;
-    fetch(`/api/pricing/calculate?modelId=${model}`)
+    if (!model) { setCreditCost(null); return; }   // Y0b-1：未选模型不显示数字报价
+    fetch(`/api/pricing/calculate?modelId=${model}&resolutionId=${encodeURIComponent(resolution)}`)
       .then(r => r.json())
-      .then(json => { if (json.code === 0) setCreditCost(json.data); })
-      .catch(() => { setCreditCost(0); });
-  }, [model]);
+      .then(json => { if (json.code === 0) setCreditCost(json.data); else setCreditCost(null); })
+      .catch(() => { setCreditCost(null); });   // 定价不可用——禁 .catch(0) 免费假象
+  }, [model, resolution]);
 
   // Close dropdowns on outside click — excludes clicks on trigger buttons or panels
   useEffect(() => {
@@ -117,7 +118,8 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
   }, [modelOpen, ratioOpen, resOpen, countOpen]);
 
   const selectedModel = models.find(m => m.id === model);
-  const totalCredits = creditCost * generateCount;
+  // Y0b-1：定价不可用（null）传播——不假装 0×N=0 免费总价
+  const totalCredits = creditCost === null ? null : creditCost * generateCount;
 
   const btnClass =
     'h-8 rounded-lg py-1 pl-3 pr-2 flex items-center justify-center gap-1 hover:bg-overlay-2 active:bg-overlay-2 text-[13px] leading-normal transition-colors border-0';
@@ -327,7 +329,7 @@ function EraseBottomToolbarComponent({ nodeId, editMode, onGenerate, isProcessin
                 <path d="M8.67352 4.08105C9.60755 3.00116 10.3727 3.29255 10.3727 4.73242V10.9033H12.9733C14.1511 10.9034 14.4794 11.6402 13.697 12.54L7.32684 19.9199C6.39312 20.9992 5.6269 20.7076 5.62665 19.2686V13.0977H3.02704C1.84902 13.0977 1.52094 12.3598 2.30341 11.46L8.67352 4.08105Z" fill="currentColor" />
               </svg>
               <span className="min-w-[13px] text-center text-[12px] font-normal leading-[15px]" style={{ color: MUTED_COLOR }}>
-                {totalCredits}
+                {totalCredits ?? '定价不可用'}
               </span>
             </span>
             <button

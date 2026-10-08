@@ -6,7 +6,6 @@ import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
 import { ModelSelector } from './config-panel/ModelSelector';
-import type { ModelInfo } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
 import type { RatioOption } from './config-panel/RatioResolutionPopover';
 import { GenerateCountSelector } from './config-panel/GenerateCountSelector';
@@ -37,17 +36,18 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const { zoom } = useViewport();
 
   const nodeData = isImageNode(node) ? node.data : undefined;
-  const model = nodeData?.model ?? 'sdxl';
+  // Y0b-1（三轮 Z30/P0-6+四轮 Z36②a）：删 ?? 'sdxl'/?? '2K' 字面量兜底——空值走 MODEL_NOT_SELECTED/自动选首行
+  const model = nodeData?.model;
   const ratio = nodeData?.ratio ?? '16:9';
-  const resolution = nodeData?.resolution ?? '2K';
+  const resolution = nodeData?.resolution;
   const quality = nodeData?.quality ?? 'standard';
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
   const prompt = nodeData?.prompt ?? { text: '', html: '' };
   const allImages = nodeData?.allImages ?? [];
 
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [creditCost, setCreditCost] = useState<number>(0);
+  const [models, setModels] = useState<imageNodeApi.ModelWithDimensions[]>([]);
+  const [creditCost, setCreditCost] = useState<number | null>(0);
   const [executing, setExecuting] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [generateCount, setGenerateCount] = useState(1);
@@ -65,12 +65,25 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Y0b-1（四轮 Z36②a）：分辨率存行 id——缺省/换模型后行 id 失效时自动选首行（对齐 model list[0].id 先例）
+  const currentModel = models.find((m) => m.id === model);
+  useEffect(() => {
+    const res = currentModel?.resolutions ?? [];
+    if (res.length > 0 && !res.some((r) => r.id === nodeData?.resolution)) {
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { resolution: res[0].id });
+    }
+  }, [currentModel, nodeData?.resolution, nodeId]);
+
   // Calculate price
   useEffect(() => {
     if (model) {
-      imageNodeApi.getCreditCost(model).then(setCreditCost).catch(() => setCreditCost(0));
+      imageNodeApi.getCreditCost(model, nodeData?.resolution)
+        .then(setCreditCost)
+        .catch(() => setCreditCost(null)); // 定价不可用（无规则/解析失败）——禁 .catch(0) 免费假象
+    } else {
+      setCreditCost(null); // 未选模型：不显示数字报价
     }
-  }, [model]);
+  }, [model, nodeData?.resolution]);
 
   const handleGenerate = useCallback(async () => {
     if (!nodeData?.prompt?.text?.trim()) return;
@@ -157,7 +170,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             <RatioResolutionPopover
               ratioOptions={RATIO_OPTIONS}
               ratio={ratio}
-              resolution={resolution}
+              resolution={resolution ?? ''}
+              resolutionOptions={currentModel?.resolutions ?? []}
               onRatioChange={(r) => updateConfig(nodeId, { ratio: r } as any)}
               onResolutionChange={(r) => updateConfig(nodeId, { resolution: r } as any)}
             />

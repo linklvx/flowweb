@@ -9,7 +9,8 @@ import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { GenerationIntentService } from '../execution/generation-intent.service';
-import { AI_IMAGE_EDIT_QUEUE_NAME, CREDIT_COST_PER_EDIT } from './ai-image-edit.constants';
+import { PricingResolverService } from '../execution/pricing-resolver.service';
+import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
@@ -47,6 +48,7 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {
     super();
   }
@@ -109,8 +111,11 @@ export class AiImageEditProcessor extends WorkerHost {
         this.logger.warn(`Edit intent guard missing for node ${nodeId}——拒绝付费外呼（0.5-8 起 enqueue 恒带意图锚）`);
         return { status: 'failed', reason: 'INTENT_GUARD_MISSING' };
       }
+      // Y0b-1（§1.2/Z5）：编译期常量旁路退役——预检与实扣同经 resolver（kind 级：modelId IS NULL；
+      // taskType 值域=outpaint/erase/redraw/lighting=NodeType key 形态，直作 resolveByNodeTypeKey 入参）
+      const pricing = await this.resolver.resolveByNodeTypeKey(taskType);
       const reserveResult = await this.teamCredit.reserve(
-        projectTeamId, userId, CREDIT_COST_PER_EDIT, { intentRowId, intentId },
+        projectTeamId, userId, pricing.creditCost, { intentRowId, intentId },
       );
       if (!reserveResult.success) {
         const reason = reserveResult.reason ?? 'RESERVE_FAILED';

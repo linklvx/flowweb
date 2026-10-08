@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import type { AppNode, ImageNodeData } from '@/stores/nodeStore';
-import { buildImageGenParams } from './imageNodeApi';
+import { buildImageGenParams, getCreditCost } from './imageNodeApi';
 
 // Mock the executionApi
 vi.mock('@/api/executionApi', () => ({
@@ -138,5 +138,46 @@ describe('imageNodeApi — buildImageGenParams', () => {
 
     const params = buildImageGenParams('img-p3');
     expect(params.projectId).toBe('default');
+  });
+});
+
+// Y0b-1（三轮 P3）：报价=实扣同源——getCreditCost 维度参数透传 + code!==0 throw
+// （禁 .catch(0) 免费假象的客户端镜像——无规则/解析失败必须抛给调用点显示"定价不可用"）
+describe('imageNodeApi — getCreditCost', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('维度参数透传：resolutionId/durationId 进查询串（行 id 形态）', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: 8 }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const cost = await getCreditCost('m1', 'res-2048', 'dur-5s');
+    expect(cost).toBe(8);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain('/api/pricing/calculate?');
+    expect(url).toContain('modelId=m1');
+    expect(url).toContain('resolutionId=res-2048');
+    expect(url).toContain('durationId=dur-5s');
+  });
+
+  it('缺省维度不进查询串（可选键不占位）', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 0, data: 5 }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getCreditCost('m1');
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe('/api/pricing/calculate?modelId=m1');
+  });
+
+  it('code!==0 → throw（无规则显式失败，非 0 报价）', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 40401, message: 'PRICING_RULE_MISSING' }), { status: 200 }),
+    ));
+    await expect(getCreditCost('m1')).rejects.toThrow('PRICING_RULE_MISSING');
   });
 });

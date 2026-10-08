@@ -190,7 +190,9 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(stored).toBeDefined();
     const imgData = stored.data as ImageNodeData;
     expect(imgData.style).toBe('写实');
-    expect(imgData.model).toBe('sdxl');
+    // Y0b-1（三轮 Z30/P0-6）：model/resolution 缺省不注入字面量默认——空值留给面板自选首模型/首分辨率（存行 id）
+    expect(imgData.model).toBeUndefined();
+    expect(imgData.resolution).toBeUndefined();
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('16:9');
     expect(imgData.status).toBe('idle');

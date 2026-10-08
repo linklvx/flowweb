@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { LightingService } from './lighting.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TeamCreditService } from '../../team/team-credit.service';
+import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 
@@ -61,6 +62,8 @@ describe('LightingService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: TeamCreditService, useValue: credit },
         { provide: getQueueToken(AI_IMAGE_EDIT_QUEUE_NAME), useValue: queue },
+        // Y0b-1：预检经 resolver（kind 级 creditCost:1 对齐迁移 seed 值——实扣同源）
+        { provide: PricingResolverService, useValue: { resolveByNodeTypeKey: vi.fn().mockResolvedValue({ creditCost: 1 }) } },
       ],
     }).compile();
 
@@ -81,7 +84,7 @@ describe('LightingService', () => {
           status: 'pending',
           params: validDto.params,
           originalImageUrl: 'media-src',
-          costCredits: 1, // 预检口径与实扣同源 CREDIT_COST_PER_EDIT（批0c）
+          costCredits: 1, // 预检口径与实扣同源（Y0b-1：resolver resolveByNodeTypeKey('lighting')）
         }),
       });
       expect(queue.add).toHaveBeenCalledWith('lighting', expect.objectContaining({

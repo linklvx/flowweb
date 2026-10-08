@@ -9,7 +9,7 @@ import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
-import { CREDIT_COST_PER_EDIT } from '../ai-image-edit.constants';
+import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import axios from 'axios';
 
 const LightingTaskStatus = {
@@ -82,6 +82,7 @@ export class LightingConsumer {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
   async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
@@ -127,8 +128,10 @@ export class LightingConsumer {
         if (!intentRowId || !intentId) {
           throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）——缺锚即接线断裂
         }
+        // Y0b-1（§1.2/Z5）：编译期常量旁路退役——实扣同经 resolver（kind 级：modelId IS NULL）
+        const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
         const reserveResult = await this.teamCredit.reserve(
-          projectTeamId, userId, CREDIT_COST_PER_EDIT, { intentRowId, intentId },
+          projectTeamId, userId, pricing.creditCost, { intentRowId, intentId },
         );
         if (!reserveResult.success) {
           const reason = reserveResult.reason ?? 'RESERVE_FAILED';

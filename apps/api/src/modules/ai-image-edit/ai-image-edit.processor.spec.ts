@@ -9,6 +9,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { GenerationIntentService } from '../execution/generation-intent.service';
+import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { Job } from 'bullmq';
 
 // Mock axios
@@ -75,6 +76,8 @@ describe('AiImageEditProcessor', () => {
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
         { provide: GenerationIntentService, useValue: intentService },
+        // Y0b-1：定价单源 resolver stub（kind 级 creditCost:1 对齐迁移 seed 值）
+        { provide: PricingResolverService, useValue: { resolveByNodeTypeKey: vi.fn().mockResolvedValue({ creditCost: 1 }) } },
       ],
     }).compile();
     processor = module.get<AiImageEditProcessor>(AiImageEditProcessor);

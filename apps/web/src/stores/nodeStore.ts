@@ -305,10 +305,10 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
 
   const imageGenDefaults = {
     style: '写实',
-    model: 'sdxl',
+    // Y0b-1（三轮 Z30/P0-6+四轮 Z36②a）：model/resolution 不注入字面量默认（'sdxl'/'2K' 假默认曾被
+    // 面板 !nodeData?.model 自动选首模型短路）——空值走 MODEL_NOT_SELECTED/面板自选首行（存行 id）
     quality: 'standard',
     ratio: '16:9',
-    resolution: '2K',
     prompt: { text: '', html: '', referencedImageIds: [] },
   };
 

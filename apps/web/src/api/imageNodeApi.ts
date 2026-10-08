@@ -32,20 +32,30 @@ export function buildImageGenParams(nodeId: string, opts?: { projectId?: string 
   };
 }
 
-export async function fetchModels(): Promise<{ id: string; name: string }[]> {
+// Y0b-1（四轮 Z36②a）：模型载荷含声明维度行（resolutions/durations）——UI 存行 id 的数据源
+export interface ModelWithDimensions {
+  id: string;
+  name: string;
+  resolutions: { id: string; label: string }[];
+  durations: { id: string; label: string; seconds: number }[];
+}
+
+export async function fetchModels(): Promise<ModelWithDimensions[]> {
   const res = await fetch('/api/node-types/image/models');
   const json = await res.json();
   return json.code === 0 ? json.data : [];
 }
 
-export async function getCreditCost(modelId: string): Promise<number> {
-  try {
-    const res = await fetch(`/api/pricing/calculate?modelId=${modelId}`);
-    const json = await res.json();
-    return json.code === 0 ? json.data : 0;
-  } catch {
-    return 0;
-  }
+/** Y0b-1（三轮 P3）：报价=实扣同源——维度参数透传（行 id 形态）；无规则/解析失败 throw（禁 .catch(0)
+ *  ——那是服务端 `?? 0` 的客户端镜像），调用点 catch 后显示"定价不可用"。 */
+export async function getCreditCost(modelId: string, resolutionId?: string, durationId?: string | number): Promise<number> {
+  const qs = new URLSearchParams({ modelId });
+  if (resolutionId) qs.set('resolutionId', resolutionId);
+  if (durationId != null && durationId !== '') qs.set('durationId', String(durationId));
+  const res = await fetch(`/api/pricing/calculate?${qs.toString()}`);
+  const json = await res.json();
+  if (json.code !== 0) throw new Error(json.message ?? 'pricing unavailable');
+  return json.data;
 }
 
 export async function submitGeneration(nodeId: string, opts?: { projectId?: string; intentId?: string }): Promise<{ jobId: string }> {
