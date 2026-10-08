@@ -41,6 +41,8 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.body.connections).toBe(9);
     expect(Object.keys(r.body.pending)).not.toContain('loadedDocs');   // 兄弟字段——禁进 pending（V17/SV16 pending 形状冻结）
     expect(Object.keys(r.body.pending)).not.toContain('connections');
+    // 精确键集冻结：rest 解构防呆——computePending 未来新字段会被 ...pending 静默吸收进响应形状，此处即红
+    expect(Object.keys(r.body.pending).sort()).toEqual(['batches', 'projects', 'spoolBytes', 'spoolFiles', 'storeInFlight', 'strandedBytes', 'strandedFiles']);
   });
   it('pg-down：SELECT 1 抛错→503 reason=pg-down（最高优先）', async () => {
     const r = await build({ pgOk: false }).svc.getReady();
