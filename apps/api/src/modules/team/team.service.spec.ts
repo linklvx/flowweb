@@ -331,7 +331,7 @@ describe('TeamService 基础 API', () => {
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
-    it('时序：事务置 DISBANDED+查 projectIds/media → emitAsync 携带 payload → 物理删除+凭证置空', async () => {
+    it('时序：事务置 DISBANDED+查 projectIds/media → emitAsync 携带 payload → 物理删除（凭证 teamId 留痕）', async () => {
       setup();
 
       await service.disbandTeam('t1', 'u1');
@@ -344,9 +344,9 @@ describe('TeamService 基础 API', () => {
       expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanded', { teamId: 't1', projectIds: ['p1', 'p2'] });
       // MinIO 异步清理 job（processor Task 17）
       expect(queue.add).toHaveBeenCalledWith('team-media-cleanup', { medias: [{ id: 'm1', bucket: 'flowai', key: 'k1' }] });
-      // 阶段3：凭证 SetNull 保留 + team 物理删（级联 member/request/balance/subscription/projects/media/CanvasDoc）
-      expect(prisma.teamRechargeOrder.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
-      expect(prisma.teamCreditTransaction.updateMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { teamId: null } });
+      // 阶段3：Y0b-1 凭证列 NOT NULL 去 FK——解散不清账（teamId 留痕），仅 team 物理删（级联 member/request/balance/subscription/projects/media/CanvasDoc）
+      expect(prisma.teamRechargeOrder.updateMany).not.toHaveBeenCalled();
+      expect(prisma.teamCreditTransaction.updateMany).not.toHaveBeenCalled();
       expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
       // emitAsync 必须在物理删除之前完成
       const emitOrder = emitter.emitAsync.mock.invocationCallOrder[0];

@@ -42,21 +42,23 @@ export class PricingService {
   async batchCreate(rules: CreateRuleDto[]) {
     const results = [];
     for (const rule of rules) {
-      const r = await this.prisma.pricingRule.upsert({
+      // Y0b-1 假唯一删：四键无唯一索引（PG unique 对 NULL 不去重——原 upsert 本就判不了重），
+      // 判重走显式查询：同键在则按 id 更新，否则创建。
+      const existing = await this.prisma.pricingRule.findFirst({
         where: {
-          nodeTypeId_modelId_resolutionId_durationId: {
-            nodeTypeId: rule.nodeTypeId, modelId: rule.modelId,
-            resolutionId: (rule.resolutionId ?? null) as any,
-            durationId: (rule.durationId ?? null) as any,
-          },
-        },
-        update: { creditCost: rule.creditCost },
-        create: {
           nodeTypeId: rule.nodeTypeId, modelId: rule.modelId,
-          resolutionId: rule.resolutionId, durationId: rule.durationId,
-          creditCost: rule.creditCost,
+          resolutionId: rule.resolutionId ?? null, durationId: rule.durationId ?? null,
         },
       });
+      const r = existing
+        ? await this.prisma.pricingRule.update({ where: { id: existing.id }, data: { creditCost: rule.creditCost } })
+        : await this.prisma.pricingRule.create({
+            data: {
+              nodeTypeId: rule.nodeTypeId, modelId: rule.modelId,
+              resolutionId: rule.resolutionId, durationId: rule.durationId,
+              creditCost: rule.creditCost,
+            },
+          });
       results.push(r);
     }
     return results;

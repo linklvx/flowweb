@@ -15,7 +15,6 @@ describe('PricingService', () => {
         create: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
-        upsert: vi.fn(),
       },
     };
     const module: TestingModule = await Test.createTestingModule({
@@ -72,11 +71,27 @@ describe('PricingService', () => {
     expect(result).toBe(0);
   });
 
-  it('should batch upsert pricing rules', async () => {
-    prisma.pricingRule.upsert.mockResolvedValue({ id: 'r1', creditCost: 8 });
+  it('batchCreate：无同键规则 → findFirst 判重后 create（Y0b-1 假唯一删——四键无唯一索引，upsert 键不存在）', async () => {
+    prisma.pricingRule.findFirst.mockResolvedValue(null);
+    prisma.pricingRule.create.mockResolvedValue({ id: 'r1', creditCost: 8 });
     const rules = [{ nodeTypeId: 'nt1', modelId: 'm1', resolutionId: 'r1', creditCost: 8 }];
     const result = await service.batchCreate(rules);
     expect(result).toHaveLength(1);
-    expect(prisma.pricingRule.upsert).toHaveBeenCalled();
+    expect(prisma.pricingRule.findFirst).toHaveBeenCalledWith({
+      where: { nodeTypeId: 'nt1', modelId: 'm1', resolutionId: 'r1', durationId: null },
+    });
+    expect(prisma.pricingRule.create).toHaveBeenCalledWith({
+      data: { nodeTypeId: 'nt1', modelId: 'm1', resolutionId: 'r1', durationId: undefined, creditCost: 8 },
+    });
+  });
+
+  it('batchCreate：同键规则已在 → 按 id update creditCost（假唯一删后判重走查询——顺带修复 PG NULL 不去重导致的重复行）', async () => {
+    prisma.pricingRule.findFirst.mockResolvedValue({ id: 'r0', creditCost: 5 });
+    prisma.pricingRule.update.mockResolvedValue({ id: 'r0', creditCost: 8 });
+    const rules = [{ nodeTypeId: 'nt1', modelId: 'm1', resolutionId: 'r1', creditCost: 8 }];
+    const result = await service.batchCreate(rules);
+    expect(result).toHaveLength(1);
+    expect(prisma.pricingRule.update).toHaveBeenCalledWith({ where: { id: 'r0' }, data: { creditCost: 8 } });
+    expect(prisma.pricingRule.create).not.toHaveBeenCalled();
   });
 });

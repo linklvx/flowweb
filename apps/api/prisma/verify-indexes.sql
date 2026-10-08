@@ -31,3 +31,42 @@ SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.
 
 -- Y0a-1: 冗余非唯一 (projectId,seq) 索引必须不存在（否定断言：NOT EXISTS 返回 1 行=通过）
 SELECT 'redundant_index_absent' AS ok WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'CanvasDocUpdate' AND indexdef LIKE '%CREATE INDEX%' AND indexdef NOT LIKE '%UNIQUE%' AND indexdef LIKE '%projectId%' AND indexdef LIKE '%seq%');
+
+-- ============ Y0b-1 T1a（Z2）：census 对象定义断言——存在性+定义（防被重建为普通索引/序列静默丢失） ============
+SELECT indexdef FROM pg_indexes WHERE indexname='generation_intent_active_node_unique' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='team_owner_default_unique' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='user_subscription_one_active' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='team_subscription_one_active' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='announcement_single_active' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='folder_team_root_name_unique' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='folder_team_parent_name_unique' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='material_folder_team_root_name_unique' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='material_folder_team_parent_name_unique' AND indexdef LIKE '%WHERE%';
+
+SELECT 'seq-ok' AS assert WHERE EXISTS (SELECT 1 FROM pg_class WHERE relkind='S' AND relname='canvas_doc_update_seq');
+
+SELECT conname FROM pg_constraint WHERE conname='CanvasDocUpdate_projectId_seq_key';
+
+SELECT COUNT(*) AS n FROM "CollabLease" HAVING COUNT(*) >= 1;
+
+SELECT 'fake-pricing-unique-gone' AS assert WHERE NOT EXISTS (
+  SELECT 1 FROM pg_indexes WHERE indexname='PricingRule_nodeTypeId_modelId_resolutionId_durationId_key'
+);
+
+SELECT 'consumption-gone' AS assert WHERE NOT EXISTS (
+  SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid=t.oid
+  WHERE t.typname='TeamCreditTransactionType' AND e.enumlabel='consumption'
+);
+
+SELECT 'release-in-enum' AS assert WHERE EXISTS (
+  SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid=t.oid
+  WHERE t.typname='TeamCreditTransactionType' AND e.enumlabel='release'
+);

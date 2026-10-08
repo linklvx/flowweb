@@ -248,8 +248,8 @@ model PricingRule {
   id           String          @id @default(cuid())
   nodeTypeId   String
   nodeType     NodeType        @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
-  modelId      String
-  model        AIModel         @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  modelId      String?
+  model        AIModel?        @relation(fields: [modelId], references: [id], onDelete: Cascade)
   resolutionId String?
   resolution   ModelResolution? @relation(fields: [resolutionId], references: [id])
   durationId   String?
@@ -259,7 +259,6 @@ model PricingRule {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  @@unique([nodeTypeId, modelId, resolutionId, durationId])
   @@index([nodeTypeId])
   @@index([modelId])
 }
@@ -631,12 +630,12 @@ enum JoinRequestStatus {
 enum TeamCreditTransactionType {
   recharge
   subscription_grant
-  consumption
   expire_clear
   register_grant
   upgrade_clear
   admin_grant
   admin_clear
+  release // Y0b-1 预占释放——reversesId 指向被释放 reserve 行（1:1 配对，取消/失败回冲）
   refund // F13 退款逆向记账——reconcile 三查② VOIDED 事务专用
   reserve // 批0.5-9 两阶段扣费——外呼前冻结（amount 负=冻结/正=void 解冻反向）
   settle // 批0.5-9 冻结转实扣正账（外呼成功后补记，终态消费语义）
@@ -672,7 +671,6 @@ model Team {
 
   members      TeamMember[]
   balance      TeamBalance?
-  transactions TeamCreditTransaction[]
   projects     CanvasProject[]
   media        Media[]
   folders      Folder[]
@@ -683,7 +681,6 @@ model Team {
   videoSeparateTasks VideoSeparateTask[]
   videoProjects       VideoProject[]
   subscriptions TeamSubscription[]
-  orders       TeamRechargeOrder[]
   joinRequests TeamJoinRequest[]
 
   @@index([status])
@@ -719,8 +716,7 @@ model TeamBalance {
 
 model TeamCreditTransaction {
   id             String                     @id @default(cuid())
-  teamId         String?
-  team           Team?                      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId         String // Y0b-1 去 FK NOT NULL——解散物理级联删，审计留痕仍按 teamId 查（teamIdSnapshot 不引入）
   operatorUserId String?
   amount         Int
   type           TeamCreditTransactionType
@@ -769,8 +765,7 @@ model TeamSubscription {
 model TeamRechargeOrder {
   id            String          @id @default(cuid())
   outTradeNo    String          @unique // TEAM 前缀
-  teamId        String?
-  team          Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId        String // Y0b-1 去 FK NOT NULL——纯审计列（同 TeamCreditTransaction 口径）
   payerUserId   String
   amountFen     Int
   credits       Int

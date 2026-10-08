@@ -31,13 +31,13 @@ const intent = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** 一条消费流水行（amount 负、referenceId=intent: 维度） */
+/** 一条消费流水行（amount 负、referenceId=intent: 维度；Y0b-1 枚举删 consumption——终态流水即 settle） */
 const chargeRow = (over: Record<string, unknown> = {}) => ({
   id: 'tx-1',
   teamId: 't1',
   operatorUserId: 'u1',
   amount: -10,
-  type: 'consumption',
+  type: 'settle',
   creditType: 'regular',
   referenceId: 'intent:i1',
   balanceAfter: 90,
@@ -441,7 +441,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
     it('批0.5-9 三方对账：settle 流水计入终态消费（reserve 行不计——防 2 倍差异误报）', async () => {
       const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
       prisma.generationIntent.findMany.mockResolvedValue([{ intentId: 'i1', creditsConsumed: 10 }]);
-      // mock 按 where.type.in 过滤——真库语义：查询只命中 settle/consumption，reserve 行被排除
+      // mock 按 where.type.in 过滤——真库语义：查询只命中 settle，reserve 行被排除
       prisma.teamCreditTransaction.findMany.mockImplementation(async ({ where }: any) => {
         const all = [reserveRow(), chargeRow({ id: 'tx-s1', type: 'settle', amount: -10 })];
         return all.filter((r) => !where?.type?.in || where.type.in.includes(r.type));

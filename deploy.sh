@@ -16,7 +16,7 @@ SERVER="ubuntu@101.42.94.107"
 KEY="$HOME/.ssh/flowweb_server"
 REMOTE_DIR="/home/ubuntu/flowweb"
 MODE="${1:-full}"
-FORCE_RESTART=0; ALLOW_LEGACY=0; SKIP_SMOKE=0; SKIP_PREFLIGHT=0; ROLLBACK=0
+FORCE_RESTART=0; ALLOW_LEGACY=0; SKIP_SMOKE=0; SKIP_PREFLIGHT=0; ROLLBACK=0; REBUILD_DB=0
 for arg in "${@:2}"; do
   case "$arg" in
     --force-restart) FORCE_RESTART=1 ;;
@@ -24,6 +24,7 @@ for arg in "${@:2}"; do
     --skip-smoke) SKIP_SMOKE=1 ;;
     --skip-preflight) SKIP_PREFLIGHT=1 ;;
     --rollback) ROLLBACK=1 ;;
+    --rebuild-db) REBUILD_DB=1 ;;
     *) echo "未知旗标: $arg（部署脚本禁静默忽略）"; exit 1 ;;
   esac
 done
@@ -83,6 +84,11 @@ cutover_api() {
 
   echo "=== ②迁移前备份（D6：migrate=链上唯一不可逆操作。pg_dump 走 libpq——DSN 去引号+剥 Prisma 参数；保留 5 份） ==="
   ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); mkdir -p ~/backups && pg_dump -Fc "$DSN" -f ~/backups/pre-migrate-$(date +%Y%m%d%H%M%S).dump && ls -t ~/backups/pre-migrate-*.dump | tail -n +6 | xargs -r rm'
+
+  if [[ "$REBUILD_DB" == "1" ]]; then
+    echo "=== REBUILD_DB：DROP SCHEMA 重建（回退锚=上方②pg_dump；owner 前置核查；DROP 前计数仅日志留档——应用在线窗口断言无意义） ==="
+    ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//") && node '"$REMOTE_DIR"'/apps/api/scripts/rebuild-db.mjs "$DSN"'
+  fi
 
   echo "=== ③additive 双检+迁移（drain 只冻结 collab 写路径，HTTP 面继续打库——安全性由 additive 锚承担非由顺序承担） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/check-migration-additive.mjs && cd apps/api && npx prisma migrate deploy"
@@ -161,6 +167,11 @@ deploy_api() {
   printf '{"git":"%s","builtAt":"%s"}\n' "$GIT_SHA" "$(date -u +%FT%TZ)" > apps/api/dist/build-info.json   # P46：溯源随产物
   MAIN_SHA=$(sha256sum apps/api/dist/main.js | cut -d' ' -f1)   # P44②：cutover ④ 远端等值断言用（先验后换）
 
+  if [[ "$REBUILD_DB" == "1" ]]; then
+    echo "=== REBUILD_DB：清远端迁移目录（tar 解包无删除语义——prisma tar 段实测；不清=旧 24 目录字典序先跑，新 init 的 CREATE TYPE already exists 必炸） ==="
+    ssh -i "$KEY" "$SERVER" 'rm -rf '"$REMOTE_DIR"'/apps/api/prisma/migrations/* && [ -z "$(ls '"$REMOTE_DIR"'/apps/api/prisma/migrations/ 2>/dev/null)" ] || { echo "清理后仍有残留"; exit 1; }'
+  fi
+
   echo "=== 上传（dist.next+prisma/scripts×2/ecosystem/manifests——src 不再上传；shared dist 解 dist.next 不先 rm 远端〔P49③〕） ==="
   scp -i "$KEY" ecosystem.config.cjs "$SERVER:$REMOTE_DIR/"
   tar czf - -C apps/api/dist . | ssh -i "$KEY" "$SERVER" "rm -rf $REMOTE_DIR/apps/api/dist.next && mkdir -p $REMOTE_DIR/apps/api/dist.next && cd $REMOTE_DIR/apps/api/dist.next && tar xzf -"
@@ -199,7 +210,7 @@ case "$MODE" in
   web)  deploy_web ;;
   api)  if [[ $ROLLBACK == 1 ]]; then echo "=== 快回滚：跳过 preflight/verify/int（事故路径——runbook §5） ==="; deploy_api; else preflight; deploy_api; fi ;;
   *)
-    echo "用法: ./deploy.sh [full|web|api] [--force-restart|--allow-legacy|--skip-smoke|--skip-preflight|--rollback]"
+    echo "用法: ./deploy.sh [full|web|api] [--force-restart|--allow-legacy|--skip-smoke|--skip-preflight|--rollback|--rebuild-db]"
     exit 1
     ;;
 esac

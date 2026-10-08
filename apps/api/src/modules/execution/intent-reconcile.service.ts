@@ -23,7 +23,7 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *    A. 有 jobId → 按 kind 路由到所属队列查 BullMQ 真实状态（禁"job 不存在即判死"——removeOnComplete 清理歧义）：
  *       completed → 按产物回填 SUCCEEDED；failed/不存在 → 走 B 三查；
  *       active/waiting/delayed → 长任务合法在飞（意图行 updatedAt 不随外呼刷新），零动作
- *    B. 三查（age 一律取 updatedAt；批0.5-9 两阶段口径 isCharged=流水存在 reserve/settle/consumption 任一）：
+ *    B. 三查（age 一律取 updatedAt；批0.5-9 两阶段口径 isCharged=流水存在 reserve/settle 任一）：
  *       ①已扣 && resultRef 非空 → SUCCEEDED 回填
  *       ②已扣无产物 → 按冻结态分义（批0.5-9）：
  *         已 settle/consume（终态账）→ 退款事务（四写单 $transaction：守卫 CAS 二次判龄+归零 → 两池拆分
@@ -127,11 +127,11 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     });
   }
 
-  /** 三查裁决（批0.5-9 两阶段口径：isCharged=流水存在 reserve/settle/consumption 任一；
+  /** 三查裁决（批0.5-9 两阶段口径：isCharged=流水存在 reserve/settle 任一；
    *  ②按冻结态分义——reserve-only → 解冻（unfreeze），已 settle → 退款（refund 正向记账）） */
   private async threeCheck(row: GenerationIntent, cutoff: Date): Promise<void> {
     const chargeRows = await this.prisma.teamCreditTransaction.findMany({
-      where: { referenceId: `intent:${row.intentId}`, type: { in: ['reserve', 'settle', 'consumption'] } },
+      where: { referenceId: `intent:${row.intentId}`, type: { in: ['reserve', 'settle'] } },
     });
     if (chargeRows.length > 0 && row.resultRef) {
       // ①已扣+产物在（判据=resultRef）→ SUCCEEDED 回填
@@ -142,9 +142,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       return;
     }
     if (chargeRows.length > 0) {
-      // ②分义：settle/consumption=终态账（无产物 → refund 正向记账）；
+      // ②分义：settle=终态账（无产物 → refund 正向记账）；
       // reserve-only=冻结轨迹（→ 解冻+反向 reserve 流水，禁 refund——约束②防双倍回滚）
-      const finalRows = chargeRows.filter((r) => r.type === 'settle' || r.type === 'consumption');
+      const finalRows = chargeRows.filter((r) => r.type === 'settle');
       if (finalRows.length > 0) return this.refund(row, finalRows, cutoff);
       return this.unfreeze(row, chargeRows, cutoff);
     }
@@ -241,7 +241,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 
   /** 档二：每日全量三方对账 + 保留策略清理 + exec GC + video-separate 陈旧回收 */
   async reconcileDaily(): Promise<void> {
-    // ① 三方对账：SUCCEEDED creditsConsumed vs 终态消费流水（批0.5-9：settle+consumption 计入，
+    // ① 三方对账：SUCCEEDED creditsConsumed vs 终态消费流水（批0.5-9：settle 计入，
     //    reserve 行是冻结轨迹不计——防 2 倍差异误报）；差异=资损前兆
     const succeeded = await this.prisma.generationIntent.findMany({
       where: { status: 'SUCCEEDED', creditsConsumed: { gt: 0 } },
@@ -249,7 +249,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     });
     for (const r of succeeded) {
       const rows = await this.prisma.teamCreditTransaction.findMany({
-        where: { referenceId: `intent:${r.intentId}`, type: { in: ['settle', 'consumption'] } },
+        where: { referenceId: `intent:${r.intentId}`, type: { in: ['settle'] } },
       });
       const charged = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
       if (charged !== r.creditsConsumed) {

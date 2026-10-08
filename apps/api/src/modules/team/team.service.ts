@@ -391,7 +391,7 @@ export class TeamService {
     return { items, total };
   }
 
-  /** 解散时序（M2）：事务置 DISBANDED+删前查 projectIds/media → emitAsync（等 collab 关连接）→ 物理删除+凭证置空 */
+  /** 解散时序（M2）：事务置 DISBANDED+删前查 projectIds/media → emitAsync（等 collab 关连接）→ 物理删除（凭证 teamId 留痕） */
   async disbandTeam(teamId: string, userId: string) {
     await this.assertNotPersonalTeam(teamId, '解散');
     const member = await this.prisma.teamMember.findUnique({
@@ -421,9 +421,7 @@ export class TeamService {
     await this.cleanupQueue.add('team-media-cleanup', { medias });
 
     await this.prisma.$transaction(async (tx) => {
-      // 支付凭证保留（P2）：订单/流水 teamId 置空（订阅 teamId 非空，随团队级联删除）
-      await tx.teamRechargeOrder.updateMany({ where: { teamId }, data: { teamId: null } });
-      await tx.teamCreditTransaction.updateMany({ where: { teamId }, data: { teamId: null } });
+      // Y0b-1：凭证列 NOT NULL 去 FK——解散不清账，订单/流水 teamId 留痕（悬挂引用=解散团队的历史凭证）
       // 级联物理删除：members/joinRequests/balance/subscriptions/projects(CanvasDoc)/media
       await tx.team.delete({ where: { id: teamId } });
     });

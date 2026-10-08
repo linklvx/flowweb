@@ -1,22 +1,23 @@
 // scripts/check-migration-additive.mjs —— expand/contract 纪律门禁：drain 只冻结 collab 写路径，
 // HTTP 面继续打库——顺序安全性由迁移 additive 承担。
-// 硬拦（对"旧代码在跑"必炸）：DROP COLUMN/TABLE/CONSTRAINT、SET NOT NULL、RENAME、ALTER COLUMN TYPE；
+// 硬拦（对"旧代码在跑"必炸）：DROP COLUMN/TABLE/CONSTRAINT/TYPE、SET NOT NULL、DROP NOT NULL、TRUNCATE、
+// RENAME、ALTER COLUMN TYPE；
 // DROP INDEX 降 WARNING（删索引不破坏旧代码在跑，却是 prisma 重建索引最常见良性破坏语句，硬拦会训练绕过）。
 // 基线落文件内常量（禁 env 旋钮）；基线存在性断言（常量打错⇒fresh 恒空⇒永久豁免且输出仍 OK——静默失效唯一路径封死）。
-// 豁免登记：基线前历史 8 文件（20260827223714/20260828050603/20260829201000/20260830010735/20260830183448/
-// 20261002231506/20261003001500/20261006120655——v4.2 重扫实测；基线目录自身亦命中〔被 > 排除〕）。
-// 双跑：preflight 本地 + cutover ③ 服务器 migrate 前。
+// Y0b-1 T1a 基线重置（24→1 squash）：基线上移至 20261009031416_init——其前历史迁移已并入基线不再受检，
+// T1b 起新增迁移成为 additive 门禁首批真实受检对象。
+// 双跑：preflight 本地 + cutover ③ 服务器 migrate 前 + 根 verify 链（verify-indexes 之后）。
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
-const BASELINE = '20261007170319_lease_collab_audit';   // 此后新增迁移才受检（实测=当前最大迁移目录）
+const BASELINE = '20261009031416_init';   // 此后新增迁移才受检（Y0b-1 T1a squash 基线=唯一 init）
 const MIG_DIR = join(ROOT, 'apps/api/prisma/migrations');
 if (!existsSync(MIG_DIR)) { console.error('additive FAIL: migrations 目录缺失'); process.exit(1); }   // fail-closed
 const dirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d)).sort();
 if (!dirs.includes(BASELINE)) { console.error(`additive FAIL: BASELINE 常量 "${BASELINE}" 不在迁移目录集合中（拼写错=永久豁免——P0-3 根修）`); process.exit(1); }
 const fresh = dirs.filter((d) => d > BASELINE);
-const BREAKING = /\bDROP\s+(COLUMN|TABLE|CONSTRAINT)\b|\bSET\s+NOT\s+NULL\b|\bRENAME\s+(COLUMN|TO|TABLE)\b|\bALTER\s+COLUMN\b[^\n;]*\bTYPE\b/i;
+const BREAKING = /\bDROP\s+(COLUMN|TABLE|CONSTRAINT|TYPE)\b|\bSET\s+NOT\s+NULL\b|\bDROP\s+NOT\s+NULL\b|\bTRUNCATE\b|\bRENAME\s+(COLUMN|TO|TABLE)\b|\bALTER\s+COLUMN\b[^\n;]*\bTYPE\b/i;
 const WARN_ONLY = /\bDROP\s+INDEX\b/i;
 let bad = 0, warned = 0;
 for (const d of fresh) {
