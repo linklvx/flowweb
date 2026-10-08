@@ -207,6 +207,17 @@
       ]
     },
     {
+      "path": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "scripts/check-spec-consistency.mjs",
+          "line": 13,
+          "text": "const SPEC_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'docs/superpowers/specs/2026-10-08-y"
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/specs/admin-console-refactor.md",
       "criteria": "C4",
       "evidence": [
