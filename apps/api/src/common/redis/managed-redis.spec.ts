@@ -68,4 +68,11 @@ describe('批3-2 B6 模块工厂源码收口', () => {
     const moduleSrc = readFileSync(resolve(APP_ROOT, 'auth/auth.module.ts'), 'utf8');
     expect(moduleSrc).toContain('authRedis.disconnect()');
   });
+  it('Y0a-4/E46：authPrisma 纳管——AuthModule.onApplicationShutdown 断开（行为断言非源码匹配）', async () => {
+    const { authPrisma } = await import('../../auth/auth');
+    const { AuthModule } = await import('../../auth/auth.module');
+    const disconnect = vi.spyOn(authPrisma, '$disconnect').mockResolvedValue();
+    await new AuthModule().onApplicationShutdown();
+    expect(disconnect).toHaveBeenCalledTimes(1);   // 现状：无此调用=红
+  });
 });

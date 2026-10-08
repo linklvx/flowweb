@@ -7,7 +7,8 @@ import { LUA_VERIFY_OTP } from '../common/services/lua-scripts';
 import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
 import { createManagedRedis } from '../common/redis/managed-redis';
 
-const prisma = new PrismaClient();
+/** Y0a-4/E46：模块级 PrismaClient 纳管（authRedis 同款受管形态）——AuthModule.onApplicationShutdown 断开 */
+export const authPrisma = new PrismaClient();
 
 const trustedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .split(',')
@@ -45,14 +46,14 @@ export const SESSION_COOKIE_OPTIONS = {
 };
 
 export const auth = betterAuth({
-  database: prismaAdapter(prisma, { provider: 'postgresql' }),
+  database: prismaAdapter(authPrisma, { provider: 'postgresql' }),
   databaseHooks: {
     user: {
       create: {
         after: async (user) => {
           // 统一 Bootstrap：唯一建团入口（含默认素材文件夹），判据 ownerId+isDefault
           try {
-            await bootstrapPersonalTeam(prisma, user.id, user.name);
+            await bootstrapPersonalTeam(authPrisma, user.id, user.name);
           } catch (err) {
             console.error(`[databaseHooks] personal team bootstrap failed for ${user.id}`, err);
             Sentry.captureException(err);

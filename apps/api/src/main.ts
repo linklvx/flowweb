@@ -37,8 +37,8 @@ async function preloadDbConfig() {
     return;
   }
 
+  const prisma = new PrismaClient();   // 声明提到 try 外（try 内 const 块级作用域在 catch 不可见）
   try {
-    const prisma = new PrismaClient();
     const rows = await prisma.systemSetting.findMany();
     let overridden = 0;
     for (const row of rows) {
@@ -51,6 +51,7 @@ async function preloadDbConfig() {
     console.log(`[ConfigPreload] 从 DB 加载了 ${overridden} 项配置（共 ${rows.length} 条记录）`);
   } catch (err) {
     console.error('[ConfigPreload] 读取 DB 配置失败，使用 .env 兜底:', (err as Error).message);
+    await prisma.$disconnect().catch(() => {});   // Y0a-4/E46+B30：catch 后启动继续——不 disconnect 则该池存活整进程
   }
 }
 

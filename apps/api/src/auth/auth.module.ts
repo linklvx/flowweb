@@ -7,7 +7,7 @@ import { WechatService } from './wechat/wechat.service';
 import { SmsModule } from '../modules/sms/sms.module';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
 import { REDIS_CLIENT, createManagedRedis } from '../common/redis/managed-redis';
-import { authRedis } from './auth';
+import { authPrisma, authRedis } from './auth';
 
 @Module({
   imports: [SmsModule],
@@ -27,7 +27,8 @@ import { authRedis } from './auth';
 /** 批3-2 B6：auth.ts 顶层单例（betterAuth OTP Lua 用，DI 容器外）由 module 钩子收口——
  *  不关则 ioredis 保活 event loop，进程退不出 */
 export class AuthModule implements OnApplicationShutdown {
-  onApplicationShutdown() {
+  async onApplicationShutdown() {
     authRedis.disconnect();
+    await authPrisma.$disconnect();   // Y0a-4/E46：$disconnect 为 async——显式 await（关停序确定）
   }
 }
