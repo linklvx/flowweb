@@ -43,6 +43,11 @@ for (const m of models) {
   const act = (pred) => rules.some((r) => r.active && pred(r));
   const ress = await q('SELECT id FROM "ModelResolution" WHERE "modelId" = $1', [m.id]);
   const durs = await q('SELECT id FROM "ModelDuration" WHERE "modelId" = $1', [m.id]);
+  // T2 质量审 I-1：resolver 全四键精确匹配下，双维度声明模型的 (res,dur) 交叉组合无规则=运行期
+  // PRICING_RULE_MISSING 而下方两类单维度断言全绿（假绿）。把"一模型至多一类维度"假设显式化为断言；
+  // 未来真需双维度模型时，本断言与覆盖断言一起扩到交叉积。
+  if (ress.length > 0 && durs.length > 0)
+    problems.push(`模型 ${m.name} 同时声明分辨率与时长两类维度——交叉组合 (model,res,dur) 覆盖未定义（当前架构假定一模型至多一类维度），须先扩门禁与规则集`);
   for (const rr of ress) {
     if (!act((r) => r.resolutionId === rr.id && r.durationId === null))
       problems.push(`模型 ${m.name} 缺 (model,${rr.id},null) active 规则——该分辨率档全灭（选择器不可达）`);
