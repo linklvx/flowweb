@@ -28,7 +28,8 @@ const S = { user: `smoke-u-${ts}`, team: `smoke-t-${ts}`, member: `smoke-m-${ts}
 
 async function step0_readyAssert() {
   const r = await fetch(`${API}/api/ready`).then((x) => x.json()).catch(() => null);
-  if (!r?.ready) throw new Error(`前置断言失败：/api/ready ready=${r?.ready} reason=${r?.reason}——spool 只读降级/未服务态下 provider 写入会被拒，先查 ready 再冒烟（禁误诊为"未落库"）`);
+  if (r === null) throw new Error(`前置断言失败：/api/ready API 不可达（fetch 失败）——API 未启动/端口 ${API} 不对，先起服务再冒烟`);
+  if (!r.ready) throw new Error(`前置断言失败：/api/ready ready=${r.ready} reason=${r.reason}——spool 只读降级/未服务态下 provider 写入会被拒，先查 ready 再冒烟（禁误诊为"未落库"）`);
 }
 
 async function main() {
@@ -36,7 +37,6 @@ async function main() {
   const prisma = new PrismaClient();
   const repo = new CanvasDocUpdateRepository(prisma);
   const warnings = [];
-  let inserted = false;
   let lastInfo = { updates: -1 };
   try {
     await prisma.user.create({ data: { id: S.user, name: `smoke-${ts}`, email: `smoke-${ts}@example.invalid`, emailVerified: false } });
@@ -44,11 +44,13 @@ async function main() {
     await prisma.teamMember.create({ data: { id: S.member, teamId: S.team, userId: S.user, role: 'MEMBER' } });
     await prisma.canvasProject.create({ data: { id: S.project, name: `smoke-${ts}`, teamId: S.team } });
     await prisma.session.create({ data: { id: `smoke-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
-    inserted = true;
 
     const mk = () => new HocuspocusProvider({ url: `${WS_URL}?token=${S.token}`, name: `project:${S.project}`, document: new Y.Doc() });
     const A = mk(), B = mk();
-    const synced = (p) => new Promise((res, rej) => { p.on('synced', () => res()); setTimeout(() => rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')), 10_000); });
+    const synced = (p) => new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')), 10_000);
+      p.on('synced', () => { clearTimeout(t); res(); });   // 成功路径清 timer——否则绿态进程多挂最长 10s
+    });
     try {
       await Promise.all([synced(A), synced(B)]);
       A.document.transact(() => A.document.getMap('nodes').set(MARKERS[0], new Y.Map([['kind', 'smoke']])));
@@ -77,19 +79,17 @@ async function main() {
 
     console.log(JSON.stringify({ smoke: 'OK', project: S.project, ...lastInfo, chain: 'WS→auth→load→双端写→广播互见→store→PG→重放' }));
   } finally {
-    // 清哨兵（B6 依赖序；失败=WARN+残留 id——禁静默）
-    if (inserted) {
-      const order = [
-        () => prisma.session.deleteMany({ where: { userId: S.user } }),
-        () => prisma.teamMember.deleteMany({ where: { id: S.member } }),
-        () => prisma.canvasProject.deleteMany({ where: { id: S.project } }),   // Cascade 清 CanvasDoc/Update
-        () => prisma.team.deleteMany({ where: { id: S.team } }),
-        () => prisma.user.deleteMany({ where: { id: S.user } }),
-      ];
-      for (const del of order) await del().catch((e) => warnings.push(`哨兵清理失败（残留待人工删）: ${e.message}`));
-      const left = await prisma.canvasProject.count({ where: { id: S.project } }).catch(() => -1);
-      if (left === 1) warnings.push(`哨兵项目残留：${S.project}（人工删除：psql → DELETE FROM "CanvasProject" WHERE id='${S.project}'）`);
-    }
+    // 清哨兵（B6 依赖序；失败=WARN+残留 id——禁静默；无条件跑：半途建失败也要清掉已建行，deleteMany 按 exact-id 幂等）
+    const order = [
+      () => prisma.session.deleteMany({ where: { userId: S.user } }),
+      () => prisma.teamMember.deleteMany({ where: { id: S.member } }),
+      () => prisma.canvasProject.deleteMany({ where: { id: S.project } }),   // Cascade 清 CanvasDoc/Update
+      () => prisma.team.deleteMany({ where: { id: S.team } }),
+      () => prisma.user.deleteMany({ where: { id: S.user } }),
+    ];
+    for (const del of order) await del().catch((e) => warnings.push(`哨兵清理失败（残留待人工删）: ${e.message}`));
+    const left = await prisma.canvasProject.count({ where: { id: S.project } }).catch(() => -1);
+    if (left === 1) warnings.push(`哨兵项目残留：${S.project}（人工删除：psql → DELETE FROM "CanvasProject" WHERE id='${S.project}'）`);
     for (const w of warnings) console.error(`SMOKE-WARN: ${w}`);
     await prisma.$disconnect();
   }
