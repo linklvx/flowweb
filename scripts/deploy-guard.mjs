@@ -85,18 +85,24 @@ async function prePhase() {
     await new Promise((r) => setTimeout(r, 500));
   }
   // C5 基线收口：首采样抖动会把 'unavailable' 落盘而轮询正常 pre pass、post 对 'unavailable'+degraded=null 必 fail；
-  // 放行路径（pass/force）以最后一次有效采样收口基线（wait/fail 中止路径无需——下次部署 pre 会覆写）
+  // 放行路径（pass/force）以最后一次有效采样收口基线（wait/fail 中止路径无需——下次部署 pre 会覆写）。
+  // != null 守卫与首采样（L71）对称——Number(null)=0 isFinite 恒真（B23 陷阱）：降级瞬态 epoch=null 会把 0 落盘=接管断言对任何 epoch≥1 恒过
   const settleEpoch = () => {
-    if (Number.isFinite(Number(last?.body?.epoch))) {
-      epochRaw = Number(last.body.epoch);
-      writeState({ epochRaw, drainAt, pendingBefore: first?.body?.pending ?? null });
+    if (last?.body?.epoch != null && Number.isFinite(Number(last.body.epoch))) {
+      const settled = Number(last.body.epoch);   // 局部量直传 writeState——外层 epochRaw 变异无读者（死代码）
+      writeState({ epochRaw: settled, drainAt, pendingBefore: first?.body?.pending ?? null });
+      return settled;
     }
+    return null;
   };
   // B7：全程未取得 body=无账可算——unobservable（--force 不覆盖）
   if (!observed) verdict = { verdict: 'unobservable', why: '/api/ready 全程不可达（drain 已 200——反代/路径配错/实例 drain 中崩溃？）——无账可查；逃生阀=修 ready 可观测性（--force 不覆盖此档）' };
-  console.log(JSON.stringify({ phase: 'pre', verdict: verdict.verdict, why: verdict.why, drainAt, budgetMs: PRE_BUDGET_MS, elapsedMs: Date.now() - t0, epochPre: epochRaw, totalPre: spoolTotal(first?.body?.pending), pendingBefore: first?.body?.pending ?? null, pendingAfter: last?.body?.pending ?? null }));
-  if (verdict.verdict === 'pass') { settleEpoch(); return 0; }   // C5：放行点收口基线
-  if (verdict.verdict !== 'unobservable' && FORCE) { console.log(`deploy-guard WARNING(--force): ${verdict.why}——强制放行，N batches at risk（真实逃生阀非日常；runbook §3 要求留部署记录）`); settleEpoch(); return 0; }
+  // M-1：先 settle 后 log——log 行 epochPre 与 state 落盘一致（部署取证不误导）；exit 码语义不变
+  const release = verdict.verdict === 'pass' || (verdict.verdict !== 'unobservable' && FORCE);
+  const settledEpoch = release ? settleEpoch() : null;
+  console.log(JSON.stringify({ phase: 'pre', verdict: verdict.verdict, why: verdict.why, drainAt, budgetMs: PRE_BUDGET_MS, elapsedMs: Date.now() - t0, epochPre: settledEpoch ?? epochRaw, totalPre: spoolTotal(first?.body?.pending), pendingBefore: first?.body?.pending ?? null, pendingAfter: last?.body?.pending ?? null }));
+  if (verdict.verdict === 'pass') return 0;
+  if (verdict.verdict !== 'unobservable' && FORCE) { console.log(`deploy-guard WARNING(--force): ${verdict.why}——强制放行，N batches at risk（真实逃生阀非日常；runbook §3 要求留部署记录）`); return 0; }
   console.error(`deploy-guard FAIL: ${verdict.why}——中止部署（逃生阀 --force 覆盖 fail/wait 两档；unobservable 不可 force；中止后 drain 将于 60s 自动解除〔SV12〕可安全重试）`);
   return 1;
 }

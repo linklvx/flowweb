@@ -15,6 +15,10 @@ test('spool-unwritable=fail（可 force）；drain 未生效=wait', () => {
   assert.equal(decidePre({ reason: 'spool-unwritable', pending: {} }).verdict, 'fail');
   assert.equal(decidePre({ reason: 'pg-down', pending: { projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0 } }).verdict, 'wait');
 });
+test('decidePre：draining+pending 非零=wait（生产最常命中——预算耗尽逼 force 的典型档）', () => {
+  const r = decidePre({ ready: false, reason: 'draining', pending: { projects: 2, batches: 1, spoolFiles: 0, spoolBytes: 0 } });
+  assert.equal(r.verdict, 'wait'); assert.match(r.why, /未排空/);
+});
 test('P31/P39/B23 回归：epoch 基线 NaN/缺失=null 往返=fail（禁恒真静默通过）', () => {
   assert.equal(decidePost({ ready: true, epoch: '7', pending: { spoolFiles: 0 } }, NaN).verdict, 'fail');
   // 真实路径探针：state 写 {"epochPre":null}（JSON NaN 往返形态）→ epochPreFromRaw 必产 NaN → fail
@@ -36,6 +40,10 @@ test('P39 degraded 档：legacy/unreachable 放行→epoch 断言 N/A 显式打�
 test('post：own spool 未归零=wait；无 pending=unobservable', () => {
   assert.equal(decidePost({ ready: true, epoch: '7', pending: { spoolFiles: 2 } }, 5).verdict, 'wait');
   assert.equal(decidePost({ ready: true, epoch: '7' }, 5).verdict, 'unobservable');
+});
+test('decidePost：!ready=wait（实例未起的最常见瞬态）', () => {
+  const r = decidePost({ ready: false, reason: 'starting', pending: { spoolFiles: 0 } }, 5);
+  assert.equal(r.verdict, 'wait'); assert.match(r.why, /未就绪/);
 });
 test('spoolTotal（P35：+5 判据 total 口径）', () => {
   assert.equal(spoolTotal({ spoolFiles: 3, strandedFiles: 2 }), 5);

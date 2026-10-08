@@ -12,7 +12,7 @@ const here = fileURLToPath(import.meta.url);
 const hereDir = dirname(here);   // join(here, …) 会把文件当目录段——../ 从 scripts/ 起算须以所在目录为基
 const dotenv = createRequire(join(hereDir, '../apps/api/package.json'))('dotenv');
 
-const KEYS = ['A_PLAIN', 'B_DQ', 'B2_DQ_CMT', 'C_SQ', 'D_DUP', 'E_EXPORT', 'F_HASH', 'G_NOHASHSPACE', 'H_DQ_HASH', 'I_SQ_HASH', 'PRIVATE_KEY'];
+const KEYS = ['A_PLAIN', 'B_DQ', 'B2_DQ_CMT', 'C_SQ', 'D_DUP', 'E_EXPORT', 'F_HASH', 'G_NOHASHSPACE', 'H_DQ_HASH', 'I_SQ_HASH', 'PRIVATE_KEY', 'UNCLOSED'];
 
 function parseBoth(text) {
   const dir = mkdtempSync(join(tmpdir(), 'envfile-'));
@@ -56,6 +56,10 @@ test('多行 PEM（keys 含 PRIVATE_KEY）——单行契约差异形态记录�
   assert.equal(ours.PRIVATE_KEY, '-----BEGIN-----');
   assert.equal(ours.MIIB, undefined);               // 不误吞下一行（中间行非 KEY=VALUE）
   assert.deepEqual(Object.keys(ours).filter((k) => ours[k] !== undefined && k !== 'PRIVATE_KEY'), []);
+  // 未闭合引号（差异有意记录）：dotenv 回落未引号分支 [^#\r\n]+ → 保留引号字符原样；ours end<0 分支 → t.slice(1) 去开引号
+  const { ours: u2, dotenv: d2 } = parseBoth('UNCLOSED="abc');
+  assert.equal(d2.UNCLOSED, '"abc');
+  assert.equal(u2.UNCLOSED, 'abc');
 });
 test('真实 apps/api/.env 对拍（存在即逐键相等——本地开发机必有，CI 无则跳过）', () => {
   const p = join(hereDir, '../apps/api/.env');
