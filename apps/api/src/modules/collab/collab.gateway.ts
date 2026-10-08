@@ -754,6 +754,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   private schedulePersistRetry(documentName: string) {
     if (this.collabState === 'isolated') return;   // 必办⑧/I-3：fenced/revoked=终态禁梯——重试无意义且掩盖失守
+    // CI 首跑实证（2026-10-08）：关停步骤 1 取消梯子后，drain 内 store 失败（degraded 态跳过 spool 兜底）
+    // 的尾部会**重新武装**梯子——进程将退出，重试无意义（批已由 drain_complete/undrained 如实点名，G-2a）；
+    // 且关停后连发=日志噪声。关停闸与 isolated 门同判。
+    if (this.shuttingDown) return;
     // Y0a-2（X6）：熔断自检首行——spool 不可写期不排梯（probe 恢复经 onRecovered seam→rearmQueues 唤醒，
     // 否则梯内 store 首行 spool 失败→批留队列但梯空转烧档位）。
     // I-3：限定 ioBroken 才停排——容量态下 PG 腿完全健康可消化帧（confirm 自评解除容量+唤醒 seam）；
