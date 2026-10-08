@@ -4,6 +4,12 @@
 // 不设"空表断言"门：pm2 不停（应用在线）窗口断言无意义；不可逆操作的回退锚=cutover ②已落的 pg_dump。
 import { Client } from 'pg';
 
+// argv 守卫：无 DSN 时 pg 回退 PGHOST/PGUSER 等环境默认——本地误跑可能 DROP 掉 dev 库，必须 fail-closed
+if (!process.argv[2]) {
+  console.error('usage: rebuild-db.mjs <DSN>');
+  process.exit(2);
+}
+
 const c = new Client({ connectionString: process.argv[2] });
 await c.connect();
 const owner = await c.query("SELECT pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname='public'");

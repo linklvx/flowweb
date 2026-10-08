@@ -33,6 +33,10 @@ if (!url || (mode === '--replay-new' && !initPath)) {
   console.error('usage: dump-schema-objects.mjs <URL> [--replay-new <init.sql>]');
   process.exit(2);
 }
+// mode 严格校验：拼写错误静默走 dump 分支会拿到"假 old 侧"——比对场景必须 fail-closed
+if (mode !== undefined && mode !== '--replay-new') {
+  console.error(`unknown mode: ${mode}（仅支持 --replay-new）`); process.exit(2);
+}
 if (mode !== '--replay-new') {
   const c = new Client({ connectionString: url });
   await c.connect();
