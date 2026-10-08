@@ -7,7 +7,7 @@
 // 域（P6 收窄）：env-keys / metric-names。退出码：0=PASS；1=门禁违规；2=结构性错误（doc-gate.mjs 先例）。
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');   // 本脚本在 <root>/scripts/ 下——上跳一级即仓库根（v2 原文 '../..' 实测解析到盘根 D:\，plan 笔误）
 const SPEC_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md');
@@ -25,10 +25,11 @@ export function collectMetricFiles() {
 export const DENYLIST = ['release_once', 'COLLAB_RSS_SOFT_LIMIT_BYTES', 'replay_kill'];
 
 export function stripForDenylist(text) {
-  let t = text.replace(/<!--[\s\S]*?-->/g, '');
-  t = t.replace(/```[\s\S]*?```/g, '');
+  // 剥内容保换位（doc-gate.mjs:361 先例形态）——行号与原文件一致，报错可跳转
+  let t = text.replace(/<!--[\s\S]*?-->/g, (s) => s.replace(/[^\n]/g, ''));
+  t = t.replace(/```[\s\S]*?```/g, (s) => s.replace(/[^\n]/g, ''));
   let prev;
-  do { prev = t; t = t.replace(/（[^（）]*）/g, ''); } while (t !== prev);
+  do { prev = t; t = t.replace(/（[^（）]*）/g, (s) => s.replace(/[^\n]/g, '')); } while (t !== prev);
   return t;
 }
 
@@ -50,31 +51,36 @@ export function parseFencedBlock(md, marker) {
   return m[1].split('\n').map((l) => l.replace(/^- /, '').trim()).filter(Boolean);
 }
 
-const problems = [];
-const structural = (m) => { console.error(`check-spec-consistency: 结构性错误（exit 2）——${m}`); process.exit(2); };
+// import 零副作用（check-ecosystem.mjs 先例形态）——门禁逻辑仅在直接执行时运行，测试进程 import 本模块不被杀
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isMain) {
+  const problems = [];
+  const structural = (m) => { console.error(`check-spec-consistency: 结构性错误（exit 2）——${m}`); process.exit(2); };
+  const readOrStructural = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch (e) { structural(`文件不可读 ${p}: ${e.message}`); } };
 
-const spec = fs.readFileSync(SPEC_PATH, 'utf8');
-const stripped = stripForDenylist(spec);
-for (const d of DENYLIST) {
-  if (stripped.includes(d)) {
-    const line = stripped.split('\n').findIndex((l) => l.includes(d));
-    problems.push(`退役标识符 "${d}" 命中正文（剥离后第 ${line + 1} 行）——该机制已退役，勿在规范正文复述（合法提及请置于（）历史注记或围栏内）`);
+  const spec = readOrStructural(SPEC_PATH);
+  const stripped = stripForDenylist(spec);
+  for (const d of DENYLIST) {
+    if (stripped.includes(d)) {
+      const line = stripped.split('\n').findIndex((l) => l.includes(d));
+      problems.push(`退役标识符 "${d}" 命中正文第 ${line + 1} 行——该机制已退役，勿在规范正文复述（合法提及请置于（）历史注记或围栏内）`);
+    }
   }
-}
-const envSrc = fs.readFileSync(path.join(ROOT, 'apps/api/src/config/env.ts'), 'utf8');
-const envKeys = extractEnvKeys(envSrc) ?? structural('env.ts 无法提取 envSchema 键集');
-const specEnv = parseFencedBlock(spec, 'y0b0:env-keys') ?? structural('spec 缺 <!-- y0b0:env-keys --> fenced 块');
-const envMissing = envKeys.filter((k) => !specEnv.includes(k));
-const envStale = specEnv.filter((k) => !envKeys.includes(k));
-if (envMissing.length) problems.push(`env 键未进 spec §10 块: ${envMissing.join(', ')}`);
-if (envStale.length) problems.push(`spec §10 块含已删 env 键: ${envStale.join(', ')}`);
-const metricFiles = collectMetricFiles();
-const metricNames = extractMetricNames(metricFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n'));
-const specMetrics = parseFencedBlock(spec, 'y0b0:metric-names') ?? structural('spec 缺 <!-- y0b0:metric-names --> fenced 块');
-const mMissing = metricNames.filter((k) => !specMetrics.includes(k));
-const mStale = specMetrics.filter((k) => !metricNames.includes(k));
-if (mMissing.length) problems.push(`指标未进 spec §10 块: ${mMissing.join(', ')}`);
-if (mStale.length) problems.push(`spec §10 块含已删指标: ${mStale.join(', ')}`);
+  const envSrc = readOrStructural(path.join(ROOT, 'apps/api/src/config/env.ts'));
+  const envKeys = extractEnvKeys(envSrc) ?? structural('env.ts 无法提取 envSchema 键集');
+  const specEnv = parseFencedBlock(spec, 'y0b0:env-keys') ?? structural('spec 缺 <!-- y0b0:env-keys --> fenced 块');
+  const envMissing = envKeys.filter((k) => !specEnv.includes(k));
+  const envStale = specEnv.filter((k) => !envKeys.includes(k));
+  if (envMissing.length) problems.push(`env 键未进 spec §10 块: ${envMissing.join(', ')}`);
+  if (envStale.length) problems.push(`spec §10 块含已删 env 键: ${envStale.join(', ')}`);
+  const metricFiles = collectMetricFiles();
+  const metricNames = extractMetricNames(metricFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n'));
+  const specMetrics = parseFencedBlock(spec, 'y0b0:metric-names') ?? structural('spec 缺 <!-- y0b0:metric-names --> fenced 块');
+  const mMissing = metricNames.filter((k) => !specMetrics.includes(k));
+  const mStale = specMetrics.filter((k) => !metricNames.includes(k));
+  if (mMissing.length) problems.push(`指标未进 spec §10 块: ${mMissing.join(', ')}`);
+  if (mStale.length) problems.push(`spec §10 块含已删指标: ${mStale.join(', ')}`);
 
-if (problems.length) { console.error(`check-spec-consistency FAIL:\n  ${problems.join('\n  ')}`); process.exit(1); }
-console.log(`check-spec-consistency OK: denylist ${DENYLIST.length} 项零命中；env-keys ${envKeys.length} 键 ≡ spec；metric-names ${metricNames.length} 项（${metricFiles.length} 文件）≡ spec`);
+  if (problems.length) { console.error(`check-spec-consistency FAIL:\n  ${problems.join('\n  ')}`); process.exit(1); }
+  console.log(`check-spec-consistency OK: denylist ${DENYLIST.length} 项零命中；env-keys ${envKeys.length} 键 ≡ spec；metric-names ${metricNames.length} 项（${metricFiles.length} 文件）≡ spec`);
+}

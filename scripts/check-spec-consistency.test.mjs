@@ -1,7 +1,7 @@
 // scripts/check-spec-consistency.test.mjs —— Y0b-0（spec §9.22，v2 微修 Z15）：一致性门禁纯函数自测
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stripForDenylist, extractEnvKeys, parseFencedBlock, collectMetricFiles, DENYLIST } from './check-spec-consistency.mjs';
+import { stripForDenylist, extractEnvKeys, extractMetricNames, parseFencedBlock, collectMetricFiles, DENYLIST } from './check-spec-consistency.mjs';
 
 test('P7 三层剥离：HTML 注释/fenced 块/全角括号——代码型 token 合法提及不命中，正文命中', () => {
   const spec = [
@@ -32,6 +32,9 @@ test('parseFencedBlock：标记后取第一 fenced 块内 `- key` 行；无标�
   assert.deepEqual(parseFencedBlock(md, 'y0b0:env-keys'), ['A', 'B']);
   assert.equal(parseFencedBlock(md, 'y0b0:missing'), null);
   assert.equal(parseFencedBlock('<!-- y0b0:x -->\n无围栏', 'y0b0:x'), null);
+});
+test('extractMetricNames：name: 行提取+排序；label 等非 name 行不捕获', () => {
+  assert.deepEqual(extractMetricNames("name: 'foo_total'\nname:'bar_total'\nlabel: 'x'"), ['bar_total', 'foo_total']);
 });
 test('collectMetricFiles：glob **/*.metrics.ts 递归收集（含 video-separate——v1 硬编码 3 文件漏它）', () => {
   const files = collectMetricFiles();
