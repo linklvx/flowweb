@@ -12,9 +12,11 @@ config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true }
 const here = fileURLToPath(import.meta.url);
 const req = createRequire(here);
 const { PrismaClient } = req('@prisma/client');
-// yjs 走 require（与 dist repo 同一 CJS 实例）——await import 会解析到 yjs.mjs=双实例（yjs#438 警告+
-// 构造器检查失效面）；kit 先例（tsx 编译后 require 形态+ESM provider）已实证该组合
-const Y = req('yjs');
+// yjs 走 await import（全 mjs 与 provider 同侧——yjs#438 混合格式规避）：provider 为 ESM，其同步链
+// （y-protocols Y.applyUpdate）恒走 mjs 实例，若 doc 是 req('yjs') 的 cjs 实例=mjs structs 写入 cjs doc=
+// GC 构造器 instanceof 检查失效面。dist repo 顶层 require('yjs') 仍会加载 cjs 副本（=yjs#438 警告噪音，
+// 实测仍在），但其 Y 不触脚本 doc：readSnapshotOnly 纯 Prisma，compact 用自建 temp doc——doc↔provider 全 mjs 同侧
+const Y = await import('yjs');
 const { HocuspocusProvider } = await import('@hocuspocus/provider');
 const { CanvasDocUpdateRepository } = req('../dist/modules/collab/canvas-doc-update.repository.js');   // dist=部署产物（P21）
 
