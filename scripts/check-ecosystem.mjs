@@ -17,7 +17,10 @@ const toBytes = (v) => {
 
 /** P43：bash 函数体提取——大括号配平+注释剥离；提取失败返回 ''（调用方即 fail——"提取不到就算过"是空转源）。
  * 注释剥离="整行注释+空白前行尾注释"（全局 /#.*$/ 会把 ${#var} 截成 ${ =配平失衡；引号内 #（前非空白）不截——
- * 误截后果=提取失败 fail-closed 非静默过，本仓 deploy.sh 无引号内 # 形态） */
+ * 误截后果=提取失败 fail-closed 非静默过，本仓 deploy.sh 无引号内 # 形态）。
+ * I-1：引号内孤立 `}` 可致提前截断=export 扫描面收窄——禁在 cutover/rollback 体内引号内裸大括号；
+ * 提前截断时末行是含 `}` 的命令行而非独立 `}`——末行守卫返回 ''（fail-closed；单行体开闭同行除外）。
+ * M-1：fn 必须为字面函数名（未转义直接进 RegExp——调用方禁传正则元字符）。 */
 export function extractBashFunction(src, fn) {
   const lines = src.split('\n');
   const start = lines.findIndex((l) => new RegExp(`^${fn}\\(\\)\\s*\\{`).test(l));
@@ -28,7 +31,11 @@ export function extractBashFunction(src, fn) {
     body.push(lines[i]);
     const code = lines[i].replace(/(^\s*#.*$)|(\s#.*$)/, '');   // 整行注释或"# 前有空白"的行尾注释
     for (const ch of code) { if (ch === '{') depth++; else if (ch === '}') depth--; }
-    if (depth === 0) return body.join('\n');
+    if (depth === 0) {
+      if (body.length === 1) return body.join('\n');   // 单行体：开闭同行=真闭合
+      const lastLine = body[body.length - 1];
+      return /^\s*\}\s*$/.test(lastLine) ? body.join('\n') : '';   // 提前截断（末行非独立 `}`）=fail-closed
+    }
   }
   return '';   // 未闭合
 }
@@ -48,14 +55,15 @@ export function checkEcosystem(app, deploySrc) {
   Number.isFinite(rss) || fail(`max_memory_restart 不可解析: ${app.max_memory_restart}（支持 1024/1K/1M/1G 整数形态）`);
   if (Number.isFinite(heap) && Number.isFinite(rss)) {
     rss >= heap * 1024 * 1024 + 384 * 1024 * 1024 || fail(`RSS 口径：max_memory_restart(${app.max_memory_restart}) 必须 ≥ old-space(${heap}M)+384M（Yjs 外部内存余量）`);
-    rss <= 1900 * 1024 * 1024 || fail('max_memory_restart 超 1.9GB 物理粗线');
+    rss <= 1900 * 1024 * 1024 || fail(`max_memory_restart(${app.max_memory_restart}) 超 1.9GB 物理粗线`);
   }
   isAbsolute(app.env?.COLLAB_SPOOL_DIR ?? '') || fail('COLLAB_SPOOL_DIR 必须绝对路径');
   app.env?.COLLAB_BIND_ADDR === '127.0.0.1' || fail('COLLAB_BIND_ADDR 必须 127.0.0.1（P25）');
   // NODE_ENV 禁令（Y0.5/E58 落地才解禁）+B25：GIT_COMMIT_HASH 移出白名单（它来自 shell 注入非 env{}）
   const ENV_ALLOWLIST = new Set(['COLLAB_SPOOL_DIR', 'COLLAB_BIND_ADDR']);
   for (const k of Object.keys(app.env ?? {})) ENV_ALLOWLIST.has(k) || fail(`env 键 ${k} 不在白名单（禁密钥进 ecosystem——env 走服务器 .env）`);
-  typeof app.script === 'string' && isAbsolute(app.cwd) || fail('script/cwd 形态');
+  typeof app.script === 'string' || fail(`script 形态：${app.script}（必须字符串）`);
+  typeof app.cwd === 'string' && isAbsolute(app.cwd) || fail(`cwd 形态：${app.cwd}（必须绝对路径）`);
   /pm2 [^#]*--kill-timeout/.test(deploySrc) && fail('deploy.sh 残留 pm2 --kill-timeout 内联（契约 9：ecosystem 唯一源）');
   // P43 调用图断言（提取失败本身即 fail）
   const cutover = extractBashFunction(deploySrc, 'cutover_api');
@@ -67,7 +75,7 @@ export function checkEcosystem(app, deploySrc) {
   dApi || fail('deploy_api() 提取失败（定义缺失或未闭合）');
   dFull || fail('deploy_full() 提取失败（定义缺失或未闭合）');
   prov || fail('provision_tarball() 提取失败（v4.2/P48：未定义函数被 AND-OR 吞=首次 full 半铺底继续跑——定义缺失即红）');
-  rollbackFn || fail('rollback_api() 提取失败');
+  rollbackFn || fail('rollback_api() 提取失败（定义缺失或未闭合——禁静默过）');
   (deploySrc.match(/^cutover_api\(\)/gm) ?? []).length === 1 || fail('cutover_api 定义必须恰 1 处');
   if (cutover) /GIT_COMMIT_HASH=/.test(cutover) || fail('cutover_api 必须注入 GIT_COMMIT_HASH=（+3 溯源行为锚）');
   if (dApi) /cutover_api\b/.test(dApi) || fail('deploy_api 函数体必须调用 cutover_api');

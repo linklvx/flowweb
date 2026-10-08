@@ -23,3 +23,7 @@ apps/web/playwright-report/
 /.pnpm-store/
 # Y0a-3 V27：test:int:ci 的 JSON 报告产物（CI/本地校验脚本消费，不入库）
 apps/api/int.json
+# Y0a-4：部署链标记文件（guard 状态/预检收据/lockfile 指纹——服务器语义锚，不入库）
+.deploy-guard-state.json
+.preflight-*.ok
+.installed-lock-sha

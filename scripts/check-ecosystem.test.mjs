@@ -51,6 +51,10 @@ test('提取器自测：多行/嵌套大括号/单行体/未闭合与缺失=提�
   // 注释剥离只作用于配平计数，返回体保真原行——若注释 { 被计入配平则 depth 失衡=提取失败=''，match 必失败
   assert.match(extractBashFunction(inlineCmt, 'h'), /# 行尾注释含 \{ 括号/);
 });
+test('I-1 末行守卫：引号内孤立 } 提前截断→末行是含 } 的命令行非独立 }→返回 \'\'（fail-closed 防 export 扫描面收窄）', () => {
+  const quoted = ['f() {', '  echo "}"', '  x', '}'].join('\n');
+  assert.equal(extractBashFunction(quoted, 'f'), '');
+});
 test('RSS 口径（512M 堆+384M>700M 线）', () => {
   assert.ok(checkEcosystem({ ...okApp, max_memory_restart: '700M' }, okDeploy).some((e) => e.includes('RSS 口径')));
 });

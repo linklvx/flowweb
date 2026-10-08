@@ -50,6 +50,9 @@ jobs:
       - run: pnpm verify
       # api eslint（批0e-3 起 verify 未含 api lint，单独一步挂门禁）
       - run: pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
+      # Y0a-4：deploy.sh 语法校验（CI 承载跨平台兜底——本地也可用 Git for Windows 真 bash -n）
+      - name: deploy.sh 语法校验（Y0a-4——bash -n 跨平台承载）
+        run: bash -n deploy.sh
 
   # 第八轮拆分：文档门禁独立 job——verify && 链内 doc-gate 的红会掩掉下游测试信号、自身红绿也被
   # flaky 噪声吞掉（TD-26②）；required check 粒度需单独可读（test+doc-gate 双 required=机制+强制）。
