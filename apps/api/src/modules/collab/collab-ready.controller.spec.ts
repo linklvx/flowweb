@@ -113,11 +113,14 @@ describe('CollabReadyController', () => {
       expect(() => guard.canActivate(ctxFor({}))).toThrow(/fail-closed/);
     });
 
-    it('设 PROMETHEUS_TOKEN：header 命中→放行；失配→403', () => {
+    it('Y0a-4/W23 换装：仅设 PROMETHEUS_TOKEN 不再授予 drain 权（fail-closed）；失配→403', () => {
       process.env.NODE_ENV = 'test';
+      delete process.env.COLLAB_ADMIN_TOKEN;
       process.env.PROMETHEUS_TOKEN = 'tok';
       const guard = new CollabAdminAuthGuard();
-      expect(guard.canActivate(ctxFor({ 'x-prometheus-token': 'tok' }))).toBe(true);
+      expect(() => guard.canActivate(ctxFor({ 'x-prometheus-token': 'tok' }))).toThrow();   // 监控令牌≠停机权（不回退）
+      process.env.COLLAB_ADMIN_TOKEN = 'adm';
+      expect(guard.canActivate(ctxFor({ 'x-prometheus-token': 'adm' }))).toBe(true);
       expect(() => guard.canActivate(ctxFor({ 'x-prometheus-token': 'nope' }))).toThrow();
     });
 

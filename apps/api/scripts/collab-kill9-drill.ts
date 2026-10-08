@@ -3,6 +3,7 @@
 //   --mode=kill9-normal ：停写→双模式 barrier（docs===0∧batches===0 持续 ≥3s）→kill -9→重启→重放 ⊇ 已接受集
 //   --mode=kill9-fault  ：DB 触发器拒 INSERT→批入 spool→barrier（+spoolBytes 连续采样不变）→kill -9→drop 触发器→重启回灌→重放 ⊇
 //   --mode=sigterm [--spool-fail]：drain 前置断言（G-2a ii）→SIGTERM→关停日志断言（drain_complete pending 全 0 或 undrained 与 storeInFlight 一致）
+//   Y0a-4/W23：drain 权走独立停机令牌——env 同注 COLLAB_ADMIN_TOKEN（部署链预演真实形态）；/metrics 探针仍 PROMETHEUS_TOKEN（监控令牌职责不变）
 //   --mode=handover [--graceful|--usurp]（Z25/W16 三变体）：A 持租约写 N 键→B 起（同库同 spool 根+同 wsPort——
 //     P17 固定端口，否则 B listen 永远成功、listener 让位断言落空）→接管触发→B 接管（租约+listener+回灌）→
 //     键集 ⊇。基础/kill9：kill -9 A→B 于 TTL+ε（TTL=2000 确定性 ~2-3s）接管；--graceful：A SIGTERM（默认
@@ -108,7 +109,7 @@ async function startServer(env: Record<string, string>, fixedWsPort?: number): P
   const child = spawn(process.execPath, [DRILL_ENTRY], {
     env: {
       ...process.env, ...env,
-      DRILL_HTTP_PORT: String(port), COLLAB_PORT: String(wsPort), PROMETHEUS_TOKEN: token, COLLAB_DEBOUNCE: '300',
+      DRILL_HTTP_PORT: String(port), COLLAB_PORT: String(wsPort), PROMETHEUS_TOKEN: token, COLLAB_ADMIN_TOKEN: token, COLLAB_DEBOUNCE: '300',
       // X3/V21：skip 不可省（占位只过 zod——MinioModule 仍 ensureBucket 3 重试后 throw=listen 永不执行）
       MINIO_INIT: env.MINIO_INIT ?? 'skip',
       MINIO_ENDPOINT: 'http://127.0.0.1', MINIO_ACCESS_KEY: 'drill', MINIO_SECRET_KEY: 'drill-secret',
