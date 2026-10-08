@@ -208,3 +208,26 @@ Ver Cluster Port Status Owner    Data directory              Log file
 **定稿推荐**：`--max-old-space-size=512`、`max_memory_restart: 1024`（1G）。
 
 现网对照（基线）：`--max-old-space-size=384`、max_memory_restart 未启用（堆失控时靠内核 OOM kill）、kill_timeout 默认 1600ms、fork/1 实例、uptime 51D 内重启 312 次（unstable=0，重启均为部署驱动）——ecosystem.config.cjs 切换后上述四项全部显式化。
+
+---
+
+## 附录：Y0a-4 部署执行记录（2026-10-08）
+
+**两次部署全链（run#1 8d5704b4 收据形态补落 / run#2 全链证据）**：
+
+- run#2 drain pre pass（JSON 一行）：`{event:'deploy_drain_pre_pass', pending:{projects:0,batches:0,spoolFiles:0,spoolBytes:0}, totalPre:0, epochPre:1}`——pre 125ms；own 四零维持（SV11）
+- run#2 drain post pass：`{event:'deploy_drain_post_pass', pending:{projects:0,batches:0,spoolFiles:0,spoolBytes:0}, totalPost:0, epoch:2}`——post 53ms（epoch 1→2 递增）
+- ready barrier 5s→3001 listening→collab-smoke OK（双客户端互见+全新 Y.Doc 重放 PG）→部署完成
+- **溯源**：dist/build-info.json=8d5704b4≡本地 HEAD（cutover ④ sha256 锚绑定）；pm2_env 口径实测不成立——pm2 8.0.0 剔除 GIT_* 前缀 shell env（显式 export+--update-env 后 pm2_env 与 /proc environ 均无 GIT_COMMIT_HASH）
+- **绑定面**：`ss -tlnp` 仅 127.0.0.1:3001（无公网暴露）
+- **NODE_ENV 两列制**：迁移前 /proc=production；startOrReload 后 /proc=production（无变化）
+- **备份恢复验证**：restore 零错+projects=39/users=10 往返一致+scratch 库清理（CanvasDoc=0 属实——服务器本无 Yjs 文档）
+- **公网面**：主页 200 / drain POST 403（deny 生效）/ ready 200
+- **pm2 jlist 基线**：fork_mode / instances 1 / kill_timeout 45000 / status online / restart_time 314→315
+
+**服务器环境变更**：
+
+- Node 20.20.2→**22.23.3**（nodesource node_20.x→22.x——WebSocket 原生启用；T12 实测冒烟挂 `WebSocket is not defined` 根修；CI node-version=22 一致）
+- 服务器 .env CRLF 混合行尾（29/52 行）→统一 LF（备份 `.env.bak-crlf-1791454889`）——bash 直读 DSN/MINIO 断言 \r 污染根除
+- DB 迁移历史 baseline+重放：_prisma_migrations 原 1 条 0 步 failed 残留（db push 时代遗产，31 表无 teamId/role/Y0a 表）→init applied baseline+重放 23 迁移；9 轮迭代修复撞点（CanvasProject 37 行无主项目回填首个用户团队/teamId 预置/SubscriptionPlan storageLimitBytes 20GiB 默认/Folder 手工补建/Template status 占位列+TemplateStatus 占位 enum）+迁移链与 schema 固有 gap 24 行直接执行（squash 遗产——Template folderId 等）；每用户造个人团队（t-mig-*/OWNER）+全表 teamId 回填
+- migrations 目录新旧混杂清理：tar 解包只覆盖不清理——44 个含 20 个已删老迁移→清除+全量重传镜像（**部署链缺陷登记 Y0.5：deploy_api 上传 prisma 前应清远端 migrations 目录**）

@@ -126,9 +126,9 @@
 
 **E45（注册表准入）**：maxLoadedDocs/装载队列/单 doc 字节上限/LRU/RSS 软阈/内存表清理/上限进 env zod〔**v2 降级执行（用户裁定）**：本批只留 **lastCompactAt 清理**（真泄漏，3 行）+ **env 预留默认关闭**（COLLAB_MAX_LOADED_DOCS=0=不限，仅 zod 解析无消费逻辑）；**准入 deny/LRU/RSS 软阈/字节上限整块移交 Y1c-3**（与 D7 预算同批，数值才有依据；库锚 A2/A5 证明无连接 doc 会被自动卸载，常驻内存场景当期不存在）；"kill -9 前内存曲线落档"降可选〕。
 
-**E46（进程定义入库+连接池）**：ecosystem/kill_timeout 45000/DATABASE_URL connection_limit/pool_timeout/旁路 PrismaClient 清或纳管〔**Y0a-4 执行**；main.ts preload=显式登记保持现状（短暂实例用后即断）；auth.ts:10=循 authRedis 受管先例纳管；**内存档位数值=实测前置**（服务器画像 free -m/ps rss 落档后定，结构约束写死：RSS 软阈（若启用）<max_memory_restart；v1 的 1.2GB 软阈>1G 硬重启线=死代码，v2 废弃该组数）〕。
+**E46（进程定义入库+连接池）**：ecosystem/kill_timeout 45000/DATABASE_URL connection_limit/pool_timeout/旁路 PrismaClient 清或纳管〔**Y0a-4 执行**；main.ts preload=显式登记保持现状（短暂实例用后即断）；auth.ts:10=循 authRedis 受管先例纳管；**内存档位数值=实测前置**（服务器画像 free -m/ps rss 落档后定，结构约束写死：RSS 软阈（若启用）<max_memory_restart；v1 的 1.2GB 软阈>1G 硬重启线=死代码，v2 废弃该组数）〕。**〔Y0a-4 执行注记（2026-10-08 收口）：ecosystem 入库+check-ecosystem 锚（fork/1 实例/45000/SIGTERM/RSS 口径 fail-closed/env 白名单/契约 9 无内联）+deploy.sh startOrReload 幂等（删 delete+start 换 update-env）；authPrisma 纳管（AuthModule.onApplicationShutdown $disconnect，行为断言）；main.ts preload 实为 catch disconnect 收口（B30——非仅登记，已显式收口）；连接池参数落 runbook §2。三客户端事实（PrismaService/authPrisma/preload 临时）——单例化三驳维持（每实例独立连接本就≤3+fork 单实例，池治理收益不抵改造成本）+Y0.5 连接池治理重评登记〕**
 
-**E69（门禁强制基底〔v8-G〕，本批取②③⑥⑦）**：①⑤ 0 号已落地 ✓；②migrate deploy 已进部署链+**本批补 deploy_api 上传面 prisma+scripts 两目录**〔Y0a-4〕；③collab-core PR 必跑 job（零 MinIO）〔**Y0a-4，v2 修订：只跑增量**——int 用例+kill -9/SIGTERM 演练+fail-fast+库锚+对抗语料+双 client 装置；不重跑 verify 已含的 mock 套件（防"collab 绿"双源漂移）；演练用轮询等待非固定 sleep（防 required check 抖红）〕；⑥post-deploy 冒烟〔**Y0a-4，v2 修订**：/api/ready 轮询（60s）+对**既有 seed 项目**一次只读 readCanvas 往返（marker doc 因 FK 必败，弃）；执行链路冒烟挂 Y0b（资金路径批后有意义）〕；⑦每门标注〔§6〕。
+**E69（门禁强制基底〔v8-G〕，本批取②③⑥⑦）**：①⑤ 0 号已落地 ✓；②migrate deploy 已进部署链+**本批补 deploy_api 上传面 prisma+scripts 两目录**〔Y0a-4〕；③collab-core PR 必跑 job（零 MinIO）〔**Y0a-4，v2 修订：只跑增量**——int 用例+kill -9/SIGTERM 演练+fail-fast+库锚+对抗语料+双 client 装置；不重跑 verify 已含的 mock 套件（防"collab 绿"双源漂移）；演练用轮询等待非固定 sleep（防 required check 抖红）〕；⑥post-deploy 冒烟〔**Y0a-4，v2 修订**：/api/ready 轮询（60s）+对**既有 seed 项目**一次只读 readCanvas 往返（marker doc 因 FK 必败，弃）；执行链路冒烟挂 Y0b（资金路径批后有意义）；**Y0a-4 执行注记（P21 裁定）：实际形态=ready 轮询+双客户端冒烟（collab-smoke——两 DirectConnection 互见+PG 重放断言），强于 v2 修订的只读单程；维持 P21 裁定不回退**〕；⑦每门标注〔§6〕。
 
 **E70（对抗语料）**：shared doc 生成器+读者全函数〔**Y0a-1 最小版执行**：生成器（种子化）+api 侧读者（readRecordsFromMaps/ensureSchemaVersion/toDocLike）全函数断言；随机交错收敛 harness→Y1a；web 投影读者→Y2 随投影出口接入〕。
 
@@ -216,7 +216,7 @@
 | 准入 deny/LRU/RSS 软阈/单 doc 字节上限/server-busy reason 码 | **Y1c-3**（与 D7 预算同批；本批 env 预留默认关闭零消费） | 移交+登记（**上游 E45 范围变更，回填 v8 目录**） |
 | 随机交错收敛属性测试 harness | **Y1a**（E70 完整版） | 移交 |
 | web 投影读者对抗语料接入 | **Y2**（随投影出口） | 移交 |
-| 前端消费：计费类 503 fail-closed 提示、新 close/reason 终端 UX 映射、server-busy 分型、ready 驱动的重启中视图（含 10s synced 死线改造） | **Y0b**（E24 四档终端 UX）——**硬依赖**：Y0a 落地后 Y0b 落地前，服务端新信号是哑的（客户端按通用错误处理）；计划内重启已有 1012 短退避先例（canvasCollabRuntime:837-847），真缺口=崩溃路径 | 硬依赖登记 |
+| 前端消费：计费类 503 fail-closed 提示、新 close/reason 终端 UX 映射、server-busy 分型、ready 驱动的重启中视图（含 10s synced 死线改造） | **Y0b**（E24 四档终端 UX）——**硬依赖**：Y0a 落地后 Y0b 落地前，服务端新信号是哑的（客户端按通用错误处理）；计划内重启已有 1012 短退避先例（canvasCollabRuntime:837-847），真缺口=崩溃路径 **〔Y0a-4 执行注记：Y0b pre-real-user 一级阻断项=客户端消费 write-frozen 通告+计费类 503 语义化；1012 短退避已消费（canvasCollabRuntime 先例在）勿重做〕** | 硬依赖登记 |
 | yjs_unflushed/spool 告警路由、doc bytes 去重口径标注、Sentry/HTTP RED 观测收口 | **Y0b**（E54；本批指标=事后取证+启动自检） | 移交 |
 | D1 已知风险接受记录承接 | **Y0b spec 必写**："删除在途窗口可能按陈旧节点集计费，fail-closed 不覆盖此盲区"（E49③ 要求 Y0 链登记——本 spec 代登记，Y0b spec 正式落档） | 代登记 |
 | withDoc 驻留优化（disconnect{unloadImmediately:false}+空闲回收器） | **Y0c/Y2**（E14；v2 裁定不前移——spool 已覆盖失败路径，驻留是性能优化非正确性） | 移交 |
@@ -484,12 +484,12 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
   1. prisma 直插**自建哨兵行**（`smoke-<ts>` 前缀的 user/team/CanvasProject 全链——与 §1.6"int 用例自建 FK 行"同一纪律，自包含不依赖 seed）；
   2. DirectConnection 写 marker 节点→断开（触发 store）；
   3. **构造全新 Y.Doc 重放 DB（state+seq>stateSeq）断言 marker 存在**——证明数据真落 PG（绕过内存 doc）→删除哨兵行（Cascade 清理）。
-  附带 /api/ready 轮询（60s 超时）；执行链路冒烟挂 Y0b。
+  附带 /api/ready 轮询（60s 超时）；执行链路冒烟挂 Y0b。**〔Y0a-4 执行注记：实际形态=collab-smoke 双客户端（两 provider 各建 DirectConnection）互见+全新 Y.Doc 重放 PG；DirectConnection 直连服务器内嵌 WS 端口仅进程内可达——跨进程（冒烟脚本独立进程）走 provider 网络路径，白盒"直插服务器 documents Map"不可达；服务器 Node≥22 前置（provider 用原生 WebSocket，Node 20 无——cutover ⓪ 双门断言）〕**
 - **部署拒重启（v2.4 改"先 drain 再判据"三步——原"重启前 curl ready 判 batches===0"无前置停写阶段：活跃编辑下去抖窗口内必有 pending 批→判据稳态不可达→每次 exit 1→force-restart 沦为日常=门禁失效）**：deploy.sh 重启前**服务器侧**：
   1. `curl -X POST -H "x-prometheus-token: …" 127.0.0.1:3000/api/drain`——进入 draining（**POST /api/drain=唯一停止写入入口，v2.5/SV12**——Nest dispose 先于模块 shutdown，SIGTERM 后 ready 不可达，停写只能发生在 SIGTERM 之前；停收新写+冻结既有连接；**60s 未收到 SIGTERM 自动解除，防部署链中止留只读僵尸**；端点不可达=版本过旧未含 Y0a-3，首次部署跳过本步直接 restart——runbook 注明）；
   2. 轮询 `GET /api/ready`（预算 ≤15s=TTL+maxDebounce+余量；**draining 档 503 属预期，判据读响应体不读状态码**）：判据=**own 口径四零**（v2.5/SV11：`pending.projects===0 ∧ pending.batches===0 ∧ pending.spoolFiles===0 ∧ pending.spoolBytes===0`——pending=own 分区，本实例 drainable 账）；**stranded>0 仅 WARNING 不拒**（v2.5/SV4：外来段 boot 收养即消化，不属本实例账）；ready reason=`spool-unwritable` 时批无法入账、drain 必然超时→直接拒+打印 reason；
   3. 达标→`pm2 restart`（SIGTERM→§2.4 关停六步：pending 已空，drain 秒过）；超预算→打印 pending 清单+exit 1；逃生阀 `./deploy.sh api --force-restart`（打印 `WARNING: N batches at risk` 后继续——真实逃生阀非日常）。
-  堵"PG 故障期部署=丢整段"人因窗口（spool 之外第二道防线）。
+  堵"PG 故障期部署=丢整段"人因窗口（spool 之外第二道防线）。**〔Y0a-4 执行注记：三步落地形态——drain 拒重启进 deploy-guard（`--allow-legacy` 显式档放行"版本过旧无 drain 端点"的首次部署，无显式档默认必拒）；pre 段排空预算 90s（P40——spec 原型 15s 对"spool 段待消化"场景余量不足，实测放宽）；post 段 P15（ready 轮询+3001 端口双验）；排空判据=own 口径四零维持 SV11 不变〕**
 - **nginx 站点配置 snippet 入库**（deploy/nginx/ 或 docs/deploy/）——v2.1 补齐 `/collab` 的 `proxy_read_timeout`（心跳/长连接）与 `proxy_buffering off`（WS 帧不缓冲），两项现状只存在于服务器。
 
 **4.5 collab-core CI job（E69③；required check；v2.1 补 migrate deploy+执行条数断言）**
@@ -499,7 +499,7 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 
 **4.6 env zod 收口（D-12）**
 
-新增参数（LEASE_TTL/HEARTBEAT/SPOOL_DIR/MAX_LOADED_DOCS 预留——**v2.5/SV2：FORCE_TAKEOVER 不再立项**，夺锁唯一路径=break-glass 运维脚本）+既有 `COLLAB_PORT/COLLAB_DEBOUNCE/COLLAB_TIMEOUT/COLLAB_SWEEP_ENABLED/COMPACT_INTERVAL_MS` 一并进 config/env.ts zod（同批收口，消灭第三套 env 读法）。
+新增参数（LEASE_TTL/HEARTBEAT/SPOOL_DIR/MAX_LOADED_DOCS 预留——**v2.5/SV2：FORCE_TAKEOVER 不再立项**，夺锁唯一路径=break-glass 运维脚本）+既有 `COLLAB_PORT/COLLAB_DEBOUNCE/COLLAB_TIMEOUT/COLLAB_SWEEP_ENABLED/COMPACT_INTERVAL_MS` 一并进 config/env.ts zod（同批收口，消灭第三套 env 读法）。**〔Y0a-4 执行注记：落地形态=zod 全收口+真键名实证（`COMPACT_INTERVAL_MS` 真键——collab-env-single-source.spec 双向结构锚：zod schema 键集≡ecosystem env 键集）；空串语义 B13（ecosystem env 值空串=未设置，zod `.optional()` 等价处理）；豁免表=COLLAB_FAKE_AI→Y0b（fake AI 开关）、COLLAB_MAX_LOADED_DOCS→Y1c-3（准入上限，本批 env 预留零消费）〕**
 
 **4.7 复审登记（Y0a-2 Task 5 复审遗留，随本批收口）**
 
@@ -529,7 +529,18 @@ auth.ts:10 纳管：export `authPrisma`+AuthModule.onApplicationShutdown `$disco
 | Y0a-1 | 隔离性质用例绿（真 PG，**载体=collab-core int 步骤**——本子批即建最小 job）；库锚（实际集合=A1/A5/A6/A7/A8/A9，**独立最小 Server 承载**）绿；svDominates 纯函数单测锚绿（阳性+阴性对照）；stateSeq 精确赋值断言绿+updatedAt 回归断言绿；语料全函数绿（DocLike 工厂+真 Y.Doc 双路径）；装置提取后既有 collab 套件全绿（mock-repo 工厂切换）；verify-indexes.sql 新块绿（含冗余索引 NOT EXISTS 否定块）；**四条扫描门禁落**（装载唯一入口/compact await/stateSeq 唯一写者/append 唯一入口）；takeStash 搬移用例绿（第四条蒸发路径本批关闭）；dist 无 test-utils；doc-gate canonical 无漂移 |
 | Y0a-2 | **BOI 红→绿**（对 :276 splice-first 旧逻辑注入 spool 失败=丢批红相留档→copy-first 绿）；G-1/G-2 演练绿（**G-2a/G-2b 双判据口径，v2.4**）；quarantine 硬上限用例绿（坏帧不再阻塞 ready+**sidecar 形态段可回收**）；project.gone 清账+FK 兜底断言绿（**处理器零磁盘 I/O**）；mergeUpdates spy 红→绿；12 处 unflushed 断言改造完成；**pnpm verify 全绿** |
 | Y0a-3 | 删除面 census 清零+pin 三包绿（正则两条——见 §1.3 注）+锚重跑绿；G-3/G-3b/G-4 绿；gate-collab 切 ready（双验+TTL 预算）后全绿；读侧三分法用例绿（只读展示=readSnapshotOnly 仅 video-work.service:328/语义读+计费读=活读+租约门 503——v2.5/SV15）；心跳三态用例绿（unknown 不误隔离）+rejoin 状态机用例绿（revoked 不复得） |
-| Y0a-4 | 部署链 dry-run 全绿（preflight+migrate deploy+冒烟三步）；ecosystem+pm2 迁移一次成功+jlist 自证（M1 实测后）；collab-core required 生效（故意注入 failing spec 验证红+int 条数断言）；内存档位实测落档 |
+| Y0a-4 | 部署链 dry-run 全绿（preflight+migrate deploy+冒烟三步）；ecosystem+pm2 迁移一次成功+jlist 自证（M1 实测后）；collab-core required 生效（故意注入 failing spec 验证红+int 条数断言）；内存档位实测落档 **〔Y0a-4 执行注记（2026-10-08 全部达成）：①required TD-27 分支=机器强制已落地（分支保护 contexts=["collab-core"]+enforce_admins=false）——owner merge 绕过 required checks=GitHub admin 语义（T11 故意红 PR 实证被 owner 合并后已 revert 8d5704b4；硬强制路径=勾选 enforce_admins，代价=强制 PR 工作流，登记不改）；②备份恢复验证完成（restore 零错+projects 39/users 10 往返+scratch 清理）；③RTO 台账 run#2：drain pre 125ms/post 53ms/ready barrier 5s；④+3 溯源口径更正——pm2_env 口径不成立（pm2 8.0 实测剔除 GIT_* 前缀 shell env，显式 export+--update-env 后 pm2_env 与 /proc environ 均无 GIT_COMMIT_HASH）；产物口径满足：dist/build-info.json≡本地 HEAD+cutover ④ sha256 锚绑定；main.ts:68 Sentry release 保持 unknown（Sentry 未激活零实害；Y0.5 改名注入 FLOWWEB_GIT_SHA 或 ecosystem 承载）；⑤+5 total 口径：run#2 pre/post totalPre=0/totalPost=0〕** |
+
+**Y0a-4 执行新登记（跨批去向）**：
+
+| 项 | 去向 |
+|----|------|
+| pm2 剔除 GIT_* 前缀 shell env（pm2_env 溯源口径不成立——产物口径已满足） | **Y0.5**（GIT_COMMIT_HASH 改名 FLOWWEB_GIT_SHA 注入或 ecosystem env 承载） |
+| deploy_api 上传 prisma 前应清远端 migrations 目录（tar 解包只覆盖不清理——Y0a-4 实测服务器残留 20 个已删老迁移，已手工清理+全量重传镜像） | **Y0.5**（deploy_api 链缺陷修复） |
+| 服务器 .env CRLF 混合行尾（29/52 行——bash 直读断言 \r 污染根因；已修+备份 .env.bak-crlf-1791454889） | 已修；**Y0.5**（deploy_api 侧行尾卫生防复发） |
+| NODE_ENV 注入审计（E58；startOrReload 后 /proc=production 两列制无变化） | **Y0.5** |
+| PrismaClient 单例化重评（三客户端=PrismaService/authPrisma/preload 临时——单例化三驳维持） | **Y0.5**（连接池治理重评） |
+| 环境面：服务器 Node 已升 22.23.3（nodesource 20.x→22.x——WebSocket 前置；CI node-version=22 一致） | 已生效（cutover ⓪ 双门断言） |
 
 ### 4.2 回滚动作（revert 提交制；开发期回滚=`git revert`+`prisma migrate reset`，**不写 down 迁移**——Prisma 无标准 down 流程，为不存在的生产写 down=纯负债）
 
@@ -655,7 +666,7 @@ collab-core job（§3 Y0a-4.5，required）+既有 test/doc-gate/gitleaks 不变
 | 项 | 变更 | 落点 |
 |----|------|------|
 | 进程定义 | 内联参数→ecosystem.config.cjs 入库（fork/instances:1/kill_timeout 45000/SIGTERM） | Y0a-4 |
-| 内存上限 | max_memory_restart+old-space **实测后定**（服务器画像前置）；结构约束：软阈<硬重启线；准入上限移交 Y1c-3 | Y0a-4 |
+| 内存上限 | max_memory_restart+old-space **实测后定**（服务器画像前置）；结构约束：软阈<硬重启线；准入上限移交 Y1c-3 **〔Y0a-4 执行注记：T0 定稿 old-space=512/max_memory_restart=1G——spec 原型 768 被算式推翻（服务器实测 RSS 画像下 512 堆+余量结构）；RSS 口径 fail-closed（check-ecosystem 锚——软阈若启用必须 <1G）〕** | Y0a-4 |
 | 关停时长 | 10s→45s（SIGKILL 兜底——**v2.5/SV6：kill_timeout 45000 提前 Y0a-3 落 deploy.sh 内联两处，HTTP dispose 等在飞请求；ecosystem 归 Y0a-4 取同值**）；drain/flush/force-spool/释放的预算**单源=§2.4 预算表（v2.4——此处禁复述数字，原"≤5s"残留与 §2.4 双源矛盾）**；destroy race 保留为兜底 | Y0a-2/3 |
 
 ### 7.2 同步预算+库选项 pin（纪律 9）

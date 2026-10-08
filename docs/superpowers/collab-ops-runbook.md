@@ -10,7 +10,7 @@
 
 | 前置 | 判定方式 | T0 实测（server-profile） |
 |------|---------|--------------------------|
-| 服务器 Node ≥18（deploy-guard 用全局 fetch） | cutover ⓪ 内置断言（`typeof fetch==='function'`） | v20.20.2 ✓（[6]） |
+| 服务器 Node ≥22（fetch+WebSocket 双门——deploy-guard 用 fetch；collab-smoke 的 provider 用原生 WebSocket，Node 20 无→冒烟必挂 `WebSocket is not defined`） | cutover ⓪ 内置断言（`typeof fetch==='function'` + `typeof WebSocket==='function'` 双查） | v22.23.3 ✓（Y0a-4 T12 由 20.20.2 升级——nodesource 20.x→22.x） |
 | pg_dump 在位（cutover ② 迁移前备份） | cutover ② 直接执行，缺即失败 | /usr/bin/pg_dump 16.14 ✓（[6]） |
 | rsync（cutover ③.5 账本迁移加速） | 可选——缺失回退 `cp -a` | /usr/bin/rsync ✓（[6]） |
 | SSH 私钥 | 本地 `~/.ssh/flowweb_server` | deploy.sh 内置路径 |
@@ -88,8 +88,10 @@ spool 账本目录在**部署树外** `/home/ubuntu/flowweb-data/collab-spool`�
 ### 3.3 迁移 additive 纪律与 preflight 收据
 
 - **additive 双检**：本地（preflight 内）+ 服务器（cutover ③）各跑一次 `check-migration-additive.mjs`；BASELINE='20261007170319' 之后的迁移必须 additive（expand/contract）；收缩步骤（DROP 等）的豁免 = 同 commit 内抬高 BASELINE 常量并留注释。
-- **preflight 收据**：`.preflight-<SHA>.ok` 同 SHA 幂等复用（verify/int/migrate/additive 不重跑）；**gate-collab 不进收据**（有状态，每次部署都跑）。
+- **preflight 收据**：`.preflight-<SHA>.ok` 同 SHA 幂等复用（verify/int/migrate/additive 不重跑）；**gate-collab 不进收据**（有状态，每次部署都跑）。**收据的 CI 等价证据形态**（Y0a-4 run#1 实测登记）：本地全量 preflight 对偶 flaky（同 SHA 三轮各挂不同测试——persist-status/managed-redis/auth-reason，单跑全绿+CI 同 SHA 绿）时，收据可以"**CI 同 SHA 全绿**"为等价证据落（本例 CI run #25）——诚实登记，不复跑凑绿。
+- **pm2 溯源口径（Y0a-4 T12 实测）**：pm2 8.0.0 剔除 GIT_* 前缀 shell env——显式 export+startOrReload --update-env 后 pm2_env 与 /proc environ 均无 GIT_COMMIT_HASH，P34 的 pm2_env 口径不成立；溯源以**产物口径**满足（dist/build-info.json≡本地 HEAD+cutover ④ sha256 锚绑定）；main.ts:68 Sentry release 保持 unknown（Sentry 未激活零实害；Y0.5 改名注入 FLOWWEB_GIT_SHA 或 ecosystem 承载）。
 - **git 断言**：工作树不干净拒部署；HEAD 不在 origin/master 上（未经 CI）拒部署。
+- **migrations 目录上传缺陷（Y0.5 登记）**：deploy_api tar 解包对远端 prisma/migrations **只覆盖不清理**——Y0a-4 T12 实测服务器残留 44 个目录含 20 个已删老迁移（已手工清理+全量重传镜像）。修复去向=Y0.5（deploy_api 上传 prisma 前清远端 migrations 目录）。
 
 ### 3.4 失败复原（trap 三阶段）
 
@@ -150,7 +152,7 @@ Y0a 数据完整性设计与 Y0b 客户端感知必须同批上线（spec `2026-
 
 - **前置**：上次部署的状态文件 `.deploy-guard-state.json` 在且 SHA 一致（P39——post 段不删档）；无 `dist.prev` 时脚本报错退出，走完整路径。
 - **回滚不重跑 preflight、不回滚 migrate**：migrate 在 dist 切换之前执行，回滚 dist 不回滚 schema——schema 层问题必须走"恢复备份 + git revert 重新部署"。
-- **回滚后溯源 +3 语义**：pm2_env.GIT_COMMIT_HASH 来自被提升的 dist.prev 的 build-info.json（P46）——显示 ≠HEAD 的旧 SHA 是**正确状态**；dist.prev 无 build-info（早于 P46 的构建）时按 `unknown` 兜底。
+- **回滚后溯源 +3 语义（Y0a-4 口径更正）**：pm2 8.0 实测剔除 GIT_* 前缀 shell env——pm2_env.GIT_COMMIT_HASH 口径**失效**（P34/P46 的 pm2_env 读取路径不成立）；溯源以**产物口径**为准：`cat apps/api/dist/build-info.json`（cutover ④ sha256 锚绑定保证 ≡ 被提升 dist 的真实构建）——回滚后显示 ≠HEAD 的旧 SHA 是**正确状态**；dist.prev 无 build-info（早于 P46 的构建）时按 `unknown` 兜底。
 
 **完整路径**（代码缺陷需撤销提交时）：`git revert <sha> && ./deploy.sh api`（走完整 preflight 链）。
 
@@ -208,7 +210,7 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 | 记录点 | 命令 | 结果 |
 |--------|------|------|
 | 迁移前（T0 已记） | `sudo cat /proc/$(pm2 pid flowweb-api)/environ \| tr '\0' '\n' \| grep NODE_ENV` | production（server-profile [2]） |
-| 首次 startOrReload 后 | 同上 | 待 T12 回填 |
+| 首次 startOrReload 后（Y0a-4 T12 已记） | 同上 | production（无变化——会话 env 替换+dotenv 终层合成结果=production） |
 
 若首刷后 effective 值变化（会话 env 替换 + dotenv 终层的合成结果），=本批行为变更，按八读点逐条评估并记录：
 

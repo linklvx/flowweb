@@ -75,8 +75,8 @@ preflight() {
 # GIT_COMMIT_HASH 从产物 build-info.json 派生（P46——rollback 后自动说实话）；B25：--update-env 记录
 # 当前 shell 全量 env——部署会话禁 export 其他变量（cutover/rollback 体内 export 白名单锚）。
 cutover_api() {
-  echo "=== ⓪前置（Node≥18 fetch 门——deploy-guard 用全局 fetch，Node16 下 cutover ① 直接 TypeError 且症状酷似令牌/网络问题） ==="
-  ssh -i "$KEY" "$SERVER" 'node -e "process.exit(typeof fetch===\"function\"?0:1)" || { echo "服务器 Node<18——deploy-guard 不可用（runbook §0 前置条件）"; exit 1; }'
+  echo "=== ⓪前置（Node≥18 fetch+Node≥22 WebSocket 双门——deploy-guard 用 fetch；collab-smoke 的 provider 用原生 WebSocket（Node 20 无——Y0a-4 实测冒烟挂 WebSocket is not defined 后服务器已升 22） ==="
+  ssh -i "$KEY" "$SERVER" 'node -e "process.exit(typeof fetch===\"function\"?0:1)" && node -e "process.exit(typeof WebSocket===\"function\"?0:1)" || { echo "服务器 Node 不满足（需 ≥18 fetch/≥22 WebSocket）——runbook §0 前置条件"; exit 1; }'
 
   echo "=== ①部署拒重启三步（guard 写 .deploy-guard-state.json——epoch 经状态文件交接+全退出路径含 degraded+放行点基线收口） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA node scripts/deploy-guard.mjs $([[ $FORCE_RESTART == 1 ]] && echo --force) $([[ $ALLOW_LEGACY == 1 ]] && echo --allow-legacy)"
