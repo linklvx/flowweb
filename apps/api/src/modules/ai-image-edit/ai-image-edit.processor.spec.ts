@@ -9,7 +9,6 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { GenerationIntentService } from '../execution/generation-intent.service';
-import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { Job } from 'bullmq';
 
 // Mock axios
@@ -54,7 +53,7 @@ describe('AiImageEditProcessor', () => {
       callRedraw: vi.fn().mockResolvedValue({ url: 'https://dashscope.result/redraw.png' }),
     };
     teamCredit = {
-      reserve: vi.fn().mockResolvedValue({ success: true }),
+      reserve: vi.fn().mockResolvedValue({ success: true, mayCall: true }),
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
     };
@@ -77,8 +76,6 @@ describe('AiImageEditProcessor', () => {
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
         { provide: GenerationIntentService, useValue: intentService },
-        // Y0b-1：定价单源 resolver stub（kind 级 creditCost:1 对齐迁移 seed 值）
-        { provide: PricingResolverService, useValue: { resolveByNodeTypeKey: vi.fn().mockResolvedValue({ creditCost: 1 }) } },
       ],
     }).compile();
     processor = module.get<AiImageEditProcessor>(AiImageEditProcessor);
@@ -125,9 +122,9 @@ describe('AiImageEditProcessor', () => {
           }),
         }),
       );
-      // 批0.5-9 两阶段：reserve 外呼之前 + settle 外呼成功后
-      expect(teamCredit.reserve).toHaveBeenCalledWith('team1', 'user1', 1, { intentRowId: 'row-9', intentId: 'i-9' });
-      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
+      // 批0.5-9 两阶段：reserve 外呼之前 + settle 外呼成功后（Y0b-1 Z10 金额单源 intent 行——guard 仅带 intentRowId）
+      expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9' });
+      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
       expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callOutpainting.mock.invocationCallOrder[0]);
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
@@ -165,7 +162,7 @@ describe('AiImageEditProcessor', () => {
         'https://minio.local/bucket/key?token=abc',
         'https://minio.local/bucket/key?token=abc',
       );
-      expect(teamCredit.reserve).toHaveBeenCalledWith('team1', 'user1', 1, { intentRowId: 'row-9', intentId: 'i-9' });
+      expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9' });
       expect(teamCredit.settle).toHaveBeenCalledTimes(1);
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
@@ -258,7 +255,7 @@ describe('AiImageEditProcessor', () => {
 
       // 冻结在外呼前发生，失败即解冻（批0.5-9）
       expect(teamCredit.reserve).toHaveBeenCalledTimes(1);
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
       expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('API timeout'));
 
       // Must emit failure status
@@ -348,11 +345,11 @@ describe('AiImageEditProcessor', () => {
       });
     };
 
-    it('reserve 带 intentGuard {intentRowId, intentId}（约束① CAS 锚防 stalled 重排双冻结）', async () => {
+    it('reserve 带 intentGuard {intentRowId}（Y0b-1 Z10——金额单源 intent 行；约束① CAS 锚防 stalled 重排双冻结）', async () => {
       mockResult();
       await processor.process(makeIntentJob());
       expect(teamCredit.reserve).toHaveBeenCalledWith(
-        'team1', 'user1', 1, { intentRowId: 'row-9', intentId: 'i-9' },
+        'user1', { intentRowId: 'row-9' },
       );
     });
 
@@ -393,7 +390,7 @@ describe('AiImageEditProcessor', () => {
     it('catch 路径：void_ 解冻 + fail 置 FAILED + writeExecStatus error（意图终态必达）', async () => {
       apiCaller.callOutpainting.mockRejectedValue(new Error('AI timeout'));
       await expect(processor.process(makeIntentJob())).rejects.toThrow('AI timeout');
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
       expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('AI timeout'));
       expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ status: 'error', intentId: 'i-9' }),

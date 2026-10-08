@@ -47,12 +47,18 @@ export class TeamController {
   async listTransactions(@Param('id') id: string, @Query() query: { page?: string; pageSize?: string }) {
     const page = Number(query.page) || 1;
     const pageSize = Number(query.pageSize) || 20;
-    const where = { teamId: id };
+    // Y0b-1（T1b 质量审）：seq 为 BigInt 审计计数器——select 显式列集（web TeamDetail 只用
+    // createdAt/type/amount/creditType/balanceAfter+rowKey id），整行透传 JSON.stringify(BigInt) 500
+    // 契约 4：where 自有键 teamId 内联调用点（Y0b-1 扫描锚⑥——变量前置隔长注释=锚盲区）
     const [items, total] = await Promise.all([
       this.prisma.teamCreditTransaction.findMany({
-        where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
+        where: { teamId: id }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
+        select: {
+          id: true, type: true, amount: true, creditType: true,
+          balanceAfter: true, createdAt: true,
+        },
       }),
-      this.prisma.teamCreditTransaction.count({ where }),
+      this.prisma.teamCreditTransaction.count({ where: { teamId: id } }),
     ]);
     return { items, total };
   }

@@ -3,13 +3,17 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Inject, Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 import { grantToPersonalTeam } from './personal-team-ledger';
 
 @Processor('subscription-grant-credit')
 export class GrantCreditProcessor extends WorkerHost {
   private readonly logger = new Logger(GrantCreditProcessor.name);
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
+  ) {
     super();
   }
 
@@ -48,8 +52,10 @@ export class GrantCreditProcessor extends WorkerHost {
               data: { nextGrantDate: nextGrant, grantCount: { increment: 1 } },
             });
 
-            // 周期覆盖不滚存：旧池有剩余先清零（expire_clear 流水）再设值发放
-            await grantToPersonalTeam(tx, sub.userId, plan.monthlyCredits, 'expire_clear', sub.id);
+            // 周期覆盖不滚存：旧池有剩余先清零（expire_clear 流水）再设值发放。
+            // Y0b-1（三轮 Z24）：周期事件 id——回滚后 nextGrantDate 不变 ⇒ 同键重试天然幂等；下一期新键
+            const periodKey = sub.nextGrantDate.toISOString().slice(0, 10);
+            await grantToPersonalTeam(this.ledger, tx, sub.userId, plan.monthlyCredits, 'expire_clear', `${sub.id}:${periodKey}`);
           });
         } catch (err) {
           // 单个用户失败不得中止当日扫描（bootstrap 失败用户会拖垮全体）

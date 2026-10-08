@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AuthController } from './auth.controller';
 import { SESSION_COOKIE_OPTIONS } from './auth';
 
+// Y0b-1 Z23：getMe 补偿 bootstrap 的钱包建行+register_grant 经 CreditLedgerService
+const mockLedger = {
+  tx: (raw: any) => raw,
+  ensureBalance: vi.fn().mockResolvedValue(undefined),
+  lockBalance: vi.fn().mockResolvedValue(undefined),
+  mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 100 }),
+};
+
 describe('AuthController', () => {
   let controller: AuthController;
   let mockSvc: Record<string, any>;
@@ -50,6 +58,7 @@ describe('AuthController', () => {
     controller = new AuthController(
       mockSvc as any,
       mockPrisma as any,
+      mockLedger as any,
       mockRateLimiter as any,
       mockSmsService as any,
       mockRedis as any,
@@ -196,15 +205,13 @@ describe('AuthController', () => {
           create: vi.fn().mockResolvedValue({ id: 't1' }),
         },
         teamMember: { create: vi.fn() },
-        teamBalance: { create: vi.fn() },
-        teamCreditTransaction: { create: vi.fn() },
         materialFolder: { createMany: vi.fn().mockResolvedValue({ count: 5 }) },
         $transaction: vi.fn(async (fn: any) => fn(mockPrismaForBootstrap)),
       } as any;
       const mockRedis = { get: vi.fn(), del: vi.fn() };
 
       const ctrl = new AuthController(
-        mockSvc as any, mockPrismaForBootstrap, mockRateLimiter as any, mockSmsService as any, mockRedis as any,
+        mockSvc as any, mockPrismaForBootstrap, mockLedger as any, mockRateLimiter as any, mockSmsService as any, mockRedis as any,
       );
       await ctrl.getMe(req as any, mockRes as any);
 
@@ -364,7 +371,7 @@ describe('AuthController', () => {
       const req = { headers: {}, ip: '1.2.3.4' };
 
       const ctrl = new AuthController(
-        mockSvc as any, {} as any, mockRateLimiter as any, mockSmsService as any, spyRedis as any,
+        mockSvc as any, {} as any, mockLedger as any, mockRateLimiter as any, mockSmsService as any, spyRedis as any,
       );
 
       await ctrl.phoneLogin(

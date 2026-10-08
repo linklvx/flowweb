@@ -14,7 +14,7 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { GenerationIntentService, ClaimPricing } from './generation-intent.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { BusinessException } from '../../common/exceptions/business.exception';
-import { settleFailureTotal } from './intent-reconcile.metrics';
+import { settleFailureTotal, intentDuplicateAttemptTotal } from './intent-reconcile.metrics';
 
 @Injectable()
 export class ExecutionService {
@@ -155,7 +155,13 @@ export class ExecutionService {
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
           if (cost > 0) {
-            const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
+            const reserveResult = await this.teamCredit.reserve(userId, { intentRowId: intent.id });
+            if (reserveResult.mayCall === false) {
+              // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
+              intentDuplicateAttemptTotal.inc();
+              this.logger.warn(`[reserve] 意图 ${intent.intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
+              return { success: false, errors: [] };
+            }
             if (!reserveResult.success) {
               await this.onReserveFail(projectId, node, intent, `扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`);
               return { success: false, errors: [`节点 ${node.id}: 扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`] };
@@ -166,7 +172,7 @@ export class ExecutionService {
           results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
           if (cost > 0) {
-            const settled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
+            const settled = await this.teamCredit.settle({ intentRowId: intent.id });
             if (settled.success) totalDeducted += cost; // P8：已消费才计入——emit 的 totalCost=实扣真值（冻结≠消费）
             else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
           }
@@ -222,7 +228,13 @@ export class ExecutionService {
           await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
           if (vCost > 0) {
-            const vReserve = await this.teamCredit.reserve(project.teamId, userId, vCost, { intentRowId: intent.id, intentId: intent.intentId });
+            const vReserve = await this.teamCredit.reserve(userId, { intentRowId: intent.id });
+            if (vReserve.mayCall === false) {
+              // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
+              intentDuplicateAttemptTotal.inc();
+              this.logger.warn(`[reserve] 意图 ${intent.intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
+              return { success: false, errors: [] };
+            }
             if (!vReserve.success) {
               await this.onReserveFail(projectId, node, intent, `扣费失败：${vReserve.reason ?? 'RESERVE_FAILED'}`);
               return { success: false, errors: [`节点 ${node.id}: 扣费失败：${vReserve.reason ?? 'RESERVE_FAILED'}`] };
@@ -232,7 +244,7 @@ export class ExecutionService {
           const result = await this.apiCaller.callVideoGen(videoArgs);
 
           if (vCost > 0) {
-            const vSettled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
+            const vSettled = await this.teamCredit.settle({ intentRowId: intent.id });
             if (vSettled.success) totalDeducted += vCost; // P8：已消费才计入——emit 的 totalCost=实扣真值（冻结≠消费）
             else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
           }
@@ -296,7 +308,13 @@ export class ExecutionService {
         await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId }).catch(() => {}); // best-effort
 
         if (cost > 0) {
-          const reserveResult = await this.teamCredit.reserve(project.teamId, userId, cost, { intentRowId: intent.id, intentId: intent.intentId });
+          const reserveResult = await this.teamCredit.reserve(userId, { intentRowId: intent.id });
+          if (reserveResult.mayCall === false) {
+            // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
+            intentDuplicateAttemptTotal.inc();
+            this.logger.warn(`[reserve] 意图 ${intent.intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
+            return { success: false, errors: [] };
+          }
           if (!reserveResult.success) {
             await this.onReserveFail(projectId, node, intent, `扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`);
             return { success: false, errors: [`节点 ${node.id}: 扣费失败：${reserveResult.reason ?? 'RESERVE_FAILED'}`] };
@@ -308,7 +326,7 @@ export class ExecutionService {
         results.push({ nodeId: node.id, type: 'image', resultUrl: result.url });
 
         if (cost > 0) {
-          const settled = await this.teamCredit.settle({ intentRowId: intent.id, intentId: intent.intentId });
+          const settled = await this.teamCredit.settle({ intentRowId: intent.id });
           if (settled.success) totalDeducted += cost; // P8：已消费才计入——emit 的 totalCost=实扣真值（冻结≠消费）
           else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
         }
@@ -350,7 +368,7 @@ export class ExecutionService {
         // F13：意图终态必达——外呼/扣费抛错置 FAILED（SIGKILL 场景 process catch 不执行，由 processor failed 钩子兜底）
         // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），再置 FAILED（重试 rearm 后照常重新 reserve）
         if (claimed) {
-          await this.teamCredit.void_({ intentRowId: claimed.id, intentId: claimed.intentId })
+          await this.teamCredit.void_({ intentRowId: claimed.id })
             .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${claimed.intentId} void_ 解冻失败（reconcile 超龄兜底）: ${e}`));
           await this.intentService.fail(claimed.id, String(err));
         }

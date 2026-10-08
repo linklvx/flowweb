@@ -61,7 +61,7 @@ describe('ExecutionService', () => {
       callVideoGen: vi.fn().mockResolvedValue({ url: '/mock/video.mp4' }),
     };
     teamCredit = {
-      reserve: vi.fn().mockResolvedValue({ success: true }),
+      reserve: vi.fn().mockResolvedValue({ success: true, mayCall: true }),
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
       getBalanceView: vi.fn().mockResolvedValue({ credits: 95, subscriptionCredits: 0, total: 95, quota: 0, used: 0 }),
@@ -107,7 +107,7 @@ describe('ExecutionService', () => {
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
     expect(gateway.emitNodeStatus).toHaveBeenCalled();
-    expect(teamCredit.reserve).toHaveBeenCalledWith('t1', 'default-user', 5, { intentRowId: 'intent-1', intentId: 'i-1' });
+    expect(teamCredit.reserve).toHaveBeenCalledWith('default-user', { intentRowId: 'intent-1' });
     // 预校验传项目所属团队 id（账本换源 TeamBalance）
     expect(validation.validateAll).toHaveBeenCalledWith(expect.any(Array), 't1', 'default-user');
   });

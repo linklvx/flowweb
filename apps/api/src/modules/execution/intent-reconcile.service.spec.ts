@@ -5,6 +5,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { CreditLedgerService } from '../team/credit-ledger.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { currentPeriod } from '../team/team-credit.service';
@@ -21,6 +22,7 @@ const intent = (over: Record<string, unknown> = {}) => ({
   paramsHash: 'h1',
   status: 'RUNNING',
   jobId: null, // 默认同步路径（合法无 jobId）
+  teamId: 't1',
   creditsConsumed: 10,
   attempts: 1,
   resultRef: null,
@@ -31,7 +33,7 @@ const intent = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** 一条消费流水行（amount 负、referenceId=intent: 维度；Y0b-1 枚举删 consumption——终态流水即 settle） */
+/** 一条 settle 消费流水行（amount 负、referenceId=intent: 维度；Y0b-1 枚举删 consumption——终态流水即 settle） */
 const chargeRow = (over: Record<string, unknown> = {}) => ({
   id: 'tx-1',
   teamId: 't1',
@@ -39,7 +41,7 @@ const chargeRow = (over: Record<string, unknown> = {}) => ({
   amount: -10,
   type: 'settle',
   creditType: 'regular',
-  referenceId: 'intent:i1',
+  referenceId: 'intent:gi-1',
   balanceAfter: 90,
   ...over,
 });
@@ -52,7 +54,7 @@ const reserveRow = (over: Record<string, unknown> = {}) => ({
   amount: -10,
   type: 'reserve',
   creditType: 'regular',
-  referenceId: 'intent:i1',
+  referenceId: 'intent:gi-1',
   balanceAfter: 90,
   ...over,
 });
@@ -60,20 +62,29 @@ const reserveRow = (over: Record<string, unknown> = {}) => ({
 describe('IntentReconcileService（F12/F13 两档三查）', () => {
   let service: IntentReconcileService;
   let prisma: any;
+  let ledger: any;
   let queue: any;
   let imageEditQueue: any;
   let collabDoc: any;
   let redis: any;
 
   beforeEach(async () => {
+    ledger = {
+      tx: (raw: any) => raw,
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
+    };
     prisma = {
       generationIntent: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      teamCreditTransaction: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },
-      teamBalance: { update: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn().mockResolvedValue({ credits: 100, subscriptionCredits: 50 }) },
+      teamCreditTransaction: { findMany: vi.fn().mockResolvedValue([]) },
       teamMember: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       videoSeparateTask: { findMany: vi.fn().mockResolvedValue([]), update: vi.fn().mockResolvedValue({}) },
       canvasProject: { findMany: vi.fn().mockResolvedValue([]) },
-      // 退款事务：mock 透传 tx=prisma 直执回调（team-credit.service.spec 同款）
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      // Y0b-1 F1/Z6：chargeRows 改 anti-join $queryRaw（未被冲销行）；mock 默认零命中
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      // 退款/解冻事务：mock 透传 tx=prisma 直执回调（team-credit.service.spec 同款）
       $transaction: vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma)),
     };
     queue = { getJob: vi.fn().mockResolvedValue(null) };
@@ -86,6 +97,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         IntentReconcileService,
         { provide: PrismaService, useValue: prisma },
         { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: getQueueToken(EXECUTION_QUEUE_NAME), useValue: queue },
         { provide: getQueueToken(AI_IMAGE_EDIT_QUEUE_NAME), useValue: imageEditQueue },
         { provide: 'REDIS_CLIENT', useValue: redis },
@@ -105,7 +117,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('① 已扣+resultRef 非空 → SUCCEEDED 回填，零退款', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ resultRef: 'm-1' })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow()]);
+      prisma.$queryRaw.mockResolvedValue([chargeRow()]);
 
       await service.verifyActive();
 
@@ -113,41 +125,33 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         where: { id: 'gi-1', status: 'RUNNING' },
         data: { status: 'SUCCEEDED', completedAt: expect.any(Date) },
       });
-      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled(); // 无退款
+      expect(ledger.mutate).not.toHaveBeenCalled(); // 无退款
       expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
 
-    it('② 已扣无产物 → 退款事务四写：守卫 VOIDED+creditsConsumed 归零+refund 流水+monthlyUsed 回滚', async () => {
+    it('② 已扣无产物 → 退款事务（Z13 锁序 lockBalance 前置+守卫 CAS 补 creditsConsumed>0+refund mutate+monthlyUsed 回滚）', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent()]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow()]);
+      prisma.$queryRaw.mockResolvedValue([chargeRow()]);
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 }); // 守卫 CAS 拿到执行权
 
       await service.verifyActive();
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      // 写1：守卫式 CAS 二次判龄 + 归零（退款后同 intentId 重试 ⇒ consume CAS 门 where creditsConsumed:0 重开——F13 补强锚）
+      // Z13 锁序①：lockBalance 先于守卫 CAS
+      expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+      expect(ledger.lockBalance.mock.invocationCallOrder[0])
+        .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
+      // 写1：守卫式 CAS 二次判龄 + creditsConsumed>0 语义条件 + 归零（退款后同 intentId 重试 ⇒ consume CAS 门 where creditsConsumed:0 重开——F13 补强锚）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) } },
+        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) }, creditsConsumed: { gt: 0 } },
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: expect.any(Date) },
       });
-      // 写2：余额池回补（正向 increment——team-recharge 加钱形态）
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({
-        where: { teamId: 't1' },
-        data: { credits: { increment: 10 } },
+      // 写2：refund mutate（真值表 (+c,0)+reversesId 配对原 settle 行——Z6 反向记账轴）
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't1', operatorUserId: 'u1', type: 'refund', creditType: 'regular',
+        balanceDelta: 10, frozenDelta: 0, referenceId: 'intent:gi-1', reversesId: 'tx-1',
       });
-      // 写3：refund 逆向记账流水（amount 正、referenceId 同 intent: 维度）
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: {
-          teamId: 't1',
-          operatorUserId: 'u1',
-          amount: 10,
-          type: 'refund',
-          creditType: 'regular',
-          referenceId: 'intent:i1',
-          balanceAfter: 100,
-        },
-      });
-      // 写4：monthlyUsed 按意图行 userId 回滚（仅当月）
+      // 写3：monthlyUsed 按意图行 userId 回滚（仅当月）
       expect(prisma.teamMember.updateMany).toHaveBeenCalledWith({
         where: { teamId: 't1', userId: 'u1', monthlyPeriod: currentPeriod() },
         data: { monthlyUsed: { decrement: 10 } },
@@ -156,7 +160,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('③ 未扣 → VOIDED 免费放行（守卫同款），零退款流水', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ creditsConsumed: 0 })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([]); // 无扣费流水
+      prisma.$queryRaw.mockResolvedValue([]); // 无扣费流水
 
       await service.verifyActive();
 
@@ -164,13 +168,12 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) } },
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: expect.any(Date) },
       });
-      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
+      expect(ledger.mutate).not.toHaveBeenCalled();
       expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
-      expect(prisma.teamBalance.update).not.toHaveBeenCalled();
     });
 
     it('④ 退款幂等：同孤儿连续两轮，第二轮守卫 count=0 → 零新增流水零回滚', async () => {
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow()]);
+      prisma.$queryRaw.mockResolvedValue([chargeRow()]);
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 });
       // 两轮都扫到同一行（崩溃重扫窗口：行读在前、退款提交在后的竞态模拟）
       prisma.generationIntent.findMany.mockResolvedValue([intent()]);
@@ -178,14 +181,13 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       await service.verifyActive();
       await service.verifyActive();
 
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(1); // 只第一轮退
+      expect(ledger.mutate).toHaveBeenCalledTimes(1); // 只第一轮退
       expect(prisma.teamMember.updateMany).toHaveBeenCalledTimes(1);
-      expect(prisma.teamBalance.update).toHaveBeenCalledTimes(1);
     });
 
-    it('⑦ 退款两池拆分：逆向流水金额=原流水 credits/subscriptionCredits 各自值（非 creditsConsumed 单值）', async () => {
+    it('⑦ 退款两池拆分：refund mutate 金额=原流水 credits/subscriptionCredits 各自值（非 creditsConsumed 单值）', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ creditsConsumed: 10 })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([
+      prisma.$queryRaw.mockResolvedValue([
         chargeRow({ id: 'tx-s', amount: -3, creditType: 'subscription', balanceAfter: 47 }),
         chargeRow({ id: 'tx-r', amount: -7, creditType: 'regular', balanceAfter: 93 }),
       ]);
@@ -193,14 +195,14 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
       await service.verifyActive();
 
-      // 订阅池：increment 3 + refund amount 3（balanceAfter 回读值）
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { subscriptionCredits: { increment: 3 } } });
-      // 常规池：increment 7 + refund amount 7
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { credits: { increment: 7 } } });
-      const refundRows = prisma.teamCreditTransaction.create.mock.calls.map((c: any[]) => c[0].data);
-      expect(refundRows).toHaveLength(2);
-      expect(refundRows).toContainEqual(expect.objectContaining({ amount: 3, type: 'refund', creditType: 'subscription' }));
-      expect(refundRows).toContainEqual(expect.objectContaining({ amount: 7, type: 'refund', creditType: 'regular' }));
+      // 两池各自 refund mutate（reversesId 配对原行——事务内重读口径一致）
+      expect(ledger.mutate).toHaveBeenCalledTimes(2);
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        type: 'refund', creditType: 'subscription', balanceDelta: 3, reversesId: 'tx-s',
+      }));
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        type: 'refund', creditType: 'regular', balanceDelta: 7, reversesId: 'tx-r',
+      }));
       // monthlyUsed 回滚总额=两池合计
       expect(prisma.teamMember.updateMany).toHaveBeenCalledWith({
         where: { teamId: 't1', userId: 'u1', monthlyPeriod: currentPeriod() },
@@ -211,39 +213,38 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
     it('⑥ rearm 竞态：updatedAt 新鲜的 RUNNING 行守卫 count=0 → 零动作（where 含 updatedAt lt）', async () => {
       // 竞态模拟：扫描捕获行后、三查执行前，rearm 刷新了 updatedAt
       prisma.generationIntent.findMany.mockResolvedValue([intent({ updatedAt: new Date() })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow()]);
+      prisma.$queryRaw.mockResolvedValue([chargeRow()]);
       prisma.generationIntent.updateMany.mockResolvedValue({ count: 0 }); // 真库行为：新鲜行不匹配 where
 
       await service.verifyActive();
 
       const where = prisma.generationIntent.updateMany.mock.calls[0][0].where;
-      expect(where).toEqual({ id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) } });
-      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
+      expect(where).toEqual({ id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) }, creditsConsumed: { gt: 0 } });
+      expect(ledger.mutate).not.toHaveBeenCalled();
       expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
 
-    it('批0.5-9 ② reserve-only（有 reserve 无 settle）超龄 → 解冻非补记：VOIDED+reservedCredits 归零+反向 reserve 流水（非 refund——约束②）+monthlyUsed 回滚', async () => {
+    it('批0.5-9 ② reserve-only（有 reserve 无 settle）超龄 → 解冻非补记：VOIDED+reservedCredits 归零+release 冲销 mutate（reversesId 配对）+monthlyUsed 回滚', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ reservedCredits: 10 })]); // reserve 后进程死
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([reserveRow()]);
+      prisma.$queryRaw.mockResolvedValue([reserveRow()]);
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 }); // 守卫 CAS 拿到执行权
 
       await service.verifyActive();
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      // 守卫 CAS 判龄 + reservedCredits 归零（重试重 reserve 的 CAS 锚复位——约束①闭环）
+      // Z13 锁序①：lockBalance 先于守卫 CAS
+      expect(ledger.lockBalance.mock.invocationCallOrder[0])
+        .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
+      // 守卫 CAS 判龄 + reservedCredits>0 语义条件 + 归零（重试重 reserve 的 CAS 锚复位——约束①闭环）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) } },
+        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) }, reservedCredits: { gt: 0 } },
         data: { status: 'VOIDED', reservedCredits: 0, completedAt: expect.any(Date) },
       });
-      // 冻结额加回（冻结额不永久占用）
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({
-        where: { teamId: 't1' },
-        data: { credits: { increment: 10 } },
+      // release 冲销 mutate——约束②锚：type=release 非 refund（真值表 (+c,−c)+reversesId 配对原 reserve 行）
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't1', operatorUserId: 'u1', type: 'release', creditType: 'regular',
+        balanceDelta: 10, frozenDelta: -10, referenceId: 'intent:gi-1', reversesId: 'tx-r1',
       });
-      // 反向 reserve 流水——约束②锚：type=reserve 非 refund 正向记账
-      const rows = prisma.teamCreditTransaction.create.mock.calls.map((c: any[]) => c[0].data);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toEqual(expect.objectContaining({ type: 'reserve', amount: 10, creditType: 'regular', referenceId: 'intent:i1' }));
       expect(prisma.teamMember.updateMany).toHaveBeenCalledWith({
         where: { teamId: 't1', userId: 'u1', monthlyPeriod: currentPeriod() },
         data: { monthlyUsed: { decrement: 10 } },
@@ -252,7 +253,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('批0.5-9 ① isCharged 两阶段口径：reserve-only + resultRef → SUCCEEDED 回填零退款', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ resultRef: 'm-1', reservedCredits: 10 })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([reserveRow()]);
+      prisma.$queryRaw.mockResolvedValue([reserveRow()]);
 
       await service.verifyActive();
 
@@ -260,25 +261,25 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         where: { id: 'gi-1', status: 'RUNNING' },
         data: { status: 'SUCCEEDED', completedAt: expect.any(Date) },
       });
-      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
+      expect(ledger.mutate).not.toHaveBeenCalled();
       expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
 
-    it('批0.5-9 ② settle 后无产物 → refund 正向记账（只按 settle/consume 终态行，reserve 行不计——防双倍回滚）', async () => {
+    it('批0.5-9 ② settle 后无产物 → refund 正向记账（只按 settle 终态行，reserve 行不计——防双倍回滚；事务内重读只命中 settle）', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ creditsConsumed: 10, reservedCredits: 0 })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([
-        reserveRow(),
-        chargeRow({ id: 'tx-s1', type: 'settle' }),
-      ]);
+      // 首查（threeCheck）：reserve+settle 都命中；事务内重读（refund）：anti-join 查询只过滤 settle
+      prisma.$queryRaw
+        .mockResolvedValueOnce([reserveRow(), chargeRow({ id: 'tx-s1', type: 'settle' })])
+        .mockResolvedValue([chargeRow({ id: 'tx-s1', type: 'settle' })]);
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 });
 
       await service.verifyActive();
 
       // 一条 refund（amount=10=settle 行数额；reserve 行是冻结轨迹非终态账）
-      const rows = prisma.teamCreditTransaction.create.mock.calls.map((c: any[]) => c[0].data);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toEqual(expect.objectContaining({ type: 'refund', amount: 10 }));
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { credits: { increment: 10 } } });
+      expect(ledger.mutate).toHaveBeenCalledTimes(1);
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        type: 'refund', balanceDelta: 10, reversesId: 'tx-s1',
+      }));
       expect(prisma.teamMember.updateMany).toHaveBeenCalledWith({
         where: { teamId: 't1', userId: 'u1', monthlyPeriod: currentPeriod() },
         data: { monthlyUsed: { decrement: 10 } },
@@ -286,15 +287,14 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
     });
 
     it('批0.5-9 解冻幂等：同 reserve-only 孤儿连续两轮，第二轮守卫 count=0 → 零新增流水零回滚（崩溃重扫不双解冻）', async () => {
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([reserveRow()]);
+      prisma.$queryRaw.mockResolvedValue([reserveRow()]);
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 });
       prisma.generationIntent.findMany.mockResolvedValue([intent({ reservedCredits: 10 })]);
 
       await service.verifyActive();
       await service.verifyActive();
 
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(1); // 只第一轮解冻
-      expect(prisma.teamBalance.update).toHaveBeenCalledTimes(1);
+      expect(ledger.mutate).toHaveBeenCalledTimes(1); // 只第一轮解冻
       expect(prisma.teamMember.updateMany).toHaveBeenCalledTimes(1);
     });
   });
@@ -334,7 +334,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
     it('job failed → 走三查（已扣无产物 → 退款发生）', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ jobId: 'job-1' })]);
       queue.getJob.mockResolvedValue({ getState: vi.fn().mockResolvedValue('failed'), returnvalue: null });
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow()]);
+      prisma.$queryRaw.mockResolvedValue([chargeRow()]);
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 });
 
       await service.verifyActive();
@@ -342,13 +342,13 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: expect.any(Date) },
       }));
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(1);
+      expect(ledger.mutate).toHaveBeenCalledTimes(1);
     });
 
     it('job 不存在（removeOnComplete 清理歧义）→ 也走三查，禁"不存在即判死"单查', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ jobId: 'job-gone', creditsConsumed: 0 })]);
       queue.getJob.mockResolvedValue(undefined);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([]);
+      prisma.$queryRaw.mockResolvedValue([]);
 
       await service.verifyActive();
 
@@ -365,7 +365,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       await service.verifyActive();
 
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
-      expect(prisma.teamCreditTransaction.findMany).not.toHaveBeenCalled(); // 三查未进入
+      expect(prisma.$queryRaw).not.toHaveBeenCalled(); // 三查未进入
     });
   });
 
@@ -379,7 +379,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(imageEditQueue.getJob).toHaveBeenCalledWith('job-l');
       expect(queue.getJob).not.toHaveBeenCalled(); // execution 队列不被查——kind 已路由
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
-      expect(prisma.teamCreditTransaction.findMany).not.toHaveBeenCalled(); // 三查未进入
+      expect(prisma.$queryRaw).not.toHaveBeenCalled(); // 三查未进入
     });
 
     it("kind='outpaint' → ai-image-edit 队列 completed → SUCCEEDED 回填（resultRef 取 returnvalue.fileId——ai-image-edit 产物形状）", async () => {
@@ -401,7 +401,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
     it('kind 不在路由表（防御）→ 不猜队列，告警+落三查（未扣 → VOIDED 免费放行）', async () => {
       const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
       prisma.generationIntent.findMany.mockResolvedValue([intent({ kind: 'weird', jobId: 'job-x', creditsConsumed: 0 })]);
-      prisma.teamCreditTransaction.findMany.mockResolvedValue([]);
+      prisma.$queryRaw.mockResolvedValue([]);
 
       await service.verifyActive();
 

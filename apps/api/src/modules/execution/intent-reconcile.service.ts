@@ -1,9 +1,10 @@
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue, Job } from 'bullmq';
-import type { GenerationIntent, TeamCreditTransaction } from '@prisma/client';
+import type { GenerationIntent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { CreditLedgerService } from '../team/credit-ledger.service';
 import { currentPeriod } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
@@ -46,6 +47,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly imageEditQueue: Queue,
     @Inject('REDIS_CLIENT') private readonly redis: any,
@@ -128,11 +130,15 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** 三查裁决（批0.5-9 两阶段口径：isCharged=流水存在 reserve/settle 任一；
-   *  ②按冻结态分义——reserve-only → 解冻（unfreeze），已 settle → 退款（refund 正向记账）） */
+   *  ②按冻结态分义——reserve-only → 解冻（unfreeze），已 settle → 退款（refund 正向记账））。
+   *  Y0b-1（F1/Z6）：chargeRows 改 anti-join（未被冲销行）+台账锚 intentRowId（禁 intentId）+
+   *  teamId 过滤（F1 跨团队隔离）；row.teamId null 时空串=零命中兜底。 */
   private async threeCheck(row: GenerationIntent, cutoff: Date): Promise<void> {
-    const chargeRows = await this.prisma.teamCreditTransaction.findMany({
-      where: { referenceId: `intent:${row.intentId}`, type: { in: ['reserve', 'settle'] } },
-    });
+    const chargeRows = await this.prisma.$queryRaw<any[]>`
+      SELECT r.* FROM "TeamCreditTransaction" r
+      WHERE r."teamId" = ${row.teamId ?? ''} AND r."referenceId" = ${'intent:' + row.id}
+        AND r.type IN ('reserve', 'settle') AND r.amount < 0
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)`;
     if (chargeRows.length > 0 && row.resultRef) {
       // ①已扣+产物在（判据=resultRef）→ SUCCEEDED 回填
       await this.prisma.generationIntent.updateMany({
@@ -143,9 +149,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
     if (chargeRows.length > 0) {
       // ②分义：settle=终态账（无产物 → refund 正向记账）；
-      // reserve-only=冻结轨迹（→ 解冻+反向 reserve 流水，禁 refund——约束②防双倍回滚）
+      // reserve-only=冻结轨迹（→ 解冻 release 冲销，禁 refund——约束②防双倍回滚）
       const finalRows = chargeRows.filter((r) => r.type === 'settle');
-      if (finalRows.length > 0) return this.refund(row, finalRows, cutoff);
+      if (finalRows.length > 0) return this.refund(row, cutoff);
       return this.unfreeze(row, chargeRows, cutoff);
     }
     // ③未扣 → VOIDED 免费放行（creditsConsumed 本就 0；守卫同款防 rearm 竞态）
@@ -156,84 +162,73 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 未扣超龄——VOIDED 免费放行`);
   }
 
-  /** 批0.5-9 三查② reserve-only 解冻事务——结构同 refund（守卫 CAS 判龄+归零+两池拆分+monthlyUsed
-   *  回滚），差异：归零对象是 reservedCredits（reserve CAS 锚复位——重试照常冻结）；流水 type='reserve'
-   *  反向（amount 正）而非 refund（约束②：reserve 行非终态账，refund 正向记账会双倍回滚）。 */
-  private async unfreeze(row: GenerationIntent, reserveRows: TeamCreditTransaction[], cutoff: Date): Promise<void> {
+  /** 三查② reserve-only 解冻事务——Y0b-1（Z13/Z6）：锁序①lockBalance 先于 intent CAS（原首句 CAS 是无序根源）；
+   *  CAS 补 reservedCredits>0（rearm 二次退款窗口关闭）；冲销走 release（真值表 (+c,−c)+reversesId——
+   *  约束②禁 refund 正向记账防双倍回滚；reversesId @unique=双释放结构拒绝）；quota 回滚 Σ|release 行|。 */
+  private async unfreeze(row: GenerationIntent, reserveRows: any[], cutoff: Date): Promise<void> {
     const total = reserveRows.reduce((s, r) => s + Math.abs(r.amount), 0);
-    const done = await this.prisma.$transaction(async (tx) => {
+    const done = await this.prisma.$transaction(async (raw) => {
+      const tx = this.ledger.tx(raw);
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序——原首句 intent CAS 是无序根源）
       const guard = await tx.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff } },
+        where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff }, reservedCredits: { gt: 0 } },   // CAS 补 reservedCredits>0
         data: { status: 'VOIDED', reservedCredits: 0, completedAt: new Date() },
       });
       if (guard.count === 0) return false; // 已处理/并发已抢（幂等）
       for (const r of reserveRows) {
         const amt = Math.abs(r.amount); // reserve 流水 amount 为负——逆向取正
-        const isSub = r.creditType === 'subscription';
-        await tx.teamBalance.update({
-          where: { teamId: r.teamId! },
-          data: isSub ? { subscriptionCredits: { increment: amt } } : { credits: { increment: amt } },
-        });
-        const bal = await tx.teamBalance.findUnique({ where: { teamId: r.teamId! } });
-        await tx.teamCreditTransaction.create({
-          data: {
-            teamId: r.teamId!,
-            operatorUserId: row.userId,
-            amount: amt,
-            type: 'reserve', // 反向 reserve 流水——解冻语义，与 refund 分义
-            creditType: r.creditType,
-            referenceId: r.referenceId,
-            balanceAfter: isSub ? bal!.subscriptionCredits : bal!.credits,
-          },
+        await this.ledger.mutate(tx, {
+          teamId: r.teamId, operatorUserId: row.userId, type: 'release', creditType: r.creditType,
+          balanceDelta: amt, frozenDelta: -amt, referenceId: r.referenceId, reversesId: r.id,
         });
       }
       await tx.teamMember.updateMany({
-        where: { teamId: reserveRows[0].teamId!, userId: row.userId, monthlyPeriod: currentPeriod() }, // 仅当月回滚
+        where: { teamId: row.teamId!, userId: row.userId, monthlyPeriod: currentPeriod() }, // 仅当月回滚
         data: { monthlyUsed: { decrement: total } },
       });
       return true;
-    });
+    }, { timeout: 15_000, maxWait: 5_000 });
     if (done) {
       this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} reserve-only 无产物——VOIDED+解冻 ${total}（reservedCredits 归零，重试照常冻结）`);
     }
   }
 
-  /** 三查②退款事务（四写单 $transaction）——守卫 count===1 才在同一事务内回补；
-   *  creditsConsumed 归零=consume CAS 门（where creditsConsumed:0）不变量修复——退款后重试照常扣费。 */
-  private async refund(row: GenerationIntent, chargeRows: TeamCreditTransaction[], cutoff: Date): Promise<void> {
-    const total = chargeRows.reduce((s, r) => s + Math.abs(r.amount), 0);
-    const refunded = await this.prisma.$transaction(async (tx) => {
+  /** 三查②退款事务——Y0b-1（Z13/Z6）：锁序①+CAS 补 creditsConsumed>0 语义条件+事务内重读 settle 行
+   *  （防 threeCheck 事务外旧读）；逐 settle 行 refund（(+c,0)+reversesId——reversesId @unique=双退结构拒绝）；
+   *  creditsConsumed 归零=consume CAS 门修复——退款后重试照常扣费；quota 回滚 Σ|refund 行|。 */
+  private async refund(row: GenerationIntent, cutoff: Date): Promise<void> {
+    let total = 0;
+    const refunded = await this.prisma.$transaction(async (raw) => {
+      const tx = this.ledger.tx(raw);
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序）
       const guard = await tx.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff } },
+        where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff }, creditsConsumed: { gt: 0 } },
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: new Date() },
       });
       if (guard.count === 0) return false; // 已处理/并发已抢（幂等）
-      for (const r of chargeRows) {
-        const amt = Math.abs(r.amount); // 流水 amount 为负——逆向取正
-        const isSub = r.creditType === 'subscription';
-        await tx.teamBalance.update({
-          where: { teamId: r.teamId! }, // 消费流水行恒有 teamId（schema String? 是外键 SetNull 语义）
-          data: isSub ? { subscriptionCredits: { increment: amt } } : { credits: { increment: amt } },
-        });
-        const bal = await tx.teamBalance.findUnique({ where: { teamId: r.teamId! } });
-        await tx.teamCreditTransaction.create({
-          data: {
-            teamId: r.teamId!,
-            operatorUserId: row.userId,
-            amount: amt,
-            type: 'refund',
-            creditType: r.creditType,
-            referenceId: r.referenceId, // 同 intent: 维度——对账 join 键统一
-            balanceAfter: isSub ? bal!.subscriptionCredits : bal!.credits,
-          },
+      // 事务内重读（anti-join 未被冲销的 settle 行）
+      const settleRows = await tx.$queryRaw<any[]>`
+        SELECT r.* FROM "TeamCreditTransaction" r
+        WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + row.id}
+          AND r.type = 'settle' AND r.amount < 0
+          AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
+        FOR UPDATE OF r`;
+      for (const r of settleRows) {
+        const amt = Math.abs(r.amount); // settle 流水 amount 为负——逆向取正
+        total += amt;
+        await this.ledger.mutate(tx, {
+          teamId: r.teamId, operatorUserId: row.userId, type: 'refund', creditType: r.creditType,
+          balanceDelta: amt, frozenDelta: 0, referenceId: r.referenceId, reversesId: r.id,
         });
       }
       await tx.teamMember.updateMany({
-        where: { teamId: chargeRows[0].teamId!, userId: row.userId, monthlyPeriod: currentPeriod() }, // 仅当月回滚（月界翻转不污染新月）
+        where: { teamId: row.teamId!, userId: row.userId, monthlyPeriod: currentPeriod() }, // 仅当月回滚（月界翻转不污染新月）
         data: { monthlyUsed: { decrement: total } },
       });
       return true;
-    });
+    }, { timeout: 15_000, maxWait: 5_000 });
     if (refunded) {
       this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 已扣无产物——VOIDED+退款 ${total}（creditsConsumed 归零，重试照常扣费）`);
     }
@@ -245,11 +240,12 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     //    reserve 行是冻结轨迹不计——防 2 倍差异误报）；差异=资损前兆
     const succeeded = await this.prisma.generationIntent.findMany({
       where: { status: 'SUCCEEDED', creditsConsumed: { gt: 0 } },
-      select: { intentId: true, creditsConsumed: true },
+      select: { intentId: true, creditsConsumed: true, teamId: true },
     });
     for (const r of succeeded) {
       const rows = await this.prisma.teamCreditTransaction.findMany({
-        where: { referenceId: `intent:${r.intentId}`, type: { in: ['settle'] } },
+        // 契约 4（F1 跨团队隔离）：台账查询自带键 teamId——intent 行固化 teamId 直传（Y0b-1 扫描锚⑥）
+        where: { teamId: r.teamId, referenceId: `intent:${r.intentId}`, type: { in: ['settle'] } },
       });
       const charged = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
       if (charged !== r.creditsConsumed) {

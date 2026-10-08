@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreditLedgerService } from '../modules/team/credit-ledger.service';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
 import { parseSessionToken } from '../common/utils/parse-session-token';
 import { SmsService } from '../modules/sms/sms.service';
@@ -18,6 +19,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
+    private readonly ledger: CreditLedgerService,
     private readonly rateLimiter: RateLimiterService,
     private readonly smsService: SmsService,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
@@ -76,7 +78,7 @@ export class AuthController {
 
     // 补偿个人团队（幂等，含素材文件夹）
     try {
-      await bootstrapPersonalTeam(this.prisma, session.user.id, session.user.name);
+      await bootstrapPersonalTeam(this.prisma, this.ledger, session.user.id, session.user.name);
     } catch { /* 非致命 */ }
 
     return res.json({ user: session.user });

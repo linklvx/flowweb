@@ -3,6 +3,7 @@ import { formatBeijingRfc3339 } from '../../common/utils/beijing-time';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import type { IPaymentProvider } from '../recharge/providers/payment.provider.interface';
 import { PaymentGateway } from '../recharge/payment.gateway';
@@ -23,6 +24,7 @@ export function generateTeamOrderNo(): string {
 export class TeamRechargeService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(TeamSubscriptionService) private readonly subscriptionService: TeamSubscriptionService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Optional() @Inject('PAYMENT_PROVIDER') private readonly payment: IPaymentProvider | null,
@@ -135,35 +137,24 @@ export class TeamRechargeService {
     let balanceAfter = 0;
     const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
 
-    await this.prisma.$transaction(async (tx) => {
-      // FOR UPDATE 行锁（对齐个人版幂等模式）
-      await tx.$queryRaw`
-        SELECT * FROM "TeamBalance"
-        WHERE "teamId" = ${teamId}
-        FOR UPDATE
-      `;
+    await this.prisma.$transaction(async (raw) => {
+      const tx = this.ledger.tx(raw);
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      // Y0b-1（Z23/Z13）：钱包缺失自愈改经 ensureBalance（收钱路径不因钱包缺失丢账）+lockBalance 取代裸 FOR UPDATE
+      await this.ledger.ensureBalance(tx, teamId);
+      await this.ledger.lockBalance(tx, teamId);
 
       const balance = await tx.teamBalance.findUnique({ where: { teamId } });
-      if (!balance) {
-        await tx.teamBalance.create({ data: { teamId, credits: 0 } });
-      }
       balanceAfter = (balance?.credits ?? 0) + order.credits;
 
-      await tx.teamBalance.update({
-        where: { teamId },
-        data: { credits: { increment: order.credits } },
-      });
-
-      await tx.teamCreditTransaction.create({
-        data: {
-          teamId,
-          operatorUserId: order.payerUserId,
-          amount: order.credits,
-          type: 'recharge',
-          creditType: 'regular',
-          referenceId: order.outTradeNo,
-          balanceAfter,
-        },
+      await this.ledger.mutate(tx, {
+        teamId,
+        operatorUserId: order.payerUserId,
+        type: 'recharge',
+        creditType: 'regular',
+        balanceDelta: order.credits,
+        frozenDelta: 0,
+        referenceId: order.outTradeNo,
       });
 
       const updated = await tx.teamRechargeOrder.updateMany({

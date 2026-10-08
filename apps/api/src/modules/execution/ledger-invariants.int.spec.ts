@@ -26,13 +26,17 @@ describe('Y0b-1 DB 级资金不变量（迁移约束档）', () => {
   });
 
   it('同键定价规则 DB 拒绝（NULLS NOT DISTINCT——可空列同 null 视为重复；含 modelId IS NULL 的 kind 级行）', async () => {
+    // id 后缀化（Y0b-1 Z37：int 残留自撞——上轮中途失败未清理时固定 id 下轮 PK 冲突=训练样本红）
+    const ts = Date.now();
+    const id1 = `it-pr-dup-${ts}-1`;
+    const id2 = `it-pr-dup-${ts}-2`;
     const nt = await prisma.nodeType.create({ data: { id: `it-nt-${Date.now()}`, name: 'it', key: `it-nt-${Date.now()}` } });
     // modelId IS NULL 的 kind 级规则：同 nodeTypeId 两条 = 重复
     await prisma.$executeRaw`INSERT INTO "PricingRule" (id, "nodeTypeId", "modelId", "creditCost", active, "createdAt", "updatedAt")
-      VALUES ('it-pr-dup-1', ${nt.id}, NULL, 1, true, now(), now())`;
+      VALUES (${id1}, ${nt.id}, NULL, 1, true, now(), now())`;
     await expect(prisma.$executeRaw`INSERT INTO "PricingRule" (id, "nodeTypeId", "modelId", "creditCost", active, "createdAt", "updatedAt")
-      VALUES ('it-pr-dup-2', ${nt.id}, NULL, 2, true, now(), now())`).rejects.toThrow();
-    await prisma.pricingRule.deleteMany({ where: { id: { in: ['it-pr-dup-1', 'it-pr-dup-2'] } } });
+      VALUES (${id2}, ${nt.id}, NULL, 2, true, now(), now())`).rejects.toThrow();
+    await prisma.pricingRule.deleteMany({ where: { id: { in: [id1, id2] } } });
     await prisma.nodeType.deleteMany({ where: { id: nt.id } });
   });
 
@@ -75,4 +79,57 @@ describe('Y0b-1 DB 级资金不变量（迁移约束档）', () => {
       VALUES ('it-tx-amt', ${T.teamId}, 999, 'admin_grant', 'regular', 10, 0, 10, now())`).rejects.toThrow();   // 999≠10（balanceAfter 已补列——唯此 CHECK 可拒）
     await prisma.teamCreditTransaction.deleteMany({ where: { id: 'it-tx-amt' } }).catch(() => {});
   });
+});
+
+describe('Y0b-1 G-2 三不变量+balanceAfter 分区链（§1.4bis）', () => {
+  it('不变量①：per (teamId,creditType) Σ balanceDelta ≡ 当前池余额（零基线团队——全部变更仅经 mutate）', async () => {
+    const ts = Date.now();
+    const owner = await prisma.user.create({ data: { id: `it-inv-u-${ts}`, name: 'it', email: `it-inv-${ts}@x.invalid`, emailVerified: false } });
+    const team = await prisma.team.create({ data: { id: `it-inv-${ts}`, name: 'it', ownerId: owner.id } });
+    const { CreditLedgerService } = await import('../team/credit-ledger.service');
+    const ledger = new CreditLedgerService(prisma as any);
+    // 零基线=不经 teamBalance.create 设初值——钱包行经 ensureBalance 唯一口创建（0/0 零流水，Z23）；
+    // 基线由 register_grant 建立（计入 Σ——lockBalance 缺行即抛，mutate 不懒建）
+    await ledger.runInTx((tx) => ledger.ensureBalance(tx, team.id));
+    await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'register_grant', creditType: 'regular', balanceDelta: 100, frozenDelta: 0, referenceId: `it-inv-${ts}` }));
+    await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'admin_grant', creditType: 'subscription', balanceDelta: 30, frozenDelta: 0, referenceId: `it-inv-${ts}:sub` }));
+    await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'admin_clear', creditType: 'regular', balanceDelta: -40, frozenDelta: 0, referenceId: `it-inv-${ts}:clr` }));
+    const rows = await prisma.$queryRaw<{ creditType: string; sum: bigint }[]>`
+      SELECT "creditType", SUM("balanceDelta") AS sum FROM "TeamCreditTransaction"
+      WHERE "teamId" = ${team.id} GROUP BY 1`;
+    const bal = await prisma.teamBalance.findUniqueOrThrow({ where: { teamId: team.id } });
+    const byPool = Object.fromEntries(rows.map((r) => [r.creditType, Number(r.sum)]));
+    expect(byPool.regular).toBe(bal.credits);                    // 100−40=60
+    expect(byPool.subscription).toBe(bal.subscriptionCredits);   // 30
+    await prisma.team.delete({ where: { id: team.id } });
+    await prisma.user.delete({ where: { id: owner.id } });
+  }, 20000);
+
+  it('不变量②③：per intent Σ frozenDelta ≡ reservedCredits；终态 Σ balanceDelta ∈ {0,−creditsConsumed}（只核有台账行的意图）', async () => {
+    const intents = await prisma.$queryRaw<any[]>`
+      SELECT gi.id, gi."reservedCredits", gi."creditsConsumed", gi.status,
+        COALESCE(SUM(t."frozenDelta"), 0) AS frozen_sum, COALESCE(SUM(t."balanceDelta"), 0) AS balance_sum
+      FROM "GenerationIntent" gi JOIN "TeamCreditTransaction" t ON t."referenceId" = 'intent:' || gi.id
+      WHERE gi."intentId" LIKE 'it-%' OR gi."intentId" LIKE 'led-%' GROUP BY gi.id`;
+    for (const i of intents) {
+      expect(Number(i.frozen_sum)).toBe(Number(i.reservedCredits));
+      if (['SUCCEEDED', 'FAILED', 'VOIDED'].includes(i.status)) {
+        expect([0, -Number(i.creditsConsumed)]).toContain(Number(i.balance_sum));
+      }
+    }
+  }, 20000);
+
+  it('balanceAfter 分区链：按 (teamId,creditType)+seq 排序——本行 balanceAfter ≡ 前行+本行 balanceDelta', async () => {
+    const chains = await prisma.$queryRaw<any[]>`
+      SELECT "teamId", "creditType", "balanceAfter", "balanceDelta" FROM "TeamCreditTransaction"
+      WHERE "teamId" LIKE 'it-inv-%' OR "teamId" LIKE 'it-led-%' ORDER BY "teamId", "creditType", seq`;
+    let prev: { k: string; after: number } | null = null;
+    for (const r of chains) {
+      const k = `${r.teamId}|${r.creditType}`;
+      if (prev && prev.k === k) {
+        expect(Number(r.balanceAfter)).toBe(prev.after + Number(r.balanceDelta));
+      }
+      prev = { k, after: Number(r.balanceAfter) };
+    }
+  }, 20000);
 });

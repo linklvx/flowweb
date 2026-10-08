@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { TEAM_FREE_STORAGE_LIMIT_BYTES } from './team.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -9,24 +10,31 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 describe('TeamSubscriptionService', () => {
   let service: TeamSubscriptionService;
   let prisma: any;
+  let ledger: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    ledger = {
+      tx: (raw: any) => raw,
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
+    };
     prisma = {
       user: { findUnique: vi.fn().mockResolvedValue({ name: '付款人' }) },
       team: { findUnique: vi.fn().mockResolvedValue({ isDefault: false }) },
       teamMember: { findUnique: vi.fn() },
       teamSubscription: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
       teamPlan: { findUnique: vi.fn() },
-      teamBalance: { findUnique: vi.fn(), update: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
-      teamRechargeOrder: { findUnique: vi.fn() },
+      teamBalance: { findUnique: vi.fn() },
+      teamRechargeOrder: { findUnique: vi.fn(), updateMany: vi.fn() },
       userSubscription: { findFirst: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0),
       $queryRaw: vi.fn(),
       $transaction: vi.fn(async (fn: any) => fn({
+        $executeRaw: prisma.$executeRaw,
         $queryRaw: prisma.$queryRaw,
         teamBalance: prisma.teamBalance,
-        teamCreditTransaction: prisma.teamCreditTransaction,
         teamSubscription: prisma.teamSubscription,
         teamRechargeOrder: prisma.teamRechargeOrder,
       })),
@@ -36,6 +44,7 @@ describe('TeamSubscriptionService', () => {
       providers: [
         TeamSubscriptionService,
         { provide: PrismaService, useValue: prisma },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -87,7 +96,7 @@ describe('TeamSubscriptionService', () => {
       credits: 500, kind: 'subscription', planId: 'plan1', status: 'PENDING',
     };
 
-    it('上期剩余清零（expire_clear 负值流水）→ 覆盖发放 500（subscription_grant）→ 建 TeamSubscription(+30d)', async () => {
+    it('上期剩余清零（expire_clear mutate）→ 覆盖发放 500（subscription_grant mutate）→ 建 TeamSubscription(+30d)', async () => {
       prisma.teamRechargeOrder.findUnique.mockResolvedValue(order);
       prisma.teamPlan.findUnique.mockResolvedValue({ id: 'plan1', monthlyCredits: 500 });
       prisma.teamBalance.findUnique.mockResolvedValue({ credits: 100, subscriptionCredits: 120 });
@@ -99,13 +108,16 @@ describe('TeamSubscriptionService', () => {
       } as any);
 
       expect(result.code).toBe('SUCCESS');
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { subscriptionCredits: 0 } });
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ amount: -120, type: 'expire_clear', creditType: 'subscription', balanceAfter: 0 }),
+      // Y0b-1 Z13：lockBalance 取代裸 FOR UPDATE（锁序全序）；入账全经 mutate（Z9 ref=order.outTradeNo）
+      expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+      expect(ledger.mutate).toHaveBeenCalledTimes(2);
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't1', operatorUserId: 'u1', type: 'expire_clear', creditType: 'subscription',
+        balanceDelta: -120, frozenDelta: 0, referenceId: 'TEAM9',
       });
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { subscriptionCredits: 500 } });
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ amount: 500, type: 'subscription_grant', creditType: 'subscription', balanceAfter: 500 }),
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't1', operatorUserId: 'u1', type: 'subscription_grant', creditType: 'subscription',
+        balanceDelta: 500, frozenDelta: 0, referenceId: 'TEAM9',
       });
       expect(prisma.teamSubscription.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -164,23 +176,23 @@ describe('TeamSubscriptionService', () => {
   });
 
   describe('expireSubscriptions（team-expire processor 逻辑）', () => {
-    it('到期：置 expired + 清零 subscriptionCredits + expire_clear 流水（credits 不动）', async () => {
+    it('到期：CAS 前置（count===0 零动作）+ 置 expired + expire_clear mutate（Z24 周期事件键 sub.id:periodEnd）（credits 不动）', async () => {
       prisma.teamSubscription.findMany.mockResolvedValue([
-        { id: 's1', teamId: 't1', status: 'active' },
+        { id: 's1', teamId: 't1', status: 'active', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') },
       ]);
       prisma.teamBalance.findUnique.mockResolvedValue({ credits: 100, subscriptionCredits: 80 });
       prisma.teamSubscription.updateMany.mockResolvedValue({ count: 1 });
-      prisma.teamBalance.update = vi.fn();
 
       const count = await service.expireSubscriptions();
 
       expect(count).toBe(1);
+      expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't1');
       expect(prisma.teamSubscription.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 's1', status: 'active' }, data: { status: 'expired' } }),
       );
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith({ where: { teamId: 't1' }, data: { subscriptionCredits: 0 } });
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ teamId: 't1', amount: -80, type: 'expire_clear', creditType: 'subscription', balanceAfter: 0 }),
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't1', operatorUserId: null, type: 'expire_clear', creditType: 'subscription',
+        balanceDelta: -80, frozenDelta: 0, referenceId: 's1:2026-01-31',
       });
       expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         operatorId: 'system', teamId: 't1', targetType: 'TEAM', targetId: 't1',

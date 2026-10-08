@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
+import { CreditLedgerService } from './credit-ledger.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { bootstrapPersonalTeam } from './team.bootstrap';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
@@ -14,6 +15,7 @@ export class TeamService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
     @InjectQueue('team-media-cleanup') private readonly cleanupQueue: Queue,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
@@ -35,7 +37,7 @@ export class TeamService {
       userName ??
       (await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ??
       '用户';
-    return bootstrapPersonalTeam(this.prisma, userId, name);
+    return bootstrapPersonalTeam(this.prisma, this.ledger, userId, name);
   }
 
   /** 主动建团 credits=0、无流水（注册赠送只给默认团队一次，防刷） */
@@ -52,7 +54,8 @@ export class TeamService {
           name: folderName, teamId: team.id, userId, isDefault: true, sortOrder: i,
         })),
       });
-      await tx.teamBalance.create({ data: { teamId: team.id, credits: 0, subscriptionCredits: 0 } });
+      // Y0b-1（三轮 Z23）：建团钱包行经 ensureBalance（唯一创建口）
+      await this.ledger.ensureBalance(this.ledger.tx(tx), team.id);
       await this.audit.logTx(tx, {
         operatorId: userId,
         operatorName: user?.name ?? '用户',

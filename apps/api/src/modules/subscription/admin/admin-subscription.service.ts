@@ -1,12 +1,16 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/exceptions/business.exception';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 import { clearPersonalTeamSubscription } from '../task/personal-team-ledger';
 import { serializeSubscriptionPlan } from '../subscription.service';
 
 @Injectable()
 export class AdminSubscriptionService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
+  ) {}
 
   async listSubscriptions(filter: { userId?: string; planId?: string; status?: string; page?: number; pageSize?: number }) {
     const page = filter.page ?? 1;
@@ -43,7 +47,7 @@ export class AdminSubscriptionService {
         data: { status: 'expired' },
       });
       // 清默认团队实时剩余订阅积分（admin_clear 流水，amount=-剩余；无剩余不写空流水）
-      await clearPersonalTeamSubscription(tx, sub.userId, 'admin_clear', id);
+      await clearPersonalTeamSubscription(this.ledger, tx, sub.userId, 'admin_clear', id);
     });
   }
 
@@ -58,30 +62,19 @@ export class AdminSubscriptionService {
         where: { userId, status: 'active' },
       });
       if (!sub) throw new BusinessException('GRANT_NO_ACTIVE_SUB', '无生效订阅，不可发放订阅积分');
-
-      const balance = await this.prisma.teamBalance.upsert({
-        where: { teamId: team.id },
-        create: { teamId: team.id, credits: 0, subscriptionCredits: amount },
-        update: { subscriptionCredits: { increment: amount } },
-      });
-      await this.prisma.teamCreditTransaction.create({
-        data: {
-          teamId: team.id, operatorUserId: userId, amount, type: txType, creditType: 'subscription',
-          referenceId: sub.id, balanceAfter: balance.subscriptionCredits,
-        },
-      });
-    } else {
-      const balance = await this.prisma.teamBalance.upsert({
-        where: { teamId: team.id },
-        create: { teamId: team.id, credits: amount },
-        update: { credits: { increment: amount } },
-      });
-      await this.prisma.teamCreditTransaction.create({
-        data: {
-          teamId: team.id, operatorUserId: userId, amount, type: txType, creditType: 'regular',
-          balanceAfter: balance.credits,
-        },
-      });
     }
+
+    // Y0b-1（撕裂根修）：唯一无事务点补单事务——ensureBalance（upsert 自愈收口）+lockBalance+mutate。
+    // admin_* 不进 money_in 幂等键（合法重复操作面）；referenceId=userId（操作对象锚）。
+    await this.prisma.$transaction(async (raw) => {
+      const tx = this.ledger.tx(raw);
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      await this.ledger.ensureBalance(tx, team.id);
+      await this.ledger.lockBalance(tx, team.id);
+      await this.ledger.mutate(tx, {
+        teamId: team.id, operatorUserId: userId, type: txType, creditType,
+        balanceDelta: amount, frozenDelta: 0, referenceId: userId,
+      });
+    });
   }
 }

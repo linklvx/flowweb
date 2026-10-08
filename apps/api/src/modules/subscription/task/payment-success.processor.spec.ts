@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PaymentSuccessProcessor } from './payment-success.processor';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentGateway } from '../../recharge/payment.gateway';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 
-describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队 TeamBalance）', () => {
+describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队账本，经 grantToPersonalTeam）', () => {
   let processor: PaymentSuccessProcessor;
   let prisma: any;
   let gateway: any;
+  let ledger: any;
 
   const baseOrder = {
     id: 'o1', orderNo: 'NO1', userId: 'u1', planId: 'plan1', period: 'monthly',
@@ -15,20 +17,25 @@ describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队 Te
   const plan = { id: 'plan1', tier: 'pro', monthlyCredits: 100 };
 
   beforeEach(() => {
+    ledger = {
+      tx: (raw: any) => raw,
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
+    };
     prisma = {
       subscriptionOrder: { findUnique: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       subscriptionPlan: { findUnique: vi.fn().mockResolvedValue(plan) },
       userSubscription: { create: vi.fn().mockResolvedValue({ id: 'new-sub-1' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 't-default', isDefault: true }) },
-      teamBalance: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
-      $queryRaw: vi.fn().mockResolvedValue([]),
+      teamBalance: { findUniqueOrThrow: vi.fn() },
       $transaction: vi.fn(),
     };
     gateway = { emitSubscriptionPaymentSuccess: vi.fn() };
     processor = new PaymentSuccessProcessor(
       prisma as unknown as PrismaService,
       gateway as unknown as PaymentGateway,
+      ledger as unknown as CreditLedgerService,
     );
   });
 
@@ -38,8 +45,8 @@ describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队 Te
     return processor.process({ data: { orderNo: 'NO1', transactionId: 'tx1', payerOpenid: 'openid1' } } as any);
   };
 
-  it('新购：paidAmount 存分不除 100，before=0 直发（无清零流水，subscription_grant 设值发放）', async () => {
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 0 });
+  it('新购：paidAmount 存分不除 100，before=0 直发（无清零流水；Z24 referenceId=order.id 分键 :grant）', async () => {
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 0 });
 
     await run({ ...baseOrder });
 
@@ -47,28 +54,20 @@ describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队 Te
     expect(prisma.userSubscription.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ userId: 'u1', paidAmount: 5600, totalCredits: 100 }),
     }));
-    // FOR UPDATE 锁默认团队
-    expect(prisma.$queryRaw).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.stringContaining('FOR UPDATE')]),
-      't-default',
-    );
-    // before=0：仅发放流水一笔（referenceId=新订阅）
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(1);
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        teamId: 't-default', operatorUserId: 'u1', amount: 100,
-        type: 'subscription_grant', creditType: 'subscription',
-        referenceId: 'new-sub-1', balanceAfter: 100,
-      }),
-    }));
-    expect(prisma.teamBalance.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { teamId: 't-default' },
-      data: { subscriptionCredits: 100 },
-    }));
+    // Y0b-1 Z13/Z23：lockBalance 锁默认团队 + ensureBalance 懒创建
+    expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+    expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+    // before=0：仅发放流水一笔（referenceId=order.id 分键）
+    expect(ledger.mutate).toHaveBeenCalledTimes(1);
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+      teamId: 't-default', operatorUserId: 'u1',
+      type: 'subscription_grant', creditType: 'subscription',
+      balanceDelta: 100, frozenDelta: 0, referenceId: 'o1:grant',
+    });
   });
 
-  it('升级：旧订阅置 upgraded + upgrade_clear 清零流水 + 新额度发放（paidAmount 存分）', async () => {
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 20 });
+  it('升级：旧订阅置 upgraded + upgrade_clear 清零 mutate + 新额度发放（paidAmount 存分）', async () => {
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 20 });
 
     await run({ ...baseOrder, type: 'upgrade', fromSubscriptionId: 'old-sub-1' });
 
@@ -79,45 +78,33 @@ describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队 Te
     expect(prisma.userSubscription.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ paidAmount: 5600 }),
     }));
-    // 旧池 20 > 0：先 upgrade_clear 清零流水（余额每笔变动可审计）
-    expect(prisma.teamBalance.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { teamId: 't-default' },
-      data: { subscriptionCredits: 0 },
+    // 旧池 20 > 0：先 upgrade_clear 清零流水（余额每笔变动可审计）再发放
+    expect(ledger.mutate).toHaveBeenCalledTimes(2);
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      teamId: 't-default', operatorUserId: 'u1',
+      type: 'upgrade_clear', creditType: 'subscription', balanceDelta: -20, referenceId: 'o1:clear',
     }));
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        teamId: 't-default', amount: -20, type: 'upgrade_clear',
-        creditType: 'subscription', balanceAfter: 0,
-      }),
-    }));
-    // 再设值发放
-    expect(prisma.teamBalance.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { teamId: 't-default' },
-      data: { subscriptionCredits: 100 },
-    }));
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ amount: 100, type: 'subscription_grant', balanceAfter: 100 }),
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'subscription_grant', balanceDelta: 100, referenceId: 'o1:grant',
     }));
   });
 
   it('续费 renewal：clearType=expire_clear（续费=新周期，覆盖不滚存）', async () => {
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 50 });
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 50 });
 
     await run({ ...baseOrder, type: 'renewal' });
 
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        teamId: 't-default', amount: -50, type: 'expire_clear', balanceAfter: 0,
-      }),
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'expire_clear', balanceDelta: -50, referenceId: 'o1:clear',
     }));
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ amount: 100, type: 'subscription_grant', balanceAfter: 100 }),
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'subscription_grant', balanceDelta: 100, referenceId: 'o1:grant',
     }));
   });
 
   it('订单已 SUCCESS 幂等跳过', async () => {
     await run({ ...baseOrder, status: 'SUCCESS' });
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
+    expect(ledger.mutate).not.toHaveBeenCalled();
   });
 });

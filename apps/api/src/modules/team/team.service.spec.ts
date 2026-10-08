@@ -5,8 +5,22 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Y0b-1：TeamService 经 CreditLedgerService 写钱包（ensureBalance 建行/lockBalance 锁/mutate 入账）
+const ledger = {
+  tx: (raw: any) => raw,
+  lockBalance: vi.fn().mockResolvedValue(undefined),
+  ensureBalance: vi.fn().mockResolvedValue(undefined),
+  mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
+};
+const resetLedgerMocks = () => {
+  ledger.lockBalance.mockClear();
+  ledger.ensureBalance.mockClear();
+  ledger.mutate.mockClear();
+};
 
 describe('TeamService.ensureDefaultTeam', () => {
   let service: TeamService;
@@ -16,6 +30,7 @@ describe('TeamService.ensureDefaultTeam', () => {
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    resetLedgerMocks();
     prisma = {
       user: { findUnique: vi.fn() },
       team: {
@@ -23,8 +38,6 @@ describe('TeamService.ensureDefaultTeam', () => {
         create: vi.fn().mockResolvedValue({ id: 't1', name: '张三的团队', ownerId: 'u1', isDefault: true }),
       },
       teamMember: { create: vi.fn() },
-      teamBalance: { create: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
       materialFolder: { createMany: vi.fn().mockResolvedValue({ count: 5 }) },
       $transaction: vi.fn(async (fn: any) => fn(prisma)),
     };
@@ -37,6 +50,7 @@ describe('TeamService.ensureDefaultTeam', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -44,7 +58,7 @@ describe('TeamService.ensureDefaultTeam', () => {
     service = module.get<TeamService>(TeamService);
   });
 
-  it('无个人团队：事务内建 Team(isDefault)+OWNER 成员+Balance(100)+register_grant 流水+默认文件夹', async () => {
+  it('无个人团队：事务内建 Team(isDefault)+OWNER 成员+钱包（ensureBalance）+register_grant 经 ledger.mutate+默认文件夹', async () => {
     const result = await service.ensureDefaultTeam('u1', '张三');
 
     expect(prisma.team.findFirst).toHaveBeenCalledWith({ where: { ownerId: 'u1', isDefault: true } });
@@ -54,18 +68,12 @@ describe('TeamService.ensureDefaultTeam', () => {
     expect(prisma.teamMember.create).toHaveBeenCalledWith({
       data: { teamId: 't1', userId: 'u1', role: 'OWNER' },
     });
-    expect(prisma.teamBalance.create).toHaveBeenCalledWith({
-      data: { teamId: 't1', credits: 100 },
-    });
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-      data: {
-        teamId: 't1',
-        operatorUserId: 'u1',
-        amount: 100,
-        type: 'register_grant',
-        creditType: 'regular',
-        balanceAfter: 100,
-      },
+    // Y0b-1 Z23：钱包行唯一创建口 ensureBalance（先建钱包）+ lockBalance（锁序）+ mutate 入账
+    expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+    expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+      teamId: 't1', operatorUserId: 'u1', type: 'register_grant', creditType: 'regular',
+      balanceDelta: 100, frozenDelta: 0, referenceId: 'register:t1',
     });
     expect(prisma.materialFolder.createMany).toHaveBeenCalled();
     expect(result).toEqual({ id: 't1', name: '张三的团队', ownerId: 'u1', isDefault: true });
@@ -108,8 +116,8 @@ describe('TeamService.ensureDefaultTeam', () => {
 
     expect(team).toMatchObject({ id: 't-new' });
     expect(prisma.team.create).toHaveBeenCalledTimes(1);
-    expect(prisma.teamBalance.create).toHaveBeenCalledTimes(1);
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledTimes(1);
+    expect(ledger.ensureBalance).toHaveBeenCalledTimes(1);
+    expect(ledger.mutate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -121,6 +129,7 @@ describe('TeamService 基础 API', () => {
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    resetLedgerMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn().mockResolvedValue({}) };
@@ -131,6 +140,7 @@ describe('TeamService 基础 API', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -246,13 +256,11 @@ describe('TeamService 基础 API', () => {
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '张三' }) };
       prisma.team = { create: vi.fn().mockResolvedValue({ id: 't1' }) };
       prisma.teamMember = { create: vi.fn() };
-      prisma.teamBalance = { create: vi.fn() };
-      prisma.teamCreditTransaction = { create: vi.fn() };
       prisma.materialFolder = { createMany: vi.fn().mockResolvedValue({ count: 5 }) };
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
-    it('主动建团：credits=0、无 register_grant 流水、创建者 OWNER、默认素材文件夹与个人项目一致', async () => {
+    it('主动建团：钱包行经 ensureBalance（credits=0 无流水）、无 register_grant、创建者 OWNER、默认素材文件夹与个人项目一致', async () => {
       setup();
 
       const team = await service.createTeam('u1', '新团队');
@@ -263,15 +271,14 @@ describe('TeamService 基础 API', () => {
       expect(prisma.teamMember.create).toHaveBeenCalledWith({
         data: { teamId: 't1', userId: 'u1', role: 'OWNER' },
       });
-      expect(prisma.teamBalance.create).toHaveBeenCalledWith({
-        data: { teamId: 't1', credits: 0, subscriptionCredits: 0 },
-      });
+      // Y0b-1 Z23：建团钱包行经 ensureBalance（唯一创建口），零额无流水
+      expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+      expect(ledger.mutate).not.toHaveBeenCalled();
       expect(prisma.materialFolder.createMany).toHaveBeenCalledWith({
         data: DEFAULT_FOLDER_NAMES.map((name, i) => ({
           name, teamId: 't1', userId: 'u1', isDefault: true, sortOrder: i,
         })),
       });
-      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
       expect(team).toEqual({ id: 't1' });
       expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         operatorId: 'u1', teamId: 't1', targetType: 'TEAM', targetId: 't1', action: 'create_team',
@@ -383,6 +390,7 @@ describe('TeamService 成员管理', () => {
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    resetLedgerMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
@@ -393,6 +401,7 @@ describe('TeamService 成员管理', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -593,6 +602,7 @@ describe('TeamService 加入申请', () => {
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    resetLedgerMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
@@ -603,6 +613,7 @@ describe('TeamService 加入申请', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -766,6 +777,7 @@ describe('listAuditLogs', () => {
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    resetLedgerMocks();
     prisma = {
       teamMember: { findUnique: vi.fn() },
       auditLog: { findMany: vi.fn(), count: vi.fn() },
@@ -779,6 +791,7 @@ describe('listAuditLogs', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -818,6 +831,7 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    resetLedgerMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
@@ -828,6 +842,7 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();

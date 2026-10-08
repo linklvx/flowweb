@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import type { CreditLedgerService } from '../modules/team/credit-ledger.service';
 
 /** 平台资产团队域 seed（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户）。
  *  seed.ts 与 platform-team.seed.spec 共用（第九轮"自带前置"：CI 无 prisma db seed 也能跑
@@ -6,9 +7,12 @@ import type { PrismaClient } from '@prisma/client';
  *  成品视频归属：配额代码零改动、两道闸照跑（1TB）；管理员个人配额零污染；Media.user 级联风险消失。
  *  update 分支显式写关键字段——空 update 命中同 id 不改值：isActive 被误点上架/isDefault 被改 true/
  *  订阅被改过期后，重跑即自愈（第一道防线）；"勿上架"命名是第二道（先例：非空 update seed.ts:169）。
- *  fail-fast：admin 缺失即抛（调用方负责 admin 存在——seed.ts 前段已建；spec 自造 fixture admin）。 */
+ *  fail-fast：admin 缺失即抛（调用方负责 admin 存在——seed.ts 前段已建；spec 自造 fixture admin）。
+ *  Y0b-1（三轮 G2 自破前提修复）：显式 ledger 参数（纯函数同款）——补 ensureBalance 零额钱包行
+ *  （platform-team 无钱包行=lockBalance 缺行业务错误面；零额无流水行，不变量①零基线成立）。 */
 export async function seedPlatformTeam(
   prisma: PrismaClient,
+  ledger: CreditLedgerService,
   adminEmail: string = process.env.ADMIN_EMAIL || 'admin@flowweb.local',
 ): Promise<void> {
   await prisma.user.upsert({
@@ -28,6 +32,7 @@ export async function seedPlatformTeam(
     update: { isDefault: false }, // 承重：true 会使 getLimits 走"默认团队回退个人订阅"分支、1TB 被忽略
     create: { id: 'platform-team', name: '平台资产团队', ownerId: 'platform-owner', status: 'ACTIVE', isDefault: false },
   });
+  await ledger.runInTx(async (tx) => ledger.ensureBalance(tx, 'platform-team'));   // 零额钱包行（幂等）
   // TeamMember 必须在管理员创建之后（admin id 由 BetterAuth 生成，按 email 查回——ADMIN_EMAIL 可被环境变量覆盖）
   const platformAdmin = await prisma.user.findUnique({ where: { email: adminEmail }, select: { id: true } });
   if (!platformAdmin) {

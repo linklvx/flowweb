@@ -9,7 +9,7 @@ import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { GenerationIntentService } from '../execution/generation-intent.service';
-import { PricingResolverService } from '../execution/pricing-resolver.service';
+import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
@@ -48,7 +48,6 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
-    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {
     super();
   }
@@ -111,12 +110,14 @@ export class AiImageEditProcessor extends WorkerHost {
         this.logger.warn(`Edit intent guard missing for node ${nodeId}——拒绝付费外呼（0.5-8 起 enqueue 恒带意图锚）`);
         return { status: 'failed', reason: 'INTENT_GUARD_MISSING' };
       }
-      // Y0b-1（§1.2/Z5）：编译期常量旁路退役——预检与实扣同经 resolver（kind 级：modelId IS NULL；
-      // taskType 值域=outpaint/erase/redraw/lighting=NodeType key 形态，直作 resolveByNodeTypeKey 入参）
-      const pricing = await this.resolver.resolveByNodeTypeKey(taskType);
-      const reserveResult = await this.teamCredit.reserve(
-        projectTeamId, userId, pricing.creditCost, { intentRowId, intentId },
-      );
+      // Y0b-1（Z10）：金额单源 intent 行（claim 固化 plan 快照）——worker 不再解析定价
+      const reserveResult = await this.teamCredit.reserve(userId, { intentRowId });
+      if (reserveResult.mayCall === false) {
+        // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
+        intentDuplicateAttemptTotal.inc();
+        this.logger.warn(`[reserve] 意图 ${intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
+        return { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT' };
+      }
       if (!reserveResult.success) {
         const reason = reserveResult.reason ?? 'RESERVE_FAILED';
         this.logger.warn(`Edit credit-reserve failed for node ${nodeId}: ${reason}`);
@@ -183,7 +184,7 @@ export class AiImageEditProcessor extends WorkerHost {
       });
 
       // 7.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
-      const settled = await this.teamCredit.settle({ intentRowId, intentId });
+      const settled = await this.teamCredit.settle({ intentRowId });
       if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
 
       // 7.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
@@ -216,7 +217,7 @@ export class AiImageEditProcessor extends WorkerHost {
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），批0.5-8 终态必达——外呼抛错置 FAILED
       // （SIGKILL 场景本 catch 不执行，由 failed 钩子兜底；冻结滞留由 reconcile 超龄三查②解冻）
       if (intentRowId) {
-        await this.teamCredit.void_({ intentRowId, intentId: intentId! })
+        await this.teamCredit.void_({ intentRowId })
           .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentId} void_ 解冻失败（reconcile 兜底）: ${e}`));
         await this.intentService.fail(intentRowId, String(error?.message ?? error));
       }

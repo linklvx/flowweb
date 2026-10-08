@@ -21,6 +21,7 @@ import { SESSION_COOKIE_OPTIONS } from '../auth';
 describe('WechatService', () => {
   let service: WechatService;
   let mockPrisma: Record<string, any>;
+  let mockLedger: Record<string, any>;
 
   beforeEach(() => {
     mockPrisma = {
@@ -36,7 +37,14 @@ describe('WechatService', () => {
         create: vi.fn(),
       },
     };
-    service = new WechatService(mockPrisma as any);
+    // Y0b-1 Z23：注册 bootstrap 钱包建行+register_grant 经 CreditLedgerService
+    mockLedger = {
+      tx: (raw: any) => raw,
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 100 }),
+    };
+    service = new WechatService(mockPrisma as any, mockLedger as any);
     vi.clearAllMocks();
   });
 
@@ -113,8 +121,6 @@ describe('WechatService', () => {
         create: vi.fn().mockResolvedValue({ id: 'team-1' }),
       };
       mockPrisma.teamMember = { create: vi.fn() };
-      mockPrisma.teamBalance = { create: vi.fn() };
-      mockPrisma.teamCreditTransaction = { create: vi.fn() };
       mockPrisma.materialFolder.createMany.mockResolvedValue({ count: 5 });
       mockPrisma.$transaction = vi.fn(async (fn: any) => fn(mockPrisma));
 
@@ -137,6 +143,11 @@ describe('WechatService', () => {
       expect(mockPrisma.team.create).toHaveBeenCalledWith({
         data: { name: '微信用户的团队', ownerId: 'new-user', status: 'ACTIVE', isDefault: true },
       });
+      // Y0b-1 Z23：钱包经 ensureBalance+lockBalance 建行/锁，register_grant 经 mutate（referenceId=register:<teamId>）
+      expect(mockLedger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 'team-1');
+      expect(mockLedger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        teamId: 'team-1', operatorUserId: 'new-user', type: 'register_grant', referenceId: 'register:team-1',
+      }));
       expect(mockPrisma.materialFolder.createMany).toHaveBeenCalled();
       expect(result.id).toBe('new-user');
     });

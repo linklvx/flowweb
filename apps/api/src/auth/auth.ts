@@ -5,10 +5,14 @@ import { phoneNumber } from 'better-auth/plugins';
 import * as Sentry from '@sentry/nestjs';
 import { LUA_VERIFY_OTP } from '../common/services/lua-scripts';
 import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
+import { CreditLedgerService } from '../modules/team/credit-ledger.service';
 import { createManagedRedis } from '../common/redis/managed-redis';
 
 /** Y0a-4/E46：模块级 PrismaClient 纳管（authRedis 同款受管形态）——AuthModule.onApplicationShutdown 断开 */
 export const authPrisma = new PrismaClient();
+
+/** Y0b-1（Z23）：bootstrapPersonalTeam 显式 ledger 参数——auth.ts 非 DI 上下文，模块级构造（CreditLedgerService 无状态仅包 prisma） */
+export const authLedger = new CreditLedgerService(authPrisma as any);
 
 const trustedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .split(',')
@@ -53,7 +57,7 @@ export const auth = betterAuth({
         after: async (user) => {
           // 统一 Bootstrap：唯一建团入口（含默认素材文件夹），判据 ownerId+isDefault
           try {
-            await bootstrapPersonalTeam(authPrisma, user.id, user.name);
+            await bootstrapPersonalTeam(authPrisma, authLedger, user.id, user.name);
           } catch (err) {
             console.error(`[databaseHooks] personal team bootstrap failed for ${user.id}`, err);
             Sentry.captureException(err);

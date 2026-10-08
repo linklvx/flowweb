@@ -1,27 +1,35 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AdminSubscriptionService } from './admin-subscription.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 
-describe('AdminSubscriptionService（手工积分调整 → 默认团队 TeamBalance）', () => {
+describe('AdminSubscriptionService（手工积分调整 → 默认团队账本，经 CreditLedgerService 唯一写入口）', () => {
   let service: AdminSubscriptionService;
   let prisma: any;
+  let ledger: any;
 
   beforeEach(() => {
+    ledger = {
+      tx: (raw: any) => raw,
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
+    };
     prisma = {
       userSubscription: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 't-default', isDefault: true }) },
-      teamBalance: { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn(), create: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
+      teamBalance: { findUniqueOrThrow: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0),
       $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn(),
     };
-    service = new AdminSubscriptionService(prisma as unknown as PrismaService);
+    service = new AdminSubscriptionService(prisma as unknown as PrismaService, ledger as unknown as CreditLedgerService);
   });
 
   describe('cancelSubscription', () => {
-    it('作废：订阅置 expired + 清默认团队实时剩余（admin_clear 流水 amount=-剩余）', async () => {
+    it('作废：订阅置 expired + 清默认团队实时剩余（admin_clear mutate，Z9 分键 s1:clear）', async () => {
       prisma.userSubscription.findUnique.mockResolvedValue({ id: 's1', userId: 'u1', status: 'active' });
-      prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', credits: 100, subscriptionCredits: 30 });
+      prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', credits: 100, subscriptionCredits: 30 });
       prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
 
       await service.cancelSubscription('s1');
@@ -30,31 +38,23 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队 TeamBal
         where: { id: 's1' },
         data: { status: 'expired' },
       }));
-      expect(prisma.$queryRaw).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.stringContaining('FOR UPDATE')]),
-        't-default',
-      );
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith(expect.objectContaining({
-        where: { teamId: 't-default' },
-        data: { subscriptionCredits: 0 },
-      }));
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          teamId: 't-default', amount: -30, type: 'admin_clear',
-          creditType: 'subscription', referenceId: 's1', balanceAfter: 0,
-        }),
-      }));
+      // Y0b-1 Z23：懒创建收敛 ensureBalance；Z13 锁经 lockBalance
+      expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+      expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't-default', operatorUserId: 'u1', type: 'admin_clear',
+        creditType: 'subscription', balanceDelta: -30, frozenDelta: 0, referenceId: 's1:clear',
+      });
     });
 
     it('剩余为 0 不写清零流水（无空流水），credits 池不动', async () => {
       prisma.userSubscription.findUnique.mockResolvedValue({ id: 's1', userId: 'u1', status: 'active' });
-      prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', credits: 100, subscriptionCredits: 0 });
+      prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', credits: 100, subscriptionCredits: 0 });
       prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
 
       await service.cancelSubscription('s1');
 
-      expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
-      expect(prisma.teamBalance.update).not.toHaveBeenCalled();
+      expect(ledger.mutate).not.toHaveBeenCalled();
     });
   });
 
@@ -73,59 +73,47 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队 TeamBal
   });
 
   describe('grantCredit', () => {
-    it('订阅池加正数：increment + admin_grant 流水（balanceAfter=调整后实时值）', async () => {
+    it('订阅池加正数：admin_grant mutate（ensureBalance+lockBalance 前置；referenceId=userId）', async () => {
       prisma.userSubscription.findFirst.mockResolvedValue({ id: 's1', userId: 'u1', status: 'active' });
-      prisma.teamBalance.upsert.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 70 });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
 
       await service.grantCredit('u1', 50, 'subscription');
 
-      expect(prisma.teamBalance.upsert).toHaveBeenCalledWith(expect.objectContaining({
-        where: { teamId: 't-default' },
-        update: { subscriptionCredits: { increment: 50 } },
-      }));
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          teamId: 't-default', amount: 50, type: 'admin_grant',
-          creditType: 'subscription', referenceId: 's1', balanceAfter: 70,
-        }),
-      }));
+      expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+      expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't-default', operatorUserId: 'u1', type: 'admin_grant',
+        creditType: 'subscription', balanceDelta: 50, frozenDelta: 0, referenceId: 'u1',
+      });
     });
 
-    it('订阅池扣负数：admin_clear 流水（amount=负调整量，balanceAfter=调整后实时值）', async () => {
+    it('订阅池扣负数：admin_clear mutate（amount=负调整量）', async () => {
       prisma.userSubscription.findFirst.mockResolvedValue({ id: 's1', userId: 'u1', status: 'active' });
-      prisma.teamBalance.upsert.mockResolvedValue({ teamId: 't-default', credits: 10, subscriptionCredits: 50 });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
 
       await service.grantCredit('u1', -20, 'subscription');
 
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          teamId: 't-default', amount: -20, type: 'admin_clear',
-          creditType: 'subscription', balanceAfter: 50,
-        }),
-      }));
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't-default', operatorUserId: 'u1', type: 'admin_clear',
+        creditType: 'subscription', balanceDelta: -20, frozenDelta: 0, referenceId: 'u1',
+      });
     });
 
-    it('regular 池：credits increment + admin_grant 流水（balanceAfter=credits）', async () => {
-      prisma.teamBalance.upsert.mockResolvedValue({ teamId: 't-default', credits: 130, subscriptionCredits: 0 });
+    it('regular 池：admin_grant mutate（credits 增量）', async () => {
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
 
       await service.grantCredit('u1', 30, 'regular');
 
-      expect(prisma.teamBalance.upsert).toHaveBeenCalledWith(expect.objectContaining({
-        where: { teamId: 't-default' },
-        update: { credits: { increment: 30 } },
-      }));
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          teamId: 't-default', amount: 30, type: 'admin_grant',
-          creditType: 'regular', balanceAfter: 130,
-        }),
-      }));
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't-default', operatorUserId: 'u1', type: 'admin_grant',
+        creditType: 'regular', balanceDelta: 30, frozenDelta: 0, referenceId: 'u1',
+      });
     });
 
     it('订阅池发放需有 active 订阅，否则拒绝', async () => {
       prisma.userSubscription.findFirst.mockResolvedValue(null);
       await expect(service.grantCredit('u1', 50, 'subscription')).rejects.toThrow();
-      expect(prisma.teamBalance.upsert).not.toHaveBeenCalled();
+      expect(ledger.mutate).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { auth } from '../src/auth/auth';
+import { CreditLedgerService } from '../src/modules/team/credit-ledger.service';
 import { seedPlatformTeam } from '../src/prisma/platform-team.seed';
 
 const prisma = new PrismaClient();
+const ledger = new CreditLedgerService(prisma as any);
 
 async function main() {
   // Seed announcement
@@ -192,11 +194,21 @@ async function main() {
     update: { role: 'OWNER' },
     create: { teamId: 'default-team', userId: 'default-user', role: 'OWNER' },
   });
-  await prisma.teamBalance.upsert({
-    where: { teamId: defaultTeam.id },
-    update: {},
-    create: { teamId: defaultTeam.id, credits: 100 },
+  // Y0b-1（三轮 M4/G2 自破前提修复）：注册赠送经台账（ensureBalance+mutate register_grant）——
+  // 裸 teamBalance.create credits:100 无流水=不变量①巡检首日起永久 WARN（训练样本）；
+  // 幂等：register:default-team 流水已存在则跳过（防 seed 重跑重复入账）
+  const granted = await prisma.teamCreditTransaction.count({
+    where: { teamId: defaultTeam.id, type: 'register_grant', referenceId: 'register:default-team' },
   });
+  if (granted === 0) {
+    await ledger.runInTx(async (tx) => {
+      await ledger.ensureBalance(tx, defaultTeam.id);
+      await ledger.mutate(tx, {
+        teamId: defaultTeam.id, operatorUserId: 'default-user', type: 'register_grant',
+        creditType: 'regular', balanceDelta: 100, frozenDelta: 0, referenceId: 'register:default-team',
+      });
+    });
+  }
 
   // Seed subscription banner singleton
   await prisma.subscriptionBanner.upsert({
@@ -234,7 +246,7 @@ async function main() {
   // ===== 平台资产团队（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户） =====
   // 第九轮抽取：实 体 迁 platform-team.seed.ts（seed 与 platform-team.seed.spec 共用——spec 自带前置）；
   // admin 缺失语义变化：原 if(platformAdmin) 静默跳过 → 抽函数后 fail-fast 抛（本调用点 admin 必在前段建成，不可达分支）。
-  await seedPlatformTeam(prisma, adminEmail);
+  await seedPlatformTeam(prisma, ledger, adminEmail);
 
   // ====== 风格库初始分类（spec §5，固定 id 幂等 upsert） ======
   const STYLE_CATEGORIES: Array<{ id: string; name: string; sortOrder: number }> = [

@@ -4,6 +4,7 @@ import { TeamRechargeService } from './team-recharge.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentGateway } from '../recharge/payment.gateway';
 import { TeamSubscriptionService } from './team-subscription.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -14,19 +15,26 @@ describe('TeamRechargeService', () => {
   let gateway: any;
   let closeQueue: any;
   let subscriptionService: any;
+  let ledger: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
+    ledger = {
+      tx: (raw: any) => raw,
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 300 }),
+    };
     prisma = {
       user: { findUnique: vi.fn().mockResolvedValue({ name: '付款人' }) },
       teamRechargeOrder: { create: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
-      teamBalance: { findUnique: vi.fn(), update: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
+      teamBalance: { findUnique: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0),
       $queryRaw: vi.fn(),
       $transaction: vi.fn(async (fn: any) => fn({
+        $executeRaw: prisma.$executeRaw,
         $queryRaw: prisma.$queryRaw,
         teamBalance: prisma.teamBalance,
-        teamCreditTransaction: prisma.teamCreditTransaction,
         teamRechargeOrder: prisma.teamRechargeOrder,
       })),
     };
@@ -42,6 +50,7 @@ describe('TeamRechargeService', () => {
         { provide: 'PAYMENT_PROVIDER', useValue: payment },
         { provide: PaymentGateway, useValue: gateway },
         { provide: TeamSubscriptionService, useValue: subscriptionService },
+        { provide: CreditLedgerService, useValue: ledger },
         { provide: getQueueToken('team-recharge-close-expired'), useValue: closeQueue },
         { provide: AuditService, useValue: audit },
       ],
@@ -106,24 +115,25 @@ describe('TeamRechargeService', () => {
       status: 'PENDING', kind: 'credits',
     };
 
-    it('成功：FOR UPDATE+入账 credits+流水(recharge)+置 SUCCESS+推送', async () => {
+    it('成功：ensureBalance+lockBalance（取代裸 FOR UPDATE）+入账经 ledger.mutate(recharge)+订单 CAS+推送', async () => {
       prisma.teamRechargeOrder.findUnique.mockResolvedValue(order);
       prisma.teamBalance.findUnique.mockResolvedValue({ credits: 0, subscriptionCredits: 0 });
-      prisma.teamBalance.update.mockImplementation(({ data }: any) => data);
       prisma.teamRechargeOrder.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await service.completeTeamCallback(notify as any);
 
       expect(result.code).toBe('SUCCESS');
-      expect(prisma.teamBalance.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { credits: { increment: 300 } } }),
-      );
-      expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith({
-        data: {
-          teamId: 't1', operatorUserId: 'u1', amount: 300, type: 'recharge',
-          creditType: 'regular', referenceId: 'TEAM1', balanceAfter: 300,
-        },
+      // Y0b-1 Z23：收钱路径钱包缺失自愈经 ensureBalance；Z13 锁经 lockBalance
+      expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+      expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't1');
+      // Z9 money_in：referenceId=outTradeNo（幂等键）
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+        teamId: 't1', operatorUserId: 'u1', type: 'recharge', creditType: 'regular',
+        balanceDelta: 300, frozenDelta: 0, referenceId: 'TEAM1',
       });
+      expect(prisma.teamRechargeOrder.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { outTradeNo: 'TEAM1', status: 'PENDING' } }),
+      );
       expect(audit.logTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         operatorId: 'u1', operatorName: '付款人', teamId: 't1', targetType: 'TEAM', targetId: 't1',
         action: 'recharge', afterValue: { credits: 300 },
@@ -141,7 +151,7 @@ describe('TeamRechargeService', () => {
       prisma.teamRechargeOrder.findUnique.mockResolvedValue({ ...order, status: 'SUCCESS' });
       const result = await service.completeTeamCallback(notify as any);
       expect(result.code).toBe('SUCCESS');
-      expect(prisma.teamBalance.update).not.toHaveBeenCalled();
+      expect(ledger.mutate).not.toHaveBeenCalled();
     });
 
     it('金额不匹配 FAIL', async () => {

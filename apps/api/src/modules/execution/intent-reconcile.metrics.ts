@@ -15,3 +15,10 @@ export const settleFailureTotal = new Counter({
   help: 'settle 未达次数（外呼成功但核销失败——冻结由对账兜底，产物照发）',
   registers: [register],
 });
+
+/** Y0b-1（Z35）：同意图重复外呼企图——alreadyReserved（stall 重排双 worker）静默退出时计数（零副作用）。 */
+export const intentDuplicateAttemptTotal = new Counter({
+  name: 'intent_duplicate_attempt_total',
+  help: '同意图重复外呼企图（alreadyReserved 静默退出——不 void_/不 fail/不 emit）',
+  registers: [register],
+});

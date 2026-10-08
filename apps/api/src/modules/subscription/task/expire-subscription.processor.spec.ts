@@ -1,37 +1,45 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ExpireSubscriptionProcessor } from './expire-subscription.processor';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 
 vi.mock('@sentry/nestjs', () => ({ captureException: vi.fn() }));
 import * as Sentry from '@sentry/nestjs';
 
-describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团队 TeamBalance）', () => {
+describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团队账本，经 clearPersonalTeamSubscription）', () => {
   let processor: ExpireSubscriptionProcessor;
   let prisma: any;
+  let ledger: any;
 
   beforeEach(() => {
+    ledger = {
+      tx: (raw: any) => raw,
+      lockBalance: vi.fn().mockResolvedValue(undefined),
+      ensureBalance: vi.fn().mockResolvedValue(undefined),
+      mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
+    };
     prisma = {
       userSubscription: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
       team: { findFirst: vi.fn() },
-      teamBalance: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
-      teamCreditTransaction: { create: vi.fn() },
-      $queryRaw: vi.fn(),
+      teamBalance: { findUniqueOrThrow: vi.fn() },
       $transaction: vi.fn(),
     };
-    processor = new ExpireSubscriptionProcessor(prisma as unknown as PrismaService);
+    processor = new ExpireSubscriptionProcessor(
+      prisma as unknown as PrismaService,
+      ledger as unknown as CreditLedgerService,
+    );
   });
 
-  it('过期清零 amount = 实时剩余订阅积分（非 totalCredits-consumedCredits 推算）', async () => {
+  it('过期清零 balanceDelta = 实时剩余订阅积分（非 totalCredits-consumedCredits 推算；Z24 分键 s1:<periodEnd>:clear）', async () => {
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-    prisma.$queryRaw.mockResolvedValue([]);
     prisma.userSubscription.findMany
-      .mockResolvedValueOnce([{ id: 's1', userId: 'u1' }])
+      .mockResolvedValueOnce([{ id: 's1', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') }])
       .mockResolvedValueOnce([]); // mock 不做 gt 过滤，需显式终止
     prisma.userSubscription.findUnique.mockResolvedValue({
       id: 's1', userId: 'u1', status: 'active', totalCredits: 500, consumedCredits: 100, // 推算值 -400 ≠ 实时 -37
     });
     prisma.team.findFirst.mockResolvedValue({ id: 't-default', isDefault: true });
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 37 });
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 37 });
 
     await processor.process({ data: {} } as any);
 
@@ -39,34 +47,31 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
       where: { id: 's1' },
       data: { status: 'expired' },
     }));
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ teamId: 't-default', amount: -37, type: 'expire_clear', balanceAfter: 0 }),
-    }));
-    expect(prisma.teamBalance.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { teamId: 't-default' },
-      data: { subscriptionCredits: 0 },
-    }));
+    expect(ledger.ensureBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+    expect(ledger.lockBalance).toHaveBeenCalledWith(expect.anything(), 't-default');
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
+      teamId: 't-default', operatorUserId: 'u1', type: 'expire_clear', creditType: 'subscription',
+      balanceDelta: -37, frozenDelta: 0, referenceId: 's1:2026-01-31:clear',
+    });
   });
 
   it('实时剩余为 0 时不写清零流水（无空流水）', async () => {
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-    prisma.$queryRaw.mockResolvedValue([]);
     prisma.userSubscription.findMany
-      .mockResolvedValueOnce([{ id: 's1', userId: 'u1' }])
+      .mockResolvedValueOnce([{ id: 's1', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') }])
       .mockResolvedValueOnce([]);
     prisma.userSubscription.findUnique.mockResolvedValue({ id: 's1', userId: 'u1', status: 'active' });
     prisma.team.findFirst.mockResolvedValue({ id: 't-default', isDefault: true });
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 0 });
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 0 });
 
     await processor.process({ data: {} } as any);
 
-    expect(prisma.teamCreditTransaction.create).not.toHaveBeenCalled();
-    expect(prisma.teamBalance.update).not.toHaveBeenCalled();
+    expect(ledger.mutate).not.toHaveBeenCalled();
   });
 
   it('复查非 active 跳过（防御 grant processor 已改状态）', async () => {
     prisma.userSubscription.findMany
-      .mockResolvedValueOnce([{ id: 's1', userId: 'u1' }])
+      .mockResolvedValueOnce([{ id: 's1', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') }])
       .mockResolvedValueOnce([]);
     prisma.userSubscription.findUnique.mockResolvedValue({ id: 's1', status: 'upgraded' });
 
@@ -78,9 +83,11 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
 
   it('单用户默认团队缺失不中止当日扫描（第二项仍过期清零 + Sentry 上报）', async () => {
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-    prisma.$queryRaw.mockResolvedValue([]);
     prisma.userSubscription.findMany
-      .mockResolvedValueOnce([{ id: 's1', userId: 'u1' }, { id: 's2', userId: 'u2' }])
+      .mockResolvedValueOnce([
+        { id: 's1', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') },
+        { id: 's2', userId: 'u2', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') },
+      ])
       .mockResolvedValueOnce([]);
     prisma.userSubscription.findUnique
       .mockResolvedValueOnce({ id: 's1', userId: 'u1', status: 'active' })
@@ -88,7 +95,7 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
     prisma.team.findFirst
       .mockResolvedValueOnce(null) // s1: bootstrap 失败用户默认团队缺失
       .mockResolvedValue({ id: 't-default', isDefault: true }); // s2 正常
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 37 });
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 37 });
 
     await expect(processor.process({ data: {} } as any)).resolves.toBeUndefined();
 
@@ -97,8 +104,8 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
       where: { id: 's2' },
       data: { status: 'expired' },
     }));
-    expect(prisma.teamCreditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ teamId: 't-default', amount: -37, type: 'expire_clear' }),
+    expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      teamId: 't-default', operatorUserId: 'u2', type: 'expire_clear', balanceDelta: -37,
     }));
     // 失败信号上报（BullMQ 作业失败不自动上报 Sentry）
     expect(Sentry.captureException).toHaveBeenCalledTimes(1);
@@ -106,10 +113,13 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
 
   it('cursor 分页：复查跳过的记录也推进 lastId（修复 skip 分页漏扫）', async () => {
     prisma.team.findFirst.mockResolvedValue({ id: 't-default', isDefault: true });
-    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 0 });
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ teamId: 't-default', subscriptionCredits: 0 });
     prisma.userSubscription.findMany
-      .mockResolvedValueOnce([{ id: 'a1', userId: 'u1' }, { id: 'a2', userId: 'u1' }])
-      .mockResolvedValueOnce([{ id: 'b1', userId: 'u1' }])
+      .mockResolvedValueOnce([
+        { id: 'a1', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') },
+        { id: 'a2', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') },
+      ])
+      .mockResolvedValueOnce([{ id: 'b1', userId: 'u1', currentPeriodEnd: new Date('2026-01-31T00:00:00Z') }])
       .mockResolvedValueOnce([]);
     // a1 复查通过，a2 复查失败 continue
     prisma.userSubscription.findUnique
@@ -117,7 +127,6 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
       .mockResolvedValueOnce({ id: 'a2', status: 'upgraded' })
       .mockResolvedValueOnce({ id: 'b1', userId: 'u1', status: 'active' });
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-    prisma.$queryRaw.mockResolvedValue([]);
 
     await processor.process({ data: {} } as any);
 

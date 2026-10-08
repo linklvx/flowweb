@@ -8,11 +8,13 @@ import { CloseExpiredSubOrderProcessor } from './close-expired-sub-order.process
 import { DailyReconProcessor } from './daily-recon.processor';
 import { SubscriptionSchedulerService } from './subscription-scheduler.service';
 import { RechargeModule } from '../../recharge/recharge.module';
+import { TeamModule } from '../../team/team.module';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 
 @Module({
   imports: [
     RechargeModule,
+    TeamModule,   // TeamModule：CreditLedgerService（grant/expire/payment processor 入账经台账）
     BullModule.registerQueue(
       {
         name: 'subscription-expire',

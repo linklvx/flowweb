@@ -3,13 +3,17 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Inject, Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 import { clearPersonalTeamSubscription } from './personal-team-ledger';
 
 @Processor('subscription-expire')
 export class ExpireSubscriptionProcessor extends WorkerHost {
   private readonly logger = new Logger(ExpireSubscriptionProcessor.name);
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
+  ) {
     super();
   }
 
@@ -43,8 +47,12 @@ export class ExpireSubscriptionProcessor extends WorkerHost {
               data: { status: 'expired' as any },
             });
 
-            // 清零默认团队实时剩余订阅积分（禁 totalCredits-consumedCredits 推算），无剩余不写流水
-            await clearPersonalTeamSubscription(tx, sub.userId, 'expire_clear', sub.id);
+            // 清零默认团队实时剩余订阅积分（禁 totalCredits-consumedCredits 推算），无剩余不写流水。
+            // Y0b-1（三轮 Z24）：周期事件键 `${sub.id}:${周期末日}`（同 sub 跨期各成键）
+            await clearPersonalTeamSubscription(
+              this.ledger, tx, sub.userId, 'expire_clear',
+              `${sub.id}:${sub.currentPeriodEnd.toISOString().slice(0, 10)}`,
+            );
           });
         } catch (err) {
           // 单个用户失败不得中止当日扫描（bootstrap 失败用户会拖垮全体）

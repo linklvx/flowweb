@@ -8,7 +8,6 @@ import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
-import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { Job } from 'bullmq';
 
 vi.mock('axios', () => ({
@@ -46,7 +45,7 @@ describe('LightingConsumer', () => {
     const gateway = { emitNodeStatus: vi.fn() };
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
     teamCredit = {
-      reserve: vi.fn().mockResolvedValue({ success: true }),
+      reserve: vi.fn().mockResolvedValue({ success: true, mayCall: true }),
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
     };
@@ -67,8 +66,6 @@ describe('LightingConsumer', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: GenerationIntentService, useValue: intentService },
-        // Y0b-1（§1.2/Z5）：实扣经 resolver（creditCost:1 对齐既有 reserve 断言取值）
-        { provide: PricingResolverService, useValue: { resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }) } },
       ],
     }).compile();
     consumer = module.get<LightingConsumer>(LightingConsumer);
@@ -110,8 +107,9 @@ describe('LightingConsumer', () => {
       }),
     );
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
-    expect(teamCredit.reserve).toHaveBeenCalledWith('t-team', 'u1', 1, { intentRowId: 'row-9', intentId: 'i-9' });
-    expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
+    // Y0b-1 Z10：金额单源 intent 行——guard 仅带 intentRowId
+    expect(teamCredit.reserve).toHaveBeenCalledWith('u1', { intentRowId: 'row-9' });
+    expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
   });
 
   it('无 projectId（个人任务）→ Media 回落个人团队，不扣团队积分', async () => {
@@ -179,7 +177,7 @@ describe('LightingConsumer', () => {
       await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
         .rejects.toThrow('relight boom');
 
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', intentId: 'i-9' });
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
     });
 
     it('originalImageId 归属：属他人且非本项目 → 拒绝（不泄露存在性）', async () => {
@@ -219,11 +217,11 @@ describe('LightingConsumer', () => {
   describe('批0.5-8/0.5-9 意图表扩面（reserve guard + settle 核销 + complete 门序）', () => {
     const intent = { intentRowId: 'row-9', intentId: 'i-9' };
 
-    it('reserve 外呼之前带 intentGuard {intentRowId, intentId}（约束① CAS 锚防双冻结）', async () => {
+    it('reserve 带 intentGuard {intentRowId}（Y0b-1 Z10 金额单源 intent 行——约束① CAS 锚防双冻结）', async () => {
       mockAxiosResult();
       await consumer.handleLightingJob(makeJob('proj-1', intent));
       expect(teamCredit.reserve).toHaveBeenCalledWith(
-        't-team', 'u1', 1, { intentRowId: 'row-9', intentId: 'i-9' },
+        'u1', { intentRowId: 'row-9' },
       );
       expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callRelighting.mock.invocationCallOrder[0]);
     });

@@ -9,7 +9,7 @@ import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
-import { PricingResolverService } from '../../execution/pricing-resolver.service';
+import { intentDuplicateAttemptTotal } from '../../execution/intent-reconcile.metrics';
 import axios from 'axios';
 
 const LightingTaskStatus = {
@@ -82,7 +82,6 @@ export class LightingConsumer {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
-    @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
   async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
@@ -128,11 +127,14 @@ export class LightingConsumer {
         if (!intentRowId || !intentId) {
           throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）——缺锚即接线断裂
         }
-        // Y0b-1（§1.2/Z5）：编译期常量旁路退役——实扣同经 resolver（kind 级：modelId IS NULL）
-        const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
-        const reserveResult = await this.teamCredit.reserve(
-          projectTeamId, userId, pricing.creditCost, { intentRowId, intentId },
-        );
+        // Y0b-1（Z10）：金额单源 intent 行（claim 固化 plan 快照）——consumer 不再解析定价
+        const reserveResult = await this.teamCredit.reserve(userId, { intentRowId });
+        if (reserveResult.mayCall === false) {
+          // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
+          intentDuplicateAttemptTotal.inc();
+          this.logger.warn(`[reserve] 意图 ${intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
+          return { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT' };
+        }
         if (!reserveResult.success) {
           const reason = reserveResult.reason ?? 'RESERVE_FAILED';
           this.logger.warn(`Lighting credit-reserve failed for task ${taskId}: ${reason}`);
@@ -198,7 +200,7 @@ export class LightingConsumer {
 
       // 8.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
       if (projectTeamId && intentRowId && intentId) {
-        const settled = await this.teamCredit.settle({ intentRowId, intentId });
+        const settled = await this.teamCredit.settle({ intentRowId });
         if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
       }
 
@@ -243,7 +245,7 @@ export class LightingConsumer {
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还；无冻结/已结算幂等零动作）。
       // SIGKILL 场景本 catch 不执行——冻结滞留由 reconcile 超龄三查②解冻兜底。
       if (intentRowId && intentId) {
-        await this.teamCredit.void_({ intentRowId, intentId })
+        await this.teamCredit.void_({ intentRowId })
           .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentId} void_ 解冻失败（reconcile 兜底）: ${e}`));
       }
 

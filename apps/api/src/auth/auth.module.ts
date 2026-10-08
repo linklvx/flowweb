@@ -5,12 +5,13 @@ import { SessionService } from './session.service';
 import { WechatController } from './wechat/wechat.controller';
 import { WechatService } from './wechat/wechat.service';
 import { SmsModule } from '../modules/sms/sms.module';
+import { TeamModule } from '../modules/team/team.module';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
 import { REDIS_CLIENT, createManagedRedis } from '../common/redis/managed-redis';
 import { authPrisma, authRedis } from './auth';
 
 @Module({
-  imports: [SmsModule],
+  imports: [SmsModule, TeamModule],   // TeamModule：CreditLedgerService（bootstrapPersonalTeam 注册发放经台账）
   controllers: [AuthController, WechatController],
   providers: [
     AuthService,

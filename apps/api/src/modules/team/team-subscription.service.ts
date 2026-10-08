@@ -1,5 +1,6 @@
 import { Injectable, Inject, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { TEAM_FREE_SEAT_LIMIT, TEAM_FREE_STORAGE_LIMIT_BYTES } from './team.constants';
 import { generateTeamOrderNo } from './team-recharge.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -8,6 +9,7 @@ import { AuditService } from '../../common/audit/audit.service';
 export class TeamSubscriptionService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
@@ -66,32 +68,24 @@ export class TeamSubscriptionService {
     if (team?.isDefault) throw new BadRequestException('个人项目不支持团队套餐订阅');
     const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
     try {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT * FROM "TeamBalance" WHERE "teamId" = ${teamId} FOR UPDATE`;
+      await this.prisma.$transaction(async (raw) => {
+        const tx = this.ledger.tx(raw);
+        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+        // Y0b-1（Z13/Z12）：FOR UPDATE 删——lockBalance 取代（锁序全序）；入账全经 mutate。
+        await this.ledger.lockBalance(tx, teamId);
 
         const balance = await tx.teamBalance.findUnique({ where: { teamId } });
         const remaining = balance?.subscriptionCredits ?? 0;
         if (remaining > 0) {
-          await tx.teamBalance.update({ where: { teamId }, data: { subscriptionCredits: 0 } });
-          await tx.teamCreditTransaction.create({
-            data: {
-              teamId, operatorUserId: order.payerUserId, amount: -remaining,
-              type: 'expire_clear', creditType: 'subscription',
-              referenceId: order.outTradeNo, balanceAfter: 0,
-            },
+          await this.ledger.mutate(tx, {
+            teamId, operatorUserId: order.payerUserId, type: 'expire_clear', creditType: 'subscription',
+            balanceDelta: -remaining, frozenDelta: 0, referenceId: order.outTradeNo,
           });
         }
 
-        await tx.teamBalance.update({
-          where: { teamId },
-          data: { subscriptionCredits: plan.monthlyCredits },
-        });
-        await tx.teamCreditTransaction.create({
-          data: {
-            teamId, operatorUserId: order.payerUserId, amount: plan.monthlyCredits,
-            type: 'subscription_grant', creditType: 'subscription',
-            referenceId: order.outTradeNo, balanceAfter: plan.monthlyCredits,
-          },
+        await this.ledger.mutate(tx, {
+          teamId, operatorUserId: order.payerUserId, type: 'subscription_grant', creditType: 'subscription',
+          balanceDelta: plan.monthlyCredits, frozenDelta: 0, referenceId: order.outTradeNo,
         });
 
         const now = new Date();
@@ -129,32 +123,35 @@ export class TeamSubscriptionService {
     }
   }
 
-  /** team-expire processor：到期清零（充值 credits 不动） */
+  /** team-expire processor：到期清零（充值 credits 不动）。
+   *  Y0b-1（Z9 缺口③/Z24）：sub CAS 前置 count===0 return（并发已过期零动作——防重复清零）；
+   *  expire_clear 周期事件键 `${sub.id}:${周期起始日}`（同 sub 跨期各成键）；FOR UPDATE 删——lockBalance 取代。 */
   async expireSubscriptions(): Promise<number> {
     const due = await this.prisma.teamSubscription.findMany({
       where: { status: 'active', currentPeriodEnd: { lte: new Date() } },
-      select: { id: true, teamId: true },
+      select: { id: true, teamId: true, currentPeriodEnd: true },
     });
 
     for (const sub of due) {
       if (!sub.teamId) continue;
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT * FROM "TeamBalance" WHERE "teamId" = ${sub.teamId} FOR UPDATE`;
-        const balance = await tx.teamBalance.findUnique({ where: { teamId: sub.teamId! } });
-        const remaining = balance?.subscriptionCredits ?? 0;
-        if (remaining > 0) {
-          await tx.teamBalance.update({ where: { teamId: sub.teamId! }, data: { subscriptionCredits: 0 } });
-          await tx.teamCreditTransaction.create({
-            data: {
-              teamId: sub.teamId!, operatorUserId: null, amount: -remaining,
-              type: 'expire_clear', creditType: 'subscription', balanceAfter: 0,
-            },
-          });
-        }
-        await tx.teamSubscription.updateMany({
+      await this.prisma.$transaction(async (raw) => {
+        const tx = this.ledger.tx(raw);
+        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+        await this.ledger.lockBalance(tx, sub.teamId!);
+        const cas = await tx.teamSubscription.updateMany({
           where: { id: sub.id, status: 'active' },
           data: { status: 'expired' },
         });
+        if (cas.count === 0) return; // 并发已过期——零动作
+        const balance = await tx.teamBalance.findUnique({ where: { teamId: sub.teamId! } });
+        const remaining = balance?.subscriptionCredits ?? 0;
+        if (remaining > 0) {
+          await this.ledger.mutate(tx, {
+            teamId: sub.teamId!, operatorUserId: null, type: 'expire_clear', creditType: 'subscription',
+            balanceDelta: -remaining, frozenDelta: 0,
+            referenceId: `${sub.id}:${sub.currentPeriodEnd.toISOString().slice(0, 10)}`,
+          });
+        }
 
         await this.audit.logTx(tx, {
           operatorId: 'system',

@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { TeamService } from './team.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { TeamCreditService } from './team-credit.service';
 import { TeamRechargeService } from './team-recharge.service';
 import { TeamSubscriptionService } from './team-subscription.service';
@@ -28,10 +29,11 @@ import { AuditService } from '../../common/audit/audit.service';
   ],
   controllers: [TeamController, AdminTeamPlanController, ProjectMemberController],
   providers: [
+    CreditLedgerService,
     TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
     ProjectPermissionService, ProjectMemberService, AuditService,
     TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamMediaCleanupProcessor,
   ],
-  exports: [TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],
+  exports: [CreditLedgerService, TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],
 })
 export class TeamModule {}

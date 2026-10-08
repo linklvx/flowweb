@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CreditLedgerService } from '../../modules/team/credit-ledger.service';
 import { SESSION_COOKIE_OPTIONS } from '../auth';
 import { bootstrapPersonalTeam } from '../../modules/team/team.bootstrap';
 
@@ -11,6 +12,7 @@ const WECHAT_API_BASE = 'https://api.weixin.qq.com';
 export class WechatService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
   ) {}
 
   async getAccessToken(code: string) {
@@ -70,7 +72,7 @@ export class WechatService {
     });
 
     // 微信直连 prisma.create 绕过 better-auth 钩子，此处是唯一 bootstrap 入口
-    await bootstrapPersonalTeam(this.prisma as any, user.id, user.name ?? '用户');
+    await bootstrapPersonalTeam(this.prisma as any, this.ledger, user.id, user.name ?? '用户');
 
     return user;
   }

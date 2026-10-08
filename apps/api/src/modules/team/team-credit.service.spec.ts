@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { TeamCreditService } from './team-credit.service';
+import { CreditLedgerService } from './credit-ledger.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -22,7 +23,11 @@ describe('TeamCreditService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TeamCreditService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        TeamCreditService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: CreditLedgerService, useValue: { tx: (r: any) => r, lockBalance: vi.fn(), ensureBalance: vi.fn(), mutate: vi.fn() } },
+      ],
     }).compile();
 
     service = module.get<TeamCreditService>(TeamCreditService);

@@ -4,6 +4,7 @@ import { Job, Queue } from 'bullmq';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentGateway } from '../../recharge/payment.gateway';
+import { CreditLedgerService } from '../../team/credit-ledger.service';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { grantToPersonalTeam } from './personal-team-ledger';
 
@@ -20,6 +21,7 @@ export class PaymentSuccessProcessor extends WorkerHost {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PaymentGateway) private readonly gateway: PaymentGateway,
+    @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Optional() @InjectQueue(QUEUE_NAMES.SUBSCRIPTION_CLOSE_EXPIRED)
     private readonly closeExpiredQueue?: Queue,
   ) {
@@ -116,9 +118,10 @@ export class PaymentSuccessProcessor extends WorkerHost {
         }
 
         // 4) Grant first month subscription credits to personal team ledger
-        // 升级先清旧池（upgrade_clear）/ 续费=新周期（expire_clear）；旧池有剩余必有清零流水
+        // 升级先清旧池（upgrade_clear）/ 续费=新周期（expire_clear）；旧池有剩余必有清零流水。
+        // Y0b-1（三轮 Z24/禁实体 id）：referenceId 统一 order.id（订单号=事件 id，续费订单各不相同天然周期安全）
         const clearType = order.type === 'upgrade' ? 'upgrade_clear' : 'expire_clear';
-        await grantToPersonalTeam(tx, order.userId, plan.monthlyCredits, clearType, newSub?.id || order.id);
+        await grantToPersonalTeam(this.ledger, tx, order.userId, plan.monthlyCredits, clearType, order.id);
       });
 
       // 5) Remove delayed close task (best-effort)
