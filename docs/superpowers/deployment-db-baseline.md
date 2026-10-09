@@ -47,10 +47,14 @@ pnpm exec tsx prisma/seed.ts
 
 | # | 操作 | 判据 |
 |---|------|------|
-| 1 | 本地 `./deploy.sh api --rebuild-db`（脚本内自动：清远端旧迁移目录→owner 核查→DROP SCHEMA→migrate deploy 重放 init→cutover 全链含 pg_dump 备份） | 脚本零失败退出；`cat apps/api/dist/build-info.json` SHA≡HEAD |
+| 1 | 本地 `./deploy.sh api --rebuild-db`（脚本内自动：清远端旧迁移目录→owner 核查→DROP SCHEMA→migrate deploy 重放全部迁移→cutover 全链含 pg_dump 备份） | 脚本零失败退出；`cat apps/api/dist/build-info.json` SHA≡HEAD |
 | 2 | ssh 进服务器跑 seed：`cd /home/ubuntu/flowweb/apps/api && pnpm exec tsx prisma/seed.ts` | seed 零报错退出 |
-| 3 | 服务器 `pnpm exec prisma migrate status` | 输出 `1 migration found, up to date` |
+| 3 | 服务器 `pnpm exec prisma migrate status` | 输出 `N migrations found, up to date`（N=当前迁移总数——2026-10-09 重建时 N=2） |
 | 4 | 冒烟复核：post 段 ready 轮询+collab-smoke 已随脚本跑过；人工再验 `/api/ready` 返回 200 且 reason 全绿 | ready 200；collab-smoke 零失败（post 段输出） |
+
+### 首次执行记录（2026-10-09，Y0b-1 两刀迁移 24→2 重放）
+
+四步全过（判据 3 实测 `2 migrations found, up to date`；终态 PricingRule=16〔12 主链+4 kind 级〕+CollabLease 种子行在位）。执行中根修的三个部署面盲区（均已 commit）：①owner 核查语义化（远端 schema owner 实测为 `pg_database_owner`——PG14+ 默认形态，database owner 经该角色隐式持有 DROP 权；核查改双合法形态）；②src 恢复上传（seed.ts 经 tsx 直跑且 import `../src/*`——src 缺位则步骤 2 必炸；零构建锚不受影响）；③guard post 的 epoch 递增断言在重建形态走 degraded 豁免档（DROP SCHEMA 把 CollabLease.epoch 归零种子 0，递增断言结构性不可能；接管证明=ready+spool 归零+3001，递增断言由下次普通部署恢复）。
 
 ## 四、migrate dev 的 shadow database / CREATEDB（一次性手动步骤）
 
