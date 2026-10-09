@@ -41,7 +41,9 @@ const hasDb = !!process.env.DATABASE_URL;
   }, 60000);
 
   it('AdminModule+ProjectModule+TemplateModule compile（消费侧跨模块注入）', async () => {
-    // prom-client register 是进程级单例（生产=单 MetricsService 实例）——第二次 compile 模拟新进程，先清注册表
+    // prom-client register 是进程级单例（生产=单 MetricsService 实例）——第二次 compile 模拟新进程，先清注册表。
+    // 安全性前提：vitest 默认 isolate:true（文件级独立模块表）——clear 影响域被封在本文件内；若未来关 isolate
+    // 此 clear 会静默反注册其他文件的模块级 Counter（inc 仍工作但不进 /metrics）——届时须改为子进程隔离（T7 质量审 M-3）
     const { register } = await import('prom-client');
     register.clear();
     const { AdminModule } = await import('./modules/admin/admin.module');
