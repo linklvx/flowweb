@@ -12,10 +12,17 @@ if (!process.argv[2]) {
 
 const c = new Client({ connectionString: process.argv[2] });
 await c.connect();
-const owner = await c.query("SELECT pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname='public'");
-console.log('public schema owner:', owner.rows[0].owner);
-if (owner.rows[0].owner !== 'flowweb') {
-  console.error('owner 非 flowweb——DROP 需 schema owner，人工核查（Z34/P2-5）');
+// owner 核查（P2-5 防误伤真义=确认 DSN 连的是自家库，非字面角色名）：
+// 合法形态两种——①schema owner=连接用户；②PG14+ 默认形态 schema owner=pg_database_owner 且
+// database owner=连接用户（database owner 隐式持有该角色，有权 DROP——服务器实测 2026-10-09 部署）。
+const own = await c.query(`SELECT
+  pg_get_userbyid((SELECT nspowner FROM pg_namespace WHERE nspname='public')) AS schema_owner,
+  pg_get_userbyid((SELECT datdba FROM pg_database WHERE datname = current_database())) AS db_owner,
+  current_user AS usr`);
+const { schema_owner, db_owner, usr } = own.rows[0];
+console.log(`schema_owner=${schema_owner} db_owner=${db_owner} usr=${usr}`);
+if (!(schema_owner === usr || (schema_owner === 'pg_database_owner' && db_owner === usr))) {
+  console.error(`schema 非连接用户所有（schema_owner=${schema_owner} db_owner=${db_owner} usr=${usr}）——疑似连错库，人工核查（Z34/P2-5）`);
   process.exit(1);
 }
 const n = await c.query('SELECT COUNT(*)::int AS n FROM "GenerationIntent"').catch(() => ({ rows: [{ n: 0 }] }));
