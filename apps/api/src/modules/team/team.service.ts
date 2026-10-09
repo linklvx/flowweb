@@ -5,6 +5,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
 import { CreditLedgerService } from './credit-ledger.service';
+import { TeamCreditService } from './team-credit.service';
 import { TeamFundsGateService } from './team-funds-gate.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { bootstrapPersonalTeam } from './team.bootstrap';
@@ -21,6 +22,7 @@ export class TeamService {
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(TeamFundsGateService) private readonly fundsGate: TeamFundsGateService,
+    @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
   ) {}
 
   /** 审计 operatorName：调用点无现成名字时一次 user 查询兜底 */
@@ -169,7 +171,14 @@ export class TeamService {
       }),
       this.prisma.teamMember.count({ where: { teamId } }),
     ]);
-    return { items: rows, total };
+    // Y0b-2 T0：monthlyUsed 改道台账派生（与 getBalanceView.used 同源——批量聚合与单成员读共用同一 SQL）；
+    // monthlyPeriod 字段退役不再出响应（T1 删列后无幽灵）
+    const usedMap = await this.teamCredit.derivedMonthlyUsedMap(this.prisma, teamId);
+    const items = rows.map((r) => {
+      const { monthlyPeriod: _retired, ...rest } = r;
+      return { ...rest, monthlyUsed: usedMap.get(r.userId) ?? 0 };
+    });
+    return { items, total };
   }
 
   private async requireMember(teamId: string, userId: string) {

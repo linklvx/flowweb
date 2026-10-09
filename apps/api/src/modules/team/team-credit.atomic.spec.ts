@@ -101,11 +101,9 @@ describe('TeamCreditService reserve/settle/void_ 两阶段（批0.5-9+Y0b-1）',
         teamId: 't1', operatorUserId: 'u1', type: 'reserve', creditType: 'regular',
         balanceDelta: -20, frozenDelta: 20, referenceId: 'intent:row-1',
       });
-      // monthlyUsed CAS
-      expect(prisma.teamMember.updateMany).toHaveBeenCalledWith({
-        where: { id: 'm1', monthlyPeriod: period(), monthlyUsed: { lte: 150 } },
-        data: { monthlyUsed: { increment: 50 }, monthlyPeriod: period() },
-      });
+      // Y0b-2 T0：monthlyUsed CAS 退役——quota 判定改读台账派生（$queryRaw），无列写点
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+      expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
 
     it('r3 约束① stalled 同 job 重入：CAS count===0 且行已冻结 → success+alreadyReserved+mayCall:false（Z35——禁再外呼）', async () => {
@@ -239,7 +237,7 @@ describe('TeamCreditService reserve/settle/void_ 两阶段（批0.5-9+Y0b-1）',
     const subReserveRow = { id: 'lr-sub', teamId: 't1', amount: -30, type: 'reserve', creditType: 'subscription', referenceId: 'intent:row-1' };
     const regReserveRow = { id: 'lr-reg', teamId: 't1', amount: -20, type: 'reserve', creditType: 'regular', referenceId: 'intent:row-1' };
 
-    it('v1 成功：锁序①+CAS reservedCredits>0→0+release 冲销（真值表 (+c,−c)+reversesId）+monthlyUsed 回滚 Σ|amount|', async () => {
+    it('v1 成功：锁序①+CAS reservedCredits>0→0+release 冲销（真值表 (+c,−c)+reversesId）——Y0b-2 T0：monthlyUsed 已派生无列回滚写点', async () => {
       prisma.generationIntent.findUnique.mockResolvedValue({ id: 'row-1', teamId: 't1', userId: 'u1', reservedCredits: 50, creditsConsumed: 0 });
       prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
       prisma.$queryRaw.mockResolvedValue([subReserveRow, regReserveRow]);
@@ -262,10 +260,8 @@ describe('TeamCreditService reserve/settle/void_ 两阶段（批0.5-9+Y0b-1）',
         teamId: 't1', operatorUserId: 'u1', type: 'release', creditType: 'regular',
         balanceDelta: 20, frozenDelta: -20, referenceId: 'intent:row-1', reversesId: 'lr-reg',
       });
-      expect(prisma.teamMember.updateMany).toHaveBeenCalledWith({
-        where: { teamId: 't1', userId: 'u1', monthlyPeriod: period() },
-        data: { monthlyUsed: { decrement: 50 } },
-      });
+      // Y0b-2 T0：monthlyUsed 已派生——release 落行 frozen 腿自然回落，无列回滚写点
+      expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
 
     it('v2 幂等：无冻结（CAS count===0，已解冻/已结算）→ 零钱动零流水', async () => {

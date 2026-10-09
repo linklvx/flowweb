@@ -6,6 +6,7 @@ import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CreditLedgerService } from './credit-ledger.service';
+import { TeamCreditService } from './team-credit.service';
 import { TeamFundsGateService } from './team-funds-gate.service';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -23,6 +24,10 @@ const resetLedgerMocks = () => {
   ledger.mutate.mockClear();
 };
 
+// Y0b-2 T0：TeamService.listMembers 经 TeamCreditService.derivedMonthlyUsedMap 批量派生月度用量
+const teamCredit = { derivedMonthlyUsedMap: vi.fn().mockResolvedValue(new Map()) };
+const resetTeamCreditMocks = () => { teamCredit.derivedMonthlyUsedMap.mockClear(); };
+
 describe('TeamService.ensureDefaultTeam', () => {
   let service: TeamService;
   let prisma: any;
@@ -32,6 +37,7 @@ describe('TeamService.ensureDefaultTeam', () => {
 
   beforeEach(async () => {
     resetLedgerMocks();
+    resetTeamCreditMocks();
     prisma = {
       user: { findUnique: vi.fn() },
       team: {
@@ -54,6 +60,7 @@ describe('TeamService.ensureDefaultTeam', () => {
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
 
@@ -132,6 +139,7 @@ describe('TeamService 基础 API', () => {
 
   beforeEach(async () => {
     resetLedgerMocks();
+    resetTeamCreditMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn().mockResolvedValue({}) };
@@ -145,6 +153,7 @@ describe('TeamService 基础 API', () => {
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
 
@@ -416,6 +425,7 @@ describe('TeamService 成员管理', () => {
 
   beforeEach(async () => {
     resetLedgerMocks();
+    resetTeamCreditMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
@@ -429,6 +439,7 @@ describe('TeamService 成员管理', () => {
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
 
@@ -436,15 +447,18 @@ describe('TeamService 成员管理', () => {
   });
 
   describe('listMembers', () => {
-    it('分页返回 {items,total}，item 含 user 摘要/role/quota/used', async () => {
+    it('分页返回 {items,total}，item 含 user 摘要/role/quota/used——used 台账派生（Y0b-2 T0），monthlyPeriod 退役不出响应', async () => {
+      const joinedAt = new Date('2026-01-01');
       const row = {
-        id: 'm1', role: 'MEMBER', monthlyQuota: 100, monthlyUsed: 30,
+        id: 'm1', teamId: 't1', userId: 'u2', role: 'MEMBER', monthlyQuota: 100,
+        monthlyUsed: 30, monthlyPeriod: '2026-01', joinedAt,
         user: { id: 'u2', name: '张三', email: 'z@x.com' },
       };
       prisma.teamMember = {
         findMany: vi.fn().mockResolvedValue([row]),
         count: vi.fn().mockResolvedValue(1),
       };
+      teamCredit.derivedMonthlyUsedMap.mockResolvedValue(new Map([['u2', 30]]));
 
       const result = await service.listMembers('t1', 1, 20);
 
@@ -453,8 +467,13 @@ describe('TeamService 成员管理', () => {
         skip: 0,
         take: 20,
       }));
+      expect(teamCredit.derivedMonthlyUsedMap).toHaveBeenCalledWith(expect.anything(), 't1');
       expect(result).toEqual({
-        items: [{ id: 'm1', role: 'MEMBER', monthlyQuota: 100, monthlyUsed: 30, user: { id: 'u2', name: '张三', email: 'z@x.com' } }],
+        items: [{
+          id: 'm1', teamId: 't1', userId: 'u2', role: 'MEMBER', monthlyQuota: 100,
+          monthlyUsed: 30, joinedAt,
+          user: { id: 'u2', name: '张三', email: 'z@x.com' },
+        }],
         total: 1,
       });
     });
@@ -629,6 +648,7 @@ describe('TeamService 加入申请', () => {
 
   beforeEach(async () => {
     resetLedgerMocks();
+    resetTeamCreditMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
@@ -642,6 +662,7 @@ describe('TeamService 加入申请', () => {
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
 
@@ -805,6 +826,7 @@ describe('listAuditLogs', () => {
 
   beforeEach(async () => {
     resetLedgerMocks();
+    resetTeamCreditMocks();
     prisma = {
       teamMember: { findUnique: vi.fn() },
       auditLog: { findMany: vi.fn(), count: vi.fn() },
@@ -821,6 +843,7 @@ describe('listAuditLogs', () => {
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
 
@@ -860,6 +883,7 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
 
   beforeEach(async () => {
     resetLedgerMocks();
+    resetTeamCreditMocks();
     prisma = {};
     emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
@@ -873,6 +897,7 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
 

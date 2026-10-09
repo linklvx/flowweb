@@ -5,11 +5,6 @@ import { CreditLedgerService } from './credit-ledger.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const period = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
-
 describe('TeamCreditService', () => {
   let service: TeamCreditService;
   let prisma: any;
@@ -19,6 +14,8 @@ describe('TeamCreditService', () => {
       teamBalance: { findUnique: vi.fn(), updateMany: vi.fn() },
       teamMember: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       teamCreditTransaction: { create: vi.fn(), createMany: vi.fn() },
+      // Y0b-2 T0：used 改道台账派生（$queryRaw 两腿聚合）——默认零命中=used 0
+      $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma)),
     };
 
@@ -34,35 +31,19 @@ describe('TeamCreditService', () => {
   });
 
   describe('getBalanceView', () => {
-    it('返回双池+总额+成员 quota/used', async () => {
+    it('返回双池+总额+成员 quota/used（used 台账派生——旧列值不再被读，惰性重置随写点消失）', async () => {
       prisma.teamBalance.findUnique.mockResolvedValue({ credits: 100, subscriptionCredits: 50 });
       prisma.teamMember.findUnique.mockResolvedValue({
-        id: 'm1', monthlyQuota: 200, monthlyPeriod: period(), monthlyUsed: 30,
+        id: 'm1', monthlyQuota: 200, monthlyPeriod: '2026-01', monthlyUsed: 30,
       });
 
       const result = await service.getBalanceView('t1', 'u1');
 
       expect(result).toEqual({
-        credits: 100, subscriptionCredits: 50, total: 150, quota: 200, used: 30,
+        credits: 100, subscriptionCredits: 50, total: 150, quota: 200, used: 0,
       });
-    });
-
-    it('惰性重置：monthlyPeriod 非当月先清零再返回', async () => {
-      prisma.teamBalance.findUnique.mockResolvedValue({ credits: 100, subscriptionCredits: 0 });
-      prisma.teamMember.findUnique.mockResolvedValue({
-        id: 'm1', monthlyQuota: 200, monthlyPeriod: '2026-01', monthlyUsed: 150,
-      });
-      prisma.teamMember.update.mockResolvedValue({
-        id: 'm1', monthlyQuota: 200, monthlyPeriod: period(), monthlyUsed: 0,
-      });
-
-      const result = await service.getBalanceView('t1', 'u1');
-
-      expect(prisma.teamMember.update).toHaveBeenCalledWith({
-        where: { id: 'm1' },
-        data: { monthlyPeriod: period(), monthlyUsed: 0 },
-      });
-      expect(result.used).toBe(0);
+      expect(prisma.$queryRaw).toHaveBeenCalled();   // 派生读已改道
+      expect(prisma.teamMember.update).not.toHaveBeenCalled();   // 惰性重置退役
     });
 
     it('非成员 403', async () => {

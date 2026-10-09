@@ -5,7 +5,7 @@ import type { GenerationIntent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
-import { TeamCreditService, currentPeriod } from '../team/team-credit.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import {
@@ -31,7 +31,8 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *       ①已扣 && resultRef 非空 → SUCCEEDED 回填
  *       ②已扣无产物 → 按冻结态分义（批0.5-9）：
  *         已 settle/consume（终态账）→ 退款事务（四写单 $transaction：守卫 CAS 二次判龄+归零 → 两池拆分
- *           逆向记账（type=refund，读流水行各自拆分——禁拿 creditsConsumed 单值猜）→ monthlyUsed 回滚）；
+ *           逆向记账（type=refund，读流水行各自拆分——禁拿 creditsConsumed 单值猜）；
+ *           Y0b-2 T0：monthlyUsed 已派生——refund 落行即回落，无列回滚写点）；
  *           count===0 ⇒ 已处理/并发已抢（幂等，崩溃重扫不双退）
  *         reserve-only（冻结轨迹）→ 解冻事务（unfreeze：同款守卫 CAS+reservedCredits 归零+两池加回+
  *           反向 reserve 流水——约束②禁 refund 正向记账防双倍回滚）
@@ -207,10 +208,6 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
           balanceDelta: amt, frozenDelta: -amt, referenceId: r.referenceId, reversesId: r.id,
         });
       }
-      await tx.teamMember.updateMany({
-        where: { teamId: row.teamId!, userId: row.userId, monthlyPeriod: currentPeriod() }, // 仅当月回滚
-        data: { monthlyUsed: { decrement: total } },
-      });
       return true;
     }, { timeout: 15_000, maxWait: 5_000 });
     if (done) {
@@ -247,10 +244,6 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
           balanceDelta: amt, frozenDelta: 0, referenceId: r.referenceId, reversesId: r.id,
         });
       }
-      await tx.teamMember.updateMany({
-        where: { teamId: row.teamId!, userId: row.userId, monthlyPeriod: currentPeriod() }, // 仅当月回滚（月界翻转不污染新月）
-        data: { monthlyUsed: { decrement: total } },
-      });
       return true;
     }, { timeout: 15_000, maxWait: 5_000 });
     if (refunded) {
@@ -326,7 +319,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 
   /** Y0b-1（Z11/Z25+四轮 Z38）：台账侧孤儿冻结——reserve 行未被冲销 ∧ **意图行真丢失**（gi.id IS NULL）∧ 超 15min
    *  ⇒ 经 releaseOrphanReserve 窄口（skipIntentCheck）幂等释放。
-   *  四轮收窄：意图行**存在**的一切情形归 void_/settleStranded 全权处理（含 monthlyUsed 回滚——窄口跳过=quota 永久占用）；
+   *  四轮收窄：意图行**存在**的一切情形归 void_/settleStranded 全权处理（monthlyUsed 已派生〔Y0b-2 T0〕——窄口跳过=quota 永久占用的旧患随列退役消失）；
    *  孤儿=行已灭失（quota 无法归因——登记残余），窄口只为此类存在。
    *  钱包存在前置（解散后钱包已级联删——不可释放者计数排除，不每轮刷屏占 LIMIT 槽）。 */
   private async releaseOrphanedReserves(): Promise<number> {

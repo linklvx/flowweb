@@ -1,18 +1,16 @@
 import { Injectable, Inject, ForbiddenException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
 
-/** F13：扣费事务内中止——throw 即整体回滚（余额/扣费门/流水同生共死）；catch 翻译回 reason。
- *  v5.8 写死：扣减后配额复验失败若 return=提交已扣余额——必须 throw。 */
-class ConsumeAbort extends Error {
-  constructor(readonly reason: string) {
-    super(reason);
-  }
-}
-
-export function currentPeriod(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+/** 月界单源（Y0b-2 T0/Z96）：业务时区=Asia/Shanghai 固定 +8 无 DST——纯 UTC 会使配额在每月 1 日 08:00
+ *  重置，产品语义错；Date.UTC 计算后平移 -8h，消灭 Node 本地时区 vs Prisma naive UTC 的错位。 */
+export function currentPeriodBounds(now = new Date()): [Date, Date] {
+  const bj = new Date(now.getTime() + 8 * 3600_000);                     // 平移到东八区视角
+  const y = bj.getUTCFullYear(), m = bj.getUTCMonth();
+  const start = new Date(Date.UTC(y, m, 1) - 8 * 3600_000);              // 北京月首 0 点
+  const next = new Date(Date.UTC(y, m + 1, 1) - 8 * 3600_000);
+  return [start, next];
 }
 
 @Injectable()
@@ -22,22 +20,16 @@ export class TeamCreditService {
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
   ) {}
 
-  /** 双池+总额+该成员 quota/used（惰性重置：monthlyPeriod 非当月先清零） */
-  async getBalanceView(teamId: string, userId: string) {
+  /** 双池+总额+该成员 quota/used（Y0b-2 T0：used 改道台账派生——TeamMember.monthlyUsed 列暂留无读者，T1 删）。
+   *  bounds 可选参=跨月视图直读（月界参数注入——默认当月）。 */
+  async getBalanceView(teamId: string, userId: string, bounds?: [Date, Date]) {
     const balance = await this.prisma.teamBalance.findUnique({ where: { teamId } });
-    let member = await this.prisma.teamMember.findUnique({
+    const member = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
     if (!member) throw new ForbiddenException('非团队成员');
 
-    const period = currentPeriod();
-    if (member.monthlyPeriod !== period) {
-      member = await this.prisma.teamMember.update({
-        where: { id: member.id },
-        data: { monthlyPeriod: period, monthlyUsed: 0 },
-      });
-    }
-
+    const used = await this.derivedMonthlyUsed(this.prisma, teamId, userId, bounds);
     const credits = balance?.credits ?? 0;
     const subscriptionCredits = balance?.subscriptionCredits ?? 0;
     return {
@@ -45,8 +37,41 @@ export class TeamCreditService {
       subscriptionCredits,
       total: credits + subscriptionCredits,
       quota: member.monthlyQuota,
-      used: member.monthlyUsed,
+      used,
     };
+  }
+
+  /** Z70/Z86/Z96：月度用量派生（批量）——settle+refund 净额（GROUP BY operatorUserId）+frozen（GROUP BY userId）两腿。
+   *  CTE 单语句（JOIN 内联免 Prisma.join/参数上限）；settle 归因=settle.createdAt（禁经 reversesId 改挂 reserve
+   *  时间——跨月订单会归错月）；refund 冲销归因被冲销 settle 行月份〔refund 无时间条件〕。
+   *  frozen 腿谓词=reservedCredits>0（列语义，与 generation_intent_frozen_partial 同谓词）非 status——
+   *  complete→settle 窗口 status 已 SUCCEEDED 而钱仍冻结，按状态门控会让 used 瞬间回落；且 frozen 腿不受
+   *  bounds 约束恒计当前在飞（有意的不对称）。listMembers 聚合与单成员读共用本方法=谓词单源。
+   *  事务内必须传 tx（交互式事务内 this.prisma 另开连接=死锁+看不到未提交写）。 */
+  async derivedMonthlyUsedMap(tx: Prisma.TransactionClient, teamId: string, bounds?: [Date, Date]): Promise<Map<string, number>> {
+    const [start, next] = bounds ?? currentPeriodBounds();
+    const netRows = await tx.$queryRaw<{ uid: string | null; net: bigint }[]>`
+      WITH s AS (SELECT id, amount, "operatorUserId" FROM "TeamCreditTransaction"
+                 WHERE "teamId" = ${teamId} AND type = 'settle'
+                   AND "createdAt" >= ${start} AND "createdAt" < ${next} AND amount < 0),
+      settle_sum AS (SELECT "operatorUserId" AS uid, SUM(-amount) AS settled FROM s GROUP BY 1),
+      refund_sum AS (SELECT s."operatorUserId" AS uid, COALESCE(SUM(t.amount), 0) AS refunded
+                     FROM "TeamCreditTransaction" t JOIN s ON t."reversesId" = s.id
+                     WHERE t.type = 'refund' GROUP BY 1)
+      SELECT ss.uid, ss.settled - COALESCE(r.refunded, 0) AS net
+      FROM settle_sum ss LEFT JOIN refund_sum r ON r.uid = ss.uid`;
+    const frozenRows = await tx.$queryRaw<{ uid: string; s: bigint }[]>`
+      SELECT "userId" AS uid, COALESCE(SUM("reservedCredits"), 0) AS s FROM "GenerationIntent"
+      WHERE "teamId" = ${teamId} AND "reservedCredits" > 0 GROUP BY 1`;
+    const map = new Map<string, number>();
+    for (const r of netRows) if (r.uid !== null) map.set(r.uid, Math.max(Number(r.net), 0));
+    for (const r of frozenRows) map.set(r.uid, (map.get(r.uid) ?? 0) + Number(r.s));
+    return map;
+  }
+
+  /** 单成员读=批量读特例（Z96：一个方法返回 Map——谓词/SQL 单源）。 */
+  private async derivedMonthlyUsed(tx: Prisma.TransactionClient, teamId: string, userId: string, bounds?: [Date, Date]): Promise<number> {
+    return (await this.derivedMonthlyUsedMap(tx, teamId, bounds)).get(userId) ?? 0;
   }
 
   /** reserve：外呼前冻结——余额不足即拒=零外呼零沉没（批0.5-9 语义保持）。
@@ -57,66 +82,47 @@ export class TeamCreditService {
     userId: string,
     guard: { intentRowId: string },
   ): Promise<{ success: boolean; reason?: string; alreadyReserved?: boolean; mayCall?: boolean }> {
-    try {
-      return await this.prisma.$transaction(async (raw) => {
-        const tx = this.ledger.tx(raw);
-        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
-        const intent = await tx.generationIntent.findUniqueOrThrow({ where: { id: guard.intentRowId } });
-        const teamId = intent.teamId;
-        const amount = intent.creditCost;   // 单源：plan 快照
-        await this.ledger.lockBalance(tx, teamId);   // 锁序①（契约 20）
-        const balance = await tx.teamBalance.findUnique({ where: { teamId } });
-        if (!balance) return { success: false, reason: 'TEAM_BALANCE_MISSING' };
-        const member = await tx.teamMember.findUnique({ where: { teamId_userId: { teamId, userId } } });
-        if (!member) return { success: false, reason: 'NOT_MEMBER' };   // member 检查先于零额早退（reserve 是钱的入口守卫全集——防非成员免费外呼）
-        if (amount === 0) return { success: true, mayCall: true };   // 唯一合法免费——零冻结零流水
-        if (balance.credits + balance.subscriptionCredits < amount) return { success: false, reason: 'CREDIT_INSUFFICIENT' };
-        const period = currentPeriod();
-        const inPeriod = member.monthlyPeriod === period;
-        const used = inPeriod ? member.monthlyUsed : 0;
-        if (member.monthlyQuota > 0 && used + amount > member.monthlyQuota) return { success: false, reason: 'QUOTA_EXCEEDED' };
-        // 锁序②：gate CAS 持锁期间完成（四守卫保留——约束① CAS 锚 reservedCredits 0→amount，creditsConsumed:0 并守）
-        const gate = await tx.generationIntent.updateMany({
-          where: { id: guard.intentRowId, reservedCredits: 0, creditsConsumed: 0 },
-          data: { reservedCredits: amount },
-        });
-        if (gate.count === 0) {
-          const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
-          if (row && (row.reservedCredits > 0 || row.creditsConsumed > 0)) {
-            return { success: true, alreadyReserved: true, mayCall: false };   // Z10/H7：幂等续跑但禁再外呼（同 intent 双 worker 只烧一次钱）
-          }
-          return { success: false, reason: 'RESERVE_GATE_LOST' };
+    return this.prisma.$transaction(async (raw) => {
+      const tx = this.ledger.tx(raw);
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const intent = await tx.generationIntent.findUniqueOrThrow({ where: { id: guard.intentRowId } });
+      const teamId = intent.teamId;
+      const amount = intent.creditCost;   // 单源：plan 快照
+      await this.ledger.lockBalance(tx, teamId);   // 锁序①（契约 20）
+      const balance = await tx.teamBalance.findUnique({ where: { teamId } });
+      if (!balance) return { success: false, reason: 'TEAM_BALANCE_MISSING' };
+      const member = await tx.teamMember.findUnique({ where: { teamId_userId: { teamId, userId } } });
+      if (!member) return { success: false, reason: 'NOT_MEMBER' };   // member 检查先于零额早退（reserve 是钱的入口守卫全集——防非成员免费外呼）
+      if (amount === 0) return { success: true, mayCall: true };   // 唯一合法免费——零冻结零流水
+      if (balance.credits + balance.subscriptionCredits < amount) return { success: false, reason: 'CREDIT_INSUFFICIENT' };
+      // Y0b-2 T0：月度用量改道派生（lockBalance 之后读——FOR UPDATE 持有下台账写与本读串行化，无 TOCTOU）
+      const used = await this.derivedMonthlyUsed(tx, teamId, userId);
+      if (member.monthlyQuota > 0 && used + amount > member.monthlyQuota) return { success: false, reason: 'QUOTA_EXCEEDED' };
+      // 锁序②：gate CAS 持锁期间完成（四守卫保留——约束① CAS 锚 reservedCredits 0→amount，creditsConsumed:0 并守）
+      const gate = await tx.generationIntent.updateMany({
+        where: { id: guard.intentRowId, reservedCredits: 0, creditsConsumed: 0 },
+        data: { reservedCredits: amount },
+      });
+      if (gate.count === 0) {
+        const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
+        if (row && (row.reservedCredits > 0 || row.creditsConsumed > 0)) {
+          return { success: true, alreadyReserved: true, mayCall: false };   // Z10/H7：幂等续跑但禁再外呼（同 intent 双 worker 只烧一次钱）
         }
-        // monthlyUsed CAS（守卫式 updateMany——FOR UPDATE 持有下无竞态）
-        const usedWhere: Record<string, unknown> = { id: member.id };
-        if (inPeriod) {
-          usedWhere.monthlyPeriod = period;
-          if (member.monthlyQuota > 0) usedWhere.monthlyUsed = { lte: member.monthlyQuota - amount };
-        } else {
-          usedWhere.OR = [{ monthlyPeriod: { not: period } }, { monthlyPeriod: null }];
-        }
-        const usedResult = await tx.teamMember.updateMany({
-          where: usedWhere,
-          data: { monthlyUsed: { increment: amount }, monthlyPeriod: period },
-        });
-        if (usedResult.count === 0) throw new ConsumeAbort('QUOTA_EXCEEDED');
-        // 两池拆分——逐池经 mutate（balanceAfter=池分量 §1.4bis①；F1 锚 referenceId=intent:<intentRowId>）
-        const subDeduct = Math.min(balance.subscriptionCredits, amount);
-        const regDeduct = amount - subDeduct;
-        if (subDeduct > 0) await this.ledger.mutate(tx, {
-          teamId, operatorUserId: userId, type: 'reserve', creditType: 'subscription',
-          balanceDelta: -subDeduct, frozenDelta: subDeduct, referenceId: `intent:${guard.intentRowId}`,
-        });
-        if (regDeduct > 0) await this.ledger.mutate(tx, {
-          teamId, operatorUserId: userId, type: 'reserve', creditType: 'regular',
-          balanceDelta: -regDeduct, frozenDelta: regDeduct, referenceId: `intent:${guard.intentRowId}`,
-        });
-        return { success: true, mayCall: true };
-      }, { timeout: 15_000, maxWait: 5_000 });
-    } catch (e) {
-      if (e instanceof ConsumeAbort) return { success: false, reason: e.reason };
-      throw e;
-    }
+        return { success: false, reason: 'RESERVE_GATE_LOST' };
+      }
+      // 两池拆分——逐池经 mutate（balanceAfter=池分量 §1.4bis①；F1 锚 referenceId=intent:<intentRowId>）
+      const subDeduct = Math.min(balance.subscriptionCredits, amount);
+      const regDeduct = amount - subDeduct;
+      if (subDeduct > 0) await this.ledger.mutate(tx, {
+        teamId, operatorUserId: userId, type: 'reserve', creditType: 'subscription',
+        balanceDelta: -subDeduct, frozenDelta: subDeduct, referenceId: `intent:${guard.intentRowId}`,
+      });
+      if (regDeduct > 0) await this.ledger.mutate(tx, {
+        teamId, operatorUserId: userId, type: 'reserve', creditType: 'regular',
+        balanceDelta: -regDeduct, frozenDelta: regDeduct, referenceId: `intent:${guard.intentRowId}`,
+      });
+      return { success: true, mayCall: true };
+    }, { timeout: 15_000, maxWait: 5_000 });
   }
 
   /** settle：外呼成功后核销——冻结转实扣（reservedCredits 清零+creditsConsumed 置位+settle 记账行）。
@@ -173,7 +179,7 @@ export class TeamCreditService {
 
   /** void_：解冻（外呼失败/组执行第 N+1 放弃）——约束②：reserve 的冲销=release（真值表 (+c,−c)+reversesId，
    *  Z6 正名），不得走反向正账（旧记账法退役）。CAS reservedCredits>0→0 抢解冻权：已 settle/已解冻零动作（幂等）。
-   *  quota 回滚=Σ|release 行 amount| 仅当月（月界翻转不污染新月）。 */
+   *  Y0b-2 T0：quota 无需回滚——used 已派生（release 后 frozen 腿自然回落）。 */
   async void_(guard: { intentRowId: string }): Promise<void> {
     await this.prisma.$transaction(async (raw) => {
       const tx = this.ledger.tx(raw);
@@ -192,18 +198,10 @@ export class TeamCreditService {
         WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'
           AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
         FOR UPDATE OF r`;
-      let total = 0;
       for (const r of reserveRows) {
-        total += Math.abs(r.amount);
         await this.ledger.mutate(tx, {
           teamId: r.teamId, operatorUserId: row.userId, type: 'release', creditType: r.creditType,
           balanceDelta: -r.amount, frozenDelta: r.amount, referenceId: r.referenceId, reversesId: r.id,
-        });
-      }
-      if (reserveRows.length > 0) {
-        await tx.teamMember.updateMany({
-          where: { teamId: row.teamId, userId: row.userId, monthlyPeriod: currentPeriod() },
-          data: { monthlyUsed: { decrement: total } },
         });
       }
     }, { timeout: 15_000, maxWait: 5_000 });
