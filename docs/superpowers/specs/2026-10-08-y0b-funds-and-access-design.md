@@ -768,7 +768,12 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_sweep_close_total
 - execution_settle_failure_total
 - intent_duplicate_attempt_total
+- intent_frozen_orphan_total
+- intent_frozen_stranded_total
 - intent_reconcile_mismatch_total
+- ledger_balance_drift_total
+- ledger_frozen_drift_total
+- ledger_orphan_unreleasable_total
 - yjs_canvas_doc_bytes
 - yjs_compact_abandoned_total
 - yjs_compact_not_owner_total

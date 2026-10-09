@@ -144,4 +144,13 @@ export class CreditLedgerService {
     const axis = input.type === 'settle' ? Math.abs(input.frozenDelta) : Math.abs(input.balanceDelta);
     if (axis !== Math.abs(reversed.amount)) throw new LedgerRuleError('REVERSAL_AMOUNT', `冲销分量不等额（${axis} ≠ ${Math.abs(reversed.amount)}——记账轴：settle 比 frozenDelta、release/refund 比 balanceDelta）`);
   }
+
+  /** Z25 窄口：意图行已灭失的孤儿冻结释放——只跳过"意图行在场"校验，真值表/冲销配对/锁序纪律全保留。 */
+  async releaseOrphanReserve(tx: LedgerTx, r: { teamId: string; creditType: CreditType; referenceId: string; reversesId: string; amount: number }) {
+    return this.mutate(tx, {
+      teamId: r.teamId, type: 'release', creditType: r.creditType,
+      balanceDelta: Math.abs(r.amount), frozenDelta: -Math.abs(r.amount),
+      referenceId: r.referenceId, reversesId: r.reversesId,
+    }, { skipIntentCheck: true });
+  }
 }

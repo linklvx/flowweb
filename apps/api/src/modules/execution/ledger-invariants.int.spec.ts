@@ -133,3 +133,106 @@ describe('Y0b-1 G-2 三不变量+balanceAfter 分区链（§1.4bis）', () => {
     }
   }, 20000);
 });
+
+describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
+  // 独立 owner——文件首档 afterAll 会删共享 OWNER（Team.owner Restrict：复用则本档 team.create FK 失败）
+  const CLS_OWNER = `it-cls-u-${Date.now()}`;
+  beforeAll(async () => {
+    await prisma.user.create({ data: { id: CLS_OWNER, name: 'it-cls', email: `${CLS_OWNER}@x.invalid`, emailVerified: false } });
+  });
+  const mkSvc = async () => {
+    const { IntentReconcileService } = await import('./intent-reconcile.service');
+    const { TeamCreditService } = await import('../team/team-credit.service');
+    const { CreditLedgerService } = await import('../team/credit-ledger.service');
+    const ledger = new CreditLedgerService(prisma as any);
+    const teamCredit = new TeamCreditService(prisma as any, ledger);
+    return new IntentReconcileService(prisma as any, {} as any, ledger, {} as any, {} as any, {} as any, teamCredit);
+  };
+  /** 夹具基线：钱包唯一口 ensureBalance + register_grant 100（计入 Σ——对齐 G-2 不变量①口径，禁裸建绕台账） */
+  const fundTeam = async (teamId: string, ts: number) => {
+    const { CreditLedgerService } = await import('../team/credit-ledger.service');
+    const ledger = new CreditLedgerService(prisma as any);
+    await ledger.runInTx((tx) => ledger.ensureBalance(tx, teamId));
+    await ledger.runInTx((tx) => ledger.mutate(tx, { teamId, type: 'register_grant', creditType: 'regular', balanceDelta: 100, frozenDelta: 0, referenceId: `it-cls-fund-${ts}` }));
+    return ledger;
+  };
+  afterAll(async () => {
+    await prisma.generationIntent.deleteMany({ where: { intentId: { startsWith: 'cls-' } } });
+    await prisma.teamCreditTransaction.deleteMany({ where: { teamId: { startsWith: 'it-cls-' } } }).catch(() => {});
+    await prisma.team.deleteMany({ where: { id: { startsWith: 'it-cls-' } } });
+    await prisma.user.deleteMany({ where: { id: CLS_OWNER } }).catch(() => {});
+    await prisma.$disconnect();
+  }, 20000);
+
+  it('悬留已交付（SUCCEEDED∧reservedCredits>0）→ settleStranded 补 settle（判据=status——Z7/Z17）', async () => {
+    const ts = Date.now();
+    const team = await prisma.team.create({ data: { id: `it-cls-a-${ts}`, name: 'it', ownerId: CLS_OWNER } });
+    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-a-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 7, reservedCredits: 7 } as any });
+    const ledger = await fundTeam(team.id, ts);
+    const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -7, frozenDelta: 7, referenceId: `intent:${intent.id}` }));
+    expect(res.rowId).not.toBeNull();
+    const svc = await mkSvc();
+    await (svc as any).settleStranded();
+    const row = await prisma.generationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+    expect(row.reservedCredits).toBe(0);
+    expect(row.creditsConsumed).toBe(7);
+    const settle = await prisma.teamCreditTransaction.findFirst({ where: { teamId: team.id, type: 'settle' } });
+    expect(settle?.frozenDelta).toBe(-7);
+    expect(settle?.reversesId).toBe(res.rowId);
+  }, 20000);
+
+  it('悬留未交付（FAILED∧reservedCredits>0）→ VOIDED+release（reversesId→reserve 行）', async () => {
+    const ts = Date.now();
+    const team = await prisma.team.create({ data: { id: `it-cls-c-${ts}`, name: 'it', ownerId: CLS_OWNER } });
+    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-c-${ts}`, kind: 'text', paramsHash: 'h', status: 'FAILED', creditCost: 5, reservedCredits: 5, completedAt: new Date() } as any });
+    const ledger = await fundTeam(team.id, ts);
+    const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -5, frozenDelta: 5, referenceId: `intent:${intent.id}` }));
+    const svc = await mkSvc();
+    await (svc as any).settleStranded();
+    const row = await prisma.generationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+    expect(row.reservedCredits).toBe(0);
+    const rel = await prisma.teamCreditTransaction.findFirst({ where: { teamId: team.id, type: 'release' } });
+    expect(rel?.reversesId).toBe(res.rowId);
+  }, 20000);
+
+  it('F7：终态∧reservedCredits>0 的 7 天行不被 cleanTerminalIntents 清理；普通终态行照清', async () => {
+    const ts = Date.now();
+    const old = new Date(Date.now() - 8 * 24 * 3600_000);
+    const stranded = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: 'it-none', nodeId: 'n', userId: CLS_OWNER, intentId: `cls-b1-${ts}`, kind: 'text', paramsHash: 'h', status: 'FAILED', creditCost: 5, reservedCredits: 5, completedAt: old } as any });
+    const normal = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: 'it-none', nodeId: 'n2', userId: CLS_OWNER, intentId: `cls-b2-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 1, reservedCredits: 0, creditsConsumed: 1, completedAt: old } as any });
+    const svc = await mkSvc();
+    await (svc as any).cleanTerminalIntents();
+    expect(await prisma.generationIntent.findUnique({ where: { id: stranded.id } })).not.toBeNull();
+    expect(await prisma.generationIntent.findUnique({ where: { id: normal.id } })).toBeNull();
+  }, 20000);
+
+  it('Z11 未闭合义务巡检：reserve 行未被冲销∧意图不存活∧超时 → 幂等释放', async () => {
+    const ts = Date.now();
+    const team = await prisma.team.create({ data: { id: `it-cls-o-${ts}`, name: 'it', ownerId: CLS_OWNER } });
+    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-o-${ts}`, kind: 'text', paramsHash: 'h', status: 'FAILED', creditCost: 6, reservedCredits: 0, creditsConsumed: 0, completedAt: new Date(Date.now() - 20 * 60_000) } as any });
+    const ledger = await fundTeam(team.id, ts);
+    const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -6, frozenDelta: 6, referenceId: `intent:${intent.id}` }));
+    await prisma.$executeRaw`UPDATE "TeamCreditTransaction" SET "createdAt" = now() - interval '20 minutes' WHERE id = ${res.rowId}`;   // 孤儿谓词 15min 判龄——reserve 行造龄
+    await prisma.generationIntent.delete({ where: { id: intent.id } });   // 模拟意图行丢失——reserve 行成为孤儿
+    const svc = await mkSvc();
+    const released = await (svc as any).releaseOrphanedReserves();
+    expect(released).toBe(1);
+    const rel = await prisma.teamCreditTransaction.findFirst({ where: { teamId: team.id, type: 'release', reversesId: res.rowId } });
+    expect(rel).not.toBeNull();
+    const again = await (svc as any).releaseOrphanedReserves();
+    expect(again).toBe(0);   // 幂等——reversesId 唯一键保证二次调用零动作
+  }, 20000);
+
+  it('Z25 反例（防洞静默回归）：SUCCEEDED∧冻结未销的行不被 releaseOrphanedReserves 释放（settleStranded 独占——E53）', async () => {
+    const ts = Date.now();
+    const team = await prisma.team.create({ data: { id: `it-cls-s-${ts}`, name: 'it', ownerId: CLS_OWNER } });
+    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-s-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 8, reservedCredits: 8, completedAt: new Date(Date.now() - 20 * 60_000) } as any });
+    const ledger = await fundTeam(team.id, ts);
+    await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -8, frozenDelta: 8, referenceId: `intent:${intent.id}` }));
+    const svc = await mkSvc();
+    const released = await (svc as any).releaseOrphanedReserves();
+    expect(released).toBe(0);   // 意图行存在（SUCCEEDED）——四轮 Z38 谓词 gi.id IS NULL 必零命中
+    const rel = await prisma.teamCreditTransaction.count({ where: { teamId: team.id, type: 'release' } });
+    expect(rel).toBe(0);
+  }, 20000);
+});

@@ -5,10 +5,13 @@ import type { GenerationIntent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
-import { currentPeriod } from '../team/team-credit.service';
+import { TeamCreditService, currentPeriod } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
-import { reconcileMismatchTotal } from './intent-reconcile.metrics';
+import {
+  reconcileMismatchTotal, strandedTotal, balanceDriftTotal, frozenDriftTotal,
+  orphanTotal, unreleasableTotal,
+} from './intent-reconcile.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/CAS 扣费都刷新 updatedAt，超龄即同步路径内联崩溃嫌疑 */
 const STALE_MS = 15 * 60_000;
@@ -38,7 +41,15 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *        reconcileMismatchTotal+WARN（资损前兆；批 7 接 collabDiagnostics）；终态 7 天清理；
  *        exec map 孤儿条目清理（F2 GC）；video-separate 陈旧任务对账+并发额度归还
  *        （自 video-separate.cron.ts 搬入——原 @Cron 死代码从未运行，该功能不被档一覆盖：
- *         VideoSeparateTask 表+Redis 计数器非意图表/积分域，故整体搬入本档保底）。 */
+ *         VideoSeparateTask 表+Redis 计数器非意图表/积分域，故整体搬入本档保底）。
+ *
+ *  档一附属【资金闭环巡检，随 5min 同轮】（Y0b-1 §1.5）：settle 失败对账第四分支 settleStranded
+ *        （终态∧reservedCredits>0 悬留——判据=status：SUCCEEDED 补 settle/FAILED release；逐行容错）
+ *        + Z11 未闭合义务巡检 releaseOrphanedReserves（意图行灭失的孤儿 reserve——releaseOrphanReserve
+ *        窄口幂等释放；意图行存在的一切情形归第四分支独占，E53）。
+ *  档二附属【运行时不变量巡检】verifyLedgerInvariants：①池余额≡ΣbalanceDelta（两池分列+LEFT JOIN——
+ *        检出"有钱包零流水"）②RUNNING ΣfrozenDelta≡reservedCredits ③ACTIVE 团队钱包在场——
+ *        命中即 drift 指标+WARN（台账为真源，钱包可据 Σ 重建）。 */
 @Injectable()
 export class IntentReconcileService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(IntentReconcileService.name);
@@ -51,6 +62,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly imageEditQueue: Queue,
     @Inject('REDIS_CLIENT') private readonly redis: any,
+    @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
   ) {}
 
   onModuleInit() {
@@ -66,7 +78,8 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.timers = [];
   }
 
-  /** 档一：回收 RUNNING 孤儿（单条失败不阻塞整批——毒行不冻结全表扫描） */
+  /** 档一：回收 RUNNING 孤儿（单条失败不阻塞整批——毒行不冻结全表扫描）+ 资金闭环巡检同轮
+   *  （第四分支 settleStranded → Z11 孤儿释放 releaseOrphanedReserves——顺序固定：先意图侧清账再台账侧孤儿） */
   async verifyActive(): Promise<void> {
     const cutoff = new Date(Date.now() - STALE_MS);
     const stale = await this.prisma.generationIntent.findMany({
@@ -79,6 +92,8 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`reconcile 意图 ${row.intentId} 失败: ${(e as Error).message}`);
       }
     }
+    await this.settleStranded();
+    await this.releaseOrphanedReserves();
   }
 
   /** A 路径 kind→队列路由（attachJob 盲区另一半）——jobId 属于哪个队列由 claim 发起链决定：
@@ -234,18 +249,19 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
   }
 
-  /** 档二：每日全量三方对账 + 保留策略清理 + exec GC + video-separate 陈旧回收 */
+  /** 档二：每日全量三方对账 + 保留策略清理（F7 守卫） + exec GC（限量） + video-separate 陈旧回收 + 不变量巡检 */
   async reconcileDaily(): Promise<void> {
     // ① 三方对账：SUCCEEDED creditsConsumed vs 终态消费流水（批0.5-9：settle 计入，
     //    reserve 行是冻结轨迹不计——防 2 倍差异误报）；差异=资损前兆
     const succeeded = await this.prisma.generationIntent.findMany({
       where: { status: 'SUCCEEDED', creditsConsumed: { gt: 0 } },
-      select: { intentId: true, creditsConsumed: true, teamId: true },
+      select: { id: true, intentId: true, creditsConsumed: true, teamId: true },
     });
     for (const r of succeeded) {
       const rows = await this.prisma.teamCreditTransaction.findMany({
         // 契约 4（F1 跨团队隔离）：台账查询自带键 teamId——intent 行固化 teamId 直传（Y0b-1 扫描锚⑥）
-        where: { teamId: r.teamId, referenceId: `intent:${r.intentId}`, type: { in: ['settle'] } },
+        // 台账锚=intentRowId（Y0b-1 ①锚切换：referenceId 写入端是 intent:<rowId>——禁 intentId 业务键）
+        where: { teamId: r.teamId, referenceId: `intent:${r.id}`, type: { in: ['settle'] } },
       });
       const charged = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
       if (charged !== r.creditsConsumed) {
@@ -253,19 +269,131 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`[资损前兆] 意图 ${r.intentId} creditsConsumed=${r.creditsConsumed} vs 流水=${charged}`);
       }
     }
-    // ② 终态 7 天清理（F1 保留策略）
-    await this.prisma.generationIntent.deleteMany({
-      where: { status: { in: [...TERMINAL] }, completedAt: { lt: new Date(Date.now() - RETENTION_MS) } },
-    });
-    // ③ exec map 孤儿清理（F2 GC）
+    // ② 终态 7 天清理（F1 保留策略+F7 守卫：冻结未销禁删）
+    await this.cleanTerminalIntents();
+    // ③ exec map 孤儿清理（F2 GC——限量：每轮最多 10 个最新项目）
     await this.sweepOrphanExec();
     // ④ video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron.ts 搬入，注记见类头）
     await this.reconcileStaleVideoSeparateTasks();
+    // ⑤ 三不变量运行时巡检（Z11——drift 指标+WARN，台账为真源）
+    await this.verifyLedgerInvariants();
   }
 
-  /** nodes map 无该 nodeId 的 exec 条目删除（transact 产生 delete set → 经 update 监听持久化/广播） */
+  /** F7（Y0b-1 §1.5）：终态保留清理——冻结未清的行禁删（stranded 计数告警）；第四分支清账后次轮自然可删。 */
+  private async cleanTerminalIntents(): Promise<void> {
+    const cutoff = new Date(Date.now() - RETENTION_MS);
+    const stuck = await this.prisma.generationIntent.count({
+      where: { status: { in: [...TERMINAL] }, reservedCredits: { gt: 0 }, completedAt: { lt: cutoff } },
+    });
+    if (stuck > 0) strandedTotal.inc(stuck);
+    await this.prisma.generationIntent.deleteMany({
+      where: { status: { in: [...TERMINAL] }, reservedCredits: 0, completedAt: { lt: cutoff } },
+    });
+  }
+
+  /** Y0b-1（§1.5/E25①/Z17）第四分支：终态∧reservedCredits>0 悬留行（settle 失败崩溃窗——三查只扫 RUNNING）。
+   *  SUCCEEDED ⇒ 补 settle（幂等 CAS）；FAILED/VOIDED ⇒ release（void_ 既有幂等链）。产物已照发（E53），
+   *  账由本分支闭环。逐行容错：毒行不冻结整轮（次轮重试）。 */
+  private async settleStranded(): Promise<void> {
+    const stranded = await this.prisma.generationIntent.findMany({
+      where: { status: { in: [...TERMINAL] }, reservedCredits: { gt: 0 } },
+      orderBy: { completedAt: 'asc' },
+      take: 100,   // 空预算：每轮 5min 最多 100 行
+    });
+    for (const row of stranded) {
+      try {
+        if (row.status === 'SUCCEEDED') {
+          const r = await this.teamCredit.settle({ intentRowId: row.id });
+          if (!r.success) this.logger.warn(`[intent-reconcile] 悬留补 settle 失败 意图 ${row.intentId}（次轮重试）`);
+        } else {
+          await this.teamCredit.void_({ intentRowId: row.id });   // FAILED/VOIDED 残留冻结——release 归零
+          this.logger.warn(`[intent-reconcile] 悬留未交付 意图 ${row.intentId}——release ${row.reservedCredits}`);
+        }
+      } catch (e) {
+        this.logger.warn(`[intent-reconcile] settleStranded 单行失败 意图 ${row.intentId}: ${(e as Error).message}`);   // 毒行不冻结整轮
+      }
+    }
+  }
+
+  /** Y0b-1（Z11/Z25+四轮 Z38）：台账侧孤儿冻结——reserve 行未被冲销 ∧ **意图行真丢失**（gi.id IS NULL）∧ 超 15min
+   *  ⇒ 经 releaseOrphanReserve 窄口（skipIntentCheck）幂等释放。
+   *  四轮收窄：意图行**存在**的一切情形归 void_/settleStranded 全权处理（含 monthlyUsed 回滚——窄口跳过=quota 永久占用）；
+   *  孤儿=行已灭失（quota 无法归因——登记残余），窄口只为此类存在。
+   *  钱包存在前置（解散后钱包已级联删——不可释放者计数排除，不每轮刷屏占 LIMIT 槽）。 */
+  private async releaseOrphanedReserves(): Promise<number> {
+    const orphans = await this.prisma.$queryRaw<{ id: string; teamId: string; creditType: string; amount: number; referenceId: string }[]>`
+      SELECT r.id, r."teamId", r."creditType", r.amount, r."referenceId"
+      FROM "TeamCreditTransaction" r
+      LEFT JOIN "GenerationIntent" gi ON r."referenceId" = 'intent:' || gi.id
+      WHERE r.type = 'reserve' AND r."referenceId" LIKE 'intent:%'
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
+        AND r."createdAt" < now() - interval '15 minutes'
+        AND gi.id IS NULL   -- 四轮 Z38：意图行存在（任何 status）一律不在此释放
+        AND EXISTS (SELECT 1 FROM "TeamBalance" b WHERE b."teamId" = r."teamId")
+      ORDER BY r."createdAt"   -- 确定性（LIMIT 无 ORDER BY=不确定子集）
+      LIMIT 100`;
+    // 钱包已消失的未冲销 reserve 行（解散销毁）——带龄过滤计数（无龄过滤=同一批每 5min 重复累加指标）
+    await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT r.id FROM "TeamCreditTransaction" r
+      WHERE r.type = 'reserve' AND r."referenceId" LIKE 'intent:%'
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
+        AND NOT EXISTS (SELECT 1 FROM "TeamBalance" b WHERE b."teamId" = r."teamId")
+        AND r."createdAt" < now() - interval '15 minutes'
+      ORDER BY r."createdAt" LIMIT 50`.then((rows) => { if (rows.length) unreleasableTotal.inc(rows.length); });
+    let released = 0;
+    for (const r of orphans) {
+      try {
+        await this.prisma.$transaction(async (raw) => {
+          const tx = this.ledger.tx(raw);
+          await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+          await this.ledger.lockBalance(tx, r.teamId);
+          await this.ledger.releaseOrphanReserve(tx, {
+            teamId: r.teamId, creditType: r.creditType as any, referenceId: r.referenceId,
+            reversesId: r.id, amount: r.amount,
+          });
+        }, { timeout: 15_000, maxWait: 5_000 });
+        released++;
+        orphanTotal.inc();
+        this.logger.warn(`[intent-reconcile] 孤儿冻结释放 reserve=${r.id} ref=${r.referenceId}`);
+      } catch (e) {
+        this.logger.warn(`[intent-reconcile] 孤儿释放单行失败 ${r.id}: ${(e as Error).message}`);
+      }
+    }
+    return released;
+  }
+
+  /** Y0b-1（Z11）：运行时不变量巡检——聚合 SQL 命中即 drift 指标+WARN（台账为真源，钱包可据 Σ 重建）。
+   *  四轮 B1：LEFT JOIN+COALESCE+两池分列——INNER JOIN 检不出"有钱包有余额但零流水"。 */
+  private async verifyLedgerInvariants(): Promise<void> {
+    const drift1 = await this.prisma.$queryRaw<{ teamId: string }[]>`
+      SELECT b."teamId" FROM "TeamBalance" b
+      LEFT JOIN (SELECT "teamId", "creditType", SUM("balanceDelta") s FROM "TeamCreditTransaction" GROUP BY 1,2) t
+        ON t."teamId" = b."teamId" AND t."creditType" = 'regular'
+      WHERE COALESCE(t.s, 0) <> b.credits
+      UNION
+      SELECT b."teamId" FROM "TeamBalance" b
+      LEFT JOIN (SELECT "teamId", "creditType", SUM("balanceDelta") s FROM "TeamCreditTransaction" GROUP BY 1,2) t
+        ON t."teamId" = b."teamId" AND t."creditType" = 'subscription'
+      WHERE COALESCE(t.s, 0) <> b."subscriptionCredits"
+      LIMIT 20`;
+    for (const d of drift1) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量①漂移 teamId=${d.teamId}`); }
+    const drift2 = await this.prisma.$queryRaw<{ id: string; teamId: string }[]>`
+      SELECT gi.id, gi."teamId" FROM "GenerationIntent" gi
+      JOIN (SELECT "referenceId", SUM("frozenDelta") s FROM "TeamCreditTransaction" WHERE "referenceId" LIKE 'intent:%' GROUP BY 1) t
+        ON t."referenceId" = 'intent:' || gi.id
+      WHERE t.s <> gi."reservedCredits" AND gi.status = 'RUNNING' LIMIT 20`;
+    for (const d of drift2) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量②漂移 intent=${d.id} teamId=${d.teamId}`); }
+    // 钱包体检——ACTIVE 团队无钱包行=0（ensureBalance 收口后的回归检查）
+    const noWallet = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT t.id FROM "Team" t LEFT JOIN "TeamBalance" b ON b."teamId" = t.id
+      WHERE t.status = 'ACTIVE' AND b."teamId" IS NULL LIMIT 20`;
+    for (const d of noWallet) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] ACTIVE 团队无钱包 teamId=${d.id}（ensureBalance 缺收口）`); }
+  }
+
+  /** nodes map 无该 nodeId 的 exec 条目删除（transact 产生 delete set → 经 update 监听持久化/广播）
+   *  Y0b-1 限量：orderBy updatedAt desc + take 10——每日全量扫全项目在 withDoc 逐个拿锁，量大时挤占 lease。 */
   private async sweepOrphanExec(): Promise<void> {
-    const projects = await this.prisma.canvasProject.findMany({ select: { id: true } });
+    const projects = await this.prisma.canvasProject.findMany({ select: { id: true }, orderBy: { updatedAt: 'desc' }, take: 10 });
     for (const p of projects) {
       try {
         await this.collabDoc.withDoc(p.id, (doc) => {

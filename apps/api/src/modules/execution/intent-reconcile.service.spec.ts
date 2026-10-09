@@ -6,6 +6,7 @@ import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { currentPeriod } from '../team/team-credit.service';
@@ -63,6 +64,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
   let service: IntentReconcileService;
   let prisma: any;
   let ledger: any;
+  let teamCredit: any;
   let queue: any;
   let imageEditQueue: any;
   let collabDoc: any;
@@ -75,8 +77,12 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       ensureBalance: vi.fn().mockResolvedValue(undefined),
       mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
     };
+    teamCredit = {
+      settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
+      void_: vi.fn().mockResolvedValue(undefined),
+    };
     prisma = {
-      generationIntent: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      generationIntent: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
       teamCreditTransaction: { findMany: vi.fn().mockResolvedValue([]) },
       teamMember: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       videoSeparateTask: { findMany: vi.fn().mockResolvedValue([]), update: vi.fn().mockResolvedValue({}) },
@@ -98,6 +104,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: CollabDocumentService, useValue: collabDoc },
         { provide: CreditLedgerService, useValue: ledger },
+        { provide: TeamCreditService, useValue: teamCredit },
         { provide: getQueueToken(EXECUTION_QUEUE_NAME), useValue: queue },
         { provide: getQueueToken(AI_IMAGE_EDIT_QUEUE_NAME), useValue: imageEditQueue },
         { provide: 'REDIS_CLIENT', useValue: redis },
@@ -131,7 +138,8 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('② 已扣无产物 → 退款事务（Z13 锁序 lockBalance 前置+守卫 CAS 补 creditsConsumed>0+refund mutate+monthlyUsed 回滚）', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent()]);
-      prisma.$queryRaw.mockResolvedValue([chargeRow()]);
+      // $queryRaw 按查询域分派：三查 chargeRows（SELECT r.* …）命中；Z11 孤儿巡检查询（SELECT r.id …）空——非本测试域
+      prisma.$queryRaw.mockImplementation(async (tpl: any) => (String(tpl?.[0]).includes('r.*') ? [chargeRow()] : []));
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 }); // 守卫 CAS 拿到执行权
 
       await service.verifyActive();
@@ -226,7 +234,8 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('批0.5-9 ② reserve-only（有 reserve 无 settle）超龄 → 解冻非补记：VOIDED+reservedCredits 归零+release 冲销 mutate（reversesId 配对）+monthlyUsed 回滚', async () => {
       prisma.generationIntent.findMany.mockResolvedValue([intent({ reservedCredits: 10 })]); // reserve 后进程死
-      prisma.$queryRaw.mockResolvedValue([reserveRow()]);
+      // $queryRaw 按查询域分派：三查 chargeRows（SELECT r.* …）命中；Z11 孤儿巡检查询（SELECT r.id …）空——非本测试域
+      prisma.$queryRaw.mockImplementation(async (tpl: any) => (String(tpl?.[0]).includes('r.*') ? [reserveRow()] : []));
       prisma.generationIntent.updateMany.mockResolvedValueOnce({ count: 1 }); // 守卫 CAS 拿到执行权
 
       await service.verifyActive();
@@ -365,7 +374,8 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       await service.verifyActive();
 
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
-      expect(prisma.$queryRaw).not.toHaveBeenCalled(); // 三查未进入
+      // 三查未进入——$queryRaw 仅 Z11 孤儿巡检（SELECT r.id …）合法在场，chargeRows 形态（SELECT r.* …）零命中
+      expect(prisma.$queryRaw.mock.calls.filter((c: any[]) => String(c[0]?.[0]).includes('r.*'))).toHaveLength(0);
     });
   });
 
@@ -379,7 +389,8 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(imageEditQueue.getJob).toHaveBeenCalledWith('job-l');
       expect(queue.getJob).not.toHaveBeenCalled(); // execution 队列不被查——kind 已路由
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
-      expect(prisma.$queryRaw).not.toHaveBeenCalled(); // 三查未进入
+      // 三查未进入——$queryRaw 仅 Z11 孤儿巡检（SELECT r.id …）合法在场，chargeRows 形态（SELECT r.* …）零命中
+      expect(prisma.$queryRaw.mock.calls.filter((c: any[]) => String(c[0]?.[0]).includes('r.*'))).toHaveLength(0);
     });
 
     it("kind='outpaint' → ai-image-edit 队列 completed → SUCCEEDED 回填（resultRef 取 returnvalue.fileId——ai-image-edit 产物形状）", async () => {
@@ -418,7 +429,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
   describe('档二 reconcileDaily', () => {
     it('三方对账：creditsConsumed 与流水数额不一致 → 告警带 intentId（资损前兆）', async () => {
       const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
-      prisma.generationIntent.findMany.mockResolvedValue([{ intentId: 'i1', creditsConsumed: 10 }]);
+      prisma.generationIntent.findMany.mockResolvedValue([{ id: 'gi-1', intentId: 'i1', creditsConsumed: 10 }]);   // Y0b-1 锚切换：台账锚=intentRowId
       prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow({ amount: -6 })]); // 流水只有 6 ≠ 10
 
       await service.reconcileDaily();
@@ -429,7 +440,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('三方对账：数额一致 → 零告警', async () => {
       const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
-      prisma.generationIntent.findMany.mockResolvedValue([{ intentId: 'i1', creditsConsumed: 10 }]);
+      prisma.generationIntent.findMany.mockResolvedValue([{ id: 'gi-1', intentId: 'i1', creditsConsumed: 10 }]);
       prisma.teamCreditTransaction.findMany.mockResolvedValue([chargeRow({ amount: -10 })]);
 
       await service.reconcileDaily();
@@ -440,7 +451,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
 
     it('批0.5-9 三方对账：settle 流水计入终态消费（reserve 行不计——防 2 倍差异误报）', async () => {
       const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
-      prisma.generationIntent.findMany.mockResolvedValue([{ intentId: 'i1', creditsConsumed: 10 }]);
+      prisma.generationIntent.findMany.mockResolvedValue([{ id: 'gi-1', intentId: 'i1', creditsConsumed: 10 }]);
       // mock 按 where.type.in 过滤——真库语义：查询只命中 settle，reserve 行被排除
       prisma.teamCreditTransaction.findMany.mockImplementation(async ({ where }: any) => {
         const all = [reserveRow(), chargeRow({ id: 'tx-s1', type: 'settle', amount: -10 })];
@@ -453,12 +464,13 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       warnSpy.mockRestore();
     });
 
-    it('终态行 7 天保留期清理（F1 保留策略）', async () => {
+    it('终态行 7 天保留期清理（F1 保留策略+F7 守卫：冻结未销 reservedCredits>0 禁删）', async () => {
       await service.reconcileDaily();
 
       expect(prisma.generationIntent.deleteMany).toHaveBeenCalledWith({
         where: {
           status: { in: ['SUCCEEDED', 'FAILED', 'VOIDED'] },
+          reservedCredits: 0,
           completedAt: { lt: expect.any(Date) },
         },
       });
