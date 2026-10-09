@@ -14,7 +14,8 @@ const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 70);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
-// di-smoke.int.spec.ts 是第 6 个——漏跑=判据①执行集合≡git 集合必红。
+// di-smoke.int.spec.ts 是第 6 个——位于 apps/api/src/ 根级，git glob（**/*.int.spec.ts）不匹配根级文件，
+// 漏跑时判据①不红；真正兜底=下方 FILES_MIN 的 di-smoke 条目（漏跑必红）。
 const FILES_MIN = {
   'ledger-invariants.int.spec.ts': 14,
   'pricing-resolver.int.spec.ts': 10,
