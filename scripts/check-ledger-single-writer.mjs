@@ -29,6 +29,7 @@ export function scanFiles(files) {
     if (/(teamBalance\s*\.\s*(update|updateMany|upsert|create|delete)\s*\()/.test(src) && !BALANCE_WRITERS.test(rel) && !rel.includes('.spec.')) {
       problems.push(`TeamBalance 写操作越权：${rel}（仅允许 credit-ledger.service——ensureBalance/lockBalance 唯一口）`);
     }
+    // 注意：正则无词边界——$queryRawUnsafe/$executeRawUnsafe 被顺带覆盖（有意，勿"修正"词边界放跑 Unsafe 形态）
     for (const m of src.matchAll(/\$(?:queryRaw|executeRaw)[\s\S]{0,800}/g)) {
       if (/TeamCreditTransaction/.test(m[0]) && !/teamId/.test(m[0])) {
         problems.push(`raw SQL 含 TeamCreditTransaction 但 800 字符内无 teamId（契约 4 raw 形态）：${rel}（偏移 ${m.index}）`);

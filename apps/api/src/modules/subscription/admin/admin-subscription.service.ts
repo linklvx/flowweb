@@ -42,6 +42,7 @@ export class AdminSubscriptionService {
     if (sub.status !== 'active') throw new BusinessException('SUBSCRIPTION_STATUS_INVALID');
 
     await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`; // Z13：台账锁等待以 55P03 可重试暴露（T4 质量审 I-1）
       await tx.userSubscription.update({
         where: { id },
         data: { status: 'expired' },

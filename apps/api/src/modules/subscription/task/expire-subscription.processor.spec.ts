@@ -22,6 +22,7 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
       userSubscription: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
       team: { findFirst: vi.fn() },
       teamBalance: { findUniqueOrThrow: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0), // SET LOCAL lock_timeout（真实 tx 有）
       $transaction: vi.fn(),
     };
     processor = new ExpireSubscriptionProcessor(

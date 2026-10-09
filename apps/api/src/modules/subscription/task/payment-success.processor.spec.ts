@@ -29,6 +29,7 @@ describe('PaymentSuccessProcessor（个人订阅支付成功 → 默认团队账
       userSubscription: { create: vi.fn().mockResolvedValue({ id: 'new-sub-1' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 't-default', isDefault: true }) },
       teamBalance: { findUniqueOrThrow: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0), // SET LOCAL lock_timeout（真实 tx 有）
       $transaction: vi.fn(),
     };
     gateway = { emitSubscriptionPaymentSuccess: vi.fn() };

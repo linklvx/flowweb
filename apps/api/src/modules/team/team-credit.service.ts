@@ -133,6 +133,8 @@ export class TeamCreditService {
         // CAS 后崩溃的中间态——reservedCredits 已归零但 settle 行未写（未冲销 reserve 行仍在）。
         // anti-join 查未冲销行：存在则补写；空才是正常的已结清早退。
         // 不修补 ⇒ 不变量②永久破+每日对账 "creditsConsumed vs Σ|settle|" 永久告警（告警疲劳）。
+        // 锁序与正常路径统一：lockBalance 先于台账行锁（T4 质量审 I-2——mutate 内重锁同事务幂等无害）
+        await this.ledger.lockBalance(tx, row.teamId);
         const patchRows = await tx.$queryRaw<any[]>`
           SELECT r.* FROM "TeamCreditTransaction" r
           WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'

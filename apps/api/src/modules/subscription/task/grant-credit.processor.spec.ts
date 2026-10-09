@@ -23,6 +23,7 @@ describe('GrantCreditProcessor（个人订阅周期发放 → 默认团队账本
       subscriptionPlan: { findUnique: vi.fn() },
       team: { findFirst: vi.fn() },
       teamBalance: { findUniqueOrThrow: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0), // SET LOCAL lock_timeout（真实 tx 有）
       $transaction: vi.fn(),
     };
     processor = new GrantCreditProcessor(

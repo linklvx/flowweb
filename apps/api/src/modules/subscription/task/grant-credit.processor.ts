@@ -44,6 +44,7 @@ export class GrantCreditProcessor extends WorkerHost {
           if (sub.grantCount >= maxGrants) continue;
 
           await this.prisma.$transaction(async (tx) => {
+            await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`; // Z13：台账锁等待以 55P03 可重试暴露（T4 质量审 I-1）
             const nextGrant = new Date(sub.nextGrantDate.getTime() + 30 * 86400000);
             nextGrant.setUTCHours(0, 0, 0, 0);
 
