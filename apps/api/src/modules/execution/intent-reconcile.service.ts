@@ -23,7 +23,8 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *  （@Cron 是死代码：ScheduleModule 全仓未导入）。
  *
  *  档一【活跃核验，每 5min】（partial unique 使同节点新意图被 RUNNING 孤儿 409 锁死——
- *        本档把锁死窗口从 24h 压到 ≤15min；@@index([status, updatedAt]) 让扫描近乎免费）：
+ *        本档把锁死窗口从 24h 压到 ≤15min；Y0b-2 squash 已删 @@index([status, updatedAt])——
+ *        T4 判据切换 heartbeatAt/deadlineAt 后由 running_heartbeat/running_deadline 两 partial 接管扫描）：
  *    A. 有 jobId → 按 kind 路由到所属队列查 BullMQ 真实状态（禁"job 不存在即判死"——removeOnComplete 清理歧义）：
  *       completed → 按产物回填 SUCCEEDED；failed/不存在 → 走 B 三查；
  *       active/waiting/delayed → 长任务合法在飞（意图行 updatedAt 不随外呼刷新），零动作

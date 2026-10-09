@@ -90,7 +90,9 @@ export class CreditLedgerService {
     const balance = await tx.teamBalance.findUniqueOrThrow({ where: { teamId: input.teamId } });
     const pool = input.creditType === 'subscription' ? 'subscriptionCredits' : 'credits';
     if (input.idempotencyKey) {
-      const prev = await tx.teamCreditTransaction.findFirst({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true } });
+      // teamId 收窄（质量审查 Important②）：合法重放恒同团队；跨团队键碰撞从静默伪重放（零写+外团 rowId）
+      // 变为 create 时 P2002 响亮报错——首个 idempotencyKey 调用方（T8 admin 幂等）落地前闭合。
+      const prev = await tx.teamCreditTransaction.findFirst({ where: { idempotencyKey: input.idempotencyKey, teamId: input.teamId }, select: { id: true } });
       if (prev) return { rowId: prev.id, balanceAfter: balance[pool], replayed: true };
     }
     this.assertTruthTable(input);
