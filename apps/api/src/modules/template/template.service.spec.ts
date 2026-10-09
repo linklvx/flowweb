@@ -3,6 +3,7 @@ import { TemplateService } from './template.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TeamService } from '../team/team.service';
+import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -40,6 +41,7 @@ describe('TemplateService', () => {
     resolve: ReturnType<typeof vi.fn>;
     assertEditor: ReturnType<typeof vi.fn>;
   };
+  let gate: { assertSettled: ReturnType<typeof vi.fn> };   // Y0b-1 Z4：级联删工程前置清算门 mock 面
 
   beforeEach(async () => {
     prisma = {
@@ -80,12 +82,14 @@ describe('TemplateService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: FolderService, useValue: folderService },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
         { provide: ProjectPermissionService, useValue: perm },
         { provide: EventEmitter2, useValue: emitter },
       ],
     }).compile();
 
     service = module.get<TemplateService>(TemplateService);
+    gate = module.get(TeamFundsGateService) as any;
   });
 
   describe('findMany', () => {
@@ -232,6 +236,21 @@ describe('TemplateService', () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: null });
       await service.delete('t1', 'u1');
       expect(emitter.emitAsync).not.toHaveBeenCalled();
+    });
+
+    it('delete 前置清算门：有关联工程先 gate（Y0b-1 §1.4ter/Z4）；拦截 ⇒ 不删；无关联不查门', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: 'p1' });
+      await service.delete('t1', 'u1');
+      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectId: 'p1' });
+
+      gate.assertSettled.mockRejectedValueOnce(Object.assign(new Error('资金未清算'), { status: 409 }));
+      await expect(service.delete('t1', 'u1')).rejects.toThrow('资金未清算');
+      expect(prisma.template.delete).toHaveBeenCalledTimes(1);   // 拦截后零删除（前一次放行已删）
+
+      gate.assertSettled.mockClear();
+      prisma.template.findUnique.mockResolvedValue({ id: 't2', userId: 'u1', projectId: null });
+      await service.delete('t2', 'u1');
+      expect(gate.assertSettled).not.toHaveBeenCalled();   // 仅删模板不涉工程——不查门
     });
 
     describe('级联删除工程', () => {

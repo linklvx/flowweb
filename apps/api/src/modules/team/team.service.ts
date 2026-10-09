@@ -5,6 +5,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
 import { CreditLedgerService } from './credit-ledger.service';
+import { TeamFundsGateService } from './team-funds-gate.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { bootstrapPersonalTeam } from './team.bootstrap';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
@@ -17,6 +18,7 @@ export class TeamService {
     @InjectQueue('team-media-cleanup') private readonly cleanupQueue: Queue,
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(TeamFundsGateService) private readonly fundsGate: TeamFundsGateService,
   ) {}
 
   /** 审计 operatorName：调用点无现成名字时一次 user 查询兜底 */
@@ -394,7 +396,11 @@ export class TeamService {
     return { items, total };
   }
 
-  /** 解散时序（M2）：事务置 DISBANDED+删前查 projectIds/media → emitAsync（等 collab 关连接）→ 物理删除（凭证 teamId 留痕） */
+  /** 解散时序（Y0b-1 T6 单事务化）：校验（多团队/OWNER/状态）→ 单事务 FOR UPDATE 团队行 → 资金门
+   *  （tx 内计数=持锁检查，与 claim 的 FOR SHARE 互斥——穿门窗口关闭）→ 收集 projectIds/media → 物理删
+   *  （级联 members/joinRequests/balance/subscriptions/projects(CanvasDoc)/media）→ 副作用后移 best-effort
+   *  （emitAsync 关 collab 连接/MinIO 清理队列/审计——AuditLog.teamId 无 FK 随审计保留）。
+   *  Y0b-1：凭证列 NOT NULL 去 FK——解散不清账，订单/流水 teamId 留痕（悬挂引用=解散团队的历史凭证）。 */
   async disbandTeam(teamId: string, userId: string) {
     await this.assertNotPersonalTeam(teamId, '解散');
     const member = await this.prisma.teamMember.findUnique({
@@ -409,25 +415,25 @@ export class TeamService {
     if (!team || team.status === 'DISBANDED') throw new BadRequestException('团队已解散');
 
     const { projectIds, medias } = await this.prisma.$transaction(async (tx) => {
-      await tx.team.update({ where: { id: teamId }, data: { status: 'DISBANDED' } });
+      // Z4/Z26：单事务——FOR UPDATE 团队行（与 claim 的 FOR SHARE 互斥）→ 资金门（tx 内计数）→ 物理删（级联清理）；
+      // 删"同事务先置 DISBANDED 再 delete"的墓碑语句（同事务内不可见=无效语句）；台账行 teamId 无 FK 不受级联（审计留痕）。
+      // 契约 20 全序含 Team 首环：Team → TeamBalance → GenerationIntent →（流水/TeamMember）
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      await tx.$queryRaw`SELECT id FROM "Team" WHERE id = ${teamId} FOR UPDATE`;
+      await this.fundsGate.assertSettled(tx, { teamId });
       const projects = await tx.canvasProject.findMany({ where: { teamId }, select: { id: true } });
       const medias = await tx.media.findMany({
         where: { teamId },
         select: { id: true, bucket: true, key: true },
       });
+      await tx.team.delete({ where: { id: teamId } });
       return { projectIds: projects.map((p) => p.id), medias };
-    });
+    }, { timeout: 15_000, maxWait: 5_000 });
 
     await this.eventEmitter.emitAsync('team.disbanded', { teamId, projectIds });
 
     // TODO(Task17): team-media-cleanup processor 批量删 MinIO 对象
     await this.cleanupQueue.add('team-media-cleanup', { medias });
-
-    await this.prisma.$transaction(async (tx) => {
-      // Y0b-1：凭证列 NOT NULL 去 FK——解散不清账，订单/流水 teamId 留痕（悬挂引用=解散团队的历史凭证）
-      // 级联物理删除：members/joinRequests/balance/subscriptions/projects(CanvasDoc)/media
-      await tx.team.delete({ where: { id: teamId } });
-    });
 
     // 审计在物理删除后落库（AuditLog.teamId 无 FK，行随审计保留）
     await this.audit.log({

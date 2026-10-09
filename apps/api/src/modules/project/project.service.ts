@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
+import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { fillDoc, stampDocSchema, stripAuthorState } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
@@ -28,6 +29,7 @@ export class ProjectService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    @Inject(TeamFundsGateService) private readonly fundsGate: TeamFundsGateService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -103,6 +105,9 @@ export class ProjectService {
   }
 
   async delete(id: string) {
+    // Y0b-1（§1.4ter/Z4）：删项目前置清算门——在飞 RUNNING∨冻结>0 ⇒ 409（非事务调用点传 this.prisma，
+    // 读后写窗口=reconcile+孤儿巡检兜底）
+    await this.fundsGate.assertSettled(this.prisma, { projectId: id });
     const deleted = await this.prisma.canvasProject.delete({ where: { id } });
     // Y0a-2（V11）：提交后 emit（emitAsync await 监听器——处理器禁慢操作：内存终态+关连接；
     // 回滚安全：删除失败=异常上抛=无 emit=该项目协作写不受影响）
@@ -122,6 +127,8 @@ export class ProjectService {
           AND NOT EXISTS (SELECT 1 FROM "Template" WHERE "Template"."projectId" = "CanvasProject"."id")
         FOR UPDATE`;
       const ids = rows.map((r) => r.id);
+      // Y0b-1（§1.4ter/Z4）：批量前置清算门——锁定集内任一项目资金未清算 ⇒ 整批 409（tx 同连接同快照）
+      if (ids.length > 0) await this.fundsGate.assertSettled(tx, { projectIds: ids });
       if (ids.length > 0) await tx.canvasProject.deleteMany({ where: { id: { in: ids } } });
       return ids;
     });

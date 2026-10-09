@@ -6,6 +6,7 @@ import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CreditLedgerService } from './credit-ledger.service';
+import { TeamFundsGateService } from './team-funds-gate.service';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -52,6 +53,7 @@ describe('TeamService.ensureDefaultTeam', () => {
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -142,6 +144,7 @@ describe('TeamService 基础 API', () => {
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -319,7 +322,7 @@ describe('TeamService 基础 API', () => {
     });
   });
 
-  describe('disbandTeam（M2 时序）', () => {
+  describe('disbandTeam（Y0b-1 T6 单事务时序）', () => {
     const setup = (opts: { role?: string; teamCount?: number; status?: string } = {}) => {
       prisma.teamMember = {
         findUnique: vi.fn().mockResolvedValue({ role: opts.role ?? 'OWNER' }),
@@ -335,34 +338,56 @@ describe('TeamService 基础 API', () => {
       prisma.media = { findMany: vi.fn().mockResolvedValue([{ id: 'm1', bucket: 'flowai', key: 'k1' }]) };
       prisma.teamRechargeOrder = { updateMany: vi.fn() };
       prisma.teamCreditTransaction = { updateMany: vi.fn() };
+      prisma.$executeRaw = vi.fn().mockResolvedValue(0);   // T6：SET LOCAL lock_timeout
+      prisma.$queryRaw = vi.fn().mockResolvedValue([{ id: 't1' }]);   // T6：SELECT … FOR UPDATE 团队行
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
-    it('时序：事务置 DISBANDED+查 projectIds/media → emitAsync 携带 payload → 物理删除（凭证 teamId 留痕）', async () => {
+    it('时序：单事务 FOR UPDATE→资金门→收集→物理删除；emit/队列/审计后移（凭证 teamId 留痕）', async () => {
       setup();
+      const gate = (service as any).fundsGate as { assertSettled: ReturnType<typeof vi.fn> };
 
       await service.disbandTeam('t1', 'u1');
 
-      // 阶段1：事务内置 DISBANDED + 删前查 projectIds/media
-      expect(prisma.team.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'DISBANDED' } });
+      // 事务内：锁超时纪律 + FOR UPDATE 团队行（与 claim FOR SHARE 互斥）+ 资金门持锁检查（tx 同连接）
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(prisma.$queryRaw).toHaveBeenCalledWith(['SELECT id FROM "Team" WHERE id = ', ' FOR UPDATE'], 't1');
+      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { teamId: 't1' });
+      // 删前查 projectIds/media（收集在事务内、物理删之前）
       expect(prisma.canvasProject.findMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, select: { id: true } });
       expect(prisma.media.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { teamId: 't1' } }));
-      // 阶段2：emitAsync（等监听器，payload 含 projectIds）
-      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanded', { teamId: 't1', projectIds: ['p1', 'p2'] });
-      // MinIO 异步清理 job（processor Task 17）
-      expect(queue.add).toHaveBeenCalledWith('team-media-cleanup', { medias: [{ id: 'm1', bucket: 'flowai', key: 'k1' }] });
-      // 阶段3：Y0b-1 凭证列 NOT NULL 去 FK——解散不清账（teamId 留痕），仅 team 物理删（级联 member/request/balance/subscription/projects/media/CanvasDoc）
+      // 墓碑语句禁令：单事务内不再先置 DISBANDED（同事务内不可见=无效语句）
+      expect(prisma.team.update).not.toHaveBeenCalled();
+      // Y0b-1 凭证列 NOT NULL 去 FK——解散不清账（teamId 留痕），仅 team 物理删（级联 member/request/balance/subscription/projects/media/CanvasDoc）
       expect(prisma.teamRechargeOrder.updateMany).not.toHaveBeenCalled();
       expect(prisma.teamCreditTransaction.updateMany).not.toHaveBeenCalled();
       expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
-      // emitAsync 必须在物理删除之前完成
+      // 资金门与收集都在物理删除之前（同事务序）
+      const gateOrder = gate.assertSettled.mock.invocationCallOrder[0];
+      expect(prisma.team.delete.mock.invocationCallOrder[0]).toBeGreaterThan(gateOrder);
+      // 副作用后移：emitAsync（等监听器，payload 含 projectIds）与 MinIO 清理在事务后
+      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanded', { teamId: 't1', projectIds: ['p1', 'p2'] });
+      expect(queue.add).toHaveBeenCalledWith('team-media-cleanup', { medias: [{ id: 'm1', bucket: 'flowai', key: 'k1' }] });
       const emitOrder = emitter.emitAsync.mock.invocationCallOrder[0];
-      expect(prisma.team.delete.mock.invocationCallOrder[0]).toBeGreaterThan(emitOrder);
+      expect(emitOrder).toBeGreaterThan(prisma.team.delete.mock.invocationCallOrder[0]);
       // 审计在物理删除之后落库
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
         teamId: 't1', targetType: 'TEAM', targetId: 't1', action: 'disband_team',
       }));
       expect(audit.log.mock.invocationCallOrder[0]).toBeGreaterThan(prisma.team.delete.mock.invocationCallOrder[0]);
+    });
+
+    it('资金门拦截：在飞资金未清算 ⇒ 解散中止（409 上抛，无删除无副作用）', async () => {
+      setup();
+      audit.log.mockClear();   // audit 挂 describe 作用域——清前序用例计数再断言"零审计"
+      (service as any).fundsGate.assertSettled.mockRejectedValue(
+        Object.assign(new Error('资金未清算'), { errorCode: 'TEAM_HAS_ACTIVE_FUNDS' }),
+      );
+      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow('资金未清算');
+      expect(prisma.team.delete).not.toHaveBeenCalled();
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+      expect(audit.log).not.toHaveBeenCalled();
     });
 
     it('非 OWNER 拒绝', async () => {
@@ -403,6 +428,7 @@ describe('TeamService 成员管理', () => {
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -615,6 +641,7 @@ describe('TeamService 加入申请', () => {
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -793,6 +820,7 @@ describe('listAuditLogs', () => {
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -844,6 +872,7 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
         { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

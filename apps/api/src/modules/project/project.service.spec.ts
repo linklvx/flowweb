@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
+import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -19,6 +20,7 @@ describe('ProjectService', () => {
   let service: ProjectService;
   let prisma: any;
   let emitter: { emitAsync: ReturnType<typeof vi.fn> };
+  let gate: { assertSettled: ReturnType<typeof vi.fn> };   // Y0b-1 Z4：删除前置清算门 mock 面
 
   beforeEach(async () => {
     prisma = {
@@ -50,12 +52,14 @@ describe('ProjectService', () => {
         ProjectService,
         { provide: PrismaService, useValue: prisma },
         { provide: TeamService, useValue: { ensureDefaultTeam: vi.fn().mockResolvedValue({ id: 'team1' }) } },
+        { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
         // Y0a-3 T8①：CollabDocumentService 注入随 withDoc 种子块删除（孤儿清理——不再提供替身，注入残留即 compile 红）
         { provide: EventEmitter2, useValue: emitter },
       ],
     }).compile();
 
     service = module.get<ProjectService>(ProjectService);
+    gate = module.get(TeamFundsGateService) as any;
   });
 
   describe('create', () => {
@@ -262,6 +266,21 @@ describe('ProjectService', () => {
   });
 
   describe('delete', () => {
+    it('delete 前置清算门：先 gate 后删（Y0b-1 §1.4ter/Z4——非事务点传 this.prisma）', async () => {
+      prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
+      await service.delete('p1');
+      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectId: 'p1' });
+      expect(gate.assertSettled.mock.invocationCallOrder[0])
+        .toBeLessThan(prisma.canvasProject.delete.mock.invocationCallOrder[0]);
+    });
+
+    it('delete 清算门拦截：在飞资金未清算 ⇒ 不删不 emit（409 上抛）', async () => {
+      gate.assertSettled.mockRejectedValue(Object.assign(new Error('资金未清算'), { status: 409 }));
+      await expect(service.delete('p1')).rejects.toThrow('资金未清算');
+      expect(prisma.canvasProject.delete).not.toHaveBeenCalled();
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
+    });
+
     it('should delete project by id', async () => {
       prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
       await service.delete('p1');
@@ -293,6 +312,10 @@ describe('ProjectService', () => {
       expect(result).toEqual({ deletedCount: 4 });   // Y20：返回键不变（controller/前端消费不变）
       expect(prisma.canvasProject.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['a', 'b', 'c', 'd'] } } });   // X13：按锁定集精确删
       expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['a', 'b', 'c', 'd'] });   // V11：提交后按确实被删集 emit
+      // Y0b-1 Z4：批量清算门在事务内（tx 同连接）且先于 deleteMany
+      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectIds: ['a', 'b', 'c', 'd'] });
+      expect(gate.assertSettled.mock.invocationCallOrder[0])
+        .toBeLessThan(prisma.canvasProject.deleteMany.mock.invocationCallOrder[0]);
     });
   });
 

@@ -78,6 +78,6 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     PricingResolverService,   // Y0b-1：定价唯一解析器（AdminModule/AiImageEditModule 经本模块 imports 消费）
     { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂
   ],
-  exports: [ExecutionService, ExecutionGateway, ApiCallerService, PricingResolverService],
+  exports: [ExecutionService, ExecutionGateway, ApiCallerService, PricingResolverService, GenerationIntentService],   // Y0b-1：GenerationIntentService 注入 AdminModule（force-void 终态化）
 })
 export class ExecutionModule {}

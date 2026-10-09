@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TeamService } from '../team/team.service';
+import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { assertTeamMember } from '../team/team.util';
 import { TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
@@ -30,6 +31,7 @@ export class TemplateService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(FolderService) private readonly folderService: FolderService,
     @Inject(TeamService) private readonly teamService: TeamService,
+    @Inject(TeamFundsGateService) private readonly fundsGate: TeamFundsGateService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -151,6 +153,8 @@ export class TemplateService {
       }
     }
     this.clearCache();
+    // Y0b-1（§1.4ter/Z4）：模板级联删工程前置清算门（非事务调用点传 this.prisma）
+    if (template.projectId) await this.fundsGate.assertSettled(this.prisma, { projectId: template.projectId });
     // 先删 Template 解除 projectId FK，再删工程（nodes/edges 由 DB 级联 Cascade 清理）
     await this.prisma.$transaction([
       this.prisma.template.delete({ where: { id } }),
