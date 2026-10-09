@@ -10,12 +10,6 @@ describe('Y0b-1 团队/项目生命周期资金门（§1.4ter/Z4）', () => {
     const ts = Date.now();
     S.keeper = `it-lf-keeper-${ts}`;
     await prisma.user.create({ data: { id: S.keeper, name: 'k', email: `${S.keeper}@x.invalid`, emailVerified: false } });
-    await prisma.team.create({ data: { id: `it-lf-t1-${ts}`, name: 't1', ownerId: S.keeper } });
-    await prisma.team.create({ data: { id: `it-lf-t2-${ts}`, name: 't2', ownerId: S.keeper } });   // 多团队（解散合法性前提）
-    await prisma.teamMember.createMany({ data: [
-      { teamId: `it-lf-t1-${ts}`, userId: S.keeper, role: 'OWNER' },
-      { teamId: `it-lf-t2-${ts}`, userId: S.keeper, role: 'OWNER' },
-    ] });
   }, 20000);
   afterAll(async () => {
     // 清理序（Team.owner Restrict）：意图 → 台账（teamId 无 FK 行随团队消亡仍须清测试残留）→ 团队（级联）→ 用户

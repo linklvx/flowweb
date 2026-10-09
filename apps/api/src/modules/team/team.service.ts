@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -12,6 +12,8 @@ import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-lib
 
 @Injectable()
 export class TeamService {
+  private readonly logger = new Logger(TeamService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
@@ -430,10 +432,14 @@ export class TeamService {
       return { projectIds: projects.map((p) => p.id), medias };
     }, { timeout: 15_000, maxWait: 5_000 });
 
-    await this.eventEmitter.emitAsync('team.disbanded', { teamId, projectIds });
+    // 提交后副作用链逐环吞错（T6 质量审 I-1：团队已物理删不可逆——任一环裸抛会断掉其后全部环节，
+    // emit 失败⇒MinIO 清理 job 永不入队且审计断档；audit.log 必须无条件到达）
+    await this.eventEmitter.emitAsync('team.disbanded', { teamId, projectIds }).catch((e: unknown) =>
+      this.logger.warn(`team.disbanded emit 失败（监听器各自兜底）: ${e}`));
 
     // TODO(Task17): team-media-cleanup processor 批量删 MinIO 对象
-    await this.cleanupQueue.add('team-media-cleanup', { medias });
+    await this.cleanupQueue.add('team-media-cleanup', { medias }).catch((e: unknown) =>
+      this.logger.warn(`team-media-cleanup 入队失败（Redis 抖动——MinIO 对象留待人工清理）: ${e}`));
 
     // 审计在物理删除后落库（AuditLog.teamId 无 FK，行随审计保留）
     await this.audit.log({
