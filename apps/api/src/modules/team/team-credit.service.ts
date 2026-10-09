@@ -83,8 +83,7 @@ export class TeamCreditService {
     guard: { intentRowId: string },
   ): Promise<{ success: boolean; reason?: string; alreadyReserved?: boolean; mayCall?: boolean }> {
     return this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       const intent = await tx.generationIntent.findUniqueOrThrow({ where: { id: guard.intentRowId } });
       const teamId = intent.teamId;
       const amount = intent.creditCost;   // 单源：plan 快照
@@ -131,8 +130,7 @@ export class TeamCreditService {
    *  幂等：已结清（无未冲销 reserve 行）⇒ settled:false 零动作。 */
   async settle(guard: { intentRowId: string }): Promise<{ success: boolean; settled: boolean }> {
     return this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
       if (!row?.teamId) return { success: false, settled: false };
       if (row.reservedCredits === 0 && row.creditsConsumed > 0) {
@@ -182,8 +180,7 @@ export class TeamCreditService {
    *  Y0b-2 T0：quota 无需回滚——used 已派生（release 后 frozen 腿自然回落）。 */
   async void_(guard: { intentRowId: string }): Promise<void> {
     await this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
       if (!row?.teamId) return;
       await this.ledger.lockBalance(tx, row.teamId);   // 锁序①：先于 intent CAS（契约 20 全序）

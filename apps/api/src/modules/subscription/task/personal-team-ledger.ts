@@ -1,4 +1,3 @@
-import type { Prisma } from '@prisma/client';
 import type { CreditLedgerService, LedgerTx } from '../../team/credit-ledger.service';
 
 export type PersonalTeamClearType = 'expire_clear' | 'upgrade_clear' | 'admin_clear';
@@ -9,8 +8,10 @@ export type PersonalTeamClearType = 'expire_clear' | 'upgrade_clear' | 'admin_cl
  * （余额每笔变动都有流水可审计，禁止无声覆盖）；周期覆盖不滚存（清旧池后直接设值）。
  * Y0b-1（Z9 前置③/Z12）：clear/grant 分键（:clear/:grant 后缀——money_in_once 幂等各自成键）；
  * 写路径全经 ledger.mutate（唯一写入口）；懒创建收敛 ensureBalance（三轮 Z23）。
+ * Y0b-2 T1（Z89）：公开签名收 LedgerTx——调用方事务首句经 ledger.ledgerTx(raw) 自取通行证
+ * （ledger_guard 触发器对无证写结构性拦截；本模块不再内部转换）。
  */
-async function findPersonalTeamOrThrow(tx: Prisma.TransactionClient, userId: string) {
+async function findPersonalTeamOrThrow(tx: LedgerTx, userId: string) {
   const team = await tx.team.findFirst({ where: { ownerId: userId, isDefault: true } });
   if (!team) throw new Error(`personal team missing for ${userId}`);
   return team;
@@ -46,37 +47,35 @@ async function writeClearTransaction(
 /** 清零段 only（到期/作废场景）：无发放，无剩余则不写流水 */
 export async function clearPersonalTeamSubscription(
   ledger: CreditLedgerService,
-  tx: Prisma.TransactionClient,
+  tx: LedgerTx,
   userId: string,
   clearType: PersonalTeamClearType,
   referenceId: string,
 ): Promise<void> {
   const team = await findPersonalTeamOrThrow(tx, userId);
-  const ltx = ledger.tx(tx);
-  const bal = await lockAndRead(ledger, ltx, team.id);
+  const bal = await lockAndRead(ledger, tx, team.id);
   const before = bal.subscriptionCredits ?? 0;
   if (before > 0) {
-    await writeClearTransaction(ledger, ltx, team.id, userId, clearType, referenceId, before);
+    await writeClearTransaction(ledger, tx, team.id, userId, clearType, referenceId, before);
   }
 }
 
 /** 发放段：旧池有剩余必先清零+流水，再发放+流水（清零后池恒 0——mutate 增量语义与原设值语义等价） */
 export async function grantToPersonalTeam(
   ledger: CreditLedgerService,
-  tx: Prisma.TransactionClient,
+  tx: LedgerTx,
   userId: string,
   grantAmount: number,
   clearType: PersonalTeamClearType,
   referenceId: string,
 ): Promise<void> {
   const team = await findPersonalTeamOrThrow(tx, userId);
-  const ltx = ledger.tx(tx);
-  const bal = await lockAndRead(ledger, ltx, team.id);
+  const bal = await lockAndRead(ledger, tx, team.id);
   const before = bal.subscriptionCredits ?? 0;
   if (before > 0) {
-    await writeClearTransaction(ledger, ltx, team.id, userId, clearType, referenceId, before);
+    await writeClearTransaction(ledger, tx, team.id, userId, clearType, referenceId, before);
   }
-  await ledger.mutate(ltx, {
+  await ledger.mutate(tx, {
     teamId: team.id,
     operatorUserId: userId,
     type: 'subscription_grant',

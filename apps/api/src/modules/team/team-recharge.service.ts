@@ -138,8 +138,7 @@ export class TeamRechargeService {
     const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
 
     await this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       // Y0b-1（Z23/Z13）：钱包缺失自愈改经 ensureBalance（收钱路径不因钱包缺失丢账）+lockBalance 取代裸 FOR UPDATE
       await this.ledger.ensureBalance(tx, teamId);
       await this.ledger.lockBalance(tx, teamId);

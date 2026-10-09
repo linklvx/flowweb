@@ -74,7 +74,7 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
     await svc.execute('p1', 'n1', 'u1', undefined, undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledTimes(1);
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
-      projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'text', intentId: 'hdr-intent',
+      projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'text', gestureToken: 'hdr-intent',
       teamId: 't1', // Y0b-1（E1）：teamId 固化入参
       pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }, // Y0b-1（E1）：plan 快照透传
       paramsHash: normalizeIntentParams('text', { prompt: 'hi', model: 'seed-model-kimi', apiUrl: '' }),
@@ -85,7 +85,7 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
     const { svc, intentService } = makeService([VIDEO_NODE]);
     await svc.execute('p1', 'n2', 'u1', undefined, undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'video', intentId: 'hdr-intent',
+      kind: 'video', gestureToken: 'hdr-intent',
       teamId: 't1',
       pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
       paramsHash: normalizeIntentParams('video', {
@@ -100,7 +100,7 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
     const { svc, intentService } = makeService([IMAGE_NODE]);
     await svc.execute('p1', 'n3', 'u1', undefined, undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'image', intentId: 'hdr-intent',
+      kind: 'image', gestureToken: 'hdr-intent',
       teamId: 't1',
       pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
       paramsHash: normalizeIntentParams('image', {
@@ -224,7 +224,7 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
   it('组执行第 N+1 reserve 失败 → 前 N 已 settle 保留产物、第 N+1 零外呼零 settle + VOIDED（约束③）', async () => {
     const { svc, apiCaller, teamCredit, intentService, collabDoc, gateway } = makeService([TEXT_NODE, IMAGE_NODE]);
     intentService.claim.mockImplementation(async (input: any) => ({
-      created: true, intent: { id: `row-${input.nodeId}`, intentId: input.intentId },
+      created: true, intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}` },
     }));
     teamCredit.reserve.mockImplementation(async (_userId: string, guard: any) =>
       guard.intentRowId === 'row-n3' ? { success: false, reason: 'CREDIT_INSUFFICIENT' } : { success: true, mayCall: true });
@@ -279,18 +279,16 @@ describe('批0.5-6 catch 路径（意图终态必达——error 展示不受门�
   });
 });
 
-describe('批0.5-6 组执行 intentId 派生（裁定：每节点独立 UUID，入参仅落首个执行节点）', () => {
-  it('多节点循环各自独立意图行——首节点用入参 intentId，其余派 UUID，reserve 各带各 guard', async () => {
+describe('Y0b-2 T1（Z109）：组执行 token 整批施加——全节点同 gestureToken，行身份由 claim 铸造', () => {
+  it('多节点循环各自独立意图行——两节点 claim 均收同一 gestureToken（idemKey 含 nodeId 故无碰撞），reserve 各带各 guard', async () => {
     const { svc, intentService, teamCredit } = makeService([TEXT_NODE, IMAGE_NODE]);
     intentService.claim.mockImplementation(async (input: any) => ({
-      created: true, intent: { id: `row-${input.nodeId}`, intentId: input.intentId },
+      created: true, intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}` },
     }));
     await svc.execute('p1', undefined, 'u1', ['n1', 'n3'], undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledTimes(2);
-    expect(intentService.claim.mock.calls[0][0]).toEqual(expect.objectContaining({ nodeId: 'n1', intentId: 'hdr-intent' }));
-    expect(intentService.claim.mock.calls[1][0]).toEqual(expect.objectContaining({ nodeId: 'n3' }));
-    expect(intentService.claim.mock.calls[1][0].intentId).not.toBe('hdr-intent');
-    expect(intentService.claim.mock.calls[1][0].intentId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(intentService.claim.mock.calls[0][0]).toEqual(expect.objectContaining({ nodeId: 'n1', gestureToken: 'hdr-intent' }));
+    expect(intentService.claim.mock.calls[1][0]).toEqual(expect.objectContaining({ nodeId: 'n3', gestureToken: 'hdr-intent' }));   // 整批施加——旧"仅首个 exec"门已删
     expect(teamCredit.reserve.mock.calls[0][1]).toEqual({ intentRowId: 'row-n1' });
     expect(teamCredit.reserve.mock.calls[1][1]).toEqual({ intentRowId: 'row-n3' });
   });

@@ -39,8 +39,8 @@ export class PaymentSuccessProcessor extends WorkerHost {
     if (order.status === 'SUCCESS') return;
 
     try {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`; // Z13：台账锁等待以 55P03 可重试暴露（T4 质量审 I-1）
+      await this.prisma.$transaction(async (raw) => {
+        const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
         // 1) Update order to SUCCESS (optimistic lock — only if still PENDING)
         const updated = await tx.subscriptionOrder.updateMany({
           where: { id: order.id, status: 'PENDING' },

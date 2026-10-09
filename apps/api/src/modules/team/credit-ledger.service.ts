@@ -2,13 +2,15 @@
 // 冻结契约 4：TeamCreditTransaction 全部写操作（create/update/upsert/delete 及 Many）仅允许出现在本服务；
 // delta 单源=调用方声明+本服务按真值表语义拒绝不合法组合（Z11：并持锁读 intent 行复核）。
 // 并发纪律=FOR UPDATE 单式（version=单调审计计数器）+ SET LOCAL lock_timeout（Z13：55P03/超时映射可重试）。
+// Y0b-2 T1（Z81/Z89/Z51）：通行证唯一入口=ledgerTx（双 SET LOCAL：lock_timeout+app.ledger_tx 触发器通行证）；
+// tx() 已删——DB 触发器 ledger_guard 对无通行证的台账/钱包写结构性拦截（跨进程/raw/未来调用者）。
 import { Inject, Injectable, HttpStatus } from '@nestjs/common';
 import type { CreditType, Prisma, TeamCreditTransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 
 /** Z12：品牌 tx——防根 PrismaClient 结构兼容直传（锁立刻释放、"同生共死"静默失效）。
- *  唯一获得途径=ledger.runInTx 回调或 ledger.tx() 显式转换（测试绕过须 as any 留痕）。
+ *  唯一获得途径=ledger.runInTx 回调或 ledger.ledgerTx(raw) 装饰（测试绕过须 as any 留痕）。
  *  declare const 品牌键形态（unique symbol 只能由 const 声明）。 */
 declare const ledgerBrand: unique symbol;
 export type LedgerTx = Prisma.TransactionClient & { readonly [ledgerBrand]: true };
@@ -28,6 +30,8 @@ export interface LedgerMutateInput {
   frozenDelta: number;
   referenceId?: string | null;
   reversesId?: string | null;
+  /** Y0b-2（Z100）：mutate 前置查幂等锚——携带即查 idempotencyKey @unique，命中返回 replayed:true 零写。 */
+  idempotencyKey?: string | null;
 }
 
 class LedgerRuleError extends Error {
@@ -38,15 +42,18 @@ class LedgerRuleError extends Error {
 export class CreditLedgerService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  /** 唯一事务入口——测试与简单调用方用；复合事务（reserve 等）自行 $transaction 后经 tx() 转换。 */
-  async runInTx<T>(fn: (tx: LedgerTx) => Promise<T>): Promise<T> {
-    return this.prisma.$transaction(async (raw) => {
-      await raw.$executeRaw`SET LOCAL lock_timeout = '3s'`;
-      return fn(raw as unknown as LedgerTx);
-    }, { timeout: 15_000, maxWait: 5_000 });
+  /** Z89 全部资金事务首句的唯一入口：装饰既有事务（双 SET LOCAL——Z81 两形态合一）。
+   *  SET LOCAL app.ledger_tx='on' 是 ledger_guard 触发器的通行证（同生共死：事务结束即失效）。 */
+  async ledgerTx(raw: Prisma.TransactionClient): Promise<LedgerTx> {
+    await raw.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+    await raw.$executeRaw`SET LOCAL app.ledger_tx = 'on'`;
+    return raw as unknown as LedgerTx;
   }
 
-  tx(raw: Prisma.TransactionClient): LedgerTx { return raw as unknown as LedgerTx; }
+  /** 标准事务入口（seed/bootstrap/测试——15s 默认档）；复合事务（reserve 等）自行 $transaction 后经 ledgerTx 装饰。 */
+  async runInTx<T>(fn: (tx: LedgerTx) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction((raw) => this.ledgerTx(raw).then(fn), { timeout: 15_000, maxWait: 5_000 });
+  }
 
   /** 锁序第一环（契约 20）。纯 SELECT FOR UPDATE——缺行=业务错误（解散物理删后行不存在）。
    *  严格性不回退，韧性经 ensureBalance 单点收口（三轮 Z23：现有 dev 库 2/7 团队无钱包行——懒创建承重）。
@@ -65,9 +72,11 @@ export class CreditLedgerService {
 
   /** 唯一写入口——锁 TeamBalance → 读旧态 → 校验 → 写池+流水。
    *  amount=派生显示字段（Z8：DB CHECK 强制同式）。Z11：intent 域持锁复核 intent 行存在+teamId 匹配。
+   *  Y0b-2（Z100）：input.idempotencyKey 携带时前置查（lockBalance 之后）——命中 ⇒ replayed:true 零写零变池
+   *  （与 noop 语义分离：noop=零额不写行；replay 是"事件已入账"的幂等短路）。
    *  opts.skipIntentCheck=孤儿释放窄口（Z25）专用——只跳过"意图行在场"一条（T5 消费）。
    *  账户域零额 noop 实现化（不写行；rowId=null——空串会被当 reversesId 源消费）。 */
-  async mutate(tx: LedgerTx, input: LedgerMutateInput, opts?: { skipIntentCheck?: boolean }): Promise<{ rowId: string | null; balanceAfter: number; noop?: boolean }> {
+  async mutate(tx: LedgerTx, input: LedgerMutateInput, opts?: { skipIntentCheck?: boolean }): Promise<{ rowId: string | null; balanceAfter: number; noop?: boolean; replayed?: boolean }> {
     if (MONEY_IN_TYPES.includes(input.type) && !input.referenceId) {
       throw new LedgerRuleError('LEDGER_DOMAIN', `money_in type=${input.type} referenceId 必填（Z9：事件 id）`);
     }
@@ -79,10 +88,14 @@ export class CreditLedgerService {
       if (!intent || intent.teamId !== input.teamId) throw new LedgerRuleError('LEDGER_DOMAIN', `intent 行不存在或 teamId 不匹配（${intentRowId}）`);
     }
     const balance = await tx.teamBalance.findUniqueOrThrow({ where: { teamId: input.teamId } });
+    const pool = input.creditType === 'subscription' ? 'subscriptionCredits' : 'credits';
+    if (input.idempotencyKey) {
+      const prev = await tx.teamCreditTransaction.findFirst({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true } });
+      if (prev) return { rowId: prev.id, balanceAfter: balance[pool], replayed: true };
+    }
     this.assertTruthTable(input);
     if (input.reversesId) await this.assertReversal(tx, input);
 
-    const pool = input.creditType === 'subscription' ? 'subscriptionCredits' : 'credits';
     if (input.balanceDelta === 0 && input.frozenDelta === 0) {
       return { rowId: null, balanceAfter: balance[pool], noop: true };
     }
@@ -104,6 +117,7 @@ export class CreditLedgerService {
         balanceDelta: input.balanceDelta,
         frozenDelta: input.frozenDelta,
         reversesId: input.reversesId ?? null,
+        idempotencyKey: input.idempotencyKey ?? null,
       },
     });
     return { rowId: row.id, balanceAfter: next };

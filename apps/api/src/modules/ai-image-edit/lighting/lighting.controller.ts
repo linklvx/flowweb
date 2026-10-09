@@ -1,6 +1,5 @@
 import { Controller, Post, Get, Body, Param, Inject, Req, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { randomUUID } from 'node:crypto';
 import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
@@ -28,12 +27,13 @@ export class LightingController {
     // paramsHash = paramsToPrompt 纯派生稳定串——与 consumer 外呼 prompt 同函数（两处各自实现=两键双扣）。
     // 意图行管幂等/互斥/对账；LightingTask 照旧管业务状态（两者并存）。
     // Y0b-1（E1）：claim 前解析 kind 级定价快照（lighting=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
+    // Y0b-2（Z109）：body.intentId wire 语义=手势 token 非行 id（T6 改名 regenToken——防新调用方拿它查 intents 端点）。
     const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
     const { intent, created } = await this.intentService.claim({
       projectId: body.projectId,
       nodeId: body.nodeId,
       userId,
-      intentId: body.intentId ?? randomUUID(),
+      gestureToken: body.intentId,
       kind: 'lighting',
       paramsHash: normalizeIntentParams('lighting', {
         prompt: paramsToPrompt(body.params, body.params.customPrompt),

@@ -5,22 +5,28 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   GenerationIntentService,
   NodeBusyError,
-  IntentContextMismatchError,
   IntentExhaustedError,
 } from './generation-intent.service';
+import { deriveIdemKey, normalizeRegenToken as normalizeRegenTokenImport } from './intent-key.util';
 
-/** 构造一行 GenerationIntent（默认值=RUNNING 在飞，覆盖式调整） */
+/** 构造一行 GenerationIntent（默认值=RUNNING 在飞，覆盖式调整；Y0b-2 T1：idemKey/heartbeatAt/deadlineAt/gestureKey 新列） */
 const row = (over: Record<string, unknown> = {}) => ({
   id: 'gi-1',
   projectId: 'p1',
   nodeId: 'n1',
   userId: 'u1',
   teamId: 'team-1',
-  intentId: 'i1',
+  intentId: 'row-uuid-1',
+  idemKey: deriveIdemKey({ projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' }),
+  gestureKey: null,
   kind: 'image',
   paramsHash: 'h1',
   status: 'RUNNING',
   jobId: null,
+  heartbeatAt: new Date(),
+  deadlineAt: new Date(Date.now() + 90_000),
+  startedAt: null,
+  providerTaskId: null,
   pricingRuleId: 'pr1',
   modelId: 'm1',
   resolutionId: null,
@@ -36,12 +42,11 @@ const row = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** claim 输入（默认与 row 同上下文；Y0b-1：pricing/teamId 必填——固化入参） */
+/** claim 输入（默认与 row 同上下文；Y0b-2：gestureToken 替代 intentId 入参——行身份由 claim 铸造） */
 const input = (over: Record<string, unknown> = {}) => ({
   projectId: 'p1',
   nodeId: 'n1',
   userId: 'u1',
-  intentId: 'i1',
   kind: 'image',
   paramsHash: 'h1',
   teamId: 'team-1',
@@ -49,7 +54,7 @@ const input = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-describe('GenerationIntentService claim 状态机（F13）', () => {
+describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化）', () => {
   let service: GenerationIntentService;
   let prisma: any;
 
@@ -79,8 +84,8 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     service = module.get(GenerationIntentService);
   });
 
-  describe('Y0b-1（E1/Z26）：claim 无条件固化 + 团队准入谓词', () => {
-    it('E1：creditCost:0 也固化——createMany data 带五字段快照+teamId，skipDuplicates 形态（Z33）', async () => {
+  describe('Y0b-2 T1（Z82/Z109）：idemKey 判据+三列写入', () => {
+    it('E1+Z82：无 token claim → createMany data 带 idemKey（内容键）+intentId（铸造 UUID）+heartbeatAt/deadlineAt/gestureKey:null+五字段快照', async () => {
       prisma.generationIntent.findUnique.mockResolvedValue(null);
       prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
       const created = row({ creditCost: 0, pricingRuleId: 'pr1', modelId: 'm1' });
@@ -90,15 +95,43 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
 
       expect(r.created).toBe(true);
       expect(r.intent).toBe(created);
-      expect(prisma.generationIntent.createMany).toHaveBeenCalledWith({
-        data: [expect.objectContaining({
-          projectId: 'p1', nodeId: 'n1', userId: 'u1', intentId: 'i1',
-          kind: 'image', paramsHash: 'h1', jobId: null, status: 'RUNNING',
-          teamId: 'team-1',
-          pricingRuleId: 'pr1', modelId: 'm1', resolutionId: null, durationId: null, creditCost: 0,
-        })],
-        skipDuplicates: true,
-      });
+      const arg = prisma.generationIntent.createMany.mock.calls[0][0];
+      expect(arg.skipDuplicates).toBe(true);
+      expect(arg.data[0].idemKey).toBe(deriveIdemKey({ projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' })); // 无 token=内容键（'run' 末段）
+      expect(arg.data[0].intentId).toMatch(/^[0-9a-f-]{36}$/); // 行身份=服务端铸造
+      expect(arg.data[0].gestureKey).toBeNull();
+      expect(arg.data[0].heartbeatAt).toBeInstanceOf(Date);
+      expect(arg.data[0].deadlineAt).toBeInstanceOf(Date);
+      expect(arg.data[0].deadlineAt.getTime()).toBeGreaterThan(Date.now());
+      expect(arg.data[0].creditCost).toBe(0); // 无条件固化——creditCost:0 也不例外（E1/A2）
+      // 判据键=findUnique({where:{idemKey}})（Z82——复合 projectId_intentId 判据退役）
+      expect(prisma.generationIntent.findUnique).toHaveBeenCalledWith({ where: { idemKey: arg.data[0].idemKey } });
+    });
+
+    it('Z109：gestureToken 入参 → idemKey 末段 regen:<token>+gestureKey 落库（客户端原始 token 位）', async () => {
+      prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
+
+      await service.claim(input({ gestureToken: 'held-token-1' }));
+
+      const arg = prisma.generationIntent.createMany.mock.calls[0][0];
+      expect(arg.data[0].idemKey).toBe(deriveIdemKey({ projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1', regenToken: 'held-token-1' }));
+      expect(arg.data[0].idemKey).not.toBe(deriveIdemKey({ projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' })); // token 位真实参与
+      expect(arg.data[0].gestureKey).toBe('held-token-1');
+    });
+
+    it('Z79：超长 token 截断至 128+warn 非 400', async () => {
+      prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
+      const warn = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
+
+      await service.claim(input({ gestureToken: 'x'.repeat(200) }));
+
+      const arg = prisma.generationIntent.createMany.mock.calls[0][0];
+      expect(arg.data[0].gestureKey).toBe('x'.repeat(128));
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
     it('pricing 缺省 ⇒ 编译期即拒（必填参数——无条件固化由类型保证非运行时约定）', async () => {
@@ -107,7 +140,7 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
       prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
       await expect(
         // @ts-expect-error pricing 必填——缺省即类型错误（tsc --noEmit 红相=本用例红相）
-        service.claim({ projectId: 'p1', nodeId: 'n1', userId: 'u1', intentId: 'i1', kind: 'image', paramsHash: 'h1', teamId: 'team-1' }),
+        service.claim({ projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'image', paramsHash: 'h1', teamId: 'team-1' }),
       ).rejects.toThrow(); // 运行时：pricing undefined → 固化字段访问 TypeError → 拒绝（无静默免费路径）
     });
 
@@ -134,8 +167,8 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
       expect(r.intent).toBe(created);
       expect(prisma.generationIntent.createMany).toHaveBeenCalledWith({
         data: [expect.objectContaining({
-          projectId: 'p1', nodeId: 'n1', userId: 'u1', intentId: 'i1',
-          kind: 'image', paramsHash: 'h1', jobId: null, status: 'RUNNING',
+          projectId: 'p1', nodeId: 'n1', userId: 'u1',
+          kind: 'image', paramsHash: 'h1', jobId: null, status: 'RUNNING', teamId: 'team-1',
         })],
         skipDuplicates: true,
       });
@@ -201,8 +234,8 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     });
   });
 
-  describe('④ FAILED/VOIDED 同上下文 → 守卫式原子再激活', () => {
-    it.each([['FAILED'], ['VOIDED']])('%s 且 count===1 → created:true + attempts 自增', async (status) => {
+  describe('④ FAILED/VOIDED → 守卫式原子再激活', () => {
+    it.each([['FAILED'], ['VOIDED']])('%s 且 count===1 → created:true + attempts 自增+心跳/deadline 重置', async (status) => {
       const existing = row({ status, attempts: 1, jobId: 'job-old', error: 'x', completedAt: new Date() });
       prisma.generationIntent.findUnique
         .mockResolvedValueOnce(existing) // claim 首查
@@ -221,6 +254,8 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
           jobId: 'job-1',
           completedAt: null,
           attempts: { increment: 1 },
+          heartbeatAt: expect.any(Date),   // Z68：rearm 重置生命线
+          deadlineAt: expect.any(Date),
         },
       });
     });
@@ -233,7 +268,7 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     });
   });
 
-  describe('⑤ SUCCEEDED 同上下文 → created:false 幂等重放', () => {
+  describe('⑤ SUCCEEDED → created:false 幂等重放', () => {
     it('返回既有行（含 resultRef），零外呼零写库', async () => {
       const existing = row({ status: 'SUCCEEDED', resultRef: 'media-123' });
       prisma.generationIntent.findUnique.mockResolvedValue(existing);
@@ -260,46 +295,37 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     });
   });
 
-  describe('①→异上下文：同 intentId 上下文不匹配 → 409 INTENT_CONTEXT_MISMATCH', () => {
-    it.each([
-      ['nodeId 漂移', { nodeId: 'n2' }],
-      ['kind 漂移', { kind: 'redraw' }],
-      ['paramsHash 漂移（客户端改参复用 intentId）', { paramsHash: 'h2' }],
-    ])('%s → INTENT_CONTEXT_MISMATCH 409（不静默按已扣费跳过）', async (_name, over) => {
-      prisma.generationIntent.findUnique.mockResolvedValue(row({ status: 'RUNNING', jobId: 'job-1' }));
+  describe('Y0b-2 T1：异上下文=异 idemKey=走①新行（mismatch 409 语义退役）', () => {
+    it('nodeId/kind/paramsHash 漂移 ⇒ 键不同 ⇒ findUnique 落空 ⇒ createMany 新行（新扣费）——IntentContextMismatchError 已删', async () => {
+      // 首查无行（漂移后的新键）→ createMany 胜出
+      prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row({ nodeId: 'n2' }));
 
-      await expect(service.claim(input(over))).rejects.toBeInstanceOf(IntentContextMismatchError);
-      await expect(service.claim(input(over))).rejects.toMatchObject({
-        errorCode: 'INTENT_CONTEXT_MISMATCH',
-        status: HttpStatus.CONFLICT,
-      });
+      for (const over of [{ nodeId: 'n2' }, { kind: 'redraw' }, { paramsHash: 'h2' }] as const) {
+        const r = await service.claim(input(over));
+        expect(r.created).toBe(true); // 改参重试=新意图新扣费（Z109 红测①的单元面）
+      }
     });
   });
 
-  describe('⑧ createMany 撞 active partial unique（同节点异 intentId 在飞）→ count=0 → NodeBusy', () => {
-    it('count=0 且本 intentId 无行（again=null）→ NODE_BUSY（Z33：健康事务内分义非 25P02）', async () => {
-      prisma.generationIntent.findUnique.mockResolvedValue(null); // 本 intentId 无行（异 intentId 才是在飞方）
+  describe('⑧ createMany 撞 active partial unique（同节点异 idemKey 在飞）→ count=0 → NodeBusy', () => {
+    it('count=0 且本 idemKey 无行（again=null）→ NODE_BUSY（Z33：健康事务内分义非 25P02）', async () => {
+      prisma.generationIntent.findUnique.mockResolvedValue(null); // 本 idemKey 无行（异 idemKey 才是在飞方）
       prisma.generationIntent.createMany.mockResolvedValue({ count: 0 }); // ON CONFLICT DO NOTHING 吞撞
 
-      await expect(service.claim(input({ intentId: 'i2' }))).rejects.toMatchObject({ errorCode: 'NODE_BUSY' });
+      await expect(service.claim(input({ gestureToken: 'g2' }))).rejects.toMatchObject({ errorCode: 'NODE_BUSY' });
     });
   });
 
-  describe('⑨ createMany count=0 路径：同上下文异 jobId（并发同 intentId 超时重发）→ NodeBusy 非 mismatch', () => {
-    it('撞复合唯一 + again 行 RUNNING 异 jobId → NODE_BUSY（mismatch 标签对在飞请求是误导）', async () => {
+  describe('⑨ createMany count=0 路径：同 idemKey 异 jobId（并发同内容超时重发）→ NodeBusy；同 jobId → 可重入', () => {
+    it('撞 idemKey 唯一 + again 行 RUNNING 异 jobId → NODE_BUSY', async () => {
       prisma.generationIntent.findUnique
         .mockResolvedValueOnce(null) // 首查无行 → 走 createMany
         .mockResolvedValueOnce(row({ status: 'RUNNING', jobId: 'job-first' })); // count=0 后复查=并发赢家
       prisma.generationIntent.createMany.mockResolvedValue({ count: 0 });
 
-      let err: any;
-      try {
-        await service.claim(input({ jobId: 'job-second' }));
-      } catch (e) {
-        err = e;
-      }
-      expect(err).toBeInstanceOf(NodeBusyError);
-      expect(err).not.toBeInstanceOf(IntentContextMismatchError);
+      await expect(service.claim(input({ jobId: 'job-second' }))).rejects.toBeInstanceOf(NodeBusyError);
     });
 
     it('count=0 路径同 jobId 同 RUNNING → 可重入（create 与重入并发）', async () => {
@@ -310,17 +336,6 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
 
       const r = await service.claim(input({ jobId: 'job-1' }));
       expect(r.created).toBe(true);
-    });
-
-    it('count=0 路径 again 行异上下文 → INTENT_CONTEXT_MISMATCH', async () => {
-      prisma.generationIntent.findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(row({ status: 'RUNNING', nodeId: 'n2' }));
-      prisma.generationIntent.createMany.mockResolvedValue({ count: 0 });
-
-      await expect(service.claim(input({ jobId: 'job-1' }))).rejects.toMatchObject({
-        errorCode: 'INTENT_CONTEXT_MISMATCH',
-      });
     });
   });
 
@@ -439,5 +454,44 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
         },
       });
     });
+  });
+});
+
+describe('Y0b-2 T1：intent-key.util（Z82/Z79/Z68）', () => {
+  it('deriveIdemKey：同输入同键（确定性）；异 token 异键；无 token 末段=run', () => {
+    const base = { projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' };
+    const a = deriveIdemKey(base);
+    expect(deriveIdemKey({ ...base })).toBe(a);
+    expect(deriveIdemKey({ ...base, regenToken: 't1' })).not.toBe(a);
+    expect(deriveIdemKey({ ...base, regenToken: 't1' })).not.toBe(deriveIdemKey({ ...base, regenToken: 't2' }));
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('deriveIdemKey：token 含 | 无注入（末段带前缀——跨字段重组结构性不可能）', () => {
+    const base = { projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' };
+    // 构造能拼接出同串的两组：token 'x|run' vs 任何其他组合都不可能等于无 token 键（前缀 regen: 区分）
+    expect(deriveIdemKey({ ...base, regenToken: 'x|run' })).not.toBe(deriveIdemKey(base));
+    expect(deriveIdemKey({ ...base, regenToken: 'run' })).not.toBe(deriveIdemKey(base));
+  });
+
+  it('normalizeRegenToken：空白/null→undefined；超长截断+warn；NUL 剥除', () => {
+    const warn = vi.fn();
+    expect(normalizeRegenTokenImport(undefined, warn)).toBeUndefined();
+    expect(normalizeRegenTokenImport('  ', warn)).toBeUndefined();
+    expect(normalizeRegenTokenImport('ok', warn)).toBe('ok');
+    expect(normalizeRegenTokenImport('x'.repeat(200), warn)).toBe('x'.repeat(128));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(normalizeRegenTokenImport('a\0b', warn)).toBe('ab');
+  });
+
+  it('deadlineMsForKind：kind→默认档映射（env 缺省走 EXEC_DEFAULTS 单源）', async () => {
+    const { deadlineMsForKind, } = await import('./intent-key.util');
+    const { EXEC_DEFAULTS } = await import('../../config/env');
+    expect(deadlineMsForKind('text')).toBe(EXEC_DEFAULTS.DEADLINE_TEXT);
+    expect(deadlineMsForKind('image')).toBe(EXEC_DEFAULTS.DEADLINE_IMAGE);
+    expect(deadlineMsForKind('video')).toBe(EXEC_DEFAULTS.DEADLINE_VIDEO);
+    expect(deadlineMsForKind('redraw')).toBe(EXEC_DEFAULTS.DEADLINE_EDIT);
+    expect(deadlineMsForKind('lighting')).toBe(EXEC_DEFAULTS.DEADLINE_LIGHTING);
+    expect(deadlineMsForKind('unknown-kind')).toBe(EXEC_DEFAULTS.DEADLINE_EDIT); // 未知 kind 保守短档
   });
 });

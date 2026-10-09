@@ -1,5 +1,4 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
@@ -40,17 +39,16 @@ export class ExecutionService {
 
   /** 批0.5-6：意图 claim 前置（外呼之前）。kind/params = 各分支实读外呼参数——
    *  normalizeIntentParams 白名单拾取（0.5-2），sv/nonce 不进哈希。
-   *  组执行 intentId 派生（裁定）：每节点独立 UUID——意图生命周期（attempts/reconcile/退款）按节点独立，
-   *  不做 ${intentId}:${nodeId} 派生；入参 intentId 落 scope 内首个 exec 节点（批5 H1 更正：nodeId 模式
-   *  scope=上游闭包+自身，首个 exec 是最上游而非目标——intentId 需落特定目标时调用方必须传 nodeIds=[目标]，
-   *  使目标成为唯一 exec 节点，如 video-project regenerate），其余派新 UUID。
+   *  Y0b-2（Z109）：入参 intentId=客户端手势 token（wire 名不变）——无条件透传 gestureToken 整批施加
+   *  （组执行全节点同 token：idemKey 含 nodeId 故无碰撞）；行身份 intentId 由 claim 内部铸造
+   *  （旧"首个 exec 落 token、其余派 UUID"的门随 T1 删——token 不再是行键，无需选择落点）。
    *  Y0b-1（E1）：pricing/teamId 必填透传——定价快照自 validation plans（预估=plan 同源，TOCTOU 消除）。 */
   private claimForNode(
-    projectId: string, node: any, userId: string, intentId: string | undefined,
+    projectId: string, node: any, userId: string, gestureToken: string | undefined,
     kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string, jobId?: string,
   ) {
     return this.intentService.claim({
-      projectId, nodeId: node.id, userId, intentId: intentId ?? randomUUID(), kind,
+      projectId, nodeId: node.id, userId, gestureToken, kind,
       paramsHash: normalizeIntentParams(kind, params),
       // Y0b-1（E1）：NodePlan → ClaimPricing 五字段投影（nodeId 是 plan 路由键非快照列——不进 claim）
       pricing: {
@@ -69,6 +67,7 @@ export class ExecutionService {
     await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'error', error: msg }).catch(() => {});
   }
 
+  /** intentId 形参=客户端手势 token（Z109：wire 名不变、语义=gestureToken——行身份由 claim 铸造）。 */
   async execute(projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array, intentId?: string, jobId?: string) {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
@@ -119,11 +118,8 @@ export class ExecutionService {
       const s = data?.styleId ? styleMap.get(data.styleId) : undefined;
       return s?.active ? s.promptText : '';
     };
-    let execIdx = 0; // 组执行 intentId 派生用：入参 intentId 落 scope 内首个 exec 节点（真实归属规则见 claimForNode 注释——批5 H1 更正）
     for (const node of orderedNodes) {
       if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行（批5-1 删信箱后无影子直调例外——regenerate 直连真实节点，白名单单判据）
-      const isFirstExec = execIdx === 0;
-      execIdx++;
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
       let claimed: any = null; // 本节点已获执行权的意图行（catch 路径 fail 用——claim 未成功则不碰他人在飞行）
 
@@ -145,7 +141,7 @@ export class ExecutionService {
           const plan = planMap.get(node.id);
           if (!plan) throw new BusinessException('PLAN_MISSING', `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`, HttpStatus.BAD_REQUEST);
           const cost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
-          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'text', textArgs, plan, project.teamId, jobId);
+          const { intent, created } = await this.claimForNode(projectId, node, userId, intentId, 'text', textArgs, plan, project.teamId, jobId);
           if (!created) {
             // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
             this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
@@ -219,7 +215,7 @@ export class ExecutionService {
           const plan = planMap.get(node.id);
           if (!plan) throw new BusinessException('PLAN_MISSING', `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`, HttpStatus.BAD_REQUEST);
           const vCost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
-          const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'video', videoArgs, plan, project.teamId, jobId);
+          const { intent, created } = await this.claimForNode(projectId, node, userId, intentId, 'video', videoArgs, plan, project.teamId, jobId);
           if (!created) {
             this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
             continue;
@@ -299,7 +295,7 @@ export class ExecutionService {
         const plan = planMap.get(node.id);
         if (!plan) throw new BusinessException('PLAN_MISSING', `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`, HttpStatus.BAD_REQUEST);
         const cost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
-        const { intent, created } = await this.claimForNode(projectId, node, userId, isFirstExec ? intentId : undefined, 'image', imageArgs, plan, project.teamId, jobId);
+        const { intent, created } = await this.claimForNode(projectId, node, userId, intentId, 'image', imageArgs, plan, project.teamId, jobId);
         if (!created) {
           this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
           continue;

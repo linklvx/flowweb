@@ -41,8 +41,8 @@ export class ExpireSubscriptionProcessor extends WorkerHost {
           const current = await this.prisma.userSubscription.findUnique({ where: { id: sub.id } });
           if (current?.status !== 'active') continue;
 
-          await this.prisma.$transaction(async (tx) => {
-            await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`; // Z13：台账锁等待以 55P03 可重试暴露（T4 质量审 I-1）
+          await this.prisma.$transaction(async (raw) => {
+            const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
             await tx.userSubscription.update({
               where: { id: sub.id },
               data: { status: 'expired' as any },

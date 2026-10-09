@@ -13,7 +13,7 @@ describe('ExpireSubscriptionProcessor（个人订阅过期清零 → 默认团�
 
   beforeEach(() => {
     ledger = {
-      tx: (raw: any) => raw,
+      ledgerTx: async (raw: any) => raw,   // Y0b-2 Z89：tx() 已删——mock 同步换 ledgerTx（通行证装饰 mock 为直通）
       lockBalance: vi.fn().mockResolvedValue(undefined),
       ensureBalance: vi.fn().mockResolvedValue(undefined),
       mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),

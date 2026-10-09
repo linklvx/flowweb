@@ -1,0 +1,2 @@
+[*] Changed the `PricingRule` table
+[-] Removed unique index on columns (nodeTypeId, modelId, resolutionId, durationId)

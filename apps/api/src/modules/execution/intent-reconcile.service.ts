@@ -193,8 +193,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   private async unfreeze(row: GenerationIntent, reserveRows: any[], cutoff: Date): Promise<void> {
     const total = reserveRows.reduce((s, r) => s + Math.abs(r.amount), 0);
     const done = await this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序——原首句 intent CAS 是无序根源）
       const guard = await tx.generationIntent.updateMany({
         where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff }, reservedCredits: { gt: 0 } },   // CAS 补 reservedCredits>0
@@ -221,8 +220,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   private async refund(row: GenerationIntent, cutoff: Date): Promise<void> {
     let total = 0;
     const refunded = await this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序）
       const guard = await tx.generationIntent.updateMany({
         where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff }, creditsConsumed: { gt: 0 } },
@@ -347,8 +345,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     for (const r of orphans) {
       try {
         await this.prisma.$transaction(async (raw) => {
-          const tx = this.ledger.tx(raw);
-          await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+          const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
           await this.ledger.lockBalance(tx, r.teamId);
           await this.ledger.releaseOrphanReserve(tx, {
             teamId: r.teamId, creditType: r.creditType as any, referenceId: r.referenceId,

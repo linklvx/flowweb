@@ -7,7 +7,10 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
-/** maxStalledCount:1——stalled 仅重排一次（防双跑双扣——扣费幂等由意图表 intentGuard 兜底，此处收敛重排次数）；
+/** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
+ *  reserve 门 alreadyReserved→mayCall:false（Z35 结构门）→静默退出零外呼——重复 submit 结构性不可能；
+ *  =1 的代价=真死 worker 悬挂由 deadline reaper 收敛（T2）；
+ *  改 0 的代价=lock 过期≠进程死：活 worker 被置 FAILED⇒complete CAS=0⇒平台已付费产物丢弃。
  *  lockDuration:60s——长外呼（视频生成）锁续期窗口，过短会误判 stalled。 */
 @Processor(EXECUTION_QUEUE_NAME, { maxStalledCount: 1, lockDuration: 60_000 })
 export class ExecutionProcessor extends WorkerHost {

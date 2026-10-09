@@ -3,6 +3,27 @@ import { z } from 'zod';
 // B13：空串=未设（dotenv/shell 清开关常见形态——'' 不当值验、按未设走 optional/default，防拒启动）
 const blankToUnset = (v: unknown) => (v === '' ? undefined : v);
 
+/** Y0b-2 T1（Z117）：EXEC_* 默认值常量表单源——zod 不写 .default（COLLAB_* 同款防双源 P3）；
+ *  消费点读 EXEC_DEFAULTS.*；zod 仅验形态（int+下限）。EXEC_MAX_NODES 整体移 T8（键随读者同批）。 */
+export const EXEC_DEFAULTS = {
+  /** EXEC_SUBMIT_TIMEOUT_MS——外呼 submit 阶段超时 */
+  SUBMIT: 30_000,
+  /** EXEC_POLL_TIMEOUT_MS——同步轮询单次超时 */
+  POLL: 10_000,
+  /** EXEC_DEADLINE_TEXT_MS——文本外呼硬截止 */
+  DEADLINE_TEXT: 90_000,
+  /** EXEC_DEADLINE_IMAGE_MS——图片外呼硬截止 */
+  DEADLINE_IMAGE: 300_000,
+  /** EXEC_DEADLINE_VIDEO_MS——视频外呼硬截止 */
+  DEADLINE_VIDEO: 900_000,
+  /** EXEC_DEADLINE_EDIT_MS——编辑（outpaint/erase/redraw）外呼硬截止 */
+  DEADLINE_EDIT: 300_000,
+  /** EXEC_DEADLINE_LIGHTING_MS——打光外呼硬截止 */
+  DEADLINE_LIGHTING: 1_800_000,
+  /** EXEC_SYNC_HARD_CAP——同步路径总预算硬帽（check-nginx-budget.mjs 同值共用本常量导出，禁两处各写数值） */
+  SYNC_HARD_CAP: 1_800_000,
+} as const;
+
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   PORT: z.coerce.number().default(3000),
@@ -56,6 +77,23 @@ export const envSchema = z.object({
   // Y0a-4（P25）：绑定面收窄——reader 在 gateway listen 配置（键随读者同批收口，防 T1 结构锚方向二死键红）。
   // 默认缺省=0.0.0.0 不变；ecosystem 未来注入 127.0.0.1（nginx 同机唯一合法路径）。
   COLLAB_BIND_ADDR: z.preprocess(blankToUnset, z.string().min(1).optional()),
+
+  // Y0b-2 T1（Z117）：执行运行时超时/预算键——默认值=EXEC_DEFAULTS 常量表单源（上表），
+  // zod 只验形态不写 default（防双源）；读点按【字面量】process.env 直读纪律（collab-env-single-source 方向②）。
+  // EXEC_MAX_NODES 不在此（整体移 T8——键随读者同批，防死键）。
+  EXEC_SUBMIT_TIMEOUT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(1_000).optional()),        // 默认 EXEC_DEFAULTS.SUBMIT=30_000
+  EXEC_POLL_TIMEOUT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(1_000).optional()),          // 默认 EXEC_DEFAULTS.POLL=10_000
+  EXEC_DEADLINE_TEXT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(10_000).optional()),        // 默认 EXEC_DEFAULTS.DEADLINE_TEXT=90_000
+  EXEC_DEADLINE_IMAGE_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(30_000).optional()),       // 默认 EXEC_DEFAULTS.DEADLINE_IMAGE=300_000
+  EXEC_DEADLINE_VIDEO_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(60_000).optional()),       // 默认 EXEC_DEFAULTS.DEADLINE_VIDEO=900_000
+  EXEC_DEADLINE_EDIT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(30_000).optional()),        // 默认 EXEC_DEFAULTS.DEADLINE_EDIT=300_000
+  EXEC_DEADLINE_LIGHTING_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(120_000).optional()),   // 默认 EXEC_DEFAULTS.DEADLINE_LIGHTING=1_800_000
+  EXEC_SYNC_HARD_CAP: z.preprocess(blankToUnset, z.coerce.number().int().min(60_000).optional()),           // 默认 EXEC_DEFAULTS.SYNC_HARD_CAP=1_800_000
+
+  // Y0b-2 T1（Z80）：provider 密钥 env——seed.ts 灌值来源（运行时外呼读 AIModel.apiKey 列）
+  PROVIDER_MOONSHOT_API_KEY: z.string().optional().default(''),
+  PROVIDER_TENCENT_API_KEY: z.string().optional().default(''),   // 归并 HY_IMAGE_API_KEY
+  DASHSCOPE_API_KEY: z.string().optional().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

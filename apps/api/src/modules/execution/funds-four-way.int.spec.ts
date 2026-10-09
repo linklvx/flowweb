@@ -15,6 +15,7 @@ import { GenerationIntentService } from './generation-intent.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
+import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入
 const hasDb = !!process.env.DATABASE_URL;
@@ -73,12 +74,12 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
 
 (hasDb ? describe : describe.skip)('Y0b-1 G-1（拆两条断言）', () => {
   afterAll(async () => {
-    await prisma.teamCreditTransaction.deleteMany({ where: { teamId: { in: g1.teamIds } } }).catch(() => {});
-    await prisma.generationIntent.deleteMany({ where: { projectId: { in: g1.projectIds } } }).catch(() => {});
-    await prisma.canvasProject.deleteMany({ where: { id: { in: g1.projectIds } } }).catch(() => {});
-    await prisma.teamBalance.deleteMany({ where: { teamId: { in: g1.teamIds } } }).catch(() => {});
-    await prisma.team.deleteMany({ where: { id: { in: g1.teamIds } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { id: { in: g1.userIds } } }).catch(() => {});
+    // Y0b-2（触发器/Z116）：台账清理带证（ledgerWipe）+team 级联删带证——catch 掩码删（触发器报错被吞=假绿）
+    for (const tid of g1.teamIds) await ledgerWipe(ledger, { teamId: tid });
+    await prisma.generationIntent.deleteMany({ where: { projectId: { in: g1.projectIds } } });
+    await prisma.canvasProject.deleteMany({ where: { id: { in: g1.projectIds } } });
+    await deleteTeamsWithPass(prisma as unknown as PrismaService, g1.teamIds);
+    await prisma.user.deleteMany({ where: { id: { in: g1.userIds } } });
     await prisma.$disconnect();
   });
 
@@ -86,11 +87,12 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
     const resolver = new PricingResolverService(prisma as unknown as PrismaService);
     const svc = new ValidationService(prisma as unknown as PrismaService, resolver);
     // 按库内真实规则行反推节点参数（规则形状固定断言会随 seed 漂移——text=null∧null / image 带分辨率行 id）
+    // Y0b-2 裁定 5：三无外呼模型 active=false——规则查询限定 active 模型（resolver 门 model.active，规则行留档不可达）
     const textRule = await prisma.pricingRule.findFirst({
-      where: { active: true, nodeType: { key: 'text' }, modelId: { not: null }, creditCost: { gt: 0 } },
+      where: { active: true, nodeType: { key: 'text' }, modelId: { not: null }, creditCost: { gt: 0 }, model: { active: true } },
     });
     const imgRule = await prisma.pricingRule.findFirst({
-      where: { active: true, nodeType: { key: 'image' }, modelId: { not: null }, resolutionId: { not: null }, creditCost: { gt: 0 } },
+      where: { active: true, nodeType: { key: 'image' }, modelId: { not: null }, resolutionId: { not: null }, creditCost: { gt: 0 }, model: { active: true } },
     });
     if (!textRule) return; // 覆盖度门禁另测——本用例只守护 text 腿入账
     const nodes = [
@@ -109,9 +111,10 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
   it('G-1 收口：①定价同源+②扣费自洽（text+image 混合组，首跑限定——重放分支不计费 Z18）', async () => {
     const f = await scaffoldG1Funds();
     // 夹具=客户端真实载荷形态（seed 固定 id+image 分辨率行 id）；聚合腿与 validation 同键（resolvePricingKey 单源）
+    // Y0b-2 裁定 5：gpt4/sdxl 已随迁移钉 active=false（无外呼实现=不可售）——夹具切 kimi/hy-image（active 模型）
     const nodes = [
-      { id: 'g1-text', type: 'textInput', data: { model: 'seed-model-gpt4' } },
-      { id: 'g1-img', type: 'imageGen', data: { model: 'seed-model-sdxl', resolution: 'seed-res-sdxl-1024' } },
+      { id: 'g1-text', type: 'textInput', data: { model: 'seed-model-kimi' } },
+      { id: 'g1-img', type: 'imageGen', data: { model: 'seed-model-hy-image', resolution: 'seed-res-hy-1024' } },
     ];
     const apiCaller = new ApiCallerService();
     vi.spyOn(apiCaller, 'callTextGen').mockResolvedValue({ content: 'r' } as any);

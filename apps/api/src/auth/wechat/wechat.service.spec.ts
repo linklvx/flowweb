@@ -39,7 +39,7 @@ describe('WechatService', () => {
     };
     // Y0b-1 Z23：注册 bootstrap 钱包建行+register_grant 经 CreditLedgerService
     mockLedger = {
-      tx: (raw: any) => raw,
+      ledgerTx: async (raw: any) => raw,   // Y0b-2 Z89：tx() 已删——mock 同步换 ledgerTx（通行证装饰 mock 为直通）
       ensureBalance: vi.fn().mockResolvedValue(undefined),
       lockBalance: vi.fn().mockResolvedValue(undefined),
       mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 100 }),

@@ -41,8 +41,8 @@ export class AdminSubscriptionService {
     if (TERMINAL.has(sub.status)) throw new BusinessException('STATE_MACHINE_TERMINAL', '终态订阅不可作废');
     if (sub.status !== 'active') throw new BusinessException('SUBSCRIPTION_STATUS_INVALID');
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`; // Z13：台账锁等待以 55P03 可重试暴露（T4 质量审 I-1）
+    await this.prisma.$transaction(async (raw) => {
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await tx.userSubscription.update({
         where: { id },
         data: { status: 'expired' },
@@ -68,8 +68,7 @@ export class AdminSubscriptionService {
     // Y0b-1（撕裂根修）：唯一无事务点补单事务——ensureBalance（upsert 自愈收口）+lockBalance+mutate。
     // admin_* 不进 money_in 幂等键（合法重复操作面）；referenceId=userId（操作对象锚）。
     await this.prisma.$transaction(async (raw) => {
-      const tx = this.ledger.tx(raw);
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await this.ledger.ensureBalance(tx, team.id);
       await this.ledger.lockBalance(tx, team.id);
       await this.ledger.mutate(tx, {

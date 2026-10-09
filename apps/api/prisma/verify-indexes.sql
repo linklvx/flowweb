@@ -85,3 +85,56 @@ SELECT conname FROM pg_constraint WHERE conname='ledger_amount_derived';
 SELECT indexdef FROM pg_indexes WHERE indexname='ledger_reserve_open_partial' AND indexdef LIKE '%WHERE%';
 
 SELECT COUNT(*) AS n FROM "PricingRule" WHERE "modelId" IS NULL AND active HAVING COUNT(*) >= 4;
+
+-- ============ Y0b-2 T1（squash 终态）：触发器/新索引/新列/退役对象断言 ============
+-- 台账唯一写入口触发器（Z51/Z89：函数+两表行级触发器）
+SELECT proname FROM pg_proc WHERE proname='ledger_guard';
+
+SELECT tgname FROM pg_trigger WHERE tgname='team_credit_transaction_guard';
+
+SELECT tgname FROM pg_trigger WHERE tgname='team_balance_guard';
+
+-- 进 datamodel 的三件（Z107：普通唯一/复合——Prisma 可表达）
+SELECT indexdef FROM pg_indexes WHERE indexname='GenerationIntent_idemKey_key' AND indexdef LIKE '%UNIQUE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='TeamCreditTransaction_idempotencyKey_key' AND indexdef LIKE '%UNIQUE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='GenerationIntent_projectId_nodeId_status_createdAt_idx';
+
+-- 保持 partial 的四件（migration-SQL-only——谓词与 WHERE 严格匹配防计划器弃用）
+SELECT indexdef FROM pg_indexes WHERE indexname='GenerationIntent_running_deadline_idx' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='GenerationIntent_running_heartbeat_idx' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='GenerationIntent_frozen_user_idx' AND indexdef LIKE '%WHERE%';
+
+SELECT indexdef FROM pg_indexes WHERE indexname='TeamCreditTransaction_settle_user_month_idx' AND indexdef LIKE '%WHERE%';
+
+-- GenerationIntent 新列形态（heartbeatAt/deadlineAt/idemKey NOT NULL；startedAt/gestureKey/providerTaskId 可空）
+SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_name='GenerationIntent' AND column_name IN ('heartbeatAt','deadlineAt','idemKey') AND is_nullable='NO' HAVING COUNT(*)=3;
+
+SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_name='GenerationIntent' AND column_name IN ('startedAt','gestureKey','providerTaskId') AND is_nullable='YES' HAVING COUNT(*)=3;
+
+-- TeamCreditTransaction.idempotencyKey 可空（Z100：NULL 不冲突=去 partial 语义等价）
+SELECT column_name FROM information_schema.columns WHERE table_name='TeamCreditTransaction' AND column_name='idempotencyKey' AND is_nullable='YES';
+
+-- 退役对象否定断言（squash "从未存在"形态）：TeamMember 月列/月 CHECK/status_updatedAt 索引
+SELECT 'monthly-cols-gone' AS assert WHERE NOT EXISTS (
+  SELECT 1 FROM information_schema.columns WHERE table_name='TeamMember' AND column_name IN ('monthlyUsed','monthlyPeriod')
+);
+
+SELECT 'monthly-check-gone' AS assert WHERE NOT EXISTS (
+  SELECT 1 FROM pg_constraint WHERE conname='member_monthly_non_negative'
+);
+
+SELECT 'status-updatedat-idx-gone' AS assert WHERE NOT EXISTS (
+  SELECT 1 FROM pg_indexes WHERE indexname='GenerationIntent_status_updatedAt_idx'
+);
+
+-- AIModel 终态（裁定 5）：provider slug 域+三无外呼模型双钉 inactive
+SELECT COUNT(*) AS n FROM "AIModel" WHERE provider NOT IN ('moonshot','tencent','stability','openai') HAVING COUNT(*)=0;
+
+SELECT COUNT(*) AS n FROM "AIModel" WHERE id IN ('seed-model-sdxl','seed-model-dalle','seed-model-gpt4') AND NOT active AND NOT recommended HAVING COUNT(*)=3;
+
+SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_name='AIModel' AND column_name IN ('apiModelName','providerLabel') AND is_nullable='YES' HAVING COUNT(*)=2;
+

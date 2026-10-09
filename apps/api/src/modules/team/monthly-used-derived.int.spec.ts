@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
 import { TeamCreditService, currentPeriodBounds } from './team-credit.service';
 import { TeamService } from './team.service';
+import { createIntentFixture, ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入
 const hasDb = !!process.env.DATABASE_URL;
@@ -53,14 +54,12 @@ async function scaffold(): Promise<{ userId: string; teamId: string; projectId: 
   return { userId, teamId, projectId };
 }
 
-/** settle 一腿（通行证）：建意图行（现有 schema 必填字段）+reserve+settle 两行台账——返回 settle 行锚 */
+/** settle 一腿（通行证）：建意图行（createIntentFixture——T1 起三 NOT NULL 新列统一铸造）+reserve+settle 两行台账——返回 settle 行锚 */
 async function settleTx(teamId: string, userId: string, amount: number, projectId: string): Promise<{ rowId: string; referenceId: string }> {
-  const intent = await prisma.generationIntent.create({
-    data: {
-      projectId, teamId, nodeId: `n-${uniq}-${reg.projectIds.length}`, userId,
-      intentId: `it-mu-i-${uniq}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: amount, creditsConsumed: amount,
-    },
+  const intent = await createIntentFixture(prisma as unknown as PrismaService, {
+    projectId, teamId, nodeId: `n-${uniq}-${reg.projectIds.length}`, userId,
+    intentId: `it-mu-i-${uniq}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: amount, creditsConsumed: amount,
   });
   const referenceId = `intent:${intent.id}`;
   const res = await ledger.runInTx((tx) => ledger.mutate(tx, {
@@ -89,13 +88,13 @@ async function viewUsed(teamId: string, userId: string, bounds?: [Date, Date]): 
 
 (hasDb ? describe : describe.skip)('Y0b-2 T0：monthlyUsed 派生化', () => {
   afterAll(async () => {
-    await prisma.teamCreditTransaction.deleteMany({ where: { teamId: { in: reg.teamIds } } }).catch(() => {});
-    await prisma.generationIntent.deleteMany({ where: { teamId: { in: reg.teamIds } } }).catch(() => {});
-    await prisma.canvasProject.deleteMany({ where: { id: { in: reg.projectIds } } }).catch(() => {});
-    await prisma.teamMember.deleteMany({ where: { teamId: { in: reg.teamIds } } }).catch(() => {});
-    await prisma.teamBalance.deleteMany({ where: { teamId: { in: reg.teamIds } } }).catch(() => {});
-    await prisma.team.deleteMany({ where: { id: { in: reg.teamIds } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { id: { in: reg.userIds } } }).catch(() => {});
+    // Y0b-2（触发器/Z116）：台账清理带证+team 级联删带证——catch 掩码删（触发器报错被吞=假绿）
+    for (const tid of reg.teamIds) await ledgerWipe(ledger, { teamId: tid });
+    await prisma.generationIntent.deleteMany({ where: { teamId: { in: reg.teamIds } } });
+    await prisma.canvasProject.deleteMany({ where: { id: { in: reg.projectIds } } });
+    await prisma.teamMember.deleteMany({ where: { teamId: { in: reg.teamIds } } });
+    await deleteTeamsWithPass(prisma as unknown as PrismaService, reg.teamIds);
+    await prisma.user.deleteMany({ where: { id: { in: reg.userIds } } });
     await prisma.$disconnect();
   }, 30000);
 
@@ -125,11 +124,9 @@ async function viewUsed(teamId: string, userId: string, bounds?: [Date, Date]): 
 
   it('③活跃冻结计入（谓词=reservedCredits>0 非 status——complete→settle 窗口 status 已 SUCCEEDED 而钱仍冻结，按状态门控会让 used 瞬间回落）+complete 后 settle 前 used 不减+月界北京时区单源', async () => {
     const f = await scaffold();
-    const intent = await prisma.generationIntent.create({
-      data: {
-        projectId: f.projectId, teamId: f.teamId, nodeId: 'n-frozen', userId: f.userId,
-        intentId: `it-mu-f-${uniq}`, kind: 'text', paramsHash: 'h', creditCost: 4,
-      },
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, {
+      projectId: f.projectId, teamId: f.teamId, nodeId: 'n-frozen', userId: f.userId,
+      intentId: `it-mu-f-${uniq}`, kind: 'text', paramsHash: 'h', creditCost: 4,
     });
     const r = await teamCredit.reserve(f.userId, { intentRowId: intent.id });
     expect(r.success).toBe(true);
@@ -169,11 +166,9 @@ async function viewUsed(teamId: string, userId: string, bounds?: [Date, Date]): 
     const f = await scaffold();
     const st = await settleTx(f.teamId, f.userId, 10, f.projectId);
     await refundTx(f.teamId, f.userId, st.rowId, st.referenceId, 10);
-    const intent = await prisma.generationIntent.create({
-      data: {
-        projectId: f.projectId, teamId: f.teamId, nodeId: 'n-anchor', userId: f.userId,
-        intentId: `it-mu-a-${uniq}`, kind: 'text', paramsHash: 'h', creditCost: 6, reservedCredits: 6,
-      },
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, {
+      projectId: f.projectId, teamId: f.teamId, nodeId: 'n-anchor', userId: f.userId,
+      intentId: `it-mu-a-${uniq}`, kind: 'text', paramsHash: 'h', creditCost: 6, reservedCredits: 6,
     });
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, {
       teamId: f.teamId, operatorUserId: f.userId, type: 'reserve', creditType: 'regular',

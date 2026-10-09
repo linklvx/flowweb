@@ -4,7 +4,7 @@ import { SESSION_COOKIE_OPTIONS } from './auth';
 
 // Y0b-1 Z23：getMe 补偿 bootstrap 的钱包建行+register_grant 经 CreditLedgerService
 const mockLedger = {
-  tx: (raw: any) => raw,
+  ledgerTx: async (raw: any) => raw,   // Y0b-2 Z89：tx() 已删——mock 同步换 ledgerTx（通行证装饰 mock 为直通）
   ensureBalance: vi.fn().mockResolvedValue(undefined),
   lockBalance: vi.fn().mockResolvedValue(undefined),
   mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 100 }),

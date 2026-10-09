@@ -1,15 +1,31 @@
 // apps/api/src/modules/team/credit-ledger.int.spec.ts —— Y0b-1 资金门载体（spec §6.2 点名）
 // 并发纪律=FOR UPDATE 单式；两列真值表；reversal 三配对（Z6）；台账锚 intentRowId（F1）；锁序全序（Z13）。
+// Y0b-2 T1（Z116/触发器）：夹具全通行证化——mkTeam 经 ensureBalance+mutate、清理经 ledgerWipe/deleteTeamsWithPass、
+// 意图行经 createIntentFixture；catch 掩码删（触发器报错被吞=假绿）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { CreditLedgerService } from './credit-ledger.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { createIntentFixture, ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as any);
 
+/** 钱包初值 100 经台账（register_grant 通行证——Z116：裸 create 被触发器拦+破坏不变量①零基线） */
 function mkTeam(tag: string) {
   return prisma.team.create({ data: { id: `it-led-${tag}-${Date.now()}`, name: `it-${tag}`, ownerId: 'it-led-owner' } })
-    .then((t) => prisma.teamBalance.create({ data: { teamId: t.id, credits: 100 } }).then(() => t));
+    .then(async (t) => {
+      await ledger.runInTx(async (tx) => {
+        await ledger.ensureBalance(tx, t.id);
+        await ledger.lockBalance(tx, t.id);
+        await ledger.mutate(tx, {
+          teamId: t.id, operatorUserId: 'it-led-owner', type: 'register_grant', creditType: 'regular',
+          balanceDelta: 100, frozenDelta: 0, referenceId: `it-fix-${randomUUID().slice(0, 8)}`,
+        });
+      });
+      return t;
+    });
 }
 
 describe('Y0b-1 CreditLedgerService（真库）', () => {
@@ -18,17 +34,17 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
     await prisma.user.create({ data: { id: 'it-led-owner', name: 'it', email: `it-led-${Date.now()}@x.invalid`, emailVerified: false } }).catch(() => {});
   }, 20000);
   afterAll(async () => {
-    await prisma.teamCreditTransaction.deleteMany({ where: { teamId: { startsWith: 'it-led-' } } }).catch(() => {});
-    for (const t of [...teams].reverse()) await prisma.team.delete({ where: { id: t } }).catch(() => {});
-    await prisma.generationIntent.deleteMany({ where: { intentId: { startsWith: 'led-' } } }).catch(() => {});
+    for (const t of teams) await ledgerWipe(ledger, { teamId: t });
+    await deleteTeamsWithPass(prisma as unknown as PrismaService, teams);
+    await prisma.generationIntent.deleteMany({ where: { intentId: { startsWith: 'led-' } } });
     await prisma.user.deleteMany({ where: { id: 'it-led-owner' } });
     await prisma.$disconnect();
   }, 20000);
 
   it('F1 跨团队同 intentId 隔离：referenceId=intentRowId+teamId 过滤——一侧 settle 另一侧零变化', async () => {
     const a = await mkTeam('xa'); const b = await mkTeam('xb'); teams.push(a.id, b.id);
-    const ia = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: a.id, nodeId: 'n', userId: 'it-led-owner', intentId: 'led-shared', kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10 } as any });
-    const ib = await prisma.generationIntent.create({ data: { projectId: 'it-p2', teamId: b.id, nodeId: 'n', userId: 'it-led-owner', intentId: 'led-shared', kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10, reservedCredits: 10 } as any });
+    const ia = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: a.id, nodeId: 'n', userId: 'it-led-owner', intentId: 'led-shared', kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10 });
+    const ib = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p2', teamId: b.id, nodeId: 'n', userId: 'it-led-owner', intentId: 'led-shared', kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10, reservedCredits: 10 });
     await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: a.id, type: 'reserve', creditType: 'regular', balanceDelta: -10, frozenDelta: 10, referenceId: `intent:${ia.id}` }));
     await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: b.id, type: 'reserve', creditType: 'regular', balanceDelta: -10, frozenDelta: 10, referenceId: `intent:${ib.id}` }));
     // settle A（anti-join 形态——Z6：未被 settle/release 冲销的 reserve 行）
@@ -50,7 +66,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
 
   it('两列真值表锚：settle 行 balanceDelta=0 ∧ frozenDelta=−X ∧ reversesId→reserve 行', async () => {
     const t = await mkTeam('tt'); teams.push(t.id);
-    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-tt-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 5, reservedCredits: 0, creditsConsumed: 5 } as any });
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-tt-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 5, reservedCredits: 0, creditsConsumed: 5 });
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -5, frozenDelta: 5, referenceId: `intent:${intent.id}` }));
     await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'settle', creditType: 'regular', balanceDelta: 0, frozenDelta: -5, referenceId: `intent:${intent.id}`, reversesId: res.rowId }));
     const settle = await prisma.teamCreditTransaction.findFirstOrThrow({ where: { teamId: t.id, type: 'settle' } });
@@ -64,7 +80,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
 
   it('F2 混合符号二次退款：anti-join 谓词——已 release 的 reserve 行不再进 chargeRows', async () => {
     const t = await mkTeam('mx'); teams.push(t.id);
-    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-mx-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10 } as any });
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-mx-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10 });
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -10, frozenDelta: 10, referenceId: `intent:${intent.id}` }));
     await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'release', creditType: 'regular', balanceDelta: 10, frozenDelta: -10, referenceId: `intent:${intent.id}`, reversesId: res.rowId }));
     const rows = await prisma.$queryRaw<any[]>`
@@ -101,7 +117,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
 
   it('Z23 ensureBalance：钱包缺失团队经 ensureBalance 后可 mutate（lockBalance 单独用则必炸）', async () => {
     const t = await mkTeam('nb'); teams.push(t.id);
-    await prisma.teamBalance.delete({ where: { teamId: t.id } }).catch(() => {});
+    await ledgerWipe(ledger, { teamId: t.id });   // Y0b-2（触发器）：直删 TeamBalance 须带通行证（经 ledgerWipe）
     await expect(ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'admin_grant', creditType: 'regular', balanceDelta: 5, frozenDelta: 0, referenceId: 'led-nb' }))).rejects.toMatchObject({ errorCode: 'TEAM_BALANCE_MISSING' });
     await ledger.runInTx(async (tx) => {
       await ledger.ensureBalance(tx, t.id);
@@ -125,7 +141,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
     const t = await mkTeam('lk'); teams.push(t.id);
     const intents: { id: string }[] = []; // 仅 .id 被消费（T7：scripts-tsc strict 首次抵达——隐式 any[] 显式化）
     for (let i = 0; i < 5; i++) {
-      intents.push(await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: t.id, nodeId: `n${i}`, userId: 'it-led-owner', intentId: `led-lk-${Date.now()}-${i}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 5 } as any }));
+      intents.push(await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: t.id, nodeId: `n${i}`, userId: 'it-led-owner', intentId: `led-lk-${Date.now()}-${i}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 5 }));
       await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -5, frozenDelta: 5, referenceId: `intent:${intents[i].id}` }));
     }
     const results = await Promise.allSettled(
@@ -141,7 +157,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
 
   it('rearm 二次退款（F2 姊妹）：release 后 rearm 新 reserve 行——新 settle 配新 reversesId 无冲突（Z6）', async () => {
     const t = await mkTeam('rm'); teams.push(t.id);
-    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-rm-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10 } as any });
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-rm-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 10 });
     const res1 = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -10, frozenDelta: 10, referenceId: `intent:${intent.id}` }));
     await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'release', creditType: 'regular', balanceDelta: 10, frozenDelta: -10, referenceId: `intent:${intent.id}`, reversesId: res1.rowId }));
     const res2 = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -10, frozenDelta: 10, referenceId: `intent:${intent.id}` }));
@@ -151,7 +167,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
 
   it('悬空 reversesId 服务层拒绝（T1b 质量审登记）：reversesId 指向不存在行 ⇒ REVERSAL_TARGET', async () => {
     const t = await mkTeam('dg'); teams.push(t.id);
-    const intent = await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-dg-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 3, reservedCredits: 3 } as any });
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: t.id, nodeId: 'n', userId: 'it-led-owner', intentId: `led-dg-${Date.now()}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 3, reservedCredits: 3 });
     await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -3, frozenDelta: 3, referenceId: `intent:${intent.id}` }));
     await expect(ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'settle', creditType: 'regular', balanceDelta: 0, frozenDelta: -3, referenceId: `intent:${intent.id}`, reversesId: 'no-such-row' }))).rejects.toThrow(/REVERSAL_TARGET/);
     await prisma.generationIntent.deleteMany({ where: { id: intent.id } });

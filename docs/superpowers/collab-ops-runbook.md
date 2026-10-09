@@ -87,11 +87,13 @@ spool 账本目录在**部署树外** `/home/ubuntu/flowweb-data/collab-spool`�
 
 ### 3.3 迁移 additive 纪律与 preflight 收据
 
-- **additive 双检**：本地（preflight 内）+ 服务器（cutover ③）各跑一次 `check-migration-additive.mjs`；BASELINE='20261007170319' 之后的迁移必须 additive（expand/contract）；收缩步骤（DROP 等）的豁免 = 同 commit 内抬高 BASELINE 常量并留注释。
+- **additive 双检**：本地（preflight 内）+ 服务器（cutover ③）各跑一次 `check-migration-additive.mjs`；BASELINE='20261009140100_y0b2_init'（Y0b-2 T1 squash，2026-10-10 第三次重置）之后的迁移必须 additive（expand/contract）；收缩步骤（DROP 等）的豁免 = 同 commit 内抬高 BASELINE 常量并留注释。
+- **migrate diff 棘轮（Y0b-2 T1）**：verify 链含 `check-migrate-diff.mjs`——prisma migrate diff（from-migrations vs schema datamodel）漂移行只许收窄禁新增，金标=`apps/api/prisma/migrate-diff-allowlist.txt`（逐字归一化行；唯一永久豁免=pricing_rule_natural_key——NULLS NOT DISTINCT 语义 Prisma 不可表达）。
+- **服务器 rebuild（Y0b-2 squash）**：deploy.sh api --rebuild-db + 人工 tsx prisma/seed.ts + gate-seed + MinIO 孤儿清理 scripts/cleanup-orphaned-media.ts；数据=确认丢弃；服务器 .env 需人工补三枚 PROVIDER_MOONSHOT_API_KEY/PROVIDER_TENCENT_API_KEY/DASHSCOPE_API_KEY 密钥（deploy.sh 不传 .env——缺失=启动断言拒启）。
 - **preflight 收据**：`.preflight-<SHA>.ok` 同 SHA 幂等复用（verify/int/migrate/additive 不重跑）；**gate-collab 不进收据**（有状态，每次部署都跑）。**收据的 CI 等价证据形态**（Y0a-4 run#1 实测登记）：本地全量 preflight 对偶 flaky（同 SHA 三轮各挂不同测试——persist-status/managed-redis/auth-reason，单跑全绿+CI 同 SHA 绿）时，收据可以"**CI 同 SHA 全绿**"为等价证据落（本例 CI run #25）——诚实登记，不复跑凑绿。
 - **pm2 溯源口径（Y0a-4 T12 实测）**：pm2 8.0.0 剔除 GIT_* 前缀 shell env——显式 export+startOrReload --update-env 后 pm2_env 与 /proc environ 均无 GIT_COMMIT_HASH，P34 的 pm2_env 口径不成立；溯源以**产物口径**满足（dist/build-info.json≡本地 HEAD+cutover ④ sha256 锚绑定）；main.ts:68 Sentry release 保持 unknown（Sentry 未激活零实害；Y0.5 改名注入 FLOWWEB_GIT_SHA 或 ecosystem 承载）。
 - **git 断言**：工作树不干净拒部署；HEAD 不在 origin/master 上（未经 CI）拒部署。
-- **migrations 目录上传缺陷（Y0.5 登记）**：deploy_api tar 解包对远端 prisma/migrations **只覆盖不清理**——Y0a-4 T12 实测服务器残留 44 个目录含 20 个已删老迁移（已手工清理+全量重传镜像）。修复去向=Y0.5（deploy_api 上传 prisma 前清远端 migrations 目录）。
+- **migrations 目录上传缺陷（Y0.5 登记）**：deploy_api tar 解包对远端 prisma/migrations **只覆盖不清理**——Y0a-4 T12 实测服务器残留 44 个目录含 20 个已删老迁移（已手工清理+全量重传镜像）。修复去向=Y0.5（deploy_api 上传 prisma 前清远端 migrations 目录）。**Y0b-2 squash 后首次部署必中此坑**（远端仍有 20261009031416_init/20261009040355_y0b1_funds_columns 两旧目录+_prisma_migrations 两行——migrate deploy 会判新 init 未应用而重放炸"类型已存在"）；rebuild-db 形态删库重建不受影响，普通部署前须先手工清远端旧目录。
 
 ### 3.4 失败复原（trap 三阶段）
 

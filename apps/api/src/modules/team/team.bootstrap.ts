@@ -26,7 +26,7 @@ export async function bootstrapPersonalTeam(db: Db, ledger: CreditLedgerService,
         data: { name: `${name}的团队`, ownerId: userId, status: 'ACTIVE', isDefault: true },
       });
       await tx.teamMember.create({ data: { teamId: team.id, userId, role: 'OWNER' } });
-      const ltx = ledger.tx(tx);
+      const ltx = await ledger.ledgerTx(tx);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await ledger.ensureBalance(ltx, team.id);
       await ledger.lockBalance(ltx, team.id);
       await ledger.mutate(ltx, {

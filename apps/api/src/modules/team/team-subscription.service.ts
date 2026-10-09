@@ -69,8 +69,7 @@ export class TeamSubscriptionService {
     const payerName = (await this.prisma.user.findUnique({ where: { id: order.payerUserId }, select: { name: true } }))?.name ?? '未知';
     try {
       await this.prisma.$transaction(async (raw) => {
-        const tx = this.ledger.tx(raw);
-        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+        const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
         // Y0b-1（Z13/Z12）：FOR UPDATE 删——lockBalance 取代（锁序全序）；入账全经 mutate。
         await this.ledger.lockBalance(tx, teamId);
 
@@ -135,8 +134,7 @@ export class TeamSubscriptionService {
     for (const sub of due) {
       if (!sub.teamId) continue;
       await this.prisma.$transaction(async (raw) => {
-        const tx = this.ledger.tx(raw);
-        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+        const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
         await this.ledger.lockBalance(tx, sub.teamId!);
         const cas = await tx.teamSubscription.updateMany({
           where: { id: sub.id, status: 'active' },

@@ -48,22 +48,25 @@ async function main() {
   });
 
   // Create image models
+  // Y0b-2（裁定 5/Z80）：provider 改 slug+apiModelName/providerLabel 三列；三无外呼实现模型
+  // （sdxl/dalle/gpt4）钉 active:false+recommended:false（防御性——承重钉=新 init INSERT 值）；
+  // apiKey 改 PROVIDER_* env 源（HY_IMAGE_API_KEY 归并 PROVIDER_TENCENT_API_KEY）。
   const sdXL = await prisma.aIModel.upsert({
     where: { id: 'seed-model-sdxl' },
     update: {},
-    create: { id: 'seed-model-sdxl', nodeTypeId: imageNode.id, name: 'Stable Diffusion XL', provider: 'Stability AI', apiUrl: 'https://api.stability.ai/v1/generation', sortOrder: 1, recommended: true },
+    create: { id: 'seed-model-sdxl', nodeTypeId: imageNode.id, name: 'Stable Diffusion XL', provider: 'stability', providerLabel: 'Stability AI', apiUrl: 'https://api.stability.ai/v1/generation', sortOrder: 1, recommended: false, active: false },
   });
 
   const dalle = await prisma.aIModel.upsert({
     where: { id: 'seed-model-dalle' },
     update: {},
-    create: { id: 'seed-model-dalle', nodeTypeId: imageNode.id, name: 'DALL-E 3', provider: 'OpenAI', apiUrl: 'https://api.openai.com/v1/images/generations', sortOrder: 2 },
+    create: { id: 'seed-model-dalle', nodeTypeId: imageNode.id, name: 'DALL-E 3', provider: 'openai', providerLabel: 'OpenAI', apiUrl: 'https://api.openai.com/v1/images/generations', sortOrder: 2, recommended: false, active: false },
   });
 
   const hyImage = await prisma.aIModel.upsert({
     where: { id: 'seed-model-hy-image' },
-    update: { apiKey: process.env.HY_IMAGE_API_KEY }, // Y0b-1：迁移先建行（apiKey NULL），seed 补写 env 密钥——否则 upsert 空更新致 apiKey 永缺失
-    create: { id: 'seed-model-hy-image', nodeTypeId: imageNode.id, name: 'HY-Image-V3.0', provider: '腾讯混元', apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/image', apiKey: process.env.HY_IMAGE_API_KEY, sortOrder: 0, recommended: true },
+    update: { apiKey: process.env.PROVIDER_TENCENT_API_KEY }, // Y0b-1：迁移先建行（apiKey NULL），seed 补写 env 密钥——否则 upsert 空更新致 apiKey 永缺失
+    create: { id: 'seed-model-hy-image', nodeTypeId: imageNode.id, name: 'HY-Image-V3.0', provider: 'tencent', providerLabel: '腾讯混元', apiModelName: 'hy-image-v3.0', apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/image', apiKey: process.env.PROVIDER_TENCENT_API_KEY, sortOrder: 0, recommended: true },
   });
 
   // Image resolutions
@@ -75,71 +78,59 @@ async function main() {
   // HY-Image resolutions
   const hyRes1024 = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-1024' }, update: {}, create: { id: 'seed-res-hy-1024', modelId: hyImage.id, label: '1024×1024', width: 1024, height: 1024 } });
   const hyRes2048 = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-2048' }, update: {}, create: { id: 'seed-res-hy-2048', modelId: hyImage.id, label: '2048×2048', width: 2048, height: 2048 } });
-  const hyRes512  = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-512'  }, update: {}, create: { id: 'seed-res-hy-512',  modelId: hyImage.id, label: '512×512',   width: 512,  height: 512 } });
+  const hyRes512  = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-512'  }, update: {}, create: { id: 'seed-res-hy-512',  modelId: hyImage.id, label: '512×512',   width: 512,   height: 512 } });
 
-  // ===== 定价真源=迁移（20261009040355_y0b1_funds_columns）——以下 image/text/video 定价段幂等共存：
-  // 迁移以固定 id+自然键先行建行，本段 findFirst(自然键)→update 同值命中迁移行，不产生双行。 =====
+  // ===== 定价真源=迁移（Y0b-2 squash 后=20261009140100_y0b2_init）——以下定价段与 init INSERT 逐字一致
+  // （固定 id upsert 幂等：迁移已建行则空更新，空库直跑 seed 也不产双行/漂移值）。 =====
   // Image pricing rules
   const imageRules = [
-    { nodeTypeId: imageNode.id, modelId: sdXL.id, resolutionId: res1024.id, creditCost: 3 },
-    { nodeTypeId: imageNode.id, modelId: sdXL.id, resolutionId: res2048.id, creditCost: 6 },
-    { nodeTypeId: imageNode.id, modelId: dalle.id, resolutionId: 'seed-res-dalle-1024', creditCost: 5 },
-    { nodeTypeId: imageNode.id, modelId: dalle.id, resolutionId: 'seed-res-dalle-512', creditCost: 2 },
-    { nodeTypeId: imageNode.id, modelId: hyImage.id, resolutionId: hyRes512.id,  creditCost: 3 },
-    { nodeTypeId: imageNode.id, modelId: hyImage.id, resolutionId: hyRes1024.id, creditCost: 5 },
-    { nodeTypeId: imageNode.id, modelId: hyImage.id, resolutionId: hyRes2048.id, creditCost: 10 },
+    { id: 'seed-pricing-sdxl-1024', nodeTypeId: imageNode.id, modelId: sdXL.id, resolutionId: res1024.id, creditCost: 3 },
+    { id: 'seed-pricing-sdxl-2048', nodeTypeId: imageNode.id, modelId: sdXL.id, resolutionId: res2048.id, creditCost: 6 },
+    { id: 'seed-pricing-dalle-1024', nodeTypeId: imageNode.id, modelId: dalle.id, resolutionId: 'seed-res-dalle-1024', creditCost: 5 },
+    { id: 'seed-pricing-dalle-512', nodeTypeId: imageNode.id, modelId: dalle.id, resolutionId: 'seed-res-dalle-512', creditCost: 2 },
+    { id: 'seed-pricing-hy-img-512', nodeTypeId: imageNode.id, modelId: hyImage.id, resolutionId: hyRes512.id, creditCost: 3 },
+    { id: 'seed-pricing-hy-img-1024', nodeTypeId: imageNode.id, modelId: hyImage.id, resolutionId: hyRes1024.id, creditCost: 5 },
+    { id: 'seed-pricing-hy-img-2048', nodeTypeId: imageNode.id, modelId: hyImage.id, resolutionId: hyRes2048.id, creditCost: 10 },
   ];
 
   for (const rule of imageRules) {
-    const existing = await prisma.pricingRule.findFirst({
-      where: { nodeTypeId: rule.nodeTypeId, modelId: rule.modelId, resolutionId: rule.resolutionId, durationId: null },
+    await prisma.pricingRule.upsert({
+      where: { id: rule.id },
+      update: {},
+      create: { id: rule.id, nodeTypeId: rule.nodeTypeId, modelId: rule.modelId, resolutionId: rule.resolutionId, creditCost: rule.creditCost },
     });
-    if (existing) {
-      await prisma.pricingRule.update({ where: { id: existing.id }, data: { creditCost: rule.creditCost } });
-    } else {
-      await prisma.pricingRule.create({ data: rule as any });
-    }
   }
 
   // Text models
   const gpt4 = await prisma.aIModel.upsert({
     where: { id: 'seed-model-gpt4' },
     update: {},
-    create: { id: 'seed-model-gpt4', nodeTypeId: textNode.id, name: 'GPT-4o', provider: 'OpenAI', apiUrl: 'https://api.openai.com/v1/chat/completions', sortOrder: 1, recommended: true },
+    create: { id: 'seed-model-gpt4', nodeTypeId: textNode.id, name: 'GPT-4o', provider: 'openai', providerLabel: 'OpenAI', apiUrl: 'https://api.openai.com/v1/chat/completions', sortOrder: 1, recommended: false, active: false },
   });
 
   const kimi = await prisma.aIModel.upsert({
     where: { id: 'seed-model-kimi' },
-    update: {},
-    create: { id: 'seed-model-kimi', nodeTypeId: textNode.id, name: 'Kimi K2.6', provider: 'Moonshot AI', apiUrl: 'https://api.moonshot.cn/v1', sortOrder: 2, recommended: true },
+    update: { apiKey: process.env.PROVIDER_MOONSHOT_API_KEY },   // Y0b-2（Z80）：同族补写——迁移建行 apiKey NULL，seed 灌 env
+    create: { id: 'seed-model-kimi', nodeTypeId: textNode.id, name: 'Kimi K2.6', provider: 'moonshot', providerLabel: 'Moonshot AI', apiModelName: 'kimi-k2.6', apiUrl: 'https://api.moonshot.cn/v1', apiKey: process.env.PROVIDER_MOONSHOT_API_KEY, sortOrder: 2, recommended: true },
   });
 
-  const textExisting = await prisma.pricingRule.findFirst({
-    where: { nodeTypeId: textNode.id, modelId: gpt4.id, resolutionId: null, durationId: null },
-  });
-  if (textExisting) {
-    await prisma.pricingRule.update({ where: { id: textExisting.id }, data: { creditCost: 2 } });
-  } else {
-    await prisma.pricingRule.create({ data: { nodeTypeId: textNode.id, modelId: gpt4.id, creditCost: 2 } as any });
-  }
-
-  const kimiExisting = await prisma.pricingRule.findFirst({
-    where: { nodeTypeId: textNode.id, modelId: kimi.id, resolutionId: null, durationId: null },
-  });
-  if (kimiExisting) {
-    await prisma.pricingRule.update({ where: { id: kimiExisting.id }, data: { creditCost: 2 } });
-  } else {
-    await prisma.pricingRule.create({ data: { nodeTypeId: textNode.id, modelId: kimi.id, creditCost: 2 } as any });
+  for (const [id, modelId] of [['seed-pricing-gpt4', gpt4.id], ['seed-pricing-kimi', kimi.id]] as const) {
+    await prisma.pricingRule.upsert({
+      where: { id },
+      update: {},
+      create: { id, nodeTypeId: textNode.id, modelId, creditCost: 2 },
+    });
   }
 
   // HY-Video model
   const hyVideo = await prisma.aIModel.upsert({
     where: { id: 'seed-model-hy-video' },
-    update: {},
+    update: { apiKey: process.env.PROVIDER_TENCENT_API_KEY },   // Y0b-2（Z80）：同族补写
     create: {
       id: 'seed-model-hy-video', nodeTypeId: videoNode.id,
-      name: 'HY-Video 1.5', provider: 'Tencent Maas',
+      name: 'HY-Video 1.5', provider: 'tencent', providerLabel: 'Tencent Maas', apiModelName: 'hy-video-1.5',
       apiUrl: 'https://tokenhub.tencentmaas.com/v1/api/video',
+      apiKey: process.env.PROVIDER_TENCENT_API_KEY,
       sortOrder: 1, recommended: true,
     },
   });
@@ -161,20 +152,17 @@ async function main() {
   });
 
   const videoPricingRules = [
-    { nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur5.id, creditCost: 10 },
-    { nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur10.id, creditCost: 18 },
-    { nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur15.id, creditCost: 25 },
+    { id: 'seed-pricing-hy-video-5', nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur5.id, creditCost: 10 },
+    { id: 'seed-pricing-hy-video-10', nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur10.id, creditCost: 18 },
+    { id: 'seed-pricing-hy-video-15', nodeTypeId: videoNode.id, modelId: hyVideo.id, durationId: dur15.id, creditCost: 25 },
   ];
 
   for (const rule of videoPricingRules) {
-    const existing = await prisma.pricingRule.findFirst({
-      where: { nodeTypeId: rule.nodeTypeId, modelId: rule.modelId, durationId: rule.durationId, resolutionId: null },
+    await prisma.pricingRule.upsert({
+      where: { id: rule.id },
+      update: {},
+      create: { id: rule.id, nodeTypeId: rule.nodeTypeId, modelId: rule.modelId, durationId: rule.durationId, creditCost: rule.creditCost },
     });
-    if (existing) {
-      await prisma.pricingRule.update({ where: { id: existing.id }, data: { creditCost: rule.creditCost } });
-    } else {
-      await prisma.pricingRule.create({ data: rule as any });
-    }
   }
 
   // ====== Phase 4: Default User + 默认团队账本（UserBalance 已删，账本唯一 TeamBalance）======

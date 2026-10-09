@@ -1,14 +1,16 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { auth } from './auth';
+import { deleteTeamsWithPass } from '../test-utils/intent-fixture';
 
 const prisma = new PrismaClient();
 
-/** 清理：先删个人团队再删用户（关系无级联的方向需显式） */
+/** 清理：先删个人团队再删用户（关系无级联的方向需显式）；
+ *  Y0b-2（触发器）：team.delete 级联删 TeamBalance 须带通行证（经 deleteTeamsWithPass——Z116） */
 async function cleanup(email: string) {
   const u = await prisma.user.findUnique({ where: { email } });
   if (u) {
-    await prisma.team.deleteMany({ where: { ownerId: u.id } });
+    await deleteTeamsWithPass(prisma as any, (await prisma.team.findMany({ where: { ownerId: u.id }, select: { id: true } })).map((t) => t.id));
     await prisma.user.delete({ where: { id: u.id } });
   }
 }

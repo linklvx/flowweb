@@ -203,9 +203,11 @@ model AIModel {
   nodeTypeId  String
   nodeType    NodeType   @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
   name        String
-  provider    String
+  provider    String // Y0b-2 裁定 5：slug（moonshot/tencent/stability/openai）——显示名移 providerLabel
   apiUrl      String
   apiKey      String?
+  apiModelName  String? // provider 侧模型 id（active 行断言非空——外呼真名）
+  providerLabel String? // 显示名（原 provider 列内容）
   sortOrder   Int        @default(0)
   recommended Boolean    @default(false)
   active      Boolean    @default(true)
@@ -697,8 +699,6 @@ model TeamMember {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role          TeamRole @default(MEMBER)
   monthlyQuota  Int      @default(0) // 0=不限额
-  monthlyPeriod String? // 'YYYY-MM'
-  monthlyUsed   Int      @default(0)
   joinedAt      DateTime @default(now())
 
   @@unique([teamId, userId])
@@ -729,6 +729,7 @@ model TeamCreditTransaction {
   seq            BigInt                     @default(autoincrement()) // 稳定行序——balanceAfter 链按 (teamId,creditType) 分区+seq 排序
   balanceAfter   Int // 本池分量（行级快照）
   reversesId     String?                    @unique // Z6 三配对 1:1：settle/release→reserve 行 / refund→settle 行
+  idempotencyKey String?                    @unique // Y0b-2 Z100：mutate 前置查幂等锚（money_in 重放）——普通唯一（PG NULL 不冲突=去 partial 语义等价）
   createdAt      DateTime                   @default(now())
 
   @@index([teamId, createdAt])
@@ -998,15 +999,24 @@ model GenerationIntent {
   attempts        Int          @default(1) // F13 补强：免费重放上限——rearm 自增，≥3 拒绝再激活
   resultRef       String? // Media id / 产物 URL
   error           String?
+  // Y0b-2 T1（Z68/Z83/Z82）：心跳/deadline/外呼起点——无 DB 默认（服务端写入单源）
+  heartbeatAt     DateTime // claim/reaper 心跳锚（RUNNING 生命线）
+  deadlineAt      DateTime // 外呼硬截止（分 kind 常量表 env 注入）
+  startedAt       DateTime? // 外呼真正开始（phase 判据——Z83）
+  idemKey         String @unique // Z82：内容+手势幂等键（deriveIdemKey 单源 sha256）——claim 唯一判据
+  gestureKey      String? // Z79：手势 token 审计列（客户端原始入参截断落库——nullable）
+  providerTaskId  String? // Z69：submit 后落库（外呼 provider 任务 id）
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   completedAt     DateTime?
 
-  @@unique([projectId, intentId])
+  @@unique([projectId, intentId]) // Z88 保留：exec 投影对齐的零成本保险（行身份列——claim 判据已改 idemKey）
   @@index([projectId, nodeId, status])
+  @@index([projectId, nodeId, status, createdAt]) // Z114：claim ② 跨状态判据复合——普通索引可表达进 datamodel
   @@index([teamId]) // 资金路径（生命周期门/对账）直查
   @@index([jobId]) // F13：reconcile 活跃核验按 jobId 查 BullMQ 状态
-  @@index([status, updatedAt]) // F13：活跃核验扫描（partial index 不进 Prisma 声明——migration SQL 唯一真相）
+  // Y0b-2 Z114②：@@index([status, updatedAt]) 删除（reaper 判据改 deadlineAt/heartbeatAt 两条 partial——
+  // running_deadline_idx/running_heartbeat_idx 保持 migration-SQL-only 不进 Prisma 声明，partial 零棘轮成本）
   @@index([status, completedAt]) // 保留策略清理扫描用（终态 N 天清理——F1）
 }
 

@@ -1,6 +1,5 @@
 import { Controller, Post, Body, Inject, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { randomUUID } from 'node:crypto';
 import { AiImageEditService } from './ai-image-edit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from '../execution/generation-intent.service';
@@ -22,7 +21,8 @@ export class AiImageEditController {
    *  堵不住双击双扣）→ SUCCEEDED 幂等重放短路 → enqueue 携 intentRowId/intentId → attachJob 回写
    *  jobId（不回写则 reconcile A 路径对异步队列模块永久失效，长任务被三查误判 VOIDED 照常扣费）。
    *  enqueue 失败 fail 置 FAILED——防 RUNNING 孤儿把节点 partial unique 锁死 15min（execution.service catch 先例）。
-   *  Y0b-1（E1）：claim 前解析 kind 级定价快照（编辑 4 kind=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。 */
+   *  Y0b-1（E1）：claim 前解析 kind 级定价快照（编辑 4 kind=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
+   *  Y0b-2（Z109）：body.intentId wire 语义=手势 token 非行 id（T6 改名 regenToken——防新调用方拿它查 intents 端点）。 */
   private async runGuarded(input: {
     projectId: string;
     nodeId: string;
@@ -38,7 +38,7 @@ export class AiImageEditController {
       projectId: input.projectId,
       nodeId: input.nodeId,
       userId: input.userId,
-      intentId: input.intentId ?? randomUUID(),
+      gestureToken: input.intentId,
       kind: input.kind,
       paramsHash: normalizeIntentParams(input.kind, input.params),
       pricing,
@@ -66,7 +66,7 @@ export class AiImageEditController {
     rect: { x: number; y: number; width: number; height: number };
     imageWidth: number;
     imageHeight: number;
-    intentId?: string; // 批0.5-8：客户端意图 id（幂等键）
+    intentId?: string; // Y0b-2（Z109）：wire 语义=手势 token 非行 id——T6 改名 regenToken（勿拿它查 intents 端点）
   }, @Req() req: any) {
     const { teamId } = await this.perm.assertEditorWithTeam(body.projectId, req.user.id);
     return this.runGuarded({

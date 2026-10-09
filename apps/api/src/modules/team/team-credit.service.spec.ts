@@ -23,7 +23,7 @@ describe('TeamCreditService', () => {
       providers: [
         TeamCreditService,
         { provide: PrismaService, useValue: prisma },
-        { provide: CreditLedgerService, useValue: { tx: (r: any) => r, lockBalance: vi.fn(), ensureBalance: vi.fn(), mutate: vi.fn() } },
+        { provide: CreditLedgerService, useValue: { ledgerTx: async (r: any) => r, lockBalance: vi.fn(), ensureBalance: vi.fn(), mutate: vi.fn() } },
       ],
     }).compile();
 

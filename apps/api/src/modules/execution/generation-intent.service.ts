@@ -1,14 +1,8 @@
-import { Injectable, HttpStatus, Inject } from '@nestjs/common';
+import { Injectable, HttpStatus, Inject, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
-
-/** 409 意图上下文错配——intentId 复用到不同节点/kind/参数（防客户端改参白嫖已扣费意图，绝不静默跳过）。
- *  形态对齐仓内 BusinessException（HttpException 子类，errorCode 经 getResponse 透出）。 */
-export class IntentContextMismatchError extends BusinessException {
-  constructor() {
-    super('INTENT_CONTEXT_MISMATCH', '意图上下文不匹配（intentId 复用到不同节点/参数）', HttpStatus.CONFLICT);
-  }
-}
+import { deriveIdemKey, normalizeRegenToken, deadlineMsForKind } from './intent-key.util';
 
 /** 409 节点在飞互斥——F1 partial unique 的应用层镜像（双击/stalled 异 jobId/再激活被抢共用）。 */
 export class NodeBusyError extends BusinessException {
@@ -44,7 +38,10 @@ export interface ClaimInput {
   projectId: string;
   nodeId: string;
   userId: string;
-  intentId: string;
+  /** Y0b-2（Z109）：客户端手势 token（"重新生成"幂等锚）——只收客户端原始入参（deriveIdemKey 的 token 位
+   *  消费；服务端铸造值禁入此位）。无 token 的普通执行=undefined ⇒ idemKey 末段常量 'run'（内容键）。
+   *  原 intentId 复合键判据随 T1 退役（IntentContextMismatchError 同删——idemKey 含上下文，异上下文=异键=新行新扣费）。 */
+  gestureToken?: string;
   kind: string;
   paramsHash: string;
   /** Y0b-1（E1）：团队锚——FOR SHARE 准入谓词（Z26）+ 固化列（Z4 资金路径直查锚）。必填。 */
@@ -56,35 +53,37 @@ export interface ClaimInput {
 
 @Injectable()
 export class GenerationIntentService {
+  private readonly logger = new Logger(GenerationIntentService.name);
   // @Inject 显式标注——vitest/esbuild 不发射 decorator metadata，类型注解不构成 DI 令牌（仓内惯例）
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  /** claim 完整状态机（F13）——五个分支：
-   *  ① 无行 → create（RUNNING）= 新执行权
+  /** claim 完整状态机（F13→Y0b-2 Z82 最小 idemKey 化）——五个分支（判据=findUnique({where:{idemKey}})）：
+   *  ① 无行 → create（RUNNING，intentId=randomUUID() 行身份+idemKey+gestureKey+heartbeatAt/deadlineAt）= 新执行权
    *  ② RUNNING 且同 jobId → 可重入续跑（BullMQ stalled 重排同 jobId 重进 claim 不得自锁）= 执行权
    *  ③ RUNNING 且异 jobId → NodeBusy（双击互斥）
-   *  ④ FAILED/VOIDED 且同上下文 → 守卫式原子再激活（updateMany count===1 才拥有执行权，并发抢走 → NodeBusy）
-   *  ⑤ SUCCEEDED 且同上下文 → created:false 幂等重放（调用方返回既有产物引用，零外呼零扣费）
-   *  异上下文（nodeId/kind/paramsHash 任一不匹配）→ 409 INTENT_CONTEXT_MISMATCH
-   *  Y0b-1：全部分支包交互式事务——首句 FOR SHARE 准入谓词（Z26：与 disbandTeam 事务内 team.update 的行排他锁互斥，
-   *  谓词与后续写同事务=穿门窗口真正关闭）；分支① create 改 createMany skipDuplicates（Z33 四轮①：
-   *  PG 交互式事务一报错即 aborted——既有 catch-P2002-再查形态在事务内必 25P02；ON CONFLICT DO NOTHING
-   *  不抛错，count 判胜后健康事务内分义）。定价快照五字段无条件固化（E1）——rearm 分支④不重写快照
+   *  ④ FAILED/VOIDED → 守卫式原子再激活（updateMany count===1 才拥有执行权，并发抢走 → NodeBusy）
+   *  ⑤ SUCCEEDED → created:false 幂等重放（调用方返回既有产物引用，零外呼零扣费）
+   *  异上下文=异 idemKey=走①新行（Z109：改参重试=新意图新扣费——旧 INTENT_CONTEXT_MISMATCH 409 语义退役）
+   *  Y0b-1：全部分支包交互式事务——首句 FOR SHARE 准入谓词（Z26：与 disbandTeam 事务内 team.update 的行排他锁互斥）；
+   *  分支① createMany skipDuplicates（Z33 四轮①：ON CONFLICT DO NOTHING 不抛错，count 判胜后健康事务内分义——
+   *  禁在事务内 catch 驱动错误后再查）。定价快照五字段无条件固化（E1）——rearm 分支④不重写快照
    *  （plan 固化于首次 claim，重试沿用）。 */
   async claim(input: ClaimInput): Promise<{ intent: any; created: boolean }> {
+    const gestureToken = normalizeRegenToken(input.gestureToken, (m) => this.logger.warn(m));
+    const idemKey = deriveIdemKey({
+      projectId: input.projectId, nodeId: input.nodeId, kind: input.kind,
+      paramsHash: input.paramsHash, regenToken: gestureToken,
+    });
+    const where = { idemKey };
     return this.prisma.$transaction(async (tx) => {
       // Z26（三轮 P0-4）：准入谓词与后续 create 同事务——FOR SHARE 与 disbandTeam 事务内 team.update 的行排他锁互斥
       const teamRow = await tx.$queryRaw<{ status: string }[]>`SELECT "status" FROM "Team" WHERE id = ${input.teamId} FOR SHARE`;
       if (teamRow.length !== 1 || teamRow[0].status !== 'ACTIVE') {
         throw new BusinessException('TEAM_CLOSED', `团队不存在或已关闭（teamId=${input.teamId}）`, HttpStatus.CONFLICT);
       }
-      const where = { projectId_intentId: { projectId: input.projectId, intentId: input.intentId } };
-      const sameCtx = (r: { nodeId: string; kind: string; paramsHash: string }) =>
-        r.nodeId === input.nodeId && r.kind === input.kind && r.paramsHash === input.paramsHash;
 
       const existing = await tx.generationIntent.findUnique({ where });
       if (existing) {
-        if (!sameCtx(existing)) throw new IntentContextMismatchError();
         if (existing.status === 'SUCCEEDED') return { intent: existing, created: false };
         if (existing.status === 'RUNNING') {
           if (input.jobId && existing.jobId === input.jobId) return { intent: existing, created: true }; // 同 job 可重入
@@ -103,6 +102,8 @@ export class GenerationIntentService {
             jobId: input.jobId ?? null,
             completedAt: null,
             attempts: { increment: 1 },
+            heartbeatAt: new Date(), // Z68：rearm 重置生命线（deadline/heartbeat reaper 判据——不刷则 rearm 即刻超龄）
+            deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
           },
         });
         if (rearmed.count === 1) {
@@ -112,12 +113,17 @@ export class GenerationIntentService {
         throw new NodeBusyError(); // 再激活被并发抢走
       }
       // 分支①（Z33 四轮①）：createMany skipDuplicates ⇒ INSERT ... ON CONFLICT DO NOTHING
-      // （覆盖复合唯一+active partial unique——不抛错，胜者 count===1；纪律：禁在 $transaction 内
+      // （覆盖 idemKey 唯一+active partial unique——不抛错，胜者 count===1；纪律：禁在 $transaction 内
       // catch 驱动错误后再查——事务一报错即 aborted，任何后续查询都 25P02）
-      const { pricing, teamId, ...rest } = input; // 解构剔除：...input 直接展开会把 pricing 对象带进 Prisma data=unknown field 报错
+      // Y0b-2（Z109）：intentId=行身份（服务端 randomUUID 铸造——exec 投影对齐消费，Z88 保留复合唯一）；
+      // gestureKey=审计列（客户端原始 token 截断落库）；三列写入=heartbeatAt/deadlineAt/idemKey（Z68/Z82）
+      const { pricing, teamId, gestureToken: _token, ...rest } = input; // 解构剔除：...input 直接展开会把 pricing/gestureToken 带进 Prisma data=unknown field 报错（gestureToken 已铸入 idemKey/gestureKey）
       const ins = await tx.generationIntent.createMany({
         data: [{
-          ...rest, jobId: input.jobId ?? null, status: 'RUNNING', teamId,
+          ...rest, intentId: randomUUID(), gestureKey: gestureToken ?? null,
+          jobId: input.jobId ?? null, status: 'RUNNING', teamId, idemKey,
+          heartbeatAt: new Date(),
+          deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
           pricingRuleId: pricing.pricingRuleId, modelId: pricing.modelId,
           resolutionId: pricing.resolutionId, durationId: pricing.durationId,
           creditCost: pricing.creditCost, // 无条件固化——creditCost:0 也不例外（E1/A2）
@@ -127,14 +133,13 @@ export class GenerationIntentService {
       if (ins.count === 1) {
         return { intent: await tx.generationIntent.findUniqueOrThrow({ where }), created: true };
       }
-      // count===0 ⇒ 撞唯一（复合唯一或 active partial unique）——健康事务内分义（原三档语义原样迁移）：
+      // count===0 ⇒ 撞唯一（idemKey 唯一或 active partial unique）——健康事务内分义：
       const again = await tx.generationIntent.findUnique({ where });
-      if (again && sameCtx(again) && input.jobId && again.jobId === input.jobId && again.status === 'RUNNING') {
-        return { intent: again, created: true }; // create 与同 job 重入并发——按可重入处理
+      if (again && input.jobId && again.jobId === input.jobId && again.status === 'RUNNING') {
+        return { intent: again, created: true }; // create 与同 job 重入并发——按可重入处理（同 idemKey=同内容）
       }
-      if (!again) throw new NodeBusyError(); // 本 intentId 无行 ⇒ 只可能撞活跃 partial unique（同节点异 intentId 在飞）
-      if (sameCtx(again)) throw new NodeBusyError(); // 同上下文异 jobId 撞复合唯一=在飞非错配（mismatch 标签误导用户）
-      throw new IntentContextMismatchError();
+      // 无行 ⇒ 撞活跃 partial unique（同节点异 idemKey 在飞）；有行 ⇒ 同 idemKey 异 jobId 在飞——均 NodeBusy
+      throw new NodeBusyError();
     }, { timeout: 10_000, maxWait: 5_000 }); // 四轮 C4：显式超时（默认 5s 对含 FOR SHARE 等锁的五分支偏紧）
   }
 

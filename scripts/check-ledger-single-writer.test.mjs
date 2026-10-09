@@ -52,11 +52,12 @@ test('① 写入口唯一：TeamCreditTransaction 写操作集（create/update/u
   }
 });
 
-test('② balance 写白名单：非 ledger 非 spec=红；.spec. 豁免=绿；ledger=绿', () => {
+test('② balance 写白名单：非 ledger=红；spec 裸写=红（Y0b-2 Z116：绝对豁免改能力制）；ledger=绿', () => {
   const src = 'prisma.teamBalance.update({});';
   assert.ok(scanFiles(mk([['apps/api/src/modules/team/team.service.ts', src]]))
     .some((p) => p.includes('TeamBalance 写操作越权')));
-  assert.deepEqual(scanFiles(mk([['apps/api/src/modules/team/team.service.spec.ts', src]])), []);
+  assert.ok(scanFiles(mk([['apps/api/src/modules/team/team.service.spec.ts', src]]))
+    .some((p) => p.includes('TeamBalance 写操作越权')));
   assert.deepEqual(scanFiles(mk([[fundRels.ledger, src]])), []);
 });
 
@@ -120,4 +121,85 @@ test('⑦ 锁序静态锚（同函数内序）：private async 方法内 GI 写�
     '}',
   ].join('\n');
   assert.deepEqual(scanFiles(mk([[fundRels.teamCredit, good]])), []);
+});
+
+// ===== Y0b-2 T1（Z89/Z116）新增档 =====
+
+test('⑧ ledger.tx( 禁用锚：生产与测试文件均红（tx() 已删——通行证唯一入口 ledgerTx）', () => {
+  const src = 'await ledger.tx(raw);';
+  assert.ok(scanFiles(mk([['apps/api/src/modules/team/team.service.ts', src]]))
+    .some((p) => p.includes('ledger.tx( 已删')));
+  assert.ok(scanFiles(mk([['apps/api/src/test-utils/intent-fixture.ts', src]]))
+    .some((p) => p.includes('ledger.tx( 已删')));
+});
+
+test('② Many 形态补集：teamBalance.createMany/deleteMany 非 ledger=红', () => {
+  for (const op of ['createMany', 'deleteMany']) {
+    const src = `await prisma.teamBalance.${op}({ where: { teamId: id } });`;
+    assert.ok(scanFiles(mk([['apps/api/src/modules/team/team.service.ts', src]]))
+      .some((p) => p.includes('TeamBalance 写操作越权')), op);
+  }
+});
+
+test('⑨ 资金函数锁先行（漏报加固）：含 mutate/ledgerTx 且 GI 写前无 lockBalance=红；有锁先行=绿；纯读函数=绿', () => {
+  const bad = [
+    'export class S {',
+    '  private async unfreeze(row: any) {',
+    '    const tx = await this.ledger.ledgerTx(raw);',
+    '    await tx.generationIntent.updateMany({ where: { id: 1 }, data: {} });',
+    '    await this.ledger.mutate(tx, { teamId: 1 });',
+    '  }',
+    '}',
+  ].join('\n');
+  assert.ok(scanFiles(mk([[fundRels.reconcile, bad]]))
+    .some((p) => p.includes('资金事务函数缺锁先行')));
+  const good = [
+    'export class S {',
+    '  private async unfreeze(row: any) {',
+    '    const tx = await this.ledger.ledgerTx(raw);',
+    '    await this.ledger.lockBalance(tx, row.teamId);',
+    '    await tx.generationIntent.updateMany({ where: { id: 1 }, data: {} });',
+    '    await this.ledger.mutate(tx, { teamId: 1 });',
+    '  }',
+    '}',
+  ].join('\n');
+  assert.deepEqual(scanFiles(mk([[fundRels.reconcile, good]])), []);
+  const reader = [
+    'export class S {',
+    '  private async list(row: any) {',
+    '    const tx = await this.ledger.ledgerTx(raw);',
+    '    return tx.generationIntent.findUnique({ where: { id: 1 } });',
+    '  }',
+    '}',
+  ].join('\n');
+  assert.deepEqual(scanFiles(mk([[fundRels.reconcile, reader]])), []);
+});
+
+test('Z116 测试能力制：spec/test-utils 裸写台账=红；runInTx/SET LOCAL 窗口内=绿；负测标记（LEDGER_SINGLE_WRITER 断言）=绿', () => {
+  const specRel = 'apps/api/src/modules/team/x.int.spec.ts';
+  const bare = 'await prisma.teamCreditTransaction.deleteMany({ where: { teamId: id } });';
+  assert.ok(scanFiles(mk([[specRel, bare]]))
+    .some((p) => p.includes('唯一写入口违规')));
+  const bareBal = 'await prisma.teamBalance.deleteMany({ where: { teamId: id } });';
+  assert.ok(scanFiles(mk([[specRel, bareBal]]))
+    .some((p) => p.includes('TeamBalance 写操作越权')));
+  const passRunInTx = [
+    'await ledger.runInTx(async (tx) => {',
+    '  await tx.teamCreditTransaction.deleteMany({ where: { teamId: id } });',
+    '  await tx.teamBalance.deleteMany({ where: { teamId: id } });',
+    '});',
+  ].join('\n');
+  assert.deepEqual(scanFiles(mk([[specRel, passRunInTx]])), []);
+  const passSetLocal = [
+    'await prisma.$transaction(async (raw) => {',
+    "  await raw.$executeRaw`SET LOCAL app.ledger_tx = 'on'`;",
+    '  await raw.teamBalance.updateMany({ where: { teamId: id }, data: {} });',
+    '});',
+  ].join('\n');
+  assert.deepEqual(scanFiles(mk([[specRel, passSetLocal]])), []);
+  const negative = 'await expect(prisma.teamCreditTransaction.create({ data: row })).rejects.toThrow(/LEDGER_SINGLE_WRITER/);';
+  assert.deepEqual(scanFiles(mk([[specRel, negative]])), []);
+  const tuRel = 'apps/api/src/test-utils/intent-fixture.ts';
+  assert.ok(scanFiles(mk([[tuRel, bareBal]]))
+    .some((p) => p.includes('TeamBalance 写操作越权')));
 });

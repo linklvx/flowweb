@@ -114,7 +114,7 @@ describe('LightingController', () => {
       await controller.createTask(body as any, mockReq());
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
         projectId: 'proj-1', nodeId: 'node-1', userId: 'user-1',
-        intentId: 'client-int-1', kind: 'lighting',
+        gestureToken: 'client-int-1', kind: 'lighting',
         // paramsToPrompt({x:0,y:0,z:6,brightness:50,colorTemperature:5600,rimLight:false}) 纯派生——controller 与 consumer 同函数
         paramsHash: normalizeIntentParams('lighting', { prompt: '主光源从正前方照射，亮度适中，色温5600K' }),
       }));

@@ -60,8 +60,9 @@ export class TeamService {
           name: folderName, teamId: team.id, userId, isDefault: true, sortOrder: i,
         })),
       });
-      // Y0b-1（三轮 Z23）：建团钱包行经 ensureBalance（唯一创建口）
-      await this.ledger.ensureBalance(this.ledger.tx(tx), team.id);
+      // Y0b-1（三轮 Z23）：建团钱包行经 ensureBalance（唯一创建口）；
+      // Y0b-2（Z89）：ledgerTx 取通行证（app.ledger_tx）——ledger_guard 触发器对 TeamBalance 写结构性拦截
+      await this.ledger.ensureBalance(await this.ledger.ledgerTx(tx), team.id);
       await this.audit.logTx(tx, {
         operatorId: userId,
         operatorName: user?.name ?? '用户',
@@ -172,12 +173,9 @@ export class TeamService {
       this.prisma.teamMember.count({ where: { teamId } }),
     ]);
     // Y0b-2 T0：monthlyUsed 改道台账派生（与 getBalanceView.used 同源——批量聚合与单成员读共用同一 SQL）；
-    // monthlyPeriod 字段退役不再出响应（T1 删列后无幽灵）
+    // Y0b-2 T1：monthlyPeriod/monthlyUsed 列已删——monthlyUsed 出响应恒为派生值（无列幽灵）
     const usedMap = await this.teamCredit.derivedMonthlyUsedMap(this.prisma, teamId);
-    const items = rows.map((r) => {
-      const { monthlyPeriod: _retired, ...rest } = r;
-      return { ...rest, monthlyUsed: usedMap.get(r.userId) ?? 0 };
-    });
+    const items = rows.map((r) => ({ ...r, monthlyUsed: usedMap.get(r.userId) ?? 0 }));
     return { items, total };
   }
 
@@ -429,7 +427,9 @@ export class TeamService {
       // Z4/Z26：单事务——FOR UPDATE 团队行（与 claim 的 FOR SHARE 互斥）→ 资金门（tx 内计数）→ 物理删（级联清理）；
       // 删"同事务先置 DISBANDED 再 delete"的墓碑语句（同事务内不可见=无效语句）；台账行 teamId 无 FK 不受级联（审计留痕）。
       // 契约 20 全序含 Team 首环：Team → TeamBalance → GenerationIntent →（流水/TeamMember）
-      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+      // Y0b-2（Z89）：本事务必须持通行证——team.delete 级联删 TeamBalance（schema onDelete: Cascade），
+      // 级联删除同样触发 ledger_guard 行级触发器，无通行证即解散事务必炸。
+      await this.ledger.ledgerTx(tx);
       await tx.$queryRaw`SELECT id FROM "Team" WHERE id = ${teamId} FOR UPDATE`;
       await this.fundsGate.assertSettled(tx, { teamId });
       const projects = await tx.canvasProject.findMany({ where: { teamId }, select: { id: true } });

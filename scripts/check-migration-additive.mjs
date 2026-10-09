@@ -4,14 +4,16 @@
 // RENAME、ALTER COLUMN TYPE；
 // DROP INDEX 降 WARNING（删索引不破坏旧代码在跑，却是 prisma 重建索引最常见良性破坏语句，硬拦会训练绕过）。
 // 基线落文件内常量（禁 env 旋钮）；基线存在性断言（常量打错⇒fresh 恒空⇒永久豁免且输出仍 OK——静默失效唯一路径封死）。
-// Y0b-1 T1a 基线重置（24→1 squash）：基线上移至 20261009031416_init——其前历史迁移已并入基线不再受检，
-// T1b 起新增迁移成为 additive 门禁首批真实受检对象。
+// Y0b-2 squash（2026-10-10）：第三次基线重置。护栏：BASELINE 只允许在"无生产环境"期间抬高；
+// 失效条件=spec §9.6——此后一切 schema 变更回到 expand/contract 两步走。
+// squash 后 fresh 集合空为预期（本批 DDL 的 additive 审计发生在起草阶段〔20261009140000_y0b2_draft〕，
+// 终态由 census 对象级+行级三验保证）。
 // 双跑：preflight 本地 + cutover ③ 服务器 migrate 前 + 根 verify 链（verify-indexes 之后）。
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
-const BASELINE = '20261009031416_init';   // 此后新增迁移才受检（Y0b-1 T1a squash 基线=唯一 init）
+const BASELINE = '20261009140100_y0b2_init';   // 此后新增迁移才受检（Y0b-2 T1 squash 基线=唯一 init）
 const MIG_DIR = join(ROOT, 'apps/api/prisma/migrations');
 if (!existsSync(MIG_DIR)) { console.error('additive FAIL: migrations 目录缺失'); process.exit(1); }   // fail-closed
 const dirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d)).sort();

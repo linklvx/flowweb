@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Y0b-1：TeamService 经 CreditLedgerService 写钱包（ensureBalance 建行/lockBalance 锁/mutate 入账）
 const ledger = {
-  tx: (raw: any) => raw,
+  ledgerTx: vi.fn(async (raw: any) => raw),   // Y0b-2 Z89：tx() 已删——mock 同步换 ledgerTx（spy 化供时序断言）
   lockBalance: vi.fn().mockResolvedValue(undefined),
   ensureBalance: vi.fn().mockResolvedValue(undefined),
   mutate: vi.fn().mockResolvedValue({ rowId: 'lr-1', balanceAfter: 0 }),
@@ -358,8 +358,8 @@ describe('TeamService 基础 API', () => {
 
       await service.disbandTeam('t1', 'u1');
 
-      // 事务内：锁超时纪律 + FOR UPDATE 团队行（与 claim FOR SHARE 互斥）+ 资金门持锁检查（tx 同连接）
-      expect(prisma.$executeRaw).toHaveBeenCalled();
+      // 事务内：通行证（Y0b-2 Z89：ledger.ledgerTx 取代裸 SET LOCAL——级联删 TeamBalance 触发行级触发器）+ FOR UPDATE 团队行（与 claim FOR SHARE 互斥）+ 资金门持锁检查（tx 同连接）
+      expect(ledger.ledgerTx).toHaveBeenCalledWith(prisma);
       expect(prisma.$queryRaw).toHaveBeenCalledWith(['SELECT id FROM "Team" WHERE id = ', ' FOR UPDATE'], 't1');
       expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { teamId: 't1' });
       // 删前查 projectIds/media（收集在事务内、物理删之前）
@@ -451,7 +451,7 @@ describe('TeamService 成员管理', () => {
       const joinedAt = new Date('2026-01-01');
       const row = {
         id: 'm1', teamId: 't1', userId: 'u2', role: 'MEMBER', monthlyQuota: 100,
-        monthlyUsed: 30, monthlyPeriod: '2026-01', joinedAt,
+        monthlyUsed: 30, joinedAt,   // Y0b-2 T1：monthlyPeriod 列已删（mock 行不再含幽灵字段）
         user: { id: 'u2', name: '张三', email: 'z@x.com' },
       };
       prisma.teamMember = {

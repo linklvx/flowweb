@@ -118,18 +118,19 @@ describe('AiImageEditController', () => {
       await controller.outpaint({ ...outpaintBody, intentId: 'client-int-1' }, req);
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
         projectId: 'proj1', nodeId: 'node1', userId: 'u1',
-        intentId: 'client-int-1', kind: 'outpaint',
+        gestureToken: 'client-int-1', kind: 'outpaint',
         paramsHash: normalizeIntentParams('outpaint', {
           rect: outpaintBody.rect, imageWidth: 512, imageHeight: 512,
         }),
       }));
     });
 
-    it('body 无 intentId → claim 内部生成 UUID（幂等键随机派生）', async () => {
+    it('body 无 intentId → gestureToken=undefined（Z109：内容键路径——行身份由 claim 内部铸造，controller 不再代铸 UUID）', async () => {
       const req = { user: { id: 'u1' } } as any;
       await controller.outpaint(outpaintBody, req);
       const arg = intentSvc.claim.mock.calls[0][0];
-      expect(arg.intentId).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(arg.gestureToken).toBeUndefined();
+      expect(arg.intentId).toBeUndefined();   // 行身份不入参——claim 内部 randomUUID
     });
 
     it('erase/redraw 同构：kind 与白名单参数集各按端点提取', async () => {

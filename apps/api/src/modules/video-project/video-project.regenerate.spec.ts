@@ -137,7 +137,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
     const { vsvc, apiCaller, teamCredit, intentService } = makeFixture();
     await vsvc.regenerate('u1', { sourceNodeId: 'vg1', workflowId: 'w1', kind: 'video', retakeId: 'rtk-1' });
     expect(apiCaller.callTextGen).not.toHaveBeenCalled(); // 上游不连带（旧 shadow 模式影子是孤节点无此行为——回归堵）
-    expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'vg1', intentId: 'rtk-1' })); // intentId 落目标节点自身
+    expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'vg1', gestureToken: 'rtk-1' })); // Y0b-2 Z109：token 透传目标节点（nodeIds=[目标] 使其唯一 exec）
     expect(apiCaller.callVideoGen).toHaveBeenCalledTimes(1);
     expect(teamCredit.reserve).toHaveBeenCalledTimes(1); // 只扣目标一份（上游连带重复扣费根堵）
     // 上游数据注入仍在：只执行目标、但 prompt 读取上游产物（nodeIds 模式 upstreamSource=allNodes）
