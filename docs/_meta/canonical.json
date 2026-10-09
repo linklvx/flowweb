@@ -100,11 +100,6 @@
       "criteria": "C1",
       "evidence": [
         {
-          "src": "apps/api/prisma/collab-gate-seed.ts",
-          "line": 46,
-          "text": "// null + UI 词表三档规则（cost 1，幂等 upsert），缺陷本体登记 master plan 批7 备注。"
-        },
-        {
           "src": "apps/api/src/modules/execution/api-caller.fake-ai.spec.ts",
           "line": 2,
           "text": "// 断言源：master plan 批7 行——\"env COLLAB_FAKE_AI=1（dev-only fake provider——ApiCallerService 各 callXxx"
@@ -113,6 +108,11 @@
           "src": "apps/web/e2e/collab-recovery.e2e.spec.ts",
           "line": 6,
           "text": "// 判据源：master plan 批7 行 + collab-e2e-gate-checklist.md 历史底稿归并节；串行执行（config workers:1）。"
+        },
+        {
+          "src": "apps/web/scripts/eslint-rules/collab-static-asserts.js",
+          "line": 206,
+          "text": "'（spec 2026-09-30-collab-recovery-master-plan 批5）。';"
         }
       ]
     },
