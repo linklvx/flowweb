@@ -109,7 +109,7 @@ cutover_api() {
   ssh -i "$KEY" "$SERVER" 'i=0; ok=""; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); if echo "$body" | grep -q "\"ready\":true"; then ok=1; break; fi; sleep 1; done; if [ -z "$ok" ]; then echo "ready 60s 未达（最后响应: $body）"; exit 1; fi; echo "ready barrier after ${i}s（RTO 见 guard post JSON elapsedMs）"'
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && test -f ecosystem.config.cjs && test -d scripts && test -d apps/api/scripts || { echo '上传面三件缺失（ecosystem/scripts/apps-api-scripts）'; exit 1; }"
   ssh -i "$KEY" "$SERVER" 'node -e "require(\"net\").connect(3001,\"127.0.0.1\").on(\"connect\",()=>{console.log(\"3001 listening\");process.exit(0)}).on(\"error\",()=>{console.error(\"3001 未监听\");process.exit(1)})"'
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA node scripts/deploy-guard.mjs --post-restart"
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
   if [[ $SKIP_SMOKE == 1 ]]; then
     echo "=== 冒烟已跳过（--skip-smoke）——本次部署不构成完整判据 ==="
   else
@@ -124,7 +124,7 @@ rollback_api() {
   echo "=== 快回滚（P37：dist.prev 翻回+重启——30 秒；分派层跳过 preflight）+post 段带 GIT_SHA（P39 同 SHA 复用基线）；GIT_COMMIT_HASH 从 dist.prev 的 build-info 派生（P46） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && [ -d dist.prev ] || { echo '无 dist.prev——回滚走 git revert+重新部署'; exit 1; } && rm -rf dist.next && mv dist dist.next && mv dist.prev dist && test -f dist/main.js"
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && export GIT_COMMIT_HASH=\$(node -e \"console.log(require('./apps/api/dist/build-info.json').git)\" 2>/dev/null || echo unknown) && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save"
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA node scripts/deploy-guard.mjs --post-restart"
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
   echo "=== 回滚完成（上一代 dist 已上线，pm2_env.GIT_COMMIT_HASH=上一代构建 SHA）——回滚不构成判据；修复后正式部署仍需完整链 ==="
 }
 
@@ -172,9 +172,13 @@ deploy_api() {
     ssh -i "$KEY" "$SERVER" 'rm -rf '"$REMOTE_DIR"'/apps/api/prisma/migrations/* && [ -z "$(ls '"$REMOTE_DIR"'/apps/api/prisma/migrations/ 2>/dev/null)" ] || { echo "清理后仍有残留"; exit 1; }'
   fi
 
-  echo "=== 上传（dist.next+prisma/scripts×2/ecosystem/manifests——src 不再上传；shared dist 解 dist.next 不先 rm 远端〔P49③〕） ==="
+  echo "=== 上传（dist.next+prisma/scripts×2/ecosystem/manifests+src；shared dist 解 dist.next 不先 rm 远端〔P49③〕） ==="
+  # src 恢复上传（Y0b-1 重建流程实测盲区）：ssh seed 是 REBUILD_DB 部署时序的人工步骤（runbook），
+  # seed.ts 经 tsx 直跑且 import ../src/*（auth/credit-ledger/platform-team）——src 缺位则远端 seed 必炸
+  # （本地有 src 测不出）。零构建锚不受影响：服务器仍不构建、运行仍只读 dist——src 仅作 seed 运行原料。
   scp -i "$KEY" ecosystem.config.cjs "$SERVER:$REMOTE_DIR/"
   tar czf - -C apps/api/dist . | ssh -i "$KEY" "$SERVER" "rm -rf $REMOTE_DIR/apps/api/dist.next && mkdir -p $REMOTE_DIR/apps/api/dist.next && cd $REMOTE_DIR/apps/api/dist.next && tar xzf -"
+  tar czf - -C apps/api/src . | ssh -i "$KEY" "$SERVER" "rm -rf $REMOTE_DIR/apps/api/src.next && mkdir -p $REMOTE_DIR/apps/api/src.next && cd $REMOTE_DIR/apps/api/src.next && tar xzf - && cd $REMOTE_DIR/apps/api && rm -rf src && mv src.next src"
   scp -i "$KEY" apps/api/package.json "$SERVER:$REMOTE_DIR/apps/api/package.json"
   scp -i "$KEY" apps/web/package.json "$SERVER:$REMOTE_DIR/apps/web/package.json"
   scp -i "$KEY" packages/shared/package.json "$SERVER:$REMOTE_DIR/packages/shared/package.json"

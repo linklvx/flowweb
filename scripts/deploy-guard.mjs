@@ -119,7 +119,10 @@ async function postPhase() {
     console.error(`deploy-guard FAIL(post): 陈旧状态文件（state.sha=${st.sha} ≠ GIT_SHA=${process.env.GIT_SHA}）——pre 每次覆写+本断言=防跨部署串档（P39）；重跑完整部署链`); return 1;
   }
   const epochPre = epochPreFromRaw(st.epochPre);   // 'unavailable'/null/损坏 → NaN → decidePost fail（B23）
-  const degraded = st.degraded ?? null;
+  // REBUILD_DB 豁免档（Y0b-1 重建部署实测盲区——Z34 补丁）：DROP SCHEMA 把 CollabLease.epoch 归零
+  // （种子 0），post 的"epoch 递增"断言在重建形态下结构性不可能。走 degraded 机制放行（N/A 显式打印），
+  // 接管证明=ready+own spool 归零+3001 监听；递增断言由下一次普通部署恢复。pre 段已有降级时不覆盖。
+  const degraded = st.degraded ?? (process.env.REBUILD_DB === '1' ? 'rebuild-db（epoch 随 DROP SCHEMA 归零——递增断言 N/A）' : null);
   const deadline = Date.now() + 120_000;   // O-1：收养 60s+reconciler 30s+回灌余量
   let last = null, verdict = { verdict: 'wait', why: '未采样' };
   while (Date.now() < deadline) {
