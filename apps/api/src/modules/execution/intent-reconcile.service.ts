@@ -10,7 +10,7 @@ import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import {
   reconcileMismatchTotal, strandedTotal, balanceDriftTotal, frozenDriftTotal,
-  orphanTotal, unreleasableTotal,
+  orphanReleaseTotal, orphanUnreleasableTotal,
 } from './intent-reconcile.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/CAS 扣费都刷新 updatedAt，超龄即同步路径内联崩溃嫌疑 */
@@ -54,6 +54,7 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
 export class IntentReconcileService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(IntentReconcileService.name);
   private timers: ReturnType<typeof setInterval>[] = [];
+  private verifyActiveRunning = false;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -67,7 +68,15 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 
   onModuleInit() {
     void this.verifyActive().catch((e) => this.logger.warn(`startup scan: ${e}`)); // 启动全量扫（覆盖"部署杀在飞任务"）
-    const t1 = setInterval(() => void this.verifyActive().catch((e) => this.logger.warn(`verifyActive: ${e}`)), 5 * 60_000);
+    // 在飞守卫（T5 质量审 I-1）：第四分支+孤儿释放并入后单轮最坏可达分钟级≫5min tick——
+    // 无守卫叠轮会在同一批 TeamBalance 锁上自我放大竞争；幂等性本就由 CAS/reversesId 唯一保证，跳轮无损
+    const t1 = setInterval(() => {
+      if (this.verifyActiveRunning) return;
+      this.verifyActiveRunning = true;
+      void this.verifyActive()
+        .catch((e) => this.logger.warn(`verifyActive: ${e}`))
+        .finally(() => { this.verifyActiveRunning = false; });
+    }, 5 * 60_000);
     const t2 = setInterval(() => void this.reconcileDaily().catch((e) => this.logger.warn(`reconcileDaily: ${e}`)), 24 * 3600_000);
     for (const t of [t1, t2]) t.unref?.();
     this.timers = [t1, t2];
@@ -332,14 +341,15 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         AND EXISTS (SELECT 1 FROM "TeamBalance" b WHERE b."teamId" = r."teamId")
       ORDER BY r."createdAt"   -- 确定性（LIMIT 无 ORDER BY=不确定子集）
       LIMIT 100`;
-    // 钱包已消失的未冲销 reserve 行（解散销毁）——带龄过滤计数（无龄过滤=同一批每 5min 重复累加指标）
+    // 钱包已消失的未冲销 reserve 行（解散销毁）——每轮观测计数语义（T5 质量审 I-2 更正：这批行永不冲销，
+    // 同一批每轮都会重复计入 counter——读法看 rate/突增而非累计值；龄过滤只是排除新近解散的暂态行）
     await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT r.id FROM "TeamCreditTransaction" r
       WHERE r.type = 'reserve' AND r."referenceId" LIKE 'intent:%'
         AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
         AND NOT EXISTS (SELECT 1 FROM "TeamBalance" b WHERE b."teamId" = r."teamId")
         AND r."createdAt" < now() - interval '15 minutes'
-      ORDER BY r."createdAt" LIMIT 50`.then((rows) => { if (rows.length) unreleasableTotal.inc(rows.length); });
+      ORDER BY r."createdAt" LIMIT 50`.then((rows) => { if (rows.length) orphanUnreleasableTotal.inc(rows.length); });
     let released = 0;
     for (const r of orphans) {
       try {
@@ -353,7 +363,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
           });
         }, { timeout: 15_000, maxWait: 5_000 });
         released++;
-        orphanTotal.inc();
+        orphanReleaseTotal.inc();
         this.logger.warn(`[intent-reconcile] 孤儿冻结释放 reserve=${r.id} ref=${r.referenceId}`);
       } catch (e) {
         this.logger.warn(`[intent-reconcile] 孤儿释放单行失败 ${r.id}: ${(e as Error).message}`);
@@ -375,18 +385,18 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       LEFT JOIN (SELECT "teamId", "creditType", SUM("balanceDelta") s FROM "TeamCreditTransaction" GROUP BY 1,2) t
         ON t."teamId" = b."teamId" AND t."creditType" = 'subscription'
       WHERE COALESCE(t.s, 0) <> b."subscriptionCredits"
-      LIMIT 20`;
+      ORDER BY b."teamId" LIMIT 20`;   // ORDER BY=确定子集（与孤儿扫描同纪律——告警面稳定）
     for (const d of drift1) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量①漂移 teamId=${d.teamId}`); }
     const drift2 = await this.prisma.$queryRaw<{ id: string; teamId: string }[]>`
       SELECT gi.id, gi."teamId" FROM "GenerationIntent" gi
       JOIN (SELECT "referenceId", SUM("frozenDelta") s FROM "TeamCreditTransaction" WHERE "referenceId" LIKE 'intent:%' GROUP BY 1) t
         ON t."referenceId" = 'intent:' || gi.id
-      WHERE t.s <> gi."reservedCredits" AND gi.status = 'RUNNING' LIMIT 20`;
+      WHERE t.s <> gi."reservedCredits" AND gi.status = 'RUNNING' ORDER BY gi.id LIMIT 20`;
     for (const d of drift2) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量②漂移 intent=${d.id} teamId=${d.teamId}`); }
     // 钱包体检——ACTIVE 团队无钱包行=0（ensureBalance 收口后的回归检查）
     const noWallet = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT t.id FROM "Team" t LEFT JOIN "TeamBalance" b ON b."teamId" = t.id
-      WHERE t.status = 'ACTIVE' AND b."teamId" IS NULL LIMIT 20`;
+      WHERE t.status = 'ACTIVE' AND b."teamId" IS NULL ORDER BY t.id LIMIT 20`;
     for (const d of noWallet) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] ACTIVE 团队无钱包 teamId=${d.id}（ensureBalance 缺收口）`); }
   }
 

@@ -47,15 +47,16 @@ export const frozenDriftTotal = new Counter({
 });
 
 /** Y0b-1（Z11）：孤儿冻结释放成功计数——reserve 行未被冲销∧意图行灭失∧超龄 ⇒ 窄口幂等释放。 */
-export const orphanTotal = new Counter({
+export const orphanReleaseTotal = new Counter({
   name: 'intent_frozen_orphan_total',
   help: '孤儿冻结释放计数（意图行已灭失的未冲销 reserve——releaseOrphanReserve 窄口）',
   registers: [register],
 });
 
-/** Y0b-1（Z11）：不可释放的未冲销 reserve 行计数（团队解散钱包已级联删——quota/冻结永久残余登记，不可自动修复）。 */
-export const unreleasableTotal = new Counter({
+/** Y0b-1（Z11）：不可释放的未冲销 reserve 行计数（团队解散钱包已级联删——quota/冻结永久残余登记，不可自动修复）。
+ *  每轮观测计数语义（T5 质量审 I-2）：这批行永不冲销，同一批每轮重复计入——读 rate/突增非累计值。 */
+export const orphanUnreleasableTotal = new Counter({
   name: 'ledger_orphan_unreleasable_total',
-  help: '不可释放孤儿冻结计数（钱包已消失——解散销毁，残余登记）',
+  help: '不可释放孤儿冻结计数（钱包已消失——解散销毁，残余登记；每轮观测语义——看 rate 非累计）',
   registers: [register],
 });
