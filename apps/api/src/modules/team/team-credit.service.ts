@@ -20,7 +20,7 @@ export class TeamCreditService {
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
   ) {}
 
-  /** 双池+总额+该成员 quota/used（Y0b-2 T0：used 改道台账派生——TeamMember.monthlyUsed 列暂留无读者，T1 删）。
+  /** 双池+总额+该成员 quota/used（Y0b-2 T0：used 改道台账派生——TeamMember.monthlyUsed 列暂留〔仅 generation-intent.int.spec:216 遗留读点，T1 删列时同批清理〕）。
    *  bounds 可选参=跨月视图直读（月界参数注入——默认当月）。 */
   async getBalanceView(teamId: string, userId: string, bounds?: [Date, Date]) {
     const balance = await this.prisma.teamBalance.findUnique({ where: { teamId } });
