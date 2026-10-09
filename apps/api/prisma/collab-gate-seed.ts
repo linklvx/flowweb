@@ -39,41 +39,10 @@ async function main() {
     create: { teamId: teamA.id, userId: userB.id, role: 'MEMBER' },
   });
 
-  // 图片节点 E2E 定价兜底：UI 配置面板会异步补写默认 resolution（'2K'——词表 1K/2K/4K），
-  // 而 execution 的 validation/pricing 按 resolutionId: data.resolution||null 精确查 pricingRule——
-  // seed 的 ModelResolution id（seed-res-hy-1024 等）与 UI 词表脱节（真实产品缺陷，S3 首跑挖出：
-  // 面板补写后任何重跑/再发起都"无有效定价规则"静默拦截）。为三个 seed 图片模型补
-  // null + UI 词表三档规则（cost 1，幂等 upsert），缺陷本体登记 master plan 批7 备注。
-  const imageType = await prisma.nodeType.findUnique({ where: { key: 'image' } });
-  if (imageType) {
-    // resolutionId 是 ModelResolution 外键——词表行先落（挂 hy-image 下共享，id 即 UI 词表字符串）
-    const hyImageModel = await prisma.aIModel.findUnique({ where: { id: 'seed-model-hy-image' } });
-    if (hyImageModel) {
-      for (const [id, w] of [['1K', 1024], ['2K', 2048], ['4K', 4096]] as const) {
-        await prisma.modelResolution.upsert({
-          where: { id },
-          update: {},
-          create: { id, modelId: hyImageModel.id, label: id, width: w, height: w },
-        });
-      }
-    }
-    for (const modelId of ['seed-model-sdxl', 'seed-model-dalle', 'seed-model-hy-image']) {
-      const model = await prisma.aIModel.findUnique({ where: { id: modelId } });
-      if (!model) continue;
-      for (const resId of [null, '1K', '2K', '4K']) {
-        const existing = await prisma.pricingRule.findFirst({
-          where: { modelId, resolutionId: resId, durationId: null },
-        });
-        if (existing) {
-          await prisma.pricingRule.update({ where: { id: existing.id }, data: { creditCost: 1, active: true } });
-        } else {
-          await prisma.pricingRule.create({
-            data: { nodeTypeId: imageType.id, modelId, resolutionId: resId, creditCost: 1 } as any,
-          });
-        }
-      }
-    }
-  }
+  // 图片节点 E2E 定价：Y0b-1 起走真源——定价数据在迁移（seed-pricing-* 固定 id 规则）+UI 从模型声明行
+  // 渲染并存行 id（Z36②a）+resolver 归一化精确匹配。旧"词表 1K/2K/4K 兜底规则"段已删（其兜底的
+  // 产品缺陷——面板补写词表串后定价永不命中——已被 Y0b-1 根修；2026-10-09 部署实测该段持续写
+  // 悬空键脏行污染 funds-four-way ①的 findFirst 反推夹具）。
 
   // 共享画布：空 doc 快照（与 gate-seed.ts 同款自愈——快照重写 + 增量行清残）
   await prisma.canvasProject.upsert({
