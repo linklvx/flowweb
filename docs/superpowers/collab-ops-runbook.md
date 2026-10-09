@@ -73,7 +73,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 | `./deploy.sh api` | 仅后端：preflight → 本地构建 → 上传 → 条件 install → cutover 全链 |
 | `./deploy.sh api --rollback` | 快回滚（§5），30s，跳过 preflight |
 
-旗标：`--force-restart` 两类合法用法（drain 后未排空、目标机器不可达）——**每次使用留部署记录**；`--allow-legacy` 豁免 guard 的 legacy 进程形态检查；`--skip-smoke`/`--skip-preflight` = 本次部署**不构成判据**（强制留痕，禁用于常规发布）。**unobservable 档不可 force**：ready 无 pending（token 视图缺失）/drain 401/403（凭据失配）均属无账可算——放行即 at-risk 语义谎言；遇 guard 403 的唯一出路是核对令牌（§0/§1），不是 force。
+旗标：`--force-restart` 两类合法用法（drain 后未排空、目标机器不可达）——**每次使用留部署记录**；`--allow-legacy` 豁免 guard 的 legacy 进程形态检查；`--skip-smoke`/`--skip-preflight` = 本次部署**不构成判据**（强制留痕，禁用于常规发布）；`--rebuild-db` = 服务器库重建（DROP SCHEMA+重放 init，破坏性——回退锚=cutover ② pg_dump，唯一权威流程与执行时序清单=`deployment-db-baseline.md` §3，禁用于常规发布）。**unobservable 档不可 force**：ready 无 pending（token 视图缺失）/drain 401/403（凭据失配）均属无账可算——放行即 at-risk 语义谎言；遇 guard 403 的唯一出路是核对令牌（§0/§1），不是 force。
 
 cutover ① 的**拒重启三步**（scripts/deploy-guard.mjs）：drain（20s 续期轮询 r.ok）→ own 四零核验（own spool/stranded 帧，预算 90s，P40）→ 放行（写 `.deploy-guard-state.json` 交接 epoch）。guard 拒绝时 dist 未动、旧构建继续跑。drain 后部署中止的冻结由 **60s 自动解除**（SV12）兜底，可安全重试。重启后 post 段预算另账 120s（P35：收养窗 60s+reconciler 30s+回灌余量）。
 

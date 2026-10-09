@@ -220,14 +220,14 @@
     },
     {
       "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
-      "line": 472,
+      "line": 476,
       "symbol": "shared/constants/collab-close-code.ts",
       "reason": "Y0b-3 交付物前向引用（spec §5.2 规范性点名新建文件——未实现期临时豁免，文件落地后豁免自然空转）",
       "expires_at": "2027-01-06"
     },
     {
       "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
-      "line": 513,
+      "line": 517,
       "symbol": "scripts/check-collab-health.mjs",
       "reason": "Y0b-5 交付物前向引用（spec §5.8⑥ 规范性点名巡检脚本——未实现期临时豁免）",
       "expires_at": "2027-01-06"

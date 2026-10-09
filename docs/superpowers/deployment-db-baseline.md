@@ -43,6 +43,15 @@ pnpm exec tsx prisma/seed.ts
 - **owner 前置核查**：rebuild-db.mjs 只读核查 `public` schema owner=`flowweb` 后才 DROP（DROP 需 schema owner）；DROP 前 GenerationIntent 计数仅日志留档（应用在线窗口断言无意义——pm2 不停）
 - 数据回填：重建后业务数据来自 seed + 人工导入（无用户数据负担，见 spec 裁定）
 
+### 执行时序人工操作清单（四步顺序固定；判据不满足即停，勿跳步）
+
+| # | 操作 | 判据 |
+|---|------|------|
+| 1 | 本地 `./deploy.sh api --rebuild-db`（脚本内自动：清远端旧迁移目录→owner 核查→DROP SCHEMA→migrate deploy 重放 init→cutover 全链含 pg_dump 备份） | 脚本零失败退出；`cat apps/api/dist/build-info.json` SHA≡HEAD |
+| 2 | ssh 进服务器跑 seed：`cd /home/ubuntu/flowweb/apps/api && pnpm exec tsx prisma/seed.ts` | seed 零报错退出 |
+| 3 | 服务器 `pnpm exec prisma migrate status` | 输出 `1 migration found, up to date` |
+| 4 | 冒烟复核：post 段 ready 轮询+collab-smoke 已随脚本跑过；人工再验 `/api/ready` 返回 200 且 reason 全绿 | ready 200；collab-smoke 零失败（post 段输出） |
+
 ## 四、migrate dev 的 shadow database / CREATEDB（一次性手动步骤）
 
 `prisma migrate dev` 与 census 临时库创建需要 CREATEDB，应用 DB 用户（flowweb）默认无。**需 PG 超级用户一次性执行**：
