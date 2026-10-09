@@ -123,7 +123,7 @@ describe('Y0b-1 CreditLedgerService（真库）', () => {
 
   it('Z13 锁等待：并发 reserve×release 各 N 轮零死锁零锁等待超时（lock_timeout=3s 内完成）', async () => {
     const t = await mkTeam('lk'); teams.push(t.id);
-    const intents = [];
+    const intents: { id: string }[] = []; // 仅 .id 被消费（T7：scripts-tsc strict 首次抵达——隐式 any[] 显式化）
     for (let i = 0; i < 5; i++) {
       intents.push(await prisma.generationIntent.create({ data: { projectId: 'it-p', teamId: t.id, nodeId: `n${i}`, userId: 'it-led-owner', intentId: `led-lk-${Date.now()}-${i}`, kind: 'text', paramsHash: 'h', status: 'RUNNING', creditCost: 5 } as any }));
       await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: t.id, type: 'reserve', creditType: 'regular', balanceDelta: -5, frozenDelta: 5, referenceId: `intent:${intents[i].id}` }));

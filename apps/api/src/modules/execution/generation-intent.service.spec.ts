@@ -368,11 +368,12 @@ describe('GenerationIntentService claim 状态机（F13）', () => {
     });
 
     it('Y0b-1（N4）：findByActiveNode 反查 RUNNING 行——projectId/nodeId/jobId 三键', async () => {
-      prisma.generationIntent.findFirst.mockResolvedValue(row());
+      const mock = row(); // 单实例复用——row() 内嵌 new Date()，两次调用毫秒漂移=toEqual 假红（T7 verify 实证）
+      prisma.generationIntent.findFirst.mockResolvedValue(mock);
 
       const r = await service.findByActiveNode('p1', 'n1', 'job-1');
 
-      expect(r).toEqual(row());
+      expect(r).toEqual(mock);
       expect(prisma.generationIntent.findFirst).toHaveBeenCalledWith({
         where: { projectId: 'p1', nodeId: 'n1', status: 'RUNNING', jobId: 'job-1' },
       });

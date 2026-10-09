@@ -38,7 +38,7 @@
       "evidence": [
         {
           "src": "apps/api/prisma/seed.ts",
-          "line": 232,
+          "line": 246,
           "text": "// ===== 平台资产团队（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户） ====="
         },
         {
@@ -48,7 +48,7 @@
         },
         {
           "src": "apps/api/src/prisma/platform-team.seed.ts",
-          "line": 3,
+          "line": 4,
           "text": "/** 平台资产团队域 seed（spec 2026-09-18-video-work-admin-upload §4.1，B 形态：专用系统用户）。"
         }
       ]
