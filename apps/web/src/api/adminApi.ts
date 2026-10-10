@@ -189,8 +189,14 @@ export function updateAdminSubscription(id: string, data: Partial<AdminSubscript
 export function cancelAdminSubscription(id: string): Promise<unknown> {
   return apiFetch(`/admin/subscription/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'expired' }) });
 }
-export function grantCredits(body: { userId: string; amount: number; creditType: 'regular' | 'subscription' }): Promise<void> {
-  return apiFetch('/admin/subscription/credits/grant', { method: 'POST', body: JSON.stringify(body) });
+/** Y0b-2 T8（Z113）：Idempotency-Key 手势幂等——调用方传 key（CreditsPage 表单 useRef 铸造，
+ *  失败/在飞保留复用、成功轮换——与 regenToken 同范式）；不传=合法重复面（Z9）维持兼容。 */
+export function grantCredits(body: { userId: string; amount: number; creditType: 'regular' | 'subscription' }, idempotencyKey?: string): Promise<void> {
+  return apiFetch('/admin/subscription/credits/grant', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+  });
 }
 
 // ========== 视频作品管理（spec 2026-09-16 §4.2；C1-1：admin 路径不带 /api——先例 :29 fetchNodeTypes） ==========
