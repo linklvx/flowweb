@@ -49,7 +49,7 @@ beforeEach(async () => {
         // 第六轮：service 构造注入随任务增长（4.2 rateLimiter / 5.3 collabDoc），Nest compile 时解析全部构造参数——
         // 不预置则后续任务一加注入本 spec 整文件编译红。两个 mock 一次配齐，后续任务直接用。
         { provide: RateLimiterService, useValue: { checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true), getClientIp: vi.fn().mockReturnValue('1.2.3.4') } },
-        { provide: CollabDocumentService, useValue: { readCanvasFromSnapshot: vi.fn() } },
+        { provide: CollabDocumentService, useValue: { readCanvasSnapshotCached: vi.fn(), invalidateSnapshotCache: vi.fn() } }, // Y0b-2 T3：process 快照出口换 cached+失效面
         { provide: StorageQuotaService, useValue: { assertCanUpload: vi.fn().mockResolvedValue(undefined), assertMember: vi.fn(), getUsage: vi.fn().mockResolvedValue(0), assertOnConfirm: vi.fn().mockResolvedValue(undefined) } },
         { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn().mockResolvedValue(undefined) } }, // del 补默认 resolved（Task 5：removeWork URL 缓存失效——裸 vi.fn() 返回 undefined，实现里 await 链会 TypeError）
       ],
@@ -294,7 +294,7 @@ describe('getDetail', () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue(work);
     prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
     await service.getDetail('w1', null);
-    const readCanvas = (service as any).collabDoc.readCanvasFromSnapshot; // Task 1.3 签名一次到位——构造注入必然存在（Task 2.2 spec providers 已提供）
+    const readCanvas = (service as any).collabDoc.readCanvasSnapshotCached; // Task 1.3 签名一次到位——构造注入必然存在（Task 2.2 spec providers 已提供；Y0b-2 T3 换快照缓存出口）
     expect(readCanvas).not.toHaveBeenCalled();
   });
 });
@@ -431,7 +431,7 @@ describe('getProcessSnapshot（安全验收）', () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work, ...over });
     prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
     prisma.media.findMany = vi.fn().mockResolvedValue([]);
-    (service as any).collabDoc = { readCanvasFromSnapshot: vi.fn().mockResolvedValue(rawCanvas) };
+    (service as any).collabDoc = { readCanvasSnapshotCached: vi.fn().mockResolvedValue(rawCanvas), invalidateSnapshotCache: vi.fn() };
     // 第十轮：Map 支撑的 get/set——原 get 恒 null + set 空 vi.fn()，"缓存命中第二次不触 readCanvas"必红
     //（第二次 get 仍 null → 重算 → readCanvas 被调 2 次）。对照 Task 3.2 命中用例（mockResolvedValue('[]')）。
     const cache = new Map<string, string>();
@@ -480,7 +480,7 @@ describe('getProcessSnapshot（安全验收）', () => {
     const out = await service.getProcessSnapshot('w1');
     expect(out.edges[0]).toEqual({ id: 'e1', source: 'n1', target: 'n2' }); // 第十轮补：edges 正向断言（原只覆盖"无 sourceId"半边，与用例标题不符）
     await service.getProcessSnapshot('w1');
-    const readCanvas = (service as any).collabDoc.readCanvasFromSnapshot;
+    const readCanvas = (service as any).collabDoc.readCanvasSnapshotCached;
     expect(readCanvas).toHaveBeenCalledTimes(1);
   });
 
@@ -519,7 +519,7 @@ describe('getProcessSnapshot（安全验收）', () => {
     await service.getProcessSnapshot('w1'); // 第一次 PUBLISHED：生产缓存（redis Map 已写入键）+ readCanvas 1 次
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work, status: 'DRAFT' }); // 只翻转状态——不重建 redis，缓存残留
     await expect(service.getProcessSnapshot('w1')).rejects.toThrow(NotFoundException);
-    expect((service as any).collabDoc.readCanvasFromSnapshot).toHaveBeenCalledTimes(1); // 守卫在缓存读取之前，未因缓存命中被短路
+    expect((service as any).collabDoc.readCanvasSnapshotCached).toHaveBeenCalledTimes(1); // 守卫在缓存读取之前，未因缓存命中被短路
   });
 
   it('下线失效双机制②：updateWork → redis.del(videoWork:process:w1:v2)（写路径失效——O0b-0 键拼 schema 常量）', async () => {
@@ -538,7 +538,7 @@ describe('getProcessSnapshot（安全验收）', () => {
 
   it('readCanvas 挂起 → 有界超时 503', async () => {
     setup();
-    (service as any).collabDoc.readCanvasFromSnapshot = vi.fn().mockImplementation(() => new Promise(() => {})); // 永不 resolve
+    (service as any).collabDoc.readCanvasSnapshotCached = vi.fn().mockImplementation(() => new Promise(() => {})); // 永不 resolve
     await expect(service.getProcessSnapshot('w1')).rejects.toThrow(ServiceUnavailableException);
   }, 10000);
 });

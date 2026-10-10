@@ -83,6 +83,8 @@ export class ExecutionService {
     // Retry-After 由 collab-not-serving.filter.ts 统一落。
     if (!this.collabDoc.isLeaseServing())
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
+    // Y0b-2 T3（分源钉死）：计费/语义读恒活读（readCanvas/withDoc——发起方必有 WS⇒doc 常驻⇒零装载
+    // 成本）；快照出口 readCanvasSnapshotCached 仅无客户端面（video-work 等）——本处禁改走快照。
     const canvas = await this.collabDoc.readCanvas(projectId, sv);
     const allNodes = canvas.nodes as any[];
     const allEdges = canvas.edges as any[];

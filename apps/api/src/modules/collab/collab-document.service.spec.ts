@@ -144,16 +144,17 @@ describe('Y0a-3 T8（三分法）', () => {
     expect((gateway as any).server).toBeUndefined();       // 早退：直连从未开启
   });
 
-  it('readCanvasFromSnapshot 不走 withDoc/租约：isLeaseServing=false 仍直查 repo 投影（只读档不受租约面影响）', async () => {
+  it('readCanvasSnapshotCached（谓词满足档）不走 withDoc/租约：isLeaseServing=false 仍直查 repo 投影（只读档不受租约面影响）', async () => {
     const doc = buildDoc();
     stampDocSchema(toDocLike(doc));
     const repo = { readSnapshotOnly: vi.fn().mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(doc)), updates: [], stateSeq: 1n }) };
-    const gateway = { isLeaseServing: vi.fn(() => false) };
+    const gateway = { isLeaseServing: vi.fn(() => false), isPersistedComplete: vi.fn(() => true) };
     const service = new CollabDocumentService(gateway as any, repo as any);
     const withDocSpy = vi.spyOn(service, 'withDoc');
 
-    const out = await service.readCanvasFromSnapshot('p1');
+    const out = await service.readCanvasSnapshotCached('p1');
 
+    expect(gateway.isPersistedComplete).toHaveBeenCalledWith('p1');   // 谓词门先行（Y0b-2 T3）
     expect(repo.readSnapshotOnly).toHaveBeenCalledWith('p1'); // 直查 repo 快照出口
     expect(withDocSpy).not.toHaveBeenCalled();                // 不经 openDirectConnection/装载
     expect(gateway.isLeaseServing).not.toHaveBeenCalled();    // 不窥探租约——投影读恒可用
@@ -161,7 +162,7 @@ describe('Y0a-3 T8（三分法）', () => {
     expect(out.edges).toHaveLength(1);
   });
 
-  it('readCanvasFromSnapshot：state+分页增量同 doc 重放（投影=state∪updates）', async () => {
+  it('readCanvasSnapshotCached：state+分页增量同 doc 重放（投影=state∪updates）', async () => {
     const base = new Y.Doc();
     stampDocSchema(toDocLike(base)); // 生产快照恒有戳（种子无条件盖章）——ensureSchemaVersion 契约
     base.getMap('nodes').set('n1', new Y.Map(Object.entries({ type: 'textInput' })));
@@ -172,9 +173,9 @@ describe('Y0a-3 T8（三分法）', () => {
     const update = Y.encodeStateAsUpdate(inc, Y.encodeStateVector(base)); // 仅增量
 
     const repo = { readSnapshotOnly: vi.fn().mockResolvedValue({ state, updates: [Buffer.from(update)], stateSeq: 2n }) };
-    const service = new CollabDocumentService({ isLeaseServing: () => true } as any, repo as any);
+    const service = new CollabDocumentService({ isLeaseServing: () => true, isPersistedComplete: () => true } as any, repo as any);
 
-    const out = await service.readCanvasFromSnapshot('p1');
+    const out = await service.readCanvasSnapshotCached('p1');
     expect(out.nodes.map((n: any) => n.id).sort()).toEqual(['n1', 'n2']);
   });
 

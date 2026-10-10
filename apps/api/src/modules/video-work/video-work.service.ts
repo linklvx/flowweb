@@ -325,9 +325,10 @@ export class VideoWorkService {
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
 
-    // Y0a-3（§3.2 只读展示）：快照出口 readCanvasFromSnapshot——不经 openDirectConnection/装载；
+    // Y0b-2 T3（§3.2 只读展示）：快照出口 readCanvasSnapshotCached——谓词门（isPersistedComplete
+    // 不满足→活读 fallback）+进程内 TTL 单飞；不经 openDirectConnection/装载（谓词满足档）。
     // 陈旧度=去抖窗级（spec §9.9）。租约失守期公开页照常（PG 数据在——投影读不分型 503）。
-    const raw = await this.withTimeout(this.collabDoc.readCanvasFromSnapshot(w.canvasProjectId), 5000) as RawCanvasData;
+    const raw = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000) as RawCanvasData;
     const withThumbs = await this.injectThumbnails(raw);
     const filtered = buildFilteredSnapshot(withThumbs, {
       dropTypes: [], dropIdPrefixes: [],   // 快照不剥任何节点（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定；批5-1 删信箱后 shadow- 前缀剥除随行消失
@@ -335,6 +336,7 @@ export class VideoWorkService {
     });
     const result = { workId: id, title: w.title, ...filtered };
     await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）
+    this.collabDoc.invalidateSnapshotCache(w.canvasProjectId); // Y0b-2 T3：处理完成后失效——进程内层不跨请求存活（跨请求缓存=Redis 层）
     return result;
   }
 

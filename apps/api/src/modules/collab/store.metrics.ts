@@ -85,11 +85,11 @@ export const yjsSnapshotReadTotal = new Counter({
   registers: [register],
 });
 
-/** Y0b-2 T2（Z108）：快照回退装载计数——名字本 Task 进 spec §10，inc 接线归 T3
- *  （store.metrics.ts 定义先行先例：yjsStoreTailAnomalyTotal 同款）。 */
+/** Y0b-2 T3（Z108）：快照读回退活读计数——readCanvasSnapshotCached 谓词门（isPersistedComplete）
+ *  不满足（drain 进行中/spool 有帧/doc 常驻——PG 快照可能滞后）时 inc+活读承接。 */
 export const yjsSnapshotFallbackTotal = new Counter({
   name: 'yjs_snapshot_fallback_total',
-  help: 'Y0b-2：快照回退装载计数（增量流异常时回退快照装载——inc 接线 T3）',
+  help: 'Y0b-2：快照读谓词不满足回退活读计数（快照不可信定义性不使用）',
   registers: [register],
 });
 

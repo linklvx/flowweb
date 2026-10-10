@@ -141,6 +141,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** V12 判据唯一化：三入口门/写意图门统一读 collabState 派生（serving=唯一放行态）——
    *  lease.isServing() 仅为租约状态机内部使用（acquireLoop/看门狗），对外服务判据唯一源=collabState。 */
   isLeaseServing(): boolean { return this.collabState === 'serving'; }
+  /** Y0b-2 T3（Z50 修订）：PG 完整性谓词——projectId 的全部在途写已落 PG。四态合一：
+   *  documents 常驻（编辑在途）/in-flight store（取批未落定）/pending 队列（去抖窗）/spool 帧
+   *  （故障期台账）任一非空 ⇒ PG 快照可能滞后 ⇒ false；四态全空=drain 已冲刷完成，快照读可信。
+   *  消费=readCanvasSnapshotCached 缓存门（谓词不满足→活读 fallback）+Y0b-3/4 settleStranded 前置门。 */
+  isPersistedComplete(projectId: string): boolean {
+    const name = `project:${projectId}`;
+    return !this.server.hocuspocus.documents.has(name) && !this.inFlightProjects.has(projectId)
+      && (this.pendingQueues.get(projectId)?.length ?? 0) === 0 && !this.spool.hasFrames(projectId);
+  }
   /** Y0a-2（spec §2.5+V10/V11+X1）：项目消失终态集——**永久无界**（spec §9.10：进程寿命内**真删除**项目数
    *  ——V11 emit 后置后无假终态；可见地接受：yjs_deleted_projects gauge，V25）。
    *  X1：discardForGoneProject 在**事件处理器内**调用（唯一必然执行点——doc 卸载后 store 拦截分支
