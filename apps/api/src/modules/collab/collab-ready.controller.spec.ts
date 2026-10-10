@@ -1,6 +1,7 @@
 // Y0a-3 T7 Step 4（Z14+V17）：端点级用例——路由注册 smoke（decorator metadata 反射；
-// 无 supertest 先例→轻量直控 auth.controller.spec.ts 同款）+GET ready 两档视图（无 token 四键
-// /持 token 全字段）+POST drain 守卫（403 fail-closed/凭据命中）+beginDraining+审计接线。
+// 无 supertest 先例→轻量直控 auth.controller.spec.ts 同款）+GET ready 两档视图（无 token 五键
+// ——Y0b-3 P-C 起公开档恒带 collabProtocolVersion/持 token 全字段）+POST drain 守卫（403
+// fail-closed/凭据命中）+beginDraining+审计接线。
 // 仓内先例（vitest_api_env_quirks）：esbuild 不发射 design:paramtypes——路由断言用
 // PATH/METHOD/GUARDS 自定义 metadata（decorator 运行时 Reflect.defineMetadata，与框架同源）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -58,32 +59,32 @@ describe('CollabReadyController', () => {
     expect(Reflect.getMetadata('THROTTLER:SKIPdefault', CollabReadyController)).toBe(true);
   });
 
-  it('V17 两档：无 token 响应体仅 {ready,reason,redis,epoch} 四键（503 档）', async () => {
+  it('V17 两档+Y0b-3 P-C：无 token 响应体仅 {ready,reason,redis,epoch,collabProtocolVersion} 五键（503 档）', async () => {
     delete process.env.COLLAB_ADMIN_TOKEN;
     delete process.env.PROMETHEUS_TOKEN;
     readyMock.getReady.mockResolvedValue({
       status: 503,
-      body: { ready: false, reason: 'lease-held', holder: 'other', epoch: '9', holderRenewedAgoMs: 5, redis: 'up', pending: PENDING, spoolQuarantined: 0 },
+      body: { ready: false, reason: 'lease-held', holder: 'other', epoch: '9', holderRenewedAgoMs: 5, redis: 'up', pending: PENDING, spoolQuarantined: 0, collabProtocolVersion: 1 },
     });
     const res = fakeRes();
     await controller.getReady({ headers: {} } as any, res);
     expect(res.status).toHaveBeenCalledWith(503);
-    expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['epoch', 'ready', 'reason', 'redis']);
+    expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'epoch', 'ready', 'reason', 'redis']);
   });
 
-  it('V17 两档：无 token 200 档同样裁剪（无 holder/pending——内部信息不出公网面）', async () => {
+  it('V17 两档+Y0b-3 P-C：无 token 200 档同样裁剪（collabProtocolVersion 恒带；holder/pending 不出公网面）', async () => {
     delete process.env.COLLAB_ADMIN_TOKEN;
     delete process.env.PROMETHEUS_TOKEN;
-    readyMock.getReady.mockResolvedValue({ status: 200, body: { ready: true, redis: 'up', pending: PENDING, spoolQuarantined: 0 } });
+    readyMock.getReady.mockResolvedValue({ status: 200, body: { ready: true, redis: 'up', pending: PENDING, spoolQuarantined: 0, collabProtocolVersion: 1 } });
     const res = fakeRes();
     await controller.getReady({ headers: {} } as any, res);
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['ready', 'redis']);
+    expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'ready', 'redis']);
   });
 
-  it('V17 两档：持有效 x-prometheus-token=全字段（holder/pending/spoolQuarantined 保留）', async () => {
+  it('V17 两档：持有效 x-prometheus-token=全字段（holder/pending/spoolQuarantined/collabProtocolVersion 保留）', async () => {
     process.env.PROMETHEUS_TOKEN = 'tok';
-    const full = { ready: false, reason: 'lease-held', holder: 'other', epoch: '9', holderRenewedAgoMs: 5, redis: 'up', pending: PENDING, spoolQuarantined: 2 };
+    const full = { ready: false, reason: 'lease-held', holder: 'other', epoch: '9', holderRenewedAgoMs: 5, redis: 'up', pending: PENDING, spoolQuarantined: 2, collabProtocolVersion: 1 };
     readyMock.getReady.mockResolvedValue({ status: 503, body: full });
     const res = fakeRes();
     await controller.getReady({ headers: { 'x-prometheus-token': 'tok' } } as any, res);
@@ -91,25 +92,25 @@ describe('CollabReadyController', () => {
     expect(res.json).toHaveBeenCalledWith(full);
   });
 
-  it('V17 两档：token 已设但 header 失配→仍走公开裁剪档', async () => {
+  it('V17 两档+Y0b-3 P-C：token 已设但 header 失配→仍走公开裁剪档（collabProtocolVersion 保留）', async () => {
     process.env.PROMETHEUS_TOKEN = 'tok';
-    readyMock.getReady.mockResolvedValue({ status: 200, body: { ready: true, holder: 'me', redis: 'up', pending: PENDING, spoolQuarantined: 0 } });
+    readyMock.getReady.mockResolvedValue({ status: 200, body: { ready: true, holder: 'me', redis: 'up', pending: PENDING, spoolQuarantined: 0, collabProtocolVersion: 1 } });
     const res = fakeRes();
     await controller.getReady({ headers: { 'x-prometheus-token': 'wrong' } } as any, res);
-    expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['ready', 'redis']);
+    expect(wireKeys(res.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'ready', 'redis']);
   });
 
-  it('Y0a-4/N16：授权档透传 loadedDocs/connections（容量观测兄弟字段）；公开档四键裁剪不外泄（V17 契约零动）', async () => {
+  it('Y0a-4/N16+Y0b-3 P-C：授权档透传 loadedDocs/connections（容量观测兄弟字段）；公开档五键裁剪——collabProtocolVersion 恒带（loop 键载体）而 loadedDocs/connections 不外泄', async () => {
     process.env.PROMETHEUS_TOKEN = 'tok';
-    const full = { ready: false, reason: 'lease-held', epoch: '9', redis: 'up' as const, pending: PENDING, spoolQuarantined: 0, loadedDocs: 7, connections: 9 };
+    const full = { ready: false, reason: 'lease-held', epoch: '9', redis: 'up' as const, pending: PENDING, spoolQuarantined: 0, loadedDocs: 7, connections: 9, collabProtocolVersion: 1 };
     readyMock.getReady.mockResolvedValue({ status: 503, body: full });
     const resAuth = fakeRes();
     await controller.getReady({ headers: { 'x-prometheus-token': 'tok' } } as any, resAuth);
     expect(resAuth.status).toHaveBeenCalledWith(503);
-    expect(resAuth.json).toHaveBeenCalledWith(full);   // 授权档全字段透传（新键不过滤）
+    expect(resAuth.json).toHaveBeenCalledWith(full);   // 授权档全字段透传（含 collabProtocolVersion——新键不过滤）
     const resPub = fakeRes();
     await controller.getReady({ headers: {} } as any, resPub);
-    expect(wireKeys(resPub.json.mock.calls[0][0])).toEqual(['epoch', 'ready', 'reason', 'redis']);   // 公开档四键——loadedDocs/connections 不外泄
+    expect(wireKeys(resPub.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'epoch', 'ready', 'reason', 'redis']);   // 公开档五键——Y0b-3 P-C 版本键恒带，loadedDocs/connections 不外泄
   });
 
   describe('POST /api/drain（CollabAdminAuthGuard fail-closed）', () => {

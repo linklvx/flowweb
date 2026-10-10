@@ -48,7 +48,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
          awareness 15s 自续期+origin='local' 发送+服务端无过滤回显⇒空闲恒有双向帧——spec §5.2
          前提在本仓不成立）；只读锚=真连空闲 90s 断言无 4408/无重连/documents 常驻+服务端
          lastMessageReceivedAt 15s 尺度刷新（今日即绿——用证据钉死不需要保活）；spec 勘误登记
-  → T11（出口汇聚——verify 三连+census 五组+int 覆盖回填+spec §0.4 偏离登记〔15 条〕+v8 目录回填
+  → T11（出口汇聚——verify 三连+census 五组+int 覆盖回填+spec §0.4 偏离登记〔16 条〕+v8 目录回填
          +重连演练〔N=50+pendingDocumentCount 峰值<50〕+部署清单〔+.env connection_limit〕；【用户确认点】）
 ```
 
@@ -148,7 +148,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 
 ---
 
-**§0.4 偏离预登记（v2 新建 v3 扩至 14 条，T3 评审修复补 15——与 spec 正文措辞的差异单源；实施完随 T11 回填落地形态）**
+**§0.4 偏离预登记（v2 新建 v3 扩至 14 条，T3 评审修复补 15，T5 评审修复补 16——与 spec 正文措辞的差异单源；实施完随 T11 回填落地形态）**
 
 | # | 偏离 | 依据 |
 |---|------|------|
@@ -167,6 +167,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | 13 | **reaper 卸载动作删除**：spec §3.2 释放路径（5min reaper 调 unloadDocument）的可达性论证——自队列谓词与库守卫同真+库 store 后自愈排程+保内存分支本仓不可达（偏离 1）⇒ reaper 唯一对象不存在；保留卡住观测（zero_conn_docs+守卫拒绝连续计数）——**偏离 1 的彻底版** | P-V① |
 | 14 | **PROTOCOL_COMPAT 矩阵删除**：spec §3.4"兼容矩阵 tsc 封闭"形态偏离——"单键 Record 强制 bump"论证证伪（satisfies 恒满足）；运行时等价=字面量精确比较（`n === CLIENT_PROTOCOL_VERSION`）；版本 bump 纪律=CLIENT_PROTOCOL_VERSION 常量单点+红测断言值 | P-V⑬（S-2） |
 | 15 | **升回分支停写守卫+角色超集**：recheckConnection 升回（readOnly→false）在 E13「VIEWER 翻案」措辞外覆盖全部可写角色（OWNER/EDITOR 等非 viewer 非 null）；且追加停写状态守卫——draining/spool-unwritable 期 readOnly 连接（drain 冻结/spool 降级置位）复验即使 role 可写也不解冻（readOnly 三写者共享——升回撞 drain 冻结=≤60s 窗内静默解冻，破 SV9/B12 部署停写契约）；降级方向不加守卫（降级永远安全） | T3 评审 I-2（P-K 延伸） |
+| 16 | **ready 公开档四键→五键**：无 token 档显式解构重组追加 `collabProtocolVersion`（翻新 Y0a-4「公开档四键契约不动」）——P-C loop 键载体最后一公里：客户端版本终态（schema-outdated）单次探测 /api/ready 拿服务端版本作 reload loop 键，浏览器仅可达 PUBLIC 档（无 token），授权档下发=字段结构性到不了客户端；V17 裁剪意图不变（holder/pending/host+pid 内部信息仍不出公网面，仅放开版本键——service base 三分支恒带，controller 公开档同步下发） | T5 评审 P-C 消费面断裂发现（loop 键载体失效） |
 
 ---
 
@@ -1674,7 +1675,7 @@ it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——
 
 - [ ] **Step 3bis: 重连演练（v2 新增 v3 硬判据；单实例 2 核实测 N=50，N=200 服务器侧冒烟可选）**——N=50 客户端同时重连：全部 `authenticated` ≤30s、零 4205/4408（**由演练客户端记录的 close code 断言——v3.1 F9：服务端 ws_close 只覆盖应用侧主动 close，库自发码唯一可观测面=客户端**）、`collab_auth_inflight` 峰值≤4、`collab_unhandled_rejection_total` 与 `collab_overload_state{tripped}` 均不增、**库 `getPendingDocumentCount()` 峰值 <50（v3 硬判据——否则一次部署即批量 4205；超限则登记 §0.4 再评估 maxPendingDocuments 调值，spec 钉 100 维持）**。
 
-- [ ] **Step 4: spec 回填**——spec §0.4 追加 Y0b-3 落地偏离行（**以本 plan §0.4 预登记 15 条为底**+实施期新增；spec 侧两处勘误建议同步：§3.2 红锚④前提〔偏离 1〕/§3.3"消费面零改动"措辞〔偏离 3〕）；v8 目录 Y0b 行回填（完成态+commit 区间+残余分派）。
+- [ ] **Step 4: spec 回填**——spec §0.4 追加 Y0b-3 落地偏离行（**以本 plan §0.4 预登记 16 条为底**+实施期新增；spec 侧两处勘误建议同步：§3.2 红锚④前提〔偏离 1〕/§3.3"消费面零改动"措辞〔偏离 3〕）；v8 目录 Y0b 行回填（完成态+commit 区间+残余分派）。
 
 - [ ] **Step 5: 部署清单（【告知用户点】——Y0b-2 先例形态）**：
   1. 服务器 `.env` 增 `COLLAB_TRUSTED_PROXY=1`（**必须**——不设=升级限流全站 127.0.0.1 单桶=重连风暴全站锁死，恰是限流要防的反面）；
@@ -1685,7 +1686,7 @@ it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——
   6. 部署后冒烟：伪造 Origin 握手 4xx+`collab_upgrade_rejected_total` 可见+`collab_overload_state{state="ok"}`=1+ready 含 collabProtocolVersion（200/503 双分支）+`collab_ws_close_total` 可见。
   7. runbook 巡检登记（v3.1 F7——"可观测"变"会被发现"的最后一步；spec §5.8 巡检脚本+结构化日志口径）：`collab_load_rejected_total` 持续非零（>0 连续 5min→heap 处置行）/`collab_auth_reject_total{reason="db-unavailable"}` 突增（→PG/池排查）/`yjs_doc_stuck_total`>0（→观测确认，不手动卸载）/`collab_ws_close_total` 分布漂移（4402/1012 占比异常→寿命/drain 频度核对）/`collab_awareness_reject_total{reason="owner-limit"}`>0（→单连接 clientId 泄漏，客户端版本核对）。
 
-- [ ] **Step 6: commit+【用户确认点】**：`docs(y0b-3): T11 出口汇聚——verify 三连+census 五组+重连演练+spec §0.4〔预登记 15 条回填〕/v8 回填+部署清单`
+- [ ] **Step 6: commit+【用户确认点】**：`docs(y0b-3): T11 出口汇聚——verify 三连+census 五组+重连演练+spec §0.4〔预登记 16 条回填〕/v8 回填+部署清单`
 
 ---
 

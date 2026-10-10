@@ -23,14 +23,16 @@ export class CollabReadyController {
   @Get('ready')
   async getReady(@Req() req: Request, @Res() res: Response): Promise<void> {
     const r = await this.ready.getReady();
-    // V17/P21 两档视图：无 token={ready,reason,redis,epoch}（探针/gate 所需）；有效
-    // x-prometheus-token（COLLAB_ADMIN_TOKEN 或回退 PROMETHEUS_TOKEN）=全字段（holder/pending/
-    // stranded/holderRenewedAgoMs——host+pid 属内部信息，/api 经 nginx 公网可达）。drill/gate 已持 token。
+    // V17/P21 两档视图：无 token={ready,reason,redis,epoch,collabProtocolVersion}（探针/gate 所需
+    // +Y0b-3 P-C 版本键恒带——客户端版本终态时单次探测拿它作 reload loop 键，仅 PUBLIC 档可达故
+    // 必经此档下发）；有效 x-prometheus-token（COLLAB_ADMIN_TOKEN 或回退 PROMETHEUS_TOKEN）=全字段
+    // （holder/pending/stranded/holderRenewedAgoMs——host+pid 属内部信息，/api 经 nginx 公网可达）。
+    // drill/gate 已持 token。
     const token = process.env.COLLAB_ADMIN_TOKEN ?? process.env.PROMETHEUS_TOKEN;
     const authorized = !!token && req.headers['x-prometheus-token'] === token;
     if (!authorized) {
-      const { ready, reason, redis, epoch } = r.body;
-      res.status(r.status).json({ ready, reason, redis, epoch });
+      const { ready, reason, redis, epoch, collabProtocolVersion } = r.body;
+      res.status(r.status).json({ ready, reason, redis, epoch, collabProtocolVersion });
       return;
     }
     res.status(r.status).json(r.body);
