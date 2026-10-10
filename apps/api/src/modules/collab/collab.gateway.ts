@@ -339,7 +339,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  inner 的 throw 进外层 catch→reason∈REFUSAL_CACHEABLE（四类）→写 cache。 */
   private readonly refusalCache = new Map<string, { reason: CollabAuthReasonCode; at: number }>();
   private authInflight = 0;
-  private authInflightPeak = 0;   // 验收锚②消费口径（gauge=collab_auth_inflight 同字段 collect）
+  private authInflightPeak = 0;   // peak 仅测试/演练观测用（进程寿命只写不读）——生产 gauge=collab_auth_inflight collect 读 authInflight 现值
   private readonly authAttemptBuckets = new Map<string, { count: number; windowStart: number }>();
   private lastSpoolState: 'ok' | 'spool-unwritable' = 'ok';   // spool 恢复翻转检测（清空并集的 spool 支——谓词非集合，消费点记上一态）
   private authMapsSweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -349,18 +349,24 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private static readonly REFUSAL_CACHEABLE = new Set<string>([
     CollabAuthReason.DRAINING, CollabAuthReason.LEASE_NOT_READY,
     CollabAuthReason.DB_UNAVAILABLE, CollabAuthReason.SERVER_OVERLOADED,
-  ]);   // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）
+  ]);   // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）；SERVER_OVERLOADED 系"信号量层 throw 不经此 catch"的结构性不可达条目（防御性保留——若未来把 heap 拒绝挪进 inner 则可达）
   /** AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI）。
    *  边界：Promise.race 到期不取消底层 Prisma 查询——约束的是信号量槽位占用，非 DB 工作量；
    *  DB 真实并发由池 connection_limit=5 兜底（池 5−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
   private static readonly AUTH_DB_DEADLINE_MS = 3_000;
   private static readonly PERM_RECHECK_TTL_MS = 5 * 60_000;   // §3.1bis：sweep 权限复验周期=会话级结论缓存 5min
   private withAuthDeadline<T>(p: Promise<T>): Promise<T> {
-    return Promise.race([p, new Promise<never>((_resolve, rej) =>
-      setTimeout(() => {
-        collabAuthTimeoutTotal.inc();
-        rej(Object.assign(new Error('auth db deadline'), { reason: CollabAuthReason.DB_UNAVAILABLE }));
-      }, CollabGateway.AUTH_DB_DEADLINE_MS).unref?.())]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      p.finally(() => { if (timer) clearTimeout(timer); }),   // settle 即清 timer（I-1：不清理则成功路径迟到 fire=假超时计数，指标报废）
+      new Promise<never>((_resolve, rej) => {
+        timer = setTimeout(() => {
+          collabAuthTimeoutTotal.inc();
+          rej(Object.assign(new Error('auth db deadline'), { reason: CollabAuthReason.DB_UNAVAILABLE }));
+        }, CollabGateway.AUTH_DB_DEADLINE_MS);
+        timer.unref?.();
+      }),
+    ]);
   }
   private refusalTtlMs(): number { return Number(process.env.COLLAB_REFUSAL_CACHE_TTL_MS) || 15_000; }
   private authAttemptsPerMin(): number { return Number(process.env.COLLAB_AUTH_ATTEMPTS_PER_MIN) || 10; }
@@ -374,6 +380,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     const now = Date.now();
     for (const [k, v] of this.refusalCache) if (now - v.at >= this.refusalTtlMs()) this.refusalCache.delete(k);
     for (const [k, v] of this.authAttemptBuckets) if (now - v.windowStart >= 60_000) this.authAttemptBuckets.delete(k);
+    // 防只握手不认证风暴喂新 socketId：TTL 清不掉"未满窗"的桶（60s 内持续新增）——硬上界兜底（Map 插入序=最旧优先）
+    while (this.authAttemptBuckets.size > 10_000) this.authAttemptBuckets.delete(this.authAttemptBuckets.keys().next().value!);
   }
   private startAuthMapsSweeper(): void {
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }
@@ -1388,8 +1396,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       collabSweepCloseTotal.inc({ cause: 'role-downgraded' });
       return { revoked: false, expiresAt: session.expiresAt };
     }
-    if (role !== null && role !== 'PROJECT_VIEWER' && connection.readOnly) {
-      connection.readOnly = false;   // 升回可写（VIEWER 翻案/授权变化）
+    // 升回分支（I-2）：readOnly 三写者共享（viewer 降级/spool 降级/drain 冻结）——停写状态期
+    // 严禁静默解冻（窗 ≤60s 但违背 SV9/B12 部署停写意图）；降级方向（上一分支）永不加守卫。
+    if (role !== null && role !== 'PROJECT_VIEWER' && connection.readOnly
+      && !this.isShuttingDown() && this.isWritableOrDegraded() === 'ok') {
+      connection.readOnly = false;   // 升回可写（VIEWER 翻案/授权变化——仅 serving+spool ok 期）
       this.rewriteAwarenessRole(connection, role);
     }
     return role === null ? { revoked: true, cause: 'no-role', expiresAt: undefined } : { revoked: false, expiresAt: session.expiresAt };

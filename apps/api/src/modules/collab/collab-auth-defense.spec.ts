@@ -143,6 +143,21 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
     expect(conn.readOnly).toBe(true);
     expect(conn.webSocket.close).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['draining', 'collabState'], ['spool-unwritable', 'spool'],
+  ])('I-2：%s 期 sweep 复验 role=EDITOR 不解冻 readOnly 连接（readOnly 三写者共享：drain 冻结/spool 降级/viewer 降级——升回分支守卫停写状态；改前红：静默翻 false 破 SV9/B12 drain 停写契约）', async (guard) => {
+    const { gateway, perm, spool } = buildGateway();
+    const conn = makeConn({ expiresAt: new Date(Date.now() + 7 * 24 * 3600_000), readOnly: true });   // readOnly=true=drain 冻结/spool 降级态
+    seedDocument(gateway, 'project:p1', [conn]);
+    if (guard === 'collabState') (gateway as any).collabState = 'draining';   // isShuttingDown()=true（drain 期 sweep tick 照跑——sweepSessions 无状态门）
+    else vi.spyOn(spool, 'isWritable').mockReturnValue(false);   // isWritableOrDegraded()='spool-unwritable'
+    perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });   // 复验 role 可写（冻结期授权变化场景）
+    (gateway as any).startSessionSweep();
+    await vi.advanceTimersByTimeAsync(60_000);   // 一轮 sweep tick——permCache 无条目=首查必复验
+    expect(conn.readOnly).toBe(true);            // 改前红：升回分支无条件翻 false=冻结窗内静默解冻
+    expect(conn.webSocket.close).not.toHaveBeenCalled();   // 不解冻≠踢线（保持冻结只读）
+  });
 });
 
 // ============ describe B：验收锚（§3.1bis v2.2 输出级——Step 1 红锚） ============
@@ -190,7 +205,7 @@ describe('Y0b-3 T3 认证防线三层（refusalCache→信号量→桶）+清空
     Array.from({ length: 16 }, (_v, i) =>
       gateway.hooks.onAuthenticate(authPayload(`sock-sem-${i}`) as any)
         .catch((e: any) => { rejected.push(e?.reason); return 0; })
-        .then(() => inflight.push((gateway as any).authInflightPeak)));   // 字段直读（gauge collect 消费同一字段）
+        .then(() => inflight.push((gateway as any).authInflightPeak)));   // 字段直读（peak 仅测试观测——生产 gauge collect 读 authInflight 现值，非本字段）
     await new Promise((r) => setTimeout(r, 0));   // 排空同步段与微任务：12 个被拒+4 个挂 inner
     expect(rejected.filter((r) => r === 'server-overloaded').length).toBe(12);   // 第 5+ 个并发请求被拒（默认 4）
     expect(Math.max(...inflight)).toBeLessThanOrEqual(4);
@@ -283,4 +298,39 @@ describe('Y0b-3 T3 指标注册', () => {
       process.off('unhandledRejection', onUn);
     }
   }, 10_000);
+
+  it('I-1：快速成功认证 → collab_auth_timeout_total 零增量（改前红：deadline timer 成功路径不清理，到点照常 inc——inner 每次成功认证调 2 次 withAuthDeadline=假计 +2，指标信号全毁）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { gateway } = buildGateway();
+      const metric: any = register.getSingleMetric('collab_auth_timeout_total');
+      const value = async () => (await metric.get()).values[0]?.value ?? 0;
+      const before = await value();
+      await gateway.hooks.onAuthenticate(authPayload() as any);   // 快速成功（mock 全 resolve——零真实超时）
+      await vi.advanceTimersByTimeAsync((CollabGateway as any).AUTH_DB_DEADLINE_MS + 1_000);   // 越过 deadline 窗：迟到 timer 若未 clear 必已 fire
+      expect(await value()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('I-2 伴随锚：deadline 到期路径 inc 恰一次（clearTimeout 不得吞掉真实超时计数——与 I-1 合读=超时计数的完备性）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { gateway } = buildGateway();
+      const metric: any = register.getSingleMetric('collab_auth_timeout_total');
+      const value = async () => (await metric.get()).values[0]?.value ?? 0;
+      const before = await value();
+      let rejectLater!: (e: Error) => void;
+      const slow = new Promise<never>((_res, rej) => { rejectLater = rej; });
+      const raced = (gateway as any).withAuthDeadline(slow).catch((e: any) => e?.reason);
+      await vi.advanceTimersByTimeAsync((CollabGateway as any).AUTH_DB_DEADLINE_MS + 1);
+      expect(await raced).toBe('db-unavailable');
+      expect(await value()).toBe(before + 1);   // 恰一次
+      rejectLater(new Error('late failure'));   // 弃分支迟到 reject——无 unhandledRejection
+      await vi.advanceTimersByTimeAsync(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
