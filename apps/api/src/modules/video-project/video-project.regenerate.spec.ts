@@ -106,10 +106,10 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
     const collab = {
       readCanvas: vi.fn().mockResolvedValue(CANVAS),
       isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费/语义读门——默认放行
-      writeNodeData: vi.fn(),
+      writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined),
     };
-    const gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
+    const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
     const downloadQueue = { add: vi.fn() };
     const succeeded = new Map<string, string>(); // "nodeId:intentId" -> resultRef（complete 落地）
     const intentService = {

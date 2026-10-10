@@ -189,7 +189,8 @@ describe('Y0a-3 T8（三分法）', () => {
   it('writeExecStatus 同款租约档 → 503', async () => {
     const gateway = { isLeaseServing: vi.fn(() => false), isWritableOrDegraded: vi.fn(() => 'ok') };
     const service = new CollabDocumentService(gateway as any, repoStub() as any);
-    await expect(service.writeExecStatus('p1', 'n1', { status: 'loading' })).rejects.toThrow(ServiceUnavailableException);
+    // Y0b-2 T5（Z111）：attempts 必填（编译级守卫——patch 类型缺字段即红）
+    await expect(service.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 0 })).rejects.toThrow(ServiceUnavailableException);
   });
 
   it('isLeaseServing 透传 gateway（计费/语义读调用面查此档）', () => {

@@ -49,7 +49,7 @@ describe('LightingConsumer', () => {
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
     };
-    collabDoc = { writeNodeData: vi.fn() };
+    collabDoc = { writeNodeData: vi.fn().mockResolvedValue({ written: true }) }; // Y0b-2 T5：交付判据类型化 {written,reason}
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
@@ -107,8 +107,8 @@ describe('LightingConsumer', () => {
       }),
     );
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
-    // Y0b-1 Z10：金额单源 intent 行——guard 仅带 intentRowId
-    expect(teamCredit.reserve).toHaveBeenCalledWith('u1', { intentRowId: 'row-9' });
+    // A-1 根修（Y0b-2 T5）：reserve 收敛 processor（队列入口）——consumer 零 reserve；settle 核销照走
+    expect(teamCredit.reserve).not.toHaveBeenCalled();
     expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
   });
 
@@ -149,25 +149,18 @@ describe('LightingConsumer', () => {
   });
 
   describe('安全止血（spec 批0c-3 + 批0.5-9 两阶段：扣费守卫 + B1 越权读根修）', () => {
-    it('reserve 失败（余额不足）→ 外呼零调用 + task failed + 产物零落库 + 返回 failed', async () => {
-      teamCredit.reserve.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
+    it('A-1 根修：consumer 不再 reserve（收敛 processor 队列入口）——guard 缺失仍接线断言（余额不足路径归 processor 收口）', async () => {
       mockAxiosResult();
 
-      const result = await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
+      // guard 完整：正常链零 reserve 调用（A-1——二次 reserve 白扣费根修的守护锚）
+      await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
+      expect(teamCredit.reserve).not.toHaveBeenCalled();
+      expect(apiCaller.callRelighting).toHaveBeenCalledTimes(1); // 正常链外呼恰一次
 
-      expect(result.status).toBe('failed');
-      // 批0.5-9：reserve 前置外呼——余额不足零外呼（不再白付 relighting）
-      expect(apiCaller.callRelighting).not.toHaveBeenCalled();
-      expect(intentService.void_).toHaveBeenCalledWith('row-9', expect.stringContaining('CREDIT_INSUFFICIENT'));
-      // F4 不变量：看到产物 ⇒ 已扣费——扣费失败则任何产物（Media 行/MinIO 对象）不得落库
-      expect(prisma.media.create).not.toHaveBeenCalled();
-      expect(minio.upload).not.toHaveBeenCalled();
-      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
-      expect(prisma.lightingTask.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'failed' }),
-        }),
-      );
+      // guard 缺失=接线断裂——拒绝（processor 侧同款守卫的前线兜底）——外呼计数不增
+      await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('INTENT_GUARD_MISSING');
+      expect(apiCaller.callRelighting).toHaveBeenCalledTimes(1); // 零外呼
+      expect(prisma.media.create).toHaveBeenCalledTimes(1); // 仅首段正常链落库（F4：违约段产物零落库）
     });
 
     it('外呼抛错（已冻结）→ catch 路径 void_ 解冻（约束②）', async () => {
@@ -217,13 +210,11 @@ describe('LightingConsumer', () => {
   describe('批0.5-8/0.5-9 意图表扩面（reserve guard + settle 核销 + complete 门序）', () => {
     const intent = { intentRowId: 'row-9', intentId: 'i-9' };
 
-    it('reserve 带 intentGuard {intentRowId}（Y0b-1 Z10 金额单源 intent 行——约束① CAS 锚防双冻结）', async () => {
+    it('A-1：consumer 零 reserve（金额单源 intent 行+冻结收敛 processor 队列入口——双 reserve 白扣费根修守护）', async () => {
       mockAxiosResult();
       await consumer.handleLightingJob(makeJob('proj-1', intent));
-      expect(teamCredit.reserve).toHaveBeenCalledWith(
-        'u1', { intentRowId: 'row-9' },
-      );
-      expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callRelighting.mock.invocationCallOrder[0]);
+      expect(teamCredit.reserve).not.toHaveBeenCalled();
+      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' }); // 核销照走（冻结在手凭据）
     });
 
     it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {

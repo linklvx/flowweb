@@ -9,7 +9,7 @@ import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
-import { intentDuplicateAttemptTotal } from '../../execution/intent-reconcile.metrics';
+import { artifactDiscardedTotal } from '../../execution/exec.metrics';
 import axios from 'axios';
 
 const LightingTaskStatus = {
@@ -121,39 +121,12 @@ export class LightingConsumer {
       }
       const presignedUrl = await this.minio.generatePresignedGetUrl(sourceMedia.key, 3600);
 
-      // 3. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=0.5-8 接线断裂——拒绝付费外呼
-      //    （个人任务无 projectTeamId 不扣费——现状维持）
-      if (projectTeamId) {
-        if (!intentRowId || !intentId) {
-          throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）——缺锚即接线断裂
-        }
-        // Y0b-1（Z10）：金额单源 intent 行（claim 固化 plan 快照）——consumer 不再解析定价
-        const reserveResult = await this.teamCredit.reserve(userId, { intentRowId });
-        if (reserveResult.mayCall === false) {
-          // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
-          intentDuplicateAttemptTotal.inc();
-          this.logger.warn(`[reserve] 意图 ${intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
-          return { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT' };
-        }
-        if (!reserveResult.success) {
-          const reason = reserveResult.reason ?? 'RESERVE_FAILED';
-          this.logger.warn(`Lighting credit-reserve failed for task ${taskId}: ${reason}`);
-          await this.intentService.void_(intentRowId, `扣费失败：${reason}`); // 零扣费终态——重试照常扣费
-          await this.prisma.lightingTask.update({
-            where: { id: taskId },
-            data: {
-              status: LightingTaskStatus.FAILED,
-              errorMessage: `扣费失败：${reason}`,
-              completedAt: new Date(),
-            },
-          });
-          this.gateway.emitNodeStatus(projectId || '', {
-            nodeId,
-            status: 'lighting-failed',
-            error: `扣费失败：${reason}`,
-          } as any);
-          return { status: 'failed', reason };
-        }
+      // 3. A-1 根修（Y0b-2 T5）：reserve 收敛 processor 一处（队列入口结构位——全 taskType 统一；
+      //    本 consumer 不再 reserve：旧二次 reserve 必 mayCall:false〔alreadyReserved〕→ skipped 永不外呼
+      //    →deadline 批 backfillSucceeded→settleStranded 补 settle=1 credit 白扣）。
+      //    冻结凭据=processor 已 reserve（guard 校验/余额不足路径同在 processor 收口）。
+      if (projectTeamId && (!intentRowId || !intentId)) {
+        throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）——缺锚即接线断裂
       }
 
       // 4. Build prompt from params
@@ -236,8 +209,14 @@ export class LightingConsumer {
       });
 
       // 10. Write fileId to server doc；socket 仅进度通知
+      //     Z44 nodeAlive 守卫：written:false=节点已删——产物丢弃计数（账已结清，无退款腿）
       if (projectId) {
-        await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id });
+        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id });
+        if (!deliver.written) {
+          artifactDiscardedTotal.inc({ cause: 'node-deleted' });
+          this.logger.warn(`[lighting] 节点 ${nodeId} 已删——产物 ${media.id} 丢弃（nodeAlive 守卫）`);
+          return { status: 'completed', fileId: media.id };
+        }
       }
       this.gateway.emitNodeStatus(projectId || '', {
         nodeId,

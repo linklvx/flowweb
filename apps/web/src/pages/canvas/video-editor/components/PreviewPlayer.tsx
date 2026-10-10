@@ -60,9 +60,11 @@ export function PreviewPlayer() {
         try {
           const { result } = await regenerateNode({ workflowId, sourceNodeId: retakeSource.id, kind: 'video', retakeId });
           // 批5-1：返回体含 execute 结果——早失败（校验/扣费）在 HTTP 往返内已 emit+写 exec map（订阅必错过），直读 result 反馈
+          // Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error}——读 error 文案（缺则退 nodeId 定位）
           if (result && result.success === false) {
             lastRetakeRef.current = { retakeId, failed: true };
-            void message.error(`重拍失败：${result.errors?.[0] ?? '未知错误'}`);
+            const e0 = result.errors?.[0];
+            void message.error(`重拍失败：${e0?.error ?? e0?.nodeId ?? '未知错误'}`);
           } else {
             lastRetakeRef.current = { retakeId, failed: false }; // 完成/失败态由真实节点 exec 投影对齐（busy 解除）
           }

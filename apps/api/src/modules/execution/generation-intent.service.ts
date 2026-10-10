@@ -89,10 +89,12 @@ export class GenerationIntentService {
           if (input.jobId && existing.jobId === input.jobId) {
             // 同 job 可重入（BullMQ stalled 重排同 jobId 重进 claim 不得自锁）——Y0b-2 T4 重锚=新执行段：
             // 重入瞬间刷新 heartbeat/deadline（不刷则旧 deadline 已近/超期 ⇒ reaper deadline 批误收重排任务）；
-            // startedAt 留给 executor 的 reanchorDeadline（外呼真正起点——claim≠外呼开始）
+            // startedAt 留给 executor 的 reanchorDeadline（外呼真正起点——claim≠外呼开始）。
+            // Y0b-2 T5（Z83/Z95）：resultRef 清空**保留 providerTaskId**——重试 query-first 复用 provider 任务
             const rearmed = await tx.generationIntent.updateMany({
               where: { id: existing.id, status: 'RUNNING', jobId: input.jobId },
               data: {
+                resultRef: null,
                 heartbeatAt: new Date(),
                 deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
               },
@@ -109,12 +111,14 @@ export class GenerationIntentService {
         }
         // FAILED/VOIDED → 原子再激活（守卫式 updateMany：并发双请求恰一个 count===1）
         // attempts 正交于幂等：SUCCEEDED 重放永不看 attempts，只有失败重试消耗免费额度
+        // Y0b-2 T5（Z83/Z95）：resultRef 清空**保留 providerTaskId**——重试 query-first 复用 provider 任务
         if (existing.attempts >= 3) throw new IntentExhaustedError();
         const rearmed = await tx.generationIntent.updateMany({
           where: { id: existing.id, status: { in: [...REARMABLE] } },
           data: {
             status: 'RUNNING',
             error: null,
+            resultRef: null,
             jobId: input.jobId ?? null,
             completedAt: null,
             attempts: { increment: 1 },
@@ -171,13 +175,16 @@ export class GenerationIntentService {
 
   /** Y0b-2 T4：外呼前重锚——终锚（deadlineAt=now+kind 档）+外呼起点（startedAt——Z83 phase 判据：
    *  startedAt 非空=call 期/空=queue 期）+心跳刷新，三职一次写。claim 时锚是排队档上限，
-   *  executor 外呼前调本方法重锚为真正执行段。 */
-  async reanchorDeadline(id: string, kind: string): Promise<void> {
+   *  executor 外呼前调本方法重锚为真正执行段。
+   *  Y0b-2 T5（A-2）：返回受影响行数——count===0=行已终态（Z84 宽限后被 VOID 的迟归 job），
+   *  调用方据此早退不再 submit（迟归 job 白烧一次外呼的根修）。 */
+  async reanchorDeadline(id: string, kind: string): Promise<number> {
     const now = new Date();
-    await this.prisma.generationIntent.updateMany({
+    const r = await this.prisma.generationIntent.updateMany({
       where: { id, status: { in: [...ACTIVE] } },
       data: { startedAt: now, deadlineAt: new Date(now.getTime() + deadlineMsForKind(kind)), heartbeatAt: now },
     });
+    return r.count;
   }
 
   /** complete 幂等迁移——返回受影响行数（F13 产物门序）：count===1 调用方才写 doc/exec；
@@ -233,6 +240,7 @@ export class GenerationIntentService {
       select: {
         id: true, intentId: true, kind: true, status: true, resultRef: true,
         error: true, creditsConsumed: true, createdAt: true, completedAt: true,
+        attempts: true, // Y0b-2 T5（Z99/Z111）：投影代次判据——web ExecStatusEntry.attempts 对齐
       },
     });
   }

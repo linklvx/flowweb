@@ -31,7 +31,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
       isLeaseServing: vi.fn().mockReturnValue(true), // Y0a-3 T8 计费读门——默认放行
-      writeNodeData: vi.fn(),
+      writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
     topology = {
@@ -53,7 +53,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       callAudioGen: vi.fn(),
     };
     teamCredit = { reserve: vi.fn().mockResolvedValue({ success: true }), settle: vi.fn().mockResolvedValue({ success: true, settled: true }), void_: vi.fn().mockResolvedValue(undefined), getBalanceView: vi.fn().mockResolvedValue({ total: 100 }) };
-    gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
+    gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
     mockDownloadQueue = { add: vi.fn().mockResolvedValue({ id: 'job-1' }) };
 
     const module: TestingModule = await Test.createTestingModule({

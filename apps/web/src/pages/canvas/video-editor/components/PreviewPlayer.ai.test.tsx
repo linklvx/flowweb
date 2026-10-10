@@ -110,7 +110,8 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     ready({ data: withVideoClip(createDefaultProjectData()), selectedClipId: 'v1', node: { vg1: { id: 'vg1', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '源视频', status: 'done', fileId: 'f0' } } } });
     render(<PreviewPlayer />);
     // 首轮早失败（execute 结果 success=false——扣费/校验失败在 HTTP 往返内已 emit，直读 result 反馈）
-    regenMock.mockResolvedValueOnce({ retakeId: 'x', result: { success: false, errors: ['扣费失败'] } });
+    // Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error}——message 读 e.error 文案
+    regenMock.mockResolvedValueOnce({ retakeId: 'x', result: { success: false, errors: [{ nodeId: 'vg1', status: 'error' as const, error: '扣费失败', errorCode: 'CREDIT_INSUFFICIENT' }] } });
     fireEvent.click(screen.getByText('片段重拍'));
     await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(messageError).toHaveBeenCalledWith(expect.stringContaining('扣费失败')));

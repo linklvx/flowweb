@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
+import { artifactDiscardedTotal } from '../execution/exec.metrics';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
@@ -113,7 +114,13 @@ export class AiDownloadProcessor extends WorkerHost {
     });
 
     // 4. Write fileId to server doc (real-time persistence), socket 仅进度通知
-    await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id, resultUrl: job.data.resultUrl });
+    //    Z44 nodeAlive 守卫（Y0b-2 T5）：written:false=节点已删——产物丢弃计数（账已结清，无退款腿）
+    const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id, resultUrl: job.data.resultUrl });
+    if (!deliver.written) {
+      artifactDiscardedTotal.inc({ cause: 'node-deleted' });
+      this.logger.warn(`[ai-download] 节点 ${nodeId} 已删——产物 ${media.id} 丢弃（nodeAlive 守卫）`);
+      return { status: 'completed', fileId: media.id };
+    }
 
     this.gateway.emitNodeStatus(projectId, {
       nodeId,

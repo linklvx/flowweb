@@ -37,7 +37,8 @@ export async function getProjectByNode(sourceNodeId: string): Promise<VideoProje
 }
 
 export interface RegenerateInput { workflowId: string; sourceNodeId: string; kind: 'video' | 'audio'; retakeId: string; }
-export interface RegenerateResult { retakeId: string; result?: { success: boolean; errors?: string[] } }
+/** Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error,errorCode?}——与 executionApi.ExecutionErrorEntry 同形 */
+export interface RegenerateResult { retakeId: string; result?: { success: boolean; errors?: Array<{ nodeId: string; status: 'error' | 'skipped'; error: string; errorCode?: string }> } }
 
 /** 批5-1 retake 直连真实节点：retakeId 客户端生成（E0 幂等键——intentRecord 范式）上送，
  *  返回 { retakeId, result }——result 含 execute 的 success/errors（早失败在 HTTP 往返内已 emit+写

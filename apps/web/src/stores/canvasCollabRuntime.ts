@@ -174,9 +174,17 @@ function projectExecToStore(d: Y.Doc): void {
   for (const [id, v] of d.getMap('exec').entries()) {
     if (!(v instanceof Y.Map)) continue;
     const status = v.get('status');
-    if (status !== 'loading' && status !== 'done' && status !== 'error') continue;
+    // Y0b-2 T5（Z99）：白名单补 'skipped'（NodeBusy/重复外呼降级投影——非终态）
+    if (status !== 'loading' && status !== 'done' && status !== 'error' && status !== 'skipped') continue;
     const str = (k: string) => (typeof v.get(k) === 'string' ? (v.get(k) as string) : undefined);
-    m.set(id, { status, jobId: str('jobId'), intentId: str('intentId'), error: str('error'), fileId: str('fileId') });
+    // Y0b-2 T5（Z95/Z111）：抄键补 errorCode/rearmable/attempts/reason（error/skipped 投影契约跨端）
+    m.set(id, {
+      status, jobId: str('jobId'), intentId: str('intentId'), error: str('error'), fileId: str('fileId'),
+      errorCode: str('errorCode'),
+      rearmable: typeof v.get('rearmable') === 'boolean' ? (v.get('rearmable') as boolean) : undefined,
+      attempts: typeof v.get('attempts') === 'number' ? (v.get('attempts') as number) : undefined,
+      reason: str('reason'),
+    });
   }
   useNodeStore.setState({ execStatus: m });
 }

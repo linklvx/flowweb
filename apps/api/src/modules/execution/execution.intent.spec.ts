@@ -48,10 +48,10 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
   const collabDoc = {
     readCanvas: vi.fn().mockResolvedValue({ nodes, edges: [] }),
     isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费读门——默认放行
-    writeNodeData: vi.fn(),
+    writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
   };
-  const gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
+  const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
   const downloadQueue = { add: vi.fn() };
   const intentService = {
     claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
@@ -130,15 +130,17 @@ describe('批0.5-6 幂等重放（claim created=false ⇒ SUCCEEDED）', () => {
   });
 });
 
-describe('批0.5-6 双击 409（NODE_BUSY 冒泡）', () => {
-  it('claim 抛 NodeBusyError → execute rejects（409 族 BusinessException 透出）——零外呼/零 fail/零 exec map 写（不覆盖在飞执行）', async () => {
+describe('批0.5-6 双击 409（NODE_BUSY 组内降级——Y0b-2 T5/Z99 改契约）', () => {
+  it('claim 抛 NodeBusyError → 降级 skipped：errors 含 {status:skipped}+投影 skipped（禁 error）——零外呼/零 fail/不覆盖在飞 loading', async () => {
     const { svc, apiCaller, intentService, collabDoc } = makeService([IMAGE_NODE], {
       claim: vi.fn().mockRejectedValue(new NodeBusyError()),
     });
-    await expect(svc.execute('p1', 'n3', 'u1')).rejects.toBeInstanceOf(NodeBusyError);
+    const r = await svc.execute('p1', 'n3', 'u1');
+    expect(r.success).toBe(false); // :385 整批 throw 已退役（Z44 部分成功语义）
+    expect(r.errors[0]).toMatchObject({ nodeId: 'n3', status: 'skipped', errorCode: 'NODE_BUSY' });
     expect(apiCaller.callImageGen).not.toHaveBeenCalled();
-    expect(intentService.fail).not.toHaveBeenCalled();
-    expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();
+    expect(intentService.fail).not.toHaveBeenCalled(); // 不 fail 他人在飞行
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'skipped', attempts: 0 }));
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
   });
 });
@@ -168,15 +170,17 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'http://img' }));
   });
 
-  it('count===0（行已被 reconcile VOIDED+退款）→ writeNodeData/done/download 全跳过 + 对账告警', async () => {
+  it('count===0（行已被 reconcile VOIDED+退款）→ writeNodeData/done/download 全跳过 + 终态 error 投影（Z95 补）+对账告警', async () => {
     const { svc, collabDoc, gateway, downloadQueue } = makeService([IMAGE_NODE], {
       complete: vi.fn().mockResolvedValue(0),
     });
     const warn = vi.spyOn((svc as any).logger, 'warn');
     const r = await svc.execute('p1', 'n3', 'u1');
-    expect(r.success).toBe(true);
+    expect(r.success).toBe(false); // gated≠1 ⇒ error 进 errors（F4：门序闭=无产物）
+    expect(r.results).toHaveLength(0);
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
     expect(collabDoc.writeExecStatus).not.toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'done' }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED' }));
     expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done' }));
     expect(downloadQueue.add).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
@@ -206,7 +210,8 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
     const r = await svc.execute('p1', 'n1', 'u1');
 
     expect(r.success).toBe(false);
-    expect(r.errors[0]).toContain('CREDIT_INSUFFICIENT');
+    expect(r.errors[0].error).toContain('CREDIT_INSUFFICIENT'); // Y0b-2 T5：errors 结构化
+    expect(r.errors[0].errorCode).toBe('CREDIT_INSUFFICIENT');
     expect(apiCaller.callTextGen).not.toHaveBeenCalled(); // 零外呼——白付外呼面消灭
     expect(teamCredit.settle).not.toHaveBeenCalled();
     expect(intentService.void_).toHaveBeenCalledWith('row-1', expect.stringContaining('CREDIT_INSUFFICIENT'));
@@ -265,7 +270,7 @@ describe('批0.5-6 catch 路径（意图终态必达——error 展示不受门�
     apiCaller.callTextGen.mockRejectedValue(new Error('boom'));
     const r = await svc.execute('p1', 'n1', 'u1');
     expect(r.success).toBe(false);
-    expect(r.errors[0]).toContain('boom');
+    expect(r.errors[0].error).toContain('boom'); // Y0b-2 T5：errors 结构化
     expect(intentService.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('boom'));
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }));
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'error' }));

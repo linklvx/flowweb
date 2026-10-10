@@ -37,7 +37,7 @@ describe('AiDownloadProcessor', () => {
       media: { create: vi.fn().mockResolvedValue({ id: 'media-new' }) },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
     };
-    collabDoc = { writeNodeData: vi.fn() };
+    collabDoc = { writeNodeData: vi.fn().mockResolvedValue({ written: true }) }; // Y0b-2 T5：交付判据类型化 {written,reason}
     quota = { assertCanUpload: vi.fn().mockResolvedValue(undefined) };
     minio = {
       upload: vi.fn().mockResolvedValue(undefined),

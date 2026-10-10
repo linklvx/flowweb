@@ -203,4 +203,60 @@ export class TeamCreditService {
       }
     }, { timeout: 15_000, maxWait: 5_000 });
   }
+
+  /** Z64/Z75/Z92/Z102：资金回滚单实现三入口。锁序=契约 20：读 intent（无锁）→lockBalance（TB 行锁）
+   *  →GI CAS→逐行冲销（事务原子——冲销中途抛错整体回滚，行留原态交重扫）。
+   *  Z92 竞态封死（入口语义拆分）：rollbackRunning（CAS 严格 RUNNING）=reaper/deadline 唯一——
+   *    complete 先行（SUCCEEDED）后迟归的 reaper 在此零命中，"退款后仍交付"结构性关闭；
+   *  rollbackDeliveryFailed（CAS SUCCEEDED——交付凭据 written:false 由调用方持有）=交付路径唯一；
+   *  rollbackStranded（CAS SUCCEEDED∧reservedCredits>0∧判龄——Z102 第三入口）=settleStranded 唯一：
+   *    判龄是安全要件（"无活 worker 持有"的结构证明——也是它可被 reaper 侧调用而不重开 Z92 竞态的原因）。
+   *  返回值：CAS 是否命中（false=并发已抢/判龄不满足——幂等零动作）。 */
+  async rollbackRunning(intentRowId: string, reason: string, cutoff?: Date): Promise<boolean> {
+    return this.doRollback(intentRowId, reason, { status: 'RUNNING', ...(cutoff ? { heartbeatAt: { lt: cutoff } } : {}) });
+  }
+
+  async rollbackDeliveryFailed(intentRowId: string, reason: string): Promise<boolean> {
+    return this.doRollback(intentRowId, reason, { status: 'SUCCEEDED' });
+  }
+
+  async rollbackStranded(intentRowId: string, reason: string, cutoff: Date): Promise<boolean> {
+    return this.doRollback(intentRowId, reason, { status: 'SUCCEEDED', reservedCredits: { gt: 0 }, completedAt: { lt: cutoff } });
+  }
+
+  private async doRollback(
+    intentRowId: string, reason: string,
+    from: { status: 'RUNNING' | 'SUCCEEDED'; reservedCredits?: { gt: 0 }; completedAt?: { lt: Date }; heartbeatAt?: { lt: Date } },
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (raw) => {
+      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
+      const intent = await tx.generationIntent.findUnique({ where: { id: intentRowId } });
+      if (!intent || intent.status !== from.status) return false;
+      await this.ledger.lockBalance(tx, intent.teamId);   // ← TB 行锁先于 GI 写（契约 20）
+      const guard = await tx.generationIntent.updateMany({
+        where: { id: intentRowId, ...from },
+        data: { status: 'VOIDED', reservedCredits: 0, creditsConsumed: 0, error: reason.slice(0, 500), completedAt: new Date() },
+      });
+      if (guard.count === 0) return false;   // 并发已抢/判龄不满足（幂等）
+      // anti-join：未被冲销的 reserve/settle 行——按行类型分义冲销（settle→refund(+c,0) / reserve→release(+c,−c)+reversesId）
+      const rows = await tx.$queryRaw<any[]>`
+        SELECT r.* FROM "TeamCreditTransaction" r
+        WHERE r."teamId" = ${intent.teamId} AND r."referenceId" = ${'intent:' + intentRowId}
+          AND r.type IN ('reserve', 'settle') AND r.amount < 0
+          AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
+        FOR UPDATE OF r`;
+      for (const r of rows) {
+        await this.ledger.mutate(tx, r.type === 'settle'
+          ? {
+            teamId: r.teamId, operatorUserId: intent.userId, type: 'refund', creditType: r.creditType,
+            balanceDelta: Math.abs(r.amount), frozenDelta: 0, referenceId: r.referenceId, reversesId: r.id,
+          }
+          : {
+            teamId: r.teamId, operatorUserId: intent.userId, type: 'release', creditType: r.creditType,
+            balanceDelta: Math.abs(r.amount), frozenDelta: -Math.abs(r.amount), referenceId: r.referenceId, reversesId: r.id,
+          });
+      }
+      return true;
+    }, { timeout: 15_000, maxWait: 5_000 });
+  }
 }

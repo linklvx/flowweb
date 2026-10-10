@@ -42,10 +42,10 @@ function makeService(reserveOk: boolean, nodes: any[]) {
   const collabDoc = {
     readCanvas: vi.fn().mockResolvedValue({ nodes, edges: [] }),
     isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费读门——默认放行
-    writeNodeData: vi.fn(),
+    writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
   };
-  const gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
+  const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
   const downloadQueue = { add: vi.fn() };
   const intentService = {
     claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),

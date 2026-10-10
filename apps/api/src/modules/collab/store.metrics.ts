@@ -93,6 +93,14 @@ export const yjsSnapshotFallbackTotal = new Counter({
   registers: [register],
 });
 
+/** Y0b-2 T5（Z112）：reconcile 探针（ArtifactProbe）装载非常驻 doc 计数——钱事实探测允许强制装载
+ *  但有界（take:100 行限探测条数），本计数=heap 闸/E39 归因面（探测引发的装载量观测）。 */
+export const yjsDocLoadedByReconcilerTotal = new Counter({
+  name: 'yjs_doc_loaded_by_reconciler_total',
+  help: 'Y0b-2（Z112）：reconcile 产物探针装载非常驻 doc 计数（钱事实有界装载——heap 闸归因）',
+  registers: [register],
+});
+
 /** Y0a-1：compact 健康度唯一真实指标（v2.2 升 P0 告警线）——pendingStructs!=null 放弃本次；
  *  放弃不开窗=下次 store 立即重试（spec v2.4 E23——pendingStructs!=null 是需人工介入的异常态，
  *  活跃编辑期每 debounce 窗一次 ERROR+计数递增正是 P0 线要的最响信号；未编辑 doc 无 store 触发源不空转）。

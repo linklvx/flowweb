@@ -12,11 +12,14 @@ import {
   reconcileMismatchTotal, strandedTotal, balanceDriftTotal, frozenDriftTotal,
   orphanReleaseTotal, orphanUnreleasableTotal,
 } from './intent-reconcile.metrics';
-import { intentDeadlineExceededTotal } from './exec.metrics';
+import { intentDeadlineExceededTotal, execProjectionDeferredTotal } from './exec.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/外呼心跳都刷新 heartbeatAt，超龄即进程/调度异常嫌疑
  *  （Y0b-2 T4 判据单源：updatedAt→heartbeatAt——外呼 tick 不刷 updatedAt，旧判据会误收长任务）。 */
 const STALE_MS = 15 * 60_000;
+/** Y0b-2 T5（Z102）：settleStranded 判龄宽限（具名常量）——正常链 complete→settle 秒级完成，
+ *  超宽限仍冻结=崩溃窗悬留（"无活 worker 持有"的结构证明=rollbackStranded 判龄安全要件）。 */
+export const SETTLE_STRANDED_GRACE_MS = 10 * 60_000;
 /** Z84 waiting/delayed 升级宽限——deadline 到点后 job 仍 waiting 的宽限窗（迟归 job 仍可被调度；
  *  超窗即升级收敛：VOID+release，迟归 job 进 processor 时行已终态 ⇒ claim④ rearm 自愈）。 */
 const WAITING_UPGRADE_GRACE_MS = 30 * 60_000;
@@ -48,13 +51,10 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *       active/waiting/delayed → 长任务合法在飞（意图行心跳不随外呼刷新时由 deadline 批兜底），零动作
  *    B. 三查（age 一律取 heartbeatAt；批0.5-9 两阶段口径 isCharged=流水存在 reserve/settle 任一）：
  *       ①已扣 && resultRef 非空 → SUCCEEDED 回填
- *       ②已扣无产物 → 按冻结态分义（批0.5-9）：
- *         已 settle/consume（终态账）→ 退款事务（四写单 $transaction：守卫 CAS 二次判龄+归零 → 两池拆分
- *           逆向记账（type=refund，读流水行各自拆分——禁拿 creditsConsumed 单值猜）；
- *           Y0b-2 T0：monthlyUsed 已派生——refund 落行即回落，无列回滚写点）；
- *           count===0 ⇒ 已处理/并发已抢（幂等，崩溃重扫不双退）
- *         reserve-only（冻结轨迹）→ 解冻事务（unfreeze：同款守卫 CAS+reservedCredits 归零+两池加回+
- *           反向 reserve 流水——约束②禁 refund 正向记账防双倍回滚）
+ *       ②已扣无产物 → rollbackRunning 单事务冲销（Y0b-2 T5/Z92：CAS 严格 RUNNING+判龄 heartbeatAt
+ *         保持；两金额归零+按流水行分义冲销 settle→refund/reserve→release——refund 落行即回落
+ *         monthlyUsed〔已派生〕无列回滚写点；count===0 ⇒ 已处理/并发已抢幂等）+终态投影分治
+ *         （Z106/Z112——errorCode 两码分诊）
  *       ③未扣 → VOIDED 免费放行（守卫同款）
  *
  *  档二【全量三方对账，每日】：SUCCEEDED 行 creditsConsumed vs 消费流水数额差异 →
@@ -64,11 +64,14 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
  *         VideoSeparateTask 表+Redis 计数器非意图表/积分域，故整体搬入本档保底）。
  *
  *  档一附属【资金闭环巡检，随 5min 同轮】（Y0b-1 §1.5）：settle 失败对账第四分支 settleStranded
- *        （终态∧reservedCredits>0 悬留——判据=status：SUCCEEDED 补 settle/FAILED release；逐行容错）
+ *        （Y0b-2 T5 收窄〔Z76/Z98/Z102〕：判据=TERMINAL∧reservedCredits>0∧判龄 SETTLE_STRANDED_GRACE_MS；
+ *         三分支表——SUCCEEDED∧产物在⇒补 settle/SUCCEEDED∧无产物⇒rollbackStranded/FAILED|VOIDED⇒void_；
+ *         产物探测走 ArtifactProbe 事务外+按 projectId 记忆化；consumed>0∧reserved=0 历史成功单永不进）
  *        + Z11 未闭合义务巡检 releaseOrphanedReserves（意图行灭失的孤儿 reserve——releaseOrphanReserve
  *        窄口幂等释放；意图行存在的一切情形归第四分支独占，E53）。
  *  档二附属【运行时不变量巡检】verifyLedgerInvariants：①池余额≡ΣbalanceDelta（两池分列+LEFT JOIN——
- *        检出"有钱包零流水"）②RUNNING ΣfrozenDelta≡reservedCredits ③ACTIVE 团队钱包在场——
+ *        检出"有钱包零流水"）②RUNNING ΣfrozenDelta≡reservedCredits ③ACTIVE 团队钱包在场
+ *        ③'（Z102）VOIDED∧creditsConsumed>0∧无 refund 行=台账漂移 ④（Z102）FAILED/VOIDED⇒reservedCredits=0——
  *        命中即 drift 指标+WARN（台账为真源，钱包可据 Σ 重建）。 */
 @Injectable()
 export class IntentReconcileService implements OnModuleInit, OnApplicationShutdown {
@@ -159,7 +162,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
             if (now.getTime() <= row.deadlineAt.getTime() + WAITING_UPGRADE_GRACE_MS) return;
             intentDeadlineExceededTotal.inc({ kind: row.kind, phase: 'waiting' });
             this.logger.warn(`[deadline-reaper] 意图 ${row.intentId} job=${row.jobId} waiting/delayed 超宽限 ${WAITING_UPGRADE_GRACE_MS}ms——升级收敛（迟归 job 走 claim④ rearm 自愈）`);
-            return this.threeCheck(row, row.deadlineAt);
+            return this.threeCheck(row, row.deadlineAt, 'INTENT_DEADLINE_EXCEEDED');
           }
           // failed → 三查裁决（同 stale 批 A 路径尾段；job 不存在同落）
         }
@@ -167,7 +170,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
     // phase 分诊（Z83）：startedAt 非空=外呼期（call）/空=排队期（queue——claim 后未外呼即超时=调度积压信号）
     intentDeadlineExceededTotal.inc({ kind: row.kind, phase: row.startedAt ? 'call' : 'queue' });
-    return this.threeCheck(row, row.deadlineAt);
+    return this.threeCheck(row, row.deadlineAt, 'INTENT_DEADLINE_EXCEEDED');
   }
 
   /** A 路径 kind→队列路由（attachJob 盲区另一半）——jobId 属于哪个队列由 claim 发起链决定：
@@ -197,7 +200,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         // failed 或 job 不存在（removeOnComplete 清理歧义）→ 三查裁决
       }
     }
-    return this.threeCheck(row, cutoff);
+    return this.threeCheck(row, cutoff, 'INTENT_STALE_REAPED');
   }
 
   /** A 路径 completed 回填：resultRef 从 returnvalue.results 取本节点条目（text 无 URL 锚点按
@@ -218,11 +221,15 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     });
   }
 
-  /** 三查裁决（批0.5-9 两阶段口径：isCharged=流水存在 reserve/settle 任一；
-   *  ②按冻结态分义——reserve-only → 解冻（unfreeze），已 settle → 退款（refund 正向记账））。
-   *  Y0b-1（F1/Z6）：chargeRows 改 anti-join（未被冲销行）+台账锚 intentRowId（禁 intentId）+
-   *  teamId 过滤（F1 跨团队隔离）；row.teamId null 时空串=零命中兜底。 */
-  private async threeCheck(row: GenerationIntent, cutoff: Date): Promise<void> {
+  /** 三查裁决（批0.5-9 两阶段口径：isCharged=流水存在 reserve/settle 任一）。
+   *  Y0b-2 T5（Z92/Z75）：②退款/解冻两腿收敛 rollbackRunning 单入口（CAS 严格 RUNNING+判龄 heartbeatAt
+   *  保持——按流水分义冲销 settle→refund/reserve→release 在 doRollback 内完成；Z92 竞态封死=complete
+   *  先行〔SUCCEEDED〕后迟归 reaper 在此零命中）；成功后终态投影分治（Z106/Z112——projectReaped）。
+   *  Y0b-1（F1/Z6）：chargeRows anti-join（未被冲销行）+台账锚 intentRowId（禁 intentId）+
+   *  teamId 过滤（F1 跨团队隔离）；row.teamId null 时空串=零命中兜底。
+   *  errorCode 两码分诊（Z112）：deadline 批=INTENT_DEADLINE_EXCEEDED（provider p99 越界）/
+   *  心跳 stale 批=INTENT_STALE_REAPED（进程/调度异常）——runbook 处置行分列。 */
+  private async threeCheck(row: GenerationIntent, cutoff: Date, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
     const chargeRows = await this.prisma.$queryRaw<any[]>`
       SELECT r.* FROM "TeamCreditTransaction" r
       WHERE r."teamId" = ${row.teamId ?? ''} AND r."referenceId" = ${'intent:' + row.id}
@@ -237,11 +244,14 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       return;
     }
     if (chargeRows.length > 0) {
-      // ②分义：settle=终态账（无产物 → refund 正向记账）；
-      // reserve-only=冻结轨迹（→ 解冻 release 冲销，禁 refund——约束②防双倍回滚）
-      const finalRows = chargeRows.filter((r) => r.type === 'settle');
-      if (finalRows.length > 0) return this.refund(row, cutoff);
-      return this.unfreeze(row, chargeRows, cutoff);
+      // ②已扣（settle/reserve 任一未冲销）→ rollbackRunning 单事务冲销（两金额归零+按行分义 refund/release）
+      const rolled = await this.teamCredit.rollbackRunning(row.id, `reaper 收敛（${errorCode}）`, cutoff);
+      if (rolled) {
+        const total = chargeRows.reduce((s, r) => s + Math.abs(r.amount), 0);
+        this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 已扣无产物（${errorCode}）——VOIDED+冲销 ${total}（两金额归零，重试照常扣费）`);
+        await this.projectReaped(row, errorCode);
+      }
+      return;
     }
     // ③未扣 → VOIDED 免费放行（creditsConsumed 本就 0；守卫同款防 rearm 竞态——Y0b-2 T4 判据 heartbeatAt）
     await this.prisma.generationIntent.updateMany({
@@ -251,67 +261,28 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 未扣超龄——VOIDED 免费放行`);
   }
 
-  /** 三查② reserve-only 解冻事务——Y0b-1（Z13/Z6）：锁序①lockBalance 先于 intent CAS（原首句 CAS 是无序根源）；
-   *  CAS 补 reservedCredits>0（rearm 二次退款窗口关闭）；冲销走 release（真值表 (+c,−c)+reversesId——
-   *  约束②禁 refund 正向记账防双倍回滚；reversesId @unique=双释放结构拒绝）；quota 回滚 Σ|release 行|。 */
-  private async unfreeze(row: GenerationIntent, reserveRows: any[], cutoff: Date): Promise<void> {
-    const total = reserveRows.reduce((s, r) => s + Math.abs(r.amount), 0);
-    const done = await this.prisma.$transaction(async (raw) => {
-      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
-      await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序——原首句 intent CAS 是无序根源）
-      const guard = await tx.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING', heartbeatAt: { lt: cutoff }, reservedCredits: { gt: 0 } },   // CAS 补 reservedCredits>0（Y0b-2 T4 判据 heartbeatAt）
-        data: { status: 'VOIDED', reservedCredits: 0, completedAt: new Date() },
-      });
-      if (guard.count === 0) return false; // 已处理/并发已抢（幂等）
-      for (const r of reserveRows) {
-        const amt = Math.abs(r.amount); // reserve 流水 amount 为负——逆向取正
-        await this.ledger.mutate(tx, {
-          teamId: r.teamId, operatorUserId: row.userId, type: 'release', creditType: r.creditType,
-          balanceDelta: amt, frozenDelta: -amt, referenceId: r.referenceId, reversesId: r.id,
-        });
+  /** Y0b-2 T5（Z106/Z112）：reaper 终态投影分治——UX 投影不得成为装载源：doc 常驻（documents.has）
+   *  才写 error 投影（errorCode+rearmable+attempts 同 patch——Z99 代次化后可写）；非常驻跳过+
+   *  exec_projection_deferred_total 计数（用户重连时 alignExecFromIntents 对齐——T6 职责）。
+   *  drain 503 best-effort 记 warn（不因投影失败回滚资金）。 */
+  private async projectReaped(row: GenerationIntent, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
+    try {
+      if (!this.collabDoc.isDocResident(row.projectId)) {
+        execProjectionDeferredTotal.inc();
+        return;
       }
-      return true;
-    }, { timeout: 15_000, maxWait: 5_000 });
-    if (done) {
-      this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} reserve-only 无产物——VOIDED+解冻 ${total}（reservedCredits 归零，重试照常冻结）`);
+      await this.collabDoc.writeExecStatus(row.projectId, row.nodeId, {
+        status: 'error',
+        errorCode,
+        error: errorCode === 'INTENT_DEADLINE_EXCEEDED' ? '生成超时已被系统回收' : '生成心跳失联已被系统回收（进程/调度异常）',
+        rearmable: row.attempts < 3,
+        attempts: row.attempts,
+      });
+    } catch (e) {
+      this.logger.warn(`[reaper-projection] 意图 ${row.intentId} 投影失败（drain/租约 503 best-effort——不回滚资金）: ${(e as Error).message}`);
     }
   }
 
-  /** 三查②退款事务——Y0b-1（Z13/Z6）：锁序①+CAS 补 creditsConsumed>0 语义条件+事务内重读 settle 行
-   *  （防 threeCheck 事务外旧读）；逐 settle 行 refund（(+c,0)+reversesId——reversesId @unique=双退结构拒绝）；
-   *  creditsConsumed 归零=consume CAS 门修复——退款后重试照常扣费；quota 回滚 Σ|refund 行|。 */
-  private async refund(row: GenerationIntent, cutoff: Date): Promise<void> {
-    let total = 0;
-    const refunded = await this.prisma.$transaction(async (raw) => {
-      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
-      await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序）
-      const guard = await tx.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING', heartbeatAt: { lt: cutoff }, creditsConsumed: { gt: 0 } },
-        data: { status: 'VOIDED', creditsConsumed: 0, completedAt: new Date() },
-      });
-      if (guard.count === 0) return false; // 已处理/并发已抢（幂等）
-      // 事务内重读（anti-join 未被冲销的 settle 行）
-      const settleRows = await tx.$queryRaw<any[]>`
-        SELECT r.* FROM "TeamCreditTransaction" r
-        WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + row.id}
-          AND r.type = 'settle' AND r.amount < 0
-          AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
-        FOR UPDATE OF r`;
-      for (const r of settleRows) {
-        const amt = Math.abs(r.amount); // settle 流水 amount 为负——逆向取正
-        total += amt;
-        await this.ledger.mutate(tx, {
-          teamId: r.teamId, operatorUserId: row.userId, type: 'refund', creditType: r.creditType,
-          balanceDelta: amt, frozenDelta: 0, referenceId: r.referenceId, reversesId: r.id,
-        });
-      }
-      return true;
-    }, { timeout: 15_000, maxWait: 5_000 });
-    if (refunded) {
-      this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 已扣无产物——VOIDED+退款 ${total}（creditsConsumed 归零，重试照常扣费）`);
-    }
-  }
 
   /** 档二：每日全量三方对账 + 保留策略清理（F7 守卫） + exec GC（限量） + video-separate 陈旧回收 + 不变量巡检 */
   async reconcileDaily(): Promise<void> {
@@ -355,20 +326,59 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     });
   }
 
-  /** Y0b-1（§1.5/E25①/Z17）第四分支：终态∧reservedCredits>0 悬留行（settle 失败崩溃窗——三查只扫 RUNNING）。
-   *  SUCCEEDED ⇒ 补 settle（幂等 CAS）；FAILED/VOIDED ⇒ release（void_ 既有幂等链）。产物已照发（E53），
-   *  账由本分支闭环。逐行容错：毒行不冻结整轮（次轮重试）。 */
+  /** Y0b-1（§1.5/E25①/Z17）第四分支 + Y0b-2 T5 收窄（Z76/Z98/Z102 三分支表）：
+   *  判据=TERMINAL ∧ reservedCredits>0 ∧ completedAt<now-SETTLE_STRANDED_GRACE_MS（具名常量——
+   *  "无活 worker 持有"的结构证明；consumed>0∧reservedCredits=0 历史成功单永不进本分支=Z76 套利防回归）。
+   *  三分支：SUCCEEDED∧有产物 ⇒ 补 settle（产物已交付账补齐）/ SUCCEEDED∧无产物 ⇒ rollbackStranded
+   *  （Z102 第三入口——旧实现恒补 settle=无产物也核销的白扣洞）/ FAILED|VOIDED ⇒ void_（else 兜底保留）。
+   *  产物探测=ArtifactProbe（Z98 端口反转：探针在 collab 侧，本文件零 readCanvas）——事务外先探后开事务
+   *  （锁内不做慢 IO）+按 projectId 记忆化（take:100 行防 100 次直连）；探针失败（503/超时/未知）=本轮
+   *  跳过该行**永不把"不知道"当"无产物"**；未知 kind 不裁决只计数告警；探针结果可能过期——CAS 才是权威
+   *  （rollbackStranded 的 status/reservedCredits/completedAt 三重 CAS 在事务内重验）。逐行容错：
+   *  毒行不冻结整轮（次轮重试）。 */
   private async settleStranded(): Promise<void> {
+    const cutoff = new Date(Date.now() - SETTLE_STRANDED_GRACE_MS);
     const stranded = await this.prisma.generationIntent.findMany({
-      where: { status: { in: [...TERMINAL] }, reservedCredits: { gt: 0 } },
+      where: { status: { in: [...TERMINAL] }, reservedCredits: { gt: 0 }, completedAt: { lt: cutoff } },
       orderBy: { completedAt: 'asc' },
-      take: 100,   // 空预算：每轮 5min 最多 100 行
+      take: 100,   // 空预算：每轮 5min 最多 100 行（探针条数同界——Z112 有界装载）
     });
+    // ArtifactProbe 事实收集（事务外）：SUCCEEDED 行按 projectId 记忆化批探测（一项目一装载）
+    const artifact = new Map<string, boolean | null>();   // intentRowId → true/false=doc 事实；null=不裁决（探针失败/未知 kind）
+    const byProject = new Map<string, GenerationIntent[]>();
+    for (const row of stranded) {
+      if (row.status !== 'SUCCEEDED') continue;
+      const arr = byProject.get(row.projectId) ?? [];
+      arr.push(row);
+      byProject.set(row.projectId, arr);
+    }
+    for (const [projectId, rows] of byProject) {
+      try {
+        const facts = await this.collabDoc.probeArtifacts(projectId, rows.map((r) => ({ nodeId: r.nodeId, kind: r.kind })));
+        for (const f of facts) {
+          const row = rows.find((r) => r.nodeId === f.nodeId);
+          if (row) artifact.set(row.id, f.unknownKind ? null : f.found);
+          if (f.unknownKind) this.logger.warn(`[intent-reconcile] 悬留 意图 kind=${f.kind} 不在产物键白名单——不裁决只计数`);
+        }
+      } catch (e) {
+        this.logger.warn(`[intent-reconcile] 产物探针失败 project=${projectId}——本轮跳过 ${rows.length} 行（不知道≠无产物）: ${(e as Error).message}`);
+      }
+    }
     for (const row of stranded) {
       try {
         if (row.status === 'SUCCEEDED') {
-          const r = await this.teamCredit.settle({ intentRowId: row.id });
-          if (!r.success) this.logger.warn(`[intent-reconcile] 悬留补 settle 失败 意图 ${row.intentId}（次轮重试）`);
+          const found = artifact.get(row.id);
+          if (found !== true && found !== false) {
+            this.logger.warn(`[intent-reconcile] 悬留 意图 ${row.intentId} 产物不可裁决（探针失败/未知 kind）——本轮跳过`);
+            continue;
+          }
+          if (found) {
+            const r = await this.teamCredit.settle({ intentRowId: row.id });
+            if (!r.success) this.logger.warn(`[intent-reconcile] 悬留补 settle 失败 意图 ${row.intentId}（次轮重试）`);
+          } else {
+            const rolled = await this.teamCredit.rollbackStranded(row.id, '悬留无产物回滚（settle 失败崩溃窗）', cutoff);
+            if (rolled) this.logger.warn(`[intent-reconcile] 悬留无产物 意图 ${row.intentId}——rollbackStranded（release ${row.reservedCredits}，两金额归零）`);
+          }
         } else {
           await this.teamCredit.void_({ intentRowId: row.id });   // FAILED/VOIDED 残留冻结——release 归零
           this.logger.warn(`[intent-reconcile] 悬留未交付 意图 ${row.intentId}——release ${row.reservedCredits}`);
@@ -427,7 +437,10 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** Y0b-1（Z11）：运行时不变量巡检——聚合 SQL 命中即 drift 指标+WARN（台账为真源，钱包可据 Σ 重建）。
-   *  四轮 B1：LEFT JOIN+COALESCE+两池分列——INNER JOIN 检不出"有钱包有余额但零流水"。 */
+   *  四轮 B1：LEFT JOIN+COALESCE+两池分列——INNER JOIN 检不出"有钱包有余额但零流水"。
+   *  Y0b-2 T5（Z102）：③' VOIDED∧creditsConsumed>0∧无 refund 行=退款链断裂漂移；④ FAILED/VOIDED⇒
+   *  reservedCredits=0（"泛 TERMINAL"口子的结构性保险——命中=settleStranded 闭环失效信号）。
+   *  不变量① ORDER BY 1（原 ORDER BY b."teamId" 在 UNION 结果集上引用失效别名——T5 红测暴露的既有缺陷）。 */
   private async verifyLedgerInvariants(): Promise<void> {
     const drift1 = await this.prisma.$queryRaw<{ teamId: string }[]>`
       SELECT b."teamId" FROM "TeamBalance" b
@@ -439,7 +452,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       LEFT JOIN (SELECT "teamId", "creditType", SUM("balanceDelta") s FROM "TeamCreditTransaction" GROUP BY 1,2) t
         ON t."teamId" = b."teamId" AND t."creditType" = 'subscription'
       WHERE COALESCE(t.s, 0) <> b."subscriptionCredits"
-      ORDER BY b."teamId" LIMIT 20`;   // ORDER BY=确定子集（与孤儿扫描同纪律——告警面稳定）
+      ORDER BY 1 LIMIT 20`;   // ORDER BY=确定子集（与孤儿扫描同纪律——告警面稳定；UNION 臂按序号引用）
     for (const d of drift1) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量①漂移 teamId=${d.teamId}`); }
     const drift2 = await this.prisma.$queryRaw<{ id: string; teamId: string }[]>`
       SELECT gi.id, gi."teamId" FROM "GenerationIntent" gi
@@ -452,6 +465,20 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       SELECT t.id FROM "Team" t LEFT JOIN "TeamBalance" b ON b."teamId" = t.id
       WHERE t.status = 'ACTIVE' AND b."teamId" IS NULL ORDER BY t.id LIMIT 20`;
     for (const d of noWallet) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] ACTIVE 团队无钱包 teamId=${d.id}（ensureBalance 缺收口）`); }
+    // 不变量③'（Z102）：VOIDED∧creditsConsumed>0∧无 refund 行——正规回滚必写 refund 且归零 consumed
+    const drift3 = await this.prisma.$queryRaw<{ id: string; teamId: string }[]>`
+      SELECT gi.id, gi."teamId" FROM "GenerationIntent" gi
+      WHERE gi.status = 'VOIDED' AND gi."creditsConsumed" > 0
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" t
+                        WHERE t."referenceId" = 'intent:' || gi.id AND t.type = 'refund')
+      ORDER BY gi.id LIMIT 20`;
+    for (const d of drift3) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量③'漂移 intent=${d.id} teamId=${d.teamId}（VOIDED 已扣无 refund 行——退款链断裂）`); }
+    // 不变量④（Z102）：FAILED/VOIDED ⇒ reservedCredits=0（settleStranded 闭环失效信号）
+    const drift4 = await this.prisma.$queryRaw<{ id: string; teamId: string }[]>`
+      SELECT gi.id, gi."teamId" FROM "GenerationIntent" gi
+      WHERE gi.status IN ('FAILED', 'VOIDED') AND gi."reservedCredits" > 0
+      ORDER BY gi.id LIMIT 20`;
+    for (const d of drift4) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量④漂移 intent=${d.id} teamId=${d.teamId}（FAILED/VOIDED 冻结未清——第四分支失效）`); }
   }
 
   /** nodes map 无该 nodeId 的 exec 条目删除（transact 产生 delete set → 经 update 监听持久化/广播）

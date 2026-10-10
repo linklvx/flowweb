@@ -73,3 +73,20 @@ export const pollUnknownStatusTotal = new Counter({
   labelNames: ['kind'],
   registers: [register],
 });
+
+/** Z111：writeExecStatus 守卫 fail-closed 丢弃计数——缺 attempts（违约 patch）/严格更老一律丢
+ *  （不看终态——老代 error(1) 不得覆盖新代 loading(2)）。非 0=有投影被拦（观测代次违约面）。 */
+export const execProjectionDroppedTotal = new Counter({
+  name: 'exec_projection_dropped_total',
+  help: 'Y0b-2（Z111）：exec 投影守卫丢弃计数（cause=missing-attempts 缺代次/older-attempts 严格更老——fail-closed 两子句）',
+  labelNames: ['cause'],
+  registers: [register],
+});
+
+/** Z112：reaper 终态投影分治——doc 非常驻跳过 UX 投影计数（重连后 alignExecFromIntents 对齐）。
+ *  UX 投影不得成为装载源：provider 故障批量收敛时 withDoc 批量装载=故障自放大（正撞 E39/heap 闸）。 */
+export const execProjectionDeferredTotal = new Counter({
+  name: 'exec_projection_deferred_total',
+  help: 'Y0b-2（Z112）：reaper 终态投影因 doc 非常驻跳过计数（重连 alignExecFromIntents 对齐——UX 投影不成为装载源）',
+  registers: [register],
+});

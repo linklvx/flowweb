@@ -10,6 +10,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
+import { artifactDiscardedTotal } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
@@ -86,17 +87,7 @@ export class AiImageEditProcessor extends WorkerHost {
     this.ensureRetryConfigured();
 
     try {
-      // 1. Get presigned URLs for source image and optional mask
-      const sourceKey = await this.getMediaKey(fileId, userId, projectId);
-      const imageUrl = await this.minio.generatePresignedGetUrl(sourceKey, 3600);
-
-      let maskUrl: string | undefined;
-      if (maskFileId) {
-        const maskKey = await this.getMediaKey(maskFileId, userId, projectId);
-        maskUrl = await this.minio.generatePresignedGetUrl(maskKey, 3600);
-      }
-
-      // 2. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队
+      // 1. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队
       //    批0.5-9 前移至 reserve/外呼之前（reserve 需归属团队；缺失零外呼零孤儿 MinIO 对象）
       const projectTeamId = (await this.prisma.canvasProject.findUnique({
         where: { id: projectId },
@@ -107,12 +98,15 @@ export class AiImageEditProcessor extends WorkerHost {
         return { status: 'failed', reason: 'PROJECT_TEAM_MISSING' };
       }
 
-      // 3. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=0.5-8 接线断裂——
+      // 2. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=0.5-8 接线断裂——
       //    拒绝付费外呼（无幂等锚的扣费=重试双扣/白嫖二义）
       if (!intentRowId || !intentId) {
         this.logger.warn(`Edit intent guard missing for node ${nodeId}——拒绝付费外呼（0.5-8 起 enqueue 恒带意图锚）`);
         return { status: 'failed', reason: 'INTENT_GUARD_MISSING' };
       }
+      // A-1 根修（Y0b-2 T5）：reserve 收敛 processor 一处（队列入口结构位——全 taskType 统一含
+      // lighting）；consumer 不再二次 reserve（旧双 reserve：第二次必 mayCall:false→skipped 永不外呼
+      // →deadline 批 backfillSucceeded→settleStranded 补 settle=1 credit 白扣）。
       // Y0b-1（Z10）：金额单源 intent 行（claim 固化 plan 快照）——worker 不再解析定价
       const reserveResult = await this.teamCredit.reserve(userId, { intentRowId });
       if (reserveResult.mayCall === false) {
@@ -133,10 +127,15 @@ export class AiImageEditProcessor extends WorkerHost {
         return { status: 'failed', reason };
       }
 
-      // 4. Y0b-2 T4：外呼前重锚（startedAt=外呼起点〔Z83 phase 判据〕+deadline 终锚+心跳——
+      // 3. Y0b-2 T4：外呼前重锚（startedAt=外呼起点〔Z83 phase 判据〕+deadline 终锚+心跳——
       //    编辑链意图行在 controller claim 时锚=排队档，processor reserve 后外呼将开始才重锚）。
       //    lighting 同链（taskType 即 kind 档表键）——外呼虽转发至 consumer，链起点在此。
-      await this.intentService.reanchorDeadline(intentRowId, taskType);
+      //    A-2（T4 M-1）：count===0=行已终态（Z84 宽限后 VOID 的迟归 job）——早退不再 submit。
+      const reanchored = await this.intentService.reanchorDeadline(intentRowId, taskType);
+      if (reanchored === 0) {
+        this.logger.warn(`[reanchor] 意图 ${intentId} 行已终态（迟归 job）——早退零外呼`);
+        return { status: 'skipped', reason: 'INTENT_TERMINAL_EARLY' };
+      }
       // onTick 双职（Z69）：每 tick touchHeartbeat+读意图状态——reaper 收敛（VOIDED/FAILED）⇒ abort 停外呼
       const onTick = async (): Promise<'abort' | void> => {
         await this.intentService.touchHeartbeat(intentRowId);
@@ -144,7 +143,22 @@ export class AiImageEditProcessor extends WorkerHost {
         if (row && row.status !== 'RUNNING') return 'abort';
       };
 
-      // 5. Call the appropriate API method
+      // 4. lighting 转发 consumer（A-1：冻结已在手——consumer 只跑外呼/产物/settle/complete）
+      if (taskType === 'lighting') {
+        return this.lightingConsumer.handleLightingJob(job as unknown as Job<LightingJobData>);
+      }
+
+      // 5. Get presigned URLs for source image and optional mask（编辑三类——lighting job 无 fileId 键，
+      //    旧序此处对 lighting 必炸 PrismaClientValidationError：A-1 随队列入口收敛一并根修）
+      const sourceKey = await this.getMediaKey(fileId, userId, projectId);
+      const imageUrl = await this.minio.generatePresignedGetUrl(sourceKey, 3600);
+      let maskUrl: string | undefined;
+      if (maskFileId) {
+        const maskKey = await this.getMediaKey(maskFileId, userId, projectId);
+        maskUrl = await this.minio.generatePresignedGetUrl(maskKey, 3600);
+      }
+
+      // 6. Call the appropriate API method
       let result: { url: string };
       switch (taskType) {
         case 'outpaint':
@@ -163,13 +177,11 @@ export class AiImageEditProcessor extends WorkerHost {
         case 'redraw':
           result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!, { onTick });
           break;
-        case 'lighting':
-          return this.lightingConsumer.handleLightingJob(job as unknown as Job<LightingJobData>);
         default:
           throw new Error(`Unknown taskType: ${taskType}`);
       }
 
-      // 5. Download the result image
+      // 7. Download the result image
       const response = await axios.get(result.url, {
         responseType: 'arraybuffer',
         timeout: 120000,
@@ -179,11 +191,11 @@ export class AiImageEditProcessor extends WorkerHost {
       const contentType: string = String(response.headers['content-type'] || 'image/png');
       const ext = contentType.split('/')[1] || 'png';
 
-      // 6. Upload to MinIO
+      // 8. Upload to MinIO
       const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
       await this.minio.upload(key, buffer, contentType);
 
-      // 7. Create Media record
+      // 9. Create Media record
       const media = await this.prisma.media.create({
         data: {
           userId,
@@ -199,11 +211,11 @@ export class AiImageEditProcessor extends WorkerHost {
         },
       });
 
-      // 7.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
+      // 9.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
       const settled = await this.teamCredit.settle({ intentRowId });
       if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
 
-      // 7.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
+      // 9.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
       //     count===0 = 行已被 reconcile VOIDED+退款，writeNodeData/emit 零调用（外呼产物留作物证）
       if (intentRowId) {
         const gated = await this.intentService.complete(intentRowId, media.id);
@@ -213,12 +225,16 @@ export class AiImageEditProcessor extends WorkerHost {
         }
       }
 
-      // 8. Write fileId to server doc；socket 仅进度通知。
+      // 10. Write fileId to server doc；socket 仅进度通知。
       // O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（改写 envelope 会让 api
       // 成信封第 4 写者撞冻结表"信封写者=3"）；尺寸由 web 内容事件路径决定（load/换图 contain-fit）。
-      await this.collabDoc.writeNodeData(projectId, nodeId, {
-        fileId: media.id,
-      });
+      // Z44 nodeAlive 守卫：written:false=节点已删——产物丢弃计数（账已结清，无退款腿——交付判据归 complete 门序）
+      const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id });
+      if (!deliver.written) {
+        artifactDiscardedTotal.inc({ cause: 'node-deleted' });
+        this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 已删——产物 ${media.id} 丢弃（nodeAlive 守卫）`);
+        return { status: 'completed', fileId: media.id };
+      }
       this.gateway.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-result',
@@ -238,8 +254,16 @@ export class AiImageEditProcessor extends WorkerHost {
         await this.intentService.fail(intentRowId, String(error?.message ?? error));
       }
       if (projectId) {
+        // Z111：投影携 attempts（行已 fail 亦可读——attempts 不随终态变化；读失败按 0 代不挡原始错误上抛）
+        let attempts = 0;
+        if (intentRowId) {
+          try {
+            attempts = (await this.prisma.generationIntent.findUnique({ where: { id: intentRowId }, select: { attempts: true } }))?.attempts ?? 0;
+          } catch { /* attempts 读失败按 0 代——投影 best-effort */ }
+        }
         await this.collabDoc.writeExecStatus(projectId, nodeId, {
-          status: 'error', error: String(error?.message ?? error).slice(0, 200), intentId: intentId ?? undefined,
+          status: 'error', error: String(error?.message ?? error).slice(0, 200), attempts,
+          ...(intentId ? { intentId } : {}),
         }).catch(() => {}); // best-effort——doc 写失败不吞原始错误
       }
 
@@ -259,7 +283,10 @@ export class AiImageEditProcessor extends WorkerHost {
    *  意图终态只能靠 worker 钩子。形态按 bullmq Worker 'failed' 实际签名 (job, error, prev) 位置参数；
    *  job 可为 undefined（移除中）。lighting job 同队列共用本钩子。
    *  Y0b-1（§1.3/N4/Z27）：intentRowId 从不入队（死代码）——改凭 partial unique 反查在飞行，
-   *  jobId 限定防迟到钩子误杀 rearm 换 job 的新活意图。Z 终裁（P14）：整函数兜底绝不外抛。 */
+   *  jobId 限定防迟到钩子误杀 rearm 换 job 的新活意图。
+   *  Y0b-2 T5（Z111）：换序——先 findByActiveNode 后写投影（原"先写后查"拿不到 attempts，
+   *  守卫 fail-closed 拦无代次投影）；投影携 running?.attempts ?? 0。
+   *  Z 终裁（P14）：整函数兜底绝不外抛。 */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<AiImageEditJobData> | undefined, err: Error) {
     try {
@@ -267,10 +294,12 @@ export class AiImageEditProcessor extends WorkerHost {
       const { projectId, nodeId, intentId } = job.data ?? {};
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
-      await this.collabDoc.writeExecStatus(projectId, nodeId, {
-        status: 'error', error: reason.slice(0, 200), intentId: intentId ?? undefined,
-      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
+      await this.collabDoc.writeExecStatus(projectId, nodeId, {
+        status: 'error', error: reason.slice(0, 200), attempts: running?.attempts ?? 0,
+        errorCode: 'WORKER_FAILED',
+        ...(intentId ? { intentId } : {}),
+      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
       if (running) await this.intentService.fail(running.id, reason, job.id); // ACTIVE 守卫幂等——与 process catch 双写不冲突
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);

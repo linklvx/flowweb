@@ -793,6 +793,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - exec_outbound_duration_seconds
 - exec_poll_stall_total
 - exec_poll_unknown_status_total
+- exec_projection_deferred_total
+- exec_projection_dropped_total
 - exec_sync_pending_total
 - execution_group_duration_seconds
 - execution_settle_failure_total
@@ -810,6 +812,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_compact_not_owner_total
 - yjs_connection_count
 - yjs_deleted_projects
+- yjs_doc_loaded_by_reconciler_total
 - yjs_hydration_huge_row_total
 - yjs_loaded_documents
 - yjs_pending_batches

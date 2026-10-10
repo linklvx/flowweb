@@ -169,13 +169,13 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
   beforeAll(async () => {
     await prisma.user.create({ data: { id: CLS_OWNER, name: 'it-cls', email: `${CLS_OWNER}@x.invalid`, emailVerified: false } });
   });
-  const mkSvc = async () => {
+  const mkSvc = async (collabDoc: any = {} as any) => {
     const { IntentReconcileService } = await import('./intent-reconcile.service');
     const { TeamCreditService } = await import('../team/team-credit.service');
     const { CreditLedgerService } = await import('../team/credit-ledger.service');
     const ledger = new CreditLedgerService(prisma as any);
     const teamCredit = new TeamCreditService(prisma as any, ledger);
-    return new IntentReconcileService(prisma as any, {} as any, ledger, {} as any, {} as any, {} as any, teamCredit);
+    return new IntentReconcileService(prisma as any, collabDoc, ledger, {} as any, {} as any, {} as any, teamCredit);
   };
   /** 夹具基线：钱包唯一口 ensureBalance + register_grant 100（计入 Σ——对齐 G-2 不变量①口径，禁裸建绕台账） */
   const fundTeam = async (teamId: string, ts: number) => {
@@ -198,14 +198,15 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     await prisma.$disconnect();
   }, 20000);
 
-  it('悬留已交付（SUCCEEDED∧reservedCredits>0）→ settleStranded 补 settle（判据=status——Z7/Z17）', async () => {
+  it('悬留已交付（SUCCEEDED∧reservedCredits>0∧超宽限∧探针有产物）→ settleStranded 补 settle（Y0b-2 T5 判据=判龄+ArtifactProbe——Z7/Z17/Z98/Z102）', async () => {
     const ts = Date.now();
     const team = await prisma.team.create({ data: { id: `it-cls-a-${ts}`, name: 'it', ownerId: CLS_OWNER } });
-    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-a-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 7, reservedCredits: 7 });
+    // Y0b-2 T5：completedAt 推过 SETTLE_STRANDED_GRACE_MS（判龄=无活 worker 的结构证明）
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-a-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 7, reservedCredits: 7, completedAt: new Date(Date.now() - 11 * 60_000) });
     const ledger = await fundTeam(team.id, ts);
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -7, frozenDelta: 7, referenceId: `intent:${intent.id}` }));
     expect(res.rowId).not.toBeNull();
-    const svc = await mkSvc();
+    const svc = await mkSvc({ probeArtifacts: async () => [{ nodeId: 'n', kind: 'text', found: true }] });
     await (svc as any).settleStranded();
     const row = await prisma.generationIntent.findUniqueOrThrow({ where: { id: intent.id } });
     expect(row.reservedCredits).toBe(0);
@@ -215,10 +216,10 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     expect(settle?.reversesId).toBe(res.rowId);
   }, 20000);
 
-  it('悬留未交付（FAILED∧reservedCredits>0）→ VOIDED+release（reversesId→reserve 行）', async () => {
+  it('悬留未交付（FAILED∧reservedCredits>0∧超宽限）→ release 归零（reversesId→reserve 行）', async () => {
     const ts = Date.now();
     const team = await prisma.team.create({ data: { id: `it-cls-c-${ts}`, name: 'it', ownerId: CLS_OWNER } });
-    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-c-${ts}`, kind: 'text', paramsHash: 'h', status: 'FAILED', creditCost: 5, reservedCredits: 5, completedAt: new Date() });
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-c-${ts}`, kind: 'text', paramsHash: 'h', status: 'FAILED', creditCost: 5, reservedCredits: 5, completedAt: new Date(Date.now() - 11 * 60_000) });
     const ledger = await fundTeam(team.id, ts);
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -5, frozenDelta: 5, referenceId: `intent:${intent.id}` }));
     const svc = await mkSvc();

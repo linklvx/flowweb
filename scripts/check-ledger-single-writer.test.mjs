@@ -175,6 +175,22 @@ test('⑨ 资金函数锁先行（漏报加固）：含 mutate/ledgerTx 且 GI �
   assert.deepEqual(scanFiles(mk([[fundRels.reconcile, reader]])), []);
 });
 
+test('⑩ Z118 rollback 双向锚：intent-reconcile 出现 rollbackDeliveryFailed=红；execution.service 出现 rollbackStranded=红；允许向=绿', () => {
+  const badReconcile = 'await this.teamCredit.rollbackDeliveryFailed(row.id, "deliver fail");';
+  assert.ok(scanFiles(mk([[fundRels.reconcile, badReconcile]]))
+    .some((p) => p.includes('Z92/Z118 双向锚')));
+  const badExec = 'await this.teamCredit.rollbackStranded(row.id, "stranded", cutoff);';
+  assert.ok(scanFiles(mk([['apps/api/src/modules/execution/execution.service.ts', badExec]]))
+    .some((p) => p.includes('Z102/Z118 双向锚')));
+  // 允许向：reconcile 调 rollbackRunning/rollbackStranded、execution.service 调 rollbackDeliveryFailed
+  assert.deepEqual(scanFiles(mk([
+    [fundRels.reconcile, 'await this.teamCredit.rollbackRunning(row.id, "reap", cutoff);\nawait this.teamCredit.rollbackStranded(row.id, "stranded", cutoff);'],
+    ['apps/api/src/modules/execution/execution.service.ts', 'await this.teamCredit.rollbackDeliveryFailed(intent.id, "node deleted");'],
+  ])), []);
+  // 测试文件不拦（红测/spec 直调三入口合法）
+  assert.deepEqual(scanFiles(mk([['apps/api/src/modules/execution/deliver-refund.int.spec.ts', badExec]])), []);
+});
+
 test('Z116 测试能力制：spec/test-utils 裸写台账=红；runInTx/SET LOCAL 窗口内=绿；负测标记（LEDGER_SINGLE_WRITER 断言）=绿', () => {
   const specRel = 'apps/api/src/modules/team/x.int.spec.ts';
   const bare = 'await prisma.teamCreditTransaction.deleteMany({ where: { teamId: id } });';

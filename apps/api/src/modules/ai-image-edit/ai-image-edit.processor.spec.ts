@@ -57,7 +57,7 @@ describe('AiImageEditProcessor', () => {
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
     };
-    collabDoc = { writeNodeData: vi.fn(), writeExecStatus: vi.fn().mockResolvedValue(undefined) };
+    collabDoc = { writeNodeData: vi.fn().mockResolvedValue({ written: true }), writeExecStatus: vi.fn().mockResolvedValue(undefined) }; // Y0b-2 T5：交付判据类型化 {written,reason}
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),

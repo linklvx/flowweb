@@ -7,7 +7,15 @@ function svHeaders(): Record<string, string> {
   return sv ? { 'x-yjs-sv': sv } : {};
 }
 
-export async function executeGroupNodes(projectId: string, nodeIds: string[]): Promise<{ success: boolean; errors: string[]; results?: { nodeId: string; type: string; resultUrl?: string }[] }> {
+/** Y0b-2 T5（Z95/Z88）：组执行错误结构化——nodeId 定位+status 分诊（error=节点失败/skipped=别处在飞）+errorCode。 */
+export interface ExecutionErrorEntry {
+  nodeId: string;
+  status: 'error' | 'skipped';
+  error: string;
+  errorCode?: string;
+}
+
+export async function executeGroupNodes(projectId: string, nodeIds: string[]): Promise<{ success: boolean; errors: ExecutionErrorEntry[]; results?: { nodeId: string; type: string; resultUrl?: string }[]; totalCost?: number }> {
   return apiFetch('/execution/execute', {
     method: 'POST',
     body: JSON.stringify({ projectId, nodeIds }),

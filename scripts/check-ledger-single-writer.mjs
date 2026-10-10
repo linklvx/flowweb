@@ -77,7 +77,16 @@ export function scanFiles(files) {
     //    控制流关键字（if/for/while/switch/catch/return）排除——防止 if 体截断成假函数块。
     //    函数级锚只对生产文件跑（测试文件的 describe/夹具块结构不适配方法分割启发式——
     //    Z116 能力制已由①②④的通行证窗口覆盖测试文件的写面）。
+    // ⑩（Y0b-2 T5/Z118）rollback 入口双向锚：intent-reconcile 禁 rollbackDeliveryFailed（交付退款
+    //    凭据归 worker 交付路径——reaper 侧接受 SUCCEEDED 会重开 Z92 竞态）；execution.service 禁
+    //    rollbackStranded（悬留判龄裁决归 settleStranded——worker 侧无判龄结构）。
     if (testFile) continue;
+    if (/rollbackDeliveryFailed/.test(src) && /intent-reconcile\.service\.ts$/.test(rel)) {
+      problems.push(`Z92/Z118 双向锚：intent-reconcile 出现 rollbackDeliveryFailed（交付退款=worker 交付路径唯一——reaper 侧禁调）: ${rel}`);
+    }
+    if (/rollbackStranded/.test(src) && /execution\.service\.ts$/.test(rel)) {
+      problems.push(`Z102/Z118 双向锚：execution.service 出现 rollbackStranded（悬留判龄裁决=settleStranded 唯一——worker 侧禁调）: ${rel}`);
+    }
     const fns = src.split(/\n(?= {2}(?:(?:private|public|protected|static|async)\s+)*(?!(?:if|for|while|switch|catch|return)\b)[\w$]+\s*\()/);
     for (const fn of fns) {
       const lock = fn.search(/lockBalance\s*\(/);
@@ -110,5 +119,5 @@ if (isMain) {
   }));
   const problems = scanFiles(files);
   if (problems.length) { console.error(`check-ledger-single-writer FAIL:\n  ${problems.join('\n  ')}`); process.exit(1); }
-  console.log(`check-ledger-single-writer OK: ${files.length} 文件——写入口唯一（全操作集+Many）+balance 写白名单+raw 形态带 teamId+零 readCanvas+台账查询带 teamId+锁序锚+tx() 禁用+资金函数锁先行+测试能力制（Z116）`);
+  console.log(`check-ledger-single-writer OK: ${files.length} 文件——写入口唯一（全操作集+Many）+balance 写白名单+raw 形态带 teamId+零 readCanvas+台账查询带 teamId+锁序锚+tx() 禁用+资金函数锁先行+rollback 双向锚（Z118）+测试能力制（Z116）`);
 }

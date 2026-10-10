@@ -34,7 +34,7 @@ describe('ExecutionService', () => {
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
       isLeaseServing: vi.fn().mockReturnValue(true), // Y0a-3 T8 计费读门——默认放行（本文件焦点在执行链）
-      writeNodeData: vi.fn(),
+      writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
     topology = {
@@ -66,7 +66,7 @@ describe('ExecutionService', () => {
       void_: vi.fn().mockResolvedValue(undefined),
       getBalanceView: vi.fn().mockResolvedValue({ credits: 95, subscriptionCredits: 0, total: 95, quota: 0, used: 0 }),
     };
-    gateway = { emitNodeStatus: vi.fn(), emitExecutionComplete: vi.fn() };
+    gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（web 零消费者——census 清零）
     mockDownloadQueue = {
       add: vi.fn().mockResolvedValue({ id: 'download-job-1' }),
     };
@@ -120,7 +120,7 @@ describe('ExecutionService', () => {
 
     const result = await service.execute('p1', undefined, 'default-user');
     expect(result.success).toBe(false);
-    expect(result.errors).toContain('余额不足');
+    expect(result.errors[0].error).toContain('余额不足'); // Y0b-2 T5：errors 结构化 {nodeId,status,error}
     expect(apiCaller.callImageGen).not.toHaveBeenCalled();
     expect(teamCredit.reserve).not.toHaveBeenCalled();
   });
@@ -129,7 +129,7 @@ describe('ExecutionService', () => {
     prisma.canvasProject.findUnique.mockResolvedValue(null);
     const result = await service.execute('bad-id', undefined, 'u1');
     expect(result.success).toBe(false);
-    expect(result.errors).toContain('项目不存在');
+    expect(result.errors[0].error).toContain('项目不存在');
   });
 
   it('execute：VIEWER 403', async () => {
@@ -191,6 +191,8 @@ describe('ExecutionService', () => {
   });
 
   it('node:status credits 为完整余额对象（视频节点）', async () => {
+    // Y0b-2 T5 CYCLE 守卫：getScope/sort 夹具须一致（sort 丢节点=环——真实拓扑两者恒一致除环外）
+    topology.getScope.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
     topology.sort.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     teamCredit.getBalanceView.mockResolvedValue({ credits: 60, subscriptionCredits: 40, total: 100, quota: 0, used: 0 });
@@ -209,6 +211,9 @@ describe('ExecutionService', () => {
     });
 
     it('D12：独立图片节点（无上游文本）data.prompt.text 进 prompt', async () => {
+      topology.getScope.mockReturnValue([
+        { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
+      ]);
       topology.sort.mockReturnValue([
         { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
       ]);
@@ -232,6 +237,9 @@ describe('ExecutionService', () => {
 
     it('inactive/不存在风格 → 忽略不阻塞（B1）', async () => {
       prisma.style.findMany.mockResolvedValue([{ id: 'st1', active: false, promptText: '风格词' }]);
+      topology.getScope.mockReturnValue([
+        { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
+      ]);
       topology.sort.mockReturnValue([
         { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
       ]);
@@ -242,6 +250,9 @@ describe('ExecutionService', () => {
 
     it('视频分支：finalPrompt 拼风格 + 面板清空 prompt 不传对象（D28 删回退）', async () => {
       prisma.style.findMany.mockResolvedValue([{ id: 'st1', active: true, promptText: '风格词V' }]);
+      topology.getScope.mockReturnValue([
+        { id: 'n3', type: 'videoGen', data: { model: 'vm', styleId: 'st1', prompt: { text: '', html: '' } } },
+      ]);
       topology.sort.mockReturnValue([
         { id: 'n3', type: 'videoGen', data: { model: 'vm', styleId: 'st1', prompt: { text: '', html: '' } } },
       ]);

@@ -150,6 +150,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return !this.server.hocuspocus.documents.has(name) && !this.inFlightProjects.has(projectId)
       && (this.pendingQueues.get(projectId)?.length ?? 0) === 0 && !this.spool.hasFrames(projectId);
   }
+  /** Y0b-2 T5（Z106/Z112）：doc 常驻谓词（documents.has——区别于 isPersistedComplete 的 PG 完整性四态合一）。
+   *  消费=reaper 终态投影分治：常驻才写 exec 投影，非常驻跳过+deferred 计数（UX 投影不得成为装载源——
+   *  provider 故障批量收敛时 withDoc 批量装载=故障自放大，正撞 E39/heap 闸）。 */
+  isDocResident(projectId: string): boolean {
+    return this.server.hocuspocus.documents.has(`project:${projectId}`);
+  }
   /** Y0a-2（spec §2.5+V10/V11+X1）：项目消失终态集——**永久无界**（spec §9.10：进程寿命内**真删除**项目数
    *  ——V11 emit 后置后无假终态；可见地接受：yjs_deleted_projects gauge，V25）。
    *  X1：discardForGoneProject 在**事件处理器内**调用（唯一必然执行点——doc 卸载后 store 拦截分支

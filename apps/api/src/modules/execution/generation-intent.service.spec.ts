@@ -202,7 +202,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       expect(prisma.generationIntent.create).not.toHaveBeenCalled();
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: existing.id, status: 'RUNNING', jobId: 'job-1' },
-        data: { heartbeatAt: expect.any(Date), deadlineAt: expect.any(Date) },
+        data: { resultRef: null, heartbeatAt: expect.any(Date), deadlineAt: expect.any(Date) }, // Y0b-2 T5：清 resultRef 保留 providerTaskId
       });
     });
   });
@@ -256,6 +256,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
         data: {
           status: 'RUNNING',
           error: null,
+          resultRef: null,   // Y0b-2 T5（Z83/Z95）：清 resultRef 保留 providerTaskId——重试 query-first
           jobId: 'job-1',
           completedAt: null,
           attempts: { increment: 1 },
@@ -456,6 +457,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
         select: {
           id: true, intentId: true, kind: true, status: true, resultRef: true,
           error: true, creditsConsumed: true, createdAt: true, completedAt: true,
+          attempts: true,   // Y0b-2 T5（Z99/Z111）：投影代次判据——web ExecStatusEntry.attempts 对齐
         },
       });
     });

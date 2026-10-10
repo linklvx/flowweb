@@ -50,6 +50,8 @@ export class ExecutionProcessor extends WorkerHost {
    *  Y0b-1（§1.3/N4）：intentRowId 从不入队（死代码）——改凭 partial unique
    *  generation_intent_active_node_unique 反查在飞行：付费意图悬空从 15min 压到 worker failed 即时。
    *  Z27：jobId 限定——迟到的失败钩子只 fail 本 job 自己的在飞意图（同节点新活意图归属不同 job）。
+   *  Y0b-2 T5（Z111）：换序——先 findByActiveNode 后写投影（原"先写后查"拿不到 attempts，
+   *  守卫 fail-closed 会拦无代次投影）；投影携 running?.attempts ?? 0（0 代不得覆盖任何 ≥1 代）。
    *  Z 终裁（P14）：未 await 钩子抛错=unhandledRejection=进程退出——整函数兜底，绝不外抛。 */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<any> | undefined, err: Error) {
@@ -58,10 +60,12 @@ export class ExecutionProcessor extends WorkerHost {
       const { projectId, nodeId, intentId } = job.data ?? {};
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
-      await this.collabDoc.writeExecStatus(projectId, nodeId, {
-        status: 'error', error: reason.slice(0, 200), intentId: intentId ?? undefined,
-      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
+      await this.collabDoc.writeExecStatus(projectId, nodeId, {
+        status: 'error', error: reason.slice(0, 200), attempts: running?.attempts ?? 0,
+        errorCode: 'WORKER_FAILED',
+        ...(intentId ? { intentId } : {}),
+      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
       if (running) await this.intentService.fail(running.id, reason, job.id);
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);

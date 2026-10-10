@@ -78,9 +78,8 @@ export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.server.to(`project:${projectId}`).emit('node:status', data);
   }
 
-  emitExecutionComplete(projectId: string, data: { totalCost: number }) {
-    this.server.to(`project:${projectId}`).emit('execution:complete', data);
-  }
+  // Y0b-2 T5：execution:complete 通道删除——全仓零消费者（web 不订阅）、
+  // totalCost 改经 execute 返回体作审计口径（真单出口）。
 
   emitTrimStatus(workflowId: string, data: {
     nodeId: string;

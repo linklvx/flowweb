@@ -124,7 +124,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
     // writeNodeData 走 CollabDocumentService stub（execute 的 collabDoc 依赖位——租约面+文档面零真依赖）
     const collabDoc = {
       readCanvas: async () => ({ nodes, edges: [] }),
-      writeNodeData: async () => {},
+      writeNodeData: async () => ({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: async () => {},
       isLeaseServing: () => true,
     };
@@ -136,7 +136,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       teamCredit,
       perm,
       collabDoc as any,
-      { emitNodeStatus: () => {}, emitExecutionComplete: () => {} } as any,
+      { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
       { add: async () => {} } as any,
       intentService,
     );
@@ -162,7 +162,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
     vi.spyOn(apiCaller, 'callVideoGen').mockResolvedValue({ url: 'http://x/v.mp4' } as any);
     const collabDoc = {
       readCanvas: async () => ({ nodes, edges: [] }),
-      writeNodeData: async () => {},
+      writeNodeData: async () => ({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: async () => {},
       isLeaseServing: () => true,
     };
@@ -174,7 +174,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       teamCredit,
       perm,
       collabDoc as any,
-      { emitNodeStatus: () => {}, emitExecutionComplete: () => {} } as any,
+      { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
       { add: async () => {} } as any,
       intentService,
     );

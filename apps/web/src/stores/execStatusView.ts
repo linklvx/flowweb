@@ -1,16 +1,23 @@
 // apps/web/src/stores/execStatusView.ts
 // 批1-6（B2 合并视图）：执行状态合并视图纯模块——零 store 运行时依赖（仅类型），
 // 可选链读 exec 两源——nodeStore 被 vi.mock 整替的组件测试（state 无 exec 键）天然回落 data.status。
-/** 节点执行状态（与 ImageNodeData/VideoNodeData/AudioNodeData 的 status 同域） */
-export type NodeExecStatus = 'idle' | 'loading' | 'done' | 'error';
+/** 节点执行状态（与 ImageNodeData/VideoNodeData/AudioNodeData 的 status 同域）。
+ *  Y0b-2 T5（Z99/Z88）：域补 'skipped'——NodeBusy/重复外呼的降级投影（非终态：在飞 worker 的 done 照常覆盖）。 */
+export type NodeExecStatus = 'idle' | 'loading' | 'done' | 'error' | 'skipped';
 
-/** doc exec map 条目 / intents 对齐条目（服务端唯一写者 shape：{status,jobId,intentId,error,fileId?}） */
+/** doc exec map 条目 / intents 对齐条目（服务端唯一写者 shape：{status,jobId,intentId,error,fileId?}）。
+ *  Y0b-2 T5（Z95/Z99/Z111）：补 errorCode/rearmable/attempts（error 投影三件——重试/轮换判据单源）
+ *  +reason（skipped 投影的分诊说明）。 */
 export interface ExecStatusEntry {
   status: Exclude<NodeExecStatus, 'idle'>;
   jobId?: string;
   intentId?: string;
   error?: string;
   fileId?: string;
+  errorCode?: string;
+  rearmable?: boolean;
+  attempts?: number;
+  reason?: string;
 }
 
 /** 合并视图读入 slice（nodeStore state 的结构子集——mock state 缺 exec 键可传；
