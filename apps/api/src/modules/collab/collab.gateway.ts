@@ -414,6 +414,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.heapObserverTimer.unref?.();
   }
   private observeIdleDocs(): void {
+    this.heapPressureSample();   // 评审 F-2：每轮周期采样——纯需求驱动（新 doc auth/load 才采样）下 tripped 后客户端放弃重试+内存回落时 overload_state 恒读 tripped=1 假阳性喂 runbook；周期消费 releaseHook 清 refusalCache+gauge 翻转
     for (const doc of this.server.hocuspocus.documents.values()) {
       const name = doc.name;
       if (doc.connections.size > 0 || doc.isLoading) { this.docStuckRounds.delete(name); continue; }

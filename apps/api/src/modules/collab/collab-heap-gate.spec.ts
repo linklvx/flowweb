@@ -165,6 +165,23 @@ describe('Y0b-3 T4 卡住观测器（纯观测——卸载归库自愈排程）'
     await vi.advanceTimersByTimeAsync(5 * 60_000 * 2 + 2_000);
     expect(await value()).toBe(before);
   });
+
+  it('观测器每轮周期采样（评审 F-2）：tripped→released 翻转在 5min tick 消费——gauge 复位 ok+refusalCache 清空（纯需求驱动=客户端放弃重试后恒读 tripped 假阳性）', async () => {
+    const { gateway } = buildGateway();
+    stubHeapTripped();
+    // 需求驱动一次：auth 拒绝（heap 闸）→gauge tripped=1+refusalCache 写入（SERVER_OVERLOADED 白名单+cookie 凭据）
+    await expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-c1', 'project:cycle') as any)).rejects.toMatchObject({ reason: 'server-overloaded' });
+    const gauge: any = register.getSingleMetric('collab_overload_state');
+    expect((await gauge.get()).values.find((s: any) => s.labels.state === 'tripped')?.value).toBe(1);
+    expect((gateway as any).refusalCache.size).toBe(1);
+    // 内存回落 released 档——客户端放弃重试（无新 auth/load）时仅观测器 tick 可消费翻转
+    stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+    const values = (await gauge.get()).values;
+    expect(values.find((s: any) => s.labels.state === 'tripped')?.value).toBe(0);
+    expect(values.find((s: any) => s.labels.state === 'ok')?.value).toBe(1);
+    expect((gateway as any).refusalCache.size).toBe(0);   // 释放钩子→onServingTransition 清空（P-Q 钩子②周期消费）
+  });
 });
 
 describe('Y0b-3 T4 观测 gauge（collect 现算——零手动维护点）', () => {
@@ -191,4 +208,17 @@ describe('Y0b-3 T4 观测 gauge（collect 现算——零手动维护点）', ()
   });
   // 注：heap 释放翻转→refusalCache 清空的真实路径接线证明在 collab-auth-defense.spec（T3 清空表
   // heap 格——T4 接线后改驱动真实钩子，不在此重复）。
+});
+
+describe('Y0b-3 T4 评审小补 F-1：Y2 兜底计数断言（契约 3 最后一道闸）', () => {
+  // 覆盖缺口补齐性质——埋点已存在（T4 :824），本测落测即绿：驱动链=hooks.onStoreDocument 直通
+  // storeDocumentUnlocked（A14），白盒 spy peekSpoolFrames reject（try 内首 await——Y2 注释的"IO 逃逸"场景）。
+  it('store 路径意外 throw→yjs_store_unexpected_throw_total 差值 1 且不向上抛（resolve false——批保留原归属地）', async () => {
+    const { gateway } = buildGateway();
+    (gateway as any).pendingQueues.set('y2proj', []);   // 队列条目播种（!queue tripwire 早退在 try 之前）
+    vi.spyOn(gateway as any, 'peekSpoolFrames').mockRejectedValue(new Error('io escaped'));
+    const inc = await metricDelta('yjs_store_unexpected_throw_total', {}, () =>
+      expect(gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:y2proj' } as any)).resolves.toBe(false));
+    expect(inc).toBe(1);
+  });
 });
