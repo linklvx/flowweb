@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -31,12 +32,16 @@ function buildGateway() {
       findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }),
       update: vi.fn(async (args: any) => ({ user: { id: 'u1', name: '张三' }, expiresAt: args.data.expiresAt })),
     },
-    canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
+    canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1', userId: 'other' }) },
+    projectMember: { findUnique: vi.fn().mockResolvedValue(null) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
   };
   const repo = createMockRepo();
   const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true=租约已持有形态）
-  const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
+  // Y0b-3 T3（F-3）：gateway 权限判据换轨 perm.resolveWithTeam 单源——本 spec 改注入真
+  // ProjectPermissionService（mock prisma 驱动整链：canvasProject/projectMember/teamMember 三行组合
+  // 即五形态，"项目不存在→NotFoundException"等分型行为随服务真实语义走，禁 stub 双权威）。
+  const perm = new ProjectPermissionService(prisma as any);
   const spool = new CollabSpoolService(spoolDir);
   spool.setOwner('test-owner');   // R3：onModuleInit 的 scan（Z13）与写路径必先 setOwner
   const gateway = new CollabGateway(

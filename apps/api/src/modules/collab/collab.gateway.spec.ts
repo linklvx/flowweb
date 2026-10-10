@@ -56,7 +56,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   let prisma: any;
   let repo: any;
   let durableRows: Uint8Array[] = [];   // 持久化台账：只记真正 resolve 落库的 append 行（beforeEach 重置）
-  let permSvc: { resolve: ReturnType<typeof vi.fn> };
+  let permSvc: { resolve: ReturnType<typeof vi.fn>; resolveWithTeam: ReturnType<typeof vi.fn> };   // Y0b-3 T3：F-3 换轨 resolveWithTeam 单源——类型注解同批（kit 已预置 mock）
   let gateway: CollabGateway;
   let service: CollabDocumentService;
   let emitter: EventEmitter2;
@@ -151,7 +151,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   }, 8000);
 
   it('① 非团队成员拒绝：连接永不完成 sync', async () => {
-    prisma.teamMember.findUnique.mockResolvedValue(null);
+    permSvc.resolveWithTeam.mockResolvedValue({ role: null, teamId: 't1' });   // Y0b-3 T3 F-3 换轨：权限判据走 resolveWithTeam（原打 teamMember.findUnique 已不在判据链）
     const provider = new HocuspocusProvider({
       url,
       name: 'project:p3',
@@ -174,7 +174,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     }
 
     it('PROJECT_VIEWER：connectionConfig.readOnly 置 true（Hocuspocus 拒绝连接写更新）', async () => {
-      permSvc.resolve.mockResolvedValue('PROJECT_VIEWER');
+      permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });   // Y0b-3 T3 F-3 换轨：覆写点同步 resolveWithTeam
       const connectionConfig = { readOnly: false, isAuthenticated: false };
       const ctx = await gateway.hooks.onAuthenticate(authPayload(connectionConfig) as any);
       expect(connectionConfig.readOnly).toBe(true);
@@ -182,7 +182,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     });
 
     it('EDITOR：正常可写', async () => {
-      permSvc.resolve.mockResolvedValue('PROJECT_EDITOR');
+      permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });   // Y0b-3 T3 F-3 换轨
       const connectionConfig = { readOnly: false, isAuthenticated: false };
       const ctx = await gateway.hooks.onAuthenticate(authPayload(connectionConfig) as any);
       expect(connectionConfig.readOnly).toBe(false);

@@ -48,7 +48,9 @@ function buildGateway() {
   spool.setOwner('test-owner');                     // R3：写路径必先 setOwner（Z13 fail-closed）
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
-    { resolve: vi.fn() } as any, 44500 + Math.floor(Math.random() * 2000),
+    // Y0b-3 T3：F-3 换轨后 authenticateInner 判据走 resolveWithTeam——stub 双方法齐备（否则 TypeError 折 db-unavailable）
+    { resolve: vi.fn(), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) } as any,
+    44500 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
   (gateway as any).collabState = 'serving';   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）

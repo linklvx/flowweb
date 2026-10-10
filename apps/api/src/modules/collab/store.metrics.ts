@@ -64,6 +64,34 @@ export const collabUpgradeRejectedTotal = new Counter({
   registers: [register],
 });
 
+/** Y0b-3 T3（§3.1bis 防线族）：onAuthenticate 拒绝计数——deny 工厂单点埋入（§5.1-5 拒绝必计数）。
+ *  source=拒绝位六分位：state=inner 业务状态拒绝（凭据/会话/权限/项目分型+DB 折叠桶）；
+ *  semaphore/bucket/heap/version=外层防线各自层位（P-F 结构分离）；cache=refusalCache 命中重放。 */
+export const collabAuthRejectTotal = new Counter({
+  name: 'collab_auth_reject_total',
+  help: 'collab onAuthenticate 拒绝次数（reason=CollabAuthReason 词表；source=拒绝位 state/semaphore/bucket/heap/version/cache）',
+  labelNames: ['reason', 'source'],
+  registers: [register],
+});
+/** Y0b-3 T3：在飞 onAuthenticate gauge——collect 现算（reader 注册同 pendingCollector 惯例，
+ *  读 gateway authInflight 字段）。口径：计数≠DB 在飞——AUTH_DB_DEADLINE 到期即释放槽位
+ *  但底层查询仍在飞，DB 真实并发由池 connection_limit 兜底。 */
+let authInflightReader: (() => number) | null = null;
+export function registerAuthInflightReader(fn: () => number): void { authInflightReader = fn; }
+export function unregisterAuthInflightReader(): void { authInflightReader = null; }
+export const collabAuthInflight = new Gauge({
+  name: 'collab_auth_inflight',
+  help: '在飞 onAuthenticate 数（信号量口径——deadline 到期即释放槽位，非 DB 真实并发）',
+  registers: [register],
+  collect() { try { this.set(authInflightReader?.() ?? 0); } catch { this.set(0); } },
+});
+/** Y0b-3 T3：AUTH DB deadline 超时计数（折 db-unavailable——防慢 DB 挂满信号量） */
+export const collabAuthTimeoutTotal = new Counter({
+  name: 'collab_auth_timeout_total',
+  help: 'AUTH DB deadline(3s) 超时次数（折 db-unavailable；约束信号量槽位占用非 DB 工作量）',
+  registers: [register],
+});
+
 /** Y0a-3（E35/E44/V22）：租约指标族——labelNames 必须与全部 .inc({}) 调用点一一对应
  *  （B8：prom-client 对未声明标签 throw——隔离路径会炸，先于任何消费方落地）。 */
 export const collabLeaseDeniedTotal = new Counter({

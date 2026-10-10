@@ -27,13 +27,18 @@ function buildGateway() {
   };
   const repo = createMockRepo();   // Y0a-1：mock-repo 工厂（loadUpdates 已删）
   const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true）
-  const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
+  // Y0b-3 T3（F-3）：recheckConnection 判据换轨 perm.resolveWithTeam 单源——stub 同批补
+  // （否则换轨后 TypeError 折 db-unavailable 伪装复验失败，5 连败兜底误踢）
+  const perm = {
+    resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+    resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
+  };
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
     perm as any, 47000 + Math.floor(Math.random() * 5000),
     undefined, undefined, undefined, new CollabSpoolService(spoolDir),
   );
-  return { gateway, prisma };
+  return { gateway, prisma, perm };
 }
 
 interface FakeConn {
@@ -114,10 +119,11 @@ describe('批3-4 session sweep', () => {
     expect(conn.webSocket.close).toHaveBeenCalledWith(4401, 'session-expired');
   });
 
-  it('快照未过期 → 跳过（零 DB 查询——快照是第一道闸）', async () => {
+  it('快照未过期 ∧ 权限结论缓存未到期 → 跳过（零 DB——Y0b-3 T3 两分支判据门：快照死线+permCache 5min 双判据）', async () => {
     vi.stubEnv('COLLAB_SWEEP_ENABLED', 'true');
     const { gateway, prisma } = buildGateway();
     const conn = makeConn('project:p1', { expiresAt: new Date(Date.now() + 3600_000) });
+    (gateway as any).permCache.set(conn, { role: 'PROJECT_EDITOR', at: Date.now() });   // 首查已做（T3 起无条目=首查必复验——判据门语义变更）
     seedDocument(gateway, 'project:p1', [conn]);
     (gateway as any).startSessionSweep();
     await vi.advanceTimersByTimeAsync(60_000);
@@ -142,10 +148,10 @@ describe('批3-4 session sweep', () => {
     expect(conn.webSocket.close).not.toHaveBeenCalled();
   });
 
-  it('移除成员也踢：session 有效但 teamMember 无 → 通知+grace+close', async () => {
+  it('移除成员也踢：session 有效但权限链解析无角色 → 通知+grace+close', async () => {
     vi.stubEnv('COLLAB_SWEEP_ENABLED', 'true');
-    const { gateway, prisma } = buildGateway();
-    prisma.teamMember.findUnique.mockResolvedValue(null);   // 个体被移除（能力 latch 债顺手关）
+    const { gateway, perm } = buildGateway() as any;
+    perm.resolveWithTeam.mockResolvedValue({ role: null, teamId: 't1' });   // 个体被移除（能力 latch 债顺手关）——T3 F-3 换轨：复验走 resolveWithTeam
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     (gateway as any).startSessionSweep();

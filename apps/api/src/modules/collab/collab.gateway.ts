@@ -1,15 +1,17 @@
-import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
 import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
+import { createHash } from 'node:crypto';
+import type { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseSessionToken } from '../../common/utils/parse-session-token';
 import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, registerAuthInflightReader, registerPendingCollector, unregisterAuthInflightReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
@@ -140,6 +142,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
     this.logger.log(JSON.stringify({ event: 'collab_state', from: this.collabState, to: next, cause }));
     this.collabState = next;
+    if (next === 'serving') this.onServingTransition();   // Y0b-3 T3（P-Q 清空单点）：drain 解除/租约 rejoin/fence 解除全含于 serving 转移——refusalCache 残留拒连窗随状态恢复一并消除
   }
   /** V12 判据唯一化：三入口门/写意图门统一读 collabState 派生（serving=唯一放行态）——
    *  lease.isServing() 仅为租约状态机内部使用（acquireLoop/看门狗），对外服务判据唯一源=collabState。 */
@@ -251,6 +254,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
     // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
     registerPendingCollector(() => this.computePending());
+    // Y0b-3 T3：collab_auth_inflight gauge collect 源（pendingCollector 同惯例——同进程单 gateway）
+    registerAuthInflightReader(() => this.authInflight);
+    this.startAuthMapsSweeper();   // P-V⑦：防线 Map 老化独立 timer——禁挂 sweep tick（SWEEP_ENABLED=false 逃生阀不得静默关掉老化）
   }
 
   /** ===== Y0b-3 T2：upgrade 面（§3.1ter）=====
@@ -324,63 +330,166 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return peer || 'unknown';
   }
 
-  /** 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
-   *  token 只来自 httpOnly cookie（Y0b-3 T2 cookie-only——query token 通道删除，§1.3 对象 4；
-   *  access_log off 止血转纵深：token 不再可能进 nginx access log/URL 引用）。浏览器自动携带；
-   *  测试/运维工具经 ws 自定义 header 注入 Cookie（T1.5 makeHeaderWs 先例）。
-   *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新。
-   *  批3-1：拒绝一律带 reason（Object.assign 附着——Hocuspocus catch 直读 error.reason 写入
-   *  permission-denied 消息，客户端 authenticationFailed 原样收到）；已分型异常原样 rethrow，
-   *  其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙）。
-   *  批3-3：session 查询统一走 SessionService.touchWithReason——age>updateAge(1d) 的活跃连接
-   *  顺带续期 7d（WS 路径只能 touch DB）；context 携带 token/sessionExpiresAt 供批3-4 sweep 复验。 */
-  private async authenticate({ requestHeaders, documentName, connectionConfig }: onAuthenticatePayload) {
-    const deny = (reason: CollabAuthReasonCode, message: string) => Object.assign(new Error(message), { reason });
+  /** ===== Y0b-3 T3（P-F/P-K/P-Q）：认证防线三层+权限判据单源 =====
+   *  结构（§3.1bis 钉死）：authenticate()=外层防线壳（refusalCache→信号量→桶→try{inner}finally——
+   *  heap 闸〔T4〕/版本门〔T5〕后续插入 inner 内）；authenticateInner()=原方法体
+   *  （状态检查→token→session→权限段 resolveWithTeam 单源→DB）。
+   *  信号量/桶的 throw 在 try 之外=不经过写缓存的 catch（P-F 结构分离："瞬时拥塞≠状态故障"
+   *  按 throw 来源结构分离，非 reason 值——入缓存=一次拥塞变 15s 确定性拒绝）；
+   *  inner 的 throw 进外层 catch→reason∈REFUSAL_CACHEABLE（四类）→写 cache。 */
+  private readonly refusalCache = new Map<string, { reason: CollabAuthReasonCode; at: number }>();
+  private authInflight = 0;
+  private authInflightPeak = 0;   // 验收锚②消费口径（gauge=collab_auth_inflight 同字段 collect）
+  private readonly authAttemptBuckets = new Map<string, { count: number; windowStart: number }>();
+  private lastSpoolState: 'ok' | 'spool-unwritable' = 'ok';   // spool 恢复翻转检测（清空并集的 spool 支——谓词非集合，消费点记上一态）
+  private authMapsSweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** sweep 判据门第二分支（P-K）：per-connection 权限结论缓存（5min 会话级 TTL——WeakMap 随连接回收）；
+   *  T8 事件失效消费=仅 delete 不直接 recheck。 */
+  private readonly permCache = new WeakMap<object, { role: ProjectRole | null; at: number }>();
+  private static readonly REFUSAL_CACHEABLE = new Set<string>([
+    CollabAuthReason.DRAINING, CollabAuthReason.LEASE_NOT_READY,
+    CollabAuthReason.DB_UNAVAILABLE, CollabAuthReason.SERVER_OVERLOADED,
+  ]);   // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）
+  /** AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI）。
+   *  边界：Promise.race 到期不取消底层 Prisma 查询——约束的是信号量槽位占用，非 DB 工作量；
+   *  DB 真实并发由池 connection_limit=5 兜底（池 5−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
+  private static readonly AUTH_DB_DEADLINE_MS = 3_000;
+  private static readonly PERM_RECHECK_TTL_MS = 5 * 60_000;   // §3.1bis：sweep 权限复验周期=会话级结论缓存 5min
+  private withAuthDeadline<T>(p: Promise<T>): Promise<T> {
+    return Promise.race([p, new Promise<never>((_resolve, rej) =>
+      setTimeout(() => {
+        collabAuthTimeoutTotal.inc();
+        rej(Object.assign(new Error('auth db deadline'), { reason: CollabAuthReason.DB_UNAVAILABLE }));
+      }, CollabGateway.AUTH_DB_DEADLINE_MS).unref?.())]);
+  }
+  private refusalTtlMs(): number { return Number(process.env.COLLAB_REFUSAL_CACHE_TTL_MS) || 15_000; }
+  private authAttemptsPerMin(): number { return Number(process.env.COLLAB_AUTH_ATTEMPTS_PER_MIN) || 10; }
+  private authInflightMax(): number { return Number(process.env.COLLAB_AUTH_INFLIGHT_MAX) || 4; }   // 默认 4——池公式 cpu×2+1=5 对齐（8×3 查询>池 5=P2024 折 db-unavailable）
+  /** 清空钩子单点（P-Q）：任一 transition('serving') 转移清（fence/drain 解除/租约 rejoin 全含于
+   *  serving 转移——比枚举因由稳，漏一即残留）+spool 恢复翻转+heap 释放（T4 releaseHook 接线汇入同点）。 */
+  private onServingTransition(): void { this.refusalCache.clear(); }
+  /** 防线三 Map 老化（P-V⑦）：TTL 过期条目清+桶过期窗清——独立 1min timer（禁挂 sweep tick——
+   *  SWEEP_ENABLED=false 逃生阀不得静默关掉老化）。 */
+  private sweepStaleAuthMaps(): void {
+    const now = Date.now();
+    for (const [k, v] of this.refusalCache) if (now - v.at >= this.refusalTtlMs()) this.refusalCache.delete(k);
+    for (const [k, v] of this.authAttemptBuckets) if (now - v.windowStart >= 60_000) this.authAttemptBuckets.delete(k);
+  }
+  private startAuthMapsSweeper(): void {
+    if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }
+    this.authMapsSweepTimer = setInterval(() => this.sweepStaleAuthMaps(), 60_000);
+    this.authMapsSweepTimer.unref?.();
+  }
+  /** spool 状态判定+恢复翻转检测（清空并集的 spool 支——'spool-unwritable'→'ok' 翻转时清）。 */
+  private spoolStateForAuth(): 'ok' | 'spool-unwritable' {
+    const s = this.isWritableOrDegraded();
+    if (this.lastSpoolState === 'spool-unwritable' && s === 'ok') this.onServingTransition();
+    this.lastSpoolState = s;
+    return s;
+  }
+  /** deny 工厂单点（§5.1-5 拒绝与计数同点）：所有 onAuthenticate 拒绝路径经此——reason=词表 13 值，
+   *  source=拒绝位六分位（state=inner 业务状态拒绝含 DB 折叠桶；semaphore/bucket/heap/version=防线层位；cache=缓存命中重放）。 */
+  private denyAuth(reason: CollabAuthReasonCode, message: string, source: 'state' | 'semaphore' | 'bucket' | 'heap' | 'version' | 'cache'): Error {
+    collabAuthRejectTotal.inc({ reason, source });
+    return Object.assign(new Error(message), { reason });
+  }
+
+  /** 鉴权外壳（防线三层，§3.1bis 钉死执行序：refusalCache → 信号量 → 桶 →〔T4 heap→T5 版本门在 inner〕→ DB）。
+   *  fingerprint=真实凭据（P-Q）：cookie-only 后 payload.token 恒占位——从 cookie 解析真值做键
+   *  （'anon' 塌缩=跨用户 15s 放大）；键=(documentName, sha256(token) 前 16 位)。
+   *  无 cookie ⇒ cacheKey=null ⇒ 本轮拒绝不落缓存（anon 键会使不同来源的状态拒绝互相覆盖——写入侧短路）。
+   *  拒绝一律带 reason（客户端 authenticationFailed 原样收到）；断连由库 30s 超时自然完成（桶超限不主动 close）。 */
+  private async authenticate(payload: onAuthenticatePayload) {
+    const credential = parseSessionToken(payload.requestHeaders?.get('cookie'));
+    const fingerprint = credential ? `t:${createHash('sha256').update(credential).digest('hex').slice(0, 16)}` : null;
+    const cacheKey = fingerprint ? `${payload.documentName}|${fingerprint}` : null;   // 唯一声明（读写两侧均 if(cacheKey) 短路）
+    const cached = cacheKey ? this.refusalCache.get(cacheKey) : undefined;
+    if (cached && Date.now() - cached.at < this.refusalTtlMs()) {
+      throw this.denyAuth(cached.reason, `refusal cached: ${cached.reason}`, 'cache');   // TTL 15s 绝对过期不续期
+    }
+    // 全局并发认证信号量（spec 序第二层——唯一不依赖库内部结构的乘积闸）；throw 在 try 外=不经写缓存的 catch（P-F）
+    if (this.authInflight >= this.authInflightMax()) {
+      throw this.denyAuth(CollabAuthReason.SERVER_OVERLOADED, 'auth inflight limit', 'semaphore');
+    }
+    // per-socket 认证尝试桶（spec 序第三层；键=payload.socketId d.ts:480）
+    const bucket = this.authAttemptBuckets.get(payload.socketId) ?? { count: 0, windowStart: Date.now() };
+    if (Date.now() - bucket.windowStart >= 60_000) { bucket.count = 0; bucket.windowStart = Date.now(); }
+    bucket.count += 1;
+    this.authAttemptBuckets.set(payload.socketId, bucket);
+    if (bucket.count > this.authAttemptsPerMin()) {
+      throw this.denyAuth(CollabAuthReason.RATE_LIMITED, 'auth attempts exceeded', 'bucket');
+    }
+    this.authInflight += 1;
+    this.authInflightPeak = Math.max(this.authInflightPeak, this.authInflight);
     try {
-      const token = parseSessionToken(requestHeaders?.get('cookie'));   // T2 cookie-only——query token 通道删除
-      if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
-      // Y0a-2（X9）：受理门分层——draining=关停期拒新连接（DRAINING 瞬态档，客户端继续重连）；
-      // spool 熔断=只读降级（新连接放行但 readOnly——复用 VIEWER 机制+stateless 通告；存量连接不动）。
+      return await this.authenticateInner(payload);
+    } catch (err) {
+      const reason = (err as { reason?: CollabAuthReasonCode } | null)?.reason;
+      if (reason && CollabGateway.REFUSAL_CACHEABLE.has(reason) && cacheKey) {
+        this.refusalCache.set(cacheKey, { reason, at: Date.now() });   // 无凭据不落缓存（P-Q）
+      }
+      throw err;
+    } finally {
+      this.authInflight -= 1;
+    }
+  }
+
+  /** 鉴权内层（原 authenticate 方法体——Y0b-3 T3 改名+判据单源化）：
+   *  token 只来自 httpOnly cookie（Y0b-3 T2 cookie-only；BetterAuth getSession 在 NestJS 上下文失效——session 直查 DB）。
+   *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新。
+   *  批3-1：已分型异常原样 rethrow，其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙）。
+   *  批3-3：session 查询统一走 SessionService.touchWithReason——age>updateAge(1d) 顺带续期 7d；
+   *  context 携带 token/sessionExpiresAt 供 sweep 复验。 */
+  private async authenticateInner({ requestHeaders, documentName, connectionConfig }: onAuthenticatePayload) {
+    const deny = (reason: CollabAuthReasonCode, message: string) => this.denyAuth(reason, message, 'state');
+    try {
+      // 状态检查先于凭据提取：状态类拒绝（draining/lease-not-ready）与凭据无关——无凭据连接也得到
+      // 状态分型（凭据缺失只影响外层 cacheKey=null 不落缓存，不改变拒绝语义）。
+      // Y0a-2（X9）：draining=关停期拒新连接（瞬态档）；spool 熔断=只读降级（放行但 readOnly）。
       // DRAINING 档必须前置于租约门：draining 时 collabState≠'serving'，租约门先行=死代码+误导 reason。
       if (this.isShuttingDown()) throw deny(CollabAuthReason.DRAINING, 'service restarting');
-      if (!this.isLeaseServing()) throw deny(CollabAuthReason.LEASE_NOT_READY, 'collab lease not held');   // P0-1 三入口①（V12：collabState 派生——serving=唯一放行态；draining 由前置 DRAINING 档分型）
-      const spoolState = this.isWritableOrDegraded();
+      if (!this.isLeaseServing()) throw deny(CollabAuthReason.LEASE_NOT_READY, 'collab lease not held');   // P0-1 三入口①（V12：collabState 派生——serving=唯一放行态）
+      const spoolState = this.spoolStateForAuth();   // 恢复翻转检测在此（P-Q 清空并集 spool 支）
       if (spoolState !== 'ok') {
         connectionConfig.readOnly = true;          // X9：只读降级（协议层拒写更新）
-        this.broadcastSpoolDegraded(documentName); // Y9：独立通告通道（pushPersistStatus 有 persistUnhealthy 早退——spool 熔断不在其中=静默只读）
+        this.broadcastSpoolDegraded(documentName); // Y9：独立通告通道
       }
-      const { session, expired } = await this.sessionSvc.touchWithReason(token);
+      const token = parseSessionToken(requestHeaders?.get('cookie'));   // T2 cookie-only——query token 通道删除
+      if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
+      const { session, expired } = await this.withAuthDeadline(this.sessionSvc.touchWithReason(token));
       if (!session) throw deny(expired ? CollabAuthReason.SESSION_EXPIRED : CollabAuthReason.UNAUTHENTICATED, expired ? '会话过期' : '未登录');
+      // —— 权限段（F-3 判据单源——P-K）：原 canvasProject.findUnique+teamMember.findUnique 硬门+
+      // perm.resolve 三段整体换为一次 resolveWithTeam（显式 ProjectMember>创建者>团队回退——
+      // 4-5 次冗余往返归 1-3 次，信号量乘积闸才有意义）。⚠ 权限语义 A：removeMember 不触碰
+      // ProjectMember 表=移出团队但有显式授权仍保留访问（REST assertEditor 同链既有语义）。
       const projectId = parseProjectId(documentName);
-      const project = await this.prisma.canvasProject.findUnique({
-        where: { id: projectId },
-        select: { teamId: true },
-      });
-      if (!project) throw deny(CollabAuthReason.NOT_FOUND, '项目不存在');
-      const member = await this.prisma.teamMember.findUnique({
-        where: { teamId_userId: { teamId: project.teamId, userId: session.user.id } },
-      });
-      if (!member) throw deny(CollabAuthReason.FORBIDDEN, '非团队成员');
-      const projectRole = await this.perm.resolve(projectId, session.user.id);
-      const readOnly = projectRole === 'PROJECT_VIEWER';
+      let resolved: { role: ProjectRole | null; teamId: string };
+      try {
+        resolved = await this.withAuthDeadline(this.perm.resolveWithTeam(projectId, session.user.id));
+      } catch (e) {
+        if (e instanceof NotFoundException) throw deny(CollabAuthReason.NOT_FOUND, '项目不存在');   // 保 NOT_FOUND/FORBIDDEN 分型（客户端 UX 分流依赖）
+        throw e;   // 其余进 catch 分型（DB_UNAVAILABLE 等）
+      }
+      if (!resolved.role) throw deny(CollabAuthReason.FORBIDDEN, '无项目访问权限');
+      const readOnly = resolved.role === 'PROJECT_VIEWER';
       // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
       // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
       if (readOnly) connectionConfig.readOnly = true;
-      // 批3-4：unhealthy 电平期的新连接补推 persist-status（onAuthenticate payload 无 connection——
-      // v4 形状，延迟到本 tick 后连接已注册进 document.connections）
+      // 批3-4：unhealthy 电平期的新连接补推 persist-status（payload 无 connection——v4 形状，
+      // 延迟到本 tick 后连接已注册进 document.connections）
       if (this.persistUnhealthy.has(documentName)) {
         const t = setTimeout(() => this.pushPersistStatus(documentName), 500);
         t.unref?.();
       }
       return {
-        user: { id: session.user.id, name: session.user.name, role: member.role },
+        user: { id: session.user.id, name: session.user.name, role: resolved.role },   // 词表统一 ProjectRole（TeamRole OWNER/MEMBER 混用终结）
         readOnly,
-        token,   // 批3-4 sweep 复验凭据（context 只在服务端内存，不外发）
-        sessionExpiresAt: session.expiresAt,   // 批3-4 sweep 死线快照（必过期下界）
+        token,   // sweep 复验凭据（context 只在服务端内存，不外发）
+        sessionExpiresAt: session.expiresAt,   // sweep 死线快照（必过期下界）
       };
     } catch (err) {
-      if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;   // 已分型原样透传
-      throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
+      if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;   // 已分型原样透传（denyAuth 已计数；withAuthDeadline 超时另有专表不双计）
+      throw this.denyAuth(CollabAuthReason.DB_UNAVAILABLE, `db unavailable: ${(err as Error).message}`, 'state');
     }
   }
 
@@ -711,6 +820,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.collabState === 'isolated') return;
     this.transition('isolated', cause);   // V33
     collabLeaseLostTotal.inc({ cause });
+    this.onServingTransition();   // Y0b-3 T3 防御性：隔离期写入的 LEASE_NOT_READY 缓存提前清消残窗（rejoin 的 serving 转移本会覆盖——双保险）
     this.clearDrainTimer();
     this.frozenConnections.clear();
     this.closeAllConnections1012();
@@ -1230,14 +1340,18 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     for (const document of [...this.server.hocuspocus.documents.values()]) {
       for (const connection of [...document.connections.keys()]) {
         const ctx = (connection.context ?? {}) as { token?: string; sessionExpiresAt?: Date };
-        const deadline = ctx.sessionExpiresAt;
-        if (!(deadline instanceof Date) || deadline.getTime() > Date.now()) continue;   // 快照未过期：第一道闸
         if (this.sweepGrace.has(connection)) continue;   // 通知/grace 在途：去重
+        // —— 判据门两分支（Y0b-3 T3 P-K）：快照死线 ∨ 权限复验到期（permCache 5min/首查）——
+        // 原单分支（快照未过期 continue）使权限复验零调用=降级/撤权最长 7d 不可见（本 Task 修）
+        const deadline = ctx.sessionExpiresAt;
+        const expired = deadline instanceof Date && deadline.getTime() <= Date.now();
+        const dueForPerm = this.permRecheckDue(connection);
+        if (!expired && !dueForPerm) continue;
         try {
           const re = await this.recheckConnection(connection, document.name);
           this.sweepRecheckFails.delete(connection);   // 复验完成（无论结论）——连续失败计数复位
           if (!re.revoked) {
-            if (re.expiresAt) ctx.sessionExpiresAt = re.expiresAt;   // 翻案：刷新死线快照（下轮按新死线）
+            if (re.expiresAt) ctx.sessionExpiresAt = re.expiresAt;   // 翻案/刷新：死线快照按新值（下轮按新死线）
             continue;
           }
           this.scheduleSweepClose(connection, 'revoked');
@@ -1251,23 +1365,40 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** 复验：复用 authenticate 同款查询（session → canvasProject → teamMember）。
-   *  纯读（resolve 不续期——清扫面不得反向保活 session）。 */
-  private async recheckConnection(connection: { context?: { token?: string } }, documentName: string): Promise<{ revoked: boolean; expiresAt: Date | null }> {
+  /** sweep 判据门第二分支（P-K）：权限复验到期=无条目（首查）∨ 距上次结论 ≥5min。 */
+  private permRecheckDue(connection: object): boolean {
+    const c = this.permCache.get(connection);
+    return !c || Date.now() - c.at >= CollabGateway.PERM_RECHECK_TTL_MS;
+  }
+
+  /** 复验：session resolve（纯读不续期——清扫面不得反向保活 session）+权限链 perm.resolveWithTeam
+   *  （F-3 判据单源——与 authenticate 同链；原手写三段查询删除）。⚠ 权限语义 A（P-U②）：
+   *  role 非 null 但用户已被移出团队（有显式 ProjectMember 行）=预期行为——REST 同链既有语义，不踢。
+   *  cause 分型：no-role（权限链无角色）/session-invalid（会话失效）——T8 事件路径同分型。 */
+  private async recheckConnection(connection: { context?: { token?: string }; readOnly?: boolean }, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid'; expiresAt?: Date }> {
     const token = connection.context?.token;
-    if (!token) return { revoked: false, expiresAt: null };
+    if (!token) return { revoked: false, expiresAt: undefined };   // 无凭据（authenticate 必播种——理论不可达）不翻案
     const { session } = await this.sessionSvc.resolve(token);
-    if (!session) return { revoked: true, expiresAt: null };   // 过期/登出（resolve 折叠两态）
-    const projectId = parseProjectId(documentName);
-    const project = await this.prisma.canvasProject.findUnique({
-      where: { id: projectId },
-      select: { teamId: true },
-    });
-    if (!project) return { revoked: true, expiresAt: null };
-    const member = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId: session.userId } },
-    });
-    return { revoked: !member, expiresAt: session.expiresAt };
+    if (!session) return { revoked: true, cause: 'session-invalid', expiresAt: undefined };   // 过期/登出（resolve 折叠两态）
+    const { role } = await this.perm.resolveWithTeam(parseProjectId(documentName), session.userId);
+    this.permCache.set(connection, { role, at: Date.now() });   // 会话级结论缓存（T8 事件失效消费——仅清不直接 recheck）
+    if (role === 'PROJECT_VIEWER' && !connection.readOnly) {
+      connection.readOnly = true;   // E13：降级=修越权写不断连
+      this.rewriteAwarenessRole(connection, 'PROJECT_VIEWER');
+      collabSweepCloseTotal.inc({ cause: 'role-downgraded' });
+      return { revoked: false, expiresAt: session.expiresAt };
+    }
+    if (role !== null && role !== 'PROJECT_VIEWER' && connection.readOnly) {
+      connection.readOnly = false;   // 升回可写（VIEWER 翻案/授权变化）
+      this.rewriteAwarenessRole(connection, role);
+    }
+    return role === null ? { revoked: true, cause: 'no-role', expiresAt: undefined } : { revoked: false, expiresAt: session.expiresAt };
+  }
+
+  /** awareness role 改写（E73——只置 readOnly 不改 awareness=成员表仍显示旧角色）。
+   *  Y0b-3 T8 实接（clock 递增+document 定位）——本 Task 挂 no-op 占位（plan T3 关键注意 5）。 */
+  private rewriteAwarenessRole(_connection: object, _role: ProjectRole): void {
+    // T8 接线占位
   }
 
   private scheduleSweepClose(connection: object & { sendStateless?: (p: string) => void; webSocket: { close: (code?: number, reason?: string) => void } }, cause: 'revoked' | 'db-fail') {
@@ -1311,6 +1442,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.clearDrainTimer();
     this.frozenConnections.clear();
     if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }
+    if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }   // Y0b-3 T3：防线 Map 老化 timer 随停
+    unregisterAuthInflightReader();   // Y0b-3 T3：gauge reader 闭包随 gateway 死（pendingCollector 同惯例）
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);  // 定时器随停——drain 主动接管
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
     this.closeAllConnections1012();                                              // 步骤 2：瞬时

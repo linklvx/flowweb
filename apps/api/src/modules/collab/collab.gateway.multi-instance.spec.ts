@@ -20,7 +20,8 @@ describe('CollabGateway 租约 fail-fast（第二实例结构性无法接流—�
     dir = await makeSpoolDir('y0a3-mi-');
     gateway = new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
       createLeaseStub({ isServing: vi.fn(() => false), tryAcquireFast: vi.fn(async () => false) }) as any,   // 第二实例：租约被占
-      { resolve: vi.fn() } as any, 48200, 300, undefined, undefined, new CollabSpoolService(dir.dir));
+      { resolve: vi.fn(), resolveWithTeam: vi.fn() } as any,   // Y0b-3 T3：F-3 换轨后 perm stub 双方法齐备（本 spec 拒于租约门，不触 perm——防未来换轨 TypeError）
+      48200, 300, undefined, undefined, new CollabSpoolService(dir.dir));
   });
   afterEach(async () => {
     await gateway.server.destroy();

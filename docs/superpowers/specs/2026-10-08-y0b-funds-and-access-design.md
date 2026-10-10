@@ -835,6 +835,9 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 <!-- y0b0:metric-names -->
 ```yaml
 - ai_artifact_discarded_total
+- collab_auth_inflight
+- collab_auth_reject_total
+- collab_auth_timeout_total
 - collab_lease_denied_total
 - collab_lease_epoch
 - collab_lease_lost_total
