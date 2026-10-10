@@ -638,7 +638,7 @@ describe('ImageGenNode', () => {
     fetchSpy.mockRestore();
   });
 
-  it('INTENT_EXHAUSTED 409 → rotate 新 token+明确提示（下次提交照常扣费；INTENT_CONTEXT_MISMATCH 语义已随 T1 退役）', async () => {
+  it('INTENT_EXHAUSTED 409 → rotate 新 token+明确提示（下次提交照常扣费；旧上下文不匹配 409 语义已随 T1 退役）', async () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
     const warnSpy = vi.spyOn(message, 'warning');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(

@@ -91,7 +91,7 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     expect((screen.getByTestId('gen-audio-btn') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('片段重拍直连真实节点（批5 删信箱）：积分确认 → regenerateNode 上送 retakeId（intentRecord 范式）——无影子链路', async () => {
+  it('片段重拍直连真实节点（批5 删信箱）：积分确认 → regenerateNode 上送 retakeId（客户端幂等 token 范式）——无影子链路', async () => {
     ready({ data: withVideoClip(createDefaultProjectData()), selectedClipId: 'v1', node: { vg1: { id: 'vg1', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '源视频', status: 'done', fileId: 'f0' } } } });
     render(<PreviewPlayer />);
     expect((retakeBtn() as HTMLButtonElement).disabled).toBe(false);
@@ -102,7 +102,7 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     const arg = regenMock.mock.calls[0][0];
     expect(arg).toMatchObject({ workflowId: 'wf1', sourceNodeId: 'vg1', kind: 'video' });
     expect(typeof arg.retakeId).toBe('string');
-    expect(arg.retakeId.length).toBeGreaterThanOrEqual(8); // newIntentId（crypto.randomUUID）客户端生成——服务端幂等键
+    expect(arg.retakeId.length).toBeGreaterThanOrEqual(8); // retakeId（crypto.randomUUID 形态）客户端生成——服务端幂等键
     expect(messageError).not.toHaveBeenCalled(); // result.success=true 无早失败
   });
 

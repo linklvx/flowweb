@@ -37,11 +37,23 @@ describe('ExecutionProcessor', () => {
 
     const result = await processor.process(job);
 
-    // 第6/7参：intentId（无则 undefined）+ jobId（批0.5-6——claim 同 job 可重入）
+    // 第6/7参：regenToken（无则 undefined，Y0b-2 T6 Z91）+ jobId（批0.5-6——claim 同 job 可重入）
     expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, undefined, 'job-1');
     expect(job.updateProgress).toHaveBeenCalledWith(10);
     expect(job.updateProgress).toHaveBeenCalledWith(100);
     expect(result).toEqual({ success: true, errors: [] });
+  });
+
+  it('Y0b-2 T6（Z91）：job.data.regenToken → execute 第6参透传（enqueue 管道与 execute 直达同 claim 语义）+jobId 第7参', async () => {
+    const job = {
+      id: 'job-5',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', regenToken: 'held-token-1' },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+
+    await processor.process(job);
+
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'held-token-1', 'job-5');
   });
 
   it('should handle job without nodeId', async () => {

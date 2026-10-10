@@ -2,7 +2,7 @@
 // 十三用例+B-1 settle 后交付死区+重放补投影+intents 真库读面（Z78 信封清剿的 api 侧前提）。
 // 装置=exec-partial-success.int 同款直构：真库真 team 真余额真 claim/reaper 面，外呼 apiCaller spy、
 // collab 面=记录器 stub；enqueue 管道用例（⑪）以 execute 第 6/7 参（regenToken/jobId）模拟——
-// processor→execute 透传有 unit 锚（execution.intent.spec），int 不起真 BullMQ。
+// processor→execute 透传有 unit 锚（execution.processor.spec.ts regenToken 用例），int 不起真 BullMQ。
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';

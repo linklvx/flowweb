@@ -231,6 +231,34 @@
       "symbol": "scripts/check-collab-health.mjs",
       "reason": "Y0b-5 交付物前向引用（spec §5.8⑥ 规范性点名巡检脚本——未实现期临时豁免）",
       "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+      "line": 1199,
+      "symbol": "apps/web/src/utils/intentRecord.ts",
+      "reason": "批 0.5 历史记录（客户端意图记录创建步骤——T6 regenToken 协议落地时整文件退役）",
+      "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+      "line": 1587,
+      "symbol": "apps/web/src/utils/intentRecord.ts",
+      "reason": "批 0.5 历史记录（实现步骤锚——T6 regenToken 协议落地时整文件退役）",
+      "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
+      "line": 354,
+      "symbol": "utils/intentRecord.ts",
+      "reason": "Y0b 设计决策历史依据（v2.4 §runId 未决窗口制引旧范式为对照——旧文件 T6 已删，现行=regenToken 协议）",
+      "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/tech-debt.md",
+      "line": 51,
+      "symbol": "apps/web/src/utils/intentRecord.ts",
+      "reason": "TD 台账防重做登记的历史记录（批 0.5 已落地物——T6 regenToken 协议落地时整文件退役）",
+      "expires_at": "2027-01-06"
     }
   ]
 }

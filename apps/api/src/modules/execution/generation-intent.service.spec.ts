@@ -8,6 +8,7 @@ import {
   IntentExhaustedError,
 } from './generation-intent.service';
 import { deriveIdemKey, normalizeRegenToken as normalizeRegenTokenImport } from './intent-key.util';
+import { intentClaimResultTotal } from './exec.metrics';
 
 /** 构造一行 GenerationIntent（默认值=RUNNING 在飞，覆盖式调整；Y0b-2 T1：idemKey/heartbeatAt/deadlineAt/gestureKey 新列） */
 const row = (over: Record<string, unknown> = {}) => ({
@@ -339,6 +340,60 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
 
       const r = await service.claim(input({ jobId: 'job-1' }));
       expect(r.created).toBe(true);
+    });
+  });
+
+  describe('Y0b-2 T6：claim 出口指标 intent_claim_result_total（Z85 出口全覆盖——replay/rearm/new/busy 四态）', () => {
+    /** 带标签 Counter 取值 helper（prom-client 15 的 .get() 不回值——扫 hashMap 按 labels 匹配；deadline-reaper.int.spec 同款） */
+    const labeled = (m: any, labels: Record<string, string>): number => {
+      for (const v of Object.values(m.hashMap ?? {})) {
+        const hit = Object.entries(labels).every(([k, val]) => (v as any).labels?.[k] === val);
+        if (hit) return (v as any).value ?? 0;
+      }
+      return 0;
+    };
+
+    it('result=new：无行 createMany 胜出 → inc({result:"new"})', async () => {
+      const before = labeled(intentClaimResultTotal, { result: 'new' });
+      prisma.generationIntent.findUnique.mockResolvedValue(null);
+      prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
+
+      await service.claim(input());
+
+      expect(labeled(intentClaimResultTotal, { result: 'new' })).toBe(before + 1);
+    });
+
+    it('result=replay：SUCCEEDED 行命中重放 → inc({result:"replay"}) 零写库', async () => {
+      const before = labeled(intentClaimResultTotal, { result: 'replay' });
+      prisma.generationIntent.findUnique.mockResolvedValue(row({ status: 'SUCCEEDED', resultRef: 'media-1' }));
+
+      const r = await service.claim(input());
+
+      expect(r.created).toBe(false);
+      expect(labeled(intentClaimResultTotal, { result: 'replay' })).toBe(before + 1);
+    });
+
+    it('result=rearm：FAILED 行守卫式再激活 → inc({result:"rearm"})', async () => {
+      const before = labeled(intentClaimResultTotal, { result: 'rearm' });
+      prisma.generationIntent.findUnique
+        .mockResolvedValueOnce(row({ status: 'FAILED', attempts: 1 })) // claim 首查
+        .mockResolvedValueOnce(row({ status: 'RUNNING', attempts: 2 })); // rearm 后回读
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+
+      const r = await service.claim(input());
+
+      expect(r.created).toBe(true);
+      expect(labeled(intentClaimResultTotal, { result: 'rearm' })).toBe(before + 1);
+    });
+
+    it('result=busy：⓪ RUNNING 异 jobId → NodeBusy 且 inc({result:"busy"})（catch 族——finally result=undefined 不双计）', async () => {
+      const before = labeled(intentClaimResultTotal, { result: 'busy' });
+      prisma.generationIntent.findFirst.mockResolvedValue(row({ status: 'RUNNING', jobId: 'job-1' })); // ⓪ 前置闸命中
+
+      await expect(service.claim(input({ jobId: 'job-2' }))).rejects.toBeInstanceOf(NodeBusyError);
+
+      expect(labeled(intentClaimResultTotal, { result: 'busy' })).toBe(before + 1);
     });
   });
 

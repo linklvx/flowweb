@@ -115,7 +115,7 @@ describe('ImageExtConfigPanel', () => {
   });
 
   // ── Y0b-2 T6（Z79/Z95/Z118）：手势 token 生命周期（held 一律上送/done 轮换/EXHAUSTED 不自锁） ──
-  // 改前形态（intentId 每击 rotate+组件 ref 记忆）随 intentRecord 族退役——轮换判据单源=doc 投影。
+  // 改前形态（intentId 每击 rotate+组件 ref 记忆）随旧手势 id 记忆模块退役——轮换判据单源=doc 投影。
 
   const lastToken = (): string | undefined =>
     (mockSubmitGeneration.mock.calls.at(-1)?.[1] as any)?.regenToken;
