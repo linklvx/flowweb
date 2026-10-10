@@ -142,7 +142,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
     );
     const v = await validation.validateAll(nodes as any[], f.teamId, f.userId);
     const resolverTotal = await resolverTotalOf(nodes);
-    const r = await svc.execute(f.projectId, undefined, f.userId, nodes.map((n) => n.id), undefined);
+    const r = await svc.execute(f.projectId, undefined, f.userId, nodes.map((n) => n.id));
     expect(r.success).toBe(true);
     const intents = await prisma.generationIntent.findMany({ where: { projectId: f.projectId, status: 'SUCCEEDED' } });
     const intentSum = intents.reduce((s, i) => s + i.creditCost, 0);
@@ -179,7 +179,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       intentService,
     );
     const v = await validation.validateAll(nodes as any[], f.teamId, f.userId);
-    const r = await svc.execute(f.projectId, undefined, f.userId, nodes.map((n) => n.id), undefined);
+    const r = await svc.execute(f.projectId, undefined, f.userId, nodes.map((n) => n.id));
     expect(r.success).toBe(true);
     const intents = await prisma.generationIntent.findMany({ where: { projectId: f.projectId, status: 'SUCCEEDED' } });
     const intentSum = intents.reduce((s, i) => s + i.creditCost, 0);

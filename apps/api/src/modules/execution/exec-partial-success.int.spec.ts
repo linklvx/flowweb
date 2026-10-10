@@ -122,7 +122,7 @@ const statusOf = async (nodeId: string) =>
       pricing: PAID,
     });
     const { svc, writeExecCalls, writeNodeCalls } = makeExec([n1, n2, n3]);
-    const r = await svc.execute(PID, undefined, UID, [n1.id, n2.id, n3.id], undefined, `eps-busy-${randomUUID().slice(0, 6)}`);
+    const r = await svc.execute(PID, undefined, UID, [n1.id, n2.id, n3.id], `eps-busy-${randomUUID().slice(0, 6)}`);
     expect(r.success).toBe(false);
     expect(r.errors).toHaveLength(1); // n1/n3 不进 errors
     expect(r.errors[0]).toMatchObject({ nodeId: n2.id, status: 'skipped' });
@@ -136,7 +136,7 @@ const statusOf = async (nodeId: string) =>
   it('请求级 4xx：UNKNOWN_NODE_IDS（nodeIds 含不存在 id）→ BusinessException 循环前 throw（改前红=静默空成功）', async () => {
     const n1 = imageNode(`n1-${randomUUID().slice(0, 6)}`);
     const { svc } = makeExec([n1]);
-    const ex = await svc.execute(PID, undefined, UID, [n1.id, 'ghost-node'], undefined).catch((e: unknown) => e);
+    const ex = await svc.execute(PID, undefined, UID, [n1.id, 'ghost-node']).catch((e: unknown) => e);
     expect(ex).toBeInstanceOf(BusinessException);
     expect((ex as BusinessException).errorCode).toBe('UNKNOWN_NODE_IDS');
   });
@@ -153,14 +153,14 @@ const statusOf = async (nodeId: string) =>
       { readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn() } as any,
       { emitNodeStatus: vi.fn() } as any, { add: vi.fn() } as any, intentSvc,
     );
-    const ex = await svc.execute(PID, undefined, UID, [a.id, b.id], undefined).catch((e: unknown) => e);
+    const ex = await svc.execute(PID, undefined, UID, [a.id, b.id]).catch((e: unknown) => e);
     expect(ex).toBeInstanceOf(BusinessException);
     expect((ex as BusinessException).errorCode).toBe('CYCLE');
   });
 
   it('请求级 4xx：EMPTY_SCOPE（nodeIds 空组）→ BusinessException（改前红=静默空成功）', async () => {
     const { svc } = makeExec([]);
-    const ex = await svc.execute(PID, undefined, UID, [], undefined).catch((e: unknown) => e);
+    const ex = await svc.execute(PID, undefined, UID, []).catch((e: unknown) => e);
     expect(ex).toBeInstanceOf(BusinessException);
     expect((ex as BusinessException).errorCode).toBe('EMPTY_SCOPE');
   });
@@ -170,7 +170,7 @@ const statusOf = async (nodeId: string) =>
     const { svc, writeExecCalls, writeNodeCalls } = makeExec([n1]);
     const completeSpy = vi.spyOn(intentSvc, 'complete').mockResolvedValue(0); // 模拟 reaper 先手 VOID
     try {
-      const r = await svc.execute(PID, undefined, UID, [n1.id], undefined, `eps-f4-${randomUUID().slice(0, 6)}`);
+      const r = await svc.execute(PID, undefined, UID, [n1.id], `eps-f4-${randomUUID().slice(0, 6)}`);
       expect(r.success).toBe(false);
       expect(r.results).toHaveLength(0); // F4：门序闭=产物不进 results
       expect(r.errors[0]).toMatchObject({ nodeId: n1.id, status: 'error' });
@@ -196,7 +196,7 @@ const statusOf = async (nodeId: string) =>
       return call === 2 ? { success: false, reason: 'CREDIT_INSUFFICIENT' } : orig(uid, guard);
     });
     try {
-      const r = await svc.execute(PID, undefined, UID, [n1.id, n2.id, n3.id], undefined, `eps-part-${randomUUID().slice(0, 6)}`);
+      const r = await svc.execute(PID, undefined, UID, [n1.id, n2.id, n3.id], `eps-part-${randomUUID().slice(0, 6)}`);
       expect(r.success).toBe(false);
       expect(r.errors).toHaveLength(1);
       expect(r.errors[0]).toMatchObject({ nodeId: n2.id, status: 'error', errorCode: 'CREDIT_INSUFFICIENT' });

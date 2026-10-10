@@ -148,7 +148,7 @@
 ### 1.3 删除类任务五行 census（纪律 2）
 
 **对象 1：sv 公开参数链（E25③——删的是"降级+客户端可控头"，SV 服务端判据能力不动：sv.util.ts/svDominates 保留；v2.2 census 补 enqueue 链——第七轮 P1-d；**v2.5 改判=Z14：整体移 Y0b-2**——sv 退役与 canExecute/SYNC_PENDING/pre-call 断言同 commit（remove-after-replace），本批 sv 零触碰；census 十点清单已 T7 留档（§1.3 plan 固化节）为 Y0b-2 删除清单）**
-生产=execute 签名:64/:79+controller DTO（:25 execute 头）+video-project:96-100（随退役消失）+**enqueue 链（controller:37 `@Headers('x-yjs-sv')`→:44 job.data.sv→processor:29-32 `svBytes` 间接消费——两处 v2.1 census 漏）**｜测试=带 sv 的 spec（plan 清点）｜门禁/allow=无｜re-export=sv 等待机制 collab-document.service.ts:84-93+yjs_sv_wait_timeout_total 整体删。处置全删（Y0b-2 执行）；**验收 grep 三形态**：`x-yjs-sv|svBytes|sv?:`（只 grep 头名会漏 processor 间接消费）。
+生产=execute 签名:64/:79+controller DTO（:25 execute 头）+video-project:96-100（随退役消失）+**enqueue 链（controller:37 `@Headers('x-yjs-sv')`→:44 job.data.sv→processor:29-32 `svBytes` 间接消费——两处 v2.1 census 漏）**｜测试=带 sv 的 spec（plan 清点）｜门禁/allow=无｜re-export=sv 等待机制 collab-document.service.ts:84-93+yjs_sv_wait_timeout_total 整体删。处置全删（Y0b-2 执行）；**验收 grep 三形态**（`x-yjs-sv|svBytes|sv?:`——只 grep 头名会漏 processor 间接消费）。
 
 **对象 2：'consumption' 台账遗留（E50；**v2.5 落地注记：枚举值已随 T1a squash 真空删**——squash 不受"PG 删值=重建类型+additive 门禁拦截"约束，v2.4 禁删令对该路径失效；查询过滤随代码同批删）**
 生产=无写点（intent-reconcile:134/147/252 查询过滤）→删过滤；~~枚举值本身禁删~~（T1a squash 路径下已删——init 即终态）。
@@ -831,7 +831,6 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_store_hook_calls_total
 - yjs_store_in_flight_docs
 - yjs_store_tail_anomaly_total
-- yjs_sv_wait_timeout_total
 - yjs_unload_cleanup_failure_total
 - yjs_unload_handoff_failure_total
 - yjs_updates_discarded_deleted_total

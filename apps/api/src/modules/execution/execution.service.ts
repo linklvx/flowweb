@@ -114,9 +114,10 @@ export class ExecutionService {
     await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, msg, intent.attempts ?? 0, (intent.attempts ?? 0) < 3, intent.intentId)).catch(() => {});
   }
 
-  /** intentId 形参=客户端手势 token（Z109：wire 名不变、语义=gestureToken——行身份由 claim 铸造）。 */
+  /** intentId 形参=客户端手势 token（Z109：wire 名不变、语义=gestureToken——行身份由 claim 铸造）。
+   *  Y0b-2 T7：sv 形参删除（SV 支配判定移受理端点门 sync-admission——服务侧 execute 零客户端状态）。 */
   async execute(
-    projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], sv?: Uint8Array, intentId?: string, jobId?: string,
+    projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], intentId?: string, jobId?: string,
   ): Promise<ExecutionResult> {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
@@ -136,7 +137,7 @@ export class ExecutionService {
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
     // Y0b-2 T3（分源钉死）：计费/语义读恒活读（readCanvas/withDoc——发起方必有 WS⇒doc 常驻⇒零装载
     // 成本）；快照出口 readCanvasSnapshotCached 仅无客户端面（video-work 等）——本处禁改走快照。
-    const canvas = await this.collabDoc.readCanvas(projectId, sv);
+    const canvas = await this.collabDoc.readCanvas(projectId);
     const allNodes = canvas.nodes as any[];
     const allEdges = canvas.edges as any[];
 

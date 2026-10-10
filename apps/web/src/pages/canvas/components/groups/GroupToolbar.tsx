@@ -17,6 +17,8 @@ interface Props {
   groupType: 'normal' | 'storyboard';
   collapsed?: boolean;          // R2d-1：仅 normal 分支消费（分镜组不可折叠——storyboard 调用点不再传死值）
   executing: boolean;
+  /** Y0b-2 T7：canExecute 硬态——仅禁「整组执行」（断连/只读/冻结；解组/转组是本地编辑不在此门） */
+  canExecute?: boolean;
   onCollapse?: (id: string) => void;   // 同上——折叠按钮在 normal 条件块内
   onExecute: (id: string) => void;
   onUngroup: (id: string) => void;
@@ -215,7 +217,7 @@ function GroupToolbarComponent(p: Props) {
           <Sep />
           <button style={btn()} onClick={() => p.onCollapse?.(p.groupId)}>{p.collapsed ? '展开' : '折叠'}</button>
           <Sep />
-          <button style={btn(p.executing)} disabled={p.executing} onClick={() => !p.executing && p.onExecute(p.groupId)}>▶ 整组执行</button>
+          <button style={btn(p.executing || p.canExecute === false)} disabled={p.executing || p.canExecute === false} onClick={() => !(p.executing || p.canExecute === false) && p.onExecute(p.groupId)}>▶ 整组执行</button>
           <Sep />
           <ConvertButton p={p} />
           <Sep />

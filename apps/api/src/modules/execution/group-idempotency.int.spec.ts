@@ -175,7 +175,7 @@ const statusOf = async (nodeId: string) =>
     const led1 = await ledgerOf();
     // enqueue 管道路径（jobId='job-e3'——processor 透传形态）
     const e2 = makeExec(nodes);
-    await e2.svc.execute(PID, undefined, UID, [n], undefined, undefined, 'job-e3');
+    await e2.svc.execute(PID, undefined, UID, [n], undefined, 'job-e3');
     expect(e2.apiCaller.callTextGen).not.toHaveBeenCalled(); // 零外呼
     expect((await ledgerOf()).settle).toBe(led1.settle);
     expect((await rowsOf(n)).length).toBe(1);
@@ -198,7 +198,7 @@ const statusOf = async (nodeId: string) =>
     await e.svc.execute(PID, undefined, UID, [n]); // 普通执行 done
     const led1 = await ledgerOf();
     const rows1 = await rowsOf(n);
-    await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0005');
+    await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0005');
     const led2 = await ledgerOf();
     expect(e.apiCaller.callImageGen).toHaveBeenCalledTimes(2); // 新外呼
     expect(led2.settle).toBe(led1.settle + 1);                 // 新扣费
@@ -209,7 +209,7 @@ const statusOf = async (nodeId: string) =>
     const n = nid('a6'); const nodes = [textNode(n)];
     const e = makeExec(nodes);
     for (let i = 0; i < 3; i++) {
-      await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0006');
+      await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0006');
     }
     expect(e.apiCaller.callTextGen).toHaveBeenCalledTimes(1); // 恰一次外呼
     const led = await ledgerOf(n);
@@ -228,7 +228,7 @@ const statusOf = async (nodeId: string) =>
     });
     const rowsBefore = (await rowsOf(n)).length;
     const e = makeExec([imageNode(n)]);
-    const r = await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0007', 'job-a7');
+    const r = await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0007', 'job-a7');
     expect(r.success).toBe(false);
     expect(r.errors[0]).toMatchObject({ status: 'skipped', errorCode: 'NODE_BUSY' });
     expect(e.apiCaller.callImageGen).not.toHaveBeenCalled(); // 零外呼
@@ -254,7 +254,7 @@ const statusOf = async (nodeId: string) =>
     })).rejects.toBeInstanceOf(IntentExhaustedError);
     // 新 token（新手势）→ 新行照常（execute 全链）
     const e = makeExec([imageNode(n)]);
-    await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0008');
+    await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0008');
     expect(e.apiCaller.callImageGen).toHaveBeenCalledTimes(1);
     const rows = await rowsOf(n);
     expect(rows.length).toBe(2); // 占位行+新行
@@ -291,14 +291,14 @@ const statusOf = async (nodeId: string) =>
     const n = nid('a10'); const nodes = [textNode(n)];
     const e = makeExec(nodes);
     // 非法 token（>64）→ claim throw 400；组执行链 A-3 降级=errors 携 errorCode（unit 层 400 throw 已锚）
-    const bad1 = await e.svc.execute(PID, undefined, UID, [n], undefined, 'x'.repeat(65));
+    const bad1 = await e.svc.execute(PID, undefined, UID, [n], 'x'.repeat(65));
     expect(bad1.errors[0]).toMatchObject({ errorCode: 'IDEMPOTENCY_TOKEN_INVALID', status: 'error' });
     // 非法字符 → 同
-    const bad2 = await e.svc.execute(PID, undefined, UID, [n], undefined, 'bad token!');
+    const bad2 = await e.svc.execute(PID, undefined, UID, [n], 'bad token!');
     expect(bad2.errors[0]).toMatchObject({ errorCode: 'IDEMPOTENCY_TOKEN_INVALID' });
     expect(e.apiCaller.callTextGen).not.toHaveBeenCalled();
     // regenerate（合法 token）成功后，无 token 普通点击 → 回放最新（② 修复的 regenerate 倒退面）
-    await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0010a');
+    await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0010a');
     const rowsBefore = await rowsOf(n);
     const led1 = await ledgerOf();
     await e.svc.execute(PID, undefined, UID, [n]);
@@ -314,7 +314,7 @@ const statusOf = async (nodeId: string) =>
     await e.svc.execute(PID, undefined, UID, [n]);
     const led1 = await ledgerOf();
     // 第二版：enqueue 管道（regenToken+jobId——processor 透传形态）
-    await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0011', 'job-a11');
+    await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0011', 'job-a11');
     const led2 = await ledgerOf();
     expect(e.apiCaller.callImageGen).toHaveBeenCalledTimes(2); // 新外呼（非回放）
     expect(led2.settle).toBe(led1.settle + 1);                 // 新扣费
@@ -351,7 +351,7 @@ const statusOf = async (nodeId: string) =>
     const e = makeExec(nodes);
     // 第一次：外呼失败 → FAILED attempts=1（fail 写 error 后行 attempts 保留 claim 时值 1）
     (e.apiCaller.callTextGen as any).mockRejectedValueOnce(new Error('provider 503'));
-    const r1 = await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0013');
+    const r1 = await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0013');
     expect(r1.success).toBe(false);
     const row1 = (await rowsOf(n))[0];
     expect(row1.status).toBe('FAILED');
@@ -360,7 +360,7 @@ const statusOf = async (nodeId: string) =>
     const led1 = await ledgerOf(n);
     expect(led1.settle).toBe(0);
     // 同 token 重试 → 同行 rearm（免费——FAILED 重试 alreadyCharged 语义）+外呼第 2 次成功
-    const r2 = await e.svc.execute(PID, undefined, UID, [n], undefined, 'regen-token-0013');
+    const r2 = await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0013');
     expect(r2.success).toBe(true);
     const row2 = (await rowsOf(n))[0];
     expect(row2.id).toBe(row1.id);          // 同一行（Z95 判别性断言）

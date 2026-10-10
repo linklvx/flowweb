@@ -6,12 +6,20 @@ import { ForbiddenException } from '@nestjs/common';
 import { GenerationIntentService, NodeBusyError } from '../../execution/generation-intent.service';
 import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../../execution/normalize-intent-params';
+import * as Y from 'yjs';
+import { CollabDocumentService } from '../../collab/collab-document.service';
+
+// T7：SV 支配门夹具——客户端/服务端同 doc ⇒ 支配成立
+const svDoc = new Y.Doc();
+svDoc.getMap('meta').set('schemaVersion', 2);
+const SV_OK = Buffer.from(Y.encodeStateVector(svDoc)).toString('base64');
 
 describe('LightingController', () => {
   let controller: LightingController;
   let service: any;
   let permSvc: { assertEditorWithTeam: ReturnType<typeof vi.fn> };
   let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
+  let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
   let intentSvc: any;
 
   beforeEach(async () => {
@@ -32,6 +40,8 @@ describe('LightingController', () => {
       attachJob: vi.fn(),
       fail: vi.fn(),
     };
+    // Y0b-2 T7：SV 支配门依赖（默认=支配成立）
+    collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [LightingController],
@@ -40,6 +50,7 @@ describe('LightingController', () => {
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: GenerationIntentService, useValue: intentSvc },
         { provide: PricingResolverService, useValue: resolver },
+        { provide: CollabDocumentService, useValue: collabSvc },
       ],
     }).compile();
 
@@ -53,6 +64,7 @@ describe('LightingController', () => {
       nodeId: 'node-1',
       projectId: 'proj-1',
       originalImageId: 'media-src',
+      stateVector: SV_OK,
       params: {
         position: { x: 0, y: 0, z: 6 },
         brightness: 50,
@@ -100,6 +112,7 @@ describe('LightingController', () => {
       projectId: 'proj-1',
       originalImageId: 'media-src',
       regenToken: 'client-int-1',
+      stateVector: SV_OK,
       params: {
         position: { x: 0, y: 0, z: 6 },
         brightness: 50,
@@ -157,6 +170,38 @@ describe('LightingController', () => {
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
       expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.any(String));
       expect(result).toEqual({ replayed: true, taskId: 'existing-task', status: 'pending' }); // T6 信封清剿：裸值
+    });
+  });
+
+  describe('Y0b-2 T7：SV 支配门（claim 之前——四受理端点同型）', () => {
+    const gateBody = {
+      nodeId: 'node-1',
+      projectId: 'proj-1',
+      originalImageId: 'media-src',
+      stateVector: SV_OK,
+      params: {
+        position: { x: 0, y: 0, z: 6 },
+        brightness: 50,
+        colorTemperature: 5600,
+        rimLight: false,
+      },
+    };
+
+    it('客户端 SV 未被服务端支配 → 409 SYNC_PENDING：零 claim 零 createTask（不烧 attempts）', async () => {
+      collabSvc.readServerSV.mockResolvedValue(Y.encodeStateVector(new Y.Doc()));
+      const err = await controller.createTask(gateBody as any, mockReq()).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_PENDING' });
+      expect((err as any).getStatus()).toBe(409);
+      expect(intentSvc.claim).not.toHaveBeenCalled();
+      expect(service.createTask).not.toHaveBeenCalled();
+    });
+
+    it('缺 stateVector → 400 SYNC_STATE_VECTOR_REQUIRED（fail-closed）', async () => {
+      const { stateVector: _sv, ...noSv } = gateBody;
+      const err = await controller.createTask(noSv as any, mockReq()).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_STATE_VECTOR_REQUIRED' });
+      expect((err as any).getStatus()).toBe(400);
+      expect(intentSvc.claim).not.toHaveBeenCalled();
     });
   });
 

@@ -3,12 +3,12 @@
 // 同一真 Y.Doc 双跑对照（api 收编后读出口 vs web readCanvasFromDoc 同款手法
 // readRecordsFromMaps(toDocLike(doc))）逐位相等。
 // O0b-0（Spec B）格式批：REST 读入口版本门 v2.1 fail-closed——v1 档/无戳∧有节点拒、
-// 无戳∧零节点放行（REST 不盖戳）、sv 路径两锚（v1 同拒/v2 正常不退化）。
+// 无戳∧零节点放行（REST 不盖戳）。Y0b-2 T7：sv 参数两锚随 SV 等待机制退役删除（门档判定不依赖 sv 差量）。
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { CollabDocumentService } from './collab-document.service';
-import { readRecordsFromMaps, stampDocSchema, CANVAS_DOC_SCHEMA_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { readRecordsFromMaps, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** web ydocBuilder.toDocLike 同款手法（api 侧不可 import apps/web——测试内联同构对照半边） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -112,23 +112,6 @@ describe('O0b-0 版本门 v2.1（REST 读入口 fail-closed——第五行：v1 
   it('无戳∧零节点 放行（空画布合法档——REST 侧不盖戳）', async () => {
     const service = buildService(new Y.Doc());
     await expect(service.readCanvas('p1')).resolves.toEqual({ nodes: [], edges: [] });
-  });
-
-  it('sv 下 v1 档同样拒（第五行 sv 路径——门从全量 doc 读 meta，不依赖 sv 差量）', async () => {
-    const doc = buildDoc();
-    doc.getMap('meta').set('schemaVersion', 1);
-    const service = buildService(doc);
-    const sv = Y.encodeStateVector(new Y.Doc()); // 客户端空 sv——等待语义与门无关
-    await expect(service.readCanvas('p1', sv, 50)).rejects.toThrow(/schemaVersion/);
-  });
-
-  it('sv 下 v2 档正常返回（门不退化 sv 等待路径——不因 gate 改全量读语义）', async () => {
-    const doc = buildDoc();
-    stampDocSchema(toDocLike(doc));
-    const service = buildService(doc);
-    const sv = Y.encodeStateVector(doc);
-    await expect(service.readCanvas('p1', sv, 50)).resolves.toBeTruthy();
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(2);
   });
 });
 

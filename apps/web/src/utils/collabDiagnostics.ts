@@ -9,7 +9,8 @@ export type CollabDiagEventType =
   | 'hydration_fail'
   | 'auth_reject'
   | 'write_reject'
-  | 'invariant_violation';
+  | 'invariant_violation'
+  | 'sync_pending_retry';   // Y0b-2 T7：SYNC_PENDING 重发后再拒——服务端停滞信号（非客户端故障面）
 
 export interface CollabDiagEvent {
   type: CollabDiagEventType;

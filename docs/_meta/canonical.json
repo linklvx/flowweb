@@ -80,7 +80,7 @@
       "evidence": [
         {
           "src": "apps/web/src/pages/canvas/components/CanvasView.tsx",
-          "line": 313,
+          "line": 316,
           "text": "// ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──"
         },
         {
@@ -183,7 +183,7 @@
       "evidence": [
         {
           "src": "apps/web/src/pages/canvas/components/CanvasView.tsx",
-          "line": 313,
+          "line": 316,
           "text": "// ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──"
         },
         {

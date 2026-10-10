@@ -293,7 +293,7 @@ const agePastGrace = async (id: string) =>
       writeExecStatus: vi.fn(async () => {}),
     };
     const svc = makeExecSvc(collabDoc);
-    const r = await svc.execute(PROJECT_ID, undefined, UID, nodes.map((n) => n.id), undefined, `dr2-del-${randomUUID().slice(0, 6)}`);
+    const r = await svc.execute(PROJECT_ID, undefined, UID, nodes.map((n) => n.id), `dr2-del-${randomUUID().slice(0, 6)}`);
     expect(r.success).toBe(false);
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0]).toMatchObject({ nodeId: node.id, status: 'error' });

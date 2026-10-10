@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import * as Y from 'yjs';
 import { ForbiddenException } from '@nestjs/common';
 import { AiImageEditController } from './ai-image-edit.controller';
 import { AiImageEditService } from './ai-image-edit.service';
@@ -7,6 +8,12 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService, NodeBusyError } from '../execution/generation-intent.service';
 import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../execution/normalize-intent-params';
+import { CollabDocumentService } from '../collab/collab-document.service';
+
+// T7：SV 支配门夹具——客户端/服务端同 doc ⇒ 支配成立（缺省 400/落后 409 两态另测）
+const svDoc = new Y.Doc();
+svDoc.getMap('meta').set('schemaVersion', 2);
+const SV_OK = Buffer.from(Y.encodeStateVector(svDoc)).toString('base64');
 
 describe('AiImageEditController', () => {
   let controller: AiImageEditController;
@@ -14,6 +21,7 @@ describe('AiImageEditController', () => {
   let permSvc: { assertEditor: ReturnType<typeof vi.fn>; assertEditorWithTeam: ReturnType<typeof vi.fn> };
   let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> };
   let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
+  let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -35,6 +43,8 @@ describe('AiImageEditController', () => {
     resolver = {
       resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }),
     };
+    // Y0b-2 T7：SV 支配门依赖（默认=支配成立）
+    collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AiImageEditController],
@@ -43,6 +53,7 @@ describe('AiImageEditController', () => {
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: GenerationIntentService, useValue: intentSvc },
         { provide: PricingResolverService, useValue: resolver },
+        { provide: CollabDocumentService, useValue: collabSvc },
       ],
     }).compile();
     controller = module.get<AiImageEditController>(AiImageEditController);
@@ -57,6 +68,7 @@ describe('AiImageEditController', () => {
         rect: { x: -16, y: 0, width: 528, height: 512 },
         imageWidth: 512,
         imageHeight: 512,
+        stateVector: SV_OK,
       };
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.outpaint(body, req);
@@ -74,6 +86,7 @@ describe('AiImageEditController', () => {
         nodeId: 'node1',
         fileId: 'file-1',
         maskFileId: 'mask-1',
+        stateVector: SV_OK,
       };
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.erase(body, req);
@@ -93,6 +106,7 @@ describe('AiImageEditController', () => {
         maskFileId: 'mask-1',
         prompt: 'a beautiful sunset',
         strength: 70,
+        stateVector: SV_OK,
       };
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.redraw(body, req);
@@ -111,6 +125,7 @@ describe('AiImageEditController', () => {
       rect: { x: -16, y: 0, width: 528, height: 512 },
       imageWidth: 512,
       imageHeight: 512,
+      stateVector: SV_OK,
     };
 
     it('claim 参数：kind=端点任务类型 + paramsHash=白名单规范化（T6 身份字段 fileId 进哈希）+ body.regenToken 透传', async () => {
@@ -135,11 +150,11 @@ describe('AiImageEditController', () => {
 
     it('erase/redraw 同构：kind 与白名单参数集各按端点提取（T6：身份字段 fileId/maskFileId 进哈希）', async () => {
       const req = { user: { id: 'u1' } } as any;
-      await controller.erase({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', regenToken: 'e-1' }, req);
+      await controller.erase({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', regenToken: 'e-1', stateVector: SV_OK }, req);
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
         kind: 'erase', paramsHash: normalizeIntentParams('erase', { fileId: 'file-1', maskFileId: 'mask-1' }),
       }));
-      await controller.redraw({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70, regenToken: 'r-1' }, req);
+      await controller.redraw({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70, regenToken: 'r-1', stateVector: SV_OK }, req);
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
         kind: 'redraw',
         paramsHash: normalizeIntentParams('redraw', { fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70 }),
@@ -186,6 +201,38 @@ describe('AiImageEditController', () => {
     });
   });
 
+  describe('Y0b-2 T7：SV 支配门（runGuarded 首位——claim 之前）', () => {
+    const gateBody = {
+      projectId: 'proj1',
+      nodeId: 'node1',
+      fileId: 'file-1',
+      rect: { x: -16, y: 0, width: 528, height: 512 },
+      imageWidth: 512,
+      imageHeight: 512,
+      stateVector: SV_OK,
+    };
+
+    it('客户端 SV 未被服务端支配 → 409 SYNC_PENDING：零 claim 零 enqueue 零 fail（不烧 attempts）', async () => {
+      collabSvc.readServerSV.mockResolvedValue(Y.encodeStateVector(new Y.Doc()));   // 服务端空 doc——不支配
+      const req = { user: { id: 'u1' } } as any;
+      const err = await controller.outpaint(gateBody, req).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_PENDING' });
+      expect((err as any).getStatus()).toBe(409);
+      expect(intentSvc.claim).not.toHaveBeenCalled();
+      expect(service.enqueueOutpaint).not.toHaveBeenCalled();
+      expect(intentSvc.fail).not.toHaveBeenCalled();
+    });
+
+    it('缺 stateVector → 400 SYNC_STATE_VECTOR_REQUIRED（fail-closed）', async () => {
+      const { stateVector: _sv, ...noSv } = gateBody;
+      const req = { user: { id: 'u1' } } as any;
+      const err = await controller.outpaint(noSv as any, req).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_STATE_VECTOR_REQUIRED' });
+      expect((err as any).getStatus()).toBe(400);
+      expect(intentSvc.claim).not.toHaveBeenCalled();
+    });
+  });
+
   describe('安全止血（spec 批0c-1 判据①：非成员 403 且 service 零调用）', () => {
     it('outpaint：assertEditor 拒绝 → 抛错且 service 零调用（越权扣费面）', async () => {
       permSvc.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
@@ -196,6 +243,7 @@ describe('AiImageEditController', () => {
         rect: { x: 0, y: 0, width: 10, height: 10 },
         imageWidth: 10,
         imageHeight: 10,
+        stateVector: SV_OK,
       };
       const req = { user: { id: 'u1' } } as any;
       await expect(controller.outpaint(body, req)).rejects.toThrow('无项目编辑权限');
@@ -206,8 +254,8 @@ describe('AiImageEditController', () => {
     it('erase/redraw 同守卫：拒绝 → service 零调用', async () => {
       permSvc.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       const req = { user: { id: 'u1' } } as any;
-      await expect(controller.erase({ projectId: 'p1', nodeId: 'n1', fileId: 'f1', maskFileId: 'm1' }, req)).rejects.toThrow('无项目编辑权限');
-      await expect(controller.redraw({ projectId: 'p1', nodeId: 'n1', fileId: 'f1', maskFileId: 'm1', prompt: 'x', strength: 0.5 }, req)).rejects.toThrow('无项目编辑权限');
+      await expect(controller.erase({ projectId: 'p1', nodeId: 'n1', fileId: 'f1', maskFileId: 'm1', stateVector: SV_OK }, req)).rejects.toThrow('无项目编辑权限');
+      await expect(controller.redraw({ projectId: 'p1', nodeId: 'n1', fileId: 'f1', maskFileId: 'm1', prompt: 'x', strength: 0.5, stateVector: SV_OK }, req)).rejects.toThrow('无项目编辑权限');
       expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith('p1', 'u1');
       expect(service.enqueueErase).not.toHaveBeenCalled();
       expect(service.enqueueRedraw).not.toHaveBeenCalled();

@@ -217,45 +217,8 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     });
   });
 
-  it('readCanvas SV 等待（真实 withDoc 直连）：update 到达后返回数据而非 undefined', async () => {
-    const peerDoc = new Y.Doc();
-    peerDoc.getMap('nodes').set('n1', new Y.Map());
-    const requiredSV = Y.encodeStateVector(peerDoc);
-    // 直连建立（openDirectConnection 触发 onLoadDocument）后，向 gateway 内存中的同一 Document 注入对端更新
-    setTimeout(() => {
-      const serverDoc = gateway.server.hocuspocus.documents.get('project:p1');
-      if (serverDoc) Y.applyUpdate(serverDoc as unknown as Y.Doc, Y.encodeStateAsUpdate(peerDoc));
-    }, 20);
-    const t0 = Date.now();
-    const canvas = await service.readCanvas('p1', requiredSV, 3000);
-    const elapsed = Date.now() - t0;
-    expect(canvas?.nodes).toHaveLength(1); // 修复前 withDoc 提前返回 undefined → 此处红
-    // Y0a-3（必办⑦）：跨实例扩展已删——withDoc 直连断开不再有固定 2×1000ms 断开延迟；
-    // 等待成功路径 ≈ 20ms 等待+直连装载/断开（ms 级）。1000ms 稳定区分 SV 等待超时降级路径（3s）。
-    expect(elapsed).toBeLessThan(1000);
-  }, 12000);
-
-  it('readCanvas 带 sv：doc 落后时等待 update 事件追上', async () => {
-    const peerDoc = new Y.Doc();
-    peerDoc.getMap('nodes').set('n1', new Y.Map());
-    const requiredSV = Y.encodeStateVector(peerDoc);
-    const serverDoc = new Y.Doc(); // 空的，落后
-    vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: any) => {
-      setTimeout(() => { Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(peerDoc)); }, 20);
-      return fn(serverDoc);
-    });
-    const t0 = Date.now();
-    await service.readCanvas('p1', requiredSV);
-    const elapsed = Date.now() - t0;
-    expect(elapsed).toBeGreaterThanOrEqual(15);
-    expect(elapsed).toBeLessThan(1000); // 等待成功路径：远早于 3s 超时
-  });
-
-  it('readCanvas 带 sv：3s 超时降级不抛错', async () => {
-    const peerDoc = new Y.Doc(); peerDoc.getMap('nodes').set('n1', 1);
-    vi.spyOn(service, 'withDoc').mockImplementation(async (_p: string, fn: any) => fn(new Y.Doc()));
-    await expect(service.readCanvas('p1', Y.encodeStateVector(peerDoc), 50)).resolves.toBeTruthy();
-  });
+  // Y0b-2 T7：readCanvas SV 等待三用例随 sv 参数/waitForSV 机制退役删除
+  //（客户端同步判定移受理端点 SV 支配门 sync-admission.ts——sv-admission.int.spec.ts 承接）。
 
   it('readCanvas 无 sv：直接读', async () => {
     vi.spyOn(service, 'withDoc').mockImplementation(async (_p: string, fn: any) => fn(new Y.Doc()));

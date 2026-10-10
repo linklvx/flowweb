@@ -61,6 +61,8 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // O0b-0（2026-10-03）造案 +5 已入有效基线 221/40，allow-list 当时漏列（报数≤基线不进破线
   // 分支从未暴露——O0b-4 质评补登，两处登记对齐；翻转主锚/S1 停写/读侧版本门装置）。
   'src/stores/canvasCollabRuntime.geometry.test.ts',
+  // Y0b-2 T7 造案 +1 已入有效基线 222/41（装置清理 store 复位——同 sanctioned 例外，两处登记对齐）。
+  'src/stores/canvasCollabRuntime.force-sync.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -74,5 +76,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
    *  O0a-1 质评 I-1 零位移角点造案再 +2 处——补发 moveNode 剥键守卫，构造入分镜组零位移差）。 */
   // O0b-0（2026-10-03）：canvasCollabRuntime.geometry.test.ts 造案 +5 处/1 文件（翻转主锚/S1 停写/
 //   读侧版本门装置——sanctioned 例外同模式，与 geometryTrap.test.ts 锚③注释同步登记）→ 有效基线 221 处 / 40 文件。
-  effective: { count: 221, files: 40 },
+  // Y0b-2 T7（2026-10-10）：canvasCollabRuntime.force-sync.spec.ts 装置清理 +1 处/1 文件
+  //   （unsyncedChanges 归零边沿用例 beforeEach store 复位——sanctioned 例外同模式）→ 222 处 / 41 文件。
+  effective: { count: 222, files: 41 },
 };

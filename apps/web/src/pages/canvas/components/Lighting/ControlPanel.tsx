@@ -22,6 +22,8 @@ interface ControlPanelProps {
   onParamsChange: (params: Partial<LightingParams>) => void;
   onPresetSelect: (x: number, y: number, z: number) => void;
   onGenerate: () => void;
+  /** Y0b-2 T7：canExecute 硬态（断连/只读/冻结禁执行——受理端点上线时门天然在位） */
+  disabled?: boolean;
 }
 
 export function ControlPanel({
@@ -33,6 +35,7 @@ export function ControlPanel({
   onParamsChange,
   onPresetSelect,
   onGenerate,
+  disabled = false,
 }: ControlPanelProps) {
   const isGenerating = taskStatus === TS.PROCESSING;
 
@@ -119,7 +122,7 @@ export function ControlPanel({
       {/* Generate button */}
       <button
         type="button"
-        disabled={isGenerating}
+        disabled={isGenerating || disabled}
         className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors border-0 shadow-none outline-none ${
           isGenerating
             ? 'bg-blue-500/50 text-text-dim-2 cursor-not-allowed'

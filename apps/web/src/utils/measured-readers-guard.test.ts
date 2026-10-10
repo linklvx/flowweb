@@ -32,7 +32,9 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
   A: {
     // 派生/布局/复制（doc wh 权威）=18 行：canvasStore 复制/落位族 13 + GroupNode 2 +
     // handleMenu 2 + product-node 1
-    'stores/canvasStore.ts': [753, 754, 760, 761, 816, 817, 886, 887, 893, 894, 1040, 1580, 1581],
+    // Y0b-2 T7：writeFrozen 字段两处插入（interface +3/初始值 +1）——canvasStore 13 行 +4；
+    // GroupToolbar canExecute prop（interface +2）——81,82→83,84；ImageGenNode import +3——160,161→163,164
+    'stores/canvasStore.ts': [757, 758, 764, 765, 820, 821, 890, 891, 897, 898, 1044, 1584, 1585],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],
@@ -40,13 +42,13 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
   B: {
     // 屏幕空间 UI+RF internals（measured 权威禁进投影）=25 行：六 Toolbar 12 + ImageGen setCenter 2 +
     // Banner setCenter 2 + VideoGen 落位 1 + TextInput 盒镜像 2 + addOutput 6（B6-2 屏幕空间 +号/连线）
-    'pages/canvas/components/groups/GroupToolbar.tsx': [81, 82],
+    'pages/canvas/components/groups/GroupToolbar.tsx': [83, 84],
     'pages/canvas/components/nodes/AnnotationToolbar.tsx': [117, 118],
     'pages/canvas/components/nodes/EditToolbar.tsx': [301, 302],
     'pages/canvas/components/nodes/ImageNodeToolbar.tsx': [363, 364],
     'pages/canvas/components/nodes/TextNodeToolbar.tsx': [166, 171],
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
-    'pages/canvas/components/nodes/ImageGenNode.tsx': [160, 161], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除——measured 读者行号+1（搬运=重审）
+    'pages/canvas/components/nodes/ImageGenNode.tsx': [163, 164], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
     'pages/canvas/components/nodes/VideoGenNode.tsx': [398],
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],

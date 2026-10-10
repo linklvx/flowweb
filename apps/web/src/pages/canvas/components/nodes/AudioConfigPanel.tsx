@@ -3,6 +3,7 @@ import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { canExecute } from '@/stores/syncStatus';
 import { enqueueWorkflow } from '@/api/executionApi';
 import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 
@@ -19,6 +20,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const setStatus = useNodeStore((s) => s.setStatus);
   const { zoom } = useViewport();
+  // Y0b-2 T7：canExecute 硬态（断连/只读/冻结禁执行）
+  const canExec = useCanvasStore(canExecute);
 
   const nodeData = node?.data as any;
   const model = nodeData?.model ?? '';
@@ -271,7 +274,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
             </span>
             <button
               onClick={handleGenerate}
-              disabled={executing}
+              disabled={executing || !canExec}
               title={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
               aria-label={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
               className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--canvas-controls-bg)] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"

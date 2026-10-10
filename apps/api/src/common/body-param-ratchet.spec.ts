@@ -73,10 +73,11 @@ const INLINE_BASELINE = new Set<string>([
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: {',
   /* 批0.5-8：erase/redraw 增 intentId?: string（幂等键透传）——内容标识更新，条数不增（棘轮"搬运=重审"语义） */
   /* Y0b-2 T6（Z103）：intentId 位改名 regenToken（wire 语义=手势 token，Z109）——同"搬运=重审"，条数不增 */
-  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; regenToken?: string }',
-  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; regenToken?: string }',
-  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string }',
-  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; regenToken?: string }',
+  /* Y0b-2 T7：四受理端点 body 增 stateVector: string（SV 支配门随 body——SV 请求头退役）——同"搬运=重审"，条数不增 */
+  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; regenToken?: string; stateVector: string }',
+  'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; regenToken?: string; stateVector: string }',
+  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string }',
+  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; regenToken?: string; stateVector: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',
   'modules/execution/video-trim.controller.ts|body: { fileId: string; startTime: number; endTime: number; nodeId: string }',
   'modules/project/project.controller.ts|body: { name?: string; teamId?: string }',

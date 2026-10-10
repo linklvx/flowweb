@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useLightingStore } from '@/stores/lightingStore';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { canExecute } from '@/stores/syncStatus';
 type LightingTaskStatus = 'pending' | 'processing' | 'success' | 'failed';
 
 const TS = {
@@ -33,6 +35,8 @@ export const LightingModal = memo(function LightingModal() {
 
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('front');
+  // Y0b-2 T7：canExecute 硬态（受理端点上线时门天然在位——TODO 桩同型接线）
+  const canExec = useCanvasStore(canExecute);
 
   // Close on Escape
   useEffect(() => {
@@ -143,6 +147,7 @@ export const LightingModal = memo(function LightingModal() {
             onParamsChange={handleParamsChange}
             onPresetSelect={handlePresetSelect}
             onGenerate={handleGenerate}
+            disabled={!canExec}
           />
         </div>
 

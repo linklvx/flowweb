@@ -1,11 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as Y from 'yjs';
 import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
 import { ForbiddenException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// T7：SV 支配门夹具——非空 SV（空 doc 的 SV 是 0 字节 base64 空串，被缺省检查吞）
+const svDoc = new Y.Doc();
+svDoc.getMap('meta').set('schemaVersion', 2);
+const SV_OK = Buffer.from(Y.encodeStateVector(svDoc)).toString('base64');
 
 describe('ExecutionController', () => {
   let controller: ExecutionController;
@@ -15,6 +22,7 @@ describe('ExecutionController', () => {
     getJob: ReturnType<typeof vi.fn>;
   };
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
+  let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -32,6 +40,7 @@ describe('ExecutionController', () => {
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     };
+    collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };   // 默认=支配成立
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ExecutionController],
@@ -41,6 +50,8 @@ describe('ExecutionController', () => {
         { provide: getQueueToken('execution'), useValue: queue },
         // 批0.5-6 最小装置：GET intents 依赖
         { provide: GenerationIntentService, useValue: { listByNode: vi.fn().mockResolvedValue([]) } },
+        // Y0b-2 T7：SV 支配门依赖（readServerSV）
+        { provide: CollabDocumentService, useValue: collabSvc },
       ],
     }).compile();
 
@@ -48,42 +59,56 @@ describe('ExecutionController', () => {
   });
 
   describe('execute', () => {
-    it('execute：userId 取自 req.user（不读 body.userId）', async () => {
+    it('execute：userId 取自 req.user（不读 body.userId）；service.execute 零 SV 实参（T7：判定在门，非载荷）', async () => {
       const req = { user: { id: 'u-auth' } } as any;
-      const body = { projectId: 'p1', nodeId: 'n1' };
+      const body = { projectId: 'p1', nodeId: 'n1', stateVector: SV_OK };
       const result = await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined); // 第6参 intentId（批0.5-6，无头为 undefined）
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined);
       expect(result).toEqual({ success: true, errors: [] });
     });
 
     it('execute：body 携带 userId 字段也被忽略', async () => {
       const req = { user: { id: 'u-auth' } } as any;
-      const body = { projectId: 'p1', userId: 'forged' };
+      const body = { projectId: 'p1', userId: 'forged', stateVector: SV_OK };
       await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined);
     });
 
-    it('should decode x-yjs-sv header to Uint8Array', async () => {
+    it('T7：缺 stateVector → 400 SYNC_STATE_VECTOR_REQUIRED（fail-closed——缺省静默放行是垫片）', async () => {
       const req = { user: { id: 'u-auth' } } as any;
-      const body = { projectId: 'p1' };
-      const b64 = Buffer.from('hello').toString('base64');
-      await controller.execute(body, req, b64);
-      const svArg = service.execute.mock.calls[0][4] as Uint8Array;
-      expect([...svArg]).toEqual([104, 101, 108, 108, 111]);
+      const err = await controller.execute({ projectId: 'p1' } as any, req).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_STATE_VECTOR_REQUIRED' });
+      expect((err as any).getStatus()).toBe(400);
+      expect(service.execute).not.toHaveBeenCalled();   // 门在 service 之前
+    });
+
+    it('T7：客户端 SV 未被服务端支配 → 409 SYNC_PENDING，service 零调用（claim 之前拦截）', async () => {
+      collabSvc.readServerSV.mockResolvedValue(Y.encodeStateVector(new Y.Doc()));   // 服务端空 doc——不支配
+      const req = { user: { id: 'u-auth' } } as any;
+      const err = await controller.execute({ projectId: 'p1', stateVector: SV_OK } as any, req).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_PENDING' });
+      expect((err as any).getStatus()).toBe(409);
+      expect(collabSvc.readServerSV).toHaveBeenCalledWith('p1');
+      expect(service.execute).not.toHaveBeenCalled();
+    });
+
+    it('T7：body.stateVector 走 SV 门（SV 请求头退役）——支配成立放行', async () => {
+      const req = { user: { id: 'u-auth' } } as any;
+      await controller.execute({ projectId: 'p1', nodeIds: ['n1', 'n2'], stateVector: SV_OK } as any, req);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', ['n1', 'n2'], undefined);
     });
   });
 
   describe('enqueue', () => {
-    it('should add job to queue and return jobId', async () => {
+    it('should add job to queue and return jobId（job.data 零 SV——SV 判定受理时已毕不入队）', async () => {
       const req = { user: { id: 'user-1' } } as any;
-      const body = { projectId: 'p1', nodeId: 'n2' };
+      const body = { projectId: 'p1', nodeId: 'n2', stateVector: SV_OK };
       const result = await controller.enqueue(body, req);
       expect(permSvc.assertEditor).toHaveBeenCalledWith('p1', 'user-1');
       expect(queue.add).toHaveBeenCalledWith('execution', {
         projectId: 'p1',
         nodeId: 'n2',
         userId: 'user-1',
-        sv: null,
         regenToken: null, // Y0b-2 T6（Z91）：改名自 intentId 位——缺省 null
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
@@ -92,35 +117,23 @@ describe('ExecutionController', () => {
     it('enqueue：VIEWER 403，不入队', async () => {
       permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
       const req = { user: { id: 'user-1' } } as any;
-      await expect(controller.enqueue({ projectId: 'p1' }, req)).rejects.toThrow('无项目编辑权限');
+      await expect(controller.enqueue({ projectId: 'p1', stateVector: SV_OK } as any, req)).rejects.toThrow('无项目编辑权限');
       expect(queue.add).not.toHaveBeenCalled();
     });
 
-    it('should handle missing user on request', async () => {
-      const req = {} as any;
-      const body = { projectId: 'p1' };
-      const result = await controller.enqueue(body, req);
-      expect(queue.add).toHaveBeenCalledWith('execution', {
-        projectId: 'p1',
-        nodeId: undefined,
-        userId: undefined,
-        sv: null,
-        regenToken: null,
-      });
-      expect(result.status).toBe('queued');
+    it('T7：缺 stateVector → 400 SYNC_STATE_VECTOR_REQUIRED，零入队', async () => {
+      const req = { user: { id: 'user-1' } } as any;
+      const err = await controller.enqueue({ projectId: 'p1' } as any, req).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'SYNC_STATE_VECTOR_REQUIRED' });
+      expect(queue.add).not.toHaveBeenCalled();
     });
 
-    it('should pass x-yjs-sv base64 into job payload', async () => {
+    it('T7：SV 未支配 → 409 SYNC_PENDING 零入队（门在 controller 非处理器）', async () => {
+      collabSvc.readServerSV.mockResolvedValue(Y.encodeStateVector(new Y.Doc()));
       const req = { user: { id: 'user-1' } } as any;
-      const body = { projectId: 'p1' };
-      await controller.enqueue(body, req, 'abc==');
-      expect(queue.add).toHaveBeenCalledWith('execution', {
-        projectId: 'p1',
-        nodeId: undefined,
-        userId: 'user-1',
-        sv: 'abc==',
-        regenToken: null,
-      });
+      await expect(controller.enqueue({ projectId: 'p1', stateVector: SV_OK } as any, req))
+        .rejects.toMatchObject({ errorCode: 'SYNC_PENDING' });
+      expect(queue.add).not.toHaveBeenCalled();
     });
   });
 

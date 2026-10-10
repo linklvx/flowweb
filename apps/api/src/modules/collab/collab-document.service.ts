@@ -4,8 +4,6 @@ import { readRecordsFromMaps, ensureSchemaVersion } from '@flowweb/shared';
 import { CollabGateway } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
-import { svSatisfied } from './sv.util';
-import { svWaitTimeoutTotal } from './sv-wait.metrics';
 import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal } from './store.metrics';
 import { execProjectionDroppedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
@@ -67,27 +65,28 @@ export class CollabDocumentService {
     }
   }
 
-  /** doc → plain nodes/edges；sv 提供时等待 server doc 追上（超时降级不抛错，spec 3.1）。
+  /** doc → plain nodes/edges。
    *  Y0b-2 T3（分源规则钉死）：计费/语义读统一走本活读出口（withDoc——执行恒活读：发起方必有
-   *  WS ⇒ doc 常驻 ⇒ 零装载成本；分源判定在受理端点门）；快照出口 readCanvasSnapshotCached
+   *  WS ⇒ doc 常驻 ⇒ 零装载成本）；快照出口 readCanvasSnapshotCached
    *  仅无客户端面（video-work 分享/渲染等）。
+   *  Y0b-2 T7：sv 参数/SV 等待退役——客户端同步判定移受理端点 SV 支配门（sync-admission.ts），
+   *  执行读恒活读无需客户端 SV。
    *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
    *  DocNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
    *  O0b-0 版本门 v2.1（第五行 REST fail-closed）：ensureSchemaVersion 从全量 doc 读 meta（不依赖
    *  sv 差量）——v1 档/无戳∧有节点拒（明确信息，非按 abs 解释 rel 静默错位）；无戳∧零节点放行
    * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。 */
-  async readCanvas(projectId: string, sv?: Uint8Array, timeoutMs = 3000): Promise<{ nodes: any[]; edges: any[] }> {
+  async readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withDoc(projectId, async (doc) => {
       ensureSchemaVersion(toDocLike(doc));
-      if (sv && !svSatisfied(Y.encodeStateVector(doc), sv)) {
-        const ok = await this.waitForSV(doc, sv, timeoutMs);
-        if (!ok) {
-          this.logger.warn(`SV wait timeout projectId=${projectId}`);
-          svWaitTimeoutTotal.inc();
-        }
-      }
       return readRecordsFromMaps(toDocLike(doc));
     });
+  }
+
+  /** Y0b-2 T7：服务端 doc SV 单源出口——受理端点 SV 支配门（assertSyncAdmitted）唯一读点。
+   *  withDoc 内存级（发起方必有 WS⇒doc 常驻⇒零装载成本）。 */
+  async readServerSV(projectId: string): Promise<Uint8Array> {
+    return this.withDoc(projectId, (doc) => Y.encodeStateVector(doc));
   }
 
   /** Y0b-2 T3：快照解码单源——readSnapshotOnly 行集→同 doc 重放→版本门→投影；快照缓存 loader
@@ -134,17 +133,6 @@ export class CollabDocumentService {
   /** Y0b-2 T5（Z106/Z112）：doc 常驻透传——reaper 投影分治判据（非常驻=跳过投影+deferred 计数）。 */
   isDocResident(projectId: string): boolean {
     return this.gateway.isDocResident(projectId);
-  }
-
-  private waitForSV(doc: Y.Doc, sv: Uint8Array, timeoutMs: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      const check = () => svSatisfied(Y.encodeStateVector(doc), sv);
-      const onUpdate = () => { if (check()) { cleanup(); resolve(true); } };
-      const timer = setTimeout(() => { cleanup(); resolve(false); }, timeoutMs);
-      const cleanup = () => { clearTimeout(timer); doc.off('update', onUpdate); };
-      doc.on('update', onUpdate);
-      if (check()) { cleanup(); resolve(true); } // 注册后立即检查——函数自洽，不依赖外层守卫时序
-    });
   }
 
   /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。

@@ -99,7 +99,9 @@ export class VideoProjectService {
     const src = (canvas.nodes as any[]).find(n => n.id === dto.sourceNodeId);
     const wantType = dto.kind === 'video' ? 'videoGen' : 'audioGen';
     if (!src || src.type !== wantType) throw new BadRequestException('source node not found or kind mismatch');
-    const result = await this.execution.execute(dto.workflowId, undefined, userId, [dto.sourceNodeId], undefined, dto.retakeId);
+    // Y0b-2 T7：execute sv 形参删除——retake 直调零客户端状态（SV 门覆盖面=四受理端点，进程内直调豁免：
+    // 执行输入全部由服务端从 doc 读出，客户端未同步内容不参与判定——既成事实进偏离表）
+    const result = await this.execution.execute(dto.workflowId, undefined, userId, [dto.sourceNodeId], dto.retakeId);
     return { retakeId: dto.retakeId, result };
   }
 

@@ -7,3 +7,10 @@ import type { CanvasState } from './canvasStore';
 
 export const canEdit = (s: CanvasState): boolean =>
   s.hydration === 'ready' && !s.collabReadOnly && s.wsAuthNotice?.terminal !== true;
+
+/** Y0b-2 T7（裁定 2）：canExecute 一等谓词——只留硬态（自持未确认标记两方向都会漂，不立字段；
+ *  钱的方向由服务端 SV 支配门权威兜底——SYNC_PENDING 409 反应式重发）。
+ *  canEdit 基础 ∧ connStatus==='connected' ∧ !writeFrozen（冻结契约 12：writeFrozen⇒禁执行）。
+ *  writeFrozen 置位点=Y0b-5 gateway 快照下发（Z55 落位——当前恒 false，T9 残余登记 drain 窗口行为）。 */
+export const canExecute = (s: CanvasState): boolean =>
+  canEdit(s) && s.connStatus === 'connected' && !s.writeFrozen;

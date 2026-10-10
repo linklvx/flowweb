@@ -29,11 +29,11 @@ export class ExecutionProcessor extends WorkerHost {
     await job.updateProgress(10);
 
     try {
-      const { projectId, nodeId, userId, sv, regenToken } = job.data;
-      const svBytes = sv ? new Uint8Array(Buffer.from(sv, 'base64')) : undefined;
+      const { projectId, nodeId, userId, regenToken } = job.data;
       // jobId 透传 claim——同 job stalled 重排可重入续跑（F13：不传则重进 claim 自锁 NodeBusy）
       // Y0b-2 T6（Z91）：regenToken 透传（enqueue 管道与 execute 直达同 claim 语义）
-      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, svBytes, regenToken ?? undefined, job.id);
+      // Y0b-2 T7：SV 字节载荷退役（SV 判定在受理端点门——job 载荷零客户端状态）
+      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id);
       await job.updateProgress(100);
       this.logger.log(`任务 ${job.id} 完成`);
       return result;

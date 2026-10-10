@@ -5,6 +5,8 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../execution/normalize-intent-params';
+import { CollabDocumentService } from '../collab/collab-document.service';
+import { assertSyncAdmitted } from '../collab/sync-admission';
 
 // 批0c-8：付费任务端点收紧至 20/min（全局 300/min 见 app.module）
 @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -15,6 +17,7 @@ export class AiImageEditController {
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
   /** 批0.5-8 三端点同构接线（F13）：claim（enqueue 前——意图表是唯一扣费幂等面，队列 attempts:1
@@ -23,17 +26,20 @@ export class AiImageEditController {
    *  enqueue 失败 fail 置 FAILED——防 RUNNING 孤儿把节点 partial unique 锁死 15min（execution.service catch 先例）。
    *  Y0b-1（E1）：claim 前解析 kind 级定价快照（编辑 4 kind=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
    *  Y0b-2 T6（Z78/Z109）：body.regenToken=客户端手势 token（改名自 intentId 位——防新调用方拿它查
-   *  intents 端点）；replayed 返回裸值交全局拦截器单层包裹（信封清剿）。 */
+   *  intents 端点）；replayed 返回裸值交全局拦截器单层包裹（信封清剿）。
+   *  Y0b-2 T7：SV 支配门三端点同型（claim 之前零意图行——body.stateVector 必填，缺省 400）。 */
   private async runGuarded(input: {
     projectId: string;
     nodeId: string;
     userId: string;
     teamId: string;
     regenToken?: string;
+    stateVector: string;
     kind: 'outpaint' | 'erase' | 'redraw';
     params: Record<string, unknown>;
     enqueue: (intentRowId: string, intentId: string) => Promise<{ jobId: string }>;
   }) {
+    await assertSyncAdmitted(this.collabDoc, input.projectId, input.stateVector);
     const pricing = await this.resolver.resolveByNodeTypeKey(input.kind);
     const { intent, created } = await this.intentService.claim({
       projectId: input.projectId,
@@ -68,6 +74,7 @@ export class AiImageEditController {
     imageWidth: number;
     imageHeight: number;
     regenToken?: string; // Y0b-2 T6：客户端手势 token（改名自 intentId 位——Z109）
+    stateVector: string; // Y0b-2 T7：SV 支配门（缺省 400）
   }, @Req() req: any) {
     const { teamId } = await this.perm.assertEditorWithTeam(body.projectId, req.user.id);
     return this.runGuarded({
@@ -76,6 +83,7 @@ export class AiImageEditController {
       userId: req.user.id,
       teamId,
       regenToken: body.regenToken,
+      stateVector: body.stateVector,
       kind: 'outpaint',
       // Y0b-2 T6（R3-P0-1）：fileId 进 paramsHash——源图变=操作身份变=新 idemKey（白名单同步）
       params: { fileId: body.fileId, rect: body.rect, imageWidth: body.imageWidth, imageHeight: body.imageHeight },
@@ -87,7 +95,7 @@ export class AiImageEditController {
   }
 
   @Post('erase')
-  async erase(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; regenToken?: string }, @Req() req: any) {
+  async erase(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; regenToken?: string; stateVector: string }, @Req() req: any) {
     const { teamId } = await this.perm.assertEditorWithTeam(body.projectId, req.user.id);
     return this.runGuarded({
       projectId: body.projectId,
@@ -95,6 +103,7 @@ export class AiImageEditController {
       userId: req.user.id,
       teamId,
       regenToken: body.regenToken,
+      stateVector: body.stateVector,
       kind: 'erase',
       // Y0b-2 T6（R3-P0-1）：erase 空集根修——双输入 fileId/maskFileId 进哈希（改前 sha256('{}') 全局常量）
       params: { fileId: body.fileId, maskFileId: body.maskFileId },
@@ -105,7 +114,7 @@ export class AiImageEditController {
   }
 
   @Post('redraw')
-  async redraw(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; regenToken?: string }, @Req() req: any) {
+  async redraw(@Body() body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; regenToken?: string; stateVector: string }, @Req() req: any) {
     const { teamId } = await this.perm.assertEditorWithTeam(body.projectId, req.user.id);
     return this.runGuarded({
       projectId: body.projectId,
@@ -113,6 +122,7 @@ export class AiImageEditController {
       userId: req.user.id,
       teamId,
       regenToken: body.regenToken,
+      stateVector: body.stateVector,
       kind: 'redraw',
       // Y0b-2 T6（R3-P0-1）：fileId/maskFileId 进 paramsHash——源图/mask 变=新 idemKey
       params: { fileId: body.fileId, maskFileId: body.maskFileId, prompt: body.prompt, strength: body.strength },

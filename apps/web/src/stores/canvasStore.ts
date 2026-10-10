@@ -184,6 +184,9 @@ export interface CanvasState {
   httpExpired: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
+  /** Y0b-2 T7（Z55）：写冻结瞬态——canExecute 判据③。置位/清位=Y0b-5 gateway 幂等快照下发
+   *  （当前恒 false：gateway 无 resumed 下发+drain 窗口行为登记 T9 残余）。不进快照 */
+  writeFrozen: boolean;
   /** 批1 恢复 UI 分级（批1-1 watchdog 写入）：hint 非阻断、banner 批1-5 SyncBanner 消费——
    *  与 connStatus 正交（指示器 vs 恢复横幅）。不进 history/localStorage 快照 */
   connUi: 'ok' | 'hint' | 'banner';
@@ -598,6 +601,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   resizePending: false,
   httpExpired: false,
   connStatus: 'connecting',
+  writeFrozen: false,
   connUi: 'ok',
   editorDirty: false,
 

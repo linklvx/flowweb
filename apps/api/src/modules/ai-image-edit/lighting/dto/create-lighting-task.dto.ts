@@ -52,4 +52,10 @@ export class CreateLightingTaskDto {
   @IsOptional()
   @IsString()
   regenToken?: string; // Y0b-2 T6：客户端手势 token（改名自 intentId 位——Z109；whitelist 管道须登记否则被剥）
+
+  /** Y0b-2 T7：SV 支配门必填——缺省交 assertSyncAdmitted 400 SYNC_STATE_VECTOR_REQUIRED
+   *  （四受理端点同型单源；whitelist 管道须登记否则被剥） */
+  @IsOptional()
+  @IsString()
+  stateVector?: string;
 }

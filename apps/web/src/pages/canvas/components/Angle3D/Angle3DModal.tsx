@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAngle3DStore } from '@/stores/angle3DStore';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { canExecute } from '@/stores/syncStatus';
 import { Angle3DPreview } from './Angle3DPreview';
 import { ControlPanel } from './ControlPanel';
 import { type Angle3DPresetKey } from '@flowweb/shared';
@@ -119,7 +121,9 @@ export const Angle3DModal = memo(function Angle3DModal() {
   }, [retryTask, handleGenerate]);
 
   const isProcessing = taskStatus === 'processing' || taskStatus === 'pending';
-  const disabled = isProcessing || imageFailed;
+  // Y0b-2 T7：canExecute 硬态（受理端点上线时门天然在位——TODO 桩同型接线）
+  const canExec = useCanvasStore(canExecute);
+  const disabled = isProcessing || imageFailed || !canExec;
 
   if (!visible) return null;
 

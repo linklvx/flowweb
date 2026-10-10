@@ -7,6 +7,8 @@ import { GenerationIntentService } from '../../execution/generation-intent.servi
 import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../../execution/normalize-intent-params';
 import { paramsToPrompt } from './lighting.consumer';
+import { CollabDocumentService } from '../../collab/collab-document.service';
+import { assertSyncAdmitted } from '../../collab/sync-admission';
 
 @Controller('api/image-edit/lighting')
 export class LightingController {
@@ -15,6 +17,7 @@ export class LightingController {
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
   @Post('tasks')
@@ -29,6 +32,8 @@ export class LightingController {
     // Y0b-1（E1）：claim 前解析 kind 级定价快照（lighting=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
     // Y0b-2 T6（Z78/Z109）：body.regenToken=客户端手势 token（改名自 intentId 位）；replayed/result
     // 裸值返回交全局拦截器单层包裹（信封清剿——改前 {code,data} 双层）。60s 去重命中 fail 后按重放返回。
+    // Y0b-2 T7：SV 支配门（claim 之前零意图行——body.stateVector 必填，缺省 400）。
+    await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
     const { intent, created } = await this.intentService.claim({
       projectId: body.projectId,

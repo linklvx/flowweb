@@ -52,11 +52,17 @@ vi.mock('@/stores/nodeStore', () => ({
   ),
 }));
 
-vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: {
-    getState: () => ({ nodes: [], edges: [], projectId: 'real-pid' }),
-  },
-}));
+// Y0b-2 T7：canExecute 硬态夹具——组件订阅 useCanvasStore(canExecute)（须可调用+硬态字段，缺省=断连态禁执行）
+vi.mock('@/stores/canvasStore', () => {
+  const state = {
+    hydration: 'ready' as const, collabReadOnly: false, wsAuthNotice: null,
+    connStatus: 'connected' as const, writeFrozen: false,
+    nodes: [], edges: [], projectId: 'real-pid',
+  };
+  const useCanvasStore: any = (selector?: any) => (typeof selector === 'function' ? selector(state) : state);
+  useCanvasStore.getState = () => state;
+  return { useCanvasStore };
+});
 
 // Mock api
 const { mockEnqueueWorkflow } = vi.hoisted(() => ({

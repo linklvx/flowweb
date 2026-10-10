@@ -1,10 +1,12 @@
-import { Controller, Post, Get, Body, Param, Query, Inject, Req, Headers, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Inject, Req, NotFoundException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
+import { CollabDocumentService } from '../collab/collab-document.service';
+import { assertSyncAdmitted } from '../collab/sync-admission';
 import { Request } from 'express';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
@@ -15,34 +17,35 @@ export class ExecutionController {
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
   ) {}
 
-  /** Y0b-2 T6（Z103）：意图 id 请求头已删（无消费者）——token 走 body.regenToken（与 enqueue 单管道对齐）。 */
+  /** Y0b-2 T6（Z103）：意图 id 请求头已删（无消费者）——token 走 body.regenToken（与 enqueue 单管道对齐）。
+   *  Y0b-2 T7：SV 支配门（claim 之前零外呼零冻结零意图行）——SV 请求头退役，SV 随 body.stateVector。 */
   @Post('execute')
   @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：付费任务端点收紧（全局 300/min 见 app.module）
-  execute(
-    @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string },
+  async execute(
+    @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string },
     @Req() req: Request,
-    @Headers('x-yjs-sv') sv?: string,
   ) {
-    const svBytes = sv ? new Uint8Array(Buffer.from(sv, 'base64')) : undefined;
+    await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     // regenToken=客户端手势 token（Z79/Z109）——无 token 普通执行=undefined（内容键路径）
-    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, svBytes, body.regenToken);
+    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken);
   }
 
   @Post('enqueue')
   @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：付费任务端点收紧（全局 300/min 见 app.module）
   async enqueue(
-    @Body() body: { projectId: string; nodeId?: string; regenToken?: string },
+    @Body() body: { projectId: string; nodeId?: string; regenToken?: string; stateVector: string },
     @Req() req: Request,
-    @Headers('x-yjs-sv') sv?: string,
   ) {
     await this.perm.assertEditor(body.projectId, (req as any).user?.id);
+    // Y0b-2 T7：SV 门在 controller（入队时判定——job 载荷零客户端状态）
+    await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     const job = await this.executionQueue.add('execution', {
       projectId: body.projectId,
       nodeId: body.nodeId,
       userId: (req as any).user?.id,
-      sv: sv ?? null,
       // Y0b-2 T6（Z91）：regenToken 入 job.data——enqueue 管道与 execute 直达同 claim 语义
       //（改前 intentId 位静默丢弃=经 enqueue 的"重新生成"退化回放）；形态校验归 claim 的 normalizeRegenToken
       regenToken: body.regenToken ?? null,

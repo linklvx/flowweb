@@ -115,6 +115,12 @@ const {
       selectedId: null,
       lastPointerShiftKey: mockLastPointerShiftKey,
       marqueeSelecting: mockMarqueeSelecting,
+      // Y0b-2 T7：canExecute 硬态夹具（handleGenerate 门读 getState——缺省字段=断连态早退，fetch 零调用）
+      hydration: 'ready' as const,
+      collabReadOnly: false,
+      wsAuthNotice: null,
+      connStatus: 'connected' as const,
+      writeFrozen: false,
       // O0b-2 挂载恢复 effect 读 cs.wh——夹具不带 wh（undefined⇒不镜像 imgSize，渲染仍走 ratio 默认）
       nodes: [] as any[],
       selectNode,

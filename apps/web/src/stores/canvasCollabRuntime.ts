@@ -1093,3 +1093,16 @@ export function getStateVector(): string | undefined {
   for (const b of sv) bin += String.fromCharCode(b);
   return btoa(bin);
 }
+
+/** Y0b-2 T7（Z67）：等 unsyncedChanges 归零边沿——禁用 'synced'（一次性握手事件，同态提前
+ *  return 不 emit，已 synced 客户端重等待结构性挂死）。超时 resolve(false) 不抛错——claim 前
+ *  判定零代价，调用方（withSyncRetry）照发一次。off 清理两分支对称（归零/超时）。 */
+export function forceSyncAndWaitUnsynced(timeoutMs = 2_000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { provider?.off('unsyncedChanges', onZero); resolve(false); }, timeoutMs);
+    const onZero = ({ number }: { number: number }) => {
+      if (number === 0) { clearTimeout(t); provider?.off('unsyncedChanges', onZero); resolve(true); }
+    };
+    provider?.on('unsyncedChanges', onZero); provider?.forceSync();
+  });
+}

@@ -21,6 +21,7 @@ import { useTrackCanvasPointerShift } from '@/hooks/useTrackCanvasPointerShift';
 import { useMarqueeSelectionGuard } from '@/hooks/useMarqueeSelectionGuard';
 import { useDragGestureGuard } from '@/hooks/useDragGestureGuard';
 import { executeGroupNodes } from '@/api/executionApi';
+import { canExecute } from '@/stores/syncStatus';
 import { getMediaUrl } from '@/api/mediaApi';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
@@ -124,6 +125,8 @@ function CanvasViewComponent(_props: Props) {
     bridge.setCursor({ x: flow.x, y: flow.y });
   }, [screenToFlowPosition]);
   const projectId = useCanvasStore((s) => s.projectId);
+  // Y0b-2 T7：canExecute 硬态（组执行按钮禁用判据——断连/只读/冻结禁执行）
+  const canExec = useCanvasStore(canExecute);
   // 锁定=编辑中或 transform 调整中（spec §3 根因修）——selectIsLocked 单源（Spec B editMode
   // 分片：原订阅式/命令式双定义合并，同源 nodeStore.selectIsLocked；语义限定本地视图态，不进 doc）。
   // 与 useGroupKeyboard「模式中」口径对齐（编辑与 transform 互斥，nodeStore.ts:383）。
@@ -739,10 +742,11 @@ function CanvasViewComponent(_props: Props) {
               groupType="normal"
               collapsed={localCollapsed[selectedGroup.id] ?? !!gd.collapsed}
               executing={groupExecuting}
+              canExecute={canExec}
               onCollapse={toggleCollapse}
               onExecute={async (groupId) => {
                 const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-                if (childIds.length > 0 && projectId) {
+                if (childIds.length > 0 && projectId && canExec) {
                   void executeGroupNodes(projectId, childIds);
                 }
               }}

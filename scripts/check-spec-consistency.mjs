@@ -22,7 +22,9 @@ export function collectMetricFiles() {
 }
 
 // 仅代码型 token——退役机制的标识符（可 grep 到 code/迁移历史），非自然语言短语
-export const DENYLIST = ['release_once', 'COLLAB_RSS_SOFT_LIMIT_BYTES', 'replay_kill'];
+// Y0b-2 T7 增补：x-yjs-sv（SV 头退役——body.stateVector）/waitForSV（等待机制删除）/
+// INTENT_CONTEXT_MISMATCH、isFirstExec（intentRecord 族围栏——正文复述即漂移）
+export const DENYLIST = ['release_once', 'COLLAB_RSS_SOFT_LIMIT_BYTES', 'replay_kill', 'x-yjs-sv', 'waitForSV', 'INTENT_CONTEXT_MISMATCH', 'isFirstExec'];
 
 export function stripForDenylist(text) {
   // 剥内容保换位（doc-gate.mjs:361 先例形态）——行号与原文件一致，报错可跳转

@@ -19,7 +19,7 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
     svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any, quota as any);
   });
 
-  it('直连真实节点：execute(workflowId, nodeId=undefined, userId, nodeIds=[sourceNodeId], sv=undefined, retakeId)——nodeIds 模式 scope 恰为目标自身（H1：不连带上游）、无影子插入、regenerate 自身零 doc 写', async () => {
+  it('直连真实节点：execute(workflowId, nodeId=undefined, userId, nodeIds=[sourceNodeId], retakeId)——nodeIds 模式 scope 恰为目标自身（H1：不连带上游）、无影子插入、regenerate 自身零 doc 写（T7：sv 形参删除后直调零客户端状态）', async () => {
     collab.readCanvas.mockResolvedValue({
       nodes: [{ id: 'src1', type: 'videoGen', position: { x: 1, y: 2 }, data: { model: 'm', prompt: { text: 't' } } }],
       edges: [],
@@ -28,7 +28,7 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
     // sv 位（第 5 参）= undefined：直调不带 sv——E2 根因（sv 裁剪致影子不可见）随信箱消失；
     // retakeId 作 intentId 透传 execute 且目标为唯一 exec 节点（nodeIds 单元素）——intentId 归属目标自身，
     // 幂等裁决在 claim 层（同 retakeId 重放 SUCCEEDED → 零外呼零扣费）
-    expect(execution.execute).toHaveBeenCalledWith('w1', undefined, 'u1', ['src1'], undefined, 'rtk-1');
+    expect(execution.execute).toHaveBeenCalledWith('w1', undefined, 'u1', ['src1'], 'rtk-1');
     expect(collab.writeNodeData).not.toHaveBeenCalled(); // Media.create/writeNodeData(fileId) 由 execute→ai-download 落真实节点，服务层不重复落地（防双 Media 行）
     // result 原样透传（success=false 早失败语义维持——web 侧 initial 契约）
     expect(r).toEqual({
@@ -42,13 +42,13 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
     await svc.regenerate('u1', { sourceNodeId: 'src1', workflowId: 'w1', kind: 'video', retakeId: 'rtk-same' });
     await svc.regenerate('u1', { sourceNodeId: 'src1', workflowId: 'w1', kind: 'video', retakeId: 'rtk-same' });
     expect(execution.execute).toHaveBeenCalledTimes(2);
-    expect(execution.execute).toHaveBeenLastCalledWith('w1', undefined, 'u1', ['src1'], undefined, 'rtk-same');
+    expect(execution.execute).toHaveBeenLastCalledWith('w1', undefined, 'u1', ['src1'], 'rtk-same');
   });
 
   it('kind=audio → audioGen 类型匹配后同样直连', async () => {
     collab.readCanvas.mockResolvedValue({ nodes: [{ id: 'a1', type: 'audioGen', data: { model: 'm' } }], edges: [] });
     await svc.regenerate('u1', { sourceNodeId: 'a1', workflowId: 'w1', kind: 'audio', retakeId: 'rtk-a' });
-    expect(execution.execute).toHaveBeenCalledWith('w1', undefined, 'u1', ['a1'], undefined, 'rtk-a');
+    expect(execution.execute).toHaveBeenCalledWith('w1', undefined, 'u1', ['a1'], 'rtk-a');
   });
 
   it('源节点类型不匹配：400（video/audio 两分支显式传 kind——防"缺省 kind 因错误原因通过"）', async () => {

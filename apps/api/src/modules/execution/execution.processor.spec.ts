@@ -37,14 +37,14 @@ describe('ExecutionProcessor', () => {
 
     const result = await processor.process(job);
 
-    // 第6/7参：regenToken（无则 undefined，Y0b-2 T6 Z91）+ jobId（批0.5-6——claim 同 job 可重入）
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, undefined, 'job-1');
+    // 第5/6参：regenToken（无则 undefined，Y0b-2 T6 Z91——T7 sv 形参删除后左移）+ jobId（批0.5-6——claim 同 job 可重入）
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-1');
     expect(job.updateProgress).toHaveBeenCalledWith(10);
     expect(job.updateProgress).toHaveBeenCalledWith(100);
     expect(result).toEqual({ success: true, errors: [] });
   });
 
-  it('Y0b-2 T6（Z91）：job.data.regenToken → execute 第6参透传（enqueue 管道与 execute 直达同 claim 语义）+jobId 第7参', async () => {
+  it('Y0b-2 T6（Z91）：job.data.regenToken → execute 第5参透传（enqueue 管道与 execute 直达同 claim 语义）+jobId 第6参', async () => {
     const job = {
       id: 'job-5',
       data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', regenToken: 'held-token-1' },
@@ -53,7 +53,7 @@ describe('ExecutionProcessor', () => {
 
     await processor.process(job);
 
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'held-token-1', 'job-5');
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'held-token-1', 'job-5');
   });
 
   it('should handle job without nodeId', async () => {
@@ -64,20 +64,18 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, undefined, 'job-2');
+    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, 'job-2');
   });
 
-  it('should decode job.data.sv base64 and pass to execute', async () => {
-    const b64 = Buffer.from('hello').toString('base64');
+  it('Y0b-2 T7：job.data 遗留 sv 字段被忽略（载荷零客户端状态——SV 判定在受理端点门）', async () => {
     const job = {
       id: 'job-4',
-      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', sv: b64 },
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', sv: Buffer.from('hello').toString('base64') },
       updateProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as Job;
 
     await processor.process(job);
-    const svArg = (execService.execute.mock.calls[0][4] as Uint8Array);
-    expect([...svArg]).toEqual([104, 101, 108, 108, 111]);
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-4');
   });
 
   it('should throw error on failure and trigger retry', async () => {

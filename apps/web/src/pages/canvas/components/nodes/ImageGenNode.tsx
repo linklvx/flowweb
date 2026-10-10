@@ -30,6 +30,9 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { downloadMediaFile } from '@/utils/mediaDownload';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { apiFetch } from '@/api/client';
+import { withSyncRetry } from '@/api/executionApi';
+import { canExecute } from '@/stores/syncStatus';
+import { getStateVector } from '@/stores/canvasCollabRuntime';
 import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
@@ -617,6 +620,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   }, [id, displayUrl, updateConfig]);
 
   const handleGenerate = useCallback(async () => {
+    // Y0b-2 T7：canExecute 硬态门（编辑三 toolbar 共用漏斗——视觉禁用态归 ConfigPanel 族，此处唯一拦截）
+    if (!canExecute(useCanvasStore.getState())) return;
     setProcessing(true);
     setEditError(null);
     try {
@@ -625,6 +630,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       // Y0b-2 T6（Z79 编辑三入口恒手势）：每次应用=生成性重跑，恒带 token——held 优先（终态前重试
       // 复用同 token=免费 rearm，sessionStorage 跨刷新存活），无 held 铸造新 token（新意图照常扣费）
       body.regenToken = storedToken(body.projectId, id) ?? gestureToken(body.projectId, id);
+      // Y0b-2 T7：SV 支配门 body.stateVector（image-edit 受理端点同门——头 x-yjs-sv 退役）
+      body.stateVector = getStateVector();
 
       if (editMode === 'outpaint') {
         endpoint = '/image-edit/outpaint'; // Y0b-2 T6：裸 fetch 改 apiFetch（BASE_URL=/api——envelope/错误统一消费）
@@ -655,7 +662,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         }
       }
 
-      await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) });
+      // Y0b-2 T7：SYNC_PENDING 反应式重发（withSyncRetry 单源——execute/enqueue 同款）
+      await withSyncRetry(() => apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) }));
     } catch (err: any) {
       console.error('AI 编辑失败:', err);
       // Y0b-2 T6：编辑链同步 409 无 exec 投影（runNodeLifecycle 不在链上）——EXHAUSTED 需 web 侧

@@ -22,10 +22,13 @@ vi.mock('@/api/executionApi', () => ({ enqueueWorkflow: mockEnqueueWorkflow }));
 
 const ok = (data: unknown) => new Response(JSON.stringify({ code: 0, data }), { status: 200 });
 
-/** 真会话电平 + 种子节点（audioGen——model 留空：模型默认值 effect 的写入条件） */
+/** 真会话电平 + 种子节点（audioGen——model 留空：模型默认值 effect 的写入条件）
+ *  Y0b-2 T7：补 connStatus:'connected'（真 store 默认 connecting=断连态——canExecute 假，
+ *  rw 锚用例电平须与真实可执行会话一致；readOnly 面由 collabReadOnly 拦） */
 function seedSession(readOnly: boolean) {
   useCanvasStore.setState({
     hydration: 'ready', collabReadOnly: readOnly, wsAuthNotice: null,
+    connStatus: 'connected', writeFrozen: false,
     projectId: 'p1', nodes: [], edges: [],
   });
   useNodeStore.setState((s) => ({
@@ -86,13 +89,14 @@ describe('批2-2 AudioConfigPanel：readOnly 输入不落 store（真 store）',
     expect(dataOf().model).toBeUndefined();
   });
 
-  it('readOnly :148 生成时 content 提交不落 store（enqueue 不在本批门内）', async () => {
+  it('readOnly :148 生成时 content 提交不落 store；Y0b-2 T7：canExecute 禁执行——enqueue 零调用', async () => {
     seedSession(true);
     const { container } = render(<AudioConfigPanel nodeId="a1" />);
     fireEvent.change(container.querySelector('textarea')!, { target: { value: 'gen prompt' } }); // 本地 prompt
     const buttons = container.querySelectorAll('button');
     await act(async () => { fireEvent.click(buttons[buttons.length - 1]); });
     expect(dataOf().content).toBe(''); // 提交快照写被拒
-    expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1); // 提交链路照常（入口置灰归 UI 批）
+    // T7 语义收口：readOnly（canEdit 假）⇒ canExecute 假——生成按钮 disabled，提交链路不再照常（改前批2-2"enqueue 不在本批门内"由 T7 收口）
+    expect(mockEnqueueWorkflow).not.toHaveBeenCalled();
   });
 });

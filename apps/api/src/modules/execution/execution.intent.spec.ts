@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as Y from 'yjs';
 import { ExecutionService } from './execution.service';
 import { ExecutionController } from './execution.controller';
 import { ExecutionProcessor } from './execution.processor';
@@ -75,7 +76,7 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
 describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
   it('text：claim 参数含 projectId/nodeId/userId/kind/paramsHash + pricing/teamId 固化（=外呼实参白名单规范化）', async () => {
     const { svc, intentService } = makeService([TEXT_NODE]);
-    await svc.execute('p1', 'n1', 'u1', undefined, undefined, 'hdr-intent');
+    await svc.execute('p1', 'n1', 'u1', undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledTimes(1);
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'text', gestureToken: 'hdr-intent',
@@ -87,7 +88,7 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
 
   it('video：kind=video，paramsHash=视频外呼实参集 + pricing/teamId 固化', async () => {
     const { svc, intentService } = makeService([VIDEO_NODE]);
-    await svc.execute('p1', 'n2', 'u1', undefined, undefined, 'hdr-intent');
+    await svc.execute('p1', 'n2', 'u1', undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'video', gestureToken: 'hdr-intent',
       teamId: 't1',
@@ -102,7 +103,7 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
 
   it('image：kind=image，paramsHash=图片外呼实参集 + pricing/teamId 固化', async () => {
     const { svc, intentService } = makeService([IMAGE_NODE]);
-    await svc.execute('p1', 'n3', 'u1', undefined, undefined, 'hdr-intent');
+    await svc.execute('p1', 'n3', 'u1', undefined, 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'image', gestureToken: 'hdr-intent',
       teamId: 't1',
@@ -238,7 +239,7 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
     teamCredit.reserve.mockImplementation(async (_userId: string, guard: any) =>
       guard.intentRowId === 'row-n3' ? { success: false, reason: 'CREDIT_INSUFFICIENT' } : { success: true, mayCall: true });
 
-    const r = await svc.execute('p1', undefined, 'u1', ['n1', 'n3'], undefined, 'hdr-intent');
+    const r = await svc.execute('p1', undefined, 'u1', ['n1', 'n3'], 'hdr-intent');
 
     expect(r.success).toBe(false);
     expect(apiCaller.callTextGen).toHaveBeenCalledTimes(1); // 前 N 外呼照常
@@ -253,7 +254,7 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
 describe('批0.5-6 执行开始 loading（exec map 服务端写）', () => {
   it('claim 后 writeExecStatus({status:"loading", jobId, intentId})——异步路径 jobId 透传', async () => {
     const { svc, collabDoc } = makeService([TEXT_NODE]);
-    await svc.execute('p1', 'n1', 'u1', undefined, undefined, undefined, 'job-9');
+    await svc.execute('p1', 'n1', 'u1', undefined, undefined, 'job-9');
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'loading', jobId: 'job-9', intentId: 'i-1' }));
   });
 
@@ -294,7 +295,7 @@ describe('Y0b-2 T1（Z109）：组执行 token 整批施加——全节点同 ge
     intentService.claim.mockImplementation(async (input: any) => ({
       created: true, intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}` },
     }));
-    await svc.execute('p1', undefined, 'u1', ['n1', 'n3'], undefined, 'hdr-intent');
+    await svc.execute('p1', undefined, 'u1', ['n1', 'n3'], 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledTimes(2);
     expect(intentService.claim.mock.calls[0][0]).toEqual(expect.objectContaining({ nodeId: 'n1', gestureToken: 'hdr-intent' }));
     expect(intentService.claim.mock.calls[1][0]).toEqual(expect.objectContaining({ nodeId: 'n3', gestureToken: 'hdr-intent' }));   // 整批施加——旧"仅首个 exec"门已删
@@ -361,33 +362,36 @@ describe('批0.5-6 processor failed 钩子（SIGKILL 终态兜底——exec map 
   });
 });
 
-/** 装置：controller 直构（构造器序对齐 execution.controller.ts：(service, perm, executionQueue, intentService)）。 */
+/** 装置：controller 直构（构造器序对齐 execution.controller.ts：(service, perm, executionQueue, intentService, collabDoc)）。 */
+const svFixDoc = new Y.Doc();   // T7：SV 支配门夹具——非空 SV（客户端/服务端同 doc ⇒ 支配成立）
+svFixDoc.getMap('meta').set('schemaVersion', 2);
+const SV_FIX = Buffer.from(Y.encodeStateVector(svFixDoc)).toString('base64');
 function makeController() {
   const service = { execute: vi.fn().mockResolvedValue({ success: true, errors: [] }) };
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), assertEditor: vi.fn() };
   const queue = { add: vi.fn().mockResolvedValue({ id: 'job-1' }), getJob: vi.fn() };
   const intentService = { listByNode: vi.fn().mockResolvedValue([]) };
-  const ctrl: any = new (ExecutionController as any)(service, perm, queue, intentService);
+  const collabDoc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svFixDoc)) };
+  const ctrl: any = new (ExecutionController as any)(service, perm, queue, intentService, collabDoc);
   return { ctrl, service, perm, queue, intentService };
 }
 
 describe('Y0b-2 T6 controller 意图接线（Z91/Z103）', () => {
-  it('execute 读 body.regenToken 透传 service 第6参（意图 id 请求头已删——无消费者）', async () => {
+  it('execute 读 body.regenToken 透传 service 第5参（T7：SV 门用 body.stateVector——service 零 SV 实参）', async () => {
     const { ctrl, service } = makeController();
-    const b64 = Buffer.from('sv').toString('base64');
-    await ctrl.execute({ projectId: 'p1', nodeId: 'n1', regenToken: 'hdr-intent' }, { user: { id: 'u1' } } as any, b64);
-    expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, expect.any(Uint8Array), 'hdr-intent');
+    await ctrl.execute({ projectId: 'p1', nodeId: 'n1', regenToken: 'hdr-intent', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
+    expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'hdr-intent');
   });
 
   it('enqueue body.regenToken 入 job.data；缺省 null（Z91：enqueue 管道与 execute 直达同 claim 语义）', async () => {
     const { ctrl, queue } = makeController();
-    await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', regenToken: 'i-9' }, { user: { id: 'u1' } } as any);
+    await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', regenToken: 'i-9', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', sv: null, regenToken: 'i-9',
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: 'i-9',
     });
-    await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2' }, { user: { id: 'u1' } } as any);
+    await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenLastCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', sv: null, regenToken: null,
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: null,
     });
   });
 });
