@@ -189,16 +189,21 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
   });
 
   describe('② RUNNING 同 jobId → 可重入续跑（stalled 重排不自锁）', () => {
-    it('input.jobId 与 existing.jobId 相等 → created:true 且不写库', async () => {
+    it('input.jobId 与 existing.jobId 相等 → created:true + 重锚（Y0b-2 T4：新执行段刷新 heartbeat/deadline，不刷则重排任务被 deadline 批误收）', async () => {
       const existing = row({ status: 'RUNNING', jobId: 'job-1' });
-      prisma.generationIntent.findUnique.mockResolvedValue(existing);
+      prisma.generationIntent.findUnique
+        .mockResolvedValueOnce(existing) // claim 首查
+        .mockResolvedValueOnce(existing); // 重锚后回读
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
 
       const r = await service.claim(input({ jobId: 'job-1' }));
 
       expect(r.created).toBe(true);
-      expect(r.intent).toBe(existing);
       expect(prisma.generationIntent.create).not.toHaveBeenCalled();
-      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
+        where: { id: existing.id, status: 'RUNNING', jobId: 'job-1' },
+        data: { heartbeatAt: expect.any(Date), deadlineAt: expect.any(Date) },
+      });
     });
   });
 
@@ -222,9 +227,9 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       });
     });
 
-    it('updatedAt 龄 >10min（同步孤儿）→ 回收窗口文案分义', async () => {
+    it('heartbeatAt 龄 >10min（同步孤儿）→ 回收窗口文案分义（Y0b-2 T4 判据单源——外呼 tick 刷心跳不刷 updatedAt）', async () => {
       prisma.generationIntent.findUnique.mockResolvedValue(
-        row({ status: 'RUNNING', jobId: null, updatedAt: new Date(Date.now() - 11 * 60_000) }),
+        row({ status: 'RUNNING', jobId: null, heartbeatAt: new Date(Date.now() - 11 * 60_000) }),
       );
 
       await expect(service.claim(input())).rejects.toMatchObject({
@@ -348,7 +353,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       expect(count).toBe(1);
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'gi-1', status: { in: ['RUNNING'] } },
-        data: { status: 'SUCCEEDED', resultRef: 'media-9', completedAt: expect.any(Date) },
+        data: { status: 'SUCCEEDED', resultRef: 'media-9', completedAt: expect.any(Date), heartbeatAt: expect.any(Date) }, // Y0b-2 T4：终态时刻审计戳
       });
     });
 
@@ -367,7 +372,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
 
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'gi-1', status: { in: ['RUNNING'] } },
-        data: { status: 'FAILED', error: 'x'.repeat(500), completedAt: expect.any(Date) },
+        data: { status: 'FAILED', error: 'x'.repeat(500), completedAt: expect.any(Date), heartbeatAt: expect.any(Date) },
       });
     });
 
@@ -378,7 +383,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
 
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'gi-1', status: { in: ['RUNNING'] }, jobId: 'job-old' },
-        data: { status: 'FAILED', error: 'late hook', completedAt: expect.any(Date) },
+        data: { status: 'FAILED', error: 'late hook', completedAt: expect.any(Date), heartbeatAt: expect.any(Date) },
       });
     });
 
@@ -411,7 +416,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
 
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'gi-1', status: { in: ['RUNNING'] } },
-        data: { status: 'VOIDED', error: 'x'.repeat(500), completedAt: expect.any(Date) },
+        data: { status: 'VOIDED', error: 'x'.repeat(500), completedAt: expect.any(Date), heartbeatAt: expect.any(Date) },
       });
     });
 

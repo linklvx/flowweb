@@ -60,6 +60,8 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
     void_: vi.fn().mockResolvedValue(undefined),
     attachJob: vi.fn(),
     listByNode: vi.fn().mockResolvedValue([]),
+    reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+    touchHeartbeat: vi.fn().mockResolvedValue(undefined),
     ...intentOverrides,
   };
   const svc: any = new (ExecutionService as any)(

@@ -86,9 +86,25 @@ export class GenerationIntentService {
       if (existing) {
         if (existing.status === 'SUCCEEDED') return { intent: existing, created: false };
         if (existing.status === 'RUNNING') {
-          if (input.jobId && existing.jobId === input.jobId) return { intent: existing, created: true }; // 同 job 可重入
-          // 同步路径孤儿（updatedAt 龄 >10min，reconcile 尚未回收）与真在飞的 UX 分义——文案提示回收窗口
-          const staleMin = (Date.now() - existing.updatedAt.getTime()) / 60_000;
+          if (input.jobId && existing.jobId === input.jobId) {
+            // 同 job 可重入（BullMQ stalled 重排同 jobId 重进 claim 不得自锁）——Y0b-2 T4 重锚=新执行段：
+            // 重入瞬间刷新 heartbeat/deadline（不刷则旧 deadline 已近/超期 ⇒ reaper deadline 批误收重排任务）；
+            // startedAt 留给 executor 的 reanchorDeadline（外呼真正起点——claim≠外呼开始）
+            const rearmed = await tx.generationIntent.updateMany({
+              where: { id: existing.id, status: 'RUNNING', jobId: input.jobId },
+              data: {
+                heartbeatAt: new Date(),
+                deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
+              },
+            });
+            if (rearmed.count === 1) {
+              return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: existing.id } }), created: true };
+            }
+            throw new NodeBusyError(); // 重锚被并发抢走（行已终态/换 job）
+          }
+          // 同步路径孤儿（heartbeatAt 龄 >10min，reconcile 尚未回收）与真在飞的 UX 分义——文案提示回收窗口
+          // Y0b-2 T4 判据单源：staleMin 读 heartbeatAt（外呼 tick 持续刷新=活；updatedAt 不随外呼刷新）
+          const staleMin = (Date.now() - existing.heartbeatAt.getTime()) / 60_000;
           throw new NodeBusyError(staleMin > 10 ? '系统回收中（约 15 分钟），请稍后重试' : undefined);
         }
         // FAILED/VOIDED → 原子再激活（守卫式 updateMany：并发双请求恰一个 count===1）
@@ -143,12 +159,34 @@ export class GenerationIntentService {
     }, { timeout: 10_000, maxWait: 5_000 }); // 四轮 C4：显式超时（默认 5s 对含 FOR SHARE 等锁的五分支偏紧）
   }
 
+  /** Y0b-2 T4：外呼心跳续命（best-effort——RUNNING 守卫，终态行零动作）。onTick 每 tick 调用
+   *  （轮询活着 ⇒ deadline 批不收：heartbeatAt>=deadlineAt）。与 reserve gate CAS 的行锁竞争有界
+   *  （reserve 事务 ≤15s 封顶——本 update 单行无事务，锁等待自然消解）。 */
+  async touchHeartbeat(id: string): Promise<void> {
+    await this.prisma.generationIntent.updateMany({
+      where: { id, status: { in: [...ACTIVE] } },
+      data: { heartbeatAt: new Date() },
+    });
+  }
+
+  /** Y0b-2 T4：外呼前重锚——终锚（deadlineAt=now+kind 档）+外呼起点（startedAt——Z83 phase 判据：
+   *  startedAt 非空=call 期/空=queue 期）+心跳刷新，三职一次写。claim 时锚是排队档上限，
+   *  executor 外呼前调本方法重锚为真正执行段。 */
+  async reanchorDeadline(id: string, kind: string): Promise<void> {
+    const now = new Date();
+    await this.prisma.generationIntent.updateMany({
+      where: { id, status: { in: [...ACTIVE] } },
+      data: { startedAt: now, deadlineAt: new Date(now.getTime() + deadlineMsForKind(kind)), heartbeatAt: now },
+    });
+  }
+
   /** complete 幂等迁移——返回受影响行数（F13 产物门序）：count===1 调用方才写 doc/exec；
-   *  count===0 = 行已被 reconcile VOIDED+退款——调用方跳过产物写入（"看到产物 ⇒ 意图仍有效"）。 */
+   *  count===0 = 行已被 reconcile VOIDED+退款——调用方跳过产物写入（"看到产物 ⇒ 意图仍有效"）。
+   *  Y0b-2 T4：终态补 heartbeatAt=终态时刻（判读辅助——终态行不进 reaper 批，纯审计戳）。 */
   async complete(id: string, resultRef: string): Promise<number> {
     const r = await this.prisma.generationIntent.updateMany({
       where: { id, status: { in: [...ACTIVE] } },
-      data: { status: 'SUCCEEDED', resultRef, completedAt: new Date() },
+      data: { status: 'SUCCEEDED', resultRef, completedAt: new Date(), heartbeatAt: new Date() },
     });
     return r.count;
   }
@@ -159,7 +197,7 @@ export class GenerationIntentService {
   async fail(id: string, error: string, jobId?: string): Promise<void> {
     await this.prisma.generationIntent.updateMany({
       where: { id, status: { in: [...ACTIVE] }, ...(jobId ? { jobId } : {}) },
-      data: { status: 'FAILED', error: error.slice(0, 500), completedAt: new Date() },
+      data: { status: 'FAILED', error: error.slice(0, 500), completedAt: new Date(), heartbeatAt: new Date() }, // Y0b-2 T4：终态时刻审计戳
     });
   }
 
@@ -176,7 +214,7 @@ export class GenerationIntentService {
   async void_(id: string, error: string): Promise<void> {
     await this.prisma.generationIntent.updateMany({
       where: { id, status: { in: [...ACTIVE] } },
-      data: { status: 'VOIDED', error: error.slice(0, 500), completedAt: new Date() },
+      data: { status: 'VOIDED', error: error.slice(0, 500), completedAt: new Date(), heartbeatAt: new Date() }, // Y0b-2 T4：终态时刻审计戳
     });
   }
 

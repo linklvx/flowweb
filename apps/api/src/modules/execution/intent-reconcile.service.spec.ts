@@ -11,7 +11,8 @@ import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { IntentReconcileService } from './intent-reconcile.service';
 
-/** 构造一行 RUNNING 意图（默认已超龄 20min——updatedAt 是三查判龄唯一依据） */
+/** 构造一行 RUNNING 意图（默认心跳超龄 20min——Y0b-2 T4 判据单源 heartbeatAt；deadlineAt 更旧
+ *  （30min 前）⇒ 心跳新于 deadline=轮询活着——deadline 批跳过，本档只测 stale 批三查） */
 const intent = (over: Record<string, unknown> = {}) => ({
   id: 'gi-1',
   projectId: 'p1',
@@ -27,8 +28,10 @@ const intent = (over: Record<string, unknown> = {}) => ({
   attempts: 1,
   resultRef: null,
   error: null,
-  createdAt: new Date(Date.now() - 30 * 60_000),
-  updatedAt: new Date(Date.now() - 20 * 60_000),
+  createdAt: new Date(Date.now() - 40 * 60_000),
+  heartbeatAt: new Date(Date.now() - 20 * 60_000),
+  deadlineAt: new Date(Date.now() - 30 * 60_000),
+  startedAt: null,
   completedAt: null,
   ...over,
 });
@@ -113,12 +116,16 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
   });
 
   describe('档一 verifyActive 三查（F13 判据④）', () => {
-    it('扫描谓词锚：status=RUNNING 且 updatedAt<15min 截止（rearm/续跑刷新 updatedAt 防误判）', async () => {
+    it('扫描谓词锚：status=RUNNING 且 heartbeatAt<15min 截止（Y0b-2 T4 判据单源——外呼 tick 刷心跳；deadline 批谓词=deadlineAt<now 先跑）', async () => {
       await service.verifyActive();
-      const where = prisma.generationIntent.findMany.mock.calls[0][0].where;
-      expect(where.status).toBe('RUNNING');
-      expect(where.updatedAt.lt).toBeInstanceOf(Date);
-      expect(Date.now() - where.updatedAt.lt.getTime()).toBeGreaterThanOrEqual(15 * 60_000 - 1000);
+      // verifyActive 双批两次 findMany：第一次 deadline 批（deadlineAt<now）、第二次 stale 批（heartbeatAt<cutoff）
+      const deadlineWhere = prisma.generationIntent.findMany.mock.calls[0][0].where;
+      expect(deadlineWhere.status).toBe('RUNNING');
+      expect(deadlineWhere.deadlineAt.lt).toBeInstanceOf(Date);
+      const staleWhere = prisma.generationIntent.findMany.mock.calls.map((c: any[]) => c[0].where).find((w: any) => w.heartbeatAt)!;
+      expect(staleWhere.status).toBe('RUNNING');
+      expect(staleWhere.heartbeatAt.lt).toBeInstanceOf(Date);
+      expect(Date.now() - staleWhere.heartbeatAt.lt.getTime()).toBeGreaterThanOrEqual(15 * 60_000 - 1000);
     });
 
     it('① 已扣+resultRef 非空 → SUCCEEDED 回填，零退款', async () => {
@@ -150,7 +157,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
       // 写1：守卫式 CAS 二次判龄 + creditsConsumed>0 语义条件 + 归零（退款后同 intentId 重试 ⇒ consume CAS 门 where creditsConsumed:0 重开——F13 补强锚）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) }, creditsConsumed: { gt: 0 } },
+        where: { id: 'gi-1', status: 'RUNNING', heartbeatAt: { lt: expect.any(Date) }, creditsConsumed: { gt: 0 } },
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: expect.any(Date) },
       });
       // 写2：refund mutate（真值表 (+c,0)+reversesId 配对原 settle 行——Z6 反向记账轴）
@@ -169,7 +176,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       await service.verifyActive();
 
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) } },
+        where: { id: 'gi-1', status: 'RUNNING', heartbeatAt: { lt: expect.any(Date) } },
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: expect.any(Date) },
       });
       expect(ledger.mutate).not.toHaveBeenCalled();
@@ -211,16 +218,16 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
 
-    it('⑥ rearm 竞态：updatedAt 新鲜的 RUNNING 行守卫 count=0 → 零动作（where 含 updatedAt lt）', async () => {
-      // 竞态模拟：扫描捕获行后、三查执行前，rearm 刷新了 updatedAt
-      prisma.generationIntent.findMany.mockResolvedValue([intent({ updatedAt: new Date() })]);
+    it('⑥ rearm 竞态：heartbeatAt 新鲜的 RUNNING 行守卫 count=0 → 零动作（where 含 heartbeatAt lt——Y0b-2 T4 判据）', async () => {
+      // 竞态模拟：扫描捕获行后、三查执行前，rearm/外呼 tick 刷新了 heartbeatAt
+      prisma.generationIntent.findMany.mockResolvedValue([intent({ heartbeatAt: new Date() })]);
       prisma.$queryRaw.mockResolvedValue([chargeRow()]);
       prisma.generationIntent.updateMany.mockResolvedValue({ count: 0 }); // 真库行为：新鲜行不匹配 where
 
       await service.verifyActive();
 
       const where = prisma.generationIntent.updateMany.mock.calls[0][0].where;
-      expect(where).toEqual({ id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) }, creditsConsumed: { gt: 0 } });
+      expect(where).toEqual({ id: 'gi-1', status: 'RUNNING', heartbeatAt: { lt: expect.any(Date) }, creditsConsumed: { gt: 0 } });
       expect(ledger.mutate).not.toHaveBeenCalled();
       expect(prisma.teamMember.updateMany).not.toHaveBeenCalled();
     });
@@ -239,7 +246,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
       // 守卫 CAS 判龄 + reservedCredits>0 语义条件 + 归零（重试重 reserve 的 CAS 锚复位——约束①闭环）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'gi-1', status: 'RUNNING', updatedAt: { lt: expect.any(Date) }, reservedCredits: { gt: 0 } },
+        where: { id: 'gi-1', status: 'RUNNING', heartbeatAt: { lt: expect.any(Date) }, reservedCredits: { gt: 0 } },
         data: { status: 'VOIDED', reservedCredits: 0, completedAt: expect.any(Date) },
       });
       // release 冲销 mutate——约束②锚：type=release 非 refund（真值表 (+c,−c)+reversesId 配对原 reserve 行）

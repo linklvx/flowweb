@@ -69,7 +69,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）
-        { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined) } },
+        { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined), reanchorDeadline: vi.fn().mockResolvedValue(undefined), touchHeartbeat: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);

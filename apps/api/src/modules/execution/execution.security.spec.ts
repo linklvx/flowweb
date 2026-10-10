@@ -52,6 +52,8 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     complete: vi.fn().mockResolvedValue(1),
     fail: vi.fn().mockResolvedValue(undefined),
     void_: vi.fn().mockResolvedValue(undefined),
+    reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+    touchHeartbeat: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(
     prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService,

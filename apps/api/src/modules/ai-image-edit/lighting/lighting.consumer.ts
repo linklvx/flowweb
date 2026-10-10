@@ -160,8 +160,17 @@ export class LightingConsumer {
       const promptText = paramsToPrompt(params, params.customPrompt);
       this.logger.log(`Lighting prompt: ${promptText}`);
 
-      // 5. Call AI gateway for relighting
-      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText);
+      // 5. Call AI gateway for relighting——Y0b-2 T4：onTick 双职（每 tick touchHeartbeat+读意图状态：
+      //    reaper 收敛〔VOIDED/FAILED〕⇒ abort 停外呼）。外呼前重锚在 processor 侧 reserve 后已做
+      //    （taskType=lighting 同链——编辑链统一接线点）。
+      const onTick = intentRowId
+        ? async (): Promise<'abort' | void> => {
+            await this.intentService.touchHeartbeat(intentRowId);
+            const row = await this.prisma.generationIntent.findUnique({ where: { id: intentRowId! }, select: { status: true } });
+            if (row && row.status !== 'RUNNING') return 'abort';
+          }
+        : undefined;
+      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText, onTick ? { onTick } : undefined);
 
       if (!result?.url) {
         throw new Error('AI relighting returned no result URL');

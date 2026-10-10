@@ -123,6 +123,8 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       complete: vi.fn(async (rowId: string, resultRef: string) => { succeeded.set(rowId.slice('row:'.length), resultRef); return 1; }),
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
+      reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+      touchHeartbeat: vi.fn().mockResolvedValue(undefined),
     };
     const execSvc: any = new (ExecutionService as any)(
       prisma, topology, validation, apiCaller, teamCredit, perm, collab, gateway, downloadQueue, intentService,

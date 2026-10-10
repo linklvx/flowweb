@@ -133,7 +133,18 @@ export class AiImageEditProcessor extends WorkerHost {
         return { status: 'failed', reason };
       }
 
-      // 4. Call the appropriate API method
+      // 4. Y0b-2 T4：外呼前重锚（startedAt=外呼起点〔Z83 phase 判据〕+deadline 终锚+心跳——
+      //    编辑链意图行在 controller claim 时锚=排队档，processor reserve 后外呼将开始才重锚）。
+      //    lighting 同链（taskType 即 kind 档表键）——外呼虽转发至 consumer，链起点在此。
+      await this.intentService.reanchorDeadline(intentRowId, taskType);
+      // onTick 双职（Z69）：每 tick touchHeartbeat+读意图状态——reaper 收敛（VOIDED/FAILED）⇒ abort 停外呼
+      const onTick = async (): Promise<'abort' | void> => {
+        await this.intentService.touchHeartbeat(intentRowId);
+        const row = await this.prisma.generationIntent.findUnique({ where: { id: intentRowId }, select: { status: true } });
+        if (row && row.status !== 'RUNNING') return 'abort';
+      };
+
+      // 5. Call the appropriate API method
       let result: { url: string };
       switch (taskType) {
         case 'outpaint':
@@ -142,13 +153,15 @@ export class AiImageEditProcessor extends WorkerHost {
             rect!,
             imageWidth!,
             imageHeight!,
+            undefined,
+            { onTick },
           );
           break;
         case 'erase':
-          result = await this.apiCaller.callErase(imageUrl, maskUrl!);
+          result = await this.apiCaller.callErase(imageUrl, maskUrl!, { onTick });
           break;
         case 'redraw':
-          result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!);
+          result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!, { onTick });
           break;
         case 'lighting':
           return this.lightingConsumer.handleLightingJob(job as unknown as Job<LightingJobData>);

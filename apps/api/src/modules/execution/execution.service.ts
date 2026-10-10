@@ -37,6 +37,19 @@ export class ExecutionService {
     return bal ? { credits: bal.credits, subscriptionCredits: bal.subscriptionCredits, total: bal.total } : undefined;
   }
 
+  /** Y0b-2 T4：onTick 双职回调（Z69）——pollLoop 每 tick ①touchHeartbeat 续生命线
+   *  （heartbeatAt>=deadlineAt ⇒ reaper deadline 批不收：轮询活着）②读意图状态：
+   *  reaper 已收敛（VOIDED/FAILED）⇒ 'abort' 停外呼（资金已退，外呼产物留作废）。 */
+  private intentOnTick(intentRowId: string) {
+    return async (): Promise<'abort' | void> => {
+      await this.intentService.touchHeartbeat(intentRowId);
+      const row = await this.prisma.generationIntent.findUnique({
+        where: { id: intentRowId }, select: { status: true },
+      });
+      if (row && row.status !== 'RUNNING') return 'abort';
+    };
+  }
+
   /** 批0.5-6：意图 claim 前置（外呼之前）。kind/params = 各分支实读外呼参数——
    *  normalizeIntentParams 白名单拾取（0.5-2），sv/nonce 不进哈希。
    *  Y0b-2（Z109）：入参 intentId=客户端手势 token（wire 名不变）——无条件透传 gestureToken 整批施加
@@ -166,6 +179,9 @@ export class ExecutionService {
             }
           }
 
+          // Y0b-2 T4：外呼前重锚（startedAt=外呼起点〔Z83 phase 判据〕+deadline 终锚+心跳）——
+          // text 链单次 fetch 无轮询无 onTick，重锚即外呼前唯一心跳写点
+          await this.intentService.reanchorDeadline(intent.id, 'text');
           const textResult = await this.apiCaller.callTextGen(textArgs);
           results.push({ nodeId: node.id, type: 'text', content: textResult.content });
 
@@ -239,7 +255,9 @@ export class ExecutionService {
             }
           }
 
-          const result = await this.apiCaller.callVideoGen(videoArgs);
+          // Y0b-2 T4：外呼前重锚+onTick 双职（每 tick 心跳续命+reaper 收敛即 abort 停外呼）
+          await this.intentService.reanchorDeadline(intent.id, 'video');
+          const result = await this.apiCaller.callVideoGen({ ...videoArgs, onTick: this.intentOnTick(intent.id) });
 
           if (vCost > 0) {
             const vSettled = await this.teamCredit.settle({ intentRowId: intent.id });
@@ -319,7 +337,9 @@ export class ExecutionService {
           }
         }
 
-        const result = await this.apiCaller.callImageGen(imageArgs);
+        // Y0b-2 T4：外呼前重锚+onTick 双职（每 tick 心跳续命+reaper 收敛即 abort 停外呼）
+        await this.intentService.reanchorDeadline(intent.id, 'image');
+        const result = await this.apiCaller.callImageGen({ ...imageArgs, onTick: this.intentOnTick(intent.id) });
 
         results.push({ nodeId: node.id, type: 'image', resultUrl: result.url });
 

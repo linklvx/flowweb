@@ -63,6 +63,8 @@ describe('AiImageEditProcessor', () => {
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
       findByActiveNode: vi.fn().mockResolvedValue(null), // Y0b-1（N4）：failed 钩子反查
+      reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+      touchHeartbeat: vi.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -111,6 +113,8 @@ describe('AiImageEditProcessor', () => {
         { x: -16, y: 0, width: 528, height: 512 },
         512,
         512,
+        undefined,
+        expect.objectContaining({ onTick: expect.any(Function) }), // Y0b-2 T4：onTick 双职（心跳+reaper 收敛 abort）
       );
       expect(minio.upload).toHaveBeenCalled();
       expect(prisma.media.create).toHaveBeenCalledWith(
@@ -161,6 +165,7 @@ describe('AiImageEditProcessor', () => {
       expect(apiCaller.callErase).toHaveBeenCalledWith(
         'https://minio.local/bucket/key?token=abc',
         'https://minio.local/bucket/key?token=abc',
+        expect.objectContaining({ onTick: expect.any(Function) }), // Y0b-2 T4：onTick 双职
       );
       expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9' });
       expect(teamCredit.settle).toHaveBeenCalledTimes(1);

@@ -12,9 +12,14 @@ import {
   reconcileMismatchTotal, strandedTotal, balanceDriftTotal, frozenDriftTotal,
   orphanReleaseTotal, orphanUnreleasableTotal,
 } from './intent-reconcile.metrics';
+import { intentDeadlineExceededTotal } from './exec.metrics';
 
-/** RUNNING 孤儿判龄阈值（档一）——claim/rearm/CAS 扣费都刷新 updatedAt，超龄即同步路径内联崩溃嫌疑 */
+/** RUNNING 孤儿判龄阈值（档一）——claim/rearm/外呼心跳都刷新 heartbeatAt，超龄即进程/调度异常嫌疑
+ *  （Y0b-2 T4 判据单源：updatedAt→heartbeatAt——外呼 tick 不刷 updatedAt，旧判据会误收长任务）。 */
 const STALE_MS = 15 * 60_000;
+/** Z84 waiting/delayed 升级宽限——deadline 到点后 job 仍 waiting 的宽限窗（迟归 job 仍可被调度；
+ *  超窗即升级收敛：VOID+release，迟归 job 进 processor 时行已终态 ⇒ claim④ rearm 自愈）。 */
+const WAITING_UPGRADE_GRACE_MS = 30 * 60_000;
 /** 终态保留期（F1 保留策略）——SUCCEEDED/FAILED/VOIDED 行 7 天后清理 */
 const RETENTION_MS = 7 * 24 * 3600_000;
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
@@ -22,13 +27,26 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
 /** 意图表对账与回收（F12 每日全量 + F13 活跃核验 5min）——R28 纪律：原生 setInterval+unref
  *  （@Cron 是死代码：ScheduleModule 全仓未导入）。
  *
- *  档一【活跃核验，每 5min】（partial unique 使同节点新意图被 RUNNING 孤儿 409 锁死——
- *        本档把锁死窗口从 24h 压到 ≤15min；Y0b-2 squash 已删 @@index([status, updatedAt])——
- *        T4 判据切换 heartbeatAt/deadlineAt 后由 running_heartbeat/running_deadline 两 partial 接管扫描）：
+ *  档一【活跃核验，每 5min】= deadline 批 + 心跳 stale 批（Y0b-2 T4 双批）：
+ *
+ *  批〇【deadline 批，先跑】RUNNING ∧ deadlineAt<now ∧ heartbeatAt<deadlineAt（心跳先于 deadline 停=外呼死）：
+ *    A. 心跳新于 deadline（heartbeatAt>=deadlineAt）⇒ 轮询活着（onTick 每 tick 刷心跳）——不误杀；
+ *    B. jobId 行查 BullMQ 真实状态（A 路径禁绕过）：active ⇒ 长任务在跑零动作；
+ *       waiting/delayed 超宽限（deadline+WAITING_UPGRADE_GRACE_MS）⇒ Z84 升级档 VOID+release
+ *       （worker 死亡 job 滞留 waiting=冻结永久悬挂；本次升级 attempts 不递增——非用户发起重试）；
+ *       completed ⇒ 回填 SUCCEEDED；failed/不存在 ⇒ 三查；
+ *    C. phase 分诊（Z83）：startedAt 非空=call（外呼期超时）/空=queue（排队期超时——调度积压信号），
+ *       intent_deadline_exceeded_total{kind,phase} 计数；收敛走既有 threeCheck（cutoff=行自身 deadline——
+ *       CAS 判龄守卫=心跳先于 deadline，并发心跳刷新即 CAS 失败幂等）。
+ *
+ *  批一【心跳 stale 批】heartbeatAt 超龄 15min（进程/调度异常——正常外呼有 onTick 心跳+deadline 批先收；
+ *        partial unique 使同节点新意图被 RUNNING 孤儿 409 锁死——本档把锁死窗口从 24h 压到 ≤15min；
+ *        Y0b-2 squash 已删 @@index([status, updatedAt])——判据切换后由 running_heartbeat/running_deadline
+ *        两 partial 接管扫描）：
  *    A. 有 jobId → 按 kind 路由到所属队列查 BullMQ 真实状态（禁"job 不存在即判死"——removeOnComplete 清理歧义）：
  *       completed → 按产物回填 SUCCEEDED；failed/不存在 → 走 B 三查；
- *       active/waiting/delayed → 长任务合法在飞（意图行 updatedAt 不随外呼刷新），零动作
- *    B. 三查（age 一律取 updatedAt；批0.5-9 两阶段口径 isCharged=流水存在 reserve/settle 任一）：
+ *       active/waiting/delayed → 长任务合法在飞（意图行心跳不随外呼刷新时由 deadline 批兜底），零动作
+ *    B. 三查（age 一律取 heartbeatAt；批0.5-9 两阶段口径 isCharged=流水存在 reserve/settle 任一）：
  *       ①已扣 && resultRef 非空 → SUCCEEDED 回填
  *       ②已扣无产物 → 按冻结态分义（批0.5-9）：
  *         已 settle/consume（终态账）→ 退款事务（四写单 $transaction：守卫 CAS 二次判龄+归零 → 两池拆分
@@ -89,12 +107,26 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.timers = [];
   }
 
-  /** 档一：回收 RUNNING 孤儿（单条失败不阻塞整批——毒行不冻结全表扫描）+ 资金闭环巡检同轮
-   *  （第四分支 settleStranded → Z11 孤儿释放 releaseOrphanedReserves——顺序固定：先意图侧清账再台账侧孤儿） */
+  /** 档一：deadline 批+心跳 stale 批回收 RUNNING（单条失败不阻塞整批——毒行不冻结全表扫描）
+   *  + 资金闭环巡检同轮（第四分支 settleStranded → Z11 孤儿释放 releaseOrphanedReserves——
+   *  顺序固定：先意图侧清账再台账侧孤儿） */
   async verifyActive(): Promise<void> {
+    // ── 批〇 deadline 批（Y0b-2 T4/Z68/Z83/Z84）——先跑（行收敛终态后 stale 批不再命中同轮重复处理）
+    const now = new Date();
+    const overdue = await this.prisma.generationIntent.findMany({
+      where: { status: 'RUNNING', deadlineAt: { lt: now } },
+    });
+    for (const row of overdue) {
+      try {
+        await this.reapDeadline(row, now);
+      } catch (e) {
+        this.logger.warn(`deadline-reaper 意图 ${row.intentId} 失败: ${(e as Error).message}`);
+      }
+    }
+    // ── 批一 心跳 stale 批（heartbeatAt 超龄=进程/调度异常——T5 的 rollbackRunning 接管收敛）
     const cutoff = new Date(Date.now() - STALE_MS);
     const stale = await this.prisma.generationIntent.findMany({
-      where: { status: 'RUNNING', updatedAt: { lt: cutoff } },
+      where: { status: 'RUNNING', heartbeatAt: { lt: cutoff } },
     });
     for (const row of stale) {
       try {
@@ -105,6 +137,37 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
     await this.settleStranded();
     await this.releaseOrphanedReserves();
+  }
+
+  /** 批〇单行：deadline 到点的 RUNNING 收敛（threeCheck 复用——cutoff=行自身 deadline：
+   *  判龄守卫语义=心跳先于 deadline 停，外呼死才收敛；并发心跳刷新 ⇒ CAS 失败幂等）。 */
+  private async reapDeadline(row: GenerationIntent, now: Date): Promise<void> {
+    if (row.heartbeatAt.getTime() >= row.deadlineAt.getTime()) return; // 轮询活着（onTick 刷心跳）——不误杀
+    if (row.jobId) {
+      const queue = this.queueForKind(row.kind);
+      if (!queue) {
+        this.logger.warn(`[deadline-reaper] 意图 ${row.intentId} kind=${row.kind} 不在 A 路径路由表——落三查裁决`);
+      } else {
+        const job = await queue.getJob(row.jobId);
+        if (job) {
+          const state = await job.getState();
+          if (state === 'completed') return this.backfillSucceeded(row, job);
+          if (state === 'active') return; // 长任务在跑——A 路径禁绕过（防误杀）
+          if (state === 'waiting' || state === 'delayed') {
+            // Z84 升级档：超宽限期才收敛（宽限内迟归 job 仍可被调度——A 路径禁绕过）。
+            // 本次升级 attempts 不递增（非用户发起重试——runbook 处置行注明，更新归 T9）
+            if (now.getTime() <= row.deadlineAt.getTime() + WAITING_UPGRADE_GRACE_MS) return;
+            intentDeadlineExceededTotal.inc({ kind: row.kind, phase: 'waiting' });
+            this.logger.warn(`[deadline-reaper] 意图 ${row.intentId} job=${row.jobId} waiting/delayed 超宽限 ${WAITING_UPGRADE_GRACE_MS}ms——升级收敛（迟归 job 走 claim④ rearm 自愈）`);
+            return this.threeCheck(row, row.deadlineAt);
+          }
+          // failed → 三查裁决（同 stale 批 A 路径尾段；job 不存在同落）
+        }
+      }
+    }
+    // phase 分诊（Z83）：startedAt 非空=外呼期（call）/空=排队期（queue——claim 后未外呼即超时=调度积压信号）
+    intentDeadlineExceededTotal.inc({ kind: row.kind, phase: row.startedAt ? 'call' : 'queue' });
+    return this.threeCheck(row, row.deadlineAt);
   }
 
   /** A 路径 kind→队列路由（attachJob 盲区另一半）——jobId 属于哪个队列由 claim 发起链决定：
@@ -180,9 +243,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       if (finalRows.length > 0) return this.refund(row, cutoff);
       return this.unfreeze(row, chargeRows, cutoff);
     }
-    // ③未扣 → VOIDED 免费放行（creditsConsumed 本就 0；守卫同款防 rearm 竞态）
+    // ③未扣 → VOIDED 免费放行（creditsConsumed 本就 0；守卫同款防 rearm 竞态——Y0b-2 T4 判据 heartbeatAt）
     await this.prisma.generationIntent.updateMany({
-      where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff } },
+      where: { id: row.id, status: 'RUNNING', heartbeatAt: { lt: cutoff } },
       data: { status: 'VOIDED', creditsConsumed: 0, completedAt: new Date() },
     });
     this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 未扣超龄——VOIDED 免费放行`);
@@ -197,7 +260,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序——原首句 intent CAS 是无序根源）
       const guard = await tx.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff }, reservedCredits: { gt: 0 } },   // CAS 补 reservedCredits>0
+        where: { id: row.id, status: 'RUNNING', heartbeatAt: { lt: cutoff }, reservedCredits: { gt: 0 } },   // CAS 补 reservedCredits>0（Y0b-2 T4 判据 heartbeatAt）
         data: { status: 'VOIDED', reservedCredits: 0, completedAt: new Date() },
       });
       if (guard.count === 0) return false; // 已处理/并发已抢（幂等）
@@ -224,7 +287,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       await this.ledger.lockBalance(tx, row.teamId!);   // 锁序①（契约 20 全序）
       const guard = await tx.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING', updatedAt: { lt: cutoff }, creditsConsumed: { gt: 0 } },
+        where: { id: row.id, status: 'RUNNING', heartbeatAt: { lt: cutoff }, creditsConsumed: { gt: 0 } },
         data: { status: 'VOIDED', creditsConsumed: 0, completedAt: new Date() },
       });
       if (guard.count === 0) return false; // 已处理/并发已抢（幂等）
