@@ -196,4 +196,16 @@ const reserveCount = () => prisma.teamCreditTransaction.count({ where: { teamId:
     expect((err as any).getStatus()).toBe(400);
     expect(await intentCount(n4.id)).toBe(0);
   });
+
+  it('⑥malformed stateVector（垃圾 base64 字节）→ 400 SYNC_STATE_VECTOR_INVALID 非 500（T7 质量审 I-1——Yjs 解码抛错若不接会落 Nest 默认 500，错误契约缺一态）', async () => {
+    const n5 = textNode(`n5-${randomUUID().slice(0, 6)}`);
+    const controller = makeController([n5]);
+    const err = await controller.execute(
+      { projectId: PID, nodeId: n5.id, stateVector: Buffer.from([0xff, 0x0f, 0x99]).toString('base64') } as any,
+      { user: { id: UID } } as any,
+    ).catch((e: unknown) => e);
+    expect(err).toMatchObject({ errorCode: 'SYNC_STATE_VECTOR_INVALID' });
+    expect((err as any).getStatus()).toBe(400);
+    expect(await intentCount(n5.id)).toBe(0);
+  });
 });

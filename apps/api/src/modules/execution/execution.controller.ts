@@ -28,6 +28,9 @@ export class ExecutionController {
     @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string },
     @Req() req: Request,
   ) {
+    // 权限恒先于 SV 门（T7 质量审 I-2——与 enqueue/image-edit/lighting 三端点同型；0c-6 存在性 oracle：
+    // perm 未过者不得以 409-vs-403 差分探测 doc 同步态）
+    await this.perm.assertEditor(body.projectId, (req as any).user?.id);
     await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     // regenToken=客户端手势 token（Z79/Z109）——无 token 普通执行=undefined（内容键路径）
     return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken);
