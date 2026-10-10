@@ -26,6 +26,16 @@ const MARKERS = ['smoke-marker-a', 'smoke-marker-b'];
 const ts = Date.now();
 const S = { user: `smoke-u-${ts}`, team: `smoke-t-${ts}`, member: `smoke-m-${ts}`, project: `smoke-p-${ts}`, token: `smoke-tok-${randomUUID()}` };
 
+// Y0b-3 T2：升级面校验（Origin 白名单+cookie-only）后的运维连接形态——Origin 推导与 gateway
+// allowedOrigins() 同源（显式 COLLAB_ALLOWED_ORIGINS 首项 > BETTER_AUTH_URL origin > dev localhost:5173）；
+// token 经 Cookie header 注入（query token 通道已删；undici 全局 WebSocket 不支持自定义 header——ws 包注入）。
+const WebSocket = req('ws');
+const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
+  || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
+const makeHeaderWs = (headers) => class HeaderWs extends WebSocket {
+  constructor(url) { super(url, { headers }); }
+};
+
 async function step0_readyAssert() {
   const r = await fetch(`${API}/api/ready`).then((x) => x.json()).catch(() => null);
   if (r === null) throw new Error(`前置断言失败：/api/ready API 不可达（fetch 失败）——API 未启动/端口 ${API} 不对，先起服务再冒烟`);
@@ -45,7 +55,10 @@ async function main() {
     await prisma.canvasProject.create({ data: { id: S.project, name: `smoke-${ts}`, teamId: S.team } });
     await prisma.session.create({ data: { id: `smoke-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
 
-    const mk = () => new HocuspocusProvider({ url: `${WS_URL}?token=${S.token}`, name: `project:${S.project}`, document: new Y.Doc() });
+    const mk = () => new HocuspocusProvider({
+      url: WS_URL, name: `project:${S.project}`, document: new Y.Doc(),
+      WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
+    });
     const A = mk(), B = mk();
     const synced = (p) => new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')), 10_000);

@@ -50,7 +50,8 @@ function buildGateway() {
 
 function authPayload(documentName = 'project:p1') {
   return {
-    requestHeaders: new Headers(),
+    // Y0b-3 T2 cookie-only：token 只来自 cookie header（query token 通道删除）——直调 payload 单点改
+    requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
     requestParameters: new URLSearchParams('token=tok'),
     documentName,
     connectionConfig: { readOnly: false, isAuthenticated: false },

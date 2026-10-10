@@ -36,8 +36,10 @@ describe('CollabGateway 租约 fail-fast（第二实例结构性无法接流—�
   });
 
   it('WS 升级拒绝：authenticate 抛 lease-not-ready（瞬态档——客户端重连而非终态）', async () => {
+    // Y0b-3 T2 cookie-only：token 只来自 cookie header（query token 通道删除）——直调 payload
+    // 经 requestHeaders 注入（URLSearchParams 带 token= 已不被消费，保留只为兼容签名形态）
     await expect(gateway.hooks.onAuthenticate({
-      requestHeaders: new Headers(), requestParameters: new URLSearchParams('?token=tok'),
+      requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }), requestParameters: new URLSearchParams('?token=tok'),
       documentName: 'project:p1', connectionConfig: {},
     } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });
   });

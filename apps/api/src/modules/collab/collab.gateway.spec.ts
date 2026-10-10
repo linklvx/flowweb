@@ -935,7 +935,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       kit.gateway.beginDraining();   // Y0a-3 T5：draining 布尔退役——beginDraining 置 collabState=draining（isShuttingDown 派生读点不变）
       expect(kit.gateway.isShuttingDown()).toBe(true);   // X9 受理门读点翻转
       await expect(kit.gateway.hooks.onAuthenticate({
-        requestHeaders: new Headers(),
+        requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
         requestParameters: new URLSearchParams('token=tok'),
         documentName: 'project:p-m1',
         connectionConfig: { readOnly: false, isAuthenticated: false },
@@ -1307,7 +1307,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     try {
       const conn = { socket: { close: vi.fn() } };
       await expect((kit.gateway as any).hooks.onAuthenticate({
-        requestHeaders: new Headers(),
+        requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
         requestParameters: new URLSearchParams('token=tok'),
         documentName: 'project:p1',
         connectionConfig: {},
@@ -1460,7 +1460,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       g.selfIsolate('fenced-by-write');   // 写路径立即隔离——lease 侧要等 ≤1 心跳
       expect(g.getCollabState()).toBe('isolated');
       await expect(g.hooks.onAuthenticate({
-        requestHeaders: new Headers(),
+        requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
         requestParameters: new URLSearchParams('token=tok'),
         documentName: 'project:p1',
         connectionConfig: {},

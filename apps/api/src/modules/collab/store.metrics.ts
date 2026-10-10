@@ -54,6 +54,16 @@ export const collabUnhandledRejectionTotal = new Counter({
   registers: [register],
 });
 
+/** Y0b-3 T2（P-R）：WS 升级面拒绝计数——reason=origin（Origin 白名单外/缺失）/ rate-limited
+ *  （同 IP 超 60/min+burst 20）。拒绝形态=socket 直写 403/429+end（§3.1ter——hook throw=库
+ *  async 监听器内 unhandled rejection 形同虚设，必须 socket 直写）。 */
+export const collabUpgradeRejectedTotal = new Counter({
+  name: 'collab_upgrade_rejected_total',
+  help: 'WS 升级拒绝次数（reason=origin 白名单外/缺失；rate-limited 同 IP 超限——socket 直写 403/429+end）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
 /** Y0a-3（E35/E44/V22）：租约指标族——labelNames 必须与全部 .inc({}) 调用点一一对应
  *  （B8：prom-client 对未声明标签 throw——隔离路径会炸，先于任何消费方落地）。 */
 export const collabLeaseDeniedTotal = new Counter({

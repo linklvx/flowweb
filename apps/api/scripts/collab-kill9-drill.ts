@@ -29,12 +29,23 @@ import { join, resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import WebSocket from 'ws';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 import { ensureCollabSessionFixture, cleanupCollabSessionFixture } from '../src/test-utils/db-fixtures';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 const PID = process.env.DRILL_PROJECT ?? `y0a2-drill-${Date.now()}`;
 const DRILL_TOKEN = `drill-token-${Date.now()}`;   // fixture 的 Session token（ensureCollabSessionFixture 直插行=过 WS 鉴权）
+// Y0b-3 T2：升级面校验（Origin 白名单+cookie-only）后的运维连接形态——Origin 推导与 gateway
+// allowedOrigins() 同源（显式 COLLAB_ALLOWED_ORIGINS 首项 > BETTER_AUTH_URL origin > dev localhost:5173）；
+// token 经 Cookie header 注入（query token 通道已删——T1.5 makeHeaderWs 同款 ws 包 headers 选项）。
+const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
+  || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
+class DrillHeaderWs extends WebSocket {
+  constructor(url: string | URL) {
+    super(url as string, { headers: { origin: WS_ORIGIN, cookie: `flowweb.session_token=${DRILL_TOKEN}` } });
+  }
+}
 const NODES = 25;                        // 已接受集大小
 const COLLAPSE_MS = 3_200;               // ≥maxDebounce(300×1.5) 的持续判定窗
 const TERM_VIA_SIGNAL = process.platform !== 'win32';   // 见文件头探针实证——win32=false→IPC 主通道
@@ -136,8 +147,8 @@ async function stopServer(h: DrillHandle): Promise<void> {
 
 async function connectWrite(h: DrillHandle, projectId: string, nodes: number): Promise<{ provider: HocuspocusProvider; keys: string[] }> {
   const ydoc = new Y.Doc();
-  // URL 形态照抄 test-utils/dual-client-server.ts:66（仓内实证——token query+name 分离传参）
-  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?token=${DRILL_TOKEN}`, name: `project:${projectId}`, document: ydoc });
+  // Y0b-3 T2：URL 无 query token（cookie-only）——凭据经 DrillHeaderWs 的 Origin+Cookie header
+  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
   await new Promise<void>((r, rej) => {
     provider.on('synced', () => r());
     // reject 前先 destroy：sync 超时是可抛路径——provider WS 不关会挂住事件循环，exitCode=1 收不了口

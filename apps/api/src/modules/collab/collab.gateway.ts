@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseSessionToken } from '../../common/utils/parse-session-token';
@@ -9,7 +9,8 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, registerPendingCollector, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
@@ -88,6 +89,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly flushScheduled = new Set<string>();
   /** 批3-3：session 查询/滑动续期统一入口（手写 findUnique 收口；直构测试不传时以注入的 prisma 兜底自建） */
   private readonly sessionSvc: SessionService;
+  /** Y0b-3 T2（P-R）：WS 升级限流桶（per-IP——DoS 兜底非配额；60/min 补充+burst 20；重启清零） */
+  private readonly upgradeBucket: TokenBucket;
   /** 批3-4：compact 时间门限基线（projectId → 上次 compact 时点；loadDocument 播种） */
   private readonly lastCompactAt = new Map<string, number>();
   /** 批3-4 doc epoch（R1c 前置物）：doc 实例代际——服务端 WeakMap 而非写 ydoc meta（meta 内容
@@ -177,6 +180,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     afterStoreDocument: (p: afterStoreDocumentPayload) => Promise<void>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
     beforeUnloadDocument: (p: beforeUnloadDocumentPayload) => Promise<void>;
+    onUpgrade: (p: onUpgradePayload) => Promise<void>;
   };
 
   constructor(
@@ -195,6 +199,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly spool: CollabSpoolService,
   ) {
     this.sessionSvc = sessions ?? new SessionService(prisma);
+    // Y0b-3 T2：升级限流——COLLAB_UPGRADE_RATE_PER_MIN 默认 60/min；burst=20 常量（多标签友好——
+    // 单用户多标签页各持一条 WS 连接，burst 抬高集中握手容忍度；DoS 兜底非配额）。
+    this.upgradeBucket = new TokenBucket({
+      capacity: 20,
+      refillPerMin: Number(process.env.COLLAB_UPGRADE_RATE_PER_MIN) || 60,
+    });
     this.hooks = {
       onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
@@ -202,6 +212,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       afterStoreDocument: (p) => this.afterStoreDocument(p),
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
+      onUpgrade: async (p) => this.handleUpgrade(p),   // Y0b-3 T2：Origin 403+升级限流（§3.1ter——socket 直写形态；async 仅为满足库 hook 签名，同步体全吞不 reject）
     };
     const debounceMs = resolveCollabDebounce(debounce);
     this.server = new Server({
@@ -214,9 +225,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 批3-2：库默认 stopOnSignals:true 在 listen() 注册信号 handler → destroy 后 process.exit(0)
       // 抢跑 Nest drain 链（hocuspocus-server.esm.js:1684-1690）——信号统一交 app.enableShutdownHooks()
       stopOnSignals: false,
-      // Y0a-4/P25：绑定面收窄支持——默认不变 0.0.0.0；ecosystem 注入 127.0.0.1（nginx 同机唯一合法路径）。
+      // Y0a-4/P25 + Y0b-3 T2：绑定面默认收口 127.0.0.1（对外暴露必须显式 COLLAB_BIND_ADDR——
+      // ecosystem:27 已注入同值，翻转对部署零差异；本地 dev 直连 localhost 不受影响）。
       // 键随读者：COLLAB_BIND_ADDR 同批进 config/env.ts（T1 结构锚方向二防死键）。
-      address: process.env.COLLAB_BIND_ADDR ?? '0.0.0.0',
+      address: process.env.COLLAB_BIND_ADDR ?? '127.0.0.1',
       // Y0a-4/P24 显式 pin 双旋钮 Server 级（B20/B26：库 defaultConfiguration 即 true/false——
       // 文档锚防升级翻转，非行为修复）
       unloadImmediately: true,
@@ -227,6 +239,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
       onDisconnect: this.hooks.onDisconnect,
       beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
+      onUpgrade: this.hooks.onUpgrade,   // Y0b-3 T2：Origin 403+升级限流钩子接线（hook resolve 后库才 crossws.handleUpgrade）
       // Y0a-3 T5/T6：跨实例扩展挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
       // 消息同步退役；其固定断开延迟借道语义随之消失，service 本体已删）。
       // Y0b-3 T1：库选项四 pin——文档锚防升级回落（断言在 collab-gateway.options.spec）。
@@ -240,19 +253,85 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     registerPendingCollector(() => this.computePending());
   }
 
+  /** ===== Y0b-3 T2：upgrade 面（§3.1ter）=====
+   *  Origin 白名单+升级限流，拒绝形态=socket 直写 403/429+end（hook throw=库 async 监听器内
+   *  unhandled rejection 形同虚设〔hocuspocus esm:1623-1636 实证〕——必须 socket 直写让客户端
+   *  收到真实 HTTP 响应；hook 自身全函数 try/catch fail-open：校验面炸不阻断升级，鉴权仍由
+   *  onAuthenticate 兜底）。hook 正常 resolve 后库仍调 crossws.handleUpgrade——对已 end socket
+   *  的后续握手写由 ws 的 socketOnError 吞（handleUpgrade 首行注册 error 监听，无进程崩溃）。
+   *  end 替代 destroy（P-R：write 后立即 destroy 丢弃未发送字节=客户端收 RST 非 403）。 */
+  private handleUpgrade({ request, socket }: onUpgradePayload): void {
+    try {
+      const origin = request.headers.origin;
+      if (typeof origin !== 'string' || !this.allowedOrigins().includes(origin)) {
+        collabUpgradeRejectedTotal.inc({ reason: 'origin' });
+        this.rejectUpgrade(socket, 'HTTP/1.1 403 Forbidden');
+        return;
+      }
+      const ip = this.clientIpOf(request, socket);
+      if (!this.upgradeBucket.consume(ip)) {
+        collabUpgradeRejectedTotal.inc({ reason: 'rate-limited' });
+        this.rejectUpgrade(socket, 'HTTP/1.1 429 Too Many Requests');
+      }
+    } catch { /* fail-open：升级面校验炸=放行（onAuthenticate 兜底鉴权） */ }
+  }
+
+  /** 拒绝响应直写（403/429 同族——P-G/P-R 形态单点） */
+  private rejectUpgrade(socket: { write?: (s: string) => void; end?: () => void }, statusLine: string): void {
+    try {
+      socket?.write?.(`${statusLine}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+      socket?.end?.();
+    } catch { /* 已断 */ }
+  }
+
+  /** Origin 白名单：显式 COLLAB_ALLOWED_ORIGINS（逗号分隔）> BETTER_AUTH_URL origin 推导
+   *  （缺省 dev http://localhost:5173）。P-R：生产不注入 localhost（非浏览器工具可注入任意
+   *  Origin——localhost 在表=多余绕过面）；dev 推导表补 127.0.0.1:5173（vite host:0.0.0.0 下
+   *  用 127.0.0.1 打开时 origin 不含 localhost——403 全灭）；LAN IP 场景显式 COLLAB_ALLOWED_ORIGINS。 */
+  private allowedOrigins(): string[] {
+    const raw = process.env.COLLAB_ALLOWED_ORIGINS;
+    if (raw) return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    const base = process.env.BETTER_AUTH_URL ?? 'http://localhost:5173';
+    const origins = [new URL(base).origin];
+    if (process.env.NODE_ENV !== 'production') {
+      for (const dev of ['http://localhost:5173', 'http://127.0.0.1:5173']) {
+        if (!origins.includes(dev)) origins.push(dev);
+      }
+    }
+    return origins;
+  }
+
+  private trustedProxyEnabled(): boolean {
+    return process.env.COLLAB_TRUSTED_PROXY === '1';
+  }
+
+  /** 升级面客户端 IP（限流键）。X-Real-IP 仅 socket peer 为 loopback 时信任（绑定 127.0.0.1+
+   *  nginx 同机使前提成立；nginx conf 已设 X-Real-IP）+COLLAB_TRUSTED_PROXY='1' 门控（P-I 双门——
+   *  未设 env=peer 恒用，全站单桶=生产必须设 env，部署告知项）。 */
+  clientIpOf(request: { headers: Record<string, unknown> }, socket: { remoteAddress?: string }): string {
+    const peer = socket?.remoteAddress ?? '';
+    const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+    if (loopback && this.trustedProxyEnabled()) {
+      const xri = request.headers['x-real-ip'];
+      if (typeof xri === 'string' && xri) return xri;
+    }
+    return peer || 'unknown';
+  }
+
   /** 鉴权：session 直查 DB（BetterAuth getSession 在 NestJS 上下文失效——auth.service 同结论）；
-   *  token 来自 WS 握手 query（测试/工具）或 httpOnly cookie（浏览器自动携带）；
+   *  token 只来自 httpOnly cookie（Y0b-3 T2 cookie-only——query token 通道删除，§1.3 对象 4；
+   *  access_log off 止血转纵深：token 不再可能进 nginx access log/URL 引用）。浏览器自动携带；
+   *  测试/运维工具经 ws 自定义 header 注入 Cookie（T1.5 makeHeaderWs 先例）。
    *  spec 1.2：VIEWER 连接置 readOnly，Hocuspocus 拒绝其写更新。
    *  批3-1：拒绝一律带 reason（Object.assign 附着——Hocuspocus catch 直读 error.reason 写入
    *  permission-denied 消息，客户端 authenticationFailed 原样收到）；已分型异常原样 rethrow，
    *  其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙）。
    *  批3-3：session 查询统一走 SessionService.touchWithReason——age>updateAge(1d) 的活跃连接
    *  顺带续期 7d（WS 路径只能 touch DB）；context 携带 token/sessionExpiresAt 供批3-4 sweep 复验。 */
-  private async authenticate({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
+  private async authenticate({ requestHeaders, documentName, connectionConfig }: onAuthenticatePayload) {
     const deny = (reason: CollabAuthReasonCode, message: string) => Object.assign(new Error(message), { reason });
     try {
-      const token = requestParameters?.get('token')
-        ?? parseSessionToken(requestHeaders?.get('cookie'));
+      const token = parseSessionToken(requestHeaders?.get('cookie'));   // T2 cookie-only——query token 通道删除
       if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
       // Y0a-2（X9）：受理门分层——draining=关停期拒新连接（DRAINING 瞬态档，客户端继续重连）；
       // spool 熔断=只读降级（新连接放行但 readOnly——复用 VIEWER 机制+stateless 通告；存量连接不动）。
@@ -1107,7 +1186,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     {
       const addr = this.server.httpServer?.address();
       const bind = typeof addr === 'object' && addr ? `${addr.address}:${addr.port}` : String(addr);
-      this.logger.log(`collab listen ${bind}（COLLAB_BIND_ADDR=${process.env.COLLAB_BIND_ADDR ?? 'unset→0.0.0.0'}）`);
+      this.logger.log(`collab listen ${bind}（COLLAB_BIND_ADDR=${process.env.COLLAB_BIND_ADDR ?? 'unset→127.0.0.1'}）`);
     }
     // V11 收口（终审 Important）：SIGTERM 落在 starting 态 listen 窗时此处才 resolve——不复检即
     // transition('serving') 会翻转关停已置的 draining（ready 翻 200+authenticate 放行新 WS=

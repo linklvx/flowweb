@@ -201,7 +201,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     (doc.connections as Map<any, any>).set(conn, { clients: new Set() });
     await gateway.hooks.onAuthenticate({
       requestParameters: new URLSearchParams('token=tok'),
-      requestHeaders: new Headers(),
+      requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
       documentName: 'project:p1',
       connectionConfig: { readOnly: false, isAuthenticated: false },
     } as any);
