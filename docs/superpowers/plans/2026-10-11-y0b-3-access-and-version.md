@@ -1,9 +1,9 @@
-<!-- doc-status: draft-v2 | created_at: 2026-10-11 | note: v2=两轮外审收敛（第一轮三报告+第二轮三报告含对抗式，全部 P0/F 级论断一手核验）。**重磅新事实**：①sweep 判据门 gateway:1144（快照未过期 continue）使"recheckConnection 内加 perm 复验"=死代码+单测假绿 ⇒ F-3 并批 T3 扩为全量（authenticate+recheckConnection+sweepSessions 判据门两分支一次切换——每函数恰一次）；②provider.disconnect() 真转发实证（esm:843-849 manageSocket 分支）——F-1 no-op 论驳回，但输出级验收锚采纳；③color 同源算法迁移=等价性保证（旧 bundle 自算 userColor(id) 与新服务端注入必然同值）⇒fallback 驳回+消费面五件套同 commit 收口。采纳：F-2 重连所有权单一化（connectionMachine 既有表）/H-1 socketId 键控/H-2 payload.states scratch 载荷/H-4 删 withDoc 平行判据/H-5 frozen Map 还原/M-1 T1.5 夹具基座硬前置/M-4 server-outdated 档/M-5 真实凭据指纹/INFLIGHT=4+deadline 常量/生产 Origin fail-fast/socket.end/指标 source 标签+yjs_pending_bytes 等。驳回：P-K 删 refusalCache（spec 四层防线终裁）/P-M RSS 单量纲（双量纲各管池内池外——pendingQueues 在 external 不进 heapUsed 实证）/P-R 探测前移/fallback role 不注入/maxPendingDocuments 500/同源 Origin 判据（$host 客户端可控绕过）/kill switch（§4.2 revert 制）。v1 基线勘察 2026-10-11 HEAD=2eb7e74b（Explore agent 全量重验+库 d.ts/esm 抽验；spec=2026-10-08-y0b-funds-and-access-design.md v2.6 §3 全节+§5.1/5.2/5.3 锁定项） -->
-# Y0b-3 准入与版本 Implementation Plan（v2）
+<!-- doc-status: draft-v3.1 | created_at: 2026-10-11 | note: v3=第三轮外审收敛（三报告逐项一手核验）。**T10 保活前提证伪〔本轮最重要〕**：y-protocols awareness.cjs:85-89 本地自续期（每 15s setLocalState 重发+构造即 setLocalState({}）使前提恒立）+provider esm:776-780 origin='local'≠实例⇒发送+server esm:671-673 broadcast 无 origin 过滤⇒回显发送者——三环全实证⇒空闲连接每 15s 双向帧、两侧计时器恒刷新、spec §5.2"空闲零消息⇒30-60s 判死四害"前提在本仓不成立⇒**T10 整删改证伪性只读锚**（今日即绿——用证据钉死不需要保活；后台标签节流下 ping 同被节流=前后台都无价值；P14 向量随钩子不注册而归零——库默认 onStateless=Promise.resolve(null) 不抛；T1 兜底保留独立成立）。**夹具缺口 S-1**：dual-client-server.ts:47 permSvc 无 resolveWithTeam mock——T3 落地全部真连红且伪装成 DB_UNAVAILABLE⇒并入 T1.5。**T8 clock**：applyAwarenessUpdate 按 currClock<clock 丢弃同钟更新——服务端改写必须先递增 meta.clock+对端可见锚。**权限语义 A**：removeMember 不触碰 ProjectMember 表⇒统一链后"移出团队但有显式授权=保留画布访问"（REST 既有语义的 WS 一致化）——§0.4 登记+int 两例+cause 分型。**reaper 卸载动作删**：自队列谓词与库守卫可达状态同真+库 store 后必排 setTimeout unload 自愈+保内存分支本仓不可达⇒reaper 唯一对象不存在——留卡住观测。heap 布尔结构改两量纲各自 trip/release（RELEASE_BYTES 真正生效）。S-2 跨包 import/PROTOCOL_COMPAT 删（"tsc 强制 bump"论证证伪）；S-5 提取式钉死 [\d_]+（下划线截断=静默错绿）；'0' 三处矛盾统一 invalid；S-4/S-3/P1 三项/sweep 逃生阀拆 timer/必修 2-3 全采纳。驳回：csv>current 放行改判（单仓同批部署下两事故场景不成立+fail-closed 助发现错配）；S-6 删 throw 指标（该 catch 实证存在）；P0-V2 编译红论（误读——原文即判定处翻转）。**v3.1=第四轮三报告收敛（文档级修订零代码，不出 v4 直接进 T0）**：必修五项——①T3 cacheKey/cached 重复声明（TS2451）删+无 cookie 不落缓存红测补②onDrainReleased 陈旧测试改打 onServingTransition 单点表驱动③observeIdleDocs pendingQueues 键=裸 projectId（gateway:321 播种/:151/:826 取用实证——get(doc.name) 恒 undefined=观测静默失效）④事件即时性恢复 scheduleImmediateSweep（v3 采纳 P1-2 过度=撤权退化 ≤6min 且 T8 自身红测 1.1s 断言不可达——setImmediate 请求一次 tick，仍单一执行路径）⑤pool_timeout 单位=秒改 5（原 5000≈83min=P2024 兜底近失效）。清扫——§0.1 四行 supersede（P-E/P-G/P-J/P-O）+六处陈旧引用（TDD 块 reaper 兜底/T4 标题+Files 薄 reaper/T1 Step 3 钩子化在 T10/锚点表 onStateless 四钩子与 +ping 两处——后两处为本轮自查新发现）。加固——T7 双索引（ownedClientIds Set 计数=.size 消 NaN+剪枝 O(自己)+ownedClientIdsOf/socketIdOf 落定义——T8 原引用未定义）；Map 老化拆独立 timer（SWEEP_ENABLED=false 禁关老化）；SUE 对象形态 {code:'COLLAB_NOT_SERVING'} 命中 filter（filter:17-22 只认 body.code 实证——字符串形态落 fallback=无 Retry-After）；T10 锚显式 timeout+90s 保留（45s 压缩驳回：只覆盖 30s 子档）；deadline≠DB 并发边界注释；message-too-big 第六终态档显式；T11 客户端 close code 断言+巡检小表。驳回——**pageHide no-op/幽灵用户 30s 论**（awareness.cjs:75 `this.clientID = doc.clientID` 直接证伪——pageHide 的 removeAwarenessStates([document.clientID]) 精确命中=正常广播下线帧；四轮评审第 4 处错误论断，模式=未读构造器 clientID 赋值行；其后台标签断连正常结论仍采纳）。P-T 补第四环（provider esm:305-307 onMessage 刷新客户端计时器）+第五环（esm:905 off('update') 注册面——handler 挂 update 非 change，续期帧必发非可能发）+机制精化（3s tick/15s 门限/clock 无条件+1 且 update 无条件 emit）+前提禁令（禁 setLocalState(null)——静默废保活）。v2 记录：两轮外审收敛（F-1 撤回确认/F-3 并批 T3 全量+判据门/color 五件套/重连所有权单一化/states 载体/socketId 键控/T1.5 夹具基座/INFLIGHT=4/双量纲维持+七项 spec 推翻案驳回）。v1 基线勘察 2026-10-11 HEAD=2eb7e74b；spec=2026-10-08-y0b-funds-and-access-design.md v2.6 §3 全节+§5.1/5.2/5.3 锁定项 -->
+# Y0b-3 准入与版本 Implementation Plan（v3）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 落地 Y0b 准入与版本批（spec v2.6 §3 全节+§5.1/5.2/5.3 锁定项）——**E13 准入收口**（sweep 默认开+事件驱动权限复验+Origin 403+cookie-only+升级限流）+**拒绝路径防放大四层防线**（refusalCache→信号量→per-socket 桶→heap 闸，执行序钉死）+**heap 压力自保闸**（双量纲谓词+仅拒新物化+5min reaper 释放路径）+**E73 awareness 覆写与归属**+**E60 版本门**（csv/cb query 通道+三档拒+loop 保护自愈）+**E56 修订**（SCHEMA_OUTDATED reason 断链修复+连接寿命 4402+close code 分配表）+**客户端锁定项**（authenticationFailed→wsAuthNotice 写点+四/五档终态 UX+(code,reason) 双键映射表+退避与重连所有权+write-frozen 消费+503 retryAfter）+**stateless ping 保活**（15s 双向+onStateless 全函数化+unhandledRejection 兜底——P14 崩溃向量根修）。
+**Goal:** 落地 Y0b 准入与版本批（spec v2.6 §3 全节+§5.1/5.2/5.3 锁定项）——**E13 准入收口**（sweep 默认开+事件驱动权限复验+Origin 403+cookie-only+升级限流）+**拒绝路径防放大四层防线**（refusalCache→信号量→per-socket 桶→heap 闸，执行序钉死）+**heap 压力自保闸**（双量纲谓词各自 trip/release+仅拒新物化+卡住观测〔v3：卸载动作删——库自愈排程〕）+**E73 awareness 覆写与归属**（payload.states 载体+三分支+clock 递增改写）+**E60 版本门**（csv/cb query 通道+四档拒+loop 保护自愈）+**E56 修订**（SCHEMA_OUTDATED reason 断链修复+连接寿命 4402+close code 分配表）+**客户端锁定项**（authenticationFailed→wsAuthNotice 写点+终态 UX+(code,reason) 双键映射表+重连所有权单一化+write-frozen 消费+503 retryAfter）+**空闲保活证伪性锚**（v3：awareness 15s 自续期实证=不需要 ping——证据替代机制，spec §5.2 勘误登记）。
 
 **Architecture:** 防线按「零 DB/零分配优先」分层插入 onAuthenticate（spec §3.1bis 钉死执行序：`refusalCache → 并发信号量 → per-socket 桶 → heap 闸 → 版本门 → 四次 DB 查询`），跨 T3/T4/T5 三批插入、每批红测断言相对序；不变量交给结构——拒绝理由一律经 `Object.assign(new Error, {reason})` deny 工厂单点埋计数，词表 append-only（shared 单源），close code 全集进 `shared/constants/collab-close-code.ts`（(code,reason) 双键分型——4401 双 reason 族只判 code 会把库 Unauthorized 当会话过期无限续期）；awareness 身份权=服务端覆写注入+clientId 归属表（伪造帧丢弃非改写）；heap 闸仅拒新物化永不驱逐存量（`!documents.has(documentName)` 防自伤）+迟滞双阈值+fail-open。
 
@@ -27,10 +27,9 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
         +authenticate 改 resolveWithTeam 单源+**sweepSessions 判据门两分支
         （expired ∨ dueForPerm）**+recheckConnection 判据单源〔每函数恰一次切换〕
         +3×3 矩阵测试+AUTH deadline 常量+三 Map 老化）
-  → T4（heap 闸——谓词单源 util 双量纲+onLoadDocument 单点落点〔**删 withDoc 平行判据**〕
-        +已加载豁免+**薄 reaper**〔自队列谓词+库 unloadDocument 自守卫+先判
-        shouldUnloadDocument 再计 reaped〕+check-ecosystem HEAP_DEFAULTS 单源+四红用例
-        〔④改形态〕）
+  → T4（heap 闸——谓词单源 util **两量纲各自 trip/release**+onLoadDocument 单点落点〔删 withDoc
+        平行判据+SUE 形态〕+已加载豁免+**卡住观测器**〔v3：卸载动作删——库自愈排程+守卫拒绝
+        连续计数〕+check-ecosystem 提取式 fail-closed+四红用例〔④卡住观测形态〕）
   → T5（版本门服务端——csv/cb query+四档拒〔+server-outdated〕+__CLIENT_BUILD__ 用
         GIT_COMMIT_HASH+collabUrl 单次+ready 双分支下发+index.html no-store+access_log
         断言服务器侧）
@@ -45,13 +44,15 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
         connectionMachine+唯一执行器 recovery〕+真停连开关 websocketProvider.disconnect
         +输出级验收锚+1012 收编+write-frozen 最小形态〔事件+Map 还原〕+版本 reload
         〔loop 键=ready 探测〕+503 retryAfter+四/五档终态 UX）
-  → T10（stateless ping 保活——15s 双向+onStateless 全函数化〔P14〕+messageReconnectTimeout
-         45s pin+4408 'forced' 分型+forceSyncInterval 60s 补传化）
-  → T11（出口汇聚——verify 三连+census 五组+int 覆盖回填+spec §0.4 偏离登记+v8 目录回填
-         +重连演练〔N=50〕+部署清单〔+.env connection_limit〕；【用户确认点】）
+  → T10【v3 改写】空闲保活**证伪性验证锚**——ping/pong 与 onStateless 钩子整删（三环实证：
+         awareness 15s 自续期+origin='local' 发送+服务端无过滤回显⇒空闲恒有双向帧——spec §5.2
+         前提在本仓不成立）；只读锚=真连空闲 90s 断言无 4408/无重连/documents 常驻+服务端
+         lastMessageReceivedAt 15s 尺度刷新（今日即绿——用证据钉死不需要保活）；spec 勘误登记
+  → T11（出口汇聚——verify 三连+census 五组+int 覆盖回填+spec §0.4 偏离登记〔14 条〕+v8 目录回填
+         +重连演练〔N=50+pendingDocumentCount 峰值<50〕+部署清单〔+.env connection_limit〕；【用户确认点】）
 ```
 
-**TDD 纪律：** 红→绿→commit，红相留档（commit message 粘红/绿两态）。**判据同批规则（v2 新增）**：判据类改动一律与其全部消费点同批切换（authenticate+recheckConnection+sweepSessions 判据门=T3 一次）——禁同批内分 Task 切同一判据（中间态=双权威）。**真红门**（改前必红）：Origin 拒=真连+伪造 Origin→握手失败+计数（现状无 onUpgrade 钩子=零计数）；cookie-only 伪造 query token 拒绝（现状 query 优先=放行红）；**权限三形态**（仅 ProjectMember 不在团队/仅创建者不在团队——现状 teamMember 硬门必 403 红；无任何角色=FORBIDDEN；项目不存在=NOT_FOUND 分型不退化）；**sweep 判据门**（权限降级场景现状 :1144 快照未过期 continue=复验零调用红——**测试必须走 sweepSessions 全路径，禁只测 recheckConnection**=假绿）；防放大三锚（①N 次被拒 Auth→prisma 计数不随 N 增长〔db-unavailable 场景〕②并发 M socket→在飞峰值≤INFLIGHT_MAX ③桶满后续 Auth 全拒零 DB）；heap 闸四红（stub 0.9 拒新 doc/已加载豁免/谓词抛错放行/释放路径〔**改形态：stub 库守卫不满足→reaper 兜底**——gateway 契约 3 不 throw 使库"保内存"分支本仓不可达〕）；版本门四档+计数（现状零校验）；schema-outdated 拒载 throw 附 reason（现状仅 schemaRefusal 标记=客户端收字面量 permission-denied 红）；awareness 伪造锚（现状客户端自写 user 直进 states 红）+归属锚（伪造他人 clientId 覆盖对端 state 红）+双标签断连不冻结+**首帧可见性锚**（新连接首个 awareness 帧即含 user→对端最终可见——丢弃与登记同一趟完成）；sweep 降级（T3 判据门后可红）+事件即时踢权；连接寿命 fake timers+4402；**P14 红锚**（真连发 sendStateless('not-json')→改前 unhandledRejection 兜底计数+1 且 bad_payload 零〔无钩子〕；改后 bad_payload+1 且 unhandledRejection 零）；**退避输出级锚**（退避窗口内 websocketProvider.connect 调用数==0+WebSocketPolyfill 构造计数==1〔单飞〕——禁 spy p.disconnect〔provider.disconnect 真转发但输出级锚更强〕）；4401 双 reason 分型（只判 code 会静默续期库 Unauthorized=红）。**census 验收 grep**（统一 `\|` 转义，五组）：`requestParameters?.get\('token'\)`（T2 后 gateway 清零）+`close\(1012\|close\(4401\|close\(1000`（T6 后 gateway+runtime 裸字面量清零——shared 常量/库导入单源）+`'0\.0\.0\.0'`（T2 后 gateway 默认值清零）+`setAwarenessField\('user'\|setLocalUser`（T7 后清零——user 写入退位；**replayLocalUser 保留**〔改形重放非 user 字段〕不入 census）+`userColor\(`（T7 后 apps/web 清零——shared 单源 userColorOfUserId 除外）。**int 纪律**：新增 int/真连用例优先并入现有 `*.spec.ts`（collab-core 装置族）；确需新文件先 `git add`+T11 回填 check-int-coverage 下限。**spec 同步**：各 Task 新增 env 键/指标名/close code/词表值与 spec §7.1 fenced 块同 commit 对齐（check-spec-consistency.mjs 已进 verify——滞后=verify 红）；env.ts 新键**恰好两空格缩进**+指标名**小写**（extractMetricNames/extractEnvKeys 正则约束，否则门禁提取不到=verify 红）。
+**TDD 纪律：** 红→绿→commit，红相留档（commit message 粘红/绿两态）。**判据同批规则（v2 新增）**：判据类改动一律与其全部消费点同批切换（authenticate+recheckConnection+sweepSessions 判据门=T3 一次）——禁同批内分 Task 切同一判据（中间态=双权威）。**真红门**（改前必红）：Origin 拒=真连+伪造 Origin→握手失败+计数（现状无 onUpgrade 钩子=零计数）；cookie-only 伪造 query token 拒绝（现状 query 优先=放行红）；**权限三形态**（仅 ProjectMember 不在团队/仅创建者不在团队——现状 teamMember 硬门必 403 红；无任何角色=FORBIDDEN；项目不存在=NOT_FOUND 分型不退化）；**sweep 判据门**（权限降级场景现状 :1144 快照未过期 continue=复验零调用红——**测试必须走 sweepSessions 全路径，禁只测 recheckConnection**=假绿）；防放大三锚（①N 次被拒 Auth→prisma 计数不随 N 增长〔db-unavailable 场景〕②并发 M socket→在飞峰值≤INFLIGHT_MAX ③桶满后续 Auth 全拒零 DB）；heap 闸四红（stub 0.9 拒新 doc/已加载豁免/谓词抛错放行/卡住观测〔v3 终形：stub 库守卫不满足→连续轮次计数 yjs_doc_stuck_total——**卸载动作删**（P-V①）；gateway 契约 3 不 throw 使库"保内存"分支本仓不可达〕）；版本门四档+计数（现状零校验）；schema-outdated 拒载 throw 附 reason（现状仅 schemaRefusal 标记=客户端收字面量 permission-denied 红）；awareness 伪造锚（现状客户端自写 user 直进 states 红）+归属锚（伪造他人 clientId 覆盖对端 state 红）+双标签断连不冻结+**首帧可见性锚**（新连接首个 awareness 帧即含 user→对端最终可见——丢弃与登记同一趟完成）；sweep 降级（T3 判据门后可红）+事件即时踢权；连接寿命 fake timers+4402；~~P14 红锚~~ **v3 作废**（库默认 `onStateless: () => Promise.resolve(null)` 不抛——不注册钩子=P14 向量归零；T10 整删后该锚无对象；T1 unhandledRejection 兜底独立保留〔真正买单者=T2 onUpgrade 的 catch→throw esm:1633-1634〕）；**T8 clock 锚**（role 改写后**对端可见值**变化——禁只断言服务端 awareness.states〔meta.clock 未递增时对端全丢弃而服务端自以为成功=假绿〕）；**权限语义 int 两例**（移出团队但有显式 ProjectMember 行→WS 仍可连〔预期行为 A〕；无显式行普通成员→≤1s 被踢）；**退避输出级锚**（退避窗口内 websocketProvider.connect 调用数==0+WebSocketPolyfill 构造计数==1〔单飞〕——禁 spy p.disconnect〔provider.disconnect 真转发但输出级锚更强〕）；4401 双 reason 分型（只判 code 会静默续期库 Unauthorized=红）。**census 验收 grep**（统一 `\|` 转义，五组）：`requestParameters?.get\('token'\)`（T2 后 gateway 清零）+`close\(1012\|close\(4401\|close\(1000`（T6 后 gateway+runtime 裸字面量清零——shared 常量/库导入单源）+`'0\.0\.0\.0'`（T2 后 gateway 默认值清零）+`setAwarenessField\('user'\|setLocalUser`（T7 后清零——user 写入退位；**replayLocalUser 保留**〔改形重放非 user 字段〕不入 census）+`userColor\(`（T7 后 apps/web 清零——shared 单源 userColorOfUserId 除外）。**int 纪律**：新增 int/真连用例优先并入现有 `*.spec.ts`（collab-core 装置族）；确需新文件先 `git add`+T11 回填 check-int-coverage 下限。**spec 同步**：各 Task 新增 env 键/指标名/close code/词表值与 spec §7.1 fenced 块同 commit 对齐（check-spec-consistency.mjs 已进 verify——滞后=verify 红）；env.ts 新键**恰好两空格缩进**+指标名**小写**（extractMetricNames/extractEnvKeys 正则约束，否则门禁提取不到=verify 红）。
 
 ---
 
@@ -61,7 +62,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 
 | 锚点 | 现状 | 本批动作 |
 |---|---|---|
-| `modules/collab/collab.gateway.ts:207-232` | Server 构造：`address ?? '0.0.0.0'`（:219）；hooks 现挂 onAuthenticate/onLoadDocument/onStoreDocument/afterStoreDocument/onDisconnect/beforeUnloadDocument 六项（:224-229）；**无 websocketOptions**（ws 默认 maxPayload=100MiB 生效） | address 默认翻 127.0.0.1（T2）；websocketOptions+pre-auth 三 pin（T1）；新增 onUpgrade（T2）/onStateless（T10）/beforeHandleAwareness（T7）/connected（T6）四钩子 |
+| `modules/collab/collab.gateway.ts:207-232` | Server 构造：`address ?? '0.0.0.0'`（:219）；hooks 现挂 onAuthenticate/onLoadDocument/onStoreDocument/afterStoreDocument/onDisconnect/beforeUnloadDocument 六项（:224-229）；**无 websocketOptions**（ws 默认 maxPayload=100MiB 生效） | address 默认翻 127.0.0.1（T2）；websocketOptions+pre-auth 三 pin（T1）；新增 onUpgrade（T2）/beforeHandleAwareness（T7）/connected（T6）三钩子（~~onStateless~~ 随 T10 证伪整删——P-T） |
 | `gateway:246-295` | `authenticate`：`:249-250 token = requestParameters?.get('token') ?? parseSessionToken(cookie)`（query 优先）；:255 draining deny/:256 lease deny/:259 spool 降级 readOnly/:262 touchWithReason/:274 perm.resolve/:278 VIEWER readOnly；catch :292-293 分型透传+DB_UNAVAILABLE 折叠 | cookie-only（T2）；顶部插防线（T3-T5 按 §3.1bis 序）；deny 工厂 :247 单点埋 auth_reject 计数（T3） |
 | `gateway:311-370` | onLoadDocument：:312-313 lease 门（三入口汇聚点先例）；:354-360 ensureSchemaVersion catch→`Object.assign(e, { schemaRefusal: true })` **无 reason**；:361-362 stamp 自愈 | :359 追加 `reason: SCHEMA_OUTDATED`（T6）；:312 前插 heap 闸第二落点（T4） |
 | `gateway:44-45` | `SESSION_SWEEP_INTERVAL_MS=60_000`/`GRACE=5_000` | 间隔 5min+jitter±20%（T8） |
@@ -70,7 +71,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | close code 字面量 | gateway 四处：:672/:1206 1012、:1191 4401、:1368 1000；runtime :850 1012 | 全部迁移 shared 常量（T6） |
 | `packages/shared/src/constants/collab-auth-reason.ts`（37 行） | 七值词表+TERMINAL_AUTH_REASONS 四档 Set（:27-32）+isTerminalReason | 追加 6 值〔v2 含 SERVER_OUTDATED〕+终态表加版本族三档（T0） |
 | `shared/constants/collab-close-code.ts` | **不存在**（全 grep 零命中） | 新建（T0，exemptions.json 已登记前向引用豁免 expires 2027-01-06——落地后自然空转） |
-| `apps/web/src/stores/canvasCollabRuntime.ts`（1112 行） | createProvider :867-884：`collabUrl()` **两处调用**（:868 transport/:871 provider）+`token:'cookie-auth'` 占位+无版本参数；1012 消费 :846-857（plannedRestartUntil :108/:164）；collabReadOnly 授权写点 :841（authenticated）；**wsAuthNotice 零生产写点**（声明 canvasStore.ts:171/消费 syncStatus.ts:9+runtime:960）；sessionEpoch :84/:910/:1000 | collabUrl 单次+版本参数（T5）；authenticationFailed 写点+close 映射+onStateless write-frozen+ping（T9/T10） |
+| `apps/web/src/stores/canvasCollabRuntime.ts`（1112 行） | createProvider :867-884：`collabUrl()` **两处调用**（:868 transport/:871 provider）+`token:'cookie-auth'` 占位+无版本参数；1012 消费 :846-857（plannedRestartUntil :108/:164）；collabReadOnly 授权写点 :841（authenticated）；**wsAuthNotice 零生产写点**（声明 canvasStore.ts:171/消费 syncStatus.ts:9+runtime:960）；sessionEpoch :84/:910/:1000 | collabUrl 单次+版本参数（T5）；authenticationFailed 写点+close 映射+stateless 事件 write-frozen 监听（T9） |
 | `apps/web/src/collab/awareness.ts`（94 行） | setLocalUser :54-56 客户端自写 user（生产调用方 CanvasView.tsx:113）；replayLocalUser :60-62；setSelection :70-72 死代码（:68 注释钉死勿接） | user 写入全链退位（T7）——setLocalUser/replayLocalUser 删除+CanvasView 调用点删 |
 | `apps/api/src/config/env.ts`（111 行） | COLLAB_* 族 :65-81（blankToUnset+zod optional 不写 default——默认值落使用点）；COLLAB_SWEEP_ENABLED :72 enum；COLLAB_MAX_LOADED_DOCS :78 预留零消费；**COLLAB_TRUSTED_PROXY 不存在** | 新增九键（T1） |
 | `ecosystem.config.cjs` | max_memory_restart '1G'（:15）/old-space 512（:16）/min_uptime 30s/max_restarts 10；env 白名单仅 SPOOL_DIR+BIND_ADDR（check-ecosystem :63 ENV_ALLOWLIST） | **不动**（heap 闸是运行时自保非进程档位）；断言链新增（T4） |
@@ -89,20 +90,23 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | P-B heap 拒绝双指标口径 | onAuthenticate 落点→`collab_auth_reject_total{reason='server-overloaded'}`+`collab_load_rejected_total{reason='server-overloaded'}` **两者都记**（auth 面计数与物化面计数两个维度）；loadDocument 落点→仅 `collab_load_rejected_total` | §3.2 指标原文泛指"拒新物化"；两维度不重叠 |
 | P-C 版本 loop 键载体 | **/api/ready 响应增 `collabProtocolVersion` 字段**；客户端版本终态时单次探测（节流——非 §5.4 已删的轮询形态，属其"边角单次探测"同族）→loop 键=`collab-version-reloaded:${服务端版本}` 存 sessionStorage——键在=已 reload 过一次还没救=落逃生动作；下次部署服务端版本变=键异=可再自愈一次 | d.ts:127 实证 authenticationFailed payload 仅 {reason}——message/版本经拒绝帧结构性不可达；spec §3.4"loop 保护键=观测到的服务端协议版本"原文语义 |
 | P-D E73 边界 | >8 人剥离 cursor/selection 与服务端单连接短路（connectionsCount≤1 不转发）**归 Y0b-4**（spec §4.4 详情节为准；总表 E73 行括号内容与 §4.4 重复出现——详细节优先） | §3.3/§3.6 出口清单均未含此二项 |
-| P-E refusalCache 清空钩子 | 本批落四钩子：①drain 解除 ②租约 rejoin ③heap 闸释放 ④spool 恢复（isWritableOrDegraded 状态翻转点）；**PG 熔断半开成功=同 ④ 钩子位，Y0b-5 落熔断时接线**（锚用例表驱动按已注册钩子数断言） | §3.1bis 1"spool 恢复与 PG 熔断半开成功——并集"；§5.9 PG 熔断=Y0b-5 域 |
+| P-E refusalCache 清空钩子 | **〔v2 后续 P-Q 取代——清空单点化：不再逐因由枚举四方法名，下表 P-Q 为准〕**本批落四钩子：①drain 解除 ②租约 rejoin ③heap 闸释放 ④spool 恢复（isWritableOrDegraded 状态翻转点）；**PG 熔断半开成功=同 ④ 钩子位，Y0b-5 落熔断时接线**（锚用例表驱动按已注册钩子数断言） | §3.1bis 1"spool 恢复与 PG 熔断半开成功——并集"；§5.9 PG 熔断=Y0b-5 域 |
 | P-F 信号量/桶拒绝不入缓存 | 实现结构=authenticate 拆外层（防线：桶/信号量 throw **不经过**写缓存的 catch）+内层（状态类拒绝 throw 进 catch→reason∈白名单→写缓存）——按 throw 来源区分，非按 reason 值 | §3.1bis 1"信号量溢出与桶超限的拒绝不入缓存"钉死 |
-| P-G 升级限流拒绝形态 | Origin 非法→`HTTP/1.1 403`+destroy；限流超限→`HTTP/1.1 429`+destroy（同为 socket 直写不回握手；spec 只钉 403 形态，429 为同族补全——登记 §0.4 偏离） | §3.1ter 形态（esm:1623-1636 hook throw=未处理 rejection 形同虚设的实证） |
+| P-G 升级限流拒绝形态 | **〔v2 后续 P-R 修订——destroy→socket.end()（write 后立即 destroy 丢弃未发送字节=客户端收 RST 非 403），下表 P-R 为准〕**Origin 非法→`HTTP/1.1 403`+destroy；限流超限→`HTTP/1.1 429`+destroy（同为 socket 直写不回握手；spec 只钉 403 形态，429 为同族补全——登记 §0.4 偏离） | §3.1ter 形态（esm:1623-1636 hook throw=未处理 rejection 形同虚设的实证） |
 | P-H sweep 翻转落点 | gateway:1139 判据 `!== 'true'`→`=== 'false'`（显式 'false' 才关=env 逃生阀维持——§4.2 回滚表"sweep 另有 env 逃生阀"） | spec §4.2 |
 | P-I trusted proxy 收口 | main.ts:87 `'loopback'` 一行统一（REST XFF 与 WS 同信任前提；E58 完整收口仍归 Y0.5）；**生产必须 .env 增 `COLLAB_TRUSTED_PROXY=1`**（不设=不信任 X-Real-IP=限流全站单桶——【告知用户点】） | spec §7.1 v2.2 R12+§3.1 |
-| P-J write-frozen 本批形态 | 服务端：进入冻结广播（:682 既有）+**connected 钩子重放**（幂等快照的 (a) 半——frozen 态连接建立时重发通告防重连丢态）；解除=drain 释放 1012 既有链路（复用零新恢复逻辑）；消息形态 `{type:'write-frozen',reason}`（quotaState 字段 Y0b-4 同通道扩展）；客户端：writeFrozen 写点+横幅「服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）」+authenticated 清零 | §5.3 锁定项+spec 原文"复用 1012 既有链路零新恢复逻辑" |
+| P-J write-frozen 本批形态 | **〔v2 后续 P-S 修订——connected 重放删除（drain 期新连接被 :255 DRAINING 拒⇒重放无对象），下表 P-S 为准；connected 钩子本身保留但仅服务 T6 寿命 Map〕**服务端：进入冻结广播（:682 既有）+**connected 钩子重放**（幂等快照的 (a) 半——frozen 态连接建立时重发通告防重连丢态）；解除=drain 释放 1012 既有链路（复用零新恢复逻辑）；消息形态 `{type:'write-frozen',reason}`（quotaState 字段 Y0b-4 同通道扩展）；客户端：writeFrozen 写点+横幅「服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）」+authenticated 清零 | §5.3 锁定项+spec 原文"复用 1012 既有链路零新恢复逻辑" |
 | **P-K（v2）F-3 并批 T3 全量** | authenticate+recheckConnection+**sweepSessions 判据门两分支（expired ∨ dueForPerm）**一次切换 `perm.resolveWithTeam` 单源（Y0b-1 落地权威链：显式>创建者>团队回退）；删 :265-272 独立 canvasProject/teamMember 查询（resolveWithTeam 已 select teamId——4-5 次冗余往返归 1-3 次）；teamMember 降级展示字段；`user.role` 词表统一 `ProjectRole`（TeamRole 大写 OWNER/MEMBER 与 ProjectRole 三值现混用）；NotFoundException catch 转 `deny(NOT_FOUND)` 保分型；**3×3 矩阵测试**（输入源 sweep-tick/perm-event/cache-hit × 结果 viewer 维持/editor 降级 readOnly 不断连/null 踢线）——测试必须走 sweepSessions 全路径 | 第二轮实证 :1144 判据门（快照未过期 continue——复验改造不并判据门=死代码+单测假绿）；判据单源不变量（分批=authenticate 走新链 sweep 走旧三段=双权威窗口）；信号量限流冗余查询无意义 |
 | **P-L（v2）color 迁移收口五件套（同 commit）** | ①shared 新建 `collab-identity-color.ts` 单源（COLORS+hash\*31 算法从 awareness.ts:26-30 **原样挪**，两端 import 同一函数）；②serverIdentityOf 注入 `{id,name,role,color}`（spec §3.3 原文）；③RemoteCursors/CanvasTopBar 切读 `s.user.color`；④**删** awareness.ts 的 `userColor`+`setLocalUser` 只退位 user 字段写入（**replayLocalUser 保留**——runtime:147 终态重建/:982 pagehide 自愈两处承重，R24 终裁注释）；⑤等价性锚（服务端注入 color==客户端同源算法自算值）+首帧可见性锚（新连接首帧含 user→对端最终可见）。**fallback 驳回**（第三份 `s.user.color ?? userColor(id)` 提案）——同源算法迁移=等价性保证：旧 bundle 自算 userColor(id) 与新服务端注入必然同值（同一纯函数同一输入），部署窗口混合态不存在"同人两色"；fallback=开发期禁兼容层纪律下的第二真源入口。**role 注入维持 spec**（§3.1 v2.1"只治写不治显示"修复=T8 role 改写；消费方=Y0b-4 成员表，铺路登记 §0.4） | spec §3.3+§9.2 终裁；评审"无消费方"实证成立但推论错——证明的是"迁移只做了一半"（消费面需切字段，spec §3.6"预期零改动"措辞更正登记 §0.4） |
 | **P-M（v2）重连所有权单一化** | **唯一退避源**=connectionMachine.RECOVER_BACKOFF_MS（:9 既有 [5s,10s,20s,30s]）+reduce()（recoveryAttempts/cooldownMs 已带）；**唯一执行器**=recovery.recoverConnection()（单飞）；close 事件**只写状态**（resolveCloseAction 分型→wsAuthNotice/plannedRestartUntil/machine 输入），**禁直调 connect()**；1012 分支 :854-855 裸 websocketProvider.connect() 收编（既有 30s 窗+1~3s 短退避行为经 conn.spec:213-264 锚维持）；库 delay/maxDelay/initialDelay 显式 pin 并声明从属（库 retry ladder 与 machine 表的关系注释钉死——禁两套并存不声明）；terminal 停连=`websocketProvider.disconnect()`（真开关 esm:367-376 置 shouldConnect=false——**provider.disconnect() 是真转发**〔manageSocket=true 分支 esm:843-849，F-1 no-op 论驳回〕但显式调 websocketProvider 层消歧）+terminalSuppressed 电平；recoverConnection terminal 判定补语义级（wsAuthNotice.terminal 值源——:960 machine 输入已接线）；**connect() 首行置回 shouldConnect=true（esm:225）⇒ terminal 后任何路径禁再调 connect**（watchdog/recovery 复发防线） | connectionMachine.ts:9/:31+runtime:955/:960 既有实证；四路并发重连风险（库 onClose 1s 定时器+库 retry ladder+watchdog+新建调度器）；输出级验收锚（websocketProvider.connect 调用数==0+WebSocketPolyfill 构造计数） |
 | **P-N（v2）close code 库值单源** | 4205/4401 Unauthorized/4403/4408/1009 从 `@hocuspocus/common` 导入（esm:137 已 export 常量）——禁重写库值字面量；shared 仅定义应用侧自有码（1012/4402+预留 4404/4410 注释）；**(4408,'forced') 客户端合成码**（provider esm:342-357 三击强制）进映射表分型——区别于库 (4408,'Connection Timeout')；1009→terminal 档（内容确定性重连重发=无限循环；用户可达配额终态=Y0b-4 4404） | 与库漂移防线；第二轮 P1-4/P1-5 |
-| **P-O（v2）heap 薄 reaper+观测补强** | reaper=5min 扫零连接 doc：**先 spec §3.1ter 自队列谓词**（pendingQueue 空∧无在飞 store∧spool 无未确认帧——终裁保留，库守卫不覆盖我们的队列）→**调 `server.hocuspocus.unloadDocument(doc)`**（Hocuspocus 实例+Document 参数——非 Server 名参）**先判 `shouldUnloadDocument(doc)`** 才计 reaped（守卫拒绝=跳过，连续 2 轮拒才计 stuck——库三守卫 isDebounced/saveMutex/connectionsCount 不重复实现）；**红锚④改形态**（gateway 契约 3"任何路径不 throw"实证⇒库"保内存"catch 分支〔esm:1541-1547〕本仓不可达——spec §3.2 前提修正登记 §0.4；锚改 stub 守卫不满足→reaper 兜底）；删 v1 的 withDoc 平行判据（onLoadDocument 单点已覆盖三入口+collab-document.service.ts:142"readCanvas/withDoc 本体不 gate"不变式注释尊重——spec §3.2"唯一装载汇聚点"原文即此义）；check-ecosystem 断言链**单源提取** heap-pressure.ts 导出 HEAP_DEFAULTS（消 145MB/138.8MB 双源）；新增 Gauge `yjs_pending_bytes`（池外内存——pendingQueues 在 external 不进 heapUsed，早于 RSS 可见）+`yjs_zero_conn_docs`（collect）+`yjs_store_unexpected_throw_total`（Y2 兜底 catch 处）；删 collab_doc_store_failed_total（spool 既有观测覆盖+契约 3 恒零） | 第二轮 P0-3+H-4/M-11/P-L 提案裁决合流 |
+| **P-O（v2）heap 薄 reaper+观测补强〔v3 部分取代——卸载动作删（见 P-V①），观测指标与守卫复用维持〕** | reaper=5min 扫零连接 doc：**先 spec §3.1ter 自队列谓词**（pendingQueue 空∧无在飞 store∧spool 无未确认帧——终裁保留，库守卫不覆盖我们的队列）→**调 `server.hocuspocus.unloadDocument(doc)`**（Hocuspocus 实例+Document 参数——非 Server 名参）**先判 `shouldUnloadDocument(doc)`** 才计 reaped（守卫拒绝=跳过，连续 2 轮拒才计 stuck——库三守卫 isDebounced/saveMutex/connectionsCount 不重复实现）；**红锚④改形态**（gateway 契约 3"任何路径不 throw"实证⇒库"保内存"catch 分支〔esm:1541-1547〕本仓不可达——spec §3.2 前提修正登记 §0.4；锚改 stub 守卫不满足→reaper 兜底）；删 v1 的 withDoc 平行判据（onLoadDocument 单点已覆盖三入口+collab-document.service.ts:142"readCanvas/withDoc 本体不 gate"不变式注释尊重——spec §3.2"唯一装载汇聚点"原文即此义）；check-ecosystem 断言链**单源提取** heap-pressure.ts 导出 HEAP_DEFAULTS（消 145MB/138.8MB 双源）；新增 Gauge `yjs_pending_bytes`（池外内存——pendingQueues 在 external 不进 heapUsed，早于 RSS 可见）+`yjs_zero_conn_docs`（collect）+`yjs_store_unexpected_throw_total`（Y2 兜底 catch 处）；删 collab_doc_store_failed_total（spool 既有观测覆盖+契约 3 恒零） | 第二轮 P0-3+H-4/M-11/P-L 提案裁决合流 |
 | **P-Q（v2）认证防线修正组** | refusalCache fingerprint=**sha256(parseSessionToken(cookie) ?? payload.token)**（cookie-only 后 payload.token 恒 'cookie-auth' 占位⇒'anon' 塌缩=跨用户 15s 放大——修正为真实凭据）；**清空钩子单点化**：任一 `transition('serving')` 转移清+heap 释放+spool 恢复（fence 解除含于 serving 转移——比枚举 drain/lease 因由稳，漏一即残留）；**执行序修正回 spec 钉死序** `refusalCache→信号量→桶`（v1 实现笔误桶在前）；三 Map 老化（refusalCache 过期条目定期清+authAttemptBuckets 定期清〔防只握手不认证风暴喂新 socketId〕+上界清最旧）；**INFLIGHT_MAX 默认 4**（池公式 cpu×2+1=5 对齐——8×3 查询>池 5=P2024 折 db-unavailable；spec §7.1 默认 8 修正登记 §0.4）；**AUTH deadline=常量 3s**（Promise.race 包 DB 段超时折 db-unavailable+collab_auth_timeout_total——防慢 DB 挂满信号量；不加 env=YAGNI）；auth_reject_total 加 `source` 标签（state/semaphore/bucket/heap/version） | M-5/M-12/P1-7/P-N 裁决合流 |
 | **P-R（v2）Origin/upgrade 收紧组** | 生产剔除 localhost（仅显式 COLLAB_ALLOWED_ORIGINS 才含——非浏览器工具可注入任意 Origin，localhost 在表=多余绕过面；dev 推导表保留）；生产 `BETTER_AUTH_URL`∧`COLLAB_ALLOWED_ORIGINS` 双缺 superRefine **fail-fast**（env 层拒启——COLLAB_FAKE_AI 先例形态；防"忘配=推导默认值静默错"）；Origin 拒绝形态=`socket.write('HTTP/1.1 403...Content-Length:0')+socket.end()`（**end 替代 destroy**——write 后立即 destroy 可能丢弃未发送字节=客户端收 RST 非 403；spec §3.1ter 形态微偏离登记）；升级限流拒绝同形态 429；**parse-session-token 三形态门**（T2 Step 0：正则 `/flowweb\.session_token=([^;]+)/` 现锚定裸值——生产 https 下 BetterAuth 若用 `__Secure-` 前缀 cookie 名则不匹配=全站静默拒；探针确认 cookie 名+三形态用例：正常/前缀变体/多 cookie 并存）；同源 Origin 判据（Origin.host===Host）**驳回**——nginx $host 取请求行 Host=客户端可控，直连伪造 Host+Origin 同值即绕过；XFF 最右跳回退**驳回**（E58/Y0.5 既定域） | P-O/P1-3/A-1 裁决合流 |
 | **P-S（v2）write-frozen 最小形态** | **connected 重放删除**（v1 P-J 的 (a) 半）——drain 期新连接被 :255 DRAINING 拒⇒"重连成功需重放冻结态"**无对象**（第二份实证论证）；spool 降级经 authenticate :257-261 每次重连自恢复（无需快照重放）；本批=`{type:'write-frozen',reason}` 事件+客户端 writeFrozen 写点+横幅+authenticated 清零+**H-5 修正**：frozenConnections 从 Set 升 **Map<conn,prevReadOnly>**，drain 解除**先还原 readOnly 再 close**（:669-673 现状只 close——close 在 CLOSING 态 no-op 的边角=永久只读；状态自洽而非依赖重连施舍）；幂等快照模型（含 quotaState）**整体归 Y0b-4 定型**（本批不做快照抽象） | 第二份 P-Q/H-5 论证采纳+范围收窄 |
+| **P-T（v3）T10 保活整删** | **三环实证链**：①y-protocols awareness.cjs:85-89 `// renew local clock this.setLocalState(this.getLocalState())`——每 15s（outdatedTimeout/2）自续期，Awareness 构造即 setLocalState({}) 使 getLocalState()!==null 恒成立（远端清场删不掉本地态）；②provider esm:776-780 `if (origin === this) return`——续期帧 origin='local' 字符串≠provider 实例⇒发送；③server esm:671-673 broadcastAwarenessUpdate 无 origin 过滤⇒**回显发送者**（solo 单连接也收）⇒ **空闲连接每 ~15s 有双向 awareness 帧、两侧 lastMessage 计时器恒被刷新**——spec §5.2"空闲零应用层消息⇒30-60s 判死四害"前提在本仓不成立（spec 引证 forceSyncInterval=false 正确但漏了协议层自续期）。后台标签节流场景 15s setInterval ping 受同一节流=前后台都无价值。**P14 向量随钩子不注册归零**（库默认 onStateless=Promise.resolve(null) 不抛）；T1 unhandledRejection 兜底独立保留（真正买单者=T2 onUpgrade catch→throw）。删：ping/pong、服务端 onStateless 钩子、collab_stateless_* 三指标、messageReconnectTimeout 45s pin、forceSyncInterval pin（续期帧即保活+补传兜底已有 forceSyncAndWaitUnsynced :1104 按需）。T10 改写为证伪性只读锚（今日即绿）；spec §5.2/§7.2 两行勘误登记 | 第三份 P0-1 三环一手复核全实证 |
+| **P-U（v3）T8 awareness clock+权限语义 A** | ①**rewriteAwarenessRole 必须先递增 meta.clock**：applyAwarenessUpdate 按 `currClock < clock \|\| (currClock===clock && state===null && has)` 判据——服务端直接改 states 不动 meta⇒编码用旧 clock⇒对端全丢弃而服务端自以为成功（假绿型同 T7 警告）；修=meta.set(clientId,{clock:(old)+1,lastUpdated:now})+states.set+广播；锚改断言**对端可见值**（T7 注入能生效恰因骑在入站帧更高 clock 上——服务端自发写无帧可骑）。②**权限语义选 A**：removeMember 不触碰 ProjectMember 表（实证）⇒统一 resolveWithTeam 后"移出团队但有显式项目授权=保留画布访问"=**REST 面既有行为（assertEditor 同链）的 WS 一致化**——非放宽；§0.4 登记+int 两例（显式授权存活/普通成员被踢）+recheckConnection 返回 cause 分型（no-role/session-invalid）；B 案（移除即全撤）会改 REST 语义超范围驳回；成员管理 UI 的项目级授权撤销入口登记 Y0b-4 | 第三份 P0-2/P0-3 实证 |
+| **P-V（v3）观测与结构收尾组** | ①reaper **卸载动作删**：自队列谓词与库守卫在可达状态同真（队列非空⇔库 debounce/飞/mutex 必真）+库 store 后必排 setTimeout unload 自愈（esm:1550-1552）+保内存分支本仓不可达（偏离 1）⇒reaper 唯一对象不存在——保留 yjs_zero_conn_docs+shouldUnloadDocument===false 连续轮次计数（卡住探针），删 yjs_doc_reaped_total 与卸载用例；②heap 布尔结构改**两量纲各自 trip/release**（v2 标量 max 形态使 RSS 实效释放线=0.7×750=525MiB≠声明 600MiB——RELEASE_BYTES 从未进运行时）：`tripped = heapRatio>=0.8 \|\| rss>=750MiB；released = heapRatio<0.7 && rss<600MiB`——check-ecosystem 断言的三个数全部变运行时真值+§9.15 单调序恢复；③HEAP_DEFAULTS 提取式钉死 `([\d_]+)`+剥下划线+提取失败 fail-closed（`\d+` 在 786_432_000 截断成 786=静默错绿）；④`clientIdOwner` 反向索引（ownedByOthers 每帧 O(连接数) 是光标热路径——改 Map<clientId,socketId> O(1) 判定+顺带一致性校验源）+owned 剪枝（库 clients 集并集+本帧双向核对）+上限触发计数；⑤silentRenewUsed 在 authenticated 事件重置（每次成功认证重置一次静默额度）；⑥删 'reconnect' 死档（4402 归 backoff——T9 close 映射对 reconnect 零动作=死档复发）；⑦sweep 逃生阀拆 timer（寿命/reaper 观测/Map 老化各自独立——`SWEEP_ENABLED=false` 禁止静默关掉寿命与老化，只罩 session+perm 复验）；⑧1009 真连观测探针（ws 超 maxPayload 时客户端实际收 1009 或 1006 未验证——一次真连定论）+逃生按钮接 message-too-big；⑨CollabUser 扩 role/color（TS strict 下 s.user.color 类型必需）；⑩无 cookie 不写 refusalCache（anon 键互相覆盖状态拒绝）+dev Origin 表补 127.0.0.1:5173；⑪「准入四层全进程内状态、部署即复位」注释（kill switch 不需要的可查依据）；⑫S-1 夹具补 resolveWithTeam（dual-client-server:47 无此 mock——T3 落地全部真连红且伪装 DB_UNAVAILABLE）；⑬S-2 删 CANVAS_DOC_SCHEMA_VERSION_REF（shared→apps 跨包反向依赖=构建环）+删 PROTOCOL_COMPAT（单键 satisfies 恒满足——"tsc 强制 bump"论证证伪；negotiateClientVersion 改字面量比较，spec 矩阵形态偏离登记） | 第三轮 S 组/必修清单/7.x 采纳合流 |
 
 **§0.2 本批新增指标全表（store.metrics.ts 单源；进 spec §7 fenced 同步；全部小写命名——extractMetricNames 正则约束）**
 
@@ -114,17 +118,16 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | `collab_auth_timeout_total` | Counter（AUTH deadline 3s 触发） | T3 | **v2 新增**（随 P-Q deadline） |
 | `collab_load_rejected_total` | Counter, reason=server-overloaded | T4 | — |
 | `collab_overload_state` | Gauge, state=ok\|tripped（互斥两 series） | T4 | — |
-| `yjs_doc_stuck_total` / `yjs_doc_reaped_total` | Counter（reaper 连续 2 轮守卫拒/成功卸载） | T4 | **v2 语义收紧**（先判 shouldUnloadDocument 再计 reaped——虚计修正） |
+| `yjs_doc_stuck_total` | Counter（**v3：零连接 doc 的库守卫〔shouldUnloadDocument〕连续 2 轮拒绝计数——卡住探针**；~~yjs_doc_reaped_total~~ v3 随卸载动作删除〔P-V①：reaper 唯一对象不存在〕） | T4 | **v3 观测收窄** |
 | `yjs_pending_bytes` | Gauge（pendingQueues 字节和——池外内存早于 RSS 可见） | T4 | **v2 新增**（P-O） |
 | `yjs_zero_conn_docs` | Gauge, collect（零连接常驻 doc 数——reaper 观测面） | T4 | **v2 新增**（P-O） |
 | `yjs_store_unexpected_throw_total` | Counter（Y2 兜底 catch 处——契约 3 最后一道闸） | T4 | **v2 新增**（P-O） |
 | `collab_version_negotiation_reject_total` | Counter, reason=client-version-missing\|client-version-invalid\|schema-outdated\|**server-outdated** | T5 | **v2 加第四档** |
-| `collab_ws_close_total` | Counter, code+reason（gateway 应用侧 close 单点埋：drain 解除/closeAll/sweep/寿命/团队解散） | T6 | **v2 新增**（close 常量化时顺埋——close 分布可观测） |
-| `collab_stateless_bad_payload_total` / `collab_stateless_unknown_total` | Counter（onStateless catch/未知类型） | T10 | — |
-| `collab_stateless_ping_total` | **Counter**（次数）+独立 Gauge `collab_stateless_last_ping_age_seconds`（inspect 时算 now−last——"保活是否在工作"可直接告警） | T10 | **v2 改 Counter+age gauge**（Gauge 存时间戳不可直接告警） |
+| `collab_ws_close_total` | Counter, code+reason（gateway 应用侧 close 单点埋：drain 解除/closeAll/sweep/寿命/团队解散。**v3 边界登记**：onDisconnectPayload 无 close code 字段——库自发/自然断连的服务端观测结构性不可达，归 Y0b-5 客户端遥测；本指标=应用侧主动 close 分布） | T6 | **v2 新增+v3 边界钉死** |
+| `collab_awareness_reject_total` | Counter, reason=owner-limit\|forged（归属三分支的上限触发丢弃+伪造丢弃——"用户光标消失"类故障的可观测出口） | T7 | **v3 新增**（S-3：上限触发无观测=静默故障） |
 | `collab_unhandled_rejection_total` | Counter, source（全局兜底函数） | T1 | — |
 
-**v2 删除**：~~collab_doc_store_failed_total~~（spool 既有观测 yjs_spool_write_failatures 等覆盖+gateway 契约 3"任何路径不 throw"使其恒零）。（`collab_idle_timeout_total` 载体=客户端遥测 close_code 事件族——**Y0b-5 sink 域**，本批仅在映射表分型 4408→idle-timeout+diag ring 记录，登记 §0.4。）
+**v2 删除**：~~collab_doc_store_failed_total~~（spool 既有观测 yjs_spool_write_failatures 等覆盖+gateway 契约 3"任何路径不 throw"使其恒零）。**v3 删除**：~~collab_stateless_bad_payload_total / collab_stateless_unknown_total / collab_stateless_ping_total / collab_stateless_last_ping_age_seconds~~（随 T10 整删——P-T；服务端 onStateless 钩子不注册=P14 向量归零）。~~yjs_doc_reaped_total~~（P-V① reaper 卸载动作删除）。（`collab_idle_timeout_total` 载体=客户端遥测 close_code 事件族——**Y0b-5 sink 域**，本批仅在映射表分型 4408→idle-timeout+diag ring 记录，登记 §0.4。）
 
 **§0.3 env 新键全表（env.ts :65-81 形态：blankToUnset+optional 不写 default——默认值落使用点；新键恰好两空格缩进——extractEnvKeys 正则约束；COLLAB_MAX_LOADED_DOCS 预留维持零消费不动）**
 
@@ -141,11 +144,11 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | COLLAB_HEAP_PRESSURE_RATIO | coerce.number.min(0.5).max(0.95).optional() | 0.8（release 比例=trip−0.1 迟滞带；**双量纲维持 spec**——RSS 项管池外膨胀） | T4 |
 | COLLAB_CONN_MAX_LIFETIME_MS | 同上 | 43_200_000（12h） | T6 |
 
-**v2 非 env.ts 但同批登记**：生产 superRefine fail-fast——`NODE_ENV=production` 时 BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 至少其一（P-R）；`.env` 的 `DATABASE_URL` 显式 `connection_limit=5&pool_timeout=5000`（部署清单+runbook 登记——池与 INFLIGHT=4 对齐）；AUTH deadline=**常量 3s**（不加 env——YAGNI，P-Q）。
+**v2 非 env.ts 但同批登记**：生产 superRefine fail-fast——`NODE_ENV=production` 时 BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 至少其一（P-R）；`.env` 的 `DATABASE_URL` 显式 `connection_limit=5&pool_timeout=5`（**v3.1 修正：pool_timeout 单位=秒**——原 5000≈83min=P2024 兜底近失效；对照=池 5−REST/worker 预留≥INFLIGHT 4；部署清单+runbook 登记）；AUTH deadline=**常量 3s**（不加 env——YAGNI，P-Q）。
 
 ---
 
-**§0.4 偏离预登记（v2 新建——与 spec 正文措辞的差异单源；实施完随 T11 回填落地形态）**
+**§0.4 偏离预登记（v2 新建 v3 扩至 14 条——与 spec 正文措辞的差异单源；实施完随 T11 回填落地形态）**
 
 | # | 偏离 | 依据 |
 |---|------|------|
@@ -154,11 +157,15 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | 3 | spec §3.3「消费面读注入同形字段=预期零改动」更正：RemoteCursors/CanvasTopBar 现自算 userColor(id)——需同批切 s.user.color（等价性算法保证同色零回归） | P-L；userColor 消费面实证 |
 | 4 | 版本门四档（spec 三档+server-outdated）：csv>current=reload 无效档（提示服务端待更新）——文案分型非放行，精确相等语义不变（R 终裁禁区间协商维持） | M-4 采纳 |
 | 5 | Origin 拒绝形态 socket.end 替代 destroy（flush 保证客户端收 403 非 RST）；升级限流 429 同族补全（spec 仅钉 403） | P-R |
-| 6 | INFLIGHT_MAX 默认 4（spec §7.1 写 8）——与池公式 cpu×2+1 对齐；AUTH deadline 常量 3s（spec 无此项） | P-Q |
+| 6 | INFLIGHT_MAX 默认 4（spec §7.1 写 8）——与池公式 cpu×2+1 对齐；AUTH deadline 常量 3s（spec 无此项）；**口径（v3.1）：信号量/deadline 约束的是槽位占用≠DB 在飞**——race 到期不取消底层 Prisma 查询，DB 真实并发由池 connection_limit=5 兜底 | P-Q |
 | 7 | sweep 复验语义补正：spec §3.1「复验补 perm.resolve」隐含 sweep 会调用复验——现状 :1144 判据门使复验仅 session 过期死线触发；T3 加 dueForPerm 分支（5min 结论缓存到期=权限复验到期） | P-K；:1144 实证 |
 | 8 | writeFrozen 置位点归属：syncStatus.ts:14 注释归 Y0b-5（Z55）——本批 T9 落置位点（writeFrozen 写点+横幅），Y0b-5 只扩 quotaState 载荷（跨批归属冲突消解；T9 同 commit 改注释） | 评审 9.2-1 |
 | 9 | maxPayload 行为断言（>16MiB 真连验 1009）归 Y0b-4（spec §4.1⑥ 维持）——本批仅配置 pin+websocketOptions 键集断言 | spec §4.5 出口清单在彼 |
 | 10 | awareness role 注入与 T8 role 改写维持 spec（评审"零消费方不注入"驳回）——消费方=Y0b-4 成员表+降级显示（§3.1 v2.1"只治写不治显示"修复），铺路登记 | P-L |
+| 11 | **T10 保活整删**：spec §5.2 stateless ping 设计+§7.2 forceSyncInterval pin 两行前提在本仓证伪（awareness 15s 自续期+服务端回显=空闲恒有双向帧——P-T 三环实证）——**spec 侧勘误登记**（v2.3/v2.4 九轮外审漏了 y-protocols 协议层自续期）；T10 改写为证伪性只读锚 | P-T |
+| 12 | **权限语义 A**：统一 resolveWithTeam 后"移出团队但有显式 ProjectMember 行=保留画布访问"——REST 面既有语义的 WS 一致化（非放宽）；int 两例固化+cause 分型；成员管理 UI 的项目级授权撤销入口登记 Y0b-4 | P-U② |
+| 13 | **reaper 卸载动作删除**：spec §3.2 释放路径（5min reaper 调 unloadDocument）的可达性论证——自队列谓词与库守卫同真+库 store 后自愈排程+保内存分支本仓不可达（偏离 1）⇒ reaper 唯一对象不存在；保留卡住观测（zero_conn_docs+守卫拒绝连续计数）——**偏离 1 的彻底版** | P-V① |
+| 14 | **PROTOCOL_COMPAT 矩阵删除**：spec §3.4"兼容矩阵 tsc 封闭"形态偏离——"单键 Record 强制 bump"论证证伪（satisfies 恒满足）；运行时等价=字面量精确比较（`n === CLIENT_PROTOCOL_VERSION`）；版本 bump 纪律=CLIENT_PROTOCOL_VERSION 常量单点+红测断言值 | P-V⑬（S-2） |
 
 ---
 
@@ -229,8 +236,8 @@ it('4401 无 reason 按库默认语义=终态', () => {
 it('1012=planned-restart（既有 30s 窗+短退避——runtime 链路收编进表）', () => {
   expect(resolveCloseAction(1012, '').kind).toBe('planned-restart');
 });
-it('4402 max-lifetime=正常重连非终态（寿命尽=重连新会话）', () => {
-  expect(resolveCloseAction(4402, 'max-lifetime').kind).toBe('reconnect');
+it('4402 max-lifetime=backoff 档（v3：~~reconnect~~ 死档删除——T9 close 映射对 reconnect 零动作=死档复发；寿命尽重连走 machine 既有退避防极端齐步）', () => {
+  expect(resolveCloseAction(4402, 'max-lifetime').kind).toBe('backoff');
 });
 it('库自发瞬态族=4205/4408 落 backoff 档（4205 无超限语义——客户端禁由它推断成因）；4408 双 reason 分型：库 "Connection Timeout"=backoff ≠ 客户端合成 "forced"=backoff-agg（三击强制的恶化档——诊断区分）', () => {
   for (const c of [4205, 4403]) expect(resolveCloseAction(c, '').kind).toBe('backoff');
@@ -280,8 +287,8 @@ export type CloseActionKind =
   | 'terminal'            // 终态：不重连（terminalReason 转四/五档 UX；1009 内容确定性归此档）
   | 'silent-renew-once'   // 4401 'session-expired'：静默重连一次，失败才终态
   | 'planned-restart'     // 1012：既有 30s 窗+1~3s 短退避链路（runtime :846-857 收编）
-  | 'reconnect'           // 正常重连（4402/1000 之外的正常服务侧行为）
-  | 'backoff';            // 瞬态退避（4205/4403/4408/未知——machine 既有退避表）
+  | 'backoff'             // 瞬态退避（4205/4403/4408/4402/未知——machine 既有退避表；v3：~~reconnect~~ 档删除）
+  | 'normal';             // 1000
 
 export interface CloseAction { kind: CloseActionKind; terminalReason?: string; synthetic?: boolean }
 
@@ -292,7 +299,6 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
     return { kind: 'terminal', terminalReason: 'session-expired' }; // 含库默认 'Unauthorized'/reason 缺失
   }
   if (code === CollabCloseCode.APP_RESTART) return { kind: 'planned-restart' };
-  if (code === CollabCloseCode.MAX_LIFETIME) return { kind: 'reconnect' };
   if (code === CollabCloseCode.NORMAL) return { kind: 'normal' };
   if (code === CollabCloseCode.LIB_MESSAGE_TOO_BIG) return { kind: 'terminal', terminalReason: 'message-too-big' };
   if (code === CollabCloseCode.LIB_CONNECTION_TIMEOUT) {
@@ -300,7 +306,7 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
       ? { kind: 'backoff', synthetic: true }   // 客户端合成（三击强制）——诊断标记
       : { kind: 'backoff' };
   }
-  return { kind: 'backoff' }; // 4205/4403/未知——全瞬态退避档
+  return { kind: 'backoff' }; // 4205/4403/4402 max-lifetime/未知——全瞬态退避档
 }
 ```
 
@@ -312,56 +318,51 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
 
 ```ts
 // collab-protocol.test.ts
-import { CLIENT_PROTOCOL_VERSION, CANVAS_DOC_SCHEMA_VERSION_REF, PROTOCOL_COMPAT, negotiateClientVersion } from './collab-protocol';
-it('csv 缺失/不可解析不进矩阵——分档在 negotiate 前置分支', () => {
+import { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './collab-protocol';
+it('csv 缺失/不可解析不进比较——分档在 negotiate 前置分支', () => {
   expect(negotiateClientVersion(null)).toBe('client-version-missing');
   expect(negotiateClientVersion('')).toBe('client-version-missing');
   expect(negotiateClientVersion('abc')).toBe('client-version-invalid');
   expect(negotiateClientVersion('1.5')).toBe('client-version-invalid');
 });
-it('精确相等——矩阵外一切版本值拒绝（开发期禁兼容层/区间协商，R 终裁）', () => {
+it("精确相等——'0'（非正整数）=client-version-invalid（v3 三处矛盾统一：csv=0 只可能来自伪造/第三方客户端，无法推断语义）", () => {
   expect(negotiateClientVersion('1')).toBe('allow');
-  expect(negotiateClientVersion('0')).toBe('schema-outdated');
+  expect(negotiateClientVersion('0')).toBe('client-version-invalid');
 });
-it('四档分型（v2 M-4）：csv>current=server-outdated（reload 无效档——提示服务端待更新）≠ csv<current=schema-outdated（reload 有效档）', () => {
-  expect(negotiateClientVersion('999')).toBe('server-outdated');
-  expect(negotiateClientVersion('0')).toBe('schema-outdated');
+it('四档分型（v2 M-4+v3 修正）：csv>current=server-outdated（reload 无效档）；csv<current=schema-outdated 用 current 注入测——首版协议=1 下比 1 小的正整数不存在，该档结构性不可达（首次 bump 后才可达）', () => {
+  expect(negotiateClientVersion('999')).toBe('server-outdated'); // 999 > 1
+  expect(negotiateClientVersion('1')).toBe('allow');
+  expect(negotiateClientVersion('1', 2)).toBe('schema-outdated'); // 注入 current=2（bump 后形态）——csv=1 旧客户端
 });
-it('两常量显式分离：CLIENT_PROTOCOL_VERSION=1 ≠ CANVAS_DOC_SCHEMA_VERSION=2（docShape:41 既有——引用非复制）', () => {
+it('版本 bump 纪律锚：CLIENT_PROTOCOL_VERSION 值断言（v3：矩阵已删——常量单点+bump 时本测改值即红）', () => {
   expect(CLIENT_PROTOCOL_VERSION).toBe(1);
-  expect(CANVAS_DOC_SCHEMA_VERSION_REF).toBe(2);
 });
 ```
 
 ```ts
 // collab-protocol.ts
 /** 两常量分离（spec §3.4）：CANVAS_DOC_SCHEMA_VERSION（docShape.ts=2，既有——文档结构，Y1c bump）
- * ≠ CLIENT_PROTOCOL_VERSION（本文件——客户端代码/线路协议，URL ?csv= 所指）。
+ * ≠ CLIENT_PROTOCOL_VERSION（本文件——客户端代码/线路协议，URL ?csv= 所指）。两常量分属 api/shared 两包
+ * ——禁跨包 import（shared→apps 反向依赖=构建环，v3 S-2）；分离性由命名+注释表达，doc 版本核对归 T5 Step 5bis 只读。
  * 通道=query（R-6 终裁：provider 无 query 配置项，URL 由调用方构造；csv/cb 非凭证，与 cookie-only 不矛盾）。
- * 4.6.0 onAuthenticatePayload.providerVersion 为库内部硬编码值（d.ts:483）——与本协议无关，禁用（P6 勘误）。 */
+ * 4.6.0 onAuthenticatePayload.providerVersion 为库内部硬编码值（d.ts:483）——与本协议无关，禁用（P6 勘误）。
+ * v3：~~PROTOCOL_COMPAT 矩阵~~删除（单键 satisfies 恒满足——"tsc 强制 bump"论证证伪，偏离 14 登记）；
+ * 运行时=字面量精确比较；无区间协商（开发期禁兼容层，R 终裁）。 */
 export const CLIENT_PROTOCOL_VERSION = 1 as const;
 export type ClientProtocolVersion = typeof CLIENT_PROTOCOL_VERSION;
-import { CANVAS_DOC_SCHEMA_VERSION } from '../../../apps/api/src/modules/collab/doc-shape'; // 探针实际路径——若跨包 import 不可行则此处声明常量+单测断言两处相等（防漂移锚）
-export const CANVAS_DOC_SCHEMA_VERSION_REF = CANVAS_DOC_SCHEMA_VERSION;
-
-/** 兼容矩阵——spec §3.4 终裁要求 tsc 封闭形态（v2 维持单键 Record 最小实现：运行时=精确相等；
- * 矩阵的存在价值=版本 bump 时 tsc 强制显式处理——新版本发布=加键+改 CLIENT_PROTOCOL_VERSION 两处同 commit）。
- * 无区间协商（开发期禁兼容层，R 终裁）。 */
-export const PROTOCOL_COMPAT = {
-  [CLIENT_PROTOCOL_VERSION]: 'allow',
-} as const satisfies Record<number, 'allow'>;
 
 export type VersionVerdict =
   | 'allow' | 'client-version-missing' | 'client-version-invalid'
   | 'schema-outdated'   // csv < current：客户端旧——reload 有效档
   | 'server-outdated';  // csv > current：客户端新于服务端——reload 无效档（v2 M-4 第四档）
 
-export function negotiateClientVersion(csv: string | null | undefined): VersionVerdict {
+export function negotiateClientVersion(csv: string | null | undefined, current: ClientProtocolVersion = CLIENT_PROTOCOL_VERSION): VersionVerdict {
+  // current 参数=测试注入位（首版协议=1 下 schema-outdated 档无可达正整数输入——bump 后形态经注入测）；生产恒默认
   if (!csv) return 'client-version-missing';
   const n = Number(csv);
   if (!Number.isInteger(n) || n <= 0 || String(n) !== csv.trim()) return 'client-version-invalid';
-  if (PROTOCOL_COMPAT[n as keyof typeof PROTOCOL_COMPAT] === 'allow') return 'allow';
-  return n < CLIENT_PROTOCOL_VERSION ? 'schema-outdated' : 'server-outdated';
+  if (n === current) return 'allow';
+  return n < current ? 'schema-outdated' : 'server-outdated';
 }
 ```
 
@@ -405,7 +406,7 @@ app.set('trust proxy', 'loopback'); // P-I：与 WS 侧 X-Real-IP 同信任前�
 
 跑 apps/api 全测——**@nestjs/throttler 相关测试若因 req.ip 语义变化变红**：逐个核对是「测试夹具直连无代理=peer 即 req.ip（不变）」还是夹具自带 XFF（后者=夹具随真实语义修，登记进 commit message）。
 
-- [ ] **Step 3: unhandledRejection 全局兜底（P14 崩溃向量根修半——钩子函数化在 T10，兜底先行=同族未 await 钩子〔beforeBroadcastStateless esm:1498/onUpgrade :1633-1634〕全由此兜）**
+- [ ] **Step 3: unhandledRejection 全局兜底（P14 崩溃向量兜底——T10 整删后本仓不自注册 async 钩子，真正买单者=库内部未 await 路径〔onUpgrade catch→throw esm:1633-1634 等〕全由此兜）**
 
 ```ts
 // store.metrics.ts
@@ -486,9 +487,9 @@ if (process.env.COLLAB_SWEEP_ENABLED === 'false') return; // 默认开（spec §
 - Modify: 8 个真连 spec 的 `?token=` 调用点（Step 0 全量清单）
 - Test: 夹具自身行为锚（Origin/Cookie 注入可见）
 
-**背景（实证）**：dual-client-server.ts:70 `connect(name, token)` 现用 `url: ${url}?token=${token}` + global WebSocket（Node ws 不发 Origin header）——T2 落地（Origin 校验+cookie-only+query token 删除）后**全部真连 spec 双杀**（无 Origin=403 拒+query token 无效）。本 Task 先升级装置，T2 零障碍落地。
+**背景（实证）**：①dual-client-server.ts:70 `connect(name, token)` 现用 `url: ${url}?token=${token}` + global WebSocket（Node ws 不发 Origin header）——T2 落地（Origin 校验+cookie-only+query token 删除）后**全部真连 spec 双杀**（无 Origin=403 拒+query token 无效）。②**v3 S-1**：dual-client-server.ts:47 `permSvc = { resolve: vi.fn() }` 无 `resolveWithTeam` mock（:29 类型声明同缺）——T3 落地后 `TypeError → catch 折 DB_UNAVAILABLE` =**全部真连红且症状伪装成 DB 故障**（误诊面）。本 Task 一并升级，T2/T3 零障碍落地。
 
-- [ ] **Step 0: 探针**——grep `?token=` 全量调用点清单（评审计 8 spec ~60 处：dual-client-server/gateway.spec/auth-reason.spec/behavior-anchors.gate.spec/ws-polyfill.gate.spec/health-carrier.gate.spec/library-anchors.spec/shutdown.spec——以实测为准）；Node `ws` 构造器 headers 选项形态；装置 WebSocketPolyfill 注入路径（HocuspocusProvider WebSocketPolyfill 选项——runtime :876 同参）。输出粘 commit message。
+- [ ] **Step 0: 探针**——grep `?token=` 全量调用点清单（评审计 8 spec ~60 处：dual-client-server/gateway.spec/auth-reason.spec/behavior-anchors.gate.spec/ws-polyfill.gate.spec/health-carrier.gate.spec/library-anchors.spec/shutdown.spec——以实测为准）；Node `ws` 构造器 headers 选项形态；装置 WebSocketPolyfill 注入路径（HocuspocusProvider WebSocketPolyfill 选项——runtime :876 同参）；**collab.gateway.spec.ts:159/:167 两处 `permSvc.resolve.mockResolvedValue` 覆写+collab.gateway.sweep.spec.ts:30 直构 perm 夹具**（resolveWithTeam 覆写改向清单）。输出粘 commit message。
 
 - [ ] **Step 1: 红测——夹具注入可见性**
 
@@ -520,9 +521,22 @@ connect(name: string, token = 'tok', opts: { origin?: string } = {}) {
 
 （`?token=` query 全量删除——URL 不再带 query token；gateway 测试侧 origin 表经 `COLLAB_ALLOWED_ORIGINS` env 注入测试值或默认推导。）
 
+- [ ] **Step 2.5: v3 S-1——夹具补 resolveWithTeam mock**
+
+```ts
+// dual-client-server.ts :47（:29 类型声明同步）——resolve 保留（project-member.service.ts:32-96 等 REST 侧消费不动，仅 gateway 判据换轨）：
+const permSvc = {
+  resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+  resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
+};
+// collab.gateway.spec.ts:159（VIEWER 场景）/:167（EDITOR 场景）覆写改打 resolveWithTeam：
+//   permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' })
+// collab.gateway.sweep.spec.ts:30 直构 perm 夹具同补。
+```
+
 - [ ] **Step 3: 全量真连 spec 回归**——8 spec 全绿（行为等价证明：cookie 通道承载原 token 语义）。若有 spec 断言 query token 形态本身（auth-reason.spec:165 等），按新装置语义改写断言（token 无效场景=cookie 缺失/伪造）。
 
-- [ ] **Step 4: commit**：`feat(y0b-3): T1.5 准入面夹具基座——注入式 ws（Origin/Cookie header）+query token 通道退役`
+- [ ] **Step 4: commit**：`feat(y0b-3): T1.5 准入面夹具基座——注入式 ws（Origin/Cookie header）+query token 退役+resolveWithTeam 夹具（S-1）`
 
 ---
 
@@ -600,8 +614,11 @@ private allowedOrigins(): string[] {
   const base = process.env.BETTER_AUTH_URL ?? 'http://localhost:5173';
   const origins = [new URL(base).origin];
   // v2 P-R：生产不注入 localhost（非浏览器工具可注入任意 Origin——localhost 在表=多余绕过面）；dev 推导表保留
-  if (process.env.NODE_ENV !== 'production' && !origins.includes('http://localhost:5173')) {
-    origins.push('http://localhost:5173');
+  // v3：dev 补 127.0.0.1:5173（vite host:0.0.0.0 下用 127.0.0.1 打开时 origin 不含 localhost——403 全灭）；LAN IP 场景显式 COLLAB_ALLOWED_ORIGINS
+  if (process.env.NODE_ENV !== 'production') {
+    for (const dev of ['http://localhost:5173', 'http://127.0.0.1:5173']) {
+      if (!origins.includes(dev)) origins.push(dev);
+    }
   }
   return origins;
 }
@@ -701,7 +718,13 @@ it('权限降级在 session 未过期时也会被发现（改前红：:1144 判�
   await vi.advanceTimersByTimeAsync(5 * 60_000 * 1.2 + 1_000);      // sweep 兜底窗（jitter 上界）
   expect(conn.readOnly).toBe(true);                                 // 现状红：复验未被调用
 });
-it('3×3 矩阵：输入源（sweep-tick/perm-event/cache-hit）×结果（viewer 维持/editor 降级 readOnly 不断连/null 踢线）——事件与 tick 撞窗+缓存命中不重查库两条锚必含', () => { /* 表驱动 9 格 */ });
+it('3×3 矩阵：输入源（sweep-tick/perm-event/cache-hit）×结果（viewer 维持/editor 降级 readOnly 不断连/null 踢线）——9 格数据数组全列（v3：两格骨架不足以防漏）', () => {
+  it.each([
+    ['tick×viewer 维持'], ['tick×editor 降级'], ['tick×null 踢线'],
+    ['event×viewer 维持'], ['event×editor 降级'], ['event×null 踢线'],   // 事件与 tick 撞窗=缓存失效后事件先到（T8 补实连）
+    ['cache×viewer 维持'], ['cache×editor 降级'], ['cache×null 踢线'],   // cache-hit 格断言零 DB（缓存命中不重查库锚）
+  ])('%s', (cell) => { /* 按 cell 拆输入源注入方式×DB seed——执行时 9 格全写（禁 it.skip） */ });
+});
 ```
 
 - [ ] **Step 1: 红测——验收锚①（§3.1bis 验收锚 v2.2 输出级；fingerprint=真实凭据 P-Q——cookie-only 后 payload.token 恒 'cookie-auth' 占位）**
@@ -726,22 +749,27 @@ it('桶超限 deny rate-limited 且不写缓存（第 11 次/分钟）', async (
   await expect(gw.authenticate(makeAuthPayload({ socketId: 's1' }))).rejects.toMatchObject({ reason: 'rate-limited' });
   expect(gw['refusalCache'].size).toBe(0);
 });
-it('信号量满→SERVER_OVERLOADED deny+并发峰值≤INFLIGHT_MAX（验收锚②——collab_auth_inflight gauge）', async () => {
+it('信号量满→SERVER_OVERLOADED deny+信号量计数峰值≤INFLIGHT_MAX（验收锚②——collab_auth_inflight gauge；**口径（v3.1）：计数≠DB 在飞**——deadline 到期即释放槽位但底层查询仍在飞，DB 真实并发由池 connection_limit 兜底）', async () => {
   gateDbCalls(); // 装置：挂起 inner 的 DB 步骤直至放行
   const inflight: number[] = [];
   const burst = Array.from({ length: 16 }, () =>
     gw.authenticate(makeAuthPayload({ socketId: `s${Math.random()}` })).catch(() => 0)
-      .then(() => inflight.push(gw['authInflightPeak']()))); // 峰值经 gauge 读
+      .then(() => inflight.push(gw['authInflightPeak'])))); // v3 笔误修：字段直读（v2 写成调用=编译错）；生产观测走 collab_auth_inflight gauge
   await Promise.all(burst);
   expect(Math.max(...inflight)).toBeLessThanOrEqual(4); // v2 默认 4（P-Q 池对齐）
   releaseDbCalls();
   // 第 9 个并发请求被拒：SERVER_OVERLOADED
 });
-it('drain 解除清空 refusalCache（四钩子①——表驱动：drain/lease/heap/spool 四态翻转各一用例）', () => {
-  gw['refusalCache'].set('doc|t:abc', { reason: 'draining', at: Date.now() });
-  gw.onDrainReleased(); // 钩子①
+// v3.1：清空单点=onServingTransition（P-Q——不逐因由枚举方法名；v2 的 onDrainReleased/onLeaseRejoined/onSpoolRecovered 三名在实现中不存在，旧测调用=编译红）
+it.each([['drain 解除'], ['租约 rejoin'], ['fence 解除'], ['spool 恢复'], ['heap 释放（T4 接线）']])(
+  '%s → refusalCache 清空（不变量=只有 transition(serving)/spool 翻转一个清空点）', (flip) => {
+    gw['refusalCache'].set('doc|t:abc', { reason: 'draining', at: Date.now() });
+    driveStateFlip(flip); // 装置：驱动对应状态翻转（drain/fence/lease→transition('serving')；spool→isWritableOrDegraded 翻 ok；heap→T4 releaseHook）
+    expect(gw['refusalCache'].size).toBe(0);
+  });
+it('无 cookie 的状态类拒绝（draining）→不落缓存（anon 键互覆防护——写入侧短路锚，v3.1 补）', async () => {
+  await expect(gw.authenticate(makeAuthPayload({ cookie: undefined }))).rejects.toMatchObject({ reason: 'draining' });
   expect(gw['refusalCache'].size).toBe(0);
-  // ②onLeaseRejoined ③onHeapReleased（T4 接）④onSpoolRecovered 同形态——T4 前先落①②+spool 翻转点，heap 释放钩子 T4 同 commit 接线（锚用例表驱动扩）
 });
 ```
 
@@ -760,7 +788,9 @@ private static readonly REFUSAL_CACHEABLE = new Set<string>([
   CollabAuthReason.DB_UNAVAILABLE, CollabAuthReason.SERVER_OVERLOADED,
 ]); // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）
 
-/** v2 P-Q：AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI） */
+/** v2 P-Q：AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI）
+ *  v3.1 边界：Promise.race 到期**不取消**底层 Prisma 查询——约束的是信号量槽位占用，非 DB 工作量；
+ *  DB 真实并发由池 connection_limit=5 兜底（池 5−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
 private static readonly AUTH_DB_DEADLINE_MS = 3_000;
 private withAuthDeadline<T>(p: Promise<T>): Promise<T> {
   return Promise.race([p, new Promise<never>((_, rej) =>
@@ -774,20 +804,23 @@ private authInflightMax(): number { return numEnv('COLLAB_AUTH_INFLIGHT_MAX', 4)
 /** v2 P-Q：清空钩子单点化——任一 transition('serving') 转移清（fence/drain 解除/租约 rejoin 全含于 serving 转移——
  *  比枚举因由稳，漏一即残留）+heap 释放（T4）+spool 恢复（isWritableOrDegraded 翻 ok）三点。 */
 private onServingTransition() { this.refusalCache.clear(); }
-// transition() 内 state==='serving' 时调 onServingTransition()（单点）；spool 恢复点（:257-261 判定处翻转时）同调
+// transition() 内 state==='serving' 时调 onServingTransition()（单点——drain 解除/租约 rejoin/fence 解除全含于 serving 转移）；
+// spool 恢复点（isWritableOrDegraded 判定值 'spool-unwritable'→'ok' 翻转时——谓词非集合，在 :257-261 判定处记上一态检测翻转）同调；
+// selfIsolate 进入时亦清（v3 防御性一行：隔离期写入的 LEASE_NOT_READY 缓存 15s TTL 内虽由 rejoin 的 serving 转移覆盖——提前清消残窗）
 private sweepStaleAuthMaps() { // v2 P-Q：三 Map 老化——TTL 过期条目清+桶过期清+上界 10_000 清最旧（防只握手不认证风暴喂新 socketId）
   const now = Date.now();
   for (const [k, v] of this.refusalCache) if (now - v.at >= this.refusalTtlMs()) this.refusalCache.delete(k);
   for (const [k, v] of this.authAttemptBuckets) if (now - v.windowStart >= 60_000) this.authAttemptBuckets.delete(k);
-} // 挂 startSessionSweep 同周期 tick 首部
+} // v3.1：独立 1min timer 挂载（P-V⑦——SWEEP_ENABLED=false 逃生阀禁止静默关掉老化；与寿命/观测 timer 同归 T4 三 timer 清单，禁挂 sweep tick）
 
 private async authenticate(payload: onAuthenticatePayload): Promise<...> {
   // —— 外层防线（§3.1bis 钉死执行序：refusalCache → 信号量 → 桶 → heap〔T4 inner〕→ 版本门〔T5 inner〕→ DB）——
   // v2 P-Q fingerprint=真实凭据：cookie-only 后 payload.token 恒 'cookie-auth' 占位——从 cookie 解析真值（'anon' 塌缩=跨用户 15s 放大）
-  const credential = parseSessionToken(payload.requestHeaders?.get('cookie')) ?? payload.token;
-  const fingerprint = `t:${sha256Hex(String(credential)).slice(0, 16)}`;
-  const cacheKey = `${payload.documentName}|${fingerprint}`;
-  const cached = this.refusalCache.get(cacheKey);
+  // v3：无 cookie ⇒ 不写缓存（anon 键会使不同来源的状态拒绝互相覆盖——UNAUTHENTICATED 本就不在白名单，短路在写入侧）
+  const credential = parseSessionToken(payload.requestHeaders?.get('cookie')); // 无 cookie ⇒ null ⇒ 本轮拒绝不落缓存
+  const fingerprint = credential ? `t:${sha256Hex(credential).slice(0, 16)}` : null;
+  const cacheKey = fingerprint ? `${payload.documentName}|${fingerprint}` : null; // v3.1：唯一声明（读写两侧均 if(cacheKey) 短路——v3 修订残留的重复声明对已删）
+  const cached = cacheKey ? this.refusalCache.get(cacheKey) : undefined;
   if (cached && Date.now() - cached.at < this.refusalTtlMs()) {
     this.authRejectTotal.inc({ reason: cached.reason, source: 'cache' });
     throw Object.assign(new Error(`refusal cached: ${cached.reason}`), { reason: cached.reason });
@@ -813,7 +846,7 @@ private async authenticate(payload: onAuthenticatePayload): Promise<...> {
   } catch (err: any) {
     const reason = err?.reason as CollabAuthReasonCode | undefined;
     if (reason && CollabGateway.REFUSAL_CACHEABLE.has(reason)) {
-      this.refusalCache.set(cacheKey, { reason, at: Date.now() }); // TTL 15s 绝对过期不续期（+sweepStaleAuthMaps 兜底清）
+      if (cacheKey) this.refusalCache.set(cacheKey, { reason, at: Date.now() }); // TTL 15s 绝对过期不续期（+sweepStaleAuthMaps 兜底清）；无凭据不落缓存（v3）
     }
     throw err;
   } finally {
@@ -858,10 +891,12 @@ for (const connection of [...document.connections.keys()]) {
 }
 
 // recheckConnection 判据单源化（:1166-1181 手写三段查询整体替换——与 authenticate 同链）
-private async recheckConnection(connection: any, documentName: string): Promise<{ revoked: boolean; expiresAt?: Date }> {
+// v3 P-U②：返回 cause 分型——"没有角色"（no-role）与"会话失效"（session-invalid）分开计数（T8 事件路径同分型）
+private async recheckConnection(connection: any, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid'; expiresAt?: Date }> {
   // sessionSvc.resolve(token) 保留（拿 userId+session 死线——纯读不续期，现注释维持）
   const { role } = await this.perm.resolveWithTeam(parseProjectId(documentName), userId); // 单源
-  this.permCache.set(connection, { role, at: Date.now() }); // 会话级结论缓存（T8 事件失效消费）
+  // ⚠ P-U② 权限语义 A：role 非 null 但用户已被移出团队（有显式 ProjectMember 行）=预期行为（REST 同链既有语义）——不踢
+  this.permCache.set(connection, { role, at: Date.now() }); // 会话级结论缓存（T8 事件失效消费——仅清缓存不直接 recheck）
   if (role === 'PROJECT_VIEWER' && !connection.readOnly) {
     connection.readOnly = true;
     this.rewriteAwarenessRole(connection, 'PROJECT_VIEWER'); // 词表 ProjectRole（T8 接线——本 Task 先挂 no-op+计数）
@@ -869,28 +904,28 @@ private async recheckConnection(connection: any, documentName: string): Promise<
     return { revoked: false };
   }
   if (role === 'PROJECT_EDITOR' && connection.readOnly) { connection.readOnly = false; this.rewriteAwarenessRole(connection, 'PROJECT_EDITOR'); }
-  return { revoked: role === null, expiresAt };
+  return role === null ? { revoked: true, cause: 'no-role' } : { revoked: false, expiresAt };
 }
 ```
 
-- [ ] **Step 4: 绿跑+commit**：`feat(y0b-3): T3 认证防线三层（refusalCache 15s/信号量 4/桶 10pm）+F-3 权限单源 resolveWithTeam+sweep 判据门两分支+auth_reject{reason,source}`
+- [ ] **Step 4: 绿跑+commit（v3.1 执行注：实现块先 `tsc --noEmit` 预跑——该块连续两轮出现同类笔误）**：`feat(y0b-3): T3 认证防线三层（refusalCache 15s/信号量 4/桶 10pm）+F-3 权限单源 resolveWithTeam+sweep 判据门两分支+auth_reject{reason,source}`
 
 （验收锚③"超限 socket ≤61s 消失"=库 connectionChecker 行为，属 int/真连验证——归 T11 出口演练登记：装置真连+65s 观察断连；单元级以"桶满后第 11 次 Auth 立即 deny rate-limited 零 DB"为判据，§0.4 登记口径。）
 
 ---
 
-### Task T4: heap 压力自保闸（谓词单源双量纲+onLoadDocument 单点+薄 reaper 库原语+check-ecosystem 单源链）
+### Task T4: heap 压力自保闸（谓词单源双量纲+onLoadDocument 单点+卡住观测器+check-ecosystem 单源链）
 
 **Files:**
 - Create: `apps/api/src/modules/collab/heap-pressure.ts`（谓词单源 util——禁第二套；**导出 HEAP_DEFAULTS 常量表供 check-ecosystem 单源提取**）
-- Modify: `apps/api/src/modules/collab/collab.gateway.ts`（authenticateInner 插入点+loadDocument :312 前插入+薄 reaper+Y2 catch 计数+heap 释放钩子接 refusalCache 清空）
+- Modify: `apps/api/src/modules/collab/collab.gateway.ts`（authenticateInner 插入点+loadDocument :312 前插入+卡住观测器+Y2 catch 计数+heap 释放钩子接 refusalCache 清空+三独立 timer〔寿命/观测/Map 老化——P-V⑦〕）
 - Modify: `scripts/check-ecosystem.mjs`（区间断言链——HEAP_DEFAULTS 提取）
 - Modify: `apps/api/src/modules/collab/store.metrics.ts`（指标组——见下）
 - Test: `apps/api/src/modules/collab/heap-pressure.spec.ts`+`collab-heap-gate.spec.ts`（新建）
 
-**v2 变更（P-O）**：①**删 v1 的 withDoc 首行平行判据**——onLoadDocument 单点已覆盖三入口（spec §3.2"唯一装载汇聚点——WS/DirectConnection/REST withDoc 全经此"原文即此义）+`collab-document.service.ts:142`"readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）"不变式注释尊重；REST 面压力经 onLoadDocument 拒载自然产生 `ServiceUnavailableException`（:48 既有先例）+retryAfter（T9 语义化）。②薄 reaper=spec §3.1ter 自队列谓词+**库 unloadDocument 自守卫（不重复实现 isDebounced/saveMutex/connectionsCount）+先判 `shouldUnloadDocument(doc)` 才计 reaped**。③删 collab_doc_store_failed_total（spool 既有观测覆盖+gateway 契约 3 恒零）；增 yjs_pending_bytes/yjs_zero_conn_docs/yjs_store_unexpected_throw_total。④红锚④改形态（gateway 契约 3"任何路径不 throw"实证⇒库"保内存"catch 分支〔esm:1541-1547〕本仓不可达——spec §3.2 前提偏离登记 §0.4-1）。
+**v2 变更（P-O；v3.1 注：下述②的"薄 reaper 卸载"已被 v3 P-V① 取代为纯卡住观测——以 Step 4 实现块为准，本段仅存沿革）**：①**删 v1 的 withDoc 首行平行判据**——onLoadDocument 单点已覆盖三入口（spec §3.2"唯一装载汇聚点——WS/DirectConnection/REST withDoc 全经此"原文即此义）+`collab-document.service.ts:142`"readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）"不变式注释尊重；REST 面压力经 onLoadDocument 拒载自然产生 `ServiceUnavailableException`（:48 既有先例）+retryAfter（T9 语义化）。②薄 reaper=spec §3.1ter 自队列谓词+**库 unloadDocument 自守卫（不重复实现 isDebounced/saveMutex/connectionsCount）+先判 `shouldUnloadDocument(doc)` 才计 reaped**。③删 collab_doc_store_failed_total（spool 既有观测覆盖+gateway 契约 3 恒零）；增 yjs_pending_bytes/yjs_zero_conn_docs/yjs_store_unexpected_throw_total。④红锚④改形态（gateway 契约 3"任何路径不 throw"实证⇒库"保内存"catch 分支〔esm:1541-1547〕本仓不可达——spec §3.2 前提偏离登记 §0.4-1）。
 
-- [ ] **Step 0: 探针**——spool 服务"未 confirm 帧"查询 API（canSafelyUnload 前置谓词④）；in-flight store 集合现名（storeInFlightDocs gauge 源）；Y2 兜底 catch 位置（gateway store 路径"契约 3 最后一道闸"注释处——yjs_store_unexpected_throw_total 埋点）；check-ecosystem.mjs regex 提取先例（node_args :53）。输出粘 commit message。
+- [ ] **Step 0: 探针**——spool 服务"未 confirm 帧"查询 API（canSafelyUnload 前置谓词④）；in-flight store 集合现名（storeInFlightDocs gauge 源）；Y2 兜底 catch 位置（gateway store 路径"契约 3 最后一道闸"注释处——yjs_store_unexpected_throw_total 埋点）；check-ecosystem.mjs regex 提取先例（node_args :53）；lease 门 gateway:312-313 在 REST 面可达性核对（withDoc :48 先挡=不可达则登记不改——F5 附带，同函数两条 503 语义不分叉确认）。输出粘 commit message。
 
 - [ ] **Step 1: 红测——谓词与迟滞**
 
@@ -903,15 +938,15 @@ it('V8 比例管 GC 螺旋、RSS 项管原生膨胀——两项各管一种死�
   stubHeapMeasure({ heapUsed: 0.1 * 1e9, heapLimit: 1e9, rss: 800 * 1024 * 1024 }); // trip=750MiB
   expect(measureHeapPressure().ratio).toBeGreaterThan(1); // rss 项主导
 });
-it('迟滞：>0.8 连续 2 采样才 trip；中间带维持；<0.7 单次释放（两阈值差异=迟滞防抖动，常量块注明）', () => {
+it('迟滞（v3 两量纲各自独立布尔——v2 标量 max 形态使 RSS 实效释放线=525MiB≠声明 600MiB 的缺陷修正）：tripped = heapRatio>=0.8 || rss>=750MiB；released = heapRatio<0.7 && rss<600MiB——RELEASE_BYTES 真正进运行时', () => {
   resetHeapPressure();
-  stubHeapMeasure({ heapUsed: 0.85e9, heapLimit: 1e9 }); // ratio 0.85
-  expect(measureHeapPressure().tripped).toBe(false); // 第 1 采样未 trip
-  expect(measureHeapPressure().tripped).toBe(true);  // 第 2 连续采样 trip
-  stubHeapMeasure({ heapUsed: 0.75e9, heapLimit: 1e9 }); // 迟滞带
-  expect(measureHeapPressure().tripped).toBe(true);  // 维持
-  stubHeapMeasure({ heapUsed: 0.6e9, heapLimit: 1e9 });
-  expect(measureHeapPressure().tripped).toBe(false); // 释放（<0.7=trip−0.1）
+  stubHeapMeasure({ heapUsed: 0.85e9, heapLimit: 1e9, rss: 100 * 1024 * 1024 }); // heap 项 trip 触发
+  expect(measureHeapPressure().tripped).toBe(false); // 第 1 采样未 trip（2 连续才 trip）
+  expect(measureHeapPressure().tripped).toBe(true);
+  stubHeapMeasure({ heapUsed: 0.6e9, heapLimit: 1e9, rss: 700 * 1024 * 1024 }); // heap 已回落但 rss ∈ (600,750)
+  expect(measureHeapPressure().tripped).toBe(true);   // 迟滞带维持（rss 未低于 600MiB 释放线）
+  stubHeapMeasure({ heapUsed: 0.6e9, heapLimit: 1e9, rss: 550 * 1024 * 1024 }); // 两项各自低于释放线
+  expect(measureHeapPressure().tripped).toBe(false);  // 释放
 });
 it('fail-open：测量抛错/返回 0→放行（指标失败不得全站拒连）', () => {
   stubHeapMeasure(null); // 模拟抛错
@@ -927,13 +962,15 @@ import { getHeapStatistics } from 'node:v8';
 /** heap 压力谓词——单源 util，禁第二套（spec §3.2）。
  * 两项各管一种死法互不重叠：heapUsed/heap_size_limit 管 GC 螺旋（纯 V8 口径）；
  * rss/TRIP_BYTES 管原生内存膨胀（RSS 已含 external/arrayBuffers——再并入 V8 比例=重复计数+量纲错位）。
- * trip=2 连续采样 >TRIP_RATIO（0.8）；release=单次 <TRIP_RATIO−0.1（0.7）——迟滞带防抖动。
+ * v3 布尔结构（两量纲各自独立上下阈——RELEASE_BYTES 真正生效；v2 标量 max 形态缺陷见迟滞测试注）：
+ *   tripped  = heapRatio >= TRIP_RATIO(0.8) || rss >= TRIP_BYTES(750MiB)   —— trip 需 2 连续采样
+ *   released = heapRatio < RELEASE_RATIO(0.7) && rss < RELEASE_BYTES(600MiB) —— 单次即释放
  * 默认值标定（v2.3 实测基线 138.8MB）：release 600MiB=基线×安全倍率 ∧ trip 750MiB=杀线−缓解预算；
  * 单调链 baseline×4 < release < trip < max_memory_restart(1G)−200MiB 由 check-ecosystem 断言。 */
 export const DEFAULT_RSS_TRIP_BYTES = 786_432_000;   // 750MiB
 export const DEFAULT_RSS_RELEASE_BYTES = 629_145_600; // 600MiB（§9.15 人工评估线同值——人先看见机器后动手）
-/** v2 P-O：HEAP_DEFAULTS 常量表单源导出——check-ecosystem 断言链从此提取（消 145MB/138.8MB 双源） */
-export const HEAP_DEFAULTS = { tripBytes: DEFAULT_RSS_TRIP_BYTES, releaseBytes: DEFAULT_RSS_RELEASE_BYTES } as const;
+/** v3：check-ecosystem 提取锚=本文件 DEFAULT_RSS_* 字面量（regex `([\d_]+)`+剥下划线+失败 fail-closed）——
+ *  ~~HEAP_DEFAULTS 常量表导出~~ 删除（脚本直读字面量，禁第二层间接） */
 export interface HeapPressureSample { tripped: boolean; ratio: number; rssBytes: number; heapUsedBytes: number; heapLimitBytes: number }
 // 模块级迟滞状态 + resetHeapPressure()（测试用）+ stubHeapMeasure()（测试注入——prod 走 process.memoryUsage/getHeapStatistics）
 export function measureHeapPressure(now?: number): HeapPressureSample { /* try/catch 包裹，异常→{tripped:false,ratio:0,...} fail-open */ }
@@ -961,27 +998,19 @@ it('③谓词抛错→放行（fail-open 落点级）', async () => {
   stubHeap(new Error('probe'));
   await expect(gw.authenticate(makeAuthPayload({ documentName: 'project:x' }))).resolves.toBeDefined();
 });
-it('④释放路径〔v2 改形态〕：库守卫不满足（stub debounced/saveMutex）→doc 常驻（红）→reaper 5min 谓词链→卸载+reaped 计数+压力回落可再装载', async () => {
+it('④卡住观测〔v3 卸载动作删除后〕：库守卫不满足（stub debounced/saveMutex）+零连接+队列空→连续 2 轮计 yjs_doc_stuck_total（观测器职责——卸载归库自愈排程；~~reaped 计数~~随动作删除）', async () => {
   vi.useFakeTimers();
   await loadThenDisconnect('project:doomed');
-  stubLibUnloadGuard(false); // stub 库 shouldUnloadDocument 恒 false（守卫卡住——heap 压力期 store 慢→积压的真实形态）
-  // 前提说明：gateway 契约 3"任何路径不 throw"使库 esm:1541-1547"保内存"catch 分支本仓不可达（§0.4-1 偏离登记）
-  // ——reaper 价值收窄为库守卫卡住窗口兜底，本锚用 stub 守卫形态验证 reaper 链路本身
-  expect(gw.server.hocuspocus.documents.has('project:doomed')).toBe(true); // 守卫卡住=常驻（红：无 reaper 时无人再触发卸载）
-  stubLibUnloadGuard(true);
-  await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
-  expect(gw.server.hocuspocus.documents.has('project:doomed')).toBe(false);
-  expect(await metricValue('yjs_doc_reaped_total')).toBe(1); // 先判 shouldUnloadDocument 才计数——守卫拒绝不计（v2 虚计修正）
-  stubHeap({ tripped: false });
-  await expect(gw.authenticate(makeAuthPayload({ documentName: 'project:doomed' }))).resolves.toBeDefined(); // 再装载成功
+  stubLibUnloadGuard(false); // stub 库 shouldUnloadDocument 恒 false（卡住形态——真实成因见偏离 13 可达性论证）
+  await vi.advanceTimersByTimeAsync(5 * 60_000 * 2 + 2_000); // 2 轮观测周期
+  expect(await metricValue('yjs_doc_stuck_total')).toBe(1);  // 连续 2 轮=计数（瞬时 debounce 1 轮=不计数）
 });
-it('自队列谓词不满足（pendingQueue 有帧）→跳过卸载；连续 2 轮守卫拒才计 yjs_doc_stuck_total（守卫瞬时拒绝≠stuck）', async () => {
+it('自队列非空（pendingQueue 有帧）=正常流转不计 stuck（轮内跳过≠stuck——区分观测）', async () => {
   vi.useFakeTimers();
   await loadThenDisconnect('project:queued');
   enqueuePending('project:queued', new Uint8Array([1]));
-  await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
-  expect(gw.server.hocuspocus.documents.has('project:queued')).toBe(true);
-  expect(await metricValue('yjs_doc_stuck_total')).toBe(0); // 谓词跳过≠stuck（轮内跳过无计数——区分观测）
+  await vi.advanceTimersByTimeAsync(5 * 60_000 * 2 + 2_000);
+  expect(await metricValue('yjs_doc_stuck_total')).toBe(0);
 });
 it('yjs_pending_bytes/yjs_zero_conn_docs gauge 可见（池外内存早于 RSS 可见——pendingQueues 在 external 不进 heapUsed）', () => { /* collect 断言 */ });
 ```
@@ -998,60 +1027,66 @@ if (!this.server.hocuspocus.documents.has(documentName) && measureHeapPressure()
   throw Object.assign(new Error('server overloaded'), { reason: CollabAuthReason.SERVER_OVERLOADED });
 }
 // loadDocument（onLoadDocument :311 方法体首行——三入口汇聚点〔WS/DirectConnection/REST withDoc〕Y0a-3 先例）
+// v3 P0-V1：throw 形态改 ServiceUnavailableException（Nest HttpException 有 .getStatus()）——REST 面（withDoc
+// 经 openDirectConnection 收到）自然 503 语义化；WS 面 Object.assign 的 reason 保留⇒库 esm:939 透传进
+// PermissionDenied 帧——两通路共用同一 throw（:365-369 兜底 catch 的 err.reason 透传分支直穿，无需 instanceof 档）
 if (!this.server.hocuspocus.documents.has(documentName) && measureHeapPressure().tripped) {
   this.loadRejectedTotal.inc({ reason: 'server-overloaded' });
-  throw Object.assign(new Error('server overloaded'), { reason: CollabAuthReason.SERVER_OVERLOADED });
+  // v3.1 F5：对象形态带 code——CollabNotServingFilter 只认 body.code==='COLLAB_NOT_SERVING' 才附 Retry-After: 2
+  // （filter:17-22 实证；字符串形态落 fallback=503 无 Retry-After ⇒ T9 retryAfter 消费静默降级）。
+  // 注：collab-document.service.ts:48 字符串先例=有意"通用入口非协议形态"，本处是协议分型面——形态不同不冲突。
+  // WS 面 err.reason 透传进 PermissionDenied 帧不变（:365-369 兜底 catch 直穿）。
+  throw Object.assign(new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'server overloaded' }), { reason: CollabAuthReason.SERVER_OVERLOADED });
 }
 ```
 
 ```ts
-// 5min 薄 reaper（v2 P-O：startSessionSweep 同族——listenCollab :1116 旁注册、clear-first 幂等、onApplicationShutdown 注销〔W8/M2② 定时器纪律〕）
-private startHeapReaper() {
-  this.heapReaperTimer = setInterval(() => void this.reapIdleDocs(), 5 * 60_000);
+// 5min 零连接 doc 观测器（v3 P-V①：**卸载动作删除**——自队列谓词与库守卫在可达状态同真〔队列非空⇔库
+// debounce/飞/mutex 必真〕+库 store 后必排 setTimeout unload 自愈〔esm:1550-1552〕+保内存分支本仓不可达
+// 〔偏离 1〕⇒ reaper 唯一对象不存在；保留卡住探针=守卫拒绝连续轮次计数〔若真出现=库行为异常的观测出口〕）
+private startHeapReaper() { // 独立 timer（v3 P-V⑦：不挂 startSessionSweep——SWEEP_ENABLED=false 逃生阀禁静默关掉观测）
+  this.heapReaperTimer = setInterval(() => void this.observeIdleDocs(), 5 * 60_000);
   this.heapReaperTimer.unref?.();
 }
-private async reapIdleDocs() {
-  const stuckRounds = this.docStuckRounds; // Map<string, number>——连续守卫拒轮次
-  for (const doc of [...this.server.hocuspocus.documents.values()]) {
+private observeIdleDocs() { // 纯观测零卸载动作
+  for (const doc of this.server.hocuspocus.documents.values()) {
     const name = doc.name;
-    if (doc.connections.size > 0 || doc.isLoading) { stuckRounds.delete(name); continue; } // 候选=零连接&&!isLoading（reaper≠驱逐）
-    if (!(await this.canSafelyUnloadOwn(name))) { stuckRounds.delete(name); continue; }    // ①spec §3.1ter 自队列谓词（轮内跳过≠stuck）
-    // ②库守卫原语（v2：不重复实现 isDebounced/saveMutex——先判后卸+守卫拒才轮次累计）
-    if (!this.server.hocuspocus.shouldUnloadDocument(doc)) {
-      const n = (stuckRounds.get(name) ?? 0) + 1;
-      stuckRounds.set(name, n);
-      if (n >= 2) { this.docStuckTotal.inc(); stuckRounds.delete(name); } // 连续 2 轮守卫拒=真 stuck（瞬时 debounce≠stuck）
-      continue;
+    if (doc.connections.size > 0 || doc.isLoading) { this.docStuckRounds.delete(name); continue; }
+    // v3.1：pendingQueues 键=裸 projectId（gateway:321 播种/:151/:826 全裸键取用实证——get(doc.name) 恒 undefined=本守卫静默失效）
+    const pid = parseProjectId(doc.name);
+    if (pid && (this.pendingQueues.get(pid)?.length ?? 0) > 0) { this.docStuckRounds.delete(name); continue; } // 自队列非空=正常流转非 stuck
+    if (!this.server.hocuspocus.shouldUnloadDocument(doc)) { // 守卫拒绝+零连接+队列空=疑似卡住
+      const n = (this.docStuckRounds.get(name) ?? 0) + 1;
+      this.docStuckRounds.set(name, n);
+      if (n >= 2) { this.docStuckTotal.inc(); this.docStuckRounds.delete(name); } // 连续 2 轮=真 stuck（瞬时 debounce≠stuck）
+    } else {
+      this.docStuckRounds.delete(name);
     }
-    try {
-      await this.server.hocuspocus.unloadDocument(doc); // v2 签名修正：Hocuspocus 实例+Document 参数（d.ts:227-228——非 Server 名参）；内部自带三守卫幂等
-      this.docReapedTotal.inc(); stuckRounds.delete(name);
-    } catch { /* stuck 观测已有——禁 reaper 自身抛出中断循环 */ }
   }
 }
-private async canSafelyUnloadOwn(name: string): Promise<boolean> {
-  // spec §3.1ter 前置谓词（终裁保留——我们自己的队列状态，库守卫不覆盖）：
-  // pendingQueue 空 ∧ 无在飞 store ∧ spool 无未 confirm 帧——reaper 打破库数据保全前确认屋里没人
-  if ((this.pendingQueues.get(name)?.length ?? 0) > 0) return false;
-  if (this.isStoreInFlight(name)) return false;      // Step 0 探针现名
-  if (await this.spool.hasUnconfirmed?.(name)) return false; // Step 0 探针 API 名
-  return true;
-}
+// ~~canSafelyUnloadOwn/unloadDocument 调用~~ v3 随卸载动作删除；spec §3.2 释放路径偏离登记（偏离 13）
+// ~~yjs_doc_reaped_total~~ 删除；yjs_zero_conn_docs gauge（collect）+ yjs_doc_stuck_total 保留
 ```
 
-（Y2 兜底 catch 处 `yjs_store_unexpected_throw_total.inc()`；heap tripped→released 翻转钩子接 `onServingTransition()` 同族的 refusalCache 清空〔P-Q 钩子②〕+`collab_overload_state` gauge 翻转+P-B 口径注释；~~collab_doc_store_failed_total~~ v2 删除。）
+（Y2 兜底 catch 处 `yjs_store_unexpected_throw_total.inc()`〔该 catch 实证存在——gateway store 路径「契约 3 最后一道闸」注释处〕；heap tripped→released 翻转钩子接 `onServingTransition()` 同族的 refusalCache 清空〔P-Q 钩子②〕+`collab_overload_state` gauge 翻转+P-B 口径注释；~~collab_doc_store_failed_total~~ v2 删除。**连接寿命 timer 同批独立**：`connEstablishedAt` 扫描移出 sweep tick 为独立 1min timer〔P-V⑦〕；`sweepStaleAuthMaps` 老化同独立——三 timer 各自 clear-first+shutdown 注销。）
 
 - [ ] **Step 5: check-ecosystem 区间断言链**
 
 ```js
-// check-ecosystem.mjs :61 后插入（v2 单源：trip/release 从 heap-pressure.ts 的 HEAP_DEFAULTS/DEFAULT_* 字面量 regex 提取——
-// baseline 与阈值禁第二处字面量；先例 :53 node_args regex）
+// check-ecosystem.mjs :61 后插入（v3 提取式钉死——S-5：常量写法 786_432_000 含数字分隔符，
+// \d+ 在 786 处截断=拿到错值且数值"合理"⇒fail 不触发=静默错绿；提取失败必须 fail-closed〔:54 纪律〕）
 const RSS_BASELINE_BYTES = 138_800_000; // server-profile F1 实测 138.8MB（加载演练后实测重标——v2 消双源）
-const { release, trip } = extractHeapDefaults(); // 单源提取
+const src = readFileSync('apps/api/src/modules/collab/heap-pressure.ts', 'utf8');
+const tripM = src.match(/DEFAULT_RSS_TRIP_BYTES\s*=\s*([\d_]+)/);
+const releaseM = src.match(/DEFAULT_RSS_RELEASE_BYTES\s*=\s*([\d_]+)/);
+if (!tripM || !releaseM) fail('HEAP_DEFAULTS 提取失败（常量被改名/删除）——禁"提取不到就算过"');
+const trip = Number(tripM[1].replace(/_/g, ''));
+const release = Number(releaseM[1].replace(/_/g, ''));
 if (!(RSS_BASELINE_BYTES * 4 < release)) fail('heap release 必须大于 baseline×4（当前 release 无法覆盖基线膨胀）');
 if (!(release < trip)) fail('heap release 必须小于 trip（迟滞方向）');
 if (!(trip < rss - 200 * 1024 * 1024)) fail('heap trip 必须小于 max_memory_restart−200MiB（缓解时延预算）');
 // 既有 :57（rss ≥ old-space+384MB=896MB 断言）保留原用途=杀线相对 V8 cap 足够宽——两件事禁互相引用
+// v3：trip/release 现为运行时真值（两量纲独立布尔后 RELEASE_BYTES 真正生效——断言链校验生效值）
 ```
 
 - [ ] **Step 6: 绿跑（红相留档——④释放路径改前红粘 commit）+commit**：`feat(y0b-3): T4 heap 压力闸（RSS/V8 双量纲+迟滞+fail-open+仅拒新物化）+5min reaper 前置谓词+check-ecosystem 区间链`
@@ -1078,8 +1113,9 @@ it('缺 csv→CLIENT_VERSION_MISSING（D12 缺参档——旧 bundle 不带参�
   expect(await metricValue('collab_version_negotiation_reject_total', { reason: 'client-version-missing' })).toBe(1);
 });
 it('csv 不可解析→CLIENT_VERSION_INVALID（"abc"/"1.5"/"0"/负数）', async () => { /* 同形态 */ });
-it('csv<current→SCHEMA_OUTDATED（客户端旧——reload 有效档；精确相等——区间协商=兼容层，R 终裁驳回）', async () => {
-  await expect(gw.authenticate(makeAuthPayload({ query: 'csv=0' }))).rejects.toMatchObject({ reason: 'schema-outdated' });
+it('csv<current→SCHEMA_OUTDATED（客户端旧——reload 有效档；精确相等——区间协商=兼容层，R 终裁驳回；v3：该档在首版协议=1 下结构性不可达〔无比 1 小的正整数〕——服务端锚经 vi.mock CLIENT_PROTOCOL_VERSION=2 形态测，T0 已用 current 注入单测覆盖）', async () => {
+  vi.mock(CLIENT_PROTOCOL_VERSION_MODULE, { CLIENT_PROTOCOL_VERSION: 2 }); // 或装置注入——Step 0 探针定 mock 形态
+  await expect(gw.authenticate(makeAuthPayload({ query: 'csv=1' }))).rejects.toMatchObject({ reason: 'schema-outdated' });
 });
 it('csv>current→SERVER_OUTDATED（客户端新于服务端——reload 无效档；本机 pull 前端未部署 api 的开发期真实场景）', async () => {
   await expect(gw.authenticate(makeAuthPayload({ query: 'csv=999' }))).rejects.toMatchObject({ reason: 'server-outdated' });
@@ -1212,7 +1248,7 @@ for (const doc of this.server.hocuspocus.documents.values()) {
 // 键控清理纪律：closeTeamDocuments（:1354-1372）与 beforeUnloadDocument 清该 doc 全部 connection 的 socketId 条目（经 connections 反查）
 ```
 
-- [ ] **Step 4: close code 常量化迁移+close 分布指标（零行为变化+观测）**——gateway :672/:1206/:1191/:1368+runtime :850 全部换 `CollabCloseCode.*`；**四处 close 调用点单点埋 `collab_ws_close_total{code,reason}`**（v2 P-O 观测——4205/4408/1009 真实分布此前完全不可观测，E13/T10 验收依赖它）；census `close\(1012\|close\(4401\|close\(1000` 双侧清零。
+- [ ] **Step 4: close code 常量化迁移+close 分布指标+1009 观测探针（v3）**——gateway :672/:1206/:1191/:1368+runtime :850 全部换 `CollabCloseCode.*`；**四处 close 调用点单点埋 `collab_ws_close_total{code,reason}`**（v2 P-O 观测——4205/4408/1009 真实分布此前完全不可观测；**v3 边界**：onDisconnectPayload 无 close code 字段=库自发/自然断连的服务端观测结构性不可达，归 Y0b-5 客户端遥测——本指标=应用侧主动 close 分布）；**1009 真连探针**（v3 P-V⑧：ws 发送 >16MiB 帧→断言客户端实际观测到的 close code 是 1009 还是 1006〔ws 层 destroy 形态〕——一次定论；若 1006 则 T0 映射表 1009 分支登记死码+T9 逃生通道改挂 1006 观测面）；census `close\(1012\|close\(4401\|close\(1000` 双侧清零。
 
 - [ ] **Step 5: 全绿+commit**：`feat(y0b-3): T6 拒载附 reason（第五终态档通路）+连接寿命 4402〔socketId 键控〕+close code 单源迁移+ws_close 分布指标`
 
@@ -1268,9 +1304,13 @@ it('一致性校验源：库 document.connections clients 集与归属表差异�
 - [ ] **Step 2: 实现（三分支同一趟）**
 
 ```ts
-// gateway 成员
-private readonly awarenessOwnership = new Map<string, Set<number>>(); // socketId → clientIds（spec §3.3 自建表语义维持——库 clients 集在 hook 后填充不能作权威〔esm:625-634〕；键=payload.socketId d.ts:609+esm:1512 双证）
+// gateway 成员（v3 P-V④+v3.1 双索引：ownedByOthers 每帧 O(连接数) 建并集是光标热路径开销，改 O(1) 判定；
+// 剪枝/清理/上限改按 socketId 自有 Set 迭代 O(自己)——ownedCount 标量并入 .size，NaN 减数风险结构性消除）
+private readonly clientIdOwner = new Map<number, string>();       // clientId → socketId（归属权威——spec §3.3 自建表语义；库 clients 集在 hook 后填充不能作权威〔esm:625-634〕）
+private readonly ownedClientIds = new Map<string, Set<number>>(); // socketId → clientIds（上限计数=.size；剪枝/断连清理/T8 role 改写迭代源）
 private readonly socketIdentity = new Map<string, { id: string; name: string; role: string }>(); // socketId → 认证身份（authenticate 成功路径播种+onDisconnect 清）
+private socketIdOf(connection: any): string { return connection?.socketId ?? ''; }               // v3.1：T8 消费的 helper（此前引用未定义）
+private ownedClientIdsOf(socketId: string): number[] { return [...(this.ownedClientIds.get(socketId) ?? [])]; }
 
 // hooks 追加
 beforeHandleAwareness: ({ states, socketId, context, connection, document }: any) => {
@@ -1280,19 +1320,36 @@ beforeHandleAwareness: ({ states, socketId, context, connection, document }: any
     if (!connection || !context || !socketId) return;
     const identity = this.socketIdentity.get(socketId);
     if (!identity) return; // 未认证连接的 awareness 帧（pre-auth 队列外不应出现——防御性放行）
-    const owned = this.awarenessOwnership.get(socketId) ?? new Set<number>();
-    const ownedByOthers = new Set<number>(); // 自建表其他条目并集（伪造判定源）
-    for (const [sid, set] of this.awarenessOwnership) if (sid !== socketId) for (const cid of set) ownedByOthers.add(cid);
     for (const [clientId, state] of [...states]) {
-      if (ownedByOthers.has(clientId)) { states.delete(clientId); continue; }   // ② 他人登记=伪造→整帧丢弃（不替别人发声）
-      if (!owned.has(clientId)) {                                                // ③ 首见=登记（同一趟——首帧不被丢弃）
-        if (owned.size >= 4) { states.delete(clientId); continue; }              // 上限 4（spec §3.3）
-        owned.add(clientId);
+      const owner = this.clientIdOwner.get(clientId);
+      if (owner !== undefined && owner !== socketId) {                          // ② 他人登记=伪造→整帧丢弃（O(1) 反向索引判定——不替别人发声）
+        states.delete(clientId);
+        this.awarenessRejectTotal.inc({ reason: 'forged' });
+        continue;
       }
-      states.set(clientId, { ...state, user: serverIdentityOf(identity) });      // ① owned（含刚登记）→无条件注入（不依赖帧内 user 存在性）
+      if (owner === undefined) {                                               // ③ 首见=登记（同一趟——首帧不被丢弃）
+        if ((this.ownedClientIds.get(socketId)?.size ?? 0) >= 4) {             // 上限 4（spec §3.3）——触发必须计数（S-3：光标消失类故障的观测出口）
+          states.delete(clientId);
+          this.awarenessRejectTotal.inc({ reason: 'owner-limit' });
+          continue;
+        }
+        this.clientIdOwner.set(clientId, socketId);
+        if (!this.ownedClientIds.has(socketId)) this.ownedClientIds.set(socketId, new Set());
+        this.ownedClientIds.get(socketId)!.add(clientId);
+      }
+      states.set(clientId, { ...state, user: serverIdentityOf(identity) });    // ① owned（含刚登记）→无条件注入（不依赖帧内 user 存在性）
     }
-    this.awarenessOwnership.set(socketId, owned);
-    // spec §3.3 ③ 库侧一致性校验：document.getClients(connection)（esm:560/:832）与 owned 差异计数（漂移探针——apply 后库自动登记 added）
+    // v3 S-3 剪枝：陈旧 clientId（客户端 setLocalState(null) 移除自身后索引残留——防上限被垃圾占满卡死长会话）
+    // 判据=既不在库 clients 集〔apply 后登记——对旧项可靠〕也不在本帧 states 且 doc awareness.states 已无此 id
+    // v3.1：只迭代自己名下 Set（O(自己)——原全表扫描把热路径开销原地搬回）；计数随删除自然收敛无 NaN 面
+    const libClients = document.getClients?.(connection) as Set<number> | undefined;
+    for (const cid of this.ownedClientIds.get(socketId) ?? []) {
+      if (!libClients?.has(cid) && !states.has(cid) && !document.awareness.states.has(cid)) {
+        this.clientIdOwner.delete(cid);
+        this.ownedClientIds.get(socketId)!.delete(cid);
+      }
+    }
+    // spec §3.3 ③ 一致性校验：clientIdOwner 与库 clients 集差异计数（漂移探针——反向索引即现成数据源）
   } catch { /* 观测面禁抛 */ }
 },
 
@@ -1303,7 +1360,7 @@ function serverIdentityOf(u: { id: string; name: string; role: string }) {
 }
 ```
 
-（onDisconnect 首行〔T6 同点〕：`awarenessOwnership.delete(socketId)`+`socketIdentity.delete(socketId)`——按 socketId 键控=所有权校验天然满足〔双标签锚验证〕；beforeUnloadDocument 清该 doc 全部相关条目；**库 removeConnection 已自动 removeAwarenessStates——断连清场库为主、自建表只清登记**。）
+（onDisconnect 首行〔T6 同点〕：`for (const cid of this.ownedClientIds.get(socketId) ?? []) this.clientIdOwner.delete(cid); this.ownedClientIds.delete(socketId);`+`socketIdentity.delete(socketId)`——按 socketId 键控=所有权校验天然满足〔双标签锚验证〕；beforeUnloadDocument 清该 doc 全部相关条目；**库 removeConnection 已自动 removeAwarenessStates——断连清场库为主、自建表只清登记**。）
 
 - [ ] **Step 3: 客户端 color 五件套收口（P-L 同 commit）**
 
@@ -1317,6 +1374,7 @@ export function userColorOfUserId(userId: string | undefined = ''): string {
 }
 // ②③ RemoteCursors.tsx/CanvasTopBar.tsx：userColor(s.user.id) → s.user.color（读注入字段——禁 fallback 双源）
 // ④ awareness.ts：删 userColor 导出+setLocalUser 退位 user 写入（函数删）；replayLocalUser 保留（runtime:147 终态重建/:982 pagehide 自愈承重——R24 注释；改形重放非 user 字段或 no-op）
+//    +CollabUser 类型扩 role?:string; color?:string（v3 P-V⑨：TS strict 下 s.user.color 类型必需——服务端注入字段进类型）
 // ⑤ CanvasView.tsx:113：删 bridge.setLocalUser({...}) 调用+import 清理（路径=apps/web/src/pages/canvas/components/）
 ```
 
@@ -1340,13 +1398,25 @@ export function userColorOfUserId(userId: string | undefined = ''): string {
 - [ ] **Step 1: 红测**
 
 ```ts
-it('复验降级的 awareness role 改写：user.role 变为 PROJECT_VIEWER（词表 ProjectRole——v2.1"只治写不治显示"修复；T3 已落 readOnly，本锚验证 role 面）', async () => {
-  const conn = await connectAs('editor-then-downgraded'); // T3 判据门已使复验可达
+it('复验降级的 awareness role 改写【v3 对端可见锚——禁只断言服务端 states：meta.clock 未递增时对端全丢弃而服务端自以为成功】', async () => {
+  const { conn, peer } = await twoClientFixture(); // 对端=可见性判官
+  const editor = await connectAs('editor-then-downgraded'); // T3 判据门已使复验可达
   await downgradeToViewerInDb(userId);
   await vi.advanceTimersByTimeAsync(5 * 60_000 * 1.2 + 1_000);
-  expect(conn.readOnly).toBe(true);
-  expect(awarenessStateOf(conn).user.role).toBe('PROJECT_VIEWER'); // 词表 ProjectRole
+  expect(editor.readOnly).toBe(true);
+  expect(peer.seesUserOf(editorClientId).role).toBe('PROJECT_VIEWER'); // ★对端可见值（clock 递增的证据）——服务端 states 断言只作旁证
   expect(await metricValue('collab_sweep_close_total', { cause: 'role-downgraded' })).toBe(1);
+});
+it('权限语义 A（v3 P-U② int 两例之一）：移出团队但有显式 ProjectMember 行→WS 仍可连（REST 同链既有语义——预期行为非缺陷）', async () => {
+  await seedExplicitProjectMember(userId, projectId, 'PROJECT_EDITOR');
+  await teamService.removeMember(teamId, userId); // 不触碰 ProjectMember 表（实证）
+  await expect(connectAs(userId, projectId)).resolves.toBeDefined(); // resolveWithTeam 显式档放行
+});
+it('权限语义 A（之二）：移出团队且无显式行→≤1s 被踢（事件路径 cause=no-role；v3.1 scheduleImmediateSweep——setImmediate 在 fake timers advance 中冲洗）', async () => {
+  const conn = await connectAs('plain-member');
+  await teamService.removeMember(teamId, userId);
+  await vi.advanceTimersByTimeAsync(1_100); // 不再等 5min tick——事件→立即 sweep 复验踢线
+  expect(conn.closeCode).toBe(4401);
 });
 it('事件驱动即时踢权：removeMember 事件→该成员全部连接 ≤1s 内 scheduleSweepClose（revoked）；sweep 5min 只是兜底（E39 口径=事件面零+兜底 5min）', async () => {
   const conn = await connectAs('member-to-remove');
@@ -1375,19 +1445,35 @@ const SESSION_SWEEP_INTERVAL_MS = 5 * 60_000; // 60s→5min：事件驱动为主
 
 // v2 P-K：recheckConnection 判据已在 T3 落地（resolveWithTeam 单源+降级 readOnly+revoked）——本 Task 零判据改动。
 
-// rewriteAwarenessRole 实接（T3 挂的 no-op 落地——词表 ProjectRole）：
+// rewriteAwarenessRole 实接（T3 挂的 no-op 落地——词表 ProjectRole；v3 P-U① **必须先递增 meta.clock**）：
 private rewriteAwarenessRole(connection: any, role: 'PROJECT_VIEWER' | 'PROJECT_EDITOR') {
-  // 以该连接登记的 clientId 名义改其 state.user.role——构造 Yjs awareness update（encodeAwarenessUpdate+applyAwarenessUpdate）
-  // 经 document.awareness 广播；owned clientIds 从 T7 归属表查（awarenessOwnership.get(socketId)）
-  // ⚠ 广播路径不经 beforeHandleAwareness 三分支（服务端内部写 origin）——T7 的放行判定保证不被自己剥离
+  // ⚠ clock 判据（y-protocols applyAwarenessUpdate）：`currClock < clock || (equal && state===null && has)`
+  // ——服务端直接改 states 不动 meta ⇒ 编码用旧 clock ⇒ 对端全丢弃而服务端自以为成功（假绿型）。
+  // T7 注入能生效恰因骑在入站帧更高 clock 上；本函数是服务端自发写——无帧可骑，必须自增：
+  for (const clientId of this.ownedClientIdsOf(socketIdOf(connection))) {
+    const aw = document.awareness;
+    const meta = aw.meta.get(clientId);
+    aw.meta.set(clientId, { clock: (meta?.clock ?? 0) + 1, lastUpdated: Date.now() }); // ← 先递增
+    aw.states.set(clientId, { ...(aw.states.get(clientId) ?? {}), user: { ...(aw.states.get(clientId)?.user ?? {}), role } });
+    // 再广播：applyAwarenessUpdate(aw, encodeAwarenessUpdate(aw, [clientId]), { source: 'local' })——
+    // 服务端内部写 origin 不进 beforeHandleAwareness 三分支（该钩子只挂 inbound Awareness 分支 esm:196-214）——不被自己的闸剥离 ✓
+  }
+  // 锚（Step 1）：断言**对端可见的 role**——禁只断言服务端 awareness.states（clock 未递增时对端丢弃=假绿）
 }
 
-// 事件驱动（EventEmitter2——project.gone 先例形态对齐）：
+// 事件驱动（EventEmitter2——project.gone 先例 gateway:1006 形态对齐）：
 // 变更点 emit（team.service 移除成员/角色变更+project 删除路径，Step 0 清单全量）：
 this.eventEmitter2.emit('collab.perm.changed', { userId, teamId, projectId? });
-// gateway 监听（@OnEvent('collab.perm.changed')）：
-//   遍历活跃连接匹配 userId+teamId（connection→userId 从 T7 socketIdentity 表）
-//   →清 permCache 受影响条目（事件=缓存失效信号）→立即 recheck 该连接（绕过缓存即时复验）→ 降级/踢除
+// gateway 监听（@OnEvent('collab.perm.changed')）——v3 P1-2 只清缓存使撤权退化 ≤6min（v3.1 修：恢复 spec §3.1"即时"）：
+//   遍历匹配 userId+teamId 的连接（connection→userId 从 T7 socketIdentity 表）
+//   →permCache.set(conn, { role: null, at: 0 })（表达"立刻到期"）→ scheduleImmediateSweep()
+private sweepKickPending = false;
+private scheduleImmediateSweep() { // 事件=缓存失效信号+请求一次立即 tick——**仍单一执行路径 sweepSessions**（不新增第二执行器）
+  if (this.sweepKickPending) return; // 事件风暴合并为一次（防惊群）
+  this.sweepKickPending = true;
+  setImmediate(() => { this.sweepKickPending = false; void this.sweepSessions().catch(() => {}); });
+  // tick 与 event 撞窗的重叠 sweepSessions 为良性：double close 在 CLOSING 态 no-op+recheck 幂等（permCache 重写）
+}
 ```
 
 （"单人团队特例分支删除"——v2 已裁删除+**评审核验现状 gateway 已无该分支**=登记"已不存在零改动"。）
@@ -1454,6 +1540,8 @@ p.on('close', ({ event }: any) => {
     plannedRestartUntil = Date.now() + 30_000; // 既有 :851 链路收编（UI 钳制 :164 消费）；重连交既有 1012 短退避（conn.spec:213-264 锚——行为不变）
   } else if (action.kind === 'silent-renew-once' && !silentRenewUsed) {
     silentRenewUsed = true;                    // 4401 'session-expired'（sweep）——静默一次（§3.5），失败落终态
+    // v3 S-4：silentRenewUsed 在 authenticated 事件重置（:837-843 既有块内 silentRenewUsed = false——
+    // "每次成功认证重置一次静默额度"；不重置=用户可感知的续期额度缩水：数小时后再次过期直接落终态本可再续）
     void recovery.recoverConnection();          // 唯一执行器
   } else if (action.kind === 'terminal') {
     useCanvasStore.setState({ wsAuthNotice: { reason: action.terminalReason!, terminal: true } });
@@ -1498,6 +1586,8 @@ async function handleVersionTerminal(p: HocuspocusProvider, reason: string) {
     }
   } catch { /* ready 不可达→直接落逃生动作 */ }
   // 逃生动作（唯一）：「导出本地画布→强制刷新」一键（不受未同步守卫约束——它就是为未同步而设；与 §5.5"请先导出"同一动作/同一按钮）
+  // v3 P-V⑧：同一按钮同时接 message-too-big 终态（1009 内容确定性——重连重发同一超限帧=无自救循环；
+  // 若 T6 探针实测客户端观测为 1006 则逃生挂点随观测面调整）
   showVersionEscapeAction();
 }
 ```
@@ -1520,80 +1610,45 @@ it('apiFetch 503 带 Retry-After→error.retryAfter 毫秒数；缺头→undefin
 it('执行入口 503→横幅「服务重启/维护中，请稍后重试」+Retry-After 后自动重试一次（同 SYNC_PENDING 范式——同 runId/regenToken 幂等保证零重复扣费）', async () => { /* executeGroupNodes catch 分支 */ });
 ```
 
-- [ ] **Step 6: 四/五档终态 UX 横幅组件**——wsAuthNotice 消费（Step 0 探针 banner 挂点）：版本过期（reload/逃生动作——Step 4）/会话过期（重登链接）/无权（回工作区）/SCHEMA_OUTDATED+CLIENT_VERSION_*（并入版本过期档文案）；DB 不可用/SERVER_OVERLOADED/RATE_LIMITED（非终态——横幅自动重试+退避中提示「服务繁忙，正在自动重试」）；write-frozen 横幅「服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）」。UI 测试：分档快照/文案断言。
+- [ ] **Step 6: 四/五档终态 UX 横幅组件**——wsAuthNotice 消费（Step 0 探针 banner 挂点）：版本过期（reload/逃生动作——Step 4）/会话过期（重登链接）/无权（回工作区）/SCHEMA_OUTDATED+CLIENT_VERSION_*（并入版本过期档文案）/**message-too-big 第六终态档（v3.1 F9：1009→terminalReason='message-too-big' 不在 auth reason 词表——映射表必须显式列此档否则落未知档；逃生=版本逃生同一按钮〔P-V⑧〕）**；DB 不可用/SERVER_OVERLOADED/RATE_LIMITED（非终态——横幅自动重试+退避中提示「服务繁忙，正在自动重试」）；write-frozen 横幅「服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）」。UI 测试：分档快照/文案断言。
 
 - [ ] **Step 7: 全绿+commit**：`feat(y0b-3): T9 客户端锁定项——wsAuthNotice 写点+真停连开关（输出级锚）+close 分型 machine 映射（删自建退避表）+1012 收编+write-frozen（H-5 Map 还原）+版本 reload 自愈+503 retryAfter`
 
 ---
 
-### Task T10: stateless ping 保活+onStateless 全函数化（P14 根修）+forceSyncInterval pin
+### Task T10: 空闲保活证伪性验证锚（v3 整删改写——~~ping/pong+onStateless+三指标+messageReconnectTimeout/forceSyncInterval pin~~ 全部不作）
 
 **Files:**
-- Modify: `apps/api/src/modules/collab/collab.gateway.ts`（hooks.onStateless）
-- Modify: `apps/web/src/stores/canvasCollabRuntime.ts`（15s ping 定时器+forceSyncInterval 60_000）
-- Modify: `apps/api/src/modules/collab/store.metrics.ts`（三指标）
-- Test: `apps/api/src/modules/collab/collab-stateless.spec.ts`（新建——真连装置）+runtime spec 扩
+- Test: `apps/api/src/modules/collab/collab-idle-anchor.spec.ts`（新建——真连装置只读锚，零生产代码改动）
 
-- [ ] **Step 0: 探针**——真连装置发送 stateless 帧的客户端侧 API（provider.sendStateless 或裸 WS 写 Message 编码——装置层级定测试形态）；provider lastMessageReceived 内部字段可达性（双向出口锚②读法）；ping 定时器挂载点（sessionEpoch 对齐+teardown 清理登记——runtime :1049-1050 纪律）。输出粘 commit message。
+**P-T 四环实证（v3.1 补第四环+第五环——写进测试文件头注释，防后人"补保活"回潮）**：
+1. y-protocols `awareness.cjs:85-103`：`setInterval(..., floor(outdatedTimeout/10))`=**3s tick**+`:87` 15s 门限（outdatedTimeout/2）触发 `:89 setLocalState(getLocalState())` 续期——机制=3s 轮询+15s 门限（净效果 ~15s 一帧）；`setLocalState`（:127-161）**clock 无条件 +1（:130）且无条件 emit 'update'（:160）**（equalityDeep 过滤只在 'change' :158——续期帧必发非"可能发"）；Awareness 构造器尾 `:107 setLocalState({})` 使 `getLocalState()!==null` 恒成立（远端清场删不掉本地态——"never let a remote client remove local"分支）。
+   ⚠ **P-T 成立前提=本地态非 null**（构造器 :107 播种保证+本仓 runtime:882 显式播种冗余）——**禁引入 `setLocalState(null)` 清场调用**（会使续期分支永 false=静默废掉保活）。
+2. provider `esm:776-780`：续期帧 origin='local'（字符串）≠provider 实例 ⇒ `if (origin === this) return` 不命中 ⇒ 发送。**第五环（v3.1）**：handler 挂 **'update'** 事件（`esm:905 off("update")` 注册面实证）——若挂 'change' 则续期帧被 equalityDeep 过滤=P-T 全塌，实际挂 'update' ⇒ 必发。
+3. server `esm:671-673`：`broadcastAwarenessUpdate` 无 origin 过滤 ⇒ 回显发送者（solo 单连接也收）。
+4. **（v3.1 第四环）** provider `esm:305-307`：`onMessage` 首行 `lastMessageReceived = getUnixTime()`——每入站帧（含回显）刷新 ⇒ 客户端 30s messageReconnectTimeout 恒满足。
+⇒ **空闲连接每 ~15s 有双向 awareness 帧**，两侧 lastMessage 计时器恒被刷新——spec §5.2"空闲零应用层消息⇒30-60s 判死四害"前提在本仓不成立。**后台标签**：pageHide 删本地态（provider `esm:733-735`——`removeAwarenessStates([document.clientID])`，awareness `:75 clientID=doc.clientID` 命中生效）⇒续期停⇒30s 判死⇒回前台重连=**正常预期非缺陷**（第四轮"pageHide no-op/幽灵 30s"论经 `:75` 证伪驳回）。**P14 向量随 onStateless 不注册归零**（库默认 `onStateless: () => Promise.resolve(null)` 不抛——esm:1259）；T1 unhandledRejection 兜底独立保留（买单者=T2 onUpgrade catch→throw）。`forceSyncInterval` 零配置（续期帧即保活+补传兜底已有 forceSyncAndWaitUnsynced :1104 按需）。
 
-- [ ] **Step 1: 红测——P14 红锚（§5.2 v2.4）**
+- [ ] **Step 0: 探针**——真连装置空闲计时形态（fake timers 不可用于真连——用真实 90s 等待或装置级短超时注入）；`provider.awareness` 的 meta.lastUpdated 可读性（服务端帧时刻的旁证源）。输出粘 commit message。
 
-```ts
-it('P14：真连发 sendStateless("not-json")→①进程存活②bad_payload+1③unhandledRejection 不增长（改前红：无 onStateless 钩子=库 esm:219 未 await+esm:1070-1076 重抛→兜底计数+1 且 bad_payload 恒 0）', async () => {
-  const ws = await connectAuthenticated('project:ping');
-  const unhandled0 = await metricValue('collab_unhandled_rejection_total');
-  await ws.sendStateless('not-json');
-  await settle(500);
-  expect(processAlive()).toBe(true); // pm2 errored 全站停摆向量的判据（min_uptime 30s/max_restarts 10——ecosystem 实证）
-  expect(await metricValue('collab_stateless_bad_payload_total')).toBe(1);
-  expect((await metricValue('collab_unhandled_rejection_total')) - unhandled0).toBe(0);
-});
-it('ping→pong 同批回（connection.sendStateless 单发——禁 broadcastStateless O(N²)）+双向刷新：一次 ping 后 ≤5s 服务端 lastMessageReceivedAt 更新（esm:951-953）', async () => {
-  const ws = await connectAuthenticated('project:ping');
-  await ws.sendStateless(JSON.stringify({ type: 'ping' }));
-  await expect.poll(() => serverLastMessageAt('project:ping'), 5_000).toBeTruthy();
-});
-it('未知类型→unknown 计数不炸', async () => { await ws.sendStateless('{"type":"mystery"}'); /* 断言 */ });
-```
-
-- [ ] **Step 2: 实现——服务端 onStateless（全函数化：JSON.parse 与副作用全包 try/catch、异常只计数绝不 rethrow）**
+- [ ] **Step 1: 只读验证锚（今日即绿——价值=用证据钉死不需要保活，防未来回潮）**
 
 ```ts
-// hooks 追加
-onStateless: ({ connection, payload }: onStatelessPayload) => {
-  // P14：本钩子经库 esm:219 未 await 调用+外层 rethrow——任何抛出都成 unhandledRejection
-  // （Node≥15 默认 throw；main.ts 兜底=T1 安全网，此处函数化=第一道防线）。绝不 rethrow。
-  try {
-    const msg = JSON.parse(payload);
-    if (msg?.type === 'ping') {
-      connection.sendStateless?.(JSON.stringify({ type: 'pong' })); // pong=ping 前置（v2.4：客户端 lastMessageReceived 只被入站帧刷新 provider:307——不回 pong=保活原样失效且服务端不可见=假绿）
-      this.statelessPingTotal.inc();                       // v2 M-6：Counter（次数）
-      this.statelessLastPingAt = Date.now();               // v2 M-6：age gauge 的 collect 源（now-last 可直接告警——Gauge 存时间戳不可直接告警）
-      return;
-    }
-    this.statelessUnknownTotal.inc();
-  } catch { this.statelessBadPayloadTotal.inc(); }
-},
+it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——无 4408 close/无重连（sessionEpoch 不变）/doc 常驻（无新物化）+服务端 lastMessageReceivedAt 15s 尺度被刷新（awareness 自续期双向帧——P-T 四环的行为级证据）', async () => {
+  // 前台/可见标签语义下断言（后台标签 pageHide 清场触发一次重连=正常预期——头注第 1 条）
+  const { provider, captureEpoch, serverLastMessageAt } = await connectIdle('project:idle');
+  const epoch0 = captureEpoch();
+  await sleep(90_000); // 真实等待（真连装置——禁 fake timers）；90s 覆盖 spec §5.2 死亡区间 30-60s 全谱
+  //（45s 压缩提案驳回——只覆盖 30s 子档；CI 时长敏感可降 45s+timeout 60_000，服务端死线 30s 子档仍可证）
+  expect(captureEpoch()).toBe(epoch0);                       // 未重连（无 4408/无新 socket）
+  expect(await serverLastMessageAt('project:idle')).toBeGreaterThan(Date.now() - 20_000); // ≤20s 内有入站帧
+  expect(gw.server.hocuspocus.documents.has('project:idle')).toBe(true);                  // 常驻无重装载
+}, 120_000); // v3.1：显式 timeout 必须——vitest 默认 5s 必挂
 ```
 
-- [ ] **Step 3: 实现——客户端 15s ping+阈值配套 pin（v2 H-6：三值关系显式化——现值客户端=服务端同为 30s 构成竞态）**
+- [ ] **Step 2: spec 勘误登记（偏离 11）**——spec §5.2 v2.3/v2.4 的 stateless ping 设计+§7.2 forceSyncInterval=60_000 pin 两行：前提（空闲零应用层消息）被 P-T 三环证伪——**勘误建议同步 spec 侧**（九轮外审漏了 y-protocols 协议层自续期）；本锚即"从根上解决"的执行形态（证据替代机制）。
 
-```ts
-// createProvider 配置追加：
-forceSyncInterval: 60_000, // §7.2：放长为补传兜底非保活（30s 与 COLLAB_TIMEOUT 同值竞态+每 tick 全量 SV 编码 CPU——均作废；禁以调大 COLLAB_TIMEOUT 换保活=pre-auth 存活窗=认证重放窗）
-messageReconnectTimeout: 45_000, // v2 H-6 显式 pin：三值关系=ping 15s < 服务端 COLLAB_TIMEOUT 30s（2×）< 客户端 45s（3×）——
-  // 默认 3e4 与服务端同值=竞态（connectionChecker 3s tick 三击合成 (4408,'forced')〔provider esm:342-357〕vs 服务端 terminate(4408,'Connection Timeout')〔esm:826-829〕——谁先到都重连，浪费一轮 doc 重装载）
-// 15s 心跳：
-establishedTimers.set(epoch, setInterval(() => {
-  try { provider?.sendStateless?.(JSON.stringify({ type: 'ping' })); } catch { /* teardown 竞态忽略 */ }
-}, 15_000));
-// teardownSession/destroyCollab：clearInterval+Map 删（键控清理纪律 :1049-1050——登记清理）
-// 双向出口锚（客户端侧）：ping 后 ≤5s provider lastMessageReceived 刷新（探针可达性——私有字段读法或 onStateless pong 监听计数代理判据）
-```
-
-- [ ] **Step 4: 双向出口锚登记（§3.6 出口——"只测服务端计时器=假绿"警告）**——客户端用例：连接健康态空闲 90s（ping 工作）→无 4408 close+provider 未重连（sessionEpoch 不变）+`collab_stateless_ping_total` 持续增长与 `collab_stateless_last_ping_age_seconds` 恒 <20s（服务端侧——保活工作双证据）；(4408,'forced') 合成码与库超时经映射表 `synthetic` 分型可诊断（T0）。
-
-- [ ] **Step 5: 全绿+commit**：`feat(y0b-3): T10 stateless ping/pong 15s 双向保活+messageReconnectTimeout 45s pin（三值关系）+onStateless 全函数化（P14）+forceSyncInterval 补传化`
+- [ ] **Step 3: commit**：`test(y0b-3): T10 空闲保活证伪性锚——awareness 15s 自续期双向帧行为级证据（spec §5.2 前提勘误登记；ping/pong 整批不作）`
 
 ---
 
@@ -1614,28 +1669,31 @@ establishedTimers.set(epoch, setInterval(() => {
   - `setAwarenessField\('user'\|setLocalUser`——web 零命中（replayLocalUser 保留不入）
   - `userColor\(`——apps/web 零命中（shared 单源 userColorOfUserId 除外）
 
-- [ ] **Step 3: 出口演练核对（§3.6 清单逐项过）**——sweep 默认开/角色复验降级（含 awareness role=ProjectRole）/事件即时踢权/Origin 握手失败锚/cookie-only+`?token=` census/parse-session-token 三形态/awareness 伪造+归属+首帧锚/版本门四档+联合锚/版本过期 reload 用例/schema 拒连演练（authenticationFailed.reason==='schema-outdated'+disconnect+N 秒重连==0〔输出级〕）/防放大三锚/heap 闸四红〔④守卫形态〕/check-ecosystem 单源区间链/连接寿命 4402〔socketId 键控〕/升级限流+三防线/ping 双向出口+P14 红锚/access_log+no-store 服务器侧断言/权限链五形态（F-3）。缺项回补，逐项在 commit message 列勾。
+- [ ] **Step 3: 出口演练核对（§3.6 清单逐项过；v3 更新）**——sweep 默认开/角色复验降级（含 awareness role=ProjectRole**对端可见锚**）/事件即时踢权（**仅清缓存**）+权限语义 A int 两例/Origin 握手失败锚/cookie-only+`?token=` census/parse-session-token 三形态/awareness 伪造+归属+首帧锚+上限计数/版本门四档+联合锚/版本过期 reload 用例/schema 拒连演练（authenticationFailed.reason==='schema-outdated'+disconnect+N 秒重连==0〔输出级〕）/防放大三锚/heap 闸四红〔④卡住观测形态〕/check-ecosystem 单源区间链（提取式 fail-closed）/连接寿命 4402〔socketId 键控〕/升级限流+三防线/**空闲 90s 证伪性锚（v3 替代 ping 双向出口+P14 红锚）**/access_log+no-store 服务器侧断言/**1009 客户端观测探针结论登记**/权限链五形态（F-3）。缺项回补，逐项在 commit message 列勾。
 
-- [ ] **Step 3bis: 重连演练（v2 新增——出口演练项非红绿门禁；单实例 2 核实测可跑 N=50，N=200 服务器侧冒烟可选）**——N=50 客户端同时重连：全部 `authenticated` ≤30s、零 4205/4408、`collab_auth_inflight` 峰值≤4、`collab_unhandled_rejection_total` 与 `collab_overload_state{tripped}` 均不增。观测 maxPendingDocuments 水位——若触发 4205（pre-auth 上限）登记 §0.4 再评估调值（spec 钉 100 维持）。
+- [ ] **Step 3bis: 重连演练（v2 新增 v3 硬判据；单实例 2 核实测 N=50，N=200 服务器侧冒烟可选）**——N=50 客户端同时重连：全部 `authenticated` ≤30s、零 4205/4408（**由演练客户端记录的 close code 断言——v3.1 F9：服务端 ws_close 只覆盖应用侧主动 close，库自发码唯一可观测面=客户端**）、`collab_auth_inflight` 峰值≤4、`collab_unhandled_rejection_total` 与 `collab_overload_state{tripped}` 均不增、**库 `getPendingDocumentCount()` 峰值 <50（v3 硬判据——否则一次部署即批量 4205；超限则登记 §0.4 再评估 maxPendingDocuments 调值，spec 钉 100 维持）**。
 
-- [ ] **Step 4: spec 回填**——spec §0.4 追加 Y0b-3 落地偏离行（**以本 plan §0.4 预登记 10 条为底**+实施期新增；spec 侧两处勘误建议同步：§3.2 红锚④前提〔偏离 1〕/§3.3"消费面零改动"措辞〔偏离 3〕）；v8 目录 Y0b 行回填（完成态+commit 区间+残余分派）。
+- [ ] **Step 4: spec 回填**——spec §0.4 追加 Y0b-3 落地偏离行（**以本 plan §0.4 预登记 14 条为底**+实施期新增；spec 侧两处勘误建议同步：§3.2 红锚④前提〔偏离 1〕/§3.3"消费面零改动"措辞〔偏离 3〕）；v8 目录 Y0b 行回填（完成态+commit 区间+残余分派）。
 
 - [ ] **Step 5: 部署清单（【告知用户点】——Y0b-2 先例形态）**：
   1. 服务器 `.env` 增 `COLLAB_TRUSTED_PROXY=1`（**必须**——不设=升级限流全站 127.0.0.1 单桶=重连风暴全站锁死，恰是限流要防的反面）；
-  2. 服务器 `.env` 的 `DATABASE_URL` 追加 `?connection_limit=5&pool_timeout=5000`（P-Q——与 INFLIGHT=4 对齐；runbook 登记）；
+  2. 服务器 `.env` 的 `DATABASE_URL` 追加 `?connection_limit=5&pool_timeout=5`（**v3.1 修正：pool_timeout 单位=秒**——原 5000≈83min=P2024 兜底近失效；对照=池 5−REST/worker 预留≥INFLIGHT 4；runbook 登记）；
   3. 可选 env（默认值即 spec 契约，不建议改）：COLLAB_ALLOWED_ORIGINS（默认 BETTER_AUTH_URL 推导+生产已剔除 localhost——若生产域名≠BETTER_AUTH_URL origin 则必须显式设）/COLLAB_SWEEP_ENABLED（逃生阀）/COLLAB_RSS_*；
   4. 部署窗口语义：**已打开的旧 bundle 会话全部进版本终态拒绝**（CLIENT_VERSION_MISSING 档——fail-closed §9.1 既定非风险）——建议低峰部署；
   5. nginx/ecosystem 零变更（access_log off+X-Real-IP 已在；access_log/no-store 断言已进 deploy 服务器侧校验链）；
   6. 部署后冒烟：伪造 Origin 握手 4xx+`collab_upgrade_rejected_total` 可见+`collab_overload_state{state="ok"}`=1+ready 含 collabProtocolVersion（200/503 双分支）+`collab_ws_close_total` 可见。
+  7. runbook 巡检登记（v3.1 F7——"可观测"变"会被发现"的最后一步；spec §5.8 巡检脚本+结构化日志口径）：`collab_load_rejected_total` 持续非零（>0 连续 5min→heap 处置行）/`collab_auth_reject_total{reason="db-unavailable"}` 突增（→PG/池排查）/`yjs_doc_stuck_total`>0（→观测确认，不手动卸载）/`collab_ws_close_total` 分布漂移（4402/1012 占比异常→寿命/drain 频度核对）/`collab_awareness_reject_total{reason="owner-limit"}`>0（→单连接 clientId 泄漏，客户端版本核对）。
 
-- [ ] **Step 6: commit+【用户确认点】**：`docs(y0b-3): T11 出口汇聚——verify 三连+census 五组+重连演练+spec §0.4〔预登记 10 条回填〕/v8 回填+部署清单`
+- [ ] **Step 6: commit+【用户确认点】**：`docs(y0b-3): T11 出口汇聚——verify 三连+census 五组+重连演练+spec §0.4〔预登记 14 条回填〕/v8 回填+部署清单`
 
 ---
 
-## Self-Review 记录（v2 已执行——覆盖两轮评审裁决落位）
+## Self-Review 记录（v3 已执行——覆盖三轮评审裁决落位）
 
-- **Spec 覆盖**：§3.1（sweep/事件/Origin/cookie-only/限流）→T2/T3/T8（判据门在 T3——P-K）；§3.1bis 四层→T3/T4/T5（序钉死 refusalCache→信号量→桶→heap→版本→DB）；§3.1ter→T2（Origin 形态）/T4（reaper 自队列谓词）；§3.2→T4（薄 reaper+偏离 1 登记）；§3.3→T7（states 三分支+归属表 spec 语义+color 五件套+首帧锚）；§3.4→T0/T5/T9（四档/通道/reload UX）；§3.5→T0/T6/T9（词表/通路/寿命/分配表/静默续期）；§3.6 出口→各 Task 锚+T11 汇总；§5.1/5.2 锁定项→T9/T10；§5.3 write-frozen/503→T9（P-S 最小形态）；§7.1/7.2 env/pin→T1/T10（maxPayload 三 pin/forceSyncInterval+messageReconnectTimeout——键随读者同批）；spec §4.1⑥ maxPayload 行为断言（1009 真连）**归 Y0b-4**（§4.5 出口清单在彼）。
-- **两轮评审裁决落位**：F-1→P-M（真开关+输出级锚）；F-2→P-M（machine 单源）；F-3→P-K（T3 全量）；H-1→T6（socketId）；H-2/P0-1/P0-2→T7（states+三分支+放行+无条件注入）；H-3→T7（**归属表 spec 语义维持**——库 clients 集在 hook 后填充不能作权威，评审第二轮自我更正确认）；H-4→T4（删 withDoc）；H-5→T9（Map 还原）；H-6→T10（45s pin+synthetic 分型）；M-1→T1.5；M-4→T0/T5（server-outdated）；M-5→P-Q（真实凭据）；M-6→T10（Counter+age gauge）；M-9→T5（GIT_COMMIT_HASH）；M-10→T5（服务器侧）；M-11→T4（HEAP_DEFAULTS）；M-12→T3（序修正回 spec）；M-14→T4（reaper 定时器纪律）；§6.1→T7（replayLocalUser 保留）；§6.2→P-L（color 五件套）；sweep 判据门（第二轮重磅）→T3；P-K'/P-L'/P-M' 等第三份大推翻案→**已驳回 7 项**（refusalCache 删/RSS 单量纲/reaper 删/同源 Origin/kill switch/maxPending 500/区间协商——理由见裁定表与评审回应）。
-- **已知移交**：collab_idle_timeout_total 遥测载体=Y0b-5 §5.6 sink（本批仅 synthetic 分型+diag ring）；refusalCache PG 熔断半开钩子位=Y0b-5 §5.9（清空钩子已单点化为 serving 转移——熔断半开接 spool 恢复同位）；quotaState 快照模型=Y0b-4 §4.1③（含幂等快照整体定型——P-S）；>8 人剥离/单连接短路=Y0b-4 §4.4；awareness role 消费方=Y0b-4 成员表（role 注入+改写维持 spec——偏离 10 登记）；1012 已消费勿重做（conn.spec 锚维持）。
-- **类型一致性**：CollabCloseCode/resolveCloseAction（T0 定义=T6/T9 消费——库值 common 导入）；negotiateClientVersion 四档名=CollabAuthReason 对应值（T0 内同文件族对齐+SERVER_OUTDATED 第六新值）；userColorOfUserId（shared T7 单源=serverIdentityOf 与等价性锚共用）；measureHeapPressure/HEAP_DEFAULTS（T4 单源=check-ecosystem 提取源）；awarenessOwnership/socketIdentity（T7 定义=T8 rewriteAwarenessRole/事件匹配消费）；connEstablishedAt/authAttemptBuckets/awarenessOwnership 三 Map（T6 onDisconnect 首行 socketId 统一清理）。
-- **占位符扫描**：Step 0 探针均为只读验证性步骤（非设计空位）；「Step 0 探针后定」项（parse-session-token cookie 名二选一/connectionMembership 遍历形态/userColor 调用行/事件变更点清单/导出函数现值）皆有判定准则或双形态预案，不阻塞执行。
+- **Spec 覆盖（v3）**：§3.1（sweep/事件/Origin/cookie-only/限流）→T2/T3/T8（判据门在 T3——P-K；事件=仅清缓存 P1-2）；§3.1bis 四层→T3/T4/T5（序钉死 refusalCache→信号量→桶→heap→版本→DB）；§3.1ter→T2（Origin end 形态）；§3.2→T4（两量纲独立布尔+ServiceUnavailableException 形态+**卡住观测替代卸载 reaper**〔偏离 13〕）；§3.3→T7（states 三分支+反向索引+剪枝+上限计数+color 五件套+首帧锚）+T8（**clock 递增+对端可见锚**）；§3.4→T0/T5/T9（四档〔'0'=invalid 统一+current 注入测〕/通道/reload UX；**矩阵删除**〔偏离 14〕）；§3.5→T0/T6/T9（词表/通路/寿命 socketId 键控/分配表〔reconnect 档删〕/静默续期〔authenticated 重置〕）；§3.6 出口→各 Task 锚+T11 汇总；§5.1/5.2 锁定项→T9（**T10 保活项随 P-T 证伪删除——spec 勘误〔偏离 11〕**）；§5.3 write-frozen/503→T9（P-S 最小形态）；§7.1/7.2 env/pin→T1（maxPayload 三 pin；~~forceSyncInterval/messageReconnectTimeout pin~~ 随 P-T 删）；spec §4.1⑥ maxPayload 行为断言（1009 真连）→**T6 观测探针先行**（形态定挂点）+行为断言归 Y0b-4 维持。
+- **四轮评审裁决落位（v3.1 增第四轮·三报告合流）**：V-1 重复声明删+无 cookie 不落缓存红测补（T3 Step 1/3）；onDrainReleased 陈旧测试→onServingTransition 单点表驱动（T3——v2 方法名已不存在）；pendingQueues 键=裸 projectId 修正（T4 observeIdleDocs——gateway:321/:151/:826 实证）；**F2 事件即时性恢复 scheduleImmediateSweep**（v3 采纳 P1-2 过度=撤权退化 ≤6min 且 T8 红测 1.1s 断言不可达——setImmediate 请求一次 tick，仍单一执行路径，T8）；pool_timeout 单位秒改 5（§0.3/T11 Step 5.2）；§0.1 四行 supersede（P-E/P-G/P-J/P-O）+六处陈旧引用清扫（TDD 块/T4 标题+Files/T1 Step 3/锚点表 onStateless 四钩子与 +ping——后两处本轮自查新发现）；T7 双索引 ownedClientIds Set（计数=.size 消 NaN+剪枝 O(自己)+ownedClientIdsOf/socketIdOf 落定义+onDisconnect 清理名修正 awarenessOwnership→双索引迭代——T8 原引用未定义 helper）；Map 老化独立 timer（T3 挂载注+T4 三 timer 清单——SWEEP_ENABLED=false 禁关老化）；SUE 对象形态 COLLAB_NOT_SERVING（T4——filter:17-22 实证，字符串形态落 fallback=无 Retry-After）；T10 锚显式 timeout 120s+90s 保留（45s 压缩驳回：只覆盖 30s 子档）；deadline≠DB 并发边界注释（T3+偏离 6 口径）；message-too-big 第六终态档显式（T9 Step 6）；客户端 close code 断言（T11 Step 3bis）；巡检小表（T11 Step 5.7）。**驳回**：pageHide no-op/幽灵 30s 论（awareness.cjs:75 `clientID=doc.clientID` 直接证伪——四轮评审第 4 处错误论断，模式=未读构造器赋值行；其"后台标签断连正常+锚须前台断言"结论采纳进 T10 头注）；45s 压缩；V-3b 注释位置（核验本就在测试块=免动作）；占池实测探针（单位=文档语义，改值+注释足够）。**P-T 补强**：第四环（provider esm:305-307 onMessage 刷新客户端计时器）+第五环（esm:905 off('update')——handler 挂 update 非 change，续期帧必发非可能发）+机制精化（3s tick/15s 门限/clock 无条件+1 且 update 无条件 emit）+前提禁令（禁 setLocalState(null)——静默废保活）。
+- **三轮评审裁决落位（v3 增第三轮）**：**P-T T10 保活证伪→整删改锚**（三环一手复核：awareness.cjs:85-89 自续期+provider :776-780 origin 发送+server :671-673 回显）；**P-U① clock 递增→T8**（对端可见锚）；**P-U② 权限语义 A→T3 cause 分型+T8 int 两例**（偏离 12）；S-1 夹具 resolveWithTeam→T1.5 Step 2.5；S-2 跨包 import+PROTOCOL_COMPAT 删→T0（偏离 14）；S-3 owned 剪枝+上限计数→T7（collab_awareness_reject_total）；S-4 silentRenew 重置→T9；S-5 提取式 [\d_]+ fail-closed→T4；必修 2 键型/必修 3 peak 笔误→T4/T3；P1-1 awareness Map 清理统一→T6 清单；P1-2 仅清缓存→T8；P1-3 reconnect 死档→T0；P1 sweep 拆 timer→T4/T1；7.1 reaper 卸载删→T4（偏离 13 彻底版）；7.2 clientIdOwner 反向索引→T7；7.3 1009 探针+逃生扩展→T6/T9；7.4 ws_close 边界→§0.2；csv>current 放行改判/**S-6 删 throw 指标/P0-V2 编译红论=驳回**（理由见 P-V/评审回应）。
+- **两轮评审裁决落位（v2 沿革）**：F-1→P-M（真开关+输出级锚）；F-2→P-M（machine 单源）；F-3→P-K（T3 全量）；H-1→T6（socketId）；H-2/P0-1/P0-2→T7（states+三分支+放行+无条件注入）；H-3→T7（**归属表 spec 语义维持**——库 clients 集在 hook 后填充不能作权威，评审第二轮自我更正确认）；H-4→T4（删 withDoc）；H-5→T9（Map 还原）；M-1→T1.5；M-4→T0/T5（server-outdated）；M-5→P-Q（真实凭据）；M-9→T5（GIT_COMMIT_HASH）；M-10→T5（服务器侧）；M-11→T4（HEAP_DEFAULTS）；M-12→T3（序修正回 spec）；M-14→T4（reaper 定时器纪律）；§6.1→T7（replayLocalUser 保留）；§6.2→P-L（color 五件套）；sweep 判据门（第二轮重磅）→T3；v2 第三份大推翻案→**已驳回 7 项**（refusalCache 删/RSS 单量纲/reaper 删〔v3 部分反转：卸载动作删但观测保留——可达性论证被第三轮 7.1 补强〕/同源 Origin/kill switch/maxPending 500/区间协商——理由见裁定表与评审回应）。
+- **已知移交**：collab_idle_timeout_total+库自发 close code 遥测载体=Y0b-5 §5.6 sink（本批仅 synthetic 分型+diag ring+ws_close 边界登记）；refusalCache PG 熔断半开钩子位=Y0b-5 §5.9（清空钩子已单点化为 serving 转移）；quotaState 快照模型=Y0b-4 §4.1③（含幂等快照整体定型——P-S）；>8 人剥离/单连接短路=Y0b-4 §4.4；awareness role 消费方+成员管理 UI 的项目级授权撤销入口=Y0b-4（role 注入+改写维持 spec——偏离 10/12 登记）；1012 已消费勿重做（conn.spec 锚维持）。
+- **类型一致性（v3）**：CollabCloseCode/resolveCloseAction（T0 定义=T6/T9 消费——库值 common 导入+四档 kind〔reconnect 删〕）；negotiateClientVersion(csv,current) 双参（T0 定义=T5 消费——current 默认常量，测试注入位）；userColorOfUserId（shared T7 单源=serverIdentityOf 与等价性锚共用）；measureHeapPressure 两量纲独立布尔（T4 单源=check-ecosystem DEFAULT_* 字面量提取源）；clientIdOwner/ownedCount/socketIdentity（T7 定义=T8 rewriteAwarenessRole/事件匹配消费）；connEstablishedAt/authAttemptBuckets/clientIdOwner/ownedClientIds/socketIdentity 五 Map+socketIdOf/ownedClientIdsOf helper（T7 定义=T8 rewriteAwarenessRole/事件匹配消费——v3.1 双索引+helper 落定义；T6 onDisconnect 首行 socketId 统一清理）。
+- **占位符扫描**：Step 0 探针均为只读验证性步骤（非设计空位）；「Step 0 探针后定」项（parse-session-token cookie 名二选一/事件变更点清单/userColor 调用行/1009 观测形态等）皆有判定准则或双形态预案，不阻塞执行。
