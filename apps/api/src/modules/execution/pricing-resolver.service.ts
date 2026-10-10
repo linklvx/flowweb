@@ -1,5 +1,5 @@
 // apps/api/src/modules/execution/pricing-resolver.service.ts —— Y0b-1（E48/E49/Z5/Z20）：定价唯一解析器
-// 冻结契约 1/3：任何直接 findFirst PricingRule / MODEL_CONFIG 判存在性 / 编译期常量定扣费额的新代码=违规。
+// 冻结契约 1/3：任何直接 findFirst PricingRule / 硬编码模型表判存在性 / 编译期常量定扣费额的新代码=违规。
 // fail-closed：无 active 规则/未知模型/键缺失 ⇒ 业务错误（零外呼零冻结）；creditCost:0 行=唯一合法免费。
 // Z5 终裁：全四键精确匹配、无解析阶梯；modelId IS NULL = kind 级规则（编辑 4 kind/multiImageGen）。
 import { Inject, Injectable, HttpStatus } from '@nestjs/common';

@@ -1,7 +1,7 @@
 // apps/api/src/modules/execution/api-caller.service.ts —— Y0b-2 T2 全文重构
-// MODEL_CONFIG（含三枚硬编码 sk- 密钥）退役：AIModel 行=唯一模型源（provider slug+apiModelName+
+// 旧"三键硬编码模型表（含内置密钥）"退役：AIModel 行=唯一模型源（provider slug+apiModelName+
 // 行级 apiKey——E51）；本服务只做 provider→外呼方式分派（provider-adapters 单源）。
-// mock 四分支（未注册模型回落假图/假视频/mock 文本/Unknown model type）全部退役——显式 errorCode 硬失败。
+// mock 四分支（未注册模型回落假图/假视频/mock 文本/未知类型回落）全部退役——显式 errorCode 硬失败。
 import { Inject, Injectable, Logger, HttpStatus, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -214,13 +214,6 @@ export class ApiCallerService implements OnModuleInit {
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  /** 4xx/5xx 显式 HTTP 错误（旧实现 json 解析空串当成功——硬失败分支） */
-  private async fetchGuarded(url: string, init: RequestInit): Promise<Response> {
-    const res = await fetch(url, init);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${String(url).slice(0, 120)}`);
-    return res;
   }
 
   /** tencent 提交（/submit）——submit 阶段预算 EXEC_SUBMIT_TIMEOUT_MS；返回 taskId */
