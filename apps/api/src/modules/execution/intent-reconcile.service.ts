@@ -355,8 +355,11 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     for (const [projectId, rows] of byProject) {
       try {
         const facts = await this.collabDoc.probeArtifacts(projectId, rows.map((r) => ({ nodeId: r.nodeId, kind: r.kind })));
-        for (const f of facts) {
-          const row = rows.find((r) => r.nodeId === f.nodeId);
+        // 按索引关联（probeArtifacts 保序）：同项目同 nodeId 多行悬留时 find(nodeId) 会把事实全落第一行
+        // ——第二行误判"不可裁决"多等一轮（T5 审查 Minor#2）。
+        for (let i = 0; i < facts.length; i++) {
+          const row = rows[i];
+          const f = facts[i];
           if (row) artifact.set(row.id, f.unknownKind ? null : f.found);
           if (f.unknownKind) this.logger.warn(`[intent-reconcile] 悬留 意图 kind=${f.kind} 不在产物键白名单——不裁决只计数`);
         }
