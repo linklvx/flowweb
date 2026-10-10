@@ -1,6 +1,7 @@
 // 空壳，构造签名一次到位——后续任务只加方法、不动构造/providers，spec 文件从创建起就 provide 全部依赖、永不需要二次编辑
 import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
+import { OnEvent } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
 import { buildFilteredSnapshot, type RawCanvasData } from './snapshot-filter.util';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
@@ -336,9 +337,27 @@ export class VideoWorkService {
       resetStatusIdle: false, injectThumbnails: true,
     });
     const result = { workId: id, title: w.title, ...filtered };
-    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）
-    this.collabDoc.invalidateSnapshotCache(w.canvasProjectId); // Y0b-2 T3：处理完成后失效——进程内层不跨请求存活（跨请求缓存=Redis 层）
+    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）——E71：跨进程层
+    // E71（Y0b-2 T8）：进程内 SnapshotDocCache 层跨请求存活（TTL 单飞——T3 的"处理完成后即时失效"随
+    // 双层化退役）；两层失效统一归 canvas.doc-saved 事件（onCanvasDocSaved 双清）+updateWork/removeWork 写路径。
     return result;
+  }
+
+  /** E71（Y0b-2 T8）：gateway store 成功落库 → process 快照双层失效（Redis 300s 跨进程层+SnapshotDocCache
+   *  进程内层）。事件随 store 去抖批高频——查 works 是 canvasProjectId 轻查询（无发布作品项目即空集短路）；
+   *  失效=卫生动作：失败只记日志不抛（emit 侧 fire-and-forget，抛错即 unhandled rejection）。 */
+  @OnEvent('canvas.doc-saved')
+  async onCanvasDocSaved(payload: { projectId: string }) {
+    try {
+      this.collabDoc.invalidateSnapshotCache(payload.projectId);   // 进程内层
+      const works = await this.prisma.videoWork.findMany({
+        where: { canvasProjectId: payload.projectId, allowViewProcess: true },
+        select: { id: true },
+      });
+      if (works.length) await this.redis.del(...works.map((w) => VideoWorkService.PROCESS_CACHE(w.id)));   // Redis 跨进程层
+    } catch (e) {
+      console.error('[video-work] canvas.doc-saved 快照失效失败（卫生动作——TTL 300s 兜底）', { projectId: payload.projectId, error: e });
+    }
   }
 
   /** 有界等待（readCanvas 无读取超时——内部只有 SV 等待 3s；Promise.race 外套）。finally 清 timer——

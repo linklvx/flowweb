@@ -541,6 +541,32 @@ describe('getProcessSnapshot（安全验收）', () => {
     (service as any).collabDoc.readCanvasSnapshotCached = vi.fn().mockImplementation(() => new Promise(() => {})); // 永不 resolve
     await expect(service.getProcessSnapshot('w1')).rejects.toThrow(ServiceUnavailableException);
   }, 10000);
+
+  // —— Y0b-2 T8（E71）：process 双层缓存（Redis 300s 跨进程+SnapshotDocCache 进程内 TTL 单飞）——
+  it('E71：getProcessSnapshot 不再即时失效进程内层（跨请求存活——失效归 canvas.doc-saved 事件双清）', async () => {
+    setup();
+    await service.getProcessSnapshot('w1');
+    expect((service as any).collabDoc.invalidateSnapshotCache).not.toHaveBeenCalled();   // T3 的"处理完成后失效"随双层化退役
+  });
+
+  it('E71：canvas.doc-saved → 双层失效（invalidateSnapshotCache(projectId)+redis.del 各 work PROCESS_CACHE）', async () => {
+    setup();
+    prisma.videoWork.findMany.mockResolvedValue([{ id: 'w1' }, { id: 'w2' }]);
+    await (service as any).onCanvasDocSaved({ projectId: 'p1' });
+    expect((service as any).collabDoc.invalidateSnapshotCache).toHaveBeenCalledWith('p1');
+    expect((service as any).redis.del).toHaveBeenCalledWith(
+      `videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}`,
+      `videoWork:process:w2:v${CANVAS_DOC_SCHEMA_VERSION}`,
+    );
+  });
+
+  it('E71：canvas.doc-saved 空 works → 仅进程内失效（redis.del 零参不触）', async () => {
+    setup();
+    prisma.videoWork.findMany.mockResolvedValue([]);
+    await (service as any).onCanvasDocSaved({ projectId: 'p1' });
+    expect((service as any).collabDoc.invalidateSnapshotCache).toHaveBeenCalledWith('p1');
+    expect((service as any).redis.del).not.toHaveBeenCalled();
+  });
 });
 
 describe('presignVideo（admin 成品视频预签）', () => {

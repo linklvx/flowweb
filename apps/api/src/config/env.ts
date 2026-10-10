@@ -4,8 +4,10 @@ import { z } from 'zod';
 const blankToUnset = (v: unknown) => (v === '' ? undefined : v);
 
 /** Y0b-2 T1（Z117）：EXEC_* 默认值常量表单源——zod 不写 .default（COLLAB_* 同款防双源 P3）；
- *  消费点读 EXEC_DEFAULTS.*；zod 仅验形态（int+下限）。EXEC_MAX_NODES 整体移 T8（键随读者同批）。 */
+ *  消费点读 EXEC_DEFAULTS.*；zod 仅验形态（int+下限）。EXEC_MAX_NODES T8 移入（键随读者同批）。 */
 export const EXEC_DEFAULTS = {
+  /** EXEC_MAX_NODES——execute 显式 nodeIds 上限（T8 Z90/Z117 移入；Σdeadline 硬闸的 DTO 级补充） */
+  MAX_NODES: 20,
   /** EXEC_SUBMIT_TIMEOUT_MS——外呼 submit 阶段超时 */
   SUBMIT: 30_000,
   /** EXEC_POLL_TIMEOUT_MS——同步轮询单次超时 */
@@ -80,7 +82,8 @@ export const envSchema = z.object({
 
   // Y0b-2 T1（Z117）：执行运行时超时/预算键——默认值=EXEC_DEFAULTS 常量表单源（上表），
   // zod 只验形态不写 default（防双源）；读点按【字面量】process.env 直读纪律（collab-env-single-source 方向②）。
-  // EXEC_MAX_NODES 不在此（整体移 T8——键随读者同批，防死键）。
+  // EXEC_MAX_NODES T8 移入（读者=execution.controller EXEC_MAX_NODES 硬闸——键随读者同批）。
+  EXEC_MAX_NODES: z.preprocess(blankToUnset, z.coerce.number().int().min(1).optional()),                     // 默认 EXEC_DEFAULTS.MAX_NODES=20
   EXEC_SUBMIT_TIMEOUT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(1_000).optional()),        // 默认 EXEC_DEFAULTS.SUBMIT=30_000
   EXEC_POLL_TIMEOUT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(1_000).optional()),          // 默认 EXEC_DEFAULTS.POLL=10_000
   EXEC_DEADLINE_TEXT_MS: z.preprocess(blankToUnset, z.coerce.number().int().min(10_000).optional()),        // 默认 EXEC_DEFAULTS.DEADLINE_TEXT=90_000

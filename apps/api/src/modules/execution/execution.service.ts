@@ -12,6 +12,7 @@ import { Queue } from 'bullmq';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
 import { normalizeIntentParams } from './normalize-intent-params';
+import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { settleFailureTotal, intentDuplicateAttemptTotal } from './intent-reconcile.metrics';
 import { artifactDiscardedTotal } from './exec.metrics';
@@ -38,6 +39,16 @@ interface NodeCallOutcome {
   kind: string;                            // reanchor deadline 档表键（intent-key.util deadlineMsForKind）
   callArgs: Record<string, unknown>;       // claim paramsHash 规范化输入（与外呼实参同源）
   call: (onTick: () => Promise<'abort' | void>) => Promise<{ resultRef: string; artifact: Record<string, unknown>; resultRow?: ExecutionResult['results'][number]; fileId?: string; downloadMime?: string }>;
+}
+
+/** Y0b-2 T8（Z90）：node.type→deadline 档表键——nodeClaimPack kind 分支的单源投影（新增类型两处同步）。
+ *  白名单外类型走 image 档（is-executable-node 已滤——本映射只服务 Σdeadline 硬闸的保守估算）。 */
+function deadlineKindOfNodeType(type: string): string {
+  switch (type) {
+    case 'textInput': return 'text';
+    case 'videoGen': return 'video';
+    default: return 'image';   // imageGen/imageExtGen/multiImageGen/audioGen（nodeClaimPack image 腿同集）
+  }
 }
 
 @Injectable()
@@ -161,6 +172,21 @@ export class ExecutionService {
       throw new BusinessException('CYCLE', '组内存在循环依赖，无法确定执行顺序', HttpStatus.BAD_REQUEST);
     if (!orderedNodes.some(isExecutableNode))
       throw new BusinessException('EMPTY_SCOPE', '执行范围为空（无可执行节点）', HttpStatus.BAD_REQUEST);
+
+    // Y0b-2 T8（Z90/Z117）：Σdeadline 病态批硬闸——与本次 readCanvas 活读同源（非另读快照），覆盖
+    // execute 直达/全画布（无 nodeIds）/processor 单节点全路径。判据=请求时长最坏上界（Σ deadline）非
+    // 耗时预估：只挡 20×video=5h 类资源钉死批，不误拒单节点/2×video 批（默认帽语义"同步组 ≤2×video"）。
+    // 原EXEC_SYNC_BUDGET_MS(55s) 准入门已撤销（防翻案——spec §0.4 偏离登记）；删门安全性依赖 T6 claim
+    // ② 最新回放（同执行序 T6<T8）。请求级 4xx（循环前 throw 合法——零外呼零冻结零意图行）。
+    const totalDeadlineMs = orderedNodes.filter(isExecutableNode)
+      .reduce((sum, n) => sum + deadlineMsForKind(deadlineKindOfNodeType(n.type)), 0);
+    if (totalDeadlineMs > syncHardCapMs()) {
+      throw new BusinessException(
+        'EXEC_SCOPE_TOO_LARGE',
+        `组执行时长上界 ${(totalDeadlineMs / 1000).toFixed(0)}s 超同步硬帽 ${(syncHardCapMs() / 1000).toFixed(0)}s（EXEC_SYNC_HARD_CAP）——请拆分执行或走 enqueue`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
 
     // 4. Global pre-validation
     const validationResult = await this.validation.validateAll(orderedNodes, project.teamId, userId);

@@ -47,3 +47,19 @@ export function deadlineMsForKind(kind: string): number {
     default: return env(process.env.EXEC_DEADLINE_EDIT_MS, EXEC_DEFAULTS.DEADLINE_EDIT);
   }
 }
+
+/** Y0b-2 T8（Z90/Z117）硬闸阈值读取——env 字面量直读+EXEC_DEFAULTS 兜底（deadlineMsForKind 同款纪律）：
+ *  - execMaxNodes：execute 显式 nodeIds 上限（DTO 级闸——Σdeadline 闸的补充面）；
+ *  - syncHardCapMs：同步路径 Σdeadline 上限（判据=请求时长最坏上界非耗时预估；默认 1_800_000="同步组
+ *    ≤2×video(900s)"规模上限——只挡 20×video=5h 类资源钉死批，不误拒单节点/2×video 合法批）。
+ *  相对关系（HARD_CAP ≥ max(EXEC_DEADLINE_*)）由启动断言锁（api-caller.service onModuleInit 预算锁——
+ *  T2 落，FAKE_AI 不豁免）；zod 不设硬地板防拦合法上调。 */
+export function execMaxNodes(): number {
+  const n = Number(process.env.EXEC_MAX_NODES);
+  return process.env.EXEC_MAX_NODES !== undefined && process.env.EXEC_MAX_NODES !== '' && Number.isFinite(n) && n >= 1 ? n : EXEC_DEFAULTS.MAX_NODES;
+}
+
+export function syncHardCapMs(): number {
+  const n = Number(process.env.EXEC_SYNC_HARD_CAP);
+  return process.env.EXEC_SYNC_HARD_CAP !== undefined && process.env.EXEC_SYNC_HARD_CAP !== '' && Number.isFinite(n) && n >= 1000 ? n : EXEC_DEFAULTS.SYNC_HARD_CAP;
+}

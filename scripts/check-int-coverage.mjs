@@ -28,7 +28,9 @@ const FILES_MIN = {
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));
 const perFile = new Map(report.testResults.map((t) => [basename(t.name), t.assertionResults.length]));
 const ran = new Set(perFile.keys());
-const files = new Set(execSync('git ls-files "apps/api/src/**/*.int.spec.ts"').toString().trim().split('\n').filter(Boolean).map((s) => s.split('/').pop()));
+// Y0b-2 T8（Z118）：pathspec 补根级第二模式——di-smoke.int.spec.ts 在 apps/api/src/ 根，**/*.int.spec.ts
+// 不匹配根级文件（漏跑时判据①不红，FILES_MIN 兜底是残缺形态——修门禁非绕）
+const files = new Set(execSync('git ls-files "apps/api/src/**/*.int.spec.ts" "apps/api/src/*.int.spec.ts"').toString().trim().split('\n').filter(Boolean).map((s) => s.split('/').pop()));
 const missing = [...files].filter((f) => !ran.has(f));
 const problems = [];
 if (missing.length) problems.push(`int 静默漏跑：${missing.join(',')}`);

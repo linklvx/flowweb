@@ -97,6 +97,23 @@ describe('ExecutionController', () => {
       await controller.execute({ projectId: 'p1', nodeIds: ['n1', 'n2'], stateVector: SV_OK } as any, req);
       expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', ['n1', 'n2'], undefined);
     });
+
+    // Y0b-2 T8（Z90/Z117）：EXEC_MAX_NODES 硬闸——21 字面量=default 20+1（env 未设档；设 EXEC_MAX_NODES 的测试环境需自调）
+    it('T8：nodeIds.length > EXEC_MAX_NODES → 400 EXEC_SCOPE_TOO_LARGE（service 零调用——DTO 级先于一切）', async () => {
+      const req = { user: { id: 'u-auth' } } as any;
+      const nodeIds = Array.from({ length: 21 }, (_, i) => `n${i}`);
+      const err = await controller.execute({ projectId: 'p1', nodeIds, stateVector: SV_OK } as any, req).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'EXEC_SCOPE_TOO_LARGE' });
+      expect((err as any).getStatus()).toBe(400);
+      expect(service.execute).not.toHaveBeenCalled();
+    });
+
+    it('T8：恰 =EXEC_MAX_NODES（20）放行（上限含端点——只挡病态批非收紧合法面）', async () => {
+      const req = { user: { id: 'u-auth' } } as any;
+      const nodeIds = Array.from({ length: 20 }, (_, i) => `n${i}`);
+      await controller.execute({ projectId: 'p1', nodeIds, stateVector: SV_OK } as any, req);
+      expect(service.execute).toHaveBeenCalled();
+    });
   });
 
   describe('enqueue', () => {

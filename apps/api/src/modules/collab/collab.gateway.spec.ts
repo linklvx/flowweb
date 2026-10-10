@@ -898,6 +898,19 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
     } finally { await kit.dispose(); }
   });
 
+  it('E71（Y0b-2 T8）：store append 成功 → emit canvas.doc-saved {projectId}（消费面=video-work process 快照双层失效）', async () => {
+    const kit = await startDualClientServer({}, 200);
+    try {
+      const doc = new Y.Doc();
+      await kit.gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p-e71' } as any);
+      doc.getMap('nodes').set('n1', new Y.Map());
+      const emitSpy = vi.spyOn((kit.gateway as any).eventEmitter, 'emit');
+      const wrote = await kit.gateway.hooks.onStoreDocument({ document: doc, documentName: 'project:p-e71' } as any);
+      expect(wrote).toBe(true);                                  // 前置：走 appended 成功支（emit 唯一位）
+      expect(emitSpy).toHaveBeenCalledWith('canvas.doc-saved', { projectId: 'p-e71' });
+    } finally { await kit.dispose(); }
+  });
+
   it('M1：draining 白盒——受理门拒新连接（X9 DRAINING 档前置于租约门——draining 分型准确不误报 lease-not-ready）', async () => {
     const kit = await startDualClientServer({}, 200);
     try {

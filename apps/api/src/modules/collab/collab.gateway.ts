@@ -481,6 +481,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         if (stashIds.length) await this.spool.confirm(projectId, stashIds);   // 旧帧内容已入 PG——可回收（契约 12）
         yjsStoreDrainTotal.inc({ result: 'appended' });
         yjsCanvasDocBytes.inc({ projectId }, payload.byteLength);   // 批3-4：增量字节累加
+        // E71（Y0b-2 T8）：store 成功路径 emit——doc 已落 PG，消费面（video-work process 快照）双层失效。
+        //  emit 非 emitAsync（V11 纪律：store 取批点在 saveMutex 内，不等监听器；监听器自兜底不抛）。
+        this.eventEmitter.emit('canvas.doc-saved', { projectId });
         this.cancelPersistRetry(documentName);   // 批3-4：成功即撤销退避定时器
         this.setPersistStatus(documentName, true);
         try { await this.maybeCompact(projectId); }

@@ -9,6 +9,8 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { assertSyncAdmitted } from '../collab/sync-admission';
 import { Request } from 'express';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
+import { execMaxNodes } from './intent-key.util';
+import { BusinessException } from '../../common/exceptions/business.exception';
 
 @Controller('api/execution')
 export class ExecutionController {
@@ -31,6 +33,12 @@ export class ExecutionController {
     // 权限恒先于 SV 门（T7 质量审 I-2——与 enqueue/image-edit/lighting 三端点同型；0c-6 存在性 oracle：
     // perm 未过者不得以 409-vs-403 差分探测 doc 同步态）
     await this.perm.assertEditor(body.projectId, (req as any).user?.id);
+    // Y0b-2 T8（Z90/Z117）：EXEC_MAX_NODES 病态批硬闸（DTO 级——nodeIds 在 body 直读，先于 SV 门零 doc 读）；
+    // Σdeadline≤EXEC_SYNC_HARD_CAP 闸在 service（与 readCanvas 同一次 doc 读——enqueue 单节点形态 Σ 恒≤
+    // 单 kind deadline≤HARD_CAP〔启动断言锁 api-caller onModuleInit 预算锁〕，结构性不越帽故无 DTO 位）。
+    if (body.nodeIds && body.nodeIds.length > execMaxNodes()) {
+      throw new BusinessException('EXEC_SCOPE_TOO_LARGE', `组执行节点数 ${body.nodeIds.length} 超上限 ${execMaxNodes()}（EXEC_MAX_NODES）`);
+    }
     await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     // regenToken=客户端手势 token（Z79/Z109）——无 token 普通执行=undefined（内容键路径）
     return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken);

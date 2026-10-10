@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/exceptions/business.exception';
 import { CreditLedgerService } from '../../team/credit-ledger.service';
@@ -52,11 +52,23 @@ export class AdminSubscriptionService {
     });
   }
 
-  async grantCredit(userId: string, amount: number, creditType: 'regular' | 'subscription') {
+  /** Y0b-2 T8（Z87/Z113）admin Idempotency-Key：opts.idempotencyKey 携带时走幂等协议——
+   *  pg_advisory_xact_lock（事务首句业务锁——收并发同键窗：前置查对并发无效，双方 miss⇒后者撞
+   *  idempotencyKey @unique⇒事务 abort 500；admin 幂等路径唯一取锁者无 ABBA）→ lockBalance →
+   *  findFirst 前置查 → 命中⇒指纹比对（type/amount/creditType/operatorUserId——不一致 409
+   *  IDEMPOTENCY_KEY_REUSED：换操作员同 key≠重放）⇒回放 replayed:true+transactionId 原值+
+   *  credits/subscriptionCredits=同事务读当前两池（不回历史 balanceAfter=台账行发生时值⇒UI 陈旧）。
+   *  miss⇒原样 mutate（reversesId @unique/money_in_once 抛错 backstop 全保留——禁 skipDuplicates；
+   *  不带 key=合法重复操作面维持，Z9 同族）。 */
+  async grantCredit(
+    userId: string, amount: number, creditType: 'regular' | 'subscription',
+    opts?: { idempotencyKey?: string; operatorUserId?: string | null },
+  ): Promise<{ replayed: boolean; transactionId: string; credits: number; subscriptionCredits: number }> {
     const team = await this.prisma.team.findFirst({ where: { ownerId: userId, isDefault: true } });
     if (!team) throw new BusinessException('PERSONAL_TEAM_MISSING', '用户默认团队缺失');
 
     const txType = amount >= 0 ? 'admin_grant' : 'admin_clear';
+    const operatorUserId = opts?.operatorUserId ?? userId;
 
     if (creditType === 'subscription') {
       const sub = await this.prisma.userSubscription.findFirst({
@@ -66,15 +78,38 @@ export class AdminSubscriptionService {
     }
 
     // Y0b-1（撕裂根修）：唯一无事务点补单事务——ensureBalance（upsert 自愈收口）+lockBalance+mutate。
-    // admin_* 不进 money_in 幂等键（合法重复操作面）；referenceId=userId（操作对象锚）。
-    await this.prisma.$transaction(async (raw) => {
+    // referenceId=userId（操作对象锚）；带 key 时行落 idempotencyKey 列（Z100 同列——admin 链自管指纹/回放）。
+    return this.prisma.$transaction(async (raw) => {
       const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
+      if (opts?.idempotencyKey) {
+        // Z113：advisory 事务锁先于一切业务语句（SET LOCAL 之后）——事务提交即释放，锁粒度=hash(key)
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'admin:' + opts.idempotencyKey}))`;
+      }
       await this.ledger.ensureBalance(tx, team.id);
       await this.ledger.lockBalance(tx, team.id);
-      await this.ledger.mutate(tx, {
-        teamId: team.id, operatorUserId: userId, type: txType, creditType,
+      const bothPools = async () => {
+        const bal = await tx.teamBalance.findUniqueOrThrow({ where: { teamId: team.id } });
+        return { credits: bal.credits, subscriptionCredits: bal.subscriptionCredits };
+      };
+      if (opts?.idempotencyKey) {
+        const prev = await tx.teamCreditTransaction.findFirst({
+          where: { idempotencyKey: opts.idempotencyKey, teamId: team.id },
+          select: { id: true, type: true, creditType: true, balanceDelta: true, operatorUserId: true },
+        });
+        if (prev) {
+          if (prev.type !== txType || prev.creditType !== creditType
+            || prev.balanceDelta !== amount || prev.operatorUserId !== operatorUserId) {
+            throw new BusinessException('IDEMPOTENCY_KEY_REUSED', '同 Idempotency-Key 已用于不同操作（type/amount/creditType/operatorUserId 指纹不一致）', HttpStatus.CONFLICT);
+          }
+          return { replayed: true, transactionId: prev.id, ...await bothPools() };
+        }
+      }
+      const r = await this.ledger.mutate(tx, {
+        teamId: team.id, operatorUserId, type: txType, creditType,
         balanceDelta: amount, frozenDelta: 0, referenceId: userId,
+        idempotencyKey: opts?.idempotencyKey ?? null,
       });
+      return { replayed: false, transactionId: r.rowId!, ...await bothPools() };
     });
   }
 }

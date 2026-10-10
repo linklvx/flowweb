@@ -19,10 +19,12 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队账本�
       userSubscription: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 't-default', isDefault: true }) },
       teamBalance: { findUniqueOrThrow: vi.fn() },
+      teamCreditTransaction: { findFirst: vi.fn().mockResolvedValue(null) },   // T8 幂等前置查——默认 miss
       $executeRaw: vi.fn().mockResolvedValue(0),
       $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn(),
     };
+    prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ credits: 0, subscriptionCredits: 0 });   // T8 回读两池默认档（cancel/grant 各用例自行覆写）
     service = new AdminSubscriptionService(prisma as unknown as PrismaService, ledger as unknown as CreditLedgerService);
   });
 
@@ -84,6 +86,7 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队账本�
       expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
         teamId: 't-default', operatorUserId: 'u1', type: 'admin_grant',
         creditType: 'subscription', balanceDelta: 50, frozenDelta: 0, referenceId: 'u1',
+        idempotencyKey: null,   // T8（Z100 同列）：无 key=合法重复操作面，行落 null
       });
     });
 
@@ -96,6 +99,7 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队账本�
       expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
         teamId: 't-default', operatorUserId: 'u1', type: 'admin_clear',
         creditType: 'subscription', balanceDelta: -20, frozenDelta: 0, referenceId: 'u1',
+        idempotencyKey: null,
       });
     });
 
@@ -107,12 +111,49 @@ describe('AdminSubscriptionService（手工积分调整 → 默认团队账本�
       expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
         teamId: 't-default', operatorUserId: 'u1', type: 'admin_grant',
         creditType: 'regular', balanceDelta: 30, frozenDelta: 0, referenceId: 'u1',
+        idempotencyKey: null,
       });
     });
 
     it('订阅池发放需有 active 订阅，否则拒绝', async () => {
       prisma.userSubscription.findFirst.mockResolvedValue(null);
       await expect(service.grantCredit('u1', 50, 'subscription')).rejects.toThrow();
+      expect(ledger.mutate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('grantCredit Idempotency-Key（T8/Z113——unit 面；并发同键/advisory 真库锚在 admin-idempotency.int）', () => {
+    beforeEach(() => {
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
+      prisma.teamBalance.findUniqueOrThrow.mockResolvedValue({ credits: 15, subscriptionCredits: 0 });
+    });
+
+    it('带 key miss：先取 advisory 事务锁（pg_advisory_xact_lock hashtext("admin:"+key)）再 mutate 落 key', async () => {
+      await service.grantCredit('u1', 10, 'regular', { idempotencyKey: 'k1', operatorUserId: 'admin-a' });
+      expect(prisma.$executeRaw).toHaveBeenCalled();   // advisory 锁（tagged template——真库形态 int 锚）
+      expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        idempotencyKey: 'k1', operatorUserId: 'admin-a',
+      }));
+    });
+
+    it('带 key 命中+指纹一致 → replayed:true+transactionId 原值+当前两池（不回历史 balanceAfter）', async () => {
+      prisma.teamCreditTransaction.findFirst.mockResolvedValue({
+        id: 'tx-1', type: 'admin_grant', creditType: 'regular', balanceDelta: 10, operatorUserId: 'admin-a',
+      });
+      const r = await service.grantCredit('u1', 10, 'regular', { idempotencyKey: 'k1', operatorUserId: 'admin-a' });
+      expect(r).toEqual({ replayed: true, transactionId: 'tx-1', credits: 15, subscriptionCredits: 0 });
+      expect(ledger.mutate).not.toHaveBeenCalled();
+    });
+
+    it('带 key 命中+指纹不一致（amount/操作员）→ 409 IDEMPOTENCY_KEY_REUSED', async () => {
+      prisma.teamCreditTransaction.findFirst.mockResolvedValue({
+        id: 'tx-1', type: 'admin_grant', creditType: 'regular', balanceDelta: 10, operatorUserId: 'admin-a',
+      });
+      const err = await service.grantCredit('u1', 20, 'regular', { idempotencyKey: 'k1', operatorUserId: 'admin-a' }).catch((e: unknown) => e);
+      expect(err).toMatchObject({ errorCode: 'IDEMPOTENCY_KEY_REUSED' });
+      expect((err as any).getStatus()).toBe(409);
+      await expect(service.grantCredit('u1', 10, 'regular', { idempotencyKey: 'k1', operatorUserId: 'admin-b' }))
+        .rejects.toMatchObject({ errorCode: 'IDEMPOTENCY_KEY_REUSED' });
       expect(ledger.mutate).not.toHaveBeenCalled();
     });
   });

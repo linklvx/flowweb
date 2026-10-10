@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Headers, Req, Inject } from '@nestjs/common';
 import { AdminSubscriptionService } from './admin-subscription.service';
 import { SubscriptionService } from '../subscription.service';
 
@@ -44,9 +44,18 @@ export class AdminSubscriptionController {
   }
 
   // Credits
+  /** Y0b-2 T8（Z113）：Idempotency-Key 请求头（UI 用户手势生成 crypto.randomUUID+成功轮换——与 regenToken
+   *  同范式；admin web 面无既有 key 逻辑，接线面后补）。操作员=req.user（指纹维度——换操作员同 key≠重放）。 */
   @Post('credits/grant')
-  async grantCredit(@Body() body: { userId: string; amount: number; creditType: string }) {
-    return this.adminService.grantCredit(body.userId, body.amount, body.creditType as any);
+  async grantCredit(
+    @Body() body: { userId: string; amount: number; creditType: string },
+    @Headers('idempotency-key') idempotencyKey?: string,
+    @Req() req?: any,
+  ) {
+    return this.adminService.grantCredit(body.userId, body.amount, body.creditType as any, {
+      idempotencyKey,
+      operatorUserId: req?.user?.id ?? null,
+    });
   }
 
   // Orders / Transactions — delegate to shared services

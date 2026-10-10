@@ -132,6 +132,29 @@ describe('ExecutionService', () => {
     expect(result.errors[0].error).toContain('项目不存在');
   });
 
+  // Y0b-2 T8（Z90/Z117）：Σdeadline 病态批硬闸——3×video=2700s > 默认 EXEC_SYNC_HARD_CAP(1_800_000ms)；
+  // 2×video=1800s 恰=帽（默认值语义"同步组 ≤2×video"上限含端点）。env 未设档（EXEC_DEADLINE_VIDEO_MS 缺省 900_000）。
+  it('T8：Σ deadlineForKind > EXEC_SYNC_HARD_CAP → 400 EXEC_SCOPE_TOO_LARGE（validation/外呼零触达）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    topology.sort.mockImplementation((nodes: any[]) => nodes);   // 本用例直通（默认 mock 返固定 n1/n2——Σ 面失真）
+    const videoNode = (i: number) => ({ id: `v${i}`, type: 'videoGen', data: { model: 'm' } });
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [videoNode(1), videoNode(2), videoNode(3)], edges: [] });
+    const err = await service.execute('p1', undefined, 'u1', ['v1', 'v2', 'v3']).catch((e: unknown) => e);
+    expect(err).toMatchObject({ errorCode: 'EXEC_SCOPE_TOO_LARGE' });
+    expect((err as any).getStatus()).toBe(400);
+    expect(validation.validateAll).not.toHaveBeenCalled();   // 门在 plan 校验之前（零外呼零冻结零意图行）
+    expect(apiCaller.callVideoGen).not.toHaveBeenCalled();
+  });
+
+  it('T8：Σ = EXEC_SYNC_HARD_CAP（2×video）恰放行——判据=时长最坏上界非耗时预估（不误拒合法 2×video 批）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    topology.sort.mockImplementation((nodes: any[]) => nodes);
+    const videoNode = (i: number) => ({ id: `v${i}`, type: 'videoGen', data: { model: 'm' } });
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [videoNode(1), videoNode(2)], edges: [] });
+    const result = await service.execute('p1', undefined, 'u1', ['v1', 'v2']);
+    expect(result.success).toBe(true);   // 走完整执行链（mock 全绿档）
+  });
+
   it('execute：VIEWER 403', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     permSvc.assertEditor.mockRejectedValue(new ForbiddenException('无项目编辑权限'));

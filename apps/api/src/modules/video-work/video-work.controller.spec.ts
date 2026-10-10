@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing';
 import type { Mock } from 'vitest'; // 显式导入（同 Task 2.1 注）
 import { UnauthorizedException } from '@nestjs/common'; // 第十轮（C1-5）：Task 4.3 like 401 / 6.2 clone 401 用例 toThrow 用
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { VideoWorkController } from './video-work.controller';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
@@ -62,5 +64,12 @@ describe('VideoWorkController（公开）', () => {
     const cloneSvc = moduleRef.get(VideoWorkCloneService); // moduleRef 已在 Task 3.2 提升到 describe 作用域（第十一轮落实——原"提升即可"只活在注释，局部 const 到不了本用例是 TS2304）
     await controller.clone('w1', { user: { id: 'u1' } } as any);
     expect(cloneSvc.clone).toHaveBeenCalledWith('w1', 'u1');
+  });
+
+  // Y0b-2 T8（E71）：process 端点限流 30/min——源文本锚（storyboard.pipe.spec.ts:82 先例形态：
+  // 装饰器元数据断言无既有约定，读源码文本钉住档位防回归）
+  it('E71：GET :id/process 有 @Throttle({default:{limit:30,ttl:60_000}})', () => {
+    const src = readFileSync(resolve(__dirname, 'video-work.controller.ts'), 'utf8');
+    expect(src).toContain('@Throttle({ default: { limit: 30, ttl: 60_000 } })');
   });
 });

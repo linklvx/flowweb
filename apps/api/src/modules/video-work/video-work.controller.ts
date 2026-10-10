@@ -1,5 +1,6 @@
 // 空壳，签名一次到位——rateLimiter 供 Task 4.2 getClientIp、cloneService 供 Task 6.2
 import { Controller, Get, Query, Param, Post, Req, Inject, UnauthorizedException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
@@ -33,6 +34,8 @@ export class VideoWorkController {
     return this.service.getDetail(id, req.user?.id ?? null);
   }
 
+  // E71（Y0b-2 T8）：公开免费读面收紧 30/min（双层缓存挡不住的对象删除/404 探测——@Throttle 全局守卫形态）
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get(':id/process')
   getProcess(@Param('id') id: string) {
     return this.service.getProcessSnapshot(id);

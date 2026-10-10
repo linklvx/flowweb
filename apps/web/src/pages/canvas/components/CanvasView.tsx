@@ -6,7 +6,7 @@ import {
   type NodeTypes, type OnNodesChange, type OnEdgesChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Modal } from 'antd';
+import { Modal, message } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useTheme } from '@/stores/themeStore';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
@@ -503,6 +503,8 @@ function CanvasViewComponent(_props: Props) {
   }, [selectedGroup, nodes]);
 
   // 计算组内是否有节点正在执行（响应式订阅）
+  // Y0b-2 T8（Z90）：按钮忙态以 exec 投影为主判据（nodeProcessMap=doc exec 状态投影——504 回执丢失后
+  // 仍能真实反映进度；本地 latch 仅防重复提交，不作忙态权威）
   const groupExecuting = useCanvasStore((s) =>
     selectedGroup ? s.nodes.filter((n) => n.parentId === selectedGroup.id).some((n) => n.id in s.nodeProcessMap) : false
   );
@@ -747,7 +749,12 @@ function CanvasViewComponent(_props: Props) {
               onExecute={async (groupId) => {
                 const childIds = nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
                 if (childIds.length > 0 && projectId && canExec) {
-                  void executeGroupNodes(projectId, childIds);
+                  // Y0b-2 T8（Z90）：504/网络断（无 errorCode 结构化体）=「已受理」——服务端不因断连中止
+                  //（禁加"断连即取消"），进度/产物经节点 exec 投影照达；结构化业务错误（errorCode）已由
+                  // 节点级 error 投影承载，不在此重复提示。不换 token 重试——换 token=新扣费（withSyncRetry 注释钉死）。
+                  void executeGroupNodes(projectId, childIds).catch((e: unknown) => {
+                    if (!(e as { errorCode?: string })?.errorCode) void message.info('执行请求已提交，进度见节点状态');
+                  });
                 }
               }}
               onUngroup={handleUngroup}

@@ -13,6 +13,8 @@ function svBody(): Record<string, string> {
 
 /** Z56 修订（T7）：反应式重发——先发→409 SYNC_PENDING 才 forceSyncAndWaitUnsynced→重发恰一次；
  *  再拒=服务端停滞信号（观测经诊断 ring），抛出不循环。非 SYNC_PENDING 直接抛零 forceSync。
+ *  Y0b-2 T8（Z90）：**只重 SYNC_PENDING 不重 5xx/超时**——504=回执丢失语义（服务端继续跑、产物经 doc
+ *  投影照达），**504 不当换 token 重试信号——换 token=新扣费**（regenToken 生命周期归 Z95，重试恒同 token）。
  *  导出消费面=本模块两函数+ImageGenNode 编辑三入口（image-edit 受理端点同门）。 */
 export async function withSyncRetry<T>(fn: () => Promise<T>): Promise<T> {
   try { return await fn(); }
