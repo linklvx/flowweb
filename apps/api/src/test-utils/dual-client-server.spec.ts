@@ -21,6 +21,8 @@ describe('T1.5 准入面夹具（注入式 ws）', () => {
       const spy = vi.spyOn(proto, 'authenticate').mockImplementation(async function (this: unknown, p: any) {
         seen.origin = p.requestHeaders?.get?.('origin') ?? null;
         seen.cookie = p.requestHeaders?.get?.('cookie') ?? null;
+        // T2 评审小修⑤：query token 退役的服务端证据——URL 无 query ⇒ 网关侧 requestParameters 无 token
+        seen.queryToken = p.requestParameters?.get?.('token') ?? null;
         return orig.call(this, p);
       });
       const { provider, synced } = kit.connect('project:fx', 'tok', { origin: 'http://localhost:5173' });
@@ -30,12 +32,16 @@ describe('T1.5 准入面夹具（注入式 ws）', () => {
       expect(seen.cookie).toContain('flowweb.session_token=tok');
       // query token 退役：provider URL 不再携带 ?token=（T2 cookie-only 落地零障碍）
       expect((provider as any).configuration.url).not.toContain('token=');
+      // T2 评审小修⑤：服务端侧同证——网关收到的 requestParameters 无 token 键
+      expect(seen.queryToken).toBeNull();
     } finally {
       await kit.dispose();
     }
   }, 15_000);
 
   it('connect() 缺省 origin 推导默认值（COLLAB_ALLOWED_ORIGINS 未设 → localhost:5173）', async () => {
+    // T2 评审小修④：env save/restore 惯例（collab-ready.controller.spec.ts:41 先例形态）
+    const saved = process.env.COLLAB_ALLOWED_ORIGINS;
     delete process.env.COLLAB_ALLOWED_ORIGINS;
     const kit = await startDualClientServer();
     try {
@@ -53,6 +59,8 @@ describe('T1.5 准入面夹具（注入式 ws）', () => {
       expect(seen.cookie).toContain('flowweb.session_token=tok');
     } finally {
       await kit.dispose();
+      // T2 评审小修④：restore（dispose 失败也要恢复 env）
+      if (saved === undefined) delete process.env.COLLAB_ALLOWED_ORIGINS; else process.env.COLLAB_ALLOWED_ORIGINS = saved;
     }
   }, 15_000);
 });

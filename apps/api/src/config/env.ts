@@ -26,6 +26,8 @@ export const EXEC_DEFAULTS = {
   SYNC_HARD_CAP: 1_800_000,
 } as const;
 
+/** 全局不变式（superRefine）挂在本 schema 之上的 envSchemaValidated（Y0b-3 T1 P-R）——
+ *  本体保持 ZodObject（collab-env-single-source 结构锚读 .shape）；validateEnv 只消费 refined 版。 */
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   PORT: z.coerce.number().default(3000),

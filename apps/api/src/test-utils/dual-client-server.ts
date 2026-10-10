@@ -92,7 +92,8 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     // T1.5：注入式 ws（Origin+Cookie header）——URL 无 query token（cookie 通道承载原 token 语义）
     connect(name: string, token = 'tok', opts: { origin?: string } = {}) {
       const ydoc = new Y.Doc();
-      const origin = opts.origin ?? process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] ?? 'http://localhost:5173';
+      // T1.5 评审小修：`|| undefined` 后置——COLLAB_ALLOWED_ORIGINS='' 时 split(',')[0]='' 穿透为 Origin 空头
+      const origin = opts.origin ?? (process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] || undefined) ?? 'http://localhost:5173';
       const provider = new HocuspocusProvider({
         url,
         name,

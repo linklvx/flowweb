@@ -23,10 +23,17 @@ function grabHandler(): (reason: unknown, promise: Promise<unknown>) => void {
 }
 
 describe('P14 unhandledRejection 兜底（函数化）', () => {
-  afterEach(() => vi.restoreAllMocks());
+  let grabbed: ((reason: unknown, promise: Promise<unknown>) => void) | null = null;
+  afterEach(() => {
+    // T1.5 评审小修：grabHandler 经 spy callThrough 真实注册——restoreAllMocks 只拆 spy，
+    // listener 仍挂在 process 上（跨用例累积=计数双计面）。逐用例显式摘除。
+    if (grabbed) { process.removeListener('unhandledRejection', grabbed); grabbed = null; }
+    vi.restoreAllMocks();
+  });
 
   it('注册 listener；直调 handler → source=process 计数+1、console.error 一行、handler 自身不抛', async () => {
     const handler = grabHandler();
+    grabbed = handler;
     const errSpy = vi.spyOn(console, 'error');
     const before = await count();
     expect(() => handler(new Error('probe'), Promise.resolve())).not.toThrow();   // 兜底自身禁抛
@@ -37,6 +44,7 @@ describe('P14 unhandledRejection 兜底（函数化）', () => {
 
   it('reason 非 Error（裸字符串）不炸——计数仍+1', async () => {
     const handler = grabHandler();
+    grabbed = handler;
     const before = await count();
     expect(() => handler('raw string reason', Promise.resolve())).not.toThrow();
     expect(await count()).toBe(before + 1);
