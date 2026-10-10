@@ -1,7 +1,12 @@
 // apps/api/src/test-utils/dual-client-server.ts
 // Y0a-1：双 client+单进程单 Server 装置——构造形态自 collab.gateway.spec.ts beforeEach 移植
 // （位置参数构造+随机端口段 20000+random(20000)=既有惯例 spec:81——port=0 时库不回写 configuration.port，
-// 必用随机段；provider 带 token query）。Y2/Y1a 复用地基。
+// 必用随机段）。Y2/Y1a 复用地基。
+// T1.5：provider 改注入式 ws（Node ws 包 headers 选项）——URL 不带 query token，凭据经
+// `Cookie: flowweb.session_token=` 头承载（gateway 现状 fallback 分支认证通过=行为等价），
+// 并显式发 Origin 头（T2 Origin 校验的注入面）。undici 全局 WebSocket 不支持自定义 header，
+// 故用 ws 包（探针实证：provider esm :292 `new WebSocketPolyfill(url)` + addEventListener/binaryType/
+// send/close 消费面，ws8 全兼容）。
 // 移植适配：prisma stub 形态以既有 beforeEach 为准（session/canvasProject/teamMember 三 findUnique——
 // 无 canvasDoc：gateway 装载走 repo，不查 canvasDoc）；prisma/emitter/permSvc 随 kit 暴露——
 // 既有用例的失败注入面（session/teamMember 置 null、VIEWER 覆写、disband 事件）原样保留。
@@ -12,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import WebSocket from 'ws';
 import { CollabGateway } from '../modules/collab/collab.gateway';
 import { CollabDocumentService } from '../modules/collab/collab-document.service';
 import { CollabSpoolService } from '../modules/collab/collab-spool.service';
@@ -26,13 +32,26 @@ export interface DualClientKit {
   /** 失败注入面：session/canvasProject/teamMember 的 findUnique 可逐用例覆写 */
   prisma: Record<string, any>;
   emitter: EventEmitter2;
-  permSvc: { resolve: ReturnType<typeof vi.fn> };
+  /** T1.5（S-1）：resolveWithTeam 预置——T3 判据换轨零障碍（本 Task gateway 仍消费 resolve） */
+  permSvc: { resolve: ReturnType<typeof vi.fn>; resolveWithTeam: ReturnType<typeof vi.fn> };
   /** Y0a-2：spool 实例（BOI 用例/降级用例的帧断言与白盒注入面） */
   spool: CollabSpoolService;
-  connect(name: string, token?: string): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
+  /** T1.5：token 语义=cookie 值（`flowweb.session_token=${token}`），URL 无 query */
+  connect(name: string, token?: string, opts?: { origin?: string }): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
   /** 用例自管 destroy 后调——从 dispose 清理数组移除（双 destroy 是本仓已知 flaky 源，惯例同 collab.gateway.spec.ts:262） */
   forget(provider: HocuspocusProvider): void;
   dispose: () => Promise<void>;
+}
+
+/** T1.5：注入式 ws 工厂——Node ws 包构造器 headers 选项（undici 全局 WebSocket 不支持自定义 header）。
+ *  消费面（provider esm）：new (url) → binaryType → add/removeEventListener('open'|'message'|'close'|'error')
+ *  → send/close——ws8 全兼容。供 kit.connect 与真连 spec 调用点共用。 */
+export function makeHeaderWs(headers: Record<string, string>) {
+  return class HeaderWs extends WebSocket {
+    constructor(url: string | URL) {
+      super(url as string, { headers });
+    }
+  };
 }
 
 /** Y0a-2：spool 第三参（缺省内部 mkdtemp tmpdir——dispose 只清**自建**目录，注入目录归用例的
@@ -44,7 +63,12 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
   };
   const repo = createMockRepo(over);
-  const permSvc = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
+  // T1.5（S-1）：resolveWithTeam 预置默认 mock（gateway 判据 T3 才换轨——现在仍走 resolve，
+  // 此 mock 只让夹具就绪、防 T3 落地后 TypeError 折 DB_UNAVAILABLE 误诊）
+  const permSvc = {
+    resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
+    resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
+  };
   const emitter = new EventEmitter2();
   const port = 20000 + Math.floor(Math.random() * 20000);
   const ownedSpoolDir = spool ? null : await mkdtemp(join(tmpdir(), 'y0a2-kit-'));
@@ -65,9 +89,17 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     emitter,
     permSvc,
     spool: spoolSvc,
-    connect(name: string, token = 'tok') {
+    // T1.5：注入式 ws（Origin+Cookie header）——URL 无 query token（cookie 通道承载原 token 语义）
+    connect(name: string, token = 'tok', opts: { origin?: string } = {}) {
       const ydoc = new Y.Doc();
-      const provider = new HocuspocusProvider({ url: `${url}?token=${token}`, name, document: ydoc });
+      const origin = opts.origin ?? process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] ?? 'http://localhost:5173';
+      const provider = new HocuspocusProvider({
+        url,
+        name,
+        document: ydoc,
+        WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}` }),
+        // WebSocketPolyfill 运行时透传支持、顶层 HocuspocusProviderConfiguration 未声明（先例 ws-polyfill.gate.spec:47）
+      } as any);
       providers.push(provider);
       const synced = new Promise<void>((resolve) => provider.on('synced', () => resolve()));
       return { ydoc, provider, synced };

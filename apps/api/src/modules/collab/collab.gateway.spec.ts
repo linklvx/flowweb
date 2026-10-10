@@ -15,7 +15,7 @@ function toDocLike(doc: Y.Doc): DocLike {
 }
 import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { startDualClientServer } from '../../test-utils/dual-client-server';
+import { startDualClientServer, makeHeaderWs } from '../../test-utils/dual-client-server';
 import { CollabSpoolService } from './collab-spool.service';
 import { registerPendingCollector, unregisterPendingCollector, yjsPendingBatches } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -79,9 +79,16 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     await (gateway as any).server.destroy();
   });
 
+  // T1.5：注入式 ws（Origin+Cookie header）——token 语义=cookie 值，URL 无 query token
   function connect(name: string, token = 'tok'): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> } {
     const ydoc = new Y.Doc();
-    const provider = new HocuspocusProvider({ url: `${url}?token=${token}`, name, document: ydoc });
+    const provider = new HocuspocusProvider({
+      url,
+      name,
+      document: ydoc,
+      WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: `flowweb.session_token=${token}` }),
+      // WebSocketPolyfill 运行时透传支持、顶层 HocuspocusProviderConfiguration 未声明（先例 ws-polyfill.gate.spec:47）
+    } as any);
     providers.push(provider);
     const synced = new Promise<void>((resolve) => provider.on('synced', () => resolve()));
     return { ydoc, provider, synced };
@@ -131,7 +138,13 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
   it('① 无 session 拒绝：连接永不完成 sync', async () => {
     prisma.session.findUnique.mockResolvedValue(null);
-    const provider = new HocuspocusProvider({ url: `${url}?token=bad`, name: 'project:p2', document: new Y.Doc() });
+    // T1.5：token 语义改 cookie 值（'bad' 经 Cookie 头承载——session 查 null 仍拒）
+    const provider = new HocuspocusProvider({
+      url,
+      name: 'project:p2',
+      document: new Y.Doc(),
+      WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=bad' }),
+    } as any);
     providers.push(provider);
     await new Promise((r) => setTimeout(r, 1500));
     expect(provider.isSynced).toBe(false);
@@ -139,7 +152,12 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
   it('① 非团队成员拒绝：连接永不完成 sync', async () => {
     prisma.teamMember.findUnique.mockResolvedValue(null);
-    const provider = new HocuspocusProvider({ url: `${url}?token=tok`, name: 'project:p3', document: new Y.Doc() });
+    const provider = new HocuspocusProvider({
+      url,
+      name: 'project:p3',
+      document: new Y.Doc(),
+      WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }),
+    } as any);
     providers.push(provider);
     await new Promise((r) => setTimeout(r, 1500));
     expect(provider.isSynced).toBe(false);

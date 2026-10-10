@@ -12,6 +12,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { makeHeaderWs } from '../../test-utils/dual-client-server';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
@@ -162,7 +163,14 @@ describe('批3-1 DENY reason 真协议透传（组④）', () => {
     await gateway.onModuleInit();
     try {
       const url = `ws://127.0.0.1:${(gateway as any).server.configuration.port}`;
-      const provider = new HocuspocusProvider({ url: `${url}?token=tok`, name: 'project:p1', document: new Y.Doc() });
+      // T1.5：注入式 ws（Origin+Cookie header）——token 语义=cookie 值，URL 无 query token
+      const provider = new HocuspocusProvider({
+        url,
+        name: 'project:p1',
+        document: new Y.Doc(),
+        WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }),
+        // WebSocketPolyfill 运行时透传支持、顶层 HocuspocusProviderConfiguration 未声明（先例 ws-polyfill.gate.spec:47）
+      } as any);
       const denied = new Promise<string>((resolve) => provider.on('authenticationFailed', (p: { reason: string }) => resolve(p.reason)));
       expect(await denied).toBe('session-expired');
       expect(provider.isSynced).toBe(false);
