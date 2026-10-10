@@ -12,7 +12,7 @@ import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { CollabSpoolService } from './collab-spool.service';
-import { CollabAuthReason } from '@flowweb/shared';
+import { CollabAuthReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { register } from 'prom-client';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -109,7 +109,7 @@ describe('T2 cookie-only（authenticate query token 通道删除——§1.3 对�
     try {
       await expect(kit.gateway.hooks.onAuthenticate({
         requestHeaders: new Headers(),
-        requestParameters: new URLSearchParams('?token=forged-token&csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
+        requestParameters: new URLSearchParams(`?token=forged-token&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
         documentName: 'project:fx', connectionConfig: {},
       } as any)).rejects.toMatchObject({ reason: CollabAuthReason.UNAUTHENTICATED });
     } finally {
@@ -122,7 +122,7 @@ describe('T2 cookie-only（authenticate query token 通道删除——§1.3 对�
     try {
       await expect(kit.gateway.hooks.onAuthenticate({
         requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-        requestParameters: new URLSearchParams('?token=forged-token&csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
+        requestParameters: new URLSearchParams(`?token=forged-token&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
         documentName: 'project:fx', connectionConfig: {},
       } as any)).resolves.toBeDefined();
     } finally {

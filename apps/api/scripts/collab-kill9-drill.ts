@@ -32,6 +32,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 import { ensureCollabSessionFixture, cleanupCollabSessionFixture } from '../src/test-utils/db-fixtures';
+import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 const PID = process.env.DRILL_PROJECT ?? `y0a2-drill-${Date.now()}`;
@@ -149,7 +150,7 @@ async function connectWrite(h: DrillHandle, projectId: string, nodes: number): P
   const ydoc = new Y.Doc();
   // Y0b-3 T2：URL 无 query token（cookie-only）——凭据经 DrillHeaderWs 的 Origin+Cookie header；
   // Y0b-3 T5 版本门：csv 必带（缺 csv=client-version-missing 恒拒——演练必挂）
-  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?csv=1`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
+  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?csv=${CLIENT_PROTOCOL_VERSION}`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
   await new Promise<void>((r, rej) => {
     provider.on('synced', () => r());
     // reject 前先 destroy：sync 超时是可抛路径——provider WS 不关会挂住事件循环，exitCode=1 收不了口

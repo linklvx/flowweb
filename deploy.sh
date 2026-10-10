@@ -78,11 +78,13 @@ preflight() {
 
 # Y0b-3 T5（M-10）：服务器侧 nginx 配置断言——/collab 段 access_log off（csv/cb query 不落日志）
 # +index.html no-store（旧 bundle 静态缓存钉死=版本拒绝循环）。本地无 nginx——运行态断言只在
-# 服务器侧；模板文本断言归 scripts/check-nginx-budget.mjs 既有约定。两 fail 路径已手验
-# （awk 范围提取空→grep 空→exit 1；缺 no-store→exit 1——留档 commit message）。
+# 服务器侧；模板文本断言归 scripts/check-nginx-budget.mjs 既有约定。三 fail 路径已手验
+# （PASS/缺 access_log/缺 no-store——本地 echo 测试文本喂同款 awk 管道，留档 commit message）。
+# I-3：范围终点 /}/ 收紧为行首空白可容忍（防缩进贴入时范围延伸吞下一段）；grep 前滤整行注释
+# （nginx -T 原样输出注释——"# access_log off;" 假 PASS 面；对齐 check-nginx-budget 非注释行锚定）。
 verify_nginx() {
   echo "=== ⑥.5 nginx 配置断言（/collab access_log off + index.html no-store——版本门通道配套） ==="
-  ssh -i "$KEY" "$SERVER" 'T=$(sudo nginx -T 2>/dev/null); f(){ echo "nginx 断言 FAIL: $1"; exit 1; }; echo "$T" | awk "/location \/collab/,/^}/" | grep -q "access_log off" || f "/collab 段缺 access_log off"; echo "$T" | awk "/location = \/index.html/,/^}/" | grep -q "no-store" || f "index.html 段缺 no-store"; echo "nginx 断言 OK: /collab access_log off + index.html no-store"'
+  ssh -i "$KEY" "$SERVER" 'T=$(sudo nginx -T 2>/dev/null); f(){ echo "nginx 断言 FAIL: $1"; exit 1; }; echo "$T" | awk "/location \/collab/,/^[[:space:]]*}/" | grep -v "^[[:space:]]*#" | grep -q "access_log off" || f "/collab 段缺 access_log off（非注释行）"; echo "$T" | awk "/location = \/index.html/,/^[[:space:]]*}/" | grep -v "^[[:space:]]*#" | grep -q "no-store" || f "index.html 段缺 no-store（非注释行）"; echo "nginx 断言 OK: /collab access_log off + index.html no-store"'
 }
 
 cutover_api() {

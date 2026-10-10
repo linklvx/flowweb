@@ -23,6 +23,7 @@ import { CollabDocumentService } from '../modules/collab/collab-document.service
 import { CollabSpoolService } from '../modules/collab/collab-spool.service';
 import { createMockRepo, type MockRepo } from './mock-repo';
 import { createLeaseStub } from '../modules/collab/test-utils/lease-stub';
+import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 export interface DualClientKit {
   gateway: CollabGateway;
@@ -95,7 +96,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
       // T1.5 评审小修：`|| undefined` 后置——COLLAB_ALLOWED_ORIGINS='' 时 split(',')[0]='' 穿透为 Origin 空头
       const origin = opts.origin ?? (process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] || undefined) ?? 'http://localhost:5173';
       const provider = new HocuspocusProvider({
-        url: `${url}?csv=1`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒）
+        url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒；csv 单源防 bump 漂移）
         name,
         document: ydoc,
         WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}` }),

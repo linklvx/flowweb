@@ -12,7 +12,7 @@ import { register } from 'prom-client';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
-import { CollabAuthReason, isTerminalReason } from '@flowweb/shared';
+import { CollabAuthReason, isTerminalReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
 
@@ -137,9 +137,9 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
     expect(isTerminalReason(CollabAuthReason.SERVER_OUTDATED)).toBe(false);   // 瞬态——误入终态=部署滞后钉死全部新客户端
   });
 
-  it('csv=1（当前）→放行进 DB 环节（版本门不是 DB 拦截）+cb 透传不参与协商', async () => {
+  it(`csv=${CLIENT_PROTOCOL_VERSION}（当前）→放行进 DB 环节（版本门不是 DB 拦截）+cb 透传不参与协商`, async () => {
     const { gateway, prisma } = buildGateway();
-    await expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-vg-a1', 'csv=1&cb=dev') as any))
+    await expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-vg-a1', `csv=${CLIENT_PROTOCOL_VERSION}&cb=dev`) as any))
       .resolves.toBeDefined();
     expect(prisma.session.findUnique).toHaveBeenCalledTimes(1);   // 进了 DB（版本门放行）
   });

@@ -10,7 +10,7 @@ import { register } from 'prom-client';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
-import { isTerminalReason, CollabAuthReason } from '@flowweb/shared';
+import { isTerminalReason, CollabAuthReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
 
@@ -56,7 +56,7 @@ function buildGateway() {
 function makeAuthPayload(socketId: string, documentName: string) {
   return {
     requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-    requestParameters: new URLSearchParams('csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=CLIENT_VERSION_MISSING 先拒）
+    requestParameters: new URLSearchParams(`csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=CLIENT_VERSION_MISSING 先拒）
     socketId,
     documentName,
     connectionConfig: { readOnly: false, isAuthenticated: false },

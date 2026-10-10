@@ -15,7 +15,7 @@ import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, co
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -68,6 +68,15 @@ const queueBytes = (q: Uint8Array[]): number => q.reduce((s, u) => s + u.byteLen
 export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
 }
+
+/** Y0b-3 T5 版本门四档映射（I-1 穷尽性 Record——VersionVerdict 加档时 tsc 红，杜绝 if/else 链
+ *  兜底静默映射终态档 SCHEMA_OUTDATED）。键序=VersionVerdict 声明序（allow 除外）。 */
+const REASON_BY_VERDICT: Record<Exclude<VersionVerdict, 'allow'>, CollabAuthReasonCode> = {
+  'client-version-missing': CollabAuthReason.CLIENT_VERSION_MISSING,
+  'client-version-invalid': CollabAuthReason.CLIENT_VERSION_INVALID,
+  'schema-outdated': CollabAuthReason.SCHEMA_OUTDATED,
+  'server-outdated': CollabAuthReason.SERVER_OUTDATED,
+};
 
 /** ===== Y0a-2 持久化契约声明（spec v2.4 §2.1，钉死）=====
  *  PG=单实例 delta 并集日志（append-only）；CRDT 幂等收敛（重复/乱序 apply 安全）；锁只管 compact；
@@ -535,10 +544,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // （确定性拒绝无 TTL 语义；终态档客户端已 disconnect 不重试，瞬态档 server-outdated 重试同拒）。
       const verdict = negotiateClientVersion(requestParameters?.get('csv') ?? null);
       if (verdict !== 'allow') {
-        const reason = verdict === 'client-version-missing' ? CollabAuthReason.CLIENT_VERSION_MISSING
-          : verdict === 'client-version-invalid' ? CollabAuthReason.CLIENT_VERSION_INVALID
-          : verdict === 'server-outdated' ? CollabAuthReason.SERVER_OUTDATED
-          : CollabAuthReason.SCHEMA_OUTDATED;
+        const reason = REASON_BY_VERDICT[verdict];   // 收窄后直接索引（Exclude<VersionVerdict,'allow'>）——无兜底
         collabVersionNegotiationRejectTotal.inc({ reason });
         throw this.denyAuth(reason, `client protocol ${verdict}`, 'version');
       }

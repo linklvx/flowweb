@@ -9,7 +9,7 @@ import { register } from 'prom-client';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
-import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { stampDocSchema, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -202,7 +202,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     const conn = { messageAddress: 'project:p1', send: vi.fn(), sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
     (doc.connections as Map<any, any>).set(conn, { clients: new Set() });
     await gateway.hooks.onAuthenticate({
-      requestParameters: new URLSearchParams('token=tok&csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
+      requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
       requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
       documentName: 'project:p1',
       connectionConfig: { readOnly: false, isAuthenticated: false },

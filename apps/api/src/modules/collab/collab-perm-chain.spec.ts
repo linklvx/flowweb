@@ -13,6 +13,7 @@ import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 let spoolDir: string;
 let spoolCleanup: () => Promise<void> = async () => {};
@@ -57,7 +58,7 @@ function buildGateway(seed: PermSeed) {
 function authPayload(documentName = 'project:p1') {
   return {
     requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-    requestParameters: new URLSearchParams('csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
+    requestParameters: new URLSearchParams(`csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
     socketId: 'sock-perm-1',
     documentName,
     connectionConfig: { readOnly: false, isAuthenticated: false },
