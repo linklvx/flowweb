@@ -327,7 +327,8 @@ export class VideoWorkService {
 
     // Y0b-2 T3（§3.2 只读展示）：快照出口 readCanvasSnapshotCached——谓词门（isPersistedComplete
     // 不满足→活读 fallback）+进程内 TTL 单飞；不经 openDirectConnection/装载（谓词满足档）。
-    // 陈旧度=去抖窗级（spec §9.9）。租约失守期公开页照常（PG 数据在——投影读不分型 503）。
+    // 陈旧度=去抖窗级（spec §9.9）。503 语义条件式（T3 后）：谓词满足（drain 冲刷完成）⇒快照照常；
+    // drain 进行中（spool 有帧）⇒fallback 活读撞租约门 503——可达性边界 T9 登记。
     const raw = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000) as RawCanvasData;
     const withThumbs = await this.injectThumbnails(raw);
     const filtered = buildFilteredSnapshot(withThumbs, {

@@ -103,7 +103,7 @@ interface OutboundModel {
 const MODEL_CACHE_TTL_MS = 5 * 60_000;
 const modelCache = new Map<string, { at: number; row: OutboundModel }>();
 
-/** 停停滞窗口倍数：连续异常超 pollInterval×STALL_LIMIT 无有效响应 ⇒ PROVIDER_POLL_STALLED */
+/** 停滞窗口倍数：连续异常超 pollInterval×STALL_LIMIT 无有效响应 ⇒ PROVIDER_POLL_STALLED */
 const STALL_LIMIT = 10;
 
 @Injectable()
