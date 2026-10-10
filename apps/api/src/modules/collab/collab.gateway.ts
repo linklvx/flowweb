@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { createHash } from 'node:crypto';
 import type { ProjectRole } from '@prisma/client';
@@ -11,11 +11,11 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -187,6 +187,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly replaying = new WeakSet<Y.Doc>();
   /** flush 失败兜底（内存 unflushed Map）已随 Y0a-2 stash 族退役——spool=唯一权威待落库台账 */
   readonly hooks: {
+    connected: (p: connectedPayload) => Promise<any>;
     onAuthenticate: (p: onAuthenticatePayload) => Promise<any>;
     onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
     onStoreDocument: (p: onStoreDocumentPayload) => Promise<boolean>;
@@ -219,6 +220,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       refillPerMin: Number(process.env.COLLAB_UPGRADE_RATE_PER_MIN) || 60,
     });
     this.hooks = {
+      connected: ({ socketId }) => { this.connEstablishedAt.set(socketId, Date.now()); return Promise.resolve(); },   // Y0b-3 T6：寿命台账播种
       onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
       onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
@@ -246,6 +248,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 文档锚防升级翻转，非行为修复）
       unloadImmediately: true,
       quiet: false,
+      connected: this.hooks.connected,   // Y0b-3 T6：寿命台账播种钩子接线
       onAuthenticate: this.hooks.onAuthenticate,
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
@@ -359,6 +362,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private authInflight = 0;
   private authInflightPeak = 0;   // peak 仅测试/演练观测用（进程寿命只写不读）——生产 gauge=collab_auth_inflight collect 读 authInflight 现值
   private readonly authAttemptBuckets = new Map<string, { count: number; windowStart: number }>();
+  /** Y0b-3 T6：连接寿命台账（socketId → 建立时点）。键=connected/onAuthenticate/onDisconnect 三钩子
+   *  共有稳定键（onDisconnectPayload 无 connection 字段〔d.ts:687-696〕——Connection 键 Map=死代码）。
+   *  写点三处：connected 播种 / onDisconnect+closeTeamDocuments+beforeUnloadDocument 键控清理（防无界）；
+   *  读点一处：sweep tick 首部 enforceConnMaxLifetime。 */
+  private readonly connEstablishedAt = new Map<string, number>();
   private lastSpoolState: 'ok' | 'spool-unwritable' = 'ok';   // spool 恢复翻转检测（清空并集的 spool 支——谓词非集合，消费点记上一态）
   private authMapsSweepTimer: ReturnType<typeof setInterval> | null = null;
   /** sweep 判据门第二分支（P-K）：per-connection 权限结论缓存（5min 会话级 TTL——WeakMap 随连接回收）；
@@ -669,8 +677,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         ensureSchemaVersion(toDocLike(document));
       } catch (e) {
         this.logger.error(`[O0b-0] 版本门拒绝载入 ${documentName}：${(e as Error).message}（${nodeCount} 节点）`);
-        // schemaRefusal 标记：外层 catch 透传（版本门拒≠db-unavailable——不折瞬态桶）
-        throw Object.assign(e as Error, { schemaRefusal: true });
+        // schemaRefusal 标记：外层 catch 透传（版本门拒≠db-unavailable——不折瞬态桶）。
+        // E56 v2.1 断链修复（Y0b-3 T6）：附 reason（词表第五终态档）——库 esm:939 透传 error.reason，
+        // 客户端 authenticationFailed.reason==='schema-outdated' 通路可达（下方 db-unavailable 已有
+        // 附 reason 惯例——补齐同风格）；缺此行客户端收字面量 permission-denied 落瞬态桶。
+        throw Object.assign(e as Error, { schemaRefusal: true, reason: CollabAuthReason.SCHEMA_OUTDATED });
       }
       if (document.getMap('meta').get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
         stampDocSchema(toDocLike(document));   // 无戳∧零节点 ⇒ stamp 唯一自愈点（新建空画布合法档——门对该档放行后仅存此档）
@@ -972,7 +983,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private drainAutoReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   /** SV9：POST /api/drain 动作体——置 draining+冻结既有连接（readOnly+write-frozen 通告）+刷新 60s
    *  deadline（幂等=刷新非 no-op：慢排空部署链续 POST 续窗）。**不触发关停流程**——只停写、等去抖
-   *  自然排空；进度=GET /api/ready 的 pending。60s 未收到 SIGTERM 自动解除=对冻结连接 close(1012)
+   *  自然排空；进度=GET /api/ready 的 pending。60s 未收到 SIGTERM 自动解除=对冻结连接 close(CollabCloseCode.APP_RESTART)
    *  （B12：readOnly 直翻 false 会漏"冻结期客户端单侧编辑"的静默分叉——客户端重连经状态向量自愈；
    *  write-frozen/resumed 通告归 Y0b）。 */
   beginDraining(): { draining: boolean; phase: string; autoReleaseAt: number; pending: ReturnType<CollabGateway['computePending']> } {
@@ -985,7 +996,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const frozen = [...this.frozenConnections];
       this.frozenConnections.clear();
       if (this.collabState === 'draining') this.transition('serving', 'drain-auto-release');
-      for (const c of frozen) { try { c.webSocket?.close(1012, 'drain released'); } catch { /* 已断 */ } }
+      for (const c of frozen) {
+        try {
+          c.webSocket?.close(CollabCloseCode.APP_RESTART, 'drain released');
+          collabWsCloseTotal.inc({ code: String(CollabCloseCode.APP_RESTART), reason: 'drain released' });   // Y0b-3 T6：close 分布面
+        } catch { /* 已断 */ }
+      }
       this.logger.warn('drain 60s 未续期——自动解除（冻结连接已 1012 复连；慢排空请部署链周期性续 POST）');
     }, 60_000);
     this.drainAutoReleaseTimer.unref?.();
@@ -1247,8 +1263,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  抛错冒泡出 withDoc finally → API 500 → 前端重试 → 重复插入。Skip 路径下 saveMutex 在回调抛错时
    *  先释放 → onDisconnect 一定被调用 → 本契约面更宽。
    *  Y0a-2：storeDocument 不再 throw（BOI 契约 3）——失败路径自处理（批在 spool/队列），stashPending 退役。 */
-  private async disconnect({ document, documentName }: onDisconnectPayload) {
-    if (document.getConnectionsCount() > 0) return;
+  private async disconnect({ document, documentName, socketId, clientsCount }: onDisconnectPayload) {
+    // Y0b-3 T6：键控清理【首行、early-return 之前】——多标签（clientsCount>0）断连同样要清（防无界）。
+    // 库语义（esm:1059）：payload.clientsCount=removeConnection 之后的剩余数——与原
+    // document.getConnectionsCount() 同值等价，改读库已算好的字段。
+    this.connEstablishedAt.delete(socketId);
+    this.authAttemptBuckets.delete(socketId);
+    if (clientsCount > 0) return;
     const projectId = parseProjectId(documentName);
     const wrote = await this.storeDocumentSerialized({ document, documentName });
     if (wrote) {
@@ -1268,7 +1289,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  收口（spool 已落定=at-risk 口径终结）。残留 spool 帧不触盘处理（V11 禁慢操作——仅交接失败支
    *  需承接：退避梯 detached 通道/shutdown drain/启动回灌三路径；成功支帧已落定非 at-risk——等
    *  重开/关停/重启回灌入 PG，J4 口径）。 */
-  private async unloadDocument({ documentName }: beforeUnloadDocumentPayload): Promise<void> {
+  private async unloadDocument({ document, documentName }: beforeUnloadDocumentPayload): Promise<void> {
     const projectId = parseProjectId(documentName);
     try {
       this.cancelPersistRetry(documentName);                       // ①
@@ -1300,6 +1321,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // ④清理残留（M1：project.gone 事件为第一入口——本钩子为卸载路径第二入口）
       this.lastCompactAt.delete(projectId);
       this.persistUnhealthy.delete(documentName);
+      // Y0b-3 T6 键控清理：卸载清该 doc 全部连接寿命条目（防无界——常规路径 onDisconnect 已逐条清，
+      // 此为库自发卸载/直连路径的兜底反查；钩子在 doc 移出 documents 之前触发，payload.document 仍可达；
+      // ?. 防 finally 内 TypeError 绕过上方 catch——X4「钩子永不抛」契约对 finally 同样成立）
+      for (const connection of document.connections?.keys() ?? []) this.connEstablishedAt.delete(connection.socketId);
       const q2 = this.pendingQueues.get(projectId);
       // I-1：仅当 doc 真已从库 documents Map 消失才回收空条目——库在钩子后复检 shouldUnloadDocument
       //（mutex 锁定/连接>0 时取消卸载 doc 存活），此时重连复用 doc 不重跑 loadDocument=条目不重建，
@@ -1443,7 +1468,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  快照死线（context.sessionExpiresAt——authenticate 播种，必过期下界）命中后先 DB 复验
    *  （session+teamMember，移除成员也踢）；复验翻案（me 探活已续期）则刷新快照；确认 revoked →
    *  stateless 预通知 {type:'session-expiring'}（客户端 flushPendingUpdates）→ 5s grace →
-   *  webSocket.close(4401)。禁 Connection.close——文档级 CLOSE 制造 L6 僵尸；close 调用处自行 catch。
+   *  webSocket.close(CollabCloseCode.SESSION_EXPIRED)。禁 Connection.close——文档级 CLOSE 制造 L6 僵尸；close 调用处自行 catch。
    *  复验异常 fail-open，但连续 5 次（≈5min）仍关（无界 fail-open=安全债没真修）+ metric。 */
   private startSessionSweep() {
     if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // W8/M2②：clear-first（幂等——rejoin 不泄漏定时器）
@@ -1451,8 +1476,29 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.sessionSweepTimer.unref?.();
   }
 
+  /** Y0b-3 T6：连接最大寿命检查（默认 12h——COLLAB_CONN_MAX_LIFETIME_MS，默认值落使用点）。
+   *  并进 sweep 同一脉冲（不新开 timer）；置于 SWEEP_ENABLED 逃生阀**之前**——阀=session-expiry
+   *  回滚面，不得静默关掉本机制（T3 防线老化/T4 观测同纪律）。超线→webSocket.close(CollabCloseCode.MAX_LIFETIME)——
+   *  P7：connection.close 丢 code，统一 webSocket.close；close 调用处自 catch（F11）。 */
+  private enforceConnMaxLifetime(): void {
+    for (const doc of this.server.hocuspocus.documents.values()) {
+      for (const conn of doc.connections.keys()) {
+        const at = this.connEstablishedAt.get(conn.socketId);
+        if (at !== undefined && Date.now() - at > this.connMaxLifetimeMs()) {
+          try {
+            conn.webSocket?.close(CollabCloseCode.MAX_LIFETIME, 'max-lifetime');   // 4401 已被库 Unauthorized+sweep 双占用——4402 新码
+            collabWsCloseTotal.inc({ code: String(CollabCloseCode.MAX_LIFETIME), reason: 'max-lifetime' });
+          } catch (err) { this.logger.warn(`max-lifetime close failed for ${doc.name}: ${(err as Error).message}`); }
+        }
+      }
+    }
+  }
+
+  private connMaxLifetimeMs(): number { return Number(process.env.COLLAB_CONN_MAX_LIFETIME_MS) || 43_200_000; }
+
   private async sweepSessions() {
-    if (process.env.COLLAB_SWEEP_ENABLED === 'false') return; // 默认开（Y0b-3 T1 P-H，spec §3.1）；'false'=env 逃生阀（§4.2 回滚表）
+    this.enforceConnMaxLifetime();   // Y0b-3 T6：寿命检查同一脉冲首部（在 SWEEP_ENABLED 阀之前——见上注）
+    if (process.env.COLLAB_SWEEP_ENABLED === 'false') return; // 默认开（Y0b-3 T1 P-H，spec §3.1）；'false'=env 逃生阀（§4.2 回滚表——只静默 session-expiry 支，寿命检查在其前不受辖）
     for (const document of [...this.server.hocuspocus.documents.values()]) {
       for (const connection of [...document.connections.keys()]) {
         const ctx = (connection.context ?? {}) as { token?: string; sessionExpiresAt?: Date };
@@ -1528,8 +1574,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     const grace = setTimeout(() => {
       this.sweepGrace.delete(connection);
       try {
-        connection.webSocket.close(4401, 'session-expired');
+        connection.webSocket.close(CollabCloseCode.SESSION_EXPIRED, 'session-expired');
         collabSweepCloseTotal.inc({ cause });
+        collabWsCloseTotal.inc({ code: String(CollabCloseCode.SESSION_EXPIRED), reason: 'session-expired' });   // Y0b-3 T6：close 分布面
       } catch (err) {
         this.logger.warn(`sweep close failed: ${(err as Error).message}`);   // F11：webSocket.close 调用处自 catch
       }
@@ -1537,14 +1584,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     grace.unref?.();
   }
 
-  /** 批3-2：关停前对存活连接 close(1012, "service restart")——客户端据 code 按瞬态服务重启
+  /** 批3-2：关停前对存活连接 close(CollabCloseCode.APP_RESTART, "service restart")——客户端据 code 按瞬态服务重启
    *  立即重连，不等 1006 盲区。先复制后关（[...map] 快照）：close 回调可能反噬集合
    *  （连接自清/异常路径），活迭代下漏关未访问项。单个失败各自吞（F11）不阻断其余。 */
   private closeAllConnections1012() {
     for (const document of [...this.server.hocuspocus.documents.values()]) {
       for (const connection of [...document.connections.keys()]) {
-        try { connection.webSocket.close(1012, 'service restart'); }
-        catch (err) { this.logger.warn(`close(1012) failed for ${document.name}: ${(err as Error).message}`); }
+        try {
+          connection.webSocket.close(CollabCloseCode.APP_RESTART, 'service restart');
+          collabWsCloseTotal.inc({ code: String(CollabCloseCode.APP_RESTART), reason: 'service restart' });   // Y0b-3 T6：close 分布面
+        }
+        catch (err) { this.logger.warn(`close(${CollabCloseCode.APP_RESTART}) failed for ${document.name}: ${(err as Error).message}`); }
       }
     }
   }
@@ -1709,7 +1759,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         this.logger.warn(`closeConnections failed for ${projectId}: ${(err as Error).message}`);
       }
       for (const connection of connections) {
-        try { connection.webSocket.close(1000, 'team disbanded'); }
+        this.connEstablishedAt.delete(connection.socketId);   // Y0b-3 T6 键控清理：解散清该 doc 全部连接寿命条目（防无界）
+        try {
+          connection.webSocket.close(CollabCloseCode.NORMAL, 'team disbanded');
+          collabWsCloseTotal.inc({ code: String(CollabCloseCode.NORMAL), reason: 'team disbanded' });   // Y0b-3 T6：close 分布面
+        }
         catch (err) { this.logger.warn(`close webSocket failed for ${projectId}: ${(err as Error).message}`); }
       }
     }

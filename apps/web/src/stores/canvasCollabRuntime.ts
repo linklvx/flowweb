@@ -8,7 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CollabCloseCode } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
@@ -149,7 +149,7 @@ export const recovery = {
         rebuildPending = true;                    // 旧实例 hasUnsyncedChanges 不可读——标记武装（1-4 清除）
       } else {
         // —— 瞬态：传输级 reconnect（门 B 裁决——kick 方案/㉕㉝ 约束已删）——
-        // needKick=false（OPEN socket）：close(1000) 即触发库 onClose 分支自持重连
+        // needKick=false（OPEN socket）：code 1000（NORMAL）close 即触发库 onClose 分支自持重连
         // （真协议实测 ws-polyfill.gate：created+1+重新 synced，调用方零库句柄操作）；
         // needKick=true（无实例/CONNECTING/CLOSED）：ws.connect() 确定性取消在飞 attempt 重建
         const needKick = transportHandle?.reconnect() ?? true;
@@ -846,11 +846,12 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
   p.on('close', ({ event }: any) => {
     recomputeConnStatus();
-    // 批1-2：1012=服务端计划内重启 close code（批3 服务端落地前不会真出现——客户端分支先在）。
+    // 批1-2：APP_RESTART(1012)=服务端计划内重启 close code（批3 服务端落地前不会真出现——客户端分支先在）。
     // 判定走 close 事件 event.code（status 事件无 code；4408 强关不 emit close——不混用）。
-    if (event?.code === 1012) {
+    // Y0b-3 T6：字面量迁 shared 常量单源（数值不变——行为等价；close 映射表消费归 T9）。
+    if (event?.code === CollabCloseCode.APP_RESTART) {
       plannedRestartUntil = Date.now() + 30_000;
-      // 1~3s 短退避首连。1012 时 socket 已 CLOSED——transport.reconnect() 只会返回 needKick=true
+      // 1~3s 短退避首连。APP_RESTART 时 socket 已 CLOSED——transport.reconnect() 只会返回 needKick=true
       // 再回到 ws.connect()（批1-0 落地时裁定：此处直连库句柄等价且更短）
       setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
         1000 + Math.random() * 2000);

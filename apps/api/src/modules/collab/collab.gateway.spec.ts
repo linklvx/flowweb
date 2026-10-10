@@ -328,10 +328,11 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('onDisconnect：非最后连接早退——不 flush 不 compact', async () => {
       const { onLoadDocument, onDisconnect } = extractHooks();
       const doc = new Document('project:p1');   // Y0a-2：真 Document（saveMutex）——非最后连接形态
-      (doc as any).getConnectionsCount = () => 1;
       await onLoadDocument({ document: doc, documentName: 'project:p1' });   // 同实例：queue 有内容，若早退守卫被删则 append 会被调 → 红
       doc.getMap('nodes').set('x', 1);
-      await onDisconnect({ document: doc, documentName: 'project:p1' });
+      // Y0b-3 T6：早退判据改读 payload.clientsCount（库 esm:1059 removeConnection 后现算——
+      // 原 doc.getConnectionsCount() mock 随契约替换退役）
+      await onDisconnect({ document: doc, documentName: 'project:p1', clientsCount: 1 });
       expect(repo.append).not.toHaveBeenCalled();
       expect(repo.compact).not.toHaveBeenCalled();
     });

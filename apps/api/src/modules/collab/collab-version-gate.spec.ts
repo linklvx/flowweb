@@ -15,6 +15,7 @@ import { createLeaseStub } from './test-utils/lease-stub';
 import { CollabAuthReason, isTerminalReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
+import * as Y from 'yjs';
 
 /** schema-outdated 注入位（文件级 mock——非 null 时强制 current；collab-protocol.test.ts
  *  `negotiateClientVersion('1', 2)` 同款注入形态）。vi.hoisted 先于 vi.mock 工厂执行。 */
@@ -64,7 +65,7 @@ function buildGateway() {
     undefined, undefined, undefined, spool,
   );
   (gateway as any).collabState = 'serving';
-  return { gateway, prisma };
+  return { gateway, prisma, repo };
 }
 
 function makeAuthPayload(socketId: string, query: string) {
@@ -151,5 +152,20 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
       expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-vg-o1', '') as any))
         .rejects.toMatchObject({ reason: 'server-overloaded' }));
     expect(versionInc).toBe(0);   // 版本门未及执行——heap 闸先拒
+  });
+});
+
+describe('Y0b-3 T6 schemaRefusal reason 通路（E56 v2.1 断链修复——第五终态档）', () => {
+  it('拒载 throw 附 reason=schema-outdated（改前红：仅 schemaRefusal 标记→客户端收字面量 permission-denied 落瞬态桶）；schema-outdated ∈ isTerminalReason（客户端四档 UX 版本过期分支的权威分型）', async () => {
+    const { gateway, repo } = buildGateway();
+    const bad = new Y.Doc();   // 戳存在且≠当前版本——ensureSchemaVersion 判据（绿测试同款装置）
+    bad.getMap('meta').set('schemaVersion', 999);
+    bad.getMap('nodes').set('n', new Y.Map());
+    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(bad)), updates: [], stateSeq: 0n });
+    const denial = await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:vg-old' } as any)
+      .then(() => { throw new Error('expected rejection'); }, (e: Error & { schemaRefusal?: boolean; reason?: string }) => e);
+    expect(denial.reason).toBe(CollabAuthReason.SCHEMA_OUTDATED);   // 库 esm:939 error.reason ?? 'permission-denied' 透传——附上即通
+    expect(denial.schemaRefusal).toBe(true);                        // 既有标记保留（无害）
+    expect(isTerminalReason(CollabAuthReason.SCHEMA_OUTDATED)).toBe(true);   // 网关侧通路锚（shared 侧已测——此处锚网关链路分型一致）
   });
 });

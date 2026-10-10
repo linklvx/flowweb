@@ -8,9 +8,11 @@ import { CollabSpoolService } from './collab-spool.service';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { register } from 'prom-client';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { CollabCloseCode } from '@flowweb/shared';
 
 // Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
 let spoolDir: string;
@@ -42,14 +44,16 @@ function buildGateway() {
 }
 
 interface FakeConn {
+  socketId: string;
   context: { token?: string; sessionExpiresAt?: Date };
   sendStateless: ReturnType<typeof vi.fn>;
   webSocket: { close: ReturnType<typeof vi.fn> };
   document: { name: string };
 }
 
-function makeConn(name: string, overrides: { expiresAt?: Date } = {}): FakeConn {
+function makeConn(name: string, overrides: { expiresAt?: Date; socketId?: string } = {}): FakeConn {
   return {
+    socketId: overrides.socketId ?? `sock-${name}-${Math.random().toString(36).slice(2, 8)}`,
     context: { token: 'tok', sessionExpiresAt: overrides.expiresAt ?? new Date(Date.now() - 1000) },   // 默认快照已过期（必过期下界）
     sendStateless: vi.fn(),
     webSocket: { close: vi.fn() },
@@ -61,6 +65,16 @@ function seedDocument(gateway: CollabGateway, name: string, conns: FakeConn[]) {
   const connections = new Map(conns.map((c) => [c, { clients: new Set() }]));
   (gateway.server.hocuspocus.documents as Map<string, any>).set(name, { name, connections });
   return connections;
+}
+
+/** prom-client 计数增量断言（collab-version-gate.spec 同款——register 全局单例，恒用增量） */
+async function metricDelta(name: string, labels: Record<string, string>, fn: () => Promise<unknown> | unknown): Promise<number> {
+  const metric: any = register.getSingleMetric(name);
+  const countOf = async () =>
+    (await metric.get()).values.find((s: any) => Object.entries(labels).every(([k, v]) => s.labels[k] === v))?.value ?? 0;
+  const before = await countOf();
+  await fn();
+  return (await countOf()) - before;
 }
 
 beforeEach(async () => {
@@ -229,5 +243,79 @@ describe('批3-4 closeTeamDocuments 补 webSocket.close', () => {
     seedDocument(gateway, 'project:p1', [c1, c2]);
     expect(() => gateway.closeTeamDocuments(['p1'])).not.toThrow();
     expect(c2.webSocket.close).toHaveBeenCalled();
+  });
+
+  it('Y0b-3 T6 键控清理：解散清该 doc 全部连接的 connEstablishedAt 条目（防无界——他 doc 条目保留）', () => {
+    const { gateway } = buildGateway();
+    const c1 = makeConn('project:p1', { socketId: 'sock-d1' });
+    const c2 = makeConn('project:p1', { socketId: 'sock-d2' });
+    seedDocument(gateway, 'project:p1', [c1, c2]);
+    const m = (gateway as any).connEstablishedAt as Map<string, number>;
+    m.set('sock-d1', Date.now());
+    m.set('sock-d2', Date.now());
+    m.set('sock-other-doc', Date.now());
+    gateway.closeTeamDocuments(['p1']);
+    expect(m.has('sock-d1')).toBe(false);
+    expect(m.has('sock-d2')).toBe(false);
+    expect(m.has('sock-other-doc')).toBe(true);
+  });
+});
+
+describe('Y0b-3 T6 连接寿命 4402（socketId 键控——sweep tick 同一脉冲首部）', () => {
+  it('连接超 COLLAB_CONN_MAX_LIFETIME_MS（默认 12h）→ webSocket.close(4402,"max-lifetime")（P7：connection.close 丢 code——统一 webSocket.close）+ws_close 计数单点埋', async () => {
+    delete process.env.COLLAB_CONN_MAX_LIFETIME_MS;   // 缺省=12h（默认值落使用点——T1 形态）
+    const { gateway } = buildGateway();
+    const conn = makeConn('project:aged', { socketId: 'sock-aged', expiresAt: new Date(Date.now() + 24 * 3600 * 1000) });   // 快照未过期——隔离 session-expiry 支（本用例只看寿命腿）
+    seedDocument(gateway, 'project:aged', [conn]);
+    gateway.hooks.connected({ socketId: 'sock-aged', documentName: 'project:aged' } as any);   // connected 播种 connEstablishedAt
+    (gateway as any).startSessionSweep();
+    await vi.advanceTimersByTimeAsync(12 * 3600_000 - 120_000);   // 未到期：不关
+    expect(conn.webSocket.close).not.toHaveBeenCalled();
+    const inc = await metricDelta('collab_ws_close_total', { code: '4402', reason: 'max-lifetime' }, async () => {
+      await vi.advanceTimersByTimeAsync(180_000);                 // 越线（12h）后的首个 tick：4402 关
+    });
+    expect(conn.webSocket.close).toHaveBeenCalledTimes(1);
+    expect(conn.webSocket.close).toHaveBeenCalledWith(CollabCloseCode.MAX_LIFETIME, 'max-lifetime');
+    expect(inc).toBe(1);
+  });
+
+  it('env 覆写：COLLAB_CONN_MAX_LIFETIME_MS=1000 → 越线后即关（env 单源——zod 注册键 T1）', async () => {
+    vi.stubEnv('COLLAB_CONN_MAX_LIFETIME_MS', '1000');
+    const { gateway } = buildGateway();
+    const conn = makeConn('project:shortlived', { socketId: 'sock-short', expiresAt: new Date(Date.now() + 24 * 3600 * 1000) });
+    seedDocument(gateway, 'project:shortlived', [conn]);
+    gateway.hooks.connected({ socketId: 'sock-short', documentName: 'project:shortlived' } as any);
+    (gateway as any).startSessionSweep();
+    await vi.advanceTimersByTimeAsync(120_000);   // 首个 tick（60s）未越线，第二个 tick（120s）越线
+    expect(conn.webSocket.close).toHaveBeenCalledWith(CollabCloseCode.MAX_LIFETIME, 'max-lifetime');
+  });
+
+  it('键控清理：断连即删 Map 条目（防无界）——清理在 early-return 之前执行（多标签 clientsCount>0 不跳清理）', async () => {
+    const { gateway } = buildGateway();
+    const a = makeConn('project:multi', { socketId: 'sock-multi-a' });
+    const b = makeConn('project:multi', { socketId: 'sock-multi-b' });
+    const connections = seedDocument(gateway, 'project:multi', [a, b]);
+    const m = (gateway as any).connEstablishedAt as Map<string, number>;
+    m.set('sock-multi-a', Date.now());
+    m.set('sock-multi-b', Date.now());
+    (gateway as any).authAttemptBuckets.set('sock-multi-a', { count: 1, windowStart: Date.now() });   // 防线桶同批清
+    connections.delete(a);   // 模拟库行为：Connection.close 先 removeConnection 再触发 onDisconnect（esm:420-421）——a 已出 Map
+    await gateway.hooks.onDisconnect({
+      document: { name: 'project:multi', connections, getConnectionsCount: () => connections.size },
+      documentName: 'project:multi', socketId: 'sock-multi-a', clientsCount: 1,   // >0=多标签 early-return 路径——清理必须先于它
+    } as any);
+    expect(m.has('sock-multi-a')).toBe(false);   // 断连者条目已删（现状红：Map 不存在/清理在早退之后）
+    expect(m.has('sock-multi-b')).toBe(true);    // 仍在连者不受扰
+    expect((gateway as any).authAttemptBuckets.has('sock-multi-a')).toBe(false);
+  });
+
+  it('键控清理：卸载（beforeUnloadDocument）清该 doc 全部连接条目——payload.document 反查', async () => {
+    const { gateway } = buildGateway();
+    const c1 = makeConn('project:p1', { socketId: 'sock-u1' });
+    const connections = seedDocument(gateway, 'project:p1', [c1]);
+    const m = (gateway as any).connEstablishedAt as Map<string, number>;
+    m.set('sock-u1', Date.now());
+    await gateway.hooks.beforeUnloadDocument({ documentName: 'project:p1', document: { name: 'project:p1', connections } } as any);
+    expect(m.has('sock-u1')).toBe(false);
   });
 });

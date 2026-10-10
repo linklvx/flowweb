@@ -94,6 +94,16 @@ export const collabVersionNegotiationRejectTotal = new Counter({
   labelNames: ['reason'],
   registers: [register],
 });
+/** Y0b-3 T6（P-O）：应用侧主动 close 分布——code=CollabCloseCode 分配表值（1000/1012/4401/4402），
+ *  reason=close 时附语义串。边界（v3 钉死）：库自发/自然断连的服务端观测结构性不可达
+ *  （onDisconnectPayload 无 close code 字段——归 Y0b-5 客户端遥测）；ws 层自发 close（如 1009
+ *  maxPayload）不经本指标——本指标=应用侧五个调用点的分布面。 */
+export const collabWsCloseTotal = new Counter({
+  name: 'collab_ws_close_total',
+  help: 'collab 应用侧主动 webSocket.close 分布（code=分配表值；reason=close 语义串——库自发断连不可观测归客户端遥测）',
+  labelNames: ['code', 'reason'],
+  registers: [register],
+});
 /** Y0b-3 T3：AUTH DB deadline 超时计数（折 db-unavailable——防慢 DB 挂满信号量） */
 export const collabAuthTimeoutTotal = new Counter({
   name: 'collab_auth_timeout_total',
