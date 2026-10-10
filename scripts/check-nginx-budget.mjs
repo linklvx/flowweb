@@ -22,11 +22,12 @@ const capMatch = envSrc.match(/SYNC_HARD_CAP:\s*(\d[\d_]*)\s*,/);
 if (!capMatch) structural('env.ts 未找到 EXEC_DEFAULTS.SYNC_HARD_CAP 字面量');
 const hardCapMs = Number(capMatch[1].replace(/_/g, ''));
 
-// conf 内 proxy_read_timeout 数值（秒）——location /api 块内
-const timeoutMatch = conf.match(/proxy_(?:read|send)_timeout\s+(\d+)s\s*;/g) ?? [];
-if (timeoutMatch.length < 2) structural('api-location.replace.conf 未同时解析到 proxy_read_timeout+proxy_send_timeout');
-const readSec = Number(conf.match(/proxy_read_timeout\s+(\d+)s/)?.[1]);
-const sendSec = Number(conf.match(/proxy_send_timeout\s+(\d+)s/)?.[1]);
+// conf 内 proxy_read_timeout 数值（秒）——**非注释行**锚定（行首空白后指令名——T8 审查 M-4：
+// 无锚全文匹配会把头注/尾注里的同名字样误读为指令值，方向可误红也可误绿）
+const directiveLines = conf.split(/\r?\n/).filter((l) => /^\s*proxy_(?:read|send)_timeout\s+\d+s\s*;/.test(l));
+if (directiveLines.length < 2) structural('api-location.replace.conf 未同时解析到非注释行 proxy_read_timeout+proxy_send_timeout');
+const readSec = Number(directiveLines.find((l) => l.includes('proxy_read_timeout'))?.match(/proxy_read_timeout\s+(\d+)s/)?.[1]);
+const sendSec = Number(directiveLines.find((l) => l.includes('proxy_send_timeout'))?.match(/proxy_send_timeout\s+(\d+)s/)?.[1]);
 if (!Number.isFinite(readSec) || !Number.isFinite(sendSec)) structural('timeout 数值不可解析');
 
 const problems = [];

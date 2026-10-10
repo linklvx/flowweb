@@ -82,7 +82,10 @@ export class AdminSubscriptionService {
     return this.prisma.$transaction(async (raw) => {
       const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       if (opts?.idempotencyKey) {
-        // Z113：advisory 事务锁先于一切业务语句（SET LOCAL 之后）——事务提交即释放，锁粒度=hash(key)
+        // Z113：advisory 事务锁先于一切业务语句（SET LOCAL 之后）——事务提交即释放，锁粒度=hash(key)。
+        // 定位=纵深防御（T8 质量审 M-1 实证修正）：当前形态下 lockBalance 的 FOR UPDATE（持至 commit）
+        // +READ COMMITTED 逐语句新快照已完全收并发窗（findFirst 在 lockBalance 之后必见已提交行）——
+        // advisory 防的是未来把 findFirst 前移到 lockBalance 之前的重构（届时双 miss⇒后者撞唯一⇒500）。
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'admin:' + opts.idempotencyKey}))`;
       }
       await this.ledger.ensureBalance(tx, team.id);

@@ -119,8 +119,8 @@ export class CollabDocumentService {
     return this.snapshotCache.get(projectId, () => this.decodeSnapshot(projectId));
   }
 
-  /** Y0b-2 T3：快照缓存失效——video-work process 处理完成后调（进程内层不跨请求存活，
-   *  跨请求缓存归 Redis 300s 层）。 */
+  /** Y0b-2 T3 落/T8 修订：快照缓存失效——E71 后失效归 canvas.doc-saved 事件（@OnEvent 双层失效：
+   *  进程内 invalidateSnapshotCache+Redis del）；进程内层跨请求存活（TTL 30s 上界），非一次性。 */
   invalidateSnapshotCache(projectId: string): void {
     this.snapshotCache.invalidate(projectId);
   }
