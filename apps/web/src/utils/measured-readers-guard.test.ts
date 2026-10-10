@@ -46,7 +46,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/ImageNodeToolbar.tsx': [363, 364],
     'pages/canvas/components/nodes/TextNodeToolbar.tsx': [166, 171],
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
-    'pages/canvas/components/nodes/ImageGenNode.tsx': [159, 160],
+    'pages/canvas/components/nodes/ImageGenNode.tsx': [160, 161], // Y0b-2 T6：lastSubmitRef 两行删除——measured 读者行号+1（搬运=重审）
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
     'pages/canvas/components/nodes/VideoGenNode.tsx': [398],
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],

@@ -194,7 +194,10 @@ function projectExecToStore(d: Y.Doc): void {
  *  投影仅收录合法 status 值——非法值条目不在 Map，归入"无条目"）。
  *  查表语义=最新意图行定夺（createdAt desc 首行）：SUCCEEDED→done / FAILED→error / RUNNING/VOIDED→不写
  *  （不回退不误置，保持 loading）。触发点= status connected 边沿 + visibilitychange 回前台。
- *  去抖语义=单飞（in-flight 互斥）：并发触发只跑一轮；完成后再次触发重跑（幂等——同一终态重复写收敛）。 */
+ *  去抖语义=单飞（in-flight 互斥）：并发触发只跑一轮；完成后再次触发重跑（幂等——同一终态重复写收敛）。
+ *  Y0b-2 T6（Z78 激活验收）：api 侧 intents 信封清剿后 fetchNodeIntents 真实拿到数组（改前双层
+ *  {code,data} 使 rows?.[0] 恒 undefined=静默 no-op）；FAILED 对齐补 attempts（T5 deferred 行
+ *  形态——error 投影 attempts 的对齐镜像，envelope-shape.spec 断言）。 */
 let alignInFlight = false;
 async function alignExecFromIntents(): Promise<void> {
   if (alignInFlight || !session) return;
@@ -212,7 +215,7 @@ async function alignExecFromIntents(): Promise<void> {
       if (latest?.status !== 'SUCCEEDED' && latest?.status !== 'FAILED') continue;
       const entry: ExecStatusEntry = latest.status === 'SUCCEEDED'
         ? { status: 'done', intentId: latest.intentId, fileId: latest.resultRef ?? undefined }
-        : { status: 'error', intentId: latest.intentId, error: latest.error ?? undefined };
+        : { status: 'error', intentId: latest.intentId, error: latest.error ?? undefined, attempts: latest.attempts };
       useNodeStore.setState((s) => ({ execAligned: new Map(s.execAligned).set(node.id, entry) }));
     }
   } finally {

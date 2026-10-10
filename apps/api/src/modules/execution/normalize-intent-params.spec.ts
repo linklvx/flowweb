@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeIntentParams } from './normalize-intent-params';
+import { normalizeIntentParams, WHITELIST, IDENTITY_FIELDS } from './normalize-intent-params';
 
 // F1：服务端白名单规范化——幂等命中比对谓词。
 // 白名单 = 五扣费点实读外呼参数中的稳定意图参数：
@@ -57,10 +57,39 @@ describe('normalizeIntentParams（F1 白名单规范化哈希）', () => {
     expect(normalizeIntentParams('lighting', a)).toBe(normalizeIntentParams('lighting', b));
   });
 
-  it('erase kind：实读无稳定意图参数（外呼仅 presigned URL）——任意参数同 hash', () => {
+  it('Y0b-2 T6（R3-P0-1）erase 空集根修：不同 maskFileId → 不同 hash（改前空 whitelist=同键回放旧产物）', () => {
     const a = { fileId: 'f1', maskFileId: 'm1', sv: 1 };
-    const b = { fileId: 'f2', maskFileId: 'm2', sv: 9 };
+    const b = { fileId: 'f1', maskFileId: 'm2', sv: 1 };
+    expect(normalizeIntentParams('erase', a)).not.toBe(normalizeIntentParams('erase', b));
+  });
+
+  it('Y0b-2 T6：erase 同 mask 重试（环境噪声不同）→ 同 hash（幂等命中不双扣）', () => {
+    const a = { fileId: 'f1', maskFileId: 'm1', sv: 1 };
+    const b = { fileId: 'f1', maskFileId: 'm1', sv: 9 };
     expect(normalizeIntentParams('erase', a)).toBe(normalizeIntentParams('erase', b));
+  });
+
+  it('Y0b-2 T6：outpaint/redraw 换源图（fileId 变）→ 不同 hash（identity 字段进键）', () => {
+    expect(normalizeIntentParams('outpaint', { fileId: 'f1', rect: { x: 1, y: 1, width: 2, height: 2 }, imageWidth: 100, imageHeight: 100 }))
+      .not.toBe(normalizeIntentParams('outpaint', { fileId: 'f2', rect: { x: 1, y: 1, width: 2, height: 2 }, imageWidth: 100, imageHeight: 100 }));
+    expect(normalizeIntentParams('redraw', { fileId: 'f1', maskFileId: 'm1', prompt: 'p', strength: 0.6 }))
+      .not.toBe(normalizeIntentParams('redraw', { fileId: 'f2', maskFileId: 'm1', prompt: 'p', strength: 0.6 }));
+  });
+
+  it('Y0b-2 T6：lighting 换源图（originalImageId 变）→ 不同 hash', () => {
+    const a = { originalImageId: 'img-1', prompt: '黄昏光' };
+    const b = { originalImageId: 'img-2', prompt: '黄昏光' };
+    expect(normalizeIntentParams('lighting', a)).not.toBe(normalizeIntentParams('lighting', b));
+  });
+
+  it('Y0b-2 T6 身份完整性表驱动：每 kind 的 IDENTITY_FIELDS ⊆ WHITELIST[kind]（新增 kind/字段自动受检——缺身份字段=同操作异键/异操作同键的资损面）', () => {
+    for (const [kind, fields] of Object.entries(IDENTITY_FIELDS)) {
+      const whitelist = WHITELIST[kind];
+      expect(whitelist, `kind '${kind}' 未登记 WHITELIST（fail-closed：claim 会 throw）`).toBeDefined();
+      for (const f of fields) {
+        expect(whitelist, `kind '${kind}' 身份字段 '${f}' 缺席 WHITELIST——参数变而 idemKey 不变`).toContain(f);
+      }
+    }
   });
 
   it('未知 kind 抛错（fail-closed——静默回退全键会让 sv/nonce 进哈希，重试按钮永久 409）', () => {

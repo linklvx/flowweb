@@ -20,6 +20,8 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }) },
     pricingRule: { findFirst: vi.fn().mockResolvedValue({ creditCost: 1 }) },
     style: { findMany: vi.fn().mockResolvedValue([]) },
+    // Y0b-2 T6（B-1）：catch 路径查行状态（SUCCEEDED=交付死区分义）——默认 null=未终态（走 void_+fail）
+    generationIntent: { findUnique: vi.fn().mockResolvedValue(null) },
   };
   const topology = {
     getScope: vi.fn().mockReturnValue(nodes),
@@ -318,19 +320,19 @@ function makeProcessor() {
 }
 
 describe('批0.5-6 processor failed 钩子（SIGKILL 终态兜底——exec map + 意图反查 fail）', () => {
-  it('failed → writeExecStatus(error, intentId) + findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)', async () => {
+  it('failed → writeExecStatus(error, running.intentId) + findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)（T6：投影 intentId=行身份——旧 job.data 手势 token 位语义错位修正）', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
-    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1' });
-    const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
+    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1', intentId: 'row-uuid-9' });
+    const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await p.onFailed(job as any, new Error('worker died'));
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error', intentId: 'i-1', error: 'worker died' }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error', intentId: 'row-uuid-9', error: 'worker died' }));
     expect(intentService.findByActiveNode).toHaveBeenCalledWith('p1', 'n1', 'job-1'); // Z27：jobId 限定
     expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died', 'job-1');
   });
 
   it('findByActiveNode null（无在飞意图——reconcile 已回收或本 job 已终态）→ 只写 exec map', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
-    const job = { id: 'job-2', data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
+    const job = { id: 'job-2', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await p.onFailed(job as any, new Error('x'));
     expect(collabDoc.writeExecStatus).toHaveBeenCalled();
     expect(intentService.fail).not.toHaveBeenCalled();
@@ -340,7 +342,7 @@ describe('批0.5-6 processor failed 钩子（SIGKILL 终态兜底——exec map 
     const { p, collabDoc, intentService } = makeProcessor();
     collabDoc.writeExecStatus.mockRejectedValue(new Error('doc down'));
     intentService.findByActiveNode.mockResolvedValue({ id: 'row-1' });
-    const job = { id: 'job-3', data: { projectId: 'p1', nodeId: 'n1', intentId: 'i-1' } };
+    const job = { id: 'job-3', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await expect(p.onFailed(job as any, new Error('x'))).resolves.toBeUndefined();
     expect(intentService.fail).toHaveBeenCalledWith('row-1', 'x', 'job-3');
   });
@@ -369,23 +371,23 @@ function makeController() {
   return { ctrl, service, perm, queue, intentService };
 }
 
-describe('批0.5-6 controller 意图接线', () => {
-  it('execute 读 x-intent-id 头透传 service 第6参', async () => {
+describe('Y0b-2 T6 controller 意图接线（Z91/Z103）', () => {
+  it('execute 读 body.regenToken 透传 service 第6参（意图 id 请求头已删——无消费者）', async () => {
     const { ctrl, service } = makeController();
     const b64 = Buffer.from('sv').toString('base64');
-    await ctrl.execute({ projectId: 'p1', nodeId: 'n1' }, { user: { id: 'u1' } } as any, b64, 'hdr-intent');
+    await ctrl.execute({ projectId: 'p1', nodeId: 'n1', regenToken: 'hdr-intent' }, { user: { id: 'u1' } } as any, b64);
     expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, expect.any(Uint8Array), 'hdr-intent');
   });
 
-  it('enqueue body.intentId 透传 job.data；缺省 null', async () => {
+  it('enqueue body.regenToken 入 job.data；缺省 null（Z91：enqueue 管道与 execute 直达同 claim 语义）', async () => {
     const { ctrl, queue } = makeController();
-    await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', intentId: 'i-9' }, { user: { id: 'u1' } } as any);
+    await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', regenToken: 'i-9' }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', sv: null, intentId: 'i-9',
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', sv: null, regenToken: 'i-9',
     });
     await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2' }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenLastCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', sv: null, intentId: null,
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', sv: null, regenToken: null,
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Inject, Req, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Inject, Req, UsePipes, ValidationPipe, NotFoundException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
@@ -27,15 +27,18 @@ export class LightingController {
     // paramsHash = paramsToPrompt 纯派生稳定串——与 consumer 外呼 prompt 同函数（两处各自实现=两键双扣）。
     // 意图行管幂等/互斥/对账；LightingTask 照旧管业务状态（两者并存）。
     // Y0b-1（E1）：claim 前解析 kind 级定价快照（lighting=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
-    // Y0b-2（Z109）：body.intentId wire 语义=手势 token 非行 id（T6 改名 regenToken——防新调用方拿它查 intents 端点）。
+    // Y0b-2 T6（Z78/Z109）：body.regenToken=客户端手势 token（改名自 intentId 位）；replayed/result
+    // 裸值返回交全局拦截器单层包裹（信封清剿——改前 {code,data} 双层）。60s 去重命中 fail 后按重放返回。
     const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
     const { intent, created } = await this.intentService.claim({
       projectId: body.projectId,
       nodeId: body.nodeId,
       userId,
-      gestureToken: body.intentId,
+      gestureToken: body.regenToken,
       kind: 'lighting',
       paramsHash: normalizeIntentParams('lighting', {
+        // Y0b-2 T6（R3-P0-1）：originalImageId 进哈希——源图变=操作身份变=新 idemKey（白名单同步）
+        originalImageId: body.originalImageId,
         prompt: paramsToPrompt(body.params, body.params.customPrompt),
       }),
       pricing,
@@ -43,17 +46,17 @@ export class LightingController {
     });
     if (!created) {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用
-      return { code: 0, data: { replayed: true, resultRef: intent.resultRef } };
+      return { replayed: true, resultRef: intent.resultRef };
     }
     try {
       const result = await this.service.createTask(body, userId, intent.id, intent.intentId);
       if (result.jobId) {
         await this.intentService.attachJob(intent.id, result.jobId);
-        return { code: 0, data: result };
+        return result;
       }
       // createTask 命中 60s 去重未入队——释放执行权（防 RUNNING 孤儿把节点锁死 15min），按重放返回既有任务
       await this.intentService.fail(intent.id, '任务去重：60 秒内同参数任务已存在');
-      return { code: 0, data: { replayed: true, taskId: result.taskId, status: result.status } };
+      return { replayed: true, taskId: result.taskId, status: result.status };
     } catch (e: any) {
       // createTask 失败（积分不足/项目不存在等）——防 RUNNING 孤儿锁节点（execution.service catch 先例）
       await this.intentService.fail(intent.id, String(e?.message ?? e));
@@ -66,8 +69,9 @@ export class LightingController {
     const userId = (req as any).user?.id;
     const task = await this.service.getTask(taskId, userId);
     if (!task) {
-      return { code: 404, data: null, message: '任务不存在' };
+      // Y0b-2 T6（Z78 信封清剿）：手包 404 信封退役——NotFoundException 交全局 exception filter（404 语义保持）
+      throw new NotFoundException('任务不存在');
     }
-    return { code: 0, data: task };
+    return task;
   }
 }

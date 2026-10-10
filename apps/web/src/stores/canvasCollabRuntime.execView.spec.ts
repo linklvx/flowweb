@@ -302,6 +302,27 @@ describe('批1-6：恢复对齐 alignExecFromIntents（connect 边沿 + visibili
     expect(fetchSpy).not.toHaveBeenCalled();
     hiddenSpy.mockRestore();
   });
+
+  it('Y0b-2 T6（Z78 激活验收）：VOIDED 最新行 → 不写不回退（保持 loading——资金已退，终态未定）', async () => {
+    const p = await driveToSynced('p1');
+    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
+    fetchSpy.mockImplementation(async () => ok([intentRow('VOIDED', { error: '回收' })]));
+    p.emit('status', { status: 'disconnected' });
+    p.emit('status', { status: 'connected' });
+    await tick();
+    expect(useNodeStore.getState().execAligned.has('n1')).toBe(false);
+    expect(execStatusOf('n1')).toBe('loading');
+  });
+
+  it('Y0b-2 T6（T5 deferred 行形态）：FAILED 行带 attempts → 对齐投影 attempts 随行（重试文案判据单源）', async () => {
+    const p = await driveToSynced('p1');
+    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
+    fetchSpy.mockImplementation(async () => ok([intentRow('FAILED', { error: 'boom', attempts: 2 })]));
+    p.emit('status', { status: 'disconnected' });
+    p.emit('status', { status: 'connected' });
+    await tick();
+    expect(useNodeStore.getState().execAligned.get('n1')).toMatchObject({ status: 'error', error: 'boom', attempts: 2 });
+  });
 });
 
 describe('批1-6：客户端零 exec 写（静态锚）', () => {

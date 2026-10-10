@@ -558,16 +558,16 @@ describe('ImageGenNode', () => {
     expect(portalRoot.querySelector('[data-testid="outpaint-generate"]')).toBeTruthy();
   });
 
-  it('handleGenerate sends outpaintRect in request body', async () => {
+  it('handleGenerate sends outpaintRect in request body（T6：apiFetch 形态——路径 /api 前缀已内聚+envelope 单层消费）', async () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ jobId: 'test-job' }), { status: 200 })
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({ code: 0, data: { jobId: 'test-job' }, message: 'ok' }), { status: 200 }));
     renderNode();
     const portalRoot = document.getElementById('node-toolbar-portal')!;
     const genBtn = portalRoot.querySelector('[data-testid="outpaint-generate"]');
     if (genBtn) fireEvent.click(genBtn);
 
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
     expect(fetchSpy).toHaveBeenCalledWith('/api/image-edit/outpaint', expect.objectContaining({
       method: 'POST',
       body: expect.stringContaining('"rect"'),
@@ -584,104 +584,76 @@ describe('ImageGenNode', () => {
     fireEvent.click(genBtn as HTMLElement);
   };
 
-  const lastBodyIntentId = (fetchSpy: any): string | undefined => {
-    const call = fetchSpy.mock.calls.at(-1);
-    return JSON.parse(call[1].body).intentId;
-  };
+  // ── Y0b-2 T6（Z79 编辑三入口恒手势）：regenToken 生命周期（裸 fetch 已改 apiFetch——envelope 单层消费） ──
 
-  it('handleGenerate 上送 intentId（=sessionStorage 留存值，键含 projectId/nodeId）', async () => {
+  const lastBodyToken = (fetchSpy: any): string | undefined => {
+    const call = fetchSpy.mock.calls.at(-1);
+    return JSON.parse(call[1].body).regenToken;
+  };
+  const okEnvelope = () => new Response(JSON.stringify({ code: 0, data: { jobId: 'job-1' }, message: 'ok' }), { status: 200 });
+
+  it('编辑三入口恒手势：首次应用 → regenToken 铸造上送+sessionStorage 持有', async () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ jobId: 'job-1' }), { status: 200 })
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => okEnvelope());
     renderNode();
     clickOutpaintGenerate();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    const intentId = lastBodyIntentId(fetchSpy);
-    expect(intentId).toBeTruthy();
-    expect(sessionStorage.getItem(`flowweb:intent:undefined:img1`)).toBe(intentId);
+    const token = lastBodyToken(fetchSpy);
+    expect(token).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sessionStorage.getItem('flowweb:regen:undefined:img1')).toBe(token);
     fetchSpy.mockRestore();
   });
 
-  it('两次新提交 rotate 不同 intentId（新点击=新扣费意图）', async () => {
+  it('成功后同参数再应用 → 同 token（改参才换键——idemKey 含 paramsHash，token 恒定不撞）', async () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ jobId: 'job-1' }), { status: 200 })
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => okEnvelope());
     const first = renderNode();
     clickOutpaintGenerate();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    const intent1 = lastBodyIntentId(fetchSpy);
+    const token1 = lastBodyToken(fetchSpy);
     first.unmount();
 
     renderNode();
     clickOutpaintGenerate();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    const intent2 = lastBodyIntentId(fetchSpy);
-    expect(intent1).toBeTruthy();
-    expect(intent2).toBeTruthy();
-    expect(intent2).not.toBe(intent1);
+    const token2 = lastBodyToken(fetchSpy);
+    expect(token1).toBeTruthy();
+    expect(token2).toBe(token1); // held 复用（sessionStorage 跨组件实例存活——Z118）
     fetchSpy.mockRestore();
   });
 
-  it('失败后重试复用同 intentId（表命中不双扣）', async () => {
+  it('失败后重试复用同 token（免费 rearm 不双扣）', async () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('boom', { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-2' }), { status: 200 }));
+      .mockResolvedValueOnce(okEnvelope());
     renderNode();
     clickOutpaintGenerate();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    const intent1 = lastBodyIntentId(fetchSpy);
+    const token1 = lastBodyToken(fetchSpy);
 
     clickOutpaintGenerate();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    expect(lastBodyIntentId(fetchSpy)).toBe(intent1);
+    expect(lastBodyToken(fetchSpy)).toBe(token1);
     fetchSpy.mockRestore();
   });
 
-  it('INTENT_EXHAUSTED 409 → rotate 新 intentId（下次提交照常扣费）', async () => {
+  it('INTENT_EXHAUSTED 409 → rotate 新 token+明确提示（下次提交照常扣费；INTENT_CONTEXT_MISMATCH 语义已随 T1 退役）', async () => {
     mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const warnSpy = vi.spyOn(message, 'warning');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ statusCode: 409, message: '重试次数已用尽', errorCode: 'INTENT_EXHAUSTED' }), { status: 409 })
     );
     renderNode();
     clickOutpaintGenerate();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    const sentIntentId = lastBodyIntentId(fetchSpy);
-    expect(sentIntentId).toBeTruthy();
-    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    const sentToken = lastBodyToken(fetchSpy);
+    expect(sentToken).toBeTruthy();
+    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值（同 token rearm 自锁根堵）
     await waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:intent:undefined:img1')).not.toBe(sentIntentId);
+      expect(sessionStorage.getItem('flowweb:regen:undefined:img1')).not.toBe(sentToken);
     });
-    fetchSpy.mockRestore();
-  });
-
-  it('INTENT_CONTEXT_MISMATCH 409 → rotate + 改参提示 + 下次提交用新 id（改参重试死循环根堵）', async () => {
-    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
-    const warnSpy = vi.spyOn(message, 'warning');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ statusCode: 409, message: '意图上下文不匹配', errorCode: 'INTENT_CONTEXT_MISMATCH' }), { status: 409 })
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-2' }), { status: 200 }));
-    renderNode();
-    clickOutpaintGenerate();
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    const intent1 = lastBodyIntentId(fetchSpy);
-    expect(intent1).toBeTruthy();
-    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
-    await waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:intent:undefined:img1')).not.toBe(intent1);
-    });
-    // 提示出现：明确告知参数变更已重置（不被通用"提交失败"文案吞掉）
-    expect(warnSpy).toHaveBeenCalledWith('参数已变更，已重置生成会话，请重新发起');
-    // 死循环根堵：下次提交用新 id（不再撞 mismatch）
-    clickOutpaintGenerate();
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    const intent2 = lastBodyIntentId(fetchSpy);
-    expect(intent2).toBeTruthy();
-    expect(intent2).not.toBe(intent1);
+    expect(warnSpy).toHaveBeenCalledWith('重试次数已用尽，请重新发起编辑');
     warnSpy.mockRestore();
     fetchSpy.mockRestore();
   });

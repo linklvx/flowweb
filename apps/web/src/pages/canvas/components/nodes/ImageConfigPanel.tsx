@@ -1,10 +1,9 @@
-import { memo, useRef, useCallback, useState, useEffect } from 'react';
+import { memo, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
-import { message } from 'antd';
 import { useNodeStore, isImageNode } from '@/stores/nodeStore';
-import { selectExecStatus } from '@/stores/execStatusView';
+import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 import { ModelSelector } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
 import type { RatioOption } from './config-panel/RatioResolutionPopover';
@@ -43,6 +42,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const quality = nodeData?.quality ?? 'standard';
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
+  // Y0b-2 T6（Z79）：整条投影 entry——token 轮换与按钮三态的判据单源（rearmable/attempts）
+  const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
   const prompt = nodeData?.prompt ?? { text: '', html: '' };
   const allImages = nodeData?.allImages ?? [];
 
@@ -51,8 +52,15 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [executing, setExecuting] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [generateCount, setGenerateCount] = useState(1);
-  // 批0.5-8b：上次提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
-  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
+
+  // Y0b-2 T6（Z95 轮换）：投影 done（下一击=新"重新生成"）或 error∧rearmable:false（EXHAUSTED 不自锁）
+  // ⇒ 丢弃持有——判据单源=doc 投影（服务端权威跨刷新存活，非组件 ref 记忆）
+  useEffect(() => {
+    if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
+      const pid = useCanvasStore.getState().projectId;
+      if (pid) rotateToken(pid, nodeId);
+    }
+  }, [entry?.status, entry?.rearmable, nodeId]);
 
   // Load image models
   useEffect(() => {
@@ -90,31 +98,23 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     const projectId = useCanvasStore.getState().projectId;
-    let intentId = '';
     try {
       if (!projectId) return;
-      // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
-      intentId = lastSubmitRef.current?.failed
-        ? currentIntentId(projectId, nodeId)
-        : newIntentId(projectId, nodeId);
-      await imageNodeApi.submitGeneration(nodeId, { projectId, intentId });
-      lastSubmitRef.current = { intentId, failed: false };
-    } catch (err: any) {
-      // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示（复用旧 id 只会再 409）
-      const rotateMsg = intentRotateMessage(err?.errorCode);
-      if (rotateMsg && projectId) {
-        newIntentId(projectId, nodeId);
-        lastSubmitRef.current = null;
-        message.warning(rotateMsg);
-      } else if (intentId) {
-        // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
-        lastSubmitRef.current = { intentId, failed: true };
-      }
+      // Y0b-2 T6（Z79/Z118 手势 token 生命周期）：held 一律上送（error 后重试/在飞复用=免费 rearm——
+      // sessionStorage 跨刷新存活）；无 held 且 done/EXHAUSTED=新"重新生成"手势（铸造新 token 照常扣费）；
+      // 否则无 token 普通执行（内容键——服务端②回放最新 SUCCEEDED）
+      const held = storedToken(projectId, nodeId);
+      const token = held
+        ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      await imageNodeApi.submitGeneration(nodeId, { projectId, ...(token ? { regenToken: token } : {}) });
+    } catch {
+      // 异步链（enqueue）失败态由服务端 exec 投影接管（error 三件 errorCode/rearmable/attempts——
+      // 轮换 useEffect 单源处理）；本地仅置 data.status 兜底（HTTP 4xx/网络错）
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, nodeData]);
+  }, [nodeId, setStatus, nodeData, status, entry?.rearmable]);
 
   if (!isImageNode(node)) return null;
 
@@ -184,7 +184,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
             />
             <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <CreditDisplay cost={creditCost} />
-            <RunButton loading={executing} onClick={handleGenerate} disabled={status === 'loading'} />
+            <RunButton
+              loading={executing}
+              onClick={handleGenerate}
+              disabled={status === 'loading'}
+              label={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
+            />
           </div>
         </div>
       </div>

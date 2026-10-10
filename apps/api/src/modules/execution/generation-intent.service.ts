@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { deriveIdemKey, normalizeRegenToken, deadlineMsForKind } from './intent-key.util';
+import { intentClaimResultTotal } from './exec.metrics';
 
 /** 409 节点在飞互斥——F1 partial unique 的应用层镜像（双击/stalled 异 jobId/再激活被抢共用）。 */
 export class NodeBusyError extends BusinessException {
@@ -57,19 +58,42 @@ export class GenerationIntentService {
   // @Inject 显式标注——vitest/esbuild 不发射 decorator metadata，类型注解不构成 DI 令牌（仓内惯例）
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  /** claim 完整状态机（F13→Y0b-2 Z82 最小 idemKey 化）——五个分支（判据=findUnique({where:{idemKey}})）：
-   *  ① 无行 → create（RUNNING，intentId=randomUUID() 行身份+idemKey+gestureKey+heartbeatAt/deadlineAt）= 新执行权
-   *  ② RUNNING 且同 jobId → 可重入续跑（BullMQ stalled 重排同 jobId 重进 claim 不得自锁）= 执行权
-   *  ③ RUNNING 且异 jobId → NodeBusy（双击互斥）
-   *  ④ FAILED/VOIDED → 守卫式原子再激活（updateMany count===1 才拥有执行权，并发抢走 → NodeBusy）
-   *  ⑤ SUCCEEDED → created:false 幂等重放（调用方返回既有产物引用，零外呼零扣费）
-   *  异上下文=异 idemKey=走①新行（Z109：改参重试=新意图新扣费——旧 INTENT_CONTEXT_MISMATCH 409 语义退役）
-   *  Y0b-1：全部分支包交互式事务——首句 FOR SHARE 准入谓词（Z26：与 disbandTeam 事务内 team.update 的行排他锁互斥）；
-   *  分支① createMany skipDuplicates（Z33 四轮①：ON CONFLICT DO NOTHING 不抛错，count 判胜后健康事务内分义——
-   *  禁在事务内 catch 驱动错误后再查）。定价快照五字段无条件固化（E1）——rearm 分支④不重写快照
-   *  （plan 固化于首次 claim，重试沿用）。 */
+  /** claim 完整状态机（F13→Y0b-2 T1 Z82 idemKey 化→T6 Z94/Z79 ⓪②③ 完整语义）：
+   *  ⓪ RUNNING 闸（Z94 前置独立索引查）：同 nodeId 存在 RUNNING 行且非「本 job 重入」（Z104 合取固化：
+   *    row.jobId != null && row.jobId === input.jobId——null 永不等于 null，禁 ?? null 归一化）⇒ NodeBusy
+   *    （零新行零回放——partial unique 至多一行，一次索引查）。为什么在②之前：②只查 SUCCEEDED 且回放
+   *    不 INSERT——partial unique 对它无力（在飞时回放旧产物=doc 闪旧版）。
+   *  ① 有 token：findUnique(idemKey 手势键) → 同键状态机（RUNNING 同 jobId 续跑〔⓪ 已拦异 jobId〕；
+   *    SUCCEEDED→created:false 重放；FAILED/VOIDED 同键 rearm——error 后同 token=免费 rearm，
+   *    attempts 1→2→3 后 EXHAUSTED）；无行 → create（手势键新行=重新生成新扣费）。
+   *  ② 无 token：findFirst({projectId,nodeId,kind,paramsHash,status:'SUCCEEDED'}, orderBy createdAt desc)
+   *    → 重放最新一次（T6 修复：regenerate（手势键行）成功后普通点击回放内容键第一版的倒退）。
+   *  ③ 否则内容键（无 token ⇒ idemKey 末段 'run'）状态机/new（RUNNING 同 jobId 续跑/FAILED-VOIDED rearm；
+   *    无行 create——RUNNING partial unique 挡并发⇒NodeBusy）。
+   *  异上下文=异 idemKey=走新行（Z109：改参重试=新意图新扣费——旧「上下文不匹配 409」语义退役）
+   *  Y0b-1：全部分支包交互式事务——首句 FOR SHARE 准入谓词（Z26）；createMany skipDuplicates（Z33 四轮①：
+   *  ON CONFLICT DO NOTHING 不抛错，count 判胜后健康事务内分义）。定价快照五字段无条件固化（E1）——
+   *  rearm 分支不重写快照（plan 固化于首次 claim，重试沿用）。
+   *  Y0b-2 T6（Z103）：normalizeRegenToken 转严格——非法形态 throw 400 IDEMPOTENCY_TOKEN_INVALID（事务外）。 */
   async claim(input: ClaimInput): Promise<{ intent: any; created: boolean }> {
-    const gestureToken = normalizeRegenToken(input.gestureToken, (m) => this.logger.warn(m));
+    let result: 'replay' | 'rearm' | 'new' | undefined;
+    try {
+      const r = await this.claimTx(input);
+      result = r.result;
+      return { intent: r.intent, created: r.created };
+    } catch (err) {
+      // Y0b-2 T6：claim 出口全覆盖——互斥族（NodeBusy/EXHAUSTED/TEAM_CLOSED 之外的业务 4xx）计 busy
+      if (err instanceof NodeBusyError || err instanceof IntentExhaustedError) {
+        intentClaimResultTotal.inc({ result: 'busy' });
+      }
+      throw err;
+    } finally {
+      if (result) intentClaimResultTotal.inc({ result });
+    }
+  }
+
+  private async claimTx(input: ClaimInput): Promise<{ intent: any; created: boolean; result: 'replay' | 'rearm' | 'new' }> {
+    const gestureToken = normalizeRegenToken(input.gestureToken);
     const idemKey = deriveIdemKey({
       projectId: input.projectId, nodeId: input.nodeId, kind: input.kind,
       paramsHash: input.paramsHash, regenToken: gestureToken,
@@ -82,32 +106,46 @@ export class GenerationIntentService {
         throw new BusinessException('TEAM_CLOSED', `团队不存在或已关闭（teamId=${input.teamId}）`, HttpStatus.CONFLICT);
       }
 
+      // ── ⓪ RUNNING 闸（Z94）：一次索引查 partial unique 至多的在飞行——非本 job ⇒ NodeBusy 零新行零回放 ──
+      const running = await tx.generationIntent.findFirst({
+        where: { projectId: input.projectId, nodeId: input.nodeId, status: 'RUNNING' },
+      });
+      if (running && !(running.jobId != null && running.jobId === input.jobId)) {
+        // Z104 合取：null 永不等于 null——running.jobId=null（同步路径）对 input.jobId=null 的普通点击也拦
+        const staleMin = (Date.now() - running.heartbeatAt.getTime()) / 60_000;
+        throw new NodeBusyError(staleMin > 10 ? '系统回收中（约 15 分钟），请稍后重试' : undefined);
+      }
+
+      // ── ② 无 token：同参数最新 SUCCEEDED 回放（在⓪之后——在飞时禁回放旧产物） ──
+      if (!gestureToken) {
+        const latest = await tx.generationIntent.findFirst({
+          where: { projectId: input.projectId, nodeId: input.nodeId, kind: input.kind, paramsHash: input.paramsHash, status: 'SUCCEEDED' },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (latest) return { intent: latest, created: false, result: 'replay' };
+      }
+
+      // ── ①/③ 同键状态机（①=手势键〔有 token〕；③=内容键〔无 token 且②未命中〕） ──
       const existing = await tx.generationIntent.findUnique({ where });
       if (existing) {
-        if (existing.status === 'SUCCEEDED') return { intent: existing, created: false };
+        if (existing.status === 'SUCCEEDED') return { intent: existing, created: false, result: 'replay' };
         if (existing.status === 'RUNNING') {
-          if (input.jobId && existing.jobId === input.jobId) {
-            // 同 job 可重入（BullMQ stalled 重排同 jobId 重进 claim 不得自锁）——Y0b-2 T4 重锚=新执行段：
-            // 重入瞬间刷新 heartbeat/deadline（不刷则旧 deadline 已近/超期 ⇒ reaper deadline 批误收重排任务）；
-            // startedAt 留给 executor 的 reanchorDeadline（外呼真正起点——claim≠外呼开始）。
-            // Y0b-2 T5（Z83/Z95）：resultRef 清空**保留 providerTaskId**——重试 query-first 复用 provider 任务
-            const rearmed = await tx.generationIntent.updateMany({
-              where: { id: existing.id, status: 'RUNNING', jobId: input.jobId },
-              data: {
-                resultRef: null,
-                heartbeatAt: new Date(),
-                deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
-              },
-            });
-            if (rearmed.count === 1) {
-              return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: existing.id } }), created: true };
-            }
-            throw new NodeBusyError(); // 重锚被并发抢走（行已终态/换 job）
+          // ⓪ 已拦异 jobId——此处仅剩同 jobId 重入（BullMQ stalled 重排同 jobId 重进 claim 不得自锁）
+          // ——Y0b-2 T4 重锚=新执行段：重入瞬间刷新 heartbeat/deadline（不刷则旧 deadline 已近/超期
+          // ⇒ reaper deadline 批误收重排任务）；startedAt 留给 executor 的 reanchorDeadline（外呼真正起点）。
+          // Y0b-2 T5（Z83/Z95）：resultRef 清空**保留 providerTaskId**——重试 query-first 复用 provider 任务
+          const rearmed = await tx.generationIntent.updateMany({
+            where: { id: existing.id, status: 'RUNNING', jobId: input.jobId },
+            data: {
+              resultRef: null,
+              heartbeatAt: new Date(),
+              deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
+            },
+          });
+          if (rearmed.count === 1) {
+            return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: existing.id } }), created: true, result: 'rearm' };
           }
-          // 同步路径孤儿（heartbeatAt 龄 >10min，reconcile 尚未回收）与真在飞的 UX 分义——文案提示回收窗口
-          // Y0b-2 T4 判据单源：staleMin 读 heartbeatAt（外呼 tick 持续刷新=活；updatedAt 不随外呼刷新）
-          const staleMin = (Date.now() - existing.heartbeatAt.getTime()) / 60_000;
-          throw new NodeBusyError(staleMin > 10 ? '系统回收中（约 15 分钟），请稍后重试' : undefined);
+          throw new NodeBusyError(); // 重锚被并发抢走（行已终态/换 job）
         }
         // FAILED/VOIDED → 原子再激活（守卫式 updateMany：并发双请求恰一个 count===1）
         // attempts 正交于幂等：SUCCEEDED 重放永不看 attempts，只有失败重试消耗免费额度
@@ -128,15 +166,15 @@ export class GenerationIntentService {
         });
         if (rearmed.count === 1) {
           const intent = await tx.generationIntent.findUnique({ where: { id: existing.id } });
-          return { intent: intent!, created: true };
+          return { intent: intent!, created: true, result: 'rearm' };
         }
         throw new NodeBusyError(); // 再激活被并发抢走
       }
-      // 分支①（Z33 四轮①）：createMany skipDuplicates ⇒ INSERT ... ON CONFLICT DO NOTHING
+      // 新行（Z33 四轮①）：createMany skipDuplicates ⇒ INSERT ... ON CONFLICT DO NOTHING
       // （覆盖 idemKey 唯一+active partial unique——不抛错，胜者 count===1；纪律：禁在 $transaction 内
       // catch 驱动错误后再查——事务一报错即 aborted，任何后续查询都 25P02）
       // Y0b-2（Z109）：intentId=行身份（服务端 randomUUID 铸造——exec 投影对齐消费，Z88 保留复合唯一）；
-      // gestureKey=审计列（客户端原始 token 截断落库）；三列写入=heartbeatAt/deadlineAt/idemKey（Z68/Z82）
+      // gestureKey=审计列（客户端原始 token 落库）；三列写入=heartbeatAt/deadlineAt/idemKey（Z68/Z82）
       const { pricing, teamId, gestureToken: _token, ...rest } = input; // 解构剔除：...input 直接展开会把 pricing/gestureToken 带进 Prisma data=unknown field 报错（gestureToken 已铸入 idemKey/gestureKey）
       const ins = await tx.generationIntent.createMany({
         data: [{
@@ -151,12 +189,12 @@ export class GenerationIntentService {
         skipDuplicates: true,
       });
       if (ins.count === 1) {
-        return { intent: await tx.generationIntent.findUniqueOrThrow({ where }), created: true };
+        return { intent: await tx.generationIntent.findUniqueOrThrow({ where }), created: true, result: 'new' };
       }
       // count===0 ⇒ 撞唯一（idemKey 唯一或 active partial unique）——健康事务内分义：
       const again = await tx.generationIntent.findUnique({ where });
       if (again && input.jobId && again.jobId === input.jobId && again.status === 'RUNNING') {
-        return { intent: again, created: true }; // create 与同 job 重入并发——按可重入处理（同 idemKey=同内容）
+        return { intent: again, created: true, result: 'rearm' }; // create 与同 job 重入并发——按可重入处理（同 idemKey=同内容）
       }
       // 无行 ⇒ 撞活跃 partial unique（同节点异 idemKey 在飞）；有行 ⇒ 同 idemKey 异 jobId 在飞——均 NodeBusy
       throw new NodeBusyError();

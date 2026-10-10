@@ -84,7 +84,7 @@ describe('ExecutionController', () => {
         nodeId: 'n2',
         userId: 'user-1',
         sv: null,
-        intentId: null, // 批0.5-6：缺省 null
+        regenToken: null, // Y0b-2 T6（Z91）：改名自 intentId 位——缺省 null
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
     });
@@ -105,7 +105,7 @@ describe('ExecutionController', () => {
         nodeId: undefined,
         userId: undefined,
         sv: null,
-        intentId: null,
+        regenToken: null,
       });
       expect(result.status).toBe('queued');
     });
@@ -119,7 +119,7 @@ describe('ExecutionController', () => {
         nodeId: undefined,
         userId: 'user-1',
         sv: 'abc==',
-        intentId: null,
+        regenToken: null,
       });
     });
   });

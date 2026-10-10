@@ -29,7 +29,8 @@ import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { downloadMediaFile } from '@/utils/mediaDownload';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
+import { apiFetch } from '@/api/client';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
@@ -211,8 +212,6 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const [outpaintRect, setOutpaintRect] = useState<OutpaintRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [redrawPrompt, setRedrawPrompt] = useState('');
   const [strength, setStrength] = useState(50);
-  // 批0.5-8：上次 AI 编辑提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
-  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
 
   // Dynamic sizing based on image aspect ratio
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -620,23 +619,20 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const handleGenerate = useCallback(async () => {
     setProcessing(true);
     setEditError(null);
-    let intentId = '';
     try {
       let endpoint = '';
       const body: any = { fileId, nodeId: id, projectId: canvasProjectId() };
-      // 批0.5-8：意图 id 上送（幂等键）——上次失败则复用（服务端 rearm 免费续跑），否则 rotate 新 id
-      intentId = lastSubmitRef.current?.failed
-        ? currentIntentId(body.projectId, id)
-        : newIntentId(body.projectId, id);
-      body.intentId = intentId;
+      // Y0b-2 T6（Z79 编辑三入口恒手势）：每次应用=生成性重跑，恒带 token——held 优先（终态前重试
+      // 复用同 token=免费 rearm，sessionStorage 跨刷新存活），无 held 铸造新 token（新意图照常扣费）
+      body.regenToken = storedToken(body.projectId, id) ?? gestureToken(body.projectId, id);
 
       if (editMode === 'outpaint') {
-        endpoint = '/api/image-edit/outpaint';
+        endpoint = '/image-edit/outpaint'; // Y0b-2 T6：裸 fetch 改 apiFetch（BASE_URL=/api——envelope/错误统一消费）
         body.rect = outpaintRect;
         body.imageWidth = imgSize?.w ?? baseWidth;
         body.imageHeight = imgSize?.h ?? baseHeight;
       } else if (editMode === 'erase' || editMode === 'redraw') {
-        endpoint = editMode === 'erase' ? '/api/image-edit/erase' : '/api/image-edit/redraw';
+        endpoint = editMode === 'erase' ? '/image-edit/erase' : '/image-edit/redraw';
         const maskBlob = await eraseRef.current!.getMaskBlob(
           imgSize?.w ?? baseWidth,
           imgSize?.h ?? baseHeight,
@@ -659,29 +655,17 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         }
       }
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const errBody: any = await res.clone().json().catch(() => null);
-        // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图（下次提交照常扣费）+ 明确提示；复用旧 id 只会再 409
-        const rotateMsg = intentRotateMessage(errBody?.errorCode);
-        if (rotateMsg) {
-          newIntentId(body.projectId, id);
-          lastSubmitRef.current = null;
-          setProcessing(false);
-          message.warning(rotateMsg);
-          return;
-        }
-        throw new Error(errBody?.message || `提交失败（HTTP ${res.status}）`);
-      }
-      lastSubmitRef.current = { intentId, failed: false };
-    } catch (err) {
+      await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) });
+    } catch (err: any) {
       console.error('AI 编辑失败:', err);
-      // 标记失败态——下次点击复用同 intentId 重试（服务端 rearm 免费续跑，不双扣）
-      if (intentId) lastSubmitRef.current = { intentId, failed: true };
+      // Y0b-2 T6：编辑链同步 409 无 exec 投影（runNodeLifecycle 不在链上）——EXHAUSTED 需 web 侧
+      // 轮换（同 token rearm 会再 409 自锁）；其余失败保留 held（同 token 重试=免费 rearm 不双扣）
+      if (err?.errorCode === 'INTENT_EXHAUSTED') {
+        rotateToken(String(canvasProjectId()), id); // 键串与铸造同源（projectId 无值时 'undefined' 段一致）
+        message.warning('重试次数已用尽，请重新发起编辑');
+        setProcessing(false);
+        return;
+      }
       setEditError('提交失败，请重试');
       setProcessing(false);
     }

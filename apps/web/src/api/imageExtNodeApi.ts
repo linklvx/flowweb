@@ -66,7 +66,8 @@ export async function getCreditCost(modelId: string, resolutionId?: string, dura
   return json.data;
 }
 
-export async function submitGeneration(nodeId: string, opts?: { projectId?: string; intentId?: string }): Promise<{ jobId: string }> {
+export async function submitGeneration(nodeId: string, opts?: { projectId?: string; regenToken?: string }): Promise<{ jobId: string }> {
   const params = buildImageExtGenParams(nodeId, opts);
-  return enqueueWorkflow({ ...params, intentId: opts?.intentId }); // 批0.5-8b：意图 id（幂等键）随 body 上送
+  // Y0b-2 T6（Z91）：手势 token 随 body 上送（enqueue 管道与 execute 直达同 claim 语义）
+  return enqueueWorkflow({ ...params, ...(opts?.regenToken ? { regenToken: opts.regenToken } : {}) });
 }

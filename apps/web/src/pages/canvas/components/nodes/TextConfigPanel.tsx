@@ -1,10 +1,10 @@
 import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
-import { message } from 'antd';
 import { useNodeStore } from '@/stores/nodeStore';
+import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 
 interface ModelInfo {
   id: string; name: string;
@@ -17,6 +17,9 @@ interface Props {
 function TextConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]?.data) as any;
   const setStatus = useNodeStore((s) => s.setStatus);
+  // Y0b-2 T6（Z79）：投影单源——status 三态/entry 轮换判据（ImageConfigPanel 同型）
+  const status = useNodeStore((s) => selectExecStatus(s, nodeId));
+  const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
   const { zoom } = useViewport();
 
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -30,9 +33,15 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef(prompt);
   promptRef.current = prompt; // Keep ref in sync for recognition callback
-  // 批0.5-8b：上次提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
-  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
   const model = nodeData?.model ?? '';
+
+  // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
+  useEffect(() => {
+    if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
+      const pid = useCanvasStore.getState().projectId;
+      if (pid) rotateToken(pid, nodeId);
+    }
+  }, [entry?.status, entry?.rearmable, nodeId]);
   const selectedModel = models.find((m) => m.id === model);
 
   // Close model dropdown on outside click
@@ -139,36 +148,25 @@ function TextConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     const projectId = useCanvasStore.getState().projectId;
-    let intentId = '';
     try {
       // Inject prompt as content for execution
       // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
       useNodeStore.getState().applyNodeDataPatch(nodeId, { content: prompt });
       if (!projectId) return;
-      // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
-      intentId = lastSubmitRef.current?.failed
-        ? currentIntentId(projectId, nodeId)
-        : newIntentId(projectId, nodeId);
-      const { jobId } = await enqueueWorkflow({ projectId, nodeId, intentId });
+      // Y0b-2 T6（Z79/Z118）：held 一律上送（error 后重试=免费 rearm）；done/EXHAUSTED 无 held=新"重新生成"手势；
+      // 否则无 token 普通执行（内容键——服务端②回放最新）
+      const held = storedToken(projectId, nodeId);
+      const token = held
+        ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[TextPanel] enqueued job:', jobId);
-      lastSubmitRef.current = { intentId, failed: false };
-      // Socket.io will update status → done/error with AI response
-    } catch (err: any) {
-      // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示（复用旧 id 只会再 409）
-      const rotateMsg = intentRotateMessage(err?.errorCode);
-      if (rotateMsg && projectId) {
-        newIntentId(projectId, nodeId);
-        lastSubmitRef.current = null;
-        message.warning(rotateMsg);
-      } else if (intentId) {
-        // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
-        lastSubmitRef.current = { intentId, failed: true };
-      }
+      // Socket.io will update status → done/error with AI response（失败态由服务端 exec 投影接管——轮换 useEffect 单源）
+    } catch {
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, prompt]);
+  }, [nodeId, setStatus, prompt, status, entry?.rearmable]);
 
   return (
     <div
@@ -275,6 +273,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
             <button
               onClick={handleGenerate}
               disabled={executing}
+              title={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
+              aria-label={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
               className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--canvas-controls-bg)] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {executing ? '⏳' : (

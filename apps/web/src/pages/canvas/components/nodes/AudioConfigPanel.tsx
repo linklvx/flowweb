@@ -1,9 +1,10 @@
 import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore } from '@/stores/nodeStore';
-import { selectExecStatus } from '@/stores/execStatusView';
+import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { enqueueWorkflow } from '@/api/executionApi';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 
 interface ModelInfo {
   id: string; name: string;
@@ -23,6 +24,16 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   const model = nodeData?.model ?? '';
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
+  // Y0b-2 T6（Z79）：投影单源——entry 轮换/三态判据（ImageConfigPanel 同型）
+  const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
+
+  // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
+  useEffect(() => {
+    if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
+      const pid = useCanvasStore.getState().projectId;
+      if (pid) rotateToken(pid, nodeId);
+    }
+  }, [entry?.status, entry?.rearmable, nodeId]);
 
   // ── State ──
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -141,14 +152,18 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
       useNodeStore.getState().applyNodeDataPatch(nodeId, { content: prompt });
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
-      const { jobId } = await enqueueWorkflow({ projectId, nodeId });
+      // Y0b-2 T6（Z79/Z118）：held 一律上送；done/EXHAUSTED 无 held=新"重新生成"；否则内容键普通执行
+      const held = storedToken(projectId, nodeId);
+      const token = held
+        ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[AudioPanel] enqueued job:', jobId);
     } catch {
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, prompt]);
+  }, [nodeId, setStatus, prompt, status, entry?.rearmable]);
 
   // Type guard — only render for audioGen
   if (!node || node.type !== 'audioGen') return null;
@@ -257,6 +272,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
             <button
               onClick={handleGenerate}
               disabled={executing}
+              title={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
+              aria-label={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
               className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--canvas-controls-bg)] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {executing ? '⏳' : (

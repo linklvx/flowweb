@@ -1,14 +1,13 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
-import { message } from 'antd';
 import { useNodeStore, type VideoNodeData } from '@/stores/nodeStore';
-import { selectExecStatus } from '@/stores/execStatusView';
+import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
 import { useImageUpload } from './prompt-input/useImageUpload';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 import type { CommandItem } from './prompt-input/types';
 
 interface ModelInfo {
@@ -51,6 +50,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const audio = nodeData?.audio ?? true;
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
+  // Y0b-2 T6（Z79）：投影单源——entry 轮换/三态判据（ImageConfigPanel 同型）
+  const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
   const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
   const allImages = nodeData?.allImages ?? [];
 
@@ -66,9 +67,15 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const [generateCount, setGenerateCount] = useState(1);
   const recognitionRef = useRef<any>(null);
   const voiceBaseRef = useRef('');
-  // 批0.5-8b：上次提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
-  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
   const selectedModel = models.find((m) => m.id === model);
+
+  // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
+  useEffect(() => {
+    if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
+      const pid = useCanvasStore.getState().projectId;
+      if (pid) rotateToken(pid, nodeId);
+    }
+  }, [entry?.status, entry?.rearmable, nodeId]);
 
   useEffect(() => {
     if (!modelOpen) return;
@@ -185,7 +192,6 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     const projectId = useCanvasStore.getState().projectId;
-    let intentId = '';
     try {
       const nodeState = useNodeStore.getState();
       const existing = nodeState.nodes[nodeId] as any;
@@ -193,29 +199,20 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
       useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: { ...currentPrompt, text: latestText } });
       if (!projectId) return;
-      // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
-      intentId = lastSubmitRef.current?.failed
-        ? currentIntentId(projectId, nodeId)
-        : newIntentId(projectId, nodeId);
-      const { jobId } = await enqueueWorkflow({ projectId, nodeId, intentId });
+      // Y0b-2 T6（Z79/Z118）：held 一律上送（error 后重试=免费 rearm）；done/EXHAUSTED 无 held=新"重新生成"；
+      // 否则无 token 普通执行（内容键——服务端②回放最新）
+      const held = storedToken(projectId, nodeId);
+      const token = held
+        ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[VideoPanel] enqueued job:', jobId);
-      lastSubmitRef.current = { intentId, failed: false };
-    } catch (err: any) {
-      // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示（复用旧 id 只会再 409）
-      const rotateMsg = intentRotateMessage(err?.errorCode);
-      if (rotateMsg && projectId) {
-        newIntentId(projectId, nodeId);
-        lastSubmitRef.current = null;
-        message.warning(rotateMsg);
-      } else if (intentId) {
-        // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
-        lastSubmitRef.current = { intentId, failed: true };
-      }
+    } catch {
+      // 异步链失败态由服务端 exec 投影接管（轮换 useEffect 单源）；本地仅 data.status 兜底
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus]);
+  }, [nodeId, setStatus, status, entry?.rearmable]);
 
   const handlePasteImage = useCallback(async (file: File) => {
     if (allImages.length >= 9) return;
@@ -485,6 +482,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
             <button
               onClick={handleGenerate}
               disabled={executing}
+              title={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
+              aria-label={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
               className="size-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--canvas-controls-bg)] transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {executing ? '⏳' : (

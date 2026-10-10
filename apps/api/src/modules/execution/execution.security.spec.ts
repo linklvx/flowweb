@@ -139,13 +139,13 @@ describe('批0.5-6 GET intents 归属（default-deny + 成员级）', () => {
     await expect(ctrl.listIntents('p1', 'n1', { user: { id: 'u1' } } as any)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('VIEWER（成员非 editor）→ 200 返回 listByNode 投影（读面恢复对齐的 REST 兜底）', async () => {
+  it('VIEWER（成员非 editor）→ 200 返回 listByNode 裸数组（T6 信封清剿——交全局拦截器单层包裹，web apiFetch 直接得数组）', async () => {
     const rows = [{ id: 'row-1', intentId: 'i-1', kind: 'image', status: 'SUCCEEDED', resultRef: 'http://x' }];
     const { ctrl: c, intentService, perm } = makeController(null, 'PROJECT_VIEWER');
     (intentService as any).listByNode = vi.fn().mockResolvedValue(rows);
     const r = await c.listIntents('p1', 'n1', { user: { id: 'u1' } } as any);
     expect(perm.resolve).toHaveBeenCalledWith('p1', 'u1');
     expect((intentService as any).listByNode).toHaveBeenCalledWith('p1', 'n1');
-    expect(r).toEqual({ code: 0, data: rows });
+    expect(r).toEqual(rows);
   });
 });

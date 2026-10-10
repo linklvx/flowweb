@@ -1,10 +1,9 @@
 import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
-import { message } from 'antd';
 import { useNodeStore, isImageExtNode } from '@/stores/nodeStore';
-import { selectExecStatus } from '@/stores/execStatusView';
+import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 import { ModelSelector } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
 import type { RatioOption } from './config-panel/RatioResolutionPopover';
@@ -47,6 +46,8 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   const nodeData = isImageExtNode(node) ? node.data : undefined;
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status）
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
+  // Y0b-2 T6（Z79）：投影单源——entry 轮换/三态判据（ImageConfigPanel 同型）
+  const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
   const prompt = nodeData?.prompt ?? { text: '', html: '' };
   const allImages = nodeData?.allImages ?? [];
   const aiTool = nodeData?.aiTool;
@@ -59,8 +60,14 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   const [aiToolOpen, setAiToolOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   const aiToolBtnRef = useRef<HTMLDivElement>(null);
-  // 批0.5-8b：上次提交的意图态——失败重试复用同 intentId（表命中不双扣），新点击 rotate 新 id
-  const lastSubmitRef = useRef<{ intentId: string; failed: boolean } | null>(null);
+
+  // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
+  useEffect(() => {
+    if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
+      const pid = useCanvasStore.getState().projectId;
+      if (pid) rotateToken(pid, nodeId);
+    }
+  }, [entry?.status, entry?.rearmable, nodeId]);
 
   const selectedAiToolName = aiTool
     ? AI_TOOL_GROUPS.flatMap(g => g.items).find(t => t.id === aiTool)?.name ?? 'AI 工具'
@@ -131,31 +138,21 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
     setExecuting(true);
     setStatus(nodeId, 'loading');
     const projectId = useCanvasStore.getState().projectId;
-    let intentId = '';
     try {
       if (!projectId) return;
-      // 批0.5-8b：意图 id 上送（幂等键）——上次失败复用（服务端表命中不双扣），否则 rotate 新 id
-      intentId = lastSubmitRef.current?.failed
-        ? currentIntentId(projectId, nodeId)
-        : newIntentId(projectId, nodeId);
-      await imageExtNodeApi.submitGeneration(nodeId, { projectId, intentId });
-      lastSubmitRef.current = { intentId, failed: false };
-    } catch (err: any) {
-      // 批0.5-8c：rotate 值得错误（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示（复用旧 id 只会再 409）
-      const rotateMsg = intentRotateMessage(err?.errorCode);
-      if (rotateMsg && projectId) {
-        newIntentId(projectId, nodeId);
-        lastSubmitRef.current = null;
-        message.warning(rotateMsg);
-      } else if (intentId) {
-        // 标记失败态——下次点击复用同 intentId 重试（表命中不双扣）
-        lastSubmitRef.current = { intentId, failed: true };
-      }
+      // Y0b-2 T6（Z79/Z118）：held 一律上送（error 后重试=免费 rearm）；done/EXHAUSTED 无 held=新"重新生成"；
+      // 否则无 token 普通执行（内容键——服务端②回放最新）
+      const held = storedToken(projectId, nodeId);
+      const token = held
+        ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      await imageExtNodeApi.submitGeneration(nodeId, { projectId, ...(token ? { regenToken: token } : {}) });
+    } catch {
+      // 异步链失败态由服务端 exec 投影接管（轮换 useEffect 单源）；本地仅 data.status 兜底
       setStatus(nodeId, 'error');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, nodeData]);
+  }, [nodeId, setStatus, nodeData, status, entry?.rearmable]);
 
   if (!isImageExtNode(node)) return null;
 
@@ -311,7 +308,12 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
             />
             <div className="w-px h-4 bg-overlay-2 shrink-0" />
             <CreditDisplay cost={creditCost} />
-            <RunButton loading={executing} onClick={handleGenerate} disabled={status === 'loading'} />
+            <RunButton
+              loading={executing}
+              onClick={handleGenerate}
+              disabled={status === 'loading'}
+              label={entry?.status === 'error' ? `重试（剩 ${Math.max(0, 3 - (entry.attempts ?? 1))} 次）` : status === 'done' ? '重新生成' : '执行'}
+            />
           </div>
         </div>
       </div>

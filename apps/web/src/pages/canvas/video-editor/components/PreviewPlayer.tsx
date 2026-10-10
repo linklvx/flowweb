@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { App as AntdApp, Slider, Tooltip } from 'antd';
 import { DeleteOutlined, RedoOutlined, ScissorOutlined, UndoOutlined } from '@ant-design/icons';
 import { useEditorStore } from '../store/editorStore';
@@ -9,8 +9,8 @@ import { formatShortTime, totalDuration } from '../timeline/timecode';
 import { regenerateNode } from '@/api/videoProjectApi';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { selectExecStatus } from '@/stores/execStatusView';
-import { newIntentId, currentIntentId, intentRotateMessage } from '@/utils/intentRecord';
+import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 
 export function PreviewPlayer() {
   const { message, modal } = AntdApp.useApp(); // 批1-2：静态 Modal.confirm/message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
@@ -41,12 +41,19 @@ export function PreviewPlayer() {
   const retakeSource = sourceNodeId ? nodes[sourceNodeId] : undefined;
   // 批5 删信箱：重拍在途判据改 exec 合并视图（真实节点 loading——execute 写 exec map → 投影/对齐，影子 shadowJobs 随信箱删除）
   const retakeBusy = useNodeStore(s => sourceNodeId != null && selectExecStatus(s, sourceNodeId) === 'loading');
+  // Y0b-2 T6（Z79）：重拍=恒手势 token（retakeId 语义重定位）；轮换判据单源=源节点 doc 投影
+  //（done/EXHAUSTED ⇒ 丢弃 held——下一击=新手势；error 可 rearm ⇒ 保留 held 免费重试）
+  const retakeEntry = useNodeStore(s => sourceNodeId != null ? selectExecEntry(s, sourceNodeId) : undefined);
+  useEffect(() => {
+    if (sourceNodeId && (retakeEntry?.status === 'done' || (retakeEntry?.status === 'error' && retakeEntry.rearmable === false))) {
+      const pid = useCanvasStore.getState().projectId;
+      if (pid) rotateToken(pid, sourceNodeId);
+    }
+  }, [retakeEntry?.status, retakeEntry?.rearmable, sourceNodeId]);
   // R4-7：排除产物节点（type 同为 videoGen，但 origin='video-edit' 无 prompt/model）——后端 regenerate 只校验类型
   // （video-project.service.ts），放行会空 prompt 触发一次真实生成/莫名失败；产物节点是终点不参与重拍（验收 13 口径）
   const canRetake = retakeSource?.type === 'videoGen'
     && (retakeSource.data as { origin?: string } | undefined)?.origin !== 'video-edit'; // 仅真实视频分支（spec §4）——imageGen 源/产物节点置灰
-  // 批5 E0（intentRecord 范式）：retakeId 客户端生成上送——失败重试复用同 id（服务端 claim 表命中不双扣），成功后下一轮 rotate
-  const lastRetakeRef = useRef<{ retakeId: string; failed: boolean } | null>(null);
   const onRetake = () => {
     if (!retakeSource) return;
     modal.confirm({
@@ -54,29 +61,29 @@ export function PreviewPlayer() {
       onOk: async () => {
         const workflowId = useCanvasStore.getState().projectId;
         if (!workflowId) return;
-        const retakeId = lastRetakeRef.current?.failed
-          ? currentIntentId(workflowId, retakeSource.id)
-          : newIntentId(workflowId, retakeSource.id);
+        // Y0b-2 T6（Z79）：重拍=恒手势——held 优先（error 后同 token 重试=免费 rearm，跨刷新存活），
+        // 无 held 铸造新 token（新重拍照常扣费）；retakeId DTO 字段名保持（语义=手势 token）
+        const retakeId = storedToken(workflowId, retakeSource.id) ?? gestureToken(workflowId, retakeSource.id);
         try {
           const { result } = await regenerateNode({ workflowId, sourceNodeId: retakeSource.id, kind: 'video', retakeId });
           // 批5-1：返回体含 execute 结果——早失败（校验/扣费）在 HTTP 往返内已 emit+写 exec map（订阅必错过），直读 result 反馈
-          // Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error}——读 error 文案（缺则退 nodeId 定位）
+          // Y0b-2 T5/T6（Z95）：errors 结构化 {nodeId,status,error,errorCode?}——EXHAUSTED 轮换（同 token rearm 自锁根堵）
           if (result && result.success === false) {
-            lastRetakeRef.current = { retakeId, failed: true };
             const e0 = result.errors?.[0];
-            void message.error(`重拍失败：${e0?.error ?? e0?.nodeId ?? '未知错误'}`);
-          } else {
-            lastRetakeRef.current = { retakeId, failed: false }; // 完成/失败态由真实节点 exec 投影对齐（busy 解除）
-          }
+            if (e0?.errorCode === 'INTENT_EXHAUSTED') {
+              rotateToken(workflowId, retakeSource.id);
+              void message.warning('重试次数已用尽，请重新发起重拍');
+            } else {
+              void message.error(`重拍失败：${e0?.error ?? e0?.nodeId ?? '未知错误'}`);
+            }
+          } // 成功/在飞：完成态由真实节点 exec 投影对齐（busy 解除）——done 后轮换 useEffect 单源处理
         } catch (err) {
-          // 批0.5-8c 同范式：rotate 值得错误码（额度尽/改参撞旧 id）——rotate 新意图 + 明确提示
-          const rotateMsg = intentRotateMessage((err as { errorCode?: string }).errorCode);
-          if (rotateMsg) {
-            newIntentId(workflowId, retakeSource.id);
-            lastRetakeRef.current = null;
-            void message.warning(rotateMsg);
+          // Y0b-2 T6：EXHAUSTED（HTTP 409 同步路径）轮换；其余保留 held（同 token 重试=免费 rearm 不双扣）
+          const errorCode = (err as { errorCode?: string }).errorCode;
+          if (errorCode === 'INTENT_EXHAUSTED') {
+            rotateToken(workflowId, retakeSource.id);
+            void message.warning('重试次数已用尽，请重新发起重拍');
           } else {
-            lastRetakeRef.current = { retakeId, failed: true }; // 复用同 id 重试（表命中不双扣）
             void message.error(`重拍请求失败：${(err as Error).message}`); // R7-P3：HTTP 4xx/网络错——antd confirm onOk reject 只停 loading 无任何提示
           }
         }

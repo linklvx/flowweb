@@ -40,7 +40,8 @@ export interface RegenerateInput { workflowId: string; sourceNodeId: string; kin
 /** Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error,errorCode?}——与 executionApi.ExecutionErrorEntry 同形 */
 export interface RegenerateResult { retakeId: string; result?: { success: boolean; errors?: Array<{ nodeId: string; status: 'error' | 'skipped'; error: string; errorCode?: string }> } }
 
-/** 批5-1 retake 直连真实节点：retakeId 客户端生成（E0 幂等键——intentRecord 范式）上送，
+/** 批5-1 retake 直连真实节点：retakeId 客户端生成（E0 幂等键——Y0b-2 T6 起为 regen-token 手势 token，
+ *  语义重定位见 video-project.service.ts：held 优先免费 rearm/成功后投影单源轮换）上送，
  *  返回 { retakeId, result }——result 含 execute 的 success/errors（早失败在 HTTP 往返内已 emit+写
  *  exec map，订阅必错过——直读 result 反馈；完成态由真实节点 exec 投影对齐） */
 export function regenerateNode(input: RegenerateInput): Promise<RegenerateResult> {

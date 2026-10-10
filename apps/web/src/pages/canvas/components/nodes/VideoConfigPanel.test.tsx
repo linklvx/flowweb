@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import React from 'react';
-import { message } from 'antd';
 import { VideoConfigPanel } from './VideoConfigPanel';
 
 // Track the maxHeight prop passed to PromptInput
@@ -81,6 +80,9 @@ vi.mock('@/stores/nodeStore', () => {
     setStatus: vi.fn(),
     getNodeData: () => mockNodeData,
     applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
+    // Y0b-2 T6：投影两源（token 轮换/三态判据——测试经 hoisted mockExec 注入）
+    execStatus: getMockExec().execStatus,
+    execAligned: getMockExec().execAligned,
   });
   return {
     useNodeStore: Object.assign(
@@ -105,9 +107,14 @@ vi.mock('@/stores/canvasStore', () => ({
   },
 }));
 
-const { mockEnqueueWorkflow } = vi.hoisted(() => ({
-  mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' })
-}));
+const { mockEnqueueWorkflow, getMockExec } = vi.hoisted(() => {
+  // Y0b-2 T6：exec 投影可变注入（buildState 每次读新值——用例内改 entries 即生效）
+  const exec = { execStatus: new Map(), execAligned: new Map() };
+  return {
+    mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
+    getMockExec: () => exec,
+  };
+});
 vi.mock('@/api/executionApi', () => ({
   enqueueWorkflow: mockEnqueueWorkflow,
 }));
@@ -394,84 +401,60 @@ describe('VideoConfigPanel', () => {
     expect(screen.getByText('1×')).toBeTruthy();
   });
 
-  // ── 批0.5-8b 意图 id 上送（幂等键——失败重试复用、新点击 rotate、额度尽 rotate） ──
+  // ── Y0b-2 T6（Z79/Z95/Z118）：手势 token 生命周期（held 一律上送/done 轮换/EXHAUSTED 不自锁） ──
+  // 改前形态（intentId 每击 rotate+组件 ref 记忆）随 intentRecord 族退役——轮换判据单源=doc 投影。
 
-  const lastIntentId = (): string | undefined => mockEnqueueWorkflow.mock.calls.at(-1)?.[0]?.intentId;
+  const lastToken = (): string | undefined => mockEnqueueWorkflow.mock.calls.at(-1)?.[0]?.regenToken;
   const generate = async () => {
     mockNodeData.prompt.text = 'hello video';
     await act(async () => {
       await capturedOnGenerate?.();
     });
   };
+  const setExec = (entry: any) => {
+    getMockExec().execStatus = new Map([['v1', entry]]);
+  };
 
-  it('handleGenerate 上送 intentId（=sessionStorage 留存值，键含 projectId/nodeId）', async () => {
+  it('普通执行（无 held 非终态）→ body 无 regenToken（内容键——服务端②回放最新/③新行）', async () => {
     render(<VideoConfigPanel nodeId="v1" />);
     await generate();
     await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
-    const intentId = lastIntentId();
-    expect(intentId).toBeTruthy();
-    expect(sessionStorage.getItem('flowweb:intent:real-pid:v1')).toBe(intentId);
+    expect(lastToken()).toBeUndefined();
   });
 
-  it('失败后重试复用同 intentId（表命中不双扣）', async () => {
-    mockEnqueueWorkflow.mockRejectedValueOnce(new Error('network down'));
+  it('done 投影后点击 → 铸造手势 token 上送+持有（"重新生成"=新意图照常扣费）+done 轮换生效', async () => {
+    setExec({ status: 'done', attempts: 1 });
     render(<VideoConfigPanel nodeId="v1" />);
-    await generate();
-    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
-    const intent1 = lastIntentId();
-
-    await generate();
-    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
-    expect(lastIntentId()).toBe(intent1);
-  });
-
-  it('成功后新点击 rotate 不同 intentId（新点击=新扣费意图）', async () => {
-    render(<VideoConfigPanel nodeId="v1" />);
-    await generate();
-    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
-    const intent1 = lastIntentId();
-
-    await generate();
-    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
-    expect(lastIntentId()).toBeTruthy();
-    expect(lastIntentId()).not.toBe(intent1);
-  });
-
-  it('INTENT_EXHAUSTED → rotate 新 intentId（下次提交照常扣费）', async () => {
-    mockEnqueueWorkflow.mockRejectedValueOnce(
-      Object.assign(new Error('重试次数已用尽'), { errorCode: 'INTENT_EXHAUSTED' })
-    );
-    render(<VideoConfigPanel nodeId="v1" />);
-    await generate();
-    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
-    const sentIntentId = lastIntentId();
-    expect(sentIntentId).toBeTruthy();
-    await vi.waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:intent:real-pid:v1')).not.toBe(sentIntentId);
+    await vi.waitFor(() => { // Z95 轮换：done 投影 ⇒ useEffect 丢弃旧持有
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:v1')).toBeNull();
     });
+    await generate();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    const token = lastToken();
+    expect(token).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sessionStorage.getItem('flowweb:regen:real-pid:v1')).toBe(token);
   });
 
-  it('INTENT_CONTEXT_MISMATCH → rotate + 改参提示 + 下次提交用新 id（改参重试死循环根堵）', async () => {
-    const warnSpy = vi.spyOn(message, 'warning');
-    mockEnqueueWorkflow
-      .mockRejectedValueOnce(Object.assign(new Error('意图上下文不匹配'), { errorCode: 'INTENT_CONTEXT_MISMATCH' }))
-      .mockResolvedValueOnce({ jobId: 'job-2' });
+  it('error 投影（可 rearm）后 held 上送——失败重试复用同 token（免费 rearm 不双扣）', async () => {
+    setExec({ status: 'error', attempts: 1, rearmable: true });
+    sessionStorage.setItem('flowweb:regen:real-pid:v1', 'held-token-cccc');
     render(<VideoConfigPanel nodeId="v1" />);
     await generate();
     await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
-    const intent1 = lastIntentId();
-    expect(intent1).toBeTruthy();
-    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    expect(lastToken()).toBe('held-token-cccc'); // held 一律上送（Z118）
+    expect(sessionStorage.getItem('flowweb:regen:real-pid:v1')).toBe('held-token-cccc'); // 不轮换
+  });
+
+  it('EXHAUSTED（error∧rearmable:false）→ 投影轮换（不自锁）；下一击铸造新 token', async () => {
+    setExec({ status: 'error', attempts: 3, rearmable: false });
+    sessionStorage.setItem('flowweb:regen:real-pid:v1', 'exhausted-tok');
+    render(<VideoConfigPanel nodeId="v1" />);
     await vi.waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:intent:real-pid:v1')).not.toBe(intent1);
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:v1')).toBeNull(); // 轮换 useEffect
     });
-    // 提示出现：明确告知参数变更已重置（不被通用"提交失败"文案吞掉）
-    expect(warnSpy).toHaveBeenCalledWith('参数已变更，已重置生成会话，请重新发起');
-    // 死循环根堵：下次提交用新 id（不再撞 mismatch）
     await generate();
-    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(2));
-    expect(lastIntentId()).toBeTruthy();
-    expect(lastIntentId()).not.toBe(intent1);
-    warnSpy.mockRestore();
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+    expect(lastToken()).toMatch(/^[0-9a-f-]{36}$/);
+    expect(lastToken()).not.toBe('exhausted-tok');
   });
 });

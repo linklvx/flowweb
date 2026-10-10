@@ -244,7 +244,19 @@ export class ExecutionService {
       const { intent, created } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId);
       if (!created) {
         // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
+        // Y0b-2 T6（T5 Minor#5 补投影）：回放路径补 done 终态投影+node data——改前只 emit，
+        // 回放时 doc exec 停 loading（对齐只能等 visibilitychange）；text 的 resultRef 是
+        // `text:${content.slice(0,100)}` 截断占位，补写会截断真实产物——禁补（emit/投影照写）。
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
+        await this.collabDoc.writeExecStatus(projectId, node.id, {
+          status: 'done', intentId: intent.intentId,
+          attempts: typeof intent.attempts === 'number' ? intent.attempts : 0,
+          ...(intent.resultRef ? { fileId: intent.resultRef } : {}),
+        }).catch(() => {});
+        if (claimPack.kind !== 'text' && intent.resultRef) {
+          const artifact = claimPack.kind === 'video' ? { videoUrl: intent.resultRef } : { resultUrl: intent.resultRef };
+          await this.collabDoc.writeNodeData(projectId, node.id, artifact).catch(() => {}); // best-effort——节点已删等失败不挡回放
+        }
         return;
       }
       claimed = intent;
@@ -334,7 +346,25 @@ export class ExecutionService {
       // A-3：BusinessException（409 族/PROVIDER_POLL_ABORTED 等）降级逐节点 error+continue——:367 整批
       // throw 已退役（Z44 部分成功语义）；F13：意图终态必达——外呼/扣费抛错置 FAILED（SIGKILL 场景
       // process catch 不执行，由 processor failed 钩子兜底）；失败先 void_ 解冻（约束②），再置 FAILED。
+      // Y0b-2 T6（B-1 settle 后交付死区根修）：行已 SUCCEEDED（complete+settle 均核销）∧交付抛错
+      // （writeNodeData 503 drain/租约等）——void_（CAS reserved>0）与 fail（ACTIVE 守卫）双双 no-op，
+      // 行永留 SUCCEEDED（reserved=0）⇒ settleStranded 判龄永不命中+用户重试回放零退款双扣。
+      // 识别 ⇒ rollbackDeliveryFailed（CAS SUCCEEDED→退款 VOIDED——与 written:false 同入口语义）。
       if (claimed) {
+        const row = await this.prisma.generationIntent.findUnique({
+          where: { id: claimed.id }, select: { status: true },
+        }).catch(() => null);
+        const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
+        if (row?.status === 'SUCCEEDED') {
+          const msg = '生成成功但交付失败（已退款）——请重试';
+          const rolled = await this.teamCredit.rollbackDeliveryFailed(claimed.id, '交付失败：settle 后交付抛错')
+            .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} B-1 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
+          this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} settle 后交付抛错（行已 SUCCEEDED）——rollbackDeliveryFailed=${rolled}`);
+          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELIVERY_FAILED', msg, attempts, attempts < 3, claimed.intentId)).catch(() => {});
+          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
+          errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELIVERY_FAILED' });
+          return;
+        }
         await this.teamCredit.void_({ intentRowId: claimed.id })
           .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${claimed.intentId} void_ 解冻失败（reconcile 超龄兜底）: ${e}`));
         await this.intentService.fail(claimed.id, String(err));

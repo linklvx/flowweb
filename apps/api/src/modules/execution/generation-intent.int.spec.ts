@@ -28,7 +28,7 @@ const input = (over: Record<string, unknown> = {}) => ({
   projectId: PID,
   nodeId: 'n1',
   userId: INT_UID,
-  gestureToken: 'i1',
+  gestureToken: 'int-gi-token', // Y0b-2 T6：normalizeRegenToken 严格形态 ^[0-9a-zA-Z_-]{8,64}$（旧 'i1' 两字符会 400）
   kind: 'image',
   paramsHash: 'h1',
   teamId: TID,
@@ -59,7 +59,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 
   it('同节点两个不同 idemKey → 第二个撞活跃 partial unique：P2002 meta.target 实测形态 + NodeBusy', async () => {
     // 先占住 n-meta 节点的活跃槽
-    await svc.claim(input({ gestureToken: 'meta-a', nodeId: 'n-meta' }));
+    await svc.claim(input({ gestureToken: 'meta-a-tok', nodeId: 'n-meta' }));
 
     // 直接裸 create 复现 P2002——绕过 service catch，捕获 meta.target 原始形态（关键产出）
     let raw: any;
@@ -77,7 +77,7 @@ const input = (over: Record<string, unknown> = {}) => ({
     console.log('[int] P2002 meta.target 实测形态:', JSON.stringify(raw.meta?.target), '| typeof:', typeof raw.meta?.target);
 
     // service 分义路径：异 idemKey claim → NodeBusy（非原始 P2002 透传）
-    await expect(svc.claim(input({ gestureToken: 'meta-c', nodeId: 'n-meta' }))).rejects.toBeInstanceOf(NodeBusyError);
+    await expect(svc.claim(input({ gestureToken: 'meta-c-tok', nodeId: 'n-meta' }))).rejects.toBeInstanceOf(NodeBusyError);
   });
 
   it('Y0b-1/Z33：同节点双 idemKey 并发 claim ⇒ 一 created 一 NodeBusy（非 25P02/500）', async () => {
@@ -139,13 +139,13 @@ const input = (over: Record<string, unknown> = {}) => ({
   });
 
   it('真库 rearm 原子性：FAILED 行并发双 claim → 恰一个 created:true 一个 NodeBusy，attempts 只 +1', async () => {
-    const first = await svc.claim(input({ gestureToken: 'rearm', nodeId: 'n-rearm' }));
+    const first = await svc.claim(input({ gestureToken: 'rearm-tok-1', nodeId: 'n-rearm' }));
     expect(first.created).toBe(true);
     await svc.fail(first.intent.id, 'boom');
 
     const results = await Promise.allSettled([
-      svc.claim(input({ gestureToken: 'rearm', nodeId: 'n-rearm', jobId: 'job-a' })),
-      svc.claim(input({ gestureToken: 'rearm', nodeId: 'n-rearm', jobId: 'job-b' })),
+      svc.claim(input({ gestureToken: 'rearm-tok-1', nodeId: 'n-rearm', jobId: 'job-a' })),
+      svc.claim(input({ gestureToken: 'rearm-tok-1', nodeId: 'n-rearm', jobId: 'job-b' })),
     ]);
 
     const ok = results.filter((r) => r.status === 'fulfilled' && r.value.created === true);

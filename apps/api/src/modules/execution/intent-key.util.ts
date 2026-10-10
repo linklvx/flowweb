@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { HttpStatus } from '@nestjs/common';
+import { BusinessException } from '../../common/exceptions/business.exception';
 import { EXEC_DEFAULTS } from '../../config/env';
 
 /** Y0b-2 T1（Z82）：idemKey=内容+手势幂等键（sha256）——claim 唯一判据（findUnique({where:{idemKey}})）。
@@ -10,20 +12,21 @@ export function deriveIdemKey(input: { projectId: string; nodeId: string; kind: 
              input.regenToken ? `regen:${input.regenToken}` : 'run'].join('|')).digest('hex');
 }
 
-/** token 上限（Z79）：gestureKey 是客户端可控无界字符串——超长截断+warn 非 400（T1 的 DTO 还是
- *  intentId 位不能破兼容；T6 转严格 400）。非法字符仅剥 NUL（'|' 无害见上）。 */
-const GESTURE_TOKEN_MAX = 128;
+/** Y0b-2 T6（Z79）转严格 400：形态校验 ^[0-9a-zA-Z_-]{8,64}$——非法 throw IDEMPOTENCY_TOKEN_INVALID
+ *  （T1 的截断+warn 过渡退役：静默截断=客户端 bug 被吞、idemKey 与 gestureKey 漂移两键）。
+ *  空白/null → undefined（无 token=普通执行，内容键路径合法形态）。crypto.randomUUID()（36 位）天然合法。 */
+const GESTURE_TOKEN_RE = /^[0-9a-zA-Z_-]{8,64}$/;
 
-export function normalizeRegenToken(
-  raw: string | undefined | null,
-  warn: (msg: string) => void,
-): string | undefined {
+export function normalizeRegenToken(raw: string | undefined | null): string | undefined {
   if (raw == null) return undefined;
-  const trimmed = raw.replace(/\0/g, '').trim();
+  const trimmed = raw.trim();
   if (!trimmed) return undefined;
-  if (trimmed.length > GESTURE_TOKEN_MAX) {
-    warn(`gestureToken 超长（${trimmed.length}）——截断至 ${GESTURE_TOKEN_MAX}（T6 转严格 400）`);
-    return trimmed.slice(0, GESTURE_TOKEN_MAX);
+  if (!GESTURE_TOKEN_RE.test(trimmed)) {
+    throw new BusinessException(
+      'IDEMPOTENCY_TOKEN_INVALID',
+      `regenToken 形态非法（须 8-64 位 [0-9a-zA-Z_-]，收到长度 ${trimmed.length}）`,
+      HttpStatus.BAD_REQUEST,
+    );
   }
   return trimmed;
 }

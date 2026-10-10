@@ -29,10 +29,11 @@ export class ExecutionProcessor extends WorkerHost {
     await job.updateProgress(10);
 
     try {
-      const { projectId, nodeId, userId, sv, intentId } = job.data;
+      const { projectId, nodeId, userId, sv, regenToken } = job.data;
       const svBytes = sv ? new Uint8Array(Buffer.from(sv, 'base64')) : undefined;
       // jobId 透传 claim——同 job stalled 重排可重入续跑（F13：不传则重进 claim 自锁 NodeBusy）
-      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, svBytes, intentId ?? undefined, job.id);
+      // Y0b-2 T6（Z91）：regenToken 透传（enqueue 管道与 execute 直达同 claim 语义）
+      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, svBytes, regenToken ?? undefined, job.id);
       await job.updateProgress(100);
       this.logger.log(`任务 ${job.id} 完成`);
       return result;
@@ -57,14 +58,15 @@ export class ExecutionProcessor extends WorkerHost {
   async onFailed(job: Job<any> | undefined, err: Error) {
     try {
       if (!job) return;
-      const { projectId, nodeId, intentId } = job.data ?? {};
+      const { projectId, nodeId } = job.data ?? {};
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
       await this.collabDoc.writeExecStatus(projectId, nodeId, {
         status: 'error', error: reason.slice(0, 200), attempts: running?.attempts ?? 0,
         errorCode: 'WORKER_FAILED',
-        ...(intentId ? { intentId } : {}),
+        // Y0b-2 T6：投影 intentId=行身份（running 行的 intentId 非客户端手势 token——旧 job.data.intentId 位语义错位随改名修正）
+        ...(running?.intentId ? { intentId: running.intentId } : {}),
       }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
       if (running) await this.intentService.fail(running.id, reason, job.id);
     } catch (e) {

@@ -78,6 +78,9 @@ vi.mock('@/stores/nodeStore', () => {
     setStatus: vi.fn(),
     // Y0b-1：面板自动选首模型/首分辨率走 applyNodeDataPatch（收口 wrapper）
     applyNodeDataPatch: vi.fn(),
+    // Y0b-2 T6：投影两源（token 轮换/三态判据——测试经 hoisted mockExec 注入 done/EXHAUSTED 形态）
+    execStatus: getMockExec().execStatus,
+    execAligned: getMockExec().execAligned,
   });
   return {
     isImageNode: (node: unknown) => {
@@ -101,11 +104,14 @@ vi.mock('@/stores/nodeStore', () => {
   };
 });
 
-const { getMockCanvasNodes, mockSubmitGeneration, mockFetchModels } = vi.hoisted(() => {
+const { getMockCanvasNodes, mockSubmitGeneration, mockFetchModels, getMockExec } = vi.hoisted(() => {
   let mockCanvasNodes: any[] = [];
+  // Y0b-2 T6：exec 投影可变注入（buildState 每次读新值——用例内改 entries 即生效）
+  const exec = { execStatus: new Map(), execAligned: new Map() };
   return {
     mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
     getMockCanvasNodes: () => mockCanvasNodes,
+    getMockExec: () => exec,
     // Y0b-1：模型带声明维度行（resolutions）——分辨率选项/label 自模型声明渲染
     mockFetchModels: vi.fn().mockResolvedValue([
       {
@@ -353,85 +359,63 @@ describe('ImageConfigPanel', () => {
     expect(order).toEqual(['submit']);
   });
 
-  // ── 批0.5-8b 意图 id 上送（幂等键——失败重试复用、新点击 rotate、额度尽 rotate） ──
+  // ── Y0b-2 T6（Z79/Z95/Z118）：手势 token 生命周期（held 一律上送/done 轮换/EXHAUSTED 不自锁） ──
+  // 改前形态（intentId 每击 rotate+组件 ref 记忆）随 intentRecord 族退役——轮换判据单源=doc 投影。
 
-  const lastIntentId = (): string | undefined =>
-    (mockSubmitGeneration.mock.calls.at(-1)?.[1] as any)?.intentId;
+  const lastToken = (): string | undefined =>
+    (mockSubmitGeneration.mock.calls.at(-1)?.[1] as any)?.regenToken;
   const generate = async () => {
     mockNodeData.prompt.text = 'hello image';
     await act(async () => {
       await capturedOnGenerate?.();
     });
   };
+  const setExec = (entry: any) => {
+    getMockExec().execStatus = new Map([['img1', entry]]);
+  };
 
-  it('handleGenerate 上送 intentId（=sessionStorage 留存值，键含 projectId/nodeId）', async () => {
+  it('普通执行（无 held 非终态）→ body 无 regenToken（内容键——服务端②回放最新/③新行）', async () => {
     render(<ImageConfigPanel nodeId="img1" />);
     await generate();
     await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
-    const intentId = lastIntentId();
-    expect(intentId).toBeTruthy();
-    expect(sessionStorage.getItem('flowweb:intent:real-pid:img1')).toBe(intentId);
+    expect(lastToken()).toBeUndefined();
   });
 
-  it('失败后重试复用同 intentId（表命中不双扣）', async () => {
-    mockSubmitGeneration.mockRejectedValueOnce(new Error('network down'));
+  it('done 投影后点击 → 铸造手势 token 上送+sessionStorage 持有（"重新生成"=新意图照常扣费）', async () => {
+    setExec({ status: 'done', attempts: 1 });
     render(<ImageConfigPanel nodeId="img1" />);
-    await generate();
-    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
-    const intent1 = lastIntentId();
-
-    await generate();
-    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(2));
-    expect(lastIntentId()).toBe(intent1);
-  });
-
-  it('成功后新点击 rotate 不同 intentId（新点击=新扣费意图）', async () => {
-    render(<ImageConfigPanel nodeId="img1" />);
-    await generate();
-    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
-    const intent1 = lastIntentId();
-
-    await generate();
-    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(2));
-    expect(lastIntentId()).toBeTruthy();
-    expect(lastIntentId()).not.toBe(intent1);
-  });
-
-  it('INTENT_EXHAUSTED → rotate 新 intentId（下次提交照常扣费）', async () => {
-    mockSubmitGeneration.mockRejectedValueOnce(
-      Object.assign(new Error('重试次数已用尽'), { errorCode: 'INTENT_EXHAUSTED' })
-    );
-    render(<ImageConfigPanel nodeId="img1" />);
-    await generate();
-    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
-    const sentIntentId = lastIntentId();
-    expect(sentIntentId).toBeTruthy();
+    // Z95 轮换：done 投影 ⇒ useEffect 丢弃旧持有（下一击=新"重新生成"）
     await vi.waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:intent:real-pid:img1')).not.toBe(sentIntentId);
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull();
     });
+    await generate();
+    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
+    const token = lastToken();
+    expect(token).toMatch(/^[0-9a-f-]{36}$/); // done 态无 held ⇒ 铸造新手势 token 上送
+    expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBe(token); // 持有（终态前重试复用）
   });
 
-  it('INTENT_CONTEXT_MISMATCH → rotate + 改参提示 + 下次提交用新 id（改参重试死循环根堵）', async () => {
-    const warnSpy = vi.spyOn(message, 'warning');
-    mockSubmitGeneration
-      .mockRejectedValueOnce(Object.assign(new Error('意图上下文不匹配'), { errorCode: 'INTENT_CONTEXT_MISMATCH' }))
-      .mockResolvedValueOnce({ jobId: 'job-2' });
+  it('error 投影（可 rearm）后 held 上送——失败重试复用同 token（免费 rearm 不双扣，跨刷新存活）', async () => {
+    setExec({ status: 'error', attempts: 1, rearmable: true });
+    sessionStorage.setItem('flowweb:regen:real-pid:img1', 'held-token-aaaa');
     render(<ImageConfigPanel nodeId="img1" />);
     await generate();
     await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
-    const intent1 = lastIntentId();
-    expect(intent1).toBeTruthy();
-    // 已 rotate：sessionStorage 当前值 ≠ 本次上送值
+    expect(lastToken()).toBe('held-token-aaaa'); // held 一律上送（Z118）
+    // error∧rearmable ⇒ 不轮换（保留 held 供重试）
+    expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBe('held-token-aaaa');
+  });
+
+  it('EXHAUSTED（error∧rearmable:false）→ 投影轮换（不自锁）；下一击铸造新 token', async () => {
+    setExec({ status: 'error', attempts: 3, rearmable: false });
+    sessionStorage.setItem('flowweb:regen:real-pid:img1', 'exhausted-tok');
+    render(<ImageConfigPanel nodeId="img1" />);
     await vi.waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:intent:real-pid:img1')).not.toBe(intent1);
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull(); // 轮换 useEffect
     });
-    // 提示出现：明确告知参数变更已重置（不被通用"提交失败"文案吞掉）
-    expect(warnSpy).toHaveBeenCalledWith('参数已变更，已重置生成会话，请重新发起');
-    // 死循环根堵：下次提交用新 id（不再撞 mismatch）
     await generate();
-    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(2));
-    expect(lastIntentId()).toBeTruthy();
-    expect(lastIntentId()).not.toBe(intent1);
-    warnSpy.mockRestore();
+    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
+    expect(lastToken()).toMatch(/^[0-9a-f-]{36}$/); // 新 token（同 token rearm 会 409 自锁根堵）
+    expect(lastToken()).not.toBe('exhausted-tok');
   });
 });

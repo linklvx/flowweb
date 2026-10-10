@@ -15,10 +15,11 @@ export interface ExecutionErrorEntry {
   errorCode?: string;
 }
 
-export async function executeGroupNodes(projectId: string, nodeIds: string[]): Promise<{ success: boolean; errors: ExecutionErrorEntry[]; results?: { nodeId: string; type: string; resultUrl?: string }[]; totalCost?: number }> {
+export async function executeGroupNodes(projectId: string, nodeIds: string[], opts?: { regenToken?: string }): Promise<{ success: boolean; errors: ExecutionErrorEntry[]; results?: { nodeId: string; type: string; resultUrl?: string }[]; totalCost?: number }> {
   return apiFetch('/execution/execute', {
     method: 'POST',
-    body: JSON.stringify({ projectId, nodeIds }),
+    // Y0b-2 T6（Z79）：regenToken=手势 token（与 enqueue 管道双管道对齐；组工具条普通执行不传=内容键路径）
+    body: JSON.stringify({ projectId, nodeIds, ...(opts?.regenToken ? { regenToken: opts.regenToken } : {}) }),
     headers: svHeaders(),
   });
 }
@@ -27,7 +28,8 @@ export async function enqueueWorkflow(params: {
   projectId: string;
   nodeId?: string;
   aiTool?: AiToolId;
-  intentId?: string; // 批0.5-8b：客户端意图 id（幂等键）——enqueue 端点读 body.intentId
+  /** Y0b-2 T6（Z91/Z103）：手势 token（改名自 intentId——wire 语义从 T1 起就是 token，字段名对齐消除歧义）。 */
+  regenToken?: string;
 }): Promise<{ jobId: string; status: string }> {
   return apiFetch('/execution/enqueue', {
     method: 'POST',
@@ -40,13 +42,15 @@ export async function fetchBalance(): Promise<{ credits: number }> {
   return apiFetch('/credits/balance');
 }
 
-/** 批0.5-6 GET intents 意图行（批1-6 断连恢复消费）——GenerationIntent select 子集（createdAt desc，take 20） */
+/** 批0.5-6 GET intents 意图行（批1-6 断连恢复消费）——GenerationIntent select 子集（createdAt desc，take 20）。
+ *  Y0b-2 T6：attempts 补入（T5 投影代次判据——api listByNode select 已有，对齐消费面补上）。 */
 export interface GenerationIntentRow {
   intentId: string;
   kind: string;
   status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'VOIDED';
   resultRef: string | null;
   error: string | null;
+  attempts?: number;
 }
 
 /** 节点意图列表（断连恢复读面，成员级——VIEWER 可见；与 jobs/:id 同口径） */

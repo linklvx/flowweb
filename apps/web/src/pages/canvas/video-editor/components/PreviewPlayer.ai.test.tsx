@@ -106,9 +106,9 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     expect(messageError).not.toHaveBeenCalled(); // result.success=true 无早失败
   });
 
-  it('失败重试复用同 retakeId，成功后下一轮 rotate 新 id（批5 E0 幂等键范式——claim 表命中不双扣）', async () => {
+  it('Y0b-2 T6：恒手势 held 复用（失败重试同 token）→ done 投影轮换 → 下一击新 token（regen-token 范式）', async () => {
     ready({ data: withVideoClip(createDefaultProjectData()), selectedClipId: 'v1', node: { vg1: { id: 'vg1', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '源视频', status: 'done', fileId: 'f0' } } } });
-    render(<PreviewPlayer />);
+    const { unmount } = render(<PreviewPlayer />);
     // 首轮早失败（execute 结果 success=false——扣费/校验失败在 HTTP 往返内已 emit，直读 result 反馈）
     // Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error}——message 读 e.error 文案
     regenMock.mockResolvedValueOnce({ retakeId: 'x', result: { success: false, errors: [{ nodeId: 'vg1', status: 'error' as const, error: '扣费失败', errorCode: 'CREDIT_INSUFFICIENT' }] } });
@@ -116,15 +116,23 @@ describe('PreviewPlayer AI 三按钮（Task 11）', () => {
     await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(messageError).toHaveBeenCalledWith(expect.stringContaining('扣费失败')));
     const id1 = regenMock.mock.calls[0][0].retakeId;
-    // 重试：复用同 id（服务端 claim 表命中——不双扣）
+    expect(id1).toMatch(/^[0-9a-f-]{36}$/); // 恒手势铸造（retakeId=手势 token）
+    // 重试：held 复用同 token（免费 rearm 不双扣——sessionStorage 跨组件实例存活）
     regenMock.mockResolvedValueOnce({ retakeId: 'x', result: { success: true, errors: [] } });
     fireEvent.click(screen.getByText('片段重拍'));
     await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(2));
     expect(regenMock.mock.calls[1][0].retakeId).toBe(id1);
-    // 成功后下一轮 rotate 新 id（新意图照常扣费）
+    // 成功后轮换=投影单源：源节点 execStatus done ⇒ useEffect 丢弃 held（键=wf1 夹具 projectId）
+    useNodeStore.setState({ execStatus: new Map<string, ExecStatusEntry>([['vg1', { status: 'done', attempts: 1 }]]) });
+    await waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:wf1:vg1')).toBeNull();
+    });
+    unmount();
+    useNodeStore.setState({ execStatus: new Map() }); // 清投影——下一轮渲染回到可重拍态
+    render(<PreviewPlayer />);
     fireEvent.click(screen.getByText('片段重拍'));
     await waitFor(() => expect(regenMock).toHaveBeenCalledTimes(3));
-    expect(regenMock.mock.calls[2][0].retakeId).not.toBe(id1);
+    expect(regenMock.mock.calls[2][0].retakeId).not.toBe(id1); // 新手势 token（新重拍照常扣费）
   });
 
   it('重拍在途 busy 判据走 exec 合并视图（真实节点 loading 置灰——shadowJobs 随信箱删除）', async () => {

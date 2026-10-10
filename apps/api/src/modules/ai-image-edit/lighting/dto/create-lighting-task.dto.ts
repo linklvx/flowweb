@@ -51,5 +51,5 @@ export class CreateLightingTaskDto {
 
   @IsOptional()
   @IsString()
-  intentId?: string; // 批0.5-8：客户端意图 id（幂等键）——whitelist 管道须登记否则被剥
+  regenToken?: string; // Y0b-2 T6：客户端手势 token（改名自 intentId 位——Z109；whitelist 管道须登记否则被剥）
 }

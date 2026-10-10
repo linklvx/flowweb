@@ -113,19 +113,19 @@ describe('AiImageEditController', () => {
       imageHeight: 512,
     };
 
-    it('claim 参数：kind=端点任务类型 + paramsHash=白名单规范化 + body.intentId 透传', async () => {
+    it('claim 参数：kind=端点任务类型 + paramsHash=白名单规范化（T6 身份字段 fileId 进哈希）+ body.regenToken 透传', async () => {
       const req = { user: { id: 'u1' } } as any;
-      await controller.outpaint({ ...outpaintBody, intentId: 'client-int-1' }, req);
+      await controller.outpaint({ ...outpaintBody, regenToken: 'client-int-1' }, req);
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
         projectId: 'proj1', nodeId: 'node1', userId: 'u1',
         gestureToken: 'client-int-1', kind: 'outpaint',
         paramsHash: normalizeIntentParams('outpaint', {
-          rect: outpaintBody.rect, imageWidth: 512, imageHeight: 512,
+          fileId: 'file-1', rect: outpaintBody.rect, imageWidth: 512, imageHeight: 512,
         }),
       }));
     });
 
-    it('body 无 intentId → gestureToken=undefined（Z109：内容键路径——行身份由 claim 内部铸造，controller 不再代铸 UUID）', async () => {
+    it('body 无 regenToken → gestureToken=undefined（Z109：内容键路径——行身份由 claim 内部铸造，controller 不再代铸 UUID）', async () => {
       const req = { user: { id: 'u1' } } as any;
       await controller.outpaint(outpaintBody, req);
       const arg = intentSvc.claim.mock.calls[0][0];
@@ -133,16 +133,16 @@ describe('AiImageEditController', () => {
       expect(arg.intentId).toBeUndefined();   // 行身份不入参——claim 内部 randomUUID
     });
 
-    it('erase/redraw 同构：kind 与白名单参数集各按端点提取', async () => {
+    it('erase/redraw 同构：kind 与白名单参数集各按端点提取（T6：身份字段 fileId/maskFileId 进哈希）', async () => {
       const req = { user: { id: 'u1' } } as any;
-      await controller.erase({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', intentId: 'e-1' }, req);
+      await controller.erase({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', regenToken: 'e-1' }, req);
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
-        kind: 'erase', paramsHash: normalizeIntentParams('erase', {}),
+        kind: 'erase', paramsHash: normalizeIntentParams('erase', { fileId: 'file-1', maskFileId: 'mask-1' }),
       }));
-      await controller.redraw({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70, intentId: 'r-1' }, req);
+      await controller.redraw({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70, regenToken: 'r-1' }, req);
       expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({
         kind: 'redraw',
-        paramsHash: normalizeIntentParams('redraw', { prompt: 'a sunset', strength: 70 }),
+        paramsHash: normalizeIntentParams('redraw', { fileId: 'file-1', maskFileId: 'mask-1', prompt: 'a sunset', strength: 70 }),
       }));
     });
 
@@ -165,16 +165,16 @@ describe('AiImageEditController', () => {
       expect(intentSvc.fail).not.toHaveBeenCalled(); // 未获执行权——不碰行
     });
 
-    it('同 intentId 重放（claim created:false SUCCEEDED）→ 零 enqueue 零扣费路径 + 返回既有结果', async () => {
+    it('同 token 重放（claim created:false SUCCEEDED）→ 零 enqueue 零扣费路径 + 裸值返回（T6 信封清剿——交全局拦截器单层包裹）', async () => {
       intentSvc.claim.mockResolvedValue({
         created: false,
         intent: { id: 'row-1', intentId: 'i-1', status: 'SUCCEEDED', resultRef: 'media-old' },
       });
       const req = { user: { id: 'u1' } } as any;
-      const result = await controller.outpaint({ ...outpaintBody, intentId: 'i-1' }, req);
+      const result = await controller.outpaint({ ...outpaintBody, regenToken: 'i-1' }, req);
       expect(service.enqueueOutpaint).not.toHaveBeenCalled();
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
-      expect(result).toEqual({ code: 0, data: { replayed: true, resultRef: 'media-old' } });
+      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
     });
 
     it('enqueue 失败（队列宕）→ fail 置 FAILED（防 RUNNING 孤儿锁节点 15min）+ 异常透传', async () => {

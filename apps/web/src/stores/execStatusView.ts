@@ -36,6 +36,12 @@ export function execOverrideStatus(s: ExecViewSlice, nodeId: string): NodeExecSt
     ?? s.execAligned?.get(nodeId)?.status;
 }
 
+/** Y0b-2 T6（Z79）：整条投影 entry（rearmable/attempts——面板 token 轮换与按钮三态的判据单源）。
+ *  读序同 execOverrideStatus：doc 投影 → 恢复对齐。 */
+export function selectExecEntry(s: ExecViewSlice, nodeId: string): ExecStatusEntry | undefined {
+  return s.execStatus?.get(nodeId) ?? s.execAligned?.get(nodeId);
+}
+
 /** B2 合并视图：exec 投影 → intents 对齐 → node.data.status。
  *  读侧终态优先不回退（服务端写前幂等读同语义）：exec 投影 loading 压过对齐 done
  *  （服务端重跑接管）；条目删除（GC）随投影重建自然回落 data.status。 */
