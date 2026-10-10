@@ -56,7 +56,7 @@ function buildGateway() {
 function makeAuthPayload(socketId: string, documentName: string) {
   return {
     requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-    requestParameters: new URLSearchParams(),
+    requestParameters: new URLSearchParams('csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=CLIENT_VERSION_MISSING 先拒）
     socketId,
     documentName,
     connectionConfig: { readOnly: false, isAuthenticated: false },

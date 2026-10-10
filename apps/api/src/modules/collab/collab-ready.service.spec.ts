@@ -1,7 +1,10 @@
 // Y0a-3 T7：G-4 载体——ready 八档 collabState 主导派生（W12）+1s 单飞缓存+epoch string+pending
 // 消费 computePending（必办②同一实现禁复制）+drain 幂等/60s 解除（gateway 侧归 T5/ shutdown spec）。
+// Y0b-3 T5：collabProtocolVersion 三分支恒带（P-C loop 键——版本拒绝与 ready 降级同发时客户端
+// 单次探测仍可得服务端协议版本）。
 import { describe, it, expect, vi } from 'vitest';
 import { CollabReadyService } from './collab-ready.service';
+import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 function build(over: {
   pgOk?: boolean; diag?: any; gateway?: any; redisOk?: boolean;
@@ -23,11 +26,12 @@ function build(over: {
 }
 
 describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', () => {
-  it('全清：ready=true 200+pending 结构（Y5 键名+三扩字段）', async () => {
+  it('全清：ready=true 200+pending 结构（Y5 键名+三扩字段）+collabProtocolVersion（P-C loop 键）', async () => {
     const { svc } = build();
     const r = await svc.getReady();
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ready: true, redis: 'up', pending: { projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 } });
+    expect(r.body.collabProtocolVersion).toBe(CLIENT_PROTOCOL_VERSION);
   });
   it('Y0a-4/N16：授权档 loadedDocs/connections=pending 兄弟字段（computePending 同源——禁进 pending 对象）', async () => {
     const gw = {
@@ -44,10 +48,11 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     // 精确键集冻结：rest 解构防呆——computePending 未来新字段会被 ...pending 静默吸收进响应形状，此处即红
     expect(Object.keys(r.body.pending).sort()).toEqual(['batches', 'projects', 'spoolBytes', 'spoolFiles', 'storeInFlight', 'strandedBytes', 'strandedFiles']);
   });
-  it('pg-down：SELECT 1 抛错→503 reason=pg-down（最高优先）', async () => {
+  it('pg-down：SELECT 1 抛错→503 reason=pg-down（最高优先）+collabProtocolVersion（503 分支同带）', async () => {
     const r = await build({ pgOk: false }).svc.getReady();
     expect(r.status).toBe(503);
     expect(r.body.reason).toBe('pg-down');
+    expect(r.body.collabProtocolVersion).toBe(CLIENT_PROTOCOL_VERSION);
   });
   it('draining（P6：高于 lease/spool——G-2a ii 断言不分档）', async () => {
     const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), isShuttingDown: () => true, isWritableOrDegraded: () => 'spool-unwritable' as const, getCollabState: () => 'draining' };
@@ -89,6 +94,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     ];
     for (const c of cases) {
       const r = await build({ diag: c.diag, gateway: gw(c.gw ?? {}) as any }).svc.getReady();
+      expect(r.body.collabProtocolVersion).toBe(CLIENT_PROTOCOL_VERSION);   // Y0b-3 T5：八档全带（200/503 同发）
       if (c.expect === null) {
         expect([r.body.ready, r.status]).toEqual([true, 200]);
       } else {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS } from './collab-auth-reason';
+import { CLIENT_PROTOCOL_VERSION } from './collab-protocol';
 import { COLLAB_READY_REASONS, type CollabReadyReason, type CollabReadyResponse } from './collab-ready';
 
 describe('CollabAuthReason 十三档（Y0b-3 T0：七旧+六新 append-only）', () => {
@@ -55,7 +56,7 @@ describe('CollabReadyReason 封闭枚举（G-4 载体：tsc 即门）', () => {
       'lease-held', 'lease-not-acquired', 'spool-unwritable',
     ]);
   });
-  it('CollabReadyResponse 结构：epoch=string（BigInt 序列化崩坑）+pending 含 storeInFlight/stranded 分区', () => {
+  it('CollabReadyResponse 结构：epoch=string（BigInt 序列化崩坑）+pending 含 storeInFlight/stranded 分区+collabProtocolVersion 必选（Y0b-3 T5 P-C）', () => {
     const body: CollabReadyResponse = {
       ready: false,
       reason: 'lease-held' satisfies CollabReadyReason,
@@ -65,8 +66,10 @@ describe('CollabReadyReason 封闭枚举（G-4 载体：tsc 即门）', () => {
       redis: 'up',
       pending: { projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 },
       spoolQuarantined: 0,
+      collabProtocolVersion: CLIENT_PROTOCOL_VERSION,
     };
     expect(typeof body.epoch).toBe('string');
     expect(body.pending.strandedFiles).toBe(0);
+    expect(body.collabProtocolVersion).toBe(1);   // 缺字段=类型红（必选）；值锚 bump 纪律
   });
 });

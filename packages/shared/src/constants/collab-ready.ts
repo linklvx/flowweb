@@ -28,4 +28,8 @@ export interface CollabReadyResponse {
   spoolQuarantined?: number;
   loadedDocs?: number;     // Y0a-4/N16：容量观测（在飞 Y.Doc 数）——pending 的兄弟字段，禁进 pending 对象
   connections?: number;    // Y0a-4/N16：collab 连接数（server.getConnectionsCount() 口径）——同上
+  /** Y0b-3 T5（P-C）：服务端线路协议版本——客户端版本终态（schema-outdated）时单次探测拿它作
+   *  loop 键（authenticationFailed payload 仅 {reason} 无版本通道）。恒带：base 对象单点——
+   *  200 与 503（pg-down/reason）三分支同发。 */
+  collabProtocolVersion: number;
 }

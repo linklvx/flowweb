@@ -29,6 +29,7 @@ const S = { user: `smoke-u-${ts}`, team: `smoke-t-${ts}`, member: `smoke-m-${ts}
 // Y0b-3 T2：升级面校验（Origin 白名单+cookie-only）后的运维连接形态——Origin 推导与 gateway
 // allowedOrigins() 同源（显式 COLLAB_ALLOWED_ORIGINS 首项 > BETTER_AUTH_URL origin > dev localhost:5173）；
 // token 经 Cookie header 注入（query token 通道已删；undici 全局 WebSocket 不支持自定义 header——ws 包注入）。
+// Y0b-3 T5 版本门：URL 必带 csv=CLIENT_PROTOCOL_VERSION（缺 csv=client-version-missing 恒拒——冒烟必挂）。
 const WebSocket = req('ws');
 const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
   || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
@@ -56,7 +57,7 @@ async function main() {
     await prisma.session.create({ data: { id: `smoke-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
 
     const mk = () => new HocuspocusProvider({
-      url: WS_URL, name: `project:${S.project}`, document: new Y.Doc(),
+      url: `${WS_URL}?csv=1&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),
       WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
     });
     const A = mk(), B = mk();

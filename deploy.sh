@@ -75,6 +75,16 @@ preflight() {
 # →④dist 原子切换→⑤重启→⑥post+冒烟）。进程定义唯一源=ecosystem.config.cjs（冻结契约 9）。
 # GIT_COMMIT_HASH 从产物 build-info.json 派生（P46——rollback 后自动说实话）；B25：--update-env 记录
 # 当前 shell 全量 env——部署会话禁 export 其他变量（cutover/rollback 体内 export 白名单锚）。
+
+# Y0b-3 T5（M-10）：服务器侧 nginx 配置断言——/collab 段 access_log off（csv/cb query 不落日志）
+# +index.html no-store（旧 bundle 静态缓存钉死=版本拒绝循环）。本地无 nginx——运行态断言只在
+# 服务器侧；模板文本断言归 scripts/check-nginx-budget.mjs 既有约定。两 fail 路径已手验
+# （awk 范围提取空→grep 空→exit 1；缺 no-store→exit 1——留档 commit message）。
+verify_nginx() {
+  echo "=== ⑥.5 nginx 配置断言（/collab access_log off + index.html no-store——版本门通道配套） ==="
+  ssh -i "$KEY" "$SERVER" 'T=$(sudo nginx -T 2>/dev/null); f(){ echo "nginx 断言 FAIL: $1"; exit 1; }; echo "$T" | awk "/location \/collab/,/^}/" | grep -q "access_log off" || f "/collab 段缺 access_log off"; echo "$T" | awk "/location = \/index.html/,/^}/" | grep -q "no-store" || f "index.html 段缺 no-store"; echo "nginx 断言 OK: /collab access_log off + index.html no-store"'
+}
+
 cutover_api() {
   echo "=== ⓪前置（Node≥18 fetch+Node≥22 WebSocket 双门——deploy-guard 用 fetch；collab-smoke 的 provider 用原生 WebSocket（Node 20 无——Y0a-4 实测冒烟挂 WebSocket is not defined 后服务器已升 22） ==="
   ssh -i "$KEY" "$SERVER" 'node -e "process.exit(typeof fetch===\"function\"?0:1)" && node -e "process.exit(typeof WebSocket===\"function\"?0:1)" || { echo "服务器 Node 不满足（需 ≥18 fetch/≥22 WebSocket）——runbook §0 前置条件"; exit 1; }'
@@ -110,6 +120,7 @@ cutover_api() {
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && test -f ecosystem.config.cjs && test -d scripts && test -d apps/api/scripts || { echo '上传面三件缺失（ecosystem/scripts/apps-api-scripts）'; exit 1; }"
   ssh -i "$KEY" "$SERVER" 'node -e "require(\"net\").connect(3001,\"127.0.0.1\").on(\"connect\",()=>{console.log(\"3001 listening\");process.exit(0)}).on(\"error\",()=>{console.error(\"3001 未监听\");process.exit(1)})"'
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
+  verify_nginx
   if [[ $SKIP_SMOKE == 1 ]]; then
     echo "=== 冒烟已跳过（--skip-smoke）——本次部署不构成完整判据 ==="
   else
@@ -143,8 +154,8 @@ provision_tarball() {
 }
 
 deploy_web() {
-  echo "=== 本地构建前端（子 shell——cd 不污染后续相对路径；version.json 与 api build-info 同构〔P46〕） ==="
-  ( cd "$(dirname "$0")/apps/web" && rm -rf dist && npx vite build && printf '{"git":"%s","builtAt":"%s"}\n' "$GIT_SHA" "$(date -u +%FT%TZ)" > dist/version.json )
+  echo "=== 本地构建前端（子 shell——cd 不污染后续相对路径；version.json 与 api build-info 同构〔P46〕；GIT_COMMIT_HASH 注入 __CLIENT_BUILD__〔Y0b-3 T5/M-9——collab cb 审计参数〕） ==="
+  ( cd "$(dirname "$0")/apps/web" && rm -rf dist && GIT_COMMIT_HASH="$GIT_SHA" npx vite build && printf '{"git":"%s","builtAt":"%s"}\n' "$GIT_SHA" "$(date -u +%FT%TZ)" > dist/version.json )
 
   echo "=== 上传+原子切换（dist.next→mv——对齐 api 侧形态；dist.prev 保留一代） ==="
   tar czf - -C apps/web/dist . | ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/web && rm -rf dist.next && mkdir -p dist.next && cd dist.next && tar xzf - && cd .. && rm -rf dist.prev && { [ ! -d dist ] || mv dist dist.prev; } && mv dist.next dist"

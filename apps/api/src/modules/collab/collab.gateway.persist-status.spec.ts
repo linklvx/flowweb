@@ -202,7 +202,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     const conn = { messageAddress: 'project:p1', send: vi.fn(), sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
     (doc.connections as Map<any, any>).set(conn, { clients: new Set() });
     await gateway.hooks.onAuthenticate({
-      requestParameters: new URLSearchParams('token=tok'),
+      requestParameters: new URLSearchParams('token=tok&csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
       requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
       documentName: 'project:p1',
       connectionConfig: { readOnly: false, isAuthenticated: false },

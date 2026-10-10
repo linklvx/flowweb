@@ -40,7 +40,7 @@ describe('CollabGateway 租约 fail-fast（第二实例结构性无法接流—�
     // Y0b-3 T2 cookie-only：token 只来自 cookie header（query token 通道删除）——直调 payload
     // 经 requestHeaders 注入（URLSearchParams 带 token= 已不被消费，保留只为兼容签名形态）
     await expect(gateway.hooks.onAuthenticate({
-      requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }), requestParameters: new URLSearchParams('?token=tok'),
+      requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }), requestParameters: new URLSearchParams('?token=tok&csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
       documentName: 'project:p1', connectionConfig: {},
     } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });
   });

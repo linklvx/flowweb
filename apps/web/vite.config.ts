@@ -5,6 +5,11 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Y0b-3 T5（M-9）：客户端构建标识——GIT_COMMIT_HASH 部署构建注入（deploy.sh deploy_web），
+  // 非部署构建（本地/vitest）兜底 'dev'。禁 Date.now()（每次 build 变值破坏可缓存性+与部署溯源双源）。
+  define: {
+    __CLIENT_BUILD__: JSON.stringify(process.env.GIT_COMMIT_HASH ?? 'dev'),
+  },
   // Worker 拆包：默认 'iife' 强制 inlineDynamicImports，会把 mediabunny/aac-polyfill 动态 import 内联进 worker 单文件
   worker: { format: 'es' },
   resolve: {

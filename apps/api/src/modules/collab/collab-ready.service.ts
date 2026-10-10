@@ -4,6 +4,7 @@
 //（必办②同一实现禁复制）；epoch=string；drain 生命周期在 gateway（T5）。
 import { Inject, Injectable } from '@nestjs/common';
 import type Redis from 'ioredis';
+import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import type { CollabReadyReason, CollabReadyResponse } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabLeaseService } from './collab-lease.service';
@@ -38,7 +39,9 @@ export class CollabReadyService {
     // Y0a-4/N16：loadedDocs/connections=pending 的**兄弟字段**（禁进 pending 对象——V17/SV16 形状冻结）；
     // 数值源=gauge 同一快照（gateway.computePending——yjs_loaded_documents/yjs_connection_count 同源）。
     const { loadedDocs, connections, ...pending } = this.gateway.computePending();
-    const base = { pending, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections };   // T4 勘误：诊断 LIST 取 .length
+    // Y0b-3 T5（P-C）：collabProtocolVersion 进 base=三分支（pg-down/reason/200）恒带——客户端
+    // 版本终态时单次探测拿服务端版本作 loop 键；503 降级同发时键仍可得。
+    const base = { pending, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections, collabProtocolVersion: CLIENT_PROTOCOL_VERSION };   // T4 勘误：诊断 LIST 取 .length
     let pgOk = true;
     try { await this.prisma.$queryRaw`SELECT 1`; } catch { pgOk = false; }
     if (!pgOk) return { status: 503, body: { ready: false, reason: 'pg-down', redis: await this.redisStatus(), ...base } };

@@ -11,11 +11,11 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -341,7 +341,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** ===== Y0b-3 T3（P-F/P-K/P-Q）：认证防线三层+权限判据单源 =====
    *  结构（§3.1bis 钉死）：authenticate()=外层防线壳（refusalCache→信号量→桶→try{inner}finally——
-   *  heap 闸〔T4〕/版本门〔T5〕后续插入 inner 内）；authenticateInner()=原方法体
+   *  heap 闸〔T4〕/版本门〔T5〕已插入 inner 内）；authenticateInner()=原方法体
    *  （状态检查→token→session→权限段 resolveWithTeam 单源→DB）。
    *  信号量/桶的 throw 在 try 之外=不经过写缓存的 catch（P-F 结构分离："瞬时拥塞≠状态故障"
    *  按 throw 来源结构分离，非 reason 值——入缓存=一次拥塞变 15s 确定性拒绝）；
@@ -519,7 +519,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  批3-1：已分型异常原样 rethrow，其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙）。
    *  批3-3：session 查询统一走 SessionService.touchWithReason——age>updateAge(1d) 顺带续期 7d；
    *  context 携带 token/sessionExpiresAt 供 sweep 复验。 */
-  private async authenticateInner({ requestHeaders, documentName, connectionConfig }: onAuthenticatePayload) {
+  private async authenticateInner({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
     const deny = (reason: CollabAuthReasonCode, message: string) => this.denyAuth(reason, message, 'state');
     try {
       // Y0b-3 T4 heap 闸（§3.1bis 序：外层桶/信号量→heap→DB——"压力期被拒重连不得打 DB"）：
@@ -528,6 +528,19 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (!this.server.hocuspocus.documents.has(documentName) && this.heapPressureSample().tripped) {
         collabLoadRejectedTotal.inc({ reason: 'server-overloaded' });   // P-B 双计数（auth 面）
         throw this.denyAuth(CollabAuthReason.SERVER_OVERLOADED, 'server overloaded', 'heap');
+      }
+      // Y0b-3 T5 版本门（§3.1bis 序：heap 之后 DB 之前——旧/新客户端零 DB 往返）：
+      // csv 精确相等四档（negotiateClientVersion 单源）；cb=审计透传通道本批不消费
+      // （遥测 clientBuild 预留=Y0b-5——URL 带上即通道建立）。版本族不入 REFUSAL_CACHEABLE
+      // （确定性拒绝无 TTL 语义；终态档客户端已 disconnect 不重试，瞬态档 server-outdated 重试同拒）。
+      const verdict = negotiateClientVersion(requestParameters?.get('csv') ?? null);
+      if (verdict !== 'allow') {
+        const reason = verdict === 'client-version-missing' ? CollabAuthReason.CLIENT_VERSION_MISSING
+          : verdict === 'client-version-invalid' ? CollabAuthReason.CLIENT_VERSION_INVALID
+          : verdict === 'server-outdated' ? CollabAuthReason.SERVER_OUTDATED
+          : CollabAuthReason.SCHEMA_OUTDATED;
+        collabVersionNegotiationRejectTotal.inc({ reason });
+        throw this.denyAuth(reason, `client protocol ${verdict}`, 'version');
       }
       // 状态检查先于凭据提取：状态类拒绝（draining/lease-not-ready）与凭据无关——无凭据连接也得到
       // 状态分型（凭据缺失只影响外层 cacheKey=null 不落缓存，不改变拒绝语义）。

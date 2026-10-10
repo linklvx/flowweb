@@ -8,6 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
@@ -863,12 +864,17 @@ function bindProviderListeners(p: HocuspocusProvider): void {
 }
 
 /** 批1-3：provider 工厂（initCollab 会话起点与终态重建共用）——批1-0 transport 薄层注入
- *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。 */
+ *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。
+ *  Y0b-3 T5 版本通道：URL 单次构造（transport/provider 同一字符串——两处独立调用=漂移风险），
+ *  恰含 csv=CLIENT_PROTOCOL_VERSION（服务端版本门消费）+cb=__CLIENT_BUILD__（审计透传，Y0b-5 遥测）。 */
 function createProvider(d: Y.Doc): HocuspocusProvider {
-  const { WebSocketClass, handle } = createReconnectingWebSocket(collabUrl());
+  const base = collabUrl();
+  const sep = base.includes('?') ? '&' : '?';
+  const url = `${base}${sep}csv=${CLIENT_PROTOCOL_VERSION}&cb=${__CLIENT_BUILD__}`;
+  const { WebSocketClass, handle } = createReconnectingWebSocket(url);
   transportHandle = handle;
   provider = new HocuspocusProvider({
-    url: collabUrl(),
+    url,
     name: `project:${session?.pid}`,
     document: d,
     // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）

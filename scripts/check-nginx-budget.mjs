@@ -3,13 +3,17 @@
 // 读 deploy/nginx/api-location.replace.conf 文本解析 proxy_read_timeout（秒），断言
 // ≥ EXEC_DEFAULTS.SYNC_HARD_CAP + 60_000（ms）——常量单源=apps/api/src/config/env.ts 文本提取
 // （mjs 无法 import TS，env.ts 为源：改 EXEC_DEFAULTS.SYNC_HARD_CAP 而不改 conf 即红——同步义务钉死）。
+// Y0b-3 T5（M-10）：扩模板文本断言——collab snippet access_log off + index-html snippet no-store
+// （运行态断言=deploy.sh verify_nginx 服务器侧 nginx -T；本地无 nginx，模板文本断言在此）。
 // DB-free 纯静态。退出码：0=PASS；1=预算违规；2=结构性错误（conf/env.ts 形态不可解析——doc-gate 先例）。
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONF = path.join(ROOT, 'deploy/nginx/api-location.replace.conf');
+const COLLAB_CONF = path.join(ROOT, 'deploy/nginx/collab-location.replace.conf');
+const INDEX_CONF = path.join(ROOT, 'deploy/nginx/index-html.replace.conf');
 const ENV_TS = path.join(ROOT, 'apps/api/src/config/env.ts');
 
 const structural = (m) => { console.error(`check-nginx-budget: 结构性错误（exit 2）——${m}`); process.exit(2); };
@@ -37,5 +41,18 @@ if (readSec * 1000 < hardCapMs + 60_000)
 if (sendSec !== readSec)
   problems.push(`proxy_send_timeout ${sendSec}s ≠ proxy_read_timeout ${readSec}s（两旋钮同批同值——runbook 联动行）`);
 
+// Y0b-3 T5（M-10）：版本门通道模板断言——非注释行锚定（T8 审查 M-4 同款：头注同名字样不算数）
+const directive = (file, re) => file.split(/\r?\n/).filter((l) => !l.trim().startsWith('#')).some((l) => re.test(l));
+if (!existsSync(COLLAB_CONF)) structural('deploy/nginx/collab-location.replace.conf 缺失');
+if (!existsSync(INDEX_CONF)) structural('deploy/nginx/index-html.replace.conf 缺失（Y0b-3 T5 index.html no-store 指令清单）');
+const collabConf = readFileSync(COLLAB_CONF, 'utf8');
+const indexConf = readFileSync(INDEX_CONF, 'utf8');
+if (!directive(collabConf, /^\s*access_log\s+off\s*;/))
+  problems.push('collab-location.replace.conf 非注释行缺 access_log off;——WS query（csv/cb）会落 access log');
+if (!directive(indexConf, /^\s*add_header\s+Cache-Control\s+"no-store"[^;]*;/))
+  problems.push('index-html.replace.conf 非注释行缺 add_header Cache-Control "no-store"——旧 bundle 缓存钉死=版本拒绝循环');
+if (!directive(indexConf, /^\s*location\s*=\s*\/index\.html\s*\{/))
+  problems.push('index-html.replace.conf 非注释行缺 location = /index.html block——no-store 指令无处附着');
+
 if (problems.length) { console.error('nginx 预算锚异常：\n' + problems.join('\n')); process.exit(1); }
-console.log(`nginx 预算锚 ✓ proxy_read/send_timeout=${readSec}s ≥ EXEC_SYNC_HARD_CAP(${hardCapMs}ms)+60s`);
+console.log(`nginx 预算锚 ✓ proxy_read/send_timeout=${readSec}s ≥ EXEC_SYNC_HARD_CAP(${hardCapMs}ms)+60s；版本门模板锚 ✓ collab access_log off + index.html no-store`);

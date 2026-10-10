@@ -57,7 +57,7 @@ function buildGateway(seed: PermSeed) {
 function authPayload(documentName = 'project:p1') {
   return {
     requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-    requestParameters: new URLSearchParams(),
+    requestParameters: new URLSearchParams('csv=1'),   // Y0b-3 T5 版本门：装置带当前协议版
     socketId: 'sock-perm-1',
     documentName,
     connectionConfig: { readOnly: false, isAuthenticated: false },

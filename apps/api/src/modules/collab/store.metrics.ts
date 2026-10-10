@@ -85,6 +85,15 @@ export const collabAuthInflight = new Gauge({
   registers: [register],
   collect() { try { this.set(authInflightReader?.() ?? 0); } catch { this.set(0); } },
 });
+/** Y0b-3 T5（版本门）：客户端协议协商拒绝计数——negotiateClientVersion 四档（allow 不计）。
+ *  reason=client-version-missing|client-version-invalid|schema-outdated|server-outdated；
+ *  与 collab_auth_reject_total{source:'version'} 同点双计（门面总账与分型账分离）。 */
+export const collabVersionNegotiationRejectTotal = new Counter({
+  name: 'collab_version_negotiation_reject_total',
+  help: '客户端协议版本协商拒绝次数（reason 四档；allow 不计——与 auth_reject{source:version} 双计分离）',
+  labelNames: ['reason'],
+  registers: [register],
+});
 /** Y0b-3 T3：AUTH DB deadline 超时计数（折 db-unavailable——防慢 DB 挂满信号量） */
 export const collabAuthTimeoutTotal = new Counter({
   name: 'collab_auth_timeout_total',

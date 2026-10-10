@@ -95,7 +95,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
       // T1.5 评审小修：`|| undefined` 后置——COLLAB_ALLOWED_ORIGINS='' 时 split(',')[0]='' 穿透为 Origin 空头
       const origin = opts.origin ?? (process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] || undefined) ?? 'http://localhost:5173';
       const provider = new HocuspocusProvider({
-        url,
+        url: `${url}?csv=1`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒）
         name,
         document: ydoc,
         WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}` }),

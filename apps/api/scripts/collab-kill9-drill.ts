@@ -147,8 +147,9 @@ async function stopServer(h: DrillHandle): Promise<void> {
 
 async function connectWrite(h: DrillHandle, projectId: string, nodes: number): Promise<{ provider: HocuspocusProvider; keys: string[] }> {
   const ydoc = new Y.Doc();
-  // Y0b-3 T2：URL 无 query token（cookie-only）——凭据经 DrillHeaderWs 的 Origin+Cookie header
-  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
+  // Y0b-3 T2：URL 无 query token（cookie-only）——凭据经 DrillHeaderWs 的 Origin+Cookie header；
+  // Y0b-3 T5 版本门：csv 必带（缺 csv=client-version-missing 恒拒——演练必挂）
+  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?csv=1`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
   await new Promise<void>((r, rej) => {
     provider.on('synced', () => r());
     // reject 前先 destroy：sync 超时是可抛路径——provider WS 不关会挂住事件循环，exitCode=1 收不了口
