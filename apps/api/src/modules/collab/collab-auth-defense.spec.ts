@@ -17,6 +17,7 @@ import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
 
 let spoolDir: string;
 let spoolCleanup: () => Promise<void> = async () => {};
@@ -24,6 +25,7 @@ beforeEach(async () => {
   const d = await makeSpoolDir('y0b3-defense-');
   spoolDir = d.dir;
   spoolCleanup = d.cleanup;
+  resetHeapPressure();   // T4：heap 谓词迟滞模块态随测试复位
 });
 afterEach(async () => { await spoolCleanup(); });
 
@@ -246,9 +248,19 @@ describe('Y0b-3 T3 认证防线三层（refusalCache→信号量→桶）+清空
     expect(cache.size).toBe(0);
   });
 
-  it('heap 释放（T4 接线——本 Task 留钩子位）：清空单点源码断言（refusalCache.clear 恰 1 处=onServingTransition；T4 releaseHook 汇入同点后本格改驱动真实钩子）', () => {
+  it('heap 释放→refusalCache 清空（T4 已接线：真实释放路径=heapPressureSample 采样翻转驱动 onServingTransition——releaseHook 一次性回调汇入同点；清空单点源码锚保留=clear 恰 1 处）', async () => {
     const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
     expect(src.match(/refusalCache\.clear\(\)/g)).toHaveLength(1);
+    const { gateway } = buildGateway();
+    const cache: Map<string, unknown> = (gateway as any).refusalCache;
+    cache.set('doc|t:abc', { reason: 'server-overloaded', at: Date.now() });
+    stubHeapMeasure({ heapUsed: 0.9e9, heapLimit: 1e9, rss: 100 * 1024 * 1024 });
+    measureHeapPressure(); measureHeapPressure();   // util 迟滞预热（2 连续采样=trip）
+    (gateway as any).heapPressureSample();          // trip 翻转（gauge+日志；缓存不清）
+    expect(cache.size).toBe(1);
+    stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * 1024 * 1024 });   // 双项低于释放线
+    (gateway as any).heapPressureSample();          // released 翻转→onServingTransition 清空
+    expect(cache.size).toBe(0);
   });
 
   it('无 cookie 的状态类拒绝（draining）→不落缓存（anon 键互覆防护——写入侧短路锚；状态检查先于凭据提取=draining 分型不被 unauthenticated 吞）', async () => {

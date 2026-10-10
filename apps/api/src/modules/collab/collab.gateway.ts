@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
 import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
@@ -11,12 +11,13 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, registerAuthInflightReader, registerPendingCollector, unregisterAuthInflightReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, ensureSchemaVersion, stampDocSchema, type CollabAuthReasonCode } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
+import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
 /** Y0a-3 T5（SV7/W）：collab 面七态（模块别名——method 签名里 `typeof this.collabState` 有 TS 解析风险，恒用本名）。
  *  serving=唯一放行态；draining=部署停写；isolated=自隔离（listener 已让位）；start-failed=启动失败（有界重试）。 */
@@ -256,6 +257,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     registerPendingCollector(() => this.computePending());
     // Y0b-3 T3：collab_auth_inflight gauge collect 源（pendingCollector 同惯例——同进程单 gateway）
     registerAuthInflightReader(() => this.authInflight);
+    // Y0b-3 T4：观测 gauge collect 源（pendingBytes/zeroConnDocs）+卡住观测器独立 timer
+    //（禁挂 startSessionSweep——SWEEP_ENABLED=false 逃生阀不得静默关掉观测）
+    registerHeapObserverReader(() => ({
+      pendingBytes: [...this.pendingQueues.values()].reduce((s, q) => s + queueBytes(q), 0),
+      zeroConnDocs: [...this.server.hocuspocus.documents.values()].filter((d) => d.connections.size === 0).length,
+    }));
+    this.startHeapObserver();
+    this.syncOverloadGauge(false);   // 初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
     this.startAuthMapsSweeper();   // P-V⑦：防线 Map 老化独立 timer——禁挂 sweep tick（SWEEP_ENABLED=false 逃生阀不得静默关掉老化）
   }
 
@@ -346,10 +355,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** sweep 判据门第二分支（P-K）：per-connection 权限结论缓存（5min 会话级 TTL——WeakMap 随连接回收）；
    *  T8 事件失效消费=仅 delete 不直接 recheck。 */
   private readonly permCache = new WeakMap<object, { role: ProjectRole | null; at: number }>();
+  /** Y0b-3 T4（spec §3.2）：heap 压力闸观测态+卡住观测连续轮数+观测 timer（独立——不挂 startSessionSweep，
+   *  SWEEP_ENABLED=false 逃生阀不得静默关掉观测）。 */
+  private overloadTripped = false;   // gauge/日志翻转检测缓存（真实状态在 heap-pressure util 迟滞内）
+  private readonly docStuckRounds = new Map<string, number>();
+  private heapObserverTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly REFUSAL_CACHEABLE = new Set<string>([
     CollabAuthReason.DRAINING, CollabAuthReason.LEASE_NOT_READY,
     CollabAuthReason.DB_UNAVAILABLE, CollabAuthReason.SERVER_OVERLOADED,
-  ]);   // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）；SERVER_OVERLOADED 系"信号量层 throw 不经此 catch"的结构性不可达条目（防御性保留——若未来把 heap 拒绝挪进 inner 则可达）
+  ]);   // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）；SERVER_OVERLOADED 自 T4 起可达（heap 闸在 inner 首行 throw 经此写缓存——信号量层 throw 仍不经此）
   /** AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI）。
    *  边界：Promise.race 到期不取消底层 Prisma 查询——约束的是信号量槽位占用，非 DB 工作量；
    *  DB 真实并发由池 connection_limit=5 兜底（池 5−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
@@ -388,6 +402,33 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.authMapsSweepTimer = setInterval(() => this.sweepStaleAuthMaps(), 60_000);
     this.authMapsSweepTimer.unref?.();
   }
+
+  /** Y0b-3 T4：5min 零连接 doc 观测器（纯观测零卸载动作——v3 裁定删除 reaper：自队列谓词与库守卫
+   *  在可达状态同真+库 store 排程后必 setTimeout unload 自愈+保内存分支本仓不可达〔契约 3"任何路径
+   *  不 throw"〕）。独立 timer 不挂 startSessionSweep——SWEEP_ENABLED=false 逃生阀不得静默关掉观测。
+   *  stuck 判据=零连接∧!isLoading∧自队列空∧库守卫不满足（shouldUnloadDocument=false=debouncer/
+   *  saveMutex 未清=应卸载而未卸）连续 2 轮；自队列非空=正常流转轮内跳过（≠stuck）。 */
+  private startHeapObserver(): void {
+    if (this.heapObserverTimer) { clearInterval(this.heapObserverTimer); this.heapObserverTimer = null; }
+    this.heapObserverTimer = setInterval(() => this.observeIdleDocs(), 5 * 60_000);
+    this.heapObserverTimer.unref?.();
+  }
+  private observeIdleDocs(): void {
+    for (const doc of this.server.hocuspocus.documents.values()) {
+      const name = doc.name;
+      if (doc.connections.size > 0 || doc.isLoading) { this.docStuckRounds.delete(name); continue; }
+      // pendingQueues 键=裸 projectId（播种/取用全裸键实证——get(doc.name) 恒 undefined=静默失效）
+      const pid = parseProjectId(name);
+      if ((this.pendingQueues.get(pid)?.length ?? 0) > 0) { this.docStuckRounds.delete(name); continue; }
+      if (!this.server.hocuspocus.shouldUnloadDocument(doc)) {   // 守卫拒绝+零连接+队列空=疑似卡住
+        const n = (this.docStuckRounds.get(name) ?? 0) + 1;
+        this.docStuckRounds.set(name, n);
+        if (n >= 2) { yjsDocStuckTotal.inc(); this.docStuckRounds.delete(name); }   // 连续 2 轮=真 stuck
+      } else {
+        this.docStuckRounds.delete(name);
+      }
+    }
+  }
   /** spool 状态判定+恢复翻转检测（清空并集的 spool 支——'spool-unwritable'→'ok' 翻转时清）。 */
   private spoolStateForAuth(): 'ok' | 'spool-unwritable' {
     const s = this.isWritableOrDegraded();
@@ -402,7 +443,36 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return Object.assign(new Error(message), { reason });
   }
 
-  /** 鉴权外壳（防线三层，§3.1bis 钉死执行序：refusalCache → 信号量 → 桶 →〔T4 heap→T5 版本门在 inner〕→ DB）。
+  /** Y0b-3 T4：heap 压力采样包装（env 三键读在此——util 收纯数值保持可测）。翻转驱动：
+   *  trip 翻转→gauge+四数采样日志一条（首拒前必经翻转点——禁每拒一条 ERROR）；tripped→released
+   *  翻转→util 一次性回调→onServingTransition 清 refusalCache（P-Q 钩子②）+gauge 复位。 */
+  private heapPressureSample(): HeapPressureSample {
+    const sample = measureHeapPressure({
+      tripBytes: Number(process.env.COLLAB_RSS_TRIP_BYTES) || DEFAULT_RSS_TRIP_BYTES,
+      releaseBytes: Number(process.env.COLLAB_RSS_RELEASE_BYTES) || DEFAULT_RSS_RELEASE_BYTES,
+      tripRatio: Number(process.env.COLLAB_HEAP_PRESSURE_RATIO) || 0.8,
+    });
+    if (sample.tripped && !this.overloadTripped) {
+      this.overloadTripped = true;
+      this.syncOverloadGauge(true);
+      const mu = process.memoryUsage();
+      this.logger.warn(JSON.stringify({ event: 'collab_heap_tripped', rss: sample.rssBytes, heapUsed: sample.heapUsedBytes, heapLimit: sample.heapLimitBytes, external: mu.external, arrayBuffers: mu.arrayBuffers }));
+    }
+    const released = releaseHook();
+    if (released) {
+      this.overloadTripped = false;
+      this.syncOverloadGauge(false);
+      this.onServingTransition();   // P-Q：heap 释放清空汇入 serving/spool 翻转同点
+      this.logger.log(JSON.stringify({ event: 'collab_heap_released' }));
+    }
+    return sample;
+  }
+  private syncOverloadGauge(tripped: boolean): void {
+    collabOverloadState.set({ state: 'tripped' }, tripped ? 1 : 0);
+    collabOverloadState.set({ state: 'ok' }, tripped ? 0 : 1);
+  }
+
+  /** 鉴权外壳（防线三层，§3.1bis 钉死执行序：refusalCache → 信号量 → 桶 → inner〔T4 heap 已落首行；T5 版本门后续插入〕→ DB）。
    *  fingerprint=真实凭据（P-Q）：cookie-only 后 payload.token 恒占位——从 cookie 解析真值做键
    *  （'anon' 塌缩=跨用户 15s 放大）；键=(documentName, sha256(token) 前 16 位)。
    *  无 cookie ⇒ cacheKey=null ⇒ 本轮拒绝不落缓存（anon 键会使不同来源的状态拒绝互相覆盖——写入侧短路）。
@@ -451,6 +521,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async authenticateInner({ requestHeaders, documentName, connectionConfig }: onAuthenticatePayload) {
     const deny = (reason: CollabAuthReasonCode, message: string) => this.denyAuth(reason, message, 'state');
     try {
+      // Y0b-3 T4 heap 闸（§3.1bis 序：外层桶/信号量→heap→DB——"压力期被拒重连不得打 DB"）：
+      // 仅拒新物化（!documents.has 前置——压力期放行存量编辑防自伤）；source='heap' 经 deny 工厂
+      // 单点计数；throw 带 reason→外层 authenticate catch 写 refusalCache（SERVER_OVERLOADED 在白名单）。
+      if (!this.server.hocuspocus.documents.has(documentName) && this.heapPressureSample().tripped) {
+        collabLoadRejectedTotal.inc({ reason: 'server-overloaded' });   // P-B 双计数（auth 面）
+        throw this.denyAuth(CollabAuthReason.SERVER_OVERLOADED, 'server overloaded', 'heap');
+      }
       // 状态检查先于凭据提取：状态类拒绝（draining/lease-not-ready）与凭据无关——无凭据连接也得到
       // 状态分型（凭据缺失只影响外层 cacheKey=null 不落缓存，不改变拒绝语义）。
       // Y0a-2（X9）：draining=关停期拒新连接（瞬态档）；spool 熔断=只读降级（放行但 readOnly）。
@@ -518,6 +595,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
     if (!this.isLeaseServing()) {
       throw Object.assign(new Error('collab lease not held'), { reason: CollabAuthReason.LEASE_NOT_READY });   // P0-1 三入口②（P1 正确性门——外层 catch 对带 reason 异常透传）
+    }
+    // Y0b-3 T4 heap 闸（三入口汇聚点·WS/DirectConnection/REST withDoc——lease 门后）：仅拒新物化。
+    // 可达性：库 createDocument 在 onLoadDocument hook 返回后才 documents.set（esm:1438）——hook 内
+    // 对新 doc 恒 !has=两面可达；重放/复用窗（has=true）放行防自伤。throw 形态=SUE 带
+    // code='COLLAB_NOT_SERVING'——CollabNotServingFilter 只认 body.code 才附 Retry-After: 2（REST
+    // 面 503 语义化；字符串形态落 fallback 无 Retry-After=T9 retryAfter 消费静默降级）。WS 面
+    // err.reason 透传进 PermissionDenied 帧不变（本 throw 在 try 外——不经 loadDocument 兜底 catch）。
+    if (!this.server.hocuspocus.documents.has(documentName) && this.heapPressureSample().tripped) {
+      collabLoadRejectedTotal.inc({ reason: 'server-overloaded' });
+      throw Object.assign(new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'server overloaded' }), { reason: CollabAuthReason.SERVER_OVERLOADED });
     }
     const projectId = parseProjectId(documentName);
     try {
@@ -734,6 +821,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       return false;                                                // 任何路径不 throw（契约 3）
     } catch (err) {   // Y2 兜底：意外异常（Y.mergeUpdates 炸/IO 逃逸等）——leave 防漂移+ERROR 留痕；正常失败路径（上文 return false）不经此
       this.leaveInFlight(projectId);
+      yjsStoreUnexpectedThrowTotal.inc();   // Y0b-3 T4：兜底命中可观测（原仅 ERROR 日志）
       this.logger.error(`store unexpected throw for ${documentName}: ${(err as Error).message}——契约 3 最后一道闸（批保留原归属地）`);
       return false;
     }
@@ -1454,7 +1542,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.frozenConnections.clear();
     if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }   // Y0b-3 T3：防线 Map 老化 timer 随停
+    if (this.heapObserverTimer) { clearInterval(this.heapObserverTimer); this.heapObserverTimer = null; }   // Y0b-3 T4：卡住观测 timer 随停
     unregisterAuthInflightReader();   // Y0b-3 T3：gauge reader 闭包随 gateway 死（pendingCollector 同惯例）
+    unregisterHeapObserverReader();   // Y0b-3 T4：观测 collect 闭包随 gateway 死（同惯例）
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);  // 定时器随停——drain 主动接管
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
     this.closeAllConnections1012();                                              // 步骤 2：瞬时

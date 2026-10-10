@@ -842,6 +842,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_lease_epoch
 - collab_lease_lost_total
 - collab_lease_row_missing_total
+- collab_load_rejected_total
+- collab_overload_state
 - collab_start_failure_total
 - collab_sweep_close_total
 - collab_unhandled_rejection_total
@@ -869,9 +871,11 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_connection_count
 - yjs_deleted_projects
 - yjs_doc_loaded_by_reconciler_total
+- yjs_doc_stuck_total
 - yjs_hydration_huge_row_total
 - yjs_loaded_documents
 - yjs_pending_batches
+- yjs_pending_bytes
 - yjs_pending_projects
 - yjs_snapshot_fallback_total
 - yjs_snapshot_read_total
@@ -887,8 +891,10 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_store_hook_calls_total
 - yjs_store_in_flight_docs
 - yjs_store_tail_anomaly_total
+- yjs_store_unexpected_throw_total
 - yjs_unload_cleanup_failure_total
 - yjs_unload_handoff_failure_total
 - yjs_updates_discarded_deleted_total
+- yjs_zero_conn_docs
 ```
 

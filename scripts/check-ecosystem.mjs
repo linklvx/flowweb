@@ -57,6 +57,21 @@ export function checkEcosystem(app, deploySrc) {
     rss >= heap * 1024 * 1024 + 384 * 1024 * 1024 || fail(`RSS 口径：max_memory_restart(${app.max_memory_restart}) 必须 ≥ old-space(${heap}M)+384M（Yjs 外部内存余量）`);
     rss <= 1900 * 1024 * 1024 || fail(`max_memory_restart(${app.max_memory_restart}) 超 1.9GB 物理粗线`);
   }
+  // Y0b-3 T4：heap 压力闸阈值单调链（提取式钉死——\d+ 在 786 处截断=拿到错值且数值"合理"⇒fail
+  // 不触发=静默错绿；提取失败必须 fail-closed）。提取锚=heap-pressure.ts DEFAULT_RSS_* 字面量。
+  // 既有 rss 断言（≥ old-space+384MB）保留原用途——两件事禁互相引用。
+  const RSS_BASELINE_BYTES = 138_800_000; // server-profile F1 实测 138.8MB
+  const heapSrc = readFileSync(resolve(ROOT, 'apps/api/src/modules/collab/heap-pressure.ts'), 'utf8');
+  const tripM = heapSrc.match(/DEFAULT_RSS_TRIP_BYTES\s*=\s*([\d_]+)/);
+  const releaseM = heapSrc.match(/DEFAULT_RSS_RELEASE_BYTES\s*=\s*([\d_]+)/);
+  (tripM && releaseM) || fail('HEAP 常量提取失败（DEFAULT_RSS_* 被改名/删除——禁"提取不到就算过"）');
+  if (tripM && releaseM && Number.isFinite(rss)) {
+    const trip = Number(tripM[1].replace(/_/g, ''));
+    const release = Number(releaseM[1].replace(/_/g, ''));
+    RSS_BASELINE_BYTES * 4 < release || fail(`heap release(${release}) 必须大于 baseline×4（${RSS_BASELINE_BYTES * 4}——无法覆盖基线膨胀）`);
+    release < trip || fail(`heap release(${release}) 必须小于 trip(${trip})（迟滞方向）`);
+    trip < rss - 200 * 1024 * 1024 || fail(`heap trip(${trip}) 必须小于 max_memory_restart(${app.max_memory_restart})−200MiB（缓解时延预算）`);
+  }
   isAbsolute(app.env?.COLLAB_SPOOL_DIR ?? '') || fail('COLLAB_SPOOL_DIR 必须绝对路径');
   app.env?.COLLAB_BIND_ADDR === '127.0.0.1' || fail('COLLAB_BIND_ADDR 必须 127.0.0.1（P25）');
   // NODE_ENV 禁令（Y0.5/E58 落地才解禁）+B25：GIT_COMMIT_HASH 移出白名单（它来自 shell 注入非 env{}）

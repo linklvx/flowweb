@@ -277,6 +277,50 @@ export const yjsDeletedProjects = new Gauge({
   registers: [register],
 });
 
+/** Y0b-3 T4（spec §3.2 heap 压力自保闸族）：load 拒绝计数——auth 面与 loadDocument 汇聚点双落点
+ *  同计数（仅拒新物化：!documents.has 前置，存量编辑放行防自伤）。 */
+export const collabLoadRejectedTotal = new Counter({
+  name: 'collab_load_rejected_total',
+  help: 'heap 压力期拒绝 doc 物化次数（reason=server-overloaded；authenticate 面与 loadDocument 汇聚点双落点同计数）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+/** Y0b-3 T4：heap 压力闸状态（互斥两 series——"熔断开着"与"真挂了"可区分；巡检：tripped 持续>10min=人工 drain+有序重启） */
+export const collabOverloadState = new Gauge({
+  name: 'collab_overload_state',
+  help: 'heap 压力闸状态（state=ok|tripped 互斥两 series——安全阀静默降级=全站少服务而无人知）',
+  labelNames: ['state'],
+  registers: [register],
+});
+/** Y0b-3 T4：疑似卡住 doc 计数（纯观测——v3 裁定卸载动作删除，卸载归库自愈排程；非零=真问题该告警而非被 reaper 掩盖） */
+export const yjsDocStuckTotal = new Counter({
+  name: 'yjs_doc_stuck_total',
+  help: '零连接∧自队列空∧库卸载守卫不满足连续 2 轮的疑似卡住 doc 计数（纯观测无卸载动作——卸载归库自愈排程）',
+  registers: [register],
+});
+/** Y0b-3 T4：storeDocumentUnlocked Y2 兜底 catch 命中计数（意外异常留痕——原仅 ERROR 日志） */
+export const yjsStoreUnexpectedThrowTotal = new Counter({
+  name: 'yjs_store_unexpected_throw_total',
+  help: 'store 意外异常兜底计数（契约 3 最后一道闸——批保留原归属地；出现即 Y.mergeUpdates/IO 逃逸类意外）',
+  registers: [register],
+});
+/** Y0b-3 T4：观测 gauge collect 源（authInflightReader 同惯例——collect 现算零手动维护点）。 */
+let heapObserverReader: (() => { pendingBytes: number; zeroConnDocs: number }) | null = null;
+export function registerHeapObserverReader(fn: () => { pendingBytes: number; zeroConnDocs: number }): void { heapObserverReader = fn; }
+export function unregisterHeapObserverReader(): void { heapObserverReader = null; }
+export const yjsPendingBytes = new Gauge({
+  name: 'yjs_pending_bytes',
+  help: 'pendingQueues 字节和（池外内存在 external 不进 heapUsed——早于 RSS 可见）',
+  registers: [register],
+  collect() { try { this.set(heapObserverReader?.().pendingBytes ?? 0); } catch { this.set(0); } },
+});
+export const yjsZeroConnDocs = new Gauge({
+  name: 'yjs_zero_conn_docs',
+  help: '零连接常驻 doc 数（documents 中零连接的 doc——卡住观测候选池规模）',
+  registers: [register],
+  collect() { try { this.set(heapObserverReader?.().zeroConnDocs ?? 0); } catch { this.set(0); } },
+});
+
 /** Y0a-2（Y18）：卸载交接两计数——handoff=spool append 失败（批留队列+退避梯续排，X4 钩子仍 resolve）；
  *  cleanup=清理体自身异常被吞的计数留痕（X4：库对钩子抛错=取消卸载→destroy 永不 resolve，故只吞+计数）。 */
 export const yjsUnloadHandoffFailureTotal = new Counter({
