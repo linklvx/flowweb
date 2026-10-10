@@ -229,6 +229,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
       // Y0a-3 T5/T6：跨实例扩展挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
       // 消息同步退役；其固定断开延迟借道语义随之消失，service 本体已删）。
+      // Y0b-3 T1：库选项四 pin——文档锚防升级回落（断言在 collab-gateway.options.spec）。
+      websocketOptions: { maxPayload: 16 * 1024 * 1024 }, // §7.2 禁回落 ws 默认 100MiB；键集 ⊆ {maxPayload}（T1 断言）
+      maxUnauthenticatedQueueMessages: 256, // §3.1bis 4 pre-auth 三 pin（库默认 1e3）
+      maxUnauthenticatedQueueSize: 1024 * 1024, // 库默认 5MiB
+      maxPendingDocuments: 100, // 库默认即同值——显式 pin 防升级翻转（P24 先例）
     });
     // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
     // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
@@ -1122,8 +1127,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.rearmQueues();   // I4（P0-1 修）：serving ⟹ 非空队列∪spool.keys() 全部在梯上——rejoin 后 own 帧的运行期恢复路径（缺此=own 帧只待重启=部署门死锁）
   }
 
-  /** 批3-4：60s 一轮原生 interval（unref——进程退出不被阻）。灰度锚：COLLAB_SWEEP_ENABLED !== 'true'
-   *  时 tick 首行即返（零行为差异：不查库不通知不关连接——旧客户端批 2 上线前不开，防 reason 盲区卡 connecting）。
+  /** 批3-4：60s 一轮原生 interval（unref——进程退出不被阻）。Y0b-3 T1 起默认开：
+   *  COLLAB_SWEEP_ENABLED === 'false' 时 tick 首行即返（逃生阀=零行为差异——§4.2 回滚表用）。
    *  快照死线（context.sessionExpiresAt——authenticate 播种，必过期下界）命中后先 DB 复验
    *  （session+teamMember，移除成员也踢）；复验翻案（me 探活已续期）则刷新快照；确认 revoked →
    *  stateless 预通知 {type:'session-expiring'}（客户端 flushPendingUpdates）→ 5s grace →
@@ -1136,7 +1141,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async sweepSessions() {
-    if (process.env.COLLAB_SWEEP_ENABLED !== 'true') return;   // 灰度锚：关=零行为差异
+    if (process.env.COLLAB_SWEEP_ENABLED === 'false') return; // 默认开（Y0b-3 T1 P-H，spec §3.1）；'false'=env 逃生阀（§4.2 回滚表）
     for (const document of [...this.server.hocuspocus.documents.values()]) {
       for (const connection of [...document.connections.keys()]) {
         const ctx = (connection.context ?? {}) as { token?: string; sessionExpiresAt?: Date };

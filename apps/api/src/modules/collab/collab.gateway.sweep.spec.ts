@@ -1,5 +1,5 @@
 // apps/api/src/modules/collab/collab.gateway.sweep.spec.ts
-// 批3-4：session-expiry sweep（灰度默认关）+ closeTeamDocuments 补 webSocket.close。
+// 批3-4：session-expiry sweep（Y0b-3 T1 起默认开——'false'=逃生阀）+ closeTeamDocuments 补 webSocket.close。
 // 形态：直构单元组（shutdown spec 先例——mock prisma，不 listen），fake timers 驱动 60s tick 与 5s grace；
 // 连接用 fake（context 快照 + sendStateless + webSocket.close），文档塞 server.hocuspocus.documents。
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -71,8 +71,22 @@ afterEach(async () => {
 });
 
 describe('批3-4 session sweep', () => {
-  it('灰度锚：COLLAB_SWEEP_ENABLED 默认关 → 关=零行为差异（不 close、不发通知、零 DB 查询）', async () => {
-    vi.stubEnv('COLLAB_SWEEP_ENABLED', '');   // 缺省形态（未设置/空串均视为关）
+  it('默认开（Y0b-3 T1 P-H 翻转，spec §3.1）：不设 env → 过期连接照常通知+grace+close(4401)', async () => {
+    delete process.env.COLLAB_SWEEP_ENABLED;   // 缺省形态=开
+    const { gateway, prisma } = buildGateway();
+    prisma.session.findUnique.mockResolvedValue(null);   // 复验：session 已无效（过期/登出）
+    const conn = makeConn('project:p1');
+    seedDocument(gateway, 'project:p1', [conn]);
+    (gateway as any).startSessionSweep();
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(conn.sendStateless).toHaveBeenCalledTimes(1);
+    expect(conn.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'session-expiring' }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(conn.webSocket.close).toHaveBeenCalledWith(4401, 'session-expired');
+  });
+
+  it("逃生阀（§4.2 回滚表）：COLLAB_SWEEP_ENABLED='false' → 零行为差异（不 close、不发通知、零 DB 查询）", async () => {
+    vi.stubEnv('COLLAB_SWEEP_ENABLED', 'false');
     const { gateway, prisma } = buildGateway();
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);

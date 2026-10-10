@@ -771,17 +771,28 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 
 <!-- y0b0:env-keys -->
 ```yaml
+- BETTER_AUTH_URL
 - COLLAB_ADMIN_TOKEN
+- COLLAB_ALLOWED_ORIGINS
+- COLLAB_AUTH_ATTEMPTS_PER_MIN
+- COLLAB_AUTH_INFLIGHT_MAX
 - COLLAB_BIND_ADDR
+- COLLAB_CONN_MAX_LIFETIME_MS
 - COLLAB_DEBOUNCE
+- COLLAB_HEAP_PRESSURE_RATIO
 - COLLAB_LEASE_HEARTBEAT_MS
 - COLLAB_LEASE_TTL_MS
 - COLLAB_MAX_LOADED_DOCS
 - COLLAB_PORT
+- COLLAB_REFUSAL_CACHE_TTL_MS
+- COLLAB_RSS_RELEASE_BYTES
+- COLLAB_RSS_TRIP_BYTES
 - COLLAB_SPOOL_CAPACITY_BYTES
 - COLLAB_SPOOL_DIR
 - COLLAB_SWEEP_ENABLED
 - COLLAB_TIMEOUT
+- COLLAB_TRUSTED_PROXY
+- COLLAB_UPGRADE_RATE_PER_MIN
 - COMPACT_INTERVAL_MS
 - CORS_ORIGIN
 - DASHSCOPE_API_KEY
@@ -800,6 +811,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - MINIO_ENDPOINT
 - MINIO_SECRET_KEY
 - MINIO_USE_SSL
+- NODE_ENV
 - PORT
 - PROMETHEUS_TOKEN
 - PROVIDER_MOONSHOT_API_KEY
@@ -829,6 +841,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_lease_row_missing_total
 - collab_start_failure_total
 - collab_sweep_close_total
+- collab_unhandled_rejection_total
 - exec_outbound_duration_seconds
 - exec_poll_stall_total
 - exec_poll_unknown_status_total

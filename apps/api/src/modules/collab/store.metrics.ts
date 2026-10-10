@@ -35,11 +35,22 @@ export const yjsCanvasDocBytes = new Gauge({
   registers: [register],
 });
 
-/** 批3-4：session sweep 关闭计数（cause=revoked 复验确认 / db-fail 连续复验异常兜底关） */
+/** 批3-4：session sweep 关闭计数（cause=revoked 复验确认 / db-fail 连续复验异常兜底关）；
+ *  Y0b-3 T1 起默认开——COLLAB_SWEEP_ENABLED='false' 为逃生阀。 */
 export const collabSweepCloseTotal = new Counter({
   name: 'collab_sweep_close_total',
-  help: 'session sweep close(4401) 次数（灰度 COLLAB_SWEEP_ENABLED 开启后有效）',
+  help: 'session sweep close(4401) 次数（默认开——COLLAB_SWEEP_ENABLED=false 逃生阀关闭后无效）',
   labelNames: ['cause'],
+  registers: [register],
+});
+
+/** Y0b-3 T1（P14）：进程级 unhandledRejection 兜底计数——库内未 await async 钩子 rethrow 的安全网
+ *  （T10 证伪 onStateless 必要性后，真正买单者=T2 onUpgrade catch→throw 路径+库内部未 await 路径）。
+ *  消费点=bootstrap/guard.ts installUnhandledRejectionGuard（计数不退出）。 */
+export const collabUnhandledRejectionTotal = new Counter({
+  name: 'collab_unhandled_rejection_total',
+  help: '进程级 unhandledRejection 兜底计数（P14：库内未 await async 钩子 rethrow 的安全网——计数不退出）',
+  labelNames: ['source'],
   registers: [register],
 });
 

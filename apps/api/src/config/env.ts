@@ -31,6 +31,10 @@ export const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   REDIS_URL: z.string().default('redis://localhost:6379/0'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  // Y0b-3 T1（P-R）：superRefine 的两个判据键——此前仅 process.env 直读未进 schema（zod strip 未知键
+  // 则 superRefine 恒读 undefined，fail-fast 失效/误伤），故同批注册。
+  NODE_ENV: z.preprocess(blankToUnset, z.string().optional()),
+  BETTER_AUTH_URL: z.preprocess(blankToUnset, z.string().min(1).optional()),
   MINIO_ENDPOINT: z.string().url(),
   MINIO_ACCESS_KEY: z.string().min(3),
   MINIO_SECRET_KEY: z.string().min(8),
@@ -80,6 +84,19 @@ export const envSchema = z.object({
   // 默认缺省=0.0.0.0 不变；ecosystem 未来注入 127.0.0.1（nginx 同机唯一合法路径）。
   COLLAB_BIND_ADDR: z.preprocess(blankToUnset, z.string().min(1).optional()),
 
+  // Y0b-3 T1（§0.3 表十键一次注册——消费点随后续 Task 落地，单源结构锚 EXEMPT 表登记）：
+  // zod 只验形态不写 default（默认值落使用点——防双源 P3 同款）；读点按【字面量】process.env 直读纪律。
+  COLLAB_ALLOWED_ORIGINS: z.preprocess(blankToUnset, z.string().min(1).optional()),            // T2 消费，默认=BETTER_AUTH_URL origin 推导+仅 dev 含 localhost:5173
+  COLLAB_TRUSTED_PROXY: z.preprocess(blankToUnset, z.enum(['1']).optional()),                  // T2 消费，未设=不信任 X-Real-IP
+  COLLAB_UPGRADE_RATE_PER_MIN: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // T2 消费，默认 60
+  COLLAB_AUTH_ATTEMPTS_PER_MIN: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),  // T3 消费，默认 10
+  COLLAB_AUTH_INFLIGHT_MAX: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),      // T3 消费，默认 4
+  COLLAB_REFUSAL_CACHE_TTL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // T3 消费，默认 15000
+  COLLAB_RSS_TRIP_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),         // T4 消费，默认 786432000（750MiB）
+  COLLAB_RSS_RELEASE_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),      // T4 消费，默认 629145600（600MiB）
+  COLLAB_HEAP_PRESSURE_RATIO: z.preprocess(blankToUnset, z.coerce.number().min(0.5).max(0.95).optional()),  // T4 消费，默认 0.8
+  COLLAB_CONN_MAX_LIFETIME_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // T6 消费，默认 43_200_000（12h）
+
   // Y0b-2 T1（Z117）：执行运行时超时/预算键——默认值=EXEC_DEFAULTS 常量表单源（上表），
   // zod 只验形态不写 default（防双源）；读点按【字面量】process.env 直读纪律（collab-env-single-source 方向②）。
   // EXEC_MAX_NODES T8 移入（读者=execution.controller EXEC_MAX_NODES 硬闸——键随读者同批）。
@@ -99,10 +116,20 @@ export const envSchema = z.object({
   DASHSCOPE_API_KEY: z.string().optional().default(''),
 });
 
+// Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast——Origin 白名单推导源缺失=部署配置错误启动即拒。
+// superRefine 返 ZodEffects 丢 .shape（collab-env-single-source 结构锚读 envSchema.shape），
+// 故 refined 单列导出——validateEnv 消费本值；envSchema 保持 ZodObject 供结构锚与形态测试。
+export const envSchemaValidated = envSchema.superRefine((v, ctx) => {
+  if (v.NODE_ENV !== 'production') return;
+  if (!v.BETTER_AUTH_URL && !v.COLLAB_ALLOWED_ORIGINS) {
+    ctx.addIssue({ code: 'custom', path: ['BETTER_AUTH_URL'], message: '生产必须显式 BETTER_AUTH_URL 或 COLLAB_ALLOWED_ORIGINS（Origin 白名单推导源缺失=部署配置错误 fail-fast）' });
+  }
+});
+
 export type Env = z.infer<typeof envSchema>;
 
 export function validateEnv(): Env {
-  const result = envSchema.safeParse(process.env);
+  const result = envSchemaValidated.safeParse(process.env);
   if (!result.success) {
     console.error('Invalid environment variables:', result.error.format());
     process.exit(1);

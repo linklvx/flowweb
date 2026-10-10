@@ -13,6 +13,17 @@ import { envSchema } from './env';
 const EXEMPT = new Map<string, string>([
   ['COLLAB_FAKE_AI', 'Y0b 资金批域（provider-adapters.ts fakeAiEnabled 单源 helper——启动断言豁免档唯一读点）——E58/Y0b 同批收口'],
   ['COLLAB_MAX_LOADED_DOCS', 'spec-reserved：spec §3 4.6:502 原文点名"MAX_LOADED_DOCS 预留"（区别于被驳回的 plan 自创预留）——enforcement 归 Y1c-3（届时连消费点同批移出豁免）'],
+  // Y0b-3 T1：§0.3 十键一次注册（消费点随后续 Task 落地——键先注册满足 spec §7.1 fenced 块同 commit 同步纪律；各 Task 落地时键随读者移出本表）
+  ['COLLAB_ALLOWED_ORIGINS', 'Y0b-3 T2 消费（Origin 白名单——BETTER_AUTH_URL origin 推导+仅 dev 含 localhost:5173）'],
+  ['COLLAB_TRUSTED_PROXY', 'Y0b-3 T2 消费（未设=不信任 X-Real-IP）'],
+  ['COLLAB_UPGRADE_RATE_PER_MIN', 'Y0b-3 T2 消费（默认 60）'],
+  ['COLLAB_AUTH_ATTEMPTS_PER_MIN', 'Y0b-3 T3 消费（默认 10）'],
+  ['COLLAB_AUTH_INFLIGHT_MAX', 'Y0b-3 T3 消费（默认 4）'],
+  ['COLLAB_REFUSAL_CACHE_TTL_MS', 'Y0b-3 T3 消费（默认 15000）'],
+  ['COLLAB_RSS_TRIP_BYTES', 'Y0b-3 T4 消费（默认 750MiB）'],
+  ['COLLAB_RSS_RELEASE_BYTES', 'Y0b-3 T4 消费（默认 600MiB）'],
+  ['COLLAB_HEAP_PRESSURE_RATIO', 'Y0b-3 T4 消费（默认 0.8）'],
+  ['COLLAB_CONN_MAX_LIFETIME_MS', 'Y0b-3 T6 消费（默认 12h）'],
 ]);
 
 /** 纯函数抽取（方向一/自测共用同一判定逻辑，防恒真重言式） */

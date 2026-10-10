@@ -10,6 +10,7 @@ import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { validateEnv } from './config/env';
+import { installUnhandledRejectionGuard } from './bootstrap/guard';
 
 /**
  * 白名单：允许 DB SystemSetting 覆盖 process.env 的 key。
@@ -84,7 +85,7 @@ async function bootstrap() {
   // nestIntegration() in Sentry.init() handles exception capture automatically
   // No separate SentryGlobalFilter required in @sentry/nestjs v10.x
 
-  app.set('trust proxy', true);
+  app.set('trust proxy', 'loopback'); // P-I：与 WS 侧 X-Real-IP 同信任前提（E58 完整收口归 Y0.5；全信任=true 收敛为一跳 loopback）
 
   // Y0a-3（V21）：COLLAB_NOT_SERVING 503 统一附 Retry-After: 2（过滤链首中即止：非标记 503 由其
   // 内部委托 HttpExceptionFilter 同壳透出，其余异常类型直接落默认链）
@@ -94,6 +95,8 @@ async function bootstrap() {
     .split(',')
     .map((s) => s.trim());
   app.enableCors({ origin: corsOrigins, credentials: true });
+
+  installUnhandledRejectionGuard();   // Y0b-3 T1（P14）：listen 前装兜底——进程级 unhandledRejection 计数不退出
 
   await app.listen(env.PORT);
   console.log(`Server running on port ${env.PORT}`);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { envSchema } from './env';
+import { envSchema, envSchemaValidated } from './env';
 
 describe('env schema - SENTRY_DSN and PROMETHEUS_TOKEN', () => {
   it('should pass validation without SENTRY_DSN (optional)', () => {
@@ -142,5 +142,55 @@ describe('Y0a-4 env zod 收口：COLLAB_* 全族（P3 校验层不写默认+B13 
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: 'true' }).success).toBe(true);
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: 'flase' }).success).toBe(false);
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: '' }).success).toBe(true);
+  });
+});
+
+// Y0b-3 T1（§0.3 表十键）：zod 只验形态不写 default（默认值落使用点——防双源 P3 同款）；
+// 消费 Task：T2 白名单/限速、T3 鉴权限流、T4 RSS 闸、T6 连接寿命。
+describe('Y0b-3 T1：COLLAB 族新十键（形态校验——默认值落使用点不在此）', () => {
+  it.each([
+    'COLLAB_UPGRADE_RATE_PER_MIN', 'COLLAB_AUTH_ATTEMPTS_PER_MIN', 'COLLAB_AUTH_INFLIGHT_MAX',
+    'COLLAB_REFUSAL_CACHE_TTL_MS', 'COLLAB_RSS_TRIP_BYTES', 'COLLAB_RSS_RELEASE_BYTES',
+    'COLLAB_CONN_MAX_LIFETIME_MS',
+  ])('int.positive 键 %s：正整数过/非数拒/0 拒/负拒/空串=未设过', (k) => {
+    expect(envSchema.safeParse({ ...good, [k]: '60' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, [k]: 'abc' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, [k]: '0' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, [k]: '-1' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, [k]: '' }).success).toBe(true);   // B13：空串档
+  });
+
+  it('COLLAB_HEAP_PRESSURE_RATIO：0.5~0.95 过/0.3 拒/0.96 拒/非数拒/空串=未设过', () => {
+    expect(envSchema.safeParse({ ...good, COLLAB_HEAP_PRESSURE_RATIO: '0.85' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_HEAP_PRESSURE_RATIO: '0.3' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, COLLAB_HEAP_PRESSURE_RATIO: '0.96' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, COLLAB_HEAP_PRESSURE_RATIO: 'abc' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, COLLAB_HEAP_PRESSURE_RATIO: '' }).success).toBe(true);
+  });
+
+  it('COLLAB_ALLOWED_ORIGINS：非空串过/空串=未设过', () => {
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOWED_ORIGINS: 'https://a.example.com,https://b.example.com' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOWED_ORIGINS: '' }).success).toBe(true);
+  });
+
+  it("COLLAB_TRUSTED_PROXY：仅 '1' 过/'true' 拒/空串=未设过", () => {
+    expect(envSchema.safeParse({ ...good, COLLAB_TRUSTED_PROXY: '1' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_TRUSTED_PROXY: 'true' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, COLLAB_TRUSTED_PROXY: '' }).success).toBe(true);
+  });
+});
+
+// Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast——白名单推导源缺失=部署配置错误启动即拒。
+describe('Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast（envSchemaValidated）', () => {
+  it('production+BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 双缺 → 拒', () => {
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production' }).success).toBe(false);
+  });
+  it('production+任一在 → 过（BETTER_AUTH_URL 在/COLLAB_ALLOWED_ORIGINS 在）', () => {
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', COLLAB_ALLOWED_ORIGINS: 'https://y.example.com' }).success).toBe(true);
+  });
+  it('非 production 双缺不拒（dev 宽松——含 NODE_ENV 未设档）', () => {
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse(good).success).toBe(true);
   });
 });
