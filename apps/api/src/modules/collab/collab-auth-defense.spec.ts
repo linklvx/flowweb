@@ -266,4 +266,21 @@ describe('Y0b-3 T3 指标注册', () => {
     expect(register.getSingleMetric('collab_auth_inflight')).toBeDefined();
     expect(register.getSingleMetric('collab_auth_timeout_total')).toBeDefined();
   });
+
+  it('AUTH deadline 到期折 db-unavailable；底层查询迟到 rejection 不产生 unhandledRejection（race 弃分支必须有消费——超时释放槽位≠底层查询取消）', async () => {
+    const { gateway } = buildGateway();
+    const unhandled: unknown[] = [];
+    const onUn = (r: unknown) => unhandled.push(r);
+    process.on('unhandledRejection', onUn);
+    try {
+      let rejectLater!: (e: Error) => void;
+      const slow = new Promise<never>((_res, rej) => { rejectLater = rej; });   // 永挂的"底层查询"
+      await expect((gateway as any).withAuthDeadline(slow)).rejects.toMatchObject({ reason: 'db-unavailable' });
+      rejectLater(new Error('late failure'));   // race 已弃分支——迟到 reject
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', onUn);
+    }
+  }, 10_000);
 });
