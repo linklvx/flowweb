@@ -273,7 +273,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         collabUpgradeRejectedTotal.inc({ reason: 'rate-limited' });
         this.rejectUpgrade(socket, 'HTTP/1.1 429 Too Many Requests');
       }
-    } catch { /* fail-open：升级面校验炸=放行（onAuthenticate 兜底鉴权） */ }
+    } catch (e) {
+      // fail-open：升级面校验炸=放行（onAuthenticate 兜底鉴权）。I-3：真实触发面存在（BETTER_AUTH_URL
+      // 配垃圾串→allowedOrigins 内 new URL 抛 TypeError→每次升级静默 fail-open、Origin 防线全失）——
+      // 必须留痕，否则运维零可见。
+      this.logger.warn(`[y0b-3] onUpgrade fail-open：${(e as Error)?.message}`);
+    }
   }
 
   /** 拒绝响应直写（403/429 同族——P-G/P-R 形态单点） */
@@ -307,8 +312,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** 升级面客户端 IP（限流键）。X-Real-IP 仅 socket peer 为 loopback 时信任（绑定 127.0.0.1+
    *  nginx 同机使前提成立；nginx conf 已设 X-Real-IP）+COLLAB_TRUSTED_PROXY='1' 门控（P-I 双门——
-   *  未设 env=peer 恒用，全站单桶=生产必须设 env，部署告知项）。 */
-  clientIpOf(request: { headers: Record<string, unknown> }, socket: { remoteAddress?: string }): string {
+   *  未设 env=peer 恒用，全站单桶=生产必须设 env，部署告知项）。M-1：private（唯一消费=handleUpgrade；
+   *  测试走 (gw as any)）。 */
+  private clientIpOf(request: { headers: Record<string, unknown> }, socket: { remoteAddress?: string }): string {
     const peer = socket?.remoteAddress ?? '';
     const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
     if (loopback && this.trustedProxyEnabled()) {

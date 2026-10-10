@@ -56,7 +56,7 @@ describe('T2 Origin 校验（真连——onUpgrade 钩子 socket 直写形态）
     const kit = await startDualClientServer();
     try {
       const before = await upgradeRejected('origin');
-      await expect(connectWs(kit.url, { origin: 'https://evil.example' })).rejects.toThrow();
+      await expect(connectWs(kit.url, { origin: 'https://evil.example' })).rejects.toThrow(/403/);   // I-2：状态码断言敏感化（connectWs unexpected-response 分支已拼 statusCode 进 message）
       expect((await upgradeRejected('origin')) - before).toBe(1);
     } finally {
       await kit.dispose();
@@ -79,7 +79,7 @@ describe('T2 Origin 校验（真连——onUpgrade 钩子 socket 直写形态）
     process.env.COLLAB_ALLOWED_ORIGINS = 'https://my-origin.example';
     const kit = await startDualClientServer();
     try {
-      await expect(connectWs(kit.url, { origin: 'https://evil.example' })).rejects.toThrow();
+      await expect(connectWs(kit.url, { origin: 'https://evil.example' })).rejects.toThrow(/403/);   // I-2：状态码断言敏感化（connectWs unexpected-response 分支已拼 statusCode 进 message）
       const ws = await connectWs(kit.url, { origin: 'https://my-origin.example' });
       expect(ws.readyState).toBe(WebSocket.OPEN);
       ws.close();
@@ -93,7 +93,7 @@ describe('T2 Origin 校验（真连——onUpgrade 钩子 socket 直写形态）
     const kit = await startDualClientServer();
     try {
       const before = await upgradeRejected('origin');
-      await expect(connectWs(kit.url, {})).rejects.toThrow();
+      await expect(connectWs(kit.url, {})).rejects.toThrow(/403/);   // I-2：状态码断言敏感化（connectWs unexpected-response 分支已拼 statusCode 进 message）
       expect((await upgradeRejected('origin')) - before).toBe(1);
     } finally {
       await kit.dispose();
@@ -160,14 +160,31 @@ describe('T2 TokenBucket（升级限流——DoS 兜底非配额）', () => {
     expect(bucket.consume('ip-0')).toBe(true);   // 最旧已被清——容量恢复
     expect(bucket.consume('ip-10000')).toBe(true);   // 最新仍在（半满）
   });
+
+  it('失败分支积分保留：持续快速重试不清零补充进度——按速率可恢复（改前红：refill 整体丢弃→永久 429）', async () => {
+    // I-1：标准桶语义 tokens(t)=min(cap, tokens(t0)+rate·Δt)——失败尝试也须落账已积 refill。
+    // 300/min=5/s ⇒ 1 枚/200ms；单 gap 2ms refill≈0.01≪1——改前实现每次把进度清零，单 gap 永远
+    // 凑不足 1 枚（需一次 ≥200ms 调度停顿才假绿——sleep(2) 抖到 200ms 实际不可能），300 轮内恒 false。
+    const bucket = new TokenBucket({ capacity: 2, refillPerMin: 300 });
+    bucket.consume('a');
+    bucket.consume('a');
+    expect(bucket.consume('a')).toBe(false);   // 桶空
+    let recovered = false;
+    for (let i = 0; i < 300; i++) {   // 被限流客户端持续重试形态（重试间隔 ≪ 补充周期 200ms）
+      await new Promise((r) => setTimeout(r, 2));
+      if (bucket.consume('a')) { recovered = true; break; }
+    }
+    expect(recovered).toBe(true);   // 正确语义：累计 200ms 即恢复（约 100 轮内——真实时间流逝不禁 fake timers）
+  }, 10_000);
 });
 
-describe('T2 clientIpOf（X-Real-IP 信任双门——peer loopback+COLLAB_TRUSTED_PROXY）', () => {
-  function buildGateway(): CollabGateway {
-    return new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
-      createLeaseStub() as any, { resolve: vi.fn() } as any, 48900, 300, undefined, undefined, new CollabSpoolService('unused'));
-  }
+/** 直调装置（clientIpOf/handleUpgrade 用例共用——multi-instance.spec.ts:39 直调 hooks 先例） */
+function buildGateway(): CollabGateway {
+  return new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
+    createLeaseStub() as any, { resolve: vi.fn() } as any, 48900, 300, undefined, undefined, new CollabSpoolService('unused'));
+}
 
+describe('T2 clientIpOf（X-Real-IP 信任双门——peer loopback+COLLAB_TRUSTED_PROXY）', () => {
   it('信任门控：COLLAB_TRUSTED_PROXY 未设→peer 恒信任不启用（限流全站单桶=生产必须设 env——部署告知项）', () => {
     const gw = buildGateway();
     const saved = process.env.COLLAB_TRUSTED_PROXY;
@@ -181,5 +198,33 @@ describe('T2 clientIpOf（X-Real-IP 信任双门——peer loopback+COLLAB_TRUST
     } finally {
       if (saved === undefined) delete process.env.COLLAB_TRUSTED_PROXY; else process.env.COLLAB_TRUSTED_PROXY = saved;
     }
+  });
+});
+
+describe('T2 handleUpgrade 直调（429 限流路径+fail-open 遥测——(gw as any) 直调先例形态）', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('429：桶耗尽→socket 直写 429 状态行+end+计数 reason=rate-limited（I-2：改前整条路径零覆盖）', async () => {
+    const gw = buildGateway();
+    const before = await upgradeRejected('rate-limited');
+    const bucket = (gw as any).upgradeBucket as TokenBucket;
+    for (let i = 0; i < 20; i++) expect(bucket.consume('127.0.0.1')).toBe(true);   // 同步排空（capacity 20——零 refill 漂移）
+    const writes: string[] = [];
+    const socket = { write: (s: string) => { writes.push(s); }, end: vi.fn(), remoteAddress: '127.0.0.1' };
+    expect(() => (gw as any).handleUpgrade({ request: { headers: { origin: 'http://localhost:5173' } }, socket })).not.toThrow();
+    expect(writes[0]).toContain('HTTP/1.1 429 Too Many Requests');   // 状态行直写（客户端收到真实 HTTP 响应）
+    expect(socket.end).toHaveBeenCalledTimes(1);   // end 替代 destroy（write 后立即 destroy=RST 非 429）
+    expect((await upgradeRejected('rate-limited')) - before).toBe(1);
+  });
+
+  it('fail-open 兜底：allowedOrigins 抛错（BETTER_AUTH_URL 配垃圾串→new URL TypeError 形态）→吞错放行+logger.warn 留痕', () => {
+    // I-3：改前 catch 全吞零遥测——Origin 防线静默失效且运维零可见（红锚=warn 未调）
+    const gw = buildGateway();
+    vi.spyOn(gw as any, 'allowedOrigins').mockImplementation(() => { throw new TypeError('Invalid URL'); });
+    const warn = vi.spyOn((gw as any).logger, 'warn').mockImplementation(() => {});
+    const socket = { write: vi.fn(), end: vi.fn(), remoteAddress: '127.0.0.1' };
+    expect(() => (gw as any).handleUpgrade({ request: { headers: { origin: 'https://x.example' } }, socket })).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(socket.write).not.toHaveBeenCalled();   // fail-open=不拒（鉴权仍由 onAuthenticate 兜底）
   });
 });
