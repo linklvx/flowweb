@@ -6,7 +6,10 @@
  *  值即线上协议串——只增不改（改 = 客户端分型断裂）。
  *  Y0a-2（X9）：draining=关停期受理门拒新连接（Y21 追加枚举末尾——瞬态档，客户端继续重连；
  *  复用 db-unavailable 会让客户端停止重连=方向错）。
- *  Y0a-3：lease-not-ready=租约未持有/失守——瞬态档（客户端继续重连；Y0b 终端 UX 分型消费）。 */
+ *  Y0a-3：lease-not-ready=租约未持有/失守——瞬态档（客户端继续重连；Y0b 终端 UX 分型消费）。
+ *  Y0b-3（T0/P-A）：追加六值——server-overloaded/rate-limited/server-outdated 瞬态档
+ *  （误入终态=一次内存尖峰/一次拥塞/一次部署滞后把全部客户端钉死且不自愈）；版本族三档
+ *  schema-outdated/client-version-missing/client-version-invalid 终态（reload 档 UX 分流）。 */
 export const CollabAuthReason = {
   UNAUTHENTICATED: 'unauthenticated',
   SESSION_EXPIRED: 'session-expired',
@@ -15,13 +18,21 @@ export const CollabAuthReason = {
   DB_UNAVAILABLE: 'db-unavailable',
   DRAINING: 'draining',
   LEASE_NOT_READY: 'lease-not-ready',
+  SERVER_OVERLOADED: 'server-overloaded',
+  SCHEMA_OUTDATED: 'schema-outdated',
+  CLIENT_VERSION_MISSING: 'client-version-missing',
+  CLIENT_VERSION_INVALID: 'client-version-invalid',
+  RATE_LIMITED: 'rate-limited',
+  SERVER_OUTDATED: 'server-outdated', // v2 M-4：csv>current（客户端新于服务端）——瞬态档（服务端待更新提示，reload 无效不自动刷）
 } as const;
 /** 值序冻结（线上协议串只增不改）——测试 toEqual 锚此数组 */
 export const COLLAB_AUTH_REASONS: readonly CollabAuthReasonCode[] = Object.values(CollabAuthReason);
 
 export type CollabAuthReasonCode = (typeof CollabAuthReason)[keyof typeof CollabAuthReason];
 
-/** 契约锁㉙：终态白名单——仅四档 true（客户端引导重登/跳转）；db-unavailable、
+/** 契约锁㉙：终态白名单——版本族三档加入后共七档 true（客户端引导重登/跳转/reload 档 UX）；
+ *  SERVER_OVERLOADED/RATE_LIMITED/SERVER_OUTDATED 瞬态档严禁入终态（spec §3.2/§5.2——误入=
+ *  一次内存尖峰/一次拥塞/一次部署滞后把全部客户端钉死且不自愈）；db-unavailable、
  *  裸 permission-denied、undefined 及一切未打标值一律瞬态桶（横幅重试）。
  *  放 shared 使 web 批 2 与 api 同源判定。 */
 const TERMINAL_AUTH_REASONS: ReadonlySet<string> = new Set<string>([
@@ -29,6 +40,9 @@ const TERMINAL_AUTH_REASONS: ReadonlySet<string> = new Set<string>([
   CollabAuthReason.SESSION_EXPIRED,
   CollabAuthReason.NOT_FOUND,
   CollabAuthReason.FORBIDDEN,
+  CollabAuthReason.SCHEMA_OUTDATED,
+  CollabAuthReason.CLIENT_VERSION_MISSING,
+  CollabAuthReason.CLIENT_VERSION_INVALID,
 ]);
 
 export function isTerminalReason(reason: unknown): boolean {

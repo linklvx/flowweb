@@ -2,15 +2,33 @@ import { describe, it, expect } from 'vitest';
 import { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS } from './collab-auth-reason';
 import { COLLAB_READY_REASONS, type CollabReadyReason, type CollabReadyResponse } from './collab-ready';
 
-describe('CollabAuthReason 七档（Y0a-3：+lease-not-ready 瞬态档）', () => {
+describe('CollabAuthReason 十三档（Y0b-3 T0：七旧+六新 append-only）', () => {
   it('值即线上协议串——封闭数组（顺序冻结，只增不改）', () => {
     expect(COLLAB_AUTH_REASONS).toEqual([
       'unauthenticated', 'session-expired', 'not-found', 'forbidden',
       'db-unavailable', 'draining', 'lease-not-ready',
+      'server-overloaded', 'schema-outdated', 'client-version-missing',
+      'client-version-invalid', 'rate-limited', 'server-outdated',
     ]);
   });
   it('lease-not-ready 为瞬态档——误入终态白名单=关停期外客户端停止重连', () => {
     expect(isTerminalReason(CollabAuthReason.LEASE_NOT_READY)).toBe(false);
+  });
+});
+
+describe('Y0b-3 T0：词表追加六值（append-only）+终态五档', () => {
+  it('server-overloaded/rate-limited 是瞬态——严禁终态（误入=一次尖峰把客户端钉死且不自愈）', () => {
+    expect(isTerminalReason(CollabAuthReason.SERVER_OVERLOADED)).toBe(false);
+    expect(isTerminalReason(CollabAuthReason.RATE_LIMITED)).toBe(false);
+    expect(isTerminalReason(CollabAuthReason.SERVER_OUTDATED)).toBe(false);
+  });
+  it('版本族三档是终态（reload 档 UX 依赖 isTerminalReason 分流）', () => {
+    for (const r of ['schema-outdated', 'client-version-missing', 'client-version-invalid']) {
+      expect(isTerminalReason(r)).toBe(true);
+    }
+  });
+  it('词表 append-only 全集=13 值（七旧+六新）', () => {
+    expect(COLLAB_AUTH_REASONS).toHaveLength(13);
   });
 });
 
