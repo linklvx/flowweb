@@ -327,20 +327,24 @@ export class ExecutionService {
       }
 
       // ── done 投影+结果行+余额推送+下载队列（MinIO 异步归档）──
-      await this.collabDoc.writeExecStatus(projectId, node.id, {
+      // 三附带步骤一律 best-effort（T6 审查 Important①）：writeNodeData 已成功=交付完成，此后投影/
+      // 下载入队/余额读任一抛错若裸 await 落 catch，会被 B-1 的"SUCCEEDED∧交付抛错"识别误判为交付
+      // 失败⇒rollbackDeliveryFailed 退款——产物已交付+退款=错账面。收窄 B-1 识别=交付本身（writeNodeData）抛错。
+      await Promise.resolve(this.collabDoc.writeExecStatus(projectId, node.id, {
         status: 'done', jobId: jobId ?? null, intentId: intent.intentId, attempts,
         ...(outcome.fileId ? { fileId: outcome.fileId } : {}),
-      });
+      })).catch((e: unknown) => this.logger.warn(`done 投影 best-effort 失败 node=${node.id}: ${(e as Error).message}`));
       if (outcome.resultRow) results.push(outcome.resultRow);
       if (outcome.downloadMime && outcome.resultRef) {
-        await this.downloadQueue.add('ai-result-download', {
+        await Promise.resolve(this.downloadQueue.add('ai-result-download', {
           userId, projectId, nodeId: node.id, taskId: `task-${Date.now()}`, resultUrl: outcome.resultRef, mimeType: outcome.downloadMime,
-        });
+        })).catch((e: unknown) => this.logger.warn(`下载入队 best-effort 失败 node=${node.id}: ${(e as Error).message}`));
         this.logger.log(`Enqueued AI result download for node ${node.id}`);
       }
-      const bal = await this.teamCredit.getBalanceView(teamId, userId);
+      const bal = await Promise.resolve(this.teamCredit.getBalanceView(teamId, userId))
+        .catch(() => null);
       this.gateway.emitNodeStatus(projectId, {
-        nodeId: node.id, status: 'done', ...(outcome.fileId ? { fileId: outcome.fileId } : {}), credits: this.balancePayload(bal),
+        nodeId: node.id, status: 'done', ...(outcome.fileId ? { fileId: outcome.fileId } : {}), credits: bal ? this.balancePayload(bal) : undefined,
       });
     } catch (err: any) {
       // A-3：BusinessException（409 族/PROVIDER_POLL_ABORTED 等）降级逐节点 error+continue——:367 整批
