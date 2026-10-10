@@ -8,6 +8,11 @@ export { SubscriptionError } from './constants/subscription-error';
 export type { SubscriptionErrorCode } from './constants/subscription-error';
 export { CollabAuthReason, isTerminalReason } from './constants/collab-auth-reason';
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
+// Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
+export { CollabCloseCode, resolveCloseAction } from './constants/collab-close-code';
+export type { CloseAction, CloseActionKind } from './constants/collab-close-code';
+export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/collab-protocol';
+export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
 export { COLLAB_READY_REASONS } from './constants/collab-ready';
 export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending } from './constants/collab-ready';
 // Y0b-2 T2（Z80/Z101/Z117①）：provider adapter 注册表+executable/ready 双谓词——api（execution/provider-adapters 再导出）
