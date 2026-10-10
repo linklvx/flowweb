@@ -16,6 +16,11 @@ export default defineConfig({
   timeout: 240_000,
   workers: 1,
   fullyParallel: false,
+  // retries=1（Y0b-2 T1 部署期实证 2026-10-10）：单 worker 串行下全套 ~6min 仍有环境抖动——三轮部署
+  // 各红一个**不同**的时序敏感用例（拖拽收敛×2 轮/宫格缩略图 naturalWidth 加载），单跑均秒绿；本机
+  // 全栈（gate API+PG+Redis+MinIO+vite build+浏览器）资源竞争所致，非代码回归。retries 只吸收抖动：
+  // 确定性失败连续红不会洗白（Playwright CI 官方实践 retries≥1）。真回归时第一轮红+重跑仍红=照拦。
+  retries: 1,
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:5173', // localhost——better-auth trustedOrigins 只认 5173，禁 127.0.0.1
