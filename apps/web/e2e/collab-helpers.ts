@@ -92,15 +92,19 @@ export async function latestNodeId(page: Page): Promise<string> {
 }
 
 /** 在页面上下文内以登录态发起生成（真实链路：enqueue → BullMQ → execute → exec map/doc 写）。
- *  intentId 必传（每次新 UUID——对齐真实 UI 的 intentRecord 语义）：stalled 重排的可重入 claim 依赖
- *  job.data.intentId 与在飞意图行匹配——不传则服务端每次随机 UUID，撞活跃 partial unique → NodeBusy
+ *  Y0b-2 T7：enqueue 受理门 stateVector 必填——从页面 Y.Doc 取（__flowwebGetSv 只读缝，canvasCollabRuntime
+ *  挂载；页面须先 openCanvasConnected 否则 SV undefined=服务端必拒）。
+ *  regenToken 必传（每次新 UUID——对齐真实 UI 的手势 token 语义）：stalled 重排的可重入 claim 依赖
+ *  job.data.regenToken 与在飞意图行匹配——不传则走内容键路径，撞活跃 partial unique → NodeBusy
  *  静默失败（job "完成"但零副作用——S3 3b 首跑实证）。 */
 export async function enqueueExecution(page: Page, projectId: string, nodeId: string): Promise<string> {
   return page.evaluate(async ({ projectId: pid, nodeId: nid }) => {
+    const sv = (window as any).__flowwebGetSv?.();
+    if (!sv) throw new Error('页面 Y.Doc 未就绪（须先 openCanvasConnected）——stateVector 不可得');
     const res = await fetch('/api/execution/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: pid, nodeId: nid, intentId: crypto.randomUUID() }),
+      body: JSON.stringify({ projectId: pid, nodeId: nid, regenToken: crypto.randomUUID(), stateVector: sv }),
     });
     const json = await res.json();
     if (!res.ok || json.code !== 0) throw new Error(`enqueue failed: HTTP ${res.status} ${JSON.stringify(json)}`);

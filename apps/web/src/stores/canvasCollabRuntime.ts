@@ -1093,6 +1093,10 @@ export function getStateVector(): string | undefined {
   for (const b of sv) bin += String.fromCharCode(b);
   return btoa(bin);
 }
+// e2e 缝（常驻只读零成本）：协作 e2e 的 enqueue 工具需页面侧 stateVector（T7 SV 门 body 必填）——
+// 页面 Y.Doc 在模块作用域，playwright evaluate 无法 import 模块；SV 是 doc 状态指纹非敏感数据
+// （等价 collabDiagnostics 的 window 挂载先例，但无 ring 体量顾虑故常驻）。
+if (typeof window !== 'undefined') (window as any).__flowwebGetSv = () => getStateVector();
 
 /** Y0b-2 T7（Z67）：等 unsyncedChanges 归零边沿——禁用 'synced'（一次性握手事件，同态提前
  *  return 不 emit，已 synced 客户端重等待结构性挂死）。超时 resolve(false) 不抛错——claim 前
