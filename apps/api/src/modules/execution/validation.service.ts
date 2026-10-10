@@ -4,6 +4,7 @@ import { availableCredits } from '../team/team.util';
 import { isExecutableNode } from './is-executable-node';
 import { resolvePricingKey } from './pricing-input.util';
 import { PricingResolverService } from './pricing-resolver.service';
+import { executable } from './provider-adapters';
 
 /** Y0b-1（E1）：逐节点定价快照——execute 的 claim 消费（预估=plan 同源，TOCTOU 消除）。
  *  五字段即 ClaimPricing 形状（pricing-resolver ResolvedPricing 的投影）。 */
@@ -44,6 +45,16 @@ export class ValidationService {
       // 旧实现两形状分叉：预检随机命中 10/18/25、实扣 ?? 0=免费）
       try {
         const key = await resolvePricingKey(this.prisma, node);
+        // Y0b-2（Z101）selectable 预检：节点引用模型 !executable（停用/无 adapter/无 apiModelName）
+        // ⇒ MODEL_NOT_AVAILABLE——claim 前零冻结零 attempts，且不进定价解析（错误面单义）。
+        // executable 无密钥维度（CI 零密钥下可售照跑）；缺密钥属运维故障由 Z93 拒启兜底。
+        if (key.modelId) {
+          const m = await this.prisma.aIModel.findUnique({ where: { id: key.modelId } });
+          if (!m || !executable(m)) {
+            errors.push(`节点 ${node.id}: MODEL_NOT_AVAILABLE（模型 ${key.modelId} 已停用或无外呼实现——不可售）`);
+            continue;
+          }
+        }
         const r = key.modelId
           ? await this.resolver.resolve({ modelId: key.modelId, resolutionId: key.resolutionId, durationId: key.durationId })
           : await this.resolver.resolveByNodeTypeKey(key.pricingKey!);

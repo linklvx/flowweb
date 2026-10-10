@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { PageContainer, ProTable, ProForm, ModalForm, ProFormText, ProFormDigit, ProFormSwitch, ProFormList, ProFormSelect, ProFormDependency } from '@ant-design/pro-components';
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { Tabs, App as AntdApp, Popconfirm, Button, Tag } from 'antd';
+import { ADAPTERS, readyModel } from '@flowweb/shared';
 import {
   fetchNodeTypes, fetchModels, createModel, updateModel, toggleModel, deleteModel, addResolution, addDuration,
   fetchPricingRules, createPricingRule, deletePricingRule,
@@ -29,7 +30,9 @@ export default function ModelsPage() {
 
   const modelColumns: ProColumns<ModelData>[] = [
     { title: '名称', dataIndex: 'name' },
-    { title: '供应商', dataIndex: 'provider' },
+    // Y0b-2 T2：provider=adapter slug + providerLabel 显示名（列表标记用 ready——Z117① 面向运维看密钥）
+    { title: '供应商', dataIndex: 'provider', render: (_, r) => r.providerLabel ? `${r.provider}（${r.providerLabel}）` : r.provider },
+    { title: '外呼就绪', render: (_, r) => (readyModel({ ...r, apiModelName: r.apiModelName ?? null, apiKey: r.apiKey ?? null }) ? <Tag color="green">就绪</Tag> : <Tag color="red">不可执行</Tag>) },
     { title: '推荐', dataIndex: 'recommended', render: (_, r) => (r.recommended ? <Tag color="green">推荐</Tag> : '-') },
     { title: '排序', dataIndex: 'sortOrder', width: 80 },
     { title: '分辨率', render: (_, r) => r.resolutions.map((x) => x.label).join(' / ') || '-' },
@@ -156,7 +159,8 @@ function ModelFormModal({ nodeTypeId, nodeTypeKey, record, onDone, trigger }: {
       title={isEdit ? '编辑模型' : '新建模型'} trigger={trigger}
       modalProps={{ destroyOnClose: true }}
       initialValues={record ? {
-        name: record.name, provider: record.provider, apiUrl: record.apiUrl,
+        name: record.name, provider: record.provider, providerLabel: record.providerLabel ?? undefined,
+        apiModelName: record.apiModelName ?? undefined, apiUrl: record.apiUrl,
         sortOrder: record.sortOrder, recommended: record.recommended, active: record.active,
         resolutions: record.resolutions.map((r) => ({ label: r.label, width: r.width, height: r.height })),
         durations: record.durations.map((d) => ({ label: d.label, seconds: d.seconds })),
@@ -181,10 +185,17 @@ function ModelFormModal({ nodeTypeId, nodeTypeKey, record, onDone, trigger }: {
       }}
     >
       <ProFormText name="name" label="名称" rules={[{ required: true }]} />
-      <ProFormText name="provider" label="供应商" rules={[{ required: true }]} />
+      {/* Y0b-2 T2：provider 输入改 adapter 下拉（Object.keys(ADAPTERS)——与 api 外呼分派同源单表） */}
+      <ProFormSelect
+        name="provider" label="供应商（adapter）" rules={[{ required: true }]}
+        options={Object.keys(ADAPTERS).map((slug) => ({ label: slug, value: slug }))}
+      />
+      <ProFormText name="providerLabel" label="供应商显示名（可选）" placeholder="如：腾讯混元 / Moonshot AI" />
+      <ProFormText name="apiModelName" label="Provider 侧模型 id" rules={[{ required: true }]} placeholder="如：kimi-k2.6 / hy-image-v3.0" />
       <ProFormText name="apiUrl" label="API 地址" rules={[{ required: true }]} />
-      {/* 编辑态不传 apiKey：保持服务端已存密钥不变（不回显明文）。安全债已登记（GET /admin/models 明文下发 apiKey）*/}
-      {!isEdit && <ProFormText name="apiKey" label="API Key（可选）" placeholder="留空则沿用服务端配置" />}
+      {/* 编辑态不传 apiKey：保持服务端已存密钥不变（不回显明文）。安全债已登记（GET /admin/models 明文下发 apiKey）。
+          Y0b-2（Z117①）：新建默认 active=true——缺钥会被后端 MODEL_NOT_READY 写边界拒（400） */}
+      {!isEdit && <ProFormText name="apiKey" label="API Key（启用模型必填——后端 MODEL_NOT_READY 写边界）" placeholder="sk-..." />}
       <ProFormDigit name="sortOrder" label="排序" initialValue={0} />
       <ProFormSwitch name="recommended" label="推荐" />{/* 无 active 开关：启停统一走行内「上线/下线」 */}
       {/* 编辑态隐藏子资源 List：更新分支不发子资源，仅创建时填写 */}

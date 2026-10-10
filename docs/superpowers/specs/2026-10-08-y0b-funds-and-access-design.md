@@ -783,13 +783,21 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 
 <!-- y0b0:metric-names -->
 ```yaml
+- ai_artifact_discarded_total
 - collab_lease_denied_total
 - collab_lease_epoch
 - collab_lease_lost_total
 - collab_lease_row_missing_total
 - collab_start_failure_total
 - collab_sweep_close_total
+- exec_outbound_duration_seconds
+- exec_poll_stall_total
+- exec_poll_unknown_status_total
+- exec_sync_pending_total
+- execution_group_duration_seconds
 - execution_settle_failure_total
+- intent_claim_result_total
+- intent_deadline_exceeded_total
 - intent_duplicate_attempt_total
 - intent_frozen_orphan_total
 - intent_frozen_stranded_total
@@ -806,6 +814,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_loaded_documents
 - yjs_pending_batches
 - yjs_pending_projects
+- yjs_snapshot_fallback_total
 - yjs_snapshot_read_total
 - yjs_spool_capacity_total
 - yjs_spool_depth_bytes

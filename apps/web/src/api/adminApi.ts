@@ -12,6 +12,11 @@ export interface NodeTypeData {
 
 export interface ModelData {
   id: string; nodeTypeId: string; name: string; provider: string; apiUrl: string;
+  /** Y0b-2 T2：provider=adapter slug（moonshot/tencent/dashscope）；apiModelName=provider 侧模型 id；
+   *  apiKey 供列表"外呼就绪"标记（Z117①——面向运维看密钥；明文下发安全债已登记） */
+  apiModelName?: string | null;
+  providerLabel?: string | null;
+  apiKey?: string | null;
   sortOrder: number; recommended: boolean; active: boolean;
   resolutions: { id: string; label: string; width: number; height: number }[];
   durations: { id: string; label: string; seconds: number }[];

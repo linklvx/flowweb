@@ -10,6 +10,10 @@ export { CollabAuthReason, isTerminalReason } from './constants/collab-auth-reas
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 export { COLLAB_READY_REASONS } from './constants/collab-ready';
 export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending } from './constants/collab-ready';
+// Y0b-2 T2（Z80/Z101/Z117①）：provider adapter 注册表+executable/ready 双谓词——api（execution/provider-adapters 再导出）
+// 与 admin web（ModelsPage adapter 下拉+ready 标记）双端单源。
+export { ADAPTERS, executableModel, readyModel } from './constants/provider-adapters';
+export type { ProviderAdapter } from './constants/provider-adapters';
 export * from './types/home.types';
 export * from './types/role.types';
 export * from './types/video-project';

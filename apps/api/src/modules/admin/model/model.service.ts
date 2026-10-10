@@ -1,5 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ready } from '../../execution/provider-adapters';
+import { BusinessException } from '../../../common/exceptions/business.exception';
 
 @Injectable()
 export class ModelService {
@@ -26,6 +28,8 @@ export class ModelService {
     nodeTypeId: string;
     name: string;
     provider: string;
+    providerLabel?: string;
+    apiModelName?: string;
     apiUrl: string;
     apiKey?: string;
     sortOrder?: number;
@@ -34,6 +38,11 @@ export class ModelService {
     durations?: { label: string; seconds: number }[];
   }) {
     const { resolutions, durations, ...modelData } = dto;
+    // Y0b-2（Z117①）ready 写边界：create 落 active 默认 true——active∧!ready（无 adapter/无名/无钥）
+    // 的"可售"行禁写（启动断言只是快照，运行期 admin 造此行 ⇒ 用户可选外呼 Bearer undefined 401）
+    if (!ready({ active: true, provider: modelData.provider, apiModelName: modelData.apiModelName ?? null, apiKey: modelData.apiKey ?? null })) {
+      throw new BusinessException('MODEL_NOT_READY', '新建启用模型须齐 provider adapter（moonshot/tencent/dashscope）+apiModelName+apiKey（缺一即 MODEL_NOT_READY）');
+    }
     const model = await this.prisma.aIModel.create({ data: modelData });
     if (resolutions?.length) {
       for (const r of resolutions) {
@@ -48,13 +57,30 @@ export class ModelService {
     return this.findById(model.id);
   }
 
-  async update(id: string, data: { name?: string; provider?: string; apiUrl?: string; apiKey?: string; sortOrder?: number; recommended?: boolean }) {
+  async update(id: string, data: { name?: string; provider?: string; providerLabel?: string; apiModelName?: string; apiUrl?: string; apiKey?: string; sortOrder?: number; recommended?: boolean }) {
+    // Y0b-2（Z117①）ready 写边界：写后 active 行必须仍 ready（清空 apiKey/改 provider 丢 adapter 均拦）
+    const current = await this.prisma.aIModel.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Model not found');
+    const merged = {
+      active: current.active,
+      provider: data.provider ?? current.provider,
+      apiModelName: data.apiModelName !== undefined ? data.apiModelName : current.apiModelName,
+      apiKey: data.apiKey !== undefined ? data.apiKey : current.apiKey,
+    };
+    if (merged.active && !ready(merged)) {
+      throw new BusinessException('MODEL_NOT_READY', '更新会使启用模型失去外呼就绪（provider/apiModelName/apiKey 不全）——先补齐或先下线');
+    }
     return this.prisma.aIModel.update({ where: { id }, data });
   }
 
   async toggle(id: string) {
     const model = await this.prisma.aIModel.findUnique({ where: { id } });
     if (!model) throw new NotFoundException('Model not found');
+    // Y0b-2（Z117①）：上线（active→true）校验 would-be ready（行现态 active=false——谓词按目标态算）；
+    // 下线恒放行
+    if (!model.active && !ready({ ...model, active: true })) {
+      throw new BusinessException('MODEL_NOT_READY', '上线前须齐 provider adapter+apiModelName+apiKey（MODEL_NOT_READY）');
+    }
     return this.prisma.aIModel.update({ where: { id }, data: { active: !model.active } });
   }
 

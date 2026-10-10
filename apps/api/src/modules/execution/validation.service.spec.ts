@@ -14,6 +14,8 @@ describe('ValidationService', () => {
       teamBalance: { findUnique: vi.fn() },
       modelResolution: { findMany: vi.fn().mockResolvedValue([]) },
       modelDuration: { findMany: vi.fn().mockResolvedValue([]) },
+      // Y0b-2（Z101）：executable 预检读模型行——默认给可售行（active+tencent+apiModelName）
+      aIModel: { findUnique: vi.fn().mockResolvedValue({ id: 'm1', active: true, provider: 'tencent', apiModelName: 'hy' }) },
     };
     // Y0b-1：定价单源 resolver stub——validation 不再直接查 pricingRule（E48/Z28）
     resolver = {
@@ -85,6 +87,27 @@ describe('ValidationService', () => {
     const result = await service.validateAll(nodes as any, 't-team', 'u1');
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain('定价规则');
+  });
+
+  it('Y0b-2（Z101）selectable 预检：引用停用模型 ⇒ MODEL_NOT_AVAILABLE 且不触达 resolver（claim 前零冻结零 attempts）', async () => {
+    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 100, subscriptionCredits: 0 });
+    // gpt4 形态：active=false（或 provider 无 adapter/apiModelName 缺）
+    prisma.aIModel.findUnique.mockResolvedValue({ id: 'm-gpt4', active: false, provider: 'openai', apiModelName: null, apiKey: null });
+    const nodes = [{ id: 'n1', type: 'textInput', data: { model: 'm-gpt4', content: 'x' } }];
+    const result = await service.validateAll(nodes as any, 't-team', 'u1');
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('MODEL_NOT_AVAILABLE');
+    expect(result.errors[0]).toContain('n1');
+    expect(resolver.resolve).not.toHaveBeenCalled(); // 不可售模型不进定价解析——错误面单义
+    expect(result.plans).toHaveLength(0);
+  });
+
+  it('Y0b-2（Z101）provider 无 adapter 的 active 行（sdxl 形态）同判 MODEL_NOT_AVAILABLE', async () => {
+    prisma.teamBalance.findUnique.mockResolvedValue({ teamId: 't-team', credits: 100, subscriptionCredits: 0 });
+    prisma.aIModel.findUnique.mockResolvedValue({ id: 'm-sdxl', active: true, provider: 'stability', apiModelName: 'sdxl-3', apiKey: null });
+    const result = await service.validateAll([{ id: 'n2', type: 'imageGen', data: { model: 'm-sdxl' } }] as any, 't-team', 'u1');
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('MODEL_NOT_AVAILABLE');
   });
 
   it('kind 级节点（erase）不在 EXECUTABLE_TYPES 白名单——validateAll 跳过（计费走 ai-image-edit processor 的 resolver）', async () => {

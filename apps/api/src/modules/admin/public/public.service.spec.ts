@@ -38,8 +38,9 @@ describe('PublicService', () => {
       models: [
         {
           id: 'm1',
-          name: 'SD XL',
-          provider: 'Stability',
+          name: 'HY-Image',
+          provider: 'tencent',
+          apiModelName: 'hy-image-v3.0',
           active: true,
           recommended: true,
           sortOrder: 1,
@@ -61,6 +62,19 @@ describe('PublicService', () => {
         },
       },
     });
+  });
+
+  it('Y0b-2（Z101）executable 过滤：active 但无 adapter/无 apiModelName 的行不进 models 端点（目录=可售）', async () => {
+    prisma.nodeType.findUnique.mockResolvedValue({
+      id: 'nt1',
+      models: [
+        { id: 'm-ok', name: 'HY', provider: 'tencent', apiModelName: 'hy-image-v3.0', active: true, resolutions: [], durations: [] },
+        { id: 'm-noadapter', name: 'SDXL', provider: 'stability', apiModelName: 'sdxl-3', active: true, resolutions: [], durations: [] },
+        { id: 'm-noname', name: 'X', provider: 'tencent', apiModelName: null, active: true, resolutions: [], durations: [] },
+      ],
+    });
+    const result = await service.getModelsByNodeKey('image');
+    expect(result.map((m: any) => m.id)).toEqual(['m-ok']);
   });
 
   it('should throw NotFoundException for unknown node type key', async () => {

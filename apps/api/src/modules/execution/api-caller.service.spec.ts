@@ -1,56 +1,66 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ApiCallerService } from './api-caller.service';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { PrismaService } from '../../prisma/prisma.service';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Y0b-2 T2：MODEL_CONFIG 退役——mock 四分支（无配置回落假图/假视频/mock 文本/Unknown model type）
+// 随删，本 spec 原对应用例改写为 PROVIDER_UNKNOWN_MODEL 硬失败断言（深表在 api-caller.hardening.spec）。
+const jsonRes = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+/** tencent 提交-轮询模型行（5min 模块缓存按 id 隔离——id 逐用例唯一） */
+const hyImageRow = (id: string) => ({
+  id, active: true, provider: 'tencent', apiModelName: 'hy-image-v3.0',
+  apiUrl: 'https://hy.example/v1/api/image', apiKey: 'sk-test',
+});
 
 describe('ApiCallerService', () => {
   let service: ApiCallerService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ApiCallerService],
+      providers: [
+        ApiCallerService,
+        { provide: PrismaService, useValue: { aIModel: { findUnique: vi.fn(async () => null), findMany: vi.fn(async () => []) } } },
+      ],
     }).compile();
     service = module.get<ApiCallerService>(ApiCallerService);
   });
 
-  it('should return mock image result with URL', async () => {
+  it('should return real image result with URL and dimensions (submit+poll 真链)', async () => {
+    vi.stubEnv('EXEC_POLL_TIMEOUT_MS', '1000'); // 单测实时钟——1s 轮询档
+    (service as any).prisma.aIModel.findUnique.mockImplementation(async () => hyImageRow('spec-img-ok'));
+    vi.stubGlobal('fetch', vi.fn(async (url: any) =>
+      String(url).endsWith('/submit') ? jsonRes({ id: 't1' }) : jsonRes({ status: 'succeeded', data: ['https://r/cat.png'] })));
     const result = await service.callImageGen({
-      prompt: '一只猫',
-      extraPrompt: '阳光窗台',
-      style: '写实',
-      model: 'SD XL',
-      resolution: '1024×1024',
+      prompt: '一只猫', extraPrompt: '阳光窗台', model: 'spec-img-ok', resolution: '1024×1024',
     });
-    expect(result.url).toContain('/mock/');
+    expect(result.url).toBe('https://r/cat.png');
     expect(result.width).toBe(1024);
     expect(result.height).toBe(1024);
-  });
-
-  it('should take at least 500ms (simulated delay)', async () => {
-    const start = Date.now();
-    await service.callImageGen({ prompt: 'test', model: 'SD XL' });
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeGreaterThanOrEqual(500);
+    vi.unstubAllGlobals(); vi.unstubAllEnvs();
   });
 
   it('should default to 1024×1024 when no resolution given', async () => {
-    const result = await service.callImageGen({ prompt: 'test', model: 'SD XL' });
+    vi.stubEnv('EXEC_POLL_TIMEOUT_MS', '1000');
+    (service as any).prisma.aIModel.findUnique.mockImplementation(async () => hyImageRow('spec-img-default'));
+    vi.stubGlobal('fetch', vi.fn(async (url: any) =>
+      String(url).endsWith('/submit') ? jsonRes({ id: 't2' }) : jsonRes({ status: 'done', data: ['https://r/x.png'] })));
+    const result = await service.callImageGen({ prompt: 'test', model: 'spec-img-default' });
     expect(result.width).toBe(1024);
     expect(result.height).toBe(1024);
+    vi.unstubAllGlobals(); vi.unstubAllEnvs();
   });
 
   describe('callVideoGen', () => {
-    it('should return mock video URL for unknown model', async () => {
-      const result = await service.callVideoGen({
-        prompt: '一只小狗', model: 'unknown-model', mode: 'text-to-video',
-      });
-      expect(result.url).toContain('/mock/');
+    it('unknown model → PROVIDER_UNKNOWN_MODEL（mock 视频分支已删——Y0b-2 T2）', async () => {
+      await expect(service.callVideoGen({ prompt: '一只小狗', model: 'unknown-model', mode: 'text-to-video' }))
+        .rejects.toMatchObject({ errorCode: 'PROVIDER_UNKNOWN_MODEL' });
     });
 
-    it('should fallback to mock when model config is not video type', async () => {
-      const result = await service.callVideoGen({
-        prompt: 'test', model: 'seed-model-sdxl', mode: 'text-to-video',
-      });
-      expect(result.url).toContain('/mock/');
+    it('模型 provider 非 tencent-submit-poll → PROVIDER_UNKNOWN_MODEL', async () => {
+      (service as any).prisma.aIModel.findUnique.mockImplementation(async () => ({ ...hyImageRow('spec-vid-moonshot'), provider: 'moonshot', apiModelName: 'kimi-k2.6' }));
+      await expect(service.callVideoGen({ prompt: 'test', model: 'spec-vid-moonshot', mode: 'text-to-video' }))
+        .rejects.toMatchObject({ errorCode: 'PROVIDER_UNKNOWN_MODEL' });
     });
   });
 
@@ -74,18 +84,13 @@ describe('ApiCallerService', () => {
 
   describe('callOutpainting', () => {
     it('should convert outpaintRect to top/bottom/left/right for DashScope API', async () => {
+      vi.stubEnv('EXEC_POLL_TIMEOUT_MS', '1000');
+      vi.stubEnv('DASHSCOPE_API_KEY', 'sk-dash-test'); // 编辑链密钥=seedEnv 侧（无 AIModel 行）
       const mockFetch = vi.fn()
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({ output: { task_id: 'task-1', task_status: 'PENDING' } }),
-        })
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({
-            output: {
-              task_status: 'SUCCEEDED',
-              results: [{ url: 'https://dashscope.result/outpaint.png' }],
-            },
-          }),
-        });
+        .mockResolvedValueOnce(jsonRes({ output: { task_id: 'task-1', task_status: 'PENDING' } }))
+        .mockResolvedValueOnce(jsonRes({
+          output: { task_status: 'SUCCEEDED', results: [{ url: 'https://dashscope.result/outpaint.png' }] },
+        }));
       vi.stubGlobal('fetch', mockFetch);
 
       const result = await service.callOutpainting(
@@ -102,48 +107,38 @@ describe('ApiCallerService', () => {
       expect(body.input.prompt).toBeUndefined();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      vi.unstubAllGlobals();
+      vi.unstubAllGlobals(); vi.unstubAllEnvs();
     });
   });
 
   describe('callErase', () => {
     it('should submit and poll for erase result', async () => {
+      vi.stubEnv('EXEC_POLL_TIMEOUT_MS', '1000');
+      vi.stubEnv('DASHSCOPE_API_KEY', 'sk-dash-test'); // 编辑链密钥=seedEnv 侧（无 AIModel 行）
       const mockFetch = vi.fn()
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({ output: { task_id: 'task-456', task_status: 'PENDING' } }),
-        })
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({
-            output: {
-              task_status: 'SUCCEEDED',
-              results: [{ url: 'https://dashscope.result/erase.png' }],
-            },
-          }),
-        });
+        .mockResolvedValueOnce(jsonRes({ output: { task_id: 'task-456', task_status: 'PENDING' } }))
+        .mockResolvedValueOnce(jsonRes({
+          output: { task_status: 'SUCCEEDED', results: [{ url: 'https://dashscope.result/erase.png' }] },
+        }));
       vi.stubGlobal('fetch', mockFetch);
 
       const result = await service.callErase('https://example.com/img.png', 'https://example.com/mask.png');
       expect(result.url).toBe('https://dashscope.result/erase.png');
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      vi.unstubAllGlobals();
+      vi.unstubAllGlobals(); vi.unstubAllEnvs();
     });
   });
 
   describe('callRedraw', () => {
     it('should submit and poll for redraw result with strength converted', async () => {
+      vi.stubEnv('EXEC_POLL_TIMEOUT_MS', '1000');
+      vi.stubEnv('DASHSCOPE_API_KEY', 'sk-dash-test'); // 编辑链密钥=seedEnv 侧（无 AIModel 行）
       const mockFetch = vi.fn()
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({ output: { task_id: 'task-789', task_status: 'PENDING' } }),
-        })
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({
-            output: {
-              task_status: 'SUCCEEDED',
-              results: [{ url: 'https://dashscope.result/redraw.png' }],
-            },
-          }),
-        });
+        .mockResolvedValueOnce(jsonRes({ output: { task_id: 'task-789', task_status: 'PENDING' } }))
+        .mockResolvedValueOnce(jsonRes({
+          output: { task_status: 'SUCCEEDED', results: [{ url: 'https://dashscope.result/redraw.png' }] },
+        }));
       vi.stubGlobal('fetch', mockFetch);
 
       const result = await service.callRedraw(
@@ -158,7 +153,7 @@ describe('ApiCallerService', () => {
       const firstCallBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(firstCallBody.input.strength).toBe(0.7);
 
-      vi.unstubAllGlobals();
+      vi.unstubAllGlobals(); vi.unstubAllEnvs();
     });
   });
 });

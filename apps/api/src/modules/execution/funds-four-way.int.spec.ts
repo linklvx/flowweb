@@ -116,7 +116,9 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       { id: 'g1-text', type: 'textInput', data: { model: 'seed-model-kimi' } },
       { id: 'g1-img', type: 'imageGen', data: { model: 'seed-model-hy-image', resolution: 'seed-res-hy-1024' } },
     ];
-    const apiCaller = new ApiCallerService();
+    // Y0b-2 T2：api-caller 注入 prisma（resolveModel 单源）——外呼面 spyOn 打死不变；
+    // 夹具 kimi/hy-image 为 executable 行（Z101：executable 无密钥维度——CI 零密钥下夹具照跑）
+    const apiCaller = new ApiCallerService(prisma as unknown as PrismaService);
     vi.spyOn(apiCaller, 'callTextGen').mockResolvedValue({ content: 'r' } as any);
     vi.spyOn(apiCaller, 'callImageGen').mockResolvedValue({ url: 'http://x/1.png' } as any);
     // writeNodeData 走 CollabDocumentService stub（execute 的 collabDoc 依赖位——租约面+文档面零真依赖）
@@ -156,7 +158,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
     const f = await scaffoldG1Funds();
     // 真实载荷形态：resolution:'1080p' 是 UI 预设——hy-video 未声明分辨率维度 ⇒ 定价忽略（Z36 声明参与制）
     const nodes = [{ id: 'g1-video', type: 'videoGen', data: { model: 'seed-model-hy-video', duration: 5, resolution: '1080p' } }];
-    const apiCaller = new ApiCallerService();
+    const apiCaller = new ApiCallerService(prisma as unknown as PrismaService);
     vi.spyOn(apiCaller, 'callVideoGen').mockResolvedValue({ url: 'http://x/v.mp4' } as any);
     const collabDoc = {
       readCanvas: async () => ({ nodes, edges: [] }),

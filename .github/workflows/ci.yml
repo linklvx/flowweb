@@ -162,6 +162,10 @@ jobs:
       MINIO_ENDPOINT: http://localhost:9000
       MINIO_ACCESS_KEY: drill
       MINIO_SECRET_KEY: drill-secret
+      # Y0b-2 T2（Z93 兜底）：api-caller onModuleInit 缺密钥拒启——CI 零密钥（迁移 INSERT apiKey
+      # 显式 NULL、无 seed 步）下演练子进程起 AppModule 会拒启；COLLAB_FAKE_AI=1 显式豁免档。
+      # int 套件直构服务不经 onModuleInit（实测断言不触发）——本值是防未来 int 加 .init() 的兜底。
+      COLLAB_FAKE_AI: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

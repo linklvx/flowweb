@@ -2,6 +2,7 @@ import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { normalizeDimensions } from '../../execution/pricing-input.util';
 import { PricingResolverService } from '../../execution/pricing-resolver.service';
+import { executable } from '../../execution/provider-adapters';
 
 @Injectable()
 export class PublicService {
@@ -22,7 +23,9 @@ export class PublicService {
       },
     });
     if (!nodeType) throw new NotFoundException(`Node type '${key}' not found`);
-    return nodeType.models;
+    // Y0b-2（Z101）selectable：executable=目录属性（active∧adapter∧apiModelName——可售性）；
+    // 密钥不进谓词（CI 零密钥可售照列）。adapter 判定在代码侧（SQL 不可表达）——查询 active 粗筛后本地过滤。
+    return nodeType.models.filter((m) => executable(m));
   }
 
   async calculatePrice(modelId: string, resolutionId?: string, durationId?: string | number): Promise<number> {
