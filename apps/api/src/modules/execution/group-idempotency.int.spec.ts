@@ -346,6 +346,29 @@ const statusOf = async (nodeId: string) =>
     expect((await ledgerOf()).settle).toBe(led1.settle);
   });
 
+  it('⑭ stalled 重排 hash 漂移 → ⓪ 同 jobId 直接 rearm 续跑同行（非 NodeBusy——S3 e2e 实证修复：首段 model 补丁经 collab 去抖窗未落 PG，重启重放后 paramsHash 变，① 键查找 miss ⇒ create 撞 partial unique ⇒ NodeBusy ⇒ 意图悬挂至 deadline 批）', async () => {
+    const n = nid('a14'); const nodes = [imageNode(n)];
+    const e = makeExec(nodes);
+    // 首段：经 enqueue 形态 claim（带 token+jobId）占位 RUNNING
+    const first = await intentSvc.claim({
+      projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
+      kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: 'seed-model-hy-image' }),
+      teamId: TID, pricing: PAID, jobId: 'job-a14',
+    });
+    expect(first.intent.status).toBe('RUNNING');
+    // 重排段：**漂移后的 hash**（模拟 doc 重放丢 model 字段）+ 同 jobId——必须续跑同行
+    const drifted = await intentSvc.claim({
+      projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
+      kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: undefined as any }),
+      teamId: TID, pricing: PAID, jobId: 'job-a14',
+    });
+    expect(drifted.created).toBe(true);
+    expect(drifted.intent.id).toBe(first.intent.id);          // 同一行（行身份=jobId+partial unique 非 hash）
+    expect(drifted.intent.heartbeatAt.getTime()).toBeGreaterThan(first.intent.heartbeatAt.getTime()); // 重锚刷新
+    const rows = await prisma.generationIntent.count({ where: { nodeId: n } });
+    expect(rows).toBe(1);                                     // 零新行（改前=NodeBusy 静默悬挂）
+  });
+
   it('⑬ error 后同 token 重试 → 命中 FAILED 行免费 rearm：同一行（row.id 不变）、attempts 1→2、零新增扣费（Z95 判别性断言=行身份）', async () => {
     const n = nid('a13'); const nodes = [textNode(n)];
     const e = makeExec(nodes);

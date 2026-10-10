@@ -106,14 +106,31 @@ export class GenerationIntentService {
         throw new BusinessException('TEAM_CLOSED', `团队不存在或已关闭（teamId=${input.teamId}）`, HttpStatus.CONFLICT);
       }
 
-      // ── ⓪ RUNNING 闸（Z94）：一次索引查 partial unique 至多的在飞行——非本 job ⇒ NodeBusy 零新行零回放 ──
+      // ── ⓪ RUNNING 闸（Z94）：一次索引查 partial unique 至多的在飞行——非本 job ⇒ NodeBusy 零新行零回放；
+      //    同 jobId（BullMQ stalled 重排）⇒ **直接 rearm 续跑**（S3 e2e 实证修复）：行身份已由 jobId+
+      //    partial unique 唯一确定，重排段不得再走 ①/③ 的 idemKey 查找——首段外呼前 doc 补丁（model 落
+      //    面板经 collab 去抖窗）可能未持久，重启重放后 paramsHash 漂移 ⇒ 键查找 miss ⇒ create 撞 partial
+      //    unique ⇒ NodeBusy ⇒ 在飞意图无人收敛（悬挂至 deadline 批）。⓪ 命中即续跑=Z104"同 jobId 可重入"
+      //    的完整语义（T6 重构曾把续跑臂留在 ① 键状态机内——hash 漂移即失效）。 ──
       const running = await tx.generationIntent.findFirst({
         where: { projectId: input.projectId, nodeId: input.nodeId, status: 'RUNNING' },
       });
-      if (running && !(running.jobId != null && running.jobId === input.jobId)) {
-        // Z104 合取：null 永不等于 null——running.jobId=null（同步路径）对 input.jobId=null 的普通点击也拦
-        const staleMin = (Date.now() - running.heartbeatAt.getTime()) / 60_000;
-        throw new NodeBusyError(staleMin > 10 ? '系统回收中（约 15 分钟），请稍后重试' : undefined);
+      if (running) {
+        if (!(running.jobId != null && running.jobId === input.jobId)) {
+          // Z104 合取：null 永不等于 null——running.jobId=null（同步路径）对 input.jobId=null 的普通点击也拦
+          const staleMin = (Date.now() - running.heartbeatAt.getTime()) / 60_000;
+          throw new NodeBusyError(staleMin > 10 ? '系统回收中（约 15 分钟），请稍后重试' : undefined);
+        }
+        // 同 jobId 重排续跑：重锚=新执行段（heartbeat/deadline 刷新防 reaper 误收；startedAt 归 executor
+        // reanchorDeadline）。resultRef 清空保留 providerTaskId（Z83 重试 query-first）。
+        const rearmed = await tx.generationIntent.updateMany({
+          where: { id: running.id, status: 'RUNNING', jobId: input.jobId },
+          data: { resultRef: null, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)) },
+        });
+        if (rearmed.count === 1) {
+          return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: running.id } }), created: true, result: 'rearm' };
+        }
+        throw new NodeBusyError(); // 重锚被并发抢走（行已终态）
       }
 
       // ── ② 无 token：同参数最新 SUCCEEDED 回放（在⓪之后——在飞时禁回放旧产物） ──
