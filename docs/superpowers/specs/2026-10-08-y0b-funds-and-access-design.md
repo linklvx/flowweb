@@ -1,5 +1,5 @@
-<!-- doc-status: draft-v2.5 | created_at: 2026-10-08 | note: v2.5=Y0b-1 落地回填（2026-10-09，commit 73ed55b9..db968424 十八 commit）——落地形态以各节"（Y0b-1 落地）"标注为准：迁移改两刀制（T1a squash+T1b additive，清账⓿整删）/intent 五列未引入（Z7）/deliveredAt 判据改 status（Z17）/契约 4 增 referenceId 派生规则（Z9/Z24）/契约 20 补 Team 首环+论据改写（Z13/Z39）/§9 增补四轮终裁登记（Z15/Z28/Z31-Z37）——与 plan 2026-10-09-y0b-1-funds-solidification.md §0 终裁记录（Z1-Z40）互为镜像。Y0b 资金与准入批 design spec v2.3——v2.2（同日）经第八轮外审收敛（增量外审+v2.2 复审+三轮评审三报告，deploy.sh 时序/provider sendStateless/SyncStep1 往返全部一手实证，修正 v2.2 三处自身错误）：**canExecute 判据再改**（v2.2"显式 forceSync→等 SyncStatus(true)"证伪——SyncStep1 往返不产生 SyncStatus 帧且 forceSync 置 1 后静默空闲无 ack 永续=常态禁用+readOnly 放行风险——改服务端 inputHash 回显校验 SYNC_PENDING 零外呼+客户端数值基线门）；**空闲保活改 stateless ping**（v2.2"stateless 不可行"系误驳——provider sendStateless opcode 5 公共 API 实证可发，唯 BroadcastStateless opcode 6 才 throw；forceSync keepalive 作废（计数毒性+每 20s 全量 SV 编码 CPU），forceSyncInterval 放长 60s 补传）；**迁移清账改自门控**（deploy.sh:87-88 注释自证"HTTP 面继续打库"+drain 60s 自动解除——v2.2"被 drain 挡住"假设错误；自门控 DO $$ 真实资金 refuse+独立文件⓿顺序固定+文件尾自校验+advisory lock+monthlyUsed 归零+additive 门禁加数据破坏性正则）；heap 阈值按实测基线重标（896=杀线算式非工作区——第七轮基准勘误：trip 750MiB/release 600MiB+pressure 谓词去 arrayBuffers 重复计数）；控制面升幂等状态快照（含解除——shrink 后客户端只读恢复）；版本过期逃生=导出+强制刷新不受守卫约束；awareness 归属机制/runId 生命期落正文；计费读分流判据改结构性 isPersistedComplete（时间窗判据会把空闲文档推回活读）；shrink 后 undoManager.clear+墓碑文档唯一出路=导出+gc:true pin；硬阈文案改"一键瘦身/导出"（readOnly 发不出删除帧="自行删除"做不到）；refusalCache 白名单四类+桶/信号量拒绝不入缓存；mutate 落地约束（balanceAfter 按池分量/锁序/reserve 四守卫/无行锁解法）；四层防线顺序钉死；门禁载体点名；全文一致性清扫（forceSync 30s 残留/TTL 5min 残留/release_once 残留/五 kind/seq 全序/3s 轮询/P4 30-60s/:941 引证）；E41 维持+§9.6 补"对外可访问部署前"失效半句。v2.2 记录：第七轮收敛——v1（同日）经两轮外审收敛（三份对照报告+三份裁定报告+两份 D-A/D-B 终裁，承重论断 40+ 条全部一手复核）：v1 三处机制性踩空修正（connected 钩子在首批消息之后且放行装载会 stamp 旧档→改保留拒载 throw+客户端终态；Connection.close 丢 code→全部改 webSocket.close；onStatelessCallback→onStateless）；资金四缺陷并入（F1 台账串账/F2 混合符号二次退款/F4 产物门序/F7 清理吞冻结）+DB 级不变量+台账锚改 intentRowId+deliveredAt；配额执行点改 beforeHandleMessage apply 前拒绝+三级阶梯+自救；升级限流 IP 源修正（X-Real-IP）；D-A heap 压力闸采纳（三报告细节合并）；D-B 组执行不做 enqueue 化+六收口（幂等键争议经 claim 状态机代码裁决=必做：分支⑤仅同 intentId 生效）；R-1~R-6 维持既定裁定（v8-C/E41/Y5/E45/D1/query 通道）+E41 自动失效条件+持久化契约显式化。v2.4 记录：第九轮三报告收敛（增量外审/v2.3 复审/四轮收尾评审）——P0 两项采纳：**stateless 保活服务端 hook=库内未 await async 回调**（esm:219 未 await+esm:1070-1076 重抛+main.ts 零 unhandledRejection 兜底+Node22 默认 throw+ecosystem min_uptime 30s/max_restarts 10 全实证=任意认证成员可把 pm2 打成 errored）⇒hook 全函数化+全局兜底+P14 库锚+红锚；**清账门控极性反**（空库 fresh replay 必炸）⇒真实资金标记守卫三态+迁移首句 LOCK TABLE ACCESS EXCLUSIVE（结构豁免替代注释豁免）。判据级：**同步判据服务端化=SV 支配准入**（inputHash 降回 §1.1② 纯审计——服务端自算，双侧耦合消失；UX 门=自持未确认标记，数值基线 n0 作废——库计数三路不可靠实证：批量档每批 +1 vs 按 ack 减/resetUnsyncedChanges 幻影置 1/readOnly false-ack 不减）；**全局锁序 TeamBalance→GenerationIntent** 三处落地（mutate/reconcile 两事务/迁移 LOCK TABLE）+死锁自由锚；runId 成功后轮换（未决窗口外即换）；**pong=ping 前置**+15s+双向出口锚；awareness 归属键=payload.socketId（d.ts:609+esm:1512 双证——评审"context 唯一通道"证伪，connectionId 注入驳回）；env 补 COLLAB_BYTES_RATE_PER_CONN/EXEC_MAX_NODES；一致性门禁提前 Y0b-0（方向=spec↔code 单向 fenced 块+退役短语 denylist，非正文扫数字）；heap 锚上界修 824MiB；清扫 17 处副本漂移（§0 release_once/三分表、§3.2 谓词 bullet、契约 18、§9.16 新鲜度、896 区间×2、旧指标名、轮次计数等） -->
-# Y0b 资金与准入批——设计 spec（v2.5）
+<!-- doc-status: draft-v2.6 | created_at: 2026-10-08 | note: v2.6=Y0b-2 落地回填（2026-10-10，plan=2026-10-09-y0b-2-funds-runtime.md T0-T8 实现完毕+T9 出口汇聚：§0.4 偏离登记表新建〔实现与设计节的差异单源〕+§9 增 §9.32-51 残余登记；设计节正文不逐节重写——与落地的差异一律以 §0.4 表为准，终裁依据归 plan §0（Z41-Z118））。v2.5=Y0b-1 落地回填（2026-10-09，commit 73ed55b9..db968424 十八 commit）——落地形态以各节"（Y0b-1 落地）"标注为准：迁移改两刀制（T1a squash+T1b additive，清账⓿整删）/intent 五列未引入（Z7）/deliveredAt 判据改 status（Z17）/契约 4 增 referenceId 派生规则（Z9/Z24）/契约 20 补 Team 首环+论据改写（Z13/Z39）/§9 增补四轮终裁登记（Z15/Z28/Z31-Z37）——与 plan 2026-10-09-y0b-1-funds-solidification.md §0 终裁记录（Z1-Z40）互为镜像。Y0b 资金与准入批 design spec v2.3——v2.2（同日）经第八轮外审收敛（增量外审+v2.2 复审+三轮评审三报告，deploy.sh 时序/provider sendStateless/SyncStep1 往返全部一手实证，修正 v2.2 三处自身错误）：**canExecute 判据再改**（v2.2"显式 forceSync→等 SyncStatus(true)"证伪——SyncStep1 往返不产生 SyncStatus 帧且 forceSync 置 1 后静默空闲无 ack 永续=常态禁用+readOnly 放行风险——改服务端 inputHash 回显校验 SYNC_PENDING 零外呼+客户端数值基线门）；**空闲保活改 stateless ping**（v2.2"stateless 不可行"系误驳——provider sendStateless opcode 5 公共 API 实证可发，唯 BroadcastStateless opcode 6 才 throw；forceSync keepalive 作废（计数毒性+每 20s 全量 SV 编码 CPU），forceSyncInterval 放长 60s 补传）；**迁移清账改自门控**（deploy.sh:87-88 注释自证"HTTP 面继续打库"+drain 60s 自动解除——v2.2"被 drain 挡住"假设错误；自门控 DO $$ 真实资金 refuse+独立文件⓿顺序固定+文件尾自校验+advisory lock+monthlyUsed 归零+additive 门禁加数据破坏性正则）；heap 阈值按实测基线重标（896=杀线算式非工作区——第七轮基准勘误：trip 750MiB/release 600MiB+pressure 谓词去 arrayBuffers 重复计数）；控制面升幂等状态快照（含解除——shrink 后客户端只读恢复）；版本过期逃生=导出+强制刷新不受守卫约束；awareness 归属机制/runId 生命期落正文；计费读分流判据改结构性 isPersistedComplete（时间窗判据会把空闲文档推回活读）；shrink 后 undoManager.clear+墓碑文档唯一出路=导出+gc:true pin；硬阈文案改"一键瘦身/导出"（readOnly 发不出删除帧="自行删除"做不到）；refusalCache 白名单四类+桶/信号量拒绝不入缓存；mutate 落地约束（balanceAfter 按池分量/锁序/reserve 四守卫/无行锁解法）；四层防线顺序钉死；门禁载体点名；全文一致性清扫（forceSync 30s 残留/TTL 5min 残留/release_once 残留/五 kind/seq 全序/3s 轮询/P4 30-60s/:941 引证）；E41 维持+§9.6 补"对外可访问部署前"失效半句。v2.2 记录：第七轮收敛——v1（同日）经两轮外审收敛（三份对照报告+三份裁定报告+两份 D-A/D-B 终裁，承重论断 40+ 条全部一手复核）：v1 三处机制性踩空修正（connected 钩子在首批消息之后且放行装载会 stamp 旧档→改保留拒载 throw+客户端终态；Connection.close 丢 code→全部改 webSocket.close；onStatelessCallback→onStateless）；资金四缺陷并入（F1 台账串账/F2 混合符号二次退款/F4 产物门序/F7 清理吞冻结）+DB 级不变量+台账锚改 intentRowId+deliveredAt；配额执行点改 beforeHandleMessage apply 前拒绝+三级阶梯+自救；升级限流 IP 源修正（X-Real-IP）；D-A heap 压力闸采纳（三报告细节合并）；D-B 组执行不做 enqueue 化+六收口（幂等键争议经 claim 状态机代码裁决=必做：分支⑤仅同 intentId 生效）；R-1~R-6 维持既定裁定（v8-C/E41/Y5/E45/D1/query 通道）+E41 自动失效条件+持久化契约显式化。v2.4 记录：第九轮三报告收敛（增量外审/v2.3 复审/四轮收尾评审）——P0 两项采纳：**stateless 保活服务端 hook=库内未 await async 回调**（esm:219 未 await+esm:1070-1076 重抛+main.ts 零 unhandledRejection 兜底+Node22 默认 throw+ecosystem min_uptime 30s/max_restarts 10 全实证=任意认证成员可把 pm2 打成 errored）⇒hook 全函数化+全局兜底+P14 库锚+红锚；**清账门控极性反**（空库 fresh replay 必炸）⇒真实资金标记守卫三态+迁移首句 LOCK TABLE ACCESS EXCLUSIVE（结构豁免替代注释豁免）。判据级：**同步判据服务端化=SV 支配准入**（inputHash 降回 §1.1② 纯审计——服务端自算，双侧耦合消失；UX 门=自持未确认标记，数值基线 n0 作废——库计数三路不可靠实证：批量档每批 +1 vs 按 ack 减/resetUnsyncedChanges 幻影置 1/readOnly false-ack 不减）；**全局锁序 TeamBalance→GenerationIntent** 三处落地（mutate/reconcile 两事务/迁移 LOCK TABLE）+死锁自由锚；runId 成功后轮换（未决窗口外即换）；**pong=ping 前置**+15s+双向出口锚；awareness 归属键=payload.socketId（d.ts:609+esm:1512 双证——评审"context 唯一通道"证伪，connectionId 注入驳回）；env 补 COLLAB_BYTES_RATE_PER_CONN/EXEC_MAX_NODES；一致性门禁提前 Y0b-0（方向=spec↔code 单向 fenced 块+退役短语 denylist，非正文扫数字）；heap 锚上界修 824MiB；清扫 17 处副本漂移（§0 release_once/三分表、§3.2 谓词 bullet、契约 18、§9.16 新鲜度、896 区间×2、旧指标名、轮次计数等） -->
+# Y0b 资金与准入批——设计 spec（v2.6）
 
 日期：2026-10-08（v1+六轮外审收敛同日：两轮裁定+第六/七/八/九轮对照与增量评审）
 批次定位：Y0 系拆分 2/3（E31）。**上线门槛组成批**（E39：★=0号+Y0a+**Y0b**+Y0.5+Y1a+Y1b+Y1c-2 三项）。A 类单独启动（v8 §0.2）。
@@ -36,6 +36,24 @@
 | 9 | 同步预算+库选项 pin | §7.2（maxPayload/forceSyncInterval 显式 pin+启动断言；字节累加 O(1) 不引入编码） |
 | 10 | 探针前置+失败分支推演 | §1.2 库锚十五条已探针实证；新守卫各附三分支（heap 闸三红用例/deliveredAt/配额阶梯） |
 | 11 | 修改类任务冲击面清点 | §2.3 六大面（+apiFetch 契约/claim 消费点） |
+
+### 0.4 Y0b-2 实现偏离登记表（v2.6 新建——实现与设计节的差异单源；终裁依据=plan 2026-10-09-y0b-2-funds-runtime.md §0（Z41-Z118），下表=落地事实）
+
+| # | 偏离 | 落地形态与依据 |
+|---|------|----------------|
+| 1 | regenToken 协议（裁定 4+v2.2 error 保留修订） | 会话级手势 token 代替 runId 作幂等键：error 后 token 保留可免费 rearm（Z95 修订）、held 一律上送（sessionStorage）；§2.5 runId 节按此重写理解——runId 语义已由 regenToken 吸收 |
+| 2 | startedAt 列（T4） | GenerationIntent.startedAt 落库，phase 判据=startedAt null⇒queue 群、非 null⇒call/waiting 群（reaper 分档） |
+| 3 | AIModel 列变更+三模型 active=false（裁定 5） | slug/apiModelName/providerLabel 三列替代裸 name；seed 三模型（gpt4/sdxl/doubao 文本系）active=false——存量 dev 节点执行走 MODEL_NOT_AVAILABLE 4xx 零冻结，admin 可翻回 |
+| 4 | claim ⓪+②最新回放（Z94） | claim 判据换轨：⓪RUNNING 在飞点击=NodeBusy；②同 regenToken 同内容=最新回放（秒回零扣费，投影对齐）——v2 正文"分支⑤仅同 intentId 生效"形态由 token 等价覆盖 |
+| 5 | 跨用户内容回放语义 | B 端同内容点击回放 A 产物：不扣费亦不计 B 月度用量（=§9.47，裁定 3 本意，用例固化） |
+| 6 | 信封 6 处清剿+alignExecFromIntents 激活（T6） | controller 信封改写 6 处灭绝；exec 投影对齐函数从 no-op 转生效（重连/重放补投影兜底） |
+| 7 | rollback 三入口（Z92/Z102） | rollbackRunning（settle 前）/rollbackDeliveryFailed（SUCCEEDED∧交付抛错）/settleStranded 第三入口（悬留终态行）——v2 正文"rollback 双入口"扩为三入口 |
+| 8 | Σdeadline 门撤销→硬闸+nginx 钉仓（Z90） | 准入侧 Σdeadline 否决撤销；改 EXEC_SYNC_HARD_CAP（默认 1800s）病态批硬闸+EXEC_MAX_NODES DTO 级+nginx api-location.replace.conf 1860s 推导式钉仓（check-nginx-budget.mjs 进 verify） |
+| 9 | error 投影 rearmable（Z95） | 终态 error 投影携 errorCode/rearmable/attempts——rearm=同 token 免费重试不双扣 |
+| 10 | ledger.tx 退役（Z89） | runInTx 双 SET LOCAL 统一事务通道；`ledger.tx(` 生产调用零残留（census 锚） |
+| 11 | 月界北京时区（T0/T8） | monthlyUsed 派生月界=Asia/Shanghai 固定偏移（非 UTC 月界）；跨月归因/冻结计入/成员移除保留三语义用例固化 |
+| 12 | sv 门四端点+video-project 进程内直调豁免（T7） | SV 门移四受理端点（assertSyncAdmitted+readServerSV）；video-project regenerate 进程内直调 service 不经 controller——执行输入全由服务端从 doc 读，SV 门天然不在覆盖面（既成事实豁免非"端点豁免"） |
+| 13 | admin UI Idempotency-Key 接线（T8） | CreditsPage useRef 铸造+失败/在飞复用+成功轮换；grantCredits 可选头透传（不传=Z9 合法重复面维持兼容） |
 
 ---
 
@@ -693,7 +711,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 收尾：v8 目录 Y0b 行回填+D1 落档确认+runbook §4 客户端现状表改写+§6 补 tripped 处置行+重构工程首项两驱动登记
 ```
 
-## 9. 已知风险与限制登记（诚实清单；v2.5 三十一条——v2.4 二十三条+v2.5 增 §9.24-31、改 §9.22）
+## 9. 已知风险与限制登记（诚实清单；v2.6 五十一条——v2.4 二十三条+v2.5 增 §9.24-31、改 §9.22；Y0b-2 落地回填 v2.6 增 §9.32-51）
 
 1. **版本门缺参拒连的部署窗口**：单仓单批部署窗口=0；已打开的旧 bundle 会话在部署瞬间进终态拒绝——fail-closed 语义（非风险，登记）；依赖 access_log off 为纵深（断言锚锁定）。
 2. **awareness color 一致性**：服务端注入后客户端配色函数废弃——注入单源保证；部署前旧客户端自报 user 被剥离=显示服务端身份（无可见回归）。
@@ -726,6 +744,26 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 29. **controller 审查积累（v2.5=Y0b-1 执行期登记）**：①T3 质量审 I-2——编辑 kind 定价解析在 claim 前置完成（enqueue 前一次 resolve）的论证留档：claim 是 plan 固化唯一入口，前置解析使 enqueue 载荷零定价知识（fail-closed：解析失败在入口 4xx，不产生无 plan 的意图行）；②T6 观察项——void_ 对 FAILED 行解冻后意图状态保持 FAILED（不强制转 VOIDED）：冻结已释放（reversesId 配对闭合），状态残留由 settleStranded 次轮收敛（终态∧reservedCredits=0 非悬留）——语义等价登记，Y0b-2 reaper 重评时复核。
 30. **"冻结进钱包"重启触发条件（v2.5=Y0b-1 登记——Z11/D2）**：reservedCredits 唯一冻结权威+TeamBalance 无冻结列是**本批终裁**（一批不做两次资金模型迁移）；重启"冻结进钱包"（TeamBalance 加冻结列）的触发条件=未闭合义务巡检持续举报孤儿/资金状态机重开（新增中间态需求）/多阶段计费（分期扣费）——三者任一出现才重评，Y0b-2 禁顺手改。
 31. **对账路径残余（v2.5=Y0b-1 登记）**：①TeamRechargeOrder.teamId 无 FK NOT NULL 后，"订单挂已删团队"的按 teamId join 对账路径取不到团队（订单归属=历史事实；物理删制下台账 teamId 同删——充值单与台账的 cross-check 对已删团队不可达，窗口=解散后充值单审计；runbook 登记）②孤儿 reserve 真丢失情形（意图行已灭失）的 monthlyUsed 无法归因回滚（登记监控，不可回收既知状态——月界自动清零兜底）。
+32. **attempts 农场（v2.6=Y0b-2 T9 登记）**：同内容改一字符即新 intent 行=免费重试额度归零重置（改内容=新手势=新意图——语义正确）；滥用防护归 Y0b-4/Y0.5 限流域，不本批。
+33. **token 农场（v2.6=Y0b-2 T9 登记）**：同内容每次新 regenToken=免费重置 FAILED 重试额度（token 会话级客户端自铸——结构性无法区分"重试"与"刷新逃额度"）；与 attempts 农场同源归限流；观测口径=`intent_claim_result_total{result="new"}` 突增；"内容基时间窗上限"已驳回（与 EXHAUSTED→新 token 付费重试语义冲突——Z95）。
+34. **drain 窗口执行（v2.6=Y0b-2 登记）**：writeFrozen 消费归 Y0b-5 接线（Z55 维持）——接线前 canExecute 不拦 drain 窗口：点击后 writeNodeData 503+本地回滚，白烧一次 attempts；drain 窗口 60s 有界。
+35. **consumed>0 永未交付且无重试行（v2.6=Y0b-2 T5 登记）**：settleStranded 收窄（三分支）后此类行不退款——consumed=provider 侧已耗损的沉没成本；重放补投影兜底可查（对账可见），不自动处置。
+36. **waiting 升级档（v2.6=Y0b-2 T4 登记）**：`intent_deadline_exceeded_total{phase="waiting"}` 非零=队列积压（非 provider 慢——runbook 处置行）；waiting 升级 attempts 不递增（服务端调度行为，非用户重试）。
+37. **同步链墙钟（v2.6=Y0b-2 T8/T9 收口）**：组执行最坏墙钟=Σ实际耗时、上界=Σdeadline；nginx 已按推导式钉仓 1860s（=EXEC_SYNC_HARD_CAP 1800s+60s 核销余量，相对式——Z90）。超窗=回执丢失非工作丢失：服务端不因客户端断连中止（req.on('close') 零命中=期间不变量，**禁加"断连即取消"**——会把"回执丢失"退化成"工作丢失但仍扣费"）；根治=组执行队列化归执行链重构工程；retake=第二同步长路径（video-project regenerate 进程内直调同步 execute——同步语义无法 enqueue 化）。
+38. **"Σdeadline 类准入否决"防重提（v2.6=Y0b-2 登记）**：Σdeadline 是超时上界非期望耗时——据此在准入侧否决执行=误拒单节点 image/video/regenerate 合法长请求（Z90 已撤销该门，改 HARD_CAP 硬闸+nginx 钉仓）；登记防后人重复提案。
+39. **SnapshotDocCache 容量上界（v2.6=Y0b-2 T3 登记）**：本批仅 TTL 单飞（无条数/字节上限）；LRU 收缩+容量 gauge 归 Y0c/heap 闸同族。
+40. **CI int 无 seed 静默直返（现状非本批引入）**：ledger-invariants 前置 findFirst null 即 return——零密钥 CI 下部分用例空跑非红；Z101 fixture 行自建不受影响；正式修法=CI 起 seed 库，登记。
+41. **单实例假设（v2.6=Y0b-2 登记）**：readServerSV/SnapshotDocCache/prom-client 注册表/模型缓存四处依赖 PM2 instances:1（ecosystem 已钉）——多实例下 SV 门拿陈旧本地 doc=假接纳/假 SYNC_PENDING；扩容走 §9.15 评估线（Y7）。
+42. **在飞删节点烧平台成本（v2.6=Y0b-2 登记）**：`ai_artifact_discarded{cause="node-deleted"}` 已埋——外呼在飞窗口真实平台成本；与 token/attempts 农场同族归限流域。
+43. **drain 期公开读可达性（v2.6=Y0b-2 T3 登记）**：谓词满足=drain 冲刷完成快照可读；drain 进行中 spool 有帧⇒fallback 活读撞租约 503（分享页窗口期不可达——窗口=drain 60s）。
+44. **fallback 活读装载面（v2.6=Y0b-2 T3 登记）**：谓词 false∧doc 非常驻时分享请求触发 withDoc 全量装载——低频边缘；fallback 计数观测（持续非零=谓词覆盖缺口信号）。
+45. **supportsTaskQuery 覆盖面（v2.6=Y0b-2 T2 登记）**：query-first 轮询仅对支持按 taskId 查询的 provider 成立（dashscope/hy 系 ✓）——不支持者走 submit-poll；新 provider 接入须声明该能力位（adapter 注册处注释登记）。
+46. **跨设备 regenerate 不去重（v2.6=Y0b-2 T6 登记）**：regenToken 会话级（sessionStorage）——跨设备各自新 token=各自扣费；手势幂等的会话边界本意，语义正确，登记。
+47. **replay 不入 monthlyUsed（v2.6=Y0b-2 T6 登记）**：B 端回放 A 产物不扣费亦不计 B 月度用量=配额显式免回放（裁定 3 本意，用例固化）。
+48. **lighting getTask 404 语义变更（v2.6=Y0b-2 T6 信封清剿伴随）**：任务不存在从 HTTP 200+code:404 改真 404——前端未接线零影响；前端接线时禁按"200+code"写判据。
+49. **同步执行并发上界（v2.6=Y0b-2 T8 登记）**：@Throttle 20/min×最坏墙钟⇒单实例在飞同步执行有界——规模化路径=enqueue 化（归执行链重构工程）。
+50. **totalCost 无真消费者（v2.6=Y0b-2 登记）**：响应字段被调用方 void 丢弃——保留作审计口径（plan 固化行已含逐节点求和，实扣以行计）。
+51. **Y0b-2 工程审查补充登记（v2.6=T5/T7/T8 三查）**：①resultRef 判据未改 doc 事实（T5——settleStranded 三分支以 doc 事实终裁等价+装载有界性论证，成本>收益不改）；②免费 VOID 未投影（T5——零资金损失+alignExecFromIntents 兜底补齐）；③编辑链悬留保守不裁决（T5——未知 kind 在白名单外不退款不收敛，登记待管线扩容时重评）；④E71 监听器 canvasProjectId 查询无索引 seq scan（T8——dev 规模无害，规模化时补索引）；⑤重发 SV 取值两处不一致（T7——冻结版/现取版均在门单调方向安全）；⑥`exec_sync_pending_total{phase="retry"}` 为客户端侧观测（T7——服务端无此序列，客户端自计）。
 
 ---
 

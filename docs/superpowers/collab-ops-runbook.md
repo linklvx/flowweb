@@ -183,6 +183,12 @@ systemctl is-enabled pm2-ubuntu
 
 **max_memory_restart 触发的重启 = 崩溃路径**（区别于部署驱动的重启）：按 RPO 3s 窗口评估数据丢失面，并查日志中 `shutdown_undrained`/storeInFlight 记录确认关停链是否走完——`↺` 计数无部署对应增长时即此路径。
 
+**Y0b-2 执行链观测处置三行**（资金运行时批新增——指标见 /api/metrics）：
+
+1. **`intent_deadline_exceeded_total` 持续非零**——按 phase 分布三诊：`phase="queue"`=调度积压（查 pm2 worker 进程存活/BullMQ 队列深度）；`phase="call"`=provider 变慢（按 p99.9 标定上调对应 `EXEC_DEADLINE_*`——同批必须走下方 nginx 联动行）；`phase="waiting"`=队列积压升级档（**本次升级不耗用户 attempts**——服务端调度行为非用户重试，只查积压根因）。
+2. **504（nginx 网关超时）处置**——服务端仍在执行（同步链超窗=回执丢失非工作丢失）：**禁止重启/发版**（会丢组内尾部未执行节点）；用 `GET /api/execution/intents` + doc exec 投影确认实际进度；`intent_claim_result_total{result="busy"}` 非零=超时重发已被幂等吸收（非资损，预期行为）。
+3. **nginx 联动纪律**——改任一 `EXEC_DEADLINE_*` 或 `EXEC_SYNC_HARD_CAP` 必须同批重算 `deploy/nginx/api-location.replace.conf`（推导式=HARD_CAP+60s）并 `nginx -T` 复核生效值；`scripts/check-nginx-budget.mjs` 只锚 env.ts 默认值——**运行时 env 上调不覆盖**，须人工同步。
+
 **解冻三触发线**（任一命中即重新评估冻结决策、考虑回退）：
 
 1. 并发 WS >50 或常驻 doc >100；

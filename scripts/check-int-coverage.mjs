@@ -9,13 +9,16 @@ import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { basename } from 'node:path';
 
-// 12 文件实测标定（2026-10-09 本地全量 test:int）：70 例。X16 纪律：新增 int 文件 ⇒ 同步上调本值。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 70);
+// 21 文件实测标定（2026-10-10 本地全量 test:int，Y0b-2 T9 出口）：141 例。X16 纪律：新增 int 文件 ⇒ 同步上调本值。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 141);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
 // di-smoke.int.spec.ts 是第 6 个——位于 apps/api/src/ 根级，git glob（**/*.int.spec.ts）不匹配根级文件，
 // 漏跑时判据①不红；真正兜底=下方 FILES_MIN 的 di-smoke 条目（漏跑必红）。
+// Y0b-2 T9 增补九文件（T0-T8 新 int，下限=当日实测用例数——同"记录现状非拔高"口径）：
+// monthly-used-derived 5/ledger-trigger 6/provider-adapters 5/deadline-reaper 7/deliver-refund 12/
+// exec-partial-success 8/group-idempotency 15/sv-admission 6/admin-idempotency 5。
 const FILES_MIN = {
   'ledger-invariants.int.spec.ts': 14,
   'pricing-resolver.int.spec.ts': 10,
@@ -23,6 +26,15 @@ const FILES_MIN = {
   'credit-ledger.int.spec.ts': 10,
   'team-lifecycle-funds.int.spec.ts': 4,
   'di-smoke.int.spec.ts': 2,
+  'monthly-used-derived.int.spec.ts': 5,
+  'ledger-trigger.int.spec.ts': 6,
+  'provider-adapters.int.spec.ts': 5,
+  'deadline-reaper.int.spec.ts': 7,
+  'deliver-refund.int.spec.ts': 12,
+  'exec-partial-success.int.spec.ts': 8,
+  'group-idempotency.int.spec.ts': 15,
+  'sv-admission.int.spec.ts': 6,
+  'admin-idempotency.int.spec.ts': 5,
 };
 
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));
