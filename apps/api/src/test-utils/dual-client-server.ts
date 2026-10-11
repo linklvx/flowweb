@@ -37,8 +37,9 @@ export interface DualClientKit {
   permSvc: { resolve: ReturnType<typeof vi.fn>; resolveWithTeam: ReturnType<typeof vi.fn> };
   /** Y0a-2：spool 实例（BOI 用例/降级用例的帧断言与白盒注入面） */
   spool: CollabSpoolService;
-  /** T1.5：token 语义=cookie 值（`flowweb.session_token=${token}`），URL 无 query */
-  connect(name: string, token?: string, opts?: { origin?: string }): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
+  /** T1.5：token 语义=cookie 值（`flowweb.session_token=${token}`），URL 无 query。
+   *  T10：opts.onSocket——socket 构造回调（重连检测=构造计数，重连路径必经新构造）。 */
+  connect(name: string, token?: string, opts?: { origin?: string; onSocket?: (ws: WebSocket) => void }): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
   /** 用例自管 destroy 后调——从 dispose 清理数组移除（双 destroy 是本仓已知 flaky 源，惯例同 collab.gateway.spec.ts:262） */
   forget(provider: HocuspocusProvider): void;
   dispose: () => Promise<void>;
@@ -46,11 +47,14 @@ export interface DualClientKit {
 
 /** T1.5：注入式 ws 工厂——Node ws 包构造器 headers 选项（undici 全局 WebSocket 不支持自定义 header）。
  *  消费面（provider esm）：new (url) → binaryType → add/removeEventListener('open'|'message'|'close'|'error')
- *  → send/close——ws8 全兼容。供 kit.connect 与真连 spec 调用点共用。 */
-export function makeHeaderWs(headers: Record<string, string>) {
+ *  → send/close——ws8 全兼容。供 kit.connect 与真连 spec 调用点共用。
+ *  T10：onCreated 可选回调——socket 构造计数（重连检测锚：provider 重连路径必经
+ *  createWebSocketConnection `new WebSocketPolyfill(url)`，构造次数=连接代数）。 */
+export function makeHeaderWs(headers: Record<string, string>, onCreated?: (ws: WebSocket) => void) {
   return class HeaderWs extends WebSocket {
     constructor(url: string | URL) {
       super(url as string, { headers });
+      onCreated?.(this);
     }
   };
 }
@@ -91,7 +95,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     permSvc,
     spool: spoolSvc,
     // T1.5：注入式 ws（Origin+Cookie header）——URL 无 query token（cookie 通道承载原 token 语义）
-    connect(name: string, token = 'tok', opts: { origin?: string } = {}) {
+    connect(name: string, token = 'tok', opts: { origin?: string; onSocket?: (ws: WebSocket) => void } = {}) {
       const ydoc = new Y.Doc();
       // T1.5 评审小修：`|| undefined` 后置——COLLAB_ALLOWED_ORIGINS='' 时 split(',')[0]='' 穿透为 Origin 空头
       const origin = opts.origin ?? (process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] || undefined) ?? 'http://localhost:5173';
@@ -99,7 +103,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
         url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒；csv 单源防 bump 漂移）
         name,
         document: ydoc,
-        WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}` }),
+        WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}` }, opts.onSocket),
         // WebSocketPolyfill 运行时透传支持、顶层 HocuspocusProviderConfiguration 未声明（先例 ws-polyfill.gate.spec:47）
       } as any);
       providers.push(provider);

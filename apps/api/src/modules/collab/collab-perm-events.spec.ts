@@ -19,6 +19,8 @@ import { startDualClientServer, type DualClientKit } from '../../test-utils/dual
 import { pollUntil } from '../../test-utils/poll-until';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { register } from 'prom-client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 // ===== 直构单元组（collab.gateway.sweep.spec buildGateway 同款，暴露 emitter 供事件注入）=====
@@ -108,8 +110,6 @@ describe('Y0b-3 T8 sweep 节奏（5min±20% jitter）', () => {
   });
 
   it('源码锚：startSessionSweep 为 setTimeout 自排链（jitter 间隔逐轮重排——setInterval 固定周期无法表达）+unref 保持（R28 意图：禁 @Cron/@Interval 装饰器死代码）', () => {
-    const { readFileSync } = require('node:fs');
-    const { resolve } = require('node:path');
     const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
     expect(src).toMatch(/sessionSweepTimer\s*=\s*setTimeout/);   // 现状红：仍是 setInterval
     expect(src).toMatch(/sessionSweepTimer\.unref/);
