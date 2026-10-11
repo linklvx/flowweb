@@ -356,7 +356,6 @@ describe('Y0b-4 T5 connected 双补推+beginDraining 并轨 doc-status（rev 生
         arrivals.push({ msg: JSON.parse(payload), at: Date.now() });
       });
       await entry.synced;
-      kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
       const docAt = arrivals.find((a) => a.msg?.type === 'doc-status');
       const connAt = arrivals.find((a) => a.msg?.type === 'conn-status');
       expect(docAt).toBeTruthy();                                        // doc-status 即时补推（rev 不自增=装载播种 1）

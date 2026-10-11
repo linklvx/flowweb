@@ -10,7 +10,8 @@ export type CollabDiagEventType =
   | 'auth_reject'
   | 'write_reject'
   | 'invariant_violation'
-  | 'sync_pending_retry';   // Y0b-2 T7：SYNC_PENDING 重发后再拒——服务端停滞信号（非客户端故障面）
+  | 'sync_pending_retry'    // Y0b-2 T7：SYNC_PENDING 重发后再拒——服务端停滞信号（非客户端故障面）
+  | 'conn_scope';           // Y0b-4 T5：authenticated 连接级 scope 记录（诊断——不参与 readOnly 判定）
 
 export interface CollabDiagEvent {
   type: CollabDiagEventType;

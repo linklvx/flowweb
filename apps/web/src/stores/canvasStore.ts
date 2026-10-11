@@ -188,8 +188,8 @@ export interface CanvasState {
    *  不可达）或 message-too-big 终态时由 runtime 置位；SyncBanner 渲染「导出本地画布并刷新」按钮消费。
    *  initCollab/destroyCollab 会话边界复位。UI 瞬态——不进 history/localStorage 快照 */
   collabEscapePending: boolean;
-  /** Y0b-2 T7（Z55）：写冻结瞬态——canExecute 判据③。置位/清位=Y0b-5 gateway 幂等快照下发
-   *  （当前恒 false：gateway 无 resumed 下发+drain 窗口行为登记 T9 残余）。不进快照 */
+  /** Y0b-2 T7（Z55）：写冻结瞬态——canExecute 判据③。置位=T5 起 gateway 经 doc-status 主动下发
+   *  （drain 冻结/quota over）；只置位不复位（复位=重连 authenticated 链路）。不进快照 */
   writeFrozen: boolean;
   /** Y0b-4 T5：doc-status 快照族（rev 守卫后覆盖——电平非事件）。collabReadOnly=connReadOnly∨quotaOver∨
    *  writeFrozen（v5——conn-status 连接级单源，authScope 仅 authenticated 初值）；writeFrozen 只置位

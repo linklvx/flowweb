@@ -661,11 +661,14 @@ describe('批2-1：hydration 四态 + collabReadOnly 粘滞（修D 超时不销�
 
   it('粘滞：authenticated(read-write) 权威覆盖 false / readonly 置回 true', async () => {
     const { done, p } = await beginFake('p1');
+    _resetCollabDiagForTest();
     expect(useCanvasStore.getState().collabReadOnly).toBe(true);   // 初值（只读保守）
     p.emit('authenticated', { scope: 'read-write' });
     expect(useCanvasStore.getState().collabReadOnly).toBe(false);  // 权威覆盖（解只读）
     p.emit('authenticated', { scope: 'readonly' });
     expect(useCanvasStore.getState().collabReadOnly).toBe(true);   // 覆盖双向（VIEWER 置回）
+    const scopes = getRecentCollabDiag().filter((e) => e.type === 'conn_scope').map((e) => e.detail?.scope);
+    expect(scopes).toEqual(['read-write', 'readonly']);            // T5：scope 经 diag 记录（连接级诊断）
     await finishHealthy(p, done);
   });
 

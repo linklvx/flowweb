@@ -118,10 +118,9 @@ let terminalSuppressed = false;
 //（每次成功认证重发一次额度；不重置=数小时后再次过期直接落终态本可再续）。
 let silentRenewUsed = false;
 // Y0b-4 T5（Q-A v5）：连接级只读真值 connReadOnly——authenticated 按 scope 播种（首推前 VIEWER
-// 不 fail-open），conn-status 到达后覆盖（连接级单源）。connScope 仅诊断信息（日志/diag——不参与
-// readOnly 判定，报告3 一致性 6）。lastGeneration=vacuum 代际基线（跳变检测——T11 消费）。
-// 三者随 initCollab 会话复位（不跨会话携带）。
-let connScope: string | null = null;
+// 不 fail-open；scope 本身经 recordCollabDiag('conn_scope') 记录——不参与 readOnly 判定，报告3
+// 一致性 6），conn-status 到达后覆盖（连接级单源）。lastGeneration=vacuum 代际基线（跳变检测——
+// T11 消费）。两者随 initCollab 会话复位（不跨会话携带）。
 let connReadOnly = false;
 let lastGeneration: number | undefined;
 // Y0b-3 T9（P-C）：版本族终态（reload 自愈档）——shared COLLAB_VERSION_TERMINAL_REASONS 单源
@@ -898,9 +897,10 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   });
   p.on('authenticated', ({ scope }: any) => {
     // Y0b-4 T5（Q-A v5）：connReadOnly 初值=scope（首推前 VIEWER 不 fail-open——conn-status 到达后
-    // 覆盖为连接级单源）；connScope 仅诊断。批2-1 粘滞语义保留：read-write 解除/readonly 置回
-    // （onClose 不清——断连窗口编辑经 messageQueue 合并，回收会造成重连后 NACK 静默回退）。
-    connScope = scope ?? null;
+    // 覆盖为连接级单源）；scope 本身经 diag 记录（连接级诊断——不参与 readOnly 判定，报告3 一致性 6）。
+    // 批2-1 粘滞语义保留：read-write 解除/readonly 置回（onClose 不清——断连窗口编辑经 messageQueue
+    // 合并，回收会造成重连后 NACK 静默回退）。
+    recordCollabDiag('conn_scope', { scope: scope ?? null });
     connReadOnly = scope !== 'read-write';
     useCanvasStore.setState((s) => ({
       connReadOnly,
@@ -1074,8 +1074,7 @@ export async function initCollab(projectId: string): Promise<void> {
   plannedRestartUntil = 0; // 批1-2：计划内重启窗口会话起点复位（旧会话窗口不跨会话）
   terminalSuppressed = false; // T9：terminal 电平会话起点复位（新会话=新额度——复发防线只锁本会话）
   silentRenewUsed = false;    // T9：静默续期额度会话起点复位
-  connScope = null;           // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
-  connReadOnly = false;
+  connReadOnly = false;       // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
   lastGeneration = undefined;
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
