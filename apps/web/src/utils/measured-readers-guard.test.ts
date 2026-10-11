@@ -41,7 +41,9 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y0b-4 T10：分块粘贴块工具族插入（assembleRecords 后 +68——本表 13 行同步漂移，集合不变）
     // Y0b-4 T11 存量漂移修复+登记：f709b5fb（T10 toast 动态容量/软阈单源）改 canvasStore 未同步本表
     //（+13 漂移——T11 全量回归暴露）；本批 wsQuotaTerminal 字段两处插入（interface +4/初始值 +1）再 +5
-    'stores/canvasStore.ts': [873, 874, 880, 881, 936, 937, 1006, 1007, 1013, 1014, 1160, 1700, 1701],
+    // Y0b-4 T13：applyQuotaWatermark 单写者 action 两处插入（interface +4/实现 +3——实现在 1701 之后，
+    // 本表 13 行仅 interface 段 +4 漂移，集合不变）
+    'stores/canvasStore.ts': [877, 878, 884, 885, 940, 941, 1010, 1011, 1017, 1018, 1164, 1704, 1705],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],

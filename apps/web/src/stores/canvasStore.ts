@@ -218,6 +218,10 @@ export interface CanvasState {
    *  仅保存成功清零）；Shell 收起/dispose 清零。不进 history/localStorage 快照 */
   editorDirty: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
+  /** Y0b-4 T11/T13：瘦身/校准 watermark 重置单写者（服务端真值覆盖 localDocBytes+localDelta 清零
+   *  ——Q-I 校准点的组件侧入口）。写点收口 store 本体：组件面（ShrinkDialog）直调 setState 在
+   *  lint-gate 静态断言 C 白名单外（协作数据写路径归 store 本体）。 */
+  applyQuotaWatermark: (watermark: number) => void;
 
   addNode: (type: string, position: XYPosition, dataOverride?: Record<string, unknown>, envelope?: { width?: number; height?: number }) => string;
   /** Inner 化（Spec B B4'/B5' 前置）：建点命令体纯构造核——id 生成+类型解析+类型默认 data/wh+
@@ -1873,6 +1877,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   setProjectId: (projectId) => set({ projectId }),
   setTeamId: (teamId) => set({ teamId }),
   setHydration: (s) => set({ hydration: s }),
+  /** Y0b-4 T11/T13：watermark 重置（ShrinkDialog 消费——Q-I 校准点同款形态：服务端权威 bytes
+   *  覆盖 localDocBytes+localDelta 清零）。 */
+  applyQuotaWatermark: (watermark: number) => set({ localDocBytes: watermark, localDelta: 0 }),
 
   /** R2 新命令唯一入口（v2 裁定+v2.1 异常/单 transact 契约）：canEdit 门 + 单 undo 步 + 差分换芯编排。
    *  仅新命令使用；既有 16 处 capture/diff 点不迁移（spec:169 既有命令不动）。

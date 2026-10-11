@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
-const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwareness } = vi.hoisted(() => ({
+const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwareness, mockListProjectMembers } = vi.hoisted(() => ({
   mockUseAuth: vi.fn(),
   mockCreditsStore: {
     credits: 88,
@@ -21,6 +21,14 @@ const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwar
   mockCanvasState: { teamId: null as string | null },
   mockTeamApi: { getDefaultTeam: vi.fn() },
   mockGetAwareness: vi.fn(),
+  mockListProjectMembers: vi.fn(),
+}));
+
+vi.mock('@/api/projectMemberApi', () => ({
+  listProjectMembers: mockListProjectMembers,
+  addProjectMember: vi.fn(),
+  changeProjectMemberRole: vi.fn(),
+  removeProjectMember: vi.fn(),
 }));
 
 vi.mock('@/stores/creditsStore', () => ({
@@ -119,5 +127,26 @@ describe('CanvasTopBar', () => {
     expect(screen.getByTitle('协作者')).toBeInTheDocument();
     expect(screen.getByTitle('协作者').style.background).toBe('rgb(18, 52, 86)');   // 注入字段直读（禁 id 自算 fallback）
     expect(screen.queryByTitle('本机我')).toBeNull(); // R33：在线列表自计入（本机已在右侧头像区呈现）
+  });
+
+  it('成员表（Q-M）：presence 在线点+点击成员入口挂既有 ProjectMembersPanel（角色/撤销全复用——零新端点）', async () => {
+    mockGetAwareness.mockReturnValue({
+      getStates: () => new Map(),
+      getRemoteStates: () => [{ user: { id: 'u2', name: '协作者', color: '#123456' } }],
+      onStateChange: () => () => {},
+    });
+    mockListProjectMembers.mockResolvedValue({
+      items: [
+        { userId: 'u2', name: '成员A', email: 'a@x.dev', teamRole: 'MEMBER', effectiveRole: 'PROJECT_EDITOR', source: 'inherited' },
+      ],
+    });
+    renderBar();
+    // presence 增强：在线头像带在线点（bg-brand-green）
+    expect(screen.getByTestId('presence-dot-u2')).toBeInTheDocument();
+    // 成员入口 → Popover 挂既有 ProjectMembersPanel（复用 projectMemberApi 既有端点）
+    fireEvent.click(screen.getByTestId('members-trigger'));
+    expect(await screen.findByText('项目成员')).toBeInTheDocument();
+    expect(mockListProjectMembers).toHaveBeenCalledWith('test-pid');
+    expect(await screen.findByText('成员A')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { AwarenessBridge } from './awareness';
+import { AwarenessBridge, CURSOR_IDLE_STOP_MS } from './awareness';
 import { QUOTA_DEFAULTS } from '@flowweb/shared';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
@@ -9,7 +9,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mockProvider(clientID = 1, states = new Map()) {
+// T13（E39②）起 cursor/selection 写入有 solo 门（远端零条目=零写入）——默认 states 含一个远端
+// 条目（multi 形态）保持既有写路径用例语义；solo 用例显式传仅本机 states。
+function mockProvider(clientID = 1, states = new Map([[2, { user: { id: 'u2', name: 'peer' } }]])) {
   const listeners: Record<string, (() => void)[]> = {};
   return {
     awareness: { clientID, getStates: () => states, getLocalState: vi.fn(() => null), setLocalState: vi.fn() },
@@ -138,5 +140,47 @@ describe('Y0b-4 T12（E38）：selection 去抖 200ms+clearSelection+4KB 客户�
     const last = getRecentCollabDiag().at(-1);
     expect(last?.type).toBe('write_reject');
     expect(last?.detail).toEqual({ reason: 'selection-too-large' });
+  });
+});
+
+describe('Y0b-4 T13（E39）：solo 短路+30s 停报', () => {
+  it('E39②：单人（remoteStates 空）cursor/selection 零写入（presence 锚点照常——§0.4b-17）', () => {
+    vi.useFakeTimers();
+    // 仅本机条目（本机 clientID=1）——远端零条目=solo
+    const p = mockProvider(1, new Map([[1, { user: { id: 'u1', name: 'me' }, presence: true }]]));
+    const bridge = new AwarenessBridge(p);
+    bridge.setCursor({ x: 1, y: 2 });
+    bridge.setSelection(['n1']);
+    vi.advanceTimersByTime(300);   // 去抖窗过——零上 wire（单人自娱自乐无意义流量）
+    expect((p as any).setAwarenessField).not.toHaveBeenCalled();
+    (p.awareness as any).getLocalState.mockReturnValue(null);
+    bridge.replayLocalUser();   // presence 锚点照常（solo 门只封 cursor/selection——保活链前提）
+    expect((p.awareness as any).setLocalState).toHaveBeenCalledWith({ presence: true });
+  });
+
+  it('E39②反例：多人（remoteStates 非空）cursor/selection 照常写（门只封单人）', () => {
+    vi.useFakeTimers();
+    const p = mockProvider();   // 默认含远端 peer（multi 形态）
+    const bridge = new AwarenessBridge(p);
+    bridge.setCursor({ x: 1, y: 2 });
+    bridge.setSelection(['n1']);
+    vi.advanceTimersByTime(200);
+    expect((p as any).setAwarenessField).toHaveBeenCalledWith('cursor', { x: 1, y: 2 });
+    expect((p as any).setAwarenessField).toHaveBeenCalledWith('selection', { nodeIds: ['n1'] });
+  });
+
+  it('30s 空闲停报：最后 pointermove 30s 后 cursor 不更新（停更新不清字段——下一次 move 恢复）', () => {
+    vi.useFakeTimers();
+    const p = mockProvider();   // multi 形态（solo 门不封）
+    const bridge = new AwarenessBridge(p);
+    bridge.noteCursorMove();   // pointermove 源记账
+    bridge.setCursor({ x: 1, y: 1 });   // move 流内照常报
+    expect((p as any).setAwarenessField).toHaveBeenCalledWith('cursor', { x: 1, y: 1 });
+    vi.advanceTimersByTime(CURSOR_IDLE_STOP_MS + 1_000);   // 31s 无 move（Date 随 fake timers 前进）
+    bridge.setCursor({ x: 2, y: 2 });   // 模拟周期源（无 move 记账直调）——停报不更新
+    expect((p as any).setAwarenessField).not.toHaveBeenCalledWith('cursor', { x: 2, y: 2 });
+    bridge.noteCursorMove();   // 下一次 move（记账刷新基线）
+    bridge.setCursor({ x: 3, y: 3 });
+    expect((p as any).setAwarenessField).toHaveBeenCalledWith('cursor', { x: 3, y: 3 });
   });
 });

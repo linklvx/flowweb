@@ -4,14 +4,15 @@ import { useAuth } from '@/components/AuthProvider';
 import { ThemeToggleButton } from '@/components/theme/ThemeToggleButton';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import type { AwarenessState } from '@/collab/awareness';
-import { Dropdown } from 'antd';
+import { Dropdown, Popover } from 'antd';
 import type { MenuProps } from 'antd';
-import { UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import { UserOutlined, SettingOutlined, LogoutOutlined, TeamOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { getDefaultTeam } from '@/api/teamApi';
 import CreditsDropdown from './CreditsDropdown';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
+import { ProjectMembersPanel } from './ProjectMembersPanel';
 import { loginUrl } from '@/utils/loginRedirect';
 
 interface Props {
@@ -119,17 +120,36 @@ export function CanvasTopBar({ projectId }: Props) {
     <>
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         <ThemeToggleButton />
+        {/* Y0b-4 T13（Q-M）：成员表入口——挂既有 ProjectMembersPanel（角色 Tag/逐行角色下拉/DELETE 全
+            复用 projectMemberApi 既有端点，零新端点零新面板）；计数=远端在线+本机 */}
+        <Popover
+          trigger="click"
+          placement="bottomRight"
+          content={<div className="w-[440px]"><ProjectMembersPanel projectId={projectId} /></div>}
+        >
+          <button
+            type="button"
+            data-testid="members-trigger"
+            aria-label="项目成员"
+            className="flex items-center gap-1 bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer"
+          >
+            <TeamOutlined className="text-xs text-text" />
+            <span className="text-xs text-text font-bold">{onlineUsers.length + 1}</span>
+          </button>
+        </Popover>
         {onlineUsers.length > 0 && (
           <div className="flex items-center -space-x-1.5 bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg" data-testid="online-users">
             {onlineUsers.filter((o) => o.user?.id && o.user?.name).slice(0, 5).map((o, i) => (
-              // Y0b-3 T7：background=服务端注入 color（s.user.color）——禁 fallback 双源
+              // Y0b-3 T7：background=服务端注入 color（s.user.color）——禁 fallback 双源；
+              // T13（Q-M）presence 增强：右下角在线点（bg-brand-green 主题 token——禁新 hex 入 baseline）
               <span
                 key={i}
                 title={o.user.name}
-                className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-on-accent font-bold border border-on-accent"
+                className="relative w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-on-accent font-bold border border-on-accent"
                 style={{ background: o.user.color }}
               >
                 {o.user.name.slice(0, 1)}
+                <span data-testid={`presence-dot-${o.user.id}`} className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-brand-green border border-on-accent" />
               </span>
             ))}
           </div>

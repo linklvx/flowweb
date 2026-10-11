@@ -19,7 +19,15 @@ const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 
 const BTN_CLASS = 'shrink-0 px-3 h-7 rounded-lg text-xs border';
 const BTN_SECONDARY = `${BTN_CLASS} bg-overlay-3 hover:bg-overlay-2 text-text border-overlay-2`;
-const BTN_PRIMARY = `${BTN_CLASS} bg-red-500/80 hover:bg-red-500 text-white border-red-400/60`;
+// Y0b-4 T13 lint 收口（T11 遗留）：danger 主按钮迁 inline style（ConfirmModal 同款先例——类串
+// text-white 在 no-theme-utility 拦截面；bg/color 走 --fw-accent-danger 双值 token，hover 深值
+// 恰为浅档值=C8 同款）。
+const dangerBtnProps = {
+  className: `${BTN_CLASS} border-transparent`,
+  style: { backgroundColor: 'var(--fw-accent-danger)', color: '#fff' },
+  onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = '#dc2626'; },
+  onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = 'var(--fw-accent-danger)'; },
+} as const;
 
 export function QuotaBanner({ projectId }: { projectId: string }) {
   const quotaOver = useCanvasStore((s) => s.quotaOver);
@@ -74,13 +82,13 @@ export function QuotaBanner({ projectId }: { projectId: string }) {
       >
         <span>{text}</span>
         <button type="button" data-testid="quota-shrink-btn" onClick={() => setShrinkOpen(true)}
-          className={hard ? BTN_PRIMARY : BTN_SECONDARY}>
+          {...(hard ? dangerBtnProps : { className: BTN_SECONDARY })}>
           {hard ? '一键瘦身' : '瘦身'}
         </button>
         {hard && (
           <>
             <button type="button" data-testid="quota-export-btn" onClick={() => void onExport()}
-              className={BTN_PRIMARY}>
+              {...dangerBtnProps}>
               导出到新项目
             </button>
             {overQuotaTerminal && (

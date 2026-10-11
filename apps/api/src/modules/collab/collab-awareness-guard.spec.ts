@@ -12,7 +12,7 @@ import { startDualClientServer, type DualClientKit } from '../../test-utils/dual
 import { pollUntil } from '../../test-utils/poll-until';
 import { makeAwarenessFrame as awarenessFrame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源（原 pushVar 族+awarenessFrame 收口）
 import { userColorOfUserId } from '@flowweb/shared';
-import { AWARENESS_STATES_LIMIT_BYTES } from './collab.gateway';   // T12：解码后 states 判常量绑定（改值本测试红——帧闸 M4 同款）
+import { AWARENESS_STATES_LIMIT_BYTES, AWARENESS_DISTINCT_USER_STRIP_OVER } from './collab.gateway';   // T12：解码后 states 判常量绑定（改值本测试红——帧闸 M4 同款）；T13：over-8 阈值同款绑定
 
 const DOC = 'project:ap1';
 const FUTURE = new Date(Date.now() + 24 * 3600 * 1000);
@@ -214,6 +214,15 @@ describe('Y0b-4 T12（E38）：解码后 states 4KB 判（与 64KB 入站帧闸�
   it('states JSON 字节>AWARENESS_STATES_LIMIT_BYTES ⇒ 整帧丢弃+awareness_reject{frame-too-large}（丢帧不 close——同连接后续帧照常；不登记不占上限槽）', async () => {
     const a = await connect('tokA');   // 对端判官（VIEWER 只影响其自身发帧——收帧无碍）
     const b = await connect('tokB');   // EDITOR 发帧（避开 readOnly 剔字段交叉——剔后字节缩小绕过 4KB 判）
+    // T13：文档全量播种 2 distinct users（a/b 各发 user 帧）——避开 solo 剔字段交叉（solo 剔后
+    // selection 消失字节缩小，同样绕过 4KB 判；与 readOnly 交叉同机理）
+    sendAwareness(a, 601, { user: { id: 'x1', name: 'x' } });
+    sendAwareness(b, 602, { user: { id: 'x2', name: 'x' } });
+    await pollUntil(() => {
+      const doc = kit.gateway.server.hocuspocus.documents.get(DOC)! as any;
+      const ids = new Set([...doc.awareness.states.values()].map((s: any) => s?.user?.id).filter(Boolean));
+      return ids.size >= 2;
+    });
     const rejectCount = async () => {
       const metric: any = register.getSingleMetric('collab_awareness_reject_total');
       return (await metric.get()).values.find((s: any) => s.labels.reason === 'frame-too-large')?.value ?? 0;
@@ -232,5 +241,75 @@ describe('Y0b-4 T12（E38）：解码后 states 4KB 判（与 64KB 入站帧闸�
     expect((kit.gateway as any).clientIdOwner.has(404)).toBe(false);   // 不登记（不占上限槽）
     sendAwareness(b, 405, { cursor: { x: 1 } });   // 丢帧不 close——同连接后续正常帧照常广播
     await pollUntil(() => (a.awareness!.getStates().get(405) as any)?.user?.id === 'u2');
+  });
+});
+
+describe('Y0b-4 T13（E39/Q-L 后两档）：solo/over-8 剔字段（distinct user 判定=文档全量∪本帧）', () => {
+  /** stripped 计数读取（reason 键控） */
+  const strippedCount = async (reason: string) => {
+    const metric: any = register.getSingleMetric('collab_awareness_stripped_total');
+    return (await metric.get()).values.find((s: any) => s.labels.reason === reason)?.value ?? 0;
+  };
+  /** 计数基线静置（真连异步到账——先两读一致再断言增量；ghost 用例同款） */
+  async function settleStripped(reason: string): Promise<number> {
+    let before = await strippedCount(reason);
+    for (let i = 0; i < 10; i++) {
+      await sleep(150);
+      const next = await strippedCount(reason);
+      if (next === before) break;
+      before = next;
+    }
+    return before;
+  }
+
+  it('solo：distinct user.id≤1（两 tab 同人=solo——连接数判据=口径偏离红相）剔 cursor/selection 后回显照常+stripped{solo}', async () => {
+    const b1 = await connect('tokB');
+    const b2 = await connect('tokB');   // 同人双标签——连接数 2 但 distinct user 恒 1（口径=用户非连接）
+    sendAwareness(b1, 111, { user: { id: 'fake', name: 'x' } });   // 播种本人（注入后 u2——文档全量 distinct=1）
+    await pollUntil(() => (b2.awareness!.getStates().get(111) as any)?.user?.id === 'u2');
+    const before = await settleStripped('solo');
+    sendAwareness(b1, 111, { cursor: { x: 5, y: 5 } });   // 单人 cursor 帧
+    await pollUntil(async () => (await strippedCount('solo')) === before + 1);
+    // 回显照常：条目永不删+clock 保持原值（禁递增）——b2 meta.clock 前进=帧真到达
+    await pollUntil(() => ((b2.awareness as any).meta.get(111)?.clock ?? 0) >= 2);
+    const st = b2.awareness!.getStates().get(111) as any;
+    expect('cursor' in st).toBe(false);   // cursor 剥离（undefined JSON 序列化丢键）
+    expect(st.user).toEqual(serverUserOf('tokB'));   // user 保留（成员表/presence 面不受影响）
+  });
+
+  it('over-8：distinct user.id>8 剔字段+成员表数据源（user/presence）不受影响+stripped{over-8}', async () => {
+    const a = await connect('tokA');   // 对端判官（VIEWER 只影响其自身发帧——收帧无碍）
+    const b = await connect('tokB');   // EDITOR 发帧者
+    // 文档全量播种至 9 distinct users（OVER+1 个直写 doc awareness——判据源=文档全量，与真连 user 无异）
+    const doc = kit.gateway.server.hocuspocus.documents.get(DOC)! as any;
+    for (let i = 0; i <= AWARENESS_DISTINCT_USER_STRIP_OVER; i++) {
+      doc.awareness.states.set(9000 + i, { user: { id: `seed-u${i}`, name: `seed${i}` } });
+    }
+    const before = await settleStripped('over-8');
+    sendAwareness(b, 777, { presence: true, cursor: { x: 1, y: 1 } });
+    await pollUntil(async () => (await strippedCount('over-8')) === before + 1);
+    await pollUntil(() => (a.awareness!.getStates().get(777) as any)?.user?.id === 'u2');
+    const st = a.awareness!.getStates().get(777) as any;
+    expect('cursor' in st).toBe(false);   // cursor 剥离
+    expect(st.presence).toBe(true);   // 成员表数据源（user/presence）不受影响
+    expect(st.user).toEqual(serverUserOf('tokB'));
+  });
+
+  it('反例（P1-6）：多人画布（文档全量已有 2+ user）单帧只含发帧者 ⇒ 不触发 solo 剥离（取数源=文档全量∪本帧，非本帧单源）', async () => {
+    const a = await connect('tokA');
+    const b = await connect('tokB');
+    // 文档全量播种 2 distinct users（a/b 各发 user 帧——注入后 u1/u2 落 doc）
+    sendAwareness(a, 601, { user: { id: 'x1', name: 'x' } });
+    sendAwareness(b, 602, { user: { id: 'x2', name: 'x' } });
+    await pollUntil(() => {
+      const doc = kit.gateway.server.hocuspocus.documents.get(DOC)! as any;
+      const ids = new Set([...doc.awareness.states.values()].map((s: any) => s?.user?.id).filter(Boolean));
+      return ids.size >= 2;
+    });
+    const before = await settleStripped('solo');
+    sendAwareness(b, 603, { cursor: { x: 3, y: 3 } });   // 单帧只含发帧者（无 user 字段）——本帧单源会误判 solo
+    await pollUntil(() => (a.awareness!.getStates().get(603) as any)?.cursor?.x === 3);   // cursor 全须到达（不剥离）
+    expect((a.awareness!.getStates().get(603) as any).user).toEqual(serverUserOf('tokB'));
+    expect(await strippedCount('solo')).toBe(before);   // 无 solo 剥离计数
   });
 });

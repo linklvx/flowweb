@@ -66,6 +66,7 @@ async function connectIdle(docName: string): Promise<{
   serverLastMessageAt: (name: string) => number;
   viewerEpoch: () => number;
   viewerServerState: () => Record<string, any>;
+  soloServerState: () => Record<string, any>;
 }> {
   kit = await startDualClientServer({}, 300);
   let sockets = 0;
@@ -94,19 +95,29 @@ async function connectIdle(docName: string): Promise<{
       const doc = kit.gateway.server.hocuspocus.documents.get('project:idle-viewer') as any;
       return doc.awareness.states.get(viewerClientId) ?? null;
     },
+    // Y0b-4 T13：solo 单连臂状态读取（主 doc——单人剥离后 user/presence 仍在断言）
+    soloServerState: (): Record<string, any> => {
+      const doc = kit.gateway.server.hocuspocus.documents.get(docName) as any;
+      return doc.awareness.states.get(clientId) ?? null;
+    },
   };
 }
 
 describe('Y0b-3 T10 空闲保活证伪性锚（P-T 四环+第五环行为级证据——头注=防回潮机制依据）', () => {
   it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——无 4408 close/无重连（socket 构造计数不变）/doc 常驻（无新物化）+服务端 awareness 帧时刻 15s 尺度被刷新（awareness 自续期双向帧——P-T 四环的行为级证据）；Y0b-4 T6 VIEWER 臂：readOnly 剔字段后 90s 无 4408+服务端 user/presence 仍在（剥离回显保活链不破）', async () => {
     // 前台/可见标签语义下断言（后台标签 pageHide 清场触发一次重连=正常预期——头注第 1 条禁令背景）
-    const { captureEpoch, serverLastMessageAt, viewerEpoch, viewerServerState } = await connectIdle('project:idle');
+    const { captureEpoch, serverLastMessageAt, viewerEpoch, viewerServerState, soloServerState } = await connectIdle('project:idle');
     const epoch0 = captureEpoch();
     const viewerEpoch0 = viewerEpoch();
     await sleep(90_000); // 真实等待（真连装置——禁 fake timers）；90s 覆盖 spec §5.2 死亡区间 30-60s 全谱
     expect(captureEpoch()).toBe(epoch0);                       // 未重连（无 4408/无新 socket——重连即构造计数+1）
     expect(serverLastMessageAt('project:idle')).toBeGreaterThan(Date.now() - 20_000); // ≤20s 内服务端应用过入站 awareness 帧（~15s 续期节律）
     expect(kit.gateway.server.hocuspocus.documents.has('project:idle')).toBe(true);   // 常驻无重装载
+    // Y0b-4 T13：solo 臂（单人画布 distinct=1——主 doc 唯一连接）：剥离后 user/presence 仍在
+    //（成员表/身份注入面不受剔字段影响——plan"单人剥离后 user/presence 仍在"并入同一等待）
+    const sState = soloServerState();
+    expect(sState?.user?.id).toBe('u1');
+    expect(sState && 'cursor' in sState).toBe(false);          // cursor 已剥离（solo 档——服务端零 cursor 广播）
     // Y0b-4 T6：VIEWER 单连 90s 无 4408（socket 构造计数不变=重连检测——剥字段若误删条目则回显断链→30-45s 判死重连，T10 探针同款形态）
     expect(viewerEpoch()).toBe(viewerEpoch0);
     const vState = viewerServerState();

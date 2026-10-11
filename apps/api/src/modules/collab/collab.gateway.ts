@@ -105,6 +105,11 @@ export const AWARENESS_FRAME_LIMIT_BYTES = 64 * 1024;
  *  直发裸帧/旧 bundle 残余路径封口）。 */
 export const AWARENESS_STATES_LIMIT_BYTES = 4096;
 
+/** Y0b-4 T13（E39/Q-L 后两档）：over-8 剔字段阈值——文档全量∪本帧 user.id 去重数 >8 即剔
+ *  cursor/selection（9 人以上画布光标广播扇出/字节成本放大而收益趋零；user/presence 保留——
+ *  成员表/保活链不受影响）。测试常量绑定（BACKPRESSURE 双阈先例——改值本测试红）。 */
+export const AWARENESS_DISTINCT_USER_STRIP_OVER = 8;
+
 /** Y0b-4 T7（Q-F v2）：出站背压双阈——一级 awareness drop（backlog>1MB 只丢 presence）/二级
  *  close(1011)（backlog>4MB 慢消费者断连，backoff 档重连自愈）。census ⑤：bufferedAmount
  *  生产读点唯一=wrapBackpressure（决策每 send 判，两阈具名常量——测试常量绑定防漂移）。 */
@@ -2657,25 +2662,39 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private guardAwareness({ states, socketId, context, connection, document }: beforeHandleAwarenessPayload): void {
     try {
       if (!connection || !context || !socketId) return;   // P0-1：非连接来源放行（空串含）
-      // Y0b-4 T6（Q-L 三档之首）：readOnly 剔字段——浅拷贝剔 cursor/selection（条目永不删：回显=保活
-      // 链前提，剥空态会撞 T10 真身误杀形态）。保持原 meta.clock（禁递增——T0 探针⑤：等时钟回显不
-      // 覆盖发送者本地 cursor，客户端本地态零扰动）。库从 scratch states 重编码广播——对端收
-      // user/presence 无 cursor（undefined JSON 序列化丢键）。只计数含 cursor/selection 的帧（无字段
-      // 的纯 presence 帧不刷 stripped 计数）。onDisconnect 兜底清场归库（removeAwarenessStates）。
+      // Y0b-4 T6/T13（Q-L 剔字段三档统一）：readOnly（连接级）→ solo/over-8（文档级）——三档同一
+      // 原语 stripTransientFields：浅拷贝剔 cursor/selection（条目永不删：回显=保活链前提，剥空态
+      // 会撞 T10 真身误杀形态）。保持原 meta.clock（禁递增——T0 探针⑤：等时钟回显不覆盖发送者本地
+      // cursor，客户端本地态零扰动）。库从 scratch states 重编码广播——对端收 user/presence 无
+      // cursor（undefined JSON 序列化丢键）。只计数含 cursor/selection 的帧（无字段的纯 presence 帧
+      // 不刷 stripped 计数）。onDisconnect 兜底清场归库（removeAwarenessStates）。
+      // readOnly 与 solo 可同时真——reason 记 read-only 优先（更具体语义：单连接冻结 vs 文档级
+      // 广播面收缩；先剔后判 solo 也无残余字段可剔=自然幂等）。
       if ((connection as unknown as { readOnly?: boolean }).readOnly) {
-        let stripped = false;
-        for (const [cid, state] of [...states]) {
-          const s = state as Record<string, any> | null;
-          if (s && (s.cursor !== undefined || s.selection !== undefined)) {
-            states.set(cid, { ...s, cursor: undefined, selection: undefined });
-            stripped = true;
-          }
+        if (this.stripTransientFields(states)) collabAwarenessStrippedTotal.inc({ reason: 'read-only' });
+      } else {
+        // T13（E39）：solo/over-8 档——distinct user 判定=文档全量 getStates() ∪ 本帧 states 的
+        // user.id 去重（P1-6：本帧只含发帧者，10 人画布单帧会误判 solo——两取数源并集）。solo=单人
+        // 自娱自乐零 cursor 收益（两 tab 同人=1）；over-8=广播扇出/字节成本放大收益趋零；两档均保留
+        // user/presence（成员表数据源+保活链）。本帧 user 为注入前原文——伪造 user.id 只影响自身帧
+        // 的档位判定（注入覆写在后，无伪造面）。
+        const distinctUsers = new Set<string>();
+        for (const s of ((document as any).awareness?.getStates?.() ?? new Map()).values()) {
+          const uid = (s as { user?: { id?: string } } | null)?.user?.id;
+          if (uid) distinctUsers.add(uid);
         }
-        if (stripped) collabAwarenessStrippedTotal.inc({ reason: 'read-only' });
+        for (const s of states.values()) {
+          const uid = (s as { user?: { id?: string } } | null)?.user?.id;
+          if (uid) distinctUsers.add(uid);
+        }
+        let stripReason: 'solo' | 'over-8' | null = null;
+        if (distinctUsers.size <= 1) stripReason = 'solo';
+        else if (distinctUsers.size > AWARENESS_DISTINCT_USER_STRIP_OVER) stripReason = 'over-8';
+        if (stripReason !== null && this.stripTransientFields(states)) collabAwarenessStrippedTotal.inc({ reason: stripReason });
       }
-      // Y0b-4 T12（E38）：解码后 states 4KB 判——readOnly 剔字段后取广播字节近似（剔后才是实际
-      // 要编码广播的量）；整帧丢弃同 forged 先例（丢帧不 close——客户端已有 4KB 前置拒，本判兜
-      // 底裸帧/旧 bundle 残余）。放身份注入前：注入 user 只增字节，先判少做无效趟。
+      // Y0b-4 T12（E38）：解码后 states 4KB 判——三档剔字段（readOnly/solo/over-8）后取广播字节
+      // 近似（剔后才是实际要编码广播的量）；整帧丢弃同 forged 先例（丢帧不 close——客户端已有
+      // 4KB 前置拒，本判兜底裸帧/旧 bundle 残余）。放身份注入前：注入 user 只增字节，先判少做无效趟。
       if (JSON.stringify([...states.values()]).length > AWARENESS_STATES_LIMIT_BYTES) {
         states.clear();
         collabAwarenessRejectTotal.inc({ reason: 'frame-too-large' });
@@ -2735,6 +2754,22 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       //（对齐 unloadDocument swallow 先例——catch 静默=零观测；不加指标保 reason 枚举）
       this.logger.warn(`[y0b-3] awareness guard error: ${(err as Error)?.message}`);
     }
+  }
+
+  /** Y0b-4 T13（Q-L）：剔字段原语（三档统一——read-only/solo/over-8 共用）——浅拷贝剔
+   *  cursor/selection（条目永不删=回显保活链前提；保持原 meta.clock 禁递增——T0 探针⑤：
+   *  等时钟回显不覆盖发送者本地 cursor）。返回是否实际剥离（无 cursor/selection 的纯
+   *  presence 帧不刷 stripped 计数）。 */
+  private stripTransientFields(states: Map<number, unknown>): boolean {
+    let stripped = false;
+    for (const [cid, state] of [...states]) {
+      const s = state as Record<string, any> | null;
+      if (s && (s.cursor !== undefined || s.selection !== undefined)) {
+        states.set(cid, { ...s, cursor: undefined, selection: undefined });
+        stripped = true;
+      }
+    }
+    return stripped;
   }
 
   /** ===== Y0b-4 T6（Q-E v5）：awareness 独立限速——共享 awareBuckets+键前缀 aware:${sid} =====

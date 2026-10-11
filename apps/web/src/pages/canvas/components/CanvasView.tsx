@@ -111,6 +111,7 @@ function CanvasViewComponent(_props: Props) {
     const bridge = getAwareness();
     if (!bridge) return;
     const now = performance.now();
+    bridge.noteCursorMove();   // Y0b-4 T13（E39）：move 源记账（30s 停报守卫基线——含被节流吞掉的 move）
     if (now - lastCursorReport.current < 50) return;
     lastCursorReport.current = now;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();

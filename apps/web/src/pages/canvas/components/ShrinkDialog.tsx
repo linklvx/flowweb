@@ -24,7 +24,7 @@ function handleShrinkOutcome(r: ShrinkOutcome): boolean {
     return false;
   }
   if (typeof r.watermark === 'number') {
-    useCanvasStore.setState({ localDocBytes: r.watermark, localDelta: 0 });   // 服务端真值重置基线
+    useCanvasStore.getState().applyQuotaWatermark(r.watermark);   // 服务端真值重置基线（T13 收口 store 单写者——组件面禁直调 setState，lint-gate C）
   }
   if (r.result === 'ok') {
     getUndoManager()?.clear();                 // 发起端撤销栈锚已删内容——失效清空（对端不清）
@@ -119,7 +119,12 @@ export function ShrinkDialog({ open, onClose, projectId }: { open: boolean; onCl
         </button>,
         <button key="submit" type="button" data-testid="shrink-submit-btn" disabled={submitting || selected.size === 0}
           onClick={() => void submitShrink({ deleteNodeIds: [...selected] })}
-          className="px-3 h-8 rounded-lg text-xs border bg-red-500/80 hover:bg-red-500 text-white border-red-400/60 disabled:opacity-50">
+          // Y0b-4 T13 lint 收口（T11 遗留）：danger 主按钮迁 inline style（ConfirmModal 同款先例——
+          // 类串 text-white 在 no-theme-utility 拦截面；--fw-accent-danger 双值 token+hover 深值=浅档值）
+          className="px-3 h-8 rounded-lg text-xs border border-transparent disabled:opacity-50"
+          style={{ backgroundColor: 'var(--fw-accent-danger)', color: '#fff' }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#dc2626'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'var(--fw-accent-danger)'; }}>
           删除所选并瘦身
         </button>,
       ].filter(Boolean)}
