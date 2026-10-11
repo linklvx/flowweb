@@ -373,7 +373,7 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
     await runtime.recovery.recoverConnection();
     const np = lastInstance();
     expect(np).not.toBe(p);                                                  // 重放锚挂终态重建（占位实现 np===p 必红）
-    expect(np.awareness.setLocalState).toHaveBeenCalledWith({});             // 非空占位（R24 本地态承重——cursor 写入/续期前置）
+    expect(np.awareness.setLocalState).toHaveBeenCalledWith({ presence: true }); // 非空态锚点（R24 本地态承重+T10——空态真身帧被 guard 剔除=重连循环）
     const local = np.awareness.getLocalState() as Record<string, unknown>;
     expect(local).not.toBeNull();
     expect(local).not.toHaveProperty('user');                                // user 不在客户端重放形内（服务端 beforeHandleAwareness 注入）
@@ -526,9 +526,9 @@ describe('批1-5：awareness 播种/tick 自愈/kill switch（fake timers）', (
     return p;
   }
 
-  it('awareness 即刻播种：provider 构造即 setLocalState({})（占位——续期照跑；未走完 synced 前已非空）', async () => {
+  it('awareness 即刻播种：provider 构造即 setLocalState({presence:true})（非空态锚点——空态真身帧被 guard 幽灵判据剔除=零回显重连循环，T10；续期照跑；未走完 synced 前已非空）', async () => {
     const { done, p } = await beginCollabFake('p1');
-    expect(p.awareness.getLocalState()).toEqual({}); // 构造后立即可读（非 null——播种缺失必红）
+    expect(p.awareness.getLocalState()).toEqual({ presence: true }); // 构造后立即可读非空对象（播 {} / null 均红）
     // 收尾走完健康序（防悬挂 initCollab 的 10s 超时分支污染 store）
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;

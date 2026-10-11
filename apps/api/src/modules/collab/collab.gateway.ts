@@ -1695,8 +1695,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  scratch 幽灵剔除（4.6.0 实证偏离登记）：库 scratch Awareness 构造器 setLocalState({}) 使每帧
    *  states 混入一个随机 clientId 空态项（真身 clock=0 占位反被 y-protocols 时钟门剥离——guard 实测
    *  frames 全含幽灵）。判据=首见 ∧ 空态 ∧ doc awareness 无此 id ⇒ states.delete（不计登记/上限/
-   *  注入——防幽灵吃上限槽位+每帧登记 churn；误判面=客户端对从未见 id 显式广播空态——该帧不广播，
-   *  后续真内容帧正常登记，无实质损失）。
+   *  注入——防幽灵吃上限槽位+每帧登记 churn）。**T10 勘误（真身误杀机理）**：真身空态帧同判据被剔
+   *  （hook 载荷只有 states 内容，拿不到 scratchDoc.clientID 与幽灵区分）⇒ 零回显 ⇒ 客户端 30s
+   *  messageReconnectTimeout 判死重连循环（探针 bare 45s 实证）——客户端已由构造/replayLocalUser
+   *  播种非空态锚点 {presence:true} 保证真身帧非空态（apps/web/src/collab/awareness.ts）；
+   *  **ghost 计数异常增高=客户端播种退化信号**（runbook 巡检项）。
    *  放行门（P0-1）：非连接来源（DirectConnection/服务端内部写——connection undefined 或 context
    *  undefined 或 socketId 空串）=我们自己写的，整体放行禁删禁改。
    *  onAwarenessUpdate 是观测钩子禁改写（E73 钉死）——本钩子=唯一改写点。 */
@@ -1715,7 +1718,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         }
         if (owner === undefined) {   // ②首见
           if (CollabGateway.isEmptyState(state) && !document.awareness.states.has(clientId)) {
-            states.delete(clientId);   // scratch 幽灵——剔除（见方法头注）
+            states.delete(clientId);   // scratch 幽灵——剔除（见方法头注 T10 真身误杀机理）
+            collabAwarenessRejectTotal.inc({ reason: 'ghost' });   // T10 观测盲区根修：剔除必计数（异常增高=客户端播种退化）
             continue;
           }
           if ((this.ownedClientIds.get(socketId)?.size ?? 0) >= CollabGateway.AWARENESS_CLIENT_ID_LIMIT) {

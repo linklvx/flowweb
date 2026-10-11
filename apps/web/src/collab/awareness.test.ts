@@ -44,12 +44,12 @@ describe('awareness', () => {
     expect(cb).toHaveBeenCalled();
   });
 
-  it('replayLocalUser（T7 改形）：本地态 null ⇒ 恢复非空占位（user 归服务端注入——pagehide 自愈承重）', () => {
+  it('replayLocalUser（T10 根修）：本地态 null ⇒ 播种非空态锚点 {presence:true}（真身帧非空态过 guard 幽灵判据——改前播 {} 被剔=空闲 30-45s 重连循环；无 user 键=身份归服务端注入）', () => {
     const p = mockProvider();
     const bridge = new AwarenessBridge(p);
     (p.awareness as any).getLocalState.mockReturnValue(null);
     bridge.replayLocalUser();
-    expect((p.awareness as any).setLocalState).toHaveBeenCalledWith({});
+    expect((p.awareness as any).setLocalState).toHaveBeenCalledWith({ presence: true });
   });
 
   it('replayLocalUser（T7 改形）：本地态非空 ⇒ no-op（不打 clock——终态重建后构造播种已在）', () => {

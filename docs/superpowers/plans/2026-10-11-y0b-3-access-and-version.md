@@ -124,7 +124,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | `yjs_store_unexpected_throw_total` | Counter（Y2 兜底 catch 处——契约 3 最后一道闸） | T4 | **v2 新增**（P-O） |
 | `collab_version_negotiation_reject_total` | Counter, reason=client-version-missing\|client-version-invalid\|schema-outdated\|**server-outdated** | T5 | **v2 加第四档** |
 | `collab_ws_close_total` | Counter, code+reason（gateway 应用侧 close 单点埋：drain 解除/closeAll/sweep/寿命/团队解散。**v3 边界登记**：onDisconnectPayload 无 close code 字段——库自发/自然断连的服务端观测结构性不可达，归 Y0b-5 客户端遥测；本指标=应用侧主动 close 分布） | T6 | **v2 新增+v3 边界钉死** |
-| `collab_awareness_reject_total` | Counter, reason=owner-limit\|forged（归属三分支的上限触发丢弃+伪造丢弃——"用户光标消失"类故障的可观测出口） | T7 | **v3 新增**（S-3：上限触发无观测=静默故障） |
+| `collab_awareness_reject_total` | Counter, reason=owner-limit\|forged\|**ghost**（归属三分支的上限触发丢弃+伪造丢弃+空态首见帧剔除〔T10 修复补档——ghost 异常增高=客户端非空态播种退化信号〕——"用户光标消失"类故障的可观测出口） | T7 | **v3 新增**（S-3：上限触发无观测=静默故障；**ghost 档=T10 发现修复批补**） |
 | `collab_unhandled_rejection_total` | Counter, source（全局兜底函数） | T1 | — |
 
 **v2 删除**：~~collab_doc_store_failed_total~~（spool 既有观测 yjs_spool_write_failatures 等覆盖+gateway 契约 3"任何路径不 throw"使其恒零）。**v3 删除**：~~collab_stateless_bad_payload_total / collab_stateless_unknown_total / collab_stateless_ping_total / collab_stateless_last_ping_age_seconds~~（随 T10 整删——P-T；服务端 onStateless 钩子不注册=P14 向量归零）。~~yjs_doc_reaped_total~~（P-V① reaper 卸载动作删除）。（`collab_idle_timeout_total` 载体=客户端遥测 close_code 事件族——**Y0b-5 sink 域**，本批仅在映射表分型 4408→idle-timeout+diag ring 记录，登记 §0.4。）

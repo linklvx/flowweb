@@ -161,7 +161,7 @@ export const recovery = {
         const np = provider!;
         np.awareness?.meta.set(np.awareness.clientID, { clock: clockSeed, lastUpdated: Date.now() });
         awarenessBridge?.attach(np);              // bridge 稳定对象迁移（消费方零改动）
-        awarenessBridge?.replayLocalUser();       // T7 改形：null⇒setLocalState({}) 恢复本地态（非空 no-op 不打 clock）
+        awarenessBridge?.replayLocalUser();       // T10 根修：null⇒setLocalState({presence:true}) 恢复非空态锚点（非空 no-op 不打 clock）
         rebuildPending = true;                    // 旧实例 hasUnsyncedChanges 不可读——标记武装（1-4 清除）
       } else {
         // —— 瞬态：传输级 reconnect（门 B 裁决——kick 方案/㉕㉝ 约束已删）——
@@ -986,10 +986,12 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
     WebSocketPolyfill: WebSocketClass,
   } as any);
   bindProviderListeners(provider);
-  // 批1-5 awareness 即刻播种：构造即 setLocalState({})（占位——非空本地态是 cursor 写入与 30s 续期
-  // 的前置；Y0b-3 T7 起 user 字段由服务端 beforeHandleAwareness 注入，客户端不再自写身份——终态重建
-  // 后 replayLocalUser 仅恢复非空态）。
-  provider.awareness?.setLocalState({});
+  // 批1-5 awareness 即刻播种/T10 根修：构造即 setLocalState({ presence: true })（非空态锚点——
+  // 非空本地态是 cursor 写入与 30s 续期的前置，且真身首帧非空态才不会被服务端 guardAwareness 幽灵
+  // 判据（首见∧空态∧doc 无此 id）剔除——空态被剔=零回显=客户端 30-45s 重连循环）；Y0b-3 T7 起
+  // user 字段由服务端 beforeHandleAwareness 注入，客户端不自写身份——终态重建后 replayLocalUser
+  // 仅恢复非空态锚点。
+  provider.awareness?.setLocalState({ presence: true });
   return provider;
 }
 
@@ -1088,8 +1090,8 @@ export async function initCollab(projectId: string): Promise<void> {
       }
     }
     updateConnectionUi(out.ui);
-    // 批1-5 awareness tick 自愈（T7 改形语义）：pagehide 置 null 形态 + 连接健康 ⇒ replay 恢复
-    // 本地态（null⇒setLocalState({})；非空 no-op 不打 clock——user 字段归服务端注入）
+    // 批1-5 awareness tick 自愈（T7 改形语义/T10 根修）：pagehide 置 null 形态 + 连接健康 ⇒ replay
+    // 恢复非空态锚点（null⇒setLocalState({presence:true})；非空 no-op 不打 clock——user 字段归服务端注入）
     if (healthyNow) {
       const aw = provider?.awareness;
       if (aw && aw.getLocalState() == null) awarenessBridge?.replayLocalUser();

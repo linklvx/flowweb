@@ -45,12 +45,15 @@ export class AwarenessBridge {
     this.detachProviderListener = () => provider.off('awarenessUpdate', handler);
   }
 
-  /** 批1-3 终态重建/Y0b-1 tick 自愈两承重点的本地态重放（T7 改形）：只恢复**非空本地态**
-   *  （null 态下 setLocalStateField 吞 cursor 写入+30s 续期停摆——R24 本地态承重注记）；
-   *  user 字段不在重放形内=服务端注入。非空即 no-op（不打 Awareness clock）。 */
+  /** 批1-3 终态重建/Y0b-1 tick 自愈两承重点的本地态锚点恢复（T7 改形/T10 根修——名 replayLocalUser
+   *  已名不副实：现语义=恢复**非空本地态锚点**）：null ⇒ setLocalState({ presence: true })。
+   *  ① 非空对象是 cursor 写入与 30s 续期帧的前置（null 态下 setLocalStateField 吞 cursor 写入+续期
+   *  停摆——R24）；② presence 标记使真身帧**非空态**——服务端 guardAwareness 幽灵判据（首见∧空态∧
+   *  doc 无此 id）不会误杀真身帧（T10 实证：空态真身帧被剔=零回显=客户端 30-45s 重连循环）。
+   *  非 user 字段（身份归服务端注入——客户端自写即伪造面，E73）。非空即 no-op（不打 clock）。 */
   replayLocalUser(): void {
     if (this.provider.awareness && this.provider.awareness.getLocalState() == null) {
-      this.provider.awareness.setLocalState({});
+      this.provider.awareness.setLocalState({ presence: true });
     }
   }
 

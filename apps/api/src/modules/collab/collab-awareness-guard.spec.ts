@@ -79,6 +79,8 @@ async function metricDelta(name: string, labels: Record<string, string>, fn: () 
   return (await countOf()) - before;
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 beforeEach(async () => {
   kit = await startDualClientServer({}, 300);
   // 多用户身份分型：token→user（SessionService.resolve 直查 prisma.session.findUnique）
@@ -156,6 +158,29 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     expect(b.awareness!.getStates().get(305)).toBeUndefined();   // 超限帧不进广播
     expect((kit.gateway as any).clientIdOwner.has(305)).toBe(false);
     expect(own.size).toBe(4);   // 上限不被超限帧突破
+  });
+
+  it('scratch 幽灵剔除计数：空态首见帧被剔时 ghost 计数（T10 观测盲区根修——改前剔除无计数=红；真身空态续期帧同判据被剔=空闲重连循环根因，计数异常增高=客户端播种退化信号）', async () => {
+    const a = await connect('tokA');
+    const b = await connect('tokB');
+    // ghost 帧被剔=零可观测副作用，唯一证据=计数本身；计数经真连异步到账——先静置基线（两读一致）
+    // 再断言该帧增量（metricDelta 包 send 不可用：fn 返回时帧尚未抵达服务端=恒读 0）
+    const ghostCount = async () => {
+      const metric: any = register.getSingleMetric('collab_awareness_reject_total');
+      return (await metric.get()).values.find((s: any) => s.labels.reason === 'ghost')?.value ?? 0;
+    };
+    let before = await ghostCount();
+    for (let i = 0; i < 10; i++) {
+      await sleep(150);
+      const next = await ghostCount();
+      if (next === before) break;
+      before = next;
+    }
+    sendAwareness(a, 555, {});   // 空态首见=幽灵形态指纹（库构造器 setLocalState({}) 同款）
+    await pollUntil(async () => (await ghostCount()) === before + 2);
+    expect((await ghostCount()) - before).toBe(2);   // 每帧恰两条空态剔除：scratch 构造幽灵+555 真条目（改前：剔除无计数→轮询超时必红）
+    expect(b.awareness!.getStates().get(555)).toBeUndefined();   // 幽灵帧不进广播
+    expect((kit.gateway as any).clientIdOwner.has(555)).toBe(false);   // 不登记（不吃上限槽位）
   });
 
   it('DirectConnection/服务端内部写（connection undefined 或 context undefined 或 socketId 空串）→整体放行禁删禁改（P0-1）', async () => {
