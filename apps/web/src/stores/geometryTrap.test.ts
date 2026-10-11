@@ -172,9 +172,11 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   //   边沿用例装置清理 store 复位，同例外）。
   // + Y0b-3 T5 造案 +1 处/1 文件（canvasCollabRuntime.version-channel.spec.ts——版本通道用例
   //   beforeEach 装置复位，同例外）。
+  // + Y0b-3 T9 造案 +3 处/1 文件（canvasCollabRuntime.t9.spec.ts——resetStore 装置+escapePending
+  //   复位）+12 处/1 文件（SyncBanner.test.tsx——分档 UI 测试 store 注入是用例的存在目的，同例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 223;
-  const BASELINE_FILES = 42;
+  const BASELINE_COUNT = 238;
+  const BASELINE_FILES = 44;
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -188,7 +190,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
     }
   }
 
-  it('test/spec 面 store 侧 setState 处数 ≤223 且文件数 ≤42（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1，只降不升）', () => {
+  it('test/spec 面 store 侧 setState 处数 ≤238 且文件数 ≤44（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1，只降不升）', () => {
     let count = 0;
     let files = 0;
     for (const f of walkTestFiles(SRC_ROOT)) {

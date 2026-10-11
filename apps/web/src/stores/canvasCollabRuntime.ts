@@ -8,7 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CLIENT_PROTOCOL_VERSION, CollabCloseCode } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
@@ -108,6 +108,23 @@ let lastRecoveryAt = 0;
 // 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
 let plannedRestartUntil = 0;
 
+// Y0b-3 T9（F-1）：terminal 真停连电平——authenticationFailed 与 close-terminal 双写点，
+// initCollab/destroyCollab 会话边界复位。消费=recoverConnection 复发防线早退：
+// ⚠ 库 connect() 首行置回 shouldConnect=true（esm:225）⇒ terminal 后任何恢复路径禁再调 connect
+//（watchdog 兜底/静默续期/1012 迟到帧都在此拦下）。watchdog machine 输入的 terminal 值源
+// =wsAuthNotice.terminal（心跳 inputs——双写点同帧落 store，电平是 store 读的等价速记）。
+let terminalSuppressed = false;
+// Y0b-3 T9（S-4）：4401 'session-expired'（sweep）静默续期额度——一次，authenticated 事件重置
+//（每次成功认证重发一次额度；不重置=数小时后再次过期直接落终态本可再续）。
+let silentRenewUsed = false;
+// Y0b-3 T9（P-C）：版本族终态（reload 自愈档）——schema-outdated/client-version-missing/
+// client-version-invalid；server-outdated 是瞬态档（reload 无效——shared M-4）不入此表。
+const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>([
+  CollabAuthReason.SCHEMA_OUTDATED,
+  CollabAuthReason.CLIENT_VERSION_MISSING,
+  CollabAuthReason.CLIENT_VERSION_INVALID,
+]);
+
 // 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
 let transportHandle: ReconnectHandle | null = null;
 // 批1-3：终态重建窗口标记（旧实例 hasUnsyncedChanges 不可读——标记武装；
@@ -123,6 +140,8 @@ export const recovery = {
   async recoverConnection(): Promise<void> {
     if (recovering) return;                     // 单飞
     const p = provider; if (!p) return;
+    // Y0b-3 T9（F-1 复发防线）：terminal 停连后零恢复——见 terminalSuppressed 声明处注释
+    if (terminalSuppressed || useCanvasStore.getState().wsAuthNotice?.terminal === true) return;
     // 守卫：hidden/offline 不下手——回前台/上线由 visibilitychange/online 复评（模块级一次挂）
     // +watchdog 下轮自然复评；terminal（wsAuthNotice 批2 接入）
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -158,6 +177,41 @@ export const recovery = {
     } finally { recovering = false; }
   },
 };
+
+/** Y0b-3 T9（P-C）：版本终态自愈——loop 保护键=观测到的服务端协议版本（/api/ready 单次探测——
+ *  authenticationFailed 拒绝帧无 message 通道）。可自愈（同版本未刷过 ∧ 无未同步编辑）→sessionStorage
+ *  记键+location.reload() 一次（下次部署服务端版本变=键异=可再自愈一次）；否则落「导出本地画布→
+ *  强制刷新」逃生动作（collabEscapePending 置位——SyncBanner 渲染按钮消费）。ready 不可达→直接逃生。 */
+export async function handleVersionTerminal(reason: string): Promise<void> {
+  try {
+    const ready = await fetch('/api/ready').then((r) => r.json());
+    const serverCsv = ready?.collabProtocolVersion;
+    const key = `collab-version-reloaded:${serverCsv}`;
+    if (!sessionStorage.getItem(key) && !hasUnsyncedCanvasChanges()) {
+      sessionStorage.setItem(key, '1');
+      location.reload();
+      return;
+    }
+  } catch { /* ready 不可达→直接落逃生动作 */ }
+  useCanvasStore.setState({ collabEscapePending: true });
+}
+
+/** Y0b-3 T9：逃生动作（唯一）——「导出本地画布→强制刷新」一键。不受未同步守卫约束（它就是为
+ *  未同步而设）；message-too-big 终态共用（内容确定性——逃生是唯一出路）。导出=store 序列化最小版
+ *  （nodes/edges JSON 下载——用户可读形态，非 Y.Doc 二进制）。 */
+export function escapeWithLocalExport(): void {
+  try {
+    const cs = useCanvasStore.getState();
+    const payload = JSON.stringify({ nodes: cs.nodes, edges: cs.edges });
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `canvas-local-backup-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch { /* 导出失败不阻断逃生主路径——刷新本身即用户显式意图 */ }
+  location.reload();
+}
 
 /** 批1-1：恢复 UI 分级落位（canvasStore.connUi；hint 非阻断、banner 批1-5 SyncBanner 消费）。
  *  批1-2 钳制：计划内重启窗口（plannedRestartUntil）内 banner 降 hint——服务端已知重启不吓用户 */
@@ -818,8 +872,8 @@ export function applyDocToStore(d: Y.Doc) {
 const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 
 /** 批1-3：六监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
- *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。六事件：status/authenticated/
- *  synced/message/close/unsyncedChanges（1-4：number===0 清 rebuildPending）。
+ *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。七事件：status/authenticated/
+ *  synced/message/close/unsyncedChanges/stateless（Y0b-3 T9 增第七监听 write-frozen 通告）。
  *  事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
  *  （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
  *  'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。 */
@@ -839,23 +893,72 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     // 批2-1 粘滞权威覆盖（v5.4）：authenticated 是 collabReadOnly 唯一授权写点——
     // read-write 解除只读；readonly/未知 scope 置回（fail-closed）。onClose 不清（断连窗口
     // 编辑经 messageQueue 合并——回收会造成重连后 NACK 静默回退）
-    useCanvasStore.setState({ collabReadOnly: scope !== 'read-write' });
+    useCanvasStore.setState({ collabReadOnly: scope !== 'read-write', writeFrozen: false }); // T9：重连认证成功=非 drain（新连接被 DRAINING 门拒）——write-frozen 清零自愈
+    silentRenewUsed = false; // T9（S-4）：每次成功认证重置一次静默续期额度
     recomputeConnStatus();
   });
   p.on('synced', () => recomputeConnStatus());
   p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
+  // Y0b-3 T9（P-S）：write-frozen 通告（gateway beginDraining sendStateless）——writeFrozen 电平
+  // 置位（canExecute 判据③；canEdit 面由服务端 readOnly 双保险）。恢复=drain 解除 1012 重连
+  // authenticated 清零（既有链路，零新恢复逻辑）。stateless 是通用通告通道——非本协议消息静默忽略。
+  p.on('stateless', ({ payload }: any) => {
+    try {
+      const msg = JSON.parse(payload);
+      if (msg?.type === 'write-frozen') {
+        recordCollabDiag('write_reject', { reason: msg.reason });
+        useCanvasStore.setState({ writeFrozen: true });
+      }
+    } catch { /* 坏 JSON——非本协议通告 */ }
+  });
+  // Y0b-3 T9：鉴权拒绝唯一生产写点（改前声明+消费在、写入侧缺失）——reason 分型终态/瞬态
+  //（isTerminalReason 契约锁㉙：版本族三档+unauthenticated/session-expired/not-found/forbidden 终态，
+  // db-unavailable/draining/lease-not-ready/server-overloaded/rate-limited/server-outdated 瞬态桶）。
+  p.on('authenticationFailed', ({ reason }: { reason: string }) => {
+    const terminal = isTerminalReason(reason);
+    useCanvasStore.setState({ wsAuthNotice: { reason, terminal } });
+    recordCollabDiag('auth_reject', { reason, terminal });
+    if (terminal) {
+      terminalSuppressed = true;
+      // 真开关：置 shouldConnect=false（esm:367-376）——库 onClose 1s 定时器因 !shouldConnect 不再排程
+      // （esm:411-413）。⚠ connect() 首行置回 shouldConnect=true（esm:225）⇒ terminal 后 watchdog/
+      // recovery 任何路径禁再调 connect——复发防线=recoverConnection 首段 terminalSuppressed 早退（钉死）。
+      p.configuration.websocketProvider.disconnect();
+      // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
+      if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal(reason);
+    }
+  });
   p.on('close', ({ event }: any) => {
     recomputeConnStatus();
-    // 批1-2：APP_RESTART(1012)=服务端计划内重启 close code（批3 服务端落地前不会真出现——客户端分支先在）。
-    // 判定走 close 事件 event.code（status 事件无 code；4408 强关不 emit close——不混用）。
-    // Y0b-3 T6：字面量迁 shared 常量单源（数值不变——行为等价；close 映射表消费归 T9）。
-    if (event?.code === CollabCloseCode.APP_RESTART) {
-      plannedRestartUntil = Date.now() + 30_000;
-      // 1~3s 短退避首连。APP_RESTART 时 socket 已 CLOSED——transport.reconnect() 只会返回 needKick=true
-      // 再回到 ws.connect()（批1-0 落地时裁定：此处直连库句柄等价且更短）
-      setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
-        1000 + Math.random() * 2000);
+    // Y0b-3 T9：close 分型→状态映射（(code,reason) 双键分型单源=resolveCloseAction）——
+    // 分型只写状态，恢复所有权 100% 归 watchdog+machine+recovery 单飞（禁直调 connect 抢跑）。
+    // 库 onClose 1s 定时器与 machine 退避表的从属关系：库先连（应答快速失败）→watchdog 按
+    // RECOVER_BACKOFF_MS 兜底——两套并存、所有权如上声明（禁两套不声明）。
+    const action = resolveCloseAction(event?.code, event?.reason);
+    if (action.kind === 'planned-restart') {
+      plannedRestartUntil = Date.now() + 30_000;   // 既有 UI 钳制窗（updateConnectionUi 消费）
+      // 既有 1~3s 短退避首连（conn.spec 既有锚维持——socket 已 CLOSED，transport.reconnect()
+      // 只会返回 needKick=true 再回 ws.connect()，此处直连库句柄等价且更短）。
+      // terminal 停连后禁再排（复发防线——服务端重启 1012 迟到帧不得唤醒终态客户端）。
+      if (!terminalSuppressed) {
+        setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
+          1000 + Math.random() * 2000);
+      }
+    } else if (action.kind === 'silent-renew-once' && !silentRenewUsed) {
+      silentRenewUsed = true;                      // 4401 'session-expired'（sweep）——静默续期一次；失败落终态
+      void recovery.recoverConnection();           // 唯一执行器（禁自建退避/直调 connect）
+    } else if (action.kind === 'terminal') {
+      const reason = action.terminalReason!;
+      useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
+      terminalSuppressed = true;
+      p.configuration.websocketProvider.disconnect(); // 真开关（同 authenticationFailed——复发防线钉死）
+      if (reason === MESSAGE_TOO_BIG_TERMINAL_REASON) {
+        // 1009 message-too-big（内容确定性：重连重发同一超限帧=无自救循环；T6 探针结论=客户端
+        // 观测 1009 活码）——不走 reload 自愈，直接落逃生动作（与版本逃生同一按钮，P-V⑧）。
+        useCanvasStore.setState({ collabEscapePending: true });
+      }
     }
+    // backoff/normal：零动作——watchdog 按既有 cooldownMs（RECOVER_BACKOFF_MS 表）单飞恢复
   });
   // 批1-4：rebuildPending 清除主判据——unsyncedChanges number===0（decrement 归零无条件 emit，
   // HP:333-335）。实例绑定（p === provider）：终态重建竞态窗口内旧实例迟到事件不得清新实例标记。
@@ -918,14 +1021,17 @@ export async function initCollab(projectId: string): Promise<void> {
   session = { pid: projectId, startedAt: Date.now(), epoch };
   // 批2-1 会话起点：hydration=pending（openSession 已先置——此处覆盖入口清理期）+
   // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）；
-  // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户
+  // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户；
+  // T9：wsAuthNotice/writeFrozen/collabEscapePending 同点复位（上一会话终态/冻结/逃生不跨会话）
   useCanvasStore.getState().setHydration('pending');
-  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {} });
+  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false });
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
   attemptId = 0;
   inboundAttemptId = -1;
   plannedRestartUntil = 0; // 批1-2：计划内重启窗口会话起点复位（旧会话窗口不跨会话）
+  terminalSuppressed = false; // T9：terminal 电平会话起点复位（新会话=新额度——复发防线只锁本会话）
+  silentRenewUsed = false;    // T9：静默续期额度会话起点复位
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
@@ -1089,7 +1195,10 @@ export async function destroyCollab(): Promise<void> {
   // 陈旧 destroy 不得复位新会话的 hydration/collabReadOnly（交错写防线）
   if (session !== null) return;
   useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
-  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {} }); // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）
+  // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）；T9：终态/冻结/逃生同点清
+  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false });
+  terminalSuppressed = false;
+  silentRenewUsed = false;
 }
 
 /** 执行请求附带的本端状态向量（spec 3.1，base64） */

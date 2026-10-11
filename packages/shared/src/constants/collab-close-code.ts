@@ -38,6 +38,9 @@ export type CloseActionKind =
 
 export interface CloseAction { kind: CloseActionKind; terminalReason?: string; synthetic?: boolean }
 
+/** terminalReason 字面量单源（Y0b-3 T9：runtime/SyncBanner 消费——禁散落字面量） */
+export const MESSAGE_TOO_BIG_TERMINAL_REASON = 'message-too-big' as const;
+
 export function resolveCloseAction(code: number, reason: string | undefined): CloseAction {
   // (code,reason) 双键分型（spec §5.2 v2.1）——只判 code 会把库 Unauthorized 当会话过期无限续期
   if (code === CollabCloseCode.SESSION_EXPIRED) {
@@ -46,7 +49,7 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
   }
   if (code === CollabCloseCode.APP_RESTART) return { kind: 'planned-restart' };
   if (code === CollabCloseCode.NORMAL) return { kind: 'normal' };
-  if (code === CollabCloseCode.LIB_MESSAGE_TOO_BIG) return { kind: 'terminal', terminalReason: 'message-too-big' };
+  if (code === CollabCloseCode.LIB_MESSAGE_TOO_BIG) return { kind: 'terminal', terminalReason: MESSAGE_TOO_BIG_TERMINAL_REASON };
   if (code === CollabCloseCode.LIB_CONNECTION_TIMEOUT) {
     return reason === 'forced'
       ? { kind: 'backoff', synthetic: true }   // 客户端合成（三击强制）——诊断标记

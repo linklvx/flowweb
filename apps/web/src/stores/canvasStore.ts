@@ -184,6 +184,10 @@ export interface CanvasState {
   httpExpired: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
   connStatus: 'connected' | 'connecting' | 'offline';
+  /** Y0b-3 T9（P-C）：终态逃生动作待执行标记——版本 reload 自愈不可行（loop 保护/未同步守卫/ready
+   *  不可达）或 message-too-big 终态时由 runtime 置位；SyncBanner 渲染「导出本地画布并刷新」按钮消费。
+   *  initCollab/destroyCollab 会话边界复位。UI 瞬态——不进 history/localStorage 快照 */
+  collabEscapePending: boolean;
   /** Y0b-2 T7（Z55）：写冻结瞬态——canExecute 判据③。置位/清位=Y0b-5 gateway 幂等快照下发
    *  （当前恒 false：gateway 无 resumed 下发+drain 窗口行为登记 T9 残余）。不进快照 */
   writeFrozen: boolean;
@@ -601,6 +605,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   resizePending: false,
   httpExpired: false,
   connStatus: 'connecting',
+  collabEscapePending: false,
   writeFrozen: false,
   connUi: 'ok',
   editorDirty: false,

@@ -11,6 +11,8 @@ svDoc.getMap('meta').set('schemaVersion', 2);   // 非空 SV（空 doc 的 SV �
 const SV_FIX = Buffer.from(Y.encodeStateVector(svDoc)).toString('base64');
 
 const forceSyncMock = vi.fn(async () => true);
+const { messageWarning } = vi.hoisted(() => ({ messageWarning: vi.fn() }));
+vi.mock('antd', () => ({ message: { warning: messageWarning, info: vi.fn() } }));
 vi.mock('@/stores/canvasCollabRuntime', () => ({
   getStateVector: () => SV_FIX,
   forceSyncAndWaitUnsynced: (...a: unknown[]) => forceSyncMock(...(a as [])),
@@ -86,5 +88,48 @@ describe('Y0b-2 T7：withSyncRetry 反应式重发（Z56 修订——SYNC_PENDIN
     await executeGroupNodes('p1', ['n1']);
     expect(forceSyncMock).not.toHaveBeenCalled();
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Y0b-3 T9 Step5：withSyncRetry 503 语义化重试（Retry-After 后恰重试一次——同 SYNC_PENDING 范式，同 token 幂等零重复扣费）', () => {
+  const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  const unavailable = (retryAfter?: number) => new Response(
+    JSON.stringify({ message: 'Service Unavailable' }),
+    { status: 503, headers: retryAfter != null ? { 'retry-after': String(retryAfter) } : {} },
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetCollabDiagForTest();
+  });
+
+  it('503 + Retry-After → 维护提示+等待 retryAfter 后自动重试恰一次', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchSpy.mockResolvedValueOnce(unavailable(2)).mockResolvedValueOnce(ok({ success: true, errors: [] }));
+      const pending = executeGroupNodes('p1', ['n1']);
+      await vi.advanceTimersByTimeAsync(2_000);   // Retry-After=2s——等待窗内不重试
+      expect(await pending).toEqual({ success: true, errors: [] });
+      expect(messageWarning).toHaveBeenCalledWith('服务重启/维护中，请稍后重试');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);  // 恰一次重试——不循环
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('重试再 503 → 抛出不循环（恰两次 fetch——服务端仍不可用，不无限等）', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchSpy.mockResolvedValue(unavailable(1));
+      const pending = executeGroupNodes('p1', ['n1']).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await pending).toMatchObject({ status: 503 });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('503 缺 Retry-After → 不自动重试直接抛（零等待零重试）', async () => {
+    fetchSpy.mockResolvedValueOnce(unavailable());
+    await expect(executeGroupNodes('p1', ['n1'])).rejects.toMatchObject({ status: 503 });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(messageWarning).not.toHaveBeenCalled();
   });
 });

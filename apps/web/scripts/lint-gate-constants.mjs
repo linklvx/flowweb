@@ -66,6 +66,11 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // Y0b-3 T5 造案 +1（版本通道装置 beforeEach store 复位——同 sanctioned 例外；T5 落地漏登记，
   // T7 出口 verify 暴露补登，两处登记对齐）→ 223/42。
   'src/stores/canvasCollabRuntime.version-channel.spec.ts',
+  // Y0b-3 T9 造案 +3 处/1 文件（canvasCollabRuntime.t9.spec.ts——resetStore 装置+escapePending
+  //   复位——sanctioned 例外同模式）+12 处/1 文件（SyncBanner.test.tsx——分档 UI 测试 store
+  //   注入是用例的存在目的）→ 238/44。
+  'src/stores/canvasCollabRuntime.t9.spec.ts',
+  'src/pages/canvas/components/SyncBanner.test.tsx',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -83,5 +88,8 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   （unsyncedChanges 归零边沿用例 beforeEach store 复位——sanctioned 例外同模式）→ 222 处 / 41 文件。
   // Y0b-3 T5（2026-10-11）：canvasCollabRuntime.version-channel.spec.ts 装置复位 +1 处/1 文件
   //   （版本通道装置 beforeEach store 复位——sanctioned 例外同模式；T5 漏登记 T7 补登）→ 223 处 / 42 文件。
-  effective: { count: 223, files: 42 },
+  // Y0b-3 T9（2026-10-11）：canvasCollabRuntime.t9.spec.ts 装置 +3 处/1 文件（resetStore/escapePending
+  //   复位——sanctioned 例外同模式）+SyncBanner.test.tsx +12 处/1 文件（分档 UI 测试 store 注入——
+  //   setState 是用例的存在目的）→ 238 处 / 44 文件。
+  effective: { count: 238, files: 44 },
 };

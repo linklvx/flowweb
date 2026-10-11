@@ -745,8 +745,12 @@ function CanvasViewComponent(_props: Props) {
                   // Y0b-2 T8（Z90）：504/网络断（无 errorCode 结构化体）=「已受理」——服务端不因断连中止
                   //（禁加"断连即取消"），进度/产物经节点 exec 投影照达；结构化业务错误（errorCode）已由
                   // 节点级 error 投影承载，不在此重复提示。不换 token 重试——换 token=新扣费（withSyncRetry 注释钉死）。
+                  // Y0b-3 T9：带 Retry-After 的 503 已在 withSyncRetry 内提示+自动重试——落到这里的 503
+                  // =缺头/二次 503（服务端仍不可用），维护提示替代"已受理"误报。
                   void executeGroupNodes(projectId, childIds).catch((e: unknown) => {
-                    if (!(e as { errorCode?: string })?.errorCode) void message.info('执行请求已提交，进度见节点状态');
+                    const err = e as { status?: number; errorCode?: string } | undefined;
+                    if (err?.status === 503) void message.warning('服务重启/维护中，请稍后重试');
+                    else if (!err?.errorCode) void message.info('执行请求已提交，进度见节点状态');
                   });
                 }
               }}

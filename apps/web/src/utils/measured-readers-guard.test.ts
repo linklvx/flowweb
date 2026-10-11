@@ -34,7 +34,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // handleMenu 2 + product-node 1
     // Y0b-2 T7：writeFrozen 字段两处插入（interface +3/初始值 +1）——canvasStore 13 行 +4；
     // GroupToolbar canExecute prop（interface +2）——81,82→83,84；ImageGenNode import +3——160,161→163,164
-    'stores/canvasStore.ts': [757, 758, 764, 765, 820, 821, 890, 891, 897, 898, 1044, 1584, 1585],
+    // Y0b-3 T9：collabEscapePending 字段两处插入（interface +4/初始值 +1）——canvasStore 13 行再 +5（行号漂移）
+    'stores/canvasStore.ts': [762, 763, 769, 770, 825, 826, 895, 896, 902, 903, 1049, 1589, 1590],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],

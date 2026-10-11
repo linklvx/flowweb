@@ -1454,6 +1454,32 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     }
   });
 
+  it('H-5：drain 解除先还原 readOnly 再 close（frozenConnections=Map<conn,prevReadOnly>——close CLOSING no-op 边角下存活连接不再永久只读）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      // prev 两形态：false=普通连接（冻结前可写）；true=spool 熔断降级连接（冻结前已只读——不被 drain 误赦免）
+      const normalConn = { readOnly: false, sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
+      const degradedConn = { readOnly: true, sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
+      (kit.gateway as any).server.hocuspocus.documents.set('project:ph5', {
+        name: 'project:ph5', connections: new Map([[normalConn as any, null], [degradedConn as any, null]]),
+        getConnections: () => [],
+      });
+      vi.useFakeTimers();
+      kit.gateway.beginDraining();
+      expect(normalConn.readOnly).toBe(true);    // 冻结生效（B12）
+      expect(degradedConn.readOnly).toBe(true);  // 已只读——冻结保持
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(normalConn.readOnly).toBe(false);   // 还原=prev（改前恒 true=永久只读——本断言红）
+      expect(degradedConn.readOnly).toBe(true);  // 还原=prev（true）——drain 不越权赦免
+      expect(normalConn.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');
+      expect(degradedConn.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');
+    } finally {
+      vi.useRealTimers();
+      (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:ph5');
+      await kit.dispose();
+    }
+  });
+
   it('V12 判据唯一化：collabState=isolated ∧ lease 仍 held（fenced-by-write 窗口）⇒ 双入口全拒 LEASE_NOT_READY', async () => {
     const kit = await startDualClientServer({}, 300, undefined, createLeaseStub());   // isServing 恒 true（lease 视角仍 held——模拟心跳未到）
     try {

@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { message } from 'antd';
 import type { AiToolId } from '@/stores/nodeStore';
 import { getStateVector, forceSyncAndWaitUnsynced } from '@/stores/canvasCollabRuntime';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
@@ -15,10 +16,21 @@ function svBody(): Record<string, string> {
  *  再拒=服务端停滞信号（观测经诊断 ring），抛出不循环。非 SYNC_PENDING 直接抛零 forceSync。
  *  Y0b-2 T8（Z90）：**只重 SYNC_PENDING 不重 5xx/超时**——504=回执丢失语义（服务端继续跑、产物经 doc
  *  投影照达），**504 不当换 token 重试信号——换 token=新扣费**（regenToken 生命周期归 Z95，重试恒同 token）。
+ *  Y0b-3 T9（§5.3 v2.1）：503 语义化例外——带 Retry-After 的 503=部署/维护窗口预期瞬态：提示后等待
+ *  retryAfter（上限 10s——部署窗口秒级；无上限等待会吊死执行按钮）自动重试恰一次（同 SYNC_PENDING
+ *  范式：闭包同 body/regenToken——幂等保证零重复扣费）。再 503/缺 Retry-After 的 503 照常抛出不循环。
  *  导出消费面=本模块两函数+ImageGenNode 编辑三入口（image-edit 受理端点同门）。 */
+const MAINT_RETRY_CAP_MS = 10_000;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export async function withSyncRetry<T>(fn: () => Promise<T>): Promise<T> {
   try { return await fn(); }
   catch (e: any) {
+    if (e?.status === 503 && typeof e?.retryAfter === 'number') {
+      message.warning('服务重启/维护中，请稍后重试');
+      await sleep(Math.min(e.retryAfter, MAINT_RETRY_CAP_MS));
+      return await fn(); // 再 503 抛出不循环
+    }
     if (e?.errorCode !== 'SYNC_PENDING') throw e;
     await forceSyncAndWaitUnsynced(2_000);
     try { return await fn(); }

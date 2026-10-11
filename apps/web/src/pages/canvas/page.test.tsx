@@ -19,7 +19,12 @@ vi.mock('@/stores/canvasCollabRuntime', () => ({
 }));
 
 const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
+// Y0b-3 T9：apiFetch 新增 retryAfter 读取（Response.headers）——本文件夹具为裸对象 Response（无
+// headers）。fetch 入口单点补 headers 桩（免全文件扫改）；生产真 Response 恒带 headers，此为夹具补全。
+const fetchWithHeaders: typeof fetch = ((...args: any[]) =>
+  Promise.resolve(mockFetch(...(args as [any]))).then((r: any) =>
+    (r && typeof r === 'object' && !r.headers ? { ...r, headers: { get: () => null } } : r))) as any;
+globalThis.fetch = fetchWithHeaders;
 
 // 按用例注入 canvasStore 节点（模拟"canvasStore 有节点但 nodeStore 无对应数据"的刷新竞态）
 let mockCanvasNodes: any[] = [];

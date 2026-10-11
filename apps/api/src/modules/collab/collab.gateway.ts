@@ -134,7 +134,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private listenRetries = 0;            // V10/N2③：端口类失败的有界持锁重试计数（≤2）
   private watchdogFired = false;        // N3③/V14：episode 计数标志——看门狗每 episode 至多 inc 1 次
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
-  private frozenConnections = new Set<{ readOnly?: boolean; sendStateless?: (p: string) => void; webSocket?: { close: (c: number, r: string) => void } }>();
+  /** Y0b-3 T9（H-5）：冻结连接登记 conn→prevReadOnly——解除路径先还原 readOnly 再 close
+   *  （close 在 CLOSING 态是 no-op 的边角下连接可能活过本次 close，"只 close 不还原"会把
+   *  存活连接永久钉在 readOnly；prev 快照同时保证 spool 熔断降级连接（prev=true）不被
+   *  drain 解除误赦免）。 */
+  private frozenConnections = new Map<{ readOnly?: boolean; sendStateless?: (p: string) => void; webSocket?: { close: (c: number, r: string) => void } }, boolean>();
   getCollabState() { return this.collabState; }
   /** V33 迁移单点（三轮病根的结构解）：所有 collabState 写点经此——日志+非法迁移点名。 */
   private static readonly LEGAL_TRANSITIONS: Record<string, string[]> = {
@@ -1012,8 +1016,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const frozen = [...this.frozenConnections];
       this.frozenConnections.clear();
       if (this.collabState === 'draining') this.transition('serving', 'drain-auto-release');
-      for (const c of frozen) {
+      for (const [c, prevReadOnly] of frozen) {
         try {
+          // H-5：先还原 readOnly 再 close——解除后存活连接恢复冻结前写权（prev 快照，
+          // spool 熔断降级连接还原 true 不被误赦免）
+          c.readOnly = prevReadOnly;
           c.webSocket?.close(CollabCloseCode.APP_RESTART, 'drain released');
           collabWsCloseTotal.inc({ code: String(CollabCloseCode.APP_RESTART), reason: 'drain released' });   // Y0b-3 T6：close 分布面
         } catch { /* 已断 */ }
@@ -1025,7 +1032,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       for (const c of doc.connections.keys()) {
         const conn = c as unknown as { readOnly?: boolean; sendStateless?: (p: string) => void };
         if (this.frozenConnections.has(c as never)) continue;
-        this.frozenConnections.add(c as never);
+        this.frozenConnections.set(c as never, conn.readOnly ?? false);   // H-5：prev 快照（解除还原用）
         conn.readOnly = true;   // B12：库逐条 update 查它——冻结生效
         try { conn.sendStateless?.(JSON.stringify({ type: 'write-frozen', reason: 'draining' })); } catch { /* Y0b 消费 */ }
       }

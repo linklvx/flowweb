@@ -26,13 +26,21 @@ export async function apiFetch<T>(path: string, options?: FetchOptions): Promise
     } catch { /* body 非 JSON，保留状态行 */ }
     // 批3-3：401 → httpExpired 电平置位（登录横幅挂点，批 2 消费）
     if (res.status === 401) useSessionExpiry.getState().setHttpExpired();
-    const err = Object.assign(new Error(msg), { status: res.status, errorCode });
-    throw err;
+    throw Object.assign(new Error(msg), { status: res.status, errorCode, retryAfter: parseRetryAfter(res) });
   }
   const json = await res.json();
   if (json.code !== 0) {
     // 批3-3：业务失败不再丢 HTTP status（消费面按 status 分型瞬态/终态）
-    throw Object.assign(new Error(json.message), { status: res.status, errorCode: json.errorCode });
+    throw Object.assign(new Error(json.message), { status: res.status, errorCode: json.errorCode, retryAfter: parseRetryAfter(res) });
   }
   return json.data;
+}
+
+/** Y0b-3 T9（§5.3 v2.1）：Retry-After 头→毫秒（消费方=withSyncRetry 等待后自动重试一次）。
+ *  缺头/非数值秒（HTTP-date 形态）→undefined（禁 NaN 传播——不重试档）。 */
+function parseRetryAfter(res: Response): number | undefined {
+  const raw = res.headers.get('retry-after');
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n * 1000 : undefined;
 }
