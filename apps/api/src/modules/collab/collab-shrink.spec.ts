@@ -199,7 +199,8 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
   });
 
   it('纯 recalibrate：body {recalibrate:true} 或空体——不删内容也校准+滞回评估（假冻结出口：truth≥softExit 不 thaw）', async () => {
-    // 档一：truth<softExit → thawed=true（校准+出口评估）；body {recalibrate:true}
+    // 档一：truth<softExit 且未冻结 → thawed=false（T8 外审 Concern ①：thaw 冻结前置——未冻结
+    // doc 校准成功≠冻结出口，不得触发 thawQuota）；body {recalibrate:true}
     const gateway = buildGateway({ maxDocBytes: 1 * MiB });
     const doc = seedDoc();
     addNode(doc, 'n1', 4096);
@@ -218,7 +219,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect((gateway as any).docTruth.get('p1')).toBe(expectWatermark);   // 校准=truth 覆写
     expect((gateway as any).docDelta.get('p1')).toBe(0);                 // delta 归零
     expect(recalibrated).toBeGreaterThan(0);
-    expect(r1.thawed).toBe(true);                                        // truth<0.6×MAX→出口评估放行
+    expect(r1.thawed).toBe(false);                                       // 未冻结 doc——thaw 冻结前置（Concern ①）后无出口
 
     // 档二：空体（三字段全无）=纯 recalibrate 同语义
     const r2 = await svc.shrink('p1', 'u1', {});
@@ -298,6 +299,111 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
 
     // deletedIds 响应携带（客户端 undoManager.clear 数据源——Q-G）
     expect(r.deletedIds).toEqual(['n1']);
+  });
+
+  it('thaw 冻结前置（Concern ①）：未冻结 doc shrink 成功 → thawQuota 零调用+exit 计数零增量+零 SyncStep1+冷却窗零污染；冻结 doc → 照常 thaw', async () => {
+    // 臂一：未冻结 doc（truth<softExit 的成功删除）——原实现无条件 thawQuota=exit 虚高+全连接
+    // 冗余 SyncStep1+thawCooldown 30s 污染（活 doc+真连接形态——thawQuota 的 !document 早退不救）
+    const gateway = buildGateway({ maxDocBytes: 1 * MiB });
+    const doc = seedDoc();
+    addNode(doc, 'n1', 4096);
+    const conn = makeConn();
+    attachDoc(gateway, doc, 'p1', [conn]);
+    (gateway as any).docTruth.set('p1', 12345);
+    const { svc } = buildSvc(gateway, doc);
+    const thawSpy = vi.spyOn(gateway, 'thawQuota');
+    let r1: any;
+    const exitDelta = await counterDelta('collab_quota_soft_threshold_total', { action: 'exit' }, async () => {
+      r1 = await svc.shrink('p1', 'u1', { deleteNodeIds: ['n1'] });
+    });
+    expect(r1.result).toBe('ok');
+    expect(r1.thawed).toBe(false);                                  // 未冻结——无 thaw 出口
+    expect(thawSpy).not.toHaveBeenCalled();                         // thawQuota 零调用
+    expect(exitDelta).toBe(0);                                      // soft_threshold{exit} 零增量
+    expect(conn.send).not.toHaveBeenCalled();                       // 冗余 SyncStep1 零往返
+    expect((gateway as any).thawCooldown.has('p1')).toBe(false);    // 30s 冷却窗零污染
+    expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(false);
+
+    // 臂二：冻结 doc → 照常 thaw（exit 计数配对+冷却窗播种——enter/exit 对账不虚高）
+    (gateway as any).freezeQuota('p1');
+    await nextTick();
+    expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(true);
+    let r2: any;
+    const exitDelta2 = await counterDelta('collab_quota_soft_threshold_total', { action: 'exit' }, async () => {
+      r2 = await svc.shrink('p1', 'u1', { recalibrate: true });
+    });
+    expect(r2.thawed).toBe(true);
+    expect(thawSpy).toHaveBeenCalledWith('p1');
+    expect(exitDelta2).toBe(1);                                     // 冻结出口——配对计数
+    expect((gateway as any).thawCooldown.has('p1')).toBe(true);
+    expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(false);
+  });
+
+  it('shrink 成功未 thaw force 广播 bytes（偏差③）：truth 实际变化 → 跳过 dedup rev++/bytes=watermark；truth 未变 → 不广播；滞回带冻结 doc → over 态 force 广播', async () => {
+    // 臂一：未冻结 doc 删除成功（truth 变化）——上次广播同态（dedup 键 {state}:{frozen} 命中，
+    // 非 force 会被吞——其他客户端 localDocBytes 拿不到新 truth 即红相）
+    const gateway = buildGateway({ maxDocBytes: 1 * MiB });
+    const doc = seedDoc();
+    addNode(doc, 'n1', 64 * 1024);
+    addNode(doc, 'n2', 2048);
+    const conn = makeConn();
+    attachDoc(gateway, doc, 'p1', [conn]);
+    const g = gateway as any;
+    g.docTruth.set('p1', Y.encodeStateAsUpdate(doc).byteLength);   // prevTruth=删除前真值
+    g.docStatusRev.set('p1', 1);            // 装载播种形态
+    g.docStatusState.set('p1', 'ok:false'); // 上次广播同态（state/frozen 均未变——dedup 命中面）
+    const rev0 = g.docStatusRev.get('p1');
+    const { svc } = buildSvc(gateway, doc);
+    const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['n1'] });
+    expect(r.result).toBe('ok');
+    expect(r.thawed).toBe(false);                                 // 未冻结（Concern ①）——走 force 广播支
+    expect(g.docStatusRev.get('p1')).toBe(rev0 + 1);              // 跳过 dedup——rev++（无 force 时被吞=rev 不变）
+    const statuses = conn.sendStateless.mock.calls
+      .map((c: any[]) => JSON.parse(c[0]))
+      .filter((m: any) => m?.type === 'doc-status');
+    expect(statuses.length).toBe(1);
+    expect(statuses[0].quota.state).toBe('ok');
+    expect(statuses[0].quota.bytes).toBe(r.watermark);            // 新 truth（滞回带/未冻结客户端的校准源）
+
+    // 臂二：truth 未变（recalibrate 校准同值）→ 不广播（bytes 无变化——dedup 语义反而正确）
+    const rev1 = g.docStatusRev.get('p1');
+    conn.sendStateless.mockClear();
+    const r2 = await svc.shrink('p1', 'u1', { recalibrate: true });
+    expect(r2.result).toBe('recalibrated');
+    expect(r2.watermark).toBe(r.watermark);                       // truth 未变（同 doc 再编码同值）
+    expect(g.docStatusRev.get('p1')).toBe(rev1);                  // 零 rev 变化
+    expect(conn.sendStateless).not.toHaveBeenCalled();            // 零广播
+
+    // 臂三：滞回带冻结 doc——shrink 成功落在 [softExit, softEnter) → 不 thaw+over 态 force 广播新 bytes
+    const gw2 = buildGateway({ maxDocBytes: 8192 });   // softExit=4915/softEnter=6553
+    const doc2 = seedDoc();
+    addNode(doc2, 'big', 6400);
+    addNode(doc2, 'keep', 5500);
+    const conn2 = makeConn();
+    attachDoc(gw2, doc2, 'p2', [conn2]);
+    const g2 = gw2 as any;
+    g2.docTruth.set('p2', Y.encodeStateAsUpdate(doc2).byteLength);
+    g2.freezeQuota('p2');
+    await nextTick();
+    expect(g2.quotaFrozenDocs.has('p2')).toBe(true);
+    const overRev = g2.docStatusRev.get('p2');   // freeze 的 over 广播后（dedup 态=over:true）
+    conn2.sendStateless.mockClear();
+    const s2 = buildSvc(gw2, doc2);
+    const r3 = await s2.svc.shrink('p2', 'u1', { deleteNodeIds: ['big'] });
+    expect(r3.result).toBe('ok');
+    expect(r3.watermark!).toBeGreaterThanOrEqual(Math.floor(8192 * QUOTA_DEFAULTS.softExitRatio));
+    expect(r3.watermark!).toBeLessThan(Math.floor(8192 * QUOTA_DEFAULTS.softEnterRatio));   // 滞回带
+    expect(r3.thawed).toBe(false);                    // 冻结但 truth≥softExit——不 thaw（假冻结出口保持）
+    expect(g2.quotaFrozenDocs.has('p2')).toBe(true);  // 冻结不解除
+    expect(conn2.readOnly).toBe(true);
+    expect(conn2.send).not.toHaveBeenCalled();        // 无 thaw——零 SyncStep1
+    expect(g2.docStatusRev.get('p2')).toBe(overRev + 1);   // over 态 force（dedup 键未变——非 force 被吞）
+    const st3 = conn2.sendStateless.mock.calls
+      .map((c: any[]) => JSON.parse(c[0]))
+      .filter((m: any) => m?.type === 'doc-status');
+    expect(st3.length).toBe(1);
+    expect(st3[0].quota.state).toBe('over');
+    expect(st3[0].quota.bytes).toBe(r3.watermark);    // 冻结期客户端也拿到新 truth
   });
 
   it('全局信号量并发 1：第二并发 shrink 请求等待（非 429——排队）+时长直方图可见', async () => {

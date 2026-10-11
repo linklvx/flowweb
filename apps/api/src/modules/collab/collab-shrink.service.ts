@@ -2,7 +2,8 @@
 // Y0b-4 T8（Q-G，spec §4.1④）：REST 瘦身——影子副本预演（Yjs 无逆 update：scratch 编码测量
 // 达标才写活 doc）+TOCTOU（读+算+删收进 withDoc 同一同步段——fn 全同步契约见
 // collab-document.service.ts transact 语义）+纯 recalibrate（空体同语义——不删内容也校准）
-// +thaw 回灌（truth<softExit 时 thawQuota：解除冻结+SyncStep1 回灌+广播 ok）。
+// +thaw 回灌（冻结态∧truth<softExit 时 thawQuota：解除冻结+SyncStep1 回灌+广播 ok——T8 外审
+// Concern ① 冻结前置）+shrink 成功未 thaw 时 force 广播 bytes（偏差③——滞回带/未冻结客户端校准）。
 // 全局信号量并发 1（编码 8MB×N 并发=CPU 尖峰——排队不拒绝；10s 排队超时 503 SHRINK_BUSY）。
 import { BadRequestException, HttpException, Injectable, Inject, ServiceUnavailableException } from '@nestjs/common';
 import * as Y from 'yjs';
@@ -106,12 +107,23 @@ export class CollabShrinkService {
         deletedIds = victims;
       }
       // 白名单点③：活文档再编码（预演与实际写之间理论并发窗的系统性低估防线）+truth 校准
+      // （prevTruth=校准前值——偏差③ force 广播的"truth 实际变化"判定源）
       const truth = Y.encodeStateAsUpdate(doc).byteLength;
-      this.gateway.calibrateTruth(pid, truth);
-      // 滞回出口评估：truth<softExit(0.6×MAX)→thaw（解除冻结+SyncStep1 回灌+广播 ok）——
-      // 滞回带/以上不 thaw（假冻结出口：大 doc 校准不得误解除冻结）
-      const thawed = truth < Math.floor(this.gateway.activeQuota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio);
+      const prevTruth = this.gateway.calibrateTruth(pid, truth);
+      // 滞回出口评估（Concern ① 冻结前置）：仅配额冻结态才评估 thaw（未冻结 doc 校准成功≠冻结
+      // 出口——原"truth<softExit 即 thawQuota"对未冻结 doc 产生 exit 计数虚高+全连接冗余
+      // SyncStep1 往返+thawCooldown 30s 污染）；滞回带/以上不 thaw（假冻结出口：大 doc 校准
+      // 不得误解除冻结）
+      const thawed = this.gateway.isQuotaFrozen(pid)
+        && truth < Math.floor(this.gateway.activeQuota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio);
       if (thawed) this.gateway.thawQuota(pid);
+      // 偏差③：shrink 成功未 thaw（滞回带/未冻结）→ 其他客户端 localDocBytes 需要新 truth——
+      // force 广播（dedup 键 {state}:{frozen} 不含 bytes，state/frozen 未变会被吞）。仅 truth
+      // 实际变化才 force（truth 未变=bytes 无变化，dedup 吞掉反而正确）；thaw 路径 thawQuota
+      // 内部 broadcast('ok') 已带新 truth bytes，不重发。
+      if (!thawed && prevTruth !== undefined && prevTruth !== truth) {
+        this.gateway.broadcastDocStatusForce(pid);
+      }
       const result = victims.length > 0 ? 'ok' : 'recalibrated';
       collabDocShrinkTotal.inc({ result });
       return { result, watermark: truth, deletedIds, thawed };

@@ -1356,14 +1356,33 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return this.quota;
   }
 
+  /** Y0b-4 T8 外审修复（Concern ①）：配额冻结态公共判定（quotaFrozenDocs ∪ freezePending——
+   *  quotaStateOf==='over' 同域单源）。消费=shrink thaw 前置：未冻结 doc 校准成功≠冻结出口，
+   *  原"truth<softExit 即 thawQuota"对未冻结 doc 产生 exit 计数虚高+全连接冗余 SyncStep1+30s
+   *  thawCooldown 污染。 */
+  isQuotaFrozen(pid: string): boolean {
+    return this.quotaStateOf(pid) === 'over';
+  }
+
+  /** Y0b-4 T8 外审修复（偏差③）：force 广播公共出口——shrink 成功未 thaw（滞回带/未冻结）时其他
+   *  客户端 localDocBytes 需要新 truth；dedup 键 {state}:{frozen} 不含 bytes，state/frozen 未变
+   *  会被吞。state 取 quotaStateOf 现值（调用方无需感知态）。 */
+  broadcastDocStatusForce(pid: string): void {
+    this.broadcastDocStatus(pid, this.quotaStateOf(pid), true);
+  }
+
   /** Y0b-4 T3：真值校准单点（compact 成功+pending 空 / T8 shrink 校准复用——T8 起公共方法）——
    *  truth 覆写+delta 归零+冷却窗基线重置。未装载/已清理（无 docTruth 键）不复活条目——
-   *  afterUnloadDocument 清理语义保持。 */
-  calibrateTruth(projectId: string, bytes: number): void {
-    if (!this.docTruth.has(projectId)) return;
+   *  afterUnloadDocument 清理语义保持。
+   *  Y0b-4 T8 外审修复（偏差③）：返回校准前 truth（无键=undefined）——shrink 消费判定
+   *  "truth 实际变化"决定 force 广播（无变化不广播=dedup 语义反而正确）。 */
+  calibrateTruth(projectId: string, bytes: number): number | undefined {
+    const prev = this.docTruth.get(projectId);
+    if (prev === undefined) return;
     this.docTruth.set(projectId, bytes);
     this.docDelta.set(projectId, 0);
     this.truthMeasuredAt.set(projectId, Date.now());
+    return prev;
   }
 
   /** ===== Y0b-4 T6（Q-E v5/Q-K）：beforeHandleMessage——msg 桶计数+awareness 入站帧闸 =====
@@ -1688,11 +1707,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** doc-status 广播（对该 doc 全部连接 sendStateless）：rev 仅在快照翻转时 ++（重复同态不重播不爬 rev）。
    *  翻转面=T5 扩容的 {quota 态, writeFrozen} 复合——drain 冻结/解除不改变 quota 态但翻转 writeFrozen
-   *  （docStatusState 存复合键——quota 单维判会漏 drain 通告=首快照竞态复活）。 */
-  private broadcastDocStatus(pid: string, state: 'over' | 'ok'): void {
+   *  （docStatusState 存复合键——quota 单维判会漏 drain 通告=首快照竞态复活）。
+   *  Y0b-4 T8 外审修复（偏差③）：forceRevBump=跳过 dedup 直接 rev++ 广播——dedup 键不含 bytes，
+   *  state/frozen 未变但 bytes 变了的通告面（shrink 成功未 thaw 路径经 broadcastDocStatusForce 消费）。 */
+  private broadcastDocStatus(pid: string, state: 'over' | 'ok', forceRevBump = false): void {
     const frozen = state === 'over' || this.collabState === 'draining';
     const key = `${state}:${frozen}`;
-    if (this.docStatusState.get(pid) === key) return;
+    if (!forceRevBump && this.docStatusState.get(pid) === key) return;
     this.docStatusState.set(pid, key);
     this.docStatusRev.set(pid, (this.docStatusRev.get(pid) ?? DOC_STATUS_REV_SEED) + 1);
     const document = this.server.hocuspocus.documents.get(`project:${pid}`);
