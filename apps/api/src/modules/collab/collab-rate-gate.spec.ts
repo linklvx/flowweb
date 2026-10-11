@@ -10,6 +10,8 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
+import { makeFrame as frame, makeAwarenessUpdateBody } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
+import { AWARENESS_FRAME_LIMIT_BYTES } from './collab.gateway';   // T6 外审 M4：帧闸阈值常量绑定（改值本测试红）
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 /** 小值配额（maxDocBytes 8192=bytes 桶容量；bytesRate 1024B/s——滴灌几帧即超） */
@@ -41,26 +43,10 @@ function connectWithCloseSpy(kit: DualClientKit, name: string) {
   return { ...entry, closeInfo: () => closeInfo };
 }
 
-// ---------- varuint 手工编码（裸 ws 帧——T4 quota-gate 同款 15 行） ----------
-function varuint(n: number): number[] {
-  const out: number[] = [];
-  let v = n;
-  while (v > 127) { out.push((v & 127) | 128); v >>>= 7; }
-  out.push(v);
-  return out;
-}
-function frame(docName: string, msgType: number, syncType: number | null, payload: Uint8Array | string | null): Buffer {
-  const nb = Buffer.from(docName, 'utf8');
-  const head = [...varuint(nb.length), ...nb, ...varuint(msgType)];
-  if (syncType !== null) head.push(...varuint(syncType));
-  const body = payload === null ? [] : typeof payload === 'string' ? Buffer.from(payload, 'utf8') : payload;
-  if (payload !== null) head.push(...varuint(body.length));
-  return Buffer.from([...head, ...body]);
-}
-/** awareness update 体：count=1 {client, clock, state(JSON)}（y-protocols encodeAwarenessUpdate 形） */
+// ---------- 裸 ws 帧构造：frame-encoder 单源（T6 外审 M1——varuint/frame/awarenessUpdate 三拷贝收口） ----------
+/** awareness update 体（单条）：count=1 {client, clock, state(JSON)}（y-protocols encodeAwarenessUpdate 形） */
 function awarenessUpdate(clientId: number, clock: number, state: object): Buffer {
-  const sb = Buffer.from(JSON.stringify(state), 'utf8');
-  return Buffer.from([...varuint(1), ...varuint(clientId), ...varuint(clock), ...varuint(sb.length), ...sb]);
+  return Buffer.from(makeAwarenessUpdateBody([{ clientId, clock, state }]));
 }
 
 /** 裸 ws：开连+Auth+等回执（authenticated 连接——后续帧走全链路钩子） */
@@ -199,10 +185,10 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
   it('awareness 入站帧闸：伪造 >64KB awareness 帧 → 1009（beforeHandleMessage 判型——库 IncomingMessage 解析非字节猜型；30/s×16MB=480MB/s 解码路径封死）；<64KB 正常帧通过', async () => {
     const kit = await startDualClientServer({}, 300);
     try {
-      // 臂一：>64KB（帧总长 65,6xx>65,536）→ 1009（解码前拦——巨帧 JSON 解码路径封死）
+      // 臂一：>64KB（帧总长=常量+余量 > AWARENESS_FRAME_LIMIT_BYTES——M4 常量绑定：闸值改小本测试红）
       const big = await openAuthedWs(kit, 'project:awgate');
       const rejected = await metricDelta('collab_quota_frame_rejected_total', { reason: 'frame-too-large' }, async () => {
-        big.client.send(frame('project:awgate', 1 /* Awareness */, null, awarenessUpdate(999, 1, { pad: 'a'.repeat(65_600) })));
+        big.client.send(frame('project:awgate', 1 /* Awareness */, null, awarenessUpdate(999, 1, { pad: 'a'.repeat(AWARENESS_FRAME_LIMIT_BYTES + 64) })));
         await pollUntil(() => big.closeInfo() !== null, 8_000);
       });
       expect(rejected).toBeGreaterThanOrEqual(1);

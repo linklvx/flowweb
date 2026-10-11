@@ -110,10 +110,11 @@ export const collabAwarenessRejectTotal = new Counter({
 /** Y0b-3 T6（P-O）：应用侧主动 close 分布——code=CollabCloseCode 分配表值（1000/1012/4401/4402），
  *  reason=close 时附语义串。边界（v3 钉死）：库自发/自然断连的服务端观测结构性不可达
  *  （onDisconnectPayload 无 close code 字段——归 Y0b-5 客户端遥测）；ws 层自发 close（如 1009
- *  maxPayload）不经本指标。**调用点全枚举（恰五个，新增第六点必须同批补注）**：
+ *  maxPayload）不经本指标。**调用点全枚举（恰六个，新增第七点必须同批补注）**：
  *  ①beginDrainAutoRelease（1012 drain released）②enforceConnMaxLifetime（4402 max-lifetime）
  *  ③scheduleSweepClose（4401 session-expired）④closeAllConnections1012（1012 service restart）
- *  ⑤closeTeamDocuments（1000 team disbanded）。 */
+ *  ⑤closeTeamDocuments（1000 team disbanded）⑥hardCloseWs=wrapBackpressure 二级
+ *  （1011 slow-consumer，Y0b-4 T7——ws 级变体，conn 级五点仍走 hardClose）。 */
 export const collabWsCloseTotal = new Counter({
   name: 'collab_ws_close_total',
   help: 'collab 应用侧主动 webSocket.close 分布（code=分配表值；reason=close 语义串——库自发断连不可观测归客户端遥测）',
@@ -477,5 +478,28 @@ export const collabAwarenessStrippedTotal = new Counter({
   name: 'collab_awareness_stripped_total',
   help: 'awareness 剔字段次数（reason=read-only 剔 cursor/selection 保 user 回显；T13 扩 solo|over-8）',
   labelNames: ['reason'],
+  registers: [register],
+});
+
+/** ===== Y0b-4 T7（spec §5.2/Q-F v2）：出站背压三指标 ===== */
+
+/** 一级降级：backlog>1MB 的 awareness 帧 drop 计数（只丢 presence 不丢 doc 同步；判型=readFrameType 单源）。 */
+export const collabAwarenessDroppedTotal = new Counter({
+  name: 'collab_awareness_dropped_total',
+  help: '出站背压一级 awareness 帧丢弃次数（backlog>1MB——只丢 presence 不丢 doc 同步；判型=readFrameType 库解析单源）',
+  registers: [register],
+});
+/** 二级断连：backlog>4MB close(1011) slow-consumer（每 send 判非采样——停滞 socket 内存上界保护）。 */
+export const collabSlowConsumerDisconnectTotal = new Counter({
+  name: 'collab_slow_consumer_disconnect_total',
+  help: '出站背压二级断连次数（backlog>4MB——close(1011) slow-consumer；每 send 判非采样）',
+  registers: [register],
+});
+/** 出站 backlog 直方图（1/10 采样**只归观测**——drop/close 决策每 send 判与采样分离，外审 P1-3；
+ *  help 不写 ws 库字段名——census ⑤ 生产读点唯一=wrapBackpressure〔collab.gateway.ts〕）。 */
+export const yjsOutboundBacklogBytes = new Histogram({
+  name: 'yjs_outbound_backlog_bytes',
+  help: '出站 ws 发送积压字节分布（1/10 采样只归观测——决策每 send 判与采样分离）',
+  buckets: [16 * 1024, 64 * 1024, 256 * 1024, 1_048_576, 2_097_152, 4_194_304, 8_388_608, 16_777_216],
   registers: [register],
 });

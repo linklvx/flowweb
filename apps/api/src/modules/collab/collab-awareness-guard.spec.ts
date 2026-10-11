@@ -10,6 +10,7 @@ import type { HocuspocusProvider } from '@hocuspocus/provider';
 import { register } from 'prom-client';
 import { startDualClientServer, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
+import { makeAwarenessFrame as awarenessFrame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源（原 pushVar 族+awarenessFrame 收口）
 import { userColorOfUserId } from '@flowweb/shared';
 
 const DOC = 'project:ap1';
@@ -26,38 +27,9 @@ const serverUserOf = (token: string) => {
 
 let kit: DualClientKit;
 
-// —— awareness 帧 wire 编码（lib0 变长整数手编——behavior-anchors.gate.spec 手解同款；apps/api 无 lib0
-// 直依赖，AwarenessMessage 类亦非 provider 运行时出口——裸帧构造=伪造路径的最小可行形态）——
-function pushVarUint(out: number[], num: number): void {
-  for (;;) {
-    if (num < 0x80) { out.push(num); return; }
-    out.push((num & 0x7f) | 0x80);
-    num = Math.floor(num / 0x80);
-  }
-}
-function pushVarString(out: number[], s: string): void {
-  const bytes = Array.from(new TextEncoder().encode(s));
-  pushVarUint(out, bytes.length);
-  out.push(...bytes);
-}
-function pushVarUint8Array(out: number[], arr: Uint8Array): void {
-  pushVarUint(out, arr.length);
-  out.push(...Array.from(arr));
-}
-function awarenessFrame(documentName: string, entries: Array<{ clientId: number; clock: number; state: unknown }>): Uint8Array {
-  const upd: number[] = [];
-  pushVarUint(upd, entries.length);
-  for (const e of entries) {
-    pushVarUint(upd, e.clientId);
-    pushVarUint(upd, e.clock);
-    pushVarString(upd, JSON.stringify(e.state));
-  }
-  const frame: number[] = [];
-  pushVarString(frame, documentName);
-  pushVarUint(frame, 1);   // MessageType.Awareness
-  pushVarUint8Array(frame, Uint8Array.from(upd));
-  return Uint8Array.from(frame);
-}
+// awareness 帧 wire 编码=frame-encoder 单源（原 pushVarUint/pushVarString/pushVarUint8Array/
+// awarenessFrame 手编收口——apps/api 无 lib0 直依赖，AwarenessMessage 类亦非 provider 运行时出口，
+// 裸帧构造=伪造路径的最小可行形态）。
 
 /** 伪造 awareness 帧发送：绕过客户端 awareness 状态机——裸 ws 帧直发（clientId 可为任意值，state
  *  任意形状；meta 播种 clock 保证帧过 y-protocols 时钟门——若非丢弃路径，doc 侧必真应用）。 */

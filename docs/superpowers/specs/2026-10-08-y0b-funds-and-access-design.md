@@ -874,6 +874,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_auth_inflight
 - collab_auth_reject_total
 - collab_auth_timeout_total
+- collab_awareness_dropped_total
 - collab_awareness_rate_exceeded_total
 - collab_awareness_reject_total
 - collab_awareness_stripped_total
@@ -893,6 +894,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_quota_truth_measure_duration_seconds
 - collab_quota_truth_measured_total
 - collab_quota_writes_dropped_total
+- collab_slow_consumer_disconnect_total
 - collab_start_failure_total
 - collab_sweep_close_total
 - collab_unhandled_rejection_total
@@ -927,6 +929,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_inbound_frame_bytes
 - yjs_loaded_doc_bytes
 - yjs_loaded_documents
+- yjs_outbound_backlog_bytes
 - yjs_pending_batches
 - yjs_pending_bytes
 - yjs_pending_projects

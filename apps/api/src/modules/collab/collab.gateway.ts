@@ -12,7 +12,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabSpoolService } from './collab-spool.service';
@@ -68,7 +68,9 @@ interface CollabConnection {
   sendStateless?: (payload: string) => void;
   send?: (message: Uint8Array) => void;
   messageAddress?: string;
-  webSocket?: { close: (code: number, reason: string) => void };
+  /** Y0b-4 T7：webSocket 结构面子集扩 send/bufferedAmount（wrapBackpressure 消费——ws 库
+   *  WebSocketLike 可变窄到本形状；stub ws 测试装置同形）。 */
+  webSocket?: { send: (data: unknown) => void; close: (code: number, reason: string) => void; bufferedAmount?: number };
 }
 
 /** Y0b-4 T4（Q-D v5/v6）：per-conn 持续强推升级窗——双阈（20 帧或 2×maxTxBytes）∧跨 10s
@@ -85,6 +87,12 @@ const FROZEN_RECHECK_INTERVAL_MS = 30_000;
  *  30/s×16MB=480MB/s 解码路径封死，报告1 P1-1）。两个实体两个名：本常量=帧字节闸；
  *  AWARENESS_STATES_LIMIT_BYTES=4KB 解码后 states 字节判归 T12（勿混）。 */
 export const AWARENESS_FRAME_LIMIT_BYTES = 64 * 1024;
+
+/** Y0b-4 T7（Q-F v2）：出站背压双阈——一级 awareness drop（backlog>1MB 只丢 presence）/二级
+ *  close(1011)（backlog>4MB 慢消费者断连，backoff 档重连自愈）。census ⑤：bufferedAmount
+ *  生产读点唯一=wrapBackpressure（决策每 send 判，两阈具名常量——测试常量绑定防漂移）。 */
+export const BACKPRESSURE_DROP_BYTES = 1_048_576;
+export const BACKPRESSURE_CLOSE_BYTES = 4_194_304;
 
 /** 批3-4 persist-status 退避梯（doc 级活 doc 队列再 flush+detached spool 帧通道两阶段）。
  *  Y0a-2（spec v2.4 §2.3）：退避**无上限**——spool 已保底（BOI），梯子只加速恢复，永不"耗尽"弃守；
@@ -343,6 +351,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         this.connEstablishedAt.set(socketId, Date.now());   // Y0b-3 T6：寿命台账播种
         const c = connection as unknown as CollabConnection;
         if (c) {
+          this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——WeakSet 幂等）
           const intent = c.context?.freezeIntent;
           if (c.readOnly && !this.writeFreeze.has(c) && (intent === 'viewer' || intent === 'spool')) {
             this.applyWriteFreeze(c, intent, true);   // auth 意图登记（sendStateless conn-status 补推同点）
@@ -1356,7 +1365,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  throw 兜底语义同 T4：code 权威投递=hardClose.webSocket.close 先行，throw 清空同批后续帧。 */
   private async guardMessageFrame({ update, socketId, connection }: beforeHandleMessagePayload): Promise<void> {
     const conn = connection as unknown as CollabConnection;
-    if (readFrameType(update) === MessageType.Awareness && update.length > AWARENESS_FRAME_LIMIT_BYTES) {
+    if (update.length > AWARENESS_FRAME_LIMIT_BYTES && readFrameType(update) === MessageType.Awareness) {   // 长度前置短路（T6 外审 M2）——常规帧（≤64KB 全量）免解析，语义恒等
       collabQuotaFrameRejectedTotal.inc({ reason: 'frame-too-large' });
       this.hardClose(conn, CollabCloseCode.LIB_MESSAGE_TOO_BIG, 'frame-too-large');
       throw Object.assign(new Error('awareness frame too large'), { code: CollabCloseCode.LIB_MESSAGE_TOO_BIG, reason: 'frame-too-large' });
@@ -1463,6 +1472,48 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       conn?.webSocket?.close(code, reason);
       collabWsCloseTotal.inc({ code: String(code), reason });
     } catch { /* 已断 */ }
+  }
+
+  /** Y0b-4 T7：ws 级 hardClose 变体（wrapBackpressure 内只有 ws 无 conn——close+计数复用 hardClose
+   *  的 ws 部分）。调用点编号=collabWsCloseTotal 注释⑥。 */
+  private hardCloseWs(ws: NonNullable<CollabConnection['webSocket']>, code: number, reason: string): void {
+    try {
+      ws.close(code, reason);
+      collabWsCloseTotal.inc({ code: String(code), reason });
+    } catch { /* 已断 */ }
+  }
+
+  /** ===== Y0b-4 T7（Q-F v2）：出站背压 wrap——webSocket.send 包装（库 Connection.send 恒经
+   *  this.webSocket.send〔esm:390-397 属性查找〕=出站必经点，T0 探针①）=====
+   *  决策每 send 判 O(1) 读 bufferedAmount（**不进采样**——停滞 socket 两次 send 间可再堆 10 帧，
+   *  决策挂采样=内存上界放大一个数量级，外审 P1-3）：二级 >BACKPRESSURE_CLOSE_BYTES 立即
+   *  close(1011)〔backoff 档瞬态〕；一级 >BACKPRESSURE_DROP_BYTES 且 awareness 帧丢弃（判型=
+   *  readFrameType 单源〔H-5 库解析禁字节猜型〕；异常 null=放行；sync/stateless 永不 drop——doc
+   *  同步不可丢）。1/10 采样只归 yjsOutboundBacklogBytes 直方图观测。wrap 点=connected 钩子
+   *  （onAuthenticatePayload 无 connection/webSocket 字段〔d.ts:473-483〕——connected=其后首个
+   *  conn 可得钩子；多文档连接同 ws 多次 connected，WeakSet 防二次包装）。 */
+  private readonly backpressureWrapped = new WeakSet<NonNullable<CollabConnection['webSocket']>>();
+
+  private wrapBackpressure(conn: CollabConnection): void {
+    const ws = conn.webSocket;
+    if (!ws || this.backpressureWrapped.has(ws)) return;
+    this.backpressureWrapped.add(ws);
+    const orig = ws.send.bind(ws);
+    let sends = 0;
+    ws.send = (data: unknown) => {
+      const backlog = ws.bufferedAmount ?? 0;   // census ⑤：生产唯一读点（spec 装置除外）
+      if (backlog > BACKPRESSURE_CLOSE_BYTES) {   // 二级：每 send 判（非采样）
+        collabSlowConsumerDisconnectTotal.inc();
+        this.hardCloseWs(ws, CollabCloseCode.SLOW_CONSUMER, 'slow-consumer');
+        return;
+      }
+      if (backlog > BACKPRESSURE_DROP_BYTES && readFrameType(data as Uint8Array) === MessageType.Awareness) {   // 一级：只 drop awareness
+        collabAwarenessDroppedTotal.inc();
+        return;
+      }
+      if (++sends % 10 === 0) yjsOutboundBacklogBytes.observe(backlog);   // 采样只归观测（决策不进采样）
+      orig(data);
+    };
   }
 
   /** writeFreeze 单源查询（auth→connected 登记窗的回退：context.freezeIntent 意图 / 冻结期加入映射 quota）。 */

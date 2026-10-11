@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { register } from 'prom-client';
 import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
+import { makeFrame as frame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
 import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
 /** 小值配额（maxDocBytes 8KB/soft 6553；Update 帧闸 2×maxTxBytes=8192） */
@@ -48,22 +49,7 @@ async function freezeDoc(gw: any, pid: string): Promise<void> {
 const serverDoc = (gw: any, pid: string) => gw.server.hocuspocus.documents.get(`project:${pid}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// ---------- varuint 手工编码（裸 ws Step2 帧闸用例——lib0 非直接依赖，自含 15 行） ----------
-function varuint(n: number): number[] {
-  const out: number[] = [];
-  let v = n;
-  while (v > 127) { out.push((v & 127) | 128); v >>>= 7; }
-  out.push(v);
-  return out;
-}
-function frame(docName: string, msgType: number, syncType: number | null, payload: Uint8Array | string | null): Buffer {
-  const nb = Buffer.from(docName, 'utf8');
-  const head = [...varuint(nb.length), ...nb, ...varuint(msgType)];
-  if (syncType !== null) head.push(...varuint(syncType));
-  const body = payload === null ? [] : typeof payload === 'string' ? Buffer.from(payload, 'utf8') : payload;
-  if (payload !== null) head.push(...varuint(body.length));
-  return Buffer.from([...head, ...body]);
-}
+// 裸 ws 帧构造=frame-encoder 单源（T6 外审 M1——varuint/frame 两拷贝收口，本 spec 仅 Sync/Auth 帧形）
 
 describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('真红门①a 首触硬限：冻结+放行本帧（客户端编辑不丢）+快照 over 先到——【非断连】', async () => {
