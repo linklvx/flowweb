@@ -5,7 +5,7 @@
  *  4408 ConnectionTimeout（注意：provider 客户端合成 (4408,'forced') 三击强制〔esm:342-357〕——双键分型
  *  以 synthetic 标记区分诊断）/1009 MessageTooBig。
  *  应用侧：1012 计划内重启（既有）/4401 'session-expired'（sweep）/1000 team disbanded/
- *  4402 max-lifetime（本批新）——4404 doc-over-quota/4410 generation-superseded 为 Y0b-4/Y1c-1 预留值（注释钉死）。 */
+ *  4402 max-lifetime/4404 doc-over-quota（Y0b-4 实装）/4410 generation-superseded（Y0b-4 启用——spec §3.5 预留提前消费）。 */
 import {
   ConnectionTimeout,
   Forbidden,
@@ -20,13 +20,19 @@ export const CollabCloseCode = {
   APP_RESTART: 1012,
   SESSION_EXPIRED: 4401,        // 应用 sweep（reason='session-expired'）与库 Unauthorized 同码异 reason——双键分型
   MAX_LIFETIME: 4402,
+  // —— Y0b-4 配额/代际码（spec §3.5）——**码只能经 webSocket.close 抵达**——P7；
+  // throw 的 code 被 Connection.close 丢弃（T0 探针②运行实证：throw 路径客户端 30s 僵尸
+  // 零 close，webSocket.close 是唯一可行投递路径）——
+  DOC_OVER_QUOTA: 4404,        // 文档超配额终态（自救归 T4/T11）
+  GENERATION_SUPERSEDED: 4410, // 代际被超（v6 启用——spec §3.5 预留提前消费）
+  RATE_LIMITED_CLOSE: 1008,    // 消息频率超限（瞬态——backoff 重连）
+  SLOW_CONSUMER: 1011,         // 消费过慢被踢（瞬态——backoff 重连）
   // —— 库自发码（@hocuspocus/common 单源重导出——P-N：.code 引用，库升级值自动跟随）——
   LIB_RESET: ResetConnection.code,
   LIB_UNAUTHORIZED: Unauthorized.code,
   LIB_FORBIDDEN: Forbidden.code,
   LIB_CONNECTION_TIMEOUT: ConnectionTimeout.code,
   LIB_MESSAGE_TOO_BIG: MessageTooBig.code,
-  // 预留（本批不产生，Y0b-4/Y1c-1 消费）：DOC_OVER_QUOTA: 4404, GENERATION_SUPERSEDED: 4410,
 } as const;
 
 export type CloseActionKind =
@@ -41,6 +47,12 @@ export interface CloseAction { kind: CloseActionKind; terminalReason?: string; s
 /** terminalReason 字面量单源（Y0b-3 T9：runtime/SyncBanner 消费——禁散落字面量） */
 export const MESSAGE_TOO_BIG_TERMINAL_REASON = 'message-too-big' as const;
 
+/** Y0b-4 T1：配额/代际 terminal 原因常量单源（T5 close 映射/T11 终态档/T9a 检测点共用——字段一致矩阵：
+ * 四侧字面量漂移=执行卡死，一律经本常量引用）。 */
+export const DOC_OVER_QUOTA_TERMINAL_REASON = 'doc-over-quota' as const;
+export const DOC_VACUUMING_TERMINAL_REASON = 'doc-vacuuming' as const;
+export const DOC_GENERATION_STALE_TERMINAL_REASON = 'doc-generation-stale' as const;
+
 export function resolveCloseAction(code: number, reason: string | undefined): CloseAction {
   // (code,reason) 双键分型（spec §5.2 v2.1）——只判 code 会把库 Unauthorized 当会话过期无限续期
   if (code === CollabCloseCode.SESSION_EXPIRED) {
@@ -48,12 +60,22 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
     return { kind: 'terminal', terminalReason: 'session-expired' }; // 含库默认 'Unauthorized'/reason 缺失
   }
   if (code === CollabCloseCode.APP_RESTART) return { kind: 'planned-restart' };
-  if (code === CollabCloseCode.NORMAL) return { kind: 'normal' };
+  // Y0b-4 T1：4410 双 reason（doc-vacuuming/doc-generation-stale）均落 terminal——reason 仅诊断区分（透传）
+  if (code === CollabCloseCode.GENERATION_SUPERSEDED) return { kind: 'terminal', terminalReason: reason };
+  if (code === CollabCloseCode.DOC_OVER_QUOTA) return { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON };
+  if (code === CollabCloseCode.NORMAL) {
+    // 库抹码形态兜底（外审 P0-2 尾巴）：旧路径/竞态下客户端可能观测 (1000,'doc-over-quota')
+    // ——reason 匹配配额终态时不得落 normal，双键分型先于 NORMAL 判定
+    if (reason === DOC_OVER_QUOTA_TERMINAL_REASON) return { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON };
+    return { kind: 'normal' };
+  }
   if (code === CollabCloseCode.LIB_MESSAGE_TOO_BIG) return { kind: 'terminal', terminalReason: MESSAGE_TOO_BIG_TERMINAL_REASON };
   if (code === CollabCloseCode.LIB_CONNECTION_TIMEOUT) {
     return reason === 'forced'
       ? { kind: 'backoff', synthetic: true }   // 客户端合成（三击强制）——诊断标记
       : { kind: 'backoff' };
   }
+  if (code === CollabCloseCode.RATE_LIMITED_CLOSE) return { kind: 'backoff' };  // 1008 消息频率超限——瞬态
+  if (code === CollabCloseCode.SLOW_CONSUMER) return { kind: 'backoff' };       // 1011 消费过慢——瞬态
   return { kind: 'backoff' }; // 4205/4403/4402 max-lifetime/未知——全瞬态退避档（4403：sweep/事件驱动先踢，此处 fail-safe 重连后 auth 面给权威 reason）
 }

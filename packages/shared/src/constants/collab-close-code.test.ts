@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { resolveCloseAction, CollabCloseCode } from './collab-close-code';
+import {
+  resolveCloseAction, CollabCloseCode, MESSAGE_TOO_BIG_TERMINAL_REASON,
+  DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON,
+} from './collab-close-code';
 import { ConnectionTimeout, Forbidden, MessageTooBig, ResetConnection, Unauthorized } from '@hocuspocus/common';
 
 describe('CollabCloseCode 分配表（spec §3.5）——库值单源锚（P-N）', () => {
@@ -52,5 +55,29 @@ describe('resolveCloseAction（code,reason 双键分型——spec §5.2 v2.1）'
   });
   it('未知 code=backoff（fail-safe 重连）', () => {
     expect(resolveCloseAction(4999, '').kind).toBe('backoff');
+  });
+});
+
+describe('Y0b-4 T1 配额/代际码四码+terminal 原因常量（spec §3.5）', () => {
+  it('四码三常量：DOC_OVER_QUOTA=4404/GENERATION_SUPERSEDED=4410（v6 启用——spec §3.5 预留提前消费）均 terminal；RATE_LIMITED_CLOSE=1008/SLOW_CONSUMER=1011 且 backoff；DOC_VACUUMING_TERMINAL_REASON/DOC_GENERATION_STALE_TERMINAL_REASON 常量单源（T5 close 映射/T11 终态档/T9a 检测点共用——字段一致矩阵）', () => {
+    expect(resolveCloseAction(4410, DOC_VACUUMING_TERMINAL_REASON).kind).toBe('terminal');
+    expect(resolveCloseAction(4410, DOC_GENERATION_STALE_TERMINAL_REASON).kind).toBe('terminal');
+    expect(CollabCloseCode.DOC_OVER_QUOTA).toBe(4404);
+    expect(resolveCloseAction(4404, DOC_OVER_QUOTA_TERMINAL_REASON).kind).toBe('terminal');
+    expect(CollabCloseCode.RATE_LIMITED_CLOSE).toBe(1008);
+    expect(resolveCloseAction(1008, 'msg-rate-exceeded').kind).toBe('backoff');
+    expect(CollabCloseCode.SLOW_CONSUMER).toBe(1011);
+    expect(resolveCloseAction(1011, 'slow-consumer').kind).toBe('backoff');
+  });
+  it('库抹码形态分型：(1000, doc-over-quota) 不得落 normal——reason 双键兜底', () => {
+    // 外审 P0-2 尾巴：旧路径/竞态下客户端可能观测 (1000,'doc-over-quota')——reason 匹配
+    // DOC_OVER_QUOTA_TERMINAL_REASON 时必须落 terminal（禁字面量 reason 散落——常量单源）
+    expect(resolveCloseAction(1000, DOC_OVER_QUOTA_TERMINAL_REASON).kind).toBe('terminal');
+  });
+  it('terminal 原因常量字面量锚（MESSAGE_TOO_BIG 同款模式——字面量即线路协议契约，漂移即红）', () => {
+    expect(DOC_OVER_QUOTA_TERMINAL_REASON).toBe('doc-over-quota');
+    expect(DOC_VACUUMING_TERMINAL_REASON).toBe('doc-vacuuming');
+    expect(DOC_GENERATION_STALE_TERMINAL_REASON).toBe('doc-generation-stale');
+    expect(MESSAGE_TOO_BIG_TERMINAL_REASON).toBe('message-too-big');
   });
 });

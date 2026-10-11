@@ -9,7 +9,7 @@ export type { SubscriptionErrorCode } from './constants/subscription-error';
 export { CollabAuthReason, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS } from './constants/collab-auth-reason';
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 // Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
-export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON } from './constants/collab-close-code';
+export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON } from './constants/collab-close-code';
 export type { CloseAction, CloseActionKind } from './constants/collab-close-code';
 export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/collab-protocol';
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
