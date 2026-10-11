@@ -60,7 +60,9 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
     return { kind: 'terminal', terminalReason: 'session-expired' }; // 含库默认 'Unauthorized'/reason 缺失
   }
   if (code === CollabCloseCode.APP_RESTART) return { kind: 'planned-restart' };
-  // Y0b-4 T1：4410 双 reason（doc-vacuuming/doc-generation-stale）均落 terminal——reason 仅诊断区分（透传）
+  // Y0b-4 T1：4410 双 reason（doc-vacuuming/doc-generation-stale）均落 terminal——reason 仅诊断区分（透传）。
+  // 前置条件：4410 调用方（T9a hardClose）恒携带 reason 常量——terminalReason undefined 仅出现在库抹码异常形态
+  // （下游 runtime 非空断言直取；(1000,reason) 兜底不对称=登记项，T9a 实装时评估）
   if (code === CollabCloseCode.GENERATION_SUPERSEDED) return { kind: 'terminal', terminalReason: reason };
   if (code === CollabCloseCode.DOC_OVER_QUOTA) return { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON };
   if (code === CollabCloseCode.NORMAL) {

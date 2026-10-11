@@ -50,7 +50,7 @@ export function isCollabDocStatusPayload(msg: unknown): msg is CollabDocStatusPa
   if (m.type !== 'doc-status') return false;
   if (typeof m.rev !== 'number' || !Number.isFinite(m.rev)) return false;
   if (typeof m.writeFrozen !== 'boolean') return false;
-  if (m.generation !== undefined && typeof m.generation !== 'number') return false;
+  if (m.generation !== undefined && (typeof m.generation !== 'number' || !Number.isFinite(m.generation))) return false;
   if (typeof m.quota !== 'object' || m.quota === null) return false;
   const q = m.quota as Record<string, unknown>;
   if (q.state !== 'over' && q.state !== 'ok') return false;
