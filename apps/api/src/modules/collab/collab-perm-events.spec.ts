@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
 import { TeamService } from '../team/team.service';
+import { ProjectMemberService } from '../team/project-member.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -54,6 +55,7 @@ interface FakeConn {
   sendStateless: ReturnType<typeof vi.fn>;
   webSocket: { close: ReturnType<typeof vi.fn> };
   document: { name: string };
+  readOnly?: boolean;
 }
 
 function makeConn(name: string, overrides: { expiresAt?: Date; socketId?: string } = {}): FakeConn {
@@ -244,7 +246,7 @@ describe('Y0b-3 T8 对端可见锚（真连——awareness role 改写实接）'
     const { provider: peer, synced: s2 } = kit.connect(DOC, 'tokA');   // 对端=可见性判官（真连）
     await s2;
     const editorClientId = (editor.awareness as any).clientID as number;
-    await pollUntil(() => (peer.awareness.getStates().get(editorClientId) as any)?.user?.role === 'PROJECT_EDITOR');   // 基线：改写前对端见 EDITOR
+    await pollUntil(() => ((peer.awareness as any).getStates().get(editorClientId) as any)?.user?.role === 'PROJECT_EDITOR');   // 基线：改写前对端见 EDITOR
     // DB 翻转：u2 → VIEWER（removeMember/降权后的复验结论）
     kit.permSvc.resolveWithTeam.mockImplementation(async (_pid: string, uid: string) =>
       ({ role: uid === 'u2' ? 'PROJECT_VIEWER' : 'PROJECT_EDITOR', teamId: 't1' }));
@@ -258,7 +260,7 @@ describe('Y0b-3 T8 对端可见锚（真连——awareness role 改写实接）'
     expect(inc).toBe(1);                                  // 降级计数（现状红：rewriteAwarenessRole 为 no-op——本断言仍绿，锚在对端）
     expect((conn as any).readOnly).toBe(true);            // 服务端旁证①：readOnly 置位
     expect((kit.gateway.server.hocuspocus.documents.get(DOC)!.awareness as any).states.get(editorClientId)?.user?.role).toBe('PROJECT_VIEWER');   // 服务端旁证②（禁只断言到这——假绿型）
-    await pollUntil(() => (peer.awareness.getStates().get(editorClientId) as any)?.user?.role === 'PROJECT_VIEWER', 5_000, 20);   // ★对端可见值（clock 递增的证据）——现状红：no-op 改写对端恒 EDITOR
+    await pollUntil(() => ((peer.awareness as any).getStates().get(editorClientId) as any)?.user?.role === 'PROJECT_VIEWER', 5_000, 20);   // ★对端可见值（clock 递增的证据）——现状红：no-op 改写对端恒 EDITOR
   });
 });
 
@@ -325,5 +327,50 @@ describe('Y0b-3 T8 emit 点接线（team.service）', () => {
     const { service, emitter } = buildTeamService();
     await service.transferOwnership('t1', 'caller', 'u-target');
     expect(emitter.emit).toHaveBeenCalledWith('collab.perm.changed', { userId: 'caller', teamId: 't1' });   // 现状红：零 emit（原 OWNER 被降权）
+  });
+});
+
+// ===== emit 点接线（project-member.service——spec §3.1 字面项：显式 ProjectMember 行变更点。
+// 漏 emit=显式授权撤权/降权只走 sweep 5min 兜底→复验失败再 5s grace，越权写感知窗 9-11min）=====
+describe('Y0b-3 T8 评审修复 emit 点接线（project-member.service）', () => {
+  function buildProjectMemberService() {
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ name: '操作者' }) },
+      canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
+      team: { findUnique: vi.fn().mockResolvedValue({ isDefault: false }) },
+      teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) },   // target 在团 + caller=OWNER 两查同 mock
+      projectMember: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'm1', role: 'PROJECT_EDITOR' }),
+        count: vi.fn().mockResolvedValue(2),
+        upsert: vi.fn().mockResolvedValue({}),
+        delete: vi.fn().mockResolvedValue({}),
+      },
+    };
+    const emitter = { emit: vi.fn() };
+    const service = new ProjectMemberService(
+      prisma as any,
+      { resolve: vi.fn().mockResolvedValue('PROJECT_OWNER') } as any,
+      { log: vi.fn() } as any,
+      emitter as any,
+    );
+    return { service, emitter };
+  }
+
+  it('add → emit("collab.perm.changed", { userId, teamId })（显式授权变更面——teamId 取自 project 行，gateway 按 userId+teamId 匹配）', async () => {
+    const { service, emitter } = buildProjectMemberService();
+    await service.add('p1', 'caller', 'u2', 'PROJECT_EDITOR');
+    expect(emitter.emit).toHaveBeenCalledWith('collab.perm.changed', { userId: 'u2', teamId: 't1' });   // 现状红：零 emit
+  });
+
+  it('changeRole（EDITOR→VIEWER 显式行降权）→ 委托 add 自动 emit', async () => {
+    const { service, emitter } = buildProjectMemberService();
+    await service.changeRole('p1', 'caller', 'u2', 'PROJECT_VIEWER');
+    expect(emitter.emit).toHaveBeenCalledWith('collab.perm.changed', { userId: 'u2', teamId: 't1' });   // 现状红：零 emit
+  });
+
+  it('remove → emit（显式行撤权核心面）', async () => {
+    const { service, emitter } = buildProjectMemberService();
+    await service.remove('p1', 'caller', 'u2');
+    expect(emitter.emit).toHaveBeenCalledWith('collab.perm.changed', { userId: 'u2', teamId: 't1' });   // 现状红：零 emit
   });
 });

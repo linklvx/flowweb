@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from './project-permission.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -9,6 +10,7 @@ export class ProjectMemberService {
     private readonly prisma: PrismaService,
     private readonly perm: ProjectPermissionService,
     private readonly audit: AuditService,
+    @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private async userName(userId: string): Promise<string> {
@@ -91,6 +93,7 @@ export class ProjectMemberService {
       update: { role },
       create: { projectId, userId: targetUserId, role },
     });
+    this.emitPermChanged(targetUserId, project.teamId);   // Y0b-3 T8 评审修复：显式授权变更面（spec §3.1 字面项——changeRole 委托本方法自动覆盖）
     await this.audit.log({
       operatorId: callerId,
       operatorName: await this.userName(callerId),
@@ -125,6 +128,7 @@ export class ProjectMemberService {
       if (ownerCount <= 1) throw new BadRequestException('不能移除最后一个项目所有者');
     }
     await this.prisma.projectMember.delete({ where: { id: record.id } });
+    this.emitPermChanged(targetUserId, project.teamId);   // Y0b-3 T8 评审修复：显式行撤权核心面（不 emit=复验判据真实输入变更零信号，越权写感知窗退化 sweep 兜底 9-11min）
     await this.audit.log({
       operatorId: callerId,
       operatorName: await this.userName(callerId),
@@ -134,5 +138,11 @@ export class ProjectMemberService {
       action: 'remove_project_member',
     });
     return { ok: true };
+  }
+
+  /** Y0b-3 T8 评审修复：显式 ProjectMember 行变更=resolveWithTeam 显式档输入（WS 复验判定真实
+   *  输入）——变更点 emit 事件触发 gateway permCache 失效+立即 sweep（team.service 同款形态）。 */
+  private emitPermChanged(userId: string, teamId: string): void {
+    this.eventEmitter.emit('collab.perm.changed', { userId, teamId });
   }
 }

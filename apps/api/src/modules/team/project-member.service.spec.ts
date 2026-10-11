@@ -25,7 +25,7 @@ describe('ProjectMemberService', () => {
         delete: vi.fn(),
       },
     };
-    svc = new ProjectMemberService(prisma, permSvc as any, audit as any);
+    svc = new ProjectMemberService(prisma, permSvc as any, audit as any, { emit: vi.fn() });
   });
 
   it('list：显式记录 + 全团队成员有效角色推导（继承标注）', async () => {
