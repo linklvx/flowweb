@@ -44,8 +44,9 @@ export function persistRetryDelayMs(rung: number): number {
   const table = [1_000, 2_000, 5_000, 15_000, 30_000];
   return rung < table.length ? table[rung] : 60_000;
 }
-/** 批3-4 sweep 轮询与 grace 窗 */
-const SESSION_SWEEP_INTERVAL_MS = 60_000;
+/** 批3-4 sweep 轮询与 grace 窗。Y0b-3 T8：间隔 60s→5min——事件驱动为主（collab.perm.changed 即时
+ *  踢权）后 sweep 降为兜底；±20% jitter 见 sweepIntervalMs（setTimeout 自排链逐轮重排）。 */
+const SESSION_SWEEP_INTERVAL_MS = 5 * 60_000;
 const SESSION_SWEEP_GRACE_MS = 5_000;
 
 /** X10（Y0a-2）：WS 消息路径禁 mergeUpdates——入队只 push，跨软阈（64 条/1MB）才闩锁 setImmediate
@@ -377,7 +378,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  （authenticate 成功路径播种——覆写 user 的来源，不读 connection.context 防未认证帧绕过）。 */
   private readonly clientIdOwner = new Map<number, string>();
   private readonly ownedClientIds = new Map<string, Set<number>>();
-  private readonly socketIdentity = new Map<string, { id: string; name: string; role: string }>();
+  private readonly socketIdentity = new Map<string, { id: string; name: string; role: string; teamId: string }>();
   /** 漂移告警去重（socketId 级——漂移持续期只告警一次，恢复即清；防热路径刷屏） */
   private readonly awarenessDriftLogged = new Set<string>();
   private lastSpoolState: 'ok' | 'spool-unwritable' = 'ok';   // spool 恢复翻转检测（清空并集的 spool 支——谓词非集合，消费点记上一态）
@@ -608,7 +609,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         t.unref?.();
       }
       // Y0b-3 T7：认证成功即播 socketIdentity（guardAwareness 覆写 user 的唯一来源——防未认证帧绕过）
-      this.socketIdentity.set(socketId, { id: session.user.id, name: session.user.name, role: resolved.role });
+      this.socketIdentity.set(socketId, { id: session.user.id, name: session.user.name, role: resolved.role, teamId: resolved.teamId });   // Y0b-3 T8：+teamId（perm.changed 事件匹配依据）
       return {
         user: { id: session.user.id, name: session.user.name, role: resolved.role },   // 词表统一 ProjectRole（TeamRole OWNER/MEMBER 混用终结）
         readOnly,
@@ -1290,6 +1291,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     for (const cid of this.ownedClientIds.get(socketId) ?? []) this.clientIdOwner.delete(cid);
     this.ownedClientIds.delete(socketId);
     this.socketIdentity.delete(socketId);
+    this.awarenessDriftLogged.delete(socketId);   // Y0b-3 T8 附带 T7 评审小修：漂移去重 Set 同点清（socketId 级残留=泄漏面）
     if (clientsCount > 0) return;
     const projectId = parseProjectId(documentName);
     const wrote = await this.storeDocumentSerialized({ document, documentName });
@@ -1375,6 +1377,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.eventEmitter.on('project.gone', (payload: { projectIds: string[] }) => {
       this.handleProjectsGone(payload.projectIds);
     });
+    // Y0b-3 T8：权限变更事件面（team.service 三变更点 emit——即时踢权+permCache 失效，同构挂载）
+    this.wirePermChangedEvents();
     // 审查 M-1：validateDir 的启动调用点（V15——生产相对路径拒绝构造时不判；缺此调用=V15 fail-fast 死代码）
     this.logger.log(JSON.stringify({ event: 'spool_dir', dir: this.spool.validateDir() }));
     this.startServingWatchdog();
@@ -1491,18 +1495,29 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.rearmQueues();   // I4（P0-1 修）：serving ⟹ 非空队列∪spool.keys() 全部在梯上——rejoin 后 own 帧的运行期恢复路径（缺此=own 帧只待重启=部署门死锁）
   }
 
-  /** 批3-4：60s 一轮原生 interval（unref——进程退出不被阻）。Y0b-3 T1 起默认开：
-   *  COLLAB_SWEEP_ENABLED === 'false' 时 tick 首行即返（逃生阀=零行为差异——§4.2 回滚表用）。
-   *  快照死线（context.sessionExpiresAt——authenticate 播种，必过期下界）命中后先 DB 复验
-   *  （session+teamMember，移除成员也踢）；复验翻案（me 探活已续期）则刷新快照；确认 revoked →
-   *  stateless 预通知 {type:'session-expiring'}（客户端 flushPendingUpdates）→ 5s grace →
-   *  webSocket.close(CollabCloseCode.SESSION_EXPIRED)。禁 Connection.close——文档级 CLOSE 制造 L6 僵尸；close 调用处自行 catch。
-   *  复验异常 fail-open，但连续 5 次（≈5min）仍关（无界 fail-open=安全债没真修）+ metric。 */
+  /** 批3-4：sweep 轮询（unref——进程退出不被阻）。Y0b-3 T8：setTimeout 自排链——每轮按
+   *  sweepIntervalMs（5min±20% jitter）重排（setInterval 固定周期无法表达 jitter；jitter 防多连接
+   *  同刻聚集脉冲）。Y0b-3 T1 起默认开：COLLAB_SWEEP_ENABLED === 'false' 时 tick 首行即返
+   *  （逃生阀=零行为差异——§4.2 回滚表用）。快照死线（context.sessionExpiresAt——authenticate 播种，
+   *  必过期下界）命中后先 DB 复验（session+权限链，移除成员也踢）；复验翻案（me 探活已续期）则刷新
+   *  快照；确认 revoked → stateless 预通知 {type:'session-expiring'}（客户端 flushPendingUpdates）→
+   *  5s grace → webSocket.close(CollabCloseCode.SESSION_EXPIRED)。禁 Connection.close——文档级 CLOSE
+   *  制造 L6 僵尸；close 调用处自行 catch。复验异常 fail-open，但连续 5 次仍关（无界 fail-open=安全债
+   *  没真修）+ metric。 */
   private startSessionSweep() {
-    if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // W8/M2②：clear-first（幂等——rejoin 不泄漏定时器）
-    this.sessionSweepTimer = setInterval(() => void this.sweepSessions().catch((e) => this.logger.warn(`session sweep: ${e}`)), SESSION_SWEEP_INTERVAL_MS);
-    this.sessionSweepTimer.unref?.();
+    if (this.sessionSweepTimer) { clearTimeout(this.sessionSweepTimer); this.sessionSweepTimer = null; }   // W8/M2②：clear-first（幂等——rejoin 不泄漏定时器）
+    const schedule = (): void => {
+      this.sessionSweepTimer = setTimeout(() => {
+        void this.sweepSessions().catch((e) => this.logger.warn(`session sweep: ${e}`));
+        schedule();
+      }, this.sweepIntervalMs());
+      this.sessionSweepTimer.unref?.();
+    };
+    schedule();
   }
+
+  /** Y0b-3 T8：jitter 间隔（±20% → [4min, 6min]）。抽函数=区间断言单点（perm-events spec）。 */
+  private sweepIntervalMs(): number { return SESSION_SWEEP_INTERVAL_MS * (0.8 + Math.random() * 0.4); }
 
   /** Y0b-3 T6：连接最大寿命检查（默认 12h——COLLAB_CONN_MAX_LIFETIME_MS，默认值落使用点）。
    *  并进 sweep 同一脉冲（不新开 timer）；置于 SWEEP_ENABLED 逃生阀**之前**——阀=session-expiry
@@ -1562,11 +1577,43 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return !c || Date.now() - c.at >= CollabGateway.PERM_RECHECK_TTL_MS;
   }
 
+  /** ===== Y0b-3 T8：事件驱动即时踢权（spec §3.1"即时"——纯 sweep 5min 兜底撤权退化 ≤6min）=====
+   *  权限变更点（team.service removeMember/changeRole/transferOwnership）emit 'collab.perm.changed'
+   *  { userId, teamId }；监听器只做内存两步（V11 禁慢操作纪律）：①匹配连接的 permCache 失效
+   *  （仅 delete 不直接 recheck——T3 契约）；②scheduleImmediateSweep 请求一次立即 tick。
+   *  project 删除路径不 emit 本事件——已有 project.gone → handleProjectsGone → closeTeamDocuments
+   *  关连接（强于缓存失效；连接亡=WeakMap 键散）。 */
+  private wirePermChangedEvents(): void {
+    this.eventEmitter.on('collab.perm.changed', (payload: { userId: string; teamId: string; projectId?: string }) => {
+      for (const document of this.server.hocuspocus.documents.values()) {
+        for (const connection of document.connections.keys()) {
+          const identity = this.socketIdentity.get(connection.socketId);
+          if (!identity || identity.id !== payload.userId || identity.teamId !== payload.teamId) continue;
+          this.permCache.delete(connection);   // 事件=缓存失效信号（下一 tick 立即复验）
+        }
+      }
+      this.scheduleImmediateSweep();
+    });
+  }
+
+  /** Y0b-3 T8：事件=请求一次立即 tick——仍单一执行路径 sweepSessions（不新增第二执行器）；
+   *  sweepKickPending 防惊群（事件风暴合并为一次）。tick 与 event 撞窗的重叠 sweepSessions 为良性：
+   *  double close 在 CLOSING 态 no-op + recheck 幂等（permCache 重写）。 */
+  private sweepKickPending = false;
+  private scheduleImmediateSweep(): void {
+    if (this.sweepKickPending) return;
+    this.sweepKickPending = true;
+    setImmediate(() => {
+      this.sweepKickPending = false;
+      void this.sweepSessions().catch(() => {});
+    });
+  }
+
   /** 复验：session resolve（纯读不续期——清扫面不得反向保活 session）+权限链 perm.resolveWithTeam
    *  （F-3 判据单源——与 authenticate 同链；原手写三段查询删除）。⚠ 权限语义 A（P-U②）：
    *  role 非 null 但用户已被移出团队（有显式 ProjectMember 行）=预期行为——REST 同链既有语义，不踢。
    *  cause 分型：no-role（权限链无角色）/session-invalid（会话失效）——T8 事件路径同分型。 */
-  private async recheckConnection(connection: { context?: { token?: string }; readOnly?: boolean }, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid'; expiresAt?: Date }> {
+  private async recheckConnection(connection: { context?: { token?: string }; readOnly?: boolean; socketId?: string }, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid'; expiresAt?: Date }> {
     const token = connection.context?.token;
     if (!token) return { revoked: false, expiresAt: undefined };   // 无凭据（authenticate 必播种——理论不可达）不翻案
     const { session } = await this.sessionSvc.resolve(token);
@@ -1575,7 +1622,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.permCache.set(connection, { role, at: Date.now() });   // 会话级结论缓存（T8 事件失效消费——仅清不直接 recheck）
     if (role === 'PROJECT_VIEWER' && !connection.readOnly) {
       connection.readOnly = true;   // E13：降级=修越权写不断连
-      this.rewriteAwarenessRole(connection, 'PROJECT_VIEWER');
+      this.rewriteAwarenessRole(connection, 'PROJECT_VIEWER', documentName);
       collabSweepCloseTotal.inc({ cause: 'role-downgraded' });
       return { revoked: false, expiresAt: session.expiresAt };
     }
@@ -1584,15 +1631,40 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (role !== null && role !== 'PROJECT_VIEWER' && connection.readOnly
       && !this.isShuttingDown() && this.isWritableOrDegraded() === 'ok') {
       connection.readOnly = false;   // 升回可写（VIEWER 翻案/授权变化——仅 serving+spool ok 期）
-      this.rewriteAwarenessRole(connection, role);
+      this.rewriteAwarenessRole(connection, role, documentName);
     }
     return role === null ? { revoked: true, cause: 'no-role', expiresAt: undefined } : { revoked: false, expiresAt: session.expiresAt };
   }
 
+  /** Y0b-3 T8 helper（T7 留定义随消费补）：连接的 socketId 取法 + socketId 名下 clientId 快照。 */
+  private socketIdOf(connection: { socketId?: string }): string { return connection?.socketId ?? ''; }
+  private ownedClientIdsOf(socketId: string): number[] { return [...(this.ownedClientIds.get(socketId) ?? [])]; }
+
   /** awareness role 改写（E73——只置 readOnly 不改 awareness=成员表仍显示旧角色）。
-   *  Y0b-3 T8 实接（clock 递增+document 定位）——本 Task 挂 no-op 占位（plan T3 关键注意 5）。 */
-  private rewriteAwarenessRole(_connection: object, _role: ProjectRole): void {
-    // T8 接线占位
+   *  Y0b-3 T8 实接。⚠ 时钟门（y-protocols applyAwarenessUpdate 判据 `currClock < clock`，非 null 改写
+   *  无相等分支）：服务端直改 states 不动 meta ⇒ 广播帧编出旧 clock ⇒ 对端全丢弃而服务端自以为成功
+   *  （假绿型）——必须先递增 meta.clock 再改 states；广播经 aw.emit('update') 走 Document.
+   *  handleAwarenessUpdate → broadcastAwarenessUpdate（encode 读新 clock，对端 currClock<clock 通过）。
+   *  探针裁注：applyAwarenessUpdate(aw, encode(aw,[cid])) 重入形态不可行——改后 currClock===clock 被
+   *  时钟门丢弃（updated 不 push=零广播），直接 emit 同一广播链少一次编解码。origin='local' 非
+   *  transaction origin：handleAwarenessUpdate 不动 entry.clients；beforeHandleAwareness 只挂 inbound
+   *  scratch 解码链（esm:197-212）——服务端自发广播零拦截。socketIdentity.role 同步改写——否则下一个
+   *  入站帧经 guardAwareness ③无条件注入把旧 role 冲回广播。 */
+  private rewriteAwarenessRole(connection: { socketId?: string }, role: ProjectRole, documentName: string): void {
+    const socketId = this.socketIdOf(connection);
+    const document = this.server.hocuspocus.documents.get(documentName);
+    const aw = document?.awareness;
+    if (!aw || !socketId) return;
+    const identity = this.socketIdentity.get(socketId);
+    if (identity) identity.role = role;   // 防 T7 注入链冲回（下一入站帧的 user 来源）
+    for (const clientId of this.ownedClientIdsOf(socketId)) {
+      const prevState = aw.states.get(clientId);
+      if (!prevState) continue;   // 无本地态的 clientId 无可改写
+      const meta = aw.meta.get(clientId);
+      aw.meta.set(clientId, { clock: (meta?.clock ?? 0) + 1, lastUpdated: Date.now() });   // ⚠ 先递增（时钟门判据）
+      aw.states.set(clientId, { ...prevState, user: { ...(prevState.user ?? {}), role } });
+      aw.emit('update', [{ added: [], updated: [clientId], removed: [] }, 'local']);   // 触发 Document 广播链
+    }
   }
 
   /** 单连接 clientId 上限（spec §3.3 终裁值 4——纯真内容 clientId 计入：自身 clock=0 占位被时钟门
@@ -1645,7 +1717,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 剪枝：陈旧 clientId（客户端 setLocalState(null) 移除自身后索引残留——防上限被垃圾占满卡死长会话）。
       // 判据=既不在库 clients 集也不在本帧 states 且 doc awareness.states 已无此 id；只迭代自己名下
       // Set（O(自己)——热路径禁全表扫描）。
-      const own = this.ownedClientIds.get(socketId)!;
+      const own = this.ownedClientIds.get(socketId) ?? new Set<number>();   // 空 states 帧（幽灵剔除后零条目）时无登记条目——空安全（否则 for-of 抛进 catch，warn 热路径刷屏）
       for (const cid of own) {
         if (!libClients?.has(cid) && !states.has(cid) && !document.awareness.states.has(cid)) {
           this.clientIdOwner.delete(cid);
@@ -1664,7 +1736,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           this.awarenessDriftLogged.delete(socketId);
         }
       }
-    } catch { /* 观测面禁抛——钩子抛错中断库消息处理链（esm try/finally 不 catch） */ }
+    } catch (err) {
+      // 观测面禁抛——钩子抛错中断库消息处理链（esm try/finally 不 catch）；swallow 但留痕
+      //（对齐 unloadDocument swallow 先例——catch 静默=零观测；不加指标保 reason 枚举）
+      this.logger.warn(`[y0b-3] awareness guard error: ${(err as Error)?.message}`);
+    }
   }
 
   /** scratch 幽灵判据：空态对象（构造器 setLocalState({}) 指纹——真内容帧不受影响） */
@@ -1722,7 +1798,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
     this.clearDrainTimer();
     this.frozenConnections.clear();
-    if (this.sessionSweepTimer) { clearInterval(this.sessionSweepTimer); this.sessionSweepTimer = null; }
+    if (this.sessionSweepTimer) { clearTimeout(this.sessionSweepTimer); this.sessionSweepTimer = null; }
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }   // Y0b-3 T3：防线 Map 老化 timer 随停
     if (this.heapObserverTimer) { clearInterval(this.heapObserverTimer); this.heapObserverTimer = null; }   // Y0b-3 T4：卡住观测 timer 随停
     unregisterAuthInflightReader();   // Y0b-3 T3：gauge reader 闭包随 gateway 死（pendingCollector 同惯例）

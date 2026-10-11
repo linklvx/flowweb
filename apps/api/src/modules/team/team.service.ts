@@ -199,6 +199,7 @@ export class TeamService {
       where: { teamId_userId: { teamId, userId: targetUserId } },
       data: { role },
     });
+    this.emitPermChanged(targetUserId, teamId);   // Y0b-3 T8：角色变更面（perm 链结论失效信号）
     await this.audit.log({
       operatorId: callerId,
       operatorName: await this.userName(callerId),
@@ -223,6 +224,7 @@ export class TeamService {
     const removed = await this.prisma.teamMember.delete({
       where: { teamId_userId: { teamId, userId: targetUserId } },
     });
+    this.emitPermChanged(targetUserId, teamId);   // Y0b-3 T8：撤权核心面（collab 连接即时复验踢线）
     await this.audit.log({
       operatorId: callerId,
       operatorName: await this.userName(callerId),
@@ -267,7 +269,7 @@ export class TeamService {
     if (targetUserId === callerId) throw new BadRequestException('不能转让给自己');
     const target = await this.requireMember(teamId, targetUserId);
     const operatorName = await this.userName(callerId);
-    return this.prisma.$transaction(async (tx) => {
+    const team = await this.prisma.$transaction(async (tx) => {
       await tx.teamMember.update({
         where: { teamId_userId: { teamId, userId: callerId } },
         data: { role: 'ADMIN' },
@@ -276,7 +278,7 @@ export class TeamService {
         where: { teamId_userId: { teamId, userId: targetUserId } },
         data: { role: 'OWNER' },
       });
-      const team = await tx.team.update({ where: { id: teamId }, data: { ownerId: targetUserId } });
+      const updated = await tx.team.update({ where: { id: teamId }, data: { ownerId: targetUserId } });
       await this.audit.logTx(tx, {
         operatorId: callerId,
         operatorName,
@@ -285,8 +287,19 @@ export class TeamService {
         targetId: targetUserId,
         action: 'transfer_ownership',
       });
-      return team;
+      return updated;
     });
+    // Y0b-3 T8：双向变更面——原 OWNER 降权（PROJECT_OWNER→PROJECT_EDITOR）+ 新 OWNER 升权；
+    // 事务提交后 emit（事件=内存信号零 IO，但语义上结论以提交后为准）
+    this.emitPermChanged(callerId, teamId);
+    this.emitPermChanged(targetUserId, teamId);
+    return team;
+  }
+
+  /** Y0b-3 T8：权限变更事件（collab 面即时复验——permCache 失效+立即 sweep；监听器零 await，
+   *  emit 同步安全）。approve 不 emit：加成员对存量连接零影响（原无权连不上=无消费面）。 */
+  private emitPermChanged(userId: string, teamId: string): void {
+    this.eventEmitter.emit('collab.perm.changed', { userId, teamId });
   }
 
   /** 席位上限现算：active 订阅取 plan，否则免费常量（Task 10 getLimits 统一封装） */

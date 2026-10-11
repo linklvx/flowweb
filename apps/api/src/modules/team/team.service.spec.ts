@@ -48,7 +48,7 @@ describe('TeamService.ensureDefaultTeam', () => {
       materialFolder: { createMany: vi.fn().mockResolvedValue({ count: 5 }) },
       $transaction: vi.fn(async (fn: any) => fn(prisma)),
     };
-    emitter = { emitAsync: vi.fn() };
+    emitter = { emit: vi.fn(), emitAsync: vi.fn() };   // Y0b-3 T8：+emit（collab.perm.changed 同步事件面）
     queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -141,7 +141,7 @@ describe('TeamService 基础 API', () => {
     resetLedgerMocks();
     resetTeamCreditMocks();
     prisma = {};
-    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn().mockResolvedValue({}) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -427,7 +427,7 @@ describe('TeamService 成员管理', () => {
     resetLedgerMocks();
     resetTeamCreditMocks();
     prisma = {};
-    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -650,7 +650,7 @@ describe('TeamService 加入申请', () => {
     resetLedgerMocks();
     resetTeamCreditMocks();
     prisma = {};
-    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -831,7 +831,7 @@ describe('listAuditLogs', () => {
       teamMember: { findUnique: vi.fn() },
       auditLog: { findMany: vi.fn(), count: vi.fn() },
     };
-    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -885,7 +885,7 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
     resetLedgerMocks();
     resetTeamCreditMocks();
     prisma = {};
-    emitter = { emitAsync: vi.fn().mockResolvedValue([]) };
+    emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
     queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({

@@ -101,6 +101,7 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
     seedDocument(gateway, 'project:p1', [conn]);
     (gateway as any).permCache.set(conn, { role: 'PROJECT_EDITOR', at: Date.now() });   // 连接时已复验（5min 会话级结论缓存播种）
     perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });   // DB 直改——降级（session 仍有效）
+    (gateway as any).sweepIntervalMs = () => 60_000;   // Y0b-3 T8 jitter：固定间隔隔离时序（节奏锚在 perm-events spec）
     (gateway as any).startSessionSweep();
     await vi.advanceTimersByTimeAsync(5 * 60_000 * 1.2 + 1_000);   // sweep 兜底窗（permCache 5min+上界）
     expect(conn.readOnly).toBe(true);                              // 改前红：复验未被调用
@@ -118,13 +119,14 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
     if (source === 'cache') {
       cache.set(conn, { role: 'PROJECT_EDITOR', at: Date.now() });   // 未到期结论（5min 窗内）
     } else if (source === 'event') {
-      // 本 Task 无实连事件（T8 补实连）——event 格经"预置结论+手动失效缓存+tick"模拟事件触发复验
+      // event 格经"预置结论+手动失效缓存+tick"模拟事件触发复验（实连事件面=T8 collab-perm-events.spec）
       cache.set(conn, { role: 'PROJECT_EDITOR', at: Date.now() });
       cache.delete(conn);
     }   // tick：无条目=首查必复验（判据门语义）
     perm.resolveWithTeam.mockResolvedValue(
       outcome === 'null 踢线' ? { role: null, teamId: 't1' } : { role: 'PROJECT_VIEWER', teamId: 't1' });
     seedDocument(gateway, 'project:p1', [conn]);
+    (gateway as any).sweepIntervalMs = () => 60_000;   // Y0b-3 T8 jitter：固定间隔隔离时序（节奏锚在 perm-events spec）
     (gateway as any).startSessionSweep();
     await vi.advanceTimersByTimeAsync(60_000);   // tick（不越 grace 窗——sweep spec 先例形态）
     if (source === 'cache') {
@@ -156,6 +158,7 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
     if (guard === 'collabState') (gateway as any).collabState = 'draining';   // isShuttingDown()=true（drain 期 sweep tick 照跑——sweepSessions 无状态门）
     else vi.spyOn(spool, 'isWritable').mockReturnValue(false);   // isWritableOrDegraded()='spool-unwritable'
     perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });   // 复验 role 可写（冻结期授权变化场景）
+    (gateway as any).sweepIntervalMs = () => 60_000;   // Y0b-3 T8 jitter：固定间隔隔离时序（节奏锚在 perm-events spec）
     (gateway as any).startSessionSweep();
     await vi.advanceTimersByTimeAsync(60_000);   // 一轮 sweep tick——permCache 无条目=首查必复验
     expect(conn.readOnly).toBe(true);            // 改前红：升回分支无条件翻 false=冻结窗内静默解冻

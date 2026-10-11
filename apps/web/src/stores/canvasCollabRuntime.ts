@@ -145,7 +145,7 @@ export const recovery = {
         const np = provider!;
         np.awareness?.meta.set(np.awareness.clientID, { clock: clockSeed, lastUpdated: Date.now() });
         awarenessBridge?.attach(np);              // bridge 稳定对象迁移（消费方零改动）
-        awarenessBridge?.replayLocalUser();       // 重放完整态（禁 {}——R24；null 则 no-op）
+        awarenessBridge?.replayLocalUser();       // T7 改形：null⇒setLocalState({}) 恢复本地态（非空 no-op 不打 clock）
         rebuildPending = true;                    // 旧实例 hasUnsyncedChanges 不可读——标记武装（1-4 清除）
       } else {
         // —— 瞬态：传输级 reconnect（门 B 裁决——kick 方案/㉕㉝ 约束已删）——
@@ -982,8 +982,8 @@ export async function initCollab(projectId: string): Promise<void> {
       }
     }
     updateConnectionUi(out.ui);
-    // 批1-5 awareness tick 自愈：pagehide 置 null 形态 + 连接健康 ⇒ 重放 lastLocalUser 完整态
-    // （禁 {}——R24；lastLocalUser 未设时 replay no-op 不打 clock）
+    // 批1-5 awareness tick 自愈（T7 改形语义）：pagehide 置 null 形态 + 连接健康 ⇒ replay 恢复
+    // 本地态（null⇒setLocalState({})；非空 no-op 不打 clock——user 字段归服务端注入）
     if (healthyNow) {
       const aw = provider?.awareness;
       if (aw && aw.getLocalState() == null) awarenessBridge?.replayLocalUser();
