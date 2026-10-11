@@ -1,11 +1,14 @@
 // apps/web/src/stores/canvasCollabRuntime.quota.spec.ts
 // Y0b-4 T5：doc-status reducer 单源——rev 单调守卫（电平非事件）+conn-status 单源 readOnly
 // （authScope 仅初值）+quota 五键下行（Q-I 校准点）+writeFrozen 只置位+generation 代际（T11 消费）。
+// Y0b-4 T11：close 4404/4410 终态 quota 独立通道+pendingGenerationReload 消费（clear+提示+reload）。
 // mock 形态承 canvasCollabRuntime.t9.spec（库契约：provider 事件面——stateless/authenticated）。
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
+import { getUndoManager } from './canvasUndo';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
 vi.mock('@hocuspocus/provider', () => {
@@ -89,7 +92,7 @@ const resetStore = () => useCanvasStore.setState({
   collabReadOnly: true, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
   connReadOnly: false, quotaOver: false, quotaLimitBytes: 0, quotaTxBytes: 0,
   quotaSoftLimitBytes: 0, quotaResidueBytes: undefined, lastDocStatusRev: 0,
-  localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0,
+  localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0, wsQuotaTerminal: null,
 });
 
 describe('Y0b-4 T5 doc-status reducer（rev 守卫+单源 readOnly）', () => {
@@ -220,5 +223,105 @@ describe('Y0b-4 T5 doc-status reducer（rev 守卫+单源 readOnly）', () => {
     const s = useCanvasStore.getState();
     expect(s.lastDocStatusRev).toBe(0);
     expect(s.quotaOver).toBe(false);
+  });
+});
+
+// ════════ Y0b-4 T11：4404/4410 终态档（独立 quota 通道）+pendingGenerationReload 消费 ════════
+// fake timers 形态承 t9.spec beginCollabFake（reload 1.5s 定时器推进断言）。
+describe('Y0b-4 T11：close 终态 quota 通道+代际跳变消费', () => {
+  const reloadSpy = vi.fn();
+  let warnSpy: MockInstance<typeof message.warning>;   // 仓内惯例（canvasStore.async-landing.spec 先例）
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    Mocks.instances.length = 0;
+    _resetCollabDiagForTest();
+    resetStore();
+    sessionStorage.clear();
+    reloadSpy.mockClear();
+    vi.stubGlobal('location', { reload: reloadSpy });
+    warnSpy = vi.spyOn(message, 'warning');
+  });
+  afterEach(async () => {
+    await runtime.destroyCollab();   // fake interval 清理须在 useRealTimers 前
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  async function driveToSyncedFake(pid = 'p1') {
+    const done = runtime.initCollab(pid);
+    await vi.advanceTimersByTimeAsync(0);
+    const p = lastInstance();
+    p.emit('status', { status: 'connected' });
+    p.isAuthenticated = true;
+    p.emit('authenticated', { scope: 'read-write' });
+    p.isSynced = true;
+    p.emit('synced', {});
+    await done;
+    return p;
+  }
+
+  it('close 4404（doc-over-quota）→wsQuotaTerminal 独立通道（wsAuthNotice 不染——auth 词表钉死）+真停连+无自动 reload', async () => {
+    const p = await driveToSyncedFake();
+    const wsConnect = vi.spyOn(p.configuration.websocketProvider, 'connect');
+    p.emit('close', { event: { code: 4404, reason: 'doc-over-quota' } });
+    expect(useCanvasStore.getState().wsQuotaTerminal).toEqual({ code: 4404, reason: 'doc-over-quota' });
+    expect(useCanvasStore.getState().wsAuthNotice).toBeNull();                  // 不进 auth reason 词表（plan 钉死）
+    expect(p.configuration.websocketProvider.shouldConnect).toBe(false);       // 真开关（terminal 同款停连）
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(wsConnect).not.toHaveBeenCalled();                                  // 终态后零重连
+    expect(reloadSpy).not.toHaveBeenCalled();                                  // 4404 无自动 reload——手动「重新连接」唯一复位
+  });
+
+  it('close (1000, doc-over-quota) 库抹码兜底→同 quota 终态通道（双键分型先于 NORMAL）', async () => {
+    const p = await driveToSyncedFake();
+    p.emit('close', { event: { code: 1000, reason: 'doc-over-quota' } });
+    expect(useCanvasStore.getState().wsQuotaTerminal).toEqual({ code: 4404, reason: 'doc-over-quota' });
+    expect(p.configuration.websocketProvider.shouldConnect).toBe(false);
+  });
+
+  it('close 4410 doc-vacuuming→wsQuotaTerminal+「正在重建画布历史」提示+1.5s 自动 reload', async () => {
+    const p = await driveToSyncedFake();
+    p.emit('close', { event: { code: 4410, reason: 'doc-vacuuming' } });
+    expect(useCanvasStore.getState().wsQuotaTerminal).toEqual({ code: 4410, reason: 'doc-vacuuming' });
+    expect(useCanvasStore.getState().wsAuthNotice).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith('正在重建画布历史，即将自动刷新');
+    expect(reloadSpy).not.toHaveBeenCalled();                    // 1.5s 延时——让用户看到提示
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('close 4410 doc-generation-stale→同横幅+自动 reload（reload 后空 SV 放行=不循环）', async () => {
+    const p = await driveToSyncedFake();
+    p.emit('close', { event: { code: 4410, reason: 'doc-generation-stale' } });
+    expect(useCanvasStore.getState().wsQuotaTerminal).toEqual({ code: 4410, reason: 'doc-generation-stale' });
+    expect(warnSpy).toHaveBeenCalledWith('正在重建画布历史，即将自动刷新');
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('pendingGenerationReload 消费：generation 跳变→undoManager.clear+提示+reload；基线（首见代）不触发（防循环）', async () => {
+    const p = await driveToSyncedFake();
+    const um = getUndoManager();
+    expect(um).toBeTruthy();                                     // initCollab 已 attach（attachUndoManager）
+    const clearSpy = vi.spyOn(um!, 'clear');
+    p.emit('stateless', { payload: docStatus({ rev: 1, generation: 5 }) });   // 基线建立
+    expect(useCanvasStore.getState().pendingGenerationReload).toBe(5);        // T5 字段照旧（信息位）
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(clearSpy).not.toHaveBeenCalled();                     // 首见代≠跳变——reload 循环防线
+    expect(reloadSpy).not.toHaveBeenCalled();
+    p.emit('stateless', { payload: docStatus({ rev: 2, generation: 9 }) });   // 真跳变（vacuum 代际）
+    expect(useCanvasStore.getState().pendingGenerationReload).toBe(9);
+    expect(clearSpy).toHaveBeenCalledTimes(1);                    // 撤销栈锚代际失效——清（reload 后重建）
+    expect(warnSpy).toHaveBeenCalledWith('正在重建画布历史，即将自动刷新');
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('会话起点复位：上一会话 quota 终态不跨会话（initCollab 同 wsAuthNotice 形态清）', async () => {
+    useCanvasStore.setState({ wsQuotaTerminal: { code: 4404, reason: 'doc-over-quota' } });
+    await driveToSyncedFake('p2');
+    expect(useCanvasStore.getState().wsQuotaTerminal).toBeNull();
   });
 });

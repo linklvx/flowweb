@@ -19,14 +19,16 @@ export async function apiFetch<T>(path: string, options?: FetchOptions): Promise
   if (!res.ok) {
     let msg = `API error: ${res.status} ${res.statusText}`;
     let errorCode: string | undefined; // 批0.5-8b：业务错误码透传（调用方判 INTENT_EXHAUSTED 等）
+    let body: unknown; // Y0b-4 T11：结构体错误 body 透传（shrink 422 SHRINK_STILL_OVER 的 bytes/limit 解包源）
     try {
       const j = await res.clone().json();
       if (j?.message) msg = j.message;
       errorCode = j?.errorCode;
+      body = j;
     } catch { /* body 非 JSON，保留状态行 */ }
     // 批3-3：401 → httpExpired 电平置位（登录横幅挂点，批 2 消费）
     if (res.status === 401) useSessionExpiry.getState().setHttpExpired();
-    throw Object.assign(new Error(msg), { status: res.status, errorCode, retryAfter: parseRetryAfter(res) });
+    throw Object.assign(new Error(msg), { status: res.status, errorCode, retryAfter: parseRetryAfter(res), body });
   }
   const json = await res.json();
   if (json.code !== 0) {

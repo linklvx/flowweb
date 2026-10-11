@@ -180,9 +180,12 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   //   棘轮已破线，T10 全量回归暴露补登，同例外）。
   // + Y0b-4 T10 造案 +8 处/1 文件（canvasIntents.quota.spec +6——判据④ store 字段直构/runtime 集成
   //   beforeEach 复位；canvasStore.paste-chunk.spec +2/新文件——分块粘贴装置复位+播种，同例外）。
+  // + Y0b-4 T11 quota UX 造案 +15 处/2 文件（QuotaBanner.test +8/ShrinkDialog.test +4——三级分档/
+  //   瘦身三档 UI 测试 store 注入是用例的存在目的〔SyncBanner.test 同例外〕；interaction-props
+  //   +2——quotaOver 冻结编辑面 props 断言；quota.spec +1——会话起点复位造案，同例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 244;
-  const BASELINE_FILES = 47;
+  const BASELINE_COUNT = 259;
+  const BASELINE_FILES = 49;
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -196,7 +199,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
     }
   }
 
-  it('test/spec 面 store 侧 setState 处数 ≤244 且文件数 ≤47（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1+Y0b-4 T5 quota 造案 2/1+D-14 quota spec 补登 1/1+T10 判据④/分块粘贴造案 8/1，只降不升）', () => {
+  it('test/spec 面 store 侧 setState 处数 ≤259 且文件数 ≤49（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1+Y0b-4 T5 quota 造案 2/1+D-14 quota spec 补登 1/1+T10 判据④/分块粘贴造案 8/1+T11 quota UX 造案 15/2，只降不升）', () => {
     let count = 0;
     let files = 0;
     for (const f of walkTestFiles(SRC_ROOT)) {

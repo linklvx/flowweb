@@ -37,7 +37,9 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y0b-3 T9：collabEscapePending 字段两处插入（interface +4/初始值 +1）——canvasStore 13 行再 +5（行号漂移）
     // Y0b-4 T5：doc-status 快照族字段两处插入（interface +16/初始值 +10——本表 13 行 +25）
     // Y0b-4 T10：分块粘贴块工具族插入（assembleRecords 后 +68——本表 13 行同步漂移，集合不变）
-    'stores/canvasStore.ts': [855, 856, 862, 863, 918, 919, 988, 989, 995, 996, 1142, 1682, 1683],
+    // Y0b-4 T11 存量漂移修复+登记：f709b5fb（T10 toast 动态容量/软阈单源）改 canvasStore 未同步本表
+    //（+13 漂移——T11 全量回归暴露）；本批 wsQuotaTerminal 字段两处插入（interface +4/初始值 +1）再 +5
+    'stores/canvasStore.ts': [873, 874, 880, 881, 936, 937, 1006, 1007, 1013, 1014, 1160, 1700, 1701],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],

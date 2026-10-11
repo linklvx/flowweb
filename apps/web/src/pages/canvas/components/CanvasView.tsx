@@ -551,6 +551,7 @@ function CanvasViewComponent(_props: Props) {
         panActivationKeyCode={isLocked ? null : 'Space'}
         zoomOnDoubleClick={!isLocked}
         nodesDraggable={inRefSelect ? false : !isLocked && editable}
+        nodesConnectable={inRefSelect ? false : !isLocked && editable} /* Y0b-4 T11：quotaOver 冻结编辑面——nodesDraggable 同口径（editable←canEdit←collabReadOnly←quotaOver=T5 reducer 面；dispatch 静默 return 兜底之上的 UI 禁用） */
         nodesFocusable={!isLocked}
         elementsSelectable={inRefSelect ? false : !isLocked}
         snapToGrid={snapEnabled}

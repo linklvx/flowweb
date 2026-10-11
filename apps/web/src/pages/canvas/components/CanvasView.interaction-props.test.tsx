@@ -100,6 +100,20 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
     expect(p.panOnDrag).toBe(true);
   });
 
+  // ── Y0b-4 T11：quotaOver 冻结编辑面——dispatch 静默 return 兜底之上的 UI 禁用 ──
+  it('quotaOver 冻结：nodesDraggable/nodesConnectable=false（quotaOver⇒collabReadOnly=T5 reducer 面；canEdit 门 UI 兜底）', () => {
+    openRwWindow();   // 先开 rw 窗（canEdit 真）
+    act(() => {
+      useCanvasStore.setState({ quotaOver: true, collabReadOnly: true });   // doc-status over 快照等效面
+    });
+    const p = renderCapture();
+    expect(p.nodesDraggable).toBe(false);
+    expect(p.nodesConnectable).toBe(false);
+    act(() => {
+      useCanvasStore.setState({ quotaOver: false, collabReadOnly: false }); // rw 恢复——编辑面复活
+    });
+  });
+
   it('onSelectionStart/End 接线与幂等：翻转标志 + 已 false 时复位零通知（spec §8.3/§5-1.3）', () => {
     const p = renderCapture();
     const listener = vi.fn();

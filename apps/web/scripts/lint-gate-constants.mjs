@@ -101,5 +101,8 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-4 T10（2026-10-11）：判据④/分块粘贴造案 +8 处/+1 文件（canvasIntents.quota.spec +6——
   //   store 字段直构+runtime 集成 beforeEach 复位；canvasStore.paste-chunk.spec +2 新文件——
   //   装置复位+分块播种）→ 244 处 / 47 文件。
-  effective: { count: 244, files: 47 },
+  // Y0b-4 T11（2026-10-11）：quota UX 造案 +15 处/+2 文件（QuotaBanner.test +8/ShrinkDialog.test +4
+  //   ——三级分档/瘦身三档 UI 测试 store 注入〔SyncBanner.test 同例外〕；interaction-props +2——
+  //   quotaOver 冻结编辑面 props 断言；quota.spec +1——会话起点复位造案）→ 259 处 / 49 文件。
+  effective: { count: 259, files: 49 },
 };

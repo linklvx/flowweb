@@ -8,12 +8,13 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
+import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
-import { Origin, attachUndoManager, detachUndoManager } from './canvasUndo';
+import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import {
@@ -240,6 +241,14 @@ export async function handleVersionTerminal(): Promise<void> {
     }
   } catch { /* ready 不可达→直接落逃生动作 */ }
   useCanvasStore.setState({ collabEscapePending: true });
+}
+
+/** Y0b-4 T11：vacuum 代际跳变消费（T9a 双路之二——装载后首快照路径）：撤销栈锚代际失效→清
+ *  （reload 后重建）+提示+1.5s 自动 reload（延时让用户看到提示；与 4410 close 路径同款文案/节奏）。 */
+function consumeGenerationJump(): void {
+  getUndoManager()?.clear();
+  message.warning('正在重建画布历史，即将自动刷新');
+  setTimeout(() => location.reload(), 1_500);
 }
 
 /** Y0b-3 T9：逃生动作（唯一）——「导出本地画布→强制刷新」一键。不受未同步守卫约束（它就是为
@@ -970,6 +979,10 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       if (!isCollabDocStatusPayload(msg)) return;
       const st = useCanvasStore.getState();
       if (msg.rev <= st.lastDocStatusRev) return;   // rev 单调守卫——乱序/重复/迟到旧快照全免疫
+      // T11 消费判据：真跳变=基线已立（lastGeneration 非 undefined）且异值。首见代=基线建立
+      // （reload 后新会话首快照即基线）——若误判跳变=刷新循环（T9a 裁定：空 SV 放行不循环）。
+      const generationJumped = msg.generation !== undefined
+        && lastGeneration !== undefined && msg.generation !== lastGeneration;
       const quotaOver = msg.quota.state === 'over';
       useCanvasStore.setState({
         lastDocStatusRev: msg.rev,
@@ -984,6 +997,7 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       });
       if (msg.generation !== undefined) lastGeneration = msg.generation;   // 基线随守卫内快照推进（旧快照不污染）
       if (quotaOver) recordCollabDiag('write_reject', { reason: 'quota-soft' });
+      if (generationJumped) consumeGenerationJump();   // T11：双路之二（装载后首快照代际跳变）
     } catch { /* 坏 JSON——非本协议通告 */ }
   });
   // Y0b-3 T9：鉴权拒绝唯一生产写点（改前声明+消费在、写入侧缺失）——reason 分型终态/瞬态
@@ -1024,7 +1038,19 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       void recovery.recoverConnection();           // 唯一执行器（禁自建退避/直调 connect）
     } else if (action.kind === 'terminal') {
       const reason = action.terminalReason!;
-      useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
+      // Y0b-4 T11：配额/代际终态走独立 quota 通道（不进 wsAuthNotice auth 词表——plan 钉死；
+      // SyncBanner 管连接/鉴权态、QuotaBanner 管配额态——独立组件同挂载点）。
+      if (reason === DOC_OVER_QUOTA_TERMINAL_REASON) {
+        // 4404：横幅常驻+手动「重新连接」（QuotaBanner 渲染）——无自动 reload（瘦身后自愈入口）
+        useCanvasStore.setState({ wsQuotaTerminal: { code: CollabCloseCode.DOC_OVER_QUOTA, reason } });
+      } else if (reason === DOC_VACUUMING_TERMINAL_REASON || reason === DOC_GENERATION_STALE_TERMINAL_REASON) {
+        // 4410 双 reason：代际被超（vacuum 进行中/SV 过期）——reload 后空 SV 放行即自愈，不循环
+        useCanvasStore.setState({ wsQuotaTerminal: { code: CollabCloseCode.GENERATION_SUPERSEDED, reason } });
+        message.warning('正在重建画布历史，即将自动刷新');
+        setTimeout(() => location.reload(), 1_500);   // 延时让用户看到提示再刷
+      } else {
+        useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
+      }
       terminalSuppressed = true;
       p.configuration.websocketProvider.disconnect(); // 真开关（同 authenticationFailed——复发防线钉死）
       if (reason === MESSAGE_TOO_BIG_TERMINAL_REASON) {
@@ -1101,11 +1127,13 @@ export async function initCollab(projectId: string): Promise<void> {
   // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户；
   // T9：wsAuthNotice/writeFrozen/collabEscapePending 同点复位（上一会话终态/冻结/逃生不跨会话）
   // Y0b-4 T5：doc-status 快照族同点复位（rev/over/五键/校准点/代际——上一会话配额态不跨会话）
+  // Y0b-4 T11：quota 终态通道同点复位（同 wsAuthNotice 形态——上一会话 4404/4410 不跨会话）
   useCanvasStore.getState().setHydration('pending');
   useCanvasStore.setState({
     collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
     connReadOnly: false, quotaOver: false, quotaLimitBytes: 0, quotaTxBytes: 0, quotaSoftLimitBytes: 0,
     quotaResidueBytes: undefined, lastDocStatusRev: 0, localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0,
+    wsQuotaTerminal: null,
   });
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
@@ -1282,7 +1310,8 @@ export async function destroyCollab(): Promise<void> {
   if (session !== null) return;
   useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
   // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）；T9：终态/冻结/逃生同点清
-  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false });
+  // Y0b-4 T11：quota 终态通道同点清（G27 同款——粘滞态不跨会话/跨用户）
+  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, wsQuotaTerminal: null, writeFrozen: false, collabEscapePending: false });
   terminalSuppressed = false;
   silentRenewUsed = false;
 }

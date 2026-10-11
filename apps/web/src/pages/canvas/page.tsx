@@ -13,6 +13,7 @@ import { StyleLibraryModal } from './components/style-library/StyleLibraryModal'
 import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import { SyncBanner } from './components/SyncBanner';
+import { QuotaBanner } from './components/QuotaBanner';
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
 import { HistoryModal } from '@/components/HistoryPage/HistoryModal';
 import { LightingModal } from './components/Lighting/LightingModal';
@@ -357,6 +358,8 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <CanvasTopBar projectId={projectId} />
         {/* Y0b-3 T9 Step6：协作横幅（终态分档/write-frozen/connUi 分级——非阻断，批1-5 connUi 消费者） */}
         <SyncBanner />
+        {/* Y0b-4 T11：配额横幅（三级：软阈通告/硬阈双主按钮/4404·4410 终态档——与 SyncBanner 独立同挂载点） */}
+        <QuotaBanner projectId={projectId} />
         <KeyboardShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <MaterialLibraryModal />
         <HistoryModal />

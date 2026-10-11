@@ -170,6 +170,10 @@ export interface CanvasState {
   localCollapsed: Record<string, boolean>;
   /** WS 侧唯一鉴权载体（批2-1 立字段；reason 五档 CollabAuthReason 落 shared 后收紧类型——批3 接入） */
   wsAuthNotice: { reason: string; terminal: boolean } | null;
+  /** Y0b-4 T11：配额/代际终态独立通道（4404 doc-over-quota/4410 doc-vacuuming·doc-generation-stale
+   *  close 终态——不进 wsAuthNotice auth 词表，plan 钉死）。QuotaBanner 消费；runtime close 写、
+   *  initCollab/destroyCollab 会话边界复位（同 wsAuthNotice 形态）。不进快照 */
+  wsQuotaTerminal: { code: number; reason: string } | null;
   /** O0b-3 手势会话宿主（C0-1 DragSession 类型——保护序 v2 的让位两层解析源：
    *  freeze=frozenFrames.keys()/live=dragProtectedIds∪{resizeTargetId}∪children(resizeTargetId)）。
    *  B4'-1 落真生命周期（beginDragGesture/beginResize/endGesture/noteDragActivity——watchdog
@@ -697,6 +701,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   collabReadOnly: true,
   localCollapsed: {},
   wsAuthNotice: null,
+  wsQuotaTerminal: null,
   dragSession: null,
   resizePending: false,
   httpExpired: false,
