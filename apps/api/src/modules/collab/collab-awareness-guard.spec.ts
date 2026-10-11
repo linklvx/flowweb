@@ -12,6 +12,7 @@ import { startDualClientServer, type DualClientKit } from '../../test-utils/dual
 import { pollUntil } from '../../test-utils/poll-until';
 import { makeAwarenessFrame as awarenessFrame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源（原 pushVar 族+awarenessFrame 收口）
 import { userColorOfUserId } from '@flowweb/shared';
+import { AWARENESS_STATES_LIMIT_BYTES } from './collab.gateway';   // T12：解码后 states 判常量绑定（改值本测试红——帧闸 M4 同款）
 
 const DOC = 'project:ap1';
 const FUTURE = new Date(Date.now() + 24 * 3600 * 1000);
@@ -206,5 +207,30 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     await pollUntil(() => ((b.awareness as any).meta.get(222)?.clock ?? 0) >= 2);
     expect((b.awareness!.getStates().get(222) as any).cursor).toBeUndefined();   // T6：VIEWER cursor 零广播
     expect((b.awareness!.getStates().get(222) as any).user).toEqual(serverUserOf('tokA'));
+  });
+});
+
+describe('Y0b-4 T12（E38）：解码后 states 4KB 判（与 64KB 入站帧闸两实体两名）', () => {
+  it('states JSON 字节>AWARENESS_STATES_LIMIT_BYTES ⇒ 整帧丢弃+awareness_reject{frame-too-large}（丢帧不 close——同连接后续帧照常；不登记不占上限槽）', async () => {
+    const a = await connect('tokA');   // 对端判官（VIEWER 只影响其自身发帧——收帧无碍）
+    const b = await connect('tokB');   // EDITOR 发帧（避开 readOnly 剔字段交叉——剔后字节缩小绕过 4KB 判）
+    const rejectCount = async () => {
+      const metric: any = register.getSingleMetric('collab_awareness_reject_total');
+      return (await metric.get()).values.find((s: any) => s.labels.reason === 'frame-too-large')?.value ?? 0;
+    };
+    let before = await rejectCount();
+    for (let i = 0; i < 10; i++) {   // 计数基线静置（真连异步到账——先两读一致再断言增量，ghost 用例同款）
+      await sleep(150);
+      const next = await rejectCount();
+      if (next === before) break;
+      before = next;
+    }
+    // 单 id 超限：states JSON≈LIMIT+封套——帧总长 ~4.2KB < 64KB 不触入站帧闸（两实体正交）
+    sendAwareness(b, 404, { selection: { nodeIds: ['n'.repeat(AWARENESS_STATES_LIMIT_BYTES + 64)] } });
+    await pollUntil(async () => (await rejectCount()) === before + 1);
+    expect(a.awareness!.getStates().get(404)).toBeUndefined();   // 整帧丢弃——对端零可见
+    expect((kit.gateway as any).clientIdOwner.has(404)).toBe(false);   // 不登记（不占上限槽）
+    sendAwareness(b, 405, { cursor: { x: 1 } });   // 丢帧不 close——同连接后续正常帧照常广播
+    await pollUntil(() => (a.awareness!.getStates().get(405) as any)?.user?.id === 'u2');
   });
 });

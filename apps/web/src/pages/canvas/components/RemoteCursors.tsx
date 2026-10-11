@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { AwarenessBridge, AwarenessState } from '@/collab/awareness';
+import { useCanvasStore } from '@/stores/canvasStore';
 
-/** 远端光标层：cursor 存流坐标，由父级 viewport 变换容器跟随缩放平移 */
+/** 远端光标层：cursor 存流坐标，由父级 viewport 变换容器跟随缩放平移
+ *  Y0b-4 T12（E38）：selection 高亮层——nodeIds×store 节点几何渲染节点框 overlay（色=注入 user.color） */
 export function RemoteCursors({ bridge }: { bridge: AwarenessBridge }) {
   const [states, setStates] = useState<AwarenessState[]>([]);
+  const nodes = useCanvasStore((s) => s.nodes);
 
   useEffect(() => {
     const update = () => setStates([...bridge.getRemoteStates()]);
@@ -13,6 +16,35 @@ export function RemoteCursors({ bridge }: { bridge: AwarenessBridge }) {
 
   return (
     <>
+      {states
+        .filter((s) => s.selection?.nodeIds?.length && s.user?.id && s.user?.name)
+        .flatMap((s) =>
+          s.selection!.nodeIds.map((id) => {
+            const n = nodes.find((x) => x.id === id);
+            if (!n) return null;   // 离线残留 selection/未知节点——跳过（不高亮不抛）
+            const pos = (n as any).internals?.positionAbsolute ?? n.position ?? { x: 0, y: 0 };   // 几何链先例=CanvasReferenceSelectBanner
+            const w = n.width ?? (n as any).measured?.width ?? 200;   // 三档链 width 第一档（B 类屏幕空间 overlay——先例=addOutput.ts）
+            const h = n.height ?? (n as any).measured?.height ?? 200;
+            return (
+              <div
+                key={`sel-${s.user.id}-${id}`}
+                data-testid={`remote-selection-${s.user.id}`}
+                style={{
+                  position: 'absolute',
+                  left: pos.x,
+                  top: pos.y,
+                  width: w,
+                  height: h,
+                  border: `1.5px solid ${s.user.color}`,   // T7 同源：注入 color——禁 fallback 双源
+                  background: 'rgba(127, 127, 127, 0.08)',
+                  borderRadius: 4,
+                  pointerEvents: 'none',
+                  zIndex: 25,
+                }}
+              />
+            );
+          }),
+        )}
       {states.filter((s) => s.cursor && s.user?.id && s.user?.name).map((s, i) => (
         <div
           key={i}

@@ -3,7 +3,7 @@ import {
   ReactFlow, Background, BackgroundVariant, MiniMap,
   useReactFlow, SelectionMode,
   type Connection, type FinalConnectionState, type SnapGrid,
-  type NodeTypes, type OnNodesChange, type OnEdgesChange,
+  type NodeTypes, type OnNodesChange, type OnEdgesChange, type OnSelectionChangeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Modal, message } from 'antd';
@@ -117,6 +117,12 @@ function CanvasViewComponent(_props: Props) {
     const flow = screenToFlowPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     bridge.setCursor({ x: flow.x, y: flow.y });
   }, [screenToFlowPosition]);
+  // Y0b-4 T12（E38）：选中态上报 awareness——bridge.setSelection 内去抖 200ms trailing（框选逐帧
+  // 相交变化收敛为末态单帧）；空选区立即清（setAwarenessField('selection', null)）。cursor 已有
+  // 50ms 节流（上）——selection 独立去抖管道互不影响。
+  const handleSelectionChange = useCallback(({ nodes: selected }: OnSelectionChangeParams) => {
+    getAwareness()?.setSelection(selected.map((n) => n.id));
+  }, []);
   const projectId = useCanvasStore((s) => s.projectId);
   // Y0b-2 T7：canExecute 硬态（组执行按钮禁用判据——断连/只读/冻结禁执行）
   const canExec = useCanvasStore(canExecute);
@@ -535,6 +541,7 @@ function CanvasViewComponent(_props: Props) {
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
+        onSelectionChange={handleSelectionChange}
         onSelectionStart={onSelectionStart}
         onSelectionEnd={onSelectionEnd}
         onNodeDragStart={onNodeDragStart}

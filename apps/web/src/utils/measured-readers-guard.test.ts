@@ -9,6 +9,8 @@
 //   - B 类 +6 行：groups/addOutput.ts（B6-2/B6-3 新建 +号输出按钮/批量连线纯函数层——
 //     屏幕空间 UI[+号锚框/源锚点/落点命中]，三档链形态[width 第一档]——固化窗口期无跳变）；
 //   - 终态=43 行/15 文件（A 18 + B 25；总数由表推导禁独立写死）。
+//   - Y0b-4 T12：B 类 +2 行——RemoteCursors selection 高亮层（presence 节点框 overlay，屏幕空间
+//     可化不进投影；三档链 width 第一档=addOutput 同款）；终态=45 行/16 文件（A 18 + B 27）。
 // A 形态断言（终裁 91+第二十六轮拆域）：每 A 行必含 ?? 链且链首=普通字段（首 `??` 先于首
 // `.measured`——抓"分类 A 却 measured 优先"）；B 类 internalNode/node.measured 直读豁免不受
 // 链形约束（样板=TextNodeToolbar:171/ImageNodeToolbar:363，防实现者"补链"）。
@@ -45,8 +47,9 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/video-editor/export/product-node.ts': [15],
   },
   B: {
-    // 屏幕空间 UI+RF internals（measured 权威禁进投影）=25 行：六 Toolbar 12 + ImageGen setCenter 2 +
-    // Banner setCenter 2 + VideoGen 落位 1 + TextInput 盒镜像 2 + addOutput 6（B6-2 屏幕空间 +号/连线）
+    // 屏幕空间 UI+RF internals（measured 权威禁进投影）=27 行：六 Toolbar 12 + ImageGen setCenter 2 +
+    // Banner setCenter 2 + VideoGen 落位 1 + TextInput 盒镜像 2 + addOutput 6（B6-2 屏幕空间 +号/连线）+
+    // RemoteCursors 2（Y0b-4 T12 selection 高亮层——presence 节点框 overlay 不进投影，width 第一档三档链）
     'pages/canvas/components/groups/GroupToolbar.tsx': [83, 84],
     'pages/canvas/components/nodes/AnnotationToolbar.tsx': [117, 118],
     'pages/canvas/components/nodes/EditToolbar.tsx': [301, 302],
@@ -58,6 +61,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/VideoGenNode.tsx': [398],
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],
     'pages/canvas/components/groups/addOutput.ts': [79, 80, 137, 138, 198, 199],
+    'pages/canvas/components/RemoteCursors.tsx': [26, 27],   // Y0b-4 T12 E38：selection 高亮层（overlay 屏幕空间）
   },
 };
 
@@ -86,7 +90,7 @@ function scanMeasuredHits(): Map<string, string> {
 }
 
 describe('B7-1 census：measured 读者集合相等断言（终裁 84——命中逐行≡分类表，新增即红）', () => {
-  it('扫描面非空自证 + 命中集合 ≡ 三列分类表（43 行/15 文件=表推导：A 18+B 25）', () => {
+  it('扫描面非空自证 + 命中集合 ≡ 三列分类表（45 行/16 文件=表推导：A 18+B 27）', () => {
     const hits = scanMeasuredHits();
     expect(hits.size).toBeGreaterThan(0);   // 扫描面非空自证（防路径漂移恒绿）
     const expected = new Set<string>();

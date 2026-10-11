@@ -1,6 +1,9 @@
 // awareness presence 封装（spec T6）：光标/选区/在线成员
 // Y0b-3 T7：user 字段写入退位——身份/role/color 由服务端 beforeHandleAwareness 无条件注入
 // （客户端自写即伪造面，E73）；配色单源=@flowweb/shared userColorOfUserId（服务端同源算法）。
+// Y0b-4 T12（E38）：selection 上报=去抖 200ms trailing+4KB 客户端前置拒（服务端解码后 4KB 判兜底）。
+import { QUOTA_DEFAULTS, utf8Bytes } from '@flowweb/shared';
+import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 
 export interface CollabUser {
@@ -25,10 +28,14 @@ export interface AwarenessState {
   selection?: SelectionState;
 }
 
+/** T12（E38）：selection 去抖窗——框选逐帧相交变化收敛为末态单帧（2026-09-28 交互重构 spec §7 登记行的解法） */
+const SELECTION_DEBOUNCE_MS = 200;
+
 export class AwarenessBridge {
   /** 批1-5：稳定对象——订阅自持（Set<cb>），attach 迁移时重挂单内部 handler（消费方订阅跨实例存活） */
   private readonly listeners = new Set<() => void>();
   private detachProviderListener: (() => void) | null = null;
+  private selectionTimer: ReturnType<typeof setTimeout> | null = null;
   private provider!: HocuspocusProvider; // 构造经 attach 赋值（definite assignment）
 
   constructor(provider: HocuspocusProvider) {
@@ -61,10 +68,26 @@ export class AwarenessBridge {
     this.provider.setAwarenessField('cursor', cursor);
   }
 
-  // ⚠️ 当前无生产调用方（仅测试）。勿接到画布选中态——框选逐帧改 selected 会使每次相交变化
-  // 变成 WS awareness 写（2026-09-28 交互重构 spec §7 登记行）。
+  /** T12（E38）：selection 上报——去抖 200ms trailing（连续变更只发末态——框选逐帧相交变化
+   *  收敛为单帧，2026-09-28 spec §7 登记行解法）；选区清空立即发（结束选区要及时，不走去抖）；
+   *  超限拒发前置在客户端（服务端解码后 4KB 判兜底——QUOTA_DEFAULTS.awarenessLimitBytes 单源）。
+   *  清空=setAwarenessField('selection', null)（清字段值非清条目——presence/user 保留 §0.4b-17）。 */
   setSelection(nodeIds: string[]): void {
-    this.provider.setAwarenessField('selection', { nodeIds });
+    if (nodeIds.length === 0) {
+      if (this.selectionTimer) { clearTimeout(this.selectionTimer); this.selectionTimer = null; }   // 取消 pending 去抖——尾帧不补发
+      this.provider.setAwarenessField('selection', null);
+      return;
+    }
+    const selection = { nodeIds };
+    if (utf8Bytes(JSON.stringify(selection)) > QUOTA_DEFAULTS.awarenessLimitBytes) {
+      recordCollabDiag('write_reject', { reason: 'selection-too-large' });   // 拒不上 wire（不进管道不补发）
+      return;
+    }
+    if (this.selectionTimer) clearTimeout(this.selectionTimer);
+    this.selectionTimer = setTimeout(() => {
+      this.selectionTimer = null;
+      this.provider.setAwarenessField('selection', selection);
+    }, SELECTION_DEBOUNCE_MS);
   }
 
   getStates(): Map<number, AwarenessState> {

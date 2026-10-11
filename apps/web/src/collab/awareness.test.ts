@@ -1,6 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { AwarenessBridge } from './awareness';
+import { QUOTA_DEFAULTS } from '@flowweb/shared';
+import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
+
+afterEach(() => {
+  vi.useRealTimers();   // T12：去抖测试用 fake timers——异常路径防泄漏到后续用例
+  vi.restoreAllMocks();
+});
 
 function mockProvider(clientID = 1, states = new Map()) {
   const listeners: Record<string, (() => void)[]> = {};
@@ -15,10 +22,12 @@ function mockProvider(clientID = 1, states = new Map()) {
 
 describe('awareness', () => {
   it('setCursor/setSelection 写 awareness 字段（T7：user 字段写入退位=服务端注入，客户端无 setLocalUser）', () => {
+    vi.useFakeTimers();
     const p = mockProvider();
     const bridge = new AwarenessBridge(p);
     bridge.setCursor({ x: 10, y: 20 });
     bridge.setSelection(['n1', 'n2']);
+    vi.advanceTimersByTime(200);   // T12：selection 去抖 200ms trailing——非空选区经去抖管道
     expect((p as any).setAwarenessField).not.toHaveBeenCalledWith('user', expect.anything());
     expect((p as any).setAwarenessField).toHaveBeenCalledWith('cursor', { x: 10, y: 20 });
     expect((p as any).setAwarenessField).toHaveBeenCalledWith('selection', { nodeIds: ['n1', 'n2'] });
@@ -88,5 +97,46 @@ describe('批1-5：AwarenessBridge 稳定对象化', () => {
     const bridge = new AwarenessBridge(p);
     expect(bridge.getStates().size).toBe(0);
     expect(bridge.getRemoteStates()).toEqual([]);
+  });
+});
+
+describe('Y0b-4 T12（E38）：selection 去抖 200ms+clearSelection+4KB 客户端拒', () => {
+  const selectionCalls = (p: unknown) =>
+    (p as any).setAwarenessField.mock.calls.filter((c: unknown[]) => c[0] === 'selection');
+
+  it('去抖 200ms trailing：连续 selection 变更只发末态（中间态不上 wire）', () => {
+    vi.useFakeTimers();
+    const p = mockProvider();
+    const bridge = new AwarenessBridge(p);
+    bridge.setSelection(['a']);
+    bridge.setSelection(['a', 'b']);
+    bridge.setSelection(['a', 'b', 'c']);
+    expect(selectionCalls(p)).toEqual([]);   // 去抖窗内零上 wire——中间态 ['a']/['a','b'] 不发
+    vi.advanceTimersByTime(200);
+    expect(selectionCalls(p)).toEqual([['selection', { nodeIds: ['a', 'b', 'c'] }]]);   // 恰一次=末态
+  });
+
+  it('clearSelection：选区清空立即发 setAwarenessField("selection", null)（清字段值非清条目——presence/user 保留 §0.4b-17）且取消 pending 去抖', () => {
+    vi.useFakeTimers();
+    const p = mockProvider();
+    const bridge = new AwarenessBridge(p);
+    bridge.setSelection(['a']);   // pending 去抖中
+    bridge.setSelection([]);
+    expect(selectionCalls(p)).toEqual([['selection', null]]);   // 立即发（未 advance——清空不走去抖）
+    vi.advanceTimersByTime(400);
+    expect(selectionCalls(p)).toEqual([['selection', null]]);   // pending 已取消——去抖尾帧不补发
+  });
+
+  it('4KB 客户端拒：utf8Bytes(JSON)>QUOTA_DEFAULTS.awarenessLimitBytes 的 selection 不发+diag write_reject{selection-too-large}', () => {
+    vi.useFakeTimers();
+    _resetCollabDiagForTest();
+    const p = mockProvider();
+    const bridge = new AwarenessBridge(p);
+    bridge.setSelection(['n'.repeat(QUOTA_DEFAULTS.awarenessLimitBytes)]);   // 单 id 即超 4KB（常量绑定——改值本测试红）
+    vi.advanceTimersByTime(400);
+    expect(selectionCalls(p)).toEqual([]);   // 不发（不进管道不补发）
+    const last = getRecentCollabDiag().at(-1);
+    expect(last?.type).toBe('write_reject');
+    expect(last?.detail).toEqual({ reason: 'selection-too-large' });
   });
 });

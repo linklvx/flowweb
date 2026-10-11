@@ -96,8 +96,14 @@ const AUTO_VACUUM_RESIDUE_RATIO = 0.6;
 
 /** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
  *  30/s×16MB=480MB/s 解码路径封死，报告1 P1-1）。两个实体两个名：本常量=帧字节闸；
- *  AWARENESS_STATES_LIMIT_BYTES=4KB 解码后 states 字节判归 T12（勿混）。 */
+ *  AWARENESS_STATES_LIMIT_BYTES=4KB 解码后 states 字节判（T12 落地——勿混）。 */
 export const AWARENESS_FRAME_LIMIT_BYTES = 64 * 1024;
+
+/** Y0b-4 T12（E38）：解码后 states 字节上限 4KB——guardAwareness 内判（剔除/注入后的广播字节近似，
+ *  states 值 ASCII 为主 JSON.stringify length≈utf8 字节）。与 T6 帧闸两实体两名：帧闸=解码前
+ *  close 1009；本判=解码后丢帧不 close（客户端 setSelection 已有 4KB 前置拒——本判为兜底，
+ *  直发裸帧/旧 bundle 残余路径封口）。 */
+export const AWARENESS_STATES_LIMIT_BYTES = 4096;
 
 /** Y0b-4 T7（Q-F v2）：出站背压双阈——一级 awareness drop（backlog>1MB 只丢 presence）/二级
  *  close(1011)（backlog>4MB 慢消费者断连，backoff 档重连自愈）。census ⑤：bufferedAmount
@@ -2666,6 +2672,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           }
         }
         if (stripped) collabAwarenessStrippedTotal.inc({ reason: 'read-only' });
+      }
+      // Y0b-4 T12（E38）：解码后 states 4KB 判——readOnly 剔字段后取广播字节近似（剔后才是实际
+      // 要编码广播的量）；整帧丢弃同 forged 先例（丢帧不 close——客户端已有 4KB 前置拒，本判兜
+      // 底裸帧/旧 bundle 残余）。放身份注入前：注入 user 只增字节，先判少做无效趟。
+      if (JSON.stringify([...states.values()]).length > AWARENESS_STATES_LIMIT_BYTES) {
+        states.clear();
+        collabAwarenessRejectTotal.inc({ reason: 'frame-too-large' });
+        return;
       }
       const identity = this.socketIdentity.get(socketId);
       if (!identity) return;   // 未认证连接的 awareness 帧（pre-auth 队列外不应出现——防御性放行）
