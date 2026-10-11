@@ -14,7 +14,8 @@ import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord, DocMapLike, DocNodeRecord, FrameMode } from '@flowweb/shared';
 import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
-  assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData } from '@flowweb/shared';
+  assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
+  QUOTA_DEFAULTS, utf8Bytes } from '@flowweb/shared';
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys, EPHEMERAL_DATA_KEYS } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -49,6 +50,39 @@ export type CanvasIntent =
   | { type: 'updateNodeEnvelope'; id: string; patch: NodeEnvelopePatch }
   | { type: 'upsertEdge'; edge: PlainEdge }
   | { type: 'deleteEdge'; id: string };
+
+/** Y0b-4 T9a Step 3（4a 出口 D-14）：意图字符串值迭代——递归遍历对象/数组的全部字符串叶子
+ *  （CanvasIntent 浅层键+嵌套 node.data/patch/edge/position 全达——递归泛化"浅层+data 一层"）。 */
+function* iterStringValues(v: unknown): Generator<string> {
+  if (typeof v === 'string') yield v;
+  else if (Array.isArray(v)) for (const x of v) yield* iterStringValues(x);
+  else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) yield* iterStringValues(x);
+}
+
+/** 判定意图序列可否应用（Q-I 前三判据——web 侧最小声明，与 T4 服务端执法同尺不代执法）：
+ *  ①单字符串值 utf8 字节 > maxKeyBytes → key-too-large（先判：超 maxTxBytes 的单串必超
+ *    maxKeyBytes——QUOTA_DEFAULTS 锁定 maxKeyBytes ≤ maxTxBytes ⇒ ①⊆②，更具体文案先报）；
+ *  ②Σ utf8Bytes(JSON.stringify(intent)) > maxTxBytes → tx-too-large；
+ *  ③addNode 数 > maxNodesPerTx → too-many-nodes；
+ *  ④（T10）：快照+delta 插值+软限滞回（0.8/0.6）判定——依赖 T5 已落 store 字段+插值器（归 T10）。 */
+export type ApplyIntentVerdict =
+  | { ok: true }
+  | { ok: false; reason: 'key-too-large' | 'tx-too-large' | 'too-many-nodes' };
+
+export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
+  for (const i of intents) {
+    for (const v of iterStringValues(i)) {
+      if (utf8Bytes(v) > QUOTA_DEFAULTS.maxKeyBytes) return { ok: false, reason: 'key-too-large' }; // ①先判（②的子集）
+    }
+  }
+  const txBytes = intents.reduce((n, i) => n + utf8Bytes(JSON.stringify(i)), 0);
+  if (txBytes > QUOTA_DEFAULTS.maxTxBytes) return { ok: false, reason: 'tx-too-large' }; // ②
+  if (intents.filter((i) => i.type === 'addNode').length > QUOTA_DEFAULTS.maxNodesPerTx) {
+    return { ok: false, reason: 'too-many-nodes' }; // ③
+  }
+  return { ok: true };
+  // ④（T10）：快照+delta 插值+软限判定——本骨架不做（插值器归 T10）
+}
 
 /** 测试缝（只读注入）：spec 裸 doc 驱动纯漏斗路径（无 initCollab）。生产恒走 getDoc()。 */
 let testDoc: Y.Doc | null = null;

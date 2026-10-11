@@ -23,7 +23,8 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-2（组 2 收口）：复合信封写点经 captureStoreProjection/dispatchProjectionDiff 差分换芯
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
-import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent } from './canvasIntents';
+import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent, type ApplyIntentVerdict } from './canvasIntents';
+import { recordCollabDiag } from '@/utils/collabDiagnostics';
 // B5'-1（Spec B）：commitIntents 末帧差分读 doc.abs 单源（readCanvasFromDoc——docShape 单源薄委托）。
 // 循环依赖裁定同 canvasIntents：顶层仅声明，action 体运行时才调——安全。
 import { readCanvasFromDoc } from '@/collab/ydocBuilder';
@@ -276,8 +277,9 @@ export interface CanvasState {
   patchGroupData: (groupId: string, patch: Record<string, unknown>) => void;
   /** 组 data 纯写层（v2.1 拆层）：patchGroupData 去 dispatch 的零 dispatch 版——runCommand.fn 内专用 */
   patchGroupDataInner: (groupId: string, patch: Record<string, unknown>) => void;
-  /** R2 新命令唯一入口（canEdit 门 + 单 undo 步 + 差分换芯编排）——见实现 JSDoc */
-  runCommand: (fn: () => void) => void;
+  /** R2 新命令唯一入口（canEdit 门 + 单 undo 步 + 差分换芯编排）——见实现 JSDoc。
+   *  Y0b-4 D-14：可选 precheck（配额预检 canApplyIntent——拒=零副作用，见实现 JSDoc）。 */
+  runCommand: (fn: () => void, precheck?: () => ApplyIntentVerdict) => void;
   /** §4.3 整理选区（R2a-5）：组=原子块+散根真重排（participation('arrange') 裁决——detached 排除并计数提示）；
    *  写回经 runCommand（canEdit 门+单 undo 步+差分收尾）；不 refit 组框（refit 属 2c-4 显式几何命令语义） */
   arrangeSelection: (ids: string[], mode: ArrangeMode) => void;
@@ -1793,10 +1795,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  fn 契约（钉死）：① 只准 plain set（含删键）——组 data 写用 patchGroupDataInner（纯写层），
    *  禁用 patchGroupData（其自带正向 dispatch，叠外层差分=同值写两遍两 transact）；
    *  ② 先取数校验（resolveNodeData 取不到即红）后结构写——抛错须发生在任何写之前；
-   *  ③ finally 恒收尾 diff：fn 抛错时 catch 提示不 rethrow，diff 出已写部分——doc≡store 不变量恒成立。 */
-  runCommand: (fn) => {
+   *  ③ finally 恒收尾 diff：fn 抛错时 catch 提示不 rethrow，diff 出已写部分——doc≡store 不变量恒成立。
+   *  Y0b-4 T9a Step 3（4a 出口 D-14）：可选 precheck（canApplyIntent 判据①-③）——canEdit 门后
+   *  拒=零副作用（fn 零调用+零 transact+零 undo 步），write_reject diag 计数先行；
+   *  toastQuotaReject UI 与判据④（插值软限）归 T10——骨架不引 UI 依赖。 */
+  runCommand: (fn, precheck) => {
     if (!canEdit(get())) {
       message.warning('当前为只读会话，操作已忽略');
+      return;
+    }
+    const v = precheck?.();
+    if (v && !v.ok) {
+      recordCollabDiag('write_reject', { reason: v.reason });
       return;
     }
     stopCapturing();
