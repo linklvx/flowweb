@@ -1488,23 +1488,24 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     }
   });
 
-  it('H-5：drain 解除先还原 readOnly 再 close（frozenConnections=Map<conn,prevReadOnly>——close CLOSING no-op 边角下存活连接不再永久只读）', async () => {
+  it('H-5：drain 解除先还原 readOnly 再 close（writeFreeze 原因集——解除只移 draining，spool 降级连接不被 drain 误赦免；close CLOSING no-op 边角下存活连接不再永久只读）', async () => {
     const kit = await startDualClientServer();
     try {
-      // prev 两形态：false=普通连接（冻结前可写）；true=spool 熔断降级连接（冻结前已只读——不被 drain 误赦免）
+      // 两形态：普通连接（冻结前可写）；spool 熔断降级连接（connected 已登记 'spool' 原因——冻结前已只读）
       const normalConn = { readOnly: false, sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
       const degradedConn = { readOnly: true, sendStateless: vi.fn(), webSocket: { close: vi.fn() } };
+      (kit.gateway as any).writeFreeze.set(degradedConn, { pid: 'ph5', reasons: new Set(['spool']) });   // 真实 spool 降级连接的 writeFreeze 形态（connected 登记）
       (kit.gateway as any).server.hocuspocus.documents.set('project:ph5', {
         name: 'project:ph5', connections: new Map([[normalConn as any, null], [degradedConn as any, null]]),
         getConnections: () => [],
       });
       vi.useFakeTimers();
       kit.gateway.beginDraining();
-      expect(normalConn.readOnly).toBe(true);    // 冻结生效（B12）
-      expect(degradedConn.readOnly).toBe(true);  // 已只读——冻结保持
+      expect(normalConn.readOnly).toBe(true);    // 冻结生效（B12——writeFreeze 并入 'draining'）
+      expect(degradedConn.readOnly).toBe(true);  // 已只读——冻结保持（{spool,draining}）
       await vi.advanceTimersByTimeAsync(60_000);
-      expect(normalConn.readOnly).toBe(false);   // 还原=prev（改前恒 true=永久只读——本断言红）
-      expect(degradedConn.readOnly).toBe(true);  // 还原=prev（true）——drain 不越权赦免
+      expect(normalConn.readOnly).toBe(false);   // 解除=移除 'draining'（原因集空——改前恒 true=永久只读）
+      expect(degradedConn.readOnly).toBe(true);  // 'spool' 原因保留——drain 不越权赦免（H-5 语义集合化继任）
       expect(normalConn.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');
       expect(degradedConn.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');
     } finally {
@@ -1514,7 +1515,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     }
   });
 
-  it('H-5×E13 嵌套：drain 冻结窗内复验 VIEWER 结论→frozenConnections 快照跟随降级（prev→true）——60s 解除还原 true 不打穿越权写窗（改前红：快照仍 false→解除还原 false，close(1012) no-op 边角下已降 VIEWER 获写权至 permCache 下轮）', async () => {
+  it('H-5×E13 嵌套：drain 冻结窗内复验 VIEWER 结论→writeFreeze 并入 viewer 原因——60s 解除只移 draining，viewer 保持（不打穿越权写窗；prev 快照跟随的集合化继任）', async () => {
     const kit = await startDualClientServer();
     try {
       const conn = { readOnly: false, sendStateless: vi.fn(), webSocket: { close: vi.fn() }, socketId: 'sock-h5e13', context: { token: 'tok' } };
@@ -1524,16 +1525,16 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       });
       vi.useFakeTimers();
       kit.gateway.beginDraining();
-      expect(conn.readOnly).toBe(true);                                       // 冻结生效（B12）
-      expect((kit.gateway as any).frozenConnections.get(conn)).toBe(false);   // prev 快照=false（冻结前可写）
+      expect(conn.readOnly).toBe(true);                                                 // 冻结生效（B12）
+      expect((kit.gateway as any).writeFreeze.get(conn)?.reasons.has('draining')).toBe(true);   // 原因集={draining}
       // drain 窗口内 collab.perm.changed→即时 sweep→recheckConnection：DB 已翻 VIEWER（直调复验同路径）
       kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });
       const re = await (kit.gateway as any).recheckConnection(conn, 'project:ph5e13');
-      expect(re).toMatchObject({ revoked: false });                           // 降级不断连（E13 语义）
-      expect(conn.readOnly).toBe(true);                                       // 停写保持（冻结值——不因复验翻回）
-      expect((kit.gateway as any).frozenConnections.get(conn)).toBe(true);    // ★快照跟随（改前红：仍 false）
-      await vi.advanceTimersByTimeAsync(60_000);                              // 60s 解除
-      expect(conn.readOnly).toBe(true);                                       // 还原=快照 true（改前红：还原 false=越权写窗）
+      expect(re).toMatchObject({ revoked: false });                                     // 降级不断连（E13 语义）
+      expect(conn.readOnly).toBe(true);                                                 // 停写保持（冻结值——不因复验翻回）
+      expect((kit.gateway as any).writeFreeze.get(conn)?.reasons.has('viewer')).toBe(true);     // ★VIEWER 结论并入（改前红：无 viewer 原因）
+      await vi.advanceTimersByTimeAsync(60_000);                                        // 60s 解除
+      expect(conn.readOnly).toBe(true);                                                 // viewer 原因保持（改前红：还原 false=越权写窗）
       expect(conn.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');
     } finally {
       vi.useRealTimers();

@@ -882,6 +882,13 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_lease_row_missing_total
 - collab_load_rejected_total
 - collab_overload_state
+- collab_quota_fastpath_total
+- collab_quota_frame_rejected_total
+- collab_quota_frozen_docs
+- collab_quota_soft_threshold_total
+- collab_quota_truth_measure_duration_seconds
+- collab_quota_truth_measured_total
+- collab_quota_writes_dropped_total
 - collab_start_failure_total
 - collab_sweep_close_total
 - collab_unhandled_rejection_total
@@ -913,6 +920,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_doc_loaded_by_reconciler_total
 - yjs_doc_stuck_total
 - yjs_hydration_huge_row_total
+- yjs_inbound_frame_bytes
 - yjs_loaded_doc_bytes
 - yjs_loaded_documents
 - yjs_pending_batches

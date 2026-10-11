@@ -1,4 +1,4 @@
-import { Counter, Gauge, register } from 'prom-client';
+import { Counter, Gauge, Histogram, register } from 'prom-client';
 
 export const yjsStoreDrainTotal = new Counter({
   name: 'yjs_store_drain_total',
@@ -389,5 +389,65 @@ export const yjsUnloadHandoffFailureTotal = new Counter({
 export const yjsUnloadCleanupFailureTotal = new Counter({
   name: 'yjs_unload_cleanup_failure_total',
   help: 'beforeUnloadDocument 清理体异常被吞次数（钩子永不抛——X4 destroy 不可被取消）',
+  registers: [register],
+});
+
+/** ===== Y0b-4 T4（spec §5.2 配额族）：beforeSync 分层判据观测 ===== */
+
+/** 软阈冻结翻转计数（action=enter 进入冻结/exit thaw 解除——滞回 0.8 进 0.6 出）。 */
+export const collabQuotaSoftThresholdTotal = new Counter({
+  name: 'collab_quota_soft_threshold_total',
+  help: '配额软阈冻结翻转次数（action=enter 进入冻结/exit thaw 解除——滞回 softEnter 0.8/softExit 0.6）',
+  labelNames: ['action'],
+  registers: [register],
+});
+/** 拒绝链计数（reason=doc-over-quota 持续强推 4404 升级/frame-too-large 帧闸 1009——与认证桶不并轨）。 */
+export const collabQuotaFrameRejectedTotal = new Counter({
+  name: 'collab_quota_frame_rejected_total',
+  help: 'beforeSync 拒绝链次数（reason=doc-over-quota 持续强推 4404 升级/frame-too-large 帧闸 1009）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+/** readOnly 早退吞帧计数（reason 四分位=quota|viewer|draining|spool——静默分叉唯一服务端证据）。 */
+export const collabQuotaWritesDroppedTotal = new Counter({
+  name: 'collab_quota_writes_dropped_total',
+  help: 'readOnly 连接写帧被库吞次数（reason=quota|viewer|draining|spool 冻结原因分列——静默分叉唯一服务端证据）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+/** 全量编码触发次数（P0-1 直接证据——measured/(measured+fastpath) 应 >0.99）。 */
+export const collabQuotaTruthMeasuredTotal = new Counter({
+  name: 'collab_quota_truth_measured_total',
+  help: 'docTruth 全量编码（encodeStateAsUpdate）触发次数（快路径比值验证——measured/(measured+fastpath)>0.99）',
+  registers: [register],
+});
+/** 快路径 O(1) 放行次数（判据③——truth+delta+bytes ≤ soft 零编码）。 */
+export const collabQuotaFastpathTotal = new Counter({
+  name: 'collab_quota_fastpath_total',
+  help: 'beforeSync 快路径 O(1) 放行次数（判据③ truth+delta+bytes ≤ soft 零编码）',
+  registers: [register],
+});
+/** 单次全量编码耗时（进程预算 duty 验证——≤1 次/200ms+duty≤5%）。 */
+export const collabQuotaTruthMeasureDuration = new Histogram({
+  name: 'collab_quota_truth_measure_duration_seconds',
+  help: 'docTruth 单次全量编码耗时秒（进程测量预算 duty 验证——冷却窗 2s+预算器双闸）',
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
+  registers: [register],
+});
+/** 冻结面现状 gauge（collect=quotaFrozenDocs.size——文档级注册表，与在线无关；reader 注册模式同 pendingCollector 惯例）。 */
+let frozenDocsReader: (() => number) | null = null;
+export function registerFrozenDocsReader(fn: () => number): void { frozenDocsReader = fn; }
+export function unregisterFrozenDocsReader(): void { frozenDocsReader = null; }
+export const collabQuotaFrozenDocs = new Gauge({
+  name: 'collab_quota_frozen_docs',
+  help: '配额冻结 doc 数（文档级注册表 quotaFrozenDocs.size——与连接在线无关）',
+  registers: [register],
+  collect() { try { this.set(frozenDocsReader?.() ?? 0); } catch { this.set(0); } },
+});
+/** 入站 sync 帧字节分布（collab 模块 Histogram 首例——exec.metrics 先例；maxTxBytes/maxDocBytes 闸界观测）。 */
+export const yjsInboundFrameBytes = new Histogram({
+  name: 'yjs_inbound_frame_bytes',
+  help: '入站 sync 帧字节分布（beforeSync Update/Step2——帧闸 2×maxTxBytes/maxDocBytes 界内分布）',
+  buckets: [1024, 16 * 1024, 64 * 1024, 256 * 1024, 512 * 1024, 1_048_576, 4_194_304, 8_388_608],
   registers: [register],
 });

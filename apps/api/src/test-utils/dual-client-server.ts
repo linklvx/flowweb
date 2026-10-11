@@ -63,7 +63,8 @@ export function makeHeaderWs(headers: Record<string, string>, onCreated?: (ws: W
 
 /** Y0a-2：spool 第三参（缺省内部 mkdtemp tmpdir——dispose 只清**自建**目录，注入目录归用例的
  *  makeSpoolDir.cleanup，防 BOI-4 崩溃模拟等"跨实例共享目录"场景被 dispose 误清）。 */
-export async function startDualClientServer(over: Partial<MockRepo> = {}, debounce = 300, spool?: CollabSpoolService, lease?: unknown): Promise<DualClientKit> {
+/** Y0b-4 T4：第五参 quota——gateway 构造注入面透传（真连配额用例注入小值；缺省 env/QUOTA_DEFAULTS） */
+export async function startDualClientServer(over: Partial<MockRepo> = {}, debounce = 300, spool?: CollabSpoolService, lease?: unknown, quota?: import('../modules/collab/collab.gateway').QuotaConfig): Promise<DualClientKit> {
   const prisma: Record<string, any> = {
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }) },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
@@ -83,7 +84,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   // Y0a-3 T5：lease stub 第四参（缺省契约形态 stub——V1 三件套：tryAcquireFast 成功 ⇒ repo/spool
   // setOwner + await onAcquired，生产 onHeld 同序；G-3/门用例经 over 关闭）。
   const leaseSvc = lease ?? createLeaseStub({}, { repo: repo as any, spool: spoolSvc });
-  const gateway = new CollabGateway(prisma as any, emitter as any, repo as any, leaseSvc as any, permSvc as any, port, debounce, undefined, undefined, spoolSvc);
+  const gateway = new CollabGateway(prisma as any, emitter as any, repo as any, leaseSvc as any, permSvc as any, port, debounce, undefined, undefined, spoolSvc, quota);
   await gateway.onModuleInit();   // async+await listen——无端口竞态
   const url = `ws://127.0.0.1:${port}`;
   const providers: HocuspocusProvider[] = [];
