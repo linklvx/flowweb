@@ -5,14 +5,18 @@
 // +thaw 回灌（冻结态∧truth<softExit 时 thawQuota：解除冻结+SyncStep1 回灌+广播 ok——T8 外审
 // Concern ① 冻结前置）+shrink 成功未 thaw 时 force 广播 bytes（偏差③——滞回带/未冻结客户端校准）。
 // 全局信号量并发 1（编码 8MB×N 并发=CPU 尖峰——排队不拒绝；10s 排队超时 503 SHRINK_BUSY）。
-import { BadRequestException, HttpException, Injectable, Inject, ServiceUnavailableException } from '@nestjs/common';
+// Y0b-4 T9（Q-H）：export-fresh——墓碑主导文档唯一出路（shrink 影子预演必 422 的真空出口）：
+// 源团队/文件夹归属保留+in-flight latch 幂等+fillDoc 干净编码+落地编码校验（超限 warning 不阻断）。
+import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import * as Y from 'yjs';
-import { QUOTA_DEFAULTS, readRecordsFromMaps } from '@flowweb/shared';
+import { QUOTA_DEFAULTS, fillDoc, readRecordsFromMaps } from '@flowweb/shared';
 import { ProjectPermissionService } from '../team/project-permission.service';
+import { CanvasService } from '../canvas/canvas.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabGateway } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
-import { collabDocShrinkDuration, collabDocShrinkTotal } from './store.metrics';
+import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal } from './store.metrics';
 
 /** 排队超时（进入执行位前的等待上界——已获执行位的请求不被打断；超时者从等待队列摘除不占执行位） */
 export const SHRINK_QUEUE_TIMEOUT_MS = 10_000;
@@ -31,6 +35,16 @@ export interface ShrinkResult {
   watermark?: number;
   deletedIds?: string[];
   thawed: boolean;
+}
+
+/** T9 export-fresh 出口：bytes=新副本落地编码（census④ 白名单点——fillDoc 后实测）；
+ *  warning=新副本编码仍超限（墓碑已剥离但内容真大——告知不阻断，用户决策域）。 */
+export interface ExportFreshResult {
+  result: 'ok';
+  projectId: string;
+  name: string;
+  bytes: number;
+  warning?: 'still-over-limit';
 }
 
 /** 在 Y.Doc 上删节点+关联边（引用被删节点的边一并删——悬挂边防护）；doc.transact 包裹（单事务原子）。 */
@@ -55,10 +69,16 @@ export class CollabShrinkService {
   private locked = false;
   private waiters: Array<() => void> = [];
 
+  /** T9 in-flight latch（键 `${userId}:${pid}`）：在飞导出复用同 Promise（create 调用数=1 不变量
+   *  ——连续点击不建多项目）；终态即清（finally——失败后可重试）。 */
+  private readonly exportInFlight = new Map<string, Promise<ExportFreshResult>>();
+
   constructor(
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(CollabGateway) private readonly gateway: CollabGateway,
+    @Inject(CanvasService) private readonly canvas: CanvasService,   // T9：副本创建（真实签名 create(name,folderId,userId,teamId?)）
+    @Inject(PrismaService) private readonly prisma: PrismaService,   // T9：源项目元数据（name/teamId/folderId）
   ) {}
 
   async shrink(projectId: string, userId: string, body: ShrinkBody): Promise<ShrinkResult> {
@@ -75,8 +95,53 @@ export class CollabShrinkService {
     }
   }
 
+  /** T9（Q-H，spec §4.1④）：导出到新项目——墓碑主导文档（反复粘贴→删除使 GC 壳/delete set 占
+   *  编码主体，shrink 影子预演必 422）唯一出路。in-flight latch：同 user:pid 在飞请求复用同
+   *  Promise（新 project 数=1——用户最焦虑时刻不制造垃圾数据）；检查→登记无 await 窗（首个
+   *  请求同步占位，后续并发必命中）。不走 shrink 信号量（读段+fill 段均为常规 withDoc 事务，
+   *  latch 已限同 user:pid 并发=1）。 */
+  async exportFresh(projectId: string, userId: string): Promise<ExportFreshResult> {
+    await this.perm.assertEditorWithTeam(projectId, userId);   // 权限恒先（shrink 同门）
+    const key = `${userId}:${projectId}`;
+    const inflight = this.exportInFlight.get(key);
+    if (inflight) {
+      collabDocExportFreshTotal.inc({ result: 'in-flight' });   // 并发去重命中（与主请求 ok 分列计）
+      return inflight;
+    }
+    const p = this.exportFreshRun(projectId, userId).finally(() => this.exportInFlight.delete(key));
+    this.exportInFlight.set(key, p);
+    return p;
+  }
+
+  /** 导出执行体：源活读（withDoc——发起方必有 WS⇒doc 常驻）→源元数据（CanvasProject.name/teamId
+   *  +Template.folderId——projectId @unique 1:1）→同团队建副本（真实签名 create(name, folderId,
+   *  userId, teamId)——不传 teamId=落默认团队=协作者全员失访，外审 P1-6）→fillDoc 干净编码（墓碑
+   *  /GC 壳不随行——新 doc 只含 records 真值）→落地编码校验。fillDoc 走 toDocLike 适配（Y.Doc 无
+   *  createMap，裸传 throw 被 catch 吞=断言真空——adversarial-readers 先例）；新 doc 装载=空画布
+   *  合法档（无戳∧零节点→装载自愈点 stamp，gateway loadDocument 单源——fill 前已有戳）。 */
+  private async exportFreshRun(pid: string, userId: string): Promise<ExportFreshResult> {
+    const records = await this.docs.withDoc(pid, (doc) => readRecordsFromMaps(toDocLike(doc)));
+    const src = await this.prisma.canvasProject.findUnique({
+      where: { id: pid },
+      include: { templates: { select: { folderId: true } } },
+    });
+    if (!src) throw new NotFoundException('源项目不存在');
+    const created = await this.canvas.create(
+      `${src.name}(瘦身副本)`, src.templates[0]?.folderId ?? null, userId, src.teamId,
+    );
+    const bytes = await this.docs.withDoc(created.projectId, (doc) => {
+      fillDoc(toDocLike(doc), records.nodes, records.edges);
+      return Y.encodeStateAsUpdate(doc).byteLength;   // 落地编码校验（census④ 生产白名单点——Q-H）
+    });
+    collabDocExportFreshTotal.inc({ result: 'ok' });
+    const result: ExportFreshResult = { result: 'ok', projectId: created.projectId, name: created.name, bytes };
+    if (bytes > this.gateway.activeQuota.maxDocBytes) result.warning = 'still-over-limit';   // 超限告知不阻断
+    return result;
+  }
+
   /** 同步段（TOCTOU 契约：读 records→解析 victims→影子预演→写活 doc→再编码，全程无 await——
-   *  withDoc 的 transact 在库 saveMutex 锁内执行同步回调，事件循环不 yield=并发写结构性不可达）。 */
+   *  withDoc 的 transact 同步调用回调、事件循环不 yield〔hocuspocus DirectConnection.transact
+   *  是裸 Yjs 事务，saveMutex 只包 storeDocument〕=并发写结构性不可达）。 */
   private shrinkSync(pid: string, doc: Y.Doc, body: ShrinkBody): ShrinkResult {
     const start = Date.now();
     try {
@@ -110,10 +175,9 @@ export class CollabShrinkService {
       // （prevTruth=校准前值——偏差③ force 广播的"truth 实际变化"判定源）
       const truth = Y.encodeStateAsUpdate(doc).byteLength;
       const prevTruth = this.gateway.calibrateTruth(pid, truth);
-      // 滞回出口评估（Concern ① 冻结前置）：仅配额冻结态才评估 thaw（未冻结 doc 校准成功≠冻结
-      // 出口——原"truth<softExit 即 thawQuota"对未冻结 doc 产生 exit 计数虚高+全连接冗余
-      // SyncStep1 往返+thawCooldown 30s 污染）；滞回带/以上不 thaw（假冻结出口：大 doc 校准
-      // 不得误解除冻结）
+      // 滞回出口评估（Concern ① 冻结前置）：仅真冻结态（quotaFrozenDocs——isQuotaFrozen 收窄，
+      //  freezePending 确认窗不算：pending 定时器自收敛，无 enter 不出 exit=计数配对不虚高）才
+      // 评估 thaw；滞回带/以上不 thaw（假冻结出口：大 doc 校准不得误解除冻结）
       const thawed = this.gateway.isQuotaFrozen(pid)
         && truth < Math.floor(this.gateway.activeQuota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio);
       if (thawed) this.gateway.thawQuota(pid);
@@ -146,8 +210,9 @@ export class CollabShrinkService {
       const timer = setTimeout(() => {
         const i = this.waiters.indexOf(wake);
         if (i >= 0) this.waiters.splice(i, 1);   // 超时出队——不占队列执行位
-        reject(new ServiceUnavailableException({ code: 'SHRINK_BUSY', retryAfterSeconds: 10 }));
+        reject(new ServiceUnavailableException({ code: 'SHRINK_BUSY', retryAfterSeconds: SHRINK_QUEUE_TIMEOUT_MS / 1000 }));
       }, SHRINK_QUEUE_TIMEOUT_MS);
+      timer.unref?.();   // 定时器不阻进程退出（gateway 定时器惯例——fake timers 下照常触发，auth-defense I-2 先例）
       this.waiters.push(wake);
     });
   }

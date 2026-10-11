@@ -12,9 +12,10 @@ import { AuditService } from '../../common/audit/audit.service';
 import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
+import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasService（export-fresh 副本创建）——单向依赖无环
 
 @Module({
-  imports: [TeamModule],
+  imports: [TeamModule, CanvasModule],
   controllers: [CollabReadyController, CollabDocController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点
   providers: [
     { provide: 'COLLAB_PORT', useValue: Number(process.env.COLLAB_PORT) || 3001 },

@@ -11,8 +11,9 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS } from '@flowweb/shared';
-import { CollabGateway, type QuotaConfig } from './collab.gateway';
+import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, readRecordsFromMaps } from '@flowweb/shared';
+import { CollabGateway, TRUTH_COOLDOWN_MS, type QuotaConfig } from './collab.gateway';
+import { toDocLike } from './doc-like.util';
 import { CollabShrinkService, SHRINK_QUEUE_TIMEOUT_MS } from './collab-shrink.service';
 import { CollabNotServingFilter } from './collab-not-serving.filter';
 import { CollabSpoolService } from './collab-spool.service';
@@ -92,18 +93,30 @@ function addEdge(doc: Y.Doc, id: string, source: string, target: string): void {
   doc.getMap('edges').set(id, m);
 }
 
-/** service 直构：perm mock+withDoc 真透传（守卫回调全同步——TOCTOU 契约） */
-function buildSvc(gateway: CollabGateway, doc: Y.Doc) {
+/** service 直构：perm mock+withDoc 真透传（守卫回调全同步——TOCTOU 契约）。
+ *  T9：canvas/prisma 默认 mock（exportFresh 消费——源元数据 {name:'源画布',teamId:'t1',folderId:'f1'}
+ *  /新 project 'p-new'）+docsByPid 可选多 doc 路由（源/新副本分档——缺省全透传 doc）。 */
+function buildSvc(
+  gateway: CollabGateway,
+  doc: Y.Doc,
+  opts?: { canvas?: any; prisma?: any; docsByPid?: Map<string, Y.Doc> },
+) {
   const perm = { assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
   const docs = {
     withDoc: vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => {
-      const r = fn(doc);
+      const r = fn(opts?.docsByPid?.get(_pid) ?? doc);
       if (r instanceof Promise) throw new Error('withDoc 回调必须全同步（TOCTOU 契约——transact 同步段语义）');
       return r;
     }),
   };
-  const svc = new CollabShrinkService(perm as any, docs as any, gateway);
-  return { svc, perm, docs };
+  const canvas = opts?.canvas ?? {
+    create: vi.fn(async () => ({ projectId: 'p-new', name: '源画布(瘦身副本)', teamId: 't1' })),
+  };
+  const prisma = opts?.prisma ?? {
+    canvasProject: { findUnique: vi.fn(async () => ({ id: 'p1', name: '源画布', teamId: 't1', templates: [{ folderId: 'f1' }] })) },
+  };
+  const svc = new CollabShrinkService(perm as any, docs as any, gateway, canvas, prisma);
+  return { svc, perm, docs, canvas, prisma };
 }
 
 /** prom-client 计数增量断言（quota-truth.spec 同款） */
@@ -339,6 +352,41 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(false);
   });
 
+  it('thaw 冻结前置收窄（T8 外审 Minor）：freezePending 确认窗内 shrink 达标 → thawQuota 零调用（真冻结 quotaFrozenDocs 才 thaw）+pending 定时器自收敛（到期实测<soft→calibrate+ok，不 freezeQuota）', async () => {
+    vi.useFakeTimers();   // fake timers 下 buildGateway/attachDoc 先例=auth-defense.spec I-1/I-2
+    try {
+      const gateway = buildGateway({ maxDocBytes: 1 * MiB });
+      const doc = seedDoc();
+      addNode(doc, 'n1', 64);   // shrink 删 n1 后 truth 极小 <softExit——达标语境
+      const conn = makeConn();
+      attachDoc(gateway, doc, 'p1', [conn]);   // pending 定时器到期 documents.get 可达+连接可观测
+      (gateway as any).docTruth.set('p1', 999_000);   // 陈旧大 truth（账面触阈语境）
+      const { svc } = buildSvc(gateway, doc);
+      const thawSpy = vi.spyOn(gateway, 'thawQuota');
+      const g = gateway as any;
+      g.scheduleFreezePending('p1');   // 账面触阈：broadcast over+挂 2s 确认定时器（两态分离——未冻结）
+      expect(g.freezePending.has('p1')).toBe(true);
+      expect(g.quotaFrozenDocs.has('p1')).toBe(false);
+
+      let r: any;
+      const exitDelta = await counterDelta('collab_quota_soft_threshold_total', { action: 'exit' }, async () => {
+        r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['n1'] });
+      });
+      expect(r.result).toBe('ok');
+      expect(r.thawed).toBe(false);                   // 红相：改前 isQuotaFrozen=quotaStateOf 含 freezePending → thawed=true
+      expect(thawSpy).not.toHaveBeenCalled();         // thawQuota 零调用（真冻结才 thaw）
+      expect(exitDelta).toBe(0);                      // 无 enter 不出 exit——计数配对干净
+      expect(g.freezePending.has('p1')).toBe(true);   // shrink 不碰 pending——定时器自收敛（下方推进验证）
+
+      await vi.advanceTimersByTimeAsync(TRUTH_COOLDOWN_MS);   // pending 定时器自收敛
+      expect(g.freezePending.has('p1')).toBe(false);
+      expect(g.quotaFrozenDocs.has('p1')).toBe(false);        // 未 freezeQuota（实测<soft→calibrate+ok 分支）
+      expect(conn.readOnly).toBe(false);                      // 全程未冻结——连接可写
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shrink 成功未 thaw force 广播 bytes（偏差③）：truth 实际变化 → 跳过 dedup rev++/bytes=watermark；truth 未变 → 不广播；滞回带冻结 doc → over 态 force 广播', async () => {
     // 臂一：未冻结 doc 删除成功（truth 变化）——上次广播同态（dedup 键 {state}:{frozen} 命中，
     // 非 force 会被吞——其他客户端 localDocBytes 拿不到新 truth 即红相）
@@ -477,5 +525,89 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(src).toContain('@Throttle({ default: { limit: 5, ttl: 60_000 } })');   // 独立桶覆盖全局 300/min
     expect(src).not.toContain('@SkipThrottle');                                    // 不豁免全局限流
     expect(src).toContain("@Controller('api/collab/doc')");                        // 路由前缀（PUBLIC_PREFIXES 外=默认受保护——401 由全局 AuthGuard 承载）
+  });
+});
+
+describe('POST /api/collab/doc/:projectId/export-fresh（Q-H——真实签名/团队归属/latch）', () => {
+  it('真实签名 create(name, folderId, userId, teamId)：显式传源 teamId/folderId/派生名——不传 teamId=落默认团队（协作者失访=红相：断言 create 第四参===源项目 teamId）', async () => {
+    const gateway = buildGateway();
+    const doc = seedDoc();
+    addNode(doc, 'n1', 64);
+    const canvas = { create: vi.fn(async () => ({ projectId: 'p-new', name: '源画布(瘦身副本)', teamId: 't1' })) };
+    const { svc, prisma } = buildSvc(gateway, doc, { canvas });
+    const r = await svc.exportFresh('p1', 'u1');
+    expect(prisma.canvasProject.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'p1' } }));
+    expect(canvas.create).toHaveBeenCalledTimes(1);
+    // 四参真实签名（canvas.service.ts:17）：派生名〈原名〉(瘦身副本)/源 folderId（template 行）/发起人/源项目 teamId
+    expect(canvas.create).toHaveBeenCalledWith('源画布(瘦身副本)', 'f1', 'u1', 't1');
+    expect(r.result).toBe('ok');
+    expect(r.projectId).toBe('p-new');
+  });
+
+  it('fillDoc(doc, records, edges) 干净编码（墓碑场景：新 doc 编码显著小于源+records 等价——真实签名 fillDoc 三参数）+落地后编码校验（超限 warning 不阻断——响应带 warning 字段）', async () => {
+    // 墓碑主导源：反复写删（gc:true 删除收壳但 delete set/GC 壳随事务线性累积 ~19.7B/事务——
+    // v4 实测口径；探针校准：200 对+2×512B keep ⇒ src≈4.7KB / fillFresh≈1.2KB，余量 ~50%）
+    const makeSrc = (): Y.Doc => {
+      const src = seedDoc();
+      for (let i = 0; i < 200; i++) {
+        addNode(src, 'tmp' + i, 64);
+        src.getMap('nodes').delete('tmp' + i);
+      }
+      addNode(src, 'keep1', 512);
+      addNode(src, 'keep2', 512);
+      return src;
+    };
+    const bytesOf = (d: Y.Doc) => Y.encodeStateAsUpdate(d).byteLength;
+
+    // 档一：限内——干净编码（墓碑不随行）+records 等价（readRecordsFromMaps 单源互证）+零 warning
+    const gw1 = buildGateway({ maxDocBytes: 1 * MiB });
+    const src1 = makeSrc();
+    const fresh1 = new Y.Doc();
+    const s1 = buildSvc(gw1, src1, { docsByPid: new Map([['p1', src1], ['p-new', fresh1]]) });
+    const r1 = await s1.svc.exportFresh('p1', 'u1');
+    expect(r1.result).toBe('ok');
+    expect(r1.bytes).toBe(bytesOf(fresh1));                      // 落地编码校验值=新 doc 真实编码
+    expect(r1.bytes).toBeLessThan(bytesOf(src1) / 2);            // 新 doc 编码显著小于源
+    expect(readRecordsFromMaps(toDocLike(fresh1))).toEqual(readRecordsFromMaps(toDocLike(src1)));   // records 等价
+    expect(r1.warning).toBeUndefined();                          // 限内无 warning
+
+    // 档二：新副本编码仍超限（内容真大）——不阻断+响应带 warning 字段
+    const gw2 = buildGateway({ maxDocBytes: 1024 });
+    const src2 = makeSrc();
+    const fresh2 = new Y.Doc();
+    const s2 = buildSvc(gw2, src2, { docsByPid: new Map([['p1', src2], ['p-new', fresh2]]) });
+    const r2 = await s2.svc.exportFresh('p1', 'u1');
+    expect(r2.result).toBe('ok');                                // 超限不阻断
+    expect(r2.bytes).toBeGreaterThan(1024);                      // 前置：确实超限
+    expect(typeof r2.warning).toBe('string');                    // warning 字段（Q-H——超限告知不阻断）
+    expect(r2.projectId).toBe('p-new');
+  });
+
+  it('in-flight latch：并发两请求新 project 数=1（第二请求复用同 Promise——create 调用数=1 不变量；指标分列 ok/in-flight 各一）', async () => {
+    const gateway = buildGateway();
+    const doc = seedDoc();
+    addNode(doc, 'n1', 64);
+    let release!: () => void;
+    const canvas = {
+      create: vi.fn(() => new Promise<any>((r) => {
+        release = () => r({ projectId: 'p-new', name: '源画布(瘦身副本)', teamId: 't1' });
+      })),
+    };
+    const { svc } = buildSvc(gateway, doc, { canvas });
+    const read = async (result: string) => {
+      const m = register.getSingleMetric('collab_doc_export_fresh_total') as any;
+      return (await m?.get())?.values.find((s: any) => s.labels.result === result)?.value ?? 0;   // ?. 容错=红阶段指标未注册时红在 exportFresh 缺失本身
+    };
+    const [ok0, if0] = [await read('ok'), await read('in-flight')];
+
+    const p1 = svc.exportFresh('p1', 'u1');
+    const p2 = svc.exportFresh('p1', 'u1');   // 同 user:pid——在飞窗内（p1 挂在 canvas.create）
+    await nextTick();                          // p1 过 perm/withDoc/prisma 挂上 create；p2 命中 latch
+    release();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(canvas.create).toHaveBeenCalledTimes(1);   // 新 project 数=1（不变量——用户最焦虑时刻不制造垃圾数据）
+    expect(r2).toBe(r1);                              // 复用同结果对象（同 Promise）
+    expect(await read('ok')).toBe(ok0 + 1);           // 主请求 ok
+    expect(await read('in-flight')).toBe(if0 + 1);    // 并发去重命中 in-flight
   });
 });

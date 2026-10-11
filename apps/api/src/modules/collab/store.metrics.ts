@@ -521,3 +521,12 @@ export const collabDocShrinkDuration = new Histogram({
   buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
   registers: [register],
 });
+
+/** Y0b-4 T9（spec §5.2/Q-H）：export-fresh 审计——ok=导出成功落地 / in-flight=并发去重命中
+ *  （latch 复用在飞 Promise——create 调用数=1 不变量，主请求/并发命中两档分列计）。 */
+export const collabDocExportFreshTotal = new Counter({
+  name: 'collab_doc_export_fresh_total',
+  help: 'doc export-fresh 结果（result=ok 导出成功/in-flight 并发去重命中复用在飞请求）',
+  labelNames: ['result'],
+  registers: [register],
+});

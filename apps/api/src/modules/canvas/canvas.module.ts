@@ -9,5 +9,6 @@ import { TeamModule } from '../team/team.module';
   imports: [FolderModule, TemplateModule, TeamModule],
   controllers: [CanvasController],
   providers: [CanvasService],
+  exports: [CanvasService],   // Y0b-4 T9：CollabModule 消费（export-fresh 副本创建——依赖单向 Collab→Canvas 无环）
 })
 export class CanvasModule {}

@@ -1356,12 +1356,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return this.quota;
   }
 
-  /** Y0b-4 T8 外审修复（Concern ①）：配额冻结态公共判定（quotaFrozenDocs ∪ freezePending——
-   *  quotaStateOf==='over' 同域单源）。消费=shrink thaw 前置：未冻结 doc 校准成功≠冻结出口，
-   *  原"truth<softExit 即 thawQuota"对未冻结 doc 产生 exit 计数虚高+全连接冗余 SyncStep1+30s
-   *  thawCooldown 污染。 */
+  /** Y0b-4 T8 外审修复（Concern ①）+T9 收窄：配额**真冻结**判定（quotaFrozenDocs——与 readOnly
+   *  同一 setImmediate 落地的正式冻结集；freezePending 确认窗不算——T8 外审 Minor：确认窗内
+   *  shrink 达标不 thaw，pending 定时器自收敛〔到期实测<soft→calibrate+broadcast ok〕，无 enter
+   *  不出 exit=计数配对不虚高）。消费=shrink thaw 前置；广播态域（quotaStateOf==='over'=冻结∪
+   *  确认）与冻结判定域分立，禁混用。 */
   isQuotaFrozen(pid: string): boolean {
-    return this.quotaStateOf(pid) === 'over';
+    return this.quotaFrozenDocs.has(pid);
   }
 
   /** Y0b-4 T8 外审修复（偏差③）：force 广播公共出口——shrink 成功未 thaw（滞回带/未冻结）时其他

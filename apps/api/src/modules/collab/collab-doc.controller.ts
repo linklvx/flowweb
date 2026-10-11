@@ -1,5 +1,6 @@
 // apps/api/src/modules/collab/collab-doc.controller.ts
 // Y0b-4 T8（Q-G，spec §4.1④）：POST /api/collab/doc/:projectId/shrink——超配额态唯一自救通道。
+// Y0b-4 T9（Q-H）：POST /api/collab/doc/:projectId/export-fresh——墓碑主导文档的真空出口。
 // 薄层：权限/信号量/预演语义全在 CollabShrinkService（本 controller 只路由+限流+user 透传）。
 // 未登录 401 由全局 AuthGuard 承载（/api/collab 不在 PUBLIC_PREFIXES）；503 SHRINK_BUSY 的
 // Retry-After 由 CollabNotServingFilter 附（同 COLLAB_NOT_SERVING 族）。
@@ -24,5 +25,15 @@ export class CollabDocController {
     @Req() req: Request,
   ) {
     return this.shrinkSvc.shrink(projectId, (req as any).user?.id, body);
+  }
+
+  /** T9（Q-H）：导出到新项目（无 body——幂等 latch/团队归属/落地编码校验全在 service）。 */
+  @Post(':projectId/export-fresh')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })   // 同 shrink 桶配置（重操作端点收紧——覆盖全局 300/min）
+  async exportFresh(
+    @Param('projectId') projectId: string,
+    @Req() req: Request,
+  ) {
+    return this.shrinkSvc.exportFresh(projectId, (req as any).user?.id);
   }
 }
