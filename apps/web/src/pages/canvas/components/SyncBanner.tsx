@@ -22,7 +22,7 @@ const VERSION_FAMILY: ReadonlySet<string> = new Set([
 const TONE_CLASS: Record<string, string> = {
   error: 'bg-red-950/95 border-red-500/40 text-red-100',
   warn: 'bg-amber-950/95 border-amber-500/40 text-amber-100',
-  info: 'bg-overlay-2/95 border-white/10 text-text-dim-1',
+  info: 'bg-overlay-2/95 border-overlay-2 text-text-dim-1',
 };
 
 interface BannerContent { tone: keyof typeof TONE_CLASS; text: string; action?: ReactNode }
@@ -34,7 +34,7 @@ function EscapeButton() {
       type="button"
       data-testid="collab-escape-btn"
       onClick={escapeWithLocalExport}
-      className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-white/10"
+      className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
     >
       导出本地画布并刷新
     </button>
