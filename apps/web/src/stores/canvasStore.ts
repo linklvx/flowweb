@@ -23,7 +23,7 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-2（组 2 收口）：复合信封写点经 captureStoreProjection/dispatchProjectionDiff 差分换芯
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
-import { dispatchCanvasIntent, canApplyIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent, type ApplyIntentVerdict, type QuotaRejectReason } from './canvasIntents';
+import { dispatchCanvasIntent, canApplyIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, effectiveSoftLimit, type CanvasIntent, type ApplyIntentVerdict, type QuotaRejectReason } from './canvasIntents';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 // B5'-1（Spec B）：commitIntents 末帧差分读 doc.abs 单源（readCanvasFromDoc——docShape 单源薄委托）。
 // 循环依赖裁定同 canvasIntents：顶层仅声明，action 体运行时才调——安全。
@@ -422,6 +422,69 @@ const rectOf = (n: Node | undefined): Rect => ({
   height: n?.height ?? 0,
 });
 
+// ── Y0b-4 T10：分块粘贴（Q-J——T0 探针③实证粘贴 100 节点=单 transact 非天然分块 → 贪心切块）──
+// 纯函数提模块级导出（T10 微修复外审 Issue 1）：守卫断言直测 chunkIntentsOf txBytes 两臂极端形态。
+/** 块预算参数（Q-J v1）：200KB utf8/块 + 500 节点/块。误差算术：块 intent 序列字节
+ *  = Σ copy 项字节（≤200KB 预算）+ ≤500 节点 × ~30B intent 包装开销（{"type":"addNode","node":}
+ *  信封 − selected 剥离差）≈ ≤215KB < maxTxBytes 256KB。该 headroom 同时保障：
+ *  (a) 分块成立——每块单 transact 过 seam（服务端 tx 门 256KB 同尺）；
+ *  (b) precheck（chunkIntentsOf 近似字节）过 ⇒ 实写（dispatchProjectionDiff 真 diff 字节）不被
+ *      dispatch 兜底再拒——否则 store 已 append 而 doc 零写 = doc≡store 破。
+ *  ⚠️ 调 CHUNK_UTF8_BUDGET 必须重核算包装开销（copy 预算 + 500×单位开销须仍 < maxTxBytes）。 */
+const CHUNK_UTF8_BUDGET = 204_800;
+const CHUNK_MAX_NODES = 500;
+
+/** 贪心切块：按 plan 项序累积 utf8 预算 ≤200KB 或 ≤500 节点/块；边随源节点所在块
+ *  （两端跨块不损——cs/doc 均追加写，块序无关；源不在块集=防御回落末块）。 */
+export const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
+  const chunks: CopyPlan[] = [];
+  const chunkIndexOf = new Map<string, number>();
+  let cur: CopyPlan['copies'] = [];
+  let curBytes = 0;
+  for (const c of plan.copies) {
+    const b = utf8Bytes(JSON.stringify(c));
+    if (cur.length > 0 && (curBytes + b > CHUNK_UTF8_BUDGET || cur.length >= CHUNK_MAX_NODES)) {
+      chunks.push({ copies: cur, newEdges: [], idMap: plan.idMap });
+      cur = []; curBytes = 0;
+    }
+    chunkIndexOf.set(c.id, chunks.length);
+    cur.push(c); curBytes += b;
+  }
+  if (cur.length > 0) chunks.push({ copies: cur, newEdges: [], idMap: plan.idMap });
+  for (const e of plan.newEdges) {
+    const ci = chunkIndexOf.get(e.source);
+    if (ci != null) chunks[ci].newEdges.push(e);
+    else if (chunks.length > 0) chunks[chunks.length - 1].newEdges.push(e);
+  }
+  return chunks;
+};
+
+/** 块预算近似 intents（precheck 消费）：copy→addNode（分镜子剥 position——同漏斗差分翻译键集形态）+
+ *  边→upsertEdge。实写走 dispatchProjectionDiff 差分翻译（全上下文键集剥离单源），此处同构近似。 */
+export const chunkIntentsOf = (chunk: CopyPlan): CanvasIntent[] => {
+  const byId = new Map(chunk.copies.map((c) => [c.id, c] as const));
+  const intents: CanvasIntent[] = [];
+  for (const c of chunk.copies) {
+    const parent = c.parentId != null ? byId.get(c.parentId) : undefined;
+    const sbChild = parent != null && parent.type === 'group'
+      && (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+    intents.push({
+      type: 'addNode',
+      node: {
+        id: c.id,
+        type: c.type,
+        ...(c.parentId != null ? { parentId: c.parentId } : {}),
+        ...(c.position != null && !sbChild ? { position: c.position } : {}),
+        ...(c.width != null ? { width: c.width } : {}),
+        ...(c.height != null ? { height: c.height } : {}),
+        data: c.data ?? {},
+      },
+    });
+  }
+  for (const e of chunk.newEdges) intents.push({ type: 'upsertEdge', edge: e });
+  return intents;
+};
+
 export const useCanvasStore = create<CanvasState>()((set, get) => {
   // 组结构写入统一包装：对 updater 产出的 nodes 应用父前子后重排
   // （RF v12 updateChildNode 要求父节点在数组中位于子节点前，否则忽略 parentId）
@@ -589,70 +652,20 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     return [...records.values()];
   };
 
-  // ── Y0b-4 T10：分块粘贴（Q-J——T0 探针③实证粘贴 100 节点=单 transact 非天然分块 → 贪心切块）──
-  /** 块预算参数（Q-J v1）：200KB utf8/块（< maxTxBytes 256KB——块 intent 序列过 seam 必过）+500 节点/块 */
-  const CHUNK_UTF8_BUDGET = 204_800;
-  const CHUNK_MAX_NODES = 500;
-
-  /** quota 拒绝 toast（reason 分型文案——doc-over-budget 软阈口径与拦截点一致，Q-A v5） */
+  /** quota 拒绝 toast（reason 分型文案——doc-over-budget 软阈口径与拦截点一致，Q-A v5）。
+   *  T10 微修复（Minor 2）：容量读 effectiveSoftLimit 动态格式化（1024 基与配额常量同口径）——
+   *  缺省回退=6.4MB（6710886/1048576）、服务端下发 450KB 配置≈0.4MB（原硬编码 6.7MB 是十进制误读）。 */
   const toastQuotaReject = (reason: QuotaRejectReason): void => {
+    if (reason === 'doc-over-budget') {
+      const softLimit = effectiveSoftLimit(useCanvasStore.getState());
+      message.warning(`画布已达容量上限（约 ${(softLimit / 1024 / 1024).toFixed(1)}MB），请瘦身或删除内容`);
+      return;
+    }
     message.warning({
       'key-too-large': '单字段过大',
       'tx-too-large': '单次操作过大，请分批',
       'too-many-nodes': '节点数过多',
-      'doc-over-budget': '画布已达容量上限（约 6.7MB），请瘦身或删除内容',
     }[reason]);
-  };
-
-  /** 贪心切块：按 plan 项序累积 utf8 预算 ≤200KB 或 ≤500 节点/块；边随源节点所在块
-   *  （两端跨块不损——cs/doc 均追加写，块序无关；源不在块集=防御回落末块）。 */
-  const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
-    const chunks: CopyPlan[] = [];
-    const chunkIndexOf = new Map<string, number>();
-    let cur: CopyPlan['copies'] = [];
-    let curBytes = 0;
-    for (const c of plan.copies) {
-      const b = utf8Bytes(JSON.stringify(c));
-      if (cur.length > 0 && (curBytes + b > CHUNK_UTF8_BUDGET || cur.length >= CHUNK_MAX_NODES)) {
-        chunks.push({ copies: cur, newEdges: [], idMap: plan.idMap });
-        cur = []; curBytes = 0;
-      }
-      chunkIndexOf.set(c.id, chunks.length);
-      cur.push(c); curBytes += b;
-    }
-    if (cur.length > 0) chunks.push({ copies: cur, newEdges: [], idMap: plan.idMap });
-    for (const e of plan.newEdges) {
-      const ci = chunkIndexOf.get(e.source);
-      if (ci != null) chunks[ci].newEdges.push(e);
-      else if (chunks.length > 0) chunks[chunks.length - 1].newEdges.push(e);
-    }
-    return chunks;
-  };
-
-  /** 块预算近似 intents（precheck 消费）：copy→addNode（分镜子剥 position——同漏斗差分翻译键集形态）+
-   *  边→upsertEdge。实写走 dispatchProjectionDiff 差分翻译（全上下文键集剥离单源），此处同构近似。 */
-  const chunkIntentsOf = (chunk: CopyPlan): CanvasIntent[] => {
-    const byId = new Map(chunk.copies.map((c) => [c.id, c] as const));
-    const intents: CanvasIntent[] = [];
-    for (const c of chunk.copies) {
-      const parent = c.parentId != null ? byId.get(c.parentId) : undefined;
-      const sbChild = parent != null && parent.type === 'group'
-        && (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
-      intents.push({
-        type: 'addNode',
-        node: {
-          id: c.id,
-          type: c.type,
-          ...(c.parentId != null ? { parentId: c.parentId } : {}),
-          ...(c.position != null && !sbChild ? { position: c.position } : {}),
-          ...(c.width != null ? { width: c.width } : {}),
-          ...(c.height != null ? { height: c.height } : {}),
-          data: c.data ?? {},
-        },
-      });
-    }
-    for (const e of chunk.newEdges) intents.push({ type: 'upsertEdge', edge: e });
-    return intents;
   };
 
   // ══ O0b-5（Spec B）：refit 族退役——帧写归 reconcile 单写者（applyGroupFrame/shouldAutoRefit/

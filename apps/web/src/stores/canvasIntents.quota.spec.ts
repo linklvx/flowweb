@@ -270,7 +270,7 @@ describe('Y0b-4 T10：canApplyIntent 判据④（Q-I v5——快照+delta 插值
     const rejects = getRecentCollabDiag().filter((e) => e.type === 'write_reject');
     expect(rejects).toHaveLength(1);                                   // diag 恰一次
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith('画布已达容量上限（约 6.7MB），请瘦身或删除内容');
+    expect(warn).toHaveBeenCalledWith('画布已达容量上限（约 6.4MB），请瘦身或删除内容');   // 缺省回退 6710886/1048576=6.4（1024 基——动态容量文案）
   });
 
   it('dispatch 兜底断言：canApplyIntent 拒 ⇒ diag via:dispatch-fallback+doc/store 双零写（触发=seam 前置设计漏洞）', () => {

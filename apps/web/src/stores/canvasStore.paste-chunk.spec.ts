@@ -42,7 +42,9 @@ vi.mock('@hocuspocus/provider', () => {
 });
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { message } from 'antd';
-import { useCanvasStore } from './canvasStore';
+import { QUOTA_DEFAULTS, utf8Bytes } from '@flowweb/shared';
+import type { CopyRecord } from '@flowweb/shared';
+import { useCanvasStore, chunkCopyPlan, chunkIntentsOf } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import * as runtime from './canvasCollabRuntime';
 import { getDoc } from './canvasCollabRuntime';
@@ -152,7 +154,28 @@ describe('Y0b-4 T10：分块粘贴（Q-J——chunkCopyPlan 形态）', () => {
     const rejects = getRecentCollabDiag().filter((e) => e.type === 'write_reject');
     expect(rejects.length).toBeGreaterThanOrEqual(1);
     expect(rejects[rejects.length - 1]!.detail).toMatchObject({ reason: 'doc-over-budget' });
-    expect(warn).toHaveBeenCalledWith('画布已达容量上限（约 6.7MB），请瘦身或删除内容');
+    expect(warn).toHaveBeenCalledWith('画布已达容量上限（约 0.4MB），请瘦身或删除内容');   // 450KB 配置 → 460800/1048576=0.4（1024 基与配额常量同口径）
     expect(getUndoManager()!.undoStack.length).toBe(1);       // 已贴块仍单 undo 项（部分粘贴可一步撤销）
+  });
+});
+
+describe('Y0b-4 T10 微修复：块预算 headroom 守卫（外审 Issue 1——纯函数直测）', () => {
+  it('极端形态两臂——500 最小节点块 / 单个近 200KB 节点块——chunkIntentsOf 的 txBytes（判据②度量）≤ maxTxBytes', () => {
+    const copy = (id: string, contentBytes: number): CopyRecord => ({
+      id, type: 'textInput', position: { x: 0, y: 0 }, width: 256, height: 48,
+      data: { content: 'x'.repeat(contentBytes) },
+    });
+    // 臂一（数量极端）：500 个最小节点——CHUNK_MAX_NODES 全入一块，intent 包装开销总和 ~15KB
+    const armMany = Array.from({ length: 500 }, (_, i) => copy(`n${i}`, 0));
+    // 臂二（字节极端）：单个近 200KB 节点——copy 项字节贴近 CHUNK_UTF8_BUDGET（预留 ~150B 信封键）
+    const armBig = [copy('big', 204_800 - 150)];
+    for (const copies of [armMany, armBig]) {
+      const chunks = chunkCopyPlan({ copies, newEdges: [], idMap: new Map() });
+      expect(chunks.length).toBeGreaterThanOrEqual(1);
+      for (const ch of chunks) {
+        const txBytes = chunkIntentsOf(ch).reduce((n, i) => n + utf8Bytes(JSON.stringify(i)), 0);
+        expect(txBytes).toBeLessThanOrEqual(QUOTA_DEFAULTS.maxTxBytes);
+      }
+    }
   });
 });

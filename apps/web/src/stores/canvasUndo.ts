@@ -1,7 +1,6 @@
 // apps/web/src/stores/canvasUndo.ts
 // Y.UndoManager 集成（spec 4.2/4.4）：trackedOrigins 仅 local-user，快捷键入口。
 import * as Y from 'yjs';
-import { QUOTA_DEFAULTS } from '@flowweb/shared';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 
 /** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */
@@ -89,14 +88,14 @@ export async function undoCanvas(): Promise<void> {
 export async function redoCanvas(): Promise<void> {
   const um = undoManager;
   if (!um || um.redoStack.length === 0) return;
-  // 动态 import：测试重量隔离（undoCanvas 同款）
+  // 动态 import：测试重量隔离（undoCanvas 同款）。effectiveSoftLimit 动态取同因——canvasIntents
+  // 顶层静态 import canvasStore，静态引入即破隔离；import('./canvasStore') 已连带求值 canvasIntents（零额外开销）。
   const { useCanvasStore } = await import('./canvasStore');
+  const { effectiveSoftLimit } = await import('./canvasIntents');
   if (undoManager !== um) return; // await 间隙项目切换防串
   const st = useCanvasStore.getState();
   const redoBytes = stackItemBytes.get(um.redoStack[um.redoStack.length - 1]!) ?? 0;
-  const softLimit = st.quotaSoftLimitBytes > 0
-    ? st.quotaSoftLimitBytes
-    : Math.floor(QUOTA_DEFAULTS.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
+  const softLimit = effectiveSoftLimit(st);
   if (st.localDocBytes + st.localDelta + redoBytes > softLimit) {
     recordCollabDiag('write_reject', { reason: 'doc-over-budget', via: 'redo-precheck' });
     return;

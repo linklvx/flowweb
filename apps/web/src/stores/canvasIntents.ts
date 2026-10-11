@@ -72,6 +72,15 @@ export type ApplyIntentVerdict =
 
 export type QuotaRejectReason = 'key-too-large' | 'tx-too-large' | 'too-many-nodes' | 'doc-over-budget';
 
+/** 有效软阈单源（T10 微修复 Minor 3——canApplyIntent 判据④/redoCanvas precheck/toastQuotaReject
+ *  文案三处同尺）：quotaSoftLimitBytes>0 用服务端下发值，否则回退 QUOTA_DEFAULTS 软阈
+ *  （禁回退硬限：恒 0/undefined ⇒ NaN 比较恒 false=gate 失效）。 */
+export function effectiveSoftLimit(st: { quotaSoftLimitBytes: number }): number {
+  return st.quotaSoftLimitBytes > 0
+    ? st.quotaSoftLimitBytes
+    : Math.floor(QUOTA_DEFAULTS.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
+}
+
 export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
   for (const i of intents) {
     for (const v of iterStringValues(i)) {
@@ -84,12 +93,10 @@ export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
     return { ok: false, reason: 'too-many-nodes' }; // ③
   }
   // ④快照+delta 插值（T10）：localDocBytes=doc-status 快照权威值（T5 reducer），localDelta=两次
-  // 校准间 doc.on(update) 全 origin 累计（插值器——远端写入 B 不知情也计入）。缺省回退=6.7MB 软阈
-  // （禁回退硬限：quotaSoftLimitBytes 恒 0/undefined ⇒ NaN 比较恒 false=gate 失效）。
+  // 校准间 doc.on(update) 全 origin 累计（插值器——远端写入 B 不知情也计入）。软阈单源
+  //  effectiveSoftLimit（缺省回退=6.7MB 软阈；禁回退硬限：恒 0/undefined ⇒ NaN 比较恒 false=gate 失效）。
   const st = useCanvasStore.getState();
-  const softLimit = st.quotaSoftLimitBytes > 0
-    ? st.quotaSoftLimitBytes
-    : Math.floor(QUOTA_DEFAULTS.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
+  const softLimit = effectiveSoftLimit(st);
   const maxTx = st.quotaTxBytes > 0 ? st.quotaTxBytes : QUOTA_DEFAULTS.maxTxBytes;
   if (st.localDelta > 4 * maxTx) {
     // 超大漂移（>4×maxTx）：插值失真已超容差——同步实测一次按真值判定（v4 pending-measure 拒绝
