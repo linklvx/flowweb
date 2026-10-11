@@ -15,6 +15,8 @@ export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/col
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
 export { COLLAB_READY_REASONS } from './constants/collab-ready';
 export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending } from './constants/collab-ready';
+// Y0b-3 T7（P-L）：collab identity 配色单源——服务端 awareness 注入 user.color 与客户端消费面同源。
+export { COLLAB_USER_COLORS, userColorOfUserId } from './constants/collab-identity-color';
 // Y0b-2 T2（Z80/Z101/Z117①）：provider adapter 注册表+executable/ready 双谓词——api（execution/provider-adapters 再导出）
 // 与 admin web（ModelsPage adapter 下拉+ready 标记）双端单源。
 export { ADAPTERS, executableModel, readyModel } from './constants/provider-adapters';

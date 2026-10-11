@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
 import { ThemeToggleButton } from '@/components/theme/ThemeToggleButton';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
-import { userColor } from '@/collab/awareness';
 import type { AwarenessState } from '@/collab/awareness';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
@@ -123,11 +122,12 @@ export function CanvasTopBar({ projectId }: Props) {
         {onlineUsers.length > 0 && (
           <div className="flex items-center -space-x-1.5 bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg" data-testid="online-users">
             {onlineUsers.filter((o) => o.user?.id && o.user?.name).slice(0, 5).map((o, i) => (
+              // Y0b-3 T7：background=服务端注入 color（s.user.color）——禁 fallback 双源
               <span
                 key={i}
                 title={o.user.name}
                 className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center text-on-accent font-bold border border-on-accent"
-                style={{ background: userColor(o.user.id) }}
+                style={{ background: o.user.color }}
               >
                 {o.user.name.slice(0, 1)}
               </span>

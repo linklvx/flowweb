@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, beforeHandleAwarenessPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { createHash } from 'node:crypto';
 import type { ProjectRole } from '@prisma/client';
@@ -11,11 +11,11 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, registerAuthInflightReader, registerHeapObserverReader, registerPendingCollector, unregisterAuthInflightReader, unregisterHeapObserverReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, userColorOfUserId, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -192,6 +192,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     onLoadDocument: (p: onLoadDocumentPayload) => Promise<any>;
     onStoreDocument: (p: onStoreDocumentPayload) => Promise<boolean>;
     afterStoreDocument: (p: afterStoreDocumentPayload) => Promise<void>;
+    beforeHandleAwareness: (p: beforeHandleAwarenessPayload) => Promise<any>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
     beforeUnloadDocument: (p: beforeUnloadDocumentPayload) => Promise<void>;
     onUpgrade: (p: onUpgradePayload) => Promise<void>;
@@ -225,6 +226,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onLoadDocument: (p) => this.loadDocument(p),
       onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
       afterStoreDocument: (p) => this.afterStoreDocument(p),
+      beforeHandleAwareness: (p) => { this.guardAwareness(p); return Promise.resolve(); },   // Y0b-3 T7：states 三分支覆写（同步体——async 仅为满足库 hook 签名）
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
       onUpgrade: async (p) => this.handleUpgrade(p),   // Y0b-3 T2：Origin 403+升级限流（§3.1ter——socket 直写形态；async 仅为满足库 hook 签名，同步体全吞不 reject）
@@ -253,6 +255,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onLoadDocument: this.hooks.onLoadDocument,
       onStoreDocument: this.hooks.onStoreDocument,
       afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
+      beforeHandleAwareness: this.hooks.beforeHandleAwareness,   // Y0b-3 T7：awareness states 三分支覆写钩子接线（scratch Map 改写=重编码广播——esm:197-207）
       onDisconnect: this.hooks.onDisconnect,
       beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
       onUpgrade: this.hooks.onUpgrade,   // Y0b-3 T2：Origin 403+升级限流钩子接线（hook resolve 后库才 crossws.handleUpgrade）
@@ -367,6 +370,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  写点三处：connected 播种 / onDisconnect+closeTeamDocuments+beforeUnloadDocument 键控清理（防无界）；
    *  读点一处：sweep tick 首部 enforceConnMaxLifetime。 */
   private readonly connEstablishedAt = new Map<string, number>();
+  /** ===== Y0b-3 T7（E73/spec §3.3）：awareness 归属表（双索引）+认证身份表 =====
+   *  clientIdOwner=归属权威（clientId→socketId，O(1) 伪造判定——库 connections 的 clients 集在 hook
+   *  之后才填充〔esm:625-634〕不能作权威，自建表语义）；ownedClientIds=socketId→clientIds 反向索引
+   *  （上限计数=.size；剪枝/断连清理/T8 role 改写按自有 Set 迭代 O(自己)）；socketIdentity=认证身份
+   *  （authenticate 成功路径播种——覆写 user 的来源，不读 connection.context 防未认证帧绕过）。 */
+  private readonly clientIdOwner = new Map<number, string>();
+  private readonly ownedClientIds = new Map<string, Set<number>>();
+  private readonly socketIdentity = new Map<string, { id: string; name: string; role: string }>();
+  /** 漂移告警去重（socketId 级——漂移持续期只告警一次，恢复即清；防热路径刷屏） */
+  private readonly awarenessDriftLogged = new Set<string>();
   private lastSpoolState: 'ok' | 'spool-unwritable' = 'ok';   // spool 恢复翻转检测（清空并集的 spool 支——谓词非集合，消费点记上一态）
   private authMapsSweepTimer: ReturnType<typeof setInterval> | null = null;
   /** sweep 判据门第二分支（P-K）：per-connection 权限结论缓存（5min 会话级 TTL——WeakMap 随连接回收）；
@@ -536,7 +549,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  批3-1：已分型异常原样 rethrow，其余（DB 抖动等未打标）一律折成 db-unavailable（瞬态桶，契约锁㉙）。
    *  批3-3：session 查询统一走 SessionService.touchWithReason——age>updateAge(1d) 顺带续期 7d；
    *  context 携带 token/sessionExpiresAt 供 sweep 复验。 */
-  private async authenticateInner({ requestHeaders, requestParameters, documentName, connectionConfig }: onAuthenticatePayload) {
+  private async authenticateInner({ requestHeaders, requestParameters, documentName, connectionConfig, socketId }: onAuthenticatePayload) {
     const deny = (reason: CollabAuthReasonCode, message: string) => this.denyAuth(reason, message, 'state');
     try {
       // Y0b-3 T4 heap 闸（§3.1bis 序：外层桶/信号量→heap→DB——"压力期被拒重连不得打 DB"）：
@@ -594,6 +607,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         const t = setTimeout(() => this.pushPersistStatus(documentName), 500);
         t.unref?.();
       }
+      // Y0b-3 T7：认证成功即播 socketIdentity（guardAwareness 覆写 user 的唯一来源——防未认证帧绕过）
+      this.socketIdentity.set(socketId, { id: session.user.id, name: session.user.name, role: resolved.role });
       return {
         user: { id: session.user.id, name: session.user.name, role: resolved.role },   // 词表统一 ProjectRole（TeamRole OWNER/MEMBER 混用终结）
         readOnly,
@@ -1269,6 +1284,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // document.getConnectionsCount() 同值等价，改读库已算好的字段。
     this.connEstablishedAt.delete(socketId);
     this.authAttemptBuckets.delete(socketId);
+    // Y0b-3 T7 在此追加 awareness 归属表清理（T6 同点纪律：首行、early-return 之前——多标签
+    // clientsCount>0 断连同样要清）：按 socketId 键控=所有权校验天然满足（双标签只清自己的）；
+    // doc awareness 状态清场归库（removeConnection 已自动 removeAwarenessStates——自建表只清登记）。
+    for (const cid of this.ownedClientIds.get(socketId) ?? []) this.clientIdOwner.delete(cid);
+    this.ownedClientIds.delete(socketId);
+    this.socketIdentity.delete(socketId);
     if (clientsCount > 0) return;
     const projectId = parseProjectId(documentName);
     const wrote = await this.storeDocumentSerialized({ document, documentName });
@@ -1325,6 +1346,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 此为库自发卸载/直连路径的兜底反查；钩子在 doc 移出 documents 之前触发，payload.document 仍可达；
       // ?. 防 finally 内 TypeError 绕过上方 catch——X4「钩子永不抛」契约对 finally 同样成立）
       for (const connection of document.connections?.keys() ?? []) this.connEstablishedAt.delete(connection.socketId);
+      // Y0b-3 T7 键控清理：卸载清该 doc 全部连接的 awareness 归属条目（T6 同款兜底反查——常规路径
+      // onDisconnect 已逐条清，此为库自发卸载/直连路径的兜底；socketIdentity 不在此清=socket 键控
+      // 随 onDisconnect 走，doc 卸载不构成身份失效）
+      for (const connection of document.connections?.keys() ?? []) {
+        for (const cid of this.ownedClientIds.get(connection.socketId) ?? []) this.clientIdOwner.delete(cid);
+        this.ownedClientIds.delete(connection.socketId);
+      }
       const q2 = this.pendingQueues.get(projectId);
       // I-1：仅当 doc 真已从库 documents Map 消失才回收空条目——库在钩子后复检 shouldUnloadDocument
       //（mutex 锁定/连接>0 时取消卸载 doc 存活），此时重连复用 doc 不重跑 loadDocument=条目不重建，
@@ -1488,6 +1516,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           try {
             conn.webSocket?.close(CollabCloseCode.MAX_LIFETIME, 'max-lifetime');   // 4401 已被库 Unauthorized+sweep 双占用——4402 新码
             collabWsCloseTotal.inc({ code: String(CollabCloseCode.MAX_LIFETIME), reason: 'max-lifetime' });
+            this.connEstablishedAt.delete(conn.socketId);   // Y0b-3 T6 评审小修：close 成功即删条目——防重入 tick 重复 inc 失真（onDisconnect delete 幂等无副作用）
           } catch (err) { this.logger.warn(`max-lifetime close failed for ${doc.name}: ${(err as Error).message}`); }
         }
       }
@@ -1564,6 +1593,89 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  Y0b-3 T8 实接（clock 递增+document 定位）——本 Task 挂 no-op 占位（plan T3 关键注意 5）。 */
   private rewriteAwarenessRole(_connection: object, _role: ProjectRole): void {
     // T8 接线占位
+  }
+
+  /** 单连接 clientId 上限（spec §3.3 终裁值 4——纯真内容 clientId 计入：自身 clock=0 占位被时钟门
+   *  剥离、scratch 幽灵被空态判据剔除，均不占槽；触发必计数防静默故障 S-3） */
+  private static readonly AWARENESS_CLIENT_ID_LIMIT = 4;
+
+  /** ===== Y0b-3 T7（E73/spec §3.3）：beforeHandleAwareness——states 归属三分支+身份覆写 =====
+   *  载体=payload.states（scratch Map——库在钩子后从它重编码广播〔esm:197-207〕，d.ts 官方契约
+   *  "Mutate this map in place to rewrite the update"）；禁碰 payload.awareness.states（文档本体）。
+   *  三分支同一趟遍历：①他人登记=伪造→整帧丢弃（不替别人发声）；②首见=登记（同一趟——首帧不被
+   *  丢弃）；③owned（含刚登记）→**无条件注入** serverIdentityOf（不依赖帧内 user 字段存在性——
+   *  局部帧〔只带 cursor〕跳过覆写=绕过，P0-2）。
+   *  scratch 幽灵剔除（4.6.0 实证偏离登记）：库 scratch Awareness 构造器 setLocalState({}) 使每帧
+   *  states 混入一个随机 clientId 空态项（真身 clock=0 占位反被 y-protocols 时钟门剥离——guard 实测
+   *  frames 全含幽灵）。判据=首见 ∧ 空态 ∧ doc awareness 无此 id ⇒ states.delete（不计登记/上限/
+   *  注入——防幽灵吃上限槽位+每帧登记 churn；误判面=客户端对从未见 id 显式广播空态——该帧不广播，
+   *  后续真内容帧正常登记，无实质损失）。
+   *  放行门（P0-1）：非连接来源（DirectConnection/服务端内部写——connection undefined 或 context
+   *  undefined 或 socketId 空串）=我们自己写的，整体放行禁删禁改。
+   *  onAwarenessUpdate 是观测钩子禁改写（E73 钉死）——本钩子=唯一改写点。 */
+  private guardAwareness({ states, socketId, context, connection, document }: beforeHandleAwarenessPayload): void {
+    try {
+      if (!connection || !context || !socketId) return;   // P0-1：非连接来源放行（空串含）
+      const identity = this.socketIdentity.get(socketId);
+      if (!identity) return;   // 未认证连接的 awareness 帧（pre-auth 队列外不应出现——防御性放行）
+      const libClients = (document as any).getClients?.(connection) as Set<number> | undefined;
+      for (const [clientId, state] of [...states]) {
+        const owner = this.clientIdOwner.get(clientId);
+        if (owner !== undefined && owner !== socketId) {   // ①他人登记=伪造→整帧丢弃（O(1) 判定）
+          states.delete(clientId);
+          collabAwarenessRejectTotal.inc({ reason: 'forged' });
+          continue;
+        }
+        if (owner === undefined) {   // ②首见
+          if (CollabGateway.isEmptyState(state) && !document.awareness.states.has(clientId)) {
+            states.delete(clientId);   // scratch 幽灵——剔除（见方法头注）
+            continue;
+          }
+          if ((this.ownedClientIds.get(socketId)?.size ?? 0) >= CollabGateway.AWARENESS_CLIENT_ID_LIMIT) {
+            states.delete(clientId);
+            collabAwarenessRejectTotal.inc({ reason: 'owner-limit' });
+            continue;
+          }
+          this.clientIdOwner.set(clientId, socketId);
+          if (!this.ownedClientIds.has(socketId)) this.ownedClientIds.set(socketId, new Set());
+          this.ownedClientIds.get(socketId)!.add(clientId);
+        }
+        states.set(clientId, { ...state, user: this.serverIdentityOf(identity) });   // ③无条件注入
+      }
+      // 剪枝：陈旧 clientId（客户端 setLocalState(null) 移除自身后索引残留——防上限被垃圾占满卡死长会话）。
+      // 判据=既不在库 clients 集也不在本帧 states 且 doc awareness.states 已无此 id；只迭代自己名下
+      // Set（O(自己)——热路径禁全表扫描）。
+      const own = this.ownedClientIds.get(socketId)!;
+      for (const cid of own) {
+        if (!libClients?.has(cid) && !states.has(cid) && !document.awareness.states.has(cid)) {
+          this.clientIdOwner.delete(cid);
+          own.delete(cid);
+        }
+      }
+      // spec §3.3 ③一致性校验源：库 clients 集相对归属表的差异=漂移探针（不信赖库内部也为漂移留
+      // 观测出口）——lib 有而归属表无=登记链断裂（异常态）；去重防热路径刷屏，恢复即清。
+      if (libClients) {
+        let drifted = false;
+        for (const cid of libClients) if (!own.has(cid)) { drifted = true; break; }
+        if (drifted && !this.awarenessDriftLogged.has(socketId)) {
+          this.awarenessDriftLogged.add(socketId);
+          this.logger.warn(JSON.stringify({ event: 'collab_awareness_drift', lib: libClients.size, owned: own.size }));
+        } else if (!drifted) {
+          this.awarenessDriftLogged.delete(socketId);
+        }
+      }
+    } catch { /* 观测面禁抛——钩子抛错中断库消息处理链（esm try/finally 不 catch） */ }
+  }
+
+  /** scratch 幽灵判据：空态对象（构造器 setLocalState({}) 指纹——真内容帧不受影响） */
+  private static isEmptyState(state: Record<string, any>): boolean {
+    return typeof state === 'object' && state !== null && Object.keys(state).length === 0;
+  }
+
+  /** Y0b-3 T7（P-L）：服务端身份注入形——color=shared 单源确定性哈希（与客户端同源算法=迁移等价性
+   *  保证：旧 bundle 自算 userColor(id) 与新注入同值，部署窗口零色变）。 */
+  private serverIdentityOf(u: { id: string; name: string; role: string }) {
+    return { id: u.id, name: u.name, role: u.role, color: userColorOfUserId(u.id) };
   }
 
   private scheduleSweepClose(connection: object & { sendStateless?: (p: string) => void; webSocket: { close: (code?: number, reason?: string) => void } }, cause: 'revoked' | 'db-fail') {

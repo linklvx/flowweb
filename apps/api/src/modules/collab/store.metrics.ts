@@ -94,10 +94,22 @@ export const collabVersionNegotiationRejectTotal = new Counter({
   labelNames: ['reason'],
   registers: [register],
 });
+/** Y0b-3 T7（spec §3.3）：awareness states 三分支丢弃计数——reason=forged（他人登记 clientId 的伪造帧
+ *  整体丢弃）/owner-limit（单连接 clientId 上限 4 触发丢弃）。S-3："用户光标消失"类故障的可观测出口
+ *  （owner-limit>0=单连接 clientId 泄漏，客户端版本核对——runbook 巡检项）。 */
+export const collabAwarenessRejectTotal = new Counter({
+  name: 'collab_awareness_reject_total',
+  help: 'awareness states 三分支丢弃次数（reason=forged 伪造他人 clientId 整帧丢弃/owner-limit 单连接上限 4 触发——光标消失类故障观测出口）',
+  labelNames: ['reason'],
+  registers: [register],
+});
 /** Y0b-3 T6（P-O）：应用侧主动 close 分布——code=CollabCloseCode 分配表值（1000/1012/4401/4402），
  *  reason=close 时附语义串。边界（v3 钉死）：库自发/自然断连的服务端观测结构性不可达
  *  （onDisconnectPayload 无 close code 字段——归 Y0b-5 客户端遥测）；ws 层自发 close（如 1009
- *  maxPayload）不经本指标——本指标=应用侧五个调用点的分布面。 */
+ *  maxPayload）不经本指标。**调用点全枚举（恰五个，新增第六点必须同批补注）**：
+ *  ①beginDrainAutoRelease（1012 drain released）②enforceConnMaxLifetime（4402 max-lifetime）
+ *  ③scheduleSweepClose（4401 session-expired）④closeAllConnections1012（1012 service restart）
+ *  ⑤closeTeamDocuments（1000 team disbanded）。 */
 export const collabWsCloseTotal = new Counter({
   name: 'collab_ws_close_total',
   help: 'collab 应用侧主动 webSocket.close 分布（code=分配表值；reason=close 语义串——库自发断连不可观测归客户端遥测）',

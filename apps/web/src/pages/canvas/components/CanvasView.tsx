@@ -11,7 +11,6 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useTheme } from '@/stores/themeStore';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { RemoteCursors } from './RemoteCursors';
-import { useAuth } from '@/components/AuthProvider';
 import { useNodeStore, type ImageItem } from '@/stores/nodeStore';
 import { selectIsLocked } from '@/stores/canvasLock';
 import { useMenuStore } from '@/stores/menuStore';
@@ -104,15 +103,9 @@ function CanvasViewComponent(_props: Props) {
   const viewport = useCanvasStore((s) => s.viewport);
   // 编辑器打开期间禁用 xyflow 的 Delete/Backspace 删节点（与 Shell nokey 双保险，spec 验收 27）
   const editorOpen = useVideoEditorStore((s) => s.open);
-  const authUser = (useAuth() as { user?: { id: string; name: string } } | null)?.user;
 
-  // presence：本地用户 + 光标 50ms 节流上报（流坐标）
-  useEffect(() => {
-    const bridge = getAwareness();
-    if (!bridge || !authUser) return;
-    bridge.setLocalUser({ id: authUser.id, name: authUser.name });
-  }, [authUser]);
-
+  // presence：光标 50ms 节流上报（流坐标）——user 字段由服务端 beforeHandleAwareness 注入（Y0b-3 T7，
+  // 客户端自写即伪造面；首帧光标上报时归属登记+身份注入一并生效）
   const lastCursorReport = useRef(0);
   const handlePresencePointerMove = useCallback((e: React.MouseEvent) => {
     const bridge = getAwareness();

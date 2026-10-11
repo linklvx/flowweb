@@ -1,9 +1,13 @@
 // awareness presence 封装（spec T6）：光标/选区/在线成员
+// Y0b-3 T7：user 字段写入退位——身份/role/color 由服务端 beforeHandleAwareness 无条件注入
+// （客户端自写即伪造面，E73）；配色单源=@flowweb/shared userColorOfUserId（服务端同源算法）。
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 
 export interface CollabUser {
   id: string;
   name: string;
+  role?: string;
+  color?: string;
 }
 
 export interface CursorState {
@@ -21,17 +25,7 @@ export interface AwarenessState {
   selection?: SelectionState;
 }
 
-const COLORS = ['#5DDCFF', '#FF7A9E', '#9EFF8A', '#FFC56D', '#C39EFF', '#7AD7FF'];
-
-export function userColor(userId: string | undefined = ''): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0;
-  return COLORS[Math.abs(hash) % COLORS.length];
-}
-
 export class AwarenessBridge {
-  /** 批1-3：终态重建重放缓存——setLocalUser 时快照（重放完整态，禁 {}——R24） */
-  private lastLocalUser: CollabUser | null = null;
   /** 批1-5：稳定对象——订阅自持（Set<cb>），attach 迁移时重挂单内部 handler（消费方订阅跨实例存活） */
   private readonly listeners = new Set<() => void>();
   private detachProviderListener: (() => void) | null = null;
@@ -51,14 +45,13 @@ export class AwarenessBridge {
     this.detachProviderListener = () => provider.off('awarenessUpdate', handler);
   }
 
-  setLocalUser(user: CollabUser): void {
-    this.lastLocalUser = user;
-    this.provider.setAwarenessField('user', user);
-  }
-
-  /** 批1-3：终态重建后的本地态重放（null=从未设置，no-op——不打 Awareness clock） */
+  /** 批1-3 终态重建/Y0b-1 tick 自愈两承重点的本地态重放（T7 改形）：只恢复**非空本地态**
+   *  （null 态下 setLocalStateField 吞 cursor 写入+30s 续期停摆——R24 本地态承重注记）；
+   *  user 字段不在重放形内=服务端注入。非空即 no-op（不打 Awareness clock）。 */
   replayLocalUser(): void {
-    if (this.lastLocalUser) this.provider.setAwarenessField('user', this.lastLocalUser);
+    if (this.provider.awareness && this.provider.awareness.getLocalState() == null) {
+      this.provider.awareness.setLocalState({});
+    }
   }
 
   setCursor(cursor: CursorState | null): void {

@@ -883,9 +883,9 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
     WebSocketPolyfill: WebSocketClass,
   } as any);
   bindProviderListeners(provider);
-  // 批1-5 awareness 即刻播种：构造即 setLocalState({})（占位——续期照跑，远端 30s 不超时下线；
-  // authUser 完整态由 CanvasView setLocalUser 覆盖，终态重建后 replayLocalUser 重放）。runtime 不持有
-  // auth 依赖，完整态播种归消费侧（spec：有 authUser 时完整态）。
+  // 批1-5 awareness 即刻播种：构造即 setLocalState({})（占位——非空本地态是 cursor 写入与 30s 续期
+  // 的前置；Y0b-3 T7 起 user 字段由服务端 beforeHandleAwareness 注入，客户端不再自写身份——终态重建
+  // 后 replayLocalUser 仅恢复非空态）。
   provider.awareness?.setLocalState({});
   return provider;
 }

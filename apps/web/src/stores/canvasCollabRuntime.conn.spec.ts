@@ -366,17 +366,17 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
     expect(np.awareness.meta.get(np.awareness.clientID)?.clock).toBe(7);     // 播种=destroy 后读值（读前值 5/不播种 undefined 均红）
   });
 
-  it('awareness 重放：终态后 setLocalState 收到完整 lastLocalUser（禁 {}）', async () => {
+  it('awareness 重放（T7 改形）：终态重建后本地态非空占位、无 user 键（user 归服务端注入——客户端自写即伪造面）', async () => {
     const p = await driveToSyncedR();
-    runtime.getAwareness()!.setLocalUser({ id: 'u1', name: '协作用户' });     // bridge 缓存 lastLocalUser
-    p.awareness.setLocalState.mockClear();                                   // 隔离旧实例历史——重放必须来自新实例
+    p.awareness.setLocalState.mockClear();                                   // 隔离旧实例历史——看新实例的播种
     p.configuration.websocketProvider.shouldConnect = false;
     await runtime.recovery.recoverConnection();
     const np = lastInstance();
     expect(np).not.toBe(p);                                                  // 重放锚挂终态重建（占位实现 np===p 必红）
-    expect(np.awareness.setLocalState).toHaveBeenCalledWith(
-      expect.objectContaining({ user: { id: 'u1', name: '协作用户' } }),     // 完整态非空对象（R24）
-    );
+    expect(np.awareness.setLocalState).toHaveBeenCalledWith({});             // 非空占位（R24 本地态承重——cursor 写入/续期前置）
+    const local = np.awareness.getLocalState() as Record<string, unknown>;
+    expect(local).not.toBeNull();
+    expect(local).not.toHaveProperty('user');                                // user 不在客户端重放形内（服务端 beforeHandleAwareness 注入）
   });
 
   it('单飞：并发两调只执行一次重建', async () => {
@@ -538,13 +538,13 @@ describe('批1-5：awareness 播种/tick 自愈/kill switch（fake timers）', (
     await done;
   });
 
-  it('tick 自愈：pagehide 置 null + 连接健康 ⇒ 下个 tick 重放 lastLocalUser 完整态（禁 {}）；200s 无重连循环', async () => {
+  it('tick 自愈（T7 改形）：pagehide 置 null + 连接健康 ⇒ 下个 tick 恢复非空占位（无 user 键——服务端注入）；200s 无重连循环', async () => {
     const p = await driveToHealthy();
-    runtime.getAwareness()!.setLocalUser({ id: 'u1', name: '协作用户' }); // bridge 缓存完整态
     p.awareness.setLocalState(null);          // pagehide 形态（y-protocols pagehide 置 null 广播下线）
     await vi.advanceTimersByTimeAsync(3_000); // 下个 watchdog tick
     const healed = p.awareness.getLocalState() as any;
-    expect(healed?.user).toEqual({ id: 'u1', name: '协作用户' }); // 完整态（禁 {}——断言含 user 键）
+    expect(healed).not.toBeNull();            // 非空本地态恢复（null 态下 cursor 写入被吞+30s 续期停摆——R24 承重）
+    expect(healed).not.toHaveProperty('user'); // user 不在客户端重放形内（服务端 beforeHandleAwareness 注入）
     const n = (HocuspocusProvider as any).instances.length;
     await vi.advanceTimersByTimeAsync(200_000); // 无入站 ⇒ 不健康 ⇒ 瞬态 recover（不重建实例）；mock 不产生重连事件
     expect((HocuspocusProvider as any).instances.length).toBe(n); // 无重连循环（终态重建才算新实例）

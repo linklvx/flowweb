@@ -106,17 +106,18 @@ describe('CanvasTopBar', () => {
     expect(mockCreditsStore.applyBalance).toHaveBeenCalledWith({ credits: 1, subscriptionCredits: 2 });
   });
 
-  it('R33：在线成员列表排除本机（getRemoteStates——现状 getStates 全量自计入必红）', () => {
+  it('R33：在线成员列表排除本机（getRemoteStates——现状 getStates 全量自计入必红）；T7：色=注入字段 s.user.color', () => {
     mockGetAwareness.mockReturnValue({
       getStates: () => new Map([
         [1, { user: { id: 'me', name: '本机我' } }],   // 本机 clientID=1
-        [2, { user: { id: 'u2', name: '协作者' } }],
+        [2, { user: { id: 'u2', name: '协作者', color: '#123456' } }],
       ]),
-      getRemoteStates: () => [{ user: { id: 'u2', name: '协作者' } }],
+      getRemoteStates: () => [{ user: { id: 'u2', name: '协作者', color: '#123456' } }],
       onStateChange: () => () => {},
     });
     renderBar();
     expect(screen.getByTitle('协作者')).toBeInTheDocument();
+    expect(screen.getByTitle('协作者').style.background).toBe('rgb(18, 52, 86)');   // 注入字段直读（禁 id 自算 fallback）
     expect(screen.queryByTitle('本机我')).toBeNull(); // R33：在线列表自计入（本机已在右侧头像区呈现）
   });
 });

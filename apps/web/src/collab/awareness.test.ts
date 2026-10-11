@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AwarenessBridge, userColor } from './awareness';
+import { AwarenessBridge } from './awareness';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 
 function mockProvider(clientID = 1, states = new Map()) {
   const listeners: Record<string, (() => void)[]> = {};
   return {
-    awareness: { clientID, getStates: () => states },
+    awareness: { clientID, getStates: () => states, getLocalState: vi.fn(() => null), setLocalState: vi.fn() },
     setAwarenessField: vi.fn(),
     on: vi.fn((ev: string, cb: () => void) => { (listeners[ev] ??= []).push(cb); }),
     off: vi.fn(),
@@ -14,13 +14,12 @@ function mockProvider(clientID = 1, states = new Map()) {
 }
 
 describe('awareness', () => {
-  it('setCursor/setSelection/setLocalUser 写 awareness 字段', () => {
+  it('setCursor/setSelection 写 awareness 字段（T7：user 字段写入退位=服务端注入，客户端无 setLocalUser）', () => {
     const p = mockProvider();
     const bridge = new AwarenessBridge(p);
-    bridge.setLocalUser({ id: 'u1', name: '张三' });
     bridge.setCursor({ x: 10, y: 20 });
     bridge.setSelection(['n1', 'n2']);
-    expect((p as any).setAwarenessField).toHaveBeenCalledWith('user', { id: 'u1', name: '张三' });
+    expect((p as any).setAwarenessField).not.toHaveBeenCalledWith('user', expect.anything());
     expect((p as any).setAwarenessField).toHaveBeenCalledWith('cursor', { x: 10, y: 20 });
     expect((p as any).setAwarenessField).toHaveBeenCalledWith('selection', { nodeIds: ['n1', 'n2'] });
   });
@@ -45,13 +44,20 @@ describe('awareness', () => {
     expect(cb).toHaveBeenCalled();
   });
 
-  it('userColor 同 id 稳定、不同 id 可不同', () => {
-    expect(userColor('u1')).toBe(userColor('u1'));
-    expect(typeof userColor('u2')).toBe('string');
+  it('replayLocalUser（T7 改形）：本地态 null ⇒ 恢复非空占位（user 归服务端注入——pagehide 自愈承重）', () => {
+    const p = mockProvider();
+    const bridge = new AwarenessBridge(p);
+    (p.awareness as any).getLocalState.mockReturnValue(null);
+    bridge.replayLocalUser();
+    expect((p.awareness as any).setLocalState).toHaveBeenCalledWith({});
   });
 
-  it('userColor 对缺 id 的畸形 awareness 状态不抛错（远端可发任意字段）', () => {
-    expect(typeof userColor(undefined as any)).toBe('string');
+  it('replayLocalUser（T7 改形）：本地态非空 ⇒ no-op（不打 clock——终态重建后构造播种已在）', () => {
+    const p = mockProvider();
+    const bridge = new AwarenessBridge(p);
+    (p.awareness as any).getLocalState.mockReturnValue({});
+    bridge.replayLocalUser();
+    expect((p.awareness as any).setLocalState).not.toHaveBeenCalled();
   });
 });
 

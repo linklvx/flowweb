@@ -269,6 +269,9 @@ describe('Y0b-3 T6 连接寿命 4402（socketId 键控——sweep tick 同一脉
     seedDocument(gateway, 'project:aged', [conn]);
     gateway.hooks.connected({ socketId: 'sock-aged', documentName: 'project:aged' } as any);   // connected 播种 connEstablishedAt
     (gateway as any).startSessionSweep();
+    // 设计注释（算术）：sweep tick=60s，12h=720 tick。先推 718 tick（12h−120s）停在死线前——
+    // 每步都未越线（判据 12h−120s+i×60s>12h 恒 false），断言零 close；再推 180s（3 tick）必越线，
+    // 越线后的首个 tick 关（4402）。两段式=把"死线前零误关"与"越线必关"拆成独立断言。
     await vi.advanceTimersByTimeAsync(12 * 3600_000 - 120_000);   // 未到期：不关
     expect(conn.webSocket.close).not.toHaveBeenCalled();
     const inc = await metricDelta('collab_ws_close_total', { code: '4402', reason: 'max-lifetime' }, async () => {
@@ -286,7 +289,9 @@ describe('Y0b-3 T6 连接寿命 4402（socketId 键控——sweep tick 同一脉
     seedDocument(gateway, 'project:shortlived', [conn]);
     gateway.hooks.connected({ socketId: 'sock-short', documentName: 'project:shortlived' } as any);
     (gateway as any).startSessionSweep();
-    await vi.advanceTimersByTimeAsync(120_000);   // 首个 tick（60s）未越线，第二个 tick（120s）越线
+    // env=1000ms 时死线远小于 60s tick——首个 tick（60s）即已越线并 close（原注释"首 tick 未越线
+    // 第二 tick 越线"与实际时序不符——勘正；推进 120s=跨越首个 tick 的裕量写法）
+    await vi.advanceTimersByTimeAsync(120_000);
     expect(conn.webSocket.close).toHaveBeenCalledWith(CollabCloseCode.MAX_LIFETIME, 'max-lifetime');
   });
 
