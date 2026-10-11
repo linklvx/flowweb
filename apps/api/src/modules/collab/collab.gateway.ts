@@ -12,12 +12,12 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes } from './store.metrics';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_STATUS_REV_SEED, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -83,6 +83,17 @@ const THAW_COOLDOWN_MS = 30_000;
 /** Y0b-4 T4（Q-C v3）：冻结 doc 重测间隔（frozenRecheckTimer——冻结态唯一出口，禁挂 sweep 逃生阀）。 */
 const FROZEN_RECHECK_INTERVAL_MS = 30_000;
 
+/** Y0b-4 T9a（Q-U v6）：vacuum 纪元常量——thaw 回灌收敛窗（RTT+debounce+store 上界）/quiesce
+ *  轮询周期与硬上界（"PG 完整性=文档已卸载的推论"——超时禁降级继续）/零连接自动触发判据
+ *  （recheckRounds≥4+residue>60%×MAX——无在线用户=无强制刷新伤害）。 */
+export const VACUUM_THAW_SETTLE_MS = 5_000;
+export const VACUUM_QUIESCE_POLL_MS = 100;
+export const VACUUM_QUIESCE_TIMEOUT_MS = 30_000;
+/** residue 评估起步轮（recheck≥2 轮算 liveBytes——docResidue/快照 residueBytes 数据源）+自动触发轮 */
+const RESIDUE_EVAL_ROUNDS = 2;
+const AUTO_VACUUM_ROUNDS = 4;
+const AUTO_VACUUM_RESIDUE_RATIO = 0.6;
+
 /** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
  *  30/s×16MB=480MB/s 解码路径封死，报告1 P1-1）。两个实体两个名：本常量=帧字节闸；
  *  AWARENESS_STATES_LIMIT_BYTES=4KB 解码后 states 字节判归 T12（勿混）。 */
@@ -125,6 +136,18 @@ const queueBytes = (q: Uint8Array[]): number => q.reduce((s, u) => s + u.byteLen
 
 export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
+}
+
+/** Y0b-4 T9a：Y.Map 递归深拷贝（exec/meta/未知 Map 根的真空重建——生产写者〔writeExecStatus/
+ *  meta 族〕值为 JSON 直拷；嵌套 Y.Map 条目逐层重建）。 */
+function deepCopyYMap(src: Y.Map<unknown>, dst: Y.Map<unknown>): void {
+  for (const [k, v] of src.entries()) {
+    if (v instanceof Y.Map) {
+      const m = new Y.Map();
+      deepCopyYMap(v, m);
+      dst.set(k, m);
+    } else dst.set(k, v);
+  }
 }
 
 /** Y0b-3 T5 版本门四档映射（I-1 穷尽性 Record——VersionVerdict 加档时 tsc 红，杜绝 if/else 链
@@ -226,6 +249,19 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 冻结重测轮数（≥softEnter 连续计数——T9a liveBytes 评估脚手架）+thaw 复冻冷却基线 */
   private readonly recheckRounds = new Map<string, number>();
   private readonly thawCooldown = new Map<string, number>();
+  /** ===== Y0b-4 T9a（Q-U v6）：vacuum 代际替换进程态 =====
+   *  vacuumingDocs=serving 门（真空窗口内 WS connected→close 4410/REST withDoc→503/loadDocument→503）；
+   *  preVacuumSvCache=SV 代际门缓存（装载播种——loadDocument 读 CanvasDoc.preVacuumSv 解码为
+   *  Map<client, clock>；与客户端 SyncStep1 payload〔=SV，T0 探针④〕比对区间重叠 ⇒ terminal 4410）；
+   *  docGeneration=doc-status 顶层 generation 产生源（装载播种 CanvasDoc.generation）；docResidue=
+   *  truth−全根真空重建编码（recheck≥2 轮更新——gauge reader Σ+doc-status quota.residueBytes 产生源）。 */
+  private readonly vacuumingDocs = new Set<string>();
+  private readonly preVacuumSvCache = new Map<string, Map<number, number>>();
+  private readonly docGeneration = new Map<string, number>();
+  private readonly docResidue = new Map<string, number>();
+  /** 零连接窄版自动 vacuum 注入点（CollabShrinkService 构造期后置注入——gateway↔service 循环依赖
+   *  最小形态：service 单向注入 gateway，gateway 经回调反向调用）。 */
+  private vacuumRunner: ((pid: string) => Promise<unknown>) | null = null;
   /** doc-status rev（装载播种 1——初值 0 会被客户端 rev 守卫丢首快照；卸载删除=新 epoch 复位） +
    *  上次广播态（翻转检测——T5 起为 {quota 态:writeFrozen} 复合键，rev 仅快照翻转时 ++）。 */
   private readonly docStatusRev = new Map<string, number>();
@@ -352,11 +388,19 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         const c = connection as unknown as CollabConnection;
         if (c) {
           this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——WeakSet 幂等）
+          const pid = parseProjectId(documentName);
+          // Y0b-4 T9a serving 门（WS 面）：真空窗口新连接 terminal close 4410 'doc-vacuuming'。
+          // 形态裁定：plan 原文"auth 503"——但 WS 层无 HTTP 503（auth 期 throw 被库折 close 4403
+          // 非 503）；落地=4410 terminal close（resolveCloseAction(4410)→terminal——语义=稍后重连
+          // 成功，T11 终态档 reload 通道）；REST withDoc 面用真 503（COLLAB_NOT_SERVING 族）。
+          if (this.vacuumingDocs.has(pid)) {
+            this.hardClose(c, CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);
+            return Promise.resolve();
+          }
           const intent = c.context?.freezeIntent;
           if (c.readOnly && !this.writeFreeze.has(c) && (intent === 'viewer' || intent === 'spool')) {
             this.applyWriteFreeze(c, intent, true);   // auth 意图登记（sendStateless conn-status 补推同点）
           }
-          const pid = parseProjectId(documentName);
           if (this.quotaFrozenDocs.has(pid)) this.applyWriteFreeze(c, 'quota', true);   // 冻结期加入（auth 查询兜底之外的第二道登记）
           try { c.sendStateless?.(JSON.stringify(this.buildDocStatus(pid))); } catch { /* 已断 */ }
         }
@@ -435,6 +479,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     });
     // Y0b-4 T4：冻结面 gauge collect 源（quotaFrozenDocs.size——文档级注册表，与连接在线无关）
     registerFrozenDocsReader(() => this.quotaFrozenDocs.size);
+    // Y0b-4 T9a：真空残留 gauge collect 源（Σ docResidue——无 projectId 标签，E54 基调）
+    registerDocResidueReader(() => {
+      let sum = 0;
+      for (const v of this.docResidue.values()) sum += v;
+      return sum;
+    });
     this.startHeapObserver();
     this.startFrozenRecheckTimer();   // Y0b-4 T4：冻结 doc 重测（独立 timer——禁挂 sweep 逃生阀）
     this.syncOverloadGauge(false);   // 初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
@@ -807,6 +857,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (!this.isLeaseServing()) {
       throw Object.assign(new Error('collab lease not held'), { reason: CollabAuthReason.LEASE_NOT_READY });   // P0-1 三入口②（P1 正确性门——外层 catch 对带 reason 异常透传）
     }
+    // Y0b-4 T9a serving 门（装载面）：真空窗口拒装载（connected close 4410 的结构保证补位——
+    // 竞态窗内 loadDocument 先于 connected 的库时序；REST withDoc 面由此折 503 COLLAB_NOT_SERVING）
+    if (this.vacuumingDocs.has(parseProjectId(documentName))) {
+      throw Object.assign(
+        new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' }),
+        { reason: CollabAuthReason.LEASE_NOT_READY },   // 瞬态档（客户端 backoff 重连——真空窗口 ≤30s 上界）
+      );
+    }
     // Y0b-3 T4 heap 闸（三入口汇聚点·WS/DirectConnection/REST withDoc——lease 门后）：仅拒新物化。
     // 可达性：库 createDocument 在 onLoadDocument hook 返回后才 documents.set（esm:1438）——hook 内
     // 对新 doc 恒 !has=两面可达；重放/复用窗（has=true）放行防自伤。throw 形态=SUE 带
@@ -849,7 +907,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗）
       if (!this.lastCompactAt.has(projectId)) this.lastCompactAt.set(projectId, Date.now());
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
-      const { state, updates } = await this.repo.hydrateWithRecovery(projectId);
+      const { state, updates, preVacuumSv, generation } = await this.repo.hydrateWithRecovery(projectId);
+      // Y0b-4 T9a（G-3 纪律：装载路径回填——auth/SV 代际门零新增 DB 查）：preVacuumSv 解码缓存
+      // （SV 重叠检测的进程态——beforeSync SyncStep1 消费）；docGeneration 播种（doc-status 顶层
+      // generation 产生源）。装载先于任何 SyncStep1（库时序）——卸载后清、下次装载重播，无窗口。
+      if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
+      if (generation) this.docGeneration.set(projectId, generation);
       if (state) {
         yjsCanvasDocBytes.set({ projectId }, state.length);   // 快照字节播种（现状语义保留）
         applyReplayed(new Uint8Array(state));
@@ -1157,6 +1220,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.thawCooldown.delete(projectId);
       this.docStatusRev.delete(projectId);
       this.docStatusState.delete(projectId);
+      // Y0b-4 T9a：代际/残留族同点清理（项目终态——与 afterUnload 同族）
+      this.docGeneration.delete(projectId);
+      this.preVacuumSvCache.delete(projectId);
+      this.docResidue.delete(projectId);
+      this.vacuumingDocs.delete(projectId);   // 真空窗口中项目消失的兜底（service finally 也删——双保险）
       this.persistUnhealthy.delete(`project:${projectId}`);       // 陈旧电平（重连会补推失效横幅）
       this.discardForGoneProject(projectId, `project:${projectId}`);   // X1：显式清队列+点名
       const q = this.pendingQueues.get(projectId);                // M6：空队列条目回收（X17 同款——discard 后空数组条目随清）
@@ -1386,6 +1454,151 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return prev;
   }
 
+  /** ===== Y0b-4 T9a（Q-U v6）：vacuum 代际替换——gateway 侧（serving 门/纪元开启/清态/重建） ===== */
+
+  /** serving 门读点（REST withDoc/readServerSV/readCanvas/writeExecStatus 同挂〔U-3/G-7〕+
+   *  WS connected 钩子+loadDocument 三入口）。 */
+  isVacuuming(pid: string): boolean {
+    return this.vacuumingDocs.has(pid);
+  }
+
+  /** serving 门写点（service vacuumGate.runExclusive 内 add/finally delete——真空窗口=协议执行期）。 */
+  setVacuuming(pid: string, on: boolean): void {
+    if (on) this.vacuumingDocs.add(pid);
+    else this.vacuumingDocs.delete(pid);
+  }
+
+  /** 零连接窄版自动 vacuum 注入（service 构造期调用——recheckFrozenDocs 判据链消费）。 */
+  setVacuumRunner(fn: (pid: string) => Promise<unknown>): void {
+    this.vacuumRunner = fn;
+  }
+
+  /** docResidue 现值（skip-low-residue 判据源——recheck≥2 轮维护）。 */
+  docResidueOf(pid: string): number {
+    return this.docResidue.get(pid) ?? 0;
+  }
+
+  /** writesSettled（⓪ thaw 回灌收敛判定）：pending 队列空+spool 无帧+无在飞 store（不要求卸载——
+   *  isPersistedComplete 的 doc 卸载维度留给 ③ quiesce）。 */
+  private writesSettled(pid: string): boolean {
+    return (this.pendingQueues.get(pid)?.length ?? 0) === 0 && !this.spool.hasFrames(pid)
+      && !this.inFlightProjects.has(pid);
+  }
+
+  /** 纪元代开启（service vacuum ⓪①② 调用）：② serving 门先开（close 后新连接即被拦——竞态窗
+   *  关闭）→⓪ thaw 回灌（U-5：冻结期客户端编辑靠 SyncStep1 回灌保命——vacuum 直接 close=真丢；
+   *  收敛窗=RTT+debounce+store 上界，超时尽力继续〔残余在途帧由 close 语义+terminal reload 接住〕）
+   *  →① freeze 全连接（applyWriteFreeze 单源——close 前拦截在飞写帧）+terminal close
+   *  4410 'doc-vacuuming'（T11 终态档消费——reload UX 通道；reason 复用 GENERATION_SUPERSEDED
+   *  预留码〔resolveCloseAction(4410)→terminal〕）。 */
+  async beginVacuumEra(pid: string): Promise<void> {
+    this.vacuumingDocs.add(pid);
+    if (this.quotaFrozenDocs.has(pid)) {
+      this.thawQuota(pid);
+      const deadline = Date.now() + VACUUM_THAW_SETTLE_MS;
+      while (!this.writesSettled(pid) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, VACUUM_QUIESCE_POLL_MS));
+      }
+    }
+    const document = this.server.hocuspocus.documents.get(`project:${pid}`);
+    if (document) {
+      for (const c of [...document.connections.keys()]) {
+        const conn = c as unknown as CollabConnection;
+        this.applyWriteFreeze(conn, 'quota', true);
+        this.hardClose(conn, CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);
+      }
+    }
+  }
+
+  /** ③ 清进程态=共享状态普查表（v6：防旧代记账污染新代——vacuum 完成后所有按 pid 键控 Map/Set
+   *  均无该键的断言测试守卫）。writeFreeze 条目经 applyWriteFreeze 逐原因解除（readOnly 复位+
+   *  conn-status 推送——禁绕过单源直删连接态）；overPush 键=socketId——经条目 pid 反查连带清。 */
+  purgeDocState(pid: string): void {
+    this.docTruth.delete(pid);
+    this.docDelta.delete(pid);
+    this.truthMeasuredAt.delete(pid);
+    this.degradedDocs.delete(pid);
+    this.quotaFrozenDocs.delete(pid);
+    this.freezePending.delete(pid);
+    const pendingTimer = this.freezePendingTimers.get(pid);
+    if (pendingTimer) { clearTimeout(pendingTimer); this.freezePendingTimers.delete(pid); }
+    this.recheckRounds.delete(pid);
+    this.thawCooldown.delete(pid);
+    this.docStatusRev.delete(pid);
+    this.docStatusState.delete(pid);
+    this.docGeneration.delete(pid);
+    this.preVacuumSvCache.delete(pid);
+    this.docResidue.delete(pid);
+    this.lastCompactAt.delete(pid);
+    this.persistUnhealthy.delete(`project:${pid}`);
+    for (const [c, e] of [...this.writeFreeze]) {
+      if (e.pid !== pid) continue;
+      for (const reason of [...e.reasons]) this.applyWriteFreeze(c, reason, false);   // 集合空=条目自动删
+      if (c.socketId) this.overPush.delete(c.socketId);
+    }
+    const q = this.pendingQueues.get(pid);   // 空队列条目回收（M6 同款——quiesce 已保证空）
+    if (q && q.length === 0) this.pendingQueues.delete(pid);
+  }
+
+  /** 中止恢复（v6 报告3 P1-2：中止路径 503 永久+全员只读=比不 vacuum 更糟——不允许存在）：
+   *  ③purge 后到达=幂等 no-op；①②间中止（beginVacuumEra 异常窗）=writeFreeze 条目解除 quota+
+   *  冻结族清（③未达时的兜底）。 */
+  abortVacuumRestore(pid: string): void {
+    this.quotaFrozenDocs.delete(pid);
+    this.freezePending.delete(pid);
+    const pendingTimer = this.freezePendingTimers.get(pid);
+    if (pendingTimer) { clearTimeout(pendingTimer); this.freezePendingTimers.delete(pid); }
+    for (const [c, e] of [...this.writeFreeze]) {
+      if (e.pid === pid) this.applyWriteFreeze(c, 'quota', false);
+    }
+  }
+
+  /** ④ 全根真空重建（vacuum service 与 recheck residue 评估共用单源）：按 doc.share 枚举——
+   *  nodes/edges → readRecordsFromMaps+fillDoc（records 真值重放——墓碑/GC 壳/delete set 不随行）；
+   *  其余 Y.Map 根（exec/meta/未来新增）→ 逐 key 深拷贝（未来新增根 map 不可能被静默丢弃〔U-2〕）；
+   *  stampDocSchema 显式盖戳（fillDoc 不盖戳——真空快照无戳∧满节点=装载版本门拒=画布永久打不开〔U-1〕）；
+   *  非 Map 根（Y.Text 等）⇒ null（vacuum 不支持——降级导出通道，DB 零变更）。
+   *  ⚠ yjs wire 根类型事实（实测 13.6.32）：applyUpdate 重建的 doc.share 根=AbstractType 占位
+   *  （根类型不随 wire 承载——由访问侧 getMap/getText 声明）；序列型内容（Text/Array）挂占位
+   *  ._start 链表。判定=非 Y.Map 实例且 _start 非空 ⇒ 非 Map 根；空根（无内容）按 Map 重建——
+   *  内容无损。 */
+  rebuildVacuumDoc(source: Y.Doc): Y.Doc | null {
+    for (const root of source.share.values()) {
+      const r = root as unknown as { _start?: unknown };
+      if (!(root instanceof Y.Map) && r._start != null) return null;   // Text/Array 序列内容 ⇒ unsupported-root（wire 占位判定——见头注 yjs 根类型事实）
+    }
+    const fresh = new Y.Doc();
+    try {
+      const records = readRecordsFromMaps(toDocLike(source));   // 读侧建 nodes/edges 根（与 fillDoc 对称——根集合守恒）
+      fillDoc(toDocLike(fresh), records.nodes, records.edges);
+      fresh.transact(() => {
+        for (const [name] of source.share) {
+          if (name === 'nodes' || name === 'edges') continue;
+          deepCopyYMap(source.getMap(name), fresh.getMap(name));   // getMap 规约化（占位→YMap 视图——服务端访问语义）
+        }
+      });
+      stampDocSchema(toDocLike(fresh));
+      return fresh;
+    } catch (e) {
+      fresh.destroy();
+      throw e;
+    }
+  }
+
+  /** ⑤ 等价断言扩全根（把信任 fillDoc 变成验证 fillDoc）：readRecords 深比+根类型集合相等
+   *  +exec 键集合相等+meta.schemaVersion===current（三条 O(键数)——U-1/U-2 直接检测）。
+   *  readRecordsFromMaps 对比用 JSON 序列化（DocNodeRecord 纯 JSON+键序=遍历序稳定）。 */
+  vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
+    // 三常驻根规约化（装载路径同款——loadDocument 恒建 nodes/edges/meta〔nodeCount 遍历+版本门
+    // meta 读〕；空源 doc（DB 无行的边界）键集合口径由此对称——fillDoc/stamp 恒建三根）
+    oldDoc.getMap('nodes'); oldDoc.getMap('edges'); oldDoc.getMap('meta');
+    const shapeOf = (d: Y.Doc) => [...d.share.keys()].sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
+    if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
+    if (JSON.stringify(readRecordsFromMaps(toDocLike(oldDoc))) !== JSON.stringify(readRecordsFromMaps(toDocLike(newDoc)))) return false;
+    if ([...oldDoc.getMap('exec').keys()].sort().join(' ') !== [...newDoc.getMap('exec').keys()].sort().join(' ')) return false;
+    return newDoc.getMap('meta').get('schemaVersion') === CANVAS_DOC_SCHEMA_VERSION;
+  }
+
   /** ===== Y0b-4 T6（Q-E v5/Q-K）：beforeHandleMessage——msg 桶计数+awareness 入站帧闸 =====
    *  H-3 三分落点之一：每帧必经（ClientConnection.processMessages——esm:457 每帧 await 本钩子后
    *  才进 MessageReceiver 解码）。帧闸判型=readFrameType 单源（库 IncomingMessage 解析——禁字节
@@ -1417,7 +1630,27 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  先行（T0 探针②：throw 路径客户端 30s 僵尸零 close）。 */
   private async guardSyncFrame({ type, payload, document, connection }: beforeSyncPayload): Promise<void> {
     const pid = parseProjectId(document.name);
-    if (type === messageYjsSyncStep1) return;   // 零成长（SyncStep1=读路径永不判）
+    if (type === messageYjsSyncStep1) {
+      // Y0b-4 T9a（Q-U v6 报告2 G-2）：SV 代际门——SyncStep1 payload=客户端 SV（T0 探针④实证：
+      // Y.decodeStateVector(payload) 与客户端 encodeStateVector 全等）。客户端 SV 任一 (client,
+      // clock) 覆盖 preVacuumSv 同 client 的 [0,clock) 区间（clock≥pre 且 pre>0）⇒ 持真空前历史
+      // ⇒ terminal 4410 'doc-generation-stale'（码权威投递=hardClose.webSocket.close 先行——
+      // throw 仅兜底中止帧）。空 SV（新页面）天然放行——结构性无污染；新 clientID 不在
+      // preVacuumSv 放行——reload 不循环（v5 ?gen= URL 形态 reload 丢 gen 必循环——已整删）。
+      // preVacuumSvCache 装载播种（loadDocument 读 CanvasDoc.preVacuumSv——真空后首次装载即生效，
+      // 装载先于 SyncStep1〔库时序〕无窗口）；无缓存（从未 vacuum）照旧放行。
+      const preSv = this.preVacuumSvCache.get(pid);
+      if (preSv !== undefined && preSv.size > 0) {
+        for (const [client, clock] of Y.decodeStateVector(payload)) {
+          const pre = preSv.get(client);
+          if (pre !== undefined && pre > 0 && clock >= pre) {
+            this.hardClose(connection as unknown as CollabConnection, CollabCloseCode.GENERATION_SUPERSEDED, DOC_GENERATION_STALE_TERMINAL_REASON);
+            throw Object.assign(new Error('doc generation stale'), { code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_GENERATION_STALE_TERMINAL_REASON });
+          }
+        }
+      }
+      return;   // 零成长（SyncStep1=读路径永不判配额）
+    }
     const bytes = payload.byteLength;
     const conn = connection as unknown as CollabConnection;
     // ⓪ 帧闸（Q-E v5：Update>2×maxTxBytes——〔maxTxBytes,2×〕区间放行进配额判据，估算误差退化软冻结非终态；
@@ -1649,14 +1882,39 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private recheckFrozenDocs(): void {
     for (const pid of [...this.quotaFrozenDocs]) {
       const document = this.server.hocuspocus.documents.get(`project:${pid}`);
-      if (!document) { this.quotaFrozenDocs.delete(pid); continue; }   // 卸载残留（afterUnload 同清——双保险）
+      if (!document) { this.quotaFrozenDocs.delete(pid); this.docResidue.delete(pid); continue; }   // 卸载残留（afterUnload 同清——双保险）
       const measured = this.measureTruth(document);
       if (measured === null) continue;   // fail-open deferred——保守保持冻结
       this.calibrateTruth(pid, measured);
       if (measured < Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio)) { this.thawQuota(pid); continue; }
       if (measured >= Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio)) {
-        this.recheckRounds.set(pid, (this.recheckRounds.get(pid) ?? 0) + 1);
+        const rounds = (this.recheckRounds.get(pid) ?? 0) + 1;
+        this.recheckRounds.set(pid, rounds);
+        // Y0b-4 T9a（Q-U v5/v6）：recheck≥2 轮评估 residue=truth−liveBytes（liveBytes=全根真空
+        // 重建编码口径——U-6 修正：v4 只含 nodes+edges 会系统性高估 residue）——docResidue Map
+        // 更新（gauge reader Σ+doc-status quota.residueBytes 数据源+零连接自动触发判据）。
+        if (rounds >= RESIDUE_EVAL_ROUNDS) this.updateResidue(pid, document, measured);
+        // 零连接窄版自动（v6 报告1 P2-3）：冻结∧连续≥4 轮≥soft∧零连接∧residue>60%×MAX ⇒ 后台
+        // vacuum——无在线用户=无强制刷新伤害+避免画布无限期冻结（没人来点按钮）；serving 门挡
+        // 中途进入。doc 常驻零连接=terminal close 路径由 vacuum ①承接（doc 不在=冻结已被卸载清理，
+        // 本循环首行 continue——自动触发不可达〔无需 quiesce 一步到位分支〕）。
+        if (rounds >= AUTO_VACUUM_ROUNDS && document.connections.size === 0 && this.vacuumRunner
+          && (this.docResidue.get(pid) ?? 0) > Math.floor(this.quota.maxDocBytes * AUTO_VACUUM_RESIDUE_RATIO)) {
+          void this.vacuumRunner(pid).catch((e) => this.logger.error(`auto vacuum failed for ${pid}: ${(e as Error).message}`));
+        }
       }
+    }
+  }
+
+  /** residue 评估（recheck≥2 轮）：truth−全根真空重建编码（rebuildVacuumDoc 单源——与 vacuum ④
+   *  同一重建）；unsupported 根（Y.Text 等）不更新（自动触发结构性不可达——REST 显式通道降级导出）。 */
+  private updateResidue(pid: string, document: Y.Doc, truth: number): void {
+    const rebuilt = this.rebuildVacuumDoc(document);
+    if (!rebuilt) return;
+    try {
+      this.docResidue.set(pid, Math.max(0, truth - Y.encodeStateAsUpdate(rebuilt).byteLength));
+    } finally {
+      rebuilt.destroy();
     }
   }
 
@@ -1689,19 +1947,26 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** doc-status 最小形态（T5 完整化）：rev=装载播种 1+翻转自增；stateOverride=广播时显式态
    *  （freezeQuota 的 setImmediate 落地窗内集合推导滞后——广播点显式声明）。
-   *  writeFrozen=quota over ∨ gateway 级 drain（两维度独立——drain 冻结不冒充 quota over）。 */
+   *  writeFrozen=quota over ∨ gateway 级 drain（两维度独立——drain 冻结不冒充 quota over）。
+   *  Y0b-4 T9a（Q-U v6）：顶层 generation 可选（docGeneration 播种值>0 才带——T5 客户端
+   *  pendingGenerationReload 消费跳变）+quota.residueBytes 可选（docResidue 有键才带——T11
+   *  「重建画布历史」入口数据源）；未 vacuum 的 doc 两键缺省=五键 payload 形态不变。 */
   private buildDocStatus(pid: string, stateOverride?: 'over' | 'ok'): CollabDocStatusPayload {
     const over: boolean = stateOverride !== undefined ? stateOverride === 'over' : this.quotaStateOf(pid) === 'over';
+    const gen = this.docGeneration.get(pid) ?? 0;
+    const residue = this.docResidue.get(pid);
     return {
       type: 'doc-status',
       rev: this.docStatusRev.get(pid) ?? DOC_STATUS_REV_SEED,
       writeFrozen: over || this.collabState === 'draining',
+      ...(gen > 0 ? { generation: gen } : {}),
       quota: {
         state: over ? 'over' : 'ok',
         bytes: (this.docTruth.get(pid) ?? 0) + (this.docDelta.get(pid) ?? 0),
         limit: this.quota.maxDocBytes,
         maxTxBytes: this.quota.maxTxBytes,
         softLimitBytes: Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio),
+        ...(residue !== undefined ? { residueBytes: residue } : {}),
       },
     };
   }
@@ -2040,6 +2305,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.thawCooldown.delete(projectId);
     this.docStatusRev.delete(projectId);
     this.docStatusState.delete(projectId);
+    // Y0b-4 T9a：代际/残留族同点清理（卸载=新 epoch：下次装载从 DB 重播种——装载先于 SyncStep1
+    // 无 SV 门窗口；docResidue 过期记账同清）
+    this.docGeneration.delete(projectId);
+    this.preVacuumSvCache.delete(projectId);
+    this.docResidue.delete(projectId);
   }
 
   async onModuleInit(): Promise<void> {
@@ -2532,6 +2802,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     unregisterHeapObserverReader();   // Y0b-3 T4：观测 collect 闭包随 gateway 死（同惯例）
     unregisterLoadedDocBytesReader();   // Y0b-4 T3：容量聚合 collect 闭包随 gateway 死（同惯例）
     unregisterFrozenDocsReader();   // Y0b-4 T4：冻结面 collect 闭包随 gateway 死（同惯例）
+    unregisterDocResidueReader();   // Y0b-4 T9a：真空残留 collect 闭包随 gateway 死（同惯例）
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);  // 定时器随停——drain 主动接管
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
     this.closeAllConnections1012();                                              // 步骤 2：瞬时

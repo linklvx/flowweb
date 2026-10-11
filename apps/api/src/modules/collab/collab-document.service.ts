@@ -43,9 +43,14 @@ export class CollabDocumentService {
 
   /** Q1 单实例铁律：业务服务端写 doc 一律走 Hocuspocus 直连；try/finally disconnect 保证 unload flush（S7）。
    *  Y0a-3（P0-1 三入口③）：withDoc 首行租约门——lease 失守/drain 期早退 503（不 openDirectConnection，
-   *  不触发装载重连风暴）。消息非协议形态（通用入口，客户端不按 body.code 分型）。 */
+   *  不触发装载重连风暴）。消息非协议形态（通用入口，客户端不按 body.code 分型）。
+   *  Y0b-4 T9a（Q-U v6/U-3/G-7）：vacuum serving 门——真空窗口拒物化（readServerSV/readCanvas/
+   *  writeExecStatus 同挂）；REST 面真 503（COLLAB_NOT_SERVING 族——filter 附 Retry-After: 2）。 */
   async withDoc<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>): Promise<T> {
     if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③
+    if (this.gateway.isVacuuming(projectId)) {
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });   // 真空窗口 ≤30s 上界——Retry-After 2 由 CollabNotServingFilter 附
+    }
     const connection = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`);
     try {
       let result: T;

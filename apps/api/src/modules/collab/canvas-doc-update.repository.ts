@@ -74,17 +74,18 @@ export class CanvasDocUpdateRepository {
   private static readonly PAGE_ROWS = 500;
 
   /** Y0a-1 装载读唯一入口（spec §4.3-1）：委托 readConsistent（契约 1"一个实现、两出口"——
-   *  装载出口；opts 供自愈路径重试时收紧预算透传）。 */
+   *  装载出口；opts 供自愈路径重试时收紧预算透传）。Y0b-4 T9a：返回扩 preVacuumSv/generation
+   *  （装载播种代际门缓存——gateway loadDocument 消费；readSnapshotOnly 共用实现同带，不消费）。 */
   async loadForHydration(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
+  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
     return this.readConsistent(projectId, opts);
   }
 
   /** 契约 1（"一个实现、两出口"）：投影出口（video-work 快照）——不 apply 到 doc、不触 store/
    *  compact；与装载出口共用同一单 RR 事务实现，禁复制第二份。 */
-  async readSnapshotOnly(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
+  async readSnapshotOnly(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
     yjsSnapshotReadTotal.inc();
     return this.readConsistent(projectId);
   }
@@ -100,10 +101,10 @@ export class CanvasDocUpdateRepository {
   private async readConsistent(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
+  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
     return this.prisma.$transaction(
       async (tx) => {
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { state: true, stateSeq: true } });
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { state: true, stateSeq: true, preVacuumSv: true, generation: true } });
         const updates: Buffer[] = [];
         let cursor = 0n;
         for (;;) {
@@ -123,7 +124,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state: docRow?.state ?? null, updates, stateSeq: docRow?.stateSeq ?? 0n };
+        return { state: docRow?.state ?? null, updates, stateSeq: docRow?.stateSeq ?? 0n, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0 };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
@@ -147,7 +148,7 @@ export class CanvasDocUpdateRepository {
     return e instanceof Error && /timeout/i.test(e.message);
   }
 
-  async hydrateWithRecovery(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint }> {
+  async hydrateWithRecovery(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
     try {
       return await this.loadForHydration(projectId);
     } catch (first) {
@@ -164,6 +165,45 @@ export class CanvasDocUpdateRepository {
 
   async count(projectId: string): Promise<number> {
     return this.prisma.canvasDocUpdate.count({ where: { projectId } });
+  }
+
+  /** Y0b-4 T9a（Q-U v6 报告1 P1-2/报告2 G-3）：vacuum ⑥ 单事务——快照代际替换。
+   *  首行 lockProject（与 append/compact 同键——P23/V26 锁键单源：serving 门是概率保证，
+   *  advisory lock 是结构保证〔scheduler/运维脚本/未 drain spool 残路径〕）；被删增量行精确
+   *  取号基准=锁内实读行集（禁 0/GREATEST 包装——canvas-doc-insert-ratchet 红线）；expected
+   *  行数守卫=④ 读与锁内读之间有并发 append ⇒ 中止（行集在锁协议下只增不删〔append-only+
+   *  compact 同键排队〕——长度相等即同一集合）；upsert {state=真空编码, 取号基准, preVacuumSv=
+   *  真空前 SV, generation=n+1}+deleteMany 按实读行 id（compact 同式）。 */
+  async vacuumReplace(
+    projectId: string,
+    state: Buffer,
+    preVacuumSv: Buffer,
+    expectedRowCount: number,
+  ): Promise<{ generation: number }> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.lockProject(tx, projectId);
+        const liveRows = await tx.canvasDocUpdate.findMany({
+          where: { projectId },
+          orderBy: { seq: 'asc' },
+          select: { id: true, seq: true },
+        });
+        if (liveRows.length !== expectedRowCount) {
+          throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true });
+        }
+        const liveDoc = await tx.canvasDoc.findUnique({ where: { projectId }, select: { stateSeq: true, generation: true } });
+        const maxSeq = liveRows.length > 0 ? liveRows[liveRows.length - 1].seq : (liveDoc?.stateSeq ?? 0n);
+        const generation = (liveDoc?.generation ?? 0) + 1;
+        await tx.canvasDoc.upsert({
+          where: { projectId },
+          update: { state, stateSeq: maxSeq, preVacuumSv, generation },
+          create: { projectId, state, stateSeq: maxSeq, preVacuumSv, generation },
+        });
+        await tx.canvasDocUpdate.deleteMany({ where: { id: { in: liveRows.map((r) => r.id) } } });
+        return { generation };
+      },
+      { timeout: 10_000, maxWait: 2_000 },
+    );
   }
 
   /** Y0a-1 compact（spec v2.5 §1.3）：事务首行租约断言（SV8：owner-only，先于 advisory lock——

@@ -880,8 +880,10 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_awareness_stripped_total
 - collab_bytes_rate_exceeded_total
 - collab_doc_export_fresh_total
+- collab_doc_residue_bytes
 - collab_doc_shrink_duration_seconds
 - collab_doc_shrink_total
+- collab_doc_vacuum_total
 - collab_hydration_deferred_total
 - collab_lease_denied_total
 - collab_lease_epoch

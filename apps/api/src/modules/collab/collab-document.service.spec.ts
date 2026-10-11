@@ -193,6 +193,7 @@ describe('Y0a-4 Connection 级 disconnect pin（unloadImmediately——withDoc f
     const disconnect = vi.fn(async () => {});
     const gateway = {
       isLeaseServing: vi.fn(() => true),
+      isVacuuming: vi.fn(() => false),   // Y0b-4 T9a：vacuum serving 门（withDoc 第二门）
       server: { hocuspocus: { openDirectConnection: vi.fn(async () => ({ transact: (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect })) } },
     };
     const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);

@@ -7,6 +7,9 @@
 // 全局信号量并发 1（编码 8MB×N 并发=CPU 尖峰——排队不拒绝；10s 排队超时 503 SHRINK_BUSY）。
 // Y0b-4 T9（Q-H）：export-fresh——墓碑主导文档唯一出路（shrink 影子预演必 422 的真空出口）：
 // 源团队/文件夹归属保留+in-flight latch 幂等+fillDoc 干净编码+落地编码校验（超限 warning 不阻断）。
+// Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换——七步协议 try/finally（⓪thaw 回灌→①freeze+terminal
+// close→②serving 门→③quiesce 硬前置+清态→④离线全根真空→⑤等价断言→⑥lockProject 单事务）+
+// 零连接窄版自动（gateway recheckFrozenDocs 判据链经 setVacuumRunner 回调注入）。
 import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import * as Y from 'yjs';
 import { QUOTA_DEFAULTS, fillDoc, readRecordsFromMaps } from '@flowweb/shared';
@@ -14,9 +17,10 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasService } from '../canvas/canvas.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from './collab-document.service';
-import { CollabGateway } from './collab.gateway';
+import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
-import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal } from './store.metrics';
+import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal } from './store.metrics';
 
 /** 排队超时（进入执行位前的等待上界——已获执行位的请求不被打断；超时者从等待队列摘除不占执行位） */
 export const SHRINK_QUEUE_TIMEOUT_MS = 10_000;
@@ -47,6 +51,15 @@ export interface ExportFreshResult {
   warning?: 'still-over-limit';
 }
 
+/** T9a vacuum 出口（Q-U v6）：generation=新代数（ok 时）；bytes=真空编码字节（ok 时）。
+ *  中止三档（equivalence-failed/unsupported-root/quiesce-timeout）DB 零变更+状态全恢复；
+ *  skip-low-residue=零连接自动路径残留不足跳过；error=意外（throw 前计数）。 */
+export interface VacuumResult {
+  result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'error';
+  generation?: number;
+  bytes?: number;
+}
+
 /** 在 Y.Doc 上删节点+关联边（引用被删节点的边一并删——悬挂边防护）；doc.transact 包裹（单事务原子）。 */
 function deleteNodesInDoc(doc: Y.Doc, nodeIds: string[]): void {
   const victims = new Set(nodeIds);
@@ -73,13 +86,22 @@ export class CollabShrinkService {
    *  ——连续点击不建多项目）；终态即清（finally——失败后可重试）。 */
   private readonly exportInFlight = new Map<string, Promise<ExportFreshResult>>();
 
+  /** T9a vacuum 信号量尾（与 shrink gate 分立——同款并发 1 语义；vacuum 自带 30s quiesce 上界
+   *  不另设排队超时）。Promise 链形态：later 者排队等前者 settle。 */
+  private vacuumGateTail: Promise<unknown> = Promise.resolve();
+
   constructor(
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(CollabGateway) private readonly gateway: CollabGateway,
     @Inject(CanvasService) private readonly canvas: CanvasService,   // T9：副本创建（真实签名 create(name,folderId,userId,teamId?)）
     @Inject(PrismaService) private readonly prisma: PrismaService,   // T9：源项目元数据（name/teamId/folderId）
-  ) {}
+    @Inject(CanvasDocUpdateRepository) private readonly docRepo: CanvasDocUpdateRepository,   // T9a：vacuum ④ 装载读唯一入口+⑥ 代际替换事务（契约 1/10——repository 单源）
+  ) {
+    // Y0b-4 T9a：零连接窄版自动 vacuum 回调注入（gateway↔service 循环依赖最小形态——service 单向
+    // 持 gateway，gateway 经注入的 runner 反调；无 userId=绕过权限门〔触发判据在 recheck 判据链〕）
+    this.gateway.setVacuumRunner((pid) => this.vacuumAuto(pid));
+  }
 
   async shrink(projectId: string, userId: string, body: ShrinkBody): Promise<ShrinkResult> {
     if (body.deleteNodeIds && body.keepNodeIds) {
@@ -221,6 +243,95 @@ export class CollabShrinkService {
     const next = this.waiters.shift();
     if (next) next();   // 锁直接移交（locked 保持 true）
     else this.locked = false;
+  }
+
+  // ===== Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换——七步协议 =====
+
+  /** REST 显式触发（T11 二次确认后到达）：权限恒先（shrink/export-fresh 同门）；不做 residue
+   *  判定（用户确认即执行）。自动路径（recheckFrozenDocs 零连接窄版）走 vacuumAuto。 */
+  vacuum(pid: string, userId: string): Promise<VacuumResult> {
+    return this.perm.assertEditorWithTeam(pid, userId).then(() => this.runVacuumExclusive(pid));
+  }
+
+  /** 零连接窄版自动入口：residue 判据 re-verify（recheck 判定与执行时点间的竞态兜底——
+   *  残留不足即 skip，REST 显式路径不做此判定）+vacuumGate 串行（并发 1）。 */
+  async vacuumAuto(pid: string): Promise<VacuumResult> {
+    if (this.gateway.docResidueOf(pid) <= Math.floor(this.gateway.activeQuota.maxDocBytes * 0.6)) {
+      collabDocVacuumTotal.inc({ result: 'skip-low-residue' });
+      return { result: 'skip-low-residue' };
+    }
+    return this.runVacuumExclusive(pid);
+  }
+
+  /** vacuum 信号量（并发 1——与 shrink gate 分立；后者继前者排队）。 */
+  private runVacuumExclusive(pid: string): Promise<VacuumResult> {
+    const run = this.vacuumGateTail.then(() => this.vacuumCore(pid), () => this.vacuumCore(pid));
+    this.vacuumGateTail = run.catch(() => {});
+    return run;
+  }
+
+  /** 七步协议体（plan Task 9a sketch——语义为准）：
+   *  ⓪ thaw 回灌〔gateway.beginVacuumEra〕→①freeze 全连接+terminal close 4410 'doc-vacuuming'
+   *  →②serving 门〔vacuumingDocs——WS connected close 4410/loadDocument+withDoc 503〕
+   *  →③quiesce 硬前置（isPersistedComplete 四态合一谓词：doc 卸载+pending 空+spool 空+无在飞
+   *  store——**超时 30s 中止禁降级**：PG 完整性=文档已卸载的推论，未卸载即读 PG=丢最近 debounce
+   *  窗编辑且等价断言恰好通过〔新旧同源〕）+清进程态〔gateway.purgeDocState 普查表〕
+   *  +SnapshotDocCache 失效〔TTL 30s 否则真空后继续供旧代投影〕
+   *  →④离线全根真空（repo.loadForHydration 装载读唯一入口〔契约 1〕——不经 withDoc；
+   *  gateway.rebuildVacuumDoc 单源）
+   *  →⑤等价断言扩全根（gateway.vacuumEquivalent——不等中止 DB 零变更）
+   *  →⑥单事务代际替换（repo.vacuumReplace——首行同键咨询锁〔与 append/compact 同键：P23/V26〕
+   *  +被删增量行取号基准精确赋值〔禁 0/GREATEST——insert-ratchet 红线〕+preVacuumSv/generation
+   *  同事务落列+按实读行 id 删〔compact 同式〕+行集漂移守卫）
+   *  →⑦解除（finally：vacuumingDocs.delete 无论成败+未提交恢复可写——v6 报告3 P1-2：中止路径
+   *  503 永久+全员只读=比不 vacuum 更糟的状态不允许存在）。
+   *  SV 代际门（拦旧历史重连）=gateway guardSyncFrame SyncStep1 分支——preVacuumSv 由真空后首次
+   *  装载播种（⑥ 落 DB 即生效——装载先于 SyncStep1 无窗口）。 */
+  private async vacuumCore(pid: string): Promise<VacuumResult> {
+    let committed = false;
+    const done = (r: VacuumResult): VacuumResult => {
+      if (r.result !== 'error') collabDocVacuumTotal.inc({ result: r.result });
+      return r;
+    };
+    try {
+      await this.gateway.beginVacuumEra(pid);   // ⓪①②
+      // ③ quiesce 硬前置：轮询 isPersistedComplete（doc 卸载+pending 空+spool 空+无在飞 store）
+      const deadline = Date.now() + VACUUM_QUIESCE_TIMEOUT_MS;
+      while (!this.gateway.isPersistedComplete(pid)) {
+        if (Date.now() >= deadline) return done({ result: 'quiesce-timeout' });   // 禁降级继续
+        await new Promise((r) => setTimeout(r, VACUUM_QUIESCE_POLL_MS));
+      }
+      this.gateway.purgeDocState(pid);                     // 清进程态（普查表）
+      this.docs.invalidateSnapshotCache(pid);              // SnapshotDocCache 旧代投影条目
+      // ④ 离线全根真空：装载读唯一入口（契约 1——repo.loadForHydration；不经 withDoc）
+      const { state: srcState, updates: srcUpdates } = await this.docRepo.loadForHydration(pid);
+      const oldDoc = new Y.Doc();
+      let newDoc: Y.Doc | null = null;
+      try {
+        if (srcState) Y.applyUpdate(oldDoc, new Uint8Array(srcState));
+        for (const u of srcUpdates) Y.applyUpdate(oldDoc, new Uint8Array(u));
+        newDoc = this.gateway.rebuildVacuumDoc(oldDoc);
+        if (newDoc === null) return done({ result: 'unsupported-root' });   // 非 Map 根——DB 零变更
+        if (!this.gateway.vacuumEquivalent(oldDoc, newDoc)) return done({ result: 'equivalence-failed' });   // 把信任 fillDoc 变成验证 fillDoc
+        const preVacuumSv = Buffer.from(Y.encodeStateVector(oldDoc));   // 真空前 SV（代际门 DB 权威源）
+        const state = Buffer.from(Y.encodeStateAsUpdate(newDoc));
+        // ⑥ 单事务代际替换（repository.vacuumReplace——lockProject 同键咨询锁+被删行取号基准
+        // 精确赋值+同事务落列+按实读行 id 删+行集漂移守卫）
+        const { generation } = await this.docRepo.vacuumReplace(pid, state, preVacuumSv, srcUpdates.length);
+        committed = true;
+        return done({ result: 'ok', generation, bytes: state.length });
+      } finally {
+        oldDoc.destroy();
+        newDoc?.destroy();
+      }
+    } catch (e) {
+      collabDocVacuumTotal.inc({ result: 'error' });
+      throw e;
+    } finally {
+      // ⑦ 解除+中止恢复（v6 报告3 P1-2）：无论成败必须（否则 503 永久）；未提交恢复可写
+      this.gateway.setVacuuming(pid, false);
+      if (!committed) this.gateway.abortVacuumRestore(pid);
+    }
   }
 }
 

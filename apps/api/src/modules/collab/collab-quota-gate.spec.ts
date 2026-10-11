@@ -3,11 +3,15 @@
 // 真连装置（dual-client-server kit+quota 注入）；10s 升级窗不真实等待——白盒改 overPush.firstAt
 // 模拟时间流逝（零生产侵入——plan T4 推荐手法）；裸 ws close 观测=collab-ws-close-probe 先例。
 // 红相：现状 beforeSync 未注册——无判据/无冻结/无 doc-status/白盒方法缺失（TypeError）。
-import { describe, it, expect } from 'vitest';
+// Y0b-4 T9a：SV 代际门三向/terminal close/serving 门（真连载体——vacuum 七步族在 collab-shrink.spec）。
+import { describe, it, expect, vi } from 'vitest';
 import { register } from 'prom-client';
+import * as Y from 'yjs';
+import { HocuspocusProvider } from '@hocuspocus/provider';
 import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
 import { makeFrame as frame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
+import { CollabShrinkService } from './collab-shrink.service';
 import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
 /** 小值配额（maxDocBytes 8KB/soft 6553；Update 帧闸 2×maxTxBytes=8192） */
@@ -391,4 +395,135 @@ describe('Y0b-4 T5 connected 双补推+beginDraining 并轨 doc-status（rev 生
       expect(isCollabDocStatusPayload({ ...snap, generation: 7 })).toBe(true);   // 顶层可选 generation——T9a 产生即合法
     } finally { await kit.dispose(); }
   }, 30_000);
+});
+
+// ===== Y0b-4 T9a（Q-U v6）：SV 代际门+terminal close+serving 门（真连形态） =====
+
+/** vacuum service 直构（真连 kit 上）：repo mock（④ 装载读+⑥ 代际替换——契约 1/10 单源） */
+function buildVacuumSvc(kit: DualClientKit, repo: any) {
+  const perm = { assertEditorWithTeam: vi.fn(async () => ({ role: 'PROJECT_EDITOR', teamId: 't1' })) };
+  const docs = {
+    withDoc: vi.fn(),
+    invalidateSnapshotCache: vi.fn(),
+  };
+  return new CollabShrinkService(perm as any, docs as any, kit.gateway, {} as any, {} as any, repo);
+}
+
+/** 挂起式 repo（④ loadForHydration 挂起——vacuum 停在④前的 serving 门窗口保持）+释放后 ⑥ 直透 */
+function makeHangingVacuumRepo(kit: DualClientKit, pid: string) {
+  let releaseRead!: (v: Buffer | null) => void;
+  const readGate = new Promise<Buffer | null>((r) => { releaseRead = r; });
+  const repo = {
+    loadForHydration: vi.fn(() => readGate.then((state) => ({ state, updates: [] as Buffer[], stateSeq: 0n }))),
+    vacuumReplace: vi.fn(async () => ({ generation: 1 })),
+  };
+  return {
+    repo,
+    /** 释放④：用服务端现行 doc 编码做源 state（null=空源——doc 已卸载时） */
+    release: () => {
+      const doc = (kit.gateway as any).server.hocuspocus.documents.get(`project:${pid}`);
+      releaseRead(doc ? Buffer.from(Y.encodeStateAsUpdate(doc)) : null);
+    },
+  };
+}
+
+describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（Q-U v6）', () => {
+  it('terminal close：vacuum 启动时存量连接收 close 4410 doc-vacuuming（裸 ws 观测）——provider 1s 重连被 terminal 档停由客户端 T11 承载', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+    try {
+      const A = connectWithCloseSpy(kit, 'project:vt1');
+      await A.synced;
+      A.ydoc.getMap('nodes').set('n1', 'x'.repeat(100));
+      await pollUntil(() => serverDoc(kit.gateway as any, 'vt1').getMap('nodes').has('n1'), 3_000);
+      const hang = makeHangingVacuumRepo(kit, 'vt1');
+      const svc = buildVacuumSvc(kit, hang.repo);
+      const vac = svc.vacuum('vt1', 'u1');
+      await pollUntil(() => A.closeInfo() !== null, 5_000);   // ① 全连接 terminal close（裸 ws 观测）
+      expect(A.closeInfo()).toEqual({ code: 4410, reason: 'doc-vacuuming' });
+      await A.provider.destroy(); kit.forget(A.provider);
+      hang.release();                                          // ④ 放行 → ⑥ → ok
+      const r = await vac;
+      expect(r.result).toBe('ok');
+      await pollUntil(() => (kit.gateway as any).isVacuuming('vt1') === false, 2_000);
+      const C = kit.connect('project:vt1');                    // 完成后解除——新连接正常（新代）
+      await C.synced;
+      C.ydoc.getMap('nodes').set('after', 'ok');
+      await pollUntil(() => serverDoc(kit.gateway as any, 'vt1').getMap('nodes').has('after'), 3_000);
+    } finally { await kit.dispose(); }
+  }, 30_000);
+
+  it('serving 门：vacuum 进行中——新 WS 连接 close 4410 doc-vacuuming（形态裁定：WS 层无 503——4410 terminal close 语义=稍后重连成功；REST withDoc 路径真 503）；完成后解除', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+    try {
+      const A = connectWithCloseSpy(kit, 'project:vg1');
+      await A.synced;
+      const hang = makeHangingVacuumRepo(kit, 'vg1');
+      const svc = buildVacuumSvc(kit, hang.repo);
+      const vac = svc.vacuum('vg1', 'u1');
+      await pollUntil(() => A.closeInfo() !== null, 5_000);
+      await A.provider.destroy(); kit.forget(A.provider);
+      await pollUntil(() => (kit.gateway as any).isVacuuming('vg1') === true, 2_000);   // 真空窗口（④ 挂起）
+      // 新 WS 连接：窗口内不可用——doc 已卸载 ⇒ 新连接触发装载 ⇒ loadDocument serving 门拒 ⇒
+      // 连接永不 synced（503 语义在 WS 面折为装载失败；connected→4410 close 形态由 terminal close
+      // 用例〔存量连接路径——doc 常驻无装载歧义〕承载——新连接的 close code 随库对装载错误的
+      // 处理形态不在此断言，形态裁定注释见 collab.gateway connected 钩子）
+      const B = connectWithCloseSpy(kit, 'project:vg1');
+      let bSynced = false;
+      B.provider.on('synced', () => { bSynced = true; });
+      await sleep(1_500);
+      expect(bSynced).toBe(false);                        // 窗口内新连接不可 synced（装载被 serving 门拒）
+      expect(serverDoc(kit.gateway as any, 'vg1')).toBeUndefined();
+      await B.provider.destroy(); kit.forget(B.provider);
+      // REST withDoc 同门：503（COLLAB_NOT_SERVING 族——filter 附 Retry-After）
+      await expect(kit.docService.withDoc('vg1', () => 1)).rejects.toMatchObject({ status: 503 });
+      hang.release();
+      const r = await vac;
+      expect(r.result).toBe('ok');
+      // 完成后解除：withDoc 恢复+新连接 synced
+      await expect(kit.docService.withDoc('vg1', () => 'rw-ok')).resolves.toBe('rw-ok');
+      const C = kit.connect('project:vg1');
+      await C.synced;
+    } finally { await kit.dispose(); }
+  }, 30_000);
+
+  it('SV 代际门三向：①带旧 doc 重连（SV 覆盖 preVacuumSv 区间）⇒ 4410 doc-generation-stale（裸 ws）；②新页面空 SV ⇒ 放行；③新 clientID 不在 preVacuumSv ⇒ 放行——reload 不循环', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+    try {
+      const g = kit.gateway as any;
+      // ① vacuum 前在线客户端产生历史（clientID+clock）→白盒播种 preVacuumSvCache（=vacuum ⑥ 落列后的装载播种形态）
+      const A = kit.connect('project:gen1');
+      await A.synced;
+      A.ydoc.getMap('nodes').set('old-a', 'x'.repeat(50));
+      await pollUntil(() => serverDoc(g, 'gen1').getMap('nodes').has('old-a'), 3_000);
+      // 模拟 vacuum ⑥ 落库后的新代快照+preVacuumSv/generation 两列（装载播种路径真实化——
+      // 白盒直写 preVacuumSvCache 会被卸载清理〔afterUnloadDocument 清代际族〕，装载才是生产播种源）
+      const vacuumedState = Buffer.from(Y.encodeStateAsUpdate(serverDoc(g, 'gen1')));
+      const preVacuumSv = Buffer.from(Y.encodeStateVector(A.ydoc));   // 真空前 SV（含 A 的 clientID+clock）
+      kit.repo.hydrateWithRecovery.mockResolvedValue({ state: vacuumedState, updates: [] as Buffer[], stateSeq: 0n, preVacuumSv, generation: 1 });
+      await A.provider.destroy(); kit.forget(A.provider);
+      await pollUntil(() => serverDoc(g, 'gen1') === undefined, 6_000);   // 真卸载（unloadImmediately）
+      // 带同 ydoc（旧历史）重连——SyncStep1 payload=客户端 SV（T0 探针④），含 (staleClient, clock≥1) ⇒ 拦
+      let staleClose: { code: number; reason: string } | null = null;
+      const staleProvider = new HocuspocusProvider({
+        url: `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
+        name: 'project:gen1',
+        document: A.ydoc,                                        // 带 vacuum 前历史的 doc
+        WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' },
+          (ws) => ws.once('close', (code: number, reason: Buffer) => { if (!staleClose) staleClose = { code, reason: reason.toString() }; })),
+      } as any);
+      await pollUntil(() => staleClose !== null, 5_000);
+      expect(staleClose).toEqual({ code: 4410, reason: 'doc-generation-stale' });
+      await staleProvider.destroy();
+      await pollUntil(() => serverDoc(g, 'gen1') === undefined, 6_000);
+
+      // ② 新页面（全新空 doc——encodeStateVector 空 SV）⇒ 放行且全量同步
+      const B = kit.connect('project:gen1');
+      await B.synced;                                            // 无 close（放行）
+      expect(serverDoc(g, 'gen1').getMap('nodes').has('old-a')).toBe(true);   // 全量同步（新代装载含内容）
+      // ③ vacuum 后 reload 新建编辑（新 clientID 不在 preVacuumSv）⇒ 放行——reload 不循环
+      B.ydoc.getMap('nodes').set('post-vac', 'y');
+      await pollUntil(() => serverDoc(g, 'gen1').getMap('nodes').has('post-vac'), 3_000);
+      expect(serverDoc(g, 'gen1').connections.size).toBe(1);     // B 连接存活（未被代际门误杀）
+    } finally { await kit.dispose(); }
+  }, 45_000);
 });

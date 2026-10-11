@@ -530,3 +530,28 @@ export const collabDocExportFreshTotal = new Counter({
   labelNames: ['result'],
   registers: [register],
 });
+
+/** ===== Y0b-4 T9a（spec §5.2/Q-U v6）：vacuum 代际替换审计 ===== */
+
+/** doc 真空残留字节 gauge——口径=Σ docResidue Map（per-doc truth−全根真空重建编码；recheck≥2 轮时
+ *  更新）。无 projectId 标签（E54 基调：基数无界+项目 id 不进指标暴露面）；reader 注册模式=
+ *  registerPendingCollector 惯例（gateway 注册读数回调，metrics 文件不 import gateway）。 */
+let docResidueReader: (() => number) | null = null;
+export function registerDocResidueReader(fn: () => number): void { docResidueReader = fn; }
+export function unregisterDocResidueReader(): void { docResidueReader = null; }
+export const collabDocResidueBytes = new Gauge({
+  name: 'collab_doc_residue_bytes',
+  help: 'doc 真空残留字节总和（per-doc truth−全根真空重建编码——recheck≥2 轮时更新；观测非 enforcement）',
+  registers: [register],
+  collect() { try { this.set(docResidueReader?.() ?? 0); } catch { this.set(0); } },
+});
+
+/** vacuum 结果六档（Q-U v6）：ok=代际替换落地 / skip-low-residue=零连接自动路径残留不足跳过 /
+ *  equivalence-failed=等价断言中止（DB 零变更） / unsupported-root=非 Map 根不支持中止（DB 零变更）/
+ *  quiesce-timeout=卸载等待 30s 超时中止（禁降级继续）/ error=意外。 */
+export const collabDocVacuumTotal = new Counter({
+  name: 'collab_doc_vacuum_total',
+  help: 'vacuum 文档代际替换结果（result=ok 成功/skip-low-residue 自动路径残留不足跳过/equivalence-failed 等价断言中止 DB 零变更/unsupported-root 非 Map 根中止/quiesce-timeout 卸载等待超时中止/error 意外）',
+  labelNames: ['result'],
+  registers: [register],
+});

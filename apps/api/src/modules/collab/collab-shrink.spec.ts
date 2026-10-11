@@ -15,6 +15,7 @@ import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, readRecordsFromMaps } from '
 import { CollabGateway, TRUTH_COOLDOWN_MS, type QuotaConfig } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
 import { CollabShrinkService, SHRINK_QUEUE_TIMEOUT_MS } from './collab-shrink.service';
+import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabNotServingFilter } from './collab-not-serving.filter';
 import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
@@ -71,6 +72,13 @@ function makeConn(): Record<string, any> {
   };
 }
 
+/** vacuum 族连接（writeFreeze 条目按 conn.document.name 取 pid——purge/abort 按键过滤依赖） */
+function makeVacuumConn(pid: string): Record<string, any> {
+  const c = makeConn();
+  c.document = { name: `project:${pid}` };
+  return c;
+}
+
 function seedDoc(): Y.Doc {
   const doc = new Y.Doc();
   doc.getMap('meta').set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
@@ -115,7 +123,7 @@ function buildSvc(
   const prisma = opts?.prisma ?? {
     canvasProject: { findUnique: vi.fn(async () => ({ id: 'p1', name: '源画布', teamId: 't1', templates: [{ folderId: 'f1' }] })) },
   };
-  const svc = new CollabShrinkService(perm as any, docs as any, gateway, canvas, prisma);
+  const svc = new CollabShrinkService(perm as any, docs as any, gateway, canvas, prisma, createMockRepo() as any);
   return { svc, perm, docs, canvas, prisma };
 }
 
@@ -609,5 +617,440 @@ describe('POST /api/collab/doc/:projectId/export-fresh（Q-H——真实签名/�
     expect(r2).toBe(r1);                              // 复用同结果对象（同 Promise）
     expect(await read('ok')).toBe(ok0 + 1);           // 主请求 ok
     expect(await read('in-flight')).toBe(if0 + 1);    // 并发去重命中 in-flight
+  });
+
+  // T9 质量审查遗留①：latch 失败契约——失败终态必须完全清账（两并发者同错误+键已清+重试可达）
+  it('latch 失败契约：create reject → 两并发者同错误 → exportInFlight 键已清 → 重试可达（create 第二次调用成功）', async () => {
+    const gateway = buildGateway();
+    const doc = seedDoc();
+    addNode(doc, 'n1', 64);
+    let calls = 0;
+    let release!: () => void;
+    const canvas = {
+      create: vi.fn(() => {
+        calls += 1;
+        return new Promise<any>((res, rej) => {
+          if (calls === 1) { setTimeout(() => rej(new Error('boom')), 10); }   // 首次延迟失败——p2 可命中 latch
+          else release = () => res({ projectId: 'p-new', name: '源画布(瘦身副本)', teamId: 't1' });
+        });
+      }),
+    };
+    const { svc } = buildSvc(gateway, doc, { canvas });
+    const p1 = svc.exportFresh('p1', 'u1');
+    await nextTick();                          // p1 挂上 latch（perm await 后 set）
+    const p2 = svc.exportFresh('p1', 'u1');   // 在飞窗内——复用同 Promise
+    const [e1, e2] = await Promise.allSettled([p1, p2]);
+    expect(e1.status).toBe('rejected');
+    expect(e2.status).toBe('rejected');                       // 两并发者同错误（复用同 Promise）
+    expect((e1 as PromiseRejectedResult).reason.message).toBe('boom');
+    expect((svc as any).exportInFlight.size).toBe(0);         // finally 清键——失败终态完全清账
+    const retry = svc.exportFresh('p1', 'u1');
+    await nextTick();
+    release();
+    const r = await retry;
+    expect(r.result).toBe('ok');                              // 重试可达
+    expect(canvas.create).toHaveBeenCalledTimes(2);           // create 第二次调用
+  });
+});
+
+// ===== Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换 =====
+// 装置：gateway 直构（buildGateway 复用）+prisma mock（canvasDoc/canvasDocUpdate/$transaction
+// 直透回调——canvas-doc-update.repository.spec 先例）+真 Y.Doc 手动挂 documents（attachDoc 复用）。
+// 真连形态（SV 代际门三向/terminal close/WS serving 门）在 collab-quota-gate.spec。
+
+/** vacuum 专用 repo mock：④ 装载读（loadForHydration——契约 1 唯一入口）+⑥ 代际替换事务桩 */
+function buildVacuumRepo(state: Buffer | null, updates: Buffer[] = []) {
+  const vacuumReplace = vi.fn(async (_pid: string, _state: Buffer, _sv: Buffer, _n: number) => ({ generation: 1 }));
+  const repo = {
+    loadForHydration: vi.fn(async () => ({ state, updates, stateSeq: 0n })),
+    vacuumReplace,
+  };
+  return { repo, vacuumReplace };
+}
+
+/** vacuum ⑥ 事务 prisma mock（tx 直透——canvas-doc-update.repository.spec:37 先例；事务纪律
+ *  测试以真 CanvasDocUpdateRepository 包裹消费） */
+function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
+  const upsert = vi.fn(async (_args: unknown) => ({}));
+  const updateDeleteMany = vi.fn(async (_where: unknown) => ({ count: rows.length }));
+  const txExecRaw = vi.fn(async (..._q: unknown[]) => 1);
+  const tx = {
+    $executeRaw: txExecRaw,
+    canvasDocUpdate: { findMany: vi.fn(async () => rows), deleteMany: updateDeleteMany },
+    canvasDoc: { findUnique: vi.fn(async () => ({ stateSeq: 0n, generation: 0 })), upsert },
+  };
+  const prisma = {
+    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(tx)),
+  };
+  return { prisma, upsert, updateDeleteMany, txExecRaw };
+}
+
+/** vacuum 专用 service 直构（buildSvc 的 docs mock 缺 invalidateSnapshotCache——本族需要；
+ *  repo=④/⑥ 消费面〔契约 1/10：repository 单源〕） */
+function buildVacuumSvc(gateway: CollabGateway, repo: any) {
+  const perm = { assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
+  const docs = {
+    withDoc: vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(new Y.Doc())),
+    invalidateSnapshotCache: vi.fn(),
+  };
+  const svc = new CollabShrinkService(perm as any, docs as any, gateway, {} as any, {} as any, repo);
+  return { svc, perm, docs };
+}
+
+/** exec 根条目写入（writeExecStatus 形态——nodeId→Y.Map 逐键） */
+function addExecEntry(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>): void {
+  const m = new Y.Map();
+  for (const [k, v] of Object.entries(patch)) m.set(k, v);
+  doc.getMap('exec').set(nodeId, m);
+}
+
+describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/finally+SV 代际门）', () => {
+  it('红门⑦ 代际一致性：vacuum 完成→重连写入新编辑→再重载⇒全部 keys 完整+pendingStructs/pendingDs==null+meta.schemaVersion===2（stamp 保留）+exec 条目保留（写入后 exec 可读回）', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 64);
+    addNode(src, 'n2', 128);
+    addEdge(src, 'e1', 'n1', 'n2');
+    addExecEntry(src, 'node-a', { status: 'done', attempts: 1, result: 'ok-text' });
+    const state = Buffer.from(Y.encodeStateAsUpdate(src));
+    const { repo, vacuumReplace } = buildVacuumRepo(state);
+    const { svc } = buildVacuumSvc(gateway, repo);
+
+    const r = await svc.vacuum('p1', 'u1');
+    expect(r.result).toBe('ok');
+    expect(r.generation).toBe(1);                       // ⑥ generation n+1（n=0）
+    expect(vacuumReplace).toHaveBeenCalledTimes(1);
+    const vacuumed: Buffer = vacuumReplace.mock.calls[0]![1];   // 真空编码落库（⑥ 第二参）
+    expect(vacuumed.length).toBeGreaterThan(0);
+
+    // 模拟新代装载（旧代已卸载——直构无库：直接清 documents 后经 loadDocument 装载）
+    gateway.server.hocuspocus.documents.delete('project:p1');
+    (gateway as any).repo.hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [] as Buffer[], stateSeq: 5n });
+    const reloaded = new Y.Doc();
+    await (gateway as any).loadDocument({ document: reloaded, documentName: 'project:p1' });
+    expect(reloaded.store.pendingStructs).toBe(null);      // 因果链干净（真空重建——红门⑦ 核心）
+    expect(reloaded.store.pendingDs).toBe(null);
+    expect(reloaded.getMap('meta').get('schemaVersion')).toBe(CANVAS_DOC_SCHEMA_VERSION);   // stamp 保留（U-1）
+    expect([...reloaded.getMap('nodes').keys()].sort()).toEqual(['n1', 'n2']);
+    expect([...reloaded.getMap('edges').keys()]).toEqual(['e1']);
+    const execEntry = reloaded.getMap('exec').get('node-a') as Y.Map<any>;   // exec 条目保留（U-2）
+    expect(execEntry).toBeInstanceOf(Y.Map);
+    expect(execEntry.get('status')).toBe('done');
+    expect(execEntry.get('attempts')).toBe(1);
+
+    // 重连写入新编辑（新 clientID）→再重载⇒新旧 keys 全在（模拟 store 落 PG 后的装载重放）
+    reloaded.getMap('nodes').set('post-vac', new Y.Map([['type', 'videoGen']]));
+    const q = (gateway as any).pendingQueues.get('p1') as Uint8Array[];
+    expect(q.length).toBe(1);                             // update 监听收帧（装载后监听已挂）
+    const editFrame = q[0];
+    gateway.server.hocuspocus.documents.delete('project:p1');
+    reloaded.destroy();
+    (gateway as any).repo.hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [Buffer.from(editFrame)], stateSeq: 6n });
+    const again = new Y.Doc();
+    await (gateway as any).loadDocument({ document: again, documentName: 'project:p1' });
+    expect(again.store.pendingStructs).toBe(null);
+    expect([...again.getMap('nodes').keys()].sort()).toEqual(['n1', 'n2', 'post-vac']);   // 新旧编辑共存
+    expect(again.getMap('exec').get('node-a')).toBeInstanceOf(Y.Map);                     // exec 跨重载保留
+  });
+
+  it('全根复制断言：vacuum 后 doc.share 根类型集合与源完全一致（nodes/edges/meta/exec+未知 Map 根——未来新增根 map 不可能被静默丢弃）；构造 Y.Text 型根 ⇒ result=unsupported-root 拒绝且 DB 零变更', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 32);
+    src.getMap('exec');                       // exec 根（空）
+    src.getMap('extra').set('k', 'v');        // 未知 Map 根——必须随行（全根复制断言）
+    // 根集合断言口径=键名集合（yjs wire 重建后根为 AbstractType 占位——类型不随 wire 承载，
+    // constructor 不可比；类型保型由 rebuild 全 Y.Map 重建结构性保证——规约化后逐根 Y.Map）
+    const shapeOf = (d: Y.Doc) => [...d.share.keys()].sort().join('|');
+    const { repo, vacuumReplace } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+    const { svc } = buildVacuumSvc(gateway, repo);
+
+    const r = await svc.vacuum('p1', 'u1');
+    expect(r.result).toBe('ok');
+    const vacuumed: Buffer = vacuumReplace.mock.calls[0]![1];
+    const fresh = new Y.Doc();
+    Y.applyUpdate(fresh, new Uint8Array(vacuumed));
+    // 有内容的根全随行（nodes/extra/meta——src 的 exec 根为空，yjs 空根不随 wire 传播=无信息
+    // 损失，装载侧 getMap 按需重建）；vacuum 后 src 读侧建了空 edges 根（readRecords 副作用）
+    // ——fresh 解码侧无（同为空根），断言取内容根集合。
+    expect(shapeOf(fresh)).toBe('extra|meta|nodes');
+    expect(fresh.getMap('extra').get('k')).toBe('v');     // 未知 Map 根内容随行
+    expect(fresh.getMap('extra')).toBeInstanceOf(Y.Map);  // 规约化后 Map 型
+    expect(fresh.getMap('exec')).toBeInstanceOf(Y.Map);   // 空根按需重建（getMap 即 Map 视图）
+
+    // 臂二：Y.Text 型根 ⇒ unsupported-root+DB 零变更（upsert/deleteMany 零调用）
+    const gw2 = buildGateway();
+    const src2 = seedDoc();
+    addNode(src2, 'n1', 32);
+    src2.getText('weird').insert(0, 'text-root');         // 非 Map 根——vacuum 不支持（降级导出通道）
+    const m2 = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src2)));
+    const s2 = buildVacuumSvc(gw2, m2.repo);
+    const r2 = await s2.svc.vacuum('p1', 'u1');
+    expect(r2.result).toBe('unsupported-root');
+    expect(m2.vacuumReplace).not.toHaveBeenCalled();      // DB 零变更
+  });
+
+  it('等价断言扩全根：readRecords 深比+根类型集合相等+exec 键集合相等+meta.schemaVersion===2；stub rebuild 缺内容 ⇒ equivalence-failed+DB 零变更', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 64);
+    addNode(src, 'n2', 32);
+    addExecEntry(src, 'node-a', { status: 'done', attempts: 2 });
+    const { repo, vacuumReplace } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+    const { svc } = buildVacuumSvc(gateway, repo);
+
+    // 等价断言四条在成功路径的隐式验证（ok 即证 readRecords 深比+根集合+exec 键集+meta 戳全过）
+    const ok = await svc.vacuum('p1', 'u1');
+    expect(ok.result).toBe('ok');
+
+    // stub rebuildVacuumDoc 复制后丢 n1 ⇒ readRecords 不等 ⇒ equivalence-failed+DB 零变更
+    const gw2 = buildGateway();
+    const src2 = seedDoc();
+    addNode(src2, 'n1', 64);
+    addNode(src2, 'n2', 32);
+    const m2 = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src2)));
+    const s2 = buildVacuumSvc(gw2, m2.repo);
+    const orig = (gw2 as any).rebuildVacuumDoc.bind(gw2);
+    vi.spyOn(gw2 as any, 'rebuildVacuumDoc').mockImplementation((...args: any[]) => {
+      const d = orig(...args);
+      d.getMap('nodes').delete('n1');      // 把信任 fillDoc 变成验证 fillDoc——复制缺内容必须被截获
+      return d;
+    });
+    const r2 = await s2.svc.vacuum('p1', 'u1');
+    expect(r2.result).toBe('equivalence-failed');
+    expect(m2.vacuumReplace).not.toHaveBeenCalled();      // DB 零变更（中止先于 ⑥）
+  });
+
+  it('quiesce 红门+硬前置：pending 队列有未 store 编辑 ⇒ 等待（不吞）；卸载超时 30s ⇒ result=quiesce-timeout 中止（禁降级继续）', async () => {
+    // 臂一：doc 挂载+pending 队列非空 ⇒ vacuum 等待；清队列+卸载后续走
+    vi.useFakeTimers();
+    try {
+      const gateway = buildGateway();
+      const src = seedDoc();
+      addNode(src, 'n1', 32);
+      attachDoc(gateway, src, 'p1');        // documents.has=true——quiesce 不满足
+      const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+      const { svc } = buildVacuumSvc(gateway, repo);
+      let settled: string | null = null;
+      const vac = svc.vacuum('p1', 'u1').then((r) => { settled = r.result; return r; });
+      await vi.advanceTimersByTimeAsync(200);           // ⓪①②③轮询若干拍
+      expect(settled).toBe(null);                        // 等待中（不吞队列帧不降级）
+      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);   // 未 store 编辑——仍等
+      await vi.advanceTimersByTimeAsync(500);
+      expect(settled).toBe(null);
+      gateway.server.hocuspocus.documents.delete('project:p1');   // 卸载
+      (gateway as any).pendingQueues.delete('p1');                // 批已落（模拟 store 完成）
+      await vi.advanceTimersByTimeAsync(200);
+      const r = await vac;
+      expect(r.result).toBe('ok');                       // 条件齐备后续走
+      expect(settled).toBe('ok');
+
+      // 臂二：doc 恒挂载（不卸载）⇒ 30s 超时 ⇒ quiesce-timeout（禁降级继续——"PG 完整性=已卸载推论"）
+      const gw2 = buildGateway();
+      const src2 = seedDoc();
+      addNode(src2, 'n1', 32);
+      attachDoc(gw2, src2, 'p1');
+      const m2 = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src2)));
+      const s2 = buildVacuumSvc(gw2, m2.repo);
+      const vac2 = s2.svc.vacuum('p1', 'u1');
+      let done2: string | null = null;
+      vac2.then((r) => { done2 = r.result; });
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(done2).toBe(null);                          // 上界内仍在等
+      await vi.advanceTimersByTimeAsync(1_200);
+      expect(done2).toBe('quiesce-timeout');             // 30s 超时中止
+      expect(m2.vacuumReplace).not.toHaveBeenCalled();   // 禁降级继续——DB 零变更
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('中止恢复：equivalence-failed/unsupported-root/quiesce-timeout 三路中止 ⇒ vacuuming 门解除（isVacuuming false）+freeze 已恢复可写——比不 vacuum 更糟的状态不允许存在', async () => {
+    // 臂一：equivalence-failed（①已 freeze+close 连接）。attach doc 模拟在线态——vacuum ① close
+    // 后由装置卸载（真实路径=close→库 unload；直构无库——nextTick 后手动 delete 模拟卸载完成）
+    {
+      const gateway = buildGateway();
+      const src = seedDoc();
+      addNode(src, 'n1', 64);
+      const conn = makeVacuumConn('p1');
+      attachDoc(gateway, src, 'p1', [conn]);
+      const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+      const { svc } = buildVacuumSvc(gateway, repo);
+      const orig = (gateway as any).rebuildVacuumDoc.bind(gateway);
+      vi.spyOn(gateway as any, 'rebuildVacuumDoc').mockImplementation((...args: any[]) => {
+        const d = orig(...args);
+        d.getMap('nodes').delete('n1');
+        return d;
+      });
+      const vac = svc.vacuum('p1', 'u1');
+      await nextTick();                                               // ⓪①② 同步段完成（未冻结——无 thaw 等待）
+      expect(conn.readOnly).toBe(true);                               // ① freeze 已落地（close 前）
+      gateway.server.hocuspocus.documents.delete('project:p1');       // 卸载（close 的后果）
+      const r = await vac;
+      expect(r.result).toBe('equivalence-failed');
+      expect(gateway.isVacuuming('p1')).toBe(false);                   // 门解除（否则 503 永久）
+      expect(conn.readOnly).toBe(false);                               // freeze 恢复可写
+      expect((gateway as any).writeFreeze.has(conn)).toBe(false);
+    }
+    // 臂二：unsupported-root
+    {
+      const gateway = buildGateway();
+      const src = seedDoc();
+      addNode(src, 'n1', 32);
+      src.getText('weird').insert(0, 'x');
+      const conn = makeVacuumConn('p1');
+      attachDoc(gateway, src, 'p1', [conn]);
+      const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+      const { svc } = buildVacuumSvc(gateway, repo);
+      const vac = svc.vacuum('p1', 'u1');
+      await nextTick();
+      gateway.server.hocuspocus.documents.delete('project:p1');
+      const r = await vac;
+      expect(r.result).toBe('unsupported-root');
+      expect(gateway.isVacuuming('p1')).toBe(false);
+      expect(conn.readOnly).toBe(false);
+    }
+    // 臂三：quiesce-timeout（fake timers——doc 恒挂载）
+    vi.useFakeTimers();
+    try {
+      const gateway = buildGateway();
+      const src = seedDoc();
+      addNode(src, 'n1', 32);
+      const conn = makeVacuumConn('p1');
+      attachDoc(gateway, src, 'p1', [conn]);
+      const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+      const { svc } = buildVacuumSvc(gateway, repo);
+      const vac = svc.vacuum('p1', 'u1');
+      await vi.advanceTimersByTimeAsync(31_000);
+      const r = await vac;
+      expect(r.result).toBe('quiesce-timeout');
+      expect(gateway.isVacuuming('p1')).toBe(false);
+      expect(conn.readOnly).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('事务纪律：⑥ 单事务首行取 pg_advisory_xact_lock(hashtext(pid))（与 append/compact 同键）+取号基准=被删行最大 seq（非 0 非 GREATEST）+preVacuumSv/generation 同事务落列+按实读行 id deleteMany+行集漂移守卫', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 64);
+    const update = Buffer.from(Y.encodeStateAsUpdate(src));
+    const rows = [
+      { id: 'row-1', seq: 3n },
+      { id: 'row-2', seq: 5n },
+      { id: 'row-3', seq: 7n },
+    ];
+    // ⑥ 走真 CanvasDocUpdateRepository.vacuumReplace（契约 1/10——repository 单源）：prisma $transaction
+    // 直透 mock（repository.spec:37 先例）；④ 装载读 mock（state+三真实帧——CRDT 幂等重复 apply 无害）
+    const { prisma, upsert, updateDeleteMany, txExecRaw } = buildVacuumPrismaTx(rows);
+    const docRepo = new CanvasDocUpdateRepository(prisma as any);
+    const repo = {
+      loadForHydration: vi.fn(async () => ({ state: update, updates: [update, update, update], stateSeq: 0n })),
+      vacuumReplace: (pid: string, st: Buffer, sv: Buffer, n: number) => docRepo.vacuumReplace(pid, st, sv, n),
+    };
+    const { svc } = buildVacuumSvc(gateway, repo);
+
+    const r = await svc.vacuum('p1', 'u1');
+    expect(r.result).toBe('ok');
+    // 事务首行=同键咨询锁（P23/V26——与 append/compact lockProject 同键单源）
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    const firstCall = txExecRaw.mock.calls[0]!;
+    expect(String(firstCall[0])).toContain('pg_advisory_xact_lock(hashtext');
+    expect(String(firstCall[1])).toBe('p1');
+    const allSql = txExecRaw.mock.calls.map((c) => String(c[0])).join(';');
+    expect(allSql).not.toContain('GREATEST');            // insert-ratchet 红线——禁 GREATEST 包装
+    // 取号基准=被删行最大 seq（非 0——取号基准错=stateSeq 谎话）
+    const upsertArg = upsert.mock.calls[0]![0] as any;
+    expect(upsertArg.update.stateSeq).toBe(7n);
+    expect(upsertArg.update.stateSeq).not.toBe(0n);
+    expect(upsertArg.update.generation).toBe(1);         // n+1 同事务落列
+    expect(upsertArg.update.preVacuumSv).toBeInstanceOf(Buffer);   // 真空前 SV 同事务落列
+    expect(upsertArg.update.preVacuumSv.length).toBeGreaterThan(0);
+    // 按实读行 id 精确删除（compact 同式）
+    expect(updateDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['row-1', 'row-2', 'row-3'] } } });
+
+    // 行集漂移守卫：④ 读 3 行⇒锁内 4 行（④ 读后有并发 append）⇒ throw（DB 零变更——upsert 未再调）
+    const drifted = buildVacuumPrismaTx([...rows, { id: 'row-4', seq: 9n }]);
+    const docRepo2 = new CanvasDocUpdateRepository(drifted.prisma as any);
+    const g2 = buildGateway();
+    const src2 = seedDoc();
+    addNode(src2, 'n1', 32);
+    const s2 = buildVacuumSvc(g2, {
+      loadForHydration: vi.fn(async () => ({ state: Buffer.from(Y.encodeStateAsUpdate(src2)), updates: [update, update, update], stateSeq: 0n })),
+      vacuumReplace: (pid: string, st: Buffer, sv: Buffer, n: number) => docRepo2.vacuumReplace(pid, st, sv, n),
+    });
+    const caught = s2.svc.vacuum('p1', 'u1').catch((e) => e);   // 立即挂 handler（快路径 reject 窗口的 unhandled 防护）
+    await nextTick();
+    g2.server.hocuspocus.documents.delete('project:p1');
+    expect(await caught).toMatchObject({ vacuumRowsDrifted: true });   // 漂移 throw（error 档计数+REST 500——重试安全）
+    expect(drifted.upsert).not.toHaveBeenCalled();       // 锁内守卫先于 upsert——DB 零变更
+  });
+
+  it('共享状态普查：vacuum 完成后所有按 pid 键控 Map/Set〔docTruth/docDelta/docStatusRev/docGeneration/quotaFrozenDocs/freezePending/overPush/truthMeasuredAt/recheckRounds/thawCooldown/lastCompactAt 族/degradedDocs/docResidue/preVacuumSv〕均无该键+SnapshotDocCache 失效（防旧代记账污染新代）', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 64);
+    const conn = makeVacuumConn('p1');
+    attachDoc(gateway, src, 'p1', [conn]);
+    const g = gateway as any;
+    // 预播种全部按 pid 键控状态（模拟长期运行后的记账面）
+    g.docTruth.set('p1', 1234);
+    g.docDelta.set('p1', 56);
+    g.truthMeasuredAt.set('p1', Date.now());
+    g.degradedDocs.add('p1');
+    g.quotaFrozenDocs.add('p1');
+    g.freezePending.add('p1');
+    g.recheckRounds.set('p1', 9);
+    g.thawCooldown.set('p1', Date.now());
+    g.docStatusRev.set('p1', 7);
+    g.docStatusState.set('p1', 'over:true');
+    g.docGeneration.set('p1', 3);
+    g.docResidue.set('p1', 999);
+    g.preVacuumSvCache.set('p1', new Map([[1, 1]]));
+    g.lastCompactAt.set('p1', Date.now());
+    g.overPush.set(conn.socketId, { count: 5, bytes: 100, firstAt: 1, lastAt: 2 });
+    const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+    const { svc, docs } = buildVacuumSvc(gateway, repo);
+
+    const vac = svc.vacuum('p1', 'u1');
+    await nextTick();                                            // ⓪（thaw——settled 零等待）①② 完成
+    gateway.server.hocuspocus.documents.delete('project:p1');    // ① close 的卸载后果（直构模拟）
+    const r = await vac;
+    expect(r.result).toBe('ok');
+    // 普查表：所有按 pid 键控 Map/Set 均无该键
+    for (const [name, box] of Object.entries({
+      docTruth: g.docTruth, docDelta: g.docDelta, truthMeasuredAt: g.truthMeasuredAt,
+      degradedDocs: g.degradedDocs, quotaFrozenDocs: g.quotaFrozenDocs, freezePending: g.freezePending,
+      recheckRounds: g.recheckRounds, thawCooldown: g.thawCooldown, docStatusRev: g.docStatusRev,
+      docStatusState: g.docStatusState, docGeneration: g.docGeneration, docResidue: g.docResidue,
+      preVacuumSvCache: g.preVacuumSvCache, lastCompactAt: g.lastCompactAt, vacuumingDocs: g.vacuumingDocs,
+    }) as Array<[string, Map<string, unknown> | Set<string>]>) {
+      expect(box.has('p1'), `${name} 应无该键`).toBe(false);
+    }
+    expect(g.overPush.has(conn.socketId)).toBe(false);   // writeFreeze 条目 pid 过滤连带清
+    expect(g.writeFreeze.has(conn)).toBe(false);
+    expect(docs.invalidateSnapshotCache).toHaveBeenCalledWith('p1');   // SnapshotDocCache 该 pid 条目（TTL 30s 否则供旧代投影）
+  });
+
+  it('REST 出口与权限门：perm 先行（VIEWER 403）+成功响应 {result,generation,bytes}+collab_doc_vacuum_total{result=ok} 计数', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 64);
+    const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+    const { svc, perm } = buildVacuumSvc(gateway, repo);
+
+    perm.assertEditorWithTeam.mockRejectedValueOnce(new ForbiddenException('无项目编辑权限'));
+    await expect(svc.vacuum('p1', 'u-viewer')).rejects.toThrow(ForbiddenException);   // 权限恒先于 vacuum 协议
+
+    let res: any;
+    const okDelta = await counterDelta('collab_doc_vacuum_total', { result: 'ok' }, async () => {
+      res = await svc.vacuum('p1', 'u1');
+    });
+    expect(okDelta).toBe(1);                              // 结果审计计数
+    expect(res.result).toBe('ok');
+    expect(res.generation).toBe(1);
+    expect(typeof res.bytes).toBe('number');              // 真空编码字节（新代尺寸）
+    expect(res.bytes).toBeGreaterThan(0);
   });
 });
