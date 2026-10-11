@@ -76,7 +76,7 @@
 | 15 | 升回分支停写守卫+角色超集（T3 评审 I-2） | recheckConnection 升回（readOnly→false）覆盖全部可写角色（非 viewer 非 null）；追加停写状态守卫——draining/spool-unwritable 期 readOnly 连接复验即使 role 可写也不解冻（readOnly 三写者共享——SV9/B12 部署停写契约）；降级方向不加守卫（降级永远安全） |
 | 16 | ready 公开档四键→五键（T5 评审 P-C） | 显式解构重组追加 `collabProtocolVersion`——客户端版本终态（schema-outdated）单次探测 /api/ready 拿服务端版本作 reload loop 键；holder/pending/host+pid 内部信息仍不出公网面 |
 | 17 | T7 幽灵 clientId 发现与处置（实施期——T10 发现+2c12c523 修复） | 库 scratch Awareness 构造器播种使每帧混幽灵空态条目——guard「首见∧空态∧doc 无」剔除；**真身空态续期帧同判据被剔=空闲客户端 30-45s 重连循环**——客户端 replayLocalUser 播种 `{presence:true}` 非空态锚+ghost 剔除计数；P-T 前提精化=本地态须**非空对象**（续期腿非 null 即可/回显腿须非空——两腿前提分开表述） |
-| 18 | ghost 指标判读口径（实施期） | 正常基线=每入站 awareness 帧恒剔 1 条 scratch 幽灵（≈帧率 ~4/min/连接）；播种退化=×2/帧且伴 4408 上涨；部署窗口旧 bundle 短暂 ×2 后回落（版本门兜住→reload 自愈）——巡检行已落部署清单与 store.metrics 头注 |
+| 18 | ghost 指标判读口径（实施期） | 正常基线=每入站 awareness 帧恒剔 1 条 scratch 幽灵（≈帧率 ~4/min/连接）；播种退化=×2/帧且伴 4408 上涨；部署窗口旧 bundle 短暂 ×2 后**随旧标签手动刷新/关闭回落**（旧 bundle 无 reload 自愈逻辑——循环直至用户刷新，消耗 per-IP 升级桶）——巡检行已落部署清单与 store.metrics 头注 |
 | 19 | T8 rewriteAwarenessRole 广播形态（实施期） | plan 原案 applyAwarenessUpdate 重入被 y-protocols 时钟门否决（`currClock<clock` 无非 null 相等分支=改写被对端全丢弃）——改为先递增 meta.clock 再改 states 再 `aw.emit('update')` 直连广播链 |
 | 20 | project-member 变更点 emit 补齐（45f47d7e——§3.1 字面项，plan 清单窄化漏项） | project-member.service add/remove 两点 emit（changeRole 委托 add 覆盖）；approve 不 emit（加成员对存量连接零影响=无消费面） |
 | 21 | T9 实施细节（实施期） | 503 提示载体=antd message toast（headless 层仓内 30+ 先例）非横幅；Retry-After 等待上限 10s 自定常量（防小时级吊死）；ready 探测超时 5s（AbortSignal.timeout——网络挂起防自愈死锁） |
