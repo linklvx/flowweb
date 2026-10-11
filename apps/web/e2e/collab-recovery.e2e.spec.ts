@@ -19,6 +19,7 @@ import {
   enqueueExecution,
   expectNodeLoading,
   expectNodeNotLoading,
+  latestIntentStatus,
 } from './collab-helpers';
 
 const STATE_A = 'e2e/.auth/collab-a.json';
@@ -137,7 +138,7 @@ test('S3 AI 执行态对齐：loading 双端可见→完成收敛；外呼中断
   await expect(pageA.getByTestId('canvas-node-image-model-select')).toBeVisible({ timeout: 10_000 });
   // settle：面板可见 ≠ model 已落 doc（fetchModels→applyNodeDataPatch 异步）——enqueue 早于补丁
   // 会让服务端 validation 静默拒（"模型不存在"，无 loading 窗口——探针对比实证）
-  await pageA.waitForTimeout(1_000);
+  await pageA.waitForTimeout(3_000); // settle：model 补丁落 doc（1s 在高负载下不足——validation 静默拒竞态，job 102-110 VOIDED/intent=null 实证 2026-10-11）
 
   // 3a 完成路径：enqueue（真实链路 enqueue→BullMQ→execute→exec map/doc）→ B 见 loading → 收敛
   const jobId = await enqueueExecution(pageA, PROJECT, nodeId);
@@ -164,7 +165,7 @@ test('S3 AI 执行态对齐：loading 双端可见→完成收敛；外呼中断
   const nodeId2 = await waitForNewNode(pageA, known2);
   await pageA.locator(`.react-flow__node[data-id="${nodeId2}"]`).click();
   await expect(pageA.getByTestId('canvas-node-image-model-select')).toBeVisible({ timeout: 10_000 });
-  await pageA.waitForTimeout(1_000); // settle：model 补丁落 doc（同 3a）
+  await pageA.waitForTimeout(3_000); // settle：model 补丁落 doc（同 3a——3s）
   await enqueueExecution(pageA, PROJECT, nodeId2);
   await expectNodeLoading(pageB, nodeId2);
   await pageA.waitForTimeout(300); // 稳定进入外呼在飞窗口（fake 延迟 1.5~2s）
@@ -326,13 +327,15 @@ test('S9 恢复风暴：10 并发连接杀 API→重启→全部恢复 connected
 });
 
 // ── 场景 4：会话过期 → sweep 4401 → 重登回原画布（置于最末：作废 a 的 storageState——
-//    成功路径重登后自愈回写；失败时不再级联后续用例）───────────────────────────
+//    成功/失败路径均 finally 兜底重登回写；失败时不再级联后续文件〔geometry/perf 同 storageState〕）───
 test('S4 会话过期→sweep 踢线→reload 引导登录→重登回原画布重连', async ({ browser }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   const ctxA = await browser.newContext({ storageState: STATE_A });
   const pageA = await ctxA.newPage();
   const canvasUrl = `/canvas?projectId=${PROJECT}`;
+  let reconnected = false;
 
+  try {
   // 死线必须**连接前**置：sweep 快照（context.sessionExpiresAt）在 authenticate 时定格——
   // 连接后再改 DB 不影响快照（真协议诊断实证：连后续置永不触发；连前置 now+10s ⇒ 鉴权时仍有效
   // 可入 doc、快照死线 10s 后自然越界 ⇒ tick+复验+grace 内 close(4401)）。连接需在 10s 内完成
@@ -340,8 +343,10 @@ test('S4 会话过期→sweep 踢线→reload 引导登录→重登回原画布�
   dbTool('set-session-expiring', COLLAB_GATE.aEmail);
   await openCanvasConnected(pageA, PROJECT);
 
-  // sweep：死线 10s 到达 + ≤60s tick + 复验 + 5s grace → close(4401)；重连 DENY 不再回已连接
-  await waitForDisconnected(pageA, 150_000);
+  // sweep：死线 10s 到达 + tick（T8 节奏 5min+jitter±20%——上界 6min）+ 复验 + 5s grace
+  // → close(4401 'session-expired')；客户端 T9 静默续期一次（session 已过期→UNAUTHENTICATED 终态停连）
+  // ——终态断连后不再回已连接。等待窗 370s=死线 10s+上界 6min tick+grace 余量（旧 150s 基于 60s tick——Y0b-3 适配）
+  await waitForDisconnected(pageA, 370_000);
 
   // reload → RequireAuth me 401/null → /login?next=<原画布>（批2-3 redirect 矩阵）
   await pageA.goto(canvasUrl);
@@ -356,8 +361,17 @@ test('S4 会话过期→sweep 踢线→reload 引导登录→重登回原画布�
   await pageA.goto(canvasUrl);
   await expect(pageA).toHaveURL(new RegExp(`/canvas\\?projectId=${PROJECT}`), { timeout: 20_000 });
   await expectConnected(pageA); // 重登回原画布重连
-
+  reconnected = true;
+  } finally {
+  // 兜底+成功统一：确保 STATE_A 指向有效 session 再收尾——S4 把 a 的 session 置过期，
+  // geometry/perf（后续文件）消费同一 storageState：失败残留=跨文件级联全灭（gate 实证 2026-10-11
+  // ——12 failed 中 10 个 geometry+1 个 perf 均为 S4 失败后过期 session 残留的登录页重定向）。
+  // 成功路径此刻已重登（reconnected——回写即可）；失败路径补一次重登（loginViaAuthModal 自带 goto /login）。
+  if (!reconnected) {
+    await loginViaAuthModal(pageA, COLLAB_GATE.aEmail, 'collab12345678').catch(() => {});
+  }
   // 自愈 fixture：重登产生的新 session 回写 storageState（后续 gate 复跑继续可用）
-  await ctxA.storageState({ path: STATE_A });
+  await ctxA.storageState({ path: STATE_A }).catch(() => {});
   await ctxA.close();
+  }
 });

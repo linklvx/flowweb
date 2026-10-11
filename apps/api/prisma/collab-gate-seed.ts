@@ -5,8 +5,11 @@ import 'dotenv/config';
 import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
 import { auth } from '../src/auth/auth';
+import { CreditLedgerService } from '../src/modules/team/credit-ledger.service';
+import { availableCredits } from '../src/modules/team/team.util';
 
 const prisma = new PrismaClient();
+const ledger = new CreditLedgerService(prisma as any);
 
 export const COLLAB_GATE = {
   aEmail: 'collab-a@flowweb.local',
@@ -43,6 +46,25 @@ async function main() {
   // 渲染并存行 id（Z36②a）+resolver 归一化精确匹配。旧"词表 1K/2K/4K 兜底规则"段已删（其兜底的
   // 产品缺陷——面板补写词表串后定价永不命中——已被 Y0b-1 根修；2026-10-09 部署实测该段持续写
   // 悬空键脏行污染 funds-four-way ①的 findFirst 反推夹具）。
+
+  // S3 余额补给（2026-10-11 根因修复）：S3 图片执行真扣费，多轮 gate 累积耗尽注册赠送（100 积分
+  // version=77 归零实证）⇒ validateAll「余额不足」拒 ⇒ execute 快速 return（无 loading/无 intent 行）
+  // ⇒ S3 确定性死。幂等补给=余额不足 200 时经台账补足差额（流水追加非裸 update——不变量①），
+  // 余额充足时零操作（seed 重跑零增量残留契约保持）。
+  const bal = await prisma.teamBalance.findUnique({ where: { teamId: teamA.id } });
+  const available = availableCredits(bal ?? { credits: 0, subscriptionCredits: 0 });
+  if (available < 200) {
+    const topUp = 200 - available;
+    await ledger.runInTx(async (tx) => {
+      await ledger.ensureBalance(tx, teamA.id);
+      await ledger.mutate(tx, {
+        teamId: teamA.id, operatorUserId: userA.id, type: 'register_grant',
+        creditType: 'regular', balanceDelta: topUp, frozenDelta: 0,
+        referenceId: `collab-gate-topup:${Date.now()}`,
+      });
+    });
+    console.log(`Collab gate 余额补给 +${topUp}（available ${available}→200）`);
+  }
 
   // 共享画布：空 doc 快照（与 gate-seed.ts 同款自愈——快照重写 + 增量行清残）
   await prisma.canvasProject.upsert({
