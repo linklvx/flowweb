@@ -58,10 +58,14 @@ afterEach(async () => {
 /** 装置形态（Step 0 探针后定）：solo 连接+静置。cursor 播种=P-T 前提的 runtime 镜像（发现 1——
  *  本地态非空对象）；captureEpoch=socket 构造计数（重连检测——provider 无 sessionEpoch 字段，装置层
  *  ws 构造计数为 plan 授权替代：重连路径必经 createWebSocketConnection `new WebSocketPolyfill(url)`）；
- *  serverLastMessageAt=服务端 doc.awareness.meta.lastUpdated（发现 3——ClientConnection 字段不可达）。 */
+ *  serverLastMessageAt=服务端 doc.awareness.meta.lastUpdated（发现 3——ClientConnection 字段不可达）。
+ *  Y0b-4 T6 追加 VIEWER 臂：readOnly 剔字段（cursor/selection 剥离+条目不删）下回显保活链不破——
+ *  同一次 90s 等待内观测（plan T6"回归锚并入同一次等待——追加断言非新 describe"）。 */
 async function connectIdle(docName: string): Promise<{
   captureEpoch: () => number;
   serverLastMessageAt: (name: string) => number;
+  viewerEpoch: () => number;
+  viewerServerState: () => Record<string, any>;
 }> {
   kit = await startDualClientServer({}, 300);
   let sockets = 0;
@@ -69,6 +73,14 @@ async function connectIdle(docName: string): Promise<{
   await synced;
   provider.setAwarenessField('cursor', { x: 0, y: 0 });   // 非空本地态（空态=回显断链面——头注发现 1）
   const clientId = (provider.awareness as any).clientID as number;
+  // Y0b-4 T6：VIEWER 单连臂（独立 doc——solo 语义），cursor 播种同款（剔字段治理的保活回归锚）
+  kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });
+  let viewerSockets = 0;
+  const viewer = kit.connect('project:idle-viewer', 'tok', { onSocket: () => { viewerSockets += 1; } });
+  await viewer.synced;
+  kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
+  viewer.provider.setAwarenessField('cursor', { x: 1, y: 1 });   // readOnly 连接的 cursor 帧=剥离对象（guardAwareness 顶部剔字段）
+  const viewerClientId = (viewer.provider.awareness as any).clientID as number;
   return {
     captureEpoch: () => sockets,
     serverLastMessageAt: (name: string): number => {
@@ -77,17 +89,28 @@ async function connectIdle(docName: string): Promise<{
       if (!meta) throw new Error(`server doc awareness 未登记 ${clientId}——客户端帧从未过 guard`);
       return meta.lastUpdated;
     },
+    viewerEpoch: () => viewerSockets,
+    viewerServerState: (): Record<string, any> => {
+      const doc = kit.gateway.server.hocuspocus.documents.get('project:idle-viewer') as any;
+      return doc.awareness.states.get(viewerClientId) ?? null;
+    },
   };
 }
 
 describe('Y0b-3 T10 空闲保活证伪性锚（P-T 四环+第五环行为级证据——头注=防回潮机制依据）', () => {
-  it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——无 4408 close/无重连（socket 构造计数不变）/doc 常驻（无新物化）+服务端 awareness 帧时刻 15s 尺度被刷新（awareness 自续期双向帧——P-T 四环的行为级证据）', async () => {
+  it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——无 4408 close/无重连（socket 构造计数不变）/doc 常驻（无新物化）+服务端 awareness 帧时刻 15s 尺度被刷新（awareness 自续期双向帧——P-T 四环的行为级证据）；Y0b-4 T6 VIEWER 臂：readOnly 剔字段后 90s 无 4408+服务端 user/presence 仍在（剥离回显保活链不破）', async () => {
     // 前台/可见标签语义下断言（后台标签 pageHide 清场触发一次重连=正常预期——头注第 1 条禁令背景）
-    const { captureEpoch, serverLastMessageAt } = await connectIdle('project:idle');
+    const { captureEpoch, serverLastMessageAt, viewerEpoch, viewerServerState } = await connectIdle('project:idle');
     const epoch0 = captureEpoch();
+    const viewerEpoch0 = viewerEpoch();
     await sleep(90_000); // 真实等待（真连装置——禁 fake timers）；90s 覆盖 spec §5.2 死亡区间 30-60s 全谱
     expect(captureEpoch()).toBe(epoch0);                       // 未重连（无 4408/无新 socket——重连即构造计数+1）
     expect(serverLastMessageAt('project:idle')).toBeGreaterThan(Date.now() - 20_000); // ≤20s 内服务端应用过入站 awareness 帧（~15s 续期节律）
     expect(kit.gateway.server.hocuspocus.documents.has('project:idle')).toBe(true);   // 常驻无重装载
+    // Y0b-4 T6：VIEWER 单连 90s 无 4408（socket 构造计数不变=重连检测——剥字段若误删条目则回显断链→30-45s 判死重连，T10 探针同款形态）
+    expect(viewerEpoch()).toBe(viewerEpoch0);
+    const vState = viewerServerState();
+    expect(vState?.user?.id).toBe('u1');                       // 剥离后 user/presence 仍在（身份注入面不受剔字段影响）
+    expect(vState && 'cursor' in vState).toBe(false);          // cursor 已剥离（readOnly 帧——服务端零 cursor 广播）
   }, 120_000); // 显式 timeout 必须——vitest 默认 5s 必挂（90s 真实等待是设计要求，45s 压缩已被 v3.1 驳回）
 });

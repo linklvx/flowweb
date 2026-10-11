@@ -117,7 +117,10 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     sendAwareness(a, 111, { user: { id: 'fake-admin', name: 'x', role: 'owner' } });
     await pollUntil(() => (b.awareness!.getStates().get(111) as any)?.user?.id === 'u1');
     sendAwareness(a, 111, { cursor: { x: 1 } });   // 不带 user 的局部帧
-    await pollUntil(() => (b.awareness!.getStates().get(111) as any)?.cursor?.x === 1);   // 帧确已应用（防丢弃路径假绿）
+    // 帧确已应用（防丢弃路径假绿）：Y0b-4 T6 起 VIEWER cursor 被剔字段（Q-L——条目不删仍广播），
+    // 应用证据改对端 meta.clock 前进（剥离帧含原 clock 恒广播）
+    await pollUntil(() => ((b.awareness as any).meta.get(111)?.clock ?? 0) >= 2);
+    expect((b.awareness!.getStates().get(111) as any).cursor).toBeUndefined();   // T6：VIEWER cursor 零广播
     expect((b.awareness!.getStates().get(111) as any).user).toEqual(serverUserOf('tokA'));   // user 恒为服务端值
   });
 
@@ -227,8 +230,9 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     await pollUntil(() => !(kit.gateway as any).clientIdOwner.has(111));   // 只清自己登记的
     expect((kit.gateway as any).clientIdOwner.get(222)).toBe(sock2);   // 标签2 所有权不动
     expect((kit.gateway as any).socketIdentity.has(sock1)).toBe(false);
-    sendAwareness(a2, 222, { cursor: { x: 9 } });   // 对端光标仍流动
-    await pollUntil(() => (b.awareness!.getStates().get(222) as any)?.cursor?.x === 9);
+    sendAwareness(a2, 222, { cursor: { x: 9 } });   // 对端 awareness 仍流动（Y0b-4 T6：VIEWER cursor 被剔字段——锚改 meta.clock 前进）
+    await pollUntil(() => ((b.awareness as any).meta.get(222)?.clock ?? 0) >= 2);
+    expect((b.awareness!.getStates().get(222) as any).cursor).toBeUndefined();   // T6：VIEWER cursor 零广播
     expect((b.awareness!.getStates().get(222) as any).user).toEqual(serverUserOf('tokA'));
   });
 });

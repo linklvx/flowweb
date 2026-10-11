@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server, OutgoingMessage } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeHandleMessagePayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { createHash } from 'node:crypto';
@@ -12,8 +12,9 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes } from './store.metrics';
 import { TokenBucket } from './token-bucket';
+import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_STATUS_REV_SEED, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
@@ -79,6 +80,11 @@ const OVER_PUSH_COUNT = 20;
 const THAW_COOLDOWN_MS = 30_000;
 /** Y0b-4 T4（Q-C v3）：冻结 doc 重测间隔（frozenRecheckTimer——冻结态唯一出口，禁挂 sweep 逃生阀）。 */
 const FROZEN_RECHECK_INTERVAL_MS = 30_000;
+
+/** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
+ *  30/s×16MB=480MB/s 解码路径封死，报告1 P1-1）。两个实体两个名：本常量=帧字节闸；
+ *  AWARENESS_STATES_LIMIT_BYTES=4KB 解码后 states 字节判归 T12（勿混）。 */
+export const AWARENESS_FRAME_LIMIT_BYTES = 64 * 1024;
 
 /** 批3-4 persist-status 退避梯（doc 级活 doc 队列再 flush+detached spool 帧通道两阶段）。
  *  Y0a-2（spec v2.4 §2.3）：退避**无上限**——spool 已保底（BOI），梯子只加速恢复，永不"耗尽"弃守；
@@ -147,6 +153,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly sessionSvc: SessionService;
   /** Y0b-3 T2（P-R）：WS 升级限流桶（per-IP——DoS 兜底非配额；60/min 补充+burst 20；重启清零） */
   private readonly upgradeBucket: TokenBucket;
+  /** Y0b-4 T6（Q-E v5）：速率闸三桶（per-conn 键=socketId；onDisconnect delete——重连重置=断连循环
+   *  刷桶的 DoS 兜底语义）。容量语义见构造点注释；census ⑥ TokenBucket 定义点恰四处：upgrade/msg/bytes/aware。 */
+  private readonly msgBuckets: TokenBucket;
+  private readonly bytesBuckets: TokenBucket;
+  /** aware 桶=共享实例+键前缀 aware:${sid}（与 msg 桶分账——awareness 帧双计：msg 桶计帧数、aware 桶独立限速 30/s） */
+  private readonly awareBuckets: TokenBucket;
   /** Y0b-4 T2：配额四值（构造期一次读入 env 默认+注入覆盖——运行期不再读 env，Q-P 禁模块级
    *  测试钩子）；消费=T3/T4/T6/T8/T9a 的 this.quota。 */
   private readonly quota: QuotaConfig;
@@ -273,6 +285,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     onStoreDocument: (p: onStoreDocumentPayload) => Promise<boolean>;
     afterStoreDocument: (p: afterStoreDocumentPayload) => Promise<void>;
     beforeHandleAwareness: (p: beforeHandleAwarenessPayload) => Promise<any>;
+    beforeHandleMessage: (p: beforeHandleMessagePayload) => Promise<void>;
     beforeSync: (p: beforeSyncPayload) => Promise<void>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
     beforeUnloadDocument: (p: beforeUnloadDocumentPayload) => Promise<void>;
@@ -314,6 +327,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       bytesRate: parsePositiveInt(process.env.COLLAB_BYTES_RATE_PER_CONN, 2_097_152),
       ...quota,   // 注入覆盖 env 默认
     };
+    // Y0b-4 T6（Q-E v5）速率闸三桶：msg=400 帧容量（瞬时突发吸收）+msgRate/s 补充；
+    // bytes=capacity:maxDocBytes——"桶容量≥最大合法帧"不变量（consume Math.min(capacity) 封顶 ⇒
+    // cost>capacity 恒 false；报告1 P0-2：1MB 容量下 >1MB 合法离线合并帧结构性永拒形态防复发），
+    // 首帧突发由容量吸收+稳态 bytesRate/s 节流；handshakeCredit 不存在（v5 整删——功能被容量吸收）；
+    // aware=共享实例+键前缀（capacity 60+30/s——>30 帧/s 独立限速）。
+    this.msgBuckets = new TokenBucket({ capacity: 400, refillPerMin: this.quota.msgRate * 60 });
+    this.bytesBuckets = new TokenBucket({ capacity: this.quota.maxDocBytes, refillPerMin: this.quota.bytesRate * 60 });
+    this.awareBuckets = new TokenBucket({ capacity: 60, refillPerMin: 1_800 });
     this.hooks = {
       // Y0b-4 T4（v6 报告3 P1-1）：auth 期 viewer/spool/quota 置 connectionConfig.readOnly 时 Connection
       // 未创建（库在 onAuthenticate 返回后 new——esm:1054）——connected 补登记进 writeFreeze 单源
@@ -336,8 +357,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onLoadDocument: (p) => this.loadDocument(p),
       onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
       afterStoreDocument: (p) => this.afterStoreDocument(p),
-      beforeHandleAwareness: (p) => { this.guardAwareness(p); return Promise.resolve(); },   // Y0b-3 T7：states 三分支覆写（同步体——async 仅为满足库 hook 签名）
-      beforeSync: (p) => this.guardSyncFrame(p),   // Y0b-4 T4：配额判据唯一落点（分层：帧闸→readOnly→over 短路→快路径→账面实测）
+      beforeHandleAwareness: (p) => { this.guardAwarenessRate(p); this.guardAwareness(p); return Promise.resolve(); },   // Y0b-3 T7 states 三分支+Y0b-4 T6 独立限速（限速先行——guardAwareness 自吞异常，限速 throw 必须在外层）
+      beforeHandleMessage: (p) => this.guardMessageFrame(p),   // Y0b-4 T6：awareness 帧闸（判型单源 readFrameType）+msg 桶计数（H-3——入站免重复解析）
+      beforeSync: (p) => this.guardSyncFrame(p),   // Y0b-4 T4：配额判据唯一落点（分层：帧闸→bytes 桶→readOnly→over 短路→快路径→账面实测）
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
       afterUnloadDocument: (p) => this.afterUnloadDocument(p),   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）
@@ -368,6 +390,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onStoreDocument: this.hooks.onStoreDocument,
       afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
       beforeHandleAwareness: this.hooks.beforeHandleAwareness,   // Y0b-3 T7：awareness states 三分支覆写钩子接线（scratch Map 改写=重编码广播——esm:197-207）
+      beforeHandleMessage: this.hooks.beforeHandleMessage,   // Y0b-4 T6：msg 桶+awareness 帧闸钩子接线（ClientConnection.processMessages 每帧必经）
       beforeSync: this.hooks.beforeSync,   // Y0b-4 T4：beforeSync 配额判据钩子接线（type=y-protocols 内层常量 0/1/2——非库 MessageType）
       onDisconnect: this.hooks.onDisconnect,
       beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
@@ -1324,8 +1347,30 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.truthMeasuredAt.set(projectId, Date.now());
   }
 
+  /** ===== Y0b-4 T6（Q-E v5/Q-K）：beforeHandleMessage——msg 桶计数+awareness 入站帧闸 =====
+   *  H-3 三分落点之一：每帧必经（ClientConnection.processMessages——esm:457 每帧 await 本钩子后
+   *  才进 MessageReceiver 解码）。帧闸判型=readFrameType 单源（库 IncomingMessage 解析——禁字节
+   *  猜型，census ③；异常一律 null=放行，边界安全）；>64KB awareness 帧 1009 解码前拦（报告1 P1-1：
+   *  30/s×16MB=480MB/s 解码路径封死）。msg 桶 cost=1 显式（census ⑨——帧数桶非字节桶）；
+   *  超限 close 1008（backoff 档瞬态——重连自愈，与帧闸 1009 terminal 分档）。
+   *  throw 兜底语义同 T4：code 权威投递=hardClose.webSocket.close 先行，throw 清空同批后续帧。 */
+  private async guardMessageFrame({ update, socketId, connection }: beforeHandleMessagePayload): Promise<void> {
+    const conn = connection as unknown as CollabConnection;
+    if (readFrameType(update) === MessageType.Awareness && update.length > AWARENESS_FRAME_LIMIT_BYTES) {
+      collabQuotaFrameRejectedTotal.inc({ reason: 'frame-too-large' });
+      this.hardClose(conn, CollabCloseCode.LIB_MESSAGE_TOO_BIG, 'frame-too-large');
+      throw Object.assign(new Error('awareness frame too large'), { code: CollabCloseCode.LIB_MESSAGE_TOO_BIG, reason: 'frame-too-large' });
+    }
+    if (!this.msgBuckets.consume(socketId, 1)) {
+      collabMsgRateExceededTotal.inc();
+      this.hardClose(conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'msg-rate-exceeded');
+      throw Object.assign(new Error('msg rate exceeded'), { code: CollabCloseCode.RATE_LIMITED_CLOSE, reason: 'msg-rate-exceeded' });
+    }
+  }
+
   /** ===== Y0b-4 T4（Q-B v3/Q-C/Q-D/Q-E/Q-S）：beforeSync 分层判据——配额执法唯一落点 =====
-   *  分层序（钉死）：⓪帧闸（1009 terminal，先于 readOnly 早退——VIEWER 巨帧也过闸）→①readOnly
+   *  分层序（钉死）：⓪帧闸（1009 terminal，先于 readOnly 早退——VIEWER 巨帧也过闸）→⓪′bytes 速率桶
+   *  （T6 1008——独立于权限态）→①readOnly
    *  早退（计数+per-conn 持续强推升级判定）→②over 短路（冻结面零编码）→③快路径 O(1)（hook 只读
    *  delta 不回写——update 监听唯一写者，消双计）→④账面触阈（冷却窗内上界决策/窗外实测）。
    *  type=y-protocols 内层常量（0=SyncStep1/1=SyncStep2/2=Update——T0 探针①；非库 MessageType）。
@@ -1345,6 +1390,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       throw Object.assign(new Error('frame too large'), { code: CollabCloseCode.LIB_MESSAGE_TOO_BIG, reason: 'frame-too-large' });
     }
     yjsInboundFrameBytes.observe(bytes);
+    // ⓪′ bytes 速率桶（Y0b-4 T6，H-3 三分落点：bytes=beforeSync——type 现成免重复解析；帧闸后
+    // readOnly 早退前——速率闸独立于权限态：冻结期强推仍被速率闸限〔与 Q-D overPush 并行执法〕）。
+    // SyncStep2 与 Update 同桶同键 sid；容量=maxDocBytes（构造注释不变量）——离线合并回灌合法帧
+    // 首扣由容量吸收（红门⑧）。超限 close 1008（backoff 档）。
+    if (!this.bytesBuckets.consume(conn.socketId ?? '', bytes)) {
+      collabBytesRateExceededTotal.inc();
+      this.hardClose(conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'bytes-rate-exceeded');
+      throw Object.assign(new Error('bytes rate exceeded'), { code: CollabCloseCode.RATE_LIMITED_CLOSE, reason: 'bytes-rate-exceeded' });
+    }
     // ① readOnly 早退（计数在①不在②——冻结落地后帧进此；延后窗内〔setImmediate 前〕readOnly 未置帧照常 apply 不计数）
     if (conn?.readOnly) {
       const reasons = this.freezeReasons(conn);
@@ -1799,6 +1853,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // 台账只含冻结连接=O(冻结面)；overPush O(1)——sid 键直删）
     for (const [c] of this.writeFreeze) if (c.socketId === socketId) this.writeFreeze.delete(c);
     this.overPush.delete(socketId);
+    // Y0b-4 T6：速率闸三桶键控清理（socketId 键+aware: 前缀键——重连重置=断连循环刷桶的 DoS 兜底；
+    // T6 同点纪律：首行清理段，多标签 clientsCount>0 断连同样清）
+    this.msgBuckets.delete(socketId);
+    this.bytesBuckets.delete(socketId);
+    this.awareBuckets.delete(`aware:${socketId}`);
     if (clientsCount > 0) return;
     const projectId = parseProjectId(documentName);
     const wrote = await this.storeDocumentSerialized({ document, documentName });
@@ -2238,6 +2297,22 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private guardAwareness({ states, socketId, context, connection, document }: beforeHandleAwarenessPayload): void {
     try {
       if (!connection || !context || !socketId) return;   // P0-1：非连接来源放行（空串含）
+      // Y0b-4 T6（Q-L 三档之首）：readOnly 剔字段——浅拷贝剔 cursor/selection（条目永不删：回显=保活
+      // 链前提，剥空态会撞 T10 真身误杀形态）。保持原 meta.clock（禁递增——T0 探针⑤：等时钟回显不
+      // 覆盖发送者本地 cursor，客户端本地态零扰动）。库从 scratch states 重编码广播——对端收
+      // user/presence 无 cursor（undefined JSON 序列化丢键）。只计数含 cursor/selection 的帧（无字段
+      // 的纯 presence 帧不刷 stripped 计数）。onDisconnect 兜底清场归库（removeAwarenessStates）。
+      if ((connection as unknown as { readOnly?: boolean }).readOnly) {
+        let stripped = false;
+        for (const [cid, state] of [...states]) {
+          const s = state as Record<string, any> | null;
+          if (s && (s.cursor !== undefined || s.selection !== undefined)) {
+            states.set(cid, { ...s, cursor: undefined, selection: undefined });
+            stripped = true;
+          }
+        }
+        if (stripped) collabAwarenessStrippedTotal.inc({ reason: 'read-only' });
+      }
       const identity = this.socketIdentity.get(socketId);
       if (!identity) return;   // 未认证连接的 awareness 帧（pre-auth 队列外不应出现——防御性放行）
       const libClients = (document as any).getClients?.(connection) as Set<number> | undefined;
@@ -2291,6 +2366,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 观测面禁抛——钩子抛错中断库消息处理链（esm try/finally 不 catch）；swallow 但留痕
       //（对齐 unloadDocument swallow 先例——catch 静默=零观测；不加指标保 reason 枚举）
       this.logger.warn(`[y0b-3] awareness guard error: ${(err as Error)?.message}`);
+    }
+  }
+
+  /** ===== Y0b-4 T6（Q-E v5）：awareness 独立限速——共享 awareBuckets+键前缀 aware:${sid} =====
+   *  与 msg 桶分账（census ⑥ 定义点恰四处）：msg 桶计一切帧、aware 桶只限 awareness（60 容量+30/s
+   *  补充——合法节律 ~4/min/连接，>30/s 必为风暴）。cost=1 显式（census ⑨——帧数桶）。
+   *  先于 guardAwareness 调用（其 try/catch 自吞一切——限速 throw 必须在外层才能中止帧）；
+   *  超限 close 1008（backoff 档）。非连接来源放行（P0-1 同款——服务端内部写不限速）。 */
+  private guardAwarenessRate({ connection, context, socketId }: beforeHandleAwarenessPayload): void {
+    if (!connection || !context || !socketId) return;   // P0-1：非连接来源放行
+    if (!this.awareBuckets.consume(`aware:${socketId}`, 1)) {
+      collabAwarenessRateExceededTotal.inc();
+      this.hardClose(connection as unknown as CollabConnection, CollabCloseCode.RATE_LIMITED_CLOSE, 'awareness-rate-exceeded');
+      throw Object.assign(new Error('awareness rate exceeded'), { code: CollabCloseCode.RATE_LIMITED_CLOSE, reason: 'awareness-rate-exceeded' });
     }
   }
 

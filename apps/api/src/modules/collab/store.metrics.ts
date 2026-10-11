@@ -451,3 +451,31 @@ export const yjsInboundFrameBytes = new Histogram({
   buckets: [1024, 16 * 1024, 64 * 1024, 256 * 1024, 512 * 1024, 1_048_576, 4_194_304, 8_388_608],
   registers: [register],
 });
+
+/** ===== Y0b-4 T6（spec §5.2 速率闸三桶+awareness 治理）：1008 断连三计数+剔字段计数 ===== */
+
+/** msg 桶断连（400 帧容量+msgRate/s 补充——close 1008 msg-rate-exceeded，backoff 档瞬态）。 */
+export const collabMsgRateExceededTotal = new Counter({
+  name: 'collab_msg_rate_exceeded_total',
+  help: 'msg 桶断连次数（per-conn 400 帧容量+msgRate/s 补充——close 1008 msg-rate-exceeded）',
+  registers: [register],
+});
+/** bytes 桶断连（容量=maxDocBytes+bytesRate/s 补充——close 1008 bytes-rate-exceeded；"桶容量≥最大合法帧"不变量见 gateway 构造注释）。 */
+export const collabBytesRateExceededTotal = new Counter({
+  name: 'collab_bytes_rate_exceeded_total',
+  help: 'bytes 桶断连次数（per-conn 容量=maxDocBytes+bytesRate/s 补充——close 1008 bytes-rate-exceeded）',
+  registers: [register],
+});
+/** awareness 独立限速断连（共享桶实例+键前缀 aware:${sid}——capacity 60+30/s；close 1008 awareness-rate-exceeded）。 */
+export const collabAwarenessRateExceededTotal = new Counter({
+  name: 'collab_awareness_rate_exceeded_total',
+  help: 'awareness 独立限速断连次数（共享桶+键前缀 aware:${sid}，capacity 60+30/s 补充——close 1008 awareness-rate-exceeded）',
+  registers: [register],
+});
+/** awareness 剔字段计数（reason=read-only 剔 cursor/selection 保 user 回显——T13 扩 solo|over-8 两档）。 */
+export const collabAwarenessStrippedTotal = new Counter({
+  name: 'collab_awareness_stripped_total',
+  help: 'awareness 剔字段次数（reason=read-only 剔 cursor/selection 保 user 回显；T13 扩 solo|over-8）',
+  labelNames: ['reason'],
+  registers: [register],
+});
