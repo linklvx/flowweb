@@ -16,7 +16,11 @@ const INTENTS = path.join(findRepoRoot(process.cwd()), 'apps/web/src/stores/canv
 // 棘轮契约（R2d-8 Step 4c）：14 既有冻结 + runCommand 白名单 1，新增命令一律经 runCommand（双轨制防漂移）。
 // 基线由 grep 实证核定：canvasStore.ts 恰 15 个调用点=14 既有直连 + 1 runCommand finally 收尾；
 // 立项预估 16+1 与实证不符——批4b-2 换芯已把多处 capture/diff 合并为单 transact 调用，故以实证 14 为冻结基线。
+// Y0b-4 T10 分块粘贴豁免 +2：pasteGroupClipboard 逐块 capture→append→diff（主路+catch 收口）——
+// 有意不经 runCommand 尾差分（N 块并单 diff=单 transact 超大帧 seam 必拒，分块落空）；undo 一步
+// 锚由 stopCapturing+captureTimeout 窗保持（探针③形态），语义见 pasteGroupClipboard JSDoc。
 const BASELINE = 14;
+const PASTE_CHUNK_CALLS = 2;
 
 // 调用行判定：行内含 `dispatchProjectionDiff(` 且非注释行（import 行名后无左括号不命中；注释行 trim 后 // 开头）
 function callLines(src: string): string[] {
@@ -38,16 +42,17 @@ function runCommandBlock(src: string): string[] {
   return block;
 }
 
-describe('dispatchProjectionDiff 写路径棘轮门禁（R2d-8 Step 4c——14 既有冻结+runCommand 白名单 1，新增命令一律经 runCommand，双轨制防漂移）', () => {
-  it('canvasStore.ts 调用点总数恰 15（14 基线+1 白名单；第 16 个直连写点=红）', () => {
+describe('dispatchProjectionDiff 写路径棘轮门禁（R2d-8 Step 4c——14 既有冻结+runCommand 白名单 1+T10 分块粘贴 2，新增命令一律经 runCommand，双轨制防漂移）', () => {
+  it('canvasStore.ts 调用点总数恰 17（14 基线+1 白名单+T10 分块粘贴 2；第 18 个直连写点=红）', () => {
     const total = callLines(readFileSync(STORE, 'utf8')).length;
     // expect 第二参给最直白失败语：新增直连写点即触发本条，改走 runCommand 即绿
     expect(
       total,
-      `棘轮失守：dispatchProjectionDiff 直连调用点 ${total} 个，冻结基线 ${BASELINE}+runCommand 白名单 1=${BASELINE + 1}。` +
+      `棘轮失守：dispatchProjectionDiff 直连调用点 ${total} 个，冻结基线 ${BASELINE}+runCommand 白名单 1` +
+        `+T10 分块粘贴豁免 ${PASTE_CHUNK_CALLS}=${BASELINE + 1 + PASTE_CHUNK_CALLS}。` +
         '新增命令一律经 runCommand（canEdit 门+单 undo 步+finally 差分收尾由其统一兜底），不得新增第三写轨；' +
         '若 runCommand 收尾点被移除，本条同样红。',
-    ).toBe(BASELINE + 1);
+    ).toBe(BASELINE + 1 + PASTE_CHUNK_CALLS);
   });
 
   it('runCommand 实现块内恰 1 个收尾调用（白名单锚定——finally 差分收尾是唯一豁免写点）', () => {

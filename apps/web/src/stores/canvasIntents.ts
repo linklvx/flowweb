@@ -27,7 +27,8 @@ import { Origin } from './canvasUndo';
 // ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
 // B7-1（O0b-7 投影写体 + O0b-4 transact 边界断言）追加同裁定：withGeometryWriter/
 // assertReconcileSingleWriterWindow 顶层仅 import 声明，调用体运行时才执行。
-import { getDoc, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow } from './canvasCollabRuntime';
+import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow } from './canvasCollabRuntime';
+import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import { withGeometryWriter } from './geometryTrap';
 
 /** 信封 patch（updateNodeEnvelope 专域）：type/parentId/position/width/height 任意子集；
@@ -59,15 +60,17 @@ function* iterStringValues(v: unknown): Generator<string> {
   else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) yield* iterStringValues(x);
 }
 
-/** 判定意图序列可否应用（Q-I 前三判据——web 侧最小声明，与 T4 服务端执法同尺不代执法）：
+/** 判定意图序列可否应用（Q-I 四判据——web 侧最小声明，与 T4 服务端执法同尺不代执法）：
  *  ①单字符串值 utf8 字节 > maxKeyBytes → key-too-large（先判：超 maxTxBytes 的单串必超
  *    maxKeyBytes——QUOTA_DEFAULTS 锁定 maxKeyBytes ≤ maxTxBytes ⇒ ①⊆②，更具体文案先报）；
  *  ②Σ utf8Bytes(JSON.stringify(intent)) > maxTxBytes → tx-too-large；
  *  ③addNode 数 > maxNodesPerTx → too-many-nodes；
- *  ④（T10）：快照+delta 插值+软限滞回（0.8/0.6）判定——依赖 T5 已落 store 字段+插值器（归 T10）。 */
+ *  ④（T10）：快照+delta 插值+软限判定（客户端可用上限=软阈——文案与拦截点一致）。 */
 export type ApplyIntentVerdict =
   | { ok: true }
-  | { ok: false; reason: 'key-too-large' | 'tx-too-large' | 'too-many-nodes' };
+  | { ok: false; reason: QuotaRejectReason };
+
+export type QuotaRejectReason = 'key-too-large' | 'tx-too-large' | 'too-many-nodes' | 'doc-over-budget';
 
 export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
   for (const i of intents) {
@@ -80,8 +83,26 @@ export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
   if (intents.filter((i) => i.type === 'addNode').length > QUOTA_DEFAULTS.maxNodesPerTx) {
     return { ok: false, reason: 'too-many-nodes' }; // ③
   }
+  // ④快照+delta 插值（T10）：localDocBytes=doc-status 快照权威值（T5 reducer），localDelta=两次
+  // 校准间 doc.on(update) 全 origin 累计（插值器——远端写入 B 不知情也计入）。缺省回退=6.7MB 软阈
+  // （禁回退硬限：quotaSoftLimitBytes 恒 0/undefined ⇒ NaN 比较恒 false=gate 失效）。
+  const st = useCanvasStore.getState();
+  const softLimit = st.quotaSoftLimitBytes > 0
+    ? st.quotaSoftLimitBytes
+    : Math.floor(QUOTA_DEFAULTS.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
+  const maxTx = st.quotaTxBytes > 0 ? st.quotaTxBytes : QUOTA_DEFAULTS.maxTxBytes;
+  if (st.localDelta > 4 * maxTx) {
+    // 超大漂移（>4×maxTx）：插值失真已超容差——同步实测一次按真值判定（v4 pending-measure 拒绝
+    // 形态退役：拒绝=静默丢用户粘贴动作；8MB doc ~23ms 一次性用户路径可接受。pending-measure
+    // 枚举仅保留给 idle 在途窗——本路径恒真值返回，枚举不发射）。
+    const measured = measureLocalDocNow();
+    if (measured + txBytes > softLimit) return { ok: false, reason: 'doc-over-budget' };
+    return { ok: true };
+  }
+  if (st.localDocBytes + st.localDelta + txBytes > softLimit) {
+    return { ok: false, reason: 'doc-over-budget' };
+  }
   return { ok: true };
-  // ④（T10）：快照+delta 插值+软限判定——本骨架不做（插值器归 T10）
 }
 
 /** 测试缝（只读注入）：spec 裸 doc 驱动纯漏斗路径（无 initCollab）。生产恒走 getDoc()。 */
@@ -292,6 +313,13 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   const d = resolveDoc();
   if (!d) return; // canEdit 真 ⇒ runtime 会话在（hydration ready）⇒ doc 非空；null 为异常态零写
   const seq = Array.isArray(intent) ? intent : [intent];
+  // T10 兜底断言（Q-I v3 seam 前置配套）：写路径应经 runCommand precheck/粘贴逐块/redo precheck
+  // 前置判定——dispatch 收到拒判 intent 序列=前置设计漏洞（非常规路径），diag 留痕+静默零写。
+  const v = canApplyIntent(seq);
+  if (!v.ok) {
+    recordCollabDiag('write_reject', { reason: v.reason, via: 'dispatch-fallback' });
+    return;
+  }
   d.transact(() => {
     for (const i of seq) applyIntentToDoc(d, i);
   }, origin);

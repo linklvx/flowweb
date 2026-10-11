@@ -36,7 +36,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // GroupToolbar canExecute prop（interface +2）——81,82→83,84；ImageGenNode import +3——160,161→163,164
     // Y0b-3 T9：collabEscapePending 字段两处插入（interface +4/初始值 +1）——canvasStore 13 行再 +5（行号漂移）
     // Y0b-4 T5：doc-status 快照族字段两处插入（interface +16/初始值 +10——本表 13 行 +25）
-    'stores/canvasStore.ts': [787, 788, 794, 795, 850, 851, 920, 921, 927, 928, 1074, 1614, 1615],
+    // Y0b-4 T10：分块粘贴块工具族插入（assembleRecords 后 +68——本表 13 行同步漂移，集合不变）
+    'stores/canvasStore.ts': [855, 856, 862, 863, 918, 919, 988, 989, 995, 996, 1142, 1682, 1683],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],

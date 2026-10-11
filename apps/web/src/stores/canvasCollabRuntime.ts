@@ -64,6 +64,46 @@ export function getDoc(): Y.Doc | null {
   return doc;
 }
 
+// ── Y0b-4 T10：localDelta 插值器 + 漂移后台实测（判据④数据面）──
+/** 漂移后台实测阈值：localDelta>1MB 调度 requestIdleCallback 实测（P1-5 后台标签兜底 {timeout:2000}） */
+const LOCAL_DELTA_IDLE_MEASURE_BYTES = 1_048_576;
+/** idle 实测单飞标志（在途窗防重入——pending-measure 语义仅此窗存在） */
+let deltaIdleMeasureInFlight = false;
+
+/** T10 插值器挂载：doc.on('update') 全 origin 累计 localDelta（远端写入/undo/redo 回放全覆盖——
+ *  多用户下 B 侧快照对远端写入不知情 ⇒ delta 按帧字节补插值；v1 serverWatermark 双口径多用户
+ *  失效红相的修正）。doc-status 快照到达 localDelta:0 重置=校准点（T5 reducer 既有，互斥不叠加）。 */
+function mountLocalDeltaTracker(d: Y.Doc): void {
+  d.on('update', (u: Uint8Array) => {
+    useCanvasStore.setState((s) => ({ localDelta: s.localDelta + u.byteLength }));
+    scheduleDeltaIdleMeasure(d);
+  });
+}
+
+/** 漂移>1MB 调度 idle 实测 encodeStateAsUpdate 自校准（单飞防重入；会话已切换零写；
+ *  jsdom/非 Chrome 无 requestIdleCallback 时同步实测降级——实测即重置不热循环） */
+function scheduleDeltaIdleMeasure(d: Y.Doc): void {
+  if (deltaIdleMeasureInFlight) return;
+  if (useCanvasStore.getState().localDelta <= LOCAL_DELTA_IDLE_MEASURE_BYTES) return;
+  deltaIdleMeasureInFlight = true;
+  const calibrate = () => {
+    deltaIdleMeasureInFlight = false;
+    if (doc !== d) return; // 陈旧回调（会话已销毁/重建）零写
+    const measured = Y.encodeStateAsUpdate(d).byteLength;
+    useCanvasStore.setState({ localDocBytes: measured, localDelta: 0 });
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(calibrate, { timeout: 2000 });
+  } else {
+    calibrate();
+  }
+}
+
+/** T10 同步实测（canApplyIntent 判据④超大漂移路径消费）：当前会话 doc 全量编码字节真值。 */
+export function measureLocalDocNow(): number {
+  return doc ? Y.encodeStateAsUpdate(doc).byteLength : 0;
+}
+
 /** 当前协作会话的 awareness 桥（无连接时 null，视图层按需判空） */
 export function getAwareness(): AwarenessBridge | null {
   return awarenessBridge;
@@ -1076,6 +1116,7 @@ export async function initCollab(projectId: string): Promise<void> {
   silentRenewUsed = false;    // T9：静默续期额度会话起点复位
   connReadOnly = false;       // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
   lastGeneration = undefined;
+  deltaIdleMeasureInFlight = false;   // Y0b-4 T10：idle 实测在途窗随会话复位（旧会话 pending 不跨会话）
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
@@ -1088,6 +1129,7 @@ export async function initCollab(projectId: string): Promise<void> {
   rebuildPending = false; // 批1-3：重建窗口标记会话起点复位
   doc = new Y.Doc();
   attachUndoManager(doc);
+  mountLocalDeltaTracker(doc);   // Y0b-4 T10：localDelta 插值器（doc 销毁随会话拆除）
 
   createProvider(doc);
   bindReevaluateOnce();

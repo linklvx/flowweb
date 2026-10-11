@@ -96,5 +96,10 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   setState 是用例的存在目的）→ 238 处 / 44 文件。
   // Y0b-4 T5（2026-10-11）：canvasCollabRuntime.quota.spec.ts 造案 +2 处/1 文件（doc-status reducer
   //   装置——resetStore 复位+Q-I 校准点本地漂移构造）→ 240 处 / 45 文件。
-  effective: { count: 240, files: 45 },
+  // Y0b-4 T9a D-14 补登（2026-10-11）：canvasIntents.quota.spec.ts openRwWindow +1 处/1 文件
+  //   （D-14 落地漏登记棘轮已破线，T10 全量回归暴露补登）→ 241 处 / 46 文件。
+  // Y0b-4 T10（2026-10-11）：判据④/分块粘贴造案 +8 处/+1 文件（canvasIntents.quota.spec +6——
+  //   store 字段直构+runtime 集成 beforeEach 复位；canvasStore.paste-chunk.spec +2 新文件——
+  //   装置复位+分块播种）→ 244 处 / 47 文件。
+  effective: { count: 244, files: 47 },
 };

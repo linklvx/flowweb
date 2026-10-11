@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
-import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame } from '@flowweb/shared';
+import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -23,7 +23,7 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-2（组 2 收口）：复合信封写点经 captureStoreProjection/dispatchProjectionDiff 差分换芯
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
-import { dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent, type ApplyIntentVerdict } from './canvasIntents';
+import { dispatchCanvasIntent, canApplyIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, type CanvasIntent, type ApplyIntentVerdict, type QuotaRejectReason } from './canvasIntents';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 // B5'-1（Spec B）：commitIntents 末帧差分读 doc.abs 单源（readCanvasFromDoc——docShape 单源薄委托）。
 // 循环依赖裁定同 canvasIntents：顶层仅声明，action 体运行时才调——安全。
@@ -587,6 +587,72 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }
     }
     return [...records.values()];
+  };
+
+  // ── Y0b-4 T10：分块粘贴（Q-J——T0 探针③实证粘贴 100 节点=单 transact 非天然分块 → 贪心切块）──
+  /** 块预算参数（Q-J v1）：200KB utf8/块（< maxTxBytes 256KB——块 intent 序列过 seam 必过）+500 节点/块 */
+  const CHUNK_UTF8_BUDGET = 204_800;
+  const CHUNK_MAX_NODES = 500;
+
+  /** quota 拒绝 toast（reason 分型文案——doc-over-budget 软阈口径与拦截点一致，Q-A v5） */
+  const toastQuotaReject = (reason: QuotaRejectReason): void => {
+    message.warning({
+      'key-too-large': '单字段过大',
+      'tx-too-large': '单次操作过大，请分批',
+      'too-many-nodes': '节点数过多',
+      'doc-over-budget': '画布已达容量上限（约 6.7MB），请瘦身或删除内容',
+    }[reason]);
+  };
+
+  /** 贪心切块：按 plan 项序累积 utf8 预算 ≤200KB 或 ≤500 节点/块；边随源节点所在块
+   *  （两端跨块不损——cs/doc 均追加写，块序无关；源不在块集=防御回落末块）。 */
+  const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
+    const chunks: CopyPlan[] = [];
+    const chunkIndexOf = new Map<string, number>();
+    let cur: CopyPlan['copies'] = [];
+    let curBytes = 0;
+    for (const c of plan.copies) {
+      const b = utf8Bytes(JSON.stringify(c));
+      if (cur.length > 0 && (curBytes + b > CHUNK_UTF8_BUDGET || cur.length >= CHUNK_MAX_NODES)) {
+        chunks.push({ copies: cur, newEdges: [], idMap: plan.idMap });
+        cur = []; curBytes = 0;
+      }
+      chunkIndexOf.set(c.id, chunks.length);
+      cur.push(c); curBytes += b;
+    }
+    if (cur.length > 0) chunks.push({ copies: cur, newEdges: [], idMap: plan.idMap });
+    for (const e of plan.newEdges) {
+      const ci = chunkIndexOf.get(e.source);
+      if (ci != null) chunks[ci].newEdges.push(e);
+      else if (chunks.length > 0) chunks[chunks.length - 1].newEdges.push(e);
+    }
+    return chunks;
+  };
+
+  /** 块预算近似 intents（precheck 消费）：copy→addNode（分镜子剥 position——同漏斗差分翻译键集形态）+
+   *  边→upsertEdge。实写走 dispatchProjectionDiff 差分翻译（全上下文键集剥离单源），此处同构近似。 */
+  const chunkIntentsOf = (chunk: CopyPlan): CanvasIntent[] => {
+    const byId = new Map(chunk.copies.map((c) => [c.id, c] as const));
+    const intents: CanvasIntent[] = [];
+    for (const c of chunk.copies) {
+      const parent = c.parentId != null ? byId.get(c.parentId) : undefined;
+      const sbChild = parent != null && parent.type === 'group'
+        && (parent.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+      intents.push({
+        type: 'addNode',
+        node: {
+          id: c.id,
+          type: c.type,
+          ...(c.parentId != null ? { parentId: c.parentId } : {}),
+          ...(c.position != null && !sbChild ? { position: c.position } : {}),
+          ...(c.width != null ? { width: c.width } : {}),
+          ...(c.height != null ? { height: c.height } : {}),
+          data: c.data ?? {},
+        },
+      });
+    }
+    for (const e of chunk.newEdges) intents.push({ type: 'upsertEdge', edge: e });
+    return intents;
   };
 
   // ══ O0b-5（Spec B）：refit 族退役——帧写归 reconcile 单写者（applyGroupFrame/shouldAutoRefit/
@@ -1796,9 +1862,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  禁用 patchGroupData（其自带正向 dispatch，叠外层差分=同值写两遍两 transact）；
    *  ② 先取数校验（resolveNodeData 取不到即红）后结构写——抛错须发生在任何写之前；
    *  ③ finally 恒收尾 diff：fn 抛错时 catch 提示不 rethrow，diff 出已写部分——doc≡store 不变量恒成立。
-   *  Y0b-4 T9a Step 3（4a 出口 D-14）：可选 precheck（canApplyIntent 判据①-③）——canEdit 门后
-   *  拒=零副作用（fn 零调用+零 transact+零 undo 步），write_reject diag 计数先行；
-   *  toastQuotaReject UI 与判据④（插值软限）归 T10——骨架不引 UI 依赖。 */
+   *  Y0b-4 T9a Step 3（4a 出口 D-14）+T10 完整化：可选 precheck（canApplyIntent 判据①-④）——
+   *  canEdit 门后拒=零副作用（fn 零调用+零 transact+零 undo 步——先于 captureStoreProjection
+   *  =store 零污染），write_reject diag 计数+toastQuotaReject UI。 */
   runCommand: (fn, precheck) => {
     if (!canEdit(get())) {
       message.warning('当前为只读会话，操作已忽略');
@@ -1807,6 +1873,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const v = precheck?.();
     if (v && !v.ok) {
       recordCollabDiag('write_reject', { reason: v.reason });
+      toastQuotaReject(v.reason);
       return;
     }
     stopCapturing();
@@ -2770,21 +2837,48 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   /** R2a-6 副本薄壳④（粘贴）：不重裁决（clipboard 冻结成员/hidden 态——重裁决会在粘贴点再次
    *  排除已变 hidden 态丢成员）；position=flow 坐标（screenToFlowPosition 换算在调用点），经
-   *  buildCopyPlan position 模式锚定首个顶层副本整选平移。 */
+   *  buildCopyPlan position 模式锚定首个顶层副本整选平移。
+   *  Y0b-4 T10 分块粘贴（Q-J）：buildCopyPlan 纯函数先行 → chunkCopyPlan 贪心切块 → 逐块
+   *  precheck（canApplyIntent 判据①-④——④消费 localDocBytes+localDelta 插值，每块 dispatch 后
+   *  delta 增长=后续块预算递减）→ 通过才 appendCopyPlan+逐块 diff 落 doc（块原子）。
+   *  ⚠️ 不走单 runCommand 尾差分（对 plan 伪码形态的修正）：N 块若并单 dispatchProjectionDiff
+   *  = 单 transact = 超大帧 seam 必拒（分块落空）——逐块 capture→append→diff = 逐块 ≤256KB
+   *  transact 过 seam。undo 一步锚保持：stopCapturing 隔离前序 + 同 tick 全块 transact 落同一
+   *  captureTimeout(500ms) 窗 = 1 undo 项（探针③形态）。中途块拒：已贴块保留+剩余丢弃
+   *  （break 非回滚）+diag+toast；块内 append 抛错按 runCommand 契约收口已写部分后停。 */
   pasteGroupClipboard: (position) => {
     if (!groupClipboard) return null;
+    if (!canEdit(get())) {
+      message.warning('当前为只读会话，操作已忽略');
+      return null;
+    }
+    const plan = buildCopyPlan(
+      groupClipboard.records,
+      groupClipboard.ids,
+      { position },
+      () => getId('node'),
+      groupClipboard.edges,
+    );
     let firstTopId: string | null = null;
-    get().runCommand(() => {
-      if (!groupClipboard) return;
-      const plan = buildCopyPlan(
-        groupClipboard.records,
-        groupClipboard.ids,
-        { position },
-        () => getId('node'),
-        groupClipboard.edges,
-      );
-      firstTopId = appendCopyPlan(plan);
-    });
+    stopCapturing();
+    for (const chunk of chunkCopyPlan(plan)) {
+      const v = canApplyIntent(chunkIntentsOf(chunk));
+      if (!v.ok) {
+        recordCollabDiag('write_reject', { reason: v.reason });
+        toastQuotaReject(v.reason);
+        break;
+      }
+      const before = captureStoreProjection();
+      try {
+        const top = appendCopyPlan(chunk);   // 恒调用（??= 短路会吞掉块落位——只保留首块结果）
+        firstTopId ??= top;
+        dispatchProjectionDiff(before, Origin.LocalUser);
+      } catch (err) {
+        message.error(`操作失败：${(err as Error).message}`);
+        dispatchProjectionDiff(before, Origin.LocalUser);   // 已写部分收口（doc≡store 恒成立）
+        break;
+      }
+    }
     return firstTopId;
   },
 
