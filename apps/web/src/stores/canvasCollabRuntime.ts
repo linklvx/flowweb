@@ -243,12 +243,15 @@ export async function handleVersionTerminal(): Promise<void> {
   useCanvasStore.setState({ collabEscapePending: true });
 }
 
+/** Y0b-4 T11：代际跳变自动 reload 延时（4410 close 路径与装载后首快照路径共享——同款文案/节奏单源） */
+const GENERATION_RELOAD_DELAY_MS = 1_500;
+
 /** Y0b-4 T11：vacuum 代际跳变消费（T9a 双路之二——装载后首快照路径）：撤销栈锚代际失效→清
  *  （reload 后重建）+提示+1.5s 自动 reload（延时让用户看到提示；与 4410 close 路径同款文案/节奏）。 */
 function consumeGenerationJump(): void {
   getUndoManager()?.clear();
   message.warning('正在重建画布历史，即将自动刷新');
-  setTimeout(() => location.reload(), 1_500);
+  setTimeout(() => location.reload(), GENERATION_RELOAD_DELAY_MS);
 }
 
 /** Y0b-3 T9：逃生动作（唯一）——「导出本地画布→强制刷新」一键。不受未同步守卫约束（它就是为
@@ -1047,7 +1050,7 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         // 4410 双 reason：代际被超（vacuum 进行中/SV 过期）——reload 后空 SV 放行即自愈，不循环
         useCanvasStore.setState({ wsQuotaTerminal: { code: CollabCloseCode.GENERATION_SUPERSEDED, reason } });
         message.warning('正在重建画布历史，即将自动刷新');
-        setTimeout(() => location.reload(), 1_500);   // 延时让用户看到提示再刷
+        setTimeout(() => location.reload(), GENERATION_RELOAD_DELAY_MS);   // 延时让用户看到提示再刷
       } else {
         useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
       }

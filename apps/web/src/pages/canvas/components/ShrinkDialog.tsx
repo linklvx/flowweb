@@ -19,8 +19,8 @@ const utf8Bytes = (s: string) => new TextEncoder().encode(s).length;
 /** shrink 三档（+noop）结果处理——返回是否关闭对话框 */
 function handleShrinkOutcome(r: ShrinkOutcome): boolean {
   if ('stillOver' in r) {
-    // 影子预演仍超限（服务端实测）——引导导出，对话框保持打开（可继续勾选/换出口）
-    message.warning(`瘦身后仍超出 ${Math.max(1, Math.round(r.bytes / 1024))}KB，请导出到新项目`);
+    // 影子预演仍超限（服务端实测）——bytes=预演后总字节（非超出量），引导导出，对话框保持打开（可继续勾选/换出口）
+    message.warning(`瘦身后仍达 ${Math.max(1, Math.round(r.bytes / 1024))}KB（上限 ${Math.max(1, Math.round(r.limit / 1024))}KB），请导出到新项目`);
     return false;
   }
   if (typeof r.watermark === 'number') {
@@ -44,12 +44,16 @@ export function ShrinkDialog({ open, onClose, projectId }: { open: boolean; onCl
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
-  /** 按 data JSON utf8 字节降序——瘦身收益大头在前 */
+  /** 按 data JSON utf8 字节降序——瘦身收益大头在前。未 open 零算（大文档全节点 stringify
+   *  5-15ms 是拖动每 tick 的白耗——挂载期间 nodes 每变皆重算，rows 仅 open 时被消费） */
   const rows = useMemo(
-    () => nodes
-      .map((n) => ({ id: n.id, type: String(n.type ?? ''), bytes: utf8Bytes(JSON.stringify(n.data ?? {})) }))
-      .sort((a, b) => b.bytes - a.bytes),
-    [nodes],
+    () => {
+      if (!open) return [];
+      return nodes
+        .map((n) => ({ id: n.id, type: String(n.type ?? ''), bytes: utf8Bytes(JSON.stringify(n.data ?? {})) }))
+        .sort((a, b) => b.bytes - a.bytes);
+    },
+    [nodes, open],
   );
 
   const vacuumAvailable = quotaLimitBytes > 0 && quotaResidueBytes != null

@@ -12,8 +12,8 @@ export interface ShrinkBody {
   recalibrate?: boolean;
 }
 
-/** T8 出口：watermark=活文档再编码真值（localDocBytes 重置基线）；deletedIds=实际删除集
- *  （发起端 undoManager.clear 数据源）。 */
+/** T8 出口：watermark=活文档再编码真值（localDocBytes 重置基线）；deletedIds=服务端契约
+ *  字段（UI 暂未消费——整栈 clear 不需要逐 id）。 */
 export interface ShrinkOk {
   result: 'ok' | 'recalibrated' | 'noop';
   watermark?: number;
