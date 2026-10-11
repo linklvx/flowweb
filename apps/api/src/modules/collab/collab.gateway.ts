@@ -828,11 +828,18 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const degraded = this.persistUnhealthy.has(documentName);    // V12：降级态
       const stashFrames = await this.peekSpoolFrames(projectId);
       if (queue.length === 0 && stashFrames.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }
-      // Y7 硬阈（Y24 内存上界）：超过 512 条/8MB（严格 >，第 513 条触发）就地折并——splice 原地保数组身份；内容全保留（合并元素即本批）。
+      // Y7 硬阈（Y24 内存上界）：超过 512 条/8MB（严格 >，第 513 条触发）就地折并——splice 原地保数组身份；内容全保留。
       // 无 inFlight 门（裁定见常量块注记）：与取批同锁串行，push-only WS 路径零交织；双败期折并照常
-      // 执行=上界收敛（600k 条 → 1 合并元素），I-2 批尾锚为唯一竞态兜底。
+      // 执行=上界收敛（600k 条 → ≤ceil(bytes/1MB) 个合并元素），I-2 批尾锚为唯一竞态兜底。
+      // Y0b-4 T3 外审修复（第七处切批缺口）：折并产物=合并产物**可再分**（"CRDT 帧结构性不可再分"
+      // 只对原始入站帧成立——T4 帧闸后入站上界 2×maxTxBytes 自闭合）——旧"整批单 merge"会造出
+      // ≤8MB 单元素，经 splitPersistChunks"单 update 超限独立成组"不拆 → PG 行/spool 帧可超 1MB
+      // （Q-O"超限行结构性不可产生"破约）。改分组落回：splitPersistChunks ≤1MB 贪心分组、逐组合并
+      // 一元素；splice 展开原地替换（数组身份恒定不变量不变；Y8/tailRef 语义不变——折并后批尾必是
+      // 新元素，交织窗身份判据照常命中 anomaly-skip）。
       if (queue.length > COALESCE_MAX_ENTRIES || queueBytes(queue) > COALESCE_MAX_BYTES) {
-        queue.splice(0, queue.length, Y.mergeUpdates(queue));
+        const regrouped = this.splitPersistChunks(queue).map((chunk) => chunk.length === 1 ? chunk[0] : Y.mergeUpdates(chunk));
+        queue.splice(0, queue.length, ...regrouped);
       }
       this.enterInFlight(projectId);                               // enter storeInFlight（projectId 级）
       const stashIds = stashFrames.map((f) => f.frameId);

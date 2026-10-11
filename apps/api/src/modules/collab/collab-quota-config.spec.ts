@@ -21,7 +21,7 @@ afterEach(async () => spoolCleanup());
 
 /** env 四键隔离（save/delete/restore）——防宿主环境泄漏干扰默认值断言 */
 const QUOTA_ENV_KEYS = ['COLLAB_MAX_DOC_BYTES', 'COLLAB_MAX_TX_BYTES', 'COLLAB_MSG_RATE_PER_CONN', 'COLLAB_BYTES_RATE_PER_CONN'];
-let savedEnv: Record<string, string | undefined> = {};
+const savedEnv: Record<string, string | undefined> = {};   // Y0b-4 T3 顺手修：prefer-const（只 mutate 属性从不重赋）
 beforeEach(() => { for (const k of QUOTA_ENV_KEYS) { savedEnv[k] = process.env[k]; delete process.env[k]; } });
 afterEach(() => { for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
 

@@ -1297,6 +1297,40 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(g.computePending().batches).toBe(0);
     } finally { appendSpy.mockRestore(); if (release) release({ ok: true, seq: 1n }); await kit.dispose(); }
   }, 20_000);
+
+  it('Y7 硬阈 coalesce 外审修复（Y0b-4 T3 第七处切批缺口）：600×8KB 累积折并后队列元素 ≤1MB（合并产物可再分）+身份恒定+内容不丢', async () => {
+    // 旧实现 splice(0,len,mergeUpdates(queue)) 整批单 merge → ~4.9MB 单元素经 splitPersistChunks
+    // "单 update 超限独立成组"不拆 → PG 行/spool 帧可超 1MB（Q-O"超限行结构性不可产生"破约——本测试红点）
+    let release!: (v: { ok: true; seq: bigint }) => void;
+    let passthrough = false;
+    const kit = await startDualClientServer({
+      append: vi.fn(() => new Promise<{ ok: true; seq: bigint }>((r) => { if (passthrough) r({ ok: true, seq: 1n }); else release = r; })),
+    }, 60_000);
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockRejectedValue(new Error('spool down'));   // 双败注入=上方 Y7 同款（append 挂起窗内折并必经取批点）
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-coalesce2');
+      await synced;
+      const serverDoc = kit.gateway.server.hocuspocus.documents.get('project:p-coalesce2')!;
+      // 600 条 ×~8.2KB（总量 ≈4.9MB：>1MB 可造超限单元素、<8MB 不触发字节阈——条数阈 601>512 唯一触发）
+      const src = new Y.Doc(); const ups: Uint8Array[] = [];
+      src.on('update', (u) => ups.push(u));
+      for (let i = 0; i < 600; i++) src.getMap('nodes').set(`k${i}`, 'x'.repeat(8192));
+      const qBefore = g.pendingQueues.get('p-coalesce2') as Uint8Array[];   // 同步取引用（setImmediate 折并前——身份锚）
+      for (const u of ups) Y.applyUpdate(serverDoc as unknown as Y.Doc, u);   // 601 条 push 同步入队（stamp+600——同上方确定性直注装置）
+      await pollUntil(() => { const b = (g.computePending() as { batches: number }).batches; return b > 0 && b < 512; }, 5_000);   // 折并已发生（旧形态 601→1；分组落回 601→~6——均 <512）
+      const q = g.pendingQueues.get('p-coalesce2') as Uint8Array[];
+      expect(q).toBe(qBefore);                                        // 数组身份恒定不变量（splice 原地——set 替换整队列必红）
+      for (const el of q) expect(el.byteLength).toBeLessThanOrEqual(1_048_576);   // 与实现 PERSIST_MERGE_MAX_BYTES 同值（quota-truth spec 先例）——旧实现单 merge 元素 ~4.9MB 红
+      const revived = new Y.Doc();                                    // 内容不丢：落回的合并组可逐个 apply（合并产物可再分性）
+      for (const el of q) Y.applyUpdate(revived, el);
+      expect(revived.getMap('nodes').get('k599')).toBe('x'.repeat(8192));
+      appendSpy.mockRestore();
+      release({ ok: true, seq: 1n }); passthrough = true;
+      await kit.gateway.hooks.onStoreDocument({ document: provider.document, documentName: 'project:p-coalesce2' } as any);   // 直调排空（dispose 干净）
+      expect(g.computePending().batches).toBe(0);
+    } finally { appendSpy.mockRestore(); if (release) release({ ok: true, seq: 1n }); await kit.dispose(); }
+  }, 20_000);
 });
 
 // Y0a-3 T5（plan Step 2）：租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）——
