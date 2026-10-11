@@ -6,18 +6,14 @@
 // write-frozen（P-S 维护横幅「请勿刷新页面」）；connUi 分级（批1-1 machine 输出）。
 // 非阻断顶部横幅；优先级：terminal 鉴权 > 瞬态鉴权 > write-frozen > connUi banner > connUi hint。
 import type { ReactNode } from 'react';
-import { CollabAuthReason, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
+import { CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { escapeWithLocalExport } from '@/stores/canvasCollabRuntime';
 import { loginUrl } from '@/utils/loginRedirect';
 
-/** 版本族终态（reload 自愈档——与 runtime VERSION_TERMINAL_REASONS 同表：schema-outdated/
- *  client-version-missing/client-version-invalid；server-outdated 是瞬态档不入） */
-const VERSION_FAMILY: ReadonlySet<string> = new Set([
-  CollabAuthReason.SCHEMA_OUTDATED,
-  CollabAuthReason.CLIENT_VERSION_MISSING,
-  CollabAuthReason.CLIENT_VERSION_INVALID,
-]);
+/** 版本族终态（reload 自愈档——shared COLLAB_VERSION_TERMINAL_REASONS 单源，评审 M-1：
+ *  与 runtime VERSION_TERMINAL_REASONS 原两处本地表合一；server-outdated 是瞬态档不入） */
+const VERSION_FAMILY: ReadonlySet<string> = new Set(COLLAB_VERSION_TERMINAL_REASONS);
 
 const TONE_CLASS: Record<string, string> = {
   error: 'bg-red-950/95 border-red-500/40 text-red-100',

@@ -281,7 +281,7 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
   it('版本终态已同步+同版本未刷过→自动 reload 一次+loop 键写入+零逃生', async () => {
     await driveToSynced();
     fetchSpy.mockResolvedValueOnce(ready200(1));
-    await runtime.handleVersionTerminal('schema-outdated');
+    await runtime.handleVersionTerminal();
     expect(reloadSpy).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem('collab-version-reloaded:1')).toBe('1');
     expect(useCanvasStore.getState().collabEscapePending).toBe(false);
@@ -291,7 +291,7 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
     const p = await driveToSynced();
     p.unsyncedChanges = 1;                    // 本地未同步编辑——reload 会丢
     fetchSpy.mockResolvedValueOnce(ready200(1));
-    await runtime.handleVersionTerminal('schema-outdated');
+    await runtime.handleVersionTerminal();
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(useCanvasStore.getState().collabEscapePending).toBe(true);
   });
@@ -300,7 +300,7 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
     await driveToSynced();
     sessionStorage.setItem('collab-version-reloaded:1', '1');
     fetchSpy.mockResolvedValueOnce(ready200(1));
-    await runtime.handleVersionTerminal('schema-outdated');
+    await runtime.handleVersionTerminal();
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(useCanvasStore.getState().collabEscapePending).toBe(true);
   });
@@ -309,7 +309,7 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
     await driveToSynced();
     sessionStorage.setItem('collab-version-reloaded:0', '1'); // 上一部署版本已刷过
     fetchSpy.mockResolvedValueOnce(ready200(1));              // 本次服务端=1——键异
-    await runtime.handleVersionTerminal('schema-outdated');
+    await runtime.handleVersionTerminal();
     expect(reloadSpy).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem('collab-version-reloaded:1')).toBe('1');
   });
@@ -317,9 +317,26 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
   it('ready 不可达→直接落逃生动作（不 reload）', async () => {
     await driveToSynced();
     fetchSpy.mockRejectedValueOnce(new Error('down'));
-    await runtime.handleVersionTerminal('schema-outdated');
+    await runtime.handleVersionTerminal();
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(useCanvasStore.getState().collabEscapePending).toBe(true);
+  });
+
+  it('ready 探测挂起（半开连接——不 resolve 不 reject）→5s AbortSignal 超时 throw 进 catch→落逃生（改前红：挂起=自愈死锁假横幅「正在自动刷新…」永挂）', async () => {
+    await driveToSynced();
+    vi.useFakeTimers();
+    try {
+      // mock fetch 永挂起+响应 signal（AbortSignal.timeout 到期 fetch promise reject=真实 fetch 取消行为的模拟）
+      fetchSpy.mockImplementation(((_url: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((_res, rej) => {
+          init?.signal?.addEventListener('abort', () => rej(new Error('TimeoutError: signal timed out')));
+        })) as typeof fetch);
+      const p = runtime.handleVersionTerminal();
+      await vi.advanceTimersByTimeAsync(5_100);   // 越过 5s 探测超时（AbortSignal.timeout 内部 timer——fake timers 可驱动）
+      await p;
+      expect(reloadSpy).not.toHaveBeenCalled();
+      expect(useCanvasStore.getState().collabEscapePending).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 
   it('escapeWithLocalExport→导出本地画布+强制刷新（不受未同步守卫约束——它就是为未同步而设）', () => {

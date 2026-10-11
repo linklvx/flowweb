@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS } from './collab-auth-reason';
+import { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS, COLLAB_VERSION_TERMINAL_REASONS } from './collab-auth-reason';
 import { CLIENT_PROTOCOL_VERSION } from './collab-protocol';
 import { COLLAB_READY_REASONS, type CollabReadyReason, type CollabReadyResponse } from './collab-ready';
 
@@ -46,6 +46,22 @@ describe('isTerminalReason 终态白名单（契约锁㉙）', () => {
     expect(isTerminalReason('permission-denied')).toBe(false);
     expect(isTerminalReason(undefined)).toBe(false);
     expect(isTerminalReason('whatever-else')).toBe(false);
+  });
+});
+
+describe('COLLAB_VERSION_TERMINAL_REASONS 版本族 reload 自愈档（Y0b-3 T9 评审 M-1：runtime/SyncBanner 两消费面单源）', () => {
+  it('恰三档（schema-outdated/client-version-missing/client-version-invalid）', () => {
+    expect(COLLAB_VERSION_TERMINAL_REASONS).toEqual([
+      CollabAuthReason.SCHEMA_OUTDATED,
+      CollabAuthReason.CLIENT_VERSION_MISSING,
+      CollabAuthReason.CLIENT_VERSION_INVALID,
+    ]);
+  });
+  it('子集 ⊆ 终态七档全集（isTerminalReason 全 true——版本族是终态档的子集）', () => {
+    for (const r of COLLAB_VERSION_TERMINAL_REASONS) expect(isTerminalReason(r)).toBe(true);
+  });
+  it('server-outdated 瞬态档不入（reload 无效——v2 M-4）', () => {
+    expect(COLLAB_VERSION_TERMINAL_REASONS).not.toContain(CollabAuthReason.SERVER_OUTDATED);
   });
 });
 

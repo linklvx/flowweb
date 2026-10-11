@@ -1640,6 +1640,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       connection.readOnly = false;   // 升回可写（VIEWER 翻案/授权变化——仅 serving+spool ok 期）
       this.rewriteAwarenessRole(connection, role, documentName);
     }
+    // H-5×E13 嵌套（Y0b-3 评审 I-2）：drain 冻结窗内复验 VIEWER 结论——快照跟随（prev→true）。
+    // 降级分支条件带 !readOnly——冻结连接（drain 已置 true）不进分支，prev 保持 false；60s 解除
+    // 无条件还原 false + close(1012)（CLOSING no-op 边角存活）⇒ 已降 VIEWER 获写权至 permCache 下轮
+    //（≤5min 越权写窗）。快照跟随解除还原 true 不打穿。降级 return 路径不涉冻结：能进降级分支即
+    // !readOnly=未冻结；先降后冻结形态 prev 快照已 true（H-5 degradedConn 用例锚）。
+    if (role === 'PROJECT_VIEWER' && this.frozenConnections.has(connection)) {
+      this.frozenConnections.set(connection, true);
+    }
     return role === null ? { revoked: true, cause: 'no-role', expiresAt: undefined } : { revoked: false, expiresAt: session.expiresAt };
   }
 

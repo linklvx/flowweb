@@ -1480,6 +1480,34 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     }
   });
 
+  it('H-5×E13 嵌套：drain 冻结窗内复验 VIEWER 结论→frozenConnections 快照跟随降级（prev→true）——60s 解除还原 true 不打穿越权写窗（改前红：快照仍 false→解除还原 false，close(1012) no-op 边角下已降 VIEWER 获写权至 permCache 下轮）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const conn = { readOnly: false, sendStateless: vi.fn(), webSocket: { close: vi.fn() }, socketId: 'sock-h5e13', context: { token: 'tok' } };
+      (kit.gateway as any).server.hocuspocus.documents.set('project:ph5e13', {
+        name: 'project:ph5e13', connections: new Map([[conn as any, null]]),
+        getConnections: () => [],
+      });
+      vi.useFakeTimers();
+      kit.gateway.beginDraining();
+      expect(conn.readOnly).toBe(true);                                       // 冻结生效（B12）
+      expect((kit.gateway as any).frozenConnections.get(conn)).toBe(false);   // prev 快照=false（冻结前可写）
+      // drain 窗口内 collab.perm.changed→即时 sweep→recheckConnection：DB 已翻 VIEWER（直调复验同路径）
+      kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });
+      const re = await (kit.gateway as any).recheckConnection(conn, 'project:ph5e13');
+      expect(re).toMatchObject({ revoked: false });                           // 降级不断连（E13 语义）
+      expect(conn.readOnly).toBe(true);                                       // 停写保持（冻结值——不因复验翻回）
+      expect((kit.gateway as any).frozenConnections.get(conn)).toBe(true);    // ★快照跟随（改前红：仍 false）
+      await vi.advanceTimersByTimeAsync(60_000);                              // 60s 解除
+      expect(conn.readOnly).toBe(true);                                       // 还原=快照 true（改前红：还原 false=越权写窗）
+      expect(conn.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');
+    } finally {
+      vi.useRealTimers();
+      (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:ph5e13');
+      await kit.dispose();
+    }
+  });
+
   it('V12 判据唯一化：collabState=isolated ∧ lease 仍 held（fenced-by-write 窗口）⇒ 双入口全拒 LEASE_NOT_READY', async () => {
     const kit = await startDualClientServer({}, 300, undefined, createLeaseStub());   // isServing 恒 true（lease 视角仍 held——模拟心跳未到）
     try {

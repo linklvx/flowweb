@@ -48,3 +48,13 @@ const TERMINAL_AUTH_REASONS: ReadonlySet<string> = new Set<string>([
 export function isTerminalReason(reason: unknown): boolean {
   return TERMINAL_AUTH_REASONS.has(reason as string);
 }
+
+/** 版本族终态（reload 自愈档）——终态七档全集的子集：schema-outdated/client-version-missing/
+ *  client-version-invalid；server-outdated 是瞬态档不入（reload 无效——v2 M-4）。
+ *  Y0b-3 T9 评审 M-1：web 两消费面（runtime handleVersionTerminal 分流 + SyncBanner 版本族横幅
+ *  分档）的本地重复表单源化——消费面各自 new Set(this)。 */
+export const COLLAB_VERSION_TERMINAL_REASONS: readonly CollabAuthReasonCode[] = [
+  CollabAuthReason.SCHEMA_OUTDATED,
+  CollabAuthReason.CLIENT_VERSION_MISSING,
+  CollabAuthReason.CLIENT_VERSION_INVALID,
+];

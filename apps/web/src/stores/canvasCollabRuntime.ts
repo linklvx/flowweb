@@ -8,7 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
@@ -117,13 +117,10 @@ let terminalSuppressed = false;
 // Y0b-3 T9（S-4）：4401 'session-expired'（sweep）静默续期额度——一次，authenticated 事件重置
 //（每次成功认证重发一次额度；不重置=数小时后再次过期直接落终态本可再续）。
 let silentRenewUsed = false;
-// Y0b-3 T9（P-C）：版本族终态（reload 自愈档）——schema-outdated/client-version-missing/
-// client-version-invalid；server-outdated 是瞬态档（reload 无效——shared M-4）不入此表。
-const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>([
-  CollabAuthReason.SCHEMA_OUTDATED,
-  CollabAuthReason.CLIENT_VERSION_MISSING,
-  CollabAuthReason.CLIENT_VERSION_INVALID,
-]);
+// Y0b-3 T9（P-C）：版本族终态（reload 自愈档）——shared COLLAB_VERSION_TERMINAL_REASONS 单源
+//（评审 M-1：与 SyncBanner VERSION_FAMILY 原两处本地表合一）；server-outdated 是瞬态档（reload
+// 无效——shared M-4）不在表内。
+const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>(COLLAB_VERSION_TERMINAL_REASONS);
 
 // 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
 let transportHandle: ReconnectHandle | null = null;
@@ -181,10 +178,13 @@ export const recovery = {
 /** Y0b-3 T9（P-C）：版本终态自愈——loop 保护键=观测到的服务端协议版本（/api/ready 单次探测——
  *  authenticationFailed 拒绝帧无 message 通道）。可自愈（同版本未刷过 ∧ 无未同步编辑）→sessionStorage
  *  记键+location.reload() 一次（下次部署服务端版本变=键异=可再自愈一次）；否则落「导出本地画布→
- *  强制刷新」逃生动作（collabEscapePending 置位——SyncBanner 渲染按钮消费）。ready 不可达→直接逃生。 */
-export async function handleVersionTerminal(reason: string): Promise<void> {
+ *  强制刷新」逃生动作（collabEscapePending 置位——SyncBanner 渲染按钮消费）。ready 不可达→直接逃生。
+ *  探测带 5s AbortSignal 超时（评审 I-1）：fetch reject 有 catch 落逃生，但网络挂起（半开连接可挂数
+ *  分钟）既不 resolve 也不 reject⇒collabEscapePending 不置位=自愈死锁在假横幅——超时 throw 进既有
+ *  catch 同落逃生（主路径自愈保护）。 */
+export async function handleVersionTerminal(): Promise<void> {
   try {
-    const ready = await fetch('/api/ready').then((r) => r.json());
+    const ready = await fetch('/api/ready', { signal: AbortSignal.timeout(5_000) }).then((r) => r.json());
     const serverCsv = ready?.collabProtocolVersion;
     const key = `collab-version-reloaded:${serverCsv}`;
     if (!sessionStorage.getItem(key) && !hasUnsyncedCanvasChanges()) {
@@ -925,7 +925,7 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       // recovery 任何路径禁再调 connect——复发防线=recoverConnection 首段 terminalSuppressed 早退（钉死）。
       p.configuration.websocketProvider.disconnect();
       // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
-      if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal(reason);
+      if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal();
     }
   });
   p.on('close', ({ event }: any) => {
