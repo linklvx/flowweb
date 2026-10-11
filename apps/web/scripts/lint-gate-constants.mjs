@@ -71,6 +71,9 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   //   注入是用例的存在目的）→ 238/44。
   'src/stores/canvasCollabRuntime.t9.spec.ts',
   'src/pages/canvas/components/SyncBanner.test.tsx',
+  // Y0b-4 T5（2026-10-11）：canvasCollabRuntime.quota.spec.ts 造案 +2 处/1 文件（doc-status reducer
+  //   装置——resetStore 复位+Q-I 校准点本地漂移构造，sanctioned 例外同模式）→ 240/45。
+  'src/stores/canvasCollabRuntime.quota.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -91,5 +94,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-3 T9（2026-10-11）：canvasCollabRuntime.t9.spec.ts 装置 +3 处/1 文件（resetStore/escapePending
   //   复位——sanctioned 例外同模式）+SyncBanner.test.tsx +12 处/1 文件（分档 UI 测试 store 注入——
   //   setState 是用例的存在目的）→ 238 处 / 44 文件。
-  effective: { count: 238, files: 44 },
+  // Y0b-4 T5（2026-10-11）：canvasCollabRuntime.quota.spec.ts 造案 +2 处/1 文件（doc-status reducer
+  //   装置——resetStore 复位+Q-I 校准点本地漂移构造）→ 240 处 / 45 文件。
+  effective: { count: 240, files: 45 },
 };

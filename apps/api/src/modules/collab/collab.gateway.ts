@@ -207,9 +207,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly recheckRounds = new Map<string, number>();
   private readonly thawCooldown = new Map<string, number>();
   /** doc-status rev（装载播种 1——初值 0 会被客户端 rev 守卫丢首快照；卸载删除=新 epoch 复位） +
-   *  上次广播态（翻转检测——rev 仅状态翻转时 ++）。 */
+   *  上次广播态（翻转检测——T5 起为 {quota 态:writeFrozen} 复合键，rev 仅快照翻转时 ++）。 */
   private readonly docStatusRev = new Map<string, number>();
-  private readonly docStatusState = new Map<string, 'over' | 'ok'>();
+  private readonly docStatusState = new Map<string, string>();
   /** 冻结 doc 重测 timer（独立——禁挂 sweep：SWEEP_ENABLED=false 逃生阀不得静默关掉冻结出口） */
   private frozenRecheckTimer: ReturnType<typeof setInterval> | null = null;
   /** Y0b-4 T4（报告2 D）：进程级测量预算器——≤1 次/200ms+duty≤5%（最近 5s 累计 >250ms 拒） */
@@ -1215,11 +1215,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   private drainAutoReleaseTimer: ReturnType<typeof setTimeout> | null = null;
-  /** SV9：POST /api/drain 动作体——置 draining+冻结既有连接（readOnly+write-frozen 通告）+刷新 60s
+  /** SV9：POST /api/drain 动作体——置 draining+冻结既有连接（readOnly+doc-status 冻结通告）+刷新 60s
    *  deadline（幂等=刷新非 no-op：慢排空部署链续 POST 续窗）。**不触发关停流程**——只停写、等去抖
    *  自然排空；进度=GET /api/ready 的 pending。60s 未收到 SIGTERM 自动解除=对冻结连接 close(CollabCloseCode.APP_RESTART)
-   *  （B12：readOnly 直翻 false 会漏"冻结期客户端单侧编辑"的静默分叉——客户端重连经状态向量自愈；
-   *  write-frozen/resumed 通告归 Y0b）。 */
+   *  （B12：readOnly 直翻 false 会漏"冻结期客户端单侧编辑"的静默分叉——客户端重连经状态向量自愈。
+   *  Y0b-4 T5：冻结/解除通告并入 doc-status〔writeFrozen 维度翻转 rev++〕——遗留 write-frozen
+   *  stateless 消息退役〔census ⑧：服务端清零〕）。 */
   beginDraining(): { draining: boolean; phase: string; autoReleaseAt: number; pending: ReturnType<CollabGateway['computePending']> } {
     if (this.collabState === 'serving') this.transition('draining', 'api-drain');
     // V15：回真实态——非 serving 态（isolated/start-failed/acquiring）置位不生效，draining:false 不对部署链说谎
@@ -1230,7 +1231,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (this.collabState === 'draining') this.transition('serving', 'drain-auto-release');
       // Y0b-4 T4：解除=移除 'draining' 原因（writeFreeze 单源——spool 降级/viewer 连接的其余原因
       // 不被误赦免=H-5 prev 快照语义的集合化继任；drain 期无新连接——auth DRAINING 拒，全量遍历安全）
-      for (const doc of this.server.hocuspocus.documents.values())
+      // Y0b-4 T5：解除改发 doc-status（serving 转移后 writeFrozen 自然回落 false；连接随 1012 关闭，广播=尽力通告）
+      for (const doc of this.server.hocuspocus.documents.values()) {
+        const releasePid = parseProjectId(doc.name);
+        this.broadcastDocStatus(releasePid, this.quotaStateOf(releasePid));
         for (const c of doc.connections.keys()) {
           const conn = c as unknown as CollabConnection;
           try {
@@ -1239,15 +1243,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
             collabWsCloseTotal.inc({ code: String(CollabCloseCode.APP_RESTART), reason: 'drain released' });   // Y0b-3 T6：close 分布面
           } catch { /* 已断 */ }
         }
+      }
       this.logger.warn('drain 60s 未续期——自动解除（冻结连接已 1012 复连；慢排空请部署链周期性续 POST）');
     }, 60_000);
     this.drainAutoReleaseTimer.unref?.();
-    for (const doc of this.server.hocuspocus.documents.values())
-      for (const c of doc.connections.keys()) {
-        const conn = c as unknown as CollabConnection;
-        this.applyWriteFreeze(conn, 'draining', true);   // Y0b-4 T4：冻结层单源（B12 库逐条 update 查 readOnly）
-        try { conn.sendStateless?.(JSON.stringify({ type: 'write-frozen', reason: 'draining' })); } catch { /* Y0b 消费——T5 退役 */ }
-      }
+    // Y0b-4 T5：冻结通告=per-doc doc-status（writeFrozen 维度翻转——broadcastDocStatus 判 {quota 态,writeFrozen} 复合翻转）
+    for (const doc of this.server.hocuspocus.documents.values()) {
+      const pid = parseProjectId(doc.name);
+      this.broadcastDocStatus(pid, this.quotaStateOf(pid));
+      for (const c of doc.connections.keys()) this.applyWriteFreeze(c as unknown as CollabConnection, 'draining', true);   // Y0b-4 T4：冻结层单源（B12 库逐条 update 查 readOnly）
+    }
     return { draining: this.collabState === 'draining', phase: this.collabState, autoReleaseAt, pending: this.computePending() };
   }
   private clearDrainTimer(): void {
@@ -1380,7 +1385,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       return;
     }
     const t0 = Date.now();
-    const measured = this.measureTruth(pid, document);   // null=fail-open（pendingStructs/编码异常）
+    const measured = this.measureTruth(document);   // null=fail-open（pendingStructs/编码异常）
     if (measured !== null) {
       this.truthBudgetRecord(Date.now() - t0);
       collabQuotaTruthMeasuredTotal.inc();
@@ -1417,10 +1422,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** writeFreeze 唯一出口（四点内联=drain begin/end、quota freeze/thaw、sweep 升/降；两点 connected
    *  补推=viewer/spool）。禁绕过本函数直写 conn.readOnly（生产直写仅 connectionConfig 构造期一处）。
-   *  conn-status 推送=每连接冻结变更唯一通告（Q-A v4：per-conn 量不进 per-doc 广播）。 */
+   *  conn-status 推送=每连接冻结变更唯一通告（Q-A v4：per-conn 量不进 per-doc 广播）。
+   *  T4 Minor：入口幂等短路——原因集无净变（add 已在集/del 不在集）直接跳过（sweep 5min 复验对
+   *  已登记 viewer 重发 conn-status 的噪音消除——电平未翻不重推）。 */
   private applyWriteFreeze(conn: CollabConnection, reason: FreezeReason, on: boolean): void {
+    const existing = this.writeFreeze.get(conn);
+    if (on ? existing?.reasons.has(reason) : !existing?.reasons.has(reason)) return;   // 无净变——幂等短路
     const pid = conn.document?.name ? parseProjectId(conn.document.name) : '';
-    const e = this.writeFreeze.get(conn) ?? { pid, reasons: new Set<FreezeReason>() };
+    const e = existing ?? { pid, reasons: new Set<FreezeReason>() };
     if (on) e.reasons.add(reason); else e.reasons.delete(reason);
     if (e.reasons.size === 0) this.writeFreeze.delete(conn); else this.writeFreeze.set(conn, e);
     conn.readOnly = e.reasons.size > 0;   // 库读该属性拦 SyncStep2/Update（readOnly=原因集非空——单一真值）
@@ -1440,7 +1449,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.freezePending.delete(pid);
       const document = this.server.hocuspocus.documents.get(`project:${pid}`);
       if (!document) return;   // 已卸载（afterUnload 已清——防御性）
-      const measured = this.measureTruth(pid, document);
+      const measured = this.measureTruth(document);
       if (measured !== null && measured < Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio)) {
         this.calibrateTruth(pid, measured);   // 误冻结毫秒级归零（truth 校准+冷却基线重置）
         this.broadcastDocStatus(pid, 'ok');
@@ -1453,34 +1462,38 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Q-C：正式冻结——广播 over+setImmediate 落地（quotaFrozenDocs 与全部连接 readOnly 同一
-   *  event-loop-turn：beforeSync 内同帧置 readOnly=触发帧被库静默吞——放行窗边界=one-turn）。 */
+   *  event-loop-turn：beforeSync 内同帧置 readOnly=触发帧被库静默吞——放行窗边界=one-turn）。
+   *  T4 Minor：enter 计数移入回调+回调首行幂等复检——同步窗（add 落地前）二次进入的广播/计数
+   *  双计根治（docStatusState 复合键已天然去重广播，此处补计数）；已卸载=冻结未落地不计数。 */
   private freezeQuota(pid: string): void {
     if (this.quotaFrozenDocs.has(pid)) return;   // 幂等（recheck 复冻/双路径竞态）
     this.broadcastDocStatus(pid, 'over');
     setImmediate(() => {
+      if (this.quotaFrozenDocs.has(pid)) return;   // 同步窗内二次 freezeQuota 已落地——去重
       const document = this.server.hocuspocus.documents.get(`project:${pid}`);
       if (!document) return;   // 已卸载——afterUnload 清理域
       this.quotaFrozenDocs.add(pid);
       for (const c of document.connections.keys()) this.applyWriteFreeze(c as unknown as CollabConnection, 'quota', true);
+      collabQuotaSoftThresholdTotal.inc({ action: 'enter' });
     });
-    collabQuotaSoftThresholdTotal.inc({ action: 'enter' });
   }
 
   /** thaw：解除 quota 冻结+overPush 复位（唯一复位点——freeze 重入不清零）+writeFirstSyncStepFor
-   *  回灌（T0 探针⑧：客户端回 SyncStep2——冻结期被吞编辑由此无损落库）+broadcast(ok)+30s 复冻冷却。 */
+   *  回灌（T0 探针⑧：客户端回 SyncStep2——冻结期被吞编辑由此无损落库）+broadcast(ok)+30s 复冻冷却。
+   *  T4 Minor：document 缺席 early-return——无连接对象时禁前置突变（broadcast('ok') 谎报解冻；
+   *  T8 shrink 通道复用前的防御收口）。 */
   private thawQuota(pid: string): void {
     const name = `project:${pid}`;
     const document = this.server.hocuspocus.documents.get(name);
+    if (!document) return;   // 未装载——无冻结面可解除（quotaFrozenDocs 残留由 recheck/卸载清理收口）
     this.quotaFrozenDocs.delete(pid);
-    if (document) {
-      for (const c of document.connections.keys()) {
-        const conn = c as unknown as CollabConnection;
-        this.applyWriteFreeze(conn, 'quota', false);
-        if (conn.socketId) this.overPush.delete(conn.socketId);
-        try {
-          conn.send?.(new OutgoingMessage(conn.messageAddress ?? name).createSyncMessage().writeFirstSyncStepFor(document).toUint8Array());
-        } catch { /* 已断 */ }
-      }
+    for (const c of document.connections.keys()) {
+      const conn = c as unknown as CollabConnection;
+      this.applyWriteFreeze(conn, 'quota', false);
+      if (conn.socketId) this.overPush.delete(conn.socketId);
+      try {
+        conn.send?.(new OutgoingMessage(conn.messageAddress ?? name).createSyncMessage().writeFirstSyncStepFor(document).toUint8Array());
+      } catch { /* 已断 */ }
     }
     this.broadcastDocStatus(pid, 'ok');
     this.thawCooldown.set(pid, Date.now());
@@ -1501,7 +1514,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     for (const pid of [...this.quotaFrozenDocs]) {
       const document = this.server.hocuspocus.documents.get(`project:${pid}`);
       if (!document) { this.quotaFrozenDocs.delete(pid); continue; }   // 卸载残留（afterUnload 同清——双保险）
-      const measured = this.measureTruth(pid, document);
+      const measured = this.measureTruth(document);
       if (measured === null) continue;   // fail-open deferred——保守保持冻结
       this.calibrateTruth(pid, measured);
       if (measured < Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio)) { this.thawQuota(pid); continue; }
@@ -1512,8 +1525,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** 真值测量（白名单点③——T3 注释的"over 检查〔T4 冷却窗外〕"）：pendingStructs/pendingDs 非空或
-   *  编码异常 → null（fail-open 沿用账面——测量体可能因 defer 状态失真）。 */
-  private measureTruth(pid: string, document: Y.Doc): number | null {
+   *  编码异常 → null（fail-open 沿用账面——测量体可能因 defer 状态失真）。T4 Minor：未用形参 pid 删。 */
+  private measureTruth(document: Y.Doc): number | null {
     try {
       if (document.store.pendingStructs !== null || document.store.pendingDs !== null) return null;
       return Y.encodeStateAsUpdate(document).byteLength;
@@ -1533,11 +1546,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.truthBudgetState.durs.push({ at: Date.now(), ms });
   }
 
+  /** doc 当前 quota 态单源（'over'=冻结集∪确认集）——buildDocStatus 推导/drain 并轨广播取现值共用。 */
+  private quotaStateOf(pid: string): 'over' | 'ok' {
+    return this.quotaFrozenDocs.has(pid) || this.freezePending.has(pid) ? 'over' : 'ok';
+  }
+
   /** doc-status 最小形态（T5 完整化）：rev=装载播种 1+翻转自增；stateOverride=广播时显式态
-   *  （freezeQuota 的 setImmediate 落地窗内集合推导滞后——广播点显式声明）。 */
+   *  （freezeQuota 的 setImmediate 落地窗内集合推导滞后——广播点显式声明）。
+   *  writeFrozen=quota over ∨ gateway 级 drain（两维度独立——drain 冻结不冒充 quota over）。 */
   private buildDocStatus(pid: string, stateOverride?: 'over' | 'ok'): CollabDocStatusPayload {
-    const over: boolean = stateOverride !== undefined ? stateOverride === 'over'
-      : this.quotaFrozenDocs.has(pid) || this.freezePending.has(pid);
+    const over: boolean = stateOverride !== undefined ? stateOverride === 'over' : this.quotaStateOf(pid) === 'over';
     return {
       type: 'doc-status',
       rev: this.docStatusRev.get(pid) ?? DOC_STATUS_REV_SEED,
@@ -1552,10 +1570,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
-  /** doc-status 广播（对该 doc 全部连接 sendStateless）：rev 仅在状态翻转时 ++（重复同态不重播不爬 rev）。 */
+  /** doc-status 广播（对该 doc 全部连接 sendStateless）：rev 仅在快照翻转时 ++（重复同态不重播不爬 rev）。
+   *  翻转面=T5 扩容的 {quota 态, writeFrozen} 复合——drain 冻结/解除不改变 quota 态但翻转 writeFrozen
+   *  （docStatusState 存复合键——quota 单维判会漏 drain 通告=首快照竞态复活）。 */
   private broadcastDocStatus(pid: string, state: 'over' | 'ok'): void {
-    if (this.docStatusState.get(pid) === state) return;
-    this.docStatusState.set(pid, state);
+    const frozen = state === 'over' || this.collabState === 'draining';
+    const key = `${state}:${frozen}`;
+    if (this.docStatusState.get(pid) === key) return;
+    this.docStatusState.set(pid, key);
     this.docStatusRev.set(pid, (this.docStatusRev.get(pid) ?? DOC_STATUS_REV_SEED) + 1);
     const document = this.server.hocuspocus.documents.get(`project:${pid}`);
     if (!document) return;

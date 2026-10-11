@@ -1477,7 +1477,13 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       expect(r.phase).toBe('draining');
       expect(r.pending).toMatchObject({ projects: expect.any(Number) });
       expect(frozen.readOnly).toBe(true);                    // 冻结（B12）
-      expect(frozen.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'write-frozen', reason: 'draining' }));
+      // Y0b-4 T5：write-frozen stateless 退役——冻结通告并入 doc-status（writeFrozen:true+rev++）等价语义
+      const drainNotices = frozen.sendStateless.mock.calls.map((c: any[]) => JSON.parse(c[0]))
+        .filter((m: any) => m?.type === 'doc-status' && m?.writeFrozen === true);
+      expect(drainNotices.length).toBeGreaterThanOrEqual(1);
+      expect(drainNotices[0].rev).toBe(2);                   // 装载播种 1+冻结翻转自增
+      expect(drainNotices[0].quota.state).toBe('ok');        // drain 冻结≠quota over
+      expect(frozen.sendStateless.mock.calls.some((c: any[]) => JSON.parse(c[0])?.type === 'write-frozen')).toBe(false);   // 退役（census ⑧）
       await vi.advanceTimersByTimeAsync(60_000);
       expect(frozen.webSocket.close).toHaveBeenCalledWith(1012, 'drain released');   // 解除=1012 复连
       expect(kit.gateway.getCollabState()).toBe('serving');

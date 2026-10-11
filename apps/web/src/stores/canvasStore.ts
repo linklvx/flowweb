@@ -191,6 +191,21 @@ export interface CanvasState {
   /** Y0b-2 T7（Z55）：写冻结瞬态——canExecute 判据③。置位/清位=Y0b-5 gateway 幂等快照下发
    *  （当前恒 false：gateway 无 resumed 下发+drain 窗口行为登记 T9 残余）。不进快照 */
   writeFrozen: boolean;
+  /** Y0b-4 T5：doc-status 快照族（rev 守卫后覆盖——电平非事件）。collabReadOnly=connReadOnly∨quotaOver∨
+   *  writeFrozen（v5——conn-status 连接级单源，authScope 仅 authenticated 初值）；writeFrozen 只置位
+   *  不复位（复位=重连 authenticated 链路）；lastDocStatusRev 随 authenticated 复位 0（doc 卸载重连
+   *  rev 从 1 重来——防旧值弃新快照）。localDocBytes/localDelta=Q-I 校准点（服务端权威 bytes 覆盖+delta
+   *  清零）。pendingGenerationReload=vacuum 代际（T11 消费——undoManager.clear()+reload）。不进快照 */
+  connReadOnly: boolean;
+  quotaOver: boolean;
+  quotaLimitBytes: number;
+  quotaTxBytes: number;
+  quotaSoftLimitBytes: number;
+  quotaResidueBytes?: number;
+  lastDocStatusRev: number;
+  localDocBytes: number;
+  localDelta: number;
+  pendingGenerationReload: number;
   /** 批1 恢复 UI 分级（批1-1 watchdog 写入）：hint 非阻断、banner 批1-5 SyncBanner 消费——
    *  与 connStatus 正交（指示器 vs 恢复横幅）。不进 history/localStorage 快照 */
   connUi: 'ok' | 'hint' | 'banner';
@@ -607,6 +622,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   connStatus: 'connecting',
   collabEscapePending: false,
   writeFrozen: false,
+  connReadOnly: false,
+  quotaOver: false,
+  quotaLimitBytes: 0,
+  quotaTxBytes: 0,
+  quotaSoftLimitBytes: 0,
+  quotaResidueBytes: undefined,
+  lastDocStatusRev: 0,
+  localDocBytes: 0,
+  localDelta: 0,
+  pendingGenerationReload: 0,
   connUi: 'ok',
   editorDirty: false,
 

@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { register } from 'prom-client';
 import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
-import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
 /** 小值配额（maxDocBytes 8KB/soft 6553；Update 帧闸 2×maxTxBytes=8192） */
 const QUOTA_SMALL = { maxDocBytes: 8192, maxTxBytes: 4096, msgRate: 200, bytesRate: 2_097_152 };
@@ -41,8 +41,7 @@ function connectWithCloseSpy(kit: DualClientKit, name: string) {
 
 /** 白盒冻结（freezeQuota+setImmediate 落地等待——quotaFrozenDocs 与 readOnly 同一 setImmediate） */
 async function freezeDoc(gw: any, pid: string): Promise<void> {
-  const doc = gw.server.hocuspocus.documents.get(`project:${pid}`);
-  gw.freezeQuota(pid, doc);
+  gw.freezeQuota(pid);
   await new Promise<void>((r) => setImmediate(() => r()));
 }
 
@@ -339,6 +338,72 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const over = stateless.find((m) => m?.type === 'doc-status' && m?.quota?.state === 'over');
       expect(over.rev).toBe(2);                              // 复位后自增——新 epoch 从 1 起步
       expect(over.writeFrozen).toBe(true);
+    } finally { await kit.dispose(); }
+  }, 30_000);
+});
+
+describe('Y0b-4 T5 connected 双补推+beginDraining 并轨 doc-status（rev 生命周期）', () => {
+  it('connected 即时补推：连接建立 <500ms 收到 doc-status+conn-status 双补推（VIEWER——探针②竞态废除，Q-A v5）', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+    try {
+      kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });
+      let openedAt = 0;
+      const arrivals: { msg: any; at: number }[] = [];
+      const entry = kit.connect('project:qpush', 'tok', {
+        onSocket: (ws) => { ws.once('open', () => { openedAt = Date.now(); }); },
+      });
+      entry.provider.on('stateless', ({ payload }: { payload: string }) => {
+        arrivals.push({ msg: JSON.parse(payload), at: Date.now() });
+      });
+      await entry.synced;
+      kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
+      const docAt = arrivals.find((a) => a.msg?.type === 'doc-status');
+      const connAt = arrivals.find((a) => a.msg?.type === 'conn-status');
+      expect(docAt).toBeTruthy();                                        // doc-status 即时补推（rev 不自增=装载播种 1）
+      expect(docAt!.msg.rev).toBe(1);
+      expect(docAt!.at - openedAt).toBeLessThan(500);                    // 探针②竞态废除——首快照不依赖首次翻转
+      expect(connAt).toBeTruthy();                                      // conn-status 双补推（viewer 意图登记同点）
+      expect(isCollabConnStatusPayload(connAt!.msg)).toBe(true);
+      expect(connAt!.msg.readOnly).toBe(true);
+      expect(connAt!.at - openedAt).toBeLessThan(500);
+    } finally { await kit.dispose(); }
+  }, 30_000);
+
+  it('beginDraining 改发 doc-status（writeFrozen:true+rev++，quota.state 不变）——type:write-frozen 退役（census ⑧：服务端清零）', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+    try {
+      const g = kit.gateway as any;
+      const A = kit.connect('project:qdr');
+      await A.synced;
+      const stateless: any[] = [];
+      A.provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(JSON.parse(payload)));
+      const rev0 = g.docStatusRev.get('qdr');                           // 装载播种 1
+      const r = kit.gateway.beginDraining();
+      expect(r.draining).toBe(true);
+      await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.writeFrozen === true), 3_000);
+      const frozen = stateless.find((m) => m?.type === 'doc-status' && m?.writeFrozen === true);
+      expect(isCollabDocStatusPayload(frozen)).toBe(true);
+      expect(frozen.rev).toBe(rev0 + 1);                                // 翻转自增（writeFrozen 维度翻转）
+      expect(frozen.quota.state).toBe('ok');                            // drain 冻结≠quota over（两维度独立）
+      expect(stateless.some((m) => m?.type === 'write-frozen')).toBe(false);   // 退役——生产 stateless 产生清零
+    } finally { await kit.dispose(); }
+  }, 30_000);
+
+  it('快照无 readOnly 字段+quota 五键含 maxTxBytes+softLimitBytes（Q-A v5——与 T1 键集断言逐字一致）+顶层可选 generation（有则合法——T9a 产生）', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+    try {
+      const A = kit.connect('project:qshape');
+      const stateless: any[] = [];
+      A.provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(JSON.parse(payload)));
+      await A.synced;
+      const snap = stateless.find((m) => m?.type === 'doc-status');
+      expect(snap).toBeTruthy();                                        // connected 补推（首快照=装载播种 rev 1）
+      expect(Object.keys(snap)).not.toContain('readOnly');              // per-conn 量不进 per-doc 广播（Q-A v4）
+      expect(Object.keys(snap.quota).sort()).toEqual(['bytes', 'limit', 'maxTxBytes', 'softLimitBytes', 'state']);   // 五键
+      expect(snap.quota.limit).toBe(QUOTA_SMALL.maxDocBytes);
+      expect(snap.quota.maxTxBytes).toBe(QUOTA_SMALL.maxTxBytes);
+      expect(snap.quota.softLimitBytes).toBe(SOFT);
+      expect(isCollabDocStatusPayload({ ...snap, generation: 7 })).toBe(true);   // 顶层可选 generation——T9a 产生即合法
     } finally { await kit.dispose(); }
   }, 30_000);
 });

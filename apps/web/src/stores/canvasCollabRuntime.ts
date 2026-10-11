@@ -8,7 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode } from './nodeStore';
@@ -117,6 +117,13 @@ let terminalSuppressed = false;
 // Y0b-3 T9（S-4）：4401 'session-expired'（sweep）静默续期额度——一次，authenticated 事件重置
 //（每次成功认证重发一次额度；不重置=数小时后再次过期直接落终态本可再续）。
 let silentRenewUsed = false;
+// Y0b-4 T5（Q-A v5）：连接级只读真值 connReadOnly——authenticated 按 scope 播种（首推前 VIEWER
+// 不 fail-open），conn-status 到达后覆盖（连接级单源）。connScope 仅诊断信息（日志/diag——不参与
+// readOnly 判定，报告3 一致性 6）。lastGeneration=vacuum 代际基线（跳变检测——T11 消费）。
+// 三者随 initCollab 会话复位（不跨会话携带）。
+let connScope: string | null = null;
+let connReadOnly = false;
+let lastGeneration: number | undefined;
 // Y0b-3 T9（P-C）：版本族终态（reload 自愈档）——shared COLLAB_VERSION_TERMINAL_REASONS 单源
 //（评审 M-1：与 SyncBanner VERSION_FAMILY 原两处本地表合一）；server-outdated 是瞬态档（reload
 // 无效——shared M-4）不在表内。
@@ -873,7 +880,7 @@ const LOCAL_ORIGINS = [Origin.LocalUser, Origin.Geometry];
 
 /** 批1-3：六监听单函数（契约锁㉔——provider.destroy 是 removeAllListeners+awareness.destroy，
  *  终态重建后必须重挂；initCollab 与终态重建共用同一函数）。七事件：status/authenticated/
- *  synced/message/close/unsyncedChanges/stateless（Y0b-3 T9 增第七监听 write-frozen 通告）。
+ *  synced/message/close/unsyncedChanges/stateless（Y0b-3 T9 增第七监听；Y0b-4 T5 起消费 conn-status/doc-status 双型）。
  *  事件接线（批0a）：代际跃迁在此——离开 connected ⇒ 旧 attempt 的入站不再计入新 attempt
  *  （防 4408 形态首帧早宣：库自发强关不发 close，provider 布尔陈旧 true，唯代际判据挡得住）；
  *  'connecting' 边沿重置关死"旧 socket 迟到帧写入新代际"竞态。connStatus 一律走唯一写点。 */
@@ -890,25 +897,53 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     recomputeConnStatus();
   });
   p.on('authenticated', ({ scope }: any) => {
-    // 批2-1 粘滞权威覆盖（v5.4）：authenticated 是 collabReadOnly 唯一授权写点——
-    // read-write 解除只读；readonly/未知 scope 置回（fail-closed）。onClose 不清（断连窗口
-    // 编辑经 messageQueue 合并——回收会造成重连后 NACK 静默回退）
-    useCanvasStore.setState({ collabReadOnly: scope !== 'read-write', writeFrozen: false }); // T9：重连认证成功=非 drain（新连接被 DRAINING 门拒）——write-frozen 清零自愈
+    // Y0b-4 T5（Q-A v5）：connReadOnly 初值=scope（首推前 VIEWER 不 fail-open——conn-status 到达后
+    // 覆盖为连接级单源）；connScope 仅诊断。批2-1 粘滞语义保留：read-write 解除/readonly 置回
+    // （onClose 不清——断连窗口编辑经 messageQueue 合并，回收会造成重连后 NACK 静默回退）。
+    connScope = scope ?? null;
+    connReadOnly = scope !== 'read-write';
+    useCanvasStore.setState((s) => ({
+      connReadOnly,
+      collabReadOnly: connReadOnly || s.quotaOver,
+      // T9：重连认证成功=非 drain（新连接被 DRAINING 门拒）——writeFrozen 清零自愈；
+      // T5：lastDocStatusRev 复位 0（rev 生命周期绑定连接——doc 卸载重连 rev 从 1 重来，防旧值弃新快照）
+      writeFrozen: false,
+      lastDocStatusRev: 0,
+    }));
     silentRenewUsed = false; // T9（S-4）：每次成功认证重置一次静默续期额度
     recomputeConnStatus();
   });
   p.on('synced', () => recomputeConnStatus());
   p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
-  // Y0b-3 T9（P-S）：write-frozen 通告（gateway beginDraining sendStateless）——writeFrozen 电平
-  // 置位（canExecute 判据③；canEdit 面由服务端 readOnly 双保险）。恢复=drain 解除 1012 重连
-  // authenticated 清零（既有链路，零新恢复逻辑）。stateless 是通用通告通道——非本协议消息静默忽略。
+  // Y0b-4 T5：stateless 双型消费——conn-status（每连接推送——连接级 readOnly 真值）与 doc-status
+  // （per-doc 幂等快照——rev 单调守卫后覆盖，电平非事件）。write-frozen 通告已退役（服务端并入
+  // doc-status 的 writeFrozen 维度）；stateless 通用通告通道的其余消息（persist-status 等）静默透传。
   p.on('stateless', ({ payload }: any) => {
     try {
       const msg = JSON.parse(payload);
-      if (msg?.type === 'write-frozen') {
-        recordCollabDiag('write_reject', { reason: msg.reason });
-        useCanvasStore.setState({ writeFrozen: true });
+      if (isCollabConnStatusPayload(msg)) {
+        connReadOnly = msg.readOnly;
+        const st = useCanvasStore.getState();
+        useCanvasStore.setState({ connReadOnly, collabReadOnly: msg.readOnly || st.quotaOver || st.writeFrozen });
+        return;
       }
+      if (!isCollabDocStatusPayload(msg)) return;
+      const st = useCanvasStore.getState();
+      if (msg.rev <= st.lastDocStatusRev) return;   // rev 单调守卫——乱序/重复/迟到旧快照全免疫
+      const quotaOver = msg.quota.state === 'over';
+      useCanvasStore.setState({
+        lastDocStatusRev: msg.rev,
+        quotaOver, quotaSoftLimitBytes: msg.quota.softLimitBytes,
+        quotaResidueBytes: msg.quota.residueBytes ?? undefined,
+        quotaLimitBytes: msg.quota.limit, quotaTxBytes: msg.quota.maxTxBytes,
+        localDocBytes: msg.quota.bytes, localDelta: 0,   // 权威覆盖（Q-I 校准点）
+        collabReadOnly: connReadOnly || quotaOver || msg.writeFrozen,   // v5：conn-status 连接级单源；authScope 仅初值
+        ...(msg.writeFrozen ? { writeFrozen: true } : {}),   // 只置位（复位=重连 authenticated 链路）
+        ...(msg.generation !== undefined && msg.generation !== lastGeneration
+          ? { pendingGenerationReload: msg.generation } : {}),   // vacuum 代际跳变——T11 消费
+      });
+      if (msg.generation !== undefined) lastGeneration = msg.generation;   // 基线随守卫内快照推进（旧快照不污染）
+      if (quotaOver) recordCollabDiag('write_reject', { reason: 'quota-soft' });
     } catch { /* 坏 JSON——非本协议通告 */ }
   });
   // Y0b-3 T9：鉴权拒绝唯一生产写点（改前声明+消费在、写入侧缺失）——reason 分型终态/瞬态
@@ -1025,8 +1060,13 @@ export async function initCollab(projectId: string): Promise<void> {
   // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）；
   // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户；
   // T9：wsAuthNotice/writeFrozen/collabEscapePending 同点复位（上一会话终态/冻结/逃生不跨会话）
+  // Y0b-4 T5：doc-status 快照族同点复位（rev/over/五键/校准点/代际——上一会话配额态不跨会话）
   useCanvasStore.getState().setHydration('pending');
-  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false });
+  useCanvasStore.setState({
+    collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
+    connReadOnly: false, quotaOver: false, quotaLimitBytes: 0, quotaTxBytes: 0, quotaSoftLimitBytes: 0,
+    quotaResidueBytes: undefined, lastDocStatusRev: 0, localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0,
+  });
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
   attemptId = 0;
@@ -1034,6 +1074,9 @@ export async function initCollab(projectId: string): Promise<void> {
   plannedRestartUntil = 0; // 批1-2：计划内重启窗口会话起点复位（旧会话窗口不跨会话）
   terminalSuppressed = false; // T9：terminal 电平会话起点复位（新会话=新额度——复发防线只锁本会话）
   silentRenewUsed = false;    // T9：静默续期额度会话起点复位
+  connScope = null;           // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
+  connReadOnly = false;
+  lastGeneration = undefined;
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });

@@ -219,8 +219,14 @@ describe('T9 Step1：真停连输出级锚+退避所有权（fake timers——co
   });
 });
 
-// ══════════ Step 3：write-frozen（P-S） ══════════
-describe('T9 Step3：onStateless write-frozen→writeFrozen 电平（canExecute=false）', () => {
+// ══════════ Step 3：write-frozen（P-S；Y0b-4 T5 起通告载体=doc-status writeFrozen 维度） ══════════
+describe('T9 Step3：onStateless doc-status writeFrozen→writeFrozen 电平（canExecute=false）', () => {
+  /** Y0b-4 T5：write-frozen stateless 已退役——本族红改为 doc-status 等价语义（断言保留） */
+  const drainFreeze = (rev = 1) => JSON.stringify({
+    type: 'doc-status', rev, writeFrozen: true,
+    quota: { state: 'ok', bytes: 1, limit: 10, maxTxBytes: 4, softLimitBytes: 8 },
+  });
+
   beforeEach(() => {
     Mocks.instances.length = 0;
     _resetCollabDiagForTest();
@@ -230,11 +236,16 @@ describe('T9 Step3：onStateless write-frozen→writeFrozen 电平（canExecute=
     await runtime.destroyCollab();
   });
 
-  it('收 write-frozen 通告→writeFrozen=true+canExecute=false+write_reject diag', async () => {
+  it('收冻结通告（doc-status writeFrozen:true）→writeFrozen=true+canExecute=false+quota-soft arm 记 write_reject diag', async () => {
     const p = await driveToSynced();
-    p.emit('stateless', { payload: JSON.stringify({ type: 'write-frozen', reason: 'draining' }) });
+    p.emit('stateless', { payload: drainFreeze() });   // drain 冻结（quota ok）
     expect(useCanvasStore.getState().writeFrozen).toBe(true);
     expect(canExecute(useCanvasStore.getState())).toBe(false);
+    // diag 等价语义改由 quota over arm 承接（drain 无 write_reject——通告退役后 reason 字段消失）
+    p.emit('stateless', { payload: JSON.stringify({
+      type: 'doc-status', rev: 2, writeFrozen: true,
+      quota: { state: 'over', bytes: 9, limit: 10, maxTxBytes: 4, softLimitBytes: 8 },
+    }) });
     expect(getCollabDiagCounters().get('write_reject')).toBe(1);
   });
 
@@ -247,7 +258,7 @@ describe('T9 Step3：onStateless write-frozen→writeFrozen 电平（canExecute=
 
   it('恢复：drain 解除→1012 短退避重连→authenticated 清零 writeFrozen（复用既有链路零新恢复逻辑）', async () => {
     const p = await driveToSynced();
-    p.emit('stateless', { payload: JSON.stringify({ type: 'write-frozen', reason: 'draining' }) });
+    p.emit('stateless', { payload: drainFreeze() });
     expect(useCanvasStore.getState().writeFrozen).toBe(true);
     p.emit('close', { event: { code: 1012 } });          // drain 解除=1012（gateway 既有）
     p.emit('authenticated', { scope: 'read-write' });    // 重连认证成功
