@@ -503,3 +503,21 @@ export const yjsOutboundBacklogBytes = new Histogram({
   buckets: [16 * 1024, 64 * 1024, 256 * 1024, 1_048_576, 2_097_152, 4_194_304, 8_388_608, 16_777_216],
   registers: [register],
 });
+
+/** ===== Y0b-4 T8（spec §5.2/Q-G）：shrink 审计四档+同步段时长直方图 ===== */
+
+/** shrink 结果四档：ok=删成达标 / recalibrated=纯校准（含空体）/ still-over=预演超限未写活 doc
+ *  （422 同点计数）/ noop=显式空 delete 集。 */
+export const collabDocShrinkTotal = new Counter({
+  name: 'collab_doc_shrink_total',
+  help: 'doc shrink 结果四档（result=ok 删成达标/recalibrated 纯校准/still-over 预演超限未写活 doc/noop 空 delete 集）',
+  labelNames: ['result'],
+  registers: [register],
+});
+/** shrink 同步段耗时（读+影子预演+删+活文档再编码——不含信号量排队等待；8MB 标定的输入）。 */
+export const collabDocShrinkDuration = new Histogram({
+  name: 'collab_doc_shrink_duration_seconds',
+  help: 'shrink 同步段耗时秒（读+预演+删+再编码——不含信号量排队；8MB doc 全量编码 ~50-100ms/次为标定输入）',
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+  registers: [register],
+});

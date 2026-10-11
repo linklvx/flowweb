@@ -76,6 +76,8 @@ const INLINE_BASELINE = new Set<string>([
   /* Y0b-2 T7：四受理端点 body 增 stateVector: string（SV 支配门随 body——SV 请求头退役）——同"搬运=重审"，条数不增 */
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; regenToken?: string; stateVector: string }',
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; regenToken?: string; stateVector: string }',
+  /* Y0b-4 T8：shrink 端点（body 校验在 service——全仓无全局 ValidationPipe，execution.controller 同惯例） */
+  'modules/collab/collab-doc.controller.ts|body: { deleteNodeIds?: string[]; keepNodeIds?: string[]; recalibrate?: boolean }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; regenToken?: string; stateVector: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',

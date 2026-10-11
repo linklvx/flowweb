@@ -412,6 +412,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       maxUnauthenticatedQueueMessages: 256, // §3.1bis 4 pre-auth 三 pin（库默认 1e3）
       maxUnauthenticatedQueueSize: 1024 * 1024, // 库默认 5MiB
       maxPendingDocuments: 100, // 库默认即同值——显式 pin 防升级翻转（P24 先例）
+      // Y0b-4 T8（spec §4.1④/裁定 21）：gc pin——瘦身语义前提（gc:false=删除不收壳=Yjs 删除后
+      // 编码字节不回落=瘦身静默失效）。库默认即 true——显式声明防升级翻转（P24 文档锚先例）。
+      yDocOptions: { gc: true, gcFilter: () => true },
     });
     // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
     // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
@@ -1347,9 +1350,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Y0b-4 T3：真值校准单点（compact 成功+pending 空 / T8 shrink 校准复用）——truth 覆写+delta
-   *  归零+冷却窗基线重置。未装载/已清理（无 docTruth 键）不复活条目——afterUnloadDocument 清理语义保持。 */
-  private calibrateTruth(projectId: string, bytes: number): void {
+  /** Y0b-4 T8：配额只读出口——shrink service 消费（实例级构造注入覆盖 env 默认后的单源读点，
+   *  防 service 侧自读 env 与 gateway 注入值漂移）。 */
+  get activeQuota(): QuotaConfig {
+    return this.quota;
+  }
+
+  /** Y0b-4 T3：真值校准单点（compact 成功+pending 空 / T8 shrink 校准复用——T8 起公共方法）——
+   *  truth 覆写+delta 归零+冷却窗基线重置。未装载/已清理（无 docTruth 键）不复活条目——
+   *  afterUnloadDocument 清理语义保持。 */
+  calibrateTruth(projectId: string, bytes: number): void {
     if (!this.docTruth.has(projectId)) return;
     this.docTruth.set(projectId, bytes);
     this.docDelta.set(projectId, 0);
@@ -1586,8 +1596,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** thaw：解除 quota 冻结+overPush 复位（唯一复位点——freeze 重入不清零）+writeFirstSyncStepFor
    *  回灌（T0 探针⑧：客户端回 SyncStep2——冻结期被吞编辑由此无损落库）+broadcast(ok)+30s 复冻冷却。
    *  T4 Minor：document 缺席 early-return——无连接对象时禁前置突变（broadcast('ok') 谎报解冻；
-   *  T8 shrink 通道复用前的防御收口）。 */
-  private thawQuota(pid: string): void {
+   *  T8 shrink 通道复用前的防御收口）。Y0b-4 T8 起公共方法（shrink 滞回出口复用——阈值判定在
+   *  调用方：truth<softExit 才 thaw，与 recheckFrozenDocs 同判据形态）。 */
+  thawQuota(pid: string): void {
     const name = `project:${pid}`;
     const document = this.server.hocuspocus.documents.get(name);
     if (!document) return;   // 未装载——无冻结面可解除（quotaFrozenDocs 残留由 recheck/卸载清理收口）
