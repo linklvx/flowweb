@@ -1684,7 +1684,7 @@ it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——
   4. 部署窗口语义：**已打开的旧 bundle 会话全部进版本终态拒绝**（CLIENT_VERSION_MISSING 档——fail-closed §9.1 既定非风险）——建议低峰部署；
   5. nginx/ecosystem 零变更（access_log off+X-Real-IP 已在；access_log/no-store 断言已进 deploy 服务器侧校验链）；
   6. 部署后冒烟：伪造 Origin 握手 4xx+`collab_upgrade_rejected_total` 可见+`collab_overload_state{state="ok"}`=1+ready 含 collabProtocolVersion（200/503 双分支）+`collab_ws_close_total` 可见。
-  7. runbook 巡检登记（v3.1 F7——"可观测"变"会被发现"的最后一步；spec §5.8 巡检脚本+结构化日志口径）：`collab_load_rejected_total` 持续非零（>0 连续 5min→heap 处置行）/`collab_auth_reject_total{reason="db-unavailable"}` 突增（→PG/池排查）/`yjs_doc_stuck_total`>0（→观测确认，不手动卸载）/`collab_ws_close_total` 分布漂移（4402/1012 占比异常→寿命/drain 频度核对）/`collab_awareness_reject_total{reason="owner-limit"}`>0（→单连接 clientId 泄漏，客户端版本核对）。
+  7. runbook 巡检登记（v3.1 F7——"可观测"变"会被发现"的最后一步；spec §5.8 巡检脚本+结构化日志口径）：`collab_load_rejected_total` 持续非零（>0 连续 5min→heap 处置行）/`collab_auth_reject_total{reason="db-unavailable"}` 突增（→PG/池排查）/`yjs_doc_stuck_total`>0（→观测确认，不手动卸载）/`collab_ws_close_total` 分布漂移（4402/1012 占比异常→寿命/drain 频度核对）/`collab_awareness_reject_total{reason="owner-limit"}`>0（→单连接 clientId 泄漏，客户端版本核对）/**ghost（T10 评审 I-1/M-1 一并落——T11 已补）：正常基线=每入站 awareness 帧恒剔 1 条 scratch 幽灵（≈帧率 ~4/min/连接，随帧率线性）；×2/帧且伴 4408 上涨=客户端非空态播种退化（真身空态帧被同判据误杀→30-45s 重连循环）；部署窗口旧 bundle 短暂 ×2 后回落（版本门兜住）**。
 
 - [ ] **Step 6: commit+【用户确认点】**：`docs(y0b-3): T11 出口汇聚——verify 三连+census 五组+重连演练+spec §0.4〔预登记 16 条回填〕/v8 回填+部署清单`
 

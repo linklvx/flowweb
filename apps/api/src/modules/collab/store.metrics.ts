@@ -96,7 +96,10 @@ export const collabVersionNegotiationRejectTotal = new Counter({
 });
 /** Y0b-3 T7（spec §3.3）：awareness states 三分支丢弃计数——reason=forged（他人登记 clientId 的伪造帧
  *  整体丢弃）/owner-limit（单连接 clientId 上限 4 触发丢弃）/ghost（空态首见帧剔除——T10 补：
- *  scratch 幽灵与真身空态帧同判据，ghost 异常增高=客户端非空态播种退化信号）。S-3："用户光标消失"
+ *  scratch 幽灵与真身空态帧同判据，ghost 异常增高=客户端非空态播种退化信号）。
+ *  ghost 判读基线（T11 巡检口径）：正常=每入站 awareness 帧恒剔 1 条 scratch 幽灵（≈帧率 ~4/min/连接，
+ *  随帧率线性）；退化=恒 ×2/帧且伴 4408 上涨（真身空态帧被同判据误杀→客户端 30-45s 重连循环）；
+ *  部署窗口旧 bundle 短暂 ×2 后回落（版本门兜住→reload 自愈）。S-3："用户光标消失"
  *  类故障的可观测出口（owner-limit>0=单连接 clientId 泄漏，客户端版本核对——runbook 巡检项）。 */
 export const collabAwarenessRejectTotal = new Counter({
   name: 'collab_awareness_reject_total',

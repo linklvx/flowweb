@@ -38,8 +38,10 @@ export interface DualClientKit {
   /** Y0a-2：spool 实例（BOI 用例/降级用例的帧断言与白盒注入面） */
   spool: CollabSpoolService;
   /** T1.5：token 语义=cookie 值（`flowweb.session_token=${token}`），URL 无 query。
-   *  T10：opts.onSocket——socket 构造回调（重连检测=构造计数，重连路径必经新构造）。 */
-  connect(name: string, token?: string, opts?: { origin?: string; onSocket?: (ws: WebSocket) => void }): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
+   *  T10：opts.onSocket——socket 构造回调（重连检测=构造计数，重连路径必经新构造）。
+   *  T11：opts.extraHeaders——追加 ws 头（重连风暴演练按生产拓扑逐客户端 X-Real-IP——
+   *  COLLAB_TRUSTED_PROXY='1' 下限流键=该值，单桶 burst 20 不拦 N>20 同 tick 握手）。 */
+  connect(name: string, token?: string, opts?: { origin?: string; onSocket?: (ws: WebSocket) => void; extraHeaders?: Record<string, string> }): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> };
   /** 用例自管 destroy 后调——从 dispose 清理数组移除（双 destroy 是本仓已知 flaky 源，惯例同 collab.gateway.spec.ts:262） */
   forget(provider: HocuspocusProvider): void;
   dispose: () => Promise<void>;
@@ -95,7 +97,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     permSvc,
     spool: spoolSvc,
     // T1.5：注入式 ws（Origin+Cookie header）——URL 无 query token（cookie 通道承载原 token 语义）
-    connect(name: string, token = 'tok', opts: { origin?: string; onSocket?: (ws: WebSocket) => void } = {}) {
+    connect(name: string, token = 'tok', opts: { origin?: string; onSocket?: (ws: WebSocket) => void; extraHeaders?: Record<string, string> } = {}) {
       const ydoc = new Y.Doc();
       // T1.5 评审小修：`|| undefined` 后置——COLLAB_ALLOWED_ORIGINS='' 时 split(',')[0]='' 穿透为 Origin 空头
       const origin = opts.origin ?? (process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] || undefined) ?? 'http://localhost:5173';
@@ -103,7 +105,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
         url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒；csv 单源防 bump 漂移）
         name,
         document: ydoc,
-        WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}` }, opts.onSocket),
+        WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}`, ...opts.extraHeaders }, opts.onSocket),
         // WebSocketPolyfill 运行时透传支持、顶层 HocuspocusProviderConfiguration 未声明（先例 ws-polyfill.gate.spec:47）
       } as any);
       providers.push(provider);
