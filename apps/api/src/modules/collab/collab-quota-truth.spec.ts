@@ -201,25 +201,36 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     expect((gateway as any).degradedDocs.has('p1')).toBe(true);
   });
 
-  it('卸载守卫：库取消卸载（documents 仍持有 doc）时 truth 族条目保留；真卸载才删（I-1 同款）', async () => {
+  it('卸载清理归位（I-1 修复）：取消卸载（beforeUnload 钩子窗）四件套保留；真卸载（afterUnloadDocument）清理+gauge 回落', async () => {
+    // 装置：deferred 构造（依赖缺失行）——四件套全真路径播种（truth/delta/measuredAt+degraded 标记）
     const src = new Y.Doc();
-    src.getMap('g').set('live', 'a'.repeat(10_000));
-    const { gateway } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, { maxDocBytes: 1 * MiB });
+    const m = src.getMap('m');
+    m.set('k', 'v');
+    const sv1 = Y.encodeStateVector(src);
+    m.set('k2', 'v2');
+    const u2 = Buffer.from(Y.encodeStateAsUpdate(src, sv1));
+    const { gateway } = buildGateway({ state: null, updates: [u2] }, { maxDocBytes: 1 * MiB });
     const document = await loadDoc(gateway);
     const name = 'project:p1';
-    // ① 库钩子后复检取消卸载——doc 存活（复用 doc 不重跑 loadDocument=truth 族必须延续）
-    (gateway.server.hocuspocus.documents as Map<string, unknown>).set(name, document);
+    const gauge: any = register.getSingleMetric('yjs_loaded_doc_bytes');
+    const read = async () => (await gauge.get()).values[0]?.value ?? 0;
+    // ① 取消卸载：库时序=beforeUnload 钩子后复检 return（esm:1586-1589）——钩子窗内不得清理（复用 doc
+    //    不重跑 loadDocument，truth 族必须延续）。旧实现的 !documents.get 守卫在本窗恒 false=死路径，
+    //    四件套永不清理（gauge 随进程寿命漂移=红相）
     await (gateway as any).unloadDocument({ document, documentName: name });
     expect((gateway as any).docTruth.has('p1')).toBe(true);
     expect((gateway as any).docDelta.has('p1')).toBe(true);
     expect((gateway as any).truthMeasuredAt.has('p1')).toBe(true);
-    // ② 真卸载（documents 无该键）→ 条目清理（防 Map 无界）
-    (gateway.server.hocuspocus.documents as Map<string, unknown>).delete(name);
-    await (gateway as any).unloadDocument({ document, documentName: name });
+    expect((gateway as any).degradedDocs.has('p1')).toBe(true);
+    expect(await read()).toBeGreaterThan(0);   // gauge 仍反映当前装载 doc
+    // ② 真卸载：库 documents.delete+destroy（esm:1590-1591）之后才调 afterUnloadDocument（esm:1592）
+    //    ——必然真卸载无需守卫；直构形态直接调 gateway 钩子函数
+    await gateway.hooks.afterUnloadDocument({ instance: gateway.server.hocuspocus, documentName: name });
     expect((gateway as any).docTruth.has('p1')).toBe(false);
     expect((gateway as any).docDelta.has('p1')).toBe(false);
     expect((gateway as any).truthMeasuredAt.has('p1')).toBe(false);
     expect((gateway as any).degradedDocs.has('p1')).toBe(false);
+    expect(await read()).toBe(0);              // Σ(truth+delta) 回落——容量观测面不随进程寿命漂向"Σ曾装载"
   });
 
   it('yjs_loaded_doc_bytes=Σ(truth+delta)（插值上界口径——delta 写入即时可见）', async () => {

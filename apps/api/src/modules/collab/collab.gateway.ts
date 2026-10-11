@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional, Inject, OnApplicationShutdown, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, beforeHandleAwarenessPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
+import type { afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { createHash } from 'node:crypto';
 import type { ProjectRole } from '@prisma/client';
@@ -128,7 +128,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  docTruth=实测编码真值（单变量；测量点白名单：装载 cheap 播种/付费实测、compact pending 空校准、
    *  shrink 预演〔T8〕、over 检查〔T4 冷却窗外〕）；docDelta=自上次实测的增量累加（触发器非真值——
    *  update 监听唯一写者）；truthMeasuredAt=冷却窗基线（TRUTH_COOLDOWN_MS）；degradedDocs=装载
-   *  pendingStructs/pendingDs 非空的降级 doc（快照/健康面可见——Q-O）。清理=卸载守卫+projectsGone。 */
+   *  pendingStructs/pendingDs 非空的降级 doc（快照/健康面可见——Q-O）。清理=afterUnloadDocument+projectsGone。 */
   private readonly docTruth = new Map<string, number>();
   private readonly docDelta = new Map<string, number>();
   private readonly truthMeasuredAt = new Map<string, number>();
@@ -227,6 +227,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     beforeHandleAwareness: (p: beforeHandleAwarenessPayload) => Promise<any>;
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
     beforeUnloadDocument: (p: beforeUnloadDocumentPayload) => Promise<void>;
+    afterUnloadDocument: (p: afterUnloadDocumentPayload) => Promise<void>;
     onUpgrade: (p: onUpgradePayload) => Promise<void>;
   };
 
@@ -273,6 +274,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       beforeHandleAwareness: (p) => { this.guardAwareness(p); return Promise.resolve(); },   // Y0b-3 T7：states 三分支覆写（同步体——async 仅为满足库 hook 签名）
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
+      afterUnloadDocument: (p) => this.afterUnloadDocument(p),   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）
       onUpgrade: async (p) => this.handleUpgrade(p),   // Y0b-3 T2：Origin 403+升级限流（§3.1ter——socket 直写形态；async 仅为满足库 hook 签名，同步体全吞不 reject）
     };
     const debounceMs = resolveCollabDebounce(debounce);
@@ -302,6 +304,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       beforeHandleAwareness: this.hooks.beforeHandleAwareness,   // Y0b-3 T7：awareness states 三分支覆写钩子接线（scratch Map 改写=重编码广播——esm:197-207）
       onDisconnect: this.hooks.onDisconnect,
       beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
+      afterUnloadDocument: this.hooks.afterUnloadDocument,   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理钩子接线（v4.6.0 Server 配置）
       onUpgrade: this.hooks.onUpgrade,   // Y0b-3 T2：Origin 403+升级限流钩子接线（hook resolve 后库才 crossws.handleUpgrade）
       // Y0a-3 T5/T6：跨实例扩展挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
       // 消息同步退役；其固定断开延迟借道语义随之消失，service 本体已删）。
@@ -1219,7 +1222,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Y0b-4 T3：真值校准单点（compact 成功+pending 空 / T8 shrink 校准复用）——truth 覆写+delta
-   *  归零+冷却窗基线重置。未装载/已清理（无 docTruth 键）不复活条目——卸载守卫语义保持。 */
+   *  归零+冷却窗基线重置。未装载/已清理（无 docTruth 键）不复活条目——afterUnloadDocument 清理语义保持。 */
   private calibrateTruth(projectId: string, bytes: number): void {
     if (!this.docTruth.has(projectId)) return;
     this.docTruth.set(projectId, bytes);
@@ -1506,15 +1509,23 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       //（mutex 锁定/连接>0 时取消卸载 doc 存活），此时重连复用 doc 不重跑 loadDocument=条目不重建，
       // 每条 update 命中 !q 丢弃=活编辑静默蒸发窗（X17 与库取消卸载语义的交织）。
       if (q2 && q2.length === 0 && !this.server.hocuspocus.documents.get(documentName)) this.pendingQueues.delete(projectId);
-      // Y0b-4 T3：truth 族+降级标记清理带同款守卫（I-1）——库取消卸载时 doc 存活复用（不重跑
-      // loadDocument），truth/delta 必须延续；真卸载才删（防 Map 无界）。
-      if (!this.server.hocuspocus.documents.get(documentName)) {
-        this.docTruth.delete(projectId);
-        this.docDelta.delete(projectId);
-        this.truthMeasuredAt.delete(projectId);
-        this.degradedDocs.delete(projectId);
-      }
     }
+  }
+
+  /** Y0b-4 T3 外审修复（I-1）：真卸载终态清理钩子——truth 四件套（docTruth/docDelta/truthMeasuredAt/
+   *  degradedDocs）归此点。库时序（hocuspocus-server.esm.js v4.6.0:1574-1601，已实证）：beforeUnloadDocument
+   *  钩子窗内 doc 恒在 documents Map（删键 L1590 在钩子之后），且钩子后另有复检取消（L1586-1589 两处
+   *  return 不达本钩子）——故在 beforeUnload 内以 `!documents.get` 判"真卸载"恒 false=死路径，四件套
+   *  永不清理 → yjs_loaded_doc_bytes（Σ(truth+delta)）随进程寿命漂向"Σ曾装载过的所有 doc"。本钩子=
+   *  documents.delete（L1590）+document.destroy()（L1591）之后才调（L1592-1595）——到达即必然真卸载，
+   *  无守卫直删（取消卸载天然不触发）。X4 同款永不抛：Map/Set.delete 不 throw（库对本钩子抛错无
+   *  try/catch 包裹——reject 会沿 unloadDocument 冒泡）。 */
+  private async afterUnloadDocument({ documentName }: afterUnloadDocumentPayload): Promise<void> {
+    const projectId = parseProjectId(documentName);
+    this.docTruth.delete(projectId);
+    this.docDelta.delete(projectId);
+    this.truthMeasuredAt.delete(projectId);
+    this.degradedDocs.delete(projectId);
   }
 
   async onModuleInit(): Promise<void> {
