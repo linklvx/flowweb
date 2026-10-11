@@ -711,6 +711,8 @@ collab-core（required）纳入本批 int/锚/演练；pnpm verify 纳入新扫�
 进程定义不变（ecosystem 不动）；内存上限不变（heap 闸是运行时自保非进程档位——check-ecosystem 断言链新增）；关停时长不变（Y0a 45s 维持）。
 新增 env（全部进 zod；v2.2 更新——RSS 改字节制+认证防线三项+pre-auth 三 pin）：COLLAB_ALLOWED_ORIGINS / COLLAB_CONN_MAX_LIFETIME_MS（12h）/ COLLAB_MAX_DOC_BYTES（8MB）/ COLLAB_MAX_TX_BYTES（256KB）/ COLLAB_MAX_NODES_PER_TX（2000）/ COLLAB_MSG_RATE_PER_CONN（200/s）/ **COLLAB_BYTES_RATE_PER_CONN（默认 2MB/s——§4.1② 字节速率闸，v2.4 补契约）/ EXEC_MAX_NODES（§2.5 单次执行规模上限——独立于 COLLAB_MAX_NODES_PER_TX 粘贴预算，两个量，v2.4 分列）** / **COLLAB_AUTH_ATTEMPTS_PER_MIN（默认 10——桶落 onAuthenticate 顶部 §3.1bis）/COLLAB_AUTH_INFLIGHT_MAX（默认 8——全局并发信号量）/COLLAB_REFUSAL_CACHE_TTL_MS（默认 15000）** / **COLLAB_RSS_TRIP_BYTES（默认 786432000=750MiB）+COLLAB_RSS_RELEASE_BYTES（默认 629145600=600MiB）——v2.3 按实测基线 138.8MB×倍率+杀线−缓解预算标定（断言链 baseline×4<release<trip<max_memory_restart−200MiB）+COLLAB_HEAP_PRESSURE_RATIO（0.8/0.7——heap 项=heapUsed/heap_size_limit 纯 V8 口径，v2.3 删 arrayBuffers 重复计数）** / COLLAB_TRUSTED_PROXY / COLLAB_FAKE_AI（superRefine 生产拒 '1'）/ COLLAB_SWEEP_ENABLED 默认翻转 'true'；**库选项 pin（v2.2）**：maxUnauthenticatedQueueMessages=256/maxUnauthenticatedQueueSize=1MB/maxPendingDocuments=100 显式 pin+启动存在性断言（§3.1bis）；**`app.set('trust proxy','loopback')` 一行统一（v2.2——R12：main.ts:87 全代理信任与 COLLAB_TRUSTED_PROXY 两套模型同批并存=自造分歧；一行收口 REST XFF 解析与 WS 同信任前提；E58 完整收口仍归 Y0.5）**。（COLLAB_MAX_LOADED_DOCS 维持 env.ts:43 预留零消费——enforcement 归 Y1c-3。）
 
+**v2.8（Y0b-4 T2）**：配额四键（COLLAB_MAX_DOC_BYTES/COLLAB_MAX_TX_BYTES/COLLAB_MSG_RATE_PER_CONN/COLLAB_BYTES_RATE_PER_CONN）落地进 env zod schema——TX_BYTES 服务端帧闸自此有读点进 env（gateway 构造期 `this.quota` 一次读入：构造注入覆盖 > env 显式值 > QUOTA_DEFAULTS/常量默认；zod 不写 default〔防双源 P3〕，默认值唯一定义在 gateway 构造器，运行期不再读 env）。
+
 ### 7.2 同步预算+库选项 pin（纪律 9）
 
 | 项 | 预算/契约 |
@@ -807,12 +809,16 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - COLLAB_AUTH_ATTEMPTS_PER_MIN
 - COLLAB_AUTH_INFLIGHT_MAX
 - COLLAB_BIND_ADDR
+- COLLAB_BYTES_RATE_PER_CONN
 - COLLAB_CONN_MAX_LIFETIME_MS
 - COLLAB_DEBOUNCE
 - COLLAB_HEAP_PRESSURE_RATIO
 - COLLAB_LEASE_HEARTBEAT_MS
 - COLLAB_LEASE_TTL_MS
+- COLLAB_MAX_DOC_BYTES
 - COLLAB_MAX_LOADED_DOCS
+- COLLAB_MAX_TX_BYTES
+- COLLAB_MSG_RATE_PER_CONN
 - COLLAB_PORT
 - COLLAB_REFUSAL_CACHE_TTL_MS
 - COLLAB_RSS_RELEASE_BYTES

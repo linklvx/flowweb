@@ -99,6 +99,14 @@ export const envSchema = z.object({
   COLLAB_HEAP_PRESSURE_RATIO: z.preprocess(blankToUnset, z.coerce.number().min(0.5).max(0.95).optional()),  // T4 消费，默认 0.8
   COLLAB_CONN_MAX_LIFETIME_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // T6 消费，默认 43_200_000（12h）
 
+  // Y0b-4 T2（spec §7.1）：配额四键——zod 只验形态不写 default（默认值唯一定义在 gateway 构造期
+  // 读入：maxDocBytes/maxTxBytes=QUOTA_DEFAULTS、msgRate/bytesRate=常量 fallback——防双源 P3）；
+  // 消费点=gateway this.quota（构造期一次读入，运行期不再读 env），后续读者=T3/T4/T6/T8/T9a。
+  COLLAB_MAX_DOC_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  COLLAB_MAX_TX_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  COLLAB_MSG_RATE_PER_CONN: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  COLLAB_BYTES_RATE_PER_CONN: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+
   // Y0b-2 T1（Z117）：执行运行时超时/预算键——默认值=EXEC_DEFAULTS 常量表单源（上表），
   // zod 只验形态不写 default（防双源）；读点按【字面量】process.env 直读纪律（collab-env-single-source 方向②）。
   // EXEC_MAX_NODES T8 移入（读者=execution.controller EXEC_MAX_NODES 硬闸——键随读者同批）。

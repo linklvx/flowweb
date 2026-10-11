@@ -15,7 +15,7 @@ import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, co
 import { TokenBucket } from './token-bucket';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, stampDocSchema, userColorOfUserId, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, stampDocSchema, userColorOfUserId, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -35,6 +35,16 @@ export function resolveCollabDebounce(explicit?: number): number {
   const fromEnv = Number(process.env.COLLAB_DEBOUNCE);
   if (fromEnv > 0) return fromEnv;
   return process.env.NODE_ENV === 'development' ? 1000 : 2000;
+}
+
+/** Y0b-4 T2：配额四值契约（gateway 构造注入面——Partial 允许部分覆盖 env 默认）。 */
+export interface QuotaConfig { maxDocBytes: number; maxTxBytes: number; msgRate: number; bytesRate: number; }
+
+/** Y0b-4 T2：env 正整数解析——0/NaN/''/未设一律回退 fallback（'' 与未设同语义〔B13 同款〕；
+ *  gateway 内导出供 api 测试直接 import）。 */
+export function parsePositiveInt(v: string | undefined, fallback: number): number {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
 /** 批3-4 persist-status 退避梯（doc 级活 doc 队列再 flush+detached spool 帧通道两阶段）。
@@ -104,6 +114,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly sessionSvc: SessionService;
   /** Y0b-3 T2（P-R）：WS 升级限流桶（per-IP——DoS 兜底非配额；60/min 补充+burst 20；重启清零） */
   private readonly upgradeBucket: TokenBucket;
+  /** Y0b-4 T2：配额四值（构造期一次读入 env 默认+注入覆盖——运行期不再读 env，Q-P 禁模块级
+   *  测试钩子）；消费=T3/T4/T6/T8/T9a 的 this.quota。 */
+  private readonly quota: QuotaConfig;
   /** 批3-4：compact 时间门限基线（projectId → 上次 compact 时点；loadDocument 播种） */
   private readonly lastCompactAt = new Map<string, number>();
   /** 批3-4 doc epoch（R1c 前置物）：doc 实例代际——服务端 WeakMap 而非写 ydoc meta（meta 内容
@@ -210,13 +223,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly lease: CollabLeaseService,
     private readonly perm: ProjectPermissionService,
     // Y0a-2 C6：spool=必填位置参数（漏参即编译红；TS1016 禁"必参随可选参"——前置可选参数全部改
-    // 显式 `T | undefined` 形态，@Optional() 运行时语义不变，位置个数十参恒定）。
+    // 显式 `T | undefined` 形态，@Optional() 运行时语义不变，位置个数十一参恒定〔Y0b-4 T2 尾增
+    // quota——尾参真可选（后无必参）不违 C6，既有直构十参调用免改〕）。
     // Nest 按类型自动注入（module providers 已注册）。
     @Optional() @Inject('COLLAB_PORT') port: number | undefined,
     @Optional() @Inject('COLLAB_DEBOUNCE') debounce: number | undefined,
     @Optional() @Inject('COLLAB_TIMEOUT') timeout: number | undefined,
     @Optional() @Inject(SessionService) sessions: SessionService | undefined,
     private readonly spool: CollabSpoolService,
+    // Y0b-4 T2：配额构造注入（测试/组装期覆盖 env 默认；Nest DI 无此令牌恒 undefined→env 默认）。
+    @Optional() quota?: Partial<QuotaConfig>,
   ) {
     this.sessionSvc = sessions ?? new SessionService(prisma);
     // Y0b-3 T2：升级限流——COLLAB_UPGRADE_RATE_PER_MIN 默认 60/min；burst=20 常量（多标签友好——
@@ -225,6 +241,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       capacity: 20,
       refillPerMin: Number(process.env.COLLAB_UPGRADE_RATE_PER_MIN) || 60,
     });
+    // Y0b-4 T2：配额四值构造期一次读入（env 默认+注入覆盖——默认值唯一定义点，防双源 P3）；
+    // msgRate/bytesRate 为速率闸常量（非 QUOTA_DEFAULTS 域——shared 七值只锁配额量纲）。
+    this.quota = {
+      maxDocBytes: parsePositiveInt(process.env.COLLAB_MAX_DOC_BYTES, QUOTA_DEFAULTS.maxDocBytes),
+      maxTxBytes: parsePositiveInt(process.env.COLLAB_MAX_TX_BYTES, QUOTA_DEFAULTS.maxTxBytes),
+      msgRate: parsePositiveInt(process.env.COLLAB_MSG_RATE_PER_CONN, 200),
+      bytesRate: parsePositiveInt(process.env.COLLAB_BYTES_RATE_PER_CONN, 2_097_152),
+      ...quota,   // 注入覆盖 env 默认
+    };
     this.hooks = {
       connected: ({ socketId }) => { this.connEstablishedAt.set(socketId, Date.now()); return Promise.resolve(); },   // Y0b-3 T6：寿命台账播种
       onAuthenticate: (p) => this.authenticate(p),

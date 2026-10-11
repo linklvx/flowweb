@@ -62,6 +62,12 @@ describe('Y0a-4 env 单源结构锚（双向）', () => {
     expect(dead, `以下键零读点且未豁免（死契约）: ${dead.join(',')}`).toEqual([]);
   });
 
+  it('Y0b-4 四键进 schema：MAX_DOC_BYTES/MAX_TX_BYTES/MSG_RATE_PER_CONN/BYTES_RATE_PER_CONN', () => {
+    // T2 落地：读点=gateway 构造期 this.quota 读入（非 EXEMPT——键随读者同 commit 双向绿）。
+    for (const k of ['COLLAB_MAX_DOC_BYTES', 'COLLAB_MAX_TX_BYTES', 'COLLAB_MSG_RATE_PER_CONN', 'COLLAB_BYTES_RATE_PER_CONN'])
+      expect(envSchema.shape).toHaveProperty(k);
+  });
+
   it('判定函数自测（合成夹具证伪，替代恒真重言式）', () => {
     const synReads = new Set(['COLLAB_A', 'COLLAB_B']);
     const synSchema = new Set(['COLLAB_B']);
