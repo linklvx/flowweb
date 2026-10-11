@@ -356,6 +356,29 @@ export const yjsZeroConnDocs = new Gauge({
   collect() { try { this.set(heapObserverReader?.().zeroConnDocs ?? 0); } catch { this.set(0); } },
 });
 
+/** Y0b-4 T3（Q-O）：装载降级可观测——装载后 pendingStructs/pendingDs 非空分列计数（因果链丢失
+ *  可观测非沉默）。labelNames 必须声明（B8 功能性：prom-client 未声明 label 的 .inc({field}) throw
+ *  →装载降级路径抛错被 catch 折成 DB_UNAVAILABLE=画布打不开——与 Q-O 目标相反）。 */
+export const collabHydrationDeferredTotal = new Counter({
+  name: 'collab_hydration_deferred_total',
+  help: '装载后 pendingStructs/pendingDs 非空计数（field=structs 因果依赖悬置/ds 删除集悬置——装载不拒行但降级可观测，Q-O）',
+  labelNames: ['field'],
+  registers: [register],
+});
+
+/** Y0b-4 T3（Q-B）：装载 doc 容量聚合 gauge——口径=最近实测+插值上界 Σ(truth+delta)（GC 回收在
+ *  测量点回落；enforcement 归 Y1c-3）。reader 注册模式=registerPendingCollector 惯例
+ *  （gateway 注册读数回调，metrics 文件不 import gateway——反向依赖禁止）。 */
+let loadedDocBytesReader: (() => number) | null = null;
+export function registerLoadedDocBytesReader(fn: () => number): void { loadedDocBytesReader = fn; }
+export function unregisterLoadedDocBytesReader(): void { loadedDocBytesReader = null; }
+export const yjsLoadedDocBytes = new Gauge({
+  name: 'yjs_loaded_doc_bytes',
+  help: '装载 doc 真值总和（口径=Σ(实测 truth+delta 插值上界)——GC 回收在测量点回落；观测非 enforcement，Y1c-3）',
+  registers: [register],
+  collect() { try { this.set(loadedDocBytesReader?.() ?? 0); } catch { this.set(0); } },
+});
+
 /** Y0a-2（Y18）：卸载交接两计数——handoff=spool append 失败（批留队列+退避梯续排，X4 钩子仍 resolve）；
  *  cleanup=清理体自身异常被吞的计数留痕（X4：库对钩子抛错=取消卸载→destroy 永不 resolve，故只吞+计数）。 */
 export const yjsUnloadHandoffFailureTotal = new Counter({

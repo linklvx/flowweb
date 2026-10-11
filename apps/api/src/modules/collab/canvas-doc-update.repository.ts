@@ -174,11 +174,13 @@ export class CanvasDocUpdateRepository {
    *  防双计），**禁 throw**（gateway :297-301 catch 会把它计入 yjsStoreCompactFailureTotal=污染
    *  abandoned 的 P0 告警线；not-owner 同理不抛——调用方只看 compacted）。
    *  （SV inline 哨兵已删——pendingStructs 检查通过前提下 per-row SV 支配性恒真，探针证伪见 spec §1.5。）
+   *  Y0b-4 T3（Q-B 白名单点②）：成功分支附 snapshotBytes（newSnapshot 实测编码字节——编码已在做，
+   *  byteLength 零新增）；gateway maybeCompact 判 pending 空才采纳为 docTruth（持久化真值口径）。
    *  opts：交互式事务独立预算（自愈路径 6s/1s·运维脚本 120s/5s；默认 5s/2s 与 Prisma 隐含值对齐）。 */
   async compact(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ compacted: boolean; reason?: 'abandoned' | 'empty' | 'not-owner' }> {
+  ): Promise<{ compacted: true; snapshotBytes: number } | { compacted: false; reason?: 'abandoned' | 'empty' | 'not-owner' }> {
     return this.prisma.$transaction(
       async (tx) => {
         const owner = this.leaseOwner;
@@ -220,7 +222,7 @@ export class CanvasDocUpdateRepository {
           create: { projectId, state: Buffer.from(newSnapshot), stateSeq: maxSeq },
         });
         await tx.canvasDocUpdate.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
-        return { compacted: true };
+        return { compacted: true, snapshotBytes: newSnapshot.length };   // Y0b-4 T3：真值上报（编码已在做）
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );

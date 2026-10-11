@@ -53,7 +53,7 @@ describe('CanvasDocUpdateRepository', () => {
     prisma.canvasDocUpdate.findMany.mockResolvedValue([
       { id: 'u1', seq: 1n, update: Buffer.from(Y.encodeStateAsUpdate(doc)) },
     ]);
-    await expect(repo.compact('p1')).resolves.toEqual({ compacted: true });   // 返回契约（spec v2.4 §1.3）
+    await expect(repo.compact('p1')).resolves.toEqual({ compacted: true, snapshotBytes: expect.any(Number) });   // 返回契约（spec v2.4 §1.3+Y0b-4 T3 snapshotBytes 真值上报）
     expect(prisma.$executeRaw).toHaveBeenCalled();
     expect(prisma.canvasDoc.upsert).toHaveBeenCalled();
     // 被删集 ≡ 被重放集（按实读行 id 精确删除——事务期间新 append 的行不被误删）
