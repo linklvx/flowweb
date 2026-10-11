@@ -144,7 +144,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | COLLAB_HEAP_PRESSURE_RATIO | coerce.number.min(0.5).max(0.95).optional() | 0.8（release 比例=trip−0.1 迟滞带；**双量纲维持 spec**——RSS 项管池外膨胀） | T4 |
 | COLLAB_CONN_MAX_LIFETIME_MS | 同上 | 43_200_000（12h） | T6 |
 
-**v2 非 env.ts 但同批登记**：生产 superRefine fail-fast——`NODE_ENV=production` 时 BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 至少其一（P-R）；`.env` 的 `DATABASE_URL` 显式 `connection_limit=5&pool_timeout=5`（**v3.1 修正：pool_timeout 单位=秒**——原 5000≈83min=P2024 兜底近失效；对照=池 5−REST/worker 预留≥INFLIGHT 4；部署清单+runbook 登记）；AUTH deadline=**常量 3s**（不加 env——YAGNI，P-Q）。
+**v2 非 env.ts 但同批登记**：生产 superRefine fail-fast——`NODE_ENV=production` 时 BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 至少其一（P-R）；`.env` 的 `DATABASE_URL` 显式 `connection_limit=10&pool_timeout=5`（**v3.1 修正：pool_timeout 单位=秒**——原 5000≈83min=P2024 兜底近失效；**外审收口 v4：5→10**——池与 REST+BullMQ 同进程共享，对照小表见部署清单第 2 条；部署清单+runbook 登记）；AUTH deadline=**常量 3s**（不加 env——YAGNI，P-Q）。
 
 ---
 
@@ -157,7 +157,7 @@ T0（shared 契约地基——词表追加 6 值〔v2 +server-outdated〕+isTerm
 | 3 | spec §3.3「消费面读注入同形字段=预期零改动」更正：RemoteCursors/CanvasTopBar 现自算 userColor(id)——需同批切 s.user.color（等价性算法保证同色零回归） | P-L；userColor 消费面实证 |
 | 4 | 版本门四档（spec 三档+server-outdated）：csv>current=reload 无效档（提示服务端待更新）——文案分型非放行，精确相等语义不变（R 终裁禁区间协商维持） | M-4 采纳 |
 | 5 | Origin 拒绝形态 socket.end 替代 destroy（flush 保证客户端收 403 非 RST）；升级限流 429 同族补全（spec 仅钉 403） | P-R |
-| 6 | INFLIGHT_MAX 默认 4（spec §7.1 写 8）——与池公式 cpu×2+1 对齐；AUTH deadline 常量 3s（spec 无此项）；**口径（v3.1）：信号量/deadline 约束的是槽位占用≠DB 在飞**——race 到期不取消底层 Prisma 查询，DB 真实并发由池 connection_limit=5 兜底 | P-Q |
+| 6 | INFLIGHT_MAX 默认 4（spec §7.1 写 8）——与池公式 cpu×2+1 对齐；AUTH deadline 常量 3s（spec 无此项）；**口径（v3.1）：信号量/deadline 约束的是槽位占用≠DB 在飞**——race 到期不取消底层 Prisma 查询，DB 真实并发由池 connection_limit=10 兜底（外审收口 v4：5→10——池与 REST+BullMQ 同进程共享，禁单独调大任一破坏预算） | P-Q |
 | 7 | sweep 复验语义补正：spec §3.1「复验补 perm.resolve」隐含 sweep 会调用复验——现状 :1144 判据门使复验仅 session 过期死线触发；T3 加 dueForPerm 分支（5min 结论缓存到期=权限复验到期） | P-K；:1144 实证 |
 | 8 | writeFrozen 置位点归属：syncStatus.ts:14 注释归 Y0b-5（Z55）——本批 T9 落置位点（writeFrozen 写点+横幅），Y0b-5 只扩 quotaState 载荷（跨批归属冲突消解；T9 同 commit 改注释） | 评审 9.2-1 |
 | 9 | maxPayload 行为断言（>16MiB 真连验 1009）归 Y0b-4（spec §4.1⑥ 维持）——本批仅配置 pin+websocketOptions 键集断言 | spec §4.5 出口清单在彼 |
@@ -792,7 +792,7 @@ private static readonly REFUSAL_CACHEABLE = new Set<string>([
 
 /** v2 P-Q：AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI）
  *  v3.1 边界：Promise.race 到期**不取消**底层 Prisma 查询——约束的是信号量槽位占用，非 DB 工作量；
- *  DB 真实并发由池 connection_limit=5 兜底（池 5−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
+ *  DB 真实并发由池 connection_limit=10 兜底（外审收口 v4：5→10——池 10−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
 private static readonly AUTH_DB_DEADLINE_MS = 3_000;
 private withAuthDeadline<T>(p: Promise<T>): Promise<T> {
   return Promise.race([p, new Promise<never>((_, rej) =>
@@ -1677,16 +1677,23 @@ it('【证伪性锚】空闲 90s：零应用层保活配置下连接存活——
 
 - [ ] **Step 4: spec 回填**——spec §0.4 追加 Y0b-3 落地偏离行（**以本 plan §0.4 预登记 16 条为底**+实施期新增；spec 侧两处勘误建议同步：§3.2 红锚④前提〔偏离 1〕/§3.3"消费面零改动"措辞〔偏离 3〕）；v8 目录 Y0b 行回填（完成态+commit 区间+残余分派）。
 
-- [ ] **Step 5: 部署清单（【告知用户点】——Y0b-2 先例形态）**：
+- [ ] **Step 5: 部署清单（【告知用户点】——Y0b-2 先例形态；外审收口批更新：connection_limit=10+旧 bundle 自愈措辞修正+nginx 五步前置门+冒烟补两条）**：
   1. 服务器 `.env` 增 `COLLAB_TRUSTED_PROXY=1`（**必须**——不设=升级限流全站 127.0.0.1 单桶=重连风暴全站锁死，恰是限流要防的反面）；
-  2. 服务器 `.env` 的 `DATABASE_URL` 追加 `?connection_limit=5&pool_timeout=5`（**v3.1 修正：pool_timeout 单位=秒**——原 5000≈83min=P2024 兜底近失效；对照=池 5−REST/worker 预留≥INFLIGHT 4；runbook 登记）；
+  2. 服务器 `.env` 的 `DATABASE_URL` 追加 `?connection_limit=10&pool_timeout=5`（**外审收口 v4：5→10**——池与 REST+BullMQ 同进程共享，单按 collab 槽位定池饿死 REST/队列；多 PrismaClient 实例对照：2-3 池×10≈20-30 条对 PG max_connections 100 宽裕；INFLIGHT 4 维持——留 6 给 REST/队列。pool_timeout 单位=秒〔v3.1 修正维持——原 5000≈83min=P2024 兜底近失效〕。**预算对照小表（禁单独调大任一破坏预算）**：池上限 connection_limit=10 ‖ INFLIGHT_MAX≤4≤池/2（5） ‖ pool_timeout=5s ‖ AUTH deadline=3s）；runbook 登记；
   3. 可选 env（默认值即 spec 契约，不建议改）：COLLAB_ALLOWED_ORIGINS（默认 BETTER_AUTH_URL 推导+生产已剔除 localhost——若生产域名≠BETTER_AUTH_URL origin 则必须显式设）/COLLAB_SWEEP_ENABLED（逃生阀）/COLLAB_RSS_*；
-  4. 部署窗口语义：**已打开的旧 bundle 会话全部进版本终态拒绝**（CLIENT_VERSION_MISSING 档——fail-closed §9.1 既定非风险）——建议低峰部署；
-  5. nginx/ecosystem 零变更（access_log off+X-Real-IP 已在；access_log/no-store 断言已进 deploy 服务器侧校验链）；
-  6. 部署后冒烟：伪造 Origin 握手 4xx+`collab_upgrade_rejected_total` 可见+`collab_overload_state{state="ok"}`=1+ready 含 collabProtocolVersion（200/503 双分支）+`collab_ws_close_total` 可见。
-  7. runbook 巡检登记（v3.1 F7——"可观测"变"会被发现"的最后一步；spec §5.8 巡检脚本+结构化日志口径）：`collab_load_rejected_total` 持续非零（>0 连续 5min→heap 处置行）/`collab_auth_reject_total{reason="db-unavailable"}` 突增（→PG/池排查）/`yjs_doc_stuck_total`>0（→观测确认，不手动卸载）/`collab_ws_close_total` 分布漂移（4402/1012 占比异常→寿命/drain 频度核对）/`collab_awareness_reject_total{reason="owner-limit"}`>0（→单连接 clientId 泄漏，客户端版本核对）/**ghost（T10 评审 I-1/M-1 一并落——T11 已补）：正常基线=每入站 awareness 帧恒剔 1 条 scratch 幽灵（≈帧率 ~4/min/连接，随帧率线性）；×2/帧且伴 4408 上涨=客户端非空态播种退化（真身空态帧被同判据误杀→30-45s 重连循环）；部署窗口旧 bundle 短暂 ×2 后回落（版本门兜住）**。
+  4. 部署窗口语义（**外审收口 v4 措辞修正——"版本门兜住自愈"删除**）：已打开的旧 bundle 会话进版本终态拒绝（CLIENT_VERSION_MISSING 档——fail-closed §9.1 既定非风险）；**旧 bundle 无 reload 自愈逻辑（自愈在新 bundle 里）——旧标签以库重连节奏持续循环直至用户手动刷新；循环消耗 per-IP 升级桶——NAT 多标签可能互挤 429**；部署后 10min 盯 `collab_upgrade_rejected_total{reason="rate-limited"}`，爬升则临时上调 `COLLAB_UPGRADE_RATE_PER_MIN`；如需通知走站内公告（建议低峰部署）；
+  5. nginx 五步前置门（**外审收口 v4 改写——原"nginx 零变更"失实：index.html no-cache snippet 是本批新增变更**）：
+     - 5a nginx 变更**先贴后部署**（时序原则——nginx -t 通过即安全，旧 app 在 no-cache 下照常工作；操作步骤见 5b）；
+     - 5b 备份站点文件→贴入 `deploy/nginx/index-html.replace.conf`→`sudo nginx -t` 失败即 cp 备份回滚→`systemctl reload nginx`；
+     - 5c **既有 `location = /index.html` block 合并非删旧贴新**（同 location 重复 nginx -t 必炸；旧 block 含 try_files 时删除=SPA 路由 404——把 add_header 并入既有 block）；
+     - 5d **add_header 不继承**：server 段既有 add_header（安全头 HSTS/X-Frame 等）须原样复制进本 block（nginx -t 不拦+verify_nginx 不查=静默丢安全头）；
+     - 5e ecosystem 零变更维持（真正的零变更只有 ecosystem；access_log off+X-Real-IP 服务器已在位——静态预检 verify_nginx_static 首步断言兜底）；
+  6. 部署后冒烟：伪造 Origin 握手 4xx+`collab_upgrade_rejected_total` 可见+`collab_overload_state{state="ok"}`=1+ready 含 collabProtocolVersion（200/503 双分支）+`collab_ws_close_total` 可见+**外审收口 v4 补两条**：`curl -sI https://<域名>/ | grep -i 'cache-control: no-cache'`（no-cache 生效）+`curl -sI https://<域名>/ | grep -iE 'strict-transport|x-frame|content-security'`（安全头存活——若站点本无安全头则记"基线无"防误判）。
+  7. runbook 巡检登记（v3.1 F7——"可观测"变"会被发现"的最后一步；spec §5.8 巡检脚本+结构化日志口径）：`collab_load_rejected_total` 持续非零（>0 连续 5min→heap 处置行）/`collab_auth_reject_total{reason="db-unavailable"}` 突增（→PG/池排查）/`yjs_doc_stuck_total`>0（→观测确认，不手动卸载）/`collab_ws_close_total` 分布漂移（4402/1012 占比异常→寿命/drain 频度核对）/`collab_awareness_reject_total{reason="owner-limit"}`>0（→单连接 clientId 泄漏，客户端版本核对）/**ghost（T10 评审 I-1/M-1 一并落——T11 已补）：正常基线=每入站 awareness 帧恒剔 1 条 scratch 幽灵（≈帧率 ~4/min/连接，随帧率线性）；×2/帧且伴 4408 上涨=客户端非空态播种退化（真身空态帧被同判据误杀→30-45s 重连循环）；部署窗口旧 bundle ×2 后回落——随旧标签手动刷新/关闭回落（外审收口 v4 对齐第 4 条：旧 bundle 无自愈，非"版本门兜住"自动回落）**。
 
 - [ ] **Step 6: commit+【用户确认点】**：`docs(y0b-3): T11 出口汇聚——verify 三连+census 五组+重连演练+spec §0.4〔预登记 16 条回填〕/v8 回填+部署清单`
+
+**外审收口批补记（Z57 裁定落定，2026-10-11）**：实施期疑虑「api lint 是否纳入 `--filter api test` 单跑链」裁定=**不纳入**。三理由：①职责边界——lint 失败不伪装成 test 失败（两信号分离可读）；②重复执行无收益——根 verify 链尾已含全仓 api eslint；③test:int:ci 归独立 CI job 先例——单跑链从不承载发布判据。纪律：`--filter api test` 定位=开发者本地快速环（tsc+单测）**非门禁**；发布判据=pnpm verify+deploy.sh preflight。CI 侧重复 eslint step 同批删除（verify 尾段单源）；提交侧 lint-staged 钩子=独立立项（本仓无 husky，不并入本批）。
 
 ---
 

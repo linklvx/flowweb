@@ -46,10 +46,11 @@ jobs:
       # 表必须先于 verify 建好（0.5 的 int spec 直连真库且 skip 条件只看 DATABASE_URL 存在——
       # 0.5 已落地，按预留注记启用）。migrate deploy=幂等（已应用跳过）。
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
-      # 单一真相源：CI 直接跑 verify（shared typecheck/test + web/api tsc + 全测 + web lint）
+      # 单一真相源：CI 直接跑 verify（shared typecheck/test + web/api tsc + 全测 + web lint +
+      # api eslint〔链尾〕+check-ecosystem/spec-consistency/scripts node:test）。api eslint 独立
+      # step 已删（Z57 外审收口 2026-10-11：批0e-3 时代的"verify 未含 api lint"已失实——根 verify
+      # 尾段现已含，独立 step=重复执行；红信号仍落本 job，无掩蔽）。
       - run: pnpm verify
-      # api eslint（批0e-3 起 verify 未含 api lint，单独一步挂门禁）
-      - run: pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"
       # Y0a-4：deploy.sh 语法校验（CI 承载跨平台兜底——本地也可用 Git for Windows 真 bash -n）
       - name: deploy.sh 语法校验（Y0a-4——bash -n 跨平台承载）
         run: bash -n deploy.sh

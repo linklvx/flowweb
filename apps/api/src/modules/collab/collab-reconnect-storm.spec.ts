@@ -15,6 +15,9 @@
 //  是 ClientConnection 单连接方法（hocuspocus-server.esm.js:1038，无进程级注册表）⇒ 进程级聚合=
 //  演练内包一层 handleConnection 捕获全部连接实例求和（close 后 hookPayloads 清空=closed 连接自然
 //  归零贡献）；旁证采样 hocuspocus.loadingDocuments.size（进程级装载中文档）。
+// ⑥每连接 synced 耗时 p95<2000ms（外审三意见三——驳回为独立验收判据但证据留档：p95 断言即
+//  留档形态，实测预期百 ms 量级〔T11 出口全量 <244ms〕；回防意义=认证管线 future 改动引入秒级
+//  尾延迟时此处先红）。
 // 认证 stub 微任务级解析=本演练是准入管线的**最优时序**下界证据；生产 DB 毫秒级延迟由
 //  INFLIGHT_MAX=4+AUTH deadline 3s 兜底（§3.1bis 序），spec §3.6 以本锚+防线单测合围。
 // env 纪律：TRUSTED_PROXY 在 it 体内 save/restore（仓惯例 collab-admin-auth.guard.spec——防 worker 内泄漏）。
@@ -71,6 +74,7 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
       // close code 面（4205/4408 库自发码）+error 面（升级 429/403 在握手期=ws error 非 close code）
       const closeCodes: number[] = [];
       const wsErrors: string[] = [];
+      const syncedElapsed: number[] = [];   // 判据⑥：每连接 构造起点→synced 耗时（p95 留档）
       (kit.gateway as unknown as { authInflightPeak: number }).authInflightPeak = 0;   // 演练专用前置零
       let pendingPeak = 0;
       let loadingPeak = 0;
@@ -82,15 +86,20 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
       const sampler = setInterval(sample, 5);
       let secondWave: Array<{ provider: unknown; synced: Promise<void> }> = [];
       try {
-        secondWave = Array.from({ length: N }, (_, i) =>
-          kit.connect(`storm-doc-${i}`, undefined, {
+        secondWave = Array.from({ length: N }, (_, i) => {
+          const t0 = Date.now();
+          const s = kit.connect(`storm-doc-${i}`, undefined, {
             extraHeaders: { 'x-real-ip': clientIp(i) },   // 同客户端同 IP——真实重连拓扑
             onSocket: (ws: WsSocket) => {
               ws.on('close', (code: number) => closeCodes.push(code));
               ws.on('error', (err: Error) => wsErrors.push(err.message));
             },
-          }),
-        );
+          });
+          // 浮空记录（双参 then=派生 promise 恒不 reject——失败路径无 unhandled rejection 面；
+          // 失败连接不入样本，p95 只统计成功 synced——与判据①全 synced 前提一致）
+          void s.synced.then(() => { syncedElapsed.push(Date.now() - t0); }, () => {});
+          return s;
+        });
         sample();   // 同步构造后即采——全 pending 零认证处理的瞬时最坏点
         // 判据①：race 超时侧只 resolve 不 reject（败者 promise 悬挂无 unhandled rejection 面）
         const outcome = await Promise.race([
@@ -105,9 +114,15 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
 
       // 装置活性断言（聚合面非空真——两波各 N 连接全被捕获）
       expect(conns.length).toBe(2 * N);
+      // 判据⑥计算（外审三意见三——p95 留档断言；95 分位取 ceil(N*0.95) 位）
+      const percentile = (arr: number[], p: number) => {
+        const sorted = [...arr].sort((a, b) => a - b);
+        return sorted[Math.max(0, Math.ceil(sorted.length * p) - 1)];
+      };
+      const syncedP95 = percentile(syncedElapsed, 0.95);
       // 演练数字留档（T11 出口报告引用；后续回归此行即基线）
       console.error(
-        `[storm-drill] N=${N} conns=${conns.length} closeCodes=${closeCodes.length} wsErrors=${wsErrors.length} authInflightPeak=${(kit.gateway as unknown as { authInflightPeak: number }).authInflightPeak} pendingPeak=${pendingPeak} loadingPeak=${loadingPeak}`,
+        `[storm-drill] N=${N} conns=${conns.length} closeCodes=${closeCodes.length} wsErrors=${wsErrors.length} authInflightPeak=${(kit.gateway as unknown as { authInflightPeak: number }).authInflightPeak} pendingPeak=${pendingPeak} loadingPeak=${loadingPeak} syncedP95Ms=${syncedP95} syncedMaxMs=${Math.max(0, ...syncedElapsed)}`,
       );
       // 判据②：客户端记录的 close code 零 4205/4408+零握手期 error（升级 429/403 形态）
       expect(closeCodes.filter((c) => c === 4205 || c === 4408)).toEqual([]);
@@ -120,6 +135,8 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
       expect(after.tripped).toBe(before.tripped);
       // 判据⑤（硬）：进程级未认证文档积压峰值<50
       expect(pendingPeak).toBeLessThan(N);
+      // 判据⑥（留档断言——外审三意见三：驳回为独立验收判据，证据留档形态）：synced p95<2000ms
+      expect(syncedP95).toBeLessThan(2000);
       // 旁证观测（不设门——装载中文档峰值留档演练报告）
       expect(loadingPeak).toBeGreaterThanOrEqual(0);
     } finally {

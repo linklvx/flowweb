@@ -401,7 +401,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   ]);   // §3.1bis 白名单精确四类（terminal 不入=客户端已 disconnect；信号量溢出/桶超限不经此——P-F 结构分离）；SERVER_OVERLOADED 自 T4 起可达（heap 闸在 inner 首行 throw 经此写缓存——信号量层 throw 仍不经此）
   /** AUTH deadline——DB 段超时折 db-unavailable（防慢 DB 挂满信号量；不加 env=YAGNI）。
    *  边界：Promise.race 到期不取消底层 Prisma 查询——约束的是信号量槽位占用，非 DB 工作量；
-   *  DB 真实并发由池 connection_limit=5 兜底（池 5−REST/worker 预留≥INFLIGHT 4——禁单独调大任一破坏预算）。 */
+   *  DB 真实并发由池 connection_limit=10 兜底（外审收口 5→10：池与 REST+BullMQ 同进程共享，
+   *  留 6 给 REST/队列——禁单独调大任一破坏预算，部署清单对照小表）。 */
   private static readonly AUTH_DB_DEADLINE_MS = 3_000;
   private static readonly PERM_RECHECK_TTL_MS = 5 * 60_000;   // §3.1bis：sweep 权限复验周期=会话级结论缓存 5min
   private withAuthDeadline<T>(p: Promise<T>): Promise<T> {

@@ -77,14 +77,27 @@ preflight() {
 # 当前 shell 全量 env——部署会话禁 export 其他变量（cutover/rollback 体内 export 白名单锚）。
 
 # Y0b-3 T5（M-10）：服务器侧 nginx 配置断言——/collab 段 access_log off（csv/cb query 不落日志）
-# +index.html no-store（旧 bundle 静态缓存钉死=版本拒绝循环）。本地无 nginx——运行态断言只在
-# 服务器侧；模板文本断言归 scripts/check-nginx-budget.mjs 既有约定。三 fail 路径已手验
-# （PASS/缺 access_log/缺 no-store——本地 echo 测试文本喂同款 awk 管道，留档 commit message）。
+# +index.html no-cache（旧 bundle 静态缓存钉死=版本拒绝循环；外审三意见三裁定 no-store→no-cache：
+# no-store=bfcache 一票否决→返回键整页重载丢未同步编辑与 spec §5.5 契约冲突，no-cache 条件请求
+# 304 等效防钉死）。本地无 nginx——运行态断言只在服务器侧；模板文本断言归
+# scripts/check-nginx-budget.mjs 既有约定。三 fail 路径已手验
+# （PASS/缺 access_log/缺 no-cache——本地 echo 测试文本喂同款 awk 管道，留档 commit message）。
 # I-3：范围终点 /}/ 收紧为行首空白可容忍（防缩进贴入时范围延伸吞下一段）；grep 前滤整行注释
 # （nginx -T 原样输出注释——"# access_log off;" 假 PASS 面；对齐 check-nginx-budget 非注释行锚定）。
+# 外审收口（意见一 1.3(a)）：同一断言跑两次、语义不同都要留——nginx_assert=共享断言体；
+# verify_nginx_static=静态配置预检（deploy_api 首步——配置缺失不扰动任何运行态即失败。原单挂
+# cutover ⑥.5=dist 切换+pm2 重启之后，缺配=半部署失败态：新代码已上线+部署 exit 1+SWITCHED=1）；
+# verify_nginx=运行态断言（⑥.5 原位保留——验证切换后 nginx 配置仍贴入）。
+nginx_assert() {
+  ssh -i "$KEY" "$SERVER" 'T=$(sudo nginx -T 2>/dev/null); f(){ echo "nginx 断言 FAIL: $1"; exit 1; }; echo "$T" | awk "/location \/collab/,/^[[:space:]]*}/" | grep -v "^[[:space:]]*#" | grep -q "access_log off" || f "/collab 段缺 access_log off（非注释行）"; echo "$T" | awk "/location = \/index.html/,/^[[:space:]]*}/" | grep -v "^[[:space:]]*#" | grep -q "no-cache" || f "index.html 段缺 no-cache（非注释行）"; echo "nginx 断言 OK: /collab access_log off + index.html no-cache"'
+}
+verify_nginx_static() {
+  echo "=== 静态配置预检：nginx -T 两断言（/collab access_log off + index.html no-cache）——配置缺失在此失败，不扰动任何运行态 ==="
+  nginx_assert
+}
 verify_nginx() {
-  echo "=== ⑥.5 nginx 配置断言（/collab access_log off + index.html no-store——版本门通道配套） ==="
-  ssh -i "$KEY" "$SERVER" 'T=$(sudo nginx -T 2>/dev/null); f(){ echo "nginx 断言 FAIL: $1"; exit 1; }; echo "$T" | awk "/location \/collab/,/^[[:space:]]*}/" | grep -v "^[[:space:]]*#" | grep -q "access_log off" || f "/collab 段缺 access_log off（非注释行）"; echo "$T" | awk "/location = \/index.html/,/^[[:space:]]*}/" | grep -v "^[[:space:]]*#" | grep -q "no-store" || f "index.html 段缺 no-store（非注释行）"; echo "nginx 断言 OK: /collab access_log off + index.html no-store"'
+  echo "=== ⑥.5 nginx 运行态断言（/collab access_log off + index.html no-cache——验证切换后配置仍贴入） ==="
+  nginx_assert
 }
 
 cutover_api() {
@@ -167,6 +180,7 @@ deploy_web() {
 
 deploy_api() {
   if [[ $ROLLBACK == 1 ]]; then rollback_api; return; fi
+  verify_nginx_static   # 外审收口（意见一 1.3(a)）：静态预检挂首步——构建/上传/guard/migrate/切换之前，nginx 配置缺失零运行态扰动即失败
   echo "=== 磁盘水位前置（pg_dump 与 dist tar 需空间——>85% 拒；USED 空串/非数 fail-closed） ==="
   USED=$(ssh -i "$KEY" "$SERVER" "df --output=pcent / | tail -1 | tr -dc '0-9'")
   [[ "$USED" =~ ^[0-9]+$ ]] || { echo "磁盘水位探测失败（USED='${USED}'）——fail-closed 拒部署"; exit 1; }
