@@ -13,6 +13,11 @@ export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, D
 export type { CloseAction, CloseActionKind } from './constants/collab-close-code';
 export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/collab-protocol';
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
+// Y0b-4 T1：画布配额常量+doc-status/conn-status 快照类型（T5 服务端产生/T10 客户端消费——键集逐字一致）
+// +utf8Bytes 单源（web/api 两端字节量纲一致）。
+export { QUOTA_DEFAULTS, DOC_STATUS_REV_SEED, isCollabDocStatusPayload, isCollabConnStatusPayload } from './constants/collab-quota';
+export type { CollabDocStatusPayload, CollabConnStatusPayload } from './constants/collab-quota';
+export { utf8Bytes } from './utils/utf8-bytes';
 export { COLLAB_READY_REASONS } from './constants/collab-ready';
 export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending } from './constants/collab-ready';
 // Y0b-3 T7（P-L）：collab identity 配色单源——服务端 awareness 注入 user.color 与客户端消费面同源。

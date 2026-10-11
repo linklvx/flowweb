@@ -86,6 +86,6 @@ describe('CollabReadyReason 封闭枚举（G-4 载体：tsc 即门）', () => {
     };
     expect(typeof body.epoch).toBe('string');
     expect(body.pending.strandedFiles).toBe(0);
-    expect(body.collabProtocolVersion).toBe(1);   // 缺字段=类型红（必选）；值锚 bump 纪律
+    expect(body.collabProtocolVersion).toBe(2);   // 缺字段=类型红（必选）；值锚 bump 纪律（Y0b-4 T1 csv=2）
   });
 });

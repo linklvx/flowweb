@@ -3,8 +3,8 @@
 // 四档拒（negotiateClientVersion 精确相等）+collab_version_negotiation_reject_total{reason}
 // +authRejectTotal{source:'version'} 双计数+执行序（heap 先于 version）+DB 前短路证据。
 // 形态：直构单元组（collab-heap-gate.spec 先例——fake prisma+metricDelta 增量断言）。
-// schema-outdated 档在首版协议=1 下结构性不可达（无比 1 小的正整数）——经 vi.mock 注入
-// current=2（shared negotiateClientVersion 的测试注入位，collab-protocol.ts :17 注释锚）。
+// schema-outdated 档：Y0b-4 T1 bump csv=2 后 csv=1 即真实旧客户端形态（首版=1 下结构性不可达
+// 已消除——注入 mock 已拆除，走 negotiateClientVersion 默认 current 真路径）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
@@ -17,18 +17,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
 import * as Y from 'yjs';
 
-/** schema-outdated 注入位（文件级 mock——非 null 时强制 current；collab-protocol.test.ts
- *  `negotiateClientVersion('1', 2)` 同款注入形态）。vi.hoisted 先于 vi.mock 工厂执行。 */
-const mockState = vi.hoisted(() => ({ current: null as number | null }));
-vi.mock('@flowweb/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@flowweb/shared')>();
-  return {
-    ...actual,
-    negotiateClientVersion: (csv: string | null | undefined, current: number) =>
-      actual.negotiateClientVersion(csv, mockState.current ?? current),
-  };
-});
-
 const MiB = 1024 * 1024;
 
 let spoolDir: string;
@@ -39,7 +27,7 @@ beforeEach(async () => {
   spoolCleanup = d.cleanup;
   resetHeapPressure();
 });
-afterEach(async () => { await spoolCleanup(); mockState.current = null; });
+afterEach(async () => { await spoolCleanup(); });
 
 function buildGateway() {
   const prisma = {
@@ -119,8 +107,7 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
     }
   });
 
-  it('csv<current→SCHEMA_OUTDATED（客户端旧——reload 有效档；首版协议=1 结构性不可达——注入 current=2 服务端锚）', async () => {
-    mockState.current = 2;   // 服务端升到 2——csv=1 旧客户端
+  it('csv<current→SCHEMA_OUTDATED（客户端旧——reload 有效档；Y0b-4 T1 bump csv=2 后 csv=1 即真实旧客户端——注入 mock 拆除走默认真路径）', async () => {
     const { gateway } = buildGateway();
     const inc = await metricDelta('collab_version_negotiation_reject_total', { reason: 'schema-outdated' }, () =>
       expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-vg-s1', 'csv=1') as any))
