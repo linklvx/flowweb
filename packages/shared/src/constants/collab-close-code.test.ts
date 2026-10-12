@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   resolveCloseAction, CollabCloseCode, MESSAGE_TOO_BIG_TERMINAL_REASON,
   DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON,
+  SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON,
   resolveBackoffPlan, TRANSIENT_BACKOFF_STEPS_MS,
 } from './collab-close-code';
 import type { BackoffPlan, CloseActionKind } from './collab-close-code';
@@ -83,6 +84,35 @@ describe('Y0b-4 T1 配额/代际码四码+terminal 原因常量（spec §3.5）'
     expect(DOC_VACUUMING_TERMINAL_REASON).toBe('doc-vacuuming');
     expect(DOC_GENERATION_STALE_TERMINAL_REASON).toBe('doc-generation-stale');
     expect(MESSAGE_TOO_BIG_TERMINAL_REASON).toBe('message-too-big');
+  });
+});
+
+// ══════════ Y0b-5 T6：close 分型双 reason（裁定 25⑸——报告3 P0-1/P0-2） ══════════
+describe('Y0b-5 T6 close 分型双 reason：4404-ss2-over-limit 按 reason 分型 + 1000-team-disbanded 升 terminal', () => {
+  it('两常量字面量锚（线路协议契约——字面量即契约，漂移即红；team disbanded 原 gateway:3009 裸字面量升单源）', () => {
+    expect(SS2_OVER_LIMIT_TERMINAL_REASON).toBe('ss2-over-limit');
+    expect(TEAM_DISBANDED_TERMINAL_REASON).toBe('team disbanded');
+  });
+  it('4404 按 reason 分型：ss2-over-limit→terminal(自身 reason)；其余/缺省 reason→doc-over-quota（既有语义不回归）', () => {
+    const a = resolveCloseAction(4404, SS2_OVER_LIMIT_TERMINAL_REASON);
+    expect(a.kind).toBe('terminal');
+    expect(a.terminalReason).toBe('ss2-over-limit');
+    expect(resolveCloseAction(4404, DOC_OVER_QUOTA_TERMINAL_REASON)).toEqual(
+      { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON });
+    expect(resolveCloseAction(4404, undefined).terminalReason).toBe(DOC_OVER_QUOTA_TERMINAL_REASON);
+  });
+  it('1000 按 reason 分型：team disbanded→terminal(自身 reason)——团队解散禁先重连一次（24⑴ normal→exponential 的已知终局例外，与 doc-over-quota 特例同款形态）；其余 1000 仍 normal', () => {
+    const a = resolveCloseAction(1000, TEAM_DISBANDED_TERMINAL_REASON);
+    expect(a.kind).toBe('terminal');
+    expect(a.terminalReason).toBe('team disbanded');
+    expect(resolveCloseAction(1000, '').kind).toBe('normal');
+    expect(resolveCloseAction(1000, 'doc-over-quota').kind).toBe('terminal'); // 库抹码兜底既有语义保留
+  });
+  it('resolveBackoffPlan 传导：(1000,"team disbanded")/close 路由落 none（永久断线——禁先重连）；(4404,"ss2-over-limit") 同落 none；CloseActionKind 不加新档（两特例均在既有五档内分派）', () => {
+    expect(resolveBackoffPlan('close', 1000, TEAM_DISBANDED_TERMINAL_REASON, 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 4404, SS2_OVER_LIMIT_TERMINAL_REASON, 0, 0).kind).toBe('none');
+    const a = resolveCloseAction(1000, TEAM_DISBANDED_TERMINAL_REASON);
+    expect(['terminal', 'silent-renew-once', 'planned-restart', 'backoff', 'normal']).toContain(a.kind);
   });
 });
 

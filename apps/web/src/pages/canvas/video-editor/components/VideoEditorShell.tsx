@@ -5,7 +5,7 @@ import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
-import { hasUnsyncedCanvasChanges } from '@/stores/canvasCollabRuntime';
+import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 import { useEditorStore } from '../store/editorStore';
 import { createAutosaveController, type AutosaveController } from '../persist/autosave';
 import { upsertProject, patchProject } from '@/api/videoProjectApi';
@@ -114,19 +114,15 @@ export function VideoEditorShell() {
     return () => { unsubData(); ctrl.dispose(); autosaveRef.current = null; activeAutosave = null; useCanvasStore.setState({ editorDirty: false }); };
   }, [open, sourceNodeId]);
 
-  // 批0d B4：editorDirty（REST 侧 latch）+ hasUnsyncedCanvasChanges（WS 侧 provider 公开 API）
-  // 任一为真即拦关标签——jsdom 断言 defaultPrevented；rebuildPending 半边批 1 并入
+  // 批0d B4：editorDirty（REST 侧 latch）拦关标签——Y0b-5 T6 收编：handler 面归 utils/unloadGuard
+  // reason 集合单源（本挂载点注册 'editor-dirty'；'unsynced' 由 runtime 单源置位/清零时注册——
+  // 两 reason 并集语义与旧 editorDirty∨hasUnsyncedCanvasChanges 等价）。
+  const editorDirty = useCanvasStore((s) => s.editorDirty);
   useEffect(() => {
-    const h = (e: BeforeUnloadEvent) => {
-      const st = useCanvasStore.getState();
-      if (st.editorDirty || hasUnsyncedCanvasChanges()) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', h);
-    return () => window.removeEventListener('beforeunload', h);
-  }, []);
+    if (!editorDirty) return;
+    armUnloadWarning('editor-dirty');
+    return () => { disarmUnloadWarning('editor-dirty'); };
+  }, [editorDirty]);
 
   // 关闭 = flush 排空后 close；排空失败（离线/最终失败/409/异常）→ ConfirmModal 三选（批6 编辑器出口组）
   // 不变式：所有关闭路径必须经此函数（flush 排空先于 dispose，dispose 不取消在途 PATCH——review M2）

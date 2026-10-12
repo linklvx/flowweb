@@ -226,6 +226,21 @@ export interface CanvasState {
   /** B4 单向 latch（批0d）：编辑器有未落库修改——由 autosave onDirtyChange 维护（notifyChange 置位、
    *  仅保存成功清零）；Shell 收起/dispose 清零。不进 history/localStorage 快照 */
   editorDirty: boolean;
+  // ── Y0b-5 T6：横幅单链仲裁字段族（SyncBanner resolveCanvasBanner 消费——会话态不进快照）──
+  /** diverged 闩锁（裁定 23⑨）：readOnly（collabReadOnly）期间产生本地 update 即置位——服务端
+   *  已拒收期间的本地编辑（"自动合并"承诺为假）。三出边=导出 .yjs/放弃（discardLocalDiverged）/
+   *  服务端最终接受（tick 判 readOnly 解除∧synced∧计数归零→清）。T8 起缓存条目同款标记消费
+   *  （下次会话不自动 hydrate——本批字段为会话级单源）。 */
+  canvasDiverged: boolean;
+  /** T8 邻档（本批结构就位字段驱动——T8 才有真实翻转路径；恒 false 文案不可达） */
+  canvasOversized: boolean;
+  /** T8 邻档（同上） */
+  canvasDegraded: boolean;
+  /** persist-status {healthy:false} 电平（V15——PG 投影健康面；healthy:true 自动消）。
+   *  与 doc-status 快照族独立字段互不覆盖。initCollab/destroyCollab 会话边界复位。 */
+  persistUnhealthy: boolean;
+  /** 同步延迟>60s 电平（T7 置位——本批结构就位；syncLag 档文案=「请导出本地副本」零刷新词） */
+  syncLagOver60s: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
   /** Y0b-4 T11/T13：瘦身/校准 watermark 重置单写者（服务端真值覆盖 localDocBytes+localDelta 清零
    *  ——Q-I 校准点的组件侧入口）。写点收口 store 本体：组件面（ShrinkDialog）直调 setState 在
@@ -735,6 +750,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   pendingGenerationReload: 0,
   connUi: 'ok',
   editorDirty: false,
+  canvasDiverged: false,
+  canvasOversized: false,
+  canvasDegraded: false,
+  persistUnhealthy: false,
+  syncLagOver60s: false,
 
   /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（纯函数出参）。 */
   addNodeInner: (type, position, dataOverride, envelope): Node & { type: string } => {

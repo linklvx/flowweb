@@ -1,4 +1,4 @@
-import { initCollab, destroyCollab, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
+import { initCollab, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
 import { bootstrapGeometryTrap } from '@/stores/geometryTrap';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
 import { useState, useEffect, useRef } from 'react';
@@ -243,7 +243,7 @@ export function CanvasPage() {
           <span className="text-text-dim-3 text-sm">画布同步失败，请检查网络后重试</span>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() => safeReload('generic')}
             className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
           >
             重试连接
@@ -459,7 +459,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
               <span>画布同步失败</span>
               <button
                 type="button"
-                onClick={() => window.location.reload()}
+                onClick={() => safeReload('generic')}
                 className="px-4 h-9 rounded-lg bg-overlay-2 hover:bg-overlay-3 text-text text-sm border-0"
               >
                 重试连接

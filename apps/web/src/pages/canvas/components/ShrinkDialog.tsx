@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { Modal, message } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { getUndoManager } from '@/stores/canvasUndo';
+import { safeReload } from '@/stores/canvasCollabRuntime';
 import { shrink, vacuum, type ShrinkBody, type ShrinkOutcome } from '@/api/collabApi';
 
 /** 残留超限占比阈值（vacuum 入口亮出判据——spec §4.4：residue>50%×limit 才值得全端重建） */
@@ -87,7 +88,9 @@ export function ShrinkDialog({ open, onClose, projectId }: { open: boolean; onCl
           if (r.result === 'ok') {
             message.success('已重建画布历史，即将刷新');
             onClose();
-            setTimeout(() => location.reload(), VACUUM_RELOAD_MS);
+            // Y0b-5 T6 改道 safeReload('generation')——发起端善后统一走导出（标注旧代）→reload
+            // 固定次序；未同步编辑在盘时落导出对话框不直接刷新
+            setTimeout(() => safeReload('generation'), VACUUM_RELOAD_MS);
           } else {
             // skip-low-residue/中止三档/意外——DB 零变更，无需刷新
             message.warning(r.result === 'skip-low-residue' ? '残留不足，无需重建' : '暂不可重建，请稍后重试');

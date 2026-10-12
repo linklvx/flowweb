@@ -1,15 +1,23 @@
 // apps/web/src/pages/canvas/components/SyncBanner.tsx
-// Y0b-3 T9 Step6：协作横幅（批1-5 connUi 注释承诺的 SyncBanner 消费者）——
-// wsAuthNotice 分档：版本族终态（reload 自愈/逃生动作）/会话过期（重登）/无权（回工作区）/
-// message-too-big 第六终态档（逃生=版本逃生同一按钮——P-V⑧）/未知终态兜底；
-// 瞬态族（db-unavailable/server-overloaded/rate-limited/draining 等——「服务繁忙，正在自动重试」）；
-// write-frozen（P-S 维护横幅「请勿刷新页面」）；connUi 分级（批1-1 machine 输出）；
-// Y0b-5 T4：readyProbeHint 探测 hint（/api/ready reason——重连成功但状态异常）。
-// 非阻断顶部横幅；优先级：terminal 鉴权 > 瞬态鉴权 > write-frozen > readyProbeHint > connUi banner > connUi hint。
+// Y0b-3 T9 Step6：协作横幅（批1-5 connUi 注释承诺的 SyncBanner 消费者）。
+// Y0b-5 T6：横幅单链仲裁（spec §5.7 v2.2 互斥裁定）——resolveCanvasBanner 纯函数（输入=store 投影，
+// 输出=档位+文案+动作），九级优先链任一时刻至多渲一档：
+//   terminal 鉴权 > 配额终态 > diverged > oversized > degraded > persist 未保存 > write-frozen
+//   > readyProbeHint > syncLag > connUi。
+// diverged（裁定 24⑬ 高位）：服务端已明确拒收（readOnly 期本地编辑），"自动合并"承诺为假——
+//   三出边=导出 .yjs / 放弃本地副本（二次确认,不可逆动作排在保全动作之后）/ 服务端最终接受（runtime tick）。
+// 能力位（裁定 21）：localCacheReady 字段已落,单链 persist 档分支结构就位——T6 阶段文案恒维持
+//   「未保存」档永不谎报（文案翻转归 T8 whenSynced 真值驱动）。
+// persist 档（V15）位次高于 write-frozen（最高运营优先）：persistUnhealthy∧syncLagOver60s 同真只渲
+//   persist 档——syncLag 降级文案零刷新词,「可尝试刷新」与「请勿刷新」结构性不同屏。
 import type { ReactNode } from 'react';
-import { CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
+import {
+  CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON,
+  SS2_OVER_LIMIT_TERMINAL_REASON,
+} from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { escapeWithLocalExport } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged } from '@/stores/canvasCollabRuntime';
+import { exportLocalBackup } from '@/collab/canvas-local-backup';
 import { loginUrl } from '@/utils/loginRedirect';
 
 /** 版本族终态（reload 自愈档——shared COLLAB_VERSION_TERMINAL_REASONS 单源，评审 M-1：
@@ -22,9 +30,12 @@ const TONE_CLASS: Record<string, string> = {
   info: 'bg-overlay-2/95 border-overlay-2 text-text-dim-1',
 };
 
-interface BannerContent { tone: keyof typeof TONE_CLASS; text: string; action?: ReactNode }
+type Tone = keyof typeof TONE_CLASS;
 
-/** 逃生按钮（唯一逃生动作：导出本地画布→强制刷新——版本族与 message-too-big 共用，P-V⑧） */
+interface BannerContent { tone: Tone; text: string; action?: ReactNode }
+
+/** 逃生按钮（唯一逃生动作：导出本地画布——版本族与 message-too-big 共用，P-V⑧）。
+ *  T6：导出后不自动刷新（reload=用户显式第二次动作）——文案去「并刷新」承诺词。 */
 function EscapeButton() {
   return (
     <button
@@ -33,76 +44,150 @@ function EscapeButton() {
       onClick={escapeWithLocalExport}
       className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
     >
-      导出本地画布并刷新
+      导出本地画布
     </button>
   );
 }
 
-function resolveContent(
-  connUi: 'ok' | 'hint' | 'banner',
-  notice: { reason: string; terminal: boolean } | null,
-  writeFrozen: boolean,
-  escapePending: boolean,
-  readyProbeHint: string | null,
-): BannerContent | null {
-  if (notice?.terminal) {
-    const r = notice.reason;
+/** diverged/ss2-over-limit 双动作：导出 .yjs（保全）在前+放弃本地副本（不可逆——二次确认通过才执行,
+ *  破坏性次序锚=不可逆动作禁先于保全动作出现）。 */
+function DivergedActions() {
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="diverged-export-btn"
+        onClick={() => { try { exportLocalBackup(getDoc()); } catch { /* 导出失败可重试 */ } }}
+        className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
+      >
+        导出 .yjs
+      </button>
+      <button
+        type="button"
+        data-testid="diverged-discard-btn"
+        onClick={() => {
+          if (window.confirm('确定放弃本地未上行副本？页面将刷新并恢复服务端版本，该操作不可恢复。')) {
+            discardLocalDiverged();
+          }
+        }}
+        className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
+      >
+        放弃本地副本
+      </button>
+    </>
+  );
+}
+
+// ── Y0b-5 T6：单链输入/输出模型（纯函数测试面）──
+export interface CanvasBannerInput {
+  connUi: 'ok' | 'hint' | 'banner';
+  wsAuthNotice: { reason: string; terminal: boolean } | null;
+  wsQuotaTerminal: { code: number; reason: string } | null;
+  canvasDiverged: boolean;
+  canvasOversized: boolean;
+  canvasDegraded: boolean;
+  persistUnhealthy: boolean;
+  writeFrozen: boolean;
+  syncLagOver60s: boolean;
+  localCacheReady: boolean;
+  collabEscapePending: boolean;
+  readyProbeHint: string | null;
+}
+
+export type CanvasBannerBranch =
+  | ({ kind: 'terminal-auth' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
+      | 'write-frozen' | 'sync-lag' | 'conn-ui' } & BannerContent)
+  | { kind: 'quota-terminal' }   // 渲染权=QuotaBanner（单链仲裁位次仍生效——压 diverged 以下全档）
+  | null;
+
+/** 单链仲裁纯函数：输入=store 投影,输出=胜出档位（任一时刻至多一档——互斥裁定 spec §5.7 v2.2）。
+ *  denylist 面=本函数全分支文案（跨刷新承诺词扫描锚——非三处字符串）。 */
+export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranch {
+  if (input.wsAuthNotice?.terminal) {
+    const r = input.wsAuthNotice.reason;
     if (VERSION_FAMILY.has(r)) {
       return {
-        tone: 'error',
-        text: '系统已更新，页面版本过期',
+        kind: 'terminal-auth', tone: 'error', text: '系统已更新，页面版本过期',
         // 逃生 pending=runtime reload 自愈不可行（loop 保护/未同步守卫/ready 不可达）——落一键逃生
-        action: escapePending
+        action: input.collabEscapePending
           ? <EscapeButton />
           : <span className="text-xs opacity-80">正在自动刷新…</span>,
       };
     }
     if (r === MESSAGE_TOO_BIG_TERMINAL_REASON) {
-      return { tone: 'error', text: '画布内容超出单帧大小限制，无法继续同步', action: <EscapeButton /> };
+      return { kind: 'terminal-auth', tone: 'error', text: '画布内容超出单帧大小限制，无法继续同步', action: <EscapeButton /> };
     }
     if (r === CollabAuthReason.SESSION_EXPIRED || r === CollabAuthReason.UNAUTHENTICATED) {
       return {
-        tone: 'error',
-        text: '登录已过期',
+        kind: 'terminal-auth', tone: 'error', text: '登录已过期',
         action: <a data-testid="collab-relogin-link" href={loginUrl()} className="shrink-0 underline text-xs">重新登录</a>,
       };
     }
     if (r === CollabAuthReason.FORBIDDEN || r === CollabAuthReason.NOT_FOUND) {
       return {
-        tone: 'error',
-        text: '无权访问该画布',
+        kind: 'terminal-auth', tone: 'error', text: '无权访问该画布',
         action: <a data-testid="collab-back-works-btn" href="/works" className="shrink-0 underline text-xs">返回工作区</a>,
       };
     }
-    return { tone: 'error', text: '协作连接已终止' };
+    return { kind: 'terminal-auth', tone: 'error', text: '协作连接已终止' };
   }
-  if (notice) return { tone: 'warn', text: '服务繁忙，正在自动重试…' };
-  if (writeFrozen) return { tone: 'warn', text: '服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）' };
-  // Y0b-5 T4：probeReadyReason 探测 hint（重连成功但状态异常——服务端 reason 可见；位于 connUi
-  // 分级之上：探测仅在无 synced 异常态写入，恰为 connUi hint/banner 活跃时——信息量高者优先）
-  if (readyProbeHint) return { tone: 'info', text: `服务端状态异常（${readyProbeHint}），正在自动重连…` };
-  if (connUi === 'banner') return { tone: 'warn', text: '连接已断开，正在自动重连…' };
-  if (connUi === 'hint') return { tone: 'info', text: '连接不稳定，正在自动重连…' };
+  if (input.wsAuthNotice) return { kind: 'terminal-auth', tone: 'warn', text: '服务繁忙，正在自动重试…' };
+  if (input.wsQuotaTerminal) {
+    // Y0b-5 T6（裁定 25⑸①）：ss2-over-limit=客户端本地超额（服务端 doc 往往小——瘦身指引治不了
+    // 此病）→文案=导出 .yjs→丢弃本地副本（diverged 放弃出边形态,非瘦身）；其余配额终态渲染权在 QuotaBanner。
+    if (input.wsQuotaTerminal.reason === SS2_OVER_LIMIT_TERMINAL_REASON) {
+      return { kind: 'ss2-over-limit', tone: 'error', text: '本地备份超出单文档上限，无法自动恢复', action: <DivergedActions /> };
+    }
+    return { kind: 'quota-terminal' };
+  }
+  if (input.canvasDiverged) {
+    return { kind: 'diverged', tone: 'warn', text: '有本地未上行副本（服务端暂停接收期间的编辑）', action: <DivergedActions /> };
+  }
+  // T8 邻档：本批结构就位字段驱动（恒 false 文案不可达——真实翻转归 T8）
+  if (input.canvasOversized) return { kind: 'oversized', tone: 'warn', text: '本地内容超出单文档上限，请导出后瘦身' };
+  if (input.canvasDegraded) return { kind: 'degraded', tone: 'warn', text: '本地数据已降级，正在从服务端恢复' };
+  // Y0b-5 T6（V15）：persist 未保存档——最高运营优先（高于 write-frozen）。能力位（裁定 21）：
+  // 文案恒维持「未保存」档永不谎报——localCacheReady 只入参不参与本档文案（翻转归 T8 whenSynced）。
+  if (input.persistUnhealthy) return { kind: 'persist', tone: 'warn', text: '内容尚未保存（服务保存异常）——请导出本地副本，请勿刷新页面' };
+  if (input.writeFrozen) return { kind: 'write-frozen', tone: 'warn', text: '服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）' };
+  // Y0b-5 T4：probeReadyReason 探测 hint（重连成功但状态异常——服务端 reason 可见）
+  if (input.readyProbeHint) return { kind: 'conn-ui', tone: 'info', text: `服务端状态异常（${input.readyProbeHint}），正在自动重连…` };
+  // syncLag 档（T7 置位）：降级文案零刷新词——persistUnhealthy 同真时本档不可达（位次更低）,
+  // 「可尝试刷新」与「请勿刷新」矛盾文案结构性不同屏。
+  if (input.syncLagOver60s) return { kind: 'sync-lag', tone: 'warn', text: '同步延迟较高，请导出本地副本' };
+  if (input.connUi === 'banner') return { kind: 'conn-ui', tone: 'warn', text: '连接已断开，正在自动重连…' };
+  if (input.connUi === 'hint') return { kind: 'conn-ui', tone: 'info', text: '连接不稳定，正在自动重连…' };
   return null;
 }
 
 export function SyncBanner() {
   const connUi = useCanvasStore((s) => s.connUi);
   const wsAuthNotice = useCanvasStore((s) => s.wsAuthNotice);
+  const wsQuotaTerminal = useCanvasStore((s) => s.wsQuotaTerminal);
   const writeFrozen = useCanvasStore((s) => s.writeFrozen);
   const collabEscapePending = useCanvasStore((s) => s.collabEscapePending);
   const readyProbeHint = useCanvasStore((s) => s.readyProbeHint);
+  const canvasDiverged = useCanvasStore((s) => s.canvasDiverged);
+  const canvasOversized = useCanvasStore((s) => s.canvasOversized);
+  const canvasDegraded = useCanvasStore((s) => s.canvasDegraded);
+  const persistUnhealthy = useCanvasStore((s) => s.persistUnhealthy);
+  const syncLagOver60s = useCanvasStore((s) => s.syncLagOver60s);
+  const localCacheReady = useCanvasStore((s) => s.localCacheReady);
 
-  const content = resolveContent(connUi, wsAuthNotice, writeFrozen, collabEscapePending, readyProbeHint);
-  if (!content) return null;
+  const branch = resolveCanvasBanner({
+    connUi, wsAuthNotice, wsQuotaTerminal, writeFrozen, collabEscapePending, readyProbeHint,
+    canvasDiverged, canvasOversized, canvasDegraded, persistUnhealthy, syncLagOver60s, localCacheReady,
+  });
+  // quota-terminal 渲染权=QuotaBanner（独立组件同挂载点——单链仲裁位次仍压制本组件全档）
+  if (!branch || branch.kind === 'quota-terminal') return null;
   return (
     <div
       data-testid="collab-sync-banner"
       role="alert"
-      className={`absolute left-1/2 top-14 z-30 -translate-x-1/2 flex items-center gap-3 px-4 h-10 rounded-xl border text-sm whitespace-nowrap ${TONE_CLASS[content.tone]}`}
+      className={`absolute left-1/2 top-14 z-30 -translate-x-1/2 flex items-center gap-3 px-4 h-10 rounded-xl border text-sm whitespace-nowrap ${TONE_CLASS[branch.tone]}`}
     >
-      <span>{content.text}</span>
-      {content.action}
+      <span>{branch.text}</span>
+      {branch.action}
     </div>
   );
 }

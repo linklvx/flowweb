@@ -9,9 +9,11 @@
 // Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
 //     ⚠ T3 pin 后 createProvider 显式首连（autoConnect:false）——connect/socket 计数一律基线相对。
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
+import { Origin } from './canvasUndo';
 import { canExecute } from './syncStatus';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { setSupervisorJitterForTest } from '@/collab/connection-supervisor';
@@ -276,8 +278,10 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
   });
 
   it('未同步门为真→不自动 reload+逃生 pending 置位', async () => {
-    const p = await driveToSynced();
-    p.unsyncedChanges = 1;                    // 本地未同步编辑——reload 会丢
+    await driveToSynced();
+    // Y0b-5 T6 迁移：未同步门=单源（本地 origin update 置位）——库计数面不再参与判定
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('nodes').set('n-t9', new Y.Map([['id', 'n-t9']])); }, Origin.LocalUser);
     fetchSpy.mockResolvedValueOnce(ready200(1));
     await runtime.handleVersionTerminal();
     expect(reloadSpy).not.toHaveBeenCalled();
@@ -327,12 +331,12 @@ describe('T9 Step4：handleVersionTerminal——loop 保护键=观测到的服�
     } finally { vi.useRealTimers(); }
   });
 
-  it('escapeWithLocalExport→导出本地画布+强制刷新（不受未同步守卫约束——它就是为未同步而设）', () => {
+  it('escapeWithLocalExport→导出双产物不自动刷新（Y0b-5 T6 重写：.yjs 可回灌+doc 反投影 JSON;reload=用户显式第二次动作）', async () => {
+    await driveToSynced();                        // doc=内容源（store 投影退役——failed 态 store 为空的根修）
     (URL as any).createObjectURL = vi.fn(() => 'blob:mock');
     (URL as any).revokeObjectURL = vi.fn();
-    useCanvasStore.setState({ nodes: [{ id: 'n1' } as any], edges: [] });
     runtime.escapeWithLocalExport();
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(2);   // .yjs+.json 双产物
+    expect(reloadSpy).not.toHaveBeenCalled();               // 不自动 reload
   });
 });

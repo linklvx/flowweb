@@ -5,6 +5,7 @@ import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { cropImage } from '@/utils/imageCrop';
+import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
 
 const { mockUseInternalNode } = vi.hoisted(() => ({
   mockUseInternalNode: vi.fn(() => ({
@@ -493,14 +494,17 @@ describe('ImageGenNode', () => {
     expect(mockSetActiveTransformNodeId).toHaveBeenCalledWith(null);
   });
 
-  // ── beforeunload ──
+  // ── beforeunload（Y0b-5 T6 迁移：handler 面归 unloadGuard reason 集合——组件注册 'editor-dirty'，
+  // 行为面断言=defaultPrevented；挂载/卸载随 unmount 解除）──
 
-  it('adds beforeunload listener when hasChanges in transform mode', () => {
-    const addSpy = vi.spyOn(window, 'addEventListener');
+  it('warns unload when hasChanges in transform mode（unloadGuard reason 武装→beforeunload preventDefault）', () => {
+    _resetUnloadGuardForTest();
     mockNodeData = { ...mockNodeData, fileId: 'cat-file-id', transformMode: true, imageRotation: 90 };
     renderNode(true);
-    expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
-    addSpy.mockRestore();
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    _resetUnloadGuardForTest();
   });
 
   it('does not add beforeunload listener when no changes', () => {

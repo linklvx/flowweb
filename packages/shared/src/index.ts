@@ -9,7 +9,7 @@ export type { SubscriptionErrorCode } from './constants/subscription-error';
 export { CollabAuthReason, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS } from './constants/collab-auth-reason';
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 // Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
-export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON } from './constants/collab-close-code';
+export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON } from './constants/collab-close-code';
 export type { CloseAction, CloseActionKind } from './constants/collab-close-code';
 // Y0b-5 T0：退避纯函数（spec §5.2 v2.2——route 三路由分流+jitter 入参零 Math.random；T3 删 web RECOVER_BACKOFF_MS 改 import 本表单源）。
 export { TRANSIENT_BACKOFF_STEPS_MS, resolveBackoffPlan } from './constants/collab-close-code';

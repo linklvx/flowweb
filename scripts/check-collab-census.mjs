@@ -88,7 +88,7 @@ export function classifyConsumeCall(line) {
 
 const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
 
-/** ④encodeStateAsUpdate 生产白名单（现行清单——2026-10-11 实况逐点列名；新增编码点必须同批补注）：
+/** ④encodeStateAsUpdate 生产白名单（现行清单——2026-10-11 实况逐点列名+Y0b-5 T6 增补；新增编码点必须同批补注）：
  *  gate-canvas-state ×1=A0-0 门禁画布种子构造（种子编码非测量）；
  *  canvas-doc-update.repository ×1=compact 快照重编码；
  *  collab-shrink.service ×5=export-fresh 落地校验/shrink 影子预演（apply 进 scratch+预演结果编码）
@@ -96,7 +96,8 @@ const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
  *  collab.gateway ×3=装载真值（cheap≥soft 才实测）/vacuum residue 评估（全根真空重建编码）
  *   /over 检查 measureTruth（冷却窗外实测）；
  *  project.service ×1=项目创建种子快照；
- *  web canvasCollabRuntime ×2=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）。 */
+ *  web canvasCollabRuntime ×2=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）；
+ *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
   'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 1,
@@ -104,6 +105,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/collab/collab.gateway.ts': 3,
   'apps/api/src/modules/project/project.service.ts': 1,
   'apps/web/src/stores/canvasCollabRuntime.ts': 2,
+  'apps/web/src/collab/canvas-local-backup.ts': 1,
 };
 
 const results = [];
@@ -163,7 +165,7 @@ if (isMain()) {
       else if (want !== n) details.push(`白名单计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
     }
     for (const f of Object.keys(ENCODE_WHITELIST)) if (!counts.has(f)) details.push(`白名单点消失 ${f}（清单需同步）`);
-    report('④', `encodeStateAsUpdate 生产白名单外清零（现行 ${Object.values(ENCODE_WHITELIST).reduce((a, b) => a + b, 0)} 点/6 文件）`, details.length === 0, details);
+    report('④', `encodeStateAsUpdate 生产白名单外清零（现行 ${Object.values(ENCODE_WHITELIST).reduce((a, b) => a + b, 0)} 点/7 文件）`, details.length === 0, details);
   }
   // ⑤.bufferedAmount 仅 collab.gateway.ts 背压段（生产读点唯一——spec 装置除外）
   {
@@ -237,6 +239,27 @@ if (isMain()) {
        ...(inApply ? [] : [`conn.readOnly 直写 ${connWrites.length} 处且须恰 1 处位于 applyWriteFreeze 体内`]),
        ...strayWrites.map((s) => `越面直写 gateway:${s}`),
        ...literalBans.map((f) => `readOnly: true 字面量命中 ${f}`)]);
+  }
+
+  // ⑫裸 location.reload() 白名单（Y0b-5 T6 safeReload 九处收敛——唯一裸 reload 点=safeReload 内部；
+  //  其余 reload 面一律经 safeReload(reason)：unsyncedDirty 真→导出对话框不刷新。新增越权点即红）。
+  {
+    const RELOAD_WHITELIST = {
+      'apps/web/src/stores/canvasCollabRuntime.ts': 1,   // safeReload 内部唯一裸点
+    };
+    const details = [];
+    const counts = new Map();
+    for (const p of files) {
+      const n = (byFile.get(p).stripped.match(/location\.reload\(\)/g) ?? []).length;
+      if (n) counts.set(relOf(p), n);
+    }
+    for (const [f, n] of counts) {
+      const want = RELOAD_WHITELIST[f];
+      if (want === undefined) details.push(`白名单外裸 location.reload() ${f} ×${n}——改道 safeReload(reason)`);
+      else if (want !== n) details.push(`reload 白名单计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
+    }
+    for (const f of Object.keys(RELOAD_WHITELIST)) if (!counts.has(f)) details.push(`reload 白名单点消失 ${f}（清单需同步）`);
+    report('⑫', `裸 location.reload() 白名单=safeReload 内部唯一点（现行 ${Object.values(RELOAD_WHITELIST).reduce((a, b) => a + b, 0)} 点——9 处收敛锚）`, details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

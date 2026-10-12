@@ -54,6 +54,14 @@ export const DOC_OVER_QUOTA_TERMINAL_REASON = 'doc-over-quota' as const;
 export const DOC_VACUUMING_TERMINAL_REASON = 'doc-vacuuming' as const;
 export const DOC_GENERATION_STALE_TERMINAL_REASON = 'doc-generation-stale' as const;
 
+/** Y0b-5 T6（裁定 25⑸——报告3 P0-1/P0-2）close 分型双 reason：
+ *  ss2-over-limit=客户端导入备份超单文档上限（4404 载体按 reason 分型——超额在客户端本地、
+ *  服务端 doc 往往小，瘦身指引治不了此病；UX=导出 .yjs→丢弃本地副本）； */
+export const SS2_OVER_LIMIT_TERMINAL_REASON = 'ss2-over-limit' as const;
+/** team disbanded=团队解散（gateway closeTeamDocuments close NORMAL+reason——原裸字面量升单源；
+ *  NORMAL 路由按 reason 分型落 terminal：团队解散禁先重连一次，与 doc-over-quota 库抹码特例同款形态）。 */
+export const TEAM_DISBANDED_TERMINAL_REASON = 'team disbanded' as const;
+
 export function resolveCloseAction(code: number, reason: string | undefined): CloseAction {
   // (code,reason) 双键分型（spec §5.2 v2.1）——只判 code 会把库 Unauthorized 当会话过期无限续期
   if (code === CollabCloseCode.SESSION_EXPIRED) {
@@ -65,11 +73,19 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
   // 前置条件：4410 调用方（T9a hardClose）恒携带 reason 常量——terminalReason undefined 仅出现在库抹码异常形态
   // （下游 runtime 非空断言直取；(1000,reason) 兜底不对称=登记项，T9a 实装时评估）
   if (code === CollabCloseCode.GENERATION_SUPERSEDED) return { kind: 'terminal', terminalReason: reason };
-  if (code === CollabCloseCode.DOC_OVER_QUOTA) return { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON };
+  // Y0b-5 T6（裁定 25⑸①）：4404 按 reason 分型——ss2-over-limit（客户端本地超额）≠ doc-over-quota（服务端超额）
+  if (code === CollabCloseCode.DOC_OVER_QUOTA) {
+    return {
+      kind: 'terminal',
+      terminalReason: reason === SS2_OVER_LIMIT_TERMINAL_REASON ? SS2_OVER_LIMIT_TERMINAL_REASON : DOC_OVER_QUOTA_TERMINAL_REASON,
+    };
+  }
   if (code === CollabCloseCode.NORMAL) {
     // 库抹码形态兜底（外审 P0-2 尾巴）：旧路径/竞态下客户端可能观测 (1000,'doc-over-quota')
     // ——reason 匹配配额终态时不得落 normal，双键分型先于 NORMAL 判定
     if (reason === DOC_OVER_QUOTA_TERMINAL_REASON) return { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON };
+    // Y0b-5 T6（裁定 25⑸②）：'team disbanded'（close NORMAL+reason）→terminal——团队解散禁先重连一次
+    if (reason === TEAM_DISBANDED_TERMINAL_REASON) return { kind: 'terminal', terminalReason: TEAM_DISBANDED_TERMINAL_REASON };
     return { kind: 'normal' };
   }
   if (code === CollabCloseCode.LIB_MESSAGE_TOO_BIG) return { kind: 'terminal', terminalReason: MESSAGE_TOO_BIG_TERMINAL_REASON };

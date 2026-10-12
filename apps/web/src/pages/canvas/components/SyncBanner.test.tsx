@@ -1,16 +1,24 @@
 // apps/web/src/pages/canvas/components/SyncBanner.test.tsx
 // Y0b-3 T9 Step6：协作横幅分档 UI 测试——四/五/六档终态+瞬态族+write-frozen+connUi 分级
 // （优先级：terminal 鉴权 > write-frozen > connUi banner > connUi hint；全清不渲染）。
+// Y0b-5 T6：单链仲裁扩测（spec §5.7 v2.2 互斥裁定）——九级优先链+能力位+denylist 面。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
-import { isTerminalReason } from '@flowweb/shared';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { isTerminalReason, SS2_OVER_LIMIT_TERMINAL_REASON } from '@flowweb/shared';
 import { SyncBanner } from './SyncBanner';
 import { useCanvasStore } from '@/stores/canvasStore';
 
-vi.mock('@/stores/canvasCollabRuntime', () => ({ escapeWithLocalExport: vi.fn() }));
+vi.mock('@/stores/canvasCollabRuntime', () => ({
+  escapeWithLocalExport: vi.fn(),
+  safeReload: vi.fn(),
+  getDoc: vi.fn(() => null),
+  discardLocalDiverged: vi.fn(),
+}));
 
 const reset = () => useCanvasStore.setState({
   connUi: 'ok', wsAuthNotice: null, writeFrozen: false, collabEscapePending: false, readyProbeHint: null,
+  wsQuotaTerminal: null, canvasDiverged: false, canvasOversized: false, canvasDegraded: false,
+  persistUnhealthy: false, syncLagOver60s: false, localCacheReady: false,
 });
 
 beforeEach(reset);
@@ -112,5 +120,121 @@ describe('SyncBanner 分档（T9 Step6）', () => {
   it('全清→不渲染', () => {
     const { container } = render(<SyncBanner />);
     expect(container.querySelector('[data-testid="collab-sync-banner"]')).toBeNull();
+  });
+});
+
+// ══════════ Y0b-5 T6：横幅单链仲裁（spec §5.7 v2.2 互斥裁定） ══════════
+describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversized>degraded>persist>write-frozen>syncLag>connUi', () => {
+  afterEach(cleanup);
+
+  it('diverged 高于 persist/write-frozen：服务端已明确拒收,"自动合并"承诺为假——diverged∧persistUnhealthy 只渲 diverged', () => {
+    useCanvasStore.setState({ canvasDiverged: true, persistUnhealthy: true, writeFrozen: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/有本地未上行副本/)).toBeInTheDocument();
+    expect(screen.queryByText(/尚未保存/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/服务维护中/)).not.toBeInTheDocument();
+  });
+
+  it('persist∧syncLagOver60s 同真→只渲 persist 档（禁「可尝试刷新」与「请勿刷新」同屏）；syncLag 单真→降级文案「请导出本地副本」零刷新词', () => {
+    useCanvasStore.setState({ persistUnhealthy: true, syncLagOver60s: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/尚未保存/)).toBeInTheDocument();
+    expect(screen.queryByText(/同步延迟较高/)).not.toBeInTheDocument();
+    cleanup();
+    useCanvasStore.setState({ persistUnhealthy: false });
+    render(<SyncBanner />);
+    const lag = screen.getByText(/同步延迟较高，请导出本地副本/);
+    expect(lag.textContent).not.toContain('刷新');   // 降级文案禁刷新词（persist 同真时矛盾文案不可达）
+  });
+
+  it('配额终态委托：wsQuotaTerminal 4404/4410→SyncBanner 静默（渲染权=QuotaBanner——单链仲裁位次仍生效,压 diverged 以下全档）', () => {
+    useCanvasStore.setState({ wsQuotaTerminal: { code: 4404, reason: 'doc-over-quota' }, canvasDiverged: true, persistUnhealthy: true });
+    const { container } = render(<SyncBanner />);
+    expect(container.querySelector('[data-testid="collab-sync-banner"]')).toBeNull();
+    expect(screen.queryByText(/有本地未上行副本/)).not.toBeInTheDocument();
+  });
+
+  it('4404 ss2-over-limit 档：文案=导出 .yjs→丢弃本地副本（diverged 放弃出边形态,非瘦身）；破坏性次序锚=「放弃」排在「导出」之后', () => {
+    useCanvasStore.setState({ wsQuotaTerminal: { code: 4404, reason: SS2_OVER_LIMIT_TERMINAL_REASON } });
+    render(<SyncBanner />);
+    expect(screen.getByText(/超出单文档上限/)).toBeInTheDocument();
+    const exportBtn = screen.getByTestId('diverged-export-btn');
+    const discardBtn = screen.getByTestId('diverged-discard-btn');
+    expect(exportBtn.compareDocumentPosition(discardBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText(/瘦身/)).not.toBeInTheDocument();
+  });
+
+  it('diverged 分支双动作：导出 .yjs（保全）+ 放弃本地副本（不可逆,二次确认通过才 discardLocalDiverged）', async () => {
+    const { discardLocalDiverged } = await import('@/stores/canvasCollabRuntime');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    useCanvasStore.setState({ canvasDiverged: true });
+    render(<SyncBanner />);
+    fireEvent.click(screen.getByTestId('diverged-discard-btn'));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(discardLocalDiverged).not.toHaveBeenCalled();   // 未确认不放弃
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByTestId('diverged-discard-btn'));
+    expect(discardLocalDiverged).toHaveBeenCalledTimes(1); // 确认后放弃
+  });
+
+  it('能力位【T6 只落字段不落承诺】：localCacheReady=true（T8 禁用路径反例）→persist 档文案恒维持「未保存」档永不谎报', () => {
+    useCanvasStore.setState({ persistUnhealthy: true, localCacheReady: true });
+    render(<SyncBanner />);
+    const banner = screen.getByTestId('collab-sync-banner');
+    expect(banner.textContent).toContain('尚未保存');
+    expect(banner.textContent).not.toContain('已保存');
+    expect(banner.textContent).not.toContain('已缓存');
+  });
+
+  it('oversized/degraded 档结构就位（T8 字段驱动——本批恒 false 不渲染）', () => {
+    useCanvasStore.setState({ canvasOversized: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/超出单文档上限/)).toBeInTheDocument();
+    cleanup();
+    useCanvasStore.setState({ canvasOversized: false, canvasDegraded: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/降级/)).toBeInTheDocument();
+  });
+
+  it('文案 denylist 面=单链全分支——逐档实例化扫描：跨刷新承诺词「可尝试刷新」零命中', () => {
+    const branchStates: Array<Parameters<typeof useCanvasStore.setState>[0]> = [
+      { wsAuthNotice: { reason: 'schema-outdated', terminal: true }, collabEscapePending: true },
+      { wsAuthNotice: { reason: 'message-too-big', terminal: true } },
+      { wsAuthNotice: { reason: 'session-expired', terminal: true } },
+      { wsAuthNotice: { reason: 'forbidden', terminal: true } },
+      { wsAuthNotice: { reason: 'unknown-x', terminal: true } },
+      { wsAuthNotice: { reason: 'server-overloaded', terminal: false } },
+      { wsQuotaTerminal: { code: 4404, reason: SS2_OVER_LIMIT_TERMINAL_REASON } },
+      { canvasDiverged: true },
+      { canvasOversized: true },
+      { canvasDegraded: true },
+      { persistUnhealthy: true },
+      { writeFrozen: true },
+      { syncLagOver60s: true },
+      { connUi: 'banner' },
+      { connUi: 'hint' },
+    ];
+    for (const st of branchStates) {
+      cleanup();
+      useCanvasStore.setState(resetPartial());
+      useCanvasStore.setState(st);
+      render(<SyncBanner />);
+      const el = document.querySelector('[data-testid="collab-sync-banner"]');
+      if (el) expect(el.textContent).not.toContain('可尝试刷新');
+    }
+    function resetPartial() {
+      return {
+        connUi: 'ok' as const, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
+        readyProbeHint: null, wsQuotaTerminal: null, canvasDiverged: false, canvasOversized: false,
+        canvasDegraded: false, persistUnhealthy: false, syncLagOver60s: false,
+      };
+    }
+  });
+
+  it('write-frozen 与 persist 档互斥（persist 位次更高——同真只渲 persist,write-frozen 维护文案结构性不可达）', () => {
+    useCanvasStore.setState({ persistUnhealthy: true, writeFrozen: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/尚未保存/)).toBeInTheDocument();
+    expect(screen.queryByText(/服务维护中/)).not.toBeInTheDocument();
   });
 });

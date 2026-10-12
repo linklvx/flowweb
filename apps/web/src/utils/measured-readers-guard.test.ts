@@ -44,7 +44,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y0b-4 T13：applyQuotaWatermark 单写者 action 两处插入（interface +4/实现 +3——实现在 1701 之后，
     // 本表 13 行仅 interface 段 +4 漂移，集合不变）
     // Y0b-5 T4：localCacheReady/readyProbeHint 字段两处插入（interface +9/初始值 +2）——13 行整体 +11 漂移
-    'stores/canvasStore.ts': [888, 889, 895, 896, 951, 952, 1021, 1022, 1028, 1029, 1175, 1715, 1716],
+    // Y0b-5 T6：横幅单链字段族两处插入（interface +20/初始值 +6——本表 13 行整体再 +20 漂移，集合不变）
+    'stores/canvasStore.ts': [908, 909, 915, 916, 971, 972, 1041, 1042, 1048, 1049, 1195, 1735, 1736],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],
@@ -59,7 +60,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/ImageNodeToolbar.tsx': [363, 364],
     'pages/canvas/components/nodes/TextNodeToolbar.tsx': [166, 171],
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
-    'pages/canvas/components/nodes/ImageGenNode.tsx': [163, 164], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164
+    'pages/canvas/components/nodes/ImageGenNode.tsx': [164, 165], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
     'pages/canvas/components/nodes/VideoGenNode.tsx': [398],
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],

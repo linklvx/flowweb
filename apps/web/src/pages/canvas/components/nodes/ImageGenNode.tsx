@@ -12,6 +12,7 @@ import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { useLightingStore } from '@/stores/lightingStore';
 import { useAngle3DStore } from '@/stores/angle3DStore';
 import { stopCapturing } from '@/stores/canvasUndo';
+import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 import { ImageConfigPanelResolver } from './ImageConfigPanelResolver';
 import { ImageNodeToolbar } from './ImageNodeToolbar';
 import { ImageFullscreenViewer } from './ImageFullscreenViewer';
@@ -746,15 +747,12 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     };
   }, [id, updateConfig]);
 
-  // beforeunload
+  // beforeunload（Y0b-5 T6 收编：handler 面归 utils/unloadGuard reason 集合单源——
+  // 本挂载点=transformMode 旋转翻转未落库，注册 'editor-dirty' reason 取并集）
   useEffect(() => {
     if (!transformMode || (imageRotation === 0 && !flipH && !flipV)) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '您有未保存的更改，确定要离开吗？';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
+    armUnloadWarning('editor-dirty');
+    return () => { disarmUnloadWarning('editor-dirty'); };
   }, [transformMode, imageRotation, flipH, flipV]);
 
   // Keyboard shortcuts (only when this node is the active transform)

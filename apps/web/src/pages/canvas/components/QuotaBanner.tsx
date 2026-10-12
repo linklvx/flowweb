@@ -8,9 +8,11 @@ import { useState } from 'react';
 import { message } from 'antd';
 import {
   DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON,
+  SS2_OVER_LIMIT_TERMINAL_REASON,
 } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { effectiveSoftLimit } from '@/stores/canvasIntents';
+import { safeReload } from '@/stores/canvasCollabRuntime';
 import { exportFresh } from '@/api/collabApi';
 import { ShrinkDialog } from './ShrinkDialog';
 
@@ -40,6 +42,9 @@ export function QuotaBanner({ projectId }: { projectId: string }) {
   const reason = wsQuotaTerminal?.reason;
   const vacuumingFamily = reason === DOC_VACUUMING_TERMINAL_REASON || reason === DOC_GENERATION_STALE_TERMINAL_REASON;
   const overQuotaTerminal = reason === DOC_OVER_QUOTA_TERMINAL_REASON;
+  // Y0b-5 T6：ss2-over-limit 让位单链（SyncBanner ss2 档=导出 .yjs→丢弃本地副本——超额在客户端本地、
+  // 服务端 doc 往往小，本组件瘦身指引治不了此病）。
+  if (reason === SS2_OVER_LIMIT_TERMINAL_REASON) return null;
   const hard = overQuotaTerminal || (quotaOver && quotaLimitBytes > 0 && localDocBytes >= quotaLimitBytes);
   if (!vacuumingFamily && !hard && !quotaOver) return null;
 
@@ -92,8 +97,9 @@ export function QuotaBanner({ projectId }: { projectId: string }) {
               导出到新项目
             </button>
             {overQuotaTerminal && (
-              // 终态后唯一复位路径（terminalSuppressed 禁自动重连——瘦身后手动重连=新会话新额度）
-              <button type="button" data-testid="quota-reconnect-btn" onClick={() => location.reload()}
+              // 终态后唯一复位路径（terminalSuppressed 禁自动重连——瘦身后手动重连=新会话新额度）；
+              // Y0b-5 T6 改道 safeReload('quota-shrink')——未同步编辑在盘时落导出对话框不直接刷新
+              <button type="button" data-testid="quota-reconnect-btn" onClick={() => safeReload('quota-shrink')}
                 className={BTN_SECONDARY}>
                 重新连接
               </button>

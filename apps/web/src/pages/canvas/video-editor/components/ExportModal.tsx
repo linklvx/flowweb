@@ -15,6 +15,7 @@ import { exportPrecheck } from '@/api/videoProjectApi';
 import { runExportJob, pickSaveTarget, openOpfsTarget, cleanupOpfsTarget, cleanupStaleOpfsExports, ExportJobError } from '../export/client';
 import { uploadExportedProduct } from '../export/upload';
 import { createProductNode } from '../export/product-node';
+import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 
 // R2-N11/R3-4：模块级取值函数（currentXxx 前缀防 react-hooks lint 误报；?? '' 归一返回 string——可空字段直接透传 strict 下 TS2345）
 const currentCanvasProjectId = () => useCanvasStore.getState().projectId ?? '';
@@ -22,18 +23,19 @@ const currentEditorProjectId = () => useEditorStore.getState().projectId ?? '';
 const currentEditorProjectTitle = () => useEditorStore.getState().title ?? '';
 const currentEditorSourceNodeId = () => useVideoEditorStore.getState().sourceNodeId ?? '';
 
-// I-2：beforeunload 模块级守卫——以在飞 job 为依据安装/拆除，不随 Popover 卸载（收起编辑器后关页仍拦，对齐 R2-N12 后台完成语义）
-const beforeunloadHandler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+// I-2：beforeunload 模块级守卫——以在飞 job 为依据安装/拆除，不随 Popover 卸载（收起编辑器后关页仍拦，对齐 R2-N12 后台完成语义）。
+// Y0b-5 T6 收编：handler 面归 utils/unloadGuard reason 集合单源（'export-inflight' 语义独立 reason）——
+// 模块级 arm/disarm 形态保留（调用面零改动），体内改道 arm/disarmUnloadWarning。
 let beforeunloadArmed = false;
 const armBeforeunload = () => {
   if (beforeunloadArmed) return;
   beforeunloadArmed = true;
-  window.addEventListener('beforeunload', beforeunloadHandler);
+  armUnloadWarning('export-inflight');
 };
 const disarmBeforeunload = () => {
   if (!beforeunloadArmed) return;
   beforeunloadArmed = false;
-  window.removeEventListener('beforeunload', beforeunloadHandler);
+  disarmUnloadWarning('export-inflight');
 };
 
 function fmtSize(bytes: number): string {

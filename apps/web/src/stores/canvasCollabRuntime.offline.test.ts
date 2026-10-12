@@ -27,6 +27,8 @@ vi.mock('@hocuspocus/provider', () => {
     // 批0a 库契约：isAuthenticated/isSynced 公开布尔（provider 无 status 字段——只有事件）
     isAuthenticated = false;
     isSynced = false;
+    // Y0b-5 T6 契约补全：T3/T6 接缝（authenticated 时带未同步编辑 → forceSync）消费面
+    forceSync = vi.fn();
     handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
     destroyCalls = 0;
     constructor(config: unknown) {

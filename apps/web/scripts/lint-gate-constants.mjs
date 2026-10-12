@@ -77,6 +77,21 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // Y0b-5 T2（2026-10-12）：canvasCollabRuntime.telemetry.spec.ts 造案 +1 处/1 文件（遥测接线用例
   //   beforeEach 装置复位——sanctioned 例外同模式）→ 260/50。
   'src/stores/canvasCollabRuntime.telemetry.spec.ts',
+  // Y0b-5 T5（2026-10-12）：canvasCollabRuntime.cache.spec.ts 造案 +1 处/1 文件（世代通道/purge
+  //   挂点用例 beforeEach resetStore 装置复位——sanctioned 例外同模式）→ 264/51（当时漏列，
+  //   T6 破线分支首次暴露补登——O0b-4 两处登记对齐先例）。
+  'src/stores/canvasCollabRuntime.cache.spec.ts',
+  // Y0b-5 T6（2026-10-12）：canvasCollabRuntime.t6.spec.ts 造案 +6 处/1 新文件（unsyncedDirty
+  //   单源/diverged 三出边/safeReload/persist-status 用例 resetStore+字段注入——sanctioned 例外
+  //   同模式）+SyncBanner.test.tsx 存量文件 +10 处（单链仲裁字段注入，同 T9/T4 例外）→ 281/52。
+  //   破线分支首次暴露的历史漏列同批补登（Y0b-4 T11 落地漏登记先例）：
+  //   QuotaBanner.test +8/ShrinkDialog.test +4（三级分档/瘦身三档 UI 注入）/canvasIntents.quota.spec
+  //   +7（D-14+T10 判据④造案）/canvasStore.paste-chunk.spec +2（T10 分块粘贴装置）。
+  'src/stores/canvasCollabRuntime.t6.spec.ts',
+  'src/pages/canvas/components/QuotaBanner.test.tsx',
+  'src/pages/canvas/components/ShrinkDialog.test.tsx',
+  'src/stores/canvasIntents.quota.spec.ts',
+  'src/stores/canvasStore.paste-chunk.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -114,5 +129,8 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   store 注入是用例存在目的〔同 T9 例外〕；均存量 allow-list 文件）→ 263 处 / 50 文件。
   // Y0b-5 T5（2026-10-12）：canvasCollabRuntime.cache.spec.ts 造案 +1 处/1 新文件（世代通道/purge
   //   挂点用例 beforeEach resetStore 装置复位——sanctioned 例外同模式）→ 264 处 / 51 文件。
-  effective: { count: 264, files: 51 },
+  // Y0b-5 T6（2026-10-12）：canvasCollabRuntime.t6.spec.ts 造案 +6 处/1 新文件（unsyncedDirty
+  //   单源/diverged/safeReload/persist-status 用例 resetStore+字段注入）+SyncBanner.test.tsx 存量
+  //   +10 处（单链仲裁字段注入）→ 281 处 / 52 文件。
+  effective: { count: 281, files: 52 },
 };

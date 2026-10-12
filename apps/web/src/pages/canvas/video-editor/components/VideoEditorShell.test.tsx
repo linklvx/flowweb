@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { VideoEditorShell, hasPendingWork } from './VideoEditorShell';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { hasUnsyncedCanvasChanges } from '@/stores/canvasCollabRuntime';
+import { armUnloadWarning, _resetUnloadGuardForTest } from '@/utils/unloadGuard';
 import { useConfirmModalStore } from '@/stores/confirmModalStore';
 import { ConfirmModal } from '@/pages/canvas/components/ConfirmModal';
 import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
@@ -19,13 +19,9 @@ vi.mock('@/api/videoProjectApi', () => ({
   deleteProjectByNode: vi.fn(),
 }));
 
-// 批6：hasUnsyncedCanvasChanges 测试缝——真实谓词（rebuildPending||provider.hasUnsyncedChanges）
-// 的置位/清除语义由 conn.spec 批1-3/1-4 直测；此处控制返回值锚定 Shell 谓词消费（重建窗口半边）。
-// 其余导出经 importOriginal 原样保留（测试环境无 provider ⇒ 真实值本就是 false，默认实现不改变既有用例）
-vi.mock('@/stores/canvasCollabRuntime', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/stores/canvasCollabRuntime')>();
-  return { ...actual, hasUnsyncedCanvasChanges: vi.fn(() => false) };
-});
+// Y0b-5 T6 迁移：Shell beforeunload 消费面=utils/unloadGuard reason 集合（'editor-dirty' 由本
+// 组件注册；'unsynced' 由 runtime 单源注册——置位/清除语义归 runtime t6.spec/conn.spec 直测）。
+// 此处以 armUnloadWarning('unsynced') 直接建模 runtime 已武装形态（重建窗口半边）。
 
 /** 批6：patchProject mock 返回值（完整 VideoProjectDto 形状——onSaved 只消费 updatedAt） */
 const patchDto = () => ({
@@ -190,7 +186,7 @@ describe('批6：红2f″ beforeunload 全组判据（defaultPrevented 场景矩
     useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
     useEditorStore.getState().reset();
     useCanvasStore.setState({ editorDirty: false, collabReadOnly: false, wsAuthNotice: null });
-    vi.mocked(hasUnsyncedCanvasChanges).mockReset().mockReturnValue(false);
+    _resetUnloadGuardForTest();
     vi.mocked(upsertProject).mockResolvedValue({
       id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
       data: createDefaultProjectData(), updatedAt: 't0',
@@ -290,9 +286,8 @@ describe('批6：红2f″ beforeunload 全组判据（defaultPrevented 场景矩
 
   it('重建窗口（recoverConnection 后未 healthy——rebuildPending=true）→ 拦（谓词另一半独立起效）', async () => {
     await openReady();
-    // 零编辑（editorDirty=false）；谓词 WS 半边为真：终态重建后未 ack 的 rebuildPending 窗口
-    // （hasUnsyncedCanvasChanges=rebuildPending||provider.hasUnsyncedChanges，批1-3 并入）
-    vi.mocked(hasUnsyncedCanvasChanges).mockReturnValueOnce(true);
+    // 零编辑（editorDirty=false）；runtime 单源已武装 'unsynced'（终态重建保守武装 markDocUnsyncedDirty）
+    armUnloadWarning('unsynced');
     expect(fire()).toBe(true);
   });
 });
@@ -303,7 +298,7 @@ describe('批6：handleClose 三选（flush 失败 → ConfirmModal 重试保存
     useEditorStore.getState().reset();
     useCanvasStore.setState({ editorDirty: false });
     useConfirmModalStore.getState().close();
-    vi.mocked(hasUnsyncedCanvasChanges).mockReset().mockReturnValue(false);
+    _resetUnloadGuardForTest();
     vi.mocked(upsertProject).mockResolvedValue({
       id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
       data: createDefaultProjectData(), updatedAt: 't0',
@@ -379,7 +374,7 @@ describe('批6：hasPendingWork() 导出（外部查询编辑器有无未保存�
     useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
     useEditorStore.getState().reset();
     useCanvasStore.setState({ editorDirty: false });
-    vi.mocked(hasUnsyncedCanvasChanges).mockReset().mockReturnValue(false);
+    _resetUnloadGuardForTest();
     vi.mocked(upsertProject).mockResolvedValue({
       id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
       data: createDefaultProjectData(), updatedAt: 't0',

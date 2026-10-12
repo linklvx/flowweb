@@ -6,7 +6,7 @@
 // TELEMETRY_DETAIL_SCHEMA.invariant_violation{name,frame}=log-only）——Y5 前可诊断非只知崩了。
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { recordCollabDiag, flushTelemetry } from '@/utils/collabDiagnostics';
-import { escapeWithLocalExport } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, safeReload } from '@/stores/canvasCollabRuntime';
 
 /** 首帧 file:line（剥列号——仅 "路径:行" 受控字符串；截 160 尾段防长 URL 撑爆服务端 512B 单条上限） */
 function firstFrameFileLine(stack?: string): string | undefined {
@@ -43,9 +43,9 @@ export class CanvasErrorBoundary extends Component<{ children: ReactNode }, Stat
         }}>
           <p style={{ fontSize: 16, margin: 0 }}>画布渲染出现异常，可刷新重试；本地内容可先导出留存。</p>
           <div style={{ display: 'flex', gap: 8 }}>
-            {/* T6 改道 safeReload（reload 收敛 9 处）——现阶段 location.reload 直用 */}
+            {/* Y0b-5 T6 改道 safeReload（reload 收敛 9 处）——未同步编辑在盘时落导出对话框不直接刷新 */}
             <button type="button" aria-label="刷新页面" style={{ fontSize: 14, padding: '6px 16px', cursor: 'pointer' }}
-              onClick={() => location.reload()}>
+              onClick={() => safeReload('generic')}>
               刷新页面
             </button>
             <button type="button" aria-label="导出本地画布" style={{ fontSize: 14, padding: '6px 16px', cursor: 'pointer' }}
