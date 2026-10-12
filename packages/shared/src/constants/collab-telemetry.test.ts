@@ -87,6 +87,15 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'made-up' })).toEqual({ reason: 'other' });
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'unsynced-lag' })).toEqual({ reason: 'unsynced-lag' });
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'local-cache-degraded' })).toEqual({ reason: 'local-cache-degraded' });
+    // T0 审查 I-1：from/to 同为 metric label——越界字符串禁穿 sanitize 直达 label（值域=runtime:134 库 status 机三值闭集）
+    expect(sanitizeTelemetryDetail('ws_status', { from: 'evil-status', to: 'connected' }))
+      .toEqual({ from: 'other', to: 'connected' });
+    expect(sanitizeTelemetryDetail('ws_status', { from: 'connecting', to: 'hacker' }))
+      .toEqual({ from: 'connecting', to: 'other' });
+  });
+  it('数值 metric 键非 number 剥键（T0 审查 I-1：字符串 ms 禁穿——T1 直方图 observe 才炸，剥键与表外键同语义）', () => {
+    expect(sanitizeTelemetryDetail('projection_duration', { ms: '123' })).toEqual({});
+    expect(sanitizeTelemetryDetail('projection_duration', { ms: 123 })).toEqual({ ms: 123 });
   });
   it('close_code.code 查 CollabCloseCode 值域（应用码+库码全集——Object.values 单源）', () => {
     for (const code of Object.values(CollabCloseCode)) {

@@ -5,8 +5,7 @@ import {
   DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON,
   resolveBackoffPlan, TRANSIENT_BACKOFF_STEPS_MS,
 } from './collab-close-code';
-import type { BackoffPlan } from './collab-close-code';
-import type { CloseActionKind } from './collab-close-code';
+import type { BackoffPlan, CloseActionKind } from './collab-close-code';
 import { CollabAuthReason } from './collab-auth-reason';
 import { ConnectionTimeout, Forbidden, MessageTooBig, ResetConnection, Unauthorized } from '@hocuspocus/common';
 

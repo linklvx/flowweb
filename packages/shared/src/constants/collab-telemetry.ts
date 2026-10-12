@@ -26,10 +26,12 @@ export const isKnownTelemetryType = (t: string): t is CollabTelemetryEventType =
  *  （无 sink 的允许键=过 sanitize 仍被指标层丢弃——T1 指标消费面四族：close/auth/ws_reason/projection）。 */
 export interface TelemetryDetailKeySpec {
   readonly sink: string;
-  /** 受控字符串值域——越界折 'other'（防 label 基数）；undefined=非枚举键（from/to 迁移对/数值/布尔） */
+  /** 受控字符串值域——越界折 'other'（防 label 基数）；undefined=非枚举键（数值/布尔） */
   readonly values?: readonly string[];
   /** 受控数值值域（close_code.code——CollabCloseCode 值域）——越界折 'other' */
   readonly numericValues?: readonly number[];
+  /** 数值类型守卫（metric 数值键 projection_duration.ms——非 number 剥键，T1 直方图 observe 防炸） */
+  readonly numeric?: boolean;
   /** 值域校验放行 null（conn_scope.scope——authenticated 载荷 scope 缺失折 null，runtime:955） */
   readonly nullable?: boolean;
 }
@@ -50,8 +52,9 @@ const CLOSE_CODE_VALUES: readonly number[] = Object.values(CollabCloseCode);
  *  projection_duration{ms}/unsynced_close{n}（T2 接线）。表外键一律剥除。 */
 export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, Readonly<Record<string, TelemetryDetailKeySpec>>>> = {
   ws_status: {
-    from: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}' }, // 有界迁移对（连接迁移分布唯一客户端证据）
-    to: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}' },
+    // from/to 值域=runtime:134 库 status 机三值闭集（T0 审查 I-1：sink 是 metric label——无 values 域则任意串穿 sanitize 直达 label）
+    from: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
+    to: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded'] },
   },
   recover_triggered: {
@@ -86,12 +89,12 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     n: { sink: 'log-only' },
   },
   projection_duration: {
-    ms: { sink: 'metric:collab_telemetry_projection_ms' },
+    ms: { sink: 'metric:collab_telemetry_projection_ms', numeric: true },
   },
 };
 
 /** detail 受控 sanitize（服务端 T1 执行——客户端无感，键域漂移靠 census 锚守）：
- *  表外键剥除；枚举键越界折 'other'；其余（from/to/executed/terminal/ms/n）原样保留。 */
+ *  表外键剥除；枚举键越界折 'other'；数值守卫键非 number 剥键；其余（executed/terminal/n）原样保留。 */
 export function sanitizeTelemetryDetail(
   type: CollabTelemetryEventType,
   detail: Record<string, unknown> = {},
@@ -108,6 +111,7 @@ export function sanitizeTelemetryDetail(
       else if (value === null && spec.nullable) out[key] = value;
       else out[key] = 'other';
     } else {
+      if (spec.numeric && typeof value !== 'number') continue; // 非 number 剥键（与表外键同语义——T1 直方图 observe 防炸）
       out[key] = value;
     }
   }
