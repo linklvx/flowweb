@@ -692,6 +692,8 @@ describe('Y0b-5 T4 蒙层三分支（hydration 死线 reason 分型 + localCache
       expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();
+    // 让位≠什么都不显示——终态指引由 SyncBanner 承载（forbidden 终态文案，与「无横幅」可区分）
+    expect(screen.getByText('无权访问该画布')).toBeInTheDocument();
   });
 
   it('failed+localCacheReady∧有缓存内容 → 只读横幅「本地副本(只读)· 正在重连」+导出可用+阻断蒙层不渲染', async () => {

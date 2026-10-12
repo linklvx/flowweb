@@ -70,8 +70,8 @@ describe('SyncBanner 分档（T9 Step6）', () => {
     ];
     for (const reason of transientReasons) {
       expect(isTerminalReason(reason)).toBe(false);   // shared 单源分型——误入终态=一次尖峰钉死且不自愈
+      cleanup();   // 先卸载上一轮再 setState（有挂载消费者时 store 通知不裹 act——消 act warning）
       useCanvasStore.setState({ wsAuthNotice: { reason, terminal: false } });
-      cleanup();
       render(<SyncBanner />);
       expect(screen.getByText(/服务繁忙，正在自动重试/)).toBeInTheDocument();
     }

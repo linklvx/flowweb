@@ -1127,6 +1127,9 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     // Y0b-5 T4：迟到 synced 自愈（failed→ready 单驱动 completeHydration——supervisor 恢复路径
     // 自然到达；成功路径此处 hydration='pending' 不触发，armSession 由 initCollab 主路径调用）
     if (useCanvasStore.getState().hydration === 'failed') completeHydration();
+    // Y0b-5 T4 修复：服务恢复清 readyProbeHint（与触发对称——探测仅在无 synced 异常态写入，
+    // synced 到达=状态回正常，不清则健康态横幅「服务端状态异常…」残留误导刷新）
+    if (useCanvasStore.getState().readyProbeHint) useCanvasStore.setState({ readyProbeHint: null });
   });
   p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
   // Y0b-4 T5：stateless 双型消费——conn-status（每连接推送——连接级 readOnly 真值）与 doc-status

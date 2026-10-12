@@ -308,6 +308,25 @@ describe('Y0b-5 T4：ready 探测（零 interval 轮询——spec §5.4 明令�
     expect(readyCalls()).toBe(1);
   });
 
+  it('★服务恢复 synced 到达→readyProbeHint 清除（与触发对称——健康态横幅「服务端状态异常…」不残留误导刷新）', async () => {
+    // 前置：上一用例的探测已占 60s 节流窗（模块级 lastProbeReadyAt 跨用例存活）——先推进假钟
+    // 过窗，保证本用例 authenticated 后探测真实触发写入（而非被节流静默跳过）
+    await vi.advanceTimersByTimeAsync(70_000);
+    const p = initCollab('p1');
+    await vi.advanceTimersByTimeAsync(0);
+    const inst = lastInstance();
+    inst.emit('status', { status: 'connected' });
+    inst.isAuthenticated = true;
+    inst.emit('authenticated', { scope: 'read-write' });
+    await vi.advanceTimersByTimeAsync(8_000);              // 探测窗——hint 已写入
+    expect(useCanvasStore.getState().readyProbeHint).toBe('lease-held');
+
+    inst.isSynced = true;
+    inst.emit('synced', {});                               // 服务恢复（synced 到达=状态回正常）
+    expect(useCanvasStore.getState().readyProbeHint).toBe(null);   // ★清除（现状必红——横幅残留）
+    await p;
+  });
+
   it('synced 正常到达（5s 窗内）→零探测（健康序不烧探测）', async () => {
     const p = initCollab('p1');
     await vi.advanceTimersByTimeAsync(0);
