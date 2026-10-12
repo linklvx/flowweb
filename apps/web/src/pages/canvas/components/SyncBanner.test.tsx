@@ -3,13 +3,14 @@
 // （优先级：terminal 鉴权 > write-frozen > connUi banner > connUi hint；全清不渲染）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
+import { isTerminalReason } from '@flowweb/shared';
 import { SyncBanner } from './SyncBanner';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 vi.mock('@/stores/canvasCollabRuntime', () => ({ escapeWithLocalExport: vi.fn() }));
 
 const reset = () => useCanvasStore.setState({
-  connUi: 'ok', wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
+  connUi: 'ok', wsAuthNotice: null, writeFrozen: false, collabEscapePending: false, readyProbeHint: null,
 });
 
 beforeEach(reset);
@@ -61,6 +62,25 @@ describe('SyncBanner 分档（T9 Step6）', () => {
     useCanvasStore.setState({ wsAuthNotice: { reason: 'server-overloaded', terminal: false } });
     render(<SyncBanner />);
     expect(screen.getByText(/服务繁忙，正在自动重试/)).toBeInTheDocument();
+  });
+
+  it('Y0b-5 T4：六瞬态误入终态反向断言（isTerminalReason 全 false + SyncBanner 落自动重试档——死亡线延长/自动重试的前提锁）', () => {
+    const transientReasons = [
+      'server-overloaded', 'db-unavailable', 'draining', 'lease-not-ready', 'rate-limited', 'server-outdated',
+    ];
+    for (const reason of transientReasons) {
+      expect(isTerminalReason(reason)).toBe(false);   // shared 单源分型——误入终态=一次尖峰钉死且不自愈
+      useCanvasStore.setState({ wsAuthNotice: { reason, terminal: false } });
+      cleanup();
+      render(<SyncBanner />);
+      expect(screen.getByText(/服务繁忙，正在自动重试/)).toBeInTheDocument();
+    }
+  });
+
+  it('Y0b-5 T4：probeReadyReason 探测 hint（readyProbeHint——重连成功但状态异常的服务端 reason 可见）', () => {
+    useCanvasStore.setState({ readyProbeHint: 'lease-held' });
+    render(<SyncBanner />);
+    expect(screen.getByText(/lease-held/)).toBeInTheDocument();
   });
 
   it('write-frozen→「服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）」', () => {

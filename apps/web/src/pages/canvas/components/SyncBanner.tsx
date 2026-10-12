@@ -3,8 +3,9 @@
 // wsAuthNotice 分档：版本族终态（reload 自愈/逃生动作）/会话过期（重登）/无权（回工作区）/
 // message-too-big 第六终态档（逃生=版本逃生同一按钮——P-V⑧）/未知终态兜底；
 // 瞬态族（db-unavailable/server-overloaded/rate-limited/draining 等——「服务繁忙，正在自动重试」）；
-// write-frozen（P-S 维护横幅「请勿刷新页面」）；connUi 分级（批1-1 machine 输出）。
-// 非阻断顶部横幅；优先级：terminal 鉴权 > 瞬态鉴权 > write-frozen > connUi banner > connUi hint。
+// write-frozen（P-S 维护横幅「请勿刷新页面」）；connUi 分级（批1-1 machine 输出）；
+// Y0b-5 T4：readyProbeHint 探测 hint（/api/ready reason——重连成功但状态异常）。
+// 非阻断顶部横幅；优先级：terminal 鉴权 > 瞬态鉴权 > write-frozen > readyProbeHint > connUi banner > connUi hint。
 import type { ReactNode } from 'react';
 import { CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -42,6 +43,7 @@ function resolveContent(
   notice: { reason: string; terminal: boolean } | null,
   writeFrozen: boolean,
   escapePending: boolean,
+  readyProbeHint: string | null,
 ): BannerContent | null {
   if (notice?.terminal) {
     const r = notice.reason;
@@ -76,6 +78,9 @@ function resolveContent(
   }
   if (notice) return { tone: 'warn', text: '服务繁忙，正在自动重试…' };
   if (writeFrozen) return { tone: 'warn', text: '服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）' };
+  // Y0b-5 T4：probeReadyReason 探测 hint（重连成功但状态异常——服务端 reason 可见；位于 connUi
+  // 分级之上：探测仅在无 synced 异常态写入，恰为 connUi hint/banner 活跃时——信息量高者优先）
+  if (readyProbeHint) return { tone: 'info', text: `服务端状态异常（${readyProbeHint}），正在自动重连…` };
   if (connUi === 'banner') return { tone: 'warn', text: '连接已断开，正在自动重连…' };
   if (connUi === 'hint') return { tone: 'info', text: '连接不稳定，正在自动重连…' };
   return null;
@@ -86,8 +91,9 @@ export function SyncBanner() {
   const wsAuthNotice = useCanvasStore((s) => s.wsAuthNotice);
   const writeFrozen = useCanvasStore((s) => s.writeFrozen);
   const collabEscapePending = useCanvasStore((s) => s.collabEscapePending);
+  const readyProbeHint = useCanvasStore((s) => s.readyProbeHint);
 
-  const content = resolveContent(connUi, wsAuthNotice, writeFrozen, collabEscapePending);
+  const content = resolveContent(connUi, wsAuthNotice, writeFrozen, collabEscapePending, readyProbeHint);
   if (!content) return null;
   return (
     <div

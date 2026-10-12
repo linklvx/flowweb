@@ -109,5 +109,8 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   quotaOver 冻结编辑面 props 断言；quota.spec +1——会话起点复位造案）→ 259 处 / 49 文件。
   // Y0b-5 T2（2026-10-12）：canvasCollabRuntime.telemetry.spec.ts 造案 +1 处/1 文件（遥测接线用例
   //   beforeEach 装置复位——sanctioned 例外同模式）→ 260 处 / 50 文件。
-  effective: { count: 260, files: 50 },
+  // Y0b-5 T4（2026-10-12）：造案 +3 处/0 新文件（canvasCollabRuntime.offline.test.ts +1——ready 探测
+  //   用例 beforeEach 装置复位；SyncBanner.test.tsx +2——六瞬态反向断言循环+probe hint 分档注入，
+  //   store 注入是用例存在目的〔同 T9 例外〕；均存量 allow-list 文件）→ 263 处 / 50 文件。
+  effective: { count: 263, files: 50 },
 };

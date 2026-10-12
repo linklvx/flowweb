@@ -136,6 +136,12 @@ let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
 interface CollabSession { pid: string; startedAt: number; epoch: number }
 let session: CollabSession | null = null;
 let sessionEpoch = 0;
+// Y0b-5 T4（裁定 23⑦）：armSession 一次性 latch——同 epoch 二次触发（自愈后 re-synced 等）不重复
+// 注册 observeDeep/awarenessBridge（投影工作量翻倍防线）；initCollab 会话起点复位（新会话可武装）。
+let armedEpoch: number | null = null;
+// Y0b-5 T4：SLO hydration_duration 起点（initCollab 入口记——armSession 消费；自愈路径测得
+// 含超时+恢复的全长真值，原函数局部量随 armSession 抽取上移模块级）
+let hydrationStartedAt = 0;
 
 // 批0a：connStatus 派生（缺陷 A 根修）——唯一写点 recomputeConnStatus + 代际制。
 // 载体按决策门 A 裁决=候选 1（inboundAttemptId===attemptId，'message' 驱动）——
@@ -157,6 +163,59 @@ let unhealthySince: number | null = null; // 从未健康也从 t0 计时（star
 
 // 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
 let plannedRestartUntil = 0;
+
+// ── Y0b-5 T4：hydration 死线 reason 分型（可延长死线）──
+/** 死线基值：initCollab 起未 synced 10s → failed（既有量纲）。纯客户端量纲不进 shared。 */
+const HYDRATION_DEADLINE_BASE_MS = 10_000;
+/** 瞬态宽限：authFailed 瞬态信号在 pending 期到达 → 死线延长一次至首定+15s——
+ *  总封顶 25s（BASE+GRACE 恒上界：多次瞬态不无限重排，"禁死 spinner"由封顶保证；
+ *  到点 failed→蒙层分型/localCacheReady 分支渲染+后台 supervisor 续试）。 */
+const HYDRATION_DEADLINE_TRANSIENT_GRACE_MS = 15_000;
+/** 死线记录（timer 归属各 promise——I-1 陈旧 initCollab 的 timer 独立存活自 settle 其 promise；
+ *  模块态只指向当前会话=extension 面：新会话武装即接管，瞬态延长不可达旧会话） */
+interface HydrationDeadline {
+  resolve: () => void;
+  deadlineAt: number;   // 首定死线时刻（Date.now——延长锚=首定+GRACE，与瞬态到达时刻无关）
+  extended: boolean;    // 一次延长闩锁（总封顶语义——后续瞬态信号不再延）
+  timer: ReturnType<typeof setTimeout>;
+}
+let hydrationDeadline: HydrationDeadline | null = null;
+
+/** 武装死线（initCollab promise 内消费）。旧会话 record 随替换失联（其 timer 不清——
+ *  I-1：陈旧 initCollab 依自身 timer 到点 settle，epoch 判活拦其超时分支）。 */
+function armHydrationDeadline(resolve: () => void): HydrationDeadline {
+  const d = { resolve, deadlineAt: Date.now() + HYDRATION_DEADLINE_BASE_MS, extended: false } as HydrationDeadline;
+  const fire = () => {
+    if (hydrationDeadline === d) hydrationDeadline = null;
+    resolve();
+  };
+  d.timer = setTimeout(fire, HYDRATION_DEADLINE_BASE_MS);
+  hydrationDeadline = d;
+  return d;
+}
+
+/** 解除死线（成功路径收窄陈旧 resolve 窗口——identity 判定，不误清新会话死线） */
+function disarmHydrationDeadline(d: HydrationDeadline): void {
+  clearTimeout(d.timer);
+  if (hydrationDeadline === d) hydrationDeadline = null;
+}
+
+/** 瞬态信号延长死线（authFailed handler 瞬态档联动——runtime 现存接线处最小耦合形态）：
+ *  仅当前会话死线在飞（promise 未决）∧ 未延长过 ∧ hydration 仍 pending 时延长一次至首定+GRACE；
+ *  终态档不经此（终态 UX 即出口）；failed 后死线已过不可再延（自愈归 completeHydration）。 */
+function extendHydrationDeadlineForTransient(): void {
+  const d = hydrationDeadline;
+  if (!d || d.extended) return;
+  if (useCanvasStore.getState().hydration !== 'pending') return;
+  d.extended = true;
+  clearTimeout(d.timer);
+  const remainMs = (d.deadlineAt + HYDRATION_DEADLINE_TRANSIENT_GRACE_MS) - Date.now();
+  const fire = () => {
+    if (hydrationDeadline === d) hydrationDeadline = null;
+    d.resolve();
+  };
+  d.timer = setTimeout(fire, Math.max(remainMs, 0));
+}
 
 // Y0b-3 T9（F-1）：terminal 真停连电平——authenticationFailed 与 close-terminal 双写点，
 // initCollab/destroyCollab 会话边界复位。消费=recoverConnection 复发防线早退（生产调用面已随
@@ -295,6 +354,40 @@ export async function handleVersionTerminal(): Promise<void> {
     }
   } catch { /* ready 不可达→直接落逃生动作 */ }
   useCanvasStore.setState({ collabEscapePending: true });
+}
+
+// ── Y0b-5 T4：ready 连通性探测（事件驱动单次——零 interval 轮询，spec §5.4 明令删）──
+/** 探测节流窗：至多每 60s 一次（事件触发频率的硬上界——多事件窄窗不放大） */
+const PROBE_READY_THROTTLE_MS = 60_000;
+/** authenticated 后 synced 等待窗：5s 内未 synced 且非 terminal → 探测一次 */
+const PROBE_READY_GRACE_MS = 5_000;
+/** 等待窗抖动上界（0-2s——服务端重启全员同时 authenticated 的同刻探测去同步） */
+const PROBE_READY_JITTER_MAX_MS = 2_000;
+let lastProbeReadyAt = 0;
+
+/** Y0b-5 T4：重连成功但状态异常的边角兜底探测——只取 /api/ready 的 reason 写横幅 hint
+ *  （readyProbeHint——SyncBanner 最低优先级消费）。★独立函数：与 handleVersionTerminal 正交
+ *  （其语义=取 csv 作版本 reload 键——未来改版本逻辑不得误伤连通性探测）；禁复用禁合并。
+ *  节流 60s；探测失败静默（零轮询——不重试不排程）。 */
+export async function probeReadyReason(): Promise<void> {
+  const now = Date.now();
+  if (now - lastProbeReadyAt < PROBE_READY_THROTTLE_MS) return;
+  lastProbeReadyAt = now;
+  try {
+    const ready = await fetch('/api/ready', { signal: AbortSignal.timeout(5_000) }).then((r) => r.json());
+    const reason = ready?.reason;
+    if (typeof reason === 'string' && reason) useCanvasStore.setState({ readyProbeHint: reason });
+  } catch { /* 探测失败静默——事件驱动单次，无轮询兜底 */ }
+}
+
+/** 探测触发武装（authenticated handler 消费）：等待窗内 synced 到达/终态/换会话 → 零动作 */
+function armProbeReadyCheck(epochAtArm: number): void {
+  setTimeout(() => {
+    if (session?.epoch !== epochAtArm) return;            // 会话已换——旧武装作废
+    if (supervisor.phase === 'terminal') return;          // 终态即出口——不探测
+    if (provider?.isSynced === true) return;              // 状态正常（重连成功且 synced）
+    void probeReadyReason();
+  }, PROBE_READY_GRACE_MS + Math.random() * PROBE_READY_JITTER_MAX_MS);
 }
 
 /** Y0b-4 T11：代际跳变自动 reload 延时（4410 close 路径与装载后首快照路径共享——同款文案/节奏单源） */
@@ -1024,9 +1117,17 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       writeFrozen: false,
       lastDocStatusRev: 0,
     }));
+    // Y0b-5 T4：重连成功但状态异常兜底——authenticated 后 5s(+0-2s 抖动) 内未 synced 且非
+    // terminal → probeReadyReason() 单次探测（节流 60s——零 interval 轮询）
+    if (session) armProbeReadyCheck(session.epoch);
     recomputeConnStatus();
   });
-  p.on('synced', () => recomputeConnStatus());
+  p.on('synced', () => {
+    recomputeConnStatus();
+    // Y0b-5 T4：迟到 synced 自愈（failed→ready 单驱动 completeHydration——supervisor 恢复路径
+    // 自然到达；成功路径此处 hydration='pending' 不触发，armSession 由 initCollab 主路径调用）
+    if (useCanvasStore.getState().hydration === 'failed') completeHydration();
+  });
   p.on('message', () => { inboundAttemptId = attemptId; lastInboundAt = Date.now(); recomputeConnStatus(); });
   // Y0b-4 T5：stateless 双型消费——conn-status（每连接推送——连接级 readOnly 真值）与 doc-status
   // （per-doc 幂等快照——rev 单调守卫后覆盖，电平非事件）。write-frozen 通告已退役（服务端并入
@@ -1081,6 +1182,8 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
       if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal();
     } else {
+      // Y0b-5 T4：瞬态档死线联动（终态档不经此——终态 UX 即出口）——pending 期延长一次
+      extendHydrationDeadlineForTransient();
       supervisor.beginTransientBackoff(reason);
     }
   });
@@ -1205,8 +1308,9 @@ function bindReevaluateOnce(): void {
  * 离线廉价兜底：10s 未 synced 不置 connected、不 apply 空 doc、不抬 hydrate 门——保持不可编辑，UI 层提示重试。
  */
 export async function initCollab(projectId: string): Promise<void> {
-  // Y0b-5 T2：SLO hydration_duration 起点（performance.now 单调钟——ready 处消费）
-  const hydrationStartedAt = performance.now();
+  // Y0b-5 T2：SLO hydration_duration 起点（performance.now 单调钟——armSession 消费；
+  // Y0b-5 T4 随 armSession 抽取上移模块级）
+  hydrationStartedAt = performance.now();
   // 批2-1：入口走清理体（teardownSession）而非 destroyCollab——后者复位 hydration='idle'，
   // 会把 openSession 刚置的 pending 打成 idle 闪烁；清理体不做状态复位
   await teardownSession();
@@ -1219,12 +1323,13 @@ export async function initCollab(projectId: string): Promise<void> {
   // T9：wsAuthNotice/writeFrozen/collabEscapePending 同点复位（上一会话终态/冻结/逃生不跨会话）
   // Y0b-4 T5：doc-status 快照族同点复位（rev/over/五键/校准点/代际——上一会话配额态不跨会话）
   // Y0b-4 T11：quota 终态通道同点复位（同 wsAuthNotice 形态——上一会话 4404/4410 不跨会话）
+  // Y0b-5 T4：localCacheReady/readyProbeHint 同点复位（会话态不跨会话——真实翻转/消费归 T8）
   useCanvasStore.getState().setHydration('pending');
   useCanvasStore.setState({
     collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
     connReadOnly: false, quotaOver: false, quotaLimitBytes: 0, quotaTxBytes: 0, quotaSoftLimitBytes: 0,
     quotaResidueBytes: undefined, lastDocStatusRev: 0, localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0,
-    wsQuotaTerminal: null,
+    wsQuotaTerminal: null, localCacheReady: false, readyProbeHint: null,
   });
   // 会话起点复位（批0a 代际制）：新会话从零代开始——上一会话的入站计数不得带过来
   lastWsStatus = 'connecting';
@@ -1234,6 +1339,7 @@ export async function initCollab(projectId: string): Promise<void> {
   terminalSuppressed = false; // T9：terminal 电平会话起点复位（新会话=新额度——复发防线只锁本会话）
   connReadOnly = false;       // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
   lastGeneration = undefined;
+  armedEpoch = null;          // Y0b-5 T4：armSession latch 会话起点复位（新会话可武装）
   deltaIdleMeasureInFlight = false;   // Y0b-4 T10：idle 实测在途窗随会话复位（旧会话 pending 不跨会话）
   disconnectedAt = null;              // Y0b-5 T2：SLO reconnect 起点随会话复位（上一会话掉线不跨会话）
   invariantAppliesSinceRun = 0;       // Y0b-5 T2：invariant 采样节律会话起点复位（hydration 后必跑重锚）
@@ -1292,12 +1398,13 @@ export async function initCollab(projectId: string): Promise<void> {
   }, TICK_MS);
 
   // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络；
-  // timer 存变量——成功路径 clearTimeout 收窄陈旧 resolve 窗口到零
+  // Y0b-5 T4：死线改可延长（模块态 extension 面——authFailed 瞬态档经
+  // extendHydrationDeadlineForTransient 延长一次至首定+GRACE，总封顶 25s）
   let synced = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let deadline: HydrationDeadline | null = null;
   await new Promise<void>((resolve) => {
     provider!.on('synced', () => { synced = true; resolve(); });
-    timer = setTimeout(resolve, 10000);
+    deadline = armHydrationDeadline(resolve);
   });
   // 判活（I-1）：epoch 替代 pid——同 pid 退出重进时 pid 判据放行陈旧调用，
   // 其超时分支会销毁第二次 initCollab 的健康会话（session 置空后 epoch 不匹配亦拦）
@@ -1308,15 +1415,31 @@ export async function initCollab(projectId: string): Promise<void> {
     recordCollabDiag('hydration_fail'); // 批1-5：首同步超时记录
     // 修D（v5.3，批2-1）：超时不再 destroyCollab——保留 provider/doc（恢复门对象仍在、
     // "断连期编辑仍在 doc"在 failed 态成立，且销毁会与恢复门互踩出"10s 超时↔15s 快线"重建循环）。
-    // hydration='failed' 驱动蒙层分型（重试连接/刷新行动）；迟到 synced 的水合自愈
-    // （completeHydration 单驱动）不属本批——蒙层钉死引导用户重试
+    // hydration='failed' 驱动蒙层分型（重试连接/刷新/localCacheReady 本地副本分支）；
+    // 迟到 synced 的水合自愈=completeHydration 单驱动（Y0b-5 T4——synced 监听挂点）
     useCanvasStore.getState().setHydration('failed');
     return;
   }
-  clearTimeout(timer);
+  disarmHydrationDeadline(deadline!);   // 收窄陈旧 resolve 窗口到零（identity——陈旧会话场景 deadline 非当前态不误清）
+
+  // Y0b-5 T4（裁定 23⑦）：水合成功路径武装——与 completeHydration 自愈路径共用 armSession
+  armSession(epoch);
+}
+
+/** Y0b-5 T4（裁定 23⑦）：armSession——水合成功会话武装（水合成功路径与 completeHydration 自愈
+ *  路径共用同一函数；从 initCollab 超时 return 后原被跳过的整段抽取）：viewport 恢复/
+ *  recomputeConnStatus/applyDocToStore+hydration ready 写点（ready 唯一写点随本函数单点化）/
+ *  bootstrap invariant+遥测（projection_duration/hydration_duration）/onRemote observeDeep
+ *  (nodes/edges)/projectExecToStore+exec observer/awarenessBridge。
+ *  一次性 latch（armedEpoch）：成功后再触发不重复注册 observeDeep——"只 applyDocToStore+ready"的
+ *  半武装形态（首帧后彻底无响应——比只读死局更难诊断）结构性不可达。会话对象/awareness/undo 生命周期
+ *  语义不变（doc/provider 模块单例如既）。 */
+function armSession(epoch: number): void {
+  if (armedEpoch === epoch) return;   // 一次性 latch——投影工作量翻倍防线
+  armedEpoch = epoch;
 
   // viewport 恢复（本地偏好非协作数据——契约 5）：放 hydrate 门之前，恢复不算编辑
-  const vp = readViewport(projectId);
+  const vp = readViewport(session?.pid ?? '');
   if (vp) useCanvasStore.setState({ viewport: vp });
 
   // 批0a：connStatus 'connected' 直写已删——synced 完成只是候选条件之一，
@@ -1349,7 +1472,8 @@ export async function initCollab(projectId: string): Promise<void> {
   // （from='connecting',to='connected'=hydration 起点迁移对——服务端 hydration 直方图判别键）。
   // 代价如实：载体事件与 bindProviderListeners 已记的真实迁移对同 label——服务端 ws_transition_total
   // {from=connecting,to=connected} 每水合会话计 2 次（reconnect 侧载体形态真实迁移不可达、无此重叠；
-  // 真实迁移不带 ms，载体数=hydration_ms 计数，双计可差分校正）。
+  // 真实迁移不带 ms，载体数=hydration_ms 计数，双计可差分校正）。Y0b-5 T4：自愈路径同点打点——
+  // 测得含超时+恢复的全长（起点=initCollab 入口，终点=armSession 武装）。
   recordCollabDiag('ws_status', { from: 'connecting', to: 'connected', ms: performance.now() - hydrationStartedAt });
 
   const onRemote = (events: any[]) => {
@@ -1383,14 +1507,27 @@ export async function initCollab(projectId: string): Promise<void> {
       }
     }, 50);
   };
-  doc.getMap('nodes').observeDeep(onRemote as any);
-  doc.getMap('edges').observeDeep(onRemote as any);
+  doc!.getMap('nodes').observeDeep(onRemote as any);
+  doc!.getMap('edges').observeDeep(onRemote as any);
   // 批1-6（B2）：exec map 展示投影——初始一次（覆盖 synced 前已抵达的条目）+ observeDeep 监听。
   // getMap 门（批0e-4）runtime 在白名单；本端对 exec map 只读（写侧零命中=静态锚，execView.spec）
   projectExecToStore(doc!);
-  doc.getMap('exec').observeDeep(() => projectExecToStore(doc!));
+  doc!.getMap('exec').observeDeep(() => projectExecToStore(doc!));
 
-  awarenessBridge = new AwarenessBridge(provider!); // 非空：本函数流内 createProvider 刚赋值（seq 守卫已过）
+  awarenessBridge = new AwarenessBridge(provider!); // 非空：水合成功/自愈路径 provider 均为本会话活实例
+}
+
+/** Y0b-5 T4：failed→ready 自愈（offline.test:78-90 预留接口本批落位）——迟到 synced 单驱动
+ *  （bindProviderListeners synced 监听挂点；supervisor 恢复路径自然到达）。现状=永久只读死局
+ *  （ready 唯一写点在超时 return 后不可再达）。armSession 全量武装（viewport/投影/observeDeep/
+ *  exec/awareness——非"ready 但冻结"）+undoManager.clear()（装载非用户编辑——本地 update 起点
+ *  语义，undo 栈不含缓存/装载操作）。 */
+export function completeHydration(): void {
+  const s = session;
+  if (!s || !doc || !provider) return;
+  if (useCanvasStore.getState().hydration !== 'failed') return;   // 仅 failed 态自愈（成功路径主驱动不在此）
+  armSession(s.epoch);
+  getUndoManager()?.clear();
 }
 
 /** 批2-1 会话清理体：destroyCollab（真卸载）与 initCollab 入口（旧会话摘除）共用。
@@ -1399,6 +1536,8 @@ export async function initCollab(projectId: string): Promise<void> {
 async function teardownSession(): Promise<void> {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
+  // 死线 timer 不在清理链：归属各 initCollab promise（I-1——陈旧调用依自身 timer settle，
+  // teardown 清掉=陈旧 promise 永悬；模块态 extension 面随新会话 arm 自然接管）
   supervisor.teardown();   // Y0b-5 T3b：supervisor 会话清理（timer 全清+epoch++——旧 timer 不 kick 新会话）
   // R23 实例守卫：await 恢复后仅当模块引用仍是"当时那个实例"才置空——
   // 旧 destroy 的 await 间隙并发 initCollab 建立的新会话不被波及（交错置空）
@@ -1426,7 +1565,8 @@ export async function destroyCollab(): Promise<void> {
   useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
   // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）；T9：终态/冻结/逃生同点清
   // Y0b-4 T11：quota 终态通道同点清（G27 同款——粘滞态不跨会话/跨用户）
-  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, wsQuotaTerminal: null, writeFrozen: false, collabEscapePending: false });
+  // Y0b-5 T4：localCacheReady/readyProbeHint 同点清（会话态不跨用户）
+  useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, wsQuotaTerminal: null, writeFrozen: false, collabEscapePending: false, localCacheReady: false, readyProbeHint: null });
   terminalSuppressed = false;
 }
 

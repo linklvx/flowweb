@@ -34,6 +34,21 @@ import { apiFetch } from '@/api/client';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
+/** Y0b-5 T4：本地副本导出（localCacheReady 分支横幅动作）——与 runtime escapeWithLocalExport
+ *  （终态逃生=导出+强制刷新）语义分立：不刷新（正在重连——副本连续性保持，副本本就渲染在画布上）。 */
+function exportLocalCopy(): void {
+  try {
+    const cs = useCanvasStore.getState();
+    const payload = JSON.stringify({ nodes: cs.nodes, edges: cs.edges });
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `canvas-local-copy-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch { /* 导出失败不阻断——副本仍在画布上可见 */ }
+}
+
 // 空名创建：编号由后端生成，画布进入工作空间根目录
 async function createUntitledProject(): Promise<{ id: string; name: string }> {
   const { projectId, name, teamId } = await createCanvas('', null);
@@ -242,7 +257,15 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   //  idle=会话未建立（切项目窗口正常瞬态/漏斗新入口自报）；pending=非阻断同步骨架；
   //  failed=10s 超时（修D——provider 保留，重试行动）；ready=无蒙层。
   //  会话中途断连不弹蒙层（hydration 保持 ready——connStatus/connUi 由指示器与 SyncBanner 非阻断告知）
+  //  Y0b-5 T4 蒙层三分支：pending+瞬态 notice→「服务繁忙，正在自动重试…」（死线延长期间）；
+  //  failed+terminal notice→阻断蒙层让位（终态 UX 即出口——SyncBanner 指引承载，z-50 蒙层不遮横幅）；
+  //  failed+localCacheReady∧有缓存内容→只读横幅「本地副本(只读)· 正在重连」+导出（T8 联动预埋，
+  //  真实翻转归 T8；canEdit 因 hydration!=='ready' 恒 false——谓词零改动）。
   const hydration = useCanvasStore((s) => s.hydration);
+  const wsAuthNotice = useCanvasStore((s) => s.wsAuthNotice);
+  const localCacheReady = useCanvasStore((s) => s.localCacheReady);
+  const hasCacheContent = useCanvasStore((s) => s.nodes.length > 0);
+  const localCacheActive = hydration === 'failed' && localCacheReady && hasCacheContent;
 
   // idle 的 dev 留痕（非抛错——切项目窗口 'idle' 是正常态，抛错必炸）：漏 openSession 漏斗的
   // 新入口当场自报姓名，比 toast 早且准
@@ -380,7 +403,8 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
           </div>
         )}
         {hydration === 'pending' && (
-          // 非阻断骨架：pointer-events-none 不锁交互（批2-1 蒙层分型——旧阻断遮罩退役）
+          // 非阻断骨架：pointer-events-none 不锁交互（批2-1 蒙层分型——旧阻断遮罩退役）；
+          // T4：瞬态 notice（死线延长期）文案分型——「服务繁忙，正在自动重试…」（禁死 spinner 由 25s 封顶保证）
           <div
             data-testid="hydrate-overlay"
             role="status"
@@ -389,11 +413,31 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
           >
             <div className="flex flex-col items-center gap-2 text-text">
               <Spin />
-              <span>正在同步</span>
+              <span>{wsAuthNotice && !wsAuthNotice.terminal ? '服务繁忙，正在自动重试…' : '正在同步'}</span>
             </div>
           </div>
         )}
-        {hydration === 'failed' && (
+        {localCacheActive && (
+          // Y0b-5 T4（T8 联动预埋）：本地副本只读横幅——非阻断（副本在下方画布渲染，底部条防与
+          // SyncBanner 顶部重叠）；canEdit 恒 false（hydration!=='ready'——只读由谓词结构性保证）
+          <div
+            data-testid="local-cache-banner"
+            role="alert"
+            className="absolute left-1/2 bottom-6 z-40 -translate-x-1/2 flex items-center gap-3 px-4 h-10 rounded-xl border text-sm whitespace-nowrap bg-overlay-2/95 border-overlay-2 text-text-dim-1"
+          >
+            <span>本地副本(只读)· 正在重连</span>
+            <button
+              type="button"
+              onClick={exportLocalCopy}
+              className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
+            >
+              导出
+            </button>
+          </div>
+        )}
+        {hydration === 'failed' && !localCacheActive && !wsAuthNotice?.terminal && (
+          // 终态档不渲染阻断蒙层（终态 UX 即出口——SyncBanner 指引承载且 z-50 蒙层会遮横幅）；
+          // localCacheReady=false 或零缓存内容时维持现有文案（恒真——不谎报"有本地副本"）
           <div
             data-testid="offline-overlay"
             role="alert"

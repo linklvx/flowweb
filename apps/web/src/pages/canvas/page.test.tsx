@@ -30,6 +30,9 @@ globalThis.fetch = fetchWithHeaders;
 let mockCanvasNodes: any[] = [];
 // 按用例注入 hydration 四态（批2-1 蒙层分型/键盘守卫）
 let mockHydration: 'idle' | 'pending' | 'ready' | 'failed' = 'ready';
+// Y0b-5 T4 蒙层三分支注入：瞬态/终态鉴权 notice + 本地缓存可用（T8 联动预埋——setState 模拟翻转）
+let mockWsAuthNotice: { reason: string; terminal: boolean } | null = null;
+let mockLocalCacheReady = false;
 
 const { useCanvasStoreSetState, useNodeStoreSetState, setTeamIdMock, setHydrationMock } = vi.hoisted(() => ({
   useCanvasStoreSetState: vi.fn(),
@@ -47,6 +50,8 @@ vi.mock('@/stores/canvasStore', () => ({
         viewport: { x: 0, y: 0, zoom: 1 },
         selectedId: null,
         hydration: mockHydration,
+        wsAuthNotice: mockWsAuthNotice,
+        localCacheReady: mockLocalCacheReady,
         onNodesChange: vi.fn(),
         onEdgesChange: vi.fn(),
         onConnect: vi.fn(),
@@ -643,6 +648,75 @@ describe('批2-1 蒙层分型（hydration 三态渲染）', () => {
     });
     expect(screen.queryByTestId('hydrate-overlay')).not.toBeInTheDocument();
     expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();
+  });
+});
+
+// Y0b-5 T4：蒙层三分支——瞬态自动重试（pending+瞬态 notice）/terminal 指引（SyncBanner 承载，
+// 阻断蒙层让位）/localCacheReady 只读副本（failed∧有缓存内容——T8 联动预埋，setState 模拟翻转）。
+describe('Y0b-5 T4 蒙层三分支（hydration 死线 reason 分型 + localCacheReady 预埋）', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useMenuStore.setState({ isOpen: false });
+    mockCanvasNodes = [];
+    mockHydration = 'ready';
+    mockWsAuthNotice = null;
+    mockLocalCacheReady = false;
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ code: 0, data: { id: 'test-pid-123', projectId: 'test-pid-123', templateId: 't-1', name: '我的画布' } }),
+    });
+  });
+
+  it('pending+瞬态 notice → 骨架文案「服务繁忙，正在自动重试…」（死线延长期间——禁死 spinner 由 25s 封顶保证）', async () => {
+    mockHydration = 'pending';
+    mockWsAuthNotice = { reason: 'server-overloaded', terminal: false };
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    // 文案双落位（蒙层+SyncBanner 同源 notice）——按蒙层容器断言（getByText 会命中多元素）
+    const overlay = await screen.findByTestId('hydrate-overlay');
+    expect(overlay.textContent).toContain('服务繁忙，正在自动重试…');
+    expect(overlay.textContent).not.toContain('正在同步');
+  });
+
+  it('pending 无 notice → 「正在同步」零回归（文案恒真）', async () => {
+    mockHydration = 'pending';
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    expect(await screen.findByText('正在同步')).toBeInTheDocument();
+  });
+
+  it('failed+terminal notice → 阻断蒙层让位（终态 UX 即出口——SyncBanner 指引承载，z-50 蒙层不遮横幅）', async () => {
+    mockHydration = 'failed';
+    mockWsAuthNotice = { reason: 'forbidden', terminal: true };
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();
+  });
+
+  it('failed+localCacheReady∧有缓存内容 → 只读横幅「本地副本(只读)· 正在重连」+导出可用+阻断蒙层不渲染', async () => {
+    mockHydration = 'failed';
+    mockLocalCacheReady = true;
+    mockCanvasNodes = [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {}, selected: false }];
+    (URL as any).createObjectURL = vi.fn(() => 'blob:mock');
+    (URL as any).revokeObjectURL = vi.fn();
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    const banner = await screen.findByTestId('local-cache-banner');
+    expect(banner).toHaveAttribute('role', 'alert');
+    expect(screen.getByText('本地副本(只读)· 正在重连')).toBeInTheDocument();
+    expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();   // 副本在下方渲染——非阻断
+
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);   // 导出可用（本地副本不丢失）
+  });
+
+  it('failed+localCacheReady 但零缓存内容 → 维持现有 failed 蒙层（文案恒真——不谎报"有本地副本"）', async () => {
+    mockHydration = 'failed';
+    mockLocalCacheReady = true;
+    mockCanvasNodes = [];
+    render(<MemoryRouter><CanvasPage /></MemoryRouter>);
+    expect(await screen.findByTestId('offline-overlay')).toBeInTheDocument();
+    expect(screen.queryByTestId('local-cache-banner')).not.toBeInTheDocument();
   });
 });
 
