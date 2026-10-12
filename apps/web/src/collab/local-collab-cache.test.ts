@@ -260,4 +260,30 @@ describe('discardEntry + 总量闸', () => {
     await expect(c.evictForTotalQuota()).resolves.toBeUndefined();
     expect(kit.data.has('flowweb:collab:u1:pD:g1:s2')).toBe(true);
   });
+
+  it('★容量监控 onQuotaHigh【spec 修复 3-2】：estimate 占比≥0.8 边沿触发一次（过 60s 节流复查仍超阈不重发）；降回 <0.6 重置后再超阈可再触发（滞回同族语义）', async () => {
+    vi.useFakeTimers();
+    try {
+      const onQuotaHigh = vi.fn();
+      let usage = 850;   // 0.85>0.8
+      (navigator.storage.estimate as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ usage, quota: 1_000 }));
+      const c = new LocalCollabCache(KEY, { onQuotaHigh });
+      await c.load();
+      await c.evictForTotalQuota();   // 首查（lastEstimateCheckAt=0——节流首查即过）
+      expect(onQuotaHigh).toHaveBeenCalledTimes(1);
+      expect(onQuotaHigh).toHaveBeenCalledWith(850, 1_000);
+      await vi.advanceTimersByTimeAsync(61_000);
+      await c.evictForTotalQuota();   // 过节流复查——仍超阈但边沿已发,不重发
+      expect(onQuotaHigh).toHaveBeenCalledTimes(1);
+      usage = 500;                    // 0.5<0.6——滞回退出重置
+      await vi.advanceTimersByTimeAsync(61_000);
+      await c.evictForTotalQuota();
+      expect(onQuotaHigh).toHaveBeenCalledTimes(1);
+      usage = 900;                    // 再超阈——重置后边沿可再触发
+      await vi.advanceTimersByTimeAsync(61_000);
+      await c.evictForTotalQuota();
+      expect(onQuotaHigh).toHaveBeenCalledTimes(2);
+      expect(onQuotaHigh).toHaveBeenLastCalledWith(900, 1_000);
+    } finally { vi.useRealTimers(); }
+  });
 });

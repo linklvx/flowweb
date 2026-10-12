@@ -25,7 +25,7 @@ import {
   SS2_OVER_LIMIT_TERMINAL_REASON,
 } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent } from '@/stores/canvasCollabRuntime';
 import { exportLocalBackup } from '@/collab/canvas-local-backup';
 import { loginUrl } from '@/utils/loginRedirect';
 
@@ -59,14 +59,22 @@ function EscapeButton() {
 }
 
 /** diverged/ss2-over-limit 双动作：导出 .yjs（保全）在前+放弃本地副本（不可逆——二次确认通过才执行,
- *  破坏性次序锚=不可逆动作禁先于保全动作出现）。 */
-function DivergedActions() {
+ *  破坏性次序锚=不可逆动作禁先于保全动作出现）。
+ *  导出源分档（spec 修复 1b）：diverged 档=exportDivergedContent（boot-diverged 会话内存 doc 是
+ *  服务端版本/空——盘上记录是导出唯一源,runtime 单源分派盘上/内存两形态）；ss2-over-limit 档
+ *  =内存 doc（SS2 差分超限形态,非 diverged 语义）。 */
+function DivergedActions({ exportFromDisk = false }: { exportFromDisk?: boolean }) {
   return (
     <>
       <button
         type="button"
         data-testid="diverged-export-btn"
-        onClick={() => { try { exportLocalBackup(getDoc()); } catch { /* 导出失败可重试 */ } }}
+        onClick={() => {
+          try {
+            if (exportFromDisk) exportDivergedContent();
+            else exportLocalBackup(getDoc());
+          } catch { /* 导出失败可重试 */ }
+        }}
         className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
       >
         导出 .yjs
@@ -163,7 +171,7 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
     return { kind: 'quota-terminal' };
   }
   if (input.canvasDiverged) {
-    return { kind: 'diverged', tone: 'warn', text: '有本地未上行副本（服务端暂停接收期间的编辑）', action: <DivergedActions /> };
+    return { kind: 'diverged', tone: 'warn', text: '有本地未上行副本（服务端暂停接收期间的编辑）', action: <DivergedActions exportFromDisk /> };
   }
   // T8 邻档：本批结构就位字段驱动（恒 false 文案不可达——真实翻转归 T8）
   if (input.canvasOversized) return { kind: 'oversized', tone: 'warn', text: '本地内容超出单文档上限，请导出后瘦身' };

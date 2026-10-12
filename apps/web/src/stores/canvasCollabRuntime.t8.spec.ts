@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CANVAS_DOC_SCHEMA_VERSION, FRAME_ALLOWANCE_BYTES, QUOTA_DEFAULTS } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, FRAME_ALLOWANCE_BYTES, QUOTA_DEFAULTS, stampDocSchema } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
@@ -15,11 +15,39 @@ import { LOCAL_CACHE_MAX_DOC_BYTES, type LocalCacheRecord } from '@/collab/local
 import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
+import { toDocLike } from '@/collab/ydocBuilder';
 
 vi.mock('@hocuspocus/provider', async () => {
   const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
   return { HocuspocusProvider: FakeHocuspocusProvider };
 });
+
+/** spec 修复 1b：exportLocalBackup opts 透传观测（t6.spec M2 同款 importOriginal 包裹转发——
+ * 行为零改动,仅记录 tag 面——jsdom 文件名不可断言,观测收参侧） */
+const exportOptsLog: Array<{ tag?: string }> = [];
+vi.mock('@/collab/canvas-local-backup', async (importOriginal) => {
+  const orig = await importOriginal<Record<string, unknown>>();
+  return {
+    ...orig,
+    exportLocalBackup: (d: unknown, opts?: { tag?: string }) => {
+      exportOptsLog.push(opts ?? {});
+      return (orig.exportLocalBackup as (d: unknown, opts?: { tag?: string }) => unknown)(d, opts);
+    },
+  };
+});
+
+/** jsdom 无 URL.createObjectURL——静态方法注入（t6.spec 同款；测后删除还原） */
+function stubBlobUrls(): void {
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: () => 'blob:mock',
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
+}
+function restoreBlobUrls(): void {
+  delete (URL as any).createObjectURL;
+  delete (URL as any).revokeObjectURL;
+}
 
 const META = { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' };
 const KEY = buildLocalCacheKey({ uid: 'u1', pid: 'p1', generation: 3, schemaVersion: 2 });
@@ -161,6 +189,22 @@ describe('T8 boot 回放与能力位', () => {
     expect(useCanvasStore.getState().localCacheReady).toBe(false);
     void p;
   });
+
+  it('★⑫a 贯通【spec 修复 3-1】：编辑→落盘→新会话 boot 回放→synced 后复合（两阶段 fake 会话驱动——未上行编辑跨会话存活,SV 差分上行待确认）', async () => {
+    // 阶段一（会话 A）：read-write 编辑（结构性节点）→trailing 落盘（unsyncedDirty 随快照存）
+    await driveToSynced();
+    const dA = runtime.getDoc()!;
+    stampDocSchema(toDocLike(dA));   // 服务端盖戳形态（真快照源——fake provider 无 loadDocument 自愈）
+    dA.transact(() => { dA.getMap('nodes').set('rt-1', new Y.Map([['id', 'rt-1']])); }, Origin.LocalUser);
+    await vi.advanceTimersByTimeAsync(1_000);   // trailing 落盘窗（结构性 150ms 提前到期同窗覆盖）
+    expect(flushedRecord()?.unsyncedDirty).toBe(true);   // 前置锚：盘上有未确认编辑
+    await runtime.destroyCollab();   // 会话终点=硬刷新形态（timer/连接/doc 全拆）
+    // 阶段二（会话 B）：boot 回放→服务端 synced 后复合
+    await driveToSynced();
+    expect(runtime.getDoc()!.getMap('nodes').get('rt-1')).toBeTruthy();   // 回放进 doc
+    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('rt-1');   // 投影复合
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);   // boot unsyncedDirty 保留——SS2 差分上行待确认
+  });
 });
 
 // ══════════ diverged 闩锁（裁定 23⑨——出口⑳） ══════════
@@ -204,6 +248,38 @@ describe('T8 diverged 持久化闩锁', () => {
     expect(flushedRecord()?.diverged).toBe(true);
     expect(flushedRecord()?.unsyncedDirty).toBe(true);
     void p;
+  });
+
+  it('★闩锁不被 3s tick 自动解除【spec 修复 1a】：seed diverged→boot→在线 synced+read-write（exit-③ 三键全真）→advance 3.5s→canvasDiverged 仍 true+dirty 未清（healthySync 恒真=前提虚成立——diverged 编辑不在 doc,服务端最终接受对 boot-diverged 不可达）', async () => {
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
+    const p = await driveToSynced();
+    // exit-③ 三键全真：canvasDiverged✓+readOnly 解除（authenticated read-write 后 connReadOnly=false）✓
+    // +healthySync（isSynced+unsyncedChanges=0）✓——三键全真仍不得清（前提对 boot-diverged 虚成立）
+    expect(useCanvasStore.getState().collabReadOnly).toBe(false);   // 前置锚：三键成立
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    await vi.advanceTimersByTimeAsync(3_500);   // 越过一个 3s tick
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);   // 闩锁仍锁（现状红：tick 清 diverged——横幅 3s 自消）
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);         // dirty 未被清（现状红：tick 清 dirty）
+  });
+
+  it('★diverged 导出=盘上记录非内存 doc【spec 修复 1b】：boot-diverged 会话导出→产物含盘上节点（div-b）不含内存节点（srv-only——内存 doc 是服务端版本/空）+tag=diverged 文件名标注', async () => {
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
+    const p = await driveToSynced();
+    // 内存 doc 混入服务端内容（origin=provider——远端 apply 语义,不置脏）:模拟服务端 synced 版本
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('nodes').set('srv-only', new Y.Map([['id', 'srv-only']])); }, p);
+    stubBlobUrls();
+    exportOptsLog.length = 0;
+    try {
+      const artifact = runtime.exportDivergedContent();
+      expect(artifact?.nodeCount).toBe(1);   // 盘上单节点（div-b）——误用内存 doc 则为 2（含 srv-only）
+      expect(exportOptsLog.at(-1)).toEqual({ tag: 'diverged' });   // 文件名标注（opts 收参侧可观测）
+    } finally {
+      restoreBlobUrls();
+    }
   });
 });
 
@@ -284,6 +360,27 @@ describe('T8 flush 触发与遥测', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-preserved-foreign-dirty')).toBe(true);
     expect(kit.data.get(KEY)!.get('snapshot')).toEqual(onDisk);   // A 的未上行编辑仍在
+  });
+
+  it('★visibilitychange 可见向不 flush【spec 修复 2】：切回标签页（hidden=false）零 flushNow——防冗余全量 encode+虚假 foreign-dirty 遥测（现状红：双向都 flushNow）', async () => {
+    await driveToSynced();
+    localEdit(runtime.getDoc()!);   // 置脏（1s 去抖挂起——本用例窗内不到期）
+    const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise<void>((r) => queueMicrotask(() => queueMicrotask(() => queueMicrotask(() => r()))));   // drain flushNow 的 async put（若有——fake IDB promise 链）
+    hiddenSpy.mockRestore();
+    expect(flushedRecord()).toBeUndefined();   // 可见向零 flush——盘上无记录（现状红：双向都 flushNow 即刻落盘）
+  });
+
+  it('★容量监控进本地 ring【spec 修复 3-2】：estimate 占比>0.8→ws_status reason=local-cache-quota-high 一条（used/quota 数值随行——ring-only 本地诊断,不入遥测批）', async () => {
+    (navigator.storage.estimate as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ usage: 850, quota: 1_000 }));
+    await driveToSynced();
+    await vi.advanceTimersByTimeAsync(5_000);   // 5s interval→evictForTotalQuota 首查（60s 节流首查即过）
+    const ev = getRecentCollabDiag().find((e) => (e.detail as any)?.reason === 'local-cache-quota-high');
+    expect(ev).toBeTruthy();
+    expect(ev!.type).toBe('ws_status');
+    expect((ev!.detail as any).used).toBe(850);
+    expect((ev!.detail as any).quota).toBe(1_000);
   });
 });
 

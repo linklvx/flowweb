@@ -7,13 +7,14 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { isTerminalReason, SS2_OVER_LIMIT_TERMINAL_REASON } from '@flowweb/shared';
 import { SyncBanner } from './SyncBanner';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { escapeWithLocalExport } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, exportDivergedContent } from '@/stores/canvasCollabRuntime';
 
 vi.mock('@/stores/canvasCollabRuntime', () => ({
   escapeWithLocalExport: vi.fn(),
   safeReload: vi.fn(),
   getDoc: vi.fn(() => null),
   discardLocalDiverged: vi.fn(),
+  exportDivergedContent: vi.fn(),
 }));
 
 const reset = () => useCanvasStore.setState({
@@ -191,6 +192,19 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
     confirmSpy.mockReturnValue(true);
     fireEvent.click(screen.getByTestId('diverged-discard-btn'));
     expect(discardLocalDiverged).toHaveBeenCalledTimes(1); // 确认后放弃
+  });
+
+  it('★diverged 档导出=exportDivergedContent【spec 修复 1b】：boot-diverged 会话内存 doc 是服务端版本/空——导出动作走 runtime 盘上记录出口（内存 getDoc() 导不出盘上唯一副本）；ss2-over-limit 档维持内存 doc 导出（非 diverged 语义）', () => {
+    useCanvasStore.setState({ canvasDiverged: true });
+    render(<SyncBanner />);
+    fireEvent.click(screen.getByTestId('diverged-export-btn'));
+    expect(exportDivergedContent).toHaveBeenCalledTimes(1);   // diverged 档→盘上记录出口
+    cleanup();
+    useCanvasStore.setState({ canvasDiverged: false, wsQuotaTerminal: { code: 4404, reason: SS2_OVER_LIMIT_TERMINAL_REASON } });
+    render(<SyncBanner />);
+    fireEvent.click(screen.getByTestId('diverged-export-btn'));
+    expect(exportDivergedContent).toHaveBeenCalledTimes(1);   // ss2 档不走盘上导出（内存 doc SS2 超限形态）
+    expect(screen.getByText(/超出单文档上限/)).toBeInTheDocument();
   });
 
   it('能力位翻转【T8】：persistUnhealthy∧localCacheReady=true→persist 档文案切「本地已缓存，恢复后自动合并」；false→维持「未保存」档（真值只由 T8 缓存装载链驱动——尺寸闸不过/IDB 降级字段恒 false）', () => {

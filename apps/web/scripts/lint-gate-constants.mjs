@@ -95,6 +95,10 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // Y0b-5 T7（2026-10-13）：canvasCollabRuntime.t7.spec.ts 造案 +8 处/1 新文件（E40 60s 窗五合取
   //   用例 resetStore 装置复位+抑制字段注入——sanctioned 例外同模式）→ 294/53。
   'src/stores/canvasCollabRuntime.t7.spec.ts',
+  // Y0b-5 T8 spec 修复（2026-10-13）：canvasCollabRuntime.t8.spec.ts 历史漏列补登（T8 造案 +4 处
+  //   当时报数=基线未进破线分支从未暴露——O0b-4/T5 漏列补登先例；resetStore 装置复位+readOnly/
+  //   localDocBytes 注入——sanctioned 例外同模式）。
+  'src/stores/canvasCollabRuntime.t8.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -145,5 +149,9 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-5 T8（2026-10-13）：本地缓存接线造案 +6 处/+1 文件（canvasCollabRuntime.t8.spec.ts +4——
   //   resetStore 装置复位+readOnly/localDocBytes 注入；SyncBanner.test.tsx +2——能力位翻转/
   //   pending-backlog 档注入，存量 allow-list 文件，同 T9/T4/T11 例外）→ 304 处 / 54 文件。
-  effective: { count: 304, files: 54 },
+  // Y0b-5 T8 spec 修复（2026-10-13）：diverged 档盘上导出分档造案 +2 处/0 新文件（SyncBanner.test.tsx
+  //   +2——diverged 档盘上导出分档+ss2 档对照注入，存量 allow-list 文件，store 注入是用例的
+  //   存在目的〔同 T9/T4/T11 例外〕；+2 破线首次暴露 T8 时 t8.spec allow-list 漏列——上方位组
+  //   同批补登，O0b-4「报数≤基线不进破线分支从未暴露」先例）→ 306 处 / 54 文件。
+  effective: { count: 306, files: 54 },
 };

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   recordCollabDiag,
+  recordRingOnlyCollabDiag,
   getRecentCollabDiag,
   getCollabDiagCounters,
   isAutoRecoverDisabled,
@@ -170,5 +171,15 @@ describe('collabDiagnostics 遥测批量缓冲+flush（Y0b-5 T2——spec §5.6 
     const p2 = await payloadAt(1);
     expect(p2.csv).toBe('3');
     expect(p2.generation).toBe(7);
+  });
+
+  it('★recordRingOnlyCollabDiag【T8 spec 修复 3-2】：进 ring+计数但不入遥测批——flush 零 beacon（本地诊断面永不触达服务端 sanitize 面——detail 键域不受 TELEMETRY_DETAIL_SCHEMA 约束）', () => {
+    recordRingOnlyCollabDiag('ws_status', { reason: 'local-cache-quota-high', used: 850, quota: 1_000 });
+    const recent = getRecentCollabDiag();
+    expect(recent.at(-1)?.type).toBe('ws_status');
+    expect(recent.at(-1)?.detail).toEqual({ reason: 'local-cache-quota-high', used: 850, quota: 1_000 });
+    expect(getCollabDiagCounters().get('ws_status')).toBe(1);
+    flushTelemetry();
+    expect(beacon).not.toHaveBeenCalled();   // 批缓冲空——零 beacon（不入批结构成立）
   });
 });

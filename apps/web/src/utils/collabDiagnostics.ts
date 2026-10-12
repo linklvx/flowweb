@@ -57,6 +57,16 @@ export function recordCollabDiag(type: CollabDiagEventType, detail?: Record<stri
   pendingBatch.set(key, { type, at, n: 1, detail });
 }
 
+/** Y0b-5 T8 spec 修复 3-2：ring-only 记录——进本地环形缓冲+计数,结构性不入遥测批（永不触达
+ *  服务端 sanitize 面=detail 键域不受 TELEMETRY_DETAIL_SCHEMA 约束;type 仍限白名单封闭集）。
+ *  消费面：容量预警（estimate 占比超阈）等本地诊断观测——plan T8 红测「estimate() 监控→容量
+ *  上报（ws_status 事件 detail 进本地 ring）」的最小合规落点（不扩 shared detail 键）。 */
+export function recordRingOnlyCollabDiag(type: CollabDiagEventType, detail?: Record<string, unknown>): void {
+  counters.set(type, (counters.get(type) ?? 0) + 1);
+  ring.push({ type, at: Date.now(), detail });
+  if (ring.length > RING_CAPACITY) ring.splice(0, ring.length - RING_CAPACITY);
+}
+
 export function getRecentCollabDiag(): readonly CollabDiagEvent[] {
   return ring;
 }

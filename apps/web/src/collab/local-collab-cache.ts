@@ -51,12 +51,17 @@ export interface LocalCollabCacheHooks {
   onPreservedForeignDirty?: () => void;
   /** 写成功——runtime 接能力位翻转（bytes ≤ 闸时 localCacheReady=true） */
   onFlushed?: (bytes: number) => void;
+  /** 容量预警边沿（estimate 占比 ≥ENTER 首达一次,降回 <EXIT 重置可再触发——spec 修复 3-2）：
+   *  runtime 接 ring-only 本地诊断记录（不入遥测批——plan T8「estimate() 监控→容量上报进本地 ring」） */
+  onQuotaHigh?: (used: number, quota: number) => void;
 }
 
 export class LocalCollabCache {
   private db: IDBDatabase | null = null;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEstimateCheckAt = 0;
+  /** 容量预警边沿闩锁（onQuotaHigh 滞回——spec 修复 3-2：≥ENTER 首达发一次,持续超阈不重发） */
+  private quotaWarned = false;
   /** 降级闩锁（idb-error/over-size——置位后本会话全部读写零动作） */
   disabled = false;
   disableReason: LocalCacheDegradeReason | null = null;
@@ -234,6 +239,16 @@ export class LocalCollabCache {
       if (typeof estimate !== 'function') return;
       const { usage, quota } = await estimate.call(navigator.storage);
       if (typeof usage !== 'number' || typeof quota !== 'number' || quota <= 0) return;
+      // spec 修复 3-2：容量监控边沿（与驱逐判据同源 estimate 复查点）——占比 ≥ENTER 首达发一次
+      // （降回 <EXIT 重置——总量闸滞回同族语义,持续超阈不刷 ring）。
+      if (usage / quota >= TOTAL_BUDGET_ENTER) {
+        if (!this.quotaWarned) {
+          this.quotaWarned = true;
+          try { this.hooks.onQuotaHigh?.(usage, quota); } catch { /* 钩子异常不反噬主链 */ }
+        }
+      } else if (usage / quota < TOTAL_BUDGET_EXIT) {
+        this.quotaWarned = false;
+      }
       let usageNow: number = usage;
       const ratio = () => usageNow / quota;
       if (ratio() < TOTAL_BUDGET_ENTER) return;

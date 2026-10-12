@@ -47,7 +47,7 @@ import { reduce, TICK_MS, STALE_INBOUND_MS, type MachineInputs, type MachineOutp
 // 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
 // Y0b-5 T2：遥测 loop 启停随会话（无会话零 beacon）+批次元数据（csv/generation——flush 时求值）
 import {
-  recordCollabDiag, isAutoRecoverDisabled,
+  recordCollabDiag, recordRingOnlyCollabDiag, isAutoRecoverDisabled,
   _startTelemetryLoop, _stopTelemetryLoop, registerTelemetryMeta,
 } from '@/utils/collabDiagnostics';
 // Y0b-5 T3b（裁定 23⑴）：单连接所有权——supervisor 独占全部 connect/disconnect（瞬态退避/终态/
@@ -59,7 +59,7 @@ import { buildLocalCacheKey, purgeForeignCaches, purgePidCaches } from '@/collab
 // Y0b-5 T8：本地持久化最小内核——自研 IDB 适配器（单快照覆盖形态；零业务逻辑——编排归本模块）
 import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, type LocalCacheRecord } from '@/collab/local-collab-cache';
 // Y0b-5 T6：导出双产物+导入核（纯模块——doc/provider 注入，无会话态依赖）；卸载警告 reason 集合
-import { exportLocalBackup, applyLocalBackup } from '@/collab/canvas-local-backup';
+import { exportLocalBackup, applyLocalBackup, type LocalBackupArtifact } from '@/collab/canvas-local-backup';
 import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 
 function collabUrl(): string {
@@ -155,12 +155,19 @@ let localCache: LocalCollabCache | null = null;
 /** diverged boot 写抑制窗口：盘上 diverged 唯一副本未回放进 doc，本会话任何缓存写都会用
  *  「doc 现态（无 diverged 内容）」覆盖它=数据丢失——结构性禁写（导出/放弃是唯一出口，出口⑳） */
 let suppressCacheWrites = false;
+/** spec 修复 1a：boot 读到盘上 diverged 记录的会话标记——3s tick 的 dirty 清除与 diverged
+ *  exit-③ 对本形态短路（diverged 编辑不在 doc,healthySync 恒真=「服务端最终接受」前提虚成立;
+ *  唯一出边=横幅二选一：导出 exportDivergedContent/放弃 discardLocalDiverged→reload） */
+let bootDiverged = false;
+/** spec 修复 1b：boot 时盘上 diverged 快照留存（exportDivergedContent 同步消费——零 IO；
+ *  内存 doc 是服务端版本/空,盘上记录的导出唯一源） */
+let bootDivergedSnapshot: Uint8Array | null = null;
 /** boot 快照已回放（离线冷启动 failed 分支渲染判据——会话态） */
 let localSnapshotApplied = false;
 /** docBytes 遥测去重（字节面变化才发——5s 节律零重复） */
 let lastReportedDocBytes = 0;
 /** pagehide/visibilitychange hidden 强制 flush 监听（会话边界装卸——与 T2 遥测的模块级挂载并存） */
-let cacheHideListener: (() => void) | null = null;
+let cacheHideListener: ((ev: Event) => void) | null = null;
 
 /** 缓存记录构造（put 载体——encode 在去抖/到期/强制的宏任务里执行，禁占交互帧） */
 function buildCacheRecord(): LocalCacheRecord {
@@ -181,6 +188,11 @@ const localCacheHooks = {
   },
   onPreservedForeignDirty: () => {
     recordCollabDiag('ws_status', { reason: 'local-cache-preserved-foreign-dirty' });
+  },
+  // spec 修复 3-2：容量预警边沿→ring-only 本地诊断（不入遥测批——detail 键域不在
+  // TELEMETRY_DETAIL_SCHEMA,结构性不触达服务端 sanitize 面;used/quota 为数值非 PII）
+  onQuotaHigh: (used: number, quota: number) => {
+    recordRingOnlyCollabDiag('ws_status', { reason: 'local-cache-quota-high', used, quota });
   },
   onFlushed: (bytes: number) => {
     // 能力位翻转（裁定 21——whenSynced 真值）：快照真落盘且过闸才承诺「本地已缓存」
@@ -655,6 +667,25 @@ export function discardLocalDiverged(): void {
   if (d) clearDocUnsyncedDirty(d);
   useCanvasStore.setState({ canvasDiverged: false });
   safeReload('generic', { beforeReload: () => localCache?.discardEntry() });
+}
+
+/** Y0b-5 T8 spec 修复 1b：diverged 档导出（diverged 内容唯一保全出口）。两形态单源分派：
+ *  - boot-diverged（盘上 diverged 记录）：内存 doc 是服务端版本/空——exportLocalBackup(getDoc())
+ *    导不出盘上唯一副本（僵尸记录）。改从 boot 留存的盘上快照建临时 Y.Doc 导出双产物
+ *    （.yjs 可回灌+.json 反投影）+文件名标注 diverged。
+ *  - in-session diverged（readOnly 期本地编辑）：diverged 内容就在内存 doc——直接导出（同标注）。
+ *  临时 doc 导出后即弃（Y.Doc 实例零滞留）。失败（jsdom 无 createObjectURL 等）抛给调用方
+ *  捕获——用户可重试点击（SyncBanner 动作面 try/catch 同 escapeWithLocalExport 形态）。 */
+export function exportDivergedContent(): LocalBackupArtifact | null {
+  const snap = bootDivergedSnapshot;
+  if (!snap) return exportLocalBackup(doc, { tag: 'diverged' });
+  const tmp = new Y.Doc();
+  try {
+    Y.applyUpdate(tmp, snap);
+    return exportLocalBackup(tmp, { tag: 'diverged' });
+  } finally {
+    tmp.destroy();
+  }
 }
 
 /** Y0b-5 T6：导入本地备份会话包装（裁定 25⑷）。applyUpdate 以 provider 为 origin（抑制 Update 帧
@@ -1661,7 +1692,10 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
   // Y0b-5 T8：本地缓存编排态会话起点复位（抑制窗/回放判据/docBytes 去重——不跨会话携带）
+  // spec 修复 1a/1b：boot-diverged 会话标记/盘上快照留存同点复位（上一会话 diverged 不跨会话携带）
   suppressCacheWrites = false;
+  bootDiverged = false;
+  bootDivergedSnapshot = null;
   localSnapshotApplied = false;
   lastReportedDocBytes = 0;
   // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带
@@ -1686,7 +1720,11 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
       //——保守武装单源+置 session diverged → SyncBanner 二选一（导出/放弃；放弃清条目见
       // discardLocalDiverged）。suppressCacheWrites：doc 无 diverged 内容，本会话任何缓存写
       // 都会以「现态」覆盖盘上唯一副本=数据丢失——结构性禁写。
+      // spec 修复 1a/1b：置 boot-diverged 会话标记（3s tick 闩锁短路）+盘上快照留存
+      //（diverged 档导出唯一内容源——内存 doc 是服务端版本/空）。
       suppressCacheWrites = true;
+      bootDiverged = true;
+      bootDivergedSnapshot = bootRecord.snapshot;
       markDocUnsyncedDirty(doc, { skipCacheFlush: true });
       useCanvasStore.setState({ canvasDiverged: true });
     }
@@ -1710,8 +1748,14 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
 
   // Y0b-5 T8：pagehide/visibilitychange→hidden 强制 flush（主挂 visibilitychange——pagehide 里的
   // IDB 写是 best-effort；T2 遥测 flush 同款结构，两者并存互不干扰）。会话边界装卸（见 teardownSession）。
+  // spec 修复 2：visibilitychange 可见向（切回标签页）短路——双向都 flushNow 是冗余全量 encode+
+  // 虚假 foreign-dirty 遥测面（collabDiagnostics visibilitychange `if (document.hidden)` 同形态）；
+  // pagehide=卸载边界无条件（真浏览器卸载期 hidden 恒真,判据不依赖——jsdom 合成 pagehide 无 hidden 翻转）。
   if (!session.cacheDisabled) {
-    cacheHideListener = () => { if (!suppressCacheWrites) localCache?.flushNow(buildCacheRecord); };
+    cacheHideListener = (ev: Event) => {
+      if (ev.type === 'visibilitychange' && !document.hidden) return;
+      if (!suppressCacheWrites) localCache?.flushNow(buildCacheRecord);
+    };
     window.addEventListener('pagehide', cacheHideListener);
     document.addEventListener('visibilitychange', cacheHideListener);
   }
@@ -1748,15 +1792,23 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     // 5s interval 分立，合并会破坏 T7 判据）判 provider 双条件合取（合取 isSynced 理由见
     // unsyncedDirtyDocs 声明处——确认帧断连期永不到达+startSync 曾置 1，单条件会提前清零）。
     // 实例绑定：只清当前会话 doc（终态重建竞态窗口旧 doc 不受影响）。
+    // spec 修复 1a：boot-diverged 会话整体短路——diverged 编辑不在 doc（boot 未回放），
+    // healthySync 恒真=「服务端最终接受」前提虚成立；清 diverged/dirty 会解除闩锁（横幅 3s
+    // 自消+盘上 diverged 记录永存→每次 boot 重发散——v2.2 病态换形）。boot-diverged 的唯一
+    // 出边=横幅二选一：导出（exportDivergedContent——盘上快照）/放弃（discardLocalDiverged→
+    // reload）；「服务端最终接受」（出边③）对本形态结构性不可达：diverged 内容不在 doc，
+    // 确认帧与之无关。
     const dNow = doc;
     const healthySync = provider?.isSynced === true && provider.hasUnsyncedChanges === false;
-    if (dNow && unsyncedDirtyDocs.has(dNow) && healthySync) clearDocUnsyncedDirty(dNow);
-    // diverged 出边③「服务端最终接受」：readOnly 解除∧synced∧计数归零（确认帧到齐=编辑被接受）
-    // →清 diverged。出边①导出/②放弃在 SyncBanner 动作面（escapeWithLocalExport/discardLocalDiverged）。
-    {
-      const st = useCanvasStore.getState();
-      if (st.canvasDiverged && !st.collabReadOnly && healthySync) {
-        useCanvasStore.setState({ canvasDiverged: false });
+    if (!bootDiverged) {
+      if (dNow && unsyncedDirtyDocs.has(dNow) && healthySync) clearDocUnsyncedDirty(dNow);
+      // diverged 出边③「服务端最终接受」：readOnly 解除∧synced∧计数归零（确认帧到齐=编辑被接受）
+      // →清 diverged。出边①导出/②放弃在 SyncBanner 动作面（exportDivergedContent/discardLocalDiverged）。
+      {
+        const st = useCanvasStore.getState();
+        if (st.canvasDiverged && !st.collabReadOnly && healthySync) {
+          useCanvasStore.setState({ canvasDiverged: false });
+        }
       }
     }
   }, TICK_MS);
