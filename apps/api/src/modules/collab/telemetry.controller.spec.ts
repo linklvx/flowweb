@@ -118,15 +118,23 @@ describe('Y0b-5 T1 TelemetryThrottlerGuard.getTracker（cookie 哈希分桶）',
 // ---------- B2 TelemetryService 单元：invariant_violation 事件级结构化日志（Y0b-5 T2 审查修复） ----------
 
 describe('Y0b-5 T2 审查修复（登记裁决）：invariant_violation log-only 键事件级日志——Y5 前可诊断兑现', () => {
-  it('dispatch 对该 type 打 {event:collab_telemetry_invariant,entries:[{where,name,frame}]}（sanitize 后 detail）——log-only 键不再零输出', () => {
+  it('dispatch 对该 type 打 {event:collab_telemetry_invariant,entries:[{where,name,frame,n}]}（sanitize 后 detail）——n=事件级聚合计数不丢（M-1：30s 窗 40 次与 1 次不同形）；无 n 键缺省不出现', () => {
     const svc = new TelemetryService();
     const logSpy = vi.spyOn((svc as any).logger, 'log');
-    svc.ingest({ events: [{ type: 'invariant_violation', at: 1, detail: { where: 'react-boundary', name: 'TypeError', frame: 'CanvasPage.tsx:42' } }] });
-    const line = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.includes('collab_telemetry_invariant'));
-    expect(line).toBeTruthy();   // 红相锚：dispatch 现对无 sink type 直接终结零输出
-    expect(JSON.parse(line!)).toEqual({
+    svc.ingest({ events: [
+      { type: 'invariant_violation', at: 1, n: 40, detail: { where: 'react-boundary', name: 'TypeError', frame: 'CanvasPage.tsx:42' } },
+      { type: 'invariant_violation', at: 2, detail: { where: 'applyBootstrap', name: 'ProjectionMismatch', frame: 'canvasCollabRuntime.ts:1339' } },
+    ] });
+    const lines = logSpy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('collab_telemetry_invariant'));
+    expect(lines).toHaveLength(2);   // 逐条结构化日志（罕见事件不聚合服务端再摊平）
+    expect(JSON.parse(lines[0]!)).toEqual({
       event: 'collab_telemetry_invariant',
-      entries: [{ where: 'react-boundary', name: 'TypeError', frame: 'CanvasPage.tsx:42' }],
+      entries: [{ where: 'react-boundary', name: 'TypeError', frame: 'CanvasPage.tsx:42', n: 40 }],
+    });
+    // 无 n（非聚合/旧客户端）——JSON.stringify 剥 undefined，键缺省不出现
+    expect(JSON.parse(lines[1]!)).toEqual({
+      event: 'collab_telemetry_invariant',
+      entries: [{ where: 'applyBootstrap', name: 'ProjectionMismatch', frame: 'canvasCollabRuntime.ts:1339' }],
     });
   });
 });

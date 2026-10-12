@@ -51,7 +51,7 @@ export class TelemetryService {
     let accepted = 0;
     let rejected = 0;
     for (const raw of events) {
-      const event = (raw ?? {}) as { type?: unknown; detail?: Record<string, unknown> };   // null/原始值归一——恒对象访问
+      const event = (raw ?? {}) as { type?: unknown; detail?: Record<string, unknown>; n?: unknown };   // null/原始值归一——恒对象访问
       const type = event.type;
       if (typeof type !== 'string' || !isKnownTelemetryType(type)) {
         collabTelemetryUnknownTotal.inc();   // 未知 type 值不进任何 label（自由字符串）
@@ -70,7 +70,7 @@ export class TelemetryService {
         continue;
       }
       perType.set(type, used + 1);
-      this.dispatch(type, sanitizeTelemetryDetail(type, event.detail ?? {}));
+      this.dispatch(type, sanitizeTelemetryDetail(type, event.detail ?? {}), typeof event.n === 'number' ? event.n : undefined);
       accepted++;
     }
     if (accepted + rejected > 0) {
@@ -79,8 +79,9 @@ export class TelemetryService {
     }
   }
 
-  /** 净化后 detail 的受控键分派（值域已由 sanitize 保障——typeof 仅防御缺键/半键形态） */
-  private dispatch(type: CollabTelemetryEventType, detail: Record<string, unknown>): void {
+  /** 净化后 detail 的受控键分派（值域已由 sanitize 保障——typeof 仅防御缺键/半键形态；
+   *  n=事件级聚合计数（客户端 30s 窗复合键合并后计数——仅 invariant 日志消费） */
+  private dispatch(type: CollabTelemetryEventType, detail: Record<string, unknown>, n?: number): void {
     collabTelemetryEventsTotal.inc({ type });
     switch (type) {
       case 'close_code':
@@ -106,8 +107,9 @@ export class TelemetryService {
         break;
       case 'invariant_violation':
         // Y0b-5 T2 审查修复（登记裁决）：where/name/frame 皆 log-only 键——dispatch 无 sink 直接终结
-        // =零输出，"Y5 前可诊断"落空；罕见事件逐条结构化日志兑现（批次元数据同款 JSON.stringify 形态）
-        this.logger.log(JSON.stringify({ event: 'collab_telemetry_invariant', entries: [{ where: detail.where, name: detail.name, frame: detail.frame }] }));
+        // =零输出，"Y5 前可诊断"落空；罕见事件逐条结构化日志兑现（批次元数据同款 JSON.stringify 形态）。
+        // M-1：n=事件级聚合计数带入 entries（30s 窗 40 次与 1 次不同形；无 n 时 JSON.stringify 剥 undefined 键缺省）
+        this.logger.log(JSON.stringify({ event: 'collab_telemetry_invariant', entries: [{ where: detail.where, name: detail.name, frame: detail.frame, n }] }));
         break;
     }
   }

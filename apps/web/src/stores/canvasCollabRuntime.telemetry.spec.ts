@@ -27,15 +27,16 @@ const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
 /** flush initCollab 入口 teardownSession 的微任务链（fake timers 下用 advanceTimersByTimeAsync(0)） */
 const tick = () => vi.advanceTimersByTimeAsync(0);
 
-/** rw 会话完整健康序（invariant.spec 同款）；done 后显式 stamp（mock 无真 loadDocument 自愈） */
-async function driveToSyncedRw(pid = 'p1') {
+/** 会话完整健康序（invariant.spec 同款；scope='read' 即 viewer 会话——collabReadOnly 全程 true）；
+ * done 后显式 stamp（mock 无真 loadDocument 自愈） */
+async function driveToSynced(scope: 'read-write' | 'read' = 'read-write', pid = 'p1') {
   const done = runtime.initCollab(pid);
   await tick();
   const p = lastInstance();
   p.emit('status', { status: 'connected' });
   p.emit('status', { status: 'connected' });
   p.isAuthenticated = true;
-  p.emit('authenticated', { scope: 'read-write' });
+  p.emit('authenticated', { scope });
   p.isSynced = true;
   p.emit('synced', {});
   await done;
@@ -61,7 +62,7 @@ afterEach(async () => {
 
 describe('Y0b-5 T2：close_code 打点（close handler 维持 ({event}) 解构形状——裁定 18①）', () => {
   it('emit("close",{event:{code:4408}}) 下取到 4408（库载荷恒 {event} 包装——防整片落 other 哑写点）；code 取值原样入 ring（sanitize 在服务端）', async () => {
-    const p = await driveToSyncedRw();
+    const p = await driveToSynced();
     p.emit('close', { event: { code: 4408, reason: 'forced' } });
     const codes = detailsOf('close_code');
     expect(codes).toContainEqual({ code: 4408 });   // 反向断言：非 undefined/非整片 other
@@ -74,14 +75,14 @@ describe('Y0b-5 T2：close_code 打点（close handler 维持 ({event}) 解构�
 
 describe('Y0b-5 T2：SLO 两条（载体=ws_status detail ms——控制器裁决；零轮询事件打点）', () => {
   it('hydration_duration：initCollab→ready——ready 后 ring 含 ws_status {from:connecting,to:connected,ms≥0}', async () => {
-    await driveToSyncedRw();
+    await driveToSynced();
     const msEvents = detailsOf('ws_status').filter((d) => d.from === 'connecting' && d.to === 'connected' && typeof d.ms === 'number');
     expect(msEvents).toHaveLength(1);
     expect((msEvents[0].ms as number)).toBeGreaterThanOrEqual(0);
   });
 
   it('reconnect_duration：掉线→authenticated——掉线前 authenticated 不打；掉线后 authenticated 打 ws_status {from:disconnected,to:connected,ms≥0}', async () => {
-    const p = await driveToSyncedRw();
+    const p = await driveToSynced();
     // 初次 authenticated（未掉线）——reconnect 零打点
     expect(detailsOf('ws_status').some((d) => d.from === 'disconnected')).toBe(false);
     p.emit('status', { status: 'disconnected' });
@@ -99,7 +100,7 @@ describe('Y0b-5 T2：SLO 两条（载体=ws_status detail ms——控制器裁�
 
 describe('Y0b-5 T2：projection_duration 打点包 applyDocToStore（禁 Date.now——单调钟）', () => {
   it('水合路径+远端 apply 路径各打一条 projection_duration{ms≥0}（alignExecFromIntents 不在计时位——connected 边沿触发与投影互不包含）', async () => {
-    await driveToSyncedRw();
+    await driveToSynced();
     // 水合路径已打一条
     expect(detailsOf('projection_duration').length).toBe(1);
     expect(typeof detailsOf('projection_duration')[0].ms).toBe('number');
@@ -159,12 +160,21 @@ describe('Y0b-5 T2：invariant 生产确定性采样节律（裁定 20——现�
     expect(after).toContain('checkProjectionInvariant');
     expect(after).toContain("'applyBootstrap'");
   });
+
+  it('I-1 回归：viewer（scope=read）健康水合零 invariant_violation——readOnly=跳过检查=不违规（!readOnly&&check 语义反转曾致全部 viewer 会话 applyBootstrap 误报）', async () => {
+    await driveToSynced('read');
+    // 驱动前提锚：水合真完成（零违规非因提前 bail）+ readOnly 全程成立
+    expect(useCanvasStore.getState().hydration).toBe('ready');
+    expect(useCanvasStore.getState().collabReadOnly).toBe(true);
+    expect(getCollabDiagCounters().get('invariant_violation')).toBeUndefined();   // counters 无键=零违规
+    expect(detailsOf('invariant_violation')).toHaveLength(0);                     // ring 双面同断言
+  });
 });
 
 describe('Y0b-5 T2：遥测 loop 启停绑定 initCollab/destroyCollab（无会话零 beacon）', () => {
   it('initCollab 起搏/destroyCollab 停搏；停后 advance 60s 零 flush（防匿名页 2/min 永久 401 噪声）', async () => {
     expect(_telemetryLoopRunning()).toBe(false);
-    await driveToSyncedRw();
+    await driveToSynced();
     expect(_telemetryLoopRunning()).toBe(true);
     await runtime.destroyCollab();
     expect(_telemetryLoopRunning()).toBe(false);

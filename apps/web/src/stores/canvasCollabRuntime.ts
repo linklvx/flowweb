@@ -1330,7 +1330,9 @@ export async function initCollab(projectId: string): Promise<void> {
   const t0Projection = performance.now();
   applyDocToStore(doc!);
   useCanvasStore.getState().setHydration('ready');
-  const bootstrapInvariantOk = !useCanvasStore.getState().collabReadOnly && checkProjectionInvariant(doc!);
+  // I-1 审查修复：readOnly=跳过检查=不违规（|| 短路——与 onRemote 周期 !readOnly 的跳过语义对齐；
+  // 原 !readOnly&&check 语义反转曾致全部 viewer 会话 applyBootstrap 误报）
+  const bootstrapInvariantOk = useCanvasStore.getState().collabReadOnly || checkProjectionInvariant(doc!);
   invariantAppliesSinceRun = 0;
   lastInvariantRunAt = performance.now();
   lastAppliedNodeCount = doc!.getMap('nodes').size;
