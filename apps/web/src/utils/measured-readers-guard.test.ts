@@ -43,7 +43,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     //（+13 漂移——T11 全量回归暴露）；本批 wsQuotaTerminal 字段两处插入（interface +4/初始值 +1）再 +5
     // Y0b-4 T13：applyQuotaWatermark 单写者 action 两处插入（interface +4/实现 +3——实现在 1701 之后，
     // 本表 13 行仅 interface 段 +4 漂移，集合不变）
-    'stores/canvasStore.ts': [877, 878, 884, 885, 940, 941, 1010, 1011, 1017, 1018, 1164, 1704, 1705],
+    // Y0b-5 T4：localCacheReady/readyProbeHint 字段两处插入（interface +9/初始值 +2）——13 行整体 +11 漂移
+    'stores/canvasStore.ts': [888, 889, 895, 896, 951, 952, 1021, 1022, 1028, 1029, 1175, 1715, 1716],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],
