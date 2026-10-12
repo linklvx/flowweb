@@ -518,7 +518,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         return;
       }
       const ip = this.clientIpOf(request, socket);
-      if (!this.upgradeBucket.consume(ip)) {
+      if (!this.upgradeBucket.consume(ip, 1)) {   // census ⑨：生产调用全显式 cost（升级握手=1 次/桶）
         collabUpgradeRejectedTotal.inc({ reason: 'rate-limited' });
         this.rejectUpgrade(socket, 'HTTP/1.1 429 Too Many Requests');
       }
@@ -1606,7 +1606,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     const shapeOf = (d: Y.Doc) => [...d.share.keys()].sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
     if (JSON.stringify(readRecordsFromMaps(toDocLike(oldDoc))) !== JSON.stringify(readRecordsFromMaps(toDocLike(newDoc)))) return false;
-    if ([...oldDoc.getMap('exec').keys()].sort().join(' ') !== [...newDoc.getMap('exec').keys()].sort().join(' ')) return false;
+    if ([...oldDoc.getMap('exec').keys()].sort().join('\x00') !== [...newDoc.getMap('exec').keys()].sort().join('\x00')) return false;
     return newDoc.getMap('meta').get('schemaVersion') === CANVAS_DOC_SCHEMA_VERSION;
   }
 
@@ -2695,6 +2695,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // Y0b-4 T12（E38）：解码后 states 4KB 判——三档剔字段（readOnly/solo/over-8）后取广播字节
       // 近似（剔后才是实际要编码广播的量）；整帧丢弃同 forged 先例（丢帧不 close——客户端已有
       // 4KB 前置拒，本判兜底裸帧/旧 bundle 残余）。放身份注入前：注入 user 只增字节，先判少做无效趟。
+      // 近似方向声明（T12 二级收口）：判在注入前——剥离后 <4096 判过的帧，注入 user 后实际广播
+      // 可超 4096；方向=放行（偏松不偏严），出站超限由 64KB 入站帧闸（AWARENESS_FRAME_LIMIT_BYTES）兜底。
       if (JSON.stringify([...states.values()]).length > AWARENESS_STATES_LIMIT_BYTES) {
         states.clear();
         collabAwarenessRejectTotal.inc({ reason: 'frame-too-large' });

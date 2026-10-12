@@ -27,10 +27,11 @@ export const yjsStoreCompactFailureTotal = new Counter({
   registers: [register],
 });
 
-/** 批3-4：canvas_doc 持久化字节量观测——load 播种快照字节（set）+ append 增量累加（inc）的近似累计 */
+/** 批3-4：canvas_doc 持久化字节量观测——load 播种快照字节（set）+ store 批实落字节和（inc，Y0b-4 T3
+ *  切批口径）的近似累计；compact 归并不回设（下次装载 set 纠偏）；观测非 enforcement（Y1c-3）。 */
 export const yjsCanvasDocBytes = new Gauge({
   name: 'yjs_canvas_doc_bytes',
-  help: 'canvas_doc 持久化字节量（快照 set + 增量 inc 近似；compact 归并后为近似值）',
+  help: 'canvas_doc 持久化字节量近似（load set 快照字节+store 批实落字节和 inc——切批口径；compact 归并不回设、下次装载 set 纠偏；观测非 enforcement）',
   labelNames: ['projectId'],
   registers: [register],
 });
@@ -109,14 +110,17 @@ export const collabAwarenessRejectTotal = new Counter({
   labelNames: ['reason'],
   registers: [register],
 });
-/** Y0b-3 T6（P-O）：应用侧主动 close 分布——code=CollabCloseCode 分配表值（1000/1012/4401/4402），
- *  reason=close 时附语义串。边界（v3 钉死）：库自发/自然断连的服务端观测结构性不可达
- *  （onDisconnectPayload 无 close code 字段——归 Y0b-5 客户端遥测）；ws 层自发 close（如 1009
- *  maxPayload）不经本指标。**调用点全枚举（恰六个，新增第七点必须同批补注）**：
+/** Y0b-3 T6（P-O）：应用侧主动 close 分布——code=CollabCloseCode 分配表值（1000/1008/1009/1011/
+ *  1012/4401/4402/4404/4410），reason=close 时附语义串。边界（v3 钉死）：库自发/自然断连的服务端
+ *  观测结构性不可达（onDisconnectPayload 无 close code 字段——归 Y0b-5 客户端遥测）；ws 层自发
+ *  close（如 1009 maxPayload）不经本指标。**计数点全枚举（恰七个 .inc——新增必须同批补注）**：
  *  ①beginDrainAutoRelease（1012 drain released）②enforceConnMaxLifetime（4402 max-lifetime）
  *  ③scheduleSweepClose（4401 session-expired）④closeAllConnections1012（1012 service restart）
- *  ⑤closeTeamDocuments（1000 team disbanded）⑥hardCloseWs=wrapBackpressure 二级
- *  （1011 slow-consumer，Y0b-4 T7——ws 级变体，conn 级五点仍走 hardClose）。 */
+ *  ⑤closeTeamDocuments（1000 team disbanded）⑥hardClose 汇聚点（Y0b-4 拒绝链唯一出口——
+ *  调用方九处：vacuum serving 门/terminal close/generation-stale 三处 4410、awareness/sync
+ *  帧闸两处 1009 frame-too-large、msg/bytes/awareness 三处 1008、overPush 升级 4404）
+ *  ⑦hardCloseWs=wrapBackpressure 二级（1011 slow-consumer，Y0b-4 T7——ws 级变体，
+ *  conn 级拒绝链仍走 hardClose）。 */
 export const collabWsCloseTotal = new Counter({
   name: 'collab_ws_close_total',
   help: 'collab 应用侧主动 webSocket.close 分布（code=分配表值；reason=close 语义串——库自发断连不可观测归客户端遥测）',
@@ -475,10 +479,11 @@ export const collabAwarenessRateExceededTotal = new Counter({
   help: 'awareness 独立限速断连次数（共享桶+键前缀 aware:${sid}，capacity 60+30/s 补充——close 1008 awareness-rate-exceeded）',
   registers: [register],
 });
-/** awareness 剔字段计数（reason=read-only 剔 cursor/selection 保 user 回显——T13 扩 solo|over-8 两档）。 */
+/** awareness 剔字段计数（reason 值域 read-only|solo|over-8 三档同一原语 stripTransientFields——剔
+ *  cursor/selection 保 user/presence 回显；solo/over-8 档 distinct user 判定=文档全量∪本帧，T13）。 */
 export const collabAwarenessStrippedTotal = new Counter({
   name: 'collab_awareness_stripped_total',
-  help: 'awareness 剔字段次数（reason=read-only 剔 cursor/selection 保 user 回显；T13 扩 solo|over-8）',
+  help: 'awareness 剔字段次数（reason=read-only|solo|over-8 三档——剔 cursor/selection 保 user/presence 回显；distinct user 判定=文档全量∪本帧）',
   labelNames: ['reason'],
   registers: [register],
 });

@@ -987,7 +987,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect(drifted.upsert).not.toHaveBeenCalled();       // 锁内守卫先于 upsert——DB 零变更
   });
 
-  it('共享状态普查：vacuum 完成后所有按 pid 键控 Map/Set〔docTruth/docDelta/docStatusRev/docGeneration/quotaFrozenDocs/freezePending/overPush/truthMeasuredAt/recheckRounds/thawCooldown/lastCompactAt 族/degradedDocs/docResidue/preVacuumSv〕均无该键+SnapshotDocCache 失效（防旧代记账污染新代）', async () => {
+  it('共享状态普查（I-1 反射式——防漏方向倒转）：vacuum 完成后枚举 gateway 自有属性中值类型 Map/Set 的容器均无该 pid 键（新增容器默认纳入——pid 与 project:pid 两键形态）+SnapshotDocCache 失效（防旧代记账污染新代）', async () => {
     const gateway = buildGateway();
     const src = seedDoc();
     addNode(src, 'n1', 64);
@@ -1018,15 +1018,33 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     gateway.server.hocuspocus.documents.delete('project:p1');    // ① close 的卸载后果（直构模拟）
     const r = await vac;
     expect(r.result).toBe('ok');
-    // 普查表：所有按 pid 键控 Map/Set 均无该键
-    for (const [name, box] of Object.entries({
-      docTruth: g.docTruth, docDelta: g.docDelta, truthMeasuredAt: g.truthMeasuredAt,
-      degradedDocs: g.degradedDocs, quotaFrozenDocs: g.quotaFrozenDocs, freezePending: g.freezePending,
-      recheckRounds: g.recheckRounds, thawCooldown: g.thawCooldown, docStatusRev: g.docStatusRev,
-      docStatusState: g.docStatusState, docGeneration: g.docGeneration, docResidue: g.docResidue,
-      preVacuumSvCache: g.preVacuumSvCache, lastCompactAt: g.lastCompactAt, vacuumingDocs: g.vacuumingDocs,
-    }) as Array<[string, Map<string, unknown> | Set<string>]>) {
-      expect(box.has('p1'), `${name} 应无该键`).toBe(false);
+    // 普查表（反射式）：豁免表=非 pid 键控容器（键型注明——新增豁免必须给理由）；
+    // 其余 Map/Set 一律受检（两键形态——documentName 键控的陈旧电平/退避梯同受 project:p1 检）。
+    const NON_PID_CONTAINERS = new Set([
+      'writeFreeze',          // conn 键（条目值含 pid——purge 逐原因解除，下方单独断言）
+      'overPush',             // socketId 键（purge 经 writeFreeze 条目 pid 反查连带清，下方单独断言）
+      'refusalCache',         // 拒绝缓存：token 键
+      'authAttemptBuckets',   // 认证尝试桶：ip/身份键
+      'connEstablishedAt',    // socketId 键
+      'clientIdOwner',        // clientId（number）键
+      'ownedClientIds',       // socketId 键
+      'socketIdentity',       // socketId 键
+      'awarenessDriftLogged', // socketId 键（漂移去重——断连清理）
+      'docStuckRounds',       // documentName 键观测轮次——非代际敏感态（stuck 判定 n≥2 自清），不属旧代记账污染面
+    ]);
+    const checked: string[] = [];
+    for (const [name, v] of Object.entries(g)) {
+      if (!(v instanceof Map || v instanceof Set) || NON_PID_CONTAINERS.has(name)) continue;
+      checked.push(name);
+      expect((v as Map<string, unknown>).has('p1'), `${name} 应无该 pid 键`).toBe(false);
+      expect((v as Map<string, unknown>).has('project:p1'), `${name} 应无该 documentName 键`).toBe(false);
+    }
+    // 防退化锚：已知 pid 键控族必须全部出现在反射枚举中（改名/移除→此处红，豁免表滥用同红）
+    for (const must of ['docTruth', 'docDelta', 'truthMeasuredAt', 'degradedDocs', 'quotaFrozenDocs', 'freezePending',
+      'recheckRounds', 'thawCooldown', 'docStatusRev', 'docStatusState', 'docGeneration', 'docResidue',
+      'preVacuumSvCache', 'lastCompactAt', 'vacuumingDocs', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
+      'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs']) {
+      expect(checked, `反射枚举应覆盖 ${must}（改名或误入豁免表=红）`).toContain(must);
     }
     expect(g.overPush.has(conn.socketId)).toBe(false);   // writeFreeze 条目 pid 过滤连带清
     expect(g.writeFreeze.has(conn)).toBe(false);

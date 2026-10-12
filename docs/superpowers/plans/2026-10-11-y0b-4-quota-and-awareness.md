@@ -53,7 +53,7 @@ T0（运行探针八项——真实帧 update[0] 打印/close 双路径投递码
   → T15（出口汇聚——verify 三连+偏离登记 35 条+部署清单）★子批出口
 ```
 
-**TDD 纪律：** 红→绿→commit，红相留档。**八条呈报**（4a 出口=spec §6.1「配额 apply 前拒绝」+外审新增五）：①超限帧现状已 apply 落库→冻结+快照告知（客户端可解释）；**持续强推才真观测 close 4404**（裸 ws close 事件码——非源码推断）；②**累积漂移不误冻**：真实 200KB+累计 update 10MB 的 doc→不冻结不 4404+truth≈200KB；③**冻结期编辑解冻后无损回灌**：冻结期客户端本地写→thaw SyncStep1→SyncStep2 回灌→服务端 doc 含该编辑（静默分叉=红相）；④**装载病态行不锁死自救**：埋超限行→装载照读+pendingStructs/pendingDs 断言可见+REST shrink 可达。**编码成本两硬用例（v3——P0-1 直接红门）**：⑤**冷却窗内连续 50 帧只编码 1 次**（truth_measured 增量=1+fastpath=49）；⑥**冻结态 50 帧编码 0 次**（over 短路——truth_measured 增量=0）。**v5 新增两条**：⑦**vacuum 代际一致性**：vacuum 后写入再重载⇒keys 完整+pendingStructs/pendingDs==null+meta 戳=2+exec 保留（报告1 实测反例=丢编辑+悬挂——T9a 红门）；⑧**离线合并可上传**：8MB SyncStep2 回灌**第二次**也通过（bytes 桶 capacity=maxDocBytes——v4 信用+1MB 桶组合下第二次结构性永拒=红相，报告1 P0-2）。**回归锚**：VIEWER 单连 90s 无 4408（readOnly 剔字段保回显——并入 collab-idle-anchor.spec 同一次等待）；单人剥离后 user/presence 仍在。**census 十组**（v3 扩）：①`close\(1008\|close\(1011\|close\(4404` 裸字面量清零 ②`Connection\.close\(` 应用侧清零（P7）③`frame\[0\]\|update\[0\]` 字节猜型清零 ④`encodeStateAsUpdate` 生产白名单六点外清零（装载〔≥soft 时〕/compact〔pending 空〕/shrink 预演+校准/over 检查〔冷却窗外〕/client 漂移实测〔requestIdleCallback〕/export-fresh fill 后实测〔Q-H census④ 白名单点〕）⑤`\.bufferedAmount` 仅背压单文件 ⑥`new TokenBucket` gateway 内恰三处定义点（升级/msg/bytes——awareness 共享桶+前缀）⑦web `setSelection\(|setAwarenessField\('selection'` 仅去抖单点 ⑧`type: 'write-frozen'` 服务端清零 ⑨`\.consume\(` 桶调用必须带 cost 参数（bytes 桶）或注释 cost=1（msg/aware——防 B-2 复发）⑩`pendingStructs` 装载断言存在性（Q-O）。**int 纪律/spec 同步/fenced 缩进**同 Y0b-3 惯例。**已知陷阱**：esbuild 无 decorator metadata（位置参数直构）；真连 describe 必须 `vi.useRealTimers()`；provider.destroy 后 `kit.forget`；metricDelta 前后差值；fake timers 卡死 ws IO。
+**TDD 纪律：** 红→绿→commit，红相留档。**八条呈报**（4a 出口=spec §6.1「配额 apply 前拒绝」+外审新增五）：①超限帧现状已 apply 落库→冻结+快照告知（客户端可解释）；**持续强推才真观测 close 4404**（裸 ws close 事件码——非源码推断）；②**累积漂移不误冻**：真实 200KB+累计 update 10MB 的 doc→不冻结不 4404+truth≈200KB；③**冻结期编辑解冻后无损回灌**：冻结期客户端本地写→thaw SyncStep1→SyncStep2 回灌→服务端 doc 含该编辑（静默分叉=红相）；④**装载病态行不锁死自救**：埋超限行→装载照读+pendingStructs/pendingDs 断言可见+REST shrink 可达。**编码成本两硬用例（v3——P0-1 直接红门）**：⑤**冷却窗内连续 50 帧只编码 1 次**（truth_measured 增量=1+fastpath=49）；⑥**冻结态 50 帧编码 0 次**（over 短路——truth_measured 增量=0）。**v5 新增两条**：⑦**vacuum 代际一致性**：vacuum 后写入再重载⇒keys 完整+pendingStructs/pendingDs==null+meta 戳=2+exec 保留（报告1 实测反例=丢编辑+悬挂——T9a 红门）；⑧**离线合并可上传**：8MB SyncStep2 回灌**第二次**也通过（bytes 桶 capacity=maxDocBytes——v4 信用+1MB 桶组合下第二次结构性永拒=红相，报告1 P0-2）。**回归锚**：VIEWER 单连 90s 无 4408（readOnly 剔字段保回显——并入 collab-idle-anchor.spec 同一次等待）；单人剥离后 user/presence 仍在。**census 十一组**（v3 扩+T14 脚本化 `scripts/check-collab-census.mjs` 进 verify）：①`close\(1008\|close\(1011\|close\(4404` 裸字面量清零 ②`Connection\.close\(` 应用侧清零（P7）③`frame\[0\]\|update\[0\]` 字节猜型清零 ④`encodeStateAsUpdate` 生产白名单外清零——**现行清单 13 点/6 文件**（装载 cheap≥soft〔gateway〕/compact〔repository〕/shrink 影子预演+校准〔×3 shrink.service〕/export-fresh 落地校验〔shrink.service〕/**vacuum 真空编码〔shrink.service〕+residue 评估〔gateway〕**〔T9a 两点〕/over 检查 measureTruth〔gateway〕/gate 种子构造〔gate-canvas-state〕/项目创建种子〔project.service〕/客户端漂移 idle 实测+measureLocalDocNow〔×2 web runtime〕——与脚本 ENCODE_WHITELIST 一致）⑤`\.bufferedAmount` 仅背压单文件 ⑥`new TokenBucket` gateway 内恰四处定义点（upgrade/msg/bytes/aware——参数不同不可共实例）⑦web `setSelection\(|setAwarenessField\('selection'` 仅去抖单点（CanvasView 经桥调用）⑧`type: 'write-frozen'` 服务端清零 ⑨`\.consume\(` 生产调用全显式 cost 参数（禁默认参/注释型门禁）⑩`pendingStructs` 装载断言存在性（Q-O——含 pendingDs 双查）⑪`readOnly` 生产直写点清单（auth connectionConfig×3〔spool 降级/viewer/quotaFrozen〕+applyWriteFreeze 唯一出口；`readOnly: true` 字面量清零——Q-A 防回潮）。**int 纪律/spec 同步/fenced 缩进**同 Y0b-3 惯例。**已知陷阱**：esbuild 无 decorator metadata（位置参数直构）；真连 describe 必须 `vi.useRealTimers()`；provider.destroy 后 `kit.forget`；metricDelta 前后差值；fake timers 卡死 ws IO。
 
 ---
 
@@ -137,7 +137,7 @@ T0（运行探针八项——真实帧 update[0] 打印/close 双路径投递码
 | `collab_quota_truth_measured_total` | Counter | T4 | 全量编码触发次数（**P0-1 直接证据**——比值验证） |
 | `collab_quota_truth_measure_duration_seconds` | Histogram | T4 | 单次全量编码耗时（**进程预算 duty 验证**——报告2 D） |
 | `collab_doc_residue_bytes` | Gauge | **T9a** | truth−liveBytes（**liveBytes=doc.share 全根编码口径**〔v6 U-6 修正后〕；recheck 2 轮时更新——Q-U） |
-| `collab_doc_vacuum_total` | Counter, result=ok\|skip-low-residue\|equivalence-failed\|unsupported-root\|error | **T9a** | vacuum 审计（v5：等价断言失败/根类型不支持两档——破坏性操作的可观测中止面） |
+| `collab_doc_vacuum_total` | Counter, result=ok\|skip-low-residue\|equivalence-failed\|unsupported-root\|quiesce-timeout\|error | **T9a** | vacuum 审计（v5：等价断言失败/根类型不支持两档——破坏性操作的可观测中止面；**v6 补 quiesce-timeout**〔卸载等待 30s 超时中止——禁降级继续〕=六值） |
 | `collab_quota_fastpath_total` | Counter | T4 | 快路径放行次数（measured/(measured+fastpath) 应 >0.99） |
 | `collab_hydration_deferred_total` | Counter, **field=structs\|ds**（v6 B8 功能修：T3 .inc({field}) 带标签——表无 labelNames 则 prom-client throw→装载降级路径抛错被 catch 折成 DB_UNAVAILABLE=画布打不开，与 Q-O 目标相反） | T3 | 装载后 pendingStructs **或 pendingDs** 双查分列（因果链丢失可观测——Q-O） |
 | `collab_quota_frozen_docs` | Gauge（collect=**quotaFrozenDocs.size**——文档级注册表，与在线无关〔writeFreeze 连接级全员断线会归零〕） | T4 | 冻结面现状 |
@@ -154,7 +154,7 @@ T0（运行探针八项——真实帧 update[0] 打印/close 双路径投递码
 | `yjs_inbound_frame_bytes` | Histogram | T4 | 入站帧分布（collab 模块内 Histogram 首例——exec.metrics 已有先例） |
 | `yjs_outbound_backlog_bytes` | Histogram | T7 | 出站 backlog 1/10 采样 |
 | `yjs_loaded_doc_bytes` | Gauge（collect=**Σ(truth+delta)**——口径=最近实测+插值上界，帮助文本注明；GC 回收在测量点回落） | T3 | 容量聚合观测 |
-| `awareness_states` / `awareness_bytes` | Gauge（collect） | T13 | E40 三指标之二（第三=dropped） |
+| `awareness_states` / `awareness_bytes` | Gauge（collect） | ~~T13~~ **Y0b-5**（T14 核对修正：E40 三指标本批仅落 dropped〔T7〕——states/bytes 两 gauge 未实现，E40 拆分〔Y0b-4/5/2〕归观测批） | E40 三指标之二（第三=dropped 已落） |
 
 **§0.3 env 表（v2：四键全进 env.ts——TX_BYTES 服务端帧闸有真实读点）**
 
@@ -961,11 +961,13 @@ Run → 绿。Commit: `feat(y0b-4): T13 E39 双向短路（distinct user）+30s 
 
 ---
 
-## Task 14：观测面核对+census 十组
+## Task 14：观测面核对+census 十一组
 
-- [ ] **Step 1:** §0.2 表指标逐项 register.metrics() 核对（B8 一一对应+help 语义）+yjsCanvasDocBytes 帮助文本改写+**collabWsCloseTotal 调用点注释更新为八点并逐一列名**（store.metrics.ts:110-116——v2 报告 C-2 悬欠两轮）。
-- [ ] **Step 2:** census 十组（TDD 纪律节清单）——⑥改**恰四处 TokenBucket 定义点**（升级/msg/bytes/aware——参数不同不可共实例）；⑨改显式 `consume(sid, 1)`（生产调用点全显式禁注释型门禁）+consumeFrame/consumeBytes 具名 helper 可选；⑩pendingStructs **&& pendingDs** 双查。脚本化 `scripts/check-collab-census.mjs` 并入 verify。
-Commit: `chore(y0b-4): T14 观测核对+census 脚本化十组+readOnly 直写点清零（applyWriteFreeze 单源——T4 v5 追加）`
+- [ ] **Step 1:** §0.2 表指标逐项 register.metrics() 核对（B8 一一对应+help 语义）+yjsCanvasDocBytes 帮助文本改写+**collabWsCloseTotal 调用点注释更新**（grep `.inc` 实况=恰七处计数点：五直写+hardClose 汇聚+hardCloseWs——store.metrics.ts，v2 报告 C-2 悬欠两轮）。
+- [ ] **Step 2:** census 十一组（TDD 纪律节清单）——⑥**恰四处 TokenBucket 定义点**（升级/msg/bytes/aware——参数不同不可共实例）；⑨显式 `consume(sid, 1)`（生产调用点全显式禁注释型门禁）；⑩pendingStructs **&& pendingDs** 双查；⑪readOnly 直写点结构断言（T4 v5 追加）。脚本化 `scripts/check-collab-census.mjs` 并入 verify。
+- [ ] **Step 3:** T9a 质量审查 I-1——普查表改**反射式断言**（枚举 gateway Map/Set 容器均无该 pid 键——新增容器默认纳入，防漏方向倒转）。
+- [ ] **Step 4:** 文档同步（§0.2 vacuum 六值/awareness_states 归 Y0b-5 修正/④ 白名单现行清单）+spec §10 fenced 核对（check-spec-consistency 过）。
+Commit: `chore(y0b-4): T14 观测核对+census 十一组脚本化+普查反射断言+文档同步（vacuum 六值/白名单清单）`
 
 ---
 

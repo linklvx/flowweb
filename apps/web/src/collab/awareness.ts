@@ -40,6 +40,9 @@ export class AwarenessBridge {
   /** 批1-5：稳定对象——订阅自持（Set<cb>），attach 迁移时重挂单内部 handler（消费方订阅跨实例存活） */
   private readonly listeners = new Set<() => void>();
   private detachProviderListener: (() => void) | null = null;
+  /** T12 裁定（T14 复核）：pending 去抖定时器跨 attach 迁移**仍有效**——回调闭包读 this.provider
+   *  （attach 已重指向新 provider）⇒ 末态 selection 发到新 provider（终态重建窗内的选区不丢），
+   *  不 clearTimeout（零行为变化——语义合理故声明非迁移清理）。 */
   private selectionTimer: ReturnType<typeof setTimeout> | null = null;
   /** T13（E39）：最后 pointermove 事件时刻（noteCursorMove 记账——30s 停报守卫基线；Date.now 单源：
    *  30s 粒度无需单调钟）。0=从未 move（无从判"空闲"——守卫放行）。 */
