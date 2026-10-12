@@ -92,6 +92,9 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   'src/pages/canvas/components/ShrinkDialog.test.tsx',
   'src/stores/canvasIntents.quota.spec.ts',
   'src/stores/canvasStore.paste-chunk.spec.ts',
+  // Y0b-5 T7（2026-10-13）：canvasCollabRuntime.t7.spec.ts 造案 +8 处/1 新文件（E40 60s 窗五合取
+  //   用例 resetStore 装置复位+抑制字段注入——sanctioned 例外同模式）→ 294/53。
+  'src/stores/canvasCollabRuntime.t7.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -136,5 +139,8 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   ——escape 独立高位分支非 terminal 可见性+配额终态位次注入；QuotaBanner.test +1——vacuuming
   //   档 escape 压盖注入；ShrinkDialog.test +2——M1/M2 safeReload 元数据调度时刻快照用例注入；
   //   均存量 allow-list 文件，store 注入是用例存在目的〔同 T9/T4/T11 例外〕）→ 286 处 / 52 文件。
-  effective: { count: 286, files: 52 },
+  // Y0b-5 T7（2026-10-13）：E40 60s 窗/updateText VIEWER 门造案 +12 处/+1 文件
+  //   （canvasCollabRuntime.t7.spec.ts +8——五合取用例 resetStore 装置复位+抑制字段注入；
+  //   nodeStore.test.ts +4——VIEWER 门用例编辑窗/viewer 态注入，存量 allow-list 文件，同例外）→ 298 处 / 53 文件。
+  effective: { count: 298, files: 53 },
 };

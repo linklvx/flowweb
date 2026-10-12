@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, ANNOTATION_DEFAULTS, NODE_TYPES, IMAGE_EXT_DEFAULTS } from './nodeStore';
+import { message } from 'antd';
+import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, ANNOTATION_DEFAULTS, NODE_TYPES, IMAGE_EXT_DEFAULTS, _resetViewerToastForTest } from './nodeStore';
 import { useCanvasStore } from './canvasStore';
 import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, AudioNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
@@ -164,6 +165,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 8. updateText convenience method should update content
   it('should update text content via updateText convenience method', () => {
+    // Y0b-5 T7：updateText 挂 VIEWER 门（canEdit）——机理验证需编辑窗（与下方 T7 describe 的 EDITOR 零回归同基底）
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     const textNode: AppNode = {
       id: 't2',
       type: 'text',
@@ -1418,5 +1421,52 @@ describe('referenceSelect（画布参考选择模式，spec §3.1）', () => {
     vi.advanceTimersByTime(2300);
     expect(useNodeStore.getState().referenceSelect?.notice).toBeNull();
     vi.useRealTimers();
+  });
+});
+
+// ══════════ Y0b-5 T7（C6 收口）：updateText VIEWER 门（applyNodeDataPatch 批2-2 三行早退同款） ══════════
+describe('Y0b-5 T7：updateText VIEWER 门', () => {
+  beforeEach(() => {
+    _resetViewerToastForTest();
+    useNodeStore.setState({ nodes: {} });
+  });
+
+  it('canEdit false→零写入：已有节点内容不变+缺席节点不建幽灵条目（else 分支建节点路径同样被拦）+toast 提示（异节点各自计时）', () => {
+    // viewer 形态：hydration 非 ready（canEdit 假——离线/水合中/连接级只读三态同拦）
+    useCanvasStore.setState({ hydration: 'idle', collabReadOnly: false, wsAuthNotice: null });
+    const warnSpy = vi.spyOn(message, 'warning');
+    useNodeStore.setState({
+      nodes: { t9: { id: 't9', type: 'text', data: { content: '原' } as TextNodeData } },
+    });
+    useNodeStore.getState().updateText('t9', '被拒写入');
+    useNodeStore.getState().updateText('t-ghost', '被拒写入');
+    expect((useNodeStore.getState().nodes['t9']!.data as TextNodeData).content).toBe('原');
+    expect(useNodeStore.getState().nodes['t-ghost']).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(2);   // 异节点各自计时（节流=同节点 2s 窗——下一用例）
+    expect(warnSpy).toHaveBeenCalledWith('当前为只读会话，编辑未生效');
+  });
+
+  it('toast 节流：同节点 2s 窗内连续键入不风暴（一次提示）；窗后再写再提示', () => {
+    useCanvasStore.setState({ hydration: 'idle', collabReadOnly: false, wsAuthNotice: null });
+    const warnSpy = vi.spyOn(message, 'warning');
+    useNodeStore.getState().updateText('t9', 'a');
+    useNodeStore.getState().updateText('t9', 'ab');
+    useNodeStore.getState().updateText('t9', 'abc');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const ts = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(ts + 2_001);   // 出 2s 节流窗（viewerToastAt 同 Date.now 基准）
+    useNodeStore.getState().updateText('t9', 'abcd');
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('EDITOR（canEdit 真）零回归：内容正常写入（批4b-2 换芯路径不动+零 toast）', () => {
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    const warnSpy = vi.spyOn(message, 'warning');
+    useNodeStore.setState({
+      nodes: { t10: { id: 't10', type: 'text', data: { content: 'hello' } as TextNodeData } },
+    });
+    useNodeStore.getState().updateText('t10', 'world');
+    expect((useNodeStore.getState().nodes['t10']!.data as TextNodeData).content).toBe('world');
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

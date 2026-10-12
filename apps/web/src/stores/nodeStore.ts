@@ -577,6 +577,16 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   updateText: (id, content) => {
+    // Y0b-5 T7（C6 收口）：VIEWER 门——canEdit 假（readOnly/terminal/非 ready）早退，applyNodeDataPatch
+    // 批2-2 三行早退同款（缺席节点 else 建幽灵条目路径同拦）；doc 零写由 dispatch 第一层硬门兜底
+    if (!canEdit(useCanvasStore.getState())) {
+      const now = Date.now();
+      if (now - (viewerToastAt.get(id) ?? 0) >= VIEWER_TOAST_THROTTLE_MS) {
+        viewerToastAt.set(id, now);
+        message.warning('当前为只读会话，编辑未生效');
+      }
+      return;
+    }
     // 批4b-2 换芯：content 键 doc 直写（node 不在 doc 时 no-op——同旧订阅路径投影不含语义）
     dispatchCanvasIntent({ type: 'updateNodeData', id, patch: { content } }, Origin.LocalUser);
     const existing = getNode(get().nodes, id);

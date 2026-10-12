@@ -143,10 +143,19 @@ export function getAwareness(): AwarenessBridge | null {
 //（teardown destroy 旧 doc——WeakSet 无需手工清）。
 const unsyncedDirtyDocs = new WeakSet<Y.Doc>();
 
+// ── Y0b-5 T7（E40 分叉自检）：60s 同步延迟窗（消费上单源——dirty 判读禁第二判据）──
+/** dirty 起点时刻（markDocUnsyncedDirty 置位时同点记录——编辑发生时刻语义；计窗暂停期由 5s interval 重置） */
+const unsyncedDirtySince = new WeakMap<Y.Doc, number>();
+/** 计窗长：五合取健康态下 unsyncedDirty 持续超过 60s → syncLagOver60s 电平（SyncBanner T6 单链 syncLag 档） */
+const SYNC_LAG_WINDOW_MS = 60_000;
+/** 检查节律：5s interval（T6 注释预留裁定——与 3s 心跳分立；T8 尺寸闸周期复检复用本定时器零新定时器） */
+const SYNC_LAG_CHECK_MS = 5_000;
+
 /** 单源置位（本地 update 监听/终态重建保守武装/导入显式置位共用）+beforeunload reason 武装 */
 function markDocUnsyncedDirty(d: Y.Doc): void {
   if (unsyncedDirtyDocs.has(d)) return;
   unsyncedDirtyDocs.add(d);
+  unsyncedDirtySince.set(d, Date.now());   // T7：dirty 起点时刻（首次置位起算——重复编辑不刷新）
   armUnloadWarning('unsynced');
 }
 
@@ -155,6 +164,7 @@ function markDocUnsyncedDirty(d: Y.Doc): void {
  *  （escape 横幅消失,用户可再触发 reload）。 */
 function clearDocUnsyncedDirty(d: Y.Doc): void {
   if (!unsyncedDirtyDocs.delete(d)) return;
+  unsyncedDirtySince.delete(d);            // T7：起点时刻随单源消亡
   disarmUnloadWarning('unsynced');
   useCanvasStore.setState({ collabEscapePending: false });
 }
@@ -226,6 +236,9 @@ let inboundAttemptId = -1;
 
 // 批1-1：watchdog 心跳 timer（会话清理链——destroyCollab 统一 clearInterval；浏览器无 unref）
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+// Y0b-5 T7：60s 同步延迟窗检查 timer（会话清理链——teardownSession 统一 clearInterval；与 3s 心跳分立）
+let syncLagTimer: ReturnType<typeof setInterval> | null = null;
 
 // 批1-1 watchdog 会话变量（批1-3 上移模块级：bindProviderListeners 与心跳共享——
 // 终态重建后新监听闭包写同一份活状态；initCollab 会话起点复位，旧会话计时/退避不携带）
@@ -1615,6 +1628,33 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     }
   }, TICK_MS);
 
+  // Y0b-5 T7（E40 分叉自检）：5s interval——60s 同步延迟窗判定。五合取=connStatus connected
+  // ∧!writeFrozen∧!quotaOver∧★!collabReadOnly∧unsyncedDirty（裁定 23⑩：viewer/spool 连接级
+  // readOnly 不在 writeFrozen/quotaOver 两字段——缺此判据=把"服务端拒绝"误诊为"同步慢"〔服务端
+  // 对拒帧回 SyncStatus(false) 被 esm:474-476 `if(applied)` 静默丢弃——unsyncedDirty 永不归零〕）。
+  // dirty 判读=T6 单源（unsyncedDirtyDocs）；计窗暂停=条件失效期重置起点（断线/冻结/只读期不计窗，
+  // 条件恢复重新起算）；syncLagOver60s 为电平（条件失效横幅自动消）；遥测只在电平上沿发一次
+  // （禁 5s 重复发——T1 ws_reason_total{reason="unsynced-lag"} 可见）。
+  syncLagTimer = setInterval(() => {
+    const d = doc;
+    if (!d) return;
+    const st = useCanvasStore.getState();
+    const healthy = st.connStatus === 'connected' && !st.writeFrozen && !st.quotaOver && !st.collabReadOnly;
+    const dirty = unsyncedDirtyDocs.has(d);
+    if (!healthy || !dirty) {
+      if (dirty) unsyncedDirtySince.set(d, Date.now());   // 计窗暂停：起点重置（恢复重新起算）
+      else unsyncedDirtySince.delete(d);                   // dirty 已清——起点随单源消亡
+      if (st.syncLagOver60s) useCanvasStore.setState({ syncLagOver60s: false });   // 横幅自动消
+      return;
+    }
+    let since = unsyncedDirtySince.get(d);
+    if (since === undefined) { unsyncedDirtySince.set(d, (since = Date.now())); return; }
+    if (Date.now() - since >= SYNC_LAG_WINDOW_MS && !st.syncLagOver60s) {
+      useCanvasStore.setState({ syncLagOver60s: true });
+      recordCollabDiag('ws_status', { reason: 'unsynced-lag' });
+    }
+  }, SYNC_LAG_CHECK_MS);
+
   // 双 resolve 区分 synced/超时：flag 判据天然覆盖 provider 在 await 前已 synced 的极快网络；
   // Y0b-5 T4：死线改可延长（模块态 extension 面——authFailed 瞬态档经
   // extendHydrationDeadlineForTransient 延长一次至首定+GRACE，总封顶 25s）
@@ -1753,6 +1793,7 @@ export function completeHydration(): void {
  *  入口若经 destroyCollab 会把 openSession 刚置的 pending 打成 idle 闪烁。 */
 async function teardownSession(): Promise<void> {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
+  if (syncLagTimer) { clearInterval(syncLagTimer); syncLagTimer = null; } // Y0b-5 T7：60s 窗检查（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
   // 死线 timer 不在清理链：归属各 initCollab promise（I-1——陈旧调用依自身 timer settle，
   // teardown 清掉=陈旧 promise 永悬；模块态 extension 面随新会话 arm 自然接管）
