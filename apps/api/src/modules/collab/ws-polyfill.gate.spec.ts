@@ -74,17 +74,26 @@ describe('F6 WebSocketPolyfill spike', () => {
   // Y0b-5 T3a（裁定 25⑶）：原批1-0"close(1000) 即触发库自持重连"裁决夹具随归零模型整体改写——
   // 归零模型下该行为不存在：open 归零 shouldConnect（esm:211-217）⇒ onClose 1s 定时器守卫
   // （esm:411 `!cancelWebsocketRetry && shouldConnect`）结构性不排程。重录形态：pin+归零装置
-  // （与 runtime createProvider 同构）+真服务端——断言 ①close(1000) 后 3s 零新 socket（库零自持）
-  // ②事件序列含 disconnect（anchor1b 同族）③调用方显式 connect() 恢复闭环（所有权=调用方）。
-  it('归零模型：pin+open 归零后 close(1000) 不再触发库自持重连——恢复所有权归调用方', async () => {
+  // （与 runtime createProvider 同构）+真服务端+**socket 单实例注册表装置**（T3b reconnectTransport
+  // 改形——activeSocketCount+构造期强关不变量）——断言 ①close(1000) 后 3s 零新 socket（库零自持）
+  // ②事件序列含 disconnect（anchor1b 同族）③调用方显式 connect() 恢复闭环（所有权=调用方）
+  // ④注册表计数≤1 恒成立+destroy 出册归零。
+  it('归零模型+注册表装置：pin+open 归零后 close(1000) 不再触发库自持重连——恢复所有权归调用方', async () => {
+    const transportModule = '../../../../web/src/collab/reconnectTransport';
+    const { createReconnectingWebSocket, activeSocketCount } = (await import(/* @vite-ignore */ transportModule)) as {
+      createReconnectingWebSocket: (_url: string) => { WebSocketClass: any };
+      activeSocketCount: () => number;
+    };
     const port = await freePort();
     const server = new Server({ port, async onAuthenticate() { return {}; } });
     await server.listen();
     let provider: HocuspocusProvider | null = null;
     try {
-      class Counting extends WebSocket {
+      // 注册表装置：真 transport 注入类（构造期强关不变量在册）+计数子类
+      const { WebSocketClass } = createReconnectingWebSocket(`ws://127.0.0.1:${port}`);
+      class Counting extends WebSocketClass {
         static created = 0;
-        static first: WebSocket | null = null;
+        static first: any = null;
         constructor(u: string | URL) { super(u as string); Counting.created++; if (!Counting.first) Counting.first = this; }
       }
       provider = new HocuspocusProvider({
@@ -105,6 +114,7 @@ describe('F6 WebSocketPolyfill spike', () => {
       await new Promise<void>((r) => provider!.on('synced', r));
       expect(Counting.created).toBe(1);
       expect(ws.shouldConnect).toBe(false);                                     // open 归零已落
+      expect(activeSocketCount()).toBe(1);                                      // ★注册表：唯一活跃 socket 在册
       const events: string[] = [];
       provider.on('close', (e: any) => events.push(`close(${e?.event?.code ?? '?'})`));
       provider.on('disconnect', () => events.push('disconnect'));
@@ -118,11 +128,13 @@ describe('F6 WebSocketPolyfill spike', () => {
       await new Promise<void>((r) => setTimeout(r, 2_000));
       expect(Counting.created).toBe(2);                 // 新 socket 经注入类建立
       expect(syncedCount).toBeGreaterThanOrEqual(2);    // 重新 synced
-      console.log(`[T3a 归零] events=${JSON.stringify(events)} created=${Counting.created} syncedCount=${syncedCount}`);
+      expect(activeSocketCount()).toBeLessThanOrEqual(1); // ★注册表：活性 ≤1 恒成立（构造期强关/出册）
+      console.log(`[T3a 归零] events=${JSON.stringify(events)} created=${Counting.created} syncedCount=${syncedCount} active=${activeSocketCount()}`);
       expect(events).toContain('close(1000)');          // 事件序列含 close——真关停路径
       expect(events).toContain('disconnect');           // ★重录要点：事件序列含 disconnect（onClose 恒 emit）
       provider.destroy();
       await new Promise<void>((r) => setTimeout(r, 500));
+      expect(activeSocketCount()).toBe(0);              // ★destroy 出册——活性归零
     } finally {
       provider?.destroy();
       await server.destroy().catch(() => {});

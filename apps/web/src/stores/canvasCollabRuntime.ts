@@ -31,17 +31,25 @@ import { AwarenessBridge } from '@/collab/awareness';
 // import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
 import { fetchNodeIntents } from '@/api/executionApi';
 import type { ExecStatusEntry } from './execStatusView';
-// 批1-0 transport 薄层（门 B 裁决）：自持传输——瞬态恢复=reconnect()，kick 方案 ㉕/㉝ 约束已删
-import { createReconnectingWebSocket, type ReconnectHandle } from '@/collab/reconnectTransport';
+// 批1-0 transport 薄层（门 B 裁决）——Y0b-5 T3b 起改形为 socket 单实例注册表（needKick 语义废弃）：
+// 注入类唯一构造点保留，恢复所有权归 connection-supervisor
+import { createReconnectingWebSocket } from '@/collab/reconnectTransport';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { readViewport } from '@/utils/viewportPersistence';
 // B7-1（O0b-7 接线）：投影/手势/reconcile 写体 geometryTrap 写者上下文。循环依赖裁定同上：
 // geometryTrap 顶层仅 import 声明+纯函数定义，调用体运行时才执行——安全。
 import { withGeometryWriter } from './geometryTrap';
 // 批1-1：连接状态机纯函数（零 Math.random——jitter 阈值生成后入参传入）
-import { reduce, TICK_MS, STALE_INBOUND_MS, FAST_LANE_MS, RECOVER_BACKOFF_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
+// Y0b-5 T3b：watchdog 降级纯观测（裁定 23⑴）——MachineInputs 缩至 {now,healthy,unhealthySince}
+//（cooldownMs/recoveryAttempts/lastRecoveryAt/fastLaneEligible/gateMs/terminal/hidden/offline 随
+// action 删除一并退役——留不消费字段=第三态）；恢复所有权归 connection-supervisor。
+import { reduce, TICK_MS, STALE_INBOUND_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
 // 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
 import { recordCollabDiag, isAutoRecoverDisabled } from '@/utils/collabDiagnostics';
+// Y0b-5 T3b（裁定 23⑴）：单连接所有权——supervisor 独占全部 connect/disconnect（瞬态退避/终态/
+// 1012/普通掉线全归）；库定时器被 open 归零 shouldConnect 结构性禁用；watchdog 降级纯观测。
+// 循环依赖裁定（同 canvasUndo）：本模块顶层仅 import 声明/类定义，supervisor 方法运行时才执行——安全。
+import { createSupervisor, type CollabConnectionSupervisor } from '@/collab/connection-supervisor';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -140,11 +148,8 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 // 批1-1 watchdog 会话变量（批1-3 上移模块级：bindProviderListeners 与心跳共享——
 // 终态重建后新监听闭包写同一份活状态；initCollab 会话起点复位，旧会话计时/退避不携带）
-let lastConnectedAt = 0;             // connected 到达边沿（快线计时起点）
 let lastInboundAt = 0;               // 入站新鲜度（'message' 驱动刷新）
 let unhealthySince: number | null = null; // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
-let recoveryAttempts = 0;
-let lastRecoveryAt = 0;
 
 // 批1-2：1012 计划内重启窗口（close code 1012 起 30s 内 UI 不升 banner——钳 hint）
 let plannedRestartUntil = 0;
@@ -155,9 +160,8 @@ let plannedRestartUntil = 0;
 //（watchdog 兜底/静默续期/1012 迟到帧都在此拦下）。watchdog machine 输入的 terminal 值源
 // =wsAuthNotice.terminal（心跳 inputs——双写点同帧落 store，电平是 store 读的等价速记）。
 let terminalSuppressed = false;
-// Y0b-3 T9（S-4）：4401 'session-expired'（sweep）静默续期额度——一次，authenticated 事件重置
-//（每次成功认证重发一次额度；不重置=数小时后再次过期直接落终态本可再续）。
-let silentRenewUsed = false;
+// Y0b-3 T9（S-4）：4401 'session-expired' 静默续期闩锁已随 Y0b-5 T3b 收编 supervisor
+//（一会话一次；authenticated 重置——silentRenewUsed 语义原地，runtime 零副本）。
 // Y0b-4 T5（Q-A v5）：连接级只读真值 connReadOnly——authenticated 按 scope 播种（首推前 VIEWER
 // 不 fail-open；scope 本身经 recordCollabDiag('conn_scope') 记录——不参与 readOnly 判定，报告3
 // 一致性 6），conn-status 到达后覆盖（连接级单源）。lastGeneration=vacuum 代际基线（跳变检测——
@@ -169,16 +173,27 @@ let lastGeneration: number | undefined;
 // 无效——shared M-4）不在表内。
 const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>(COLLAB_VERSION_TERMINAL_REASONS);
 
-// 批1-3：transport 薄层句柄（createProvider 每次注入新 transport；瞬态恢复消费）
-let transportHandle: ReconnectHandle | null = null;
+// 批1-3：transport 薄层句柄已随 Y0b-5 T3b 退役（needKick 语义随归零模型废弃——socket 单实例
+// 注册表见 reconnectTransport.ts；瞬态恢复全归 supervisor.recoverNow）。
 // 批1-3：终态重建窗口标记（旧实例 hasUnsyncedChanges 不可读——标记武装；
 // 清除=unsyncedChanges number===0（实例绑定）+ 3s tick 兜底——批1-4）
 let rebuildPending = false;
 
-/** 批1-3 两级恢复原语（瞬态传输级 / 终态会话级重建）。
- *  级别按结构状态选（G1）：!isAttached || !ws.shouldConnect ⇒ 终态——瞬态 reconnect 在此是空操作；
- *  对象命名空间=watchdog 间接调用层：vi.spyOn(recovery, 'recoverConnection') 对模块内
- *  直连函数调用不可达（ESM 本地绑定），命名空间属性查找使测试缝可达（装置可达性裁定）。 */
+/** Y0b-5 T3b：单连接所有者（模块级单例——getProvider/isConnOffline 注入取值，防 canvasStore
+ *  循环依赖直连；终态重建/换会话经 getProvider 恒取当前实例，attach 由 createProvider 重挂）。 */
+const supervisor: CollabConnectionSupervisor = createSupervisor({
+  getProvider: () => provider,
+  isConnOffline: () => useCanvasStore.getState().connStatus === 'offline',
+});
+
+/** 批1-3 两级恢复原语（瞬态传输级 / 终态会话级重建）——Y0b-5 T3b 收编改写。
+ *  级别按结构状态选（G1 ★裁定 24⑷① 谓词语义反转改写）：归零后健康连接 shouldConnect≡false
+ *  ⇒旧谓词 `!isAttached || !ws.shouldConnect` 恒判终态——改 isAttached 单判据
+ * （仅 destroy/detach 序列置 false）+supervisor phase 消费（terminal 零恢复）。
+ *  瞬态分支改道 supervisor.recoverNow()（恢复权唯一——本函数零 connect/disconnect 调用）。
+ *  生产消费面已随 watchdog 降级清空（零调用方）——保留为测试缝与显式恢复入口。
+ *  对象命名空间=测试缝：vi.spyOn(recovery, 'recoverConnection') 对模块内直连函数调用不可达
+ *  （ESM 本地绑定），命名空间属性查找使测试缝可达（装置可达性裁定）。 */
 let recovering = false; // 单飞：并发两调只执行一次（terminal 路径 await destroy 打开真实互斥窗口）
 export const recovery = {
   async recoverConnection(): Promise<void> {
@@ -186,12 +201,11 @@ export const recovery = {
     const p = provider; if (!p) return;
     // Y0b-3 T9（F-1 复发防线）：terminal 停连后零恢复——见 terminalSuppressed 声明处注释
     if (terminalSuppressed || useCanvasStore.getState().wsAuthNotice?.terminal === true) return;
-    // 守卫：hidden/offline 不下手——回前台/上线由 visibilitychange/online 复评（模块级一次挂）
-    // +watchdog 下轮自然复评；terminal（wsAuthNotice 批2 接入）
+    if (supervisor.phase === 'terminal') return;   // ★supervisor phase 消费（裁定 24⑷①）
+    // 守卫：hidden/offline 不下手——回前台/上线由 visibilitychange/online 复评（模块级一次挂+kickNow）
     if (typeof document !== 'undefined' && document.hidden) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-    const ws: any = (p as any).configuration?.websocketProvider;
-    const terminal = !p.isAttached || !ws?.shouldConnect; // 级别按结构状态选（G1）
+    const terminal = !p.isAttached;                // ★G1 改写：isAttached 单判据（shouldConnect 归零后恒 false=健康常态）
     try {
       recovering = true;
       recordCollabDiag('recover_triggered', { level: terminal ? 'terminal' : 'transient' }); // 批1-5
@@ -204,19 +218,15 @@ export const recovery = {
         try { await p.destroy(); } catch { /* 已销毁 */ }
         // clock 播种读值时点=destroy 之后（契约锁㉖——N+2 恒安全：>服务端/对端门槛上界）
         const clockSeed = p.awareness?.meta?.get(clientId)?.clock ?? 0;
-        createProvider(d);                        // 工厂：新 provider 同 doc+监听重挂+transport 注入
+        createProvider(d);                        // 工厂：新 provider 同 doc+监听重挂+supervisor 重挂
         const np = provider!;
         np.awareness?.meta.set(np.awareness.clientID, { clock: clockSeed, lastUpdated: Date.now() });
         awarenessBridge?.attach(np);              // bridge 稳定对象迁移（消费方零改动）
         awarenessBridge?.replayLocalUser();       // T10 根修：null⇒setLocalState({presence:true}) 恢复非空态锚点（非空 no-op 不打 clock）
         rebuildPending = true;                    // 旧实例 hasUnsyncedChanges 不可读——标记武装（1-4 清除）
       } else {
-        // —— 瞬态：传输级 reconnect（门 B 裁决——kick 方案/㉕㉝ 约束已删）——
-        // needKick=false（OPEN socket）：code 1000（NORMAL）close 即触发库 onClose 分支自持重连
-        // （真协议实测 ws-polyfill.gate：created+1+重新 synced，调用方零库句柄操作）；
-        // needKick=true（无实例/CONNECTING/CLOSED）：ws.connect() 确定性取消在飞 attempt 重建
-        const needKick = transportHandle?.reconnect() ?? true;
-        if (needKick) void ws?.connect?.();
+        // —— 瞬态：supervisor 立即恢复（断 OPEN/CONNECTING 残留+清既有排程+connectOnce）——
+        supervisor.recoverNow();
       }
     } finally { recovering = false; }
   },
@@ -939,7 +949,6 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   p.on('status', ({ status }: any) => {
     if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
     if (status === 'connected' && lastWsStatus !== 'connected') {
-      lastConnectedAt = Date.now(); // 批1：快线计时起点（connected 到达边沿）
       void alignExecFromIntents(); // 批1-6（B2 ③）：connect 边沿恢复对齐（connected 双发仅第一发是边沿）
     }
     if (status === 'connecting') inboundAttemptId = -1;
@@ -962,7 +971,6 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       writeFrozen: false,
       lastDocStatusRev: 0,
     }));
-    silentRenewUsed = false; // T9（S-4）：每次成功认证重置一次静默续期额度
     recomputeConnStatus();
   });
   p.on('synced', () => recomputeConnStatus());
@@ -1006,41 +1014,35 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   // Y0b-3 T9：鉴权拒绝唯一生产写点（改前声明+消费在、写入侧缺失）——reason 分型终态/瞬态
   //（isTerminalReason 契约锁㉙：版本族三档+unauthenticated/session-expired/not-found/forbidden 终态，
   // db-unavailable/draining/lease-not-ready/server-overloaded/rate-limited/server-outdated 瞬态桶）。
+  // Y0b-5 T3b：connect/disconnect 所有权归 supervisor——terminal→terminalDisconnect（复发防线钉死）；
+  // 瞬态→beginTransientBackoff（断 OPEN 僵尸+指数表重排——现状零动作=15-18s 快线+1s 热循环风险根除）。
   p.on('authenticationFailed', ({ reason }: { reason: string }) => {
     const terminal = isTerminalReason(reason);
     useCanvasStore.setState({ wsAuthNotice: { reason, terminal } });
     recordCollabDiag('auth_reject', { reason, terminal });
     if (terminal) {
       terminalSuppressed = true;
-      // 真开关：置 shouldConnect=false（esm:367-376）——库 onClose 1s 定时器因 !shouldConnect 不再排程
-      // （esm:411-413）。⚠ connect() 首行置回 shouldConnect=true（esm:225）⇒ terminal 后 watchdog/
-      // recovery 任何路径禁再调 connect——复发防线=recoverConnection 首段 terminalSuppressed 早退（钉死）。
-      p.configuration.websocketProvider.disconnect();
+      // 真开关：supervisor.terminalDisconnect（内含 ws.disconnect()——shouldConnect=false，
+      // 库 onClose 定时器结构性不排程；phase='terminal' 后任何路径零重试零恢复）
+      supervisor.terminalDisconnect(reason);
       // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
       if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal();
+    } else {
+      supervisor.beginTransientBackoff(reason);
     }
   });
   p.on('close', ({ event }: any) => {
     recomputeConnStatus();
-    // Y0b-3 T9：close 分型→状态映射（(code,reason) 双键分型单源=resolveCloseAction）——
-    // 分型只写状态，恢复所有权 100% 归 watchdog+machine+recovery 单飞（禁直调 connect 抢跑）。
-    // 库 onClose 1s 定时器与 machine 退避表的从属关系：库先连（应答快速失败）→watchdog 按
-    // RECOVER_BACKOFF_MS 兜底——两套并存、所有权如上声明（禁两套不声明）。
+    // Y0b-3 T9：close 分型→状态映射（(code,reason) 双键分型单源=resolveCloseAction）。
+    // Y0b-5 T3b：排程/disconnect 所有权归 supervisor（五档穷尽——T0 resolveBackoffPlan 单源）；
+    // 本监听只做 store/UX 写点（决策由 routeClose 返回——burst 去重后决策同源回放）。
     const action = resolveCloseAction(event?.code, event?.reason);
     if (action.kind === 'planned-restart') {
       plannedRestartUntil = Date.now() + 30_000;   // 既有 UI 钳制窗（updateConnectionUi 消费）
-      // 既有 1~3s 短退避首连（conn.spec 既有锚维持——socket 已 CLOSED，transport.reconnect()
-      // 只会返回 needKick=true 再回 ws.connect()，此处直连库句柄等价且更短）。
-      // terminal 停连后禁再排（复发防线——服务端重启 1012 迟到帧不得唤醒终态客户端）。
-      if (!terminalSuppressed) {
-        setTimeout(() => void (provider?.configuration?.websocketProvider as any)?.connect?.(),
-          1000 + Math.random() * 2000);
-      }
-    } else if (action.kind === 'silent-renew-once' && !silentRenewUsed) {
-      silentRenewUsed = true;                      // 4401 'session-expired'（sweep）——静默续期一次；失败落终态
-      void recovery.recoverConnection();           // 唯一执行器（禁自建退避/直调 connect）
-    } else if (action.kind === 'terminal') {
-      const reason = action.terminalReason!;
+    }
+    const decision = supervisor.routeClose(event?.code, event?.reason);
+    if (decision.terminal && !decision.already) {
+      const reason = decision.terminalReason!;
       // Y0b-4 T11：配额/代际终态走独立 quota 通道（不进 wsAuthNotice auth 词表——plan 钉死；
       // SyncBanner 管连接/鉴权态、QuotaBanner 管配额态——独立组件同挂载点）。
       if (reason === DOC_OVER_QUOTA_TERMINAL_REASON) {
@@ -1055,14 +1057,13 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
       }
       terminalSuppressed = true;
-      p.configuration.websocketProvider.disconnect(); // 真开关（同 authenticationFailed——复发防线钉死）
       if (reason === MESSAGE_TOO_BIG_TERMINAL_REASON) {
         // 1009 message-too-big（内容确定性：重连重发同一超限帧=无自救循环；T6 探针结论=客户端
         // 观测 1009 活码）——不走 reload 自愈，直接落逃生动作（与版本逃生同一按钮，P-V⑧）。
         useCanvasStore.setState({ collabEscapePending: true });
       }
     }
-    // backoff/normal：零动作——watchdog 按既有 cooldownMs（RECOVER_BACKOFF_MS 表）单飞恢复
+    // backoff/normal/short/silent-renew：排程所有权=supervisor（统一排程入口）——零动作
   });
   // 批1-4：rebuildPending 清除主判据——unsyncedChanges number===0（decrement 归零无条件 emit，
   // HP:333-335）。实例绑定（p === provider）：终态重建竞态窗口内旧实例迟到事件不得清新实例标记。
@@ -1090,8 +1091,7 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
   const base = collabUrl();
   const sep = base.includes('?') ? '&' : '?';
   const url = `${base}${sep}csv=${CLIENT_PROTOCOL_VERSION}&cb=${__CLIENT_BUILD__}`;
-  const { WebSocketClass, handle } = createReconnectingWebSocket(url);
-  transportHandle = handle;
+  const { WebSocketClass } = createReconnectingWebSocket(url);
   provider = new HocuspocusProvider({
     url,
     name: `project:${session?.pid}`,
@@ -1106,11 +1106,6 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
     messageReconnectTimeout: 30_000,
     autoConnect: false,
   } as any);
-  // open 归零挂点（ws 经 configuration 惰性取——provider 每次终态重建换新实例）
-  provider.on('open', () => {
-    const ws: any = provider?.configuration?.websocketProvider;
-    ws?.setConfiguration?.({ autoConnect: false });
-  });
   bindProviderListeners(provider);
   // 批1-5 awareness 即刻播种/T10 根修：构造即 setLocalState({ presence: true })（非空态锚点——
   // 非空本地态是 cursor 写入与 30s 续期的前置，且真身首帧非空态才不会被服务端 guardAwareness 幽灵
@@ -1118,10 +1113,10 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
   // user 字段由服务端 beforeHandleAwareness 注入，客户端不自写身份——终态重建后 replayLocalUser
   // 仅恢复非空态锚点。
   provider.awareness?.setLocalState({ presence: true });
-  // T3（autoConnect:false）：首连显式调用——全仓唯一 connect 形态（T3b 起收编 supervisor.connectOnce；
-  // 本 commit 内联等价体）。reject 必吞（maxAttempts:1 下 ladder 用尽 rethrow，esm:242-244）。
-  const firstWs: any = provider.configuration?.websocketProvider;
-  void firstWs?.connect?.()?.catch?.(() => {});
+  // T3b：supervisor 重挂（open 归零锚/authenticated/disconnect 事件面）+首连显式调用
+  //（autoConnect:false——全仓唯一 connect 形态=supervisor.connectOnce）。
+  supervisor.attach(provider);
+  supervisor.connectOnce();
   return provider;
 }
 
@@ -1134,9 +1129,17 @@ function bindReevaluateOnce(): void {
   document.addEventListener('visibilitychange', () => {
     recomputeConnStatus();
     // 批1-6（B2 ③）：回前台恢复对齐（隐藏态不查——查询无意义）；去抖=单飞（alignExecFromIntents）
-    if (!document.hidden) void alignExecFromIntents();
+    if (!document.hidden) {
+      void alignExecFromIntents();
+      // Y0b-5 T3b（裁定 24⑨/25⑶）：回前台 kick（0-3s jitter——已排程则忽略；hidden 期间挂起
+      // 的重连 timer 恢复即连，kick 在无排程时补 0-3s 事件触发恢复）
+      supervisor.kickNow();
+    }
   });
-  window.addEventListener('online', () => recomputeConnStatus());
+  window.addEventListener('online', () => {
+    recomputeConnStatus();
+    supervisor.kickNow();   // Y0b-5 T3b：上线 kick（飞行模式不烧阶梯——恢复归本事件）
+  });
 }
 
 /**
@@ -1170,7 +1173,6 @@ export async function initCollab(projectId: string): Promise<void> {
   inboundAttemptId = -1;
   plannedRestartUntil = 0; // 批1-2：计划内重启窗口会话起点复位（旧会话窗口不跨会话）
   terminalSuppressed = false; // T9：terminal 电平会话起点复位（新会话=新额度——复发防线只锁本会话）
-  silentRenewUsed = false;    // T9：静默续期额度会话起点复位
   connReadOnly = false;       // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
   lastGeneration = undefined;
   deltaIdleMeasureInFlight = false;   // Y0b-4 T10：idle 实测在途窗随会话复位（旧会话 pending 不跨会话）
@@ -1178,11 +1180,8 @@ export async function initCollab(projectId: string): Promise<void> {
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
   // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带
-  lastConnectedAt = 0;
   lastInboundAt = Date.now();
   unhealthySince = Date.now(); // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
-  recoveryAttempts = 0;
-  lastRecoveryAt = 0;
   rebuildPending = false; // 批1-3：重建窗口标记会话起点复位
   doc = new Y.Doc();
   attachUndoManager(doc);
@@ -1191,10 +1190,10 @@ export async function initCollab(projectId: string): Promise<void> {
   createProvider(doc);
   bindReevaluateOnce();
 
-  // 批1-1 watchdog 心跳（3s）：恢复门三门电平析取（快线/unhealthy 门/级别选择——spec 红2 恢复组）。
-  // 电平输入禁读派生 connStatus（黑洞下恒 connecting）；jitter 阈值（gateMs/cooldownMs）在此
-  // 生成后入参传入——connectionMachine 零 Math.random；tick-gap 天然 clamp：hidden 期间 timers
-  // 冻结，恢复后首 tick 的 now-unhealthySince 直接判。恢复单飞去重归批1-3 recovering 标志（本组门只管判）。
+  // 批1-1 watchdog 心跳（3s）——Y0b-5 T3b 降级纯观测（裁定 23⑴）：UI 分级电平照旧；
+  // 恢复动作面全删（action/kick/cooldown 退役——恢复权唯一归 supervisor）。
+  // 唯一保留的出手=assertHealthy 单向边（裁定 24⑩ 卡死兜底）：offline∧非 terminal∧零在飞
+  // timer/attempt∧onLine → supervisor 排程+watchdog_fire{reason:'stalled'}——不直接碰 socket。
   heartbeatTimer = setInterval(() => {
     const now = Date.now();
     const healthyNow = !!provider
@@ -1203,32 +1202,14 @@ export async function initCollab(projectId: string): Promise<void> {
       && provider.isSynced === true
       && inboundAttemptId === attemptId
       && now - lastInboundAt <= STALE_INBOUND_MS; // 入站新鲜度（'message' 驱动）
-    const inputs: MachineInputs = {
-      now,
-      healthy: healthyNow,
-      fastLaneEligible: lastWsStatus === 'connected' && provider !== null && !provider.isAuthenticated && now - lastConnectedAt > FAST_LANE_MS,
-      gateMs: STALE_INBOUND_MS + Math.random() * 15_000, // 45~60s jitter（惊群防护）
-      cooldownMs: RECOVER_BACKOFF_MS[Math.min(recoveryAttempts, RECOVER_BACKOFF_MS.length - 1)] + Math.random() * 5_000,
-      hydrationPending: useCanvasStore.getState().hydration === 'pending',
-      unhealthySince,
-      recoveryAttempts,
-      lastRecoveryAt,
-      terminal: useCanvasStore.getState().wsAuthNotice?.terminal === true, // 批2-1 接入（原 TODO 批2）
-      hidden: document.hidden,
-      offline: typeof navigator !== 'undefined' && !navigator.onLine,
-    };
+    const inputs: MachineInputs = { now, healthy: healthyNow, unhealthySince };
     const out = reduce(inputs);
-    if (healthyNow) { unhealthySince = null; recoveryAttempts = 0; }
+    if (healthyNow) { unhealthySince = null; }
     else if (out.unhealthySince != null) unhealthySince = out.unhealthySince;
-    if (out.action === 'recover') {
-      // 批1-5 kill switch：VITE_COLLAB_AUTO_RECOVER=off ⇒ 只记录不 recover（恢复门退化为纯观测）
-      const disabled = isAutoRecoverDisabled();
-      recordCollabDiag('watchdog_fire', { executed: !disabled });
-      if (!disabled) {
-        recoveryAttempts++;
-        lastRecoveryAt = Date.now();
-        void recovery.recoverConnection(); // 批1-3 两级原语（级别选择+单飞在彼处）
-      }
+    // 批1-5 kill switch：VITE_COLLAB_AUTO_RECOVER=off ⇒ stalled 只记录不排程（纯观测）
+    const disabled = isAutoRecoverDisabled();
+    if (supervisor.assertHealthy(!disabled)) {
+      recordCollabDiag('watchdog_fire', { executed: !disabled, reason: 'stalled' });
     }
     updateConnectionUi(out.ui);
     // 批1-5 awareness tick 自愈（T7 改形语义/T10 根修）：pagehide 置 null 形态 + 连接健康 ⇒ replay
@@ -1315,6 +1296,7 @@ export async function initCollab(projectId: string): Promise<void> {
 async function teardownSession(): Promise<void> {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
+  supervisor.teardown();   // Y0b-5 T3b：supervisor 会话清理（timer 全清+epoch++——旧 timer 不 kick 新会话）
   // R23 实例守卫：await 恢复后仅当模块引用仍是"当时那个实例"才置空——
   // 旧 destroy 的 await 间隙并发 initCollab 建立的新会话不被波及（交错置空）
   const p = provider;
@@ -1342,7 +1324,6 @@ export async function destroyCollab(): Promise<void> {
   // Y0b-4 T11：quota 终态通道同点清（G27 同款——粘滞态不跨会话/跨用户）
   useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, wsQuotaTerminal: null, writeFrozen: false, collabEscapePending: false });
   terminalSuppressed = false;
-  silentRenewUsed = false;
 }
 
 /** 执行请求附带的本端状态向量（spec 3.1，base64） */

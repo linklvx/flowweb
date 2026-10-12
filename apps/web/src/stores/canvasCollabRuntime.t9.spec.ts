@@ -14,6 +14,7 @@ import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { canExecute } from './syncStatus';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
+import { setSupervisorJitterForTest } from '@/collab/connection-supervisor';
 
 vi.mock('@hocuspocus/provider', async () => {
   const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
@@ -53,6 +54,7 @@ const resetStore = () => useCanvasStore.setState({
 // ══════════ Step 1：authenticationFailed 写点 + 输出级终态真停连锚 ══════════
 describe('T9 Step1：authenticationFailed→wsAuthNotice 写点（改前红：生产零写点）——真时序档', () => {
   beforeEach(() => {
+    setSupervisorJitterForTest(() => 0);   // silent-renew 500ms+jitter——确定性钉 0（真 timer 推进）
     Mocks.instances.length = 0;
     Mocks.resetSockets();
     _resetCollabDiagForTest();
@@ -60,6 +62,8 @@ describe('T9 Step1：authenticationFailed→wsAuthNotice 写点（改前红：�
   });
   afterEach(async () => {
     await runtime.destroyCollab();
+    vi.useRealTimers();
+    setSupervisorJitterForTest(null);
     vi.restoreAllMocks();
   });
 
@@ -71,18 +75,19 @@ describe('T9 Step1：authenticationFailed→wsAuthNotice 写点（改前红：�
     expect(getCollabDiagCounters().get('auth_reject')).toBe(1);
   });
 
-  it('4401 session-expired close→静默重连恰一次（recovery 单飞），二次失败才终态且不再续期', async () => {
+  it('4401 session-expired close→静默重连恰一次（supervisor silent-renew 500ms 档——不进阶梯），二次失败才终态且不再续期', async () => {
     const p = await driveToSynced();
     const connect = p.configuration.websocketProvider.connect;
     const base = connect.mock.calls.length;                                     // T3 pin：首连占 1——基线相对
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });
-    expect(connect).toHaveBeenCalledTimes(base + 1);                            // 静默续期一次（唯一执行器=recovery）
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(base + 1), { timeout: 2_000 }); // 静默续期一次（500ms+j0）
     expect(useCanvasStore.getState().wsAuthNotice).toBeNull();                  // 非终态
     p.emit('authenticationFailed', { reason: 'session-expired' });              // 二次失败（重连后 auth 仍拒）
     expect(useCanvasStore.getState().wsAuthNotice).toEqual({ reason: 'session-expired', terminal: true });
     expect(p.configuration.websocketProvider.shouldConnect).toBe(false);
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });      // 二次 sweep close——额度已用
-    expect(connect).toHaveBeenCalledTimes(base + 1);                            // 不再静默续期
+    await new Promise<void>((r) => setTimeout(r, 700));                         // 越过 500ms 档——确认零重排
+    expect(connect).toHaveBeenCalledTimes(base + 1);                            // 不再静默续期（闩锁）
   });
 
   it('S-4：静默续期额度 authenticated 重置——续期成功后再次 4401 可再静默续一次', async () => {
@@ -90,10 +95,10 @@ describe('T9 Step1：authenticationFailed→wsAuthNotice 写点（改前红：�
     const connect = p.configuration.websocketProvider.connect;
     const base = connect.mock.calls.length;                                     // T3 pin：首连占 1
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });
-    expect(connect).toHaveBeenCalledTimes(base + 1);
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(base + 1), { timeout: 2_000 });
     p.emit('authenticated', { scope: 'read-write' });   // 续期成功——额度重置（writeFrozen 同点清零）
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });
-    expect(connect).toHaveBeenCalledTimes(base + 2);                            // 第二次静默续期
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(base + 2), { timeout: 2_000 }); // 第二次静默续期
   });
 
   it('库 4401 Unauthorized（经 authenticationFailed）→终态不续期（双键分型：只判 code 必混淆）', async () => {
@@ -124,6 +129,7 @@ describe('T9 Step1：authenticationFailed→wsAuthNotice 写点（改前红：�
 describe('T9 Step1：真停连输出级锚+退避所有权（fake timers——conn.spec beginCollabFake 形态）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setSupervisorJitterForTest(() => 0);   // 指数/short 档确定性钉 0
     Mocks.instances.length = 0;
     Mocks.resetSockets();
     _resetCollabDiagForTest();
@@ -132,6 +138,7 @@ describe('T9 Step1：真停连输出级锚+退避所有权（fake timers——co
   afterEach(async () => {
     await runtime.destroyCollab();   // fake interval 清理须在 useRealTimers 前
     vi.useRealTimers();
+    setSupervisorJitterForTest(null);
     vi.restoreAllMocks();
   });
 
@@ -163,27 +170,29 @@ describe('T9 Step1：真停连输出级锚+退避所有权（fake timers——co
     expect(Mocks.socketsConstructed()).toBe(socketsBase); // 无新 socket（单飞）
   });
 
-  it('瞬态 reason→不断连（shouldConnect 保持）+terminal=false+退避交 watchdog/machine（表驱动 cooldown≥表底 5s——禁新建退避）', async () => {
+  it('★瞬态 reason→supervisor 指数表接管（裁定 24⑷②）：先断（shouldConnect=false 废 OPEN 僵尸——旧锚"保持 true"随归零模型反转）→2s 首连（jitter0）→AUTH_WAIT 10s 未 authenticated→attempt++ 阶梯续试', async () => {
     const p = await driveToSyncedFake();
     const wsConnect = vi.spyOn(p.configuration.websocketProvider, 'connect');
     p.isAuthenticated = false;
     p.emit('authenticationFailed', { reason: 'server-overloaded' });
     expect(useCanvasStore.getState().wsAuthNotice).toEqual({ reason: 'server-overloaded', terminal: false });
-    expect(p.configuration.websocketProvider.shouldConnect).toBe(true);   // 瞬态不断连
-    await vi.advanceTimersByTimeAsync(18_000); // watchdog 快线首档（15s 门+3s tick）
-    expect(wsConnect).toHaveBeenCalledTimes(1); // watchdog 单飞恢复中
-    await vi.advanceTimersByTimeAsync(4_000);   // cooldown=表项[1]=10s+jitter(≤5s)——4s 内必不再激发
-    expect(wsConnect).toHaveBeenCalledTimes(1); // RECOVER_BACKOFF_MS 表驱动退避（禁自建表）
-    await vi.advanceTimersByTimeAsync(18_000);  // 最坏 15s cooldown+3s tick 对齐（下次激发∈[30s,33s] 档）
-    expect(wsConnect).toHaveBeenCalledTimes(2); // watchdog 续恢复
+    expect(p.configuration.websocketProvider.shouldConnect).toBe(false);  // ★先断（废 OPEN 僵尸——现状零动作=15-18s 快线+热循环风险根除）
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(wsConnect).not.toHaveBeenCalled();   // <2s 首档——零热循环
+    await vi.advanceTimersByTimeAsync(1_000);   // 2.5s > 2s
+    expect(wsConnect).toHaveBeenCalledTimes(1); // ★supervisor 指数表首连（2-4s 窗——改前 15-18s）
+    await vi.advanceTimersByTimeAsync(10_000);  // AUTH_WAIT 10s 未 authenticated → attempt++ → 断+重排
+    expect(p.configuration.websocketProvider.shouldConnect).toBe(false);
+    await vi.advanceTimersByTimeAsync(5_000);   // 重排=指数表 attempt=1→5s 档
+    expect(wsConnect).toHaveBeenCalledTimes(2); // ★阶梯续试不因单次失败停摆
   });
 
-  it('1012 planned-restart：1~3s 短退避收编（conn.spec 既有锚维持——行为不变）', async () => {
+  it('1012 planned-restart：supervisor short 档承接（jitter0→恰 1s——full jitter 0-60s 窗的零点）', async () => {
     const p = await driveToSyncedFake();
     const wsConnect = vi.spyOn(p.configuration.websocketProvider, 'connect');
     p.emit('close', { event: { code: 1012 } });
-    await vi.advanceTimersByTimeAsync(3_000);
-    expect(wsConnect).toHaveBeenCalledTimes(1);   // 既有短退避首连（收编后行为不变锚）
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(wsConnect).toHaveBeenCalledTimes(1);   // short 档 1s 首连
   });
 });
 

@@ -21,6 +21,7 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
+import { setSupervisorJitterForTest } from '@/collab/connection-supervisor';
 
 vi.mock('@hocuspocus/provider', async () => {
   const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
@@ -139,13 +140,18 @@ describe('批1-1：watchdog 恢复门集成锚（fake timers）', () => {
     expect(useCanvasStore.getState().connUi).toBe('ok');
   });
 
-  it('断连后健康电平断裂超门（60s jitter 上界外）⇒ recoverConnection 被调 + ui 离开 ok', async () => {
+  it('断连后健康电平断裂 ⇒ ui 离开 ok + 零 recoverConnection（watchdog 降级纯观测——恢复权唯一归 supervisor：assertHealthy stalled 单向边兜底排程）', async () => {
     const p = await driveToHealthy();
-    p.emit('status', { status: 'disconnected' });
+    p.emit('status', { status: 'disconnected' });   // connStatus→offline（recomputeConnStatus 唯一写点）
     const spy = vi.spyOn(runtime.recovery, 'recoverConnection');
-    await vi.advanceTimersByTimeAsync(75_000); // 首tick置 unhealthySince 后 elapsed≈72s > 60s（gate 上界）
-    expect(spy).toHaveBeenCalled();
+    const connect = p.configuration.websocketProvider.connect;
+    const connectBase = connect.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(spy).not.toHaveBeenCalled();             // ★零 kick 路径（裁定 23⑴）
     expect(useCanvasStore.getState().connUi).not.toBe('ok');
+    // stalled 兜底：offline∧非 terminal∧零在飞 timer/attempt → assertHealthy 排程→connectOnce
+    expect(getRecentCollabDiag().some((e) => e.type === 'watchdog_fire' && e.detail?.reason === 'stalled')).toBe(true);
+    expect(connect.mock.calls.length).toBeGreaterThan(connectBase);  // supervisor 兜底排程已落 connect
   });
 
   it('hydration 进行中（首同步窗口）⇒ 门开也不恢复', async () => {
@@ -167,15 +173,17 @@ describe('批1-1：watchdog 恢复门集成锚（fake timers）', () => {
   });
 });
 
-describe('批1-2：1012 计划内重启短退避（fake timers）', () => {
+describe('批1-2：1012 计划内重启短退避（fake timers——T3b 起 supervisor short 档承接）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setSupervisorJitterForTest(() => 0);           // short 档 full jitter 0-60s——确定性钉 0
     (HocuspocusProvider as any).instances.length = 0;
     useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
   });
   afterEach(async () => {
     await runtime.destroyCollab(); // fake interval 清理须在 useRealTimers 前
     vi.useRealTimers();
+    setSupervisorJitterForTest(null);
   });
 
   async function beginCollabFake(pid: string): Promise<{ done: Promise<void>; p: any }> {
@@ -196,22 +204,24 @@ describe('批1-2：1012 计划内重启短退避（fake timers）', () => {
     return p;
   }
 
-  it('close 1012 → 1~3s 内 ws.connect 重连（短退避首连）', async () => {
+  it('close 1012 → supervisor short 档重连（jitter0→恰 1s——1~61s 窗的零点）', async () => {
     const p = await driveToHealthy();
     const connect = vi.fn();
     (p as any).configuration = { websocketProvider: { connect } }; // 真实 provider 库契约：configuration.websocketProvider
     p.emit('close', { event: { code: 1012 } });
-    await vi.advanceTimersByTimeAsync(3_000); // jitter delay∈[1000,3000)——3s 推进全覆盖
+    await vi.advanceTimersByTimeAsync(1_000); // short 档 1s+full jitter（jitter0→1s 整）
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
-  it('非 1012 close 不触发短退避', async () => {
+  it('非 1012 close 走 exponential 档（普通掉线收归 supervisor——2s 首档 ≠ 1012 的 1s 短档，分档仍在）', async () => {
     const p = await driveToHealthy();
     const connect = vi.fn();
     (p as any).configuration = { websocketProvider: { connect } };
-    p.emit('close', { event: { code: 1006 } }); // 异常断连走库自发重连——不抢跑
-    await vi.advanceTimersByTimeAsync(3_000);
-    expect(connect).not.toHaveBeenCalled();
+    p.emit('close', { event: { code: 1006 } });
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(connect).not.toHaveBeenCalled();        // 1.5s < 2s 首档——短档不抢跑
+    await vi.advanceTimersByTimeAsync(1_000);      // 2.5s
+    expect(connect).toHaveBeenCalledTimes(1);      // exponential 首档重连（裁定 23⑴——普通掉线收归）
   });
 
   it('计划内重启窗口（30s）内 banner 钳制 hint；窗口过期恢复 banner', async () => {
@@ -270,16 +280,15 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
     expect(connect).toHaveBeenCalledTimes(connectBase + 1); // transport.reconnect 被调——mock 无 socket ⇒ needKick=true ⇒ ws.connect 兜底
   });
 
-  it('级别选择（G1）：!ws.shouldConnect ⇒ 终态重建（瞬态 reconnect 在此是空操作——必红锚）', async () => {
+  it('级别选择（G1 谓词语义反转——裁定 24⑷①）：归零后 shouldConnect===false 是健康连接常态 ⇒ 瞬态（不重建）', async () => {
     const p = await driveToSyncedR();
     const wsConnect = p.configuration.websocketProvider.connect;
-    const connectBase = wsConnect.mock.calls.length;        // T3 pin：首连占 1——旧实例句柄不被碰=基线不变
-    p.configuration.websocketProvider.shouldConnect = false; // disconnect() 结构死形态
+    const connectBase = wsConnect.mock.calls.length;
+    p.configuration.websocketProvider.shouldConnect = false; // 归零模型健康常态（旧谓词在此恒判终态=已废）
     await runtime.recovery.recoverConnection();
-    const np = lastInstance();
-    expect(np).not.toBe(p);                                 // 终态=会话级重建：实例变更（禁 connectCalls+1 式假恢复）
-    expect(p.destroyCalls).toBe(1);
-    expect(wsConnect).toHaveBeenCalledTimes(connectBase);   // 旧实例 ws 句柄不被碰（T3：基线相对——首连占 1）
+    expect(lastInstance()).toBe(p);                         // ★瞬态：实例不变（旧实现此处必重建=谓词语义反转已落）
+    expect(p.destroyCalls).toBe(0);
+    expect(wsConnect.mock.calls.length).toBe(connectBase + 1); // supervisor.recoverNow 发起一次 connect
   });
 
   it('级别选择（G1）：!provider.isAttached ⇒ 终态重建', async () => {
@@ -294,7 +303,7 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
     const p = await driveToSyncedR();
     const d = runtime.getDoc()!;
     d.getMap('nodes').set('local-1', new Y.Map());          // 断连期本地写（失联允许编辑锚）
-    p.configuration.websocketProvider.shouldConnect = false;
+    p.isAttached = false;                                    // 终态判据（T3b：isAttached 单判据——shouldConnect 归零后恒 false 不再可用）
     await runtime.recovery.recoverConnection();
     const np = lastInstance();
     expect(runtime.getDoc()).toBe(d);                       // 同 doc
@@ -308,7 +317,7 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
   it('批6：终态重建不清 editorDirty（恢复≠保存成功——重建窗口护栏不解除）', async () => {
     const p = await driveToSyncedR();
     useCanvasStore.setState({ editorDirty: true });   // 编辑器 latch 置位形态（autosave B4 镜像）
-    p.configuration.websocketProvider.shouldConnect = false;
+    p.isAttached = false;                              // 终态判据（T3b：isAttached 单判据）
     await runtime.recovery.recoverConnection();
     expect(lastInstance()).not.toBe(p);               // 终态重建确已发生
     expect(useCanvasStore.getState().editorDirty).toBe(true); // 恢复路径不清——beforeunload 双半边全拦
@@ -318,7 +327,7 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
   it('clock 播种（契约锁㉖）：读值时点=destroy 之后——种子=旧实例 meta 终值（N+2），非读前值', async () => {
     const p = await driveToSyncedR();
     p.awareness.meta.set(p.awareness.clientID, { clock: 5, lastUpdated: 0 }); // 模拟历史 activity（N=5）
-    p.configuration.websocketProvider.shouldConnect = false;
+    p.isAttached = false;                              // 终态判据（T3b：isAttached 单判据）
     await runtime.recovery.recoverConnection();
     const np = lastInstance();
     expect(p.awareness.meta.get(p.awareness.clientID)?.clock).toBe(7);       // mock 建模 destroy 序列推 N+2
@@ -329,7 +338,7 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
   it('awareness 重放（T7 改形）：终态重建后本地态非空占位、无 user 键（user 归服务端注入——客户端自写即伪造面）', async () => {
     const p = await driveToSyncedR();
     p.awareness.setLocalState.mockClear();                                   // 隔离旧实例历史——看新实例的播种
-    p.configuration.websocketProvider.shouldConnect = false;
+    p.isAttached = false;                              // 终态判据（T3b：isAttached 单判据）
     await runtime.recovery.recoverConnection();
     const np = lastInstance();
     expect(np).not.toBe(p);                                                  // 重放锚挂终态重建（占位实现 np===p 必红）
@@ -341,7 +350,7 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
 
   it('单飞：并发两调只执行一次重建', async () => {
     const p = await driveToSyncedR();
-    p.configuration.websocketProvider.shouldConnect = false;
+    p.isAttached = false;                              // 终态判据（T3b：isAttached 单判据）
     const r1 = runtime.recovery.recoverConnection();
     const r2 = runtime.recovery.recoverConnection();
     await Promise.all([r1, r2]);
@@ -408,9 +417,9 @@ describe('批1-4：rebuildPending 实例绑定标记制（unsyncedChanges number
     p.emit('message', {});
     return p;
   }
-  /** 终态重建（disconnect 结构死形态）——返回新实例 */
+  /** 终态重建（isAttached 单判据——T3b 谓词改写）——返回新实例 */
   async function rebuildTerminal(p: any) {
-    p.configuration.websocketProvider.shouldConnect = false;
+    p.isAttached = false;
     await runtime.recovery.recoverConnection();
     return lastInstance();
   }
