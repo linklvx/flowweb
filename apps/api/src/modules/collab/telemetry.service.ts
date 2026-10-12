@@ -104,6 +104,11 @@ export class TelemetryService {
       case 'projection_duration':
         if (typeof detail.ms === 'number') collabTelemetryProjectionMs.observe(detail.ms);
         break;
+      case 'invariant_violation':
+        // Y0b-5 T2 审查修复（登记裁决）：where/name/frame 皆 log-only 键——dispatch 无 sink 直接终结
+        // =零输出，"Y5 前可诊断"落空；罕见事件逐条结构化日志兑现（批次元数据同款 JSON.stringify 形态）
+        this.logger.log(JSON.stringify({ event: 'collab_telemetry_invariant', entries: [{ where: detail.where, name: detail.name, frame: detail.frame }] }));
+        break;
     }
   }
 }

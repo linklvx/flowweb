@@ -1344,7 +1344,10 @@ export async function initCollab(projectId: string): Promise<void> {
     }
   }
   // Y0b-5 T2（控制器裁决）：SLO hydration_duration=initCollab→ready——载体=ws_status detail ms
-  // （from='connecting',to='connected'=hydration 起点迁移对——服务端 hydration 直方图判别键）
+  // （from='connecting',to='connected'=hydration 起点迁移对——服务端 hydration 直方图判别键）。
+  // 代价如实：载体事件与 bindProviderListeners 已记的真实迁移对同 label——服务端 ws_transition_total
+  // {from=connecting,to=connected} 每水合会话计 2 次（reconnect 侧载体形态真实迁移不可达、无此重叠；
+  // 真实迁移不带 ms，载体数=hydration_ms 计数，双计可差分校正）。
   recordCollabDiag('ws_status', { from: 'connecting', to: 'connected', ms: performance.now() - hydrationStartedAt });
 
   const onRemote = (events: any[]) => {
@@ -1414,10 +1417,10 @@ async function teardownSession(): Promise<void> {
 
 export async function destroyCollab(): Promise<void> {
   await teardownSession();
-  _stopTelemetryLoop(); // Y0b-5 T2：遥测 loop 随会话终点停搏（无会话零 beacon）
   // R23 同款守卫：await 间隙并发 initCollab 已立新会话（session 非空）时，
   // 陈旧 destroy 不得复位新会话的 hydration/collabReadOnly（交错写防线）
   if (session !== null) return;
+  _stopTelemetryLoop(); // Y0b-5 T2：遥测 loop 随会话终点停搏（无会话零 beacon）——守卫后：陈旧 destroy 不停新会话 loop（与下方状态复位同纪律）
   useCanvasStore.getState().setHydration('idle'); // 批2-1：idle 单写点（teardownSession 唯一调用方=本函数）
   // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）；T9：终态/冻结/逃生同点清
   // Y0b-4 T11：quota 终态通道同点清（G27 同款——粘滞态不跨会话/跨用户）
