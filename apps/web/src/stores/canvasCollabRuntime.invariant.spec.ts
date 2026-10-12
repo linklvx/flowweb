@@ -24,40 +24,10 @@ import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 import { stampDocSchema } from '@flowweb/shared';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
-vi.mock('@hocuspocus/provider', () => {
-  class MockProvider {
-    static instances: MockProvider[] = [];
-    isAuthenticated = false;
-    isSynced = false;
-    isAttached = true;
-    unsyncedChanges = 0;
-    handlers: Record<string, Array<(payload: any) => void>> = {};
-    configuration: any;
-    awareness: any;
-    constructor(cfg: any = {}) {
-      MockProvider.instances.push(this);
-      const clientId = cfg?.document?.clientID ?? 0;
-      this.awareness = {
-        clientID: clientId,
-        meta: new Map<number, { clock: number; lastUpdated: number }>(),
-        localState: null as any,
-        setLocalState: vi.fn((s: any) => { this.awareness.localState = s; }),
-        getLocalState: () => this.awareness.localState,
-      };
-      this.configuration = { websocketProvider: { shouldConnect: true, connect: vi.fn() } };
-    }
-    get hasUnsyncedChanges() { return this.unsyncedChanges > 0; }
-    on(event: string, cb: (payload: any) => void) { (this.handlers[event] ??= []).push(cb); }
-    off(event: string, cb: (payload: any) => void) {
-      const arr = this.handlers[event];
-      if (!arr) return;
-      const i = arr.indexOf(cb);
-      if (i >= 0) arr.splice(i, 1);
-    }
-    emit(event: string, payload: any) { for (const cb of [...this.handlers[event] ?? []]) cb(payload); }
-    async destroy() { this.handlers = {}; }
-  }
-  return { HocuspocusProvider: MockProvider };
+// Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
+vi.mock('@hocuspocus/provider', async () => {
+  const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
+  return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;

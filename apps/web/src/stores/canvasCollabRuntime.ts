@@ -1074,7 +1074,18 @@ function bindProviderListeners(p: HocuspocusProvider): void {
 /** 批1-3：provider 工厂（initCollab 会话起点与终态重建共用）——批1-0 transport 薄层注入
  *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。
  *  Y0b-3 T5 版本通道：URL 单次构造（transport/provider 同一字符串——两处独立调用=漂移风险），
- *  恰含 csv=CLIENT_PROTOCOL_VERSION（服务端版本门消费）+cb=__CLIENT_BUILD__（审计透传，Y0b-5 遥测）。 */
+ *  恰含 csv=CLIENT_PROTOCOL_VERSION（服务端版本门消费）+cb=__CLIENT_BUILD__（审计透传，Y0b-5 遥测）。
+ *  Y0b-5 T3 pin（supervisor 收归唯一形态——库默认 0 pin 的一切正确性建立在库默认上=裸底座）：
+ *   - maxAttempts:1 关单次 connect 内部 retry ladder——所有重试由 supervisor 承接，库内零重试；
+ *     ladder 用尽 connect() promise reject ⇒ 调用方必 catch（esm:242-244 rethrow）。
+ *   - delay/maxDelay/messageReconnectTimeout 显式钉=库默认值（防升级漂移；30s 判死+4408'forced'
+ *     合成路径保留——纳入 app 分级口径）。
+ *   - autoConnect:false——库构造器首连未 await 未 catch；首连改显式 connectOnce 形态（本 commit
+ *     暂内联 createProvider 尾，T3b supervisor 落地后改道）。
+ *  ★open 归零 shouldConnect（裁定 23⑴——收归唯一所有者的结构保证）：库 onClose 1s 重连定时器
+ *   守卫=`!cancelWebsocketRetry && shouldConnect`（esm:411-413）——shouldConnect≡false ⇒ 库定时器
+ *   结构性永不排程（setConfiguration 公开 setter，零 override 零 monkeypatch）。显式 connect() 不受
+ *   影响（esm:225 置回 true，下一次 open 再归零）。 */
 function createProvider(d: Y.Doc): HocuspocusProvider {
   const base = collabUrl();
   const sep = base.includes('?') ? '&' : '?';
@@ -1088,7 +1099,18 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
     // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）
     token: 'cookie-auth',
     WebSocketPolyfill: WebSocketClass,
+    // T3 pin——语义见函数头注释
+    maxAttempts: 1,
+    delay: 1_000,
+    maxDelay: 30_000,
+    messageReconnectTimeout: 30_000,
+    autoConnect: false,
   } as any);
+  // open 归零挂点（ws 经 configuration 惰性取——provider 每次终态重建换新实例）
+  provider.on('open', () => {
+    const ws: any = provider?.configuration?.websocketProvider;
+    ws?.setConfiguration?.({ autoConnect: false });
+  });
   bindProviderListeners(provider);
   // 批1-5 awareness 即刻播种/T10 根修：构造即 setLocalState({ presence: true })（非空态锚点——
   // 非空本地态是 cursor 写入与 30s 续期的前置，且真身首帧非空态才不会被服务端 guardAwareness 幽灵
@@ -1096,6 +1118,10 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
   // user 字段由服务端 beforeHandleAwareness 注入，客户端不自写身份——终态重建后 replayLocalUser
   // 仅恢复非空态锚点。
   provider.awareness?.setLocalState({ presence: true });
+  // T3（autoConnect:false）：首连显式调用——全仓唯一 connect 形态（T3b 起收编 supervisor.connectOnce；
+  // 本 commit 内联等价体）。reject 必吞（maxAttempts:1 下 ladder 用尽 rethrow，esm:242-244）。
+  const firstWs: any = provider.configuration?.websocketProvider;
+  void firstWs?.connect?.()?.catch?.(() => {});
   return provider;
 }
 

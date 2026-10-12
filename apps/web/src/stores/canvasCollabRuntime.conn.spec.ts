@@ -12,6 +12,9 @@
 //     （onOpen + resolveConnectionAttempt）；'message' 只对路由到本 provider 的帧 emit。
 //     destroyGate=测试注入的首次 destroy 挂起 promise（R23 交错装置——复现旧 destroy 的
 //     await 恢复晚于新 provider 创建的竞态窗口）。
+// Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
+//     ⚠ T3 pin 后 createProvider 显式首连（autoConnect:false）——connect 计数断言一律基线相对
+//     （base+Δ），禁绝对计数（首连占 1 次）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
@@ -19,55 +22,9 @@ import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
-vi.mock('@hocuspocus/provider', () => {
-  class MockProvider {
-    static instances: MockProvider[] = [];
-    isAuthenticated = false;
-    isSynced = false;
-    /** 批1-3 装置扩展：终态判据（G1 级别选择）+awareness meta（㉖ clock 播种）+ws 句柄（shouldConnect/connect） */
-    isAttached = true;
-    unsyncedChanges = 0;
-    destroyCalls = 0;
-    destroyGate: Promise<void> | null = null;
-    handlers: Record<string, Array<(payload: any) => void>> = {};
-    configuration: any;
-    awareness: any;
-    constructor(cfg: any = {}) {
-      MockProvider.instances.push(this);
-      // y-protocols 契约：awareness.clientID = doc.clientID（同 doc 重建 ⇒ 同 clientID——clock 播种前提）
-      const clientId = cfg?.document?.clientID ?? 0;
-      this.awareness = {
-        clientID: clientId,
-        meta: new Map<number, { clock: number; lastUpdated: number }>(),
-        localState: null as any,
-        setLocalState: vi.fn((s: any) => { this.awareness.localState = s; }),
-        getLocalState: () => this.awareness.localState,
-      };
-      this.configuration = { websocketProvider: { shouldConnect: true, connect: vi.fn() } };
-    }
-    get hasUnsyncedChanges() { return this.unsyncedChanges > 0; }
-    on(event: string, cb: (payload: any) => void) { (this.handlers[event] ??= []).push(cb); }
-    off(event: string, cb: (payload: any) => void) {
-      const arr = this.handlers[event];
-      if (!arr) return;
-      const i = arr.indexOf(cb);
-      if (i >= 0) arr.splice(i, 1);
-    }
-    emit(event: string, payload: any) { for (const cb of [...this.handlers[event] ?? []]) cb(payload); }
-    setAwarenessField(field: string, value: unknown) {
-      const cur = this.awareness.getLocalState() ?? {};
-      this.awareness.setLocalState({ ...cur, [field]: value });
-    }
-    async destroy() {
-      this.destroyCalls++;
-      if (this.destroyCalls === 1 && this.destroyGate) await this.destroyGate;
-      // 契约锁 ㉔/㉖ 建模：destroy=removeAllListeners + awareness.destroy 序列推 meta clock 至 N+2
-      this.handlers = {};
-      const cur = this.awareness.meta.get(this.awareness.clientID)?.clock ?? 0;
-      this.awareness.meta.set(this.awareness.clientID, { clock: cur + 2, lastUpdated: Date.now() });
-    }
-  }
-  return { HocuspocusProvider: MockProvider };
+vi.mock('@hocuspocus/provider', async () => {
+  const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
+  return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
@@ -303,23 +260,26 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
       ['status', 'authenticated', 'synced', 'message', 'close'].map((e) => [e, p.handlers[e]?.length ?? 0]),
     );
     const connect = p.configuration.websocketProvider.connect;
+    const connectBase = connect.mock.calls.length;          // T3 pin：首连占 1——恢复计数基线相对
     await runtime.recovery.recoverConnection();
     expect(lastInstance()).toBe(p);                        // 瞬态=传输级：provider 实例不变
     expect(p.destroyCalls).toBe(0);                        // awareness/监听/消息队列全保留
     for (const [e, n] of Object.entries(handlerCountBefore)) {
       expect(p.handlers[e]?.length ?? 0).toBe(n);          // 六监听不重挂（事件处理器计数锚）
     }
-    expect(connect).toHaveBeenCalledTimes(1);               // transport.reconnect 被调——mock 无 socket ⇒ needKick=true ⇒ ws.connect 兜底
+    expect(connect).toHaveBeenCalledTimes(connectBase + 1); // transport.reconnect 被调——mock 无 socket ⇒ needKick=true ⇒ ws.connect 兜底
   });
 
   it('级别选择（G1）：!ws.shouldConnect ⇒ 终态重建（瞬态 reconnect 在此是空操作——必红锚）', async () => {
     const p = await driveToSyncedR();
+    const wsConnect = p.configuration.websocketProvider.connect;
+    const connectBase = wsConnect.mock.calls.length;        // T3 pin：首连占 1——旧实例句柄不被碰=基线不变
     p.configuration.websocketProvider.shouldConnect = false; // disconnect() 结构死形态
     await runtime.recovery.recoverConnection();
     const np = lastInstance();
     expect(np).not.toBe(p);                                 // 终态=会话级重建：实例变更（禁 connectCalls+1 式假恢复）
     expect(p.destroyCalls).toBe(1);
-    expect(p.configuration.websocketProvider.connect).not.toHaveBeenCalled(); // 旧实例 ws 句柄不被碰
+    expect(wsConnect).toHaveBeenCalledTimes(connectBase);   // 旧实例 ws 句柄不被碰（T3：基线相对——首连占 1）
   });
 
   it('级别选择（G1）：!provider.isAttached ⇒ 终态重建', async () => {
@@ -391,19 +351,23 @@ describe('批1-3：recoverConnection 两级原语（级别选择/瞬态/终态/c
 
   it('守卫：document.hidden ⇒ 不下手', async () => {
     const p = await driveToSyncedR();
+    const wsConnect = p.configuration.websocketProvider.connect;
+    const connectBase = wsConnect.mock.calls.length;        // T3 pin：首连占 1
     const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
     await runtime.recovery.recoverConnection();
     expect(p.destroyCalls).toBe(0);
-    expect(p.configuration.websocketProvider.connect).not.toHaveBeenCalled();
+    expect(wsConnect).toHaveBeenCalledTimes(connectBase);   // 零新 connect（基线相对）
     hiddenSpy.mockRestore();
   });
 
   it('守卫：offline ⇒ 不下手；无 provider ⇒ no-op 不抛', async () => {
     const p = await driveToSyncedR();
+    const wsConnect = p.configuration.websocketProvider.connect;
+    const connectBase = wsConnect.mock.calls.length;        // T3 pin：首连占 1
     const onlineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     await runtime.recovery.recoverConnection();
     expect(p.destroyCalls).toBe(0);
-    expect(p.configuration.websocketProvider.connect).not.toHaveBeenCalled();
+    expect(wsConnect).toHaveBeenCalledTimes(connectBase);   // 零新 connect（基线相对）
     onlineSpy.mockRestore();
     await runtime.destroyCollab();
     await expect(runtime.recovery.recoverConnection()).resolves.toBeUndefined();

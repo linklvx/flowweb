@@ -6,42 +6,11 @@
 // 无 doc 时 dispatchProjectionDiff 零 intents 早退，runCommand 照旧路径零副作用）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // canvasIntents→canvasCollabRuntime 顶层 import HocuspocusProvider——rich mock（承 canvasCollabRuntime.quota.spec：
-// ④插值/漂移用例需 initCollab 真 doc——空 mock 不够）
-vi.mock('@hocuspocus/provider', () => {
-  class MockProvider {
-    static instances: MockProvider[] = [];
-    isAuthenticated = false;
-    isSynced = false;
-    isAttached = true;
-    unsyncedChanges = 0;
-    handlers: Record<string, Array<(payload: any) => void>> = {};
-    configuration: any;
-    awareness: any;
-    constructor(cfg: any = {}) {
-      MockProvider.instances.push(this);
-      this.awareness = {
-        clientID: cfg?.document?.clientID ?? 0,
-        meta: new Map(),
-        localState: null as any,
-        setLocalState: vi.fn((s: any) => { this.awareness.localState = s; }),
-        getLocalState: () => this.awareness.localState,
-      };
-      this.configuration = {
-        websocketProvider: { shouldConnect: true, connect: vi.fn(), disconnect: vi.fn(() => { this.configuration.websocketProvider.shouldConnect = false; }) },
-      };
-    }
-    get hasUnsyncedChanges() { return this.unsyncedChanges > 0; }
-    on(event: string, cb: (payload: any) => void) { (this.handlers[event] ??= []).push(cb); }
-    off(event: string, cb: (payload: any) => void) {
-      const arr = this.handlers[event];
-      if (!arr) return;
-      const i = arr.indexOf(cb);
-      if (i >= 0) arr.splice(i, 1);
-    }
-    emit(event: string, payload: any) { for (const cb of [...this.handlers[event] ?? []]) cb(payload); }
-    async destroy() { this.handlers = {}; }
-  }
-  return { HocuspocusProvider: MockProvider };
+// ④插值/漂移用例需 initCollab 真 doc——空 mock 不够）。
+// Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
+vi.mock('@hocuspocus/provider', async () => {
+  const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
+  return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';

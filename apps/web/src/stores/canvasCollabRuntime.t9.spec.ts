@@ -6,6 +6,8 @@
 // mock 形态承 conn.spec（库契约：provider 无 status 字段只有事件；configuration.websocketProvider
 // 真开关建模——connect() 首行置回 shouldConnect=true〔esm:225〕且新建 socket 计数；disconnect() 置
 // shouldConnect=false〔esm:367-376〕——这就是"connect 后禁 terminal 复发"防线的结构根据）。
+// Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
+//     ⚠ T3 pin 后 createProvider 显式首连（autoConnect:false）——connect/socket 计数一律基线相对。
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { useCanvasStore } from './canvasStore';
@@ -13,52 +15,9 @@ import * as runtime from './canvasCollabRuntime';
 import { canExecute } from './syncStatus';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
-vi.mock('@hocuspocus/provider', () => {
-  let socketsConstructed = 0;
-  class MockProvider {
-    static instances: MockProvider[] = [];
-    static socketsConstructed() { return socketsConstructed; }
-    static resetSockets() { socketsConstructed = 0; }
-    isAuthenticated = false;
-    isSynced = false;
-    isAttached = true;
-    unsyncedChanges = 0;
-    destroyCalls = 0;
-    handlers: Record<string, Array<(payload: any) => void>> = {};
-    configuration: any;
-    awareness: any;
-    constructor(cfg: any = {}) {
-      MockProvider.instances.push(this);
-      const clientId = cfg?.document?.clientID ?? 0;
-      this.awareness = {
-        clientID: clientId,
-        meta: new Map<number, { clock: number; lastUpdated: number }>(),
-        localState: null as any,
-        setLocalState: vi.fn((s: any) => { this.awareness.localState = s; }),
-        getLocalState: () => this.awareness.localState,
-      };
-      // 库真开关建模：connect 首行置回 shouldConnect=true（esm:225）+构造新 socket（输出级锚计数面）；
-      // disconnect 置 shouldConnect=false（esm:367-376）——onClose 定时器因 !shouldConnect 不再排程
-      this.configuration = {
-        websocketProvider: {
-          shouldConnect: true,
-          connect: vi.fn(() => { this.configuration.websocketProvider.shouldConnect = true; socketsConstructed++; }),
-          disconnect: vi.fn(() => { this.configuration.websocketProvider.shouldConnect = false; }),
-        },
-      };
-    }
-    get hasUnsyncedChanges() { return this.unsyncedChanges > 0; }
-    on(event: string, cb: (payload: any) => void) { (this.handlers[event] ??= []).push(cb); }
-    off(event: string, cb: (payload: any) => void) {
-      const arr = this.handlers[event];
-      if (!arr) return;
-      const i = arr.indexOf(cb);
-      if (i >= 0) arr.splice(i, 1);
-    }
-    emit(event: string, payload: any) { for (const cb of [...this.handlers[event] ?? []]) cb(payload); }
-    async destroy() { this.destroyCalls++; this.handlers = {}; }
-  }
-  return { HocuspocusProvider: MockProvider };
+vi.mock('@hocuspocus/provider', async () => {
+  const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
+  return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
@@ -114,43 +73,51 @@ describe('T9 Step1：authenticationFailed→wsAuthNotice 写点（改前红：�
 
   it('4401 session-expired close→静默重连恰一次（recovery 单飞），二次失败才终态且不再续期', async () => {
     const p = await driveToSynced();
+    const connect = p.configuration.websocketProvider.connect;
+    const base = connect.mock.calls.length;                                     // T3 pin：首连占 1——基线相对
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });
-    expect(p.configuration.websocketProvider.connect).toHaveBeenCalledTimes(1); // 静默续期一次（唯一执行器=recovery）
+    expect(connect).toHaveBeenCalledTimes(base + 1);                            // 静默续期一次（唯一执行器=recovery）
     expect(useCanvasStore.getState().wsAuthNotice).toBeNull();                  // 非终态
     p.emit('authenticationFailed', { reason: 'session-expired' });              // 二次失败（重连后 auth 仍拒）
     expect(useCanvasStore.getState().wsAuthNotice).toEqual({ reason: 'session-expired', terminal: true });
     expect(p.configuration.websocketProvider.shouldConnect).toBe(false);
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });      // 二次 sweep close——额度已用
-    expect(p.configuration.websocketProvider.connect).toHaveBeenCalledTimes(1); // 不再静默续期
+    expect(connect).toHaveBeenCalledTimes(base + 1);                            // 不再静默续期
   });
 
   it('S-4：静默续期额度 authenticated 重置——续期成功后再次 4401 可再静默续一次', async () => {
     const p = await driveToSynced();
+    const connect = p.configuration.websocketProvider.connect;
+    const base = connect.mock.calls.length;                                     // T3 pin：首连占 1
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });
-    expect(p.configuration.websocketProvider.connect).toHaveBeenCalledTimes(1);
+    expect(connect).toHaveBeenCalledTimes(base + 1);
     p.emit('authenticated', { scope: 'read-write' });   // 续期成功——额度重置（writeFrozen 同点清零）
     p.emit('close', { event: { code: 4401, reason: 'session-expired' } });
-    expect(p.configuration.websocketProvider.connect).toHaveBeenCalledTimes(2); // 第二次静默续期
+    expect(connect).toHaveBeenCalledTimes(base + 2);                            // 第二次静默续期
   });
 
   it('库 4401 Unauthorized（经 authenticationFailed）→终态不续期（双键分型：只判 code 必混淆）', async () => {
     const p = await driveToSynced();
+    const connect = p.configuration.websocketProvider.connect;
+    const base = connect.mock.calls.length;                                     // T3 pin：首连占 1
     p.isAuthenticated = false;
     p.emit('authenticationFailed', { reason: 'unauthenticated' });
     expect(useCanvasStore.getState().wsAuthNotice).toEqual({ reason: 'unauthenticated', terminal: true });
     p.emit('close', { event: { code: 4401, reason: 'Unauthorized' } }); // 库默认 reason——非 sweep session-expired
-    expect(p.configuration.websocketProvider.connect).not.toHaveBeenCalled(); // 只判 code 在此必红（误续期）
+    expect(connect).toHaveBeenCalledTimes(base);                                // 只判 code 在此必红（误续期）——零新 connect
     expect(p.configuration.websocketProvider.shouldConnect).toBe(false);
   });
 
   it('close 1009（message-too-big）→terminal 写点+真停连+逃生 pending（同版本逃生按钮）+零重连', async () => {
     const p = await driveToSynced();
+    const connect = p.configuration.websocketProvider.connect;
+    const base = connect.mock.calls.length;                                     // T3 pin：首连占 1
     p.emit('close', { event: { code: 1009 } });
     expect(useCanvasStore.getState().wsAuthNotice).toEqual({ reason: 'message-too-big', terminal: true });
     expect(p.configuration.websocketProvider.shouldConnect).toBe(false);
     expect(useCanvasStore.getState().collabEscapePending).toBe(true);
     await new Promise<void>((r) => setTimeout(r, 20)); // 无任何计划内/库级重连
-    expect(p.configuration.websocketProvider.connect).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenCalledTimes(base);                                // 零新 connect（基线相对）
   });
 });
 
@@ -187,12 +154,13 @@ describe('T9 Step1：真停连输出级锚+退避所有权（fake timers——co
   it('【输出级锚】terminal reason→websocketProvider 真停连：31s 内 connect 调用数==0 且 socket 构造计数==0', async () => {
     const p = await driveToSyncedFake();
     const wsConnect = vi.spyOn(p.configuration.websocketProvider, 'connect');
+    const socketsBase = Mocks.socketsConstructed(); // T3 pin：显式首连占 1——基线相对
     p.isAuthenticated = false;               // 库契约：auth 失败后布尔复位（watchdog 健康电平断裂）
     p.emit('authenticationFailed', { reason: 'schema-outdated' });
     expect(p.configuration.websocketProvider.shouldConnect).toBe(false); // 真开关已落（disconnect）
     await vi.advanceTimersByTimeAsync(31_000); // 越过库 31s 重连周期+watchdog 快线（15s 档）
     expect(wsConnect).not.toHaveBeenCalled();  // terminal 后任何恢复路径禁再调 connect（复发防线）
-    expect(Mocks.socketsConstructed()).toBe(0); // 无新 socket（单飞）
+    expect(Mocks.socketsConstructed()).toBe(socketsBase); // 无新 socket（单飞）
   });
 
   it('瞬态 reason→不断连（shouldConnect 保持）+terminal=false+退避交 watchdog/machine（表驱动 cooldown≥表底 5s——禁新建退避）', async () => {

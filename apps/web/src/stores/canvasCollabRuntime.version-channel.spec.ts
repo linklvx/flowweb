@@ -19,20 +19,11 @@ vi.mock('../collab/reconnectTransport', () => ({
   },
 }));
 
-vi.mock('@hocuspocus/provider', () => {
-  class MockProvider {
-    static instances: { cfg: any }[] = [];
-    configuration: any;
-    awareness: any;
-    constructor(cfg: any = {}) {
-      MockProvider.instances.push({ cfg });
-      this.configuration = { websocketProvider: { shouldConnect: true, connect: vi.fn() } };
-      this.awareness = { clientID: cfg?.document?.clientID ?? 0, meta: new Map(), localState: null, setLocalState: vi.fn() };
-    }
-    on() {}
-    async destroy() {}
-  }
-  return { HocuspocusProvider: MockProvider };
+// Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤；
+// fixture.cfg 保留构造入参——lastCfg 断言面不变）。
+vi.mock('@hocuspocus/provider', async () => {
+  const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
+  return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
 const lastCfg = () => (HocuspocusProvider as any).instances.at(-1)?.cfg;
