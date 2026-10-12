@@ -72,7 +72,8 @@ export class TelemetryService {
       accepted++;
     }
     if (accepted + rejected > 0) {
-      this.logger.log(JSON.stringify({ clientBuild: batch?.clientBuild, csv: batch?.csv, generation: batch?.generation, accepted, rejected }));
+      const meta = (v?: string) => (v === undefined ? undefined : String(v).slice(0, 64));   // 客户端可控——截断防日志膨胀
+      this.logger.log(JSON.stringify({ event: 'collab_telemetry_batch', clientBuild: meta(batch?.clientBuild), csv: meta(batch?.csv), generation: meta(batch?.generation), accepted, rejected }));
     }
   }
 

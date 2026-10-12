@@ -63,6 +63,11 @@ describe('Y0b-5 T1 telemetry 端点（静态守卫）', () => {
     expect(guards).toEqual(['TelemetryThrottlerGuard', 'AuthGuard', 'AdminGuard']);
   });
 
+  it('路由装饰器与 TELEMETRY_PATH 常量静态锁（漂移则 getTracker 匹配失效→静默回落 req.ip 全站共享单桶——collab-shrink.spec:535 先例）', () => {
+    expect(CTRL_SRC).toContain("@Controller('api/collab')");
+    expect(CTRL_SRC).toContain("@Post('telemetry')");
+  });
+
   it('@NoTransform+@HttpCode(204)（TransformInterceptor 会包 {code:0,data}——sendBeacon 面恒空体）', () => {
     expect(CTRL_SRC).toContain('@HttpCode(204)');
     expect(CTRL_SRC).toContain('@NoTransform()');
