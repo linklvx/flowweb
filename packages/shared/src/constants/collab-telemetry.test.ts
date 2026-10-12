@@ -97,6 +97,17 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     expect(sanitizeTelemetryDetail('projection_duration', { ms: '123' })).toEqual({});
     expect(sanitizeTelemetryDetail('projection_duration', { ms: 123 })).toEqual({ ms: 123 });
   });
+  it('Y0b-5 T2（控制器裁决）ws_status.ms：SLO 时长经 ws_status detail 扩键上送——number 保留/非 number 剥键'
+    + '（仅随迁移事件携带：hydration={from:connecting,to:connected}/reconnect={from:disconnected,to:connected}——12 值封闭不新增 type）', () => {
+    expect(sanitizeTelemetryDetail('ws_status', { from: 'connecting', to: 'connected', ms: 1234 }))
+      .toEqual({ from: 'connecting', to: 'connected', ms: 1234 });
+    expect(sanitizeTelemetryDetail('ws_status', { from: 'disconnected', to: 'connected', ms: '42' }))
+      .toEqual({ from: 'disconnected', to: 'connected' });
+  });
+  it('Y0b-5 T2 ErrorBoundary 受控栈键：invariant_violation.name/frame（log-only——error.name+首帧 file:line 折 detail，无整栈）', () => {
+    expect(sanitizeTelemetryDetail('invariant_violation', { where: 'react-boundary', name: 'TypeError', frame: 'page.tsx:10' }))
+      .toEqual({ where: 'react-boundary', name: 'TypeError', frame: 'page.tsx:10' });
+  });
   it('close_code.code 查 CollabCloseCode 值域（应用码+库码全集——Object.values 单源）', () => {
     for (const code of Object.values(CollabCloseCode)) {
       expect(sanitizeTelemetryDetail('close_code', { code })).toEqual({ code });

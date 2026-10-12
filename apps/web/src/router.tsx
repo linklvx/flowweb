@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { Spin } from 'antd';
 import { HomePage } from '@/pages/home';
 import { CanvasPage } from '@/pages/canvas';
+import { CanvasErrorBoundary } from '@/pages/canvas/CanvasErrorBoundary';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
 import { RequireAuth } from '@/components/RequireAuth';
@@ -62,7 +63,8 @@ export const router = createBrowserRouter([
   {
     element: <RequireAuth />,
     children: [
-      { path: '/canvas', element: <CanvasPage /> }, // 全屏编辑器，不套布局
+      // 全屏编辑器，不套布局；Y0b-5 T2：ErrorBoundary 挂画布路由根（崩溃兜底+遥测上报——不裹全局 App）
+      { path: '/canvas', element: <CanvasErrorBoundary><CanvasPage /></CanvasErrorBoundary> },
       {
         path: '/admin',
         element: <RequireAdmin />,

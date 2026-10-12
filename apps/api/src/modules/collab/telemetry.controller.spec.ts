@@ -76,16 +76,23 @@ describe('Y0b-5 T1 telemetry 端点（静态守卫）', () => {
   it('断言无客户端自由字符串进任何 labelNames（服务端枚举唯一来源——反向 grep 型）', () => {
     const allowed = new Set(['type', 'code', 'reason', 'from', 'to']);
     const fam = register.getMetricsAsArray().filter((m) => m.name.startsWith('collab_telemetry_'));
-    // 八族齐备（以实际注册全名为准——check-spec-consistency.mjs 与 spec §10 同集）
+    // 十族齐备（以实际注册全名为准——check-spec-consistency.mjs 与 spec §10 同集；
+    // T2 控制器裁决扩 hydration/reconnect 两直方图——buckets [50,250,1000,5000,15000]，无 label）
     expect(fam.map((m) => m.name).sort()).toEqual([
       'collab_telemetry_auth_reject_total', 'collab_telemetry_close_total', 'collab_telemetry_events_total',
-      'collab_telemetry_projection_ms', 'collab_telemetry_rejected_total', 'collab_telemetry_unknown_total',
+      'collab_telemetry_hydration_ms', 'collab_telemetry_projection_ms', 'collab_telemetry_reconnect_ms',
+      'collab_telemetry_rejected_total', 'collab_telemetry_unknown_total',
       'collab_telemetry_ws_reason_total', 'collab_telemetry_ws_transition_total',
     ]);
     for (const m of fam) {
       for (const l of (m as any).labelNames ?? []) {
         expect(allowed.has(l), `${m.name} 的 label "${l}" 不在受控枚举 {type,code,reason,from,to}`).toBe(true);
       }
+    }
+    // 两 SLO 直方图 bucket 边界钉死（裁决给定 [50,250,1000,5000,15000]——漂移=口径漂移；ms 桶同 projection_ms 先例）
+    for (const name of ['collab_telemetry_hydration_ms', 'collab_telemetry_reconnect_ms']) {
+      const h: any = register.getSingleMetric(name);
+      expect(h?.buckets).toEqual([50, 250, 1000, 5000, 15000]);
     }
   });
 });
@@ -178,6 +185,25 @@ describe('Y0b-5 T1 telemetry 端点（真实 HTTP 集成）', () => {
     await expect(observeOf('collab_telemetry_projection_ms', 'sum')).resolves.toBeGreaterThanOrEqual(42);
     await expect(counterOf('collab_telemetry_ws_reason_total', { reason: 'unsynced-lag' })).resolves.toBeGreaterThanOrEqual(1);
     await expect(counterOf('collab_telemetry_ws_transition_total', { from: 'connecting', to: 'connected' })).resolves.toBeGreaterThanOrEqual(1);
+  });
+
+  it('Y0b-5 T2（控制器裁决）SLO 两直方图分派：ws_status 带 ms 且 from/to=hydration 迁移形态→hydration_ms observe；disconnected→connected→reconnect_ms；真实迁移（不带 ms）不 observe', async () => {
+    const hSum = await observeDelta('collab_telemetry_hydration_ms', 'sum', async () => {
+      const hCount = await observeDelta('collab_telemetry_hydration_ms', 'count', async () => {
+        await post({ events: [
+          { type: 'ws_status', at: 1, detail: { from: 'connecting', to: 'connected', ms: 800 } },     // hydration 形态
+          { type: 'ws_status', at: 2, detail: { from: 'disconnected', to: 'connected', ms: 2500 } },  // reconnect 形态
+          { type: 'ws_status', at: 3, detail: { from: 'connected', to: 'disconnected' } },            // 真实迁移不带 ms
+          { type: 'ws_status', at: 4, detail: { from: 'connecting', to: 'connected', ms: '42' } },    // 非 number 剥键→不 observe
+        ] });
+      });
+      expect(hCount).toBe(1);   // 仅 ms:800 一条到达 hydration 直方图
+    });
+    expect(hSum).toBe(800);
+    await expect(observeOf('collab_telemetry_reconnect_ms', 'count')).resolves.toBeGreaterThanOrEqual(1);
+    await expect(observeOf('collab_telemetry_reconnect_ms', 'sum')).resolves.toBeGreaterThanOrEqual(2500);
+    // 不带 ms 的真实迁移仍进 transition 计数（直方图零 observe——上式 count 不含它）
+    await expect(counterOf('collab_telemetry_ws_transition_total', { from: 'connected', to: 'disconnected' })).resolves.toBeGreaterThanOrEqual(1);
   });
 
   it('未知 type→204 且只计 collab_telemetry_unknown_total（禁 4xx——sendBeacon 不可观测响应，413 同为重试风暴面；超限同样 204+collab_telemetry_rejected_total{reason}）', async () => {

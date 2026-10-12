@@ -45,7 +45,11 @@ import { withGeometryWriter } from './geometryTrap';
 // action 删除一并退役——留不消费字段=第三态）；恢复所有权归 connection-supervisor。
 import { reduce, TICK_MS, STALE_INBOUND_MS, type MachineInputs, type MachineOutput } from './connectionMachine';
 // 批1-5：诊断环形缓冲 + kill switch（零依赖纯模块）
-import { recordCollabDiag, isAutoRecoverDisabled } from '@/utils/collabDiagnostics';
+// Y0b-5 T2：遥测 loop 启停随会话（无会话零 beacon）+批次元数据（csv/generation——flush 时求值）
+import {
+  recordCollabDiag, isAutoRecoverDisabled,
+  _startTelemetryLoop, _stopTelemetryLoop, registerTelemetryMeta,
+} from '@/utils/collabDiagnostics';
 // Y0b-5 T3b（裁定 23⑴）：单连接所有权——supervisor 独占全部 connect/disconnect（瞬态退避/终态/
 // 1012/普通掉线全归）；库定时器被 open 归零 shouldConnect 结构性禁用；watchdog 降级纯观测。
 // 循环依赖裁定（同 canvasUndo）：本模块顶层仅 import 声明/类定义，supervisor 方法运行时才执行——安全。
@@ -180,6 +184,44 @@ const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>(COLLAB_VER
 // 批1-3：终态重建窗口标记（旧实例 hasUnsyncedChanges 不可读——标记武装；
 // 清除=unsyncedChanges number===0（实例绑定）+ 3s tick 兜底——批1-4）
 let rebuildPending = false;
+
+// ── Y0b-5 T2：SLO reconnect 起点锚 + invariant 确定性采样节律（裁定 20）+结构性变更判据 ──
+/** 掉线时刻（performance.now 单调钟；null=连接未掉线——authenticated 消费后归 null） */
+let disconnectedAt: number | null = null;
+/** invariant 采样：自上次运行起的 apply 计数（计数判据） */
+let invariantAppliesSinceRun = 0;
+/** invariant 采样：上次运行时刻（performance.now；null=本会话未跑过） */
+let lastInvariantRunAt: number | null = null;
+/** 结构性变更判据：上次 apply 后 nodes 键数（增删节点→下次 apply 必跑 invariant） */
+let lastAppliedNodeCount = 0;
+const INVARIANT_SAMPLE_EVERY_APPLIES = 30;
+const INVARIANT_SAMPLE_INTERVAL_MS = 30_000;
+
+/** invariant 采样纯决策核（导出=测试缝——vitest 恒 DEV 无法行为测 prod 采样路径）：
+ *  DEV 全跑｜结构性变更（增删节点）必跑｜每 30 次 apply 到点必跑｜距上次 ≥30s 必跑——
+ *  取先到；其余不跑（现生产无条件执行=热路径调试垫片，T2 采样化）。 */
+export function decideInvariantSample(opts: {
+  dev: boolean; structural: boolean; appliesSinceRun: number; msSinceLastRun: number | null;
+}): boolean {
+  if (opts.dev || opts.structural) return true;
+  if (opts.appliesSinceRun >= INVARIANT_SAMPLE_EVERY_APPLIES) return true;
+  if (opts.msSinceLastRun !== null && opts.msSinceLastRun >= INVARIANT_SAMPLE_INTERVAL_MS) return true;
+  return false;
+}
+
+/** onRemote 周期消费：命中即重置计数/时间戳，未命中计数递增 */
+function shouldRunProjectionInvariant(structural: boolean): boolean {
+  const now = performance.now();
+  const run = decideInvariantSample({
+    dev: import.meta.env.DEV,
+    structural,
+    appliesSinceRun: invariantAppliesSinceRun,
+    msSinceLastRun: lastInvariantRunAt === null ? null : now - lastInvariantRunAt,
+  });
+  if (run) { invariantAppliesSinceRun = 0; lastInvariantRunAt = now; }
+  else invariantAppliesSinceRun++;
+  return run;
+}
 
 /** Y0b-5 T3b：单连接所有者（模块级单例——getProvider/isConnOffline 注入取值，防 canvasStore
  *  循环依赖直连；终态重建/换会话经 getProvider 恒取当前实例，attach 由 createProvider 重挂）。 */
@@ -955,10 +997,19 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     }
     if (status === 'connecting') inboundAttemptId = -1;
     if (status !== lastWsStatus) recordCollabDiag('ws_status', { from: lastWsStatus, to: status }); // 批1-5：迁移记录（双发 connected 不重复）
+    // Y0b-5 T2：SLO reconnect_duration 起点锚（掉线时刻——performance.now 单调钟；authenticated 消费）
+    if (status === 'disconnected') disconnectedAt = performance.now();
     lastWsStatus = status;
     recomputeConnStatus();
   });
   p.on('authenticated', ({ scope }: any) => {
+    // Y0b-5 T2（控制器裁决）：SLO reconnect_duration=掉线→authenticated——载体=ws_status detail ms
+    // （from='disconnected',to='connected' 形态=服务端 reconnect 直方图判别键；真实迁移对恒经
+    //  connecting 不到达该形态——ms 载体与真实迁移分布不混轴）。零轮询纯事件打点。
+    if (disconnectedAt !== null) {
+      recordCollabDiag('ws_status', { from: 'disconnected', to: 'connected', ms: performance.now() - disconnectedAt });
+      disconnectedAt = null;
+    }
     // Y0b-4 T5（Q-A v5）：connReadOnly 初值=scope（首推前 VIEWER 不 fail-open——conn-status 到达后
     // 覆盖为连接级单源）；scope 本身经 diag 记录（连接级诊断——不参与 readOnly 判定，报告3 一致性 6）。
     // 批2-1 粘滞语义保留：read-write 解除/readonly 置回（onClose 不清——断连窗口编辑经 messageQueue
@@ -1034,6 +1085,9 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     }
   });
   p.on('close', ({ event }: any) => {
+    // Y0b-5 T2：close code 分布遥测（裁定 18①——({event}) 解构+event?.code 取值，库载荷恒 {event}
+    // 包装；code 原样入 ring，CollabCloseCode 值域折 other 归服务端 sanitize）
+    recordCollabDiag('close_code', { code: event?.code });
     recomputeConnStatus();
     // Y0b-3 T9：close 分型→状态映射（(code,reason) 双键分型单源=resolveCloseAction）。
     // Y0b-5 T3b：排程/disconnect 所有权归 supervisor（五档穷尽——T0 resolveBackoffPlan 单源）；
@@ -1151,6 +1205,8 @@ function bindReevaluateOnce(): void {
  * 离线廉价兜底：10s 未 synced 不置 connected、不 apply 空 doc、不抬 hydrate 门——保持不可编辑，UI 层提示重试。
  */
 export async function initCollab(projectId: string): Promise<void> {
+  // Y0b-5 T2：SLO hydration_duration 起点（performance.now 单调钟——ready 处消费）
+  const hydrationStartedAt = performance.now();
   // 批2-1：入口走清理体（teardownSession）而非 destroyCollab——后者复位 hydration='idle'，
   // 会把 openSession 刚置的 pending 打成 idle 闪烁；清理体不做状态复位
   await teardownSession();
@@ -1179,6 +1235,14 @@ export async function initCollab(projectId: string): Promise<void> {
   connReadOnly = false;       // Y0b-4 T5：连接级只读真值/代际基线会话起点复位（authenticated 重播种）
   lastGeneration = undefined;
   deltaIdleMeasureInFlight = false;   // Y0b-4 T10：idle 实测在途窗随会话复位（旧会话 pending 不跨会话）
+  disconnectedAt = null;              // Y0b-5 T2：SLO reconnect 起点随会话复位（上一会话掉线不跨会话）
+  invariantAppliesSinceRun = 0;       // Y0b-5 T2：invariant 采样节律会话起点复位（hydration 后必跑重锚）
+  lastInvariantRunAt = null;
+  lastAppliedNodeCount = 0;
+  // Y0b-5 T2：遥测 loop 起搏（会话绑定——无会话零 beacon）+批次元数据注册（csv=协议版本/
+  // generation=vacuum 代际——doc-status 通道现有字段，flush 时闭包求值）
+  _startTelemetryLoop();
+  registerTelemetryMeta(() => ({ csv: CLIENT_PROTOCOL_VERSION, generation: lastGeneration }));
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
@@ -1260,8 +1324,28 @@ export async function initCollab(projectId: string): Promise<void> {
   recomputeConnStatus();
   // 批4b-2：水合窗口远端应用 latch 已退役——store 重建无订阅翻译层（批4b-2 删桥），
   // 重建写不再有回译路径；ready 于水合完成后单写（批2-1 语义不变）
+  // Y0b-5 T2：projection_duration 打点（水合路径——performance.now 单调钟，包 invariant）+
+  // hydration synced 后 invariant 必跑（确定性节律判据之三——首投影全量验证；readOnly 同
+  // applyRemote 语义不测）
+  const t0Projection = performance.now();
   applyDocToStore(doc!);
   useCanvasStore.getState().setHydration('ready');
+  const bootstrapInvariantOk = !useCanvasStore.getState().collabReadOnly && checkProjectionInvariant(doc!);
+  invariantAppliesSinceRun = 0;
+  lastInvariantRunAt = performance.now();
+  lastAppliedNodeCount = doc!.getMap('nodes').size;
+  recordCollabDiag('projection_duration', { ms: performance.now() - t0Projection });
+  if (!bootstrapInvariantOk) {
+    recordCollabDiag('invariant_violation', { where: 'applyBootstrap' });
+    if (import.meta.env.DEV) {
+      console.error('[collab批4a] projection invariant violated (bootstrap): projectionFromDoc(doc) ≢ storeProjection()');
+    } else {
+      console.log('[collab批4a] projection invariant violated (bootstrap): projectionFromDoc(doc) ≢ storeProjection()');
+    }
+  }
+  // Y0b-5 T2（控制器裁决）：SLO hydration_duration=initCollab→ready——载体=ws_status detail ms
+  // （from='connecting',to='connected'=hydration 起点迁移对——服务端 hydration 直方图判别键）
+  recordCollabDiag('ws_status', { from: 'connecting', to: 'connected', ms: performance.now() - hydrationStartedAt });
 
   const onRemote = (events: any[]) => {
     // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
@@ -1270,10 +1354,21 @@ export async function initCollab(projectId: string): Promise<void> {
     if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
     remoteApplyTimer = setTimeout(() => {
       if (session?.epoch !== epoch) return; // 批1-5：epoch 判活（同 pid 重进亦拦——比 pid 判据严）
+      // Y0b-5 T2：结构性变更判据=nodes 键数变化（增删节点——invariant 确定性节律"结构性后必跑"）
+      const structural = doc!.getMap('nodes').size !== lastAppliedNodeCount;
+      const t0Projection = performance.now();
       applyDocToStore(doc!);
       // 批4a：applyRemote 周期末尾不变量（含 S1 补跑——applyDocToStore 内收尾）。readOnly 会话
-      // 不测（S1 几何止步 store 层是设计内分叉）；不等→计数+DEV console.error，不抛（安全网非熔断）
-      if (!useCanvasStore.getState().collabReadOnly && !checkProjectionInvariant(doc!)) {
+      // 不测（S1 几何止步 store 层是设计内分叉）；Y0b-5 T2 起生产确定性采样（每 30 次 apply/每 30s
+      // 取先到+结构性变更后必跑+hydration 后必跑——DEV 全跑；现无条件执行=热路径调试垫片）
+      let invariantOk = true;
+      if (!useCanvasStore.getState().collabReadOnly && shouldRunProjectionInvariant(structural)) {
+        invariantOk = checkProjectionInvariant(doc!);
+      }
+      lastAppliedNodeCount = doc!.getMap('nodes').size;
+      // Y0b-5 T2：投影耗时（包 applyDocToStore+invariant——与 alignExecFromIntents 互不包含）
+      recordCollabDiag('projection_duration', { ms: performance.now() - t0Projection });
+      if (!invariantOk) {
         recordCollabDiag('invariant_violation', { where: 'applyRemote' });
         if (import.meta.env.DEV) {
           console.error('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
@@ -1319,6 +1414,7 @@ async function teardownSession(): Promise<void> {
 
 export async function destroyCollab(): Promise<void> {
   await teardownSession();
+  _stopTelemetryLoop(); // Y0b-5 T2：遥测 loop 随会话终点停搏（无会话零 beacon）
   // R23 同款守卫：await 间隙并发 initCollab 已立新会话（session 非空）时，
   // 陈旧 destroy 不得复位新会话的 hydration/collabReadOnly（交错写防线）
   if (session !== null) return;

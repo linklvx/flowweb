@@ -968,7 +968,9 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_telemetry_auth_reject_total
 - collab_telemetry_close_total
 - collab_telemetry_events_total
+- collab_telemetry_hydration_ms
 - collab_telemetry_projection_ms
+- collab_telemetry_reconnect_ms
 - collab_telemetry_rejected_total
 - collab_telemetry_unknown_total
 - collab_telemetry_ws_reason_total

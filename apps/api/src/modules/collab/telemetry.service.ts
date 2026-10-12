@@ -15,7 +15,9 @@ import {
   collabTelemetryAuthRejectTotal,
   collabTelemetryCloseTotal,
   collabTelemetryEventsTotal,
+  collabTelemetryHydrationMs,
   collabTelemetryProjectionMs,
+  collabTelemetryReconnectMs,
   collabTelemetryRejectedTotal,
   collabTelemetryUnknownTotal,
   collabTelemetryWsReasonTotal,
@@ -91,6 +93,12 @@ export class TelemetryService {
         if (typeof detail.reason === 'string') collabTelemetryWsReasonTotal.inc({ reason: detail.reason });
         if (typeof detail.from === 'string' && typeof detail.to === 'string') {
           collabTelemetryWsTransitionTotal.inc({ from: detail.from, to: detail.to });
+          // Y0b-5 T2（控制器裁决）：SLO 时长按 from/to 迁移形态分派（ms 已由 shared sanitize 数值守卫，
+          // typeof 仅防缺键——不带 ms 的真实迁移零 observe）
+          if (typeof detail.ms === 'number') {
+            if (detail.from === 'connecting' && detail.to === 'connected') collabTelemetryHydrationMs.observe(detail.ms);
+            else if (detail.from === 'disconnected' && detail.to === 'connected') collabTelemetryReconnectMs.observe(detail.ms);
+          }
         }
         break;
       case 'projection_duration':

@@ -258,6 +258,10 @@ describe('批1-6：恢复对齐 alignExecFromIntents（connect 边沿 + visibili
   it('页面隐藏（visibilitychange 但 document.hidden）→ 不查表', async () => {
     await driveToSynced('p1');
     useNodeStore.setState({ nodes: { n4: loadingNode('n4') as any } });
+    // Y0b-5 T2：collabDiagnostics visibilitychange flush 同事件触发——jsdom 无 sendBeacon 会落
+    // fetch 降级路径污染"零 fetch"断言；吸收遥测 beacon（真浏览器走 sendBeacon 不经 fetch）
+    const beacon = vi.fn(() => true);
+    Object.defineProperty(navigator, 'sendBeacon', { value: beacon, configurable: true, writable: true });
     const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
     document.dispatchEvent(new Event('visibilitychange'));
     await tick();

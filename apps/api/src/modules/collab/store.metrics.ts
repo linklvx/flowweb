@@ -604,6 +604,22 @@ export const collabTelemetryProjectionMs = new Histogram({
   buckets: [5, 25, 100, 500, 2500],
   registers: [register],
 });
+/** Y0b-5 T2（控制器裁决——裁定 24 SLO 两条直方图，通道=ws_status detail ms 扩键）：hydration/reconnect
+ *  时长毫秒分布。形态判别在 telemetry.service dispatch：hydration={from:'connecting',to:'connected'}
+ *  （initCollab→ready）/reconnect={from:'disconnected',to:'connected'}（掉线→authenticated）——真实迁移对
+ *  不携带 ms 不 observe（ms 数值守卫在 shared sanitize）。零 label（直方图按时长分桶——无基数面）。 */
+export const collabTelemetryHydrationMs = new Histogram({
+  name: 'collab_telemetry_hydration_ms',
+  help: '客户端 hydration 时长毫秒分布（ws_status ms 携带——initCollab→ready，from=connecting,to=connected 形态分派）',
+  buckets: [50, 250, 1000, 5000, 15000],
+  registers: [register],
+});
+export const collabTelemetryReconnectMs = new Histogram({
+  name: 'collab_telemetry_reconnect_ms',
+  help: '客户端重连时长毫秒分布（ws_status ms 携带——掉线→authenticated，from=disconnected,to=connected 形态分派）',
+  buckets: [50, 250, 1000, 5000, 15000],
+  registers: [register],
+});
 export const collabTelemetryUnknownTotal = new Counter({
   name: 'collab_telemetry_unknown_total',
   help: '白名单外 type 计数（不记 type 值——客户端自由字符串禁进 label）',

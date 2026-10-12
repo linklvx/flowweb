@@ -74,6 +74,9 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // Y0b-4 T5（2026-10-11）：canvasCollabRuntime.quota.spec.ts 造案 +2 处/1 文件（doc-status reducer
   //   装置——resetStore 复位+Q-I 校准点本地漂移构造，sanctioned 例外同模式）→ 240/45。
   'src/stores/canvasCollabRuntime.quota.spec.ts',
+  // Y0b-5 T2（2026-10-12）：canvasCollabRuntime.telemetry.spec.ts 造案 +1 处/1 文件（遥测接线用例
+  //   beforeEach 装置复位——sanctioned 例外同模式）→ 260/50。
+  'src/stores/canvasCollabRuntime.telemetry.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -104,5 +107,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-4 T11（2026-10-11）：quota UX 造案 +15 处/+2 文件（QuotaBanner.test +8/ShrinkDialog.test +4
   //   ——三级分档/瘦身三档 UI 测试 store 注入〔SyncBanner.test 同例外〕；interaction-props +2——
   //   quotaOver 冻结编辑面 props 断言；quota.spec +1——会话起点复位造案）→ 259 处 / 49 文件。
-  effective: { count: 259, files: 49 },
+  // Y0b-5 T2（2026-10-12）：canvasCollabRuntime.telemetry.spec.ts 造案 +1 处/1 文件（遥测接线用例
+  //   beforeEach 装置复位——sanctioned 例外同模式）→ 260 处 / 50 文件。
+  effective: { count: 260, files: 50 },
 };

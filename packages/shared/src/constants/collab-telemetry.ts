@@ -56,6 +56,10 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     from: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     to: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded'] },
+    // Y0b-5 T2（控制器裁决——裁定 24 SLO 通道）：hydration/reconnect 时长经 ws_status detail 扩键上送
+    // （仅随迁移事件携带：hydration={from:'connecting',to:'connected'}=initCollab→ready /
+    //  reconnect={from:'disconnected',to:'connected'}=掉线→authenticated——12 值封闭不新增 type）。
+    ms: { sink: 'metric:collab_telemetry_hydration_ms|collab_telemetry_reconnect_ms', numeric: true },
   },
   recover_triggered: {
     level: { sink: 'log-only', values: ['terminal', 'transient'] },
@@ -75,6 +79,10 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
   },
   invariant_violation: {
     where: { sink: 'log-only', values: ['applyRemote', 'applyBootstrap', 'react-boundary'] },
+    // Y0b-5 T2 ErrorBoundary 受控栈键（log-only——无 label 基数面）：name=error.name /
+    // frame=error.stack 首帧 file:line（仅此字符串无整栈——受控枚举纪律，Y5 前可诊断非只知崩了）
+    name: { sink: 'log-only' },
+    frame: { sink: 'log-only' },
   },
   sync_pending_retry: {
     n: { sink: 'log-only' },
