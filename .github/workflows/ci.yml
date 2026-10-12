@@ -196,3 +196,10 @@ jobs:
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --graceful
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --usurp
+      # Y0b-5 T9：write-frozen 全链演练（spec §5.3 验收链——drain 冻结/权威快照重放/shrink 解除锚+编辑中
+      # kill9 RPO 档〔裁定 23⑮/24⑸尾〕）。kill9 族旁追加同款条件/环境：node 直跑 mjs（驱动无 DI——
+      # 首跑自带 tsconfig.drill.json 编译，上一步 kill9 已产出 dist 则增量）；两模式串行（随机端口+租约行全局资源）。
+      - name: write-frozen 全链演练（T9——drain 冻结+权威快照重放+shrink 解除+编辑中 kill9 双断言）
+        run: |
+          pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=frozen-chain
+          pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=mid-edit-kill9

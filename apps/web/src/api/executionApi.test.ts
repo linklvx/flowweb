@@ -132,4 +132,20 @@ describe('Y0b-3 T9 Step5：withSyncRetry 503 语义化重试（Retry-After 后�
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(messageWarning).not.toHaveBeenCalled();
   });
+
+  it('SERVER_OVERLOADED 同族：503+Retry-After 载荷不论 errorCode 同族处理（分型键=status+retryAfter——spec §5.3；WS 面 server-overloaded 瞬态桶同族见 connection-supervisor）', async () => {
+    vi.useFakeTimers();
+    try {
+      const overloaded = () => new Response(
+        JSON.stringify({ message: 'server overloaded', errorCode: 'SERVER_OVERLOADED' }),
+        { status: 503, headers: { 'retry-after': '1' } },
+      );
+      fetchSpy.mockResolvedValueOnce(overloaded()).mockResolvedValueOnce(ok({ success: true, errors: [] }));
+      const pending = executeGroupNodes('p1', ['n1']);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await pending).toEqual({ success: true, errors: [] });
+      expect(messageWarning).toHaveBeenCalledWith('服务重启/维护中，请稍后重试');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);  // 同族同处理——恰一次重试
+    } finally { vi.useRealTimers(); }
+  });
 });

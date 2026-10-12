@@ -1,6 +1,7 @@
 // apps/web/src/api/videoProjectApi.ts
 import type { ExportResolution } from '@flowweb/shared';
 import { apiFetch } from './client';
+import { withSyncRetry } from './executionApi';
 
 export interface VideoProjectDto {
   id: string;
@@ -18,8 +19,10 @@ export function upsertProject(input: { workflowId: string; sourceNodeId: string;
   return apiFetch<VideoProjectDto>('/video-projects', { method: 'POST', body: JSON.stringify(input) });
 }
 
+// Y0b-5 T9（spec §5.3）：保存路径（autosave deps.patch）503 语义化——withSyncRetry 扩消费
+// （executionApi.ts:26 单源，禁三处复制；409 业务冲突不经 503 分支原样上抛=自动保存退避梯语义不变）。
 export function patchProject(id: string, body: { data: unknown; baseUpdatedAt: string }): Promise<VideoProjectDto> {
-  return apiFetch<VideoProjectDto>(`/video-projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  return withSyncRetry(() => apiFetch<VideoProjectDto>(`/video-projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }));
 }
 
 /** 删除剪辑节点时 fire-and-forget 调用（仅删工程记录，引用 Media 不动） */

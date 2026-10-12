@@ -10,7 +10,8 @@ import { execSync } from 'node:child_process';
 import { basename } from 'node:path';
 
 // 21 文件实测标定（2026-10-10 本地全量 test:int，Y0b-2 T9 出口）：141 例。X16 纪律：新增 int 文件 ⇒ 同步上调本值。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 141);
+// Y0b-5 T9 增补（write-frozen-chain 2 例）+存量漂移 1（group-idempotency 16>登记 15）→实测 144。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 144);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
@@ -35,6 +36,7 @@ const FILES_MIN = {
   'group-idempotency.int.spec.ts': 15,
   'sv-admission.int.spec.ts': 6,
   'admin-idempotency.int.spec.ts': 5,
+  'write-frozen-chain.int.spec.ts': 2,   // Y0b-5 T9：write-frozen 断言链 int 等价用例
 };
 
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));
