@@ -6,6 +6,7 @@
 // 语义锚：真 IDB 在 onupgradeneeded 时 req.result 已是连接（先建连接再发升级事件）；
 // deleteDatabase 在存在未关闭连接时走 onblocked（T5 purge blocked 用例同款）；
 // 事务完成晚于其上全部请求（双微任务——get/put 先落地再 complete）。
+// 不建模：事务 onabort 实际触发（无 abort 入口）/open 侧 onblocked/versionerror——错误面仅 failNextOpen 注入,勿误认全覆盖。
 import { vi } from 'vitest';
 
 export interface FakeDbConnection {

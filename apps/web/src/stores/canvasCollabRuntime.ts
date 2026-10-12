@@ -1706,8 +1706,10 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   attachUndoManager(doc);
   mountLocalDeltaTracker(doc);   // Y0b-4 T10：localDelta 插值器（doc 销毁随会话拆除）
   mountUnsyncedDirtyTracker(doc);   // Y0b-5 T6：单源置位+diverged 判定+T8 Σpending 累计监听（doc 绑定——新 doc 自然隔离）
-  // Y0b-5 T8：结构性变更（增删节点——浅 observe，嵌套 data 变更不触发）→置脏+提前到期
-  doc.getMap('nodes').observe(() => { localCache?.expireFlushSoon(buildCacheRecord); });
+  // Y0b-5 T8：结构性变更（增删节点——浅 observe，嵌套 data 变更不触发）→置脏+提前到期。
+  //  suppress 守卫（markDocUnsyncedDirty/flushNow 同款）：boot-diverged 抑制窗内禁任何缓存写——
+  //  不变量不再靠「boot-diverged 期间永不留 pending timer」隐式推演。
+  doc.getMap('nodes').observe(() => { if (!suppressCacheWrites) localCache?.expireFlushSoon(buildCacheRecord); });
 
   // ── Y0b-5 T8：本地持久化绑定（cacheDisabled fail-closed 会话恒 null——T5 语义）──
   // 读盘先行（boot 读取）；回放须在 createProvider 之后（origin=provider 抑制 Update 帧回发）。
@@ -1725,6 +1727,7 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
       suppressCacheWrites = true;
       bootDiverged = true;
       bootDivergedSnapshot = bootRecord.snapshot;
+      // 保守武装 beforeunload：内存 doc 无未上行编辑（diverged 唯一副本在盘上,关页不丢）——宁可多一次警告,保守侧安全
       markDocUnsyncedDirty(doc, { skipCacheFlush: true });
       useCanvasStore.setState({ canvasDiverged: true });
     }

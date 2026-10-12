@@ -189,10 +189,13 @@ export class LocalCollabCache {
     this.flushTimer = setTimeout(() => { this.flushTimer = null; void this.put(build()); }, FLUSH_DEBOUNCE_MS);
   }
 
-  /** 结构性变更（增删节点）→置脏+提前到期（encode 在到期宏任务里——交互帧不被占用） */
+  /** 结构性变更（增删节点）→置脏+提前到期（encode 在到期宏任务里——交互帧不被占用）。
+   *  yjs 类型 observe 先于 doc.emit('update') 到达——孤立结构性事务（1s 窗内无前序编辑=
+   *  无 pending timer）此刻到达时兜底直接排 150ms（旧 `!this.flushTimer` 早退=结构性变更
+   *  实际等满 1s，「提前到期」只对 1s 内有前序编辑的形态生效=死路径）。 */
   expireFlushSoon(build: () => LocalCacheRecord): void {
-    if (this.disabled || !this.flushTimer) return;
-    clearTimeout(this.flushTimer);
+    if (this.disabled) return;
+    if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = setTimeout(() => { this.flushTimer = null; void this.put(build()); }, STRUCTURAL_EXPIRE_MS);
   }
 

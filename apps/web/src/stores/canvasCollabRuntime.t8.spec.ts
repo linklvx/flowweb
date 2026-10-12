@@ -73,8 +73,16 @@ function snapshotOf(build: (d: Y.Doc) => void): Uint8Array {
   build(d);
   return Y.encodeStateAsUpdate(d);
 }
+/** 播种节点构造（docShape 合形——type+position+最小 data；quota.spec remoteUpdate 同款+position）：
+ *  裸 id 节点 doc 侧无 type/position 而 hydrate 侧恒补（cs position 必填+type 回落 videoGen）——
+ *  checkProjectionInvariant 两侧失配=invariant_violation stderr 噪音（计数被污染）。 */
+const seedNode = (dataEntries: Array<[string, unknown]> = []): Y.Map<any> => new Y.Map<any>([
+  ['type', 'textInput'],
+  ['position', new Y.Map([['x', 0], ['y', 0]])],
+  ['data', new Y.Map(dataEntries)],
+]);
 const REC = (over: Partial<LocalCacheRecord> = {}): LocalCacheRecord => ({
-  snapshot: snapshotOf((d) => { d.getMap('nodes').set('seed-a', new Y.Map([['id', 'seed-a']])); }),
+  snapshot: snapshotOf((d) => { d.getMap('nodes').set('seed-a', seedNode()); }),
   unsyncedDirty: false, diverged: false, at: 1_000, ...over,
 });
 const localEdit = (d: Y.Doc, key = 'n-t8', payload: unknown = 1): void => {
@@ -132,25 +140,34 @@ describe('T8 boot 回放与能力位', () => {
     void p;
   });
 
-  it('编辑→trailing 1s 落盘（unsyncedDirty=true——T6 单源同值随快照存）+onFlushed 能力位；结构性变更（增删节点）提前到期', async () => {
+  it('编辑→trailing 1s 落盘（unsyncedDirty=true——T6 单源同值随快照存）+onFlushed 能力位', async () => {
     const p = await driveToSynced();
     const d = runtime.getDoc()!;
     localEdit(d);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(flushedRecord()?.unsyncedDirty).toBe(true);
     expect(useCanvasStore.getState().localCacheReady).toBe(true);
-    // 结构性变更：再编辑+增删节点（nodes map 变更）→ 提前到期（150ms 内写）
-    d.transact(() => { d.getMap('nodes').set('n-struct', new Y.Map([['id', 'n-struct']])); }, Origin.LocalUser);
-    await vi.advanceTimersByTimeAsync(150);
-    expect(JSON.stringify(flushedRecord()?.snapshot?.length ?? 0)).toBeTruthy();
-    expect((kit.data.get(KEY)!.get('snapshot') as LocalCacheRecord).unsyncedDirty).toBe(true);
     void p;
+  });
+
+  it('结构性变更（增删节点）提前到期：无前序编辑（无 pending timer）→总窗 <1s 已落盘+盘上快照含新节点（孤立结构性事务 observe 先于 update 到达——兜底排 150ms）', async () => {
+    await driveToSynced();
+    const d = runtime.getDoc()!;
+    expect(flushedRecord()).toBeUndefined();   // 前置锚：无前缀落盘（真实判据——旧断言 JSON.stringify(0)="0" 恒真=伪覆盖）
+    d.transact(() => { d.getMap('nodes').set('n-struct', seedNode()); }, Origin.LocalUser);
+    await vi.advanceTimersByTimeAsync(150);   // 总窗 <1s（trailing 1s 窗内）——红：observe 先到无 pending timer→no-op→等满 1s
+    const rec = flushedRecord();
+    expect(rec).toBeTruthy();   // 150ms 内已写
+    const decoded = new Y.Doc();
+    Y.applyUpdate(decoded, rec!.snapshot);
+    expect([...decoded.getMap('nodes').keys()]).toContain('n-struct');   // 盘上快照含新节点（非旧记录残留）
+    expect(rec!.unsyncedDirty).toBe(true);
   });
 
   it('★E36 不可达性断言【出口⑫b】：快照编码≤闸 ⇒ 回放后整量 SS2 帧真实 byteLength<服务端闸（maxDocBytes+ALLOWANCE——4404 结构性恒过的同源闸）', async () => {
     // 贴闸快照（编码≤LOCAL_CACHE_MAX_DOC_BYTES 的最坏合法形态）
     const blob = 'x'.repeat(LOCAL_CACHE_MAX_DOC_BYTES - 100_000);
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: snapshotOf((d) => { d.getMap('nodes').set('big', new Y.Map([['id', 'big'], ['blob', blob]])); }) })]]));
+    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: snapshotOf((d) => { d.getMap('nodes').set('big', seedNode([['blob', blob]])); }) })]]));
     await driveToSynced();
     const encoded = Y.encodeStateAsUpdate(runtime.getDoc()!);
     expect(encoded.byteLength).toBeLessThanOrEqual(LOCAL_CACHE_MAX_DOC_BYTES);   // 同源闸：快照编码≤闸
@@ -176,7 +193,7 @@ describe('T8 boot 回放与能力位', () => {
   });
 
   it('尺寸闸不过（boot 快照超闸）→能力位保持 false 维持「未保存」档（「本地已缓存」诚实分支）', async () => {
-    const big = snapshotOf((d) => { d.getMap('nodes').set('big', new Y.Map([['id', 'big'], ['blob', 'x'.repeat(LOCAL_CACHE_MAX_DOC_BYTES)]])); });
+    const big = snapshotOf((d) => { d.getMap('nodes').set('big', seedNode([['blob', 'x'.repeat(LOCAL_CACHE_MAX_DOC_BYTES)]])); });
     kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: big })]]));
     await driveToSynced();
     expect(useCanvasStore.getState().localCacheReady).toBe(false);
@@ -195,7 +212,7 @@ describe('T8 boot 回放与能力位', () => {
     await driveToSynced();
     const dA = runtime.getDoc()!;
     stampDocSchema(toDocLike(dA));   // 服务端盖戳形态（真快照源——fake provider 无 loadDocument 自愈）
-    dA.transact(() => { dA.getMap('nodes').set('rt-1', new Y.Map([['id', 'rt-1']])); }, Origin.LocalUser);
+    dA.transact(() => { dA.getMap('nodes').set('rt-1', seedNode()); }, Origin.LocalUser);
     await vi.advanceTimersByTimeAsync(1_000);   // trailing 落盘窗（结构性 150ms 提前到期同窗覆盖）
     expect(flushedRecord()?.unsyncedDirty).toBe(true);   // 前置锚：盘上有未确认编辑
     await runtime.destroyCollab();   // 会话终点=硬刷新形态（timer/连接/doc 全拆）
@@ -210,7 +227,7 @@ describe('T8 boot 回放与能力位', () => {
 // ══════════ diverged 闩锁（裁定 23⑨——出口⑳） ══════════
 describe('T8 diverged 持久化闩锁', () => {
   it('★diverged boot：盘上 diverged 记录→不自动回放（doc 无该内容=已拒内容复活根除）+canvasDiverged 置位+单源保守武装（横幅二选一）', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
     kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
     const p = await driveToSynced();
     expect(useCanvasStore.getState().canvasDiverged).toBe(true);
@@ -220,7 +237,7 @@ describe('T8 diverged 持久化闩锁', () => {
   });
 
   it('★diverged 会话写抑制：回放被抑（suppressCacheWrites）——pagehide 强制 flush 不得用空快照覆盖盘上 diverged 唯一副本', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
     const onDisk = REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true });
     kit.data.set(KEY, new Map([['snapshot', onDisk]]));
     await driveToSynced();
@@ -230,7 +247,7 @@ describe('T8 diverged 持久化闩锁', () => {
   });
 
   it('★发散闩锁回归【出口⑳】：放弃→清持久条目+reload（恢复自动缓存；顺序锚=discard 完成才 reload）', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
     kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
     await driveToSynced();
     runtime.discardLocalDiverged();
@@ -251,7 +268,7 @@ describe('T8 diverged 持久化闩锁', () => {
   });
 
   it('★闩锁不被 3s tick 自动解除【spec 修复 1a】：seed diverged→boot→在线 synced+read-write（exit-③ 三键全真）→advance 3.5s→canvasDiverged 仍 true+dirty 未清（healthySync 恒真=前提虚成立——diverged 编辑不在 doc,服务端最终接受对 boot-diverged 不可达）', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
     kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
     const p = await driveToSynced();
     // exit-③ 三键全真：canvasDiverged✓+readOnly 解除（authenticated read-write 后 connReadOnly=false）✓
@@ -265,12 +282,12 @@ describe('T8 diverged 持久化闩锁', () => {
   });
 
   it('★diverged 导出=盘上记录非内存 doc【spec 修复 1b】：boot-diverged 会话导出→产物含盘上节点（div-b）不含内存节点（srv-only——内存 doc 是服务端版本/空）+tag=diverged 文件名标注', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', new Y.Map([['id', 'div-b']])); });
+    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
     kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
     const p = await driveToSynced();
     // 内存 doc 混入服务端内容（origin=provider——远端 apply 语义,不置脏）:模拟服务端 synced 版本
     const d = runtime.getDoc()!;
-    d.transact(() => { d.getMap('nodes').set('srv-only', new Y.Map([['id', 'srv-only']])); }, p);
+    d.transact(() => { d.getMap('nodes').set('srv-only', seedNode()); }, p);
     stubBlobUrls();
     exportOptsLog.length = 0;
     try {
@@ -352,7 +369,7 @@ describe('T8 flush 触发与遥测', () => {
     await driveToSynced();   // 本会话干净 boot（无盘上记录——缓存装载体=pagehide 强制档）
     // 模拟标签 A pagehide 落盘 dirty 快照（绕本会话——直写底层数据；写入既有 Map——
     // 连接闭包捕获 open 时的 Map 引用，整体替换=写进旧引用不可见的平行宇宙）
-    const dirtySnapshot = snapshotOf((d) => { d.getMap('nodes').set('foreign', new Y.Map([['id', 'foreign']])); });
+    const dirtySnapshot = snapshotOf((d) => { d.getMap('nodes').set('foreign', seedNode()); });
     const onDisk = REC({ snapshot: dirtySnapshot, unsyncedDirty: true });
     kit.data.get(KEY)!.set('snapshot', onDisk);
     // 标签 B 干净态 pagehide → flushNow 写 clean 快照 → 守卫拦
