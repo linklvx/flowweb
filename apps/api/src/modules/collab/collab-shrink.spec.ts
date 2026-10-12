@@ -1041,6 +1041,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     }
     // 防退化锚：已知 pid 键控族必须全部出现在反射枚举中（改名/移除→此处红，豁免表滥用同红）
     for (const must of ['docTruth', 'docDelta', 'truthMeasuredAt', 'degradedDocs', 'quotaFrozenDocs', 'freezePending',
+      'freezePendingTimers',
       'recheckRounds', 'thawCooldown', 'docStatusRev', 'docStatusState', 'docGeneration', 'docResidue',
       'preVacuumSvCache', 'lastCompactAt', 'vacuumingDocs', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
       'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs']) {
