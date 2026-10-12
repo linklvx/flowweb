@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { REDIS_CLIENT, createManagedRedis } from './common/redis/managed-redis';
@@ -11,6 +11,7 @@ import { HomeBannerModule } from './modules/home-banner/home-banner.module';
 import { ProjectModule } from './modules/project/project.module';
 import { TeamModule } from './modules/team/team.module';
 import { CollabModule } from './modules/collab/collab.module';
+import { TelemetryThrottlerGuard } from './modules/collab/telemetry.controller';
 import { AdminModule } from './modules/admin/admin.module';
 import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
@@ -91,7 +92,10 @@ const env = validateEnv();
     // 注册在 AuthGuard 之前（边缘限流不依赖 req.user，未认证流量同样计数）。
     // 部署前提（tech-debt）：反代（nginx）后 req.ip 全是代理 IP——300/min 变全站共享单桶，
     // 生产部署前需 trust proxy 或自定义 tracker。
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Y0b-5 T1：TelemetryThrottlerGuard 子类——仅 /api/collab/telemetry 以 cookie 哈希分桶
+    // （sendBeacon 唯一凭据面），其余路由回落 super（req.ip）行为不变；注册序由
+    // telemetry.controller.spec 静态守卫锁死（限流先于鉴权——安全不变量禁调换）。
+    { provide: APP_GUARD, useClass: TelemetryThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     // AdminGuard 必须注册在 AuthGuard 之后（Nest APP_GUARD 按注册顺序执行，否则 req.user 尚未挂载）
     { provide: APP_GUARD, useClass: AdminGuard },

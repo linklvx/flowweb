@@ -562,3 +562,56 @@ export const collabDocVacuumTotal = new Counter({
   labelNames: ['result'],
   registers: [register],
 });
+
+/** ===== Y0b-5 T1（spec §5.6）：客户端遥测端点指标族（sendBeacon→/api/collab/telemetry 一律 204
+ *  ——4xx/413=客户端盲重试风暴面）。label 全部服务端枚举有界：type=11 白名单 / code=分配表值+other /
+ *  reason=受控词表 / from,to=三值闭集+other；批次级 clientBuild/csv/generation 只走结构化日志
+ *  （客户端可控=无界 label 基数面，零 info gauge）。detail 键域唯一来源=shared TELEMETRY_DETAIL_SCHEMA
+ *  （sanitizeTelemetryDetail 单源净化——本文件不复制值域表）。 */
+export const collabTelemetryEventsTotal = new Counter({
+  name: 'collab_telemetry_events_total',
+  help: '客户端遥测事件计数（type=11 白名单枚举——未知 type 不进本指标见 unknown_total）',
+  labelNames: ['type'],
+  registers: [register],
+});
+export const collabTelemetryCloseTotal = new Counter({
+  name: 'collab_telemetry_close_total',
+  help: '客户端上报 close_code 分布（code=分配表值，越界折 other 防基数）',
+  labelNames: ['code'],
+  registers: [register],
+});
+export const collabTelemetryAuthRejectTotal = new Counter({
+  name: 'collab_telemetry_auth_reject_total',
+  help: '客户端上报 auth_reject 分布（reason=CollabAuthReason 词表，越界折 other）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+export const collabTelemetryWsReasonTotal = new Counter({
+  name: 'collab_telemetry_ws_reason_total',
+  help: 'ws_status 异常原因（reason=unsynced-lag/local-cache-degraded，越界折 other）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+export const collabTelemetryWsTransitionTotal = new Counter({
+  name: 'collab_telemetry_ws_transition_total',
+  help: 'ws 状态迁移计数（from/to∈connecting/connected/disconnected 三值闭集，越界折 other）',
+  labelNames: ['from', 'to'],
+  registers: [register],
+});
+export const collabTelemetryProjectionMs = new Histogram({
+  name: 'collab_telemetry_projection_ms',
+  help: '客户端投影耗时毫秒分布（projection_duration.ms——非 number 剥键防 observe 炸）',
+  buckets: [5, 25, 100, 500, 2500],
+  registers: [register],
+});
+export const collabTelemetryUnknownTotal = new Counter({
+  name: 'collab_telemetry_unknown_total',
+  help: '白名单外 type 计数（不记 type 值——客户端自由字符串禁进 label）',
+  registers: [register],
+});
+export const collabTelemetryRejectedTotal = new Counter({
+  name: 'collab_telemetry_rejected_total',
+  help: '批次/单条拒绝计数（reason=batch-size 超12/event-bytes 单条>512B/sample-cap 单type>5）',
+  labelNames: ['reason'],
+  registers: [register],
+});
