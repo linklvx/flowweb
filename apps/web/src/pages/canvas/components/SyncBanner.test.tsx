@@ -7,6 +7,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { isTerminalReason, SS2_OVER_LIMIT_TERMINAL_REASON } from '@flowweb/shared';
 import { SyncBanner } from './SyncBanner';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { escapeWithLocalExport } from '@/stores/canvasCollabRuntime';
 
 vi.mock('@/stores/canvasCollabRuntime', () => ({
   escapeWithLocalExport: vi.fn(),
@@ -25,10 +26,25 @@ beforeEach(reset);
 afterEach(cleanup);
 
 describe('SyncBanner 分档（T9 Step6）', () => {
-  it('版本族终态（schema-outdated）+逃生 pending→逃生按钮（导出本地画布并刷新）', () => {
+  it('T6 质量修复 C1：版本族终态+逃生 pending→escape 档优先于 version-family 自有分支（「正在自动刷新」是假承诺——reload 已被 dirty 分叉）', () => {
     useCanvasStore.setState({ wsAuthNotice: { reason: 'schema-outdated', terminal: true }, collabEscapePending: true });
     render(<SyncBanner />);
-    expect(screen.getByText('系统已更新，页面版本过期')).toBeInTheDocument();
+    expect(screen.getByText(/有未同步本地编辑，已阻止刷新/)).toBeInTheDocument();
+    expect(screen.getByTestId('collab-escape-btn')).toBeInTheDocument();
+    expect(screen.queryByText('系统已更新，页面版本过期')).not.toBeInTheDocument();
+  });
+
+  it('T6 质量修复 C1：escape 分叉独立高位分支——非 terminal 上下文（重试连接等 8 处 reload 点分叉）横幅可见+导出按钮可点', () => {
+    useCanvasStore.setState({ connUi: 'banner', collabEscapePending: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/有未同步本地编辑，已阻止刷新——可导出本地副本/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('collab-escape-btn'));
+    expect(escapeWithLocalExport).toHaveBeenCalledTimes(1);
+  });
+
+  it('T6 质量修复 C1：escape 档位次=配额终态之前（4410 分叉场景——QuotaBanner vacuuming 档同时压盖让位）', () => {
+    useCanvasStore.setState({ wsQuotaTerminal: { code: 4410, reason: 'doc-vacuuming' }, collabEscapePending: true });
+    render(<SyncBanner />);
     expect(screen.getByTestId('collab-escape-btn')).toBeInTheDocument();
   });
 
@@ -199,6 +215,7 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
   it('文案 denylist 面=单链全分支——逐档实例化扫描：跨刷新承诺词「可尝试刷新」零命中', () => {
     const branchStates: Array<Parameters<typeof useCanvasStore.setState>[0]> = [
       { wsAuthNotice: { reason: 'schema-outdated', terminal: true }, collabEscapePending: true },
+      { connUi: 'banner' as const, collabEscapePending: true },   // T6 质量修复 C1：非 terminal escape 档
       { wsAuthNotice: { reason: 'message-too-big', terminal: true } },
       { wsAuthNotice: { reason: 'session-expired', terminal: true } },
       { wsAuthNotice: { reason: 'forbidden', terminal: true } },

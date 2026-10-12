@@ -17,6 +17,7 @@ const reloadSpy = vi.fn();
 const reset = () => useCanvasStore.setState({
   quotaOver: false, quotaLimitBytes: 0, quotaTxBytes: 0, quotaSoftLimitBytes: 0,
   quotaResidueBytes: undefined, localDocBytes: 0, localDelta: 0, wsQuotaTerminal: null,
+  collabEscapePending: false,
 });
 
 beforeEach(() => {
@@ -106,5 +107,11 @@ describe('QuotaBanner 三级分档（T11）', () => {
     render(<QuotaBanner projectId="p1" />);
     expect(screen.getByText(/正在重建画布历史/)).toBeInTheDocument();
     expect(screen.queryByText(/已超出容量上限/)).not.toBeInTheDocument();
+  });
+
+  it('T6 质量修复 C1：vacuuming 档 escape 分叉压盖——collabEscapePending 真（safeReload 被 dirty 分叉）→让位 SyncBanner escape 档，「即将自动刷新」假承诺不同屏', () => {
+    useCanvasStore.setState({ wsQuotaTerminal: { code: 4410, reason: 'doc-vacuuming' }, collabEscapePending: true });
+    const { container } = render(<QuotaBanner projectId="p1" />);
+    expect(container.querySelector('[data-testid="collab-quota-banner"]')).toBeNull();
   });
 });

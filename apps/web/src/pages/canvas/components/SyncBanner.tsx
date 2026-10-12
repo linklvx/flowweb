@@ -1,9 +1,13 @@
 // apps/web/src/pages/canvas/components/SyncBanner.tsx
 // Y0b-3 T9 Step6：协作横幅（批1-5 connUi 注释承诺的 SyncBanner 消费者）。
 // Y0b-5 T6：横幅单链仲裁（spec §5.7 v2.2 互斥裁定）——resolveCanvasBanner 纯函数（输入=store 投影，
-// 输出=档位+文案+动作），九级优先链任一时刻至多渲一档：
-//   terminal 鉴权 > 配额终态 > diverged > oversized > degraded > persist 未保存 > write-frozen
-//   > readyProbeHint > syncLag > connUi。
+// 输出=档位+文案+动作），十级优先链任一时刻至多渲一档：
+//   terminal 鉴权 > escape-pending > 配额终态 > diverged > oversized > degraded > persist 未保存
+//   > write-frozen > readyProbeHint > syncLag > connUi。
+// escape-pending（T6 质量修复 C1——独立高位分支）：safeReload 被 unsyncedDirty 分叉置
+//   collabEscapePending 的唯一可见化出口（9 处 reload 点共用——分叉在任何上下文必可见）。
+//   位次=terminal 鉴权档之后、配额终态之前（逃生阻断是最高运营优先的即时状态）；与 version-family
+//   自有分支并存时 escape 优先（其「正在自动刷新」是假承诺——reload 已被分叉阻断）。
 // diverged（裁定 24⑬ 高位）：服务端已明确拒收（readOnly 期本地编辑），"自动合并"承诺为假——
 //   三出边=导出 .yjs / 放弃本地副本（二次确认,不可逆动作排在保全动作之后）/ 服务端最终接受（runtime tick）。
 // 能力位（裁定 21）：localCacheReady 字段已落,单链 persist 档分支结构就位——T6 阶段文案恒维持
@@ -95,10 +99,20 @@ export interface CanvasBannerInput {
 }
 
 export type CanvasBannerBranch =
-  | ({ kind: 'terminal-auth' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
+  | ({ kind: 'terminal-auth' | 'escape-pending' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
       | 'write-frozen' | 'sync-lag' | 'conn-ui' } & BannerContent)
   | { kind: 'quota-terminal' }   // 渲染权=QuotaBanner（单链仲裁位次仍生效——压 diverged 以下全档）
   | null;
+
+/** escape 分叉档（T6 质量修复 C1）：safeReload 被 unsyncedDirty 分叉（collabEscapePending 置位）的
+ *  唯一可见化出口——9 处 reload 点共用（重试连接/瘦身重连/重建历史等分叉后横幅必达）。 */
+function escapePendingBranch(): CanvasBannerBranch {
+  return {
+    kind: 'escape-pending', tone: 'warn',
+    text: '有未同步本地编辑，已阻止刷新——可导出本地副本',
+    action: <EscapeButton />,
+  };
+}
 
 /** 单链仲裁纯函数：输入=store 投影,输出=胜出档位（任一时刻至多一档——互斥裁定 spec §5.7 v2.2）。
  *  denylist 面=本函数全分支文案（跨刷新承诺词扫描锚——非三处字符串）。 */
@@ -106,12 +120,12 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
   if (input.wsAuthNotice?.terminal) {
     const r = input.wsAuthNotice.reason;
     if (VERSION_FAMILY.has(r)) {
+      // C1：escape 并存时优先于 version-family 自有分支——reload 已被 dirty 分叉,
+      // 「正在自动刷新…」是假承诺（handleVersionTerminal 预 gate 下 safeReload('version') 永不落此分叉）
+      if (input.collabEscapePending) return escapePendingBranch();
       return {
         kind: 'terminal-auth', tone: 'error', text: '系统已更新，页面版本过期',
-        // 逃生 pending=runtime reload 自愈不可行（loop 保护/未同步守卫/ready 不可达）——落一键逃生
-        action: input.collabEscapePending
-          ? <EscapeButton />
-          : <span className="text-xs opacity-80">正在自动刷新…</span>,
+        action: <span className="text-xs opacity-80">正在自动刷新…</span>,
       };
     }
     if (r === MESSAGE_TOO_BIG_TERMINAL_REASON) {
@@ -131,6 +145,8 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
     }
     return { kind: 'terminal-auth', tone: 'error', text: '协作连接已终止' };
   }
+  // C1：escape 独立高位分支——terminal 鉴权档之后、配额终态之前（逃生阻断是最高运营优先的即时状态）
+  if (input.collabEscapePending) return escapePendingBranch();
   if (input.wsAuthNotice) return { kind: 'terminal-auth', tone: 'warn', text: '服务繁忙，正在自动重试…' };
   if (input.wsQuotaTerminal) {
     // Y0b-5 T6（裁定 25⑸①）：ss2-over-limit=客户端本地超额（服务端 doc 往往小——瘦身指引治不了

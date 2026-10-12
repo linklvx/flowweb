@@ -37,6 +37,7 @@ export function QuotaBanner({ projectId }: { projectId: string }) {
   const quotaSoftLimitBytes = useCanvasStore((s) => s.quotaSoftLimitBytes);
   const localDocBytes = useCanvasStore((s) => s.localDocBytes);
   const wsQuotaTerminal = useCanvasStore((s) => s.wsQuotaTerminal);
+  const collabEscapePending = useCanvasStore((s) => s.collabEscapePending);
   const [shrinkOpen, setShrinkOpen] = useState(false);
 
   const reason = wsQuotaTerminal?.reason;
@@ -60,6 +61,9 @@ export function QuotaBanner({ projectId }: { projectId: string }) {
 
   // 终态档（4410 双 reason）：横幅常驻无动作——reload 由 runtime close 分支调度（1.5s）
   if (vacuumingFamily) {
+    // T6 质量修复 C1：escape 分叉压盖——safeReload 被 dirty 分叉（collabEscapePending）时
+    // 「即将自动刷新」是假承诺；让位 SyncBanner escape 档（导出入口），ss2-over-limit 让位同款形态。
+    if (collabEscapePending) return null;
     return (
       <div
         data-testid="collab-quota-banner"

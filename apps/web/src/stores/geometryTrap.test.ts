@@ -193,8 +193,12 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   // + Y0b-5 T6 造案 +17 处/1 新文件（canvasCollabRuntime.t6.spec.ts——unsyncedDirty 单源/diverged
   //   三出边/safeReload/persist-status 用例 resetStore+字段注入，同例外；SyncBanner.test.tsx 存量
   //   文件 +10 处单链仲裁字段注入，同 T9/T4 例外）。
+  // + Y0b-5 T6 质量修复造案 +5 处/0 新文件（SyncBanner.test +2——escape 独立高位分支非 terminal
+  //   可见性+配额终态位次注入；QuotaBanner.test +1——vacuuming 档 escape 压盖注入；ShrinkDialog.test
+  //   +2——M1/M2 safeReload 元数据调度时刻快照用例注入；均存量 allow-list 文件，store 注入是
+  //   用例存在目的，同 T9/T4/T11 例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 281;
+  const BASELINE_COUNT = 286;
   const BASELINE_FILES = 52;
 
   function* walkTestFiles(dir: string): Generator<string> {
@@ -209,7 +213,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
     }
   }
 
-  it('test/spec 面 store 侧 setState 处数 ≤281 且文件数 ≤52（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1+Y0b-4 T5 quota 造案 2/1+D-14 quota spec 补登 1/1+T10 判据④/分块粘贴造案 8/1+T11 quota UX 造案 15/2+Y0b-5 T2 遥测造案 1/1+Y0b-5 T4 探测/横幅造案 3/0+Y0b-5 T5 造案 1/1+Y0b-5 T6 单源/diverged/safeReload 造案 27/1，只降不升）', () => {
+  it('test/spec 面 store 侧 setState 处数 ≤286 且文件数 ≤52（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1+Y0b-4 T5 quota 造案 2/1+D-14 quota spec 补登 1/1+T10 判据④/分块粘贴造案 8/1+T11 quota UX 造案 15/2+Y0b-5 T2 遥测造案 1/1+Y0b-5 T4 探测/横幅造案 3/0+Y0b-5 T5 造案 1/1+Y0b-5 T6 单源/diverged/safeReload 造案 27/1+Y0b-5 T6 质量修复 escape 档/元数据快照造案 5/0，只降不升）', () => {
     let count = 0;
     let files = 0;
     for (const f of walkTestFiles(SRC_ROOT)) {

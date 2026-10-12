@@ -17,6 +17,20 @@ vi.mock('@hocuspocus/provider', async () => {
   return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
+/** T6 质量修复 M2：exportLocalBackup opts 透传观测（importOriginal 包裹转发——行为零改动,
+ *  仅记录 tag 面——jsdom 文件名不可断言,观测收参侧） */
+const exportOptsLog: Array<{ tag?: string }> = [];
+vi.mock('@/collab/canvas-local-backup', async (importOriginal) => {
+  const orig = await importOriginal<Record<string, unknown>>();
+  return {
+    ...orig,
+    exportLocalBackup: (d: unknown, opts?: { tag?: string }) => {
+      exportOptsLog.push(opts ?? {});
+      return (orig.exportLocalBackup as (d: unknown, opts?: { tag?: string }) => unknown)(d, opts);
+    },
+  };
+});
+
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
 const reloadSpy = vi.fn();   // jsdom Location [Unforgeable] 不可 spy——vi.stubGlobal('location') 整体替换
 
@@ -67,6 +81,7 @@ beforeEach(() => {
   _resetCollabDiagForTest();
   _resetUnloadGuardForTest();
   resetStore();
+  exportOptsLog.length = 0;
   reloadSpy.mockClear();
   vi.stubGlobal('location', { reload: reloadSpy });
 });
@@ -219,18 +234,19 @@ describe('Y0b-5 T6：safeReload', () => {
     expect(reloadSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('generation 固定次序（裁定 20）=导出（标注旧代）→purge→reload；调度时刻闭包捕获 key（T5 Minor①——执行时不读现刻 session）', async () => {
+  it('generation 固定次序（裁定 20）=导出（标注旧代）→purge→reload；调度时刻闭包捕获 key+tag（T5 Minor①/T6 M2——执行时不读现刻 session/store）', async () => {
     const blobs: Blob[] = [];
     stubBlobUrls(blobs);
     try {
       await driveToSynced('p-t6-gen', { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' });
-      // 调度时刻捕获 key（consumeGenerationJump 形态——执行窗口内 session 变化不影响）
-      setTimeout(() => runtime.safeReload('generation', { generationCacheKey: 'k-gen-3' }), 1_500);
+      // 调度时刻捕获 key+tag（consumeGenerationJump 形态——执行窗口内 session/store 变化不影响）
+      setTimeout(() => runtime.safeReload('generation', { generationCacheKey: 'k-gen-3', generationTag: 3 }), 1_500);
       await vi.advanceTimersByTimeAsync(1_500);
       await vi.advanceTimersByTimeAsync(0);
       expect(blobs).toHaveLength(2);                                           // 双产物先于 reload
       expect(blobs[0].type).toBe('application/octet-stream');                  // .yjs（标注旧代）
       expect(blobs[1].type).toBe('application/json');                          // doc 反投影
+      expect(exportOptsLog).toEqual([{ tag: 'oldgen3' }]);                     // M2：tag 调度时刻快照透传
       expect(reloadSpy).toHaveBeenCalledTimes(1);
     } finally { restoreBlobUrls(); }
   });
@@ -241,6 +257,40 @@ describe('Y0b-5 T6：safeReload', () => {
     runtime.safeReload('generation', { generationCacheKey: 'k' });
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(useCanvasStore.getState().collabEscapePending).toBe(true);
+  });
+
+  it('T6 质量修复 C1：escape 分叉自动复位路①——dirty 清零（3s tick 双条件）→collabEscapePending 随单源复位（escape 横幅消失,用户可再触发 reload）', async () => {
+    const p = await driveToSynced();
+    localEdit(runtime.getDoc()!);
+    runtime.safeReload('generic');
+    expect(useCanvasStore.getState().collabEscapePending).toBe(true);
+    p.unsyncedChanges = 0;                       // fake 计数面（置位侧 fake 库不自增）
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+    expect(useCanvasStore.getState().collabEscapePending).toBe(false);   // 自动复位（禁手动）
+  });
+
+  it('T6 质量修复 C1：escape 分叉自动复位路②——escapeWithLocalExport 导出完成→复位（导出后不自动 reload——用户显式第二次动作）', async () => {
+    await driveToSynced();
+    localEdit(runtime.getDoc()!);
+    runtime.safeReload('generic');
+    expect(useCanvasStore.getState().collabEscapePending).toBe(true);
+    const blobs: Blob[] = [];
+    stubBlobUrls(blobs);
+    try {
+      runtime.escapeWithLocalExport();
+      expect(blobs).toHaveLength(2);                                  // 导出确实完成
+      expect(useCanvasStore.getState().collabEscapePending).toBe(false);
+      expect(reloadSpy).not.toHaveBeenCalled();
+    } finally { restoreBlobUrls(); }
+  });
+
+  it('T6 质量修复 I1：dirty→destroyCollab（路由跳 /works）→unsynced reason 解除——doc 已销毁 dirty 语义消亡,关标签禁弹假确认框', async () => {
+    await driveToSynced();
+    localEdit(runtime.getDoc()!);
+    expect(shouldWarnUnload()).toBe(true);
+    await runtime.destroyCollab();
+    expect(shouldWarnUnload()).toBe(false);
   });
 });
 

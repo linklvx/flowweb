@@ -132,5 +132,9 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-5 T6（2026-10-12）：canvasCollabRuntime.t6.spec.ts 造案 +6 处/1 新文件（unsyncedDirty
   //   单源/diverged/safeReload/persist-status 用例 resetStore+字段注入）+SyncBanner.test.tsx 存量
   //   +10 处（单链仲裁字段注入）→ 281 处 / 52 文件。
-  effective: { count: 281, files: 52 },
+  // Y0b-5 T6 质量修复（2026-10-13）：escape 档/元数据快照造案 +5 处/0 新文件（SyncBanner.test +2
+  //   ——escape 独立高位分支非 terminal 可见性+配额终态位次注入；QuotaBanner.test +1——vacuuming
+  //   档 escape 压盖注入；ShrinkDialog.test +2——M1/M2 safeReload 元数据调度时刻快照用例注入；
+  //   均存量 allow-list 文件，store 注入是用例存在目的〔同 T9/T4/T11 例外〕）→ 286 处 / 52 文件。
+  effective: { count: 286, files: 52 },
 };

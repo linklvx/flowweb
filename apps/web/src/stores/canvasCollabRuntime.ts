@@ -150,10 +150,13 @@ function markDocUnsyncedDirty(d: Y.Doc): void {
   armUnloadWarning('unsynced');
 }
 
-/** 单源清零（3s tick 唯一调用）+beforeunload reason 解除 */
+/** 单源清零（3s tick/discard 放弃出边/teardown 消亡）+beforeunload reason 解除。
+ *  T6 质量修复 C1：dirty 清零=escape 分叉的阻断条件消亡——collabEscapePending 同点复位
+ *  （escape 横幅消失,用户可再触发 reload）。 */
 function clearDocUnsyncedDirty(d: Y.Doc): void {
   if (!unsyncedDirtyDocs.delete(d)) return;
   disarmUnloadWarning('unsynced');
+  useCanvasStore.setState({ collabEscapePending: false });
 }
 
 /** 批0d beforeunload 谓词半边；批1-3 并入 rebuildPending（终态重建窗口旧实例不可读——标记武装）；
@@ -482,8 +485,10 @@ const GENERATION_RELOAD_DELAY_MS = 1_500;
 function consumeGenerationJump(): void {
   getUndoManager()?.clear();
   message.warning('正在重建画布历史，即将自动刷新');
-  const generationCacheKey = session?.cacheKey;   // T5 Minor①：调度时刻捕获
-  setTimeout(() => safeReload('generation', { generationCacheKey }), GENERATION_RELOAD_DELAY_MS);
+  // T5 Minor①/T6 M2：key+tag 调度时刻快照（同点）——执行窗口内 session/store 可能已换
+  const generationCacheKey = session?.cacheKey;
+  const generationTag = useCanvasStore.getState().pendingGenerationReload;
+  setTimeout(() => safeReload('generation', { generationCacheKey, generationTag }), GENERATION_RELOAD_DELAY_MS);
 }
 
 /** Y0b-5 T6：safeReload——9 处 reload 点唯一收敛出口（census ⑫：裸 location.reload 全仓仅此一处）。
@@ -498,13 +503,23 @@ function consumeGenerationJump(): void {
  *     handleVersionTerminal 调用前已分流）。 */
 export type SafeReloadReason = 'version' | 'generation' | 'quota-shrink' | 'generic';
 
-export function safeReload(reason: SafeReloadReason = 'generic', opts?: { generationCacheKey?: string }): void {
+/** T6 质量修复 M1：当前会话四维缓存键访问器（ShrinkDialog vacuum 善后调度时刻快照消费——
+ *  与 consumeGenerationJump/4410 的 session?.cacheKey 同源;无会话/cacheDisabled→undefined=purge 跳过） */
+export function getActiveCacheKey(): string | undefined {
+  return session?.cacheKey;
+}
+
+export function safeReload(
+  reason: SafeReloadReason = 'generic',
+  opts?: { generationCacheKey?: string; generationTag?: number },
+): void {
   if (hasUnsyncedCanvasChanges()) {
     useCanvasStore.setState({ collabEscapePending: true });
     return;
   }
   if (reason === 'generation') {
-    const tag = useCanvasStore.getState().pendingGenerationReload;
+    // T6 M2：tag=调度时刻快照（与 key 同时点——执行窗口内 store 变化不渗入）;未传兜底 0（'oldgen'）
+    const tag = opts?.generationTag ?? 0;
     try {
       exportLocalBackup(doc, { tag: tag > 0 ? `oldgen${tag}` : 'oldgen' });
     } catch { /* 导出失败不阻断 purge+reload——世代隔离是正确性主锚（jsdom/无 createObjectURL 同此路径） */ }
@@ -524,6 +539,9 @@ export function safeReload(reason: SafeReloadReason = 'generic', opts?: { genera
 export function escapeWithLocalExport(): void {
   try {
     exportLocalBackup(doc);
+    // T6 质量修复 C1：导出完成=逃生待决态消亡——pending 复位（用户可再触发 reload；dirty 仍在,
+    // beforeunload 守卫不失）；导出失败（catch）不复位——用户可重试点击
+    useCanvasStore.setState({ collabEscapePending: false });
   } catch { /* 导出失败不阻断——用户可重试点击 */ }
 }
 
@@ -1374,10 +1392,11 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         // 4410 双 reason：代际被超（vacuum 进行中/SV 过期）——reload 后空 SV 放行即自愈，不循环
         useCanvasStore.setState({ wsQuotaTerminal: { code: CollabCloseCode.GENERATION_SUPERSEDED, reason } });
         message.warning('正在重建画布历史，即将自动刷新');
-        // Y0b-5 T5/T6：与 consumeGenerationJump 同款顺序锚+调度时刻捕获 key——safeReload('generation')
+        // Y0b-5 T5/T6：与 consumeGenerationJump 同款顺序锚+调度时刻捕获 key/tag——safeReload('generation')
         // 固定次序=导出（标注旧代）→purge→reload；延时让用户看到提示再刷
         const generationCacheKey = session?.cacheKey;
-        setTimeout(() => safeReload('generation', { generationCacheKey }), GENERATION_RELOAD_DELAY_MS);
+        const generationTag = useCanvasStore.getState().pendingGenerationReload;
+        setTimeout(() => safeReload('generation', { generationCacheKey, generationTag }), GENERATION_RELOAD_DELAY_MS);
       } else {
         useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
       }
@@ -1747,7 +1766,13 @@ async function teardownSession(): Promise<void> {
     if (provider === p) provider = null;
   }
   if (awarenessBridge && provider === null) awarenessBridge = null;
-  if (d) d.destroy();
+  if (d) {
+    d.destroy();
+    // T6 质量修复 I1：doc 已销毁——dirty 语义随之消亡,单源解除；WeakSet 未含该实例时
+    // clearDocUnsyncedDirty 早退不 disarm,故显式解除兜底（路由跳 /works 后关标签禁弹假确认框）
+    clearDocUnsyncedDirty(d);
+    disarmUnloadWarning('unsynced');
+  }
   if (doc === d) {
     detachUndoManager();
     doc = null;
