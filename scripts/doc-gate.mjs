@@ -109,8 +109,11 @@ function docNameForms(relPath) {
 
 // ── 4. 代码扫描域（apps/**、packages/**、scripts/**、.github/**；C1 引用扫描用；含 e2e audit md——它们是 CI 工件）
 // 排除自身 doc-gate.mjs：REQUIRED_C1 名单若被自身源码命中会构成自引用假绿。
+// 排除 check-plan-anchors.mjs（T-prep 同款理由）：其 ACTIVE_DOCS 白名单路径是门禁配置引用，
+// 非叙述性证据——命中会把活 plan 推成 canonical，canonical 级引用存在性检查对"引用未来文件的活 plan"必红。
 const C1_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.yml', '.yaml', '.css', '.scss', '.html', '.vue', '.md', '.sql', '.sh']);
 const SKIP_CODE_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo', 'test-results', 'playwright-report']);
+const C1_SELF_EXEMPT = new Set(['doc-gate.mjs', 'check-plan-anchors.mjs']);
 function walkCode(dirAbs, out) {
   let entries;
   try { entries = fs.readdirSync(dirAbs, { withFileTypes: true }); } catch { return; }
@@ -118,7 +121,7 @@ function walkCode(dirAbs, out) {
     if (SKIP_CODE_DIRS.has(e.name)) continue;
     const p = path.join(dirAbs, e.name);
     if (e.isDirectory()) walkCode(p, out);
-    else if (e.isFile() && C1_EXT.has(path.extname(e.name)) && !(e.name === 'doc-gate.mjs' && toRel(p).startsWith('scripts/'))) out.push(p);
+    else if (e.isFile() && C1_EXT.has(path.extname(e.name)) && !(C1_SELF_EXEMPT.has(e.name) && toRel(p).startsWith('scripts/'))) out.push(p);
   }
 }
 const codeFilePaths = [];

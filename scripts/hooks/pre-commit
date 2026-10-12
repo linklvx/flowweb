@@ -8,3 +8,7 @@ command -v gitleaks >/dev/null 2>&1 || {
   exit 1
 }
 gitleaks protect --staged --config "$(git rev-parse --show-toplevel)/.gitleaks.toml" --redact -v
+
+# T-prep（Y0b-5）：静态档门禁——fast 前缀 ∩ 跳 DB 步（三正交轴组合快捷；git hooks 从仓根执行）。
+# 出口判据只认 `pnpm verify` 全量——本档是 commit 时的快速反馈，非出口。
+node scripts/verify-chain.mjs --tier=fast --static-only

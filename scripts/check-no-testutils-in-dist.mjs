@@ -3,7 +3,12 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'api', 'dist');
-if (!existsSync(dist)) { console.log('SKIP: dist not built'); process.exit(0); }
+if (!existsSync(dist)) {
+  // T-prep fail-open 修复：verify 链传 --require-dist（dist 缺失即红——链上 nest build 同档先行构建，
+  // 缺失=异常非未构建；无旗标保留 SKIP 0 供独立快检）。
+  if (process.argv.includes('--require-dist')) { console.error('FAIL: dist not built（--require-dist）'); process.exit(1); }
+  console.log('SKIP: dist not built'); process.exit(0);
+}
 const bad = [];
 (function walk(d) {
   for (const e of readdirSync(d, { withFileTypes: true })) {
