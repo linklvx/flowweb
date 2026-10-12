@@ -187,7 +187,9 @@ export class CollabConnectionSupervisor {
     let decision: CloseDecision;
     if (probe.kind === 'none') {
       // terminal（resolveCloseAction 双键分型的 terminalReason 透传）
-      const action = resolveCloseAction(code!, reason);   // close 路由 kind==='none' ⇒ code 必已定义（undefined 归 auth 回落=exponential）
+      const action = resolveCloseAction(code!, reason);   // kind==='none' 两源：close 路由 terminal 档（code 有值）｜
+      // code===undefined 且 isTerminalReason(reason)（shared:106 auth 语义分支）——后者畸形组合 code! 实为 undefined，
+      // resolveCloseAction 全码不匹配落表尾 backoff（terminalReason===undefined），?? reason ?? '' 透传 raw reason——行为安全
       this.terminalDisconnect(action.terminalReason ?? reason ?? '');
       decision = { terminal: true, terminalReason: this.terminalReason };
     } else if (probe.kind === 'silent-renew') {
@@ -197,7 +199,7 @@ export class CollabConnectionSupervisor {
         decision = { terminal: true, terminalReason: 'session-expired' };
       } else {
         this.silentRenewUsed = true;
-        this.scheduleReconnect(500 + this.jitter(SILENT_RENEW_JITTER_MAX_MS));
+        this.scheduleReconnect(this.planWithJitter('close', code, reason ?? ''));   // silent-renew 档基值 500ms 单源 shared（probe 已定档——planWithJitter 必返同档）
         decision = { terminal: false };
       }
     } else {

@@ -15,7 +15,7 @@ vi.mock('../collab/reconnectTransport', () => ({
   createReconnectingWebSocket: (url: string) => {
     transportUrls.push(url);
     class TransportWebSocket extends WebSocket {}
-    return { WebSocketClass: TransportWebSocket, handle: { reconnect: () => false } };
+    return { WebSocketClass: TransportWebSocket };
   },
 }));
 

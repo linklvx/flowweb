@@ -155,10 +155,12 @@ let unhealthySince: number | null = null; // 从未健康也从 t0 计时（star
 let plannedRestartUntil = 0;
 
 // Y0b-3 T9（F-1）：terminal 真停连电平——authenticationFailed 与 close-terminal 双写点，
-// initCollab/destroyCollab 会话边界复位。消费=recoverConnection 复发防线早退：
-// ⚠ 库 connect() 首行置回 shouldConnect=true（esm:225）⇒ terminal 后任何恢复路径禁再调 connect
-//（watchdog 兜底/静默续期/1012 迟到帧都在此拦下）。watchdog machine 输入的 terminal 值源
-// =wsAuthNotice.terminal（心跳 inputs——双写点同帧落 store，电平是 store 读的等价速记）。
+// initCollab/destroyCollab 会话边界复位。消费=recoverConnection 复发防线早退（生产调用面已随
+// watchdog 降级清空——现为测试缝）。⚠ 库 connect() 首行置回 shouldConnect=true（esm:225）
+// ⇒ terminal 后任何恢复路径禁再调 connect——生产防线=supervisor.phase==='terminal'
+//（assertHealthy/routeClose/beginTransientBackoff 三入口拦截：terminal 后零排程零 connect，
+// watchdog 兜底/静默续期/1012 迟到帧三路径全在此拦下；watchdog inputs 已无 terminal 字段
+//——Y0b-5 T3b 缩至 {now,healthy,unhealthySince}）。
 let terminalSuppressed = false;
 // Y0b-3 T9（S-4）：4401 'session-expired' 静默续期闩锁已随 Y0b-5 T3b 收编 supervisor
 //（一会话一次；authenticated 重置——silentRenewUsed 语义原地，runtime 零副本）。
@@ -1073,7 +1075,8 @@ function bindProviderListeners(p: HocuspocusProvider): void {
 }
 
 /** 批1-3：provider 工厂（initCollab 会话起点与终态重建共用）——批1-0 transport 薄层注入
- *  （门 B 四点验证形态：库每次重连经注入类新建 socket，handle 跟踪 current）+ 六监听挂载。
+ *  （门 B 四点验证形态：库每次重连经注入类新建 socket——句柄已随 Y0b-5 T3b 退役，
+ *  socket 单实例注册表见 reconnectTransport.ts）+ 六监听挂载。
  *  Y0b-3 T5 版本通道：URL 单次构造（transport/provider 同一字符串——两处独立调用=漂移风险），
  *  恰含 csv=CLIENT_PROTOCOL_VERSION（服务端版本门消费）+cb=__CLIENT_BUILD__（审计透传，Y0b-5 遥测）。
  *  Y0b-5 T3 pin（supervisor 收归唯一形态——库默认 0 pin 的一切正确性建立在库默认上=裸底座）：
@@ -1081,8 +1084,8 @@ function bindProviderListeners(p: HocuspocusProvider): void {
  *     ladder 用尽 connect() promise reject ⇒ 调用方必 catch（esm:242-244 rethrow）。
  *   - delay/maxDelay/messageReconnectTimeout 显式钉=库默认值（防升级漂移；30s 判死+4408'forced'
  *     合成路径保留——纳入 app 分级口径）。
- *   - autoConnect:false——库构造器首连未 await 未 catch；首连改显式 connectOnce 形态（本 commit
- *     暂内联 createProvider 尾，T3b supervisor 落地后改道）。
+ *   - autoConnect:false——库构造器首连未 await 未 catch；首连=显式 connectOnce 形态
+ *     （Y0b-5 T3b 已落地：createProvider 尾 supervisor.attach+connectOnce——全仓唯一 connect）。
  *  ★open 归零 shouldConnect（裁定 23⑴——收归唯一所有者的结构保证）：库 onClose 1s 重连定时器
  *   守卫=`!cancelWebsocketRetry && shouldConnect`（esm:411-413）——shouldConnect≡false ⇒ 库定时器
  *   结构性永不排程（setConfiguration 公开 setter，零 override 零 monkeypatch）。显式 connect() 不受
