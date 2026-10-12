@@ -11,6 +11,7 @@ import {
   buildLocalCacheKey,
   purgeForeignCaches, purgePidCaches,
 } from '@/collab/local-cache-key';
+import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 
 vi.mock('@hocuspocus/provider', async () => {
   const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
@@ -45,6 +46,7 @@ const resetStore = () => useCanvasStore.setState({
 
 describe('Y0b-5 T5：世代可见通道+四维缓存键 purge 挂点', () => {
   const reloadSpy = vi.fn();
+  let kit: FakeIndexedDbFactory;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -54,6 +56,9 @@ describe('Y0b-5 T5：世代可见通道+四维缓存键 purge 挂点', () => {
     reloadSpy.mockClear();
     vi.mocked(purgeForeignCaches).mockClear();
     vi.mocked(purgePidCaches).mockClear();
+    // Y0b-5 T8：健康缓存通道需要可用 IDB（meta 完整无降级遥测的断言前提——缺 stub=适配器合法降级）
+    kit = createFakeIndexedDb();
+    vi.stubGlobal('indexedDB', kit.fake);
     vi.stubGlobal('location', { reload: reloadSpy });
   });
   afterEach(async () => {

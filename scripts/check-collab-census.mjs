@@ -96,7 +96,8 @@ const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
  *  collab.gateway ×3=装载真值（cheap≥soft 才实测）/vacuum residue 评估（全根真空重建编码）
  *   /over 检查 measureTruth（冷却窗外实测）；
  *  project.service ×1=项目创建种子快照；
- *  web canvasCollabRuntime ×2=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）；
+ *  web canvasCollabRuntime ×3=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）
+ *   /buildCacheRecord 本地缓存快照编码（Y0b-5 T8——去抖/到期/隐藏强制三触发共用单点）；
  *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
@@ -104,7 +105,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
   'apps/api/src/modules/collab/collab.gateway.ts': 3,
   'apps/api/src/modules/project/project.service.ts': 1,
-  'apps/web/src/stores/canvasCollabRuntime.ts': 2,
+  'apps/web/src/stores/canvasCollabRuntime.ts': 3,
   'apps/web/src/collab/canvas-local-backup.ts': 1,
 };
 

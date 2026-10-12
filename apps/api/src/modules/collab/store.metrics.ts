@@ -625,6 +625,14 @@ export const collabTelemetryUnknownTotal = new Counter({
   help: '白名单外 type 计数（不记 type 值——客户端自由字符串禁进 label）',
   registers: [register],
 });
+/** Y0b-5 T8（E33 指定的 E26 重建触发源）：客户端本地 doc 编码字节分布——ws_status detail.docBytes
+ *  随批量上送（记录点=最近一次快照尺寸，客户端零新增 encode）。观测非执法（E26 重构触发判读面）。 */
+export const collabTelemetryClientDocBytes = new Histogram({
+  name: 'collab_telemetry_client_doc_bytes',
+  help: '客户端本地 doc 编码字节分布（ws_status docBytes 携带——最近快照尺寸；观测非执法）',
+  buckets: [16 * 1024, 64 * 1024, 256 * 1024, 1_048_576, 4_194_304, 8_388_608],
+  registers: [register],
+});
 export const collabTelemetryRejectedTotal = new Counter({
   name: 'collab_telemetry_rejected_total',
   help: '批次/单条拒绝计数（reason=batch-size 超12/event-bytes 单条>512B/sample-cap 单type>5）',

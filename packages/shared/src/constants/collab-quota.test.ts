@@ -2,7 +2,7 @@
 // T10 客户端消费，键集漂移=执行卡死；本测即四侧键集的字面量锚）。
 import { describe, it, expect } from 'vitest';
 import {
-  QUOTA_DEFAULTS, DOC_STATUS_REV_SEED,
+  QUOTA_DEFAULTS, DOC_STATUS_REV_SEED, FRAME_ALLOWANCE_BYTES,
   isCollabDocStatusPayload, isCollabConnStatusPayload, type CollabDocStatusPayload,
 } from './collab-quota';
 
@@ -11,6 +11,9 @@ describe('Y0b-4 T1 QUOTA_DEFAULTS（配额常量单源——T4/T5 服务端执�
     expect(QUOTA_DEFAULTS).toMatchObject({ maxDocBytes: 8_388_608, maxTxBytes: 262_144,
       maxKeyBytes: 262_144, maxNodesPerTx: 2000, softEnterRatio: 0.8, softExitRatio: 0.6,
       awarenessLimitBytes: 4096 });
+  });
+  it('Y0b-5 T8 FRAME_ALLOWANCE_BYTES=64KB（SS2 帧包装余量——服务端闸/bytes 桶容量与 web E36 断言三方同源，禁第二字面量）', () => {
+    expect(FRAME_ALLOWANCE_BYTES).toBe(64 * 1024);
   });
 });
 

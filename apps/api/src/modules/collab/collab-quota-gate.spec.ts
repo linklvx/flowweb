@@ -127,9 +127,10 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
     } finally { await kit.dispose(); }
   }, 30_000);
 
-  it('帧闸 1009：SyncStep2>maxDocBytes 同闸（裸 ws——authenticated 后发巨 Step2）', async () => {
+  it('帧闸 4404（Y0b-5 T8 裁定 24⑧ 改写）：SyncStep2>maxDocBytes+ALLOWANCE → close 4404 doc-over-quota（SS2 大帧="本地持有 ≥8MB 服务端没有的内容经合并必然超配额"——terminal 带 QuotaBanner/shrink/export 自救非 1009 裸逃生；doc-status 通告先行）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, { ...QUOTA_SMALL, maxDocBytes: 2048 });
     try {
+      const g = kit.gateway as any;
       const client = new (makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }))(
         `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
       );
@@ -138,12 +139,17 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const closed = new Promise<{ code: number; reason: string }>((resolve) => {
         client.once('close', (code: number, reason: Buffer) => resolve({ code, reason: reason.toString() }));
       });
-      // 先 Auth（Token=0）→ 等 authenticated 回执 → 发巨 Step2（3000 > maxDocBytes 2048）
+      // 先 Auth（Token=0）→ 等 authenticated 回执 → 发巨 Step2（70000 > maxDocBytes 2048+ALLOWANCE 65536=67584）
       client.send(frame('project:q4s2', 2 /* Auth */, 0 /* Token */, 'tok'));
       await new Promise<void>((resolve) => client.once('message', () => resolve()));
-      client.send(frame('project:q4s2', 0 /* Sync */, 1 /* SyncStep2 */, new Uint8Array(3000)));
-      const info = await Promise.race([closed, sleep(8_000).then(() => null)]);
-      expect(info).toEqual({ code: 1009, reason: 'frame-too-large' });
+      const rejected = await metricDelta('collab_quota_frame_rejected_total', { reason: 'doc-over-quota' }, async () => {
+        client.send(frame('project:q4s2', 0 /* Sync */, 1 /* SyncStep2 */, new Uint8Array(70_000)));
+        const info = await Promise.race([closed, sleep(8_000).then(() => null)]);
+        expect(info).toEqual({ code: 4404, reason: 'doc-over-quota' });
+      });
+      expect(rejected).toBe(1);
+      // 边界臂：〔maxDocBytes, maxDocBytes+ALLOWANCE〕区间帧不再 1009（旧闸形态已废）——70KB>67584 才拒
+      expect(70_000).toBeGreaterThan(2048 + 64 * 1024);
     } finally {
       await kit.dispose();
     }

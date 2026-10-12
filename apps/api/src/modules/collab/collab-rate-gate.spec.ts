@@ -12,11 +12,11 @@ import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../t
 import { pollUntil } from '../../test-utils/poll-until';
 import { makeFrame as frame, makeAwarenessUpdateBody } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
 import { AWARENESS_FRAME_LIMIT_BYTES } from './collab.gateway';   // T6 外审 M4：帧闸阈值常量绑定（改值本测试红）
-import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
 
-/** 小值配额（maxDocBytes 8192=bytes 桶容量；bytesRate 1024B/s——滴灌几帧即超） */
+/** 小值配额（bytes 桶容量=maxDocBytes+ALLOWANCE；bytesRate 1024B/s——滴灌几帧即超） */
 const QUOTA_SMALL = { maxDocBytes: 8192, maxTxBytes: 4096, msgRate: 200, bytesRate: 1024 };
-/** 红门⑧ 配额：maxDocBytes 默认 8MB（Step2 帧闸上界=桶容量）+bytesRate 100MB/s（refill 即时——plan 推荐注入） */
+/** 红门⑧ 配额：maxDocBytes 默认 8MB（SS2 帧闸上界=桶容量=maxDocBytes+ALLOWANCE）+bytesRate 100MB/s（refill 即时——plan 推荐注入） */
 const QUOTA_BIG = { maxDocBytes: 8_388_608, maxTxBytes: 1_048_576, msgRate: 200, bytesRate: 100_000_000 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -67,14 +67,41 @@ async function openAuthedWs(kit: DualClientKit, docName: string) {
 }
 
 describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
-  it('桶容量≥最大合法帧不变量：bytesBuckets capacity===maxDocBytes（=Step2 帧闸上界）+cost>capacity 结构性恒 false（报告1 P0-2——1MB 容量下 >1MB 合法帧永拒形态防复发）', async () => {
+  it('桶容量≥最大合法帧不变量：bytesBuckets capacity===maxDocBytes+FRAME_ALLOWANCE_BYTES（=SS2 闸上界〔maxDocBytes+ALLOWANCE〕——Y0b-5 T8 裁定 24⑵ 同步）+cost>capacity 结构性恒 false（报告1 P0-2——1MB 容量下 >1MB 合法帧永拒形态防复发）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
       const g = kit.gateway as any;
-      expect(g.bytesBuckets.options.capacity).toBe(QUOTA_SMALL.maxDocBytes);   // ===maxDocBytes ≥ Step2 帧闸上界（最大合法帧恰可被容量吸收）
-      expect(g.bytesBuckets.consume('cap-struct', QUOTA_SMALL.maxDocBytes + 1)).toBe(false);   // 结构性恒 false（tokens≤capacity<cost）——v4 形态防复发断言
+      expect(g.bytesBuckets.options.capacity).toBe(QUOTA_SMALL.maxDocBytes + FRAME_ALLOWANCE_BYTES);   // ===SS2 闸上界（最大合法帧恰可被容量吸收——只抬闸不同步桶=(闸,闸+ALLOWANCE] 帧 ⓪′ 恒拒→1008 重连重发循环）
+      expect(g.bytesBuckets.consume('cap-struct', QUOTA_SMALL.maxDocBytes + FRAME_ALLOWANCE_BYTES + 1)).toBe(false);   // 结构性恒 false（tokens≤capacity<cost）——v4 形态防复发断言（须 capacity+1——探针低于容量则恒真假断言）
     } finally { await kit.dispose(); }
   }, 30_000);
+
+  it('成对用例（Y0b-5 T8 裁定 24⑧/⑵）：maxDocBytes+30B SS2 帧**同时过 ⓪ 与 ⓪′**（〔maxDocBytes, maxDocBytes+ALLOWANCE〕区间合法——离线合并回灌带包装余量）；`2×maxDocBytes+ALLOWANCE` Update 帧仍 1009（放宽未顺带放宽 Update 闸）', async () => {
+    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_BIG);
+    try {
+      const g = kit.gateway as any;
+      // 臂一：SS2 帧 ∈ (maxDocBytes, maxDocBytes+ALLOWANCE]——过 ⓪（≤闸+ALLOWANCE）且过 ⓪′（桶容量吸收）
+      const big = new Y.Doc();
+      big.getMap('m').set('blob', 'x'.repeat(8_388_608 + 30));
+      const bigUpdate = Y.encodeStateAsUpdate(big);
+      expect(bigUpdate.byteLength).toBeGreaterThan(QUOTA_BIG.maxDocBytes);                                  // >maxDocBytes——旧闸（1009 形态）下必拒
+      expect(bigUpdate.byteLength).toBeLessThanOrEqual(QUOTA_BIG.maxDocBytes + FRAME_ALLOWANCE_BYTES);      // ≤新闸——合法帧
+      const { client, closeInfo } = await openAuthedWs(kit, 'project:pair');
+      client.send(frame('project:pair', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));
+      const doc = () => g.server.hocuspocus.documents.get('project:pair');
+      await pollUntil(() => doc()?.getMap('m')?.get('blob') === 'x'.repeat(8_388_608 + 30), 15_000);        // 落库=⓪与⓪′双过
+      await sleep(300);
+      expect(closeInfo()).toBeNull();                                                                       // 零断连
+      client.terminate();
+      // 臂二：Update 帧仍 1009——3MB 帧处于「若 Update 闸被错误放宽到 SS2 闸则放行」的区间
+      //（3MB>2×maxTxBytes=2MB 仍拒=闸未顺带放宽；<SS2 新闸 8MB+64KB）。规模上界注：ws 库
+      // maxPayload=16MB——2×maxDocBytes+ALLOWANCE(~16.8MB) 形态被 ws 层 1009('')先行截胡，不可达应用闸。
+      const { client: c2, closeInfo: close2 } = await openAuthedWs(kit, 'project:pair-u');
+      c2.send(frame('project:pair-u', 0 /* Sync */, 2 /* Update */, new Uint8Array(3_000_000)));
+      await pollUntil(() => close2() !== null, 8_000);
+      expect(close2()).toEqual({ code: 1009, reason: 'frame-too-large' });
+    } finally { await kit.dispose(); }
+  }, 60_000);
 
   it('红门⑧ 离线合并可上传：8MB SyncStep2 回灌第一次通过（桶容量吸收→排空）→第二次 8MB 在 refill 积满后也通过（v4 信用+1MB 桶形态第二次结构性永拒=红相留档——头注【史】）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_BIG);
@@ -103,16 +130,17 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
     } finally { await kit.dispose(); }
   }, 60_000);
 
-  it('bytes 桶：持续超速率滴灌（注入 bytesRate=1KB/s，3 帧×~3KB）→ close 1008 bytes-rate-exceeded（裸 ws 观测；P0-2 红相=v2 consume 无 cost 字节桶空转）', async () => {
-    const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
+  it('bytes 桶：持续超速率滴灌（注入 bytesRate=1KB/s；3 帧×~26KB——桶容量=maxDocBytes+ALLOWANCE=73_728，Y0b-5 T8 同步后算术）→ close 1008 bytes-rate-exceeded（裸 ws 观测；P0-2 红相=v2 consume 无 cost 字节桶空转）', async () => {
+    // maxTxBytes=16KB（Update 闸=32KB——~26KB 帧过帧闸进桶判据）
+    const kit = await startDualClientServer({}, 300, undefined, undefined, { maxDocBytes: 8192, maxTxBytes: 16_384, msgRate: 200, bytesRate: 1024 });
     try {
       const A = connectWithCloseSpy(kit, 'project:drip');
       await A.synced;
       await sleep(200);   // 初始 Step2（~2B）安置窗
       const exceeded = await metricDelta('collab_bytes_rate_exceeded_total', {}, async () => {
-        A.ydoc.getMap('m').set('k0', 'z'.repeat(3000));   // ~3KB/帧：8192→~5187
-        A.ydoc.getMap('m').set('k1', 'z'.repeat(3000));   // ~5187→~2181
-        A.ydoc.getMap('m').set('k2', 'z'.repeat(3000));   // ~2181+refill(ε)<3000 → 拒
+        A.ydoc.getMap('m').set('k0', 'z'.repeat(26_000));   // ~26KB/帧：73_728→~47_728
+        A.ydoc.getMap('m').set('k1', 'z'.repeat(26_000));   // ~47_728→~21_728
+        A.ydoc.getMap('m').set('k2', 'z'.repeat(26_000));   // ~21_728+refill(ε)<26_000 → 拒
         await pollUntil(() => A.closeInfo() !== null, 8_000);
       });
       expect(exceeded).toBe(1);

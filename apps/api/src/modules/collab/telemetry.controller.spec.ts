@@ -76,12 +76,13 @@ describe('Y0b-5 T1 telemetry 端点（静态守卫）', () => {
   it('断言无客户端自由字符串进任何 labelNames（服务端枚举唯一来源——反向 grep 型）', () => {
     const allowed = new Set(['type', 'code', 'reason', 'from', 'to']);
     const fam = register.getMetricsAsArray().filter((m) => m.name.startsWith('collab_telemetry_'));
-    // 十族齐备（以实际注册全名为准——check-spec-consistency.mjs 与 spec §10 同集；
-    // T2 控制器裁决扩 hydration/reconnect 两直方图——buckets [50,250,1000,5000,15000]，无 label）
+    // 十一族齐备（以实际注册全名为准——check-spec-consistency.mjs 与 spec §10 同集；
+    // T2 控制器裁决扩 hydration/reconnect 两直方图——buckets [50,250,1000,5000,15000]，无 label；
+    // T8 扩 client_doc_bytes 直方图——buckets 至 8MB 闸界，无 label）
     expect(fam.map((m) => m.name).sort()).toEqual([
-      'collab_telemetry_auth_reject_total', 'collab_telemetry_close_total', 'collab_telemetry_events_total',
-      'collab_telemetry_hydration_ms', 'collab_telemetry_projection_ms', 'collab_telemetry_reconnect_ms',
-      'collab_telemetry_rejected_total', 'collab_telemetry_unknown_total',
+      'collab_telemetry_auth_reject_total', 'collab_telemetry_client_doc_bytes', 'collab_telemetry_close_total',
+      'collab_telemetry_events_total', 'collab_telemetry_hydration_ms', 'collab_telemetry_projection_ms',
+      'collab_telemetry_reconnect_ms', 'collab_telemetry_rejected_total', 'collab_telemetry_unknown_total',
       'collab_telemetry_ws_reason_total', 'collab_telemetry_ws_transition_total',
     ]);
     for (const m of fam) {
@@ -228,6 +229,19 @@ describe('Y0b-5 T1 telemetry 端点（真实 HTTP 集成）', () => {
     await expect(observeOf('collab_telemetry_reconnect_ms', 'sum')).resolves.toBeGreaterThanOrEqual(2500);
     // 不带 ms 的真实迁移仍进 transition 计数（直方图零 observe——上式 count 不含它）
     await expect(counterOf('collab_telemetry_ws_transition_total', { from: 'connected', to: 'disconnected' })).resolves.toBeGreaterThanOrEqual(1);
+  });
+
+  it('Y0b-5 T8 docBytes→collab_telemetry_client_doc_bytes Histogram observe（E33 指定的 E26 重建触发源——与 from/to 迁移面独立可单独成事件；非 number 剥键不 observe）', async () => {
+    const count = await observeDelta('collab_telemetry_client_doc_bytes', 'count', async () => {
+      const sum = await observeDelta('collab_telemetry_client_doc_bytes', 'sum', async () => {
+        await post({ events: [
+          { type: 'ws_status', at: 1, detail: { docBytes: 1_048_576 } },   // docBytes 单独成事件
+          { type: 'ws_status', at: 2, detail: { docBytes: '8388608' } },   // 非 number 剥键
+        ] });
+      });
+      expect(sum).toBe(1_048_576);
+    });
+    expect(count).toBe(1);
   });
 
   it('未知 type→204 且只计 collab_telemetry_unknown_total（禁 4xx——sendBeacon 不可观测响应，413 同为重试风暴面；超限同样 204+collab_telemetry_rejected_total{reason}）', async () => {

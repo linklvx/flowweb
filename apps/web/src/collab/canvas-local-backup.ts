@@ -4,12 +4,12 @@
 // 双产物：.yjs=Y.encodeStateAsUpdate 二进制（可回灌——hydration failed 时 store 为空，旧 store
 // 投影导出空画布的根修）+ .json=readCanvasFromDoc 反投影（doc 直读——禁 store 投影）。
 import * as Y from 'yjs';
-import { QUOTA_DEFAULTS } from '@flowweb/shared';
 import { readCanvasFromDoc } from './ydocBuilder';
+import { LOCAL_CACHE_MAX_DOC_BYTES } from './local-collab-cache';
 
-/** 导入上限判据=单文档上限同源（裁定 25⑷——非 2×maxTxBytes）。LOCAL_CACHE_MAX_DOC_BYTES 常量
- *  T8 落地；T6 先以 QUOTA_DEFAULTS.maxDocBytes 同源表达，T8 换名零行为差。 */
-export const LOCAL_BACKUP_MAX_BYTES: number = QUOTA_DEFAULTS.maxDocBytes;
+/** 导入上限判据=单文档上限同源（裁定 25⑷——非 2×maxTxBytes）。T8 换名落地：
+ *  LOCAL_BACKUP_MAX_BYTES=LOCAL_CACHE_MAX_DOC_BYTES（=QUOTA_DEFAULTS.maxDocBytes 同源，零行为差）。 */
+export const LOCAL_BACKUP_MAX_BYTES: number = LOCAL_CACHE_MAX_DOC_BYTES;
 
 export interface LocalBackupOptions {
   /** 文件名标注（safeReload('generation') 传 oldgen<N>——标注旧代，世代被超的编辑本就无法合并） */

@@ -19,7 +19,7 @@ vi.mock('@/stores/canvasCollabRuntime', () => ({
 const reset = () => useCanvasStore.setState({
   connUi: 'ok', wsAuthNotice: null, writeFrozen: false, collabEscapePending: false, readyProbeHint: null,
   wsQuotaTerminal: null, canvasDiverged: false, canvasOversized: false, canvasDegraded: false,
-  persistUnhealthy: false, syncLagOver60s: false, localCacheReady: false,
+  persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false, localCacheReady: false,
 });
 
 beforeEach(reset);
@@ -193,16 +193,30 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
     expect(discardLocalDiverged).toHaveBeenCalledTimes(1); // 确认后放弃
   });
 
-  it('能力位【T6 只落字段不落承诺】：localCacheReady=true（T8 禁用路径反例）→persist 档文案恒维持「未保存」档永不谎报', () => {
+  it('能力位翻转【T8】：persistUnhealthy∧localCacheReady=true→persist 档文案切「本地已缓存，恢复后自动合并」；false→维持「未保存」档（真值只由 T8 缓存装载链驱动——尺寸闸不过/IDB 降级字段恒 false）', () => {
     useCanvasStore.setState({ persistUnhealthy: true, localCacheReady: true });
     render(<SyncBanner />);
     const banner = screen.getByTestId('collab-sync-banner');
-    expect(banner.textContent).toContain('尚未保存');
-    expect(banner.textContent).not.toContain('已保存');
-    expect(banner.textContent).not.toContain('已缓存');
+    expect(banner.textContent).toContain('本地已缓存，恢复后自动合并');
+    expect(banner.textContent).not.toContain('尚未保存');
+    cleanup();
+    useCanvasStore.setState({ persistUnhealthy: true, localCacheReady: false });
+    render(<SyncBanner />);
+    const fallback = screen.getByTestId('collab-sync-banner');
+    expect(fallback.textContent).toContain('尚未保存');
+    expect(fallback.textContent).not.toContain('已缓存');
   });
 
-  it('oversized/degraded 档结构就位（T8 字段驱动——本批恒 false 不渲染）', () => {
+  it('pending-backlog 档（T8 Σpending 流控——syncLag 邻位其前）：状态显示零动作承诺+零刷新词；syncLag 同真只渲 backlog', () => {
+    useCanvasStore.setState({ pendingBacklog: true, syncLagOver60s: true });
+    render(<SyncBanner />);
+    const banner = screen.getByTestId('collab-sync-banner');
+    expect(banner.textContent).toContain('同步积压');
+    expect(banner.textContent).not.toContain('同步延迟较高');
+    expect(banner.textContent).not.toContain('刷新');
+  });
+
+  it('oversized/degraded 档（字段驱动——T8 尺寸闸超限置位 oversized；degraded 触发源仍未接）', () => {
     useCanvasStore.setState({ canvasOversized: true });
     render(<SyncBanner />);
     expect(screen.getByText(/超出单文档上限/)).toBeInTheDocument();
@@ -226,7 +240,9 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
       { canvasOversized: true },
       { canvasDegraded: true },
       { persistUnhealthy: true },
+      { persistUnhealthy: true, localCacheReady: true },   // T8 能力位翻转档（同禁刷新词扫描）
       { writeFrozen: true },
+      { pendingBacklog: true },   // T8 Σpending 流控档
       { syncLagOver60s: true },
       { connUi: 'banner' },
       { connUi: 'hint' },
@@ -243,7 +259,8 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
       return {
         connUi: 'ok' as const, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
         readyProbeHint: null, wsQuotaTerminal: null, canvasDiverged: false, canvasOversized: false,
-        canvasDegraded: false, persistUnhealthy: false, syncLagOver60s: false,
+        canvasDegraded: false, persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false,
+        localCacheReady: false,
       };
     }
   });

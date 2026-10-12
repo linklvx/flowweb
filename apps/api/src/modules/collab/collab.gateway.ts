@@ -17,7 +17,7 @@ import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
@@ -383,12 +383,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       ...quota,   // 注入覆盖 env 默认
     };
     // Y0b-4 T6（Q-E v5）速率闸三桶：msg=400 帧容量（瞬时突发吸收）+msgRate/s 补充；
-    // bytes=capacity:maxDocBytes——"桶容量≥最大合法帧"不变量（consume Math.min(capacity) 封顶 ⇒
-    // cost>capacity 恒 false；报告1 P0-2：1MB 容量下 >1MB 合法离线合并帧结构性永拒形态防复发），
-    // 首帧突发由容量吸收+稳态 bytesRate/s 节流；handshakeCredit 不存在（v5 整删——功能被容量吸收）；
-    // aware=共享实例+键前缀（capacity 60+30/s——>30 帧/s 独立限速）。
+    // bytes=capacity:maxDocBytes+FRAME_ALLOWANCE_BYTES——"桶容量≥最大合法帧"不变量（consume
+    // Math.min(capacity) 封顶 ⇒ cost>capacity 恒 false；报告1 P0-2：1MB 容量下 >1MB 合法离线合并帧
+    // 结构性永拒形态防复发）。Y0b-5 T8（裁定 24⑵）：SS2 闸抬到 maxDocBytes+ALLOWANCE 后容量必须
+    // 同步——只抬闸不同步桶=(maxDocBytes,+64KB] 帧→⓪′ 结构性拒→1008→重连重发无限循环（正是 1009
+    // 当初要防的形态）；首帧突发由容量吸收+稳态 bytesRate/s 节流；handshakeCredit 不存在（v5 整删——
+    // 功能被容量吸收）；aware=共享实例+键前缀（capacity 60+30/s——>30 帧/s 独立限速）。
     this.msgBuckets = new TokenBucket({ capacity: 400, refillPerMin: this.quota.msgRate * 60 });
-    this.bytesBuckets = new TokenBucket({ capacity: this.quota.maxDocBytes, refillPerMin: this.quota.bytesRate * 60 });
+    this.bytesBuckets = new TokenBucket({ capacity: this.quota.maxDocBytes + FRAME_ALLOWANCE_BYTES, refillPerMin: this.quota.bytesRate * 60 });
     this.awareBuckets = new TokenBucket({ capacity: 60, refillPerMin: 1_800 });
     this.hooks = {
       // Y0b-4 T4（v6 报告3 P1-1）：auth 期 viewer/spool/quota 置 connectionConfig.readOnly 时 Connection
@@ -1632,7 +1634,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** ===== Y0b-4 T4（Q-B v3/Q-C/Q-D/Q-E/Q-S）：beforeSync 分层判据——配额执法唯一落点 =====
-   *  分层序（钉死）：⓪帧闸（1009 terminal，先于 readOnly 早退——VIEWER 巨帧也过闸）→⓪′bytes 速率桶
+   *  分层序（钉死）：⓪帧闸（Update>2×maxTxBytes 1009 terminal／SS2>maxDocBytes+ALLOWANCE 4404
+   *  terminal〔Y0b-5 T8 裁定 24⑧〕，先于 readOnly 早退——VIEWER 巨帧也过闸）→⓪′bytes 速率桶
    *  （T6 1008——独立于权限态）→①readOnly
    *  早退（计数+per-conn 持续强推升级判定）→②over 短路（冻结面零编码）→③快路径 O(1)（hook 只读
    *  delta 不回写——update 监听唯一写者，消双计）→④账面触阈（冷却窗内上界决策/窗外实测）。
@@ -1664,13 +1667,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
     const bytes = payload.byteLength;
     const conn = connection as unknown as CollabConnection;
-    // ⓪ 帧闸（Q-E v5：Update>2×maxTxBytes——〔maxTxBytes,2×〕区间放行进配额判据，估算误差退化软冻结非终态；
-    // Step2>maxDocBytes 同闸）。1009 terminal（内容确定性——1008 backoff=重连重发循环）。
-    if ((type === messageYjsUpdate && bytes > 2 * this.quota.maxTxBytes)
-      || (type === messageYjsSyncStep2 && bytes > this.quota.maxDocBytes)) {
+    // ⓪ 帧闸（Q-E v5：Update>2×maxTxBytes——〔maxTxBytes,2×〕区间放行进配额判据，估算误差退化软冻结非终态。
+    // Y0b-5 T8 裁定 24⑧：SS2 闸改 maxDocBytes+FRAME_ALLOWANCE_BYTES 且超限落 4404 doc-over-quota——
+    // SS2 大帧≠DoS，是"本地持有 ≥8MB 服务端没有的内容经合并必然超配额"=4404 语义准确（terminal 带
+    // QuotaBanner/shrink/export 自救——非 1009 裸逃生）；Update 帧 1009 维持——DoS/意外帧）。
+    if (type === messageYjsUpdate && bytes > 2 * this.quota.maxTxBytes) {
       collabQuotaFrameRejectedTotal.inc({ reason: 'frame-too-large' });
       this.hardClose(conn, CollabCloseCode.LIB_MESSAGE_TOO_BIG, 'frame-too-large');
       throw Object.assign(new Error('frame too large'), { code: CollabCloseCode.LIB_MESSAGE_TOO_BIG, reason: 'frame-too-large' });
+    }
+    if (type === messageYjsSyncStep2 && bytes > this.quota.maxDocBytes + FRAME_ALLOWANCE_BYTES) {
+      collabQuotaFrameRejectedTotal.inc({ reason: 'doc-over-quota' });
+      try { conn?.sendStateless?.(JSON.stringify(this.buildDocStatus(pid))); } catch { /* 先通告尽力 */ }
+      this.hardClose(conn, CollabCloseCode.DOC_OVER_QUOTA, DOC_OVER_QUOTA_TERMINAL_REASON);
+      throw Object.assign(new Error('doc over quota'), { code: CollabCloseCode.DOC_OVER_QUOTA, reason: DOC_OVER_QUOTA_TERMINAL_REASON });
     }
     yjsInboundFrameBytes.observe(bytes);
     // ⓪′ bytes 速率桶（Y0b-4 T6，H-3 三分落点：bytes=beforeSync——type 现成免重复解析；帧闸后

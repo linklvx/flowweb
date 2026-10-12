@@ -55,11 +55,14 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     // from/to 值域=runtime:134 库 status 机三值闭集（T0 审查 I-1：sink 是 metric label——无 values 域则任意串穿 sanitize 直达 label）
     from: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     to: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
-    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded'] },
+    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty'] },
     // Y0b-5 T2（控制器裁决——裁定 24 SLO 通道）：hydration/reconnect 时长经 ws_status detail 扩键上送
     // （仅随迁移事件携带：hydration={from:'connecting',to:'connected'}=initCollab→ready /
     //  reconnect={from:'disconnected',to:'connected'}=掉线→authenticated——12 值封闭不新增 type）。
     ms: { sink: 'metric:collab_telemetry_hydration_ms|collab_telemetry_reconnect_ms', numeric: true },
+    // Y0b-5 T8（E33 指定的 E26 重建触发源）：本地 doc 编码字节随批量上送——服务端
+    // collab_telemetry_client_doc_bytes 直方图消费（记录点=最近一次快照尺寸，零新增 encode）。
+    docBytes: { sink: 'metric:collab_telemetry_client_doc_bytes', numeric: true },
   },
   recover_triggered: {
     level: { sink: 'log-only', values: ['terminal', 'transient'] },

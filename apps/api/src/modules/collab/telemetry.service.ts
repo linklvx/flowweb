@@ -13,6 +13,7 @@ import {
 } from '@flowweb/shared';
 import {
   collabTelemetryAuthRejectTotal,
+  collabTelemetryClientDocBytes,
   collabTelemetryCloseTotal,
   collabTelemetryEventsTotal,
   collabTelemetryHydrationMs,
@@ -101,6 +102,9 @@ export class TelemetryService {
             else if (detail.from === 'disconnected' && detail.to === 'connected') collabTelemetryReconnectMs.observe(detail.ms);
           }
         }
+        // Y0b-5 T8（E33 指定的 E26 重建触发源）：客户端本地 doc 字节直方图（与 from/to 迁移面独立——
+        // docBytes 可单独成事件；number 已由 shared sanitize 守卫，typeof 仅防缺键；零 label）
+        if (typeof detail.docBytes === 'number') collabTelemetryClientDocBytes.observe(detail.docBytes);
         break;
       case 'projection_duration':
         if (typeof detail.ms === 'number') collabTelemetryProjectionMs.observe(detail.ms);

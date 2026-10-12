@@ -241,6 +241,9 @@ export interface CanvasState {
   persistUnhealthy: boolean;
   /** 同步延迟>60s 电平（T7 置位——本批结构就位；syncLag 档文案=「请导出本地副本」零刷新词） */
   syncLagOver60s: boolean;
+  /** Y0b-5 T8：Σpending 流控「同步积压」电平（未上行增量>1MB——5s tick 置位 forceSync+横幅
+   *  pending-backlog 档；确认归零自动消。状态显示零动作承诺——永不阻塞用户输入） */
+  pendingBacklog: boolean;
   hasActiveProcessInGroup: (groupId: string) => boolean;
   /** Y0b-4 T11/T13：瘦身/校准 watermark 重置单写者（服务端真值覆盖 localDocBytes+localDelta 清零
    *  ——Q-I 校准点的组件侧入口）。写点收口 store 本体：组件面（ShrinkDialog）直调 setState 在
@@ -755,6 +758,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   canvasDegraded: false,
   persistUnhealthy: false,
   syncLagOver60s: false,
+  pendingBacklog: false,
 
   /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（纯函数出参）。 */
   addNodeInner: (type, position, dataOverride, envelope): Node & { type: string } => {

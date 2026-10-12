@@ -87,6 +87,9 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'made-up' })).toEqual({ reason: 'other' });
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'unsynced-lag' })).toEqual({ reason: 'unsynced-lag' });
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'local-cache-degraded' })).toEqual({ reason: 'local-cache-degraded' });
+    // T8：dirty 守卫拦下 clean 覆盖（裁定 25⑹ 多标签防线）——受控值直达 label 禁折 other
+    expect(sanitizeTelemetryDetail('ws_status', { reason: 'local-cache-preserved-foreign-dirty' }))
+      .toEqual({ reason: 'local-cache-preserved-foreign-dirty' });
     // T0 审查 I-1：from/to 同为 metric label——越界字符串禁穿 sanitize 直达 label（值域=runtime:134 库 status 机三值闭集）
     expect(sanitizeTelemetryDetail('ws_status', { from: 'evil-status', to: 'connected' }))
       .toEqual({ from: 'other', to: 'connected' });
@@ -103,6 +106,10 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
       .toEqual({ from: 'connecting', to: 'connected', ms: 1234 });
     expect(sanitizeTelemetryDetail('ws_status', { from: 'disconnected', to: 'connected', ms: '42' }))
       .toEqual({ from: 'disconnected', to: 'connected' });
+  });
+  it('Y0b-5 T8 ws_status.docBytes（E33 指定的 E26 重建触发源——本地 doc 字节随批量上送进服务端 collab_telemetry_client_doc_bytes 直方图）：number 保留/非 number 剥键', () => {
+    expect(sanitizeTelemetryDetail('ws_status', { docBytes: 8_388_608 })).toEqual({ docBytes: 8_388_608 });
+    expect(sanitizeTelemetryDetail('ws_status', { docBytes: '8388608' })).toEqual({});
   });
   it('Y0b-5 T2 ErrorBoundary 受控栈键：invariant_violation.name/frame（log-only——error.name+首帧 file:line 折 detail，无整栈）', () => {
     expect(sanitizeTelemetryDetail('invariant_violation', { where: 'react-boundary', name: 'TypeError', frame: 'page.tsx:10' }))

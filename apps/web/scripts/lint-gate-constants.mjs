@@ -142,5 +142,8 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-5 T7（2026-10-13）：E40 60s 窗/updateText VIEWER 门造案 +12 处/+1 文件
   //   （canvasCollabRuntime.t7.spec.ts +8——五合取用例 resetStore 装置复位+抑制字段注入；
   //   nodeStore.test.ts +4——VIEWER 门用例编辑窗/viewer 态注入，存量 allow-list 文件，同例外）→ 298 处 / 53 文件。
-  effective: { count: 298, files: 53 },
+  // Y0b-5 T8（2026-10-13）：本地缓存接线造案 +6 处/+1 文件（canvasCollabRuntime.t8.spec.ts +4——
+  //   resetStore 装置复位+readOnly/localDocBytes 注入；SyncBanner.test.tsx +2——能力位翻转/
+  //   pending-backlog 档注入，存量 allow-list 文件，同 T9/T4/T11 例外）→ 304 处 / 54 文件。
+  effective: { count: 304, files: 54 },
 };

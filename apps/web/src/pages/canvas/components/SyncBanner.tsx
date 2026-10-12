@@ -14,6 +14,11 @@
 //   「未保存」档永不谎报（文案翻转归 T8 whenSynced 真值驱动）。
 // persist 档（V15）位次高于 write-frozen（最高运营优先）：persistUnhealthy∧syncLagOver60s 同真只渲
 //   persist 档——syncLag 降级文案零刷新词,「可尝试刷新」与「请勿刷新」结构性不同屏。
+// 能力位翻转（Y0b-5 T8 落地——裁定 21）：persist 档文案由 localCacheReady 真值驱动——true（缓存
+//   真建成且过尺寸闸）→「本地已缓存,恢复后自动合并」；false→维持「未保存」档。真值只由 T8 缓存
+//   装载链驱动（适配器 onFlushed/boot 过闸置位——手动 setState 是 T6 期禁用路径,现已接真源）。
+// pending-backlog 档（Y0b-5 T8 Σpending 流控）：未上行增量>1MB 的「同步积压」电平——状态显示
+//   零动作承诺（永不阻塞输入）,位次=syncLag 邻位（其前）。
 import type { ReactNode } from 'react';
 import {
   CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON,
@@ -93,6 +98,7 @@ export interface CanvasBannerInput {
   persistUnhealthy: boolean;
   writeFrozen: boolean;
   syncLagOver60s: boolean;
+  pendingBacklog: boolean;
   localCacheReady: boolean;
   collabEscapePending: boolean;
   readyProbeHint: string | null;
@@ -100,7 +106,7 @@ export interface CanvasBannerInput {
 
 export type CanvasBannerBranch =
   | ({ kind: 'terminal-auth' | 'escape-pending' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
-      | 'write-frozen' | 'sync-lag' | 'conn-ui' } & BannerContent)
+      | 'write-frozen' | 'pending-backlog' | 'sync-lag' | 'conn-ui' } & BannerContent)
   | { kind: 'quota-terminal' }   // 渲染权=QuotaBanner（单链仲裁位次仍生效——压 diverged 以下全档）
   | null;
 
@@ -162,10 +168,18 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
   // T8 邻档：本批结构就位字段驱动（恒 false 文案不可达——真实翻转归 T8）
   if (input.canvasOversized) return { kind: 'oversized', tone: 'warn', text: '本地内容超出单文档上限，请导出后瘦身' };
   if (input.canvasDegraded) return { kind: 'degraded', tone: 'warn', text: '本地数据已降级，正在从服务端恢复' };
-  // Y0b-5 T6（V15）：persist 未保存档——最高运营优先（高于 write-frozen）。能力位（裁定 21）：
-  // 文案恒维持「未保存」档永不谎报——localCacheReady 只入参不参与本档文案（翻转归 T8 whenSynced）。
-  if (input.persistUnhealthy) return { kind: 'persist', tone: 'warn', text: '内容尚未保存（服务保存异常）——请导出本地副本，请勿刷新页面' };
+  // Y0b-5 T6（V15）：persist 未保存档——最高运营优先（高于 write-frozen）。能力位翻转（T8 落地）：
+  // localCacheReady=true（缓存真建成且过闸）→「本地已缓存，恢复后自动合并」——能力承诺的诚实
+  // 分支已由尺寸闸保证（超闸=字段保持 false 维持「未保存」）；false→维持「未保存」档永不谎报。
+  if (input.persistUnhealthy) {
+    return input.localCacheReady
+      ? { kind: 'persist', tone: 'info', text: '本地已缓存，恢复后自动合并' }
+      : { kind: 'persist', tone: 'warn', text: '内容尚未保存（服务保存异常）——请导出本地副本，请勿刷新页面' };
+  }
   if (input.writeFrozen) return { kind: 'write-frozen', tone: 'warn', text: '服务维护中，编辑已暂停；恢复后可继续（请勿刷新页面）' };
+  // Y0b-5 T8：pending-backlog 档（Σpending 流控——syncLag 邻位其前）：状态显示零动作承诺，
+  // 零刷新词（denylist 面）；「正在自动加速同步」为真——置位同点已 forceSync。
+  if (input.pendingBacklog) return { kind: 'pending-backlog', tone: 'warn', text: '同步积压较大，正在自动加速同步…' };
   // Y0b-5 T4：probeReadyReason 探测 hint（重连成功但状态异常——服务端 reason 可见）
   if (input.readyProbeHint) return { kind: 'conn-ui', tone: 'info', text: `服务端状态异常（${input.readyProbeHint}），正在自动重连…` };
   // syncLag 档（T7 置位）：降级文案零刷新词——persistUnhealthy 同真时本档不可达（位次更低）,
@@ -188,11 +202,12 @@ export function SyncBanner() {
   const canvasDegraded = useCanvasStore((s) => s.canvasDegraded);
   const persistUnhealthy = useCanvasStore((s) => s.persistUnhealthy);
   const syncLagOver60s = useCanvasStore((s) => s.syncLagOver60s);
+  const pendingBacklog = useCanvasStore((s) => s.pendingBacklog);
   const localCacheReady = useCanvasStore((s) => s.localCacheReady);
 
   const branch = resolveCanvasBanner({
     connUi, wsAuthNotice, wsQuotaTerminal, writeFrozen, collabEscapePending, readyProbeHint,
-    canvasDiverged, canvasOversized, canvasDegraded, persistUnhealthy, syncLagOver60s, localCacheReady,
+    canvasDiverged, canvasOversized, canvasDegraded, persistUnhealthy, syncLagOver60s, pendingBacklog, localCacheReady,
   });
   // quota-terminal 渲染权=QuotaBanner（独立组件同挂载点——单链仲裁位次仍压制本组件全档）
   if (!branch || branch.kind === 'quota-terminal') return null;

@@ -23,7 +23,7 @@ export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/col
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
 // Y0b-4 T1：画布配额常量+doc-status/conn-status 快照类型（T5 服务端产生/T10 客户端消费——键集逐字一致）
 // +utf8Bytes 单源（web/api 两端字节量纲一致）。
-export { QUOTA_DEFAULTS, DOC_STATUS_REV_SEED, isCollabDocStatusPayload, isCollabConnStatusPayload } from './constants/collab-quota';
+export { QUOTA_DEFAULTS, DOC_STATUS_REV_SEED, FRAME_ALLOWANCE_BYTES, isCollabDocStatusPayload, isCollabConnStatusPayload } from './constants/collab-quota';
 export type { CollabDocStatusPayload, CollabConnStatusPayload } from './constants/collab-quota';
 export { utf8Bytes } from './utils/utf8-bytes';
 export { COLLAB_READY_REASONS } from './constants/collab-ready';

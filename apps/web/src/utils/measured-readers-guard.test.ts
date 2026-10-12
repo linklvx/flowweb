@@ -45,7 +45,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // 本表 13 行仅 interface 段 +4 漂移，集合不变）
     // Y0b-5 T4：localCacheReady/readyProbeHint 字段两处插入（interface +9/初始值 +2）——13 行整体 +11 漂移
     // Y0b-5 T6：横幅单链字段族两处插入（interface +20/初始值 +6——本表 13 行整体再 +20 漂移，集合不变）
-    'stores/canvasStore.ts': [908, 909, 915, 916, 971, 972, 1041, 1042, 1048, 1049, 1195, 1735, 1736],
+    // Y0b-5 T8：pendingBacklog 字段两处插入（interface +4/初始值 +1——本表 13 行整体再 +4 漂移，集合不变）
+    'stores/canvasStore.ts': [912, 913, 919, 920, 975, 976, 1045, 1046, 1052, 1053, 1199, 1739, 1740],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],

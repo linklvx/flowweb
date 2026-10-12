@@ -14,6 +14,13 @@ export const QUOTA_DEFAULTS = {
   awarenessLimitBytes: 4096,    // 4KB——awareness 单帧上限
 } as const;
 
+/** Y0b-5 T8（裁定 24⑧）：SS2 帧包装余量——SS2 帧闸=maxDocBytes+本值（离线合并回灌合法帧≠DoS：
+ * 本地持有 ≥8MB 服务端没有的内容经合并必然超配额=超限落 4404 doc-over-quota 非 1009）。
+ * bytes 速率桶容量同式同步（token-bucket cost>capacity 结构性恒 false——只抬闸不同步桶=(闸,闸+本值]
+ * 帧被 ⓪′ 恒拒→1008→重连重发无限循环=裁定 24⑵）。shared 落点=web E36 不可达性断言（回放帧
+ * byteLength<服务端闸）与服务端闸三方同源，禁第二字面量。 */
+export const FRAME_ALLOWANCE_BYTES = 64 * 1024;
+
 /** rev=per-doc 单调计数器，装载播种 1——初值 0 会被客户端 rev<=last 守卫丢掉首快照
  * =limit 来源恒丢（报告2 F）；T5 装载时以此起步递增。 */
 export const DOC_STATUS_REV_SEED = 1 as const;
