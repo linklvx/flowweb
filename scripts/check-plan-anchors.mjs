@@ -37,8 +37,9 @@ const SYMBOL_WINDOW = 5;
 export function extractSymbol(after) {
   const first = after.match(/[一-鿿]|[A-Za-z_$]/);
   if (!first || /[一-鿿]/.test(first[0])) return null;
-  const word = (after.slice(first.index).match(IDENT_RE) || [])[0];
+  let word = (after.slice(first.index).match(IDENT_RE) || [])[0];
   if (!word) return null;
+  word = word.replace(/\.+$/, ''); // 句尾英文句号剥离（IDENT_RE 续字符类含 `.`——句末引用不把句号吞进符号；中缀点不受影响）
   if (/^[A-Z]\d/.test(word)) return null;
   if (/^v\d/i.test(word)) return null;
   if (/\.(ts|tsx|js|jsx|mjs|cjs|json|yml|yaml|sql|vue|css|scss|md|sh)$/.test(word)) return null;
@@ -154,7 +155,9 @@ function main() {
     errors.push(...r.errors, ...scanStalePhrases(rel, text));
     warns.push(...r.warns);
   }
-  if (warns.length) console.warn(`check-plan-anchors: WARN ${warns.length} 条（skip/advisory，不阻断）`);
+  if (warns.length) {
+    console.warn(`check-plan-anchors: WARN ${warns.length} 条（skip/advisory，不阻断）——\n${warns.slice(0, 20).map((w) => `  ${w}`).join('\n')}`);
+  }
   if (errors.length) {
     console.error(`check-plan-anchors: ${errors.length} 条违规（坏路径/坏符号/旧表述残留）——\n${errors.slice(0, 60).map((e) => `  ${e}`).join('\n')}`);
     process.exit(1);

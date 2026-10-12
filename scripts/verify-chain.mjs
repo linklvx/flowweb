@@ -33,6 +33,7 @@ function main() {
     const r = spawnSync(s.cmd, { shell: true, stdio: 'inherit', cwd: ROOT });
     if (r.status !== 0) {
       console.error(`\nverify-chain: FAIL at [${i + 1}/${steps.length}] ${s.id}（exit ${r.status}）——${label}`);
+      if (r.error) console.error(r.error); // 启动失败时 status=null 且无 exit 码——打印 spawn error 保可诊断
       process.exit(r.status ?? 1);
     }
   }

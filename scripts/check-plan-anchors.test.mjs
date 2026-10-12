@@ -56,6 +56,10 @@ test('④ 符号提取：批次/版本编号（Y0b-3/v2.3/T13/W3C）不算符号
   assert.equal(extractSymbol(' AUTH_WAIT_TIMEOUT_MS（10s）'), 'AUTH_WAIT_TIMEOUT_MS');
 });
 
+test('④ 符号提取边界：句尾英文句号不吞进符号（IDENT_RE 续字符类含 `.`——句末引用假红源）', () => {
+  assert.equal(extractSymbol(' shouldConnect.'), 'shouldConnect');
+});
+
 test('④ 无可提取符号 → 降为存在性检查（不红）', () => {
   const r = scanAnchors('doc.md', '锚 `src/a.ts:1`（中文注释行）', fxResolve, fxRead);
   assert.deepEqual(r.errors, []);
