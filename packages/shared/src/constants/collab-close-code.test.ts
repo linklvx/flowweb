@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   resolveCloseAction, CollabCloseCode, MESSAGE_TOO_BIG_TERMINAL_REASON,
   DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON,
+  resolveBackoffPlan, TRANSIENT_BACKOFF_STEPS_MS,
 } from './collab-close-code';
+import type { BackoffPlan } from './collab-close-code';
+import type { CloseActionKind } from './collab-close-code';
+import { CollabAuthReason } from './collab-auth-reason';
 import { ConnectionTimeout, Forbidden, MessageTooBig, ResetConnection, Unauthorized } from '@hocuspocus/common';
 
 describe('CollabCloseCode 分配表（spec §3.5）——库值单源锚（P-N）', () => {
@@ -79,5 +84,96 @@ describe('Y0b-4 T1 配额/代际码四码+terminal 原因常量（spec §3.5）'
     expect(DOC_VACUUMING_TERMINAL_REASON).toBe('doc-vacuuming');
     expect(DOC_GENERATION_STALE_TERMINAL_REASON).toBe('doc-generation-stale');
     expect(MESSAGE_TOO_BIG_TERMINAL_REASON).toBe('message-too-big');
+  });
+});
+
+describe('退避计划（spec §5.2 v2.2——RECOVER_BACKOFF_MS 族一张表；纯函数零 Math.random）', () => {
+  it('TRANSIENT_BACKOFF_STEPS_MS=[2,5,10,30]s 四档（裁定 22⑻ 单源表——T3 删 connectionMachine RECOVER_BACKOFF_MS 改 import 本表）', () => {
+    expect(TRANSIENT_BACKOFF_STEPS_MS).toEqual([2_000, 5_000, 10_000, 30_000]);
+  });
+  it('auth 瞬态档（code=undefined）：六瞬态 reason 全落指数档（真协议路径①——denyAuth→authenticationFailed）', () => {
+    for (const r of [CollabAuthReason.DRAINING, CollabAuthReason.LEASE_NOT_READY, CollabAuthReason.DB_UNAVAILABLE,
+                     CollabAuthReason.SERVER_OVERLOADED, CollabAuthReason.RATE_LIMITED, CollabAuthReason.SERVER_OUTDATED]) {
+      expect(resolveBackoffPlan('auth', undefined, r, 0, 0).kind).toBe('exponential');
+    }
+  });
+  it('auth terminal 档：七终态 reason→none（isTerminalReason 单源派生——客户端引导重登/跳转/reload 档不重连）', () => {
+    for (const r of [CollabAuthReason.UNAUTHENTICATED, CollabAuthReason.SESSION_EXPIRED, CollabAuthReason.NOT_FOUND,
+                     CollabAuthReason.FORBIDDEN, CollabAuthReason.SCHEMA_OUTDATED,
+                     CollabAuthReason.CLIENT_VERSION_MISSING, CollabAuthReason.CLIENT_VERSION_INVALID]) {
+      const p = resolveBackoffPlan('auth', undefined, r, 0, 0);
+      expect(p.kind).toBe('none');
+      expect(p.ms).toBe(0);
+    }
+  });
+  it('close 瞬态档（真协议路径②③）：close(1008,"msg-rate-exceeded")与 close(4408,"forced") 落指数档', () => {
+    expect(resolveBackoffPlan('close', 1008, 'msg-rate-exceeded', 0, 0).kind).toBe('exponential');
+    expect(resolveBackoffPlan('close', 4408, 'forced', 0, 0).kind).toBe('exponential');
+  });
+  it('阶梯+封顶：jitter=0 时 ms=STEPS[min(attempt,3)]；attempt≥3 恒 30_000；jitter 注入加成', () => {
+    expect(resolveBackoffPlan('auth', undefined, CollabAuthReason.DRAINING, 0, 0).ms).toBe(2_000);
+    expect(resolveBackoffPlan('auth', undefined, CollabAuthReason.DRAINING, 1, 0).ms).toBe(5_000);
+    expect(resolveBackoffPlan('auth', undefined, CollabAuthReason.DRAINING, 2, 0).ms).toBe(10_000);
+    expect(resolveBackoffPlan('auth', undefined, CollabAuthReason.DRAINING, 3, 0).ms).toBe(30_000);
+    expect(resolveBackoffPlan('auth', undefined, CollabAuthReason.DRAINING, 99, 0).ms).toBe(30_000);
+    expect(resolveBackoffPlan('auth', undefined, CollabAuthReason.DRAINING, 0, 2_000).ms).toBe(4_000);
+  });
+  it('planned-restart(1012)=short（键名 APP_RESTART——库无 PLANNED_RESTART 键；jitter 0-60s full 由调用方生成传入——裁定 23⑶ NAT 40 客户端部署窗算术）', () => {
+    const p = resolveBackoffPlan('close', 1012, '', 0, 0);
+    expect(p.kind).toBe('short');
+    expect(p.ms).toBe(1_000);
+    expect(resolveBackoffPlan('close', 1012, '', 0, 59_000).ms).toBe(60_000);
+  });
+  it('terminal/close-normal:none 按 route 分流:code!==undefined 时 resolveCloseAction 单源判定——(4401,"Unauthorized") 落 terminal 档;none 语义显式命名"永久断线"=不可扩展集合(仅 terminal 档+应用主动销毁两处)', () => {
+    expect(resolveBackoffPlan('close', 4401, 'Unauthorized', 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 4404, DOC_OVER_QUOTA_TERMINAL_REASON, 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 1009, '', 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 4410, DOC_VACUUMING_TERMINAL_REASON, 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 1000, DOC_OVER_QUOTA_TERMINAL_REASON, 0, 0).kind).toBe('none'); // 库抹码兜底分型
+  });
+  it('silent-renew 档:(4401,"session-expired")→{kind:"silent-renew",ms:500+jitter} 立即重连一次不进阶梯(第二次同因回落 terminal 由 supervisor 闩锁管,函数无状态)', () => {
+    const p = resolveBackoffPlan('close', 4401, 'session-expired', 99, 0);
+    expect(p.kind).toBe('silent-renew');
+    expect(p.ms).toBe(500);
+    expect(p.ms).toBeLessThanOrEqual(1_500);
+  });
+  it('normal(1000) 改带退避的一次重连(库抹码形态 (1000,reason) 可能掩盖瞬态关闭;真终态服务端下次握手以带 reason 的 auth 拒档权威分型)', () => {
+    expect(resolveBackoffPlan('close', 1000, '', 0, 0).kind).toBe('exponential');
+  });
+  it('五档穷尽性表驱动用例:对 CloseActionKind 全五档 × 常见 reason 矩阵断言 kind 映射穷尽且合法(terminal→none/silent-renew-once→silent-renew/planned-restart→short/backoff→exponential/normal→exponential);未来新增 kind 未映射即红(kind 联合类型驱动编译期+运行时双重穷尽)', () => {
+    const EXPECTED: Record<CloseActionKind, BackoffPlan['kind']> = {
+      'terminal': 'none',
+      'silent-renew-once': 'silent-renew',
+      'planned-restart': 'short',
+      'backoff': 'exponential',
+      'normal': 'exponential',
+    };
+    // 代表矩阵：每档至少一对 (code,reason)——档判定经 resolveCloseAction 真值分派
+    const matrix: ReadonlyArray<readonly [code: number, reason: string]> = [
+      [4401, 'Unauthorized'], [4404, DOC_OVER_QUOTA_TERMINAL_REASON], [4410, DOC_VACUUMING_TERMINAL_REASON],
+      [1009, ''], [1000, DOC_OVER_QUOTA_TERMINAL_REASON],                                        // terminal
+      [4401, 'session-expired'],                                                                  // silent-renew-once
+      [1012, ''],                                                                                 // planned-restart
+      [1008, 'msg-rate-exceeded'], [4408, 'forced'], [4408, 'Connection Timeout'],
+      [1011, 'slow-consumer'], [4205, ''], [4403, ''], [4402, 'max-lifetime'], [4999, ''],       // backoff
+      [1000, ''],                                                                                 // normal
+    ];
+    const seenKinds = new Set<CloseActionKind>();
+    for (const [code, reason] of matrix) {
+      const kind = resolveCloseAction(code, reason).kind;
+      seenKinds.add(kind);
+      expect(resolveBackoffPlan('close', code, reason, 0, 0).kind, `(${code},"${reason}")→${kind}`).toBe(EXPECTED[kind]);
+    }
+    // 运行时穷尽：矩阵覆盖五档全集（新增档无代表对即红；编译期由 switch 无 default 兜底）
+    expect(seenKinds).toEqual(new Set(Object.keys(EXPECTED) as CloseActionKind[]));
+  });
+  it('AUTH_WAIT_TIMEOUT 独立路由:socket OPEN 但 10s 未 authenticated→exponential(传 (undefined,"") 会得 none 与 supervisor attempt++/重排自相矛盾)', () => {
+    expect(resolveBackoffPlan('timeout', undefined, '', 0, 0).kind).toBe('exponential');
+    expect(resolveBackoffPlan('timeout', undefined, '', 0, 0).ms).toBe(2_000);
+  });
+  it('非 terminal reason 判据派生自 isTerminalReason 单源——未来新增瞬态 reason 自动落指数档(禁第二张 reason 表):resolveBackoffPlan 内禁出现独立 TRANSIENT_REASONS 集合字面量(本用例锁实现形态)', () => {
+    // 锁实现形态：函数内部不得有独立瞬态 reason 集合（第二张 reason 表=未来新增瞬态 reason 漏登即误判终态）
+    const src = readFileSync(new URL('./collab-close-code.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/TRANSIENT_REASONS/);
   });
 });

@@ -11,6 +11,14 @@ export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 // Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
 export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON } from './constants/collab-close-code';
 export type { CloseAction, CloseActionKind } from './constants/collab-close-code';
+// Y0b-5 T0：退避纯函数（spec §5.2 v2.2——route 三路由分流+jitter 入参零 Math.random；T3 删 web RECOVER_BACKOFF_MS 改 import 本表单源）。
+export { TRANSIENT_BACKOFF_STEPS_MS, resolveBackoffPlan } from './constants/collab-close-code';
+export type { BackoffRoute, BackoffPlan } from './constants/collab-close-code';
+// Y0b-5 T0（spec §5.6 冻结契约 11）：遥测白名单 12 值+detail 逐 type 受控 schema（键域唯一来源=TELEMETRY_DETAIL_SCHEMA——
+// 四键白名单常量禁复活）+QuotaRejectReason 上移单源（web canvasIntents re-export）。
+export { COLLAB_TELEMETRY_EVENT_TYPES, isKnownTelemetryType, sanitizeTelemetryDetail, TELEMETRY_DETAIL_SCHEMA,
+         MAX_TELEMETRY_EVENTS_PER_BATCH, MAX_TELEMETRY_EVENT_BYTES, QUOTA_REJECT_REASONS } from './constants/collab-telemetry';
+export type { CollabTelemetryEventType, CollabTelemetryEvent, TelemetryDetailKeySpec, QuotaRejectReason } from './constants/collab-telemetry';
 export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/collab-protocol';
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
 // Y0b-4 T1：画布配额常量+doc-status/conn-status 快照类型（T5 服务端产生/T10 客户端消费——键集逐字一致）

@@ -13,6 +13,7 @@ import {
   ResetConnection,
   Unauthorized,
 } from '@hocuspocus/common';
+import { isTerminalReason } from './collab-auth-reason';
 
 export const CollabCloseCode = {
   // —— 应用侧自有码 ——
@@ -80,4 +81,36 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
   if (code === CollabCloseCode.RATE_LIMITED_CLOSE) return { kind: 'backoff' };  // 1008 消息频率超限——瞬态
   if (code === CollabCloseCode.SLOW_CONSUMER) return { kind: 'backoff' };       // 1011 消费过慢——瞬态
   return { kind: 'backoff' }; // 4205/4403/4402 max-lifetime/未知——全瞬态退避档（4403：sweep/事件驱动先踢，此处 fail-safe 重连后 auth 面给权威 reason）
+}
+
+/** Y0b-5 T0（spec §5.2 v2.2；裁定 23⑵ 按路由分流+裁定 24⑴ 穷尽性/⑸ route 参数）：
+ *  显式路由参数 route:'auth'|'close'|'timeout'（先例 CloseAction.synthetic 标志——reason 只承载协议串，禁内部哨兵）；
+ *  close 路由以 resolveCloseAction 五档穷尽映射（silent-renew-once→silent-renew 立即一次/normal→exponential
+ *  带退避一次重连——库抹码可能掩盖瞬态；terminal→none）；auth 路由 isTerminalReason 单源派生（禁第二张 reason 表）；
+ *  none=「永久断线」显式语义——不可扩展集合，仅 terminal 档与应用主动销毁两处产生。
+ *  裁定 22⑻ 退避表真合并：T3 删 connectionMachine.ts RECOVER_BACKOFF_MS 改 import 本表（单源）。 */
+export const TRANSIENT_BACKOFF_STEPS_MS = [2_000, 5_000, 10_000, 30_000] as const;
+export type BackoffRoute = 'auth' | 'close' | 'timeout';
+export type BackoffPlan =
+  | { kind: 'none'; ms: 0 }                        // 永久断线（terminal 档/应用销毁）
+  | { kind: 'silent-renew'; ms: number }           // 4401 'session-expired'——500ms+jitter 立即一次，闩锁第二次回落 terminal
+  | { kind: 'short'; ms: number }                  // 1012——jitter 0-60s full（裁定 23⑶ NAT 部署窗算术）
+  | { kind: 'exponential'; ms: number };
+
+export function resolveBackoffPlan(route: BackoffRoute, code: number | undefined, reason: string, attempt: number, jitterMs: number): BackoffPlan {
+  const exponential = (): BackoffPlan => ({
+    kind: 'exponential',
+    ms: TRANSIENT_BACKOFF_STEPS_MS[Math.min(attempt, TRANSIENT_BACKOFF_STEPS_MS.length - 1)] + jitterMs,
+  });
+  if (route === 'timeout') return exponential();                                    // socket OPEN 未认证 10s 超时
+  if (route === 'auth' || code === undefined) return isTerminalReason(reason) ? { kind: 'none', ms: 0 } : exponential(); // code 缺失归 auth 路由（裁定 25⑵ 去 code! 断言）
+  // close 路由：五档穷尽（kind 联合类型+无 default——新增档未映射即编译红）
+  const action = resolveCloseAction(code, reason);
+  switch (action.kind) {
+    case 'planned-restart': return { kind: 'short', ms: 1_000 + jitterMs };
+    case 'silent-renew-once': return { kind: 'silent-renew', ms: 500 + jitterMs };
+    case 'backoff': return exponential();
+    case 'normal': return exponential();                                            // 裁定 24⑴——库抹码掩盖瞬态；真终态由下次握手 auth 拒档权威分型
+    case 'terminal': return { kind: 'none', ms: 0 };
+  }
 }

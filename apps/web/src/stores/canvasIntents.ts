@@ -12,7 +12,7 @@
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
-import type { CanvasNodeRecord, DocMapLike, DocNodeRecord, FrameMode } from '@flowweb/shared';
+import type { CanvasNodeRecord, DocMapLike, DocNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
 import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
   QUOTA_DEFAULTS, utf8Bytes } from '@flowweb/shared';
@@ -70,7 +70,8 @@ export type ApplyIntentVerdict =
   | { ok: true }
   | { ok: false; reason: QuotaRejectReason };
 
-export type QuotaRejectReason = 'key-too-large' | 'tx-too-large' | 'too-many-nodes' | 'doc-over-budget';
+// Y0b-5 T0：QuotaRejectReason 上移 shared 单源（客户端产出与服务端 telemetry sanitize 同类型）——保留 re-export，使用面零变动。
+export type { QuotaRejectReason };
 
 /** 有效软阈单源（T10 微修复 Minor 3——canApplyIntent 判据④/redoCanvas precheck/toastQuotaReject
  *  文案三处同尺）：quotaSoftLimitBytes>0 用服务端下发值，否则回退 QUOTA_DEFAULTS 软阈
