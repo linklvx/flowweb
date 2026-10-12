@@ -15,11 +15,22 @@ vi.mock('@/api/templateApi', () => ({
   updateTemplate: vi.fn(),
   deleteTemplate: vi.fn(),
 }));
+// Y0b-5 T5：项目删除 purge 挂点需要请求者 uid（useAuth）
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ user: { id: 'u1' }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }),
+}));
+vi.mock('@/collab/local-cache-key', () => ({
+  purgePidCaches: vi.fn().mockResolvedValue(undefined),
+  purgeUidCaches: vi.fn().mockResolvedValue(undefined),
+  purgeForeignCaches: vi.fn().mockResolvedValue(undefined),
+  buildLocalCacheKey: vi.fn(),
+}));
 
 import { useWorkspaceData } from '../hooks/useWorkspaceData';
 import { getFolders, createFolder as apiCreateFolder, renameFolder as apiRenameFolder, deleteFolder as apiDeleteFolder } from '@/api/folderApi';
 import { createCanvas as apiCreateCanvas } from '@/api/canvasApi';
 import { getTemplates, updateTemplate, deleteTemplate } from '@/api/templateApi';
+import { purgePidCaches } from '@/collab/local-cache-key';
 
 const tpl = (id: string, name: string, updatedAt: string, folderId: string | null = null) => ({
   id, name, description: '', folderId,
@@ -175,6 +186,33 @@ describe('useWorkspaceData', () => {
       try { await result.current.deleteCanvas('c1'); } catch {}
     });
     expect(result.current.canvases.find((c) => c.id === 'c1')).toBeDefined();
+  });
+
+  it('Y0b-5 T5：deleteCanvas 成功 ⇒ purgePidCaches(uid, projectId)（template.delete 级联 canvasProject/CanvasDoc——本地缓存库同清）；失败回滚不 purge', async () => {
+    vi.mocked(getTemplates).mockResolvedValue({
+      templates: [{ ...tpl('c1', '画布 1', '2026-08-18T10:00:00'), projectId: 'p-c1' }],
+      total: 1, page: 1, limit: 20, totalPages: 1,
+    } as never);
+    const { result } = renderHook(() => useWorkspaceData());
+    await waitFor(() => expect(result.current.status).toBe('success'));
+
+    await act(async () => { await result.current.deleteCanvas('c1'); });
+    expect(deleteTemplate).toHaveBeenCalledWith('c1');
+    expect(purgePidCaches).toHaveBeenCalledWith('u1', 'p-c1');
+
+    // 失败回滚：API 拒绝 ⇒ 不 purge（缓存留给重试/服务端恢复）
+    vi.mocked(purgePidCaches).mockClear();
+    vi.mocked(getTemplates).mockResolvedValue({
+      templates: [{ ...tpl('c2', '画布 2', '2026-08-18T10:00:00'), projectId: 'p-c2' }],
+      total: 1, page: 1, limit: 20, totalPages: 1,
+    } as never);
+    await act(async () => { await result.current.reload(); });
+    vi.mocked(deleteTemplate).mockRejectedValueOnce(new Error('x'));
+    await act(async () => {
+      try { await result.current.deleteCanvas('c2'); } catch {}
+    });
+    expect(purgePidCaches).not.toHaveBeenCalled();
+    expect(result.current.canvases.find((c) => c.id === 'c2')).toBeDefined();
   });
 
   it('传 teamId 时 API 调用带团队维度', async () => {

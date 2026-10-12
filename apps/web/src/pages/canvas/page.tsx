@@ -1,4 +1,4 @@
-import { initCollab, destroyCollab } from '@/stores/canvasCollabRuntime';
+import { initCollab, destroyCollab, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
 import { bootstrapGeometryTrap } from '@/stores/geometryTrap';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
 import { useState, useEffect, useRef } from 'react';
@@ -50,11 +50,12 @@ function exportLocalCopy(): void {
 }
 
 // 空名创建：编号由后端生成，画布进入工作空间根目录
-async function createUntitledProject(): Promise<{ id: string; name: string }> {
-  const { projectId, name, teamId } = await createCanvas('', null);
+async function createUntitledProject(): Promise<{ id: string; name: string; meta: CollabSessionMeta }> {
+  const { projectId, name, teamId, collabGeneration, collabSchemaVersion, collabViewerUid } = await createCanvas('', null);
   localStorage.setItem(PROJECT_ID_KEY, projectId);
   useCanvasStore.getState().setTeamId(teamId ?? null);
-  return { id: projectId, name };
+  // Y0b-5 T5：新建路径同透传世代通道（canvas.service create 随行三字段——0 代首会话即享四维缓存键）
+  return { id: projectId, name, meta: { collabGeneration, collabSchemaVersion, viewerUid: collabViewerUid } };
 }
 
 // F14 三义分家：404（确定性不存在）/ 403（无权访问）/ 5xx·网络·json 异常（暂不可用，可重试）
@@ -62,20 +63,31 @@ class ProjectNotFoundError extends Error {}
 class ProjectInaccessibleError extends Error {}
 class ProjectLoadError extends Error {}
 
-/** 仅取项目元数据（名称/团队上下文）；doc 会话统一由 openSession 建立（R5 单一漏斗）。
- *  批3-3：裸 fetch 收编 apiFetch（401 电平/契约统一）；F14 三义分家由抛错的 status 承载。 */
+/** 仅取项目元数据（名称/团队上下文/世代通道三元）；doc 会话统一由 openSession 建立（R5 单一漏斗）。
+ *  批3-3：裸 fetch 收编 apiFetch（401 电平/契约统一）；F14 三义分家由抛错的 status 承载。
+ *  Y0b-5 T5：世代可见通道透传（E3「鉴权握手返回」——先于 initCollab，零新往返零新端点）；
+ *  字段缺失（旧后端/代理剥离）⇒meta 缺项⇒runtime fail-closed 不启用本地缓存。 */
 async function fetchProjectMeta(
   projectId: string,
   isCancelled?: () => boolean,
-): Promise<string> {
+): Promise<{ name: string; meta: CollabSessionMeta }> {
   try {
-    const project = await apiFetch<{ name: string; teamId: string | null }>(`/projects/${projectId}`);
+    const project = await apiFetch<{
+      name: string; teamId: string | null;
+      collabGeneration?: number | null; collabSchemaVersion?: number | null; collabViewerUid?: string | null;
+    }>(`/projects/${projectId}`);
+    const meta: CollabSessionMeta = {
+      collabGeneration: project.collabGeneration ?? undefined,
+      collabSchemaVersion: project.collabSchemaVersion ?? undefined,
+      viewerUid: project.collabViewerUid ?? undefined,
+    };
+    const name = project.name || '未命名项目';
     // 丢弃过期响应（effect 重跑/StrictMode）的 store 写入
-    if (isCancelled?.()) return project.name || '未命名项目';
+    if (isCancelled?.()) return { name, meta };
 
     // 画布团队上下文（顶栏积分/上传/素材库消费）
     useCanvasStore.getState().setTeamId(project.teamId ?? null);
-    return project.name || '未命名项目';
+    return { name, meta };
   } catch (e) {
     // R5：json 异常不再静默降级为"可编辑无 doc 会话"（原 return '未命名项目' 是刷新蒸发根源之一）
     const status = (e as { status?: number }).status;
@@ -96,7 +108,7 @@ export function CanvasPage() {
   const queryProjectId = searchParams.get('projectId');
   const lastPidRef = useRef<string | null>(null);
   // StrictMode 双执行共享同一次创建请求，避免重复建画布；失败后清空以允许重试
-  const createPromiseRef = useRef<Promise<{ id: string; name: string }> | null>(null);
+  const createPromiseRef = useRef<Promise<{ id: string; name: string; meta: CollabSessionMeta }> | null>(null);
   const sessionEpochRef = useRef(0);
 
   /** R17 硬契约前置（批0a 版 / 批2-1 四态化）：先推 epoch/置 pending（桥禁写门），再清 store——
@@ -129,12 +141,12 @@ export function CanvasPage() {
      *  新建/404 回退不再"只 finish 不建 doc 会话"（可编辑但刷新蒸发的活 bug）。
      *  批2-1：首行置 pending（先于任何渲染就绪）；ready/failed 归 runtime 单写——
      *  initCollab 超时（failed）不被此处的完成动作遮蔽（旧代码 setHydrating(false) 吞超时蒙层） */
-    async function openSession(id: string, name: string) {
+    async function openSession(id: string, name: string, meta?: CollabSessionMeta) {
       if (cancelled) return;
       sessionEpochRef.current++;
       const epoch = sessionEpochRef.current;
       useCanvasStore.getState().setHydration('pending');
-      await initCollab(id);
+      await initCollab(id, meta);   // Y0b-5 T5：世代通道三元随会话（缺失⇒runtime fail-closed）
       if (cancelled || epoch !== sessionEpochRef.current) return; // 期间用户切项目——丢弃陈旧结果
       useCanvasStore.setState({ projectId: id });
       setProjectId(id);
@@ -145,7 +157,7 @@ export function CanvasPage() {
     if (storedId) {
       if (queryProjectId) localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
       fetchProjectMeta(storedId, () => cancelled)
-        .then((name) => openSession(storedId, name))
+        .then(({ name, meta }) => openSession(storedId, name, meta))
         .catch((e: unknown) => {
           if (cancelled) return;
           if (e instanceof ProjectNotFoundError && !queryProjectId) {
@@ -154,7 +166,7 @@ export function CanvasPage() {
             message.warning('上次的画布已不存在，已为你新建');
             createPromiseRef.current ??= createUntitledProject();
             createPromiseRef.current
-              .then(({ id, name }) => openSession(id, name))
+              .then(({ id, name, meta }) => openSession(id, name, meta))
               .catch(() => {
                 createPromiseRef.current = null;
                 if (cancelled) return;
@@ -173,7 +185,7 @@ export function CanvasPage() {
       // Normal flow — create new project
       createPromiseRef.current ??= createUntitledProject();
       createPromiseRef.current
-        .then(({ id, name }) => openSession(id, name))
+        .then(({ id, name, meta }) => openSession(id, name, meta))
         .catch(() => {
           createPromiseRef.current = null;
           if (!cancelled) {

@@ -5,6 +5,10 @@ export interface CreateCanvasResult {
   projectId: string;
   name: string;
   teamId: string;
+  /** Y0b-5 T5：世代可见通道随行（canvas.service create——doc 懒建确定性 0 代；旧后端缺席⇒下游 fail-closed） */
+  collabGeneration?: number;
+  collabSchemaVersion?: number;
+  collabViewerUid?: string | null;
 }
 
 export function createCanvas(name: string, folderId: string | null, teamId?: string) {

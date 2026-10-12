@@ -6,6 +6,7 @@ import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 
 /** T8①：种子 PG 化——upsert.create.state 是 Yjs update 二进制，解码回 Y.Doc 断言内容 */
 const decodeState = (state: Buffer): Y.Doc => {
@@ -246,6 +247,30 @@ describe('ProjectService', () => {
 
       const result = await service.findById('p1');
       expect(result).not.toHaveProperty('nodes');
+    });
+
+    it('Y0b-5 T5：世代可见通道随行——collabGeneration（CanvasDoc.generation）+collabSchemaVersion（=CANVAS_DOC_SCHEMA_VERSION 单源）+collabViewerUid（请求者 uid——四维缓存键 uid 维）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'T' });
+      prisma.canvasDoc.findUnique.mockResolvedValue({ generation: 7 });
+
+      const result = await service.findById('p1', 'u9');
+      expect(result.collabGeneration).toBe(7);
+      expect(result.collabSchemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);
+      expect(result.collabViewerUid).toBe('u9');
+      expect(prisma.canvasDoc.findUnique).toHaveBeenCalledWith({
+        where: { projectId: 'p1' },
+        select: { generation: true },
+      });
+    });
+
+    it('Y0b-5 T5：CanvasDoc 行缺失（新建未装载——doc 懒建于 loadDocument）⇒ collabGeneration=0 兜底；viewerUid 缺席⇒null（fail-closed 下游不启用缓存）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'T' });
+      prisma.canvasDoc.findUnique.mockResolvedValue(null);
+
+      const result = await service.findById('p1');
+      expect(result.collabGeneration).toBe(0);
+      expect(result.collabSchemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);
+      expect(result.collabViewerUid).toBeNull();
     });
 
     it('should throw NotFoundException when project missing', async () => {

@@ -47,8 +47,13 @@ describe('ProjectController', () => {
   });
 
   it('GET /api/projects/:id should return project', async () => {
-    const result = await controller.getProject('p1');
+    const result = await controller.getProject('p1', {} as any);
     expect(result.id).toBe('p1');
+  });
+
+  it('Y0b-5 T5：GET /api/projects/:id 透传请求者 uid（collabViewerUid——四维缓存键 uid 维；E3「鉴权握手返回」通道）', async () => {
+    await controller.getProject('p1', { user: { id: 'u1' } } as any);
+    expect(service.findById).toHaveBeenCalledWith('p1', 'u1');
   });
 
   it('GET /api/projects/:id/folder 登录+teamId 时校验成员并透传', async () => {

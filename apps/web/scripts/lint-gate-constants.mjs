@@ -112,5 +112,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   // Y0b-5 T4（2026-10-12）：造案 +3 处/0 新文件（canvasCollabRuntime.offline.test.ts +1——ready 探测
   //   用例 beforeEach 装置复位；SyncBanner.test.tsx +2——六瞬态反向断言循环+probe hint 分档注入，
   //   store 注入是用例存在目的〔同 T9 例外〕；均存量 allow-list 文件）→ 263 处 / 50 文件。
-  effective: { count: 263, files: 50 },
+  // Y0b-5 T5（2026-10-12）：canvasCollabRuntime.cache.spec.ts 造案 +1 处/1 新文件（世代通道/purge
+  //   挂点用例 beforeEach resetStore 装置复位——sanctioned 例外同模式）→ 264 处 / 51 文件。
+  effective: { count: 264, files: 51 },
 };

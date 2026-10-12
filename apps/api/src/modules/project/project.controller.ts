@@ -20,8 +20,9 @@ export class ProjectController {
   @Get(':id')
   @TeamSource('project')
   @UseGuards(TeamGuard)
-  getProject(@Param('id') id: string) {
-    return this.projectService.findById(id);
+  getProject(@Param('id') id: string, @Req() req: Request) {
+    // Y0b-5 T5：透传请求者 uid（collabViewerUid——四维本地缓存键 uid 维）
+    return this.projectService.findById(id, (req as any).user?.id);
   }
 
   @Get(':id/folder')

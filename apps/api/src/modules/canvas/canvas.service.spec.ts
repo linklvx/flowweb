@@ -6,6 +6,7 @@ import { TemplateService } from '../template/template.service';
 import { TeamService } from '../team/team.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 
 describe('CanvasService', () => {
   let service: CanvasService;
@@ -47,9 +48,22 @@ describe('CanvasService', () => {
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
       }));
       const result = await service.create('新画布', 'f1', 'u1');
-      expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '新画布', teamId: 'team1' });
+      expect(result).toEqual(expect.objectContaining({ templateId: 't1', projectId: 'p1', name: '新画布', teamId: 'team1' }));
       expect(templateService.clearCache).toHaveBeenCalled();
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
+    });
+
+    it('Y0b-5 T5：世代可见通道随行——collabGeneration=0（doc 懒建，新建确定性 0 代）+collabSchemaVersion+collabViewerUid（新建路径首会话同享四维缓存键通道）', async () => {
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+        canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
+        template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
+      }));
+      const result = await service.create('新画布', 'f1', 'u1');
+      expect(result.collabGeneration).toBe(0);
+      expect(result.collabSchemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);
+      expect(result.collabViewerUid).toBe('u1');
     });
 
     it('事务内 Template 数据含 folderId', async () => {
@@ -97,7 +111,7 @@ describe('CanvasService', () => {
         expect(tx.template.findMany).toHaveBeenCalledWith({ where: { teamId: 'team1' }, select: { name: true } });
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
         expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
-        expect(result).toEqual({ templateId: 't1', projectId: 'p1', name: '画布1', teamId: 'team1' });
+        expect(result).toEqual(expect.objectContaining({ templateId: 't1', projectId: 'p1', name: '画布1', teamId: 'team1' }));
       });
 
       it('已有 画布1、3 → 下一个为 4，非编号名不影响编号，旧规则未命名项目N 不再参与编号', async () => {
@@ -164,7 +178,7 @@ describe('CanvasService', () => {
       expect(prisma.canvasProject.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ teamId: 't-team' }) }),
       );
-      expect(result).toEqual({ templateId: 'tp1', projectId: 'p1', name: '名字', teamId: 't-team' });
+      expect(result).toEqual(expect.objectContaining({ templateId: 'tp1', projectId: 'p1', name: '名字', teamId: 't-team' }));
     });
 
     it('create 返回值含 teamId（前端画布 store 需要）', async () => {

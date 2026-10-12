@@ -21,6 +21,10 @@ vi.mock('@/api/canvasApi', () => ({
   createCanvas: vi.fn(),
   getNextUntitledName: (...a: any[]) => mockGetNext(...a),
 }));
+// Y0b-5 T5：useWorkspaceData 接 useAuth（删除 purge 需请求者 uid）——测试上下文补位
+vi.mock('@/components/AuthProvider', () => ({
+  useAuth: () => ({ user: { id: 'u1' }, loading: false, logout: vi.fn(), refresh: vi.fn(), updateUser: vi.fn() }),
+}));
 
 const renderDim = (teamId: string | undefined, initialEntries = ['/works']) =>
   render(

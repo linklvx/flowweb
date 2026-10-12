@@ -3,6 +3,9 @@ import { message } from 'antd';
 import { getTemplates, updateTemplate, deleteTemplate } from '@/api/templateApi';
 import { getFolders, createFolder as apiCreateFolder, renameFolder as apiRenameFolder, deleteFolder as apiDeleteFolder } from '@/api/folderApi';
 import { createCanvas as apiCreateCanvas } from '@/api/canvasApi';
+// Y0b-5 T5：项目删除 purge 本地缓存库（纯函数 fail-soft 模块）
+import { purgePidCaches } from '@/collab/local-cache-key';
+import { useAuth } from '@/components/AuthProvider';
 import type { Canvas, FolderViewModel } from '../types';
 import { getCanvasGradient } from '../utils/gradient';
 
@@ -16,6 +19,7 @@ function toCanvas(t: any): Canvas {
 }
 
 export function useWorkspaceData(teamId?: string, initialFolderId?: string | null) {
+  const { user } = useAuth();   // Y0b-5 T5：删除 purge 需要请求者 uid（四维缓存键 uid 维）
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const [folders, setFolders] = useState<FolderViewModel[]>([]);
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -131,11 +135,16 @@ export function useWorkspaceData(teamId?: string, initialFolderId?: string | nul
     setCanvases((cs) => cs.filter((c) => c.id !== id));
     try {
       await deleteTemplate(id);
+      // Y0b-5 T5：项目删除成功→purge 该 uid:pid 全部代本地缓存库（template.delete 级联
+      // canvasProject/CanvasDoc——本地库同清；fail-soft 不阻断删除流程）
+      const pid = prev.find((c) => c.id === id)?.projectId;
+      const uid = user?.id;
+      if (pid && uid) void purgePidCaches(uid, pid);
     } catch {
       setCanvases(prev);
       message.error('删除失败，请重试');
     }
-  }, [canvases]);
+  }, [canvases, user]);
 
   const createCanvas = useCallback(async (name: string, folderId: string | null): Promise<string> => {
     const { templateId, projectId } = await apiCreateCanvas(name, folderId, teamId);

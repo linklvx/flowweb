@@ -1,4 +1,5 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
@@ -43,7 +44,14 @@ export class CanvasService {
     });
     this.templateService.clearCache();
     if (folderId) await this.folderService.touch([folderId]);
-    return result;
+    // Y0b-5 T5：世代可见通道随行（与 GET /projects/:id 同族）——doc 懒建于 loadDocument（本事务
+    // 不建 CanvasDoc 行）⇒ 新建确定性 0 代；新建路径首会话同享四维缓存键通道（fail-closed 不误伤）
+    return {
+      ...result,
+      collabGeneration: 0,
+      collabSchemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+      collabViewerUid: userId,
+    };
   }
 
   async getNextUntitledName(userId: string, teamId?: string): Promise<string> {

@@ -188,9 +188,11 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   // + Y0b-5 T4 造案 +3 处/0 新文件（canvasCollabRuntime.offline.test.ts +1——ready 探测用例
   //   beforeEach 装置复位；SyncBanner.test.tsx +2——六瞬态反向断言循环+probe hint 分档注入，
   //   store 注入是用例存在目的〔同 T9 例外〕；均存量 allow-list 文件）。
+  // + Y0b-5 T5 造案 +1 处/1 新文件（canvasCollabRuntime.cache.spec.ts——世代通道/purge 挂点用例
+  //   beforeEach resetStore 装置复位，同例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 263;
-  const BASELINE_FILES = 50;
+  const BASELINE_COUNT = 264;
+  const BASELINE_FILES = 51;
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -8,7 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 import isEqual from 'fast-deep-equal';
 import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
@@ -54,6 +54,8 @@ import {
 // 1012/普通掉线全归）；库定时器被 open 归零 shouldConnect 结构性禁用；watchdog 降级纯观测。
 // 循环依赖裁定（同 canvasUndo）：本模块顶层仅 import 声明/类定义，supervisor 方法运行时才执行——安全。
 import { createSupervisor, type CollabConnectionSupervisor } from '@/collab/connection-supervisor';
+// Y0b-5 T5：世代可见通道四维缓存键+purge（纯函数/幂等 fail-soft 模块——T8 IDB 适配器消费同一单源）
+import { buildLocalCacheKey, purgeForeignCaches, purgePidCaches } from '@/collab/local-cache-key';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -133,7 +135,26 @@ let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
  *  epoch 判活（I-1）：同 pid 无法区分陈旧调用（退出重进/StrictMode 双挂载同 pid）——
  *  超时 timer 恢复时 epoch 不匹配即陈旧调用，不得走超时兜底销毁新会话。
  *  sessionEpoch 独立于 session 生命周期（session 置空后仍递增——防同代数复用） */
-interface CollabSession { pid: string; startedAt: number; epoch: number }
+/** Y0b-5 T5：世代可见通道元数据（fetchProjectMeta 先于 initCollab 携带——E3「鉴权握手返回」）。
+ *  三元（viewerUid/collabGeneration/collabSchemaVersion）完整才合成 cacheKey；缺失⇒cacheDisabled
+ *  fail-closed（generation 未知⇒不启用本地缓存走服务端水合——undefined 键=F2 原样复发）。 */
+export interface CollabSessionMeta {
+  viewerUid?: string | null;
+  collabGeneration?: number | null;
+  collabSchemaVersion?: number | null;
+}
+
+interface CollabSession {
+  pid: string;
+  startedAt: number;
+  epoch: number;
+  /** Y0b-5 T5：世代通道+四维缓存键（T8 IDB 适配器消费；cacheDisabled=本会话禁本地缓存） */
+  viewerUid?: string;
+  collabGeneration?: number;
+  collabSchemaVersion?: number;
+  cacheKey?: string;
+  cacheDisabled: boolean;
+}
 let session: CollabSession | null = null;
 let sessionEpoch = 0;
 // Y0b-5 T4（裁定 23⑦）：armSession 一次性 latch——同 epoch 二次触发（自愈后 re-synced 等）不重复
@@ -237,6 +258,18 @@ let lastGeneration: number | undefined;
 //（评审 M-1：与 SyncBanner VERSION_FAMILY 原两处本地表合一）；server-outdated 是瞬态档（reload
 // 无效——shared M-4）不在表内。
 const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>(COLLAB_VERSION_TERMINAL_REASONS);
+
+// Y0b-5 T5（裁定 22⑶ 读权分型）：无读权终态——purge 该 uid:pid 全部代库（权限撤销后本地副本
+// 仍在=看得见已无权画布，与 uid 隔离同类泄漏）且不提供导出。unauthenticated 不 purge（非权限
+// 撤销——重登即恢复）；4404 quota 终态仍有读权——保留缓存（T8 只读副本用）；'team disbanded'
+// 是 gateway closeTeamDocuments 裸字面量（close NORMAL 路由）——close handler 单独按字面量分型
+//（T6 升 shared 常量 TEAM_DISBANDED_TERMINAL_REASON 后收敛进本表）。
+const NO_READ_ACCESS_PURGE_REASONS: ReadonlySet<string> = new Set<string>([
+  CollabAuthReason.FORBIDDEN,
+  CollabAuthReason.NOT_FOUND,
+  CollabAuthReason.SESSION_EXPIRED,
+  ...COLLAB_VERSION_TERMINAL_REASONS,
+]);
 
 // 批1-3：transport 薄层句柄已随 Y0b-5 T3b 退役（needKick 语义随归零模型废弃——socket 单实例
 // 注册表见 reconnectTransport.ts；瞬态恢复全归 supervisor.recoverNow）。
@@ -394,11 +427,26 @@ function armProbeReadyCheck(epochAtArm: number): void {
 const GENERATION_RELOAD_DELAY_MS = 1_500;
 
 /** Y0b-4 T11：vacuum 代际跳变消费（T9a 双路之二——装载后首快照路径）：撤销栈锚代际失效→清
- *  （reload 后重建）+提示+1.5s 自动 reload（延时让用户看到提示；与 4410 close 路径同款文案/节奏）。 */
+ *  （reload 后重建）+提示+1.5s 自动 reload（延时让用户看到提示；与 4410 close 路径同款文案/节奏）。
+ *  Y0b-5 T5：reload 前置 await purge()（同 uid:pid 异代库清理——顺序锚：purge 在 reload 前，
+ *  反了=重载读脏库 F1 复发）。 */
 function consumeGenerationJump(): void {
   getUndoManager()?.clear();
   message.warning('正在重建画布历史，即将自动刷新');
-  setTimeout(() => location.reload(), GENERATION_RELOAD_DELAY_MS);
+  setTimeout(() => purgeCachesThenReload(), GENERATION_RELOAD_DELAY_MS);
+}
+
+/** Y0b-5 T5：世代跳变 reload 前置 purge（consumeGenerationJump 与 4410 close 两路共用）。
+ *  顺序锚=await purge() 后 reload；purge fail-soft（失败/能力不可用/fail-closed 无键不阻断
+ *  reload——四维键世代隔离是正确性主锚，purge 是磁盘卫生层）。
+ *  T6 收敛：safeReload("generation") 完整次序=导出（.yjs 双产物，标注旧代——世代被超的编辑
+ *  本就无法合并，给用户留一份）→purge→reload；本任务先落 purge→reload 顺序锚，导出次序 T6 前置补齐。 */
+function purgeCachesThenReload(): void {
+  const key = session?.cacheKey;
+  void (async () => {
+    if (key) await purgeForeignCaches(key);
+    location.reload();
+  })();
 }
 
 /** Y0b-3 T9：逃生动作（唯一）——「导出本地画布→强制刷新」一键。不受未同步守卫约束（它就是为
@@ -1182,6 +1230,12 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       // 真开关：supervisor.terminalDisconnect（内含 ws.disconnect()——shouldConnect=false，
       // 库 onClose 定时器结构性不排程；phase='terminal' 后任何路径零重试零恢复）
       supervisor.terminalDisconnect(reason);
+      // Y0b-5 T5（裁定 22⑶ 读权分型）：无读权终态→purge 该 uid:pid 全部代库且无导出（权限撤销
+      // 后本地副本仍在=泄漏）；quota 终态（4404 close 路由）仍有读权——不在此路径不 purge。
+      // fail-closed 会话（无 cacheKey=缓存从未启用）零动作。
+      if (session?.viewerUid && NO_READ_ACCESS_PURGE_REASONS.has(reason)) {
+        void purgePidCaches(session.viewerUid, session.pid);
+      }
       // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
       if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal();
     } else {
@@ -1214,7 +1268,8 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         // 4410 双 reason：代际被超（vacuum 进行中/SV 过期）——reload 后空 SV 放行即自愈，不循环
         useCanvasStore.setState({ wsQuotaTerminal: { code: CollabCloseCode.GENERATION_SUPERSEDED, reason } });
         message.warning('正在重建画布历史，即将自动刷新');
-        setTimeout(() => location.reload(), GENERATION_RELOAD_DELAY_MS);   // 延时让用户看到提示再刷
+        // Y0b-5 T5：与 consumeGenerationJump 同款顺序锚——延时让用户看到提示再刷，刷前 await purge()
+        setTimeout(() => purgeCachesThenReload(), GENERATION_RELOAD_DELAY_MS);
       } else {
         useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
       }
@@ -1226,6 +1281,13 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       }
     }
     // backoff/normal/short/silent-renew：排程所有权=supervisor（统一排程入口）——零动作
+    // Y0b-5 T5：'team disbanded'（gateway closeTeamDocuments 裸字面量——NORMAL 路由不进 terminal
+    // 分型，故按字面量分型；T6 升 shared 常量 TEAM_DISBANDED_TERMINAL_REASON 并由
+    // resolveCloseAction 按 reason 分型落 terminal 后收敛进 NO_READ_ACCESS_PURGE_REASONS）——
+    // 团队解散已无读权：purge 该 uid:pid 全部代库。
+    if (event?.reason === 'team disbanded' && session?.viewerUid) {
+      void purgePidCaches(session.viewerUid, session.pid);
+    }
   });
   // 批1-4：rebuildPending 清除主判据——unsyncedChanges number===0（decrement 归零无条件 emit，
   // HP:333-335）。实例绑定（p === provider）：终态重建竞态窗口内旧实例迟到事件不得清新实例标记。
@@ -1310,7 +1372,7 @@ function bindReevaluateOnce(): void {
  * synced 后 server doc 应用到 store（初始加载路径，替代 GET /projects/:id 的 nodes/edges）。
  * 离线廉价兜底：10s 未 synced 不置 connected、不 apply 空 doc、不抬 hydrate 门——保持不可编辑，UI 层提示重试。
  */
-export async function initCollab(projectId: string): Promise<void> {
+export async function initCollab(projectId: string, meta?: CollabSessionMeta): Promise<void> {
   // Y0b-5 T2：SLO hydration_duration 起点（performance.now 单调钟——armSession 消费；
   // Y0b-5 T4 随 armSession 抽取上移模块级）
   hydrationStartedAt = performance.now();
@@ -1319,7 +1381,25 @@ export async function initCollab(projectId: string): Promise<void> {
   await teardownSession();
   // 批1-5 会话对象（epoch 判活——I-1）：sessionEpoch 单调递增不随 session 置空回卷
   const epoch = ++sessionEpoch;
-  session = { pid: projectId, startedAt: Date.now(), epoch };
+  // Y0b-5 T5：世代通道三元完整性判据（fail-closed）——任一缺失（fetchProjectMeta 失败/超时/
+  // 字段缺失/旧后端）⇒本会话禁本地缓存（走服务端水合——undefined 键=F2 原样复发）+
+  // ws_status detail.reason="local-cache-degraded" 遥测（"缓存从不生效"可观测非静默）。
+  const metaComplete = typeof meta?.collabGeneration === 'number'
+    && typeof meta?.collabSchemaVersion === 'number'
+    && typeof meta?.viewerUid === 'string' && meta.viewerUid.length > 0;
+  session = {
+    pid: projectId, startedAt: Date.now(), epoch,
+    viewerUid: typeof meta?.viewerUid === 'string' && meta.viewerUid ? meta.viewerUid : undefined,
+    collabGeneration: typeof meta?.collabGeneration === 'number' ? meta.collabGeneration : undefined,
+    collabSchemaVersion: typeof meta?.collabSchemaVersion === 'number' ? meta.collabSchemaVersion : undefined,
+    cacheKey: metaComplete
+      ? buildLocalCacheKey({ uid: meta!.viewerUid as string, pid: projectId, generation: meta!.collabGeneration as number, schemaVersion: meta!.collabSchemaVersion as number })
+      : undefined,
+    cacheDisabled: !metaComplete,
+  };
+  if (session.cacheDisabled) {
+    recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });
+  }
   // 批2-1 会话起点：hydration=pending（openSession 已先置——此处覆盖入口清理期）+
   // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）；
   // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户；
@@ -1569,6 +1649,9 @@ export async function destroyCollab(): Promise<void> {
   // G27：登出/切用户经页面卸载路径显式复位（viewer 折叠 UI 瞬态同点清）；T9：终态/冻结/逃生同点清
   // Y0b-4 T11：quota 终态通道同点清（G27 同款——粘滞态不跨会话/跨用户）
   // Y0b-5 T4：localCacheReady/readyProbeHint 同点清（会话态不跨用户）
+  // Y0b-5 T5：本地缓存库 purge 不在此点——登出侧在 AuthProvider.logout（本函数无法区分登出/切
+  // 项目，无差别 purge 会误删他标签在用库）；世代/terminal 族 purge 在 close handler 与
+  // consumeGenerationJump（见 purgeCachesThenReload/NO_READ_ACCESS_PURGE_REASONS）。
   useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, wsQuotaTerminal: null, writeFrozen: false, collabEscapePending: false, localCacheReady: false, readyProbeHint: null });
   terminalSuppressed = false;
 }

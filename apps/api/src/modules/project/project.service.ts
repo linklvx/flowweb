@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
-import { fillDoc, stampDocSchema, stripAuthorState } from '@flowweb/shared';
+import { fillDoc, stampDocSchema, stripAuthorState, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -71,15 +71,28 @@ export class ProjectService {
       return created;
     });
 
-    return this.findById(project.id);
+    return this.findById(project.id, userId);   // Y0b-5 T5：新建者即 viewer——世代通道随行
   }
 
-  async findById(id: string) {
+  /** Y0b-5 T5：世代可见通道（E3「鉴权握手返回」）——collabGeneration（CanvasDoc.generation ??
+   *  0：doc 懒建于 loadDocument，行缺失=确定性 0 代）+collabSchemaVersion（CANVAS_DOC_SCHEMA_VERSION
+   *  单源）+collabViewerUid（请求者 uid——四维本地缓存键 uid 维）。fetchProjectMeta 先于 initCollab
+   *  消费（page.tsx promise 链）——零新往返零新端点。 */
+  async findById(id: string, viewerId?: string | null) {
     const project = await this.prisma.canvasProject.findUnique({
       where: { id },
     });
     if (!project) throw new NotFoundException('Project not found');
-    return project;
+    const doc = await this.prisma.canvasDoc.findUnique({
+      where: { projectId: id },
+      select: { generation: true },
+    });
+    return {
+      ...project,
+      collabGeneration: doc?.generation ?? 0,
+      collabSchemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+      collabViewerUid: viewerId ?? null,
+    };
   }
 
   /** 画布所属文件夹 id；非本团队成员/未登录/teamId 缺失/无关联时返回 null（不暴露项目存在性） */

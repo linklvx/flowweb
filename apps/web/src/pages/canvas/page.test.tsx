@@ -222,12 +222,14 @@ describe('CanvasPage', () => {
     const dbOkResponse = (id: string) => ({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { id, name: 'DB画布', teamId: 't-1', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } } }),
+      // Y0b-5 T5：含世代可见通道三字段（collabGeneration/collabSchemaVersion/collabViewerUid）
+      json: () => Promise.resolve({ code: 0, data: { id, name: 'DB画布', teamId: 't-1', nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, collabGeneration: 7, collabSchemaVersion: 2, collabViewerUid: 'u1' } }),
     });
     const createOkResponse = {
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4', teamId: 't-create' } }),
+      // Y0b-5 T5：新建路径同享世代通道（doc 懒建确定性 0 代——canvas.service create 随行三字段）
+      json: () => Promise.resolve({ code: 0, data: { templateId: 't-new', projectId: 'new-pid', name: '未命名项目4', teamId: 't-create', collabGeneration: 0, collabSchemaVersion: 2, collabViewerUid: 'u1' } }),
     };
 
     it('无参且 localStorage 有 projectId 时不新建，走加载路径', async () => {
@@ -238,6 +240,13 @@ describe('CanvasPage', () => {
       await waitFor(() => {
         expect(screen.getByLabelText('添加节点')).toBeInTheDocument();
       });
+
+      // Y0b-5 T5：世代可见通道透传——/projects/:id 三字段经 fetchProjectMeta→initCollab
+      // （E3「鉴权握手返回」：fetchProjectMeta 先于 initCollab——零新往返零新端点）
+      const { initCollab } = await import('@/stores/canvasCollabRuntime');
+      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('p1', expect.objectContaining({
+        collabGeneration: 7, collabSchemaVersion: 2, viewerUid: 'u1',
+      }));
 
       const posts = mockFetch.mock.calls.filter((c: any[]) => c[1]?.method === 'POST');
       expect(posts.length).toBe(0);
@@ -261,6 +270,11 @@ describe('CanvasPage', () => {
       expect(localStorage.getItem('flowweb_projectId')).toBe('new-pid');
       // 新建路径写入画布团队上下文
       expect(setTeamIdMock).toHaveBeenCalledWith('t-create');
+      // Y0b-5 T5：新建路径同透传世代通道（0 代首会话即享四维缓存键——fail-closed 不误伤新建）
+      const { initCollab } = await import('@/stores/canvasCollabRuntime');
+      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('new-pid', expect.objectContaining({
+        collabGeneration: 0, collabSchemaVersion: 2, viewerUid: 'u1',
+      }));
     });
 
     it('无参 404 时清 key 并 fallback 新建且提示', async () => {
@@ -376,7 +390,7 @@ describe('CanvasPage', () => {
       // pb 加载完成后写入新团队上下文
       expect(setTeamIdMock).toHaveBeenCalledWith('t-pb');
       const { initCollab } = await import('@/stores/canvasCollabRuntime');
-      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('pb');
+      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('pb', expect.anything());   // T5：meta 第二参恒传（字段缺失=fail-closed 对象）
     });
 
     it('同项目网络错误重试不二次清空', async () => {
@@ -480,7 +494,7 @@ describe('CanvasPage', () => {
       });
 
       const { initCollab } = await import('@/stores/canvasCollabRuntime');
-      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('new-pid');
+      expect(vi.mocked(initCollab)).toHaveBeenCalledWith('new-pid', expect.anything());   // T5：meta 第二参恒传
     });
 
     it('F14：5xx → unavailable 错误态 + 重试行动，initCollab 零调用、storedId 指针不变（不散射新画布）', async () => {
