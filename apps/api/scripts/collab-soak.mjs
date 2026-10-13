@@ -71,7 +71,14 @@ function bucketP99(buckets, base) {
 const fmtMs = (v) => (v === null || v === undefined ? 'n/a' : v === Infinity ? '>10s' : `${v}ms`);
 
 const ts = Date.now();
-const S = { user: `soak-u-${ts}`, team: `soak-t-${ts}`, member: `soak-m-${ts}`, token: `soak-tok-${randomUUID()}` };
+// 每 client 独立 user/member/session（真实场景=每用户单连接；共用单 token 时拒绝缓存以 token 指纹为键——
+// 一连接被 semaphore 拒（COLLAB_AUTH_INFLIGHT_MAX=4）即全员 15s 内同拒，M≥5 必「恰 4 auth」失败）
+const S = {
+  team: `soak-t-${ts}`,
+  users: Array.from({ length: OPTS.clients }, (_, ci) => `soak-u-${ts}-${ci}`),
+  members: Array.from({ length: OPTS.clients }, (_, ci) => `soak-m-${ts}-${ci}`),
+  tokens: Array.from({ length: OPTS.clients }, () => `soak-tok-${randomUUID()}`),
+};
 const projectIds = Array.from({ length: OPTS.docs }, (_, i) => `soak-p-${ts}-${i}`);
 
 async function main() {
@@ -88,16 +95,16 @@ async function main() {
   const frameLatencies = [];
   const samples = [];
   try {
-    await prisma.user.create({ data: { id: S.user, name: `soak-${ts}`, email: `soak-${ts}@example.invalid`, emailVerified: false } });
-    await prisma.team.create({ data: { id: S.team, name: `soak-${ts}`, ownerId: S.user } });
-    await prisma.teamMember.create({ data: { id: S.member, teamId: S.team, userId: S.user, role: 'MEMBER' } });
+    await prisma.user.createMany({ data: S.users.map((u, ci) => ({ id: u, name: `soak-${ts}`, email: `soak-${ts}-u${ci}@example.invalid`, emailVerified: false })) });
+    await prisma.team.create({ data: { id: S.team, name: `soak-${ts}`, ownerId: S.users[0] } });
+    await prisma.teamMember.createMany({ data: S.users.map((u, ci) => ({ id: S.members[ci], teamId: S.team, userId: u, role: 'MEMBER' })) });
     await prisma.canvasProject.createMany({ data: projectIds.map((id) => ({ id, name: `soak-${ts}`, teamId: S.team })) });
-    await prisma.session.create({ data: { id: `soak-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 30 * 60_000) } });
+    await prisma.session.createMany({ data: S.tokens.map((token, ci) => ({ id: `soak-s-${ts}-${ci}`, userId: S.users[ci], token, expiresAt: new Date(Date.now() + 30 * 60_000) })) });
 
     // M clients 轮转铺到 N docs；帧延迟观察=各 client 对「他人 marker」的回显时延（own marker 恒 0 剔除）
-    const cookie = { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` };
     const seenKeys = Array.from({ length: OPTS.clients }, () => new Set());
     for (let ci = 0; ci < OPTS.clients; ci++) {
+      const cookie = { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.tokens[ci]}` };   // 各绑自己 session token
       const p = new HocuspocusProvider({
         url: `${WS_URL}?csv=${CSV}&cb=soak`, name: `project:${projectIds[ci % OPTS.docs]}`, document: new Y.Doc(),
         WebSocketPolyfill: class extends HeaderWs { constructor(url) { super(url, cookie); } },
@@ -113,11 +120,13 @@ async function main() {
         }
       });
       p.on('close', () => { connErrors += 1; });
+      // 顺序建连（错峰 AUTH）：COLLAB_AUTH_INFLIGHT_MAX 默认 4 + 拒绝缓存 15s（semaphore 拒后同 doc|token
+      // 15s 内重连全拒）——同瞬 M≥5 并发 AUTH 必撞限且 10s synced 窗内不可恢复；真实场景=用户陆续上线
+      await new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error(`client#${ci} provider synced 超时 10s——WS 未监听/鉴权拒/装载失败`)), 10_000);
+        p.on('synced', () => { clearTimeout(t); res(); });
+      });
     }
-    await Promise.all(providers.map((p) => new Promise((res, rej) => {
-      const t = setTimeout(() => rej(new Error('provider synced 超时 10s——WS 未监听/鉴权拒/装载失败')), 10_000);
-      p.on('synced', () => { clearTimeout(t); res(); });
-    })));
     console.log(`[soak] 起跑：docs=${OPTS.docs} clients=${OPTS.clients} rate=${OPTS.rate}ms duration=${OPTS.duration}min`);
 
     // 编辑流：每 client 每 rate ms 写一次 marker（值=写入时刻——观察方回显时延即帧延迟样本）
@@ -164,11 +173,11 @@ async function main() {
     for (const t of editTimers) clearInterval(t);
     for (const p of providers) { try { p.destroy(); } catch (e) { warnings.push(`provider destroy 异常: ${e.message}`); } }
     const order = [
-      () => prisma.session.deleteMany({ where: { userId: S.user } }),
-      () => prisma.teamMember.deleteMany({ where: { id: S.member } }),
+      () => prisma.session.deleteMany({ where: { userId: { in: S.users } } }),
+      () => prisma.teamMember.deleteMany({ where: { id: { in: S.members } } }),
       () => prisma.canvasProject.deleteMany({ where: { teamId: S.team } }),   // Cascade 清 CanvasDoc/Update（N docs 一并）
       () => prisma.team.deleteMany({ where: { id: S.team } }),
-      () => prisma.user.deleteMany({ where: { id: S.user } }),
+      () => prisma.user.deleteMany({ where: { id: { in: S.users } } }),
     ];
     for (const del of order) await del().catch((e) => warnings.push(`哨兵清理失败（残留待人工删）: ${e.message}`));
     await prisma.$disconnect();
