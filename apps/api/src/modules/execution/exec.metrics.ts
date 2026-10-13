@@ -1,4 +1,5 @@
 import { Counter, Histogram, register } from 'prom-client';
+import { ServiceUnavailableException } from '@nestjs/common';
 
 /** Y0b-2 T2 新指标单文件（Z85/Z108）——spec §10 metric-names 块同 commit 同步
  *  （check-spec-consistency 双向核：code 集合 ≡ spec fenced 块）。
@@ -90,3 +91,28 @@ export const execProjectionDeferredTotal = new Counter({
   help: 'Y0b-2（Z112）：reaper 终态投影因 doc 非常驻跳过计数（重连 alignExecFromIntents 对齐——UX 投影不成为装载源）',
   registers: [register],
 });
+
+/** Y0c T0（Z3）：执行链投影写失败计数——14 处 `.catch(()=>{})` 吞错点加观测不改策略
+ *  （Z136④ 口径：execution.service 11+execution.processor 1+ai-image-edit.processor 2；B3 清单逐点实测核对）。
+ *  cause 有界词表：CollabAuthReason 词表（带 reason 抛错形态——lease-not-ready/db-unavailable/
+ *  server-overloaded/invalid-doc-name/schema-outdated 等）∪ not-serving（503 SUE 无 reason 形态——
+ *  租约失守/真空窗/spool 熔断，双进程后从罕见变常态的族）∪ other。 */
+export const collabExecProjectionFailedTotal = new Counter({
+  name: 'collab_exec_projection_failed_total',
+  help: '执行链投影写失败计数（14 处 .catch(()=>{}) 吞错点加观测不改策略；cause=CollabAuthReason 词表/not-serving 503 族/other）',
+  labelNames: ['cause'],
+  registers: [register],
+});
+
+/** 失败分类（label 有界纪律——err.reason 取词表原值；空串/缺失折 not-serving（503 SUE）/other） */
+export function classifyExecProjectionFailure(err: unknown): string {
+  const reason = (err as { reason?: unknown } | null | undefined)?.reason;
+  if (typeof reason === 'string' && reason.length > 0) return reason;
+  if (err instanceof ServiceUnavailableException) return 'not-serving';
+  return 'other';
+}
+
+/** 吞错点单行观测——14 处 `.catch(() => {})` 统一改 `.catch(countExecProjectionFailure)`（签名恰配，不改策略只加计数） */
+export function countExecProjectionFailure(err: unknown): void {
+  collabExecProjectionFailedTotal.inc({ cause: classifyExecProjectionFailure(err) });
+}

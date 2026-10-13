@@ -902,12 +902,14 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - COLLAB_LEASE_TTL_MS
 - COLLAB_MAX_DOC_BYTES
 - COLLAB_MAX_LOADED_DOCS
+- COLLAB_MAX_RESIDENT_BYTES
 - COLLAB_MAX_TX_BYTES
 - COLLAB_MSG_RATE_PER_CONN
 - COLLAB_PORT
 - COLLAB_REFUSAL_CACHE_TTL_MS
 - COLLAB_RSS_RELEASE_BYTES
 - COLLAB_RSS_TRIP_BYTES
+- COLLAB_SESSION_IDLE_TTL_MS
 - COLLAB_SPOOL_CAPACITY_BYTES
 - COLLAB_SPOOL_DIR
 - COLLAB_SWEEP_ENABLED
@@ -971,6 +973,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_doc_shrink_duration_seconds
 - collab_doc_shrink_total
 - collab_doc_vacuum_total
+- collab_escape_hatch_total
+- collab_exec_projection_failed_total
 - collab_hydration_deferred_total
 - collab_lease_denied_total
 - collab_lease_epoch
@@ -1006,6 +1010,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_upgrade_rejected_total
 - collab_version_negotiation_reject_total
 - collab_ws_close_total
+- event_loop_lag_seconds
 - exec_outbound_duration_seconds
 - exec_poll_stall_total
 - exec_poll_unknown_status_total
@@ -1035,6 +1040,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_doc_bytes
 - yjs_doc_bytes_over_threshold_total
 - yjs_doc_heap_amplification
+- yjs_doc_load_total
 - yjs_doc_loaded_by_reconciler_total
 - yjs_doc_stuck_total
 - yjs_hydration_huge_row_total
@@ -1064,11 +1070,13 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_store_in_flight_docs
 - yjs_store_payload_bytes
 - yjs_store_tail_anomaly_total
+- yjs_store_total
 - yjs_store_unexpected_throw_total
 - yjs_unload_cleanup_failure_total
 - yjs_unload_handoff_failure_total
 - yjs_updates_discarded_deleted_total
 - yjs_withdoc_duration_seconds
+- yjs_withdoc_open_duration_seconds
 - yjs_zero_conn_docs
 ```
 

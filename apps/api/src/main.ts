@@ -5,6 +5,7 @@ config({ path: resolve(__dirname, '../.env') });
 import { NestFactory, Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
+import { register } from 'prom-client';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
@@ -63,6 +64,12 @@ async function bootstrap() {
   // Y0b-5 T11：进程兜底首行安装（原 :99 装在 create 之后=引导期窗口裸奔——unhandledRejection/
   // uncaughtException 计数+Sentry capture，先于 preloadDbConfig/Sentry.init 全程覆盖）
   installProcessErrorGuards();
+
+  // Y0c T0（Z134/Z138）：全族指标默认 role 标签——引导层单点（census ⑳ A 结构断言：全仓恰 1 调用点
+  // 且在 main.ts；模块级调用禁入——prom-client register.clear() 连清 _defaultLabels，di-smoke 既有
+  // clear 会静默消灭模块级效果；标签仅在 getMetricsAsString 输出时注入，getSingleMetric().get()
+  // 断言零影响。worker 侧 main-worker.ts role='worker' 归 T26/T29）。
+  register.setDefaultLabels({ role: 'api' });
 
   await preloadDbConfig();
 

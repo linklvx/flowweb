@@ -15,7 +15,7 @@ import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { settleFailureTotal, intentDuplicateAttemptTotal } from './intent-reconcile.metrics';
-import { artifactDiscardedTotal } from './exec.metrics';
+import { artifactDiscardedTotal, countExecProjectionFailure } from './exec.metrics';
 
 /** Z95/Z88：组执行错误结构化契约——nodeId 定位+status 分诊（error=节点失败/skipped=别处在飞/重复外呼
  *  非节点失败）+errorCode（客户端轮换/重试判据单源）。success=errors.length===0（真单出口）。 */
@@ -123,7 +123,7 @@ export class ExecutionService {
   private async onReserveFail(projectId: string, node: any, intent: any, msg: string, errorCode: string) {
     await this.intentService.void_(intent.id, msg);
     this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
-    await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, msg, intent.attempts ?? 0, (intent.attempts ?? 0) < 3, intent.intentId)).catch(() => {});
+    await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, msg, intent.attempts ?? 0, (intent.attempts ?? 0) < 3, intent.intentId)).catch(countExecProjectionFailure);
   }
 
   /** intentId 形参=客户端手势 token（Z109：wire 名不变、语义=gestureToken——行身份由 claim 铸造）。
@@ -265,7 +265,7 @@ export class ExecutionService {
       if (!plan) {
         artifactDiscardedTotal.inc({ cause: 'precall-miss' }); // 断言恒 0——非 0 即 pre-call 断言被绕过
         const msg = `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`;
-        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('PLAN_MISSING', msg, 0, false)).catch(() => {}); // 请求级投影传 0 代（0 代不得覆盖任何 ≥1 代）
+        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('PLAN_MISSING', msg, 0, false)).catch(countExecProjectionFailure); // 请求级投影传 0 代（0 代不得覆盖任何 ≥1 代）
         errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'PLAN_MISSING' });
         return;
       }
@@ -284,16 +284,16 @@ export class ExecutionService {
           status: 'done', intentId: intent.intentId,
           attempts: typeof intent.attempts === 'number' ? intent.attempts : 0,
           ...(intent.resultRef ? { fileId: intent.resultRef } : {}),
-        }).catch(() => {});
+        }).catch(countExecProjectionFailure);
         if (claimPack.kind !== 'text' && intent.resultRef) {
           const artifact = claimPack.kind === 'video' ? { videoUrl: intent.resultRef } : { resultUrl: intent.resultRef };
-          await this.collabDoc.writeNodeData(projectId, node.id, artifact).catch(() => {}); // best-effort——节点已删等失败不挡回放
+          await this.collabDoc.writeNodeData(projectId, node.id, artifact).catch(countExecProjectionFailure); // best-effort——节点已删等失败不挡回放
         }
         return;
       }
       claimed = intent;
       const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
-      await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }).catch(() => {}); // best-effort
+      await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }).catch(countExecProjectionFailure); // best-effort
 
       // ── reserve（外呼之前——余额不足即拒=零外呼零沉没）──
       if (cost > 0) {
@@ -303,7 +303,7 @@ export class ExecutionService {
           // 投影 skipped 非终态（Z88）——在飞 worker 的 done 照常落地
           intentDuplicateAttemptTotal.inc();
           this.logger.warn(`[reserve] 意图 ${intent.intentId} 重复外呼企图——skipped 退出（悬挂收敛归 reconcile）`);
-          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT', attempts, intentId: intent.intentId }).catch(() => {});
+          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT', attempts, intentId: intent.intentId }).catch(countExecProjectionFailure);
           errors.push({ nodeId: node.id, status: 'skipped', error: 'INTENT_DUPLICATE_ATTEMPT' });
           return;
         }
@@ -331,7 +331,7 @@ export class ExecutionService {
       if (gated !== 1) {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
-        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('INTENT_DEADLINE_EXCEEDED', '生成已被系统回收（超时）——产物未投递', attempts, attempts < 3, intent.intentId)).catch(() => {});
+        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('INTENT_DEADLINE_EXCEEDED', '生成已被系统回收（超时）——产物未投递', attempts, attempts < 3, intent.intentId)).catch(countExecProjectionFailure);
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）' });
         errors.push({ nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
         return;
@@ -352,7 +352,7 @@ export class ExecutionService {
         const rolled = await this.teamCredit.rollbackDeliveryFailed(intent.id, '交付失败：节点已删（written:false）')
           .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
         this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 节点已删（${deliver.reason}）——rollbackDeliveryFailed=${rolled}`);
-        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELETED', msg, attempts, attempts < 3, intent.intentId)).catch(() => {});
+        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELETED', msg, attempts, attempts < 3, intent.intentId)).catch(countExecProjectionFailure);
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
         errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELETED' });
         return;
@@ -396,7 +396,7 @@ export class ExecutionService {
           const rolled = await this.teamCredit.rollbackDeliveryFailed(claimed.id, '交付失败：settle 后交付抛错')
             .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} B-1 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
           this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} settle 后交付抛错（行已 SUCCEEDED）——rollbackDeliveryFailed=${rolled}`);
-          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELIVERY_FAILED', msg, attempts, attempts < 3, claimed.intentId)).catch(() => {});
+          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELIVERY_FAILED', msg, attempts, attempts < 3, claimed.intentId)).catch(countExecProjectionFailure);
           this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
           errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELIVERY_FAILED' });
           return;
@@ -411,13 +411,13 @@ export class ExecutionService {
         await this.collabDoc.writeExecStatus(projectId, node.id, {
           status: 'skipped', reason: String(err?.message ?? err), attempts,
           ...(claimed ? { intentId: claimed.intentId } : {}),
-        }).catch(() => {});
+        }).catch(countExecProjectionFailure);
         errors.push({ nodeId: node.id, status: 'skipped', error: String(err?.message ?? err), errorCode: 'NODE_BUSY' });
         return;
       }
       const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
       const rearmable = err instanceof IntentExhaustedError ? false : attempts < 3; // INTENT_EXHAUSTED：rearmable:false（轮换判据单源）
-      await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, err?.message ?? err, attempts, rearmable, claimed?.intentId)).catch(() => {}); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
+      await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, err?.message ?? err, attempts, rearmable, claimed?.intentId)).catch(countExecProjectionFailure); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err?.message ?? String(err) });
       errors.push({ nodeId: node.id, status: 'error', error: String(err?.message ?? err), errorCode });
     }

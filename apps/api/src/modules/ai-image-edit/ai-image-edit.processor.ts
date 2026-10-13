@@ -10,7 +10,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
-import { artifactDiscardedTotal } from '../execution/exec.metrics';
+import { artifactDiscardedTotal, countExecProjectionFailure } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import axios from 'axios';
@@ -264,7 +264,7 @@ export class AiImageEditProcessor extends WorkerHost {
         await this.collabDoc.writeExecStatus(projectId, nodeId, {
           status: 'error', error: String(error?.message ?? error).slice(0, 200), attempts,
           ...(intentId ? { intentId } : {}),
-        }).catch(() => {}); // best-effort——doc 写失败不吞原始错误
+        }).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
       }
 
       // Push failure via WebSocket — do NOT deduct credit on failure
@@ -299,7 +299,7 @@ export class AiImageEditProcessor extends WorkerHost {
         status: 'error', error: reason.slice(0, 200), attempts: running?.attempts ?? 0,
         errorCode: 'WORKER_FAILED',
         ...(intentId ? { intentId } : {}),
-      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
+      }).catch(countExecProjectionFailure); // best-effort——doc 写失败不挡意图终态（Y0c T0：吞错加观测）
       if (running) await this.intentService.fail(running.id, reason, job.id); // ACTIVE 守卫幂等——与 process catch 双写不冲突
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);

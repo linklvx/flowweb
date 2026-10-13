@@ -24,6 +24,9 @@ const EXEMPT = new Map<string, string>([
   ['COLLAB_RSS_RELEASE_BYTES', 'Y0b-3 T4 消费（默认 600MiB）'],
   ['COLLAB_HEAP_PRESSURE_RATIO', 'Y0b-3 T4 消费（默认 0.8）'],
   ['COLLAB_CONN_MAX_LIFETIME_MS', 'Y0b-3 T6 消费（默认 12h）'],
+  // Y0c T0（Z127）：三键一次性注册（T0 只注册不消费——键随读者 T15/T16 同批移出本表）
+  ['COLLAB_SESSION_IDLE_TTL_MS', 'Y0c T15 消费（会话空闲 TTL——Z107 默认 120_000 落使用点）'],
+  ['COLLAB_MAX_RESIDENT_BYTES', 'Y0c T16 消费（常驻字节主约束——Z142 默认 384MiB 落使用点）'],
 ]);
 
 /** 纯函数抽取（方向一/自测共用同一判定逻辑，防恒真重言式） */
@@ -66,6 +69,15 @@ describe('Y0a-4 env 单源结构锚（双向）', () => {
     // T2 落地：读点=gateway 构造期 this.quota 读入（非 EXEMPT——键随读者同 commit 双向绿）。
     for (const k of ['COLLAB_MAX_DOC_BYTES', 'COLLAB_MAX_TX_BYTES', 'COLLAB_MSG_RATE_PER_CONN', 'COLLAB_BYTES_RATE_PER_CONN'])
       expect(envSchema.shape).toHaveProperty(k);
+  });
+
+  it('Y0c T0 三键进 schema（Z127 一次注册）：SESSION_IDLE_TTL_MS/MAX_RESIDENT_BYTES/MAX_LOADED_DOCS 均 optional 且无 zod default（默认值落使用点——防双源 P3）', () => {
+    for (const k of ['COLLAB_SESSION_IDLE_TTL_MS', 'COLLAB_MAX_RESIDENT_BYTES', 'COLLAB_MAX_LOADED_DOCS']) {
+      const f = (envSchema.shape as Record<string, any>)[k];
+      expect(f, `缺键 ${k}（Z127：T0 一次性注册，后续任务只消费）`).toBeTruthy();
+      expect(f.isOptional(), `${k} 须 optional（未设放行——使用点默认值承担）`).toBe(true);
+      expect(f._def.typeName, `${k} 禁 zod .default（双源 P3——默认值唯一落使用点）`).not.toBe('ZodDefault');
+    }
   });
 
   it('判定函数自测（合成夹具证伪，替代恒真重言式）', () => {

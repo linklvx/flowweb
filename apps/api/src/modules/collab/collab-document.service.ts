@@ -4,7 +4,7 @@ import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason } from '@flo
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
-import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
+import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 
@@ -63,8 +63,13 @@ export class CollabDocumentService implements OnApplicationShutdown {
     if (this.gateway.isVacuuming(projectId)) {
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });   // 真空窗口 ≤30s 上界——Retry-After 2 由 CollabNotServingFilter 附
     }
-    const connection = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`);
-    const withdocT0 = Date.now();   // Y0b-5 T10：withDoc 耗时（open 后的 transact→disconnect 段）
+    const withdocT0 = Date.now();   // Y0c T0（Z3）：起点前移至 open 之前——装载段并入全路径（原 Y0b-5 T10 从 open 后起算，装载时间不可见）
+    noteDirectLoad(projectId);   // Y0c T0：直连开窗标记——装载在本 open 窗内命中即归因 trigger='direct'（yjs_doc_load_total）
+    const connection = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`)
+      .finally(() => {
+        consumeDirectLoad(projectId);   // 装载未触发（doc 常驻/open 失败）清残留；已触发时 loadDocument 已消费（幂等）
+        yjsWithdocOpenDuration.observe((Date.now() - withdocT0) / 1000);   // open 段耗时（时长面非成功面——装载失败是最该被看见的慢尾）
+      });
     try {
       let result: T;
       let pending: Promise<void> | undefined;
@@ -80,7 +85,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
       return result!;
     } finally {
       await connection.disconnect({ unloadImmediately: true });   // Y0a-4/P24：A6 锚=Connection 级旋钮（B20 双旋钮之一）——B26：库默认即 true，显式 pin=防升级翻转的文档锚
-      yjsWithdocDuration.observe((Date.now() - withdocT0) / 1000);   // Y0b-5 T10：全路径含 disconnect（卸载 flush 同为该请求成本）
+      yjsWithdocDuration.observe((Date.now() - withdocT0) / 1000);   // Y0b-5 T10：全路径含 disconnect（Y0c T0 起点前移——含 open 装载段；卸载 flush 同为该请求成本）
     }
   }
 

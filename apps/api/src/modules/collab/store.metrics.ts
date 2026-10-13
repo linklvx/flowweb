@@ -1,4 +1,5 @@
 import { Counter, Gauge, Histogram, register } from 'prom-client';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 export const yjsStoreDrainTotal = new Counter({
   name: 'yjs_store_drain_total',
@@ -782,3 +783,77 @@ export const collabPgBreakerFailuresTotal = new Counter({
   labelNames: ['class'],
   registers: [register],
 });
+
+/** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
+
+/** doc 物化装载计数——loadDocument hook 成功路径单点（拒绝早退不计；库 createDocument
+ *  loadingDocuments 去重 ⇒ hook 每次物化至多触发一次）。trigger 归因=直连开窗标记
+ *  （noteDirectLoad——withDoc openDirectConnection await 窗内命中即 direct）否则 ws；
+ *  reconciler（对账探针）归因接线归片 A2（Z112 注释同批更新——探针现经 withDoc 走 direct 窗）。
+ *  片 A 验收主锚：TTL 窗内 N 连续作业 load{trigger='direct'}==1（Z107 判据 A）。 */
+export const yjsDocLoadTotal = new Counter({
+  name: 'yjs_doc_load_total',
+  help: 'doc 物化装载计数（loadDocument 成功路径单点；trigger=ws WS 连接引发/direct withDoc 直连引发/reconciler 对账探针引发——A2 接线）',
+  labelNames: ['trigger'],
+  registers: [register],
+});
+
+/** 直连开窗标记（模块级 Set——awarenessReader reader 同文件状态先例；gateway 与 doc service 双向
+ *  不互 import，经本单源横贯即免 mock gateway 形态漂移）。标记=withDoc open await 窗；
+ *  装载命中即消费（一次性），未装载（doc 常驻/open 失败）由 withDoc finally 消费清残留。 */
+const directLoadHints = new Set<string>();
+export function noteDirectLoad(projectId: string): void { directLoadHints.add(projectId); }
+export function consumeDirectLoad(projectId: string): boolean { return directLoadHints.delete(projectId); }
+
+/** store 非 noop 落库计数——storeDocumentUnlocked 取批后单点（noop 空转早退不计）。
+ *  trigger=调用方归因（CollabStoreTrigger）：debounce hooks 直通（库防抖窗到期/断连冲刷同钩子）/
+ *  soft 软阈提前（64 条/1MB 闩锁）/disconnect onDisconnect 收尾/retry 退避梯/drain 关停排空。
+ *  Z107 判据 C：单调 ≤⌈编辑窗/maxDebounce⌉+2；单节点执行链 ≤2 锚。 */
+export type CollabStoreTrigger = 'debounce' | 'soft' | 'disconnect' | 'retry' | 'drain';
+export const yjsStoreTotal = new Counter({
+  name: 'yjs_store_total',
+  help: 'store 非 noop 落库计数（取批后单点；trigger=debounce 库防抖窗+断连冲刷/soft 软阈提前/disconnect 断连收尾/retry 退避梯/drain 关停排空）',
+  labelNames: ['trigger'],
+  registers: [register],
+});
+
+/** withDoc open 段耗时——起点=openDirectConnection 之前（Y0b-5 T10 原计时从 open 后起算，
+ *  装载时间不可见）。与前移起点的 yjs_withdoc_duration_seconds（全路径）相减=落库+业务段，
+ *  分辨「装载慢 vs 落库慢」。 */
+export const yjsWithdocOpenDuration = new Histogram({
+  name: 'yjs_withdoc_open_duration_seconds',
+  help: 'withDoc open 段耗时秒（起点=open 之前——含物化装载段；与全路径 yjs_withdoc_duration_seconds 分辨装载慢 vs 落库慢）',
+  buckets: DURATION_BUCKETS_SECONDS,
+  registers: [register],
+});
+
+/** 逃生舱触发计数（kind 五值闭集；spec §4.3 sink=客户端遥测——现遥测 12 值封闭集无载体 type，
+ *  接线随客户端上报归 Y1c-1 同批）。基线+趋势判据（Z54）：生产稳态=0，非零进 P0——
+ *  每个计数=一个用户处于数据风险。 */
+export const collabEscapeHatchTotal = new Counter({
+  name: 'collab_escape_hatch_total',
+  help: '逃生舱触发计数（kind=safeReload/generation/diverged/backup-export/client-doc-rebuild——生产稳态 0 非零进 P0；遥测 sink 接线归 Y1c-1）',
+  labelNames: ['kind'],
+  registers: [register],
+});
+
+/** event-loop lag（Z50——api/worker 两侧 {role} 由引导层 defaultLabels 注入，非本指标 labelName；
+ *  Z134 族名=event_loop_lag）。实现=monitorEventLoopDelay 累计直方图 → sampleEventLoopLag 取窗均
+ *  observe+reset（unref timer 30s 周期；空窗 0=真观测非缺样本）。worker 侧同款归 T29。 */
+export const collabEventLoopLagSeconds = new Histogram({
+  name: 'event_loop_lag_seconds',
+  help: 'event-loop lag 秒分布（monitorEventLoopDelay 30s 窗均值采样+reset——主线程阻塞补充信号；sharp/ffmpeg 面归 worker T29）',
+  buckets: DURATION_BUCKETS_SECONDS,
+  registers: [register],
+});
+export const EVENT_LOOP_LAG_SAMPLE_INTERVAL_MS = 30_000;
+const eventLoopLagSampler = monitorEventLoopDelay();
+eventLoopLagSampler.enable();
+/** 采样单步（导出供单测直调——生产由下方 unref timer 周期驱动） */
+export function sampleEventLoopLag(): void {
+  const meanNs = eventLoopLagSampler.mean;   // NaN=无样本（enable 后首窗前）
+  collabEventLoopLagSeconds.observe(Number.isFinite(meanNs) ? meanNs / 1e9 : 0);
+  eventLoopLagSampler.reset();
+}
+const eventLoopLagTimer = setInterval(sampleEventLoopLag, EVENT_LOOP_LAG_SAMPLE_INTERVAL_MS);
+eventLoopLagTimer.unref();   // 不阻进程退出（Nest 关停/vitest 收尾）

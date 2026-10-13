@@ -12,7 +12,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, type CollabStoreTrigger } from './store.metrics';
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
@@ -457,7 +457,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       },
       onAuthenticate: (p) => this.authenticate(p),
       onLoadDocument: (p) => this.loadDocument(p),
-      onStoreDocument: (p) => this.storeDocumentUnlocked(p),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）
+      onStoreDocument: (p) => this.storeDocumentUnlocked(p, 'debounce'),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）；Y0c T0：trigger=debounce（库防抖窗到期/断连冲刷同钩子）
       afterStoreDocument: (p) => this.afterStoreDocument(p),
       beforeHandleAwareness: (p) => { this.guardAwarenessRate(p); this.guardAwareness(p); return Promise.resolve(); },   // Y0b-3 T7 states 三分支+Y0b-4 T6 独立限速（限速先行——guardAwareness 自吞异常，限速 throw 必须在外层）
       beforeHandleMessage: (p) => this.guardMessageFrame(p),   // Y0b-4 T6：awareness 帧闸（判型单源 readFrameType）+msg 桶计数（H-3——入站免重复解析）
@@ -1074,6 +1074,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       }
       // Y0a-2：consumeStash 已退役——帧保留至 append 成功（confirm 恒在成功后，契约 12）
       this.pgBreaker.recordSuccess();   // Y0b-5 T16：装载成功=PG 健康样本（half-open 成功=探测成功→closed）
+      yjsDocLoadTotal.inc({ trigger: consumeDirectLoad(projectId) ? 'direct' : 'ws' });   // Y0c T0（Z3）：物化装载单点（成功路径——拒绝早退不计；开窗标记消费=direct，否则 ws）
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
@@ -1113,7 +1114,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  成功（含 V12 降级/交接/force-spool）③FK/终态丢弃 ④project.gone 丢弃；spool 失败回队列**不清**
    *  （批未落定=flush-at-risk）；意外异常兜底 leave=本方法外层 catch（Y2——钩子路径不经 Serialized，
    *  兜底必须在此层）。 */
-  private async storeDocumentUnlocked({ document: _document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
+  private async storeDocumentUnlocked(
+    { document: _document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>,
+    trigger: CollabStoreTrigger = 'debounce',   // Y0c T0：调用方归因（hooks 直通=debounce；既有白盒直调零参=默认档兼容）
+  ): Promise<boolean> {
     const projectId = parseProjectId(documentName);
     if (this.deletedProjects.has(projectId)) return this.discardForGoneProject(projectId, documentName);   // V10：显式清账+点名
     const queue = this.pendingQueues.get(projectId);
@@ -1127,6 +1131,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const stashFrames = await this.peekSpoolFrames(projectId);
       if (queue.length === 0 && stashFrames.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }
       storeT0 = Date.now();   // noop 早退后起算（真实取批→落定段）
+      yjsStoreTotal.inc({ trigger });   // Y0c T0（Z3）：非 noop 落库计数（落库尝试面——Z107 判据 C 锚：单调 ≤⌈编辑窗/maxDebounce⌉+2）
       // Y7 硬阈（Y24 内存上界）：超过 512 条/8MB（严格 >，第 513 条触发）就地折并——splice 原地保数组身份；内容全保留。
       // 无 inFlight 门（裁定见常量块注记）：与取批同锁串行，push-only WS 路径零交织；双败期折并照常
       // 执行=上界收敛（600k 条 → ≤ceil(bytes/1MB) 个合并元素），I-2 批尾锚为唯一竞态兜底。
@@ -1366,9 +1371,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Y0a-2：gateway 直调点的串行包装（A14——库已持锁调钩子，钩子路径直通 Unlocked 禁再包） */
-  private storeDocumentSerialized(p: Pick<onStoreDocumentPayload, 'document' | 'documentName'>): Promise<boolean> {
-    return p.document.saveMutex.runExclusive(() => this.storeDocumentUnlocked(p));
+  /** Y0a-2：gateway 直调点的串行包装（A14——库已持锁调钩子，钩子路径直通 Unlocked 禁再包）。
+   *  Y0c T0：trigger 透传（soft/retry/disconnect/drain 四直调点显式——归因 yjs_store_total）。 */
+  private storeDocumentSerialized(p: Pick<onStoreDocumentPayload, 'document' | 'documentName'>, trigger: CollabStoreTrigger): Promise<boolean> {
+    return p.document.saveMutex.runExclusive(() => this.storeDocumentUnlocked(p, trigger));
   }
 
   /** X10 软阈提前 flush（update 监听器跨 64 条/1MB 时闩锁触发）：setImmediate 出 WS 消息路径——
@@ -1384,7 +1390,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const documentName = `project:${projectId}`;
       const document = this.server.hocuspocus.documents.get(documentName);
       if (!document) return;
-      void this.storeDocumentSerialized({ document, documentName });
+      void this.storeDocumentSerialized({ document, documentName }, 'soft');   // Y0c T0：软阈提前归因
     });
   }
 
@@ -2285,7 +2291,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // I-1：消费布尔返回——false=批滞留队列/spool，必须 throw 进 catch（rung 推进+退避重排+
           // 电平维持 unhealthy）。旧实现忽略 false → 尾部无条件 cancel+setPersistStatus(true)：
           // 批滞留却广播 healthy+刚排的重试定时器被杀=自断自愈通道。
-          const ok = await this.storeDocumentSerialized({ document, documentName });   // doc 级：doc 仍被观察且队列非空（A14——saveMutex 串行）
+          const ok = await this.storeDocumentSerialized({ document, documentName }, 'retry');   // doc 级：doc 仍被观察且队列非空（A14——saveMutex 串行）；Y0c T0：退避梯归因
           if (!ok) throw new Error('persist retry failed（批保留——退避梯续排）');
         } finally {
           this.retryingPersistDocs.delete(documentName);
@@ -2413,7 +2419,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.awareBuckets.delete(`aware:${socketId}`);
     if (clientsCount > 0) return;
     const projectId = parseProjectId(documentName);
-    const wrote = await this.storeDocumentSerialized({ document, documentName });
+    const wrote = await this.storeDocumentSerialized({ document, documentName }, 'disconnect');   // Y0c T0：断连收尾归因
     if (wrote) {
       try {
         await this.maybeCompact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
@@ -3129,7 +3135,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const remaining = Math.max(200, Math.min(2_000, hardDeadline - Date.now()));
       try {
         await Promise.race([
-          this.storeDocumentSerialized({ document, documentName: name }),
+          this.storeDocumentSerialized({ document, documentName: name }, 'drain'),   // Y0c T0：关停排空归因
           new Promise<void>((r) => { setTimeout(r, remaining).unref?.(); }),
         ]);   // race 超时=resolve 不进 catch——不 leave（Y12：挂起中批未落定，点名应含）
       } catch (err) {

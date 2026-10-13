@@ -5,6 +5,7 @@ import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
+import { countExecProjectionFailure } from './exec.metrics';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
 /** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
@@ -72,7 +73,7 @@ export class ExecutionProcessor extends WorkerHost {
         errorCode: 'WORKER_FAILED',
         // Y0b-2 T6：投影 intentId=行身份（running 行的 intentId 非客户端手势 token——旧 job.data.intentId 位语义错位随改名修正）
         ...(running?.intentId ? { intentId: running.intentId } : {}),
-      }).catch(() => {}); // best-effort——doc 写失败不挡意图终态
+      }).catch(countExecProjectionFailure); // best-effort——doc 写失败不挡意图终态（Y0c T0：吞错加观测）
       if (running) await this.intentService.fail(running.id, reason, job.id);
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);

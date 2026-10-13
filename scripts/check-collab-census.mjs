@@ -396,6 +396,19 @@ if (isMain()) {
     report('⑬', `detail 白名单锚：recordCollabDiag 键集⊆schema∧字面量值域⊆枚举（现行 ${nBatch} 批量点+${nRing} ring-only 点——新增调用点自动生效）`, details.length === 0, details);
   }
 
+  // ⑳setDefaultLabels 引导层单点（Y0c T0 Z138 A 结构断言）：prom-client register 是进程级单例且
+  //  clear() 连清 _defaultLabels（di-smoke.int.spec 既有 clear+注释自陈 isolate 前提——模块级调用的
+  //  效果会被后续用例的 clear 静默消灭）。全仓恰 1 调用点且必须位于 main.ts 引导序列；main-worker.ts
+  //  尚不存在（T26/T29 落地时同批扩白名单）。先红构造=把调用点放 store.metrics.ts 顶层⇒红。
+  {
+    const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) =>
+      /setDefaultLabels\s*\(/.test(l) ? 'call' : null));
+    const nonBoot = hits.filter((h) => h.file !== 'apps/api/src/main.ts');
+    report('⑳', 'setDefaultLabels 恰 1 调用点且位于 main.ts 引导序列（Z138 A——模块级调用禁入）', hits.length === 1 && nonBoot.length === 0,
+      [...nonBoot.map((h) => `引导层外命中 ${h.file}:${h.line} ${h.text}`),
+       ...(hits.length !== 1 ? [`调用点 ${hits.length} 处（期望恰 1——main.ts 引导序列）`] : [])]);
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\ncheck-collab-census: ${results.length - failed.length}/${results.length} PASS`);
   if (failed.length) { console.error(`check-collab-census FAIL: ${failed.map((f) => f.id).join(' ')}`); process.exit(1); }
