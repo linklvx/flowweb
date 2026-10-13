@@ -40,6 +40,15 @@ export interface DocEdgeRecord {
  *  无迁移直接拒（开发期无用户数据——禁垫片/向后兼容）。 */
 export const CANVAS_DOC_SCHEMA_VERSION = 2;
 
+/** Y0c T4（B12 键集收编）：canvas 数据键集 shared 单源——web 私有副本删除（键集零私有副本出口）。
+ *  EPHEMERAL_DATA_KEYS=本地瞬态 UI 键（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode
+ *  只活在 ns data 本地面，禁入 doc/cs 持久面；expanded 是 doc 态禁入本键集（剥键扩大化由
+ *  canvasIntents.spec 守卫）。
+ *  CANVAS_BRIDGE_KEYS=ns→cs 桥白名单（低频图片身份字段同步 canvasStore——防高频 updateConfig
+ *  路径引发全画布重渲染）。 */
+export const EPHEMERAL_DATA_KEYS = new Set(['editMode', 'transformMode']);
+export const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'images']);
+
 /** O0b-0 版本门 v2.1：写 meta.schemaVersion=CURRENT（同值 no-op）。
  *  戳源唯一化：fillDoc 不再盖章——唯一自愈点=WS loadDocument（无戳∧零节点）/api 种子（create
  *  withDoc 回调无条件 stamp）。函数级无条件写 CURRENT，档判定归门函数（ensureSchemaVersion）。 */
@@ -318,8 +327,8 @@ export interface MinimalCSNode {
  *  键集剥在 applyKeySetTable，两者正交）；顶层节点原样（本就是绝对位）；分镜子翻转后仍被剥
  *  position（剥键优先，翻转可见面为零）；无父上下文的孤儿 parentId 原样输出（无 origin 可加，
  *  禁 undefined/NaN 发射）。type 缺省回落 videoGen（旧投影同口径）。ephemeral 键
- * （editMode/transformMode）=web 口径 13 键集、shared 不可见——由 web 包装层 projectCanvasNodes
- *  剥除（doc 持久面另有漏斗入口剥键双保险）。 */
+ * （editMode/transformMode）=web 口径 13 键集（EPHEMERAL_DATA_KEYS——本文件单源）——由 web
+ *  包装层 projectCanvasNodes 剥除（doc 持久面另有漏斗入口剥键双保险）。 */
 export function toDocRecords(
   csNodes: readonly MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,

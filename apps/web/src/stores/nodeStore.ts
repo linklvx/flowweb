@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { message } from 'antd';
+import { CANVAS_BRIDGE_KEYS } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 // 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
@@ -238,9 +239,8 @@ function getNode(nodes: Record<string, AppNode>, nodeId: string): AppNode | unde
   return nodes[nodeId];
 }
 
-// 桥接白名单：仅低频图片身份字段同步 canvasStore（订阅 canvasStore 的组件实时响应），
-// 防高频 updateConfig 路径（未知字段）引发全画布重渲染。
-const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'images']);
+// 桥接白名单（键集单源=shared CANVAS_BRIDGE_KEYS——Y0c T4 收编）：仅低频图片身份字段同步
+// canvasStore（订阅 canvasStore 的组件实时响应），防高频 updateConfig 路径引发全画布重渲染。
 
 function bridgeToCanvasStore(nodeId: string, patch: Record<string, unknown>) {
   const cs = useCanvasStore.getState();

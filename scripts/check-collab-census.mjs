@@ -981,6 +981,39 @@ if (isMain()) {
        })]);
   }
 
+  // ㉓E27 嵌套类型创建点（Y0c T4，E27/E17 层②）：生产面 `new Y.Map()/Y.Array()/Y.Text()` 逐文件
+  //  计数白名单——嵌套 Y 类型创建点全登记，未登记新写点红（创建者唯一性语义登记面=shared
+  //  canvas-doc-manifest NESTED_TYPE_CREATORS；本组=lexical 执法面）。词表按 2026-10-14 HEAD
+  //  实际落地形态写就（先跑真红再登记——T2/T3 惯例）：fillDoc 适配工厂 3 文件（gate-canvas-state/
+  //  doc-like.util/ydocBuilder——gate-canvas-state 为 Z57 非 生产 gate 面）+canvasIntents 4 点
+  // （nodes.*.data/nodes.*.position×2 工厂实参/edges 复用守卫）+collab-document.service 2 点
+  // （nodes.*.data 懒建/exec.* 唯一创建者）+gateway deepCopyYMap 1 点（vacuum 真空重建）。
+  //  Y.Text/Y.Array 现状生产零创建点（词表含入=将来引入即红，登记须同批补注）。
+  const NESTED_CREATOR_WHITELIST = {
+    'apps/api/src/gate-canvas-state.ts': 1,
+    'apps/api/src/modules/collab/collab-document.service.ts': 2,
+    'apps/api/src/modules/collab/collab.gateway.ts': 1,
+    'apps/api/src/modules/collab/doc-like.util.ts': 1,
+    'apps/web/src/collab/ydocBuilder.ts': 2,
+    'apps/web/src/stores/canvasIntents.ts': 4,
+  };
+  {
+    const details = [];
+    const counts = {};
+    for (const p of files) {
+      const n = (byFile.get(p).stripped.match(/\bnew Y\.(?:Map|Array|Text)\(/g) ?? []).length;
+      if (n) counts[relOf(p)] = n;
+    }
+    for (const [f, n] of Object.entries(counts)) {
+      const want = NESTED_CREATOR_WHITELIST[f];
+      if (want === undefined) details.push(`白名单外嵌套创建点 ${f} ×${n}——登记 NESTED_CREATOR_WHITELIST+NESTED_TYPE_CREATORS 同批补注`);
+      else if (want !== n) details.push(`嵌套创建点计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
+    }
+    for (const f of Object.keys(NESTED_CREATOR_WHITELIST)) if (!(f in counts)) details.push(`嵌套创建点白名单点消失 ${f}（清单需同步）`);
+    const nWl = Object.values(NESTED_CREATOR_WHITELIST).reduce((a, b) => a + b, 0);
+    report('㉓', `E27 嵌套类型创建点全登记（Y0c T4——new Y.Map/Array/Text 白名单 ${nWl} 点/6 文件；Y.Text/Y.Array 零创建点）`, details.length === 0, details);
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\ncheck-collab-census: ${results.length - failed.length}/${results.length} PASS`);
   if (failed.length) { console.error(`check-collab-census FAIL: ${failed.map((f) => f.id).join(' ')}`); process.exit(1); }

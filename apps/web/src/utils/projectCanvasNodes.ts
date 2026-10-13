@@ -1,13 +1,8 @@
-import { toDocRecords, type CanvasNodeRecord, type FrameMode, type MinimalCSNode } from '@flowweb/shared';
-
-/** ephemeral 键集（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode=本地瞬态
- *  UI 键（编辑态只活在 ns data 本地面），禁入 doc/cs 持久面；expanded 是 doc 态
- *  （toggleExpanded 落 doc+决定渲染尺寸）禁入本键集——剥键扩大化由 canvasIntents.spec 守卫。
- *  键集单源在此（canvasIntents 漏斗入口消费本出口——防双源漂移）。 */
-export const EPHEMERAL_DATA_KEYS = new Set(['editMode', 'transformMode']);
+import { EPHEMERAL_DATA_KEYS, toDocRecords, type CanvasNodeRecord, type FrameMode, type MinimalCSNode } from '@flowweb/shared';
 
 /** ephemeral 键剥除（浅拷贝逐键过滤——非整表替换）：投影出口（invariant/diff 快照单源）与
- *  doc 漏斗入口（applyIntentToDoc 落 doc/cs upsert）共用。 */
+ *  doc 漏斗入口（applyIntentToDoc 落 doc/cs upsert）共用。键集单源=shared EPHEMERAL_DATA_KEYS
+ * （Y0c T4 收编——canvasIntents 漏斗入口直消费 shared，防双源漂移）。 */
 export function stripEphemeralDataKeys(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {

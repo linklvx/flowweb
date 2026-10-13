@@ -157,17 +157,39 @@ const COALESCE_MAX_BYTES = 8 * 1024 * 1024;
 /** 批字节累加（软阈判定用——Uint8Array.byteLength 求和） */
 const queueBytes = (q: Uint8Array[]): number => q.reduce((s, u) => s + u.byteLength, 0);
 
-export function parseProjectId(documentName: string): string {
-  return documentName.replace(/^project:/, '');
+/** Y0c T4（E23/R0c-4+K11）：docName 解析换代——parseDocName 管语法 `project:<id>#g<N>`。
+ *  世代真源=DB 列 canvasProject.generation（Y0b-4 T9a；vacuumReplace 递增不恒 0）——本批只铺位：
+ *  generationFromName 与 DB 列对比的接线归 Y1c-1（closeTeamDocuments 全世代等六处连带同批，
+ *  spec E23 裁剪）。现状 docName 全量无世代段（generationFromName=undefined）。 */
+const DOC_NAME_RE = /^project:([A-Za-z0-9_-]{1,64})(?:#g(\d+))?$/;
+
+export interface ParsedDocName {
+  projectId: string;
+  /** name 世代段值（无段=undefined——与显式 #g0 可分；世代真源=DB 列非本值，仅作对比输入） */
+  generationFromName: number | undefined;
 }
 
-/** Y0b-5 T16（裁定 23⑹/24⑿）：docName 全匹配守卫——裸 replace(:parseProjectId) 下别名 docName
- *  （"abc"≡"project:abc"）解析同 pid=**同一 projectId 双 doc 实例**：freezeQuota/beginVacuumEra/
- *  closeTeamDocuments 均按 `project:${pid}` 寻址 ⇒ 别名实例绕过冻结通告/vacuum 关闭=执法分叉。
- *  全匹配挡空名/超长/异常字符（非仅前缀）；三入口统一：onAuthenticate/loadDocument/withDoc。 */
-export const DOC_NAME_PATTERN = /^project:[A-Za-z0-9_-]{1,64}$/;
+export function parseDocName(docName: string): ParsedDocName | null {
+  const m = DOC_NAME_RE.exec(docName);
+  if (!m) return null;
+  return { projectId: m[1], generationFromName: m[2] === undefined ? undefined : Number(m[2]) };
+}
+
+/** Y0b-5 T16（裁定 23⑹/24⑿）全匹配守卫语义保持：现状档=无世代段才放行——裸 replace 前身下
+ *  别名 docName（"abc"≡"project:abc"）解析同 pid=同一 projectId 双 doc 实例：freezeQuota/
+ *  beginVacuumEra/closeTeamDocuments 均按 `project:${pid}` 寻址 ⇒ 别名实例绕过冻结通告/vacuum
+ *  关闭=执法分叉。世代段（#g<N>）语法已冻结但语义 Y1c-1 才启用——现状拒放（#g 实例=同型别名
+ *  分叉）；Y1c-1 启用时改本谓词放行+走 isGenerationMismatch 对比 DB 列（onAuthenticate∧
+ *  onLoadDocument 双校验）。三入口统一：onAuthenticate/loadDocument/withDoc。 */
 export function isValidDocName(documentName: string): boolean {
-  return DOC_NAME_PATTERN.test(documentName);
+  const parsed = parseDocName(documentName);
+  return parsed !== null && parsed.generationFromName === undefined;
+}
+
+/** 世代一致性拒因判定（铺位——纯函数可单测；接线归 Y1c-1 双校验点）：只在有世代段时对比
+ *  （无段=现状形态不判）；name 段 ≠ DB 列=独立拒因（防 Y1c-1 第二真源）。 */
+export function isGenerationMismatch(generationFromName: number | undefined, generationInDb: number): boolean {
+  return generationFromName !== undefined && generationFromName !== generationInDb;
 }
 
 /** Y0b-4 T9a：Y.Map 递归深拷贝（exec/meta/未知 Map 根的真空重建——生产写者〔writeExecStatus/
@@ -437,7 +459,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         const c = connection as unknown as CollabConnection;
         if (c) {
           this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——WeakSet 幂等）
-          const pid = parseProjectId(documentName);
+          const pid = parseDocName(documentName)?.projectId ?? '';
           // Y0b-4 T9a serving 门（WS 面）：真空窗口新连接 terminal close 4410 'doc-vacuuming'。
           // 形态裁定：plan 原文"auth 503"——但 WS 层无 HTTP 503（auth 期 throw 被库折 close 4403
           // 非 503）；落地=4410 terminal close（resolveCloseAction(4410)→terminal——语义=稍后重连
@@ -734,7 +756,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const name = doc.name;
       if (doc.connections.size > 0 || doc.isLoading) { this.docStuckRounds.delete(name); continue; }
       // pendingQueues 键=裸 projectId（播种/取用全裸键实证——get(doc.name) 恒 undefined=静默失效）
-      const pid = parseProjectId(name);
+      const pid = parseDocName(name)?.projectId ?? '';
       if ((this.pendingQueues.get(pid)?.length ?? 0) > 0) { this.docStuckRounds.delete(name); continue; }
       if (!this.server.hocuspocus.shouldUnloadDocument(doc)) {   // 守卫拒绝+零连接+队列空=疑似卡住
         const n = (this.docStuckRounds.get(name) ?? 0) + 1;
@@ -887,7 +909,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // perm.resolve 三段整体换为一次 resolveWithTeam（显式 ProjectMember>创建者>团队回退——
       // 4-5 次冗余往返归 1-3 次，信号量乘积闸才有意义）。⚠ 权限语义 A：removeMember 不触碰
       // ProjectMember 表=移出团队但有显式授权仍保留访问（REST assertEditor 同链既有语义）。
-      const projectId = parseProjectId(documentName);
+      const projectId = parseDocName(documentName)?.projectId ?? '';
       let resolved: { role: ProjectRole | null; teamId: string };
       try {
         resolved = await this.withAuthDeadline(this.perm.resolveWithTeam(projectId, session.user.id));
@@ -902,7 +924,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (readOnly) freezeIntent = 'viewer';
       // Y0b-4 T4（Q-C）：冻结期加入的连接置 readOnly（auth 期兜底——freezeQuota 的 setImmediate 窗内
       // 新连接不在 doc.connections；connected 钩子第二道登记进 writeFreeze 单源）
-      const quotaFrozen = this.quotaFrozenDocs.has(parseProjectId(documentName));
+      const quotaFrozen = this.quotaFrozenDocs.has(parseDocName(documentName)?.projectId ?? '');
       if (quotaFrozen) connectionConfig.readOnly = true;
       // 批3-4：unhealthy 电平期的新连接补推 persist-status（payload 无 connection——v4 形状，
       // 延迟到本 tick 后连接已注册进 document.connections）
@@ -946,7 +968,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       throw Object.assign(new Error('collab lease not held'), { reason: CollabAuthReason.LEASE_NOT_READY });   // P0-1 三入口②（P1 正确性门——外层 catch 对带 reason 异常透传）
     }
     // Y0b-5 T16 docName 全匹配守卫（三入口②）：WS 与 DirectConnection 共经本钩子——别名 docName
-    // 拒于 parseProjectId 之前（别名执法分叉根修）。
+    // 拒于 parseDocName 之前（别名执法分叉根修）。
     if (!isValidDocName(documentName)) {
       throw Object.assign(new Error('invalid doc name'), { reason: CollabAuthReason.INVALID_DOC_NAME });
     }
@@ -961,7 +983,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
     // Y0b-4 T9a serving 门（装载面）：真空窗口拒装载（connected close 4410 的结构保证补位——
     // 竞态窗内 loadDocument 先于 connected 的库时序；REST withDoc 面由此折 503 COLLAB_NOT_SERVING）
-    if (this.vacuumingDocs.has(parseProjectId(documentName))) {
+    if (this.vacuumingDocs.has(parseDocName(documentName)?.projectId ?? '')) {
       throw Object.assign(
         new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' }),
         { reason: CollabAuthReason.LEASE_NOT_READY },   // 瞬态档（客户端 backoff 重连——真空窗口 ≤30s 上界）
@@ -977,7 +999,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       collabLoadRejectedTotal.inc({ reason: 'server-overloaded' });
       throw Object.assign(new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'server overloaded' }), { reason: CollabAuthReason.SERVER_OVERLOADED });
     }
-    const projectId = parseProjectId(documentName);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
     const loadT0 = Date.now();   // Y0b-5 T10：装载耗时（拒绝早退不计时——只测 hydrate+replay+播种段）
     const heapBefore = this.heapUsedNow();   // Y0b-5 T10：装载边界 heap 倍率前采样
     try {
@@ -1119,7 +1141,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     { document: _document, documentName }: Pick<onStoreDocumentPayload, 'document' | 'documentName'>,
     trigger: CollabStoreTrigger = 'debounce',   // Y0c T0：调用方归因（hooks 直通=debounce；既有白盒直调零参=默认档兼容）
   ): Promise<boolean> {
-    const projectId = parseProjectId(documentName);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
     if (this.deletedProjects.has(projectId)) return this.discardForGoneProject(projectId, documentName);   // V10：显式清账+点名
     const queue = this.pendingQueues.get(projectId);
     if (!queue) {
@@ -1469,7 +1491,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 不被误赦免=H-5 prev 快照语义的集合化继任；drain 期无新连接——auth DRAINING 拒，全量遍历安全）
       // Y0b-4 T5：解除改发 doc-status（serving 转移后 writeFrozen 自然回落 false；连接随 1012 关闭，广播=尽力通告）
       for (const doc of this.server.hocuspocus.documents.values()) {
-        const releasePid = parseProjectId(doc.name);
+        const releasePid = parseDocName(doc.name)?.projectId ?? '';
         this.broadcastDocStatus(releasePid, this.quotaStateOf(releasePid));
         for (const c of doc.connections.keys()) {
           const conn = c as unknown as CollabConnection;
@@ -1485,7 +1507,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.drainAutoReleaseTimer.unref?.();
     // Y0b-4 T5：冻结通告=per-doc doc-status（writeFrozen 维度翻转——broadcastDocStatus 判 {quota 态,writeFrozen} 复合翻转）
     for (const doc of this.server.hocuspocus.documents.values()) {
-      const pid = parseProjectId(doc.name);
+      const pid = parseDocName(doc.name)?.projectId ?? '';
       this.broadcastDocStatus(pid, this.quotaStateOf(pid));
       for (const c of doc.connections.keys()) this.applyWriteFreeze(c as unknown as CollabConnection, 'draining', true);   // Y0b-4 T4：冻结层单源（B12 库逐条 update 查 readOnly）
     }
@@ -1830,7 +1852,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  SyncStep1 永不判（零成长）；throw 仅兜底中止帧——code 权威投递=hardClose.webSocket.close
    *  先行（T0 探针②：throw 路径客户端 30s 僵尸零 close）。 */
   private async guardSyncFrame({ type, payload, document, connection }: beforeSyncPayload): Promise<void> {
-    const pid = parseProjectId(document.name);
+    const pid = parseDocName(document.name)?.projectId ?? '';
     if (type === messageYjsSyncStep1) {
       // Y0b-4 T9a（Q-U v6 报告2 G-2）：SV 代际门——SyncStep1 payload=客户端 SV（T0 探针④实证：
       // Y.decodeStateVector(payload) 与客户端 encodeStateVector 全等）。客户端 SV 任一 (client,
@@ -1991,7 +2013,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private freezeReasons(conn: CollabConnection): Set<FreezeReason> {
     const e = this.writeFreeze.get(conn);
     if (e) return e.reasons;
-    const pid = conn.document?.name ? parseProjectId(conn.document.name) : '';
+    const pid = conn.document?.name ? parseDocName(conn.document.name)?.projectId ?? '' : '';
     const intent = conn.context?.freezeIntent;
     return new Set([intent ?? (pid && this.quotaFrozenDocs.has(pid) ? 'quota' : 'viewer')]);
   }
@@ -2004,7 +2026,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private applyWriteFreeze(conn: CollabConnection, reason: FreezeReason, on: boolean): void {
     const existing = this.writeFreeze.get(conn);
     if (on ? existing?.reasons.has(reason) : !existing?.reasons.has(reason)) return;   // 无净变——幂等短路
-    const pid = conn.document?.name ? parseProjectId(conn.document.name) : '';
+    const pid = conn.document?.name ? parseDocName(conn.document.name)?.projectId ?? '' : '';
     const e = existing ?? { pid, reasons: new Set<FreezeReason>() };
     if (on) e.reasons.add(reason); else e.reasons.delete(reason);
     if (e.reasons.size === 0) this.writeFreeze.delete(conn); else this.writeFreeze.set(conn, e);
@@ -2283,7 +2305,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async retryPersist(documentName: string) {
     const entry = this.persistRetry.get(documentName);
     if (!entry) return;
-    const projectId = parseProjectId(documentName);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
     const document = this.server.hocuspocus.documents.get(documentName);
     try {
       if (document && (this.pendingQueues.get(this.docProject.get(document) ?? '')?.length ?? 0) > 0) {
@@ -2419,7 +2441,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.bytesBuckets.delete(socketId);
     this.awareBuckets.delete(`aware:${socketId}`);
     if (clientsCount > 0) return;
-    const projectId = parseProjectId(documentName);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
     const wrote = await this.storeDocumentSerialized({ document, documentName }, 'disconnect');   // Y0c T0：断连收尾归因
     if (wrote) {
       try {
@@ -2439,7 +2461,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  需承接：退避梯 detached 通道/shutdown drain/启动回灌三路径；成功支帧已落定非 at-risk——等
    *  重开/关停/重启回灌入 PG，J4 口径）。 */
   private async unloadDocument({ document, documentName }: beforeUnloadDocumentPayload): Promise<void> {
-    const projectId = parseProjectId(documentName);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
     // Y0b-5 T10：卸载边界 heap 倍率播种（truth 在 afterUnload 被清——先存；结算在 afterUnloadDocument
     // 〔destroy 之后〕；卸载取消=残留条目下次装载同键覆写，无泄漏）
     this.unloadHeapAnchors.set(projectId, { before: this.heapUsedNow(), truth: this.docTruth.get(projectId) ?? 0 });
@@ -2506,7 +2528,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  Y0b-4 T4 扩容：冻结族六件（quotaFrozenDocs/freezePending+定时器/recheckRounds/thawCooldown/
    *  docStatusRev/docStatusState）同点清理（卸载=新 epoch：rev 复位播种 1 的前提）。 */
   private async afterUnloadDocument({ documentName }: afterUnloadDocumentPayload): Promise<void> {
-    const projectId = parseProjectId(documentName);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
     // Y0b-5 T10：卸载边界 heap 倍率结算（destroy 后采样——GC 时延噪声只记正差，合成值待标定）
     const anchor = this.unloadHeapAnchors.get(projectId);
     this.unloadHeapAnchors.delete(projectId);
@@ -2792,7 +2814,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (!token) return { revoked: false, expiresAt: undefined };   // 无凭据（authenticate 必播种——理论不可达）不翻案
     const { session } = await this.sessionSvc.resolve(token);
     if (!session) return { revoked: true, cause: 'session-invalid', expiresAt: undefined };   // 过期/登出（resolve 折叠两态）
-    const { role } = await this.perm.resolveWithTeam(parseProjectId(documentName), session.userId);
+    const { role } = await this.perm.resolveWithTeam(parseDocName(documentName)?.projectId ?? '', session.userId);
     this.permCache.set(connection, { role, at: Date.now() });   // 会话级结论缓存（T8 事件失效消费——仅清不直接 recheck）
     if (role === 'PROJECT_VIEWER' && !connection.readOnly) {
       this.applyWriteFreeze(connection as unknown as CollabConnection, 'viewer', true);   // E13：降级=修越权写不断连（+conn-status 通告）
