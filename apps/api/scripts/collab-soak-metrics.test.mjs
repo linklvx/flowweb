@@ -100,6 +100,32 @@ test('sampleOne(url, role)：经真实 HTTP 端点提取（fetch 路径集成+to
   }
 });
 
+test('sampleOne 失明 fail-closed：HTTP 200 但全字段 null（旧构建/role 漂移）→ 上抛拒产出假结论', async () => {
+  // 原始症状换触发路径：T0 前 `^name value$` 全体失配——装置曾以 rss=null 落出「容量上限≥N×M」假结论
+  const srv = createServer((rq, rs) => {
+    rs.writeHead(200, { 'content-type': 'text/plain' });
+    rs.end('process_resident_memory_bytes 204075008\n');   // 无 role 标签旧式行——metricValue 禁误匹配 → rss=null
+  });
+  await new Promise((res) => srv.listen(0, '127.0.0.1', res));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}/metrics`;
+    await assert.rejects(() => sampleOne(url, 'api'), /失明.*role="api"/s);
+  } finally {
+    await new Promise((res) => srv.close(res));
+  }
+});
+
+test('sampleOne 非 2xx：错误信息含完整 URL（T29 双端点后可定位哪端失联）', async () => {
+  const srv = createServer((rq, rs) => { rs.writeHead(503); rs.end(); });
+  await new Promise((res) => srv.listen(0, '127.0.0.1', res));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}/metrics`;
+    await assert.rejects(() => sampleOne(url, 'api'), new RegExp(`${url.replace(/[/.]/g, '\\$&')} 503`));
+  } finally {
+    await new Promise((res) => srv.close(res));
+  }
+});
+
 test('metricsDelta：counter 族差值（null→0 序列不存在语义）且 gauge 不进 delta', () => {
   const base = sampleProcess(TEXT, 'api');
   const later = sampleProcess(TEXT.replace('yjs_doc_load_total{role="api",trigger="ws"} 3', 'yjs_doc_load_total{role="api",trigger="ws"} 9'), 'api');

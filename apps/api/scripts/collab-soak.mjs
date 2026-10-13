@@ -246,9 +246,12 @@ async function runSoak() {
 // SCEN 场景级状态在 runScenario 内组装；本节只放共用件。
 
 const NT_KEY = 'soak:y0c:text';   // 哨兵 NodeType key（用户面选择器按已知 key 查询——永不被查，exec-smoke 同形态）
+// 哨兵 id 前缀单源（SCEN 生成与 purge 前缀谓词同源——防漂移）；谓词只匹配本装置哨兵（真实用户 id
+// 为 cuid/uuid 形态，不可能以 soak-sc- 前缀开头——零误删面）。
+const SCEN_PREFIX = { user: 'soak-sc-u-', team: 'soak-sc-t-', member: 'soak-sc-m-', session: 'soak-sc-s-', project: 'soak-sc-p-' };
 const SCEN = {
-  user: `soak-sc-u-${ts}`, team: `soak-sc-t-${ts}`, member: `soak-sc-m-${ts}`,
-  session: `soak-sc-s-${ts}`, token: `soak-sc-tok-${randomUUID()}`,
+  user: `${SCEN_PREFIX.user}${ts}`, team: `${SCEN_PREFIX.team}${ts}`, member: `${SCEN_PREFIX.member}${ts}`,
+  session: `${SCEN_PREFIX.session}${ts}`, token: `soak-sc-tok-${randomUUID()}`,
   nt: `soak-sc-nt-${ts}`, model: `soak-sc-model-${ts}`, rule: `soak-sc-rule-${ts}`,
 };
 
@@ -266,25 +269,27 @@ async function startStub() {
   return { port: srv.address().port, close: () => new Promise((res) => srv.close(res)) };
 }
 
-/** 场景哨兵清理（前缀谓词——幂等；台账/团队删须 ledger_guard 通行证，exec-smoke 同款） */
+/** 场景哨兵清理（前缀谓词覆盖全部 7 类——跨 ts 残留可清；台账/团队删须 ledger_guard 通行证，
+ *  exec-smoke 同款）。失败上抛不吞：预扫失败=拒跑 fail-closed（seed 必撞约束）；finally 清理
+ *  失败由调用点 catch 进 SOAK-WARN 告警（内层吞错=告警死代码，真实失败全静默——已修）。 */
 async function purgeScenSentinels(prisma, ledger) {
-  await prisma.generationIntent.deleteMany({ where: { teamId: SCEN.team } }).catch(() => {});
-  await prisma.session.deleteMany({ where: { userId: SCEN.user } }).catch(() => {});
-  await prisma.teamMember.deleteMany({ where: { id: SCEN.member } }).catch(() => {});
-  await prisma.canvasProject.deleteMany({ where: { id: { startsWith: 'soak-sc-p-' } } }).catch(() => {});
+  await prisma.generationIntent.deleteMany({ where: { teamId: { startsWith: SCEN_PREFIX.team } } });
+  await prisma.session.deleteMany({ where: { userId: { startsWith: SCEN_PREFIX.user } } });
+  await prisma.teamMember.deleteMany({ where: { id: { startsWith: SCEN_PREFIX.member } } });
+  await prisma.canvasProject.deleteMany({ where: { id: { startsWith: SCEN_PREFIX.project } } });
   await ledger.runInTx(async (tx) => {
-    await tx.teamCreditTransaction.deleteMany({ where: { teamId: SCEN.team } });
-    await tx.team.deleteMany({ where: { id: SCEN.team } });
-  }).catch(() => {});
-  await prisma.user.deleteMany({ where: { id: SCEN.user } }).catch(() => {});
-  await prisma.nodeType.deleteMany({ where: { key: NT_KEY } }).catch(() => {});
+    await tx.teamCreditTransaction.deleteMany({ where: { teamId: { startsWith: SCEN_PREFIX.team } } });
+    await tx.team.deleteMany({ where: { id: { startsWith: SCEN_PREFIX.team } } });
+  });
+  await prisma.user.deleteMany({ where: { id: { startsWith: SCEN_PREFIX.user } } });
+  await prisma.nodeType.deleteMany({ where: { key: NT_KEY } });
 }
 
 /** 场景 fixture（exec-smoke 形态：哨兵 NodeType 零可见+stub 模型零外呼+cost:0 零台账行）
  *  +WS 播种 nNodes 个 textInput 节点，返回 { provider, project, nodeIds, sv }。
  *  baseline 采样时机由调用方定（synced+落地窗后=观测窗自 execute 起）。 */
 async function seedScenario(prisma, ledger, stubPort, nNodes) {
-  const project = `soak-sc-p-${ts}`;
+  const project = `${SCEN_PREFIX.project}${ts}`;
   await prisma.user.create({ data: { id: SCEN.user, name: `soak-sc-${ts}`, email: `soak-sc-${ts}@example.invalid`, emailVerified: false } });
   await prisma.team.create({ data: { id: SCEN.team, name: `soak-sc-${ts}`, ownerId: SCEN.user } });
   await prisma.teamMember.create({ data: { id: SCEN.member, teamId: SCEN.team, userId: SCEN.user, role: 'MEMBER' } });
@@ -364,12 +369,14 @@ async function runScenario(name) {
     const baseline = await sample();
     console.log(`[soak-sc] scenario=${name} project=${seeded.project} nodes=${nNodes} ttlPinnedMs=${ttl.ttlPinnedMs}(${ttl.ttlSource})`);
     let jobs = 0;
+    let closepageGapMs = null;   // closepage 作业间隔实际生效值（JSON 落档；非 closepage=null）
     const t0 = Date.now();
     if (name === 'closepage') {
       provider.destroy(); provider = null;   // 关页——零连接；后续作业全走 REST 直连（withDoc 装载/落库路径）
       await sleep(3_000);   // 断连收尾+卸载窗（关页 flush 落定——读数如实记录本窗形态）
-      // 作业间隔由 TTL 驱动：clamp(TTL/10, 2s, TTL/2)——N 作业全部落在 TTL 窗内（Z107 判据 A 前提）
-      const gap = Math.min(Math.max(2_000, ttl.ttlPinnedMs / 10), ttl.ttlPinnedMs / 2);
+      // 作业间隔由 TTL 驱动：clamp(TTL/10, 2s, TTL/2)，下界优先——N 作业全部落在 TTL 窗内（Z107 判据 A 前提）
+      const gap = Math.max(2_000, Math.min(ttl.ttlPinnedMs / 10, ttl.ttlPinnedMs / 2));
+      closepageGapMs = gap;
       for (let i = 0; i < OPTS.jobs; i++) {
         if (i > 0) await sleep(gap);
         const r = await executeNodes(seeded.project, [seeded.nodeIds[0]], seeded.sv);
@@ -388,12 +395,12 @@ async function runScenario(name) {
     const final = await sample();
     const delta = metricsDelta(baseline, final);
     const probe = await integrityProbe({ projectIds: [seeded.project], prisma });
-    const fmt = (o) => Object.entries(o).map(([k, v]) => `${k}:${v >= 0 ? '+' : ''}${v}`).join(',');
+    const fmt = (o) => Object.entries(o).map(([k, v]) => `${k}:${v === null || v === undefined ? 'n/a' : `${v >= 0 ? '+' : ''}${v}`}`).join(',');
     console.log(`[soak-sc] 窗口 delta：docLoad{${fmt(delta.docLoad)}} store{${fmt(delta.storeTotal)}} withdoc{count:${delta.withdoc.count} sum:${delta.withdoc.sum.toFixed(3)}} withdocOpen{count:${delta.withdocOpen.count} sum:${delta.withdocOpen.sum.toFixed(3)}}`);
     outputJson({
       harness: 'collab-soak', mode: 'scenario', scenario: name,
       ts: new Date().toISOString(), api: API,
-      project: seeded.project, nodes: nNodes, jobs,
+      project: seeded.project, nodes: nNodes, jobs, jobsRequested: OPTS.jobs, closepageGapMs,
       ...ttl,
       metrics: { baseline, final, delta },
       integrityProbe: probe,

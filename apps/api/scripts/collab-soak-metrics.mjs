@@ -61,11 +61,16 @@ export function sampleProcess(text, role) {
 }
 
 /** sampleOne(url, role)——装置唯一取样入口（读取代码路径恒经提取器；双端点读取归 T29）。
- *  headers 透传（PROMETHEUS_TOKEN 面由调用方组装）。 */
+ *  headers 透传（PROMETHEUS_TOKEN 面由调用方组装）。
+ *  失明 fail-closed：HTTP 200 但 rss=null（api 旧构建缺 role 标签/提取器 role 漂移）即上抛——
+ *  全 null 样本流入汇总曾产出「容量上限≥N×M」正向假结论（T0.5 入口条件贴档原始症状），宁崩勿错。 */
 export async function sampleOne(url, role, headers = {}) {
   const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`/metrics ${res.status}`);
-  return sampleProcess(await res.text(), role);
+  if (!res.ok) throw new Error(`${url} ${res.status}`);
+  const s = sampleProcess(await res.text(), role);
+  if (s.rss === null)
+    throw new Error(`metrics 失明（fail-closed）：process_resident_memory_bytes{role="${role}"} 缺失——api 旧构建（role 标签缺失）或提取器 role 漂移，拒产出全 null 假结论`);
+  return s;
 }
 
 /** counter 族窗口差（baseline→final）：null→0（序列不存在=零计数语义）；gauge/buckets 不进 delta。 */
