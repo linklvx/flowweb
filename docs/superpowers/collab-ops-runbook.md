@@ -195,6 +195,27 @@ systemctl is-enabled pm2-ubuntu
 2. store 写 P95 >1s 或 eventloop lag >200ms；
 3. pm2 非部署驱动重启 >1 次/周（崩溃路径频发）。
 
+**Y0b-5 T15 巡检（`scripts/check-collab-health.mjs`——cron */5+SMS+心跳自证）**：
+
+crontab 行（复制即用；禁提交 crontab 文件——日志与状态都在树外 `.data/` 不进 git）：
+
+```bash
+*/5 * * * * cd /home/ubuntu/flowweb && node scripts/check-collab-health.mjs >> .data/collab-health.log 2>&1
+```
+
+- 退出码：0=健康；1=P1（ready=false 任何 reason/stuck 增量连续 2 轮=10min/zero_conn 不回落/auth bucket 高增/doc 超阈增量/degraded 四键越阈/awareness>8 持续/ws_close 4410+4404 占比）；2=P0（overload tripped 连续/not-serving>1min/资金不变量增量/spool 容量熔断+满仓）。P0/P1 清单与阈值单源=`scripts/collab-health-thresholds.mjs`（THRESHOLDS 键=实际注册指标名——`check-collab-health.test.mjs` 机器断言禁手抄）。**首跑（无上次采样）恒 exit 1**（增量类全 insufficient-samples）——装 crontab 后第一个周期属预期，勿当故障；api 进程重启（部署）后同样一轮重基线。
+- **心跳自证**：每次运行写 `.data/collab-health-heartbeat.txt`——外层停更 >15min 即 P0 判据（巡检自身/整机 cron 死亡面，脚本无法自证）：
+
+```bash
+find /home/ubuntu/flowweb/.data/collab-health-heartbeat.txt -mmin +15 2>/dev/null && echo "collab-health heartbeat 停更>15min——按 P0 处置"
+```
+
+- **外部整机可达性探测**（巡检与 api 同机同死——无法自证整机死亡）：第二机 `curl https://www.flow123.com/api/health`（或第三方 uptime 服务）——第二机也哑=整机级事故（云平台/网络层），仅巡检哑=进程级（pm2/cron 面）。
+- **SMS**：腾讯云 SDK（`tencentcloud-sdk-nodejs-sms`，脚本经 createRequire 锚 apps/api 解析——独立于 api 部署树）；`ALERT_SMS_TO` 未设→SMS 跳过 exit 不变（最小可用降级）；只发 P0、per-check 节流 15min/条（`.data/collab-health-sms-throttle.json`——新 P0 不被旧 P0 吞）；模板单参短键（`[P0]<check>`），明细看日志。
+- **stuck 手工出口行**（`yjs_doc_stuck_total` 增量连续 2 轮=10min 时）：分诊=查库卸载守卫为何不满足（pendingQueues 残留/连接计数非零——pm2 日志 grep `doc_stuck`），**禁用驱逐器掩盖**；出口=POST /api/drain → `pm2 startOrReload ecosystem.config.cjs --update-env` → 观察 `yjs_zero_conn_docs` 回落。
+- **SLO 数据侧**（Y0b-5 T2 两条直方图——`collab_telemetry_hydration_ms`/`collab_telemetry_reconnect_ms`，p95=桶累计 0.95 分位）：hydration p95 ≤2s；重连〔事件触发〕p95 ≤2s。
+- **1012 部署窗恢复时长 ≤60s**（30s 计划内重启静默窗+1~3s 短退避重连——超 60s 即部署窗异常，查 /api/ready 与 pm2 日志）。
+
 ## §7 容量三数初始值
 
 | 指标 | 初始值 | 依据与去向 |

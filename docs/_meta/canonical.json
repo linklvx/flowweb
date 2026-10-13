@@ -12,6 +12,17 @@
       ]
     },
     {
+      "path": "docs/superpowers/collab-ops-runbook.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "scripts/check-collab-health.test.mjs",
+          "line": 145,
+          "text": "const runbook = fs.readFileSync(path.join(ROOT, 'docs/superpowers/collab-ops-runbook.md'), 'utf8');"
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/deployment-db-baseline.md",
       "criteria": "C3",
       "evidence": [
