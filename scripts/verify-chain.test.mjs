@@ -32,7 +32,7 @@ test('① 每个步骤 id 唯一', () => {
 
 test('① cmd 引用的 scripts/*.mjs 存在（防拼写漂移）', () => {
   for (const s of VERIFY_STEPS) {
-    for (const m of s.cmd.matchAll(/scripts\/[A-Za-z0-9._/-]+\.mjs/g)) {
+    for (const m of s.cmd.matchAll(/[A-Za-z0-9._/-]*scripts\/[A-Za-z0-9._/-]+\.mjs/g)) {
       assert.ok(fs.existsSync(path.join(ROOT, m[0])), `${s.id}: 引用的 ${m[0]} 不存在`);
     }
   }
@@ -93,12 +93,17 @@ test('⑤ plans/specs 无未跟踪 md（未跟踪的 plan 无门禁——本文�
   assert.equal(out, '', `未跟踪的计划/规格文档（门禁盲区）：\n${out}`);
 });
 
-test('⑥ scripts-node-test 列举集合 === scripts/*.test.mjs 实际集合（空 glob 假绿修复的防漂移面）', () => {
-  const onDisk = fs.readdirSync(path.join(ROOT, 'scripts'))
-    .filter((f) => f.endsWith('.test.mjs'))
-    .map((f) => `scripts/${f}`)
+test('⑥ scripts-node-test 列举集合 === 磁盘实际集合（根 scripts/+apps/api/scripts/ 双目录——空 glob 假绿修复的防漂移面）', () => {
+  const dirs = ['scripts', 'apps/api/scripts'];
+  const onDisk = dirs.flatMap((d) =>
+    fs.readdirSync(path.join(ROOT, d))
+      .filter((f) => f.endsWith('.test.mjs'))
+      .map((f) => `${d}/${f}`))
     .sort();
   const step = VERIFY_STEPS.find((s) => s.id === 'scripts-node-test');
-  const listed = step.cmd.split(/\s+/).filter((t) => t.startsWith('scripts/') && t.endsWith('.test.mjs')).sort();
+  const listed = step.cmd.split(/\s+/)
+    .filter((t) => t.endsWith('.test.mjs'))
+    .map((t) => t.replace(/^\.\//, ''))
+    .sort();
   assert.deepEqual(listed, onDisk, '列举与磁盘漂移——新增/删除 *.test.mjs 未同步 manifest');
 });
