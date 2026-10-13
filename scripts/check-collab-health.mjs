@@ -49,9 +49,12 @@ export function parsePromText(text) {
 }
 
 /** counter 状态键（带 label 过滤的拼进键——rounds/counter 共用键域）。 */
+function labelSeriesKey(name, lb) {
+  return `${name}{${Object.entries(lb).map(([k, v]) => `${k}="${v}"`).join(',')}}`;
+}
+
 function counterKey(name, t) {
-  if (!t.labels) return name;
-  return `${name}{${Object.entries(t.labels).map(([k, v]) => `${k}="${v}"`).join(',')}}`;
+  return t.labels ? labelSeriesKey(name, t.labels) : name;
 }
 
 const insuff = (check, detail) => ({ check, level: 'P1', insufficient: true, detail: `insufficient-samples——${detail}` });
@@ -103,20 +106,24 @@ export function evaluate(sample, last, now, env) {
       const ck = counterKey(name, t);
       const raw = !metricsOk ? null
         : t.kind === 'counter-share' ? m.sum(name)
-          : t.labels ? m.sum(name, t.labels) : m.get(name);
-      const cur = raw === null ? null : raw;   // 序列缺席（labels 未出现过）由 sum 折 0；get 无标签缺席折 0 在下行
+          : m.sum(name, t.labels);   // t.labels 缺席=undefined→全族求和（labelNames 族取族和；单 series 族等价 get）
+      const cur = raw === null ? null : raw;   // 序列缺席（labels 未出现过）由 sum 折 0
       const curOrZero = cur ?? 0;
       const prev = last?.counters?.[ck];
       nextLast.counters[ck] = curOrZero;
+      if (t.kind === 'counter-share') {
+        // 分子基线键一并写入（matchLabels 各键）——分子分母同口径窗口增量（只写族总量键则分子=绝对累计值误报）
+        for (const lb of t.matchLabels) nextLast.counters[labelSeriesKey(name, lb)] = metricsOk ? m.sum(name, lb) : 0;
+      }
       if (!metricsOk || prev === undefined) {
-        if (t.kind === 'counter-delta' && (!t.rounds || prev === undefined)) findings.push(insuff(name, t.kind === 'counter-share' ? '份额基线未建' : `${name} 两样本差不可算`));
+        if (prev === undefined || (t.kind === 'counter-delta' && !t.rounds)) findings.push(insuff(name, t.kind === 'counter-share' ? '份额基线未建' : `${name} 两样本差不可算`));
         continue;
       }
       if (curOrZero < prev) continue;   // 进程重启回落——重基线（counters 已更新）不误报
       const delta = curOrZero - prev;
       if (t.kind === 'counter-share') {
         if (delta <= 0) { nextLast.rounds[name] = 0; continue; }
-        const num = t.matchLabels.reduce((a, lb) => a + Math.max(0, (m.sum(name, lb) ?? 0) - (last.counters[`${name}{${Object.entries(lb).map(([k, v]) => `${k}="${v}"`).join(',')}}`] ?? 0)), 0);
+        const num = t.matchLabels.reduce((a, lb) => a + Math.max(0, (m.sum(name, lb) ?? 0) - (last.counters[labelSeriesKey(name, lb)] ?? 0)), 0);
         if (delta >= t.minDelta && num / delta >= t.share) {
           findings.push({ check: name, level: t.level, detail: `${t.matchLabels.map((lb) => Object.values(lb)).flat().join('/')} 增量 ${num}/${delta}（${Math.floor((num / delta) * 100)}% ≥ ${t.share * 100}% 且 ≥${t.minDelta} 次）` });
         }
@@ -169,6 +176,7 @@ export function evaluate(sample, last, now, env) {
 
     if (t.kind === 'gauge-no-fall') {
       const v = metricsOk ? (m.get(name) ?? 0) : 0;
+      nextLast.zero_conn_last = v;   // 持久化当前值——下轮 prevV 判「不回落」（不写则恒 null，P1 不可达）
       const prevV = last?.zero_conn_last ?? null;
       if (v <= 0) { nextLast.rounds[name] = 0; continue; }
       const rounds = prevV !== null && v >= prevV ? prevRounds + 1 : 1;

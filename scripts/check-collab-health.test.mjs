@@ -37,6 +37,7 @@ function promText(overrides = {}) {
     'collab_overload_state{state="tripped"}': 0,
     intent_frozen_stranded_total: 0,
     intent_reconcile_mismatch_total: 0,
+    'ai_artifact_discarded_total{cause="node-deleted"}': 0,
     'ai_artifact_discarded_total{cause="precall-miss"}': 0,
     yjs_spool_capacity_total: 0,
     yjs_spool_depth_bytes: 0,
@@ -224,4 +225,42 @@ test('parsePromText：带标签/无标签/缺席序列语义', () => {
   assert.equal(p.get('intent_frozen_stranded_total'), 0);
   assert.equal(p.get('yjs_spool_capacity_total'), null, '缺席序列 → null（调用面折 0）');
   assert.equal(p.sum('collab_overload_state'), 1);
+});
+
+// ===== T15 审查修复钉（spec 审查实测三缺陷：zero_conn 死代码/share 分子基线/label 族求和） =====
+
+test('T15R1：zero_conn 恒值不回落连跑 3 轮→P1（zero_conn_last 持久化——死代码复活）', () => {
+  const sample = { metricsOk: true, metrics: parsePromText(promText({ yjs_zero_conn_docs: 5 })), readyOk: true, ready: { ready: true } };
+  const e1 = evaluate(sample, null, 1_000_000, {});
+  const e2 = evaluate(sample, e1.nextLast, 1_000_000 + 300_000, {});
+  const e3 = evaluate(sample, e2.nextLast, 1_000_000 + 600_000, {});
+  assert.ok(e3.findings.some((f) => f.level === 'P1' && f.check === 'yjs_zero_conn_docs' && !f.insufficient),
+    'zero_conn=5 恒值 3 轮 → P1（现状 zero_conn_last 恒 null——prevV!==null 不可达，P1 永不触发）');
+});
+
+test('T15R2：share 分子=同口径窗口增量（历史 4410 累计不折分子）+首跑标 insufficient', () => {
+  // run1 建基线：4410 历史累计 1000
+  const c1 = parsePromText(promText({ 'collab_ws_close_total{code="4410",reason="y"}': 1000 }));
+  const e1 = evaluate({ metricsOk: true, metrics: c1, readyOk: true, ready: { ready: true } }, null, 1_000_000, {});
+  assert.ok(e1.findings.some((f) => f.check === 'collab_ws_close_total' && f.insufficient),
+    'share 首跑标 insufficient（份额基线未建）——现状静默跳过');
+  // run2：新窗族总量 +5（全为正常 code=1000）、4410 累计不动 → 分子应为 0（现状=绝对累计 1000/5=20000% 误报 P1）
+  const c2 = parsePromText(promText({ 'collab_ws_close_total{code="4410",reason="y"}': 1000, 'collab_ws_close_total{code="1000",reason="x"}': 5 }));
+  const e2 = evaluate({ metricsOk: true, metrics: c2, readyOk: true, ready: { ready: true } }, e1.nextLast, 1_000_000 + 300_000, {});
+  assert.ok(!e2.findings.some((f) => f.check === 'collab_ws_close_total' && !f.insufficient),
+    '分子分母同口径窗口增量——历史累计不折分子，新窗仅 5 次正常关闭不误报');
+  // run3 正路径：新窗 4410 +5 / 总量 +5 → 100% ≥ 20% 触发（防退化钉）
+  const c3 = parsePromText(promText({ 'collab_ws_close_total{code="4410",reason="y"}': 1005, 'collab_ws_close_total{code="1000",reason="x"}': 5 }));
+  const e3 = evaluate({ metricsOk: true, metrics: c3, readyOk: true, ready: { ready: true } }, e2.nextLast, 1_000_000 + 600_000, {});
+  assert.ok(e3.findings.some((f) => f.level === 'P1' && f.check === 'collab_ws_close_total'),
+    '同口径窗口增量正路径仍触发（4410 新窗 5/5=100%）');
+});
+
+test('T15R3：无 labels counter-delta 对 labelNames 族求和（非首 series 增量不漏报 P0）', () => {
+  const b1 = parsePromText(promText());   // 基线含 node-deleted（首 series）+precall-miss 双 cause
+  const e1 = evaluate({ metricsOk: true, metrics: b1, readyOk: true, ready: { ready: true } }, null, 1_000_000, {});
+  const b2 = parsePromText(promText({ 'ai_artifact_discarded_total{cause="precall-miss"}': 5 }));   // 仅非首 series +5
+  const e2 = evaluate({ metricsOk: true, metrics: b2, readyOk: true, ready: { ready: true } }, e1.nextLast, 1_000_000 + 300_000, {});
+  assert.ok(e2.findings.some((f) => f.level === 'P0' && f.check === 'ai_artifact_discarded_total'),
+    '非首 series（cause=precall-miss）+5 → P0（现状 m.get 只取 prom 文本首个 series——漏报）');
 });
