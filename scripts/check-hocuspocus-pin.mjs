@@ -33,13 +33,13 @@ if (missing.length) {
 const bad = [...found].filter((s) => !s.startsWith('yjs@') && !s.endsWith('@4.6.0'));
 if (bad.length) {
   console.error('契约锁：@hocuspocus 版本漂移（必须 pin 4.6.0 且跑契约锁全量用例）:', bad);
-  printRerunChecklist();
+  printRerunChecklist(console.error);
   process.exit(1);
 }
 const badYjs = [...found].filter((s) => s.startsWith('yjs@') && !s.endsWith('@13.6.32'));
 if (badYjs.length) {
   console.error('契约锁：yjs 版本漂移（必须 pin 13.6.32 且跑契约锁全量用例）:', badYjs);
-  printRerunChecklist();
+  printRerunChecklist(console.error);
   process.exit(1);
 }
 console.log('pinned ✓', [...found]);
