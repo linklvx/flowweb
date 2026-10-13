@@ -160,7 +160,6 @@ async function main() {
     console.log(`[soak] runbook 数①并发容量上限：${noKnee ? `本档 ${OPTS.docs} docs × ${OPTS.clients} conns 无拐点（storeP99≤1s）→ 容量上限 ≥ ${OPTS.docs}×${OPTS.clients}（单档下界——正式档多档跑归 T18）` : `本档见拐点（storeP99>1s）——容量上限 < ${OPTS.docs}×${OPTS.clients}`}`);
     const cap = Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) > 0 ? Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) : 256 * 1024 * 1024;
     console.log(`[soak] runbook 数②spool 存活窗：${spoolGrowth > 0 ? `增速 ${spoolGrowth.toFixed(1)}B/min → 容量 ${cap / 1048576}MB ÷ 增速 ≈ ${(cap / spoolGrowth).toFixed(0)}min 到满仓（50%/80% 预阈值=该窗的 1/2 与 4/5）` : 'spool 零增长——存活窗不构成约束（正常态：PG 通则 store 落库不滞留）'}`);
-    for (const w of warnings) console.error(`SOAK-WARN: ${w}`);
   } finally {
     for (const t of editTimers) clearInterval(t);
     for (const p of providers) { try { p.destroy(); } catch (e) { warnings.push(`provider destroy 异常: ${e.message}`); } }
@@ -173,6 +172,7 @@ async function main() {
     ];
     for (const del of order) await del().catch((e) => warnings.push(`哨兵清理失败（残留待人工删）: ${e.message}`));
     await prisma.$disconnect();
+    for (const w of warnings) console.error(`SOAK-WARN: ${w}`);   // finally 内输出——main 中途 throw 时清理期告警也可见
   }
 }
 

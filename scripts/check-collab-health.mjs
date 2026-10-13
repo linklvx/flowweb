@@ -110,16 +110,18 @@ export function evaluate(sample, last, now, env) {
       const cur = raw === null ? null : raw;   // 序列缺席（labels 未出现过）由 sum 折 0
       const curOrZero = cur ?? 0;
       const prev = last?.counters?.[ck];
-      nextLast.counters[ck] = curOrZero;
-      if (t.kind === 'counter-share') {
-        // 分子基线键一并写入（matchLabels 各键）——分子分母同口径窗口增量（只写族总量键则分子=绝对累计值误报）
-        for (const lb of t.matchLabels) nextLast.counters[labelSeriesKey(name, lb)] = metricsOk ? m.sum(name, lb) : 0;
+      if (metricsOk) {   // metrics 瞬时不可达时保留基线不写 0——否则恢复轮 delta=累计-0 伪造资金 P0+SMS（重启回落由下方 curOrZero<prev 重基线天然处理）
+        nextLast.counters[ck] = curOrZero;
+        if (t.kind === 'counter-share') {
+          // 分子基线键一并写入（matchLabels 各键）——分子分母同口径窗口增量（只写族总量键则分子=绝对累计值误报）
+          for (const lb of t.matchLabels) nextLast.counters[labelSeriesKey(name, lb)] = m.sum(name, lb);
+        }
       }
       if (!metricsOk || prev === undefined) {
         if (prev === undefined || (t.kind === 'counter-delta' && !t.rounds)) findings.push(insuff(name, t.kind === 'counter-share' ? '份额基线未建' : `${name} 两样本差不可算`));
         continue;
       }
-      if (curOrZero < prev) continue;   // 进程重启回落——重基线（counters 已更新）不误报
+      if (curOrZero < prev) { nextLast.rounds[name] = 0; continue; }   // 进程重启回落——重基线（counters 已更新）不误报；rounds 清零防连续窗跨部署拼接
       const delta = curOrZero - prev;
       if (t.kind === 'counter-share') {
         if (delta <= 0) { nextLast.rounds[name] = 0; continue; }
@@ -176,7 +178,7 @@ export function evaluate(sample, last, now, env) {
 
     if (t.kind === 'gauge-no-fall') {
       const v = metricsOk ? (m.get(name) ?? 0) : 0;
-      nextLast.zero_conn_last = v;   // 持久化当前值——下轮 prevV 判「不回落」（不写则恒 null，P1 不可达）
+      nextLast.zero_conn_last = metricsOk ? v : (last?.zero_conn_last ?? null);   // 持久化当前值——下轮 prevV 判「不回落」（不写则恒 null，P1 不可达）；闪断轮保留上次值——毒化为 0 则丢「不回落」判定基线
       const prevV = last?.zero_conn_last ?? null;
       if (v <= 0) { nextLast.rounds[name] = 0; continue; }
       const rounds = prevV !== null && v >= prevV ? prevRounds + 1 : 1;
@@ -221,7 +223,8 @@ export async function runCheck(opts) {
 
   const lastPath = path.join(stateDir, 'collab-health-last.json');
   const throttlePath = path.join(stateDir, 'collab-health-sms-throttle.json');
-  const last = fs.existsSync(lastPath) ? JSON.parse(fs.readFileSync(lastPath, 'utf8')) : null;
+  let last = null;
+  if (fs.existsSync(lastPath)) { try { last = JSON.parse(fs.readFileSync(lastPath, 'utf8')); } catch { last = null; } }   // torn write 折 null=视同首跑重基线（throw 则每轮结构性 exit 2 无自愈）
 
   const base = (env.COLLAB_HEALTH_API_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
   const headers = env.PROMETHEUS_TOKEN ? { 'x-prometheus-token': env.PROMETHEUS_TOKEN } : {};
@@ -242,14 +245,15 @@ export async function runCheck(opts) {
   fs.writeFileSync(lastPath, JSON.stringify(nextLast));
 
   // SMS：P0 恰 check 一条、per-check 节流（节流窗内复发不重发；新 P0 各发各的）
-  const throttle = fs.existsSync(throttlePath) ? JSON.parse(fs.readFileSync(throttlePath, 'utf8')) : {};
+  let throttle = {};
+  if (fs.existsSync(throttlePath)) { try { throttle = JSON.parse(fs.readFileSync(throttlePath, 'utf8')); } catch { throttle = {}; } }
   const smsSent = [];
   for (const f of findings.filter((x) => x.level === 'P0')) {
     if (throttle[f.check] !== undefined && now - throttle[f.check] < SMS_THROTTLE_MS) continue;
-    throttle[f.check] = now;
     if (!smsSender) continue;
     try {
       await smsSender(f.check, `[P0]${f.check}`.slice(0, 60));   // 模板 {1} 单参——短信正文短键，明细走日志
+      throttle[f.check] = now;   // 节流戳=发送成功后写——失败轮不消耗节流窗（下轮重试）
       smsSent.push(f.check);
     } catch (e) {
       console.error(`check-collab-health: SMS 发送失败（${f.check}）——${e?.message ?? e}（exit 码不受影响：告警旁路非判据）`);

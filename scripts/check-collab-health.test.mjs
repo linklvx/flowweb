@@ -264,3 +264,81 @@ test('T15R3：无 labels counter-delta 对 labelNames 族求和（非首 series 
   assert.ok(e2.findings.some((f) => f.level === 'P0' && f.check === 'ai_artifact_discarded_total'),
     '非首 series（cause=precall-miss）+5 → P0（现状 m.get 只取 prom 文本首个 series——漏报）');
 });
+
+// ===== T15 质量审查修复钉（C1 metrics 闪断基线毒化伪造资金 P0 / I1 状态 JSON 容错 / M3 节流戳时机） =====
+
+test('T15Q-C1：metrics 闪断→恢复→零新增事件不告 P0/P1（基线保留非毒化为 0）+share 分子基线同保留', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  const sent = [];
+  const smsSender = async (check) => { sent.push(check); };
+  // run1 建基线：资金不变量历史累计 3 + ws_close 4410 历史累计 1000（首跑 insuff → 重基线在累计值）
+  const hist = promText({
+    intent_frozen_stranded_total: 3,
+    'collab_ws_close_total{code="4410",reason="y"}': 1000,
+    'collab_ws_close_total{code="1000",reason="x"}': 2,
+  });
+  const r1 = await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText: hist }), stateDir, env: {}, smsSender });
+  assert.equal(r1.exitCode, 1, '首跑 insuff（预期 P1）');
+  assert.equal(sent.length, 0);
+  // run2 闪断：/metrics 瞬时不可达（本轮 P1 属预期）——旧码将已建基线毒化为 0
+  const r2 = await runCheck({ now: 1_000_000 + 300_000, fetchImpl: makeFetch({ metricsText: null }), stateDir, env: {}, smsSender });
+  assert.equal(r2.exitCode, 1, '闪断轮 metrics-unreachable P1（预期）');
+  // run3 恢复：各 counter 累计不动（零新增事件）→ 不得伪造 P0/P1/SMS
+  const r3 = await runCheck({ now: 1_000_000 + 600_000, fetchImpl: makeFetch({ metricsText: hist }), stateDir, env: {}, smsSender });
+  assert.equal(r3.exitCode, 0, '恢复轮零新增——基线被毒化为 0 时此处伪造 intent_frozen_stranded_total P0（delta=3-0）+SMS');
+  assert.deepEqual(r3.findings, []);
+  assert.equal(sent.length, 0, '零新增事件不得发 SMS');
+  // run4：恢复后首个真实增量窗=5 次正常关闭（4410 历史不动）→ 分子基线保留则分子=0 不告
+  const plus5 = promText({
+    intent_frozen_stranded_total: 3,
+    'collab_ws_close_total{code="4410",reason="y"}': 1000,
+    'collab_ws_close_total{code="1000",reason="x"}': 7,
+  });
+  const r4 = await runCheck({ now: 1_000_000 + 900_000, fetchImpl: makeFetch({ metricsText: plus5 }), stateDir, env: {}, smsSender });
+  assert.equal(r4.exitCode, 0, 'share 分子基线毒化为 0 时 1000/5=20000% 伪造 share P1');
+  assert.deepEqual(r4.findings, []);
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test('T15Q-C1：evaluate 闪断轮 nextLast 保留基线（counters 主键/share 分子键/zero_conn_last 不写 0）', () => {
+  const last = {
+    ts: 0, overload_tripped: 0, not_serving_since: null, zero_conn_last: 5,
+    counters: { intent_frozen_stranded_total: 3, collab_ws_close_total: 1002, 'collab_ws_close_total{code="4410"}': 1000 },
+    rounds: {},
+  };
+  const e = evaluate({ metricsOk: false, metrics: null, readyOk: true, ready: { ready: true } }, last, 1_000_000, {});
+  assert.equal(e.nextLast.counters.intent_frozen_stranded_total, 3, 'counter 主基线保留（不写 0）');
+  assert.equal(e.nextLast.counters['collab_ws_close_total{code="4410"}'], 1000, 'share 分子基线保留（不写 0）');
+  assert.equal(e.nextLast.zero_conn_last, 5, 'zero_conn_last 保留（不毒化为 0）');
+});
+
+test('T15Q-I1：状态 JSON 损坏（torn write）→视同首跑重基线（非结构性 exit 2）；次轮健康自愈', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  const metricsText = promText();
+  await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText }), stateDir, env: {}, smsSender: null });
+  // 撕裂写（写一半/截断）——旧码 JSON.parse throw → 每轮结构性 exit 2 无 SMS 无自愈
+  fs.writeFileSync(path.join(stateDir, 'collab-health-last.json'), '{"ts":1000000,"counters":{');
+  fs.writeFileSync(path.join(stateDir, 'collab-health-sms-throttle.json'), '{"yjs_');
+  const r2 = await runCheck({ now: 1_000_000 + 300_000, fetchImpl: makeFetch({ metricsText }), stateDir, env: {}, smsSender: null });
+  assert.equal(r2.exitCode, 1, '损坏态视同首跑——insuff P1（不 throw 结构性 exit 2）');
+  const r3 = await runCheck({ now: 1_000_000 + 600_000, fetchImpl: makeFetch({ metricsText }), stateDir, env: {}, smsSender: null });
+  assert.equal(r3.exitCode, 0, '重基线后次轮健康 exit 0（自愈闭环）');
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test('T15Q-M3：SMS 发送失败不消耗节流窗——同 check 节流窗内下轮重试可发', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  const sent = [];
+  let smsDown = true;
+  const smsSender = async (check) => { if (smsDown) throw new Error('sms down'); sent.push(check); };
+  const env = {};
+  await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText: promText() }), stateDir, env, smsSender });   // 基线
+  // run2：P0 命中但 SMS 发送失败——旧码节流戳已写 → 窗内复发被吞
+  await runCheck({ now: 1_000_000 + 300_000, fetchImpl: makeFetch({ metricsText: promText({ yjs_spool_capacity_total: 1 }) }), stateDir, env, smsSender });
+  assert.equal(sent.length, 0, 'run2 发送失败');
+  smsDown = false;
+  // run3：5min 后（节流窗 15min 内）同 check 复发——节流戳未消耗应重试发送
+  await runCheck({ now: 1_000_000 + 600_000, fetchImpl: makeFetch({ metricsText: promText({ yjs_spool_capacity_total: 2 }) }), stateDir, env, smsSender });
+  assert.equal(sent.length, 1, '失败轮未写节流戳——窗内复发重试发送（不被失败消耗）');
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
