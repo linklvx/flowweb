@@ -25,15 +25,19 @@ export class ExecutionProcessor extends WorkerHost {
   }
 
   async process(job: Job<ExecutionJobData, ExecutionJobResult>): Promise<ExecutionJobResult> {
-    this.logger.log(`开始处理任务 ${job.id}`);
+    // Y0b-5 T13：首行重建 trace 上下文（ALS 不过 Redis——enqueue 点自 requestTraceStorage 显式携带入
+    // job.data.traceId，worker 无 HTTP ALS；结构化日志带 traceId 字段跨 Redis 保真：enqueue 的 traceId
+    // ==processor 日志 traceId）。WS 不经 HTTP middleware——collab traceId 保持 null 预留位（connectionId=T11 独立）。
+    const { projectId, nodeId, userId, regenToken, traceId } = job.data;
+    this.logger.log(JSON.stringify({ event: 'execution_job_start', traceId: traceId ?? null, jobId: job.id, projectId }));
     await job.updateProgress(10);
 
     try {
-      const { projectId, nodeId, userId, regenToken } = job.data;
       // jobId 透传 claim——同 job stalled 重排可重入续跑（F13：不传则重进 claim 自锁 NodeBusy）
       // Y0b-2 T6（Z91）：regenToken 透传（enqueue 管道与 execute 直达同 claim 语义）
       // Y0b-2 T7：SV 字节载荷退役（SV 判定在受理端点门——job 载荷零客户端状态）
-      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id);
+      // Y0b-5 T13：traceId 透传（job.data 显式携带——非 fallback jobId：jobId 是 claim 业务 CAS 键，两键域独立）
+      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id, traceId ?? undefined);
       await job.updateProgress(100);
       this.logger.log(`任务 ${job.id} 完成`);
       return result;

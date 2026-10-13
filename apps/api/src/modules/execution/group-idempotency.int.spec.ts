@@ -18,6 +18,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
+import { requestTraceStorage } from '../../middleware/request-trace.middleware';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip
 const hasDb = !!process.env.DATABASE_URL;
@@ -425,4 +426,34 @@ const statusOf = async (nodeId: string) =>
     expect(rows[0]).toMatchObject({ kind: 'text', status: 'SUCCEEDED' });
     expect(typeof rows[0].attempts).toBe('number'); // T5 投影代次判据列
   });
+
+  // Y0b-5 T13 出口⑮（组执行资金审计锚）：带 x-request-id 的三节点组执行 → 3 行 intent 同 traceId
+  // 全落库 ∧ Σ冻结正确。载体分工：HTTP 200 ∧ x-request-id≡traceId 响应头由 request-trace/http-red
+  // middleware unit 锚覆盖；本用例锚服务侧 claim 落库链（controller ALS 读取形态=requestTraceStorage.run
+  // 内读 store 传 execute 第 7 参——与 execution.controller.execute 同构）。
+  it('T13 出口⑮：三节点组执行（ALS 上下文带 traceId）→ success ∧ 3 行 intent 同 traceId 全落库 ∧ Σ冻结正确（settle 清零零退款）', async () => {
+    const ns = [nid('t13a'), nid('t13b'), nid('t13c')];
+    const nodes = [imageNode(ns[0]), imageNode(ns[1]), imageNode(ns[2])]; // 三付费节点——Σ冻结判别性最大
+    const e = makeExec(nodes);
+    const trace = '4bf92f3577b34da6a3ce929d0e0e4736';
+    let r: Awaited<ReturnType<ExecutionService['execute']>>;
+    await requestTraceStorage.run({ traceId: trace }, async () => {
+      r = await e.svc.execute(PID, undefined, UID, ns, undefined, undefined, requestTraceStorage.getStore()?.traceId);
+    });
+    expect(r!.success).toBe(true);            // HTTP 200 等价（直构出口——errors=[]）
+    expect(r!.totalCost).toBeGreaterThan(0);
+    let sumConsumed = 0;
+    for (const n of ns) {
+      const row = (await rowsOf(n))[0];
+      expect(row.traceId).toBe(trace);        // 同 traceId 全落库（"该 trace 下所有 intent"审计读面成立）
+      expect(row.status).toBe('SUCCEEDED');
+      expect(row.reservedCredits).toBe(0);    // Σ冻结正确：settle 清零（冻结→实扣，无悬留冻结）
+      expect(row.creditsConsumed).toBe(row.creditCost);
+      sumConsumed += row.creditsConsumed;
+      const led = await ledgerOf(n);
+      expect(led.settle).toBe(1);             // 每节点恰一次实扣
+      expect(led.refund).toBe(0);             // 零退款（零部分失败）
+    }
+    expect(r!.totalCost).toBe(sumConsumed);   // totalCost=实扣真值审计口径（P8）
+  }, 30_000);
 });

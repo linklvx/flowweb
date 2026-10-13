@@ -377,21 +377,21 @@ function makeController() {
 }
 
 describe('Y0b-2 T6 controller 意图接线（Z91/Z103）', () => {
-  it('execute 读 body.regenToken 透传 service 第5参（T7：SV 门用 body.stateVector——service 零 SV 实参）', async () => {
+  it('execute 读 body.regenToken 透传 service 第5参（T7：SV 门用 body.stateVector——service 零 SV 实参）。Y0b-5 T13：第6/7参 jobId/traceId——ALS 外 traceId=undefined', async () => {
     const { ctrl, service } = makeController();
     await ctrl.execute({ projectId: 'p1', nodeId: 'n1', regenToken: 'hdr-intent', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
-    expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'hdr-intent');
+    expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'hdr-intent', undefined, undefined);
   });
 
-  it('enqueue body.regenToken 入 job.data；缺省 null（Z91：enqueue 管道与 execute 直达同 claim 语义）', async () => {
+  it('enqueue body.regenToken 入 job.data；缺省 null（Z91：enqueue 管道与 execute 直达同 claim 语义）。Y0b-5 T13：job.data.traceId——ALS 外=null（跨 Redis 经 job.data 显式携带）', async () => {
     const { ctrl, queue } = makeController();
     await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', regenToken: 'i-9', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: 'i-9',
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: 'i-9', traceId: null,
     });
     await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenLastCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: null,
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: null, traceId: null,
     });
   });
 });

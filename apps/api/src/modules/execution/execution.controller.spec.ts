@@ -8,6 +8,7 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { ForbiddenException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { requestTraceStorage } from '../../middleware/request-trace.middleware';
 
 // T7：SV 支配门夹具——非空 SV（空 doc 的 SV 是 0 字节 base64 空串，被缺省检查吞）
 const svDoc = new Y.Doc();
@@ -63,7 +64,8 @@ describe('ExecutionController', () => {
       const req = { user: { id: 'u-auth' } } as any;
       const body = { projectId: 'p1', nodeId: 'n1', stateVector: SV_OK };
       const result = await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined);
+      // 第6参 jobId（HTTP 直达恒 undefined）+第7参 traceId（Y0b-5 T13——ALS 外=undefined；ALS 内用例见下）
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined, undefined);
       expect(result).toEqual({ success: true, errors: [] });
     });
 
@@ -71,7 +73,7 @@ describe('ExecutionController', () => {
       const req = { user: { id: 'u-auth' } } as any;
       const body = { projectId: 'p1', userId: 'forged', stateVector: SV_OK };
       await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined, undefined, undefined);
     });
 
     it('T7：缺 stateVector → 400 SYNC_STATE_VECTOR_REQUIRED（fail-closed——缺省静默放行是垫片）', async () => {
@@ -95,7 +97,17 @@ describe('ExecutionController', () => {
     it('T7：body.stateVector 走 SV 门（SV 请求头退役）——支配成立放行', async () => {
       const req = { user: { id: 'u-auth' } } as any;
       await controller.execute({ projectId: 'p1', nodeIds: ['n1', 'n2'], stateVector: SV_OK } as any, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', ['n1', 'n2'], undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', ['n1', 'n2'], undefined, undefined, undefined);
+    });
+
+    // Y0b-5 T13：ALS 消费面——HTTP 直达路径 traceId 自 requestTraceStorage 读出传 service.execute
+    it('T13：ALS 内 execute → service.execute 第7参=ALS traceId（HTTP 直达路径；ALS 不过 Redis——enqueue 走 job.data）', async () => {
+      const req = { user: { id: 'u-auth' } } as any;
+      const trace = '4bf92f3577b34da6a3ce929d0e0e4736';
+      await requestTraceStorage.run({ traceId: trace }, async () => {
+        await controller.execute({ projectId: 'p1', nodeId: 'n1', stateVector: SV_OK } as any, req);
+      });
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined, trace);
     });
 
     // Y0b-2 T8（Z90/Z117）：EXEC_MAX_NODES 硬闸——21 字面量=default 20+1（env 未设档；设 EXEC_MAX_NODES 的测试环境需自调）
@@ -127,8 +139,19 @@ describe('ExecutionController', () => {
         nodeId: 'n2',
         userId: 'user-1',
         regenToken: null, // Y0b-2 T6（Z91）：改名自 intentId 位——缺省 null
+        traceId: null,    // Y0b-5 T13：ALS 外=null（ALS 内用例见下）——跨 Redis 经 job.data 显式携带
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
+    });
+
+    // Y0b-5 T13：ALS 不过 Redis——enqueue 点自 requestTraceStorage 读 traceId 显式携带入 job.data（跨 Redis 保真锚）
+    it('T13：ALS 内 enqueue → job.data.traceId=ALS traceId（processor 首行重建凭此；服务端生成值非客户端状态）', async () => {
+      const req = { user: { id: 'user-1' } } as any;
+      const trace = '4bf92f3577b34da6a3ce929d0e0e4736';
+      await requestTraceStorage.run({ traceId: trace }, async () => {
+        await controller.enqueue({ projectId: 'p1', nodeId: 'n2', stateVector: SV_OK } as any, req);
+      });
+      expect(queue.add).toHaveBeenCalledWith('execution', expect.objectContaining({ traceId: trace }));
     });
 
     it('enqueue：VIEWER 403，不入队', async () => {

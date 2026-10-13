@@ -38,7 +38,8 @@ describe('ExecutionProcessor', () => {
     const result = await processor.process(job);
 
     // 第5/6参：regenToken（无则 undefined，Y0b-2 T6 Z91——T7 sv 形参删除后左移）+ jobId（批0.5-6——claim 同 job 可重入）
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-1');
+    // 第7参：traceId（Y0b-5 T13——job.data 无 traceId 时 undefined，禁 fallback jobId：jobId 是 claim 业务 CAS 键）
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-1', undefined);
     expect(job.updateProgress).toHaveBeenCalledWith(10);
     expect(job.updateProgress).toHaveBeenCalledWith(100);
     expect(result).toEqual({ success: true, errors: [] });
@@ -53,7 +54,7 @@ describe('ExecutionProcessor', () => {
 
     await processor.process(job);
 
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'held-token-1', 'job-5');
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'held-token-1', 'job-5', undefined);
   });
 
   it('should handle job without nodeId', async () => {
@@ -64,18 +65,30 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, 'job-2');
+    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, 'job-2', undefined);
   });
 
-  it('Y0b-2 T7：job.data 遗留 sv 字段被忽略（载荷零客户端状态——SV 判定在受理端点门）', async () => {
+  it('Y0b-2 T7：job.data 遗留 sv 字段被忽略（载荷零客户端状态——SV 判定在受理端点门）。Y0b-5 T13 豁免说明：job.data.traceId 不违本断言意图——traceId 是服务端生成值（requestTraceMiddleware 的 requestTraceStorage/ALS 来源，非客户端可控状态），enqueue 点显式携带、processor 首行重建（跨 Redis 保真锚——claim 审计列落库凭此，BullMQ worker 无 HTTP ALS）', async () => {
+    const trace = '4bf92f3577b34da6a3ce929d0e0e4736';
     const job = {
       id: 'job-4',
-      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', sv: Buffer.from('hello').toString('base64') },
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', sv: Buffer.from('hello').toString('base64'), traceId: trace },
       updateProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-4');
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-4', trace);
+  });
+
+  it('Y0b-5 T13：job.data.traceId 缺省（旧 job）→ execute 第7参 undefined 禁 fallback jobId（jobId 是 claim 业务 CAS 键——两键域独立不复用）', async () => {
+    const job = {
+      id: '42',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1' },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+
+    await processor.process(job);
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, '42', undefined);
   });
 
   it('should throw error on failure and trigger retry', async () => {

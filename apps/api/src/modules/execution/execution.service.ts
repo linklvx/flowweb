@@ -91,10 +91,11 @@ export class ExecutionService {
    *  Y0b-2（Z109）：入参 intentId=客户端手势 token（wire 名不变）——无条件透传 gestureToken 整批施加
    *  （组执行全节点同 token：idemKey 含 nodeId 故无碰撞）；行身份 intentId 由 claim 内部铸造
    *  （旧"首个 exec 落 token、其余派 UUID"的门随 T1 删——token 不再是行键，无需选择落点）。
-   *  Y0b-1（E1）：pricing/teamId 必填透传——定价快照自 validation plans（预估=plan 同源，TOCTOU 消除）。 */
+   *  Y0b-1（E1）：pricing/teamId 必填透传——定价快照自 validation plans（预估=plan 同源，TOCTOU 消除）。
+   *  Y0b-5 T13：traceId 透传（HTTP 直达=controller 自 ALS 读；enqueue 管道=job.data 自 processor 透）——落审计列。 */
   private claimForNode(
     projectId: string, node: any, userId: string, gestureToken: string | undefined,
-    kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string, jobId?: string,
+    kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string, jobId?: string, traceId?: string | null,
   ) {
     return this.intentService.claim({
       projectId, nodeId: node.id, userId, gestureToken, kind,
@@ -104,7 +105,7 @@ export class ExecutionService {
         pricingRuleId: pricing.pricingRuleId, modelId: pricing.modelId, resolutionId: pricing.resolutionId,
         durationId: pricing.durationId, creditCost: pricing.creditCost,
       },
-      teamId, jobId,
+      teamId, jobId, traceId,
     });
   }
 
@@ -126,9 +127,13 @@ export class ExecutionService {
   }
 
   /** intentId 形参=客户端手势 token（Z109：wire 名不变、语义=gestureToken——行身份由 claim 铸造）。
-   *  Y0b-2 T7：sv 形参删除（SV 支配判定移受理端点门 sync-admission——服务侧 execute 零客户端状态）。 */
+   *  Y0b-2 T7：sv 形参删除（SV 支配判定移受理端点门 sync-admission——服务侧 execute 零客户端状态）。
+   *  Y0b-5 T13：traceId 第 7 参（服务端生成值非客户端状态）——HTTP 直达=controller 自 ALS（requestTraceStorage）
+   *  读出传入；enqueue 管道=processor 自 job.data.traceId 透传（worker 无 HTTP ALS——ALS 不过 Redis）。
+   *  组执行 N 节点共用同一 traceId ⇒ N 行 intent 同 traceId（资金审计锚）。 */
   async execute(
     projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], intentId?: string, jobId?: string,
+    traceId?: string | null,
   ): Promise<ExecutionResult> {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
@@ -222,7 +227,7 @@ export class ExecutionService {
       if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行（批5-1 删信箱后无影子直调例外——regenerate 直连真实节点，白名单单判据）
       this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
       await this.runNodeLifecycle({
-        projectId, node, userId, gestureToken: intentId, jobId,
+        projectId, node, userId, gestureToken: intentId, jobId, traceId,
         teamId: project.teamId, planMap, styleTextOf,
         upstreamSource: nodeIds ? allNodes : scopeNodes, allEdges, // nodeIds 模式读全量（上游可在组外）
         results, errors, onDeducted: (c) => { totalDeducted += c; },
@@ -243,13 +248,13 @@ export class ExecutionService {
    *  ——Z64/Z92 交付路径唯一退款入口；drain/租约 503 是抛错走悬留闭环非 written:false）→done 投影+
    *  results.push+余额推送+下载队列。 */
   private async runNodeLifecycle(ctx: {
-    projectId: string; node: any; userId: string; gestureToken?: string; jobId?: string;
+    projectId: string; node: any; userId: string; gestureToken?: string; jobId?: string; traceId?: string | null;
     teamId: string; planMap: Map<string, any>; upstreamSource: any[]; allEdges: any[];
     styleTextOf: (data: any) => string;
     results: ExecutionResult['results']; errors: ExecutionErrorEntry[];
     onDeducted: (cost: number) => void;
   }): Promise<void> {
-    const { projectId, node, userId, gestureToken, jobId, teamId, planMap, upstreamSource, allEdges, results, errors, onDeducted } = ctx;
+    const { projectId, node, userId, gestureToken, jobId, traceId, teamId, planMap, upstreamSource, allEdges, results, errors, onDeducted } = ctx;
     // A-3（T4 I-2）：poll-abort ⇒ 行已终态，清理由 reaper 完成——onTick 抛出的 PROVIDER_POLL_ABORTED
     // 在下方 catch 被降级为逐节点 error（不 re-throw）；该降级安全仅因"onTick abort ⇔ 行已终态
     // （reaper 已收敛资金）"这一不变量——若 abort 语义扩围须重审此处。
@@ -268,7 +273,7 @@ export class ExecutionService {
 
       // ── claim（外呼实参白名单规范化——paramsHash 与外呼同源）──
       const claimPack = this.nodeClaimPack(node, ctx);
-      const { intent, created } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId);
+      const { intent, created } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
       if (!created) {
         // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
         // Y0b-2 T6（T5 Minor#5 补投影）：回放路径补 done 终态投影+node data——改前只 emit，

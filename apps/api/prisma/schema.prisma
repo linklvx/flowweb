@@ -1010,6 +1010,7 @@ model GenerationIntent {
   startedAt       DateTime? // 外呼真正开始（phase 判据——Z83）
   idemKey         String @unique // Z82：内容+手势幂等键（deriveIdemKey 单源 sha256）——claim 唯一判据
   gestureKey      String? // Z79：手势 token 审计列（客户端原始入参截断落库——nullable）
+  traceId         String? // Y0b-5 T13：W3C trace-id（x-request-id 同源，服务端生成）——组执行资金审计锚（一次请求=N 行同 traceId）
   providerTaskId  String? // Z69：submit 后落库（外呼 provider 任务 id）
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -1020,6 +1021,7 @@ model GenerationIntent {
   @@index([projectId, nodeId, status, createdAt]) // Z114：claim ② 跨状态判据复合——普通索引可表达进 datamodel
   @@index([teamId]) // 资金路径（生命周期门/对账）直查
   @@index([jobId]) // F13：reconcile 活跃核验按 jobId 查 BullMQ 状态
+  @@index([traceId]) // Y0b-5 T13：审计读面"该 trace 下所有 intent"（普通索引——唯一索引会与 skipDuplicates 冲突静默丢行+否定审计用途）
   // Y0b-2 Z114②：@@index([status, updatedAt]) 删除（reaper 判据改 deadlineAt/heartbeatAt 两条 partial——
   // running_deadline_idx/running_heartbeat_idx 保持 migration-SQL-only 不进 Prisma 声明，partial 零棘轮成本）
   @@index([status, completedAt]) // 保留策略清理扫描用（终态 N 天清理——F1）

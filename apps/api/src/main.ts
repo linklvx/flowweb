@@ -12,6 +12,8 @@ import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { validateEnv } from './config/env';
 import { installProcessErrorGuards } from './bootstrap/guard';
 import { scrubEvent, resolveSentryRelease } from './utils/sentry-scrub';
+import { requestTraceMiddleware } from './middleware/request-trace.middleware';
+import { httpRedMiddleware } from './middleware/http-red.middleware';
 
 /**
  * 白名单：允许 DB SystemSetting 覆盖 process.env 的 key。
@@ -94,6 +96,12 @@ async function bootstrap() {
   // No separate SentryGlobalFilter required in @sentry/nestjs v10.x
 
   app.set('trust proxy', 'loopback'); // P-I：与 WS 侧 X-Real-IP 同信任前提（E58 完整收口归 Y0.5；全信任=true 收敛为一跳 loopback）
+
+  // Y0b-5 T13：trace/RED 全局最前（先于 throttle/auth——trace 覆盖全请求含 401/429）。
+  // request-trace：入站 traceparent 严格校验（不合法丢弃新建）+ALS+x-request-id 响应头（不回声 traceparent）；
+  // http-red：计时+在飞 gauge+path 归一。WS 帧不进（collab 独立端口服务不经主 app——connectionId=T11 独立）。
+  app.use(requestTraceMiddleware);
+  app.use(httpRedMiddleware);
 
   // Y0a-3（V21）：COLLAB_NOT_SERVING 503 统一附 Retry-After: 2（过滤链首中即止：非标记 503 由其
   // 内部委托 HttpExceptionFilter 同壳透出，其余异常类型直接落默认链）

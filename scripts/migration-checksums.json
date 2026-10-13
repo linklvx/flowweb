@@ -4,5 +4,8 @@
   },
   "20261011180000_y0b4_vacuum_generation": {
     "migration.sql": "08e8684e4219f366c6ecb8c78637b46b2b980da9817afb4b3825ba97932fa0db"
+  },
+  "20261013055904_y0b5_trace_id": {
+    "migration.sql": "a115f6c2563aeca476a155fb819143a4105220cbe224efc7ee7f852bf00c0b19"
   }
 }

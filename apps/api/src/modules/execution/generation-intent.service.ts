@@ -50,6 +50,10 @@ export interface ClaimInput {
   /** Y0b-1（E1）：定价快照——必填（编译期保证，运行时无缺省兜底）。 */
   pricing: ClaimPricing;
   jobId?: string;
+  /** Y0b-5 T13：W3C trace-id 审计锚（x-request-id 同源，服务端生成）——新行落列；FAILED/VOIDED 再激活
+   *  （新执行段）随 claim 覆写。来源：HTTP 直达=controller 自 ALS 读；enqueue 管道=job.data.traceId
+   *  （worker 无 HTTP ALS——ALS 不过 Redis，跨进程经 job.data 显式携带）。 */
+  traceId?: string | null;
 }
 
 @Injectable()
@@ -179,6 +183,7 @@ export class GenerationIntentService {
             attempts: { increment: 1 },
             heartbeatAt: new Date(), // Z68：rearm 重置生命线（deadline/heartbeat reaper 判据——不刷则 rearm 即刻超龄）
             deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
+            ...(input.traceId ? { traceId: input.traceId } : {}), // T13：新执行段新 trace 覆写审计锚（旧 job 无 traceId 保持原值）
           },
         });
         if (rearmed.count === 1) {
@@ -192,10 +197,11 @@ export class GenerationIntentService {
       // catch 驱动错误后再查——事务一报错即 aborted，任何后续查询都 25P02）
       // Y0b-2（Z109）：intentId=行身份（服务端 randomUUID 铸造——exec 投影对齐消费，Z88 保留复合唯一）；
       // gestureKey=审计列（客户端原始 token 落库）；三列写入=heartbeatAt/deadlineAt/idemKey（Z68/Z82）
-      const { pricing, teamId, gestureToken: _token, ...rest } = input; // 解构剔除：...input 直接展开会把 pricing/gestureToken 带进 Prisma data=unknown field 报错（gestureToken 已铸入 idemKey/gestureKey）
+      const { pricing, teamId, gestureToken: _token, traceId, ...rest } = input; // 解构剔除：...input 直接展开会把 pricing/gestureToken 带进 Prisma data=unknown field 报错（gestureToken 已铸入 idemKey/gestureKey）
       const ins = await tx.generationIntent.createMany({
         data: [{
           ...rest, intentId: randomUUID(), gestureKey: gestureToken ?? null,
+          traceId: traceId ?? null, // T13：审计锚落列（新行同值——组执行 N 节点共用一 traceId）
           jobId: input.jobId ?? null, status: 'RUNNING', teamId, idemKey,
           heartbeatAt: new Date(),
           deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),

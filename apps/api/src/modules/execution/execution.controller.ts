@@ -11,6 +11,7 @@ import { Request } from 'express';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { execMaxNodes } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { requestTraceStorage } from '../../middleware/request-trace.middleware';
 
 @Controller('api/execution')
 export class ExecutionController {
@@ -41,7 +42,8 @@ export class ExecutionController {
     }
     await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     // regenToken=客户端手势 token（Z79/Z109）——无 token 普通执行=undefined（内容键路径）
-    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken);
+    // Y0b-5 T13：traceId 自 ALS 读出显式传参（HTTP 直达路径——ALS 在请求上下文内；enqueue 管道走 job.data）
+    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken, undefined, requestTraceStorage.getStore()?.traceId);
   }
 
   @Post('enqueue')
@@ -60,6 +62,9 @@ export class ExecutionController {
       // Y0b-2 T6（Z91）：regenToken 入 job.data——enqueue 管道与 execute 直达同 claim 语义
       //（改前 intentId 位静默丢弃=经 enqueue 的"重新生成"退化回放）；形态校验归 claim 的 normalizeRegenToken
       regenToken: body.regenToken ?? null,
+      // Y0b-5 T13：ALS 不过 Redis——traceId 自 ALS（requestTraceStorage）显式携带入 job.data，
+      // processor 首行重建（worker 无 HTTP ALS，claim 审计锚凭此落列）。服务端生成值非客户端状态。
+      traceId: requestTraceStorage.getStore()?.traceId ?? null,
     });
 
     return {

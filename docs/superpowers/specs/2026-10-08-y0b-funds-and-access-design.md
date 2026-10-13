@@ -990,6 +990,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - exec_sync_pending_total
 - execution_group_duration_seconds
 - execution_settle_failure_total
+- http_request_duration_seconds
+- http_requests_in_flight
 - intent_claim_result_total
 - intent_deadline_exceeded_total
 - intent_duplicate_attempt_total
