@@ -1,0 +1,735 @@
+<!-- doc-status: draft-v8 | created: 2026-10-13 | 上游: docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md §0.2 Y0c+Y0.5 行（B 类合并组·运行面工程批） | note: v7+plan v3 经第十三轮三报告（plan v3 复核/终审/收官）+我方 8 项一手实证 → v8 吸收 Z138-Z148（§0.5.9）：setDefaultLabels 引导层单点（prom-client registry.clear() 连清 defaultLabels 实证——模块级调用被 di-smoke clear 静默消灭）/族名交集断言判据反写修正（生效后全族带 role=原判据恒绿假门禁）/MetricsModule 拆 Core·Http 第 7 模块（collectDefaultMetrics 唯一调用点=MetricsService 构造器实证——worker 不装则 3002 无 process 族）/B0 清单由脚本产出+判据全形态（我方再实测 gateway 口径≈368 处/20 文件，Z135 245/18 订正）/tryRelease 前置补 inFlightProjects 项/RESIDENT_BYTES 使用点默认 384MiB+算术式 fail-closed/耐久用例双向断言/占比判据绝对化/thumbnail「无上界」事实更正（BullMQ 默认 1）/env 裸读 28 文件枚举前置/census 组号⑭-⑲/manifest idempotent 列/enqueue fail-closed/T0.5 范围收敛（C0 时点无 worker 进程）；元纪律⑥（门禁会红声明须附真实变红输出）；报告三自行撤回 compact 触发源条目（我方 :1249 证伪成立）；待用户确认后启动 C0 -->
+# Y0c+Y0.5 运行面工程批——写门面·模块化·进程拆分·部署档位 设计 spec
+
+日期：2026-10-13（立项日；同日 D1-D5 用户裁定+六轮外审+两轮定向实证 → v4）
+
+> **元纪律（Z53+v4 扩展 Z78a+v5 扩展 Z95）**：①Z 系（及后续编号系）新增的可执行细节——**约束名、算式、import 规则、默认值**——必须与 B 系基线同强度实证：凡出现具体标识符或具体数字，须附 `file:line` 或算式出处；无法附出处的降格为「plan 期实证项」显式标注，不得写成执行指令（动因：v2 的 `ledger_positive` 假对象名与「+192」无出处算式）。②**任何裁定一旦改动，其被推翻的旧形态必须在全文同步消灭**——每版定稿前跑一次「裁定↔正文」对撞扫描（动因：v3 留下 9 处残迹，其中假约束名与禁 yjs 标题会直接把 plan 带进死路）。③**对撞扫描触发条件（Z95）=「本次新增机制是否改变任何既有路径的定性」**，不限「是否推翻旧裁定」——Z59 未推翻任何裁定却静默改变关页 flush/reaper 卸载/destroy 收敛三路径（v5 的 N8/N9/D15 三处漂移同源此类：不改裁定、改变行为的变更最易漏检）；④Z 行内 file:line=立项日快照，执行期按语义定位（片 A/B 自身改动必然使 Z 行行号漂移，不得当执行锚——与 B 系头部纪律同源）；⑤**（Z136③）凡 plan 出现「复用既有装置 X 做到 Y」，须在 T 落地前先跑一次 X 的当前实测输出并贴进该 T 的入口条件——装置存在≠装置具备能力**（动因：v1 报告断言 soak「查无此物」错误，v2 又断言其「可读双端点」亦错——实测只能读单端点首匹配；元纪律①只覆盖键名/数字未覆盖能力声明）。⑥**（Z148）凡声明「某条门禁会红/某断言先红」，须附一次它真实变红的输出（或可复现构造）——「会红」是能力声明，与⑤的装置能力同受实测约束**（动因：D13 假门禁族+第十三轮族名交集断言——setDefaultLabels 生效后全族带 role，原判据「交集内任何族不带 role⇒红」数学上不可达，写下的当天就是恒绿门禁；与①的差别=①管「具体标识符/数字」的出处，⑥管「判据本身」的可达性）。
+定位：B 类合并批次（总目录 §0.2 启动方式默认分组）：**Y0c（门面与门禁）+ Y0.5（部署与进程形态）** 合并为一次 spec→plan→TDD 周期。合并动因（总目录原文）：E59 写通道裁定依赖 E69 迁移链、E47 备份与迁移同批，合并立项防契约跨批漂移。plan 内逐片推进、每片独立出口判据与回滚（执行门机制，门一道不少）。
+由来：Y0b 全批（Y0b-1~5，2026-10-13 部署执行完毕）收官后的下一批。本批两项用户裁定（2026-10-13）：①Y0c+Y0.5 合并立项；②Y0b 系两项尾巴并入本批（Y0b-4 偏离 52「pricing 索引 drift 根修归 Y0c」+ Y0b-5 偏离表 §0.4d 第 8 条 shrink 即时 thaw 缺陷）。
+
+---
+
+## 0. 基线快照表（2026-10-13 双路实勘，行号为当日值）
+
+> 立项纪律第 1 条：本节为当日代码 grep 实况，替代跨文档内嵌事实。执行期行号漂移按语义定位（Y0b-5 教训：plan 行号锚 advisory）。
+
+### 0.1 Y0c 域基线
+
+| # | 事实 | 位置/计数 |
+|---|------|----------|
+| B1 | 服务端写 API 收敛现状：`writeNodeData`（:162）/`writeExecStatus`（:190）各含一次 withDoc；writeNodeData 存在性守卫**已有**（:167-168 `entry===undefined→{written:false,'node-deleted'}`）；**writeExecStatus 无存在性守卫（v2 勘误）**——:209-212 对不存在 nodeId `new Y.Map(); exec.set(nodeId,m)` **缺则建条目**（E2 原文「Y0 前移」项未竟，与 writeNodeData 不对称） | collab-document.service.ts |
+| B2 | writeNodeData 生产调用点 **6**：ai-download.processor.ts:85,118 / lighting.consumer.ts:214 / ai-image-edit.processor.ts:232 / execution.service.ts:290（回放）,:348（deliver） | 排除测试 |
+| B3 | writeExecStatus 生产调用点 **14**：ai-image-edit.processor.ts:264,298 / execution.processor.ts:70 / intent-reconcile.service.ts:274 / execution.service.ts:126,268,283,296,306,334,355,365,399,411,420——**全部 `.catch(()=>{})` 吞错**（:126/:296/:399 佐证）；`exec_projection_dropped_total`/`exec_projection_deferred_total` 已注册（exec.metrics.ts:79-89）且各有写入点，但**不覆盖「写失败」档** | 同上 |
+| B4 | **withDoc 直写绕过写 API 者（v2 扩全枚举）**：写=collab-shrink.service.ts:114（deleteNodesInDoc）,:154（fillDoc）/ intent-reconcile.service.ts:493（sweepOrphanExec 清孤儿 :493-500，`findMany take:10` 每轮 10 项目）；只读=collab-shrink.service.ts:145（exportFresh 源读）；门面内=:99,:108,:165,:194 四处。**census 形态=全枚举逐点标 `read-only｜write-via-writer｜待收编`** | — |
+| B5 | 单节点执行链 withDoc 次数=**4**：readCanvas(:156)=1 + runNodeLifecycle happy path=3（:296 loading/:348 deliver/:365 done）；错误路径每分支再各 1 次 | execution.service.ts |
+| B6 | collab.gateway.ts 当日 **3222 行**（**计法写死 Z52③：`wc -l` 口径；门禁脚本按 `split('\n').length` 实现——另计法（PowerShell Measure-Object）得 3091 系末行无换行差异，不采**）。大块：常量/解析 1-198 / 状态机 200-379 / constructor 380-566 / upgrade·origin·IP 567-696 / auth 基座 697-794 / authenticate 795-942 / loadDocument 943-1092 / store 通道 1093-1396 / 谓词·selfIsolate 1397-1452 / drain·pending 1453-1615 / quota 面 1616-1653 / vacuum 面 1654-1801 / 帧闸 guardMessageFrame:1802·guardSyncFrame:1825-1933 / freeze 族 1934-2108（writeFreeze:1997/freezeQuota:2037/thawQuota:2055/frozenRecheck:2078-2108, 常量 FROZEN_RECHECK_INTERVAL_MS=30_000 :87）/ residue·truthBudget 2112-2155 / doc-status·重试梯·spool reconciler 2156-2390 / disconnect·unload 2391-2528 / onModuleInit·listen 2529-2705 / sweep 2706-2864 / guardAwareness:2865·Rate:2985 / shutdown 3005-3087 / drain 收尾 3088-3222 | collab.gateway.ts |
+| B7 | writeNodeData 无 undefined 跳过（:174 直 set）vs writeExecStatus 有（:213 `if(v!==undefined)`）——**未统一** | collab-document.service.ts |
+| B8 | validateParentGraph 存在=**三色 DFS 报 cycle violation**（:41），**非** Kahn 静默丢；唯一生产消费=video-work-clone.service.ts:47；execution 入口用 topology.service.ts:175 `topology.sort` 折 `orderedNodes.length<scopeNodes.length`→BusinessException CYCLE（execution.service.ts:176-177）——**环检查已在执行入口显式拒绝** | packages/shared/src/canvas/validateParentGraph.ts:9 |
+| B9 | gc/gcFilter（v2 勘误 K2+v3 豁免修正 Z57）：**Server 级已显式 pin**——gateway:510 `yDocOptions:{gc:true,gcFilter:()=>true}` 作用于 Hocuspocus 管理的全部 doc（WS 与 openDirectConnection 直连共用装载路径）；**独立 `new Y.Doc()` 生产 7 处无参**（不受 Server 级覆盖）：project.service.ts:62 / collab-document.service.ts:116 / canvas-doc-update.repository.ts:254 / collab-shrink.service.ts:181,**311**（v2 补） / collab.gateway.ts:1763——**gate-canvas-state.ts:24 豁免（Z57：非生产——头注自证+仅 gate-seed.ts:14/spec 消费）**。修法=单源工厂 createCanvasDoc()+census 断言生产裸 `new Y.Doc()` 清零（非扩 check-hocuspocus-pin——只 pin lockfile 版本） | 全仓 |
+| B10 | `Origin.Server` 生产零命中（已删）；`connUi` **已非死物**——写点 canvasCollabRuntime.ts:710-715，真实读者 SyncBanner.tsx:196-202 | E10 判断过时 |
+| B11 | 世代契约半程：`parseDocName` 不存在（仅 gateway:159 parseProjectId+:167 isValidDocName）；docName `#g<N>` 零命中（:1833 注释：v5 ?gen= 形态已整删）；CanvasDoc generation+preVacuumSv 列已有（迁移 20261011180000_y0b4_vacuum_generation，2 行 ALTER）；读写点=canvas-doc-update.repository.ts:89-128,184-205 / gateway:1014-1019（loadDocument 播种）,:1836-1845（SyncStep1 SV 代际门）,:2164（doc-status）；**spool 键无 generation**（`${projectId}.${segSeq}.spool` collab-spool.service.ts:49） | — |
+| B12 | 键集知识分散点 5 处：NODE_ENVELOPE_KEYS=shared/nodeEnvelope.ts:19（单点✓）/ GROUP_NODE_DATA_KEYS=shared/types/group.ts:26 / EPHEMERAL_DATA_KEYS=web/utils/projectCanvasNodes.ts:7（web 私有）/ CANVAS_BRIDGE_KEYS=web/stores/nodeStore.ts:243（web 私有）/ docShape 谓词三处适配（shared 本体+api doc-like.util.ts+web ydocBuilder.ts） | E17 目标面 |
+| B13 | 库行为锚现状：check-hocuspocus-pin.mjs 仅 lockfile 版本 pin（4 包）；行为锚测试=collab.library-anchors.spec.ts 已有 8 锚（A5 store 抛错不重武装/A6 DirectConnection 失败也卸载/A7a/A7b pendingStructs 边界/A8 store 跳过判据/A9 最后连关闭卸载/A14 saveMutex）；SkipFurtherHooksError 直锚零命中（仅 gateway:2388 注释提及） | — |
+| B14 | 故障注入基座半程：failing-repo.ts（mock 层 fail-append/fail-compact-after-N :6-30）；无真 Prisma 可编程故障器（无 delay/SQL 匹配）；kill 演练=gate-collab.mjs:130 SIGKILL+lease TTL 2s 确定性（:24,:100）；无独立 kill -9 随机时点演练脚本 | E29 目标面 |
+| B15 | 版本协商：csv 四档+**缺参拒连已做**（shared collab-protocol.ts:16-25 `!csv→'client-version-missing'`；gateway:856-861 REASON_BY_VERDICT 拒）；**clientBuild 无独立 reason 档**（:853-854 注释「审计透传通道本批不消费」，仅 telemetry.service.ts:36,79 透传） | Y0b-3 产物 |
+| B16 | pricing drift 形态（Y0b-4 偏离 52；v2 勘扩）：migrations 共 3 个（20261009140100_y0b2_init / 20261011180000_y0b4_vacuum_generation / 20261013055904_y0b5_trace_id）；**y0b2_init :1305-1324 raw 对象共 9 个**（1 索引+5 CHECK+3 partial）：pricing_rule_natural_key(:1307, NULLS NOT DISTINCT)/balance_non_negative(:1309)/pricing_credit_cost_non_negative(:1311)/intent_credit_cost_non_negative(:1312)/ledger_amount_derived(:1314)/money_in_once(:1317 partial)/money_in_reference_required(:1319)/generation_intent_frozen_partial(:1322)/ledger_reserve_open_partial(:1324)。**既有防线（v2 核实）**：verify-indexes.sql 已断言其中 6 个（pricing_rule_natural_key:75/balance_non_negative:81/ledger_amount_derived:83/money_in_once:77/generation_intent_frozen_partial:79/ledger_reserve_open_partial:85）且已接入 verify 链；check-migrate-diff.mjs allowlist（migrate-diff-allowlist.txt）已豁免 natural_key 的 diff 行（金标收窄禁新增）。**缺口=3 条未断言（v3 勘正 Z36 前置自误：`ledger_positive` 为假对象名——第五轮核实 agent 引入、v2 照抄）**：③pricing_credit_cost_non_negative(:1311) ④intent_credit_cost_non_negative(:1312) ⑦**money_in_reference_required**(:1319)。根因维持=Prisma 无 NULLS NOT DISTINCT/CHECK 表达力 | prisma/ |
+| B17 | shrink thaw 缺陷现场（Y0b-5 偏离 §0.4d 第 8 条）：机制=**嵌套事务 GC 延迟清洗**——shrink:114 `withDoc→shrinkSync`→deleteNodesInDoc:193（doc.transact 内删）→:198 `Y.encodeStateAsUpdate(doc)` 测 truth（嵌套事务内墓碑未 GC 清洗→truth 偏大≥softExit）→:206-208 thawed=false 不即时 thaw；30s 兜底=frozenRecheck（gateway:2078-2108，measureTruth 实测<softExit→thawQuota）；既有测试断言现状：write-frozen-chain.int.spec.ts:116,120 `expect(rec2.thawed).toBe(false)`（注释自述缺陷）；**修法已预登记（偏离表）=truth 取预演 shrunk 值** | collab-shrink.service.ts |
+
+### 0.2 Y0.5 域基线
+
+| # | 事实 | 位置/计数 |
+|---|------|----------|
+| B18 | BullMQ processor census=**17 个 @Processor 全与 WS 协作同进程**（ecosystem.config.cjs:8 单进程）。重负载 4 类：storyboard/stitch.consumer.ts:27（sharp 4K 合成，concurrency:2，内存峰值高）/ material-library/thumbnail-generator.consumer.ts:14（sharp）/ execution/video-separate.processor.ts:19 + video-trim.processor.ts:14（ffmpeg）。其余 13 个=外呼 IO/DB 写。无手动 `new Worker(`。**worker 侧失败钩子（v2 补，外审 K8）**：execution.processor.ts:62-78 与 ai-image-edit.processor.ts:290-307 两处 `@OnWorkerEvent('failed')` 既查 DB 又 writeExecStatus 写 doc——拆分后归属 worker 进程 | apps/api/src |
+| B19 | main.ts：trust proxy **已设** `app.set('trust proxy','loopback')` :98 / enableShutdownHooks :93 / Sentry.init :74-82（:76 直读 NODE_ENV）/ NestFactory.create rawBody :87 / listen :115 | TD-24 半程 |
+| B20 | BullMQ 配置：app.module.ts:47-55 forRoot('default')——`{url: env.REDIS_URL, maxRetriesPerRequest: null}`；defaultJobOptions attempts:3/exponential 2000/removeOnComplete age3600 count1000/removeOnFail 7d；12 个模块 registerQueue | — |
+| B21 | NODE_ENV（v2 勘误）：**apps/api/.env:1 已显式 `NODE_ENV=development`**（E58 原文「空值」为 2026-10-06 旧事实；服务器 .env=production，runbook §8 实测记载）；env.ts:38 zod 形态=`z.preprocess(blankToUnset, z.string().optional())`——**非枚举、无默认**；ecosystem env 块不含 NODE_ENV（check-ecosystem.mjs:78 ENV_ALLOWLIST=['COLLAB_SPOOL_DIR','COLLAB_BIND_ADDR'] 显式禁令）。生产直读点 6 文件 8 处：main.ts:76 / prometheus-auth.guard.ts:7 / auth.ts:48（cookie secure）/ update-profile.dto.ts:18,19,25（**decorator 选项内=模块加载期求值**）/ collab-admin-auth.guard.ts:12 / collab.gateway.ts:42（**模块级函数调用**）,605（运行期）——两类求值时序须分别处理 | E58 目标面 |
+| B22 | XFF 手写解析仅一处：rate-limiter.service.ts:44-50 getClientIp——`x-forwarded-for` 首段→`x-real-ip`→req.ip→'127.0.0.1'，全信任首段无跳数校验；消费方 auth.controller.ts:94,129 / video-work.controller.ts:46 | E58③ |
+| B23 | query token **已退役**（Y0b-3）：gateway:881 parseSessionToken(cookie)，注释明示 query token 通道删除；:882 无 token 即 deny | 核销登记 |
+| B24 | deploy.sh（仓根）：tar 打包面**已含 prisma/**（:221，先清远端 migrations 再传）；migrate deploy :121 进 cutover_api（immutability+additive 双检后）；preflight :45-74（git 断言→pnpm verify→deploy-preflight-int→本地 migrate+additive+immutability→SHA 收据→gate-collab）；collab-smoke :144 / exec-smoke :151 内联 cutover ⑥（--skip 旗标 :141,:148） | 多项已核销 |
+| B25 | Redis 持久化：本地 redis.windows-service.conf RDB（900/1,300/10,60/10000 :214-216）appendonly no :720；**服务器**（server-profile :110-111,193）appendonly=no / **maxmemory 128MB / noeviction** / 仅 RDB；无仓内服务器 Redis 配置载体（deploy.sh 不触碰） | E58② |
+| B26 | 备份现状：full-stack-backup.md=版本节点手工全量（git tag+pg_dump -Fc/SQL 双格式+MinIO zip+Redis dump.rdb）；deploy.sh:113 migrate 前 pg_dump（保留 5 份）；无 WAL 归档/PITR 任何配置；crontab 仅 check-collab-health（*/5）；BullMQ repeatable 定时任务在进程内 | E47 目标面 |
+| B27 | 服务间认证：**无既有机制**（internal-token/SERVICE_TOKEN/X-Internal 零命中）；最近先例=CollabAdminAuthGuard（collab-admin-auth.guard.ts:8-19）：静态 env token+单 header 比对+production 未设 fail-closed 403/dev fail-open——形态可直接复用为 worker→api 内部写端点模板；POST /api/collab/telemetry 仅 Throttle 限流无鉴权（不可作先例）；服务器 PROMETHEUS_TOKEN+COLLAB_ADMIN_TOKEN 均已设（Y0b-5 部署） | E59 前置 |
+| B28 | 内存预算（server-profile :197,203-206）：算式「old-space 512+384+协居实测 514.6+系统保留 300=1710.6≤1900（余 189.4MB）」，物理余 67MB 由 1.9G swap 兜底；协居=minio 219.4+PG 105.5+redis 10.5+node 138.8+PM2 40.4MB。**v2 口径勘误（外审 ★4/K9）**：①协居 514.6 采于 CanvasDoc=0 时期，Yjs 上线后须重实测；②「算式 1（max_memory_restart≥old-space+384）」是单进程上限等式、「算式 2」用实测均值——**两套口径混用，双进程上限不可相加**；③swap 已用 377MB=历史压力信号；④max_memory_restart 只看 RSS，不含 ffmpeg 子进程与 native 分配。**物理内存实测 1967MB** | Y0.5 最大约束 |
+| B29 | 客户端本地缓存（v2 新增，Y0b-5 产物，外审 D-2/§3.5 证实）：apps/web/src/collab/local-collab-cache.ts+local-cache-key.ts——**四维键** `uid:pid:g<generation>:s<schemaVersion>`（:25）+库内单记录键；boot 回放 `Y.applyUpdate(doc,bootRecord.snapshot,provider)`（runtime:1743）+dirty 后重连 forceSync（:1415）；**无 checksum/SV 校验**（diverged 位不自动回放 :1721-1734）；**flush=每次全量 encodeStateAsUpdate**（:176）1s 去抖——客户端持久化通道=单快照覆盖式，是第二份持久化真源 | apps/web/src/collab |
+| B30 | 网络面缺口（v2 新增，外审 C5/C6 证实）：main.ts:115 `app.listen(env.PORT)` **不传 host=3000 全网监听**（COLLAB_BIND_ADDR 只管 3001）；WS 侧 clientIpOf 双门（gateway:621-628：peer loopback ∧ COLLAB_TRUSTED_PROXY==='1' 才信 x-real-ip）——**env 未设时 nginx 回源全体同 peer=全站单限流桶**（:618 注释自认「生产必须设」），且零探针静默失效；全局限流 ThrottlerModule（app.module.ts:58）同吃 req.ip——XFF 修复须覆盖两条通道 | main.ts / gateway |
+| B31 | metrics 面共享（v2 新增，外审 K7 前提）：/api/metrics 与 /api/ready 均为 Nest 控制器挂主 HTTP 服务器（PORT 3000）——**双进程若全模块图装配，worker 必 EADDRINUSE**；deploy.sh:136 ready barrier 走 127.0.0.1:3000/api/ready、:138 断言 3001 连通、:133 startOrReload 对 apps 数组无顺序保证、:124 spool 迁移 `readlink /proc/$(pm2 pid flowweb-api)/cwd` 对多 app 形态未定义 | deploy.sh |
+
+### 0.3 前批已消化项核销登记（本批原范围 → 状态）
+
+| 原范围项（总目录 §0.2 Y0c/Y0.5 行） | 核销去向 | 证据 |
+|------|------|------|
+| E73 awareness 覆写落点（beforeHandleAwareness） | **Y0b-3 T7 已落地** | gateway guardAwareness:2865 + collab-awareness-guard.spec.ts |
+| E52 配额三层模型（E28 语义修订） | **Y0b-4 全数落地**：服务端帧闸/分层判据/writeFreeze/4404（gateway:1802-2108）+客户端前置 precheck（canvasIntents.ts:76,324 + canvasIntents.quota.spec.ts:148「precheck 拒=fn 零调用」） | 本 spec §0.1 B6/B15 |
+| E2 服务端半 writeExecStatus 存在性守卫 | **已落地**（B1：nodes.has 前置，node-deleted 返回） | collab-document.service.ts:167-168 |
+| E28/E52 出站背压 | Y0b-4 T7 已做（每 send 判+决策/采样分离） | Y0b-4 plan T7 |
+| 迁移进部署链（migrate deploy 前置+prisma/ 入 tar+migrate status 入 CI） | **0 号/Y0a-4 已落地** | B24 |
+| gitleaks 进 CI/pre-commit | 0 号动作已落地（.gitleaks.toml 豁免存量+core.hooksPath） | 0 号动作记录 |
+| query token 退役 | **Y0b-3 已落地**（cookie-only） | B23 |
+| trust proxy 设置 | main.ts:98 已设 loopback（E58③ 的 req.ip 前提已成立；XFF 手写解析仍待统一——本批范围） | B19 |
+| E13 残余（绑 127.0.0.1/cookie-only/限流） | Y0a-4（BIND_ADDR）+Y0b-3 已落地 | ecosystem:27 |
+| kill-timeout≥30000 | Y0a-4 已落（45000） | ecosystem:13 |
+| E46 进程定义入库+连接池显式 | Y0a-4 已落（ecosystem 唯一源+check-ecosystem 十三锚）；PrismaClient 单例化三驳维持（Y0a-1 登记）——**Y0.5 连接池治理重评**保留为本批范围（E46 尾巴） | ecosystem.config.cjs |
+| E69⑥ post-deploy 冒烟 | Y0a-4/Y0b-5 已进链（collab-smoke+exec-smoke 内联 cutover ⑥） | B24 |
+
+> 核销纪律：以上项不再进入本批执行范围；spec 留此表防执行期重复立项。**E59 依赖声明**（总目录）：E59 写通道裁定依赖 E69 迁移链——迁移链已进部署链（核销第 5 行），E59 在本批可安全实施。
+
+---
+
+## 0.4 本批有效裁决内联（总目录 §0.1 E 系适用项，逐项勘正后形态）
+
+> 立项纪律第 3 条（E30）：每批 spec 首节内联该批有效裁决全文。以下内联以 v8 最新修订为准；凡基线实勘证伪或前批部分消化的，给「勘正后形态」。**R 系编号=本批勘正裁定（R0c-1 起），与总目录 E 系区分；执行期偏离沿用 §0.6 偏离登记表。**
+
+### E14 CollabDocWriter 门面（Y0c 主项——服务端写唯一门面）
+
+原文要点（v4 引入）：服务端写唯一门面=单操作单连接+批量事务（一次执行全部 doc 写合并 1-2 次 withDoc——现一次执行 2-4 次 withDoc/节点）+进门 ensureSchemaVersion（现服务端写不过版本门）+存在性守卫统一+origin 显式+失败幂等重放；withDoc 驻留（任务在飞 disconnect{unloadImmediately:false}+空闲回收器+进度写≥1s 合并——现每写=全量装载+重放+1s 对等同步+store+compact+卸载，长任务关页后完成即最常见路径）；unflushed/lastCompactAt/persistUnhealthy 无界 Map 清理；验收=单节点执行 withDoc ≥4→1+yjs_doc_load 计数可见下降。
+
+**勘正与裁剪（R0c-1，基于 B1-B5/B17 实勘；**v2 修订：Z1 推翻下述第二条降级**）**：
+- 「unflushed 无界 Map 清理」「存在性守卫统一」两项已被 Y0a-2（spool 单源落盘，unflushed Map 退役 gateway:364）与 Y0b-2（writeNodeData 守卫已建；**writeExecStatus 守卫缺——Z4 本批补**）消化——前者核销。
+- ~~「withDoc 驻留」子项降级为本批评估项~~ **v2 推翻（Z1）**：库 shouldUnloadDocument=零连接即卸载（esm:1571）——「用户关页后 AI 作业完成」最高频路径每次 withDoc=全量装载+全量 encode 落库+可能 compact+卸载；合并 4→1 只减次数不减结构成本。**常驻化升回执行项**（机制=v4 定案 Z59：持有 DirectConnection 钉住谓词+空闲 TTL 回收+释放出口〔Z63：3 释放+1 清账〕+驻留软上限——详见片 A2；容量执法仍归 Y1c-3/N16）。
+- **保留主项**：①CollabDocWriter 批量事务（Z7 逐 op 契约）；②进门 ensureSchemaVersion；③origin 显式（**Z6 升格：真事务 origin=Origin.Server，非仅常量——'local' vs 'local-user' 巧合级隔离实证**）；④失败幂等重放；⑤**收编 B4 v2 全枚举直写者**。
+- 验收锚 v2 修正（K1/K3 实证）：~~「withDoc 4→1（yjs_doc_load 计数对比）」~~→yjs_doc_load_total 载体先落（C0）+实测口径（**结构性三判据 Z107：TTL 窗内 N 连续作业 load==1/命中率≥0.9/store 单调上界**/单节点 store≤2——次数上限锚在上限上不可达已证；v5 的「关页 10 作业 load==1」单锚已废——TTL 短于作业段间隔时不可达）。
+
+### E29 工程基座（Y0c 主项——模块化+行为锚+故障注入）
+
+原文要点：库行为锚扩表 5 条（store 失败→库 setTimeout unload/SkipFurtherHooksError 跳整条钩子链/onStoreDocument 抛错→afterStoreDocument 不可达→Redlock 悬挂/DirectConnection.disconnect unloadImmediately 默认 true/extension-redis afterLoadDocument 对等同步——每条一测试+fixture 快照，与 check-hocuspocus-pin 联动，升级必重跑）；gateway 切四模块（CollabPersistence/CollabSessionGuard/CollabDocRegistry/CollabDocWriter，单文件≤200 行——E11 故障注入用例可只装 Persistence 不启 Server）；故障注入基座（可编程 Prisma 故障器 fail-after-N/delay/SQL 匹配+kill -9 灾难演练脚本进 scripts/ 纳入发布门禁）；CollabDocWriter 补四项：validateParentGraph 进门+transactSync（类型层拒绝 async 回调）与 readDoc 两 API+配额强制点（E52）+gc/gcFilter 显式 pin；beforeunload 接画布页+persist-status unhealthy 常驻横幅。
+
+**勘正与裁剪（R0c-2，基于 B6/B8-B14 实勘）**：
+- 库行为锚 5 条中 **2 条过时**（extension-redis 已于 Y0a-3 整删——Redlock 悬挂/对等同步两锚无对象）；1 条已锚（store 失败不卸载族=A5/A6/A9）；**实存扩表项=SkipFurtherHooksError 自有 hook 抛错跳链锚**（E43① 事实：自有 hook 抛错同样跳链——升独立行为锚）+DirectConnection.disconnect unloadImmediately 默认值锚（A6 部分覆盖，补显式断言）。
+- 「validateParentGraph 进门」**前提勘误（B8）**：执行入口已由 topology.sort 显式拒 CYCLE（非静默丢）；validateParentGraph 本体已是三色 DFS 报 violation。**裁正**：不重复造门——改为「执行入口环检查判据对齐 E68 不变量登记表」（孤儿边/边两端存在等其他不变量逐条核对，见 E68 勘正）。
+- 「配额强制点（E52）」**核销**（§0.3：Y0b-4 全数落地）。
+- 「beforeunload 接画布页+persist-status unhealthy 横幅」**核销**（Y0b-5 已落）。
+- 故障注入基座：mock 层 failing-repo.ts 与 gate-collab SIGKILL 演练已有；**保留项=可编程真 Prisma 故障器**（delay/SQL 匹配能力补齐——服务 onStoreDocument 自管退避等路径的行为验证载体）。
+- **gateway 切四模块「单文件≤200 行」勘正（R0c-2 核心，B6：当日 3222 行）**：v6 设定时的 gateway 与 Y0a/Y0b 执法面膨胀后的 3222 行不可同日而语；「切四模块每文件≤200 行」隐含总量 ≤800 行=压缩 4 倍，纯结构重写风险与收益倒挂。**裁正为「领域 service 化+gateway 瘦身为钩子编排层」**：按 B6 大块切出领域 service（边界见 §2 片 B），验收锚改为三条硬判据——①CollabPersistence 可独立实例化（不启 WS Server 即可跑 store/compact/spool 单测——E29 原动机）；②gateway 本体只剩钩子编排+协议适配；③每个新 service 文件 ≤500 行且单一职责（按域内聚，不硬卡 200）。**切分域清单见 §2 片 B。**
+
+### E17 manifest 形态+E27 嵌套唯一创建者（Y0c 契约项）
+
+原文要点：manifest=显式 doc schema manifest（TS 单源）派生断言族，非人工表；四层（E38）：顶层 map 集合/每个嵌套类型唯一创建者（E27 规则）/每个键的写入者与读者/归属（doc·exec·PG·投影合成）+撤销 scope；键集知识现分散 ≥5 处（B12 实证 5 处）人工表落地日即漂移。
+
+**本批范围裁剪（R0c-3）**：Y1c-3 才做「manifest 派生断言族落地」；Y0c 承担**形态冻结**=①键集五处收编 shared 单源（EPHEMERAL_DATA_KEYS/CANVAS_BRIDGE_KEYS 从 web 私有升 shared——机械动作）；②manifest TS 单源的**结构定义**（四层 schema 的类型骨架+两条种子条目示例）；③E27 门禁=扫 `getMap().set(k, new Y.Map()/Array/Text)` 逐点登记创建者唯一性（census 门禁形态，先红证据=Y0a spec 已有「两 doc 并发对同一 nodeId 写 exec 不同字段 merge 后两字段俱在今天红」用例登记）。派生断言族（新字段未分类即红）**归 Y1c-3 不动**。
+
+### E23 世代契约冻结（Y0c 契约项——实现随 Y1c）
+
+原文要点：docName 世代 6 处连带：parseProjectId 解析收口 parseDocName→{projectId,generation}/closeTeamDocuments 全世代/withDoc 用当前世代名+随 generation 缓存/客户端建 provider 前 REST 取 g/unflushed 键=(projectId,generation)/gate·e2e 装置世代感知；onAuthenticate∧onLoadDocument 双校验+独立 reason；断言任一时刻单世代可加载。
+
+**本批范围裁剪（R0c-4，基于 B11；v4 口径统一 Z78⑦）**：Y0c 冻结**契约文本**（docName 语法 `project:<id>#g<N>`+六处连带点清单+双校验语义+单世代断言），落为本 spec 契约节供 Y1c-1 直采；**唯一实现动作=parseDocName 收口**（gateway:159 parseProjectId 换代解析函数——`parseDocName(docName)→{projectId,generationFromName}` 管语法；**世代真源=DB 列**（vacuumReplace 递增不恒 0，K11）；name 与 DB 列不一致=独立拒因——为 Y1c-1 铺位防第二真源）。spool 键世代作用域**随 Y1c**（当前 spool 键 projectId 域=B11；世代切换首次发生于 Y1c-1，此前键无歧义）。
+
+### E68 不变量登记表（Y0c 形态冻结）
+
+原文要点：manifest 之上加不变量登记表，每条三列=判据/读侧行为/写侧行为：①parentId 存在且无环②边两端存在③分镜/storyboard 引用存在④时间轴 clip sourceNodeId 存在⑤exec 无对应 node 视同不存在（E22 已裁）；铁律：读侧全函数（投影绝不抛）/写侧显式拒绝（业务错误码，禁丢帧禁静默跳过）/禁修复写回 doc。
+
+**勘正（R0c-5，基于 B8）**：不变量①的「Kahn 静默丢环」前提已不成立（执行入口 topology.sort 显式拒 CYCLE+validateParentGraph 三色 DFS 报 violation）。Y0c 交付=**登记表形态冻结+逐条现状核对**（①-⑤ 各标注：已有执法点/缺口/读侧现状——如悬空 parentId 读侧 docShape.ts:317 保留现状），新增不变量执法**不在本批**（缺口项移交 Y1c-3 落地）。
+
+### E58 部署档位（Y0.5 主项）
+
+原文要点：①NODE_ENV 进 zod 枚举+deploy.sh 显式注入——现 `.env` NODE_ENV= 空值+CI 不设+deploy 不设，六读点解读方向相反；cookie secure 改独立开关（COOKIE_SECURE 或按 BETTER_AUTH_URL 协议推导）。验收：生产未设 NODE_ENV 场景断言 cookie 仍 Secure+假 AI 仍拒（先红后绿）②Redis 持久化裁定：AOF everysec **或**明示接受并写进 RPO 契约③getClientIp 自解析 XFF 首元素+白名单默认 127.0.0.1,::1——伪造首元素可跳过限流；修法=删手写解析统一 req.ip+RATE_LIMIT_IP_WHITELIST 进 zod。验收：伪造 XFF 仍被限流（先红后绿）。
+
+**勘正与增补（R0c-6，基于 B19-B22/B25）**：
+- ①半程已做：zod 键已有（B21）、trust proxy loopback 已设（B19）。**保留**：8 个生产直读点统一改读 env 单源（main.ts:76/prometheus-auth.guard:7/auth.ts:48/update-profile.dto:18,19,25/collab-admin-auth.guard:12/collab.gateway:42,605）+ecosystem/deploy 显式注入+COOKIE_SECURE 独立开关+先红后绿验收。
+- ②增补基线事实：服务器 Redis **maxmemory 128MB+noeviction**（B25）——BullMQ 在 noeviction 下写满即抛 OOM 命令拒绝（worker 拆分后队列状态/重复数据膨胀风险面扩大）。裁定项扩为三件：持久化（AOF or RPO 接受）+maxmemory 档位（128MB 是否够 17 队列稳态+峰值——实测后定）+eviction 策略（noeviction 对 BullMQ 是正确默认——BullMQ 自身不依赖逐出；结论预期=维持 noeviction，仅核容量）。**仓内载体**：服务器 redis.conf 模板入仓（services/redis/ 或 deploy 档案），消灭「生产配置不在仓」（E58② 原文）。
+- ③维持原文：删 rate-limiter.service.ts:44-50 手写解析统一 req.ip（trust proxy loopback 已设=req.ip 已可信）+RATE_LIMIT_IP_WHITELIST 进 zod+先红后绿验收（伪造 XFF 首元素仍被限流）。
+
+### E59 worker×写通道裁定〔v8-F〕（Y0.5 主项）
+
+原文要点：worker 不直连 collab；CollabDocWriter 唯一写者仅 api 角色承载；worker 经 API 内部写端点（服务间认证+幂等键）；COLLAB_ROLE=进程角色（gateway onModuleInit 无条件 listen 改角色门）；Y7 多实例只换 DocRegistry 实现。验收：COLLAB_ROLE=worker 进程零 3001 监听且 writeExecStatus 仍可达。同批：deploy_api 上传面补 prisma 目录（**已核销**——B24：deploy.sh:221 已含 prisma/）。
+
+**勘正与增补（R0c-7，基于 B1-B5/B18/B27/B28）**：
+- 验收判据「COLLAB_ROLE=worker 进程零 3001 监听」**不够**——当前 17 processor 中 13 个是 IO/DB 型、4 个重 CPU 型（sharp/ffmpeg），拆分边界裁定：**进程拓扑=api（HTTP+WS collab+BullMQ scheduler 注册面）+ worker（processor 执行体）双进程**；COLLAB_ROLE 门控**四面（v6 修订 Z98）=WS listen（gateway onModuleInit）/BullMQ processor 注册/内部写端点客户端/守护与定时器装配**（IntentReconcileService 双 timer+repeatable 注册归 ExecutionDaemonModule 仅 role=api——「reconcile 只在 api 进程」从口头前提变结构约束）。queue 注册（registerQueue）双进程均需（worker 消费、api 入队）——role 区分的是 @Processor 装配与 WS，非队列连接。
+- **内存预算前置（B28 硬约束，spec 必答）**：双 node 进程=基线 RSS×2（138.8→~280MB）+PM2——需重推导 server-profile 算式：api 侧 old-space 可降（512→384：执法面已稳、装载峰值实测 4×8 soak 无拐点）；worker 侧 old-space 384（sharp 4K 峰值）+max_memory_restart 各自独立。**推导表进本 spec §5 运行面三件套，超 1900 算式即回退单进程+角色门预备形态（降级出口）**。
+- 内部写端点：鉴权复用 CollabAdminAuthGuard 模板（env token+单 header+production fail-closed——B27）；**新增独立 WORKER_WRITE_TOKEN**（不与 PROMETHEUS_TOKEN 共键——写面权限高于读面）；幂等键=jobId/intentId 既有（Y0b-2 idemKey 体系）。
+- worker→api 端点清单（源自 B2/B3）：POST /api/collab/doc/write-node-data、/write-exec-status（或合一 /write-batch——plan 定形态，倾向合一承接 DocWriter 批量事务语义）；**api 进程内直调不经 HTTP**（execution.service 在 api 进程=直接函数调用，仅 processor 在 worker 进程走 HTTP）。
+- intent-reconcile.service（@Cron+onModuleInit 启动扫）归属裁定：**留 api 进程**（reconcile 需要 withDoc 修复写——直调 DocWriter；Y0b-2 语义）。
+
+### E47 备份基线与 PITR（Y0.5 项）
+
+原文要点：WAL 归档+PITR+保留策略分层+季度恢复演练记录；RPO 可验收数字=误删/误迁移后 ≤5min 恢复至任意时点。
+
+**裁剪（R0c-8，基于 B26+0 号动作先例）**：0 号动作已裁定**项目无生产环境**（远程服务器=开发测试用途，E41/E31 两项不适用的同源判例）。PITR 全量基建（WAL 归档守护+恢复演练）对开发测试机属过度建设。**本批降档交付**：①备份策略文档化收口（full-stack-backup.md 与 deploy.sh pg_dump 双轨合一的 runbook 化+保留策略分层表落档）；②pg_dump 定时化（crontab 载体——check-collab-health 先例旁加每日档）；③WAL 归档+PITR 的**配置模板与执行清单落档**（上线前执行，挂 Y7 上线前窗口——与 E39 上线门槛口径一致：Y0.5 在门槛内但 PITR 的真实载体在上线窗口才存在）；④RPO 数字沿用 E43 三腿口径不变。**若用户裁定当前就要真 PITR，本项升回原文范围（待裁定项 §3-D4）。**
+
+### Y0b 尾巴两项（用户裁定并入）
+
+- **pricing drift 根修**（Y0b-4 偏离 52）：B16 形态确认=Prisma 无 NULLS NOT DISTINCT/CHECK 表达力。**根修形态裁定（R0c-9，待用户确认）**：方案甲=基线文档化+门禁固化（schema.prisma 头注登记两对象+check-migration-additive 持续硬拦 DROP+migrate dev 产物必须人工合并的纪律进 prisma README——零迁移零风险，承认 Prisma 表达力边界）；方案乙=重建模消除（resolutionId/durationId 哨兵值非空化+@@unique 可表达——改表改数据改 resolver 查询，风险与收益详评见 §3-D5）。**建议甲**：乙的哨兵值迁移动 PricingRule 核心键面（Y0b-1 刚做完真源迁移），为工具链便利翻已验收的资金表不值。
+- **shrink 即时 thaw 根修**（Y0b-5 偏离 §0.4d 第 8 条）：B17 机制确认+修法已预登记（truth 取预演 shrunk 值=在 deleteNodesInDoc 的 transact 内以影子预演 doc 计算 truth，或 transact 提交后重测——plan 期以最小改动定形态）；既有断言 write-frozen-chain.int.spec.ts:116,120 翻转（thawed=false→true）+GC 时序用例先红。
+
+---
+
+## 0.5 三份外审报告裁定表（v2，2026-10-13；Z 系编号，承 R0c 系之后）
+
+> 外审输入：三份报告（架构评审/生产级评审/最终版）对 v1 spec 的逐条批评。全部承重论断已经第四轮代码实证复核（14 项核实），下表为逐条裁定。**采纳**=进本批执行范围；**吸收**=以约束/验收锚形态并入既有片；**不采纳**=登记理由（多数为批范围归属既有裁定）。与 v1 的差异已同步回填正文。
+
+### 0.5.1 采纳（进执行范围）
+
+| # | 裁定 | 出处 | 依据 |
+|---|------|------|------|
+| Z1 | **常驻化升回执行项**（推翻 v1 R0c-1 降级）：withDoc disconnect 改 `{unloadImmediately:false}`（现 :82 显式 true）+空闲 TTL 回收器（无写无连接→flush→unload）+**四出口强制释放**（beginDraining/selfIsolate/vacuum begin/beforeUnloadDocument——否则 vacuum `isPersistedComplete` 四态合一被会话驻留挫败，quiesce 30s 超时中止）+驻留数软上限（COLLAB_MAX_LOADED_DOCS 键已预留 env.ts:84；超限回收最旧空闲）。**容量执法（单 doc 字节上限/LRU 字节淘汰/deny+server-busy 码）维持 Y1c-3（N16 裁定不变）**。动因实证：库 shouldUnloadDocument=零连接且非 debouncing 即卸载（esm:1571）——今天「用户关页后 AI 作业完成」（最高频路径）每次 withDoc=全量装载+全量 encode 落库+可能 compact+卸载；合并 4→1 只减次数不减结构成本。store 失败 doc 长期驻留的出口=E21③ BOI 既有防线。**〔v5 注：本行「disconnect 改 false」与「四出口」两形态已被 Z59（持有 DirectConnection 钉住谓词）+Z63（3 释放+1 清账）+Z83（releasing 状态机）整体替换；执行以片 A2 为准〕** | 三报告一致（P1.A/★1/K 系/R2） | 库源码+esm 实证 |
+| Z2 | **片序改 C0→A→D→E→B**：新增 C0 度量与契约先行片（原片 C 拆出度量部分+契约冻结），原片 C 其余并入 C0；A 依赖 C0 的指标载体与 census 锚（否则验收锚是空的——v1 验收锚 yjs_doc_load 不存在已实证） | 报告1 §5/报告3 R3 | K1 实证 |
+| Z3 | **观测三件先落（C0 片）**：①`yjs_doc_load_total{trigger:'ws'\|'direct'\|'reconciler'}`+`yjs_store_total{trigger}`（新计数器，单源走 store.metrics.ts）②withDoc 计时点前移（含 openDirectConnection——现计时从 open 后起算，装载时间不可见）③`collab_escape_hatch_total{kind}` 逃生舱计数（safeReload/generation/diverged 等触发即计数，**生产稳态=0，非零进 P0**——每个计数=一个用户处于数据风险）+event-loop lag 观测（setInterval 漂移法，现无此项）+`collab_exec_projection_failed_total{cause}`（14 处 `.catch(()=>{})` 吞错处加计数——Z136④ 订正：execution.service 11+processor 1+ai-image-edit 2——不改策略只加可见性，双进程后从罕见变常态） | 报告2 D-12/片0+报告1 P1.C/P13 | store.metrics.ts 全量名单实证（无 doc_load 计数器） |
+| Z4 | **writeExecStatus 存在性守卫补齐**（:209-212 缺则建条目→`nodes.has` 前置返回 `{written:false,reason:'node-deleted'}`，与 writeNodeData 对齐）——E2 原文「Y0 前移」项的真正完成；新孤儿结构性不可产生。sweepOrphanExec（take:10/日）维持现状兜底（守卫补齐后存量孤儿递减+装载自检即时清，改造降级为登记防过度工程）。**〔v5 注：本行「返回 {written,reason}」形态已被 Z69 减法整体替换——不改签名（Promise<void>）只改内部行为（不建条目）+计数 `exec_orphan_blocked_total`；执行以 Z69/片 A1 第 3 条为准〕** | 报告1 P6 | :209-212 实证 |
+| Z5 | **undefined 语义=显式拒绝**（推翻 v1「统一为跳过」）：writeNodeData patch 含 undefined ⇒ throw（进程内 bug 才可能传 undefined——JSON 不能传；fail-fast 优于静默）+**新增 deleteNodeDataKeys 显式删键 op**（客户端契约相反实证：canvasIntents.ts:130-149 `undefined⇒delete 键`——服务端静默跳过=同一语义两处相反）；writeExecStatus 维持跳 undefined（服务端私有 map，语义独立）；shared CanvasIntent 文档标注 wire 语义 | 报告1 P8 | 客户端契约实证 |
+| Z6 | **origin 活缺陷修复**（'local' vs 'local-user' 巧合级隔离实证）：服务端写走 `doc.transact(fn, Origin.Server)`（客户端 canvasUndo.ts:9 已预留 'server' 常量）；先红用例=服务端写→客户端 undo→断言用户编辑栈不受污染。v1 的「先立常量与注释契约」升为真事务 origin。**〔v6 注：本行先红用例已被 Z119 作废——trackedOrigins=['local-user'] 而库默认 'local'，修复前恒绿=假门禁 D13 族；新锚=①事务 origin===Origin.Server 直测②docDelta 按 origin 分流（服务端写不计客户端配额口径）；执行以片 A1 第 2 条为准〕** | 报告3 K5+Z119 | 库 esm:1141 origin={source:'local'} 实证 |
+| Z7 | **writeBatch 逐 op 契约**：同 doc 同事务+逐 op 守卫在事务内求值+返回 `WriteOpResult[]` 与 ops 一一对应+事务级失败全批 thrown（调用方按零交付处理退款——writeNodeData 的 written/reason 是交付判据/退款凭据，batch 不得抹平）；显式声明并断言「data 写入与 exec 投影同事务」抹掉今天数据先于状态的可见性窗口（UI 语义变化，先红用例固化） | 报告3 K6 | :18-23 交付判据实证 |
+| Z8 | **transactSync 类型门恢复**（E29 原文，v1 弱化）：DocWriter 写入口签名 `(doc)=>void` 类型层拒绝 async 回调（DirectConnection.transact 不 await 回调——async fn 的 Promise 逃逸事务边界，本仓 :71-79 已识别） | 报告2 D-1②+E29 原文 | esm:1136-1144 实证 |
+| Z9 | **双进程四缺口全套**（片 D）：①worker 零 HTTP 监听=workerProviders() 工厂只装 processor+队列模块（结构性消除 EADDRINUSE+误监听；worker 指标面后置登记）+验收锚「双进程下 3000 端口恰一 listener」②deploy 顺序化启停（`--only flowweb-api` 先起→ready 绿→`--only flowweb-worker`→pm2 save；worker 早于 api ready 消费会撞 503 烧 attempts——付费队列 attempts:1）③worker readiness=队列装配+连接探针（无 HTTP 面，pm2 status+exec-smoke 验证）④spool 迁移 readlink 对多 app 未定义——check-ecosystem 断言 cutover 内 pm2 pid 带 --only+「旧目录不存在」从静默跳过改显式日志+非零退出 | 报告1 P4+报告3 K7/K10 | deploy.sh :124,:133,:136,:138 实证 |
+| Z10 | **内存预算口径修正**（§5.1 表重算）：api old-space 384/max_memory_restart 576M；worker 320/512M；**两进程上限不可相加**（max_memory_restart 是重启触发项非预算项——纪律写死 ecosystem 注释+runbook）；worker `nice:10`（CPU 优先级=拆分真实收益之一）；worker kill_timeout **120000**（ffmpeg/4K 排空上界，check-ecosystem 按 role 断不同下限：api≥45000/worker≥120000）；**check-ecosystem.mjs 改多 app 遍历+按 role 分组断言**（现 :118 只读 apps[0]=第二 app 零门禁覆盖）+heap 闸阈值按进程独立标定；D 片**第一道出口=装载真实 doc 后实测两数**（稳态 p95+峰值——协居 514.6 采于 CanvasDoc=0 时期不可信，R4 裁定） | 报告3 K9+报告1 P4-3/4-4+报告2 ★4 | 算式不自洽实证（v1 表内 1663.8≠写的 1840） |
+| Z11 | **连接池显式预算**：DATABASE_URL 显式 `connection_limit=8`（api）/`4`（worker）+runbook §4 算式更新 `(8+4)+协作头寸≤100`（E46 尾巴落结论：显式预算替代继承默认） | 报告1 P4-3 | max_connections=100 实证 |
+| Z12 | **NODE_ENV 处置（报告1 形态）**：**单源=.env**（本地 development/服务器 production 均已显式设值——B21 勘误后 v1「ecosystem+deploy 注入」方案作废，注入反制造第二事实源）；ecosystem 维持禁注入（check-ecosystem ENV_ALLOWLIST 语义改写为「NODE_ENV 归 .env 单源，ecosystem 禁注入」）；zod 改 `z.enum(['development','test','production']).default('production')`（fail-closed 方向；本地 .env 已有行+缺行场景按最严档——与报告1 的差异点=报告1 反对 default，但 fail-closed 方向与 E58 原验收一致，且新 clone 流程有 .env.example 指引）；8 读点统一改读 env 单源（**模块加载期求值 3 处单独处理**：update-profile.dto decorator 选项与 gateway:42 模块级函数——测试注入模式须改 vi.resetModules+动态 import 或 lazy resolver） | 报告1 P3+报告2 C4 | .env/zod 形态实证 |
+| Z13 | **COOKIE_SECURE 显式三态**（禁推导）：`z.enum(['true','false']).optional()`——显式优先（本地 HTTPS 唯一出路：NODE_ENV=development+COOKIE_SECURE=true→cookie 仍 Secure）；未设=按档位兜底（production 恒 true）；**production+explicit false ⇒ 拒启动**（fail-closed 方向——cookie secure 是传输通道属性非运行档位属性）；resolver 单点函数禁第二处判断。三档先红后绿验收 | 报告1 P3+报告3 表7 | — |
+| Z14 | **网络面三补**：①API_BIND_ADDR 新增（main.ts:115 全网监听→绑 127.0.0.1，与 COLLAB_BIND_ADDR 同族）②COLLAB_TRUSTED_PROXY 未设+production ⇒ 拒启（现=全站单限流桶静默失效零探针）③XFF 验收覆盖两条通道（手写 getClientIp+全局 ThrottlerModule 同吃 req.ip）+RATE_LIMIT_IP_WHITELIST 与删手写解析**同 commit**（防半修状态） | 报告2 C3/C5/C6 | :115/:621-628 实证 |
+| Z15 | ~~**worker 失败钩子迁 api 侧**（@OnQueueEvent 方案）~~ **已被 Z41 拆两半整体替换（v3）**——保留本行为裁定沿革 | 报告3 K8（其方案㈡） | 钩子现状实证 |
+| Z16 | **E47 备份补四件**（维持降档 R5/D3 不变）：①pg_dump 脚本含**水位守护**（对齐 deploy.sh >85% 拒部署门，优先删最旧）②MinIO 服务器侧无备份缺口登记为 **Y7 上线前门槛项**（产物 URL 指向 MinIO 对象，数据丢失=画布图全裂——当前无生产环境可接受，不留白）③**Redis 全丢恢复语义一句话 runbook**（verifyActive 启动扫按 jobId 查 BullMQ→查不到→三查→rollbackRunning+settleStranded——看到队列空了别慌、**禁手工重投**=与 reconcile 双写竞争）④恢复对象补 CanvasDoc/CanvasDocUpdate/CollabLease+**恢复后 bump generation**两行（客户端四维键结构性隔离即成恢复安全载体——报告2 D-2 的最小采纳） | 报告1 P12+报告2 D-2 | — |
+| Z17 | **pricing drift 动作收窄**（v1 方案甲大部分已被前批做完；**v4 勘正**：缺口对象名=③④+⑦money_in_reference_required——`ledger_positive` 假名已消灭 Z78①）：动作=①verify-indexes.sql 补 3 条断言②纪律段**追加**到既有 deployment-db-baseline.md（不新建文档——防文档面扩散）+**双等价索引 census 可执行门禁**（Z58：解析 schema 拼 Prisma 名查 DB，等价共存⇒红）。生成列重建模**不采纳**（D4 维持：不翻 Y0b-1 刚验收的资金键面） | 报告1 P10+报告3 R6 | verify-indexes/allowlist 实证 |
+| Z18 | **库行为锚扩表 v1 裁正的裁正**：SkipFurtherHooksError 自有 hook 抛错跳链锚+DirectConnection.disconnect unloadImmediately 默认值显式断言维持；**追加工程纪律**：check-hocuspocus-pin 在版本变化时输出「必须重跑的锚清单」（现只 print pinned ✓——本批全部行为结论绑定 4.6.0 实现细节） | 报告1 P13-3 | — |
+| Z19 | **shrink thaw 修法口径修正**（对 v1「预演值」的再裁定）：truth 口径=**「GC 已执行且已持久化的字节」**（对齐 gateway maybeCompact 既有 docTruth=持久化真值口径——shrink 现绕过此口径属口径分叉）；实现 plan 期三选一（①常驻化后事务提交后测量最轻——doc 不卸载回调外测量即 GC 后 ②两次 withDoc+读 PG compact 后 snapshotBytes ③预演 scratch 事务提交后测量）。报告1 对「预演值」否定的成立条件=预演在嵌套事务内测；报告2 的「一次编码两处消费」在常驻化后自然达成。先红用例=删除使 truth 从 >softEnter 落到 <softExit ⇒ 同请求 thawed=true ∧ doc-status 广播 ok。**〔v6 注：「三选一」已被 Z120 勘正为「一处赋值替换」——影子预演已在代码（:180-192 Y0b-4 建），缺陷仅 thaw 判据（:206-207）用活 doc truth 而非复用 :185 shrunk；执行以片 A1 第 8 条为准〕** | 报告1 P7+报告2 D-11+Z120 勘正 | GC 事务清理时序实证 |
+| Z20 | **census 三组先红（C0 片；③已由 Z43 修订为符号级）**：①withDoc 全枚举（B4 v2 形态）②生产裸 `new Y.Doc()` 清零（B9 v2 工厂化——7 处，Z57）③worker 禁令静态闭包断言（**v3 Z43 改符号级**：禁 openDirectConnection/@hocuspocus.server import/长生命周期 applyUpdate；允许 yjs 纯函数——repository compact 合法在用） | 报告1 P1.C+报告2 D-3 | — |
+
+### 0.5.2 吸收（并入既有片的约束/验收锚）
+
+| # | 吸收项 | 并入 |
+|---|--------|------|
+| Z21 | DocWriter 会话获取/释放的引用计数+硬上界+出口不变量单测（vacuum quiesce 不被会话阻塞；出口=Z63 3 释放+1 清账） | 片 A 验收 |
+| Z22 | writeBatch 幂等=同 idemKey 重放返回首次结果（Y0b-2 idemKey 体系同构）~~+worker 端点幂等由 PG 唯一约束兜底~~（**W3 勘误：CanvasDocUpdate 无 (projectId,idemKey) 约束——改「Z4 守卫+单写者事务+Z76 重试先校验已生效」**） | 片 D 验收 |
+| Z23 | 「假第二进程直连写被拒」验收锚——由**既有 PG 租约 fail-fast**（Y0a-3：第二实例抢不到租约拒启）+worker 零直连 census（Z20③）双层覆盖；**不建 CanvasDocOwner 表**（单实例+零直连=结构性单写者，建表为不可达路径加机制） | 片 D 验收锚（复既有用例） |
+| Z24 | gateway 切分**按状态所有权界定边界**（v1 表的行号区间分配会把「租约失守→selfIsolate→closeAll→spool 入账」同同步块链切成两半——区间仅作体量参考）；行数预算降为防倒退锚，可测性判据为主（Persistence 独立实例化/生命周期状态机单一所有者+跃迁穷举）；切分时同步更新 census 组④（ENCODE_WHITELIST 按文件计数——新增 DocWriter 文件必同批更新，否则 verify 红） | 片 B |
+
+### 0.5.3 不采纳（登记理由）
+
+| # | 不采纳项 | 理由 |
+|---|----------|------|
+| Z25 | worker 零 doc 写/exec 投影 outbox 化（报告2 ★3——worker 只写 PG，api 投影器统一投影） | **E64 归 Y1c-2b 既有裁定**（v8-B 拆片），前移=批范围膨胀+需 GenerationIntent 加 exec 投影列（schema 变更破坏本批零迁移承诺）；且 exec_projection_deferred_total 路径（intent-reconcile:271）已是 outbox 雏形在 api 侧——HTTP 端点生命周期=Y0.5→Y1c-2b，届时 processor 改写 PG 一处、DocWriter 不变（退役成本一次改道，非兼容垫片）；E59 v8-F 方向裁定维持 |
+| Z26 | CanvasDocOwner 文档所有者表+心跳（报告1 P2） | 见 Z23——单实例租约+worker 零直连断言=结构性关闭「双副本 RMW」；为不可达路径建表违反「不为不可能场景写机制」 |
+| Z27 | E26 undo keep 泄漏修复前移本批（报告3 §3.5-1） | E26 与 Y.Text **同批同目标**是 E33/Y1c-2a 既有裁定（一个修来源一个修保留，拆开=做两遍）；本批以服务端测量值（yjs_loaded_doc_bytes）+驻留软上限控制预算，客户端 keep 归 Y1c-2a |
+| Z28 | 客户端 IDB 增量 flush+快照 checksum（报告2 D-2/报告3 §3.5-2,3） | **域归属**（非风险不存在——Z58 措辞）：本地快照无校验的「静默投毒换载体」风险真实存在，但治理属 Y5；**移交判据=Y5 落地必须含 checksum+损坏即 discard，此前 IDB 快照不得当服务端内容权威源**（B29「第二份持久化真源」表述加此限定）。本批仅 Z16④ runbook 两行承接安全语义+Z51 护栏阻断其配额面放大 |
+| Z29 | generation 升级「服务端权威状态代」+SS2 后回放栅栏+diverged 非降级出口（报告2 D-2 完整方案） | Y5/Y1c-1 域（离线语义 Y0b-5 已裁归 Y5 重审）；本批 Z16④ 最小承接 |
+| Z30 | DocStore 接口/追加 delta 持久化形态重构（报告2 §5.1-1） | Y0a-1/2 刚验收的 store/spool/compact 链路不重写（Z1 常驻化已解决主要放大）；登记 Y7 多实例窗口评估 |
+| Z31 | JobLease 跨进程互斥表（报告2 D-5） | 不可达：reconcile 只在 api 进程（instances:1）+pm2 fork restart 串行（stop→start）+deploy-guard 拒重启三步——并发全量扫仅在部署切换窗且被三道既有防线拦截；进程内布尔+CAS（Y0b-2）已足 |
+| Z32 | 客户端 doc schema 门生产恒开（报告3 §3.4） | 服务端版本门已拒连（csv 四档）+装载播种已做——客户端升格收益边际；登记 Y1c-1（世代通道批）随 #g<N> 一体评估 |
+| Z33 | writeExecStatus pendingStatus 状态合并器+1s 节流（报告1 P1.B） | 常驻化后写是内存级、落库由 store debounce 统一合并——合并器收益边际化；plan 期以 yjs_store_total 实测定夺（评估项非执行项） |
+| Z34 | compact/vacuum 时间门限流+blocking 组独立机器（报告2 D-4 后半） | event-loop lag 观测（Z3）先进；常驻化后 compact 频率本就大降；独立机器超出单机开发测试环境现实——lag 数据落地后 Y7 再裁 |
+| Z35 | gateway 行数 3091（报告2 C1） | 实测 3222（wc -l 复核）——报告2 错，v1 基线维持 |
+
+### 0.5.4 v3 复核裁定（2026-10-13 第四/五/六轮报告+第五轮代码实证 14 项；Z36 起编号）
+
+**先修自误**：v2 的 `ledger_positive` 为**假对象名**（第五轮核实 agent 引入、v2 照抄——migration :1319 实为 `money_in_reference_required`）。真实缺口恰为 ③pricing_credit_cost_non_negative(:1311) ④intent_credit_cost_non_negative(:1312) ⑦money_in_reference_required(:1319)；verify-indexes 已断言 6 个不变（Z17 修正）。B16 已同步勘正。
+
+**关键实证裁决（第五轮 14 项）**：①双旋钮真相——Server 级 gateway:487 只加速「末连接→立即 store」（esm:1385）；**doc 卸载的真决策者=库 `shouldUnloadDocument`（esm:1571-1572：零连接∧非 debouncing∧saveMutex 未锁→卸载，不读任何 flag）**——两旋钮都拦不住它；②报告4 活锁链/关停链/三涟漪全部属实；③@OnQueueEvent 属 @nestjs/bullmq（第六轮对、第五轮报告错）但**拆两半方案胜出**（零 Redis 连接+零跨进程失败模式）；④报告4 的「白名单反向失效」推导不成立（nginx 站点 block 已带 X-Forwarded-*——api-location.replace.conf:3-4 注释自证；req.ip=真实客户端 IP 非恒 127.0.0.1），但其验收断言建议仍采；⑤DI 注入面实测 **13 文件**（报告4 计 12 少 1）；⑥gate-canvas-state.ts 非生产（仅 gate-seed/spec 消费——B9 census 豁免）。
+
+#### 采纳（Z36-Z51）
+
+| # | 裁定 | 出处与证据 |
+|---|------|-----------|
+| Z36 | **常驻化拦截点改写（推翻 v2 片 A 第 1 条实现形态）**：①Connection 级 disconnect 显式传 `unloadImmediately:false`（esm:1147 默认 true——防断连路径卸载 esm:1171）②Server 级 gateway:487 **维持 true**（它只加速末连接 store，不决定卸载——保留「进程退出前强制 store」载体价值）③**真正的拦截点=shouldUnloadDocument 层**：自定义覆盖（加「常驻会话持有∧未过 TTL」判据）或等效机制——**plan 期第一件事=拦截点可行性探针**（库 configuration 是否开放该谓词覆盖；不开放则备选=常驻表判据接入 store 钩子后拦截）。此为「plan 期实证项」非既成事实。**〔v5 注：③的「覆盖谓词+探针」路线已被 Z59 定案整体替换——持有 DirectConnection 钉住谓词（零 patch 零 fork），探针作废，不存在「不开放」分支；执行以片 A2 第 1 条为准〕** | 第五轮核实①（esm:1385/:1571-1572） |
+| Z37 | **释放握手单点化 `releaseSessionFor(pid): Promise<void>`**：gateway→DocWriter 显式 API（内部 await disconnect 完成触发库卸载→documents.delete）；auto-vacuum（vacuumRunner 回调 gateway:1665 直调不经 withDoc）与 REST vacuum **共用同一入口**——各释放出口从散点变可 await 单点（出口收敛=Z63：3 释放+1 清账）。配套不变量单测：「冻结+常驻会话+residue 越阈⇒vacuum 在 30s 内成功（非 quiesce-timeout）」+`collabDocVacuumTotal{result='quiesce-timeout'}` 非零即 P1 巡检阈值（现无） | 报告4 §1.1（:2102/:342/:2086 实证） |
+| Z38 | **关停序步骤 0**：`onApplicationShutdown` 任何动作前 `releaseAllSessions()`（逐会话 disconnect({unloadImmediately:true})，每会话 ≤300ms、总 ≤2s 预算，超预算如实点名——G-2a 纪律）；步骤 1.5 graceDirectConnections 2_000→**500**（会话已清零后仅剩第三方在飞直连；恢复 count()===0 早退——v2 会不改则每次重启恒吃满 2s）。**§4.2 补显式关闭证据**：关停 RPO 兜底=drainAllDocuments(t0+18s, gateway:3068)+flushPendingStores——不依赖卸载钩子，常驻 doc 在 SIGTERM 下不丢数据。**〔v5 注：①定性已被 Z81 升级——releaseAllSessions=关停硬前置（不释放则 runDestroy 永不 settle），「≤2s 预算」只是逐会话观测口径；②「2_000→500」已被 Z87 撤回——维持 2_000（V9 入口早退已存在 gateway:3086-3096，会话清零后恒早退零成本；500 会强杀第三方在飞直连）；执行以片 A2 第 4 条为准〕** | 报告4 §1.2+报告5 条件三（:3064/:3068 实证） |
+| Z39 | **卸载↔装载竞态防御（库 createDocument 不查 unloadingDocuments——esm:1428-1445 只查 loading+documents 两表；卸载中 doc 两表皆空可被并发装载成第二实例，旧实例 destroy 时 pendingQueues 批消失）**：**写到达⇒取消卸载**（DocWriter 获取写会话时重置空闲计时+撤销进行中的卸载——把竞态从互斥降为不可能）；确定性交错用例（E34⑤ 先例：可达→真红；不可达→固化装置）；beforeUnloadDocument 交接在 await 期间标记 doc 不可再装载。**〔v4 注：已被 Z64 拆 A/B 两子窗口细化——A 窗口=store 幂等跑完+:1589 二次校验；B 窗口=onLoadDocument 查 unloadingDocuments 瞬态 503；v5 补 Z83 释放窗口为第 3 用例；执行以片 A2 第 5 条为准〕** | 报告6 N3（esm 实证） |
+| Z40 | **writeBatch 失败语义定案（业务级/基础设施级二分）**：①守卫失败（node-deleted/attempt 过期/undefined 拒）=**合法结果进 WriteOpResult[]，不回滚整批不 throw**；②仅基础设施级失败（DB 连接/schemaVersion 门/事务异常）全批 thrown→调用方按零交付退款；③**调用方契约**：deliver 类 op `written:false` ⇒ 批提交后**独立**执行退款（rollbackDeliveryFailed——PG 事务与 doc 事务不同域，:349-352 现语义显式保持）；④WriteOpResult 携带 op 索引+op 类型；⑤先红用例=批内 deliver 命中 node-deleted ⇒ 断言 rollbackDeliveryFailed 仍被调用 | 报告5 W1 选①+报告6 N5（execution.service:349-352 实证） |
+| Z41 | **失败钩子拆两半（整体替换 Z15 的 @OnQueueEvent 方案）**：`@OnWorkerEvent('failed')` **保留在 worker**但只做 PG 半——`intentService.fail(running.id,reason,job.id)`（立即终态化意图行，:76 既有收益不变；GenerationIntentService 只依赖 Prisma+Redis=worker 可安全持有）；**exec 投影半走 api 既有最终一致链**（alignExecFromIntents 重连对账+intent-reconcile 档一档二 isDocResident 分治+装载自检——零新增 Redis 连接、零跨进程事件丢失面、零新装配）。banner-cleanup.processor:17 第 3 处 failed 钩子显式豁免（不写 doc——全仓恰 3 处，Z90 口径统一） | 报告4 §2.2+报告5 W4（bull.explorer 连接成本实证） |
+| Z42 | **worker 装配重写（Z9① 升级——DI 现实：ExecutionModule:32/AiImageEditModule:18/AiDownloadModule:12 均 imports CollabModule⇒worker 装 processor 模块就实例化 gateway 抢租约；MetricsModule @Global 带 controller；注入面 13 文件）**：①`CollabWritePort` 端口抽象（DirectCollabWritePort=api 注入 CollabDocumentService / HttpCollabWritePort=worker 走端点）②CollabModule 停止 exports CollabDocumentService、改 exports 端口 token③**模块拆分**（ExecutionModule→Core(service+processor 注入 port)+Http(controllers)；ai-image-edit/ai-download 同法——video-work 等同在 app.module 的按需）④**worker.module.ts+`NestFactory.createApplicationContext`**（结构性零 HTTP server——连 :3000 都不创建，「零监听」由构造保证）⑤验收改「worker 进程 3000+3001 **双 ECONNREFUSED**（构造性）」+消费自证=BullMQ `queue.getWorkers()`（api 侧读 Redis worker 注册表——验证「真的在消费」非「进程活着」）。**工作量重估：6 处模块拆分+端口+worker.module 是片 D 真实成本，非「改 8 个调用点」** | 报告4 §2.1+报告3.3（第五轮核实⑥实证） |
+| Z43 | **Z20③ 禁令改符号级（「禁 yjs import」与既有生产代码冲突——repository compact 用 Y.applyUpdate/encodeStateAsUpdate 纯函数）**：禁=`openDirectConnection`/`@hocuspocus/server` import/长生命周期 Y.Doc 的 applyUpdate；**允许**=mergeUpdates/encodeStateAsUpdate/decodeStateVector 等纯函数离线用途。禁 `@hocuspocus/server` 已封死 DirectConnection（openDirectConnection 只在该包），无需连 yjs 包一起禁 | 报告6 N4 |
+| Z44 | **内存预算 N2 重算（推翻 v2 的 576/512——「+192」无出处违反元纪律）**：api old-space 384/max_memory_restart **560M**（余量 176MB=显式取舍，低于 profile 算式 1 的 384——挂「装载峰值实测无拐点」条件）；worker 320/**480M**（余量 160）；**整机数字判据一行**：`1040(两上限和)+协居重实测+300 ≤ 1967` ⇒ **协居>627MB 即触发降级出口**；**硬上限承担者=cgroup/systemd MemoryMax**（PM2 max_memory_restart 只重启单进程不防内核 OOM——内核 OOM 杀 RSS 最大者=拆分想保护的 api 进程；此为本批唯一真正兑现「双进程不炸机」的机制，v2 全文未提） | 报告6 N2（profile 算式实证） |
+| Z45 | **Z12 四坑补全**：①`.env.example:47 NODE_ENV=production→development`（同批——现状新 clone 照 example 即 require_tld+https+Secure cookie=http://localhost 登录失败）②env 拆 schema/parse 两层+`parseEnv` 成功后**写回 `process.env.NODE_ENV`**（default 显式化到进程环境——否则 guard 读 process.env 与 env 读法两答案）③`resolveCollabDebounce` useValue（collab.module:25 模块加载期）改 **useFactory**（容器装配期，结构可见）+env.spec 测试形态改 vi.stubEnv④`gate-collab.mjs API_ENV` 显式加 `NODE_ENV:'development'`（现状不设继承外部——CI 在 production shell 跑 verify 即被新守卫 COLLAB_FAKE_AI∧production 拒启打死自家门禁）⑤**COOKIE_SECURE 与 update-profile.dto trustedOrigins 同批对齐**（cookie secure 与 require_tld/protocols 都表达「传输必须 TLS」——只拒启前者放过后者=错配） | 报告4 §2.3（:47/:25/:18-26 实证） |
+| Z46 | **E58③ 验收前置断言（报告4 白名单警告的采纳米字型）**：其「req.ip 恒 127.0.0.1⇒白名单=全免」推导**不成立**（nginx 站点 block 已带 X-Forwarded-*——api-location.replace.conf:3-4 注释自证）；白名单默认值维持现状。但采纳其断言：**片 E 第一步=现场核 nginx XFF 实配**（`nginx -T` 确认 location /api 的 proxy_set_header）+验收断言「`curl -H 'X-Forwarded-For: 1.2.3.4'` 打真实入口⇒req.ip=1.2.3.4 非 127.0.0.1」——否则 E58③ 假绿 | 第五轮核实⑨（nginx 配置实证） |
+| Z47 | **三涟漪收口（computePending 一处收三失真）**：`computePending().connections=getConnectionsCount()`（gateway:1528——库 :1339 含 directConnectionsCount）⇒常驻会话抬升 yjs_connection_count=监控误读「有用户在线」+zero_conn 判据+auto-vacuum 零连接语义失真。修法=computePending 增 `residentDocs`/`directConns` **显式字段**（禁混入 connections）；heap 闸 trip 阈值按「双进程+常驻上限」重标（片 D 内存实测顺带落）；冻结文档自愈与 Z37 同修 | 报告4 §4（:1528 实证） |
+| Z48 | **COLLAB_ROLE 默认改 `api`+显式断言**（v2 默认 all 的失败分支：生产 worker app 漏设 role→变 all→抢 3001→客户端连 worker WS=双写者**静默正确性事故**）：check-ecosystem 断言**每 app 显式携带 COLLAB_ROLE**（禁隐式默认）；`all` 仅本地 .env 显式使用；默认 api（worker 无 role⇒不消费——安全方向） | 报告6 D2 |
+| Z49 | **WORKER_WRITE_TOKEN 放服务器 `.env`（单文件双进程共读）**；ecosystem env 白名单只放非密钥进程区分键（COLLAB_ROLE/BIND_ADDR/SPOOL_DIR）——「禁密钥进本文件」注释语义不变，堵 plan 期为 token 放置再吵一轮 | 报告6 D4 |
+| Z50 | **event-loop lag 修正**：表述改「**主线程阻塞的补充信号**」（yjs_compact/store_duration 直方图已存在——「唯一可见信号」不实）；挂点=api+worker 各测一份 `{role}` 标签（worker 侧才是 sharp/ffmpeg 真实信号面）；实现用 `perf_hooks.monitorEventLoopDelay()`（Node 原生，优于 setInterval 漂移法） | 报告6 D5 |
+| Z51 | **客户端 keep 护栏（Z27 部分翻案——非 E26 修复，是常驻化前置）**：客户端 doc 字节是**配额输入**（canvasIntents:110 `localDocBytes+localDelta>softLimit` 判冻结）——keep 泄漏（canvasUndo:39-41 shift() 绕过 clearUndoManagerStackItem）使客户端膨胀→服务端冻结→**冻结 doc 常驻（Z1）→RSS 上涨=新正反馈环**。片 A 增一条：客户端 doc 字节硬上限（复用 QUOTA_DEFAULTS.maxDocBytes）触发**会话重建**（现有 safeReload+canvas-local-backup 导出通道）+计 `collab_escape_hatch_total{kind='client-doc-rebuild'}` | 报告6 §4.2（canvasIntents:110 实证） |
+
+#### 修订与登记（Z52-Z58）
+
+| # | 项 | 内容 |
+|---|-----|------|
+| Z52 | **自洽性三处**：①§1.2 非目标第 5 条删（「withDoc 驻留=评估项」与 Z1 打架——v2 残留）②§3 D2 理由栏「≈1840」残留改③B6 行数计法写死=「`wc -l` 口径 3222，门禁脚本按 split('\n').length 实现」 | 报告5 V1-V3 |
+| Z54 | escape_hatch_total 改**基线+趋势判据**（C0 落基线→每片回填→目标窗口在 Y1c-1——本批不触碰客户端 generation 路径，强判据会卡死 §4.1） | 报告5 五-2 |
+| Z55 | COLLAB_MAX_LOADED_DOCS 软上限行为写明：**到达=回收最旧空闲，非拒新装载**（与 Y1c-3 准入语义的边界） | 报告5 五-1 |
+| Z56 | sweepOrphanExec 游标轮转（`orderBy:id`+cursor 每轮 100 游标存进程内——「每日随机 10 个」变「有界全量轮转」；Z4 守卫已止新孤儿，此项消化存量） | 报告4 §5-1 |
+| Z57 | B9 census 豁免修正：gate-canvas-state.ts:24 **非生产**（头注自证+仅 gate-seed.ts:14/spec 消费）——生产裸 `new Y.Doc()` 清零清单=其余 7 处 | 报告6 核对表 |
+| Z58 | Z28 措辞改**域归属+移交判据**（不做的真实理由=域归属非风险不存在；Y5 落地必须含 checksum+损坏即 discard；此前 IDB 快照不得当服务端内容权威源——「第二份持久化真源」表述加此限定）；Z17 双等价索引防御升格=census 新组（解析 schema.prisma PricingRule @@unique 拼 Prisma 命名规则索引名→查 DB 存在且等价⇒红 `duplicate-equivalent-index`——可执行门禁替代纯 README 纪律，探针机制可复用其余 9 对象） | 报告6 §4.1+报告4 §3.2 |
+
+### 0.5.5 v4 收敛裁定（2026-10-13 第七/八/九轮报告——六轮外审收敛版；Z59 起编号）
+
+> 三份 v3 复核全部确认核心方向（常驻化/片序/端口抽象/失败语义二分/MemoryMax/拆两半），无方向性分歧。本节=机制定案+两笔减法+三处漏洞修补+文档卫生。
+
+#### 机制定案与漏洞修补（Z59-Z68）
+
+| # | 裁定 | 证据 |
+|---|------|------|
+| Z59 | **常驻化唯一机制定案（推翻 Z36 的「探针+备选」）=持有 DirectConnection 钉住谓词**：会话表 `projectId→{conn:DirectConnection, refCount, idleTimer}`；**conn 在⇒directConnectionsCount≥1⇒`shouldUnloadDocument` 恒 false⇒全部 4 条卸载入口**（store 完成 esm:1550/SkipFurtherHooksError 分支 esm:1541/WS 关页 esm:1385/direct disconnect esm:1171）**静默 no-op**（esm:1576 首行守卫）；释放=reaper 判 TTL 到期∧`pendingQueues[pid]` 空∧!inFlight⇒`conn.disconnect({unloadImmediately:true})`→count 归零→真卸载。**零 patch 零 fork 零谓词覆盖——结构保证**。退路登记（方案 B=实例级覆盖 `hp.shouldUnloadDocument`，index.d.ts:227 公开原型方法）：仅当方案 A 遇阻；**已知陷阱=装载失败路径 esm:1482-1483 会被覆盖谓词卡住（失败 doc 留 documents 表→下次 createDocument 命中半初始化 doc）**——方案 A 下不存在此陷阱（装载失败时会话未登记 conn 未持有） | 报告7 §1.3+报告9 W2（esm:590/:1571 双方实证） |
+| Z60 | **Server 级 gateway:487 维持 true——理由重写**：「关页即 flush」durability（WS 末连接关闭时立即执行最后一批 store；改 false 则关页 store 推迟 debounce 窗，SIGKILL 打在窗口内丢该窗编辑）。且 :1385 else 分支揭示该旋钮在 WS 路径同时决定 store 时机与是否 unload——常驻下谓词已拦（Z59），旋钮与常驻化正交，保留 durability 语义即可。**显式 pin 进 options 断言（collab-gateway.options.spec 同步）** | 报告7 §1.3-1+报告8 §二 |
+| Z61 | **RPO 显式登记（v1-v3 未问）**：常驻化把 **SIGKILL 丢失窗口从 ~0（今天断连/写完即落库）放宽到 ≤maxDebounce 3000ms**——恰为 E43⑥ 三腿口径正常腿契约值（非回归=回到契约内）；SIGTERM 不变（drainAllDocuments 兜底，Z38）。**maxDebounce 禁调大**（防为省内存放宽 RPO）——runbook+ecosystem 注释钉死 | 报告8 §二末 |
+| Z62 | **reaper 判据修正**：库 storeDocumentHooks 任何路径不 throw（esm:1540-1549 捕获后 return，文档留内存）——「flush 成功才卸载」（E45 锚）的正确判据=**`pendingQueues[pid].length===0`**（gateway 待落库台账）为空才 disconnect，否则重置计时器——比「await flush 成功」更硬且不依赖库错误传播 | 报告7 §1.3-2 |
+| Z63 | **四出口收敛=3 释放+1 清账**：selfIsolate/beginDraining/vacuum（auto+REST 经 Z37 握手）=释放出口；**beforeUnloadDocument=清账非释放**（常驻下不再因会话触发——谓词被 conn 钉住；它只服务无会话 doc 的库自发卸载）——否则 plan 期会写「永远不会被触发的出口单测」 | 报告7 §1.3-3 |
+| Z64 | **Z39 竞态拆两子窗口+两条确定性用例（替代笼统交错用例）**：**A 窗口**（卸载已决定、flush 在飞、documents 尚未删 esm:1590 前）——写到达⇒等待；store 幂等无害跑完，esm:1589 二次校验处因会话已持有而返回（doc 存活、flush 仍提交、无第二实例）；**B 窗口**（:1590 已删/:1591 已 destroy）——写到达⇒新装载自 PG+旧 store 提交后 CRDT 合并可见；守卫=onLoadDocument 首行查 `hocuspocus.unloadingDocuments`（**公开实例字段 esm:166/:1271，可直接读**）有该 name 则瞬态 503 让调用方重试。用例①（A 窗口：卸载被取消 doc 存活 flush 提交无第二实例）+用例②（B 窗口：新实例装载旧 store 合并可见）各一条，确定性构造（E34⑤ 形态） | 报告7 §1.4+报告8 §三 |
+| Z65 | **卸载不变量+唯一调用点纪律**：①不变量断言 `residency.holds(pid)===false ∧ connections.size===0 ⇒ documents.has(pid)===false`（不驻留且零连接=必已卸载——对齐 onDisconnect/closeConnections 两条路径终态；后者 esm:1357-1386 归零直接 unload 不发 onDisconnect=既有分叉）+「连接归零⇒做什么」从依赖 documents.has 翻转改**注册表驱动**；②`hocuspocus.unloadDocument` **唯一调用点=CollabDocRegistry 内部卸载函数**（Z37 releaseSessionFor 复用），调用前断言三条件+失败告警计数；**census 断言禁其他位置直调** | 报告9 N6 |
+| Z66 | **auto-vacuum 重入守卫（N7）**：触发周期 FROZEN_RECHECK_INTERVAL_MS=30s（gateway:87）==quiesce 上界 VACUUM_QUIESCE_TIMEOUT_MS=30s（:94）——一次满额超时即下一轮叠加。触发条件补 `!vacuumingDocs.has(pid)`；「同 doc 30s 内≥2 次触发」计数 `collab_vacuum_autotrigger_stacked_total` 稳态 0 | 报告9 N7 |
+| Z67 | **Z48 三件套补全（默认 api 会打死本地与门禁）**：`.env`/`.env.example` 均无 COLLAB_ROLE（实测）——默认 api⇒本地 `pnpm dev` 零 processor 装配（队列静默 waiting）+`gate-collab` exec-smoke 红。①`.env.example` 增 `COLLAB_ROLE=all`（注释：生产 ecosystem 注入；本地单进程=all）②gate-collab API_ENV 增 `COLLAB_ROLE:'all'`（与 Z45④ 同批）③启动打 `collab_role_info{role}`+结构化日志 `{event:'process_role'}`+**dev 下 role=api 打 WARN「本进程不消费队列——本地开发需 COLLAB_ROLE=all」**；④check-ecosystem 断言**双向显式**（flowweb-worker 必须显式 ==='worker'、flowweb-api 必须显式 ==='api'，两键都不得缺省——单向断言会被默认值掩盖） | 报告7 §2 |
+| Z68 | **Z44 判据拆两行+落地形态（同版自洽）**：①**稳态预算判据**=`p95(api_RSS)+p95(worker 进程树 RSS 合计，Z91)+协居实测+300 ≤ 1967`（预算项相加✓）——不满足⇒降级出口；②**峰值兜底判据**=MemoryMax（上限项**不参与稳态判据相加**——v3 的「1040+协居+300」把上限当预算项违反自己纪律①，废）；③**落地形态 v5 修订（Z85）：单 unit 机器级兜底**——`deploy/flowweb-pm2.service`：`MemoryMax=1150M`（算式=560+480+god 40.4+余量 70）+`MemorySwapMax=128M`（**宁被杀不换页**——swap 计入 SwapMax 非 Max；只设 Max 会大量换页=WS 延迟灾难比 OOM 难诊断）+`Restart=on-failure`+`RestartSec=5`（Z85——Restart=always 在 god 存活时是死条款；分层分工=PM2 max_memory_restart 管 per-process/杀泄漏者后 autorestart 拉起，MemoryMax 管机器兜底，on-failure 管 god 崩溃，runbook 写死）；双 unit=可选探针登记——**systemd unit=§5.3 artifact 清单新增交付物** | 报告7 §3+报告8 G4+Z85 |
+
+#### 两笔减法（Z69/Z70）
+
+| # | 裁定 | 理由 |
+|---|------|------|
+| Z69 | **Z4 减法：writeExecStatus 不改签名**——保留 `Promise<void>`，只改内部行为（节点不存在⇒**不建条目**⇒计数 `exec_orphan_blocked_total`）；`{written,reason}` 返回类型**登记 Y1c-3**（届时 DocWriter op 契约本来就是 Y1c-3 输入面）。动因：签名变更波及 13 生产+8 测试文件（含 exec-partial-success.int.spec:61 stub）而收益仅诊断码——孤儿结构性不可产生只靠「不建条目」达成，不需要调用方看返回值 | 报告7 §4.1（消费面实证） |
+| Z70 | **Z51 降级为观测+runbook（推翻 v3 的「片 A 前置」）**：链路修正（报告7 §4.2）——客户端 localDocBytes 只决定**客户端 precheck**（用户被自己客户端拦=UX 事故非 RSS 事故）；服务端冻结判据=服务端 truth（keep struct 进 doc 推高 truth 是真但**慢**——需用户真删大量内容且 undo 栈持有）。本批=①`collab_escape_hatch_total{kind='client-doc-rebuild'}` 计数保留（零成本）②runbook 一句「客户端 doc 字节越限手工恢复步骤（导出→重建）」；**自动护栏归 Y1c-2a 与 E26 同批**（届时须处理 generation bump——不 bump 则四维键不变重建回放旧快照=无限循环，报告8 G6）。收益：片 A 不再触碰 Y0b-5 刚落地的 safeReload/本地备份敏感面——「片 A=服务端写入模型」边界保持干净 | 报告7 §4.2+报告8 G6 |
+
+#### 结构与配套（Z71-Z77）
+
+| # | 裁定 | 内容 |
+|---|------|------|
+| Z71 | **片 A 拆 A1+A2**：A1=写门面（writeBatch+Z40 失败语义+origin+Z4 守卫+undefined+gc 工厂+直写收编+shrink thaw）——出口判据全是**行为契约**（先红后绿）；A2=常驻化（Z59 会话持有+reaper Z62+释放握手 Z37+关停步骤 0 Z38+两子窗口 Z64+不变量 Z65+重入 Z66+三涟漪 Z47/Z73+isDocResident Z77）——出口判据是**资源与生命周期**（load==1/vacuum 不活锁/关停预算/竞态用例）。证据形态不同⇒独立出口门+独立回滚（A2 出问题回滚一个机制而非整个写门面）。**片序=C0→A1→A2→D→E→B** | 报告7 §4.3 |
+| Z72 | **worker 指标出口（G2——「后置登记」会卡死 Z50 验收锚）**：metrics 全部注册 prom-client **全局 register**（metrics.service.ts:2,15,21）、唯一出口=MetricsController 挂 api:3000——worker `createApplicationContext` 无 HTTP ⇒ `event_loop_lag{role='worker'}` 进程外不可见。**方案=①POST /api/metrics/worker**（同 WORKER_WRITE_TOKEN 鉴权）+worker 定时 `register.metrics()` 上报+api 汇总——复用已冻结 token 形态+不违「零监听」（②随机端口/③独立 Registry 写文件为备选登记）；**片 D 内落地**（拆分达成「WS 不再被拖」的取证依赖它）。**〔v5 注：方案①的文本汇总形态已被 Z86 修正——AggregatorRegistry=cluster 专用不可用（fork 无 IPC）+同名同标签 concat 打死抓取；首选=loopback 独立端口 3002+nginx 第二抓取 job（POST 文本拼接降为次选）；执行以片 D 5b 为准〕** | 报告8 G2 |
+| Z73 | **零连接语义读者清单补全（G3）**：`getConnectionsCount()` 含 direct 的失真读者=computePending（Z47 已列）+**zeroConnDocs 收集器（gateway:519-522）**+auto-vacuum（Z37 已列）——三处同批改读 residentDocs/directConns 显式字段；**check-collab-health 对 yjs_zero_conn_docs 的阈值同批重标**（常驻后「零连接 doc」从异常变常态，不重标=常驻噪声） | 报告8 G3 |
+| Z74 | ~~banner-cleanup.processor:17 第 5 处 failed 钩子依赖核对（plan 期一分钟项）~~ **v5 结案（Z90）**：钩子体仅 console.error（零 DB 零 doc——全文实证）⇒worker 安全持有，显式豁免；@OnWorkerEvent('failed') 全仓恰 **3 处**（execution:62/ai-image-edit:290/banner-cleanup:17）=2 改道+1 豁免 | 报告8 G5+Z90 实证 |
+| Z75 | **Z40 边界声明**：deliver 命中 node-deleted 不回滚⇒done 仍写入 exec⇒「exec=done 但节点已删」=**合法终态**（E22 读侧「exec 无 node 视同不存在」兜底）——**禁加「done 前检查 node」跨 op 补丁**（引入新跨 op 依赖反而错） | 报告9 五-3 |
+| Z76 | **幂等冻结契约补（G1 实质发现）**：CanvasDocUpdate 是 append-only——重放一次多落一行冗余 update（CRDT 语义无害但每行进装载重放）。**内部端点重试不得重复 append 同一 Yjs update——重试路径先校验「该 job 写入是否已生效」（读 doc 状态）而非重发 update**（幂等的是最终状态非字节量） | 报告8 G1 |
+| Z77 | **isDocResident 语义收窄（Z47 同族）**：常驻化后 `isDocResident` 恒真⇒①`exec_projection_deferred_total` 永不触发（Y0b-2 T5 分治设计被中和）②reaper 投影直接走写会话（常驻下廉价可接受）。A2 同批裁定：语义改「有活跃会话∨有 WS 连接」或改判据+计数语义注明——**禁留恒真判据当假门禁**（D13 同族）。**〔v6 注：「∨活跃会话」倾向已被 Z105 推翻——唯一形态=仅 WS 连接数>0（两报告一致：常驻计入则废 deferred 分治全部价值+reconcile 把无人项目钉内存）；执行以片 A2 第 8 条为准〕** | 报告9 五-2 |
+| Z80 | **库行为锚新增（C0；v5 扩反例锚=Z94）**：正例两枚「持有 direct connection ⇒ 谓词恒 false ⇒ 4 入口 no-op」（Z59 机制保证的测试化）+「谓词=唯一卸载决策者（4 入口全经 esm:1576/:1589 双校验）」；**反例两枚（Z94——单侧断言升级双侧）**：①`directConnectionsCount===0`（显式 removeDirectConnection 后）∧零 WS ∧非 debouncing ⇒ 谓词 true ∧ unloadDocument 后 documents.has===false（证明释放确实能卸载）②`saveMutex.isLocked()===true` ⇒ 谓词 false（钉死 Z62 reaper 判据与库谓词的分工边界）；check-hocuspocus-pin 版本变化输出必重跑锚清单（Z18 已有，锚清单含 esm 行号） | 报告8 §二+报告9 W2+Z94 |
+
+#### 文档卫生（Z78/Z79）
+
+| # | 项 | 内容 |
+|---|-----|------|
+| Z78 | **9 处漂移清扫（D6-D14，v4 已全部执行）**：①片 C0「ledger_positive」残留→已随 B16 勘正②片 C0/§4.4「禁 yjs import」标题与变红证据→Z43 符号级③§7 纪律 4「COLLAB_ROLE=all 是开发态默认」→Z48 默认 api④§6「@OnQueueEvent 终态兜底」→Z41 拆两半⑤§6「PG 唯一约束兜底」两行→Z76 表述⑥§4.4/片 C0「8 处」→7 处（Z57）⑦§0.4 E23「恒 generation=0」→K11 口径统一⑧§5 标题版本号 v2→v4⑨§0.6 表头「v1 立项时为空」→v4。**Z53 扩展②=对撞扫描进定稿流程**（spec 头注已更新） | 报告7 §5+报告9 D6-D14 |
+| Z79 | **env 读点 census 判据补全**：构造器直读 process.env 还有 4 处（COLLAB_PORT gateway:472/COLLAB_TIMEOUT :477/COLLAB_BIND_ADDR :484/COMPACT_INTERVAL_MS :34 族）——当前安全（构造在 dotenv 后）但「裸读清零」census 会因漏列而假绿。**判据明确：构造器直读=允许（装配期在 dotenv 之后）；模块级 const/useValue 读=违规（改 useFactory/env 单源）**——census 断言按此两分 | 报告7 §5 末 |
+
+### 0.5.6 v5 收敛裁定（2026-10-13 第十轮三报告+我方 10 项一手实证；Z81 起编号）
+
+> 输入：三份报告（第十轮 Z59-Z80 逐条实证+全文对撞扫描／第五轮复核 R1-R4+T1-T6／终版审计 X2-X5+N8-N9）。我方实证清单（全部一手核验）：①check-ecosystem.mjs:43-89 全文（:57 `+384MB` 断言+:73 heap 闸 trip 链）②esm:1721-1738 runDestroy（afterUnloadDocument resolve 条件）③esm:1375-1389 onClose（:1383 计数早退）④esm:1145-1174 DirectConnection.disconnect 内部时序⑤esm:1357-1364 closeConnections 只遍历 WS⑥gateway:3086-3096 graceDirectConnections（V9 入口早退）⑦gateway:3200-3219（closeConnections 调用点=team disbanded 路径）⑧@OnWorkerEvent('failed') 全仓 grep=恰 3 处⑨banner-cleanup.processor 全文（钩子仅 console.error）⑩heap-pressure.ts:14-15（TRIP=750MiB/RELEASE=600MiB **单值**）。**总判：Z59 机制三报告一致确认（终版报告双重源码验证：esm:578/:582/:589 计数器三联+:1134/:1148 唯一增减点——结构性保证）；本轮全部发现=「新裁定落地撞既有门禁/库细节」+「元纪律②在自家文档未执行完」，无方向性分歧。**
+
+#### 采纳（Z81-Z94）
+
+| # | 裁定 | 出处与证据 |
+|---|------|-----------|
+| Z81 | **Z38 定性升级：releaseAllSessions=常驻化关停硬前置（非「≤2s 预算」优化项）**。证据链三段闭环：库 runDestroy（esm:1725-1738）靠 push 的 afterUnloadDocument 钩子 `getDocumentsCount()===0` 才 resolve；closeConnections 只遍历 WS 连接（esm:1357-1364 `document.connections.forEach`——不触 direct）；WS 全关后各 onClose 首行 `if (document.getConnectionsCount() > 0) return`（esm:1383——direct≥1 恒早退，连 unloadDocument 都不尝试）⇒持有任一 direct ⇒ **runDestroy 的 Promise 永不 settle（不是慢，是永不）**——gateway :3070 4s race 只是遮羞，每次关停 destroy_timeout 必触发且 hangReason 误报 direct-open。配套三件：①步骤 0 定性改写（§6 失败分支表同批）；②释放后断言 `Σ directConnectionsCount === 0`（非零=ERROR+计数——硬失败，与「逐会话超预算」两口径分离）；③destroy_timeout hangReason 补 `resident-session-open` 档（常驻 bug 伪装成第三方直连=最不该留的坑） | 终版 N8+第五轮 R2（两报告独立论证一致；我方②③实证） |
+| Z82 | **Z60 理由重写+Z62 reaper 判据补第三条件（N9）**。①「关页即 flush」在常驻下**结构性失效**：onClose 首行计数早退（esm:1383）⇒ :1385 `unloadImmediately→executeNow` 不可达——Z60 保留 true 的真实残存价值=**无会话 doc**（第三方直连/装载失败清理路径）的关页立即 store；pin 目的从「保 durability」改「防升级翻转+记录本路径常驻下已失效」（否则 plan 会写出断言该行为的测试=D13 假门禁同族）。②Z62 三条件写全：`pendingQueues[pid] 空 ∧ 无在飞会话写 ∧ 释放经 releaseSessionFor`——第三项即 reaper 不自行判 debouncer：`conn.disconnect({unloadImmediately:true})` 使库以 executeNow 兜底 flush（esm:1149 以 true 调 storeDocumentHooks），把「debouncer 是否在飞」的判定权交回库（与我们不可完整观测的内部状态解耦） | 终版 N9（:1383 实证；RPO 语义不变——Z61 已正确登记放宽到 ≤maxDebounce） |
+| Z83 | **释放竞态裁定：库层已被双闭合，真实缺口在应用层会话表——补 releasing 状态机（第五轮 R1 修正采纳）**。我方对 disconnect 时序（esm:1145-1174）三时点穷举：新写在 store await 窗口到达→:1160 `count===0` 检查已见新连接⇒跳过卸载（doc 存活写保留）；在 :1160 后 :1171 前到达→unloadDocument 首行谓词 count>0⇒no-op；在卸载完成后到达→documents 已删⇒新装载（=Z64 B 窗口）——**库层无静默丢失路径（R1「写丢失」不可达）**。真实缺口=reaper 发起 disconnect 与并发 acquire 同 pid 交错：新开 direct conn 脱离会话表管理（常驻无人释放+refCount 错乱）。修法=**会话表轻量状态机 `held→releasing→released`**：reaper 仅对 `refCount===0` 会话置 releasing 并 disconnect({unloadImmediately:true})（立即 flush——落库正确性优先）；acquire 遇 releasing⇒await 释放完成⇒新开 conn 入表（串行化）。硬断言（A2 验收第 3 条确定性用例，与 Z64 两窗口并列）：释放窗口内到达的写**要么落在同一实例（时点①②）要么经新装载可见（时点③）——禁会话表双条目、禁静默丢弃** | 第五轮 R1（修法②轻量版；R1 的拆两段①不采——库层已闭合无需两段） |
+| Z84 | **check-ecosystem 门禁冲突修复（三断言按 role 分离+数字挂实测条件）**。冲突实证：:57 `rss ≥ heap+384MB`（api 384+384=768 vs 目标 560 **红**；worker 320+384=704 vs 480 **红**）；**我方补强（报告未覆盖）：:73 heap 闸链 `trip < rss−200MB` 配 heap-pressure.ts:14-15 单值 TRIP=750MiB——worker 480M 时要求 trip<280M，单值常量必撞**。修法：①:57 余量常量按 role 分离（API/WORKER_EXTERNAL_HEADROOM，与 §5.1 数字同源同批）；②heap TRIP/RELEASE 按 role 分离（worker 侧重标定——Z10 既有裁定落载体）；③**560/480 标[待实测校准]**：D 片第一道出口实测前不得落 ecosystem——落地顺序=ecosystem+check-ecosystem+heap-pressure 三处同 commit 改，实测后允许上修（上修则三处同批再改） | 第十轮 §1.1+我方补强（check-ecosystem:43-89/heap-pressure:14-15 实证） |
+| Z85 | **systemd unit 形态裁定（裁决两报告冲突）：单 unit 机器级兜底为主形态+Restart=on-failure**。`deploy/flowweb-pm2.service`（单 unit 罩 pm2 god+两 app）：`MemoryMax=1150M`（算式=560+480+god 实测 40.4+余量 70——**兜底上限罩多进程=各进程上限之和是正确算术，与 Z68 废掉的「上限当稳态预算判据」不同事**）+`MemorySwapMax=128M`（宁被杀不换页维持）+`Restart=on-failure`+`RestartSec=5`（防引导循环——终版 Restart=always 的死条款问题：god 存活时 unit 不退出，node 被杀的拉起归 pm2 autorestart=正确分工）。**分层防线写死 runbook**：per-process 第一层=PM2 max_memory_restart（560/480）；机器兜底=cgroup MemoryMax（触发时内核杀 RSS 最大者=泄漏者，PM2 autorestart 秒级拉起=设计行为）；unit 级故障（god 崩溃）=systemd on-failure 重启 unit。双 unit=登记可选探针（PM2 daemon 分离=双 god 各 40MB 开销+PM2_HOME 运维复杂度；第十轮「单 unit 撤销拆分收益」论证不成立——cgroup OOM 被杀者是泄漏进程非随机；终版「整单元重启撤销收益」亦不成立——god 死=两 app 俱死，整单元重启=正确恢复） | 第十轮 §1.2 vs 第五轮 R4（我方裁决：泄漏场景单 unit 杀泄漏者=正确；双 unit 收益边际） |
+| Z86 | **Z72 修正：worker 指标出口改 loopback 独立端口**。勘误：AggregatorRegistry=Node cluster 专用（prom-client index.d.ts:134-142 靠 cluster IPC 抓取）——本仓 fork 模式双 PM2 app 无 IPC **不可用**；两进程指标同名同标签（全局 register）文本直接 concat=duplicate timeseries 解析错误**打死整个抓取**。**首选=WORKER_METRICS_PORT=3002（只绑 127.0.0.1）+nginx `location /metrics-worker` 第二抓取 job**——与 3001 loopback-only+nginx 唯一对外路径的既有形态一致；「零监听」验收锚改写=worker 3000+3001 双 ECONNREFUSED 维持，3002=显式契约（loopback-only）。次选登记=POST 文本拼接（须 worker 侧白名单过滤只发 {role='worker'} 专属族+两侧禁 setDefaultLabels+api 不得回喂 register）。明确禁止=worker 指标注册进 api 全局 register。**〔v6 注：本行「nginx 第二抓取 job」已被 Z116 再修正——nginx 无 /metrics 路由是故意的（runbook:142），进 nginx=第一次把指标面暴露 HTTP 栈；终形态=3002 loopback 不进 nginx，check-collab-health/soak 读双 loopback 端点；执行以片 D 5b 为准〕** | 第十轮 §1.3+第五轮 T3（合并）+Z116 修正 |
+| Z87 | **graceDirectConnections 维持 2_000（Z38 的 500 撤回）**。V9 入口早退已存在（gateway:3086-3096 `if (count()===0) return`——「每次重启恒吃满 2s」是误判）；A2 步骤 0 释放后会话 direct 归零⇒宽限**恒早退零成本**。砍 500=把第三方在飞直连（video-work 活读 fallback 5s 超时窗）交给 destroy 强杀——用安全边界换 1.5s（45s 预算本就宽裕）。A2 关停落档记一行「会话清零后 count=0 早退」实证 | 第十轮 §1.4（gateway:3086-3096 我方实证；终版附带确认 (b) 同结论） |
+| Z88 | **Z65 不变量改合计计数+调用点证明义务（不做逐点改造）**。closeConnections 只遍历 WS（esm:1357-1364）⇒「零 WS」不蕴含「零 direct」——不变量改 `!residency.holds(pid) ∧ getConnectionsCount()===0 ⇒ !documents.has(pid)`（esm:590 合计口径）。closeConnections 逐调用点补 direct 分支**不采纳**：selfIsolate/beginDraining/vacuum 先 releaseSessionFor（Z63 释放出口）+关停步骤 0 已结构性覆盖（我方核 gateway:3200-3219 调用点=team disbanded 路径，其会话清理由 Y0a-2 既有事件链承接）——代之以 **A2 验收断言：selfIsolate/shutdown 两路径调 closeConnections 时 Σdirect===0**（出口先行的证明义务） | 第十轮 §1.5（修一半：不变量采纳，逐点改造不采） |
+| Z89 | **env 两分判据（修 COLLAB_ROLE 落点——Z48/Z49/Z12 三者自洽化）**。事实：.env 单文件双进程共读（Z49 自定）⇒按进程分叉的键进 .env 必然一端读错。判据两分：**分叉键**（COLLAB_ROLE/COLLAB_BIND_ADDR/COLLAB_SPOOL_DIR——按进程取值不同）**只允许 ecosystem env 块注入，禁入 .env**；**同值键**（NODE_ENV/WORKER_WRITE_TOKEN/DATABASE_URL/REDIS_URL 等）**只允许 .env，禁入 ecosystem**（Z12「ecosystem 禁注入」范围收窄=只指同值键；现行 ENV_ALLOWLIST=['COLLAB_SPOOL_DIR','COLLAB_BIND_ADDR'] 恰为分叉键，一致）。census 双向断言进 C0：分叉键不在 .env ∧ 同值键不在 ecosystem | 第五轮 R3（逻辑实证无需代码验证） |
+| Z90 | **Z74 结案+钩子计数口径统一**。banner-cleanup.processor:17-20 钩子体仅 console.error（零 DB 零 doc——我方全文实证；process() 的 minio.delete 属任务本体非钩子）⇒ **worker 安全持有，显式豁免成立，Z74 关闭**。@OnWorkerEvent('failed') 全仓 grep=**恰 3 处**（execution.processor:62/ai-image-edit.processor:290/banner-cleanup:17）——B18「两处」与 Z41「第 5 处」均不准确，统一口径=**2 处改道+1 处豁免** | 第五轮 T5（grep+全文实证） |
+| Z91 | **稳态判据补子进程与采集口径（T4+T6）**。①`p95(worker_RSS)` 改 **p95(worker 进程树 RSS 合计)**——PM2 不聚合子进程，ffmpeg 是子进程（sharp 为进程内 native 已含在主 RSS）；②采集载体=soak 装置采样（check-collab-health 采样窗辅助）；③判定时点=**A2 出口后/D 出口前各一次**（常驻化改变内存形态，先测单进程常驻基线再测双进程） | 第五轮 T4/T6 |
+| Z92 | **Z77 承接者显式化+会话表上限口径**。①常驻后 isDocResident 恒真⇒「投影不得成为装载源」保护（intent-reconcile:270 deferred 档+probeArtifacts wasResident 计数——我方 grep 实证）消失，**承接者=驻留软上限+heap 闸**：A2 验收补 `residentDocs ≤ COLLAB_MAX_LOADED_DOCS` **硬断言**——按**会话表 Map 条目数**计（会话表键空间=projectId，documents 键空间=`project:<id>`，非同键空间不得互推——终版附带确认 (a)）；②reaper 优先回收「仅被 reconcile 触碰」的会话；③`yjsDocLoadedByReconcilerTotal` 注释与告警语义同批更新（常驻后 reconcile 装载=常驻 miss 而非异常） | 第十轮 §3.1+终版附带确认 (a) |
+| Z93 | **冻结 doc 驻留时长分布观测（Z70 降级的配套）**。环路断点=会话 TTL/驻留软上限/heap 闸三新机制——「环路有界」从论证变可读数：`yjs_doc_evicted_total{reason='ttl'\|'lru'\|'forced'}` 已有挂点，**补驱逐时驻留时长直方图**（A2 验收落档：冻结 doc 驻留时长分布——事故复盘自证 Z70 降级无环） | 第十轮 §3.2 |
+| Z94 | **Z80 补反例锚两条（单侧断言→双侧）**。反例①：`directConnectionsCount===0`（显式 removeDirectConnection 后）∧零 WS ∧非 debouncing ⇒ 谓词 true ∧ unloadDocument 后 `documents.has===false`——证明「**释放确实能卸载**」（正例只证明持有不卸载）；反例②：`saveMutex.isLocked()===true` ⇒ 谓词 false——钉死 Z62 reaper 判据（pendingQueues 空）与库谓词的**分工边界**（防未来把 reaper 简化为「调 unloadDocument 看成不成功」静默退化） | 第十轮 §3.3 |
+| Z95 | **Z53 元纪律扩展③+Z 行行号纪律**。对撞扫描触发条件从「是否推翻旧裁定」扩为「**本次新增机制是否改变任何既有路径的定性**」（Z59 未推翻任何裁定，但静默改变关页 flush/reaper 卸载/destroy 收敛三路径——本轮 N8/N9/D15 三处漂移同源此类）。Z 行内 file:line=立项日快照，执行期按语义定位（与 B 系同纪律——片 A/B 自身改动必然使 Z 行行号漂移，不得当执行锚） | 终版 §八+第五轮 T2（T2 的符号锚全量改写不采——成本倒挂，纪律化即可） |
+| Z96 | **旧形态注记三处（元纪律②执行补完——Z78 清扫按 v3 裁定清单跑，漏了 Z59 自身引入的）**：§0.5.1 Z4（返回值旧形态→Z69 减法）、§0.5.1 Z1（四出口旧形态→Z59/Z63）、§0.5.4 Z36（探针旧形态→Z59 定案）——均加「已被 Zn 整体替换」注记（Z15 同款沿革格式，不删行）；§6 常驻行①列 Z36 残留+§7 纪律 1 行「v2」残留同批清；**+行数计法同源（第十轮 T1/终版 Z52③ 补裁）：`check-collab-module-size` 门禁实现=对齐 wc -l（`content.replace(/\n$/,'').split('\n').length`）——无尾换行文件 `wc -l`=N 而 `split('\n').length`=N+1，两口径在阈值边界不等价；B6 的 3222=wc -l 口径维持，门禁与文档必须同源（否则新门禁首跑自相矛盾）** | 第十轮 §2+终版 D15/D16+T1 |
+
+#### 不采纳（Z97）
+
+| # | 不采纳项 | 理由 |
+|---|----------|------|
+| Z97 | ①裁定表外移附录/删除沿革（第五轮 §七：§0.5 占全文 2/3 违纪律 1）②closeConnections 逐调用点补 direct 分支（第十轮 §1.5 后半）③双 unit 主形态（第十轮 §1.2）④Z 行全量符号锚改写（第五轮 T2 全量形态） | ①裁定表=审计链（每条含实证出处+推翻关系），外移断链；「当前有效指令」单源=§1/§2 片定义（头注已声明）——纪律 1 防的是「跨文档内嵌事实」漂移，Z 行事实全部锚定立项日快照（Z95 纪律化）；②Z63 释放出口+步骤 0 已结构性覆盖，逐点改造=为已覆盖路径加机制，代之以 Σdirect===0 断言（Z88——证明义务换机制）；③见 Z85 裁决理由；④Z95 纪律化达成同目的，全量改写成本倒挂 |
+
+### 0.5.7 v6 收敛裁定（2026-10-13 第十一轮三报告+我方两轮 16 项一手实证；Z98 起编号）
+
+> 输入：三份报告（生产级评审 8 承重+6 次级／定稿审核 5 P0+11 P1+2 误诊／外部调研+源码复核增量修正）。我方实证（关键项）：①writeNodeData/writeExecStatus 首行租赁+熔断门（collab-document.service.ts:157-164 注释+代码）②IntentReconcileService=ExecutionModule:77 普通 provider 无 role 门+onModuleInit 双 timer（intent-reconcile.service.ts:96 五分钟 verifyActive/:103 24h reconcileDaily——资金操作 rollbackRunning/settleStranded 在内）③isPersistedComplete 首项 `!documents.has(name)`（gateway:340-344）∧消费面 shrink:303 `while(!isPersistedComplete)` 轮询+readCanvasSnapshotCached:134 缓存门④shrink 影子预演**已在**（collab-shrink.service.ts:180-192 Y0b-4 T8 建——:185 `shrunk` 测量；缺陷=:206-207 thaw 判据用 :198 活 doc truth 重算而非复用 shrunk）⑤canvasUndo.ts:27 `trackedOrigins:new Set(['local-user'])`∧库 transact origin={source:'local'}（esm:1140-1143）——服务端写本就不入 undo 栈⇒Z6 先红用例修复前恒绿=假门禁⑥emitNodeStatus（execution.gateway.ts:70-82）`this.server.to(...)` 无 undefined 防护∧@WebSocketServer :21⑦EXECUTION_JOB_OPTIONS attempts:1（注释自陈防重复扣费）⑧soak 装置**存在**（apps/api/scripts/collab-soak.mjs——报告一「查无此物」系只查仓根 scripts/，错误；但其「P6/P7 无对应 T 任务」成立）⑨软阈闩锁 gateway:1003（>64 条/1MB）+BOI 头注 :195-198（doc 队列=合法归属之一）⑩装载双查 degradedDocs gateway:1065-1073（pendingStructs/pendingDs 分列+ERROR+degraded）⑪env.ts:84 COLLAB_MAX_LOADED_DOCS optional **无默认**（注释纪律「默认值落使用点」）⑫metrics @Controller('metrics') 无 prefix。**总判：Z59 常驻机制三报告一致确认唯一可行（报告三实证 unloadImmediately:false 旋钮不阻止卸载——:1571 谓词不读它，只买到 ~3s 写合并窗）；本轮全部新发现=机制落地撞既有语义+plan 任务序/载体缺口+三处我方 v5 裁定被证伪修正（Z77/Z86/load==1 锚）。**
+
+#### 采纳（Z98-Z123）
+
+| # | 裁定 | 出处与证据 |
+|---|------|-----------|
+| Z98 | **ExecutionDaemonModule 拆分（role 门三面扩四面）**：IntentReconcileService=ExecutionModule:77 普通 provider 无 role 门+onModuleInit 双 timer（5min verifyActive 含 rollbackRunning/settleStranded 资金操作+24h reconcileDaily）——worker 装 ExecutionCore 即**双进程双倍回收钱**（Z31「reconcile 只在 api 进程」是口头前提非结构约束）。拆分：`ExecutionDaemonModule`（IntentReconcileService+temp-cleanup/subscription-task repeatable 注册）**仅 role=api 装配**；结构性断言 `role!=='api' ⇒ 该模块 providers 空`；COLLAB_ROLE 门控面扩为**四面**（WS listen/processor 注册/写端点客户端/守护与定时器装配——spec R0c-7 三面修订） | 定稿 P0-3（module:77+service:96/:103 我方实证） |
+| Z99 | **CollabWritePort 结果三分（防误退款——资金方向二分）**：writeNodeData/writeExecStatus 首行租赁+熔断门 throw ServiceUnavailable（:163-164——503 瞬态）与 `written:false`（业务，走退款）是资金方向二分；HTTP 端口若把 503 压成通用错误⇒worker 误判「节点已删」**错误退款**。三分契约：**瞬态**（503/COLLAB_NOT_SERVING/真空窗/租约失守）⇒worker 预算内退避重试**绝不上抛到 job**（作业成败由生成结果决定，不由投影写决定）；**业务合法失败**（written:false/node-deleted/UNDEFINED_PATCH_VALUE）⇒不重试走退款终态链（现行为正确）；**永久**（token 失配/404/schema 拒）⇒计数告警不上抛。attempts:1 **维持**（投影写不上抛后它不再承担投影重试职责——改 attempts 碰资金链不与本批同窗）。第一验收锚（先红）：注入 503⇒断言 rollbackDeliveryFailed **零调用**+job 不失败 | 定稿 P0-2（:163-164+attempts:1 实证；「终态投影所有权交回 PG+水位列」归 Y1c-2b 维持 Z25） |
+| Z100 | **端口形状 7 方法+顺序修正（P1-1）**：worker 侧消费面实测=withDoc/readCanvas（ExecutionService.execute:156 每次执行读画布）/isLeaseServing(:152)/isDocResident/writeNodeData/writeExecStatus/probeArtifacts——端口非「writeBatch 一法」。**顺序倒置修正：端口定义与 api 侧改道先落（A1 片尾），CollabModule 停止 exports CollabDocumentService 与模块拆分后行（D）**——否则停止 exports 时 ExecutionModule 仍按原令牌解析⇒编译红而拆分在后面。writeExecStatus 次数锚按 attempts 分支枚举上界（B5 的「4 次」只数 happy path——实测 service 内 9 处+processor 1 处）；「单节点 HTTP 写次数 ≤2」为 writeBatch 结构断言（readCanvas 读段归 D 端口化，不进 A1 写合并——报告二 P2-1 采纳） | 定稿 P1-1（消费面逐文件实证） |
+| Z101 | **emit 端口（第二端口）+Z42④ 措辞修正**：Nest `createApplicationContext` 仍实例化已加载模块的 controller（@nestjs/core 10.4.18 源码实证）——「零监听由构造保证」**只对监听成立**；@WebSocketServer() 在 worker 恒 undefined⇒emitNodeStatus（:70-82 无防护 `this.server.to()` 直接调用）抛 TypeError；依赖面=6 processor（execution/video-trim/video-separate/ai-image-edit/ai-result-download/stitch）+2 team-recharge 间接。新增 `emit.port.ts`：api=真 gateway 注入/worker=降级 no-op+计数（emit 非资金路径，降级安全）；「零监听」验收锚维持（3000/3001 双 EADDRINUSE——监听语义），controller 实例化措辞修正 | 定稿 P1-2（Nest 源码+gateway:70-82 实证） |
+| Z102 | **部署门裁决（P0-4 折中）**：报告一「--only 前移 A2」vs 报告二「放弃 --only」——**两者都做但都降级**：①`--only` 顺序化**保留**（部署 UX：api 先服务）+plan 期探针（部署演练验证 --only 与 ecosystem env 块的注入组合语义——未实证的 pm2 实现细节不押正确性）；②**worker 启动 ready 门**（createApplicationContext 后、订阅队列前轮询 `GET 127.0.0.1:3000/api/ready` 上限 60s env 可调，超限非零退出交 pm2 autorestart）；③**正确性由 Z99 三分语义承担，不由启动顺序承担**（报告二方向正确——api 抖动不只发生在部署窗：真空窗/租约抖动/spool 熔断都 503）。A2 时点无双进程对象，cutover 演练留 D 片（报告一前移不采纳） | 定稿 P0-4+报告一 2.3（裁决） |
+| Z103 | **P0-1 部分采纳（「常驻=数据丢失」定性不采纳）**：报告二「BOI 三归属削成一归属」是**对 BOI 的误读**——gateway:195-198 头注自证「任何批次任意时刻至少归属于 {doc 队列, spool 已 fsync, PG 已提交} 之一」——**doc 队列（内存）本就是合法归属**；常驻改变的是「队列残留时长」（断连即清→≤maxDebounce 3s 由 debouncer 兜底 flush——:1532-1553 第三参数 maxDebounce 强制窗），SIGKILL 窗≤3s=Z61 已登记的 E43⑥ 正常腿契约值，SIGTERM 由 drainAllDocuments+spool 兜底。**采纳两点**：①plan 明确「实测未完成⇒max_memory_restart 维持 1G 不下调」（Z84 语义显化——报告二误读 plan T30 为直接落 560）②新增 `yjs_release_with_pending_total`（释放时批非空——非零即证明释放抢在落库前，稳态 0，进 check-collab-health 稳态判据） | 定稿 P0-1（BOI 头注+软阈 :1003 实证反驳+两点采纳） |
+| Z104 | **isPersistedComplete=三涟漪第五项（spec Z95 元纪律③漏网样本）**：谓词首项 `!documents.has(name)`（gateway:342）⇒常驻下**恒 false**⇒①readCanvasSnapshotCached（:134-137）缓存门永远活读 fallback——快照缓存+30s TTL 整条失效+fallback 计数失语义②**shrink:303 `while(!isPersistedComplete(pid))` 轮询到超时**——quiesce 硬前置永久不满足。裁定：**谓词拆分正交化**——「PG 快照滞后度」（inFlightProjects/pendingQueues/spool 三态，**剔除 documents.has 项**）与「doc 常驻」（isDocResident 独立谓词 Z105）分离；消费面修正=shrink quiesce 改「显式 releaseSessionFor(pid) 后判三态」（与片 A2 释放出口合并为同一任务）；缓存门语义=常驻+三态空⇒活读经会话零成本（路径语义等价） | 定稿 P1-4（:340-344+:134-137+shrink:303 三处实证） |
+| Z105 | **isDocResident 唯一形态=hasActiveWsConnection(pid)（推翻 Z77「∨活跃会话」倾向——两报告一致）**：常驻若计入⇒无人在线项目的 reconcile 也真⇒`exec_projection_deferred_total` 语义（「无人在看=不值得为 UX 投影花钱」）被废+5min 一次的 reconcile 会把几十个无人项目钉在内存。裁定：谓词=**仅 WS 连接数>0**（与常驻会话无关——语义本就只看连接，不需「收窄」）；reconcile 触发的装载=mode:'read' **即用即释不进常驻池**；无人看=deferred，用户回来 alignExecFromIntents（canvasCollabRuntime:751 connect 边沿+visibilitychange）既有机制对齐；Z92 承接论证压力随之下降 | 报告一 3.2+定稿 P1-5（两报告独立同结论） |
+| Z106 | **常驻双层约束（P1-6+报告一 2.1+报告三力度修正）**：字节主约束挡**触顶病态 doc**（正常 doc 72-366KB≈72B/item——Epicenter 基准；威胁=8MiB 触顶 doc×N），条目次约束防 map 失控：①`COLLAB_MAX_RESIDENT_BYTES`（默认 384MiB≈old-space 同量级）——会话表项记 `bytes`（取 docTruth 口径——复用 calibrateTruth 既有值**禁造第二真源**），驱逐条件=Σbytes 超限⇒按字节 LRU 回收（reason='lru'）②`COLLAB_MAX_LOADED_DOCS` **使用点默认 8**（env 注释纪律「默认值落使用点」——env.ts:84 optional 维持）③新增 gauge `yjs_resident_bytes`/`yjs_resident_docs`+超限计数 `yjs_resident_over_limit_total`④**永不拒载**（拒载归 Y1c-3 准入——Z55 维持）⑤Z92 硬断言改「超限时必有 over_limit 或 evicted 计数」（`≤上限`恒真=假门禁——env 无默认时断言恒真是我方 v5 失误） | 报告一 2.1+定稿 P1-6+报告三修正（力度 P0→P1） |
+| Z107 | **TTL 显式键+load==1 锚改写（报告一 2.8——我方 v5 失误修正）**：spec 全文「TTL 到期」无键名无值（元纪律①违例自查）；「关页 10 作业 load==1」在 TTL 短于作业段间隔时**不可达/flaky**（AI 生成耗时分钟级⇒TTL 到期⇒释放⇒下段写 load==2）。裁定：①`COLLAB_SESSION_IDLE_TTL_MS` 显式键+初始默认 **120_000**（≥AI 作业单段间隔上界——plan 期实测调）；②验收锚改结构性三判据：**A**=同 project N 连续作业在 TTL 窗内到达⇒`yjs_doc_load_total{trigger='direct'}==1`（soak 装置 pin TTL——判据依赖的旋钮显式化）；**B**=会话命中率 `1−load/open ≥0.9`（稳态窗）；**C**=`yjs_store_total` 单调 ≤⌈编辑窗/maxDebounce⌉+2 | 报告一 2.8（TTL 无键值=元纪律①违例实证） |
+| Z108 | **writeBatch 内容校验（manifest 升格执行期校验表）**：T27 端点验收只约束鉴权零约束 body；落点 :174 `for (const [k,v] of Object.entries(patch)) dataMap.set(k,v)`——k/v 任意 JSON 无白名单（`__proto__/constructor/prototype` 写入 doc 数据键进未覆盖不变量区；fillDoc/patch 可一次推 doc 过 maxDocBytes⇒freezeQuota⇒**全协作者停摆**——SS2 帧闸 :1859 只管 WS 入站不管服务端写）。裁定：①**C0 manifest 从「类型骨架+种子条目」升格「执行期校验表」**（每个 DocWriteOp 声明键集/每键值域与字节上限/op 数上限与批总字节 Σ≤256KB——零额外工作量，manifest 本来就要写）；②DocWriter 进门校验违规=**业务级拒绝**（非截断非 sanitize）返 `UNKNOWN_KEY`/`PATCH_TOO_LARGE`/`OP_COUNT_EXCEEDED` 进 reject 计数；③显式拒绝 `__proto__/constructor/prototype` 三键 | 报告一 2.4（:174+帧闸边界实证） |
+| Z109 | **释放/获取硬超时（防 await 到死）**：`releaseSessionFor` 规范 Promise<void 但无上界——disconnect→storeDocumentHooks→repo.append（5s 事务上界）+spool fsync 磁盘挂起无界⇒reaper 被吊住⇒①releaseAllSessions 预算破表②acquire 遇 releasing **新写请求被吊住**。裁定：①releaseSessionFor 硬超时 **5s**（与 append 上界同源）②超时后不等待：conn 置 `zombie`（记 `collab_write_session_release_timeout_total`）**直接新开 conn 入表**——接受同 doc 双副本窗（库层三时点双闭合=Z83 实证安全，只多一份内存）③acquire 等待加超时+计数（`acquire_wait_timeout_total`）超时即新开；④关键不变量：**同 pid 的 acquire 永不因 releasing 无界等待** | 报告一 3.6 |
+| Z110 | **store 失败 doc 强制淘汰路径（不依赖 disconnect 成功）**：库 **故意**不卸载 store 失败的 doc（esm:1540-1549 捕获后 return "Document stays in memory"——上游 #954 关闭未改）；reaper 的释放路径（disconnect(true)→storeDocumentHooks）**恰好再走一次 store**——PG 持续故障期=「disconnect 抛错→释放失败→conn 泄漏→永久驻留」（上游 #846/#895/#954 三 issue 同成因）。裁定：强制淘汰=清会话表条目+标记 force-evict+**直接调 `hocuspocus.unloadDocument`（Z65 唯一调用点）**+失败计数告警；**PG 熔断开启期（admitQuery gateway:873 判据）不重试 disconnect**——熔断期内存上涨交 heap 闸观测，不做每次 reaper 撞 store 失败的放大循环 | 报告三新发现 3（esm:1540-1549+#954 实证） |
+| Z111 | **degradedDocs 阻断常驻+周期完整性巡检**：仓库自证「整行缺失不可探测」（library-anchors.spec.ts:20 A7a——pendingStructs 为 null 且内容缺失）——常驻把该盲区暴露窗从「装载→告警→可能重启」的分钟级拉到**小时级**（截断 doc 驻留+接受编辑+反复 store 回 PG=持续状态非一次性事故）。裁定：①装载双查命中（pendingStructs/pendingDs 非空⇒degradedDocs.add :1065-1073 既有）⇒**该 doc 不进常驻集合**（退化为每次装载+每次告警——宁可慢不可把已知截断 doc 留内存当权威）；②周期完整性巡检（soak 扩展）：常驻 doc 抽样「PG 重放→encodeStateVector 对拍」不一致即 P0——A7a 档唯一探测手段（A2 验收观测项） | 报告三新发现 2（A7a 自证+:1065-1073 实证） |
+| Z112 | **reaper 释放前运行时防御（Z94② 断言升防御）**：上游 #995（保存中仍卸载丢末批）教训——释放前显式检查可观测的库状态（debouncer 在飞/saveMutex 锁定⇒**重置计时器不释放**）；不可观测部分依赖库谓词 no-op 兜底+计数。显式检查是防御（省一次无效 disconnect），库谓词是兜底——两层并存 | 报告三（#995+Z94② 升级） |
+| Z113 | **releaseSessionFor try/finally+周期对账（上游泄漏三 issue 对症）**：DirectConnection 未释放=上游 #846/#895/#954 成因——①release 全路径 try/finally（异常时 conn 引用必清理，禁 catch 吞）；②周期不变量「Σ会话表内 conn 的 directConnectionsCount === 会话表条目数」对账（漂移即 WARN+计数——泄漏可观测）；③关停 releaseAllSessions 同判据 | 报告三（三 issue+#846/#895） |
+| Z114 | **常驻×部署切换推演（报告一 2.3 采纳两点+一处更正）**：更正——「旧进程 drain 中新进程已在服务」**不成立**：lease.release() 在关停步骤 6（gateway:3081，drainAllDocuments :3068 **之后**）+fork restart=stop→start（deploy-guard 拒重启三步 Y0a-3）⇒旧进程完整走完 shutdown 才 release 租约⇒新进程拿不到租约——**双实例窗结构性不存在**。采纳：①`collab_drain_duration_seconds`+`collab_drain_projects_total` 观测（A2 关停落档必含——drain 从秒级变数十秒级是真实的，需可读数）；②drainAllDocuments 18s hardDeadline 按实测重标（常驻后面对全量脏批+force-spool 尾部）；③pre-cutover 显式 quiesce 登记为 D 片可选项（cutover 前调 /api/drain 等 drain 完成再 SIGTERM——缩短关停时间轴，一行脚本成本） | 报告一 2.3（lease 时序更正+三点采纳） |
+| Z115 | **systemd unit 用 pm2-runtime 前台模式（P3 落地修正）**：`Type=simple`+`User=ubuntu`+`Environment=PM2_HOME=/home/ubuntu/.pm2`+`ExecStart=/usr/bin/pm2-runtime start ecosystem.config.cjs`——前台模式**不需要 PIDFile/不需要 Type=forking**（消 P3 自留的「一分钟探针」不确定性——承重机制禁建立在跑起来再看上）+日志直进 journal+User/PM2_HOME 显式对齐防第二 god（+40.4MB+状态分叉）。报告二方案 B（删 PM2 改 systemd 模板单元）**登记 Y7 评估**：收益=省 40.4MB god+天然 per-process cgroup；代价=deploy.sh/runbook/ecosystem 全链重写（本批 44 任务外）+「现在零迁移 Y7 带负载迁移」论点成立故必须 Y7 前显式评估 | 报告一 3.1（方案 A 采纳+B 登记 Y7） |
+| Z116 | **Z86 再修正：3002 不进 nginx（我方 v5 误裁定）**：nginx **无 /metrics 路由是故意的**（runbook:142「公网该路径落 SPA 兜底」+Y0b-5 部署实录）——v5 的「nginx location /metrics-worker 第二抓取 job」=第一次把指标面暴露 HTTP 栈+假设仓外抓取器=E58② 要消灭的「生产配置不在仓」形态。修正（报告二裁定甲）：**3002 只绑 127.0.0.1 不进 nginx**——check-collab-health/soak 读两个 loopback 端口（同 token 形态）；worker 端点按 {role} 断言对应指标集（worker 未装配模块的 api 族指标**不存在**——非零值假信号，health 脚本按端点+role 分集断言）；3002 **fail-closed**（production 未设 token 拒启——与 /metrics 同语义） | 定稿 P1-7（runbook:142+@Controller('metrics') 实证） |
+| Z117 | **内存实测装置改指标面合成判据（P7 修正）**：现 collab-soak.mjs 只取 process_resident_memory_bytes 首个匹配（双进程后拿到的是 api）+maxRSS vs p95 混用+smaps_rollup 在 Windows 开发机不可用。修正：①worker 侧自暴露 `process_tree_rss_bytes{role='worker'}`（本进程+子进程 RSS 求和——Linux 服务器/CI 跑，采集失败不上报**不给假数**）；②soak 学会读双端点+只压不统计（p95 由查询侧/prometheus quantile 承担，runbook 写查询句）；③「300MB 系统保留」判据项改 `常驻上限×单 doc 实测 p95 字节` 显式项（与 Z106 同源） | 定稿 P1-8（collab-soak.mjs:46-56/:162 实证） |
+| Z118 | **check-ecosystem 跨文件断言强化（Z84 可执行化）**：从 ecosystem 与 heap-pressure **两处取值**计算 `TRIP_BYTES[role]+200MB ≤ max_memory_restart[role]`（替换单向单值断言 :73）——「上限已降闸未重标⇒闸永不 trip PM2 直接杀」的窗口结构性消除；与 Z84 三处同 commit 纪律合并 | 定稿 P1-9 |
+| Z119 | **origin 验收锚改写（Z6 先红用例作废——假门禁 D13 族）**：实证 canvasUndo.ts:27 `trackedOrigins:new Set(['local-user'])`∧库 DirectConnection.transact origin={source:'local'}（esm:1140-1143）——'local'≠'local-user'⇒**服务端写本就不入 undo 栈，修复前断言恒绿**。Z6 改造保留（真事务 origin 显式化——巧合级隔离变契约级），验收锚改：①断言服务端写事务 origin===Origin.Server（doc 事务 origin 可直测）；②gateway:990 update 监听按 origin 分流——服务端写不计客户端配额口径（docDelta 累加 ：996-999 现不区分 origin——服务端产物不应消耗用户配额观测） | 定稿 7.1（canvasUndo:27+esm:1140 实证） |
+| Z120 | **shrink thaw=一处赋值替换（plan P2 裁定简化）**：影子预演**已在代码里**（collab-shrink.service.ts:180-192，Y0b-4 T8 建——:185 `shrunk=encodeStateAsUpdate(scratch)` 即「GC 已执行」口径）；真实缺陷=thaw 判据（:206-207）用 :198 活 doc truth 重算（嵌套事务墓碑未 GC 偏大）而非复用 shrunk。修法=**thaw 判据改用 shrunk**（truth 继续用于 calibrateTruth/observe/force 广播——这些该用真值）——mini-task 化（先跑 write-frozen-chain.int.spec:116,120 确认红因→改赋值→断言翻转） | 定稿 7.2（:180-198 实证——报告「三选一」勘正为「一处赋值」） |
+| Z121 | **soak 扩展升 C0 一等任务（T0.5）**：报告一「soak 查无此物」错误（apps/api/scripts/collab-soak.mjs 存在——其只查了仓根 scripts/），但「P6/P7 装置无对应 T 任务=顺序空洞」成立（T1 基线依赖装置、T22/T33 实测依赖采样器，装置本身无人建）。裁定：**T0.5=soak 扩展**（三场景装置化+双端点读取 Z116/Z117+TTL pin Z107+完整性巡检挂点 Z111）——一个装置四个消费者，先建装置再谈数字；A2/D 出口证据由 soak 产出（CI collab-resident-gate job 形态=≥10min 不进 PR 级 verify——本地跑+出口呈报，与「用户确认点看证据」配套） | 报告一 2.7（装置存在性勘误+任务空洞采纳） |
+| Z122 | **P2 系列收纳（九项）**：①readCanvas 读段归 D 端口化（不进 A1 写合并——「调用段≤2」断言只计写段）②writeExecStatus 次数锚按 attempts 分支枚举（happy/plan-missing/duplicate-attempt/deadline/node-deleted/delivery-failed/claim 过期/通用 catch 逐档上界——B5「4 次」勘误）③metrics 路径写法核对（@Controller('metrics') 无 prefix——plan 验收语句逐字可执行）④check-collab-health/告警面扩四稳态判据（destroy_timeout=0/quiesce-timeout=0/stacked=0/**release_with_pending=0**——runbook §6 同批）⑤deploy.sh spool readlink 改「按 app 名逐个 pm2 pid+cwd 一致断言，否则拒部署」⑥COOKIE_SECURE resolver=纯函数不读进程环境（dto 模块加载期约束——落点 collab-env-single-source.spec 现成骨架）⑦verify:fast 边界写明（FAST_PREFIX_LEN=15⇒新门禁全在 fast 外——本地 pre-commit 与新门禁无关，plan 明示「full/CI 生效」）⑧COLLAB_ROLE 等三键先红现成（collab-env-single-source.spec:55-62+check-ecosystem:79 ENV_ALLOWLIST fixture——T23/T30 点名现成的红，防误判环境问题）⑨死队列登记（SUBSCRIPTION_DAILY_RECON 有 consumer 无 producer——B18「17 processor」数字附注防当真实负载） | 定稿 P2-1..P2-10 |
+| Z123 | **版本面+上游实证登记**：4.6.0 **不升级**（本批全部结论源码实证+Redis 扩展已删无 4.7.1 修复动机）；check-hocuspocus-pin 扩组登记锚清单+「升级 ≥4.7.1 必须重跑」（Z18 机制已有，补版本目标登记）；runbook 写明「**禁止重新引入 @hocuspocus/extension-redis**」（上游 #1167 impact:critical/#1170 OPEN——store 锁失败跳全链+卸载未存 doc=静默丢数据/装载永久损坏——Y0a-3 整删裁定升级为「已验证的上游 critical 缺陷规避」） | 报告三 §五/§六（#1167/#1170 实证） |
+
+#### 不采纳与待裁定（Z124）
+
+| # | 项 | 理由/状态 |
+|---|---|------|
+| Z124-① | 报告一 2.5（客户端 IDB CRC/watermark/LRU 本批做） | 域归属维持 Z28/Y5：「分歧窗口被常驻拉长」论证**不成立**——客户端 boot 回放=本地快照+服务端 sync CRDT 合并，一致性由 sync 协议保证与 doc 服务端是否驻留无关；「B 看到内容回退」=离线编辑回连场景（本就存在与常驻无关）；Z28 移交判据（Y5 必须含 checksum+损坏即 discard）维持 |
+| Z124-② | 报告二 P0-1 的 P0 定性（「常驻=生产上一定炸」） | Z103——BOI 误读（doc 队列=合法归属）+maxDebounce 3s 强制窗兜底+Z61 契约内登记；采纳其两点（维持 1G 显化+release_with_pending 计数） |
+| Z124-③ | 报告二 P0-5（本批解禁 additive 迁移） | **已由 Z125 终裁：维持①零迁移——且为「根上解决」结论非范围裁剪妥协**（三份裁定报告两票①一票②+我方四项实证，详见 Z125） |
+| Z124-④ | 报告二 P0-4「放弃 --only」/报告一 2.3「--only 前移 A2」 | Z102 折中（保留+ready 门+探针+正确性归三分语义） |
+| Z124-⑤ | 报告一 3.1 方案 B（删 PM2）本批做 | Z115 登记 Y7 评估（收益/代价见裁定） |
+| Z124-⑥ | 报告一 2.1 的 P0 力度 | Z106 按报告三修正降 P1（正常 doc 72-366KB） |
+
+#### Z125 迁移解禁终裁（2026-10-14 用户提交三份裁定报告——两票①一票②+我方四项一手实证）
+
+> 我方实证：①**语句级租约 fence 已在**（canvas-doc-update.repository.ts:52-57 `INSERT...SELECT...WHERE EXISTS(SELECT 1 FROM "CollabLease" WHERE scope='primary' AND owner=$me)` 同语句原子求值+三层配套：:43 进程内 fail-closed/:61-72 fenced 判别返回〔0 行不抛——可判定结果非异常〕+二次查 leaseRowMissing 分型+5s 事务上界+与 compact 同 key advisory lock+真库夺锁用例 collab-lease-fence.int.spec.ts 存在）②**一次 store=1..N 行**（gateway:1093 splitPersistChunks+ :1183-1196 逐片 append——报告一「UNIQUE(projectId,idemKey) 第一次重试前就自己撞自己」成立）③**compact 无 LIMIT 全量读+按 id 全删**（:246-272——重复行坍缩靠实现细节非契约）④ledger_guard 触发器先例在（migration:1423-1436——但它是 GUC **静态谓词**守资金台账，与租约**移动谓词**不同类）。
+
+**裁定：①维持零迁移——理由按报告一/二框架升格为「根上解决」（两项候选一个语义缺陷一个既成事实），非范围裁剪。**
+
+| 候选 | 终局 | 依据 |
+|------|------|------|
+| `CanvasDocUpdate` 直接加 `(projectId,idemKey)` 唯一键 | **已评估并否决（非「本批不做」——防 Y1c 重捡）** | 语义缺陷：splitPersistChunks 一次 store=1..N 行共享同一 jobId（实证②）⇒约束在第一次重试前自撞；派生形态（+opIndex/+chunkIndex）均不可复现（运行期切批决定）；不加约束只加列=垫片 |
+| `CanvasDocWriteOp` 新表+唯一键（报告三方案） | **不采纳（优化项非正确性依赖）** | 它消除的只是「重试多落有界 delta 行」——正确性由 CRDT 幂等+Z4 守卫+**Z76 语义级校验（见下）**承担；代价=新表+vacuumReplace 清理义务（报告三自记纪律 4）+P2002 映射纪律+迁移链维护——收益零正确性增量；报告三「Z76 不可实现」只对**字节级凭据**成立，语义级校验可实现且够用 |
+| `BEFORE INSERT` 租约触发器 | **不采纳（非推迟）——语句级 fence 已在且更强** | 实证①：现有 `WHERE EXISTS` 同语句原子（无 TOCTOU 窗）+0 行返回 fenced 可判定结果（触发器 RAISE=异常路径污染 fenced/spool 契约语义家谱）；报告二「drain 窗每行抛错」论证不成立（BEFORE INSERT 只对实际插入行跑，fenced 0 行不触发）但其结论正确——**触发器防的是「不存在的写点」**；升级判据=census 断言「CanvasDocUpdate 生产 INSERT 全仓恰 1 处，非 1 处即红」（报告一方案——零成本把不变量变门禁，比触发器更早报警；该 census 被打破时触发器重新成为候选） |
+| `GenerationIntent` 水位列 | 维持归 Y1c-2b（补更硬依据） | **进程拆分不改变 exec 投影发散语义**（writeExecStatus 与 settle 拆分后仍同在 worker 进程，进程死暴露面不变）——水位列是既有缺口的另一种解法非拆分引入的新缺口，既有最终一致链已覆盖 |
+| `lastResult` JSON 列 | 不做 | writeExecStatus 返回 void、written:false 不提交——账本只需回答「落过没有」不需缓存响应体 |
+
+**Z76 精确化（采纳报告二第四节——替换原「重试先校验已生效」的笼统表述）**：①**交付类 op**（writeNodeData/writeExecStatus 终态段）=重试前**语义级校验**（节点 data.fileId===本次产物 id/status 已达目标态⇒跳过重发——同样的产物 id 写两次=幂等成功，归因不精确无害）②**投影类 op**=不校验（reconcile 收敛，重复无害）③**端点显式声明「不承诺跨请求去重」**——重试可能多落 delta 行（有界、compact 坍缩、可观测）；**禁写「看起来幂等」的内存去重表=垫片**。
+
+**随裁五项落地（全零迁移）**：
+1. **G1 测试**（片 D 判据）：同 idemKey 并发双发⇒断言 doc 终态与发一次逐字节一致（encodeStateAsUpdate 比对）+CanvasDocUpdate 净增行∈{1..N_chunks}（非 2×）+exec attempts 单调无重复翻转；**先红构造=删 worker 侧语义校验⇒净增行断言立刻红**——此用例是 Z76 的唯一证明（没有它 Z76 是一句期望）
+2. **G2 测试**（片 B T40 判据）：append 同一 update 3 次→compact→断言行数===0+**声明式断言 compact 读行集合覆盖全部行（禁 LIMIT——把坍缩从实现巧合升格为契约，防未来「优化」加 take: 使旧行永不删）**
+3. **census 新组**：CanvasDocUpdate 生产 INSERT 全仓恰 1 处（触发器替代防线）
+4. **drain×write-batch 相遇用例**（片 D）：drain（owner→NULL）窗内 worker 投递⇒断言（a）端点瞬态 503 非 200（b）预算内重试（c）租约恢复后同 op 只落 doc 一次
+5. **观测两项**：`collab_worker_write_retry_total{outcome}`（重试率=冗余 delta 行唯一来源，可量化）+`yjs_updates_rows_total` gauge（COMPACT_INTERVAL_MS 只按时间门 :34/:1572，常驻后 store 频次结构性变高——行数突破 60s 稳态可预警；**观测项非机制项**，行数门归 Y1c-3 再裁）
+
+**登记（Y1c-1 输入，勿丢）**：报告三「先证伪无对象」的观察正确——缺口在 D 片端点上线当天出现；届时若实测重试率/冗余行量级超预期（collab_worker_write_retry_total 落地后可判），CanvasDocWriteOp 新表方案在 Y1c-1 迁移窗口重评（届时带真实数据）。
+
+### 0.5.8 v7 收敛裁定（2026-10-14 第十二轮三报告+我方 9 项一手实证；Z126 起编号）
+
+> 输入：三份报告（plan v2 复核·8 承重+6 次级／v2 复审·1 P0+2 P1+3 P2／第十一轮复核·4 开放问题）。我方实证：①heap 闸判据 `!documents.has(documentName) && tripped`（gateway:848 auth 面+:975 三入口汇聚点——注释自陈「仅拒新物化」）②**maybeCompact 已在 store 成功尾部**（:1229-1255 `if(appended){...try{await this.maybeCompact(projectId)}}`+60s 时间门 :1570/:1572）③verifyActive=PG 扫（`generationIntent.findMany`）非 BullMQ 内省④**(gateway as any) 直读实测 245 处/18 spec 文件**（报告三估 90 处还低了）⑤.catch 处数=14（execution.service 11+processor 1+ai-image-edit 2——B3 的「11 处」订正）⑥QUEUE_CONCURRENCY.VIDEO_TRIM 已定义未用（仅 video-separate 在用）+thumbnail/stitch 无并发上界⑦COLLAB_SESSION_IDLE_TTL_MS/COLLAB_MAX_RESIDENT_BYTES 两键未注册 envSchema（COLLAB_MAX_LOADED_DOCS :84 已有）⑧readServerSV/readCanvas 经 withDoc（:107-109 已知——每次 disconnect(true)=**每次全量编码 store**）⑨仓内无 Prometheus（api /metrics 也仅巡检消费）。三报告对 Z125 全盘接受（报告三自认键形状错误+触发器判断漏了 fenced 语义家谱）。
+
+#### 采纳（Z126-Z136）
+
+| # | 裁定 | 出处与证据 |
+|---|------|-----------|
+| Z126 | **heap 闸常驻旁路三层修法（P0——Z95 元纪律③真漏网样本）**：闸判据 `!documents.has ∧ tripped`（:848/:975）常驻下对常驻集恒 true⇒**闸恰在最该生效的场景（常驻集=压力来源）变 no-op**，只拒冷 doc（用户 B 开项目→503）而常驻集永不受束——后果=内存压力直接走到 PM2/cgroup 重启而非降级。三层修法：①闸按常驻集区分——冷 doc 维持拒新物化；**常驻集内 tripped⇒字节 LRU 驱逐（reason='forced'）——把「拒绝服务」换成「释放资源」**（常驻架构下正确的压力响应）②`tripped` 升 reaper 第一优先级触发源（高于 TTL——Z110 force-evict 落点已有，补触发条件）③算术式进 check-ecosystem（与 Z118 合并）：`resident_cap+maxDocBytes+基线 ≤ tripBytes ≤ max_memory_restart[role]` | 报告一 P0（:848/:975 双点实证） |
+| Z127 | **三键 T0 一次性注册（P0——T0/T3 与 T15/T16 的必然交叉失败）**：`COLLAB_SESSION_IDLE_TTL_MS`/`COLLAB_MAX_RESIDENT_BYTES` 未注册 envSchema（实证⑦）——按仓纪律（env.ts:89「一次注册」+collab-env-single-source.spec 双向锚）必须 **T0 就注册**（optional 无 default——默认值落使用点纪律不变），T15/T16 只消费；否则 T15 首次 verify 以 census 裸读红爆发（那时上下文最贵） | 报告一 P0（env.ts 实证） |
+| Z128 | **读路径 withSession 二分（P1）**：readServerSV/readCanvas 现经 withDoc=每次 open+**disconnect({unloadImmediately:true})=每次全量编码 store**（比计数抖动更糟——高频 SV 门读每次触发 store）+direct 计数 2→1→0 抖动破坏 Σdirect 关停断言+重武装 debouncer。修法：`withSession(pid, fn, {mode:'read'\|'write'})`——读走共享会话**不 disconnect 不武装 debouncer**；T19 加断言「稳态每个常驻 pid 恰 1 条 direct」（读改写抖动即红——读路径零抖动同时是 Z81 关停断言的护栏） | 报告二 P1（报告一 P1-3 同源） |
+| Z129 | **统一释放入口 tryRelease（P0——「判据有机制没写」形态）**：`pendingQueues` 空前置只写在 T16 reaper 判据，未写成释放动作准入——修法=**tryRelease(pid, motive) 单点**（三出口+releaseAllSessions+Z110 强制淘汰全经它）：常规动机（drain/selfIsolate/vacuum/reaper）`pendingQueues[pid] 非空⇒拒绝释放+重置计时+计数`（reaper 判据上移为通用准入）；关停/强制淘汰允许带批但**必须 spool 交接，交接失败⇒拒绝释放+ERROR**（Z110 直接卸载路径补 spool 交接义务）。两条断言：先红用例（批非空+vacuum 触发⇒releaseSessionFor **未被调用**）+T22 端到端耐久用例（**软阈以下 TTL 以上的写入在释放后必在 PG**——「已同步」三字的唯一证明） | 报告二 §1（BOI 链+T20 判据已有机制缺位） |
+| Z130 | **worker 静默死亡侦测（P1）**：attempts:1+queue.getWorkers 只在 D 出口跑一次⇒两次部署间 worker 崩溃（OOM/max_restarts 耗尽）=付费作业静默堆积零告警。三件：①check-collab-health（crontab */5 已跑）加 `queue.getWorkers().length≥1`（付费三队列 execution/ai-image-edit/ai-download）+waiting depth 阈值（付费 5）+`collab_worker_absent_total`；②/api/ready 加 workers.registered/lastSeenAgoMs 维度；③runbook 写明 3002 loopback-only⇒健康检查必须服务器本地 crontab 执行（禁将来为外部监控加 nginx location 重新引入暴露面） | 报告一 §4 |
+| Z131 | **worker 模块图 census（P1——结构断言强于结果断言）**：`worker.module 传递 imports 闭包 ∩ {*HttpModule,*Controller} ≡ ∅`——ECONNREFUSED 是结果断言（可因端口被占等别的原因绿），闭包断言防「worker.module 不小心带进 Http 子模块⇒controller 实例化⇒连带 CollabModule⇒gateway 抢租约」（Z42 依赖链的门禁化）。先红：临时加 ExecutionHttpModule 进 worker.module⇒红 | 报告一 §5.2 |
+| Z132 | **数字补依据（P1——元纪律①自查）**：①TTL 定标写双向：下界=AI 作业单段间隔分钟级（30s 会使 loading→deliver 段间释放重载=常驻化对长作业失效）；上界=SIGKILL 丢数据窗与常驻 doc 数的权衡——初始 120_000+A2 实测调，**判据 A 必带本轮 TTL 值**（否则计划外调参后判据失真）；②条目默认 **8→64**（推导：384MiB 字节预算/典型 doc p95≈300KB 的 1/20 余量——8×8MB 触顶 doc 由字节主约束拦，两层互补；A2 实测回填）；③T22 补常驻占比判据 `yjs_resident_bytes/process_resident_memory_bytes ≤ 0.6`（预算是否留对编码峰值的唯一可读数——比 p95 总量更定位问题。**〔v8 注：占比判据已被 Z145 修订——分母含 Nest 基线天然稀释=分子分母不同域，主判据改绝对 `yjs_resident_bytes ≤ COLLAB_MAX_RESIDENT_BYTES`，比值 0.6 降观测趋势项；执行以 Z145 为准〕**） | 报告一 §3.2/报告二 §3（合并裁定） |
+| Z133 | **T27 幂等两矛盾修正（P2）**：(a) 交付类「语义级校验读 doc」恰在关页后最热路径加装载（收益为负）——改为**「端口只收幂等 op」原则**：writeNodeData/writeExecStatus 均为键级 set 语义（CRDT 重放同值收敛=幂等），**零读判据**；非幂等 op（列表 append 类）的重复防护归调用方禁进端点；(b) G1 断言「逐字节一致」与「净增行非 2×」互斥（CRDT 重放 compact 前两行都在）——改「**内容收敛**（重放后状态语义等价）+行数 ≤2×N_chunks（compact 前）」（G2 坍缩断言已有） | 报告二 §4.1 |
+| Z134 | **worker 指标采集面裁定（报告一 P0-3+报告三问题 1 合并）**：①`process_tree_rss_bytes{role}` 是**待造**指标（T0.5 造——soak 现只读单端点首匹配 :52，worker 一个字节读不到）+提取器多进程安全改 `sampleOne(url, role)`；②**本仓无 Prometheus server 是现状**（实证⑨——api 的 /metrics 也仅巡检消费，「生产连续采集缺失」对 api 同样成立=非 Z116 新引入）——裁定：**`register.setDefaultLabels({role})` 双侧落**（T0/T29——一次区分全族含 up/scrape_duration）+check-collab-health 扩读 3002 关键指标（event_loop_lag{role='worker'}/process_tree_rss_bytes——**巡检即采集面**，与 api 同形态一致性达成）+runbook 写明「无 Prometheus 是有意取舍；升级时直接加 scrape job 打 loopback **禁进 nginx**」+族名交集检查断言（两端点 metrics 文本交集内任何族不带 role 标签⇒红）。**〔v8 注：族名交集断言判据已被 Z138 反写修正——setDefaultLabels 生效后全族输出都带 role，原判据数学上不可达=恒绿假门禁；改为 A 结构断言（恰 1 调用点且在引导层）+B 内容断言（交集内任一族两侧 role 值不同）；执行以 Z138 为准〕** | 报告一 §3.1+报告三问题 1（裁决：不恢复抓取通路——全仓现状一致性） |
+| Z135 | **B0 测试基座前置（P1——片 B「行为零变化」的可验证前提）**：(gateway as any) 直读实测 **245 处/18 spec 文件**（实证④——报告三估 90 处还低）——片 B 搬状态全要改与「断言修改=偏离登记」直接冲突。**B0 独立 commit 组**：先落「测试只能经 façade 访问内部状态」门禁脚本（自身先红 245 处）→机械替换→verify 全绿→再 B1/B2/B3（片 B 从大爆炸变四步机械操作，成本≈一天）。**〔v8 注：245/18 为单一拼写口径（「gateway as any」字面）——第十三轮复测 gateway 对象口径≈368 处/20 文件（gw 变量 269+kit.gateway 99）+`as any).` 成员访问 436 处；精确清单由枚举脚本产出+判据扩全形态+façade 按操作设计，执行以 Z140 为准；「成本≈一天」随之作废——以步骤 0 清单实测重估〕** | 报告三问题 4（245 处实证） |
+| Z136 | **小项收纳（六件）**：①T31 探针二选一显式结论（通过⇒--only 三步；不通过⇒退一条 startOrReload --update-env，顺序正确性归 T26 ready 门零成本退路）；②verify 边界明确（**任务级=verify:fast 15 步/片出口=全量 verify**——FAST_PREFIX_LEN=15 新门禁全在 fast 外，本地任务级自检不覆盖它们，plan §0.2 明示防「fast 绿=门禁绿」误读）；③**元纪律⑤**：「复用既有装置 X 做到 Y」须在 T 落地前先跑一次 X 的**当前实测输出**贴进入口条件——装置存在≠装置具备能力（本轮 soak「读双端点」表述 vs 实测只能读一个=报告一 v1「查无此物」错误的镜像）；④`.catch` 处数订正 11→**14**（B3 同步）；⑤CPU 队列并发上界顺手收 T30（QUEUE_CONCURRENCY.VIDEO_TRIM 已定义未用+thumbnail/stitch 无上界——一行 @Processor 参数，D 片拆分放大既存缺陷。**〔v8 注： thumbnail/stitch「无上界」已被 Z146 事实更正——thumbnail 无参=BullMQ 默认 1（保守界）、stitch 已显式 concurrency:2；真实缺口=VIDEO_TRIM 定义未用+thumbnail 未登记；执行以 Z146 为准〕**）；⑥readCanvas 端口登记行：`CollabWritePort.readCanvas` 是**执行链计费输入读取**——Y1c-2b 水位列落地时从计费路径摘除（防端口被当「已收口的正当接口」） | 报告一/二/三 P2 系列（合并） |
+
+#### 不采纳（Z137）
+
+| # | 项 | 理由（实证反驳） |
+|---|---|------|
+| Z137-① | 报告三问题 2（compact 常驻下无触发源——「一行修法」进 A2） | **证伪**：maybeCompact 已在 store 成功尾部（gateway:1229-1255 `if(appended){...:1249 await this.maybeCompact(projectId)}`）+60s 时间门（:1570/:1572）天然限流——报告三建议的一行已在代码里（其 grep 漏了 :1249）；常驻 doc 持续编辑每 60s 被 compact 收敛非「1h 1000+ 行无界上涨」；Z125 观测项维持（yjs_updates_rows_total 作「compact 跟不上」探针——若实测破阈值 Y1c-3 再裁行数门） |
+| Z137-② | 报告三问题 3（reconcile 三类拆分——队列侧恢复留 worker） | 维持 Z98 全归 api：verifyActive 实测=**PG 扫**（generationIntent.findMany where RUNNING+deadlineAt）非 BullMQ 内省——任何进程可扫；CAS/reversesId 幂等（service:95 注释自证）双跑安全；「api 挂=回收**延迟**非零回收」（api 恢复后 startup 全量扫 :93「覆盖部署杀在飞任务」+5min tick 收敛；api 挂期间 HTTP 全 503⇒Z99 三分语义下无新悬留产生）。登记已知取舍：api 长挂期间悬留意图回收延迟——开发测试机可接受，Y1c-2b 水位列落地时此取舍消失 |
+
+### 0.5.9 v8 收敛裁定（2026-10-14 第十三轮三报告收官+我方 8 项一手实证；Z138 起编号）
+
+> 输入：三份报告（plan v3 复核·2 P0+2 P1+2 P2／v3 终审·3 判据+2 事实+1 范围／第十三轮收官·1 自行撤回+B0 规模复测+3 开放项）。我方实证：①prom-client 15.1.3 registry.js——`clear()` :111-113 连 `_defaultLabels` 一起清/`setDefaultLabels` :159-160 整体替换/标签仅在 `getMetricsAsString` :43,:136 输出时注入；②`Counter.get()` :109-120 只返回 hashMap **不读 _defaultLabels**——`getSingleMetric().get()` 断言（仓内 13 处）零影响；③全仓零 metric 用 `role` 作 labelName（无同名冲突）；④`collectDefaultMetrics()` 全仓唯一调用点=metrics.service.ts:15（MetricsService constructor）∧MetricsModule=@Global+controllers[MetricsController]+providers[MetricsService]；⑤as any 基数再实测——gateway 对象口径 269 处（gw/gateway 变量）+99 处（kit.gateway）≈**368 处/20 文件**+`as any).` 成员访问 436 处+collab/gateway spec `as any` 总数 1659/51 文件（含 mock 断言形态——报告一 924/42 口径过宽、报告三 316/24 与我方 368/20 同量级、Z135 245/18 偏低）；⑥thumbnail=consumers/thumbnail-generator.consumer.ts:14 `@Processor(THUMBNAIL_GENERATOR_QUEUE)` **无 concurrency 参数**（BullMQ 默认 1）∧stitch :27 已显式 concurrency:2∧QUEUE_CONCURRENCY 全仓唯一引用=video-separate:20；⑦env 裸读生产文件实测 **28 个**（含模块级 const：auth.ts:21/media-process.service.ts:10-11 等）vs Z79 白名单 4 处（gateway 构造器族）；⑧inFlightProjects=per-documentName 集合（gateway:263）+数组身份断言 collab.gateway.spec.ts:693（注释自陈「set 替换写法必红」）。**报告三自行撤回上一轮「compact 无触发源」条目（我方 :1249 证伪成立）+撤回「恢复 worker 抓取通路」主张（Z134 现状一致性反驳成立）。**
+
+#### 采纳（Z138-Z148）
+
+| # | 裁定 | 出处与证据 |
+|---|------|-----------|
+| Z138 | **setDefaultLabels 引导层单点+族名交集断言判据改写（P0-1①②）**：prom-client `register` 是进程级单例且 `clear()` 连 `_defaultLabels` 一起清（di-smoke.int.spec.ts:47-48 既有 clear+注释自陈 isolate 前提——模块级 setDefaultLabels 的效果会被后续用例的 clear 静默消灭）。裁定：①`setDefaultLabels({role})` **只写在 main.ts / main-worker.ts 引导序列**（不在任何 spec import 图内），**禁模块级调用**（store.metrics.ts/metrics.service.ts 顶层均禁）；②原「族名交集检查断言（交集内任何族不带 role⇒红）」**判据反写——setDefaultLabels 生效后全族输出都带 role ⇒ 原判据数学上不可达=恒绿假门禁（D13 族，元纪律⑥ 动因实例）**。改为双断言：**A（结构，必须）**=census 断言 `register.setDefaultLabels` 全仓恰 1 个调用点且位于 main.ts/main-worker.ts 引导序列（先红构造=把调用点移到 store.metrics.ts 顶层⇒红）；**B（内容，辅助）**=两端点文本交集内任一族的两侧 role 值必须不同（api 端点 role="api"/worker 端点 role="worker"——worker 侧漏调⇒该族两侧均无 role⇒红）；③T29 验收补**正向断言**：3002 可读 `yjs_store_total{role="worker"}` 且值恒 0（worker 不写 doc——「值非零」是错期望，把幻影零值变显式承认事实）；④runbook 记录标签变更（全族序列身份变化）+未来查询侧适配清单一行 | 报告一 P0-1 结论一/二（registry.js 三事实我方①②③实证） |
+| Z139 | **MetricsModule 拆 Core/Http=模块拆分第 7 处（P0-1③）**：`collectDefaultMetrics()` 唯一调用点=MetricsService 构造器（我方实证④）⇒worker（workerProviders 只装 processor+队列）**若不装配 Metrics 模块，3002 上不存在 process_*/nodejs_* 族**——Z134 要求 health 读 `event_loop_lag{role='worker'}` 会静默拿 null（提取器 null 与值 0 不可区分）。裁定：①MetricsModule 拆 **MetricsCoreModule**（service，保持 @Global）/**MetricsHttpModule**（controller）——T25 模块拆分清单从 6 处扩为 **7 处**；②T26 worker 依赖图显式含 MetricsCoreModule+`collectDefaultMetrics` 进程内恰一次（二次调用重复注册抛错）；③验收：3002 上 `process_resident_memory_bytes`/`nodejs_heap_size_used_bytes`/`eventloop_lag` 三族存在且带 role="worker" | 报告一 P0-1 结论三（metrics.service.ts:15+metrics.module.ts:5-9 我方实证④） |
+| Z140 | **B0 清单由脚本产出+判据全形态+façade 按操作设计（P0-2+报告三 B0 复测合并）**：Z135 的 245/18 只数了「gateway as any」字面拼写——我方再实测 gateway 对象口径 ≈**368 处/20 文件**（gw 变量 269+kit.gateway 99）+`as any).` 成员访问 436 处+成员分三类（状态容器≈25/私有方法≈20/依赖对象≈10，报告三枚举与我方实测同构）。裁定：①**T39b 步骤 0（必先）**=跑枚举脚本产出「成员→所属目标 service（Persistence/SessionGuard/DocRegistry/不搬）→访问形态（读写/直调/splice）」三列清单贴入口条件——清单是脚本产物不是人的估计（元纪律⑤ 同源）；②门禁违规定义=「**绕过类型系统访问 gateway/collab 内部状态**」全形态（`as any` ∨ `as unknown as` ∨ `@ts-expect-error` ∧私有成员访问）——非单一拼写正则（拼写敏感门禁换个写法就绕过，与 Z43「符号级非语法级」同教训）；③**façade API 按操作设计非按成员暴露**（`clearPendingQueue(pid)`/`pushPendingFrame(pid,u)`/`pendingQueueRef(pid)`——保留数组身份语义）——机械替换若改写数组身份/splice 语义，collab.gateway.spec.ts:693 `toBe(firstRef)`（数组身份恒定不变量——注释自陈 set 替换写法必红）与 :1226 `toBe(tailRef)` 即红，而它们是行为契约（动=偏离登记）；④façade 价值度量=N 个 façade 方法名依赖替代 M 个内部成员名依赖——**步骤 0 同步量出 N**；若 N≈M 则 façade 是零收益垫片，重裁策略（禁垫片纪律） | 报告一 P0-2+报告三 §二（我方⑤实证+:693/:1226 实证⑧） |
+| Z141 | **tryRelease 前置补第二项（终审 §1.1）**：T16 reaper 三条件=`pendingQueues 空 ∧ TTL ∧ 无在飞会话写`——T17 上移为通用准入时「无在飞会话写」掉了。而「队列空」≠「批已落定」：storeDocumentSerialized 取批 window 内队列瞬空，PG append 失败批还原回队（BOI 契约防的正是此窗）。裁定：tryRelease 常规动机前置=**两项**：`pendingQueues[pid].length===0 ∧ !inFlightProjects.has(pid)`（inFlightProjects=per-documentName 在飞集合 gateway:263 既有）；Z112 运行时防御保持为共享准入判据（saveMutex 是库内部字段生产代码不读——可观测面=inFlightProjects，不可观测部分归库谓词兜底，Z94② 反例锚钉死分工边界不变） | 报告二 §1.1（gateway:263 我方实证⑧） |
+| Z142 | **COLLAB_MAX_RESIDENT_BYTES 使用点默认 384MiB 显式+T30 算术式 fail-closed（终审 §1.2）**：T0 注册 optional 无 default+T16 未写使用点默认=**主约束默认关闭**（条目 64 反而是从 384MiB 反推的——反推值比依据活得更久=假门禁形态，与 COLLAB_MAX_LOADED_DOCS env 无默认同坑）。裁定：①T16 使用点默认 **384MiB** 显式（依据=api old-space 同量级——Z106 原文「≈old-space 同量级」升格为显式出处）；②条目 64 标注「**待实测校准的近似**（依据=384MiB÷典型 doc p95≈300KB 的 1/20 余量；T22 用 T0.5 实测 p95 字节回填）」+一句行为说明「team 并发项目 >64 时=LRU 抖动可接受（64 是病态护栏非容量目标）」；③T30 算术式 `resident_cap+maxDocBytes+基线 ≤ TRIP[role] ≤ max_memory_restart[role]` **fail-closed**（取不到值即红，与 check-ecosystem 对 heap/rss 既有 fail-closed 形态一致——无值可算时红或静默跳过二选一，选红） | 报告二 §1.2+报告一 P2①（env.ts 无默认形态 Z135⑦ 同源实证） |
+| Z143 | **关停带批释放顺序与双计数（终审 §1.3）**：带批+spool fsync 可能超 300ms 逐会话预算——若「逐会话超预算」与「spool 交接失败」两种拒绝混计，关停会在 18s drain 前无声放弃若干会话（恰是 Z81 要根治的洞）。裁定：①**spool 交接先做且不计入 300ms 逐会话预算**（300ms 只量 disconnect 本身）；②交接失败=拒绝释放**该会话**（继续 hold，交步骤 4 drainAllDocuments 兜底）+ERROR 点名——**非放弃整批会话**；③两种拒绝（交接失败/逐会话超预算）**分别计数**，T18 出口判据体现两数 | 报告二 §1.3 |
+| Z144 | **T22 耐久用例改双向断言（报告一 P1）**：单向「释放后必在 PG」会被 tryRelease 新合法结果（批非空⇒拒绝释放）假绿——用例若在批非空时构造，「释放后」根本不可达，证明的是拒绝路径非耐久路径。裁定：双向三行——①`pendingQueues 空 ⇒ 释放成功 ∧ 释放后读 PG ≡ 写入内容`（耐久路径）；②`pendingQueues 非空 ⇒ 拒绝释放 ∧ 计数+1 ∧ 下一轮 store 后仍达 PG`（收敛路径）；**先红构造=去掉 ① 的 pendingQueues 判据（直接 disconnect）⇒ ② 分支消失用例红**。判据必须覆盖守卫的两种结果，否则测的是守卫不是守卫保护的性质（与 Z40 失败语义二分断言同族——那边两条都写了） | 报告一 §四 |
+| Z145 | **占比判据改绝对主判据（报告一 P2③）**：`resident_bytes/process_rss ≤ 0.6` 分母含 Nest 基线（~150MB）天然稀释——比值判据分子分母不同域（与 Z68「上限项不进稳态相加」同条纪律）。裁定：**主判据=绝对 `yjs_resident_bytes ≤ COLLAB_MAX_RESIDENT_BYTES`（字节约束真的在生效——与 Z142 默认值同源闭环）**；比值 0.6 降为观测趋势项保留（分母含基线的稀释在判据注释里写明，防后人当硬门禁用） | 报告一 §五 |
+| Z146 | **并发上界事实更正（终审 §2.1）**：Z136⑤「thumbnail 无上界」**不成立**——`@Processor(THUMBNAIL_GENERATOR_QUEUE)` 无 concurrency 参数 ⇒ BullMQ 默认 1（已是最保守界）；stitch 已显式 concurrency:2。真实缺口两条：①`QUEUE_CONCURRENCY.VIDEO_TRIM` 定义未用（video-trim.processor:14 无 concurrency——意图 0.7×核数 与实现「默认 1」不符）；②thumbnail 未登记显式上界（隐式 1 非「登记的界」）。裁定：T30 顺手收=video-trim 补 concurrency 参数+thumbnail 显式登记（一行注释+显式参数 1）——「无上界」表述作废 | 报告二 §2.1（我方实证⑥） |
+| Z147 | **env 裸读全仓枚举前置+census 新组编号（报告三②③）**：①Z79 判据两分（模块级 const/useValue 读=违规；构造器直读=白名单 4 处）落地时——实测生产文件 28 个直读 process.env（含模块级 const：auth.ts:21/media-process.service.ts:10-11 等），census 首跑会红一片或白名单大幅扩张二选一。裁定：**T34 落 census 前先全仓枚举产出清单贴入口条件**（元纪律⑤ 同尺——Z79 白名单按实测重划，模块级 const 违规名单=T34 处置面）；②check-collab-census 现有组号已用至⑬（我方实证⑧）——plan 多处新增组未编号会与组④（ENCODE_WHITELIST）撞车。裁定：新组编号一次定死=**⑭ withDoc 全枚举/⑮ worker 符号禁令/⑯ 裸 Y.Doc 清零/⑰ 模块图闭包/⑱ INSERT 唯一写点/⑲ 测试 façade**（现有①-⑬ 不动，落 T2） | 报告三 §四②③（28 文件+组号⑬ 我方实证⑦⑧） |
+| Z148 | **小项收纳（六件）**：①**manifest 加 `idempotent` 列**（报告三 §三）——T4 执行期校验表每个 DocWriteOp 多一列 `idempotent:true\|false`，T27 端点对 `idempotent:false` 直接 4xx 拒收——把 Z133「端口只收幂等 op」从散文约束变可执行断言（新增第七个 op 忘分类即红；与「把不变量变门禁」纪律同构，manifest 本来就要逐 op 声明=零额外工作量）；②**付费队列 enqueue fail-closed**（报告三 §四①——Z130 检测有了动作没有）：付费队列 enqueue 时 `queue.getWorkers()` 表明无消费者注册 ⇒ 503 拒绝（ServiceUnavailableException+Retry-After，F11「宁可明确告知不可服务也不收注定退款的作业」同源）；**getWorkers 是 Redis 异步调用必须带 5-10s TTL 缓存**（否则付费路径每次加一个 RTT）；落 T29（Z130 家族）；③**T0.5 范围收敛**（报告二 §3.1——C0 时点无 worker 进程，T23/T26/T29 才建）：T0.5 收敛为多进程安全提取器+机器可读 JSON+TTL pin+完整性巡检挂点+当前输出贴档；**worker 指标自暴露与双端点读取标注「T29 落地时补」**，出口判据删「双端点各一组样本」；④**巡检两对象挂 health**（报告一 P2）：`yjs_degraded_docs` 挂阈值（>0 WARN/持续 N 分钟 ERROR——gauge 存在无人读=温度计）+`yjs_updates_rows_total`（Z125 gauge）挂 health 预警（观测项非机制项维持——不强制 compact）；⑤**runbook 升级路径 pull/push 一行**（报告三 §三末）：当前按 pull 设计（scrape 打 loopback，job 级外部标签可承担部分区分）；若未来走 push（remote_write/OTLP）会把 role 标签写进时序库——两者对 setDefaultLabels 需求不同，登记防误配；⑥**元纪律⑥ 落档**（报告一 §七建议）：「凡声明某条门禁会红，须附一次它真实变红的输出」——本批已有 D13+族名交集两例 | 报告一/二/三 各 P2 段（合并收纳） |
+
+#### 不采纳（Z149）
+
+| # | 项 | 理由（实证反驳/既有裁定维持） |
+|---|------|------|
+| Z149-① | 报告二 §1.1 的 `!saveMutex.isLocked()` 写进 tryRelease 前置 | saveMutex 是 hocuspocus 库内部字段（生产 gateway 无任何直读先例——grep 仅注释提及）；Z94② 反例锚已在**测试层**钉死其语义（锁定⇒谓词 false），生产准入用可观测面=inFlightProjects（Z141）——读库私有字段换一层防御违反封装惯例且升级即碎；库谓词兜底已结构性覆盖 |
+| Z149-② | 报告三 §二建议 3 的「门禁计数口径按行/按出现/按成员三选一先定」升为 spec 级裁定 | 属 T39b 步骤 0 枚举脚本实现细节（脚本产出清单时口径自然写死在脚本里——与 Z140③「门禁违规定义写死并先跑基线」同一条落地，不需 spec 单独裁定；plan T39b 已含） |
+
+---
+
+## 1. 范围总览与非目标
+
+### 1.1 分片总览（v4：片序 C0→A1→A2→D→E→B，Z2+Z71 裁定；plan 按片推进，每片独立出口判据+回滚）
+
+| 片 | 主题 | 依赖 | 预估规模 |
+|----|------|------|---------|
+| C0 | **度量与契约先行**：观测三件（Z3/Z50/Z54）+census 三组先红（Z20/Z43 符号级/Z57 七处）+契约冻结包（键集收编+manifest 骨架+E27+不变量登记表+parseDocName+库行为锚含 Z80 两锚+pricing 断言补全 Z17/Z58）+**基线落档** | 无（本批地基） | 中 |
+| A1 | **写门面（行为契约片）**：DocWriter.writeBatch（Z7/Z8/Z40 失败语义+Z75 边界+Z76 幂等契约）+origin（Z6）+writeExecStatus 守卫（**Z69 减法：不改签名只改内部行为+计数**）+undefined 显式拒绝（Z5）+执行链合并+直写收编+gc 工厂（7 处）+shrink thaw（Z19）+sweep 游标（Z56） | **C0 硬前置** | 中 |
+| A2 | **常驻化（资源生命周期片，Z71 拆分；v5=Z81-Z83/Z87/Z88/Z92/Z93）**：Z59 会话持有钉住谓词（**机制定案，探针作废**）+reaper（Z62 三条件：pendingQueues 空∧无在飞写∧经 releaseSessionFor）+释放握手单点（Z37+Z63 三释放一清账+**Z83 releasing 状态机**）+关停步骤 0（**Z81 硬前置定性：不释放则 runDestroy 永不 settle**；Z87 grace 维持 2_000）+三窗口竞态（Z64 两子窗口+Z83 释放窗口）+不变量与唯一调用点（Z65 **合计计数口径**）+auto-vacuum 重入（Z66）+三涟漪收口（Z47/**Z73 读者清单**+isDocResident 语义 Z77+**Z92 承接断言：residentDocs≤上限按会话表条目数**）+Server 级旋钮 pin（Z60 **理由重写：残存价值护无会话 doc**）+RPO 登记（Z61）+冻结 doc 驻留时长分布（Z93） | **A1 硬前置**（写会话表由门面承载） | 中 |
+| D | **worker 拆分+端口抽象+模块拆分+四缺口**：真双进程（D2）+CollabWritePort+6 模块拆分+createApplicationContext（Z42）+失败钩子拆两半（Z41+**Z90 结案：3 处=2 改道+1 豁免**）+**worker 指标出口（Z72→Z86：loopback 3002+nginx 第二 job）**+内存实测第一出口（Z10/**Z68 两行判据+Z85 单 systemd unit〔MemoryMax=1150M+on-failure〕+Z91 进程树口径+A2 后/D 前两时点**+**Z84 check-ecosystem/heap-pressure 三断言按 role 分离、560/480 待实测**）+连接池（Z11）+deploy 顺序化（Z9）+role 默认 api+三件套+双向断言（Z48/**Z67**）+token 放置（Z49）+**env 两分判据（Z89：分叉键 ecosystem/同值键 .env）** | **A1 硬前置**（worker 写走端口）；A2 非硬前置但推荐先落（内存实测受常驻影响） | 大（6 模块拆分） |
+| E | **部署档位**：NODE_ENV 单源（Z12/Z45 四坑/**Z79 census 判据两分**）+COOKIE_SECURE 三态（Z13/Z45⑤）+网络面三补（Z14/Z46 前置断言）+Redis 三件+备份降档补四件（Z16） | 与 D 同窗 | 中 |
+| B | **gateway 领域 service 化**（R0c-2+Z24+Z52③ 计法） | A1/A2 后；殿后 | 大 |
+
+执行序（Z2+Z71）：**C0→A1→A2→D→E→B**——度量契约先行→写门面（行为契约）→常驻化（资源生命周期）→拆进程→部署档位→结构重构殿后。A1/A2 证据形态不同故独立出口门；**每片出口=用户确认点（执行门机制）**。
+
+### 1.2 非目标（本批明确不做；v3 修订——原第 5 条「withDoc 驻留=评估项」与 Z1 矛盾已删，Z52①）
+
+1. manifest 派生断言族落地/Y1c 内容模型——Y1c-3（本批只冻结形态）
+2. docName #g<N> 世代切换实现/spool 键世代作用域——Y1c-1（本批只冻结契约+parseDocName 铺位）
+3. 新不变量执法落地——Y1c-3（本批只登记+核对现状）
+4. PITR/WAL 归档真基建——Y7 上线前窗口（本批落配置模板+清单，R0c-8）
+5. 多实例/所有权注册表——Y7（E35 单实例拓扑钉死）
+6. reconcile 仲裁层删除/投影统一——Y2/Y3
+7. sv 维持退役（E49 终裁不变）；Y0b-5 残余的 AuthProvider fail-open 归 Y5、收费前门两项（服务端版本历史/恢复+merge 端点）归 Y5——**不进本批**（用户已裁 Y5 归属，防误收）
+8. connUi 删除——B10 勘误：已有真实读者（SyncBanner），死物判定撤销，**不删**
+9. LRU 字节淘汰/deny 码/RSS 软阈的 doc 准入 enforcement——Y1c-3（Y0a-1 N16 裁定维持；**本批 COLLAB_MAX_LOADED_DOCS 软上限=回收最旧空闲非拒载，Z55——与准入语义的边界**）
+10. E26 keep 修复本体+**客户端自动护栏（会话重建）**——Y1c-2a 与 Y.Text 同批同目标（E33 裁定维持；Z70 v4 降级：本批仅 escape_hatch 计数+runbook 手工恢复——自动护栏届时须处理 generation bump 防重建回放旧快照无限循环）
+
+---
+
+## 2. 逐片设计
+
+### 片 C0：度量与契约先行（v2 新增，Z2/Z3/Z17/Z18/Z20；吸收原片 C 全部内容）
+
+**度量三件（先于一切改造——先红用在验收锚自己身上）**：
+1. `yjs_doc_load_total{trigger:'ws'|'direct'|'reconciler'}`+`yjs_store_total{trigger}` 新计数器（store.metrics.ts 单源注册）；**withDoc 计时点前移**（现 yjsWithdocDuration 从 openDirectConnection 之后起算——装载时间不可见；起点移到 open 之前，另落 `yjs_withdoc_open_duration_seconds` 分辨装载慢 vs 落库慢）。
+2. `collab_escape_hatch_total{kind}`（kind=safeReload/generation/diverged/backup-export/client-doc-rebuild——**基线+趋势判据，Z54**）+event-loop lag 观测（**`perf_hooks.monitorEventLoopDelay()`，api+worker 双份 {role} 标签——Z50**）+`collab_exec_projection_failed_total{cause}`（14 处 `.catch(()=>{})` 加计数，不改策略——Z136④）。
+3. **基线落档**：改造前跑一次（单节点执行链/关页作业完成/20 节点组执行三场景的 load/store/withdoc 计数与直方图）——片 A 验收的对照组。
+
+**census 三组先红（v4 修订：③改符号级 Z43；②改 7 处 Z57）**：①withDoc 全枚举（B4 v2：逐点标 read-only｜write-via-writer｜待收编）②生产裸 `new Y.Doc()` 清零（B9 v2：单源工厂 createCanvasDoc() 收编生产 **7 处**——gate-canvas-state.ts 豁免 Z57；本片先登记工厂+迁移，清零断言在 A1 完成时绿）③**worker 禁令=符号级闭包断言（Z43）**：禁 `openDirectConnection`/`@hocuspocus/server` import/长生命周期 Y.Doc 的 applyUpdate（闭包级——processor 经 module 间接引入也红；**允许 yjs 纯函数** mergeUpdates/encodeStateAsUpdate——repository compact 合法在用；先登记现状红，片 D 完成时绿）。**env 裸读 census 判据两分（Z79）**：模块级 const/useValue 读 env=违规；构造器直读=允许（COLLAB_PORT :472/COLLAB_TIMEOUT :477/COLLAB_BIND_ADDR :484/COMPACT_INTERVAL_MS 族白名单登记）。
+
+**契约冻结包（原片 C 内容全保留；v6=Z108 manifest 升格+Z121 soak 一等任务）**：键集五处收编 shared 单源（EPHEMERAL_DATA_KEYS/CANVAS_BRIDGE_KEYS 升 shared；NODE_ENVELOPE_KEYS/GROUP_NODE_DATA_KEYS 已在核销）/**manifest TS 单源从「类型骨架+种子条目」升格「执行期校验表」（Z108——每 DocWriteOp 声明键集/每键值域与字节上限/op 数上限/批总字节——A1 DocWriter 进门直接消费；Y1c-3 派生断言族仍是后续输入）**/E27 嵌套唯一创建者 census（`getMap().set(k,new Y.Map()/Array/Text)` 全命中登记）/不变量登记表 canvas-invariants.ts（五条三列+现状标注：①环=topology.sort 显式拒 CYCLE 已执法✓〔B8〕/②④待勘/⑤=E22 已裁+Z4 守卫本批补齐后闭环；待勘项 plan 期核对，缺口标 Y1c-3 移交）/parseDocName 铺位（R0c-4+K11 勘正：`parseDocName(docName)→{projectId,generationFromName}` 管语法；**世代真源=DB 列（vacuumReplace 递增不恒 0——v1「恒 0」表述作废）；name 与 DB 列不一致=独立拒因**，防 Y1c-1 第二真源）/库行为锚两枚（SkipFurtherHooksError 自有 hook 抛错跳链+disconnect unloadImmediately 默认值显式断言）+check-hocuspocus-pin 版本变化输出必重跑锚清单（Z18+**Z123 版本目标登记：4.6.0 不升级、≥4.7.1 必须重跑+runbook「禁止重新引入 extension-redis」〔上游 #1167 critical/#1170 OPEN〕**）。**soak 扩展=本片一等任务（Z121 T0.5——装置已存在 apps/api/scripts/collab-soak.mjs；扩展=三场景装置化+双端点读取〔Z116/Z117〕+TTL pin〔Z107〕+完整性巡检挂点〔Z111〕——一个装置四个消费者，先建装置再谈数字）**。
+
+**pricing 断言补全（Z17 v4 勘正形态）**：verify-indexes.sql 补 3 条断言——**③pricing_credit_cost_non_negative(:1311) ④intent_credit_cost_non_negative(:1312) ⑦money_in_reference_required(:1319)**（v4 清扫：`ledger_positive` 为假对象名已全文消灭，Z78①）+deployment-db-baseline.md 追加纪律段（两条 allowlist 机制+9 raw 对象清单+migrate dev `--create-only` 人工合并纪律+snake 手写名 vs Prisma 生成名防双索引说明——**双等价索引防御升格=census 可执行门禁**：解析 schema.prisma PricingRule @@unique 拼 Prisma 命名规则索引名→查 DB 存在且等价⇒红 `duplicate-equivalent-index`，Z58）。clientBuild 不设 reason 档裁定维持核销（B15）。
+
+**验收判据**：新指标可见（三场景基线落档数字）；census 三组先红证据（现状红因与声明一致）；键集零私有副本；manifest/invariants 编译断言过；parseDocName 单测（含 name-DB 不一致拒因）；行为锚两枚先红后绿；verify 链零回退。
+**回滚**：纯增量（指标+census+shared 文件+断言）——revert 即回，无运行时行为变化（计时点前移仅影响观测精度）。
+
+### 片 A1：写门面（v4 拆分·v6 修订——行为契约片，Z71+Z100/Z108/Z119/Z120）
+
+**目标形态**：
+1. **DocWriter.writeBatch（Z7/Z8/Z40/Z75/Z76+Z108 内容校验）**：同 doc 同事务+逐 op 守卫事务内求值+`WriteOpResult[]` 一一对应（携带 op 索引+类型）+失败语义二分：守卫失败（node-deleted/attempt 过期/undefined 拒/**Z108 内容违规**）=合法结果进数组**不回滚不 throw**；仅基础设施级失败（DB/schemaVersion 门/事务异常）全批 thrown→调用方按零交付退款；**调用方契约**=deliver 类 `written:false`⇒批提交后**独立**执行 rollbackDeliveryFailed（:349-352 现语义显式保持——先红用例）；**边界声明（Z75）**：「deliver 失败但 done 同批写入⇒exec=done∧节点已删=合法终态」（E22 读侧兜底），禁加 done 前检查 node 跨 op 补丁；**幂等契约（Z76）**：重试不得重复 append 同一 Yjs update——重试路径先校验写入已生效（读 doc 状态）非重发。进门 ensureSchemaVersion（前瞻拒=独立 reason 码 `DOC_SCHEMA_AHEAD` 事务级 throw）+transactSync 类型门（`(doc)=>void` 类型层+运行层 `if(r instanceof Promise) throw`）+**内容校验（Z108）**：manifest 执行期校验表（每 op 键集/每键值域与字节上限/op 数上限/批总字节 Σ≤256KB）——违规返 `UNKNOWN_KEY`/`PATCH_TOO_LARGE`/`OP_COUNT_EXCEEDED` 业务级拒绝（**拒绝非 sanitize**）+显式拒 `__proto__/constructor/prototype`（落点 :174 `Object.entries(patch)` 现无白名单）。DocWriteOp 词汇表：writeNodeData/writeExecStatus/deleteNodeDataKeys/deleteNodes/fillDoc/deleteExecOrphans。「data 与 exec 同事务」先红用例。
+2. **origin 修复（Z6；v6=Z119 验收锚改写）**：`doc.transact(fn, Origin.Server)`（canvasUndo.ts:9 已预留 'server'）——**巧合级隔离（'local'≠'local-user'）变契约级**。验收锚：①断言服务端写事务 origin===Origin.Server（可直测）；②gateway:990 update 监听按 origin 分流——服务端写不计客户端配额口径（docDelta 累加现不区分 origin）。~~先红用例：服务端写→undo→栈不受污染~~ **作废（Z119——trackedOrigins=['local-user'] 而库默认 'local'，修复前恒绿=假门禁 D13 族）**。
+3. **writeExecStatus 存在性守卫（Z4+Z69 减法）**：**不改签名**（保留 Promise<void>——13 生产+8 测试文件零改动）；内部行为=节点不存在⇒**不建条目**⇒计数 `exec_orphan_blocked_total`；`{written,reason}` 返回类型登记 Y1c-3。幂等地基=守卫+单写者事务（W3：CanvasDocUpdate 无 (projectId,idemKey) 约束——重放幂等由 CRDT+守卫承担；Z124-③ 若解禁迁移则升 DB 唯一键）；sweepOrphanExec 游标轮转（Z56）。
+4. **undefined 显式拒绝（Z5）**：writeNodeData patch 含 undefined⇒throw `UNDEFINED_PATCH_VALUE`+deleteNodeDataKeys 显式 op；writeExecStatus 维持跳 undefined；shared 标注 wire 语义。
+5. **执行链合并（v6 修订：只计写段——Z122①/Z100）**：loading 一段、deliver+done 一段（**readCanvas 读段移出本片**——归 D 片端口化经 Http 读）；本片先落「单节点**写** withDoc 调用段 ≤2」结构断言（**按 attempts 分支枚举上界 Z122②——B5「4 次」只数 happy path，实测 service 9 处+processor 1 处**），常驻效果归 A2。
+6. **直写收编**：B4 v2 清单全收编（exportFresh:145 标 read-only 保留）——census「待收编」清零。
+7. **gc 工厂**：createCanvasDoc() 收编生产 7 处（Z57 豁免清单）；census 清零转绿。
+8. **shrink thaw 根修（Z19；v6=Z120 一处赋值替换）**：**影子预演已在代码里**（collab-shrink.service.ts:180-192 Y0b-4 T8 建——:185 `shrunk` 即「GC 已执行」口径）；缺陷=thaw 判据（:206-207）用 :198 活 doc truth 重算（嵌套事务墓碑未 GC 偏大）而非复用 shrunk。**修法=thaw 判据改用 shrunk**（truth 继续用于 calibrateTruth/observe/force 广播——这些该用真值）——mini-task：先跑 write-frozen-chain.int.spec:116,120 确认红因→改赋值→断言翻转（thawed=false→true）+doc-status 广播 ok。
+9. **端口先行（v6 新增——Z100 顺序修正）**：`CollabWritePort` 接口（7 方法）+DirectCollabWritePort（api 直调）在本片尾落地、api 侧消费点改道注入——CollabModule 停止 exports CollabDocumentService **推迟到 D 片**（模块拆分同批），避免「停止 exports 时按原令牌解析⇒编译红」。
+
+**验收判据**：直写 census 清零；降版/前瞻 doc 双拒码；**服务端写事务 origin===Origin.Server+docDelta 按 origin 分流（Z119 新锚）**；writeExecStatus 不建条目+计数；undefined throw；deleteNodeDataKeys 删键；**Z108 内容校验（`__proto__` 拒/超批拒/未知键拒——先红）**；Z40 先红用例（deliver 失败退款仍调用）+Z75 合法终态用例；shrink 即时 thaw 断言翻转；行为零回归。
+**回滚**：revert A1 commit 组——纯门面+调用点改道，零生命周期变化。
+**冻结契约**：DocWriteOp 词汇表+WriteOpResult 形状（op 索引/类型）+失败语义二分+调用方退款契约+Z76 幂等契约+origin=Origin.Server+undefined 拒绝。
+
+### 片 A2：常驻化（v4 拆分·v5 修订——资源生命周期片，Z59-Z66/Z47/Z73/Z77/Z60/Z61+Z81-Z83/Z87/Z88/Z92/Z93）
+
+**目标形态**：
+1. **会话持有钉住谓词（Z59 机制定案，探针作废；v6 补 Z109/Z111/Z113）**：会话表 `projectId→{conn, refCount, idleTimer, state:'held'|'releasing'|'zombie', bytes}`——**conn 在⇒directConnectionsCount≥1⇒`shouldUnloadDocument` 恒 false⇒全部 4 条卸载入口（store 完成 esm:1550/Skip 分支 :1541/WS 关页 :1385/direct disconnect :1171）静默 no-op**（esm:1576 首行守卫）——零 patch 零 fork（**外部调研实证：库无任何官方常驻旋钮——unloadImmediately:false 只买到 ~3s 写合并窗，:1571 谓词不读它——Z59 是唯一可行机制**）。退路（方案 B=实例覆盖谓词 index.d.ts:227）仅登记+已知陷阱（装载失败 :1482-1483 被卡）。**v6 三补**：①**degraded 阻断常驻（Z111）**：装载双查命中（pendingStructs/pendingDs 非空⇒degradedDocs :1065-1073 既有）⇒该 doc **不进常驻集合**（退化为每次装载+每次告警——整行缺失不可探测〔A7a 自证〕，常驻把分钟级盲区拉成小时级）；②**releaseSessionFor try/finally+周期对账（Z113）**：全路径 try/finally（异常时 conn 引用必清理——上游 #846/#895/#954 泄漏成因）+不变量「Σ会话表内 conn 的 directConnectionsCount===会话表条目数」对账（漂移即 WARN+计数）；③**硬超时 zombie 档（Z109）**：releaseSessionFor 超时 5s（与 repo.append 上界同源——disconnect→store→spool fsync 磁盘挂起无界）⇒conn 置 zombie+记 `collab_write_session_release_timeout_total`+**直接新开 conn 入表**（库层三时点双闭合=双副本窗安全只多一份内存）；acquire 遇 releasing 有限等待超时即新开+`acquire_wait_timeout_total`——**不变量：同 pid acquire 永不因 releasing 无界等待**。
+2. **释放握手单点（Z37+Z63；v5=Z81 定性升级+Z83 状态机）**：`releaseSessionFor(pid): Promise<void>`（置 releasing→await disconnect({unloadImmediately:true})→count 归零→真卸载→released 移除）；**3 释放出口**（beginDraining/selfIsolate/vacuum——auto-vacuum 判据 :2102 用 WS connections 不含 direct、isPersistedComplete :342 含 documents.has，不握手=每 30s 注定 quiesce-timeout 活锁）+**1 清账**（beforeUnloadDocument——常驻下不再因会话触发）。**Z83 并发协议**：库层竞态已双闭合（disconnect esm:1145-1174 内部：store await 窗口新写到达⇒:1160 count 检查见新连接⇒跳过卸载；:1160 后到达⇒unloadDocument 首行谓词 no-op；卸载后到达⇒Z64 B 窗口新装载——三时点无静默丢失）；应用层=reaper 仅对 `refCount===0 ∧ state==='held'` 会话发起释放，**acquire 遇 releasing⇒await 释放完成⇒新开 conn 入表**（串行化——防新 conn 脱离会话表管理）。
+3. **reaper（Z62；v6=Z106/Z107/Z110/Z112 强化）**：判据三条件=`pendingQueues[pid].length===0`（非「await flush 成功」——库 store 任何路径不 throw :1540-1549）∧**TTL 到期（`COLLAB_SESSION_IDLE_TTL_MS` 显式键默认 120_000——Z107：≥AI 作业单段间隔上界，plan 期实测调）**∧无在飞会话写；**释放一律经 releaseSessionFor**（`disconnect({unloadImmediately:true})` 使库 esm:1149 以 true 调 storeDocumentHooks⇒executeNow 兜底 flush——「debouncer 是否在飞」的判定权交回库，不自判）+**释放前运行时防御（Z112）**：可观测的库状态（debouncer 在飞/saveMutex 锁定）⇒重置计时器不释放（上游 #995 教训——显式检查是防御，库谓词是兜底）；否则重置计时器；「扫过 N/实卸 M」观测（yjs_doc_evicted_total{reason}+**驱逐时驻留时长直方图 Z93**）；**双层约束（Z106）**：`COLLAB_MAX_RESIDENT_BYTES` 字节主约束（默认 384MiB——会话表项记 bytes 取 docTruth 口径**复用 calibrateTruth 禁造第二真源**；Σbytes 超限⇒按字节 LRU 回收 reason='lru'——挡触顶病态 doc，正常 doc 72-366KB 无威胁）+`COLLAB_MAX_LOADED_DOCS` 条目次约束（**使用点默认 8**——env.ts:84 optional 维持）+gauge `yjs_resident_bytes`/`yjs_resident_docs`+超限计数 `yjs_resident_over_limit_total`（超限=临时超过+WARN，**永不拒载**——Z55 维持）；**store 失败 doc 强制淘汰（Z110——不依赖 disconnect 成功）**：库故意不卸载 store 失败 doc（esm:1540-1549 "Document stays in memory"+上游 #954 关闭未改）——强制路径=清会话表条目+标记 force-evict+**直接调 hocuspocus.unloadDocument（Z65 唯一调用点）**+失败计数告警；**PG 熔断期（admitQuery gateway:873）不重试 disconnect**（防「disconnect 撞 store 失败→conn 泄漏→永久驻留」放大循环——熔断期内存交 heap 闸观测）。
+4. **关停步骤 0（Z38；v5=Z81 硬前置+Z87 grace 回调）**：`releaseAllSessions()`（每会话 ≤300ms/总 ≤2s 超预算如实点名）先于一切关停动作——**定性=常驻化关停硬前置**：不释放则库 runDestroy 永不 settle（closeConnections 只关 WS esm:1357-1364∧onClose :1383 direct≥1 恒早退∧afterUnloadDocument 仅卸载成功触发 esm:1725-1738⇒Promise 永不 resolve——4s race 只是遮羞，destroy_timeout 每次必触发）；**释放后断言 `Σ directConnectionsCount===0`（非零=ERROR+计数——硬失败，与逐会话超预算两口径分离）+destroy_timeout hangReason 补 `resident-session-open` 档**；步骤 1.5 grace **维持 2_000（Z87——V9 入口早退 gateway:3086-3096 已存在，步骤 0 后恒早退零成本；砍 500=把第三方在飞直连〔video-work 5s 活读 fallback〕交给 destroy 强杀）**，关停落档记「会话清零后 count=0 早退」实证。RPO 证据：SIGTERM 兜底=drainAllDocuments(:3068)+flushPendingStores 不依赖卸载钩子。
+5. **两子窗口竞态（Z64）**：A 窗口（卸载已决定 flush 在飞、documents 未删）写到达⇒等待——store 幂等跑完，:1589 二次校验因会话持有返回（doc 存活 flush 提交无第二实例）；B 窗口（:1590 已删已 destroy）写到达⇒新装载自 PG+旧 store CRDT 合并；守卫=onLoadDocument 首行查 `hocuspocus.unloadingDocuments`（公开字段 esm:166/:1271）有则瞬态 503 重试。用例①②各一条确定性构造+**第 3 条（Z83 释放窗口用例）：reaper 释放中并发 acquire——断言写要么落同实例（时点①②）要么经释放完成后新开连接可见（时点③），会话表无双条目、零静默丢弃**。
+6. **不变量+唯一调用点（Z65；v5=Z88 合计计数）**：断言 `!residency.holds(pid) ∧ getConnectionsCount()===0 ⇒ !documents.has(pid)`（**合计口径 esm:590——closeConnections 只遍历 WS esm:1357-1364，「零 WS」不蕴含「零 direct」**）；「连接归零⇒做什么」从 documents.has 翻转改注册表驱动；`hocuspocus.unloadDocument` 唯一调用点=Registry 内部卸载函数（前断言三条件+失败告警）——census 禁他处直调；**A2 验收断言：selfIsolate/shutdown 两路径调 closeConnections 时 Σdirect===0**（释放出口先行的证明义务——Z88 不做逐调用点改造，Z63 出口+步骤 0 已结构性覆盖）。
+7. **auto-vacuum 重入守卫（Z66）**：触发条件补 `!vacuumingDocs.has(pid)`；`collab_vacuum_autotrigger_stacked_total` 稳态 0（周期 30s==上界 30s 会叠加）。
+8. **三涟漪+读者清单（Z47+Z73；v5=Z92；v6=Z104/Z105 第五涟漪+isDocResident 定案）**：computePending 增 residentDocs/directConns 显式字段；**三个读者**（computePending/zeroConnDocs 收集器 gateway:519-522/auto-vacuum）同批改读；check-collab-health 对 yjs_zero_conn_docs 阈值同批重标+**四稳态判据扩表（Z122④：destroy_timeout=0/quiesce-timeout=0/stacked=0/release_with_pending=0）**；heap 闸按双进程+常驻上限重标；**isPersistedComplete 拆分正交化（Z104——第五涟漪）**：谓词首项 `!documents.has`（gateway:342）常驻下恒 false⇒readCanvasSnapshotCached :134 缓存门永远 fallback+**shrink:303 while 轮询到超时**——裁定：谓词拆「PG 快照滞后度」（inFlight/pendingQueues/spool 三态，**剔除 documents.has 项**）与「doc 常驻」（独立谓词）分离；shrink quiesce 改「显式 releaseSessionFor(pid) 后判三态」（与第 2 条释放出口合并）；**isDocResident 唯一形态=hasActiveWsConnection(pid)（Z105——推翻 Z77「∨活跃会话」）**：仅 WS 连接数>0 与常驻会话无关；reconcile 触发的装载=mode:'read' **即用即释不进常驻池**（防 5min 一次钉住几十个无人项目）；无人看=deferred（`exec_projection_deferred_total` 语义「无人在看=不为 UX 投影花钱」保留——用户回来 alignExecFromIntents :751 既有机制对齐）；yjsDocLoadedByReconcilerTotal 注释语义同批更新；Z92 硬断言改「超限时必有 over_limit 或 evicted 计数」（Z106⑤）。
+9. **Server 级旋钮 pin（Z60；v5=Z82a 理由重写）**：gateway:487 维持 true——**理由=残存价值护无会话 doc**（第三方直连/装载失败清理路径的关页立即 store）：常驻路径上「关页即 flush」已结构性失效（onClose :1383 计数早退⇒:1385 不可达），pin 的目的从「保 durability」改为「防升级翻转+记录本路径常驻下已失效」（RPO 语义由 Z61 登记——放宽到 ≤maxDebounce 契约值）。
+10. **RPO 登记（Z61）**：SIGKILL 窗口从 ~0 放宽到 ≤maxDebounce 3000ms（=E43⑥ 正常腿契约值，非回归）；**maxDebounce 禁调大**（runbook+ecosystem 注释钉死）。
+
+**验收判据**：C0 基线对照（**结构性三判据 Z107：A=同 project N 连续作业 TTL 窗内 load{trigger='direct'}==1〔soak pin TTL〕/B=会话命中率 1−load/open≥0.9 稳态/C=store 单调 ≤⌈编辑窗/maxDebounce⌉+2——v5 的「关页 10 作业 load==1」锚作废〔TTL 短于作业段间隔时不可达/flaky〕**+单节点写段 ≤2+组执行 store 落档）；vacuum 活锁不变量（冻结+会话+residue 越阈⇒30s 内成功）+quiesce-timeout 巡检阈值+stacked 计数=0；关停步骤 0 释放落档（**Σdirect===0 断言+关停后 destroy 不超时——hangReason 零 resident-session-open**+**drain 两数 Z114：collab_drain_duration_seconds/collab_drain_projects_total 落档**）；三窗口用例（Z64 ①②+Z83 释放窗口+**Z109 释放超时 zombie：注入 fsync 挂起⇒5s 后新写仍成功不等待**）；Z65 不变量断言（合计口径）+census；三读者改读+阈值重标+isPersistedComplete 拆分（**shrink :303 不再超时**）；超限时必有 over_limit/evicted 计数（Z106）+冻结 doc 驻留时长分布落档（Z93）+**周期完整性巡检（Z111：常驻 doc 抽样 PG 重放对拍 SV——A2 出口观测项）**；A1 全部行为断言回归绿。
+**回滚**：revert A2 commit 组=会话表/释放握手/reaper 整体移除，withDoc 恢复「每次 open/disconnect」形态——store/spool 链路语义不变（A1 门面不受影响）。
+**冻结契约**：释放握手单点 API 形状+**会话状态机（held→releasing→released+acquire 串行化）**+reaper 三条件（pendingQueues 空∧无在飞会话写∧经 releaseSessionFor）+3 释放 1 清账+unloadDocument 唯一调用点+不变量合计计数口径+maxDebounce 上限钉死。
+
+### 片 D：worker 拆分+端口抽象+模块拆分+双进程四缺口（Y0.5-a；v3 重写——Z42/Z41/Z44/Z48/Z49）
+
+**目标形态**：
+1. `COLLAB_ROLE` env（zod 枚举 `api|worker|all`，**默认 `api`（Z48——默认 all 的失败分支=worker 漏设 role→抢 3001→客户端连 worker WS 双写者静默事故；all 仅本地 .env 显式）**）：api=HTTP+WS+入队+intent-reconcile（setInterval 驱动，v2 勘误非 @Cron）；worker=processor 执行；check-ecosystem 断言**每 app 显式携带 COLLAB_ROLE**（禁隐式默认）。**v6（Z98）：新增 ExecutionDaemonModule**（IntentReconcileService 双 timer+temp-cleanup/subscription-task repeatable 注册——资金操作 rollbackRunning/settleStranded 在内）**仅 role=api 装配**+结构性断言 `role!=='api'⇒providers 空`——「reconcile 只在 api 进程」从口头前提变结构约束（R0c-7 四面）。
+2. **端口抽象+模块拆分（Z42；v6=Z100/Z101 修订——DI 现实：ExecutionModule:32/AiImageEditModule:18/AiDownloadModule:12 均 imports CollabModule⇒直接装 processor 模块会实例化 gateway 抢租约；MetricsModule @Global 带 controller；CollabDocumentService 注入面 13 生产文件）**：①`CollabWritePort` 接口（**7 方法 Z100**：withDoc/readCanvas/isLeaseServing/isDocResident/writeNodeData/writeExecStatus/probeArtifacts——worker 侧消费面实测）+**结果三分契约（Z99）**：瞬态 503（COLLAB_NOT_SERVING/真空窗/租约失守）⇒worker 预算内退避重试**绝不上抛到 job**／业务 written:false⇒退款终态链／永久（token/404/schema 拒）⇒计数告警——Direct（api 直调）/Http（worker 走端点，**显式传递 503 语义**）②**emit 端口（Z101）**：`emit.port.ts`（api=真 gateway/worker=降级 no-op+计数——emitNodeStatus :70-82 无 undefined 防护，worker 侧 @WebSocketServer 恒 undefined 必抛；6 processor+2 间接依赖面）③**顺序修正（Z100）：端口定义与 api 侧改道先落（A1 片尾），CollabModule 停止 exports CollabDocumentService 与模块拆分后行（D）**——否则停止 exports 时按原令牌解析⇒编译红④模块拆分：ExecutionModule→Core（service+processor 注入 port，**不含 IntentReconcileService——归 DaemonModule Z98**）+Http（controllers）；ai-image-edit/ai-download 同法（**6 处拆分=片 D 真实工作量**）⑤**worker.module.ts+`NestFactory.createApplicationContext`**——结构性零监听（**措辞修正 Z101：createApplicationContext 仍实例化已加载模块的 controller〔Nest 10.4 源码实证〕——「零监听」只对监听成立；「3000/3001 双 ECONNREFUSED」锚维持**）+**worker 启动 ready 门（Z102：订阅队列前轮询 /api/ready 上限 60s env 可调超限非零退出）**。
+3. 内部写端点：POST /api/collab/doc/write-batch（api 进程；WORKER_WRITE_TOKEN **独立键+timingSafeEqual+production 未设拒启+禁 fail-open**；**token 放服务器 .env 单文件双进程共读（Z49）**；幂等=Z4 守卫+单写者事务〔W3：无 DB 约束可兜——重放幂等由 CRDT+守卫承担；Z124-③ 若解禁迁移则升 DB 唯一键〕；**body 内容校验=Z108 manifest 执行期校验表**（键集/值域/批字节 Σ≤256KB/op 数上限+拒 `__proto__/constructor/prototype`——违规业务级拒绝非 sanitize）；api 进程内直调 port）。
+4. worker 侧写改道：processor 链（ai-download:85,118/ai-image-edit:232,264,298/execution.processor:70/lighting.consumer:214——含 ExecutionService.execute 全生命周期 :40 在 worker 跑，**readCanvas :156 经 Http 端口读**）注入 HttpCollabWritePort；api 侧 service 注入 Direct。**失败钩子拆两半（Z41，替换 v2 Z15）**：`@OnWorkerEvent('failed')` **留 worker 只做 PG 半**（intentService.fail——GenerationIntentService 只依赖 Prisma+Redis，worker 安全持有；:76 即时终态收益不变）；exec 投影半走 api 既有最终一致链（alignExecFromIntents+reconcile 档一档二+装载自检——零新增 Redis 连接/零跨进程事件丢失/banner-cleanup:17 第 3 处钩子显式豁免——Z90）。
+5. ecosystem 双进程（Z10+**Z68 两行判据+Z84/Z85 v5 修订**）：api（old-space 384/max_memory_restart **560M〔待实测校准——Z84〕**）+worker（320/**480M〔待实测校准〕**+nice:10+kill_timeout 120000）；**①稳态预算判据=`p95(api)+p95(worker 进程树 RSS 合计含 ffmpeg 子进程，Z91)+协居实测+300≤1967`（不满足⇒降级）②峰值兜底=单 systemd unit（Z85：`flowweb-pm2.service` MemoryMax=1150M〔算式 560+480+god 40.4+余量 70〕+MemorySwapMax=128M 宁被杀不换页+Restart=on-failure+RestartSec=5；分层分工=PM2 max_memory_restart 管 per-process/MemoryMax 管机器兜底/on-failure 管 god 崩溃，runbook 写死；双 unit=可选探针登记）**；**Z84 门禁同批（三断言按 role 分离——:57 余量常量 API/WORKER 分离、:73 heap 闸链、双向 role）+heap-pressure TRIP/RELEASE 按 role 分离（现单值 750MiB/600MiB 与 worker 480M 必撞）+落地顺序=ecosystem/check-ecosystem/heap-pressure 三处同 commit，实测后上修则三处同批再改**；check-ecosystem 多 app 遍历+**双向显式 role 断言（Z67④：worker 必须显式 worker/api 必须显式 api，两键不得缺省）**+ENV_ALLOWLIST 扩 COLLAB_ROLE（**env 两分判据 Z89：分叉键只进 ecosystem/同值键只进 .env，census 双向断言**）。**role 三件套（Z67）**：.env.example 增 COLLAB_ROLE=all+gate-collab API_ENV 增 COLLAB_ROLE:'all'（与 Z45④ 同批——否则默认 api 使本地 dev 零消费+exec-smoke 红）+启动 role 日志（dev 下 role=api 打 WARN「本进程不消费队列」）。
+5b. **worker 指标出口（Z72；v6=Z116 再修正：3002 不进 nginx）**：AggregatorRegistry=cluster 专用不可用（fork 无 IPC）+同名同标签 concat 打死抓取（勘误见 Z86）。**WORKER_METRICS_PORT=3002 只绑 127.0.0.1——不进 nginx**（nginx 无 /metrics 路由是**故意的**〔runbook:142 公网落 SPA 兜底+Y0b-5 部署实录〕——进 nginx=第一次把指标面暴露 HTTP 栈+E58② 要消灭的「配置不在仓」形态）；check-collab-health/soak 读两个 loopback 端口（同 token 形态）+worker 端点按 {role} 分集断言（worker 未装配模块的 api 族指标**不存在**非零值）；3002 **fail-closed**（production 未设 token 拒启——与 /metrics 同语义）；禁 worker 指标注册进 api 全局 register；**片 D 内落地**。
+6. **连接池显式（Z11）**：connection_limit=8（api）/4（worker）+runbook §4 算式更新。
+7. **deploy 顺序化（Z9②④；v6=Z102 双保险）**：cutover ⑤ 三步——`--only flowweb-api`→ready 绿→`--only flowweb-worker`→pm2 save+**plan 期探针（部署演练验证 --only 与 ecosystem env 块的注入组合语义——未实证的 pm2 实现细节不押正确性）**；**正确性由 Z99 三分语义承担非启动顺序**（api 抖动不只发生在部署窗）+**worker 启动 ready 门（第 2 条⑤）双保险**；**worker 消费自证=BullMQ `queue.getWorkers()`（Z42——api 侧读 Redis worker 注册表，验证「真的在消费」非「进程活着」）**；:138 的 3001 断言保留+**worker 3000+3001 双 ECONNREFUSED 断言（构造性）**；spool 迁移 :124 改「按 app 名逐个 pm2 pid+cwd 一致断言否则拒部署」（Z122⑤）+非静默跳过；pre-cutover 显式 quiesce 登记可选项（cutover 前调 /api/drain 等 drain 完成再 SIGTERM——Z114③）。
+8. **内存预算实测=片 D 第一道出口（R4；v6=Z117 指标面合成判据）**：装载真实 doc 后协居重实测+两进程两数——**worker 侧自暴露 `process_tree_rss_bytes{role='worker'}`（本进程+子进程 RSS 求和；采集失败不上报不给假数——soak 只压不统计，p95 由查询侧承担）**；采集载体=soak 装置（T0.5 扩展）读双端点；**判定时点=A2 出口后/D 出口前各一次**（常驻化改变内存形态，先测单进程常驻基线再测双进程）；「300MB 系统保留」改 `常驻上限×单 doc 实测 p95 字节` 显式项（Z106 同源）；不达标即回退单进程（COLLAB_ROLE=all 显式设）+角色门保留（runbook 写死）。
+
+**验收判据**：worker 进程 3000+3001 **双 ECONNREFUSED（构造性——createApplicationContext）+3002 loopback-only（metrics 显式契约）**；ws 升级拒绝；processor 在 worker 消费（**queue.getWorkers() 断言**+队列 drain 实测）；exec-smoke 双进程绿；api 单进程（all）回归全绿；内存两数+协居重实测落档+Z44/Z68 判据达标（**560/480 实测校准，上修则 ecosystem/check-ecosystem/heap-pressure 三处同批**）；**假第二进程直连写被拒**（既有 PG 租约 fail-fast 用例复验——Z23 三层论证含 selfIsolate 出口〔§0.5.4 Z36-38 落地即单写者论证闭环〕）；stalled 重投用例（在飞 ffmpeg：完成一次/零重复扣费/零虚假 error 投影）；同 idemKey 重放幂等（守卫承担）；env 两分 census 绿（分叉键不在 .env∧同值键不在 ecosystem）。
+**回滚**：ecosystem 回退单进程+revert 改道——worker 写端点保留（无害）；数据面零变更。
+**冻结契约**：COLLAB_ROLE 词汇表（默认 api）+CollabWritePort 接口形状+WORKER_WRITE_TOKEN 形态（timingSafeEqual+fail-closed+.env 放置）+**worker 禁令=符号级（Z43）：禁 openDirectConnection/@hocuspocus/server import/长生命周期 Y.Doc 的 applyUpdate；允许 mergeUpdates/encodeStateAsUpdate/decodeStateVector 纯函数离线用途（repository compact 在用）——禁 @hocuspocus/server 已封死 DirectConnection**。
+
+### 片 E：部署档位·XFF·Redis·备份（Y0.5-b；v3 修订——Z12/Z45/Z13/Z14/Z46/Z16）
+
+1. **NODE_ENV 单源=.env（Z12+Z45 四坑补全）**：zod 改 `z.enum(['development','test','production']).default('production')`（fail-closed 最严档）；ecosystem 维持禁注入（ENV_ALLOWLIST 禁令语义改写在片 D 落）。**Z45①：`.env.example:47 NODE_ENV=production→development` 同批改**（现状新 clone 照 example 即 require_tld+https+Secure cookie=http://localhost 登录失败）；**Z45②：parseEnv 成功后写回 `process.env.NODE_ENV`**（default 显式化到进程环境——否则 guard 读 process.env 与 env 两答案并存）；**Z45③：resolveCollabDebounce 从 useValue（collab.module:25 模块加载期）改 useFactory**（容器装配期、结构可见）+env.spec 测试改 vi.stubEnv 形态；**Z45④：gate-collab.mjs API_ENV 显式加 `NODE_ENV:'development'`**（现状不设继承外部——CI 在 production shell 跑 verify 即被新守卫打死自家门禁）；8 生产直读点统一改读 env；census 断言裸读清零；COLLAB_FAKE_AI∧production 拒启（依赖 ④ 先落）。
+2. **COOKIE_SECURE 显式三态（Z13+Z45⑤）**：`z.enum(['true','false']).optional()`；resolver 单点函数：显式优先（本地 HTTPS 出路）→未设按档位（production 恒 true）→**production+explicit false ⇒ 拒启动**；**与 update-profile.dto trustedOrigins（require_tld/protocols）同批对齐**（Z45⑤——cookie secure 与协议白名单都表达「传输必须 TLS」，只执法前者放过后者=错配；resolver 单点同时驱动 auth.ts:48 与 dto:18,19,25）。三档先红后绿验收。
+3. **网络面三补（Z14+Z46 前置断言）**：①API_BIND_ADDR 新增（main.ts:115 全网监听→127.0.0.1）②COLLAB_TRUSTED_PROXY production 未设⇒拒启③XFF 统一 req.ip（删手写解析；验收覆盖手写 getClientIp 消费方+全局 ThrottlerModule 两条通道）+RATE_LIMIT_IP_WHITELIST 进 zod **且与删手写解析同 commit**。**Z46 前置（第一步）：现场核 nginx XFF 实配**（`nginx -T` 确认 location /api 的 proxy_set_header——api-location.replace.conf:3-4 注释自证站点 block 已带，但须现场核实非 replace 面）+验收断言「`curl -H 'X-Forwarded-For: 1.2.3.4'` 打真实入口⇒req.ip=1.2.3.4 非 127.0.0.1」——**此断言不做，E58③「伪造 XFF 仍被限流」验收是假绿**。白名单默认值维持现状（Z46 裁定：报告4「白名单=全免限流」推导不成立——nginx 已设 XFF 时 req.ip=真实客户端 IP；仅 XFF 头被丢的误配形态才危险，由拒启+断言双层拦截）。
+4. **Redis 三件裁定**（维持）：①appendonly everysec（「Redis 可丢」设计前提不因 AOF 改变——reconcile+CAS 兜底，AOF 只是保险）②maxmemory 128MB 实测核对③noeviction 维持；载体=deploy/redis/server-redis.conf。
+5. **备份降档补四件（Z16）**：维持 v2 全文（runbook 化+每日 pg_dump crontab 含水位守护+保留分层+PITR 模板挂 Y7+MinIO 缺口登记+Redis 全丢恢复语义+恢复对象三表+恢复后 bump generation）。
+6. server-profile 文档更新：双进程算式（Z44 口径）+Redis 裁定+协居重实测值回填。
+
+**验收判据**：NODE_ENV 三档+XFF 伪造首元素仍被限流（两条通道+Z46 req.ip 断言）——全先红后绿；**gate-collab 在 production shell 下跑 verify 不被拒启守卫误伤（Z45④ 回归锚）**；Redis INFO persistence 断言+模板入仓；crontab 首跑证据+水位守护演练；runbook 四件落档。
+**回滚**：env 统一+XFF=revert commit；Redis/crontab 配置回退；数据面零变更。
+
+### 片 B：gateway 领域 service 化（Y0c-2；R0c-2+Z24 修订——殿后）
+
+**目标形态**（3222 行 → 钩子编排层+领域 service；**按状态所有权切分**——行号区间仅作体量参考，不得把「租约失守→selfIsolate→closeAll→spool 入账」同同步块链切到两个 service）：
+
+| 新模块 | 状态所有权 | 体量防倒退锚 | 硬判据（可测性为主） |
+|--------|-----------|-------------|---------------------|
+| CollabPersistenceService | store/spool/drain/pending 的 doc 持久化状态 | ≤500 行 | **不启 WS Server 可独立实例化**（store/compact/spool 单测直跑——E29 原动机） |
+| CollabSessionGuardService | 连接鉴权/限流/awareness 判定的会话状态 | ≤500 行 | 判定纯函数化（request/context→verdict） |
+| CollabDocRegistryService | doc 生命周期账目+驻留会话（片 A 常驻表归此）+owner 抽象（E35） | ≤500 行 | 生命周期状态机**单一所有者+跃迁穷举单测** |
+| CollabDocWriterService | 片 A 产物落位 | — | — |
+| gateway 本体 | 库钩子编排+协议适配 | ≤600 行（防倒退锚，非目标值） | 只余 hook 签名→service 调用 |
+
+**分片推进**（B 内部三步，每步 verify 全绿才进下一步）：B1 Persistence 切出（行为锚 A5-A14 护航）→B2 SessionGuard+DocRegistry 切出→B3 本体收敛+行数门禁脚本（check-ecosystem 旁系；**计法=对齐 wc -l：`content.replace(/\n$/,'').split('\n').length`——Z96，与 B6 的 3222 同源，无尾换行文件两口径差 1**）。
+**切分同步义务（Z24）**：census 组④ ENCODE_WHITELIST 按文件计数——切分搬移文件必同批更新白名单与计数锚，否则 verify 红（plan 逐文件列更新清单——纪律 11 冲击面清点的重点区）。
+**验收判据**：①Persistence 独立实例化单测跑通 store→spool→回灌全链；②gateway ≤600/三 service 各 ≤500（防倒退锚）；③生命周期跃迁穷举单测；④既有 collab 套件全绿（行为零变化——纯结构重构，任何断言修改=偏离登记）。
+**回滚**：纯结构重构无数据面——revert commit 组；B1/B2/B3 各自独立可回滚（步骤间 verify 门）。
+
+---
+
+## 3. 架构决策裁定记录（2026-10-13 用户逐项裁定，全部采纳建议形态）
+
+| # | 决策 | 裁定 | 理由 |
+|---|------|------|------|
+| D1 | gateway（3222 行）切分深度 | **领域 service 化**（R0c-2 裁正形态：四 service 各 ≤500 行+gateway 本体 ≤600 行钩子编排+E29 原意 Persistence 独立实例化硬判据；B1→B2→B3 三步切分每步 verify 门） | v6 原文「≤200 行」隐含 4 倍压缩=纯结构重写风险倒挂 |
+| D2 | worker 拆分拓扑 | **真双进程**（api+worker；§5.1 v3 预算（Z44 数字+MemoryMax+整机判据）；降级出口=单进程显式 COLLAB_ROLE=all 写死 runbook） | E59 验收要求真实形态；sharp/ffmpeg 峰值不再拖拽 WS 事件循环 |
+| D3 | E47 备份/PITR 深度 | **降档交付**（R0c-8：runbook 化+每日 pg_dump crontab+保留策略分层表+PITR 配置模板与上线前执行清单挂 Y7） | 无生产环境先例（0 号动作同源判例） |
+| D4 | pricing drift 根修 | **方案甲**（R0c-9：schema.prisma 注释登记+MIGRATION-DISCIPLINE.md 纪律入仓+additive 门禁硬拦已封死 DROP 风险） | 不翻 Y0b-1 刚验收的资金核心键面 |
+| D5 | 片 B 与片 D 执行序 | ~~A→C→D→B~~ **v2 修正（Z2/R3）：C0→A→D→E→B** | 度量与契约先行（否则片 A 验收锚无载体——K1 实证 yjs_doc_load 不存在）；B 殿后不变 |
+| — | **v2 外审后修正（2026-10-13 三报告+第四轮实证复核，§0.5 Z1-Z35）** | 常驻化升回执行项（Z1 推翻 R0c-1 降级）/writeExecStatus 守卫补齐（Z4）/undefined 改显式拒绝（Z5 推翻 v1「统一跳过」）/NODE_ENV 单源 .env（Z12 推翻 v1「ecosystem 注入」）/COOKIE_SECURE 禁推导改显式三态（Z13）/双进程四缺口全套（Z9/Z10/Z11/Z15）/E47 补四件（Z16）/不采纳项登记（Z25-Z35：outbox 前移/CanvasDocOwner/E26·IDB·世代前移/JobLease 等——理由各条） | 外审实证 14 项复核 |
+
+---
+
+## 4. 出口判据汇总+RPO/RTO+观测面+CI 载体（立项纪律第 6 条）
+
+### 4.1 本批出口判据（全片达成）
+
+1. 片 A-E 各自验收判据全绿（§2 逐片）
+2. `pnpm verify` 全链绿（含新增 census 扩组/行为锚/行数门禁）
+3. 双进程部署演练：deploy.sh 全链（preflight→cutover→smoke 双绿）+内存实测两数落档
+4. 总目录回填：Y0c/Y0.5 行状态更新+链接回填+核销项登记
+
+### 4.2 RPO/RTO 影响
+
+- **RPO 三腿口径（E43⑥）零恶化（v2 显式声明）**：常驻化改 disconnect 触发为 debounce 触发+空闲回收——**最坏窗口仍是 maxDebounce（prod 3000ms）不变**（Z1 第 4 条）；片 B 纯结构重构；worker 拆分后 exec 终态写多一跳 HTTP——失败语义=幂等键重试（BullMQ attempts 兜底），RPO 不变、终态延迟 +1 RTT（localhost 窗口）
+- **常驻化新增风险面已配套**：store 失败 doc 长期驻留→E21③ BOI 既有防线+强制淘汰出口（片 A 第 1 条）；会话驻留挫败 vacuum quiesce→释放握手单点+活锁不变量单测（Z37）；**SIGTERM 关停兜底=drainAllDocuments(t0+18s, gateway:3068)+flushPendingStores——不依赖卸载钩子，常驻 doc 关停不丢数据（Z38 显式关闭证据）**
+- **常驻化的 RPO 显式登记（Z61，v4）**：SIGKILL 丢失窗口从 ~0（今天断连/写完即落库）**放宽到 ≤maxDebounce 3000ms——恰为 E43⑥ 三腿口径正常腿契约值（回到契约内，非恶化到契约外）**；SIGTERM 不变（drainAllDocuments 兜底）；**maxDebounce 禁调大**（防为省内存放宽 RPO——runbook+ecosystem 注释钉死）
+- Redis AOF everysec 若采纳：BullMQ 作业状态 RPO 从「RDB 窗口（分钟级）」压至 ≤1s——**改善项但设计前提不变**（「Redis 可丢」链=reconcile+CAS 兜底，AOF 只是保险——Z16③ runbook 写明）
+- RTO 不变（重启后首个客户端可编辑秒级目标——租约/装载链路不动）
+
+### 4.3 新增观测面（v2 扩充——Z3/Z20）
+
+| 指标 | 挂点 | 说明 |
+|------|------|------|
+| **yjs_doc_load_total{trigger}** | loadDocument 成功路径+openDirectConnection 路径（C0 先落） | trigger=ws/direct/reconciler；**片 A 验收主锚**（关页 10 作业场景 direct==1） |
+| **yjs_store_total{trigger}** | storeDocumentUnlocked | 非 noop 计数；单节点执行链 ≤2 锚 |
+| **yjs_withdoc_open_duration_seconds** | withDoc 起点=**open 之前**（计时点前移） | 分辨装载慢 vs 落库慢 |
+| **collab_escape_hatch_total{kind}** | 客户端遥测 sink（safeReload/generation/diverged/backup-export/**client-doc-rebuild**） | **基线+趋势判据（Z54）**：C0 落基线→每片回填→目标窗口在 Y1c-1（本批不触客户端 generation 路径——非零即 P0 的强判据挂 Y1c-1 起） |
+| **event-loop lag**（直方图） | api+worker **各一份 `{role}` 标签**（Z50——worker 侧才是 sharp/ffmpeg 真实信号面）；实现=`perf_hooks.monitorEventLoopDelay()`（Node 原生） | **主线程阻塞的补充信号**（yjs_compact/store_duration 直方图已存在——非唯一信号，v2 表述勘误） |
+| **collab_exec_projection_failed_total{cause}** | 14 处 `.catch(()=>{})` 吞错处（Z136④ 订正） | 不改策略只加可见性；双进程后从罕见变常态 |
+| yjs_doc_write_batch_total{ops} | DocWriter | 批量合并效率（op 数分布） |
+| yjs_doc_write_reject_total{reason} | DocWriter | schemaVersion 拒/undefined 拒/node-deleted/幂等冲突 |
+| collab_worker_write_total{outcome} | 内部写端点 | worker→api 写成功/失败/重试 |
+| collab_write_session_{open,close,evicted}_total | 常驻写会话 | 会话命中率=1−open/写次数 |
+| **驱逐时驻留时长直方图（Z93）** | reaper 驱逐路径（随 yjs_doc_evicted_total{reason='ttl'\|'lru'\|'forced'}） | 冻结 doc 驻留时长分布——Z70 降级后「环路有界」的可读数（事故复盘自证） |
+| collab_role_info{role} | main.ts | 进程角色自证 |
+| **yjs_resident_bytes / yjs_resident_docs（gauge，v6 Z106）** | reaper 常驻表 | 字节主约束判据载体+条目护栏（check-collab-health 挂 bytes 比率 80% 告警） |
+| **yjs_resident_over_limit_total / collab_write_session_release_timeout_total / acquire_wait_timeout_total（v6 Z106/Z109）** | 常驻表/释放路径 | 超限临时超过/释放超时 zombie/acquire 有限等待——三者稳态 0 |
+| **collab_drain_duration_seconds / collab_drain_projects_total（v6 Z114）** | drainAllDocuments | 常驻后关停 drain 从秒级变数十秒级——可读数（A2 关停落档必含） |
+| **yjs_release_with_pending_total（v6 Z103）** | 释放出口 | 释放时批非空=非零即证明释放抢在落库前——稳态 0 进 check-collab-health |
+| **process_tree_rss_bytes{role='worker'}（v6 Z117）** | worker 自暴露 | 进程树 RSS 合计（含 ffmpeg 子进程；采集失败不上报不给假数） |
+
+### 4.4 CI 载体（纪律第 7 条：每门标注载体+阻塞性+变红证据）
+
+| 门 | 载体 | 阻塞发布 | 变红证据 |
+|----|------|---------|---------|
+| withDoc census 全枚举（B4 v2：逐点标 read-only/writer/待收编） | check-collab-census 扩组（verify 链） | 是 | 片 A 前待收编点红 |
+| **worker 禁令=符号级闭包断言（Z43：禁 openDirectConnection/@hocuspocus.server import/长生命周期 applyUpdate；允许 yjs 纯函数）** | check-collab-census 扩组 | 是 | 改道前 processor 闭包内 @hocuspocus.server 引用红 |
+| E27 嵌套创建者 census | 同上扩组 | 是 | 未登记新写点红 |
+| 生产裸 `new Y.Doc()` 清零 | 同上扩组（createCanvasDoc 工厂） | 是 | 生产 7 处无参现状红（Z57 豁免清单） |
+| 行数防倒退锚（gateway≤600/service≤500；**计法=对齐 wc -l〔Z96〕**） | 新脚本 check-collab-module-size（verify 链） | 是 | 切分前 gateway 3222 红 |
+| 行为锚（SkipFurtherHooksError/disconnect 默认值） | collab.library-anchors.spec 扩 | 是（CI collab-core job） | 新锚先红 |
+| **check-ecosystem 多 app 按 role 分组断言（Z84：:57 余量常量/:73 heap 闸链按 role 分离+双向 role+env 两分 census Z89）** | check-ecosystem.mjs 改造 | 是 | 现状 apps[0] 单读=worker app 零覆盖（构造双 app fixture 红）；单值 +384MB/750MiB 对 560/480 红（先红验证） |
+| NODE_ENV 裸读清零+COOKIE_SECURE/XFF/API_BIND_ADDR/TRUSTED_PROXY | vitest 三档用例+census | 是 | 现状直读 8 处红/伪造 XFF 逃逸红 |
+| verify-indexes CHECK 补全（3 条） | verify-indexes.sql（verify 链第 2 步） | 是 | 缺断言时手工 DROP 对象→门应红（先红验证） |
+
+### 4.5 回滚总纲（逐片见 §2）
+
+本批**零 schema 变更、零数据迁移、零 doc 内容模型变化**（pricing drift 修=纯文档；**迁移解禁已终裁否决——Z125：两项候选一个语义缺陷一个既成事实，代价=「重试多落有界 delta 行」以 collab_worker_write_retry_total 可观测；Y1c-1 若实测量级超预期携数据重评**）——全批回滚=git revert 片级 commit 组+ecosystem 回退单进程定义+服务器 Redis/crontab 配置回退。最恶劣场景（双进程内存超限）=COLLAB_ROLE=all 单进程降级出口（deploy runbook 写死，D2）。
+
+---
+
+## 5. 运行面三件套（立项纪律第 8 条：本批**改变**进程定义/内存上限/关停时长）
+
+### 5.1 内存预算表（v5 重算——Z10+Z44+Z68 两行判据+Z84/Z85/Z91 修订；口径纪律先于数字）
+
+**口径纪律（写死 ecosystem 注释+runbook）**：①`max_memory_restart` 是**单进程重启触发项**（上限口径），不是内存预算项——**不进稳态预算判据相加**（罩多进程的 MemoryMax=各进程上限之和是兜底设定的正确算术，与①不同事——Z85）；②整机预算用**实测稳态均值**对物理 1967MB（非 1900 名义值）校验；③协居 514.6MB 采于 CanvasDoc=0 时期——片 D 第一道出口=装载真实 doc 后重实测协居+两进程两数（稳态 p95+峰值）；**③′worker 稳态口径=进程树 RSS 合计（含 ffmpeg 子进程；PM2 不聚合子进程——Z91）**；④swap 1.9G（已用 377MB）是兜底非预算。
+
+| 组件 | 现状（单进程） | 双进程目标（v5 数字） | 依据 |
+|------|--------------|---------------------|------|
+| api old-space / max_memory_restart | 512 / 1024 | **384 / 560M〔待实测校准 Z84〕** | v3 重算（Z44——v2 的 576/「+192」无出处违反元纪律，废）：余量 176MB=**显式取舍**（低于 profile 算式 1 的 384MB），挂「装载峰值实测无拐点」条件 |
+| worker old-space / max_memory_restart | —（同进程） | **320 / 480M〔待实测校准〕** | 余量 160MB 同上；sharp 4K 峰值（stitch concurrency:2 维持）+单任务像素上限闸（plan 期落） |
+| worker nice | — | **10** | CPU 优先级=拆分真实收益 |
+| **heap 闸 TRIP/RELEASE** | 单值 750MiB/600MiB（heap-pressure.ts:14-15） | **按 role 分离（Z84）**：api 维持量级/worker 重标定（须过 check-ecosystem:73 `trip<rss−200MB`——worker 480M ⇒ trip<280M，**单值必撞**） | 我方第十轮实证补强（报告未覆盖） |
+| **硬上限承担者** | 无（内核 OOM 兜底） | **单 systemd unit（Z85+Z115 pm2-runtime 前台模式）：`deploy/flowweb-pm2.service`=`Type=simple`+`User=ubuntu`+`Environment=PM2_HOME=/home/ubuntu/.pm2`+`ExecStart=/usr/bin/pm2-runtime start ecosystem.config.cjs`（前台模式——不需要 PIDFile/不需要 forking 探针+日志直进 journal+User/PM2_HOME 显式防第二 god）+MemoryMax=1150M（=560+480+god 40.4+余量 70）+`MemorySwapMax=128M`（宁被杀不换页）+`Restart=on-failure`+`RestartSec=5`**；分层分工=PM2 max_memory_restart 管 per-process（杀泄漏者后 autorestart 秒级拉起）/MemoryMax 管机器兜底（cgroup 杀 RSS 最大者=泄漏进程）/on-failure 管 god 崩溃；双 unit=可选探针登记；**报告二方案 B（删 PM2 改 systemd 模板单元）登记 Y7 评估**（Z124-⑤：省 40.4MB god+天然 per-process cgroup vs deploy.sh/runbook/ecosystem 全链重写——「现在零迁移 Y7 带负载迁移」论点成立故 Y7 前必须显式评估） | PM2 max_memory_restart 只重启单进程不防内核 OOM；**唯一真正兑现「双进程不炸机」的机制**（Z85 裁决+Z115 修正 P3 探针坑——承重机制禁建立在「跑起来再看」上） |
+| 稳态 RSS 期望 | 138.8（实测） | api ~150 / worker ~120 **[待实测]** | Nest 双容器基线 |
+| PM2 | 40.4MB | 40.4MB | — |
+| 协居（minio+PG+redis） | 514.6（**CanvasDoc=0 时期值**） | **重实测[待实测]** | Yjs 上线后 PG/redis 用量已变 |
+| 系统保留 | 300MB | 300MB | — |
+| **①稳态预算判据（预算项，可相加）** | 1024+514.6+300=1838.6≤1967 ✓ | **`p95(api_RSS)+p95(worker 进程树 RSS 合计)+协居实测+300 ≤ 1967`** | Z68 拆两行+Z91 口径——不满足⇒降级出口（单进程显式 COLLAB_ROLE=all） |
+| **②峰值兜底判据（上限项，不进稳态相加）** | — | `MemoryMax=1150M` 越限⇒cgroup 杀 RSS 最大者（=泄漏进程）⇒PM2 autorestart 拉起；god 崩溃⇒on-failure 重启 unit | v3 的「1040+协居+300≤1967」把上限当预算项相加**违反口径纪律①，废**（Z68）；Z85 完成 Restart 分工 |
+
+### 5.2 关停时长（v5）
+
+api kill_timeout 45000 维持（E43⑤ 算式不变）；**worker kill_timeout=120000**（ffmpeg 转码/4K 合成排空上界——check-ecosystem 按 role 断不同下限：api≥45000/worker≥120000）；worker 关停=BullMQ queue.close() graceful（受 kill_timeout 约束）+stalled 重投语义（lockDuration 60s+maxStalledCount:1）配部署演练用例（在飞 ffmpeg 作业：完成一次/零重复扣费/零虚假 error 投影）。
+
+### 5.3 进程 artifact 变更清单（v5——Z68+Z84/Z85/Z86 交付物）
+
+ecosystem.config.cjs（apps+1 进程+role env+nice+独立内存/kill_timeout+「上限不进稳态相加」注释）/**deploy/flowweb-pm2.service（新——单 systemd unit：pm2-runtime 前台模式 Z115：Type=simple+User+PM2_HOME+ExecStart pm2-runtime+MemoryMax=1150M+MemorySwapMax=128M+Restart=on-failure+RestartSec=5+分层分工注释）**/deploy.sh（cutover ⑤ 三步顺序化+--only env 注入探针 Z102+worker ready 门+worker 零监听断言+spool 迁移按 app 名逐个+cwd 一致断言+pre-cutover quiesce 可选项 Z114+systemd unit 安装步骤）/check-ecosystem.mjs（**apps[0] 单读取改多 app 按 role 分组断言+双向显式 role 断言（Z67④）+:57 余量常量按 role 分离（Z84）+:73 跨文件断言强化（TRIP[role]+200MB≤max_memory_restart[role] 双处取值 Z118）+ENV_ALLOWLIST 扩 COLLAB_ROLE〔分叉键口径 Z89〕**）/heap-pressure.ts（TRIP/RELEASE 按 role 分离——Z84）/WORKER_METRICS_PORT env（3002 loopback-only **不进 nginx** Z116）/check-collab-health.mjs（读双 loopback 端点+{role} 分集断言+四稳态判据扩表 Z122④）/DATABASE_URL（connection_limit api 8/worker 4）/deploy/redis/server-redis.conf（新）/server-profile 文档（协居重实测+双进程算式回填）。
+
+---
+
+## 6. 失败分支推演表（立项纪律第 10 条：每个新守卫/哨兵三行行为表）
+
+| 守卫/机制 | ①依赖缺失 | ②依赖异常态 | ③判据可达性 |
+|-----------|-----------|-------------|-------------|
+| DocWriter ensureSchemaVersion 门 | doc 无 schemaVersion（老数据）→装载时已播种（Y0b-3 无戳自愈限服务端种子路径）；无戳=装载层缺口非本门职责（登记不扩责） | schemaVersion 前瞻（高版本 doc）→拒写+reason 计数（正常拒） | 可达：伪造降版 doc 直测（片 A 验收） |
+| **常驻写会话（Z1+Z59-Z66；v5=Z81/Z82/Z83）** | 会话表空+写到达→新开（正常）；机制=持有 DirectConnection 钉住谓词（Z59 定案——无探针无备选分支） | store 失败 doc 驻留→E21③ BOI+强制淘汰；TTL 到期 pendingQueues 非空→不卸载（E45/Z62）重置计时+告警；**释放窗口并发 acquire→会话状态机串行化（Z83：reaper 仅 refCount===0∧held 时释放；acquire 遇 releasing⇒await 后新开——库层三时点已双闭合，应用层防会话表双条目）**；**卸载中并发写→两子窗口守卫（Z64：unloadingDocuments 检查瞬态 503）**；auto-vacuum 活锁→释放握手单点（Z37）+quiesce-timeout 巡检阈值；**关停不释放→runDestroy 永不 settle（Z81：closeConnections 只关 WS∧:1383 direct 早退∧afterUnloadDocument 仅卸载成功触发）——releaseAllSessions=硬前置+Σdirect===0 断言+hangReason 补 resident-session-open** | 可达：3 释放+1 清账各一单测+vacuum 活锁不变量+**三窗口用例（Z64 ①②+Z83 释放窗口+Z109 释放超时 zombie）**+**结构性三判据探针（Z107：TTL 窗内 N 作业 load==1/命中率≥0.9/store 单调上界——soak pin TTL）**+关停 destroy 不超时断言 |
+| **undefined 显式拒绝（Z5）** | 调用方传 undefined→throw `UNDEFINED_PATCH_VALUE`（进程内 bug fail-fast；JSON 传不了 undefined） | deleteNodeDataKeys 传空数组→no-op 返回（合法） | 可达：patch 注入 undefined 直测 throw |
+| **origin=Origin.Server（Z6；v6=Z119 锚改写）** | 常量缺失=编译错（shared 单源） | 库默认 origin={source:'local'}≠'local-user'⇒undo 栈本就安全（结构免疫）；真实缺陷=遥测/配额口径不区分——gateway:990 docDelta 累加不区分 origin，服务端产物计入客户端配额观测 | 可达：①事务 origin 直测断言②docDelta 分流用例（服务端写不计入）——**原「undo 栈不受污染」先红用例作废（恒绿假门禁）** |
+| WORKER_WRITE_TOKEN 鉴权 | 未设+production→**拒启**（非 403——启动 fail-fast） | token 泄漏→单键轮换（runbook 一行）；timingSafeEqual 防时序侧信道 | 可达：无 token/错 token/未设启动三探针 |
+| COLLAB_ROLE 角色门 | 非法值→zod fail-fast 拒启 | worker 意外监听→workerProviders 装配层结构性排除+「双进程 3000 恰一 listener」断言 | 可达：三 role 各一启动用例 |
+| 双进程内存预算 | 稳态判据不满足→降级出口（单进程显式 COLLAB_ROLE=all，runbook 写死） | worker sharp/ffmpeg 峰值超限→PM2 重启单进程（api 不受牵连）+stalled 重投+**api 侧最终一致链兜底**（alignExecFromIntents+reconcile+装载自检，Z41）；**MemoryMax=1150M 越限→cgroup 杀 RSS 最大者（=泄漏进程）⇒PM2 autorestart 拉起；god 崩溃→on-failure 重启 unit**（Z85 分层分工——Restart=always 在 god 存活时是死条款） | 可达：装载真实 doc 实测两数（第一道出口，worker=进程树口径 Z91；A2 后/D 前两时点）+稳态/兜底两行判据各自可判 |
+| E27/withDoc/new Y.Doc()/NODE_ENV 裸读 census | 新写点零登记→红（预期） | 清单漂移（重构行号变）→census 按符号匹配（设计约束进 plan） | 可达：各注入一个未登记点红探针 |
+| 内部写端点幂等 | idemKey 缺失→4xx 拒（硬前置非可选） | 同 idemKey 重放→**守卫+单写者事务+CRDT 幂等（Z76 v4 表述：CanvasDocUpdate 无 (projectId,idemKey) 约束——W3 勘误；重试先校验写入已生效，禁重复 append 同一 update）** | 可达：双发同 idemKey 断言单次落 doc+单 update 行数 |
+| **COOKIE_SECURE 三态（Z13）** | 未设→按档位兜底（production 恒 true） | production+explicit false→**拒启动**；development+true→仍 Secure（本地 HTTPS 出路） | 可达：三档各一用例（先红后绿） |
+| **API_BIND_ADDR/COLLAB_TRUSTED_PROXY（Z14）** | BIND_ADDR 未设→默认 127.0.0.1（fail-closed 方向） | TRUSTED_PROXY production 未设→**拒启**（现=全站单限流桶静默失效） | 可达：未设启动探针+伪造 XFF 限流用例（两条通道） |
+| Redis everysec | 服务器配置未应用→deploy runbook 步骤 INFO persistence 断言 | AOF 写失败→redis 日志告警（check-collab-health 扩读）；**Redis 全丢→reconcile 收敛链（禁手工重投——runbook 写明）** | 可达：redis-cli INFO 直读 |
+| pg_dump crontab | 磁盘>85%→脚本自检优先删最旧（水位守护） | dump 失败→保留上一份（atomic 命名+失败不删旧）；超保留策略→分层清理 | 可达：手动触发一次全链 |
+| **escape hatch 计数（Z3）** | 遥测 sink 不可达→客户端 ring 本地保留（既有降级）+重连补投 | 指标缺失→C0 验收（基线落档时可见） | 可达：手动触发 safeReload 探针 |
+
+---
+
+## 7. 立项纪律十一条对照（v8.3）
+
+| # | 纪律 | 本 spec 落点 |
+|---|------|-------------|
+| 1 | 基线快照表 | §0.1/§0.2（B1-B31，2026-10-13 实勘+v2~v5 累计勘误回填——B9/B16/B21/B28 已含多轮勘正；Z 行行号=立项日快照按语义定位，元纪律④） |
+| 2 | 删除类五行 census | B4 v2 直写全枚举/键集收编/E27/new Y.Doc()（7 处）/NODE_ENV 裸读（Z79 两分判据）/worker 符号级禁令（Z43）——plan 期逐点五行表（C0/A/D 含 census 扩组） |
+| 3 | 出口判据+回滚+冻结契约 | §2 逐片+§4.1/§4.5；冻结契约=DocWriteOp 词汇表/COLLAB_ROLE 词汇表/WORKER_WRITE_TOKEN 形态 |
+| 4 | 禁垫片/兼容层 | COLLAB_ROLE **默认 api（Z48 v4）**、`all` 仅本地显式（.env.example 注明，Z67）——单进程=合法拓扑非兼容垫片；worker 写端点幂等键为硬前置+退役路径写明；旧 bundle/旧缓存零涉及 |
+| 5 | 门禁先红 | §4.4 每门变红证据列；**C0 片=census 三组先红+指标载体先落（先红用在验收锚自己身上——Z3）** |
+| 6 | RPO/RTO+观测面+CI 载体 | §4.2/§4.3/§4.4 |
+| 7 | 门禁载体声明 | §4.4 表（载体+阻塞+变红三列齐全） |
+| 8 | 运行面三件套 | §5（本批三件全变——双进程+内存实测第一出口+worker 关停 120s） |
+| 9 | 无预算同步工作+配置即契约 | DocWriter 批量事务=显式合并预算（**实测口径锚：load==1/store≤2**——v1 次数锚作废）；常驻化把 N 次全量重载压成 1 次装载+N 次内存写（Z1 结构性解决）；ecosystem/Redis/COOKIE_SECURE/NODE_ENV 全显式入契约 |
+| 10 | 探针前置+失败分支推演 | §6 三行行为表（14 守卫各①②③——含常驻会话 **3 释放+1 清账**（Z63 口径）/释放状态机（Z83）/关停硬前置（Z81）/undefined throw/拒启三件） |
+| 11 | 修改类任务冲击面清点 | plan 级前置（片 A undefined 拒绝/片 B 切分消费点+census 白名单同步/片 D processor 改道+**模块加载期求值 3 处**——plan 逐片 grep 清单，标保持/改写/删除） |
+
+---
+
+## 0.6 偏离登记表（执行期滚动，v6 立项时为空——立项期终裁见 §0.5.7 Z125）
+
+| # | 偏离 | 片 | 性质 | 处置 |
+|---|------|-----|------|------|
+| — | （立项时无） | — | — | — |
+
+---
+
+## 附：本批与上游目录的回填义务
+
+spec 确认后：总目录 §0.2 Y0c 行/Y0.5 行回填本 spec 链接+状态「已立项」；执行期每片出口后滚动回填；全批完结时核销表（§0.3）同步回总目录行内（防下批重复勘察）。
+
+Y0b 系尾巴处置回填：Y0b spec §0.4d 第 8 条（shrink thaw）在片 A 出口、Y0b-4 偏离 52（pricing drift）在片 C0 出口时回「已由 Y0c+Y0.5 批片 X 根修」。
