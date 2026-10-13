@@ -176,6 +176,11 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
+      # Y0c T5（Z80/Z18/Z123）：库行为锚=版本 pin 语义的 CI 保障（@hocuspocus 4.6.0 实现细节漂移即红）。
+      # unit 形态（独立最小 Server+mock 装置，零 DB/Redis 依赖）；test job 的 verify 全量常跑同文件，
+      # 此处 targeted 重跑=第二真源（本 job 注释头同款口径）——Z18 版本变化必重跑清单的执行入口之一。
+      - name: collab 库行为锚（Z80 四锚+A5-A14——版本 pin 语义 CI 保障）
+        run: pnpm --filter @flowweb/api exec vitest run src/modules/collab/collab.library-anchors.spec.ts
       # Y0a-3（V27/X16）：专用配置串行（CollabLease 单行全局资源，fileParallelism=false）+集合断言
       # 单源化——显式清单+条数阈值退役（新增 int 文件漏登记=静默漏跑的根因由 git ls-files 集合比对消除）。
       - name: collab int（专用配置串行——CollabLease 单行全局资源；双 reporter=失败用例名在 CI 日志可读）

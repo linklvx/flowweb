@@ -3,6 +3,10 @@
 // 对库无效——Server 构造时捕获闭包引用；库锚一律独立最小 Server 直挂钩子）。
 import { describe, it, expect, vi } from 'vitest';
 import { Server, shouldSkipStoreHooks } from '@hocuspocus/server';
+import { SkipFurtherHooksError } from '@hocuspocus/common';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import * as path from 'node:path';
 import * as Y from 'yjs';
 import { pollUntil } from '../../test-utils/poll-until';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
@@ -121,4 +125,168 @@ describe('A14 store 钩子锁形态（v2：结论已实测写死——探针降�
       expect(order).toContain('hook');   // 断言实质：钩子被调且 isLocked 通过（钩子体内 expect 已红则本轮不会到达）
     } finally { await server.destroy(); }
   });
+});
+
+// ══ Z80/Z94 库行为锚 4 枚（Y0c C0/T5）══
+// Z59 常驻化机制基石的测试化钉死：持有 DirectConnection ⇒ directConnectionsCount≥1 ⇒ getConnectionsCount≥1
+// ⇒ shouldUnloadDocument 恒 false ⇒ 库全部卸载入口静默 no-op。行号引证=4.6.0 安装态实测
+// （hocuspocus-server.esm.js；spec Z59 立项快照 :1550/:1541/:1385 对应实测 :1551/:1543/:1386——
+// Z95 纪律：行号是立项快照非执行锚，断言以语义/结构定位，漂移由正例②源码锚+check-hocuspocus-pin 兜底）。
+describe('Z80 正例① 持有 direct ⇒ 谓词恒 false ⇒ 4 入口 no-op（Z59 机制测试化）', () => {
+  it('入口① store 完成后的卸载判定（esm:1550-1552 setTimeout 谓词守卫）：store 跑完不卸载', async () => {
+    let calls = 0;
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async () => { calls++; },
+    });
+    await server.listen();
+    const name = 'p-anchor-z80-store';
+    const conn = await server.hocuspocus.openDirectConnection(name);
+    try {
+      const doc = server.hocuspocus.documents.get(name)!;
+      await conn.transact((d) => { d.getMap('nodes').set('n', new Y.Map([['x', 1]])); });
+      await pollUntil(() => calls >= 1, 3_000);   // store 确已跑（防「未触发即断言」的通过无意义竞态——A9 同款）
+      const debouncer = (server.hocuspocus as any).debouncer;
+      await pollUntil(                            // debounce/在飞/saveMutex 全 settle——卸载判定前置全清（A9 判据直读形态）
+        () => !debouncer.isDebounced(`onStoreDocument-${name}`) && !debouncer.isCurrentlyExecuting(`onStoreDocument-${name}`) && !doc.saveMutex.isLocked(),
+        3_000,
+      );
+      await new Promise((r) => setTimeout(r, 100));   // >setTimeout(0)：完成分支的卸载判定必已跑
+      expect(calls).toBe(1);
+      expect(server.hocuspocus.shouldUnloadDocument(doc)).toBe(false);   // 机制面：count=1 ⇒ 谓词恒 false
+      expect(server.hocuspocus.documents.has(name)).toBe(true);          // Z59 入口①：store 完成 setTimeout 判定被持有钉住=no-op
+    } finally { await conn.disconnect(); await server.destroy(); }
+  }, 10_000);
+
+  it('入口② SkipFurtherHooksError 分支（esm:1541-1545 setTimeout 谓词守卫）：钩子抛 SkipFurtherHooksError 不卸载', async () => {
+    let calls = 0;
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async () => { calls++; throw new SkipFurtherHooksError(); },
+    });
+    await server.listen();
+    const name = 'p-anchor-z80-skip';
+    const conn = await server.hocuspocus.openDirectConnection(name);
+    try {
+      await conn.transact((d) => { d.getMap('nodes').set('n', new Y.Map([['x', 1]])); });
+      await pollUntil(() => calls >= 1, 3_000);   // 钩子确已跑（防空转通过）
+      const debouncer = (server.hocuspocus as any).debouncer;
+      await pollUntil(() => !debouncer.isDebounced(`onStoreDocument-${name}`) && !debouncer.isCurrentlyExecuting(`onStoreDocument-${name}`), 3_000);
+      await new Promise((r) => setTimeout(r, 100));   // >setTimeout(0)：SkipFurtherHooks 分支的卸载判定必已跑
+      expect(server.hocuspocus.documents.has(name)).toBe(true);   // Z59 入口②：跳链分支 setTimeout 判定被持有钉住=no-op
+    } finally { await conn.disconnect(); await server.destroy(); }
+  }, 10_000);
+
+  it('入口③ WS 关页 onClose（esm:1382-1387 首行计数早退 :1383）：direct 持有下 provider 断开不卸载', async () => {
+    const kit = await startDualClientServer({}, 200);
+    const name = 'project:p-anchor-z80-ws';
+    const conn = await kit.gateway.server.hocuspocus.openDirectConnection(name);   // 先持有 direct（生产 withDoc 同入口 collab-document.service.ts:69）
+    try {
+      const { provider, synced } = kit.connect(name);
+      await synced;
+      provider.document.getMap('nodes').set('n', new Y.Map([['x', 1]]));
+      await pollUntil(() => kit.gateway.server.hocuspocus.documents.get(name)?.getMap('nodes').has('n') === true, 5_000);   // 写已达服务端（A9 同款防通过无意义竞态）
+      provider.destroy();
+      kit.forget(provider);   // WS 关页→onClose：:1383 计数含 direct=1 ⇒ 早退（Z59 入口③）
+      const debouncer = (kit.gateway.server.hocuspocus as any).debouncer;
+      await pollUntil(() => !debouncer.isDebounced(`onStoreDocument-${name}`) && !debouncer.isCurrentlyExecuting(`onStoreDocument-${name}`), 8_000);   // 与「断连在 debounce 在途」两机制分离（A9 探针修正同款）
+      await new Promise((r) => setTimeout(r, 100));   // store 完成分支 setTimeout(0) 必已跑
+      expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // Z59 入口③：:1383 计数含 direct=1 ⇒ 早退不卸载
+    } finally {
+      await conn.disconnect();   // 清理释放：direct 持有下 server.destroy 永不 settle（Z81 runDestroy 等 documents 归零）
+      await kit.dispose();
+    }
+  }, 20_000);
+
+  it('入口④ direct disconnect（esm:1145-1174 :1160 计数守卫）：双 direct 断开其一不卸载', async () => {
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async () => { /* 默认成功 */ },
+    });
+    await server.listen();
+    const name = 'p-anchor-z80-direct';
+    const connA = await server.hocuspocus.openDirectConnection(name);
+    const connB = await server.hocuspocus.openDirectConnection(name);   // 同名复用同 doc（esm:1432-1433）⇒ count=2
+    try {
+      const doc = server.hocuspocus.documents.get(name)!;
+      expect(doc.getConnectionsCount()).toBe(2);
+      await connA.transact((d) => { d.getMap('nodes').set('n', new Y.Map([['x', 1]])); });
+      await connB.disconnect({ unloadImmediately: true });   // 断开 B：:1160 count=1≠0 ⇒ 跳过 onDisconnect+unload 块
+      expect(server.hocuspocus.documents.has(name)).toBe(true);   // Z59 入口④：其余 direct 钉住 doc 不卸载
+      await connA.transact((d) => { d.getMap('nodes').set('m', new Y.Map([['x', 2]])); });   // A 仍可用（钉住的是活连接非僵尸）
+      await pollUntil(() => {   // B 断开触发的 store 走完——setTimeout 判定同样被 A 钉住
+        const debouncer = (server.hocuspocus as any).debouncer;
+        return !debouncer.isDebounced(`onStoreDocument-${name}`) && !debouncer.isCurrentlyExecuting(`onStoreDocument-${name}`);
+      }, 3_000);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(server.hocuspocus.documents.has(name)).toBe(true);   // 对照锚：A 仍钉住（与探针红方向相反——真钉住证据）
+    } finally { await connA.disconnect(); await server.destroy(); }
+  }, 10_000);
+});
+
+describe('Z80 正例② 谓词=唯一卸载决策者（源码级结构锚——unloadDocument 双校验 esm:1576/:1589）', () => {
+  it('全库卸载调用点全部汇入 unloadDocument 的谓词双校验（升级结构漂移即红——Z18/Z123 锚清单成员）', () => {
+    // 读安装态 dist 源码做结构断言（路径解析：createRequire 基座=包根 package.json——vitest cwd=包根惯例；
+    // require 条件→cjs 入口→同目录 esm 构建=Z59 行号引证的同源文本）
+    const serverCjs = createRequire(path.join(process.cwd(), 'package.json')).resolve('@hocuspocus/server');
+    const src = readFileSync(serverCjs.replace(/hocuspocus-server\.cjs$/, 'hocuspocus-server.esm.js'), 'utf8');
+    // ① 谓词体单源（esm:1571-1573）：debouncer 二态+saveMutex+连接计数四态一行定真假——外部无第二决策点
+    expect(src).toContain("shouldUnloadDocument(document) {\n\t\treturn (this.debouncer.isDebounced(`onStoreDocument-${document.name}`) || this.debouncer.isCurrentlyExecuting(`onStoreDocument-${document.name}`) || document.saveMutex.isLocked()) === false && document.getConnectionsCount() === 0;");
+    // ② 全库卸载调用点 census：this.unloadDocument 恰 4 处（Z59 四入口中的三处 :1386/:1543/:1551
+    // +装载失败清理 :1483——Z59 快照口径 4 入口未含 :1483）+ direct 断开 this.instance.unloadDocument 1 处（:1171）=5 处全汇入
+    expect((src.match(/this\.unloadDocument\(/g) ?? []).length).toBe(4);
+    expect((src.match(/this\.instance\.unloadDocument\(/g) ?? []).length).toBe(1);
+    // ③ unloadDocument 双校验：首道守卫先于 unloading 判定（:1576）、第二道守卫先于 documents.delete（:1589）
+    const body = src.match(/async unloadDocument\(document\) \{([\s\S]*?)\n\t\}/)?.[1] ?? '';
+    const guards = [...body.matchAll(/if \(!this\.shouldUnloadDocument\(document\)\) return;/g)];
+    expect(guards.length).toBe(2);   // esm:1576/:1589 双校验——调用点判定之后 unloadDocument 内再验两次
+    expect(body.indexOf('this.unloadingDocuments.has')).toBeGreaterThan(guards[0]!.index!);
+    expect(body.indexOf('this.documents.delete(')).toBeGreaterThan(guards[guards.length - 1]!.index!);
+  });
+});
+
+describe('Z80 反例① 释放确实能卸载（disconnect({unloadImmediately:true})——钉住是持有期语义非永久）', () => {
+  it('释放后 documents 不再含该 doc 且谓词翻真（与正例①互为单变量对照）', async () => {
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async () => { /* 默认成功 */ },
+    });
+    await server.listen();
+    const name = 'p-anchor-z80-release';
+    const conn = await server.hocuspocus.openDirectConnection(name);
+    try {
+      const doc = server.hocuspocus.documents.get(name)!;
+      await conn.transact((d) => { d.getMap('nodes').set('n', new Y.Map([['x', 1]])); });
+      expect(server.hocuspocus.shouldUnloadDocument(doc)).toBe(false);   // 持有期：谓词 false（正例①机制面）
+      await conn.disconnect({ unloadImmediately: true });
+      await pollUntil(() => !server.hocuspocus.documents.has(name), 5_000);
+      expect(server.hocuspocus.documents.has(name)).toBe(false);          // 反例①：释放确实能卸载——documents Map 不再含
+      expect(server.hocuspocus.shouldUnloadDocument(doc)).toBe(true);     // 谓词翻真（单变量对照——钉住解除）
+    } finally { await server.destroy(); }
+  }, 10_000);
+});
+
+describe('Z80 反例② saveMutex 锁定 ⇒ 谓词 false（Z94②——与 Z62 reaper 判据的分工边界）', () => {
+  it('无连接+零 debounce 下 saveMutex 单变量锁定即拦住谓词，释放翻真', async () => {
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async () => { /* 默认成功 */ },
+    });
+    await server.listen();
+    const name = 'p-anchor-z80-mutex';
+    const conn = await server.hocuspocus.openDirectConnection(name);
+    try {
+      const doc = server.hocuspocus.documents.get(name)!;
+      doc.removeDirectConnection();   // 显式清计数（Z94① 同款公开方法）——隔离出「仅 saveMutex」单变量
+      const debouncer = (server.hocuspocus as any).debouncer;
+      expect(doc.getConnectionsCount()).toBe(0);                            // 前置：零连接
+      expect(debouncer.isDebounced(`onStoreDocument-${name}`)).toBe(false); // 前置：零 debounce
+      const release = await doc.saveMutex.acquire();                        // 库内部 Mutex 实例直接锁（测试层公开字段操作——A14 同款字段面）
+      try {
+        expect(doc.saveMutex.isLocked()).toBe(true);
+        expect(server.hocuspocus.shouldUnloadDocument(doc)).toBe(false);    // 反例②：锁 alone 拦住谓词（连接已零+debounce 已停）
+      } finally { release(); }
+      expect(server.hocuspocus.shouldUnloadDocument(doc)).toBe(true);   // 释放翻真（单变量对照——翻转归因于锁）
+    } finally { await conn.disconnect(); await server.destroy(); }
+  }, 10_000);
 });

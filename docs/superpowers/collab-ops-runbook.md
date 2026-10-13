@@ -293,3 +293,8 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 - **常驻对照（①③）**：WS 连接下 docLoad 全 0（装载发生在窗前播种，不入观测窗）、withdocOpen p50/p99=1ms/1ms（表内①③列同值——全落最低桶界，常驻 open 不付装载）；group20 withdoc 62≈3/节点+2 固定、store debounce 60=3/节点（与①单节点 +3 同构——store 计数随节点数线性、不随作业数）。
 - store 五 trigger 中 soft/disconnect/retry/drain 三场景全 0（基线窗口内零非常规 store）；store p99≤5ms 为本地 dev 单进程小 doc 量级基线，非服务器容量数（容量三数归 §7）。
 
+
+## §10 依赖版本契约（Y0c T5/Z123 登记，2026-10-14）
+
+- **@hocuspocus/\* pin 4.6.0 + yjs 13.6.32 不升级**：collab 全部行为结论（库行为锚 A5-A14+Z80 四锚）源码实证绑定 4.6.0 实现细节；`node scripts/check-hocuspocus-pin.mjs` 门禁锁版本（CI test job 常跑），任何漂移（含 ≥4.7.1）必须先重跑脚本输出里的「版本漂移必重跑锚清单」+契约锁全量用例再评估。
+- **禁止重新引入 `@hocuspocus/extension-redis`**：上游缺陷已验证——#1167（impact:critical：store 锁失败跳全链）/#1170（OPEN：卸载未存 doc=静默丢数据/装载永久损坏）。Y0a-3 的整删裁定自 Z123 起升级为「已验证的上游 critical 缺陷规避」——任何「加 Redis 缓存提性能」的提案先读这两个 issue。
