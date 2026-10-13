@@ -35,6 +35,9 @@ const TEXT = [
   'yjs_store_duration_seconds_sum{role="api"} 0.123',
   'yjs_withdoc_open_duration_seconds_count{role="api"} 4',
   'yjs_withdoc_open_duration_seconds_sum{role="api"} 0.2',
+  'yjs_withdoc_open_duration_seconds_bucket{le="0.1",role="api"} 3',
+  'yjs_withdoc_open_duration_seconds_bucket{le="+Inf",role="api"} 4',
+  'yjs_withdoc_open_duration_seconds_bucket{le="0.1",role="worker"} 9',
 ].join('\n');
 
 test('role+labels 精确取值：同族多 trigger 多序列按 role 消歧（api≠worker）', () => {
@@ -74,7 +77,9 @@ test('sampleProcess：装置观测面全集按 role 组装（含 counter 词表�
   assert.deepEqual(Object.keys(s.storeTotal), STORE_TRIGGERS);
   assert.equal(s.withdocOpen.count, 4);
   assert.equal(s.withdocOpen.sum, 0.2);
+  assert.deepEqual(s.withdocOpen.buckets, { '0.1': 3, '+Inf': 4 });   // T1 落档 p50/p99 依赖桶——count/sum 只有 avg
   assert.equal(s.withdoc.count, null);
+  assert.deepEqual(s.withdoc.buckets, {});   // 无行序列=空桶表（delta 侧 null→0 同语义）
   assert.deepEqual(s.buckets, { '0.005': 1, '0.01': 2, '+Inf': 5 });
 });
 

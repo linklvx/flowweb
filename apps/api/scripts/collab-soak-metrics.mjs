@@ -46,7 +46,13 @@ export function histogramBuckets(text, name, role, labels = {}) {
 export function sampleProcess(text, role) {
   const pick = (name, labels) => metricValue(text, name, role, labels);
   const counterMap = (name, triggers) => Object.fromEntries(triggers.map((t) => [t, pick(name, { trigger: t })]));
-  const histPair = (base) => ({ count: pick(`${base}_count`), sum: pick(`${base}_sum`) });
+  // T1 落档补充（执行期裁定）：histPair 增补桶捕获——count/sum 只支撑 avg，p50/p99 分位数（A2 对照
+  // 关键数，如 closepage 的 withdoc_open p99=PG 装载延迟）必须有桶。无行序列=空桶表（与 null 计数同语义）。
+  const histPair = (base) => ({
+    count: pick(`${base}_count`),
+    sum: pick(`${base}_sum`),
+    buckets: histogramBuckets(text, `${base}_bucket`, role),
+  });
   return {
     rss: pick('process_resident_memory_bytes'),
     heap: pick('nodejs_heap_size_used_bytes'),
