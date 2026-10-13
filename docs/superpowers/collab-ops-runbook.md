@@ -273,3 +273,21 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 
 **升 production 的显式动作与八读点全量审计归 Y0.5/E58**——本批只落两列制基线与读点表，不改任何读点代码。
 
+## §9 C0 基线三场景（A2 常驻化验收对照组——2026-10-14 落档）
+
+**环境**：本地 dev（Windows 11；PG/Redis/MinIO 本地进程；api 单进程 127.0.0.1:3000 + WS 3001）；代码=master `6a07c109`（api dist 构建=`9533b306`——其后 commit 不触 api 运行时；C0 观测面完整、A1/A2 行为改造未开始）；`COLLAB_SESSION_IDLE_TTL_MS` 未设（.env 无键+启动 shell 无注入）→ 使用点默认 **120_000ms**（ttlSource=default）；closepage 作业间隔=clamp(TTL/10, 2s, TTL/2)=**12_000ms**（三作业全落 TTL 窗内）。
+
+**装置**：`node apps/api/scripts/collab-soak.mjs --scenario single|closepage|group20 --json <file>`（T0.5；提取器 histPair 含全桶捕获——p50/p99 由窗口桶差计算，count/sum 只支撑 avg）。原始 JSON 三份为会话工作产物未入仓——下表数字即 A2 对照全集。
+
+| 场景 | 作业数 | docLoad{direct} | docLoad{ws/reconciler} | store{debounce/soft/disconnect/retry/drain} | store p50/p99 | withdoc 次数 | withdoc p50/p99 | withdocOpen 次数 | withdocOpen p50/p99 |
+|------|--------|-----------------|------------------------|---------------------------------------------|---------------|--------------|-----------------|------------------|---------------------|
+| ①single 单节点执行链（WS 常驻） | 1 | **0** | 0/0 | +3/0/0/0/0 | 1ms/5ms | 5 | 1ms/5ms | 5 | 1ms/1ms |
+| ②closepage 关页作业完成（零连接 REST） | 3 | **11**（≈3.7/作业） | 0/0 | +3/0/0/0/0 | 1ms/1ms | 11 | 5ms/5ms | **11** | 1ms/5ms |
+| ③group20 20 节点组执行（WS 常驻） | 20 | **0** | 0/0 | +60/0/0/0/0 | 1ms/5ms | 62 | 1ms/5ms | 62 | 1ms/1ms |
+
+**形态注记（A2 对照读法）**：
+
+- **判据 A 锚（closepage docLoad{direct}）**：零连接下 withdoc=withdocOpen=direct 三者严格相等（11）——每次 withDoc 调用即一次 open=一次 PG 直连装载（调用点级装载，非作业级驻留）；withdoc p50=5ms 即 PG 装载延迟量级。A2 后同场景应收敛：装载次数骤降（常驻命中）+ withdoc/withdocOpen p99 降至内存量级。closepage 末端 docs gauge=0（零连接卸载生效；①③末端=1 常驻）。
+- **常驻对照（①③）**：WS 连接下 docLoad 全 0（装载发生在窗前播种，不入观测窗）、withdocOpen avg 0.02~0.2ms（常驻 open 不付装载）；group20 withdoc 62≈3/节点+2 固定、store debounce 60=3/节点（与①单节点 +3 同构——store 计数随节点数线性、不随作业数）。
+- store 五 trigger 中 soft/disconnect/retry/drain 三场景全 0（基线窗口内零非常规 store）；store p99≤5ms 为本地 dev 单进程小 doc 量级基线，非服务器容量数（容量三数归 §7）。
+
