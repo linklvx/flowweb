@@ -30,6 +30,6 @@ test('良性迁移全绿 + 既有 BREAKING 断言不回归', () => {
   assert.equal(analyzeSql('CREATE UNIQUE INDEX "i" ON "T"("a");').breaking, null);
 });
 
-test('硬拦名单与 migrate-diff-allowlist 唯一永久豁免同源（人工同步锚——allowlist 文本含该索引名）', () => {
+test('硬拦名单与 migrate-diff-allowlist 唯一永久豁免同源（人工同步 pin——allowlist 按列描述不含索引名）', () => {
   assert.deepEqual([...CRITICAL_INDEXES], ['pricing_rule_natural_key']);
 });

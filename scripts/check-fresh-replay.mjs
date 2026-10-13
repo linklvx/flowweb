@@ -58,9 +58,15 @@ async function main() {
 
     const mainC = new Client({ connectionString: url });
     const scratchC = new Client({ connectionString: toDb(SCRATCH) });
-    await mainC.connect(); await scratchC.connect();
-    const [a, b] = [await dump(mainC), await dump(scratchC)];
-    await mainC.end(); await scratchC.end();
+    let a; let b;
+    try {
+      await mainC.connect(); await scratchC.connect();
+      [a, b] = [await dump(mainC), await dump(scratchC)];
+    } finally {
+      // dump/connect 抛错也必 end 两连接——否则句柄悬挂进程不退 1+scratch 活连接致 DROP 失败残留
+      await mainC.end().catch(() => {});
+      await scratchC.end().catch(() => {});
+    }
 
     let bad = 0;
     for (const g of GROUPS) {
