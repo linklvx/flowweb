@@ -74,7 +74,7 @@ function fail(msg) { throw new Error(`EXEC-SMOKE FAIL: ${msg}`); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function step0_readyAssert() {
-  const r = await fetch(`${API}/api/ready`).then((x) => x.json()).catch(() => null);
+  const r = await fetch(`${API}/api/ready`, { signal: AbortSignal.timeout(10_000) }).then((x) => x.json()).catch(() => null);
   if (r === null) throw new Error('前置断言失败：/api/ready 不可达（fetch 失败）——API 未启动/端口不对，先起服务再冒烟');
   if (!r.ready) throw new Error(`前置断言失败：ready=${r.ready} reason=${r.reason}——非服务态下执行链会被 503 拦，先查 ready 再冒烟`);
 }
@@ -132,6 +132,7 @@ async function assertResidualZero(prisma) {
     ['pricingRule', await prisma.pricingRule.count({ where: { id: { startsWith: P } } })],
     ['canvasProject', await prisma.canvasProject.count({ where: { id: { startsWith: P } } })],
     ['canvasDoc', await prisma.canvasDoc.count({ where: { projectId: { startsWith: P } } })],
+    ['canvasDocUpdate', await prisma.canvasDocUpdate.count({ where: { projectId: { startsWith: P } } })],   // CanvasDocUpdate 直挂 projectId（docId=projectId）——孤儿 flush 行显式盯
     ['generationIntent', await prisma.generationIntent.count({ where: { teamId: { startsWith: P } } })],
     ['teamCreditTransaction', await prisma.teamCreditTransaction.count({ where: { teamId: { startsWith: P } } })],
     ['teamBalance', await prisma.teamBalance.count({ where: { teamId: { startsWith: P } } })],
@@ -157,7 +158,7 @@ async function connectAndSeed() {
     WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
   });
   await new Promise((res, rej) => {
-    const t = setTimeout(() => rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')), 10_000);
+    const t = setTimeout(() => { provider.destroy(); rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')); }, 10_000);   // 先 destroy 再 rej——Hocuspocus v4 重连定时器不拆会让事件循环不死（deploy ssh 无限挂起）
     provider.on('synced', () => { clearTimeout(t); res(); });
   });
   // 4 个 textInput 节点（shape 对齐 shared fillDoc：type+data.model；无 edges ⇒ 单节点 scope 无上游）
@@ -187,6 +188,7 @@ async function executeNode(nodeId, provider) {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` },
         body: JSON.stringify({ projectId: S.project, nodeId, stateVector: sv }),
+        signal: AbortSignal.timeout(10_000),
       });
     } catch (e) {
       fail(`execute(${nodeId}) API 不可达（dev watch 重启窗/未启动——fail deploy）: ${e instanceof Error ? e.message : e}`);
@@ -246,7 +248,7 @@ async function main() {
     provider = await connectAndSeed();
 
     // 用户面零可见实证：公开选择器（按已知 key 'text' 查询）不含哨兵模型
-    const pub = await fetch(`${API}/api/node-types/text/models`).then((r) => r.json()).catch(() => null);
+    const pub = await fetch(`${API}/api/node-types/text/models`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => null);
     const pubModels = Array.isArray(pub) ? pub : (pub?.data ?? []);
     const leaked = pubModels.filter((m) => [S.mEconn, S.mOk, S.mFail].includes(m.id));
     if (leaked.length > 0) fail(`公开选择器泄漏哨兵模型：${leaked.map((m) => m.id).join(',')}`);
