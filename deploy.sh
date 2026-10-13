@@ -52,7 +52,7 @@ preflight() {
     || { echo "HEAD 未在 origin/master 上（未经 CI 的提交禁部署）"; exit 1; }
 
   if [[ -f ".preflight-${SHA}.ok" && "$SKIP_PREFLIGHT" != "1" ]]; then
-    echo "=== 复用预检收据 .preflight-${SHA}.ok（同 SHA 幂等步骤〔verify/int/migrate/additive〕不重跑） ==="
+    echo "=== 复用预检收据 .preflight-${SHA}.ok（同 SHA 幂等步骤〔verify/int/migrate/additive+immutability〕不重跑） ==="
   elif [[ "$SKIP_PREFLIGHT" == "1" ]]; then
     echo "=== --skip-preflight：本次部署不构成判据（强制声明，留部署记录） ==="
   else
@@ -63,9 +63,10 @@ preflight() {
     node scripts/deploy-preflight-int.mjs
     echo "=== 提示：跑 int 前确认本地 dev API 已停（int 操作 CollabLease 单行——会把 dev 实例 fenced） ==="
 
-    echo "=== 发布前置：本地 prisma migrate deploy（防御）+迁移 additive 检查 ==="
+    echo "=== 发布前置：本地 prisma migrate deploy（防御）+迁移 additive+immutability 检查 ==="
     (cd apps/api && npx prisma migrate deploy)
     node scripts/check-migration-additive.mjs
+    node scripts/check-migration-immutability.mjs   # Y0b-5 T12-0b：sha256 棘轮双载体本地档（服务器档=cutover ③）
     touch ".preflight-${SHA}.ok"   # 收据（gitignored）
   fi
   [[ "$SKIP_PREFLIGHT" == "1" ]] || node scripts/gate-collab.mjs
@@ -115,8 +116,8 @@ cutover_api() {
     ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//") && node '"$REMOTE_DIR"'/apps/api/scripts/rebuild-db.mjs "$DSN"'
   fi
 
-  echo "=== ③additive 双检+迁移（drain 只冻结 collab 写路径，HTTP 面继续打库——安全性由 additive 锚承担非由顺序承担） ==="
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/check-migration-additive.mjs && cd apps/api && npx prisma migrate deploy"
+  echo "=== ③additive+immutability 双检+迁移（drain 只冻结 collab 写路径，HTTP 面继续打库——安全性由 additive 锚承担非由顺序承担；T12-0b 服务器档：迁移树 tamper 在 migrate 前红——单进 verify 本地载体可被 --skip-preflight 绕过） ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/check-migration-immutability.mjs && node scripts/check-migration-additive.mjs && cd apps/api && npx prisma migrate deploy"
 
   echo "=== ③.5 spool 账本条件迁移（P47——guard 后/切换前秒级窗口；目标=树外 flowweb-data；幂等可重跑） ==="
   ssh -i "$KEY" "$SERVER" 'OLD_DIR=$(sudo readlink /proc/$(pm2 pid flowweb-api)/cwd)/.data/collab-spool; NEW_DIR=/home/ubuntu/flowweb-data/collab-spool; if [ "$OLD_DIR" = "$NEW_DIR" ]; then echo "旧目录=新目录（$NEW_DIR）——无需迁移"; exit 0; fi; OLD_N=$(find "$OLD_DIR" -type f 2>/dev/null | wc -l); if [ "$OLD_N" = 0 ]; then echo "旧目录 $OLD_DIR 空或不存在——无需迁移（仅建新目录）"; mkdir -p "$NEW_DIR"; exit 0; fi; echo "迁移 $OLD_DIR → $NEW_DIR（$OLD_N 个文件）"; (command -v rsync >/dev/null && rsync -a "$OLD_DIR"/ "$NEW_DIR"/) || cp -a "$OLD_DIR"/. "$NEW_DIR"/; NEW_N=$(find "$NEW_DIR" -type f | wc -l); echo "迁移后：old=$OLD_N new=$NEW_N"; [ "$OLD_N" -le "$NEW_N" ] || { echo "计数不等——中止部署（人工核对）"; exit 1; }'
@@ -194,12 +195,7 @@ deploy_api() {
   printf '{"git":"%s","builtAt":"%s"}\n' "$GIT_SHA" "$(date -u +%FT%TZ)" > apps/api/dist/build-info.json   # P46：溯源随产物
   MAIN_SHA=$(sha256sum apps/api/dist/main.js | cut -d' ' -f1)   # P44②：cutover ④ 远端等值断言用（先验后换）
 
-  if [[ "$REBUILD_DB" == "1" ]]; then
-    echo "=== REBUILD_DB：清远端迁移目录（tar 解包无删除语义——prisma tar 段实测；不清=旧 24 目录字典序先跑，新 init 的 CREATE TYPE already exists 必炸） ==="
-    ssh -i "$KEY" "$SERVER" 'rm -rf '"$REMOTE_DIR"'/apps/api/prisma/migrations/* && [ -z "$(ls '"$REMOTE_DIR"'/apps/api/prisma/migrations/ 2>/dev/null)" ] || { echo "清理后仍有残留"; exit 1; }'
-  fi
-
-  echo "=== 上传（dist.next+prisma/scripts×2/ecosystem/manifests+src；shared dist 解 dist.next 不先 rm 远端〔P49③〕） ==="
+  echo "=== 上传（dist.next+prisma/scripts×2/ecosystem/manifests+src；shared dist 解 dist.next 不先 rm 远端〔P49③〕；prisma 段先清后传〔T12-0a〕） ==="
   # src 恢复上传（Y0b-1 重建流程实测盲区）：ssh seed 是 REBUILD_DB 部署时序的人工步骤（runbook），
   # seed.ts 经 tsx 直跑且 import ../src/*（auth/credit-ledger/platform-team）——src 缺位则远端 seed 必炸
   # （本地有 src 测不出）。零构建锚不受影响：服务器仍不构建、运行仍只读 dist——src 仅作 seed 运行原料。
@@ -211,7 +207,10 @@ deploy_api() {
   scp -i "$KEY" packages/shared/package.json "$SERVER:$REMOTE_DIR/packages/shared/package.json"
   scp -i "$KEY" pnpm-lock.yaml package.json "$SERVER:$REMOTE_DIR/"
   tar czf - -C packages/shared/dist . | ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/packages/shared && rm -rf dist.next && mkdir dist.next && cd dist.next && tar xzf -"
-  tar czf - -C apps/api/prisma . | ssh -i "$KEY" "$SERVER" "mkdir -p $REMOTE_DIR/apps/api/prisma && cd $REMOTE_DIR/apps/api/prisma && tar xzf -"
+  # prisma 段先清后传（Y0b-5 T12-0a 根修）：tar 解包无删除语义——不清理则仓内已删目录（squash 形态）在远端
+  # 永久残留，字典序先跑必炸（runbook:96 实录 44 目录残留）。清理由无条件 tar 前置承担（原 REBUILD_DB 专属
+  # 清理段已收编于此——先清后传对一切 api 部署成立）；残留断言后置=post-restart 集合断言的近端防线。
+  tar czf - -C apps/api/prisma . | ssh -i "$KEY" "$SERVER" "mkdir -p $REMOTE_DIR/apps/api/prisma && cd $REMOTE_DIR/apps/api/prisma && mkdir -p migrations && rm -rf migrations/* && [ -z \"\$(ls migrations 2>/dev/null)\" ] || { echo 'prisma tar 前清理后仍有残留'; exit 1; } && tar xzf -"
   tar czf - -C scripts . | ssh -i "$KEY" "$SERVER" "mkdir -p $REMOTE_DIR/scripts && cd $REMOTE_DIR/scripts && tar xzf -"
   tar czf - -C apps/api/scripts . | ssh -i "$KEY" "$SERVER" "mkdir -p $REMOTE_DIR/apps/api/scripts && cd $REMOTE_DIR/apps/api/scripts && tar xzf -"
 

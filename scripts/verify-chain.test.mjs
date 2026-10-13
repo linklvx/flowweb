@@ -12,16 +12,17 @@ import { parseArgs } from './verify-chain.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ids = VERIFY_STEPS.map((s) => s.id);
 
-// ③ 引入时 23 步基线常量（改门禁=改常量=有意识动作——防步骤被无声增删/重排）
+// ③ 引入时 25 步基线常量（改门禁=改常量=有意识动作——防步骤被无声增删/重排；
+//   Y0b-5 T12 授权插两步：immutability 紧随 additive、fresh-replay 紧随 migrate-diff）
 const BASELINE_IDS = [
-  'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migrate-diff', 'check-pricing-coverage',
-  'check-ledger-single-writer', 'check-nginx-budget', 'shared-build', 'shared-typecheck', 'shared-test',
-  'web-tsc', 'api-tsc', 'api-tsc-scripts', 'api-nest-build', 'check-no-testutils-in-dist',
-  'web-test', 'api-test', 'web-lint', 'check-ecosystem', 'check-spec-consistency',
-  'check-collab-census', 'scripts-node-test', 'api-eslint',
+  'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
+  'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
+  'shared-typecheck', 'shared-test', 'web-tsc', 'api-tsc', 'api-tsc-scripts',
+  'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'web-lint',
+  'check-ecosystem', 'check-spec-consistency', 'check-collab-census', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 23 步基线常量', () => {
+test('③ full 的 id 序列逐字等于引入时的 25 步基线常量', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 
@@ -63,9 +64,9 @@ test('② nest build 与 check-no-testutils-in-dist 同档（fail-open 修复后
     'api-nest-build 与 check-no-testutils-in-dist 必须同在 fast 内或同在 fast 外');
 });
 
-test('db:true 恰为三步 DB 硬依赖（无 DATABASE_URL 即非零退出——口径"非零"：verify-indexes 是 throw exit 1）', () => {
+test('db:true 恰为四步 DB 硬依赖（无 DATABASE_URL 即非零退出——口径"非零"：verify-indexes 是 throw exit 1）', () => {
   assert.deepEqual(ids.filter((_, i) => VERIFY_STEPS[i].db),
-    ['verify-indexes', 'check-migrate-diff', 'check-pricing-coverage']);
+    ['verify-indexes', 'check-migrate-diff', 'check-fresh-replay', 'check-pricing-coverage']);
 });
 
 test('skip-db(full)===full.filter(s=>!s.db)——db 轴独立于前缀轴', () => {

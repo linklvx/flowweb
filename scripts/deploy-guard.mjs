@@ -3,10 +3,13 @@
 // 结构：纯判据在 scripts/lib/gate-decision.mjs（import 零副作用——isMain 守卫，B16）；
 //      env 零依赖自读在 scripts/lib/env-file.mjs（B15+P45 单源）；
 //      状态文件生命周期 v2（P39）：pre 所有退出路径写 state（含 degraded 标记）。
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+//      Y0b-5 T12-0a：post-restart 迁移集合断言（纯判据在 lib/migration-set.mjs）——tar 先清后传的服务器侧防线。
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { decidePre, decidePost, epochPreFromRaw, spoolTotal, PRE_BUDGET_MS } from './lib/gate-decision.mjs';
+import { diffMigrationDirs, diffAppliedMigrations } from './lib/migration-set.mjs';
 import { readEnvFile } from './lib/env-file.mjs';
 
 const here = fileURLToPath(import.meta.url);
@@ -107,6 +110,47 @@ async function prePhase() {
   return 1;
 }
 
+/** T12-0a：迁移集合断言——问题列表（空=过）。结构性不可得也计入问题（fail-closed）。导出=本地演练锚。 */
+export async function postMigrationProblems() {
+  const problems = [];
+  const baselinePath = resolve(ROOT, 'scripts/migration-checksums.json');
+  let baselineDirs = null;
+  try {
+    baselineDirs = Object.keys(JSON.parse(readFileSync(baselinePath, 'utf8'))).filter((d) => /^\d+_/.test(d)).sort();
+  } catch {
+    problems.push(`迁移 sha256 基线缺失/损坏（${baselinePath}）——服务器树 scripts/ 未随本批上传完整？部署树与仓漂移`);
+  }
+  let remoteDirs = null;
+  try {
+    remoteDirs = readdirSync(resolve(ROOT, 'apps/api/prisma/migrations')).filter((d) => /^\d+_/.test(d)).sort();
+  } catch {
+    problems.push('部署树 apps/api/prisma/migrations 目录不可读');
+  }
+  if (baselineDirs && remoteDirs) {
+    const ds = diffMigrationDirs(remoteDirs, baselineDirs);
+    if (!ds.ok) {
+      if (ds.extraOnRemote.length) problems.push(`migrations 目录有仓外残留: ${ds.extraOnRemote.join(', ')}（tar 只覆盖不删除的残留形态——runbook:96 实录）`);
+      if (ds.missingOnRemote.length) problems.push(`migrations 目录缺仓内迁移: ${ds.missingOnRemote.join(', ')}（传输缺失）`);
+    }
+  }
+  const dbUrl = process.env.DATABASE_URL ?? readEnvFile(resolve(ROOT, 'apps/api/.env'), ['DATABASE_URL']).DATABASE_URL;
+  if (!dbUrl) problems.push('DATABASE_URL 不可得（env>apps/api/.env 均缺）——_prisma_migrations 断言不可执行（fail-closed）');
+  else if (baselineDirs) {
+    try {
+      const { Client: PgClient } = createRequire(resolve(ROOT, 'apps/api/package.json'))('pg');
+      const c = new PgClient({ connectionString: dbUrl });
+      await c.connect();
+      const { rows } = await c.query('SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL');
+      await c.end();
+      const da = diffAppliedMigrations(rows.map((r) => r.migration_name), baselineDirs);
+      if (!da.ok) problems.push(`_prisma_migrations 有「库有仓无」applied 行: ${da.dbHasRepoLacks.join(', ')}（squash 后旧账未清/库与仓漂移）`);
+    } catch (e) {
+      problems.push(`_prisma_migrations 查询失败（fail-closed）: ${e.message}`);
+    }
+  }
+  return problems;
+}
+
 async function postPhase() {
   if (!requireToken('post')) return 1;
   let st = null;
@@ -118,6 +162,15 @@ async function postPhase() {
   if (st.sha !== process.env.GIT_SHA) {
     console.error(`deploy-guard FAIL(post): 陈旧状态文件（state.sha=${st.sha} ≠ GIT_SHA=${process.env.GIT_SHA}）——pre 每次覆写+本断言=防跨部署串档（P39）；重跑完整部署链`); return 1;
   }
+  // Y0b-5 T12-0a：迁移集合断言（静态先行——不依赖实例就绪，fail fast）。仓内侧=scripts/migration-checksums.json
+  // 基线键（本地仓库产生、先于传输落定）；远端侧=部署树 migrations 目录；库侧=_prisma_migrations applied 行。
+  // fail-closed：基线/DB 不可得=断言步红（禁静默跳过——post 断言的静默失效唯一路径封死）。
+  const migProblems = await postMigrationProblems();
+  if (migProblems.length) {
+    console.error(`deploy-guard FAIL(post): 迁移集合断言红——\n  - ${migProblems.join('\n  - ')}`);
+    return 1;
+  }
+  console.log('deploy-guard: 迁移集合断言 OK（migrations 目录 ≡ sha256 基线 ∧ _prisma_migrations applied ⊆ 基线）');
   const epochPre = epochPreFromRaw(st.epochPre);   // 'unavailable'/null/损坏 → NaN → decidePost fail（B23）
   // REBUILD_DB 豁免档（Y0b-1 重建部署实测盲区——Z34 补丁）：DROP SCHEMA 把 CollabLease.epoch 归零
   // （种子 0），post 的"epoch 递增"断言在重建形态下结构性不可能。走 degraded 机制放行（N/A 显式打印），

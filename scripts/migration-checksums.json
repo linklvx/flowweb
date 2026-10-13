@@ -1,0 +1,8 @@
+{
+  "20261009140100_y0b2_init": {
+    "migration.sql": "ddda0158786db20c7c665a409975bc7a279ecbef59a5ff3a04aa885d1af8780b"
+  },
+  "20261011180000_y0b4_vacuum_generation": {
+    "migration.sql": "08e8684e4219f366c6ecb8c78637b46b2b980da9817afb4b3825ba97932fa0db"
+  }
+}

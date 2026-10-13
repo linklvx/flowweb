@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decidePre, decidePost, epochPreFromRaw, spoolTotal } from './lib/gate-decision.mjs';
+import { diffMigrationDirs, diffAppliedMigrations } from './lib/migration-set.mjs';
 
 test('P0-1 回归：无 pending=unobservable 且 --force 不覆盖', () => {
   const r = decidePre({ ready: false, reason: 'draining', epoch: '5' });
@@ -48,4 +49,30 @@ test('decidePost：!ready=wait（实例未起的最常见瞬态）', () => {
 test('spoolTotal（P35：+5 判据 total 口径）', () => {
   assert.equal(spoolTotal({ spoolFiles: 3, strandedFiles: 2 }), 5);
   assert.equal(spoolTotal(undefined), 0);
+});
+
+// ===== Y0b-5 T12-0a：post-restart 迁移集合断言（tar 先清后传的服务器侧防线） =====
+test('T12-0a 验收锚：远端留仓外目录→集合断言红（runbook:96 实录 44 目录残留形态——tar 只覆盖不删除）', () => {
+  const r = diffMigrationDirs(['20261009140100_y0b2_init', '20261011180000_y0b4_vacuum_generation', '20260101000000_zombie_old'], ['20261009140100_y0b2_init', '20261011180000_y0b4_vacuum_generation']);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.extraOnRemote, ['20260101000000_zombie_old']);
+  assert.deepEqual(r.missingOnRemote, []);
+});
+
+test('T12-0a：仓内有远端缺→红（传输缺失形态——双向比对另一半）', () => {
+  const r = diffMigrationDirs(['20261009140100_y0b2_init'], ['20261009140100_y0b2_init', '20261011180000_y0b4_vacuum_generation']);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.missingOnRemote, ['20261011180000_y0b4_vacuum_generation']);
+});
+
+test('T12-0a：集合相等→ok', () => {
+  assert.equal(diffMigrationDirs(['A', 'B'], ['B', 'A']).ok, true);   // 顺序无关
+});
+
+test('T12-0a：_prisma_migrations「库有仓无」applied 行→红；applied ⊆ 仓→ok', () => {
+  const bad = diffAppliedMigrations(['20261009140100_y0b2_init', '20260101000000_dropped_in_squash'], ['20261009140100_y0b2_init', '20261011180000_y0b4_vacuum_generation']);
+  assert.equal(bad.ok, false);
+  assert.deepEqual(bad.dbHasRepoLacks, ['20260101000000_dropped_in_squash']);
+  const ok = diffAppliedMigrations(['20261009140100_y0b2_init'], ['20261009140100_y0b2_init', '20261011180000_y0b4_vacuum_generation']);
+  assert.equal(ok.ok, true);   // 仓未应用（部署中点）不是本断言对象——migrate deploy 负责补齐
 });
