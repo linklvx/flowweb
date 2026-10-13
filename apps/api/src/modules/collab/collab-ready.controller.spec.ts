@@ -113,6 +113,19 @@ describe('CollabReadyController', () => {
     expect(wireKeys(resPub.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'epoch', 'ready', 'reason', 'redis']);   // 公开档五键——Y0b-3 P-C 版本键恒带，loadedDocs/connections 不外泄
   });
 
+  it('Y0b-5 T14（E44/E54⑤）：degraded 四键块挂 token 档视图——授权档透传；公开五键档裁剪不见 degraded（host 内部观测不出公网面）', async () => {
+    process.env.PROMETHEUS_TOKEN = 'tok';
+    const degraded = { dirtyDocs: 2, oldestUnflushedAt: '2026-10-12T00:00:00.000Z', oldestUnflushedAgeSeconds: 61, spoolDepthBytes: 128, stuckDocs: 1 };
+    const full = { ready: true, redis: 'up' as const, pending: PENDING, spoolQuarantined: 0, loadedDocs: 3, connections: 4, degraded, collabProtocolVersion: 1 };
+    readyMock.getReady.mockResolvedValue({ status: 200, body: full });
+    const resAuth = fakeRes();
+    await controller.getReady({ headers: { 'x-prometheus-token': 'tok' } } as any, resAuth);
+    expect(resAuth.json.mock.calls[0][0].degraded).toEqual(degraded);   // token 档=巡检/值班面（T15 按四键设阈值）
+    const resPub = fakeRes();
+    await controller.getReady({ headers: {} } as any, resPub);         // token 已设但未携带→公开裁剪档
+    expect(wireKeys(resPub.json.mock.calls[0][0]).includes('degraded')).toBe(false);
+  });
+
   describe('POST /api/drain（CollabAdminAuthGuard fail-closed）', () => {
     function ctxFor(headers: Record<string, string>) {
       const req = { headers };

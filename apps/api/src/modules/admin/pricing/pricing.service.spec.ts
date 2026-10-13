@@ -24,6 +24,8 @@ describe('PricingService', () => {
       },
       modelResolution: { findMany: vi.fn().mockResolvedValue([]) },
       modelDuration: { findMany: vi.fn().mockResolvedValue([]) },
+      nodeType: { findMany: vi.fn().mockResolvedValue([]) },
+      aIModel: { findMany: vi.fn().mockResolvedValue([]) },
     };
     // Y0b-1：calculatePrice 经 resolver 单源（E48）——服务不再直接查 pricingRule
     resolver = {
@@ -174,6 +176,67 @@ describe('PricingService', () => {
       prisma.pricingRule.delete.mockResolvedValue({ id: 'rk' });
       await service.delete('rk');
       expect(prisma.pricingRule.delete).toHaveBeenCalledWith({ where: { id: 'rk' } });
+    });
+  });
+
+  describe('Y0b-5 T14 coverage()：表驱动判据（与 check-pricing-coverage.mjs 同源——admin 红标数据源）', () => {
+    const KIND_NTS = [
+      { id: 'nt-outpaint', key: 'outpaint' }, { id: 'nt-erase', key: 'erase' },
+      { id: 'nt-redraw', key: 'redraw' }, { id: 'nt-lighting', key: 'lighting' },
+    ];
+
+    it('kind 级四键齐+模型声明维度全覆盖 → {ok:true,missing:[]}（全覆盖零红标）', async () => {
+      prisma.nodeType.findMany.mockResolvedValue(KIND_NTS);
+      prisma.pricingRule.count.mockResolvedValue(1);   // kind 级四键各 ≥1
+      prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', name: 'GLM' }]);
+      prisma.pricingRule.findMany.mockResolvedValue([{ resolutionId: 'res1', durationId: null, active: true }]);   // res1 声明档有 active
+      prisma.modelResolution.findMany.mockResolvedValue([{ id: 'res1' }]);
+      prisma.modelDuration.findMany.mockResolvedValue([]);
+      const r = await service.coverage();
+      expect(r).toEqual({ ok: true, missing: [] });
+    });
+
+    it('模型缺 (model,null,null) active 基础行 → missing 点名（模型全灭——红标「N 个模型」数据源）', async () => {
+      prisma.nodeType.findMany.mockResolvedValue(KIND_NTS);
+      prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', name: 'GLM' }]);
+      prisma.pricingRule.findMany.mockResolvedValue([{ resolutionId: null, durationId: null, active: false }]);   // 有行但 inactive
+      const r = await service.coverage();
+      expect(r.ok).toBe(false);
+      expect(r.missing).toEqual([{ modelId: 'm1', name: 'GLM', problem: expect.stringContaining('(model,null,null)') }]);
+    });
+
+    it('声明分辨率档 res2 缺 active → missing（有 res 行 ⇒ 每行 (model,res,null)——Z36② 选择器可达性死亡线）', async () => {
+      prisma.nodeType.findMany.mockResolvedValue(KIND_NTS);
+      prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', name: 'GLM' }]);
+      prisma.pricingRule.findMany.mockResolvedValue([
+        { resolutionId: 'res1', durationId: null, active: true },
+        { resolutionId: 'res2', durationId: null, active: false },
+      ]);
+      prisma.modelResolution.findMany.mockResolvedValue([{ id: 'res1' }, { id: 'res2' }]);
+      const r = await service.coverage();
+      expect(r.ok).toBe(false);
+      expect(r.missing).toHaveLength(1);
+      expect(r.missing[0]).toMatchObject({ modelId: 'm1', name: 'GLM' });
+      expect(r.missing[0].problem).toContain('res2');
+    });
+
+    it('kind 级缺 active（含 NodeType 行缺失形态）→ missing（modelId:null——与脚本①同判）', async () => {
+      prisma.nodeType.findMany.mockResolvedValue([KIND_NTS[0]]);   // 仅 outpaint 在——erase/redraw/lighting 缺
+      prisma.aIModel.findMany.mockResolvedValue([]);
+      const r = await service.coverage();
+      expect(r.ok).toBe(false);
+      expect(r.missing.map((m: any) => m.name).sort()).toEqual(['erase', 'lighting', 'redraw']);
+      expect(r.missing.every((m: any) => m.modelId === null)).toBe(true);
+    });
+
+    it('双维度声明（res+dur 同模型）→ missing 未定义告警（T2 质量审 I-1 同源断言）', async () => {
+      prisma.nodeType.findMany.mockResolvedValue(KIND_NTS);
+      prisma.aIModel.findMany.mockResolvedValue([{ id: 'm1', name: 'GLM' }]);
+      prisma.modelResolution.findMany.mockResolvedValue([{ id: 'res1' }]);
+      prisma.modelDuration.findMany.mockResolvedValue([{ id: 'dur1' }]);
+      const r = await service.coverage();
+      expect(r.ok).toBe(false);
+      expect(r.missing[0].problem).toContain('交叉组合');
     });
   });
 });

@@ -39,9 +39,13 @@ export class CollabReadyService {
     // Y0a-4/N16：loadedDocs/connections=pending 的**兄弟字段**（禁进 pending 对象——V17/SV16 形状冻结）；
     // 数值源=gauge 同一快照（gateway.computePending——yjs_loaded_documents/yjs_connection_count 同源）。
     const { loadedDocs, connections, ...pending } = this.gateway.computePending();
+    // Y0b-5 T14（E54⑤）：degraded 四键（观测非门禁——ready 布尔不因此翻转）挂 base=token 档全字段
+    // 视图恒带（公开五键档由 controller 裁剪）；gateway.computeDegraded 与指标面同源（computePending
+    // 同一实现——yjs_pending_projects/yjs_spool_depth_bytes/yjs_oldest_unflushed_age_seconds/yjs_doc_stuck_total）。
+    const degraded = this.gateway.computeDegraded();
     // Y0b-3 T5（P-C）：collabProtocolVersion 进 base=三分支（pg-down/reason/200）恒带——客户端
     // 版本终态时单次探测拿服务端版本作 loop 键；503 降级同发时键仍可得。
-    const base = { pending, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections, collabProtocolVersion: CLIENT_PROTOCOL_VERSION };   // T4 勘误：诊断 LIST 取 .length
+    const base = { pending, degraded, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections, collabProtocolVersion: CLIENT_PROTOCOL_VERSION };   // T4 勘误：诊断 LIST 取 .length
     let pgOk = true;
     try { await this.prisma.$queryRaw`SELECT 1`; } catch { pgOk = false; }
     if (!pgOk) return { status: 503, body: { ready: false, reason: 'pg-down', redis: await this.redisStatus(), ...base } };

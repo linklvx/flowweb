@@ -2,9 +2,13 @@
 // 消费 computePending（必办②同一实现禁复制）+drain 幂等/60s 解除（gateway 侧归 T5/ shutdown spec）。
 // Y0b-3 T5：collabProtocolVersion 三分支恒带（P-C loop 键——版本拒绝与 ready 降级同发时客户端
 // 单次探测仍可得服务端协议版本）。
+// Y0b-5 T14（E54⑤）：degraded 四键挂 token 档 body（gateway.computeDegraded 同源供数——观测非门禁）。
 import { describe, it, expect, vi } from 'vitest';
 import { CollabReadyService } from './collab-ready.service';
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+
+/** T14：mock gateway 基线 degraded（零脏）——各 gw 装置缺省继承，个别用例覆写取值 */
+const DEGRADED_ZERO = { dirtyDocs: 0, oldestUnflushedAt: null, oldestUnflushedAgeSeconds: 0, spoolDepthBytes: 0, stuckDocs: 0 };
 
 function build(over: {
   pgOk?: boolean; diag?: any; gateway?: any; redisOk?: boolean;
@@ -16,6 +20,7 @@ function build(over: {
   };
   const gateway = over.gateway ?? {
     computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }),
+    computeDegraded: () => ({ ...DEGRADED_ZERO }),
     isShuttingDown: () => false,
     isWritableOrDegraded: () => 'ok' as const,
     getCollabState: () => 'serving',
@@ -36,6 +41,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
   it('Y0a-4/N16：授权档 loadedDocs/connections=pending 兄弟字段（computePending 同源——禁进 pending 对象）', async () => {
     const gw = {
       computePending: () => ({ projects: 1, batches: 2, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0, loadedDocs: 7, connections: 9 }),
+      computeDegraded: () => ({ ...DEGRADED_ZERO }),
       isShuttingDown: () => false,
       isWritableOrDegraded: () => 'ok' as const,
       getCollabState: () => 'serving',
@@ -55,7 +61,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.body.collabProtocolVersion).toBe(CLIENT_PROTOCOL_VERSION);
   });
   it('draining（P6：高于 lease/spool——G-2a ii 断言不分档）', async () => {
-    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), isShuttingDown: () => true, isWritableOrDegraded: () => 'spool-unwritable' as const, getCollabState: () => 'draining' };
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => true, isWritableOrDegraded: () => 'spool-unwritable' as const, getCollabState: () => 'draining' };
     const r = await build({ gateway: gw }).svc.getReady();
     expect(r.body.reason).toBe('draining');
   });
@@ -64,12 +70,12 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.body.reason).toBe('lease-error');
   });
   it('lease-lost：collabState isolated（W12 主导——非 lease.diag 兜底）', async () => {
-    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'isolated' };
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'isolated' };
     const r = await build({ diag: { state: 'held', owner: 'me', holder: 'me', epoch: '1', renewedAt: new Date(), statementFailed: false }, gateway: gw }).svc.getReady();
     expect(r.body.reason).toBe('lease-lost');
   });
   it('not-serving：lease held ∧ start-failed/starting（start-failed 不再伪装 lease-not-acquired——W12）', async () => {
-    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'start-failed' };
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'start-failed' };
     const r = await build({ diag: { state: 'held', owner: 'me', holder: 'me', epoch: '1', renewedAt: new Date(), statementFailed: false }, gateway: gw }).svc.getReady();
     expect(r.body.reason).toBe('not-serving');
   });
@@ -77,6 +83,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     const held = { state: 'held' as const, owner: 'me', holder: 'me', epoch: '1', renewedAt: new Date(), statementFailed: false };
     const gw = (over: Partial<{ shutting: boolean; writable: string; phase: string }>) => ({
       computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }),
+      computeDegraded: () => ({ ...DEGRADED_ZERO }),
       isShuttingDown: () => over.shutting ?? false,
       isWritableOrDegraded: () => (over.writable ?? 'ok') as 'ok',
       getCollabState: () => over.phase ?? 'serving',
@@ -103,12 +110,12 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     }
   });
   it('holder 取证独立（禁入 reason）+revoked 行落 not-acquired 档（R8）', async () => {
-    const held = await build({ diag: { state: 'not-acquired', owner: null, holder: 'other-owner', epoch: '9', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring' } as any }).svc.getReady();
+    const held = await build({ diag: { state: 'not-acquired', owner: null, holder: 'other-owner', epoch: '9', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring' } as any }).svc.getReady();
     expect(held.body.reason).toBe('lease-held');
     expect(held.body.holder).toBe('other-owner');
   });
   it('epoch 恒 string+holderRenewedAgoMs 派生（BigInt 序列化坑）', async () => {
-    const r = await build({ diag: { state: 'not-acquired', owner: null, holder: 'x', epoch: '9223372036854775807', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring' } as any }).svc.getReady();
+    const r = await build({ diag: { state: 'not-acquired', owner: null, holder: 'x', epoch: '9223372036854775807', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring' } as any }).svc.getReady();
     expect(() => JSON.stringify(r.body)).not.toThrow();
     expect(typeof r.body.epoch).toBe('string');
     expect(typeof r.body.holderRenewedAgoMs).toBe('number');
@@ -125,5 +132,37 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     await svc.getReady();
     await Promise.all(Array.from({ length: 10 }, () => svc.getReady()));
     expect(redis.ping).toHaveBeenCalledTimes(1);   // 缓存期内零新探测+无并发击穿
+  });
+
+  describe('Y0b-5 T14（E54⑤）：degraded 四键挂 token 档 body（gateway.computeDegraded 供数）', () => {
+    const degraded = { dirtyDocs: 2, oldestUnflushedAt: '2026-10-12T00:00:00.000Z', oldestUnflushedAgeSeconds: 61, spoolDepthBytes: 128, stuckDocs: 1 };
+    const gwWith = () => ({
+      computePending: () => ({ projects: 2, batches: 3, spoolFiles: 0, spoolBytes: 100, storeInFlight: 0, strandedFiles: 1, strandedBytes: 28, loadedDocs: 5, connections: 6 }),
+      computeDegraded: () => ({ ...degraded }),
+      isShuttingDown: () => false,
+      isWritableOrDegraded: () => 'ok' as const,
+      getCollabState: () => 'serving',
+    });
+
+    it('dirtyDocs/oldestUnflushed 双给（at ISO+age 秒）/spoolDepthBytes/stuckDocs——base 单点四键齐', async () => {
+      const r = await build({ gateway: gwWith() }).svc.getReady();
+      expect(r.body.degraded).toEqual(degraded);
+    });
+
+    it('ready 布尔不因 degraded 翻（观测非门禁——deploy gate 不受影响）：四键高位仍 ready=true 200', async () => {
+      const gw = {
+        ...gwWith(),
+        computeDegraded: () => ({ dirtyDocs: 9, oldestUnflushedAt: '2026-10-12T00:00:00.000Z', oldestUnflushedAgeSeconds: 600, spoolDepthBytes: 1_048_576, stuckDocs: 3 }),
+      };
+      const r = await build({ gateway: gw }).svc.getReady();
+      expect(r.status).toBe(200);
+      expect(r.body.ready).toBe(true);
+    });
+
+    it('pg-down 分支同带 degraded（base 三分支恒带——token 档巡检 503 时四键仍可读）', async () => {
+      const r = await build({ pgOk: false, gateway: gwWith() }).svc.getReady();
+      expect(r.body.reason).toBe('pg-down');
+      expect(r.body.degraded).toEqual(degraded);
+    });
   });
 });

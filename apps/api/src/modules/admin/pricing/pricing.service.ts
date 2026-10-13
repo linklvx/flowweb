@@ -107,4 +107,49 @@ export class PricingService {
     const r = await this.resolver.resolve({ modelId: dto.modelId, resolutionId: dto.resolutionId ?? null, durationId: dto.durationId ?? null });
     return r.creditCost;
   }
+
+  /** Y0b-5 T14（Y0b-1 移交收口）：定价覆盖度全量巡检——与 scripts/check-pricing-coverage.mjs 同源判据
+   *  （表驱动：①kind 级四键 outpaint/erase/redraw/lighting 各有 active 的 modelId IS NULL 规则；
+   *  ②每个 active 模型按声明行断言——有 res 行⇒每行 (model,res,null)；有 dur 行⇒每行 (model,null,dur)；
+   *  皆无⇒(model,null,null) 基础行；双维度声明=交叉组合未定义告警）。脚本=deploy preflight 链载体
+   *  （独立 node 直跑 raw SQL，不可 import Nest service——判据镜像双轨，改动须两处同步）；本方法执域=
+   *  admin 红标端点（浏览器拿不到 prometheus token）——ready 布尔不因 coverage 翻转。 */
+  async coverage(): Promise<{ ok: boolean; missing: Array<{ modelId: string | null; name: string; problem: string }> }> {
+    const missing: Array<{ modelId: string | null; name: string; problem: string }> = [];
+    // ① kind 级四键（NodeType 行缺失同判缺）
+    const kindNts = await this.prisma.nodeType.findMany({
+      where: { key: { in: ['outpaint', 'erase', 'redraw', 'lighting'] } },
+      select: { id: true, key: true },
+    });
+    for (const k of ['outpaint', 'erase', 'redraw', 'lighting']) {
+      const nt = kindNts.find((x) => x.key === k);
+      const n = nt
+        ? await this.prisma.pricingRule.count({ where: { nodeTypeId: nt.id, modelId: null, active: true } })
+        : 0;
+      if (n < 1) missing.push({ modelId: null, name: k, problem: `kind 级 "${k}" 缺 active 的 modelId IS NULL 规则（迁移 INSERT 缺失或被删）` });
+    }
+    // ② 主链（纯表驱动：维度参与=模型声明——与 normalizeDimensions 声明参与制同源）
+    const models = await this.prisma.aIModel.findMany({ where: { active: true }, select: { id: true, name: true } });
+    for (const m of models) {
+      const rules = await this.prisma.pricingRule.findMany({ where: { modelId: m.id }, select: { resolutionId: true, durationId: true, active: true } });
+      const act = (pred: (r: { resolutionId: string | null; durationId: string | null; active: boolean }) => boolean) =>
+        rules.some((r) => r.active && pred(r));
+      const ress = await this.prisma.modelResolution.findMany({ where: { modelId: m.id }, select: { id: true } });
+      const durs = await this.prisma.modelDuration.findMany({ where: { modelId: m.id }, select: { id: true } });
+      // T2 质量审 I-1：双维度声明模型的交叉组合覆盖未定义（一模型至多一类维度的架构假定显式化）
+      if (ress.length > 0 && durs.length > 0)
+        missing.push({ modelId: m.id, name: m.name, problem: '同时声明分辨率与时长两类维度——交叉组合 (model,res,dur) 覆盖未定义（一模型至多一类维度），须先扩门禁与规则集' });
+      for (const rr of ress) {
+        if (!act((r) => r.resolutionId === rr.id && r.durationId === null))
+          missing.push({ modelId: m.id, name: m.name, problem: `缺 (model,${rr.id},null) active 规则——该分辨率档全灭（选择器不可达）` });
+      }
+      for (const d of durs) {
+        if (!act((r) => r.durationId === d.id && r.resolutionId === null))
+          missing.push({ modelId: m.id, name: m.name, problem: `缺 (model,null,${d.id}) active 规则——该时长档全灭（选择器不可达）` });
+      }
+      if (ress.length === 0 && durs.length === 0 && !act((r) => r.resolutionId === null && r.durationId === null))
+        missing.push({ modelId: m.id, name: m.name, problem: '缺 (model,null,null) active 基础规则——模型全灭' });
+    }
+    return { ok: missing.length === 0, missing };
+  }
 }

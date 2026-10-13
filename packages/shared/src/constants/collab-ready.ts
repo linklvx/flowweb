@@ -28,8 +28,25 @@ export interface CollabReadyResponse {
   spoolQuarantined?: number;
   loadedDocs?: number;     // Y0a-4/N16：容量观测（在飞 Y.Doc 数）——pending 的兄弟字段，禁进 pending 对象
   connections?: number;    // Y0a-4/N16：collab 连接数（server.getConnectionsCount() 口径）——同上
+  /** Y0b-5 T14（E54⑤）：degraded 块——token 档独有（公开五键档裁剪）；观测非门禁（ready 布尔
+   *  不因此翻转）。四键与指标面同源，T15 巡检按此设阈值。 */
+  degraded?: CollabReadyDegraded;
   /** Y0b-3 T5（P-C）：服务端线路协议版本——客户端版本终态（schema-outdated）时单次探测拿它作
    *  loop 键（authenticationFailed payload 仅 {reason} 无版本通道）。恒带：base 对象单点——
    *  200 与 503（pg-down/reason）三分支同发。 */
   collabProtocolVersion: number;
+}
+
+/** Y0b-5 T14（E54⑤）：/api/ready token 档 degraded 四键——与指标面同源：
+ *  dirtyDocs=yjs_pending_projects（computePending().projects）；
+ *  oldestUnflushedAt/oldestUnflushedAgeSeconds=yjs_oldest_unflushed_age_seconds（at ISO+age 秒
+ *  双给——T15 巡检阈值消费形态；无未 flush 时 null/0）；
+ *  spoolDepthBytes=yjs_spool_depth_bytes（total=own+stranded 容量核算口径）；
+ *  stuckDocs=yjs_doc_stuck_total（同增点进程寿命累计——巡检用增量语义）。 */
+export interface CollabReadyDegraded {
+  dirtyDocs: number;
+  oldestUnflushedAt: string | null;
+  oldestUnflushedAgeSeconds: number;
+  spoolDepthBytes: number;
+  stuckDocs: number;
 }

@@ -12,7 +12,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader } from './store.metrics';
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
@@ -200,6 +200,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** X10：软阈提前 flush 闩锁（projectId 键）——重复跨阈触发合并为一次 setImmediate（WS 路径
    *  零合并零重复排程；回调内队列空/doc 不在即静默返回，批由退避梯/断连/drain 路径兜底）。 */
   private readonly flushScheduled = new Set<string>();
+  /** Y0b-5 T14（E54⑤）：doc 未 flush 窗口起点台账（projectId→epoch ms）——pending 队列空→非空
+   *  转变时播种（update 监听单点=唯一 push 位）；排空由 reader 自愈除账（oldestUnflushedAt——
+   *  清账点散布在 splice/FK/discard 诸路，结构性兜底胜过逐点补删）。 */
+  private readonly pendingSince = new Map<string, number>();
   /** 批3-3：session 查询/滑动续期统一入口（手写 findUnique 收口；直构测试不传时以注入的 prisma 兜底自建） */
   private readonly sessionSvc: SessionService;
   /** Y0b-3 T2（P-R）：WS 升级限流桶（per-IP——DoS 兜底非配额；60/min 补充+burst 20；重启清零） */
@@ -524,6 +528,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       }
       return { states, bytes };
     });
+    // Y0b-5 T14（E54⑤）：最老未 flush 年龄 gauge collect 源（pendingSince 台账——自愈漏清在方法内）
+    registerOldestUnflushedReader(() => this.oldestUnflushedAgeSeconds());
     this.startHeapObserver();
     this.startFrozenRecheckTimer();   // Y0b-4 T4：冻结 doc 重测（独立 timer——禁挂 sweep 逃生阀）
     this.syncOverloadGauge(false);   // 初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
@@ -639,6 +645,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  SWEEP_ENABLED=false 逃生阀不得静默关掉观测）。 */
   private overloadTripped = false;   // gauge/日志翻转检测缓存（真实状态在 heap-pressure util 迟滞内）
   private readonly docStuckRounds = new Map<string, number>();
+  /** Y0b-5 T14（E54⑤）：yjs_doc_stuck_total 同增点计数字段（prom-client Counter 无同步读 API——
+   *  同一 inc 点双计，computeDegraded.stuckDocs 同步可读；进程寿命累计口径与 Counter 一致）。 */
+  private stuckDocsSeen = 0;
   private heapObserverTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly REFUSAL_CACHEABLE = new Set<string>([
     CollabAuthReason.DRAINING, CollabAuthReason.LEASE_NOT_READY,
@@ -707,7 +716,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (!this.server.hocuspocus.shouldUnloadDocument(doc)) {   // 守卫拒绝+零连接+队列空=疑似卡住
         const n = (this.docStuckRounds.get(name) ?? 0) + 1;
         this.docStuckRounds.set(name, n);
-        if (n >= 2) { yjsDocStuckTotal.inc(); this.docStuckRounds.delete(name); }   // 连续 2 轮=真 stuck
+        if (n >= 2) { yjsDocStuckTotal.inc(); this.stuckDocsSeen += 1; this.docStuckRounds.delete(name); }   // 连续 2 轮=真 stuck（Y0b-5 T14：同点双计——degraded.stuckDocs 同步可读）
       } else {
         this.docStuckRounds.delete(name);
       }
@@ -938,6 +947,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // apply）不计——防 truth+delta 双计播种内容；已清理（卸载后残留帧）同样跳过。
           const delta = this.docDelta.get(pid);
           if (delta !== undefined) this.docDelta.set(pid, delta + u.byteLength);
+          if (q.length === 0) this.pendingSince.set(pid, Date.now());   // Y0b-5 T14：空→非空转变=未 flush 窗口起点（唯一 push 位单点播种）
           q.push(u);   // X10：WS 消息路径只 push（禁合并编码——3000 条积压实测同步折并 4.8s 阻塞消息路径）
           // 软阈跨点（超过 64 条/1MB——严格 >，第 65 条/超 1MB 触发）→ 闩锁 setImmediate 提前 store；硬阈折并在 store 取批点收口（同锁零交织）
           if (q.length > PENDING_MAX_ENTRIES || queueBytes(q) > FLUSH_SOFT_BYTES) this.scheduleSoftFlush(projectId);
@@ -1454,6 +1464,39 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       loadedDocs: this.server.hocuspocus.documents.size,
       connections: this.server.hocuspocus.getConnectionsCount(),
     };
+  }
+
+  /** Y0b-5 T14（E54⑤）：ready token 档 degraded 四键——与指标面同源：dirtyDocs=computePending()
+   *  .projects（yjs_pending_projects）；spoolDepthBytes=own+stranded total 口径（yjs_spool_depth_bytes
+   *  collect 同式）；oldestUnflushed 双给（at ISO+age 秒——T15 巡检阈值消费形态）；stuckDocs=
+   *  stuckDocsSeen（yjs_doc_stuck_total 同增点进程寿命累计）。观测非门禁——ready 布尔不因此翻转。 */
+  computeDegraded(): { dirtyDocs: number; oldestUnflushedAt: string | null; oldestUnflushedAgeSeconds: number; spoolDepthBytes: number; stuckDocs: number } {
+    const p = this.computePending();
+    const oldest = this.oldestUnflushedAt();
+    return {
+      dirtyDocs: p.projects,
+      oldestUnflushedAt: oldest === null ? null : new Date(oldest).toISOString(),
+      oldestUnflushedAgeSeconds: oldest === null ? 0 : Math.floor((Date.now() - oldest) / 1000),
+      spoolDepthBytes: p.spoolBytes + (p.strandedBytes ?? 0),
+      stuckDocs: this.stuckDocsSeen,
+    };
+  }
+
+  /** pendingSince 台账消费单点：自愈漏清（队列已空=窗口已闭→除账——splice/FK/discard 诸清账点外的
+   *  结构性兜底）+返回最老未 flush 窗口起点（无= null）。 */
+  private oldestUnflushedAt(): number | null {
+    let oldest: number | null = null;
+    for (const [pid, since] of this.pendingSince) {
+      if ((this.pendingQueues.get(pid)?.length ?? 0) === 0) { this.pendingSince.delete(pid); continue; }
+      if (oldest === null || since < oldest) oldest = since;
+    }
+    return oldest;
+  }
+
+  /** yjs_oldest_unflushed_age_seconds gauge reader——同一台账同一自愈（浮点秒=Prometheus 惯例）。 */
+  private oldestUnflushedAgeSeconds(): number {
+    const oldest = this.oldestUnflushedAt();
+    return oldest === null ? 0 : (Date.now() - oldest) / 1000;
   }
 
   /** 批3-4：compact 时间门限（≥COMPACT_INTERVAL_MS 一档；基线 load 播种、compact 后重置）。
@@ -2949,6 +2992,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     unregisterFrozenDocsReader();   // Y0b-4 T4：冻结面 collect 闭包随 gateway 死（同惯例）
     unregisterDocResidueReader();   // Y0b-4 T9a：真空残留 collect 闭包随 gateway 死（同惯例）
     unregisterAwarenessReader();   // Y0b-5 T10：awareness 两 gauge collect 闭包随 gateway 死（同惯例）
+    unregisterOldestUnflushedReader();   // Y0b-5 T14：最老未 flush gauge collect 闭包随 gateway 死（同惯例）
     if (this.docTopNLogTimer) { clearInterval(this.docTopNLogTimer); this.docTopNLogTimer = null; }   // Y0b-5 T10：top-N 日志定时器随停
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);  // 定时器随停——drain 主动接管
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）

@@ -1,22 +1,29 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ReactElement } from 'react';
 import { PageContainer, ProTable, ProForm, ModalForm, ProFormText, ProFormDigit, ProFormSwitch, ProFormList, ProFormSelect, ProFormDependency } from '@ant-design/pro-components';
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
-import { Tabs, App as AntdApp, Popconfirm, Button, Tag } from 'antd';
+import { Tabs, Alert, App as AntdApp, Popconfirm, Button, Tag } from 'antd';
 import { ADAPTERS, readyModel } from '@flowweb/shared';
 import {
   fetchNodeTypes, fetchModels, createModel, updateModel, toggleModel, deleteModel, addResolution, addDuration,
-  fetchPricingRules, createPricingRule, deletePricingRule,
-  type NodeTypeData, type ModelData, type PricingRuleData,
+  fetchPricingRules, createPricingRule, deletePricingRule, fetchPricingCoverage,
+  type NodeTypeData, type ModelData, type PricingRuleData, type PricingCoverageMissing,
 } from '@/api/adminApi';
 
 export default function ModelsPage() {
   const [nodeTypes, setNodeTypes] = useState<NodeTypeData[]>([]);
   const [activeNodeType, setActiveNodeType] = useState<string>('');
   const [models, setModels] = useState<ModelData[]>([]); // 级联下拉数据源（页面级加载一次）
+  const [coverageMissing, setCoverageMissing] = useState<PricingCoverageMissing[] | null>(null); // Y0b-5 T14：定价覆盖红标（null=未就绪不渲染）
   const modelsRef = useRef<ActionType>(null);
   const pricingRef = useRef<ActionType>(null);
   const { message } = AntdApp.useApp();
+
+  // Y0b-5 T14：覆盖度红标数据源（模型/计费规则变更后同点刷新——红标随修复即时消失；失败静默不阻塞页面）
+  const refreshCoverage = useCallback(() => {
+    fetchPricingCoverage().then((c) => setCoverageMissing(c.missing)).catch(() => {});
+  }, []);
+  useEffect(() => { refreshCoverage(); }, [refreshCoverage]);
 
   // 节点类型加载（原节点类型表已删，此处是唯一 setNodeTypes 来源，否则页面恒空）
   useEffect(() => {
@@ -42,14 +49,14 @@ export default function ModelsPage() {
       title: '操作', valueType: 'option',
       render: (_, record) => [
         <ModelFormModal key="edit" nodeTypeId={activeNodeType} nodeTypeKey={activeNt?.key} record={record}
-          onDone={() => modelsRef.current?.reload()} trigger={<a>编辑</a>} />,
+          onDone={() => { modelsRef.current?.reload(); refreshCoverage(); }} trigger={<a>编辑</a>} />,
         <a key="toggle" style={{ color: '#f59e0b' }} onClick={async () => {
           try {
-            await toggleModel(record.id); message.success(record.active ? '已下线' : '已上线'); modelsRef.current?.reload();
+            await toggleModel(record.id); message.success(record.active ? '已下线' : '已上线'); modelsRef.current?.reload(); refreshCoverage();
           } catch (e) { message.error((e as Error).message); }
         }}>{record.active ? '下线' : '上线'}</a>,
         <Popconfirm key="del" title="确认删除该模型？" onConfirm={async () => {
-          try { await deleteModel(record.id); message.success('已删除'); modelsRef.current?.reload(); }
+          try { await deleteModel(record.id); message.success('已删除'); modelsRef.current?.reload(); refreshCoverage(); }
           catch (e) { message.error((e as Error).message); }
         }}>
           <a style={{ color: '#ff7875' }}>删除</a>
@@ -60,6 +67,19 @@ export default function ModelsPage() {
 
   return (
     <PageContainer title="模型管理">
+      {coverageMissing !== null && coverageMissing.length > 0 && (
+        <Alert
+          type="error" showIcon style={{ marginBottom: 16 }}
+          message={`${coverageMissing.length} 个模型无生效定价规则`}
+          description={
+            <ul className="list-none pl-0 m-0">
+              {coverageMissing.map((m, i) => (
+                <li key={`${m.modelId ?? 'kind'}-${i}`}>{m.name}：{m.problem}</li>
+              ))}
+            </ul>
+          }
+        />
+      )}
       {nodeTypes.length > 0 && (
         <Tabs
           activeKey={activeNodeType}
@@ -80,7 +100,7 @@ export default function ModelsPage() {
             columns={modelColumns}
             toolBarRender={() => [
               <ModelFormModal key="create" nodeTypeId={activeNodeType} nodeTypeKey={activeNt?.key}
-                onDone={() => modelsRef.current?.reload()} trigger={<Button type="primary">新建模型</Button>} />,
+                onDone={() => { modelsRef.current?.reload(); refreshCoverage(); }} trigger={<Button type="primary">新建模型</Button>} />,
             ]}
           />
           <ProTable<PricingRuleData>
@@ -100,7 +120,7 @@ export default function ModelsPage() {
                 title: '操作', valueType: 'option',
                 render: (_, r) => [
                   <Popconfirm key="del" title="确认删除该规则？" onConfirm={async () => {
-                    try { await deletePricingRule(r.id); message.success('已删除'); pricingRef.current?.reload(); }
+                    try { await deletePricingRule(r.id); message.success('已删除'); pricingRef.current?.reload(); refreshCoverage(); }
                     catch (e) { message.error((e as Error).message); }
                   }}>
                     <a style={{ color: '#ff7875' }}>删除</a>
@@ -114,7 +134,7 @@ export default function ModelsPage() {
                 onFinish={async (v: any) => {
                   try {
                     await createPricingRule({ ...v, nodeTypeId: activeNodeType });
-                    message.success('已创建'); pricingRef.current?.reload(); return true;
+                    message.success('已创建'); pricingRef.current?.reload(); refreshCoverage(); return true;
                   } catch (e) { message.error((e as Error).message); return false; }
                 }}>
                 {/* 级联下拉（对齐现网：模型→其分辨率/时长），不手填 ID */}

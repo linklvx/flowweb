@@ -5,6 +5,7 @@ import { ModelService } from './model/model.service';
 import { ModelController } from './model/model.controller';
 import { PricingService } from './pricing/pricing.service';
 import { PricingController } from './pricing/pricing.controller';
+import { PricingCoverageController } from './pricing/pricing-coverage.controller';
 import { PublicService } from './public/public.service';
 import { PublicController } from './public/public.controller';
 import { SettingsService } from './settings/settings.service';
@@ -21,7 +22,7 @@ import { AuditService } from '../../common/audit/audit.service';
 // TeamModule 注入（TeamModule 传递闭包=Recharge，无反向依赖 AdminModule，无环）；AuditService 直注册（team/subscription 同款先例）
 @Module({
   imports: [ExecutionModule, TeamModule],
-  controllers: [NodeTypeController, ModelController, PricingController, PublicController, SettingsController, AdminIntentController],
+  controllers: [NodeTypeController, ModelController, PricingController, PricingCoverageController, PublicController, SettingsController, AdminIntentController],
   providers: [NodeTypeService, ModelService, PricingService, PublicService, SettingsService, AdminIntentService, AuditService],
 })
 export class AdminModule {}

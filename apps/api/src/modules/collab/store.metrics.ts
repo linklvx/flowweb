@@ -145,6 +145,21 @@ export const yjsSnapshotCacheEntries = new Gauge({
   collect() { try { this.set(snapshotCacheEntriesReader?.() ?? 0); } catch { this.set(0); } },
 });
 
+/** Y0b-5 T14（spec §5.8② E54⑤）：最老未 flush 窗口年龄 gauge——数据源=gateway pendingSince 台账
+ *  （pending 队列空→非空转变播种=update 监听单点；reader 自愈漏清：队列已空即除账）。口径=内存
+ *  pending 队列（与 dirtyDocs/yjs_pending_projects 同族）；spool 落定即窗口闭合（fsync=落定点②），
+ *  磁盘滞留另见 yjs_spool_depth_bytes。reader 注册模式=pendingCollector 惯例（gateway 注册读数
+ *  回调，metrics 文件不 import gateway——反向依赖禁止）。 */
+let oldestUnflushedReader: (() => number) | null = null;
+export function registerOldestUnflushedReader(fn: () => number): void { oldestUnflushedReader = fn; }
+export function unregisterOldestUnflushedReader(): void { oldestUnflushedReader = null; }
+export const yjsOldestUnflushedAgeSeconds = new Gauge({
+  name: 'yjs_oldest_unflushed_age_seconds',
+  help: '最老未 flush（pending 队列非空）doc 的窗口年龄秒（空→非空转变播种；dirtyDocs=0 时恒 0；spool 落定=窗口闭合，磁盘滞留见 yjs_spool_depth_bytes）',
+  registers: [register],
+  collect() { try { this.set(oldestUnflushedReader?.() ?? 0); } catch { this.set(0); } },
+});
+
 /** 批3-4：session sweep 关闭计数（cause=revoked 复验确认 / db-fail 连续复验异常兜底关）；
  *  Y0b-3 T1 起默认开——COLLAB_SWEEP_ENABLED='false' 为逃生阀。 */
 export const collabSweepCloseTotal = new Counter({

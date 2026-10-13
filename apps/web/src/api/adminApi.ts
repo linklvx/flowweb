@@ -78,6 +78,21 @@ export async function deletePricingRule(id: string): Promise<void> {
   return apiFetch(`/admin/pricing-rules/${id}`, { method: 'DELETE' });
 }
 
+/** Y0b-5 T14：定价覆盖度巡检（后端判据与 check-pricing-coverage.mjs 同源表驱动）——admin 定价页
+ *  红标数据源（浏览器拿不到 prometheus token，红标必须走 admin 端点）。 */
+export interface PricingCoverageMissing {
+  modelId: string | null;   // null=kind 级问题（outpaint/erase/redraw/lighting 四键）
+  name: string;
+  problem: string;
+}
+export interface PricingCoverage {
+  ok: boolean;
+  missing: PricingCoverageMissing[];
+}
+export async function fetchPricingCoverage(): Promise<PricingCoverage> {
+  return apiFetch('/admin/pricing/coverage');
+}
+
 // ========== 参数配置 ==========
 
 export interface SettingEntry {
