@@ -1058,11 +1058,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.logger.error(`store for unobserved doc ${documentName}: listener never registered`);   // tripwire：!lastSV 同构物不得静默
       return false;
     }
-    const storeT0 = Date.now();   // Y0b-5 T10：store 耗时（取批→落定主体段）
+    let storeT0: number | null = null;   // Y0b-5 T10：store 耗时（取批→落定主体段；noop 空转档不计时——readCanvas 空转近 0 样本稀释直方图）
     try {   // Y2：兜底 catch 在此层（钩子直通本方法——Serialized 的 catch 盖不到；spool 失败的正常 return false 不经过这里）
       const degraded = this.persistUnhealthy.has(documentName);    // V12：降级态
       const stashFrames = await this.peekSpoolFrames(projectId);
       if (queue.length === 0 && stashFrames.length === 0) { yjsStoreDrainTotal.inc({ result: 'noop' }); return false; }
+      storeT0 = Date.now();   // noop 早退后起算（真实取批→落定段）
       // Y7 硬阈（Y24 内存上界）：超过 512 条/8MB（严格 >，第 513 条触发）就地折并——splice 原地保数组身份；内容全保留。
       // 无 inFlight 门（裁定见常量块注记）：与取批同锁串行，push-only WS 路径零交织；双败期折并照常
       // 执行=上界收敛（600k 条 → ≤ceil(bytes/1MB) 个合并元素），I-2 批尾锚为唯一竞态兜底。
@@ -1224,7 +1225,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.logger.error(`store unexpected throw for ${documentName}: ${(err as Error).message}——契约 3 最后一道闸（批保留原归属地）`);
       return false;
     } finally {
-      yjsStoreDuration.observe((Date.now() - storeT0) / 1000);   // Y0b-5 T10：时长面（成功/失败均计时）
+      if (storeT0 !== null) yjsStoreDuration.observe((Date.now() - storeT0) / 1000);   // Y0b-5 T10：时长面（成功/失败均计时——noop 空转早退除外）
     }
   }
 
@@ -1464,8 +1465,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     const last = this.lastCompactAt.get(projectId);
     if (last !== undefined && Date.now() - last < COMPACT_INTERVAL_MS) return;
     const compactT0 = Date.now();   // Y0b-5 T10：compact 耗时（门早退不计时——只测 repo.compact 实跑）
-    const r = await this.repo.compact(projectId);
-    yjsCompactDuration.observe((Date.now() - compactT0) / 1000);
+    let r: Awaited<ReturnType<CanvasDocUpdateRepository['compact']>>;
+    try {
+      r = await this.repo.compact(projectId);
+    } finally {
+      yjsCompactDuration.observe((Date.now() - compactT0) / 1000);   // 采集挂 finally（家族纪律）：compact throw 的慢尾恰是最该被看见的样本
+    }
     if (r.compacted) {
       // Y0b-5 T10 锚②compact 全量编码：snapshotBytes=repo 既有实测编码（零新增）+删除行数/tombstone
       // 字节（repo.compact 契约字段——_count 口径即 compact 次数）

@@ -158,6 +158,16 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     expect(dOver).toBe(1);
   });
 
+  it('compact throw → yjs_compact_duration_seconds 仍 observe（采集挂 finally——最该被看见的慢尾不丢样本）', async () => {
+    const { gateway, repo } = buildGateway();
+    await loadDoc(gateway);
+    (gateway as any).lastCompactAt.delete('p1');   // 绕时间门
+    repo.compact.mockRejectedValueOnce(new Error('boom'));
+    const dDur = await histogramDelta('yjs_compact_duration_seconds', () =>
+      (gateway as any).maybeCompact('p1').catch(() => {}));   // 生产调用点（store/断连 finalize）自有 catch+compact_failure 计数
+    expect(dDur.count).toBe(1);   // throw 路径同样计时（时长面非成功面）
+  });
+
   it('yjs_store_payload_bytes：store append 成功路径逐片 observe（chunk payload 字节——切批口径）', async () => {
     const src = stampedDoc();
     const state = Buffer.from(Y.encodeStateAsUpdate(src));
@@ -188,6 +198,16 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
       (gateway as any).storeDocumentUnlocked({ document, documentName: 'project:p2' }));
     expect(dStore.count).toBe(1);
     expect(dStore.sum).toBeGreaterThanOrEqual(0);
+  });
+
+  it('noop 空转档不 observe store duration（readCanvas 空转近 0 样本稀释直方图）', async () => {
+    const state = Buffer.from(Y.encodeStateAsUpdate(stampedDoc()));   // 带戳装载：无 stamp 自愈入队（replay 抑制窗）→ 队列真空
+    const { gateway } = buildGateway({ state, updates: [] });
+    const document = new Y.Doc();
+    await (gateway as any).loadDocument({ document, documentName: 'project:p4' });   // 队列注册且空+spool 空
+    const dStore = await histogramDelta('yjs_store_duration_seconds', () =>
+      (gateway as any).storeDocumentUnlocked({ document, documentName: 'project:p4' }));
+    expect(dStore.count).toBe(0);   // noop 早退不计时（yjs_store_drain_total{noop} 照常计数）
   });
 });
 

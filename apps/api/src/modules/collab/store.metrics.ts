@@ -94,7 +94,7 @@ export const yjsDocHeapAmplification = new Gauge({
 const DURATION_BUCKETS_SECONDS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 export const yjsStoreDuration = new Histogram({
   name: 'yjs_store_duration_seconds',
-  help: 'store 取批→落定耗时秒（saveMutex 内主体路径——含 append/spool 落定）',
+  help: 'store 取批→落定耗时秒（saveMutex 内主体路径——含 append/spool 落定；noop 空转不计时）',
   buckets: DURATION_BUCKETS_SECONDS,
   registers: [register],
 });
@@ -112,7 +112,7 @@ export const yjsLoadDuration = new Histogram({
 });
 export const yjsWithdocDuration = new Histogram({
   name: 'yjs_withdoc_duration_seconds',
-  help: 'REST withDoc 直连全路径耗时秒（openDirectConnection→transact→disconnect）',
+  help: 'REST withDoc 直连全路径耗时秒（transact→disconnect——open 后起算）',
   buckets: DURATION_BUCKETS_SECONDS,
   registers: [register],
 });
