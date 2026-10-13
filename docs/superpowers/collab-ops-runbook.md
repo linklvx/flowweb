@@ -139,7 +139,7 @@ Y0a 数据完整性设计与 Y0b 客户端感知必须同批上线（spec `2026-
 1. **前置核对**：Y0b-4 部署（api+web 同批 csv=2）已执行？否=先执行或与本批同窗（§3.6 同批纪律同源）。
 2. **`.env` 新键**：`ALERT_SMS_TO`（可选——未设 SMS 跳过）、`SENTRY_DSN`（可选）、`PROMETHEUS_TOKEN`（★必设——/metrics 生产 fail-closed 403，巡检与外部抓取的消费前提）；零新必填键；web 零新依赖（离线副本=自研 IDB 适配器）。
 3. **迁移**：T12 后常规 `migrate dev --create-only` 产物+`prisma migrate deploy`+fresh-replay 门禁绿+T12-0a「先清后传」生效（Y0b-4 偏离 52 pricing 索引 drift 残留形态由 dump-schema-objects 双向比对一并核对）。
-4. **crontab 巡检**（§6 T15 节复制即用）：`*/5` 巡检+日志追加+心跳文件外层判据+第二机/uptime 外部探测行；★先于 crontab 装巡检启动自证——`curl -H "x-prometheus-token: $PROMETHEUS_TOKEN" https://www.flow123.com/api/metrics` 期望 200（token 缺失=巡检全 P1 insufficient）。
+4. **crontab 巡检**（§6 T15 节复制即用）：`*/5` 巡检+日志追加+心跳文件外层判据+第二机/uptime 外部探测行；★先于 crontab 装巡检启动自证——服务器本机 `curl -H "x-prometheus-token: $PROMETHEUS_TOKEN" http://localhost:3000/metrics` 期望 200、无 token 期望 403（fail-closed 生效双断言；token 缺失=巡检全 P1 insufficient）。⚠️ metrics 面不经公网暴露——nginx 无 /metrics 路由（公网该路径落前端 SPA 兜底页，2026-10-13 部署实测）；巡检/collab-ready token 视图（header 同名 `x-prometheus-token`，判定 `COLLAB_ADMIN_TOKEN ?? PROMETHEUS_TOKEN`）均走本机。
 5. **deploy post**：exec-smoke 资金链冒烟进链（哨兵 moonshot+独立 NodeType `smoke:y0b5:text`——首跑观察）。
 6. **部署后验证**：/api/ready token 视图 degraded 四键+/metrics 新指标族（带 PROMETHEUS_TOKEN 头——`yjs_doc_bytes` 直方图/`awareness_states`/`collab_pg_breaker_state`/`collab_telemetry_*`）+巡检 exit 0+浏览器手验：断网编辑→刷新→本地副本→恢复复合。
 7. **回滚说明**：T8 回滚后浏览器残留 IDB 库**无害的前提=terminal 清副本已生效**（残留窗口=terminal 到达前；清库后无残留读者）；`maxDelay` pin=30_000（=库默认——声明与代码一致）。
