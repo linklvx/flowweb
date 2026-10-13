@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamService } from '../team/team.service';
 import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
+import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { fillDoc, stampDocSchema, stripAuthorState, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
@@ -59,7 +60,7 @@ export class ProjectService {
       //  V19：fillDoc 契约=（DocLike, stripAuthorState 输出, edges）——直传原始记录=往快照写非作者态
       //  键（分镜子 position/组帧键按组类型键集表——clone 传入的正是作者态记录）。
       //  O0b-0：无条件盖章（去 nodes.length 闸门——空画布也稳定落 CanvasDoc 行+确定性戳）。
-      const seed = new Y.Doc();
+      const seed = createCanvasDoc();
       stampDocSchema(toDocLike(seed));
       if (nodes && nodes.length > 0) fillDoc(toDocLike(seed), stripAuthorState(nodes as any), edges ?? []);
       await tx.canvasDoc.upsert({

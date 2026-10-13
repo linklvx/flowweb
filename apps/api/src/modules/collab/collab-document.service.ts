@@ -4,6 +4,7 @@ import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason } from '@flo
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
+import { createCanvasDoc } from './canvas-doc.factory';
 import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
@@ -118,7 +119,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  陈旧度=进行中编辑未含（去抖窗级，spec §9.9 登记）。 */
   private async decodeSnapshot(projectId: string): Promise<DecodedSnapshot> {
     const { state, updates } = await this.repo.readSnapshotOnly(projectId);
-    const doc = new Y.Doc();
+    const doc = createCanvasDoc();
     try {
       if (state) Y.applyUpdate(doc, new Uint8Array(state));
       for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));

@@ -1,5 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
+import { createCanvasDoc } from './canvas-doc.factory';
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import {
@@ -251,7 +252,7 @@ export class CanvasDocUpdateRepository {
         if (rows.length === 0) return { compacted: false, reason: 'empty' as const };
         const maxSeq = rows[rows.length - 1].seq;
         const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
-        const temp = new Y.Doc();
+        const temp = createCanvasDoc();
         if (docRow) Y.applyUpdate(temp, new Uint8Array(docRow.state));
         for (const r of rows) Y.applyUpdate(temp, new Uint8Array(r.update));
         if (temp.store.pendingStructs !== null) {

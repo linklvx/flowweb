@@ -16,6 +16,7 @@ import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, co
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
+import { createCanvasDoc } from './canvas-doc.factory';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { isFkGone } from './pg-error.util';
@@ -1766,7 +1767,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const r = root as unknown as { _start?: unknown };
       if (!(root instanceof Y.Map) && r._start != null) return null;   // Text/Array 序列内容 ⇒ unsupported-root（wire 占位判定——见头注 yjs 根类型事实）
     }
-    const fresh = new Y.Doc();
+    const fresh = createCanvasDoc();
     try {
       const records = readRecordsFromMaps(toDocLike(source));   // 读侧建 nodes/edges 根（与 fillDoc 对称——根集合守恒）
       fillDoc(toDocLike(fresh), records.nodes, records.edges);

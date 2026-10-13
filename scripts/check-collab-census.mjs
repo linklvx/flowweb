@@ -5,6 +5,7 @@
 // 退出码：0=全 PASS；1=任一 FAIL；2=结构性错误。
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // ⑬detail 白名单锚单源：schema 从 shared dist 导入（TS 源不可直接 import .ts——verify 链
 // shared-build 步在前，dist 恒新；standalone 跑依赖 dist 已构建——与 check-shared-dist 同前提）。
@@ -273,6 +274,42 @@ export function reconcileRegisteredRed(hits, registered) {
     }
   }
   return { unregistered, drift, stale };
+}
+
+/** ── Y0c T3 组㉑㉒ helpers ──
+ *  ㉒process.env 直读键提取（stripped 行级）：process.env.KEY 与 process.env['KEY']/["KEY"]
+ *  两形态归一键名；整对象形态（safeParse(process.env)/const env = process.env——env 单源
+ *  config/env.ts 入口本体）不归键=词表外（Z79 裸读面指「按键裸读」，单源入口是判据本原）。 */
+export function extractProcessEnvKey(line) {
+  const m = line.match(/process\.env\.([A-Za-z_$][\w$]*)|process\.env\[\s*['"]([^'"]+)['"]\s*\]/);
+  return m ? (m[1] ?? m[2]) : null;
+}
+
+/** ㉒{} 净深累计（输入须先经剥离器——本 helper 不剥串）：行扫描前缀深度=0 ⇔ 模块顶层
+ *  执行位（Z79 违规面=模块加载期读）；>0 ⇔ 类/方法体内（允许面候选）。advisory 标注用，
+ *  非执法（执法=白名单+登记红对账）。 */
+export function computeBraceDepth(text) {
+  let d = 0;
+  for (const c of text) { if (c === '{') d += 1; else if (c === '}') d -= 1; }
+  return d;
+}
+
+/** ㉑.env 键集解析：KEY=VALUE 行取 KEY（首段）；# 注释与空行忽略。仅取键集（值不进
+ *  census——禁密钥落日志/报告）。 */
+export function parseDotEnvKeys(text) {
+  return text.split('\n').flatMap((l) => {
+    const t = l.trim();
+    if (!t || t.startsWith('#')) return [];
+    const i = t.indexOf('=');
+    return i > 0 ? [t.slice(0, i).trim()] : [];
+  });
+}
+
+/** ㉑ecosystem.config.cjs env 块键集：多 app env 键并集（T30 双进程后两 app 各自 env 块——
+ *  并集=分叉键须显式登记的判定面）。apps 非数组/缺 apps=结构性错误上抛（main 捕获 exit 2）。 */
+export function ecosystemEnvKeys(mod) {
+  if (!Array.isArray(mod?.apps)) throw new Error('ecosystem.config.cjs 结构性错误（apps 非数组）');
+  return [...new Set(mod.apps.flatMap((a) => Object.keys(a.env ?? {})))];
 }
 
 /** ⑭withDoc 登记对账：counts（file→命中数）对 WITHDOC_REGISTRY（file→{三态→数}）——
@@ -621,6 +658,286 @@ if (isMain()) {
        ...pureDetails,
        ...Object.entries(WORKER_BAN_REGISTERED_RED).flatMap(([f, syms]) =>
          Object.entries(syms).map(([sym, reg]) => `登记红（until=${reg.until}）${f} ${sym} ×${reg.n}`))]);
+  }
+
+  // ⑯生产裸 new Y.Doc() 清零（Y0c T3，B9 v2/Z57——本片即绿）：api 生产面裸 new Y.Doc() 白名单外
+  //  清零——单源工厂 createCanvasDoc()（canvas-doc.factory.ts）收编。现状 6 处全部无参构造
+  //  （gc=true 默认），工厂同语义零行为变化；Server 级 yDocOptions{gc:true,gcFilter:()=>true}
+  //  （gateway 装载 options）只覆盖 Hocuspocus 托管 doc，独立 doc（scratch/vacuum/seed/compact
+  //  /快照重放）不受其管辖。白名单：工厂自身+gate-canvas-state.ts（Z57：非生产——头注自证+
+  //  仅 gate-seed/spec 消费）。web 客户端面（ydocBuilder/canvasCollabRuntime×2）不在 B9/Z57
+  //  清单面（客户端 doc 生命周期归 Y0a-3 provider 重建语义）——本组断言面=apps/api/src。
+  const YDOC_WHITELIST = {
+    'apps/api/src/gate-canvas-state.ts': 1,
+    'apps/api/src/modules/collab/canvas-doc.factory.ts': 1,
+  };
+  {
+    const details = [];
+    const counts = {};
+    for (const p of files) {
+      if (!relOf(p).startsWith('apps/api/')) continue;
+      const n = (byFile.get(p).stripped.match(/\bnew Y\.Doc\(/g) ?? []).length;
+      if (n) counts[relOf(p)] = n;
+    }
+    for (const [f, n] of Object.entries(counts)) {
+      const want = YDOC_WHITELIST[f];
+      if (want === undefined) details.push(`白名单外裸 new Y.Doc() ${f} ×${n}——改道 createCanvasDoc()`);
+      else if (want !== n) details.push(`Y.Doc 白名单计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
+    }
+    for (const f of Object.keys(YDOC_WHITELIST)) if (!(f in counts)) details.push(`Y.Doc 白名单点消失 ${f}（清单需同步）`);
+    const nWl = Object.values(YDOC_WHITELIST).reduce((a, b) => a + b, 0);
+    report('⑯', `生产裸 new Y.Doc() 清零（api 面——createCanvasDoc() 工厂收编，白名单 ${nWl} 点/2 文件）`, details.length === 0, details);
+  }
+
+  // ㉑env 两分（Y0c T3，Z89）：分叉键（双进程间值将不同的键）只进 ecosystem env 块/同值键只进
+  //  服务器 .env（单文件双进程共读——Z49）。分叉键集（plan T3 三键——键名按仓内实测定准）：
+  //  COLLAB_BIND_ADDR（gateway:484 既有）/COLLAB_SPOOL_DIR（ecosystem 既有）/COLLAB_ROLE（片 D
+  //  T23 新键，现全仓零读者）；API_BIND_ADDR（E 片 T36 新键）落地时同批入清单。
+  //  三向断言：A 分叉键∩.env 键集=∅；B ecosystem env 块键集⊆分叉键集（同值键禁混入）；C 分叉键
+  //  ⊆ecosystem env 块键集（「分叉键必须显式登记于 ecosystem」）。.env 为本地文件不在 git：
+  //  不存在=跳过 A 向+提示（CI/无 .env 环境可跑）；ecosystem 半边恒执法。
+  //  与 check-ecosystem.mjs ENV_ALLOWLIST 同源事实（该白名单={现存两分叉键}——T30 扩 COLLAB_ROLE）。
+  const FORKED_ENV_KEYS = ['COLLAB_ROLE', 'COLLAB_BIND_ADDR', 'COLLAB_SPOOL_DIR'];
+  // 方向 C 登记红（元纪律⑥）：分叉键尚未落 ecosystem=登记红，until=片D（T30 ecosystem 双进程
+  //  同批落 api/worker 双 app 显式携带——届时转绿移除登记）。
+  const ECOSYSTEM_MISSING_REGISTERED_RED = {
+    COLLAB_ROLE: { until: '片D' },   // T23 引入（现全仓零读者）——T30 ecosystem 双进程同批落 api/worker 双 app 显式携带后转绿移除
+  };
+  {
+    const fatal = [];
+    let ecoKeys = [];
+    try {
+      const require = createRequire(import.meta.url);   // 以本脚本（scripts/）为基准——上级=仓根
+      ecoKeys = ecosystemEnvKeys(require('../ecosystem.config.cjs'));
+    } catch (e) {
+      console.error(`check-collab-census: 结构性错误（exit 2）——ecosystem.config.cjs 加载失败：${e.message}`);
+      process.exit(2);
+    }
+    const dotEnvPath = path.join(ROOT, 'apps', 'api', '.env');
+    const dotEnvKeys = fs.existsSync(dotEnvPath) ? parseDotEnvKeys(fs.readFileSync(dotEnvPath, 'utf8')) : null;
+    for (const k of (dotEnvKeys?.filter((k2) => FORKED_ENV_KEYS.includes(k2)) ?? [])) {
+      fatal.push(`分叉键 ${k} 不得进 .env（双进程值将分叉——只进 ecosystem env 块）`);
+    }
+    for (const k of ecoKeys.filter((k2) => !FORKED_ENV_KEYS.includes(k2))) {
+      fatal.push(`ecosystem env 块同值键 ${k}（两进程共读键应留 .env——ENV_ALLOWLIST 外禁入）`);
+    }
+    const missing = FORKED_ENV_KEYS.filter((k) => !ecoKeys.includes(k));
+    for (const k of missing) {
+      if (!ECOSYSTEM_MISSING_REGISTERED_RED[k]) fatal.push(`分叉键 ${k} 未显式登记于 ecosystem（方向 C——登记红 until=片D 须显式登记）`);
+    }
+    for (const k of Object.keys(ECOSYSTEM_MISSING_REGISTERED_RED)) {
+      if (!missing.includes(k)) fatal.push(`分叉键 ${k} 已落 ecosystem——转绿达成请移除登记（until=${ECOSYSTEM_MISSING_REGISTERED_RED[k].until}）`);
+    }
+    const nReg = Object.keys(ECOSYSTEM_MISSING_REGISTERED_RED).length;
+    report('㉑', `env 两分（Z89——分叉键 ${FORKED_ENV_KEYS.join('/')}：.env∩∅+ecosystem 子集+显式登记；登记红 ${nReg} 项待片 D）`,
+      fatal.length === 0,
+      [...(dotEnvKeys === null ? ['.env 不存在——方向 A（分叉键∩.env=∅）跳过（CI 形态）；ecosystem 半边恒执法'] : []),
+       ...Object.entries(ECOSYSTEM_MISSING_REGISTERED_RED).map(([k, r]) => `登记红（until=${r.until}）分叉键 ${k} 未落 ecosystem`),
+       ...fatal]);
+  }
+
+  // ㉒env 裸读两分（Y0c T3，Z79/Z147①）：生产面 process.env 直读=键级白名单+登记红两分。
+  //  判定口径（静态可判近似）：剥离器后行级 extractProcessEnvKey（点号/方括号两形态）键级计数
+  //  精确相等（组④同形态）；模块级/方法内两分分类=computeBraceDepth 前缀深度近似（0=模块加载期
+  //  读=Z79 违规面；>0=类/方法体内=允许面候选）——分类是 advisory 标注非执法（执法=对账精确
+  //  相等）。已知边界：useValue/装饰器元数据形态（collab.module useFactory 族）模块加载期求值
+  //  但深度>0=标 method——T34 按 Z147① 清单核对不受误标影响（对账与分类正交）。
+  //  白名单 4 键（spec :490 点名——gateway 构造 options 三键+COMPACT_INTERVAL_MS 族；逐点：
+  //  COLLAB_PORT :472/COLLAB_TIMEOUT :477/COLLAB_BIND_ADDR :484+:2647 listen 日志同键读=配置
+  //  透明度非决策读/COMPACT_INTERVAL_MS :34 模块级 const 历史豁免）；config/env.ts 的
+  //  safeParse(process.env)=env 单源入口本体（词表外不命中）。其余直读全量登记红 until=T34
+  //  （E 片全仓枚举重划白名单+处置违规名单——2026-10-14 实况 28 文件/85 键项与 Z147①「28 文件」
+  //  吻合；分类统计见 details advisory 标注）。
+  const ENV_READ_WHITELIST = {
+    'apps/api/src/modules/collab/collab.gateway.ts': {
+      COLLAB_PORT: 1,
+      COLLAB_TIMEOUT: 1,
+      COLLAB_BIND_ADDR: 2,
+      COMPACT_INTERVAL_MS: 1,
+    },
+  };
+  const ENV_READ_REGISTERED_RED = {
+    // 2026-10-14 实况登记（census 空登记跑出真红 85 键项/28 文件后回填——元纪律⑥；与 Z147①
+    // 「28 生产文件」吻合）。转绿条件=T34（E 片）：全仓枚举重划白名单+模块级违规名单处置改道
+    // env 单源——届时逐项转白或清零，登记移除后断言必须绿。行尾〔M〕=模块加载期读（Z79 违规面
+    // advisory——T34 优先处置；以本组 details 输出为准，含 useValue 装饰器元数据已知误标边界）。
+    'apps/api/src/auth/auth.ts': {                    // CORS_ORIGIN〔M〕:17/REDIS_URL〔M〕:21——Z147① 点名模块级 const
+      CORS_ORIGIN: { n: 1, until: 'T34' },
+      REDIS_URL: { n: 1, until: 'T34' },
+      NODE_ENV: { n: 1, until: 'T34' },
+      BETTER_AUTH_URL: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/auth/dto/update-profile.dto.ts': {
+      NODE_ENV: { n: 3, until: 'T34' },
+    },
+    'apps/api/src/auth/wechat/wechat.controller.ts': {
+      WECHAT_APP_ID: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/auth/wechat/wechat.service.ts': {
+      WECHAT_APP_ID: { n: 1, until: 'T34' },
+      WECHAT_APP_SECRET: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/common/redis/managed-redis.ts': {
+      REDIS_URL: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/common/services/rate-limiter.service.ts': {
+      RATE_LIMIT_IP_WHITELIST: { n: 1, until: 'T34' },   // 〔M〕:5——T36 与删手写解析同批
+    },
+    'apps/api/src/main.ts': {
+      DISABLE_DB_CONFIG_PRELOAD: { n: 1, until: 'T34' },
+      NODE_ENV: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/metrics/prometheus-auth.guard.ts': {
+      PROMETHEUS_TOKEN: { n: 1, until: 'T34' },
+      NODE_ENV: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab-admin-auth.guard.ts': {
+      COLLAB_ADMIN_TOKEN: { n: 1, until: 'T34' },
+      NODE_ENV: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab-lease.service.ts': {
+      COLLAB_LEASE_TTL_MS: { n: 1, until: 'T34' },
+      COLLAB_LEASE_HEARTBEAT_MS: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab-ready.controller.ts': {
+      COLLAB_ADMIN_TOKEN: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab-spool.service.ts': {
+      COLLAB_SPOOL_DIR: { n: 2, until: 'T34' },
+      COLLAB_SPOOL_CAPACITY_BYTES: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab.gateway.ts': {   // 白名单 4 键外全部（22 键项构造/方法内）
+      COLLAB_DEBOUNCE: { n: 1, until: 'T34' },
+      NODE_ENV: { n: 2, until: 'T34' },
+      COLLAB_UPGRADE_RATE_PER_MIN: { n: 1, until: 'T34' },
+      COLLAB_MAX_DOC_BYTES: { n: 1, until: 'T34' },
+      COLLAB_MAX_TX_BYTES: { n: 1, until: 'T34' },
+      COLLAB_MSG_RATE_PER_CONN: { n: 1, until: 'T34' },
+      COLLAB_BYTES_RATE_PER_CONN: { n: 1, until: 'T34' },
+      COLLAB_ALLOWED_ORIGINS: { n: 1, until: 'T34' },
+      BETTER_AUTH_URL: { n: 1, until: 'T34' },
+      COLLAB_TRUSTED_PROXY: { n: 1, until: 'T34' },
+      COLLAB_REFUSAL_CACHE_TTL_MS: { n: 1, until: 'T34' },
+      COLLAB_AUTH_ATTEMPTS_PER_MIN: { n: 1, until: 'T34' },
+      COLLAB_AUTH_INFLIGHT_MAX: { n: 1, until: 'T34' },
+      COLLAB_RSS_TRIP_BYTES: { n: 1, until: 'T34' },
+      COLLAB_RSS_RELEASE_BYTES: { n: 1, until: 'T34' },
+      COLLAB_HEAP_PRESSURE_RATIO: { n: 1, until: 'T34' },
+      COLLAB_CONN_MAX_LIFETIME_MS: { n: 1, until: 'T34' },
+      COLLAB_SWEEP_ENABLED: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab.module.ts': {
+      COLLAB_PORT: { n: 1, until: 'T34' },               // Z45②：useValue 形态——T34 改 useFactory 收编
+      COLLAB_TIMEOUT: { n: 1, until: 'T34' },
+      REDIS_URL: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/execution/api-caller.service.ts': {
+      EXEC_SYNC_HARD_CAP: { n: 1, until: 'T34' },
+      EXEC_SUBMIT_TIMEOUT_MS: { n: 2, until: 'T34' },
+      EXEC_POLL_TIMEOUT_MS: { n: 3, until: 'T34' },
+    },
+    'apps/api/src/modules/execution/intent-key.util.ts': {   // 全部〔M〕:42-47 模块级 const 族
+      EXEC_DEADLINE_TEXT_MS: { n: 1, until: 'T34' },
+      EXEC_DEADLINE_IMAGE_MS: { n: 1, until: 'T34' },
+      EXEC_DEADLINE_VIDEO_MS: { n: 1, until: 'T34' },
+      EXEC_DEADLINE_EDIT_MS: { n: 2, until: 'T34' },
+      EXEC_DEADLINE_LIGHTING_MS: { n: 1, until: 'T34' },
+      EXEC_MAX_NODES: { n: 2, until: 'T34' },
+      EXEC_SYNC_HARD_CAP: { n: 2, until: 'T34' },
+    },
+    'apps/api/src/modules/execution/provider-adapters.ts': {
+      COLLAB_FAKE_AI: { n: 1, until: 'T34' },            // 〔M〕:14——T34 同批落 production 拒启
+      PROVIDER_MOONSHOT_API_KEY: { n: 1, until: 'T34' },
+      PROVIDER_TENCENT_API_KEY: { n: 1, until: 'T34' },
+      DASHSCOPE_API_KEY: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/execution/video-trim.constants.ts': {   // 全部〔M〕:7-8
+      FFMPEG_PATH: { n: 1, until: 'T34' },
+      FFPROBE_PATH: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/execution/video-trim.processor.ts': {
+      VIDEO_TRIM_ENCODER: { n: 1, until: 'T34' },
+      VIDEO_TRIM_PRESET: { n: 1, until: 'T34' },
+      VIDEO_TRIM_CRF: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/gateway/execution.gateway.ts': {
+      CORS_ORIGIN: { n: 1, until: 'T34' },               // 〔M〕:17
+    },
+    'apps/api/src/modules/media-process/media-process.service.ts': {   // 全部〔M〕:10-11——Z147① 点名
+      FFMPEG_PATH: { n: 1, until: 'T34' },
+      FFPROBE_PATH: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/minio/minio.module.ts': {
+      MINIO_INIT: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/recharge/recharge.module.ts': {
+      WECHAT_PAY_APP_ID: { n: 3, until: 'T34' },
+      WECHAT_PAY_MCH_ID: { n: 1, until: 'T34' },
+      WECHAT_PAY_API_V3_KEY: { n: 1, until: 'T34' },
+      WECHAT_PAY_MERCHANT_SERIAL_NO: { n: 1, until: 'T34' },
+      WECHAT_PAY_PRIVATE_KEY: { n: 3, until: 'T34' },
+      WECHAT_PAY_PUBLIC_KEY_ID: { n: 1, until: 'T34' },
+      WECHAT_PAY_PUBLIC_KEY: { n: 3, until: 'T34' },     // 〔M〕:79 一处 module-level
+      WECHAT_PAY_MERCHANT_CERT: { n: 2, until: 'T34' },
+    },
+    'apps/api/src/modules/sms/sms.service.ts': {
+      TENCENT_SMS_SECRET_ID: { n: 1, until: 'T34' },
+      TENCENT_SMS_SECRET_KEY: { n: 1, until: 'T34' },
+      TENCENT_SMS_SDK_APP_ID: { n: 1, until: 'T34' },
+      TENCENT_SMS_TEMPLATE_ID: { n: 1, until: 'T34' },
+      TENCENT_SMS_SIGN_NAME: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/subscription/subscription-order.service.ts': {
+      WECHAT_PAY_NOTIFY_URL: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/team/task/team-recharge-active-query.processor.ts': {
+      WECHAT_PAY_APP_ID: { n: 1, until: 'T34' },
+      WECHAT_PAY_MCH_ID: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/team/team-recharge.service.ts': {
+      WECHAT_PAY_NOTIFY_URL: { n: 1, until: 'T34' },     // 〔M〕:84
+      WECHAT_PAY_APP_ID: { n: 1, until: 'T34' },
+      WECHAT_PAY_MCH_ID: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/prisma/platform-team.seed.ts': {
+      ADMIN_EMAIL: { n: 1, until: 'T34' },               // 〔M〕:16 seed 语义——T34 定归属
+    },
+  };
+  {
+    const hits = {};
+    const advisory = [];
+    for (const p of files) {
+      if (!relOf(p).startsWith('apps/api/')) continue;
+      const { stripped } = byFile.get(p);
+      const lines = stripped.split('\n');
+      let depth = 0;
+      lines.forEach((l, i) => {
+        const beforeDepth = depth;
+        depth = computeBraceDepth(l) + depth;
+        const key = extractProcessEnvKey(l);
+        if (!key) return;
+        (hits[relOf(p)] ??= {})[key] = (hits[relOf(p)]?.[key] ?? 0) + 1;
+        advisory.push(`${relOf(p)}:${i + 1} ${key}${beforeDepth === 0 ? '（module-level）' : ''}`);
+      });
+    }
+    const merged = {};
+    for (const [f, syms] of Object.entries(ENV_READ_WHITELIST)) {
+      merged[f] = {};
+      for (const [k, n] of Object.entries(syms)) merged[f][k] = { n, until: '白名单（T34 复核重划）' };
+    }
+    for (const [f, syms] of Object.entries(ENV_READ_REGISTERED_RED)) {
+      merged[f] ??= {};
+      for (const [k, reg] of Object.entries(syms)) merged[f][k] = reg;
+    }
+    const { unregistered, drift, stale } = reconcileRegisteredRed(hits, merged);
+    const nRed = Object.values(ENV_READ_REGISTERED_RED).reduce((a, syms) => a + Object.keys(syms).length, 0);
+    const nHit = Object.values(hits).reduce((a, o) => a + Object.keys(o).length, 0);
+    report('㉒', `env 裸读两分（Z79——${nHit} 键项/${Object.keys(hits).length} 文件；白名单 4 键+登记红 ${nRed} 项 until=T34）`,
+      unregistered.length === 0 && drift.length === 0 && stale.length === 0,
+      [...unregistered.map((h) => `白名单外未登记直读 ${h.file} ${h.symbol} ×${h.n}——登记红 until=T34 或 T34 收编`),
+       ...drift.map((h) => `直读计数漂移 ${h.file} ${h.symbol}: 登记 ${h.want} 实际 ${h.n}`),
+       ...stale.map((h) => `直读登记项已消失——转绿达成请移除登记 ${h.file} ${h.symbol}`),
+       ...advisory.filter((a) => a.includes('（module-level）')).map((a) => `module-level 直读（Z79 违规面 advisory）${a}`)]);
   }
 
   const failed = results.filter((r) => !r.pass);

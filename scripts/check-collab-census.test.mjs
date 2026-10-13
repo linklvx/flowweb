@@ -11,6 +11,7 @@ import {
   resolveRelativeImport, extractImportSpec, collectImportClosure,
   classifyWorkerBannedSymbol, isHocuspocusServerImport,
   reconcileRegisteredRed, reconcileWithDocRegistry,
+  extractProcessEnvKey, computeBraceDepth, parseDotEnvKeys, ecosystemEnvKeys,
 } from './check-collab-census.mjs';
 
 test('stripCommentsAndStrings：行注释/块注释/字符串内容剥离、代码保留、换行保位', () => {
@@ -177,4 +178,44 @@ test('reconcileWithDocRegistry：未登记调用点/分类合计漂移/登记点
   ]);
   const drifted = reconcileWithDocRegistry({ 'a.ts': 3 }, registry);
   assert.ok(drifted.some((d) => d.includes('登记计数漂移 a.ts: 登记合计 2 实际 3')));
+});
+
+// ── Y0c T3（组㉑㉒）：env 两分（Z89）+ env 裸读两分（Z79）helpers ──
+
+test('extractProcessEnvKey：点号/方括号两形态键归一；整对象与无读行=null', () => {
+  assert.equal(extractProcessEnvKey('const port = Number(process.env.COLLAB_PORT) || 3001;'), 'COLLAB_PORT');
+  assert.equal(extractProcessEnvKey("const dir = process.env['COLLAB_SPOOL_DIR'] ?? '';"), 'COLLAB_SPOOL_DIR');
+  assert.equal(extractProcessEnvKey('if (process.env.NODE_ENV === "production") {'), 'NODE_ENV');
+  assert.equal(extractProcessEnvKey('const result = envSchema.safeParse(process.env);'), null);   // 整对象（env 单源入口）
+  assert.equal(extractProcessEnvKey('const env = process.env;'), null);                            // 整对象赋值
+  assert.equal(extractProcessEnvKey('console.log(env.PORT);'), null);                              // 无 process.env 直读
+});
+
+test('computeBraceDepth：{} 净深累计（模块级/方法体内分类近似输入）', () => {
+  assert.equal(computeBraceDepth('const a = { b: 1 };'), 0);
+  assert.equal(computeBraceDepth('class A {\n  x = 1;'), 1);                     // 类体未闭合
+  assert.equal(computeBraceDepth('constructor() { if (x) { y(); } }'), 0);       // 闭合归零
+  assert.equal(computeBraceDepth('const s = "  ";'), 0);                         // 输入须先经剥离器（串内容已剥为空格——本 helper 不剥串）
+});
+
+test('parseDotEnvKeys：KEY=VALUE 取键、注释/空行忽略、值含=取首段', () => {
+  const text = [
+    '# 注释行',
+    '',
+    'DATABASE_URL=postgres://u:p@h/db',
+    'PORT=3000',
+    'MINIO_ENDPOINT=http://localhost:9000',   // 值含 = 之后的 :9000
+    'EMPTY_KEY=',
+  ].join('\n');
+  assert.deepEqual(parseDotEnvKeys(text), ['DATABASE_URL', 'PORT', 'MINIO_ENDPOINT', 'EMPTY_KEY']);
+});
+
+test('ecosystemEnvKeys：多 app env 块键并集；缺 env 块/缺 apps 抛错', () => {
+  assert.deepEqual(
+    ecosystemEnvKeys({ apps: [{ name: 'a', env: { A: '1', B: '2' } }, { name: 'b', env: { B: '3', C: '4' } }] }),
+    ['A', 'B', 'C'],
+  );
+  assert.deepEqual(ecosystemEnvKeys({ apps: [{ name: 'a' }] }), []);            // 无 env 块=空集
+  assert.throws(() => ecosystemEnvKeys({ apps: 'not-array' }));                 // 结构性错误
+  assert.throws(() => ecosystemEnvKeys({}));                                    // 缺 apps
 });

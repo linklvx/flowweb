@@ -20,6 +20,7 @@ import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
+import { createCanvasDoc } from './canvas-doc.factory';
 import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
 
 /** 排队超时（进入执行位前的等待上界——已获执行位的请求不被打断；超时者从等待队列摘除不占执行位） */
@@ -178,7 +179,7 @@ export class CollabShrinkService {
       let deletedIds: string[] = [];
       if (victims.length > 0) {
         // 影子预演（编码白名单点②）：scratch 应用删除→再编码测量——不达标不写活 doc（422 带实测值）
-        const scratch = new Y.Doc();
+        const scratch = createCanvasDoc();
         try {
           Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
           deleteNodesInDoc(scratch, victims);
@@ -308,7 +309,7 @@ export class CollabShrinkService {
       this.docs.invalidateSnapshotCache(pid);              // SnapshotDocCache 旧代投影条目
       // ④ 离线全根真空：装载读唯一入口（契约 1——repo.loadForHydration；不经 withDoc）
       const { state: srcState, updates: srcUpdates } = await this.docRepo.loadForHydration(pid);
-      const oldDoc = new Y.Doc();
+      const oldDoc = createCanvasDoc();
       let newDoc: Y.Doc | null = null;
       try {
         if (srcState) Y.applyUpdate(oldDoc, new Uint8Array(srcState));
