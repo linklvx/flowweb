@@ -553,7 +553,7 @@ if (isMain()) {
       applyUpdate: { n: 2, until: '片D' },               // :123,:124 decodeSnapshot 快照重放（scratch doc）
     },
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': {
-      applyUpdate: { n: 2, until: '片D' },               // :255,:256 readSnapshotOnly 行集重放（temp doc）
+      applyUpdate: { n: 2, until: '片D' },               // :255,:256 compact 方法内 temp doc 行集重放（scratch 离线，非 readSnapshotOnly——后者不 apply）
     },
     'apps/api/src/modules/collab/collab.gateway.ts': {
       'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）
