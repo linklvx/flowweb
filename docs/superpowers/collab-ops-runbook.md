@@ -277,7 +277,9 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 
 **环境**：本地 dev（Windows 11；PG/Redis/MinIO 本地进程；api 单进程 127.0.0.1:3000 + WS 3001）；代码=master `6a07c109`（api dist 构建=`9533b306`——其后 commit 不触 api 运行时；C0 观测面完整、A1/A2 行为改造未开始）；`COLLAB_SESSION_IDLE_TTL_MS` 未设（.env 无键+启动 shell 无注入）→ 使用点默认 **120_000ms**（ttlSource=default）；closepage 作业间隔=clamp(TTL/10, 2s, TTL/2)=**12_000ms**（三作业全落 TTL 窗内）。
 
-**装置**：`node apps/api/scripts/collab-soak.mjs --scenario single|closepage|group20 --json <file>`（T0.5；提取器 histPair 含全桶捕获——p50/p99 由窗口桶差计算，count/sum 只支撑 avg）。原始 JSON 三份为会话工作产物未入仓——下表数字即 A2 对照全集。
+**装置**：`node apps/api/scripts/collab-soak.mjs --scenario single|closepage|group20 --json <file>`（T0.5；提取器 histPair 含全桶捕获——p50/p99 由窗口桶差计算，count/sum 只支撑 avg）。**分位数口径：p50/p99=窗口桶差累计首达 p×n 的桶上界（与装置 bucketP99 同算法、无插值）**——表内分位值恒为桶界（如 1ms/5ms），非桶内真实时延；A2 对照必须同口径计算，换执行者/换插值口径分位数即漂移。原始 JSON 三份为会话工作产物未入仓——下表数字即 A2 对照全集。
+
+**复测形态**：A2 复测应同形态（本地 dev 单进程）跑，否则时延判据须重基线。
 
 | 场景 | 作业数 | docLoad{direct} | docLoad{ws/reconciler} | store{debounce/soft/disconnect/retry/drain} | store p50/p99 | withdoc 次数 | withdoc p50/p99 | withdocOpen 次数 | withdocOpen p50/p99 |
 |------|--------|-----------------|------------------------|---------------------------------------------|---------------|--------------|-----------------|------------------|---------------------|
@@ -287,7 +289,7 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 
 **形态注记（A2 对照读法）**：
 
-- **判据 A 锚（closepage docLoad{direct}）**：零连接下 withdoc=withdocOpen=direct 三者严格相等（11）——每次 withDoc 调用即一次 open=一次 PG 直连装载（调用点级装载，非作业级驻留）；withdoc p50=5ms 即 PG 装载延迟量级。A2 后同场景应收敛：装载次数骤降（常驻命中）+ withdoc/withdocOpen p99 降至内存量级。closepage 末端 docs gauge=0（零连接卸载生效；①③末端=1 常驻）。
-- **常驻对照（①③）**：WS 连接下 docLoad 全 0（装载发生在窗前播种，不入观测窗）、withdocOpen avg 0.02~0.2ms（常驻 open 不付装载）；group20 withdoc 62≈3/节点+2 固定、store debounce 60=3/节点（与①单节点 +3 同构——store 计数随节点数线性、不随作业数）。
+- **判据 A 锚（closepage docLoad{direct}）**：零连接下 withdoc=withdocOpen=direct 三者严格相等（11）——每次 withDoc 调用即一次 open=一次 PG 直连装载（调用点级装载，非作业级驻留）；PG 装载延迟量级以 withdocOpen（装载段）为准——p50=1ms、p99=5ms；withdoc 是全路径（open 后含 transact/store 段），其 p50=5ms 为全路径量级，非纯装载段。A2 后同场景应收敛：装载次数骤降（常驻命中）+ withdoc/withdocOpen p99 降至内存量级。closepage 末端 docs gauge=0（零连接卸载生效；①③末端=1 常驻）。
+- **常驻对照（①③）**：WS 连接下 docLoad 全 0（装载发生在窗前播种，不入观测窗）、withdocOpen p50/p99=1ms/1ms（表内①③列同值——全落最低桶界，常驻 open 不付装载）；group20 withdoc 62≈3/节点+2 固定、store debounce 60=3/节点（与①单节点 +3 同构——store 计数随节点数线性、不随作业数）。
 - store 五 trigger 中 soft/disconnect/retry/drain 三场景全 0（基线窗口内零非常规 store）；store p99≤5ms 为本地 dev 单进程小 doc 量级基线，非服务器容量数（容量三数归 §7）。
 
