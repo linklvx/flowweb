@@ -91,6 +91,33 @@ describe('ExecutionProcessor', () => {
     expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, '42', undefined);
   });
 
+  it('Y0b-5 T13 微修：完成/失败日志行与 start 行同 JSON 形态携 traceId（跨 Redis trace 全程贯穿——终态行断链即不可关联）', async () => {
+    const trace = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const logSpy = vi.spyOn((processor as any).logger, 'log');
+    const errSpy = vi.spyOn((processor as any).logger, 'error');
+
+    const job = {
+      id: 'job-t1',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', traceId: trace },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+    await processor.process(job);
+    expect(JSON.parse(logSpy.mock.calls.at(-1)![0] as string)).toMatchObject({
+      event: 'execution_job_done', traceId: trace, jobId: 'job-t1',
+    });
+
+    execService.execute.mockRejectedValue(new Error('boom'));
+    const job2 = {
+      id: 'job-t2',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', traceId: trace },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+    await expect(processor.process(job2)).rejects.toThrow('boom');
+    expect(JSON.parse(errSpy.mock.calls.at(-1)![0] as string)).toMatchObject({
+      event: 'execution_job_failed', traceId: trace, jobId: 'job-t2', message: 'boom',
+    });
+  });
+
   it('should throw error on failure and trigger retry', async () => {
     execService.execute.mockRejectedValue(new Error('AI service down'));
 

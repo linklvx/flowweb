@@ -39,12 +39,13 @@ export class ExecutionProcessor extends WorkerHost {
       // Y0b-5 T13：traceId 透传（job.data 显式携带——非 fallback jobId：jobId 是 claim 业务 CAS 键，两键域独立）
       const result = await this.executionService.execute(projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id, traceId ?? undefined);
       await job.updateProgress(100);
-      this.logger.log(`任务 ${job.id} 完成`);
+      // Y0b-5 T13 微修：终态行与 start 行同 JSON 形态携 traceId——跨 Redis trace 全程贯穿（终态行断链即不可关联）
+      this.logger.log(JSON.stringify({ event: 'execution_job_done', traceId: traceId ?? null, jobId: job.id, projectId }));
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const stack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`任务 ${job.id} 失败: ${message}`, stack);
+      this.logger.error(JSON.stringify({ event: 'execution_job_failed', traceId: traceId ?? null, jobId: job.id, projectId, message, stack }));
       throw error;
     }
   }

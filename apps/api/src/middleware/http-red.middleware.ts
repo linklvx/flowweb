@@ -31,16 +31,18 @@ export function httpRedMiddleware(req: Request, res: Response, next: NextFunctio
   httpRequestsInFlight.inc();
   // finish（正常完成）与 close（客户端 abort）双事件去重——inc/dec 严格配对（双 dec 即负值 gauge）
   let done = false;
-  const record = () => {
+  const record = (status: number) => {
     if (done) return;
     done = true;
     httpRequestsInFlight.dec();
     httpRequestDurationSeconds.observe(
-      { method: req.method, route: normalizeRoute(req.path), status: String(res.statusCode) },
+      { method: req.method, route: normalizeRoute(req.path), status: String(status) },
       (performance.now() - start) / 1000,
     );
   };
-  res.on('finish', record);
-  res.on('close', record);
+  res.on('finish', () => record(res.statusCode));
+  // close-only（finish 未先发）＝客户端 abort——statusCode 停留默认 200 计为成功即失真，记 499（nginx 惯例）；
+  // 正常路径 finish 先记后 close 被 done 短路——499 不生效。
+  res.on('close', () => record(499));
   next();
 }

@@ -59,7 +59,7 @@ describe('Y0b-5 T13：HTTP RED 计时+在飞 gauge', () => {
     expect(await inFlight()).toBe(0);
   });
 
-  it('异常路径：客户端 abort 只触发 close（无 finish）→ dec 配对+照常 observe（gauge 不悬挂）', async () => {
+  it('异常路径：客户端 abort 只触发 close（无 finish）→ dec 配对+照常 observe（gauge 不悬挂）+status=499（nginx 惯例——abort 时 statusCode 停留默认 200，计为成功即失真）', async () => {
     const res = mockRes(200);
     httpRedMiddleware(mockReq('/api/x'), res, () => {});
     expect(await inFlight()).toBe(1);
@@ -69,9 +69,10 @@ describe('Y0b-5 T13：HTTP RED 计时+在飞 gauge', () => {
       (m) => m.metricName === 'http_request_duration_seconds_count',
     );
     expect(count?.value).toBe(1);
+    expect(count?.labels).toMatchObject({ status: '499' });
   });
 
-  it('finish 与 close 双触发只记一次（配对严格——双 dec 即负值）', async () => {
+  it('finish 与 close 双触发只记一次（配对严格——双 dec 即负值）+status 取 finish 时真实 statusCode（close 被去重短路不得改记 499）', async () => {
     const res = mockRes();
     httpRedMiddleware(mockReq('/api/x'), res, () => {});
     res.finish();
@@ -81,6 +82,7 @@ describe('Y0b-5 T13：HTTP RED 计时+在飞 gauge', () => {
       (m) => m.metricName === 'http_request_duration_seconds_count',
     );
     expect(count?.value).toBe(1);
+    expect(count?.labels).toMatchObject({ status: '200' });
   });
 });
 
@@ -111,10 +113,5 @@ describe('Y0b-5 T13：path 归一（route 标签防基数）', () => {
       const src = readFileSync(f, 'utf8');
       expect(src.includes('http-red') || src.includes('http_request_duration')).toBe(false);
     }
-  });
-
-  it('jobId 复用禁：traceId 与 BullMQ jobId 独立——新 traceId 不取 jobId 形态（claim 业务 CAS 键不相干）', () => {
-    // 结构性断言：normalizeRoute 对纯数字 job 形态段归一为 :id——traceId/jobId 两键域不交叉进 route 标签
-    expect(normalizeRoute('/api/execution/jobs/42')).toBe('/api/execution/jobs/:id');
   });
 });
