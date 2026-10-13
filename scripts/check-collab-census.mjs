@@ -191,6 +191,105 @@ export function extractDiagCalls(src) {
 
 const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
 
+/** ── Y0c T2 组⑭⑮ helpers ──
+ *  ⑮闭包边解析：仅认 ./ ../ 起头的相对 spec（apps/api 生产 import 实况=相对路径+包名两态——
+ *  tsconfig 无 paths alias、@flowweb/shared 经 grep 实证零 yjs/hocuspocus/applyUpdate 依赖，
+ *  包名即闭包边界停）；候选 .ts/.tsx/index.ts/index.tsx。 */
+export function resolveRelativeImport(fromFile, spec) {
+  if (!spec.startsWith('.')) return null;
+  const base = path.resolve(path.dirname(fromFile), spec);
+  for (const cand of [base, `${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]) {
+    try { if (fs.statSync(cand).isFile()) return cand; } catch { /* 试下一候选 */ }
+  }
+  return null;
+}
+
+/** import 边行级提取：raw 行抽 spec，stripped 同行须仍有 from/require/import 骨架——
+ *  注释/字符串里的伪 import 被剥离器结构性消失（组⑦特例的行级反用）。多行 import 的尾行
+ *  `} from './x';` 原样命中；export-from 同算边（barrel 再导出拉文件入闭包）。 */
+const IMPORT_EDGE_RE = /\bfrom\s*['"]([^'"]+)['"]|\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/;
+export function extractImportSpec(rawLine, strippedLine) {
+  if (!/\b(?:from|require|import)\b/.test(strippedLine)) return null;
+  const m = IMPORT_EDGE_RE.exec(rawLine);
+  return m ? (m[1] ?? m[2] ?? m[3]) : null;
+}
+
+/** ⑮闭包收集：roots 出发沿相对 import 边传递收集（含 export-from）；resolve 命中立闭包外
+ *  （包边界）不追踪；环安全（seen 去重）。files=Map<file,{raw,stripped}>（main 的 byFile）。 */
+export function collectImportClosure(roots, files, resolve = resolveRelativeImport) {
+  const seen = new Set();
+  const queue = [...roots];
+  while (queue.length) {
+    const f = queue.pop();
+    if (seen.has(f) || !files.has(f)) continue;
+    seen.add(f);
+    const { raw, stripped } = files.get(f);
+    const rawLines = raw.split('\n');
+    const stLines = stripped.split('\n');
+    for (let i = 0; i < rawLines.length; i += 1) {
+      const spec = extractImportSpec(rawLines[i], stLines[i] ?? '');
+      if (!spec) continue;
+      const target = resolve(f, spec);
+      if (target && files.has(target) && !seen.has(target)) queue.push(target);
+    }
+  }
+  return seen;
+}
+
+/** ⑮禁令符号判定（Z43 符号级）：openDirectConnection（方法引用）/applyUpdate（含 V2 变体——
+ *  同族写通道）。yjs 纯函数（mergeUpdates/encodeStateAsUpdate/decodeStateVector）天然不在
+ *  禁令词表=放行（另行白名单登记）。 */
+export function classifyWorkerBannedSymbol(line) {
+  if (/\bopenDirectConnection\b/.test(line)) return 'openDirectConnection';
+  if (/\bapplyUpdate(?:V2)?\b/.test(line)) return 'applyUpdate';
+  return null;
+}
+
+/** ⑮@hocuspocus/server import 判定：raw 行含包名字面量 ∧ stripped 同行仍有 import 骨架
+ *  （剥串器保引号、内容置换为空格——骨架须配 `['"][^'"]*['"]` 非相邻空引号；注释提及/
+ *  字符串值形态放行——同 extractImportSpec 反伪机制）。 */
+export function isHocuspocusServerImport(rawLine, strippedLine) {
+  if (!/['"]@hocuspocus\/server['"]/.test(rawLine)) return false;
+  return /\b(?:from|require|import)\s*[(\s]*['"][^'"]*['"]/.test(strippedLine);
+}
+
+/** ⑮登记红对账（元纪律⑥预登记红机制）：hits 与 registered 须精确双向相等——
+ *  命中未登记=unregistered（FAIL）/登记命中缺失=stale（转绿达成→须显式移除登记，防陈旧
+ *  登记吞回归）/同键计数不等=drift（FAIL）。 */
+export function reconcileRegisteredRed(hits, registered) {
+  const unregistered = [];
+  const drift = [];
+  const stale = [];
+  for (const [f, syms] of Object.entries(hits)) {
+    for (const [sym, n] of Object.entries(syms)) {
+      const reg = registered[f]?.[sym];
+      if (!reg) unregistered.push({ file: f, symbol: sym, n });
+      else if (reg.n !== n) drift.push({ file: f, symbol: sym, want: reg.n, n });
+    }
+  }
+  for (const [f, syms] of Object.entries(registered)) {
+    for (const [sym, reg] of Object.entries(syms)) {
+      if (!hits[f]?.[sym]) stale.push({ file: f, symbol: sym, until: reg.until });
+    }
+  }
+  return { unregistered, drift, stale };
+}
+
+/** ⑭withDoc 登记对账：counts（file→命中数）对 WITHDOC_REGISTRY（file→{三态→数}）——
+ *  未登记文件=红（防新增调用点漏登记）/分类合计≠命中数=漂移（红）/登记文件命中消失=红
+ *  （清单需同步——④同则）。 */
+export function reconcileWithDocRegistry(counts, registry) {
+  const details = [];
+  for (const [f, n] of Object.entries(counts)) {
+    const reg = registry[f];
+    if (!reg) { details.push(`未登记 withDoc 调用点 ${f} ×${n}`); continue; }
+    const want = Object.values(reg).reduce((a, b) => a + b, 0);
+    if (want !== n) details.push(`登记计数漂移 ${f}: 登记合计 ${want} 实际 ${n}`);
+  }
+  for (const f of Object.keys(registry)) if (!counts[f]) details.push(`登记点消失 ${f}（B4 v2 清单需同步）`);
+  return details;
+}
+
 /** ④encodeStateAsUpdate 生产白名单（现行清单——2026-10-11 实况逐点列名+Y0b-5 T6 增补；新增编码点必须同批补注）：
  *  gate-canvas-state ×1=A0-0 门禁画布种子构造（种子编码非测量）；
  *  canvas-doc-update.repository ×2=compact 快照重编码+tombstone delete set 余量测量（Y0b-5 T10——
@@ -407,6 +506,121 @@ if (isMain()) {
     report('⑳', 'setDefaultLabels 恰 1 调用点且位于 main.ts 引导序列（Z138 A——模块级调用禁入）', hits.length === 1 && nonBoot.length === 0,
       [...nonBoot.map((h) => `引导层外命中 ${h.file}:${h.line} ${h.text}`),
        ...(hits.length !== 1 ? [`调用点 ${hits.length} 处（期望恰 1——main.ts 引导序列）`] : [])]);
+  }
+
+  // ⑭withDoc 全枚举（Y0c T2，B4 v2 形态）：生产代码每个 .withDoc( 调用点都必须在登记清单
+  //  （file+三态分类合计）；清单外新调用点即红（防漏登记），登记点消失即红（清单需同步——④同则）。
+  //  三态=read-only（只读 doc）/write-via-writer（经门面写 API）/待收编（直写 doc——A1 T12 收编后清零）。
+  //  逐点标注（B4 v2 清单；行号=2026-10-14 快照 advisory，按语义定位）：
+  //   collab-document.service.ts  :104 readCanvas=read-only / :113 readServerSV=read-only
+  //                               :170 writeNodeData=write-via-writer / :199 writeExecStatus=write-via-writer（门面写 API 本体）
+  //   collab-shrink.service.ts    :114 shrinkSync(deleteNodesInDoc)=待收编 / :145 exportFresh 源读=read-only / :154 fillDoc=待收编
+  //   intent-reconcile.service.ts :493 sweepOrphanExec 清孤儿=待收编
+  const WITHDOC_REGISTRY = {
+    'apps/api/src/modules/collab/collab-document.service.ts': { 'read-only': 2, 'write-via-writer': 2 },
+    'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, '待收编': 2 },
+    'apps/api/src/modules/execution/intent-reconcile.service.ts': { '待收编': 1 },
+  };
+  {
+    const counts = {};
+    for (const p of files) {
+      const n = (byFile.get(p).stripped.match(/\.withDoc\s*\(/g) ?? []).length;
+      if (n) counts[relOf(p)] = n;
+    }
+    const details = reconcileWithDocRegistry(counts, WITHDOC_REGISTRY);
+    const nPending = Object.values(WITHDOC_REGISTRY).reduce((a, r) => a + (r['待收编'] ?? 0), 0);
+    const nTotal = Object.values(counts).reduce((a, b) => a + b, 0);
+    report('⑭', `withDoc 全枚举登记（B4 v2 三态——现行 ${nTotal} 点/${Object.keys(counts).length} 文件，待收编 ${nPending} 点→A1 T12 清零）`, details.length === 0, details);
+  }
+
+  // ⑮worker 符号级禁令先红（Y0c T2，Z43；片 D 冻结契约 spec:549）：17 个 @Processor 根文件出发
+  //  沿相对 import 边（含 export-from）的传递闭包内，禁 openDirectConnection / @hocuspocus/server
+  //  import / applyUpdate（含 V2）三符号；yjs 纯函数（mergeUpdates/encodeStateAsUpdate/
+  //  decodeStateVector——repository compact 等离线用途合法）白名单登记防 worker 侧长出 doc 编码机器。
+  //  预登记红机制（元纪律⑥）：现状 processor 闭包命中禁令=登记红（PASS 但逐项可见+转绿条件），
+  //  未登记命中/登记红项消失/计数漂移=FAIL；片 D 完成时移除登记断言必须绿。
+  //  后续组号预登记（plan T2 v4=Z147②——只登记号与用途，落地时实现）：
+  //   ⑯ 裸 Y.Doc 清零（Y0c T3——createCanvasDoc() 工厂收编 B9 7 处，gate-canvas-state 豁免 Z57）
+  //   ⑰ worker 模块图闭包（Y0.5 T25——worker.module 传递 imports 闭包 ∩ {*HttpModule,*Controller} ≡ ∅）
+  //   ⑱ CanvasDocUpdate INSERT 唯一写点（Y0.5 T27——repo 单写点断言）
+  //   ⑲ 测试 façade（T39b）
+  const WORKER_BAN_REGISTERED_RED = {
+    // 2026-10-14 实况登记（census 空登记跑出真红后回填——元纪律⑥）。转绿条件一律=片 D：
+    // worker 拆分后 processor 链改道 HttpCollabWritePort，collab 家族（gateway/doc service/
+    // repository/frame-type）整体离开 worker 闭包——届时逐项移除登记，断言必须绿。
+    'apps/api/src/modules/collab/collab-document.service.ts': {
+      openDirectConnection: { n: 1, until: '片D' },      // :68 withDoc 直连入口（三入口③）
+      applyUpdate: { n: 2, until: '片D' },               // :123,:124 decodeSnapshot 快照重放（scratch doc）
+    },
+    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': {
+      applyUpdate: { n: 2, until: '片D' },               // :255,:256 readSnapshotOnly 行集重放（temp doc）
+    },
+    'apps/api/src/modules/collab/collab.gateway.ts': {
+      'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）
+      applyUpdate: { n: 2, until: '片D' },               // :1008,:1028 loadDocument 重放/装载
+    },
+    'apps/api/src/modules/collab/collab-frame-type.ts': {
+      'hocuspocus-server-import': { n: 1, until: '片D' },   // :6 IncomingMessage/MessageType（经 gateway 引入）
+    },
+  };
+  // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
+  const WORKER_PUREFN_WHITELIST = {
+    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源）
+    'apps/api/src/modules/collab/collab.gateway.ts': { mergeUpdates: 7, decodeStateVector: 2, encodeStateAsUpdate: 3 },
+    'apps/api/src/modules/collab/collab-spool.service.ts': { mergeUpdates: 1 },                  // spool 批合并
+  };
+  {
+    const roots = files.filter((p) => byFile.get(p).stripped.includes('@Processor('));
+    const closure = collectImportClosure(roots, byFile);
+    const hits = {};
+    const pureCounts = {};
+    const pureSyms = ['mergeUpdates', 'encodeStateAsUpdate', 'decodeStateVector'];
+    for (const p of closure) {
+      const { raw, stripped } = byFile.get(p);
+      const fRel = relOf(p);
+      const rawLines = raw.split('\n');
+      const stLines = stripped.split('\n');
+      for (let i = 0; i < rawLines.length; i += 1) {
+        if (isHocuspocusServerImport(rawLines[i], stLines[i] ?? '')) {
+          hits[fRel] ??= {};
+          hits[fRel]['hocuspocus-server-import'] = (hits[fRel]['hocuspocus-server-import'] ?? 0) + 1;
+        }
+        const sym = classifyWorkerBannedSymbol(stLines[i] ?? '');
+        if (sym) {
+          hits[fRel] ??= {};
+          hits[fRel][sym] = (hits[fRel][sym] ?? 0) + 1;
+        }
+      }
+      for (const ps of pureSyms) {
+        const n = (stripped.match(new RegExp(`\\b${ps}\\b`, 'g')) ?? []).length;
+        if (n) (pureCounts[fRel] ??= {})[ps] = n;
+      }
+    }
+    const { unregistered, drift, stale } = reconcileRegisteredRed(hits, WORKER_BAN_REGISTERED_RED);
+    const pureDetails = [];
+    for (const [f, syms] of Object.entries(pureCounts)) {
+      const want = WORKER_PUREFN_WHITELIST[f];
+      if (!want) {
+        pureDetails.push(`纯函数白名单外命中 ${f} ×${Object.values(syms).reduce((a, b) => a + b, 0)}`);
+      } else {
+        for (const [ps, n] of Object.entries(syms)) {
+          if (want[ps] === undefined) pureDetails.push(`纯函数白名单外命中 ${f} ${ps} ×${n}`);
+          else if (want[ps] !== n) pureDetails.push(`纯函数白名单计数漂移 ${f} ${ps}: 期望 ${want[ps]} 实际 ${n}`);
+        }
+      }
+    }
+    for (const [f, syms] of Object.entries(WORKER_PUREFN_WHITELIST)) {
+      for (const ps of Object.keys(syms)) if (!pureCounts[f]?.[ps]) pureDetails.push(`纯函数白名单点消失 ${f} ${ps}（清单需同步）`);
+    }
+    const nReg = Object.values(WORKER_BAN_REGISTERED_RED).reduce((a, syms) => a + Object.keys(syms).length, 0);
+    const pass = unregistered.length === 0 && drift.length === 0 && stale.length === 0 && pureDetails.length === 0;
+    report('⑮', `worker 闭包符号级禁令（Z43——闭包 ${closure.size} 文件/${roots.length} processor 根；登记红 ${nReg} 项待片 D 清零）`, pass,
+      [...unregistered.map((h) => `闭包内未登记禁令命中 ${h.file} ${h.symbol} ×${h.n}`),
+       ...drift.map((h) => `登记红计数漂移 ${h.file} ${h.symbol}: 登记 ${h.want} 实际 ${h.n}`),
+       ...stale.map((h) => `登记红项已消失——转绿达成请移除登记（until=${h.until}）${h.file} ${h.symbol}`),
+       ...pureDetails,
+       ...Object.entries(WORKER_BAN_REGISTERED_RED).flatMap(([f, syms]) =>
+         Object.entries(syms).map(([sym, reg]) => `登记红（until=${reg.until}）${f} ${sym} ×${reg.n}`))]);
   }
 
   const failed = results.filter((r) => !r.pass);

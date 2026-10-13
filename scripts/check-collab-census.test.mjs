@@ -2,7 +2,16 @@
 // 只测纯 helper（剥离器/分组判定）；端到端走 verify 链的 `node scripts/check-collab-census.mjs`。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stripCommentsAndStrings, classifyCloseLiteral, classifyConsumeCall, extractDiagCalls } from './check-collab-census.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  stripCommentsAndStrings, classifyCloseLiteral, classifyConsumeCall, extractDiagCalls,
+  resolveRelativeImport, extractImportSpec, collectImportClosure,
+  classifyWorkerBannedSymbol, isHocuspocusServerImport,
+  reconcileRegisteredRed, reconcileWithDocRegistry,
+} from './check-collab-census.mjs';
 
 test('stripCommentsAndStrings：行注释/块注释/字符串内容剥离、代码保留、换行保位', () => {
   const src = [
@@ -84,4 +93,88 @@ test('extractDiagCalls：ring-only 通道/定义行/注释行排除/非法形态
   assert.deepEqual(calls[0].keys, ['reason', 'used', 'quota']);
   assert.equal(calls[1].problem, 'type 非字符串字面量（锚不可静态校验）');
   assert.ok(calls[2].problem.startsWith('detail 展开禁入'));
+});
+
+// ── Y0c T2（组⑭⑮）：withDoc 全枚举 + worker 符号级禁令闭包断言 helpers ──
+
+test('resolveRelativeImport：./ ../ 解析到仓内实文件；index.ts 候选；包名与不存在目标=null', () => {
+  const procFile = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../apps/api/src/modules/execution/execution.processor.ts');
+  assert.equal(resolveRelativeImport(procFile, './execution.service'), path.resolve(path.dirname(procFile), 'execution.service.ts'));
+  assert.equal(resolveRelativeImport(procFile, '../collab/collab-document.service'), path.resolve(path.dirname(procFile), '../collab/collab-document.service.ts'));
+  assert.equal(resolveRelativeImport(procFile, 'yjs'), null);                       // 包名=闭包边界
+  assert.equal(resolveRelativeImport(procFile, '@flowweb/shared'), null);
+  assert.equal(resolveRelativeImport(procFile, './no-such-module'), null);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'census-idx-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'barrel'));
+    fs.writeFileSync(path.join(dir, 'barrel', 'index.ts'), 'export {};', 'utf8');
+    assert.equal(resolveRelativeImport(path.join(dir, 'a.ts'), './barrel'), path.join(dir, 'barrel', 'index.ts'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('extractImportSpec：真 import/export-from 提取；注释行/字符串伪 import（stripped 同行无骨架）放行', () => {
+  const pair = (l) => [l, stripCommentsAndStrings(l)];
+  assert.equal(extractImportSpec(...pair(`import { ExecutionService } from './execution.service';`)), './execution.service');
+  assert.equal(extractImportSpec(...pair(`} from '../collab/collab-document.service';`)), '../collab/collab-document.service');   // 多行 import 尾行
+  assert.equal(extractImportSpec(...pair(`export { readFrameType } from './frame-type';`)), './frame-type');                      // re-export 边
+  assert.equal(extractImportSpec(...pair(`const m = require('./x');`)), './x');
+  assert.equal(extractImportSpec(...pair(`// import { X } from './ghost';`)), null);                                              // 注释伪 import
+  assert.equal(extractImportSpec(...pair(`const s = "from './ghost'";`)), null);                                                  // 字符串伪 import
+  assert.equal(extractImportSpec(...pair(`const x = 1;`)), null);
+});
+
+test('collectImportClosure：传递闭包含环安全、非相对边界（resolve=null）不追踪', () => {
+  const files = new Map([
+    ['a', { raw: "import { b } from './b';\nimport x from 'pkg';", stripped: "import { b } from '';\nimport x from '';" }],
+    ['b', { raw: "export { c } from './c';", stripped: "export { c } from '';" }],
+    ['c', { raw: "import { a } from './a';", stripped: "import { a } from '';" }],
+    ['outside', { raw: '', stripped: '' }],
+  ]);
+  const resolve = (from, spec) => (spec === './b' ? 'b' : spec === './c' ? 'c' : spec === './a' ? 'a' : null);
+  assert.deepEqual([...collectImportClosure(['a'], files, resolve)].sort(), ['a', 'b', 'c']);
+});
+
+test('classifyWorkerBannedSymbol：openDirectConnection/applyUpdate(含 V2) 命中；纯函数与派生词放行', () => {
+  assert.equal(classifyWorkerBannedSymbol('const connection = await hocuspocus.openDirectConnection(name)'), 'openDirectConnection');
+  assert.equal(classifyWorkerBannedSymbol('Y.applyUpdate(document, u);'), 'applyUpdate');
+  assert.equal(classifyWorkerBannedSymbol('Y.applyUpdateV2(document, u);'), 'applyUpdate');
+  assert.equal(classifyWorkerBannedSymbol('Y.decodeStateVector(payload)'), null);      // 纯函数允许
+  assert.equal(classifyWorkerBannedSymbol('Y.mergeUpdates(list)'), null);              // 纯函数允许
+  assert.equal(classifyWorkerBannedSymbol('Y.encodeStateAsUpdate(doc)'), null);        // 纯函数允许
+  assert.equal(classifyWorkerBannedSymbol('this.applyUpdates(docs)'), null);           // 派生词
+  assert.equal(classifyWorkerBannedSymbol('myopenDirectConnection()'), null);          // 前缀粘连
+});
+
+test("isHocuspocusServerImport：真 import/require 命中；注释与字符串伪形态放行", () => {
+  const pair = (l) => [l, stripCommentsAndStrings(l)];
+  assert.ok(isHocuspocusServerImport(...pair(`import { Server, OutgoingMessage } from '@hocuspocus/server';`)));
+  assert.ok(isHocuspocusServerImport(...pair(`import type { onLoadDocumentPayload } from '@hocuspocus/server';`)));
+  assert.ok(isHocuspocusServerImport(...pair(`const m = require('@hocuspocus/server');`)));
+  assert.equal(isHocuspocusServerImport(...pair(`// 禁 @hocuspocus/server import`)), false);       // 注释提及
+  assert.equal(isHocuspocusServerImport(...pair(`const tag = '@hocuspocus/server';`)), false);     // 字符串值
+  assert.equal(isHocuspocusServerImport(...pair(`import { Y } from 'yjs';`)), false);
+});
+
+test('reconcileRegisteredRed：精确双向对账——未登记/计数漂移/登记红项已消失三分', () => {
+  const hits = { 'a.ts': { openDirectConnection: 1 }, 'b.ts': { applyUpdate: 2 } };
+  const registered = { 'b.ts': { applyUpdate: { n: 3, until: '片D' } }, 'c.ts': { openDirectConnection: { n: 1, until: '片D' } } };
+  const r = reconcileRegisteredRed(hits, registered);
+  assert.deepEqual(r.unregistered, [{ file: 'a.ts', symbol: 'openDirectConnection', n: 1 }]);
+  assert.deepEqual(r.drift, [{ file: 'b.ts', symbol: 'applyUpdate', want: 3, n: 2 }]);
+  assert.deepEqual(r.stale, [{ file: 'c.ts', symbol: 'openDirectConnection', until: '片D' }]);
+  const ok = reconcileRegisteredRed({ 'b.ts': { applyUpdate: 3 }, 'c.ts': { openDirectConnection: 1 } }, registered);
+  assert.deepEqual(ok, { unregistered: [], drift: [], stale: [] });   // 精确双向相等=全绿
+});
+
+test('reconcileWithDocRegistry：未登记调用点/分类合计漂移/登记点消失三分；合计口径', () => {
+  const counts = { 'a.ts': 2, 'b.ts': 1 };
+  const registry = { 'a.ts': { 'read-only': 1, 'write-via-writer': 1 }, 'c.ts': { '待收编': 1 } };
+  assert.deepEqual(reconcileWithDocRegistry(counts, registry), [
+    '未登记 withDoc 调用点 b.ts ×1',
+    '登记点消失 c.ts（B4 v2 清单需同步）',
+  ]);
+  const drifted = reconcileWithDocRegistry({ 'a.ts': 3 }, registry);
+  assert.ok(drifted.some((d) => d.includes('登记计数漂移 a.ts: 登记合计 2 实际 3')));
 });
