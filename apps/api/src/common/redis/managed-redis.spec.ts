@@ -68,11 +68,13 @@ describe('批3-2 B6 模块工厂源码收口', () => {
     const moduleSrc = readFileSync(resolve(APP_ROOT, 'auth/auth.module.ts'), 'utf8');
     expect(moduleSrc).toContain('authRedis.disconnect()');
   });
+  // 超时窗 15s：auth.ts 顶层 betterAuth+ioredis 初始化在满载（verify 并行全量）下可超 vitest 默认 5s——
+  // 单跑恒绿、两轮满载均 5004ms 超时实证（Y0b-5 部署 preflight 拦截）；断言语义零变化。
   it('Y0a-4/E46：authPrisma 纳管——AuthModule.onApplicationShutdown 断开（行为断言非源码匹配）', async () => {
     const { authPrisma } = await import('../../auth/auth');
     const { AuthModule } = await import('../../auth/auth.module');
     const disconnect = vi.spyOn(authPrisma, '$disconnect').mockResolvedValue();
     await new AuthModule().onApplicationShutdown();
     expect(disconnect).toHaveBeenCalledTimes(1);   // 现状：无此调用=红
-  });
+  }, 15_000);
 });
