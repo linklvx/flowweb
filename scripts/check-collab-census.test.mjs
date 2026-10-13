@@ -11,7 +11,7 @@ import {
   resolveRelativeImport, extractImportSpec, collectImportClosure,
   classifyWorkerBannedSymbol, isHocuspocusServerImport,
   reconcileRegisteredRed, reconcileWithDocRegistry,
-  extractProcessEnvKey, computeBraceDepth, parseDotEnvKeys, ecosystemEnvKeys,
+  extractProcessEnvKeys, countDynamicEnvAccess, computeBraceDepth, parseDotEnvKeys, ecosystemEnvKeys,
 } from './check-collab-census.mjs';
 
 test('stripCommentsAndStrings：行注释/块注释/字符串内容剥离、代码保留、换行保位', () => {
@@ -182,13 +182,46 @@ test('reconcileWithDocRegistry：未登记调用点/分类合计漂移/登记点
 
 // ── Y0c T3（组㉑㉒）：env 两分（Z89）+ env 裸读两分（Z79）helpers ──
 
-test('extractProcessEnvKey：点号/方括号两形态键归一；整对象与无读行=null', () => {
-  assert.equal(extractProcessEnvKey('const port = Number(process.env.COLLAB_PORT) || 3001;'), 'COLLAB_PORT');
-  assert.equal(extractProcessEnvKey("const dir = process.env['COLLAB_SPOOL_DIR'] ?? '';"), 'COLLAB_SPOOL_DIR');
-  assert.equal(extractProcessEnvKey('if (process.env.NODE_ENV === "production") {'), 'NODE_ENV');
-  assert.equal(extractProcessEnvKey('const result = envSchema.safeParse(process.env);'), null);   // 整对象（env 单源入口）
-  assert.equal(extractProcessEnvKey('const env = process.env;'), null);                            // 整对象赋值
-  assert.equal(extractProcessEnvKey('console.log(env.PORT);'), null);                              // 无 process.env 直读
+test('extractProcessEnvKeys：点号/方括号两形态键归一（单键单元素）；整对象与无读行=空数组', () => {
+  assert.deepEqual(extractProcessEnvKeys('const port = Number(process.env.COLLAB_PORT) || 3001;'), ['COLLAB_PORT']);
+  assert.deepEqual(extractProcessEnvKeys("const dir = process.env['COLLAB_SPOOL_DIR'] ?? '';"), ['COLLAB_SPOOL_DIR']);
+  assert.deepEqual(extractProcessEnvKeys('if (process.env.NODE_ENV === "production") {'), ['NODE_ENV']);
+  assert.deepEqual(extractProcessEnvKeys('const result = envSchema.safeParse(process.env);'), []);   // 整对象（env 单源入口）
+  assert.deepEqual(extractProcessEnvKeys('const env = process.env;'), []);                            // 整对象赋值
+  assert.deepEqual(extractProcessEnvKeys('console.log(env.PORT);'), []);                              // 无 process.env 直读
+});
+
+// I-1a（T3 评审）：line.match 无 g 标志——同行第二读点不可见漏报。matchAll 后返回全部出现
+// （重复键多元素=按出现次数计数）。三实况=评审实测漏报点。
+test('extractProcessEnvKeys：同行多读点全提取（I-1a——?:回退/模板插值/同键重复）', () => {
+  assert.deepEqual(
+    extractProcessEnvKeys('const token = process.env.COLLAB_ADMIN_TOKEN ?? process.env.PROMETHEUS_TOKEN;'),
+    ['COLLAB_ADMIN_TOKEN', 'PROMETHEUS_TOKEN'],   // collab-ready.controller.ts:31 实况
+  );
+  assert.deepEqual(
+    extractProcessEnvKeys(stripCommentsAndStrings(
+      'notifyUrl: process.env.WECHAT_PAY_NOTIFY_URL || `${process.env.CORS_ORIGIN}/api/recharge/notify/wechat`,',
+    )),
+    ['WECHAT_PAY_NOTIFY_URL', 'CORS_ORIGIN'],     // team-recharge.service.ts:84 实况（插值体剥离器透传）
+  );
+  assert.deepEqual(
+    extractProcessEnvKeys('const n = Number(process.env.X ?? process.env.X);'),
+    ['X', 'X'],                                    // 同键同行两读=两元素（出现次数口径）
+  );
+});
+
+// I-1b（T3 评审）：process.env[<非字面量>] 动态键形态——键静态不可知，不进键级对账（键级词表
+// 原理上无法命中），由本 helper 计数进 advisory 提示 T34 人工并入（读/写两态同报——main.ts
+// DB 配置预热 :51 写点实况）。输入须先经剥离器（注释/字符串内伪形态结构性排除）。
+test('countDynamicEnvAccess：动态方括号键访问点计数（读/写两态）；字面量/点号形态不计；伪形态经剥离器排除', () => {
+  assert.equal(countDynamicEnvAccess('const enabled = process.env[feature];'), 1);             // subscription-feature.guard.ts:18 实况
+  assert.equal(countDynamicEnvAccess("value: dbMap.get(key) ?? process.env[key] ?? '';"), 1);  // settings.service.ts:56/:74 实况
+  assert.equal(countDynamicEnvAccess('process.env[row.key] = row.value;'), 1);                 // main.ts:51 实况（动态键写点）
+  assert.equal(countDynamicEnvAccess('const a = process.env[x] + process.env[y];'), 2);        // 同行双动态读逐个计数
+  assert.equal(countDynamicEnvAccess("const dir = process.env['COLLAB_SPOOL_DIR'];"), 0);      // 字面量方括号=键级正常提取
+  assert.equal(countDynamicEnvAccess('const port = process.env.COLLAB_PORT;'), 0);             // 点号形态
+  assert.equal(countDynamicEnvAccess(stripCommentsAndStrings('// process.env[ghost] 注释提及')), 0);   // 注释伪形态
+  assert.equal(countDynamicEnvAccess(stripCommentsAndStrings("const s = 'process.env[ghost]';")), 0);  // 字符串伪形态
 });
 
 test('computeBraceDepth：{} 净深累计（模块级/方法体内分类近似输入）', () => {

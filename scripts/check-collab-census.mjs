@@ -277,12 +277,23 @@ export function reconcileRegisteredRed(hits, registered) {
 }
 
 /** ── Y0c T3 组㉑㉒ helpers ──
- *  ㉒process.env 直读键提取（stripped 行级）：process.env.KEY 与 process.env['KEY']/["KEY"]
- *  两形态归一键名；整对象形态（safeParse(process.env)/const env = process.env——env 单源
- *  config/env.ts 入口本体）不归键=词表外（Z79 裸读面指「按键裸读」，单源入口是判据本原）。 */
-export function extractProcessEnvKey(line) {
-  const m = line.match(/process\.env\.([A-Za-z_$][\w$]*)|process\.env\[\s*['"]([^'"]+)['"]\s*\]/);
-  return m ? (m[1] ?? m[2]) : null;
+ *  ㉒process.env 直读键提取（stripped 行级，matchAll 逐出现计数——同行多读点全可见，T3 评审
+ *  I-1a：line.match 无 g 标志曾漏报同行第二读点）：process.env.KEY 与 process.env['KEY']/
+ *  ["KEY"] 两形态归一键名，返回键名数组（出现序；重复键多元素=按出现次数计数）；整对象形态
+ *  （safeParse(process.env)/const env = process.env——env 单源 config/env.ts 入口本体）不归键
+ *  =词表外（Z79 裸读面指「按键裸读」，单源入口是判据本原）。
+ *  动态方括号键边界（T3 评审 I-1b）：process.env[<非字面量>]（process.env[feature]/
+ *  process.env[key]——键静态不可知）不进键级对账（键级词表原理上无法命中），由
+ *  countDynamicEnvAccess 计数进 advisory，提示 T34 处置面人工并入（读/写两态同报——
+ *  main.ts DB 配置预热 :51 为动态键写点实况）。 */
+const PROCESS_ENV_KEY_RE = /process\.env\.([A-Za-z_$][\w$]*)|process\.env\[\s*['"]([^'"]+)['"]\s*\]/g;
+export function extractProcessEnvKeys(line) {
+  return [...line.matchAll(PROCESS_ENV_KEY_RE)].map((m) => m[1] ?? m[2]);
+}
+
+const PROCESS_ENV_DYN_RE = /process\.env\[\s*[^'"\]]/g;
+export function countDynamicEnvAccess(line) {
+  return [...line.matchAll(PROCESS_ENV_DYN_RE)].length;
 }
 
 /** ㉒{} 净深累计（输入须先经剥离器——本 helper 不剥串）：行扫描前缀深度=0 ⇔ 模块顶层
@@ -737,17 +748,22 @@ if (isMain()) {
   }
 
   // ㉒env 裸读两分（Y0c T3，Z79/Z147①）：生产面 process.env 直读=键级白名单+登记红两分。
-  //  判定口径（静态可判近似）：剥离器后行级 extractProcessEnvKey（点号/方括号两形态）键级计数
-  //  精确相等（组④同形态）；模块级/方法内两分分类=computeBraceDepth 前缀深度近似（0=模块加载期
-  //  读=Z79 违规面；>0=类/方法体内=允许面候选）——分类是 advisory 标注非执法（执法=对账精确
-  //  相等）。已知边界：useValue/装饰器元数据形态（collab.module useFactory 族）模块加载期求值
-  //  但深度>0=标 method——T34 按 Z147① 清单核对不受误标影响（对账与分类正交）。
+  //  判定口径（静态可判近似）：剥离器后行级 extractProcessEnvKeys（点号/方括号两形态，matchAll
+  //  同行多读点逐出现计数——T3 评审 I-1a 勘正）键级计数精确相等（组④同形态）；模块级/方法内
+  //  两分分类=computeBraceDepth 前缀深度近似（0=模块加载期读=Z79 违规面；>0=类/方法体内=允许
+  //  面候选）——分类是 advisory 标注非执法（执法=对账精确相等）。已知边界：①useValue/装饰器
+  //  元数据形态（collab.module useFactory 族）模块加载期求值但深度>0=标 method——T34 按 Z147①
+  //  清单核对不受误标影响（对账与分类正交）；②process.env[<非字面量>] 动态键形态（键静态不可知
+  //  ——subscription-feature.guard/settings.service 读点+main.ts DB 预热写点实况 4 处）不进键级
+  //  对账=词表外，仅 advisory 提示 T34 处置面人工并入（T3 评审 I-1b）。
   //  白名单 4 键（spec :490 点名——gateway 构造 options 三键+COMPACT_INTERVAL_MS 族；逐点：
   //  COLLAB_PORT :472/COLLAB_TIMEOUT :477/COLLAB_BIND_ADDR :484+:2647 listen 日志同键读=配置
   //  透明度非决策读/COMPACT_INTERVAL_MS :34 模块级 const 历史豁免）；config/env.ts 的
   //  safeParse(process.env)=env 单源入口本体（词表外不命中）。其余直读全量登记红 until=T34
-  //  （E 片全仓枚举重划白名单+处置违规名单——2026-10-14 实况 28 文件/85 键项与 Z147①「28 文件」
-  //  吻合；分类统计见 details advisory 标注）。
+  //  （E 片全仓枚举重划白名单+处置违规名单——2026-10-14 实况 28 文件；88 键项=T3 评审 I-1a
+  //  matchAll 勘正后口径：原 85+同行第二读点 3〔PROMETHEUS_TOKEN/CORS_ORIGIN×2〕，另 4 项
+  //  n 值按同行双读实况勘正——EXEC_MAX_NODES/EXEC_SYNC_HARD_CAP n2→3、WECHAT_PAY_APP_ID/
+  //  WECHAT_PAY_MCH_ID n1→2；分类统计见 details advisory 标注，登记红逐项展开见 details 尾段）。
   const ENV_READ_WHITELIST = {
     'apps/api/src/modules/collab/collab.gateway.ts': {
       COLLAB_PORT: 1,
@@ -758,7 +774,9 @@ if (isMain()) {
   };
   const ENV_READ_REGISTERED_RED = {
     // 2026-10-14 实况登记（census 空登记跑出真红 85 键项/28 文件后回填——元纪律⑥；与 Z147①
-    // 「28 生产文件」吻合）。转绿条件=T34（E 片）：全仓枚举重划白名单+模块级违规名单处置改道
+    // 「28 生产文件」吻合；T3 评审 I-1a matchAll 勘正：+3 同行第二读点键项=88 键项/28 文件，
+    // 另 4 项 n 值按同行双读实况勘正——见各项行尾注）。转绿条件=T34（E 片）：全仓枚举重划
+    // 白名单+模块级违规名单处置改道
     // env 单源——届时逐项转白或清零，登记移除后断言必须绿。行尾〔M〕=模块加载期读（Z79 违规面
     // advisory——T34 优先处置；以本组 details 输出为准，含 useValue 装饰器元数据已知误标边界）。
     'apps/api/src/auth/auth.ts': {                    // CORS_ORIGIN〔M〕:17/REDIS_URL〔M〕:21——Z147① 点名模块级 const
@@ -801,6 +819,7 @@ if (isMain()) {
     },
     'apps/api/src/modules/collab/collab-ready.controller.ts': {
       COLLAB_ADMIN_TOKEN: { n: 1, until: 'T34' },
+      PROMETHEUS_TOKEN: { n: 1, until: 'T34' },          // :31 同行 ?? 回退读（I-1a matchAll 勘正补登）
     },
     'apps/api/src/modules/collab/collab-spool.service.ts': {
       COLLAB_SPOOL_DIR: { n: 2, until: 'T34' },
@@ -842,8 +861,8 @@ if (isMain()) {
       EXEC_DEADLINE_VIDEO_MS: { n: 1, until: 'T34' },
       EXEC_DEADLINE_EDIT_MS: { n: 2, until: 'T34' },
       EXEC_DEADLINE_LIGHTING_MS: { n: 1, until: 'T34' },
-      EXEC_MAX_NODES: { n: 2, until: 'T34' },
-      EXEC_SYNC_HARD_CAP: { n: 2, until: 'T34' },
+      EXEC_MAX_NODES: { n: 3, until: 'T34' },            // :58+:59 双读（I-1a matchAll 勘正 n2→3）
+      EXEC_SYNC_HARD_CAP: { n: 3, until: 'T34' },        // :63+:64 双读（I-1a matchAll 勘正 n2→3）
     },
     'apps/api/src/modules/execution/provider-adapters.ts': {
       COLLAB_FAKE_AI: { n: 1, until: 'T34' },            // 〔M〕:14——T34 同批落 production 拒启
@@ -889,6 +908,7 @@ if (isMain()) {
     },
     'apps/api/src/modules/subscription/subscription-order.service.ts': {
       WECHAT_PAY_NOTIFY_URL: { n: 1, until: 'T34' },
+      CORS_ORIGIN: { n: 1, until: 'T34' },               // :236 同行模板插值内读（I-1a matchAll 勘正补登）
     },
     'apps/api/src/modules/team/task/team-recharge-active-query.processor.ts': {
       WECHAT_PAY_APP_ID: { n: 1, until: 'T34' },
@@ -896,8 +916,9 @@ if (isMain()) {
     },
     'apps/api/src/modules/team/team-recharge.service.ts': {
       WECHAT_PAY_NOTIFY_URL: { n: 1, until: 'T34' },     // 〔M〕:84
-      WECHAT_PAY_APP_ID: { n: 1, until: 'T34' },
-      WECHAT_PAY_MCH_ID: { n: 1, until: 'T34' },
+      CORS_ORIGIN: { n: 1, until: 'T34' },               // :84 同行模板插值内读（I-1a matchAll 勘正补登）
+      WECHAT_PAY_APP_ID: { n: 2, until: 'T34' },         // :106 双读（I-1a matchAll 勘正 n1→2）
+      WECHAT_PAY_MCH_ID: { n: 2, until: 'T34' },         // :107 双读（I-1a matchAll 勘正 n1→2）
     },
     'apps/api/src/prisma/platform-team.seed.ts': {
       ADMIN_EMAIL: { n: 1, until: 'T34' },               // 〔M〕:16 seed 语义——T34 定归属
@@ -906,6 +927,7 @@ if (isMain()) {
   {
     const hits = {};
     const advisory = [];
+    const atMap = new Map();   // `file|key` → { lines, module }——登记红展开输出的行号/〔M〕定位（I-2）
     for (const p of files) {
       if (!relOf(p).startsWith('apps/api/')) continue;
       const { stripped } = byFile.get(p);
@@ -914,10 +936,18 @@ if (isMain()) {
       lines.forEach((l, i) => {
         const beforeDepth = depth;
         depth = computeBraceDepth(l) + depth;
-        const key = extractProcessEnvKey(l);
-        if (!key) return;
-        (hits[relOf(p)] ??= {})[key] = (hits[relOf(p)]?.[key] ?? 0) + 1;
-        advisory.push(`${relOf(p)}:${i + 1} ${key}${beforeDepth === 0 ? '（module-level）' : ''}`);
+        for (const key of extractProcessEnvKeys(l)) {
+          const f = relOf(p);
+          (hits[f] ??= {})[key] = (hits[f]?.[key] ?? 0) + 1;
+          advisory.push(`${f}:${i + 1} ${key}${beforeDepth === 0 ? '（module-level）' : ''}`);
+          const at = atMap.get(`${f}|${key}`) ?? { lines: [], module: false };
+          at.lines.push(i + 1);
+          at.module ||= beforeDepth === 0;
+          atMap.set(`${f}|${key}`, at);
+        }
+        for (let d = 0; d < countDynamicEnvAccess(l); d += 1) {
+          advisory.push(`${relOf(p)}:${i + 1} 动态键直接访问点（process.env[<非字面量>] 键静态不可知）——键级普查词表外，T34 处置面须人工并入`);
+        }
       });
     }
     const merged = {};
@@ -929,6 +959,7 @@ if (isMain()) {
       merged[f] ??= {};
       for (const [k, reg] of Object.entries(syms)) merged[f][k] = reg;
     }
+    const whiteSet = new Set(Object.entries(ENV_READ_WHITELIST).flatMap(([f, syms]) => Object.keys(syms).map((k) => `${f}|${k}`)));
     const { unregistered, drift, stale } = reconcileRegisteredRed(hits, merged);
     const nRed = Object.values(ENV_READ_REGISTERED_RED).reduce((a, syms) => a + Object.keys(syms).length, 0);
     const nHit = Object.values(hits).reduce((a, o) => a + Object.keys(o).length, 0);
@@ -936,8 +967,18 @@ if (isMain()) {
       unregistered.length === 0 && drift.length === 0 && stale.length === 0,
       [...unregistered.map((h) => `白名单外未登记直读 ${h.file} ${h.symbol} ×${h.n}——登记红 until=T34 或 T34 收编`),
        ...drift.map((h) => `直读计数漂移 ${h.file} ${h.symbol}: 登记 ${h.want} 实际 ${h.n}`),
-       ...stale.map((h) => `直读登记项已消失——转绿达成请移除登记 ${h.file} ${h.symbol}`),
-       ...advisory.filter((a) => a.includes('（module-level）')).map((a) => `module-level 直读（Z79 违规面 advisory）${a}`)]);
+       ...stale.map((h) => whiteSet.has(`${h.file}|${h.symbol}`)                        // 白名单≠转绿——消息分叉（T3 评审 M-3）
+         ? `直读白名单点已消失——清单需同步（T34 重划时核销）${h.file} ${h.symbol}`
+         : `直读登记项已消失——转绿达成请移除登记 ${h.file} ${h.symbol}`),
+       ...advisory.filter((a) => a.includes('（module-level）')).map((a) => `module-level 直读（Z79 违规面 advisory）${a}`),
+       ...advisory.filter((a) => a.includes('动态键直接访问点')).map((a) => `动态键读点 advisory ${a}`),
+       ...Object.entries(ENV_READ_REGISTERED_RED).map(([f, syms]) => {                 // 登记红 PASS 可见展开（T3 评审 I-2——组⑮同则）
+         const items = Object.entries(syms).map(([k, reg]) => {
+           const at = atMap.get(`${f}|${k}`);
+           return at ? `${k}:${at.lines.join(',')}${at.module ? '〔M〕' : ''}` : `${k}×${reg.n}`;
+         });
+         return `登记红（until=T34）${f} ${items.join('+')}`;
+       })]);
   }
 
   const failed = results.filter((r) => !r.pass);
