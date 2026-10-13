@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
+import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
@@ -29,7 +30,8 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
     CanvasDocUpdateRepository,
     CollabSpoolService,
     CollabLeaseService,   // Y0a-3 T5：PG 租约（gateway 构造参数 4——必填）
-    CollabReadyService,   // Y0a-3 T7：/api/ready 组装（G-4 八档+1s 单飞）
+    CollabPgBreakerService,   // Y0b-5 T16：PG 熔断器（准入+store 短路——单例供 gateway/ready 同读）
+    CollabReadyService,   // Y0a-3 T7：/api/ready 组装（G-4 九档+1s 单飞）
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）
     AuditService,   // T5 递延至此——drain 审计消费（team/subscription module 直注册同款先例）

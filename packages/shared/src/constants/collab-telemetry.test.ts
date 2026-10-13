@@ -18,7 +18,7 @@ describe('遥测白名单+detail 受控四键（冻结契约 11）', () => {
     const out = sanitizeTelemetryDetail('close_code', { code: 4408, projectId: 'p1', evil: 'x' });
     expect(out).toEqual({ code: 4408 });
   });
-  it('code/reason 值域校验：code∉CollabCloseCode 值域→other；reason∉CollabAuthReason 13 值→other（ws_status.reason 另含 unsynced-lag/local-cache-degraded 受控值）', () => {
+  it('code/reason 值域校验：code∉CollabCloseCode 值域→other；reason∉CollabAuthReason 14 值→other（ws_status.reason 另含 unsynced-lag/local-cache-degraded 受控值）', () => {
     expect(sanitizeTelemetryDetail('close_code', { code: 9999 })).toEqual({ code: 'other' });
     expect(sanitizeTelemetryDetail('auth_reject', { reason: 'made-up' })).toEqual({ reason: 'other' });
   });
@@ -47,7 +47,7 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     // runtime:1200
     expect(sanitizeTelemetryDetail('watchdog_fire', { executed: false })).toEqual({ executed: false });
     expect(sanitizeTelemetryDetail('watchdog_fire', { executed: true })).toEqual({ executed: true });
-    // runtime:1012（reason 值域 13 值闭集+terminal 布尔）
+    // runtime:1012（reason 值域 14 值闭集+terminal 布尔）
     expect(sanitizeTelemetryDetail('auth_reject', { reason: 'draining', terminal: false }))
       .toEqual({ reason: 'draining', terminal: false });
     // awareness:111 / runtime:1002 / canvasIntents:327 / canvasStore:1900/:2892 / canvasUndo:100
@@ -122,7 +122,7 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     expect(sanitizeTelemetryDetail('close_code', { code: 9999 })).toEqual({ code: 'other' });
     expect(sanitizeTelemetryDetail('close_code', { code: '4408' })).toEqual({ code: 'other' }); // 数值域——字符串形态不收
   });
-  it('auth_reject.reason 查 CollabAuthReason 13 值域（COLLAB_AUTH_REASONS 单源）', () => {
+  it('auth_reject.reason 查 CollabAuthReason 14 值域（COLLAB_AUTH_REASONS 单源）', () => {
     for (const r of COLLAB_AUTH_REASONS) {
       expect(sanitizeTelemetryDetail('auth_reject', { reason: r })).toEqual({ reason: r });
     }

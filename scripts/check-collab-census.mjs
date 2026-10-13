@@ -216,7 +216,8 @@ if (isMain()) {
     report('⑩', 'pendingStructs&&pendingDs 装载双查断言存在（loadDocument 降级可观测——Q-O）', hasStructs && hasDs,
       [...(hasStructs ? [] : ['缺 pendingStructs !== null 断言']), ...(hasDs ? [] : ['缺 pendingDs !== null 断言'])]);
   }
-  // ⑪readOnly 生产直写点清单（Q-A 单源：applyWriteFreeze 唯一出口+auth connectionConfig 三点）
+  // ⑪readOnly 生产直写点清单（Q-A 单源：applyWriteFreeze 唯一出口+auth connectionConfig 两点；
+  // Y0b-5 T16：viewer 改 auth 期意图+connected 登记=直写 3→2）
   {
     const gwPath = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab.gateway.ts');
     const gwLines = byFile.get(gwPath).stripped.split('\n');
@@ -235,9 +236,9 @@ if (isMain()) {
     const applyEnd = methodStart < 0 ? -1 : gwLines.slice(methodStart + 1).findIndex((l) => /^  (?:private|public|protected|readonly|async) /.test(l)) + methodStart + 1;
     const inApply = connWrites.length === 1 && methodStart >= 0 && connWrites[0] > methodStart && connWrites[0] < (applyEnd < 0 ? Infinity : applyEnd);
     const literalBans = files.filter((p) => /readOnly:\s*true/.test(byFile.get(p).stripped) && relOf(p).startsWith('apps/api/')).map(relOf);   // doc-status 快照 readOnly 字段防回潮（Q-A）
-    const pass = configWrites.length === 3 && inApply && strayWrites.length === 0 && literalBans.length === 0;
-    report('⑪', 'readOnly 直写=auth connectionConfig×3（spool 降级/viewer/quotaFrozen）+applyWriteFreeze×1（唯一出口）；readOnly:true 字面量清零', pass,
-      [...(configWrites.length !== 3 ? [`connectionConfig.readOnly 直写 ${configWrites.length} 处（期望 3——spool 降级/viewer/quotaFrozen）`] : []),
+    const pass = configWrites.length === 2 && inApply && strayWrites.length === 0 && literalBans.length === 0;
+    report('⑪', 'readOnly 直写=auth connectionConfig×2（spool 降级/quotaFrozen——viewer 走意图+connected 登记）+applyWriteFreeze×1（唯一出口）；readOnly:true 字面量清零', pass,
+      [...(configWrites.length !== 2 ? [`connectionConfig.readOnly 直写 ${configWrites.length} 处（期望 2——spool 降级/quotaFrozen）`] : []),
        ...(inApply ? [] : [`conn.readOnly 直写 ${connWrites.length} 处且须恰 1 处位于 applyWriteFreeze 体内`]),
        ...strayWrites.map((s) => `越面直写 gateway:${s}`),
        ...literalBans.map((f) => `readOnly: true 字面量命中 ${f}`)]);

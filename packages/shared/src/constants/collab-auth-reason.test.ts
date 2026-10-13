@@ -3,17 +3,21 @@ import { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS, COLLAB_VERSION
 import { CLIENT_PROTOCOL_VERSION } from './collab-protocol';
 import { COLLAB_READY_REASONS, type CollabReadyReason, type CollabReadyResponse } from './collab-ready';
 
-describe('CollabAuthReason 十三档（Y0b-3 T0：七旧+六新 append-only）', () => {
+describe('CollabAuthReason 十四档（Y0b-3 T0：七旧+六新 append-only；Y0b-5 T16 追加 invalid-doc-name）', () => {
   it('值即线上协议串——封闭数组（顺序冻结，只增不改）', () => {
     expect(COLLAB_AUTH_REASONS).toEqual([
       'unauthenticated', 'session-expired', 'not-found', 'forbidden',
       'db-unavailable', 'draining', 'lease-not-ready',
       'server-overloaded', 'schema-outdated', 'client-version-missing',
       'client-version-invalid', 'rate-limited', 'server-outdated',
+      'invalid-doc-name',
     ]);
   });
   it('lease-not-ready 为瞬态档——误入终态白名单=关停期外客户端停止重连', () => {
     expect(isTerminalReason(CollabAuthReason.LEASE_NOT_READY)).toBe(false);
+  });
+  it('invalid-doc-name 为终态档（Y0b-5 T16——确定性拒绝：漏加=客户端对永不可合法的 docName 无限重连）', () => {
+    expect(isTerminalReason(CollabAuthReason.INVALID_DOC_NAME)).toBe(true);
   });
 });
 
@@ -28,8 +32,8 @@ describe('Y0b-3 T0：词表追加六值（append-only）+终态五档', () => {
       expect(isTerminalReason(r)).toBe(true);
     }
   });
-  it('词表 append-only 全集=13 值（七旧+六新）', () => {
-    expect(COLLAB_AUTH_REASONS).toHaveLength(13);
+  it('词表 append-only 全集=14 值（七旧+六新+invalid-doc-name）', () => {
+    expect(COLLAB_AUTH_REASONS).toHaveLength(14);
   });
 });
 
@@ -66,10 +70,11 @@ describe('COLLAB_VERSION_TERMINAL_REASONS 版本族 reload 自愈档（Y0b-3 T9 
 });
 
 describe('CollabReadyReason 封闭枚举（G-4 载体：tsc 即门）', () => {
-  it('八值字面量封闭（SV7：not-serving 在 lease-lost 后）', () => {
+  it('九值字面量封闭（SV7：not-serving 在 lease-lost 后；Y0b-5 T16 追加 db-unavailable=PG 熔断 open 档）', () => {
     expect(COLLAB_READY_REASONS).toEqual([
       'pg-down', 'draining', 'lease-error', 'lease-lost', 'not-serving',
       'lease-held', 'lease-not-acquired', 'spool-unwritable',
+      'db-unavailable',
     ]);
   });
   it('CollabReadyResponse 结构：epoch=string（BigInt 序列化崩坑）+pending 含 storeInFlight/stranded 分区+collabProtocolVersion 必选（Y0b-3 T5 P-C）', () => {

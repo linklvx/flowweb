@@ -62,8 +62,9 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
 
     try {
       // Phase 1：N 客户端各自 doc 全建立（部署窗口真实形态——各浏览器各画布）
+      // Y0b-5 T16：docName 改 project: 前缀（生产约定——docName 守卫后裸名即 invalid-doc-name）
       const firstWave = Array.from({ length: N }, (_, i) =>
-        kit.connect(`storm-doc-${i}`, undefined, { extraHeaders: { 'x-real-ip': clientIp(i) } }),
+        kit.connect(`project:storm-doc-${i}`, undefined, { extraHeaders: { 'x-real-ip': clientIp(i) } }),
       );
       await Promise.all(firstWave.map((s) => s.synced));
 
@@ -88,7 +89,7 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
       try {
         secondWave = Array.from({ length: N }, (_, i) => {
           const t0 = Date.now();
-          const s = kit.connect(`storm-doc-${i}`, undefined, {
+          const s = kit.connect(`project:storm-doc-${i}`, undefined, {
             extraHeaders: { 'x-real-ip': clientIp(i) },   // 同客户端同 IP——真实重连拓扑
             onSocket: (ws: WsSocket) => {
               ws.on('close', (code: number) => closeCodes.push(code));

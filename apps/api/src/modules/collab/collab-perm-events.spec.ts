@@ -209,6 +209,22 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     expect(conn.readOnly).toBeUndefined();                 // 也无降级（EDITOR 保持可写）
   });
 
+  it('★Y0b-5 T16 VIEWER→EDITOR 升权活路径：连接中 VIEWER 被 addMember 升 EDITOR→perm.changed 即时 sweep→applyWriteFreeze 解除只读+conn-status 通告（≤1 tick 可写——禁手动刷新）', async () => {
+    const { gateway, perm, emitter } = buildGateway();
+    perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });   // 升权后 DB 权威
+    const conn = makeConn('project:p1');
+    conn.readOnly = true;   // auth 期 viewer 只读（意图登记后的连接形态）
+    seedDocument(gateway, 'project:p1', [conn]);
+    (gateway as any).writeFreeze.set(conn as any, { pid: 'p1', reasons: new Set(['viewer']) });   // connected 登记形态（writeFreeze 单源）
+    (gateway as any).socketIdentity.set(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_VIEWER', teamId: 't1' });
+    (gateway as any).wirePermChangedEvents();
+    emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });   // addMember/changeRole 事件面
+    await vi.advanceTimersByTimeAsync(1);   // setImmediate 冲洗→即时 sweep（远小于 plan ≤5s 判据）
+    expect(conn.readOnly).toBe(false);      // 升权即时生效（readOnly=原因集非空——'viewer' 移除）
+    expect(conn.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'conn-status', readOnly: false }));   // 广播 conn-status（降级/升级同出口）
+    expect(conn.webSocket.close).not.toHaveBeenCalled();   // 升级不断连
+  });
+
   it('socketIdentity 扩 teamId：authenticateInner 播种含 teamId（事件匹配依据——resolved.teamId 同批带出）', async () => {
     const { gateway } = buildGateway();
     (gateway as any).collabState = 'serving';   // 状态门放行（perm-chain spec 同款直构手法）

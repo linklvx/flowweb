@@ -49,6 +49,9 @@ export class CollabReadyService {
     let pgOk = true;
     try { await this.prisma.$queryRaw`SELECT 1`; } catch { pgOk = false; }
     if (!pgOk) return { status: 503, body: { ready: false, reason: 'pg-down', redis: await this.redisStatus(), ...base } };
+    // Y0b-5 T16（E57）：PG 熔断 open 期 503 db-unavailable（SELECT 1 可达但熔断窗内准入拒——
+    // 文案≡auth 面瞬态档同词表；窗口有界=冷却 10s→half-open 后本探针放行）。
+    if (this.gateway.isPgBreakerOpen()) return { status: 503, body: { ready: false, reason: 'db-unavailable', redis: await this.redisStatus(), ...base } };
     const diag = await this.lease.diag();
     const phase = this.gateway.getCollabState();
     const common = {

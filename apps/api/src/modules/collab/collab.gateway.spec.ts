@@ -173,12 +173,18 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       };
     }
 
-    it('PROJECT_VIEWER：connectionConfig.readOnly 置 true（Hocuspocus 拒绝连接写更新）', async () => {
+    it('PROJECT_VIEWER：auth 期意图（freezeIntent=viewer）+connected 登记 writeFreeze→readOnly（Y0b-5 T16：config 直写退役——census ⑪ 3→2）', async () => {
       permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });   // Y0b-3 T3 F-3 换轨：覆写点同步 resolveWithTeam
       const connectionConfig = { readOnly: false, isAuthenticated: false };
       const ctx = await gateway.hooks.onAuthenticate(authPayload(connectionConfig) as any);
-      expect(connectionConfig.readOnly).toBe(true);
-      expect(ctx).toMatchObject({ user: { id: 'u1' }, readOnly: true });
+      expect(connectionConfig.readOnly).toBe(false);   // 直写退役——只读面归 writeFreeze 单源
+      expect(ctx).toMatchObject({ user: { id: 'u1' }, readOnly: true, freezeIntent: 'viewer' });
+      // connected 登记（库在 onAuthenticate 返回后 new Connection——意图经 context 在此施加；
+      // connected 先于任何帧处理 ⇒ readOnly 库级首帧拦截等价）
+      const conn: any = { socketId: 'sock-v1', context: { ...(ctx as any), token: 'tok' }, readOnly: false, sendStateless: vi.fn() };
+      await gateway.hooks.connected({ socketId: 'sock-v1', connection: conn, documentName: 'project:p1' } as any);
+      expect(conn.readOnly).toBe(true);
+      expect(conn.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'conn-status', readOnly: true }));
     });
 
     it('EDITOR：正常可写', async () => {

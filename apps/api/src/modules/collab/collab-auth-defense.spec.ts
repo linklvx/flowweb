@@ -9,6 +9,7 @@
 // 验收锚用真实 timer——桶窗口/信号量 gate 不需要时钟推进）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
+import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -219,8 +220,8 @@ describe('Y0b-3 T3 认证防线三层（refusalCache→信号量→桶）+清空
   });
 
   it.each([
-    ['drain 解除'], ['租约 rejoin'], ['fence 解除'],
-  ])('%s → refusalCache 清空（不变量=只有 transition(serving)/spool 翻转一个清空点）', async (flip) => {
+    ['drain 解除'], ['租约 rejoin'], ['fence 解除'], ['PG 半开成功'],
+  ])('%s → refusalCache 清空（冻结契约 16 五钩子覆盖锚：缺一即缓存失效测试红）', async (flip) => {
     const { gateway } = buildGateway();
     const cache: Map<string, unknown> = (gateway as any).refusalCache;
     // 直构 gateway 不 listen——listenCollab/drain 定时器全链不可驱动；用最近合法状态转移链驱动
@@ -231,6 +232,16 @@ describe('Y0b-3 T3 认证防线三层（refusalCache→信号量→桶）+清空
       g.transition('draining', 'test-drive');
       cache.set('doc|t:abc', { reason: 'draining', at: Date.now() });
       g.transition('serving', 'test-drive-release');
+    } else if (flip === 'PG 半开成功') {
+      // Y0b-5 T16（契约 16 第五钩子）：breaker onRecovered→清空点二（gateway 构造期 setOnRecovered 接线）
+      cache.set('doc|t:abc', { reason: 'db-unavailable', at: Date.now() });
+      const b = g.pgBreaker as CollabPgBreakerService;
+      vi.useFakeTimers();   // 先于 recordFailure——冷却 timer 必须落在 fake registry（后开=孤儿化不 fire）
+      try {
+        for (let i = 0; i < 5; i++) b.recordFailure(Object.assign(new Error("Can't reach database server"), { code: 'P1001' }));
+        vi.advanceTimersByTime(10_001);   // 冷却→half-open（探测位）
+      } finally { vi.useRealTimers(); }
+      b.recordSuccess();   // half-open 探测成功→closed+清空
     } else {
       g.transition('isolated', 'test-drive');
       cache.set('doc|t:abc', { reason: 'lease-not-ready', at: Date.now() });
@@ -252,9 +263,9 @@ describe('Y0b-3 T3 认证防线三层（refusalCache→信号量→桶）+清空
     expect(cache.size).toBe(0);
   });
 
-  it('heap 释放→refusalCache 清空（T4 已接线：真实释放路径=heapPressureSample 采样翻转驱动 onServingTransition——releaseHook 一次性回调汇入同点；清空单点源码锚保留=clear 恰 1 处）', async () => {
+  it('heap 释放→refusalCache 清空（T4 已接线：真实释放路径=heapPressureSample 采样翻转驱动 onServingTransition——releaseHook 一次性回调汇入同点；Y0b-5 T16 起清空点恰 2 处=serving 转移汇点+PG 半开成功钩子）', async () => {
     const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
-    expect(src.match(/refusalCache\.clear\(\)/g)).toHaveLength(1);
+    expect(src.match(/refusalCache\.clear\(\)/g)).toHaveLength(2);   // :onServingTransition + setOnRecovered 接线（Y0b-3 预埋锚按设计改写——非放宽）
     const { gateway } = buildGateway();
     const cache: Map<string, unknown> = (gateway as any).refusalCache;
     cache.set('doc|t:abc', { reason: 'server-overloaded', at: Date.now() });

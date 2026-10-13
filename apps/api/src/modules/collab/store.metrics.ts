@@ -763,3 +763,22 @@ export const collabTelemetryRejectedTotal = new Counter({
   labelNames: ['reason'],
   registers: [register],
 });
+
+/** ===== Y0b-5 T16（spec §5.9 E57）：PG 熔断两指标（范围=新装载/新会话准入+store PG 分支短路；
+ *  不裹 lease 心跳/不拒 WS 帧路径——调用点恰三见 gateway 静态锚）===== */
+
+/** 熔断三态 gauge（0=closed/1=open/2=half-open——单值语义，告警判据 >0）。
+ *  open=准入拒+store 短路 spool（冷却 10s 后转 half-open，下一次调用为探测）。 */
+export const collabPgBreakerState = new Gauge({
+  name: 'collab_pg_breaker_state',
+  help: 'PG 熔断三态（0=closed/1=open 准入拒+store 短路 spool/2=half-open 探测中——误开最长 10s 冷却窗快速失败自愈）',
+  registers: [register],
+});
+/** 失败分类计数（class=connection 连接族参与推闸/pool P2024 池满与 other 业务错+无 code 只观测不推闸
+ *  ——压力期拒新装载=赶走用户方向反了）。 */
+export const collabPgBreakerFailuresTotal = new Counter({
+  name: 'collab_pg_breaker_failures_total',
+  help: 'PG 调用失败分类（class=connection 连接族 P1001/P1002/P1008 参与熔断推闸/pool P2024 池满/other 业务错与无 code——后两档只观测）',
+  labelNames: ['class'],
+  registers: [register],
+});

@@ -9,7 +9,9 @@
  *  Y0a-3：lease-not-ready=租约未持有/失守——瞬态档（客户端继续重连；Y0b 终端 UX 分型消费）。
  *  Y0b-3（T0/P-A）：追加六值——server-overloaded/rate-limited/server-outdated 瞬态档
  *  （误入终态=一次内存尖峰/一次拥塞/一次部署滞后把全部客户端钉死且不自愈）；版本族三档
- *  schema-outdated/client-version-missing/client-version-invalid 终态（reload 档 UX 分流）。 */
+ *  schema-outdated/client-version-missing/client-version-invalid 终态（reload 档 UX 分流）。
+ *  Y0b-5 T16（裁定 23⑹/24⑿）：追加 invalid-doc-name 第十四值——终态档（docName 全匹配
+ *  ^project:[A-Za-z0-9_-]{1,64}$ 守卫；确定性拒绝：漏入终态=客户端对永不可合法的 docName 无限重连）。 */
 export const CollabAuthReason = {
   UNAUTHENTICATED: 'unauthenticated',
   SESSION_EXPIRED: 'session-expired',
@@ -24,6 +26,7 @@ export const CollabAuthReason = {
   CLIENT_VERSION_INVALID: 'client-version-invalid',
   RATE_LIMITED: 'rate-limited',
   SERVER_OUTDATED: 'server-outdated', // v2 M-4：csv>current（客户端新于服务端）——瞬态档（服务端待更新提示，reload 无效不自动刷）
+  INVALID_DOC_NAME: 'invalid-doc-name',
 } as const;
 /** 值序冻结（线上协议串只增不改）——测试 toEqual 锚此数组 */
 export const COLLAB_AUTH_REASONS: readonly CollabAuthReasonCode[] = Object.values(CollabAuthReason);
@@ -31,7 +34,8 @@ export const COLLAB_AUTH_REASONS: readonly CollabAuthReasonCode[] = Object.value
 export type CollabAuthReasonCode = (typeof CollabAuthReason)[keyof typeof CollabAuthReason];
 
 /** 契约锁㉙：终态白名单——版本族三档加入后共七档 true（客户端引导重登/跳转/reload 档 UX）；
- *  SERVER_OVERLOADED/RATE_LIMITED/SERVER_OUTDATED 瞬态档严禁入终态（spec §3.2/§5.2——误入=
+ *  Y0b-5 T16 起八档（+invalid-doc-name——docName 永不可合法=重连无意义）；SERVER_OVERLOADED/
+ *  RATE_LIMITED/SERVER_OUTDATED 瞬态档严禁入终态（spec §3.2/§5.2——误入=
  *  一次内存尖峰/一次拥塞/一次部署滞后把全部客户端钉死且不自愈）；db-unavailable、
  *  裸 permission-denied、undefined 及一切未打标值一律瞬态桶（横幅重试）。
  *  放 shared 使 web 批 2 与 api 同源判定。 */
@@ -43,6 +47,7 @@ const TERMINAL_AUTH_REASONS: ReadonlySet<string> = new Set<string>([
   CollabAuthReason.SCHEMA_OUTDATED,
   CollabAuthReason.CLIENT_VERSION_MISSING,
   CollabAuthReason.CLIENT_VERSION_INVALID,
+  CollabAuthReason.INVALID_DOC_NAME,
 ]);
 
 export function isTerminalReason(reason: unknown): boolean {

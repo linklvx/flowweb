@@ -1,9 +1,12 @@
 /** Y0a-3（spec v2.5 §3.3）：/api/ready 响应契约——reason 字面量封闭枚举（tsc 即门，禁通配）；
  *  由 collabState 主导派生（SV7）；holder/epoch/pending 为并列取证字段禁入 reason；epoch=string
- *  （JSON.stringify(bigint) 抛 TypeError）；redis 仅报不 gating。forceTakeover 已随 FORCE env 删除（SV2）。 */
+ *  （JSON.stringify(bigint) 抛 TypeError）；redis 仅报不 gating。forceTakeover 已随 FORCE env 删除（SV2）。
+ *  Y0b-5 T16：追加 db-unavailable（PG 熔断 open 档——SELECT 1 可达但熔断窗内准入拒；
+ *  文案≡auth 面瞬态档词表，冷却 10s+半开探测自愈，误开窗口有界）。 */
 export const COLLAB_READY_REASONS = [
   'pg-down', 'draining', 'lease-error', 'lease-lost', 'not-serving',
   'lease-held', 'lease-not-acquired', 'spool-unwritable',
+  'db-unavailable',
 ] as const;
 export type CollabReadyReason = (typeof COLLAB_READY_REASONS)[number];
 

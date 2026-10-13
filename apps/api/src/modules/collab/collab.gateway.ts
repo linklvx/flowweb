@@ -17,6 +17,7 @@ import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabSpoolService } from './collab-spool.service';
+import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
@@ -159,6 +160,15 @@ export function parseProjectId(documentName: string): string {
   return documentName.replace(/^project:/, '');
 }
 
+/** Y0b-5 T16（裁定 23⑹/24⑿）：docName 全匹配守卫——裸 replace(:parseProjectId) 下别名 docName
+ *  （"abc"≡"project:abc"）解析同 pid=**同一 projectId 双 doc 实例**：freezeQuota/beginVacuumEra/
+ *  closeTeamDocuments 均按 `project:${pid}` 寻址 ⇒ 别名实例绕过冻结通告/vacuum 关闭=执法分叉。
+ *  全匹配挡空名/超长/异常字符（非仅前缀）；三入口统一：onAuthenticate/loadDocument/withDoc。 */
+export const DOC_NAME_PATTERN = /^project:[A-Za-z0-9_-]{1,64}$/;
+export function isValidDocName(documentName: string): boolean {
+  return DOC_NAME_PATTERN.test(documentName);
+}
+
 /** Y0b-4 T9a：Y.Map 递归深拷贝（exec/meta/未知 Map 根的真空重建——生产写者〔writeExecStatus/
  *  meta 族〕值为 JSON 直拷；嵌套 Y.Map 条目逐层重建）。 */
 function deepCopyYMap(src: Y.Map<unknown>, dst: Y.Map<unknown>): void {
@@ -209,6 +219,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly sessionSvc: SessionService;
   /** Y0b-3 T2（P-R）：WS 升级限流桶（per-IP——DoS 兜底非配额；60/min 补充+burst 20；重启清零） */
   private readonly upgradeBucket: TokenBucket;
+  /** Y0b-5 T16：PG 熔断器（准入+store 短路——spec §5.9 E57；直构测试不注入时自建） */
+  private readonly pgBreaker: CollabPgBreakerService;
   /** Y0b-4 T6（Q-E v5）：速率闸三桶（per-conn 键=socketId；onDisconnect delete——重连重置=断连循环
    *  刷桶的 DoS 兜底语义）。容量语义见构造点注释；census ⑥ TokenBucket 定义点恰四处：upgrade/msg/bytes/aware。 */
   private readonly msgBuckets: TokenBucket;
@@ -249,8 +261,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly retryingPersistDocs = new Set<string>();
   /** Y0a-2（契约 14/P5）：in-flight 口径（projectId 键控——与队列归属同键）；维护对见 enterInFlight/leaveInFlight */
   private readonly inFlightProjects = new Set<string>();
-  /** X6：熔断期退避梯暂停标志（probe 恢复经 onRecovered seam→rearmQueues 清除） */
-  private retryPausedByCircuit = false;
   /** SV7/W 状态机（单枚举消灭布尔组合态）：ready reason 与三入口门 1:1 派生（P6）。
    *  serving=唯一放行态；draining=部署停写（与 /api/drain 同一位）；isolated=自隔离（listener
    *  已关让位——rejoin 由 lease.rejoinLoop 驱动/revoked 终态）；start-failed=启动失败（有界重试）。 */
@@ -384,8 +394,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     private readonly spool: CollabSpoolService,
     // Y0b-4 T2：配额构造注入（测试/组装期覆盖 env 默认；Nest DI 无此令牌恒 undefined→env 默认）。
     @Optional() quota?: Partial<QuotaConfig>,
+    // Y0b-5 T16：熔断器注入（尾参真可选——既有直构调用免改；Nest 由 module provider 注入单例）。
+    @Optional() pgBreaker?: CollabPgBreakerService,
   ) {
     this.sessionSvc = sessions ?? new SessionService(prisma);
+    this.pgBreaker = pgBreaker ?? new CollabPgBreakerService();
+    // Y0b-5 T16：冻结契约 16 第五钩子（PG 半开成功清 refusalCache——清空点二，:257 锚同批 1→2）
+    this.pgBreaker.setOnRecovered(() => this.refusalCache.clear());
     // Y0b-3 T2：升级限流——COLLAB_UPGRADE_RATE_PER_MIN 默认 60/min；burst=20 常量（多标签友好——
     // 单用户多标签页各持一条 WS 连接，burst 抬高集中握手容忍度；DoS 兜底非配额）。
     this.upgradeBucket = new TokenBucket({
@@ -412,9 +427,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.bytesBuckets = new TokenBucket({ capacity: this.quota.maxDocBytes + FRAME_ALLOWANCE_BYTES, refillPerMin: this.quota.bytesRate * 60 });
     this.awareBuckets = new TokenBucket({ capacity: 60, refillPerMin: 1_800 });
     this.hooks = {
-      // Y0b-4 T4（v6 报告3 P1-1）：auth 期 viewer/spool/quota 置 connectionConfig.readOnly 时 Connection
-      // 未创建（库在 onAuthenticate 返回后 new——esm:1054）——connected 补登记进 writeFreeze 单源
-      // +补推 doc-status（auth 期 config.readOnly 保留=库级首帧拦截不撤）。
+      // Y0b-4 T4（v6 报告3 P1-1）：auth 期冻结意图在 Connection 未创建时无法落地（库在 onAuthenticate
+      // 返回后 new——esm:1054）——connected 统一登记进 writeFreeze 单源+补推 doc-status。
+      // Y0b-5 T16：viewer 改意图登记（auth 期 connectionConfig.readOnly 直写退役= census ⑪ 3→2；
+      // connected 先于任何帧处理 ⇒ applyWriteFreeze 置 readOnly=库级首帧拦截等价）。
       connected: ({ socketId, connection, documentName }) => {
         this.connEstablishedAt.set(socketId, Date.now());   // Y0b-3 T6：寿命台账播种
         const c = connection as unknown as CollabConnection;
@@ -430,7 +446,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
             return Promise.resolve();
           }
           const intent = c.context?.freezeIntent;
-          if (c.readOnly && !this.writeFreeze.has(c) && (intent === 'viewer' || intent === 'spool')) {
+          if (!this.writeFreeze.has(c) && (intent === 'viewer' || intent === 'spool')) {
             this.applyWriteFreeze(c, intent, true);   // auth 意图登记（sendStateless conn-status 补推同点）
           }
           if (this.quotaFrozenDocs.has(pid)) this.applyWriteFreeze(c, 'quota', true);   // 冻结期加入（auth 查询兜底之外的第二道登记）
@@ -843,12 +859,18 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         collabVersionNegotiationRejectTotal.inc({ reason });
         throw this.denyAuth(reason, `client protocol ${verdict}`, 'version');
       }
+      // Y0b-5 T16 docName 全匹配守卫（三入口①——别名执法分叉根修）：确定性拒绝零 DB。
+      if (!isValidDocName(documentName)) throw deny(CollabAuthReason.INVALID_DOC_NAME, 'invalid doc name');
       // 状态检查先于凭据提取：状态类拒绝（draining/lease-not-ready）与凭据无关——无凭据连接也得到
       // 状态分型（凭据缺失只影响外层 cacheKey=null 不落缓存，不改变拒绝语义）。
       // Y0a-2（X9）：draining=关停期拒新连接（瞬态档）；spool 熔断=只读降级（放行但 readOnly）。
       // DRAINING 档必须前置于租约门：draining 时 collabState≠'serving'，租约门先行=死代码+误导 reason。
       if (this.isShuttingDown()) throw deny(CollabAuthReason.DRAINING, 'service restarting');
       if (!this.isLeaseServing()) throw deny(CollabAuthReason.LEASE_NOT_READY, 'collab lease not held');   // P0-1 三入口①（V12：collabState 派生——serving=唯一放行态）
+      // Y0b-5 T16 熔断面①（调用点①准入，spec §5.9 E57）：open 期直接 db-unavailable（零 Prisma——
+      // 防「每条新会话等满 deadline」）；half-open 放行=本次即探测。DB_UNAVAILABLE ∈ REFUSAL_CACHEABLE
+      // （熔断期拒绝进缓存防风暴；half-open 成功经 onRecovered 钩子清空——清空点二）。
+      if (!this.pgBreaker.admitQuery()) throw deny(CollabAuthReason.DB_UNAVAILABLE, 'pg breaker open');
       const spoolState = this.spoolStateForAuth();   // 恢复翻转检测在此（P-Q 清空并集 spool 支）
       let freezeIntent: FreezeReason | undefined;
       if (spoolState !== 'ok') {
@@ -874,9 +896,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       }
       if (!resolved.role) throw deny(CollabAuthReason.FORBIDDEN, '无项目访问权限');
       const readOnly = resolved.role === 'PROJECT_VIEWER';
-      // v4 运行时只读机制：onAuthenticate 返回值仅 merge 进 context，须置 connectionConfig
-      // （setUpNewConnection 以它构造 Connection，写更新按 connection.readOnly 拒绝）
-      if (readOnly) { connectionConfig.readOnly = true; freezeIntent = 'viewer'; }   // Y0b-4 T4：意图存 context（connected 补登记）
+      // Y0b-5 T16：viewer 只读改走 auth 期意图+connected 登记（freezeIntent 先例——writeFreeze 单源
+      // 施加，connectionConfig.readOnly 直写退役=census ⑪ 3→2；spool 降级/quotaFrozen 两档保留直写）。
+      if (readOnly) freezeIntent = 'viewer';
       // Y0b-4 T4（Q-C）：冻结期加入的连接置 readOnly（auth 期兜底——freezeQuota 的 setImmediate 窗内
       // 新连接不在 doc.connections；connected 钩子第二道登记进 writeFreeze 单源）
       const quotaFrozen = this.quotaFrozenDocs.has(parseProjectId(documentName));
@@ -889,6 +911,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       }
       // Y0b-3 T7：认证成功即播 socketIdentity（guardAwareness 覆写 user 的唯一来源——防未认证帧绕过）
       this.socketIdentity.set(socketId, { id: session.user.id, name: session.user.name, role: resolved.role, teamId: resolved.teamId });   // Y0b-3 T8：+teamId（perm.changed 事件匹配依据）
+      this.pgBreaker.recordSuccess();   // Y0b-5 T16：PG 健康样本（half-open 成功=探测成功→closed）
       return {
         user: { id: session.user.id, name: session.user.name, role: resolved.role },   // 词表统一 ProjectRole（TeamRole OWNER/MEMBER 混用终结）
         readOnly,
@@ -898,6 +921,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       };
     } catch (err) {
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;   // 已分型原样透传（denyAuth 已计数；withAuthDeadline 超时另有专表不双计）
+      this.pgBreaker.recordFailure(err);   // Y0b-5 T16：DB 折叠桶=PG 健康采样（连接族推闸；业务错只观测）
       throw this.denyAuth(CollabAuthReason.DB_UNAVAILABLE, `db unavailable: ${(err as Error).message}`, 'state');
     }
   }
@@ -919,6 +943,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async loadDocument({ document, documentName, socketId }: onLoadDocumentPayload) {
     if (!this.isLeaseServing()) {
       throw Object.assign(new Error('collab lease not held'), { reason: CollabAuthReason.LEASE_NOT_READY });   // P0-1 三入口②（P1 正确性门——外层 catch 对带 reason 异常透传）
+    }
+    // Y0b-5 T16 docName 全匹配守卫（三入口②）：WS 与 DirectConnection 共经本钩子——别名 docName
+    // 拒于 parseProjectId 之前（别名执法分叉根修）。
+    if (!isValidDocName(documentName)) {
+      throw Object.assign(new Error('invalid doc name'), { reason: CollabAuthReason.INVALID_DOC_NAME });
+    }
+    // Y0b-5 T16 熔断面①（调用点②准入）：open 期拒新装载（503 COLLAB_NOT_SERVING 面——CollabNotServingFilter
+    // 附 Retry-After；零 Prisma——防「每条新装载等满 5s 交互事务超时」）；half-open 放行=本次即探测。
+    if (!this.pgBreaker.admitQuery()) {
+      collabLoadRejectedTotal.inc({ reason: 'db-unavailable' });
+      throw Object.assign(
+        new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'db-unavailable' }),
+        { reason: CollabAuthReason.DB_UNAVAILABLE },
+      );
     }
     // Y0b-4 T9a serving 门（装载面）：真空窗口拒装载（connected close 4410 的结构保证补位——
     // 竞态窗内 loadDocument 先于 connected 的库时序；REST withDoc 面由此折 503 COLLAB_NOT_SERVING）
@@ -1035,9 +1073,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         this.degradedDocs.add(projectId);   // 快照/健康面可见——降级成为可观测状态非沉默
       }
       // Y0a-2：consumeStash 已退役——帧保留至 append 成功（confirm 恒在成功后，契约 12）
+      this.pgBreaker.recordSuccess();   // Y0b-5 T16：装载成功=PG 健康样本（half-open 成功=探测成功→closed）
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
+      this.pgBreaker.recordFailure(err);   // Y0b-5 T16：装载失败=PG 健康采样（连接族推闸；schema 门/已分型异常早退不算）
       captureCollabException(err, { docName: documentName, reason: 'load-db-unavailable', connectionId: this.connectionIds.get(socketId) ?? '-' });   // T11：装载失败样本（auth 先于 load——socketId 有实值）
       throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
     } finally {
@@ -1143,11 +1183,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // confirm 按整批，Y8 语义不变）；部分成功=已落片内容幂等在 PG，余片随整批走下方 spool 兜底
       // （重复无害——宁重复不误删）。≤1MB 批（常态）单片直通=与既有单 append 行为零差异。
       const chunks = this.splitPersistChunks(parts);
-      for (let ci = 0; ci < chunks.length; ci++) {
+      // Y0b-5 T16 熔断面②（调用点③ store 短路——retryPausedByCircuit 同族先例的接线形态）：
+      // open 期 PG 分支首行短路=零 PG 等待，批经下方 spool 兜底落盘（与「不拒 append」同语义——
+      // 数据仍进 spool 契约 BOI）；half-open 放行=本循环即探测，成功→closed+confirm 补排空旧帧。
+      const pgBreakerOpen = this.pgBreaker.isOpen();
+      for (let ci = 0; !pgBreakerOpen && ci < chunks.length; ci++) {
         const payload = chunks[ci].length === 1 ? chunks[ci][0] : Y.mergeUpdates(chunks[ci]);
         try {
           const r = await this.repo.append(projectId, payload);    // AppendResult（契约 15）+5s 事务上界（V8）
-          if (r.ok) { yjsStorePayloadBytes.observe(payload.byteLength); if (ci === chunks.length - 1) appended = true; continue; }   // Y0b-5 T10：append 增量逐片 observe（成功路径）
+          if (r.ok) { this.pgBreaker.recordSuccess(); yjsStorePayloadBytes.observe(payload.byteLength); if (ci === chunks.length - 1) appended = true; continue; }   // Y0b-5 T10：append 增量逐片 observe（成功路径）+T16 PG 健康样本
           // AppendResult fenced 单失败档（no-row 已删——0 行只可能是 fenced 或 throw，T3 repo 实证）
           fenced = true;
           this.logger.error(`append fenced for ${projectId}（租约失守——批走 spool，不排退避梯）`);
@@ -1177,6 +1221,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           }
           this.logger.error(`store append failed for ${projectId}, ${parts.length} updates: ${(err as Error).message}`);
           yjsStoreAppendFailureTotal.inc();
+          this.pgBreaker.recordFailure(err);   // Y0b-5 T16：PG 健康采样（连接族推闸——FK/租约分支=业务/终态不算）
           captureCollabException(err, { docName: documentName, reason: 'store-append-failed', connectionId: '-' });   // T11：store 失败样本（onStoreDocumentPayload 无 socketId——'-'）
           break;
         }
@@ -1353,6 +1398,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   isWritableOrDegraded(): 'ok' | 'spool-unwritable' {
     return this.spool.isWritable() && !this.spool.overCapacity() ? 'ok' : 'spool-unwritable';
   }
+  /** Y0b-5 T16：PG 熔断 open 观测（ready 503 db-unavailable 面消费）——经 stateName 委托
+   *  （闸门调用点静态锚恰三：admitQuery×2+isOpen×1，勿在此新增闸门调用）。 */
+  isPgBreakerOpen(): boolean { return this.pgBreaker.stateName() === 'open'; }
 
   /** E35 自隔离（不自杀不硬撑）：拒新 WS（三入口门）+closeAll1012+**释放 listener 让位**（B7：
    *  closeAllConnections 不关监听——半死场景新实例 listen 必 EADDRINUSE；用 httpServer.close 不用
@@ -2202,7 +2250,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // 否则梯内 store 首行 spool 失败→批留队列但梯空转烧档位）。
     // I-3：限定 ioBroken 才停排——容量态下 PG 腿完全健康可消化帧（confirm 自评解除容量+唤醒 seam）；
     // 容量态也停排会级联 X9 readOnly：无 store 触发→容量永不解除=死锁（梯继续=自愈通道）。
-    if (!this.spool.isWritable() && !this.spool.overCapacity()) { this.retryPausedByCircuit = true; return; }
+    // （Y0b-5 T16：retryPausedByCircuit 标志随死代码处置删除——只写不读零读者，禁留考古层。）
+    if (!this.spool.isWritable() && !this.spool.overCapacity()) return;
     const entry = this.persistRetry.get(documentName) ?? { rung: 0, timer: null };
     if (entry.timer) return;   // 已排程（失败叠加不提前触发）
     entry.timer = setTimeout(() => {   // Y0a-2：耗尽 return 删——退避无上限，rung≥5 恒 60s 封顶重排
@@ -2305,7 +2354,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.leaveInFlight(pid);
       this.schedulePersistRetry(`project:${pid}`);
     }
-    this.retryPausedByCircuit = false;
   }
 
   private spoolReconcilerTimer: ReturnType<typeof setInterval> | null = null;

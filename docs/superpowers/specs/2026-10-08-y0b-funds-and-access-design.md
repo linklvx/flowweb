@@ -957,6 +957,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_load_rejected_total
 - collab_msg_rate_exceeded_total
 - collab_overload_state
+- collab_pg_breaker_failures_total
+- collab_pg_breaker_state
 - collab_quota_fastpath_total
 - collab_quota_frame_rejected_total
 - collab_quota_frozen_docs

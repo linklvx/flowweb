@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps, ensureSchemaVersion } from '@flowweb/shared';
-import { CollabGateway } from './collab.gateway';
+import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason } from '@flowweb/shared';
+import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
 import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
@@ -53,8 +53,12 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  Y0a-3（P0-1 三入口③）：withDoc 首行租约门——lease 失守/drain 期早退 503（不 openDirectConnection，
    *  不触发装载重连风暴）。消息非协议形态（通用入口，客户端不按 body.code 分型）。
    *  Y0b-4 T9a（Q-U v6/U-3/G-7）：vacuum serving 门——真空窗口拒物化（readServerSV/readCanvas/
-   *  writeExecStatus 同挂）；REST 面真 503（COLLAB_NOT_SERVING 族——filter 附 Retry-After: 2）。 */
+   *  writeExecStatus 同挂）；REST 面真 503（COLLAB_NOT_SERVING 族——filter 附 Retry-After: 2）。
+   *  Y0b-5 T16：docName 全匹配守卫（三入口③ direct——`project:${projectId}` 须全匹配，别名执法分叉根修）。 */
   async withDoc<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>): Promise<T> {
+    if (!isValidDocName(`project:${projectId}`)) {
+      throw Object.assign(new Error(`invalid doc name: project:${projectId}`), { reason: CollabAuthReason.INVALID_DOC_NAME });
+    }
     if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③
     if (this.gateway.isVacuuming(projectId)) {
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });   // 真空窗口 ≤30s 上界——Retry-After 2 由 CollabNotServingFilter 附

@@ -24,6 +24,7 @@ function build(over: {
     isShuttingDown: () => false,
     isWritableOrDegraded: () => 'ok' as const,
     getCollabState: () => 'serving',
+    isPgBreakerOpen: () => false,   // Y0b-5 T16：熔断观测（个别用例覆写 true 验 db-unavailable 档）
   };
   const redis = { status: 'ready', connect: vi.fn(async () => {}), ping: vi.fn(async () => over.redisOk === false ? Promise.reject(new Error('x')) : 'PONG'), disconnect: vi.fn() };
   const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, { quarantinedSegments: () => [] } as any, redis as any);
@@ -45,6 +46,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
       isShuttingDown: () => false,
       isWritableOrDegraded: () => 'ok' as const,
       getCollabState: () => 'serving',
+      isPgBreakerOpen: () => false,
     };
     const r = await build({ gateway: gw }).svc.getReady();
     expect(r.body.loadedDocs).toBe(7);       // 旧实现 body 无此键 → 红
@@ -60,8 +62,17 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.body.reason).toBe('pg-down');
     expect(r.body.collabProtocolVersion).toBe(CLIENT_PROTOCOL_VERSION);
   });
+  it('Y0b-5 T16：PG 熔断 open→503 db-unavailable（SELECT 1 可达但熔断窗内准入拒；pg-down 优先）', async () => {
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'serving', isPgBreakerOpen: () => true };
+    const r = await build({ gateway: gw }).svc.getReady();
+    expect(r.status).toBe(503);
+    expect(r.body.reason).toBe('db-unavailable');   // 文案≡auth 面瞬态档词表
+    // pg-down 优先于熔断档（真停机与熔断窗两种运维动作分流）
+    const down = await build({ pgOk: false, gateway: gw }).svc.getReady();
+    expect(down.body.reason).toBe('pg-down');
+  });
   it('draining（P6：高于 lease/spool——G-2a ii 断言不分档）', async () => {
-    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => true, isWritableOrDegraded: () => 'spool-unwritable' as const, getCollabState: () => 'draining' };
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => true, isWritableOrDegraded: () => 'spool-unwritable' as const, getCollabState: () => 'draining', isPgBreakerOpen: () => false };
     const r = await build({ gateway: gw }).svc.getReady();
     expect(r.body.reason).toBe('draining');
   });
@@ -70,12 +81,12 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.body.reason).toBe('lease-error');
   });
   it('lease-lost：collabState isolated（W12 主导——非 lease.diag 兜底）', async () => {
-    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'isolated' };
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'isolated', isPgBreakerOpen: () => false };
     const r = await build({ diag: { state: 'held', owner: 'me', holder: 'me', epoch: '1', renewedAt: new Date(), statementFailed: false }, gateway: gw }).svc.getReady();
     expect(r.body.reason).toBe('lease-lost');
   });
   it('not-serving：lease held ∧ start-failed/starting（start-failed 不再伪装 lease-not-acquired——W12）', async () => {
-    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'start-failed' };
+    const gw = { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'start-failed', isPgBreakerOpen: () => false };
     const r = await build({ diag: { state: 'held', owner: 'me', holder: 'me', epoch: '1', renewedAt: new Date(), statementFailed: false }, gateway: gw }).svc.getReady();
     expect(r.body.reason).toBe('not-serving');
   });
@@ -87,6 +98,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
       isShuttingDown: () => over.shutting ?? false,
       isWritableOrDegraded: () => (over.writable ?? 'ok') as 'ok',
       getCollabState: () => over.phase ?? 'serving',
+      isPgBreakerOpen: () => false,
     });
     const cases: Array<{ name: string; diag?: any; gw?: Parameters<typeof gw>[0]; expect: string | null }> = [
       { name: 'serving', diag: held, gw: {}, expect: null },
@@ -110,12 +122,12 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     }
   });
   it('holder 取证独立（禁入 reason）+revoked 行落 not-acquired 档（R8）', async () => {
-    const held = await build({ diag: { state: 'not-acquired', owner: null, holder: 'other-owner', epoch: '9', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring' } as any }).svc.getReady();
+    const held = await build({ diag: { state: 'not-acquired', owner: null, holder: 'other-owner', epoch: '9', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring', isPgBreakerOpen: () => false } as any }).svc.getReady();
     expect(held.body.reason).toBe('lease-held');
     expect(held.body.holder).toBe('other-owner');
   });
   it('epoch 恒 string+holderRenewedAgoMs 派生（BigInt 序列化坑）', async () => {
-    const r = await build({ diag: { state: 'not-acquired', owner: null, holder: 'x', epoch: '9223372036854775807', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring' } as any }).svc.getReady();
+    const r = await build({ diag: { state: 'not-acquired', owner: null, holder: 'x', epoch: '9223372036854775807', renewedAt: new Date(), statementFailed: false }, gateway: { computePending: () => ({ projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 }), computeDegraded: () => ({ ...DEGRADED_ZERO }), isShuttingDown: () => false, isWritableOrDegraded: () => 'ok' as const, getCollabState: () => 'acquiring', isPgBreakerOpen: () => false } as any }).svc.getReady();
     expect(() => JSON.stringify(r.body)).not.toThrow();
     expect(typeof r.body.epoch).toBe('string');
     expect(typeof r.body.holderRenewedAgoMs).toBe('number');
@@ -142,6 +154,7 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
       isShuttingDown: () => false,
       isWritableOrDegraded: () => 'ok' as const,
       getCollabState: () => 'serving',
+      isPgBreakerOpen: () => false,
     });
 
     it('dirtyDocs/oldestUnflushed 双给（at ISO+age 秒）/spoolDepthBytes/stuckDocs——base 单点四键齐', async () => {

@@ -89,10 +89,12 @@ describe('Y0b-3 T3 F-3：authenticate 权限判据单源 resolveWithTeam（表�
     expect(['PROJECT_OWNER', 'PROJECT_EDITOR', 'PROJECT_VIEWER']).toContain(ctx.user.role);
   });
 
-  it('VIEWER 连接置 readOnly（connectionConfig——库按它拒写更新，spec 1.2 语义维持）', async () => {
+  it('VIEWER 连接 readOnly（Y0b-5 T16：auth 期意图 freezeIntent=viewer——config 直写退役，connected 登记 writeFreeze 施加）', async () => {
     const { gateway } = buildGateway({ projectMember: 'PROJECT_VIEWER' });
     const config: any = { readOnly: false, isAuthenticated: false };
-    await gateway.hooks.onAuthenticate({ ...authPayload(), connectionConfig: config } as any);
-    expect(config.readOnly).toBe(true);
+    const ctx = (await gateway.hooks.onAuthenticate({ ...authPayload(), connectionConfig: config } as any)) as any;
+    expect(config.readOnly).toBe(false);   // 直写退役——writeFreeze 单源（census ⑪ 3→2）
+    expect(ctx.readOnly).toBe(true);
+    expect(ctx.freezeIntent).toBe('viewer');
   });
 });
