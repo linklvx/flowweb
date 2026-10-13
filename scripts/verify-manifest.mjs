@@ -34,7 +34,7 @@ export const VERIFY_STEPS = [
   { id: 'check-ecosystem', cmd: 'node scripts/check-ecosystem.mjs', db: false },
   { id: 'check-spec-consistency', cmd: 'node scripts/check-spec-consistency.mjs', db: false },
   { id: 'check-collab-census', cmd: 'node scripts/check-collab-census.mjs', db: false },
-  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-ecosystem.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-spec-consistency.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs', db: false },
+  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-ecosystem.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-spec-consistency.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs', db: false },
   { id: 'api-eslint', cmd: 'pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"', db: false },
 ];
 

@@ -5,16 +5,30 @@
 //   ②spool 存活窗（容量 256MB ÷ 增速 B/min——预阈值 50%/80% 的「还剩多久」换算依据）。
 // 帧延迟 p99=客户端观测（编辑方写时间戳 marker→观察方 update 回调测回显时延）。
 // 运行时依赖真实 api（默认 127.0.0.1:3000/3001——dev 或服务器）——CP-B 人工留档，不进 verify。
-// 用法：node scripts/collab-soak.mjs --docs 2 --clients 2 --rate 300 --duration 0.5
+// 用法（编辑压测，缺省模式）：node scripts/collab-soak.mjs --docs 2 --clients 2 --rate 300 --duration 0.5
+//
+// Y0c T0.5 扩展（Z121——一个装置四个消费者：T1 基线/A2 内存实测第一轮/D 第二轮/Z91 采样）：
+//   ①提取器=collab-soak-metrics.mjs sampleOne(url, role)（T0 setDefaultLabels({role:'api'}) 后
+//     原 `^name value$` 首匹配正则全体失配——入口条件实测 rss=0.0MB/docs=null/storeP99=n/a；
+//     多进程安全=按 role+labels 精确取值，双端点读取本身归 T29）；
+//   ②三场景（--scenario）：single=单节点执行链 / closepage=关页作业完成 / group20=20 节点组执行
+//     （执行链 fixture/stub/execute 形态=exec-smoke Y0b-5 T17 同族——哨兵 NodeType 零可见+零外呼）；
+//   ③COLLAB_SESSION_IDLE_TTL_MS pin（--ttl-pin 默认 120_000——Z107 判据 A 必带本轮 TTL 值；
+//     受控链=fail-closed 断言 .env 同源值+closepage 作业间隔由 TTL 驱动，非仅记录）；
+//   ④完整性巡检挂点（Z111——integrityProbe 占位，巡检逻辑归 A2）；
+//   ⑤机器可读 JSON（--json <file> 落盘或 stdout——结构供 T1 直接落档）。
 import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { sampleOne, metricsDelta } from './collab-soak-metrics.mjs';
 
 config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });   // apps/api/.env——collab-smoke B3′ 同序；不覆盖已设 env
 const here = fileURLToPath(import.meta.url);
 const req = createRequire(here);
 const { PrismaClient } = req('@prisma/client');
+const { CreditLedgerService } = req('../dist/modules/team/credit-ledger.service.js');   // dist=部署产物（exec-smoke 同源——余额播种经台账唯一写入口，ledger_guard 拦裸写）
 const WebSocket = req('ws');
 // yjs/provider 走 await import（collab-smoke yjs#438 同坑——doc↔provider 全 mjs 同侧）
 const Y = await import('yjs');
@@ -25,14 +39,22 @@ const WS_URL = process.env.COLLAB_WS_URL ?? 'ws://127.0.0.1:3001';
 const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
   || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
 const CSV = 2;   // CLIENT_PROTOCOL_VERSION（collab-smoke 同注——bump 时随改）
+const METRICS_URL = `${API}/metrics`;
 
 function parseArgs(argv) {
-  const out = { docs: 4, clients: 8, rate: 1000, duration: 5 };
+  const out = { docs: 4, clients: 8, rate: 1000, duration: 5, ttlPin: 120_000, jobs: 3 };
+  const STR_KEYS = new Set(['scenario', 'json']);   // 字符串值参数（其余数值——原校验语义不变）
   for (let i = 0; i < argv.length; i += 2) {
-    const k = argv[i], v = Number(argv[i + 1]);
-    if (!k.startsWith('--') || !Number.isFinite(v) || v <= 0) throw new Error(`坏参数：${k} ${argv[i + 1]}（用法 --docs N --clients M --rate ms --duration min）`);
-    out[k.slice(2)] = v;
+    const k = argv[i];
+    if (!k.startsWith('--')) throw new Error(`坏参数：${k}（用法 --docs N --clients M --rate ms --duration min --scenario single|closepage|group20 --jobs N --ttl-pin ms --json file）`);
+    const key = k.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());   // kebab→camel 归一（--ttl-pin→ttlPin）
+    if (STR_KEYS.has(key)) { out[key] = argv[i + 1]; continue; }
+    const v = Number(argv[i + 1]);
+    if (!Number.isFinite(v) || v <= 0) throw new Error(`坏参数：${k} ${argv[i + 1]}（数值参数须为正数）`);
+    out[key] = v;
   }
+  if (out.scenario && !['single', 'closepage', 'group20'].includes(out.scenario))
+    throw new Error(`坏参数：--scenario ${out.scenario}（词表=single|closepage|group20——缺省=编辑压测模式）`);
   return out;
 }
 const OPTS = parseArgs(process.argv.slice(2));
@@ -42,17 +64,41 @@ class HeaderWs extends WebSocket {
   constructor(url, headers) { super(url, { headers }); }
 }
 
-/** /metrics 最小提取（soak 观测面：process 族+loaded docs+spool+store 直方图桶） */
-async function sampleMetrics() {
+/** metrics 采样统一入口（含 PROMETHEUS_TOKEN header 组装——两模式共用） */
+function sample() {
   const headers = process.env.PROMETHEUS_TOKEN ? { 'x-prometheus-token': process.env.PROMETHEUS_TOKEN } : {};
-  const text = await fetch(`${API}/metrics`, { headers }).then((r) => {
-    if (!r.ok) throw new Error(`/metrics ${r.status}`);
-    return r.text();
-  });
-  const num = (name) => { const m = text.match(new RegExp(`^${name} ([0-9.eE+-]+)$`, 'm')); return m ? Number(m[1]) : null; };
-  const buckets = {};
-  for (const m of text.matchAll(/^yjs_store_duration_seconds_bucket\{le="([0-9.eE+-]+)"\} ([0-9.eE+-]+)$/gm)) buckets[m[1]] = Number(m[2]);
-  return { rss: num('process_resident_memory_bytes'), heap: num('nodejs_heap_size_used_bytes'), docs: num('yjs_loaded_documents'), spoolBytes: num('yjs_spool_depth_bytes'), buckets };
+  return sampleOne(METRICS_URL, 'api', headers);
+}
+
+/** COLLAB_SESSION_IDLE_TTL_MS pin（Z107/P9——A2 判据 A 必带本轮 TTL 值，装置保证跑数时 TTL 受控）。
+ *  受控链：装置与 api 同机同读 apps/api/.env（dotenv 同源）→ fail-closed 断言 .env 生效值
+ *  （缺省=使用点默认 120_000——Z107 定标）与 --ttl-pin 一致；closepage 场景作业间隔由 pin 值驱动
+ *  （N 连续作业全部落在 TTL 窗内=判据 A 前提）。边界如实登记：api 由 shell 显式注入该 env 时
+ *  dotenv 不覆盖已设值、本断言不可见——跑数前须确认无 shell 覆盖（JSON ttlSource 注记）。 */
+function pinTtl() {
+  const raw = process.env.COLLAB_SESSION_IDLE_TTL_MS;
+  const effective = raw !== undefined && raw !== '' ? Number(raw) : 120_000;
+  if (effective !== OPTS.ttlPin)
+    throw new Error(`TTL pin 断言失败：.env 生效值 ${effective} ≠ --ttl-pin ${OPTS.ttlPin}——对齐 apps/api/.env（改动后 api 须重启）或 --ttl-pin`);
+  return { ttlPinnedMs: effective, ttlSource: raw !== undefined && raw !== '' ? 'env' : 'default' };
+}
+
+/** Z111 完整性巡检挂点——TODO(A2)：常驻 doc 抽样 PG 重放对拍 SV（本任务只留挂点，巡检逻辑归 A2/T22 首轮）。
+ *  A2 接线形态（届时替换本占位）：抽 ctx.projectIds 的 CanvasDoc/CanvasDocUpdate 行 →
+ *  Y.applyUpdate 全重放 → encodeStateVector 对拍——漂移即完整性破（计数+结构化输出）。 */
+async function integrityProbe(/* ctx: { projectIds, prisma } */) {
+  return { implemented: false };   // 占位返回——JSON 结构稳定，A2 实装后替换
+}
+
+/** 机器可读 JSON 输出（T1 落档消费）：--json <file> 落盘或 stdout 尾块 */
+function outputJson(obj) {
+  const text = JSON.stringify(obj, null, 2);
+  if (OPTS.json) {
+    writeFileSync(OPTS.json, `${text}\n`);
+    console.log(`[soak] JSON 已落盘：${OPTS.json}`);
+  } else {
+    console.log(`\n[soak-json]\n${text}`);
+  }
 }
 
 /** 窗口 p99（桶累计差——base 为基线样本；total=0 → null） */
@@ -70,6 +116,13 @@ function bucketP99(buckets, base) {
 
 const fmtMs = (v) => (v === null || v === undefined ? 'n/a' : v === Infinity ? '>10s' : `${v}ms`);
 
+async function readyAssert() {
+  const ready = await fetch(`${API}/api/ready`).then((x) => x.json()).catch(() => null);
+  if (!ready?.ready) throw new Error(`前置断言失败：/api/ready ready=${ready?.ready} reason=${ready?.reason}——先起服务再 soak`);
+}
+
+// ═══════════ 缺省模式：编辑压测（原 T15 装置逻辑原样——观测面改经提取器） ═══════════
+
 const ts = Date.now();
 // 每 client 独立 user/member/session（真实场景=每用户单连接；共用单 token 时拒绝缓存以 token 指纹为键——
 // 一连接被 semaphore 拒（COLLAB_AUTH_INFLIGHT_MAX=4）即全员 15s 内同拒，M≥5 必「恰 4 auth」失败）
@@ -81,11 +134,7 @@ const S = {
 };
 const projectIds = Array.from({ length: OPTS.docs }, (_, i) => `soak-p-${ts}-${i}`);
 
-async function main() {
-  // 前置断言（collab-smoke 同款）：ready 才测——非服务态下编辑会被拒，测出的不是容量而是降级
-  const ready = await fetch(`${API}/api/ready`).then((x) => x.json()).catch(() => null);
-  if (!ready?.ready) throw new Error(`前置断言失败：/api/ready ready=${ready?.ready} reason=${ready?.reason}——先起服务再 soak`);
-
+async function runSoak() {
   const prisma = new PrismaClient();
   const providers = [];
   const editTimers = [];
@@ -142,17 +191,17 @@ async function main() {
 
     // 采样列：t/rss/heap/docs/spool/storeP99(窗口)/frameP99(累计)
     const t0 = Date.now();
-    const baseline = await sampleMetrics();
+    const baseline = await sample();
     samples.push({ t: 0, ...baseline });
     const endAt = t0 + OPTS.duration * 60_000;
     while (Date.now() < endAt - 1_000) {
       await sleep(Math.min(30_000, Math.max(1, endAt - Date.now())));
-      const s = await sampleMetrics();
+      const s = await sample();
       samples.push({ t: Math.round((Date.now() - t0) / 1000), ...s });
       const frameP99 = frameLatencies.length ? frameLatencies.slice().sort((a, b) => a - b)[Math.floor(0.99 * (frameLatencies.length - 1))] : null;
       console.log(`[soak] sample#${samples.length - 1} rss=${(s.rss / 1048576).toFixed(1)}MB heap=${(s.heap / 1048576).toFixed(1)}MB docs=${s.docs} spool=${s.spoolBytes}B storeP99=${fmtMs(bucketP99(s.buckets, baseline))} frameP99=${fmtMs(frameP99)}`);
     }
-    const finalS = await sampleMetrics();
+    const finalS = await sample();
     samples.push({ t: Math.round(OPTS.duration * 60), ...finalS });
 
     // ===== 汇总+两张 runbook 数 =====
@@ -169,6 +218,13 @@ async function main() {
     console.log(`[soak] runbook 数①并发容量上限：${noKnee ? `本档 ${OPTS.docs} docs × ${OPTS.clients} conns 无拐点（storeP99≤1s）→ 容量上限 ≥ ${OPTS.docs}×${OPTS.clients}（单档下界——正式档多档跑归 T18）` : `本档见拐点（storeP99>1s）——容量上限 < ${OPTS.docs}×${OPTS.clients}`}`);
     const cap = Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) > 0 ? Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) : 256 * 1024 * 1024;
     console.log(`[soak] runbook 数②spool 存活窗：${spoolGrowth > 0 ? `增速 ${spoolGrowth.toFixed(1)}B/min → 容量 ${cap / 1048576}MB ÷ 增速 ≈ ${(cap / spoolGrowth).toFixed(0)}min 到满仓（50%/80% 预阈值=该窗的 1/2 与 4/5）` : 'spool 零增长——存活窗不构成约束（正常态：PG 通则 store 落库不滞留）'}`);
+    outputJson({
+      harness: 'collab-soak', mode: 'soak', ts: new Date().toISOString(), api: API,
+      docs: OPTS.docs, clients: OPTS.clients, rateMs: OPTS.rate, durationMin: OPTS.duration,
+      counts: { edits, connErrors }, frameP99, storeP99,
+      maxRssBytes: maxRss, maxHeapBytes: maxHeap, maxLoadedDocs: maxDocs, spoolGrowthPerMin: spoolGrowth,
+      samples,
+    });
   } finally {
     for (const t of editTimers) clearInterval(t);
     for (const p of providers) { try { p.destroy(); } catch (e) { warnings.push(`provider destroy 异常: ${e.message}`); } }
@@ -183,6 +239,182 @@ async function main() {
     await prisma.$disconnect();
     for (const w of warnings) console.error(`SOAK-WARN: ${w}`);   // finally 内输出——main 中途 throw 时清理期告警也可见
   }
+}
+
+// ═══════════ 三场景装置（--scenario——执行链 fixture/stub/execute=exec-smoke T17 同族精简） ═══════════
+// 场景哨兵独立前缀 soak-sc-（与编辑压测 soak- 与 exec-smoke smoke-y0b5- 互不交叉）。
+// SCEN 场景级状态在 runScenario 内组装；本节只放共用件。
+
+const NT_KEY = 'soak:y0c:text';   // 哨兵 NodeType key（用户面选择器按已知 key 查询——永不被查，exec-smoke 同形态）
+const SCEN = {
+  user: `soak-sc-u-${ts}`, team: `soak-sc-t-${ts}`, member: `soak-sc-m-${ts}`,
+  session: `soak-sc-s-${ts}`, token: `soak-sc-tok-${randomUUID()}`,
+  nt: `soak-sc-nt-${ts}`, model: `soak-sc-model-${ts}`, rule: `soak-sc-rule-${ts}`,
+};
+
+async function startStub() {
+  const { createServer } = await import('node:http');
+  const srv = createServer((rq, rs) => {
+    const chunks = [];
+    rq.on('data', (c) => chunks.push(c));
+    rq.on('end', () => {
+      rs.writeHead(200, { 'content-type': 'application/json' });
+      rs.end(JSON.stringify({ choices: [{ message: { content: 'soak-sc-ok' } }] }));
+    });
+  });
+  await new Promise((res) => srv.listen(0, '127.0.0.1', res));
+  return { port: srv.address().port, close: () => new Promise((res) => srv.close(res)) };
+}
+
+/** 场景哨兵清理（前缀谓词——幂等；台账/团队删须 ledger_guard 通行证，exec-smoke 同款） */
+async function purgeScenSentinels(prisma, ledger) {
+  await prisma.generationIntent.deleteMany({ where: { teamId: SCEN.team } }).catch(() => {});
+  await prisma.session.deleteMany({ where: { userId: SCEN.user } }).catch(() => {});
+  await prisma.teamMember.deleteMany({ where: { id: SCEN.member } }).catch(() => {});
+  await prisma.canvasProject.deleteMany({ where: { id: { startsWith: 'soak-sc-p-' } } }).catch(() => {});
+  await ledger.runInTx(async (tx) => {
+    await tx.teamCreditTransaction.deleteMany({ where: { teamId: SCEN.team } });
+    await tx.team.deleteMany({ where: { id: SCEN.team } });
+  }).catch(() => {});
+  await prisma.user.deleteMany({ where: { id: SCEN.user } }).catch(() => {});
+  await prisma.nodeType.deleteMany({ where: { key: NT_KEY } }).catch(() => {});
+}
+
+/** 场景 fixture（exec-smoke 形态：哨兵 NodeType 零可见+stub 模型零外呼+cost:0 零台账行）
+ *  +WS 播种 nNodes 个 textInput 节点，返回 { provider, project, nodeIds, sv }。
+ *  baseline 采样时机由调用方定（synced+落地窗后=观测窗自 execute 起）。 */
+async function seedScenario(prisma, ledger, stubPort, nNodes) {
+  const project = `soak-sc-p-${ts}`;
+  await prisma.user.create({ data: { id: SCEN.user, name: `soak-sc-${ts}`, email: `soak-sc-${ts}@example.invalid`, emailVerified: false } });
+  await prisma.team.create({ data: { id: SCEN.team, name: `soak-sc-${ts}`, ownerId: SCEN.user } });
+  await prisma.teamMember.create({ data: { id: SCEN.member, teamId: SCEN.team, userId: SCEN.user, role: 'MEMBER' } });
+  await prisma.canvasProject.create({ data: { id: project, name: `soak-sc-${ts}`, teamId: SCEN.team } });
+  await prisma.session.create({ data: { id: SCEN.session, userId: SCEN.user, token: SCEN.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
+  await ledger.runInTx(async (tx) => {
+    await ledger.ensureBalance(tx, SCEN.team);
+    await ledger.mutate(tx, { teamId: SCEN.team, operatorUserId: SCEN.user, type: 'register_grant', creditType: 'regular', balanceDelta: 10, frozenDelta: 0, referenceId: `register:${SCEN.team}` });
+  });
+  await prisma.nodeType.create({ data: { id: SCEN.nt, key: NT_KEY, name: `soak-sc 哨兵（用户面不可见）${ts}` } });
+  await prisma.aIModel.create({ data: { id: SCEN.model, nodeTypeId: SCEN.nt, name: `soak-sc ${ts}`, provider: 'moonshot', apiUrl: `http://127.0.0.1:${stubPort}`, apiKey: 'smoke-dummy', apiModelName: `soak-sc-ok-${ts}`, active: true } });
+  await prisma.pricingRule.create({ data: { id: SCEN.rule, nodeTypeId: SCEN.nt, modelId: SCEN.model, creditCost: 0, active: true } });
+
+  const provider = new HocuspocusProvider({
+    url: `${WS_URL}?csv=${CSV}&cb=soak-sc`, name: `project:${project}`, document: new Y.Doc(),
+    WebSocketPolyfill: class extends HeaderWs {
+      constructor(url) { super(url, { origin: WS_ORIGIN, cookie: `flowweb.session_token=${SCEN.token}` }); }
+    },
+  });
+  await new Promise((res, rej) => {
+    const t = setTimeout(() => { provider.destroy(); rej(new Error('场景 provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')); }, 10_000);
+    provider.on('synced', () => { clearTimeout(t); res(); });
+  });
+  const nodeIds = Array.from({ length: nNodes }, (_, i) => `soak-sc-node-${i}`);
+  provider.document.transact(() => {
+    for (const nodeId of nodeIds) {
+      const data = new Y.Map();
+      data.set('model', SCEN.model);
+      data.set('content', `soak-sc ${nodeId}`);
+      const m = new Y.Map();
+      m.set('type', 'textInput');
+      m.set('data', data);
+      provider.document.getMap('nodes').set(nodeId, m);
+    }
+  });
+  await sleep(1_500);   // 客户端 update → 服务端落地窗（SV 门失败自动重试兜底，exec-smoke 同注）
+  const sv = Buffer.from(Y.encodeStateVector(provider.document)).toString('base64');
+  return { provider, project, nodeIds, sv };
+}
+
+/** 执行调用（exec-smoke 同款：SYNC_PENDING 409 重试 5 次——TransformInterceptor 信封 {code:0,data}） */
+async function executeNodes(project, nodeIds, sv) {
+  for (let i = 0; i < 5; i++) {
+    let res;
+    try {
+      res = await fetch(`${API}/api/execution/execute`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: WS_ORIGIN, cookie: `flowweb.session_token=${SCEN.token}` },
+        body: JSON.stringify({ projectId: project, nodeIds, stateVector: sv }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (e) {
+      throw new Error(`execute API 不可达（dev watch 重启窗/未启动）: ${e instanceof Error ? e.message : e}`);
+    }
+    if (res.status === 409) { await sleep(500); continue; }
+    if (!(res.status >= 200 && res.status < 300)) throw new Error(`execute HTTP ${res.status}: ${await res.text().catch(() => '')}`);
+    const j = await res.json();
+    return j?.data ?? j;
+  }
+  throw new Error('execute 重试 5 次仍 SYNC_PENDING');
+}
+
+// ═══════════ 三场景 runner（Z121：T1 基线落档载体——load/store/withdoc 计数与直方图窗口差） ═══════════
+
+async function runScenario(name) {
+  const ttl = pinTtl();   // fail-closed：.env 生效值≠--ttl-pin 即拒跑（装置跑数时 TTL 受控，非仅记录）
+  const prisma = new PrismaClient();
+  const ledger = new CreditLedgerService(prisma);
+  const stub = await startStub();
+  let provider = null;
+  try {
+    await purgeScenSentinels(prisma, ledger);   // 幂等预扫（上次运行崩溃残留不永久污染）
+    const nNodes = name === 'group20' ? 20 : 1;
+    const seeded = await seedScenario(prisma, ledger, stub.port, nNodes);
+    provider = seeded.provider;
+    // baseline 采点=播种落地后（观测窗自 execute 面起算——播种 WS 装载的 load{ws} 不入窗）
+    const baseline = await sample();
+    console.log(`[soak-sc] scenario=${name} project=${seeded.project} nodes=${nNodes} ttlPinnedMs=${ttl.ttlPinnedMs}(${ttl.ttlSource})`);
+    let jobs = 0;
+    const t0 = Date.now();
+    if (name === 'closepage') {
+      provider.destroy(); provider = null;   // 关页——零连接；后续作业全走 REST 直连（withDoc 装载/落库路径）
+      await sleep(3_000);   // 断连收尾+卸载窗（关页 flush 落定——读数如实记录本窗形态）
+      // 作业间隔由 TTL 驱动：clamp(TTL/10, 2s, TTL/2)——N 作业全部落在 TTL 窗内（Z107 判据 A 前提）
+      const gap = Math.min(Math.max(2_000, ttl.ttlPinnedMs / 10), ttl.ttlPinnedMs / 2);
+      for (let i = 0; i < OPTS.jobs; i++) {
+        if (i > 0) await sleep(gap);
+        const r = await executeNodes(seeded.project, [seeded.nodeIds[0]], seeded.sv);
+        if (r.success !== true) throw new Error(`closepage 作业#${i} 应成功：${JSON.stringify(r.errors ?? r)}`);
+        jobs += 1;
+        console.log(`[soak-sc] closepage 作业#${i} OK（elapsed=${Date.now() - t0}ms gap=${gap}ms）`);
+      }
+    } else {
+      const ids = name === 'group20' ? seeded.nodeIds : [seeded.nodeIds[0]];
+      const r = await executeNodes(seeded.project, ids, seeded.sv);
+      if (r.success !== true) throw new Error(`场景执行应成功：${JSON.stringify(r.errors ?? r)}`);
+      jobs = ids.length;
+      console.log(`[soak-sc] execute OK：${ids.length} 节点 totalCost=${r.totalCost}（${Date.now() - t0}ms）`);
+    }
+    await sleep(2_000);   // 末端投影/store 落定静置窗——final 采样前
+    const final = await sample();
+    const delta = metricsDelta(baseline, final);
+    const probe = await integrityProbe({ projectIds: [seeded.project], prisma });
+    const fmt = (o) => Object.entries(o).map(([k, v]) => `${k}:${v >= 0 ? '+' : ''}${v}`).join(',');
+    console.log(`[soak-sc] 窗口 delta：docLoad{${fmt(delta.docLoad)}} store{${fmt(delta.storeTotal)}} withdoc{count:${delta.withdoc.count} sum:${delta.withdoc.sum.toFixed(3)}} withdocOpen{count:${delta.withdocOpen.count} sum:${delta.withdocOpen.sum.toFixed(3)}}`);
+    outputJson({
+      harness: 'collab-soak', mode: 'scenario', scenario: name,
+      ts: new Date().toISOString(), api: API,
+      project: seeded.project, nodes: nNodes, jobs,
+      ...ttl,
+      metrics: { baseline, final, delta },
+      integrityProbe: probe,
+    });
+  } finally {
+    if (provider) { try { provider.destroy(); } catch { /* 已闭——同步 void */ } }
+    await sleep(1_500);   // 服务端卸载 flush 窗（收尾写落 PG 后再删——防孤儿行复活，exec-smoke 同注）
+    const warnings = [];
+    await purgeScenSentinels(prisma, ledger).catch((e) => warnings.push(`场景哨兵清理失败（残留待人工删）: ${e.message}`));
+    await prisma.$disconnect();
+    await stub.close();
+    for (const w of warnings) console.error(`SOAK-WARN: ${w}`);
+  }
+}
+
+// ═══════════ 入口分派 ═══════════
+
+async function main() {
+  await readyAssert();
+  if (OPTS.scenario) await runScenario(OPTS.scenario);
+  else await runSoak();
 }
 
 void main().catch((e) => { console.error(`soak FAIL: ${e instanceof Error ? e.message : e}`); process.exitCode = 1; });
