@@ -1,5 +1,6 @@
 import { Counter, Histogram, register } from 'prom-client';
 import { ServiceUnavailableException } from '@nestjs/common';
+import { COLLAB_AUTH_REASONS } from '@flowweb/shared';
 
 /** Y0b-2 T2 新指标单文件（Z85/Z108）——spec §10 metric-names 块同 commit 同步
  *  （check-spec-consistency 双向核：code 集合 ≡ spec fenced 块）。
@@ -104,10 +105,15 @@ export const collabExecProjectionFailedTotal = new Counter({
   registers: [register],
 });
 
-/** 失败分类（label 有界纪律——err.reason 取词表原值；空串/缺失折 not-serving（503 SUE）/other） */
+/** reason 词表白名单（COLLAB_AUTH_REASONS 14 值闭集）——非词表 reason 一律折 other，原始值只进日志 */
+const EXEC_PROJECTION_REASON_WHITELIST: ReadonlySet<string> = new Set<string>(COLLAB_AUTH_REASONS);
+
+/** 失败分类（label 有界纪律——err.reason 经白名单校验，非词表值（动态错误形态）折 other 不直透
+ *  label（故障期恰是本指标流量尖峰，防无界 label 基数）；诊断信息归日志——load 路径
+ *  captureCollabException 分工先例。空串/缺失 reason 的 503 SUE 折 not-serving） */
 export function classifyExecProjectionFailure(err: unknown): string {
   const reason = (err as { reason?: unknown } | null | undefined)?.reason;
-  if (typeof reason === 'string' && reason.length > 0) return reason;
+  if (typeof reason === 'string' && EXEC_PROJECTION_REASON_WHITELIST.has(reason)) return reason;
   if (err instanceof ServiceUnavailableException) return 'not-serving';
   return 'other';
 }

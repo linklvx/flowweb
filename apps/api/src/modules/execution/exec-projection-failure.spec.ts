@@ -29,6 +29,12 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
     expect(classifyExecProjectionFailure(undefined)).toBe('other');
   });
 
+  it('classify：reason 经 COLLAB_AUTH_REASONS 14 值闭集白名单——非词表 reason（动态错误形态）折 other 不直透 label', () => {
+    expect(classifyExecProjectionFailure(Object.assign(new Error('x'), { reason: 'lease-vacuum-xyz' }))).toBe('other');
+    expect(classifyExecProjectionFailure(Object.assign(new Error('x'), { reason: 'pool exhausted @host:5432' }))).toBe('other');
+    expect(classifyExecProjectionFailure(Object.assign(new Error('x'), { reason: 'invalid-doc-name' }))).toBe('invalid-doc-name');   // 词表值照常直透（闭集抽验）
+  });
+
   it('execution.service onReserveFail：writeExecStatus reject 被 .catch 吞且计数+1（cause=not-serving——503 SUE），void_/emit 不受影响', async () => {
     const void_ = vi.fn().mockResolvedValue(undefined);
     const emitNodeStatus = vi.fn();

@@ -147,8 +147,8 @@ describe('Y0c T0：load/store trigger 归因', () => {
     expect(dDirect).toBe(1);
     const dAfter = await labeledCounterDelta('yjs_doc_load_total', { trigger: 'ws' }, () => loadDoc(gateway, 'p2'));   // 标记已消费→回 ws
     expect(dAfter).toBe(1);
-    await labeledCounterDelta('yjs_doc_load_total', { trigger: 'direct' }, () => loadDoc(gateway, 'p2'));
-    expect(await labeledCounterDelta('yjs_doc_load_total', { trigger: 'direct' }, () => Promise.resolve())).toBe(0);   // 零残留
+    const dNoResidual = await labeledCounterDelta('yjs_doc_load_total', { trigger: 'direct' }, () => loadDoc(gateway, 'p2'));   // 标记已消费→未标记装载归 ws 不得归 direct
+    expect(dNoResidual).toBe(0);   // 零残留——一次性消费语义锁死
   });
 
   it('yjs_store_total：hooks 路径=debounce/显式 trigger 参透传=retry；noop 早退不计', async () => {
@@ -168,7 +168,7 @@ describe('Y0c T0：load/store trigger 归因', () => {
     expect(dRetry).toBe(1);
 
     // noop 早退：带戳装载（stamp 不入队）+空 spool → 取批零帧
-    const noopDoc = await loadDoc(gateway, 'p6');   // stamped——stamp update 在 replay 抑制窗不入队? 装载后队列空
+    const noopDoc = await loadDoc(gateway, 'p6');   // stamped——stamp update 在 replay 抑制窗不入队，装载后队列空
     const dNoop = await labeledCounterDelta('yjs_store_total', { trigger: 'debounce' }, () =>
       (gateway as any).storeDocumentUnlocked({ document: noopDoc, documentName: 'project:p6' }, 'debounce'));
     expect(dNoop).toBe(0);

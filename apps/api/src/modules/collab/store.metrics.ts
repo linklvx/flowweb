@@ -800,7 +800,9 @@ export const yjsDocLoadTotal = new Counter({
 
 /** 直连开窗标记（模块级 Set——awarenessReader reader 同文件状态先例；gateway 与 doc service 双向
  *  不互 import，经本单源横贯即免 mock gateway 形态漂移）。标记=withDoc open await 窗；
- *  装载命中即消费（一次性），未装载（doc 常驻/open 失败）由 withDoc finally 消费清残留。 */
+ *  装载命中即消费（一次性），未装载（doc 常驻/open 失败）由 withDoc finally 消费清残留。
+ *  并发语义：WS 物化与 withDoc open 窗重叠时，单次装载的一次性消费整体归其中一个触发方
+ *  （标记只被消费一次，另一方计 ws——装载计数总量不变，纯归因级噪声，Z107 判据 A 场景不受影响）。 */
 const directLoadHints = new Set<string>();
 export function noteDirectLoad(projectId: string): void { directLoadHints.add(projectId); }
 export function consumeDirectLoad(projectId: string): boolean { return directLoadHints.delete(projectId); }

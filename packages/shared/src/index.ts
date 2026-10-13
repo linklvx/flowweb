@@ -6,7 +6,7 @@ export * from './types/angle3d.types';
 export * from './types/subscription.types';
 export { SubscriptionError } from './constants/subscription-error';
 export type { SubscriptionErrorCode } from './constants/subscription-error';
-export { CollabAuthReason, isTerminalReason, COLLAB_VERSION_TERMINAL_REASONS } from './constants/collab-auth-reason';
+export { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS, COLLAB_VERSION_TERMINAL_REASONS } from './constants/collab-auth-reason';
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 // Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
 export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON } from './constants/collab-close-code';
