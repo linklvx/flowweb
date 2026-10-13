@@ -248,9 +248,23 @@
     },
     {
       "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
-      "line": 465,
+      "line": 487,
       "symbol": "utils/intentRecord.ts",
-      "reason": "Y0b 设计决策历史依据（v2.4 §runId 未决窗口制引旧范式为对照——旧文件 T6 已删，现行=regenToken 协议）",
+      "reason": "Y0b 设计决策历史依据（v2.4 §runId 未决窗口制引旧范式为对照——旧文件 T6 已删，现行=regenToken 协议；v2.9 §0.4d 插入后行号 465→487 平移）",
+      "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
+      "line": 43,
+      "symbol": "profile/projection.ts",
+      "reason": "裁定 23⑳ 驳回清单历史记录（projection.ts 拆分=登记后续批次未实现——T18 出口随 plan 晋升 canonical 首次入检）",
+      "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
+      "line": 866,
+      "symbol": "apps/api/scripts/tmp-pricing-probe.mjs",
+      "reason": "T18 Step 5 清理目标的历史记录性提及（未跟踪探针已删——清理动作留痕，文件本身从未入库）",
       "expires_at": "2027-01-06"
     },
     {
