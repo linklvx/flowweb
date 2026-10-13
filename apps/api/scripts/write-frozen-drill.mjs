@@ -309,8 +309,12 @@ async function frozenChainMode(env) {
     await Promise.all([A2.synced, B2.synced]);
     for (const c of [A2, B2]) {
       const m = (await firstStatus(c, () => true, 5_000, `⑤${c.tag} 首快照`)).msg;
-      if (JSON.stringify(m) !== JSON.stringify(authoritative))
-        fail(`断言B：${c.tag} 首快照 ≠ 服务端权威值\n  got ${JSON.stringify(m)}\n  exp ${JSON.stringify(authoritative)}`);
+      // T11：首快照走 per-conn 推送面——带各自顶层 connectionId（权威快照=per-doc 广播面无此字段），
+      // 剥离后逐字段比对（比对语义不变）；类型校验=per-conn 回传字段存在性
+      const { connectionId, ...shared } = m;
+      if (typeof connectionId !== 'string') fail(`断言B：${c.tag} 首快照缺 connectionId（T11 per-conn 回传）——got ${JSON.stringify(m)}`);
+      if (JSON.stringify(shared) !== JSON.stringify(authoritative))
+        fail(`断言B：${c.tag} 首快照 ≠ 服务端权威值\n  got ${JSON.stringify(shared)}\n  exp ${JSON.stringify(authoritative)}`);
       if (!c.connStatusLog.some((x) => x.msg.readOnly === true)) fail(`断言B：${c.tag} 未收 conn-status readOnly=true（冻结期加入）`);
     }
 

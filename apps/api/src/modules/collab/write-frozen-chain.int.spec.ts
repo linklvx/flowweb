@@ -108,7 +108,9 @@ describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→�
       await Promise.all([a2.synced, b2.synced]);
       for (const cc of [a2, b2]) {
         await pollUntil(() => cc.status.length > 0, 5_000);
-        expect(cc.status[0]).toEqual(authoritative);
+        // T11：重连首快照走 per-conn 推送面——多出顶层 connectionId（各自 WS 连接标识），
+        // 权威快照（per-doc 广播面）无此字段——toEqual 补 expect.any(String) 对齐（逐字段重放语义不变）
+        expect(cc.status[0]).toEqual({ ...authoritative, connectionId: expect.any(String) });
         expect(cc.connStatus.some((x) => x.readOnly === true)).toBe(true);   // 冻结期加入
       }
       // ⑥ 断言C：shrink 成功（thawed=false=GC 延迟清洗既知机制态）→ recheck 重测驱动解除 →
