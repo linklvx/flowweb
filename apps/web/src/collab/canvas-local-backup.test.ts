@@ -93,6 +93,22 @@ describe('Y0b-5 T6：applyLocalBackup——导入核（裁定 25⑷）', () => {
     expect(doc.getMap('nodes').get('n-3')).toBeDefined();      // 已回灌（可回灌=导出双产物存在的意义）
     expect(provider.forceSync).toHaveBeenCalledTimes(1);
   });
+  it('T18 ㉗：编码后 ~2MB 备份导入成功（上限判据=文档预算的证明——2MB<8MB maxDocBytes 恒过闸；文本 content 撑尺寸）', () => {
+    const filler = 'x'.repeat(10 * 1024);                      // 10KB 文本/节点——Yjs 编码文本高效（几 KB 源文本×N 节点）
+    const src = new Y.Doc();
+    src.transact(() => {
+      for (let i = 0; i < 210; i++) src.getMap('nodes').set(`n-${i}`, new Y.Map([['id', `n-${i}`], ['content', filler]]));
+    });
+    const bin = Y.encodeStateAsUpdate(src);
+    expect(bin.byteLength).toBeGreaterThanOrEqual(2 * 1024 * 1024);        // 构造判据：编码后确 ≥2MB
+    expect(bin.byteLength).toBeLessThanOrEqual(LOCAL_BACKUP_MAX_BYTES);   // 2MB<8MB——恒过 over-limit 闸
+    const doc = new Y.Doc();
+    const provider = makeProvider();
+    const r = applyLocalBackup(bin, { doc, provider });
+    expect(r.ok).toBe(true);
+    expect(doc.getMap('nodes').size).toBe(210);                 // 全量回灌（不因尺寸截断/分批）
+    expect(provider.forceSync).toHaveBeenCalledTimes(1);        // 上行走 SS2 差分单发（收敛语义同上用例——supervisor 全局承接）
+  });
   it('origin=provider 语义锚：applyUpdate 第三参传 provider 实例——documentUpdateHandler esm:762 if(origin===this) return 抑制整 bin Update 帧回发（512KB 闸拒绝 3MB 备份=导出 8MB/导入 512KB 不对称的逃生断点）', () => {
     // 静态形态锁：实现必须以 provider 为 origin（防回退为默认 null=整帧上送）。
     // vitest jsdom 的 import.meta.url 非 file scheme——cwd=包根（vitest 约定）拼相对路径。

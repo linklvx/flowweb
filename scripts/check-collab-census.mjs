@@ -6,6 +6,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// ⑬detail 白名单锚单源：schema 从 shared dist 导入（TS 源不可直接 import .ts——verify 链
+// shared-build 步在前，dist 恒新；standalone 跑依赖 dist 已构建——与 check-shared-dist 同前提）。
+import { TELEMETRY_DETAIL_SCHEMA } from '../packages/shared/dist/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -84,6 +87,106 @@ export function classifyConsumeCall(line) {
   if (!m) return null;
   const args = m[1].split(',').map((s) => s.trim()).filter(Boolean);
   return args.length >= 2 ? null : '省参 cost（生产调用必须显式 `, 1`/按量——禁默认参形态）';
+}
+
+/** ⑬recordCollabDiag/recordRingOnlyCollabDiag 调用点静态提取（组⑬ detail 白名单锚输入面）。
+ *  raw 源扫描——type 与 detail 值均字符串字面量，stripCommentsAndStrings 会结构性剥掉（组⑦同则）；
+ *  行首注释行/定义行（function recordCollabDiag(）排除；import 语句无 `(` 天然不命中。
+ *  返回 { channel: 'batch'|'ring-only', type, keys, literals, line, problem }——
+ *  keys=对象首层键（花括号深度 1）；简写键按变量名解析（裁定 25⑵）；展开（…）problem 报红禁入；
+ *  literals=值表达式内全部字符串字面量（三元两支等静态可比面；动态值归运行时 sanitize 单源）。 */
+export function extractDiagCalls(src) {
+  const calls = [];
+  const re = /\brecord(?:CollabDiag|RingOnlyCollabDiag)\s*\(/g;
+  let m;
+  while ((m = re.exec(src))) {
+    if (/function\s+$/.test(src.slice(Math.max(0, m.index - 16), m.index))) continue;
+    const lineStart = src.lastIndexOf('\n', m.index) + 1;
+    const lineEnd = src.indexOf('\n', m.index);
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(src.slice(lineStart, lineEnd === -1 ? src.length : lineEnd))) continue;
+    const entry = {
+      channel: m[0].startsWith('recordRingOnly') ? 'ring-only' : 'batch',
+      type: null,
+      keys: [],
+      literals: {},
+      line: src.slice(0, m.index).split('\n').length,
+      problem: null,
+    };
+    let i = m.index + m[0].length;
+    const ws = () => { while (i < src.length && /\s/.test(src[i])) i += 1; };
+    /** 值表达式扫描：跨到首层 `,`/`}`（嵌套 ()[]{ } 计深；字符串字面量整体跳过并可选收集；模板串跳过不收集） */
+    const skipValue = (lits) => {
+      let d = 0;
+      while (i < src.length) {
+        const c = src[i];
+        if (c === "'" || c === '"' || c === '`') {
+          const end = src.indexOf(c, i + 1);
+          if (end === -1) { i = src.length; return; }
+          if (lits && c !== '`') lits.push(src.slice(i + 1, end));
+          i = end + 1;
+          continue;
+        }
+        if (c === '(' || c === '[' || c === '{') { d += 1; i += 1; continue; }
+        if (c === ')' || c === ']') { d -= 1; i += 1; continue; }
+        if (c === '}') { if (d === 0) return; d -= 1; i += 1; continue; }
+        if (c === ',' && d === 0) return;
+        i += 1;
+      }
+    };
+    ws();
+    if (src[i] === "'" || src[i] === '"') {
+      const end = src.indexOf(src[i], i + 1);
+      entry.type = src.slice(i + 1, end);
+      i = end + 1;
+    } else {
+      entry.problem = 'type 非字符串字面量（锚不可静态校验）';
+    }
+    ws();
+    if (src[i] === ',') {
+      i += 1;
+      ws();
+      if (src[i] !== '{') entry.problem = entry.problem ?? 'detail 非对象字面量（须 { … } 形态）';
+      else {
+        i += 1;
+        for (;;) {
+          ws();
+          if (i >= src.length) { entry.problem = entry.problem ?? 'detail 对象未闭合'; break; }
+          if (src[i] === '}') { i += 1; break; }
+          if (src.startsWith('...', i)) {
+            entry.problem = 'detail 展开禁入（裁定 25⑵——键集不可静态校验）';
+            i += 3;
+            skipValue();
+            continue;
+          }
+          let key = null;
+          if (src[i] === "'" || src[i] === '"') {
+            const end = src.indexOf(src[i], i + 1);
+            key = src.slice(i + 1, end);
+            i = end + 1;
+          } else {
+            const km = /^[A-Za-z_$][\w$]*/.exec(src.slice(i));
+            if (km) { key = km[0]; i += km[0].length; }
+          }
+          if (key === null) { entry.problem = entry.problem ?? 'detail 键不可解析'; skipValue(); continue; }
+          entry.keys.push(key);
+          ws();
+          if (src[i] === ':') {
+            i += 1;
+            const lits = [];
+            skipValue(lits);
+            if (lits.length) entry.literals[key] = lits;
+          }
+          ws();
+          if (src[i] === ',') { i += 1; continue; }
+          if (src[i] === '}') { i += 1; break; }
+          // 既非分隔符——顺推防死循环
+          skipValue();
+        }
+      }
+    }
+    calls.push(entry);
+  }
+  return calls;
 }
 
 const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
@@ -263,6 +366,34 @@ if (isMain()) {
     }
     for (const f of Object.keys(RELOAD_WHITELIST)) if (!counts.has(f)) details.push(`reload 白名单点消失 ${f}（清单需同步）`);
     report('⑫', `裸 location.reload() 白名单=safeReload 内部唯一点（现行 ${Object.values(RELOAD_WHITELIST).reduce((a, b) => a + b, 0)} 点——9 处收敛锚）`, details.length === 0, details);
+  }
+
+  // ⑬detail 白名单锚（Y0b-5 T18 ㉒）：生产面每个 recordCollabDiag(type,detail) 调用点
+  //  键集⊆TELEMETRY_DETAIL_SCHEMA[type] 允许键集 ∧ 枚举键字面量值⊆受控值域（动态值归运行时
+  //  sanitize 单源——静态只判字面量）；type∈12 值封闭集两通道同判；ring-only 通道结构性永不
+  //  触达服务端 sanitize 面——键域不受 schema 约束（容量预警等本地诊断自由键），仅判 type。
+  //  表=shared dist 单源导入；无清单白名单——新增调用点自动生效。
+  {
+    const schema = TELEMETRY_DETAIL_SCHEMA;
+    const details = [];
+    let nBatch = 0;
+    let nRing = 0;
+    for (const p of files) {
+      for (const c of extractDiagCalls(byFile.get(p).raw)) {
+        if (c.channel === 'batch') nBatch += 1; else nRing += 1;
+        const at = `${relOf(p)}:${c.line}`;
+        if (c.problem) { details.push(`${at} ${c.problem}`); continue; }
+        if (!(c.type in schema)) { details.push(`${at} type '${c.type}' ∉ 12 值封闭集`); continue; }
+        if (c.channel !== 'batch') continue;
+        const allowed = schema[c.type];
+        for (const k of c.keys) if (!(k in allowed)) details.push(`${at} detail 键 '${k}' ∉ ${c.type} 允许键集`);
+        for (const [k, lits] of Object.entries(c.literals)) {
+          const spec = allowed[k];
+          if (spec?.values) for (const v of lits) if (!spec.values.includes(v)) details.push(`${at} ${c.type}.${k} 字面量 '${v}' ∉ 受控值域`);
+        }
+      }
+    }
+    report('⑬', `detail 白名单锚：recordCollabDiag 键集⊆schema∧字面量值域⊆枚举（现行 ${nBatch} 批量点+${nRing} ring-only 点——新增调用点自动生效）`, details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);
