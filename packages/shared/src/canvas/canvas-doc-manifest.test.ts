@@ -122,6 +122,29 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     const keyViolations = violations.filter((v) => v.code === 'UNKNOWN_KEY');
     expect(keyViolations.map((v) => v.key)).toEqual(['strayKey', 'extra']);
   });
+
+  it('violation 载荷携带 opName（T4 二轮 I 项——A1 日志裸读免按 index 反查 ops 数组）', () => {
+    const keyViolations = validateWriteBatch([
+      { op: 'writeNodeData', nodeId: 'n1', patch: { notARegisteredKey: 'x' } },
+    ]);
+    expect(keyViolations[0].opName).toBe('writeNodeData');
+    const typeViolations = validateWriteBatch([
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: '3' } },
+    ]);
+    expect(typeViolations[0].opName).toBe('writeExecStatus');
+    // op 形态不可知（op 字段非法值）时 opName 仍带原值——日志可读
+    const unknownOp = validateWriteBatch([{ op: 'someFutureOp' }]);
+    expect(unknownOp[0].opName).toBe('someFutureOp');
+    // 批级违规（index=-1）无 op 归属——opName 缺省
+    const batchLevel = validateWriteBatch(
+      Array.from({ length: MAX_WRITE_OPS_PER_BATCH + 1 }, () => ({ op: 'deleteExecOrphans' })),
+    );
+    expect(batchLevel.find((v) => v.code === 'OP_COUNT_EXCEEDED')?.opName).toBeUndefined();
+  });
+
+  it('空批=合法 no-op（零违规放行——T27 端点空批幂等重试安全）', () => {
+    expect(validateWriteBatch([])).toEqual([]);
+  });
 });
 
 describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运行时面）', () => {
@@ -138,6 +161,20 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
   it('批总字节上限与 COLLAB_MAX_TX_BYTES 同源（262144——QUOTA_DEFAULTS.maxTxBytes）', () => {
     expect(MAX_WRITE_BATCH_BYTES).toBe(262_144);
     expect(MAX_WRITE_BATCH_BYTES).toBe(QUOTA_DEFAULTS.maxTxBytes);
+  });
+
+  it('值域覆盖 keys 全集（定义了 valueTypes 的 op——键集与值域表全等，T4 二轮 I-1）', () => {
+    // 防漂移宗旨：checkPatchEntry 对 valueTypes 缺键静默跳过值域检查——「向键集加第 N 键
+    // 忘配 valueTypes ⇒ 编译绿+测试全绿+运行时值域无约束」的洞由此断言封死。
+    // writeNodeData 由 SERVER_NODE_DATA_KEYS 派生（Object.fromEntries）天然覆盖；
+    // writeExecStatus 手写表是本断言的真实执法对象。
+    for (const [opName, spec] of Object.entries(DOC_WRITE_OPS)) {
+      if (!spec.valueTypes) continue;
+      expect(
+        Object.keys(spec.valueTypes).sort(),
+        `op=${opName} valueTypes 与 keys 不全等——键集有键无值域=运行时静默放行`,
+      ).toEqual([...spec.keys].sort());
+    }
   });
 
   it('层①顶层 map 集合+层③④种子条目：四 map 全登记且 nodes/edges/exec 非空', () => {

@@ -158,10 +158,13 @@ const COALESCE_MAX_BYTES = 8 * 1024 * 1024;
 const queueBytes = (q: Uint8Array[]): number => q.reduce((s, u) => s + u.byteLength, 0);
 
 /** Y0c T4（E23/R0c-4+K11）：docName 解析换代——parseDocName 管语法 `project:<id>#g<N>`。
+ *  世代段规范形（T4 二轮收紧）：禁前导零（`0|[1-9]\d{0,8}`——#g007 与 #g7 别名形态必须可分），
+ *  #g0 合法是唯一例外（世代 0=无世代段语义已在测试钉死）；9 位上界=Number 精度安全域
+ *  （30 位数字解析即精度丢失）。大写 #G 不匹配（只收小写规范形）。
  *  世代真源=DB 列 canvasProject.generation（Y0b-4 T9a；vacuumReplace 递增不恒 0）——本批只铺位：
  *  generationFromName 与 DB 列对比的接线归 Y1c-1（closeTeamDocuments 全世代等六处连带同批，
  *  spec E23 裁剪）。现状 docName 全量无世代段（generationFromName=undefined）。 */
-const DOC_NAME_RE = /^project:([A-Za-z0-9_-]{1,64})(?:#g(\d+))?$/;
+const DOC_NAME_RE = /^project:([A-Za-z0-9_-]{1,64})(?:#g(0|[1-9]\d{0,8}))?$/;
 
 export interface ParsedDocName {
   projectId: string;

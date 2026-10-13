@@ -28,6 +28,19 @@ describe('Y0c T4 parseDocName（docName 语法单源——project:<id>#g<N>）',
     expect(parseDocName(`project:${'a'.repeat(65)}`)).toBeNull(); // 超 64
   });
 
+  it('世代段规范形收紧（T4 二轮 M-3）：禁前导零别名+#g0 唯一例外+9 位上界', () => {
+    expect(parseDocName('project:abc#g7')).toEqual({ projectId: 'abc', generationFromName: 7 });   // 规范形
+    expect(parseDocName('project:abc#g007')).toBeNull();            // 前导零别名形态（#g007≠#g7 必须可分）
+    expect(parseDocName('project:abc#g0')).toEqual({ projectId: 'abc', generationFromName: 0 });   // 0=唯一例外
+    expect(parseDocName('project:abc#g0123')).toBeNull();           // 前导零+多位同拒
+    expect(parseDocName(`project:abc#g${'9'.repeat(9)}`)?.generationFromName).toBe(999_999_999);    // 9 位=上界内
+    expect(parseDocName(`project:abc#g${'1'.repeat(10)}`)).toBeNull();                              // 10 位=超界（Number 精度安全域）
+  });
+
+  it('世代段大写 #G 拒（语法冻结只收小写规范形——防 #G7/#g7 双形态漂移）', () => {
+    expect(parseDocName('project:abc#G7')).toBeNull();
+  });
+
   it('Y0b-5 T16 全匹配守卫语义保持：isValidDocName 现状档=无世代段才放行', () => {
     expect(isValidDocName('project:abc123')).toBe(true);
     expect(isValidDocName('project:abc123#g1')).toBe(false); // 世代段语法已冻结、语义 Y1c-1 启用——现状拒（防别名双实例执法分叉复辟）
