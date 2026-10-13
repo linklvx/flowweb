@@ -274,9 +274,9 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     expect(((gateway as any).pgBreaker as CollabPgBreakerService).stateName()).toBe('open');
   });
 
-  it('★范围静态锚：breaker 闸门调用点恰三（auth/load 准入+store 短路）——不裹 lease 心跳/不拒 WS 帧路径', () => {
+  it('★范围静态锚：breaker 闸门调用点+状态谓词恰四（auth/load 准入+store 短路+isPgBreakerOpen 谓词）——不裹 lease 心跳/不拒 WS 帧路径', () => {
     const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
-    expect(src.match(/\.admitQuery\(\)|\.isOpen\(/g)).toHaveLength(3);
+    expect(src.match(/\.admitQuery\(\)|\.isOpen\(|\.stateName\(/g)).toHaveLength(4);
   });
 });
 

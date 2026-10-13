@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|---|
 | **停**（连接拒绝/不可达） | 新装载拒：503 `COLLAB_NOT_SERVING`（db-unavailable 面，Retry-After 由 filter 附）；存量连接只读不受影响（内存 doc 常驻） | WS 写不碰 PG——帧照常；store 批经 spool 兜底落盘（熔断面②短路省 5s 事务等待；「不拒 append」契约） | 受理 503（sv 门/租约同族；执行链查 PG 失败折 error→退款闭环） | 直传链查 PG 失败→5xx（未验证——本批未触） | 快照读（isPersistedComplete 谓词满足时）可用；活读 fallback 撞装载门同拒 | 巡检资金不变量探针失败→P1；settle/refund 写失败走状态机重试（deadline reaper） |
 | **超时**（慢查询/池等待） | 同停档（30s 窗≥5 次且连接族失败率>50% → open） | 同停档 | 同停档 | 同停档 | 同停档 | 同停档 |
-| **慢**（RTT 抬升未超阈值） | 无降级（auth deadline 3s 折 db-unavailable 计入窗口） | 无降级 | 无降级 | 无降级 | 无降级 | 无降级 |
+| **慢**（RTT 抬升未超阈值） | 无降级（auth deadline 3s 折 db-unavailable 计 `collab_auth_timeout_total` 专表，不入熔断窗——推闸路径仅 load/store 的连接族失败） | 无降级 | 无降级 | 无降级 | 无降级 | 无降级 |
 | **行为+指标+告警级（PG 全模式共用面）** | 熔断 open：`collab_pg_breaker_state=1`；准入拒计 `collab_auth_reject_total{reason=db-unavailable}`+`collab_load_rejected_total{reason=db-unavailable}`；ready 503 `reason=db-unavailable`；refusalCache 15s 防重放风暴（半开成功清空） | store 短路计 `yjs_store_drain_total{result}` 批落 spool：`yjs_spool_depth_bytes` 抬升；恢复后 confirm 排空（帧回收断言 int 在位） | — | — | — | — |
 | **恢复** | 冷却 10s→half-open→下一调用探测：成功→closed+`refusalCache.clear()`；失败→回 open（冷却重启）。`collab_pg_breaker_state=2/0` | 同左（探测=store 走 PG+补排空 spool） | — | — | — | — |
 | **告警级** | state=1 持续 >1 冷却窗（>30s）→P1（误开有界自愈；持续=真停机+零流量死区）；`collab_pg_breaker_failures_total{class}` 异常增高→P2 观测 | state=1 期 spool 深度增速异常→P2 | — | — | — | — |

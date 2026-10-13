@@ -25,7 +25,9 @@ const PID = 'y0b5-breaker-int';
 const COOLDOWN_MS = 250;   // 注短冷却——恢复腿真 timer 等待 <0.5s
 
 function deadUrl(): string {
-  const u = process.env.DATABASE_URL!.replace(/:(\d+)\//, ':1/');
+  const raw = process.env.DATABASE_URL!;
+  if (!/:(\d+)\//.test(raw)) throw new Error(`deadUrl setup 错误：DATABASE_URL 无显式端口，dead-port 注入不可行：${raw}`);
+  const u = raw.replace(/:(\d+)\//, ':1/');
   return u + (u.includes('?') ? '&' : '?') + 'connect_timeout=1&pool_timeout=1';   // 快失败（~1s/次）
 }
 
