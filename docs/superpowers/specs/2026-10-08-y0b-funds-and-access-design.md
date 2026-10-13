@@ -140,7 +140,7 @@
 | 49 | yjs wire 根类型事实（实施期） | applyUpdate 重建根非 Y.Map 实例——unsupported 根判定用 _start 链表判型+空根按 Map 重建（T9a 实测：doc.share 枚举复制后根类型保真） |
 | 50 | 粘贴分块不走单 runCommand（实施期） | 逐块 capture→diff（N 块并单 diff=单 transact 超帧闸）；undo 一步锚保持（undoStack.length===1——capture 分组） |
 | 51 | toast 容量 1024 基口径（实施期） | 6,710,886B 显示 6.4MB（1024 基）——原「约 6.7MB」为十进制误读；文案与拦截点 softLimitBytes 同基对齐 |
-| 52 | vacuum 迁移手写（实施期） | migrate dev 产物混入既有 pricing 索引 drift——迁移 20261011180000_y0b4_vacuum_generation 手写+migrate resolve；根因（env/迁移根修）归 Y0c |
+| 52 | vacuum 迁移手写（实施期） | migrate dev 产物混入既有 pricing 索引 drift——迁移 20261011180000_y0b4_vacuum_generation 手写+migrate resolve；根修归 Y0c——**已由 Y0c+Y0.5 批片 C0 T6 根修**（2026-10-14，commit b438106d：verify-indexes 补 ③④⑦ 三断言+baseline §七 raw 对象总账落档 28 项+12 项 raw unique 机器锚+census ㉔ 双等价探针 duplicate-equivalent-index 可执行门禁+--create-only 人工合并纪律） |
 | 53 | awareness 两指标归 Y0b-5（实施期） | awareness_states/awareness_bytes 归 Y0b-5 观测收口（plan §0.2 表格先行、T13 无载体——E40 拆分） |
 | 54 | quota UX 四态形态（实施期） | toastQuotaReject 四文案+ShrinkDialog/vacuum/4410 终态档 UX 形态（antd message/Dialog 载体——编辑面禁用+跨端通知，T11） |
 | 55 | shrink force 广播+thaw 前置（实施期） | shrink 成功未 thaw 时 force 广播 bytes（滞回带客户端校准——dedup 键不含 bytes 需 force）+thaw 冻结前置（exit 计数配对——0808e414） |

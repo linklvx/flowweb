@@ -724,7 +724,21 @@ ecosystem.config.cjs（apps+1 进程+role env+nice+独立内存/kill_timeout+「
 
 | # | 偏离 | 片 | 性质 | 处置 |
 |---|------|-----|------|------|
-| — | （立项时无） | — | — | — |
+| 1 | T0 escape hatch 指标只注册不接线 inc：服务端零 escape hatch 路径（safeReload 等五 kind 全在客户端）+遥测白名单 12 值封闭集无载体 type | C0 | 裁量（spec §4.3「客户端遥测 sink」/Z54/Z70 支持） | Y1c-1 客户端上报扩展时接线；plan T0 行「telemetry sink」字样届时核销 |
+| 2 | T0 trigger='reconciler' 值域已注册但 inc 接线未落：reconciler 装载走 withDoc direct 窗 | C0 | plan 登记缺口（spec/plan 对接线时点双空白） | A2 片 T15-T22 任一任务补接线（probeArtifacts/sweepOrphanExec 路径）；既有 yjs_doc_loaded_by_reconciler_total 独立计数交叉可读 |
+| 3 | T2 ⑮禁令扩及 applyUpdateV2（Z43 字面仅 applyUpdate） | C0 | 强于字面（同族写通道防 V2 绕过，Z140② 同教训） | 现状闭包零命中无差异；已入 census 词表 |
+| 4 | T2 repository applyUpdate×2（compact 方法内 temp doc 重放=scratch 离线）登记红非白名单 | C0 | fail-closed 裁量（Z43 允许面字面未含 applyUpdate；符号级检查无法表达生命周期豁免） | 片 D 裁定：worker 拆分后 collab 家族离开闭包=登记整体撤销；若 D 后仍需保留则显式裁定豁免形态 |
+| 5 | T3 「7 处」勘正=6 迁移+1 豁免（B9/Z57「7 处」松散措辞；实测生产面恰 7=6+gate-canvas-state 豁免） | C0 | 口径勘正（枚举清单为权威） | 已按实测迁移；census ⑯ 断言面=apps/api 钉死（web 3 处客户端 doc 生命周期归 Y0a-3 域） |
+| 6 | T3 Z79「模块级 vs 构造器」两分落 advisory 非执法（静态可判口径=大括号深度近似） | C0 | 实现取舍（执法=键级全量对账 88 项登记红 until=T34，无漏报方向） | T34 按 Z147① 全仓枚举重划白名单+处置模块级 const 违规名单；分类标注〔M〕随登记红清单输出 |
+| 7 | T3 COLLAB_BIND_ADDR 白名单×2（spec :490 列 4 处；第二处=gateway listen 日志读同键） | C0 | 同键归并（求值时序=违规面判定本原，日志读不在违规面） | census 白名单逐点注释；T34 重划时复核 |
+| 8 | T4 违规码增 UNKNOWN_OP/NON_IDEMPOTENT_OP/VALUE_TYPE_MISMATCH（spec 三码为列举非穷尽） | C0 | 充实非走样 | manifest 七码处置总表已注明（de2a397a）——A1 T8/T27 直接消费 |
+| 9 | T4 MAX_WRITE_OPS_PER_BATCH=1000 实现者自定（plan/spec 无数字依据） | C0 | 待校准常数 | manifest 注释标注「初始保守值待 A1 T8 实测校准」 |
+| 10 | T5 反例①用 disconnect({unloadImmediately:true})（Z94① 字面=removeDirectConnection+unloadDocument；内部即 :1148+:1171 等价链） | C0 | plan 权威（plan 行只要求「释放确实能卸载」） | 语义面全覆盖（谓词翻真+documents 不含双断言）；Z94① 显式形态在反例②注释自证 |
+| 11 | T5 CI collab-core 新增 targeted 步（锚测试原属 unit 套件不在 collab-core 测试面） | C0 | 出口要求的实现选择 | vitest run 锚文件单步（零 DB/Redis，int 前 fail-fast）；required 机器强制不受影响（job 名不变） |
+| 12 | T5 库源码行号勘正 :1550→:1551/:1541→:1543/:1385→:1386+第五卸载调用点 :1483 新发现（Z59 快照 4 入口外） | C0 | 版本快照漂移+新事实 | census 锚含第五调用点（:1576 首行守卫兜底）；Z95 行号快照纪律执行 |
+| 13 | T6 双等价探针落静态半（P5 字面「查 pg_indexes」；census 无 DB） | C0 | 载体适配（静态半=schema 生成名×baseline 锚比对） | 库侧实存由 verify-indexes 51 块钉守（含 fake-pricing-unique-gone 靶向否定）；手工 DDL 直连库全局面缺位登记：后续批可补 generic 否定断言（12 锚逐条 NOT EXISTS 同列集异名索引） |
+| 14 | T6 解析面含 @unique 字段级（P5 字面仅 @@unique） | C0 | 强于字面（同一生成机制收敛盲区） | 24 生成名（17 字段级+7 块级）×12 锚 |
+| 15 | T6 raw 对象「9」勘正=总账 28（12 类既有+9 项 Y0b-1 不变量段+7 项 Y0b-2 追加） | C0 | 口径勘正（spec「9」实指 Y0b-1 DB 级不变量段） | baseline md §七按实测落档+12 项 raw unique 机器锚 |
 
 ---
 
