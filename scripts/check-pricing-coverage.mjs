@@ -7,6 +7,7 @@
 //   死亡线（Z36②：门禁绿 ∧ 运行期选不中 不可能同时成立）。
 // 载体=verify（deploy preflight 同链）；定价数据进迁移——CI 空库也有数据，主链断言全程生效（非空转）。
 // 禁兜底补行（Z16——价格臆造=?? 0 同类）。admin 红标+/api/ready degraded 载体归 Y0b-5。
+// Y0b-5 T14：判据与 apps/api PricingService.coverage()（modules/admin/pricing/pricing.service.ts）双轨镜像，改动须两处同步。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

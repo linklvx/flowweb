@@ -1016,6 +1016,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_load_duration_seconds
 - yjs_loaded_doc_bytes
 - yjs_loaded_documents
+- yjs_oldest_unflushed_age_seconds
 - yjs_outbound_backlog_bytes
 - yjs_pending_batches
 - yjs_pending_bytes
