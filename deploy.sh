@@ -16,12 +16,13 @@ SERVER="ubuntu@101.42.94.107"
 KEY="$HOME/.ssh/flowweb_server"
 REMOTE_DIR="/home/ubuntu/flowweb"
 MODE="${1:-full}"
-FORCE_RESTART=0; ALLOW_LEGACY=0; SKIP_SMOKE=0; SKIP_PREFLIGHT=0; ROLLBACK=0; REBUILD_DB=0
+FORCE_RESTART=0; ALLOW_LEGACY=0; SKIP_SMOKE=0; SKIP_EXEC_SMOKE=0; SKIP_PREFLIGHT=0; ROLLBACK=0; REBUILD_DB=0
 for arg in "${@:2}"; do
   case "$arg" in
     --force-restart) FORCE_RESTART=1 ;;
     --allow-legacy) ALLOW_LEGACY=1 ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
+    --skip-exec-smoke) SKIP_EXEC_SMOKE=1 ;;
     --skip-preflight) SKIP_PREFLIGHT=1 ;;
     --rollback) ROLLBACK=1 ;;
     --rebuild-db) REBUILD_DB=1 ;;
@@ -142,6 +143,13 @@ cutover_api() {
   else
     ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pnpm --filter @flowweb/api exec node scripts/collab-smoke.mjs"
   fi
+  # Y0b-5 T17：exec-smoke 资金链冒烟（默认跑；独立显式档 --skip-exec-smoke——与 --skip-smoke 正交：
+  # collab-smoke 验 WS 协作链，本脚本验 执行→claim→reserve→外呼→settle/refund 台账全链）
+  if [[ $SKIP_EXEC_SMOKE == 1 ]]; then
+    echo "=== 资金链冒烟已跳过（--skip-exec-smoke）——本次部署不构成完整判据 ==="
+  else
+    ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pnpm --filter @flowweb/api exec node scripts/exec-smoke.mjs"
+  fi
   ssh -i "$KEY" "$SERVER" 'grep -q "^NODE_ENV=.\+" '"$REMOTE_DIR"'/apps/api/.env || echo "WARNING: 服务器 NODE_ENV 未设/空——语义不一致，Y0.5/E58 审计"'
 }
 
@@ -240,7 +248,7 @@ case "$MODE" in
   web)  deploy_web ;;
   api)  if [[ $ROLLBACK == 1 ]]; then echo "=== 快回滚：跳过 preflight/verify/int（事故路径——runbook §5） ==="; deploy_api; else preflight; deploy_api; fi ;;
   *)
-    echo "用法: ./deploy.sh [full|web|api] [--force-restart|--allow-legacy|--skip-smoke|--skip-preflight|--rollback|--rebuild-db]"
+    echo "用法: ./deploy.sh [full|web|api] [--force-restart|--allow-legacy|--skip-smoke|--skip-exec-smoke|--skip-preflight|--rollback|--rebuild-db]"
     exit 1
     ;;
 esac
