@@ -30,7 +30,6 @@
     "@nestjs/websockets": "^10.4.22",
     "@prisma/client": "5.22.0",
     "@sentry/nestjs": "^10.68.0",
-    "@sentry/node": "^10.63.0",
     "axios": "^1.16.1",
     "axios-retry": "^4.5.0",
     "better-auth": "^1.6.11",

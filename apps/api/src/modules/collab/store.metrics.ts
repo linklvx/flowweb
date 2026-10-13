@@ -171,7 +171,7 @@ export const collabSweepCloseTotal = new Counter({
 
 /** Y0b-3 T1（P14）：进程级 unhandledRejection 兜底计数——库内未 await async 钩子 rethrow 的安全网
  *  （T10 证伪 onStateless 必要性后，真正买单者=T2 onUpgrade catch→throw 路径+库内部未 await 路径）。
- *  消费点=bootstrap/guard.ts installUnhandledRejectionGuard（计数不退出）。 */
+ *  消费点=bootstrap/guard.ts installProcessErrorGuards（计数不退出；T11 起 source 增 'uncaught' 档）。 */
 export const collabUnhandledRejectionTotal = new Counter({
   name: 'collab_unhandled_rejection_total',
   help: '进程级 unhandledRejection 兜底计数（P14：库内未 await async 钩子 rethrow 的安全网——计数不退出）',

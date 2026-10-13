@@ -39,6 +39,12 @@ describe('Y0b-4 T1 doc-status 快照类型（T5 产生/T10 消费——键集逐
     expect(isCollabDocStatusPayload({ type: 'doc-status', rev: 3, writeFrozen: false, generation: NaN,
       quota: { state: 'over', bytes: 9, limit: 10, maxTxBytes: 262144, softLimitBytes: 8388608 } })).toBe(false); // NaN=拒（与其余数值字段同矩）
   });
+  it('Y0b-5 T11 顶层可选 connectionId?:string（doc-status 预留字段——onAuthenticate 生成的 WS 连接标识回传客户端，遥测 join 通道；缺省=valid；带错型=拒）', () => {
+    expect(isCollabDocStatusPayload({ type: 'doc-status', rev: 3, writeFrozen: false, connectionId: 'cid-1',
+      quota: { state: 'ok', bytes: 1, limit: 10, maxTxBytes: 262144, softLimitBytes: 8388608 } })).toBe(true);
+    expect(isCollabDocStatusPayload({ type: 'doc-status', rev: 3, writeFrozen: false, connectionId: 7,
+      quota: { state: 'ok', bytes: 1, limit: 10, maxTxBytes: 262144, softLimitBytes: 8388608 } })).toBe(false);
+  });
   it('rev 从 1 起（装载播种 1——初值 0 会被客户端 rev<=last 守卫丢掉首快照=limit 来源恒丢，报告2 F）', () => {
     expect(DOC_STATUS_REV_SEED).toBe(1);
   });

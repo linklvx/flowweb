@@ -26,13 +26,16 @@ export const FRAME_ALLOWANCE_BYTES = 64 * 1024;
 export const DOC_STATUS_REV_SEED = 1 as const;
 
 /** doc-status 快照（per-doc 广播）：顶层 generation 可选（vacuum 代际——Q-U v6：T5 产生/T9a 递增/
- * T11 消费四处对齐）；quota.residueBytes 可选第六键（T11「重建画布历史」入口数据源）。
+ * T11 消费四处对齐）；quota.residueBytes 可选第六键（T11「重建画布历史」入口数据源）；
+ * 顶层 connectionId 可选（Y0b-5 T11：onAuthenticate 生成的 WS 连接标识——per-conn 推送面带上
+ * 回传客户端，遥测 join 通道；per-doc 广播面缺省）。
  * 无 readOnly/无 deletedIds（Q-A v4：per-conn 量走 conn-status 每连接推送形态——字段集合断言防复活）。 */
 export interface CollabDocStatusPayload {
   type: 'doc-status';
   rev: number;
   writeFrozen: boolean;
   generation?: number;
+  connectionId?: string;
   quota: {
     state: 'over' | 'ok';
     bytes: number;
@@ -58,6 +61,7 @@ export function isCollabDocStatusPayload(msg: unknown): msg is CollabDocStatusPa
   if (typeof m.rev !== 'number' || !Number.isFinite(m.rev)) return false;
   if (typeof m.writeFrozen !== 'boolean') return false;
   if (m.generation !== undefined && (typeof m.generation !== 'number' || !Number.isFinite(m.generation))) return false;
+  if (m.connectionId !== undefined && typeof m.connectionId !== 'string') return false;
   if (typeof m.quota !== 'object' || m.quota === null) return false;
   const q = m.quota as Record<string, unknown>;
   if (q.state !== 'over' && q.state !== 'ok') return false;

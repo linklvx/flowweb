@@ -2,7 +2,7 @@ import { Injectable, Inject, Logger, BadRequestException, ForbiddenException, In
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as crypto from 'crypto';
-import * as Sentry from '@sentry/node';
+import * as Sentry from '@sentry/nestjs';   // Y0b-5 T11：单版本收敛——@sentry/node 直接依赖已删（唯一传递来源=@sentry/nestjs 10.68 对齐）
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';

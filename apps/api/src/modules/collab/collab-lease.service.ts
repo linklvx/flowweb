@@ -19,6 +19,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
 import { collabLeaseDeniedTotal, collabLeaseEpoch, collabStartFailureTotal } from './store.metrics';
+import { captureCollabException } from '../../utils/sentry-scrub';
 
 export const COLLAB_LEASE_SCOPE = 'primary';   // Y7 演进=加行非改架构（容量/scope 常量——T10 登记）
 export const REVOKED_OWNER = 'revoked';        // break-glass 哨兵（SV2）：CAS 经 expiresAt<now() 支路立即可得
@@ -179,6 +180,7 @@ export class CollabLeaseService {
       this.state = 'not-acquired';
       collabStartFailureTotal.inc();
       this.logger.error(`lease onHeld 接线失败——释放租约行拒当僵尸: ${(e as Error).message}`);
+      captureCollabException(e, { docName: '-', reason: 'lease-onheld-failed', connectionId: '-' });   // T11：后台路径无连接/doc 上下文——占位 '-'
       await this.prisma.$queryRaw`
         UPDATE "CollabLease" SET owner = NULL, "expiresAt" = NULL, "renewedAt" = NULL
         WHERE scope = ${COLLAB_LEASE_SCOPE} AND owner = ${this.owner}`.catch(() => {});

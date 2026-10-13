@@ -10,7 +10,8 @@ import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { validateEnv } from './config/env';
-import { installUnhandledRejectionGuard } from './bootstrap/guard';
+import { installProcessErrorGuards } from './bootstrap/guard';
+import { scrubEvent, resolveSentryRelease } from './utils/sentry-scrub';
 
 /**
  * 白名单：允许 DB SystemSetting 覆盖 process.env 的 key。
@@ -57,6 +58,10 @@ async function preloadDbConfig() {
 }
 
 async function bootstrap() {
+  // Y0b-5 T11：进程兜底首行安装（原 :99 装在 create 之后=引导期窗口裸奔——unhandledRejection/
+  // uncaughtException 计数+Sentry capture，先于 preloadDbConfig/Sentry.init 全程覆盖）
+  installProcessErrorGuards();
+
   await preloadDbConfig();
 
   const env = validateEnv();
@@ -67,7 +72,10 @@ async function bootstrap() {
     Sentry.init({
       dsn: env.SENTRY_DSN,
       environment: process.env.NODE_ENV || 'development',
-      release: process.env.GIT_COMMIT_HASH || 'unknown',
+      // T11（裁定 23⑰）：release 读 build-info.json（部署链产物——pm2 剥 GIT_* ⇒ env 路恒 'unknown'
+      // 事故查不出对应提交）；本地 dev 回落 package.json version → 'unknown'
+      release: resolveSentryRelease(),
+      beforeSend: scrubEvent,   // T11：事件面 scrub——剥 query 除 csv/cb 外全部+token/query 键族打码
       integrations: [Sentry.nestIntegration()],
     });
   } catch (err) {
@@ -95,8 +103,6 @@ async function bootstrap() {
     .split(',')
     .map((s) => s.trim());
   app.enableCors({ origin: corsOrigins, credentials: true });
-
-  installUnhandledRejectionGuard();   // Y0b-3 T1（P14）：listen 前装兜底——进程级 unhandledRejection 计数不退出
 
   await app.listen(env.PORT);
   console.log(`Server running on port ${env.PORT}`);

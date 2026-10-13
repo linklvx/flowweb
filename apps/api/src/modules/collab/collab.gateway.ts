@@ -4,7 +4,7 @@ import { Server, OutgoingMessage } from '@hocuspocus/server';
 import type { afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeHandleMessagePayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseSessionToken } from '../../common/utils/parse-session-token';
@@ -20,6 +20,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
+import { captureCollabException } from '../../utils/sentry-scrub';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 
 /** Y0a-3 T5（SV7/W）：collab 面七态（模块别名——method 签名里 `typeof this.collabState` 有 TS 解析风险，恒用本名）。
@@ -433,7 +434,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
             this.applyWriteFreeze(c, intent, true);   // auth 意图登记（sendStateless conn-status 补推同点）
           }
           if (this.quotaFrozenDocs.has(pid)) this.applyWriteFreeze(c, 'quota', true);   // 冻结期加入（auth 查询兜底之外的第二道登记）
-          try { c.sendStateless?.(JSON.stringify(this.buildDocStatus(pid))); } catch { /* 已断 */ }
+          // Y0b-5 T11：per-conn 推送面带 connectionId 预留字段（回传客户端——遥测 join 通道；per-doc 广播面缺省）
+          try { c.sendStateless?.(JSON.stringify(this.buildDocStatus(pid, undefined, this.connectionIds.get(socketId)))); } catch { /* 已断 */ }
         }
         return Promise.resolve();
       },
@@ -626,6 +628,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  写点三处：connected 播种 / onDisconnect+closeTeamDocuments+beforeUnloadDocument 键控清理（防无界）；
    *  读点一处：sweep tick 首部 enforceConnMaxLifetime。 */
   private readonly connEstablishedAt = new Map<string, number>();
+  /** Y0b-5 T11：WS connectionId（socketId → randomUUID）——onAuthenticate 成功播种/断连清理。
+   *  消费：结构化日志三元组（traceId 预留位 null——T13 才有）+doc-status 预留字段回传客户端
+   *  （遥测 join）+Sentry scope（装载失败等带 socketId 的 catch 取实值）。 */
+  private readonly connectionIds = new Map<string, string>();
   /** ===== Y0b-3 T7（E73/spec §3.3）：awareness 归属表（双索引）+认证身份表 =====
    *  clientIdOwner=归属权威（clientId→socketId，O(1) 伪造判定——库 connections 的 clients 集在 hook
    *  之后才填充〔esm:625-634〕不能作权威，自建表语义）；ownedClientIds=socketId→clientIds 反向索引
@@ -793,7 +799,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.authInflight += 1;
     this.authInflightPeak = Math.max(this.authInflightPeak, this.authInflight);
     try {
-      return await this.authenticateInner(payload);
+      const ctx = await this.authenticateInner(payload);
+      // Y0b-5 T11：连接标识在此生成（认证成功=连接事实成立；拒绝路径不播种）——进 context（后续
+      // 连接上下文 catch 可取）+socketId 台账（doc-status 回传/装载 catch 取值）+结构化日志三元组。
+      const connectionId = randomUUID();
+      this.connectionIds.set(payload.socketId, connectionId);
+      this.logger.log(JSON.stringify({ event: 'collab_connection_auth', traceId: null, connectionId, docName: payload.documentName }));   // traceId=T13 预留位；日志面不 scrub（偏离表：project id 非机密）
+      return { ...ctx, connectionId };
     } catch (err) {
       const reason = (err as { reason?: CollabAuthReasonCode } | null)?.reason;
       if (reason && CollabGateway.REFUSAL_CACHEABLE.has(reason) && cacheKey) {
@@ -904,7 +916,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  ⇒ stamp 自愈〔update 进 pending 落库——每 doc 至多一次幂等戳〕/ 戳=1 或 无戳∧有节点 ⇒ 拒
    *  〔logger.error+throw——DEV 抛/prod 拒+日志同条件不分路径（终裁 92 防鬼影）；throw 由
    *  Hocuspocus 折成连接错误拒绝载入该 doc，非崩溃进程〕）。 */
-  private async loadDocument({ document, documentName }: onLoadDocumentPayload) {
+  private async loadDocument({ document, documentName, socketId }: onLoadDocumentPayload) {
     if (!this.isLeaseServing()) {
       throw Object.assign(new Error('collab lease not held'), { reason: CollabAuthReason.LEASE_NOT_READY });   // P0-1 三入口②（P1 正确性门——外层 catch 对带 reason 异常透传）
     }
@@ -1026,6 +1038,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
+      captureCollabException(err, { docName: documentName, reason: 'load-db-unavailable', connectionId: this.connectionIds.get(socketId) ?? '-' });   // T11：装载失败样本（auth 先于 load——socketId 有实值）
       throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
     } finally {
       yjsLoadDuration.observe((Date.now() - loadT0) / 1000);   // Y0b-5 T10：时长面（成功/失败均计时）
@@ -1164,6 +1177,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           }
           this.logger.error(`store append failed for ${projectId}, ${parts.length} updates: ${(err as Error).message}`);
           yjsStoreAppendFailureTotal.inc();
+          captureCollabException(err, { docName: documentName, reason: 'store-append-failed', connectionId: '-' });   // T11：store 失败样本（onStoreDocumentPayload 无 socketId——'-'）
           break;
         }
       }
@@ -1192,6 +1206,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // compact 是优化不是不变量载体：行已落库，失败只 WARN 绝不抛——否则被库当 store 失败 → doc 永不卸载 → destroy 挂死
           yjsStoreCompactFailureTotal.inc();
           this.logger.warn(`compact failed for ${projectId} (rows already durable): ${(err as Error).message}`);
+          captureCollabException(err, { docName: documentName, reason: 'compact-failed', connectionId: '-' });   // T11：compact 放弃样本
         }
         return true;
       }
@@ -2088,8 +2103,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  writeFrozen=quota over ∨ gateway 级 drain（两维度独立——drain 冻结不冒充 quota over）。
    *  Y0b-4 T9a（Q-U v6）：顶层 generation 可选（docGeneration 播种值>0 才带——T5 客户端
    *  pendingGenerationReload 消费跳变）+quota.residueBytes 可选（docResidue 有键才带——T11
-   *  「重建画布历史」入口数据源）；未 vacuum 的 doc 两键缺省=五键 payload 形态不变。 */
-  private buildDocStatus(pid: string, stateOverride?: 'over' | 'ok'): CollabDocStatusPayload {
+   *  「重建画布历史」入口数据源）；未 vacuum 的 doc 两键缺省=五键 payload 形态不变。
+   *  Y0b-5 T11：connectionId 可选（per-conn 推送面带上=回传客户端遥测 join；per-doc 广播缺省）。 */
+  private buildDocStatus(pid: string, stateOverride?: 'over' | 'ok', connectionId?: string): CollabDocStatusPayload {
     const over: boolean = stateOverride !== undefined ? stateOverride === 'over' : this.quotaStateOf(pid) === 'over';
     const gen = this.docGeneration.get(pid) ?? 0;
     const residue = this.docResidue.get(pid);
@@ -2098,6 +2114,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       rev: this.docStatusRev.get(pid) ?? DOC_STATUS_REV_SEED,
       writeFrozen: over || this.collabState === 'draining',
       ...(gen > 0 ? { generation: gen } : {}),
+      ...(connectionId ? { connectionId } : {}),
       quota: {
         state: over ? 'over' : 'ok',
         bytes: (this.docTruth.get(pid) ?? 0) + (this.docDelta.get(pid) ?? 0),
@@ -2328,6 +2345,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // 库语义（esm:1059）：payload.clientsCount=removeConnection 之后的剩余数——与原
     // document.getConnectionsCount() 同值等价，改读库已算好的字段。
     this.connEstablishedAt.delete(socketId);
+    this.connectionIds.delete(socketId);   // Y0b-5 T11：连接标识随断连清理（防无界）
     this.authAttemptBuckets.delete(socketId);
     // Y0b-3 T7 在此追加 awareness 归属表清理（T6 同点纪律：首行、early-return 之前——多标签
     // clientsCount>0 断连同样要清）：按 socketId 键控=所有权校验天然满足（双标签只清自己的）；

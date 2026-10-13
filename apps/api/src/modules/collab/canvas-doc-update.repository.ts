@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { captureCollabException } from '../../utils/sentry-scrub';
 import {
   yjsCompactAbandonedTotal,
   yjsCompactNotOwnerTotal,
@@ -158,6 +159,7 @@ export class CanvasDocUpdateRepository {
       } catch (compactErr) {
         yjsStoreCompactFailureTotal.inc();
         this.logger.warn(`hydrate recovery compact failed for ${projectId}: ${(compactErr as Error).message}`);
+        captureCollabException(compactErr, { docName: `project:${projectId}`, reason: 'hydrate-compact-failed', connectionId: '-' });   // T11：自愈 compact 放弃（契约 13：仍重试装载）
       }
       return this.loadForHydration(projectId, { timeoutMs: 2_000, maxWaitMs: 500 });   // 重试一次；仍失败向上抛
     }

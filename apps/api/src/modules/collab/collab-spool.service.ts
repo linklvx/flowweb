@@ -11,6 +11,7 @@ import { open, readFile, readdir, rmdir, stat, unlink, mkdir } from 'node:fs/pro
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { crc32 } from 'node:zlib';
 import * as Y from 'yjs';
+import { captureCollabException } from '../../utils/sentry-scrub';
 import {
   yjsSpoolTruncatedTotal,
   yjsSpoolWriteFailuresTotal,
@@ -215,6 +216,7 @@ export class CollabSpoolService {
       return ids;
     } catch (e) {
       this.noteWriteFailure();
+      captureCollabException(e, { docName: `project:${projectId}`, reason: 'spool-append-failed', connectionId: '-' });   // T11：spool 写失败（台账兜底层——BOI 契约由调用方承接）
       throw e;
     }
   }
