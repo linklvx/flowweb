@@ -17,7 +17,7 @@ export function createMockRepo(over: Partial<MockRepo> = {}): MockRepo {
   const repo = {
     append: vi.fn(async () => ({ ok: true as const, seq: 1n })),          // AppendResult（spec v2.4 §1.2——Y0a-2 BOI 按契约 15 消费）
     loadForHydration: vi.fn(async () => ({ state: null, updates: [] as Buffer[], stateSeq: 0n })),
-    compact: vi.fn(async () => ({ compacted: true as const, snapshotBytes: 0 })),   // 返回契约（spec v2.4 §1.3+Y0b-4 T3 snapshotBytes 真值上报——maybeCompact 采纳依赖此形状）
+    compact: vi.fn(async () => ({ compacted: true as const, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 })),   // 返回契约（spec v2.4 §1.3+Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows/tombstoneBytes——maybeCompact 采纳依赖此形状）
     count: vi.fn(async () => 0),
     ...over,
   };

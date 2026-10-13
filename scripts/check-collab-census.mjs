@@ -90,7 +90,8 @@ const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
 
 /** ④encodeStateAsUpdate 生产白名单（现行清单——2026-10-11 实况逐点列名+Y0b-5 T6 增补；新增编码点必须同批补注）：
  *  gate-canvas-state ×1=A0-0 门禁画布种子构造（种子编码非测量）；
- *  canvas-doc-update.repository ×1=compact 快照重编码；
+ *  canvas-doc-update.repository ×2=compact 快照重编码+tombstone delete set 余量测量（Y0b-5 T10——
+ *   全 SV 滤零 structs 段的近似编码，compact ≥60s 时间门内成本有界）；
  *  collab-shrink.service ×5=export-fresh 落地校验/shrink 影子预演（apply 进 scratch+预演结果编码）
  *   /shrink 写后校准（recalibrate truth）/vacuum 真空编码（newDoc 落库快照——T9a）；
  *  collab.gateway ×3=装载真值（cheap≥soft 才实测）/vacuum residue 评估（全根真空重建编码）
@@ -101,7 +102,7 @@ const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
  *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
-  'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 1,
+  'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,
   'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
   'apps/api/src/modules/collab/collab.gateway.ts': 3,
   'apps/api/src/modules/project/project.service.ts': 1,

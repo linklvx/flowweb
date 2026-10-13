@@ -12,7 +12,8 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsCanvasDocBytes, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader } from './store.metrics';
+import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabSpoolService } from './collab-spool.service';
@@ -128,6 +129,14 @@ export function persistRetryDelayMs(rung: number): number {
 const SESSION_SWEEP_INTERVAL_MS = 5 * 60_000;
 const SESSION_SWEEP_GRACE_MS = 5_000;
 
+/** Y0b-5 T10：top-N doc 结构日志节律（5min——日志非指标，v1「1s 去抖」废弃后唯一豁免定时器）；
+ *  数据源=docTruth+delta（与 yjs_doc_bytes 直方图三锚同一数据源——零 encode：病态 doc 编码 ≈75×
+ *  全量重编=风暴，top-N 只读既有 Map）。 */
+export const TOPN_LOG_INTERVAL_MS = 5 * 60_000;
+export const TOPN_LOG_LIMIT = 10;
+/** Y0b-5 T10：超阈计数阈值再导出（定义单源=store.metrics——gateway=测试常量绑定面先例〔TRUTH_COOLDOWN_MS 同款〕） */
+export { DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
+
 /** X10（Y0a-2）：WS 消息路径禁 mergeUpdates——入队只 push，跨软阈（64 条/1MB）才闩锁 setImmediate
  *  提前 store（跨阈代价=一次整批 store 的 debounce 等待；低于软阈维持库 debounce 批量语义）。
  *  PENDING_MAX_ENTRIES=64 语义由"原地折叠触发点"改为"提前 flush 触发点"（折叠全部移出 WS 路径）。 */
@@ -215,6 +224,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly docDelta = new Map<string, number>();
   private readonly truthMeasuredAt = new Map<string, number>();
   private readonly degradedDocs = new Set<string>();
+  /** Y0b-5 T10：卸载边界 heap 倍率锚（beforeUnload 播种→afterUnload 结算——docTruth 在 afterUnload
+   *  被清所以先存编码字节；卸载取消时残留条目由装载路径同键覆写，无泄漏面） */
+  private readonly unloadHeapAnchors = new Map<string, { before: number; truth: number }>();
+  /** Y0b-5 T10：top-N 结构日志定时器（日志非指标——指标面零定时器纪律的唯一豁免） */
+  private docTopNLogTimer: ReturnType<typeof setInterval> | null = null;
   /** 批3-4 doc epoch（R1c 前置物）：doc 实例代际——服务端 WeakMap 而非写 ydoc meta（meta 内容
    *  会随 doc 状态进 canonical 重放等价判据〔不变量 1〕，不持久化的 meta 字段会伪红全组契约；
    *  且持久化形态下重启换代会让每次 load 平添一行增量——破零写放大契约） */
@@ -498,10 +512,25 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       for (const v of this.docResidue.values()) sum += v;
       return sum;
     });
+    // Y0b-5 T10：awareness 两 gauge collect 源（spec §5.2/E40——collect 现算 Σ：不解码不取字段仅
+    // Σ 编码字节；onAwarenessUpdate 未注册〔E73 观测钩子禁改写〕禁依赖——reader 只读 states Map）
+    registerAwarenessReader(() => {
+      let states = 0, bytes = 0;
+      for (const d of this.server.hocuspocus.documents.values()) {
+        const aw = (d as unknown as { awareness?: { states: Map<number, unknown> } }).awareness;
+        if (!aw?.states || aw.states.size === 0) continue;
+        states += aw.states.size;
+        bytes += encodeAwarenessUpdate(aw as never, [...aw.states.keys()]).byteLength;
+      }
+      return { states, bytes };
+    });
     this.startHeapObserver();
     this.startFrozenRecheckTimer();   // Y0b-4 T4：冻结 doc 重测（独立 timer——禁挂 sweep 逃生阀）
     this.syncOverloadGauge(false);   // 初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
     this.startAuthMapsSweeper();   // P-V⑦：防线 Map 老化独立 timer——禁挂 sweep tick（SWEEP_ENABLED=false 逃生阀不得静默关掉老化）
+    // Y0b-5 T10：top-N doc 结构日志（5min——日志非指标，指标面零定时器纪律唯一豁免）
+    this.docTopNLogTimer = setInterval(() => this.logDocTopN(), TOPN_LOG_INTERVAL_MS);
+    this.docTopNLogTimer.unref?.();
   }
 
   /** ===== Y0b-3 T2：upgrade 面（§3.1ter）=====
@@ -889,6 +918,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       throw Object.assign(new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'server overloaded' }), { reason: CollabAuthReason.SERVER_OVERLOADED });
     }
     const projectId = parseProjectId(documentName);
+    const loadT0 = Date.now();   // Y0b-5 T10：装载耗时（拒绝早退不计时——只测 hydrate+replay+播种段）
+    const heapBefore = this.heapUsedNow();   // Y0b-5 T10：装载边界 heap 倍率前采样
     try {
       // Y11：队列 get-or-create——卸载交接失败遗留的批必须在重连后存活（set 替换=静默丢批，V4 要消灭的形态）；
       // docProject 播种（update 回调经它解析队列）；数组身份恒定不变量沿用（只 push/splice）。
@@ -927,7 +958,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
       if (generation) this.docGeneration.set(projectId, generation);
       if (state) {
-        yjsCanvasDocBytes.set({ projectId }, state.length);   // 快照字节播种（现状语义保留）
         applyReplayed(new Uint8Array(state));
       }
       for (const u of updates) applyReplayed(new Uint8Array(u));
@@ -960,9 +990,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       const cheap = (state?.length ?? 0) + updates.reduce((n, u) => n + u.length, 0)
         + spoolFrames.reduce((n, f) => n + f.payload.byteLength, 0);
       const softLimit = Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
-      this.docTruth.set(projectId, cheap < softLimit ? cheap : Y.encodeStateAsUpdate(document).byteLength);
+      const seeded = cheap < softLimit ? cheap : Y.encodeStateAsUpdate(document).byteLength;
+      this.docTruth.set(projectId, seeded);
       this.docDelta.set(projectId, 0);
       this.truthMeasuredAt.set(projectId, Date.now());
+      // Y0b-5 T10 锚①装载播种：直方图 observe 既有播种值（零新增编码）+装载边界 heap 倍率
+      // （heapUsed 差÷编码字节——GC 时延噪声只记正差，合成值待标定）。
+      this.observeDocBytes(seeded);
+      const heapDelta = this.heapUsedNow() - heapBefore;
+      if (heapDelta > 0 && seeded > 0) yjsDocHeapAmplification.set(heapDelta / seeded);
       // Y0b-4 T4：docStatus rev 播种 1（DOC_STATUS_REV_SEED——初值 0 会被客户端 rev<=last 守卫丢首快照；
       // afterUnload 删除=重装载复位新 epoch——authenticated 时刻客户端 lastDocStatusRev 复位归 T10）
       if (!this.docStatusRev.has(projectId)) this.docStatusRev.set(projectId, DOC_STATUS_REV_SEED);
@@ -981,6 +1017,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;
       throw Object.assign(new Error(`db unavailable: ${(err as Error).message}`), { reason: CollabAuthReason.DB_UNAVAILABLE });
+    } finally {
+      yjsLoadDuration.observe((Date.now() - loadT0) / 1000);   // Y0b-5 T10：时长面（成功/失败均计时）
     }
   }
 
@@ -1020,6 +1058,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.logger.error(`store for unobserved doc ${documentName}: listener never registered`);   // tripwire：!lastSV 同构物不得静默
       return false;
     }
+    const storeT0 = Date.now();   // Y0b-5 T10：store 耗时（取批→落定主体段）
     try {   // Y2：兜底 catch 在此层（钩子直通本方法——Serialized 的 catch 盖不到；spool 失败的正常 return false 不经过这里）
       const degraded = this.persistUnhealthy.has(documentName);    // V12：降级态
       const stashFrames = await this.peekSpoolFrames(projectId);
@@ -1080,12 +1119,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // confirm 按整批，Y8 语义不变）；部分成功=已落片内容幂等在 PG，余片随整批走下方 spool 兜底
       // （重复无害——宁重复不误删）。≤1MB 批（常态）单片直通=与既有单 append 行为零差异。
       const chunks = this.splitPersistChunks(parts);
-      let appendedBytes = 0;
       for (let ci = 0; ci < chunks.length; ci++) {
         const payload = chunks[ci].length === 1 ? chunks[ci][0] : Y.mergeUpdates(chunks[ci]);
         try {
           const r = await this.repo.append(projectId, payload);    // AppendResult（契约 15）+5s 事务上界（V8）
-          if (r.ok) { appendedBytes += payload.byteLength; if (ci === chunks.length - 1) appended = true; continue; }
+          if (r.ok) { yjsStorePayloadBytes.observe(payload.byteLength); if (ci === chunks.length - 1) appended = true; continue; }   // Y0b-5 T10：append 增量逐片 observe（成功路径）
           // AppendResult fenced 单失败档（no-row 已删——0 行只可能是 fenced 或 throw，T3 repo 实证）
           fenced = true;
           this.logger.error(`append fenced for ${projectId}（租约失守——批走 spool，不排退避梯）`);
@@ -1133,7 +1171,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         this.leaveInFlight(projectId);                             // X2 落定点①：append ok
         if (stashIds.length) await this.spool.confirm(projectId, stashIds);   // 旧帧内容已入 PG——可回收（契约 12）
         yjsStoreDrainTotal.inc({ result: 'appended' });
-        yjsCanvasDocBytes.inc({ projectId }, appendedBytes);   // 批3-4：增量字节累加（Y0b-4 T3：切批后按实落字节和）
         // E71（Y0b-2 T8）：store 成功路径 emit——doc 已落 PG，消费面（video-work process 快照）双层失效。
         //  emit 非 emitAsync（V11 纪律：store 取批点在 saveMutex 内，不等监听器；监听器自兜底不抛）。
         this.eventEmitter.emit('canvas.doc-saved', { projectId });
@@ -1186,6 +1223,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       yjsStoreUnexpectedThrowTotal.inc();   // Y0b-3 T4：兜底命中可观测（原仅 ERROR 日志）
       this.logger.error(`store unexpected throw for ${documentName}: ${(err as Error).message}——契约 3 最后一道闸（批保留原归属地）`);
       return false;
+    } finally {
+      yjsStoreDuration.observe((Date.now() - storeT0) / 1000);   // Y0b-5 T10：时长面（成功/失败均计时）
     }
   }
 
@@ -1424,11 +1463,41 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async maybeCompact(projectId: string): Promise<void> {
     const last = this.lastCompactAt.get(projectId);
     if (last !== undefined && Date.now() - last < COMPACT_INTERVAL_MS) return;
+    const compactT0 = Date.now();   // Y0b-5 T10：compact 耗时（门早退不计时——只测 repo.compact 实跑）
     const r = await this.repo.compact(projectId);
+    yjsCompactDuration.observe((Date.now() - compactT0) / 1000);
     if (r.compacted) {
+      // Y0b-5 T10 锚②compact 全量编码：snapshotBytes=repo 既有实测编码（零新增）+删除行数/tombstone
+      // 字节（repo.compact 契约字段——_count 口径即 compact 次数）
+      this.observeDocBytes(r.snapshotBytes);
+      yjsCompactDeletedRows.observe(r.deletedRows);
+      yjsCompactTombstoneBytes.observe(r.tombstoneBytes);
       this.lastCompactAt.set(projectId, Date.now());
       if ((this.pendingQueues.get(projectId)?.length ?? 0) === 0) this.calibrateTruth(projectId, r.snapshotBytes);
     }
+  }
+
+  /** Y0b-5 T10：yjs_doc_bytes 直方图单点 observe（三锚共用——超阈计数同点；锚外禁调）。
+   *  gateway 侧两锚=装载播种/compact；shrink 锚在 CollabShrinkService（白名单点③同一编码）。 */
+  private observeDocBytes(bytes: number): void {
+    yjsDocBytes.observe(bytes);
+    if (bytes > DOC_BYTES_OVER_THRESHOLD_BYTES) yjsDocBytesOverThresholdTotal.inc();
+  }
+
+  /** Y0b-5 T10：heapUsed 采样单点（装载/卸载边界——合成值待标定；独立方法=测试 spy 缝） */
+  private heapUsedNow(): number {
+    return process.memoryUsage().heapUsed;
+  }
+
+  /** Y0b-5 T10：top-N doc 结构日志——数据源=docTruth+delta（与直方图三锚同一数据源，零 encode：
+   *  病态 doc 全量重编≈75× 风暴，本方法只读既有 Map）；「哪个项目病态」的 E54 基调出口。 */
+  private logDocTopN(): void {
+    const entries = [...this.docTruth.keys()]
+      .map((pid) => ({ project: pid, bytes: (this.docTruth.get(pid) ?? 0) + (this.docDelta.get(pid) ?? 0) }))
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, TOPN_LOG_LIMIT);
+    if (entries.length === 0) return;
+    this.logger.log(JSON.stringify({ event: 'yjs_doc_topn', docs: entries }));
   }
 
   /** Y0b-4 T8：配额只读出口——shrink service 消费（实例级构造注入覆盖 env 默认后的单源读点，
@@ -2250,6 +2319,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  重开/关停/重启回灌入 PG，J4 口径）。 */
   private async unloadDocument({ document, documentName }: beforeUnloadDocumentPayload): Promise<void> {
     const projectId = parseProjectId(documentName);
+    // Y0b-5 T10：卸载边界 heap 倍率播种（truth 在 afterUnload 被清——先存；结算在 afterUnloadDocument
+    // 〔destroy 之后〕；卸载取消=残留条目下次装载同键覆写，无泄漏）
+    this.unloadHeapAnchors.set(projectId, { before: this.heapUsedNow(), truth: this.docTruth.get(projectId) ?? 0 });
     try {
       this.cancelPersistRetry(documentName);                       // ①
       const queue = this.pendingQueues.get(projectId);
@@ -2314,6 +2386,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  docStatusRev/docStatusState）同点清理（卸载=新 epoch：rev 复位播种 1 的前提）。 */
   private async afterUnloadDocument({ documentName }: afterUnloadDocumentPayload): Promise<void> {
     const projectId = parseProjectId(documentName);
+    // Y0b-5 T10：卸载边界 heap 倍率结算（destroy 后采样——GC 时延噪声只记正差，合成值待标定）
+    const anchor = this.unloadHeapAnchors.get(projectId);
+    this.unloadHeapAnchors.delete(projectId);
+    if (anchor && anchor.truth > 0) {
+      const freed = anchor.before - this.heapUsedNow();
+      if (freed > 0) yjsDocHeapAmplification.set(freed / anchor.truth);
+    }
     this.docTruth.delete(projectId);
     this.docDelta.delete(projectId);
     this.truthMeasuredAt.delete(projectId);
@@ -2864,6 +2943,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     unregisterLoadedDocBytesReader();   // Y0b-4 T3：容量聚合 collect 闭包随 gateway 死（同惯例）
     unregisterFrozenDocsReader();   // Y0b-4 T4：冻结面 collect 闭包随 gateway 死（同惯例）
     unregisterDocResidueReader();   // Y0b-4 T9a：真空残留 collect 闭包随 gateway 死（同惯例）
+    unregisterAwarenessReader();   // Y0b-5 T10：awareness 两 gauge collect 闭包随 gateway 死（同惯例）
+    if (this.docTopNLogTimer) { clearInterval(this.docTopNLogTimer); this.docTopNLogTimer = null; }   // Y0b-5 T10：top-N 日志定时器随停
     for (const [name] of [...this.persistRetry]) this.cancelPersistRetry(name);  // 定时器随停——drain 主动接管
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
     this.closeAllConnections1012();                                              // 步骤 2：瞬时

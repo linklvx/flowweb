@@ -20,7 +20,7 @@ import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
-import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal } from './store.metrics';
+import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
 
 /** 排队超时（进入执行位前的等待上界——已获执行位的请求不被打断；超时者从等待队列摘除不占执行位） */
 export const SHRINK_QUEUE_TIMEOUT_MS = 10_000;
@@ -196,6 +196,9 @@ export class CollabShrinkService {
       // 白名单点③：活文档再编码（预演与实际写之间理论并发窗的系统性低估防线）+truth 校准
       // （prevTruth=校准前值——偏差③ force 广播的"truth 实际变化"判定源）
       const truth = Y.encodeStateAsUpdate(doc).byteLength;
+      // Y0b-5 T10 锚③：yjs_doc_bytes 直方图 observe 同一编码值（零新增编码——observe 挂既有事件）
+      yjsDocBytes.observe(truth);
+      if (truth > DOC_BYTES_OVER_THRESHOLD_BYTES) yjsDocBytesOverThresholdTotal.inc();
       const prevTruth = this.gateway.calibrateTruth(pid, truth);
       // 滞回出口评估（Concern ① 冻结前置）：仅真冻结态（quotaFrozenDocs——isQuotaFrozen 收窄，
       //  freezePending 确认窗不算：pending 定时器自收敛，无 enter 不出 exit=计数配对不虚高）才

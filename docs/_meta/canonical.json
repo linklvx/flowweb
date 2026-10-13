@@ -212,8 +212,8 @@
       "evidence": [
         {
           "src": "scripts/check-spec-consistency.mjs",
-          "line": 13,
-          "text": "const SPEC_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'docs/superpowers/specs/2026-10-08-y"
+          "line": 21,
+          "text": "const SPEC_PATH = POSITIONAL_ARGS[0] ? path.resolve(POSITIONAL_ARGS[0]) : path.join(ROOT, 'docs/superpowers/specs/2026-1"
         }
       ]
     },

@@ -146,6 +146,22 @@ async function histogramCountDelta(name: string, fn: () => Promise<unknown> | un
   return (await countOf()) - before;
 }
 
+/** histogram count/sum 双增量（Y0b-5 T10——yjs_doc_bytes 锚③断言用） */
+async function histogramDelta(name: string, fn: () => Promise<unknown> | unknown): Promise<{ count: number; sum: number }> {
+  const metric: any = register.getSingleMetric(name);
+  const read = async () => {
+    const vs = (await metric.get()).values;
+    return {
+      count: vs.find((v: any) => v.metricName === `${name}_count`)?.value ?? 0,
+      sum: vs.find((v: any) => v.metricName === `${name}_sum`)?.value ?? 0,
+    };
+  };
+  const before = await read();
+  await fn();
+  const after = await read();
+  return { count: after.count - before.count, sum: after.sum - before.sum };
+}
+
 const nextTick = () => new Promise<void>((r) => setImmediate(() => r()));
 
 describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
@@ -217,6 +233,21 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(edges.size).toBe(0);           // e1 不存在（装置未加）+e2/e3 全删——零悬挂边
     // withDoc 回调全同步由 buildSvc 默认实现守卫（fn 返回 Promise 即 throw）——本用例走同守卫
     // 透传（originalWithDoc），shrink 成功即证同步段契约成立。
+  });
+
+  it('Y0b-5 T10 锚③：shrink 活文档再编码 → yjs_doc_bytes observe truth 值（白名单点③同一编码——零新增）', async () => {
+    const gateway = buildGateway({ maxDocBytes: 1 * MiB });
+    const doc = seedDoc();
+    addNode(doc, 'n1', 64);
+    addNode(doc, 'n2', 128);
+    const { svc } = buildSvc(gateway, doc);
+    let watermark = 0;
+    const d = await histogramDelta('yjs_doc_bytes', async () => {
+      const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['n1'] });
+      watermark = r.watermark!;
+    });
+    expect(d.count).toBe(1);
+    expect(d.sum).toBe(watermark);   // observe 值=活文档再编码真值（与 calibrateTruth 同值同点）
   });
 
   it('纯 recalibrate：body {recalibrate:true} 或空体——不删内容也校准+滞回评估（假冻结出口：truth≥softExit 不 thaw）', async () => {

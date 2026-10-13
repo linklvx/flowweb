@@ -5,12 +5,20 @@
 // ②denylist 收窄为代码型 token（自然语言短语项删——spec:572 forceSyncInterval…COLLAB_TIMEOUT
 // 实测命中=误报例证，门禁会被误报训练绕过）；③env 域保留。
 // 域（P6 收窄）：env-keys / metric-names。退出码：0=PASS；1=门禁违规；2=结构性错误（doc-gate.mjs 先例）。
+// Y0b-5 T10（裁定 24⑸）：--write-metric-names 落盘模式——门禁已持有两侧集合（*.metrics.ts 提取 vs
+// spec §10 围栏块），写模式把 code 侧集合单向落盘进 spec §10（code 为源）；落盘后继续跑双向比对
+// （写后即绿自证+denylist/env 域照常门禁）。指标登记纪律：凡新增/删除指标名的 commit 同批跑本模式
+// 并复跑无 flag 门禁绿。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');   // 本脚本在 <root>/scripts/ 下——上跳一级即仓库根（v2 原文 '../..' 实测解析到盘根 D:\，plan 笔误）
-const SPEC_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md');
+const POSITIONAL_ARGS = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const KNOWN_FLAGS = ['--write-metric-names'];
+const FLAG_ARGS = process.argv.slice(2).filter((a) => a.startsWith('--'));
+const WRITE_METRIC_NAMES = FLAG_ARGS.includes('--write-metric-names');
+const SPEC_PATH = POSITIONAL_ARGS[0] ? path.resolve(POSITIONAL_ARGS[0]) : path.join(ROOT, 'docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md');
 
 export function collectMetricFiles() {
   const base = path.join(ROOT, 'apps/api/src');
@@ -53,14 +61,34 @@ export function parseFencedBlock(md, marker) {
   return m[1].split('\n').map((l) => l.replace(/^- /, '').trim()).filter(Boolean);
 }
 
+// ===== Y0b-5 T10：--write-metric-names 落盘纯函数 =====
+
+/** name 集合 → spec §10 围栏块文本（排序+`- `前缀——与 parseFencedBlock 往返恒等） */
+export function renderMetricNamesBlock(names) {
+  return ['```yaml', ...[...names].sort().map((n) => `- ${n}`), '```'].join('\n');
+}
+
+/** 替换标记后第一个围栏块（open..close 整段含围栏行）为 newBlock；无标记/无围栏返回 null（结构性错误上游报） */
+export function replaceFencedBlock(md, marker, newBlock) {
+  const i = md.indexOf(`<!-- ${marker} -->`);
+  if (i < 0) return null;
+  const open = md.indexOf('```', i);
+  if (open < 0) return null;
+  const close = md.indexOf('```', open + 3);
+  if (close < 0) return null;
+  return md.slice(0, open) + newBlock + md.slice(close + 3);
+}
+
 // import 零副作用（check-ecosystem.mjs 先例形态）——门禁逻辑仅在直接执行时运行，测试进程 import 本模块不被杀
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
   const problems = [];
   const structural = (m) => { console.error(`check-spec-consistency: 结构性错误（exit 2）——${m}`); process.exit(2); };
   const readOrStructural = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch (e) { structural(`文件不可读 ${p}: ${e.message}`); } };
+  const unknownFlag = FLAG_ARGS.find((a) => !KNOWN_FLAGS.includes(a));
+  if (unknownFlag) structural(`未知参数 ${unknownFlag}（已知：${KNOWN_FLAGS.join(' ')}）`);
 
-  const spec = readOrStructural(SPEC_PATH);
+  let spec = readOrStructural(SPEC_PATH);
   const stripped = stripForDenylist(spec);
   for (const d of DENYLIST) {
     if (stripped.includes(d)) {
@@ -77,6 +105,15 @@ if (isMain) {
   if (envStale.length) problems.push(`spec §10 块含已删 env 键: ${envStale.join(', ')}`);
   const metricFiles = collectMetricFiles();
   const metricNames = extractMetricNames(metricFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n'));
+  // Y0b-5 T10：--write-metric-names——code 侧集合单向落盘 spec §10（code 为源）；落盘先行，
+  // 其后比对读落盘后文本（写后即绿自证——denylist/env 域不受影响照常门禁）。
+  if (WRITE_METRIC_NAMES && parseFencedBlock(spec, 'y0b0:metric-names')?.join('\n') !== metricNames.join('\n')) {
+    const updated = replaceFencedBlock(spec, 'y0b0:metric-names', renderMetricNamesBlock(metricNames));
+    if (updated === null) structural('spec §10 metric-names 块无法定位（缺标记或围栏）');
+    fs.writeFileSync(SPEC_PATH, updated, 'utf8');
+    spec = updated;
+    console.log(`check-spec-consistency: --write-metric-names 落盘 ${metricNames.length} 项 → ${path.relative(ROOT, SPEC_PATH)}`);
+  }
   const specMetrics = parseFencedBlock(spec, 'y0b0:metric-names') ?? structural('spec 缺 <!-- y0b0:metric-names --> fenced 块');
   const mMissing = metricNames.filter((k) => !specMetrics.includes(k));
   const mStale = specMetrics.filter((k) => !metricNames.includes(k));

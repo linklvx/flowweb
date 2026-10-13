@@ -621,8 +621,8 @@ env.ts:44 豁免表→进 zod（superRefine：`NODE_ENV==='production'` 拒 `'1'
 **5.8 E54 观测收口**
 
 - ①Sentry collab 接线（gateway/lease/spool/repo 关键 catch+scope{docName,reason}——**URL scrub 统一规则**含 csv/cb）。
-- ②**双指标拆分（E10；v2.1 补标签纪律——E54② 原裁定"去 projectId"此前漏写）**：`yjs_doc_bytes`（真值：装载播种+compact 全量编码校准——两个本来产出全量编码的事件，零新增）+`yjs_store_payload_bytes`（增量直方图）+`yjs_doc_bytes_over_threshold_total`；**全部无 projectId 标签**（histogram 按尺寸分桶——标签基数随项目数无界=Prometheus 内存增长源；"哪个项目病态"由结构化日志承担）；**指标改名连带读者**（persist-status.spec:369 等——plan 清单）。
-- ③新增：`yjs_loaded_doc_bytes`（聚合 gauge——**近似口径=装载播种+apply 字节累加**（O(1) 不编码；GC 壳不回落=高估方向安全），compact 校准防漂移）+~~红线 Σ>192MB（≈堆 37%）~~ **v2.1 量纲修正（第六轮 4.2 采纳）**：编码字节≠堆占用（Yjs item/GC 结构/awareness/观察者放大倍率 5-10×）——"37% 堆占比"假设不成立，192MB 编码实际对应堆占用远超 512MB old-space=**红线永不以设计语义触发**。改：①新增**倍率实测指标** `yjs_doc_heap_amplification`（装载/卸载前后 heapUsed 差÷编码字节——两个既有事件零新增编码）；②红线**降为告警且标注"合成值待标定"**（标定前数值保守压低+双条件 loadedDocs>40 维持）；③真正承重的内存门=heap 闸（RSS/heapUsed 直接量纲）与本条互不替代；**两指标采样点区分（v2.4——第九轮 P2）：`yjs_doc_bytes` 第三校准点=shrink 应用删除后的活文档再编码（§4.1④），`yjs_doc_heap_amplification`=装载/卸载前后 heapUsed 差——时机相邻但量纲不同（编码字节 vs 堆差），禁合并实现**；store 时长/compact 时长+删除行数/load 时长/withDoc 次数耗时直方图；tombstone（compact 时 delete set 字节）。
+- ②**双指标拆分（E10；v2.1 补标签纪律——E54② 原裁定"去 projectId"此前漏写）**：`yjs_doc_bytes`（真值：装载播种+compact 全量编码校准——两个本来产出全量编码的事件，零新增）+`yjs_store_payload_bytes`（增量直方图）+`yjs_doc_bytes_over_threshold_total`；**全部无 projectId 标签**（histogram 按尺寸分桶——标签基数随项目数无界=Prometheus 内存增长源；"哪个项目病态"由结构化日志承担）；**指标改名连带读者**（persist-status.spec:369 等——plan 清单）。〔Y0b-5 T10 已落：buckets 64KiB/256KiB/1MiB/4MiB/16MiB（E19 原文）；三锚=装载播种/compact/shrink 再编码（quota 实测=有偏采样不进本图）；over_threshold 阈=16MiB（顶桶对齐 maxPayload——与 quota 执法阈值分立）；"哪个项目病态"=top-N 结构日志（docTruth 单源零 encode，5min 节律）〕
+- ③新增：`yjs_loaded_doc_bytes`（聚合 gauge——**近似口径=装载播种+apply 字节累加**（O(1) 不编码；GC 壳不回落=高估方向安全），compact 校准防漂移）+~~红线 Σ>192MB（≈堆 37%）~~ **v2.1 量纲修正（第六轮 4.2 采纳）**：编码字节≠堆占用（Yjs item/GC 结构/awareness/观察者放大倍率 5-10×）——"37% 堆占比"假设不成立，192MB 编码实际对应堆占用远超 512MB old-space=**红线永不以设计语义触发**。改：①新增**倍率实测指标** `yjs_doc_heap_amplification`（装载/卸载前后 heapUsed 差÷编码字节——两个既有事件零新增编码）；②红线**降为告警且标注"合成值待标定"**（标定前数值保守压低+双条件 loadedDocs>40 维持）；③真正承重的内存门=heap 闸（RSS/heapUsed 直接量纲）与本条互不替代；**两指标采样点区分（v2.4——第九轮 P2）：`yjs_doc_bytes` 第三校准点=shrink 应用删除后的活文档再编码（§4.1④），`yjs_doc_heap_amplification`=装载/卸载前后 heapUsed 差——时机相邻但量纲不同（编码字节 vs 堆差），禁合并实现**；store 时长/compact 时长+删除行数/load 时长/withDoc 次数耗时直方图；tombstone（compact 时 delete set 字节）。〔Y0b-5 T10 已落：③的两条 runbook 行——`yjs_loaded_doc_bytes` 告警双条件（loadedDocs>40 维持+合成值待标定）与倍率 gauge 采样纪律——本任务只在 spec 标注，runbook 行归 T15 落；耗时四件+deleted_rows/tombstone_bytes 同批落地（tombstone=全 SV 滤零 structs 段余量近似，_count 口径即 compact 次数）；snapshot-doc-cache 容量上界 32+yjs_snapshot_cache_entries 同批（第二条无界增长路径封口）〕
 - ④HTTP RED 四件套+在飞 gauge+x-request-id 中间件（uuid+响应头）——**correlationId 落 GenerationIntent**（"钱去哪了"不再靠字符串前缀 join）。
 - ⑤/api/health 增 collab degraded 块（ready service 数据复用）。
 - ⑥巡检脚本 `scripts/check-collab-health.mjs`：ready+metrics+**资金不变量**（intent_frozen_stranded_total/intent_reconcile_mismatch_total 增量/ai_artifact_discarded{cause}）+heap 闸持续拒绝 P0+not-serving 持续>1min（Y0a 承接）+**滞留 doc gauge/认证重放计数（v2.1）**；P0 阈值表+exit code；runbook §6 衔接。**调度者（v2.1 补；v2.2 增投递面——第七轮 §4.2）**：服务器 crontab 5min 一次+输出追加日志；**P0 级命中经 `ALERT_SMS_TO` 发一条短信**（复用既有腾讯云 SMS 依赖 apps/api/package.json——"只写日志"=没人看的告警；不建监控栈，Y0a 既定路线内的最小真实投递）；资金不变量块=**开放真实支付的前置条件之一**（§9.13）。
@@ -705,10 +705,10 @@ env.ts:44 豁免表→进 zod（superRefine：`NODE_ENV==='production'` 拒 `'1'
 
 **资金族**：execution_settle_failure_total / ai_artifact_discarded_total{cause}（D1 平台沉没成本计量）/ intent_frozen_stranded_total / intent_deadline_exceeded_total / intent_reconcile_mismatch_total（复用）。
 **准入族**：collab_auth_reject_total{reason}（含 server-overloaded/schema-outdated）/ collab_upgrade_rejected_total{reason=origin|rate-limited} / **collab_auth_attempt_total+collab_auth_attempt_blocked_total{reason}（认证尝试桶——v2.3 改名后单名）+collab_stateless_ping_total/bad_payload_total/unknown_total（v2.4 保活与 P14 兜底观测）** / collab_sweep_check_total{layer} / collab_sweep_close_total{cause:+role-downgraded} / collab_version_negotiation_reject_total{reason} / **collab_load_rejected_total{reason=server-overloaded}+collab_overload_state{state}** / **collab_doc_store_failed_total+yjs_doc_stuck_total（v2.1 释放路径观测）**。
-**配额/awareness 族**：yjs_inbound_frame_bytes / collab_quota_*（软硬阈命中/4404） / yjs_doc_bytes+yjs_doc_bytes_over_threshold_total+yjs_store_payload_bytes / **yjs_loaded_doc_bytes（告警·合成值待倍率标定——§5.8③ v2.1 已降红线；双条件 loadedDocs>40 维持）+yjs_doc_reaped_total+yjs_doc_stuck_total** / awareness_states/awareness_bytes/collab_awareness_dropped_total/collab_slow_consumer_disconnect_total/yjs_outbound_backlog_bytes / 消息速率闸计数+字节速率闸计数（COLLAB_BYTES_RATE_PER_CONN 维度分列，v2.4）/ **collab_idle_timeout_total**。
-**观测收口族**：store/compact/load/withDoc 直方图+compact 删除行数+tombstone 字节 / HTTP RED+在飞 gauge+x-request-id / /api/health collab degraded。
+**配额/awareness 族**：yjs_inbound_frame_bytes / collab_quota_*（软硬阈命中/4404） / yjs_doc_bytes+yjs_doc_bytes_over_threshold_total+yjs_store_payload_bytes / **yjs_loaded_doc_bytes（告警·合成值待倍率标定——§5.8③ v2.1 已降红线；双条件 loadedDocs>40 维持）+yjs_doc_reaped_total+yjs_doc_stuck_total** / awareness_states/awareness_bytes/collab_awareness_dropped_total/collab_slow_consumer_disconnect_total/yjs_outbound_backlog_bytes / 消息速率闸计数+字节速率闸计数（COLLAB_BYTES_RATE_PER_CONN 维度分列，v2.4）/ ~~collab_idle_timeout_total~~〔Y0b-5 T10 登记删除——P-T 证伪后无 idle 超时路径（awareness 自续期双向帧恒刷新两侧计时器，§3.6 存档），代码零注册=禁 spec 与代码双源〕。
+**观测收口族**：store/compact/load/withDoc 直方图+compact 删除行数+tombstone 字节〔Y0b-5 T10 已落：yjs_{store,compact,load,withdoc}_duration_seconds+yjs_compact_deleted_rows+yjs_compact_tombstone_bytes〕 / HTTP RED+在飞 gauge+x-request-id / /api/health collab degraded。
 **遥测族**：collab_telemetry_events_total{type≤12}（含 unsynced_close）。
-**删除**：yjs_sv_wait_timeout_total / yjsCanvasDocBytes（双指标替代+读者同批改）。
+**删除**：yjs_sv_wait_timeout_total / yjsCanvas_doc_bytes〔Y0b-5 T10 已删——yjs_doc_bytes 直方图+yjs_store_payload_bytes+yjs_loaded_doc_bytes 替代，4 读者同批改〕。
 
 ### 5.3 CI 载体
 
@@ -934,6 +934,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 <!-- y0b0:metric-names -->
 ```yaml
 - ai_artifact_discarded_total
+- awareness_bytes
+- awareness_states
 - collab_auth_inflight
 - collab_auth_reject_total
 - collab_auth_timeout_total
@@ -997,21 +999,28 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - ledger_balance_drift_total
 - ledger_frozen_drift_total
 - ledger_orphan_unreleasable_total
-- yjs_canvas_doc_bytes
 - yjs_compact_abandoned_total
+- yjs_compact_deleted_rows
+- yjs_compact_duration_seconds
 - yjs_compact_not_owner_total
+- yjs_compact_tombstone_bytes
 - yjs_connection_count
 - yjs_deleted_projects
+- yjs_doc_bytes
+- yjs_doc_bytes_over_threshold_total
+- yjs_doc_heap_amplification
 - yjs_doc_loaded_by_reconciler_total
 - yjs_doc_stuck_total
 - yjs_hydration_huge_row_total
 - yjs_inbound_frame_bytes
+- yjs_load_duration_seconds
 - yjs_loaded_doc_bytes
 - yjs_loaded_documents
 - yjs_outbound_backlog_bytes
 - yjs_pending_batches
 - yjs_pending_bytes
 - yjs_pending_projects
+- yjs_snapshot_cache_entries
 - yjs_snapshot_fallback_total
 - yjs_snapshot_read_total
 - yjs_spool_capacity_total
@@ -1023,13 +1032,16 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_store_append_failure_total
 - yjs_store_compact_failure_total
 - yjs_store_drain_total
+- yjs_store_duration_seconds
 - yjs_store_hook_calls_total
 - yjs_store_in_flight_docs
+- yjs_store_payload_bytes
 - yjs_store_tail_anomaly_total
 - yjs_store_unexpected_throw_total
 - yjs_unload_cleanup_failure_total
 - yjs_unload_handoff_failure_total
 - yjs_updates_discarded_deleted_total
+- yjs_withdoc_duration_seconds
 - yjs_zero_conn_docs
 ```
 

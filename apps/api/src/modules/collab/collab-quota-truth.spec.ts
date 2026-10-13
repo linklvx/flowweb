@@ -132,7 +132,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     src.getMap('g').set('live', 'a'.repeat(10_000));
     const { gateway, repo } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, { maxDocBytes: 1 * MiB });
     await loadDoc(gateway);
-    repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 4242 });
+    repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 4242, deletedRows: 0, tombstoneBytes: 0 });
     (gateway as any).lastCompactAt.delete('p1');   // 绕时间门（loadDocument 已播种基线）
     (gateway as any).pendingQueues.get('p1').push(new Uint8Array(16));   // 活 doc 含未 store delta
     await (gateway as any).maybeCompact('p1');

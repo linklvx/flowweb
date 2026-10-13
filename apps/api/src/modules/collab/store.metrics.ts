@@ -27,13 +27,122 @@ export const yjsStoreCompactFailureTotal = new Counter({
   registers: [register],
 });
 
-/** 批3-4：canvas_doc 持久化字节量观测——load 播种快照字节（set）+ store 批实落字节和（inc，Y0b-4 T3
- *  切批口径）的近似累计；compact 归并不回设（下次装载 set 纠偏）；观测非 enforcement（Y1c-3）。 */
-export const yjsCanvasDocBytes = new Gauge({
-  name: 'yjs_canvas_doc_bytes',
-  help: 'canvas_doc 持久化字节量近似（load set 快照字节+store 批实落字节和 inc——切批口径；compact 归并不回设、下次装载 set 纠偏；观测非 enforcement）',
-  labelNames: ['projectId'],
+/** ===== Y0b-5 T10（spec §5.8②③/E19 回归）：服务端指标面 ===== */
+
+/** E19「改尺寸直方图」原文回归：yjs_canvas_doc_bytes（projectId gauge——标签基数随项目数无界）退役，
+ *  改无标签尺寸直方图；「哪个项目病态」由 top-N 结构化日志承担（E54 基调）。与 yjs_loaded_doc_bytes
+ *  分工互写：直方图=尺寸分布（三锚观测），gauge=驻留总量 Σ(truth+delta)。三锚=装载播种（cheap 或
+ *  付费编码值——docTruth 既有播种值零新增编码）/compact 全量编码（repo snapshotBytes 既有上报）/
+ *  shrink 活文档再编码（白名单点③同一编码）——禁在锚外加观测点（quota 实测是有偏采样不进本图）。 */
+export const yjsDocBytes = new Histogram({
+  name: 'yjs_doc_bytes',
+  help: 'doc 编码字节尺寸分布（三锚观测：装载播种/compact 全量编码/shrink 活文档再编码——既有 docTruth 事件零新增编码；无 projectId 标签——病态 doc 归 top-N 结构化日志）',
+  buckets: [64 * 1024, 256 * 1024, 1_048_576, 4_194_304, 16_777_216],
   registers: [register],
+});
+
+/** 超阈计数（E19「无标签超阈计数」）——阈值=直方图顶桶 16MiB（对齐 maxPayload DoS 兜底界；
+ *  与 quota maxDocBytes 分立——quota 是执法阈值（env 可调），本计数是病态观测阈值（常量）。 */
+export const DOC_BYTES_OVER_THRESHOLD_BYTES = 16_777_216;
+export const yjsDocBytesOverThresholdTotal = new Counter({
+  name: 'yjs_doc_bytes_over_threshold_total',
+  help: 'doc 编码字节 >16MiB 的观测次数（与 yjs_doc_bytes 同点计数——病态观测非执法；quota 超限执法面归 collab_quota_*）',
+  registers: [register],
+});
+
+/** append 增量直方图（E54②）——store 成功路径逐片 payload 字节（切批 ≤1MB 口径）。
+ *  退役 yjs_canvas_doc_bytes 的 inc 语义继任：原 gauge 的 projectId 键控近似累计由直方图+聚合
+ *  gauge（yjs_loaded_doc_bytes）共同覆盖。 */
+export const yjsStorePayloadBytes = new Histogram({
+  name: 'yjs_store_payload_bytes',
+  help: 'store append 落库 payload 字节分布（成功路径逐片 observe——切批 ≤1MB 口径）',
+  buckets: [16 * 1024, 64 * 1024, 256 * 1024, 512 * 1024, 1_048_576, 4_194_304],
+  registers: [register],
+});
+
+/** awareness 两 gauge（spec §5.2/E40）——collect reader 注册模式（yjs_loaded_doc_bytes 同族惯例：
+ *  gateway 注册读数回调，metrics 文件不 import gateway）。onAwarenessUpdate 未注册禁依赖（观测钩子
+ *  禁改写——E73）——collect 现算 Σ。不解码不取字段仅 Σ 编码字节（无 PII 面）。 */
+let awarenessReader: (() => { states: number; bytes: number }) | null = null;
+export function registerAwarenessReader(fn: () => { states: number; bytes: number }): void { awarenessReader = fn; }
+export function unregisterAwarenessReader(): void { awarenessReader = null; }
+export const awarenessStates = new Gauge({
+  name: 'awareness_states',
+  help: 'Σ 在飞 awareness 条目数（collect 现算——不解码不取字段仅 Σ 编码字节口径的条目半边）',
+  registers: [register],
+  collect() { try { this.set(awarenessReader?.().states ?? 0); } catch { this.set(0); } },
+});
+export const awarenessBytes = new Gauge({
+  name: 'awareness_bytes',
+  help: 'Σ 在飞 awareness 编码字节（collect 现算——不解码不取字段仅 Σ 编码字节；onAwarenessUpdate 未注册禁依赖）',
+  registers: [register],
+  collect() { try { this.set(awarenessReader?.().bytes ?? 0); } catch { this.set(0); } },
+});
+
+/** heap 倍率（spec §5.8③ v2.1）：装载/卸载边界 heapUsed 差÷编码字节——与 yjs_doc_bytes 采样点
+ *  时机相邻但量纲不同（堆差 vs 编码字节），禁合并实现。合成值待标定：卸载后 GC 时延致负数/噪声
+ *  （采样点最小化——只在装载/卸载边界采，非正差跳过保持上一次有效样本）。 */
+export const yjsDocHeapAmplification = new Gauge({
+  name: 'yjs_doc_heap_amplification',
+  help: 'doc heap 倍率合成值（装载/卸载边界 heapUsed 差÷编码字节——GC 时延噪声、待标定；非正差跳过）',
+  registers: [register],
+});
+
+/** 耗时直方图四件（spec §5.8③）：store（取批→落定）/compact（repo.compact 实跑）/load（装载
+ *  try 段）/withDoc（REST 直连全路径含 disconnect）。withDoc 高频路径——Date.now() 计时本身
+ *  零成本可接受（采集挂 finally：时长面非成功面）。 */
+const DURATION_BUCKETS_SECONDS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+export const yjsStoreDuration = new Histogram({
+  name: 'yjs_store_duration_seconds',
+  help: 'store 取批→落定耗时秒（saveMutex 内主体路径——含 append/spool 落定）',
+  buckets: DURATION_BUCKETS_SECONDS,
+  registers: [register],
+});
+export const yjsCompactDuration = new Histogram({
+  name: 'yjs_compact_duration_seconds',
+  help: 'repo.compact 实跑耗时秒（时间门通过后的真实 compact——门早退不计时）',
+  buckets: DURATION_BUCKETS_SECONDS,
+  registers: [register],
+});
+export const yjsLoadDuration = new Histogram({
+  name: 'yjs_load_duration_seconds',
+  help: 'loadDocument 装载耗时秒（hydrate+replay+播种段——拒绝早退不计时）',
+  buckets: DURATION_BUCKETS_SECONDS,
+  registers: [register],
+});
+export const yjsWithdocDuration = new Histogram({
+  name: 'yjs_withdoc_duration_seconds',
+  help: 'REST withDoc 直连全路径耗时秒（openDirectConnection→transact→disconnect）',
+  buckets: DURATION_BUCKETS_SECONDS,
+  registers: [register],
+});
+
+/** compact 删除行数/tombstone 字节（spec §5.8③；计数=histogram_count 口径——每次成功 compact
+ *  恰一个观测，_count 即 compact 次数）。tombstone=新快照 delete set 编码字节（全 SV 滤零
+ *  structs 段后的余量近似——repo.compact 单点测量）。 */
+export const yjsCompactDeletedRows = new Histogram({
+  name: 'yjs_compact_deleted_rows',
+  help: 'compact 删除增量行数分布（每次成功 compact 一观测——_count 口径即 compact 次数）',
+  buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+  registers: [register],
+});
+export const yjsCompactTombstoneBytes = new Histogram({
+  name: 'yjs_compact_tombstone_bytes',
+  help: 'compact 时 delete set 编码字节分布（全 SV 滤零 structs 段余量近似；_count 口径即 compact 次数——墓碑主导文档判读面）',
+  buckets: [16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1_048_576],
+  registers: [register],
+});
+
+/** snapshot-doc-cache 条目 gauge（T10 容量上界配套——与 LRU 同源的第二条无界增长路径可见化）。
+ *  reader 注册模式同族（CollabDocumentService 构造注册）。 */
+let snapshotCacheEntriesReader: (() => number) | null = null;
+export function registerSnapshotCacheEntriesReader(fn: () => number): void { snapshotCacheEntriesReader = fn; }
+export function unregisterSnapshotCacheEntriesReader(): void { snapshotCacheEntriesReader = null; }
+export const yjsSnapshotCacheEntries = new Gauge({
+  name: 'yjs_snapshot_cache_entries',
+  help: '快照解码缓存条目数（容量上界 32 的占用观测——collect 现算）',
+  registers: [register],
+  collect() { try { this.set(snapshotCacheEntriesReader?.() ?? 0); } catch { this.set(0); } },
 });
 
 /** 批3-4：session sweep 关闭计数（cause=revoked 复验确认 / db-fail 连续复验异常兜底关）；
@@ -381,7 +490,7 @@ export function registerLoadedDocBytesReader(fn: () => number): void { loadedDoc
 export function unregisterLoadedDocBytesReader(): void { loadedDocBytesReader = null; }
 export const yjsLoadedDocBytes = new Gauge({
   name: 'yjs_loaded_doc_bytes',
-  help: '装载 doc 真值总和（口径=Σ(实测 truth+delta 插值上界)——GC 回收在测量点回落；观测非 enforcement，Y1c-3）',
+  help: '装载 doc 真值总和（驻留总量口径=Σ(实测 truth+delta 插值上界)——与 yjs_doc_bytes 直方图分工：本表=聚合驻留量/直方图=尺寸分布三锚；GC 回收在测量点回落；观测非 enforcement，Y1c-3）',
   registers: [register],
   collect() { try { this.set(loadedDocBytesReader?.() ?? 0); } catch { this.set(0); } },
 });

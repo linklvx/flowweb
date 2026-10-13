@@ -48,7 +48,7 @@ maybe('compact（真 PG）', () => {
     await repo.append(PID, Y.encodeStateAsUpdate(docWithNodes(3)));
     const rows = await prisma.canvasDocUpdate.findMany({ where: { projectId: PID }, select: { seq: true }, orderBy: { seq: 'asc' } });
     const t0 = Date.now();
-    expect(await repo.compact(PID)).toEqual({ compacted: true, snapshotBytes: expect.any(Number) });   // 返回契约：成功（Y0b-4 T3 附 snapshotBytes 真值上报）
+    expect(await repo.compact(PID)).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: rows.length, tombstoneBytes: expect.any(Number) });   // 返回契约：成功（Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows〔=被删行数〕/tombstoneBytes）
     const docRow = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
     expect(docRow!.stateSeq).toBe(rows[rows.length - 1].seq);        // 精确 =
     expect(docRow!.updatedAt.getTime()).toBeGreaterThanOrEqual(t0);  // updatedAt create 分支（@updatedAt 只在 Client 层生效——防未来改裸 SQL）

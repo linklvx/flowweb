@@ -1,10 +1,10 @@
-import { Injectable, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Inject, Logger, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
 import { readRecordsFromMaps, ensureSchemaVersion } from '@flowweb/shared';
 import { CollabGateway } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
-import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal } from './store.metrics';
+import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 
@@ -31,15 +31,23 @@ export interface ArtifactProbeResult {
 }
 
 @Injectable()
-export class CollabDocumentService {
+export class CollabDocumentService implements OnApplicationShutdown {
   private readonly logger = new Logger(CollabDocumentService.name);
-  /** Y0b-2 T3：进程内 TTL 单飞缓存（纯内存原语字段自建——跨请求缓存归 Redis 层，本层=并发窗去重） */
+  /** Y0b-2 T3：进程内 TTL 单飞缓存（纯内存原语字段自建——跨请求缓存归 Redis 层，本层=并发窗去重）。
+   *  Y0b-5 T10：容量上界 32+entries gauge 可见化（registerPendingCollector 同族 reader 注册惯例）。 */
   private readonly snapshotCache = new SnapshotDocCache();
 
   constructor(
     @Inject(CollabGateway) private readonly gateway: CollabGateway,
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
-  ) {}
+  ) {
+    registerSnapshotCacheEntriesReader(() => this.snapshotCache.size);
+  }
+
+  /** Y0b-5 T10：collect 闭包随 service 死（gateway reader 同惯例） */
+  onApplicationShutdown(): void {
+    unregisterSnapshotCacheEntriesReader();
+  }
 
   /** Q1 单实例铁律：业务服务端写 doc 一律走 Hocuspocus 直连；try/finally disconnect 保证 unload flush（S7）。
    *  Y0a-3（P0-1 三入口③）：withDoc 首行租约门——lease 失守/drain 期早退 503（不 openDirectConnection，
@@ -52,6 +60,7 @@ export class CollabDocumentService {
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });   // 真空窗口 ≤30s 上界——Retry-After 2 由 CollabNotServingFilter 附
     }
     const connection = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`);
+    const withdocT0 = Date.now();   // Y0b-5 T10：withDoc 耗时（open 后的 transact→disconnect 段）
     try {
       let result: T;
       let pending: Promise<void> | undefined;
@@ -67,6 +76,7 @@ export class CollabDocumentService {
       return result!;
     } finally {
       await connection.disconnect({ unloadImmediately: true });   // Y0a-4/P24：A6 锚=Connection 级旋钮（B20 双旋钮之一）——B26：库默认即 true，显式 pin=防升级翻转的文档锚
+      yjsWithdocDuration.observe((Date.now() - withdocT0) / 1000);   // Y0b-5 T10：全路径含 disconnect（卸载 flush 同为该请求成本）
     }
   }
 

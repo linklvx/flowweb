@@ -216,11 +216,14 @@ export class CanvasDocUpdateRepository {
    *  （SV inline 哨兵已删——pendingStructs 检查通过前提下 per-row SV 支配性恒真，探针证伪见 spec §1.5。）
    *  Y0b-4 T3（Q-B 白名单点②）：成功分支附 snapshotBytes（newSnapshot 实测编码字节——编码已在做，
    *  byteLength 零新增）；gateway maybeCompact 判 pending 空才采纳为 docTruth（持久化真值口径）。
+   *  Y0b-5 T10（spec §5.8③）：成功分支扩 deletedRows（被删增量行数）+tombstoneBytes（delete set
+   *  编码字节——encodeStateAsUpdate(temp, 全 SV) 把 structs 段滤零后的余量近似；compact 受 ≥60s
+   *  时间门约束，附加编码成本有界）。
    *  opts：交互式事务独立预算（自愈路径 6s/1s·运维脚本 120s/5s；默认 5s/2s 与 Prisma 隐含值对齐）。 */
   async compact(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ compacted: true; snapshotBytes: number } | { compacted: false; reason?: 'abandoned' | 'empty' | 'not-owner' }> {
+  ): Promise<{ compacted: true; snapshotBytes: number; deletedRows: number; tombstoneBytes: number } | { compacted: false; reason?: 'abandoned' | 'empty' | 'not-owner' }> {
     return this.prisma.$transaction(
       async (tx) => {
         const owner = this.leaseOwner;
@@ -255,6 +258,8 @@ export class CanvasDocUpdateRepository {
           return { compacted: false, reason: 'abandoned' as const };   // 空事务提交：不写不删，行全保留
         }
         const newSnapshot = Y.encodeStateAsUpdate(temp);
+        // Y0b-5 T10：tombstone 近似——全 SV 使 structs 段滤零，余量≈delete set 编码（temp 尚未 destroy）
+        const tombstone = Y.encodeStateAsUpdate(temp, Y.encodeStateVector(temp));
         temp.destroy();
         await tx.canvasDoc.upsert({
           where: { projectId },
@@ -262,7 +267,7 @@ export class CanvasDocUpdateRepository {
           create: { projectId, state: Buffer.from(newSnapshot), stateSeq: maxSeq },
         });
         await tx.canvasDocUpdate.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
-        return { compacted: true, snapshotBytes: newSnapshot.length };   // Y0b-4 T3：真值上报（编码已在做）
+        return { compacted: true, snapshotBytes: newSnapshot.length, deletedRows: rows.length, tombstoneBytes: tombstone.length };   // Y0b-4 T3 真值上报+Y0b-5 T10 行数/tombstone
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );

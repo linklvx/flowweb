@@ -356,7 +356,7 @@ describe('批3-4 doc epoch + canvas_doc gauge', () => {
     expect((gateway as any).docEpoch.get(doc as any)).toBe(epoch);
   });
 
-  it('canvas_doc 大小 gauge：load 播种快照字节 + append 增量累加', async () => {
+  it('Y0b-5 T10：yjs_canvas_doc_bytes 退役——装载播种进 yjs_doc_bytes 直方图+store 批进 yjs_store_payload_bytes（E54② 双指标拆分读者改造）', async () => {
     const { gateway, repo } = buildGateway();
     const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
     stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（版本门放行前提）
@@ -365,17 +365,18 @@ describe('批3-4 doc epoch + canvas_doc gauge', () => {
     const doc = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
 
-    // prom-client Gauge.get() 在带 label 时不回值——经 register JSON 读（本文件独占 register 实例）
-    const gaugeValue = async () => {
-      const metrics = await register.getMetricsAsJSON();
-      return (metrics.find((m: any) => m.name === 'yjs_canvas_doc_bytes')?.values ?? [])
-        .find((v: any) => v.labels?.projectId === 'p1')?.value;
-    };
-    expect(await gaugeValue()).toBe(snap.length);
+    // E19：projectId gauge 已删（重复注册即红）；尺寸分布=yjs_doc_bytes 直方图（装载播种样本=snap 字节）
+    const metrics = await register.getMetricsAsJSON();
+    expect(metrics.find((m: any) => m.name === 'yjs_canvas_doc_bytes')).toBeUndefined();
+    const docBytes = metrics.find((m: any) => m.name === 'yjs_doc_bytes')?.values ?? [];
+    expect(docBytes.find((v: any) => v.metricName === 'yjs_doc_bytes_count')?.value).toBeGreaterThanOrEqual(1);
+    expect(docBytes.find((v: any) => v.metricName === 'yjs_doc_bytes_sum')?.value).toBeGreaterThanOrEqual(snap.length);
 
     doc.getMap('nodes').set('b', 2);
     await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any);
     const payload = repo.append.mock.calls[0][1] as Uint8Array;
-    expect(await gaugeValue()).toBe(snap.length + payload.byteLength);
+    const metrics2 = await register.getMetricsAsJSON();
+    const payloads = metrics2.find((m: any) => m.name === 'yjs_store_payload_bytes')?.values ?? [];
+    expect(payloads.find((v: any) => v.metricName === 'yjs_store_payload_bytes_sum')?.value).toBeGreaterThanOrEqual(payload.byteLength);
   });
 });

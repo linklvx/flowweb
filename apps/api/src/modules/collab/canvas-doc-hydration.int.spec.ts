@@ -67,7 +67,7 @@ maybe('loadForHydration（真 PG）', () => {
     await repo.compact(PID);   // 先真 compact 造快照行——重试装载（真实现）拿到非空 state
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(Object.assign(new Error('Transaction query timeout'), { code: 'P2028' }));
-    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0 });
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 });
     try {
       const { state } = await repo.hydrateWithRecovery(PID);
       expect(state).not.toBeNull();
@@ -84,7 +84,7 @@ maybe('loadForHydration（真 PG）', () => {
     await reset();
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(Object.assign(new Error("Can't reach database server"), { code: 'P1001' }));
-    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0 });
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 });
     try {
       await expect(repo.hydrateWithRecovery(PID)).rejects.toMatchObject({ code: 'P1001' });
       expect(compactSpy).not.toHaveBeenCalled();
@@ -99,7 +99,7 @@ maybe('loadForHydration（真 PG）', () => {
     await reset();
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(Object.assign(new Error('Timed out fetching a new connection from the connection pool'), { code: 'P2024' }));
-    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0 });
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 });
     try {
       await expect(repo.hydrateWithRecovery(PID)).rejects.toMatchObject({ code: 'P2024' });
       expect(compactSpy).not.toHaveBeenCalled();
@@ -114,7 +114,7 @@ maybe('loadForHydration（真 PG）', () => {
     await reset();
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(Object.assign(new Error('connection pool timeout'), { code: 'P2024' }));
-    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0 });
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 });
     try {
       await expect(repo.hydrateWithRecovery(PID)).rejects.toMatchObject({ code: 'P2024' });
       expect(compactSpy).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ maybe('loadForHydration（真 PG）', () => {
     await repo.compact(PID);
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(new Error('statement timeout'));   // 无 code
-    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0 });
+    const compactSpy = vi.spyOn(repo, 'compact').mockResolvedValue({ compacted: true, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 });
     try {
       const { state } = await repo.hydrateWithRecovery(PID);
       expect(state).not.toBeNull();
