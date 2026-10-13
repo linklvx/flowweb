@@ -28,6 +28,16 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     expect(violations).toEqual([]);
   });
 
+  it('skipped 投影 reason 键合法（execution.service 两处生产调用点：:306 重复外呼/:411 Z99 NodeBusy）', () => {
+    const violations = validateWriteBatch([
+      // 镜像 execution.service.ts:306——reserve 拒（重复外呼企图）投影
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT', attempts: 2, intentId: 'i1' } },
+      // 镜像 execution.service.ts:411-414——Z99 NodeBusy 投影（intentId 条件展开后缺省形态）
+      { op: 'writeExecStatus', nodeId: 'n2', patch: { status: 'skipped', reason: 'node busy: other writer in flight', attempts: 0 } },
+    ]);
+    expect(violations).toEqual([]);
+  });
+
   it('未知键拒绝（writeNodeData patch 键不在 manifest 键集——UNKNOWN_KEY）', () => {
     const violations = validateWriteBatch([
       { op: 'writeNodeData', nodeId: 'n1', patch: { notARegisteredKey: 'x' } },

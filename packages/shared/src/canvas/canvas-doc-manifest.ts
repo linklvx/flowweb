@@ -124,7 +124,7 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
   ],
   exec: [
     {
-      map: 'exec', path: 'exec.*（键集=DOC_WRITE_OPS.writeExecStatus.keys——status/attempts/jobId/intentId/fileId/errorCode/error/rearmable）',
+      map: 'exec', path: 'exec.*（键集=DOC_WRITE_OPS.writeExecStatus.keys——status/attempts/jobId/intentId/fileId/errorCode/error/rearmable/reason）',
       writers: ['collab-document.service.writeExecStatus（唯一写者——客户端零 exec 写）'],
       readers: ['web exec 投影（execStatusView/visibility 门）', 'intent-reconcile/sweepOrphanExec（孤儿清扫兜底）'],
       ownership: 'exec', undo: 'server-only',
@@ -175,11 +175,15 @@ type _EdgeAnchor = _AssertNoMissing<_MissingEdgeKeys>;  // 勿删——删即静
  *  UNKNOWN_KEY 红（键集冻结的宗旨）。 */
 const SERVER_NODE_DATA_KEYS = ['fileId', 'resultUrl', 'videoUrl', 'content', 'result', 'errorCode'] as const;
 
-/** writeExecStatus 键域=现行 ExecStatusPatch 写面实测键集（execution.service 全调用点枚举）：
- *  attempts 必填（编译级）；error 已被 errorPatch slice(0,200) 上界。 */
-const EXEC_STATUS_KEYS = ['status', 'attempts', 'jobId', 'intentId', 'fileId', 'errorCode', 'error', 'rearmable'] as const;
+/** writeExecStatus 键域=现行 ExecStatusPatch 写面实测键集：status/attempts/jobId/intentId/fileId/
+ *  errorCode/error/rearmable/reason。T4 评审勘误（2026-10-14）：初版注释自称「execution.service
+ *  全调用点枚举」实为不实——漏 reason（execution.service.ts:306 reserve 拒重复外呼投影与 :411 Z99
+ *  NodeBusy 投影两处 skipped 在写），若不补 A1 DocWriter 消费即 UNKNOWN_KEY 拒合法写。attempts
+ *  必填（编译级）；error 已被 errorPatch slice(0,200) 上界。 */
+const EXEC_STATUS_KEYS = ['status', 'attempts', 'jobId', 'intentId', 'fileId', 'errorCode', 'error', 'rearmable', 'reason'] as const;
 
-/** Z108 批级上限：op 数/op 总字节 Σ（与 COLLAB_MAX_TX_BYTES 同源——QUOTA_DEFAULTS.maxTxBytes=262144）。 */
+/** Z108 批级上限：op 数/op 总字节 Σ（与 COLLAB_MAX_TX_BYTES 同源——QUOTA_DEFAULTS.maxTxBytes=262144）。
+ *  op 数 1000=初始保守值（plan/spec 无数字依据），待 A1 T8 实测校准。 */
 export const MAX_WRITE_OPS_PER_BATCH = 1000;
 export const MAX_WRITE_BATCH_BYTES = QUOTA_DEFAULTS.maxTxBytes;
 
@@ -198,7 +202,7 @@ export const DOC_WRITE_OPS: Record<DocWriteOpType, DocWriteOpSpec> = {
     keys: EXEC_STATUS_KEYS,
     valueTypes: {
       status: ['string'], attempts: ['number'], jobId: ['string', 'null'], intentId: ['string'],
-      fileId: ['string'], errorCode: ['string'], error: ['string'], rearmable: ['boolean'],
+      fileId: ['string'], errorCode: ['string'], error: ['string'], rearmable: ['boolean'], reason: ['string'],
     },
     keyMaxBytes: 4_096, // errorPatch 已 slice(0,200)——上限防绕过 errorPatch 直写大值
     idempotent: true,   // 键级 set+attempts 代次守卫（Z99/Z111）
