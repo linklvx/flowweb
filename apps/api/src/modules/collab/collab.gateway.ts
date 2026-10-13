@@ -1477,7 +1477,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       dirtyDocs: p.projects,
       oldestUnflushedAt: oldest === null ? null : new Date(oldest).toISOString(),
       oldestUnflushedAgeSeconds: oldest === null ? 0 : Math.floor((Date.now() - oldest) / 1000),
-      spoolDepthBytes: p.spoolBytes + (p.strandedBytes ?? 0),
+      spoolDepthBytes: p.spoolBytes + p.strandedBytes,
       stuckDocs: this.stuckDocsSeen,
     };
   }

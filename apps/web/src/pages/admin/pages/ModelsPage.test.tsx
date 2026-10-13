@@ -37,7 +37,7 @@ describe('ModelsPage', () => {
   });
 
   describe('Y0b-5 T14 定价覆盖红标（Y0b-1 移交收口——missing 非空→红色 Alert）', () => {
-    it('coverage missing 非空→Alert「N 个模型无生效定价规则」+缺失明细可见', async () => {
+    it('coverage missing 非空→Alert「N 项定价覆盖缺失」+缺失明细可见', async () => {
       (fetchPricingCoverage as any).mockResolvedValueOnce({
         ok: false,
         missing: [
@@ -47,7 +47,7 @@ describe('ModelsPage', () => {
       });
       render(<MemoryRouter><AntdApp><ModelsPage /></AntdApp></MemoryRouter>);
       const alert = await screen.findByRole('alert');
-      expect(alert.textContent).toContain('2 个模型无生效定价规则');
+      expect(alert.textContent).toContain('2 项定价覆盖缺失');
       expect(alert.textContent).toContain('GLM');
       expect(alert.textContent).toContain('Kimi');
     });

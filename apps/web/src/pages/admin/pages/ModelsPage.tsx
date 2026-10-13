@@ -70,7 +70,7 @@ export default function ModelsPage() {
       {coverageMissing !== null && coverageMissing.length > 0 && (
         <Alert
           type="error" showIcon style={{ marginBottom: 16 }}
-          message={`${coverageMissing.length} 个模型无生效定价规则`}
+          message={`${coverageMissing.length} 项定价覆盖缺失`}
           description={
             <ul className="list-none pl-0 m-0">
               {coverageMissing.map((m, i) => (
