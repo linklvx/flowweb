@@ -12,6 +12,7 @@ import {
   classifyWorkerBannedSymbol, isHocuspocusServerImport,
   reconcileRegisteredRed, reconcileWithDocRegistry,
   extractProcessEnvKeys, countDynamicEnvAccess, computeBraceDepth, parseDotEnvKeys, ecosystemEnvKeys,
+  parsePrismaUniques, parseRawIndexAnchor, findEquivalentIndexes,
 } from './check-collab-census.mjs';
 
 test('stripCommentsAndStrings：行注释/块注释/字符串内容剥离、代码保留、换行保位', () => {
@@ -251,4 +252,94 @@ test('ecosystemEnvKeys：多 app env 块键并集；缺 env 块/缺 apps 抛错'
   assert.deepEqual(ecosystemEnvKeys({ apps: [{ name: 'a' }] }), []);            // 无 env 块=空集
   assert.throws(() => ecosystemEnvKeys({ apps: 'not-array' }));                 // 结构性错误
   assert.throws(() => ecosystemEnvKeys({}));                                    // 缺 apps
+});
+
+// ── Y0c T6 组㉔（Z58 双等价索引 census）：schema 唯一声明解析/baseline raw 锚解析/等价判定 ──
+test('parsePrismaUniques：@@unique 块级+字段级 @unique→生成名 <Model>_<cols>_key；enum/收尾不串模型', () => {
+  const schema = [
+    'enum IntentStatus {',
+    '  RUNNING',
+    '}',
+    'model User {',
+    '  email       String  @unique',
+    '  phoneNumber String? @unique @db.VarChar(20)',
+    '  @@unique([providerId, accountId])',
+    '}',
+    'model CanvasDocUpdate {',
+    '  projectId String',
+    '  seq       BigInt',
+    '  @@unique([projectId, seq])   // 尾注',
+    '}',
+  ].join('\n');
+  const u = parsePrismaUniques(schema);
+  const names = u.map((x) => x.name).sort();
+  assert.deepEqual(names, [
+    'CanvasDocUpdate_projectId_seq_key',
+    'User_email_key',
+    'User_phoneNumber_key',
+    'User_providerId_accountId_key',
+  ]);
+  const cdu = u.find((x) => x.name === 'CanvasDocUpdate_projectId_seq_key');
+  assert.deepEqual(cdu.columns, ['projectId', 'seq']);
+});
+
+test('parseRawIndexAnchor：info string 含 raw-indexes 的 fenced json 块提取；其他 fence 不串；缺块抛错', () => {
+  const md = [
+    '```bash',
+    'echo not-json',
+    '```',
+    '前文',
+    '```json raw-indexes',
+    '[',
+    '  { "name": "pricing_rule_natural_key", "table": "PricingRule",',
+    '    "columns": ["nodeTypeId", "modelId"], "unique": true, "partial": false }',
+    ']',
+    '```',
+    '后文',
+    '```json',
+    '[{ "name": "decoy" }]',
+    '```',
+  ].join('\n');
+  const entries = parseRawIndexAnchor(md);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].name, 'pricing_rule_natural_key');
+  assert.equal(entries[0].partial, false);
+  assert.throws(() => parseRawIndexAnchor('无锚块文档'));                          // 缺块=结构性错误
+});
+
+test('findEquivalentIndexes：full 同表同列集→duplicate-equivalent-index；partial 不判等价；deliberate 豁免+失配 stale', () => {
+  const generated = [
+    { model: 'PricingRule', columns: ['nodeTypeId', 'modelId', 'resolutionId', 'durationId'], name: 'PricingRule_nodeTypeId_modelId_resolutionId_durationId_key' },
+    { model: 'CanvasDocUpdate', columns: ['projectId', 'seq'], name: 'CanvasDocUpdate_projectId_seq_key' },
+  ];
+  const raws = [
+    // partial unique（列集同 full 也非等价——约束子集语义）
+    { name: 'generation_intent_active_node_unique', table: 'GenerationIntent', columns: ['projectId', 'nodeId'], unique: true, partial: true },
+    // 偏离 52 形态：full 手写唯一列集撞 schema @@unique → 红
+    { name: 'pricing_rule_natural_key', table: 'PricingRule', columns: ['durationId', 'resolutionId', 'modelId', 'nodeTypeId'], unique: true, partial: false },
+    // constraint 形态=schema @@unique 的 deliberate DB 物化 → 豁免
+    { name: 'CanvasDocUpdate_projectId_seq_key', table: 'CanvasDocUpdate', columns: ['projectId', 'seq'], unique: true, partial: false, form: 'constraint', deliberate: true },
+  ];
+  const r1 = findEquivalentIndexes(generated, raws);
+  // pricing_rule_natural_key（full、列序乱序、非 deliberate）=偏离 52 形态本体——即违规；deliberate 豁免
+  assert.equal(r1.violations.length, 1);
+  assert.equal(r1.violations[0].code, 'duplicate-equivalent-index');
+  assert.equal(r1.violations[0].raw, 'pricing_rule_natural_key');
+  assert.equal(r1.violations[0].generated, 'PricingRule_nodeTypeId_modelId_resolutionId_durationId_key');
+  assert.equal(r1.staleDeliberate.length, 0);
+  // deliberate 失配（schema 删了 @@unique 而豁免登记未撤）→ stale
+  const r2 = findEquivalentIndexes(generated.filter((g) => g.model !== 'CanvasDocUpdate'), raws);
+  assert.deepEqual(r2.staleDeliberate, ['CanvasDocUpdate_projectId_seq_key']);
+  // 伪造等价条目（无 deliberate）→ duplicate-equivalent-index 第二条（列序无关）
+  const r3 = findEquivalentIndexes(generated, [
+    ...raws,
+    { name: 'fake_dup_unique', table: 'PricingRule', columns: ['nodeTypeId', 'modelId', 'resolutionId', 'durationId'], unique: true, partial: false },
+  ]);
+  assert.equal(r3.violations.length, 2);
+  assert.ok(r3.violations.some((v) => v.raw === 'fake_dup_unique' && v.generated === 'PricingRule_nodeTypeId_modelId_resolutionId_durationId_key'));
+  // 非唯一 raw 索引永不判等价
+  const r4 = findEquivalentIndexes(generated, [
+    { name: 'some_plain_idx', table: 'PricingRule', columns: ['nodeTypeId', 'modelId', 'resolutionId', 'durationId'], unique: false, partial: true },
+  ]);
+  assert.equal(r4.violations.length, 0);
 });

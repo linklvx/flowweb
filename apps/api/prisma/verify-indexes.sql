@@ -138,3 +138,11 @@ SELECT COUNT(*) AS n FROM "AIModel" WHERE id IN ('seed-model-sdxl','seed-model-d
 
 SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_name='AIModel' AND column_name IN ('apiModelName','providerLabel') AND is_nullable='YES' HAVING COUNT(*)=2;
 
+-- ============ Y0c T6（Z17 v4）：资金不变量 CHECK 断言补全（init 迁移 :1311/:1312/:1319 定义——
+-- 断言形态照 balance_non_negative 族；约束被误删/重建缺位即红） ============
+SELECT conname FROM pg_constraint WHERE conname='pricing_credit_cost_non_negative';
+
+SELECT conname FROM pg_constraint WHERE conname='intent_credit_cost_non_negative';
+
+SELECT conname FROM pg_constraint WHERE conname='money_in_reference_required';
+

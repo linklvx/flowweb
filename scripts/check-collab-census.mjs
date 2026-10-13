@@ -323,6 +323,68 @@ export function ecosystemEnvKeys(mod) {
   return [...new Set(mod.apps.flatMap((a) => Object.keys(a.env ?? {})))];
 }
 
+/** ── Y0c T6 组㉔ helpers（Z58 双等价索引 census——Y0b-4 偏离 52 门禁化） ──
+ *  机制=纯静态两半：schema.prisma 全部唯一声明（@@unique 块级+字段级 @unique）按 Prisma 命名
+ *  规则拼生成唯一索引名（<Model>_<col1>_<col2>_key）→ 与 deployment-db-baseline.md raw unique
+ *  对象锚（```json raw-indexes fenced 块）比对——full（非 partial）手写唯一同表同列集⇒红
+ *  duplicate-equivalent-index（双等价索引=同名不同写法语义等价，重复占用写入放大——偏离 52 形态）。
+ *  partial unique（WHERE 子集语义）与 full @@unique 不等价不判红；deliberate constraint 形态
+ *  （=schema @@unique 的 DB 物化登记，CanvasDocUpdate 先例）豁免但 schema 失配即 stale。 */
+
+/** schema.prisma 唯一声明解析。模型边界=model 行起 `}` 行止（Prisma DSL 无嵌套块）；列别名 @map
+ *  本 schema 零使用（Z58 静态近似——引入时同批补注）；@@unique 可选 map 参不参与命名（本 schema 无）。 */
+export function parsePrismaUniques(schemaText) {
+  const out = [];
+  let model = null;
+  for (const line of schemaText.split('\n')) {
+    const t = line.trim();
+    const mModel = /^model\s+([A-Za-z_]\w*)\s*\{/.exec(t);
+    if (mModel) { model = mModel[1]; continue; }
+    if (model && t === '}') { model = null; continue; }
+    if (!model) continue;
+    const mBlock = /@@unique\(\s*\[([^\]]*)\]/.exec(t);
+    if (mBlock) {
+      const columns = mBlock[1].split(',').map((s) => s.trim()).filter(Boolean);
+      out.push({ model, columns, name: `${model}_${columns.join('_')}_key` });
+      continue;
+    }
+    const mField = /^([A-Za-z_]\w*)\s+[A-Za-z_\[]/.exec(t);
+    if (mField && /(^|\s)@unique\b/.test(t)) {
+      out.push({ model, columns: [mField[1]], name: `${model}_${mField[1]}_key` });
+    }
+  }
+  return out;
+}
+
+/** baseline md raw unique 对象锚解析：取 info string 含 raw-indexes 标记的 fenced json 块；
+ *  缺块/坏 JSON 上抛（main 转 exit 2——锚是断言面，静默缺失=假绿禁入）。 */
+export function parseRawIndexAnchor(mdText) {
+  const m = /```json[ \t]+[^\n]*raw-indexes[^\n]*\n([\s\S]*?)\n```/.exec(mdText);
+  if (!m) throw new Error('deployment-db-baseline.md 缺 raw-indexes 机器锚（```json raw-indexes fenced 块）');
+  return JSON.parse(m[1]);
+}
+
+/** 双等价判定（列集相等按排序归一——列序无关）。返回 { violations, staleDeliberate }：
+ *  - violations：full raw unique（unique∧!partial）与生成唯一同表同列集且非 deliberate
+ *    ⇒ { code:'duplicate-equivalent-index', raw, generated, table, columns }；
+ *  - staleDeliberate：deliberate 豁免登记在 schema 已无对应生成唯一（登记须撤防陈旧豁免吞红）。 */
+export function findEquivalentIndexes(generated, raws) {
+  const violations = [];
+  const staleDeliberate = [];
+  const keyOf = (table, columns) => `${table}(${columns.map((c) => c.trim()).sort().join(',')})`;
+  const genByKey = new Map(generated.map((g) => [keyOf(g.model, g.columns), g]));
+  for (const r of raws) {
+    if (!r.unique || r.partial) continue;
+    const g = genByKey.get(keyOf(r.table, r.columns));
+    if (r.deliberate) {
+      if (!g) staleDeliberate.push(r.name);
+      continue;
+    }
+    if (g) violations.push({ code: 'duplicate-equivalent-index', raw: r.name, generated: g.name, table: r.table, columns: r.columns });
+  }
+  return { violations, staleDeliberate };
+}
+
 /** ⑭withDoc 登记对账：counts（file→命中数）对 WITHDOC_REGISTRY（file→{三态→数}）——
  *  未登记文件=红（防新增调用点漏登记）/分类合计≠命中数=漂移（红）/登记文件命中消失=红
  *  （清单需同步——④同则）。 */
@@ -1012,6 +1074,28 @@ if (isMain()) {
     for (const f of Object.keys(NESTED_CREATOR_WHITELIST)) if (!(f in counts)) details.push(`嵌套创建点白名单点消失 ${f}（清单需同步）`);
     const nWl = Object.values(NESTED_CREATOR_WHITELIST).reduce((a, b) => a + b, 0);
     report('㉓', `E27 嵌套类型创建点全登记（Y0c T4——new Y.Map/Array/Text 白名单 ${nWl} 点/6 文件；Y.Text/Y.Array 零创建点）`, details.length === 0, details);
+  }
+
+  // ㉔双等价索引 census（Y0c T6，Z58/偏离 52 门禁化）：schema.prisma 全部唯一声明按 Prisma 命名
+  //  规则拼生成唯一索引名 → 与 deployment-db-baseline.md raw unique 对象锚比对——full（非 partial）
+  //  手写唯一同表同列集⇒红 duplicate-equivalent-index。两半皆静态（本脚本无 DB）；库侧实存形态由
+  //  verify-indexes.sql 块族钉守（fake-pricing-unique-gone/pricing_rule_natural_key 等）。
+  //  纪律面=baseline §七：新 raw 唯一对象必须同批登记锚（漏登记=锚失效——本组只判已登记面）。
+  {
+    const details = [];
+    let generated = [];
+    let raws = [];
+    try {
+      generated = parsePrismaUniques(fs.readFileSync(path.join(ROOT, 'apps', 'api', 'prisma', 'schema.prisma'), 'utf8'));
+      raws = parseRawIndexAnchor(fs.readFileSync(path.join(ROOT, 'docs', 'superpowers', 'deployment-db-baseline.md'), 'utf8'));
+    } catch (e) {
+      console.error(`check-collab-census: 结构性错误（exit 2）——${e.message}`);
+      process.exit(2);
+    }
+    const { violations, staleDeliberate } = findEquivalentIndexes(generated, raws);
+    for (const v of violations) details.push(`${v.code} raw '${v.raw}' ≡ 生成 '${v.generated}'（${v.table}(${v.columns.join(',')})）——schema @@unique 与 raw SQL 唯一二选一`);
+    for (const n of staleDeliberate) details.push(`stale-deliberate 豁免登记失配 ${n}（schema 已无对应 @@unique——撤登记或补声明）`);
+    report('㉔', `双等价索引 census（Z58——schema 生成唯一 ${generated.length} 名 × raw 锚 ${raws.length} 对象，full 同表同列集零碰撞）`, violations.length === 0 && staleDeliberate.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

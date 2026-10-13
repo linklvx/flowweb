@@ -102,6 +102,58 @@ diff /tmp/census-old.json /tmp/census-new.json
 - **新迁移必须过 additive 门禁**（`scripts/check-migration-additive.mjs`，BASELINE=`20261009031416_init`——T1b 起首批真实受检对象；硬拦 DROP COLUMN/TABLE/CONSTRAINT/TYPE、SET/DROP NOT NULL、TRUNCATE、RENAME、ALTER COLUMN TYPE）
 - 迁移目录中只允许 prisma 生成物 + raw 对象搬运段 + 必要的手写数据回填（须在注释中说明来源）
 
+## 七、raw SQL 对象纪律与双等价索引防御（Y0c T6——Z17 v4+Z58）
+
+raw 对象总账（20261009140100_y0b2_init 起实测 28 项）：§五 12 类（序列 1+partial 唯一 9+constraint 形态唯一 1+种子行 1）+ 本节 9 项（Y0b-1 DB 级不变量段，init :1305-1324）+ Y0b-2 追加 7 项（ledger_guard 函数+两行级触发器+4 条 partial 非唯一索引，init :1394-1436）。
+
+### 9 raw 资金不变量对象清单（此前未登记——本节补齐）
+
+| # | 对象 | 表 | 形态 | 定义（init 原文） |
+|---|------|----|------|------|
+| 1 | `pricing_rule_natural_key` | PricingRule | 唯一索引（NULLS NOT DISTINCT） | (nodeTypeId, modelId, resolutionId, durationId) |
+| 2 | `balance_non_negative` | TeamBalance | CHECK | credits >= 0 AND subscriptionCredits >= 0 |
+| 3 | `pricing_credit_cost_non_negative` | PricingRule | CHECK | creditCost >= 0 |
+| 4 | `intent_credit_cost_non_negative` | GenerationIntent | CHECK | creditCost >= 0 AND reservedCredits >= 0 AND creditsConsumed >= 0 |
+| 5 | `ledger_amount_derived` | TeamCreditTransaction | CHECK | amount = CASE WHEN balanceDelta <> 0 THEN balanceDelta ELSE frozenDelta END |
+| 6 | `money_in_once` | TeamCreditTransaction | partial 唯一索引 | (type, referenceId, creditType) WHERE type IN ('recharge','subscription_grant','expire_clear','register_grant') |
+| 7 | `money_in_reference_required` | TeamCreditTransaction | CHECK | type NOT IN ('recharge','subscription_grant','expire_clear','register_grant') OR referenceId IS NOT NULL |
+| 8 | `generation_intent_frozen_partial` | GenerationIntent | partial 索引 | (teamId) WHERE reservedCredits > 0 |
+| 9 | `ledger_reserve_open_partial` | TeamCreditTransaction | partial 索引 | (createdAt) WHERE type = 'reserve' |
+
+库侧存在性断言：`apps/api/prisma/verify-indexes.sql`（Y0b-1 T1b 块 23-28 + Y0c T6 追加 `pricing_credit_cost_non_negative`/`intent_credit_cost_non_negative`/`money_in_reference_required` 三 CHECK 断言）。
+
+### raw unique 对象机器锚（census 组㉔ 消费——新增 raw unique 必须同批登记）
+
+覆盖三组全部 raw **unique** 对象（12 项）；非唯一 raw 索引（§七表 8/9+Y0b-2 四件）与序列/触发器/种子不构成唯一等价面，不入锚。
+
+```json raw-indexes
+[
+  { "name": "team_owner_default_unique", "table": "Team", "columns": ["ownerId"], "unique": true, "partial": true },
+  { "name": "folder_team_root_name_unique", "table": "Folder", "columns": ["teamId", "name"], "unique": true, "partial": true },
+  { "name": "folder_team_parent_name_unique", "table": "Folder", "columns": ["teamId", "parentId", "name"], "unique": true, "partial": true },
+  { "name": "material_folder_team_root_name_unique", "table": "MaterialFolder", "columns": ["teamId", "name"], "unique": true, "partial": true },
+  { "name": "material_folder_team_parent_name_unique", "table": "MaterialFolder", "columns": ["teamId", "parentId", "name"], "unique": true, "partial": true },
+  { "name": "user_subscription_one_active", "table": "UserSubscription", "columns": ["userId"], "unique": true, "partial": true },
+  { "name": "team_subscription_one_active", "table": "TeamSubscription", "columns": ["teamId"], "unique": true, "partial": true },
+  { "name": "announcement_single_active", "table": "Announcement", "columns": ["active"], "unique": true, "partial": true },
+  { "name": "generation_intent_active_node_unique", "table": "GenerationIntent", "columns": ["projectId", "nodeId"], "unique": true, "partial": true },
+  { "name": "money_in_once", "table": "TeamCreditTransaction", "columns": ["type", "referenceId", "creditType"], "unique": true, "partial": true },
+  { "name": "pricing_rule_natural_key", "table": "PricingRule", "columns": ["nodeTypeId", "modelId", "resolutionId", "durationId"], "unique": true, "partial": false, "note": "偏离 52 当事对象——同列集 schema @@unique 复现即双等价红" },
+  { "name": "CanvasDocUpdate_projectId_seq_key", "table": "CanvasDocUpdate", "columns": ["projectId", "seq"], "unique": true, "partial": false, "form": "constraint", "deliberate": true, "note": "constraint 形态=schema @@unique([projectId,seq]) 的 DB 物化（§五第 3 项——勿改建索引形态）" }
+]
+```
+
+### migrate dev --create-only 人工合并纪律
+
+- schema 变更一律 `pnpm exec prisma migrate dev --create-only --name xxx`，**先人工核对生成迁移再应用**：diff 产物若含与本节锚对象同表同列集的 `CREATE UNIQUE INDEX`/`ADD CONSTRAINT ... UNIQUE`，即 schema 唯一声明与 raw 对象撞列集——二选一（改 schema 声明或改 raw 对象归属）后重生成，禁直接套用。
+- 裸 `migrate dev`（无 --create-only）把 diff 一次性套库：双等价索引静默入库后才被发觉——Y0b-4 偏离 52 实况（migrate dev 产物混入 pricing 索引 drift，被迫手写 20261011180000 迁移+migrate resolve 绕行）。本节纪律+census 组㉔=该偏离的根修。
+
+### snake 手写名 vs Prisma 生成名防双索引
+
+- Prisma 生成唯一索引名=`<Table>_<col1>_<col2>_key`（PascalCase 表名）；raw 手写名惯用 snake_case。同一 (表, 列集) 两名并存=**双等价索引**：写入双倍维护+计划器歧义+迁移链漂移源。
+- 唯一性归属二选一：可进 datamodel 的 full unique 走 schema `@@unique`/`@unique`（Prisma 管）；Prisma 表达不了的（partial WHERE/NULLS NOT DISTINCT/CHECK/触发器/序列）走 raw SQL 并**同批**登记本节锚+verify-indexes.sql 断言。
+- census 组㉔（`scripts/check-collab-census.mjs`，Z58）执法：解析 schema 全部唯一声明拼生成名 × 本节锚逐条比对，full（非 partial）同表同列集⇒红 `duplicate-equivalent-index`；`CanvasDocUpdate_projectId_seq_key` deliberate 豁免，schema 失配即 stale 红（防陈旧豁免吞真红）。锚漏登记=探针盲区——新 raw unique 未登记锚时组㉔不判其等价性，评审须核对。
+
 ## 附录：schema 沙箱验证方法（无 CREATEDB 时）
 
 ```sql
