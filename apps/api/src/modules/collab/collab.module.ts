@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabDocumentService } from './collab-document.service';
+import { CollabDocWriterService } from './collab-doc-writer.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabLeaseService } from './collab-lease.service';
@@ -27,6 +28,7 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
     SessionService,   // 批3-3：gateway authenticate 走 touchWithReason（PrismaModule 全局可见）
     CollabGateway,
     CollabDocumentService,
+    CollabDocWriterService,   // Y0c T8：writeBatch 同事务组批写门面（execution.service 首个消费方；T13b 端口化前直注入）
     CanvasDocUpdateRepository,
     CollabSpoolService,
     CollabLeaseService,   // Y0a-3 T5：PG 租约（gateway 构造参数 4——必填）
@@ -40,6 +42,6 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
       retryStrategy: () => null, enableOfflineQueue: false,   // B11/Z10③：探针参数收紧
     }) },
   ],
-  exports: [CollabDocumentService],
+  exports: [CollabDocumentService, CollabDocWriterService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）
 })
 export class CollabModule {}

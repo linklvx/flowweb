@@ -16,6 +16,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入
 const hasDb = !!process.env.DATABASE_URL;
@@ -136,6 +137,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       teamCredit,
       perm,
       collabDoc as any,
+      docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
       { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
       { add: async () => {} } as any,
       intentService,
@@ -174,6 +176,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       teamCredit,
       perm,
       collabDoc as any,
+      docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
       { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
       { add: async () => {} } as any,
       intentService,

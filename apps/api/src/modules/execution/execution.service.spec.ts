@@ -11,6 +11,8 @@ import { ExecutionGateway } from '../gateway/execution.gateway';
 import { GenerationIntentService } from './generation-intent.service';
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 
 describe('ExecutionService', () => {
   let service: ExecutionService;
@@ -20,6 +22,7 @@ describe('ExecutionService', () => {
   let apiCaller: any;
   let teamCredit: any;
   let collabDoc: any;
+  let docWriter: ReturnType<typeof docWriterStubOf>;
   let gateway: any;
   let mockDownloadQueue: any;
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
@@ -37,6 +40,7 @@ describe('ExecutionService', () => {
       writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
+    docWriter = docWriterStubOf(collabDoc); // Y0c T8：deliver+done 组批经 writeBatch——stub 按 op 分派回记录器（断言零改动）
     topology = {
       getScope: vi.fn().mockReturnValue([
         { id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } },
@@ -95,6 +99,7 @@ describe('ExecutionService', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabDocWriterService, useValue: docWriter },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: GenerationIntentService, useValue: intentSvc },
@@ -179,6 +184,32 @@ describe('ExecutionService', () => {
     const result = await service.execute('p1', 'n2', 'u1');
     expect(result.success).toBe(false);
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'error' }));
+  });
+
+  it('Y0c T8 红①（Z40 调用方契约）：deliver 命中 node-deleted ⇒ 批提交（done 同批生效）∧rollbackDeliveryFailed 在批后被独立调用', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
+    // 单节点 imageGen 走满执行链到 deliver；交付判据失败（节点已删——writeNodeData 现状守卫语义）
+    const n9 = { id: 'n9', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } };
+    topology.getScope.mockReturnValue([n9]);
+    topology.sort.mockReturnValue([n9]);
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [n9], edges: [] });
+    collabDoc.writeNodeData.mockResolvedValue({ written: false, reason: 'node-deleted' });
+
+    const result = await service.execute('p1', undefined, 'u1', ['n9']);
+
+    expect(result.success).toBe(false);
+    expect(result.errors[0]).toMatchObject({ nodeId: 'n9', status: 'error', errorCode: 'NODE_DELETED' });
+    // deliver+done 组一批（同 doc 同事务——先红用例③的调用方侧）：一次 writeBatch 含两 op
+    expect(docWriter.writeBatch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(docWriter.writeBatch).mock.calls[0][1].map((o: any) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']);
+    // 批正常提交：done 投影随批写入（Z75：exec=done∧节点已删=合法终态——不再写 error 投影对撞）
+    const doneCalls = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.status === 'done');
+    expect(doneCalls).toHaveLength(1);
+    // 退款契约：rollbackDeliveryFailed 在批提交后被独立调用（非批内——Z64/Z92 交付路径唯一退款入口）
+    expect(teamCredit.rollbackDeliveryFailed).toHaveBeenCalledWith('intent-1', expect.any(String));
+    expect(vi.mocked(docWriter.writeBatch).mock.invocationCallOrder[0])
+      .toBeLessThan(teamCredit.rollbackDeliveryFailed.mock.invocationCallOrder[0]);
   });
 
   it('should enqueue ai-result-download after AI returns resultUrl', async () => {

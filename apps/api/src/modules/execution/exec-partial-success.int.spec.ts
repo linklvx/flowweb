@@ -20,6 +20,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { execProjectionDeferredTotal } from './exec.metrics';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip
 const hasDb = !!process.env.DATABASE_URL;
@@ -71,6 +72,7 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     teamCredit,
     perm,
     collabDoc,
+    docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
     { emitNodeStatus: vi.fn() } as any,
     { add: vi.fn() } as any,
     intentSvc,
@@ -151,6 +153,7 @@ const statusOf = async (nodeId: string) =>
     const svc = new ExecutionService(
       prisma as unknown as PrismaService, new TopologyService(), validation, apiCaller, teamCredit, perm,
       { readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn() } as any,
+      { writeBatch: vi.fn(async () => []) } as any,   // Y0c T8：CYCLE 循环前 throw——writeBatch 不可达
       { emitNodeStatus: vi.fn() } as any, { add: vi.fn() } as any, intentSvc,
     );
     const ex = await svc.execute(PID, undefined, UID, [a.id, b.id]).catch((e: unknown) => e);

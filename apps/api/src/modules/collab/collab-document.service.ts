@@ -160,7 +160,8 @@ export class CollabDocumentService implements OnApplicationShutdown {
     return this.gateway.isDocResident(projectId);
   }
 
-  /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。
+  /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。写核心=applyWriteNodeDataToDoc 原语
+   *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移）。
    *  Y0a-2（X9）：写意图受理门——spool 熔断/容量熔断期拒服务端写（503 瞬态，客户端重试）；
    *  Y0a-3（R4 裁定：必需项非冗余）：门前加租约档——lease 失守/drain 期同样拒（draining 不在
    *  isWritableOrDegraded 判据内，缺此档则失守期写会静默落 spool 等回灌）；
@@ -168,18 +169,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
   async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>): Promise<WriteNodeDataResult> {
     if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
       throw new ServiceUnavailableException('collab degraded: lease or spool');
-    return this.withDoc(projectId, (doc) => {
-      const entry = doc.getMap('nodes').get(nodeId);
-      if (entry === undefined) return { written: false, reason: 'node-deleted' };   // Z44：交付判据类型化（原静默 return void）
-      if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
-      let dataMap = entry.get('data');
-      if (!(dataMap instanceof Y.Map)) {
-        dataMap = new Y.Map();
-        entry.set('data', dataMap);
-      }
-      for (const [k, v] of Object.entries(patch)) dataMap.set(k, v);
-      return { written: true };
-    });
+    return this.withDoc(projectId, (doc) => applyWriteNodeDataToDoc(doc, nodeId, patch));
   }
 
   /** B2/F2：exec map 服务端唯一写者（客户端零 exec 写——批0.5 起静态断言）。
@@ -191,32 +181,18 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *   ③ equal ∧ stored 终态（done/error）⇒ drop（原意图——同代次迟到 loading 不倒退终态；
    *     skipped 非终态〔Z88〕——在飞 worker 的 done 照常落地）。
    *  stored.attempts ?? 0 兜改动前遗留 doc 条目（无 attempts 键视作 0 代）。
-   *  patch 语义：逐键补写不整块替换，v undefined 跳过。
+   *  patch 语义：逐键补写不整块替换，v undefined 跳过。写核心=applyWriteExecStatusToDoc 原语
+   *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移；T11 守卫在原语层补）。
    *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
   async writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
     // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）
     if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
       throw new ServiceUnavailableException('collab degraded: lease or spool');
     await this.withDoc(projectId, (doc) => {
-      if (typeof patch.attempts !== 'number') {
-        execProjectionDroppedTotal.inc({ cause: 'missing-attempts' });
-        return;
+      const outcome = applyWriteExecStatusToDoc(doc, nodeId, patch);
+      if (!outcome.written && outcome.reason !== 'terminal-superseded') {
+        execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
       }
-      const exec = doc.getMap('exec');
-      let m = exec.get(nodeId) as Y.Map<any> | undefined;
-      if (m instanceof Y.Map) {
-        const storedAttempts = typeof m.get('attempts') === 'number' ? (m.get('attempts') as number) : 0;
-        if (patch.attempts < storedAttempts) {
-          execProjectionDroppedTotal.inc({ cause: 'older-attempts' });
-          return;
-        }
-        const s = m.get('status');
-        if (patch.attempts === storedAttempts && (s === 'done' || s === 'error')) return; // 同代次终态不倒退
-      } else {
-        m = new Y.Map();
-        exec.set(nodeId, m);
-      }
-      for (const [k, v] of Object.entries(patch)) if (v !== undefined) m.set(k, v);
     });
   }
 
@@ -240,4 +216,48 @@ export class CollabDocumentService implements OnApplicationShutdown {
       return { nodeId, kind, found: false, unknownKind: true };
     });
   }
+}
+
+// ── Y0c T8：doc 写原语纯函数（writeNodeData/writeExecStatus 方法体与 writeBatch 逐 op 共用——
+// 单一写语义真源；置于类后保 withDoc 调用点行号 advisory 稳定）。守卫失败返回类型化结果不 throw
+// （Z40②：批面=合法结果进数组；单写面=原样返回给调用方）。 ──
+
+/** writeNodeData 写核心（Z44 交付判据：written:false=节点已删/结构缺失——交付路径唯一退款凭据）。 */
+export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>): WriteNodeDataResult {
+  const entry = doc.getMap('nodes').get(nodeId);
+  if (entry === undefined) return { written: false, reason: 'node-deleted' };   // Z44：交付判据类型化（原静默 return void）
+  if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
+  let dataMap = entry.get('data');
+  if (!(dataMap instanceof Y.Map)) {
+    dataMap = new Y.Map();
+    entry.set('data', dataMap);
+  }
+  for (const [k, v] of Object.entries(patch)) dataMap.set(k, v);
+  return { written: true };
+}
+
+/** writeExecStatus 守卫判定结果——Z40②：守卫失败在批面=合法结果 written:false+reason；
+ *  单写面维持 void 静默语义不变（missing-attempts/older-attempts 两 cause 计数在方法内保持）。 */
+export type ExecStatusApplyOutcome =
+  | { written: true }
+  | { written: false; reason: 'missing-attempts' | 'older-attempts' | 'terminal-superseded' };
+
+/** writeExecStatus 写核心（Z99/Z111 代次守卫 fail-closed——守卫子句语义见方法头注，此处逐条对应）。 */
+export function applyWriteExecStatusToDoc(doc: Y.Doc, nodeId: string, patch: ExecStatusPatch): ExecStatusApplyOutcome {
+  if (typeof patch.attempts !== 'number') return { written: false, reason: 'missing-attempts' };
+  const exec = doc.getMap('exec');
+  let m = exec.get(nodeId) as Y.Map<any> | undefined;
+  if (m instanceof Y.Map) {
+    const storedAttempts = typeof m.get('attempts') === 'number' ? (m.get('attempts') as number) : 0;
+    if (patch.attempts < storedAttempts) return { written: false, reason: 'older-attempts' };
+    const s = m.get('status');
+    if (patch.attempts === storedAttempts && (s === 'done' || s === 'error')) {
+      return { written: false, reason: 'terminal-superseded' }; // 同代次终态不倒退
+    }
+  } else {
+    m = new Y.Map();
+    exec.set(nodeId, m);
+  }
+  for (const [k, v] of Object.entries(patch)) if (v !== undefined) m.set(k, v);
+  return { written: true };
 }

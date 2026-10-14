@@ -1009,6 +1009,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_unhandled_rejection_total
 - collab_upgrade_rejected_total
 - collab_version_negotiation_reject_total
+- collab_write_rejected_total
 - collab_ws_close_total
 - event_loop_lag_seconds
 - exec_outbound_duration_seconds

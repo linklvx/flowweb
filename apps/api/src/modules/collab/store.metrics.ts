@@ -786,6 +786,19 @@ export const collabPgBreakerFailuresTotal = new Counter({
 
 /** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
 
+/** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 两族闭集：
+ *  ① Z108 校验码七值（UNKNOWN_KEY/PATCH_TOO_LARGE/OP_COUNT_EXCEEDED/UNKNOWN_OP/PROTO_KEY_BANNED/
+ *  VALUE_TYPE_MISMATCH/NON_IDEMPOTENT_OP——shared WriteBatchViolationCode 单源）
+ *  ② 写守卫 reason 五值（node-deleted/no-node-map/missing-attempts/older-attempts/terminal-superseded
+ *  ——collab-doc-writer.service 头注词表；Z40② 守卫失败=合法结果进数组，本计数=其唯一统一观测面）。 */
+export const collabWriteRejectedTotal = new Counter({
+  name: 'collab_write_rejected_total',
+  help: 'writeBatch 业务级拒绝计数（reason=Z108 校验码七值+写守卫 reason 五值——守卫失败亦计，统一观测面）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
+
 /** doc 物化装载计数——loadDocument hook 成功路径单点（拒绝早退不计；库 createDocument
  *  loadingDocuments 去重 ⇒ hook 每次物化至多触发一次）。trigger 归因=直连开窗标记
  *  （noteDirectLoad——withDoc openDirectConnection await 窗内命中即 direct）否则 ws；

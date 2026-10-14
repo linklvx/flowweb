@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 import { ExecutionService } from '../execution/execution.service';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 import { TopologyService } from '../execution/topology.service';
 
 describe('regenerate（批5-1 直连真实节点——影子信箱删除）', () => {
@@ -127,7 +128,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       touchHeartbeat: vi.fn().mockResolvedValue(undefined),
     };
     const execSvc: any = new (ExecutionService as any)(
-      prisma, topology, validation, apiCaller, teamCredit, perm, collab, gateway, downloadQueue, intentService,
+      prisma, topology, validation, apiCaller, teamCredit, perm, collab, docWriterStubOf(collab), gateway, downloadQueue, intentService,
     );
     const vsvc = new VideoProjectService(
       { videoProject: { findUnique: vi.fn() } } as any, perm as any, collab as any, execSvc as any, { assertCanUpload: vi.fn() } as any,

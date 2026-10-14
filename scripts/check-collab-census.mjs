@@ -624,10 +624,13 @@ if (isMain()) {
   //  逐点标注（B4 v2 清单；行号=2026-10-14 快照 advisory，按语义定位）：
   //   collab-document.service.ts  :104 readCanvas=read-only / :113 readServerSV=read-only
   //                               :170 writeNodeData=write-via-writer / :199 writeExecStatus=write-via-writer（门面写 API 本体）
+  //   collab-doc-writer.service.ts writeBatch 同事务组批写=write-via-writer（Y0c T8——片 A1 唯一组批事务点；
+  //                               批内原语与单写方法共用 apply*ToDoc，守卫/计数两路径同源）
   //   collab-shrink.service.ts    :114 shrinkSync(deleteNodesInDoc)=待收编 / :145 exportFresh 源读=read-only / :154 fillDoc=待收编
   //   intent-reconcile.service.ts :493 sweepOrphanExec 清孤儿=待收编
   const WITHDOC_REGISTRY = {
     'apps/api/src/modules/collab/collab-document.service.ts': { 'read-only': 2, 'write-via-writer': 2 },
+    'apps/api/src/modules/collab/collab-doc-writer.service.ts': { 'write-via-writer': 1 },
     'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, '待收编': 2 },
     'apps/api/src/modules/execution/intent-reconcile.service.ts': { '待收编': 1 },
   };

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ExecutionService } from './execution.service';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 import { ExecutionController } from './execution.controller';
 import { ExecutionProcessor } from './execution.processor';
 import { NodeBusyError } from './generation-intent.service';
@@ -68,7 +69,7 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
     ...intentOverrides,
   };
   const svc: any = new (ExecutionService as any)(
-    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService,
+    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, downloadQueue, intentService,
   );
   return { svc, prisma, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService };
 }

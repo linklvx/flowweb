@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 import { ExecutionController } from './execution.controller';
 
 /** F4 必红：扣费失败后 doc 不得含本次新产物（text/video 曾违反——先写产物后扣费）。
@@ -56,7 +57,7 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(
-    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService,
+    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, downloadQueue, intentService,
   );
   return { svc, collabDoc, teamCredit, prisma, perm };
 }

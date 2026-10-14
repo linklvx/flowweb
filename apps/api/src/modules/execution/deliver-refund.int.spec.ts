@@ -19,6 +19,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { balanceDriftTotal } from './intent-reconcile.metrics';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
+import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 
 // A-1 装置：axios mock（processor/consumer 产物下载面——vi.mock 提升覆盖两处 import）
 vi.mock('axios', () => ({ default: { get: vi.fn() } }));
@@ -274,6 +275,7 @@ const agePastGrace = async (id: string) =>
         teamCredit,
         perm,
         collabDoc as any,
+        docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
         { emitNodeStatus: vi.fn() } as any,
         { add: vi.fn() } as any,
         intentSvc,

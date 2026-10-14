@@ -10,6 +10,7 @@ import { isExecutableNode } from './is-executable-node';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
@@ -63,6 +64,7 @@ export class ExecutionService {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabDocWriterService) private readonly docWriter: CollabDocWriterService,   // Y0c T8：deliver+done 组批写门面（首个调用方——其余消费点 T13b 统一改道）
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
@@ -244,8 +246,9 @@ export class ExecutionService {
    *  mayCall:false ⇒ skipped 投影+return〔Z35 静默退出——悬挂收敛归 reconcile〕）→reanchorDeadline
    *  （count===0=A-2 迟归 job 行已终态——早退不再 submit）→外呼（onTick 双职）→complete CAS（gated≠1 ⇒
    *  discarded{deadline-voided}+终态 error 投影〔Z95 补〕+return）→settle（失败 settleFailureTotal+照发）→
-   *  writeNodeData（written:false ⇒ discarded{node-deleted}+rollbackDeliveryFailed+终态 error 投影+return
-   *  ——Z64/Z92 交付路径唯一退款入口；drain/租约 503 是抛错走悬留闭环非 written:false）→done 投影+
+   *  writeBatch deliver+done 组批（Y0c T8：data 与 exec 同一 withDoc 事务；deliver written:false ⇒
+   *  discarded{node-deleted}+rollbackDeliveryFailed 批后独立退款+return——Z64/Z92 交付路径唯一退款入口，
+   *  Z75 exec=done∧节点已删=合法终态不再写 error 投影对撞；writeBatch 基础设施抛错走悬留闭环 B-1）→
    *  results.push+余额推送+下载队列。 */
   private async runNodeLifecycle(ctx: {
     projectId: string; node: any; userId: string; gestureToken?: string; jobId?: string; traceId?: string | null;
@@ -344,28 +347,36 @@ export class ExecutionService {
         else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
       }
 
-      // ── deliver（Z64/Z92：written:false=节点已删——rollbackDeliveryFailed 交付路径唯一退款入口）──
-      const deliver = await this.collabDoc.writeNodeData(projectId, node.id, outcome.artifact);
+      // ── deliver+done（Y0c T8：组批经 writeBatch——data 与 exec 同一 withDoc 事务〔先红用例③〕。
+      // Z64/Z92 调用方契约：deliver 类 written:false ⇒ 批提交后独立执行 rollbackDeliveryFailed（先红用例①）。
+      // Z75 边界：deliver 失败但 done 同批写入 ⇒ exec=done∧节点已删=合法终态（E22 读侧兜底）——
+      // 禁加 done 前跨 op 节点存在性检查。Z76 幂等：本段无重试路径（writeBatch throw 走 B-1 catch）；
+      // 重试链路（消费改道任务）重入须先校验产物已生效再组批，禁盲目重发同批。 ──
+      const batchResults = await this.docWriter.writeBatch(projectId, [
+        { op: 'writeNodeData', nodeId: node.id, patch: outcome.artifact },
+        { op: 'writeExecStatus', nodeId: node.id, patch: {
+          status: 'done', jobId: jobId ?? null, intentId: intent.intentId, attempts,
+          ...(outcome.fileId ? { fileId: outcome.fileId } : {}),
+        } },
+      ]);
+      const deliver = batchResults[0];
       if (!deliver.written) {
+        // 批已提交：done 投影已同批落 doc（exec=done 合法终态——不再写 error 投影对撞终态）；
+        // 产物未达⇒退款+用户面 error 照发（emit/errors）
         artifactDiscardedTotal.inc({ cause: 'node-deleted' });
         const msg = '节点已被删除——产物未投递，已退款';
         const rolled = await this.teamCredit.rollbackDeliveryFailed(intent.id, '交付失败：节点已删（written:false）')
           .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
         this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 节点已删（${deliver.reason}）——rollbackDeliveryFailed=${rolled}`);
-        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELETED', msg, attempts, attempts < 3, intent.intentId)).catch(countExecProjectionFailure);
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
         errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELETED' });
         return;
       }
 
-      // ── done 投影+结果行+余额推送+下载队列（MinIO 异步归档）──
-      // 三附带步骤一律 best-effort（T6 审查 Important①）：writeNodeData 已成功=交付完成，此后投影/
-      // 下载入队/余额读任一抛错若裸 await 落 catch，会被 B-1 的"SUCCEEDED∧交付抛错"识别误判为交付
-      // 失败⇒rollbackDeliveryFailed 退款——产物已交付+退款=错账面。收窄 B-1 识别=交付本身（writeNodeData）抛错。
-      await Promise.resolve(this.collabDoc.writeExecStatus(projectId, node.id, {
-        status: 'done', jobId: jobId ?? null, intentId: intent.intentId, attempts,
-        ...(outcome.fileId ? { fileId: outcome.fileId } : {}),
-      })).catch((e: unknown) => this.logger.warn(`done 投影 best-effort 失败 node=${node.id}: ${(e as Error).message}`));
+      // ── 结果行+余额推送+下载队列（MinIO 异步归档）——done 投影已随批写入 ──
+      // 三附带步骤一律 best-effort（T6 审查 Important①）：交付已随批完成，此后下载入队/余额读任一
+      // 抛错若裸 await 落 catch，会被 B-1 的"SUCCEEDED∧交付抛错"识别误判为交付失败⇒rollbackDeliveryFailed
+      // 退款——产物已交付+退款=错账面。B-1 识别域收窄=交付本身（writeBatch 本体抛错——基础设施级）。
       if (outcome.resultRow) results.push(outcome.resultRow);
       if (outcome.downloadMime && outcome.resultRef) {
         await Promise.resolve(this.downloadQueue.add('ai-result-download', {
