@@ -6,7 +6,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
-import { execProjectionDroppedTotal } from '../execution/exec.metrics';
+import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 
 /** Z111：exec 投影 patch 类型——attempts 必填（编译级；请求级投影传 0 代："0 代不得覆盖任何 ≥1 代"）。 */
@@ -200,14 +200,20 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *   ③ equal ∧ stored 终态（done/error）⇒ drop（原意图——同代次迟到 loading 不倒退终态；
    *     skipped 非终态〔Z88〕——在飞 worker 的 done 照常落地）。
    *  stored.attempts ?? 0 兜改动前遗留 doc 条目（无 attempts 键视作 0 代）。
+   *  Y0c T11（Z4/Z69 减法）：存在性守卫在原语层（单写面+批面双面生效）——节点不存在⇒不建条目
+   *  （新孤儿结构性不可产生）+计数 exec_orphan_blocked_total（并列投影丢弃全集观测
+   *  cause='node-deleted'——专项信号与全集观测并存）；签名不改（Promise<void>）。
    *  patch 语义：逐键补写不整块替换，v undefined 跳过。写核心=applyWriteExecStatusToDoc 原语
-   *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移；T11 守卫在原语层补）。
+   *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移；T11 守卫已落原语层）。
    *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
   async writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
     // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）；Y0c T9 收编单点 assertWriteAdmitted
     this.assertWriteAdmitted();
     await this.withDoc(projectId, (doc) => {
       const outcome = applyWriteExecStatusToDoc(doc, nodeId, patch);
+      if (!outcome.written && outcome.reason === 'node-deleted') {
+        execOrphanBlockedTotal.inc();   // Y0c T11 Z4 专项信号
+      }
       if (!outcome.written && outcome.reason !== 'terminal-superseded') {
         execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
       }
@@ -266,13 +272,19 @@ export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Recor
 }
 
 /** writeExecStatus 守卫判定结果——Z40②：守卫失败在批面=合法结果 written:false+reason；
- *  单写面维持 void 静默语义不变（missing-attempts/older-attempts 两 cause 计数在方法内保持）。 */
+ *  单写面维持 void 静默语义不变（cause 计数在方法内保持）。
+ *  Y0c T11（Z4）：node-deleted=节点不存在（存在性守卫在代次判定之前——不建条目，守卫拦截至此即返；
+ *  writeNodeData 的 node-deleted/no-node-map 两档在 exec 域合并为一档——exec 条目无细分处置需求）。 */
 export type ExecStatusApplyOutcome =
   | { written: true }
-  | { written: false; reason: 'missing-attempts' | 'older-attempts' | 'terminal-superseded' };
+  | { written: false; reason: 'missing-attempts' | 'older-attempts' | 'terminal-superseded' | 'node-deleted' };
 
-/** writeExecStatus 写核心（Z99/Z111 代次守卫 fail-closed——守卫子句语义见方法头注，此处逐条对应）。 */
+/** writeExecStatus 写核心（Z99/Z111 代次守卫 fail-closed——守卫子句语义见方法头注，此处逐条对应）。
+ *  Y0c T11（Z4）：首段节点存在性守卫（结构对齐 applyWriteNodeDataToDoc 存在性先行——undefined/非
+ *  Y.Map 同拦一档 node-deleted；Z69 减法：不建条目即返，新孤儿结构性不可产生，存量归 sweepOrphanExec）。 */
 export function applyWriteExecStatusToDoc(doc: Y.Doc, nodeId: string, patch: ExecStatusPatch): ExecStatusApplyOutcome {
+  const node = doc.getMap('nodes').get(nodeId);
+  if (!(node instanceof Y.Map)) return { written: false, reason: 'node-deleted' };
   if (typeof patch.attempts !== 'number') return { written: false, reason: 'missing-attempts' };
   const exec = doc.getMap('exec');
   let m = exec.get(nodeId) as Y.Map<any> | undefined;

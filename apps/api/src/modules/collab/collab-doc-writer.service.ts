@@ -11,8 +11,10 @@
 //  - 仅基础设施级失败（受理门 503/undefined fail-fast/schema 门〔DOC_SCHEMA_AHEAD+[O0b-0]〕/
 //    DB/事务异常）全批 thrown→调用方按零交付退款。
 //
-// Z75 边界：deliver 失败但 done 同批写入 ⇒ exec=done∧节点已删=合法终态（E22 读侧兜底）——禁加
-// done 前跨 op 节点存在性检查补丁。
+// Z75 边界（Y0c T11 演进·spec §0.6 偏离 19）：deliver 失败但 done 同批写入 ⇒ done 被 Z4 存在性
+// 守卫拦（written:false reason=node-deleted，不建条目——E22 读侧两形态等价：exec 无 node 与无
+// exec 条目同 render 不存在）；禁加 done 前跨 op 节点存在性检查补丁（守卫在原语层统一生效即语义，
+// 跨 op 耦合仍禁）。
 //
 // Z76 幂等契约：本层无重试不去重；调用方重试链路重入前须先读 doc 状态校验写入已生效（读状态非重发
 // 判定），禁盲目重发同批——幂等 op 键级 set 同值收敛（重放不破坏状态，锚见 spec），但重发=重复
@@ -50,7 +52,7 @@ import {
 } from './collab-document.service';
 import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
-import { execProjectionDroppedTotal } from '../execution/exec.metrics';
+import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 
 /** Y0c T9（D 类型门）：writeBatch 事务回调同步封套。withDoc 会把异步回调的 Promise 捕获到事务外
  *  续跑（collab-document.service.withDoc transact 段——transact 不 await 异步回调）——破坏 writeBatch
@@ -153,6 +155,9 @@ export class CollabDocWriterService {
       }
       case 'writeExecStatus': {
         const r = applyWriteExecStatusToDoc(doc, op.nodeId, op.patch as ExecStatusPatch);
+        if (!r.written && r.reason === 'node-deleted') {
+          execOrphanBlockedTotal.inc();   // Y0c T11 Z4：与单写面同款专项信号（守卫双面生效）
+        }
         if (!r.written && r.reason !== 'terminal-superseded') {
           execProjectionDroppedTotal.inc({ cause: r.reason });   // 与单写面同计数（投影丢弃观测零分裂）
         }

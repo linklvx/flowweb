@@ -85,6 +85,14 @@ export const execProjectionDroppedTotal = new Counter({
   registers: [register],
 });
 
+/** Y0c T11（Z4/Z69）：writeExecStatus 存在性守卫拦截计数——节点不存在不建条目
+ *  （新孤儿结构性不可产生；存量归 sweepOrphanExec 游标轮转消化）。无标签（execProjectionDeferredTotal 先例）。 */
+export const execOrphanBlockedTotal = new Counter({
+  name: 'exec_orphan_blocked_total',
+  help: 'Y0c T11（Z4）：writeExecStatus 存在性守卫拦截计数——节点不存在不建条目（新孤儿结构性不可产生；存量归 sweepOrphanExec 消化）',
+  registers: [register],
+});
+
 /** Z112：reaper 终态投影分治——doc 非常驻跳过 UX 投影计数（重连后 alignExecFromIntents 对齐）。
  *  UX 投影不得成为装载源：provider 故障批量收敛时 withDoc 批量装载=故障自放大（正撞 E39/heap 闸）。 */
 export const execProjectionDeferredTotal = new Counter({

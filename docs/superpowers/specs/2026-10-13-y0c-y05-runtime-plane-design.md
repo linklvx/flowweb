@@ -742,6 +742,7 @@ ecosystem.config.cjs（apps+1 进程+role env+nice+独立内存/kill_timeout+「
 | 16 | T8 spec 评审拦下 X9 批面受理门缺口：writeBatch 绕过 isWritableOrDegraded/租约判据（单写面两写入口有门、批面无——交付即回归） | A1 | 执行期范围增补（spec A1 未列受理门批面迁移） | T9 根修为单点 assertWriteAdmitted（三写入口共用——新增写路径结构性不可漏，非第三处复制粘贴门） |
 | 17 | T4 manifest 校验表 undefined 归类勘正：undefined 值不再 VALUE_TYPE_MISMATCH（typeNameOf 把 undefined 归 json ⇒ 业务拒，Z5 的 throw 与「维持跳」两条语义被校验面拦死不可达） | A1 | 判据调整（T8 spec 评审同批拦下） | T9 Z5 分流：writeNodeData=UNDEFINED_PATCH_VALUE 进门 fail-fast throw/writeExecStatus=原语跳过/JSON wire 不可达故校验面不执法（checkPatchEntry skip 早退）；七码体系不变 |
 | 18 | T10 origin 注入点落 withDoc 最外层事务+常量 shared 单源（SERVER_TRANSACT_ORIGIN；web 全图 21 消费点不扫、canvasUndo Origin.Server 值引用） | A1 | 实现位置细化/载体适配（spec 字面「DocWriter doc.transact」受库机制约束：DirectConnection.transact 硬编码外层 origin {source:'local'}+yjs 嵌套事务忽略内层 origin——最外层唯一可行点=withDoc；机制/锚不变） | 覆盖面=withDoc 全调用者（writeBatch+13 单写点+读路径）——单点契约级，T12 收编后自然全量继承；Z119 双锚验收不变（①事务 origin 直测②docDelta 分流） |
+| 19 | T11 Z75 合法终态形态演进——writeExecStatus 存在性守卫（Z4）落原语层双面生效后，deliver 竞态终态从「done 落孤儿条目+E22 读侧兜底」演进为「done 被守卫拦+无条目」（E22 读侧两形态等价：exec 无 node 与无 exec 条目同 render 不存在）；Z75 实质禁则（deliver 失败不回滚整批/禁跨 op 耦合/批接受）全保留；T8 用例②断言随演进改写 | A1 | 判据形态演进（spec :512「Z75 合法终态用例」与「writeExecStatus 不建条目+计数」两验收项共存的唯一一致读法；守卫统一生效=T8 冻结契约「两路径禁漂移」） | 执行以控制方裁决为准（守卫落原语层 applyWriteExecStatusToDoc——单写面+批面双面生效，T8 commit 注释预告兑现） |
 
 ---
 

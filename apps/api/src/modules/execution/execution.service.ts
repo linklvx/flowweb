@@ -248,7 +248,8 @@ export class ExecutionService {
    *  discarded{deadline-voided}+终态 error 投影〔Z95 补〕+return）→settle（失败 settleFailureTotal+照发）→
    *  writeBatch deliver+done 组批（Y0c T8：data 与 exec 同一 withDoc 事务；deliver written:false ⇒
    *  discarded{node-deleted}+rollbackDeliveryFailed 批后独立退款+return——Z64/Z92 交付路径唯一退款入口，
-   *  Z75 exec=done∧节点已删=合法终态不再写 error 投影对撞；writeBatch 基础设施抛错走悬留闭环 B-1）→
+   *  Z75（Y0c T11 偏离 19 演进）done 同批被 Z4 守卫拦不落条目——E22 读侧等价不写 error 投影对撞；
+   *  writeBatch 基础设施抛错走悬留闭环 B-1）→
    *  results.push+余额推送+下载队列。 */
   private async runNodeLifecycle(ctx: {
     projectId: string; node: any; userId: string; gestureToken?: string; jobId?: string; traceId?: string | null;
@@ -349,8 +350,9 @@ export class ExecutionService {
 
       // ── deliver+done（Y0c T8：组批经 writeBatch——data 与 exec 同一 withDoc 事务〔先红用例③〕。
       // Z64/Z92 调用方契约：deliver 类 written:false ⇒ 批提交后独立执行 rollbackDeliveryFailed（先红用例①）。
-      // Z75 边界：deliver 失败但 done 同批写入 ⇒ exec=done∧节点已删=合法终态（E22 读侧兜底）——
-      // 禁加 done 前跨 op 节点存在性检查。Z76 幂等：本段无重试路径（writeBatch throw 走 B-1 catch）；
+      // Z75 边界（Y0c T11 演进·偏离 19）：deliver 失败但 done 同批写入 ⇒ done 被 Z4 守卫拦（不建条目
+      // ——E22 读侧两形态等价），批照常提交不回滚——禁加 done 前跨 op 节点存在性检查。
+      // Z76 幂等：本段无重试路径（writeBatch throw 走 B-1 catch）；
       // 重试链路（消费改道任务）重入须先校验产物已生效再组批，禁盲目重发同批。 ──
       const batchResults = await this.docWriter.writeBatch(projectId, [
         { op: 'writeNodeData', nodeId: node.id, patch: outcome.artifact },
@@ -361,7 +363,7 @@ export class ExecutionService {
       ]);
       const deliver = batchResults[0];
       if (!deliver.written) {
-        // 批已提交：done 投影已同批落 doc（exec=done 合法终态——不再写 error 投影对撞终态）；
+        // 批已提交：done 同批被 Z4 守卫拦（exec 无条目——E22 读侧等价，不写 error 投影对撞终态）；
         // 产物未达⇒退款+用户面 error 照发（emit/errors）
         artifactDiscardedTotal.inc({ cause: 'node-deleted' });
         const msg = '节点已被删除——产物未投递，已退款';

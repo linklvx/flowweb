@@ -425,6 +425,23 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(doc.getMap('exec').get('n1')).toBeDefined(); // 在册保留
     });
 
+    it('红·Y0c T11 Z56 游标轮转：首轮 orderBy id asc take:100 无 where；满页推进游标（下轮 where id>末位）；不足页回卷（再下轮无 where）——「每日 10 个最新」变「有界全量轮转」（改前红=updatedAt desc/take 10/无游标）', async () => {
+      prisma.canvasProject.findMany
+        .mockResolvedValueOnce(Array.from({ length: 100 }, (_, i) => ({ id: `p${String(i).padStart(3, '0')}` }))) // 第 1 轮：满页
+        .mockResolvedValueOnce([{ id: 'pA' }, { id: 'pB' }])                                                      // 第 2 轮：不足页=到尾
+        .mockResolvedValueOnce([]);                                                                               // 第 3 轮：回卷后空页
+      collabDoc.withDoc.mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(new Y.Doc()));
+
+      await (service as any).sweepOrphanExec();
+      await (service as any).sweepOrphanExec();
+      await (service as any).sweepOrphanExec();
+
+      const calls = prisma.canvasProject.findMany.mock.calls;
+      expect(calls[0][0]).toEqual({ select: { id: true }, orderBy: { id: 'asc' }, take: 100 });
+      expect(calls[1][0]).toEqual({ where: { id: { gt: 'p099' } }, select: { id: true }, orderBy: { id: 'asc' }, take: 100 }); // 游标=满页末位 id
+      expect(calls[2][0]).toEqual({ select: { id: true }, orderBy: { id: 'asc' }, take: 100 }); // 不足页=游标回卷，下轮从头
+    });
+
     it('Y0a-3 V20：withDoc 抛 503（lease 失守）→ 捕获后延后重试——单项目失败不阻塞整批，零意图终态误判', async () => {
       prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
       collabDoc.withDoc.mockRejectedValueOnce(

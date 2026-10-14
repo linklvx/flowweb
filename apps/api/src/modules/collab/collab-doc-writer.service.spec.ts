@@ -1,6 +1,8 @@
 // apps/api/src/modules/collab/collab-doc-writer.service.spec.ts
 // Y0c T8（片 A1 行为契约——spec :502 目标形态①）：writeBatch 先红用例②③④（红证据贴 commit body）：
-// ②Z75 合法终态（deliver 失败但 done 同批写入⇒exec=done∧节点已删=被接受，禁跨 op 补丁）
+// ②Z75 合法终态（Y0c T11 演进·spec §0.6 偏离 19：deliver 失败∧done 同批被 Z4 守卫拦⇒无孤儿条目
+//   ——E22 读侧两形态等价〔exec 无 node 与无 exec 条目同 render 不存在〕；Z75 实质禁则全保留：
+//   deliver 失败不回滚整批/禁跨 op 耦合/批接受）
 // ③「data 与 exec 同事务」（同批两写落同一 withDoc 事务——事务单次性）
 // ④Z108 内容校验三拒（__proto__ 键/超批字节 Σ/超 op 数＝业务级拒绝进结果+reject 计数，不 throw 不回滚同批合法 op）
 // 附：Z40 基础设施失败二分（withDoc 503 ⇒ 全批 thrown）+Z76 幂等重放收敛（writeBatch 层可测形态）。
@@ -11,11 +13,17 @@ import { CollabDocWriterService, transactSync } from './collab-doc-writer.servic
 import { CollabDocumentService } from './collab-document.service';
 import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
+import { execOrphanBlockedTotal } from '../execution/exec.metrics';
 import { MAX_WRITE_OPS_PER_BATCH, MAX_WRITE_BATCH_BYTES, stampDocSchema, type DocWriteOp } from '@flowweb/shared';
 
 const rejectedOf = async (reason: string): Promise<number> => {
   const v = await collabWriteRejectedTotal.get();
   return v.values.find((x) => x.labels.reason === reason)?.value ?? 0;
+};
+
+const orphanBlockedOf = async (): Promise<number> => {
+  const v = await execOrphanBlockedTotal.get();
+  return v.values.reduce((s, x) => s + x.value, 0);
 };
 
 const rejectedTotalSum = async (): Promise<number> => {
@@ -67,10 +75,11 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     expect((doc.getMap('exec').get('n1') as Y.Map<any>).get('status')).toBe('done');          // exec 写在同一事务内
   });
 
-  it('红② Z75 合法终态：deliver 失败（节点已删）但 done 同批写入 ⇒ exec=done∧节点已删=被接受（禁跨 op 补丁）+守卫 reason 进 reject 计数', async () => {
-    const doc = new Y.Doc(); // gone 不存在=节点已删域（writeNodeData 现状守卫语义）
+  it('红② Z75 合法终态（Y0c T11 演进·偏离 19）：deliver 失败（node-deleted）∧done 同批被 Z4 守卫拦 ⇒ 无孤儿条目+E22 读侧等价（禁跨 op 耦合：批不 throw 不回滚）', async () => {
+    const doc = new Y.Doc(); // gone 不存在=节点已删域（Z4 守卫双面生效：writeNodeData 与 writeExecStatus 同拦）
     const { writer } = makeWriter(doc);
     const before = await rejectedOf('node-deleted');
+    const orphanBefore = await orphanBlockedOf();
 
     const results = await writer.writeBatch('p1', [
       { op: 'writeNodeData', nodeId: 'gone', patch: { resultUrl: 'http://x/gone.png' } },
@@ -78,10 +87,11 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     ]);
 
     expect(results[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: false, reason: 'node-deleted' });
-    expect(results[1]).toMatchObject({ index: 1, op: 'writeExecStatus', written: true }); // done 照常落地（无跨 op 存在性检查）
-    expect(doc.getMap('nodes').get('gone')).toBeUndefined();                              // 节点已删
-    expect((doc.getMap('exec').get('gone') as Y.Map<any>).get('status')).toBe('done');         // exec=done 合法终态（E22 读侧兜底）
-    expect(await rejectedOf('node-deleted')).toBe(before + 1);                            // 守卫 reason 进 reject 计数
+    expect(results[1]).toMatchObject({ index: 1, op: 'writeExecStatus', written: false, reason: 'node-deleted' }); // 演进点：done 被守卫拦（原 written:true 落孤儿条目）
+    expect(doc.getMap('nodes').get('gone')).toBeUndefined();        // 节点已删
+    expect(doc.getMap('exec').get('gone')).toBeUndefined();         // 无孤儿条目——E22 读侧两形态等价：exec 无 node 与无 exec 条目同 render 不存在（偏离 19）
+    expect(await rejectedOf('node-deleted')).toBe(before + 2);      // 两 op 各一（守卫 reason 进 reject 计数）
+    expect(await orphanBlockedOf()).toBe(orphanBefore + 1);         // 批面 Z4 计数：仅 exec op（writeNodeData 守卫属 Z44 交付判据域）
   });
 
   it('红④ Z108 三拒＝业务级拒绝进结果+reject 计数：__proto__ 键拒（同批合法 op 照常执行）/超批字节 Σ 整批拒/超 op 数整批拒——不 throw 不回滚', async () => {

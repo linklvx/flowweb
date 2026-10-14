@@ -78,6 +78,8 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   private readonly logger = new Logger(IntentReconcileService.name);
   private timers: ReturnType<typeof setInterval>[] = [];
   private verifyActiveRunning = false;
+  /** Y0c T11（Z56）：sweepOrphanExec 进程内游标——重启回起点无害（轮转非进度承诺，每轮 100 有界全量轮转）。 */
+  private orphanSweepCursor: string | null = null;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -306,7 +308,8 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
     // ② 终态 7 天清理（F1 保留策略+F7 守卫：冻结未销禁删）
     await this.cleanTerminalIntents();
-    // ③ exec map 孤儿清理（F2 GC——限量：每轮最多 10 个最新项目）
+    // ③ exec map 孤儿清理（F2 GC——Y0c T11 Z56 有界全量轮转：orderBy id+游标每轮 100；
+    //    Z4 守卫已止新孤儿，此项消化存量）
     await this.sweepOrphanExec();
     // ④ video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron.ts 搬入，注记见类头）
     await this.reconcileStaleVideoSeparateTasks();
@@ -485,9 +488,17 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** nodes map 无该 nodeId 的 exec 条目删除（transact 产生 delete set → 经 update 监听持久化/广播）
-   *  Y0b-1 限量：orderBy updatedAt desc + take 10——每日全量扫全项目在 withDoc 逐个拿锁，量大时挤占 lease。 */
+   *  Y0b-1 限量 → Y0c T11 Z56 有界全量轮转：orderBy id asc+进程内游标每轮 100——「每日随机 10 个
+   *  最新」变「有界全量轮转」（逐项目仍 withDoc 拿锁有界；不足一页=到尾回卷下轮从头；
+   *  Z4 守卫已止新孤儿，本项消化存量）。 */
   private async sweepOrphanExec(): Promise<void> {
-    const projects = await this.prisma.canvasProject.findMany({ select: { id: true }, orderBy: { updatedAt: 'desc' }, take: 10 });
+    const cursor = this.orphanSweepCursor;
+    const projects = await this.prisma.canvasProject.findMany({
+      ...(cursor ? { where: { id: { gt: cursor } } } : {}),
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: 100,
+    });
     for (const p of projects) {
       try {
         await this.collabDoc.withDoc(p.id, (doc) => {
@@ -505,6 +516,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`exec-GC 项目 ${p.id} 失败: ${(e as Error).message}`);
       }
     }
+    this.orphanSweepCursor = projects.length < 100 ? null : projects[projects.length - 1].id;
   }
 
   /** 陈旧 videoSeparateTask 判死 + Redis 并发计数器归还（DECR 前查存在防负数，负则重置 0） */
