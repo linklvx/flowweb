@@ -2,8 +2,9 @@
 // Y0b-4 T8（Q-G，spec §4.1④）：REST 瘦身——影子副本预演（Yjs 无逆 update：scratch 编码测量
 // 达标才写活 doc）+TOCTOU（读+算+删收进 withDoc 同一同步段——fn 全同步契约见
 // collab-document.service.ts transact 语义）+纯 recalibrate（空体同语义——不删内容也校准）
-// +thaw 回灌（冻结态∧truth<softExit 时 thawQuota：解除冻结+SyncStep1 回灌+广播 ok——T8 外审
-// Concern ① 冻结前置）+shrink 成功未 thaw 时 force 广播 bytes（偏差③——滞回带/未冻结客户端校准）。
+// +thaw 回灌（冻结态∧shrunk<softExit 时 thawQuota——Y0c T13 根修：删除档判据=影子预演 shrunk
+// GC 已执行口径，recalibrate 档=truth；解除冻结+SyncStep1 回灌+广播 ok——T8 外审 Concern ① 冻结前置）
+// +shrink 成功未 thaw 时 force 广播 bytes（偏差③——滞回带/未冻结客户端校准）。
 // 全局信号量并发 1（编码 8MB×N 并发=CPU 尖峰——排队不拒绝；10s 排队超时 503 SHRINK_BUSY）。
 // Y0b-4 T9（Q-H）：export-fresh——墓碑主导文档唯一出路（shrink 影子预演必 422 的真空出口）：
 // 源团队/文件夹归属保留+in-flight latch 幂等+fillDoc 干净编码+落地编码校验（超限 warning 不阻断）。
@@ -166,6 +167,7 @@ export class CollabShrinkService {
         return { result: 'noop', thawed: false };
       }
       let deletedIds: string[] = [];
+      let shrunkBytes: number | undefined;   // 删除档影子预演值（GC 已执行口径）——thaw 判据用（Y0c T13 根修 Z120）
       if (victims.length > 0) {
         // 影子预演（编码白名单点②）：scratch 应用删除→再编码测量——不达标不写活 doc（422 带实测值）。
         // Y0c T12 直写收编：预演与活写同走 applyWriteOpsToDoc 单点（预演=即将写的内容同源最强形态）。
@@ -173,10 +175,10 @@ export class CollabShrinkService {
         try {
           Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
           applyWriteOpsToDoc(scratch, [{ op: 'deleteNodes', nodeIds: victims }]);
-          const shrunk = Y.encodeStateAsUpdate(scratch).byteLength;
-          if (shrunk > this.gateway.activeQuota.maxDocBytes) {
+          shrunkBytes = Y.encodeStateAsUpdate(scratch).byteLength;
+          if (shrunkBytes > this.gateway.activeQuota.maxDocBytes) {
             collabDocShrinkTotal.inc({ result: 'still-over' });
-            throw new HttpException({ code: 'SHRINK_STILL_OVER', bytes: shrunk, limit: this.gateway.activeQuota.maxDocBytes }, 422);
+            throw new HttpException({ code: 'SHRINK_STILL_OVER', bytes: shrunkBytes, limit: this.gateway.activeQuota.maxDocBytes }, 422);
           }
         } finally {
           scratch.destroy();
@@ -193,9 +195,12 @@ export class CollabShrinkService {
       const prevTruth = this.gateway.calibrateTruth(pid, truth);
       // 滞回出口评估（Concern ① 冻结前置）：仅真冻结态（quotaFrozenDocs——isQuotaFrozen 收窄，
       //  freezePending 确认窗不算：pending 定时器自收敛，无 enter 不出 exit=计数配对不虚高）才
-      // 评估 thaw；滞回带/以上不 thaw（假冻结出口：大 doc 校准不得误解除冻结）
+      // 评估 thaw；滞回带/以上不 thaw（假冻结出口：大 doc 校准不得误解除冻结）。
+      // Y0c T13 根修（Z120/plan P2）：删除档判据用影子预演 shrunkBytes——活 doc truth 含墓碑壳
+      // （withDoc 嵌套事务 GC 滞后）系统性偏大，GC 已执行的预演值才是解除时点的真实占用；
+      // recalibrate 档（victims=0 无删除）无 GC 滞后，truth 即准确——?? truth 分界。
       const thawed = this.gateway.isQuotaFrozen(pid)
-        && truth < Math.floor(this.gateway.activeQuota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio);
+        && (shrunkBytes ?? truth) < Math.floor(this.gateway.activeQuota.maxDocBytes * QUOTA_DEFAULTS.softExitRatio);
       if (thawed) this.gateway.thawQuota(pid);
       // 偏差③：shrink 成功未 thaw（滞回带/未冻结）→ 其他客户端 localDocBytes 需要新 truth——
       // force 广播（dedup 键 {state}:{frozen} 不含 bytes，state/frozen 未变会被吞）。仅 truth

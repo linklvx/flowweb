@@ -12,8 +12,8 @@
 //     2s 冷却实测→freezeQuota；★docTruth/docDelta 是 gateway 进程内 Map 无 DB 表可 SQL 直改——plan 的"quota
 //     bytes 维度直改"按机制等价落此形态）+shrink recalibrate 的 force 广播（Y0b-4 T8 偏差③）定影权威快照→
 //     ⑤断言B:重连 authenticated 后首 doc-status 快照逐字段=服务端权威值（幂等快照重放——rev 连续+bytes 精确）→
-//     ⑥断言C:shrink 成功→<N 秒（N=35s 具象化——spec:594 出口锚为符号 <N；机制=frozenRecheckTimer 30s 重测驱动
-//     解除，shrink 即时 thaw 被 withDoc 嵌套事务的 GC 延迟清洗挫败——详见 SHRINK_RELEASE_N_MS 注记）客户端收
+//     ⑥断言C:shrink 成功→<N 秒（N=35s 具象化——spec:594 出口锚为符号 <N；Y0c T13 根修后 thaw 即时化，
+//     35s 为保守上界——详见 SHRINK_RELEASE_N_MS 注记）客户端收
 //     writeFrozen=false+编辑放行物化对端可见+PG 落行。
 //   --mode=mid-edit-kill9：★⑦编辑中 kill -9 档（裁定 23⑮/24⑸尾——spec:700 RPO 契约；既有 kill9 演练只在
 //     quiescence barrier 后断言，本档不等待静默：编辑流持续中直接 SIGKILL）。双断言：
@@ -50,12 +50,9 @@ const CSV = 2;   // CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例——
 // 且 doc 总量 <SS2 闸 maxDocBytes+64KB=104KB，重连装载同步帧不撞 4404；maxTxBytes 保持默认 256KB）
 const CHAIN_MAX_DOC_BYTES = 40_000;
 const BIG_NODE_BYTES = 50 * 1024;
-// spec:594 <N> 具象化=35s（FROZEN_RECHECK_INTERVAL_MS 30s+余量）。机制注记（T9 实测登记）：
-// shrink 即时 thaw 的前提〔truth<softExit〕被 withDoc 的 DirectConnection 外层事务挫败——
-// shrinkSync 内 doc.transact 为嵌套事务，yjs 清理（含 GC）推迟到外层事务闭，truth 活文档再编码
-// 读到 GC 前字节（watermark 预演值方向保守安全）→thawed=false→解除走 T8 锁定项 17 的既定兜底
-// frozenRecheckTimer（30s 重测驱动 thawQuota）。即时通道修法（truth 取预演 shrunk 值，零新编码点）
-// 归 Y0b-4 域登记，不在 T9 动。
+// spec:594 <N> 具象化=35s。机制注记（Y0c T13 已根修——原 Y0b-5 T9 实测登记的「withDoc 嵌套事务
+// GC 延迟清洗→thawed=false→解除走 frozenRecheckTimer 30s 兜底」机制已由 shrink 删除档 thaw 判据
+// 改用影子预演 shrunk 消除）：thaw 即时化（shrink 出口即广播解除），35s 维持为保守上界不动。
 const SHRINK_RELEASE_N_MS = 35_000;
 const RPO_BUDGET_MS = 8_000;         // spec:700：debounce 2s+maxDebounce 3s+append 在飞 5s
 const MID_EDIT_STREAM_MS = 10_000;   // 编辑流时长 ≥RPO 预算——8s 视界内有足够样本
@@ -318,8 +315,8 @@ async function frozenChainMode(env) {
       if (!c.connStatusLog.some((x) => x.msg.readOnly === true)) fail(`断言B：${c.tag} 未收 conn-status readOnly=true（冻结期加入）`);
     }
 
-    // ⑥ 断言C：shrink 成功 → <N 秒客户端本地只读态解除（thawed=false 为既知机制态——GC 延迟清洗见
-    // 文件头 N 注记；解除由 frozenRecheckTimer 30s 重测驱动）+编辑放行物化对端可见+PG 落行
+    // ⑥ 断言C：shrink 成功 → <N 秒客户端本地只读态解除（Y0c T13 根修后 thaw 即时化——删除档判据
+    // 用影子预演 shrunk，解除广播随 shrink 出口发出）+编辑放行物化对端可见+PG 落行
     const rec2 = await postShrink(h, S.project, { deleteNodeIds: ['big-node'] });
     if (rec2.result !== 'ok') fail(`⑥shrink 出口异常：${JSON.stringify(rec2)}`);
     const shrinkAt = Date.now();
@@ -336,7 +333,7 @@ async function frozenChainMode(env) {
     for (const c of [C, A2, B2]) c.destroy();
     await h.stop();
     h = null;   // 正常收口——finally 兜底跳过（防对死进程二次 stop 空等 2s）
-    console.log(`DRILL PASS: frozen-chain —— ①rev 播种首快照 ②drain 冻结(断言A 拒不物化) ③close(1012) ④断线期 quota 冻结+force 权威定影 ⑤断言B 逐字段重放(rev=${authoritative.rev},bytes=${authoritative.quota.bytes}) ⑥断言C 解除<${SHRINK_RELEASE_N_MS}ms(recheck 驱动)+物化`);
+    console.log(`DRILL PASS: frozen-chain —— ①rev 播种首快照 ②drain 冻结(断言A 拒不物化) ③close(1012) ④断线期 quota 冻结+force 权威定影 ⑤断言B 逐字段重放(rev=${authoritative.rev},bytes=${authoritative.quota.bytes}) ⑥断言C 解除<${SHRINK_RELEASE_N_MS}ms(thaw 即时)+物化`);
   } finally {
     await cleanupFixture(prisma, S);
     await prisma.$disconnect();

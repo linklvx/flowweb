@@ -7,8 +7,9 @@
 // ⚠ 两个 int 后门（均附机制注记）：①(gateway as any).transition('serving')——真实 drain 解除=
 // 60s auto-release/关停重启，int 内不等 60s（drill 断言 close(1012) 真实链）；
 // ②(gateway as any).recheckFrozenDocs()——真实解除=frozenRecheckTimer 30s 周期，int 直调同一
-// 方法消真实等待（drill 断言真实 30s 时序）。shrink 即时 thaw 被 withDoc 嵌套事务的 GC 延迟清洗
-// 挫败（thawed=false——watermark 方向保守安全），解除走 T8 锁定项 17 的 recheck 兜底=T9 实测登记。
+// 方法消真实等待（drill 断言真实 30s 时序）。〔Y0b-5 偏离 §0.4d-8 shrink thaw 已由 Y0c T13 根修〕
+// 删除档 thaw 判据改用影子预演 shrunk（GC 已执行口径——活 doc truth 含墓碑壳偏大只作 watermark/
+// 校准口径），thaw 即时化；recheck 直调保留=已解冻态再 recheck 为 no-op（无害）。
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
@@ -113,12 +114,13 @@ describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→�
         expect(cc.status[0]).toEqual({ ...authoritative, connectionId: expect.any(String) });
         expect(cc.connStatus.some((x) => x.readOnly === true)).toBe(true);   // 冻结期加入
       }
-      // ⑥ 断言C：shrink 成功（thawed=false=GC 延迟清洗既知机制态）→ recheck 重测驱动解除 →
-      // <N 秒客户端收 writeFrozen=false+编辑放行物化对端可见（真实 30s 周期归 drill；此处直调同一方法）
+      // ⑥ 断言C：shrink 成功 thaw 即时化（Y0c T13 根修——删除档 thaw 判据用影子预演 shrunk，
+      // 活 doc truth 含墓碑壳只作 watermark/校准/force 口径）→ <N 秒客户端收 writeFrozen=false+
+      // 编辑放行物化对端可见（thawQuota 内部广播链；真实 30s 周期归 drill）
       const rec2 = await shrink.shrink(pid, 'u1', { deleteNodeIds: ['big-node'] });
       expect(rec2.result).toBe('ok');
-      expect(rec2.thawed).toBe(false);   // withDoc 嵌套事务 GC 延迟清洗——truth 读到 GC 前字节（见文件头注记）
-      (kit.gateway as any).recheckFrozenDocs();   // int 后门②：同 frozenRecheckTimer 周期体——measureTruth<softExit→thawQuota
+      expect(rec2.thawed).toBe(true);   // Y0c T13 根修：删除档判据=shrunk（GC 已执行口径）<softExit→即时 thaw
+      (kit.gateway as any).recheckFrozenDocs();   // int 后门②：已解冻态再 recheck=no-op（保留——drill 走真实 30s 周期同款路径）
       await pollUntil(
         () => [a2, b2].every((cc) => cc.status.some((m) => m.writeFrozen === false && m.quota?.state === 'ok')),
         SHRINK_RELEASE_N_MS,
