@@ -205,13 +205,15 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
     expect(exec.has('reason')).toBe(false);             // undefined 键跳过非写入
   });
 
-  it('红·schema 门双拒码：sv=1 doc ⇒ throw /schemaVersion|[O0b-0]/（ensureSchemaVersion 档）；sv=3 doc ⇒ throw /DOC_SCHEMA_AHEAD/ + reject 计数（事务回调首段——零 op 已应用）', async () => {
+  it('红·schema 门双拒码：sv=1 doc ⇒ throw /\\[O0b-0\\]/（ensureSchemaVersion 档——判别性令牌：DOC_SCHEMA_AHEAD 消息不含此串，门判据若回归 sv!==CUR 本用例必红）；sv=3 doc ⇒ throw /DOC_SCHEMA_AHEAD/ + reject 计数（事务回调首段——零 op 已应用）', async () => {
     const v1 = new Y.Doc();
     v1.getMap('meta').set('schemaVersion', 1);
     const w1 = makeWriter(v1);
+    const aheadBefore = await rejectedOf('DOC_SCHEMA_AHEAD'); // 双保险：降版档不得误路由前瞻分支
     await expect(w1.writer.writeBatch('p1', [
       { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(/schemaVersion|\[O0b-0\]/);
+    ])).rejects.toThrow(/\[O0b-0\]/);
+    expect(await rejectedOf('DOC_SCHEMA_AHEAD')).toBe(aheadBefore); // 降版不污染 schema-ahead 计数（告警不被降版噪声触发）
     expect(v1.getMap('exec').size).toBe(0);             // 零 op 已应用
 
     const v3 = new Y.Doc();
