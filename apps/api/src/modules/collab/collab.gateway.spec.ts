@@ -59,6 +59,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   let permSvc: { resolve: ReturnType<typeof vi.fn>; resolveWithTeam: ReturnType<typeof vi.fn> };   // Y0b-3 T3：F-3 换轨 resolveWithTeam 单源——类型注解同批（kit 已预置 mock）
   let gateway: CollabGateway;
   let service: CollabDocumentService;
+  let residency: import('./collab-residency.service').CollabResidencyService;   // Y0c T15：会话释放面（afterEach destroy 前置）
   let emitter: EventEmitter2;
   let url: string;
   let spool: CollabSpoolService;   // Y0a-2：kit 注入的 spool 实例（peek 断言与装置用）
@@ -71,11 +72,13 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     const kit = await startDualClientServer({
       append: vi.fn(async (_pid: string, u: Uint8Array) => { durableRows.push(new Uint8Array(u)); return { ok: true as const, seq: 1n }; }),   // AppendResult 契约（Y0a-2 判别消费——禁 resolve undefined）；once 队列（mockRejectedValueOnce/mockImplementationOnce）优先于基础实现，失败调用不进台账（探针实证 mock.results 过滤不可用——rejected promise 是同步 return，results.type 恒 'return'）
     }, 300);
-    ({ gateway, repo, url, prisma, permSvc, emitter, spool, docService: service } = kit);
+    ({ gateway, repo, url, prisma, permSvc, emitter, spool, docService: service, residency } = kit);
   });
 
   afterEach(async () => {
     for (const p of providers.splice(0)) await p.destroy();
+    // Y0c T15：常驻会话先释放（读路径改道后 readCanvas 池化 doc——direct 在则库 runDestroy 永不 settle）
+    for (const pid of residency.residentProjectIds()) await residency.releaseSessionFor(pid);
     await (gateway as any).server.destroy();
   });
 
@@ -245,7 +248,8 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   //（客户端同步判定移受理端点 SV 支配门 sync-admission.ts——sv-admission.int.spec.ts 承接）。
 
   it('readCanvas 无 sv：直接读', async () => {
-    vi.spyOn(service, 'withDoc').mockImplementation(async (_p: string, fn: any) => fn(new Y.Doc()));
+    // Y0c T15：readCanvas 改道 withSession（会话读面）——stub seam 同步（原 withDoc spy）
+    vi.spyOn(service, 'withSession').mockImplementation(async (_p: string, fn: any) => fn(new Y.Doc()));
     await expect(service.readCanvas('p1')).resolves.toBeTruthy();
   });
 

@@ -183,10 +183,11 @@ describe('Y0c T0：withDoc 计时点前移（Z3——装载慢 vs 落库慢分�
     const fakeConn = { document: doc, transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };   // Y0c T10：withDoc 直开 document 事务——mock 对齐真实 DirectConnection 形状
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockImplementation(
       async () => { await new Promise((r) => setTimeout(r, 30)); return fakeConn as any; });
-    const dOpen = await histogramDelta('yjs_withdoc_open_duration_seconds', () => service.readCanvas('p1'));
+    // Y0c T15：readCanvas 改道会话（会话新开 observe open 段/复用零观测；全路径 withdoc 直方图=withDoc 专属）——载体改直调 withDoc
+    const dOpen = await histogramDelta('yjs_withdoc_open_duration_seconds', () => service.withDoc('p1', () => 'x'));
     expect(dOpen.count).toBe(1);
     expect(dOpen.sum).toBeGreaterThanOrEqual(0.02);   // 30ms 装载延迟入样本（起点=open 之前）
-    const dFull = await histogramDelta('yjs_withdoc_duration_seconds', () => service.readCanvas('p1'));
+    const dFull = await histogramDelta('yjs_withdoc_duration_seconds', () => service.withDoc('p1', () => 'x'));
     expect(dFull.count).toBe(1);
     expect(dFull.sum).toBeGreaterThanOrEqual(0.02);   // 前移后全路径含 open 段
   });

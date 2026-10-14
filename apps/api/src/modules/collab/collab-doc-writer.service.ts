@@ -2,7 +2,8 @@
 // Y0c T8（片 A1 行为契约——spec :502 目标形态①）：服务端 doc 写唯一门面核心（A1 T9 三门/T10 origin/
 // T11 守卫/T12 收编都在本服务上叠加）。六 op 词汇表=shared canvas-doc-manifest 单源（禁 api 侧重复定义）。
 //
-// writeBatch 同 doc 同事务：一次 writeBatch=恰一次 withDoc，「data 与 exec 同事务」（先红用例③）。
+// writeBatch 同 doc 同事务：一次 writeBatch=恰一次会话事务（Y0c T15 起经 withSession{mode:'write'}
+// ——A1 期为 withDoc；事务形态与写 origin 逐字保持），「data 与 exec 同事务」（先红用例③）。
 // 逐 op 守卫事务内求值，WriteOpResult[] 与入批 ops 一一对应（携带 op 索引+类型——A1 冻结契约）。
 //
 // Y0c T12（裁决 1——spec §0.6 偏离 20）+T12 勘正：doc 域应用核心 applyWriteOpsToDoc 导出为独立
@@ -31,7 +32,7 @@
 // Y0c T9 进门四段（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点，503）→
 // ②undefined fail-fast（writeNodeData 类 op 扫描，UNDEFINED_PATCH_VALUE）→ ③Z108 内容校验
 // （rejectionsOf——事务外；业务级拒绝 written:false+reason 进 reject 计数，非 throw 非 sanitize
-// 非截断；批级违规=整批拒绝零执行不进事务；op 级违规仅拒该 op 同批合法 op 照常）→ ④withDoc
+// 非截断；批级违规=整批拒绝零执行不进事务；op 级违规仅拒该 op 同批合法 op 照常）→ ④会话写事务
 // 事务（transactSync+applyOpsCore 共享核心：schema 门+逐 op 守卫求值+应用）。受理门先于内容
 // 校验：降级期不白跑校验、reject 计数不被降级噪声污染。
 // T12 勘正（T9 裁定字面恢复）：Z108 校验必须在 withDoc 之外（事务前）——否则业务拒绝被降级成
@@ -70,8 +71,9 @@ import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
 import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 
-/** Y0c T9（D 类型门）：writeBatch 事务回调同步封套。withDoc 会把异步回调的 Promise 捕获到事务外
- *  续跑（collab-document.service.withDoc transact 段——transact 不 await 异步回调）——破坏 writeBatch
+/** Y0c T9（D 类型门）：writeBatch 事务回调同步封套。会话写事务（Y0c T15 起 withSession{mode:'write'}；
+ *  A1 期 withDoc）会把异步回调的 Promise 捕获到事务外
+ *  续跑（transact 段——transact 不 await 异步回调）——破坏 writeBatch
  *  「守卫求值+应用全部在同一事务内」不变量。类型层 `(doc)=>void` 可被 as any 擦除，故运行层双检：
  *  回调返回 Promise 即 throw（Z40 基础设施档——thrown ⇒ 调用方零交付退款）。模块级导出纯函数便直测。 */
 export function transactSync(fn: (doc: Y.Doc) => void): (doc: Y.Doc) => void {
@@ -190,12 +192,13 @@ function guardResult(index: number, op: DocWriteOpType, written: boolean, reason
 export class CollabDocWriterService {
   constructor(@Inject(CollabDocumentService) private readonly doc: CollabDocumentService) {}
 
-  /** 同 doc 同事务组批写（片 A1 唯一 withDoc 调用点=census ⑭ 登记 write-via-writer）。
+  /** 同 doc 同事务组批写（Y0c T15 起=片 A1 唯一组批会话事务点，经 withSession{mode:'write'}；
+   *  census ⑭ 分类同步：.withDoc( 点位随读写二分改道收敛——登记表见 check-collab-census.mjs）。
    *  Y0c T9 进门四段顺序（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点——503
    *  throw）→ ②undefined fail-fast（writeNodeData 类 op 扫描——UNDEFINED_PATCH_VALUE throw）→
    *  ③Z108 内容校验（rejectionsOf——事务外·T9 裁定字面：业务拒绝不得降级成基础设施失败触发退款；
-   *  批级违规=整批拒绝零执行不进事务·T8 语义；op 级违规归集 byIndex 进事务短路）→ ④withDoc 事务
-   *  （transactSync 包裹；回调=applyOpsCore 共享核心——schema 门+逐 op 守卫求值+应用）。
+   *  批级违规=整批拒绝零执行不进事务·T8 语义；op 级违规归集 byIndex 进事务短路）→ ④会话写事务
+   *  （withSession write；transactSync 包裹；回调=applyOpsCore 共享核心——schema 门+逐 op 守卫求值+应用）。
    *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。 */
   async writeBatch(projectId: string, ops: readonly DocWriteOp[]): Promise<WriteOpResult[]> {
     // 空批=合法 no-op（validateWriteBatch 同判据——零违规放行，不白开一次 doc 事务）
@@ -210,7 +213,7 @@ export class CollabDocWriterService {
         if (v === undefined) throw undefinedPatchValueError('writeBatch.writeNodeData', k);
       }
     }
-    // ③ Z108 进门（事务外——T9 裁定字面：校验在 withDoc 之前，业务拒绝=合法结果非基础设施失败）
+    // ③ Z108 进门（事务外——T9 裁定字面：校验在会话事务之前，业务拒绝=合法结果非基础设施失败）
     const { byIndex, batchLevel } = rejectionsOf(ops);
     if (batchLevel) {
       // 批级违规=整批拒绝零执行（不进事务——T8 语义；拒绝非截断，逐 op 结果同携批级码一一对应）
@@ -218,10 +221,13 @@ export class CollabDocWriterService {
     }
     // ④ 同 doc 同事务：schema 门+守卫求值+应用在此唯一事务内完成；守卫失败只落结果不回滚不 throw；
     //   transactSync 类型门包裹（异步回调=同事务不变量破坏）；回调=applyOpsCore 共享核心（T12 勘正）。
+    //   Y0c T15（A2）：改道 withSession({mode:'write'})——写路径走会话 acquire（spec「写路径走会话
+    //   acquire」）；事务形态与 withDoc 同款（SERVER_TRANSACT_ORIGIN 最外层——Z119/Z6 保持），
+    //   会话复用零 disconnect 零重装（Z128 写面零抖动）。
     let results: WriteOpResult[] = [];
-    await this.doc.withDoc(projectId, transactSync((doc) => {
+    await this.doc.withSession(projectId, transactSync((doc) => {
       results = applyOpsCore(doc, ops, byIndex);
-    }));
+    }), { mode: 'write' });
     return results;
   }
 }

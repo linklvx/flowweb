@@ -5,14 +5,14 @@ import { CollabDocumentService, applyWriteExecStatusToDoc } from './collab-docum
 import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 
 /** B2/F2 批0.5-5：exec map 服务端唯一写者。真 Y.Doc 直驱——
- *  mock withDoc 直接执行回调传 doc（gateway 直连细节与本任务无关）。 */
+ *  mock withSession 直接执行回调传 doc（gateway 直连细节与本任务无关；Y0c T15 写路径改道 seam 同步）。 */
 function buildService(doc: Y.Doc): CollabDocumentService {
   // Y0a-2 X9 写意图受理门 + Y0a-3 T8 构造两参（gateway, repo）——stub 恒 ok/serving（本 spec 焦点在写路径语义）
   const service = new CollabDocumentService(
     { isWritableOrDegraded: () => 'ok', isLeaseServing: () => true } as any,
     { readSnapshotOnly: async () => ({ state: null, updates: [], stateSeq: 0n }) } as any,
   );
-  (service as any).withDoc = (_projectId: string, fn: (doc: Y.Doc) => unknown) => fn(doc);
+  (service as any).withSession = (_projectId: string, fn: (doc: Y.Doc) => unknown, _opts?: unknown) => fn(doc);
   return service;
 }
 

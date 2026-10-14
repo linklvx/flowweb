@@ -20,6 +20,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
 import { CollabGateway } from '../modules/collab/collab.gateway';
 import { CollabDocumentService } from '../modules/collab/collab-document.service';
+import { CollabResidencyService } from '../modules/collab/collab-residency.service';
 import { CollabSpoolService } from '../modules/collab/collab-spool.service';
 import { createMockRepo, type MockRepo } from './mock-repo';
 import { createLeaseStub } from '../modules/collab/test-utils/lease-stub';
@@ -28,6 +29,9 @@ import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 export interface DualClientKit {
   gateway: CollabGateway;
   docService: CollabDocumentService;
+  /** Y0c T15（A2）：常驻会话单例（docService 显式注入同实例——测试可驱动释放/断言会话表）。
+   *  dispose 先 releaseSessionFor 全部条目再 destroy（Z81 前置的测试等价物：direct 在则 runDestroy 永不 settle）。 */
+  residency: CollabResidencyService;
   repo: MockRepo;
   url: string;
   /** 失败注入面：session/canvasProject/teamMember 的 findUnique 可逐用例覆写 */
@@ -88,9 +92,11 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   await gateway.onModuleInit();   // async+await listen——无端口竞态
   const url = `ws://127.0.0.1:${port}`;
   const providers: HocuspocusProvider[] = [];
+  const residency = new CollabResidencyService(gateway);   // Y0c T15：显式实例（docService 注入同实例——dispose 释放面）
   return {
     gateway,
-    docService: new CollabDocumentService(gateway, repo as any),
+    docService: new CollabDocumentService(gateway, repo as any, residency),
+    residency,
     repo,
     url,
     prisma,
@@ -119,6 +125,9 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     },
     async dispose() {
       for (const p of providers.splice(0)) await p.destroy();
+      // Y0c T15：常驻会话先释放（Z81 测试等价——direct 在则库 runDestroy 永不 settle；
+      // 释放=releaseSessionFor 逐条目（T18 releaseAllSessions 关停序前的基础形态复用））
+      for (const pid of residency.residentProjectIds()) await residency.releaseSessionFor(pid);
       await (gateway as any).server.destroy();
       if (ownedSpoolDir) await rm(ownedSpoolDir, { recursive: true, force: true }).catch(() => {});   // mkdtemp tmpdir 域——自建才清
     },

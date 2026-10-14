@@ -3,9 +3,9 @@
 // ②Z75 合法终态（Y0c T11 演进·spec §0.6 偏离 19：deliver 失败∧done 同批被 Z4 守卫拦⇒无孤儿条目
 //   ——E22 读侧两形态等价〔exec 无 node 与无 exec 条目同 render 不存在〕；Z75 实质禁则全保留：
 //   deliver 失败不回滚整批/禁跨 op 耦合/批接受）
-// ③「data 与 exec 同事务」（同批两写落同一 withDoc 事务——事务单次性）
+// ③「data 与 exec 同事务」（同批两写落同一会话写事务——事务单次性；Y0c T15 起载体=withSession{mode:'write'}）
 // ④Z108 内容校验三拒（__proto__ 键/超批字节 Σ/超 op 数＝业务级拒绝进结果+reject 计数，不 throw 不回滚同批合法 op）
-// 附：Z40 基础设施失败二分（withDoc 503 ⇒ 全批 thrown）+Z76 幂等重放收敛（writeBatch 层可测形态）。
+// 附：Z40 基础设施失败二分（会话事务 503 ⇒ 全批 thrown）+Z76 幂等重放收敛（writeBatch 层可测形态）。
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
@@ -44,12 +44,12 @@ function seedNode(doc: Y.Doc, id = 'n1'): Y.Map<any> {
   return n;
 }
 
-/** 真事务装置：withDoc stub 直跑 fn(doc)（collab-document.service.spec 同手法）——事务单次性可断言。
+/** 真事务装置：withSession stub 直跑 fn(doc)（Y0c T15 写路径改道 seam 同步——A1 期 seam=withDoc）——事务单次性可断言。
  *  T9 起 writeBatch 进门消费 doc.assertWriteAdmitted（X9 批面受理门单点）——stub 同形补齐。 */
 function makeWriter(doc: Y.Doc) {
-  const withDoc = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
-  const writer = new CollabDocWriterService({ withDoc, assertWriteAdmitted: vi.fn() } as any);
-  return { writer, withDoc, doc };
+  const withSession = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown, _opts?: unknown) => fn(doc));
+  const writer = new CollabDocWriterService({ withSession, assertWriteAdmitted: vi.fn() } as any);
+  return { writer, withSession, doc };
 }
 
 /** 真实 CollabDocumentService+stub gateway 装置：受理门跑真判据（stub 只有 mock 无真门）。 */
@@ -62,14 +62,14 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
   it('红③「data 与 exec 同事务」：writeNodeData+writeExecStatus 同批 ⇒ withDoc 恰一次且两写都在其内（结果一一对应）', async () => {
     const doc = new Y.Doc();
     const n1 = seedNode(doc);
-    const { writer, withDoc } = makeWriter(doc);
+    const { writer, withSession } = makeWriter(doc);
 
     const results = await writer.writeBatch('p1', [
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'http://x/1.png' } },
       { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
     ]);
 
-    expect(withDoc).toHaveBeenCalledTimes(1); // 同 doc 同事务——一次 writeBatch=单次 withDoc（原两写=两次直连）
+    expect(withSession).toHaveBeenCalledTimes(1); // 同 doc 同事务——一次 writeBatch=单次会话事务（Y0c T15 起经 withSession{mode:'write'}；原两写=两次直连）
     expect(results).toEqual([
       { index: 0, op: 'writeNodeData', written: true },
       { index: 1, op: 'writeExecStatus', written: true },
@@ -100,7 +100,7 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
   it('红④ Z108 三拒＝业务级拒绝进结果+reject 计数：__proto__ 键拒（同批合法 op 照常执行）/超批字节 Σ 整批拒/超 op 数整批拒——不 throw 不回滚', async () => {
     const doc = new Y.Doc();
     const n1 = seedNode(doc);
-    const { writer, withDoc } = makeWriter(doc);
+    const { writer, withSession } = makeWriter(doc);
 
     // (a) __proto__ 键：违规 op 拒，同批合法 op 照常执行（拒绝非截断非 sanitize；批不回滚）
     const beforeProto = await rejectedOf('PROTO_KEY_BANNED');
@@ -135,12 +135,12 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     expect(r3.every((r, i) => !r.written && r.reason === 'OP_COUNT_EXCEEDED' && r.index === i)).toBe(true);
     expect(await rejectedOf('OP_COUNT_EXCEEDED')).toBe(beforeCount + 1);
 
-    expect(withDoc).toHaveBeenCalledTimes(1); // 仅 (a) 进事务——批级拒两例零 withDoc（T12 勘正：Z108 恢复事务外——T9 裁定字面+T8 批级零执行语义；op 级拒=1 次合法 op 照常执行的对照保持）
+    expect(withSession).toHaveBeenCalledTimes(1); // 仅 (a) 进事务——批级拒两例零会话事务（T12 勘正：Z108 恢复事务外——T9 裁定字面+T8 批级零执行语义；op 级拒=1 次合法 op 照常执行的对照保持）
   });
 
   it('Z40 基础设施失败二分：withDoc 503（租约失守）⇒ 全批 thrown（非 written:false——调用方按零交付退款）', async () => {
     const writer = new CollabDocWriterService({
-      withDoc: vi.fn(async () => { throw new ServiceUnavailableException('collab not serving (lease not held)'); }),
+      withSession: vi.fn(async () => { throw new ServiceUnavailableException('collab not serving (lease not held)'); }),
       assertWriteAdmitted: vi.fn(),
     } as any);
     await expect(writer.writeBatch('p1', [
@@ -170,7 +170,7 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
   });
 });
 
-// ── Y0c T9：进门四段顺序（空批早退→①X9 受理门→②undefined fail-fast→③Z108 内容校验→④withDoc
+// ── Y0c T9：进门四段顺序（空批早退→①X9 受理门→②undefined fail-fast→③Z108 内容校验→④会话写事务
 // 事务〔首段 schema 门〕）+deleteNodeDataKeys+transactSync 类型门。 ──
 describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDataKeys', () => {
   it('红·受理门（X9 批面单点）：degraded gateway ⇒ writeBatch 抛 ServiceUnavailableException（全批 thrown——Z40 基础设施档零交付退款）', async () => {
@@ -240,7 +240,7 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
     expect(v3.getMap('exec').size).toBe(0);
   });
 
-  it('红·transactSync 类型门：返回 Promise 的回调 ⇒ throw（withDoc 会把异步回调捕获到事务外续跑——破坏同事务不变量）', () => {
+  it('红·transactSync 类型门：返回 Promise 的回调 ⇒ throw（会话写事务会把异步回调捕获到事务外续跑——破坏同事务不变量）', () => {
     const asyncFn = ((doc: Y.Doc) => { doc.getMap('meta'); return Promise.resolve(); }) as unknown as (d: Y.Doc) => void;
     expect(() => transactSync(asyncFn)(new Y.Doc())).toThrow(/Promise/);
     // 同步回调照常放行

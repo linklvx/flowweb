@@ -957,6 +957,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 
 <!-- y0b0:metric-names -->
 ```yaml
+- acquire_wait_timeout_total
 - ai_artifact_discarded_total
 - awareness_bytes
 - awareness_states
@@ -992,6 +993,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_quota_truth_measure_duration_seconds
 - collab_quota_truth_measured_total
 - collab_quota_writes_dropped_total
+- collab_residency_reconcile_drift_total
 - collab_slow_consumer_disconnect_total
 - collab_start_failure_total
 - collab_sweep_close_total
@@ -1010,6 +1012,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_upgrade_rejected_total
 - collab_version_negotiation_reject_total
 - collab_write_rejected_total
+- collab_write_session_release_timeout_total
 - collab_ws_close_total
 - event_loop_lag_seconds
 - exec_orphan_blocked_total
@@ -1038,6 +1041,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_compact_not_owner_total
 - yjs_compact_tombstone_bytes
 - yjs_connection_count
+- yjs_degraded_docs
 - yjs_deleted_projects
 - yjs_doc_bytes
 - yjs_doc_bytes_over_threshold_total

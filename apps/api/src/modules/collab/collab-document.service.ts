@@ -1,7 +1,8 @@
-import { Injectable, Inject, Logger, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
+import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
 import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type DocNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
+import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
@@ -38,11 +39,23 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  Y0b-5 T10：容量上界 32+entries gauge 可见化（registerPendingCollector 同族 reader 注册惯例）。 */
   private readonly snapshotCache = new SnapshotDocCache();
 
+  /** Y0c T15（A2）：常驻会话单例——Nest 由 module provider 注入；直构测试不传时自建
+   *  （gateway pgBreaker/sessionSvc 兜底自建同惯例）。生产恒走 DI 单例（会话表全局唯一）。 */
+  private readonly residency: CollabResidencyService;
+
   constructor(
     @Inject(CollabGateway) private readonly gateway: CollabGateway,
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
+    @Optional() residency?: CollabResidencyService,
   ) {
+    this.residency = residency ?? new CollabResidencyService(gateway);
     registerSnapshotCacheEntriesReader(() => this.snapshotCache.size);
+  }
+
+  /** Y0c T15（A2）：会话式读写透传（withSession 唯一消费入口——读/写路径经 residency 单例
+   *  acquire/复用，refCount 计账；mode 语义见 CollabResidencyService.withSession）。 */
+  withSession<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>, opts: WithSessionOptions): Promise<T> {
+    return this.residency.withSession(projectId, fn, opts);
   }
 
   /** Y0b-5 T10：collect 闭包随 service 死（gateway reader 同惯例） */
@@ -55,7 +68,10 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  不触发装载重连风暴）。消息非协议形态（通用入口，客户端不按 body.code 分型）。
    *  Y0b-4 T9a（Q-U v6/U-3/G-7）：vacuum serving 门——真空窗口拒物化（readServerSV/readCanvas/
    *  writeExecStatus 同挂）；REST 面真 503（COLLAB_NOT_SERVING 族——filter 附 Retry-After: 2）。
-   *  Y0b-5 T16：docName 全匹配守卫（三入口③ direct——`project:${projectId}` 须全匹配，别名执法分叉根修）。 */
+   *  Y0b-5 T16：docName 全匹配守卫（三入口③ direct——`project:${projectId}` 须全匹配，别名执法分叉根修）。
+   *  Y0c T15（A2）：**非常驻面专用**——常驻读写已改道 withSession（会话复用零 disconnect 零重装，
+   *  Z128）；本方法保留给「用完即走」面（shrink/exportFresh 源读等——census ⑭ registry 同步分类），
+   *  既有 gates/origin/disconnect(true) 语义逐字不变。 */
   async withDoc<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>): Promise<T> {
     if (!isValidDocName(`project:${projectId}`)) {
       throw Object.assign(new Error(`invalid doc name: project:${projectId}`), { reason: CollabAuthReason.INVALID_DOC_NAME });
@@ -100,27 +116,28 @@ export class CollabDocumentService implements OnApplicationShutdown {
   }
 
   /** doc → plain nodes/edges。
-   *  Y0b-2 T3（分源规则钉死）：计费/语义读统一走本活读出口（withDoc——执行恒活读：发起方必有
-   *  WS ⇒ doc 常驻 ⇒ 零装载成本）；快照出口 readCanvasSnapshotCached
-   *  仅无客户端面（video-work 分享/渲染等）。
+   *  Y0b-2 T3（分源规则钉死）：计费/语义读统一走本活读出口（执行恒活读）；快照出口
+   *  readCanvasSnapshotCached 仅无客户端面（video-work 分享/渲染等）。
    *  Y0b-2 T7：sv 参数/SV 等待退役——客户端同步判定移受理端点 SV 支配门（sync-admission.ts），
    *  执行读恒活读无需客户端 SV。
    *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
    *  DocNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
    *  O0b-0 版本门 v2.1（第五行 REST fail-closed）：ensureSchemaVersion 从全量 doc 读 meta（不依赖
    *  sv 差量）——v1 档/无戳∧有节点拒（明确信息，非按 abs 解释 rel 静默错位）；无戳∧零节点放行
-   * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。 */
+   * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。
+   *  Y0c T15（A2/Z128）：改道 withSession(read)——共享会话不 disconnect 不武装 debouncer
+   *  （旧 withDoc 路径每次 disconnect(true)=每次全量编码 store+计数抖动，终结）。 */
   async readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
-    return this.withDoc(projectId, async (doc) => {
+    return this.withSession(projectId, async (doc) => {
       ensureSchemaVersion(toDocLike(doc));
       return readRecordsFromMaps(toDocLike(doc));
-    });
+    }, { mode: 'read' });
   }
 
   /** Y0b-2 T7：服务端 doc SV 单源出口——受理端点 SV 支配门（assertSyncAdmitted）唯一读点。
-   *  withDoc 内存级（发起方必有 WS⇒doc 常驻⇒零装载成本）。 */
+   *  Y0c T15（A2/Z128）：改道 withSession(read)——会话内存级读（零 disconnect 零重装）。 */
   async readServerSV(projectId: string): Promise<Uint8Array> {
-    return this.withDoc(projectId, (doc) => Y.encodeStateVector(doc));
+    return this.withSession(projectId, (doc) => Y.encodeStateVector(doc), { mode: 'read' });
   }
 
   /** Y0b-2 T3：快照解码单源——readSnapshotOnly 行集→同 doc 重放→版本门→投影；快照缓存 loader
@@ -173,10 +190,11 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  writeBatch）共用单点（结构性防漏：第三处复制粘贴门=T8 批面回归的成因，本方法即终结形态）。
    *  判据与 throw 与提取前逐字一致：租约档（Y0a-3 R4——lease 失守/drain 期拒）+spool 熔断/容量
    *  熔断档（Y0a-2 X9）。真空档维持 in withDoc 不并入（与既有单写面语义严格一致）。
-   *  Z40 基础设施档：throw ⇒ writeBatch 全批 thrown ⇒ 调用方按零交付退款。 */
+   *  Z40 基础设施档：throw ⇒ writeBatch 全批 thrown ⇒ 调用方按零交付退款。
+   *  Y0c T15（A2）：实现单源迁 CollabResidencyService.assertWriteAdmitted（withSession(write)
+   *  内部强制过门）——本方法一行委托（writer/测试消费面签名不变）。 */
   assertWriteAdmitted(): void {
-    if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
-      throw new ServiceUnavailableException('collab degraded: lease or spool');
+    this.residency.assertWriteAdmitted();
   }
 
   /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。写核心=applyWriteNodeDataToDoc 原语
@@ -185,10 +203,12 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  Y0a-3（R4 裁定：必需项非冗余）：门前加租约档——lease 失守/drain 期同样拒（draining 不在
    *  isWritableOrDegraded 判据内，缺此档则失守期写会静默落 spool 等回灌）；
    *  readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）。
-   *  Y0c T9：受理门收编单点 assertWriteAdmitted（判据零变化纯去重）。 */
+   *  Y0c T9：受理门收编单点 assertWriteAdmitted（判据零变化纯去重）。
+   *  Y0c T15（A2）：改道 withSession(write)——会话 acquire+SERVER_TRANSACT_ORIGIN 最外层事务
+   *  （与 withDoc 同款）；degraded/租约档由 withSession 内部 assertWriteAdmitted 强制（写门单点
+   *  随实现迁 residency——显式前置调用移除=同一门恰好执行一次）。 */
   async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>): Promise<WriteNodeDataResult> {
-    this.assertWriteAdmitted();
-    return this.withDoc(projectId, (doc) => applyWriteNodeDataToDoc(doc, nodeId, patch));
+    return this.withSession(projectId, (doc) => applyWriteNodeDataToDoc(doc, nodeId, patch), { mode: 'write' });
   }
 
   /** B2/F2：exec map 服务端唯一写者（客户端零 exec 写——批0.5 起静态断言）。
@@ -207,9 +227,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移；T11 守卫已落原语层）。
    *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
   async writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
-    // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）；Y0c T9 收编单点 assertWriteAdmitted
-    this.assertWriteAdmitted();
-    await this.withDoc(projectId, (doc) => {
+    // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）；Y0c T9 收编单点 assertWriteAdmitted；
+    // Y0c T15 改道 withSession(write)——受理门/degraded 档由会话内部强制（判据零变化）。
+    await this.withSession(projectId, (doc) => {
       const outcome = applyWriteExecStatusToDoc(doc, nodeId, patch);
       if (!outcome.written && outcome.reason === 'node-deleted') {
         execOrphanBlockedTotal.inc();   // Y0c T11 Z4 专项信号
@@ -217,7 +237,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
       if (!outcome.written && outcome.reason !== 'terminal-superseded') {
         execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
       }
-    });
+    }, { mode: 'write' });
   }
 
   /** Y0b-2 T5（Z98 端口反转）：ArtifactProbe——settleStranded 的产物探测唯一出口（intent-reconcile

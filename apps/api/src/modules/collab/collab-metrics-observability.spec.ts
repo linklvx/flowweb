@@ -280,7 +280,7 @@ describe('Y0b-5 T10：withDoc 耗时直方图', () => {
     const doc = stampedDoc();
     const fakeConn = { document: doc, transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };   // Y0c T10：withDoc 直开 document 事务——mock 对齐真实 DirectConnection 形状
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockResolvedValue(fakeConn as any);
-    const d = await histogramDelta('yjs_withdoc_duration_seconds', () => service.readCanvas('p1'));
+    const d = await histogramDelta('yjs_withdoc_duration_seconds', () => service.withDoc('p1', () => 'x'));   // Y0c T15：readCanvas 改道会话（不再计 withDoc 全路径）——载体改直调 withDoc
     expect(d.count).toBe(1);
     expect(d.sum).toBeGreaterThanOrEqual(0);
   });

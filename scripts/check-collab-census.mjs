@@ -623,18 +623,15 @@ if (isMain()) {
   //  三态=read-only（只读 doc）/write-via-writer（经门面写 API）/待收编（直写 doc——直写域收编后清零）。
   //  Y0c T12 直写收编清零：shrink（deleteNodes/预演/fillDoc）与 intent-reconcile（exec-GC）直写段
   //  改道 doc 域应用核心 applyWriteOpsToDoc/writeBatch 单点，待收编态废止。
+  //  Y0c T15（A2 读写二分）重标：readServerSV/readCanvas/writeNodeData/writeExecStatus/writeBatch
+  //  全部改道 withSession（collab-residency.service.ts 承载——openDirectConnection 不经 withDoc，
+  //  其 worker 闭包登记见 ⑮）——两文件 withDoc 点位归零从清单移除；withDoc 保留面=非常驻「用完即走」：
   //  逐点标注（清单；行号=2026-10-14 快照 advisory，按语义定位）：
-  //   collab-document.service.ts  readCanvas=read-only / readServerSV=read-only
-  //                               writeNodeData=write-via-writer / writeExecStatus=write-via-writer（门面写 API 本体）
-  //   collab-doc-writer.service.ts writeBatch 同事务组批写=write-via-writer（Y0c T8——片 A1 唯一组批事务点；
-  //                               批内原语与直写收编调用方共用 applyWriteOpsToDoc，守卫/计数两路径同源）
   //   collab-shrink.service.ts    shrink（deleteNodes 经 applyWriteOpsToDoc——预演 scratch 不经 withDoc）=write-via-writer
   //                               / exportFresh 源读=read-only / exportFresh fillDoc 段（经 applyWriteOpsToDoc）=write-via-writer
   //   collab-write.port.ts        DirectCollabWritePort.withDoc 一行委托=write-via-writer（Y0c T13b——写端口 Direct 形态，
   //                               透传 CollabDocumentService.withDoc；7 方法面=8 改道文件实测用面，spec §0.6 偏离 21）
   const WITHDOC_REGISTRY = {
-    'apps/api/src/modules/collab/collab-document.service.ts': { 'read-only': 2, 'write-via-writer': 2 },
-    'apps/api/src/modules/collab/collab-doc-writer.service.ts': { 'write-via-writer': 1 },
     'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, 'write-via-writer': 2 },
     'apps/api/src/modules/collab/collab-write.port.ts': { 'write-via-writer': 1 },
   };
@@ -666,8 +663,11 @@ if (isMain()) {
     // worker 拆分后 processor 链改道 HttpCollabWritePort，collab 家族（gateway/doc service/
     // repository/frame-type）整体离开 worker 闭包——届时逐项移除登记，断言必须绿。
     'apps/api/src/modules/collab/collab-document.service.ts': {
-      openDirectConnection: { n: 1, until: '片D' },      // :68 withDoc 直连入口（三入口③）
+      openDirectConnection: { n: 1, until: '片D' },      // withDoc 直连入口（三入口③——Y0c T15 后=非常驻面保留通道；常驻读写经 residency）
       applyUpdate: { n: 2, until: '片D' },               // :123,:124 decodeSnapshot 快照重放（scratch doc）
+    },
+    'apps/api/src/modules/collab/collab-residency.service.ts': {
+      openDirectConnection: { n: 1, until: '片D' },      // Y0c T15：常驻会话 acquire 新开通道（Z59 钉住谓词载体——读改写抖动终结面）
     },
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': {
       applyUpdate: { n: 2, until: '片D' },               // :255,:256 compact 方法内 temp doc 行集重放（scratch 离线，非 readSnapshotOnly——后者不 apply）

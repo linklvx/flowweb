@@ -8,6 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { CollabDocumentService } from './collab-document.service';
+import type { CollabResidencyService } from './collab-residency.service';
 import { SERVER_TRANSACT_ORIGIN, readRecordsFromMaps, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** web ydocBuilder.toDocLike 同款手法（api 侧不可 import apps/web——测试内联同构对照半边） */
@@ -51,7 +52,10 @@ function buildDoc(): Y.Doc {
 
 function buildService(doc: Y.Doc): CollabDocumentService {
   const service = new CollabDocumentService({} as any, { readSnapshotOnly: vi.fn() } as any);
-  vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) as any);
+  // Y0c T15（A2 读写二分）：readCanvas 改道 withSession——seam 随改道迁移（withDoc 保留给非常驻面，
+  // 本 spec 读面用例不再经它）。stub 直跑 fn(doc)（原 withDoc spy 同手法；typed cast 保 vitest mock 形状）。
+  vi.spyOn((service as any).residency as CollabResidencyService, 'withSession')
+    .mockImplementation(async (_pid, fn) => fn(doc) as any);
   return service;
 }
 
@@ -195,7 +199,9 @@ describe('Y0c T9 undefined fail-fast+assertWriteAdmitted 单点', () => {
     n1.set('type', 'text');
     doc.getMap('nodes').set('n1', n1);
     const service = new CollabDocumentService(admittedGateway() as any, repoStub() as any);
-    vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) as any);
+    // Y0c T15：写路径改道 withSession——seam 同步（stub 直跑 fn(doc)，受理门真判据不受影响）
+    vi.spyOn((service as any).residency as CollabResidencyService, 'withSession')
+      .mockImplementation(async (_pid, fn) => fn(doc) as any);
     await expect(service.writeNodeData('p1', 'n1', { resultUrl: undefined }))
       .rejects.toThrow(/UNDEFINED_PATCH_VALUE/);
     expect(n1.get('data')).toBeUndefined();   // fail-fast 在应用前——零写入

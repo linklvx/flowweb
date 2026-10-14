@@ -784,6 +784,46 @@ export const collabPgBreakerFailuresTotal = new Counter({
   registers: [register],
 });
 
+/** ===== Y0c T15（片 A2 常驻化/Z59·Z109·Z111·Z113）：常驻会话面 ===== */
+
+/** acquire 遇 releasing 有限等待超时计数（Z109③——同 pid acquire 永不因 releasing 无界等待；
+ *  超时即新开 conn 入表，等待上界=RELEASE_TIMEOUT_MS 与释放硬超时同源）。 */
+export const collabAcquireWaitTimeoutTotal = new Counter({
+  name: 'acquire_wait_timeout_total',
+  help: 'acquire 遇 releasing 有限等待超时次数（Z109——超时即新开 conn，同 pid acquire 永不无界等待；上界与释放硬超时 5s 同源）',
+  registers: [register],
+});
+
+/** releaseSessionFor disconnect 5s 硬超时计数（Z109③ zombie 档——disconnect→store→spool fsync
+ *  磁盘挂起无界，上界与 repo.append 事务上界同源；超时 conn 置 zombie+挂起释放自清理延续，
+ *  懒重建=下次 acquire 自然新开并替换条目）。 */
+export const collabWriteSessionReleaseTimeoutTotal = new Counter({
+  name: 'collab_write_session_release_timeout_total',
+  help: 'releaseSessionFor disconnect 5s 硬超时次数（Z109 zombie 档——store/spool fsync 挂起；懒重建：下次 acquire 自然新开）',
+  registers: [register],
+});
+
+/** 会话表周期对账漂移计数（Z113②——不变量：held 条目 conn.document 在∧directConnectionsCount≥1；
+ *  zombie/releasing 档例外豁免——disconnect 已 removeDirectConnection〔esm:1148〕count 恒 0 非漂移）。 */
+export const collabResidencyReconcileDriftTotal = new Counter({
+  name: 'collab_residency_reconcile_drift_total',
+  help: '会话表对账漂移计数（Z113——held 条目 conn 引用缺失或 directConnectionsCount<1；非 held 档例外豁免）',
+  registers: [register],
+});
+
+/** 装载降级 doc 数 gauge（Z111——pendingStructs/pendingDs 非空 degradedDocs 集合可见化；
+ *  常驻阻断判据载体：degraded doc 不入会话表。reader 注册模式=pendingCollector 惯例
+ *  （gateway 注册读数回调，metrics 文件不 import gateway——反向依赖禁止））。 */
+let degradedDocsReader: (() => number) | null = null;
+export function registerDegradedDocsReader(fn: () => number): void { degradedDocsReader = fn; }
+export function unregisterDegradedDocsReader(): void { degradedDocsReader = null; }
+export const yjsDegradedDocs = new Gauge({
+  name: 'yjs_degraded_docs',
+  help: '装载降级 doc 数（pendingStructs/pendingDs 非空——Q-O 降级可观测；Z111：degraded doc 不入常驻会话表，>0 挂巡检阈值归 T29 health）',
+  registers: [register],
+  collect() { try { this.set(degradedDocsReader?.() ?? 0); } catch { this.set(0); } },
+});
+
 /** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
 
 /** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 闭集：
