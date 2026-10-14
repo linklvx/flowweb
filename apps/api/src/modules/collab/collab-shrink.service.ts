@@ -138,8 +138,11 @@ export class CollabShrinkService {
       `${src.name}(瘦身副本)`, src.templates[0]?.folderId ?? null, userId, src.teamId,
     );
     const bytes = await this.docs.withDoc(created.projectId, (doc) => {
-      // Y0c T12 直写收编：fillDoc 改道 doc 域应用核心（与 writeBatch 同一 Z108/schema 门单点）
-      applyWriteOpsToDoc(doc, [{ op: 'fillDoc', nodes: records.nodes, edges: records.edges }]);
+      // Y0c T12 直写收编：fillDoc 改道 doc 域应用核心（与 writeBatch 同一 Z108/schema 门单点）。
+      // T12 勘正：fill 结果 fail-fast——written:false=契约违规（内部 Error throw，消息含 reason 与
+      // op 索引），禁把空 doc 编码字节当成功上报。
+      const [fill] = applyWriteOpsToDoc(doc, [{ op: 'fillDoc', nodes: records.nodes, edges: records.edges }]);
+      if (!fill.written) throw new Error(`exportFresh fillDoc 未写入（契约违规 fail-fast）: index=${fill.index} reason=${fill.reason}——空 doc 编码不得当成功上报`);
       return Y.encodeStateAsUpdate(doc).byteLength;   // 落地编码校验（census④ 生产白名单点——Q-H；同事务不变）
     });
     collabDocExportFreshTotal.inc({ result: 'ok' });

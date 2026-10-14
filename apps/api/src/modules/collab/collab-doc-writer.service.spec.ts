@@ -135,7 +135,7 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     expect(r3.every((r, i) => !r.written && r.reason === 'OP_COUNT_EXCEEDED' && r.index === i)).toBe(true);
     expect(await rejectedOf('OP_COUNT_EXCEEDED')).toBe(beforeCount + 1);
 
-    expect(withDoc).toHaveBeenCalledTimes(3); // Y0c T12（裁决 1）：Z108 随 applyWriteOpsToDoc 移入事务——批级拒仍零 op 执行（短路先于 schema 门），三例各开一次 withDoc
+    expect(withDoc).toHaveBeenCalledTimes(1); // 仅 (a) 进事务——批级拒两例零 withDoc（T12 勘正：Z108 恢复事务外——T9 裁定字面+T8 批级零执行语义；op 级拒=1 次合法 op 照常执行的对照保持）
   });
 
   it('Z40 基础设施失败二分：withDoc 503（租约失守）⇒ 全批 thrown（非 written:false——调用方按零交付退款）', async () => {

@@ -5,9 +5,11 @@
 // writeBatch 同 doc 同事务：一次 writeBatch=恰一次 withDoc，「data 与 exec 同事务」（先红用例③）。
 // 逐 op 守卫事务内求值，WriteOpResult[] 与入批 ops 一一对应（携带 op 索引+类型——A1 冻结契约）。
 //
-// Y0c T12（裁决 1——spec §0.6 偏离 20）：doc 域应用核心 applyWriteOpsToDoc 导出为独立纯函数
-// （Z108 校验+schema 门+applyOp 循环单点），writeBatch 与进程内直写调用方（shrink 影子预演/活写、
-// export-fresh 干净副本构造）两路共用——「预演=即将写的内容同源」最强形态。六 op 全实现：
+// Y0c T12（裁决 1——spec §0.6 偏离 20）+T12 勘正：doc 域应用核心 applyWriteOpsToDoc 导出为独立
+// 纯函数（Z108 校验+schema 门+applyOp 循环单点），进程内直写调用方（shrink 影子预演/活写、
+// export-fresh 干净副本构造）消费——「预演=即将写的内容同源」最强形态；writeBatch 与之共享
+// rejectionsOf+applyOpsCore 拆分核心但 Z108 校验位各自持有（writeBatch 事务外·T9 裁定字面；
+// doc 域入口调用方事务内·TOCTOU 唯一选项）——每入口恰验一次零双计。六 op 全实现：
 // writeNodeData/writeExecStatus/deleteNodeDataKeys（T8 三 op）+deleteNodes/fillDoc/deleteExecOrphans
 // （T12 收编三 op——collab-shrink/intent-reconcile 直写语义原样迁移，见 collab-document.service 三原语）。
 //
@@ -27,13 +29,16 @@
 // append delta 行（完整重试链路随消费改道任务落地）。
 //
 // Y0c T9 进门四段（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点，503）→
-// ②undefined fail-fast（writeNodeData 类 op 扫描，UNDEFINED_PATCH_VALUE）→ ③④withDoc 事务
-// （applyWriteOpsToDoc：Z108 内容校验〔业务级拒绝 written:false+reason 进 reject 计数，非 throw
-// 非 sanitize 非截断；批级违规=整批拒绝零执行；op 级违规仅拒该 op 同批合法 op 照常〕→schema 门→
-// applyOp 循环）。受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。
-// T12 位置勘正：Z108 随裁决 1 移入事务内（applyWriteOpsToDoc 首段，批级违规短路 return 先于
-// schema 门 throw）——业务拒绝仍是合法结果非基础设施失败（不触发退款），语义维持；批级违规批
-// 现会开一次 withDoc（原来事务外提前 return）——零 op 执行+结果一一对应不变。
+// ②undefined fail-fast（writeNodeData 类 op 扫描，UNDEFINED_PATCH_VALUE）→ ③Z108 内容校验
+// （rejectionsOf——事务外；业务级拒绝 written:false+reason 进 reject 计数，非 throw 非 sanitize
+// 非截断；批级违规=整批拒绝零执行不进事务；op 级违规仅拒该 op 同批合法 op 照常）→ ④withDoc
+// 事务（transactSync+applyOpsCore 共享核心：schema 门+逐 op 守卫求值+应用）。受理门先于内容
+// 校验：降级期不白跑校验、reject 计数不被降级噪声污染。
+// T12 勘正（T9 裁定字面恢复）：Z108 校验必须在 withDoc 之外（事务前）——否则业务拒绝被降级成
+// 基础设施失败并触发退款；批级违规=整批拒绝零执行不进事务（T8 语义）。doc 域入口
+// applyWriteOpsToDoc（shrink 预演/活写、exportFresh fill 直调）的调用方自带事务、无事务外选项
+// （TOCTOU 契约=校验与应用同同步段），其校验天然在事务内——两入口各自持校验位（每入口恰验
+// 一次零双计），违规一律不 throw 化=实质禁则保持。
 //
 // 写守卫 reason 词表（本文件枚举——CollabAuthReason 是 auth 拒绝域不混入；wire 面 T27 端点透传
 // 只增不改）：node-deleted（writeNodeData/deleteNodeDataKeys/writeExecStatus——Z44/Z4）/ no-node-map
@@ -84,10 +89,14 @@ export interface WriteOpResult {
   reason?: string;
 }
 
-/** Y0c T12（裁决 1）：doc 域应用核心——Z108 校验+schema 门+逐 op 应用单点，writeBatch 与进程内
- *  直写调用方（shrink 影子预演/活写、export-fresh fill）两路共用。须在同步上下文调用（transactSync
- *  封套或无外层 await 的同步段——withDoc 直连/scratch doc 均满足）；三 op 原语自带 transact（无外层
- *  事务的 scratch 调用原子边界自持；嵌套事务时内层 origin 被 yjs 忽略=T10 已证无影响）。
+/** Y0c T12（裁决 1）：doc 域应用核心——Z108 校验+schema 门+逐 op 应用单点，进程内直写调用方
+ *  （shrink 影子预演/活写、export-fresh fill）消费。须在同步上下文调用（transactSync 封套或无外层
+ *  await 的同步段——withDoc 直连/scratch doc 均满足）；三 op 原语自带 transact（无外层事务的
+ *  scratch 调用原子边界自持；嵌套事务时内层 origin 被 yjs 忽略=T10 已证无影响）。
+ *  T12 勘正：本函数的 Z108 校验天然处于调用方事务内（TOCTOU 契约=调用方无事务外选项——校验
+ *  与应用必须同同步段），违规不 throw 化=实质禁则保持（业务拒绝=合法结果非基础设施失败）；
+ *  writeBatch 的 Z108 在事务外（T9 裁定字面）——两入口各自持校验位，经 rejectionsOf/applyOpsCore
+ *  拆分共享，每入口恰验一次零双计。
  *  幂等执法面：validateWriteBatch 默认档（裁决 2·偏离 20）——进程内不产 NON_IDEMPOTENT_OP，
  *  fillDoc 种子路径合法；T27 端点（未来）另传 requireIdempotentOps:true。 */
 export function applyWriteOpsToDoc(doc: Y.Doc, ops: readonly DocWriteOp[]): WriteOpResult[] {
@@ -95,12 +104,20 @@ export function applyWriteOpsToDoc(doc: Y.Doc, ops: readonly DocWriteOp[]): Writ
   // Z108 进门：内容校验（七码处置总表见 shared WriteBatchViolationCode——全属业务级拒绝）
   const { byIndex, batchLevel } = rejectionsOf(ops);
   if (batchLevel) {
-    // 批级违规=整批拒绝零执行（拒绝非截断——逐 op 结果同携批级码，一一对应契约不破；短路先于 schema 门）
+    // 批级违规=整批拒绝零执行（拒绝非截断——逐 op 结果同携批级码，一一对应契约不破）
     for (let i = 0; i < ops.length; i += 1) {
       results[i] = { index: i, op: ops[i].op, written: false, reason: batchLevel.code };
     }
     return results;
   }
+  return applyOpsCore(doc, ops, byIndex);
+}
+
+/** schema 门+逐 op 应用循环（writeBatch 事务内④段与 applyWriteOpsToDoc 共享核心——不含 Z108
+ *  校验：两入口各自持校验位，writeBatch 事务外/T9 裁定字面、doc 域入口调用方事务内/TOCTOU 唯一
+ *  选项；byIndex=入口已验的 op 级违规归集）。 */
+function applyOpsCore(doc: Y.Doc, ops: readonly DocWriteOp[], byIndex: Map<number, WriteBatchViolationCode>): WriteOpResult[] {
+  const results: WriteOpResult[] = ops.map((op, index) => ({ index, op: op.op, written: false }));
   // schema 门：前瞻档（sv 为 number 且 > current）⇒ 独立拒码 DOC_SCHEMA_AHEAD——throw 前计数
   //（spec §6「拒写+reason 计数」）；降版 sv=1/未知档走 ensureSchemaVersion（[O0b-0] throw）；
   // 无戳档=装载层职责不扩责（无戳∧零节点放行——与 REST 读门同档）。
@@ -180,8 +197,9 @@ export class CollabDocWriterService {
   /** 同 doc 同事务组批写（片 A1 唯一 withDoc 调用点=census ⑭ 登记 write-via-writer）。
    *  Y0c T9 进门四段顺序（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点——503
    *  throw）→ ②undefined fail-fast（writeNodeData 类 op 扫描——UNDEFINED_PATCH_VALUE throw）→
-   *  ③④withDoc 事务（transactSync 包裹；回调=applyWriteOpsToDoc 单点〔T12 裁决 1——Z108 校验+
-   *  schema 门+逐 op 应用与直写收编两路共用〕）。
+   *  ③Z108 内容校验（rejectionsOf——事务外·T9 裁定字面：业务拒绝不得降级成基础设施失败触发退款；
+   *  批级违规=整批拒绝零执行不进事务·T8 语义；op 级违规归集 byIndex 进事务短路）→ ④withDoc 事务
+   *  （transactSync 包裹；回调=applyOpsCore 共享核心——schema 门+逐 op 守卫求值+应用）。
    *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。 */
   async writeBatch(projectId: string, ops: readonly DocWriteOp[]): Promise<WriteOpResult[]> {
     // 空批=合法 no-op（validateWriteBatch 同判据——零违规放行，不白开一次 doc 事务）
@@ -196,11 +214,17 @@ export class CollabDocWriterService {
         if (v === undefined) throw undefinedPatchValueError('writeBatch.writeNodeData', k);
       }
     }
-    // ③④ 同 doc 同事务：全部 op（含 Z108 校验/schema 门/守卫求值）在此唯一事务内完成；
-    //   守卫失败只落结果不回滚不 throw；transactSync 类型门包裹（异步回调=同事务不变量破坏）。
+    // ③ Z108 进门（事务外——T9 裁定字面：校验在 withDoc 之前，业务拒绝=合法结果非基础设施失败）
+    const { byIndex, batchLevel } = rejectionsOf(ops);
+    if (batchLevel) {
+      // 批级违规=整批拒绝零执行（不进事务——T8 语义；拒绝非截断，逐 op 结果同携批级码一一对应）
+      return ops.map((op, index) => ({ index, op: op.op, written: false, reason: batchLevel.code }));
+    }
+    // ④ 同 doc 同事务：schema 门+守卫求值+应用在此唯一事务内完成；守卫失败只落结果不回滚不 throw；
+    //   transactSync 类型门包裹（异步回调=同事务不变量破坏）；回调=applyOpsCore 共享核心（T12 勘正）。
     let results: WriteOpResult[] = [];
     await this.doc.withDoc(projectId, transactSync((doc) => {
-      results = applyWriteOpsToDoc(doc, ops);
+      results = applyOpsCore(doc, ops, byIndex);
     }));
     return results;
   }
