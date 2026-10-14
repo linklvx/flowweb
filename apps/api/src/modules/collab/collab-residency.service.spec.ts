@@ -68,6 +68,10 @@ function makeFixture() {
       doc.getMap('nodes').set('n1', new Y.Map([['type', 'text']]));       // 种子节点（写守卫 Z4：不存在节点=written:false——夹具对齐生产 doc 有节点形态）
       const saved = persisted.get(name);
       if (saved) Y.applyUpdate(doc, saved);                               // hydration 重放
+      // M-4：directConnectionsCount 与 counts Map 同步（getter 形态，最小实现）——库 addDirectConnection
+      // 在 doc 上定义该 getter（esm:1134），缺位则 reconcileSessions `count<1` 谓词遇 undefined 假阴（NaN 比较）
+      const created = doc;
+      Object.defineProperty(created, 'directConnectionsCount', { get: () => counts.get(created) ?? 0 });
       docs.set(name, doc);
     }
     counts.set(doc, (counts.get(doc) ?? 0) + 1);                          // addDirectConnection（esm:1134）
@@ -98,7 +102,7 @@ function makeFixture() {
   const writer = new CollabDocWriterService(svc);
   /** residency 经 doc service 惰性自建面触达（生产 DI 单例由 module 装配——直构测试同 gateway 兜底惯例） */
   const residency = (): any => (svc as any).residency;
-  return { svc, writer, residency, gateway, openDirectConnection, docs, persisted, disconnectGates, disconnectCallCount: () => disconnectCalls };
+  return { svc, writer, residency, gateway, openDirectConnection, docs, counts, persisted, disconnectGates, disconnectCallCount: () => disconnectCalls };
 }
 
 afterEach(() => {
@@ -136,6 +140,31 @@ describe('Y0c T15 Z128：常驻 pid 恒 1 条 direct（读路径零抖动零重�
     await fx.svc.readCanvas('p1');
     expect(fx.residency().sessionState('p1')).toBe('held');
     expect(fx.residency().holds('p1')).toBe(true);
+  });
+
+  it('并发双开钉守（acquireSerialized 串行化面）：openDirectConnection 首调挂门挂起下并发读同一 pid→恰 1 次直开+会话表恰 1 条+两读结果均正确', async () => {
+    const fx = makeFixture();
+    const inner = fx.openDirectConnection;                       // 夹具原 mock（真实开窗/装载语义载体）
+    const secondArrived = deferred<void>();
+    const fallback = deferred<void>();
+    let entries = 0;
+    fx.gateway.server.hocuspocus.openDirectConnection = vi.fn(async (name: string) => {
+      entries += 1;
+      if (entries === 1) {
+        const t = setTimeout(() => fallback.resolve(), 25);      // 防死锁兜底：串行化生效⇒第二请求永不进窗（链尾排队）
+        await Promise.race([secondArrived.promise, fallback.promise]);
+        clearTimeout(t);
+      } else {
+        secondArrived.resolve();                                 // 第二并发请求进窗=串行化失效形态（红相：双开）
+      }
+      return inner(name);
+    });
+
+    const [sv, canvas] = await Promise.all([fx.svc.readServerSV('p1'), fx.svc.readCanvas('p1')]);
+    expect(sv).toBeTruthy();                                     // 两调用结果均正确
+    expect(canvas).toBeTruthy();
+    expect(fx.gateway.server.hocuspocus.openDirectConnection).toHaveBeenCalledTimes(1);   // 恰 1 次：后继 acquire 见前驱成果（held 复用）——双开即红
+    expect(fx.residency().residentProjectIds()).toEqual(['p1']); // 会话表恰 1 条（覆盖写不吞条目）
   });
 
   it('写事务 origin=SERVER_TRANSACT_ORIGIN 最外层（会话写面与 withDoc 同款——Z119 经会话保持）', async () => {
@@ -298,6 +327,42 @@ describe('Y0c T15 Z113：releaseSessionFor 异常清理+reconcileSessions 对账
     entry.state = 'zombie';                                      // zombie/releasing 档例外：disconnect 已 removeDirectConnection（esm:1148）——count 恒 0 非漂移
     fx.residency().reconcileSessions();
     expect(await counterValue('collab_residency_reconcile_drift_total')).toBe(dBefore + 1);   // 不再累加
+  });
+
+  it('reconcileSessions count 分支执法（M-4）：count=0∧document 在（conn 泄漏形态）→对账计漂移（夹具 directConnectionsCount 同步后 count 谓词可探测）', async () => {
+    const fx = makeFixture();
+    await fx.svc.readCanvas('p1');
+    const dBefore = await counterValue('collab_residency_reconcile_drift_total');
+    fx.residency().reconcileSessions();
+    expect(await counterValue('collab_residency_reconcile_drift_total')).toBe(dBefore);   // 健康基线：getter 同步 count=1 真实过门（非 undefined<1 假阴）
+
+    fx.counts.set(fx.docs.get('project:p1')!, 0);                // 泄漏形态注入：document 在但 count 归零（removeDirectConnection 已走、条目未删）
+    fx.residency().reconcileSessions();
+    expect(await counterValue('collab_residency_reconcile_drift_total')).toBe(dBefore + 1);
+  });
+
+  it('releaseSessionFor refCount>0 入口守卫（M-5 仅可见性）：计数+1 且释放照常完成（不 return 不改行为——调用方纪律归 T17 tryRelease 收口）', async () => {
+    const fx = makeFixture();
+    await fx.svc.readCanvas('p1');
+    const entry = fx.residency().sessions.get('p1');
+    entry.refCount = 2;                                          // 纪律违规形态注入（判据：释放仅对 refCount===0∧held 发起——上移 T16）
+    const b = await counterValue('collab_residency_release_inflight_total');
+    expect(b).not.toBeNaN();                                     // 指标已注册防线（未注册 NaN 经 Object.is 假绿——counterValue 红相注释的 NaN≡NaN 盲区）
+    await fx.residency().releaseSessionFor('p1');
+    expect(await counterValue('collab_residency_release_inflight_total')).toBe(b + 1);
+    expect(fx.residency().sessionState('p1')).toBeUndefined();   // 行为不变：释放照常完成
+  });
+});
+
+// ═══ I-3 最小关停钩子（控制方裁决 a——T18 步骤 0 全形态前置） ═══
+describe('Y0c T15 收尾：最小关停钩子（I-3——假 destroy_timeout 消声；T18 全形态〔预算核算+Σdirect===0 断言〕到时替换）', () => {
+  it('建会话→onApplicationShutdown⇒会话表空+conn.disconnect 被调', async () => {
+    const fx = makeFixture();
+    await fx.svc.readCanvas('p1');                               // 池化 held
+    expect(fx.residency().residentProjectIds()).toEqual(['p1']);
+    await fx.residency().onApplicationShutdown();
+    expect(fx.residency().residentProjectIds()).toEqual([]);     // 表空
+    expect(fx.disconnectCallCount()).toBe(1);                    // conn.disconnect 被调（unloadImmediately 路径）
   });
 });
 

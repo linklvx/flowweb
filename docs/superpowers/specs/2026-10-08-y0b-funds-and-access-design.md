@@ -994,6 +994,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_quota_truth_measured_total
 - collab_quota_writes_dropped_total
 - collab_residency_reconcile_drift_total
+- collab_residency_release_inflight_total
 - collab_slow_consumer_disconnect_total
 - collab_start_failure_total
 - collab_sweep_close_total

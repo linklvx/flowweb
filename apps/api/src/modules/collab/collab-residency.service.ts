@@ -33,13 +33,13 @@
 // reaper 消费面（spec 应用层协议句）：释放仅对 `refCount===0 ∧ state==='held'` 会话发起（判据上移
 // T16）；T17 统一释放入口 tryRelease 消费 releaseSessionFor 原语（本任务落基础形态）；T18 关停步骤 0
 // releaseAllSessions 同源。三释放出口改造禁入本任务范围。
-import { Injectable, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnApplicationShutdown, ServiceUnavailableException } from '@nestjs/common';
 import type * as Y from 'yjs';
 import { CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import {
-  collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabWriteSessionReleaseTimeoutTotal,
-  consumeDirectLoad, noteDirectLoad, yjsWithdocOpenDuration,
+  collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabResidencyReleaseInflightTotal,
+  collabWriteSessionReleaseTimeoutTotal, consumeDirectLoad, noteDirectLoad, yjsWithdocOpenDuration,
 } from './store.metrics';
 
 /** 直连类型=库 openDirectConnection 返回实例推导（根导出 DirectConnection 接口无 document 成员——
@@ -79,7 +79,7 @@ interface Acquired {
 }
 
 @Injectable()
-export class CollabResidencyService {
+export class CollabResidencyService implements OnApplicationShutdown {
   private readonly logger = new Logger(CollabResidencyService.name);
   /** 会话表（Z59 钉住谓词载体——conn 在即 doc 恒驻）。单键单条目：Map 结构性保证「会话表无双条目」。 */
   private readonly sessions = new Map<string, ResidentSession>();
@@ -157,6 +157,13 @@ export class CollabResidencyService {
     if (!entry) return;
     if (entry.state === 'releasing') return entry.releasePromise;
     if (entry.state === 'zombie') return;
+    if (entry.refCount > 0) {
+      // M-5 refCount 入口守卫（**仅可见性**——不 return 不改行为）：释放时仍有在飞会话引用=调用方
+      // 纪律违规观测（判据「释放仅对 refCount===0∧held 发起」）；调用方纪律归 T17 tryRelease 统一
+      // 收口（判据上移），届时本计数稳态 0。
+      this.logger.warn(JSON.stringify({ event: 'collab_residency_release_inflight_refs', pid: projectId, refCount: entry.refCount }));
+      collabResidencyReleaseInflightTotal.inc();
+    }
     entry.state = 'releasing';
     entry.releasePromise = this.doRelease(projectId, entry);
     return entry.releasePromise;
@@ -270,5 +277,23 @@ export class CollabResidencyService {
       }
     }
     if (drift > 0) collabResidencyReconcileDriftTotal.inc(drift);
+  }
+
+  /** I-3（控制方裁决 a）最小关停钩子：进程关停循环 releaseSessionFor——常驻 conn 不释放则
+   *  graceDirectConnections 烧满 2s+destroy 4s race⇒destroy_timeout 假 ERROR 每次必发（Z81 机制链），
+   *  本钩子消声。**无预算核算无 Σdirect===0 断言——T18 关停步骤 0 全形态（Z38/Z81：逐会话预算+
+   *  Σdirect===0 硬断言+hangReason resident-session-open 档）届时整体替换本方法。 */
+  async onApplicationShutdown(): Promise<void> {
+    const pids = this.residentProjectIds();
+    let released = 0;
+    for (const pid of pids) {
+      try {
+        await this.releaseSessionFor(pid);
+        released += 1;
+      } catch (e) {
+        this.logger.warn(JSON.stringify({ event: 'collab_residency_shutdown_release_error', pid, error: (e as Error).message }));   // 逐项 WARN 不阻后续
+      }
+    }
+    this.logger.log(`collab residency shutdown: released ${released}/${pids.length} sessions`);
   }
 }

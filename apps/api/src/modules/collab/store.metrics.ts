@@ -113,7 +113,7 @@ export const yjsLoadDuration = new Histogram({
 });
 export const yjsWithdocDuration = new Histogram({
   name: 'yjs_withdoc_duration_seconds',
-  help: 'REST withDoc 直连全路径耗时秒（transact→disconnect——open 后起算）',
+  help: 'REST withDoc 直连全路径耗时秒（transact→disconnect——open 后起算；T15 起载体=非常驻保留面 shrink/exportFresh/write.port；REST 主路径已迁 withSession 会话——count 塌缩非流量塌缩）',
   buckets: DURATION_BUCKETS_SECONDS,
   registers: [register],
 });
@@ -808,6 +808,14 @@ export const collabWriteSessionReleaseTimeoutTotal = new Counter({
 export const collabResidencyReconcileDriftTotal = new Counter({
   name: 'collab_residency_reconcile_drift_total',
   help: '会话表对账漂移计数（Z113——held 条目 conn 引用缺失或 directConnectionsCount<1；非 held 档例外豁免）',
+  registers: [register],
+});
+
+/** releaseSessionFor 入口 refCount>0 释放入口守卫计数（T15 收尾 M-5——释放时仍有在飞会话引用=
+ *  调用方纪律违规观测；仅可见性不改行为——调用方纪律归 T17 tryRelease 统一收口，届时稳态 0）。 */
+export const collabResidencyReleaseInflightTotal = new Counter({
+  name: 'collab_residency_release_inflight_total',
+  help: 'releaseSessionFor 入口 refCount>0 释放入口守卫计数（T15 M-5——释放时有在飞引用的调用方纪律违规观测，仅可见性；T17 tryRelease 收口后稳态 0）',
   registers: [register],
 });
 

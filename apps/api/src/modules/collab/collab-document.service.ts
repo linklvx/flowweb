@@ -159,8 +159,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
   /** Y0b-2 T3（Z88/Z50 修订）：快照读专用出口（无客户端面：video-work 分享/渲染等）——
    *  快照路径本无租约门（不查 isLeaseServing——谓词满足=drain 已冲刷完成，快照读可正常返回 ✓）；
    *  谓词不满足（drain 进行中 spool 有帧/doc 常驻/在途批——PG 快照可能滞后）→ 活读 fallback
-   *  （快照不可信定义性不使用）——活读经 withDoc 撞租约门 ⇒ drain 进行中 503（可达性边界 T9
-   *  登记）+fallback 计数观测（低频边缘：卸载后 spool 未落库窗内外部分享请求触发 withDoc 装载）。
+   *  （快照不可信定义性不使用）——活读经 withSession 会话形态（Y0c T15 读路径改道；门同判据：
+   *  isLeaseServing ⇒ drain 进行中 503，可达性边界 T9 登记；会话入池钉住——T20 裁决⑥ 同形态，
+   *  doc 常驻期复用零装载）+fallback 计数观测（低频边缘：spool 未落库窗内外部分享请求触发会话装载）。
    *  计费/语义读（execution/video-project）走 readCanvas 活读——分源规则见其头注。 */
   async readCanvasSnapshotCached(projectId: string): Promise<DecodedSnapshot> {
     if (!this.gateway.isPersistedComplete(projectId)) {
