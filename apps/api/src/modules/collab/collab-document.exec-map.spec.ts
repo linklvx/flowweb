@@ -160,6 +160,14 @@ describe('Y0c T11（Z4/Z69 减法）：writeExecStatus 存在性守卫——节�
     expect(doc.getMap('exec').get('ghost')).toBeUndefined();               // 不建条目（改前红=无条件建条目）
   });
 
+  it('顺序判别：ghost 无节点+patch 无 attempts ⇒ reason=node-deleted（存在性判定先行于 attempts 校验——倒序则 missing-attempts）', () => {
+    const doc = new Y.Doc(); // nodes 空——ghost 不存在
+
+    const outcome = applyWriteExecStatusToDoc(doc, 'ghost', { status: 'loading' } as unknown as Parameters<typeof applyWriteExecStatusToDoc>[2]);
+
+    expect(outcome).toEqual({ written: false, reason: 'node-deleted' }); // 钉设计决定：存在性守卫先于代次校验
+  });
+
   it('单写面计数：守卫触发 ⇒ exec_orphan_blocked_total +1（并列投影丢弃全集观测 cause=node-deleted）', async () => {
     const doc = new Y.Doc();
     const service = buildService(doc);

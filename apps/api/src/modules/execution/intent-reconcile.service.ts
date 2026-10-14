@@ -25,6 +25,8 @@ export const SETTLE_STRANDED_GRACE_MS = 10 * 60_000;
 const WAITING_UPGRADE_GRACE_MS = 30 * 60_000;
 /** 终态保留期（F1 保留策略）——SUCCEEDED/FAILED/VOIDED 行 7 天后清理 */
 const RETENTION_MS = 7 * 24 * 3600_000;
+/** Z56 每轮页宽 */
+const SWEEP_PAGE = 100;
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
 
 /** 意图表对账与回收（F12 每日全量 + F13 活跃核验 5min）——R28 纪律：原生 setInterval+unref
@@ -497,7 +499,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       ...(cursor ? { where: { id: { gt: cursor } } } : {}),
       select: { id: true },
       orderBy: { id: 'asc' },
-      take: 100,
+      take: SWEEP_PAGE,
     });
     for (const p of projects) {
       try {
@@ -516,7 +518,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`exec-GC 项目 ${p.id} 失败: ${(e as Error).message}`);
       }
     }
-    this.orphanSweepCursor = projects.length < 100 ? null : projects[projects.length - 1].id;
+    this.orphanSweepCursor = projects.length < SWEEP_PAGE ? null : projects[projects.length - 1].id;
   }
 
   /** 陈旧 videoSeparateTask 判死 + Redis 并发计数器归还（DECR 前查存在防负数，负则重置 0） */

@@ -272,7 +272,7 @@ export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Recor
 }
 
 /** writeExecStatus 守卫判定结果——Z40②：守卫失败在批面=合法结果 written:false+reason；
- *  单写面维持 void 静默语义不变（cause 计数在方法内保持）。
+ *  单写面维持 void 静默语义不变（cause 计数在方法内保持）；{written,reason} 上浮调用方=Z69 登记 Y1c-3。
  *  Y0c T11（Z4）：node-deleted=节点不存在（存在性守卫在代次判定之前——不建条目，守卫拦截至此即返；
  *  writeNodeData 的 node-deleted/no-node-map 两档在 exec 域合并为一档——exec 条目无细分处置需求）。 */
 export type ExecStatusApplyOutcome =

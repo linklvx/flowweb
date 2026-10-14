@@ -77,10 +77,11 @@ export const pollUnknownStatusTotal = new Counter({
 });
 
 /** Z111：writeExecStatus 守卫 fail-closed 丢弃计数——缺 attempts（违约 patch）/严格更老一律丢
- *  （不看终态——老代 error(1) 不得覆盖新代 loading(2)）。非 0=有投影被拦（观测代次违约面）。 */
+ *  （不看终态——老代 error(1) 不得覆盖新代 loading(2)）；Y0c T11 起 cause=node-deleted（存在性守卫）
+ *  同事件并入。非 0=有投影被拦（观测代次违约面+守卫丢弃全集）。 */
 export const execProjectionDroppedTotal = new Counter({
   name: 'exec_projection_dropped_total',
-  help: 'Y0b-2（Z111）：exec 投影守卫丢弃计数（cause=missing-attempts 缺代次/older-attempts 严格更老——fail-closed 两子句）',
+  help: 'Y0b-2（Z111）：exec 投影守卫丢弃计数（cause=missing-attempts 缺代次/older-attempts 严格更老——fail-closed 两子句；node-deleted（Y0c T11 存在性守卫——与 exec_orphan_blocked_total 同事件并列：彼=专项信号，此=守卫丢弃全集））',
   labelNames: ['cause'],
   registers: [register],
 });
@@ -89,7 +90,7 @@ export const execProjectionDroppedTotal = new Counter({
  *  （新孤儿结构性不可产生；存量归 sweepOrphanExec 游标轮转消化）。无标签（execProjectionDeferredTotal 先例）。 */
 export const execOrphanBlockedTotal = new Counter({
   name: 'exec_orphan_blocked_total',
-  help: 'Y0c T11（Z4）：writeExecStatus 存在性守卫拦截计数——节点不存在不建条目（新孤儿结构性不可产生；存量归 sweepOrphanExec 消化）',
+  help: 'Y0c T11（Z4）：writeExecStatus 存在性守卫拦截计数——节点不存在不建条目（新孤儿结构性不可产生；存量归 sweepOrphanExec 消化；同事件亦计入 exec_projection_dropped_total——彼=守卫丢弃全集，此=专项信号）',
   registers: [register],
 });
 

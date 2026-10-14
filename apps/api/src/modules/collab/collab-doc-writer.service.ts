@@ -29,8 +29,9 @@
 // 计数不被降级噪声污染；Z108 保持在事务外——业务拒绝不得降级成基础设施失败触发退款。
 //
 // 写守卫 reason 词表（本文件枚举——CollabAuthReason 是 auth 拒绝域不混入；wire 面 T27 端点透传
-// 只增不改）：node-deleted / no-node-map（writeNodeData 现状守卫，Z44）/ missing-attempts /
-// older-attempts（Z111 代次 fail-closed）/ terminal-superseded（Z99 同代终态不倒退）。
+// 只增不改）：node-deleted（writeNodeData/deleteNodeDataKeys/writeExecStatus——Z44/Z4）/ no-node-map
+// （writeNodeData，Z44）/ missing-attempts / older-attempts（Z111 代次 fail-closed）/
+// terminal-superseded（Z99 同代终态不倒退）。
 import { Injectable, Inject } from '@nestjs/common';
 import type * as Y from 'yjs';
 import {
