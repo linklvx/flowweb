@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason } from '@flowweb/shared';
+import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
@@ -72,16 +72,25 @@ export class CollabDocumentService implements OnApplicationShutdown {
         yjsWithdocOpenDuration.observe((Date.now() - withdocT0) / 1000);   // open 段耗时（时长面非成功面——装载失败是最该被看见的慢尾）
       });
     try {
+      // Y0c T10（Z6/Z119）：DirectConnection.document 公开类型成员（server index.d.ts:100）——
+      // 直开事务以注入 origin（对齐库 transact 的同款防御与错误消息）
+      const doc = connection.document;
+      if (!doc) throw new Error('direct connection closed');
       let result: T;
       let pending: Promise<void> | undefined;
-      await connection.transact((doc: Y.Doc) => {
+      doc.transact(() => {
         // transact 不 await 异步回调（hocuspocus 4.6.0 DirectConnection.transact 同步调用且不 await）：
         // 同步 fn 原样在事务内完成；异步 fn 捕获其 Promise 在事务外 await——
-        // 否则回调挂起时即返回 undefined 且 finally 提前拆直连（readCanvas SV 等待路径依赖此语义）
+        // 否则回调挂起时即返回 undefined 且 finally 提前拆直连（readCanvas SV 等待路径依赖此语义）。
+        // Y0c T10（Z6/Z119）：origin=SERVER_TRANSACT_ORIGIN 必须在最外层事务注入——机制依据=
+        // DirectConnection.transact 硬编码外层 origin {source:'local',context}（esm:1136-1144）
+        // 且 yjs 嵌套 transact 忽略内层 origin（内层传参无效），最外层唯一可行点=withDoc；
+        // 契约=withDoc 事务即服务端事务（writeBatch/单写面/读面统一——读面无写零影响；
+        // 广播/awareness/store hooks 与 {source:'local'} 完全等价——零行为漂移）。
         const r = fn(doc);
         if (r instanceof Promise) pending = r.then((v) => { result = v; });
         else result = r;
-      });
+      }, SERVER_TRANSACT_ORIGIN);
       if (pending) await pending;
       return result!;
     } finally {

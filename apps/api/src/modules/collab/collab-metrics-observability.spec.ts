@@ -278,7 +278,7 @@ describe('Y0b-5 T10：withDoc 耗时直方图', () => {
     const { gateway } = buildGateway();
     const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn() } as any);
     const doc = stampedDoc();
-    const fakeConn = { transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };
+    const fakeConn = { document: doc, transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };   // Y0c T10：withDoc 直开 document 事务——mock 对齐真实 DirectConnection 形状
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockResolvedValue(fakeConn as any);
     const d = await histogramDelta('yjs_withdoc_duration_seconds', () => service.readCanvas('p1'));
     expect(d.count).toBe(1);

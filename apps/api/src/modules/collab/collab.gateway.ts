@@ -20,7 +20,7 @@ import { createCanvasDoc } from './canvas-doc.factory';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { isFkGone } from './pg-error.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, SERVER_TRANSACT_ORIGIN, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
@@ -1013,7 +1013,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       if (!this.pendingQueues.has(projectId)) this.pendingQueues.set(projectId, []);
       if (!this.docListeners.has(document)) {   // 监听防重复注册（update 事件一次）
         this.docListeners.add(document);
-        document.on('update', (u: Uint8Array) => {
+        document.on('update', (u: Uint8Array, origin: unknown) => {
           if (this.replaying.has(document)) return;
           const pid = this.docProject.get(document)!;
           const q = this.pendingQueues.get(pid);
@@ -1021,8 +1021,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // Y0b-4 T3（Q-B）：delta 触发器累加——update 监听=唯一写者（T4 beforeSync hook 只读不写——
           // 快路径回写+监听同帧双加=delta 2× 速涨）。未建键（truth 播种前的装载期 replay/spool 帧
           // apply）不计——防 truth+delta 双计播种内容；已清理（卸载后残留帧）同样跳过。
+          // Y0c T10（Z119②）：docDelta=客户端配额口径（Q-B 真值三件套插值）——服务端写事务
+          // （SERVER_TRANSACT_ORIGIN，withDoc 最外层注入）不计；判据只翻转服务端写分类
+          // （null/其他 origin 维持现行计数——防重新分类 replay/spool 帧）。pendingQueues
+          // push/pendingSince/软阈全 origin 不变（X10 持久化不变式）。
           const delta = this.docDelta.get(pid);
-          if (delta !== undefined) this.docDelta.set(pid, delta + u.byteLength);
+          if (delta !== undefined && origin !== SERVER_TRANSACT_ORIGIN) this.docDelta.set(pid, delta + u.byteLength);
           if (q.length === 0) this.pendingSince.set(pid, Date.now());   // Y0b-5 T14：空→非空转变=未 flush 窗口起点（唯一 push 位单点播种）
           q.push(u);   // X10：WS 消息路径只 push（禁合并编码——3000 条积压实测同步折并 4.8s 阻塞消息路径）
           // 软阈跨点（超过 64 条/1MB——严格 >，第 65 条/超 1MB 触发）→ 闩锁 setImmediate 提前 store；硬阈折并在 store 取批点收口（同锁零交织）

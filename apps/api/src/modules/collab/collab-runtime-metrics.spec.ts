@@ -180,7 +180,7 @@ describe('Y0c T0：withDoc 计时点前移（Z3——装载慢 vs 落库慢分�
     const { gateway } = buildGateway();
     const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn() } as any);
     const doc = stampedDoc();
-    const fakeConn = { transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };
+    const fakeConn = { document: doc, transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };   // Y0c T10：withDoc 直开 document 事务——mock 对齐真实 DirectConnection 形状
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockImplementation(
       async () => { await new Promise((r) => setTimeout(r, 30)); return fakeConn as any; });
     const dOpen = await histogramDelta('yjs_withdoc_open_duration_seconds', () => service.readCanvas('p1'));

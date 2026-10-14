@@ -5,7 +5,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
-import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, TRUTH_COOLDOWN_MS, type QuotaConfig } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
@@ -264,5 +264,53 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     const frames = await spool.peek('p1');
     expect(frames.length).toBeGreaterThanOrEqual(2);   // 现状单帧（1.2MB）必红
     for (const f of frames) expect(f.payload.byteLength).toBeLessThanOrEqual(PERSIST_MERGE_MAX_BYTES);
+  });
+});
+
+// ── Y0c T10（Z119 锚②）：docDelta 按 origin 分流——服务端写事务不计客户端配额口径；持久化
+// 不变式（pendingQueues push/pendingSince/软阈）全 origin 不变。装置=真 gateway loadDocument
+// （真实监听代码路径+真实 docDelta Map——quota-truth 既有夹具），Y.applyUpdate 第三参=事务
+// origin（yjs 契约：update 事件 origin=最外层事务 origin，与生产 withDoc doc.transact 同面）。 ──
+describe('Y0c T10：docDelta 按 origin 分流（Z119 锚②）', () => {
+  /** 装载后活 doc+全零 delta 基线（复用 T3 夹具——src 预盖 v2 戳=生产形态：无 stamp 自愈帧污染队列，
+   *  装载后 pendingQueues 空——测试断言以「恰一次本帧 push」为判据） */
+  async function loadWithZeroDelta(quota?: Partial<QuotaConfig>) {
+    const src = new Y.Doc();
+    src.getMap('meta').set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
+    src.getMap('g').set('live', 'a'.repeat(10_000));
+    const { gateway } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, quota);
+    const document = await loadDoc(gateway);
+    expect((gateway as any).docDelta.get('p1')).toBe(0);              // 装置自检：装载播种零 delta
+    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(0); // 装置自检：装载零队帧（stamp 前置于装载）
+    return { gateway, document };
+  }
+
+  /** 装载后增量帧（2KB 写——独立源 doc diff） */
+  function frameOf(bytes: number): Uint8Array {
+    const w = new Y.Doc();
+    w.getMap('x').set('k', 'v'.repeat(bytes));
+    return Y.encodeStateAsUpdate(w);
+  }
+
+  it('红·服务端写：SERVER_TRANSACT_ORIGIN 事务写 ⇒ docDelta 不增（现状全 origin 累加）；pendingQueues 照 push+pendingSince 播种（X10 持久化不变式——全 origin 不变）', async () => {
+    const { gateway, document } = await loadWithZeroDelta({ maxDocBytes: 1 * MiB });
+    const u = frameOf(2048);
+
+    Y.applyUpdate(document, u, SERVER_TRANSACT_ORIGIN);   // 生产 withDoc 最外层同 origin 形态
+
+    expect((gateway as any).docDelta.get('p1')).toBe(0);                  // 现状红：=u.byteLength（不区分 origin）
+    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(1);     // 持久化不变式：服务端写照 push
+    expect((gateway as any).pendingQueues.get('p1')![0]).toEqual(u);      // push 的就是本帧（事务 update 与 apply 内容同——yjs 发射事务编码帧）
+    expect((gateway as any).pendingSince.get('p1')).toBeGreaterThan(0);   // 空→非空转变=未 flush 窗口起点（全 origin 播种）
+  });
+
+  it('守卫例·客户端写：{source:\'connection\'} 形态 origin ⇒ docDelta 仍累加（防过度排除——判据只翻转服务端写分类，null/其他 origin 维持计数）', async () => {
+    const { gateway, document } = await loadWithZeroDelta({ maxDocBytes: 1 * MiB });
+    const u = frameOf(2048);
+
+    Y.applyUpdate(document, u, { source: 'connection' });   // WS 客户端写 origin 形态模拟
+
+    expect((gateway as any).docDelta.get('p1')).toBe(u.byteLength);      // 客户端写照计（配额口径不变）
+    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(1);    // 持久化不变式同守
   });
 });

@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { CollabDocumentService } from './collab-document.service';
-import { readRecordsFromMaps, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { SERVER_TRANSACT_ORIGIN, readRecordsFromMaps, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** web ydocBuilder.toDocLike 同款手法（api 侧不可 import apps/web——测试内联同构对照半边） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -223,10 +223,44 @@ describe('Y0a-4 Connection 级 disconnect pin（unloadImmediately——withDoc f
     const gateway = {
       isLeaseServing: vi.fn(() => true),
       isVacuuming: vi.fn(() => false),   // Y0b-4 T9a：vacuum serving 门（withDoc 第二门）
-      server: { hocuspocus: { openDirectConnection: vi.fn(async () => ({ transact: (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect })) } },
+      server: { hocuspocus: { openDirectConnection: vi.fn(async () => ({ document: doc, transact: (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect })) } },
     };
     const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
     await service.withDoc('p1', () => 'x');
     expect(disconnect).toHaveBeenCalledWith({ unloadImmediately: true });   // 旧实现裸调（无参）→ 红
+  });
+});
+
+// Y0c T10（Z6/Z119 锚①）：origin=SERVER_TRANSACT_ORIGIN——withDoc 最外层写事务直测。
+// 机制依据（库源码实测）：DirectConnection.transact 硬编码外层 origin {source:'local',context}
+// （server esm:1136-1144）+yjs 嵌套 transact 忽略内层 origin（yjs.mjs:3397-3412）——最外层唯一
+// 可行点=withDoc。原「undo 栈不受污染」用例作废（Z119：trackedOrigins=['local-user'] 而库默认
+// 'local'——修复前恒绿=假门禁，D13 族）。
+describe('Y0c T10 origin=SERVER_TRANSACT_ORIGIN（withDoc 最外层写事务——Z119 锚①）', () => {
+  /** 库形态复刻夹具：connection.document 公开成员 + transact 硬编码外层 origin（@hocuspocus/server
+   *  esm:1136-1144 逐行为复刻——mock 与真实行为对齐，TD-2 纪律）。 */
+  function directConnectionStub(doc: Y.Doc, disconnect: ReturnType<typeof vi.fn>) {
+    return {
+      document: doc,
+      transact: (fn: (d: Y.Doc) => unknown) => doc.transact(() => { fn(doc); }, { source: 'local', context: undefined }),
+      disconnect,
+    };
+  }
+
+  it('红·withDoc 事务内写 ⇒ update 事件 origin===SERVER_TRANSACT_ORIGIN（现状捕获={source:\'local\',context}——DirectConnection.transact 硬编码）', async () => {
+    const doc = new Y.Doc();
+    const captured: unknown[] = [];
+    doc.on('update', (_u: Uint8Array, origin: unknown) => { captured.push(origin); });
+    const disconnect = vi.fn(async () => {});
+    const gateway = {
+      isLeaseServing: vi.fn(() => true),
+      isVacuuming: vi.fn(() => false),
+      server: { hocuspocus: { openDirectConnection: vi.fn(async () => directConnectionStub(doc, disconnect)) } },
+    };
+    const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
+    await service.withDoc('p1', (d) => { d.getMap('nodes').set('n1', new Y.Map([['type', 'text']])); });
+
+    expect(captured).toHaveLength(1);                       // 单事务单写=单 update 帧
+    expect(captured[0]).toBe(SERVER_TRANSACT_ORIGIN);      // 现状红：={source:'local',context} 对象
   });
 });

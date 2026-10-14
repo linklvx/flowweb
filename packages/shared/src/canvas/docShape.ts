@@ -49,6 +49,13 @@ export const CANVAS_DOC_SCHEMA_VERSION = 2;
 export const EPHEMERAL_DATA_KEYS = new Set(['editMode', 'transformMode']);
 export const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'images']);
 
+/** Y0c T10（Z6/Z119）：服务端写事务 origin 跨端单源——api withDoc 最外层 doc.transact 第二参
+ *  （DirectConnection.transact 硬编码 {source:'local'} 不可传参，故改直开 connection.document
+ *  事务）；web canvasUndo Origin.Server 同值引用。undo 栈契约=trackedOrigins 仅 local-user，
+ *  'server' 刻意不入栈（服务端写不可撤销）；gateway docDelta 按此值分流（服务端写不计客户端
+ *  配额口径）。常量缺失=编译错（shared 单源）。 */
+export const SERVER_TRANSACT_ORIGIN = 'server';
+
 /** O0b-0 版本门 v2.1：写 meta.schemaVersion=CURRENT（同值 no-op）。
  *  戳源唯一化：fillDoc 不再盖章——唯一自愈点=WS loadDocument（无戳∧零节点）/api 种子（create
  *  withDoc 回调无条件 stamp）。函数级无条件写 CURRENT，档判定归门函数（ensureSchemaVersion）。 */
