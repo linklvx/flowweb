@@ -2,7 +2,7 @@
 import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { ExecutionService } from '../execution/execution.service';
 import { StorageQuotaService } from '../team/storage-quota.service'; // 实际在 team/ 模块（TeamModule 已 export，与 generated-media.service 同款引法）
 
@@ -11,7 +11,7 @@ export class VideoProjectService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
-    @Inject(CollabDocumentService) private readonly collab: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collab: CollabWritePort,
     @Inject(ExecutionService) private readonly execution: ExecutionService, // Task 11 regenerate 用——签名一次到位，避免 Task 11 中途改构造器
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService, // Task 5 exportPrecheck 配额预检
   ) {}

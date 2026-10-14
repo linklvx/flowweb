@@ -2,7 +2,7 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, ServiceUnavailableException, BadRequestException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
 import { buildFilteredSnapshot, CLONE_WHITELIST, type RawCanvasData, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
@@ -14,7 +14,7 @@ const CLONE_TIMEOUT_MS = 10_000; // read + create 同一有界等待（create �
 export class VideoWorkCloneService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(ProjectService) private readonly projectService: ProjectService,
     @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService,
   ) {}

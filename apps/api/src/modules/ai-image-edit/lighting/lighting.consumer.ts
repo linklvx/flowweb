@@ -7,7 +7,7 @@ import { MinioService } from '../../minio/minio.service';
 import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
-import { CollabDocumentService } from '../../collab/collab-document.service';
+import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { artifactDiscardedTotal } from '../../execution/exec.metrics';
 import axios from 'axios';
@@ -80,7 +80,7 @@ export class LightingConsumer {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
   ) {}
 

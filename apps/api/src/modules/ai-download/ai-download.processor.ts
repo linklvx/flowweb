@@ -4,7 +4,7 @@ import { Inject, Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { artifactDiscardedTotal } from '../execution/exec.metrics';
@@ -30,7 +30,7 @@ export class AiDownloadProcessor extends WorkerHost {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
   ) {
     super();

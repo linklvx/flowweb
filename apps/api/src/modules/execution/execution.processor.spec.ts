@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionProcessor } from './execution.processor';
 import { ExecutionService } from './execution.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from './generation-intent.service';
 import { Job } from 'bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -20,7 +20,7 @@ describe('ExecutionProcessor', () => {
         ExecutionProcessor,
         { provide: ExecutionService, useValue: execService },
         // 批0.5-6 最小装置：failed 钩子依赖（writeExecStatus/fail）
-        { provide: CollabDocumentService, useValue: { writeExecStatus: vi.fn().mockResolvedValue(undefined) } },
+        { provide: CollabWritePort, useValue: { writeExecStatus: vi.fn().mockResolvedValue(undefined) } },
         { provide: GenerationIntentService, useValue: { claim: vi.fn(), complete: vi.fn(), fail: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();

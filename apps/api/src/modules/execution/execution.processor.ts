@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
 import { countExecProjectionFailure } from './exec.metrics';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
@@ -19,7 +19,7 @@ export class ExecutionProcessor extends WorkerHost {
 
   constructor(
     @Inject(ExecutionService) private readonly executionService: ExecutionService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
   ) {
     super();

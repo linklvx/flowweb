@@ -6,7 +6,7 @@ import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { GenerationIntentService } from './generation-intent.service';
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
@@ -100,7 +100,7 @@ describe('ExecutionService', () => {
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: ProjectPermissionService, useValue: permSvc },
-        { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabWritePort, useValue: collabDoc },
         { provide: CollabDocWriterService, useValue: docWriter },
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },

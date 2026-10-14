@@ -4,7 +4,7 @@ import { NotFoundException, ForbiddenException, ServiceUnavailableException } fr
 import { ThrottlerException } from '@nestjs/throttler';
 import { VideoWorkCloneService } from './video-work-clone.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
 
@@ -41,7 +41,7 @@ describe('VideoWorkCloneService.clone', () => {
       providers: [
         VideoWorkCloneService,
         { provide: PrismaService, useValue: prisma },
-        { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabWritePort, useValue: collabDoc },
         { provide: ProjectService, useValue: projectService },
         { provide: RateLimiterService, useValue: rateLimiter },
       ],

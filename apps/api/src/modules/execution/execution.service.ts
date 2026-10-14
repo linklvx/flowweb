@@ -10,7 +10,7 @@ import { ExecutionGateway } from '../gateway/execution.gateway';
 import { isExecutableNode } from './is-executable-node';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
 import { normalizeIntentParams } from './normalize-intent-params';
@@ -64,7 +64,7 @@ export class ExecutionService {
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(CollabDocWriterService) private readonly docWriter: CollabDocWriterService,   // Y0c T8：deliver+done 组批写门面（首个调用方——其余消费点 T13b 统一改道）
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,

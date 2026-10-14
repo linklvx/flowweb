@@ -630,10 +630,13 @@ if (isMain()) {
   //                               批内原语与直写收编调用方共用 applyWriteOpsToDoc，守卫/计数两路径同源）
   //   collab-shrink.service.ts    shrink（deleteNodes 经 applyWriteOpsToDoc——预演 scratch 不经 withDoc）=write-via-writer
   //                               / exportFresh 源读=read-only / exportFresh fillDoc 段（经 applyWriteOpsToDoc）=write-via-writer
+  //   collab-write.port.ts        DirectCollabWritePort.withDoc 一行委托=write-via-writer（Y0c T13b——写端口 Direct 形态，
+  //                               透传 CollabDocumentService.withDoc；7 方法面=8 改道文件实测用面，spec §0.6 偏离 21）
   const WITHDOC_REGISTRY = {
     'apps/api/src/modules/collab/collab-document.service.ts': { 'read-only': 2, 'write-via-writer': 2 },
     'apps/api/src/modules/collab/collab-doc-writer.service.ts': { 'write-via-writer': 1 },
     'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, 'write-via-writer': 2 },
+    'apps/api/src/modules/collab/collab-write.port.ts': { 'write-via-writer': 1 },
   };
   {
     const counts = {};

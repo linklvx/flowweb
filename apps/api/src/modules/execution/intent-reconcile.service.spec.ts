@@ -3,7 +3,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -110,7 +110,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       providers: [
         IntentReconcileService,
         { provide: PrismaService, useValue: prisma },
-        { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabWritePort, useValue: collabDoc },
         { provide: CollabDocWriterService, useValue: collabWriter },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: TeamCreditService, useValue: teamCredit },

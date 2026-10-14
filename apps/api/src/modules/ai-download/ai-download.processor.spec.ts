@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AiDownloadProcessor } from './ai-download.processor';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { Job } from 'bullmq';
@@ -53,7 +53,7 @@ describe('AiDownloadProcessor', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
         { provide: ExecutionGateway, useValue: gateway },
-        { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabWritePort, useValue: collabDoc },
         { provide: StorageQuotaService, useValue: quota },
       ],
     }).compile();

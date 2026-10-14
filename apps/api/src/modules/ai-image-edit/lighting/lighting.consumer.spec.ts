@@ -6,7 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ExecutionGateway } from '../../gateway/execution.gateway';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
-import { CollabDocumentService } from '../../collab/collab-document.service';
+import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { Job } from 'bullmq';
 
@@ -64,7 +64,7 @@ describe('LightingConsumer', () => {
         { provide: ExecutionGateway, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
-        { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabWritePort, useValue: collabDoc },
         { provide: GenerationIntentService, useValue: intentService },
       ],
     }).compile();

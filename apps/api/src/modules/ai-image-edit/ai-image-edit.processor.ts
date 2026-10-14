@@ -7,7 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionGateway } from '../gateway/execution.gateway';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
 import { artifactDiscardedTotal, countExecProjectionFailure } from '../execution/exec.metrics';
@@ -49,7 +49,7 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
   ) {

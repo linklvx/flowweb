@@ -6,7 +6,7 @@ import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 import { ExecutionGateway } from '../gateway/execution.gateway';
@@ -67,7 +67,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: ProjectPermissionService, useValue: { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') } },
-        { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabWritePort, useValue: collabDoc },
         { provide: CollabDocWriterService, useValue: docWriterStubOf(collabDoc) },   // Y0c T8：deliver+done 组批 stub（分派回记录器）
         { provide: ExecutionGateway, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },

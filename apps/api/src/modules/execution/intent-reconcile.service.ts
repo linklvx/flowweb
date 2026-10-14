@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue, Job } from 'bullmq';
 import type { GenerationIntent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -86,7 +86,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(CollabDocWriterService) private readonly collabWriter: CollabDocWriterService,   // Y0c T12：exec-GC 直写收编改道 writeBatch（deleteExecOrphans op 单点）
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,

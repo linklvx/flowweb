@@ -3,6 +3,7 @@ import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
+import { CollabWritePort, DirectCollabWritePort } from './collab-write.port';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabLeaseService } from './collab-lease.service';
@@ -29,6 +30,8 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
     CollabGateway,
     CollabDocumentService,
     CollabDocWriterService,   // Y0c T8：writeBatch 同事务组批写门面（execution.service 首个消费方；T13b 端口化前直注入）
+    DirectCollabWritePort,   // Y0c T13b：写端口 Direct 形态（api 进程内直调 CollabDocumentService）
+    { provide: CollabWritePort, useExisting: DirectCollabWritePort },   // Y0c T13b：端口令牌→Direct 形态（T24 补 Http 形态）
     CanvasDocUpdateRepository,
     CollabSpoolService,
     CollabLeaseService,   // Y0a-3 T5：PG 租约（gateway 构造参数 4——必填）
@@ -42,6 +45,9 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
       retryStrategy: () => null, enableOfflineQueue: false,   // B11/Z10③：探针参数收紧
     }) },
   ],
-  exports: [CollabDocumentService, CollabDocWriterService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）
+  // Y0c T13b：exports += CollabWritePort（写端口面）。CollabDocumentService 既有 exports 原样保留——
+  // 停止导出推迟 D 片（防「停止 exports 时按原令牌解析⇒编译红」）；届时跨模块 4 直注文件（video-work.service
+  // +3 controllers——面归读端口或快照域服务）按偏离 21 处置义务再定，shrink 模块内直注不受 exports 影响。
+  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）
 })
 export class CollabModule {}
