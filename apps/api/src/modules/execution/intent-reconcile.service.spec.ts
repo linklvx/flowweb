@@ -2,9 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
@@ -70,6 +70,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
   let queue: any;
   let imageEditQueue: any;
   let collabDoc: any;
+  let collabWriter: { writeBatch: ReturnType<typeof vi.fn> };
   let redis: any;
 
   beforeEach(async () => {
@@ -101,6 +102,8 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
     imageEditQueue = { getJob: vi.fn().mockResolvedValue(null) };
     // Y0b-2 T5（Z106/Z112）：reaper 投影分治消费面——isDocResident+writeExecStatus 可断言
     collabDoc = { withDoc: vi.fn(), isDocResident: vi.fn(() => true), writeExecStatus: vi.fn().mockResolvedValue(undefined) };
+    // Y0c T12：sweepOrphanExec 改道 writeBatch——writer stub（结果断言在 writer spec 真判据，此处只断言改道）
+    collabWriter = { writeBatch: vi.fn().mockResolvedValue([{ index: 0, op: 'deleteExecOrphans', written: true }]) };
     redis = { exists: vi.fn().mockResolvedValue(0), decr: vi.fn().mockResolvedValue(0), set: vi.fn().mockResolvedValue('OK') };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -108,6 +111,7 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
         IntentReconcileService,
         { provide: PrismaService, useValue: prisma },
         { provide: CollabDocumentService, useValue: collabDoc },
+        { provide: CollabDocWriterService, useValue: collabWriter },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: getQueueToken(EXECUTION_QUEUE_NAME), useValue: queue },
@@ -410,27 +414,22 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(Date.now() - lt.getTime()).toBeGreaterThanOrEqual(7 * 24 * 3600_000 - 1000);
     });
 
-    it('exec map 孤儿清理：nodes 无该 nodeId 的 exec 条目经 withDoc 删除（F2 GC）', async () => {
-      prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }]);
-      const doc = new Y.Doc();
-      doc.getMap('nodes').set('n1', new Y.Map());
-      doc.getMap('exec').set('n1', new Y.Map());
-      doc.getMap('exec').set('ghost-1', new Y.Map()); // 孤儿：nodes 无此节点
-      collabDoc.withDoc.mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc));
+    it('红·Y0c T12 sweepOrphanExec 改道 writeBatch（F2 GC——doc 域清孤儿真判据在 writer spec deleteExecOrphans 用例）：逐项目 collabWriter.writeBatch([{op:deleteExecOrphans}]) 单点，直写收编后 withDoc 零触达', async () => {
+      prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
 
-      await service.reconcileDaily();
+      await (service as any).sweepOrphanExec();
 
-      expect(collabDoc.withDoc).toHaveBeenCalledWith('p1', expect.any(Function));
-      expect(doc.getMap('exec').get('ghost-1')).toBeUndefined(); // 孤儿已删
-      expect(doc.getMap('exec').get('n1')).toBeDefined(); // 在册保留
+      expect(collabWriter.writeBatch).toHaveBeenCalledTimes(2);
+      expect(collabWriter.writeBatch).toHaveBeenNthCalledWith(1, 'p1', [{ op: 'deleteExecOrphans' }]);
+      expect(collabWriter.writeBatch).toHaveBeenNthCalledWith(2, 'p2', [{ op: 'deleteExecOrphans' }]);
+      expect(collabDoc.withDoc).not.toHaveBeenCalled();           // 直写收编后 withDoc 零触达
     });
 
-    it('红·Y0c T11 Z56 游标轮转：首轮 orderBy id asc take:100 无 where；满页推进游标（下轮 where id>末位）；不足页回卷（再下轮无 where）——「每日 10 个最新」变「有界全量轮转」（改前红=updatedAt desc/take 10/无游标）', async () => {
+    it('红·Y0c T11 Z56 游标轮转：首轮 orderBy id asc take:100 无 where；满页推进游标（下轮 where id>末位）；不足页回卷（再下轮无 where）——「每日 10 个最新」变「有界全量轮转」（改前红=updatedAt desc/take 10/无游标；Y0c T12 改道后 sweep 不触 collabDoc.withDoc，装置同步 collabWriter）', async () => {
       prisma.canvasProject.findMany
         .mockResolvedValueOnce(Array.from({ length: 100 }, (_, i) => ({ id: `p${String(i).padStart(3, '0')}` }))) // 第 1 轮：满页
         .mockResolvedValueOnce([{ id: 'pA' }, { id: 'pB' }])                                                      // 第 2 轮：不足页=到尾
         .mockResolvedValueOnce([]);                                                                               // 第 3 轮：回卷后空页
-      collabDoc.withDoc.mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(new Y.Doc()));
 
       await (service as any).sweepOrphanExec();
       await (service as any).sweepOrphanExec();
@@ -442,15 +441,15 @@ describe('IntentReconcileService（F12/F13 两档三查）', () => {
       expect(calls[2][0]).toEqual({ select: { id: true }, orderBy: { id: 'asc' }, take: 100 }); // 不足页=游标回卷，下轮从头
     });
 
-    it('Y0a-3 V20：withDoc 抛 503（lease 失守）→ 捕获后延后重试——单项目失败不阻塞整批，零意图终态误判', async () => {
+    it('Y0a-3 V20：writeBatch 抛 503（lease 失守）→ 捕获后延后重试——单项目失败不阻塞整批，零意图终态误判（Y0c T12 改道：503 源=collabWriter.writeBatch）', async () => {
       prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
-      collabDoc.withDoc.mockRejectedValueOnce(
+      collabWriter.writeBatch.mockRejectedValueOnce(
         new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' }),
       );
 
       await expect(service.reconcileDaily()).resolves.toBeUndefined(); // 503 被捕获——不外抛
 
-      expect(collabDoc.withDoc).toHaveBeenCalledTimes(2); // p1 失败不阻塞 p2（p1 留待下轮=延后重试）
+      expect(collabWriter.writeBatch).toHaveBeenCalledTimes(2); // p1 失败不阻塞 p2（p1 留待下轮=延后重试）
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled(); // 零终态写——未完成投影不被判死
     });
 

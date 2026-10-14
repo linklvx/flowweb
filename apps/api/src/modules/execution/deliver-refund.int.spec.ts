@@ -38,7 +38,9 @@ const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService
 
 /** reconcile 装置：collabDoc stub 可编程（probeArtifacts/isDocResident/writeExecStatus 记录器）。 */
 const makeReconcile = (collabDoc: any) => new IntentReconcileService(
-  prisma as unknown as any, collabDoc, ledger,
+  prisma as unknown as any, collabDoc,
+  { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
+  ledger,
   { getJob: async () => null } as any, { getJob: async () => null } as any,
   {} as any, teamCredit,
 );

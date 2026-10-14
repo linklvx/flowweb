@@ -4,6 +4,7 @@ import type { Queue, Job } from 'bullmq';
 import type { GenerationIntent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
@@ -86,6 +87,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    @Inject(CollabDocWriterService) private readonly collabWriter: CollabDocWriterService,   // Y0c T12：exec-GC 直写收编改道 writeBatch（deleteExecOrphans op 单点）
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly imageEditQueue: Queue,
@@ -489,10 +491,13 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     for (const d of drift4) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量④漂移 intent=${d.id} teamId=${d.teamId}（FAILED/VOIDED 冻结未清——第四分支失效）`); }
   }
 
-  /** nodes map 无该 nodeId 的 exec 条目删除（transact 产生 delete set → 经 update 监听持久化/广播）
+  /** nodes map 无该 nodeId 的 exec 条目删除
    *  Y0b-1 限量 → Y0c T11 Z56 有界全量轮转：orderBy id asc+进程内游标每轮 100——「每日随机 10 个
    *  最新」变「有界全量轮转」（逐项目仍 withDoc 拿锁有界；不足一页=到尾回卷下轮从头；
-   *  Z4 守卫已止新孤儿，本项消化存量）。 */
+   *  Z4 守卫已止新孤儿，本项消化存量）。
+   *  Y0c T12 直写收编（裁决 1）：直写段整体改道 collabWriter.writeBatch([{op:deleteExecOrphans}])
+   *  ——零孤儿=合法 no-op written:true（守卫/计数/schema 门与组批写同源单点）；503 等基础设施
+   *  失败按原样单项目 try/catch 捕获（不阻塞整批）。 */
   private async sweepOrphanExec(): Promise<void> {
     const cursor = this.orphanSweepCursor;
     const projects = await this.prisma.canvasProject.findMany({
@@ -503,17 +508,11 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     });
     for (const p of projects) {
       try {
-        await this.collabDoc.withDoc(p.id, (doc) => {
-          const exec = doc.getMap('exec');
-          const nodes = doc.getMap('nodes');
-          const orphans = [...exec.keys()].filter((nodeId) => !nodes.has(nodeId));
-          if (orphans.length) {
-            doc.transact(() => {
-              for (const id of orphans) exec.delete(id);
-            });
-            this.logger.warn(`[exec-GC] 项目 ${p.id} 清理孤儿 exec 条目 ${orphans.length} 个`);
-          }
-        });
+        const results = await this.collabWriter.writeBatch(p.id, [{ op: 'deleteExecOrphans' }]);
+        if (!results[0]?.written) {
+          // deleteExecOrphans 无守卫域——written:false 属意外（结构防线信号，非日常路径）
+          this.logger.warn(`exec-GC 项目 ${p.id} writeBatch 结果异常: ${JSON.stringify(results[0])}`);
+        }
       } catch (e) {
         this.logger.warn(`exec-GC 项目 ${p.id} 失败: ${(e as Error).message}`);
       }

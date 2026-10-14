@@ -30,7 +30,9 @@ const queueMock: any = {
   getJob: async (id: string) => ({ getState: async () => jobStates.get(id) ?? 'active', returnvalue: null }),
 };
 const reconcile = new IntentReconcileService(
-  prisma as unknown as any, {} as any, ledger, queueMock, queueMock, {} as any, teamCredit,
+  prisma as unknown as any, {} as any,
+  { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer（本文件不触 sweep 断言面）
+  ledger, queueMock, queueMock, {} as any, teamCredit,
 );
 
 /** 带标签 Counter 取值 helper（prom-client 15 的 .get() 不回值——扫 hashMap 按 labels 匹配；api-caller.hardening 同款） */

@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
+import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type DocNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
@@ -314,5 +314,52 @@ export function applyDeleteNodeDataKeysToDoc(doc: Y.Doc, nodeId: string, keys: r
   const dataMap = entry.get('data');
   if (!(dataMap instanceof Y.Map)) return { written: true };
   for (const k of keys) dataMap.delete(k);
+  return { written: true };
+}
+
+// ── Y0c T12 直写收编三原语（裁决 1——语义原样迁移；transact 自带包裹：applyWriteOpsToDoc 会被
+// shrink 影子预演在无外层事务的 scratch doc 上调用，原子边界须原语自持；嵌套于 withDoc 事务时
+// 内层 origin 被 yjs 忽略=T10 已证无影响）。三原语 delete/fill 均 no-guard（全量操作无存在性前提）。 ──
+
+/** deleteNodes 写核心（收编 collab-shrink.deleteNodesInDoc——语义原样迁移）：E68 边级联
+ *  （引用被删节点的边一并删——悬挂边防护；非 map 边值跳过）+nodes 删；doc.transact 单事务原子。
+ *  delete 幂等（不存在的 id=no-op）；exec 条目不在此删（孤儿清扫归 deleteExecOrphans 单点）。 */
+export function applyDeleteNodesToDoc(doc: Y.Doc, nodeIds: readonly string[]): WriteNodeDataResult {
+  const victims = new Set(nodeIds);
+  doc.transact(() => {
+    const edges = doc.getMap('edges');
+    for (const [id, v] of [...edges.entries()]) {
+      if (!(v instanceof Y.Map)) continue;   // E68 全函数：边值可为任意 JSON——非 map 跳过
+      const s = v.get('source');
+      const t = v.get('target');
+      if ((typeof s === 'string' && victims.has(s)) || (typeof t === 'string' && victims.has(t))) edges.delete(id);
+    }
+    const nodes = doc.getMap('nodes');
+    for (const id of victims) nodes.delete(id);
+  });
+  return { written: true };
+}
+
+/** fillDoc 写核心（收编 collab-shrink.exportFreshRun fillDoc 直写——shared fillDoc 单源引用，
+ *  toDocLike 适配）：节点/边种子写入。种子路径专用（idempotent:false——无条件 createMap 重放即
+ *  新 item），进程内唯一调用点=export-fresh 干净副本构造（T27 端点执法档拒收）。 */
+export function applyFillDocToDoc(doc: Y.Doc, nodes: readonly DocNodeRecord[], edges: readonly DocEdgeRecord[]): WriteNodeDataResult {
+  doc.transact(() => {
+    fillDoc(toDocLike(doc), nodes, edges);
+  });
+  return { written: true };
+}
+
+/** deleteExecOrphans 写核心（收编 intent-reconcile.sweepOrphanExec 直写——语义原样迁移）：
+ *  nodes map 无该 nodeId 的 exec 条目删除（Z4 守卫止新孤儿，本项消化存量）；零孤儿=合法 no-op；
+ *  delete 幂等（重扫空集）。 */
+export function applyDeleteExecOrphansToDoc(doc: Y.Doc): WriteNodeDataResult {
+  doc.transact(() => {
+    const exec = doc.getMap('exec');
+    const nodes = doc.getMap('nodes');
+    for (const id of [...exec.keys()]) {
+      if (!nodes.has(id)) exec.delete(id);
+    }
+  });
   return { written: true };
 }

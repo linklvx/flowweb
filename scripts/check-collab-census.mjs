@@ -620,19 +620,20 @@ if (isMain()) {
 
   // ⑭withDoc 全枚举（Y0c T2，B4 v2 形态）：生产代码每个 .withDoc( 调用点都必须在登记清单
   //  （file+三态分类合计）；清单外新调用点即红（防漏登记），登记点消失即红（清单需同步——④同则）。
-  //  三态=read-only（只读 doc）/write-via-writer（经门面写 API）/待收编（直写 doc——A1 T12 收编后清零）。
-  //  逐点标注（B4 v2 清单；行号=2026-10-14 快照 advisory，按语义定位）：
-  //   collab-document.service.ts  :104 readCanvas=read-only / :113 readServerSV=read-only
-  //                               :170 writeNodeData=write-via-writer / :199 writeExecStatus=write-via-writer（门面写 API 本体）
+  //  三态=read-only（只读 doc）/write-via-writer（经门面写 API）/待收编（直写 doc——直写域收编后清零）。
+  //  Y0c T12 直写收编清零：shrink（deleteNodes/预演/fillDoc）与 intent-reconcile（exec-GC）直写段
+  //  改道 doc 域应用核心 applyWriteOpsToDoc/writeBatch 单点，待收编态废止。
+  //  逐点标注（清单；行号=2026-10-14 快照 advisory，按语义定位）：
+  //   collab-document.service.ts  readCanvas=read-only / readServerSV=read-only
+  //                               writeNodeData=write-via-writer / writeExecStatus=write-via-writer（门面写 API 本体）
   //   collab-doc-writer.service.ts writeBatch 同事务组批写=write-via-writer（Y0c T8——片 A1 唯一组批事务点；
-  //                               批内原语与单写方法共用 apply*ToDoc，守卫/计数两路径同源）
-  //   collab-shrink.service.ts    :114 shrinkSync(deleteNodesInDoc)=待收编 / :145 exportFresh 源读=read-only / :154 fillDoc=待收编
-  //   intent-reconcile.service.ts :493 sweepOrphanExec 清孤儿=待收编
+  //                               批内原语与直写收编调用方共用 applyWriteOpsToDoc，守卫/计数两路径同源）
+  //   collab-shrink.service.ts    shrink（deleteNodes 经 applyWriteOpsToDoc——预演 scratch 不经 withDoc）=write-via-writer
+  //                               / exportFresh 源读=read-only / exportFresh fillDoc 段（经 applyWriteOpsToDoc）=write-via-writer
   const WITHDOC_REGISTRY = {
     'apps/api/src/modules/collab/collab-document.service.ts': { 'read-only': 2, 'write-via-writer': 2 },
     'apps/api/src/modules/collab/collab-doc-writer.service.ts': { 'write-via-writer': 1 },
-    'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, '待收编': 2 },
-    'apps/api/src/modules/execution/intent-reconcile.service.ts': { '待收编': 1 },
+    'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, 'write-via-writer': 2 },
   };
   {
     const counts = {};
@@ -643,7 +644,7 @@ if (isMain()) {
     const details = reconcileWithDocRegistry(counts, WITHDOC_REGISTRY);
     const nPending = Object.values(WITHDOC_REGISTRY).reduce((a, r) => a + (r['待收编'] ?? 0), 0);
     const nTotal = Object.values(counts).reduce((a, b) => a + b, 0);
-    report('⑭', `withDoc 全枚举登记（B4 v2 三态——现行 ${nTotal} 点/${Object.keys(counts).length} 文件，待收编 ${nPending} 点→A1 T12 清零）`, details.length === 0, details);
+    report('⑭', `withDoc 全枚举登记（B4 v2 三态——现行 ${nTotal} 点/${Object.keys(counts).length} 文件，待收编 ${nPending} 点〔Y0c T12 直写收编已清零〕）`, details.length === 0, details);
   }
 
   // ⑮worker 符号级禁令先红（Y0c T2，Z43；片 D 冻结契约 spec:549）：17 个 @Processor 根文件出发

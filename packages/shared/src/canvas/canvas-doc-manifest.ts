@@ -241,11 +241,11 @@ export type WriteBatchViolationCode =
 
 /** 七码处置总表（T4 二轮 M-1——A1 T8 DocWriter/T27 端点消费契约，禁自造私有映射）：
  *  全七码同属 Z40① 内容违规=业务级拒绝——违规清单返调用方、不回滚整批、不 throw；
- *  A1 侧逐码进 reject 计数，T27 端点侧 4xx 拒收（NON_IDEMPOTENT_OP 额外受 Z148① 端口
- *  先行拒收——idempotent:false 的 op 端口本就不可达 writeBatch）。按执法面分三组：
+ *  A1 侧逐码进 reject 计数，T27 端点侧 4xx 拒收（NON_IDEMPOTENT_OP 仅 requireIdempotentOps:true
+ *  执法档产出——Y0c T12 偏离 20：默认进程内档 fillDoc 种子路径合法，不产此码）。按执法面分三组：
  *  - 批级（进门即拒，index=-1）：OP_COUNT_EXCEEDED/PATCH_TOO_LARGE（批 Σ）
  *  - op 形态级：UNKNOWN_OP（非对象/类型不在六 op 词汇/patch·keys·nodes 载荷缺或形不对）
- *    /NON_IDEMPOTENT_OP（Z148① 端口只收幂等 op）
+ *    /NON_IDEMPOTENT_OP（Z148① 端点执法档——flag 门控）
  *  - 键值内容级：UNKNOWN_KEY/PROTO_KEY_BANNED（Z108③）/VALUE_TYPE_MISMATCH/PATCH_TOO_LARGE（每键） */
 export interface WriteBatchViolation {
   /** op 索引（批级违规=-1） */
@@ -325,8 +325,14 @@ function checkBannedKeysOf(obj: Record<string, unknown>, index: number, opName: 
 /** Z108 执行期校验（A1 T8 writeBatch 进门/T27 端点 body 共此一口）：返回违规清单（空=放行）。
  *  空批=合法 no-op（零违规放行——T27 端点空批幂等重试安全，T4 二轮钉死）。
  *  调用方对非空清单=业务级拒绝（七码处置总表见 WriteBatchViolationCode doc——全属 Z40①
- *  内容违规：不回滚整批不 throw，进 reject 计数；拒绝非截断非 sanitize）。批级违规 index=-1。 */
-export function validateWriteBatch(ops: readonly unknown[]): WriteBatchViolation[] {
+ *  内容违规：不回滚整批不 throw，进 reject 计数；拒绝非截断非 sanitize）。批级违规 index=-1。
+ *  Y0c T12（裁决 2·spec §0.6 偏离 20）：幂等执法面 flag——默认档（进程内 writeBatch/直写收编
+ *  调用方）不产 NON_IDEMPOTENT_OP（fillDoc 种子路径专用是合法进程内 op）；requireIdempotentOps:
+ *  true=T27 端点执法档（Z133「端口只收幂等 op」可执行化——未来端点接线时传 true）。 */
+export function validateWriteBatch(
+  ops: readonly unknown[],
+  opts?: { requireIdempotentOps?: boolean },
+): WriteBatchViolation[] {
   const violations: WriteBatchViolation[] = [];
   if (ops.length > MAX_WRITE_OPS_PER_BATCH) {
     violations.push({ index: -1, code: 'OP_COUNT_EXCEEDED', message: `批 op 数 ${ops.length} 超上限 ${MAX_WRITE_OPS_PER_BATCH}` });
@@ -346,7 +352,7 @@ export function validateWriteBatch(ops: readonly unknown[]): WriteBatchViolation
       return;
     }
     const spec = DOC_WRITE_OPS[opName as DocWriteOpType];
-    if (!spec.idempotent) {
+    if (!spec.idempotent && opts?.requireIdempotentOps === true) {
       violations.push({ index, opName, code: 'NON_IDEMPOTENT_OP', message: `op#${index} ${opName} 声明 idempotent:false——T27 端点拒收（Z148①/Z133 端口只收幂等 op）` });
     }
     if (opName === 'writeNodeData' || opName === 'writeExecStatus') {

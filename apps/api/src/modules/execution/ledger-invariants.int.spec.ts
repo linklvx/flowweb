@@ -175,7 +175,7 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     const { CreditLedgerService } = await import('../team/credit-ledger.service');
     const ledger = new CreditLedgerService(prisma as any);
     const teamCredit = new TeamCreditService(prisma as any, ledger);
-    return new IntentReconcileService(prisma as any, collabDoc, ledger, {} as any, {} as any, {} as any, teamCredit);
+    return new IntentReconcileService(prisma as any, collabDoc, { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, ledger, {} as any, {} as any, {} as any, teamCredit); // Y0c T12：exec-GC 改道 writer（第 3 参）
   };
   /** 夹具基线：钱包唯一口 ensureBalance + register_grant 100（计入 Σ——对齐 G-2 不变量①口径，禁裸建绕台账） */
   const fundTeam = async (teamId: string, ts: number) => {

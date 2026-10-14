@@ -83,11 +83,15 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     expect(violations.some((v) => v.code === 'OP_COUNT_EXCEEDED')).toBe(true);
   });
 
-  it('idempotent:false 的 op 被拒（Z148①——校验表层先拒，fillDoc 现行唯一非幂等 op）', () => {
+  it('idempotent:false 的 op 被拒（Z148①——requireIdempotentOps:true 端点执法档；Y0c T12 偏离 20：默认进程内档不产 NON_IDEMPOTENT_OP——fillDoc 种子路径合法）', () => {
     expect(DOC_WRITE_OPS.fillDoc.idempotent).toBe(false);
-    const violations = validateWriteBatch([
-      { op: 'fillDoc', nodes: [], edges: [] },
-    ]);
+    // 默认档（进程内 writeBatch 同判据）：零违规放行
+    expect(validateWriteBatch([{ op: 'fillDoc', nodes: [], edges: [] }])).toEqual([]);
+    // 端点执法档（T27 端点未来接线传 true）：NON_IDEMPOTENT_OP 拒
+    const violations = validateWriteBatch(
+      [{ op: 'fillDoc', nodes: [], edges: [] }],
+      { requireIdempotentOps: true },
+    );
     expect(violations).toHaveLength(1);
     expect(violations[0].code).toBe('NON_IDEMPOTENT_OP');
   });
@@ -118,7 +122,7 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     const violations = validateWriteBatch([
       { op: 'fillDoc', nodes: [{ id: 'n1', type: 'image', position: { x: 0, y: 0 }, data: {}, strayKey: 1 }], edges: [{ id: 'e1', source: 'a', target: 'b', extra: true }] },
     ]);
-    // fillDoc 自身 idempotent:false 违规恒在（Z148①）+两个键域越界
+    // fillDoc 键域越界两违规（Y0c T12 偏离 20：默认档不产 NON_IDEMPOTENT_OP——只有键域越界）
     const keyViolations = violations.filter((v) => v.code === 'UNKNOWN_KEY');
     expect(keyViolations.map((v) => v.key)).toEqual(['strayKey', 'extra']);
   });

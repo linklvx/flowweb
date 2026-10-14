@@ -12,7 +12,7 @@
 // 零连接窄版自动（gateway recheckFrozenDocs 判据链经 setVacuumRunner 回调注入）。
 import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import * as Y from 'yjs';
-import { QUOTA_DEFAULTS, fillDoc, readRecordsFromMaps } from '@flowweb/shared';
+import { QUOTA_DEFAULTS, readRecordsFromMaps } from '@flowweb/shared';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasService } from '../canvas/canvas.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -21,6 +21,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
+import { applyWriteOpsToDoc } from './collab-doc-writer.service';
 import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
 
 /** 排队超时（进入执行位前的等待上界——已获执行位的请求不被打断；超时者从等待队列摘除不占执行位） */
@@ -59,22 +60,6 @@ export interface VacuumResult {
   result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'error';
   generation?: number;
   bytes?: number;
-}
-
-/** 在 Y.Doc 上删节点+关联边（引用被删节点的边一并删——悬挂边防护）；doc.transact 包裹（单事务原子）。 */
-function deleteNodesInDoc(doc: Y.Doc, nodeIds: string[]): void {
-  const victims = new Set(nodeIds);
-  doc.transact(() => {
-    const edges = doc.getMap('edges');
-    for (const [id, v] of [...edges.entries()]) {
-      if (!(v instanceof Y.Map)) continue;   // E68 全函数：边值可为任意 JSON——非 map 跳过
-      const s = v.get('source');
-      const t = v.get('target');
-      if ((typeof s === 'string' && victims.has(s)) || (typeof t === 'string' && victims.has(t))) edges.delete(id);
-    }
-    const nodes = doc.getMap('nodes');
-    for (const id of victims) nodes.delete(id);
-  });
 }
 
 @Injectable()
@@ -153,8 +138,9 @@ export class CollabShrinkService {
       `${src.name}(瘦身副本)`, src.templates[0]?.folderId ?? null, userId, src.teamId,
     );
     const bytes = await this.docs.withDoc(created.projectId, (doc) => {
-      fillDoc(toDocLike(doc), records.nodes, records.edges);
-      return Y.encodeStateAsUpdate(doc).byteLength;   // 落地编码校验（census④ 生产白名单点——Q-H）
+      // Y0c T12 直写收编：fillDoc 改道 doc 域应用核心（与 writeBatch 同一 Z108/schema 门单点）
+      applyWriteOpsToDoc(doc, [{ op: 'fillDoc', nodes: records.nodes, edges: records.edges }]);
+      return Y.encodeStateAsUpdate(doc).byteLength;   // 落地编码校验（census④ 生产白名单点——Q-H；同事务不变）
     });
     collabDocExportFreshTotal.inc({ result: 'ok' });
     const result: ExportFreshResult = { result: 'ok', projectId: created.projectId, name: created.name, bytes };
@@ -178,11 +164,12 @@ export class CollabShrinkService {
       }
       let deletedIds: string[] = [];
       if (victims.length > 0) {
-        // 影子预演（编码白名单点②）：scratch 应用删除→再编码测量——不达标不写活 doc（422 带实测值）
+        // 影子预演（编码白名单点②）：scratch 应用删除→再编码测量——不达标不写活 doc（422 带实测值）。
+        // Y0c T12 直写收编：预演与活写同走 applyWriteOpsToDoc 单点（预演=即将写的内容同源最强形态）。
         const scratch = createCanvasDoc();
         try {
           Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
-          deleteNodesInDoc(scratch, victims);
+          applyWriteOpsToDoc(scratch, [{ op: 'deleteNodes', nodeIds: victims }]);
           const shrunk = Y.encodeStateAsUpdate(scratch).byteLength;
           if (shrunk > this.gateway.activeQuota.maxDocBytes) {
             collabDocShrinkTotal.inc({ result: 'still-over' });
@@ -191,7 +178,7 @@ export class CollabShrinkService {
         } finally {
           scratch.destroy();
         }
-        deleteNodesInDoc(doc, victims);   // 达标才写活 doc
+        applyWriteOpsToDoc(doc, [{ op: 'deleteNodes', nodeIds: victims }]);   // 达标才写活 doc（同源原语）
         deletedIds = victims;
       }
       // 白名单点③：活文档再编码（预演与实际写之间理论并发窗的系统性低估防线）+truth 校准

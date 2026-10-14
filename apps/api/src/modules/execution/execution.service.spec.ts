@@ -13,6 +13,7 @@ import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common'
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
+import { NodeBusyError } from './generation-intent.service';
 
 describe('ExecutionService', () => {
   let service: ExecutionService;
@@ -26,6 +27,7 @@ describe('ExecutionService', () => {
   let gateway: any;
   let mockDownloadQueue: any;
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
+  let intentSvc: any; // Y0c T12：结构断言族/replay 分支需逐测试改 claim/complete/reanchorDeadline 判据
 
   beforeEach(async () => {
     prisma = {
@@ -80,7 +82,7 @@ describe('ExecutionService', () => {
     };
 
     // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）——本文件只测产物序/余额口径
-    const intentSvc = {
+    intentSvc = {
       claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
@@ -326,6 +328,135 @@ describe('ExecutionService', () => {
       await service.execute('p1', 'n2', 'u1');
       const arg = apiCaller.callImageGen.mock.calls[0][0] as { prompt: string };
       expect(arg.prompt).toBe('上游词'); // 不含 '面板词'
+    });
+  });
+
+  // ── Y0c T12（裁决 4·Z122②）：单节点写段 ≤2 结构断言族——instrument 三写入口
+  // （collabDoc.writeExecStatus/collabDoc.writeNodeData/docWriter.writeBatch）按分支逐档断言。
+  // 计数判据=已执行（resolved）的写段：writeBatch reject=基础设施失败零写入不入计（B-1 档）——
+  // 「第三写注入⇒红」变红证明见 commit message（临时注入后还原，元纪律⑥）。 ──
+  describe('Y0c T12 单节点写段 ≤2 结构断言族（三写入口 instrument）', () => {
+    const n2Image = { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } };
+    let cnt: { exec: number; data: number; batch: number };
+    let writeEntries: () => number;
+
+    beforeEach(() => {
+      cnt = { exec: 0, data: 0, batch: 0 };
+      writeEntries = () => cnt.exec + cnt.data + cnt.batch;
+      // 独立计数实现（docWriterStubOf 会把批 op 分派回 collabDoc 记录器——双重计数破坏判据）
+      collabDoc.writeExecStatus.mockImplementation(async () => { cnt.exec += 1; });
+      collabDoc.writeNodeData.mockImplementation(async () => { cnt.data += 1; });
+      vi.mocked(docWriter.writeBatch).mockImplementation(async (_pid: string, ops: readonly any[]) => {
+        cnt.batch += 1;
+        return ops.map((op, index) => ({ index, op: op.op, written: true }));
+      });
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    });
+
+    /** 单节点（n2/imageGen）作用域——计数隔离（默认拓扑 n1+n2 会双节点叠加） */
+    const scopedToN2 = () => {
+      topology.getScope.mockReturnValue([n2Image]);
+      topology.sort.mockReturnValue([n2Image]);
+      collabDoc.readCanvas.mockResolvedValue({ nodes: [n2Image], edges: [] });
+    };
+
+    it('happy：loading 投影+deliver+done 组批 ⇒ ≤2 写段', async () => {
+      scopedToN2();
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('plan-missing：PLAN_MISSING error 投影 ⇒ ≤2', async () => {
+      scopedToN2();
+      validation.validateAll.mockResolvedValue({
+        valid: true, errors: [], totalCost: 0,
+        plans: [{ nodeId: 'other', pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 5 }],
+      });
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('duplicate-attempt（reserve mayCall:false→skipped 退出）⇒ ≤2', async () => {
+      scopedToN2();
+      teamCredit.reserve.mockResolvedValue({ success: true, mayCall: false });
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('reserve-fail：onReserveFail error 投影 ⇒ ≤2', async () => {
+      scopedToN2();
+      teamCredit.reserve.mockResolvedValue({ success: false, reason: 'INSUFFICIENT_CREDITS' });
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('deadline（complete gated=0→VOIDED error 投影）⇒ ≤2', async () => {
+      scopedToN2();
+      intentSvc.complete.mockResolvedValue(0);
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('node-deleted（deliver written:false→批后退款）⇒ ≤2', async () => {
+      scopedToN2();
+      teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
+      vi.mocked(docWriter.writeBatch).mockImplementation(async (_pid: string, ops: readonly any[]) => {
+        cnt.batch += 1;
+        return ops.map((op, index) => ({ index, op: op.op, written: false, reason: 'node-deleted' }));
+      });
+      await service.execute('p1', undefined, 'u1', ['n2']);
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('delivery-failed（B-1：writeBatch 基础设施 throw→行已 SUCCEEDED→NODE_DELIVERY_FAILED 投影）⇒ ≤2（reject 不入计）', async () => {
+      scopedToN2();
+      teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
+      prisma.generationIntent = { findUnique: vi.fn().mockResolvedValue({ status: 'SUCCEEDED' }) };
+      vi.mocked(docWriter.writeBatch).mockImplementation(async () => { throw new ServiceUnavailableException('drain'); }); // 零写入不入计
+      await service.execute('p1', undefined, 'u1', ['n2']);
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('claim 过期（reanchorDeadline=0→早退零外呼）⇒ ≤2', async () => {
+      scopedToN2();
+      intentSvc.reanchorDeadline.mockResolvedValue(0);
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('NodeBusy skipped（claim throw→Z99 skipped 投影）⇒ ≤2', async () => {
+      scopedToN2();
+      intentSvc.claim.mockRejectedValue(new NodeBusyError());
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('通用 catch error（外呼抛错→error 投影）⇒ ≤2', async () => {
+      scopedToN2();
+      apiCaller.callImageGen.mockRejectedValue(new Error('boom'));
+      prisma.generationIntent = { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING' }) }; // catch 段 B-1 判读（RUNNING≠SUCCEEDED→通用 catch）
+      await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeLessThanOrEqual(2);
+    });
+
+    it('红⑤ replay 合并（Y0b-2 T6 回放段）：SUCCEEDED 重放 ⇒ writeBatch 恰一次且含两 op（artifact+done）+单写入口零调用+写段 ≤2', async () => {
+      scopedToN2();
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'gi-1', intentId: 'i-1', resultRef: '/mock/replay.png', attempts: 2 },
+      });
+
+      await service.execute('p1', 'n2', 'u1');
+
+      expect(docWriter.writeBatch).toHaveBeenCalledTimes(1); // 现红：writeBatch 零调用（两单写）
+      const ops = vi.mocked(docWriter.writeBatch).mock.calls[0][1] as any[];
+      expect(ops.map((o) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']); // artifact 在前 done 在后
+      expect(ops[0].patch).toEqual({ resultUrl: '/mock/replay.png' });            // image 腿产物键
+      expect(ops[1].patch).toMatchObject({ status: 'done', intentId: 'i-1', attempts: 2, fileId: '/mock/replay.png' });
+      expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();  // 单写入口零调用（合并判据）
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done' })); // emit 仍在写前
+      expect(writeEntries()).toBeLessThanOrEqual(2);
     });
   });
 });

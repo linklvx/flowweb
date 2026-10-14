@@ -14,7 +14,10 @@ import { CollabDocumentService } from './collab-document.service';
 import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
 import { execOrphanBlockedTotal } from '../execution/exec.metrics';
-import { MAX_WRITE_OPS_PER_BATCH, MAX_WRITE_BATCH_BYTES, stampDocSchema, type DocWriteOp } from '@flowweb/shared';
+import {
+  MAX_WRITE_OPS_PER_BATCH, MAX_WRITE_BATCH_BYTES, stampDocSchema, validateWriteBatch,
+  type DocWriteOp,
+} from '@flowweb/shared';
 
 const rejectedOf = async (reason: string): Promise<number> => {
   const v = await collabWriteRejectedTotal.get();
@@ -132,7 +135,7 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     expect(r3.every((r, i) => !r.written && r.reason === 'OP_COUNT_EXCEEDED' && r.index === i)).toBe(true);
     expect(await rejectedOf('OP_COUNT_EXCEEDED')).toBe(beforeCount + 1);
 
-    expect(withDoc).toHaveBeenCalledTimes(1); // 仅 (a) 进事务——批级拒两例零 withDoc
+    expect(withDoc).toHaveBeenCalledTimes(3); // Y0c T12（裁决 1）：Z108 随 applyWriteOpsToDoc 移入事务——批级拒仍零 op 执行（短路先于 schema 门），三例各开一次 withDoc
   });
 
   it('Z40 基础设施失败二分：withDoc 503（租约失守）⇒ 全批 thrown（非 written:false——调用方按零交付退款）', async () => {
@@ -277,5 +280,97 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
     ]);
     expect(r3[0]).toMatchObject({ index: 0, op: 'deleteNodeDataKeys', written: true });
     expect(Array.from((n1.get('data') as Y.Map<any>).keys())).toEqual(['errorCode']);
+  });
+});
+
+// ── Y0c T12 直写收编（控制方裁决 1/2——spec §0.6 偏离 20）：三直写 op 经 writeBatch 可执行
+// （deleteExecOrphans/deleteNodes/fillDoc——语义原样迁移）+doc 域应用核心 applyWriteOpsToDoc
+// （shrink 预演与活写同源）+validateWriteBatch 幂等执法面 flag（裁决 2：默认进程内档不产
+// NON_IDEMPOTENT_OP，requireIdempotentOps:true=T27 端点执法档）。 ──
+describe('Y0c T12 直写收编（三 op+doc 域 API+幂等执法面 flag）', () => {
+  it('红① deleteExecOrphans op：writeBatch 在含孤儿 doc 上清孤儿（nodes 在册条目保留）；零孤儿=合法 no-op written:true', async () => {
+    const doc = new Y.Doc();
+    seedNode(doc, 'n1');
+    doc.getMap('exec').set('n1', new Y.Map());      // 在册
+    doc.getMap('exec').set('ghost-1', new Y.Map()); // 孤儿：nodes 无此节点
+    const { writer } = makeWriter(doc);
+
+    const results = await writer.writeBatch('p1', [{ op: 'deleteExecOrphans' }]);
+
+    expect(results[0]).toMatchObject({ index: 0, op: 'deleteExecOrphans', written: true }); // 现红：default throw 未实现
+    expect(doc.getMap('exec').get('ghost-1')).toBeUndefined();  // 孤儿已清
+    expect(doc.getMap('exec').get('n1')).toBeDefined();         // 在册保留
+
+    const again = await writer.writeBatch('p1', [{ op: 'deleteExecOrphans' }]); // 零孤儿重扫
+    expect(again[0]).toMatchObject({ index: 0, op: 'deleteExecOrphans', written: true }); // 幂等 no-op
+  });
+
+  it('红② deleteNodes op：级联删边（引用被删节点的边一并删——悬挂边防护）+nodes 删+非 victims 保留', async () => {
+    const doc = new Y.Doc();
+    seedNode(doc, 'n1');
+    seedNode(doc, 'n2');
+    const e1 = new Y.Map();
+    e1.set('source', 'n1');
+    e1.set('target', 'n2');
+    doc.getMap('edges').set('e1', e1);
+    const { writer } = makeWriter(doc);
+
+    const results = await writer.writeBatch('p1', [{ op: 'deleteNodes', nodeIds: ['n1'] }]);
+
+    expect(results[0]).toMatchObject({ index: 0, op: 'deleteNodes', written: true }); // 现红：default throw 未实现
+    expect(doc.getMap('nodes').get('n1')).toBeUndefined();   // victim 已删
+    expect(doc.getMap('nodes').get('n2')).toBeInstanceOf(Y.Map); // 非 victim 保留
+    expect(doc.getMap('edges').get('e1')).toBeUndefined();   // 级联删边（E68）
+  });
+
+  it('红③ fillDoc op 经 writeBatch 可执行（现红：NON_IDEMPOTENT_OP 拒——裁决 2 的红即绿判据）；validateWriteBatch 默认档不产 NON_IDEMPOTENT_OP / requireIdempotentOps:true 仍拒（flag 判别）', async () => {
+    const doc = new Y.Doc();
+    const { writer } = makeWriter(doc);
+
+    const results = await writer.writeBatch('p1', [
+      { op: 'fillDoc', nodes: [{ id: 'nA', type: 'image', data: {} }], edges: [{ id: 'e1', source: 'nA', target: 'nB' }] },
+    ]);
+    expect(results[0]).toMatchObject({ index: 0, op: 'fillDoc', written: true });  // 现红
+    expect(doc.getMap('nodes').get('nA')).toBeInstanceOf(Y.Map);   // 节点种子落 doc
+    expect(doc.getMap('edges').get('e1')).toBeInstanceOf(Y.Map);   // 边种子落 doc
+
+    // flag 判别（裁决 2）：默认档（进程内 writeBatch 同款）不产 NON_IDEMPOTENT_OP；端点档 true 仍拒
+    const ops: readonly unknown[] = [{ op: 'fillDoc', nodes: [], edges: [] }];
+    expect(validateWriteBatch(ops)).toEqual([]);                    // 现红：默认档产 NON_IDEMPOTENT_OP
+    const endpointJudge = validateWriteBatch as unknown as
+      (o: readonly unknown[], opts: { requireIdempotentOps: boolean }) => ReturnType<typeof validateWriteBatch>;
+    expect(endpointJudge(ops, { requireIdempotentOps: true }).some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
+  });
+
+  it('红④ applyWriteOpsToDoc doc 域应用核心（裁决 1）存在且 shrink 场景形态成立：预演（scratch）与活写同函数同语义——同 ops 两 doc 结果一致', async () => {
+    const mod: Record<string, unknown> = await import('./collab-doc-writer.service');
+    const apply = mod.applyWriteOpsToDoc;                            // 现红：无此导出（undefined）
+    expect(apply).toBeTypeOf('function');
+
+    // 同源形态：同一 ops 分别应用 scratch（预演测量）与活 doc——结果与 doc 终态一致
+    //（生产 shrink 场景 doc 恒有戳——withDoc 装载/种子自愈点；夹具对齐）
+    const mkDoc = (): Y.Doc => {
+      const d = new Y.Doc();
+      const n1 = new Y.Map();
+      n1.set('type', 'text');
+      d.getMap('nodes').set('n1', n1);
+      const e1 = new Y.Map();
+      e1.set('source', 'n1');
+      e1.set('target', 'n2');
+      d.getMap('edges').set('e1', e1);
+      stampDocSchema(toDocLike(d));
+      return d;
+    };
+    const scratch = mkDoc();
+    const live = mkDoc();
+    const ops: DocWriteOp[] = [{ op: 'deleteNodes', nodeIds: ['n1'] }];
+
+    const preview = (apply as (d: Y.Doc, o: readonly DocWriteOp[]) => unknown)(scratch, ops);
+    const committed = (apply as (d: Y.Doc, o: readonly DocWriteOp[]) => unknown)(live, ops);
+    const expected = [{ index: 0, op: 'deleteNodes', written: true }];
+    expect(preview).toEqual(expected);   // 预演测量=即将写的内容（同源最强形态）
+    expect(committed).toEqual(expected);
+    expect(live.getMap('nodes').get('n1')).toBeUndefined();
+    expect(live.getMap('edges').get('e1')).toBeUndefined();         // 预演与活写同语义（E68 级联同在）
   });
 });

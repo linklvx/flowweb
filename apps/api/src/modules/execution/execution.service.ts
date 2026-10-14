@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
+import type { DocWriteOp } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
@@ -283,16 +284,26 @@ export class ExecutionService {
         // Y0b-2 T6（T5 Minor#5 补投影）：回放路径补 done 终态投影+node data——改前只 emit，
         // 回放时 doc exec 停 loading（对齐只能等 visibilitychange）；text 的 resultRef 是
         // `text:${content.slice(0,100)}` 截断占位，补写会截断真实产物——禁补（emit/投影照写）。
+        // Y0c T12（裁决 3）：两单写合并 writeBatch 单事务（artifact 在前 done 在后——deliver+done 同序），
+        // 批 throw 走 .catch(countExecProjectionFailure)——回放投影 best-effort 不挡回放。
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
-        await this.collabDoc.writeExecStatus(projectId, node.id, {
-          status: 'done', intentId: intent.intentId,
-          attempts: typeof intent.attempts === 'number' ? intent.attempts : 0,
-          ...(intent.resultRef ? { fileId: intent.resultRef } : {}),
-        }).catch(countExecProjectionFailure);
-        if (claimPack.kind !== 'text' && intent.resultRef) {
-          const artifact = claimPack.kind === 'video' ? { videoUrl: intent.resultRef } : { resultUrl: intent.resultRef };
-          await this.collabDoc.writeNodeData(projectId, node.id, artifact).catch(countExecProjectionFailure); // best-effort——节点已删等失败不挡回放
-        }
+        const replayOps: DocWriteOp[] = [
+          ...(claimPack.kind !== 'text' && intent.resultRef
+            ? [{
+                op: 'writeNodeData' as const, nodeId: node.id,
+                patch: claimPack.kind === 'video' ? { videoUrl: intent.resultRef } : { resultUrl: intent.resultRef },
+              }]
+            : []),
+          {
+            op: 'writeExecStatus', nodeId: node.id,
+            patch: {
+              status: 'done', intentId: intent.intentId,
+              attempts: typeof intent.attempts === 'number' ? intent.attempts : 0,
+              ...(intent.resultRef ? { fileId: intent.resultRef } : {}),
+            },
+          },
+        ];
+        await this.docWriter.writeBatch(projectId, replayOps).catch(countExecProjectionFailure);
         return;
       }
       claimed = intent;

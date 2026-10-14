@@ -5,6 +5,12 @@
 // writeBatch 同 doc 同事务：一次 writeBatch=恰一次 withDoc，「data 与 exec 同事务」（先红用例③）。
 // 逐 op 守卫事务内求值，WriteOpResult[] 与入批 ops 一一对应（携带 op 索引+类型——A1 冻结契约）。
 //
+// Y0c T12（裁决 1——spec §0.6 偏离 20）：doc 域应用核心 applyWriteOpsToDoc 导出为独立纯函数
+// （Z108 校验+schema 门+applyOp 循环单点），writeBatch 与进程内直写调用方（shrink 影子预演/活写、
+// export-fresh 干净副本构造）两路共用——「预演=即将写的内容同源」最强形态。六 op 全实现：
+// writeNodeData/writeExecStatus/deleteNodeDataKeys（T8 三 op）+deleteNodes/fillDoc/deleteExecOrphans
+// （T12 收编三 op——collab-shrink/intent-reconcile 直写语义原样迁移，见 collab-document.service 三原语）。
+//
 // 失败语义二分（Z40）：
 //  - 守卫失败（node-deleted/attempt 过期〔missing-attempts/older-attempts/terminal-superseded〕/
 //    Z108 内容违规七码）=合法结果进数组（written:false+reason）——不回滚不 throw，同批合法 op 照常提交；
@@ -21,12 +27,13 @@
 // append delta 行（完整重试链路随消费改道任务落地）。
 //
 // Y0c T9 进门四段（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点，503）→
-// ②undefined fail-fast（writeNodeData 类 op 扫描，UNDEFINED_PATCH_VALUE）→ ③Z108 内容校验
-// （validateWriteBatch——shared 单源；违规=业务级拒绝 written:false+reason 进 reject 计数，非 throw
-// 非 sanitize 非截断；批级违规=整批拒绝零执行不进事务；op 级违规仅拒该 op 同批合法 op 照常）→
-// ④withDoc 事务（transactSync 包裹，回调首段 schema 门：前瞻=DOC_SCHEMA_AHEAD throw+计数 /
-// 降版未知档=ensureSchemaVersion [O0b-0] throw）。受理门先于内容校验：降级期不白跑校验、reject
-// 计数不被降级噪声污染；Z108 保持在事务外——业务拒绝不得降级成基础设施失败触发退款。
+// ②undefined fail-fast（writeNodeData 类 op 扫描，UNDEFINED_PATCH_VALUE）→ ③④withDoc 事务
+// （applyWriteOpsToDoc：Z108 内容校验〔业务级拒绝 written:false+reason 进 reject 计数，非 throw
+// 非 sanitize 非截断；批级违规=整批拒绝零执行；op 级违规仅拒该 op 同批合法 op 照常〕→schema 门→
+// applyOp 循环）。受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。
+// T12 位置勘正：Z108 随裁决 1 移入事务内（applyWriteOpsToDoc 首段，批级违规短路 return 先于
+// schema 门 throw）——业务拒绝仍是合法结果非基础设施失败（不触发退款），语义维持；批级违规批
+// 现会开一次 withDoc（原来事务外提前 return）——零 op 执行+结果一一对应不变。
 //
 // 写守卫 reason 词表（本文件枚举——CollabAuthReason 是 auth 拒绝域不混入；wire 面 T27 端点透传
 // 只增不改）：node-deleted（writeNodeData/deleteNodeDataKeys/writeExecStatus——Z44/Z4）/ no-node-map
@@ -48,6 +55,9 @@ import {
   applyWriteNodeDataToDoc,
   applyWriteExecStatusToDoc,
   applyDeleteNodeDataKeysToDoc,
+  applyDeleteNodesToDoc,
+  applyFillDocToDoc,
+  applyDeleteExecOrphansToDoc,
   undefinedPatchValueError,
   type ExecStatusPatch,
 } from './collab-document.service';
@@ -74,17 +84,105 @@ export interface WriteOpResult {
   reason?: string;
 }
 
+/** Y0c T12（裁决 1）：doc 域应用核心——Z108 校验+schema 门+逐 op 应用单点，writeBatch 与进程内
+ *  直写调用方（shrink 影子预演/活写、export-fresh fill）两路共用。须在同步上下文调用（transactSync
+ *  封套或无外层 await 的同步段——withDoc 直连/scratch doc 均满足）；三 op 原语自带 transact（无外层
+ *  事务的 scratch 调用原子边界自持；嵌套事务时内层 origin 被 yjs 忽略=T10 已证无影响）。
+ *  幂等执法面：validateWriteBatch 默认档（裁决 2·偏离 20）——进程内不产 NON_IDEMPOTENT_OP，
+ *  fillDoc 种子路径合法；T27 端点（未来）另传 requireIdempotentOps:true。 */
+export function applyWriteOpsToDoc(doc: Y.Doc, ops: readonly DocWriteOp[]): WriteOpResult[] {
+  const results: WriteOpResult[] = ops.map((op, index) => ({ index, op: op.op, written: false }));
+  // Z108 进门：内容校验（七码处置总表见 shared WriteBatchViolationCode——全属业务级拒绝）
+  const { byIndex, batchLevel } = rejectionsOf(ops);
+  if (batchLevel) {
+    // 批级违规=整批拒绝零执行（拒绝非截断——逐 op 结果同携批级码，一一对应契约不破；短路先于 schema 门）
+    for (let i = 0; i < ops.length; i += 1) {
+      results[i] = { index: i, op: ops[i].op, written: false, reason: batchLevel.code };
+    }
+    return results;
+  }
+  // schema 门：前瞻档（sv 为 number 且 > current）⇒ 独立拒码 DOC_SCHEMA_AHEAD——throw 前计数
+  //（spec §6「拒写+reason 计数」）；降版 sv=1/未知档走 ensureSchemaVersion（[O0b-0] throw）；
+  // 无戳档=装载层职责不扩责（无戳∧零节点放行——与 REST 读门同档）。
+  const sv = doc.getMap('meta').get('schemaVersion');
+  if (typeof sv === 'number' && sv > CANVAS_DOC_SCHEMA_VERSION) {
+    collabWriteRejectedTotal.inc({ reason: 'DOC_SCHEMA_AHEAD' });
+    throw new Error(`DOC_SCHEMA_AHEAD: doc schemaVersion=${sv} > current ${CANVAS_DOC_SCHEMA_VERSION}——前瞻档拒写（本进程无法安全写入更高版本 doc）`);
+  }
+  ensureSchemaVersion(toDocLike(doc));
+  ops.forEach((op, index) => {
+    const rejected = byIndex.get(index);
+    if (rejected !== undefined) {
+      results[index] = { index, op: op.op, written: false, reason: rejected }; // Z108 op 级违规——合法 op 照常执行
+      return;
+    }
+    results[index] = applyOp(doc, op, index);
+  });
+  return results;
+}
+
+/** Z108 进门校验（validateWriteBatch 单源消费）+reject 计数：批级违规单提，op 级违规按索引归集
+ *  （同 op 多违规取首个入结果，计数逐违规全量）。 */
+function rejectionsOf(ops: readonly DocWriteOp[]): { byIndex: Map<number, WriteBatchViolationCode>; batchLevel?: WriteBatchViolation } {
+  const byIndex = new Map<number, WriteBatchViolationCode>();
+  let batchLevel: WriteBatchViolation | undefined;
+  for (const v of validateWriteBatch(ops)) {
+    collabWriteRejectedTotal.inc({ reason: v.code });
+    if (v.index === -1) batchLevel ??= v;
+    else if (!byIndex.has(v.index)) byIndex.set(v.index, v.code);
+  }
+  return { byIndex, batchLevel };
+}
+
+/** 逐 op 守卫事务内求值（Z40②：守卫失败=合法结果 written:false+reason 进数组）。 */
+function applyOp(doc: Y.Doc, op: DocWriteOp, index: number): WriteOpResult {
+  switch (op.op) {
+    case 'writeNodeData': {
+      const r = applyWriteNodeDataToDoc(doc, op.nodeId, op.patch);
+      return guardResult(index, op.op, r.written, r.reason);
+    }
+    case 'writeExecStatus': {
+      const r = applyWriteExecStatusToDoc(doc, op.nodeId, op.patch as ExecStatusPatch);
+      if (!r.written && r.reason === 'node-deleted') {
+        execOrphanBlockedTotal.inc();   // Y0c T11 Z4：与单写面同款专项信号（守卫双面生效）
+      }
+      if (!r.written && r.reason !== 'terminal-superseded') {
+        execProjectionDroppedTotal.inc({ cause: r.reason });   // 与单写面同计数（投影丢弃观测零分裂）
+      }
+      return guardResult(index, op.op, r.written, r.written ? undefined : r.reason);
+    }
+    case 'deleteNodeDataKeys': {
+      const r = applyDeleteNodeDataKeysToDoc(doc, op.nodeId, op.keys);
+      return guardResult(index, op.op, r.written, r.reason);
+    }
+    case 'deleteNodes':
+      return guardResult(index, op.op, applyDeleteNodesToDoc(doc, op.nodeIds).written);   // T12 收编（shrink 同源）
+    case 'fillDoc':
+      return guardResult(index, op.op, applyFillDocToDoc(doc, op.nodes, op.edges).written); // T12 收编（export-fresh 同源）
+    case 'deleteExecOrphans':
+      return guardResult(index, op.op, applyDeleteExecOrphansToDoc(doc).written);           // T12 收编（exec-GC 同源）
+    default:
+      // 六 op 词汇表 Record 穷尽=编译断言——运行时不可达（词汇表外 op 已被 Z108 UNKNOWN_OP 业务级拒）。
+      throw new Error(`writeBatch op 未实现: ${String((op as { op?: unknown }).op)}`);
+  }
+}
+
+/** written:false 一律进 reject 计数（reason=Z108 校验码∪守卫 reason 两族闭集——store.metrics 词表）。 */
+function guardResult(index: number, op: DocWriteOpType, written: boolean, reason?: string): WriteOpResult {
+  if (!written && reason) collabWriteRejectedTotal.inc({ reason });
+  return { index, op, written, ...(reason ? { reason } : {}) };
+}
+
 @Injectable()
 export class CollabDocWriterService {
   constructor(@Inject(CollabDocumentService) private readonly doc: CollabDocumentService) {}
 
   /** 同 doc 同事务组批写（片 A1 唯一 withDoc 调用点=census ⑭ 登记 write-via-writer）。
-   *  Y0c T9 进门四段顺序（顺序即语义）：
-   *  空批早退 → ①X9 受理门（assertWriteAdmitted 单点——503 throw）→ ②undefined fail-fast
-   *  （writeNodeData 类 op 扫描——UNDEFINED_PATCH_VALUE throw）→ ③Z108 内容校验（业务级拒绝）→
-   *  ④withDoc 事务（transactSync 包裹；回调首段 schema 门）。
-   *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。
-   *  Z108 校验保持在事务外（withDoc 之前）——业务拒绝不得降级成基础设施失败触发退款（T8 语义维持）。 */
+   *  Y0c T9 进门四段顺序（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点——503
+   *  throw）→ ②undefined fail-fast（writeNodeData 类 op 扫描——UNDEFINED_PATCH_VALUE throw）→
+   *  ③④withDoc 事务（transactSync 包裹；回调=applyWriteOpsToDoc 单点〔T12 裁决 1——Z108 校验+
+   *  schema 门+逐 op 应用与直写收编两路共用〕）。
+   *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。 */
   async writeBatch(projectId: string, ops: readonly DocWriteOp[]): Promise<WriteOpResult[]> {
     // 空批=合法 no-op（validateWriteBatch 同判据——零违规放行，不白开一次 doc 事务）
     if (ops.length === 0) return [];
@@ -98,87 +196,12 @@ export class CollabDocWriterService {
         if (v === undefined) throw undefinedPatchValueError('writeBatch.writeNodeData', k);
       }
     }
-    const results: WriteOpResult[] = ops.map((op, index) => ({ index, op: op.op, written: false }));
-
-    // ③ Z108 进门：内容校验（七码处置总表见 shared WriteBatchViolationCode——全属业务级拒绝）
-    const { byIndex, batchLevel } = this.rejectionsOf(ops);
-    if (batchLevel) {
-      // 批级违规=整批拒绝零执行（拒绝非截断——逐 op 结果同携批级码，一一对应契约不破）
-      for (let i = 0; i < ops.length; i += 1) {
-        results[i] = { index: i, op: ops[i].op, written: false, reason: batchLevel.code };
-      }
-      return results;
-    }
-
-    // ④ 同 doc 同事务：全部 op（含守卫求值）在此唯一事务内完成；守卫失败只落结果不回滚不 throw。
-    //   transactSync 类型门包裹（异步回调=同事务不变量破坏）；回调首段 schema 门（throw 时零 op 已应用）。
+    // ③④ 同 doc 同事务：全部 op（含 Z108 校验/schema 门/守卫求值）在此唯一事务内完成；
+    //   守卫失败只落结果不回滚不 throw；transactSync 类型门包裹（异步回调=同事务不变量破坏）。
+    let results: WriteOpResult[] = [];
     await this.doc.withDoc(projectId, transactSync((doc) => {
-      // C schema 门：前瞻档（sv 为 number 且 > current）⇒ 独立拒码 DOC_SCHEMA_AHEAD——throw 前计数
-      //（spec §6「拒写+reason 计数」）；降版 sv=1/未知档走 ensureSchemaVersion（[O0b-0] throw）；
-      // 无戳档=装载层职责不扩责（无戳∧零节点放行——与 REST 读门同档）。
-      const sv = doc.getMap('meta').get('schemaVersion');
-      if (typeof sv === 'number' && sv > CANVAS_DOC_SCHEMA_VERSION) {
-        collabWriteRejectedTotal.inc({ reason: 'DOC_SCHEMA_AHEAD' });
-        throw new Error(`DOC_SCHEMA_AHEAD: doc schemaVersion=${sv} > current ${CANVAS_DOC_SCHEMA_VERSION}——前瞻档拒写（本进程无法安全写入更高版本 doc）`);
-      }
-      ensureSchemaVersion(toDocLike(doc));
-      ops.forEach((op, index) => {
-        const rejected = byIndex.get(index);
-        if (rejected !== undefined) {
-          results[index] = { index, op: op.op, written: false, reason: rejected }; // Z108 op 级违规——合法 op 照常执行
-          return;
-        }
-        results[index] = this.applyOp(doc, op, index);
-      });
+      results = applyWriteOpsToDoc(doc, ops);
     }));
     return results;
-  }
-
-  /** Z108 进门校验（validateWriteBatch 单源消费）+reject 计数：批级违规单提，op 级违规按索引归集
-   *  （同 op 多违规取首个入结果，计数逐违规全量）。 */
-  private rejectionsOf(ops: readonly DocWriteOp[]): { byIndex: Map<number, WriteBatchViolationCode>; batchLevel?: WriteBatchViolation } {
-    const byIndex = new Map<number, WriteBatchViolationCode>();
-    let batchLevel: WriteBatchViolation | undefined;
-    for (const v of validateWriteBatch(ops)) {
-      collabWriteRejectedTotal.inc({ reason: v.code });
-      if (v.index === -1) batchLevel ??= v;
-      else if (!byIndex.has(v.index)) byIndex.set(v.index, v.code);
-    }
-    return { byIndex, batchLevel };
-  }
-
-  /** 逐 op 守卫事务内求值（Z40②：守卫失败=合法结果 written:false+reason 进数组）。 */
-  private applyOp(doc: Y.Doc, op: DocWriteOp, index: number): WriteOpResult {
-    switch (op.op) {
-      case 'writeNodeData': {
-        const r = applyWriteNodeDataToDoc(doc, op.nodeId, op.patch);
-        return this.guardResult(index, op.op, r.written, r.reason);
-      }
-      case 'writeExecStatus': {
-        const r = applyWriteExecStatusToDoc(doc, op.nodeId, op.patch as ExecStatusPatch);
-        if (!r.written && r.reason === 'node-deleted') {
-          execOrphanBlockedTotal.inc();   // Y0c T11 Z4：与单写面同款专项信号（守卫双面生效）
-        }
-        if (!r.written && r.reason !== 'terminal-superseded') {
-          execProjectionDroppedTotal.inc({ cause: r.reason });   // 与单写面同计数（投影丢弃观测零分裂）
-        }
-        return this.guardResult(index, op.op, r.written, r.written ? undefined : r.reason);
-      }
-      case 'deleteNodeDataKeys': {
-        const r = applyDeleteNodeDataKeysToDoc(doc, op.nodeId, op.keys);
-        return this.guardResult(index, op.op, r.written, r.reason);
-      }
-      default:
-        // deleteNodes/fillDoc/deleteExecOrphans 归 T12 直写收编（collab-shrink:114,154/intent-reconcile:493）。
-        // 词汇表已冻结（shared DOC_WRITE_OPS Record 穷尽）——提前调用=编程错误，fail-fast 归 Z40 基础设施档
-        // （thrown→调用方零交付退款），禁静默 written:false 假装成功。
-        throw new Error(`writeBatch op 未实现: ${op.op}（deleteNodes/fillDoc/deleteExecOrphans 归 T12 直写收编）`);
-    }
-  }
-
-  /** written:false 一律进 reject 计数（reason=Z108 校验码∪守卫 reason 两族闭集——store.metrics 词表）。 */
-  private guardResult(index: number, op: DocWriteOpType, written: boolean, reason?: string): WriteOpResult {
-    if (!written && reason) collabWriteRejectedTotal.inc({ reason });
-    return { index, op, written, ...(reason ? { reason } : {}) };
   }
 }

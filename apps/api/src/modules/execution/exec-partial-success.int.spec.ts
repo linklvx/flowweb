@@ -228,6 +228,7 @@ const statusOf = async (nodeId: string) =>
     const reconcile = new IntentReconcileService(
       prisma as unknown as any,
       { isDocResident: () => false, writeExecStatus, probeArtifacts: vi.fn(async () => []) } as any,
+      { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
     );
     const before = totalOf(execProjectionDeferredTotal);
@@ -253,6 +254,7 @@ const statusOf = async (nodeId: string) =>
     const reconcile = new IntentReconcileService(
       prisma as unknown as any,
       { isDocResident: () => true, writeExecStatus, probeArtifacts: vi.fn(async () => []) } as any,
+      { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
     );
     await reconcile.verifyActive();
