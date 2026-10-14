@@ -261,8 +261,14 @@ export interface WriteBatchViolation {
 const typeNameOf = (v: unknown): ValueTypeName | 'json' =>
   v === null ? 'null' : typeof v === 'string' ? 'string' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : 'json';
 
-/** 检查一个键值对（键名禁键+白名单+值域+字节上限）——writeNodeData/writeExecStatus patch 共用。 */
+/** 检查一个键值对（键名禁键+白名单+值域+字节上限）——writeNodeData/writeExecStatus patch 共用。
+ *  Y0c T9（Z5 分流勘正）：undefined 不是内容违规——writeNodeData=原语/进门 UNDEFINED_PATCH_VALUE
+ *  fail-fast throw（api 侧 collab-document.service 单源）、writeExecStatus=原语跳过
+ *  （applyWriteExecStatusToDoc `v !== undefined` 既有语义）；undefined 经 JSON wire 不可达
+ *  （本表的其他消费面 T27 端点同样收不到），故校验面不执法（skip 早退）——否则 typeNameOf 把
+ *  undefined 归 'json' ⇒ VALUE_TYPE_MISMATCH 会把 Z5 的 throw 与「维持跳」两条语义双双拦死。 */
 function checkPatchEntry(spec: DocWriteOpSpec, k: string, v: unknown, index: number, opName: string, out: WriteBatchViolation[]): void {
+  if (v === undefined) return;
   if (BANNED_DATA_KEYS.includes(k)) {
     out.push({ index, opName, code: 'PROTO_KEY_BANNED', key: k, message: `原型链键 ${k} 显式拒绝（Z108③）` });
     return;

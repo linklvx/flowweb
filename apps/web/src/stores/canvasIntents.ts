@@ -128,7 +128,8 @@ export function resolveDoc(): Y.Doc | null {
 /** doc 直写（fillDoc 复用新建路径；update/move 沿 ydocBuilder 的逐键 diff 守卫——同值 no-op
  *  防 doc 膨胀）。origin 由 dispatch 外层单 transact 统一（复合序列原子；本函数不开事务）。
  *  updateNodeData 的删键语义约定：patch 值 === undefined ⇒ delete 键（全量对账的"缺键删除"
- *  在意图形态的对应物）。 */
+ *  在意图形态的对应物）。此为客户端本地语义、永不上线（JSON wire 传不了 undefined——服务端
+ *  收不到该形态）；服务端对应物=deleteNodeDataKeys 显式删键 op（Y0c T9——writeBatch 词汇）。 */
 export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
   switch (intent.type) {
     case 'addNode':

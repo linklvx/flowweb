@@ -739,6 +739,8 @@ ecosystem.config.cjs（apps+1 进程+role env+nice+独立内存/kill_timeout+「
 | 13 | T6 双等价探针落静态半（P5 字面「查 pg_indexes」；census 无 DB） | C0 | 载体适配（静态半=schema 生成名×baseline 锚比对） | 库侧实存由 verify-indexes 51 块钉守（含 fake-pricing-unique-gone 靶向否定）；手工 DDL 直连库全局面缺位登记：后续批可补 generic 否定断言（12 锚逐条 NOT EXISTS 同列集异名索引） |
 | 14 | T6 解析面含 @unique 字段级（P5 字面仅 @@unique） | C0 | 强于字面（同一生成机制收敛盲区） | 24 生成名（17 字段级+7 块级）×12 锚 |
 | 15 | T6 raw 对象「9」勘正=总账 28（12 类既有+9 项 Y0b-1 不变量段+7 项 Y0b-2 追加） | C0 | 口径勘正（spec「9」实指 Y0b-1 DB 级不变量段） | baseline md §七按实测落档+12 项 raw unique 机器锚 |
+| 16 | T8 spec 评审拦下 X9 批面受理门缺口：writeBatch 绕过 isWritableOrDegraded/租约判据（单写面两写入口有门、批面无——交付即回归） | A1 | 执行期范围增补（spec A1 未列受理门批面迁移） | T9 根修为单点 assertWriteAdmitted（三写入口共用——新增写路径结构性不可漏，非第三处复制粘贴门） |
+| 17 | T4 manifest 校验表 undefined 归类勘正：undefined 值不再 VALUE_TYPE_MISMATCH（typeNameOf 把 undefined 归 json ⇒ 业务拒，Z5 的 throw 与「维持跳」两条语义被校验面拦死不可达） | A1 | 判据调整（T8 spec 评审同批拦下） | T9 Z5 分流：writeNodeData=UNDEFINED_PATCH_VALUE 进门 fail-fast throw/writeExecStatus=原语跳过/JSON wire 不可达故校验面不执法（checkPatchEntry skip 早退）；七码体系不变 |
 
 ---
 

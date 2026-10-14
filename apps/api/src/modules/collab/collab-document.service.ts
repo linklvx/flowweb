@@ -160,15 +160,25 @@ export class CollabDocumentService implements OnApplicationShutdown {
     return this.gateway.isDocResident(projectId);
   }
 
+  /** Y0c T9（A1·X9 批面受理门单点根修）：写意图受理门——三写入口（writeNodeData/writeExecStatus/
+   *  writeBatch）共用单点（结构性防漏：第三处复制粘贴门=T8 批面回归的成因，本方法即终结形态）。
+   *  判据与 throw 与提取前逐字一致：租约档（Y0a-3 R4——lease 失守/drain 期拒）+spool 熔断/容量
+   *  熔断档（Y0a-2 X9）。真空档维持 in withDoc 不并入（与既有单写面语义严格一致）。
+   *  Z40 基础设施档：throw ⇒ writeBatch 全批 thrown ⇒ 调用方按零交付退款。 */
+  assertWriteAdmitted(): void {
+    if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
+      throw new ServiceUnavailableException('collab degraded: lease or spool');
+  }
+
   /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。写核心=applyWriteNodeDataToDoc 原语
    *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移）。
    *  Y0a-2（X9）：写意图受理门——spool 熔断/容量熔断期拒服务端写（503 瞬态，客户端重试）；
    *  Y0a-3（R4 裁定：必需项非冗余）：门前加租约档——lease 失守/drain 期同样拒（draining 不在
    *  isWritableOrDegraded 判据内，缺此档则失守期写会静默落 spool 等回灌）；
-   *  readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）。 */
+   *  readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）。
+   *  Y0c T9：受理门收编单点 assertWriteAdmitted（判据零变化纯去重）。 */
   async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>): Promise<WriteNodeDataResult> {
-    if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
-      throw new ServiceUnavailableException('collab degraded: lease or spool');
+    this.assertWriteAdmitted();
     return this.withDoc(projectId, (doc) => applyWriteNodeDataToDoc(doc, nodeId, patch));
   }
 
@@ -185,9 +195,8 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移；T11 守卫在原语层补）。
    *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
   async writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
-    // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）
-    if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
-      throw new ServiceUnavailableException('collab degraded: lease or spool');
+    // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）；Y0c T9 收编单点 assertWriteAdmitted
+    this.assertWriteAdmitted();
     await this.withDoc(projectId, (doc) => {
       const outcome = applyWriteExecStatusToDoc(doc, nodeId, patch);
       if (!outcome.written && outcome.reason !== 'terminal-superseded') {
@@ -222,8 +231,19 @@ export class CollabDocumentService implements OnApplicationShutdown {
 // 单一写语义真源；置于类后保 withDoc 调用点行号 advisory 稳定）。守卫失败返回类型化结果不 throw
 // （Z40②：批面=合法结果进数组；单写面=原样返回给调用方）。 ──
 
-/** writeNodeData 写核心（Z44 交付判据：written:false=节点已删/结构缺失——交付路径唯一退款凭据）。 */
+/** Z5 undefined 拒码单源（Y0c T9）：消息含码名 UNDEFINED_PATCH_VALUE——applyWriteNodeDataToDoc
+ *  （单写面+批面原语共用）与 writeBatch 进门扫描两 fail-fast 点共此一口，禁漂移。
+ *  语义：JSON wire 传不了 undefined，含 undefined=进程内 bug ⇒ fail-fast throw 非 written:false。 */
+export function undefinedPatchValueError(opName: string, k: string): Error {
+  return new Error(`UNDEFINED_PATCH_VALUE: ${opName} patch 键 ${k} 值为 undefined（Z5 进门 fail-fast——JSON wire 传不了 undefined，进程内 bug）`);
+}
+
+/** writeNodeData 写核心（Z44 交付判据：written:false=节点已删/结构缺失——交付路径唯一退款凭据）。
+ *  Y0c T9（Z5）：首段 undefined fail-fast（应用前全扫——单写面覆盖；writeBatch 同函数两路径禁漂移）。 */
 export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>): WriteNodeDataResult {
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) throw undefinedPatchValueError('writeNodeData', k);
+  }
   const entry = doc.getMap('nodes').get(nodeId);
   if (entry === undefined) return { written: false, reason: 'node-deleted' };   // Z44：交付判据类型化（原静默 return void）
   if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
@@ -259,5 +279,19 @@ export function applyWriteExecStatusToDoc(doc: Y.Doc, nodeId: string, patch: Exe
     exec.set(nodeId, m);
   }
   for (const [k, v] of Object.entries(patch)) if (v !== undefined) m.set(k, v);
+  return { written: true };
+}
+
+/** deleteNodeDataKeys 写核心（Y0c T9·Z5 显式删键 op——客户端 canvasIntents.updateNodeData
+ *  「patch 值===undefined⇒delete 键」本地语义的服务端对应物，该语义永不上线〔JSON wire 不可达〕）：
+ *  节点缺失 ⇒ written:false node-deleted（Z44 对齐）；不存在之键 delete no-op；
+ *  空数组 ⇒ written:true 合法 no-op（spec §6 ②）；data 子 map 缺失=无物可删（不创建空 map 防膨胀）。 */
+export function applyDeleteNodeDataKeysToDoc(doc: Y.Doc, nodeId: string, keys: readonly string[]): WriteNodeDataResult {
+  const entry = doc.getMap('nodes').get(nodeId);
+  if (entry === undefined) return { written: false, reason: 'node-deleted' };
+  if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
+  const dataMap = entry.get('data');
+  if (!(dataMap instanceof Y.Map)) return { written: true };
+  for (const k of keys) dataMap.delete(k);
   return { written: true };
 }

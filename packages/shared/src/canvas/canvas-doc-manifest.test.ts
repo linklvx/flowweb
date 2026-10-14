@@ -145,6 +145,16 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
   it('空批=合法 no-op（零违规放行——T27 端点空批幂等重试安全）', () => {
     expect(validateWriteBatch([])).toEqual([]);
   });
+
+  it('undefined 值零违规（Y0c T9·Z5 分流——校验面不执法：nodeData=进门 UNDEFINED_PATCH_VALUE fail-fast/exec=原语跳过；JSON wire 不可达故本表不裁决）', () => {
+    // T8 现状：typeNameOf 把 undefined 归 'json' ⇒ VALUE_TYPE_MISMATCH 业务拒——Z5 两条语义
+    // （throw 与跳过）在批面均被校验表拦死。T9 勘正：checkPatchEntry 对 undefined skip 早退。
+    const violations = validateWriteBatch([
+      { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: undefined, fileId: 'm_1' } },
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, reason: undefined } },
+    ]);
+    expect(violations).toEqual([]);
+  });
 });
 
 describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运行时面）', () => {

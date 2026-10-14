@@ -184,6 +184,35 @@ describe('Y0a-3 T8（三分法）', () => {
   });
 });
 
+// Y0c T9（Z5/A1）：单写面 undefined fail-fast + assertWriteAdmitted 单点（X9 三写入口共用）。
+describe('Y0c T9 undefined fail-fast+assertWriteAdmitted 单点', () => {
+  const admittedGateway = () => ({ isLeaseServing: vi.fn(() => true), isWritableOrDegraded: vi.fn(() => 'ok' as const) });
+  const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }) });
+
+  it('红·单写面 writeNodeData patch 含 undefined ⇒ throw /UNDEFINED_PATCH_VALUE/（现状：undefined 被 set 进 doc）', async () => {
+    const doc = new Y.Doc();
+    const n1 = new Y.Map();
+    n1.set('type', 'text');
+    doc.getMap('nodes').set('n1', n1);
+    const service = new CollabDocumentService(admittedGateway() as any, repoStub() as any);
+    vi.spyOn(service, 'withDoc').mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) as any);
+    await expect(service.writeNodeData('p1', 'n1', { resultUrl: undefined }))
+      .rejects.toThrow(/UNDEFINED_PATCH_VALUE/);
+    expect(n1.get('data')).toBeUndefined();   // fail-fast 在应用前——零写入
+  });
+
+  it('红·assertWriteAdmitted：lease 未持/degraded 两档 throw，ok 放行（writeNodeData/writeExecStatus/writeBatch 三入口共用单点）', () => {
+    const denied = { isLeaseServing: vi.fn(() => false), isWritableOrDegraded: vi.fn(() => 'ok' as const) };
+    expect(() => new CollabDocumentService(denied as any, repoStub() as any).assertWriteAdmitted())
+      .toThrow(ServiceUnavailableException);
+    const degraded = { isLeaseServing: vi.fn(() => true), isWritableOrDegraded: vi.fn(() => 'spool-unwritable' as const) };
+    expect(() => new CollabDocumentService(degraded as any, repoStub() as any).assertWriteAdmitted())
+      .toThrow(ServiceUnavailableException);
+    const ok = { isLeaseServing: vi.fn(() => true), isWritableOrDegraded: vi.fn(() => 'ok' as const) };
+    expect(() => new CollabDocumentService(ok as any, repoStub() as any).assertWriteAdmitted()).not.toThrow();
+  });
+});
+
 // Y0a-4/P24（红相先行）：Connection 级 unloadImmediately 双旋钮之一（B20）——A6 锚=DirectConnection
 // disconnect options。B26：库默认即 true（options?.unloadImmediately ?? true），显式 pin=防升级翻转的
 // 文档锚，非行为修复。

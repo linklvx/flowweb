@@ -786,14 +786,15 @@ export const collabPgBreakerFailuresTotal = new Counter({
 
 /** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
 
-/** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 两族闭集：
+/** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 闭集：
  *  ① Z108 校验码七值（UNKNOWN_KEY/PATCH_TOO_LARGE/OP_COUNT_EXCEEDED/UNKNOWN_OP/PROTO_KEY_BANNED/
  *  VALUE_TYPE_MISMATCH/NON_IDEMPOTENT_OP——shared WriteBatchViolationCode 单源）
  *  ② 写守卫 reason 五值（node-deleted/no-node-map/missing-attempts/older-attempts/terminal-superseded
- *  ——collab-doc-writer.service 头注词表；Z40② 守卫失败=合法结果进数组，本计数=其唯一统一观测面）。 */
+ *  ——collab-doc-writer.service 头注词表；Z40② 守卫失败=合法结果进数组，本计数=其唯一统一观测面）
+ *  ③ Y0c T9 增 DOC_SCHEMA_AHEAD（schema 前瞻档事务级 throw——throw 前计数，spec §6「拒写+reason 计数」）。 */
 export const collabWriteRejectedTotal = new Counter({
   name: 'collab_write_rejected_total',
-  help: 'writeBatch 业务级拒绝计数（reason=Z108 校验码七值+写守卫 reason 五值——守卫失败亦计，统一观测面）',
+  help: 'writeBatch 业务级拒绝计数（reason=Z108 校验码七值+写守卫 reason 五值+DOC_SCHEMA_AHEAD 前瞻档——守卫失败亦计，统一观测面）',
   labelNames: ['reason'],
   registers: [register],
 });
