@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { CollabDocWriterService, transactSync } from './collab-doc-writer.service';
+import { CollabDocWriterService, applyWriteOpsToDoc, transactSync } from './collab-doc-writer.service';
 import { CollabDocumentService } from './collab-document.service';
 import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
@@ -337,15 +337,11 @@ describe('Y0c T12 直写收编（三 op+doc 域 API+幂等执法面 flag）', ()
     // flag 判别（裁决 2）：默认档（进程内 writeBatch 同款）不产 NON_IDEMPOTENT_OP；端点档 true 仍拒
     const ops: readonly unknown[] = [{ op: 'fillDoc', nodes: [], edges: [] }];
     expect(validateWriteBatch(ops)).toEqual([]);                    // 现红：默认档产 NON_IDEMPOTENT_OP
-    const endpointJudge = validateWriteBatch as unknown as
-      (o: readonly unknown[], opts: { requireIdempotentOps: boolean }) => ReturnType<typeof validateWriteBatch>;
-    expect(endpointJudge(ops, { requireIdempotentOps: true }).some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
+    expect(validateWriteBatch(ops, { requireIdempotentOps: true }).some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
   });
 
   it('红④ applyWriteOpsToDoc doc 域应用核心（裁决 1）存在且 shrink 场景形态成立：预演（scratch）与活写同函数同语义——同 ops 两 doc 结果一致', async () => {
-    const mod: Record<string, unknown> = await import('./collab-doc-writer.service');
-    const apply = mod.applyWriteOpsToDoc;                            // 现红：无此导出（undefined）
-    expect(apply).toBeTypeOf('function');
+    // 存在性由静态 import+tsc 保证（红期动态 import 装置撤除——T12 质量收尾 M-1）
 
     // 同源形态：同一 ops 分别应用 scratch（预演测量）与活 doc——结果与 doc 终态一致
     //（生产 shrink 场景 doc 恒有戳——withDoc 装载/种子自愈点；夹具对齐）
@@ -365,8 +361,8 @@ describe('Y0c T12 直写收编（三 op+doc 域 API+幂等执法面 flag）', ()
     const live = mkDoc();
     const ops: DocWriteOp[] = [{ op: 'deleteNodes', nodeIds: ['n1'] }];
 
-    const preview = (apply as (d: Y.Doc, o: readonly DocWriteOp[]) => unknown)(scratch, ops);
-    const committed = (apply as (d: Y.Doc, o: readonly DocWriteOp[]) => unknown)(live, ops);
+    const preview = applyWriteOpsToDoc(scratch, ops);
+    const committed = applyWriteOpsToDoc(live, ops);
     const expected = [{ index: 0, op: 'deleteNodes', written: true }];
     expect(preview).toEqual(expected);   // 预演测量=即将写的内容（同源最强形态）
     expect(committed).toEqual(expected);

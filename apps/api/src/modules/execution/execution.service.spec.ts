@@ -360,44 +360,51 @@ describe('ExecutionService', () => {
       collabDoc.readCanvas.mockResolvedValue({ nodes: [n2Image], edges: [] });
     };
 
-    it('happy：loading 投影+deliver+done 组批 ⇒ ≤2 写段', async () => {
+    // 下界（T12 质量收尾 I-1）：各分支「确实写」——0 写也绿=投影被误删的回归抓不住。
+    // happy 档精确 toBe(2)（loading 1+deliver 批 1）；单写档 toBeGreaterThanOrEqual(1)；
+    // replay 档封闭断言（恰一次+单写入口零调用）已含下界不动。
+    it('happy：loading 投影+deliver+done 组批 ⇒ 恰 2 写段', async () => {
       scopedToN2();
       await service.execute('p1', 'n2', 'u1');
-      expect(writeEntries()).toBeLessThanOrEqual(2);
+      expect(writeEntries()).toBe(2); // loading 1+deliver 批 1——精确两段
     });
 
-    it('plan-missing：PLAN_MISSING error 投影 ⇒ ≤2', async () => {
+    it('plan-missing：PLAN_MISSING error 投影 ⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       validation.validateAll.mockResolvedValue({
         valid: true, errors: [], totalCost: 0,
         plans: [{ nodeId: 'other', pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 5 }],
       });
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // error 投影写
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('duplicate-attempt（reserve mayCall:false→skipped 退出）⇒ ≤2', async () => {
+    it('duplicate-attempt（reserve mayCall:false→skipped 退出）⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       teamCredit.reserve.mockResolvedValue({ success: true, mayCall: false });
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+skipped 投影写
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('reserve-fail：onReserveFail error 投影 ⇒ ≤2', async () => {
+    it('reserve-fail：onReserveFail error 投影 ⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       teamCredit.reserve.mockResolvedValue({ success: false, reason: 'INSUFFICIENT_CREDITS' });
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+onReserveFail error 投影写
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('deadline（complete gated=0→VOIDED error 投影）⇒ ≤2', async () => {
+    it('deadline（complete gated=0→VOIDED error 投影）⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       intentSvc.complete.mockResolvedValue(0);
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+VOIDED error 投影写
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('node-deleted（deliver written:false→批后退款）⇒ ≤2', async () => {
+    it('node-deleted（deliver written:false→批后退款）⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
       vi.mocked(docWriter.writeBatch).mockImplementation(async (_pid: string, ops: readonly any[]) => {
@@ -405,37 +412,42 @@ describe('ExecutionService', () => {
         return ops.map((op, index) => ({ index, op: op.op, written: false, reason: 'node-deleted' }));
       });
       await service.execute('p1', undefined, 'u1', ['n2']);
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+批（written:false 仍计——已执行写段）
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('delivery-failed（B-1：writeBatch 基础设施 throw→行已 SUCCEEDED→NODE_DELIVERY_FAILED 投影）⇒ ≤2（reject 不入计）', async () => {
+    it('delivery-failed（B-1：writeBatch 基础设施 throw→行已 SUCCEEDED→NODE_DELIVERY_FAILED 投影）⇒ ≤2（reject 不入计）且 ≥1', async () => {
       scopedToN2();
       teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
       prisma.generationIntent = { findUnique: vi.fn().mockResolvedValue({ status: 'SUCCEEDED' }) };
       vi.mocked(docWriter.writeBatch).mockImplementation(async () => { throw new ServiceUnavailableException('drain'); }); // 零写入不入计
       await service.execute('p1', undefined, 'u1', ['n2']);
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+NODE_DELIVERY_FAILED 投影写（批 reject 不入计）
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('claim 过期（reanchorDeadline=0→早退零外呼）⇒ ≤2', async () => {
+    it('claim 过期（reanchorDeadline=0→早退零外呼）⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       intentSvc.reanchorDeadline.mockResolvedValue(0);
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading 投影写（claim 成功即写，先于 reanchor）
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('NodeBusy skipped（claim throw→Z99 skipped 投影）⇒ ≤2', async () => {
+    it('NodeBusy skipped（claim throw→Z99 skipped 投影）⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       intentSvc.claim.mockRejectedValue(new NodeBusyError());
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // skipped 投影写
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('通用 catch error（外呼抛错→error 投影）⇒ ≤2', async () => {
+    it('通用 catch error（外呼抛错→error 投影）⇒ ≤2 且 ≥1', async () => {
       scopedToN2();
       apiCaller.callImageGen.mockRejectedValue(new Error('boom'));
       prisma.generationIntent = { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING' }) }; // catch 段 B-1 判读（RUNNING≠SUCCEEDED→通用 catch）
       await service.execute('p1', 'n2', 'u1');
+      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+error 投影写
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 

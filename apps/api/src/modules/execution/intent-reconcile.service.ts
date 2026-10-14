@@ -509,6 +509,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     for (const p of projects) {
       try {
         const results = await this.collabWriter.writeBatch(p.id, [{ op: 'deleteExecOrphans' }]);
+        // 观测缺口登记（Y0c T12）：原直写实现 log 孤儿删除计数；改道后 WriteOpResult 形状冻结不带
+        // removed 数——存量收敛进度不可观测（开发期无用户数据存量≈0；若 Y1c 需要收敛信号，再议
+        // deleteExecOrphans 原语返回 removed 透出）。
         if (!results[0]?.written) {
           // deleteExecOrphans 无守卫域——written:false 属意外（结构防线信号，非日常路径）
           this.logger.warn(`exec-GC 项目 ${p.id} writeBatch 结果异常: ${JSON.stringify(results[0])}`);

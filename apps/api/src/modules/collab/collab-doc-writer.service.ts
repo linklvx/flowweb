@@ -100,15 +100,11 @@ export interface WriteOpResult {
  *  幂等执法面：validateWriteBatch 默认档（裁决 2·偏离 20）——进程内不产 NON_IDEMPOTENT_OP，
  *  fillDoc 种子路径合法；T27 端点（未来）另传 requireIdempotentOps:true。 */
 export function applyWriteOpsToDoc(doc: Y.Doc, ops: readonly DocWriteOp[]): WriteOpResult[] {
-  const results: WriteOpResult[] = ops.map((op, index) => ({ index, op: op.op, written: false }));
   // Z108 进门：内容校验（七码处置总表见 shared WriteBatchViolationCode——全属业务级拒绝）
   const { byIndex, batchLevel } = rejectionsOf(ops);
   if (batchLevel) {
     // 批级违规=整批拒绝零执行（拒绝非截断——逐 op 结果同携批级码，一一对应契约不破）
-    for (let i = 0; i < ops.length; i += 1) {
-      results[i] = { index: i, op: ops[i].op, written: false, reason: batchLevel.code };
-    }
-    return results;
+    return ops.map((op, index) => ({ index, op: op.op, written: false, reason: batchLevel.code }));
   }
   return applyOpsCore(doc, ops, byIndex);
 }

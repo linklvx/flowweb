@@ -286,6 +286,7 @@ export class ExecutionService {
         // `text:${content.slice(0,100)}` 截断占位，补写会截断真实产物——禁补（emit/投影照写）。
         // Y0c T12（裁决 3）：两单写合并 writeBatch 单事务（artifact 在前 done 在后——deliver+done 同序），
         // 批 throw 走 .catch(countExecProjectionFailure)——回放投影 best-effort 不挡回放。
+        // 批口径：原两写各计一次 execProjectionDropped，合并后单批计一次。
         this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
         const replayOps: DocWriteOp[] = [
           ...(claimPack.kind !== 'text' && intent.resultRef
