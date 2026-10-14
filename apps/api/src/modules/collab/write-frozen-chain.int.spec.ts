@@ -19,7 +19,7 @@ import { CollabShrinkService } from './collab-shrink.service';
 import { DOC_STATUS_REV_SEED } from '@flowweb/shared';
 
 const BIG_BYTES = 50 * 1024;
-const SHRINK_RELEASE_N_MS = 5_000;   // spec:594 <N> 具象化（int 内 recheck 直调后 broadcast 同步发出——RTT 余量上界；真实 30s 时序归 drill）
+const SHRINK_RELEASE_N_MS = 5_000;   // spec:594 <N> 具象化（int 内 thawQuota@shrink 出口广播同步发出——RTT 余量上界；真实 30s 时序归 drill）
 
 /** 连接+stateless 捕获原子化（捕获必须先于 synced——connected 钩子首快照在 sync 完成前送达） */
 function connectCaptured(kit: DualClientKit, pid: string, tag: string) {
@@ -85,7 +85,7 @@ describe('Y0b-5 T9：write-frozen 断言链 ①②A（drain 冻结+拒不物化�
 });
 
 describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→重连权威快照重放）+⑥C（shrink 解除+物化）', () => {
-  it('④C 突发大帧触发真实冻结链（freezePending 广播 over→2s 冷却实测→freezeQuota）→④b recalibrate force 定影权威快照→⑤断言B:重连首快照逐字段=权威值→⑥断言C:shrink 后 recheck 驱动 <N 秒解除+编辑放行物化对端可见', async () => {
+  it('④C 突发大帧触发真实冻结链（freezePending 广播 over→2s 冷却实测→freezeQuota）→④b recalibrate force 定影权威快照→⑤断言B:重连首快照逐字段=权威值→⑥断言C:shrink 出口即时 thaw（shrunk 判据）+编辑放行物化对端可见', async () => {
     const { kit, shrink, pid } = await startKit();
     try {
       // ④ 断线期间服务端 quota 状态翻转（docTruth/docDelta 进程内 Map 无 DB 表可 SQL 直改——机制等价形态：

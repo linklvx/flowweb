@@ -159,7 +159,7 @@
 | 5 | unsyncedDirty 置位判据 | origin!==provider（替代 plan origin==="local"——仓内本地 origin 家族实证；远端应用=provider 实例 esm:471）；unsyncedChanges 事件监听退役（唯一清零=3s tick 合取） |
 | 6 | diverged 持久化载体+boot 闩锁 | 缓存记录 diverged 布尔+boot-diverged 闩锁（suppressCacheWrites+盘上导出出口）；邻接缺口：boot-diverged 会话 escape 档导出仍走内存 doc（误导不丢数据、偶发合取——登记不修） |
 | 7 | FRAME_ALLOWANCE_BYTES | 64KB 落 shared 三方同源（web E36 断言/api SS2 闸/bytes 桶）——服务端闸 >maxDocBytes+64KB（裁定 23⑸） |
-| 8 | T9 演练三裁量 | quota bytes SQL 直改机制不存在（docTruth/docDelta=进程内 Map）→真实冻结链等价形态；shrink 解除 N=35s 具象化（spec :594 符号占位）；★shrink 即时 thaw 被 withDoc 嵌套事务挫败（truth 读 GC 前字节→30s frozenRecheck 兜底；修法已定=truth 取预演 shrunk 值——**已知缺陷待修**） |
+| 8 | T9 演练三裁量 | quota bytes SQL 直改机制不存在（docTruth/docDelta=进程内 Map）→真实冻结链等价形态；shrink 解除 N=35s 具象化（spec :594 符号占位）；★shrink 即时 thaw 被 withDoc 嵌套事务挫败（truth 读 GC 前字节→30s frozenRecheck 兜底；修法已定=truth 取预演 shrunk 值——**已根修**：2026-10-14 已由 Y0c 批片 A1 T13 根修（f3dac83d——thaw 判据改用影子预演 shrunk〔recalibrate 档维持 truth〕；write-frozen-chain.int.spec 断言翻转 thawed=false→true）） |
 | 9 | T13 四形态 | path 归一补 cuid/uuid/长数字三类（110 静态段枚举零误伤）；FAILED/VOIDED 再激活覆写 traceId（新执行段语义）；负例响应形态=HTTP 200+success:false（plan「4xx」不精确——TransformInterceptor 信封）；ai-image-edit/lighting 不接线（plan Files 边界） |
 | 10 | T16 裁量 | ★plan P1-5 升权前提过时（Y0b-3 65246587 已落升回分支——本批交付=回归锚+viewer 意图改造+census ⑪ readOnly 直写 3→2）；★分类器证据修正：Prisma 5.22 真连接失败=PrismaClientInitializationError code=undefined（P 码仅 KnownRequestError）→P1001 官方文案串回退（仅此一串）；ready 增 db-unavailable 第 9 档；isRetryableAppendError/retryPausedByCircuit 删除（零消费） |
 | 11 | T17 哨兵形态 | ★provider='smoke' 被 validation 预检拦（executableModel 谓词在 claim 前）→哨兵=真实 adapter moonshot+独立 NodeType 行 smoke:y0b5:text（用户面零可见运行时实证）；SSRF 前提核对证实：AIModel.apiUrl 全链无协议/主机白名单（执行期首步与 claim 并核结论）；text 链零产物文件（清理④产物项 N/A） |
