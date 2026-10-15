@@ -6,7 +6,6 @@ import { BannerCleanupProcessor } from './banner-cleanup.processor';
 import { PaymentSuccessProcessor } from './payment-success.processor';
 import { CloseExpiredSubOrderProcessor } from './close-expired-sub-order.processor';
 import { DailyReconProcessor } from './daily-recon.processor';
-import { SubscriptionSchedulerService } from './subscription-scheduler.service';
 import { RechargeModule } from '../../recharge/recharge.module';
 import { TeamModule } from '../../team/team.module';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
@@ -50,7 +49,8 @@ import { QUEUE_NAMES } from '../../../config/queue.constants';
     PaymentSuccessProcessor,
     CloseExpiredSubOrderProcessor,
     DailyReconProcessor,
-    SubscriptionSchedulerService,
+    // Y0c T23（Z98）：SubscriptionSchedulerService（subscription-expire/grant-credit repeatable 注册）
+    // 迁 ExecutionDaemonModule——守护与定时器装配按 COLLAB_ROLE 门控；本模块留 processor 面
   ],
 })
 export class SubscriptionTaskModule {}

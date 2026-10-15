@@ -23,6 +23,7 @@ const API_ENV = {
                               // 本地/CI 行为一致（原依赖本地真 MinIO 掩盖；CI 无 service 即启动红）
   COLLAB_LEASE_TTL_MS: '2000',      // kill/start 循环确定性：taskkill=SIGKILL 不释放租约，TTL 2s
   COLLAB_LEASE_HEARTBEAT_MS: '500', // 使重启后接管 ≤2s（HB 500 ≤ TTL/2 不变式；W17——无 FORCE，env 已删）
+  COLLAB_ROLE: 'all',               // Z67②：门禁单进程形态——daemon+processor 同进程全装配（exec-smoke 消费面）
 };
 
 /** TCP 端口可连（有监听者）探测 */

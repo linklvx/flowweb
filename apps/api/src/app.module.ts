@@ -15,6 +15,7 @@ import { TelemetryThrottlerGuard } from './modules/collab/telemetry.controller';
 import { AdminModule } from './modules/admin/admin.module';
 import { CreditModule } from './modules/credit/credit.module';
 import { ExecutionModule } from './modules/execution/execution.module';
+import { ExecutionDaemonModule } from './modules/execution/execution-daemon.module';
 import { TemplateModule } from './modules/template/template.module';
 import { AuthModule } from './auth/auth.module';
 import { SubscriptionModule } from './modules/subscription/subscription.module';
@@ -67,6 +68,10 @@ const env = validateEnv();
     AdminModule,
     CreditModule,
     ExecutionModule,
+    // Y0c T23（Z98）：守护与定时器装配面（IntentReconcileService 双 timer+temp-cleanup/
+    // subscription-task repeatable）——register() 内读 COLLAB_ROLE 门控（api|all 装配/worker 空）。
+    // 装饰器元数据求值在 :42 validateEnv() 之后⇒非法 role 已 fail-fast 先死，此处只见合法值
+    ExecutionDaemonModule.register(),
     MinioModule,
     StorageModule,
     TemplateModule,

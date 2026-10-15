@@ -15,6 +15,7 @@ import { installProcessErrorGuards } from './bootstrap/guard';
 import { scrubEvent, resolveSentryRelease } from './utils/sentry-scrub';
 import { requestTraceMiddleware } from './middleware/request-trace.middleware';
 import { httpRedMiddleware } from './middleware/http-red.middleware';
+import { collabRoleInfo } from './modules/collab/store.metrics';
 
 /**
  * 白名单：允许 DB SystemSetting 覆盖 process.env 的 key。
@@ -74,6 +75,15 @@ async function bootstrap() {
   await preloadDbConfig();
 
   const env = validateEnv();
+
+  // Y0c T23（Z67③）：进程角色观测——引导层单点（与 setDefaultLabels 同区）。gauge 值恒 1，
+  // role 标签携带值；worker 侧 main-worker.ts 引导归 T26。dev 下 role=api 打 WARN：本地单进程
+  // 开发需显式 COLLAB_ROLE=all（processor 注册门落 T25/T26 后，api 角色进程不装配消费面）。
+  collabRoleInfo.set({ role: env.COLLAB_ROLE }, 1);
+  console.log(JSON.stringify({ event: 'process_role', role: env.COLLAB_ROLE }));
+  if (env.COLLAB_ROLE === 'api' && env.NODE_ENV !== 'production') {
+    console.warn('[Role] 本进程不消费队列——本地开发需 COLLAB_ROLE=all');
+  }
 
   // Sentry init — optional, must NOT block application startup
   try {

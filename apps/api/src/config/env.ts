@@ -26,6 +26,13 @@ export const EXEC_DEFAULTS = {
   SYNC_HARD_CAP: 1_800_000,
 } as const;
 
+/** Y0c T23（Z48/Z67/Z98）：COLLAB_ROLE 词汇表与默认值单源常量——zod .default 与装配点
+ *  （ExecutionDaemonModule.register 读值 fallback）共用本常量防双源（P3，EXEC_DEFAULTS 同款纪律）。
+ *  默认 api=安全方向（worker 漏设 role⇒不消费；反向「漏设变 all 抢 3001」永不发生）。 */
+export const COLLAB_ROLE_VALUES = ['api', 'worker', 'all'] as const;
+export type CollabRole = (typeof COLLAB_ROLE_VALUES)[number];
+export const COLLAB_ROLE_DEFAULT: CollabRole = 'api';
+
 /** 全局不变式（superRefine）挂在本 schema 之上的 envSchemaValidated（Y0b-3 T1 P-R）——
  *  本体保持 ZodObject（collab-env-single-source 结构锚读 .shape）；validateEnv 只消费 refined 版。 */
 export const envSchema = z.object({
@@ -89,6 +96,11 @@ export const envSchema = z.object({
   // Y0a-4（P25）：绑定面收窄——reader 在 gateway listen 配置（键随读者同批收口，防 T1 结构锚方向二死键红）。
   // 默认缺省=0.0.0.0 不变；ecosystem 未来注入 127.0.0.1（nginx 同机唯一合法路径）。
   COLLAB_BIND_ADDR: z.preprocess(blankToUnset, z.string().min(1).optional()),
+  // Y0c T23（Z48/Z89）：进程角色键——分叉键（生产只经 ecosystem env 块按 app 注入 api/worker，
+  // 禁入服务器 .env 本体）；非法值 fail-fast 拒启（spec :693）。默认值=COLLAB_ROLE_DEFAULT 单源常量
+  // （上方——装配点读值 fallback 同引防双源）。消费点=ExecutionDaemonModule.register（第四面：
+  // 守护与定时器装配）+main.ts 引导层观测。
+  COLLAB_ROLE: z.preprocess(blankToUnset, z.enum(COLLAB_ROLE_VALUES).default(COLLAB_ROLE_DEFAULT)),
 
   // Y0b-3 T1（§0.3 表十键一次注册——消费点随后续 Task 落地，单源结构锚 EXEMPT 表登记）：
   // zod 只验形态不写 default（默认值落使用点——防双源 P3 同款）；读点按【字面量】process.env 直读纪律。

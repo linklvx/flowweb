@@ -1050,3 +1050,13 @@ export function sampleEventLoopLag(): void {
 }
 const eventLoopLagTimer = setInterval(sampleEventLoopLag, EVENT_LOOP_LAG_SAMPLE_INTERVAL_MS);
 eventLoopLagTimer.unref();   // 不阻进程退出（Nest 关停/vitest 收尾）
+
+/** Y0c T23（Z67③）：进程角色 info 型 gauge——值恒 1，role 标签携带 COLLAB_ROLE 值
+ *  （api/worker/all）。set 点=main.ts 引导层（单点；worker 侧 main-worker 归 T26）——
+ *  单进程 all 与生产 api/worker 分进程形态在 /metrics 读数上可区分。 */
+export const collabRoleInfo = new Gauge({
+  name: 'collab_role_info',
+  help: '进程角色（COLLAB_ROLE=api|worker|all；info 型 gauge 恒 1，role 标签携带值——set 点在 main.ts 引导层）',
+  labelNames: ['role'],
+  registers: [register],
+});
