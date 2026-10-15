@@ -402,13 +402,11 @@ describe('AiImageEditProcessor', () => {
       );
     });
 
-    it('failed 钩子（SIGKILL 兜底）：findByActiveNode(job.id) 反查 → writeExecStatus + fail(jobId 限定)', async () => {
+    it('failed 钩子（SIGKILL 兜底，Y0c T28/Z41 拆两半）：findByActiveNode(job.id) 反查 → fail(jobId 限定)——PG 半；writeExecStatus 零调用（投影半归 api 最终一致链）', async () => {
       intentService.findByActiveNode.mockResolvedValue({ id: 'row-9' });
       const job = { ...makeIntentJob(), id: 'job-9' };
       await processor.onFailed(job as any, new Error('worker killed'));
-      expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
-        'proj1', 'node1', expect.objectContaining({ status: 'error', intentId: 'i-9' }),
-      );
+      expect(collabDoc.writeExecStatus).not.toHaveBeenCalled(); // Z41：投影不走 worker 失败钩子（重连 alignExecFromIntents+reconcile 收敛）
       expect(intentService.findByActiveNode).toHaveBeenCalledWith('proj1', 'node1', 'job-9'); // Z27：jobId 限定
       expect(intentService.fail).toHaveBeenCalledWith('row-9', 'worker killed', 'job-9');
     });

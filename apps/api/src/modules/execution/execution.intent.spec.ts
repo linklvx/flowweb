@@ -308,7 +308,9 @@ describe('Y0b-2 T1（Z109）：组执行 token 整批施加——全节点同 ge
 /** 装置：processor 直构（构造器序对齐 execution.processor.ts：(executionService, collabDoc, intentService)）。
  *  onFailed 形态按 bullmq Worker 'failed' 实际签名（job, error, prev）位置参数——
  *  @nestjs/bullmq explorer 直绑 worker.on（banner-cleanup.processor.ts:17 先例）。
- *  Y0b-1（N4）：intentRowId 从不入队（死代码）——failed 钩子凭 findByActiveNode 反查在飞行。 */
+ *  Y0b-1（N4）：intentRowId 从不入队（死代码）——failed 钩子凭 findByActiveNode 反查在飞行。
+ *  Y0c T28（Z41）：钩子拆两半——worker 只做 PG 半（意图终态化）；exec 投影半移交 api 既有
+ *  最终一致链（用户重连 alignExecFromIntents 拉取 GET intents 对齐+reconcile 装载自检）。 */
 function makeProcessor() {
   const executionService = { execute: vi.fn() };
   const collabDoc = { writeExecStatus: vi.fn().mockResolvedValue(undefined) };
@@ -321,32 +323,31 @@ function makeProcessor() {
   return { p, collabDoc, intentService };
 }
 
-describe('批0.5-6 processor failed 钩子（SIGKILL 终态兜底——exec map + 意图反查 fail）', () => {
-  it('failed → writeExecStatus(error, running.intentId) + findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)（T6：投影 intentId=行身份——旧 job.data 手势 token 位语义错位修正）', async () => {
+describe('processor failed 钩子（Y0c T28/Z41 拆两半——PG 半意图终态化留 worker；exec 投影半归 api 最终一致链）', () => {
+  it('failed → findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)（PG 半）；writeExecStatus 零调用（投影半移交 api——重连 alignExecFromIntents+reconcile 收敛）', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
     intentService.findByActiveNode.mockResolvedValue({ id: 'row-1', intentId: 'row-uuid-9' });
     const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await p.onFailed(job as any, new Error('worker died'));
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error', intentId: 'row-uuid-9', error: 'worker died' }));
     expect(intentService.findByActiveNode).toHaveBeenCalledWith('p1', 'n1', 'job-1'); // Z27：jobId 限定
     expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died', 'job-1');
+    expect(collabDoc.writeExecStatus).not.toHaveBeenCalled(); // Z41：投影不走 worker 失败钩子
   });
 
-  it('findByActiveNode null（无在飞意图——reconcile 已回收或本 job 已终态）→ 只写 exec map', async () => {
+  it('findByActiveNode null（无在飞意图——reconcile 已回收或本 job 已终态）→ 零投影零 fail', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
     const job = { id: 'job-2', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await p.onFailed(job as any, new Error('x'));
-    expect(collabDoc.writeExecStatus).toHaveBeenCalled();
+    expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();
     expect(intentService.fail).not.toHaveBeenCalled();
   });
 
-  it('writeExecStatus 抛错 → 整函数兜底吸收，反查 fail 照走（Z 终裁 P14：钩子绝不外抛 unhandledRejection）', async () => {
-    const { p, collabDoc, intentService } = makeProcessor();
-    collabDoc.writeExecStatus.mockRejectedValue(new Error('doc down'));
+  it('intentService.fail 抛错 → 整函数兜底吸收不外抛（Z 终裁 P14：钩子绝不外抛 unhandledRejection——拆分后 PG 半同样适用）', async () => {
+    const { p, intentService } = makeProcessor();
     intentService.findByActiveNode.mockResolvedValue({ id: 'row-1' });
+    intentService.fail.mockRejectedValue(new Error('pg down'));
     const job = { id: 'job-3', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await expect(p.onFailed(job as any, new Error('x'))).resolves.toBeUndefined();
-    expect(intentService.fail).toHaveBeenCalledWith('row-1', 'x', 'job-3');
   });
 
   it('无 projectId/nodeId → 早退零写', async () => {

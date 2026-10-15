@@ -1,7 +1,8 @@
 // apps/api/src/modules/execution/exec-projection-failure.spec.ts
-// Y0c T0（Z3）：collab_exec_projection_failed_total{cause}——14 处 .catch(()=>{}) 吞错点观测
-//（不改策略只加计数；cause=CollabAuthReason 词表∪not-serving∪other 有界词表——Z136④ 14 处：
-//  execution.service 11+execution.processor 1+ai-image-edit.processor 2）。
+// Y0c T0（Z3）：collab_exec_projection_failed_total{cause}——吞错点观测
+//（不改策略只加计数；cause=CollabAuthReason 词表∪not-serving∪other 有界词表——Z136④ 原口径 14 处；
+//  Y0c T28（Z41）拆两半后 12 处：execution.service 11+ai-image-edit.processor process catch 1——
+//  两 worker failed 钩子投影半移交 api 最终一致链，不再是吞错点）。
 // 直构形态=各 service 构造器全 mock 依赖（onReserveFail/onFailed 白盒直调）。
 import { describe, it, expect, vi } from 'vitest';
 import { register } from 'prom-client';
@@ -53,30 +54,34 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
     expect(emitNodeStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('execution.processor onFailed：投影 reject 吞错计数+1（cause=other）∧意图终态照达（P14 兜底不外抛）', async () => {
+  it('execution.processor onFailed（Y0c T28/Z41 拆两半）：钩子零投影写——计数零增 ∧意图终态照达（P14 兜底不外抛）', async () => {
     const fail = vi.fn().mockResolvedValue(undefined);
+    const writeExecStatus = vi.fn().mockRejectedValue(new Error('doc gone'));
     const proc = new ExecutionProcessor(
       {} as any,
-      { writeExecStatus: vi.fn().mockRejectedValue(new Error('doc gone')) } as any,
+      { writeExecStatus } as any,
       { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-1', attempts: 1, intentId: 'i1' }), fail } as any,
     );
     const d = await causeDelta('other', () =>
       proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('job boom')));
-    expect(d).toBe(1);
+    expect(d).toBe(0);   // 投影半移交 api 最终一致链——worker 失败钩子不再是吞错点
+    expect(writeExecStatus).not.toHaveBeenCalled();
     expect(fail).toHaveBeenCalledWith('intent-1', 'job boom', undefined);
   });
 
-  it('ai-image-edit.processor onFailed：投影 reject 吞错计数+1（cause=not-serving）∧意图终态照达', async () => {
+  it('ai-image-edit.processor onFailed（Y0c T28/Z41 拆两半）：钩子零投影写——计数零增 ∧意图终态照达', async () => {
     const fail = vi.fn().mockResolvedValue(undefined);
+    const writeExecStatus = vi.fn().mockRejectedValue(new ServiceUnavailableException('doc-vacuuming'));
     const proc = new AiImageEditProcessor(
       {} as any, {} as any, {} as any, {} as any, {} as any,
-      { writeExecStatus: vi.fn().mockRejectedValue(new ServiceUnavailableException('doc-vacuuming')) } as any,   // collabDoc
+      { writeExecStatus } as any,   // collabDoc
       {} as any,                                                                                                 // lightingConsumer
       { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-2', attempts: 0 }), fail } as any,             // intentService
     );
     const d = await causeDelta('not-serving', () =>
       proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('edit boom')));
-    expect(d).toBe(1);
+    expect(d).toBe(0);   // 投影半移交 api 最终一致链——worker 失败钩子不再是吞错点
+    expect(writeExecStatus).not.toHaveBeenCalled();
     expect(fail).toHaveBeenCalledWith('intent-2', 'edit boom', undefined);
   });
 });

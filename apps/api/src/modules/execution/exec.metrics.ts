@@ -102,14 +102,16 @@ export const execProjectionDeferredTotal = new Counter({
   registers: [register],
 });
 
-/** Y0c T0（Z3）：执行链投影写失败计数——14 处 `.catch(()=>{})` 吞错点加观测不改策略
- *  （Z136④ 口径：execution.service 11+execution.processor 1+ai-image-edit.processor 2；B3 清单逐点实测核对）。
+/** Y0c T0（Z3）：执行链投影写失败计数——吞错点加观测不改策略
+ *  （Z136④ 原口径 14 处：execution.service 11+execution.processor 1+ai-image-edit.processor 2；
+ *  Y0c T28（Z41）拆两半后 12 处=execution.service 11+ai-image-edit.processor process catch 1——
+ *  两 worker failed 钩子投影半移交 api 最终一致链，不再是吞错点）。
  *  cause 有界词表：CollabAuthReason 词表（带 reason 抛错形态——lease-not-ready/db-unavailable/
  *  server-overloaded/invalid-doc-name/schema-outdated 等）∪ not-serving（503 SUE 无 reason 形态——
  *  租约失守/真空窗/spool 熔断，双进程后从罕见变常态的族）∪ other。 */
 export const collabExecProjectionFailedTotal = new Counter({
   name: 'collab_exec_projection_failed_total',
-  help: '执行链投影写失败计数（14 处 .catch(()=>{}) 吞错点加观测不改策略；cause=CollabAuthReason 词表/not-serving 503 族/other）',
+  help: '执行链投影写失败计数（12 处 .catch(()=>{}) 吞错点加观测不改策略——T28 拆两半后口径；cause=CollabAuthReason 词表/not-serving 503 族/other）',
   labelNames: ['cause'],
   registers: [register],
 });

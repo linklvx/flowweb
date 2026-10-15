@@ -5,7 +5,6 @@ import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
-import { countExecProjectionFailure } from './exec.metrics';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 
 /** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
@@ -57,8 +56,9 @@ export class ExecutionProcessor extends WorkerHost {
    *  Y0b-1（§1.3/N4）：intentRowId 从不入队（死代码）——改凭 partial unique
    *  generation_intent_active_node_unique 反查在飞行：付费意图悬空从 15min 压到 worker failed 即时。
    *  Z27：jobId 限定——迟到的失败钩子只 fail 本 job 自己的在飞意图（同节点新活意图归属不同 job）。
-   *  Y0b-2 T5（Z111）：换序——先 findByActiveNode 后写投影（原"先写后查"拿不到 attempts，
-   *  守卫 fail-closed 会拦无代次投影）；投影携 running?.attempts ?? 0（0 代不得覆盖任何 ≥1 代）。
+   *  Y0c T28（Z41）拆两半：worker 只做 PG 半（intentService.fail 意图终态化——GenerationIntentService
+   *  只依赖 Prisma+Redis=worker 可安全持有）；exec 投影半移交 api 既有最终一致链——用户重连
+   *  alignExecFromIntents 拉取 GET intents 对齐+reconcile 装载自检（零新增 Redis 连接、零跨进程事件丢失面）。
    *  Z 终裁（P14）：未 await 钩子抛错=unhandledRejection=进程退出——整函数兜底，绝不外抛。 */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<any> | undefined, err: Error) {
@@ -68,12 +68,6 @@ export class ExecutionProcessor extends WorkerHost {
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
-      await this.collabDoc.writeExecStatus(projectId, nodeId, {
-        status: 'error', error: reason.slice(0, 200), attempts: running?.attempts ?? 0,
-        errorCode: 'WORKER_FAILED',
-        // Y0b-2 T6：投影 intentId=行身份（running 行的 intentId 非客户端手势 token——旧 job.data.intentId 位语义错位随改名修正）
-        ...(running?.intentId ? { intentId: running.intentId } : {}),
-      }).catch(countExecProjectionFailure); // best-effort——doc 写失败不挡意图终态（Y0c T0：吞错加观测）
       if (running) await this.intentService.fail(running.id, reason, job.id);
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);

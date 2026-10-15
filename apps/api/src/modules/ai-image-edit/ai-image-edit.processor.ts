@@ -284,22 +284,18 @@ export class AiImageEditProcessor extends WorkerHost {
    *  job 可为 undefined（移除中）。lighting job 同队列共用本钩子。
    *  Y0b-1（§1.3/N4/Z27）：intentRowId 从不入队（死代码）——改凭 partial unique 反查在飞行，
    *  jobId 限定防迟到钩子误杀 rearm 换 job 的新活意图。
-   *  Y0b-2 T5（Z111）：换序——先 findByActiveNode 后写投影（原"先写后查"拿不到 attempts，
-   *  守卫 fail-closed 拦无代次投影）；投影携 running?.attempts ?? 0。
+   *  Y0c T28（Z41）拆两半：worker 只做 PG 半（intentService.fail 意图终态化——GenerationIntentService
+   *  只依赖 Prisma+Redis=worker 可安全持有）；exec 投影半移交 api 既有最终一致链——用户重连
+   *  alignExecFromIntents 拉取 GET intents 对齐+reconcile 装载自检（零新增 Redis 连接、零跨进程事件丢失面）。
    *  Z 终裁（P14）：整函数兜底绝不外抛。 */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<AiImageEditJobData> | undefined, err: Error) {
     try {
       if (!job) return;
-      const { projectId, nodeId, intentId } = job.data ?? {};
+      const { projectId, nodeId } = job.data ?? {};
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
-      await this.collabDoc.writeExecStatus(projectId, nodeId, {
-        status: 'error', error: reason.slice(0, 200), attempts: running?.attempts ?? 0,
-        errorCode: 'WORKER_FAILED',
-        ...(intentId ? { intentId } : {}),
-      }).catch(countExecProjectionFailure); // best-effort——doc 写失败不挡意图终态（Y0c T0：吞错加观测）
       if (running) await this.intentService.fail(running.id, reason, job.id); // ACTIVE 守卫幂等——与 process catch 双写不冲突
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);
