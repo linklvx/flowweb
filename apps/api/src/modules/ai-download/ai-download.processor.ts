@@ -6,7 +6,7 @@ import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { StorageQuotaService } from '../team/storage-quota.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { artifactDiscardedTotal } from '../execution/exec.metrics';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import axios from 'axios';
@@ -29,7 +29,7 @@ export class AiDownloadProcessor extends WorkerHost {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
-    @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
+    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 2 调用点改道 emit 端口（api=Direct/worker=降级 no-op）
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
   ) {
@@ -85,7 +85,7 @@ export class AiDownloadProcessor extends WorkerHost {
       await this.collabDoc.writeNodeData(projectId, nodeId, {
         errorCode: 'storage_quota_exceeded',
       });
-      this.gateway.emitNodeStatus(projectId, {
+      this.emitPort.emitNodeStatus(projectId, {
         nodeId,
         status: 'error',
         error: '存储空间不足：请清理素材或升级团队订阅',
@@ -122,7 +122,7 @@ export class AiDownloadProcessor extends WorkerHost {
       return { status: 'completed', fileId: media.id };
     }
 
-    this.gateway.emitNodeStatus(projectId, {
+    this.emitPort.emitNodeStatus(projectId, {
       nodeId,
       status: 'done',
       fileId: media.id,

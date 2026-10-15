@@ -5,7 +5,7 @@ import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { StorageQuotaService } from '../team/storage-quota.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { Job } from 'bullmq';
 
 // Mock axios
@@ -52,7 +52,7 @@ describe('AiDownloadProcessor', () => {
         AiDownloadProcessor,
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
-        { provide: ExecutionGateway, useValue: gateway },
+        { provide: EmitPort, useValue: gateway },
         { provide: CollabWritePort, useValue: collabDoc },
         { provide: StorageQuotaService, useValue: quota },
       ],

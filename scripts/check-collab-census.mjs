@@ -932,6 +932,9 @@ if (isMain()) {
     'apps/api/src/modules/execution/execution-daemon.module.ts': {   // Y0c T23（Z98）：register() 方法体内读+?? COLLAB_ROLE_DEFAULT 单源常量 fallback——动态模块装配期（useFactory 族同形态，Z79 边界①）；T34 收编 env 单源
       COLLAB_ROLE: { n: 1, until: 'T34' },
     },
+    'apps/api/src/modules/execution/execution.module.ts': {   // Y0c T24（Z101）：EmitPort useFactory 容器装配期读+?? COLLAB_ROLE_DEFAULT fallback——T23 register 同形态；T34 收编 env 单源
+      COLLAB_ROLE: { n: 1, until: 'T34' },
+    },
     'apps/api/src/modules/execution/intent-key.util.ts': {   // 全部〔M〕:42-47 模块级 const 族
       EXEC_DEADLINE_TEXT_MS: { n: 1, until: 'T34' },
       EXEC_DEADLINE_IMAGE_MS: { n: 1, until: 'T34' },

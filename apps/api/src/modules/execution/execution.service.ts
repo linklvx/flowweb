@@ -6,7 +6,7 @@ import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { isExecutableNode } from './is-executable-node';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -66,7 +66,7 @@ export class ExecutionService {
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(CollabDocWriterService) private readonly docWriter: CollabDocWriterService,   // Y0c T8：deliver+done 组批写门面（首个调用方——其余消费点 T13b 统一改道）
-    @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
+    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 8 调用点改道 emit 端口（api=Direct 委托 gateway/worker=降级 no-op）
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
   ) {}
@@ -125,7 +125,7 @@ export class ExecutionService {
    *  FAILED=外呼失败且冻结已退；VOIDED=从未扣费）+ WS error + exec map error（best-effort）。 */
   private async onReserveFail(projectId: string, node: any, intent: any, msg: string, errorCode: string) {
     await this.intentService.void_(intent.id, msg);
-    this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
+    this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
     await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, msg, intent.attempts ?? 0, (intent.attempts ?? 0) < 3, intent.intentId)).catch(countExecProjectionFailure);
   }
 
@@ -228,7 +228,7 @@ export class ExecutionService {
     // 加了会把 504"回执丢失"退化成"工作丢失但仍扣费"；断连恢复对齐归 exec 投影/intents 读面。
     for (const node of orderedNodes) {
       if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行（批5-1 删信箱后无影子直调例外——regenerate 直连真实节点，白名单单判据）
-      this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
+      this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
       await this.runNodeLifecycle({
         projectId, node, userId, gestureToken: intentId, jobId, traceId,
         teamId: project.teamId, planMap, styleTextOf,
@@ -287,7 +287,7 @@ export class ExecutionService {
         // Y0c T12（裁决 3）：两单写合并 writeBatch 单事务（artifact 在前 done 在后——deliver+done 同序），
         // 批 throw 走 .catch(countExecProjectionFailure)——回放投影 best-effort 不挡回放。
         // 批口径：原两写各计一次 execProjectionDropped，合并后单批计一次。
-        this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
+        this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
         const replayOps: DocWriteOp[] = [
           ...(claimPack.kind !== 'text' && intent.resultRef
             ? [{
@@ -348,7 +348,7 @@ export class ExecutionService {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
         await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('INTENT_DEADLINE_EXCEEDED', '生成已被系统回收（超时）——产物未投递', attempts, attempts < 3, intent.intentId)).catch(countExecProjectionFailure);
-        this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）' });
+        this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）' });
         errors.push({ nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
         return;
       }
@@ -382,7 +382,7 @@ export class ExecutionService {
         const rolled = await this.teamCredit.rollbackDeliveryFailed(intent.id, '交付失败：节点已删（written:false）')
           .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
         this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 节点已删（${deliver.reason}）——rollbackDeliveryFailed=${rolled}`);
-        this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
+        this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
         errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELETED' });
         return;
       }
@@ -400,7 +400,7 @@ export class ExecutionService {
       }
       const bal = await Promise.resolve(this.teamCredit.getBalanceView(teamId, userId))
         .catch(() => null);
-      this.gateway.emitNodeStatus(projectId, {
+      this.emitPort.emitNodeStatus(projectId, {
         nodeId: node.id, status: 'done', ...(outcome.fileId ? { fileId: outcome.fileId } : {}), credits: bal ? this.balancePayload(bal) : undefined,
       });
     } catch (err: any) {
@@ -422,7 +422,7 @@ export class ExecutionService {
             .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} B-1 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
           this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} settle 后交付抛错（行已 SUCCEEDED）——rollbackDeliveryFailed=${rolled}`);
           await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELIVERY_FAILED', msg, attempts, attempts < 3, claimed.intentId)).catch(countExecProjectionFailure);
-          this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
+          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
           errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELIVERY_FAILED' });
           return;
         }
@@ -443,7 +443,7 @@ export class ExecutionService {
       const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
       const rearmable = err instanceof IntentExhaustedError ? false : attempts < 3; // INTENT_EXHAUSTED：rearmable:false（轮换判据单源）
       await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, err?.message ?? err, attempts, rearmable, claimed?.intentId)).catch(countExecProjectionFailure); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
-      this.gateway.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err?.message ?? String(err) });
+      this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err?.message ?? String(err) });
       errors.push({ nodeId: node.id, status: 'error', error: String(err?.message ?? err), errorCode });
     }
   }

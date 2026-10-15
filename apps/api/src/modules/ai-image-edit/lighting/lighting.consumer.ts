@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
-import { ExecutionGateway } from '../../gateway/execution.gateway';
+import { EmitPort } from '../../gateway/emit.port';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
@@ -77,7 +77,7 @@ export class LightingConsumer {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
-    @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
+    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 2 调用点改道 emit 端口（api=Direct/worker=降级 no-op）
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
@@ -218,7 +218,7 @@ export class LightingConsumer {
           return { status: 'completed', fileId: media.id };
         }
       }
-      this.gateway.emitNodeStatus(projectId || '', {
+      this.emitPort.emitNodeStatus(projectId || '', {
         nodeId,
         status: 'lighting-result',
         fileId: media.id,
@@ -251,7 +251,7 @@ export class LightingConsumer {
       });
 
       // Push failure via WebSocket
-      this.gateway.emitNodeStatus(projectId || '', {
+      this.emitPort.emitNodeStatus(projectId || '', {
         nodeId,
         status: 'lighting-failed',
         error: error.message,

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LightingConsumer } from './lighting.consumer';
 import { MinioService } from '../../minio/minio.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ExecutionGateway } from '../../gateway/execution.gateway';
+import { EmitPort } from '../../gateway/emit.port';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
@@ -61,7 +61,7 @@ describe('LightingConsumer', () => {
         LightingConsumer,
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
-        { provide: ExecutionGateway, useValue: gateway },
+        { provide: EmitPort, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabWritePort, useValue: collabDoc },

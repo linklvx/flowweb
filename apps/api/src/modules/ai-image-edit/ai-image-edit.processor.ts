@@ -4,7 +4,7 @@ import { Inject, Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
@@ -46,7 +46,7 @@ export class AiImageEditProcessor extends WorkerHost {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
-    @Inject(ExecutionGateway) private readonly gateway: ExecutionGateway,
+    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 3 调用点改道 emit 端口（api=Direct/worker=降级 no-op）
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
@@ -119,7 +119,7 @@ export class AiImageEditProcessor extends WorkerHost {
         const reason = reserveResult.reason ?? 'RESERVE_FAILED';
         this.logger.warn(`Edit credit-reserve failed for node ${nodeId}: ${reason}`);
         await this.intentService.void_(intentRowId, `扣费失败：${reason}`); // 零扣费终态——重试照常扣费
-        this.gateway.emitNodeStatus(projectId, {
+        this.emitPort.emitNodeStatus(projectId, {
           nodeId,
           status: 'edit-failed',
           error: `扣费失败：${reason}`,
@@ -235,7 +235,7 @@ export class AiImageEditProcessor extends WorkerHost {
         this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 已删——产物 ${media.id} 丢弃（nodeAlive 守卫）`);
         return { status: 'completed', fileId: media.id };
       }
-      this.gateway.emitNodeStatus(projectId, {
+      this.emitPort.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-result',
         fileId: media.id,
@@ -268,7 +268,7 @@ export class AiImageEditProcessor extends WorkerHost {
       }
 
       // Push failure via WebSocket — do NOT deduct credit on failure
-      this.gateway.emitNodeStatus(projectId, {
+      this.emitPort.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-failed',
         error: error.message,

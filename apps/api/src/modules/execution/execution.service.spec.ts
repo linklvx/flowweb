@@ -7,7 +7,7 @@ import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabWritePort } from '../collab/collab-write.port';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { GenerationIntentService } from './generation-intent.service';
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -102,7 +102,7 @@ describe('ExecutionService', () => {
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: CollabWritePort, useValue: collabDoc },
         { provide: CollabDocWriterService, useValue: docWriter },
-        { provide: ExecutionGateway, useValue: gateway },
+        { provide: EmitPort, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: GenerationIntentService, useValue: intentSvc },
       ],
