@@ -607,15 +607,27 @@ if (isMain()) {
 
   // ⑳setDefaultLabels 引导层单点（Y0c T0 Z138 A 结构断言）：prom-client register 是进程级单例且
   //  clear() 连清 _defaultLabels（di-smoke.int.spec 既有 clear+注释自陈 isolate 前提——模块级调用的
-  //  效果会被后续用例的 clear 静默消灭）。全仓恰 1 调用点且必须位于 main.ts 引导序列；main-worker.ts
-  //  尚不存在（T26/T29 落地时同批扩白名单）。先红构造=把调用点放 store.metrics.ts 顶层⇒红。
+  //  效果会被后续用例的 clear 静默消灭）。调用点=main.ts+main-worker.ts 两引导序列各恰 1（Y0c T26
+  //  兑现 T0 注释预告「main-worker.ts 落地时同批扩白名单」/spec §0.6 偏离 34——双进程各单点，模块级
+  //  调用禁入不变）。先红构造=把调用点放 store.metrics.ts 顶层⇒红。
   {
+    const BOOTSTRAP_SETLABELS_FILES = {
+      'apps/api/src/main.ts': 1,
+      'apps/api/src/main-worker.ts': 1,
+    };
     const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) =>
       /setDefaultLabels\s*\(/.test(l) ? 'call' : null));
-    const nonBoot = hits.filter((h) => h.file !== 'apps/api/src/main.ts');
-    report('⑳', 'setDefaultLabels 恰 1 调用点且位于 main.ts 引导序列（Z138 A——模块级调用禁入）', hits.length === 1 && nonBoot.length === 0,
-      [...nonBoot.map((h) => `引导层外命中 ${h.file}:${h.line} ${h.text}`),
-       ...(hits.length !== 1 ? [`调用点 ${hits.length} 处（期望恰 1——main.ts 引导序列）`] : [])]);
+    const details = [];
+    const byFileCount = {};
+    for (const h of hits) byFileCount[h.file] = (byFileCount[h.file] ?? 0) + 1;
+    for (const [f, n] of Object.entries(byFileCount)) {
+      if (!(f in BOOTSTRAP_SETLABELS_FILES)) details.push(`引导层外命中 ${f} ×${n}（Z138 模块级禁入）`);
+      else if (n !== BOOTSTRAP_SETLABELS_FILES[f]) details.push(`${f} 调用点 ${n} 处（期望恰 ${BOOTSTRAP_SETLABELS_FILES[f]}）`);
+    }
+    for (const f of Object.keys(BOOTSTRAP_SETLABELS_FILES)) {
+      if (!byFileCount[f]) details.push(`引导文件 ${f} 缺 setDefaultLabels 调用（清单需同步）`);
+    }
+    report('⑳', 'setDefaultLabels 两引导序列各恰 1（main.ts+main-worker.ts——Z138 A 双进程形态，模块级禁入）', details.length === 0, details);
   }
 
   // ⑭withDoc 全枚举（Y0c T2，B4 v2 形态）：生产代码每个 .withDoc( 调用点都必须在登记清单
@@ -1011,6 +1023,21 @@ if (isMain()) {
       WECHAT_PAY_PUBLIC_KEY_ID: { n: 1, until: 'T34' },
       WECHAT_PAY_PUBLIC_KEY: { n: 3, until: 'T34' },     // 〔M〕:79 一处 module-level
       WECHAT_PAY_MERCHANT_CERT: { n: 2, until: 'T34' },
+    },
+    // Y0c T26 新增读点（worker 面）：worker.module PAYMENT_PROVIDER 工厂=recharge.module 同款
+    // verbatim（close-expired/active-query 消费面）；guard 读 token=collab-admin-auth 同款形态。
+    'apps/api/src/worker.module.ts': {
+      WECHAT_PAY_APP_ID: { n: 2, until: 'T34' },
+      WECHAT_PAY_MCH_ID: { n: 1, until: 'T34' },
+      WECHAT_PAY_API_V3_KEY: { n: 1, until: 'T34' },
+      WECHAT_PAY_MERCHANT_SERIAL_NO: { n: 1, until: 'T34' },
+      WECHAT_PAY_PRIVATE_KEY: { n: 1, until: 'T34' },
+      WECHAT_PAY_PUBLIC_KEY_ID: { n: 1, until: 'T34' },
+      WECHAT_PAY_PUBLIC_KEY: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/worker-write-auth.guard.ts': {
+      WORKER_WRITE_TOKEN: { n: 1, until: 'T34' },
+      NODE_ENV: { n: 1, until: 'T34' },
     },
     'apps/api/src/modules/sms/sms.service.ts': {
       TENCENT_SMS_SECRET_ID: { n: 1, until: 'T34' },
