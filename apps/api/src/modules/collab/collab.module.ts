@@ -12,6 +12,7 @@ import { CollabReadyController } from './collab-ready.controller';
 import { CollabReadyService } from './collab-ready.service';
 import { CollabDocController } from './collab-doc.controller';
 import { CollabReadController } from './collab-read.controller';
+import { CollabWriteController } from './collab-write.controller';
 import { CollabShrinkService } from './collab-shrink.service';
 import { TelemetryController } from './telemetry.controller';
 import { TelemetryService } from './telemetry.service';
@@ -23,7 +24,7 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
 
 @Module({
   imports: [TeamModule, CanvasModule],
-  controllers: [CollabReadyController, CollabDocController, CollabReadController, TelemetryController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）
+  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点
   providers: [
     { provide: 'COLLAB_PORT', useValue: Number(process.env.COLLAB_PORT) || 3001 },
     { provide: 'COLLAB_DEBOUNCE', useValue: resolveCollabDebounce() },   // 批3-4：dev 1000/prod 2000（env COLLAB_DEBOUNCE 可调；原 5000）

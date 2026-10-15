@@ -83,9 +83,10 @@ export class DirectCollabWritePort extends CollabWritePort {
 // 方法面落法（spec :538「worker 侧消费面实测」裁定）：真走 HTTP=writeNodeData/writeExecStatus（Z99 主对象）
 // +readCanvas（spec :540「readCanvas 经 Http 端口读」——计费读 fail-closed E49：503 耗尽**显式传递** throw SUE，
 // 区别于投影写的绝不上抛）；其余 4 方法=NotImplemented 显式面（worker 零消费，逐方法注释）。
-// 写端点 POST /api/collab/doc/write-batch 归 T27（客户端先行——端点未落，单测 mock fetch；响应契约=
-// WriteOpResult[]〔A1 冻结契约〕取 [0]）；读端点 GET /api/collab/doc/:projectId/canvas 归 T26 同窗（偏离 29
-// ——T25 前置清单悬空修正；鉴权与 write-batch 同款 WORKER_WRITE_TOKEN 复用）。
+// 写端点 POST /api/collab/doc/write-batch 已落 T27（collab-write.controller——Z108 执法档进门 4xx+
+// WorkerWriteAuthGuard；响应契约=WriteOpResult[]〔A1 冻结契约〕取 [0]）；读端点 GET
+// /api/collab/doc/:projectId/canvas 归 T26 同窗（偏离 29——T25 前置清单悬空修正；鉴权与 write-batch
+// 同款 WORKER_WRITE_TOKEN 复用）。
 // WORKER_WRITE_TOKEN=预留参数（T27 服务端鉴权/T26 worker 引导注入——本类不读 env，census ㉒零新增面）。
 
 /** Http 形态结果三分观测计数（本文件注册——metrics.service.ts 同款非 *.metrics.ts 载具先例；
@@ -159,7 +160,10 @@ export class HttpCollabWritePort extends CollabWritePort {
       try {
         const r = await this.doFetch(url, { ...init, signal: AbortSignal.timeout(this.requestTimeoutMs) });
         status = r.status;
-        json = r.json;
+        // 闭包捕获（T27 int 真链红根修）：undici Response.json 解绑调用抛 illegal invocation——
+        // r.json 裸提取后 this 丢失。mock fetch（箭头闭包 json）测不出此面（mock 脱节教训 TD-2 实例），
+        // 真 undici 响应即 permanent:bad-body 假档（服务端已执行、客户端读不出结果=无谓重试面）。
+        json = () => r.json();
       } catch {
         status = -1;   // 网络错误族（ECONNREFUSED/fetch failed 等）——同瞬态重试族（Z99）
       }

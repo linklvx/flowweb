@@ -78,6 +78,9 @@ const INLINE_BASELINE = new Set<string>([
   'modules/ai-image-edit/ai-image-edit.controller.ts|body: { projectId: string; nodeId: string; fileId: string; maskFileId: string; prompt: string; strength: number; regenToken?: string; stateVector: string }',
   /* Y0b-4 T8：shrink 端点（body 校验在 service——全仓无全局 ValidationPipe，execution.controller 同惯例） */
   'modules/collab/collab-doc.controller.ts|body: { deleteNodeIds?: string[]; keepNodeIds?: string[]; recalibrate?: boolean }',
+  /* Y0c T27：worker 写端点（body 校验=controller 内 T4 manifest 执法档 validateWriteBatch——
+   * 六 op 判别联合数组非 class-validator 表达面，pipe 零增量；shrink 端点同惯例「校验进门自持」） */
+  'modules/collab/collab-write.controller.ts|body: { projectId?: unknown; ops?: unknown }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; regenToken?: string; stateVector: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',

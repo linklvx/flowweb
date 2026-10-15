@@ -104,9 +104,10 @@ export const envSchema = z.object({
 
   // Y0c T26（Z102/偏离 29）：worker 引导两键——zod 只验形态不写 default（默认值落使用点纪律同上）。
   // WORKER_WRITE_TOKEN：api/worker 共读同值键（Z49 单文件 .env——分叉键禁入是 COLLAB_ROLE 族，
-  // 本键两进程同值无分叉）＝读端点+T27 write-batch 鉴权（WorkerWriteAuthGuard timingSafeEqual；
-  // production 未设=请求级 403 fail-closed，进程拒启归 T27）；worker 侧 HttpCollabWritePort
-  // Bearer 注入同源。未设放行（worker 无 token 不拒启——T27 端点侧收口）。
+  // 本键两进程同值无分叉）＝读端点（T26）+写端点（T27 write-batch）鉴权（WorkerWriteAuthGuard
+  // timingSafeEqual）；worker 侧 HttpCollabWritePort Bearer 注入同源。production 未设=拒启
+  // （envSchemaValidated superRefine 单点——T27 收口，api/worker 双进程同款）；dev 未设放行
+  // （fail-open——guard 请求级 403 为纵深冗余）。
   WORKER_WRITE_TOKEN: z.preprocess(blankToUnset, z.string().min(1).optional()),
   // WORKER_READY_TIMEOUT_MS：Z102 ready 门上限——使用点默认 60_000（worker-ready-gate.ts
   // WORKER_READY_TIMEOUT_DEFAULT_MS 单源）。
@@ -159,6 +160,12 @@ export const envSchemaValidated = envSchema.superRefine((v, ctx) => {
   if (v.NODE_ENV !== 'production') return;
   if (!v.BETTER_AUTH_URL && !v.COLLAB_ALLOWED_ORIGINS) {
     ctx.addIssue({ code: 'custom', path: ['BETTER_AUTH_URL'], message: '生产必须显式 BETTER_AUTH_URL 或 COLLAB_ALLOWED_ORIGINS（Origin 白名单推导源缺失=部署配置错误 fail-fast）' });
+  }
+  // Y0c T27：production 未设 WORKER_WRITE_TOKEN=拒启（plan T27 字面——非 guard 403）。api/worker
+  // 双进程同经 validateEnv（main.ts/main-worker.ts）——读端点（T26）+写端点（T27）两端点同批统一
+  // 收口为同款拒启（T26 落地时 guard 的请求级 403 fail-closed 为纵深冗余保留）；dev 维持 fail-open。
+  if (!v.WORKER_WRITE_TOKEN) {
+    ctx.addIssue({ code: 'custom', path: ['WORKER_WRITE_TOKEN'], message: '生产必须设置 WORKER_WRITE_TOKEN（worker 内部读写端点鉴权——未设即拒启，禁 fail-open）' });
   }
 });
 

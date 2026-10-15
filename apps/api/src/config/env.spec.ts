@@ -183,14 +183,29 @@ describe('Y0b-3 T1：COLLAB 族新十键（形态校验——默认值落使用�
 // Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast——白名单推导源缺失=部署配置错误启动即拒。
 describe('Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast（envSchemaValidated）', () => {
   it('production+BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 双缺 → 拒', () => {
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production' }).success).toBe(false);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(false);
   });
   it('production+任一在 → 过（BETTER_AUTH_URL 在/COLLAB_ALLOWED_ORIGINS 在）', () => {
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com' }).success).toBe(true);
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', COLLAB_ALLOWED_ORIGINS: 'https://y.example.com' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', BETTER_AUTH_URL: 'https://x.example.com' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', COLLAB_ALLOWED_ORIGINS: 'https://y.example.com' }).success).toBe(true);
   });
   it('非 production 双缺不拒（dev 宽松——含 NODE_ENV 未设档）', () => {
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
     expect(envSchemaValidated.safeParse(good).success).toBe(true);
+  });
+});
+
+// Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（plan T27 字面——非 guard 403）。api/worker
+// 双进程同经 validateEnv（main.ts/main-worker.ts）——读端点（T26）+写端点（T27）两端点同批统一
+// 收口为同款拒启；dev 维持 fail-open（WorkerWriteAuthGuard 请求级 403 为纵深冗余非主防线）。
+describe('Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（envSchemaValidated superRefine）', () => {
+  it('production 未设 → 拒（issue 点名 WORKER_WRITE_TOKEN）', () => {
+    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com' });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('WORKER_WRITE_TOKEN');
+  });
+  it('production 已设 → 过；dev 未设不拒（fail-open 归 guard）', () => {
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
   });
 });

@@ -55,5 +55,39 @@ if (!directive(indexConf, /^\s*add_header\s+Cache-Control\s+"no-cache"[^;]*;/))
 if (!directive(indexConf, /^\s*location\s*=\s*\/index\.html\s*\{/))
   problems.push('index-html.replace.conf 非注释行缺 location = /index.html block——no-cache 指令无处附着');
 
+// Y0c T27：worker 内部读写端点公网封禁锚（plan T27 nginx 纵深——worker 走 127.0.0.1:3000 直连
+// 不经 nginx，deny 零副作用）。write-batch 精确 location 块三指令：deny all（公网 403）+
+// client_max_body_size 2m（端点批字节 Σ≤256KB 的 nginx 前置上界——Z108 MAX_WRITE_BATCH_BYTES
+// 同源）+proxy_read_timeout 30s（显式覆盖 /api 段 1860s 继承——deny 若被运维放宽〔内网 CIDR〕
+// 上限随身）。canvas 读端点动态 :projectId 段=regex 精确匹配（auth.guard WORKER_CANVAS_READ_RE
+// 同形）；用户面 shrink/export-fresh/vacuum 不在匹配内（公网可达维持会话鉴权）。
+const blockOf = (text, locRe) => {
+  const lines = text.split(/\r?\n/).filter((l) => !l.trim().startsWith('#'));
+  const start = lines.findIndex((l) => locRe.test(l));
+  if (start === -1) return null;
+  let depth = 0;
+  const block = [];
+  for (let i = start; i < lines.length; i++) {
+    block.push(lines[i]);
+    depth += (lines[i].match(/\{/g) ?? []).length - (lines[i].match(/\}/g) ?? []).length;
+    if (depth === 0) break;
+  }
+  return block.join('\n');
+};
+const writeBatchBlock = blockOf(collabConf, /^\s*location\s*=\s*\/api\/collab\/doc\/write-batch\s*\{/);
+if (writeBatchBlock === null) {
+  problems.push('collab-location.replace.conf 非注释行缺 location = /api/collab/doc/write-batch block——T27 worker 写端点公网封禁缺失');
+} else {
+  if (!/^\s*deny all;\s*$/m.test(writeBatchBlock)) problems.push('write-batch block 缺 deny all;（公网 403——外网禁达）');
+  if (!/^\s*client_max_body_size 2m;\s*$/m.test(writeBatchBlock)) problems.push('write-batch block 缺 client_max_body_size 2m;（批字节 nginx 前置上界）');
+  if (!/^\s*proxy_read_timeout 30s;\s*$/m.test(writeBatchBlock)) problems.push('write-batch block 缺 proxy_read_timeout 30s;（防继承 /api 段 1860s）');
+}
+const canvasDenyBlock = blockOf(collabConf, /^\s*location\s*~\s*\^\/api\/collab\/doc\/\[\^\/\]\+\/canvas\$/);
+if (canvasDenyBlock === null) {
+  problems.push('collab-location.replace.conf 非注释行缺 location ~ ^/api/collab/doc/[^/]+/canvas$ block——T27 worker 读端点公网封禁缺失（动态段 regex 精确匹配）');
+} else if (!/^\s*deny all;\s*$/m.test(canvasDenyBlock)) {
+  problems.push('canvas 读端点 block 缺 deny all;');
+}
+
 if (problems.length) { console.error('nginx 预算锚异常：\n' + problems.join('\n')); process.exit(1); }
-console.log(`nginx 预算锚 ✓ proxy_read/send_timeout=${readSec}s ≥ EXEC_SYNC_HARD_CAP(${hardCapMs}ms)+60s；版本门模板锚 ✓ collab access_log off + index.html no-cache`);
+console.log(`nginx 预算锚 ✓ proxy_read/send_timeout=${readSec}s ≥ EXEC_SYNC_HARD_CAP(${hardCapMs}ms)+60s；版本门模板锚 ✓ collab access_log off + index.html no-cache；T27 纵深锚 ✓ write-batch deny/2m/30s + canvas deny`);
