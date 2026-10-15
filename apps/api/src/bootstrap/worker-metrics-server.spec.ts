@@ -4,7 +4,7 @@
 // nodejs_eventloop_lag_seconds 存在且带 role="worker"——Z139：MetricsCore 在 worker 装配=
 // collectDefaultMetrics 唯一点）；token fail-closed+WORKER_METRICS_PORT env 键化=T29-I 已落，
 // health 扩读归 T29 第二包。
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
 import { collectDefaultMetrics, register } from 'prom-client';
 import type { Server } from 'node:http';
 import { startWorkerMetricsServer, WORKER_METRICS_PORT } from './worker-metrics-server';
@@ -89,5 +89,27 @@ describe('Y0c T29 Z116 3002 token fail-closed（同 PROMETHEUS_TOKEN 形态）',
     const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
     servers.push(server);
     expect((await fetch(urlOf(server))).status).toBe(200);
+  });
+});
+
+// Y0c T29-II（R0①）：handler 顺序缺陷——writeHead(200) 先于 await register.metrics()，metrics()
+// reject 时 catch 内 writeHead(500) 必抛 ERR_HTTP_HEADERS_SENT，客户端得 socket 挂断而非 500。
+// 修法=先 await 文本再 writeHead(200)+end(text)，reject 走真 500。
+describe('Y0c T29-II R0① metrics() reject → 真 500（非 socket 挂断）', () => {
+  it('register.metrics() reject：客户端收到 500 + 错误正文', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
+    servers.push(server);
+    const url = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/metrics`;
+    const spy = vi.spyOn(register, 'metrics').mockRejectedValueOnce(new Error('metrics boom'));
+    let outcome: { status: number; body: string } | { fetchError: string };
+    try {
+      const res = await fetch(url);
+      outcome = { status: res.status, body: await res.text() };
+    } catch (e) {
+      outcome = { fetchError: e instanceof Error ? e.message : String(e) };
+    }
+    spy.mockRestore();
+    expect(outcome, `期望 500（实得 ${JSON.stringify(outcome)}——writeHead(200) 先行则 catch 内 500 不可达）`).toMatchObject({ status: 500 });
+    expect((outcome as { body: string }).body).toMatch(/metrics boom/);
   });
 });

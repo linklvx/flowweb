@@ -1022,6 +1022,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_upgrade_rejected_total
 - collab_vacuum_autotrigger_stacked_total
 - collab_version_negotiation_reject_total
+- collab_worker_absent_total
 - collab_write_rejected_total
 - collab_write_session_release_timeout_total
 - collab_ws_close_total
@@ -1103,6 +1104,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_unload_cleanup_failure_total
 - yjs_unload_handoff_failure_total
 - yjs_updates_discarded_deleted_total
+- yjs_updates_rows_total
 - yjs_withdoc_duration_seconds
 - yjs_withdoc_open_duration_seconds
 - yjs_zero_conn_docs

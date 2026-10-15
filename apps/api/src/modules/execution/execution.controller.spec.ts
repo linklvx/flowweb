@@ -5,10 +5,12 @@ import { ExecutionService } from './execution.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
-import { ForbiddenException } from '@nestjs/common';
+import { WorkerPresenceService } from '../worker-presence/worker-presence.service';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { requestTraceStorage } from '../../middleware/request-trace.middleware';
+import { QUEUE_NAMES } from '../../config/queue.constants';
 
 // T7：SV 支配门夹具——非空 SV（空 doc 的 SV 是 0 字节 base64 空串，被缺省检查吞）
 const svDoc = new Y.Doc();
@@ -24,6 +26,7 @@ describe('ExecutionController', () => {
   };
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
   let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
+  let presence: { assertAdmittable: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -42,6 +45,8 @@ describe('ExecutionController', () => {
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     };
     collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };   // 默认=支配成立
+    // Y0c T29-II（Z148②）：worker 准入门依赖（默认放行——单进程拓扑常态，裁决①）
+    presence = { assertAdmittable: vi.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ExecutionController],
@@ -53,6 +58,7 @@ describe('ExecutionController', () => {
         { provide: GenerationIntentService, useValue: { listByNode: vi.fn().mockResolvedValue([]) } },
         // Y0b-2 T7：SV 支配门依赖（readServerSV）
         { provide: CollabDocumentService, useValue: collabSvc },
+        { provide: WorkerPresenceService, useValue: presence },
       ],
     }).compile();
 
@@ -174,6 +180,31 @@ describe('ExecutionController', () => {
       await expect(controller.enqueue({ projectId: 'p1', stateVector: SV_OK } as any, req))
         .rejects.toMatchObject({ errorCode: 'SYNC_PENDING' });
       expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    // Y0c T29-II（Z148②）：付费队列 enqueue fail-closed——门序=perm→SV→presence→queue.add
+    it('T29-II（Z148②）：无消费者 ⇒ 503 WORKER_ABSENT 零入队（门在 queue.add 之前）', async () => {
+      presence.assertAdmittable.mockRejectedValue(
+        new ServiceUnavailableException({ code: 'WORKER_ABSENT', message: '队列 execution 当前无 worker 消费，请稍后重试' }),
+      );
+      const req = { user: { id: 'user-1' } } as any;
+      const err = await controller.enqueue({ projectId: 'p1', nodeId: 'n2', stateVector: SV_OK } as any, req).catch((e: unknown) => e);
+      expect((err as any).getStatus()).toBe(503);
+      expect((err as any).getResponse()).toMatchObject({ code: 'WORKER_ABSENT' });
+      expect(presence.assertAdmittable).toHaveBeenCalledWith(QUEUE_NAMES.EXECUTION);
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('T29-II：放行路径探门恰一次（execution 队列）且 SV 门在前（409 时零探测——perm/SV 优先纪律不破）', async () => {
+      const req = { user: { id: 'user-1' } } as any;
+      await controller.enqueue({ projectId: 'p1', nodeId: 'n2', stateVector: SV_OK } as any, req);
+      expect(presence.assertAdmittable).toHaveBeenCalledTimes(1);
+      expect(presence.assertAdmittable).toHaveBeenCalledWith(QUEUE_NAMES.EXECUTION);
+      // SV 未支配 ⇒ presence 零调用（门在 SV 之后）
+      presence.assertAdmittable.mockClear();
+      collabSvc.readServerSV.mockResolvedValue(Y.encodeStateVector(new Y.Doc()));
+      await expect(controller.enqueue({ projectId: 'p1', stateVector: SV_OK } as any, req)).rejects.toMatchObject({ errorCode: 'SYNC_PENDING' });
+      expect(presence.assertAdmittable).not.toHaveBeenCalled();
     });
   });
 

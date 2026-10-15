@@ -9,9 +9,10 @@ import { VideoSeparateController } from './video-separate.controller';
 import { ExecutionCoreModule } from './execution-core.module';
 import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';
+import { WorkerPresenceModule } from '../worker-presence/worker-presence.module';   // Y0c T29-II（Z148②）：ExecutionController enqueue 门
 
 @Module({
-  imports: [ExecutionCoreModule, CollabModule, TeamModule],
+  imports: [ExecutionCoreModule, CollabModule, TeamModule, WorkerPresenceModule],
   controllers: [ExecutionController, VideoTrimController, VideoSeparateController],
 })
 export class ExecutionHttpModule {}

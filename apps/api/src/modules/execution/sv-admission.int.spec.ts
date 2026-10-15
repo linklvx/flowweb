@@ -89,7 +89,8 @@ function makeController(nodes: any[]): ExecutionController {
   );
   queueAdd = vi.fn(async () => ({ id: 'job-sv-1' }));
   // collabDoc 第 5 参=T7 门依赖（readServerSV）——controller 直构同 app 装配形态
-  return new ExecutionController(svc, perm, { add: queueAdd } as any, intentSvc, collabDoc);
+  // Y0c T29-II：presence 第 6 参（enqueue 门）——默认放行（单进程拓扑常态，裁决①）
+  return new ExecutionController(svc, perm, { add: queueAdd } as any, intentSvc, collabDoc, { assertAdmittable: async () => {} } as any);
 }
 
 const intentCount = (nodeId?: string) =>

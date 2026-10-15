@@ -40,7 +40,20 @@ export interface CollabReadyResponse {
    *  loop 键（authenticationFailed payload 仅 {reason} 无版本通道）。恒带：base 对象单点——
    *  200 与 503（pg-down/reason）三分支同发。 */
   collabProtocolVersion: number;
+  /** Y0c T29-II（Z130②/裁决③）：workers 维度——token 档独有（公开五键档由 controller 裁剪，
+   *  V17/SV16 wireKeys 契约零破坏）。**观测非门禁：绝不参与 ready 200/503 判定**（worker 引导
+   *  ready 门在自身装配前轮询此端点——判定参与=鸡生蛋死锁）。null=探测失败（Redis 错）降级。 */
+  workers?: CollabReadyWorkers;
 }
+
+/** Y0c T29-II（裁决②/偏离 39）：付费队列 presence 两键维度——bullmq 5.75.1 getWorkers()=
+ *  CLIENT LIST 形态无 lastSeen 数据源，registered 即活性信号（进程死⇒TCP 断⇒立即除名）。
+ *  键=队列名（execution/ai-image-edit/ai-result-download——api 侧 QUEUE_NAMES 单源）。 */
+export interface CollabReadyWorkerPresence {
+  registered: number;
+  waiting: number;
+}
+export type CollabReadyWorkers = Record<string, CollabReadyWorkerPresence | null>;
 
 /** Y0b-5 T14（E54⑤）：/api/ready token 档 degraded 四键——与指标面同源：
  *  dirtyDocs=yjs_pending_projects（computePending().projects）；

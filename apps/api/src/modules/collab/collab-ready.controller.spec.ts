@@ -113,6 +113,19 @@ describe('CollabReadyController', () => {
     expect(wireKeys(resPub.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'epoch', 'ready', 'reason', 'redis']);   // 公开档五键——Y0b-3 P-C 版本键恒带，loadedDocs/connections 不外泄
   });
 
+  it('Y0c T29-II（Z130②/裁决③）：workers 维度进 token 授权档（additive 透传——V17/SV16 五键契约零破坏）；公开五键档不外泄', async () => {
+    process.env.PROMETHEUS_TOKEN = 'tok';
+    const workers = { execution: { registered: 1, waiting: 0 }, 'ai-image-edit': null, 'ai-result-download': { registered: 1, waiting: 2 } };
+    const full = { ready: true, redis: 'up' as const, pending: PENDING, spoolQuarantined: 0, workers, collabProtocolVersion: 1 };
+    readyMock.getReady.mockResolvedValue({ status: 200, body: full });
+    const resAuth = fakeRes();
+    await controller.getReady({ headers: { 'x-prometheus-token': 'tok' } } as any, resAuth);
+    expect(resAuth.json.mock.calls[0][0].workers).toEqual(workers);   // token 档=巡检面（health 按 workers.registered 设阈值）
+    const resPub = fakeRes();
+    await controller.getReady({ headers: {} } as any, resPub);         // token 已设但未携带→公开裁剪档
+    expect(wireKeys(resPub.json.mock.calls[0][0])).toEqual(['collabProtocolVersion', 'ready', 'redis']);   // 五键锁死不受 workers 影响
+  });
+
   it('Y0b-5 T14（E44/E54⑤）：degraded 四键块挂 token 档视图——授权档透传；公开五键档裁剪不见 degraded（host 内部观测不出公网面）', async () => {
     process.env.PROMETHEUS_TOKEN = 'tok';
     const degraded = { dirtyDocs: 2, oldestUnflushedAt: '2026-10-12T00:00:00.000Z', oldestUnflushedAgeSeconds: 61, spoolDepthBytes: 128, stuckDocs: 1 };

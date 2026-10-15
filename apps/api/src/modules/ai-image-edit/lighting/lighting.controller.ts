@@ -9,6 +9,8 @@ import { normalizeIntentParams } from '../../execution/normalize-intent-params';
 import { paramsToPrompt } from './lighting.consumer';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { assertSyncAdmitted } from '../../collab/sync-admission';
+import { WorkerPresenceService } from '../../worker-presence/worker-presence.service';
+import { QUEUE_NAMES } from '../../../config/queue.constants';
 
 @Controller('api/image-edit/lighting')
 export class LightingController {
@@ -18,6 +20,9 @@ export class LightingController {
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    // Y0c T29-II（Z148②）：付费队列 enqueue fail-closed 门（当前单进程拓扑下 registered 恒≥1、
+    // 门不可实际触发——T30 补 processor 注册门后自动生效，见 worker-presence.service.ts 裁决①注释）
+    @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
   ) {}
 
   @Post('tasks')
@@ -34,6 +39,10 @@ export class LightingController {
     // 裸值返回交全局拦截器单层包裹（信封清剿——改前 {code,data} 双层）。60s 去重命中 fail 后按重放返回。
     // Y0b-2 T7：SV 支配门（claim 之前零意图行——body.stateVector 必填，缺省 400）。
     await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
+    // Y0c T29-II（Z148②/F11 同源）：worker 准入门——lighting.service 的 add（付费第 4 处）不经
+    // AiImageEditController.runGuarded，本 controller 是其唯一用户准入点（同款门序：定价/claim 之前
+    // 拒 ⇒ 零意图行零退款义务；503 WORKER_ABSENT+Retry-After: 30）。
+    await this.presence.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT);
     const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
     const { intent, created } = await this.intentService.claim({
       projectId: body.projectId,

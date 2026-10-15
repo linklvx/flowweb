@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { AiImageEditController } from './ai-image-edit.controller';
 import { AiImageEditService } from './ai-image-edit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
@@ -9,6 +9,8 @@ import { GenerationIntentService, NodeBusyError } from '../execution/generation-
 import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../execution/normalize-intent-params';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { WorkerPresenceService } from '../worker-presence/worker-presence.service';
+import { QUEUE_NAMES } from '../../config/queue.constants';
 
 // T7：SV 支配门夹具——客户端/服务端同 doc ⇒ 支配成立（缺省 400/落后 409 两态另测）
 const svDoc = new Y.Doc();
@@ -22,6 +24,7 @@ describe('AiImageEditController', () => {
   let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> };
   let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
   let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
+  let presence: { assertAdmittable: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -45,6 +48,8 @@ describe('AiImageEditController', () => {
     };
     // Y0b-2 T7：SV 支配门依赖（默认=支配成立）
     collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };
+    // Y0c T29-II（Z148②）：worker 准入门依赖（默认放行——单进程拓扑常态，裁决①）
+    presence = { assertAdmittable: vi.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AiImageEditController],
@@ -54,6 +59,7 @@ describe('AiImageEditController', () => {
         { provide: GenerationIntentService, useValue: intentSvc },
         { provide: PricingResolverService, useValue: resolver },
         { provide: CollabDocumentService, useValue: collabSvc },
+        { provide: WorkerPresenceService, useValue: presence },
       ],
     }).compile();
     controller = module.get<AiImageEditController>(AiImageEditController);
@@ -230,6 +236,41 @@ describe('AiImageEditController', () => {
       expect(err).toMatchObject({ errorCode: 'SYNC_STATE_VECTOR_REQUIRED' });
       expect((err as any).getStatus()).toBe(400);
       expect(intentSvc.claim).not.toHaveBeenCalled();
+    });
+  });
+
+  // Y0c T29-II（Z148②/F11 同源）：付费队列 enqueue fail-closed——runGuarded 门序=SV→presence→定价快照→claim
+  describe('Y0c T29-II（Z148②）：worker 准入门（runGuarded——claim 之前拒=零退款义务）', () => {
+    const gateBody = {
+      projectId: 'proj1', nodeId: 'node1', fileId: 'file-1',
+      rect: { x: 0, y: 0, width: 10, height: 10 }, imageWidth: 10, imageHeight: 10,
+      stateVector: SV_OK,
+    };
+
+    it('无消费者 ⇒ 503 WORKER_ABSENT：零定价快照 零 claim 零 enqueue 零 fail（三端点同型单点覆盖）', async () => {
+      presence.assertAdmittable.mockRejectedValue(
+        new ServiceUnavailableException({ code: 'WORKER_ABSENT', message: '队列 ai-image-edit 当前无 worker 消费，请稍后重试' }),
+      );
+      const req = { user: { id: 'u1' } } as any;
+      const err = await controller.outpaint(gateBody, req).catch((e: unknown) => e);
+      expect((err as any).getStatus()).toBe(503);
+      expect((err as any).getResponse()).toMatchObject({ code: 'WORKER_ABSENT' });
+      expect(presence.assertAdmittable).toHaveBeenCalledWith(QUEUE_NAMES.AI_IMAGE_EDIT);
+      expect(resolver.resolveByNodeTypeKey).not.toHaveBeenCalled();   // 门在定价快照之前
+      expect(intentSvc.claim).not.toHaveBeenCalled();                // claim 前拒=零退款义务
+      expect(service.enqueueOutpaint).not.toHaveBeenCalled();
+      expect(intentSvc.fail).not.toHaveBeenCalled();                 // 未获执行权——不碰行（NodeBusy 同款纪律）
+    });
+
+    it('放行路径探门恰一次（ai-image-edit 队列——erase/redraw 同经 runGuarded 单点）；SV 门在前（409 时零探测）', async () => {
+      const req = { user: { id: 'u1' } } as any;
+      await controller.erase({ projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', maskFileId: 'mask-1', stateVector: SV_OK }, req);
+      expect(presence.assertAdmittable).toHaveBeenCalledTimes(1);
+      expect(presence.assertAdmittable).toHaveBeenCalledWith(QUEUE_NAMES.AI_IMAGE_EDIT);
+      presence.assertAdmittable.mockClear();
+      collabSvc.readServerSV.mockResolvedValue(Y.encodeStateVector(new Y.Doc()));   // 服务端空 doc——不支配
+      await expect(controller.outpaint(gateBody, req)).rejects.toMatchObject({ errorCode: 'SYNC_PENDING' });
+      expect(presence.assertAdmittable).not.toHaveBeenCalled();
     });
   });
 

@@ -374,7 +374,9 @@ function makeController() {
   const queue = { add: vi.fn().mockResolvedValue({ id: 'job-1' }), getJob: vi.fn() };
   const intentService = { listByNode: vi.fn().mockResolvedValue([]) };
   const collabDoc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svFixDoc)) };
-  const ctrl: any = new (ExecutionController as any)(service, perm, queue, intentService, collabDoc);
+  // Y0c T29-II：presence 第 6 参（enqueue 门）——默认放行（单进程拓扑常态）
+  const presence = { assertAdmittable: vi.fn(async () => {}) };
+  const ctrl: any = new (ExecutionController as any)(service, perm, queue, intentService, collabDoc, presence);
   return { ctrl, service, perm, queue, intentService };
 }
 

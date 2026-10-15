@@ -9,9 +9,10 @@ import { AiImageEditCoreModule } from './ai-image-edit-core.module';
 import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';
 import { ExecutionCoreModule } from '../execution/execution-core.module';
+import { WorkerPresenceModule } from '../worker-presence/worker-presence.module';   // Y0c T29-II（Z148②）：runGuarded+lighting createTask 门
 
 @Module({
-  imports: [AiImageEditCoreModule, ExecutionCoreModule, CollabModule, TeamModule],
+  imports: [AiImageEditCoreModule, ExecutionCoreModule, CollabModule, TeamModule, WorkerPresenceModule],
   controllers: [AiImageEditController, LightingController],
 })
 export class AiImageEditHttpModule {}

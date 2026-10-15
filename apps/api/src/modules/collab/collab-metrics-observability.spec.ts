@@ -20,6 +20,7 @@ import { CollabGateway, DOC_BYTES_OVER_THRESHOLD_BYTES, TOPN_LOG_INTERVAL_MS, TO
 import { CollabDocumentService } from './collab-document.service';
 import { SnapshotDocCache, SNAPSHOT_CACHE_MAX_ENTRIES } from './snapshot-doc-cache';
 import { CollabSpoolService } from './collab-spool.service';
+import { registerUpdatesRowsReader, unregisterUpdatesRowsReader } from './store.metrics';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -335,5 +336,27 @@ describe('Y0b-5 T10：snapshot-doc-cache 容量上界+entries gauge', () => {
     expect(await gaugeValue('yjs_snapshot_cache_entries')).toBe(cache.size);
     await cache.get('p1', async () => ({ nodes: [], edges: [] }));
     expect(await gaugeValue('yjs_snapshot_cache_entries')).toBe(1);
+  });
+});
+
+// Y0c T29-II（Z125-5/Z148④）：canvasDocUpdate 总行数 gauge——观测项非机制项（不强制 compact；
+// 行数门归 Y1c-3 再裁）。reader 注册模式=registerDegradedDocsReader 同款（gateway 注册 prisma
+// count 回调，metrics 文件不 import gateway——反向依赖禁止）；reader 为 async（prisma count）——
+// prom-client collect 支持 promise（register.metrics()/get() 等待）。
+describe('Y0c T29-II（Z125-5）：yjs_updates_rows_total gauge（reader 注册=degradedDocs 惯例）', () => {
+  afterEach(() => { unregisterUpdatesRowsReader(); });
+
+  it('gauge 已注册（无 reader 折 0——worker 进程同款语义）', async () => {
+    expect(register.getSingleMetric('yjs_updates_rows_total')).toBeDefined();
+    expect(await gaugeValue('yjs_updates_rows_total')).toBe(0);
+  });
+
+  it('async reader（prisma count 形态）collect 现算；reader 抛错折 0；unregister 折 0', async () => {
+    registerUpdatesRowsReader(async () => 7);
+    expect(await gaugeValue('yjs_updates_rows_total')).toBe(7);
+    registerUpdatesRowsReader(async () => { throw new Error('pg down'); });
+    expect(await gaugeValue('yjs_updates_rows_total')).toBe(0);
+    unregisterUpdatesRowsReader();
+    expect(await gaugeValue('yjs_updates_rows_total')).toBe(0);
   });
 });

@@ -27,8 +27,9 @@ export interface WorkerMetricsServerOptions {
 
 /** 请求级鉴权（Z116「同 token 形态」——严格镜像 prometheus-auth.guard：仅 development 且未设 token 放行，
  *  NODE_ENV 未设/'test'/'production'/其他一律拒〔guard 注释同口径「Production (or no NODE_ENV): token is
- *  mandatory」〕+timingSafeEqual 强化：token 已设⇒比对不符/缺失拒。 */
-export function workerMetricsAuthOk(providedHeader: unknown, token: string | undefined, nodeEnv: string | undefined): boolean {
+ *  mandatory」〕+timingSafeEqual 强化：token 已设⇒比对不符/缺失拒。T29-II R0②去 export——全仓 grep
+ *  零外部消费者（唯一调用点=本文件 handler）。 */
+function workerMetricsAuthOk(providedHeader: unknown, token: string | undefined, nodeEnv: string | undefined): boolean {
   if (!token) return nodeEnv === 'development';
   if (typeof providedHeader !== 'string') return false;
   const provided = Buffer.from(providedHeader);
@@ -47,8 +48,11 @@ export async function startWorkerMetricsServer(opts: WorkerMetricsServerOptions 
       return;
     }
     try {
+      // T29-II R0①：先 await 文本再 writeHead(200)——反序（writeHead 先行）时 metrics() reject ⇒
+      // catch 内 writeHead(500) 必抛 ERR_HTTP_HEADERS_SENT，客户端得 socket 挂断而非 500。
+      const text = await register.metrics();
       res.writeHead(200, { 'content-type': register.contentType });
-      res.end(await register.metrics());
+      res.end(text);
     } catch (err) {
       res.writeHead(500);
       res.end(`worker metrics error: ${err instanceof Error ? err.message : String(err)}`);

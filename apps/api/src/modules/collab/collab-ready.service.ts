@@ -5,12 +5,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
-import type { CollabReadyReason, CollabReadyResponse } from '@flowweb/shared';
+import type { CollabReadyReason, CollabReadyResponse, CollabReadyWorkers } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabLeaseService } from './collab-lease.service';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
 import { REDIS_CLIENT } from '../../common/redis/managed-redis';
+import { WorkerPresenceService, PAID_QUEUE_NAMES } from '../worker-presence/worker-presence.service';
 
 type ReadyResult = { status: number; body: CollabReadyResponse };
 
@@ -22,6 +23,9 @@ export class CollabReadyService {
     private readonly gateway: CollabGateway,
     private readonly spool: CollabSpoolService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    // Y0c T29-II（Z130②）：workers 维度供数（5s TTL 缓存经 WorkerPresenceService——探针轮询不吃
+    // Redis RTT；维度=观测非门禁，getReady 判定链零参与）
+    private readonly presence: WorkerPresenceService,
   ) {}
 
   private inflight: Promise<ReadyResult> | null = null;
@@ -47,7 +51,7 @@ export class CollabReadyService {
     const degraded = this.gateway.computeDegraded();
     // Y0b-3 T5（P-C）：collabProtocolVersion 进 base=三分支（pg-down/reason/200）恒带——客户端
     // 版本终态时单次探测拿服务端版本作 loop 键；503 降级同发时键仍可得。
-    const base = { pending, degraded, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections, residentDocs, directConns, collabProtocolVersion: CLIENT_PROTOCOL_VERSION };   // T4 勘误：诊断 LIST 取 .length
+    const base = { pending, degraded, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections, residentDocs, directConns, collabProtocolVersion: CLIENT_PROTOCOL_VERSION, workers: await this.workersSnapshot() };   // T4 勘误：诊断 LIST 取 .length；Y0c T29-II：workers 维度（Z130②）
     let pgOk = true;
     try { await this.prisma.$queryRaw`SELECT 1`; } catch { pgOk = false; }
     if (!pgOk) return { status: 503, body: { ready: false, reason: 'pg-down', redis: await this.redisStatus(), ...base } };
@@ -74,6 +78,17 @@ export class CollabReadyService {
     else if (this.gateway.isWritableOrDegraded() !== 'ok') reason = 'spool-unwritable';
     if (reason) return { status: 503, body: { ready: false, reason, ...common, ...base } };
     return { status: 200, body: { ready: true, ...common, ...base } };
+  }
+
+  /** Y0c T29-II（Z130②/裁决②③）：workers 维度快照——token 档 base 三分支恒带（degraded 同款惯例，
+   *  公开五键档由 controller 裁剪不外泄）；null=探测失败（Redis 错）降级。**绝不参与 ready 200/503
+   *  判定**——防鸡生蛋：worker 引导 ready 门（Z102）在自身装配前轮询此端点，workers.registered
+   *  若入判据则 worker 永远等不到自己注册（死锁）；侦测→动作闭环的动作半在 enqueue 门
+   *  （WorkerPresenceService.assertAdmittable），本维度=巡检/值班观测面。 */
+  private async workersSnapshot(): Promise<CollabReadyWorkers> {
+    const out: CollabReadyWorkers = {};
+    await Promise.all(PAID_QUEUE_NAMES.map(async (q) => { out[q] = await this.presence.getPresence(q); }));
+    return out;
   }
 
   private async redisStatus(): Promise<'up' | 'down'> {

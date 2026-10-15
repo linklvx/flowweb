@@ -7,6 +7,8 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { assertSyncAdmitted } from '../collab/sync-admission';
+import { WorkerPresenceService } from '../worker-presence/worker-presence.service';
+import { QUEUE_NAMES } from '../../config/queue.constants';
 import { Request } from 'express';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { execMaxNodes } from './intent-key.util';
@@ -21,6 +23,10 @@ export class ExecutionController {
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    // Y0c T29-II（Z148②）：付费队列 enqueue fail-closed 门（当前单进程拓扑下 api 自装 processor
+    // 消费面⇒registered 恒≥1、门不可实际触发——T30 补 processor 注册门后自动生效，见
+    // worker-presence.service.ts 裁决①注释；语义两种拓扑下均真实）
+    @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
   ) {}
 
   /** Y0b-2 T6（Z103）：意图 id 请求头已删（无消费者）——token 走 body.regenToken（与 enqueue 单管道对齐）。
@@ -55,6 +61,10 @@ export class ExecutionController {
     await this.perm.assertEditor(body.projectId, (req as any).user?.id);
     // Y0b-2 T7：SV 门在 controller（入队时判定——job 载荷零客户端状态）
     await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
+    // Y0c T29-II（Z148②/F11 同源）：worker 准入门——无消费者 ⇒ 503 WORKER_ABSENT+Retry-After: 30
+    //（filter 附）。门序=perm→SV→presence→add：assertSyncAdmitted 纯读（sync-admission.ts）无资源
+    // 释放义务，503 路径与既有 throw 路径一致。execute() 直达路径不经队列不设门（R4）。
+    await this.presence.assertAdmittable(QUEUE_NAMES.EXECUTION);
     const job = await this.executionQueue.add('execution', {
       projectId: body.projectId,
       nodeId: body.nodeId,

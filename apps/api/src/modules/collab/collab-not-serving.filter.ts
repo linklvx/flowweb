@@ -12,6 +12,7 @@ import { HttpExceptionFilter } from '../../filters/http-exception.filter';
 const RETRY_AFTER_BY_CODE: Record<string, string> = {
   COLLAB_NOT_SERVING: '2',
   SHRINK_BUSY: '10',
+  WORKER_ABSENT: '30',   // Y0c T29-II（Z148②）：付费队列无消费者 fail-closed（worker 重启窗量级——F11 同源）
 };
 
 @Catch(ServiceUnavailableException)

@@ -27,7 +27,7 @@ export { QUOTA_DEFAULTS, DOC_STATUS_REV_SEED, FRAME_ALLOWANCE_BYTES, isCollabDoc
 export type { CollabDocStatusPayload, CollabConnStatusPayload } from './constants/collab-quota';
 export { utf8Bytes } from './utils/utf8-bytes';
 export { COLLAB_READY_REASONS } from './constants/collab-ready';
-export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending, CollabReadyDegraded } from './constants/collab-ready';
+export type { CollabReadyReason, CollabReadyResponse, CollabReadyPending, CollabReadyDegraded, CollabReadyWorkers, CollabReadyWorkerPresence } from './constants/collab-ready';
 // Y0b-3 T7（P-L）：collab identity 配色单源——服务端 awareness 注入 user.color 与客户端消费面同源。
 export { COLLAB_USER_COLORS, userColorOfUserId } from './constants/collab-identity-color';
 // Y0b-2 T2（Z80/Z101/Z117①）：provider adapter 注册表+executable/ready 双谓词——api（execution/provider-adapters 再导出）

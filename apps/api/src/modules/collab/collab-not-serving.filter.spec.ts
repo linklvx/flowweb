@@ -30,6 +30,18 @@ describe('CollabNotServingFilter（V21）', () => {
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'COLLAB_NOT_SERVING' }));
   });
 
+  it('Y0c T29-II（Z148②）：WORKER_ABSENT 503 → Retry-After: 30 + 体含 code（付费队列无消费者 fail-closed——F11 同源）', () => {
+    const filter = new CollabNotServingFilter();
+    const { res, json } = makeRes();
+    const ex = new ServiceUnavailableException({ code: 'WORKER_ABSENT', message: '队列 execution 当前无 worker 消费' });
+
+    filter.catch(ex, makeHost(res));
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '30');
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'WORKER_ABSENT' }));
+  });
+
   it('非标记 503（spool degraded 等）→ 委托默认异常处理：不附 Retry-After、同壳 code:-1', () => {
     const filter = new CollabNotServingFilter();
     const { res, json } = makeRes();

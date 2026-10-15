@@ -11,7 +11,7 @@ import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 const DEGRADED_ZERO = { dirtyDocs: 0, oldestUnflushedAt: null, oldestUnflushedAgeSeconds: 0, spoolDepthBytes: 0, stuckDocs: 0 };
 
 function build(over: {
-  pgOk?: boolean; diag?: any; gateway?: any; redisOk?: boolean;
+  pgOk?: boolean; diag?: any; gateway?: any; redisOk?: boolean; presence?: any;
 } = {}) {
   const prisma = { $queryRaw: vi.fn(async () => { if (over.pgOk === false) throw new Error('PG down'); return [{}]; }) };
   const lease = {
@@ -27,7 +27,9 @@ function build(over: {
     isPgBreakerOpen: () => false,   // Y0b-5 T16：熔断观测（个别用例覆写 true 验 db-unavailable 档）
   };
   const redis = { status: 'ready', connect: vi.fn(async () => {}), ping: vi.fn(async () => over.redisOk === false ? Promise.reject(new Error('x')) : 'PONG'), disconnect: vi.fn() };
-  const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, { quarantinedSegments: () => [] } as any, redis as any);
+  // Y0c T29-II（Z130②）：presence 第 6 参（workers 维度供数）——缺省假 presence=单进程常态（registered 1）
+  const presence = over.presence ?? { getPresence: vi.fn(async () => ({ registered: 1, waiting: 0 })) };
+  const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, { quarantinedSegments: () => [] } as any, redis as any, presence as any);
   return { svc, gateway, redis };
 }
 
@@ -180,6 +182,37 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
       const r = await build({ pgOk: false, gateway: gwWith() }).svc.getReady();
       expect(r.body.reason).toBe('pg-down');
       expect(r.body.degraded).toEqual(degraded);
+    });
+  });
+
+  describe('Y0c T29-II（Z130②/裁决②③）：workers 维度挂 token 档 base——观测非门禁', () => {
+    it('三付费队列 {registered,waiting}（presence 供数）+base 三分支恒带（200 与 pg-down 503 同读）', async () => {
+      const presence = { getPresence: vi.fn(async (q: string) => ({ registered: 2, waiting: q === 'execution' ? 3 : 0 })) };
+      const r = await build({ presence }).svc.getReady();
+      expect(r.body.workers).toEqual({
+        execution: { registered: 2, waiting: 3 },
+        'ai-image-edit': { registered: 2, waiting: 0 },
+        'ai-result-download': { registered: 2, waiting: 0 },
+      });
+      const down = await build({ pgOk: false, presence }).svc.getReady();
+      expect(down.body.reason).toBe('pg-down');
+      expect(down.body.workers).toEqual(r.body.workers);   // 503 分支同带（base 单点——degraded 同款惯例）
+    });
+
+    it('探测失败 ⇒ 维度值 null 降级（档位/ready 布尔不变）', async () => {
+      const presence = { getPresence: vi.fn(async () => null) };
+      const r = await build({ presence }).svc.getReady();
+      expect(r.status).toBe(200);
+      expect(r.body.workers?.['execution']).toBeNull();
+      expect(r.body.workers?.['ai-image-edit']).toBeNull();
+    });
+
+    it('registered=0 不翻 ready（防鸡生蛋：worker 引导 ready 门在自身装配前轮询此端点——判定参与=死锁）', async () => {
+      const presence = { getPresence: vi.fn(async () => ({ registered: 0, waiting: 9 })) };
+      const r = await build({ presence }).svc.getReady();
+      expect(r.status).toBe(200);
+      expect(r.body.ready).toBe(true);
+      expect(r.body.workers?.['execution']).toEqual({ registered: 0, waiting: 9 });   // 观测面如实呈现
     });
   });
 });

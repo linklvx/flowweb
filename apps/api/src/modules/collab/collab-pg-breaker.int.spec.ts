@@ -102,6 +102,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
     const ready = await new CollabReadyService(
       prisma as any, createLeaseStub() as any, gateway, spool,
       { status: 'ready', connect: async () => {}, ping: async () => 'PONG' } as any,
+      { getPresence: async () => ({ registered: 1, waiting: 0 }) } as any,   // Y0c T29-II：workers 维度供数桩
     ).getReady();
     expect(ready.status).toBe(503);
     expect(ready.body.reason).toBe('db-unavailable');   // plan 红测：ready reason=db-unavailable
@@ -123,6 +124,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
     const ready = await new CollabReadyService(
       prisma as any, createLeaseStub() as any, gateway, spool,
       { status: 'ready', connect: async () => {}, ping: async () => 'PONG' } as any,
+      { getPresence: async () => ({ registered: 1, waiting: 0 }) } as any,   // Y0c T29-II：workers 维度供数桩
     ).getReady();
     expect(ready.status).toBe(200);              // 熔断解除——部署门放行
   }, 15_000);

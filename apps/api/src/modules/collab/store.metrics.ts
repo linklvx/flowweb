@@ -852,6 +852,22 @@ export const yjsDegradedDocs = new Gauge({
   collect() { try { this.set(degradedDocsReader?.() ?? 0); } catch { this.set(0); } },
 });
 
+/** canvasDocUpdate 总行数 gauge（Y0c T29-II——Z125-5 口径：**观测项非机制项**，不强制 compact；
+ *  常驻后 store 频次结构性变高——行数突破 60s 稳态可预警〔health WARN〕；行数门归 Y1c-3 再裁）。
+ *  reader 注册模式=registerDegradedDocsReader 同款（gateway 注册回调，metrics 文件不 import gateway
+ *  ——反向依赖禁止）；reader 为 async（prisma canvasDocUpdate.count()，每 scrape 一次——每 5min
+ *  巡检面可接受）——prom-client collect 支持 promise（register.metrics()/get() 等待）。worker 进程
+ *  无 gateway⇒无 reader⇒折 0（degradedDocs 同款语义）。 */
+let updatesRowsReader: (() => number | Promise<number>) | null = null;
+export function registerUpdatesRowsReader(fn: () => number | Promise<number>): void { updatesRowsReader = fn; }
+export function unregisterUpdatesRowsReader(): void { updatesRowsReader = null; }
+export const yjsUpdatesRowsTotal = new Gauge({
+  name: 'yjs_updates_rows_total',
+  help: 'canvasDocUpdate 总行数（Z125-5 观测项非机制项——行数突破 60s 稳态可预警，行数门归 Y1c-3 再裁；reader=prisma count 每 scrape 一次）',
+  registers: [register],
+  async collect() { try { this.set(await (updatesRowsReader?.() ?? 0)); } catch { this.set(0); } },
+});
+
 /** ===== Y0c T16（片 A2 reaper/Z106·Z93·Z126·Z110·偏离 24）：常驻双层约束+驱逐观测 ===== */
 
 /** 常驻会话面 gauge collect 源（bytes=Σ held 条目 bytes 缓存〔reaper tick 刷新——单源

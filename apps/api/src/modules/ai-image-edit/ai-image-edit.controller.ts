@@ -7,6 +7,8 @@ import { PricingResolverService } from '../execution/pricing-resolver.service';
 import { normalizeIntentParams } from '../execution/normalize-intent-params';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { assertSyncAdmitted } from '../collab/sync-admission';
+import { WorkerPresenceService } from '../worker-presence/worker-presence.service';
+import { QUEUE_NAMES } from '../../config/queue.constants';
 
 // 批0c-8：付费任务端点收紧至 20/min（全局 300/min 见 app.module）
 @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -18,6 +20,9 @@ export class AiImageEditController {
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService,
+    // Y0c T29-II（Z148②）：付费队列 enqueue fail-closed 门（当前单进程拓扑下 registered 恒≥1、
+    // 门不可实际触发——T30 补 processor 注册门后自动生效，见 worker-presence.service.ts 裁决①注释）
+    @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
   ) {}
 
   /** 批0.5-8 三端点同构接线（F13）：claim（enqueue 前——意图表是唯一扣费幂等面，队列 attempts:1
@@ -40,6 +45,10 @@ export class AiImageEditController {
     enqueue: (intentRowId: string, intentId: string) => Promise<{ jobId: string }>;
   }) {
     await assertSyncAdmitted(this.collabDoc, input.projectId, input.stateVector);
+    // Y0c T29-II（Z148②/F11 同源）：worker 准入门——定价快照/claim 之前拒 ⇒ 零意图行零冻结零退款
+    // 义务（503 WORKER_ABSENT+Retry-After: 30）。覆盖 outpaint/erase/redraw 三 add 点（lighting 的
+    // 第 4 处 add 在 LightingController.createTask 同款门——不经本方法）。
+    await this.presence.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT);
     const pricing = await this.resolver.resolveByNodeTypeKey(input.kind);
     const { intent, created } = await this.intentService.claim({
       projectId: input.projectId,
