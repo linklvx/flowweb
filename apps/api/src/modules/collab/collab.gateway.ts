@@ -267,6 +267,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly docDelta = new Map<string, number>();
   private readonly truthMeasuredAt = new Map<string, number>();
   private readonly degradedDocs = new Set<string>();
+  /** Y0c T16（Z110）：store append 失败 doc 标记（projectId 键）——库故意不卸载 store 失败 doc
+   *  （esm:1540-1549 "Document stays in memory"），reaper 见标记走强制淘汰路径（spool 交接+清会话
+   *  条目+unloadDocument 直调）。add=append 失败点单点；delete=store 成功落定+真卸载终态两点。 */
+  readonly storeFailedDocs = new Set<string>();
   /** Y0b-5 T10：卸载边界 heap 倍率锚（beforeUnload 播种→afterUnload 结算——docTruth 在 afterUnload
    *  被清所以先存编码字节；卸载取消时残留条目由装载路径同键覆写，无泄漏面） */
   private readonly unloadHeapAnchors = new Map<string, { before: number; truth: number }>();
@@ -378,6 +382,23 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  消费=residency acquire 新开路径阻断常驻（degraded doc 不入会话表——分钟级盲区不拉成小时级）。 */
   isDocDegraded(projectId: string): boolean {
     return this.degradedDocs.has(projectId);
+  }
+  /** Y0c T16（Z126①）：heap 闸压力态纯读数（reaper 消费——禁调 heapPressureSample〔翻转日志+
+   *  gauge 同步+refusalCache 清理副作用〕；overloadTripped=翻转检测缓存，真实态在 util 迟滞内）。 */
+  isHeapPressureTripped(): boolean { return this.overloadTripped; }
+  /** Y0c T16（Z141）：reaper 判据读出口①——pending 队列非空（去抖窗批未取走）。 */
+  hasPendingWrites(projectId: string): boolean {
+    return (this.pendingQueues.get(projectId)?.length ?? 0) > 0;
+  }
+  /** Y0c T16（Z141）：reaper 判据读出口②——在飞 store（取批未落定；「队列空」≠「批已落定」——
+   *  saveMutex 属库内部字段生产不读，可观测面即此集合〔Z149-①〕）。 */
+  hasInFlightStore(projectId: string): boolean {
+    return this.inFlightProjects.has(projectId);
+  }
+  /** Y0c T16（Z106）：常驻条目字节单源读——truth+delta（:557 既有求和口径的 per-pid 版）。
+   *  会话表 bytes=缓存（reaper tick 刷新）——禁造第二真源禁新 encode。无键=0（未装载/已清理）。 */
+  docBytesOf(projectId: string): number {
+    return (this.docTruth.get(projectId) ?? 0) + (this.docDelta.get(projectId) ?? 0);
   }
   /** Y0a-2（spec §2.5+V10/V11+X1）：项目消失终态集——**永久无界**（spec §9.10：进程寿命内**真删除**项目数
    *  ——V11 emit 后置后无假终态；可见地接受：yjs_deleted_projects gauge，V25）。
@@ -1263,6 +1284,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           }
           this.logger.error(`store append failed for ${projectId}, ${parts.length} updates: ${(err as Error).message}`);
           yjsStoreAppendFailureTotal.inc();
+          this.storeFailedDocs.add(projectId);   // Y0c T16（Z110）：reaper 强制淘汰标记（清点=store 成功/真卸载）
           this.pgBreaker.recordFailure(err);   // Y0b-5 T16：PG 健康采样（连接族推闸——FK/租约分支=业务/终态不算）
           captureCollabException(err, { docName: documentName, reason: 'store-append-failed', connectionId: '-' });   // T11：store 失败样本（onStoreDocumentPayload 无 socketId——'-'）
           break;
@@ -1281,6 +1303,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           queue.splice(0, n);                                      // 新家（PG）已落定——移出旧归属
         }
         this.leaveInFlight(projectId);                             // X2 落定点①：append ok
+        this.storeFailedDocs.delete(projectId);                    // Y0c T16（Z110）：store 成功落定即撤销强制淘汰标记
         if (stashIds.length) await this.spool.confirm(projectId, stashIds);   // 旧帧内容已入 PG——可回收（契约 12）
         yjsStoreDrainTotal.inc({ result: 'appended' });
         // E71（Y0b-2 T8）：store 成功路径 emit——doc 已落 PG，消费面（video-work process 快照）双层失效。
@@ -2467,6 +2490,29 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /** Y0c T16（Z110/Z129）：强制淘汰 spool 交接——pendingQueues[pid] 批交 spool 台账（fsync 落定才
+   *  splice，BOI；unloadDocument 钩子内交接 :2491 段同款形态复用）。返回 false=交接失败/折并交织窗
+   *  ⇒调用方（residency reaper）拒绝淘汰该会话——Z129/Z143「拒绝释放非放弃」，批留队列由退避梯承接。 */
+  async handoffPendingToSpool(projectId: string): Promise<boolean> {
+    const queue = this.pendingQueues.get(projectId);
+    if (!queue || queue.length === 0) return true;
+    const n = queue.length;
+    const tailRef = queue[n - 1];                              // I-2：批尾引用锚（splice 前身份校验）
+    try {
+      for (const chunk of this.splitPersistChunks(queue.slice(0, n))) {
+        await this.spool.append(projectId, chunk.length === 1 ? chunk[0] : Y.mergeUpdates(chunk));   // fsync 落定才 resolve
+      }
+      if (queue.length < n || queue[n - 1] !== tailRef) {
+        yjsStoreTailAnomalyTotal.inc();
+        return false;                                          // 交织窗——拒淘汰（批留队列重发，CRDT 幂等吸收）
+      }
+      queue.splice(0, n);                                      // 新家（spool）已落定——移出旧归属
+      return true;
+    } catch {
+      return false;                                            // spool append 失败——批留队列（BOI 归属地不变）
+    }
+  }
+
   /** Y0a-2 Task 7：卸载清理+交接钩子（X4 永不抛——库对钩子抛错=取消卸载→destroy 永不 resolve）。
    *  Y3 顺序：①cancel 退避梯（残留梯随卸载清）→②交接（队列批 best-effort 落 spool——fsync 落定才
    *  splice，BOI；失败批留队列+③重排梯保活）→④清理残留（finally 保证）。
@@ -2554,6 +2600,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.docDelta.delete(projectId);
     this.truthMeasuredAt.delete(projectId);
     this.degradedDocs.delete(projectId);
+    this.storeFailedDocs.delete(projectId);   // Y0c T16（Z110）：真卸载终态——淘汰标记随 doc 消亡
     this.quotaFrozenDocs.delete(projectId);
     this.freezePending.delete(projectId);
     const pendingTimer = this.freezePendingTimers.get(projectId);

@@ -33,13 +33,21 @@
 // reaper 消费面（spec 应用层协议句）：释放仅对 `refCount===0 ∧ state==='held'` 会话发起（判据上移
 // T16）；T17 统一释放入口 tryRelease 消费 releaseSessionFor 原语（本任务落基础形态）；T18 关停步骤 0
 // releaseAllSessions 同源。三释放出口改造禁入本任务范围。
-import { Injectable, Inject, Logger, OnApplicationShutdown, ServiceUnavailableException } from '@nestjs/common';
+//
+// Y0c T16（reaper 武装——本文件 idleTimer/bytes 占位的本任务兑现）：周期 tick（15s 常数）五序
+// （Z126② 优先级）：①heap tripped 字节驱逐（Z126①——「拒绝服务换释放资源」）②store 失败强制淘汰
+// （Z110：spool 交接 Z129+unloadDocument 直调 Z65 唯一调用点+PG 熔断期跳过 disconnect 面）③双层约束
+// （Z106/Z142：字节主约束 384MiB 显式默认+条目 64 近似——永不拒载 Z55）④TTL/degraded 扫描（Z107
+// 120s+偏离 24 degraded 提前逐出——idleTimer 即时路径+tick 兜底）⑤reconcileSessions（Z113② 挂载）。
+import { Injectable, Inject, Logger, OnModuleInit, OnApplicationShutdown, ServiceUnavailableException } from '@nestjs/common';
 import type * as Y from 'yjs';
 import { CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import {
   collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabResidencyReleaseInflightTotal,
-  collabWriteSessionReleaseTimeoutTotal, consumeDirectLoad, noteDirectLoad, yjsWithdocOpenDuration,
+  collabWriteSessionReleaseTimeoutTotal, consumeDirectLoad, noteDirectLoad, registerResidentReader,
+  yjsDocEvictedResidencySeconds, yjsDocEvictedTotal, yjsForceEvictFailureTotal, yjsResidentOverLimitTotal,
+  yjsUnloadHandoffFailureTotal, yjsWithdocOpenDuration,
 } from './store.metrics';
 
 /** 直连类型=库 openDirectConnection 返回实例推导（根导出 DirectConnection 接口无 document 成员——
@@ -49,13 +57,17 @@ type DirectConn = Awaited<ReturnType<CollabGateway['server']['hocuspocus']['open
 /** 会话状态机（A2 冻结契约：held→releasing→released〔=条目移除〕；zombie=释放挂起超时档）。 */
 export type ResidentSessionState = 'held' | 'releasing' | 'zombie';
 
-/** 会话表条目。idleTimer（T16 reaper 武装）/bytes（T16 calibrateTruth 复用填）本任务占位。 */
+/** 会话表条目。bytes=docTruth+delta 缓存（reaper tick 刷新——单源 gateway.docBytesOf，禁造第二真源）。 */
 export interface ResidentSession {
   conn: DirectConn;
   refCount: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
   state: ResidentSessionState;
   bytes: number;
+  /** 会话创建时点（Z93 驱逐时驻留时长直方图起算）。 */
+  heldSince: number;
+  /** refCount 归零时点（TTL 判据+tick 扫描兜底载体——acquire 命中即清除；undefined=在用）。 */
+  idleSince?: number;
   /** releasing 档在飞释放 promise（acquire 有限等待/Z83 幂等去重载体；settle 后自清理条目） */
   releasePromise?: Promise<void>;
   /** releasing 档底层 disconnect 真实 settle 信号（成功/抛错/超时后挂起段的最终 settle——
@@ -68,25 +80,55 @@ export interface ResidentSession {
  *  是 disconnect await 链的主体挂起段）。 */
 export const RELEASE_TIMEOUT_MS = 5_000;
 
+// ── Y0c T16 使用点默认值（Z107/Z132/Z142：env 三键 T0 已注册 optional 无 default——默认值落
+//    使用点纪律，防双源 P3；构造器直读=census ㉒ 允许面） ──
+/** 空闲 TTL 默认 120_000（Z132① 双向定标：下界=AI 作业单段间隔分钟级〔30s 会使 loading→deliver
+ *  段间释放重载=常驻化对长作业失效〕；上界=SIGKILL 丢数据窗与常驻 doc 数权衡——A2 实测调）。 */
+export const DEFAULT_SESSION_IDLE_TTL_MS = 120_000;
+/** 字节主约束默认 384MiB 显式（Z142①——依据=api old-space 同量级；**禁默认关闭**：T0 注册 optional
+ *  无 default，若使用点亦无默认=主约束死键而条目反推值反而活着=假门禁形态）。 */
+export const DEFAULT_MAX_RESIDENT_BYTES = 402_653_184;
+/** 条目次约束默认 64（Z132②——384MiB÷典型 doc p95≈300KB 的 1/20 余量，待实测校准近似〔T22 以
+ *  T0.5 实测 p95 字节回填〕；team 并发项目 >64 时=LRU 抖动可接受——病态护栏非容量目标）。 */
+export const DEFAULT_MAX_RESIDENT_DOCS = 64;
+/** reaper tick 周期（常数不进 env——env 键注册面 T0 已定死三键，新增键=census 红）。 */
+export const REAP_TICK_MS = 15_000;
+
 export interface WithSessionOptions {
   mode: 'read' | 'write';
 }
 
 interface Acquired {
+  pid: string;
   conn: DirectConn;
   /** null=未入池（Z111 degraded 瞬态——用完即断，旧行为） */
   entry: ResidentSession | null;
 }
 
 @Injectable()
-export class CollabResidencyService implements OnApplicationShutdown {
+export class CollabResidencyService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(CollabResidencyService.name);
   /** 会话表（Z59 钉住谓词载体——conn 在即 doc 恒驻）。单键单条目：Map 结构性保证「会话表无双条目」。 */
   private readonly sessions = new Map<string, ResidentSession>();
   /** 同 pid acquire 串行化链（并发窗防双开——两 acquire 同时未命中/撞 releasing 时排队，后继见前驱成果） */
   private readonly acquireChains = new Map<string, Promise<unknown>>();
+  /** T16 三键（构造器一次读入——运行期不再读 env；测试经 (svc as any) 直覆写定标）。 */
+  private idleTtlMs: number;
+  private maxResidentBytes: number;
+  private maxResidentDocs: number;
+  private reapTimer: ReturnType<typeof setInterval> | null = null;
+  /** tick 重入闸（mass-zombie 期单 tick 可达 N×5s——防周期定时器堆叠）。 */
+  private ticking = false;
 
-  constructor(@Inject(CollabGateway) private readonly gateway: CollabGateway) {}
+  constructor(@Inject(CollabGateway) private readonly gateway: CollabGateway) {
+    // Y0c T16（Z107/Z132/Z142）：三键构造器直读（census ㉒ 构造器读面），默认值见常量注。
+    this.idleTtlMs = Number(process.env.COLLAB_SESSION_IDLE_TTL_MS) || DEFAULT_SESSION_IDLE_TTL_MS;
+    this.maxResidentBytes = Number(process.env.COLLAB_MAX_RESIDENT_BYTES) || DEFAULT_MAX_RESIDENT_BYTES;
+    this.maxResidentDocs = Number(process.env.COLLAB_MAX_LOADED_DOCS) || DEFAULT_MAX_RESIDENT_DOCS;
+    // Z106③ gauge 供数（gateway reader 注册惯例——bytes=Σ held 缓存〔tick 刷新〕/docs=held 条目数
+    // 〔Minor-3 口径统一：zombie/releasing 过渡档不计——与 bytes Σheld 对齐，mass-zombie 期不虚高〕）
+    registerResidentReader(() => ({ bytes: this.sumHeldBytes(), docs: this.heldSessionCount() }));
+  }
 
   /** X9/Y0a-3 R4 写意图受理门（lease 失守/spool 熔断/容量熔断拒——503 瞬态）。
    *  实现单源迁此（T15 起 withSession(write) 内部强制过门；CollabDocumentService.assertWriteAdmitted
@@ -165,6 +207,7 @@ export class CollabResidencyService implements OnApplicationShutdown {
       collabResidencyReleaseInflightTotal.inc();
     }
     entry.state = 'releasing';
+    if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null; }   // T16：离开空闲态即撤计时
     entry.releasePromise = this.doRelease(projectId, entry);
     return entry.releasePromise;
   }
@@ -218,7 +261,9 @@ export class CollabResidencyService implements OnApplicationShutdown {
     const existing = this.sessions.get(projectId);
     if (existing && existing.state === 'held' && existing.conn.document) {
       existing.refCount += 1;
-      return { conn: existing.conn, entry: existing };
+      if (existing.idleTimer) { clearTimeout(existing.idleTimer); existing.idleTimer = null; }   // T16：活跃复用即撤销空闲计时
+      existing.idleSince = undefined;
+      return { pid: projectId, conn: existing.conn, entry: existing };
     }
     if (existing && existing.state === 'releasing') {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -245,27 +290,30 @@ export class CollabResidencyService implements OnApplicationShutdown {
     // Z111 degraded 阻断：不入会话表（本次即用即断=旧行为；整行缺失不可探测面维持每次装载+每次告警）
     if (this.gateway.isDocDegraded(projectId)) {
       this.logger.warn(`residency skip (degraded doc): project:${projectId}——Z111 不入池，本次即用即断`);
-      return { conn, entry: null };
+      return { pid: projectId, conn, entry: null };
     }
-    const entry: ResidentSession = { conn, refCount: 1, idleTimer: null, state: 'held', bytes: 0 };
+    const entry: ResidentSession = { conn, refCount: 1, idleTimer: null, state: 'held', bytes: 0, heldSince: Date.now() };
     this.sessions.set(projectId, entry);   // 覆盖 zombie/超时残留条目（旧条目身份守卫自清理）
-    return { conn, entry };
+    return { pid: projectId, conn, entry };
   }
 
-  /** withSession finally 释放：入池=refCount--（回零不立即释放——常驻，idleTimer 武装归 T16）；
-   *  未入池（Z111 degraded 瞬态）=disconnect 即旧行为收尾。 */
+  /** withSession finally 释放：入池=refCount--（回零不立即释放——常驻：T16 起记 idleSince+武装
+   *  idleTimer〔TTL 后 reapOne〕）；未入池（Z111 degraded 瞬态）=disconnect 即旧行为收尾。 */
   private async releaseAcquire(acquired: Acquired): Promise<void> {
     if (!acquired.entry) {
       await acquired.conn.disconnect({ unloadImmediately: true });
       return;
     }
     if (acquired.entry.refCount > 0) acquired.entry.refCount -= 1;
+    if (acquired.entry.refCount === 0 && acquired.entry.state === 'held') {
+      acquired.entry.idleSince = Date.now();
+      this.armIdleTimer(acquired.pid);
+    }
   }
 
   /** 周期对账（Z113②）：不变量=Σ held 条目各自 conn 持有（conn.document 在∧directConnectionsCount≥1）
    *  ===held 条目数；漂移 WARN+计数。zombie/releasing 档例外豁免——库 disconnect 首步 removeDirectConnection
-   *  （esm:1148）先于 await，非 held 档 count 恒 0 属机制内形态非泄漏。周期定时器挂载归 T16
-   *  （与 reaper 同窗调度避免时序冲突——本任务先落方法+被调点义务）。 */
+   *  （esm:1148）先于 await，非 held 档 count 恒 0 属机制内形态非泄漏。周期挂载=T16 reapTick ⑤。 */
   reconcileSessions(): void {
     let drift = 0;
     for (const [pid, entry] of this.sessions) {
@@ -279,11 +327,233 @@ export class CollabResidencyService implements OnApplicationShutdown {
     if (drift > 0) collabResidencyReconcileDriftTotal.inc(drift);
   }
 
+  /** ===== Y0c T16：reaper（周期 tick+单会话 idleTimer 即时路径） ===== */
+
+  /** Nest 装配实例周期定时器启动（直构测试不触发——测试直调 reapTick；15s 常数注见 REAP_TICK_MS）。 */
+  onModuleInit(): void {
+    this.reapTimer = setInterval(() => {
+      void this.reapTick().catch((e) => this.logger.warn(`reapTick error: ${(e as Error).message}`));
+    }, REAP_TICK_MS);
+    this.reapTimer.unref?.();
+  }
+
+  /** tick 五序（Z126② 优先级=tripped 高于 TTL）：①heap tripped 字节驱逐 ②store 失败强制淘汰
+   *  ③双层约束 ④TTL/degraded 扫描（idleTimer 兜底——timer 丢失/错过时 idleSince 台账仍可逐出）
+   *  ⑤reconcileSessions（Z113② 周期挂载义务——T15 遗留）。 */
+  async reapTick(): Promise<void> {
+    if (this.ticking) return;
+    this.ticking = true;
+    try {
+      this.refreshSessionBytes();
+      if (this.gateway.isHeapPressureTripped()) await this.evictForHeapPressure();
+      await this.forceEvictStoreFailed();
+      await this.enforceResidentBudgets();
+      await this.scanIdleSessions();
+      this.reconcileSessions();
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  /** reaper 通用准入（Z62 三条件+Z83 应用层协议）：held∧refCount===0∧pending 队列空∧无在飞
+   *  store（Z141 两前置——「队列空」≠「批已落定」；saveMutex 属库内部字段生产不读，不可观测部分
+   *  归库谓词兜底〔Z112/Z149-①〕）。 */
+  private isReapable(pid: string, entry: ResidentSession): boolean {
+    return entry.state === 'held' && entry.refCount === 0
+      && !this.gateway.hasPendingWrites(pid) && !this.gateway.hasInFlightStore(pid);
+  }
+
+  /** 候选快照（快照与执行间有 await 窗——pending/inflight 由 evictViaRelease 执行时再验）。 */
+  private reapableCandidates(): { pid: string; entry: ResidentSession }[] {
+    const out: { pid: string; entry: ResidentSession }[] = [];
+    for (const [pid, entry] of this.sessions) {
+      if (entry.state === 'held' && entry.refCount === 0) out.push({ pid, entry });
+    }
+    return out;
+  }
+
+  /** 驱逐单条（常规路径——释放一律经 releaseSessionFor，Z62）：执行时再验判据（await 交织窗内
+   *  会话可能被 acquire 复用）；实卸（条目移除）才计 evicted+驻留时长（「实卸 M」口径——zombie
+   *  档未卸不计）。 */
+  private async evictViaRelease(pid: string, reason: 'ttl' | 'lru' | 'degraded' | 'forced'): Promise<void> {
+    const entry = this.sessions.get(pid);
+    if (!entry || !this.isReapable(pid, entry)) return;
+    await this.releaseSessionFor(pid);
+    if (this.sessions.get(pid) !== entry) {
+      yjsDocEvictedTotal.inc({ reason });
+      yjsDocEvictedResidencySeconds.observe((Date.now() - entry.heldSince) / 1000);
+    }
+  }
+
+  /** 武装单会话空闲计时器（releaseAcquire refCount→0 即时路径；TTL 后 reapOne）。 */
+  private armIdleTimer(pid: string): void {
+    const entry = this.sessions.get(pid);
+    if (!entry || entry.state !== 'held') return;
+    if (entry.idleTimer) clearTimeout(entry.idleTimer);
+    entry.idleTimer = setTimeout(() => { void this.reapOne(pid); }, this.idleTtlMs);
+    entry.idleTimer.unref?.();
+  }
+
+  /** 单会话逐出判定（idleTimer 到期/tick 扫描两入口）：三条件不满足⇒**重置计时器不释放**（Z112——
+   *  显式检查是防御〔省一次无效 disconnect〕，库谓词是兜底）。 */
+  async reapOne(pid: string): Promise<void> {
+    const entry = this.sessions.get(pid);
+    if (!entry) return;
+    entry.idleTimer = null;
+    if (!this.isReapable(pid, entry)) {
+      this.armIdleTimer(pid);
+      return;
+    }
+    await this.evictViaRelease(pid, 'ttl');
+  }
+
+  /** tick ①（Z126①——heap 闸常驻旁路修法）：常驻集内 tripped⇒字节驱逐 reason='forced'——
+   *  「拒绝服务换释放资源」（常驻架构下正确的压力响应）。驱逐目标=逐出至 Σbytes 回落字节主约束内
+   *  （**字节主序 DESC**——压力期单次驱逐释放最多内存；tie=idleSince 旧者先。不取「全部 idle 逐出」
+   *  形态：Σ≤限而 RSS tripped=压力源非 doc 常驻，盲目清池徒损常驻命中）；:881/:1008 冷 doc 拒新
+   *  物化判据不动——被驱逐 doc 变冷后自然受该闸。 */
+  private async evictForHeapPressure(): Promise<void> {
+    const cands = this.reapableCandidates()
+      .sort((a, b) => b.entry.bytes - a.entry.bytes || (a.entry.idleSince ?? 0) - (b.entry.idleSince ?? 0));
+    let sum = this.sumHeldBytes();
+    for (const { pid } of cands) {
+      if (sum <= this.maxResidentBytes) break;
+      const entry = this.sessions.get(pid);
+      if (!entry) continue;
+      const freed = entry.bytes;
+      await this.evictViaRelease(pid, 'forced');
+      if (this.sessions.get(pid) !== entry) sum -= freed;
+    }
+  }
+
+  /** tick ②（Z110+Z129）：store 失败 doc 强制淘汰——不依赖 disconnect 成功（库 esm:1540-1549 故意
+   *  留驻 store 失败 doc，disconnect 的 store 尾程不可依赖）。序=spool 交接（失败⇒**拒绝淘汰**该
+   *  会话+ERROR 点名+计数——Z129/Z143 非放弃，批留队列由退避梯承接）⇒清会话条目（先于 unload——
+   *  directConnectionsCount 归零才过库谓词 esm:1576）⇒evicted{forced}⇒conn.disconnect fire-and-forget
+   *  （removeDirectConnection 同步先行 esm:1148；其 store 尾程成败非本路径判据——由既有失败点+退避梯
+   *  承接）⇒unloadDocument 直调（Z65 唯一调用点；前断言三条件已执法：pendingQueues 空〔交接后〕∧无
+   *  在飞∧refCount===0。谓词未过〔saveMutex 执行中〕时本调用 no-op——disconnect 尾程 esm:1171 兜底）。
+   *  PG 熔断开⇒整体跳过（Z110 放大循环防护：熔断期不重试 disconnect 面——breaker 态 gauge
+   *  collab_pg_breaker_state 既有可观测，内存交 heap 闸观测）。 */
+  private async forceEvictStoreFailed(): Promise<void> {
+    for (const pid of [...this.gateway.storeFailedDocs]) {
+      const entry = this.sessions.get(pid);
+      if (!entry || entry.state !== 'held' || entry.refCount !== 0) continue;
+      if (this.gateway.hasInFlightStore(pid)) continue;   // 取批在飞窗不交接（splice 竞态——Z141 同源）
+      if (this.gateway.isPgBreakerOpen()) {
+        this.logger.warn(`force evict deferred (pg breaker open): project:${pid}——Z110 熔断期不撞 store，交 heap 闸观测`);
+        continue;
+      }
+      const handed = await this.gateway.handoffPendingToSpool(pid);
+      if (!handed) {
+        yjsUnloadHandoffFailureTotal.inc();
+        this.logger.error(`force evict refused (spool handoff failed): project:${pid}——Z129 交接失败拒绝淘汰，批留队列由退避梯承接`);
+        continue;
+      }
+      // I-1（并发 TOCTOU）：handoff await 窗（fsync 可达百 ms）内并发 withSession acquire 可命中
+      // held（refCount 0→1）——无条件 delete+disconnect 即拔在用 conn。重验不满足=条目已被复用，
+      // 留表交下轮 tick（spool 批已落定，下轮 handoff 见空队列返 true 直过）。
+      if (this.sessions.get(pid) !== entry || entry.state !== 'held' || entry.refCount !== 0) {
+        this.logger.warn(JSON.stringify({ event: 'collab_force_evict_reacquired', pid }));
+        continue;
+      }
+      if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null; }
+      this.sessions.delete(pid);   // 清会话条目（强制淘汰本体）
+      const document = this.gateway.server.hocuspocus.documents.get(`project:${pid}`);   // disconnect 前取——其尾程可能已并发卸载
+      yjsDocEvictedTotal.inc({ reason: 'forced' });
+      yjsDocEvictedResidencySeconds.observe((Date.now() - entry.heldSince) / 1000);
+      void entry.conn.disconnect().catch(() => {});   // 引用计数归零（unload 过库谓词前提）；尾程非判据
+      if (!document) continue;   // 已不在（并发卸载）——条目已清即达淘汰目的
+      try {
+        await this.gateway.server.hocuspocus.unloadDocument(document);   // 并发卸载由库 unloadingDocuments 去重（esm:1578）
+      } catch (e) {
+        yjsForceEvictFailureTotal.inc();
+        this.logger.warn(`force evict unloadDocument failed: project:${pid}: ${(e as Error).message}——条目已清，doc 卸载交库谓词/disconnect 尾程`);
+      }
+    }
+  }
+
+  /** tick ③（Z106/Z142 双层约束）：字节主约束（挡触顶病态 doc——正常 doc 72-366KB 无威胁）+条目
+   *  次约束（防 map 失控）。超限=临时超过+WARN+over_limit 计数——**永不拒载**（Z55：拒载归 Y1c-3
+   *  准入）。回收=LRU：字节约束=字节主序 DESC（同 tick ① 键）；条目约束=最旧空闲先（Z55「回收最旧
+   *  空闲非拒载」——idleSince 升序）。 */
+  private async enforceResidentBudgets(): Promise<void> {
+    const sum = this.sumHeldBytes();
+    if (sum > this.maxResidentBytes) {
+      yjsResidentOverLimitTotal.inc();
+      this.logger.warn(JSON.stringify({ event: 'collab_resident_over_limit', kind: 'bytes', sum, limit: this.maxResidentBytes }));
+      const cands = this.reapableCandidates()
+        .sort((a, b) => b.entry.bytes - a.entry.bytes || (a.entry.idleSince ?? 0) - (b.entry.idleSince ?? 0));
+      let remaining = sum;
+      for (const { pid } of cands) {
+        if (remaining <= this.maxResidentBytes) break;
+        const entry = this.sessions.get(pid);
+        if (!entry) continue;
+        const freed = entry.bytes;
+        await this.evictViaRelease(pid, 'lru');
+        if (this.sessions.get(pid) !== entry) remaining -= freed;
+      }
+    }
+    const docs = this.heldSessionCount();   // Minor-3：held 计数（旧 sessions.size 含 releasing/zombie——mass-zombie 期虚高驱动空 WARN+对 held idle 条目无效驱逐循环）
+    if (docs > this.maxResidentDocs) {
+      yjsResidentOverLimitTotal.inc();
+      this.logger.warn(JSON.stringify({ event: 'collab_resident_over_limit', kind: 'docs', size: docs, limit: this.maxResidentDocs }));
+      const cands = this.reapableCandidates()
+        .sort((a, b) => (a.entry.idleSince ?? Infinity) - (b.entry.idleSince ?? Infinity));
+      for (const { pid } of cands) {
+        if (this.heldSessionCount() <= this.maxResidentDocs) break;
+        await this.evictViaRelease(pid, 'lru');
+      }
+    }
+  }
+
+  /** tick ④：TTL/degraded 扫描（idleTimer 即时路径的兜底——timer 丢失/错过时 idleSince 台账仍可
+   *  逐出）。degraded（偏离 24）：运行期退化（装载后 pendingStructs/pendingDs 转非空——Z111 只挡
+   *  装载时入池）的 held 会话**不等 TTL** 即逐出——恢复「每装一警」可观测性，下次装载走 Z111 瞬态
+   *  路径；频次=装载质量信号（诊断价值高于并入 'ttl'）。 */
+  private async scanIdleSessions(): Promise<void> {
+    const now = Date.now();
+    for (const [pid, entry] of [...this.sessions]) {
+      if (entry.state !== 'held' || entry.refCount !== 0) continue;
+      if (this.gateway.isDocDegraded(pid)) {
+        await this.evictViaRelease(pid, 'degraded');
+        continue;
+      }
+      if (entry.idleSince !== undefined && now - entry.idleSince >= this.idleTtlMs) await this.reapOne(pid);
+    }
+  }
+
+  /** 会话 bytes 缓存刷新（tick 供数/判据前——单源 gateway.docBytesOf(truth+delta)，禁造第二真源）。 */
+  private refreshSessionBytes(): void {
+    for (const [pid, entry] of this.sessions) {
+      if (entry.state === 'held') entry.bytes = this.gateway.docBytesOf(pid);
+    }
+  }
+
+  /** Σ held 条目 bytes（zombie/releasing 过渡档不计——自清理延续中）。 */
+  private sumHeldBytes(): number {
+    let sum = 0;
+    for (const e of this.sessions.values()) if (e.state === 'held') sum += e.bytes;
+    return sum;
+  }
+
+  /** held 条目数（Minor-3 口径统一——docs gauge 供数+条目次约束判据同源；与 sumHeldBytes
+   *  过滤口径对齐：zombie/releasing 过渡档不计，mass-zombie 期不虚高）。 */
+  private heldSessionCount(): number {
+    let n = 0;
+    for (const e of this.sessions.values()) if (e.state === 'held') n += 1;
+    return n;
+  }
+
   /** I-3（控制方裁决 a）最小关停钩子：进程关停循环 releaseSessionFor——常驻 conn 不释放则
    *  graceDirectConnections 烧满 2s+destroy 4s race⇒destroy_timeout 假 ERROR 每次必发（Z81 机制链），
    *  本钩子消声。**无预算核算无 Σdirect===0 断言——T18 关停步骤 0 全形态（Z38/Z81：逐会话预算+
    *  Σdirect===0 硬断言+hangReason resident-session-open 档）届时整体替换本方法。 */
   async onApplicationShutdown(): Promise<void> {
+    if (this.reapTimer) { clearInterval(this.reapTimer); this.reapTimer = null; }   // 先清周期定时器再释放会话
+    for (const [, entry] of this.sessions) {
+      if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null; }
+    }
     const pids = this.residentProjectIds();
     let released = 0;
     for (const pid of pids) {

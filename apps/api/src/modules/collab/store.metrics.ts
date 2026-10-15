@@ -832,6 +832,61 @@ export const yjsDegradedDocs = new Gauge({
   collect() { try { this.set(degradedDocsReader?.() ?? 0); } catch { this.set(0); } },
 });
 
+/** ===== Y0c T16（片 A2 reaper/Z106·Z93·Z126·Z110·偏离 24）：常驻双层约束+驱逐观测 ===== */
+
+/** 常驻会话面 gauge collect 源（bytes=Σ held 条目 bytes 缓存〔reaper tick 刷新——单源
+ *  gateway.docBytesOf(truth+delta)〕/docs=held 条目数〔过渡档不计——与 bytes 口径对齐〕；
+ *  reader 注册模式=awarenessReader 惯例——residency 注册读数回调，metrics 文件不 import service
+ *  ——反向依赖禁止）。 */
+let residentReader: (() => { bytes: number; docs: number }) | null = null;
+export function registerResidentReader(fn: () => { bytes: number; docs: number }): void { residentReader = fn; }
+export function unregisterResidentReader(): void { residentReader = null; }
+export const yjsResidentBytes = new Gauge({
+  name: 'yjs_resident_bytes',
+  help: '常驻会话 doc 字节总和（Σ(truth+delta) 缓存——tick 刷新；字节主约束 Z106 判据载体，Z145 绝对主判据输入）',
+  registers: [register],
+  collect() { try { this.set(residentReader?.().bytes ?? 0); } catch { this.set(0); } },
+});
+export const yjsResidentDocs = new Gauge({
+  name: 'yjs_resident_docs',
+  help: '常驻会话 held 条目数（zombie/releasing 过渡档不计——与 yjs_resident_bytes Σheld 口径对齐；条目次约束护栏，默认 64=待实测校准近似 Z132②，T22 回填）',
+  registers: [register],
+  collect() { try { this.set(residentReader?.().docs ?? 0); } catch { this.set(0); } },
+});
+
+/** 双层约束超限计数（Z106④——超限=临时超过+WARN+本计数，永不拒载 Z55；稳态 0）。 */
+export const yjsResidentOverLimitTotal = new Counter({
+  name: 'yjs_resident_over_limit_total',
+  help: '常驻双层约束超限计数（字节/条目任一超限的 tick 次数——超限=临时超过+WARN，永不拒载 Z55/Z106）',
+  registers: [register],
+});
+
+/** 驱逐计数（Z93+偏离 24）：reason=ttl 空闲到期/lru 双层约束回收/forced heap 闸〔Z126①〕或
+ *  store 失败强制淘汰〔Z110〕/degraded 运行期退化提前逐出〔偏离 24——诊断价值高于并入 ttl〕。 */
+export const yjsDocEvictedTotal = new Counter({
+  name: 'yjs_doc_evicted_total',
+  help: '常驻会话驱逐计数（reason=ttl 空闲到期/lru 双层约束回收/forced heap 闸或 store 失败强制淘汰/degraded 运行期退化提前逐出）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
+/** 驱逐时驻留时长直方图（Z93——heldSince 起算；会话 TTL/双层约束/heap 闸三断点的驱逐时长分布，
+ *  「环路有界」从事后论证变可读数）。 */
+export const yjsDocEvictedResidencySeconds = new Histogram({
+  name: 'yjs_doc_evicted_residency_seconds',
+  help: '驱逐时驻留时长秒分布（Z93——冻结 doc 驻留时长落档，事故复盘自证 Z70 降级无环）',
+  buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600],
+  registers: [register],
+});
+
+/** 强制淘汰 unloadDocument 直调失败计数（Z110——条目已清不回滚；失败=库谓词未过〔saveMutex/
+ *  残余连接〕或卸载钩子拒绝，残留 doc 由 disconnect 尾程/下轮 tick 承接）。 */
+export const yjsForceEvictFailureTotal = new Counter({
+  name: 'yjs_force_evict_failure_total',
+  help: 'store 失败强制淘汰 unloadDocument 直调失败次数（Z110——淘汰本身不回滚，失败仅告警计数）',
+  registers: [register],
+});
+
 /** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
 
 /** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 闭集：

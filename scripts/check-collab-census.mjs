@@ -683,7 +683,7 @@ if (isMain()) {
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源）
-    'apps/api/src/modules/collab/collab.gateway.ts': { mergeUpdates: 7, decodeStateVector: 2, encodeStateAsUpdate: 3 },
+    'apps/api/src/modules/collab/collab.gateway.ts': { mergeUpdates: 8, decodeStateVector: 2, encodeStateAsUpdate: 3 },   // Y0c T16：handoffPendingToSpool +1（Z129 强制淘汰交接——:2491 卸载交接同款形态）
     'apps/api/src/modules/collab/collab-spool.service.ts': { mergeUpdates: 1 },                  // spool 批合并
   };
   {
@@ -913,6 +913,11 @@ if (isMain()) {
       COLLAB_HEAP_PRESSURE_RATIO: { n: 1, until: 'T34' },
       COLLAB_CONN_MAX_LIFETIME_MS: { n: 1, until: 'T34' },
       COLLAB_SWEEP_ENABLED: { n: 1, until: 'T34' },
+    },
+    'apps/api/src/modules/collab/collab-residency.service.ts': {   // Y0c T16（Z107/Z132/Z142）：reaper 三键构造器直读——默认值落使用点纪律（构造器读面非 Z79 违规；T34 收编 env 单源）
+      COLLAB_SESSION_IDLE_TTL_MS: { n: 1, until: 'T34' },
+      COLLAB_MAX_RESIDENT_BYTES: { n: 1, until: 'T34' },
+      COLLAB_MAX_LOADED_DOCS: { n: 1, until: 'T34' },
     },
     'apps/api/src/modules/collab/collab.module.ts': {
       COLLAB_PORT: { n: 1, until: 'T34' },               // Z45②：useValue 形态——T34 改 useFactory 收编

@@ -1254,6 +1254,66 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
     } finally { appendSpy.mockRestore(); await kit.dispose(); }
   });
 
+  // ══ Y0c T16 I-2（测试漂移防线）：handoffPendingToSpool 生产面——reaper spec 全 mock（true/false
+  //    两态）未钉队列副作用；以下三用例复刻上方卸载交接用例构造形态（真路径入队+生产方法直调） ══
+  it('T16 强制淘汰交接成功（生产面 handoffPendingToSpool）：队列帧落 spool+队列 splice 清空', async () => {
+    const kit = await startDualClientServer({}, 60_000);   // 大 debounce：防 debounce store 先行清队列
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-fevict');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      // >=2（卸载交接成功用例同款）：stamp+k1 全落队再交接——WS 送达异步，>0 会在 stamp 时提前放行
+      await pollUntil(() => ((g.pendingQueues.get('p-fevict') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
+      await expect(g.handoffPendingToSpool('p-fevict')).resolves.toBe(true);
+      expect(g.pendingQueues.get('p-fevict')).toHaveLength(0);   // 批新家=spool（splice 清空——fsync 落定后才离旧归属）
+      expect(await kit.spool.peek('p-fevict')).toHaveLength(1);  // 帧在 spool
+    } finally { await kit.dispose(); }
+  });
+
+  it('T16 强制淘汰交接 drain 并发（I-2 织防御）：append 挂起窗内折并改写队列前缀⇒批尾身份断（tailRef!==queue[n-1]）⇒返 false（批留队列不丢）', async () => {
+    const kit = await startDualClientServer({}, 60_000);   // 大 debounce：窗内唯一变更=注入的折并交织
+    let release!: () => void;
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<string[]>((r) => { release = () => r(['0:0']); }));   // 挂起窗：交接 append 不落定（M-4(b) 同款）
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-fevict-race');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      await pollUntil(() => ((g.pendingQueues.get('p-fevict-race') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
+      const q = g.pendingQueues.get('p-fevict-race') as Uint8Array[];
+      const n = q.length; const tailRef = q[n - 1];
+      const handing = g.handoffPendingToSpool('p-fevict-race');
+      await pollUntil(() => release !== undefined, 2_000);   // append 挂起窗已开
+      q.unshift(new Uint8Array([9, 9]));                     // 折并交织形态（生产=锁内取批/折并 splice 前缀——n-1 身份破坏，长度判据不命中、纯尾身份分支）
+      release();
+      await expect(handing).resolves.toBe(false);            // 拒淘汰（批留队列重发，CRDT 幂等吸收）
+      expect(q).toHaveLength(n + 1);                         // 未 splice（旧实现无条件 splice(0,n)=折并产物被删=红）
+      expect(q[n]).toBe(tailRef);                            // 交接批尾原样留队
+    } finally { appendSpy.mockRestore(); await kit.dispose(); }
+  });
+
+  it('T16 强制淘汰交接失败（生产面）：spool append 抛错⇒返 false+队列原样保留（批不丢——BOI 归属地不变）', async () => {
+    const kit = await startDualClientServer({}, 60_000);
+    const appendSpy = vi.spyOn(kit.spool, 'append').mockRejectedValue(new Error('spool down'));   // 恒抛不触盘（卸载交接失败用例同款）
+    try {
+      const g = kit.gateway as any;
+      const { provider, synced } = kit.connect('project:p-fevict-fail');
+      await synced;
+      provider.document.getMap('nodes').set('k1', 1);
+      await pollUntil(() => ((g.pendingQueues.get('p-fevict-fail') as Uint8Array[] | undefined)?.length ?? 0) >= 2, 2_000);
+      const before = g.pendingQueues.get('p-fevict-fail') as Uint8Array[];
+      const refs = [...before];
+      await expect(g.handoffPendingToSpool('p-fevict-fail')).resolves.toBe(false);
+      const after = g.pendingQueues.get('p-fevict-fail');
+      expect(after).toBe(before);                            // 同一数组（未 splice）
+      expect(after).toHaveLength(refs.length);               // 批原样（逐元素身份不断）
+      appendSpy.mockRestore();
+      await kit.gateway.hooks.onStoreDocument({ document: provider.document, documentName: 'project:p-fevict-fail' } as any);   // 直调落库收尾（卸载交接失败用例同款）
+      expect(g.pendingQueues.get('p-fevict-fail')).toHaveLength(0);
+    } finally { appendSpy.mockRestore(); await kit.dispose(); }
+  });
+
   it('Y11 重连同数组身份：交接失败→重连 loadDocument get-or-create 撞同一条目（toBe 同引用+长度不减）→批经 store 落库一次', async () => {
     const kit = await startDualClientServer({}, 60_000);
     const appendSpy = vi.spyOn(kit.spool, 'append').mockRejectedValue(new Error('spool down'));
