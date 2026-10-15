@@ -23,7 +23,8 @@ import { isFkGone } from './pg-error.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSchemaVersion, negotiateClientVersion, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, SERVER_TRANSACT_ORIGIN, stampDocSchema, userColorOfUserId, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload, type VersionVerdict } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
+import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
+import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
 
 /** Y0a-3 T5（SV7/W）：collab 面七态（模块别名——method 签名里 `typeof this.collabState` 有 TS 解析风险，恒用本名）。
@@ -862,9 +863,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  trip 翻转→gauge+四数采样日志一条（首拒前必经翻转点——禁每拒一条 ERROR）；tripped→released
    *  翻转→util 一次性回调→onServingTransition 清 refusalCache（P-Q 钩子②）+gauge 复位。 */
   private heapPressureSample(): HeapPressureSample {
+    // Y0c T30（Z84②）：TRIP/RELEASE 按 role 取值（gateway 只装配于 api|all；COLLAB_ROLE 裸读
+    // census ㉒ 登记 until=T34——execution-daemon.module:32 同款 ?? COLLAB_ROLE_DEFAULT 单源 fallback）
+    const role = (process.env.COLLAB_ROLE ?? COLLAB_ROLE_DEFAULT) as CollabRole;
     const sample = measureHeapPressure({
-      tripBytes: Number(process.env.COLLAB_RSS_TRIP_BYTES) || DEFAULT_RSS_TRIP_BYTES,
-      releaseBytes: Number(process.env.COLLAB_RSS_RELEASE_BYTES) || DEFAULT_RSS_RELEASE_BYTES,
+      tripBytes: Number(process.env.COLLAB_RSS_TRIP_BYTES) || RSS_TRIP_BYTES[role],
+      releaseBytes: Number(process.env.COLLAB_RSS_RELEASE_BYTES) || RSS_RELEASE_BYTES[role],
       tripRatio: Number(process.env.COLLAB_HEAP_PRESSURE_RATIO) || 0.8,
     });
     if (sample.tripped && !this.overloadTripped) {

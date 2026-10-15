@@ -821,13 +821,11 @@ if (isMain()) {
   //  三向断言：A 分叉键∩.env 键集=∅；B ecosystem env 块键集⊆分叉键集（同值键禁混入）；C 分叉键
   //  ⊆ecosystem env 块键集（「分叉键必须显式登记于 ecosystem」）。.env 为本地文件不在 git：
   //  不存在=跳过 A 向+提示（CI/无 .env 环境可跑）；ecosystem 半边恒执法。
-  //  与 check-ecosystem.mjs ENV_ALLOWLIST 同源事实（该白名单={现存两分叉键}——T30 扩 COLLAB_ROLE）。
+  //  与 check-ecosystem.mjs ENV_ALLOWLIST 同源事实（T30 已扩 COLLAB_ROLE——白名单=三分叉键全集）。
   const FORKED_ENV_KEYS = ['COLLAB_ROLE', 'COLLAB_BIND_ADDR', 'COLLAB_SPOOL_DIR'];
-  // 方向 C 登记红（元纪律⑥）：分叉键尚未落 ecosystem=登记红，until=片D（T30 ecosystem 双进程
-  //  同批落 api/worker 双 app 显式携带——届时转绿移除登记）。
-  const ECOSYSTEM_MISSING_REGISTERED_RED = {
-    COLLAB_ROLE: { until: '片D' },   // T23 引入（现全仓零读者）——T30 ecosystem 双进程同批落 api/worker 双 app 显式携带后转绿移除
-  };
+  // 方向 C 登记红（元纪律⑥）：分叉键尚未落 ecosystem=登记红。T30 转绿达成——COLLAB_ROLE 已随
+  //  ecosystem 双 app（api/worker）显式携带，登记按双向对账纪律移除（残留=stale 红）。
+  const ECOSYSTEM_MISSING_REGISTERED_RED = {};
   {
     const fatal = [];
     let ecoKeys = [];
@@ -854,7 +852,7 @@ if (isMain()) {
       if (!missing.includes(k)) fatal.push(`分叉键 ${k} 已落 ecosystem——转绿达成请移除登记（until=${ECOSYSTEM_MISSING_REGISTERED_RED[k].until}）`);
     }
     const nReg = Object.keys(ECOSYSTEM_MISSING_REGISTERED_RED).length;
-    report('㉑', `env 两分（Z89——分叉键 ${FORKED_ENV_KEYS.join('/')}：.env∩∅+ecosystem 子集+显式登记；登记红 ${nReg} 项待片 D）`,
+    report('㉑', `env 两分（Z89——分叉键 ${FORKED_ENV_KEYS.join('/')}：.env∩∅+ecosystem 子集+显式登记；登记红 ${nReg} 项）`,
       fatal.length === 0,
       [...(dotEnvKeys === null ? ['.env 不存在——方向 A（分叉键∩.env=∅）跳过（CI 形态）；ecosystem 半边恒执法'] : []),
        ...Object.entries(ECOSYSTEM_MISSING_REGISTERED_RED).map(([k, r]) => `登记红（until=${r.until}）分叉键 ${k} 未落 ecosystem`),
@@ -939,7 +937,8 @@ if (isMain()) {
       COLLAB_SPOOL_DIR: { n: 2, until: 'T34' },
       COLLAB_SPOOL_CAPACITY_BYTES: { n: 1, until: 'T34' },
     },
-    'apps/api/src/modules/collab/collab.gateway.ts': {   // 白名单 4 键外全部（22 键项构造/方法内）
+    'apps/api/src/modules/collab/collab.gateway.ts': {   // 白名单 4 键外全部（23 键项构造/方法内）
+      COLLAB_ROLE: { n: 1, until: 'T34' },   // Y0c T30（Z84②/RE）：heapPressureSample 内 heap 闸 TRIP/RELEASE 按 role 取值——?? COLLAB_ROLE_DEFAULT 单源 fallback（execution-daemon.module:32 同款）；T34 收编 env 单源
       COLLAB_DEBOUNCE: { n: 1, until: 'T34' },
       NODE_ENV: { n: 2, until: 'T34' },
       COLLAB_UPGRADE_RATE_PER_MIN: { n: 1, until: 'T34' },

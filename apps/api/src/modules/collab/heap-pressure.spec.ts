@@ -2,16 +2,22 @@
 // Y0b-3 T4（spec §3.2）：heap 压力谓词单源 util——两量纲各管一种死法（V8 比例管 GC 螺旋、
 // RSS 项管原生膨胀）+独立迟滞布尔（trip 需 2 连续采样/release 单次）+fail-open（测量失败放行）。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { DEFAULT_RSS_TRIP_BYTES, DEFAULT_RSS_RELEASE_BYTES, resetHeapPressure, measureHeapPressure, stubHeapMeasure, releaseHook } from './heap-pressure';
+import { RSS_TRIP_BYTES, RSS_RELEASE_BYTES, resetHeapPressure, measureHeapPressure, stubHeapMeasure, releaseHook } from './heap-pressure';
 
 const MiB = 1024 * 1024;
 
 describe('Y0b-3 T4 heap 压力谓词（单源 util——禁第二套）', () => {
   beforeEach(() => resetHeapPressure());
 
-  it('默认常量标定：trip 750MiB / release 600MiB（check-ecosystem 提取锚=本文件字面量）', () => {
-    expect(DEFAULT_RSS_TRIP_BYTES).toBe(786_432_000);
-    expect(DEFAULT_RSS_RELEASE_BYTES).toBe(629_145_600);
+  it('per-role 常量标定（Y0c T30/Z84②）：api/all trip 750MiB / release 600MiB；worker 暂用 api 同值〔待实测校准→T32，§0.6 偏离 41〕；三键全（check-ecosystem 提取锚=本文件 Record 字面量——缺任一 role 即红，Z142③）', () => {
+    expect(Object.keys(RSS_TRIP_BYTES).sort()).toEqual(['all', 'api', 'worker']);
+    expect(Object.keys(RSS_RELEASE_BYTES).sort()).toEqual(['all', 'api', 'worker']);
+    expect(RSS_TRIP_BYTES.api).toBe(786_432_000);
+    expect(RSS_TRIP_BYTES.all).toBe(786_432_000);
+    expect(RSS_TRIP_BYTES.worker).toBe(786_432_000);
+    expect(RSS_RELEASE_BYTES.api).toBe(629_145_600);
+    expect(RSS_RELEASE_BYTES.all).toBe(629_145_600);
+    expect(RSS_RELEASE_BYTES.worker).toBe(629_145_600);
   });
 
   it('V8 比例管 GC 螺旋、RSS 项管原生膨胀——两项各管一种死法，量纲不混（RSS 已含 external，V8 比例禁再并 arrayBuffers）', () => {
