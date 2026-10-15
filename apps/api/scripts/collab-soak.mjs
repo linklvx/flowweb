@@ -15,7 +15,7 @@
 //     （执行链 fixture/stub/execute 形态=exec-smoke Y0b-5 T17 同族——哨兵 NodeType 零可见+零外呼）；
 //   ③COLLAB_SESSION_IDLE_TTL_MS pin（--ttl-pin 默认 120_000——Z107 判据 A 必带本轮 TTL 值；
 //     受控链=fail-closed 断言 .env 同源值+closepage 作业间隔由 TTL 驱动，非仅记录）；
-//   ④完整性巡检挂点（Z111——integrityProbe 占位，巡检逻辑归 A2）；
+//   ④完整性巡检（Z111——A2/T22 实装：常驻 doc 抽样 PG 重放对拍 SV，差异进 JSON integrityProbe 字段）；
 //   ⑤机器可读 JSON（--json <file> 落盘或 stdout——结构供 T1 直接落档）。
 import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,7 @@ const here = fileURLToPath(import.meta.url);
 const req = createRequire(here);
 const { PrismaClient } = req('@prisma/client');
 const { CreditLedgerService } = req('../dist/modules/team/credit-ledger.service.js');   // dist=部署产物（exec-smoke 同源——余额播种经台账唯一写入口，ledger_guard 拦裸写）
+const { replayPgSnapshot, stateVectorsEqual } = req('../dist/modules/collab/collab-integrity-probe.js');   // Z111 巡检纯函数（dist 同惯例——src 单测同源）
 const WebSocket = req('ws');
 // yjs/provider 走 await import（collab-smoke yjs#438 同坑——doc↔provider 全 mjs 同侧）
 const Y = await import('yjs');
@@ -83,11 +84,71 @@ function pinTtl() {
   return { ttlPinnedMs: effective, ttlSource: raw !== undefined && raw !== '' ? 'env' : 'default' };
 }
 
-/** Z111 完整性巡检挂点——TODO(A2)：常驻 doc 抽样 PG 重放对拍 SV（本任务只留挂点，巡检逻辑归 A2/T22 首轮）。
- *  A2 接线形态（届时替换本占位）：抽 ctx.projectIds 的 CanvasDoc/CanvasDocUpdate 行 →
- *  Y.applyUpdate 全重放 → encodeStateVector 对拍——漂移即完整性破（计数+结构化输出）。 */
-async function integrityProbe(/* ctx: { projectIds, prisma } */) {
-  return { implemented: false };   // 占位返回——JSON 结构稳定，A2 实装后替换
+/** Z111 完整性巡检（A2/T22 实装）：抽样常驻 doc——PG 行集（CanvasDoc.state+CanvasDocUpdate.seq 升序）
+ *  重放成 doc ⇔ 内存 doc 的 encodeStateVector 对拍；不等 ⇒ integrityProbe.drifted 报告差异
+ *  （观测项非门禁——Z111 字面：A7a 档「整行缺失不可探测」的唯一探测手段，常驻把盲区从分钟级拉到
+ *  小时级，故巡检只报告不拦截）。纯函数面（replayPgSnapshot/stateVectorsEqual）=dist 同源单测载体。
+ *  内存真源两档：liveDocs 命中（single/group20=场景 provider 仍在连——同步副本≡服务端常驻 doc）；
+ *  未命中（closepage 关页后无副本）⇒ probeSync 短连重同步取服务端真值（doc 常驻时同步自内存，
+ *  对拍有效；TTL 后已卸载则重装载自 PG=平凡 match——liveSource 如实注记两档）。 */
+async function integrityProbe(ctx) {
+  const startedAt = Date.now();
+  const results = [];
+  for (const pid of ctx.projectIds) {
+    try {
+      const docRow = await ctx.prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { state: true } });
+      const rows = await ctx.prisma.canvasDocUpdate.findMany({ where: { projectId: pid }, orderBy: { seq: 'asc' }, select: { update: true } });
+      const replayed = replayPgSnapshot(docRow?.state ?? null, rows.map((r) => r.update));
+      const liveDoc = ctx.liveDocs?.get(pid) ?? null;
+      let svLive = null;
+      let liveSource = null;
+      if (liveDoc) {
+        svLive = Y.encodeStateVector(liveDoc);
+        liveSource = 'scenario-provider';
+      } else if (ctx.probeSync) {
+        const sv = await ctx.probeSync(pid);
+        if (sv) { svLive = sv; liveSource = 'probe-resync'; }
+      }
+      if (!svLive) {
+        results.push({ project: pid, skipped: 'no-live-doc', pgRows: rows.length, pgStatePresent: !!docRow?.state });
+        continue;
+      }
+      const match = stateVectorsEqual(Y.encodeStateVector(replayed), svLive);
+      results.push({ project: pid, match, pgRows: rows.length, pgStatePresent: !!docRow?.state, liveSource });
+    } catch (e) {
+      results.push({ project: pid, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return {
+    implemented: true, sampled: results.length,
+    matched: results.filter((r) => r.match === true).length,
+    drifted: results.filter((r) => r.match === false),
+    results, durationMs: Date.now() - startedAt,
+  };
+}
+
+/** 巡检短连重同步（closepage 无活副本档）：开 provider→synced→取 SV→destroy（零编辑零驻留）。
+ *  复用场景 session token；synced 超时/失败 ⇒ null（巡检降级为 skipped，不阻断装置）。 */
+async function probeSyncSv(pid) {
+  const p = new HocuspocusProvider({
+    url: `${WS_URL}?csv=${CSV}&cb=soak-sc-probe`, name: `project:${pid}`, document: new Y.Doc(),
+    WebSocketPolyfill: class extends HeaderWs {
+      constructor(url) { super(url, { origin: WS_ORIGIN, cookie: `flowweb.session_token=${SCEN.token}` }); }
+    },
+  });
+  try {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('probe synced 超时 10s')), 10_000);
+      p.on('synced', () => { clearTimeout(t); res(); });
+    });
+    await sleep(500);   // SyncStep2 尾帧 apply 静置（SV 取样前）
+    const sv = Y.encodeStateVector(p.document);
+    await p.destroy();
+    return sv;
+  } catch {
+    await p.destroy().catch(() => {});
+    return null;
+  }
 }
 
 /** 机器可读 JSON 输出（T1 落档消费）：--json <file> 落盘或 stdout 尾块 */
@@ -394,9 +455,14 @@ async function runScenario(name) {
     await sleep(2_000);   // 末端投影/store 落定静置窗——final 采样前
     const final = await sample();
     const delta = metricsDelta(baseline, final);
-    const probe = await integrityProbe({ projectIds: [seeded.project], prisma });
+    const probe = await integrityProbe({
+      projectIds: [seeded.project], prisma,
+      liveDocs: new Map([[seeded.project, provider ? provider.document : null]]),   // closepage=关页无副本⇒probeSync 短连档
+      probeSync: probeSyncSv,
+    });
     const fmt = (o) => Object.entries(o).map(([k, v]) => `${k}:${v === null || v === undefined ? 'n/a' : `${v >= 0 ? '+' : ''}${v}`}`).join(',');
     console.log(`[soak-sc] 窗口 delta：docLoad{${fmt(delta.docLoad)}} store{${fmt(delta.storeTotal)}} withdoc{count:${delta.withdoc.count} sum:${delta.withdoc.sum.toFixed(3)}} withdocOpen{count:${delta.withdocOpen.count} sum:${delta.withdocOpen.sum.toFixed(3)}}`);
+    console.log(`[soak-sc] integrityProbe（Z111）：sampled=${probe.sampled} matched=${probe.matched} drifted=${probe.drifted.length}${probe.results.map((r) => ` [${r.project}] ${r.error ? `error:${r.error}` : r.skipped ? `skipped:${r.skipped}` : `${r.match ? 'MATCH' : 'DRIFT'}(pgRows=${r.pgRows},state=${r.pgStatePresent},${r.liveSource})`}`).join('')}`);
     outputJson({
       harness: 'collab-soak', mode: 'scenario', scenario: name,
       ts: new Date().toISOString(), api: API,
