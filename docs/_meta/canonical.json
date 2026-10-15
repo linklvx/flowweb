@@ -17,7 +17,7 @@
       "evidence": [
         {
           "src": "scripts/check-collab-health.test.mjs",
-          "line": 157,
+          "line": 180,
           "text": "const runbook = fs.readFileSync(path.join(ROOT, 'docs/superpowers/collab-ops-runbook.md'), 'utf8');"
         }
       ]

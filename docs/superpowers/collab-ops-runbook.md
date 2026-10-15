@@ -321,3 +321,27 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 
 - **@hocuspocus/\* pin 4.6.0 + yjs 13.6.32 不升级**：collab 全部行为结论（库行为锚 A5-A14+Z80 四锚）源码实证绑定 4.6.0 实现细节；`node scripts/check-hocuspocus-pin.mjs` 门禁锁版本（CI test job 常跑），任何漂移（含 ≥4.7.1）必须先重跑脚本输出里的「版本漂移必重跑锚清单」+契约锁全量用例再评估。
 - **禁止重新引入 `@hocuspocus/extension-redis`**：上游缺陷已验证——#1167（impact:critical：store 锁失败跳全链）/#1170（OPEN：卸载未存 doc=静默丢数据/装载永久损坏）。Y0a-3 的整删裁定自 Z123 起升级为「已验证的上游 critical 缺陷规避」——任何「加 Redis 缓存提性能」的提案先读这两个 issue。
+
+
+## §11 worker 指标面与存活侦测（Y0c T29-II/Z130/Z134/Z148⑤）
+
+**无 Prometheus server 是有意取舍（Z134）**：api `/metrics`（3000，PROMETHEUS_TOKEN）与 worker 3002 两个指标端点都只被 `check-collab-health.mjs`（§6 crontab */5）消费——「巡检即采集面」。无时序库、无面板属现状一致性，不是欠账遗漏；阈值/分位数判定全部在巡检脚本与查询侧。
+
+**升级路径=加 scrape job 打 loopback，禁进 nginx**：将来引入 Prometheus server 时，scrape targets 直接打 `127.0.0.1:3000/metrics` 与 `127.0.0.1:3002/metrics`（server 本机 agent 或同机部署）。**禁止为外部监控在 nginx 加 /metrics location**（Z130③——3002 loopback-only 是契约：重新引入暴露面=把 token 防线推到公网边界）。
+
+**health 巡检必须服务器本地 crontab**：3002 绑 127.0.0.1，任何非本机执行者都不可达（P0 worker-metrics-unreachable 恒真）。§6 crontab 行即唯一合法载体。降级出口：`COLLAB_HEALTH_SKIP_WORKER=1` 跳过全部 worker 端点检查——仅供 `COLLAB_ROLE=all` 单进程降级档（无独立 worker 进程，3002 无监听属预期）使用；双进程正常档禁设（设了=worker 死亡侦测整面失明）。worker URL 可经 `COLLAB_HEALTH_WORKER_URL` 覆写（缺省 `http://127.0.0.1:3002`；端口漂移时与 `WORKER_METRICS_PORT` 同步改）。
+
+**role 标签变更记录+查询侧适配**：T0（api）/T26（worker）起全部指标族样本带 `role` 默认标签（引导层 `setDefaultLabels` 单点，Z138）——**这是序列身份变化**：同名指标旧序列（无 role）与新序列（role="api"/"worker"）在时序库视角是两条线。查询侧适配清单一行：所有既有查询/告警表达式按指标名裸匹配处补 `{role="api"}` 选择器（双进程同机时防跨进程族混算）。**升级路径按 pull 设计**：push 形态（remote_write/OTLP exporter）会把 role 标签写进时序库固化成永久序列维度——pull+scrape job 形态下 relabel 可随时改写，两者需求不同，禁按 push 思路预配（Z148⑤）。
+
+**p95 查询句（Z117②——分位数由查询侧承担，巡检只判存在+瞬时阈值）**：
+
+```promql
+# api 进程内存 p95（5 分钟窗）
+quantile_over_time(0.95, process_resident_memory_bytes{role="api"}[5m])
+# worker 进程树内存 p95（5 分钟窗——T29 process_tree_rss_bytes 口径）
+quantile_over_time(0.95, process_tree_rss_bytes{role="worker"}[5m])
+```
+
+**内存判定时点（Z91③）**：A2 出口后一次——已落 §9.1（三数回填裁决）；D 出口前一次——归 T32（双进程服务器轮实测，worker 480M 口径校准同窗）。
+
+**registered 活性语义（裁决②/偏离 39）**：ready workers 维度与 enqueue fail-closed 门共用 `queue.getWorkers()`（bullmq 5.75.1=Redis CLIENT LIST 形态）——**无 lastSeen 数据源，registered 即活性信号**：worker 进程死 ⇒ TCP 断 ⇒ CLIENT LIST 立即除名（秒级），registered=0 就是死亡判定，无需陈旧度维度。5s TTL 缓存窗（付费路径零额外 RTT）= 最坏 5s 内漏拒，属可接受窗（留队作业待 worker 恢复即被消费）。

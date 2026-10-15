@@ -67,14 +67,37 @@ function promText(overrides = {}) {
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
 }
 
-/** fetch 注入（url 末段分派 /metrics 与 /api/ready） */
-function makeFetch({ metricsText, readyBody = { ready: true } }) {
+/** Y0c T29-II（Z130）：ready token 档 workers 维度健康基线（三付费队列 registered≥1+waiting 0） */
+const HEALTHY_WORKERS = {
+  execution: { registered: 1, waiting: 0 },
+  'ai-image-edit': { registered: 1, waiting: 0 },
+  'ai-result-download': { registered: 1, waiting: 0 },
+};
+
+/** worker 3002 端点健康 prom 文本（Z116 分集：所读族样本恒带 role="worker"） */
+function workerPromText(overrides = {}) {
+  const base = {
+    'nodejs_eventloop_lag_seconds{role="worker"}': 0.002,
+    'process_tree_rss_bytes{role="worker"}': 209715200,
+    ...overrides,
+  };
+  return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
+}
+
+/** fetch 注入（url 末段分派 /metrics 与 /api/ready；Y0c T29-II：:3002 分派 worker 端点——
+ *  workerMetricsText=null 模拟 3002 无监听/进程死〔R8 出口判据构造〕） */
+function makeFetch({ metricsText, readyBody = { ready: true, workers: HEALTHY_WORKERS }, workerMetricsText = workerPromText() }) {
   return async (url) => {
-    if (String(url).endsWith('/metrics')) {
+    const u = String(url);
+    if (u.includes(':3002')) {
+      if (workerMetricsText === null) throw new Error('worker 3002 unreachable');
+      return { ok: true, status: 200, text: async () => workerMetricsText };
+    }
+    if (u.endsWith('/metrics')) {
       if (metricsText === null) throw new Error('metrics unreachable');
       return { ok: true, status: 200, text: async () => metricsText };
     }
-    if (String(url).endsWith('/api/ready')) return { ok: true, status: 200, json: async () => readyBody };
+    if (u.endsWith('/api/ready')) return { ok: true, status: 200, json: async () => readyBody };
     throw new Error(`unexpected url ${url}`);
   };
 }
@@ -426,4 +449,119 @@ test('T20 heap 闸按常驻重标：tripped 持续两样本 → P1 非 P0（常�
   const e = evalOk(tripped, last);
   const f = e.findings.find((x) => x.check === 'collab_overload_state');
   assert.ok(f && f.level === 'P1', `tripped 连续两样本 → P1（原 P0 重标——先红）；实得 ${JSON.stringify(f)}`);
+});
+
+// ===== Y0c T29-II（Z130/Z148②④/Z116 分集/R6/R8）：worker 存活侦测→动作闭环 =====
+
+/** evaluate 直调用 worker 健康样本包装（api 面健康基线+worker 3002 健康文本） */
+const workerSample = (workerText, over = {}) => ({
+  metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true, workers: HEALTHY_WORKERS },
+  workerOk: true, workerMetrics: parsePromText(workerText), workerSkipped: false, ...over,
+});
+
+test('T29-II R8（出口判据先红构造）：worker 3002 不可达（kill worker≡死端口）⇒ P0+exit 2；健康轮同构造 exit 0 对照', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  // 对照轮：双端点健康——run1 insuff（exit 1）→ run2 exit 0
+  await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText: promText() }), stateDir, env: {} });
+  const ok = await runCheck({ now: 1_000_000 + 300_000, fetchImpl: makeFetch({ metricsText: promText() }), stateDir, env: {} });
+  assert.equal(ok.exitCode, 0, '双端点健康 exit 0（对照——实现前 worker 面不读也恒 0，无判别力）');
+  // kill worker 构造：3002 无监听（fetch throw）⇒ 非零退出+P0
+  const dead = await runCheck({ now: 1_000_000 + 600_000, fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: null }), stateDir, env: {} });
+  assert.equal(dead.exitCode, 2, 'worker 3002 不可达 ⇒ exit 2（实现前此处 0=红）');
+  assert.ok(dead.findings.some((f) => f.level === 'P0' && f.check === 'worker-metrics-unreachable'),
+    `P0 worker-metrics-unreachable 在场（实得 ${JSON.stringify(dead.findings)}）`);
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test('T29-II R6a：worker 端点健康——两族带 role="worker" 且阈值内 ⇒ 零 worker findings；超阈 ⇒ P1', () => {
+  const healthy = evaluate(workerSample(workerPromText()), null, 1_000_000, {});
+  assert.ok(!healthy.findings.some((f) => f.check.startsWith('nodejs_eventloop_lag_seconds') || f.check.startsWith('process_tree_rss_bytes')),
+    `健康文本零 worker 族 findings（实得 ${JSON.stringify(healthy.findings)}）`);
+  const lag = evaluate(workerSample(workerPromText({ 'nodejs_eventloop_lag_seconds{role="worker"}': 5 })), null, 1_000_000, {});
+  assert.ok(lag.findings.some((f) => f.level === 'P1' && f.check === 'nodejs_eventloop_lag_seconds'), 'lag 5s 超阈 → P1');
+  const rss = evaluate(workerSample(workerPromText({ 'process_tree_rss_bytes{role="worker"}': 500 * 1024 * 1024 })), null, 1_000_000, {});
+  assert.ok(rss.findings.some((f) => f.level === 'P1' && f.check === 'process_tree_rss_bytes'), 'RSS 500MiB 超 480M 口径 → P1');
+});
+
+test('T29-II Z116 分集：worker 端点所读族缺 role="worker"（漏调 setDefaultLabels 运行时侦测面）⇒ 红；族缺席 ⇒ 红', () => {
+  // 缺 role 标签（裸族名样本）
+  const noRole = evaluate(workerSample('nodejs_eventloop_lag_seconds 0.002\nprocess_tree_rss_bytes{role="worker"} 1000\n'), null, 1_000_000, {});
+  assert.ok(noRole.findings.some((f) => f.level === 'P1' && f.check === 'nodejs_eventloop_lag_seconds' && /role/.test(f.detail)),
+    `缺 role 样本 → P1（实得 ${JSON.stringify(noRole.findings)}）`);
+  // role 异值（api 族样本混入 worker 端点=分集破坏）
+  const wrongRole = evaluate(workerSample('nodejs_eventloop_lag_seconds{role="api"} 0.002\nprocess_tree_rss_bytes{role="worker"} 1000\n'), null, 1_000_000, {});
+  assert.ok(wrongRole.findings.some((f) => f.level === 'P1' && f.check === 'nodejs_eventloop_lag_seconds' && /role/.test(f.detail)), 'role="api" 混入 → P1');
+  // 族缺席（MetricsCore 未装配面）
+  const absent = evaluate(workerSample('nodejs_eventloop_lag_seconds{role="worker"} 0.002\n'), null, 1_000_000, {});
+  assert.ok(absent.findings.some((f) => f.level === 'P1' && f.check === 'process_tree_rss_bytes' && /缺席/.test(f.detail)), '族缺席 → P1');
+});
+
+test('T29-II R6b：COLLAB_HEALTH_SKIP_WORKER=1 ⇒ 跳过全部 worker 端点检查（3002 死也零 worker findings——COLLAB_ROLE=all 降级出口）', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  const env = { COLLAB_HEALTH_SKIP_WORKER: '1' };
+  await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: null }), stateDir, env });
+  const r2 = await runCheck({ now: 1_000_000 + 300_000, fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: null }), stateDir, env });
+  assert.ok(!r2.findings.some((f) => f.check === 'worker-metrics-unreachable'), 'skip 档零 worker 端点 findings');
+  assert.equal(r2.exitCode, 0, 'skip 档 3002 死仍健康 exit 0（api 面健康时）');
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test('T29-II R6c：ready workers 维度（token 档）——registered=0/维度缺失/探测 null ⇒ P0；waiting>5 ⇒ P1', () => {
+  // registered=0（worker 静默死亡面——enqueue fail-closed 已拒，巡检升 P0）
+  const zero = { ...HEALTHY_WORKERS, execution: { registered: 0, waiting: 0 } };
+  const e1 = evaluate({ metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true, workers: zero }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, null, 1_000_000, {});
+  assert.ok(e1.findings.some((f) => f.level === 'P0' && f.check === 'ready-workers[execution].registered'), `registered=0 → P0（实得 ${JSON.stringify(e1.findings)}）`);
+  // 维度缺失（token 未带/api 版本旧——巡检配置红 fail-closed）
+  const e2 = evaluate({ metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, null, 1_000_000, {});
+  assert.ok(e2.findings.some((f) => f.level === 'P0' && f.check === 'ready-workers-missing'), 'workers 维度缺失 → P0');
+  // 探测失败 null（Redis 错降级——fail-closed 告）
+  const nul = { ...HEALTHY_WORKERS, 'ai-image-edit': null };
+  const e3 = evaluate({ metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true, workers: nul }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, null, 1_000_000, {});
+  assert.ok(e3.findings.some((f) => f.level === 'P0' && f.check === 'ready-workers[ai-image-edit].registered'), 'registered=null → P0');
+  // waiting 阈值 5（消费滞后——worker 活但吞吐不足）
+  const wait = { ...HEALTHY_WORKERS, 'ai-result-download': { registered: 1, waiting: 6 } };
+  const e4 = evaluate({ metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true, workers: wait }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, null, 1_000_000, {});
+  assert.ok(e4.findings.some((f) => f.level === 'P1' && f.check === 'ready-workers[ai-result-download].waiting'), 'waiting=6>5 → P1');
+  assert.ok(!e4.findings.some((f) => f.level === 'P0' && f.check.startsWith('ready-workers')), 'waiting 超阈不升 P0（worker 在场）');
+});
+
+test('T29-II 裁决③：/api/ready 请求携带 x-prometheus-token（与 /metrics 同款 headers——token 档 workers 维度可读面）', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  const seen = [];
+  const fetchImpl = async (url, opts) => {
+    seen.push({ url: String(url), headers: opts?.headers });
+    const u = String(url);
+    if (u.includes(':3002')) return { ok: true, status: 200, text: async () => workerPromText() };
+    if (u.endsWith('/metrics')) return { ok: true, status: 200, text: async () => promText() };
+    return { ok: true, status: 200, json: async () => ({ ready: true, workers: HEALTHY_WORKERS }) };
+  };
+  await runCheck({ now: 1_000_000, fetchImpl, stateDir, env: { PROMETHEUS_TOKEN: 'tok' } });
+  const readyReq = seen.find((s) => s.url.endsWith('/api/ready'));
+  assert.deepEqual(readyReq.headers, { 'x-prometheus-token': 'tok' }, '/api/ready 带 token header（实现前 undefined=红）');
+  const workerReq = seen.find((s) => s.url.includes(':3002'));
+  assert.deepEqual(workerReq.headers, { 'x-prometheus-token': 'tok' }, 'worker 3002 同源 token');
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test('T29-II R6d：collab_worker_absent_total counter-delta——窗口增量>0 ⇒ P1（enqueue fail-closed 拒绝面）', () => {
+  const last = { ts: 0, counters: { collab_worker_absent_total: 0 }, overload_tripped: 0, not_serving_since: null, rounds: {} };
+  const s = parsePromText(promText({ 'collab_worker_absent_total{queue="execution"}': 2 }));
+  const e = evaluate({ metricsOk: true, metrics: s, readyOk: true, ready: { ready: true, workers: HEALTHY_WORKERS }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, last, 1_000_000, {});
+  assert.ok(e.findings.some((f) => f.level === 'P1' && f.check === 'collab_worker_absent_total'), `增量 +2 → P1（实得 ${JSON.stringify(e.findings)}）`);
+});
+
+test('T29-II R6e（Z148④）：yjs_degraded_docs >0 单轮 WARN（P1）/连续 2 轮 ERROR（P0）；yjs_updates_rows_total 超阈 WARN（观测项 Z125）', () => {
+  const base = { metricsOk: true, readyOk: true, ready: { ready: true, workers: HEALTHY_WORKERS }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false };
+  const degraded = parsePromText(promText({ yjs_degraded_docs: 2 }));
+  const r1 = evaluate({ ...base, metrics: degraded }, { ts: 0, counters: {}, overload_tripped: 0, not_serving_since: null, rounds: {} }, 1_000_000, {});
+  const w = r1.findings.find((f) => f.check === 'yjs_degraded_docs' && !f.insufficient);
+  assert.ok(w && w.level === 'P1', `>0 首见 → WARN P1（实得 ${JSON.stringify(w)}）`);
+  const r2 = evaluate({ ...base, metrics: degraded }, r1.nextLast, 1_000_000 + 300_000, {});
+  assert.ok(r2.findings.some((f) => f.level === 'P0' && f.check === 'yjs_degraded_docs'), '连续第 2 轮 → ERROR P0（持续 N 分钟口径=2 样本）');
+  // 回落即解除（rounds 清零）
+  const back = evaluate({ ...base, metrics: parsePromText(promText({ yjs_degraded_docs: 0 })) }, r2.nextLast, 1_000_000 + 600_000, {});
+  assert.ok(!back.findings.some((f) => f.check === 'yjs_degraded_docs' && !f.insufficient), '回落 0 → 解除');
+  // yjs_updates_rows_total（gauge-max 无 rounds——瞬时 WARN）
+  const rows = evaluate({ ...base, metrics: parsePromText(promText({ yjs_updates_rows_total: 100_001 })) }, null, 1_000_000, {});
+  assert.ok(rows.findings.some((f) => f.level === 'P1' && f.check === 'yjs_updates_rows_total'), '行数超阈 → P1 预警（观测项非机制项）');
 });

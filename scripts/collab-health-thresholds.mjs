@@ -15,6 +15,8 @@
 //                        guardCounter/evictCounter 累计（否则约束死键=假门禁——连续 2 轮才告，tick ≤15s
 //                        滞后窗排除）；上限内 ⇒ guardCounter 增量稳定（连续 2 轮增量才告——样本间瞬态
 //                        超限已恢复属机制工作不告）。两分支均可判（v5「≤上限」恒真失误的改形）。
+//   gauge-max 小扩（Y0c T29-II/Z148④）：warnLevel 可选——rounds 持续判定未满窗时超限即发 warnLevel
+//                        （WARN 首见/持续升 ERROR 双档面；无 warnLevel 的既有条目行为零变化）。
 export const THRESHOLDS = {
   // ===== P0（exit 2——人工立即介入） =====
   collab_overload_state: {
@@ -106,6 +108,40 @@ export const THRESHOLDS = {
     guardCounter: 'yjs_resident_over_limit_total', evictCounter: 'yjs_doc_evicted_total', limitEnv: 'COLLAB_MAX_RESIDENT_BYTES',
     note: 'Z92 两分支：gauge>上限 ⇒ 必有 over_limit 或 evicted 累计（连续 2 轮——reaper tick ≤15s 滞后窗排除；两计数皆零=字节约束死键=假门禁）；上限内 ⇒ over_limit 增量稳定（连续 2 轮增量才告——样本间瞬态超限已驱逐恢复属机制工作）。「≤上限恒真」形态（env 无默认时 v5 失误）禁回潮',
   },
+
+  // ===== Y0c T29-II（Z130/Z148②④）：worker 存活侦测→动作闭环（api 3000 端点面） =====
+  collab_worker_absent_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0,
+    note: 'Z148②：付费队列 enqueue fail-closed 拒绝（503 WORKER_ABSENT）增量>0——用户面已在拒收，分诊：pm2 worker 状态/3002 活性/ready workers 维度（唯一生产者=WorkerPresenceService.assertAdmittable）',
+  },
+  yjs_degraded_docs: {
+    level: 'P0', kind: 'gauge-max', value: 0, rounds: 2, warnLevel: 'P1',
+    note: 'Z148④：装载降级 doc 数 >0 即 WARN（P1 首见——gauge 存在无人读=温度计）；连续 2 轮（~10min）升 ERROR（P0）〔待校准——N 照 label-gauge-persistent 惯例=两样本；持续期查 pendingStructs/pendingDs 装载链〕',
+  },
+  yjs_updates_rows_total: {
+    level: 'P1', kind: 'gauge-max', value: 100_000,
+    note: 'Z125-5 预警（观测项非机制项——不强制 compact）：常驻后 store 频次结构性变高，canvasDocUpdate 行数突破 60s 稳态可预警；初始 10 万行〔待校准——行数门归 Y1c-3 再裁〕',
+  },
+};
+
+/** Y0c T29-II（Z130③/Z116/R6a）：worker 3002 端点族阈值——「巡检即采集面」（Z134 无 Prometheus
+ *  server，3002 只被本巡检消费）。独立于 THRESHOLDS：端点不同（3002≠api 3000）+族源=
+ *  collectDefaultMetrics/MetricsService（非 *.metrics.ts——THRESHOLDS it1 机器断言键域外）。
+ *  Z116 分集：所读族每一样本必须带 role="worker"（缺 role/异值⇒红——漏调 setDefaultLabels 的
+ *  运行时侦测面）；族缺席⇒红（MetricsCore 未装配面）。kind=gauge-max 同语义（瞬时上界）。 */
+export const WORKER_METRIC_CHECKS = {
+  nodejs_eventloop_lag_seconds: { level: 'P1', value: 1, note: '〔待校准〕worker 事件循环滞后 >1s（p95 归查询侧 Z117②——runbook §11 查询句）' },
+  process_tree_rss_bytes: { level: 'P1', value: 480 * 1024 * 1024, note: '〔待校准——T30 worker 480M 口径〕worker 进程树 RSS 上界' },
+};
+
+/** Y0c T29-II（Z130①②/R6c）：/api/ready token 档 workers 维度阈值——三付费队列 registered≥1
+ *  （任一 0/维度缺失/探测 null ⇒ P0）+waiting>5 ⇒ P1（消费滞后）。队列名单 api 侧单源=
+ *  config/queue.constants.ts QUEUE_NAMES（脚本独立不引 api 代码——resolveSpoolCapacityBytes 同款
+ *  惯例，手抄面由 ready.service PAID_QUEUE_NAMES 同源派生约束）。 */
+export const WORKER_PRESENCE_CHECK = {
+  queues: ['execution', 'ai-image-edit', 'ai-result-download'],
+  minRegistered: 1,
+  maxWaiting: 5,
 };
 
 /** spool 容量解析——与 CollabSpoolService 构造期同款（缺省/NaN/非正数回落 256MB；env 读不引 api 代码保持脚本独立）。 */

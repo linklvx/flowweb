@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // scripts/check-collab-health.mjs —— Y0b-5 T15（Y0b-3 移交②收口）：collab 面巡检（cron */5）。
-// 数据源：GET /metrics（x-prometheus-token——生产 fail-closed）+GET /api/ready（公开档 ready/reason 即可）。
+// 数据源：GET /metrics（x-prometheus-token——生产 fail-closed）+GET /api/ready（token 档——Y0c T29-II
+// 起 workers 维度消费，请求带同款 token header）+GET worker 3002 /metrics（Y0c T29-II Z130③「巡检
+// 即采集面」——loopback only⇒本巡检必须服务器本地 crontab；COLLAB_HEALTH_SKIP_WORKER=1 降级跳过）。
 // 退出码：0=健康；1=P1；2=P0。P0/P1 清单单源=collab-health-thresholds.mjs THRESHOLDS（键=实际注册指标名——测试机器断言）。
 // 机制（plan T15）：
 //   · 上次采样持久化 .data/collab-health-last.json（跨 run 增量可测——10s 窗测不出 5min 事故的修复；/tmp 重启即丢禁用）；
@@ -14,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK } from './collab-health-thresholds.mjs';
 import { readEnvFile } from './lib/env-file.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,6 +25,8 @@ const ENV_KEYS = [
   'TENCENT_SMS_SECRET_ID', 'TENCENT_SMS_SECRET_KEY', 'TENCENT_SMS_SDK_APP_ID', 'TENCENT_SMS_TEMPLATE_ID', 'TENCENT_SMS_SIGN_NAME',
   'COLLAB_SPOOL_CAPACITY_BYTES', 'COLLAB_HEALTH_API_URL', 'COLLAB_HEALTH_STATE_DIR',
   'COLLAB_MAX_RESIDENT_BYTES',   // Y0c T20（Z92）：yjs_resident_bytes 上限解析（residency 使用点默认 384MiB 同源）
+  'COLLAB_HEALTH_WORKER_URL',    // Y0c T29-II（Z130③）：worker 3002 端点（缺省 http://127.0.0.1:3002——loopback，巡检必须服务器本地 crontab）
+  'COLLAB_HEALTH_SKIP_WORKER',   // Y0c T29-II（R6b）：=1 跳过全部 worker 端点检查（COLLAB_ROLE=all 降级出口——runbook §11；缺省 fail-closed 期望 worker）
 ];
 
 /** prom 文本最小 parser：`name{k="v",…} value` 行（# 注释跳过）——不引 prom-client（根 scripts 零依赖惯例）。 */
@@ -99,6 +103,54 @@ export function evaluate(sample, last, now, env) {
     findings.push({ check: 'metrics-unreachable', level: 'P1', detail: '/metrics 拉取失败（403=PROMETHEUS_TOKEN 失配——生产 fail-closed；连接拒绝=进程哑）' });
   }
 
+  // —— ready token 档 workers 维度（Y0c T29-II Z130①②/R6c：付费三队列 registered≥1——任一 0/
+  //    维度缺失/探测 null ⇒ P0〔worker 静默死亡=付费作业无声堆积面〕；waiting>阈值 ⇒ P1〔消费
+  //    滞后——worker 活但吞吐不足〕。维度语义见偏离 39：registered=CLIENT LIST 活性信号，进程死
+  //    ⇒TCP 断⇒立即除名，无 lastSeen） ——
+  if (sample.readyOk && sample.ready) {
+    const w = sample.ready.workers;
+    if (!w) {
+      findings.push({ check: 'ready-workers-missing', level: 'P0', detail: '/api/ready token 档缺 workers 维度（PROMETHEUS_TOKEN 未带/失配⇒公开五键档——巡检配置红；或 api 版本旧于 T29-II）' });
+    } else {
+      for (const q of WORKER_PRESENCE_CHECK.queues) {
+        const p = w[q];
+        if (!p || p.registered == null) {
+          findings.push({ check: `ready-workers[${q}].registered`, level: 'P0', detail: `presence 探测失败/队列缺失（null=Redis 探测错——fail-closed 告；registered≥${WORKER_PRESENCE_CHECK.minRegistered} 不可判）` });
+        } else if (p.registered < WORKER_PRESENCE_CHECK.minRegistered) {
+          findings.push({ check: `ready-workers[${q}].registered`, level: 'P0', detail: `registered=${p.registered} <${WORKER_PRESENCE_CHECK.minRegistered}——付费队列无消费者（worker 静默死亡面；enqueue 已 fail-closed 503 拒收〔collab_worker_absent_total 交叉可读〕——分诊：pm2 worker/3002 端点）` });
+        } else if (p.waiting > WORKER_PRESENCE_CHECK.maxWaiting) {
+          findings.push({ check: `ready-workers[${q}].waiting`, level: 'P1', detail: `waiting=${p.waiting} >${WORKER_PRESENCE_CHECK.maxWaiting}（消费滞后——worker 在场但吞吐不足；持续升则查 provider 外呼时长/并发）` });
+        }
+      }
+    }
+  }
+
+  // —— worker 3002 端点（Y0c T29-II Z130③/Z116/R6a：巡检即采集面——不可达 ⇒ P0〔kill worker
+  //    ⇒ 下一轮 */5 非零退出的出口判据载体〕；COLLAB_HEALTH_SKIP_WORKER=1 ⇒ 全跳过〔R6b 降级
+  //    出口——COLLAB_ROLE=all 单进程档无 3002 属预期〕） ——
+  if (!sample.workerSkipped) {
+    if (!sample.workerOk) {
+      findings.push({ check: 'worker-metrics-unreachable', level: 'P0', detail: 'worker 3002 /metrics 不可达（进程静默死亡/pm2 未起/WORKER_METRICS_PORT 漂移/403=PROMETHEUS_TOKEN 失配——付费作业无声堆积面，runbook §11；降级出口=COLLAB_HEALTH_SKIP_WORKER=1）' });
+    } else {
+      const wm = sample.workerMetrics;
+      for (const [name, t] of Object.entries(WORKER_METRIC_CHECKS)) {
+        const family = wm.samples.filter((s) => s.name === name);
+        if (family.length === 0) {
+          findings.push({ check: name, level: 'P1', detail: `worker 端点族缺席（MetricsCore 未装配/collectDefaultMetrics 未跑——观测面结构缺陷，${t.note}）` });
+          continue;
+        }
+        const bad = family.filter((s) => s.labels.role !== 'worker');
+        if (bad.length > 0) {
+          // Z116 分集：worker 端点所读族样本必须带 role="worker"——缺 role/异值=漏调 setDefaultLabels 的运行时侦测面
+          findings.push({ check: name, level: 'P1', detail: `Z116 分集红：${bad.length} 样本缺 role="worker"（role 序列身份缺失/异值——main-worker 引导层 setDefaultLabels 漏调侦测面）` });
+          continue;
+        }
+        const v = wm.get(name, { role: 'worker' }) ?? 0;
+        if (v > t.value) findings.push({ check: name, level: t.level, detail: `worker ${v} > ${t.value}（${t.note}）` });
+      }
+    }
+  }
+
   // —— 指标面（THRESHOLDS 单源遍历） ——
   for (const [name, t] of Object.entries(THRESHOLDS)) {
     const prevRounds = last?.rounds?.[name] ?? 0;
@@ -171,6 +223,9 @@ export function evaluate(sample, last, now, env) {
         const rounds = exceeded ? prevRounds + 1 : 0;
         nextLast.rounds[name] = rounds;
         if (rounds >= t.rounds) findings.push({ check: name, level: t.level, detail: `${v} > ${t.value} 持续第 ${rounds} 轮` });
+        // Y0c T29-II 小扩（Z148④）：warnLevel——持续判定未满窗时超限即发 WARN（首见档；
+        // 无 warnLevel 的既有条目〔awareness_states〕行为零变化）
+        else if (exceeded && t.warnLevel) findings.push({ check: name, level: t.warnLevel, detail: `${v} > ${t.value}（首见 WARN——持续 ${t.rounds} 轮升 ${t.level}）` });
       } else if (exceeded) {
         findings.push({ check: name, level: t.level, detail: `${v} > ${t.value}` });
       }
@@ -274,11 +329,27 @@ export async function runCheck(opts) {
   let readyOk = false;
   let ready = null;
   try {
-    const r = await fetchImpl(`${base}/api/ready`, { signal: AbortSignal.timeout(10_000) });
+    // Y0c T29-II 裁决③：/api/ready 补带既有 token headers（与 /metrics 同款——token 授权档才含
+    // workers 维度；公开五键档无它=R6c P0 侦测面）
+    const r = await fetchImpl(`${base}/api/ready`, { headers, signal: AbortSignal.timeout(10_000) });
     if (r.ok) { ready = await r.json(); readyOk = true; }
   } catch { /* 折 P1 ready-unreachable */ }
 
-  const { findings, nextLast } = evaluate({ metricsOk, metrics, readyOk, ready }, last, now, env);
+  // Y0c T29-II（Z130③/R6a）：worker 3002 端点（loopback-only⇒本巡检必须服务器本地 crontab——
+  // runbook §11；token 同源 PROMETHEUS_TOKEN。COLLAB_HEALTH_SKIP_WORKER=1 ⇒ 跳过=COLLAB_ROLE=all
+  // 降级出口，缺省 fail-closed 期望 worker）
+  const workerBase = (env.COLLAB_HEALTH_WORKER_URL ?? 'http://127.0.0.1:3002').replace(/\/$/, '');
+  const workerSkipped = env.COLLAB_HEALTH_SKIP_WORKER === '1';
+  let workerOk = false;
+  let workerMetrics = null;
+  if (!workerSkipped) {
+    try {
+      const r = await fetchImpl(`${workerBase}/metrics`, { headers, signal: AbortSignal.timeout(10_000) });
+      if (r.ok) { workerMetrics = parsePromText(await r.text()); workerOk = true; }
+    } catch { /* 折 P0 worker-metrics-unreachable */ }
+  }
+
+  const { findings, nextLast } = evaluate({ metricsOk, metrics, readyOk, ready, workerOk, workerMetrics, workerSkipped }, last, now, env);
   fs.writeFileSync(lastPath, JSON.stringify(nextLast));
 
   // SMS：P0 恰 check 一条、per-check 节流（节流窗内复发不重发；新 P0 各发各的）
