@@ -571,7 +571,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // 键随读者：COLLAB_BIND_ADDR 同批进 config/env.ts（T1 结构锚方向二防死键）。
       address: process.env.COLLAB_BIND_ADDR ?? '127.0.0.1',
       // Y0a-4/P24 显式 pin 双旋钮 Server 级（B20/B26：库 defaultConfiguration 即 true/false——
-      // 文档锚防升级翻转，非行为修复）
+      // 文档锚防升级翻转，非行为修复）。Z82a（Y0c T21）：残存价值=护无会话 doc 的关页立即
+      // store（常驻路径「关页即 flush」已结构性失效，但无会话 doc 仍走库谓词卸载链）——
+      // 禁以「谓词已拦」为由关掉；断言锚=options.spec T21 组
       unloadImmediately: true,
       quiet: false,
       connected: this.hooks.connected,   // Y0b-3 T6：寿命台账播种钩子接线

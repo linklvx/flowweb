@@ -200,6 +200,8 @@ systemctl is-enabled pm2-ubuntu
 
 **max_memory_restart 触发的重启 = 崩溃路径**（区别于部署驱动的重启）：按 RPO 3s 窗口评估数据丢失面，并查日志中 `shutdown_undrained`/storeInFlight 记录确认关停链是否走完——`↺` 计数无部署对应增长时即此路径。
 
+**RPO 契约钉死（Y0c T21/Z61）**：SIGKILL 窗口 ≤maxDebounce 3000ms（=debounce 2000×1.5 写死在 gateway `maxDebounce` 行；E43⑥ 正常腿契约值——常驻化把丢数据窗从 ~0 放宽到契约内，非回归）。**maxDebounce 禁调大**（RPO 契约值，调大即放宽丢数据窗——防为省内存放宽 RPO）；SIGTERM 路径不变（drainAllDocuments 兜底）。
+
 **Y0b-2 执行链观测处置三行**（资金运行时批新增——指标见 /api/metrics）：
 
 1. **`intent_deadline_exceeded_total` 持续非零**——按 phase 分布三诊：`phase="queue"`=调度积压（查 pm2 worker 进程存活/BullMQ 队列深度）；`phase="call"`=provider 变慢（按 p99.9 标定上调对应 `EXEC_DEADLINE_*`——同批必须走下方 nginx 联动行）；`phase="waiting"`=队列积压升级档（**本次升级不耗用户 attempts**——服务端调度行为非用户重试，只查积压根因）。

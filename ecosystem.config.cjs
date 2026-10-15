@@ -23,6 +23,7 @@ module.exports = {
       // env 白名单（check-ecosystem 断言）：禁密钥进本文件——其余 env 一律服务器 apps/api/.env 手工管理
       // P47：树外目录——部署树内的 .data 只靠 provision_tarball 的 --exclude 一条纪律保命；
       // 迁移机制本批已建（cutover ③.5），目标改树外一次性取消整类风险
+      // Y0c T21/Z61：maxDebounce 禁调大——SIGKILL 丢数据窗 ≤3000ms（=debounce 2000×1.5 写死在 gateway，RPO 契约值 E43⑥，调大即放宽丢数据窗）
       COLLAB_SPOOL_DIR: '/home/ubuntu/flowweb-data/collab-spool',   // E37+P47：绝对路径且树外（CWD 漂移+部署覆盖双防护）
       COLLAB_BIND_ADDR: '127.0.0.1',   // P25：3001 不公网监听（nginx 同机反代唯一路径）
     },

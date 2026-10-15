@@ -41,3 +41,16 @@ describe('Y0b-3 T1：Server 构造 pin', () => {
     expect(Object.keys(ctor.websocketOptions ?? {}).every((k) => k === 'maxPayload')).toBe(true);
   });
 });
+
+describe('Y0c T21：Server 旋钮 pin（Z82a/Z61）', () => {
+  it('unloadImmediately pin true+maxDebounce ≤3000（防升级翻转+RPO 契约值）', () => {
+    const ctor = buildGateway().server.configuration;
+    // Z82a：库默认即 true——pin 目的=文档锚防升级翻转，非行为修复。残存价值=护无会话 doc 的
+    // 关页立即 store（常驻路径「关页即 flush」已结构性失效，但无会话 doc 仍走库谓词卸载链）——
+    // 禁以「谓词已拦」为由关掉。
+    expect(ctor.unloadImmediately).toBe(true);
+    // Z61/E43⑥ 契约值：maxDebounce=debounce 2000×1.5 写死 ⇒ SIGKILL 丢数据窗 ≤3s。
+    // maxDebounce 禁调大——调大即放宽丢数据窗（RPO 契约值）。
+    expect(ctor.maxDebounce).toBeLessThanOrEqual(3000);
+  });
+});

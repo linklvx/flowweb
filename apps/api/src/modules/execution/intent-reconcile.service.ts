@@ -267,10 +267,12 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 未扣超龄——VOIDED 免费放行`);
   }
 
-  /** Y0b-2 T5（Z106/Z112）：reaper 终态投影分治——UX 投影不得成为装载源：doc 常驻（documents.has）
-   *  才写 error 投影（errorCode+rearmable+attempts 同 patch——Z99 代次化后可写）；非常驻跳过+
-   *  exec_projection_deferred_total 计数（用户重连时 alignExecFromIntents 对齐——T6 职责）。
-   *  drain 503 best-effort 记 warn（不因投影失败回滚资金）。 */
+  /** Y0b-2 T5（Z106/Z112）→Y0c T20（Z105）：reaper 终态投影分治——UX 投影不得成为装载源：
+   *  isDocResident=hasActiveWsConnection（仅 WS 连接数>0，与常驻会话无关——常驻化后旧 documents.has
+   *  形态恒真=deferred 门失效）才写 error 投影（errorCode+rearmable+attempts 同 patch——Z99 代次化后
+   *  可写）；无人看跳过+exec_projection_deferred_total 计数（「无人在看=不为 UX 投影花钱」语义保留
+   *  ——用户重连时 alignExecFromIntents 对齐——T6 职责）。drain 503 best-effort 记 warn（不因投影失败
+   *  回滚资金）。 */
   private async projectReaped(row: GenerationIntent, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
     try {
       if (!this.collabDoc.isDocResident(row.projectId)) {
