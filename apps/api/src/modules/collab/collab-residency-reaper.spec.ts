@@ -562,3 +562,195 @@ describe('Y0c T16：tick 周期挂载+观测', () => {
     expect(register.getSingleMetric('yjs_force_evict_failure_total')).toBeTruthy();
   });
 });
+
+// ═══ Y0c T18（Z81/Z38 硬前置+Z143 双计数+Σdirect===0 断言）：关停步骤 0 releaseAllSessions 全形态 ═══
+describe('Y0c T18：releaseAllSessions 全形态（逐会话 300ms/总 2s 预算+Σdirect===0 断言）', () => {
+  /** yjs_release_budget_exceeded_total 按 scope label 取值（Z143 双拒绝分离的第三面：超预算）。 */
+  async function budgetByScope(scope: 'session' | 'total'): Promise<number> {
+    const m = register.getSingleMetric('yjs_release_budget_exceeded_total') as any;
+    if (!m) return NaN;
+    return (await m.get()).values.find((v: any) => v.labels?.scope === scope)?.value ?? 0;
+  }
+  const hangGate = new Promise<void>(() => {});   // disconnect 永挂（fsync 挂起形态——Z109 同款注入面）
+
+  it('T18-1 逐会话预算：disconnect 段挂起 >300ms ⇒ budget_exceeded{session}+1+ERROR 点名+条目留表（zombie 档自延续——5s 未到不置）；count 已被 removeDirectConnection 先行扣减 ⇒ 无泄漏', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.disconnectGates.set('project:p1', hangGate);
+    const errSpy = vi.spyOn((fx.residency as any).logger, 'error');
+    const before = await budgetByScope('session');
+    const leakBefore = await counterValue('yjs_shutdown_direct_leak_total');
+
+    const rel = fx.residency.releaseAllSessions('shutdown');
+    await vi.advanceTimersByTimeAsync(300);   // 300ms 逐会话预算界
+    await rel;
+
+    expect(await budgetByScope('session')).toBe(before + 1);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('project:p1'));   // 超预算点名
+    expect(fx.residency.sessionState('p1')).toBe('releasing');   // 留表（非 zombie——5s 档自延续）
+    expect(fx.disconnectCallCount()).toBe(1);
+    expect(await counterValue('yjs_shutdown_direct_leak_total')).toBe(leakBefore);   // Σdirect=0（count 先扣）——零泄漏
+  });
+
+  it('T18-2 总预算：wall 时钟破总预算 ⇒ 剩余会话逐个点名+budget_exceeded{total}+留 hold（Z143「继续 hold 交步骤 4」）+被跳过会话 direct conn 残留 ⇒ Σdirect 断言 ERROR+direct_leak 计数（Z81 泄漏与预算两口径分离）', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    await fx.pool('p1');
+    await fx.pool('p2');
+    await fx.pool('p3');
+    for (const p of ['p1', 'p2', 'p3']) fx.disconnectGates.set(`project:${p}`, hangGate);
+    const errSpy = vi.spyOn((fx.residency as any).logger, 'error');
+    const sBefore = await budgetByScope('session');
+    const tBefore = await budgetByScope('total');
+    const leakBefore = await counterValue('yjs_shutdown_direct_leak_total');
+
+    const rel = fx.residency.releaseAllSessions('shutdown', { perSessionMs: 100, totalMs: 150 });
+    await vi.advanceTimersByTimeAsync(100);   // s1：session 预算破
+    await vi.advanceTimersByTimeAsync(100);   // s2（elapsed 100<150 放行）：session 预算破
+    await rel;                                 // s3：elapsed 200≥150 ⇒ 跳过（total 档）
+
+    expect(await budgetByScope('session')).toBe(sBefore + 2);
+    expect(await budgetByScope('total')).toBe(tBefore + 1);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('project:p3'));   // 剩余会话点名
+    expect(fx.residency.sessionState('p3')).toBe('held');    // 留 hold（未被处理——交 drainAllDocuments 兜底）
+    expect(fx.disconnectCallCount()).toBe(2);                // s1/s2 各一次
+    expect(await counterValue('yjs_shutdown_direct_leak_total')).toBe(leakBefore + 1);   // s3 conn 在 ⇒ Σdirect=1 ⇒ ERROR+计数
+  });
+
+  it('T18-3 Z143①：spool 交接慢（>300ms）但 disconnect 快 ⇒ 不算超预算（计时只裹 disconnect 段——交接段不计入）', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.gateway.hasPendingWrites.mockReturnValue(true);   // 带批形态（shutdown 档 handoff 激活面）
+    let releaseHandoff!: (v: boolean) => void;
+    fx.gateway.handoffPendingToSpool.mockImplementation(() => new Promise<boolean>((r) => { releaseHandoff = r; }));
+    const before = await budgetByScope('session');
+
+    const rel = fx.residency.releaseAllSessions('shutdown');
+    await vi.advanceTimersByTimeAsync(500);   // 交接段 500ms>300ms——预算未起跑（交接不计时）
+    releaseHandoff(true);                      // 交接完成 → disconnect（快）→ released
+    await vi.advanceTimersByTimeAsync(0);
+    await rel;
+
+    expect(await budgetByScope('session')).toBe(before);   // 交接耗时不计 disconnect 预算
+    expect(fx.residency.sessionState('p1')).toBeUndefined();   // released（条目移除）
+    expect(fx.disconnectCallCount()).toBe(1);
+  });
+
+  it('T18-4 交接失败 ⇒ release_handoff_failed（T17 既有）+条目留 hold+Σdirect 断言 ERROR+direct_leak 计数（Z81 硬失败口径——泄漏非预算）', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.gateway.handoffPendingToSpool.mockResolvedValue(false);   // 交接失败（spool 不可写形态）
+    const errSpy = vi.spyOn((fx.residency as any).logger, 'error');
+    const hfBefore = await counterValue('yjs_release_handoff_failed_total');
+    const leakBefore = await counterValue('yjs_shutdown_direct_leak_total');
+
+    await fx.residency.releaseAllSessions('shutdown');
+
+    expect(await counterValue('yjs_release_handoff_failed_total')).toBe(hfBefore + 1);
+    expect(fx.residency.sessionState('p1')).toBe('held');   // 留 hold 交 drainAllDocuments 兜底
+    expect(fx.disconnectCallCount()).toBe(0);
+    expect(await counterValue('yjs_shutdown_direct_leak_total')).toBe(leakBefore + 1);   // Σdirect=1>0
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('direct leak'));        // ERROR 点名
+  });
+
+  it('T18-8 self-isolate 出口同蒙预算：注册回调 (null,"self-isolate") 路由 releaseAllSessions——挂起会话 300ms 有界返回（失租紧急路径 WS 关闭时延有界；旧 T17 逐会话无界等待=红）；Σdirect 断言仅 shutdown 档（selfIsolate 面归 T19）', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    const registered = (fx.gateway.registerResidentSessionReleaser as ReturnType<typeof vi.fn>).mock.calls[0][0] as (pid: string | null, motive: string) => Promise<unknown>;
+    await fx.pool('p1');
+    fx.disconnectGates.set('project:p1', hangGate);
+    const before = await budgetByScope('session');
+    const leakBefore = await counterValue('yjs_shutdown_direct_leak_total');
+
+    const rel = registered(null, 'self-isolate');
+    await vi.advanceTimersByTimeAsync(300);
+    await rel;   // 有界返回——不等待 disconnect 真实 settle
+
+    expect(await budgetByScope('session')).toBe(before + 1);
+    expect(fx.residency.sessionState('p1')).toBe('releasing');
+    expect(await counterValue('yjs_shutdown_direct_leak_total')).toBe(leakBefore);   // self-isolate 不发 leak 断言
+  });
+
+  // ── T18 质量收尾（I-1/I-2/M-1）：双调双烧三缺陷先红用例 ──
+
+  it('T18-9 I-1 双调路径：#1 300ms 预算 budget-exceeded 后复调同 pid（Nest DI 反序钩子 #1+gateway 步骤 0 #2 形态）⇒ 第二次仍 300ms 有界返回+{session} 不双烧+ERROR 点名不重复+released 不虚计', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.disconnectGates.set('project:p1', hangGate);
+    const errSpy = vi.spyOn((fx.residency as any).logger, 'error');
+    const before = await budgetByScope('session');
+
+    const rel1 = fx.residency.releaseAllSessions('shutdown');
+    await vi.advanceTimersByTimeAsync(300);   // #1：逐会话预算界
+    await rel1;
+    expect(await budgetByScope('session')).toBe(before + 1);          // #1 首报
+    expect(fx.residency.sessionState('p1')).toBe('releasing');
+
+    const logSpy = vi.spyOn((fx.residency as any).logger, 'log');
+    let done = false;
+    const rel2 = fx.residency.releaseAllSessions('shutdown').then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(300);   // #2 同 300ms 窗——修复前复调 await 界=doRelease 5s（预算被无视）
+    expect(done).toBe(true);                  // 有界返回（修复前=300ms 后仍挂即红）
+    await rel2;
+
+    expect(await budgetByScope('session')).toBe(before + 1);          // 计数不双烧（已点名 latch）
+    expect(errSpy.mock.calls.filter((c: any[]) => String(c[0]).includes('release budget exceeded (session'))).toHaveLength(1);   // 点名不重复
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('0/1 released'));   // released 不虚计（#2 未把 #1 已点名会话计入 released）
+    expect(fx.residency.sessionState('p1')).toBe('releasing');        // 条目留表自延续（不因复调改判）
+  });
+
+  it('T18-10 I-1 复调分支预算复守（根修面）：非预算调用方（reaper 常规档直释）遗留 releasing 会话——releaseAllSessions 复调等待同受 300ms 约束+首次点名计 {session}（修复前=await releasePromise 界 5s 预算被无视即红）', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.disconnectGates.set('project:p1', hangGate);
+    void fx.residency.releaseSessionFor('p1');                        // 非预算调用方在飞释放（未点名形态）
+    expect(fx.residency.sessionState('p1')).toBe('releasing');
+    const before = await budgetByScope('session');
+
+    let done = false;
+    const rel = fx.residency.releaseAllSessions('shutdown').then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(done).toBe(true);                  // 复调等待 300ms 有界（修复前=await 5s 界）
+    await rel;
+
+    expect(await budgetByScope('session')).toBe(before + 1);          // 首次点名照常计数
+  });
+
+  it('T18-11 I-2 handoff 永挂（spool fsync 磁盘挂起——Z109 原文复现段）：剩余总预算透传收界⇒有界返回+超时按 rejected-handoff 同路（handoff_failed 计数）+条目留 hold+后续会话 {total} 点名（修复前=控制流永不回循环，步骤 0 整体无限挂即红）', async () => {
+    vi.useFakeTimers();
+    const fx = makeFixture();
+    await fx.pool('p1');
+    await fx.pool('p2');
+    fx.gateway.handoffPendingToSpool.mockImplementation(() => new Promise<boolean>(() => {}));   // fsync 永挂
+    const hfBefore = await counterValue('yjs_release_handoff_failed_total');
+    const tBefore = await budgetByScope('total');
+
+    let done = false;
+    const rel = fx.residency.releaseAllSessions('shutdown').then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(2_000);   // 总预算窗（fake timers 推进——不断言整段无限挂）
+    expect(done).toBe(true);                    // 有界返回（修复前=永挂即红）
+
+    expect(await counterValue('yjs_release_handoff_failed_total')).toBe(hfBefore + 1);   // 超时=交接失败一族同计数
+    expect(fx.residency.sessionState('p1')).toBe('held');           // rejected-handoff 条目保留 hold
+    expect(await budgetByScope('total')).toBe(tBefore + 1);         // p2 剩余会话点名（total 破——控制流已回循环）
+    expect(fx.disconnectCallCount()).toBe(0);                       // 未及 disconnect 段
+  });
+
+  it('T18-12 M-1 Σdirect 断言双调去重：leak 场景双调 releaseAllSessions ⇒ direct_leak 恰 +1+「direct leak」ERROR 恰一次（修复前双调双烧 +2/ERROR×2——违反 help「每次关停至多 1」）', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.gateway.handoffPendingToSpool.mockResolvedValue(false);      // 交接失败留 hold ⇒ Σdirect=1（leak 形态）
+    const errSpy = vi.spyOn((fx.residency as any).logger, 'error');
+    const leakBefore = await counterValue('yjs_shutdown_direct_leak_total');
+
+    await fx.residency.releaseAllSessions('shutdown');   // #1（residency 钩子——Nest DI 反序先跑）
+    await fx.residency.releaseAllSessions('shutdown');   // #2（gateway 步骤 0 显式化）
+
+    expect(await counterValue('yjs_shutdown_direct_leak_total')).toBe(leakBefore + 1);   // 首报 latch——不双烧
+    expect(errSpy.mock.calls.filter((c: any[]) => String(c[0]).includes('direct leak'))).toHaveLength(1);   // 双 ERROR 噪音同消
+  });
+});

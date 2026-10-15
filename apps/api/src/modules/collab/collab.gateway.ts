@@ -12,7 +12,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, type CollabStoreTrigger } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, type CollabStoreTrigger } from './store.metrics';
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
@@ -388,6 +388,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   registerResidentSessionReleaser(fn: (pid: string | null, motive: TryReleaseMotive) => Promise<unknown>): void {
     this.residentSessionReleaser = fn;
   }
+  /** Y0c T18：residency 条目读面（hangReason resident-session-open 档判据——destroy race 失败时
+   *  条目非空=步骤 0 预算/交接拒绝留 hold；residency 构造期注册，未注册〔直构 gateway〕=0）。 */
+  private residentSessionsProbe: (() => number) | null = null;
+  registerResidentSessionsProbe(fn: () => number): void { this.residentSessionsProbe = fn; }
   /** T17 Z129：单会话释放转发（vacuum quiesce 三态空轮消费；未注册〔直构 gateway 无 residency〕=
    *  undefined——会话表概念不存在即「会话已不在」）。I-3 透传 residency tryRelease outcome 供 quiesce
    *  break 判据（released=静默达成）；拒绝（批在途/在用/交接失败）由 residency 侧计数——本转发不抛
@@ -3168,6 +3172,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  步骤 6（租约显式释放 ≤2s）Y0a-3 落地——本批占位注释（v2.4"必须执行到"约束随租约同批）。 */
   async onApplicationShutdown(): Promise<void> {
     const t0 = Date.now();
+    await this.releaseAllResidentSessions('shutdown');                           // 步骤 0（Y0c T18/Z81 硬前置）：常驻会话释放先行于一切关停动作——Nest DI 反序已隐式调 residency 钩子，此处显式化（双调安全：releaser 幂等无条目 no-op）
     this.shuttingDown = true;                                                    // 步骤 1：停收新写（V11 关停闸——isolated 态 rejoin CAS 成功也不得 re-listen）
     if (this.collabState === 'serving' || this.collabState === 'start-failed' || this.collabState === 'acquiring') this.transition('draining', 'shutdown');
     if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
@@ -3193,7 +3198,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.closeAllConnections1012();                                              // 步骤 2：瞬时
     this.server.hocuspocus.flushPendingStores();                                 // 步骤 3：库 debounce 队列（同步触发）
     await this.pollPendingDrained(6_000);                                        // ≤6s 排空窗口（只管"仍在 debounce 中"的 store——主力是步骤 4）
-    await this.drainAllDocuments(t0 + 18_000);                                   // 步骤 4：自管 drain+force-spool（X7+Y12——硬界 18s，其后 4s race 收在 22s）
+    await this.drainAllDocuments(t0 + 18_000);                                   // 步骤 4：自管 drain+force-spool（X7+Y12——硬界 18s，其后 4s race 收在 22s；18s 重标归 T22 内存实测轮回填 Z114②）
     let destroyed = false;                                                       // 步骤 5：destroy 与 4s race（兜底）
     const destroying = this.server.destroy()
       .then(() => { destroyed = true; })
@@ -3201,7 +3206,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     await Promise.race([destroying, new Promise<void>((r) => { setTimeout(r, 4_000).unref?.(); })]);
     if (!destroyed) {
       const p = this.computePending();
-      const hangReason = p.projects > 0 || p.batches > 0 ? 'store-undrained' : 'direct-open';   // 分型（v2.4；Y5 键名）
+      // 分型优先级（Y0c T18 扩档；Y5 键名）：store-undrained > resident-session-open（residency 条目
+      // 残留=步骤 0 预算/交接拒绝留 hold——probe 读面）> direct-open（兜底档维持 v2.4）。
+      const hangReason = p.projects > 0 || p.batches > 0 ? 'store-undrained'
+        : (this.residentSessionsProbe?.() ?? 0) > 0 ? 'resident-session-open'
+        : 'direct-open';
       this.logger.error(JSON.stringify({ event: 'destroy_timeout', ...p, storeInFlight: this.inFlightProjects.size, hangReason }));
     }
     unregisterPendingCollector();   // Y5：collect 闭包随 gateway 死——destroy race 判定后（M4：drain 期 pending 可观测性保留）
@@ -3244,63 +3253,71 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  真成功=spool 重复回灌且 undrained 仍点名——虚报偏保守（宁多点名，不虚报成功）。 */
   private async drainAllDocuments(hardDeadline: number): Promise<void> {
     const drainStart = Date.now();
-    for (const [projectId, q] of [...this.pendingQueues]) {      // V4：单源遍历
-      if (Date.now() - drainStart > 8_000) break;                // X7：总闸——剩余转 force-spool
-      const frames = await this.raceDeadline(this.peekSpoolFrames(projectId), 500, []);   // 磁盘挂起防护
-      if (q.length === 0 && frames.length === 0) continue;
-      const name = `project:${projectId}`;
-      const document = this.server.hocuspocus.documents.get(name);
-      if (!document) {
-        await this.drainDetachedProject(projectId, hardDeadline);
-        continue;
-      }
-      const remaining = Math.max(200, Math.min(2_000, hardDeadline - Date.now()));
-      try {
-        await Promise.race([
-          this.storeDocumentSerialized({ document, documentName: name }, 'drain'),   // Y0c T0：关停排空归因
-          new Promise<void>((r) => { setTimeout(r, remaining).unref?.(); }),
-        ]);   // race 超时=resolve 不进 catch——不 leave（Y12：挂起中批未落定，点名应含）
-      } catch (err) {
-        this.logger.warn(`drain store failed for ${name}: ${(err as Error).message}`);
-        this.leaveInFlight(projectId);                           // 仅意外异常 leave（幂等——迟到的真 leave 无双扣）
-      }
-      if (Date.now() > hardDeadline) break;
-    }
-    const p = this.computePending();
-    if (p.projects === 0 && p.batches === 0) {
-      this.logger.log(JSON.stringify({ event: 'shutdown_drain_complete', pending: p, spoolResidual: { files: p.spoolFiles, bytes: p.spoolBytes }, storeInFlight: this.inFlightProjects.size }));   // X17：spoolResidual 显式（防误读"全部落 PG"）
-      return;
-    }
-    // force-spool（每次 append 可切断——剩余 hardDeadline 为界；J5 按返回值判定）
-    let forced = 0;
-    for (const [projectId, q] of [...this.pendingQueues]) {
-      if (q.length === 0) continue;
-      if (Date.now() > hardDeadline) break;                      // X7：硬切断——点名其余
-      const n = q.length;
-      const tailRef = q[n - 1];                                  // I-2 终审收口：force-spool 是关停窗内 splice——并发 append 竞速下队列结构可能已变（折并/取批交织），无锚 splice 会误删未落定批（唯一残余蒸发窗）——与队列其余三处 splice 同形补锚
-      try {
-        // Y0b-4 T3（Q-O）：spool 帧切批 ≤1MB 逐帧 fsync（每帧套剩余预算）——全帧落定才 splice；
-        // 中途 race 超时=已落帧与队列双份（J5：后到的成功帧=重复回灌，幂等吸收）。
-        let allLanded = true;
-        for (const chunk of this.splitPersistChunks(q.slice(0, n))) {   // copy——不动队列
-          const payload = chunk.length === 1 ? chunk[0] : Y.mergeUpdates(chunk);
-          const ids = await this.raceDeadline(this.spool.append(projectId, payload), Math.max(200, hardDeadline - Date.now()), null);
-          if (ids === null) { allLanded = false; break; }
+    let enteredDocs = 0;   // Y0c T18（Z114①）：本次 drain 进入处理的 doc 数（自然口径：主循环过空判 continue 后计数——store race 与 detached 直灌两腿均含；8s 总闸未及遍历的不计）
+    try {
+      for (const [projectId, q] of [...this.pendingQueues]) {      // V4：单源遍历
+        if (Date.now() - drainStart > 8_000) break;                // X7：总闸——剩余转 force-spool
+        const frames = await this.raceDeadline(this.peekSpoolFrames(projectId), 500, []);   // 磁盘挂起防护
+        if (q.length === 0 && frames.length === 0) continue;
+        enteredDocs += 1;
+        const name = `project:${projectId}`;
+        const document = this.server.hocuspocus.documents.get(name);
+        if (!document) {
+          await this.drainDetachedProject(projectId, hardDeadline);
+          continue;
         }
-        if (allLanded) {
-          if (q.length < n || (n > 0 && q[n - 1] !== tailRef)) {   // I-2：await 窗口队列被折并/并发改写（q[n-1] 身份断）——跳过 splice 留队列点名
-            yjsStoreTailAnomalyTotal.inc();
-            this.logger.error(`force-spool tail anomaly for ${projectId}: queue mutated during spool append（折并/并发改写——splice 跳过，批留队列点名）`);
-          } else {
-            q.splice(0, n);                                        // J5：真写成才 splice（null=race 超时未落定——留队列点名；后到的成功帧=重复回灌，幂等吸收）
-            this.leaveInFlight(projectId);
-            forced += 1;
+        const remaining = Math.max(200, Math.min(2_000, hardDeadline - Date.now()));
+        try {
+          await Promise.race([
+            this.storeDocumentSerialized({ document, documentName: name }, 'drain'),   // Y0c T0：关停排空归因
+            new Promise<void>((r) => { setTimeout(r, remaining).unref?.(); }),
+          ]);   // race 超时=resolve 不进 catch——不 leave（Y12：挂起中批未落定，点名应含）
+        } catch (err) {
+          this.logger.warn(`drain store failed for ${name}: ${(err as Error).message}`);
+          this.leaveInFlight(projectId);                           // 仅意外异常 leave（幂等——迟到的真 leave 无双扣）
+        }
+        if (Date.now() > hardDeadline) break;
+      }
+      const p = this.computePending();
+      if (p.projects === 0 && p.batches === 0) {
+        this.logger.log(JSON.stringify({ event: 'shutdown_drain_complete', pending: p, spoolResidual: { files: p.spoolFiles, bytes: p.spoolBytes }, storeInFlight: this.inFlightProjects.size }));   // X17：spoolResidual 显式（防误读"全部落 PG"）
+        return;
+      }
+      // force-spool（每次 append 可切断——剩余 hardDeadline 为界；J5 按返回值判定）
+      let forced = 0;
+      for (const [projectId, q] of [...this.pendingQueues]) {
+        if (q.length === 0) continue;
+        if (Date.now() > hardDeadline) break;                      // X7：硬切断——点名其余
+        const n = q.length;
+        const tailRef = q[n - 1];                                  // I-2 终审收口：force-spool 是关停窗内 splice——并发 append 竞速下队列结构可能已变（折并/取批交织），无锚 splice 会误删未落定批（唯一残余蒸发窗）——与队列其余三处 splice 同形补锚
+        try {
+          // Y0b-4 T3（Q-O）：spool 帧切批 ≤1MB 逐帧 fsync（每帧套剩余预算）——全帧落定才 splice；
+          // 中途 race 超时=已落帧与队列双份（J5：后到的成功帧=重复回灌，幂等吸收）。
+          let allLanded = true;
+          for (const chunk of this.splitPersistChunks(q.slice(0, n))) {   // copy——不动队列
+            const payload = chunk.length === 1 ? chunk[0] : Y.mergeUpdates(chunk);
+            const ids = await this.raceDeadline(this.spool.append(projectId, payload), Math.max(200, hardDeadline - Date.now()), null);
+            if (ids === null) { allLanded = false; break; }
           }
-        }
-      } catch { /* 留队列——点名 */ }
+          if (allLanded) {
+            if (q.length < n || (n > 0 && q[n - 1] !== tailRef)) {   // I-2：await 窗口队列被折并/并发改写（q[n-1] 身份断）——跳过 splice 留队列点名
+              yjsStoreTailAnomalyTotal.inc();
+              this.logger.error(`force-spool tail anomaly for ${projectId}: queue mutated during spool append（折并/并发改写——splice 跳过，批留队列点名）`);
+            } else {
+              q.splice(0, n);                                        // J5：真写成才 splice（null=race 超时未落定——留队列点名；后到的成功帧=重复回灌，幂等吸收）
+              this.leaveInFlight(projectId);
+              forced += 1;
+            }
+          }
+        } catch { /* 留队列——点名 */ }
+      }
+      const p2 = this.computePending();
+      this.logger.error(JSON.stringify({ event: 'shutdown_undrained', batches: p2.batches, projects: p2.projects, spoolFiles: p2.spoolFiles, spoolBytes: p2.spoolBytes, storeInFlight: this.inFlightProjects.size, forcedSpool: forced }));
+    } finally {
+      // Y0c T18（Z114①）：drain 两数落档——时长 gauge（单次关停单值，last 即档）+处理 doc 数 counter。
+      collabDrainProjectsTotal.inc(enteredDocs);
+      collabDrainDurationSeconds.set((Date.now() - drainStart) / 1000);
     }
-    const p2 = this.computePending();
-    this.logger.error(JSON.stringify({ event: 'shutdown_undrained', batches: p2.batches, projects: p2.projects, spoolFiles: p2.spoolFiles, spoolBytes: p2.spoolBytes, storeInFlight: this.inFlightProjects.size, forcedSpool: forced }));
   }
 
   /** X7：op 套 deadline——超时返回 fallback（op 自身继续跑，结果被弃） */

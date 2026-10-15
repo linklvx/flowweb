@@ -47,8 +47,9 @@ import { CollabGateway, isValidDocName } from './collab.gateway';
 import {
   collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabResidencyReleaseInflightTotal,
   collabWriteSessionReleaseTimeoutTotal, consumeDirectLoad, noteDirectLoad, registerResidentReader,
-  yjsDocEvictedResidencySeconds, yjsDocEvictedTotal, yjsForceEvictFailureTotal, yjsReleaseHandoffFailedTotal,
-  yjsReleaseWithPendingTotal, yjsResidentOverLimitTotal, yjsWithdocOpenDuration,
+  yjsDocEvictedResidencySeconds, yjsDocEvictedTotal, yjsForceEvictFailureTotal, yjsReleaseBudgetExceededTotal,
+  yjsReleaseHandoffFailedTotal, yjsReleaseWithPendingTotal, yjsResidentOverLimitTotal, yjsShutdownDirectLeakTotal,
+  yjsWithdocOpenDuration,
 } from './store.metrics';
 
 /** 直连类型=库 openDirectConnection 返回实例推导（根导出 DirectConnection 接口无 document 成员——
@@ -85,9 +86,10 @@ export const RELEASE_TIMEOUT_MS = 5_000;
  *  （Z141 两前置准入——批在途即拒）；force-evict/shutdown=允许带批档（spool 交接先行）。 */
 export type TryReleaseMotive = 'drain' | 'self-isolate' | 'vacuum' | 'reaper' | 'force-evict' | 'shutdown';
 
-/** tryRelease 三态结果（Z129/Z143）：released=已释放（含幂等复调/无条目）/rejected-pending=常规档
- *  Z141 两前置或 refCount 在用拒绝/rejected-handoff=带批档 spool 交接失败拒绝（条目保留 hold）。 */
-export type TryReleaseOutcome = 'released' | 'rejected-pending' | 'rejected-handoff';
+/** tryRelease 结果四态（Z129/Z143+T18）：released=已释放（含幂等复调/无条目）/rejected-pending=常规档
+ *  Z141 两前置或 refCount 在用拒绝/rejected-handoff=带批档 spool 交接失败拒绝（条目保留 hold）/
+ *  budget-exceeded=disconnect 段超逐会话预算（T18——条目留表 zombie 档自延续，非释放完成）。 */
+export type TryReleaseOutcome = 'released' | 'rejected-pending' | 'rejected-handoff' | 'budget-exceeded';
 
 // ── Y0c T16 使用点默认值（Z107/Z132/Z142：env 三键 T0 已注册 optional 无 default——默认值落
 //    使用点纪律，防双源 P3；构造器直读=census ㉒ 允许面） ──
@@ -102,6 +104,11 @@ export const DEFAULT_MAX_RESIDENT_BYTES = 402_653_184;
 export const DEFAULT_MAX_RESIDENT_DOCS = 64;
 /** reaper tick 周期（常数不进 env——env 键注册面 T0 已定死三键，新增键=census 红）。 */
 export const REAP_TICK_MS = 15_000;
+
+/** T18 关停/隔离全形态释放预算（spec :522）：逐会话 disconnect 段 ≤300ms/总 ≤2s——spool 交接
+ *  不计入 300ms（Z143① 计时分离）。 */
+export const RELEASE_SESSION_BUDGET_MS = 300;
+export const RELEASE_TOTAL_BUDGET_MS = 2_000;
 
 export interface WithSessionOptions {
   mode: 'read' | 'write';
@@ -128,6 +135,13 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /** tick 重入闸（mass-zombie 期单 tick 可达 N×5s——防周期定时器堆叠）。 */
   private ticking = false;
+  /** T18 质量收尾 I-1：预算已点名 pid 集（实例级 latch）——releaseAllSessions 双调路径（Nest DI 反序
+   *  钩子 #1+gateway 步骤 0 #2）对已点名 pid 不再等待/计数/计入 released（Z143 三面计数不双烧+
+   *  released 不虚高——「留 hold 交兜底」是首次点名时已立的处置决定，复调不翻案）。 */
+  private readonly budgetNamedPids = new Set<string>();
+  /** T18 质量收尾 M-1：Σdirect 泄漏断言首报 latch（进程关停内只计首报——双调各跑一次断言，
+   *  direct_leak 不双烧+双 ERROR 噪音同消）。 */
+  private leakAsserted = false;
 
   constructor(@Inject(CollabGateway) private readonly gateway: CollabGateway) {
     // Y0c T16（Z107/Z132/Z142）：三键构造器直读（census ㉒ 构造器读面），默认值见常量注。
@@ -141,8 +155,11 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     // 单向依赖，三出口〔beginDraining/selfIsolate/vacuum quiesce〕经 gateway 转发触达 tryRelease 单点）。
     // pid=null ⇒ 全部常驻会话（drain/隔离出口）；单 pid ⇒ vacuum quiesce 每轮消费。
     // ?.＝mock gateway 直构测试兼容（生产 CollabGateway 恒有该方法）。
+    // Y0c T18：shutdown/self-isolate 全量出口路由 releaseAllSessions 全形态（预算+Σdirect 断言）；
+    // drain 等常规档维持 T17 逐会话无预算形态（60s 窗退避梯承接——非紧急路径）。
     this.gateway.registerResidentSessionReleaser?.(async (pid, motive) => {
       if (pid === null) {
+        if (motive === 'shutdown' || motive === 'self-isolate') return this.releaseAllSessions(motive);
         for (const p of this.residentProjectIds()) {
           try { await this.tryRelease(p, motive); } catch (e) { this.logger.warn(JSON.stringify({ event: 'collab_residency_release_error', pid: p, motive, error: (e as Error).message })); }
         }
@@ -150,6 +167,9 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
       }
       await this.tryRelease(pid, motive);
     });
+    // Y0c T18：residency 条目读面注册（gateway hangReason resident-session-open 档判据——条目非空=
+    // 步骤 0 预算/交接拒绝留 hold；?.＝mock gateway 直构测试兼容）。
+    this.gateway.registerResidentSessionsProbe?.(() => this.sessions.size);
   }
 
   /** X9/Y0a-3 R4 写意图受理门（lease 失守/spool 熔断/容量熔断拒——503 瞬态）。
@@ -274,10 +294,25 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
    *  带批但必先 spool 交接（Z129 给 Z110 直卸路径补的交接义务——先于 disconnect，交接不计入逐会话
    *  预算的计时分离面归 T18），交接失败⇒拒绝**该会话**（条目保留 hold 交 drainAllDocuments 兜底）
    *  +ERROR 点名——非放弃整批（Z143）。 */
-  async tryRelease(pid: string, motive: TryReleaseMotive): Promise<TryReleaseOutcome> {
+  async tryRelease(pid: string, motive: TryReleaseMotive, opts?: { disconnectBudgetMs?: number; handoffBudgetMs?: number }): Promise<TryReleaseOutcome> {
     const entry = this.sessions.get(pid);
     if (!entry) return 'released';   // 无条目=幂等成功
-    if (entry.state === 'releasing') { await entry.releasePromise; return 'released'; }   // Z83 复调=同一在飞释放
+    if (entry.state === 'releasing') {
+      const waitMs = opts?.disconnectBudgetMs;
+      if (waitMs === undefined) { await entry.releasePromise; return 'released'; }   // Z83 复调=同一在飞释放
+      // I-1（T18 质量收尾）：复调等待同受预算约束——生产双调路径（Nest DI 反序钩子 #1+gateway 步骤 0
+      // #2）第二次进此分支时预算被无视=await 界滑到 doRelease 5s 硬超时。等待信号=releasePromise
+      // （Z83「同一在飞释放」的去重载体，5s 必 resolve 含 zombie 档）非 acquire 的 releaseSettled：
+      // 预算问「在飞释放能否预算内完成」非「底层 disconnect 真实了结」——接 releaseSettled 则挂起段
+      // 永不出果，竞速必超时=每次复调误报 budget-exceeded。
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        (entry.releasePromise ?? Promise.resolve()).then(() => 'released' as const),
+        new Promise<'budget-exceeded'>((r) => { timer = setTimeout(() => r('budget-exceeded'), waitMs); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      return outcome;
+    }
     if (entry.state === 'zombie') return 'released';   // 已有挂起释放（自清理延续——复调 no-op）
     if (entry.refCount > 0 && motive !== 'shutdown') {
       // 释放原语纪律「仅对 refCount===0∧held 发起」收口（常规档拒绝——M-5 稳态 0 载体）；在用会话不
@@ -294,10 +329,29 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
         this.armIdleTimer(pid);
         return 'rejected-pending';
       }
-      const handed = await this.gateway.handoffPendingToSpool(pid);
+      // I-2（T18 质量收尾）：handoff await 套 race——本段是关停路径唯一未裹预算的 spool.append 调用点
+      // （对照 force-spool/drainDetachedProject 全部 raceDeadline 包裹）；首会话 spool fsync 挂起⇒控制
+      // 流永不回循环⇒总预算无机会触发⇒步骤 0 整体无限挂（Z109「spool fsync 磁盘挂起无界」原文复现段）。
+      // 预算=剩余 totalMs 透传（与 Z143① 计时分离最自洽：交接不占 300ms disconnect 段，但整段墙钟
+      // 〔含交接〕受总 2s 约束——挂起交接吃满总窗即按失败处理）。超时与 false 同属「本次窗内交接未落定」
+      // 失败一族：同路 rejected-handoff+同计数 release_handoff_failed——处置同一（批留队列交 drain 兜底，
+      // 迟到的成功帧=重复回灌幂等吸收，J5 同源），单独 label 扩指标面而无处置差异，不拆。
+      let handoffTimedOut = false;
+      let handed: boolean;
+      const handoffMs = opts?.handoffBudgetMs;
+      if (handoffMs === undefined) {
+        handed = await this.gateway.handoffPendingToSpool(pid);   // 非预算调用方（reaper force-evict 等）——T17 既有形态
+      } else {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        handed = await Promise.race([
+          this.gateway.handoffPendingToSpool(pid),
+          new Promise<false>((r) => { timer = setTimeout(() => { handoffTimedOut = true; r(false); }, handoffMs); }),
+        ]);
+        if (timer) clearTimeout(timer);
+      }
       if (!handed) {
         yjsReleaseHandoffFailedTotal.inc();
-        this.logger.error(`release refused (spool handoff failed): project:${pid} motive=${motive}——Z129/Z143 拒绝该会话非放弃，批留队列由退避梯/drain 兜底`);
+        this.logger.error(`release refused (spool handoff ${handoffTimedOut ? 'timeout' : 'failed'}): project:${pid} motive=${motive}——Z129/Z143 拒绝该会话非放弃，批留队列由退避梯/drain 兜底`);
         this.armIdleTimer(pid);
         return 'rejected-handoff';   // 条目保留 hold
       }
@@ -315,8 +369,20 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
       this.armIdleTimer(pid);
       return 'rejected-pending';
     }
-    await this.releaseSessionFor(pid);
-    return 'released';
+    const budgetMs = opts?.disconnectBudgetMs;
+    if (budgetMs === undefined) {
+      await this.releaseSessionFor(pid);
+      return 'released';
+    }
+    // Y0c T18（Z143①）：预算只裹 disconnect 段——handoff 已于上文 await 完毕（交接不计入 300ms）。
+    // 超预算=停止等待非释放完成：条目留表（releasing——doRelease 5s 档自延续 zombie/懒清理）。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      this.releaseSessionFor(pid).then(() => 'released' as const),
+      new Promise<'budget-exceeded'>((r) => { timer = setTimeout(() => r('budget-exceeded'), budgetMs); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    return outcome;
   }
 
   /** 同 pid acquire 串行化（并发窗防双开——链尾消费后自清理，Map 不无界增长）。 */
@@ -608,25 +674,73 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     return n;
   }
 
-  /** I-3（控制方裁决 a）最小关停钩子：进程关停循环经 tryRelease(pid,'shutdown')（Y0c T17 改道——
-   *  带批档：spool 交接先行，交接失败=拒绝该会话交 gateway drainAllDocuments 兜底，Z143 非放弃）——
-   *  常驻 conn 不释放则 graceDirectConnections 烧满 2s+destroy 4s race⇒destroy_timeout 假 ERROR
-   *  每次必发（Z81 机制链），本钩子消声。**无预算核算无 Σdirect===0 断言——T18 关停步骤 0 全形态
-   *  （Z38/Z81：逐会话预算+Σdirect===0 硬断言+hangReason resident-session-open 档）届时整体替换本方法。 */
+  /** ===== Y0c T18：关停步骤 0 全形态（Z38/Z81 硬前置+Z143 双计数+Σdirect===0 断言——整体替换
+   *  T15 最小关停钩子） ===== */
+
+  /** 全形态批量释放（gateway 步骤 0/self-isolate 出口经 releaser 路由至此）：逐会话 disconnect 段
+   *  ≤300ms（spool 交接不计入——Z143①；超预算=条目留表〔zombie 档自延续〕+点名+
+   *  budget_exceeded{session}）+总 ≤2s（破=停止处理剩余会话+逐个点名+budget_exceeded{total}——留
+   *  hold 交 drainAllDocuments〔shutdown〕/reaper TTL〔self-isolate〕兜底，Z143「继续 hold 交步骤
+   *  4」）+shutdown 档收尾 Σdirect===0 断言（非零=ERROR+direct_leak 计数——泄漏非预算，两口径分离）。
+   *  releasing 复调路径（Z83）同受 disconnectBudgetMs 约束（I-1）；handoff await 套剩余总预算 race
+   *  （I-2）；双调路径经 budgetNamedPids/leakAsserted 两 latch 首报去重（I-1/M-1）。 */
+  async releaseAllSessions(motive: 'shutdown' | 'self-isolate', opts?: { perSessionMs?: number; totalMs?: number }): Promise<void> {
+    const perSessionMs = opts?.perSessionMs ?? RELEASE_SESSION_BUDGET_MS;
+    const totalMs = opts?.totalMs ?? RELEASE_TOTAL_BUDGET_MS;
+    const t0 = Date.now();
+    const pids = this.residentProjectIds();
+    let released = 0;
+    for (let i = 0; i < pids.length; i += 1) {
+      const pid = pids[i];
+      if (this.budgetNamedPids.has(pid)) continue;   // I-1：本进程已点名（前次调用 {session}/{total}）——不再等待/计数/计入 released
+      if (Date.now() - t0 >= totalMs) {
+        for (const rest of pids.slice(i)) {
+          if (this.budgetNamedPids.has(rest)) continue;   // 已点名不重计（I-1 双调双烧防线）
+          this.budgetNamedPids.add(rest);
+          yjsReleaseBudgetExceededTotal.inc({ scope: 'total' });
+          this.logger.error(`release budget exceeded (total ${totalMs}ms): project:${rest} motive=${motive}——留 hold 交${motive === 'shutdown' ? ' drainAllDocuments' : ' reaper TTL'}兜底（Z143 继续持有非放弃）`);
+        }
+        break;
+      }
+      let outcome: TryReleaseOutcome;
+      try {
+        // handoffBudgetMs=剩余总预算透传（I-2——交接段不占 300ms〔Z143① 计时分离〕但整段墙钟受总 2s 约束）
+        outcome = await this.tryRelease(pid, motive, { disconnectBudgetMs: perSessionMs, handoffBudgetMs: totalMs - (Date.now() - t0) });
+      } catch (e) {
+        this.logger.warn(JSON.stringify({ event: 'collab_residency_release_error', pid, motive, error: (e as Error).message }));   // 逐项 WARN 不阻后续
+        continue;
+      }
+      if (outcome === 'budget-exceeded') {
+        this.budgetNamedPids.add(pid);
+        yjsReleaseBudgetExceededTotal.inc({ scope: 'session' });
+        this.logger.error(`release budget exceeded (session ${perSessionMs}ms): project:${pid} motive=${motive}——disconnect 段超预算，条目留表（zombie 档自延续）交后续关停步兜底（Z143）`);
+      } else if (outcome === 'released') {
+        released += 1;
+      }
+      // rejected-handoff/rejected-pending：T17 既有计数+点名（此处不重复计——Z143 两拒绝分离口径）
+    }
+    if (motive === 'shutdown') {
+      // Σdirect===0 断言（graceDirectConnections count() 同款口径——Z81 硬失败，与逐会话超预算两
+      // 口径分离）：交接失败/取批在飞窗 rejected-pending/总预算跳过留 hold 的会话仍持 direct conn。
+      // ?.＝mock gateway 直构兼容。M-1 首报 latch——Nest DI 反序双调各跑一次断言，只计首报。
+      let direct = 0;
+      for (const d of this.gateway.server.hocuspocus.documents?.values() ?? []) direct += d.directConnectionsCount ?? 0;
+      if (direct > 0 && !this.leakAsserted) {
+        this.leakAsserted = true;
+        yjsShutdownDirectLeakTotal.inc();
+        this.logger.error(`shutdown direct leak: ΣdirectConnectionsCount=${direct}——步骤 0 释放后仍非零（交接失败/取批在飞窗 rejected-pending/预算跳过留 hold——留 hold 会话仍持 direct conn），destroy_timeout 必发前显式点名（Z81）`);
+      }
+    }
+    this.logger.log(`collab residency release-all(${motive}): ${released}/${pids.length} released in ${Date.now() - t0}ms`);
+  }
+
+  /** Y0c T18：钩子=仅清 timer+委托全形态（Nest DI 反序本钩子先于 gateway 调——gateway 步骤 0 显式
+   *  化后双调安全：releaser 幂等，第二次无条目 no-op）。 */
   async onApplicationShutdown(): Promise<void> {
     if (this.reapTimer) { clearInterval(this.reapTimer); this.reapTimer = null; }   // 先清周期定时器再释放会话
     for (const [, entry] of this.sessions) {
       if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null; }
     }
-    const pids = this.residentProjectIds();
-    let released = 0;
-    for (const pid of pids) {
-      try {
-        if (await this.tryRelease(pid, 'shutdown') === 'released') released += 1;
-      } catch (e) {
-        this.logger.warn(JSON.stringify({ event: 'collab_residency_shutdown_release_error', pid, error: (e as Error).message }));   // 逐项 WARN 不阻后续
-      }
-    }
-    this.logger.log(`collab residency shutdown: released ${released}/${pids.length} sessions`);
+    await this.releaseAllSessions('shutdown');
   }
 }

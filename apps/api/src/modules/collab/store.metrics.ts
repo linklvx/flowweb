@@ -906,6 +906,41 @@ export const yjsReleaseHandoffFailedTotal = new Counter({
   registers: [register],
 });
 
+/** ===== Y0c T18（Z81/Z143/Z114）：关停步骤 0 全形态观测 ===== */
+
+/** releaseAllSessions 预算拒绝计数（Z143 双计数第三面——超预算）：scope=session 逐会话 disconnect
+ *  段超 300ms（条目留表 zombie 档自延续）/scope=total 总预算 2s 破停止处理剩余会话（逐个点名留
+ *  hold——shutdown 交 drainAllDocuments/self-isolate 交 reaper TTL 兜底）。与 handoff_failed
+ *  （交接失败）口径分离——关停 18s drain 前会话被放弃的三面各自可观测。 */
+export const yjsReleaseBudgetExceededTotal = new Counter({
+  name: 'yjs_release_budget_exceeded_total',
+  help: 'releaseAllSessions 预算拒绝计数（scope=session 逐会话 disconnect 段超 300ms/scope=total 总预算 2s 破剩余会话跳过——Z143 与交接失败计数分离；留 hold 交 drain/reaper 兜底）',
+  labelNames: ['scope'],
+  registers: [register],
+});
+
+/** 关停步骤 0 后 ΣdirectConnectionsCount 非零计数（Z81 硬失败口径——泄漏非预算：交接失败/取批在
+ *  飞窗 rejected-pending/总预算跳过留 hold 的会话仍持 direct conn；每次关停至多 1——首报 latch，
+ *  Nest DI 反序双调〔residency 钩子+gateway 步骤 0〕不双烧；非零=destroy_timeout 必发前的显式点名）。 */
+export const yjsShutdownDirectLeakTotal = new Counter({
+  name: 'yjs_shutdown_direct_leak_total',
+  help: '关停步骤 0 释放后 ΣdirectConnectionsCount 非零计数（Z81 泄漏口径非预算——交接失败/取批在飞窗拒绝/预算跳过留 hold 均触发；每次关停至多 1：首报 latch，Nest DI 双调不双烧）',
+  registers: [register],
+});
+
+/** Z114① drain 两数：时长 gauge（单次关停单值——last 即落档）+处理 doc 数 counter。常驻后 drain
+ *  从秒级变数十秒级需可读数；18s hardDeadline 按实测重标归 T22 内存实测轮回填（Z114②）。 */
+export const collabDrainDurationSeconds = new Gauge({
+  name: 'collab_drain_duration_seconds',
+  help: '关停 drainAllDocuments 时长秒（单次关停单值 last 即落档——Z114：常驻后 drain 从秒级变数十秒级需可读数）',
+  registers: [register],
+});
+export const collabDrainProjectsTotal = new Counter({
+  name: 'collab_drain_projects_total',
+  help: '关停 drain 处理 doc 数（进入 drainAllDocuments 处理的 doc 计——空队列 continue 不计）',
+  registers: [register],
+});
+
 /** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
 
 /** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 闭集：

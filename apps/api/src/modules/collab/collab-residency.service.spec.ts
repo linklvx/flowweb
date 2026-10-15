@@ -101,7 +101,7 @@ function makeFixture() {
     hasInFlightStore: vi.fn((): boolean => false),
     handoffPendingToSpool: vi.fn(async (): Promise<boolean> => true),
     registerResidentSessionReleaser: vi.fn(),
-    server: { hocuspocus: { openDirectConnection } },
+    server: { hocuspocus: { openDirectConnection, documents: docs } },   // documents=T18 Σdirect 断言读面（库 Map 形态复刻）
   };
   const svc = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
   const writer = new CollabDocWriterService(svc);
@@ -359,8 +359,8 @@ describe('Y0c T15 Z113：releaseSessionFor 异常清理+reconcileSessions 对账
   });
 });
 
-// ═══ I-3 最小关停钩子（控制方裁决 a——T18 步骤 0 全形态前置） ═══
-describe('Y0c T15 收尾：最小关停钩子（I-3——假 destroy_timeout 消声；T18 全形态〔预算核算+Σdirect===0 断言〕到时替换）', () => {
+// ═══ I-3 最小关停钩子（控制方裁决 a——T18 步骤 0 全形态已整体替换：钩子=清 timer+委托 releaseAllSessions） ═══
+describe('Y0c T15 收尾→T18 全形态：关停钩子（清 timer+委托 releaseAllSessions——预算/Σdirect 断言用例归 reaper spec T18 组）', () => {
   it('建会话→onApplicationShutdown⇒会话表空+conn.disconnect 被调', async () => {
     const fx = makeFixture();
     await fx.svc.readCanvas('p1');                               // 池化 held
