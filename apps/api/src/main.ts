@@ -78,7 +78,8 @@ async function bootstrap() {
 
   // Y0c T23（Z67③）：进程角色观测——引导层单点（与 setDefaultLabels 同区）。gauge 值恒 1，
   // role 标签携带值；worker 侧 main-worker.ts 引导归 T26。dev 下 role=api 打 WARN：本地单进程
-  // 开发需显式 COLLAB_ROLE=all（processor 注册门落 T25/T26 后，api 角色进程不装配消费面）。
+  // 开发需显式 COLLAB_ROLE=all（processor 注册门已落 T30：app.module forRoot extraOptions.
+  // manualRegistration 按 role——api 角色进程不装配消费面）。
   collabRoleInfo.set({ role: env.COLLAB_ROLE }, 1);
   console.log(JSON.stringify({ event: 'process_role', role: env.COLLAB_ROLE }));
   if (env.COLLAB_ROLE === 'api' && env.NODE_ENV !== 'production') {

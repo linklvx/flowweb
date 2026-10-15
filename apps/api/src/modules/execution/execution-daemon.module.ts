@@ -17,8 +17,8 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
  *  rollbackRunning/settleStranded 资金操作+24h reconcileDaily）+temp-cleanup/subscription-task
  *  repeatable 注册（两 scheduler 的 onModuleInit getRepeatableJobs/add）。worker 装配即
  *  双进程双倍回收钱（P0-3）——「reconcile 只在 api 进程」由本模块从口头前提变结构约束。
- *  仅 role=api｜all 装配（all=本地单进程形态，Z67①）；processor 注册门（四面之二）归片 D
- *  后续任务（T25/T26 workerProviders）。
+ *  仅 role=api｜all 装配（all=本地单进程形态，Z67①）；processor 注册门（四面之二）已落 T30
+ *  （app.module forRoot extraOptions.manualRegistration 按 role——§0.6 偏离 40）。
  *
  *  形态=动态模块 register（自选依据：ES import 无法条件化、@nestjs/common 无内建
  *  ConditionalModule；register 方法体内读 env=collab.module useFactory 族同款容器装配期

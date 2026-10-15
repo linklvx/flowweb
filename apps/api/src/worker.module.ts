@@ -80,7 +80,9 @@ const env = validateEnv();
 
 @Module({
   imports: [
-    // forRoot 与 app.module 逐字同款（共享连接 default——processor Worker 创建按 configKey 回落本配置）
+    // forRoot connection/defaultJobOptions 四键与 app.module 逐字同款（共享连接 default——processor
+    // Worker 创建按 configKey 回落本配置）；app.module 侧另有 extraOptions.manualRegistration 注册门
+    // （T30/Z98 四面之二）——worker 进程恒注册（消费面本体），本 forRoot 不带门
     BullModule.forRoot('default', {
       connection: { url: env.REDIS_URL, maxRetriesPerRequest: null },
       defaultJobOptions: {

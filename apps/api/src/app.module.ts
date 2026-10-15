@@ -56,6 +56,13 @@ const env = validateEnv();
         removeOnComplete: { age: 3600, count: 1000 },
         removeOnFail: { age: 86400 * 7 },
       },
+      // Y0c T30（Z98 四面之二/§0.6 偏离 40）：processor 注册门——@nestjs/bullmq BullExplorer 对本图
+      // 每个 @Processor 无条件 new Worker（17 个消费面全装）；manualRegistration 使 BullRegistrar
+      // onModuleInit 早退整个 register()（dist/bull.registrar.js:14-20 实证）。role=api⇒不建（api 进程
+      // 零消费面=内存隔离+Z130/Z148② 侦测前提）；all⇒建（Z67① 降级单进程消费面保活）。
+      // role 经 :46 validateEnv 单源（zod default='api'——漏设永不静默装配消费面，Z48 安全方向）。
+      // worker.module 同款 forRoot 无此门（worker 进程恒注册——消费面本体）。
+      extraOptions: { manualRegistration: env.COLLAB_ROLE === 'api' },
     }),
     // 批0c-8（B3 约束：首屏零 429）：全局抬至 300/min 安全带宽——原 10/min 会打死画布首屏
     // （一次画布打开即触发数十请求）。敏感端点（登录/付费任务）显式 @Throttle 收紧至 20/min。
