@@ -21,7 +21,7 @@ describe('Y0c T26 Z139 worker 指标出口（3002 loopback）', () => {
   });
 
   it('GET 返回 prom-client 文本（content-type 对齐）且绑 127.0.0.1（loopback only——不进 nginx）', async () => {
-    const server = await startWorkerMetricsServer({ port: 0 });
+    const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
     servers.push(server);
     const addr = server.address();
     expect(typeof addr).toBe('object');
@@ -33,7 +33,7 @@ describe('Y0c T26 Z139 worker 指标出口（3002 loopback）', () => {
   });
 
   it('三族存在且带 role="worker"（Z139 验收：进程默认族经 setDefaultLabels 全带 role）', async () => {
-    const server = await startWorkerMetricsServer({ port: 0 });
+    const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
     servers.push(server);
     const { port } = server.address() as import('node:net').AddressInfo;
     const text = await (await fetch(`http://127.0.0.1:${port}/metrics`)).text();
@@ -44,10 +44,10 @@ describe('Y0c T26 Z139 worker 指标出口（3002 loopback）', () => {
 });
 
 // Y0c T29（Z116）：3002 fail-closed——复用 PROMETHEUS_TOKEN（与 api /metrics 同 token 同 header
-// x-prometheus-token），请求级语义镜像 prometheus-auth.guard（token 已设⇒timingSafeEqual 比对不符 403；
-// 未设∧production⇒拒〔纵深冗余——主防线=env superRefine production∧worker 未设拒启〕；未设∧非
-// production⇒放行便于本地开发）。token/nodeEnv 经 opts 注入（main-worker 从 validateEnv 返回值透传——
-// 本文件零 process.env 裸读，census ㉒ 零新增登记面）。
+// x-prometheus-token），请求级严格镜像 prometheus-auth.guard（token 已设⇒timingSafeEqual 比对不符 403；
+// 未设⇒仅 development 放行，NODE_ENV 未设/'test'/'production'/其他一律拒〔production 纵深冗余——
+// 主防线=env superRefine production∧worker 未设拒启〕）。token/nodeEnv 经 opts 注入（main-worker 从
+// validateEnv 返回值透传——本文件零 process.env 裸读，census ㉒ 零新增登记面）。
 describe('Y0c T29 Z116 3002 token fail-closed（同 PROMETHEUS_TOKEN 形态）', () => {
   const urlOf = (s: Server) => `http://127.0.0.1:${(s.address() as import('node:net').AddressInfo).port}/metrics`;
 
@@ -79,7 +79,13 @@ describe('Y0c T29 Z116 3002 token fail-closed（同 PROMETHEUS_TOKEN 形态）',
     expect((await fetch(urlOf(server))).status).toBe(403);
   });
 
-  it('token 未设 ∧ 非 production：放行 200（本地开发便利——缺省 opts 同此档）', async () => {
+  it('token 未设 ∧ NODE_ENV 未设：403（严格镜像 prometheus-auth.guard——「Production (or no NODE_ENV): token is mandatory」）', async () => {
+    const server = await startWorkerMetricsServer({ port: 0 });
+    servers.push(server);
+    expect((await fetch(urlOf(server))).status).toBe(403);
+  });
+
+  it('token 未设 ∧ development：放行 200（本地开发便利——唯一放行档）', async () => {
     const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
     servers.push(server);
     expect((await fetch(urlOf(server))).status).toBe(200);

@@ -20,14 +20,16 @@ export interface WorkerMetricsServerOptions {
   host?: string;
   /** PROMETHEUS_TOKEN（main-worker 从 validateEnv 返回值透传——本文件零 process.env 裸读，census ㉒ 零新增面）。 */
   token?: string;
-  /** NODE_ENV（同上透传）——token 未设 ∧ production ⇒ 403（纵深冗余；主防线=env superRefine 拒启）。 */
+  /** NODE_ENV（同上透传）——token 未设 ⇒ 仅 development 放行，其他档（含未设）一律 403（严格镜像 guard；
+   *  production 纵深冗余——主防线=env superRefine 拒启）。 */
   nodeEnv?: string;
 }
 
-/** 请求级鉴权（Z116「同 token 形态」——prometheus-auth.guard 语义镜像+timingSafeEqual 强化）：
- *  token 已设⇒比对不符/缺失拒；未设∧production⇒拒；未设∧非 production⇒放行（本地开发便利）。 */
+/** 请求级鉴权（Z116「同 token 形态」——严格镜像 prometheus-auth.guard：仅 development 且未设 token 放行，
+ *  NODE_ENV 未设/'test'/'production'/其他一律拒〔guard 注释同口径「Production (or no NODE_ENV): token is
+ *  mandatory」〕+timingSafeEqual 强化：token 已设⇒比对不符/缺失拒。 */
 export function workerMetricsAuthOk(providedHeader: unknown, token: string | undefined, nodeEnv: string | undefined): boolean {
-  if (!token) return nodeEnv !== 'production';
+  if (!token) return nodeEnv === 'development';
   if (typeof providedHeader !== 'string') return false;
   const provided = Buffer.from(providedHeader);
   const expected = Buffer.from(token);
