@@ -1110,6 +1110,30 @@ if (isMain()) {
     report('㉔', `双等价索引 census（Z58——schema 生成唯一 ${generated.length} 名 × raw 锚 ${raws.length} 对象，full 同表同列集零碰撞）`, violations.length === 0 && staleDeliberate.length === 0, details);
   }
 
+  // ㉕unloadDocument 库直调唯一调用点（Y0c T19，Z65②/A2 冻结契约）：生产面 `.unloadDocument(` 调用
+  //  形态恰 2 处，且各自形态锁定：
+  //  - 库 API 直调（`hocuspocus.unloadDocument(`）唯一命中=collab-residency.service.ts forceEvictStoreFailed
+  //    内（Z110 store 失败强制淘汰——Z65 唯一调用点；调用前断言三条件/失败告警计数由 reaper spec
+  //    Z110 组承载，本组=词法面唯一性执法）；
+  //  - 豁免形态：collab.gateway.ts `beforeUnloadDocument: (p) => this.unloadDocument(p)` 钩子接线——
+  //    调的是 gateway 私有同名方法（X4 清账钩子本体），库经 beforeUnloadDocument 钩子回调触达非应用
+  //    主动直调；私有方法定义行（`private async unloadDocument(`）无点号调用形态天然不命中。
+  //  他处任何 `.unloadDocument(` 直调即红（先红验证=临时在另一生产文件注入库直调——元纪律⑥）。
+  {
+    const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) => /\.unloadDocument\s*\(/.test(l) ? 'call' : null));
+    const direct = hits.filter((h) => /hocuspocus\.unloadDocument\s*\(/.test(h.text));
+    const wiring = hits.filter((h) => h.file === 'apps/api/src/modules/collab/collab.gateway.ts'
+      && /beforeUnloadDocument:[^=]*=>\s*this\.unloadDocument\s*\(/.test(h.text));
+    const stray = hits.filter((h) => !direct.includes(h) && !wiring.includes(h));
+    const pass = direct.length === 1 && direct[0]?.file === 'apps/api/src/modules/collab/collab-residency.service.ts'
+      && wiring.length === 1 && stray.length === 0;
+    report('㉕', 'unloadDocument 库直调唯一调用点=residency forceEvict（Z65②——gateway 钩子接线/私有同名方法豁免）', pass,
+      [...(direct.length !== 1 ? [`库直调命中 ${direct.length} 处（期望恰 1——residency forceEvictStoreFailed）`] : []),
+       ...(direct.length === 1 && direct[0].file !== 'apps/api/src/modules/collab/collab-residency.service.ts' ? [`库直调越面 ${direct[0].file}:${direct[0].line}`] : []),
+       ...(wiring.length !== 1 ? [`gateway 钩子接线形态漂移（期望恰 1 处 beforeUnloadDocument 接线）：${wiring.length} 处`] : []),
+       ...stray.map((h) => `白名单外 .unloadDocument( 直调 ${h.file}:${h.line} ${h.text}`)]);
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\ncheck-collab-census: ${results.length - failed.length}/${results.length} PASS`);
   if (failed.length) { console.error(`check-collab-census FAIL: ${failed.map((f) => f.id).join(' ')}`); process.exit(1); }

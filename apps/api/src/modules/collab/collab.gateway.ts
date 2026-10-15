@@ -12,7 +12,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, type CollabStoreTrigger } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, yjsLoadUnloadingWindowTotal, type CollabStoreTrigger } from './store.metrics';
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
@@ -1046,6 +1046,23 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       throw Object.assign(
         new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' }),
         { reason: CollabAuthReason.LEASE_NOT_READY },   // 瞬态档（客户端 backoff 重连——真空窗口 ≤30s 上界）
+      );
+    }
+    // Y0c T19（Z64② 生产守卫——spec §A2 目标形态 5）：卸载窗口拒新装载。unloadingDocuments 有该
+    // name（公开字段 esm:166/:1271——窗口生命周期=库 unloadDocument 内部段 :1598 置键→:1600 清键，
+    // 卸载了结即清=重试可达）时新装载=B 窗口第二实例风险面（旧实例在飞卸载 vs 新实例 hydrate——
+    // 守卫唯一可达子窗=有键∧documents 无键：库 createDocument 对 existingDoc 早退不触发本钩子）。
+    // 落点依据：与 vacuuming 门同列非真首行——前置到真首行会把拒绝优先级提到 P0-1 lease 正确性门
+    // 之前（无租约进程误报 doc-unloading 而非 lease-not-ready，四门排列语义勿扰动）；两 doc 级瞬态
+    // 窗门相邻=门族分层（进程级 lease→校验 docName→DB 级 pgBreaker→doc 瞬态窗 vacuuming/unloading
+    // →资源 heap）。throw 形态=vacuuming 门同款 SUE+COLLAB_NOT_SERVING——CollabNotServingFilter 附
+    // Retry-After（REST 面 503 语义化）；reason=瞬态档客户端 backoff 重连；WS 面 err.reason 透传进
+    // PermissionDenied 帧不变（本 throw 在下方 try 外——不经 loadDocument 兜底 catch）。
+    if (this.server.hocuspocus.unloadingDocuments.has(documentName)) {
+      yjsLoadUnloadingWindowTotal.inc();
+      throw Object.assign(
+        new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-unloading' }),
+        { reason: CollabAuthReason.LEASE_NOT_READY },
       );
     }
     // Y0b-3 T4 heap 闸（三入口汇聚点·WS/DirectConnection/REST withDoc——lease 门后）：仅拒新物化。

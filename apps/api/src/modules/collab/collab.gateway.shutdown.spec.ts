@@ -223,4 +223,51 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       }
     }
   }, 15_000);
+
+  // ═══ Y0c T18（Z81/Z38 硬前置+Z114① drain 两数）：关停步骤 0 显式化+hangReason 新档 ═══
+  it('Y0c T18 步骤 0 显式化：releaseAllResidentSessions("shutdown") 先于 graceDirectConnections（「步骤 0 先于一切关停动作」从 Nest DI 隐式变显式——Z81；Nest 双调安全=residency 钩子先跑后此处幂等 no-op）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const relSpy = vi.spyOn(kit.gateway, 'releaseAllResidentSessions').mockResolvedValue(undefined);
+      const graceSpy = vi.spyOn(kit.gateway as any, 'graceDirectConnections').mockResolvedValue(undefined);
+      await kit.gateway.onApplicationShutdown();
+      expect(relSpy).toHaveBeenCalledWith('shutdown');
+      expect(relSpy.mock.invocationCallOrder[0]).toBeLessThan(graceSpy.mock.invocationCallOrder[0]);   // 先于步骤 1.5 宽限
+    } finally { await kit.dispose(); }
+  }, 15_000);
+
+  it('Y0c T18 hangReason 新档 resident-session-open：destroy 挂起+批已清+residency 条目残留（probe 读面）⇒ hangReason=resident-session-open（优先级 store-undrained > resident-session-open > direct-open；改造前此构造=direct-open 即红）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      const spies = installLogSpies(kit.gateway);
+      (kit.gateway as any).registerResidentSessionsProbe(() => 1);   // residency 条目残留形态（经 gateway 可读面）
+      vi.spyOn(kit.gateway.server, 'destroy').mockImplementation(() => new Promise<void>(() => {}) as any);
+      await kit.gateway.onApplicationShutdown();
+      const events = collectEvents(spies);
+      const timeout = events.find((e) => e.event === 'destroy_timeout');
+      expect(timeout).toBeTruthy();
+      expect(timeout.hangReason).toBe('resident-session-open');
+    } finally {
+      vi.restoreAllMocks();   // Y13：先还原 destroy mock——否则 dispose 的 server.destroy 仍挂起
+      await kit.dispose();
+    }
+  }, 20_000);
+
+  it('Y0c T18 正常路径关停集成（T15 消声用例扩展）：pending 全排空 ⇒ destroy 不超时（零 destroy_timeout=hangReason 零 resident-session-open）+drain 两数落档（Z114①）', async () => {
+    const kit = await startDualClientServer();
+    try {
+      vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②（dispose 复用同一 mock，禁先 restore）
+      const spies = installLogSpies(kit.gateway);   // Y16：动作前安装
+      await seedPendingDoc(kit, 'project:p-t18a', 2);
+      await seedPendingDoc(kit, 'project:p-t18b', 1);
+      const projectsMetric = register.getSingleMetric('collab_drain_projects_total') as any;
+      const before = projectsMetric ? (await projectsMetric.get()).values.reduce((s: number, v: any) => s + v.value, 0) : NaN;
+      await kit.gateway.onApplicationShutdown();
+      expect(collectEvents(spies).find((e) => e.event === 'destroy_timeout')).toBeUndefined();   // destroy 不超时
+      const after = (await (register.getSingleMetric('collab_drain_projects_total') as any).get()).values.reduce((s: number, v: any) => s + v.value, 0);
+      expect(after).toBe(before + 2);   // 两 doc 进入 drain 处理
+      const dur = register.getSingleMetric('collab_drain_duration_seconds') as any;
+      expect(typeof ((await dur.get()).values[0]?.value)).toBe('number');   // 时长落档（gauge——单次关停单值 last 即档）
+    } finally { await kit.dispose(); }
+  }, 15_000);
 });

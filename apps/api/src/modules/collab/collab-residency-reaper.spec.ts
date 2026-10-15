@@ -754,3 +754,49 @@ describe('Y0c T18：releaseAllSessions 全形态（逐会话 300ms/总 2s 预算
     expect(errSpy.mock.calls.filter((c: any[]) => String(c[0]).includes('direct leak'))).toHaveLength(1);   // 双 ERROR 噪音同消
   });
 });
+
+// ═══ Y0c T19：selfIsolate/shutdown 释放路径 Σdirect===0（spec :524 A2 验收断言——Z88 出口先行证明义务） ═══
+// 语义=「selfIsolate/shutdown 两路径调 closeConnections 时 Σdirect===0」：两路径 closeAllConnections1012
+// 只遍历 WS（esm:1357-1364 同族），direct 半面归零全靠 releaseAllResidentSessions 释放先行（selfIsolate
+// :1524 await 后 finally closeAll1012/shutdown :3175 步骤 0 后 :3198 closeAll1012——await 返回即 closeConnections
+// 时点）。正常路径（无挂起）完成后 Σdirect 必零；异常路径（超预算留 hold）**不断言零**（T18-8 已反钉——留
+// hold 由 reaper TTL/drainAllDocuments 兜底；T18-2/T18-4 leak 计数已覆盖异常面）。
+describe('Y0c T19：selfIsolate/shutdown 两路径完成后 Σdirect===0（正常路径——graceDirectConnections count() 同款口径）', () => {
+  /** Σdirect 生产同款口径（gateway graceDirectConnections :3226 与 releaseAllSessions Σdirect 断言同源：
+   *  documents.values() 各 doc 的 directConnectionsCount 求和——fixture 侧 getter 经 defineProperty
+   *  运行时注入，类型面用与 conn.document 同款交集 cast）。 */
+  const sumDirect = (fx: ReturnType<typeof makeFixture>): number => {
+    let n = 0;
+    for (const d of fx.docs.values() as Iterable<Y.Doc & { directConnectionsCount?: number }>) n += d.directConnectionsCount ?? 0;
+    return n;
+  };
+
+  it('shutdown：无挂起两会话 releaseAllSessions("shutdown") 完成 ⇒ 全部 released+Σdirect===0+零 direct_leak（closeAllConnections1012 只遍历 WS——Σdirect 归零=释放出口先行）', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');
+    await fx.pool('p2');
+    expect(sumDirect(fx)).toBe(2);                                 // 前置：两会话各持 1 direct（未释放前非零）
+    const leakBefore = await counterValue('yjs_shutdown_direct_leak_total');
+
+    await fx.residency.releaseAllSessions('shutdown');             // 正常路径（无挂起门/无交接失败）
+
+    expect(fx.residency.sessionState('p1')).toBeUndefined();       // 全部 released
+    expect(fx.residency.sessionState('p2')).toBeUndefined();
+    expect(sumDirect(fx)).toBe(0);                                 // Σdirect===0（两路径调 closeConnections 时点）
+    expect(await counterValue('yjs_shutdown_direct_leak_total')).toBe(leakBefore);   // 正常路径零泄漏计数
+  });
+
+  it('self-isolate：注册回调 (null,"self-isolate") 路由 releaseAllSessions ⇒ 同 Σdirect===0（selfIsolate 出口同蒙释放全形态）', async () => {
+    const fx = makeFixture();
+    const registered = (fx.gateway.registerResidentSessionReleaser as ReturnType<typeof vi.fn>).mock.calls[0][0] as (pid: string | null, motive: string) => Promise<unknown>;
+    await fx.pool('p1');
+    await fx.pool('p2');
+    expect(sumDirect(fx)).toBe(2);
+
+    await registered(null, 'self-isolate');                        // selfIsolate :1524 释放出口消费形态（releaseAllResidentSessions 转发）
+
+    expect(sumDirect(fx)).toBe(0);
+    expect(fx.residency.sessionState('p1')).toBeUndefined();
+    expect(fx.residency.sessionState('p2')).toBeUndefined();
+  });
+});

@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import * as Y from 'yjs';
 import { pollUntil } from '../../test-utils/poll-until';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
+import { register } from 'prom-client';
 
 describe('A7 pendingStructs 边界（确定性构造，纯 yjs）', () => {
   it('A7b 超前行（diffUpdate 子集）→ pendingStructs 非 null', () => {
@@ -264,6 +265,143 @@ describe('Z80 反例① 释放确实能卸载（disconnect({unloadImmediately:tr
       expect(server.hocuspocus.shouldUnloadDocument(doc)).toBe(true);     // 谓词翻真（单变量对照——钉住解除）
     } finally { await server.destroy(); }
   }, 10_000);
+});
+
+// ══ Z64 两子窗口（Y0c T19——卸载管线竞态拆两窗口的确定性构造）══
+// 装置裁决（元纪律⑤：先盘点再选形态）：窗口本质=库 unloadDocument 内部时序（:1576 首守卫→:1581
+// beforeUnloadDocument 钩子窗→:1589 二次校验→:1590 documents.delete），真库可达且可经库公开配置面
+// （beforeUnloadDocument 钩子）deferred 门控确定性构造 ⇒ 选真库行为锚（本文件 Z80/Z94 同款 bare
+// Server 装置）。fake fixture（residency/reaper spec）的 disconnect 复刻止步于「count===0→持久化+
+// 删键」终态，无窗口中间态可表达；正例②源码结构锚只锚守卫结构不锚窗口行为。
+// 「写到达⇒等待」的会话层串行化（acquire 遇 releasing 有限等待）由 T15 Z83 用例承载——两用例分工：
+// 本组锚库层窗口语义（:1589 二次校验/B 窗口新装载），T15 锚应用层会话表协议。
+describe('Z64 用例①（A 窗口：卸载已决定、documents 未删——:1576 过 :1590 前）：写到达⇒:1589 二次校验因会话持有返回', () => {
+  it('窗口内新 direct 写到达 ⇒ doc 存活+flush 已提交+无第二实例（卸载被取消——:1589 count>0 ⇒ 谓词 false ⇒ return）', async () => {
+    const deferred = <T = void>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
+    const gate = deferred<void>();
+    let beforeUnloadEntered = false;
+    let storeCalls = 0;
+    const persisted = new Map<string, Uint8Array>();
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async ({ document }) => { storeCalls += 1; persisted.set(document.name, Y.encodeStateAsUpdate(document)); },
+      beforeUnloadDocument: async () => { beforeUnloadEntered = true; await gate.promise; },   // 窗口门：钩子 await 挂起=停在 :1581→:1589 之间
+    });
+    await server.listen();
+    const name = 'p-z64-a';
+    const conn1 = await server.hocuspocus.openDirectConnection(name);
+    const doc1 = server.hocuspocus.documents.get(name)!;
+    let conn2: Awaited<ReturnType<typeof server.hocuspocus.openDirectConnection>> | null = null;
+    try {
+      await conn1.transact((d) => { d.getMap('nodes').set('k1', new Y.Map([['x', 1]])); });
+      const dis = conn1.disconnect({ unloadImmediately: true });   // 卸载管线开跑（不 await——store 先行 :1149 后 :1171 进 unloadDocument）
+      await pollUntil(() => beforeUnloadEntered, 3_000);            // A 窗口开门：:1576 首守卫已过（卸载已决定）/flush 已提交（store await 先于钩子）/documents 未删（:1590 未达）
+      expect(server.hocuspocus.unloadingDocuments.has(name)).toBe(true);   // 窗口内公开实例字段直读（esm:1598 置入——Z64 守卫读面）
+      expect(storeCalls).toBeGreaterThanOrEqual(1);
+
+      conn2 = await server.hocuspocus.openDirectConnection(name);   // 写到达（窗口内新 direct）：documents.has 命中⇒复用同实例（count 0→1）
+      expect(server.hocuspocus.documents.get(name)).toBe(doc1);     // 无第二实例
+      await conn2.transact((d) => { d.getMap('nodes').set('k2', new Y.Map([['x', 2]])); });
+
+      gate.resolve();                                               // 关窗：:1589 二次校验——count=1 ⇒ shouldUnloadDocument false ⇒ return（卸载被取消）
+      await dis;                                                    // disconnect 收敛（未走 :1590 删键）
+      expect(server.hocuspocus.documents.has(name)).toBe(true);     // doc 存活
+      const probe = new Y.Doc();
+      Y.applyUpdate(probe, persisted.get(name)!);                   // flush 内容可读（k1 已提交——store #1 先于窗口开门）
+      expect(probe.getMap('nodes').has('k1')).toBe(true);
+    } finally {
+      gate.resolve();                                               // 幂等释门（断言早退防卸载管线永挂=destroy 永不 settle）
+      try { await conn2?.disconnect({ unloadImmediately: true }); } catch { /* 清理面吞错 */ }
+      await server.destroy();
+    }
+  }, 10_000);
+});
+
+describe('Z64 用例②（B 窗口：:1590 已删/:1591 已 destroy）：写到达⇒新装载自 PG+旧 store 提交后 CRDT 合并可见', () => {
+  it('真卸载终态后新 direct ⇒ 新实例装载+旧 store 提交的 k1 经 PG 重放可见+unloadingDocuments 已清（守卫读面公开字段——503 瞬态守卫已落生产=下方生产守卫组）', async () => {
+    const persisted = new Map<string, Uint8Array>();   // mini-PG（onLoadDocument 重放源=旧 store 提交面）
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onLoadDocument: async ({ document }) => { const saved = persisted.get(document.name); if (saved) Y.applyUpdate(document, saved); },
+      onStoreDocument: async ({ document }) => { persisted.set(document.name, Y.encodeStateAsUpdate(document)); },
+    });
+    await server.listen();
+    const name = 'p-z64-b';
+    try {
+      const conn1 = await server.hocuspocus.openDirectConnection(name);
+      const doc1 = server.hocuspocus.documents.get(name)!;
+      await conn1.transact((d) => { d.getMap('nodes').set('k1', new Y.Map([['x', 1]])); });
+      await conn1.disconnect({ unloadImmediately: true });          // 旧 store 提交 k1⇒真卸载（:1590 删键+:1591 destroy）
+      await pollUntil(() => !server.hocuspocus.documents.has(name), 5_000);
+      expect((doc1 as any).isDestroyed).toBe(true);                 // B 窗口态：已 destroy（:1591——库 Document 自有旗标 :770；yjs 侧无 destroyed 属性）
+      expect(server.hocuspocus.unloadingDocuments.has(name)).toBe(false);   // B 窗口态：卸载已了结（esm:1600 清键——常驻化后本字段非空的窗=瞬态，守卫读面）
+
+      const conn2 = await server.hocuspocus.openDirectConnection(name);   // 写到达：documents 无键⇒createDocument 新装载+onLoadDocument 重放
+      const doc2 = server.hocuspocus.documents.get(name)!;
+      expect(doc2).not.toBe(doc1);                                  // 新实例（旧实例已 destroy）
+      expect(doc2.getMap('nodes').has('k1')).toBe(true);             // 旧 store 提交后 CRDT 合并可见（PG 重放）
+      await conn2.transact((d) => { d.getMap('nodes').set('k2', new Y.Map([['x', 2]])); });
+      expect(doc2.getMap('nodes').has('k2')).toBe(true);             // 新写在装载实例上生效
+      await conn2.disconnect({ unloadImmediately: true });
+      await pollUntil(() => !server.hocuspocus.documents.has(name), 5_000);
+    } finally { await server.destroy(); }
+  }, 10_000);
+});
+
+// ══ Z64② 生产守卫（Y0c T19 补落——spec §A2 目标形态 5 字面：onLoadDocument 查
+// hocuspocus.unloadingDocuments（公开字段 esm:166/:1271）有该 name ⇒ 瞬态 503 让调用方重试；
+// 窗口生命周期=库 unloadDocument 内部段 :1598 set→:1600 清键）══ 与上两组分工：①②锚库层窗口
+// 语义（bare Server 最小钩子），本组锚 gateway 生产守卫面（真 kit——loadDocument 门列的瞬态门）。
+// 装置裁决：守卫唯一可达子窗=「unloadingDocuments 有键 ∧ documents 无键」（库 createDocument 对
+// existingDoc 早退不触发 onLoadDocument——A 窗口复用语义用例①已锚）⇒ 门必须挂在 actualUnloadingLogic
+// 尾段（:1590 删键之后/:1600 清键之前）——经库公开扩展面 configuration.extensions.push 挂 deferred
+// afterUnloadDocument（listen() 推 onListen 同款机制——零 patch 零 fork）。
+describe('Z64② 生产守卫（gateway loadDocument——卸载窗口新装载=瞬态 503）', () => {
+  it('窗口内新 direct 装载 ⇒ 503 COLLAB_NOT_SERVING(doc-unloading)+yjs_load_unloading_window_total 计数；卸载了结后装载成功（重试可达）——改造前窗口内装载成功=B 窗口第二实例风险面（红锚）', async () => {
+    const kit = await startDualClientServer({}, 200);
+    const deferred = <T = void>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
+    const gate = deferred<void>();
+    let afterUnloadEntered = false;
+    kit.gateway.server.hocuspocus.configuration.extensions.push({
+      afterUnloadDocument: async () => { afterUnloadEntered = true; await gate.promise; },   // 窗口门：钩子链挂起=停在 :1590 之后/:1600 之前
+    });
+    const name = 'project:p-z64-guard';
+    const countOf = async () => {   // 全局单例 register——测试间累积恒用增量（heap-gate spec 同款惯例）
+      const metric: any = register.getSingleMetric('yjs_load_unloading_window_total');
+      const values = await metric?.get();
+      return (values?.values ?? []).reduce((s: number, v: any) => s + v.value, 0);
+    };
+    let inWindowConn: Awaited<ReturnType<typeof kit.gateway.server.hocuspocus.openDirectConnection>> | null = null;
+    try {
+      const before = await countOf();
+      const conn1 = await kit.gateway.server.hocuspocus.openDirectConnection(name);
+      await conn1.transact((d) => { d.getMap('nodes').set('k1', new Y.Map([['x', 1]])); });
+      const dis = conn1.disconnect({ unloadImmediately: true });   // store(executeNow)→direct 断开卸载管线开跑（esm:1171）
+      await pollUntil(() => afterUnloadEntered, 5_000);            // 窗口开门（扩展链序在 gateway 清账钩子后——链挂起即窗口保持）
+      expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(false);          // 子窗判据①：documents 已删（:1590）
+      expect(kit.gateway.server.hocuspocus.unloadingDocuments.has(name)).toBe(true);  // 子窗判据②：清键未达（:1600——守卫读面）
+
+      let err: any = null;   // 窗口内新装载——守卫唯一可达面；改造前=装载成功（第二实例）=红锚
+      try { inWindowConn = await kit.gateway.server.hocuspocus.openDirectConnection(name); } catch (e: any) { err = e; }
+      expect(err).toBeTruthy();
+      expect(err.getStatus?.() ?? err.status).toBe(503);                                // SUE 瞬态档
+      expect(JSON.stringify(err.getResponse?.() ?? err.response)).toContain('COLLAB_NOT_SERVING');   // Retry-After filter 判据（body.code——vacuuming 门同款）
+      expect(String(err.message)).toMatch(/doc-unloading/);
+      expect(await countOf()).toBe(before + 1);                                         // 计数器落档
+
+      gate.resolve();                                               // 关窗：afterUnload 链 settle→await unloading→:1600 清键
+      await dis;                                                    // disconnect 收敛
+      await pollUntil(() => !kit.gateway.server.hocuspocus.unloadingDocuments.has(name), 5_000);
+      const conn2 = await kit.gateway.server.hocuspocus.openDirectConnection(name);   // 卸载了结后装载成功——重试可达语义
+      expect(kit.gateway.server.hocuspocus.documents.get(name)).toBeTruthy();
+      expect(await countOf()).toBe(before + 1);                      // 成功装载不再计数
+      await conn2.disconnect({ unloadImmediately: true });
+    } finally {
+      gate.resolve();                                               // 幂等释门（断言早退防卸载管线永挂=destroy 永不 settle）
+      try { await inWindowConn?.disconnect({ unloadImmediately: true }); } catch { /* 清理面吞错（红相位防泄漏钉住） */ }
+      await kit.dispose();
+    }
+  }, 20_000);
 });
 
 describe('Z80 反例② saveMutex 锁定 ⇒ 谓词 false（Z94②——与 Z62 reaper 判据的分工边界）', () => {

@@ -371,6 +371,27 @@ describe('Y0c T15 收尾→T18 全形态：关停钩子（清 timer+委托 relea
   });
 });
 
+// ═══ Y0c T19 Z65：卸载不变量（合计口径 Z88——spec :524/A2 验收） ═══
+// 不变量=`!residency.holds(pid) ∧ getConnectionsCount()===0 ⇒ !hocuspocus.documents.has(pid)`
+// （合计口径 esm:590=connections.size+directConnectionsCount——closeConnections 只遍历 WS（esm:1357-1364），
+// 「零 WS」不蕴含「零 direct」，故不变量两条件**合取**非单取 WS 半面：Z88 对 Z65① 的修正）。
+// fake fixture 无 WS 建模（connections 恒空）——合计归零由 direct 半面承载；真库合计口径的行为面由
+// library-anchors Z64 两窗口锚+Z80 反例①（释放确实能卸载）承载。
+describe('Y0c T19 Z65：不变量 !holds ∧ getConnectionsCount()===0 ⇒ !documents.has（合计口径）', () => {
+  it('会话释放完成+连接合计归零 ⇒ doc 必已卸载：documents 无该 name+卸载前 flush 已提交', async () => {
+    const fx = makeFixture();
+    await fx.svc.readCanvas('p1');                                 // 会话建立（held——持有期钉住）
+    const doc = fx.docs.get('project:p1')! as Y.Doc & { directConnectionsCount?: number };
+    expect(fx.residency().holds('p1')).toBe(true);
+    expect(doc.directConnectionsCount).toBe(1);                    // 持有期合计≥1（getter=esm:590 direct 半面同口径）
+    await fx.residency().releaseSessionFor('p1');                  // 释放完成（disconnect→count 0→持久化→真卸载）
+    expect(fx.residency().holds('p1')).toBe(false);                // 条件①：不驻留（held 档=钉住面，zombie/releasing 不算）
+    expect(doc.directConnectionsCount).toBe(0);                    // 条件②：连接合计归零（WS 恒 0+direct 0）
+    expect(fx.docs.has('project:p1')).toBe(false);                 // ⇒ 必已卸载（不变量结论）
+    expect(fx.persisted.has('project:p1')).toBe(true);             // 卸载前 flush 已提交（耐久面顺带钉守）
+  });
+});
+
 // ═══ 受理门（语义对齐 withDoc）+开窗观测 ═══
 describe('Y0c T15：withSession 受理门+新开观测', () => {
   it('受理门三档对齐 withDoc：lease 失守 503/vacuuming 503/invalid doc name', async () => {

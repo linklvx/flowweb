@@ -523,6 +523,14 @@ export const yjsUnloadCleanupFailureTotal = new Counter({
   help: 'beforeUnloadDocument 清理体异常被吞次数（钩子永不抛——X4 destroy 不可被取消）',
   registers: [register],
 });
+/** Y0c T19（Z64② 生产守卫）：卸载窗口内新装载被瞬态 503 拒绝的次数——窗口=库 unloadDocument
+ *  内部段（esm:1598 置键→:1600 清键；守卫读面=公开字段 unloadingDocuments）。稳态应近零
+ *  （窗口=微秒级尾段）；持续非零=重试风暴或卸载管线挂起的人工线索。 */
+export const yjsLoadUnloadingWindowTotal = new Counter({
+  name: 'yjs_load_unloading_window_total',
+  help: '卸载窗口内新装载被瞬态 503 拒绝次数（Z64②——unloadingDocuments 有键 ∧ documents 无键子窗；调用方 backoff 重试可达）',
+  registers: [register],
+});
 
 /** ===== Y0b-4 T4（spec §5.2 配额族）：beforeSync 分层判据观测 ===== */
 
