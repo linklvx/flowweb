@@ -57,4 +57,28 @@ const hasDb = !!process.env.DATABASE_URL;
     const moduleRef = await builder.compile();
     expect(moduleRef.get(TeamFundsGateService, { strict: false })).toBeTruthy();
   }, 60000);
+
+  // Y0c T26（T25 评审 F2 补面）：AppModule 全 compile 冒烟——Http 半（5 个新 Http/Core 拆分域的
+  // controller）+Core 完整装配一次过（模块拆分后无任何套件 compile 过完整 AppModule——Http 半
+  // controller 的 DI 破损只在全图 compile 时显形）。
+  it('AppModule 全 compile（Http+Core 完整装配——拆分后 Http 半 controller 实例化冒烟）', async () => {
+    const { register } = await import('prom-client');
+    register.clear();
+    const { AppModule } = await import('./app.module');
+    const { ExecutionController } = await import('./modules/execution/execution.controller');
+    const { MetricsController } = await import('./metrics/metrics.controller');
+    const { CollabReadController } = await import('./modules/collab/collab-read.controller');
+    // AppModule 全图 registerQueue/inject 面（CHAIN_QUEUES 10+7：ai-image-edit/thumbnail-generator/
+    // stitch/temp-file-cleanup/subscription-expire/subscription-grant-credit/subscription-daily-recon）
+    const ALL_QUEUES = [
+      ...CHAIN_QUEUES,
+      ...['ai-image-edit', 'thumbnail-generator', 'stitch', 'temp-file-cleanup', 'subscription-expire', 'subscription-grant-credit', 'subscription-daily-recon'].map(getQueueToken),
+    ];
+    let builder = Test.createTestingModule({ imports: [AppModule] });
+    for (const token of ALL_QUEUES) builder = builder.overrideProvider(token).useValue(stubQueue);
+    const moduleRef = await builder.compile();
+    expect(moduleRef.get(ExecutionController, { strict: false })).toBeTruthy();
+    expect(moduleRef.get(MetricsController, { strict: false })).toBeTruthy();
+    expect(moduleRef.get(CollabReadController, { strict: false })).toBeTruthy();
+  }, 120000);
 });

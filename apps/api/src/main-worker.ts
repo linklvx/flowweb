@@ -1,0 +1,75 @@
+// apps/api/src/main-worker.ts
+// Y0c T26（Z101/Z102/Z138/Z139）：worker 进程引导——createApplicationContext（结构性零监听：
+// controller/gateway 类仍被实例化，零的只是 HTTP/WS 监听——3000/3001 双 ECONNREFUSED 由本形态
+// 构造性保证）。引导序列四段（顺序即语义）：
+//  ①进程兜底+role 观测：installProcessErrorGuards 首行；setDefaultLabels({role:'worker'})（Z138
+//    落点=引导层单点——main.ts role='api' 对位，census ⑳ 双文件各恰 1）；
+//  ②Z102 ready 门：**先门后装配**（@Processor 实例化即开始消费——「订阅队列前」的唯一落点=
+//    createApplicationContext 之前）；轮询 GET 127.0.0.1:3000/api/ready 上限 60s（env
+//    WORKER_READY_TIMEOUT_MS 可调）超限 process.exit(1) 交 pm2 autorestart；
+//  ③装配（WorkerModule 平铺 provider——偏离 30）+enableShutdownHooks；
+//  ④3002 loopback 指标出口（Z139/P4 简版——node:http 返 register.metrics()；不进 nginx；
+//    127.0.0.1 only；token fail-closed+health 扩读+WORKER_METRICS_PORT env 键化归 T29）。
+// 关停：SIGTERM/SIGINT ⇒ metrics server close+app.close()（BullMQ 既有 close 语义——processor
+// in-flight 完成面），完成后 exit(0)。
+import { config } from 'dotenv';
+import { resolve } from 'path';
+config({ path: resolve(__dirname, '../.env') });
+
+import { NestFactory } from '@nestjs/core';
+import { register } from 'prom-client';
+import { WorkerModule } from './worker.module';
+import { validateEnv } from './config/env';
+import { installProcessErrorGuards } from './bootstrap/guard';
+import { collabRoleInfo } from './modules/collab/store.metrics';
+import { waitForApiReady, WORKER_READY_TIMEOUT_DEFAULT_MS } from './bootstrap/worker-ready-gate';
+import { startWorkerMetricsServer } from './bootstrap/worker-metrics-server';
+
+async function bootstrap() {
+  // Y0b-5 T11 同款：进程兜底首行安装（引导期全程覆盖）
+  installProcessErrorGuards();
+
+  const env = validateEnv();
+
+  // Z138：worker 侧全族默认 role 标签——引导层单点（禁模块级：register.clear() 连清 _defaultLabels）
+  register.setDefaultLabels({ role: 'worker' });
+
+  // Y0c T23（Z67③）：进程角色观测——worker 侧引导层单点
+  collabRoleInfo.set({ role: 'worker' }, 1);
+  console.log(JSON.stringify({ event: 'process_role', role: 'worker' }));
+
+  // Z102 ready 门：先门后装配（@Processor 装配即订阅——超限非零退出交 pm2 autorestart）
+  try {
+    await waitForApiReady({
+      url: `http://127.0.0.1:${env.PORT}/api/ready`,
+      timeoutMs: env.WORKER_READY_TIMEOUT_MS ?? WORKER_READY_TIMEOUT_DEFAULT_MS,
+    });
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exit(1);
+  }
+
+  // 零监听装配（Z101：controller 仍实例化——零的只是监听）
+  const app = await NestFactory.createApplicationContext(WorkerModule);
+  app.enableShutdownHooks();
+
+  // Z139/P4：3002 loopback 指标出口（简版——T29 补 token fail-closed/env 键/health 扩读）
+  const metricsServer = await startWorkerMetricsServer();
+  console.log(JSON.stringify({ event: 'worker_metrics', port: 3002, host: '127.0.0.1' }));
+
+  const shutdown = async (signal: string) => {
+    console.log(JSON.stringify({ event: 'worker_shutdown', signal }));
+    metricsServer.close();
+    await app.close().catch((err) => console.error('app.close 失败（继续退出）:', err));
+    process.exit(0);
+  };
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+}
+
+// 评审 F2：装配期失败（createApplicationContext 抛错/3002 被占）须交 pm2 autorestart——
+// installProcessErrorGuards 是「计数不退出」哲学，此处显式 exit(1) 与 Z102 ready 门同意图。
+bootstrap().catch((err) => {
+  console.error('worker bootstrap failed:', err);
+  process.exit(1);
+});

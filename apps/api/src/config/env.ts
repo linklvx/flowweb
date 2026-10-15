@@ -102,6 +102,16 @@ export const envSchema = z.object({
   // 守护与定时器装配）+main.ts 引导层观测。
   COLLAB_ROLE: z.preprocess(blankToUnset, z.enum(COLLAB_ROLE_VALUES).default(COLLAB_ROLE_DEFAULT)),
 
+  // Y0c T26（Z102/偏离 29）：worker 引导两键——zod 只验形态不写 default（默认值落使用点纪律同上）。
+  // WORKER_WRITE_TOKEN：api/worker 共读同值键（Z49 单文件 .env——分叉键禁入是 COLLAB_ROLE 族，
+  // 本键两进程同值无分叉）＝读端点+T27 write-batch 鉴权（WorkerWriteAuthGuard timingSafeEqual；
+  // production 未设=请求级 403 fail-closed，进程拒启归 T27）；worker 侧 HttpCollabWritePort
+  // Bearer 注入同源。未设放行（worker 无 token 不拒启——T27 端点侧收口）。
+  WORKER_WRITE_TOKEN: z.preprocess(blankToUnset, z.string().min(1).optional()),
+  // WORKER_READY_TIMEOUT_MS：Z102 ready 门上限——使用点默认 60_000（worker-ready-gate.ts
+  // WORKER_READY_TIMEOUT_DEFAULT_MS 单源）。
+  WORKER_READY_TIMEOUT_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+
   // Y0b-3 T1（§0.3 表十键一次注册——消费点随后续 Task 落地，单源结构锚 EXEMPT 表登记）：
   // zod 只验形态不写 default（默认值落使用点——防双源 P3 同款）；读点按【字面量】process.env 直读纪律。
   COLLAB_ALLOWED_ORIGINS: z.preprocess(blankToUnset, z.string().min(1).optional()),            // T2 消费，默认=BETTER_AUTH_URL origin 推导+仅 dev 含 localhost:5173

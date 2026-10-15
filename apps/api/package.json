@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "node ../../scripts/check-shared-dist.mjs && nest start --watch",
+    "dev": "node ../../scripts/check-shared-dist.mjs && node ../../scripts/dev-api.mjs",
     "build": "node ../../scripts/check-shared-dist.mjs && nest build",
     "test": "node ../../scripts/check-shared-dist.mjs && tsc -p tsconfig.spec.json --noEmit && vitest run",
     "test:watch": "vitest",

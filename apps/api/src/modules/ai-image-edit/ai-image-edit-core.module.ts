@@ -26,8 +26,10 @@ import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
     }),
   ],
   // GenerationIntentService：本模块自注册（ExecutionCoreModule 虽导出但 api/all 双注册同实例语义
-  // 不变——PrismaModule @Global；历史形态保留）；T25 起加导出=Http 半 controller 消费面
+  // 不变——PrismaModule @Global；历史形态保留）；T25 起加导出=Http 半 controller 消费面。
+  // Y0c T26 根修（T25 漏项——F2 AppModule 全 compile 冒烟抓到）：LightingService 补导出——Http 半
+  // LightingController 注入面（拆分前同模块 providers 直取，漏 exports=api 启动即红）
   providers: [AiImageEditService, AiImageEditProcessor, LightingService, LightingConsumer, GenerationIntentService],
-  exports: [AiImageEditService, GenerationIntentService],
+  exports: [AiImageEditService, GenerationIntentService, LightingService],
 })
 export class AiImageEditCoreModule {}

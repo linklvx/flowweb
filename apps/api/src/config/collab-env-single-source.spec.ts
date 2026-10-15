@@ -80,6 +80,15 @@ describe('Y0a-4 env 单源结构锚（双向）', () => {
     }
   });
 
+  it('Y0c T26 两键进 schema：WORKER_WRITE_TOKEN/WORKER_READY_TIMEOUT_MS 均 optional 且无 zod default（默认值落使用点——Z102 门 60s 同纪律）', () => {
+    for (const k of ['WORKER_WRITE_TOKEN', 'WORKER_READY_TIMEOUT_MS']) {
+      const f = (envSchema.shape as Record<string, any>)[k];
+      expect(f, `缺键 ${k}（T26 worker 引导/读端点鉴权消费）`).toBeTruthy();
+      expect(f.isOptional(), `${k} 须 optional（未设放行——worker 无 token 不拒启，T27 端点侧 fail-closed）`).toBe(true);
+      expect(f._def.typeName, `${k} 禁 zod .default（双源 P3）`).not.toBe('ZodDefault');
+    }
+  });
+
   it('判定函数自测（合成夹具证伪，替代恒真重言式）', () => {
     const synReads = new Set(['COLLAB_A', 'COLLAB_B']);
     const synSchema = new Set(['COLLAB_B']);

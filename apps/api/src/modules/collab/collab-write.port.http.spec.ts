@@ -10,7 +10,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { register } from 'prom-client';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { HttpCollabWritePort } from './collab-write.port';
+import { HttpCollabWritePort, HttpCollabDocWriter } from './collab-write.port';
+import { CollabDocWriterService } from './collab-doc-writer.service';
 import { docWriterStubOf } from './test-utils/doc-writer-stub';
 import { ExecutionService } from '../execution/execution.service';
 
@@ -130,6 +131,63 @@ describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeNodeData/
     const port = fastPort(fetchImpl, { token: 'tok-1' });
     await port.writeNodeData('p1', 'n1', { a: 1 });
     expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe('Bearer tok-1');
+  });
+});
+
+describe('Y0c T26（偏离 31）：writeOpsBatch+HttpCollabDocWriter——CollabDocWriterService 令牌 worker 形态', () => {
+  it('200 数组响应：WriteOpResult[] 一一对应透传（整批单 POST——deliver+done 组批契约）', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(res(200, [
+      { index: 0, op: 'writeNodeData', written: true },
+      { index: 1, op: 'writeExecStatus', written: true },
+    ]));
+    const port = fastPort(fetchImpl);
+    const ops = [
+      { op: 'writeNodeData' as const, nodeId: 'n1', patch: { resultUrl: 'http://x/1.png' } },
+      { op: 'writeExecStatus' as const, nodeId: 'n1', patch: { status: 'done' as const, attempts: 1 } },
+    ];
+    const out = await port.writeOpsBatch('p1', ops);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ index: 0, op: 'writeNodeData', written: true });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(String(url)).toContain('/api/collab/doc/write-batch');
+    expect(JSON.parse(init.body)).toEqual({ projectId: 'p1', ops });
+  });
+
+  it('持续 503：合成 written:true 全批（长度=ops 一一对应）不 throw+transient-exhausted 计数——防误退款（Z99 三分同 writeNodeData 裁决）', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(res(503));
+    const port = fastPort(fetchImpl, { maxAttempts: 2 });
+    const d = await outcomeDelta('writeBatch', 'transient-exhausted', () =>
+      port.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }]));
+    expect(d).toBe(1);
+    const out = await port.writeOpsBatch('p1', [
+      { op: 'writeNodeData', nodeId: 'n1', patch: { a: 1 } },
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
+    ]);
+    expect(out).toEqual([
+      { index: 0, op: 'writeNodeData', written: true },
+      { index: 1, op: 'writeExecStatus', written: true },
+    ]);
+  });
+
+  it('永久（401）与 200 非数组 body：合成 written:true+计数（permanent:401/permanent:bad-body）', async () => {
+    const f401 = vi.fn().mockResolvedValue(res(401));
+    const p401 = fastPort(f401);
+    const d1 = await outcomeDelta('writeBatch', 'permanent:401', () => p401.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }]));
+    expect(d1).toBe(1);
+    const fBad = vi.fn().mockResolvedValue(res(200, { code: 0 }));
+    const pBad = fastPort(fBad);
+    const d2 = await outcomeDelta('writeBatch', 'permanent:bad-body', () => pBad.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }]));
+    expect(d2).toBe(1);
+    await expect(pBad.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }])).resolves.toEqual([{ index: 0, op: 'writeExecStatus', written: true }]);
+  });
+
+  it('HttpCollabDocWriter：extends CollabDocWriterService（令牌兼容）+writeBatch 委托 writeOpsBatch', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(res(200, [{ index: 0, op: 'writeNodeData', written: false, reason: 'node-deleted' }]));
+    const port = fastPort(fetchImpl);
+    const writer = new HttpCollabDocWriter(port);
+    expect(writer).toBeInstanceOf(CollabDocWriterService);
+    const out = await writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { a: 1 } }]);
+    expect(out[0]).toMatchObject({ written: false, reason: 'node-deleted' });   // 业务 written:false 原样传递（退款终态链凭据——HTTP 侧唯一合法生产者）
   });
 });
 

@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AuthGuard } from './auth.guard';
 
-function ctxFor(path: string, headers: Record<string, string> = {}) {
-  const req = { path, headers };
+function ctxFor(path: string, headers: Record<string, string> = {}, method = 'GET') {
+  const req = { path, headers, method };
   return { ctx: { switchToHttp: () => ({ getRequest: () => req }) } as any, req };
 }
 
@@ -89,5 +89,20 @@ describe('AuthGuard（批3-3：SessionService.touch 注入 + DB 异常不吞 401
     const src = readFileSync(resolve(__dirname, 'auth.guard.ts'), 'utf8');
     expect(src).not.toContain('new PrismaClient');
     expect(src).not.toContain(`import('@prisma/client')`);
+  });
+
+  // Y0c T26（偏离 32）：worker 读端点精确放行——GET ^/api/collab/doc/[^/]+/canvas$ 逐会话免鉴权
+  // （WorkerWriteAuthGuard 把关）；POST 同路径与 shrink 族不获放行（前缀机制不可用——:projectId 段）。
+  it('Y0c T26：GET /api/collab/doc/:projectId/canvas 放行（WorkerWriteAuthGuard 把关——偏离 32 精确谓词）', async () => {
+    const { ctx } = ctxFor('/api/collab/doc/p1/canvas');
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(touch).not.toHaveBeenCalled();
+  });
+
+  it('Y0c T26：POST 同路径不放行（谓词限 GET）+shrink/export-fresh/vacuum 族维持会话鉴权', async () => {
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/p1/canvas', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/p1/shrink', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/p1/export-fresh', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/p1/vacuum', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');
   });
 });

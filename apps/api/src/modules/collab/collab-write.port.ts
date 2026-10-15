@@ -14,6 +14,8 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { Counter, register } from 'prom-client';
 import * as Y from 'yjs';
 import { CollabDocumentService, type ArtifactProbeResult, type ExecStatusPatch, type WriteNodeDataResult } from './collab-document.service';
+import { CollabDocWriterService, type WriteOpResult } from './collab-doc-writer.service';
+import type { DocWriteOp } from '@flowweb/shared';
 
 /** collab 写端口（7 方法抽象面——签名逐字对齐 CollabDocumentService 公开签名，withDoc 含泛型）。 */
 export abstract class CollabWritePort {
@@ -90,13 +92,22 @@ export class DirectCollabWritePort extends CollabWritePort {
  *  *.metrics.ts 域归 y0b spec §10 围栏块（check-spec-consistency 提取面），Y0c 端口面计数不进该块。 */
 export const collabWriteHttpOutcomeTotal = new Counter({
   name: 'collab_write_http_outcome_total',
-  help: 'Y0c T24（Z99）：Http 写端口结果三分计数（method=writeNodeData/writeExecStatus/readCanvas；outcome=transient-retry/transient-exhausted/permanent:<status>——瞬态耗尽与永久均不上抛，此计数为唯一告警面）',
+  help: 'Y0c T24（Z99）：Http 写端口结果三分计数（method=writeNodeData/writeExecStatus/readCanvas/writeBatch〔T26 批形态〕；outcome=transient-retry/transient-exhausted/permanent:<status>——瞬态耗尽与永久均不上抛，此计数为唯一告警面）',
   labelNames: ['method', 'outcome'],
   registers: [register],
 });
 
 /** fetch 结构面子集（全局 fetch 可赋值——Response 结构满足；测试 mock 同形免环境依赖）。 */
 type HttpFetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json: () => Promise<unknown> }>;
+
+// ── Y0c T26（偏离 31）：CollabDocWriterService 令牌 worker 形态 ────────────────────────────────────
+// ExecutionService :315/:377 直注 docWriter 令牌（deliver+done 组批写）——worker 侧无 Http 形态则
+// DI 图不可解析（真 CollabDocWriterService 需 CollabDocumentService→CollabGateway=抢租约 P0）。
+// 形态=writeOpsBatch 整批单 POST（write-batch 端点契约 {projectId,ops}→WriteOpResult[]——T27 服务端）
+// +HttpCollabDocWriter 令牌壳（extends 保 override 签名受检；父构造仅赋私有 doc 字段，worker 形态
+// writeBatch 全覆盖永不触达）。Z99 三分同 writeNodeData 裁决：瞬态耗尽/永久/bad-body ⇒ 合成
+// written:true 一一对应结果（防误退款——投影收敛归 api 最终一致链），业务 written:false 唯一合法
+// 生产者=端点 200 业务响应（原样传递=退款终态链凭据）。
 
 /** Http 形态构造选项（baseUrl/token/预算可注入——测试面与 T26 worker 引导注入面）。 */
 export interface HttpCollabWritePortOptions {
@@ -141,7 +152,7 @@ export class HttpCollabWritePort extends CollabWritePort {
   }
 
   /** 三分单点：网络错误/5xx=瞬态族（预算内退避重试）；2xx=ok；其余=永久。计数全档落本方法。 */
-  private async request(method: 'writeNodeData' | 'writeExecStatus' | 'readCanvas', url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpTriOutcome> {
+  private async request(method: 'writeNodeData' | 'writeExecStatus' | 'readCanvas' | 'writeBatch', url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpTriOutcome> {
     for (let attempt = 1; ; attempt += 1) {
       let status: number;
       let json: () => Promise<unknown> = async () => undefined;   // 网络错误档（status=-1）不读 body——占位初始化
@@ -233,5 +244,31 @@ export class HttpCollabWritePort extends CollabWritePort {
   /** worker 不消费（Z100 实测：probeArtifacts 消费面=intent-reconcile settleStranded——role=api Daemon，Z98）。 */
   override async probeArtifacts(_projectId: string, _items: Array<{ nodeId: string; kind: string }>): Promise<ArtifactProbeResult[]> {
     throw new Error('NotImplemented: HttpCollabWritePort.probeArtifacts —— worker 不消费（消费面=intent-reconcile settleStranded，role=api Daemon）');
+  }
+
+  /** Y0c T26（偏离 31）：批形态写（HttpCollabDocWriter 消费——deliver+done 组批整批单 POST）。
+   *  端口 7 方法面之外的具体类自有方法（非抽象面扩张）；Z99 三分：ok+数组=透传 WriteOpResult[]，
+   *  瞬态耗尽/永久/bad-body=合成 written:true 一一对应（防误退款）+计数。 */
+  async writeOpsBatch(projectId: string, ops: readonly DocWriteOp[]): Promise<WriteOpResult[]> {
+    const out = await this.request('writeBatch', `${this.baseUrl}/api/collab/doc/write-batch`, {
+      method: 'POST', headers: this.headers(),
+      body: JSON.stringify({ projectId, ops }),
+    });
+    if (out.kind === 'ok' && Array.isArray(out.body)) return out.body as WriteOpResult[];
+    if (out.kind === 'ok') collabWriteHttpOutcomeTotal.inc({ method: 'writeBatch', outcome: 'permanent:bad-body' });
+    return ops.map((op, index) => ({ index, op: op.op, written: true }));
+  }
+}
+
+/** Y0c T26（偏离 31）：CollabDocWriterService 令牌的 worker 形态——writeBatch 整批走 write-batch
+ *  端点。extends 保 override 签名受检（父构造仅赋私有 doc 字段——worker 形态 writeBatch 全覆盖
+ *  永不触达，占位注入；api 形态仍由 CollabModule 提供真类）。 */
+export class HttpCollabDocWriter extends CollabDocWriterService {
+  constructor(private readonly http: HttpCollabWritePort) {
+    super(undefined as unknown as CollabDocumentService);
+  }
+
+  override writeBatch(projectId: string, ops: readonly DocWriteOp[]): Promise<WriteOpResult[]> {
+    return this.http.writeOpsBatch(projectId, ops);
   }
 }
