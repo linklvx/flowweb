@@ -45,7 +45,7 @@ const MODULE_SITES = [
   'modules/recharge/recharge.module.ts',
   'modules/sms/sms.module.ts',
   'modules/subscription/subscription.module.ts',
-  'modules/execution/execution.module.ts',
+  'modules/execution/execution-core.module.ts',   // Y0c T25：模块拆分迁址（原 execution.module.ts 已删）
 ];
 
 describe('批3-2 B6 模块工厂源码收口', () => {

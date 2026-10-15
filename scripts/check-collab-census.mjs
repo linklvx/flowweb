@@ -769,6 +769,39 @@ if (isMain()) {
     report('⑯', `生产裸 new Y.Doc() 清零（api 面——createCanvasDoc() 工厂收编，白名单 ${nWl} 点/2 文件）`, details.length === 0, details);
   }
 
+  // ⑰worker 模块图闭包（Y0c T25，Z131）：worker.module（T26 建）传递 imports 闭包 ∩ {*HttpModule,
+  //  *Controller} ≡ ∅——ECONNREFUSED 是结果断言（可因端口被占等别的原因绿），闭包断言防「worker.module
+  //  不小心带进 Http 子模块⇒controller 实例化⇒连带 CollabModule⇒gateway 抢租约」（Z42 依赖链的门禁化）。
+  //  判定口径=worker.module.ts 出发的相对 import 传递闭包（collectImportClosure——⑮ 同机制，Nest 模块
+  //  图的 ES import 近似）：闭包内任一文件声明 *HttpModule 类（export class \w*HttpModule）或含
+  //  @Controller( 装饰器 ⇒ FAIL。worker.module 尚不存在（T26 建）＝登记红 until=T26（文件缺失=暂不
+  //  执法，落地即闭包执法）；先红证据=临时建含 ExecutionHttpModule 的 worker.module ⇒ 本组红（T25
+  //  报告贴档——元纪律⑥）。
+  {
+    const workerModuleRel = 'apps/api/src/worker.module.ts';
+    const workerModulePath = path.join(ROOT, workerModuleRel);
+    const details = [];
+    let pass = true;
+    if (!fs.existsSync(workerModulePath)) {
+      details.push(`登记红（until=T26）${workerModuleRel} 不存在——T26 落地后本组闭包执法生效（Z131）`);
+    } else {
+      const closure = collectImportClosure([workerModulePath], byFile);
+      const violations = [];
+      for (const p of closure) {
+        const st = byFile.get(p).stripped;
+        const httpMods = [...st.matchAll(/export class (\w*HttpModule)\b/g)].map((m) => m[1]);
+        if (httpMods.length) violations.push(`${relOf(p)} 声明 ${httpMods.join('/')}`);
+        if (/@Controller\s*\(/.test(st)) violations.push(`${relOf(p)} 含 @Controller(`);
+      }
+      if (violations.length) {
+        pass = false;
+        details.push(...violations.map((v) => `worker 闭包违禁（Z131）：${v}`));
+      }
+      details.push(`闭包执法中：${closure.size} 文件`);
+    }
+    report('⑰', 'worker 模块图闭包 ∩ {*HttpModule,*Controller} ≡ ∅（Z131——结构断言强于 ECONNREFUSED 结果断言）', pass, details);
+  }
+
   // ㉑env 两分（Y0c T3，Z89）：分叉键（双进程间值将不同的键）只进 ecosystem env 块/同值键只进
   //  服务器 .env（单文件双进程共读——Z49）。分叉键集（plan T3 三键——键名按仓内实测定准）：
   //  COLLAB_BIND_ADDR（gateway:484 既有）/COLLAB_SPOOL_DIR（ecosystem 既有）/COLLAB_ROLE（片 D
@@ -932,7 +965,7 @@ if (isMain()) {
     'apps/api/src/modules/execution/execution-daemon.module.ts': {   // Y0c T23（Z98）：register() 方法体内读+?? COLLAB_ROLE_DEFAULT 单源常量 fallback——动态模块装配期（useFactory 族同形态，Z79 边界①）；T34 收编 env 单源
       COLLAB_ROLE: { n: 1, until: 'T34' },
     },
-    'apps/api/src/modules/execution/execution.module.ts': {   // Y0c T24（Z101）：EmitPort useFactory 容器装配期读+?? COLLAB_ROLE_DEFAULT fallback——T23 register 同形态；T34 收编 env 单源
+    'apps/api/src/modules/execution/execution-core.module.ts': {   // Y0c T24（Z101）：EmitPort useFactory 容器装配期读+?? COLLAB_ROLE_DEFAULT fallback——T23 register 同形态；Y0c T25 模块拆分自 execution.module.ts 迁入（原文件已删）；T34 收编 env 单源
       COLLAB_ROLE: { n: 1, until: 'T34' },
     },
     'apps/api/src/modules/execution/intent-key.util.ts': {   // 全部〔M〕:42-47 模块级 const 族

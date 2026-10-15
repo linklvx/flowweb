@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { VideoSeparateService } from './video-separate.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { VIDEO_SEPARATE_QUEUE } from './video-separate.constants';
@@ -51,7 +51,7 @@ describe('VideoSeparateService', () => {
         { provide: 'REDIS_CLIENT', useValue: mockRedis },
         { provide: getQueueToken(VIDEO_SEPARATE_QUEUE), useValue: mockQueue },
         { provide: MinioService, useValue: mockMinio },
-        { provide: ExecutionGateway, useValue: mockGateway },
+        { provide: EmitPort, useValue: mockGateway },   // Y0c T25（F1 补面）：emitSeparateStatus 消费改道 emit 端口
       ],
     }).compile();
 

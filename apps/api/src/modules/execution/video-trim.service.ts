@@ -4,7 +4,7 @@ import { Queue } from 'bullmq';
 import { exec } from 'child_process';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, FFPROBE_PATH } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
@@ -17,7 +17,7 @@ export class VideoTrimService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @InjectQueue(VIDEO_TRIM_QUEUE) private readonly trimQueue: Queue,
-    private readonly gateway: ExecutionGateway,
+    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T25（F1 补面）：emitTrimStatus 2 调用点改道 emit 端口（api=Direct 委托 gateway/worker=降级 no-op——T24 emitNodeStatus 同形态）
   ) {}
 
   private validateParams(startTime: number, endTime: number, actualDuration: number): void {
@@ -195,7 +195,7 @@ export class VideoTrimService {
       data: { status: 'done', outputFileId, finishedAt: new Date() },
     });
 
-    this.gateway.emitTrimStatus(task.workflowId, {
+    this.emitPort.emitTrimStatus(task.workflowId, {
       nodeId: task.nodeId,
       taskId,
       status: 'done',
@@ -209,7 +209,7 @@ export class VideoTrimService {
       data: { status: 'error', errorMsg, finishedAt: new Date() },
     });
 
-    this.gateway.emitTrimStatus(task.workflowId, {
+    this.emitPort.emitTrimStatus(task.workflowId, {
       nodeId: task.nodeId,
       taskId,
       status: 'error',

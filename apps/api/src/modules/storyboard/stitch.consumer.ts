@@ -1,9 +1,10 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Inject } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { ExecutionGateway } from '../gateway/execution.gateway';
+import { EmitPort } from '../gateway/emit.port';
 import { composeStoryboard } from './stitch.composer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
 // R1b Task 16：stitch.size.ts 双份清单收口——STITCH_WIDTH_MAP/RATIO_MAP 单源自 @flowweb/shared
@@ -29,7 +30,7 @@ export class StitchConsumer extends WorkerHost {
   constructor(
     private prisma: PrismaService,
     private minioService: MinioService,
-    private gateway: ExecutionGateway,
+    @Inject(EmitPort) private emitPort: EmitPort,   // Y0c T25（F1 补面）：emitStitchStatus 调用点改道 emit 端口（api=Direct/worker=降级 no-op——T24 同形态；@Inject 显式 token 兼容 vitest esbuild 无 metadata）
   ) {
     super();
   }
@@ -116,7 +117,7 @@ export class StitchConsumer extends WorkerHost {
         cellCount: d.fileIds.length,
         failedCount,
       };
-      this.gateway.emitStitchStatus(d.projectId, { ...result, status: 'COMPLETED' });
+      this.emitPort.emitStitchStatus(d.projectId, { ...result, status: 'COMPLETED' });
       return result;
     };
 

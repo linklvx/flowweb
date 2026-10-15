@@ -1,12 +1,13 @@
+// apps/api/src/modules/ai-image-edit/ai-image-edit-core.module.ts
+// Y0c T25（Z42④ 模块拆分）：ai-image-edit→Core/Http 二分——Core=service+processor+consumer（零
+// controller），Http=controllers（ai-image-edit-http.module.ts）。worker（T26）只装 Core。
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { AiImageEditController } from './ai-image-edit.controller';
 import { AiImageEditService } from './ai-image-edit.service';
 import { AiImageEditProcessor } from './ai-image-edit.processor';
-import { LightingController } from './lighting/lighting.controller';
 import { LightingService } from './lighting/lighting.service';
 import { LightingConsumer } from './lighting/lighting.consumer';
-import { ExecutionModule } from '../execution/execution.module';
+import { ExecutionCoreModule } from '../execution/execution-core.module';
 import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { GenerationIntentService } from '../execution/generation-intent.service';
@@ -16,7 +17,7 @@ import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
 @Module({
   imports: [
     CollabModule,
-    ExecutionModule,
+    ExecutionCoreModule,   // Y0c T25：ExecutionModule 拆分改道（EmitPort 导出面）
     TeamModule,
     BullModule.registerQueue({
       name: AI_IMAGE_EDIT_QUEUE_NAME,
@@ -24,9 +25,9 @@ import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
       defaultJobOptions: { ...AI_IMAGE_EDIT_JOB_OPTIONS },
     }),
   ],
-  controllers: [AiImageEditController, LightingController],
-  // GenerationIntentService：本模块自注册（ExecutionModule 未导出它；PrismaModule @Global——execution.module 同款引法）
+  // GenerationIntentService：本模块自注册（ExecutionCoreModule 虽导出但 api/all 双注册同实例语义
+  // 不变——PrismaModule @Global；历史形态保留）；T25 起加导出=Http 半 controller 消费面
   providers: [AiImageEditService, AiImageEditProcessor, LightingService, LightingConsumer, GenerationIntentService],
-  exports: [AiImageEditService],
+  exports: [AiImageEditService, GenerationIntentService],
 })
-export class AiImageEditModule {}
+export class AiImageEditCoreModule {}

@@ -16,13 +16,15 @@ describe('队列重试配置（批0c：全局 attempts:3 继承链=重试重复�
   });
 
   it('execution.module registerQueue 接线 EXECUTION_JOB_OPTIONS', () => {
-    const s = src('src/modules/execution/execution.module.ts');
+    // Y0c T25：模块拆分迁 execution-core.module.ts（原 execution.module.ts 已删——路径随迁）
+    const s = src('src/modules/execution/execution-core.module.ts');
     expect(s).toContain('EXECUTION_JOB_OPTIONS');
     expect(s).toContain('defaultJobOptions: { ...EXECUTION_JOB_OPTIONS }');
   });
 
   it('ai-image-edit.module registerQueue 接线 AI_IMAGE_EDIT_JOB_OPTIONS', () => {
-    const s = src('src/modules/ai-image-edit/ai-image-edit.module.ts');
+    // Y0c T25：模块拆分迁 ai-image-edit-core.module.ts（原文件已删——路径随迁）
+    const s = src('src/modules/ai-image-edit/ai-image-edit-core.module.ts');
     expect(s).toContain('AI_IMAGE_EDIT_JOB_OPTIONS');
     expect(s).toContain('defaultJobOptions: { ...AI_IMAGE_EDIT_JOB_OPTIONS }');
   });

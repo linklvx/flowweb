@@ -2,7 +2,7 @@
 // int 套件（Redis 在位）+ overrideProvider 覆盖链上全部队列 token（BullQueue_<name> 纯名字寻址，configKey 不影响 token）。
 // 环境重建：①MinioModule 工厂触发 validateEnv（MediaProcessModule→MinioModule @Global）——按 ci.yml:28-33 先例
 // 注入假值（compile 不触发 onModuleInit=ensureBucket，零 MinIO 消费）；②EventEmitterModule.forRoot/
-// MetricsModule（均 @Global，AppModule 专属导入面）——CollabGateway 等消费方的生产提供方。
+// MetricsCoreModule（@Global，AppModule 专属导入面——T25 拆分后 Core 半）——CollabGateway 等消费方的生产提供方。
 process.env.MINIO_ENDPOINT ??= 'http://127.0.0.1:9000';
 process.env.MINIO_ACCESS_KEY ??= 'it-di-smoke';
 process.env.MINIO_SECRET_KEY ??= 'it-di-smoke-key';
@@ -12,8 +12,8 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect } from 'vitest';
 
-// ExecutionModule/TeamModule 传递闭包上 BullModule.registerQueue 全集：
-// execution.module 4 + team.module 3 + subscription.module 3（经 TeamModule forwardRef RechargeModule→SubscriptionModule）
+// ExecutionCoreModule/TeamModule 传递闭包上 BullModule.registerQueue 全集：
+// execution-core.module 4 + team.module 3 + subscription.module 3（经 TeamModule forwardRef RechargeModule→SubscriptionModule）
 // Y0c T23（Z98）：ai-image-edit 队列注册随 IntentReconcileService 迁 ExecutionDaemonModule（本套件不装）
 const CHAIN_QUEUES = [
   'execution', 'ai-result-download', 'video-trim', 'video-separate',
@@ -26,14 +26,14 @@ const stubQueue = { add: async () => {} };
 const hasDb = !!process.env.DATABASE_URL;
 
 (hasDb ? describe : describe.skip)('DI 图可编译（PricingResolver/CreditLedger/FundsGate 跨模块注册零循环）', () => {
-  it('ExecutionModule+TeamModule compile（队列 provider 全覆盖+gate/ledger 可解析——T6 注册缺口运行时门禁）', async () => {
-    const { ExecutionModule } = await import('./modules/execution/execution.module');
+  it('ExecutionCoreModule+TeamModule compile（队列 provider 全覆盖+gate/ledger 可解析——T6 注册缺口运行时门禁）', async () => {
+    const { ExecutionCoreModule } = await import('./modules/execution/execution-core.module');
     const { TeamModule } = await import('./modules/team/team.module');
-    const { MetricsModule } = await import('./metrics/metrics.module');
+    const { MetricsCoreModule } = await import('./metrics/metrics-core.module');
     const { PricingResolverService } = await import('./modules/execution/pricing-resolver.service');
     const { TeamFundsGateService } = await import('./modules/team/team-funds-gate.service');
     const { CreditLedgerService } = await import('./modules/team/credit-ledger.service');
-    let builder = Test.createTestingModule({ imports: [EventEmitterModule.forRoot(), MetricsModule, ExecutionModule, TeamModule] });
+    let builder = Test.createTestingModule({ imports: [EventEmitterModule.forRoot(), MetricsCoreModule, ExecutionCoreModule, TeamModule] });
     for (const token of CHAIN_QUEUES) builder = builder.overrideProvider(token).useValue(stubQueue);
     const moduleRef = await builder.compile();
     expect(moduleRef.get(PricingResolverService, { strict: false })).toBeTruthy();
@@ -50,9 +50,9 @@ const hasDb = !!process.env.DATABASE_URL;
     const { AdminModule } = await import('./modules/admin/admin.module');
     const { ProjectModule } = await import('./modules/project/project.module');
     const { TemplateModule } = await import('./modules/template/template.module');
-    const { MetricsModule } = await import('./metrics/metrics.module');
+    const { MetricsCoreModule } = await import('./metrics/metrics-core.module');
     const { TeamFundsGateService } = await import('./modules/team/team-funds-gate.service');
-    let builder = Test.createTestingModule({ imports: [EventEmitterModule.forRoot(), MetricsModule, AdminModule, ProjectModule, TemplateModule] });
+    let builder = Test.createTestingModule({ imports: [EventEmitterModule.forRoot(), MetricsCoreModule, AdminModule, ProjectModule, TemplateModule] });
     for (const token of CHAIN_QUEUES) builder = builder.overrideProvider(token).useValue(stubQueue);
     const moduleRef = await builder.compile();
     expect(moduleRef.get(TeamFundsGateService, { strict: false })).toBeTruthy();

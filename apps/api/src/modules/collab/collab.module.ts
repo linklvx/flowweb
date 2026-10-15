@@ -48,8 +48,10 @@ import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasSe
     }) },
   ],
   // Y0c T13b：exports += CollabWritePort（写端口面）。CollabDocumentService 既有 exports 原样保留——
-  // 停止导出推迟 D 片（防「停止 exports 时按原令牌解析⇒编译红」）；届时跨模块 4 直注文件（video-work.service
-  // +3 controllers——面归读端口或快照域服务）按偏离 21 处置义务再定，shrink 模块内直注不受 exports 影响。
+  // Y0c T25 实况（偏离 21 处置）：跨模块 4 直注文件仍在（video-work.service〔readCanvasSnapshotCached
+  // 快照域〕+execution/ai-image-edit/lighting 三 controller〔assertSyncAdmitted 的 readServerSV 读域〕）
+  // ——断 exports 即解析红，维持 exports+本登记；收口归片 B 读端口化（读域 4 文件改道读端口/快照域服务
+  // 后移除本行），shrink 模块内直注不受 exports 影响。
   exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）
 })
 export class CollabModule {}

@@ -14,7 +14,8 @@ import { CollabModule } from './modules/collab/collab.module';
 import { TelemetryThrottlerGuard } from './modules/collab/telemetry.controller';
 import { AdminModule } from './modules/admin/admin.module';
 import { CreditModule } from './modules/credit/credit.module';
-import { ExecutionModule } from './modules/execution/execution.module';
+import { ExecutionCoreModule } from './modules/execution/execution-core.module';
+import { ExecutionHttpModule } from './modules/execution/execution-http.module';
 import { ExecutionDaemonModule } from './modules/execution/execution-daemon.module';
 import { TemplateModule } from './modules/template/template.module';
 import { AuthModule } from './auth/auth.module';
@@ -26,15 +27,17 @@ import { VideoWorkModule } from './modules/video-work/video-work.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
-import { AiDownloadModule } from './modules/ai-download/ai-download.module';
-import { AiImageEditModule } from './modules/ai-image-edit/ai-image-edit.module';
+import { AiDownloadCoreModule } from './modules/ai-download/ai-download-core.module';
+import { AiImageEditCoreModule } from './modules/ai-image-edit/ai-image-edit-core.module';
+import { AiImageEditHttpModule } from './modules/ai-image-edit/ai-image-edit-http.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
 import { MaterialLibraryModule } from './modules/material-library/material-library.module';
 import { StylesModule } from './modules/styles/styles.module';
 import { FolderModule } from './modules/folder/folder.module';
 import { CanvasModule } from './modules/canvas/canvas.module';
 import { RechargeModule } from './modules/recharge/recharge.module';
-import { MetricsModule } from './metrics/metrics.module';
+import { MetricsCoreModule } from './metrics/metrics-core.module';
+import { MetricsHttpModule } from './metrics/metrics-http.module';
 import { StoryboardModule } from './modules/storyboard/storyboard.module';
 import { AuthGuard } from './auth/auth.guard';
 import { AdminGuard } from './auth/admin.guard';
@@ -67,7 +70,10 @@ const env = validateEnv();
     CollabModule,
     AdminModule,
     CreditModule,
-    ExecutionModule,
+    // Y0c T25（Z42④/Z139）：模块拆分——Http 子模块（controllers）+Core（service+processor）双导入；
+    // worker（T26）只装 Core（Z131 模块图闭包禁 Http 面）
+    ExecutionCoreModule,
+    ExecutionHttpModule,
     // Y0c T23（Z98）：守护与定时器装配面（IntentReconcileService 双 timer+temp-cleanup/
     // subscription-task repeatable）——register() 内读 COLLAB_ROLE 门控（api|all 装配/worker 空）。
     // 装饰器元数据求值在 :42 validateEnv() 之后⇒非法 role 已 fail-fast 先死，此处只见合法值
@@ -79,12 +85,14 @@ const env = validateEnv();
     CanvasModule,
     AuthModule,
     MediaModule,
-    AiDownloadModule,
+    AiDownloadCoreModule,
     TempCleanupModule,
     MaterialLibraryModule,
-    AiImageEditModule,
+    AiImageEditCoreModule,
+    AiImageEditHttpModule,
     RechargeModule,
-    MetricsModule,
+    MetricsCoreModule,
+    MetricsHttpModule,
     StoryboardModule,
     SubscriptionModule,
     AdminSubscriptionModule,

@@ -152,10 +152,18 @@ export class ExecutionService {
     // Y0a-3（§3.2 计费读）：租约失守/drain→503 fail-closed（按陈旧快照烧钱比拒服务更糟——E49）。
     // V21：**对象响应体**（Object.assign 挂异常属性不会进 getResponse()——客户端拿不到 code）；
     // Retry-After 由 collab-not-serving.filter.ts 统一落。
+    // Y0c T25（Z99/Z102③）worker 处置=端口侧等价形态：HttpCollabWritePort.isLeaseServing 恒 true=
+    // 门放行——worker 受理判据由端点 503 显式传递承担（readCanvas fail-closed E49 在首个端点调用点
+    // throw），「正确性由三分语义承担，不由启动顺序承担」（Z102③）；api/Direct 形态本门行为零变化
+    //（execution.service.spec E49/V21 用例钉守）。本行不读 COLLAB_ROLE——进程角色分叉在端口选形
+    //（T26 workerProviders 装 Http），服务面单一。
     if (!this.collabDoc.isLeaseServing())
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
     // Y0b-2 T3（分源钉死）：计费/语义读恒活读（readCanvas/withDoc——发起方必有 WS⇒doc 常驻⇒零装载
     // 成本）；快照出口 readCanvasSnapshotCached 仅无客户端面（video-work 等）——本处禁改走快照。
+    // Y0c T25 核对：readCanvas 已经端口注入（:67 CollabWritePort）——api 进程=DirectCollabWritePort
+    //（CollabModule useExisting 直调 doc service）；worker 进程=HttpCollabWritePort（T26 workerProviders
+    // 装配，readCanvas 走 /write-batch 端点读段——本任务零动作）。
     const canvas = await this.collabDoc.readCanvas(projectId);
     const allNodes = canvas.nodes as any[];
     const allEdges = canvas.edges as any[];

@@ -109,13 +109,19 @@ describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeNodeData/
     expect(init.method).toBe('GET');
   });
 
-  it('NotImplemented 显式面：withDoc/isLeaseServing/isDocResident/probeArtifacts——worker 不消费（Z100 实测）显式抛错且零 fetch', async () => {
+  it('NotImplemented 显式面：withDoc/isDocResident/probeArtifacts——worker 不消费（Z100 实测）显式抛错且零 fetch', async () => {
     const fetchImpl = vi.fn();
     const port = fastPort(fetchImpl);
     expect(() => port.withDoc('p1', () => 1)).toThrow(/NotImplemented.*withDoc/);
-    expect(() => port.isLeaseServing()).toThrow(/NotImplemented.*isLeaseServing/);
     expect(() => port.isDocResident('p1')).toThrow(/NotImplemented.*isDocResident/);
     await expect(port.probeArtifacts('p1', [{ nodeId: 'n1', kind: 'text' }])).rejects.toThrow(/NotImplemented.*probeArtifacts/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('Y0c T25：isLeaseServing=门放行（恒 true 零 fetch）——worker 受理判据由端点 503 显式传递承担（Z99 三分/Z102③「正确性由三分语义承担，不由启动顺序承担」：readCanvas fail-closed E49 在首个端点调用点 503 显式 throw，execution.service :155 前置门在 worker 侧冗余）', async () => {
+    const fetchImpl = vi.fn();
+    const port = fastPort(fetchImpl);
+    expect(port.isLeaseServing()).toBe(true);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

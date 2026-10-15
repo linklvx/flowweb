@@ -82,7 +82,8 @@ export class DirectCollabWritePort extends CollabWritePort {
 // +readCanvas（spec :540「readCanvas 经 Http 端口读」——计费读 fail-closed E49：503 耗尽**显式传递** throw SUE，
 // 区别于投影写的绝不上抛）；其余 4 方法=NotImplemented 显式面（worker 零消费，逐方法注释）。
 // 写端点 POST /api/collab/doc/write-batch 归 T27（客户端先行——端点未落，单测 mock fetch；响应契约=
-// WriteOpResult[]〔A1 冻结契约〕取 [0]）；读端点 GET /api/collab/doc/:projectId/canvas 归 T25 前置清单。
+// WriteOpResult[]〔A1 冻结契约〕取 [0]）；读端点 GET /api/collab/doc/:projectId/canvas 归 T26 同窗（偏离 29
+// ——T25 前置清单悬空修正；鉴权与 write-batch 同款 WORKER_WRITE_TOKEN 复用）。
 // WORKER_WRITE_TOKEN=预留参数（T27 服务端鉴权/T26 worker 引导注入——本类不读 env，census ㉒零新增面）。
 
 /** Http 形态结果三分观测计数（本文件注册——metrics.service.ts 同款非 *.metrics.ts 载具先例；
@@ -216,11 +217,12 @@ export class HttpCollabWritePort extends CollabWritePort {
     throw new Error('NotImplemented: HttpCollabWritePort.withDoc —— worker 不消费（Z100 实测：消费面=collab-shrink，api 进程面）');
   }
 
-  /** sync 面结构性不能过 HTTP（fetch 异步 vs 布尔同步签名）——worker 侧受理判据由端点 503 显式传递承担
-   *  （Z99 三分语义/Z102③「正确性由三分语义承担，不由启动顺序承担」）；execution.service :155 前置门的
-   *  worker 形态处置归 T25 改道。 */
+  /** Y0c T25 裁决（Z99/Z102③ 自证）：sync 布尔面结构性不能过 HTTP——worker 形态恒 true=门放行，
+   *  受理拒绝延迟到首个端点调用点显式传递（readCanvas 503 耗尽 throw SUE——E49 计费读 fail-closed；
+   *  投影写瞬态重试不上抛语义下 execution.service :155 前置门在 worker 侧冗余——api/Direct 形态门不变）。
+   *  「正确性由三分语义承担，不由启动顺序承担」（Z102③）。 */
   override isLeaseServing(): boolean {
-    throw new Error('NotImplemented: HttpCollabWritePort.isLeaseServing —— sync 面结构性不能过 HTTP（受理判据=端点 503 显式传递，Z99/Z102③）');
+    return true;
   }
 
   /** worker 不消费（Z100 实测：isDocResident 消费面=intent-reconcile——role=api Daemon，Z98）。 */

@@ -273,6 +273,27 @@
       "symbol": "apps/web/src/utils/intentRecord.ts",
       "reason": "TD 台账防重做登记的历史记录（批 0.5 已落地物——T6 regenToken 协议落地时整文件退役）",
       "expires_at": "2027-01-06"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+      "symbol": "apps/api/src/modules/execution/execution.module.ts",
+      "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
+      "expires_at": "2027-01-13",
+      "line": 1198
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+      "symbol": "apps/api/src/modules/execution/execution.module.ts",
+      "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
+      "expires_at": "2027-01-13",
+      "line": 184
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+      "symbol": "apps/api/src/modules/ai-image-edit/ai-image-edit.module.ts",
+      "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
+      "expires_at": "2027-01-13",
+      "line": 177
     }
   ]
 }

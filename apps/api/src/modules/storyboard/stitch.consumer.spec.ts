@@ -43,11 +43,11 @@ describe('StitchConsumer', () => {
       ),
       upload: vi.fn().mockResolvedValue(undefined),
     };
-    const gateway = { emitStitchStatus: vi.fn() };
+    const emitPort = { emitStitchStatus: vi.fn() };   // Y0c T25（F1 补面）：emitStitchStatus 消费改道 emit 端口（直构位置参数形态不变）
 
     // StitchConsumer 构造函数无 @Inject 显式 token，vitest（esbuild）不生成
     // design:paramtypes 元数据，Nest DI 解析不到 → 直接实例化注入 mock
-    consumer = new StitchConsumer(prisma as any, minio as any, gateway as any);
+    consumer = new StitchConsumer(prisma as any, minio as any, emitPort as any);
   });
 
   it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
