@@ -853,30 +853,33 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
   });
 
   it('quiesce 红门+硬前置：pending 队列有未 store 编辑 ⇒ 等待（不吞）；卸载超时 30s ⇒ result=quiesce-timeout 中止（禁降级继续）', async () => {
-    // 臂一：doc 挂载+pending 队列非空 ⇒ vacuum 等待；清队列+卸载后续走
+    // 臂一（Y0c T17 Z104 后改写——等待动因=三态滞后度）：doc 挂载+pending 批非空 ⇒ vacuum 等待；
+    // 批清（doc 保持挂载——不再等 documents.has 翻转）⇒ 续走
     vi.useFakeTimers();
     try {
       const gateway = buildGateway();
       const src = seedDoc();
       addNode(src, 'n1', 32);
-      attachDoc(gateway, src, 'p1');        // documents.has=true——quiesce 不满足
+      attachDoc(gateway, src, 'p1');        // documents.has=true（常驻钉住形态——不再是 quiesce 动因）
+      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);   // 未 store 编辑——三态滞后
       const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
       const { svc } = buildVacuumSvc(gateway, repo);
       let settled: string | null = null;
       const vac = svc.vacuum('p1', 'u1').then((r) => { settled = r.result; return r; });
       await vi.advanceTimersByTimeAsync(200);           // ⓪①②③轮询若干拍
       expect(settled).toBe(null);                        // 等待中（不吞队列帧不降级）
-      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);   // 未 store 编辑——仍等
+      (gateway as any).pendingQueues.set('p1', [new Uint8Array([4, 5])]);   // 批仍在（新编辑形态）——仍等
       await vi.advanceTimersByTimeAsync(500);
       expect(settled).toBe(null);
-      gateway.server.hocuspocus.documents.delete('project:p1');   // 卸载
-      (gateway as any).pendingQueues.delete('p1');                // 批已落（模拟 store 完成）
+      (gateway as any).pendingQueues.delete('p1');       // 批已落（模拟 store 完成；doc 仍挂载）
       await vi.advanceTimersByTimeAsync(200);
       const r = await vac;
-      expect(r.result).toBe('ok');                       // 条件齐备后续走
+      expect(r.result).toBe('ok');                       // 条件齐备后续走（doc 挂载不阻塞）
       expect(settled).toBe('ok');
 
-      // 臂二：doc 恒挂载（不卸载）⇒ 30s 超时 ⇒ quiesce-timeout（禁降级继续——"PG 完整性=已卸载推论"）
+      // 臂二（Y0c T17 Z104 改写——常驻下活锁根修先红）：doc 恒挂载（常驻会话钉住形态）+三态滞后度
+      // 全空 ⇒ 不再等 documents.has 翻转——及时通过（改造前 isPersistedComplete 含 documents.has 恒
+      // false⇒30s 必 quiesce-timeout=红；doc 常驻判定已归 tryRelease+isDocResident 独立谓词）
       const gw2 = buildGateway();
       const src2 = seedDoc();
       addNode(src2, 'n1', 32);
@@ -886,19 +889,65 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       const vac2 = s2.svc.vacuum('p1', 'u1');
       let done2: string | null = null;
       vac2.then((r) => { done2 = r.result; });
-      await vi.advanceTimersByTimeAsync(29_000);
-      expect(done2).toBe(null);                          // 上界内仍在等
-      await vi.advanceTimersByTimeAsync(1_200);
-      expect(done2).toBe('quiesce-timeout');             // 30s 超时中止
-      expect(m2.vacuumReplace).not.toHaveBeenCalled();   // 禁降级继续——DB 零变更
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(done2).toBe('ok');                          // 批空+spool 空+无在飞 ⇒ 及时通过（doc 挂载不再是动因）
+      expect(m2.vacuumReplace).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('quiesce 重排（I-3/I-4）：三态空才调 tryRelease——rejected（在飞读）不 break 下轮重试、released 才 break 走真空（旧代常驻 doc 不跨 vacuumReplace）；三态非空（批恒在）全轮零调用（release_with_pending 计数不放大）', async () => {
+    vi.useFakeTimers();
+    try {
+      // 臂一（I-3）：批在（三态非空）⇒不调释放；批清+首轮 rejected（在飞读）⇒不 break；次轮 released ⇒ break 走 ⑥
+      const gateway = buildGateway();
+      const src = seedDoc();
+      addNode(src, 'n1', 32);
+      attachDoc(gateway, src, 'p1');                               // 常驻钉住形态（旧代 doc 在——释放义务的靶）
+      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);
+      const { repo, vacuumReplace } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
+      const { svc } = buildVacuumSvc(gateway, repo);
+      const relSpy = vi.spyOn(gateway, 'tryReleaseResidentSession')
+        .mockResolvedValueOnce('rejected-pending' as never)        // 首调：在飞读（refCount>0）拒绝——不 break
+        .mockResolvedValueOnce('released' as never);               // 次调：静默达成——break
+      const vac = svc.vacuum('p1', 'u1');
+      await vi.advanceTimersByTimeAsync(200);                      // 批在——三态非空全轮零调用
+      expect(relSpy).not.toHaveBeenCalled();                       // 旧形态=先调再判（首调即发生）即红
+      (gateway as any).pendingQueues.delete('p1');                 // 批清（三态空——释放轮开启）
+      await vi.advanceTimersByTimeAsync(100);
+      expect(relSpy).toHaveBeenCalledTimes(1);                     // 首调 rejected——未 break（vacuumReplace 未走）
+      expect(vacuumReplace).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(relSpy).toHaveBeenCalledTimes(2);                     // 次调 released——break
+      const r = await vac;
+      expect(r.result).toBe('ok');
+      expect(vacuumReplace).toHaveBeenCalledTimes(1);              // released 后才走 ⑥（旧代常驻 doc 不跨真空——效果不被旧代 merge 吸收）
+
+      // 臂二（I-4）：批恒在 30s 全程——tryRelease 零调用（旧形态=每轮先调≈300 次：
+      // release_with_pending{vacuum}×轮数+idleTimer 重置×轮数——「稳态 0」判据被打爆）
+      const gw2 = buildGateway();
+      const src2 = seedDoc();
+      addNode(src2, 'n1', 32);
+      attachDoc(gw2, src2, 'p1');
+      (gw2 as any).pendingQueues.set('p1', [new Uint8Array([1])]);   // 批恒在——三态永不空
+      const m2 = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src2)));
+      const s2 = buildVacuumSvc(gw2, m2.repo);
+      const relSpy2 = vi.spyOn(gw2, 'tryReleaseResidentSession').mockResolvedValue('released' as never);
+      const vac2 = s2.svc.vacuum('p1', 'u1');
+      await vi.advanceTimersByTimeAsync(31_000);
+      const r2 = await vac2;
+      expect(r2.result).toBe('quiesce-timeout');                   // 在飞持续到 deadline⇒超时（quiesce=等静默——语义不变）
+      expect(relSpy2).not.toHaveBeenCalled();                      // 三态非空全轮零调用（≤临界轮数=0）
     } finally {
       vi.useRealTimers();
     }
   });
 
   it('中止恢复：equivalence-failed/unsupported-root/quiesce-timeout 三路中止 ⇒ vacuuming 门解除（isVacuuming false）+freeze 已恢复可写——比不 vacuum 更糟的状态不允许存在', async () => {
-    // 臂一：equivalence-failed（①已 freeze+close 连接）。attach doc 模拟在线态——vacuum ① close
-    // 后由装置卸载（真实路径=close→库 unload；直构无库——nextTick 后手动 delete 模拟卸载完成）
+    // 臂一：equivalence-failed（① freeze+close 连接）。Y0c T17 Z104 后 quiesce 首轮即过（doc 挂载
+    // 不再是等待动因）⇒全程快进——freeze 中间态断言结构性不可达（原 nextTick+readOnly=true 时点
+    // 在改造前=quiesce 等待窗内），freeze 生效由「close 后 writeFreeze 清理+readOnly 恢复」终态承载。
     {
       const gateway = buildGateway();
       const src = seedDoc();
@@ -915,12 +964,10 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       });
       const vac = svc.vacuum('p1', 'u1');
       await nextTick();                                               // ⓪①② 同步段完成（未冻结——无 thaw 等待）
-      expect(conn.readOnly).toBe(true);                               // ① freeze 已落地（close 前）
-      gateway.server.hocuspocus.documents.delete('project:p1');       // 卸载（close 的后果）
       const r = await vac;
       expect(r.result).toBe('equivalence-failed');
       expect(gateway.isVacuuming('p1')).toBe(false);                   // 门解除（否则 503 永久）
-      expect(conn.readOnly).toBe(false);                               // freeze 恢复可写
+      expect(conn.readOnly).toBe(false);                               // freeze 恢复可写（中止恢复终态）
       expect((gateway as any).writeFreeze.has(conn)).toBe(false);
     }
     // 臂二：unsupported-root
@@ -941,7 +988,8 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       expect(gateway.isVacuuming('p1')).toBe(false);
       expect(conn.readOnly).toBe(false);
     }
-    // 臂三：quiesce-timeout（fake timers——doc 恒挂载）
+    // 臂三：quiesce-timeout（Y0c T17 Z104 后超时动因=三态滞后度——批恒在（去抖窗永不排空形态）；
+    // doc 挂载不再是超时动因）
     vi.useFakeTimers();
     try {
       const gateway = buildGateway();
@@ -949,6 +997,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       addNode(src, 'n1', 32);
       const conn = makeVacuumConn('p1');
       attachDoc(gateway, src, 'p1', [conn]);
+      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);   // 批恒在——30s 内永不排空
       const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
       const { svc } = buildVacuumSvc(gateway, repo);
       const vac = svc.vacuum('p1', 'u1');

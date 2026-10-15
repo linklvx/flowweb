@@ -96,6 +96,11 @@ function makeFixture() {
     isVacuuming: vi.fn(() => false),
     isWritableOrDegraded: vi.fn((): 'ok' | 'spool-unwritable' => 'ok'),
     isDocDegraded: vi.fn(() => false),
+    // Y0c T17（Z129/Z141）：tryRelease 准入读出口+带批档交接面（T16 reaper spec 同款 mock）
+    hasPendingWrites: vi.fn((): boolean => false),
+    hasInFlightStore: vi.fn((): boolean => false),
+    handoffPendingToSpool: vi.fn(async (): Promise<boolean> => true),
+    registerResidentSessionReleaser: vi.fn(),
     server: { hocuspocus: { openDirectConnection } },
   };
   const svc = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);

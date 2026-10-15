@@ -1658,6 +1658,50 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     } finally { await kit.dispose(); }
   });
 
+  // ═══ Y0c T17（Z129）：三释放出口改道 tryRelease——drain/隔离出口调用面+转发面 ═══
+  describe('Y0c T17 Z129：三释放出口改道 tryRelease', () => {
+    /** 裸直构 gateway（read-canvas-routing.spec makeGateway 同款——不 listen；releaser 未注册面天然就位；
+     *  spool mock 补 depth=beginDraining 尾部 computePending 消费面） */
+    function makeBareGateway(): CollabGateway {
+      return new CollabGateway({} as any, new EventEmitter2() as any, {} as any, {} as any, { resolve: vi.fn() } as any,
+        undefined, undefined, undefined, undefined,
+        { hasFrames: () => false, depth: () => ({ ownFiles: 0, ownBytes: 0, strandedFiles: 0, strandedBytes: 0 }) } as any);
+    }
+
+    it('beginDraining ⇒ releaseAllResidentSessions("drain")（fire-and-forget——drain API 响应不被释放阻塞）', () => {
+      const g = makeBareGateway();
+      const spy = vi.spyOn(g, 'releaseAllResidentSessions').mockResolvedValue(undefined);
+      g.beginDraining();
+      expect(spy).toHaveBeenCalledWith('drain');
+    });
+
+    it('selfIsolate ⇒ 释放先行于 closeAllConnections1012（await 序——A2 :524 Σdirect===0 证明义务）+motive=self-isolate；I-2：释放 reject ⇒ closeAll1012 仍必达（try/finally 结构自证——不依赖转发面吞错推理链）', async () => {
+      const g = makeBareGateway();
+      const relSpy = vi.spyOn(g, 'releaseAllResidentSessions').mockResolvedValue(undefined);
+      const closeSpy = vi.spyOn(g as any, 'closeAllConnections1012').mockImplementation(() => {});
+      await (g as any).selfIsolate('revoked');
+      expect(relSpy).toHaveBeenCalledWith('self-isolate');
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+      expect(relSpy.mock.invocationCallOrder[0]).toBeLessThan(closeSpy.mock.invocationCallOrder[0]);   // 先释放后关（顺序即证明义务）
+
+      // I-2 臂（质量评审）：释放 reject ⇒ closeAll1012 仍执行（finally）且异常不吞（上抛语义不变）
+      const g2 = makeBareGateway();
+      vi.spyOn(g2, 'releaseAllResidentSessions').mockRejectedValue(new Error('release exploded'));
+      const closeSpy2 = vi.spyOn(g2 as any, 'closeAllConnections1012').mockImplementation(() => {});
+      await expect((g2 as any).selfIsolate('revoked')).rejects.toThrow('release exploded');
+      expect(closeSpy2).toHaveBeenCalledTimes(1);                             // 修复前=0（无 finally）即红
+    });
+
+    it('tryReleaseResidentSession：releaser 未注册（直构无 residency）⇒no-op 不抛；注册后转发单 pid+motive（vacuum quiesce 消费形态）', async () => {
+      const g = makeBareGateway();
+      await expect(g.tryReleaseResidentSession('p1', 'vacuum')).resolves.toBeUndefined();   // 未注册=no-op
+      const fn = vi.fn(async () => 'released');
+      g.registerResidentSessionReleaser(fn);
+      await g.tryReleaseResidentSession('p1', 'vacuum');
+      expect(fn).toHaveBeenCalledWith('p1', 'vacuum');
+    });
+  });
+
   it('V11 终审收口：关停期 listen 迟到完成不转 serving（draining ⇒ ready≠true 契约——starting 态 listen 窗撞 SIGTERM 的竞态）', async () => {
     const kit = await startDualClientServer();
     try {

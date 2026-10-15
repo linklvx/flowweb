@@ -272,9 +272,12 @@ export class CollabShrinkService {
   /** 七步协议体（plan Task 9a sketch——语义为准）：
    *  ⓪ thaw 回灌〔gateway.beginVacuumEra〕→①freeze 全连接+terminal close 4410 'doc-vacuuming'
    *  →②serving 门〔vacuumingDocs——WS connected close 4410/loadDocument+withDoc 503〕
-   *  →③quiesce 硬前置（isPersistedComplete 四态合一谓词：doc 卸载+pending 空+spool 空+无在飞
-   *  store——**超时 30s 中止禁降级**：PG 完整性=文档已卸载的推论，未卸载即读 PG=丢最近 debounce
-   *  窗编辑且等价断言恰好通过〔新旧同源〕）+清进程态〔gateway.purgeDocState 普查表〕
+   *  →③quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4：先判 isPersistedComplete 三态滞后度谓词〔pending 空
+   *  +spool 空+无在飞 store——doc 常驻不再等 documents.has 翻转，常驻下恒在=30s 注定活锁的根修〕，
+   *  三态空才 tryRelease(pid,'vacuum') 释放常驻会话〔拒绝=批在途/在用⇒计数+下轮重试；released 才
+   *  break——旧代不跨真空〕、三态非空不调〔计数不放大〕——**超时 30s
+   *  中止禁降级**：三态非空即读 PG=丢最近 debounce 窗编辑且等价断言恰好通过〔新旧同源〕）
+   *  +清进程态〔gateway.purgeDocState 普查表〕
    *  +SnapshotDocCache 失效〔TTL 30s 否则真空后继续供旧代投影〕
    *  →④离线全根真空（repo.loadForHydration 装载读唯一入口〔契约 1〕——不经 withDoc；
    *  gateway.rebuildVacuumDoc 单源）
@@ -294,9 +297,19 @@ export class CollabShrinkService {
     };
     try {
       await this.gateway.beginVacuumEra(pid);   // ⓪①②
-      // ③ quiesce 硬前置：轮询 isPersistedComplete（doc 卸载+pending 空+spool 空+无在飞 store）
+      // ③ quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4 重排）：循环先判三态滞后度谓词
+      // （isPersistedComplete——pending 空+spool 空+无在飞 store；doc 常驻不再是等待动因），三态空才
+      // 经统一入口释放常驻会话，并以 released（或 undefined=releaser 未注册〔直构无 residency〕——
+      // 「会话已不在」透传判据）为 break 条件——旧代常驻 doc 不跨 vacuumReplace（真空效果不被旧代
+      // merge 吸收）；三态非空不调 tryRelease（批恒在场景计数不放大——release_with_pending{vacuum}
+      // 不×轮数）；拒绝（批在途/在用）⇒下轮重试，deadline 兜底维持活锁不变量（在飞读持续到
+      // deadline⇒超时——正确：quiesce=等静默，禁降级继续）。
       const deadline = Date.now() + VACUUM_QUIESCE_TIMEOUT_MS;
-      while (!this.gateway.isPersistedComplete(pid)) {
+      for (;;) {
+        if (this.gateway.isPersistedComplete(pid)) {
+          const outcome = await this.gateway.tryReleaseResidentSession(pid, 'vacuum');
+          if (outcome === 'released' || outcome === undefined) break;
+        }
         if (Date.now() >= deadline) return done({ result: 'quiesce-timeout' });   // 禁降级继续
         await new Promise((r) => setTimeout(r, VACUUM_QUIESCE_POLL_MS));
       }

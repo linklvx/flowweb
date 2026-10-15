@@ -1,6 +1,6 @@
 // apps/api/src/modules/collab/read-canvas-routing.spec.ts —— Y0b-2 T3 红用例主件
-// 四主题：①isPersistedComplete 谓词四合一（documents/inFlight/pending/spool 任一非空→false——
-// PG 完整性判定=快照读缓存门）；②SnapshotDocCache TTL 单飞（并发 N 次底层解码恰 1 次；
+// 四主题：①isPersistedComplete 谓词三态合一（Y0c T17 Z104：inFlight/pending/spool 任一非空→false，
+// doc 常驻不再是滞后信号——PG 完整性判定=快照读缓存门）；②SnapshotDocCache TTL 单飞（并发 N 次底层解码恰 1 次；
 // TTL 过期重新解码）；③谓词不满足→fallback 活读（非陈旧快照——快照不可信定义性不使用）
 // +yjs_snapshot_fallback_total 计数；④谓词满足→快照缓存出口（两次读恰一次解码）。
 // 单元池纪律：无 PG/DATABASE_URL——gateway 直构（mock spool）/service 直构（mock gateway+repo）。
@@ -43,31 +43,33 @@ const fallbackCount = async () =>
 afterEach(() => { unregisterPendingCollector(); });
 
 describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
-  it('谓词四合一（documents/inFlight/pending/spool 任一非空→false；全空→true）', () => {
-    // 基线：四态全空 → true
+  it('谓词三态合一（Y0c T17 Z104 拆分——inFlight/pending/spool 任一非空→false；doc 常驻不再是滞后信号→true；全空→true）', () => {
+    // 基线：三态全空 → true
     const frames = new Set<string>();
     const g = makeGateway(frames) as any;
     expect(g.isPersistedComplete('p1')).toBe(true);
 
-    // 态①：documents 常驻（doc 在内存——编辑在途，PG 可能滞后）
+    // 态⓪（Z104 剔除项）：documents 常驻（doc 在内存）⇒ **true**——doc 常驻=独立谓词 isDocResident
+    // （常驻下原四态恒 false ⇒ readCanvasSnapshotCached 永远 fallback+vacuum quiesce 注定 30s 活锁——
+    // 常驻 doc 三态空=内存与 PG 同步，快照可信）
     g.server.hocuspocus.documents.set('project:p1', {} as any);
-    expect(g.isPersistedComplete('p1')).toBe(false);
+    expect(g.isPersistedComplete('p1')).toBe(true);
     g.server.hocuspocus.documents.delete('project:p1');
 
-    // 态②：in-flight store（取批未落定）
-    expect(g.isPersistedComplete('p1')).toBe(true);   // 复位语义锚（①清理后回 true）
+    // 态①：in-flight store（取批未落定）
+    expect(g.isPersistedComplete('p1')).toBe(true);   // 复位语义锚（⓪清理后回 true）
     g.inFlightProjects.add('p1');
     expect(g.isPersistedComplete('p1')).toBe(false);
     g.inFlightProjects.delete('p1');
 
-    // 态③：pending 队列非空（去抖窗内未 store）；空数组条目不阻塞（无在途批）
+    // 态②：pending 队列非空（去抖窗内未 store）；空数组条目不阻塞（无在途批）
     g.pendingQueues.set('p1', []);
     expect(g.isPersistedComplete('p1')).toBe(true);
     g.pendingQueues.set('p1', [new Uint8Array([1])]);
     expect(g.isPersistedComplete('p1')).toBe(false);
     g.pendingQueues.set('p1', []);
 
-    // 态④：spool 有帧（store 故障期台账未回灌）
+    // 态③：spool 有帧（store 故障期台账未回灌）
     frames.add('p1');
     expect(g.isPersistedComplete('p1')).toBe(false);
     frames.delete('p1');

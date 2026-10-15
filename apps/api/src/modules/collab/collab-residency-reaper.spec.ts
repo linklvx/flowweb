@@ -46,6 +46,8 @@ function makeFixture() {
   const counts = new Map<Y.Doc, number>();
   const persisted = new Map<string, Uint8Array>();
   const disconnectGates = new Map<string, Promise<void>>();
+  /** store 失败 doc 集合：disconnect 后仍留驻 docs Map（对齐库 esm:1540-1549 故意不卸载——Z110 unloadDocument 直调的靶形态） */
+  const storeFailedStuck = new Set<string>();
   let disconnectCalls = 0;
 
   const openDirectConnection = vi.fn(async (name: string) => {
@@ -70,7 +72,8 @@ function makeFixture() {
         if (gate) await gate;
         if ((counts.get(doc!) ?? 0) === 0) {
           persisted.set(name, Y.encodeStateAsUpdate(doc!));
-          docs.delete(name);
+          // storeFailedStuck：store 失败 doc 留驻形态（库 esm:1540-1549 故意不卸载——Z110 直调面装置）
+          if (!storeFailedStuck.has(name)) docs.delete(name);
         }
       }),
     };
@@ -90,11 +93,12 @@ function makeFixture() {
     docBytesOf: vi.fn((): number => 0),
     storeFailedDocs: new Set<string>(),
     handoffPendingToSpool: vi.fn(async (): Promise<boolean> => true),
+    registerResidentSessionReleaser: vi.fn(),   // Y0c T17：residency 构造期注册释放回调（gateway 反向触达面）
     server: { hocuspocus: { openDirectConnection, unloadDocument: vi.fn(async () => {}), documents: docs } },
   };
   const residency = new CollabResidencyService(gateway);
   return {
-    residency, gateway, openDirectConnection, docs, counts, persisted, disconnectGates,
+    residency, gateway, openDirectConnection, docs, counts, persisted, disconnectGates, storeFailedStuck,
     disconnectCallCount: () => disconnectCalls,
     /** 建一个 held∧idle 会话（withSession read 完成即 refCount=0 常驻池化） */
     pool: async (pid: string) => { await residency.withSession(pid, () => 'r', { mode: 'read' }); },
@@ -299,6 +303,7 @@ describe('Y0c T16 Z110/Z129：storeFailed 强制淘汰', () => {
   it('storeFailed 标记⇒spool 交接+清会话条目+evicted{forced}+unloadDocument 直调（Z65 唯一调用点）', async () => {
     const fx = makeFixture();
     await fx.pool('p1');
+    fx.storeFailedStuck.add('project:p1');   // store 失败留驻形态（库 esm:1540-1549——释放后 doc 仍在，直调的靶）
     fx.gateway.storeFailedDocs.add('p1');
     const before = await counterValue('yjs_doc_evicted_total', 'forced');
 
@@ -311,17 +316,17 @@ describe('Y0c T16 Z110/Z129：storeFailed 强制淘汰', () => {
     expect(fx.disconnectCallCount()).toBe(1);                      // direct 连接计数归零（unload 过库谓词的前提）
   });
 
-  it('交接失败⇒拒绝淘汰该会话（条目保留）+handoff_failure 计数+1（Z129/Z143——非放弃）', async () => {
+  it('交接失败⇒拒绝淘汰该会话（条目保留）+release_handoff_failed 计数+1（Z129/Z143——非放弃；Y0c T17 改道 tryRelease 带批档后计数面从 unload_handoff 迁本表）', async () => {
     const fx = makeFixture();
     await fx.pool('p1');
     fx.gateway.storeFailedDocs.add('p1');
     fx.gateway.handoffPendingToSpool.mockResolvedValue(false);
-    const before = await counterValue('yjs_unload_handoff_failure_total');
+    const before = await counterValue('yjs_release_handoff_failed_total');
     const evBefore = await counterValue('yjs_doc_evicted_total', 'forced');
 
     await (fx.residency as any).reapTick();
 
-    expect(await counterValue('yjs_unload_handoff_failure_total')).toBe(before + 1);
+    expect(await counterValue('yjs_release_handoff_failed_total')).toBe(before + 1);
     expect(fx.residency.sessionState('p1')).toBe('held');          // 条目保留（拒绝淘汰）
     expect(await counterValue('yjs_doc_evicted_total', 'forced')).toBe(evBefore);
     expect(fx.gateway.server.hocuspocus.unloadDocument).not.toHaveBeenCalled();
@@ -368,6 +373,7 @@ describe('Y0c T16 Z110/Z129：storeFailed 强制淘汰', () => {
   it('unloadDocument 直调抛错⇒失败计数+1（条目已清——淘汰本身不回滚）', async () => {
     const fx = makeFixture();
     await fx.pool('p1');
+    fx.storeFailedStuck.add('project:p1');   // store 失败留驻形态——直调可达（释放后 doc 仍在）
     fx.gateway.storeFailedDocs.add('p1');
     fx.gateway.server.hocuspocus.unloadDocument.mockRejectedValue(new Error('hook rejected'));
     const before = await counterValue('yjs_force_evict_failure_total');
@@ -376,6 +382,134 @@ describe('Y0c T16 Z110/Z129：storeFailed 强制淘汰', () => {
 
     expect(await counterValue('yjs_force_evict_failure_total')).toBe(before + 1);
     expect(fx.residency.sessionState('p1')).toBeUndefined();       // 条目已清（计数告警不回滚淘汰）
+  });
+});
+
+// ═══ Y0c T17（Z129/Z141/Z143）：统一释放入口 tryRelease——常规档两前置拒绝/带批档 spool 交接 ═══
+describe('Y0c T17 Z129/Z141/Z143：tryRelease 统一释放入口', () => {
+  /** yjs_release_with_pending_total 按 motive label 取值（fixture counterValue 是 reason 口径） */
+  async function pendingByMotive(motive: string): Promise<number> {
+    const m = register.getSingleMetric('yjs_release_with_pending_total') as any;
+    if (!m) return NaN;
+    return (await m.get()).values.find((v: any) => v.labels?.motive === motive)?.value ?? 0;
+  }
+
+  it('Z129 指定先红：pendingQueues 有帧（hasPendingWrites=true）+tryRelease(pid,"vacuum") ⇒ releaseSessionFor 未被调用+rejected-pending+release_with_pending{vacuum}+1+idleTimer 重置', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');                                            // held+refCount=0+idleTimer 武装
+    fx.gateway.hasPendingWrites.mockReturnValue(true);
+    const rel = vi.spyOn(fx.residency as any, 'releaseSessionFor');
+    const timerBefore = (fx.residency as any).sessions.get('p1').idleTimer;
+
+    const cntBefore = await pendingByMotive('vacuum');
+    await expect(fx.residency.tryRelease('p1', 'vacuum')).resolves.toBe('rejected-pending');
+
+    expect(rel).not.toHaveBeenCalled();                             // ★准入拒绝=原语零调用（Z129 先红形态——非「调了没卸」）
+    expect(await pendingByMotive('vacuum')).toBe(cntBefore + 1);
+    const entry = (fx.residency as any).sessions.get('p1');
+    expect(fx.residency.sessionState('p1')).toBe('held');           // 条目保留
+    expect(entry.idleTimer).not.toBeNull();
+    expect(entry.idleTimer).not.toBe(timerBefore);                  // 重置（新 timer——TTL 判据再等一轮）
+    expect(fx.disconnectCallCount()).toBe(0);
+  });
+
+  it('Z141 第二项：inFlightProjects 有 pid（队列空）⇒同上拒绝（「队列空」≠「批已落定」）', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');
+    fx.gateway.hasInFlightStore.mockReturnValue(true);
+    const rel = vi.spyOn(fx.residency as any, 'releaseSessionFor');
+
+    const cntBefore = await pendingByMotive('drain');
+    await expect(fx.residency.tryRelease('p1', 'drain')).resolves.toBe('rejected-pending');
+
+    expect(rel).not.toHaveBeenCalled();
+    expect(await pendingByMotive('drain')).toBe(cntBefore + 1);
+    expect(fx.residency.sessionState('p1')).toBe('held');
+    expect(fx.disconnectCallCount()).toBe(0);
+  });
+
+  it('会话在用（refCount>0）⇒拒绝（释放原语纪律收口——release_inflight 稳态 0 载体）', async () => {
+    const fx = makeFixture();
+    const hold = new Promise<void>(() => {});
+    void fx.residency.withSession('p1', () => hold, { mode: 'read' });   // refCount=1 在飞
+    await vi.waitFor(() => expect(fx.residency.holds('p1')).toBe(true));
+    const rel = vi.spyOn(fx.residency as any, 'releaseSessionFor');
+
+    const cntBefore = await pendingByMotive('vacuum');
+    await expect(fx.residency.tryRelease('p1', 'vacuum')).resolves.toBe('rejected-pending');
+
+    expect(rel).not.toHaveBeenCalled();
+    expect(await pendingByMotive('vacuum')).toBe(cntBefore + 1);
+    expect((fx.residency as any).sessions.get('p1').refCount).toBe(1);   // 在飞引用原样
+    expect(fx.disconnectCallCount()).toBe(0);
+  });
+
+  it('常规档放行：两前置满足 ⇒ released+releaseSessionFor 被调（经 doRelease 完整路径——条目移除+真断）', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');
+    const rel = vi.spyOn(fx.residency as any, 'releaseSessionFor');
+
+    await expect(fx.residency.tryRelease('p1', 'reaper')).resolves.toBe('released');
+
+    expect(rel).toHaveBeenCalledTimes(1);
+    expect(fx.residency.sessionState('p1')).toBeUndefined();        // doRelease 完成（条目移除）
+    expect(fx.disconnectCallCount()).toBe(1);                       // 释放握手真实发生
+    expect(fx.docs.has('project:p1')).toBe(false);                  // 零连接→持久化+真卸载
+  });
+
+  it('带批档 shutdown：批非空（常规档必拒）⇒handoff 先行+成功⇒释放；handoff 失败⇒rejected-handoff+条目保留+ERROR 计数——且非放弃（后续会话继续处理）', async () => {
+    const fx = makeFixture();
+    await fx.pool('p1');
+    await fx.pool('p2');
+    fx.gateway.hasPendingWrites.mockReturnValue(true);              // 两会话均批非空——带批档消费形态
+
+    // 臂 a：交接成功 ⇒ 允许带批释放（handoff 先行于 disconnect）
+    await expect(fx.residency.tryRelease('p1', 'shutdown')).resolves.toBe('released');
+    expect(fx.gateway.handoffPendingToSpool).toHaveBeenCalledWith('p1');
+    expect(fx.residency.sessionState('p1')).toBeUndefined();
+    expect(fx.disconnectCallCount()).toBe(1);
+
+    // 臂 b：交接失败 ⇒ 拒绝该会话（条目保留 hold 交 drain 兜底）+计数——p2 继续处理（Z143 非放弃）
+    fx.gateway.handoffPendingToSpool.mockResolvedValue(false);
+    const hfBefore = await counterValue('yjs_release_handoff_failed_total');
+    await expect(fx.residency.tryRelease('p2', 'shutdown')).resolves.toBe('rejected-handoff');
+    expect(await counterValue('yjs_release_handoff_failed_total')).toBe(hfBefore + 1);
+    expect(fx.residency.sessionState('p2')).toBe('held');           // 条目保留
+  });
+
+  it('I-1 shutdown 档 refCount>0 强释（终局档豁免）：在飞读在⇒仍 released+条目移除+conn 已断+release_inflight 计数照发（M-5 观测语义保留）——rejected 留 direct conn⇒Z81 destroy_timeout 假 ERROR「关停撞在飞读」复发面', async () => {
+    const fx = makeFixture();
+    const hold = new Promise<void>(() => {});                       // 在飞读（refCount=1）
+    void fx.residency.withSession('p1', () => hold, { mode: 'read' });
+    await vi.waitFor(() => expect((fx.residency as any).sessions.get('p1').refCount).toBe(1));
+    const b = await counterValue('collab_residency_release_inflight_total');
+
+    await expect(fx.residency.tryRelease('p1', 'shutdown')).resolves.toBe('released');   // 豁免强释（修复前=rejected-pending 即红）
+
+    expect(fx.residency.sessionState('p1')).toBeUndefined();        // 条目移除（终局档不留表）
+    expect(fx.disconnectCallCount()).toBe(1);                       // direct conn 不残留（Z81 消声面）
+    expect(await counterValue('collab_residency_release_inflight_total')).toBe(b + 1);   // WARN+计数由 releaseSessionFor M-5 守卫承载
+  });
+
+  it('构造期注册：residency 构造器把 tryRelease 经 gateway.registerResidentSessionReleaser 反向注入（三出口改道的载体面）', async () => {
+    const fx = makeFixture();
+    expect(fx.gateway.registerResidentSessionReleaser).toHaveBeenCalledTimes(1);
+    const registered = (fx.gateway.registerResidentSessionReleaser as ReturnType<typeof vi.fn>).mock.calls[0][0] as (pid: string | null, motive: string) => Promise<unknown>;
+    await fx.pool('p1');
+    // pid=null=全部常驻会话（drain/self-isolate 出口消费形态）；单 pid=vacuum quiesce 消费形态
+    await expect(registered(null, 'drain')).resolves.toBeUndefined();
+    expect(fx.residency.sessionState('p1')).toBeUndefined();        // 全部释放已发生
+  });
+
+  it('reaper 逐出改道：evictViaRelease 经 tryRelease——evicted{reason} 观测不变（ttl 路径复验）', async () => {
+    const fx = makeFixture();
+    (fx.residency as any).idleTtlMs = 1_000;
+    vi.useFakeTimers();
+    await fx.pool('p1');
+    const before = await counterValue('yjs_doc_evicted_total', 'ttl');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await counterValue('yjs_doc_evicted_total', 'ttl')).toBe(before + 1);
+    expect(fx.residency.sessionState('p1')).toBeUndefined();
   });
 });
 

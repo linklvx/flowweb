@@ -887,6 +887,25 @@ export const yjsForceEvictFailureTotal = new Counter({
   registers: [register],
 });
 
+/** ===== Y0c T17（Z129/Z143）：统一释放入口 tryRelease 两拒绝计数 ===== */
+
+/** 常规档拒绝计数（Z129 字面+Z141 两前置+refCount 在用纪律收口）——四稳态判据
+ *  release_with_pending=0 的载体（T20 扩表消费；稳态 0=三出口无批中强释）。 */
+export const yjsReleaseWithPendingTotal = new Counter({
+  name: 'yjs_release_with_pending_total',
+  help: 'tryRelease 拒绝释放计数（motive 六档——常规档 Z141 两前置违例〔pending 批在途/取批在飞〕/会话在用 refCount>0；带批档取批在飞窗或交接后复用重验；四稳态判据载体，稳态 0）',
+  labelNames: ['motive'],
+  registers: [register],
+});
+
+/** 带批档（force-evict/shutdown）spool 交接失败拒绝（Z143②——与逐会话超预算〔归 T18〕两口径分离；
+ *  关停 18s drain 前无声放弃会话的可观测出口）。 */
+export const yjsReleaseHandoffFailedTotal = new Counter({
+  name: 'yjs_release_handoff_failed_total',
+  help: 'tryRelease 带批档 spool 交接失败拒绝计数（Z143：条目保留 hold 交 drainAllDocuments 兜底，拒绝该会话非放弃整批）',
+  registers: [register],
+});
+
 /** ===== Y0c T0（spec 片 C0/Z3/Z107/Z134/Z138）：运行面观测基座 ===== */
 
 /** Y0c T8（片 A1/Z108/Z40）：writeBatch 业务级拒绝计数——reason 闭集：

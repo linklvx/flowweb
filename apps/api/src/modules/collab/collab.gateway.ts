@@ -24,6 +24,7 @@ import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, ensureSch
 import { toDocLike } from './doc-like.util';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { DEFAULT_RSS_RELEASE_BYTES, DEFAULT_RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
+import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
 
 /** Y0a-3 T5（SV7/W）：collab 面七态（模块别名——method 签名里 `typeof this.collabState` 有 TS 解析风险，恒用本名）。
  *  serving=唯一放行态；draining=部署停写；isolated=自隔离（listener 已让位）；start-failed=启动失败（有界重试）。 */
@@ -363,20 +364,43 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** V12 判据唯一化：三入口门/写意图门统一读 collabState 派生（serving=唯一放行态）——
    *  lease.isServing() 仅为租约状态机内部使用（acquireLoop/看门狗），对外服务判据唯一源=collabState。 */
   isLeaseServing(): boolean { return this.collabState === 'serving'; }
-  /** Y0b-2 T3（Z50 修订）：PG 完整性谓词——projectId 的全部在途写已落 PG。四态合一：
-   *  documents 常驻（编辑在途）/in-flight store（取批未落定）/pending 队列（去抖窗）/spool 帧
-   *  （故障期台账）任一非空 ⇒ PG 快照可能滞后 ⇒ false；四态全空=drain 已冲刷完成，快照读可信。
-   *  消费=readCanvasSnapshotCached 缓存门（谓词不满足→活读 fallback）+Y0b-3/4 settleStranded 前置门。 */
+  /** Y0b-2 T3（Z50 修订→Y0c T17 Z104 拆分）：PG 完整性谓词「PG 快照滞后度」三态合一——
+   *  in-flight store（取批未落定）/pending 队列（去抖窗）/spool 帧（故障期台账）任一非空 ⇒ PG 快照
+   *  可能滞后 ⇒ false；三态全空=内存与 PG 同步，快照读可信。**doc 常驻（documents.has）不再是滞后
+   *  信号**（Z104：原四态首项常驻下恒 false ⇒ readCanvasSnapshotCached 永远 fallback+vacuum quiesce
+   *  注定 30s 活锁——doc 常驻=独立谓词 isDocResident；常驻会话的卸载归 tryRelease('vacuum') 每轮驱动）。
+   *  消费=readCanvasSnapshotCached 缓存门（三态空=快照可信）+vacuum quiesce（三态空才 tryRelease）。 */
   isPersistedComplete(projectId: string): boolean {
-    const name = `project:${projectId}`;
-    return !this.server.hocuspocus.documents.has(name) && !this.inFlightProjects.has(projectId)
+    return !this.inFlightProjects.has(projectId)
       && (this.pendingQueues.get(projectId)?.length ?? 0) === 0 && !this.spool.hasFrames(projectId);
   }
-  /** Y0b-2 T5（Z106/Z112）：doc 常驻谓词（documents.has——区别于 isPersistedComplete 的 PG 完整性四态合一）。
+  /** Y0b-2 T5（Z106/Z112）：doc 常驻谓词（documents.has——区别于 isPersistedComplete 的 PG 快照
+   *  滞后度三态合一：常驻≠滞后，Z104 拆分正交化）。
    *  消费=reaper 终态投影分治：常驻才写 exec 投影，非常驻跳过+deferred 计数（UX 投影不得成为装载源——
    *  provider 故障批量收敛时 withDoc 批量装载=故障自放大，正撞 E39/heap 闸）。 */
   isDocResident(projectId: string): boolean {
     return this.server.hocuspocus.documents.has(`project:${projectId}`);
+  }
+  /** Y0c T17（Z129）：常驻会话统一释放回调（CollabResidencyService 构造期注册——setVacuumRunner
+   *  同款反向注入形态：residency→gateway 单向依赖，gateway 经回调触达）。pid=null ⇒ 全部常驻会话
+   *  （drain/隔离出口）；单 pid ⇒ vacuum quiesce 每轮。 */
+  private residentSessionReleaser: ((pid: string | null, motive: TryReleaseMotive) => Promise<unknown>) | null = null;
+  registerResidentSessionReleaser(fn: (pid: string | null, motive: TryReleaseMotive) => Promise<unknown>): void {
+    this.residentSessionReleaser = fn;
+  }
+  /** T17 Z129：单会话释放转发（vacuum quiesce 三态空轮消费；未注册〔直构 gateway 无 residency〕=
+   *  undefined——会话表概念不存在即「会话已不在」）。I-3 透传 residency tryRelease outcome 供 quiesce
+   *  break 判据（released=静默达成）；拒绝（批在途/在用/交接失败）由 residency 侧计数——本转发不抛
+   *  （quiesce 循环 deadline 兜底，回调异常归 undefined）。 */
+  tryReleaseResidentSession(pid: string, motive: TryReleaseMotive): Promise<TryReleaseOutcome | undefined> {
+    const op = this.residentSessionReleaser?.(pid, motive);
+    return op ? op.then((r) => r as TryReleaseOutcome | undefined, () => undefined) : Promise.resolve(undefined);
+  }
+  /** T17 Z129：全部常驻会话释放转发（drain/隔离出口消费——释放出口先行，A2 :524 Σdirect===0 证明
+   *  义务的载体；未注册=no-op）。 */
+  async releaseAllResidentSessions(motive: TryReleaseMotive): Promise<void> {
+    const op = this.residentSessionReleaser?.(null, motive);
+    if (op) await op.catch(() => undefined);
   }
   /** Y0c T15（Z111）：装载降级谓词——degradedDocs（pendingStructs/pendingDs 非空）读取出口。
    *  消费=residency acquire 新开路径阻断常驻（degraded doc 不入会话表——分钟级盲区不拉成小时级）。 */
@@ -1258,7 +1282,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           // AppendResult fenced 单失败档（no-row 已删——0 行只可能是 fenced 或 throw，T3 repo 实证）
           fenced = true;
           this.logger.error(`append fenced for ${projectId}（租约失守——批走 spool，不排退避梯）`);
-          this.selfIsolate('fenced-by-write');   // 必办①：closeAll1012+listener 释放+lost{cause} 单点计数
+          await this.selfIsolate('fenced-by-write');   // 必办①：常驻释放先行+closeAll1012+listener 释放+lost{cause} 单点计数（T17 起 async——释放出口先行）
           break;
         } catch (err) {
           if ((err as { leaseRowMissing?: boolean })?.leaseRowMissing) {
@@ -1471,15 +1495,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** E35 自隔离（不自杀不硬撑）：拒新 WS（三入口门）+closeAll1012+**释放 listener 让位**（B7：
    *  closeAllConnections 不关监听——半死场景新实例 listen 必 EADDRINUSE；用 httpServer.close 不用
    *  destroy——后者 memoized 不可逆）。计数单源=本方法（{cause}——写侧直调与心跳侧 onLost 汇入同点，
-   *  一次失守至多计 1）。re-listen 前置=M2① await listenerClosed+documents 清空（listenCollab）。 */
-  private selfIsolate(cause: 'fenced-by-write' | 'heartbeat-fenced' | 'heartbeat-unknown-expired' | 'revoked'): void {
+   *  一次失守至多计 1）。re-listen 前置=M2① await listenerClosed+documents 清空（listenCollab）。
+   *  Y0c T17（Z129）：常驻会话释放先行于 closeAll1012（await 序——A2 :524「调 closeConnections 时
+   *  Σdirect===0」证明义务；批在途会话被拒留表，批由退避梯/spool 既有链路承接）。listenerClosed
+   *  创建保持在同步段（释放 await 之前——listenCollab 的等待面就位，与释放时长解耦）。 */
+  private async selfIsolate(cause: 'fenced-by-write' | 'heartbeat-fenced' | 'heartbeat-unknown-expired' | 'revoked'): Promise<void> {
     if (this.collabState === 'isolated') return;
     this.transition('isolated', cause);   // V33
     collabLeaseLostTotal.inc({ cause });
     this.onServingTransition();   // Y0b-3 T3 防御性：隔离期写入的 LEASE_NOT_READY 缓存提前清消残窗（rejoin 的 serving 转移本会覆盖——双保险）
     this.clearDrainTimer();
     this.writeFreeze.clear();   // Y0b-4 T4：强引用台账随隔离清（连接由 closeAll1012 关——正常路径 onDisconnect 自清）
-    this.closeAllConnections1012();
     this.listenerClosed = new Promise<void>((res) => {
       try {
         this.server.httpServer?.closeAllConnections?.();   // Node≥18.2 清 keep-alive
@@ -1487,6 +1513,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         setTimeout(res, 2_000).unref?.();                  // close 回调兜底
       } catch (e) { this.logger.warn(`isolate: listener close failed: ${(e as Error).message}`); res(); }
     });
+    // I-2（质量评审）：释放段 try/finally——closeAll1012 可达性结构自证（不再依赖「转发面内部吞错」
+    // 推理链；释放 reject 时连接关闭仍必达且异常不吞上抛，调用方语义不变）。listenerClosed 同步创建
+    // 先行保证保持（上方）。
+    try {
+      await this.releaseAllResidentSessions('self-isolate');
+    } finally {
+      this.closeAllConnections1012();
+    }
     this.logger.error(JSON.stringify({ event: 'collab_self_isolate', cause, note: 'listener 已释放——rejoin 由 lease.rejoinLoop 驱动（revoked 终态）；纯 DB REST 不受影响' }));
   }
 
@@ -1548,6 +1582,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.broadcastDocStatus(pid, this.quotaStateOf(pid));
       for (const c of doc.connections.keys()) this.applyWriteFreeze(c as unknown as CollabConnection, 'draining', true);   // Y0b-4 T4：冻结层单源（B12 库逐条 update 查 readOnly）
     }
+    // Y0c T17（Z129）：drain 出口释放——冻结先行（pending 停增）后 fire-and-forget（drain API 响应
+    // 不被释放阻塞）；批在途会话被拒（计数+idleTimer 重置）留表，60s 窗内退避梯排空后 idleTimer/reaper 承接。
+    void this.releaseAllResidentSessions('drain');
     return { draining: this.collabState === 'draining', phase: this.collabState, autoReleaseAt, pending: this.computePending() };
   }
   private clearDrainTimer(): void {
@@ -1738,7 +1775,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** writesSettled（⓪ thaw 回灌收敛判定）：pending 队列空+spool 无帧+无在飞 store（不要求卸载——
-   *  isPersistedComplete 的 doc 卸载维度留给 ③ quiesce）。 */
+   *  Y0c T17 Z104 拆分后与 isPersistedComplete 同一三态口径；doc 常驻/卸载维度不在滞后度谓词内）。 */
   private writesSettled(pid: string): boolean {
     return (this.pendingQueues.get(pid)?.length ?? 0) === 0 && !this.spool.hasFrames(pid)
       && !this.inFlightProjects.has(pid);
@@ -2619,7 +2656,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   async onModuleInit(): Promise<void> {
     // 租约回调接线（W5 单点：启动只经 onAcquired；失守/撤销→selfIsolate）
     this.lease.onAcquired = () => this.startCollabAfterLease();
-    this.lease.onLost = (cause) => this.selfIsolate(cause);
+    this.lease.onLost = (cause) => { void this.selfIsolate(cause); };   // T17 起 async（常驻释放先行）——回调不等待
     // 事件订阅先于租约（获取窗口内 project.gone/team.disbanded 照常清账——内存终态不依赖 listen）。
     // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 终态处理（清账+关连接），不查库
     this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
