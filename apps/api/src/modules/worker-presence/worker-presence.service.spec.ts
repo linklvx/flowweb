@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { register } from 'prom-client';
 import { QUEUE_NAMES } from '../../config/queue.constants';
-import { WorkerPresenceService, PRESENCE_CACHE_TTL_MS, PAID_QUEUE_NAMES } from './worker-presence.service';
+import { WorkerPresenceService, PRESENCE_CACHE_TTL_MS, PROBE_TIMEOUT_MS, PAID_QUEUE_NAMES } from './worker-presence.service';
 
 function fakeQueue(workers: unknown[] = [], waiting = 0) {
   return {
@@ -54,6 +54,25 @@ describe('Y0c T29-II WorkerPresenceService（Z130/Z148②）', () => {
     const svc = new WorkerPresenceService(exec as any, fakeQueue() as any, fakeQueue() as any);
     expect(await svc.getPresence(QUEUE_NAMES.EXECUTION)).toBeNull();
     expect(await svc.getPresence(QUEUE_NAMES.EXECUTION)).toBeNull();
+    expect(exec.getWorkers).toHaveBeenCalledTimes(2);
+  });
+
+  it('getPresence：探测悬挂（Redis 断连 ioredis offline queue 永不 resolve/reject）⇒ PROBE_TIMEOUT_MS 窗内返回 null 且不写缓存', async () => {
+    let hang = true;
+    const exec = {
+      getWorkers: vi.fn(() => (hang ? new Promise<never>(() => {}) : Promise.resolve([{}, {}]))),
+      getWaitingCount: vi.fn(async () => 0),
+    };
+    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any, fakeQueue() as any);
+    let resolved = false;
+    const pending = svc.getPresence(QUEUE_NAMES.EXECUTION);
+    void pending.then(() => { resolved = true; });
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS + 10);
+    expect(resolved).toBe(true);   // 现实现裸 await 永不 settle=红（/api/ready 快答退化为不答面）
+    expect(await pending).toBeNull();   // 超时=探测失败⇒null（与 catch 分支同语义）
+    // 不写缓存：恢复后下轮立即重探拿真值（超时窗不吞 5s TTL）
+    hang = false;
+    expect(await svc.getPresence(QUEUE_NAMES.EXECUTION)).toEqual({ registered: 2, waiting: 0 });
     expect(exec.getWorkers).toHaveBeenCalledTimes(2);
   });
 

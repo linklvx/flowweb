@@ -37,6 +37,12 @@ export interface WorkerPresence {
  *  内漏拒，enqueue 后作业留队待 worker 恢复即被消费，非资损面〕）。 */
 export const PRESENCE_CACHE_TTL_MS = 5_000;
 
+/** 探测有界超时（Y0c T29-II I-1）：Redis 真断时 ioredis enableOfflineQueue:true+blocking 连接
+ *  maxRetriesPerRequest:null 叠加 ⇒ getWorkers/getWaitingCount 进 offline queue **永不 reject 也
+ *  永不 resolve**——超时是探测读面唯一出口。超时=探测失败 ⇒ null 且不写缓存（与 catch 分支同
+ *  语义——/api/ready 快答不退化、worker 引导门/health/web 探测全部有界）。 */
+export const PROBE_TIMEOUT_MS = 2_000;
+
 @Injectable()
 export class WorkerPresenceService {
   private readonly queues: Record<PaidQueueName, Queue>;
@@ -60,21 +66,31 @@ export class WorkerPresenceService {
   async getPresence(queue: PaidQueueName): Promise<WorkerPresence | null> {
     const hit = this.cache.get(queue);
     if (hit && Date.now() - hit.at < PRESENCE_CACHE_TTL_MS) return hit.v;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const q = this.queues[queue];
-      const [workers, waiting] = await Promise.all([q.getWorkers(), q.getWaitingCount()]);
-      const v: WorkerPresence = { registered: workers.length, waiting };
+      const probe = Promise.all([q.getWorkers(), q.getWaitingCount()]).then(
+        ([workers, waiting]): WorkerPresence => ({ registered: workers.length, waiting }),
+      );
+      // I-1：断连时 probe 永挂（offline queue 不 reject）——race 超时是唯一出口（见 PROBE_TIMEOUT_MS）
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`presence probe timeout ${PROBE_TIMEOUT_MS}ms`)), PROBE_TIMEOUT_MS);
+      });
+      const v = await Promise.race([probe, timeout]);
       this.cache.set(queue, { at: Date.now(), v });
       return v;
     } catch {
-      return null;   // 探测失败（Redis 错）⇒ unknown——不做双重失败（注释见 assertAdmittable）
+      return null;   // 探测失败/超时（Redis 错或断连挂起）⇒ unknown——不做双重失败（注释见 assertAdmittable）
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
   /** 读面②：enqueue 准入门（Z148②——用户准入点专用；内部 best-effort enqueue 豁免见偏离 38）。
    *  registered=0 ⇒ inc collab_worker_absent_total{queue}+503 WORKER_ABSENT（Retry-After: 30 由
    *  CollabNotServingFilter 附——F11 同源：宁可明确告知不可服务也不收注定退款的作业）。
-   *  unknown（null）⇒ 放行：enqueue 自身会失败暴露真因（Redis 真断时 add 必抛），不做双重失败。 */
+   *  unknown（null）⇒ 放行：enqueue 自身会失败暴露真因，不做双重失败。（I-1 勘正：Redis 真断时
+   *  add 同样进 offline queue 挂起而非必抛——门禁不恶化既有面；PROBE_TIMEOUT_MS 仅保护探测读面。） */
   async assertAdmittable(queue: PaidQueueName): Promise<void> {
     const p = await this.getPresence(queue);
     if (p === null) return;

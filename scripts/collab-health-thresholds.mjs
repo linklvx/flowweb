@@ -137,7 +137,7 @@ export const WORKER_METRIC_CHECKS = {
 /** Y0c T29-II（Z130①②/R6c）：/api/ready token 档 workers 维度阈值——三付费队列 registered≥1
  *  （任一 0/维度缺失/探测 null ⇒ P0）+waiting>5 ⇒ P1（消费滞后）。队列名单 api 侧单源=
  *  config/queue.constants.ts QUEUE_NAMES（脚本独立不引 api 代码——resolveSpoolCapacityBytes 同款
- *  惯例，手抄面由 ready.service PAID_QUEUE_NAMES 同源派生约束）。 */
+ *  惯例）。两侧手抄（无机器断言绑定）；漂移⇒ready-workers-missing/registered fail-loud P0 非静默。 */
 export const WORKER_PRESENCE_CHECK = {
   queues: ['execution', 'ai-image-edit', 'ai-result-download'],
   minRegistered: 1,

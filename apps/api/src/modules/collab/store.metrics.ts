@@ -863,7 +863,7 @@ export function registerUpdatesRowsReader(fn: () => number | Promise<number>): v
 export function unregisterUpdatesRowsReader(): void { updatesRowsReader = null; }
 export const yjsUpdatesRowsTotal = new Gauge({
   name: 'yjs_updates_rows_total',
-  help: 'canvasDocUpdate 总行数（Z125-5 观测项非机制项——行数突破 60s 稳态可预警，行数门归 Y1c-3 再裁；reader=prisma count 每 scrape 一次）',
+  help: 'canvasDocUpdate 总行数（_total 后缀系 spec Z125-5 定名，实为 gauge；观测项非机制项——行数突破 60s 稳态可预警，行数门归 Y1c-3 再裁；reader=prisma count 每 scrape 一次）',
   registers: [register],
   async collect() { try { this.set(await (updatesRowsReader?.() ?? 0)); } catch { this.set(0); } },
 });

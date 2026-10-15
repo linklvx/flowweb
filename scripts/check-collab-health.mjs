@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/check-collab-health.mjs —— Y0b-5 T15（Y0b-3 移交②收口）：collab 面巡检（cron */5）。
 // 数据源：GET /metrics（x-prometheus-token——生产 fail-closed）+GET /api/ready（token 档——Y0c T29-II
-// 起 workers 维度消费，请求带同款 token header）+GET worker 3002 /metrics（Y0c T29-II Z130③「巡检
+// 起 workers 维度消费，请求带 COLLAB_ADMIN_TOKEN ?? PROMETHEUS_TOKEN 回退链 header〔C-1 controller 镜像〕）+GET worker 3002 /metrics（Y0c T29-II Z130③「巡检
 // 即采集面」——loopback only⇒本巡检必须服务器本地 crontab；COLLAB_HEALTH_SKIP_WORKER=1 降级跳过）。
 // 退出码：0=健康；1=P1；2=P0。P0/P1 清单单源=collab-health-thresholds.mjs THRESHOLDS（键=实际注册指标名——测试机器断言）。
 // 机制（plan T15）：
@@ -22,6 +22,7 @@ import { readEnvFile } from './lib/env-file.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENV_KEYS = [
   'PROMETHEUS_TOKEN', 'ALERT_SMS_TO', 'ALERT_SMS_TEMPLATE_ID',
+  'COLLAB_ADMIN_TOKEN',          // Y0c T29-II（C-1）：/api/ready 授权档 token（controller 回退链 COLLAB_ADMIN_TOKEN ?? PROMETHEUS_TOKEN——admin 已设时 ready 只认它）
   'TENCENT_SMS_SECRET_ID', 'TENCENT_SMS_SECRET_KEY', 'TENCENT_SMS_SDK_APP_ID', 'TENCENT_SMS_TEMPLATE_ID', 'TENCENT_SMS_SIGN_NAME',
   'COLLAB_SPOOL_CAPACITY_BYTES', 'COLLAB_HEALTH_API_URL', 'COLLAB_HEALTH_STATE_DIR',
   'COLLAB_MAX_RESIDENT_BYTES',   // Y0c T20（Z92）：yjs_resident_bytes 上限解析（residency 使用点默认 384MiB 同源）
@@ -320,6 +321,12 @@ export async function runCheck(opts) {
 
   const base = (env.COLLAB_HEALTH_API_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
   const headers = env.PROMETHEUS_TOKEN ? { 'x-prometheus-token': env.PROMETHEUS_TOKEN } : {};
+  // Y0c T29-II（C-1）：/api/ready 授权档回退链与 collab-ready.controller.ts:31-32 镜像同源——
+  // token=COLLAB_ADMIN_TOKEN ?? PROMETHEUS_TOKEN（生产两 token 均设且异值时 ready 只认 admin token；
+  // 错配⇒公开五键档⇒workers 缺失⇒ready-workers-missing 永久 P0 误报）。/metrics 与 3002 两端点
+  // 只认 PROMETHEUS_TOKEN——维持 headers 不动。
+  const readyToken = env.COLLAB_ADMIN_TOKEN ?? env.PROMETHEUS_TOKEN;
+  const readyHeaders = readyToken ? { 'x-prometheus-token': readyToken } : {};
   let metricsOk = false;
   let metrics = null;
   try {
@@ -329,9 +336,9 @@ export async function runCheck(opts) {
   let readyOk = false;
   let ready = null;
   try {
-    // Y0c T29-II 裁决③：/api/ready 补带既有 token headers（与 /metrics 同款——token 授权档才含
-    // workers 维度；公开五键档无它=R6c P0 侦测面）
-    const r = await fetchImpl(`${base}/api/ready`, { headers, signal: AbortSignal.timeout(10_000) });
+    // Y0c T29-II 裁决③：/api/ready 带 token headers（token 授权档才含 workers 维度；公开五键档
+    // 无它=R6c P0 侦测面）——C-1 起用 readyHeaders（controller 回退链镜像，见上）
+    const r = await fetchImpl(`${base}/api/ready`, { headers: readyHeaders, signal: AbortSignal.timeout(10_000) });
     if (r.ok) { ready = await r.json(); readyOk = true; }
   } catch { /* 折 P1 ready-unreachable */ }
 

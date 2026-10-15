@@ -543,6 +543,28 @@ test('T29-II 裁决③：/api/ready 请求携带 x-prometheus-token（与 /metri
   fs.rmSync(stateDir, { recursive: true, force: true });
 });
 
+test('T29-II C-1：两 token 异值时 ready 请求带 COLLAB_ADMIN_TOKEN（controller 回退链镜像）、metrics/3002 维持 PROMETHEUS_TOKEN', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-'));
+  const seen = [];
+  const fetchImpl = async (url, opts) => {
+    seen.push({ url: String(url), headers: opts?.headers });
+    const u = String(url);
+    if (u.includes(':3002')) return { ok: true, status: 200, text: async () => workerPromText() };
+    if (u.endsWith('/metrics')) return { ok: true, status: 200, text: async () => promText() };
+    return { ok: true, status: 200, json: async () => ({ ready: true, workers: HEALTHY_WORKERS }) };
+  };
+  await runCheck({ now: 1_000_000, fetchImpl, stateDir, env: { PROMETHEUS_TOKEN: 'prom-tok', COLLAB_ADMIN_TOKEN: 'admin-tok' } });
+  // collab-ready.controller.ts:31-32 授权档 token=COLLAB_ADMIN_TOKEN ?? PROMETHEUS_TOKEN——admin 已设
+  // 时 PROMETHEUS_TOKEN 不被接受；错配⇒公开五键档⇒workers 缺失⇒ready-workers-missing 永久 P0 误报
+  const readyReq = seen.find((s) => s.url.endsWith('/api/ready'));
+  assert.deepEqual(readyReq.headers, { 'x-prometheus-token': 'admin-tok' }, '/api/ready 带 admin token（现实现带 prom-tok=红）');
+  const metricsReq = seen.find((s) => s.url.endsWith('/metrics') && !s.url.includes(':3002'));
+  assert.deepEqual(metricsReq.headers, { 'x-prometheus-token': 'prom-tok' }, '/metrics 只认 PROMETHEUS_TOKEN 不动');
+  const workerReq = seen.find((s) => s.url.includes(':3002'));
+  assert.deepEqual(workerReq.headers, { 'x-prometheus-token': 'prom-tok' }, 'worker 3002 只认 PROMETHEUS_TOKEN 不动');
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
 test('T29-II R6d：collab_worker_absent_total counter-delta——窗口增量>0 ⇒ P1（enqueue fail-closed 拒绝面）', () => {
   const last = { ts: 0, counters: { collab_worker_absent_total: 0 }, overload_tripped: 0, not_serving_since: null, rounds: {} };
   const s = parsePromText(promText({ 'collab_worker_absent_total{queue="execution"}': 2 }));
