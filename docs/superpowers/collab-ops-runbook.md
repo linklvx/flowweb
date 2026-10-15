@@ -220,7 +220,7 @@ crontab 行（复制即用；禁提交 crontab 文件——日志与状态都在
 */5 * * * * cd /home/ubuntu/flowweb && node scripts/check-collab-health.mjs >> .data/collab-health.log 2>&1
 ```
 
-- 退出码：0=健康；1=P1（ready=false 任何 reason/stuck 增量连续 2 轮=10min/zero_conn 不回落/auth bucket 高增/doc 超阈增量/degraded 四键越阈/awareness>8 持续/ws_close 4410+4404 占比）；2=P0（overload tripped 连续/not-serving>1min/资金不变量增量/spool 容量熔断+满仓）。P0/P1 清单与阈值单源=`scripts/collab-health-thresholds.mjs`（THRESHOLDS 键=实际注册指标名——`check-collab-health.test.mjs` 机器断言禁手抄）。**首跑（无上次采样）恒 exit 1**（增量类全 insufficient-samples）——装 crontab 后第一个周期属预期，勿当故障；api 进程重启（部署）后同样一轮重基线。
+- 退出码：0=健康；1=P1（ready=false 任何 reason/stuck 增量连续 2 轮=10min/zero_conn 不回落〔Y0c T20 口径=仅 WS 零且无 direct 持有——常驻会话持有的 doc 不计〕/auth bucket 高增/doc 超阈增量/degraded 四键越阈/awareness>8 持续/ws_close 4410+4404 占比；**Y0c T20 常驻重标（Z73/Z126①）**：overload tripped 连续——常驻集=预期态，冷 doc 拒绝期 tripped=1 是设计降级非静默故障，原 P0 重标 P1；**四稳态（Z122④）**：`yjs_shutdown_direct_leak_total`〔destroy_timeout 面〕/`collab_doc_vacuum_total{result="quiesce-timeout"}`/`collab_vacuum_autotrigger_stacked_total` 增量、`yjs_release_with_pending_total` 连续 2 轮增量〔refCount>0 瞬态 tick≠三出口病理——交织窗排除〕；**Z92 配对**：`yjs_resident_bytes` 超限而 over_limit/evicted 皆零〔连续 2 轮=字节约束死键〕或上限内 over_limit 连续 2 轮增量）；2=P0（not-serving>1min/资金不变量增量/spool 容量熔断+满仓）。P0/P1 清单与阈值单源=`scripts/collab-health-thresholds.mjs`（THRESHOLDS 键=实际注册指标名——`check-collab-health.test.mjs` 机器断言禁手抄）。**首跑（无上次采样）恒 exit 1**（增量类全 insufficient-samples）——装 crontab 后第一个周期属预期，勿当故障；api 进程重启（部署）后同样一轮重基线。
 - **心跳自证**：每次运行写 `.data/collab-health-heartbeat.txt`——外层停更 >15min 即 P0 判据（巡检自身/整机 cron 死亡面，脚本无法自证）：
 
 ```bash

@@ -112,6 +112,11 @@ export const RELEASE_TOTAL_BUDGET_MS = 2_000;
 
 export interface WithSessionOptions {
   mode: 'read' | 'write';
+  /** Y0c T20（Z105 spec :526）：即用即释档——acquire 走 Z111 degraded 同款 entry:null 路径（新开
+   *  conn 用完即 disconnect，**不入会话表**——releaseAcquire 既有收尾，非第二套开连逻辑）。消费面=
+   *  reconcile 5min 周期探针（probeArtifacts→readCanvas）——防 5min 一次把几十个无人项目钉在内存；
+   *  REST/作业面读缺省入池（T15 常驻语义不变）。 */
+  ephemeral?: boolean;
 }
 
 interface Acquired {
@@ -193,7 +198,7 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     }
     if (opts.mode === 'write') this.assertWriteAdmitted();
 
-    const acquired = await this.acquireSerialized(projectId);
+    const acquired = await this.acquireSerialized(projectId, opts.ephemeral === true);
     try {
       const doc = acquired.conn.document;
       if (!doc) throw new Error('direct connection closed');
@@ -385,10 +390,11 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     return outcome;
   }
 
-  /** 同 pid acquire 串行化（并发窗防双开——链尾消费后自清理，Map 不无界增长）。 */
-  private acquireSerialized(projectId: string): Promise<Acquired> {
+  /** 同 pid acquire 串行化（并发窗防双开——链尾消费后自清理，Map 不无界增长）。ephemeral 透传
+   *  （T20：即用即释读不撞池分支，但仍排队——doc 级开连天然串行语义不变）。 */
+  private acquireSerialized(projectId: string, ephemeral = false): Promise<Acquired> {
     const prev = this.acquireChains.get(projectId) ?? Promise.resolve();
-    const job = prev.then(() => this.acquire(projectId), () => this.acquire(projectId));
+    const job = prev.then(() => this.acquire(projectId, ephemeral), () => this.acquire(projectId, ephemeral));
     const tail = job.catch(() => undefined);
     this.acquireChains.set(projectId, tail);
     void tail.finally(() => {
@@ -398,16 +404,17 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** acquire：held 命中=refCount++ 复用（Z59 钉住面零新开）；releasing=有限等待释放完成（超时计数
-   *  即新开——Z109 不变量）；zombie/无会话=新开 conn 入表；degraded（Z111）=不入池瞬态。 */
-  private async acquire(projectId: string): Promise<Acquired> {
+   *  即新开——Z109 不变量）；zombie/无会话=新开 conn 入表；degraded（Z111）=不入池瞬态；
+   *  ephemeral（T20/Z105）=跳过池分支直开+不入表（Z111 同款 entry:null 收尾）。 */
+  private async acquire(projectId: string, ephemeral = false): Promise<Acquired> {
     const existing = this.sessions.get(projectId);
-    if (existing && existing.state === 'held' && existing.conn.document) {
+    if (!ephemeral && existing && existing.state === 'held' && existing.conn.document) {
       existing.refCount += 1;
       if (existing.idleTimer) { clearTimeout(existing.idleTimer); existing.idleTimer = null; }   // T16：活跃复用即撤销空闲计时
       existing.idleSince = undefined;
       return { pid: projectId, conn: existing.conn, entry: existing };
     }
-    if (existing && existing.state === 'releasing') {
+    if (!ephemeral && existing && existing.state === 'releasing') {
       let timer: ReturnType<typeof setTimeout> | undefined;
       // 等待信号=releaseSettled（disconnect 真实 settle）非 releasePromise（其 5s 自超时即 resolve——
       // 接它则 acquire 超时分支永不可达=死计数）。released=释放真正了结（成功/失败/超时后挂起段终局）。
@@ -429,6 +436,14 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
         consumeDirectLoad(projectId);   // 装载未触发（doc 常驻/open 失败）清残留；已触发时 loadDocument 已消费（幂等）
         yjsWithdocOpenDuration.observe((Date.now() - openT0) / 1000);   // open 段耗时（含装载段——与 withDoc 同一观测面）
       });
+    // Y0c T20（Z105 spec :526）：ephemeral 即用即释——不入会话表（reconcile 5min 探针面防钉住无人
+    // 项目；doc 已被池持有时任开第二条 direct 也无害：disconnect 时 count>0 ⇒ 不卸载；store 钩子链
+    // 仍触但空批 noop 早退——esm:1145-1174 无条件 storeDocumentHooks(immediately=true)，count 门
+    // :1160 只挡卸载尾程不挡 store；应用层 storeDocumentUnlocked 空批 noop〔yjs_store_drain_total{noop}〕）。
+    // entry:null=Z111 degraded 同款形态（releaseAcquire finally 即 disconnect）——参数化分支非第二套开连逻辑。
+    if (ephemeral) {
+      return { pid: projectId, conn, entry: null };
+    }
     // Z111 degraded 阻断：不入会话表（本次即用即断=旧行为；整行缺失不可探测面维持每次装载+每次告警）
     if (this.gateway.isDocDegraded(projectId)) {
       this.logger.warn(`residency skip (degraded doc): project:${projectId}——Z111 不入池，本次即用即断`);

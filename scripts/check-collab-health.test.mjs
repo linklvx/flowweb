@@ -23,9 +23,12 @@ test('阈值表单源断言：THRESHOLDS 键 ⊆ 实际注册指标名（*.metri
   assert.deepEqual([...new Set(t14)].sort(), ['dirtyDocs', 'oldestUnflushed', 'spoolDepth', 'stuckDocs'],
     'T14 四键注解（t14Key）必须齐且恰四——巡检与 ready token 视图同源');
   // 资金不变量 P0 面（plan T15 P0 清单钉——名字从 THRESHOLDS 读，测试只钉键名契约）
-  for (const m of ['intent_frozen_stranded_total', 'intent_reconcile_mismatch_total', 'ai_artifact_discarded_total', 'yjs_spool_capacity_total', 'collab_overload_state']) {
+  for (const m of ['intent_frozen_stranded_total', 'intent_reconcile_mismatch_total', 'ai_artifact_discarded_total', 'yjs_spool_capacity_total']) {
     assert.equal(THRESHOLDS[m]?.level, 'P0', `${m} 必须在 THRESHOLDS 且 P0`);
   }
+  // Y0c T20：heap 闸按常驻重标（Z73/Z126①——常驻集=预期态：冷 doc 拒绝期 tripped=1 是合法降级非异常，
+  // P0「静默降级」定性不再成立——降 P1 分诊面；双进程阈值重标归片 D 内存实测）
+  assert.equal(THRESHOLDS['collab_overload_state']?.level, 'P1', 'collab_overload_state 重标 P1（常驻化后合法降级面）');
 });
 
 // ===== it 2：P0 命中→exit 2+SMS 恰一条+per-check 节流 =====
@@ -51,6 +54,14 @@ function promText(overrides = {}) {
     'collab_ws_close_total{code="1000",reason="x"}': 0,
     'collab_ws_close_total{code="4410",reason="y"}': 0,
     'collab_ws_close_total{code="4404",reason="z"}': 0,
+    // Y0c T20（Z122④ 四稳态+Z92 面）零基线
+    yjs_shutdown_direct_leak_total: 0,
+    'collab_doc_vacuum_total{result="quiesce-timeout"}': 0,
+    collab_vacuum_autotrigger_stacked_total: 0,
+    yjs_release_with_pending_total: 0,
+    yjs_resident_bytes: 0,
+    'yjs_resident_over_limit_total{kind="bytes"}': 0,
+    'yjs_doc_evicted_total{reason="lru"}': 0,
     ...overrides,
   };
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
@@ -162,11 +173,11 @@ test('evaluate：not-serving>1min→P0；其余 ready=false reason→P1', () => 
   assert.ok(e2.findings.some((f) => f.level === 'P1' && f.check === 'ready-false' && /pg-down/.test(f.detail)));
 });
 
-test('evaluate：heap 闸 tripped 连续两样本→P0；spool 深度 50%/80% 预阈值 P1+满仓 P0', () => {
+test('evaluate：heap 闸 tripped 连续两样本→P1（Y0c T20 常驻重标——原 P0）；spool 深度 50%/80% 预阈值 P1+满仓 P0', () => {
   const tripped = parsePromText(promText({ 'collab_overload_state{state="ok"}': 0, 'collab_overload_state{state="tripped"}': 1 }));
   const last = { ts: 0, counters: {}, overload_tripped: 1, not_serving_since: null, rounds: {} };
   const e = evaluate({ metricsOk: true, metrics: tripped, readyOk: true, ready: { ready: true } }, last, 1_000_000, {});
-  assert.ok(e.findings.some((f) => f.level === 'P0' && f.check === 'collab_overload_state'), 'tripped 连续 → P0');
+  assert.ok(e.findings.some((f) => f.level === 'P1' && f.check === 'collab_overload_state'), 'tripped 连续 → P1（常驻重标）');
 
   const cap = resolveSpoolCapacityBytes({});
   const half = parsePromText(promText({ yjs_spool_depth_bytes: Math.floor(cap * 0.5) + 1 }));
@@ -341,4 +352,78 @@ test('T15Q-M3：SMS 发送失败不消耗节流窗——同 check 节流窗内�
   await runCheck({ now: 1_000_000 + 600_000, fetchImpl: makeFetch({ metricsText: promText({ yjs_spool_capacity_total: 2 }) }), stateDir, env, smsSender });
   assert.equal(sent.length, 1, '失败轮未写节流戳——窗内复发重试发送（不被失败消耗）');
   fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+// ===== Y0c T20（Z122④ 四稳态判据扩表+Z92 改形+heap 闸按常驻重标——先红：改造前无这些 check 即红） =====
+
+const LAST_ZERO = { ts: 0, counters: {}, overload_tripped: 0, not_serving_since: null, rounds: {} };
+const evalOk = (metrics, last, now = 1_000_000) =>
+  evaluate({ metricsOk: true, metrics, readyOk: true, ready: { ready: true } }, last, now, {});
+
+test('T20 四稳态（Z122④）：destroy_timeout 面/quiesce-timeout/stacked 增量→P1；release_with_pending 连续 2 轮才 P1（T17 评审观察项：refCount>0 瞬态 tick≠三出口病理——读数排除交织窗）', () => {
+  const STEADY_ZERO = {
+    ts: 0, overload_tripped: 0, not_serving_since: null, rounds: {},
+    counters: {
+      yjs_shutdown_direct_leak_total: 0,
+      'collab_doc_vacuum_total{result="quiesce-timeout"}': 0,
+      collab_vacuum_autotrigger_stacked_total: 0,
+      yjs_release_with_pending_total: 0,
+    },
+  };
+  const s1 = parsePromText(promText({
+    yjs_shutdown_direct_leak_total: 1,
+    'collab_doc_vacuum_total{result="quiesce-timeout"}': 1,
+    collab_vacuum_autotrigger_stacked_total: 1,
+    yjs_release_with_pending_total: 1,
+  }));
+  const e1 = evalOk(s1, STEADY_ZERO);
+  for (const c of ['yjs_shutdown_direct_leak_total', 'collab_doc_vacuum_total', 'collab_vacuum_autotrigger_stacked_total']) {
+    assert.ok(e1.findings.some((f) => f.level === 'P1' && f.check === c), `${c} 增量→P1（改造前无此 check——先红）`);
+  }
+  assert.ok(!e1.findings.some((f) => f.check === 'yjs_release_with_pending_total' && !f.insufficient),
+    'release_with_pending 第 1 轮增量不即红（交织窗排除——rounds 2）');
+  const s2 = parsePromText(promText({
+    yjs_shutdown_direct_leak_total: 1,
+    'collab_doc_vacuum_total{result="quiesce-timeout"}': 1,
+    collab_vacuum_autotrigger_stacked_total: 1,
+    yjs_release_with_pending_total: 2,
+  }));
+  const e2 = evalOk(s2, e1.nextLast, 1_000_000 + 300_000);
+  assert.ok(e2.findings.some((f) => f.level === 'P1' && f.check === 'yjs_release_with_pending_total'),
+    '连续第 2 轮增量 → P1（持续拒绝=三出口病理面）');
+});
+
+test('T20 Z92 两分支（非恒真改形）：超限时必有 over_limit/evicted 计数（两轮——tick ≤15s 滞后窗排除）；执法响应在场不告；上限内 over_limit 增量连续 2 轮才告', () => {
+  const limit = 402_653_184;   // resolveMaxResidentBytes({}) 默认 384MiB（residency 使用点默认同源）
+  const GUARD_ZERO = { ts: 0, counters: { yjs_resident_over_limit_total: 0 }, overload_tripped: 0, not_serving_since: null, rounds: {} };   // 分支 B 基线预建（stuck 用例同形态）
+  // 分支 A：bytes 超限 ∧ over_limit=0 ∧ evicted=0 → 首 2 轮后 P1（约束死键=假门禁形态——v5「≤上限恒真」的改形）
+  const over = parsePromText(promText({ yjs_resident_bytes: limit + 1 }));
+  const a1 = evalOk(over, LAST_ZERO);
+  assert.ok(!a1.findings.some((f) => f.check === 'yjs_resident_bytes' && !f.insufficient), '分支 A 首轮记录不即红（reaper tick ≤15s 滞后窗）');
+  const a2 = evalOk(over, a1.nextLast, 1_000_000 + 300_000);
+  assert.ok(a2.findings.some((f) => f.level === 'P1' && f.check === 'yjs_resident_bytes' && /超限/.test(f.detail)),
+    '持续超限零执法响应 → P1');
+  // 分支 A'：超限但 evicted>0（over_limit 同步在场）→ 执法响应在场不告
+  const overEv = parsePromText(promText({ yjs_resident_bytes: limit + 1, 'yjs_resident_over_limit_total{kind="bytes"}': 3, 'yjs_doc_evicted_total{reason="lru"}': 2 }));
+  const r1 = evalOk(overEv, LAST_ZERO);
+  const r2 = evalOk(overEv, r1.nextLast, 1_000_000 + 300_000);
+  assert.ok(!r2.findings.some((f) => f.check === 'yjs_resident_bytes'), '超限但有 over_limit/evicted 执法响应——不告（响应面非病理面）');
+  // 分支 B：上限内 over_limit 增量——第 1 轮记录、连续第 2 轮才 P1；稳定（或回落重基线）不告
+  const b1 = parsePromText(promText({ 'yjs_resident_over_limit_total{kind="bytes"}': 1 }));
+  const bb1 = evalOk(b1, GUARD_ZERO);
+  assert.ok(!bb1.findings.some((f) => f.check === 'yjs_resident_bytes' && !f.insufficient), '上限内增量首轮不即红（样本间瞬态超限已恢复属机制工作）');
+  const b2 = parsePromText(promText({ 'yjs_resident_over_limit_total{kind="bytes"}': 2 }));
+  const bb2 = evalOk(b2, bb1.nextLast, 1_000_000 + 300_000);
+  assert.ok(bb2.findings.some((f) => f.level === 'P1' && f.check === 'yjs_resident_bytes'), '上限内连续 2 轮增量 → P1（判据漂移/持续超限回摆形态）');
+  const b3 = parsePromText(promText({ 'yjs_resident_over_limit_total{kind="bytes"}': 2 }));
+  const bb3 = evalOk(b3, bb2.nextLast, 1_000_000 + 600_000);
+  assert.ok(!bb3.findings.some((f) => f.check === 'yjs_resident_bytes'), '计数稳定（历史已恢复episode）不告');
+});
+
+test('T20 heap 闸按常驻重标：tripped 持续两样本 → P1 非 P0（常驻集=预期态——冷 doc 拒绝期 tripped=1 是 Z126① 合法降级；A2 单进程段面，双进程阈值重标归片 D 实测）', () => {
+  const tripped = parsePromText(promText({ 'collab_overload_state{state="ok"}': 0, 'collab_overload_state{state="tripped"}': 1 }));
+  const last = { ts: 0, counters: {}, overload_tripped: 1, not_serving_since: null, rounds: {} };
+  const e = evalOk(tripped, last);
+  const f = e.findings.find((x) => x.check === 'collab_overload_state');
+  assert.ok(f && f.level === 'P1', `tripped 连续两样本 → P1（原 P0 重标——先红）；实得 ${JSON.stringify(f)}`);
 });

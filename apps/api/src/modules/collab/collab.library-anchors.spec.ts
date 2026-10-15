@@ -428,3 +428,76 @@ describe('Z80 反例② saveMutex 锁定 ⇒ 谓词 false（Z94②——与 Z62 
     } finally { await conn.disconnect(); await server.destroy(); }
   }, 10_000);
 });
+
+// ══ Z105 ephemeral×reaper 交织（Y0c T20 M-3——质量评审建议原文：「ephemeral 在飞读+
+// tryRelease('reaper') 交织：读完整+doc 由后断方卸载」）══ 装置裁决（Z64 同款）：交织本质=
+// 库 count 门时序（esm:1145-1174 disconnect 内部段），fixture 层 disconnect 复刻止步终态、
+// 无窗口中间态可表达 ⇒ 真库 bare Server+deferred 门控（store 段挂起=disconnect 在飞窗——
+// Z64 A 窗口同款手法）。与 T15 Z83 用例分工：彼锚应用层会话表协议（acquire 遇 releasing 有限
+// 等待），本组锚库层 count 门在「释放撞在飞 ephemeral 读」交织下的三断言：①读结果完整（释放
+// 交织不静默丢失——读落在 disconnect store await 窗内）；②doc 由后断的一方触发卸载（count 门
+// 互见：先断方 :1160 见 count>0 跳过卸载尾程，后断方 count===0 真卸载）；③无第二实例
+// （documents.get 全程同一 doc——常驻复用非重装载）。
+describe('Z105 ephemeral×reaper 交织（Y0c T20 M-3——库 count 门时序）', () => {
+  it("ephemeral 在飞读+tryRelease('reaper') 交织：读完整+doc 由后断方卸载（count 门互见）+无第二实例", async () => {
+    const deferred = <T = void>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
+    const storeGate = deferred<void>();
+    const readGate = deferred<void>();
+    let storeEntered = false;
+    let armed = false;   // store 门只挂交织段（transact 触发的常规 debounced store 不拦——先等其 settle）
+    const persisted = new Map<string, Uint8Array>();
+    const server = new Server({
+      port: 0, quiet: true, stopOnSignals: false, debounce: 100, maxDebounce: 150,
+      onStoreDocument: async ({ document }) => {
+        persisted.set(document.name, Y.encodeStateAsUpdate(document));
+        if (armed) { storeEntered = true; await storeGate.promise; }   // 交织段门：disconnect 的 storeDocumentHooks(immediately=true) 挂起=「释放进行中」窗（esm:1149 await 段）
+      },
+    });
+    await server.listen();
+    const name = 'p-z105-ephemeral-reaper';
+    const connResident = await server.hocuspocus.openDirectConnection(name);   // 常驻 direct（会话表 held 档形态——Z59 钉住面）
+    const doc = server.hocuspocus.documents.get(name)!;
+    let connEphemeral: Awaited<ReturnType<typeof server.hocuspocus.openDirectConnection>> | null = null;
+    try {
+      await connResident.transact((d) => { d.getMap('nodes').set('k1', new Y.Map([['x', 1]])); });
+      const debouncer = (server.hocuspocus as any).debouncer;
+      await pollUntil(() => !debouncer.isDebounced(`onStoreDocument-${name}`) && !debouncer.isCurrentlyExecuting(`onStoreDocument-${name}`), 3_000);   // 常规 store 先走完（Z80 入口① 同款判据——隔离交织段单变量）
+
+      connEphemeral = await server.hocuspocus.openDirectConnection(name);   // ephemeral 读开连（withSession ephemeral entry:null 形态）：doc 常驻 ⇒ 同名复用（esm:1432-1433）⇒ count=2
+      expect(server.hocuspocus.documents.get(name)).toBe(doc);              // 断言③（开连面）：无第二实例
+      expect(doc.getConnectionsCount()).toBe(2);
+
+      const readPromise = readGate.promise.then(() => {                     // ephemeral 读（read fn 异步在飞形态——readCanvas SV 等待路径同款）
+        const nodes = connEphemeral!.document!.getMap('nodes');
+        return { has: nodes.has('k1'), x: (nodes.get('k1') as Y.Map<unknown>).get('x') };
+      });
+      armed = true;
+      const dis = connResident.disconnect({ unloadImmediately: true });   // 「读进行中」触发释放：tryRelease('reaper') 对常驻会话的库层动作（releaseSessionFor→disconnect）
+      await pollUntil(() => storeEntered, 3_000);                          // 释放进行中窗开门（store await 挂起——:1160 count 检查未达）
+      expect(doc.getConnectionsCount()).toBe(1);                           // 先断方已移除自身（esm:1148 removeDirectConnection 先于 store await）——ephemeral 仍在
+
+      readGate.resolve();                                                  // 窗内完成读——释放交织中读不静默丢失
+      const read = await readPromise;
+      expect(read.has).toBe(true);                                         // 断言①：读完整（k1 在）
+      expect(read.x).toBe(1);                                              // 读完整（值无损）
+
+      storeGate.resolve();                                                 // 放行 store ⇒ :1160 count 检查=1>0 ⇒ 跳过卸载（count 门互见·先断方被后断方钉住）
+      await dis;                                                           // 先断方 disconnect 收敛（未走卸载尾程）
+      expect(server.hocuspocus.documents.has(name)).toBe(true);            // 断言②a：先断方不卸载
+      expect(server.hocuspocus.documents.get(name)).toBe(doc);             // 断言③（释放交织后）：仍同一 doc——无第二实例
+      const probe = new Y.Doc();
+      Y.applyUpdate(probe, persisted.get(name)!);                          // 先断方 flush 已提交（k1 耐久——读完整性的持久面顺带钉守）
+      expect(probe.getMap('nodes').has('k1')).toBe(true);
+
+      await connEphemeral.disconnect({ unloadImmediately: true });         // 后断方（ephemeral 收尾——releaseAcquire entry:null 同款 disconnect）
+      await pollUntil(() => !server.hocuspocus.documents.has(name), 5_000);
+      expect(server.hocuspocus.documents.has(name)).toBe(false);           // 断言②b：doc 由后断的一方触发卸载（count===0 ⇒ 真卸载）
+    } finally {
+      storeGate.resolve();   // 幂等释门（断言早退防 disconnect 管线永挂=destroy 永不 settle——Z64 同款）
+      readGate.resolve();
+      try { await connEphemeral?.disconnect({ unloadImmediately: true }); } catch { /* 清理面吞错 */ }
+      try { await connResident.disconnect({ unloadImmediately: true }); } catch { /* 清理面吞错 */ }
+      await server.destroy();
+    }
+  }, 15_000);
+});

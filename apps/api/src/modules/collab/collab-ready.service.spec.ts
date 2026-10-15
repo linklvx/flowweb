@@ -39,9 +39,9 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(r.body).toMatchObject({ ready: true, redis: 'up', pending: { projects: 0, batches: 0, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0 } });
     expect(r.body.collabProtocolVersion).toBe(CLIENT_PROTOCOL_VERSION);
   });
-  it('Y0a-4/N16：授权档 loadedDocs/connections=pending 兄弟字段（computePending 同源——禁进 pending 对象）', async () => {
+  it('Y0a-4/N16：授权档 loadedDocs/connections=pending 兄弟字段（computePending 同源——禁进 pending 对象）+Y0c T20 residentDocs/directConns 同族兄弟（Z47 显式字段——三涟漪观测面）', async () => {
     const gw = {
-      computePending: () => ({ projects: 1, batches: 2, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0, loadedDocs: 7, connections: 9 }),
+      computePending: () => ({ projects: 1, batches: 2, spoolFiles: 0, spoolBytes: 0, storeInFlight: 0, strandedFiles: 0, strandedBytes: 0, loadedDocs: 7, connections: 9, residentDocs: 7, directConns: 2 }),
       computeDegraded: () => ({ ...DEGRADED_ZERO }),
       isShuttingDown: () => false,
       isWritableOrDegraded: () => 'ok' as const,
@@ -51,8 +51,12 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     const r = await build({ gateway: gw }).svc.getReady();
     expect(r.body.loadedDocs).toBe(7);       // 旧实现 body 无此键 → 红
     expect(r.body.connections).toBe(9);
+    expect(r.body.residentDocs).toBe(7);     // Y0c T20：Z47 兄弟字段（改造前被 ...pending 吸收 → 红）
+    expect(r.body.directConns).toBe(2);
     expect(Object.keys(r.body.pending)).not.toContain('loadedDocs');   // 兄弟字段——禁进 pending（V17/SV16 pending 形状冻结）
     expect(Object.keys(r.body.pending)).not.toContain('connections');
+    expect(Object.keys(r.body.pending)).not.toContain('residentDocs');   // Y0c T20 同则（T20 前被静默吸收即红）
+    expect(Object.keys(r.body.pending)).not.toContain('directConns');
     // 精确键集冻结：rest 解构防呆——computePending 未来新字段会被 ...pending 静默吸收进响应形状，此处即红
     expect(Object.keys(r.body.pending).sort()).toEqual(['batches', 'projects', 'spoolBytes', 'spoolFiles', 'storeInFlight', 'strandedBytes', 'strandedFiles']);
   });

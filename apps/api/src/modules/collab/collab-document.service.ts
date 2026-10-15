@@ -126,12 +126,14 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  sv 差量）——v1 档/无戳∧有节点拒（明确信息，非按 abs 解释 rel 静默错位）；无戳∧零节点放行
    * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。
    *  Y0c T15（A2/Z128）：改道 withSession(read)——共享会话不 disconnect 不武装 debouncer
-   *  （旧 withDoc 路径每次 disconnect(true)=每次全量编码 store+计数抖动，终结）。 */
-  async readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
+   *  （旧 withDoc 路径每次 disconnect(true)=每次全量编码 store+计数抖动，终结）。
+   *  Y0c T20（Z105 spec :526）：opts.ephemeral=即用即释档（不入会话表）——**仅 reconcile 5min 周期
+   *  探针面（probeArtifacts）传 true**；REST/作业面读缺省入池（T15 常驻语义不变——端口面签名不动）。 */
+  async readCanvas(projectId: string, opts?: { ephemeral?: boolean }): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withSession(projectId, async (doc) => {
       ensureSchemaVersion(toDocLike(doc));
       return readRecordsFromMaps(toDocLike(doc));
-    }, { mode: 'read' });
+    }, { mode: 'read', ephemeral: opts?.ephemeral });
   }
 
   /** Y0b-2 T7：服务端 doc SV 单源出口——受理端点 SV 支配门（assertSyncAdmitted）唯一读点。
@@ -182,7 +184,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
     return this.gateway.isLeaseServing();
   }
 
-  /** Y0b-2 T5（Z106/Z112）：doc 常驻透传——reaper 投影分治判据（非常驻=跳过投影+deferred 计数）。 */
+  /** Y0b-2 T5（Z106/Z112）→Y0c T20（Z105）：doc 常驻透传=hasActiveWsConnection(pid)（仅 WS 连接数>0，
+   *  与常驻会话无关——gateway 侧定案注释同源）。消费=reaper 投影分治判据（无人看=跳过投影+deferred
+   *  计数——「无人在看=不为 UX 投影花钱」语义保留）+probeArtifacts wasResident 装载归因。 */
   isDocResident(projectId: string): boolean {
     return this.gateway.isDocResident(projectId);
   }
@@ -246,10 +250,13 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  产物键白名单（Z102）：text=result / image=resultUrl / video=videoUrl；未知 kind 不裁决
    *  （unknownKind 标记——调用方计数告警，永不把"不知道"当"无产物"）；节点已删=found:false（无产物）。
    *  Z112：非常驻 doc 探测=强制装载（钱事实允许但有界）——装载计数归因 heap 闸。
-   *  探针结果可能过期——CAS（rollbackStranded 三重守卫）才是权威。 */
+   *  探针结果可能过期——CAS（rollbackStranded 三重守卫）才是权威。
+   *  Y0c T20（Z105 spec :526）：装载=**ephemeral 即用即释不进常驻池**（5min 一次的 reconcile 探针
+   *  防钉住几十个无人项目）；wasResident=isDocResident 新形（仅 WS 连接——零 WS 即计数，常驻会话
+   *  持有不豁免装载归因）。 */
   async probeArtifacts(projectId: string, items: Array<{ nodeId: string; kind: string }>): Promise<ArtifactProbeResult[]> {
     const wasResident = this.gateway.isDocResident(projectId);
-    const { nodes } = await this.readCanvas(projectId);
+    const { nodes } = await this.readCanvas(projectId, { ephemeral: true });
     if (!wasResident) yjsDocLoadedByReconcilerTotal.inc();
     const dataOf = new Map(nodes.map((n: any) => [n.id as string, (n.data ?? {}) as Record<string, unknown>]));
     return items.map(({ nodeId, kind }) => {

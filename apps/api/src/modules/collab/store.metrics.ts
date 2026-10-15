@@ -309,11 +309,14 @@ export const yjsSnapshotFallbackTotal = new Counter({
   registers: [register],
 });
 
-/** Y0b-2 T5（Z112）：reconcile 探针（ArtifactProbe）装载非常驻 doc 计数——钱事实探测允许强制装载
- *  但有界（take:100 行限探测条数），本计数=heap 闸/E39 归因面（探测引发的装载量观测）。 */
+/** Y0b-2 T5（Z112）→Y0c T20 注释定案（Z92③/Z105）：reconcile 探针（ArtifactProbe）装载**无人看**
+ *  doc 计数——Z105 后 wasResident=hasActiveWsConnection（零 WS 即计数，常驻会话持有不豁免）；
+ *  reconcile 装载=**ephemeral 即用即释非常驻**（spec :526——用完即断不入会话表，防 5min 一次钉住
+ *  几十个无人项目）。钱事实探测允许强制装载但有界（take:100 行限探测条数），本计数=heap 闸/E39
+ *  归因面（探测引发的装载量观测）。 */
 export const yjsDocLoadedByReconcilerTotal = new Counter({
   name: 'yjs_doc_loaded_by_reconciler_total',
-  help: 'Y0b-2（Z112）：reconcile 产物探针装载非常驻 doc 计数（钱事实有界装载——heap 闸归因）',
+  help: 'Y0b-2（Z112）/Y0c T20：reconcile 产物探针装载无人看 doc 计数（ephemeral 即用即释非常驻——钱事实有界装载，heap 闸归因）',
   registers: [register],
 });
 
@@ -483,7 +486,7 @@ export const yjsPendingBytes = new Gauge({
 });
 export const yjsZeroConnDocs = new Gauge({
   name: 'yjs_zero_conn_docs',
-  help: '零连接常驻 doc 数（documents 中零连接的 doc——卡住观测候选池规模）',
+  help: 'Y0c T20（Z73）：真零连接 doc 数（仅 WS 零且无 direct 持有——常驻会话持有的 doc 不计；旧口径在常驻化后=常态噪声。卡住观测候选池规模）',
   registers: [register],
   collect() { try { this.set(heapObserverReader?.().zeroConnDocs ?? 0); } catch { this.set(0); } },
 });
@@ -693,6 +696,15 @@ export const collabDocVacuumTotal = new Counter({
   name: 'collab_doc_vacuum_total',
   help: 'vacuum 文档代际替换结果（result=ok 成功/skip-low-residue 自动路径残留不足跳过/equivalence-failed 等价断言中止 DB 零变更/unsupported-root 非 Map 根中止/quiesce-timeout 卸载等待超时中止/error 意外）',
   labelNames: ['result'],
+  registers: [register],
+});
+
+/** Y0c T20（Z66 计数半边——四稳态③载体）：同 doc 30s 窗（recheck 周期==quiesce 上界的叠加面）内
+ *  ≥2 次自动 vacuum 触发——稳态 0（check-collab-health Z122④ 消费）。计数随 T20 落地（触发判据
+ *  同批改读零 WS ∧ 零 direct——Z73 读者③）。 */
+export const collabVacuumAutotriggerStackedTotal = new Counter({
+  name: 'collab_vacuum_autotrigger_stacked_total',
+  help: 'Y0c T20（Z66）：同 doc 30s 窗内≥2 次自动 vacuum 触发计数（周期 30s==quiesce 上界 30s 会叠加——稳态 0；四稳态③判据面）',
   registers: [register],
 });
 

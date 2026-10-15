@@ -11,11 +11,15 @@
 //   gauge-tier           容量分档（spool 深度 50%/80% 预阈值+满仓——取最高命中档不叠发）
 //   gauge-max            瞬时上界；rounds>1=持续 N 轮（awareness）
 //   gauge-no-fall        非回落持续（zero_conn 候选池）
+//   bytes-guard-pair     Y0c T20（Z92 改形）：guard gauge 越 resolve{limitEnv} 上限 ⇒ 必有
+//                        guardCounter/evictCounter 累计（否则约束死键=假门禁——连续 2 轮才告，tick ≤15s
+//                        滞后窗排除）；上限内 ⇒ guardCounter 增量稳定（连续 2 轮增量才告——样本间瞬态
+//                        超限已恢复属机制工作不告）。两分支均可判（v5「≤上限」恒真失误的改形）。
 export const THRESHOLDS = {
   // ===== P0（exit 2——人工立即介入） =====
   collab_overload_state: {
-    level: 'P0', kind: 'label-gauge-persistent', labels: { state: 'tripped' },
-    note: 'heap 闸 tripped 连续两样本（巡检 5min 周期=持续 ~5min）——安全阀静默降级=全站少服务而无人知',
+    level: 'P1', kind: 'label-gauge-persistent', labels: { state: 'tripped' },
+    note: 'Y0c T20 常驻重标（原 P0）：常驻集=预期态（Z126①）——tripped 期冷 doc 拒新物化+常驻集字节 LRU 驱逐=设计降级非静默故障；持续两样本（~5min+）=容量重标信号（分诊+观察；runbook 处置面不变）。双进程 TRIP 阈值重标归片 D 内存实测',
   },
   intent_frozen_stranded_total: {
     level: 'P0', kind: 'counter-delta', delta: 0,
@@ -50,7 +54,7 @@ export const THRESHOLDS = {
   },
   yjs_zero_conn_docs: {
     level: 'P1', kind: 'gauge-no-fall', rounds: 2,
-    note: '零连接常驻 doc 持续不回落（stuck 候选池规模）——手工出口=drain→重启→观察回落',
+    note: 'Y0c T20 口径重标（Z73 读者②）：gauge 已改读「仅 WS 零且无 direct 持有」（常驻会话持有的 doc 不计——常驻噪声在读者侧消除，阈值形态维持不回落持续判定）——真零连接 doc 持续不回落=stuck 候选池；手工出口=drain→重启→观察回落',
   },
   collab_auth_reject_total: {
     level: 'P1', kind: 'counter-delta', delta: 10, labels: { source: 'bucket' },
@@ -77,12 +81,44 @@ export const THRESHOLDS = {
     matchLabels: [{ code: '4410' }, { code: '4404' }],
     note: '应用侧主动 close 中 4410（terminal/世代失效）+4404（配额强推升级）占比≥20% 且样本≥5——客户端被服务端主动断的比例面',
   },
+
+  // ===== Y0c T20（Z122④）：A2 常驻化稳态合同——四稳态判据扩表（全部稳态 0） =====
+  yjs_shutdown_direct_leak_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0,
+    note: '四稳态①destroy_timeout=0：关停步骤 0 后 Σdirect 泄漏（Z81 硬失败口径——help 自陈「非零=destroy_timeout 必发前显式点名」；hangReason 面为日志非指标，本计数为其 /metrics 载体）——增量>0=关停链交接/预算拒绝留 hold 未收敛',
+  },
+  collab_doc_vacuum_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0, labels: { result: 'quiesce-timeout' },
+    note: '四稳态②quiesce-timeout=0：vacuum 卸载等待 30s 超时中止（Z37——DB 零变更且状态自恢复，但非零=doc 排空链断信号：三态滞后度永不满足/常驻会话反复重 acquire）',
+  },
+  collab_vacuum_autotrigger_stacked_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0,
+    note: '四稳态③stacked=0：同 doc 30s 窗内≥2 次自动 vacuum 触发（Z66——recheck 周期 30s==quiesce 上界 30s 的叠加面；触发判据 T20 已改零 WS∧零 direct，计数仍测重入叠加）',
+  },
+  yjs_release_with_pending_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0, rounds: 2,
+    note: '四稳态④release_with_pending=0：三出口/带批档批中强释拒绝（Z141 前置+refCount 在用）。T17 评审观察项语境：refCount>0 瞬态 tick≠三出口病理——读数排除交织窗=连续 2 轮（10min）才告；单轮增量=交织窗内合法拒绝',
+  },
+
+  // ===== Y0c T20（Z92 改形——Z106⑤）：常驻字节主约束非恒真断言 =====
+  yjs_resident_bytes: {
+    level: 'P1', kind: 'bytes-guard-pair',
+    guardCounter: 'yjs_resident_over_limit_total', evictCounter: 'yjs_doc_evicted_total', limitEnv: 'COLLAB_MAX_RESIDENT_BYTES',
+    note: 'Z92 两分支：gauge>上限 ⇒ 必有 over_limit 或 evicted 累计（连续 2 轮——reaper tick ≤15s 滞后窗排除；两计数皆零=字节约束死键=假门禁）；上限内 ⇒ over_limit 增量稳定（连续 2 轮增量才告——样本间瞬态超限已驱逐恢复属机制工作）。「≤上限恒真」形态（env 无默认时 v5 失误）禁回潮',
+  },
 };
 
 /** spool 容量解析——与 CollabSpoolService 构造期同款（缺省/NaN/非正数回落 256MB；env 读不引 api 代码保持脚本独立）。 */
 export function resolveSpoolCapacityBytes(env) {
   const n = Number(env.COLLAB_SPOOL_CAPACITY_BYTES);
   return n > 0 ? n : 256 * 1024 * 1024;
+}
+
+/** 常驻字节主约束解析（Y0c T20 Z92）——与 CollabResidencyService 构造期同款（residency 使用点默认
+ *  384MiB=402653184，Number()|| 回落语义等价：0/NaN/非正数回落默认；env 读不引 api 代码保持脚本独立）。 */
+export function resolveMaxResidentBytes(env) {
+  const n = Number(env.COLLAB_MAX_RESIDENT_BYTES);
+  return n > 0 ? n : 402_653_184;
 }
 
 /** not-serving 持续>1min → P0（/api/ready reason 面——非指标驱动，同模块单源）。 */

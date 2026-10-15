@@ -12,7 +12,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, yjsLoadUnloadingWindowTotal, type CollabStoreTrigger } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabLeaseLostTotal, collabStartFailureTotal, collabLeaseRowMissingTotal, collabSweepCloseTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabOverloadState, collabVersionNegotiationRejectTotal, collabWsCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabBytesRateExceededTotal, collabMsgRateExceededTotal, collabHydrationDeferredTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, collabVacuumAutotriggerStackedTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, storeInFlightDocs, yjsDeletedProjects, yjsDocStuckTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreHookCallsTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadCleanupFailureTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, collabQuotaSoftThresholdTotal, collabQuotaFrameRejectedTotal, collabQuotaWritesDroppedTotal, collabQuotaTruthMeasuredTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasureDuration, yjsInboundFrameBytes, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, yjsStorePayloadBytes, yjsDocHeapAmplification, yjsStoreDuration, yjsCompactDuration, yjsLoadDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, yjsDocLoadTotal, yjsStoreTotal, consumeDirectLoad, yjsLoadUnloadingWindowTotal, type CollabStoreTrigger } from './store.metrics';
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
@@ -333,6 +333,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** 零连接窄版自动 vacuum 注入点（CollabShrinkService 构造期后置注入——gateway↔service 循环依赖
    *  最小形态：service 单向注入 gateway，gateway 经回调反向调用）。 */
   private vacuumRunner: ((pid: string) => Promise<unknown>) | null = null;
+  /** Y0c T20（Z66 计数半边）：同 doc 上次自动 vacuum 触发时点——30s 窗（FROZEN_RECHECK_INTERVAL_MS
+   *  ==VACUUM_QUIESCE_TIMEOUT_MS 叠加面）内二次触发=collab_vacuum_autotrigger_stacked_total 稳态 0
+   *  （四稳态③判据面，check-collab-health Z122④ 消费）；purgeDocState ③ 清进程态同批清理。 */
+  private readonly autoVacuumLastAt = new Map<string, number>();
   /** doc-status rev（装载播种 1——初值 0 会被客户端 rev 守卫丢首快照；卸载删除=新 epoch 复位） +
    *  上次广播态（翻转检测——T5 起为 {quota 态:writeFrozen} 复合键，rev 仅快照翻转时 ++）。 */
   private readonly docStatusRev = new Map<string, number>();
@@ -374,12 +378,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return !this.inFlightProjects.has(projectId)
       && (this.pendingQueues.get(projectId)?.length ?? 0) === 0 && !this.spool.hasFrames(projectId);
   }
-  /** Y0b-2 T5（Z106/Z112）：doc 常驻谓词（documents.has——区别于 isPersistedComplete 的 PG 快照
-   *  滞后度三态合一：常驻≠滞后，Z104 拆分正交化）。
-   *  消费=reaper 终态投影分治：常驻才写 exec 投影，非常驻跳过+deferred 计数（UX 投影不得成为装载源——
-   *  provider 故障批量收敛时 withDoc 批量装载=故障自放大，正撞 E39/heap 闸）。 */
+  /** Y0b-2 T5 → Y0c T20 定案（Z105 唯一形态=hasActiveWsConnection——**推翻 Z77「∨活跃会话」倾向**）：
+   *  谓词=仅 WS 连接数>0，与常驻会话（direct conn）**无关**。常驻若计入⇒无人在线项目的 reconcile 也真
+   *  ⇒ exec_projection_deferred_total 的「无人在看=不值得为 UX 投影花钱」语义被废+5min 一次的 reconcile
+   *  会把几十个无人项目钉在内存——故语义本就只看 WS 连接（旧 documents.has 形态在常驻化〔T15〕后恒真
+   *  =假门禁 D13 族，本批根除）。
+   *  消费=①reaper 终态投影分治（intent-reconcile projectReaped deferred 门——无人看=deferred，用户回来
+   *  alignExecFromIntents 既有机制对齐）②probeArtifacts wasResident 装载归因（yjs_doc_loaded_by_
+   *  reconciler_total——reconcile 装载=ephemeral 即用即释非常驻，T20 同批）。 */
   isDocResident(projectId: string): boolean {
-    return this.server.hocuspocus.documents.has(`project:${projectId}`);
+    return (this.server.hocuspocus.documents.get(`project:${projectId}`)?.connections.size ?? 0) > 0;
   }
   /** Y0c T17（Z129）：常驻会话统一释放回调（CollabResidencyService 构造期注册——setVacuumRunner
    *  同款反向注入形态：residency→gateway 单向依赖，gateway 经回调触达）。pid=null ⇒ 全部常驻会话
@@ -598,7 +606,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     //（禁挂 startSessionSweep——SWEEP_ENABLED=false 逃生阀不得静默关掉观测）
     registerHeapObserverReader(() => ({
       pendingBytes: [...this.pendingQueues.values()].reduce((s, q) => s + queueBytes(q), 0),
-      zeroConnDocs: [...this.server.hocuspocus.documents.values()].filter((d) => d.connections.size === 0).length,
+      // Y0c T20（Z73 读者②）：零连接口径改读 WS/direct 分解——仅 WS 零且无 direct 持有（常驻会话
+      // 在=即用态非 stuck）才计入。旧口径 connections.size===0 会把常驻会话持有的无人 doc 全量计入
+      // （常驻后「零连接 doc」从异常变常态=纯噪声）；改读后 gauge 回缩为真 stuck 候选池（Z47 同族——
+      // computePending residentDocs/directConns 显式字段的 per-doc 镜像）。
+      zeroConnDocs: [...this.server.hocuspocus.documents.values()].filter((d) => d.connections.size === 0 && (d.directConnectionsCount ?? 0) === 0).length,
     }));
     // Y0b-4 T3：容量聚合 gauge collect 源（Σ(truth+delta)——最近实测+插值上界口径）
     registerLoadedDocBytesReader(() => {
@@ -1638,18 +1650,27 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  gauge 侧取 total）。
    *  Y0a-4/N16：容量观测两字段（loadedDocs/connections）挂同一快照——gauge（yjs_loaded_documents/
    *  yjs_connection_count）与 /api/ready 授权档同源供数。connections 口径=server.getConnectionsCount()
-   *  （已聚合 WS 连接去重+directConnectionsCount 单独累加——勿再加任何分量）。 */
-  computePending(): { projects: number; batches: number; storeInFlight: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number; loadedDocs: number; connections: number } {
+   *  （已聚合 WS 连接去重+directConnectionsCount 单独累加——勿再加任何分量）。
+   *  Y0c T20（Z47 三涟漪收口）：常驻会话（direct conn）抬升 connections 合计⇒yjs_connection_count
+   *  监控误读「有用户在线」+零连接语义失真——增两**显式分解字段**（禁混入 connections）：
+   *  residentDocs=documents.size（库内存 doc 数——常驻下与 loadedDocs 同源：同一 Map.size 两名并存，
+   *  loadedDocs 供既有 gauge/ready 面、residentDocs 供零连接语义读者分解）；directConns=Σ
+   *  directConnectionsCount（graceDirectConnections count() 同款求和——WS-only 数=connections−directConns）。 */
+  computePending(): { projects: number; batches: number; storeInFlight: number; spoolFiles: number; spoolBytes: number; strandedFiles: number; strandedBytes: number; loadedDocs: number; connections: number; residentDocs: number; directConns: number } {
     let projects = 0, batches = 0;
     for (const q of this.pendingQueues.values()) {
       if (q.length > 0) { projects += 1; batches += q.length; }
     }
     const d = this.spool.depth();
+    let directConns = 0;
+    for (const doc of this.server.hocuspocus.documents.values()) directConns += doc.directConnectionsCount ?? 0;
     return {
       projects, batches, storeInFlight: this.inFlightProjects.size,
       spoolFiles: d.ownFiles, spoolBytes: d.ownBytes, strandedFiles: d.strandedFiles, strandedBytes: d.strandedBytes,
       loadedDocs: this.server.hocuspocus.documents.size,
       connections: this.server.hocuspocus.getConnectionsCount(),
+      residentDocs: this.server.hocuspocus.documents.size,
+      directConns,
     };
   }
 
@@ -1846,6 +1867,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.docGeneration.delete(pid);
     this.preVacuumSvCache.delete(pid);
     this.docResidue.delete(pid);
+    this.autoVacuumLastAt.delete(pid);   // Y0c T20（Z66）：自动触发时点台账同批清（pid 键控普查表）
     this.lastCompactAt.delete(pid);
     this.persistUnhealthy.delete(`project:${pid}`);
     for (const [c, e] of [...this.writeFreeze]) {
@@ -2223,8 +2245,15 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         // vacuum——无在线用户=无强制刷新伤害+避免画布无限期冻结（没人来点按钮）；serving 门挡
         // 中途进入。doc 常驻零连接=terminal close 路径由 vacuum ①承接（doc 不在=冻结已被卸载清理，
         // 本循环首行 continue——自动触发不可达〔无需 quiesce 一步到位分支〕）。
-        if (rounds >= AUTO_VACUUM_ROUNDS && document.connections.size === 0 && this.vacuumRunner
+        // Y0c T20（Z73 读者③）：零连接判据改读 WS/direct 分解——零 WS ∧ 零 direct 才触发（旧
+        // WS-only 判据在常驻会话持有〔direct≥1〕时误触 vacuum 撞在飞会话写）。Z66 计数半边同批
+        // 落地：同 doc 30s 窗（recheck 周期==quiesce 上界的叠加面）内≥2 次触发=stacked 计数
+        // （四稳态③稳态 0 判据面——check-collab-health Z122④）。
+        if (rounds >= AUTO_VACUUM_ROUNDS && document.connections.size === 0 && (document.directConnectionsCount ?? 0) === 0 && this.vacuumRunner
           && (this.docResidue.get(pid) ?? 0) > Math.floor(this.quota.maxDocBytes * AUTO_VACUUM_RESIDUE_RATIO)) {
+          const lastAt = this.autoVacuumLastAt.get(pid) ?? 0;
+          if (Date.now() - lastAt < FROZEN_RECHECK_INTERVAL_MS) collabVacuumAutotriggerStackedTotal.inc();
+          this.autoVacuumLastAt.set(pid, Date.now());
           void this.vacuumRunner(pid).catch((e) => this.logger.error(`auto vacuum failed for ${pid}: ${(e as Error).message}`));
         }
       }

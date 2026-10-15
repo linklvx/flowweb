@@ -96,6 +96,7 @@ function makeFixture() {
     isVacuuming: vi.fn(() => false),
     isWritableOrDegraded: vi.fn((): 'ok' | 'spool-unwritable' => 'ok'),
     isDocDegraded: vi.fn(() => false),
+    isDocResident: vi.fn((): boolean => false),   // Y0c T20（Z105）：hasActiveWsConnection 形态——夹具无 WS 恒 false（probeArtifacts wasResident 消费面）
     // Y0c T17（Z129/Z141）：tryRelease 准入读出口+带批档交接面（T16 reaper spec 同款 mock）
     hasPendingWrites: vi.fn((): boolean => false),
     hasInFlightStore: vi.fn((): boolean => false),
@@ -389,6 +390,30 @@ describe('Y0c T19 Z65：不变量 !holds ∧ getConnectionsCount()===0 ⇒ !docu
     expect(doc.directConnectionsCount).toBe(0);                    // 条件②：连接合计归零（WS 恒 0+direct 0）
     expect(fx.docs.has('project:p1')).toBe(false);                 // ⇒ 必已卸载（不变量结论）
     expect(fx.persisted.has('project:p1')).toBe(true);             // 卸载前 flush 已提交（耐久面顺带钉守）
+  });
+});
+
+// ═══ Y0c T20（Z105 spec :526）：reconcile 装载即用即释——不进常驻池 ═══
+// reconcile 5min 周期面（settleStranded→probeArtifacts）的读经 ephemeral：acquire 走 Z111 degraded
+// 同款 entry:null 路径（新开 conn 用完即 disconnect，不入会话表——防 5min 一次钉住几十个无人项目）；
+// REST/作业面读（readCanvas 缺省）维持入池（对照臂）。
+describe('Y0c T20（Z105）：reconcile 装载即用即释（ephemeral）——probeArtifacts 不进常驻池', () => {
+  it('probeArtifacts 冷 doc 探测后：会话表空+open 恰 1 次+用完即断+装载计数归因保留（改造前=入池条目在——先红）', async () => {
+    const fx = makeFixture();
+    const loadedBefore = await counterValue('yjs_doc_loaded_by_reconciler_total');
+    const out = await fx.svc.probeArtifacts('p1', [{ nodeId: 'n1', kind: 'text' }]);
+    expect(out).toEqual([{ nodeId: 'n1', kind: 'text', found: false }]);   // 夹具种子 n1 无 data.result（探针语义面）
+    expect(fx.residency().residentProjectIds()).toEqual([]);               // 改造前=['p1']（readCanvas 入池）——先红
+    expect(fx.openDirectConnection).toHaveBeenCalledTimes(1);              // 装载发生（冷 doc）
+    expect(fx.disconnectCallCount()).toBe(1);                              // 即用即释（entry:null 收尾=disconnect）
+    expect(await counterValue('yjs_doc_loaded_by_reconciler_total')).toBe(loadedBefore + 1);   // Z92③ 装载归因计数保留（wasResident=false 增点）
+  });
+
+  it('对照臂：REST/作业面 readCanvas 缺省仍入池（ephemeral 仅 reconcile 探针面——Z105「无人看=deferred」外读面不受影响）', async () => {
+    const fx = makeFixture();
+    await fx.svc.readCanvas('p2');
+    expect(fx.residency().residentProjectIds()).toEqual(['p2']);   // 会话表有条目（池化——T15 语义不变）
+    expect(fx.disconnectCallCount()).toBe(0);                      // 池化不断开（idleTimer/TTL 承接）
   });
 });
 

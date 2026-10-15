@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { THRESHOLDS, resolveSpoolCapacityBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS } from './collab-health-thresholds.mjs';
 import { readEnvFile } from './lib/env-file.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,6 +22,7 @@ const ENV_KEYS = [
   'PROMETHEUS_TOKEN', 'ALERT_SMS_TO', 'ALERT_SMS_TEMPLATE_ID',
   'TENCENT_SMS_SECRET_ID', 'TENCENT_SMS_SECRET_KEY', 'TENCENT_SMS_SDK_APP_ID', 'TENCENT_SMS_TEMPLATE_ID', 'TENCENT_SMS_SIGN_NAME',
   'COLLAB_SPOOL_CAPACITY_BYTES', 'COLLAB_HEALTH_API_URL', 'COLLAB_HEALTH_STATE_DIR',
+  'COLLAB_MAX_RESIDENT_BYTES',   // Y0c T20（Z92）：yjs_resident_bytes 上限解析（residency 使用点默认 384MiB 同源）
 ];
 
 /** prom 文本最小 parser：`name{k="v",…} value` 行（# 注释跳过）——不引 prom-client（根 scripts 零依赖惯例）。 */
@@ -186,6 +187,42 @@ export function evaluate(sample, last, now, env) {
       if (!last) { findings.push(insuff(name, '不回落判定需上次采样')); continue; }
       if (rounds >= t.rounds && prevV !== null) {
         findings.push({ check: name, level: t.level, detail: `${v} 未回落（前值 ${prevV}——连续第 ${rounds} 轮，stuck 候选池）` });
+      }
+      continue;
+    }
+
+    // Y0c T20（Z92 改形——Z106⑤）：guard gauge 与执法计数配对——「超限时必有 over_limit/evicted」非恒真
+    // 形态。分支 A（超限）：violated = bytes>limit ∧ 两计数累计皆 0（连续 2 轮才告——reaper tick ≤15s
+    // 滞后窗：首见超限后下一 tick 才计数，单轮即告会误报机制工作的首窗）；分支 B（上限内）：guardCounter
+    // 增量稳定判定（连续 2 轮增量才告——样本间瞬态超限已被驱逐恢复=机制工作非病理；进程重启回落=重基线）。
+    if (t.kind === 'bytes-guard-pair') {
+      if (!metricsOk) continue;   // metrics 闪断不判（基线不写——counter-delta 闪断保留基线惯例在 guardCounter 键上同理不写 0）
+      const bytes = m.get(name) ?? 0;
+      const limit = resolveMaxResidentBytes(env);
+      const guard = m.sum(t.guardCounter);
+      const evicted = m.sum(t.evictCounter);
+      const ck = t.guardCounter;
+      const prevGuard = last?.counters?.[ck];
+      nextLast.counters[ck] = guard;
+      if (bytes > limit) {
+        const violated = guard === 0 && evicted === 0;
+        const rounds = violated ? prevRounds + 1 : 0;
+        nextLast.rounds[name] = rounds;
+        if (rounds >= 2) {
+          findings.push({ check: name, level: t.level, detail: `${bytes}B 超限（上限 ${limit}B）连续 ${rounds} 轮而 over_limit/evicted 皆零——字节主约束未执法（死键=假门禁形态，查 COLLAB_MAX_RESIDENT_BYTES 与 reaper tick ③）` });
+        }
+        continue;
+      }
+      // 上限内分支：over_limit===0∧稳定（0 保持 0/历史值保持——增量连续 2 轮才告）
+      if (prevGuard === undefined) { findings.push(insuff(name, '上限内稳定判定需基线')); continue; }
+      if (guard < prevGuard) { nextLast.rounds[name] = 0; continue; }   // 进程重启回落——重基线
+      const delta = guard - prevGuard;
+      if (delta > 0) {
+        const rounds = prevRounds + 1;
+        nextLast.rounds[name] = rounds;
+        if (rounds >= 2) findings.push({ check: name, level: t.level, detail: `上限内（${bytes}B/${limit}B）over_limit 连续 ${rounds} 轮增量 +${delta}——样本间反复超限回摆（字节约束贴限抖动/判据漂移，查 resident 集 bytes 构成）` });
+      } else {
+        nextLast.rounds[name] = 0;
       }
       continue;
     }

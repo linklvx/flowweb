@@ -31,6 +31,8 @@ export interface CollabReadyResponse {
   spoolQuarantined?: number;
   loadedDocs?: number;     // Y0a-4/N16：容量观测（在飞 Y.Doc 数）——pending 的兄弟字段，禁进 pending 对象
   connections?: number;    // Y0a-4/N16：collab 连接数（server.getConnectionsCount() 口径）——同上
+  residentDocs?: number;   // Y0c T20（Z47）：库内存 doc 数（常驻下与 loadedDocs 同源）——三涟漪显式分解字段兄弟（同上禁进 pending）
+  directConns?: number;    // Y0c T20（Z47）：Σ directConnectionsCount（常驻会话连接——WS-only=connections−directConns）——同上
   /** Y0b-5 T14（E54⑤）：degraded 块——token 档独有（公开五键档裁剪）；观测非门禁（ready 布尔
    *  不因此翻转）。四键与指标面同源，T15 巡检按此设阈值。 */
   degraded?: CollabReadyDegraded;
