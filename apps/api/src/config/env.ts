@@ -112,6 +112,9 @@ export const envSchema = z.object({
   // WORKER_READY_TIMEOUT_MS：Z102 ready 门上限——使用点默认 60_000（worker-ready-gate.ts
   // WORKER_READY_TIMEOUT_DEFAULT_MS 单源）。
   WORKER_READY_TIMEOUT_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // WORKER_METRICS_PORT：Y0c T29（Z116/Z139）worker 指标出口端口——使用点默认 3002
+  // （worker-metrics-server.ts WORKER_METRICS_PORT 常量单源；zod 不写 default 防双源 P3）。
+  WORKER_METRICS_PORT: z.preprocess(blankToUnset, z.coerce.number().int().min(1).max(65535).optional()),
 
   // Y0b-3 T1（§0.3 表十键一次注册——消费点随后续 Task 落地，单源结构锚 EXEMPT 表登记）：
   // zod 只验形态不写 default（默认值落使用点——防双源 P3 同款）；读点按【字面量】process.env 直读纪律。
@@ -166,6 +169,12 @@ export const envSchemaValidated = envSchema.superRefine((v, ctx) => {
   // 收口为同款拒启（T26 落地时 guard 的请求级 403 fail-closed 为纵深冗余保留）；dev 维持 fail-open。
   if (!v.WORKER_WRITE_TOKEN) {
     ctx.addIssue({ code: 'custom', path: ['WORKER_WRITE_TOKEN'], message: '生产必须设置 WORKER_WRITE_TOKEN（worker 内部读写端点鉴权——未设即拒启，禁 fail-open）' });
+  }
+  // Y0c T29（Z116）：production ∧ worker ∧ PROMETHEUS_TOKEN 未设=拒启——3002 指标出口 fail-closed
+  // 主防线（与 api /metrics 同 token 同语义；worker-metrics-server 请求级 403 为纵深冗余）。
+  // api role 启动语义不变（其未设面由 PrometheusAuthGuard 请求级 403 承接——精准修改不扩面）。
+  if (v.COLLAB_ROLE === 'worker' && !v.PROMETHEUS_TOKEN) {
+    ctx.addIssue({ code: 'custom', path: ['PROMETHEUS_TOKEN'], message: '生产 worker 必须设置 PROMETHEUS_TOKEN（3002 指标出口同 token 鉴权——未设即拒启，禁 fail-open）' });
   }
 });
 

@@ -24,6 +24,8 @@ const TEXT = [
   '# HELP process_resident_memory_bytes',
   'process_resident_memory_bytes{role="api"} 204075008',
   'process_resident_memory_bytes{role="worker"} 111111111',
+  'process_tree_rss_bytes{role="worker"} 222222222',   // T29（Z91①）：worker rss 源=树合计（含 ffmpeg 子进程）
+  'process_tree_rss_bytes{role="api"} 333333333',
   'yjs_spool_depth_bytes{role="api"} 4096',
   '# TYPE yjs_store_duration_seconds_bucket histogram',
   'yjs_store_duration_seconds_bucket{le="0.005",role="api"} 1',
@@ -98,7 +100,7 @@ test('sampleOne(url, role)：经真实 HTTP 端点提取（fetch 路径集成+to
     assert.equal(s.rss, 204075008);
     assert.equal(s.docLoad.ws, 3);
     const w = await sampleOne(url, 'worker');
-    assert.equal(w.rss, 111111111);
+    assert.equal(w.rss, 222222222);   // T29：worker rss 源=process_tree_rss_bytes（树合计）非 resident
     assert.equal(w.docLoad.ws, 7);
   } finally {
     await new Promise((res) => srv.close(res));
@@ -126,6 +128,28 @@ test('sampleOne 非 2xx：错误信息含完整 URL（T29 双端点后可定位�
   try {
     const url = `http://127.0.0.1:${srv.address().port}/metrics`;
     await assert.rejects(() => sampleOne(url, 'api'), new RegExp(`${url.replace(/[/.]/g, '\\$&')} 503`));
+  } finally {
+    await new Promise((res) => srv.close(res));
+  }
+});
+
+// T29（Z91①/Z117②）：rss 源分角色——worker=process_tree_rss_bytes（进程树合计含 ffmpeg 子进程，
+// PM2 不聚合子进程）；api=process_resident_memory_bytes 维持不变（sharp 进程内 native 已含主 RSS）。
+test('T29 rss 源分角色：worker 读树指标/api 不受影响（同文本两指标并存各取各源）', () => {
+  assert.equal(sampleProcess(TEXT, 'worker').rss, 222222222);
+  assert.equal(sampleProcess(TEXT, 'api').rss, 204075008);   // 非 333333333——api 不读树指标
+});
+
+test('T29 worker fail-closed：无 process_tree_rss_bytes 样本行（采集失败不上报/旧构建）⇒ sampleOne 上抛', async () => {
+  const srv = createServer((rq, rs) => {
+    rs.writeHead(200, { 'content-type': 'text/plain' });
+    // resident 在而树指标缺——worker rss 源缺失即失明（Z117①采集失败不上报⇒装置侧宁崩勿错）
+    rs.end('process_resident_memory_bytes{role="worker"} 111111111\n');
+  });
+  await new Promise((res) => srv.listen(0, '127.0.0.1', res));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}/metrics`;
+    await assert.rejects(() => sampleOne(url, 'worker'), /失明.*process_tree_rss_bytes\{role="worker"\}/s);
   } finally {
     await new Promise((res) => srv.close(res));
   }

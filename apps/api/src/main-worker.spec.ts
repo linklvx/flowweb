@@ -28,6 +28,12 @@ describe('Y0c T26 main-worker 引导序列（Z102/Z138/Z139）', () => {
     expect(src).toContain('startWorkerMetricsServer(');
   });
 
+  it('Z116/T29：3002 出口传参——port 经 env.WORKER_METRICS_PORT（未设=使用点默认常量）+PROMETHEUS_TOKEN/NODE_ENV 透传（同 token 形态；server 文件零 env 裸读）', () => {
+    expect(src).toContain('env.WORKER_METRICS_PORT');
+    expect(src).toContain('env.PROMETHEUS_TOKEN');
+    expect(src).toContain('env.NODE_ENV');
+  });
+
   it('优雅关停：SIGTERM/SIGINT 钩子调 app.close()（BullMQ 既有 close 语义——processor in-flight 完成面）', () => {
     expect(src).toMatch(/SIGTERM/);
     expect(src).toMatch(/SIGINT/);

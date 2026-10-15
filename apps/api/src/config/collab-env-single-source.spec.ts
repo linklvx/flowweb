@@ -89,6 +89,13 @@ describe('Y0a-4 env 单源结构锚（双向）', () => {
     }
   });
 
+  it('Y0c T29 键进 schema：WORKER_METRICS_PORT optional 且无 zod default（默认值 3002 落使用点——worker-metrics-server.ts 常量单源，防双源 P3）', () => {
+    const f = (envSchema.shape as Record<string, any>)['WORKER_METRICS_PORT'];
+    expect(f, '缺键 WORKER_METRICS_PORT（T29 worker 指标出口端口消费）').toBeTruthy();
+    expect(f.isOptional(), 'WORKER_METRICS_PORT 须 optional（未设=使用点默认 3002）').toBe(true);
+    expect(f._def.typeName, 'WORKER_METRICS_PORT 禁 zod .default（双源 P3）').not.toBe('ZodDefault');
+  });
+
   it('判定函数自测（合成夹具证伪，替代恒真重言式）', () => {
     const synReads = new Set(['COLLAB_A', 'COLLAB_B']);
     const synSchema = new Set(['COLLAB_B']);

@@ -195,6 +195,33 @@ describe('Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast（envSchemaValidate
   });
 });
 
+// Y0c T29（Z116/Z134）：worker 指标出口 3002——WORKER_METRICS_PORT 形态校验（zod 不写 default，
+// 默认值 3002 落使用点=worker-metrics-server.ts 常量单源）+production∧worker∧PROMETHEUS_TOKEN
+// 未设拒启（3002 fail-closed 主防线——/metrics 同 token 同语义；api role 启动语义不变）。
+describe('Y0c T29：WORKER_METRICS_PORT 形态 + production∧worker 未设 PROMETHEUS_TOKEN ⇒ 拒启', () => {
+  it('WORKER_METRICS_PORT：1..65535 整数过/非数拒/0 拒/65536 拒/空串=未设过', () => {
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: '3002' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: '1' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: '65535' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: 'abc' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: '0' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: '65536' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, WORKER_METRICS_PORT: '' }).success).toBe(true);   // B13：空串档
+  });
+
+  it('production ∧ COLLAB_ROLE=worker ∧ PROMETHEUS_TOKEN 未设 → 拒（issue 点名 PROMETHEUS_TOKEN）', () => {
+    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_ROLE: 'worker' });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('PROMETHEUS_TOKEN');
+  });
+
+  it('production ∧ worker ∧ 已设 → 过；production ∧ api（默认）未设不拒（api 侧维持请求级 403 现状）；dev worker 未设不拒', () => {
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_ROLE: 'worker', PROMETHEUS_TOKEN: 'ptok' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development', COLLAB_ROLE: 'worker' }).success).toBe(true);
+  });
+});
+
 // Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（plan T27 字面——非 guard 403）。api/worker
 // 双进程同经 validateEnv（main.ts/main-worker.ts）——读端点（T26）+写端点（T27）两端点同批统一
 // 收口为同款拒启；dev 维持 fail-open（WorkerWriteAuthGuard 请求级 403 为纵深冗余非主防线）。

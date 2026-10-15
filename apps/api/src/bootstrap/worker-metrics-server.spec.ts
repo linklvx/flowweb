@@ -1,8 +1,9 @@
 // apps/api/src/bootstrap/worker-metrics-server.spec.ts
-// Y0c T26（Z139/P4 简版）：worker 3002 loopback 指标出口——node:http 独立 server 返 register.metrics()
-// 文本；三族验收（process_resident_memory_bytes/nodejs_heap_size_used_bytes/nodejs_eventloop_lag_seconds
-// 存在且带 role="worker"——Z139：MetricsCore 在 worker 装配=collectDefaultMetrics 唯一点）。
-// T29 归位项（本任务注释登记）：token fail-closed+health 扩读+WORKER_METRICS_PORT env 键化。
+// Y0c T26（Z139）+T29-I（Z116）：worker 3002 loopback 指标出口——node:http 独立 server 返
+// register.metrics() 文本；三族验收（process_resident_memory_bytes/nodejs_heap_size_used_bytes/
+// nodejs_eventloop_lag_seconds 存在且带 role="worker"——Z139：MetricsCore 在 worker 装配=
+// collectDefaultMetrics 唯一点）；token fail-closed+WORKER_METRICS_PORT env 键化=T29-I 已落，
+// health 扩读归 T29 第二包。
 import { describe, it, expect, afterAll } from 'vitest';
 import { collectDefaultMetrics, register } from 'prom-client';
 import type { Server } from 'node:http';
@@ -14,8 +15,8 @@ register.setDefaultLabels({ role: 'worker' });   // main-worker 引导层同款�
 const servers: Server[] = [];
 afterAll(() => { for (const s of servers) s.close(); });
 
-describe('Y0c T26 Z139 worker 指标出口（3002 loopback——P4 简版）', () => {
-  it('默认端口常量=3002（T29 落 WORKER_METRICS_PORT env 键时改读 env——注释登记）', () => {
+describe('Y0c T26 Z139 worker 指标出口（3002 loopback）', () => {
+  it('端口缺省常量=3002（使用点默认单源——env WORKER_METRICS_PORT 未设时生效，T29-I 键化已落）', () => {
     expect(WORKER_METRICS_PORT).toBe(3002);
   });
 
@@ -39,5 +40,48 @@ describe('Y0c T26 Z139 worker 指标出口（3002 loopback——P4 简版）', (
     expect(text, 'process_resident_memory_bytes 应带 role="worker"').toMatch(/process_resident_memory_bytes\{[^}]*role="worker"/);
     expect(text, 'nodejs_heap_size_used_bytes 应带 role="worker"').toMatch(/nodejs_heap_size_used_bytes\{[^}]*role="worker"/);
     expect(text, 'nodejs_eventloop_lag_seconds 应带 role="worker"（eventloop_lag 族）').toMatch(/nodejs_eventloop_lag_seconds\{[^}]*role="worker"/);
+  });
+});
+
+// Y0c T29（Z116）：3002 fail-closed——复用 PROMETHEUS_TOKEN（与 api /metrics 同 token 同 header
+// x-prometheus-token），请求级语义镜像 prometheus-auth.guard（token 已设⇒timingSafeEqual 比对不符 403；
+// 未设∧production⇒拒〔纵深冗余——主防线=env superRefine production∧worker 未设拒启〕；未设∧非
+// production⇒放行便于本地开发）。token/nodeEnv 经 opts 注入（main-worker 从 validateEnv 返回值透传——
+// 本文件零 process.env 裸读，census ㉒ 零新增登记面）。
+describe('Y0c T29 Z116 3002 token fail-closed（同 PROMETHEUS_TOKEN 形态）', () => {
+  const urlOf = (s: Server) => `http://127.0.0.1:${(s.address() as import('node:net').AddressInfo).port}/metrics`;
+
+  it('token 已设：header 不符 403', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, token: 'tok-secret' });
+    servers.push(server);
+    const res = await fetch(urlOf(server), { headers: { 'x-prometheus-token': 'wrong-token' } });
+    expect(res.status).toBe(403);
+  });
+
+  it('token 已设：header 缺失 403', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, token: 'tok-secret' });
+    servers.push(server);
+    expect((await fetch(urlOf(server))).status).toBe(403);
+  });
+
+  it('token 已设：header 相符 200 且返回 prom 文本', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, token: 'tok-secret' });
+    servers.push(server);
+    const res = await fetch(urlOf(server), { headers: { 'x-prometheus-token': 'tok-secret' } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe(register.contentType);
+    expect((await res.text()).length).toBeGreaterThan(0);
+  });
+
+  it('token 未设 ∧ production：403（fail-closed 纵深冗余——主防线=env 拒启）', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'production' });
+    servers.push(server);
+    expect((await fetch(urlOf(server))).status).toBe(403);
+  });
+
+  it('token 未设 ∧ 非 production：放行 200（本地开发便利——缺省 opts 同此档）', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
+    servers.push(server);
+    expect((await fetch(urlOf(server))).status).toBe(200);
   });
 });

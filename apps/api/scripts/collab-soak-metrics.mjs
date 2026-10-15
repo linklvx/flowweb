@@ -42,6 +42,13 @@ export function histogramBuckets(text, name, role, labels = {}) {
   return out;
 }
 
+/** T29（Z91①）：rss 源分角色——worker=process_tree_rss_bytes（进程树合计含 ffmpeg 子进程：
+ *  PM2 不聚合子进程，p95(worker 进程树 RSS 合计) 数据源）；api=process_resident_memory_bytes
+ *  维持（sharp 为进程内 native 已含主 RSS）。 */
+export function rssMetricName(role) {
+  return role === 'worker' ? 'process_tree_rss_bytes' : 'process_resident_memory_bytes';
+}
+
 /** 装置观测面全集（soak 压测与三场景共用）：process 族+驻留/spool+store 窗桶+T0 新三件计数与直方图读数 */
 export function sampleProcess(text, role) {
   const pick = (name, labels) => metricValue(text, name, role, labels);
@@ -54,7 +61,7 @@ export function sampleProcess(text, role) {
     buckets: histogramBuckets(text, `${base}_bucket`, role),
   });
   return {
-    rss: pick('process_resident_memory_bytes'),
+    rss: pick(rssMetricName(role)),
     heap: pick('nodejs_heap_size_used_bytes'),
     docs: pick('yjs_loaded_documents'),
     spoolBytes: pick('yjs_spool_depth_bytes'),
@@ -66,16 +73,18 @@ export function sampleProcess(text, role) {
   };
 }
 
-/** sampleOne(url, role)——装置唯一取样入口（读取代码路径恒经提取器；双端点读取归 T29）。
+/** sampleOne(url, role)——装置唯一取样入口（读取代码路径恒经提取器；双端点读取 T29-I 已落——
+ *  collab-soak.mjs --worker-metrics-url，同 x-prometheus-token 头 Z116）。
  *  headers 透传（PROMETHEUS_TOKEN 面由调用方组装）。
- *  失明 fail-closed：HTTP 200 但 rss=null（api 旧构建缺 role 标签/提取器 role 漂移）即上抛——
- *  全 null 样本流入汇总曾产出「容量上限≥N×M」正向假结论（T0.5 入口条件贴档原始症状），宁崩勿错。 */
+ *  失明 fail-closed：HTTP 200 但 rss=null（旧构建缺 role 标签/提取器 role 漂移/worker 树指标
+ *  采集失败不上报——Z117①）即上抛——全 null 样本流入汇总曾产出「容量上限≥N×M」正向假结论
+ *  （T0.5 入口条件贴档原始症状），宁崩勿错。 */
 export async function sampleOne(url, role, headers = {}) {
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`${url} ${res.status}`);
   const s = sampleProcess(await res.text(), role);
   if (s.rss === null)
-    throw new Error(`metrics 失明（fail-closed）：process_resident_memory_bytes{role="${role}"} 缺失——api 旧构建（role 标签缺失）或提取器 role 漂移，拒产出全 null 假结论`);
+    throw new Error(`metrics 失明（fail-closed）：${rssMetricName(role)}{role="${role}"} 缺失——旧构建（role 标签缺失/worker 树指标未上报）或提取器 role 漂移，拒产出全 null 假结论`);
   return s;
 }
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Counter, Histogram, register, collectDefaultMetrics } from 'prom-client';
+import { Counter, Gauge, Histogram, register, collectDefaultMetrics } from 'prom-client';
+import { readProcessTreeRssBytes } from './process-tree-rss';
 
 @Injectable()
 export class MetricsService {
@@ -13,6 +14,21 @@ export class MetricsService {
 
   constructor() {
     collectDefaultMetrics();
+
+    // Y0c T29（Z91①/Z117①）：进程树 RSS 合计（本进程+全后代含 ffmpeg 子进程——PM2 不聚合子进程，
+    // p95(worker 进程树 RSS 合计) 数据源；sharp 为进程内 native 已含主 RSS）。注册点=本构造器
+    // （collectDefaultMetrics 旁唯一调用点——MetricsCoreModule 双进程装配，api/worker 各自暴露自进程树）。
+    // collect 每次先 reset 再算（防陈旧值）；非 Linux/采集失败 ⇒ 不上报任何样本（不给假数）。
+    new Gauge({
+      name: 'process_tree_rss_bytes',
+      help: '进程树 RSS 合计字节（本进程+全后代含 ffmpeg 子进程——Z91①；Linux procfs 遍历，非 Linux 或采集失败不上报样本——Z117①）',
+      registers: [register],
+      collect: async function () {
+        this.reset();
+        const bytes = readProcessTreeRssBytes();
+        if (bytes !== null) this.set(bytes);
+      },
+    });
 
     this.callbackTotal = new Counter({
       name: 'recharge_callback_total',

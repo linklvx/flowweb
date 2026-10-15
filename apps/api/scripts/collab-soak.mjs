@@ -10,7 +10,10 @@
 // Y0c T0.5 扩展（Z121——一个装置四个消费者：T1 基线/A2 内存实测第一轮/D 第二轮/Z91 采样）：
 //   ①提取器=collab-soak-metrics.mjs sampleOne(url, role)（T0 setDefaultLabels({role:'api'}) 后
 //     原 `^name value$` 首匹配正则全体失配——入口条件实测 rss=0.0MB/docs=null/storeP99=n/a；
-//     多进程安全=按 role+labels 精确取值，双端点读取本身归 T29）；
+//     多进程安全=按 role+labels 精确取值；双端点读取 T29-I 已落——--worker-metrics-url/
+//     WORKER_METRICS_URL 提供时 sample 阶段兼读 worker 3002（同 x-prometheus-token 头，Z116），
+//     worker 侧 rss 源=process_tree_rss_bytes 树合计〔Z91①〕；未提供维持单端点现行为，
+//     只压不统计——p95 由查询侧承担〔Z117②，T32 服务器实测轮消费〕）；
 //   ②三场景（--scenario）：single=单节点执行链 / closepage=关页作业完成 / group20=20 节点组执行
 //     （执行链 fixture/stub/execute 形态=exec-smoke Y0b-5 T17 同族——哨兵 NodeType 零可见+零外呼）；
 //   ③COLLAB_SESSION_IDLE_TTL_MS pin（--ttl-pin 默认 120_000——Z107 判据 A 必带本轮 TTL 值；
@@ -44,10 +47,10 @@ const METRICS_URL = `${API}/metrics`;
 
 function parseArgs(argv) {
   const out = { docs: 4, clients: 8, rate: 1000, duration: 5, ttlPin: 120_000, jobs: 3 };
-  const STR_KEYS = new Set(['scenario', 'json']);   // 字符串值参数（其余数值——原校验语义不变）
+  const STR_KEYS = new Set(['scenario', 'json', 'workerMetricsUrl']);   // 字符串值参数（其余数值——原校验语义不变）
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i];
-    if (!k.startsWith('--')) throw new Error(`坏参数：${k}（用法 --docs N --clients M --rate ms --duration min --scenario single|closepage|group20 --jobs N --ttl-pin ms --json file）`);
+    if (!k.startsWith('--')) throw new Error(`坏参数：${k}（用法 --docs N --clients M --rate ms --duration min --scenario single|closepage|group20 --jobs N --ttl-pin ms --json file --worker-metrics-url url）`);
     const key = k.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());   // kebab→camel 归一（--ttl-pin→ttlPin）
     if (STR_KEYS.has(key)) { out[key] = argv[i + 1]; continue; }
     const v = Number(argv[i + 1]);
@@ -59,16 +62,25 @@ function parseArgs(argv) {
   return out;
 }
 const OPTS = parseArgs(process.argv.slice(2));
+// T29-I（Z116/Z117②）：worker 3002 双端点读取——CLI 旗优先，env WORKER_METRICS_URL 回退；
+// 未提供维持单端点现行为（Windows 开发机无 worker 3002 驻留时装置不破——双端点能力=T32 服务器实测轮消费）。
+const WORKER_METRICS_URL = OPTS.workerMetricsUrl ?? process.env.WORKER_METRICS_URL ?? null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class HeaderWs extends WebSocket {
   constructor(url, headers) { super(url, { headers }); }
 }
 
-/** metrics 采样统一入口（含 PROMETHEUS_TOKEN header 组装——两模式共用） */
-function sample() {
+/** metrics 采样统一入口（含 PROMETHEUS_TOKEN header 组装——两模式共用）。
+ *  T29-I 双端点（Z116/Z117②）：WORKER_METRICS_URL 提供时兼读 worker 3002（同 x-prometheus-token
+ *  头——同 token 形态）；per-role 样本结构=api 平铺（既有汇总读面 rss/heap/docs 不变）+worker 嵌套
+ *  （JSON 落档面——只压不统计，p95(worker 进程树 RSS 合计) 由查询侧承担）。 */
+async function sample() {
   const headers = process.env.PROMETHEUS_TOKEN ? { 'x-prometheus-token': process.env.PROMETHEUS_TOKEN } : {};
-  return sampleOne(METRICS_URL, 'api', headers);
+  const apiSample = await sampleOne(METRICS_URL, 'api', headers);
+  if (!WORKER_METRICS_URL) return apiSample;   // 单端点维持现行为（形状零变化）
+  const workerSample = await sampleOne(WORKER_METRICS_URL, 'worker', headers);
+  return { ...apiSample, worker: workerSample };
 }
 
 /** COLLAB_SESSION_IDLE_TTL_MS pin（Z107/P9——A2 判据 A 必带本轮 TTL 值，装置保证跑数时 TTL 受控）。
@@ -260,7 +272,7 @@ async function runSoak() {
       const s = await sample();
       samples.push({ t: Math.round((Date.now() - t0) / 1000), ...s });
       const frameP99 = frameLatencies.length ? frameLatencies.slice().sort((a, b) => a - b)[Math.floor(0.99 * (frameLatencies.length - 1))] : null;
-      console.log(`[soak] sample#${samples.length - 1} rss=${(s.rss / 1048576).toFixed(1)}MB heap=${(s.heap / 1048576).toFixed(1)}MB docs=${s.docs} spool=${s.spoolBytes}B storeP99=${fmtMs(bucketP99(s.buckets, baseline))} frameP99=${fmtMs(frameP99)}`);
+      console.log(`[soak] sample#${samples.length - 1} rss=${(s.rss / 1048576).toFixed(1)}MB heap=${(s.heap / 1048576).toFixed(1)}MB docs=${s.docs} spool=${s.spoolBytes}B storeP99=${fmtMs(bucketP99(s.buckets, baseline))} frameP99=${fmtMs(frameP99)}${s.worker ? ` workerTreeRss=${(s.worker.rss / 1048576).toFixed(1)}MB` : ''}`);
     }
     const finalS = await sample();
     samples.push({ t: Math.round(OPTS.duration * 60), ...finalS });
@@ -281,6 +293,7 @@ async function runSoak() {
     console.log(`[soak] runbook 数②spool 存活窗：${spoolGrowth > 0 ? `增速 ${spoolGrowth.toFixed(1)}B/min → 容量 ${cap / 1048576}MB ÷ 增速 ≈ ${(cap / spoolGrowth).toFixed(0)}min 到满仓（50%/80% 预阈值=该窗的 1/2 与 4/5）` : 'spool 零增长——存活窗不构成约束（正常态：PG 通则 store 落库不滞留）'}`);
     outputJson({
       harness: 'collab-soak', mode: 'soak', ts: new Date().toISOString(), api: API,
+      workerMetricsUrl: WORKER_METRICS_URL,   // T29-I：null=单端点档；非 null 时 samples[].worker 为 per-role 嵌套样本
       docs: OPTS.docs, clients: OPTS.clients, rateMs: OPTS.rate, durationMin: OPTS.duration,
       counts: { edits, connErrors }, frameP99, storeP99,
       maxRssBytes: maxRss, maxHeapBytes: maxHeap, maxLoadedDocs: maxDocs, spoolGrowthPerMin: spoolGrowth,
@@ -466,6 +479,7 @@ async function runScenario(name) {
     outputJson({
       harness: 'collab-soak', mode: 'scenario', scenario: name,
       ts: new Date().toISOString(), api: API,
+      workerMetricsUrl: WORKER_METRICS_URL,   // T29-I：双端点档时 metrics.baseline/final 含 worker 嵌套样本
       project: seeded.project, nodes: nNodes, jobs, jobsRequested: OPTS.jobs, closepageGapMs,
       ...ttl,
       metrics: { baseline, final, delta },

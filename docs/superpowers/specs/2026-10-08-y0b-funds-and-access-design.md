@@ -954,11 +954,12 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - WECHAT_PAY_PRIVATE_KEY
 - WECHAT_PAY_PUBLIC_KEY
 - WECHAT_PAY_PUBLIC_KEY_ID
+- WORKER_METRICS_PORT
 - WORKER_READY_TIMEOUT_MS
 - WORKER_WRITE_TOKEN
 ```
 
-<!-- Y0c T26 键同步补记：WORKER_READY_TIMEOUT_MS/WORKER_WRITE_TOKEN 两键 T26 落 env.ts 时漏更本块（块随 code 同 commit 变更契约）——T27 顺手根修（check-spec-consistency 双向比对复绿） -->
+<!-- Y0c T26 键同步补记：WORKER_READY_TIMEOUT_MS/WORKER_WRITE_TOKEN 两键 T26 落 env.ts 时漏更本块（块随 code 同 commit 变更契约）——T27 顺手根修（check-spec-consistency 双向比对复绿）；WORKER_METRICS_PORT=T29-I 同批登记（worker 3002 指标出口端口——使用点默认 3002） -->
 
 <!-- y0b0:metric-names -->
 ```yaml
