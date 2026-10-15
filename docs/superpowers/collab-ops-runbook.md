@@ -295,6 +295,27 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 - **常驻对照（①③）**：WS 连接下 docLoad 全 0（装载发生在窗前播种，不入观测窗）、withdocOpen p50/p99=1ms/1ms（表内①③列同值——全落最低桶界，常驻 open 不付装载）；group20 withdoc 62≈3/节点+2 固定、store debounce 60=3/节点（与①单节点 +3 同构——store 计数随节点数线性、不随作业数）。
 - store 五 trigger 中 soft/disconnect/retry/drain 三场景全 0（基线窗口内零非常规 store）；store p99≤5ms 为本地 dev 单进程小 doc 量级基线，非服务器容量数（容量三数归 §7）。
 
+### §9.1 A2 常驻化实测对照（T22 出口轮——2026-10-15 落档）
+
+**环境**：与 §9 同形态（本地 dev 单进程、TTL 未设→default 120_000、closepage 作业间隔 12s）；代码=master `e9c0ef07`（T15-T22 全落地）；装置同款+`--ttl-pin 120000` 受控链；closepage 补 jobs=12 稳态窗（总长 135s 超 TTL——判据 B 长窗分母）。原始 JSON 落 `apps/api/.data/soak-t22/`（会话产物未入仓，下表即对照全集）。
+
+| 场景 | docLoad{direct} | store{debounce} | 会话命中率 | yjs_resident_bytes |
+|------|-----------------|-----------------|-----------|--------------------|
+| ①single | 0（播种窗前，同基线） | **1**（基线 +3） | — | 188B/1 doc |
+| ②closepage j3 | **1**（基线 **11**） | **1**（基线 +3） | 短窗上界 0.667（首装恒占 1/N，N=3 结构不可达） | — |
+| ②closepage j12（135s>TTL） | **仍 1**（12s 间隔滑动续期，doc 永不中途卸载） | **1** | **0.917**（1−1/12） | — |
+| ③group20 | 0 | **1**（基线 **+60**——组事务单段） | — | — |
+
+**五判据**（spec :530）：A=PASS（load==1 含 12 作业超 TTL 窗；必带 TTL=120_000 default）/B=PASS（0.917≥0.9，j12 窗）/C=PASS（四窗 store 实测 1 远低于 ⌈窗/3s⌉+2 上界；degradedDocs=0）/字节绝对=PASS（188B≪384MiB——本地哨兵 doc 极小，平凡通过；生产分布待服务器轮）/单节点写段+组执行=PASS（1≤2；60→1）。**withDoc 计数塌缩为 0=预期**（REST 主路径迁 withSession——count 塌缩非流量塌缩）。
+
+**完整性巡检首轮（Z111）**：四轮 sampled=1/matched=1/**drifted=0**（PG 行集重放 SV≡内存 SV；liveSource 两档如实：scenario-provider/probe-resync）。
+
+**关停落档**：Windows 无 SIGTERM 通路（kill=TerminateProcess 探针实证）→ drill-server IPC 载体（write-frozen-drill 先例）真实 AppModule 关停：`release-all(shutdown): 1/1 released in 1ms`（Nest 钩子 0/1+步骤 0 显式 1/1 双跑）+`shutdown_drain_complete` pending 全 0+`shutdown_complete elapsedMs=33`（两轮 33/104ms）；零 destroy_timeout/零 resident-session-open hangReason/零 direct leak/双拒绝计数全 0。**drain 两数等价证据**=日志（进程退出后 /metrics 不可直读——无 pushgateway；服务器轮可补 /metrics 直读）。
+
+**三数回填裁决（Z107/Z142/Z114②）**：**三维持**——TTL 120_000（12s 间隔全落窗+超窗滑动续期 load 恒 1，无调整依据）/条目 64（实测 p95 落 64KiB 最低桶但样本=装置哨兵 ≈63B/doc 非生产分布——不足以推翻 384MiB÷300KB≈20 余量的原假设；64=病态护栏语义在，生产 /metrics 攒数后重校）/18s hardDeadline（健康后端轻材料 drain 瞬时 33-104ms 远未触达；「数十秒级」重材料形态〔多 doc 脏批+fsync 慢〕本地未构造——服务器轮补强前不下调）。
+
+**装置局限登记**：①Windows 信号通路=drill IPC 替代（服务器轮 SIGTERM 直测）②drain gauge 进程退出后不可直读（等价证据=日志；服务器轮 pushgateway/终态前抓取可补）③withSession 无独立 open 计数序列（spec :625 规划未落——判据 B 分母用装置作业数，后续批可补 yjs_write_session_open_total）④重材料 drain 形态待服务器轮。
+
 
 ## §10 依赖版本契约（Y0c T5/Z123 登记，2026-10-14）
 
