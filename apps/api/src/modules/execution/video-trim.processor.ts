@@ -10,8 +10,11 @@ import { VideoTrimService } from './video-trim.service';
 import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
 import { VideoTrimJobData, VideoTrimJobResult } from './video-trim.types';
 import { VIDEO_TRIM_QUEUE, TEMP_DIR, FFMPEG_PATH } from './video-trim.constants';
+import { QUEUE_CONCURRENCY } from '../../config/queue.constants';
 
-@Processor(VIDEO_TRIM_QUEUE)
+// Y0c T30（Z146）：并发上界补参——QUEUE_CONCURRENCY.VIDEO_TRIM（=max(1,floor(核数×0.7))）
+// 此前定义未消费，实现落 BullMQ 默认 1 与意图不符
+@Processor(VIDEO_TRIM_QUEUE, { concurrency: QUEUE_CONCURRENCY.VIDEO_TRIM })
 export class VideoTrimProcessor extends WorkerHost {
   private readonly logger = new Logger(VideoTrimProcessor.name);
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { VideoTrimProcessor } from './video-trim.processor';
+import { QUEUE_CONCURRENCY } from '../../config/queue.constants';
 import { VideoTrimService } from './video-trim.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
@@ -164,5 +166,16 @@ describe('VideoTrimProcessor', () => {
       expect(prisma.media.create).not.toHaveBeenCalled();
       expect(prisma.team.findFirst).not.toHaveBeenCalled();
     });
+  });
+});
+
+// Y0c T30（Z146 事实更正）：并发上界显式登记——QUEUE_CONCURRENCY.VIDEO_TRIM（queue.constants.ts
+// 定义 =max(1,floor(核数×0.7))）此前未被消费，实现落 BullMQ 默认并发 1 与意图不符。断言形态=
+// @Processor 第二参 WORKER_METADATA 元数据直读（'bullmq:worker_metadata'——bull-metadata.
+// accessor.js:28 消费；module-split.spec 同款静态断言，不 compile 不连线）。
+describe('Y0c T30 并发上界（Z146）', () => {
+  it('@Processor worker options 含 concurrency=QUEUE_CONCURRENCY.VIDEO_TRIM（0.7×核数意图落实现）', () => {
+    expect(Reflect.getMetadata('bullmq:worker_metadata', VideoTrimProcessor))
+      .toMatchObject({ concurrency: QUEUE_CONCURRENCY.VIDEO_TRIM });
   });
 });

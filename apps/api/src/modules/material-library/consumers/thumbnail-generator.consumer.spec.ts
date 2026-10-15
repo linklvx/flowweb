@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import 'reflect-metadata';
 import type { Mock } from 'vitest';
 import type { Job } from 'bullmq';
 import { ThumbnailGeneratorConsumer } from './thumbnail-generator.consumer';
@@ -91,5 +92,15 @@ describe('ThumbnailGeneratorConsumer', () => {
     expect(ffmpegCommand().screenshots).toHaveBeenCalledWith(
       expect.objectContaining({ timestamps: [1] }),
     );
+  });
+});
+
+// Y0c T30（Z146 v4 事实更正）：BullMQ 默认并发 1 是保守界非「无上界」——显式登记参数 1 防漂移
+// （stitch.consumer:28 显式 concurrency:2 同款形态）。断言=@Processor 第二参 WORKER_METADATA
+// 元数据直读（'bullmq:worker_metadata'——bull-metadata.accessor.js:28 消费）。
+describe('Y0c T30 并发上界（Z146）', () => {
+  it('@Processor worker options 显式 concurrency:1（默认值显式登记防漂移）', () => {
+    expect(Reflect.getMetadata('bullmq:worker_metadata', ThumbnailGeneratorConsumer))
+      .toMatchObject({ concurrency: 1 });
   });
 });

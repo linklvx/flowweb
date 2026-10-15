@@ -11,7 +11,8 @@ import * as tmp from 'tmp';
 // Auto-cleanup temp files on process exit (cross-platform safe)
 tmp.setGracefulCleanup();
 
-@Processor(THUMBNAIL_GENERATOR_QUEUE)
+// Y0c T30（Z146）：BullMQ 默认并发 1 是保守界非「无上界」——显式登记参数防漂移
+@Processor(THUMBNAIL_GENERATOR_QUEUE, { concurrency: 1 })
 export class ThumbnailGeneratorConsumer extends WorkerHost {
   constructor(
     private prisma: PrismaService,
