@@ -229,6 +229,49 @@ Y0a 数据完整性设计与 Y0b 客户端感知必须同批上线（spec `2026-
 - **spool 存活窗**：正常态零增长不构成约束（PG 故障窗语义归 T16 熔断——§6 巡检 P0 行）。
 - **测量口径**：每 client 独立 user+错峰建连（同瞬并发 AUTH>4=semaphore 设计防线——部署窗由 1012 jitter 0-60s 缓解）。
 
+### 3.8 T36 网络面核验记录（2026-10-16 落档——XFF/req.ip 单源+API_BIND_ADDR 绑定面+nginx .bak 处置；§0.6 偏离 57）
+
+**代际**：`1daca1a2`（dist/build-info.json `{"git":"1daca1a2","builtAt":"2026-10-16T13:54:07Z"}`）；`./deploy.sh api` 全链 DEPLOY_EXIT=0（⑤ api ready 9s→worker 三步序 / ⑥.b 归属断言 3000/3001→api ∧ 3002→worker ∧ cwd 一致 / guard post pass epoch 12→13 / collab-smoke+exec-smoke 双 OK）。
+
+**① 绑定面实证（Z14①）**：服务器 `ss -tlnp` = `127.0.0.1:3000`（api pid 名下）——非 `0.0.0.0`；3001/3002 同 127.0.0.1。3000 不公网监听，唯一路径=nginx 同机反代。巡检 `check-collab-health.mjs` exit 0；pm2 双 app online、restarts 3→4 与本次部署对应。
+
+**② nginx /api location 原文摘录**（2026-10-16 现网复核，`/etc/nginx/sites-enabled/flowweb`）：
+
+```nginx
+location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        # Y0b-2 T8 Z90 api 墙钟钉仓：1860s=EXEC_SYNC_HARD_CAP(1800s)+60s 核销余量（deploy/nginx/api-location.replace.conf 同值，改 EXEC_* 必须同批重算）
+        proxy_read_timeout 1860s;
+        proxy_send_timeout 1860s;
+    }
+```
+
+头部三行语义（req.ip 单源链的 nginx 侧半边）：
+
+- `X-Forwarded-For $proxy_add_x_forwarded_for` = **追加**语义——客户端伪造值居链首，真源（$remote_addr）追加在后；
+- `X-Real-IP $remote_addr` = **替换**语义——nginx 无条件以直连对端真源覆写；
+- api 侧 `trust proxy 'loopback'`（main.ts）= 只信 loopback 直连对端（nginx 同机），XFF **右起取首个非 loopback=真源**——链首伪造被结构性忽略（语义锚=xff-trust-proxy.spec）。
+
+**仓内无 /api 完整模板**——`deploy/nginx/api-location.replace.conf` 仅为 timeout 两条指令的并入清单（其头注自证"不是完整 location block"）；头部配置唯一权威载体=服务器站点文件（运维面），**改配必须回写本节摘录**。
+
+**③ RN5 四点探测数据**（端点=video-work recordView `POST /api/video-works/:id/view`，应用层限流 30/60s/IP、无鉴权；nginx 无 limit_req/limit_conn——429 只可能来自应用层；N=35/arm；操作化依据=§0.6 偏离 57）：
+
+| 臂 | 入口 | 附加头 | 期望 | 实测 |
+|---|---|---|---|---|
+| a1 对照 | `http://127.0.0.1:3000` | 无 | 恒不限（127.0.0.1∈白名单） | non429=35 / 429=0 |
+| a2 | `http://127.0.0.1:3000` | `X-Forwarded-For: 1.2.3.4` | 被限 | first429_at=31 / 429=5 |
+| b | `https://www.flow123.com` | 无 | 被限（真源 IP 键控） | first429_at=31 / 429=5 |
+| c | `https://www.flow123.com` | `X-Forwarded-For: 127.0.0.1`（伪造） | 仍被限 | first429_at=31 / 429=5 |
+
+原始响应：非限=201 `{"code":0,"data":{"counted":false},"message":"ok"}`；限=429 `{"code":-1,"data":null,"message":"ThrottlerException: Too Many Requests"}`。判读：a1/a2 行为差=「req.ip 非恒 127.0.0.1」实证；b=真源键控非恒豁免（E58③ 假绿排除）；c 全新计数至 31 才限=b 桶键 60s TTL 自过期（零残留）+链首伪造被忽略。探测脚本一次性（服务器 /tmp 跑毕即删）；已知副作用=样品 work（gate-video-1）viewCount +1（a1 首次 counted:true，1h NX 去重窗内其余 counted:false）。
+
+**④ RN6 nginx .bak 处置**：`sites-enabled/flowweb.bak-1791457973`（历史残留——含第二份被加载的 `location /api/`）：备份 `~/backups/flowweb.bak-1791457973`（1774B）→ 删除 → `nginx -t` 通过 → `systemctl reload nginx` → 复验 https=200/http=301、`location /api/` 2→**1**、server_name 实指令 4→**2**（`grep -c server_name` 6→4——差 2 行为 nginx.conf 自带注释行，非指令）、无 conflicting server name 告警。
+
 
 ## §4 部署窗口与用户可见影响
 
