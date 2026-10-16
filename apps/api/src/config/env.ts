@@ -33,6 +33,45 @@ export const COLLAB_ROLE_VALUES = ['api', 'worker', 'all'] as const;
 export type CollabRole = (typeof COLLAB_ROLE_VALUES)[number];
 export const COLLAB_ROLE_DEFAULT: CollabRole = 'api';
 
+/** Y0c T32（Z11/RC1——§0.6 偏离 47）：DATABASE_URL connection_limit 显式预算——per-role 单源常量。
+ *  api=8/worker=4（spec §5.3）；all=8（降级瞬态从 api 预算——单进程承担双面）。
+ *  量纲算式（runbook §2）：(api 客户端数 3×8)+(worker 客户端数 2×4)+协作头寸 ≤ max_connections 100。
+ *  重写发生在 process.env 层（引导层 dotenv 后立即调用 applyDatabaseUrlConnectionLimit——
+ *  authPrisma 顶层自建/preload 临时客户端均先于 validateEnv，解析后重写对两者无效）；
+ *  zod schema 零改动（解析前变换非默认值——「zod 不写 default」纪律不破）。 */
+export const DB_CONNECTION_LIMIT: Record<CollabRole, number> = {
+  api: 8,
+  worker: 4,
+  all: 8,
+};
+
+/** 纯函数重写：对 DATABASE_URL 追加/幂等替换 connection_limit 查询参数（URL 对象操作——
+ *  其余参数与连接要素保留；非法 URL 抛错由调用方 catch 兜底=zod 拒启唯一失败面）。 */
+export function withConnectionLimit(databaseUrl: string, role: CollabRole): string {
+  const url = new URL(databaseUrl);
+  url.searchParams.set('connection_limit', String(DB_CONNECTION_LIMIT[role]));
+  return url.toString();
+}
+
+/** 引导层调用位（main.ts/main-worker.ts dotenv config() 后立即）：按 env.COLLAB_ROLE 重写
+ *  env.DATABASE_URL。整对象传递（census ㉒ 无按键 process.env 裸读——单源入口同形态）。
+ *  role 归一：词表内取值/其余（未设、空串、非法值）回落 COLLAB_ROLE_DEFAULT——非法值的拒启
+ *  归 validateEnv zod（本函数不新增失败面）；DATABASE_URL 缺失/非法 URL ⇒ no-op 原样保留
+ *  （z.string().url() 拒启是唯一失败面）。重复调用幂等（searchParams.set 替换语义）。 */
+export function applyDatabaseUrlConnectionLimit(env: NodeJS.ProcessEnv): void {
+  const raw = env.DATABASE_URL;
+  if (!raw) return;
+  const roleRaw = env.COLLAB_ROLE;
+  const role: CollabRole = (COLLAB_ROLE_VALUES as readonly string[]).includes(roleRaw ?? '')
+    ? (roleRaw as CollabRole)
+    : COLLAB_ROLE_DEFAULT;
+  try {
+    env.DATABASE_URL = withConnectionLimit(raw, role);
+  } catch {
+    /* 非法 URL——validateEnv z.string().url() 拒启，此处静默保留原值 */
+  }
+}
+
 /** 全局不变式（superRefine）挂在本 schema 之上的 envSchemaValidated（Y0b-3 T1 P-R）——
  *  本体保持 ZodObject（collab-env-single-source 结构锚读 .shape）；validateEnv 只消费 refined 版。 */
 export const envSchema = z.object({

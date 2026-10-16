@@ -445,6 +445,10 @@ async function runScenario(name) {
     let jobs = 0;
     let closepageGapMs = null;   // closepage 作业间隔实际生效值（JSON 落档；非 closepage=null）
     const t0 = Date.now();
+    // T32（§0.6 偏离 48/Z91）：scenario 样本序列——原两点（baseline/final）不满足 p95 离线求；
+    // closepage 作业循环逐作业采样（双端点档含 worker 嵌套样本）；single/group20 单次 execute
+    // 无循环=仍两点（序列载体=closepage --jobs N / 缺省编辑压测模式 30s 序列）。
+    const samples = [{ t: 0, ...baseline }];
     if (name === 'closepage') {
       provider.destroy(); provider = null;   // 关页——零连接；后续作业全走 REST 直连（withDoc 装载/落库路径）
       await sleep(3_000);   // 断连收尾+卸载窗（关页 flush 落定——读数如实记录本窗形态）
@@ -456,6 +460,7 @@ async function runScenario(name) {
         const r = await executeNodes(seeded.project, [seeded.nodeIds[0]], seeded.sv);
         if (r.success !== true) throw new Error(`closepage 作业#${i} 应成功：${JSON.stringify(r.errors ?? r)}`);
         jobs += 1;
+        samples.push({ t: Math.round((Date.now() - t0) / 1000), ...(await sample()) });   // 逐作业采样（偏离 48）
         console.log(`[soak-sc] closepage 作业#${i} OK（elapsed=${Date.now() - t0}ms gap=${gap}ms）`);
       }
     } else {
@@ -467,6 +472,7 @@ async function runScenario(name) {
     }
     await sleep(2_000);   // 末端投影/store 落定静置窗——final 采样前
     const final = await sample();
+    samples.push({ t: Math.round((Date.now() - t0) / 1000), ...final });   // 序列末点（偏离 48）
     const delta = metricsDelta(baseline, final);
     const probe = await integrityProbe({
       projectIds: [seeded.project], prisma,
@@ -483,6 +489,7 @@ async function runScenario(name) {
       project: seeded.project, nodes: nNodes, jobs, jobsRequested: OPTS.jobs, closepageGapMs,
       ...ttl,
       metrics: { baseline, final, delta },
+      samples,   // T32（偏离 48）：样本序列（closepage=逐作业+首末；single/group20=首末两点）——p95 离线求载体
       integrityProbe: probe,
     });
   } finally {

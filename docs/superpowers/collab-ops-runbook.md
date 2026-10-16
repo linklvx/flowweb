@@ -123,10 +123,11 @@ journalctl -u flowweb-pm2 -n 50 --no-pager
 
 连接池上限按"每进程 PrismaClient 客户端数 × connection_limit"显式预算，总额不得超过 `max_connections` 减协作头寸。
 
-- **量纲算式**：`客户端数 × connection_limit × 实例数 ≤ max_connections − 头寸`。实例数=1（E35）。
-- **客户端数现值 = 3/进程**：PrismaService（DI 主客户端）+ authPrisma（betterAuth 模块顶层自建）+ preload 临时客户端（其 catch 已收口 disconnect，B30——按短时峰值计）。
-- **max_connections = 100**（server-profile [F4]）；flowweb 库现用连接 5（[F8]），余量充足。
-- **connection_limit 现状 = 未显式设置**：Prisma 默认取 `CPU核数×2+1`（2 核机=5），隐式预算 3×5=15 ≪ 100。Y0.5 连接池治理时若显式调参，按上式重算并在此更新。
+- **量纲算式（T32 双进程实测口径）**：`(api 客户端数 3×8) + (worker 客户端数 2×4) + 协作头寸 ≤ max_connections 100` ⇒ 32+头寸≤100。实例数=1（E35）。plan 字面 `(8+4)` 系每进程单池假设、与 E46 三客户端现状不符——以实测客户端数口径勘正（§0.6 偏离 47）。
+- **connection_limit = 显式设置（Y0c T32/Z11——显式预算替代继承默认 CPU×2+1=5）**：env.ts 单源 role 重写 `applyDatabaseUrlConnectionLimit`（api=8/worker=4/all=8——all 从 api 预算=降级瞬态；`DB_CONNECTION_LIMIT` 常量表单源），调用位=main.ts/main-worker.ts 引导层 dotenv 后**立即**（必须先于一切 PrismaClient 构造——authPrisma 在 auth/auth.ts:12 模块顶层自建随 app.module import 即构造；§0.6 偏离 47 时序实证）。URL 对象幂等替换既有 connection_limit 参数、其余参数保留；zod schema 零改动。
+- **客户端数实测（T32 静态枚举生产面）**：**api=3**——PrismaService（DI 主客户端）+ authPrisma（betterAuth 模块顶层自建）+ preload 临时客户端（其 catch 已收口 disconnect，B30——按短时峰值计）；**worker=2**——PrismaService + authPrisma（worker.module→payment.gateway→auth.ts import 闭包实证；构造在位、消费面基本不用）+ 无 preload（main-worker 无 preloadDbConfig）。
+- **协作头寸**：管理/迁移/备份连接（psql/pg_dump/prisma migrate deploy）+PG superuser 预留（默认 3）——预算按 ≤10 计。**实测对账（T32 观测面非门禁）**：`pg_stat_activity` usename=flowweb 计数（idle+active）——Prisma 池懒建，idle 数<上限是正常态（limit=上限非预分配）；实测值落 §9.2。
+- **max_connections = 100**（server-profile [F4]）；flowweb 库现用连接 5（[F8]，T32 前旧值），余量充足。
 - **Prisma 事务 timeout ≠ URL 上的 pool_timeout**：前者是单事务时长上限（默认 5s），后者是等连接池出票的上限——池打满时报错的是 pool_timeout，调事务 timeout 无效。
 - **单例收敛已三次驳回（E46）**：auth.ts 在 DI 容器外模块顶层执行，重构初始化序的爆炸面 > 三池预算收益——Y0.5 重评，本批只纳管显式预算，不改代码。
 

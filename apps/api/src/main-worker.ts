@@ -17,10 +17,15 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env') });
 
+import { applyDatabaseUrlConnectionLimit, validateEnv } from './config/env';
+// Y0c T32（Z11/§0.6 偏离 47）：connection_limit 显式预算（worker=4）——必须先于一切 PrismaClient
+// 构造：authPrisma（auth/auth.ts:12 顶层自建）在 worker 亦随 worker.module→payment.gateway→auth.ts
+// import 闭包构造。main.ts 同款调用位（dotenv 后立即——CJS require 顺序即语句顺序）。
+applyDatabaseUrlConnectionLimit(process.env);
+
 import { NestFactory } from '@nestjs/core';
 import { register } from 'prom-client';
 import { WorkerModule } from './worker.module';
-import { validateEnv } from './config/env';
 import { installProcessErrorGuards } from './bootstrap/guard';
 import { collabRoleInfo } from './modules/collab/store.metrics';
 import { waitForApiReady, WORKER_READY_TIMEOUT_DEFAULT_MS } from './bootstrap/worker-ready-gate';

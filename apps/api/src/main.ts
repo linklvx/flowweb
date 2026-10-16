@@ -2,6 +2,13 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env') });
 
+import { applyDatabaseUrlConnectionLimit, validateEnv } from './config/env';
+// Y0c T32（Z11/§0.6 偏离 47）：DATABASE_URL connection_limit 显式预算（api=8/worker=4/all=8）——
+// 必须先于一切 PrismaClient 构造执行：authPrisma（auth/auth.ts:12 模块顶层自建）随下方 app.module
+// import 即构造、preload 临时客户端亦先于 validateEnv——「解析后重写」对两者无效。dotenv 后立即
+// 同位=唯一全覆盖点（CJS require 顺序即语句顺序，与上行 config() 先于 app.module 同机制）。
+applyDatabaseUrlConnectionLimit(process.env);
+
 import { NestFactory, Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
@@ -10,7 +17,6 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
-import { validateEnv } from './config/env';
 import { installProcessErrorGuards } from './bootstrap/guard';
 import { scrubEvent, resolveSentryRelease } from './utils/sentry-scrub';
 import { requestTraceMiddleware } from './middleware/request-trace.middleware';

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { envSchema, envSchemaValidated } from './env';
+import {
+  envSchema, envSchemaValidated,
+  DB_CONNECTION_LIMIT, withConnectionLimit, applyDatabaseUrlConnectionLimit,
+} from './env';
 
 describe('env schema - SENTRY_DSN and PROMETHEUS_TOKEN', () => {
   it('should pass validation without SENTRY_DSN (optional)', () => {
@@ -234,5 +237,76 @@ describe('Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（envSchemaV
   it('production 已设 → 过；dev 未设不拒（fail-open 归 guard）', () => {
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
+  });
+});
+
+// Y0c T32（Z11/RC1——§0.6 偏离 47）：DATABASE_URL connection_limit 显式预算=env.ts 单源 role 重写。
+// 调用位=main.ts/main-worker.ts 引导层 dotenv config() 后立即（authPrisma 顶层自建/preload 客户端均
+// 先于 validateEnv——解析后重写无效，时序实证见偏离 47）；重写发生在 process.env 层，zod schema 零改动。
+describe('Y0c T32：connection_limit role 重写（Z11 显式预算替代继承默认 CPU×2+1）', () => {
+  const BASE = 'postgresql://flowweb:pw@127.0.0.1:5432/flowweb';
+
+  it('DB_CONNECTION_LIMIT 单源常量：api=8/worker=4/all=8（all 从 api 预算=降级瞬态）', () => {
+    expect(DB_CONNECTION_LIMIT).toEqual({ api: 8, worker: 4, all: 8 });
+  });
+
+  it('三 role 各自追加 connection_limit（api⇒8/worker⇒4/all⇒8）', () => {
+    expect(new URL(withConnectionLimit(BASE, 'api')).searchParams.get('connection_limit')).toBe('8');
+    expect(new URL(withConnectionLimit(BASE, 'worker')).searchParams.get('connection_limit')).toBe('4');
+    expect(new URL(withConnectionLimit(BASE, 'all')).searchParams.get('connection_limit')).toBe('8');
+  });
+
+  it('已有 connection_limit ⇒ 幂等替换非重复追加', () => {
+    const out = withConnectionLimit(`${BASE}?connection_limit=20`, 'worker');
+    expect(new URL(out).searchParams.getAll('connection_limit')).toEqual(['4']);
+  });
+
+  it('URL 其他查询参数与连接要素保留', () => {
+    const u = new URL(withConnectionLimit(`${BASE}?schema=public&pool_timeout=15`, 'api'));
+    expect(u.searchParams.get('schema')).toBe('public');
+    expect(u.searchParams.get('pool_timeout')).toBe('15');
+    expect(u.username).toBe('flowweb');
+    expect(u.password).toBe('pw');
+    expect(u.host).toBe('127.0.0.1:5432');
+    expect(u.pathname).toBe('/flowweb');
+  });
+
+  // applyDatabaseUrlConnectionLimit：process.env 整对象传递（census ㉒ 无按键裸读——单源入口同形态）
+  describe('applyDatabaseUrlConnectionLimit（引导层调用位——role 读 env.COLLAB_ROLE）', () => {
+    it('COLLAB_ROLE 未设/空串/非法值 ⇒ 默认 api=8（COLLAB_ROLE_DEFAULT 单源；非法值拒启归 validateEnv zod）', () => {
+      for (const role of [undefined, '', 'bogus']) {
+        const env: Record<string, string | undefined> = { DATABASE_URL: BASE, COLLAB_ROLE: role };
+        applyDatabaseUrlConnectionLimit(env as NodeJS.ProcessEnv);
+        expect(new URL(env.DATABASE_URL as string).searchParams.get('connection_limit'), `role=${JSON.stringify(role)}`).toBe('8');
+      }
+    });
+
+    it('COLLAB_ROLE=worker⇒4 / all⇒8（三 role 全档）', () => {
+      for (const [role, limit] of [['worker', '4'], ['all', '8'], ['api', '8']] as const) {
+        const env: Record<string, string> = { DATABASE_URL: BASE, COLLAB_ROLE: role };
+        applyDatabaseUrlConnectionLimit(env as NodeJS.ProcessEnv);
+        expect(new URL(env.DATABASE_URL).searchParams.get('connection_limit')).toBe(limit);
+      }
+    });
+
+    it('重复调用幂等（引导层与任何重入面同值收敛）', () => {
+      const env: Record<string, string> = { DATABASE_URL: BASE, COLLAB_ROLE: 'worker' };
+      applyDatabaseUrlConnectionLimit(env as NodeJS.ProcessEnv);
+      const once = env.DATABASE_URL;
+      applyDatabaseUrlConnectionLimit(env as NodeJS.ProcessEnv);
+      expect(env.DATABASE_URL).toBe(once);
+    });
+
+    it('DATABASE_URL 缺失 ⇒ no-op 不抛（缺失=zod 拒启唯一失败面，不新增）', () => {
+      const env: Record<string, string> = {};
+      expect(() => applyDatabaseUrlConnectionLimit(env as NodeJS.ProcessEnv)).not.toThrow();
+      expect(env.DATABASE_URL).toBeUndefined();
+    });
+
+    it('DATABASE_URL 非法 URL ⇒ 原样保留不抛（z.string().url() 拒启是唯一失败面）', () => {
+      const env: Record<string, string> = { DATABASE_URL: 'not-a-url' };
+      expect(() => applyDatabaseUrlConnectionLimit(env as NodeJS.ProcessEnv)).not.toThrow();
+      expect(env.DATABASE_URL).toBe('not-a-url');
+    });
   });
 });
