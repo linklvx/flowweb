@@ -102,6 +102,14 @@ verify_nginx() {
   nginx_assert
 }
 
+# Y0c T31（RB1/Z9②）：三步序共享 ready 短轮询——⑤/rollback 的 api 重启后 ready 绿才起 worker
+# （worker 早于 api ready 消费撞 503 烧 attempts——付费队列 attempts:1）。顺序是部署 UX；正确性
+# 兜底=worker ready 门（T26 main-worker 轮询 /api/ready 上限 60s 超限 exit(1) 交 pm2 autorestart
+# ——零成本退路，Z102①），本函数不承担正确性只缩短撞墙窗。
+wait_api_ready() {   # $1=上下文标签
+  ssh -i "$KEY" "$SERVER" 'CTX="'"$1"'"; i=0; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); if echo "$body" | grep -q "\"ready\":true"; then echo "$CTX: api ready 绿（${i}s）"; exit 0; fi; sleep 1; done; echo "$CTX: api ready 60s 未达（最后响应: $body）——不起 worker（Z9② 顺序门）；排查后重新部署或 ./deploy.sh api --rollback"; exit 1'
+}
+
 cutover_api() {
   echo "=== ⓪前置（Node≥18 fetch+Node≥22 WebSocket 双门——deploy-guard 用 fetch；collab-smoke 的 provider 用原生 WebSocket（Node 20 无——Y0a-4 实测冒烟挂 WebSocket is not defined 后服务器已升 22） ==="
   ssh -i "$KEY" "$SERVER" 'node -e "process.exit(typeof fetch===\"function\"?0:1)" && node -e "process.exit(typeof WebSocket===\"function\"?0:1)" || { echo "服务器 Node 不满足（需 ≥18 fetch/≥22 WebSocket）——runbook §0 前置条件"; exit 1; }'
@@ -120,8 +128,8 @@ cutover_api() {
   echo "=== ③additive+immutability 双检+迁移（drain 只冻结 collab 写路径，HTTP 面继续打库——安全性由 additive 锚承担非由顺序承担；T12-0b 服务器档：迁移树 tamper 在 migrate 前红——单进 verify 本地载体可被 --skip-preflight 绕过） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/check-migration-immutability.mjs && node scripts/check-migration-additive.mjs && cd apps/api && npx prisma migrate deploy"
 
-  echo "=== ③.5 spool 账本条件迁移（P47——guard 后/切换前秒级窗口；目标=树外 flowweb-data；幂等可重跑） ==="
-  ssh -i "$KEY" "$SERVER" 'OLD_DIR=$(sudo readlink /proc/$(pm2 pid flowweb-api)/cwd)/.data/collab-spool; NEW_DIR=/home/ubuntu/flowweb-data/collab-spool; if [ "$OLD_DIR" = "$NEW_DIR" ]; then echo "旧目录=新目录（$NEW_DIR）——无需迁移"; exit 0; fi; OLD_N=$(find "$OLD_DIR" -type f 2>/dev/null | wc -l); if [ "$OLD_N" = 0 ]; then echo "旧目录 $OLD_DIR 空或不存在——无需迁移（仅建新目录）"; mkdir -p "$NEW_DIR"; exit 0; fi; echo "迁移 $OLD_DIR → $NEW_DIR（$OLD_N 个文件）"; (command -v rsync >/dev/null && rsync -a "$OLD_DIR"/ "$NEW_DIR"/) || cp -a "$OLD_DIR"/. "$NEW_DIR"/; NEW_N=$(find "$NEW_DIR" -type f | wc -l); echo "迁移后：old=$OLD_N new=$NEW_N"; [ "$OLD_N" -le "$NEW_N" ] || { echo "计数不等——中止部署（人工核对）"; exit 1; }'
+  echo "=== ③.5 spool 账本条件迁移（P47——guard 后/切换前秒级窗口；目标=树外 flowweb-data；幂等可重跑；Z9④/RB3 fail-closed——pid 空/多值/非数或 readlink 失败⇒显式日志+exit 1 未定义态不放行） ==="
+  ssh -i "$KEY" "$SERVER" 'f(){ echo "spool 迁移 FAIL（Z9④ fail-closed）: $1"; exit 1; }; API_PID=$(pm2 pid flowweb-api); case "$API_PID" in ""|*[!0-9]*) f "pm2 pid flowweb-api=[$API_PID]（空/多值/非数——多 app 下 pid 解析未定义态不放行）";; esac; API_CWD=$(sudo readlink "/proc/$API_PID/cwd") || f "/proc/$API_PID/cwd readlink 失败（api 进程在线？）"; OLD_DIR="$API_CWD/.data/collab-spool"; NEW_DIR=/home/ubuntu/flowweb-data/collab-spool; if [ "$OLD_DIR" = "$NEW_DIR" ]; then echo "旧目录=新目录（$NEW_DIR）——无需迁移"; exit 0; fi; if [ ! -d "$OLD_DIR" ]; then echo "旧目录 $OLD_DIR 不存在（Y0a-4 迁移完成后稳态——§0.6 偏离 42 显式日志非静默）——无需迁移（仅建新目录）"; mkdir -p "$NEW_DIR"; exit 0; fi; OLD_N=$(find "$OLD_DIR" -type f | wc -l); if [ "$OLD_N" = 0 ]; then echo "旧目录 $OLD_DIR 存在但空——无需迁移（仅建新目录）"; mkdir -p "$NEW_DIR"; exit 0; fi; echo "迁移 $OLD_DIR → $NEW_DIR（$OLD_N 个文件）"; (command -v rsync >/dev/null && rsync -a "$OLD_DIR"/ "$NEW_DIR"/) || cp -a "$OLD_DIR"/. "$NEW_DIR"/; NEW_N=$(find "$NEW_DIR" -type f | wc -l); echo "迁移后：old=$OLD_N new=$NEW_N"; [ "$OLD_N" -le "$NEW_N" ] || f "计数不等（old=$OLD_N new=$NEW_N）——中止部署（人工核对）"'
 
   echo "=== ④dist 原子切换（guard 拒→dist 未动=旧构建继续跑；全链 && 禁 ; 吞错+test -f+sha256 先验后换〔P49②〕+shared 同窗切换〔P49③〕+删 SWITCH_BEGUN 失败复位〔C6〕） ==="
   SWITCH_BEGUN=1
@@ -129,13 +137,22 @@ cutover_api() {
     && ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/packages/shared && rm -rf dist.prev && { [ ! -d dist ] || mv dist dist.prev; } && mv dist.next dist" \
     && SWITCHED=1 || { echo "切换失败——dist 可能已 mv 走/半切换：**勿重启 pm2**，跑 ./deploy.sh api --rollback 或人工补 mv dist.next dist"; exit 1; }
 
-  echo "=== ⑤重启（startOrReload+GIT_COMMIT_HASH 从产物派生〔P46——rollback 后自动说实话〕） ==="
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && export GIT_COMMIT_HASH=\$(node -e \"console.log(require('./apps/api/dist/build-info.json').git)\") && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save"
+  echo "=== ⑤重启（RB1 三步序 Z9②：api 先起→ready 绿→worker→pm2 save；GIT_COMMIT_HASH 从产物派生〔P46——rollback 后自动说实话〕，pm2 8 剔除 GIT_* env——溯源以 build-info.json 产物口径为准〔runbook §3.3〕；P10 探针=--only 与 env 块注入组合语义部署演练实证〔runbook §1.1〕） ==="
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && export GIT_COMMIT_HASH=\$(node -e \"console.log(require('./apps/api/dist/build-info.json').git)\") && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env"
+  wait_api_ready "⑤三步序"
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save"
 
   echo "=== ⑥post-deploy：ready 轮询（读 body 非 -f 状态码）+上传面三件+3001 监听+post 段+冒烟+NODE_ENV 姿态 ==="
   ssh -i "$KEY" "$SERVER" 'i=0; ok=""; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); if echo "$body" | grep -q "\"ready\":true"; then ok=1; break; fi; sleep 1; done; if [ -z "$ok" ]; then echo "ready 60s 未达（最后响应: $body）"; exit 1; fi; echo "ready barrier after ${i}s（RTO 见 guard post JSON elapsedMs）"'
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && test -f ecosystem.config.cjs && test -d scripts && test -d apps/api/scripts || { echo '上传面三件缺失（ecosystem/scripts/apps-api-scripts）'; exit 1; }"
   ssh -i "$KEY" "$SERVER" 'node -e "require(\"net\").connect(3001,\"127.0.0.1\").on(\"connect\",()=>{console.log(\"3001 listening\");process.exit(0)}).on(\"error\",()=>{console.error(\"3001 未监听\");process.exit(1)})"'
+  # T31/RB2（Z9③）：双进程端口归属+cwd 一致——worker 无 HTTP 面，readiness=pm2 status+本断言+冒烟。
+  # 判据：3000/3001 listener pid=api 进程 ∧ 3002=worker 进程 ∧ worker pid 名下无 3000/3001（Z98 零面）
+  # ∧ 两 app /proc/<pid>/cwd 等值（双进程同部署树——spool/prisma 相对路径面）。
+  # 3002 有界等待：pm2 online≠引导完成（main-worker=ready 门→createApplicationContext→listen 3002，
+  # 2 核机秒~十秒级）——先等监听再归属断言，60s 未达 fail-closed（崩溃循环面交 pm2 logs 诊断）。
+  echo "=== ⑥.b 双进程端口归属+cwd 一致断言（RB2/Z9③：3000/3001→api ∧ 3002→worker ∧ worker 名下无 3000/3001） ==="
+  ssh -i "$KEY" "$SERVER" 'f(){ echo "双进程归属断言 FAIL: $1"; exit 1; }; command -v ss >/dev/null || f "ss 缺失（iproute2）——断言形态不满足（降级形态须人工裁决，禁静默跳过）"; API_PID=$(pm2 pid flowweb-api); WORKER_PID=$(pm2 pid flowweb-worker); case "$API_PID" in ""|*[!0-9]*) f "api pid=[$API_PID]（空/多值/非数）";; esac; case "$WORKER_PID" in ""|*[!0-9]*) f "worker pid=[$WORKER_PID]（空/多值/非数——worker 未起？）";; esac; W=0; while ! ss -tln | grep -q ":3002 "; do W=$((W+1)); [ "$W" -ge 60 ] && f "3002 60s 未监听（worker 引导未完成/崩溃循环——pm2 logs flowweb-worker）"; sleep 1; done; [ "$W" -gt 0 ] && echo "3002 监听等待 ${W}s"; SS=$(ss -tlnp 2>/dev/null); for P in 3000 3001; do echo "$SS" | grep ":$P " | grep -q "pid=$API_PID," || f "$P listener pid ≠ api($API_PID)：[$(echo "$SS" | grep ":$P ")]"; done; echo "$SS" | grep ":3002 " | grep -q "pid=$WORKER_PID," || f "3002 listener pid ≠ worker($WORKER_PID)：[$(echo "$SS" | grep ":3002 ")]"; echo "$SS" | grep "pid=$WORKER_PID," | grep -qE ":(3000|3001) " && f "worker($WORKER_PID) 监听 3000/3001（Z98：worker 零 HTTP/WS 面）"; API_CWD=$(sudo readlink "/proc/$API_PID/cwd") || f "api cwd readlink 失败"; WORKER_CWD=$(sudo readlink "/proc/$WORKER_PID/cwd") || f "worker cwd readlink 失败"; [ "$API_CWD" = "$WORKER_CWD" ] || f "cwd 不一致：api=$API_CWD worker=$WORKER_CWD（双进程必须同部署树）"; echo "双进程归属断言 OK：3000/3001→api($API_PID) 3002→worker($WORKER_PID) cwd=$API_CWD"'
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
   verify_nginx
   if [[ $SKIP_SMOKE == 1 ]]; then
@@ -158,7 +175,10 @@ cutover_api() {
 rollback_api() {
   echo "=== 快回滚（P37：dist.prev 翻回+重启——30 秒；分派层跳过 preflight）+post 段带 GIT_SHA（P39 同 SHA 复用基线）；GIT_COMMIT_HASH 从 dist.prev 的 build-info 派生（P46） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR/apps/api && [ -d dist.prev ] || { echo '无 dist.prev——回滚走 git revert+重新部署'; exit 1; } && rm -rf dist.next && mv dist dist.next && mv dist.prev dist && test -f dist/main.js"
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && export GIT_COMMIT_HASH=\$(node -e \"console.log(require('./apps/api/dist/build-info.json').git)\" 2>/dev/null || echo unknown) && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save"
+  # RB1 同法：回滚也三步序（双 app 一致——worker 早于 api ready 消费撞 503 烧 attempts，回滚窗不例外）
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && export GIT_COMMIT_HASH=\$(node -e \"console.log(require('./apps/api/dist/build-info.json').git)\" 2>/dev/null || echo unknown) && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env"
+  wait_api_ready "回滚三步序"
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save"
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
   echo "=== 回滚完成（上一代 dist 已上线，pm2_env.GIT_COMMIT_HASH=上一代构建 SHA）——回滚不构成判据；修复后正式部署仍需完整链 ==="
 }

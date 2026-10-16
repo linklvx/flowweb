@@ -3,6 +3,8 @@
 // api+worker 完整性/双向 role 显式断言/kill_timeout 按 role 下限/worker nice=10/RSS 口径 per-role
 // 余量/heap 闸 per-role 合并算术式（全 fail-closed）。heap 数值面读真实 heap-pressure.ts（提取锚
 // 纪律——正样本绿即证明 per-role 解析对当前文件形态可达）。
+// Y0c T31（RB1/RB2/RB3/RB8）：deploy.sh 断言族扩展——三步序（--only 双 app+wait_api_ready）/
+// 双进程端口归属（ss -tlnp）/spool fail-closed（case 守卫+cwd 一致）+extractRoleBytes 终结符对抗例。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkEcosystem, extractBashFunction, extractRoleBytes } from './check-ecosystem.mjs';
@@ -14,14 +16,26 @@ const okWorkerApp = { name: 'flowweb-worker', exec_mode: 'fork', instances: 1, k
   nice: 10, node_args: '--max-old-space-size=512', max_memory_restart: '1G', cwd: '/home/ubuntu/flowweb', script: 'apps/api/dist/main-worker.js',
   env: { COLLAB_ROLE: 'worker' } };
 const okApps = [okApiApp, okWorkerApp];
-// 夹具多行形态（对齐真实 deploy.sh）+provision_tarball/rollback_api 定义（提取锚正样本）
+// 夹具多行形态（对齐真实 deploy.sh）+provision_tarball/rollback_api/wait_api_ready 定义（提取锚正样本）
+// T31：cutover/rollback 三步序（--only api→wait_api_ready→--only worker）+spool fail-closed（case 守卫）
+// +RB2 端口归属（ss -tlnp/pid=$WORKER_PID/cwd 一致）+:138 3001 断言——文本锚与真实 deploy.sh 同形
 const okDeploy = [
+  'wait_api_ready() {',
+  '  ssh srv \'i=0; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); echo "$body" | grep -q ready && exit 0; sleep 1; done; exit 1\'',
+  '}',
   'cutover_api() {',
-  '  ssh srv "export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save"',
+  '  ssh srv \'f(){ echo "spool FAIL"; exit 1; }; API_PID=$(pm2 pid flowweb-api); case "$API_PID" in ""|*[!0-9]*) f "pid undefined";; esac; OLD_DIR=$(sudo readlink "/proc/$API_PID/cwd")/.data/collab-spool\'',
+  '  ssh srv "export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env"',
+  '  wait_api_ready deploy',
+  '  ssh srv "pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save"',
+  '  ssh srv \'node -e "require(\\"net\\").connect(3001,\\"127.0.0.1\\")"\'',
+  '  ssh srv \'SS=$(ss -tlnp); API_CWD=$(sudo readlink "/proc/$API_PID/cwd"); WORKER_PID=$(pm2 pid flowweb-worker); echo "$SS" | grep ":3000 " | grep -q "pid=$API_PID,"; echo "$SS" | grep ":3002 " | grep -q "pid=$WORKER_PID,"; echo "$SS" | grep "pid=$WORKER_PID," | grep -qE ":(3000|3001) "; WORKER_CWD=$(sudo readlink "/proc/$WORKER_PID/cwd"); [ "$API_CWD" = "$WORKER_CWD" ]\'',
   '}',
   'rollback_api() {',
   '  ssh srv "cd apps/api && mv dist dist.next && mv dist.prev dist"',
-  '  ssh srv "export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --update-env"',
+  '  ssh srv "export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\" 2>/dev/null || echo unknown) && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env"',
+  '  wait_api_ready rollback',
+  '  ssh srv "pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save"',
   '}',
   'deploy_web() {',
   '  ( cd apps/web && rm -rf dist && npx vite build )',   // 本地构建=合法（零构建锚只扫 ssh 行）
@@ -120,8 +134,8 @@ test('env 白名单：COLLAB_ROLE 合法（Z89 分叉键口径）；密钥/NODE_
 test('调用图：deploy_full 缺 deploy_api 调用必红；cutover 缺 GIT_COMMIT_HASH= 必红', () => {
   const bad1 = okDeploy.replace(/  deploy_api\n\}/, '}');   // deploy_full 只剩 deploy_web
   assert.ok(checkEcosystem(okApps, bad1).some((e) => e.includes('deploy_full')));
-  const bad2 = okDeploy.replace('export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save"',
-    'pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save');
+  const bad2 = okDeploy.replace('export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env',
+    'pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env');
   assert.ok(checkEcosystem(okApps, bad2).some((e) => e.includes('GIT_COMMIT_HASH')));
 });
 test('内联 kill-timeout 残留即红（契约 9）', () => {
@@ -146,12 +160,48 @@ test('provision_tarball 定义缺失必红（P48）', () => {
   assert.ok(checkEcosystem(okApps, bad).some((e) => e.includes('provision_tarball')), '定义缺失应红');
 });
 test('cutover/rollback 内非 GIT_COMMIT_HASH 的 export 必红（B25 纪律升锚）', () => {
-  const bad = okDeploy.replace('export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save"',
-    'export FOO_BAR=1 && export GIT_COMMIT_HASH=x && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save');
+  const bad = okDeploy.replace('export GIT_COMMIT_HASH=$(node -e \\"console.log(require(\'./apps/api/dist/build-info.json\').git)\\") && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env',
+    'export FOO_BAR=1 && export GIT_COMMIT_HASH=x && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env');
   assert.ok(checkEcosystem(okApps, bad).some((e) => e.includes('非 GIT_COMMIT_HASH 的 export')), '杂 export 应红');
 });
 test('provision_tarball 内含 ssh 服务器构建必红', () => {
   const bad = okDeploy.replace('tar czf - --exclude=node_modules apps/ scripts/ ecosystem.config.cjs package.json | ssh srv "tar xzf -"',
     'ssh srv "cd apps/api && npx nest build"');
   assert.ok(checkEcosystem(okApps, bad).some((e) => e.includes('服务器构建')), '铺底内构建应红');
+});
+test('T31/RB1 三步序锚：--only 双 app 形态缺（cutover 与 rollback 各自）/wait_api_ready 调用缺/定义缺 ⇒ 红', () => {
+  const noOnly = okDeploy.replaceAll('--only flowweb-api ', '').replaceAll('--only flowweb-worker ', '');   // 退回单命令形态（探针不通过退路）⇒ 断言族必须红（退回须同批改锚——二选一显式结论）
+  const errs = checkEcosystem(okApps, noOnly);
+  assert.ok(errs.some((e) => e.includes('cutover_api 缺三步序①')), 'cutover ① 红');
+  assert.ok(errs.some((e) => e.includes('cutover_api 缺三步序③')), 'cutover ③ 红');
+  assert.ok(errs.some((e) => e.includes('rollback_api 缺三步序①')), 'rollback ① 红');
+  assert.ok(errs.some((e) => e.includes('rollback_api 缺三步序③')), 'rollback ③ 红');
+  assert.ok(checkEcosystem(okApps, okDeploy.replace('  wait_api_ready rollback', '  true'))
+    .some((e) => e.includes('rollback_api 缺 wait_api_ready')), 'rollback wait 调用缺红');
+  assert.ok(checkEcosystem(okApps, okDeploy.replace('  wait_api_ready deploy', '  true'))
+    .some((e) => e.includes('cutover_api 缺 wait_api_ready')), 'cutover wait 调用缺红');
+  assert.ok(checkEcosystem(okApps, okDeploy.replace(/^wait_api_ready\(\) \{[\s\S]*?\n\}\n/m, ''))
+    .some((e) => e.includes('wait_api_ready() 提取失败')), '定义缺失红（P48 同款）');
+});
+test('T31/RB3 spool fail-closed：pid case 守卫缺/pm2 pid 按 app 名缺/cwd 一致断言缺 ⇒ 红', () => {
+  assert.ok(checkEcosystem(okApps, okDeploy.replace('case "$API_PID" in ""|*[!0-9]*) f "pid undefined";; esac; ', ''))
+    .some((e) => e.includes('fail-closed 守卫')), 'case 守卫缺红（Z9④ 未定义态不放行）');
+  assert.ok(checkEcosystem(okApps, okDeploy.replace('pm2 pid flowweb-api', 'pm2 pid 0'))
+    .some((e) => e.includes('按 app 名显式定位 pid')), 'pid 按名缺红');
+  assert.ok(checkEcosystem(okApps, okDeploy.replaceAll('/proc/$WORKER_PID/cwd', '/proc/$API_PID/cwd'))
+    .some((e) => e.includes('cwd 一致断言')), 'cwd 断言缺红');
+});
+test('T31/RB2 端口归属：ss -tlnp 缺/pid=$WORKER_PID 比较面缺/3001 断言缺 ⇒ 红', () => {
+  assert.ok(checkEcosystem(okApps, okDeploy.replace('SS=$(ss -tlnp)', 'SS=$(netstat -tln)'))
+    .some((e) => e.includes('端口归属')), 'ss -tlnp 缺红');
+  assert.ok(checkEcosystem(okApps, okDeploy.replaceAll('pid=$WORKER_PID', 'pid=$API_PID'))
+    .some((e) => e.includes('worker pid 比较面')), 'worker pid 比较缺红');
+  assert.ok(checkEcosystem(okApps, okDeploy.replace('connect(3001', 'connect(3002'))
+    .some((e) => e.includes('3001 监听断言')), '3001 断言缺红（:138 既有形态维持）');
+});
+test('RB8（T30 评审 Minor-1）：extractRoleBytes 对抗例——表达式值/小数值 ⇒ null（终结符锚防 [\\d_]+ 前缀静默截断）', () => {
+  const expr = 'export const RSS_TRIP_BYTES: Record<CollabRole, number> = {\n  api: 750 * MiB,\n  all: 786_432_000,\n  worker: 786_432_000,\n};';
+  assert.equal(extractRoleBytes(expr, 'RSS_TRIP_BYTES'), null, '表达式值必须整体 null（旧形态静默截 750）');
+  const frac = 'export const RSS_TRIP_BYTES: Record<CollabRole, number> = {\n  api: 1.5,\n  all: 2,\n  worker: 3,\n};';
+  assert.equal(extractRoleBytes(frac, 'RSS_TRIP_BYTES'), null, '小数值必须整体 null（旧形态静默截 1）');
 });

@@ -5,6 +5,11 @@
 // （双处取值：resident_cap=collab-residency.service.ts、maxDocBytes=shared collab-quota.ts、
 // 基线=本脚本 RSS_BASELINE_BYTES、TRIP=heap-pressure.ts per-role、mmr=ecosystem per-role）。
 // 全部解析 fail-closed（Z142③：取不到值即红——与 heap/rss 既有 fail-closed 形态一致，禁静默跳过）。
+// Y0c T31（RB1/RB2/RB3/RB8）：deploy.sh 断言族扩展——cutover/rollback 三步序（--only 双 app+
+// wait_api_ready 定义与调用）/spool fail-closed（case "$API_PID" 守卫+按 app 名 pid+cwd 一致断言）/
+// 双进程端口归属（ss -tlnp+pid=$WORKER_PID）/:138 3001 断言维持；extractRoleBytes 数值终结符
+// （表达式/小数值⇒null——T30 评审 Minor-1）。探针退路（P10 不通过⇒单命令 startOrReload）落地时
+// 三步序锚必须同批改（二选一显式结论——禁锚与脚本各说各话）。
 // 用法：node scripts/check-ecosystem.mjs [ecosystem-path]（默认 <ROOT>/ecosystem.config.cjs）
 // 自测载体=scripts/check-ecosystem.test.mjs（node:test，唯一入口——防双源）；本文件 import 零副作用（isMain 守卫）
 import { readFileSync } from 'node:fs';
@@ -56,14 +61,17 @@ export function extractBashFunction(src, fn) {
 
 /** Y0c T30（Z84②）：per-role 字节映射提取——heap-pressure.ts `export const <name>: Record<CollabRole,
  *  number> = { api: …, all: …, worker: … }` 字面量。fail-closed（Z142③）：块缺失/任一 role 键缺失/
- *  值非 [\d_] 字面量 ⇒ null（调用方即红），禁"提取不到就算过"；[\d_] 在数值中段截断形态由全值
- *  Number() 后 Number.isFinite 复核兜底。 */
+ *  值非 [\d_] 字面量 ⇒ null（调用方即红），禁"提取不到就算过"。
+ *  T31（RB8/T30 评审 Minor-1）：数值带终结符 `\s*(?=,|$)`——对象字面量语法下非末位属性必以 `,` 结束、
+ *  末位可省逗号（块捕获 [^}]* 不含右括号故用 $），表达式值（`750 * MiB`）/小数值（`1.5`）因此整体
+ *  匹配失败 ⇒ null；旧注释「[\d_] 中段截断由 Number.isFinite 复核兜底」失实——isFinite 只挡 NaN 形态，
+ *  挡不住前缀截断（`750 * MiB`→750 是有限数），如实勘正。 */
 export function extractRoleBytes(src, constName) {
   const block = new RegExp(`export const ${constName}[^=]*=\\s*\\{([^}]*)\\}`).exec(src)?.[1];
   if (block === undefined) return null;
   const out = {};
   for (const role of ROLES) {
-    const m = new RegExp(`(?:^|[,\\s])${role}:\\s*([\\d_]+)`).exec(block);
+    const m = new RegExp(`(?:^|[,\\s])${role}:\\s*([\\d_]+)\\s*(?=,|$)`).exec(block);
     if (!m) return null;
     const v = Number(m[1].replace(/_/g, ''));
     if (!Number.isFinite(v)) return null;
@@ -158,7 +166,7 @@ export function checkEcosystem(apps, deploySrc) {
     typeof app.cwd === 'string' && isAbsolute(app.cwd) || fail(`${app.name} cwd 形态：${app.cwd}（必须绝对路径）`);
   }
 
-  // ── deploy.sh 断言族（T30 维持不动——T31 领地）──
+  // ── deploy.sh 断言族（T31 扩展：RB1 三步序/RB2 双进程归属/RB3 spool fail-closed——文本锚照既有惯例）──
   /pm2 [^#]*--kill-timeout/.test(deploySrc) && fail('deploy.sh 残留 pm2 --kill-timeout 内联（契约 9：ecosystem 唯一源）');
   // P43 调用图断言（提取失败本身即 fail）
   const cutover = extractBashFunction(deploySrc, 'cutover_api');
@@ -188,6 +196,30 @@ export function checkEcosystem(apps, deploySrc) {
   /ecosystem\.config\.cjs[^|]*\|\|\s*ssh|scp[^&]*ecosystem\.config\.cjs/.test(deploySrc) || fail('deploy.sh 必须上传 ecosystem.config.cjs');
   /-C scripts \./.test(deploySrc) || fail('deploy.sh 必须上传根 scripts/');
   /-C apps\/api\/scripts \./.test(deploySrc) || fail('deploy.sh 必须上传 apps/api/scripts/（冒烟脚本所在）');
+
+  // ── T31 断言组（RB1/RB2/RB3——deploy 顺序化+双进程归属+spool fail-closed；文本锚形态照既有惯例）──
+  // RB1（Z9②）：cutover ⑤ 与 rollback 均三步序——`--only flowweb-api` 先起→wait_api_ready 绿→
+  // `--only flowweb-worker`→pm2 save（worker 早于 api ready 消费撞 503 烧 attempts——付费队列 attempts:1）。
+  // wait_api_ready 定义提取（P48 同款：未定义函数=调用点 command not found，顺序门语义必须显式锚定）。
+  const waitFn = extractBashFunction(deploySrc, 'wait_api_ready');
+  waitFn || fail('wait_api_ready() 提取失败（定义缺失或未闭合——RB1 三步序 ready 门的共享短轮询载体）');
+  for (const [fnName, fnBody] of [['cutover_api', cutover], ['rollback_api', rollbackFn]]) {
+    if (!fnBody) continue;   // 提取失败已在上段红
+    /pm2 startOrReload ecosystem\.config\.cjs --only flowweb-api --update-env/.test(fnBody) || fail(`${fnName} 缺三步序①（pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env——RB1/Z9② 按 app 名显式定位）`);
+    /pm2 startOrReload ecosystem\.config\.cjs --only flowweb-worker --update-env/.test(fnBody) || fail(`${fnName} 缺三步序③（pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env——RB1/Z9②）`);
+    /wait_api_ready\b/.test(fnBody) || fail(`${fnName} 缺 wait_api_ready 调用（三步序② ready 门——api 绿前不起 worker）`);
+  }
+  if (cutover) {
+    // RB3（Z9④/偏离 42）：spool 步 fail-closed——pid 空/多值/非数 ⇒ 显式日志+exit 1（未定义态不放行）
+    /pm2 pid flowweb-api/.test(cutover) || fail('cutover_api 缺按 app 名显式定位 pid（pm2 pid flowweb-api——Z9④ 多 app 下 readlink 对象必须按名解析）');
+    /case "\$API_PID" in/.test(cutover) || fail('cutover_api spool 步缺 pid fail-closed 守卫（case "$API_PID" in 空/多值/非数⇒显式日志+exit 1——RB3/Z9④）');
+    /\/proc\/\$WORKER_PID\/cwd/.test(cutover) || fail('cutover_api 缺 cwd 一致断言（/proc/$WORKER_PID/cwd readlink 与 api 等值比较——RB3：双进程必须同部署树）');
+    // RB2（Z9③）：双进程端口归属——ss -tlnp 断言 3000/3001 listener pid=api ∧ 3002=worker ∧ worker 名下无 3000/3001
+    /ss -tlnp/.test(cutover) || fail('cutover_api 缺双进程端口归属断言（ss -tlnp——RB2/Z9③ worker 无 HTTP 面的运行态操作化）');
+    /pid=\$WORKER_PID/.test(cutover) || fail('cutover_api 端口归属断言缺 worker pid 比较面（pid=$WORKER_PID——RB2：3002=worker ∧ worker 名下无 3000/3001）');
+    // :138 既有 3001 断言维持（T31 plan 显式项——ws 面存活探针）
+    /connect\(3001/.test(cutover) || fail('cutover_api 缺 3001 监听断言（net.connect(3001) 既有形态维持——T31 plan）');
+  }
   return errs;
 }
 
@@ -199,5 +231,5 @@ if (isMain) {
   const deploySrc = readFileSync(resolve(ROOT, 'deploy.sh'), 'utf8');
   const errs = checkEcosystem(apps, deploySrc);
   if (errs.length) { console.error(`check-ecosystem FAIL:\n  ${errs.join('\n  ')}`); process.exit(1); }
-  console.log('check-ecosystem OK: 双app按role遍历（api+worker恰2）/Z67④双向role显式/fork/1实例/kill_timeout按role（api≥45000/worker≥120000）/worker nice=10/SIGTERM/RSS口径per-role余量fail-closed/heap闸per-role+Z118+Z126③合并算术式/env白名单（含COLLAB_ROLE）/SPOOL_DIR绝对+ BIND_ADDR（api面）/契约9无内联/cutover_api单源（含GIT_COMMIT_HASH行为锚）/上传面三件');
+  console.log('check-ecosystem OK: 双app按role遍历（api+worker恰2）/Z67④双向role显式/fork/1实例/kill_timeout按role（api≥45000/worker≥120000）/worker nice=10/SIGTERM/RSS口径per-role余量fail-closed/heap闸per-role+Z118+Z126③合并算术式/env白名单（含COLLAB_ROLE）/SPOOL_DIR绝对+ BIND_ADDR（api面）/契约9无内联/cutover_api单源（含GIT_COMMIT_HASH行为锚）/上传面三件/T31三步序（cutover+rollback --only双app+wait_api_ready）/spool fail-closed（case守卫+按app名pid+cwd一致）/RB2端口归属（ss -tlnp+worker pid比较面）/3001断言维持');
 }

@@ -1,3 +1,6 @@
 # git index 已全 LF（i/crlf=0，2026-10-05 实测）；开发机 core.autocrlf=true 为 system 级（CI/Linux 不生效）。
 # 本文件作用=把 md 的 eol 策略显式化（跨平台一致），非"净化"——renormalize 是空操作，验收=git diff 为空。
 *.md text eol=lf
+# systemd unit 必须 LF（T31：CRLF 上服务器 systemd 解析值带 \r——如 User=ubuntu\r 即无效用户；
+# 开发机 autocrlf=true 检出会翻 CRLF，deploy/flowweb-pm2.service 经手动 scp 上服务器故钉死）
+*.service text eol=lf

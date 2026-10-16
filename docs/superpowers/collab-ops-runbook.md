@@ -33,7 +33,7 @@
 cd /home/ubuntu/flowweb && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save
 ```
 
-- 该命令由 deploy.sh cutover ⑤ 自动执行，人工不需要单独跑；本文列出是为事故手工恢复时与脚本保持一字不差。
+- deploy.sh cutover ⑤ 自 T31 起为**三步序**（`--only flowweb-api`→ready 绿→`--only flowweb-worker`→`pm2 save`——§3.1）；上方单命令=双 app 一并拉起，仍是**事故手工恢复**的合法形态（顺序正确性由 worker ready 门兜底，见 §3.1）。本文列出是为手工恢复时与脚本语义保持一字不差。
 - **禁 `pm2 delete flowweb-api` 再 start**：绕过 drain 拒重启机制，且制造无守护窗口（ WS 断连无计划窗口可言）。重生进程一律走 startOrReload。
 - **禁 `pm2 restart` 代替**：restart 不重读 ecosystem 文件（B1′）——改了 `ecosystem.config.cjs` 只有用 startOrReload 才生效。
 - `--update-env` 会把当前 shell 全量 env 记入 pm2_env——**部署会话禁止 export 无关变量**（B25；cutover/rollback 体内仅白名单 `GIT_COMMIT_HASH`）。
@@ -48,6 +48,53 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 期望：`mode=fork_mode`、`instances=1`（E35 单实例钉死）、`kill_timeout=45000`（≥关停链 22s+垫）、`max_memory_restart=1073741824`、`old_space` 含 `--max-old-space-size=512`、`status=online`。数值依据：server-profile 数值推导（算式 1/2：512+384=896≤1024；1710.6≤1900）。
 
 **服务器 `apps/api/src` 目录**：零构建锚落地后服务器只作部署树（provision_tarball 不再上传 src……铺底 tar 含 src 但构建在本地），首次 full 部署后服务器 `apps/api/src` 即退役冗余，可删（不影响任何运行路径——运行只读 `apps/api/dist`）。
+
+### §1.1 systemd 托管 unit（flowweb-pm2.service——Y0c T31/Z115 P3+Z85）
+
+**形态唯一源=`deploy/flowweb-pm2.service`**（本节不复刻全文）：`pm2-runtime` 前台托管（`Type=simple`——无 PIDFile/forking 形态，日志直进 journal：`journalctl -u flowweb-pm2 -f`）+`User=ubuntu`+`Environment=PM2_HOME=/home/ubuntu/.pm2` 显式对齐**防第二 god**（root 的 pm2 daemon 与 ubuntu 的互不可见——systemctl/pm2 操作落空面）+`MemoryMax=1150M`+`MemorySwapMax=128M`+`Restart=on-failure`+`RestartSec=5`。
+
+**分层防线（Z85 写死——三层各管各的，禁越权调参）**：
+
+| 层 | 机制 | 现值 | 语义 |
+|----|------|------|------|
+| 第一层 per-process | PM2 `max_memory_restart`（ecosystem） | 1G×2（T32 校准 560/480） | 单进程超限→pm2 只重启该 app（另一进程无感） |
+| 机器兜底 | cgroup `MemoryMax`（本 unit） | 1150M（算式=560+480+god 40.4+余量 70） | 双进程+god 总量超限→内核杀 RSS 最大者（=泄漏者），pm2 autorestart 拉起=**设计行为**非事故 |
+| unit 级故障 | systemd `Restart=on-failure` | RestartSec=5 | god 崩溃（pm2 autorestart 管不了自己）→systemd 拉起整 unit |
+
+`MemorySwapMax=128M`：宁被杀不换页——换页拖垮协居 PG/Redis/MinIO（1.9GB 机 swap 增长=内存画像恶化先行指标，§6③）。**双 unit（api/worker 各自 cgroup）=可选探针登记（Z85），未采用**——单 unit 兜底+pm2 第一层的分工已覆盖设计动机。
+
+**方案 B（删 PM2，systemd 模板单元直管双进程）登记 Y7 评估（Z115）**——pm2-runtime 是过渡托管层非终态。
+
+**安装步骤（一次性手动——deploy.sh 不自动化 systemctl，RB5：一次性 sudo 高危操作简洁优先）**：
+
+```bash
+# ⓪ 预检：现有 pm2 开机机制与 pm2-runtime 路径（防第二 god；结果留部署记录）
+systemctl list-unit-files | grep -i pm2      # 勘察形态：pm2-ubuntu.service（pm2 startup 产物）
+which pm2-runtime                            # 期望 /usr/bin/pm2-runtime（不同则同批改 unit ExecStart）
+# ① 上传 unit 文件（不在 deploy 上传面——手动 scp）
+scp -i ~/.ssh/flowweb_server deploy/flowweb-pm2.service ubuntu@101.42.94.107:/home/ubuntu/flowweb/deploy/
+# ② 停+禁旧开机机制（pm2-ubuntu 与新 unit 并存=两个 god）
+sudo systemctl disable --now pm2-ubuntu
+# ③ 清场现有 daemon（pm2 save 的 dump 由 pm2-runtime 启动时 resurrect 回双 app）
+pm2 kill
+# ④ 安装+启用新 unit
+sudo cp /home/ubuntu/flowweb/deploy/flowweb-pm2.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now flowweb-pm2
+# ⑤ 验证：双 app 拉起+ready 绿+cgroup 限额生效
+systemctl status flowweb-pm2 --no-pager
+pm2 ls                                                            # flowweb-api+flowweb-worker 双 online
+curl -s http://127.0.0.1:3000/api/ready | grep '"ready":true'
+systemctl show flowweb-pm2 -p MemoryMax -p MemorySwapMax          # 期望 1150M/128M（字节值）
+# ⑥ 日志面（journal 直收——pm2-logrotate 只管 pm2 文件日志，journal 面由 journald 自轮转）
+journalctl -u flowweb-pm2 -n 50 --no-pager
+```
+
+**回退路径（unit 安装后双 app 拉不起且原因不明——按序执行勿反复试）**：`sudo systemctl stop flowweb-pm2 && sudo systemctl disable flowweb-pm2` → 恢复旧机制 `sudo systemctl enable --now pm2-ubuntu`（或直接 `pm2 resurrect` 恢复保存的 app 表）→ 报告。
+
+**P10 探针结论（Z102③——`--only` 与 ecosystem per-app env 块注入组合语义，部署演练实证）**：〔待 Phase B 演练回填：**采用**（三步序成立——判据：api 进程 `collab_role_info{role="api"}`=1 ∧ worker 3002 指标带 `role="worker"` ∧ `pm2 jlist` 两 app COLLAB_ROLE 各自正确）/ **退回**（deploy.sh 改回单命令 `startOrReload --update-env`+注释登记退路理由——顺序正确性归 worker ready 门零成本退路）〕
+
+**部署演练记录（T31 零 503 四判据，RB7）**：〔待 Phase B 回填：日期/commit/①ready 绿 ②collab-smoke+exec-smoke 双绿 ③Redis 三付费队列 failed 前后零新增 ④pm2 logs 无 WORKER_ABSENT/503 噪声〕
 
 ## §2 连接池量纲
 
@@ -76,6 +123,10 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 旗标：`--force-restart` 两类合法用法（drain 后未排空、目标机器不可达）——**每次使用留部署记录**；`--allow-legacy` 豁免 guard 的 legacy 进程形态检查；`--skip-smoke`/`--skip-preflight` = 本次部署**不构成判据**（强制留痕，禁用于常规发布）；`--rebuild-db` = 服务器库重建（DROP SCHEMA+重放 init，破坏性——回退锚=cutover ② pg_dump，唯一权威流程与执行时序清单=`deployment-db-baseline.md` §3，禁用于常规发布）。**unobservable 档不可 force**：ready 无 pending（token 视图缺失）/drain 401/403（凭据失配）均属无账可算——放行即 at-risk 语义谎言；遇 guard 403 的唯一出路是核对令牌（§0/§1），不是 force。
 
 cutover ① 的**拒重启三步**（scripts/deploy-guard.mjs）：drain（20s 续期轮询 r.ok）→ own 四零核验（own spool/stranded 帧，预算 90s，P40）→ 放行（写 `.deploy-guard-state.json` 交接 epoch）。guard 拒绝时 dist 未动、旧构建继续跑。drain 后部署中止的冻结由 **60s 自动解除**（SV12）兜底，可安全重试。重启后 post 段预算另账 120s（P35：收养窗 60s+reconciler 30s+回灌余量）。
+
+**cutover ⑤ 三步序（Y0c T31/Z9②）**：`pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env` → ready 短轮询绿（wait_api_ready，60s 上限）→ `--only flowweb-worker --update-env` → `pm2 save`。动机：worker 早于 api ready 时消费队列会撞 503 烧 attempts（付费队列 attempts:1=一次撞墙即用户作业失败）。**顺序是部署 UX，不是正确性承担者**——正确性兜底=worker ready 门（T26：main-worker 轮询 `/api/ready` 上限 60s 超限 exit(1) 交 pm2 autorestart，零成本退路，Z102①）。rollback 同法三步序（回滚窗不例外）。`--only` 与 per-app env 块注入的组合语义经 P10 探针部署演练实证（结论=§1.1）。⑥ post 段另有**双进程端口归属断言**（RB2/Z9③：`ss -tlnp` 判 3000/3001 listener=api 进程 ∧ 3002=worker 进程 ∧ worker 名下无 3000/3001——Z98 worker 零 HTTP/WS 面的运行态操作化）+两 app `/proc/<pid>/cwd` 一致断言（双进程同部署树）。
+
+**pre-cutover quiesce（Z114③）＝可选未采用（T31/RB4 评估结论）**：cutover ① guard 已承担「drain（POST /api/drain）+20s 续期+own 四零核验后才进重启」——「等 drain 完成再 SIGTERM」语义已在链上，独立 quiesce 步只剩缩短关停时间轴的一行脚本空间。**采用条件**＝部署窗实测关停超预算（api kill_timeout 45s 面撞线/`shutdown_undrained` 出现）时再落。
 
 ### 3.2 spool 账本目录（树外）与 ③.5 自动迁移
 
