@@ -235,7 +235,8 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
       //     2xx 口径=端口三分判据同源〔request :170〕——Nest POST 缺省 201）
       expect(statuses.filter((s) => s === 503).length, `drain 窗内 ≥1 次 503 尝试（实收 ${JSON.stringify(statuses)}）`).toBeGreaterThanOrEqual(1);
       expect(statuses.filter((s) => s >= 200 && s < 300), `预算内恰一次成功受理（实收 ${JSON.stringify(statuses)}）`).toHaveLength(1);
-      expect(results, '预算内重试后成功=真端点响应（非耗尽合成 written:true 档）').toEqual([
+      // T34 微修②：本断言非判别锚——耗尽合成 written:true 档与其同形；判别锚=:237「预算内恰一次 2xx」
+      expect(results, '响应体形状档（判别锚=:237 恰一次 2xx——合成档同形不在此判别）').toEqual([
         expect.objectContaining({ index: 0, op: 'writeNodeData', written: true }),
       ]);
       // (c) 租约恢复后同 op 只落 doc 一次：装载重放读侧终态=恰好该次受理的键级 set；

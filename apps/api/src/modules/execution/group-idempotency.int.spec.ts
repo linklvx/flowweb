@@ -484,15 +484,22 @@ const statusOf = async (nodeId: string) =>
       await new Promise((r) => setTimeout(r, 50));
     }
     // 段2：stalled 重投（同 jobId 重进 execute——BullMQ maxStalledCount 重排语义的进程内构造）
-    const r2 = await e.svc.execute(PID, undefined, UID, [n], 'stalled-tok-16', 'job-stalled-16');
-    expect(providerCalls, '重投段零新增外呼（Z35 mayCall:false 禁再外呼）').toBe(1);
-    expect(r2.errors.length, '重投段恰一条 skipped 分诊（非 error——Z99 skipped 族）').toBe(1);
-    expect(r2.errors[0]).toMatchObject({ nodeId: n, status: 'skipped' });
-    expect(r2.success, 'success=errors.length===0 单源——skipped 亦非 success（客户端轮换判据）').toBe(false);
-    expect((await rowsOf(n)).length, '重投段零新行（claim ⓪ 同 jobId rearm 续跑同行）').toBe(1);
-    // 段1 完成（"ffmpeg" 归——gate 放行）
-    releaseProvider();
-    const r1 = await p1;
+    // T34 微修①（V31 对称）：段2 断言至 await p1 包 try/finally releaseProvider()——断言失败路径
+    // 同样放行 gate，防 p1 永挂 30s 超时掩埋真红（collab-write-endpoint finally restoreLease 同款纪律）
+    let r1: Awaited<ReturnType<ExecutionService['execute']>>;
+    try {
+      const r2 = await e.svc.execute(PID, undefined, UID, [n], 'stalled-tok-16', 'job-stalled-16');
+      expect(providerCalls, '重投段零新增外呼（Z35 mayCall:false 禁再外呼）').toBe(1);
+      expect(r2.errors.length, '重投段恰一条 skipped 分诊（非 error——Z99 skipped 族）').toBe(1);
+      expect(r2.errors[0]).toMatchObject({ nodeId: n, status: 'skipped' });
+      expect(r2.success, 'success=errors.length===0 单源——skipped 亦非 success（客户端轮换判据）').toBe(false);
+      expect((await rowsOf(n)).length, '重投段零新行（claim ⓪ 同 jobId rearm 续跑同行）').toBe(1);
+      // 段1 完成（"ffmpeg" 归——gate 放行）
+      releaseProvider();
+      r1 = await p1;
+    } finally {
+      releaseProvider();
+    }
     expect(r1.success, '在飞段照常完成（Z88：skipped 非终态，done 由在飞段落）').toBe(true);
     // 三联①完成一次：单行 SUCCEEDED+外呼恰一次
     const rows = await rowsOf(n);

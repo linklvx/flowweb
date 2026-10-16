@@ -38,7 +38,7 @@ const FILES_MIN = {
   'deadline-reaper.int.spec.ts': 7,
   'deliver-refund.int.spec.ts': 12,
   'exec-partial-success.int.spec.ts': 8,
-  'group-idempotency.int.spec.ts': 16,   // Y0c T33：⑯ stalled 重投三联（偏离 51）
+  'group-idempotency.int.spec.ts': 18,   // Y0c T33：⑯ stalled 重投三联（偏离 51）；T34 微修③：16→18 实测对齐（MIN_TOTAL 155 维持）
   'sv-admission.int.spec.ts': 6,
   'admin-idempotency.int.spec.ts': 5,
   'write-frozen-chain.int.spec.ts': 2,   // Y0b-5 T9：write-frozen 断言链 int 等价用例
