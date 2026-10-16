@@ -16,9 +16,10 @@
 // - **类型单源**：读面字段类型经 CollabGateway['member'] 索引访问（TS 类型位私有成员合法——
 //   gateway 成员演进时 façade 类型自动跟随=编译红漂移面）；写面 stub 入参宽松（unknown/object）
 //   +内部受控 cast（本文件即 sanctioned 点）。
-// - N=113 class 方法+gatewayFacade 工厂+1 模块级函数 authDbDeadlineMs（实测口径：波 1 class 方法 40
+// - N=114 class 方法+gatewayFacade 工厂+1 模块级函数 authDbDeadlineMs（实测口径：波 1 class 方法 40
 //   〔表格口径 41 含工厂〕+波 2 扩 73——偏离 64 收窄裁决：直调族不转发，扩面=字段/状态/splice/
-//   身份引用族+spy 组缺口；波 2 终态触达=保留直调族 78 处/15 文件——收敛比见 T39b B0 报告）。
+//   身份引用族+spy 组缺口；T40 W5 勘正：原记 113 系盘点漏计 1，文件实测=114；B1〔T40〕persistence
+//   族 ~25 法改道 persistOf(gw) 单点 cast——方法数不增减，身份契约七处零变化=service Map 真实引用）。
 import { vi } from 'vitest';
 import * as Y from 'yjs';
 import { CollabGateway } from '../collab.gateway';

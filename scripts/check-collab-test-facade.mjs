@@ -423,14 +423,14 @@ const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-degraded.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
   // 直调族——loadDocument ×2
   'apps/api/src/modules/collab/collab-heap-gate.spec.ts': { 'facade-bypass': { n: 2, until: 'B1-B3' } },
-  // 直调族——loadDocument ×4+unloadDocument ×2+logDocTopN ×1（T40 B1 核销：maybeCompact ×7+storeDocumentUnlocked ×3 改 gateway.persistence.<public> 直调=cast 消失〔偏离 64② 预告兑现〕；heapUsedNow spy 已经 façade spy 组替换）
-  'apps/api/src/modules/collab/collab-metrics-observability.spec.ts': { 'facade-bypass': { n: 7, until: 'B1-B3' } },
+  // 直调族——loadDocument ×4+logDocTopN ×1（T40 B1 核销：maybeCompact ×7+storeDocumentUnlocked ×3 改 gateway.persistence.<public> 直调+unloadDocument ×2 改 hooks.beforeUnloadDocument 等价驱动〔「不搬」裁决——接线同一函数对象〕=cast 消失；heapUsedNow spy 已经 façade spy 组替换）
+  'apps/api/src/modules/collab/collab-metrics-observability.spec.ts': { 'facade-bypass': { n: 5, until: 'B1-B3' } },
   // 直调族——sweepIntervalMs bind 读点 ×1+wirePermChangedEvents ×7+sweepSessions ×3+guardAwareness ×2（sweepSessions spy 已经 façade spy 组替换）
   'apps/api/src/modules/collab/collab-perm-events.spec.ts': { 'facade-bypass': { n: 13, until: 'B1-B3' } },
   // collab-quota-gate.spec.ts 登记已移除——波 2 全量替换清零（25→0；freezeDoc(gw:any) 参数别名内
   // freezeQuota 直调=I-3④ 已知逃逸面，直调族处置同款保留至 B1-B3——报告披露）
-  // 直调族——loadDocument ×1+unloadDocument ×2（T40 B1 核销：maybeCompact ×2 改 gateway.persistence 直调=cast 消失）
-  'apps/api/src/modules/collab/collab-quota-truth.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
+  // 直调族——loadDocument ×1（T40 B1 核销：maybeCompact ×2 改 gateway.persistence 直调+unloadDocument ×2 改 hooks 等价驱动=cast 消失）
+  'apps/api/src/modules/collab/collab-quota-truth.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
   // 直调族——loadDocument ×1（T40 B1 核销：storeDocumentUnlocked ×2 改 gateway.persistence 直调=cast 消失）
   'apps/api/src/modules/collab/collab-runtime-metrics.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
   // 直调族——freezeQuota ×3+scheduleFreezePending ×1+loadDocument ×2（gw2/g2 工厂变体别名已消除；repo mock 链经 repoRef 身份引用+mock 链 cast 合法面）
@@ -439,8 +439,8 @@ const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-t20-ripples.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
   // 直调族——clientIpOf ×3+handleUpgrade ×2（upgradeBucket/allowedOrigins spy/logger spy 已替换）
   'apps/api/src/modules/collab/collab-upgrade.spec.ts': { 'facade-bypass': { n: 5, until: 'B1-B3' } },
-  // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换）
-  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
+  // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换；T40 B1「不搬」裁决：clearDrainTimer=drain 编排域留 gateway 私有——until 改 B2-B3）
+  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B2-B3' } },
   // collab.gateway.shutdown.spec.ts 登记已移除——T40 B1 核销：drainAllDocuments ×3 改 gateway.persistence 直调=cast 消失（stale 机制强制核销；storeDocumentSerialized/graceDirectConnections spy 已经 façade spy 组替换）
   // collab.gateway.spec.ts 登记已移除——T39b B0 波 1 试点替换全文件 façade 化（135→0，stale 机制强制核销）
   // 直调族——startSessionSweep ×10（sweepIntervalMs 赋值/stub 已经 stubSweepInterval 替换；解构 perm 提取已消除）

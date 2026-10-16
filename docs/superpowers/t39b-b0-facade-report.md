@@ -296,7 +296,7 @@ unloadDocument 4｜recheckFrozenDocs 4｜freezeQuota 3｜sweepSessions 3｜clien
 heapPressureSample 2｜withAuthDeadline 2｜handleUpgrade 2｜guardAwareness 2｜scheduleFreezePending 1｜
 wrapBackpressure 1｜clearDrainTimer 1｜logDocTopN 1｜sweepIntervalMs(bind 读点) 1（合计=78）。
 
-## 9. façade 终态（N=113 class 方法+gatewayFacade 工厂+1 模块级函数——实测口径；波 1 class 方法 40〔§3 表格口径 41 含工厂〕+波 2 扩 73）
+## 9. façade 终态（N=114 class 方法+gatewayFacade 工厂+1 模块级函数——实测口径；波 1 class 方法 40〔§3 表格口径 41 含工厂〕+波 2 扩 73。T40 W5 勘正：原记 N=113 系盘点漏计 1——文件实测 grep `^  \w+\(` 115 行−constructor=114；B1 改道 persistOf 不增减方法数）
 
 波 2 新增 73 方法+1 模块函数（全部 R4 合规：entry 型索引访问派生/NonNullable<ReturnType<…>>、JSDoc「替代的成员访问形态」、新扩方法零新增内联 cast——受控 cast 收敛三单点 internals()/methods()/+波 2 新增 bucketInternals()（TokenBucket 私有 options/buckets 镜像）与 writeFreezeMap()（conn 键形态镜像））：
 

@@ -218,7 +218,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     // ① 取消卸载：库时序=beforeUnload 钩子后复检 return（esm:1586-1589）——钩子窗内不得清理（复用 doc
     //    不重跑 loadDocument，truth 族必须延续）。旧实现的 !documents.get 守卫在本窗恒 false=死路径，
     //    四件套永不清理（gauge 随进程寿命漂移=红相）
-    await (gateway as any).unloadDocument({ document, documentName: name });   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    await gateway.hooks.beforeUnloadDocument({ document, documentName: name } as any);   // T40 B1「不搬」裁决：hooks 接线同一函数对象等价驱动（cast 消失零公有化）
     expect(gatewayFacade(gateway).docTruthHas('p1')).toBe(true);
     expect(gatewayFacade(gateway).docDeltaHas('p1')).toBe(true);
     expect(gatewayFacade(gateway).truthMeasuredAtHas('p1')).toBe(true);
@@ -261,7 +261,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
       d.getMap('g').set('k' + i, 'z'.repeat(400_000));
       q.push(Y.encodeStateAsUpdate(d));   // 模拟故障期累积（现状单次 merge=1.2MB 帧=红相）
     }
-    await (gateway as any).unloadDocument({ document, documentName: 'project:p1' });   // 真卸载路径+队列交接落 spool
+    await gateway.hooks.beforeUnloadDocument({ document, documentName: 'project:p1' } as any);   // 真卸载路径+队列交接落 spool（T40 B1「不搬」裁决：hooks 等价驱动）
     const frames = await spool.peek('p1');
     expect(frames.length).toBeGreaterThanOrEqual(2);   // 现状单帧（1.2MB）必红
     for (const f of frames) expect(f.payload.byteLength).toBeLessThanOrEqual(PERSIST_MERGE_MAX_BYTES);

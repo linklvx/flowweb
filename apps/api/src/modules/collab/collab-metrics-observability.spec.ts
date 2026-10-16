@@ -258,7 +258,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
     const heaps = [6000, 1000];
     let i = 0;
     gatewayFacade(gateway).spyHeapUsedNow().mockImplementation(() => heaps[i++]);
-    await (gateway as any).unloadDocument({ document, documentName: 'project:p1' });   // 播种（不结算）
+    await gateway.hooks.beforeUnloadDocument({ document, documentName: 'project:p1' } as any);   // 播种（不结算）——T40 B1「不搬」裁决：hooks 接线同一函数对象等价驱动（cast 消失零公有化）
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBe(baseline);   // beforeUnload 只播种——值未动
     await gateway.hooks.afterUnloadDocument({ instance: gateway.server.hocuspocus, documentName: 'project:p1' });
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBeCloseTo(5000 / state.length, 5);   // freed=5000÷truth 结算
@@ -269,7 +269,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
     let j = 0;
     const flat = [5000, 5000];
     gatewayFacade(gateway).spyHeapUsedNow().mockImplementation(() => flat[j++]);
-    await (gateway as any).unloadDocument({ document: doc2, documentName: 'project:p3' });
+    await gateway.hooks.beforeUnloadDocument({ document: doc2, documentName: 'project:p3' } as any);   // T40 B1「不搬」裁决：hooks 等价驱动
     await gateway.hooks.afterUnloadDocument({ instance: gateway.server.hocuspocus, documentName: 'project:p3' });
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBe(afterLoad2);   // 零差跳过——未动
   });
