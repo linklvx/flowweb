@@ -11,7 +11,8 @@ import { checkEcosystem, extractBashFunction, extractRoleBytes } from './check-e
 
 const okApiApp = { name: 'flowweb-api', exec_mode: 'fork', instances: 1, kill_timeout: 45000, kill_signal: 'SIGTERM',
   node_args: '--max-old-space-size=512', max_memory_restart: '1G', cwd: '/home/ubuntu/flowweb', script: 'apps/api/dist/main.js',
-  env: { COLLAB_ROLE: 'api', COLLAB_SPOOL_DIR: '/abs', COLLAB_BIND_ADDR: '127.0.0.1' } };
+  // T36（Z14①）：API_BIND_ADDR 入 api 面夹具（与 COLLAB_BIND_ADDR 同族分叉键——ENV_ALLOWLIST+127.0.0.1 断言同批）
+  env: { COLLAB_ROLE: 'api', COLLAB_SPOOL_DIR: '/abs', COLLAB_BIND_ADDR: '127.0.0.1', API_BIND_ADDR: '127.0.0.1' } };
 const okWorkerApp = { name: 'flowweb-worker', exec_mode: 'fork', instances: 1, kill_timeout: 120000, kill_signal: 'SIGTERM',
   nice: 10, node_args: '--max-old-space-size=512', max_memory_restart: '1G', cwd: '/home/ubuntu/flowweb', script: 'apps/api/dist/main-worker.js',
   env: { COLLAB_ROLE: 'worker' } };
@@ -130,6 +131,12 @@ test('env 白名单：COLLAB_ROLE 合法（Z89 分叉键口径）；密钥/NODE_
   const { COLLAB_SPOOL_DIR: _d1, COLLAB_ROLE: r1, ...apiEnvNoSpool } = okApiApp.env;
   assert.ok(checkEcosystem([{ ...okApiApp, env: { COLLAB_ROLE: r1, ...apiEnvNoSpool } }, okWorkerApp], okDeploy).some((e) => e.includes('COLLAB_SPOOL_DIR')), 'api 缺 SPOOL_DIR');
   assert.ok(checkEcosystem([{ ...okApiApp, env: { ...okApiApp.env, COLLAB_BIND_ADDR: '0.0.0.0' } }, okWorkerApp], okDeploy).some((e) => e.includes('COLLAB_BIND_ADDR')), 'api BIND_ADDR 公网');
+});
+test('T36（Z14①）：api 面 API_BIND_ADDR 必须 127.0.0.1——公网/缺失皆红（COLLAB_BIND_ADDR 同族断言）；worker env 块不要求（分叉键部分进程语义——㉑ B/C 向并集口径自洽）', () => {
+  assert.ok(checkEcosystem([{ ...okApiApp, env: { ...okApiApp.env, API_BIND_ADDR: '0.0.0.0' } }, okWorkerApp], okDeploy).some((e) => e.includes('API_BIND_ADDR')), '实现前红：api API_BIND_ADDR 公网无断言');
+  const { API_BIND_ADDR: _drop, ...apiEnvNoBind } = okApiApp.env;
+  assert.ok(checkEcosystem([{ ...okApiApp, env: apiEnvNoBind }, okWorkerApp], okDeploy).some((e) => e.includes('API_BIND_ADDR')), '实现前红：api 缺 API_BIND_ADDR 无断言');
+  assert.equal(checkEcosystem(okApps, okDeploy).filter((e) => e.includes('API_BIND_ADDR')).length, 0, '合法档（api 127.0.0.1+worker 无键）零报错');
 });
 test('调用图：deploy_full 缺 deploy_api 调用必红；cutover 缺 GIT_COMMIT_HASH= 必红', () => {
   const bad1 = okDeploy.replace(/  deploy_api\n\}/, '}');   // deploy_full 只剩 deploy_web

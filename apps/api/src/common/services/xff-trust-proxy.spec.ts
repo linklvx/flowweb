@@ -27,6 +27,10 @@ describe('T36 XFF 单源（静态锚）', () => {
     expect(MAIN_TS).toContain("app.set('trust proxy', 'loopback')");
   });
 
+  it("main.ts listen 携带绑定面：app.listen(env.PORT, env.API_BIND_ADDR ?? '127.0.0.1')（Z14①——全网 0.0.0.0 默认退役，nginx 同机反代唯一路径）", () => {
+    expect(MAIN_TS, '实现前红：listen 无第二参（全网监听）').toMatch(/app\.listen\(env\.PORT,\s*env\.API_BIND_ADDR \?\? '127\.0\.0\.1'\)/);
+  });
+
   it('rate-limiter.service.ts 手写 XFF 解析零残留（getClientIp 已删——转发壳=垫片亦禁）', () => {
     expect(RATE_LIMITER_TS, '实现前红：手写 XFF 首元素采信解析仍在').not.toMatch(/x-forwarded-for/i);
     expect(RATE_LIMITER_TS, '实现前红：getClientIp 仍在').not.toMatch(/getClientIp/);

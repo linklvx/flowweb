@@ -154,14 +154,15 @@ export function checkEcosystem(apps, deploySrc) {
         trip.worker + 200 * MiB <= rss || fail(`Z118 算术[worker]：TRIP[worker](${trip.worker})+200MiB ≤ max_memory_restart[worker](${app.max_memory_restart}=${rss}) 不成立（缓解时延预算）`);
       }
     }
-    // env 白名单（T30 扩 COLLAB_ROLE——Z89 分叉键口径）+NODE_ENV 禁令（Y0.5/E58 落地才解禁）
-    // +B25：GIT_COMMIT_HASH 来自 shell 注入非 env{}。SPOOL_DIR/BIND_ADDR 是 api 面断言（gateway/spool
-    // 只装配于 api|all——worker 无消费者）。
-    const ENV_ALLOWLIST = new Set(['COLLAB_ROLE', 'COLLAB_SPOOL_DIR', 'COLLAB_BIND_ADDR']);
+    // env 白名单（T30 扩 COLLAB_ROLE、T36 扩 API_BIND_ADDR——Z89 分叉键口径）+NODE_ENV 禁令
+    // （Y0.5/E58 落地才解禁）+B25：GIT_COMMIT_HASH 来自 shell 注入非 env{}。SPOOL_DIR/BIND_ADDR 族
+    // 是 api 面断言（gateway/spool/HTTP listen 只装配于 api|all——worker 无消费者）。
+    const ENV_ALLOWLIST = new Set(['COLLAB_ROLE', 'COLLAB_SPOOL_DIR', 'COLLAB_BIND_ADDR', 'API_BIND_ADDR']);
     for (const k of Object.keys(app.env ?? {})) ENV_ALLOWLIST.has(k) || fail(`${app.name} env 键 ${k} 不在白名单（禁密钥进 ecosystem——env 走服务器 .env）`);
     if (role === 'api') {
       isAbsolute(app.env?.COLLAB_SPOOL_DIR ?? '') || fail('COLLAB_SPOOL_DIR 必须绝对路径');
       app.env?.COLLAB_BIND_ADDR === '127.0.0.1' || fail('COLLAB_BIND_ADDR 必须 127.0.0.1（P25）');
+      app.env?.API_BIND_ADDR === '127.0.0.1' || fail('API_BIND_ADDR 必须 127.0.0.1（T36/Z14①——3000 不公网监听，nginx 同机反代唯一路径；缺失亦红=分叉键显式登记）');
     }
     typeof app.script === 'string' || fail(`${app.name} script 形态：${app.script}（必须字符串）`);
     typeof app.cwd === 'string' && isAbsolute(app.cwd) || fail(`${app.name} cwd 形态：${app.cwd}（必须绝对路径）`);

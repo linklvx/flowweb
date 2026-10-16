@@ -826,12 +826,13 @@ if (isMain()) {
   // ㉑env 两分（Y0c T3，Z89）：分叉键（双进程间值将不同的键）只进 ecosystem env 块/同值键只进
   //  服务器 .env（单文件双进程共读——Z49）。分叉键集（plan T3 三键——键名按仓内实测定准）：
   //  COLLAB_BIND_ADDR（gateway:484 既有）/COLLAB_SPOOL_DIR（ecosystem 既有）/COLLAB_ROLE（片 D
-  //  T23 新键，现全仓零读者）；API_BIND_ADDR（E 片 T36 新键）落地时同批入清单。
+  //  T23 新键）；API_BIND_ADDR（E 片 T36 新键）已随 T36 落地入清单（:829 预留兑现——main.ts
+  //  listen 第二参，ecosystem api env 块显式 127.0.0.1，worker env 块不加=部分进程语义，B/C 向并集口径自洽）。
   //  三向断言：A 分叉键∩.env 键集=∅；B ecosystem env 块键集⊆分叉键集（同值键禁混入）；C 分叉键
   //  ⊆ecosystem env 块键集（「分叉键必须显式登记于 ecosystem」）。.env 为本地文件不在 git：
   //  不存在=跳过 A 向+提示（CI/无 .env 环境可跑）；ecosystem 半边恒执法。
-  //  与 check-ecosystem.mjs ENV_ALLOWLIST 同源事实（T30 已扩 COLLAB_ROLE——白名单=三分叉键全集）。
-  const FORKED_ENV_KEYS = ['COLLAB_ROLE', 'COLLAB_BIND_ADDR', 'COLLAB_SPOOL_DIR'];
+  //  与 check-ecosystem.mjs ENV_ALLOWLIST 同源事实（T30 扩 COLLAB_ROLE、T36 扩 API_BIND_ADDR——白名单=四分叉键全集）。
+  const FORKED_ENV_KEYS = ['COLLAB_ROLE', 'COLLAB_BIND_ADDR', 'COLLAB_SPOOL_DIR', 'API_BIND_ADDR'];
   // 方向 C 登记红（元纪律⑥）：分叉键尚未落 ecosystem=登记红。T30 转绿达成——COLLAB_ROLE 已随
   //  ecosystem 双 app（api/worker）显式携带，登记按双向对账纪律移除（残留=stale 红）。
   const ECOSYSTEM_MISSING_REGISTERED_RED = {};
@@ -907,7 +908,7 @@ if (isMain()) {
     'apps/api/src/common/redis/managed-redis.ts': {   // 函数内（createManagedRedis defarg 兜底——调用期求值）
       REDIS_URL: 1,
     },
-    'apps/api/src/common/services/rate-limiter.service.ts': {   // T34 整改：函数内（ipWhitelist() 惰性——T36 承接入 zod+删手写解析）
+    'apps/api/src/common/services/rate-limiter.service.ts': {   // T34 整改：函数内（ipWhitelist() 惰性）；T36 已兑现：键入 zod schema（env.ts 形态校验）+手写 XFF 解析删除（req.ip 单源）——默认 '127.0.0.1,::1' 唯一落使用点
       RATE_LIMIT_IP_WHITELIST: 1,
     },
     'apps/api/src/config/env.ts': {                   // 单源写回点（Z45②——validateEnv 成功后 process.env.NODE_ENV 赋值，非决策读）+T35 Z13 resolver 单点（resolveSecureTransport 惰性读 COOKIE_SECURE/NODE_ENV——update-profile.dto 白名单条目随改道核销）

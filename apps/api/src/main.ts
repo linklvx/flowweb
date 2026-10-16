@@ -136,8 +136,12 @@ async function bootstrap() {
     .map((s) => s.trim());
   app.enableCors({ origin: corsOrigins, credentials: true });
 
-  await app.listen(env.PORT);
-  console.log(`Server running on port ${env.PORT}`);
+  // Y0c T36（Z14①）：绑定面收窄——使用点默认 127.0.0.1（原全网监听退役；nginx 同机反代唯一
+  // 合法路径，COLLAB_BIND_ADDR/P25 同族）。API_BIND_ADDR=分叉键（Z89 ㉑：生产经 ecosystem api
+  // env 块显式注入 127.0.0.1，check-ecosystem 断言；本地 dev 缺省即 127.0.0.1，vite proxy
+  // localhost 面 Node ≥20 autoSelectFamily IPv4 回落实证可达）。
+  await app.listen(env.PORT, env.API_BIND_ADDR ?? '127.0.0.1');
+  console.log(`Server running on ${env.API_BIND_ADDR ?? '127.0.0.1'}:${env.PORT}`);
 }
 
 bootstrap();

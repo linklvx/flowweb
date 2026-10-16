@@ -33,6 +33,7 @@ module.exports = {
       // Y0c T21/Z61：maxDebounce 禁调大——SIGKILL 丢数据窗 ≤3000ms（=debounce 2000×1.5 写死在 gateway，RPO 契约值 E43⑥，调大即放宽丢数据窗）
       COLLAB_SPOOL_DIR: '/home/ubuntu/flowweb-data/collab-spool',   // E37+P47：绝对路径且树外（CWD 漂移+部署覆盖双防护）
       COLLAB_BIND_ADDR: '127.0.0.1',   // P25：3001 不公网监听（nginx 同机反代唯一路径）
+      API_BIND_ADDR: '127.0.0.1',   // Y0c T36/Z14①：3000 不公网监听（nginx 同机反代唯一路径——COLLAB_BIND_ADDR 同族分叉键，main.ts listen 第二参）
     },
     merge_logs: true,
     time: true,
