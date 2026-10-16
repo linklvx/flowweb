@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { svDominates } from './sv.util';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -70,5 +72,30 @@ maybe('compact（真 PG）', () => {
     const revived = new Y.Doc();
     Y.applyUpdate(revived, new Uint8Array(row!.state));
     expect(revived.getMap('nodes').size).toBe(src.getMap('nodes').size);
+  });
+
+  // G2（Y0c T40/Z125-2）：重复行坍缩从实现巧合升格为契约——同一 update append ×3 产生 3 条
+  // 内容相同行，compact 必须全量读行（被删集≡被重放集，契约 §1.3）：行数归零+deletedRows=3。
+  // 判别力（TEMP-RED 实证）：compact 读方法注入 take: 1 ⇒ 只删 1 行留 2 行 ⇒ 两断言即红。
+  it('G2（Z125-2）：append 同一 update ×3 → compact → 重复行全坍缩（deletedRows=3+行数 0）+读行覆盖全部行禁 LIMIT（声明式）', async () => {
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    const u = Y.encodeStateAsUpdate(docWithNodes(3));
+    await repo.append(PID, u);
+    await repo.append(PID, u);
+    await repo.append(PID, u);
+    const r = await repo.compact(PID);
+    expect(r).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: 3, tombstoneBytes: expect.any(Number) });
+    expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
+    // 声明式断言（census 源码文本风格）：compact 读行方法禁 take:/LIMIT——分页/限行读会把
+    // 「被删集≡被重放集」破成「删了没重放的行」或「重放没删的行」两类撕裂（readConsistent 的
+    // 分页 LIMIT 是装载读路径、游标推进全覆盖，不在本断言面——本断言只辖 compact 方法体）。
+    // 提取形态：compact 是文件末方法（写死本断言时成立；后接新方法时改花括号平衡提取）。
+    const src = readFileSync(join(__dirname, 'canvas-doc-update.repository.ts'), 'utf8');
+    const at = src.indexOf('async compact(');
+    expect(at, 'compact 方法定位失败（方法改名/换文件——同步本断言提取形态）').toBeGreaterThan(0);
+    const compactSrc = src.slice(at);
+    expect(compactSrc, 'compact 读行禁 take:（限行读破被删集≡被重放集契约）').not.toMatch(/take\s*:/);
+    expect(compactSrc, 'compact 读行禁 LIMIT（同上——raw SQL 改写形态兜底）').not.toMatch(/\bLIMIT\b/i);
   });
 });
