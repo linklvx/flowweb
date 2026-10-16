@@ -11,19 +11,47 @@ import { getSessionCookieOptions, getAuth, closeAuthRedis } from './auth';
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe('T34：getSessionCookieOptions()——secure 判据调用期读 NODE_ENV（旧 const 冻结 ⇒ 红）', () => {
+  // T35 密封（§0.6 偏离 56）：COOKIE_SECURE='' 钉死未设档——外壳显式值不得翻转 T34 锚断言
   it('stub production ⇒ secure=true（旧形态：import 时点 NODE_ENV=test 冻结 false）', () => {
     vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('COOKIE_SECURE', '');
     expect(getSessionCookieOptions().secure).toBe(true);
   });
 
   it('development ⇒ secure=false；形状面（httpOnly/path/sameSite/maxAge=7d）原样保持', () => {
     vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('COOKIE_SECURE', '');
     expect(getSessionCookieOptions()).toEqual({
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
       secure: false,
       maxAge: 7 * 24 * 60 * 60 * 1000,   // = session.expiresIn (7d) 强约束注记随函数迁移
+    });
+  });
+});
+
+// Y0c T35（Z13+Z45⑤）：secure 判据改 resolveSecureTransport() 单点——COOKIE_SECURE 显式优先
+// （本地 HTTPS 唯一出路：development+true ⇒ cookie 仍 Secure）→未设按档位兜底。
+describe('T35：getSessionCookieOptions() secure=resolver 三态（旧 NODE_ENV 二分判据 ⇒ 红）', () => {
+  it('development + COOKIE_SECURE=true ⇒ secure=true（本地 HTTPS 出路——旧判据恒 false ⇒ 红）', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('COOKIE_SECURE', 'true');
+    expect(getSessionCookieOptions().secure).toBe(true);
+  });
+
+  it('development + COOKIE_SECURE=false ⇒ false；production 未设 ⇒ true（档位兜底保持——形状面不变）', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('COOKIE_SECURE', 'false');
+    expect(getSessionCookieOptions().secure).toBe(false);
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('COOKIE_SECURE', '');
+    expect(getSessionCookieOptions()).toEqual({
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      secure: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
   });
 });

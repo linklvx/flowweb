@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  envSchema, envSchemaValidated, validateEnv,
+  envSchema, envSchemaValidated, validateEnv, resolveSecureTransport,
   DB_CONNECTION_LIMIT, withConnectionLimit, applyDatabaseUrlConnectionLimit,
 } from './env';
 
@@ -218,7 +218,10 @@ describe('Y0c T34：NODE_ENV enum 三值+default production（fail-closed）+val
   });
 
   // validateEnv 只测成功路径与写回（失败路径 process.exit(1)——safeParse 分支直测承担拒启面）；
-  // vi.stubEnv+手动恢复（本文件首个 stubEnv 用例——Z45③ 形态）
+  // vi.stubEnv+手动恢复（本文件首个 stubEnv 用例——Z45③ 形态）。
+  // T35 密封（R6②+§0.6 偏离 56）：COLLAB_FAKE_AI/COLLAB_ROLE/COOKIE_SECURE 钉死——防外壳环境
+  // 污染杀 vitest worker（production 档 superRefine 判据面：'1' 拒启/worker 缺 PROMETHEUS_TOKEN
+  // 拒启/'false' 拒启均为真实外壳可现值）。
   it('validateEnv 成功写回：NODE_ENV 未设 ⇒ parse production+写回 process.env（拒启面由 BETTER_AUTH_URL/WORKER_WRITE_TOKEN 满足）', () => {
     vi.stubEnv('NODE_ENV', '');
     vi.stubEnv('DATABASE_URL', 'postgresql://x');
@@ -227,6 +230,9 @@ describe('Y0c T34：NODE_ENV enum 三值+default production（fail-closed）+val
     vi.stubEnv('MINIO_SECRET_KEY', 'minio-secret-key');
     vi.stubEnv('BETTER_AUTH_URL', 'https://x.example.com');
     vi.stubEnv('WORKER_WRITE_TOKEN', 'tok');
+    vi.stubEnv('COLLAB_FAKE_AI', '');
+    vi.stubEnv('COLLAB_ROLE', 'api');
+    vi.stubEnv('COOKIE_SECURE', '');
     try {
       const env = validateEnv();
       expect(env.NODE_ENV).toBe('production');
@@ -242,6 +248,8 @@ describe('Y0c T34：NODE_ENV enum 三值+default production（fail-closed）+val
     vi.stubEnv('MINIO_ENDPOINT', 'http://localhost:9000');
     vi.stubEnv('MINIO_ACCESS_KEY', 'minio-key');
     vi.stubEnv('MINIO_SECRET_KEY', 'minio-secret-key');
+    vi.stubEnv('COLLAB_FAKE_AI', '');   // T35 密封（R6②）：dev 档 superRefine 早退本无需——对称密封防未来判据面扩张
+    vi.stubEnv('COLLAB_ROLE', 'api');
     try {
       const env = validateEnv();
       expect(env.NODE_ENV).toBe('development');
@@ -316,6 +324,56 @@ describe('Y0c T34：COLLAB_FAKE_AI ∧ production ⇒ 拒启（envSchemaValidate
   it('形态面：任意串过验（语义=仅 \'1\' 生效——\'0\'/杂值无害不拒，不新增启动失败面）', () => {
     expect(envSchema.safeParse({ ...good, COLLAB_FAKE_AI: '0' }).success).toBe(true);
     expect(envSchema.safeParse({ ...good, COLLAB_FAKE_AI: 'garbage' }).success).toBe(true);
+  });
+});
+
+// Y0c T35（Z13+Z45⑤）：COOKIE_SECURE 显式三态（禁推导）——resolver 单点函数（显式优先→未设按
+// 档位兜底，production 恒 true）+production∧explicit 'false' ⇒ superRefine 拒启（fail-closed：
+// cookie secure 是传输通道属性非运行档位属性）。三档先红后绿验收（spec §8 判据表）。
+describe('Y0c T35：resolveSecureTransport() 单点三态（显式优先→档位兜底）', () => {
+  // 六档直测（R2）+空串=未设（B13）；惰性读=每 stub 后立即求值（Z45② 写回等价形态）
+  const cases: Array<[nodeEnv: string, cookieSecure: string, want: boolean, note: string]> = [
+    ['development', 'true', true, '本地 HTTPS 唯一出路：dev+显式 true ⇒ cookie 仍 Secure'],
+    ['development', '', false, 'dev 未设（空串=未设 B13）⇒ 档位兜底 false'],
+    ['development', 'false', false, 'dev+显式 false ⇒ false（http 本地档合法）'],
+    ['production', '', true, 'production 未设 ⇒ 恒 true（档位兜底 fail-closed 方向）'],
+    ['test', '', false, 'test 档同 development 逻辑：未设 ⇒ false'],
+    ['test', 'true', true, 'test+显式 true ⇒ true（enum 三档同则）'],
+  ];
+  it.each(cases)('NODE_ENV=%s COOKIE_SECURE=%j ⇒ %s（%s）', (nodeEnv, cookieSecure, want) => {
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    vi.stubEnv('COOKIE_SECURE', cookieSecure);
+    try {
+      expect(resolveSecureTransport()).toBe(want);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('Y0c T35：COOKIE_SECURE schema 形态 + production∧explicit false ⇒ 拒启（envSchemaValidated）', () => {
+  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' };
+
+  it("形态：仅 'true'|'false' 过（enum 封闭）/'garbage' 拒/'1' 拒/空串=未设过（B13）", () => {
+    expect(envSchema.safeParse({ ...good, COOKIE_SECURE: 'true' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COOKIE_SECURE: 'false' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COOKIE_SECURE: 'garbage' }).success, '实现前红：键未注册⇒zod strip 未知键恒过').toBe(false);
+    expect(envSchema.safeParse({ ...good, COOKIE_SECURE: '1' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, COOKIE_SECURE: '' }).success).toBe(true);
+  });
+
+  it("production ∧ COOKIE_SECURE='false' → 拒（issue 点名 COOKIE_SECURE——显式降级禁）", () => {
+    const r = envSchemaValidated.safeParse({ ...prodBase, COOKIE_SECURE: 'false' });
+    expect(r.success, '实现前红：superRefine 无本判据⇒恒过').toBe(false);
+    if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('COOKIE_SECURE');
+  });
+
+  it("production ∧ 'true'/未设/空串 → 过；development/test ∧ 'false' 不拒（显式 false 仅 production 档非法）", () => {
+    expect(envSchemaValidated.safeParse({ ...prodBase, COOKIE_SECURE: 'true' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse(prodBase).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...prodBase, COOKIE_SECURE: '' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development', COOKIE_SECURE: 'false' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'test', COOKIE_SECURE: 'false' }).success).toBe(true);
   });
 });
 

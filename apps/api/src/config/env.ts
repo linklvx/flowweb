@@ -86,6 +86,11 @@ export const envSchema = z.object({
   // 档：cookie Secure/三 guard fail-open/debounce 档位全随此键；仿同文件 COLLAB_ROLE
   // .default(COLLAB_ROLE_DEFAULT) 既有例外先例）。非法值（'staging' 等拼错档位）拒启；空串=未设（B13）走 default。
   NODE_ENV: z.preprocess(blankToUnset, z.enum(['development', 'test', 'production']).default('production')),
+  // Y0c T35（Z13+Z45⑤）：COOKIE_SECURE 显式三态（禁推导）——'true'/'false' 封闭词表；未设/空串
+  // （B13）=按档位兜底（resolveSecureTransport 单点，production 恒 true）；production∧'false'=
+  // 拒启（下方 superRefine——传输通道属性不得在生产档显式降级）。消费面=auth.ts cookie secure
+  // +update-profile.dto 严格档（同一 resolver 驱动，zod 不写 default 防双源 P3）。
+  COOKIE_SECURE: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   BETTER_AUTH_URL: z.preprocess(blankToUnset, z.string().min(1).optional()),
   MINIO_ENDPOINT: z.string().url(),
   MINIO_ACCESS_KEY: z.string().min(3),
@@ -231,6 +236,12 @@ export const envSchemaValidated = envSchema.superRefine((v, ctx) => {
   if (v.COLLAB_FAKE_AI === '1') {
     ctx.addIssue({ code: 'custom', path: ['COLLAB_FAKE_AI'], message: '生产禁止 COLLAB_FAKE_AI=1（fake 外呼豁免档仅限 dev/test/gate——env 校验层启动期拒启 fail-closed）' });
   }
+  // Y0c T35（Z13）：production ∧ COOKIE_SECURE='false' ⇒ 拒启——cookie secure 是传输通道属性
+  // 非运行档位属性，生产档显式降级=fail-closed 方向拒启动（三态的拒启半在此单点；运行期
+  // 布尔判据半在 resolveSecureTransport——本条是 schema 层判据非第二处 resolver 判断，RC7 边界）。
+  if (v.COOKIE_SECURE === 'false') {
+    ctx.addIssue({ code: 'custom', path: ['COOKIE_SECURE'], message: '生产禁止 COOKIE_SECURE=false（Z13 三态 fail-closed：传输通道属性不得在生产档显式降级——删除本键即按档位兜底 Secure）' });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -249,4 +260,18 @@ export function validateEnv(): Env {
   // （env.ts NODE_ENV n1「单源写回点」——字面量 process.env.NODE_ENV 赋值会被键级普查命中）。
   process.env.NODE_ENV = result.data.NODE_ENV;
   return result.data;
+}
+
+/** Y0c T35（Z13+Z45⑤——§0.6 偏离 55）：COOKIE_SECURE 三态 resolver 单点函数（禁第二处判断）。
+ *  语义：显式值优先（'true'/'false'——本地 HTTPS 唯一出路=NODE_ENV=development+COOKIE_SECURE=true
+ *  ⇒ cookie 仍 Secure+dto 严格档）→未设/空串（B13）=按档位兜底（production 恒 true）。惰性读
+ *  （调用期求值恒在 validateEnv 写回后——Z45② 等价，auth.ts/dto constraint 同形态）。
+ *  production∧'false' 由 envSchemaValidated superRefine 拒启拦截（三态的拒启半），运行期到不了
+ *  该分支。消费面=getSessionCookieOptions().secure（auth.ts）+EnvAware 两 constraint 严格档
+ *  （update-profile.dto）——「传输必须 TLS」两执法面同一 resolver 驱动（Z45⑤ 同批对齐）。 */
+export function resolveSecureTransport(): boolean {
+  const raw = process.env.COOKIE_SECURE;   // Z13 resolver 单点（census ㉒ 白名单）
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  return process.env.NODE_ENV === 'production';   // Z13 resolver 单点（未设/空串=档位兜底）
 }

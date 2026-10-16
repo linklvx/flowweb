@@ -17,8 +17,10 @@ function imageErrors(image: string): string[] {
 }
 
 describe('T34：update-profile.dto 头像 URL 校验期读 NODE_ENV（惰性——同模块随 env 切档）', () => {
+  // T35 密封（§0.6 偏离 56）：COOKIE_SECURE='' 钉死未设档——resolver 引入后外壳显式值不得翻转 T34 锚断言
   it('production 档（import 后 stub）：https 白名单域过/http 拒/非白名单域拒/localhost 拒（require_tld 生效）', () => {
     vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('COOKIE_SECURE', '');
     expect(imageErrors('https://cdn.flowai.dev/a.png')).toEqual([]);
     expect(imageErrors('https://x.flowai.dev/a.png')).toEqual([]);
     expect(imageErrors('http://cdn.flowai.dev/a.png').length).toBeGreaterThan(0);
@@ -28,6 +30,7 @@ describe('T34：update-profile.dto 头像 URL 校验期读 NODE_ENV（惰性—�
 
   it('development 档（import 后 stub）：localhost http 过/远端 https 白名单域拒——旧实现冻结 import 时点档 ⇒ 红', () => {
     vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('COOKIE_SECURE', '');
     expect(imageErrors('http://localhost:5173/a.png')).toEqual([]);
     expect(imageErrors('http://127.0.0.1/a.png')).toEqual([]);
     expect(imageErrors('https://cdn.flowai.dev/a.png').length).toBeGreaterThan(0);
@@ -42,5 +45,24 @@ describe('T34：update-profile.dto 头像 URL 校验期读 NODE_ENV（惰性—�
     const bad = new UpdateProfileDto();
     bad.name = 'bad$name';
     expect(validateSync(bad).length).toBeGreaterThan(0);
+  });
+});
+
+// Y0c T35（Z13+Z45⑤）：严格档判据改 resolveSecureTransport() 单点——与 cookie secure 同一
+// resolver 驱动（「传输必须 TLS」两执法面同批对齐，只执法前者放过后者=错配）。
+describe('T35：update-profile.dto 严格档判据=resolver 三态（旧 NODE_ENV 二分 ⇒ 红）', () => {
+  it('development + COOKIE_SECURE=true ⇒ 严格档：https 白名单域过/localhost http 拒（旧二分恒宽松档 ⇒ 红）', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('COOKIE_SECURE', 'true');
+    expect(imageErrors('https://cdn.flowai.dev/a.png')).toEqual([]);
+    expect(imageErrors('http://localhost:5173/a.png').length).toBeGreaterThan(0);
+    expect(imageErrors('https://evil.com/a.png').length).toBeGreaterThan(0);
+  });
+
+  it('development 未设 ⇒ 宽松档保持（localhost http 过/远端白名单域拒——T34 等价零变化）', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('COOKIE_SECURE', '');
+    expect(imageErrors('http://localhost:5173/a.png')).toEqual([]);
+    expect(imageErrors('https://cdn.flowai.dev/a.png').length).toBeGreaterThan(0);
   });
 });

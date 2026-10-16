@@ -919,6 +919,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - COLLAB_TRUSTED_PROXY
 - COLLAB_UPGRADE_RATE_PER_MIN
 - COMPACT_INTERVAL_MS
+- COOKIE_SECURE
 - CORS_ORIGIN
 - DASHSCOPE_API_KEY
 - DATABASE_URL
@@ -963,6 +964,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 <!-- Y0c T26 键同步补记：WORKER_READY_TIMEOUT_MS/WORKER_WRITE_TOKEN 两键 T26 落 env.ts 时漏更本块（块随 code 同 commit 变更契约）——T27 顺手根修（check-spec-consistency 双向比对复绿）；WORKER_METRICS_PORT=T29-I 同批登记（worker 3002 指标出口端口——使用点默认 3002） -->
 
 <!-- Y0c T34 键同步（69→70）：COLLAB_FAKE_AI 进 envSchema（本 spec §对象6「豁免收口：superRefine NODE_ENV==='production' 拒 '1'」的 Y0b 遗留义务于 T34 兑现；NODE_ENV 同批改 enum 三值+default production——Z12 fail-closed 显式裁定例外） -->
+
+<!-- Y0c T35 键同步（70→71）：COOKIE_SECURE 进 envSchema（Y0c spec Z13 显式三态：'true'/'false' 封闭词表+resolveSecureTransport resolver 单点——显式优先/未设按档位兜底/production∧'false' superRefine 拒启；Z45⑤ 与 update-profile.dto 严格档同一 resolver 驱动同批对齐） -->
 
 <!-- y0b0:metric-names -->
 ```yaml

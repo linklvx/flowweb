@@ -66,8 +66,8 @@ export function stripCommentsAndStrings(src) {
           // T34（§0.6 偏离 53）：插值自身闭合 `}`（frame 1→0）置空格——`${` 开括号上方已剥为两空格，
           // closer 原样透传=每处插值一枚孤儿 `}`⇒computeBraceDepth 负漂移⇒㉒〔M〕分类假阳性
           // （intent-key/gateway/team-recharge/recharge 误标根因）。嵌套花括号（frame>1）成对透传自平衡。
-          const frame = (tplStack[tplStack.length - 1] -= 1);
-          out += frame === 0 ? ' ' : '}';
+          const nextFrame = (tplStack[tplStack.length - 1] -= 1);   // T35 微修（R6①）：内层 frame 遮蔽外层（:57）改名——纯改名零行为
+          out += nextFrame === 0 ? ' ' : '}';
           i += 1; continue;
         }
         if (c === '/' && n === '/') { while (i < src.length && src[i] !== '\n') { out += ' '; i += 1; } continue; }
@@ -875,7 +875,10 @@ if (isMain()) {
   //  T34 重划终态（2026-10-16）：登记红清零（原 103 项 until=T34 全处置——Z147① 前置全仓枚举
   //  实测 107 键项/34 文件〔与登记口径 103红+4白 同源对账吻合；键项变动=dto NODE_ENV 出现数
   //  3→1〔constraint 单点读〕+main.ts NODE_ENV 移除〔改 env.NODE_ENV 单源〕+config/env.ts
-  //  NODE_ENV +1〔Z45② 单源写回点〕——键项数净持平、文件 +1）。模块加载期违规面（9 文件 14
+  //  NODE_ENV +1〔Z45② 单源写回点〕——键项数净持平、文件 +1；T35 增量=106 键项/33 文件——
+  //  auth.ts/update-profile.dto NODE_ENV 读点改调 env.ts resolveSecureTransport 消失〔dto 条目
+  //  整文件核销〕+env.ts COOKIE_SECURE/NODE_ENV resolver 单点惰性读入白名单〔§0.6 偏离 55〕）。
+  //  模块加载期违规面（9 文件 14
   //  键项）已惰性化/useFactory 化/constraint 化（各文件行内注「T34 整改」），其余按实测形态入
   //  白名单——形态分类口径（每文件行尾注）：构造器=DI 构造期读（NestFactory.create，恒在
   //  validateEnv 后）｜uF装配期=useFactory/register()/动态模块装配期读（同前）｜方法内=运行期
@@ -892,11 +895,8 @@ if (isMain()) {
   //  settings.service:56,74（admin 面读写同门）——advisory 口径维持。config/env.ts 的
   //  safeParse(process.env)=env 单源入口本体（整对象形态词表外不命中——唯一命中是写回点）。
   const ENV_READ_WHITELIST = {
-    'apps/api/src/auth/auth.ts': {                    // T34 整改：惰性单例/函数（getAuth/getSessionCookieOptions/getAuthRedis——调用期读）
-      REDIS_URL: 1, NODE_ENV: 1, BETTER_AUTH_URL: 1, CORS_ORIGIN: 1,
-    },
-    'apps/api/src/auth/dto/update-profile.dto.ts': {  // T34 整改：constraint 校验期读（avatarUrlProduction 单点——原装饰器实参 3 读点冻结形态退役）
-      NODE_ENV: 1,
+    'apps/api/src/auth/auth.ts': {                    // T34 整改：惰性单例/函数（getAuth/getSessionCookieOptions/getAuthRedis——调用期读）；T35：NODE_ENV 读点改调 resolveSecureTransport 消失
+      REDIS_URL: 1, BETTER_AUTH_URL: 1, CORS_ORIGIN: 1,
     },
     'apps/api/src/auth/wechat/wechat.controller.ts': { // 方法内
       WECHAT_APP_ID: 1,
@@ -910,8 +910,8 @@ if (isMain()) {
     'apps/api/src/common/services/rate-limiter.service.ts': {   // T34 整改：函数内（ipWhitelist() 惰性——T36 承接入 zod+删手写解析）
       RATE_LIMIT_IP_WHITELIST: 1,
     },
-    'apps/api/src/config/env.ts': {                   // 单源写回点（Z45②——validateEnv 成功后 process.env.NODE_ENV 赋值，非决策读）
-      NODE_ENV: 1,
+    'apps/api/src/config/env.ts': {                   // 单源写回点（Z45②——validateEnv 成功后 process.env.NODE_ENV 赋值，非决策读）+T35 Z13 resolver 单点（resolveSecureTransport 惰性读 COOKIE_SECURE/NODE_ENV——update-profile.dto 白名单条目随改道核销）
+      NODE_ENV: 2, COOKIE_SECURE: 1,
     },
     'apps/api/src/main.ts': {                         // 函数内（preloadDbConfig 引导层应急开关；NODE_ENV 读点 T34 改 env.NODE_ENV 单源已移除）
       DISABLE_DB_CONFIG_PRELOAD: 1,

@@ -7,6 +7,7 @@ import { LUA_VERIFY_OTP } from '../common/services/lua-scripts';
 import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
 import { CreditLedgerService } from '../modules/team/credit-ledger.service';
 import { createManagedRedis, type ManagedRedis } from '../common/redis/managed-redis';
+import { resolveSecureTransport } from '../config/env';   // T35（Z13）：secure 判据单点——禁第二处判断
 
 /** Y0a-4/E46：模块级 PrismaClient 纳管（authRedis 同款受管形态）——AuthModule.onApplicationShutdown 断开 */
 export const authPrisma = new PrismaClient();
@@ -24,7 +25,8 @@ export const authLedger = new CreditLedgerService(authPrisma as any);
 
 /** 批3-2 B6：顶层单例仍不复用 DI REDIS_CLIENT（auth.ts 在 DI 容器外），但统一受管工厂，
  *  由 AuthModule.onApplicationShutdown 经 closeAuthRedis() 关闭。T34：惰性构造——首次 OTP
- *  校验调用才建连；REDIS_URL 读在本函数体内=调用期求值（原 :21 模块级 const redisUrl 退役）。 */
+ *  校验调用才建连；REDIS_URL 读在本函数体内=调用期求值（原 :21 模块级 const redisUrl 退役）。
+ *  T35 注（T34 质量评审 Minor-4）：worker 进程现无 getAuthRedis 触发面——引入时须同批接关停钩。 */
 let authRedisCache: ManagedRedis | null = null;
 function getAuthRedis(): ManagedRedis {
   if (!authRedisCache) {
@@ -54,15 +56,16 @@ async function luaVerifyOtp(phoneNumber: string, code: string): Promise<boolean>
  * ⚠️ 强约束: maxAge 必须与下方 buildAuth 的 session.expiresIn (7d) 完全对齐，
  * 修改 session.expiresIn 时必须同步更新此处 maxAge。
  * 两个值从不同维度描述同一会话生命周期，不一致会导致提前过期或孤儿 Cookie。
- * T34：const 对象→惰性函数——secure 判据 NODE_ENV 调用期读（写回后恒有确定档位，未设档
- * undefined 假 dev 面退役）；T35 COOKIE_SECURE 三态 resolver 单点化承接本函数（RC7 边界）。
+ * T34：const 对象→惰性函数（调用期求值——写回后恒有确定档位，未设档 undefined 假 dev 面退役）。
+ * T35（Z13+Z45⑤）：secure 判据改 resolveSecureTransport() 单点——COOKIE_SECURE 显式优先
+ * （本地 HTTPS 出路）→未设按档位兜底；本函数禁第二处 NODE_ENV 判断（RC7 边界兑现）。
  */
 export function getSessionCookieOptions() {
   return {
     httpOnly: true,
     path: '/',
     sameSite: 'lax' as const,
-    secure: process.env.NODE_ENV === 'production',
+    secure: resolveSecureTransport(),
     maxAge: 7 * 24 * 60 * 60 * 1000, // = session.expiresIn (7 days), 必须同步修改
   };
 }
