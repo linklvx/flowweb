@@ -33,6 +33,13 @@ paths = [
 ]
 
 [[allowlists]]
+description = "RFC 6455 §1.3 公开示例 WebSocket 握手键（base64('the sample nonce')——标准文档样例值非密钥；T33 ws 升级拒绝用例裸 TCP 握手请求头，worker-metrics-server.spec）"
+regexTarget = "secret"
+regexes = [
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
+]
+
+[[allowlists]]
 description = "E41 测试密钥+测试固定密码（值级豁免：同文件未来真密钥仍会红；勿加 ^$ 锚定——Secret 字段可能带尾随换行，锚定后豁免失效已实证）"
 regexTarget = "secret"
 regexes = [

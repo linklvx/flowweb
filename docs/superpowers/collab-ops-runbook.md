@@ -427,6 +427,8 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 
 **pg_stat_activity 观测（RC5——观测面非门禁）**：部署后稳态 `usename=flowweb` 共 **4 条（全 idle）** ≪ 预算上限 `(3×8)+(2×4)=32`——Prisma 池懒建口径（idle<上限=正常态；connection_limit=上限非预分配）。max_connections=100 实证不变（§2 算式余量充足）。
 
+**T33 D 出口复核轮（2026-10-16，同代际无新部署——本节数字即 RC⑤「deploy 复验五数字」T33 新档）**：①代际=build-info `{"git":"3238c34b","builtAt":"2026-10-16T06:40:46Z"}`，pm2 双 app online/restarts **3/3**（与 T32 基线一致=零新增重启）/uptime 06:41Z（unit cgroup 托管不变）②gate=本地 gate-collab 23 项绿（T33 轮，MinIO 本地拉起后首试即过——首跑红系本地 MinIO 未起 ECONNREFUSED 9000 环境项非代码项）③ready epoch=**12**（holder 在位+holderRenewedAgoMs 2.9s+workers 维度 registered=1×三队列 execution/ai-result-download/ai-image-edit 全 waiting=0——token 授权档实读）④双冒烟=collab-smoke **exit 0**（WS→auth→load→双端写→广播互见→store→PG→重放链 OK）+exec-smoke **exit 0**（哨兵零可见→环1 ECONNREFUSED 零扣费→环2a settle 全链→环2b 退款归零→负例零 intent→清理 0，ledgerRows=4）⑤巡检=`node scripts/check-collab-health.mjs` 服务器本地 **exit 0**（workers 维度+3002+Z148④ 全链真实双进程绿）。旁证：free -m available **1066MB**（判据余量口径同 §9.2 上表）+pg_stat_activity flowweb **idle=4**（≪32 懒建口径不变）。DEPLOY_EXIT=N/A（T33 零部署——测试/文档面 commit，代际复核数字①承担部署态验证）。
+
 
 ## §10 依赖版本契约（Y0c T5/Z123 登记，2026-10-14）
 
@@ -456,3 +458,51 @@ quantile_over_time(0.95, process_tree_rss_bytes{role="worker"}[5m])
 **内存判定时点（Z91③）**：A2 出口后一次——已落 §9.1（三数回填裁决）；D 出口前一次——**已落 §9.2（T32 双进程服务器轮实测，2026-10-16：判据达标 1205.3≤1967；worker 480M 口径校准=维持 1G，下调算术冲突登记 §0.6 偏离 50）**。
 
 **registered 活性语义（裁决②/偏离 39）**：ready workers 维度与 enqueue fail-closed 门共用 `queue.getWorkers()`（bullmq 5.75.1=Redis CLIENT LIST 形态）——**无 lastSeen 数据源，registered 即活性信号**：worker 进程死 ⇒ TCP 断 ⇒ CLIENT LIST 立即除名（秒级），registered=0 就是死亡判定，无需陈旧度维度。5s TTL 缓存窗（付费路径零额外 RTT）= 最坏 5s 内漏拒，属可接受窗（留队作业待 worker 恢复即被消费）。
+
+**双端点交集实测（T33 偏离 37 回填——Z138 B 内容断言的真实端点形态，2026-10-16 服务器代际 3238c34b）**：采集=`curl -s -H "x-prometheus-token: $PROMETHEUS_TOKEN" http://127.0.0.1:3000/metrics`（api 1191 行）与同 token `http://127.0.0.1:3002/metrics`（worker 970 行）两文本；分析=一次性 node 脚本（服务器 tmp 目录 t33-role-intersect.mjs，不入仓——全文如下，解析族名→role 值集合+断言三件）：
+
+```js
+// 用法: node t33-role-intersect.mjs <api.txt> <worker.txt>；exit=断言结果
+import { readFileSync } from 'node:fs';
+const [apiFile, workerFile] = process.argv.slice(2);
+function parse(text) {   // prom 文本 → Map<族名, Set<role>>（#行跳过；无 role 记 '(none)'）
+  const families = new Map();
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('#')) continue;
+    const brace = line.indexOf('{');
+    const name = (brace === -1 ? line.slice(0, line.indexOf(' ')) : line.slice(0, brace)).trim();
+    if (!name) continue;
+    let role = '(none)';
+    if (brace !== -1) { const m = /role="([^"]*)"/.exec(line.slice(brace)); if (m) role = m[1]; }
+    if (!families.has(name)) families.set(name, new Set());
+    families.get(name).add(role);
+  }
+  return families;
+}
+function familySum(text, family) {   // 族样本值求和（无样本=0）
+  let sum = 0, n = 0;
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('#')) continue;
+    const brace = line.indexOf('{');
+    const name = (brace === -1 ? line.slice(0, line.indexOf(' ')) : line.slice(0, brace)).trim();
+    if (name !== family) continue;
+    const v = Number((brace === -1 ? line.slice(name.length) : line.slice(line.indexOf('}', brace) + 1)).trim());
+    if (Number.isFinite(v)) { sum += v; n += 1; }
+  }
+  return { sum, n };
+}
+const api = parse(readFileSync(apiFile, 'utf8')), worker = parse(readFileSync(workerFile, 'utf8'));
+const intersection = [...api.keys()].filter((f) => worker.has(f)).sort();
+const problems = [];
+for (const [f, r] of api) if ([...r].some((x) => x !== 'api')) problems.push(`api 侧族 ${f} role 异常: ${[...r]}`);
+for (const [f, r] of worker) if ([...r].some((x) => x !== 'worker')) problems.push(`worker 侧族 ${f} role 异常: ${[...r]}`);
+for (const f of intersection) { const a = [...api.get(f)], w = [...worker.get(f)];
+  if (a.some((x) => w.includes(x))) problems.push(`交集族 ${f} 两侧 role 相同`); }
+const storeSum = familySum(readFileSync(workerFile, 'utf8'), 'yjs_store_total');
+if (storeSum.sum !== 0) problems.push(`worker yjs_store_total 和=${storeSum.sum}`);
+console.log(JSON.stringify({ apiFamilies: api.size, workerFamilies: worker.size,
+  intersectionCount: intersection.length, yjsStoreTotalWorker: storeSum, problems }, null, 2));
+process.exit(problems.length ? 1 : 0);
+```
+
+输出（PASS，exit 0）：`apiFamilies=193 / workerFamilies=177 / intersectionCount=177`（worker⊆api，workerOnly=0，apiOnly=16=WS/gateway 专属族）；`problems=[]`——交集 177 族每族两侧 role 互异（api 侧全 role="api"∧worker 侧全 role="worker"）；`yjsStoreTotalWorker={sum:0,n:0}`=3002 无 yjs_store_total 样本行（无样本=0 口径，worker 不写 doc）。原始文本关键行摘录：`process_resident_memory_bytes{role="api"} 178278400` / `process_tree_rss_bytes{role="worker"} 140398592` / `nodejs_heap_size_used_bytes{role="api"} 100562904` vs `{role="worker"} 82153736`。结论=Z138 setDefaultLabels 引导层单点在真实双进程下的 B 内容断言成立（T29 进程内仿真〔偏离 37〕与真端点两面齐全，义务闭环）。
