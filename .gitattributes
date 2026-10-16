@@ -4,3 +4,6 @@
 # systemd unit 必须 LF（T31：CRLF 上服务器 systemd 解析值带 \r——如 User=ubuntu\r 即无效用户；
 # 开发机 autocrlf=true 检出会翻 CRLF，deploy/flowweb-pm2.service 经手动 scp 上服务器故钉死）
 *.service text eol=lf
+# bash 脚本必须 LF（T38：pg-dump-daily.sh 经 scp 上服务器由 cron bash 执行——CRLF 即
+# shebang/语法解析带 \r 失效，*.service 同教训；index 已全 LF，本行=未来检出钉死）
+*.sh text eol=lf
