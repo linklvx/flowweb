@@ -28,6 +28,8 @@ Environment=PM2_HOME=/home/ubuntu/.pm2
 ExecStart=/usr/bin/pm2-runtime start /home/ubuntu/flowweb/ecosystem.config.cjs
 Restart=on-failure
 RestartSec=5
+# 关停时间轴层：worker kill_timeout 120s+余量——防 systemd 默认 90s 腰斩排空
+TimeoutStopSec=150
 MemoryMax=1150M
 MemorySwapMax=128M
 

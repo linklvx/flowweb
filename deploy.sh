@@ -36,7 +36,7 @@ set -eo pipefail   # pipefail：上传管道（tar | ssh tar）tar 侧失败不�
 # D3：trap 分阶段——SWITCH_BEGUN=进入切换（dist 可能已 mv 走）；SWITCHED=切换完整落地
 SWITCHED=0; SWITCH_BEGUN=0
 trap 'rc=$?; if [ $rc -ne 0 ]; then echo ""; echo "=== 部署中止（exit $rc）==="; \
-  if [ $SWITCHED == 1 ]; then echo "新构建已上线但 post/冒烟未过——快回滚：./deploy.sh api --rollback（30s；跳过 preflight）；或修复后重新部署"; \
+  if [ $SWITCHED == 1 ]; then echo "新构建已上线但 post/冒烟未过——快回滚：./deploy.sh api --rollback（30s；跳过 preflight）；或修复后重新部署；若败于⑤ ready 门：worker 仍为旧代码在消费（混跑窗勿过夜——runbook §3.1 ⑤中断态）"; \
   elif [ $SWITCH_BEGUN == 1 ]; then echo "切换半途失败（dist 可能已 mv 走、dist.next 未就位）——**勿重启 pm2**：跑 ./deploy.sh api --rollback 或人工补 mv dist.next dist"; \
   else echo "旧构建仍在跑（dist 未切换）——修复后重跑即可；若已 drain：60s 自动解除（SV12）可安全重试"; fi; fi' EXIT
 
@@ -107,7 +107,7 @@ verify_nginx() {
 # 兜底=worker ready 门（T26 main-worker 轮询 /api/ready 上限 60s 超限 exit(1) 交 pm2 autorestart
 # ——零成本退路，Z102①），本函数不承担正确性只缩短撞墙窗。
 wait_api_ready() {   # $1=上下文标签
-  ssh -i "$KEY" "$SERVER" 'CTX="'"$1"'"; i=0; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); if echo "$body" | grep -q "\"ready\":true"; then echo "$CTX: api ready 绿（${i}s）"; exit 0; fi; sleep 1; done; echo "$CTX: api ready 60s 未达（最后响应: $body）——不起 worker（Z9② 顺序门）；排查后重新部署或 ./deploy.sh api --rollback"; exit 1'
+  ssh -i "$KEY" "$SERVER" 'CTX="'"$1"'"; i=0; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); if echo "$body" | grep -q "\"ready\":true"; then echo "$CTX: api ready 绿（${i}s）"; exit 0; fi; sleep 1; done; echo "$CTX: api ready 60s 未达（最后响应: $body）——不起 worker（Z9② 顺序门）；注意：api 已切目标代码而旧 worker 进程仍持内存旧模块在消费（混跑窗勿过夜——runbook §3.1 ⑤中断态）；排查后重新部署或 ./deploy.sh api --rollback"; exit 1'
 }
 
 cutover_api() {

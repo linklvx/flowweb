@@ -13,6 +13,7 @@
 // registerQueue 的 5 队列（ai-result-download/video-trim/video-separate/双 close-expired）Queue
 // 实例可解析（.opts.prefix='bull' QueueBase 默认）⇒ bull: 命名——服务器 12/5 分裂与清单一一对应。
 // 修复=forRoot 显式 prefix:'bull'（app.module+worker.module 两处——case C 源码结构断言执法）。
+// 本 spec 需本地 Redis（无门控——缺 Redis 即红是 fail-closed 设计，与 check-int-coverage 零跳过判据一致）。
 import { describe, it, expect, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -54,7 +55,7 @@ async function workersAtLeast(q: Queue, expectN: number, timeoutMs = 8000): Prom
   }
 }
 
-async function bootApp(tag: 'a' | 'b', rootQueue: string, featureQueue: string, withPrefix: boolean) {
+async function bootApp(rootQueue: string, featureQueue: string, withPrefix: boolean) {
   const rootOpts = { connection: { url: REDIS_URL }, ...(withPrefix ? { prefix: 'bull' as const } : {}) };
   @Module({
     imports: [
@@ -87,7 +88,7 @@ describe('Y0c T31 worker 连接命名分裂（偏离 46——getWorkers 侦测�
   });
 
   it('case A（陷阱复现，T31 前生产形态）：forRoot 无 prefix ⇒ 特性模块队列 worker 连接命名 undefined: ⇒ getWorkers 不可见；根模块队列不受影响', async () => {
-    const app = await bootApp('a', queueNames.aRoot, queueNames.aFeature, false);
+    const app = await bootApp(queueNames.aRoot, queueNames.aFeature, false);
     try {
       const rootQ = trackQueue(queueNames.aRoot);
       const featureQ = trackQueue(queueNames.aFeature);
@@ -100,7 +101,7 @@ describe('Y0c T31 worker 连接命名分裂（偏离 46——getWorkers 侦测�
   });
 
   it('case B（修复行为）：forRoot 显式 prefix bull ⇒ 两侧队列 worker 均 bull: 命名 ⇒ getWorkers 均可见（registered≥1）', async () => {
-    const app = await bootApp('b', queueNames.bRoot, queueNames.bFeature, true);
+    const app = await bootApp(queueNames.bRoot, queueNames.bFeature, true);
     try {
       const rootQ = trackQueue(queueNames.bRoot);
       const featureQ = trackQueue(queueNames.bFeature);

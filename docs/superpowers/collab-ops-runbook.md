@@ -53,13 +53,14 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 **形态唯一源=`deploy/flowweb-pm2.service`**（本节不复刻全文）：`pm2-runtime` 前台托管（`Type=simple`——无 PIDFile/forking 形态，日志直进 journal：`journalctl -u flowweb-pm2 -f`）+`User=ubuntu`+`Environment=PM2_HOME=/home/ubuntu/.pm2` 显式对齐**防第二 god**（root 的 pm2 daemon 与 ubuntu 的互不可见——systemctl/pm2 操作落空面）+`MemoryMax=1150M`+`MemorySwapMax=128M`+`Restart=on-failure`+`RestartSec=5`。
 
-**分层防线（Z85 写死——三层各管各的，禁越权调参）**：
+**分层防线（Z85 写死——各层各管各的，禁越权调参；关停时间轴层=T31 评审补）**：
 
 | 层 | 机制 | 现值 | 语义 |
 |----|------|------|------|
 | 第一层 per-process | PM2 `max_memory_restart`（ecosystem） | 1G×2（T32 校准 560/480） | 单进程超限→pm2 只重启该 app（另一进程无感） |
 | 机器兜底 | cgroup `MemoryMax`（本 unit） | 1150M（算式=560+480+god 40.4+余量 70） | 双进程+god 总量超限→内核杀 RSS 最大者（=泄漏者），pm2 autorestart 拉起=**设计行为**非事故 |
 | unit 级故障 | systemd `Restart=on-failure` | RestartSec=5 | god 崩溃（pm2 autorestart 管不了自己）→systemd 拉起整 unit |
+| 关停时间轴层（T31 评审补） | systemd `TimeoutStopSec`（本 unit） | 150s | `systemctl stop`/服务器重启→罩 worker `kill_timeout=120s` 排空（ffmpeg/4K 上界，Z10）+余量——防 systemd 缺省 DefaultTimeoutStopSec=90s 在排空完成前 SIGKILL 腰斩 |
 
 `MemorySwapMax=128M`：宁被杀不换页——换页拖垮协居 PG/Redis/MinIO（1.9GB 机 swap 增长=内存画像恶化先行指标，§6③）。**双 unit（api/worker 各自 cgroup）=可选探针登记（Z85），未采用**——单 unit 兜底+pm2 第一层的分工已覆盖设计动机。
 
@@ -147,6 +148,8 @@ journalctl -u flowweb-pm2 -n 50 --no-pager
 cutover ① 的**拒重启三步**（scripts/deploy-guard.mjs）：drain（20s 续期轮询 r.ok）→ own 四零核验（own spool/stranded 帧，预算 90s，P40）→ 放行（写 `.deploy-guard-state.json` 交接 epoch）。guard 拒绝时 dist 未动、旧构建继续跑。drain 后部署中止的冻结由 **60s 自动解除**（SV12）兜底，可安全重试。重启后 post 段预算另账 120s（P35：收养窗 60s+reconciler 30s+回灌余量）。
 
 **cutover ⑤ 三步序（Y0c T31/Z9②）**：`pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env` → ready 短轮询绿（wait_api_ready，60s 上限）→ `--only flowweb-worker --update-env` → `pm2 save`。动机：worker 早于 api ready 时消费队列会撞 503 烧 attempts（付费队列 attempts:1=一次撞墙即用户作业失败）。**顺序是部署 UX，不是正确性承担者**——正确性兜底=worker ready 门（T26：main-worker 轮询 `/api/ready` 上限 60s 超限 exit(1) 交 pm2 autorestart，零成本退路，Z102①）。rollback 同法三步序（回滚窗不例外）。`--only` 与 per-app env 块注入的组合语义经 P10 探针部署演练实证（结论=§1.1）。⑥ post 段另有**双进程端口归属断言**（RB2/Z9③：`ss -tlnp` 判 3000/3001 listener=api 进程 ∧ 3002=worker 进程 ∧ worker 名下无 3000/3001——Z98 worker 零 HTTP/WS 面的运行态操作化）+两 app `/proc/<pid>/cwd` 一致断言（双进程同部署树）。
+
+**⑤ 中断态如实描述（T31 评审补）**：wait_api_ready 60s 超时 ⇒ exit 1（trap SWITCHED=1 分支）时的真实状态=api dist 已切新代码（④ 已完成），而**旧 worker 进程仍持内存旧模块在消费队列**——Node 已加载代码不受 dist 切换影响，⑤ 的 worker startOrReload 未执行到。该 api 新/worker 旧**混跑窗无限期持续到人工干预**（无看门狗）；迁移 additive 锚只覆盖 DB 面，**不覆盖队列 payload 契约面**（新 api enqueue × 旧 worker consume——payload 契约不兼容时静默错处理）。处置=评估兼容性后速即 `./deploy.sh api --rollback` 或修复后重新部署，**勿过夜**。
 
 **pre-cutover quiesce（Z114③）＝可选未采用（T31/RB4 评估结论）**：cutover ① guard 已承担「drain（POST /api/drain）+20s 续期+own 四零核验后才进重启」——「等 drain 完成再 SIGTERM」语义已在链上，独立 quiesce 步只剩缩短关停时间轴的一行脚本空间。**采用条件**＝部署窗实测关停超预算（api kill_timeout 45s 面撞线/`shutdown_undrained` 出现）时再落。
 
