@@ -91,7 +91,9 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const e164 = '+86' + dto.phone;
-    const clientIp = this.rateLimiter.getClientIp(req);
+    // T36（Z14③）：req.ip 单源——main.ts trust proxy 'loopback' 吃 XFF 链右起首个非 loopback
+    // （手写 getClientIp 无条件采信链首=伪造面，已删；语义锚 xff-trust-proxy.spec）
+    const clientIp = req.ip ?? '127.0.0.1';
 
     if (!(await this.rateLimiter.checkIpRateLimit(clientIp, 'sms:send', 3600, 20))) {
       return res.status(429).json({
@@ -126,7 +128,7 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const e164 = '+86' + dto.phone;
-    const clientIp = this.rateLimiter.getClientIp(req);
+    const clientIp = req.ip ?? '127.0.0.1';   // T36（Z14③）：req.ip 单源（sendSmsCode 同注）
 
     if (!(await this.rateLimiter.checkIpRateLimit(clientIp, 'sms:verify', 60, 10))) {
       return res.status(429).json({

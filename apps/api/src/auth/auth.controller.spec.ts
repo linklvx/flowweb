@@ -30,7 +30,6 @@ describe('AuthController', () => {
     };
 
     mockRateLimiter = {
-      getClientIp: vi.fn(),
       checkIpRateLimit: vi.fn(),
       checkPhoneRateLimit: vi.fn(),
       releasePhoneLock: vi.fn(),
@@ -277,7 +276,6 @@ describe('AuthController', () => {
 
   describe('sendSmsCode', () => {
     it('should return 200 on success', async () => {
-      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
       mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
       mockRateLimiter.checkPhoneRateLimit.mockResolvedValue(true);
       mockSmsService.generateOtp.mockReturnValue('123456');
@@ -296,7 +294,6 @@ describe('AuthController', () => {
     });
 
     it('should return 429 when phone rate limit exceeded', async () => {
-      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
       mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
       mockRateLimiter.checkPhoneRateLimit.mockResolvedValue(false);
 
@@ -313,7 +310,6 @@ describe('AuthController', () => {
     });
 
     it('should return 502 after releasing lock + deleting OTP when SMS fails', async () => {
-      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
       mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
       mockRateLimiter.checkPhoneRateLimit.mockResolvedValue(true);
       mockSmsService.generateOtp.mockReturnValue('123456');
@@ -336,7 +332,6 @@ describe('AuthController', () => {
 
   describe('phoneLogin', () => {
     it('should return 200 + Set-Cookie on success', async () => {
-      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
       mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
       mockSvc.phoneLogin.mockResolvedValue({
         token: 'tok_abc',
@@ -362,7 +357,6 @@ describe('AuthController', () => {
     });
 
     it('should read last_error from Redis when verify fails', async () => {
-      mockRateLimiter.getClientIp.mockReturnValue('1.2.3.4');
       mockRateLimiter.checkIpRateLimit.mockResolvedValue(true);
       mockSvc.phoneLogin.mockRejectedValue(new Error('INVALID_OTP'));
 

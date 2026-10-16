@@ -888,6 +888,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 
 <!-- y0b0:env-keys -->
 ```yaml
+- API_BIND_ADDR
 - BETTER_AUTH_URL
 - COLLAB_ADMIN_TOKEN
 - COLLAB_ALLOWED_ORIGINS
@@ -942,6 +943,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - PROMETHEUS_TOKEN
 - PROVIDER_MOONSHOT_API_KEY
 - PROVIDER_TENCENT_API_KEY
+- RATE_LIMIT_IP_WHITELIST
 - REDIS_URL
 - SENTRY_DSN
 - WECHAT_APP_ID
@@ -966,6 +968,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 <!-- Y0c T34 键同步（69→70）：COLLAB_FAKE_AI 进 envSchema（本 spec §对象6「豁免收口：superRefine NODE_ENV==='production' 拒 '1'」的 Y0b 遗留义务于 T34 兑现；NODE_ENV 同批改 enum 三值+default production——Z12 fail-closed 显式裁定例外） -->
 
 <!-- Y0c T35 键同步（70→71）：COOKIE_SECURE 进 envSchema（Y0c spec Z13 显式三态：'true'/'false' 封闭词表+resolveSecureTransport resolver 单点——显式优先/未设按档位兜底/production∧'false' superRefine 拒启；Z45⑤ 与 update-profile.dto 严格档同一 resolver 驱动同批对齐） -->
+
+<!-- Y0c T36 键同步（71→73）：API_BIND_ADDR+RATE_LIMIT_IP_WHITELIST 进 envSchema（Y0c spec Z14①③：API_BIND_ADDR=API 绑定面分叉键〔main.ts listen 使用点默认 127.0.0.1，生产 ecosystem api env 块注入——COLLAB_BIND_ADDR/P25 同族，禁入服务器 .env〕；RATE_LIMIT_IP_WHITELIST=限流 IP 白名单形态校验〔默认 '127.0.0.1,::1' 唯一落使用点 ipWhitelist()，与删手写 XFF 解析同 commit——防半修〕；两键 zod 均不写 default——防双源 P3） -->
 
 <!-- y0b0:metric-names -->
 ```yaml

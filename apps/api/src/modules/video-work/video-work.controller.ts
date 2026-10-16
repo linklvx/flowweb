@@ -1,16 +1,14 @@
-// 空壳，签名一次到位——rateLimiter 供 Task 4.2 getClientIp、cloneService 供 Task 6.2
+// 空壳，签名一次到位——cloneService 供 Task 6.2（rateLimiter 注入随 Y0c T36 删 getClientIp 退役——recordView 改 req.ip 单源）
 import { Controller, Get, Query, Param, Post, Req, Inject, UnauthorizedException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
-import { RateLimiterService } from '../../common/services/rate-limiter.service';
 
 @Controller('api/video-works')
 export class VideoWorkController {
-  // 第八轮：三参与 Task 1.3 骨架完全一致（整块粘贴不会丢注入——Task 4.2 recordView 用 rateLimiter、6.2 用 cloneService）
+  // 第八轮：三参与 Task 1.3 骨架完全一致（整块粘贴不会丢注入——Task 6.2 用 cloneService）
   constructor(
     @Inject(VideoWorkService) private readonly service: VideoWorkService,
-    @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService,
     @Inject(VideoWorkCloneService) private readonly cloneService: VideoWorkCloneService, // Task 6.1 前是空壳类，可注入
   ) {}
 
@@ -43,7 +41,8 @@ export class VideoWorkController {
 
   @Post(':id/view')
   recordView(@Param('id') id: string, @Req() req: any) {
-    return this.service.recordView(id, this.rateLimiter.getClientIp(req));
+    // T36（Z14③）：req.ip 单源（main.ts trust proxy 'loopback'——手写 getClientIp 已删，语义锚 xff-trust-proxy.spec）
+    return this.service.recordView(id, req.ip ?? '127.0.0.1');
   }
 
   @Post(':id/like')

@@ -185,12 +185,14 @@ describe('Y0b-3 T1：COLLAB 族新十键（形态校验——默认值落使用�
 
 // Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast——白名单推导源缺失=部署配置错误启动即拒。
 describe('Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast（envSchemaValidated）', () => {
+  // T36 密封（同偏离 56 形态）：production 档新增判据 COLLAB_TRUSTED_PROXY（Z14②）——既有判据
+  // 用例显式满足新键，保持各用例鉴别力单指向原判定面
   it('production+BETTER_AUTH_URL 与 COLLAB_ALLOWED_ORIGINS 双缺 → 拒', () => {
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(false);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1' }).success).toBe(false);
   });
   it('production+任一在 → 过（BETTER_AUTH_URL 在/COLLAB_ALLOWED_ORIGINS 在）', () => {
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', BETTER_AUTH_URL: 'https://x.example.com' }).success).toBe(true);
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', COLLAB_ALLOWED_ORIGINS: 'https://y.example.com' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1', BETTER_AUTH_URL: 'https://x.example.com' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1', COLLAB_ALLOWED_ORIGINS: 'https://y.example.com' }).success).toBe(true);
   });
   it('非 production 双缺不拒（dev 宽松）；NODE_ENV 未设档 T34 起退役——default production fail-closed（Z12）', () => {
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
@@ -222,7 +224,7 @@ describe('Y0c T34：NODE_ENV enum 三值+default production（fail-closed）+val
   // T35 密封（R6②+§0.6 偏离 56）：COLLAB_FAKE_AI/COLLAB_ROLE/COOKIE_SECURE 钉死——防外壳环境
   // 污染杀 vitest worker（production 档 superRefine 判据面：'1' 拒启/worker 缺 PROMETHEUS_TOKEN
   // 拒启/'false' 拒启均为真实外壳可现值）。
-  it('validateEnv 成功写回：NODE_ENV 未设 ⇒ parse production+写回 process.env（拒启面由 BETTER_AUTH_URL/WORKER_WRITE_TOKEN 满足）', () => {
+  it('validateEnv 成功写回：NODE_ENV 未设 ⇒ parse production+写回 process.env（拒启面由 BETTER_AUTH_URL/WORKER_WRITE_TOKEN/COLLAB_TRUSTED_PROXY 满足）', () => {
     vi.stubEnv('NODE_ENV', '');
     vi.stubEnv('DATABASE_URL', 'postgresql://x');
     vi.stubEnv('MINIO_ENDPOINT', 'http://localhost:9000');
@@ -230,6 +232,7 @@ describe('Y0c T34：NODE_ENV enum 三值+default production（fail-closed）+val
     vi.stubEnv('MINIO_SECRET_KEY', 'minio-secret-key');
     vi.stubEnv('BETTER_AUTH_URL', 'https://x.example.com');
     vi.stubEnv('WORKER_WRITE_TOKEN', 'tok');
+    vi.stubEnv('COLLAB_TRUSTED_PROXY', '1');   // T36 密封（Z14②判据面——外壳未设即 production 档拒启误杀）
     vi.stubEnv('COLLAB_FAKE_AI', '');
     vi.stubEnv('COLLAB_ROLE', 'api');
     vi.stubEnv('COOKIE_SECURE', '');
@@ -275,14 +278,15 @@ describe('Y0c T29：WORKER_METRICS_PORT 形态 + production∧worker 未设 PROM
   });
 
   it('production ∧ COLLAB_ROLE=worker ∧ PROMETHEUS_TOKEN 未设 → 拒（issue 点名 PROMETHEUS_TOKEN）', () => {
-    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_ROLE: 'worker' });
+    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1', COLLAB_ROLE: 'worker' });
     expect(r.success).toBe(false);
     if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('PROMETHEUS_TOKEN');
   });
 
   it('production ∧ worker ∧ 已设 → 过；production ∧ api（默认）未设不拒（api 侧维持请求级 403 现状）；dev worker 未设不拒', () => {
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_ROLE: 'worker', PROMETHEUS_TOKEN: 'ptok' }).success).toBe(true);
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(true);
+    // T36 密封：production 档显式 COLLAB_TRUSTED_PROXY:'1'（Z14②判据面——保持用例鉴别力单指向 PROMETHEUS_TOKEN）
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1', COLLAB_ROLE: 'worker', PROMETHEUS_TOKEN: 'ptok' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development', COLLAB_ROLE: 'worker' }).success).toBe(true);
   });
 });
@@ -291,13 +295,14 @@ describe('Y0c T29：WORKER_METRICS_PORT 形态 + production∧worker 未设 PROM
 // 双进程同经 validateEnv（main.ts/main-worker.ts）——读端点（T26）+写端点（T27）两端点同批统一
 // 收口为同款拒启；dev 维持 fail-open（WorkerWriteAuthGuard 请求级 403 为纵深冗余非主防线）。
 describe('Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（envSchemaValidated superRefine）', () => {
+  // T36 密封：production 档显式 COLLAB_TRUSTED_PROXY:'1'（Z14②判据面——保持用例鉴别力单指向 WORKER_WRITE_TOKEN）
   it('production 未设 → 拒（issue 点名 WORKER_WRITE_TOKEN）', () => {
-    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com' });
+    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', COLLAB_TRUSTED_PROXY: '1' });
     expect(r.success).toBe(false);
     if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('WORKER_WRITE_TOKEN');
   });
   it('production 已设 → 过；dev 未设不拒（fail-open 归 guard）', () => {
-    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
   });
 });
@@ -306,7 +311,7 @@ describe('Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（envSchemaV
 // 启动期 fail-closed 提级。与 Z93 关系：Z93 删的是运行期守卫（fake 与 NODE_ENV 解耦，主线=缺密钥
 // 拒启）；本条是 env 校验层拒启（Y0b spec 对象6「NODE_ENV==='production' 拒 '1'」收口递延至 T34）。
 describe('Y0c T34：COLLAB_FAKE_AI ∧ production ⇒ 拒启（envSchemaValidated superRefine）', () => {
-  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' };
+  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1' };   // T36 密封（Z14②判据面）
 
   it("production ∧ COLLAB_FAKE_AI='1' → 拒（issue 点名 COLLAB_FAKE_AI）", () => {
     const r = envSchemaValidated.safeParse({ ...prodBase, COLLAB_FAKE_AI: '1' });
@@ -352,7 +357,7 @@ describe('Y0c T35：resolveSecureTransport() 单点三态（显式优先→档�
 });
 
 describe('Y0c T35：COOKIE_SECURE schema 形态 + production∧explicit false ⇒ 拒启（envSchemaValidated）', () => {
-  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' };
+  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1' };   // T36 密封（Z14②判据面）
 
   it("形态：仅 'true'|'false' 过（enum 封闭）/'garbage' 拒/'1' 拒/空串=未设过（B13）", () => {
     expect(envSchema.safeParse({ ...good, COOKIE_SECURE: 'true' }).success).toBe(true);
@@ -374,6 +379,49 @@ describe('Y0c T35：COOKIE_SECURE schema 形态 + production∧explicit false �
     expect(envSchemaValidated.safeParse({ ...prodBase, COOKIE_SECURE: '' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development', COOKIE_SECURE: 'false' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'test', COOKIE_SECURE: 'false' }).success).toBe(true);
+  });
+});
+
+// Y0c T36（Z14②）：COLLAB_TRUSTED_PROXY production 未设 ⇒ 拒启——WS 升级限流键双门（gateway
+// clientIpOf：loopback peer ∧ trusted）未设即 X-Real-IP 静默不采信=全站单限流桶退化共享且零探针。
+// 服务器 .env 已设=1（勘察事实）——本判据是防回归门非新部署义务；dev/test 未设不拒（fail-open 现状维持）。
+describe('Y0c T36：production 未设 COLLAB_TRUSTED_PROXY ⇒ 拒启（envSchemaValidated superRefine 第 6 条）', () => {
+  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok', COLLAB_TRUSTED_PROXY: '1' };
+
+  it('production ∧ 未设/空串 → 拒（issue 点名 COLLAB_TRUSTED_PROXY）', () => {
+    const r = envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' });
+    expect(r.success, '实现前红：superRefine 无本判据⇒恒过').toBe(false);
+    if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('COLLAB_TRUSTED_PROXY');
+    expect(envSchemaValidated.safeParse({ ...prodBase, COLLAB_TRUSTED_PROXY: '' }).success).toBe(false);   // B13 空串=未设同拒
+  });
+
+  it("production ∧ '1' → 过；development/test 未设不拒（enum(['1']) 形态面 T1 既有——'true' 拒不变）", () => {
+    expect(envSchemaValidated.safeParse(prodBase).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'test' }).success).toBe(true);
+  });
+});
+
+// Y0c T36（Z14①+③）：API_BIND_ADDR/RATE_LIMIT_IP_WHITELIST 进 schema——zod 只验形态不写 default
+// （默认值落使用点：main.ts listen '127.0.0.1'/rate-limiter ipWhitelist() '127.0.0.1,::1'——防双源 P3）。
+describe('Y0c T36：API_BIND_ADDR + RATE_LIMIT_IP_WHITELIST 进 schema（形态校验）', () => {
+  it('API_BIND_ADDR：设值原样保持/空串=未设过/未设过，且禁 zod default（默认 127.0.0.1 落 main.ts 使用点）', () => {
+    const r = envSchema.safeParse({ ...good, API_BIND_ADDR: '127.0.0.1' });
+    expect((r.data as Record<string, unknown> | undefined)?.['API_BIND_ADDR'], '实现前红：键未注册⇒zod strip 未知键⇒undefined').toBe('127.0.0.1');
+    expect(envSchema.safeParse({ ...good, API_BIND_ADDR: '' }).success).toBe(true);
+    expect(envSchema.safeParse(good).success).toBe(true);
+    const f = (envSchema.shape as Record<string, any>)['API_BIND_ADDR'];
+    expect(f, '实现前红：键未注册⇒shape 无此项').toBeTruthy();
+    expect(f._def.typeName, '禁 zod .default（双源 P3——默认值唯一落 main.ts 使用点）').not.toBe('ZodDefault');
+  });
+
+  it('RATE_LIMIT_IP_WHITELIST：逗号分隔串原样保持/空串=未设过，且禁 zod default（默认值唯一落 ipWhitelist() 使用点——T34 惰性读形态保留）', () => {
+    const r = envSchema.safeParse({ ...good, RATE_LIMIT_IP_WHITELIST: '127.0.0.1,::1,10.0.0.0/8' });
+    expect((r.data as Record<string, unknown> | undefined)?.['RATE_LIMIT_IP_WHITELIST'], '实现前红：键未注册⇒strip⇒undefined').toBe('127.0.0.1,::1,10.0.0.0/8');
+    expect(envSchema.safeParse({ ...good, RATE_LIMIT_IP_WHITELIST: '' }).success).toBe(true);
+    const f = (envSchema.shape as Record<string, any>)['RATE_LIMIT_IP_WHITELIST'];
+    expect(f, '实现前红：键未注册').toBeTruthy();
+    expect(f?._def?.typeName).not.toBe('ZodDefault');
   });
 });
 

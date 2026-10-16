@@ -86,6 +86,14 @@ export const envSchema = z.object({
   // 档：cookie Secure/三 guard fail-open/debounce 档位全随此键；仿同文件 COLLAB_ROLE
   // .default(COLLAB_ROLE_DEFAULT) 既有例外先例）。非法值（'staging' 等拼错档位）拒启；空串=未设（B13）走 default。
   NODE_ENV: z.preprocess(blankToUnset, z.enum(['development', 'test', 'production']).default('production')),
+  // Y0c T36（Z14①）：API HTTP 绑定面——main.ts app.listen 第二参（使用点默认 '127.0.0.1'——
+  // nginx 同机反代唯一合法路径，COLLAB_BIND_ADDR/P25 同族）。分叉键（Z89 ㉑：生产只经 ecosystem
+  // api env 块注入，禁入服务器 .env）；zod 不写 default（默认值落使用点——防双源 P3）。
+  API_BIND_ADDR: z.preprocess(blankToUnset, z.string().optional()),
+  // Y0c T36（Z14③）：限流 IP 白名单进 schema（与删手写 XFF 解析同 commit——防半修状态）。
+  // zod 只验形态不写 default：默认 '127.0.0.1,::1' 唯一落使用点 rate-limiter.service ipWhitelist()
+  // （T34 惰性调用期读形态保留——census ㉒ 白名单条目在案）。
+  RATE_LIMIT_IP_WHITELIST: z.preprocess(blankToUnset, z.string().optional()),
   // Y0c T35（Z13+Z45⑤）：COOKIE_SECURE 显式三态（禁推导）——'true'/'false' 封闭词表；未设/空串
   // （B13）=按档位兜底（resolveSecureTransport 单点，production 恒 true）；production∧'false'=
   // 拒启（下方 superRefine——传输通道属性不得在生产档显式降级）。消费面=auth.ts cookie secure
@@ -171,7 +179,7 @@ export const envSchema = z.object({
   // Y0b-3 T1（§0.3 表十键一次注册——消费点随后续 Task 落地，单源结构锚 EXEMPT 表登记）：
   // zod 只验形态不写 default（默认值落使用点——防双源 P3 同款）；读点按【字面量】process.env 直读纪律。
   COLLAB_ALLOWED_ORIGINS: z.preprocess(blankToUnset, z.string().min(1).optional()),            // T2 消费，默认=BETTER_AUTH_URL origin 推导+仅 dev 含 localhost:5173
-  COLLAB_TRUSTED_PROXY: z.preprocess(blankToUnset, z.enum(['1']).optional()),                  // T2 消费，未设=不信任 X-Real-IP
+  COLLAB_TRUSTED_PROXY: z.preprocess(blankToUnset, z.enum(['1']).optional()),                  // T2 消费，未设=不信任 X-Real-IP；T36（Z14②）production∧未设=拒启（下方 superRefine）
   COLLAB_UPGRADE_RATE_PER_MIN: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // T2 消费，默认 60
   COLLAB_AUTH_ATTEMPTS_PER_MIN: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),  // T3 消费，默认 10
   COLLAB_AUTH_INFLIGHT_MAX: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),      // T3 消费，默认 4
@@ -241,6 +249,13 @@ export const envSchemaValidated = envSchema.superRefine((v, ctx) => {
   // 布尔判据半在 resolveSecureTransport——本条是 schema 层判据非第二处 resolver 判断，RC7 边界）。
   if (v.COOKIE_SECURE === 'false') {
     ctx.addIssue({ code: 'custom', path: ['COOKIE_SECURE'], message: '生产禁止 COOKIE_SECURE=false（Z13 三态 fail-closed：传输通道属性不得在生产档显式降级——删除本键即按档位兜底 Secure）' });
+  }
+  // Y0c T36（Z14②）：production ∧ COLLAB_TRUSTED_PROXY 未设 ⇒ 拒启——WS 升级限流键双门
+  // （gateway clientIpOf：loopback peer ∧ trusted）未设即 X-Real-IP 静默不采信，升级限流桶
+  // 退化 nginx loopback 源 IP 全站共享且零探针（静默失效）。服务器 .env 已设=1（勘察事实）——
+  // 本判据是防回归门；dev/test 未设不拒（WS 侧 fail-open 现状维持，精准修改不扩面）。
+  if (!v.COLLAB_TRUSTED_PROXY) {
+    ctx.addIssue({ code: 'custom', path: ['COLLAB_TRUSTED_PROXY'], message: '生产必须设置 COLLAB_TRUSTED_PROXY=1（WS 升级限流 X-Real-IP 信任开关——未设即全站单限流桶静默失效零探针，Z14② fail-closed）' });
   }
 });
 

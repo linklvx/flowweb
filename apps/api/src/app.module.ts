@@ -116,8 +116,9 @@ const env = validateEnv();
   providers: [
     // 批0c-8：ThrottlerGuard 挂 APP_GUARD（此前 ThrottlerModule 注册但守卫从未生效）。
     // 注册在 AuthGuard 之前（边缘限流不依赖 req.user，未认证流量同样计数）。
-    // 部署前提（tech-debt）：反代（nginx）后 req.ip 全是代理 IP——300/min 变全站共享单桶，
-    // 生产部署前需 trust proxy 或自定义 tracker。
+    // Y0c T36 核销（原「部署前提 tech-debt：反代后 req.ip 全是代理 IP」注释失实）：trust proxy
+    // 'loopback' 已落 main.ts:122——req.ip 吃 XFF 链右起首个非 loopback（真源键控非共享单桶；
+    // Z14③ ThrottlerModule 通道与手写消费方同吃 req.ip 单源，语义锚 xff-trust-proxy.spec+runbook §3.8）。
     // Y0b-5 T1：TelemetryThrottlerGuard 子类——仅 /api/collab/telemetry 以 cookie 哈希分桶
     // （sendBeacon 唯一凭据面），其余路由回落 super（req.ip）行为不变；注册序由
     // telemetry.controller.spec 静态守卫锁死（限流先于鉴权——安全不变量禁调换）。

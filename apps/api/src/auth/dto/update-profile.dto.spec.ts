@@ -2,8 +2,9 @@
 // Y0c T34（Z79/RC3+Z45⑤前半）：头像 URL 校验惰性化——装饰器实参（@IsUrl options/@Matches regex）
 // 在类定义期（模块加载期）求值=NODE_ENV 冻结在 import 时点（vitest 下恒 test⇒dev 档），
 // 先于 dotenv→validateEnv 写回=Z79 违规面。改自定义 ValidatorConstraint（class-validator 原生
-// 形态）——validate() 调用期读 NODE_ENV。语义保持现档二分（T35 COOKIE_SECURE 三态 resolver
-// 单点化的挂载面，本任务不引入新三态逻辑——RC7 边界）。
+// 形态）——validate() 调用期读 NODE_ENV。语义保持现档二分（T34 时点注：本任务不引入新三态
+// 逻辑——RC7 边界；T35 起 COOKIE_SECURE 三态 resolver 已落=resolveSecureTransport 单点，本 dto
+// 严格档与其同一 resolver 驱动——Z45⑤/§0.6 偏离 55，RN9=T35 质量评审 Minor-1 核销）。
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { validateSync } from 'class-validator';
 import { UpdateProfileDto } from './update-profile.dto';

@@ -272,7 +272,7 @@
         {
           "src": "apps/api/src/app.module.ts",
           "line": 119,
-          "text": "// 部署前提（tech-debt）：反代（nginx）后 req.ip 全是代理 IP——300/min 变全站共享单桶，"
+          "text": "// Y0c T36 核销（原「部署前提 tech-debt：反代后 req.ip 全是代理 IP」注释失实）：trust proxy"
         },
         {
           "src": "apps/api/src/modules/gateway/execution.gateway.ts",

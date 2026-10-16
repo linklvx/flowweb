@@ -78,29 +78,13 @@ describe('RateLimiterService', () => {
     });
   });
 
-  describe('getClientIp', () => {
-    it('should extract from x-forwarded-for', () => {
-      const ip = service.getClientIp({
-        headers: { 'x-forwarded-for': '1.2.3.4, 10.0.0.1' },
-        ip: '10.0.0.1',
-      } as any);
-      expect(ip).toBe('1.2.3.4');
-    });
-
-    it('should fallback to x-real-ip', () => {
-      const ip = service.getClientIp({
-        headers: { 'x-real-ip': '5.6.7.8' },
-        ip: '10.0.0.1',
-      } as any);
-      expect(ip).toBe('5.6.7.8');
-    });
-
-    it('should fallback to req.ip', () => {
-      const ip = service.getClientIp({
-        headers: {},
-        ip: '10.0.0.1',
-      } as any);
-      expect(ip).toBe('10.0.0.1');
+  // Y0c T36（Z14③）：旧 getClientIp 三用例（「伪造 XFF 首元素被采信」/x-real-ip 回落/req.ip 回落）
+  // 随手写解析整体删除——手写解析无条件采信 XFF 链首=伪造面（绕过 main.ts trust proxy 'loopback'
+  // 防线）。反转为防垫片断言；trust proxy 语义链行为锚（右起首个非 loopback 三档）见
+  // xff-trust-proxy.spec.ts（消费方与全局 ThrottlerModule 同吃 req.ip 单源）。
+  describe('T36：getClientIp 已删除（req.ip 单源——手写 XFF 首元素采信面消灭）', () => {
+    it('service 上无 getClientIp 方法（转发壳=垫片亦禁）', () => {
+      expect((service as any).getClientIp, '实现前红：方法仍在').toBeUndefined();
     });
   });
 

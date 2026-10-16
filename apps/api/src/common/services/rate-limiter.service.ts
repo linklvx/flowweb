@@ -1,9 +1,9 @@
 import { Injectable, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
-import type { Request } from 'express';
 
 // T34（Z79/RC3）：模块级 const（import 期冻结，dotenv→validateEnv 写回之前=违规面）改调用期读。
-// T36 承接：RATE_LIMIT_IP_WHITELIST 进 zod+删手写解析（网络面三补同批）——本处仅最小惰性化。
+// T36（Z14③）已兑现：RATE_LIMIT_IP_WHITELIST 进 zod schema（config/env.ts——形态校验，禁 default
+// 防双源 P3）；默认值唯一落本使用点+惰性读形态保留（census ㉒ 白名单条目在案）。
 function ipWhitelist(): string[] {
   return (process.env.RATE_LIMIT_IP_WHITELIST || '127.0.0.1,::1')
     .split(',').map(s => s.trim());
@@ -42,15 +42,6 @@ export class RateLimiterService {
     const count = await this.redis.incr(key);
     if (count === 1) await this.redis.expire(key, windowSec);
     return count <= max;
-  }
-
-  /** 提取真实客户端 IP（兼容 APISIX 网关） */
-  getClientIp(req: Request): string {
-    const forwarded = req.headers['x-forwarded-for'] as string | undefined;
-    return forwarded?.split(',')[0]?.trim()
-      || (req.headers['x-real-ip'] as string)
-      || req.ip
-      || '127.0.0.1';
   }
 
   /** 仅支持 /8、/16、/24 三类 IPv4 网段与精确 IP 匹配 */

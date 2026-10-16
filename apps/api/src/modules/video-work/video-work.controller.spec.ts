@@ -6,9 +6,9 @@ import { resolve } from 'node:path';
 import { VideoWorkController } from './video-work.controller';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
-import { RateLimiterService } from '../../common/services/rate-limiter.service';
 // 第七轮：controller 构造签名自 Task 1.3 一次到位（service+rateLimiter+cloneService）——providers 创建即完整，
-// 后续任务只往 service mock 补方法，providers 永不二次编辑（第六轮"各任务追加 provider"的补丁作废）
+// 后续任务只往 service mock 补方法，providers 永不二次编辑（第六轮"各任务追加 provider"的补丁作废）。
+// Y0c T36 例外：RateLimiterService provider/import 随控制器注入退役移除（recordView 改 req.ip 单源——手写 getClientIp 已删）
 
 describe('VideoWorkController（公开）', () => {
   let controller: VideoWorkController;
@@ -30,7 +30,7 @@ describe('VideoWorkController（公开）', () => {
       controllers: [VideoWorkController],
       providers: [
         { provide: VideoWorkService, useValue: service },
-        { provide: RateLimiterService, useValue: { getClientIp: vi.fn().mockReturnValue('1.2.3.4'), checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true) } },
+        // T36（Z14③）：RateLimiterService provider 随控制器注入退役移除（recordView 改 req.ip 单源——手写 getClientIp 已删）
         { provide: VideoWorkCloneService, useValue: { clone: vi.fn().mockResolvedValue({ projectId: 'new-p' }) } },
       ],
     }).compile();
@@ -47,9 +47,14 @@ describe('VideoWorkController（公开）', () => {
     expect(names.indexOf('listCategories')).toBeGreaterThan(-1);
   });
 
-  it('POST :id/view 传 getClientIp 结果给 service', async () => {
-    await controller.recordView('w1', { headers: {} });
+  it('POST :id/view 传 req.ip 给 service（T36 单源——手写 getClientIp 已删）', async () => {
+    await controller.recordView('w1', { ip: '1.2.3.4' } as any);
     expect(service.recordView).toHaveBeenCalledWith('w1', '1.2.3.4');
+  });
+
+  it('POST :id/view req.ip 缺失回落 127.0.0.1（本地白名单语义维持）', async () => {
+    await controller.recordView('w1', {} as any);
+    expect(service.recordView).toHaveBeenCalledWith('w1', '127.0.0.1');
   });
 
   it('POST like 未登录 req.user 为空 → 401', async () => {
