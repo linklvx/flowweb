@@ -4,7 +4,7 @@
 import 'dotenv/config';
 import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
-import { auth } from '../src/auth/auth';
+import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import { CreditLedgerService } from '../src/modules/team/credit-ledger.service';
 import { availableCredits } from '../src/modules/team/team.util';
 
@@ -21,7 +21,7 @@ export const COLLAB_GATE = {
 async function ensureUser(email: string, name: string) {
   let user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
-    await auth.api.signUpEmail({ body: { email, password: COLLAB_GATE.password, name } });
+    await getAuth().api.signUpEmail({ body: { email, password: COLLAB_GATE.password, name } });
     console.log(`Collab gate user created: ${email}`);
   }
   return prisma.user.findUniqueOrThrow({ where: { email } });
@@ -90,5 +90,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
-    process.exit(0); // auth.ts 顶层 ioredis 连接会让进程挂起，必须显式退出（seed.ts 同款）
+    process.exit(0); // auth.ts 顶层 authPrisma 客户端会让进程挂起，必须显式退出（seed.ts 同款——T34 起 ioredis 惰性）
   });

@@ -2,8 +2,12 @@ import { Injectable, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import type { Request } from 'express';
 
-const IP_WHITELIST = (process.env.RATE_LIMIT_IP_WHITELIST || '127.0.0.1,::1')
-  .split(',').map(s => s.trim());
+// T34（Z79/RC3）：模块级 const（import 期冻结，dotenv→validateEnv 写回之前=违规面）改调用期读。
+// T36 承接：RATE_LIMIT_IP_WHITELIST 进 zod+删手写解析（网络面三补同批）——本处仅最小惰性化。
+function ipWhitelist(): string[] {
+  return (process.env.RATE_LIMIT_IP_WHITELIST || '127.0.0.1,::1')
+    .split(',').map(s => s.trim());
+}
 
 @Injectable()
 export class RateLimiterService {
@@ -25,7 +29,7 @@ export class RateLimiterService {
   async checkIpRateLimit(
     ip: string, action: string, windowSec: number, max: number,
   ): Promise<boolean> {
-    if (IP_WHITELIST.some(w => this.ipMatches(ip, w))) return true;
+    if (ipWhitelist().some(w => this.ipMatches(ip, w))) return true;
     const key = `ratelimit:ip:${action}:${ip}`;
     const count = await this.redis.incr(key);
     if (count === 1) await this.redis.expire(key, windowSec);

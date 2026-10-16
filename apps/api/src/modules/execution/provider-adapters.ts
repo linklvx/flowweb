@@ -10,7 +10,9 @@ export const adapterFor = (provider: string | null) => (provider ? ADAPTERS[prov
 
 /** fakeAiEnabled 单源 helper——COLLAB_FAKE_AI 豁免表唯一读点（多读点会漂）。
  *  只被启动断言/CI 兜底/各 callXxx fake 分支消费——用户面谓词（executable）不含密钥维度故无需豁免。
- *  Z93：与 NODE_ENV 解耦（旧生产守卫删——fail-closed 主线是缺密钥拒启，fake 是显式豁免档）。 */
+ *  Z93：与 NODE_ENV 解耦（旧生产守卫删——fail-closed 主线是缺密钥拒启，fake 是显式豁免档）。
+ *  T34（Z45/RC5）：提级启动期——production∧'1' 由 env.ts superRefine 拒启（键同批进 schema）；
+ *  本 helper 运行期语义不变（惰性调用期读=合规形态，census ㉒ 白名单）。 */
 export const fakeAiEnabled = () => process.env.COLLAB_FAKE_AI === '1';
 
 /** adapter 密钥字面量读（collab-env-single-source 方向①只认字面量——动态 process.env[key]

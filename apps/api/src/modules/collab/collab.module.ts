@@ -27,9 +27,13 @@ import { WorkerPresenceModule } from '../worker-presence/worker-presence.module'
   imports: [TeamModule, CanvasModule, WorkerPresenceModule],
   controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点
   providers: [
-    { provide: 'COLLAB_PORT', useValue: Number(process.env.COLLAB_PORT) || 3001 },
-    { provide: 'COLLAB_DEBOUNCE', useValue: resolveCollabDebounce() },   // 批3-4：dev 1000/prod 2000（env COLLAB_DEBOUNCE 可调；原 5000）
-    { provide: 'COLLAB_TIMEOUT', useValue: Number(process.env.COLLAB_TIMEOUT) || 30_000 },   // 批3-4：握手超时+检查周期双语义
+    // T34（Z45③）：三 token useValue→useFactory——useValue 实参在模块加载期求值（dotenv→validateEnv
+    // 写回之前=Z79 违规面），useFactory 在 DI 解析期（NestFactory.create，恒在 main.ts validateEnv 后）
+    // 求值⇒写回等价成立（resolveCollabDebounce 的 NODE_ENV/COLLAB_DEBOUNCE 读随之自然惰性化；
+    // 同文件 REDIS_CLIENT useFactory :48 先例同款形态）
+    { provide: 'COLLAB_PORT', useFactory: () => Number(process.env.COLLAB_PORT) || 3001 },
+    { provide: 'COLLAB_DEBOUNCE', useFactory: () => resolveCollabDebounce() },   // 批3-4：dev 1000/prod 2000（env COLLAB_DEBOUNCE 可调；原 5000）
+    { provide: 'COLLAB_TIMEOUT', useFactory: () => Number(process.env.COLLAB_TIMEOUT) || 30_000 },   // 批3-4：握手超时+检查周期双语义
     SessionService,   // 批3-3：gateway authenticate 走 touchWithReason（PrismaModule 全局可见）
     CollabGateway,
     CollabDocumentService,

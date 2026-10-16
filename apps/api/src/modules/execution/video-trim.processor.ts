@@ -9,7 +9,7 @@ import { MinioService } from '../minio/minio.service';
 import { VideoTrimService } from './video-trim.service';
 import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
 import { VideoTrimJobData, VideoTrimJobResult } from './video-trim.types';
-import { VIDEO_TRIM_QUEUE, TEMP_DIR, FFMPEG_PATH } from './video-trim.constants';
+import { VIDEO_TRIM_QUEUE, TEMP_DIR, ffmpegPath } from './video-trim.constants';
 import { QUEUE_CONCURRENCY } from '../../config/queue.constants';
 
 // Y0c T30（Z146）：并发上界补参——QUEUE_CONCURRENCY.VIDEO_TRIM（=max(1,floor(核数×0.7))）
@@ -37,7 +37,7 @@ export class VideoTrimProcessor extends WorkerHost {
     this.logger.log(`FFmpeg args: ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
-      const proc = spawn(FFMPEG_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(ffmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });   // T34：惰性读（constants const 冻结形态退役）
 
       let stderr = '';
       proc.stderr?.on('data', (chunk: Buffer) => {

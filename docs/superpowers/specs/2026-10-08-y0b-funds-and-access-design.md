@@ -897,6 +897,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - COLLAB_BYTES_RATE_PER_CONN
 - COLLAB_CONN_MAX_LIFETIME_MS
 - COLLAB_DEBOUNCE
+- COLLAB_FAKE_AI
 - COLLAB_HEAP_PRESSURE_RATIO
 - COLLAB_LEASE_HEARTBEAT_MS
 - COLLAB_LEASE_TTL_MS
@@ -960,6 +961,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 ```
 
 <!-- Y0c T26 键同步补记：WORKER_READY_TIMEOUT_MS/WORKER_WRITE_TOKEN 两键 T26 落 env.ts 时漏更本块（块随 code 同 commit 变更契约）——T27 顺手根修（check-spec-consistency 双向比对复绿）；WORKER_METRICS_PORT=T29-I 同批登记（worker 3002 指标出口端口——使用点默认 3002） -->
+
+<!-- Y0c T34 键同步（69→70）：COLLAB_FAKE_AI 进 envSchema（本 spec §对象6「豁免收口：superRefine NODE_ENV==='production' 拒 '1'」的 Y0b 遗留义务于 T34 兑现；NODE_ENV 同批改 enum 三值+default production——Z12 fail-closed 显式裁定例外） -->
 
 <!-- y0b0:metric-names -->
 ```yaml

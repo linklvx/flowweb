@@ -64,6 +64,19 @@ describe('MediaProcessService', () => {
       expect(result).toBe(true);
     });
 
+    // Y0c T34（Z79/RC3）：FFMPEG_PATH/FFPROBE_PATH 惰性化——模块级 const（import 期冻结=Z79 违规面）
+    // 改调用期读函数（video-trim.constants 同款；消费点 spawn 实参同批改道）。
+    it('T34：stubEnv FFPROBE_PATH ⇒ spawn 用新路径（旧实现=冻结默认 ffprobe ⇒ 红）', async () => {
+      mockSpawn.mockReturnValue(mockSpawnProc('audio\n', 0));
+      vi.stubEnv('FFPROBE_PATH', '/opt/custom/ffprobe');
+      try {
+        await service.detectAudio('/tmp/test.mp4');
+        expect(mockSpawn.mock.calls[0][0]).toBe('/opt/custom/ffprobe');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it('should return false when no audio track', async () => {
       mockSpawn.mockReturnValue(mockSpawnProc('', 0));
       const result = await service.detectAudio('/tmp/test.mp4');

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
-  envSchema, envSchemaValidated,
+  envSchema, envSchemaValidated, validateEnv,
   DB_CONNECTION_LIMIT, withConnectionLimit, applyDatabaseUrlConnectionLimit,
 } from './env';
 
@@ -192,9 +192,63 @@ describe('Y0b-3 T1（P-R）：生产 Origin 双缺 fail-fast（envSchemaValidate
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', BETTER_AUTH_URL: 'https://x.example.com' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', WORKER_WRITE_TOKEN: 'tok', COLLAB_ALLOWED_ORIGINS: 'https://y.example.com' }).success).toBe(true);
   });
-  it('非 production 双缺不拒（dev 宽松——含 NODE_ENV 未设档）', () => {
+  it('非 production 双缺不拒（dev 宽松）；NODE_ENV 未设档 T34 起退役——default production fail-closed（Z12）', () => {
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
-    expect(envSchemaValidated.safeParse(good).success).toBe(true);
+    // T34 翻转（原断言 true）：未设 ⇒ default('production') ⇒ superRefine 生产分支 ⇒ 双缺拒
+    expect(envSchemaValidated.safeParse(good).success).toBe(false);
+  });
+});
+
+// Y0c T34（Z12+Z45②）：NODE_ENV 单源三件套——enum 三值封闭词表+default('production') fail-closed
+// （Z12 显式裁定例外：与 T0「zod 不写 default」纪律相反是刻意的，仿 COLLAB_ROLE .default 先例）
+// +validateEnv 成功后写回 process.env.NODE_ENV（Z45②：default 显式化到进程环境——否则 guard
+// process.env 读与 env 读法两答案；写回后惰性读点〔guard canActivate/自定义 constraint/惰性函数〕
+// 与 env.NODE_ENV 等价=「统一改读 env 单源」的写回等价形态）。
+describe('Y0c T34：NODE_ENV enum 三值+default production（fail-closed）+validateEnv 写回（Z45②）', () => {
+  it('非法值（staging）⇒ 拒（封闭词表——拼错档位不得静默回落）', () => {
+    expect(envSchema.safeParse({ ...good, NODE_ENV: 'staging' }).success).toBe(false);
+  });
+
+  it('未设/空串 ⇒ production（default 显式化）；development/test/production 三值原样保持', () => {
+    expect(envSchema.safeParse(good).data?.NODE_ENV).toBe('production');
+    expect(envSchema.safeParse({ ...good, NODE_ENV: '' }).data?.NODE_ENV).toBe('production');   // B13 空串=未设
+    for (const v of ['development', 'test', 'production'] as const) {
+      expect(envSchema.safeParse({ ...good, NODE_ENV: v }).data?.NODE_ENV).toBe(v);
+    }
+  });
+
+  // validateEnv 只测成功路径与写回（失败路径 process.exit(1)——safeParse 分支直测承担拒启面）；
+  // vi.stubEnv+手动恢复（本文件首个 stubEnv 用例——Z45③ 形态）
+  it('validateEnv 成功写回：NODE_ENV 未设 ⇒ parse production+写回 process.env（拒启面由 BETTER_AUTH_URL/WORKER_WRITE_TOKEN 满足）', () => {
+    vi.stubEnv('NODE_ENV', '');
+    vi.stubEnv('DATABASE_URL', 'postgresql://x');
+    vi.stubEnv('MINIO_ENDPOINT', 'http://localhost:9000');
+    vi.stubEnv('MINIO_ACCESS_KEY', 'minio-key');
+    vi.stubEnv('MINIO_SECRET_KEY', 'minio-secret-key');
+    vi.stubEnv('BETTER_AUTH_URL', 'https://x.example.com');
+    vi.stubEnv('WORKER_WRITE_TOKEN', 'tok');
+    try {
+      const env = validateEnv();
+      expect(env.NODE_ENV).toBe('production');
+      expect(process.env.NODE_ENV, '写回档（实现前红：validateEnv 无写回，process.env 停留空串）').toBe('production');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('validateEnv development 保持档：写回同值（guard dev fail-open 判据与 env 读法一致）', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('DATABASE_URL', 'postgresql://x');
+    vi.stubEnv('MINIO_ENDPOINT', 'http://localhost:9000');
+    vi.stubEnv('MINIO_ACCESS_KEY', 'minio-key');
+    vi.stubEnv('MINIO_SECRET_KEY', 'minio-secret-key');
+    try {
+      const env = validateEnv();
+      expect(env.NODE_ENV).toBe('development');
+      expect(process.env.NODE_ENV).toBe('development');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -237,6 +291,31 @@ describe('Y0c T27：production 未设 WORKER_WRITE_TOKEN ⇒ 拒启（envSchemaV
   it('production 已设 → 过；dev 未设不拒（fail-open 归 guard）', () => {
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' }).success).toBe(true);
     expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development' }).success).toBe(true);
+  });
+});
+
+// Y0c T34（Z45/RC5）：COLLAB_FAKE_AI 注册进 schema+production∧'1' ⇒ 拒启——fake 外呼豁免档的
+// 启动期 fail-closed 提级。与 Z93 关系：Z93 删的是运行期守卫（fake 与 NODE_ENV 解耦，主线=缺密钥
+// 拒启）；本条是 env 校验层拒启（Y0b spec 对象6「NODE_ENV==='production' 拒 '1'」收口递延至 T34）。
+describe('Y0c T34：COLLAB_FAKE_AI ∧ production ⇒ 拒启（envSchemaValidated superRefine）', () => {
+  const prodBase = { ...good, NODE_ENV: 'production', BETTER_AUTH_URL: 'https://x.example.com', WORKER_WRITE_TOKEN: 'tok' };
+
+  it("production ∧ COLLAB_FAKE_AI='1' → 拒（issue 点名 COLLAB_FAKE_AI）", () => {
+    const r = envSchemaValidated.safeParse({ ...prodBase, COLLAB_FAKE_AI: '1' });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(JSON.stringify(r.error.issues)).toContain('COLLAB_FAKE_AI');
+  });
+
+  it("production ∧ 未设/空串 → 过；development/test ∧ '1' → 过（gate/CI 豁免档——Z45④ NODE_ENV 显式注入配套）", () => {
+    expect(envSchemaValidated.safeParse(prodBase).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...prodBase, COLLAB_FAKE_AI: '' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'development', COLLAB_FAKE_AI: '1' }).success).toBe(true);
+    expect(envSchemaValidated.safeParse({ ...good, NODE_ENV: 'test', COLLAB_FAKE_AI: '1' }).success).toBe(true);
+  });
+
+  it('形态面：任意串过验（语义=仅 \'1\' 生效——\'0\'/杂值无害不拒，不新增启动失败面）', () => {
+    expect(envSchema.safeParse({ ...good, COLLAB_FAKE_AI: '0' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_FAKE_AI: 'garbage' }).success).toBe(true);
   });
 });
 

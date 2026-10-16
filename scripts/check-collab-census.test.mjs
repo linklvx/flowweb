@@ -29,6 +29,28 @@ test('stripCommentsAndStrings：行注释/块注释/字符串内容剥离、代�
   assert.equal(out.split('\n').length, 5, '换行保位（行号可跳转）');
 });
 
+// Y0c T34（§0.6 偏离 53）：〔M〕advisory 假阳性根因修复——模板插值自身闭合 `}` 不得透传
+// （`${` 开括号已剥为两空格，closer 原样发射=每处插值一枚孤儿 `}`⇒computeBraceDepth 负漂移⇒
+// 函数体内 env 读被误标 module-level）。嵌套花括号（frame>1）仍成对透传=自平衡不受影响。
+test('T34（偏离 53）：模板插值闭合 `}` 零深度贡献；regex 字面量 {8,64} 自平衡（卡内假设勘正的实证锚）', () => {
+  assert.equal(computeBraceDepth(stripCommentsAndStrings('const a = `regen:${tok}`;')), 0, '插值 closer 不再泄漏孤儿 `}`');
+  assert.equal(computeBraceDepth(stripCommentsAndStrings('const b = `${ {a:1}.a }` + f(`${x}`);')), 0, '嵌套花括号成对透传自平衡');
+  assert.equal(computeBraceDepth(stripCommentsAndStrings('const RE = /^[0-9a-zA-Z_-]{8,64}$/;')), 0, 'regex {8,64} 自平衡（非漂移源）');
+  // intent-key.util 形态回归：函数体内 process.env 读行 beforeDepth=1（旧实现被前文插值 orphan 拉到 0⇒假〔M〕）
+  const src = [
+    'const RE = /^[0-9a-z]{8,64}$/;',
+    'export function f(raw) {',
+    '  const t = `x${raw}`;',
+    '  return Number(process.env.EXEC_X) || 1;',
+    '}',
+  ].join('\n');
+  const lines = stripCommentsAndStrings(src).split('\n');
+  let d = 0;
+  const depths = lines.map((l) => { const before = d; d += computeBraceDepth(l); return before; });
+  assert.equal(extractProcessEnvKeys(lines[3]).length, 1);
+  assert.equal(depths[3], 1, 'process.env 读行在函数体内（module-level 判定不得命中）');
+});
+
 test('classifyCloseLiteral：1008/1011/4404 裸字面量命中、1000/4410 放行', () => {
   assert.ok(classifyCloseLiteral('if (x) conn.webSocket.close(1008, "r")'));
   assert.ok(classifyCloseLiteral('ws.close(1011)'));

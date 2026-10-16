@@ -9,7 +9,7 @@ export class CollabAdminAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const token = process.env.COLLAB_ADMIN_TOKEN;
     if (!token) {
-      if (process.env.NODE_ENV === 'development') return true;   // dev fail-open（/metrics 同源）
+      if (process.env.NODE_ENV === 'development') return true;   // dev fail-open（/metrics 同源）；T34（Z45②）canActivate 惰性读——写回后与 env.NODE_ENV 单源同答案
       throw new ForbiddenException('COLLAB_ADMIN_TOKEN 未设置——drain fail-closed（W23：独立停机令牌，runbook 先建令牌再部署）');
     }
     const req = context.switchToHttp().getRequest();

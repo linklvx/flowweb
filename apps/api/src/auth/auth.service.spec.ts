@@ -11,8 +11,9 @@ const { mockSignInEmail, mockSignUpEmail, mockSignOut, mockGetSession, mockUpdat
   mockVerifyPhoneNumber: vi.fn(),
 }));
 
+// T34：auth→getAuth 惰性单例——mock 形态同步（getAuth() 每次返回同一 mock api 面）
 vi.mock('./auth', () => ({
-  auth: {
+  getAuth: () => ({
     api: {
       signInEmail: mockSignInEmail,
       signUpEmail: mockSignUpEmail,
@@ -21,12 +22,12 @@ vi.mock('./auth', () => ({
       updateUser: mockUpdateUser,
       verifyPhoneNumber: mockVerifyPhoneNumber,
     },
-  },
+  }),
 }));
 
 import { AuthService } from './auth.service';
 import { SessionService } from './session.service';
-import { auth } from './auth';
+import { getAuth } from './auth';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -46,21 +47,21 @@ describe('AuthService', () => {
   it('should call signInEmail with email and password', async () => {
     mockSignInEmail.mockResolvedValue({ user: { id: 'u1', email: 'test@test.com' } });
     const result = await service.signIn('test@test.com', 'pass123');
-    expect(auth.api.signInEmail).toHaveBeenCalledWith({ body: { email: 'test@test.com', password: 'pass123' } });
+    expect(getAuth().api.signInEmail).toHaveBeenCalledWith({ body: { email: 'test@test.com', password: 'pass123' } });
     expect(result).toEqual({ user: { id: 'u1', email: 'test@test.com' } });
   });
 
   it('should call signUpEmail with email, password, name', async () => {
     mockSignUpEmail.mockResolvedValue({ user: { id: 'u1' } });
     const result = await service.signUp('test@test.com', 'pass123', 'Test User');
-    expect(auth.api.signUpEmail).toHaveBeenCalledWith({ body: { email: 'test@test.com', password: 'pass123', name: 'Test User' } });
+    expect(getAuth().api.signUpEmail).toHaveBeenCalledWith({ body: { email: 'test@test.com', password: 'pass123', name: 'Test User' } });
     expect(result).toEqual({ user: { id: 'u1' } });
   });
 
   it('should call signOut with sessionToken in headers', async () => {
     mockSignOut.mockResolvedValue({ success: true });
     await service.signOut('token123');
-    expect(auth.api.signOut).toHaveBeenCalledWith({
+    expect(getAuth().api.signOut).toHaveBeenCalledWith({
       headers: new Headers({ cookie: 'flowweb.session_token=token123' }),
     });
   });
@@ -109,7 +110,7 @@ describe('AuthService', () => {
         user: { id: 'u1', phoneNumber: '+8613800138000', phoneNumberVerified: true },
       });
       const result = await service.phoneLogin('+8613800138000', '123456');
-      expect(auth.api.verifyPhoneNumber).toHaveBeenCalledWith({
+      expect(getAuth().api.verifyPhoneNumber).toHaveBeenCalledWith({
         body: {
           phoneNumber: '+8613800138000',
           code: '123456',

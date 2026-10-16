@@ -17,7 +17,11 @@ const WEB_DIR = path.join(ROOT, 'apps', 'web');
 const API_CONTROL_PORT = Number(process.env.COLLAB_E2E_API_CONTROL_PORT) || 3100;
 const API_ENV = {
   ...process.env,
-  COLLAB_FAKE_AI: '1',        // 批7 fake provider（api-caller.service 生产 env 拒绝）
+  NODE_ENV: 'development',    // Z45④（T34）：显式档位不继承外部 shell——NODE_ENV 单源化后未设=
+                              // default production（fail-closed），production shell 跑门禁即被
+                              // COLLAB_FAKE_AI∧production 拒启守卫打死自家 API（回归锚=
+                              // NODE_ENV=production 下本脚本全绿）
+  COLLAB_FAKE_AI: '1',        // 批7 fake provider（api-caller.service 生产 env 拒绝；T34 起 production∧'1' 直接拒启——上行 dev 档位是前提）
   COLLAB_SWEEP_ENABLED: 'true', // S4 会话过期 sweep（灰度开关——门禁环境显式开）
   MINIO_INIT: 'skip',         // B′（第九轮）：gate 场景零 MinIO 产物消费，显式裁剪 ensureBucket——
                               // 本地/CI 行为一致（原依赖本地真 MinIO 掩盖；CI 无 service 即启动红）

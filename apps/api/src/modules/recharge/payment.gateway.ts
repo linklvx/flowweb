@@ -5,7 +5,7 @@ import {
 import { Inject } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Server, Socket } from 'socket.io';
-import { auth } from '../../auth/auth';
+import { getAuth } from '../../auth/auth';   // T34：betterAuth 惰性单例（握手期调用——env 读恒在 validateEnv 写回后）
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** 批0c 质量修复2：豁免全局 ThrottlerGuard——WS context 下 throttler handleRequest 对
@@ -26,7 +26,7 @@ export class PaymentGateway implements OnGatewayInit {
         return next();
       }
       try {
-        const session = await auth.api.getSession({
+        const session = await getAuth().api.getSession({
           headers: new Headers({ cookie: `flowweb.session_token=${token}` }),
         });
         socket.data.userId = session?.user?.id ?? null;

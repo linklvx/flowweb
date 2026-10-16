@@ -5,7 +5,7 @@ import { exec } from 'child_process';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { EmitPort } from '../gateway/emit.port';
-import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, FFPROBE_PATH } from './video-trim.constants';
+import { VIDEO_TRIM_QUEUE, MIN_TRIM_DURATION, TEMP_DIR, ffprobePath } from './video-trim.constants';
 import { VideoTrimRequest, VideoTrimJobData } from './video-trim.types';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 
@@ -67,7 +67,7 @@ export class VideoTrimService {
   private detectAudio(inputPath: string): Promise<boolean> {
     return new Promise((resolve) => {
       exec(
-        `${FFPROBE_PATH} -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${inputPath}"`,
+        `${ffprobePath()} -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${inputPath}"`,   // T34：惰性读
         (error, stdout) => {
           if (error) {
             this.logger.warn(`ffprobe audio detection failed: ${error.message}`);
@@ -114,7 +114,7 @@ export class VideoTrimService {
     try {
       actualDuration = await new Promise<number>((resolve, reject) => {
         exec(
-          `${FFPROBE_PATH} -v error -show_entries format=duration -of csv=p=0 "${inputUrl}"`,
+          `${ffprobePath()} -v error -show_entries format=duration -of csv=p=0 "${inputUrl}"`,   // T34：惰性读
           (error, stdout) => {
             if (error) {
               reject(error);

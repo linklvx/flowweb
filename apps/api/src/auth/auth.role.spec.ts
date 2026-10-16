@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { auth } from './auth';
+import { getAuth } from './auth';   // T34：betterAuth 惰性单例（本 spec=真库链路回归面——构造后移不改 databaseHooks/getSession 语义）
 import { deleteTeamsWithPass } from '../test-utils/intent-fixture';
 
 const prisma = new PrismaClient();
@@ -20,7 +20,7 @@ afterAll(async () => { await prisma.$disconnect(); });
 describe('role 防提权回归（P0-1，双路径）', () => {
   it('sign-up body 带 role=ADMIN → 落库仍 USER（input:false+defaultValue 静默覆盖）', async () => {
     const email = `priv1-${Date.now()}@test.flowweb.local`;
-    await auth.api.signUpEmail({
+    await getAuth().api.signUpEmail({
       body: { email, password: 'password123', name: 'p1', role: 'ADMIN' } as any,
     });
     const user = await prisma.user.findUnique({ where: { email } });
@@ -30,10 +30,10 @@ describe('role 防提权回归（P0-1，双路径）', () => {
 
   it('updateUser（PATCH /me 路径）带 role → 报错且不落库', async () => {
     const email = `priv2-${Date.now()}@test.flowweb.local`;
-    await auth.api.signUpEmail({ body: { email, password: 'password123', name: 'p2' } });
+    await getAuth().api.signUpEmail({ body: { email, password: 'password123', name: 'p2' } });
     // session cookie 值是 HMAC 签名的 token.signature，裸 token 会 UNAUTHORIZED——
     // 必须经 returnHeaders 取 better-auth 实际下发的 Set-Cookie
-    const signIn = await auth.api.signInEmail({
+    const signIn = await getAuth().api.signInEmail({
       body: { email, password: 'password123' },
       returnHeaders: true,
     });
@@ -42,7 +42,7 @@ describe('role 防提权回归（P0-1，双路径）', () => {
       .find((c: string) => c.startsWith('flowweb.session_token='))!;
     const headers = new Headers({ cookie: setCookie.split(';')[0] });
     await expect(
-      auth.api.updateUser({ body: { name: 'x', role: 'ADMIN' } as any, headers }),
+      getAuth().api.updateUser({ body: { name: 'x', role: 'ADMIN' } as any, headers }),
     ).rejects.toThrow(/role is not allowed/);
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user?.role).toBe('USER');

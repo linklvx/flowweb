@@ -11,7 +11,8 @@ import { envSchema } from './env';
  * Y0b-2 T2：前缀扩 EXEC_|PROVIDER_|DASHSCOPE_API_KEY（执行运行时/provider 密钥族——方向②只认
  * 字面量读点：动态 process.env[key] 收不到读点会假红，seedEnvValue switch 即为此逐键字面量读）。 */
 const EXEMPT = new Map<string, string>([
-  ['COLLAB_FAKE_AI', 'Y0b 资金批域（provider-adapters.ts fakeAiEnabled 单源 helper——启动断言豁免档唯一读点）——E58/Y0b 同批收口'],
+  // T34（Z45/RC5）：COLLAB_FAKE_AI 条目移除——键已进 envSchema（superRefine production∧'1' 拒启）
+  // 且字面量读点在位（provider-adapters fakeAiEnabled），双向锚自然绿（豁免收口兑现）。
   ['COLLAB_MAX_LOADED_DOCS', 'spec-reserved：spec §3 4.6:502 原文点名"MAX_LOADED_DOCS 预留"（区别于被驳回的 plan 自创预留）——enforcement 归 Y1c-3（届时连消费点同批移出豁免）'],
   // Y0b-3 T1：§0.3 十键一次注册（消费点随后续 Task 落地——键先注册满足 spec §7.1 fenced 块同 commit 同步纪律；各 Task 落地时键随读者移出本表）
   ['COLLAB_ALLOWED_ORIGINS', 'Y0b-3 T2 消费（Origin 白名单——BETTER_AUTH_URL origin 推导+仅 dev 含 localhost:5173）'],

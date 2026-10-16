@@ -14,7 +14,18 @@ import { SessionService } from '../../auth/session.service';
  *  ② 反代（nginx）后 req.ip 全是代理 IP——300/min 会变全站共享单桶，生产部署前需 trust proxy
  *    或自定义 tracker（已登记 tech-debt）。 */
 @SkipThrottle()
-@WebSocketGateway({ namespace: '/execution', cors: { origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim()) } })
+// T34（Z79/RC3）：cors origin 数组→函数回调（cors 包原生形态）——装饰器实参原在模块加载期求值
+// （dotenv→validateEnv 写回之前=Z79 违规面）；函数形态请求期读 CORS_ORIGIN（语义与数组档等价：
+// 命中回显/未命中不发 ACAO 头〔false〕；无 default 归一化需求，dotenv 先行下两时序等值）。
+@WebSocketGateway({
+  namespace: '/execution',
+  cors: {
+    origin: (reqOrigin: string | undefined, cb: (err: Error | null, allow?: string | boolean) => void) => {
+      const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim());
+      cb(null, reqOrigin !== undefined && allowed.includes(reqOrigin) ? reqOrigin : false);
+    },
+  },
+})
 export class ExecutionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ExecutionGateway.name);
 

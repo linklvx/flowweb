@@ -123,4 +123,19 @@ describe('RateLimiterService', () => {
       expect(await service.checkUserRateLimit('u1', 'act', 60, 5)).toBe(true); // 本地 127.0.0.1 请求也照常计数
     });
   });
+
+  // Y0c T34（Z79/RC3）：RATE_LIMIT_IP_WHITELIST 惰性化——模块级 const（import 期冻结，先于
+  // dotenv→validateEnv 写回=Z79 违规面）改调用期读；T36 承接入 zod+删手写解析（本用例只钉时序形态）。
+  describe('T34：IP 白名单惰性求值（import 后 env 改值即生效）', () => {
+    it('stubEnv 扩白名单 ⇒ 新 IP 放行零计数（旧实现=import 期冻结 ⇒ 照常 incr ⇒ 红）', async () => {
+      mockRedis.incr = vi.fn().mockResolvedValue(1); mockRedis.expire = vi.fn();
+      vi.stubEnv('RATE_LIMIT_IP_WHITELIST', '127.0.0.1,::1,10.9.8.7');
+      try {
+        expect(await service.checkIpRateLimit('10.9.8.7', 'act', 60, 5)).toBe(true);
+        expect(mockRedis.incr).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  });
 });

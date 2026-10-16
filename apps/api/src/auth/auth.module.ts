@@ -8,7 +8,7 @@ import { SmsModule } from '../modules/sms/sms.module';
 import { TeamModule } from '../modules/team/team.module';
 import { RateLimiterService } from '../common/services/rate-limiter.service';
 import { REDIS_CLIENT, createManagedRedis } from '../common/redis/managed-redis';
-import { authPrisma, authRedis } from './auth';
+import { authPrisma, closeAuthRedis } from './auth';   // T34：authRedis 惰性构造——关停走 closeAuthRedis()（未建连安全）
 
 @Module({
   imports: [SmsModule, TeamModule],   // TeamModule：CreditLedgerService（bootstrapPersonalTeam 注册发放经台账）
@@ -29,7 +29,7 @@ import { authPrisma, authRedis } from './auth';
  *  不关则 ioredis 保活 event loop，进程退不出 */
 export class AuthModule implements OnApplicationShutdown {
   async onApplicationShutdown() {
-    authRedis.disconnect();
+    closeAuthRedis();
     await authPrisma.$disconnect();   // Y0a-4/E46：$disconnect 为 async——显式 await（关停序确定）
   }
 }

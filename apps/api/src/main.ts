@@ -97,7 +97,7 @@ async function bootstrap() {
     const Sentry = await import('@sentry/nestjs');
     Sentry.init({
       dsn: env.SENTRY_DSN,
-      environment: process.env.NODE_ENV || 'development',
+      environment: env.NODE_ENV,   // T34（Z12/RC2a）：env 单源读（:83 validateEnv 返回值）——原 process.env.NODE_ENV||'development' 未设档静默 dev 已随 fail-closed default 退役
       // T11（裁定 23⑰）：release 读 build-info.json（部署链产物——pm2 剥 GIT_* ⇒ env 路恒 'unknown'
       // 事故查不出对应提交）；本地 dev 回落 package.json version → 'unknown'
       release: resolveSentryRelease(),

@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from '../../modules/team/credit-ledger.service';
-import { SESSION_COOKIE_OPTIONS } from '../auth';
+import { getSessionCookieOptions } from '../auth';   // T34：惰性函数（maxAge 读面同形改道）
 import { bootstrapPersonalTeam } from '../../modules/team/team.bootstrap';
 
 const WECHAT_API_BASE = 'https://api.weixin.qq.com';
@@ -84,7 +84,7 @@ export class WechatService {
         id: crypto.randomUUID(),
         userId,
         token,
-        expiresAt: new Date(Date.now() + SESSION_COOKIE_OPTIONS.maxAge),
+        expiresAt: new Date(Date.now() + getSessionCookieOptions().maxAge),
         ipAddress: '',
         userAgent: '',
       },

@@ -9,7 +9,7 @@ import 'dotenv/config';
 import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
 import { S3Client, PutObjectCommand, HeadBucketCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
-import { auth } from '../src/auth/auth';
+import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import {
   fillDoc as fillDocShapes, stampDocSchema,
   type DocLike, type DocMapLike, type DocNodeRecord,
@@ -95,7 +95,7 @@ async function main() {
   // ① collab-c（三端 C 端账号）
   let userC = await prisma.user.findUnique({ where: { email: SPECB_GATE.cEmail } });
   if (!userC) {
-    await auth.api.signUpEmail({ body: { email: SPECB_GATE.cEmail, password: SPECB_GATE.password, name: 'Collab Gate C' } });
+    await getAuth().api.signUpEmail({ body: { email: SPECB_GATE.cEmail, password: SPECB_GATE.password, name: 'Collab Gate C' } });
     userC = await prisma.user.findUniqueOrThrow({ where: { email: SPECB_GATE.cEmail } });
   }
   const userA = await prisma.user.findUniqueOrThrow({ where: { email: SPECB_GATE.aEmail } });
@@ -189,5 +189,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
-    process.exit(0); // auth.ts 顶层 ioredis 连接会让进程挂起，必须显式退出（collab-gate-seed 同款）
+    process.exit(0); // auth.ts 顶层 authPrisma 客户端会让进程挂起，必须显式退出（collab-gate-seed 同款——T34 起 ioredis 惰性）
   });

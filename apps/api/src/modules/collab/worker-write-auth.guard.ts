@@ -15,7 +15,7 @@ export class WorkerWriteAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const token = process.env.WORKER_WRITE_TOKEN;
     if (!token) {
-      if (process.env.NODE_ENV === 'development') return true;   // dev fail-open（COLLAB_ADMIN_TOKEN 同源）
+      if (process.env.NODE_ENV === 'development') return true;   // dev fail-open（COLLAB_ADMIN_TOKEN 同源）；T34（Z45②）canActivate 惰性读——写回后与 env.NODE_ENV 单源同答案
       throw new ForbiddenException('[CollabDoc] WORKER_WRITE_TOKEN must be configured in production（主防线=env 拒启，本分支纵深冗余）');
     }
     const req = context.switchToHttp().getRequest();

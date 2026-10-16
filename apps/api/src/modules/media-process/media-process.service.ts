@@ -7,8 +7,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId } from '../team/team.util';
 import { MinioService } from '../minio/minio.service';
 
-const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
-const FFPROBE_PATH = process.env.FFPROBE_PATH || 'ffprobe';
+// T34（Z79/RC3）：模块级 const（import 期冻结=违规面）改调用期读函数（video-trim.constants 同款）
+function ffmpegPath(): string {
+  return process.env.FFMPEG_PATH || 'ffmpeg';
+}
+function ffprobePath(): string {
+  return process.env.FFPROBE_PATH || 'ffprobe';
+}
 const MAX_TASK_DURATION_MS = 5 * 60 * 1000;
 
 interface MediaUploadParams {
@@ -40,7 +45,7 @@ export class MediaProcessService {
 
   async detectAudio(inputPath: string): Promise<boolean> {
     return new Promise((resolve) => {
-      const proc = spawn(FFPROBE_PATH, [
+      const proc = spawn(ffprobePath(), [
         '-v', 'error', '-select_streams', 'a:0',
         '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', inputPath,
       ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -56,7 +61,7 @@ export class MediaProcessService {
 
   async detectAudioCodec(inputPath: string): Promise<string | null> {
     return new Promise((resolve) => {
-      const proc = spawn(FFPROBE_PATH, [
+      const proc = spawn(ffprobePath(), [
         '-v', 'error', '-select_streams', 'a:0',
         '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', inputPath,
       ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -72,7 +77,7 @@ export class MediaProcessService {
 
   async detectDuration(inputPath: string): Promise<number> {
     return new Promise((resolve, reject) => {
-      const proc = spawn(FFPROBE_PATH, [
+      const proc = spawn(ffprobePath(), [
         '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', inputPath,
       ], { stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
@@ -92,7 +97,7 @@ export class MediaProcessService {
 
     try {
       const videoInfo = await new Promise<string>((resolve, reject) => {
-        const proc = spawn(FFPROBE_PATH, [
+        const proc = spawn(ffprobePath(), [
           '-v', 'error', '-select_streams', 'v:0',
           '-show_entries', 'stream=width,height,codec_name,bit_rate', '-of', 'csv=p=0', inputPath,
         ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -112,7 +117,7 @@ export class MediaProcessService {
 
     try {
       const audioInfo = await new Promise<string>((resolve, reject) => {
-        const proc = spawn(FFPROBE_PATH, [
+        const proc = spawn(ffprobePath(), [
           '-v', 'error', '-select_streams', 'a:0',
           '-show_entries', 'stream=codec_name,bit_rate', '-of', 'csv=p=0', inputPath,
         ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -136,7 +141,7 @@ export class MediaProcessService {
     this.logger.log(`FFmpeg: ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
-      const proc = spawn(FFMPEG_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(ffmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
       let stderr = '';
 
       const timer = setTimeout(() => {

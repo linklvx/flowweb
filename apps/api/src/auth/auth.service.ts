@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { auth } from './auth';
+import { getAuth } from './auth';   // T34：betterAuth 惰性单例（构造后移至首调用——env 读恒在 validateEnv 写回后）
 import { parseSessionToken } from '../common/utils/parse-session-token';
 import { SessionService } from './session.service';
 
@@ -11,21 +11,21 @@ export class AuthService {
   ) {}
 
   async signIn(email: string, password: string) {
-    return auth.api.signInEmail({ body: { email, password } });
+    return getAuth().api.signInEmail({ body: { email, password } });
   }
 
   async signUp(email: string, password: string, name: string) {
-    return auth.api.signUpEmail({ body: { email, password, name } });
+    return getAuth().api.signUpEmail({ body: { email, password, name } });
   }
 
   async signOut(sessionToken: string) {
-    return auth.api.signOut({
+    return getAuth().api.signOut({
       headers: new Headers({ cookie: `flowweb.session_token=${sessionToken}` }),
     });
   }
 
   async phoneLogin(phoneNumber: string, code: string) {
-    return auth.api.verifyPhoneNumber({
+    return getAuth().api.verifyPhoneNumber({
       body: {
         phoneNumber,
         code,
@@ -35,7 +35,7 @@ export class AuthService {
   }
 
   async updateProfile(cookieHeader: string, dto: { name?: string; image?: string }) {
-    return auth.api.updateUser({
+    return getAuth().api.updateUser({
       body: { name: dto.name, image: dto.image },
       headers: new Headers({ cookie: cookieHeader }),
     });

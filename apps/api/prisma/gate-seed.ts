@@ -10,7 +10,7 @@
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build（scripts/check-shared-dist.mjs 可校验）。
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import { auth } from '../src/auth/auth';
+import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import { buildGateCanvasState } from '../src/gate-canvas-state';
 
 const prisma = new PrismaClient();
@@ -28,7 +28,7 @@ async function main() {
   // 门禁 USER：与管理员同路径（seed.ts:218-228）——signUpEmail 建号（argon2 哈希 + databaseHooks bootstrap 个人团队），不提权
   let user = await prisma.user.findUnique({ where: { email: GATE.email } });
   if (!user) {
-    await auth.api.signUpEmail({ body: { email: GATE.email, password: GATE.password, name: GATE.name } });
+    await getAuth().api.signUpEmail({ body: { email: GATE.email, password: GATE.password, name: GATE.name } });
     console.log(`Gate user created: ${GATE.email}`);
   }
   user = await prisma.user.findUniqueOrThrow({ where: { email: GATE.email } });
@@ -78,5 +78,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
-    process.exit(0); // auth.ts 顶层 ioredis 连接会让进程挂起，必须显式退出（seed.ts 同款）
+    process.exit(0); // auth.ts 顶层 authPrisma 客户端会让进程挂起，必须显式退出（seed.ts 同款——T34 起 ioredis 惰性）
   });

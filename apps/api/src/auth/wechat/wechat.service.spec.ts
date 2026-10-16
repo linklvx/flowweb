@@ -4,19 +4,20 @@ vi.mock('axios', () => ({
   default: { get: vi.fn() },
 }));
 
+// T34：SESSION_COOKIE_OPTIONS const→getSessionCookieOptions() 惰性函数——mock 形态同步
 vi.mock('../auth', () => ({
-  SESSION_COOKIE_OPTIONS: {
+  getSessionCookieOptions: () => ({
     httpOnly: true,
     path: '/',
     sameSite: 'lax',
     secure: false,
     maxAge: 7 * 24 * 60 * 60 * 1000,
-  },
+  }),
 }));
 
 import axios from 'axios';
 import { WechatService } from './wechat.service';
-import { SESSION_COOKIE_OPTIONS } from '../auth';
+import { getSessionCookieOptions } from '../auth';
 
 describe('WechatService', () => {
   let service: WechatService;
@@ -64,7 +65,7 @@ describe('WechatService', () => {
       });
     });
 
-    it('createSession 的 expiresAt 使用 SESSION_COOKIE_OPTIONS.maxAge（不硬编码）', async () => {
+    it('createSession 的 expiresAt 使用 getSessionCookieOptions().maxAge（不硬编码）', async () => {
       const before = Date.now();
       mockPrisma.session.create.mockImplementation(({ data }: any) =>
         Promise.resolve({ ...data, id: 's1' }),
@@ -73,7 +74,7 @@ describe('WechatService', () => {
       await service.createSession('u1');
 
       const { data } = mockPrisma.session.create.mock.calls[0][0];
-      const expected = before + SESSION_COOKIE_OPTIONS.maxAge;
+      const expected = before + getSessionCookieOptions().maxAge;
       expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(expected - 1000);
       expect(data.expiresAt.getTime()).toBeLessThanOrEqual(expected + 1000);
     });

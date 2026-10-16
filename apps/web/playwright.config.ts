@@ -26,6 +26,11 @@ export default defineConfig({
       command: 'pnpm exec prisma migrate deploy && pnpm exec prisma db seed && pnpm exec nest start',
       cwd: '../api',
       url: 'http://localhost:3000/api/health',
+      // T34（§0.6 偏离 54——Z45④ 同族）：真服务器 harness 显式档位不继承外壳——NODE_ENV 单源化后
+      // 未设=default production（fail-closed），CI e2e-collab job env 无 NODE_ENV 即被 validateEnv
+      // superRefine（BETTER_AUTH_URL/WORKER_WRITE_TOKEN 缺）拒启打死 b0/b1 token 门禁步。
+      // 本地面无影响（apps/api/.env NODE_ENV=development 在位）。
+      env: { NODE_ENV: 'development' },
       // dev 会话的 api 与本条目同构（同一 Nest 进程模型，collab 同样随进程监听 3001），复用无害；
       // 注意复用时整条 command（含 migrate/seed）跳过——种子幂等且 dev 库即门禁库，已由 dev 进程实证迁移就绪
       reuseExistingServer: true,

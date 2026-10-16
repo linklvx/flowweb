@@ -66,7 +66,9 @@ describe('批3-2 B6 模块工厂源码收口', () => {
     const authSrc = readFileSync(resolve(APP_ROOT, 'auth/auth.ts'), 'utf8');
     expect(authSrc).toContain('createManagedRedis(');
     const moduleSrc = readFileSync(resolve(APP_ROOT, 'auth/auth.module.ts'), 'utf8');
-    expect(moduleSrc).toContain('authRedis.disconnect()');
+    // T34（Z79）：authRedis 模块级 const→惰性 getAuthRedis()——关停面同步改 closeAuthRedis()
+    // （缓存判空：未建连亦安全；原断言 'authRedis.disconnect()' 随形态退役）
+    expect(moduleSrc).toContain('closeAuthRedis()');
   });
   // 超时窗 15s：auth.ts 顶层 betterAuth+ioredis 初始化在满载（verify 并行全量）下可超 vitest 默认 5s——
   // 单跑恒绿、两轮满载均 5004ms 超时实证（Y0b-5 部署 preflight 拦截）；断言语义零变化。

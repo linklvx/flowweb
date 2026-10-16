@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import { auth } from '../src/auth/auth';
+import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import { CreditLedgerService } from '../src/modules/team/credit-ledger.service';
 import { seedPlatformTeam } from '../src/prisma/platform-team.seed';
 
@@ -223,7 +223,7 @@ async function main() {
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin12345'; // better-auth minPasswordLength=8
   const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
   if (!existingAdmin) {
-    await auth.api.signUpEmail({ body: { email: adminEmail, password: adminPassword, name: 'Admin' } });
+    await getAuth().api.signUpEmail({ body: { email: adminEmail, password: adminPassword, name: 'Admin' } });
     await prisma.user.update({ where: { email: adminEmail }, data: { role: 'ADMIN' } });
     console.log(`Admin created: ${adminEmail}`);
   } else if (existingAdmin.role !== 'ADMIN') {
@@ -262,5 +262,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
-    process.exit(0); // auth.ts 顶层 ioredis 连接会让进程挂起，必须显式退出
+    process.exit(0); // auth.ts 顶层 authPrisma 客户端会让进程挂起，必须显式退出（T34 起 ioredis 惰性——本脚本不触发）
   });

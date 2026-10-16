@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { WechatService } from './wechat.service';
-import { SESSION_COOKIE_OPTIONS } from '../auth';
+import { getSessionCookieOptions } from '../auth';   // T34：惰性函数（secure 判据调用期读）
 
 @Controller('api/auth/wechat')
 export class WechatController {
@@ -20,7 +20,7 @@ export class WechatController {
       const { nickname, headimgurl } = await this.wechatService.getUserInfo(accessToken, openid);
       const user = await this.wechatService.findOrCreateUser({ openid, unionid, nickname, headimgurl });
       const { token } = await this.wechatService.createSession(user.id);
-      res.cookie('flowweb.session_token', token, SESSION_COOKIE_OPTIONS);
+      res.cookie('flowweb.session_token', token, getSessionCookieOptions());
       return res.redirect('/canvas');
     } catch {
       return res.redirect('/login?error=wechat_failed');

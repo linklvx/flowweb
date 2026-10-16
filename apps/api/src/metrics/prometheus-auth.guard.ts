@@ -4,6 +4,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 export class PrometheusAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const token = process.env.PROMETHEUS_TOKEN;
+    // T34（Z45②）：canActivate 惰性读（非 DI 上下文合规形态）——validateEnv 写回后 process.env.NODE_ENV ≡ env.NODE_ENV 单源同答案
     const isDev = process.env.NODE_ENV === 'development';
 
     // Development: allow without token

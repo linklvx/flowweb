@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// T34：SESSION_COOKIE_OPTIONS const→getSessionCookieOptions() 惰性函数——mock 形态同步
 vi.mock('../auth', () => ({
-  SESSION_COOKIE_OPTIONS: {
+  getSessionCookieOptions: () => ({
     httpOnly: true,
     path: '/',
     sameSite: 'lax',
     secure: false,
     maxAge: 7 * 24 * 60 * 60 * 1000,
-  },
+  }),
 }));
 
 import { WechatController } from './wechat.controller';

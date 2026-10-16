@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AuthController } from './auth.controller';
-import { SESSION_COOKIE_OPTIONS } from './auth';
+import { getSessionCookieOptions } from './auth';   // T34：惰性函数形态（deep-equal 断言语义不变）
 
 // Y0b-1 Z23：getMe 补偿 bootstrap 的钱包建行+register_grant 经 CreditLedgerService
 const mockLedger = {
@@ -83,7 +83,7 @@ describe('AuthController', () => {
         expect.objectContaining({ httpOnly: true, path: '/', sameSite: 'lax' }),
       );
       // 批3-3：COOKIE_OPTIONS 与 SESSION_COOKIE_OPTIONS 统一（本地常量缺 secure——生产 cookie 无 Secure 标志）
-      expect(mockRes.cookie).toHaveBeenCalledWith('flowweb.session_token', token, SESSION_COOKIE_OPTIONS);
+      expect(mockRes.cookie).toHaveBeenCalledWith('flowweb.session_token', token, getSessionCookieOptions());
       expect(mockRes.json).toHaveBeenCalledWith({
         user: { id: 'u1', email: 'u1@test.com' },
       });
@@ -181,7 +181,7 @@ describe('AuthController', () => {
 
       await controller.getMe(req as any, mockRes as any);
 
-      expect(mockRes.cookie).toHaveBeenCalledWith('flowweb.session_token', 'valid', SESSION_COOKIE_OPTIONS);
+      expect(mockRes.cookie).toHaveBeenCalledWith('flowweb.session_token', 'valid', getSessionCookieOptions());
     });
 
     it('批3-3：无 session → 不重发 cookie', async () => {

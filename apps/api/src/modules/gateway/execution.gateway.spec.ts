@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { GATEWAY_OPTIONS } from '@nestjs/websockets/constants';
 import { ExecutionGateway } from './execution.gateway';
 
 /** 批0c-5 必红：handleJoin 今天无鉴权直接 join（任何人可订阅任意项目执行事件）。
@@ -95,5 +96,30 @@ describe('批0c-5 execution.gateway handleJoin 鉴权', () => {
     expect(prisma.session.update).toHaveBeenCalledTimes(1);
     const arg = prisma.session.update.mock.calls[0][0];
     expect((arg.data.expiresAt as Date).getTime()).toBeGreaterThan(Date.now() + 7 * DAY - 5_000);
+  });
+});
+
+// Y0c T34（Z79/RC3）：CORS_ORIGIN 装饰器实参惰性化——@WebSocketGateway 装饰器实参在模块加载期
+// 求值（dotenv→validateEnv 写回之前=Z79 违规面；vi.stubEnv 对其无效）；改 cors origin 函数回调
+// 形态（cors 包原生能力——请求期求值）。CORS_ORIGIN 无 default 归一化需求，dotenv 先行下加载期
+// 读与运行期读等值——惰性化收益=形态合规+测试可注入。
+describe('T34：@WebSocketGateway cors.origin 惰性函数（CORS_ORIGIN 调用期读）', () => {
+  it('元数据 cors.origin=函数（旧数组形态⇒红）：白名单命中⇒回显/未命中⇒false/stub 改值即改读（惰性证明）', () => {
+    const meta = Reflect.getMetadata(GATEWAY_OPTIONS, ExecutionGateway) as { cors: { origin: unknown } };
+    expect(typeof meta.cors.origin).toBe('function');
+    const origin = meta.cors.origin as (reqOrigin: string | undefined, cb: (err: Error | null, allow?: string | boolean) => void) => void;
+    const cb = vi.fn();
+    vi.stubEnv('CORS_ORIGIN', 'https://a.example.com');
+    try {
+      origin('https://a.example.com', cb);
+      expect(cb).toHaveBeenLastCalledWith(null, 'https://a.example.com');
+      origin('https://evil.example.com', cb);
+      expect(cb).toHaveBeenLastCalledWith(null, false);
+      vi.stubEnv('CORS_ORIGIN', 'https://b.example.com');   // 惰性求值：env 第二值即改即读
+      origin('https://b.example.com', cb);
+      expect(cb).toHaveBeenLastCalledWith(null, 'https://b.example.com');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

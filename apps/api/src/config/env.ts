@@ -81,7 +81,11 @@ export const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   // Y0b-3 T1（P-R）：superRefine 的两个判据键——此前仅 process.env 直读未进 schema（zod strip 未知键
   // 则 superRefine 恒读 undefined，fail-fast 失效/误伤），故同批注册。
-  NODE_ENV: z.preprocess(blankToUnset, z.string().optional()),
+  // Y0c T34（Z12 显式裁定例外登记）：NODE_ENV 收口为 enum 三值封闭词表+default('production')——
+  // **与 T0「zod 不写 default」纪律相反是刻意的 fail-closed 方向**（部署档位缺失不得静默落 dev 宽松
+  // 档：cookie Secure/三 guard fail-open/debounce 档位全随此键；仿同文件 COLLAB_ROLE
+  // .default(COLLAB_ROLE_DEFAULT) 既有例外先例）。非法值（'staging' 等拼错档位）拒启；空串=未设（B13）走 default。
+  NODE_ENV: z.preprocess(blankToUnset, z.enum(['development', 'test', 'production']).default('production')),
   BETTER_AUTH_URL: z.preprocess(blankToUnset, z.string().min(1).optional()),
   MINIO_ENDPOINT: z.string().url(),
   MINIO_ACCESS_KEY: z.string().min(3),
@@ -116,7 +120,11 @@ export const envSchema = z.object({
   // 消费点（不写 default 防双源，P3）。空串=未设（B13：dotenv/shell 清开关常见形态，防拒启动）。
   // COMPACT_INTERVAL_MS=真实键名（gateway:25 无 COLLAB_ 前缀——前缀统一登记 Y0c env 根修）。
   // MAX_LOADED_DOCS=spec §3 4.6:502 原文点名预留（仅解析零消费，enforcement 归 Y1c-3）。
-  // COLLAB_FAKE_AI 不在此（Y0b 资金批域，结构锚豁免表登记）。
+  // Y0c T34（Z45/RC5）：COLLAB_FAKE_AI 注册进 schema（原「不在此/结构锚豁免表」状态收口——Y0b spec
+  // 对象6 收口义务递延至本批兑现；EXEMPT 表条目同批移除）。任意串过验（语义=仅 '1' 生效，'0'/杂值
+  // 无害不拒——不新增启动失败面）；拒启判据唯一在 superRefine（production∧'1'）。消费面=
+  // provider-adapters fakeAiEnabled() 惰性单源 helper（形态不变——调用期读，写回等价）。
+  COLLAB_FAKE_AI: z.preprocess(blankToUnset, z.string().optional()),
   COLLAB_PORT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_DEBOUNCE: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_TIMEOUT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
@@ -215,6 +223,14 @@ export const envSchemaValidated = envSchema.superRefine((v, ctx) => {
   if (v.COLLAB_ROLE === 'worker' && !v.PROMETHEUS_TOKEN) {
     ctx.addIssue({ code: 'custom', path: ['PROMETHEUS_TOKEN'], message: '生产 worker 必须设置 PROMETHEUS_TOKEN（3002 指标出口同 token 鉴权——未设即拒启，禁 fail-open）' });
   }
+  // Y0c T34（Z45/RC5）：production ∧ COLLAB_FAKE_AI='1' ⇒ 拒启——fake 外呼豁免档启动期 fail-closed。
+  // 与 Z93 关系：Z93 删的是运行期守卫（fake 与 NODE_ENV 解耦，主线=缺密钥拒启）；本条是 env 校验层
+  // 拒启（Y0b spec 对象6「NODE_ENV==='production' 拒 '1'」同源）——运行期行为面与进程启动面并存
+  // 不冲突=提级非回退。gate-collab/CI 豁免档以 NODE_ENV='development' 显式注入配套（Z45④——
+  // harness 自带档位不继承外壳；NODE_ENV 未设 default production 使漏注入即拒=防线自证）。
+  if (v.COLLAB_FAKE_AI === '1') {
+    ctx.addIssue({ code: 'custom', path: ['COLLAB_FAKE_AI'], message: '生产禁止 COLLAB_FAKE_AI=1（fake 外呼豁免档仅限 dev/test/gate——env 校验层启动期拒启 fail-closed）' });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -225,5 +241,12 @@ export function validateEnv(): Env {
     console.error('Invalid environment variables:', result.error.format());
     process.exit(1);
   }
+  // Y0c T34（Z45②）：成功后写回 process.env.NODE_ENV——把 default 显式化到进程环境。设计意图：
+  // 非 DI 惰性上下文（三 guard canActivate/resolveCollabDebounce/gateway allowedOrigins/dto 自定义
+  // constraint/auth.ts 惰性函数）保持 process.env.NODE_ENV 直读（调用期求值恒在本写回之后——CJS
+  // require 序+DI/请求时序），写回使其与 env.NODE_ENV 恒同答案（否则 guard 读 process.env 与 env
+  // 读法两答案）=「8 读点统一改读 env 单源」（Z12）的写回等价形态。census ㉒ 白名单登记本写点
+  // （env.ts NODE_ENV n1「单源写回点」——字面量 process.env.NODE_ENV 赋值会被键级普查命中）。
+  process.env.NODE_ENV = result.data.NODE_ENV;
   return result.data;
 }
