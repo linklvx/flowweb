@@ -294,6 +294,13 @@
       "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
       "expires_at": "2027-01-13",
       "line": 177
+    },
+    {
+      "file": "docs/superpowers/full-stack-backup.md",
+      "line": 129,
+      "symbol": "backups/vX.X/db/flowweb_plain.sql",
+      "reason": "手动全栈快照恢复步骤的模板性路径（vX.X=版本占位符，backups/ 产物在快照仪式执行时才生成——非仓内代码文件引用；T38 文档转 active 首次入检）",
+      "expires_at": "2027-01-14"
     }
   ]
 }

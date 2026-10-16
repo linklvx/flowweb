@@ -33,6 +33,14 @@
       ]
     },
     {
+      "path": "docs/superpowers/full-stack-backup.md",
+      "criteria": "C4",
+      "evidence": [
+        "入引用自 docs/superpowers/collab-ops-runbook.md",
+        "入引用自 docs/superpowers/tech-debt.md"
+      ]
+    },
+    {
       "path": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
       "criteria": "C1",
       "evidence": [

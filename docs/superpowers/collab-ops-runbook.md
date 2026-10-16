@@ -565,12 +565,14 @@ process.exit(problems.length ? 1 : 0);
 | maxmemory-policy | noeviction | 队列数据不被逐出的安全底线（满限拒写不逐出） |
 
 **变更流程**（三件任何一件变更必须全走，禁单改一面）：
-1. 改仓内模板 `deploy/redis/server-redis.conf`（评审面=PR diff）
+1. 改仓内模板 `deploy/redis/server-redis.conf`（评审面=PR diff——语义注记〔T38〕：本步=**计划变更**的评审面，模板行是待生效期望值，尚非服务器终态）
 2. 服务器备份：`sudo cp /etc/redis/redis.conf ~/backups/redis.conf.bak-<任务>-<ts>`
 3. 运行时生效（免重启优先）：`redis-cli CONFIG SET <k> <v>`
 4. 持久化：`redis-cli CONFIG REWRITE` + `sudo grep` 文件面复核与运行时一致
 5. 断言步骤（下方）重跑
-6. 同批回写仓内模板（全文照抄口径）+本节登记变更行
+6. 同批回写仓内模板（全文照抄口径——语义注记〔T38〕：CONFIG REWRITE 归一后以**服务器真实终态**覆盖，此后模板=终态照抄件）+本节登记变更行
+
+**回滚分支**〔T38 补〕：断言步骤任一失败⇒立即回滚不过夜——`sudo cp ~/backups/redis.conf.bak-<任务>-<ts> /etc/redis/redis.conf && sudo systemctl restart redis-server` →重跑断言步骤复验旧值→本节登记回滚行。
 
 **断言步骤**（触三件/部署验收必跑）：
 ```bash
@@ -588,3 +590,19 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - 改后：aof_enabled:1/aof_last_write_status:ok/loading:0；db0 358 keys（自然增长无丢失）；conf 终态 md5=a7c8bf56e264563ba2d67736cfcb6431
 - CONFIG REWRITE 伴生归一（良性，均为运行时真值回写）：`daemonize no`（unit 命令行 `--daemonize no` 真相固化）/`supervised systemd`/`save 3600 1|300 100|60 10000` 三行显式化（原文件未写=内置默认在跑）/`user default on nopass ~* &* +@all`（ACL 真相；bind 127.0.0.1+protected-mode yes 防线不变）/引号与 `stream-node-max-bytes 4kb` 等价写法
 - conf 形态核查：单文件无 include（「仓内全量副本」口径成立）；unit ExecStart=/usr/bin/redis-server /etc/redis/redis.conf --supervised systemd，User=redis
+
+---
+
+## §13 备份日常面（Y0c T38/Z16——daily pg_dump crontab+水位守护；2026-10-16 落地）
+
+**备份/恢复单一权威=`docs/superpowers/full-stack-backup.md`**（三轨合一/保留分层表/恢复语义 Z16③④/MinIO 缺口 Y7 门槛项/PITR 模板挂 Y7 全在该文档——本节只登记安装面与演练记录，不复刻内容避免双源）。
+
+**安装面**：
+- 脚本=`scripts/pg-dump-daily.sh`（2026-10-16 scp 即时上服务器 `/home/ubuntu/flowweb/scripts/`；下次部署 provision tar 面自然同步——scp 是即时性补充）。
+- crontab（check-collab-health 旁，改前仅 1 条已备份）：`17 3 * * * cd /home/ubuntu/flowweb && bash scripts/pg-dump-daily.sh >> .data/pg-dump-daily.log 2>&1`
+- 水位守护只删 `daily-*` 族（`pre-migrate-*`=deploy.sh ② 迁移回滚锚所有权——跨所有者删除越权，spec §0.6 偏离 60）；`BACKUP_DIR`/`WATERMARK_PCT` 两 env=演练/测试面非配置灵活性。
+
+**演练记录**（2026-10-16，两形态原始输出全档见 T38 出口报告）：
+- R3 手动全链（cron 同款调用）：exit 0+`daily-20261016230621.dump`（154606 bytes）+`pg_restore --list` 可读（TOC 352 条/dbname flowweb）+日志落 `.data/pg-dump-daily.log`+既有备份零变化（ls 前后对照）。
+- R4 水位守护（/tmp 隔离+假 dump，真实备份零接触）：**首跑红=暴露 locale 排序缺陷**（服务器 `find|sort` 走 locale collation，删除顺序非字节时序）→根修=两处 sort 钉 `LC_ALL=C`→复跑绿：形态A（WATERMARK_PCT=1）5 假 dump 按最旧逐个删（01→05）→真新 dump→族耗尽 ERROR+exit 1（守护失败可见）；形态B（WATERMARK_PCT=99）零删除+exit 0；演练目录已清理。
+- **crontab 首跑**=次日 03:17 自动轮（巡检时核 `.data/pg-dump-daily.log` 新增 done OK 行——T39 承接面）。
