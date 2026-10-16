@@ -11,6 +11,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const MiB = 1024 * 1024;
@@ -39,7 +40,7 @@ function buildGateway(hydration: { state: Buffer | null; updates: Buffer[] }, qu
     undefined, undefined, undefined, spool,
     quota,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, repo, spool };
 }
 
@@ -82,9 +83,9 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     const { gateway } = buildGateway({ state, updates: [uSet, uDel] }, { maxDocBytes: 1 * MiB });   // soft=838860 > cheap
     const cheap = state.length + uSet.length + uDel.length;
     const document = await loadDoc(gateway);
-    expect((gateway as any).docTruth.get('p1')).toBe(cheap);   // truth=cheap 上界（非编码值）
-    expect((gateway as any).docDelta.get('p1')).toBe(0);       // 装载期 replay/spool 帧 apply 不进 delta（播种内容双计防线）
-    expect((gateway as any).truthMeasuredAt.get('p1')).toBeGreaterThan(0);   // 冷却窗基线播种（T4 消费）
+    expect(gatewayFacade(gateway).docTruthOf('p1')).toBe(cheap);   // truth=cheap 上界（非编码值）
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(0);       // 装载期 replay/spool 帧 apply 不进 delta（播种内容双计防线）
+    expect(gatewayFacade(gateway).truthMeasuredAtOf('p1')).toBeGreaterThan(0);   // 冷却窗基线播种（T4 消费）
     // 编码值 ≠ cheap（apply 即 GC）——若实现误走编码，truth 必 ≠ cheap
     expect(Y.encodeStateAsUpdate(document).byteLength).toBeLessThan(cheap);
     // T0 探针⑦定标常量（8MB 编码 p95≈80.6ms 本机——2s 窗 duty≈4%）
@@ -105,7 +106,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     expect(cheap).toBeGreaterThanOrEqual(soft);   // 装置自检：确实走付费实测档
     const { gateway } = buildGateway({ state, updates }, { maxDocBytes: 1 * MiB });
     await loadDoc(gateway);
-    const truth = (gateway as any).docTruth.get('p1') as number;
+    const truth = gatewayFacade(gateway).docTruthOf('p1')!;
     expect(truth).toBeGreaterThan(150_000);        // 存活 200KB 内容保留
     expect(truth).toBeLessThan(400_000);           // =实测编码值（≈201KB）非求和值（3.2MB）
     expect(truth).toBeLessThan(soft);              // 真实量级在软阈下——不触冻结线
@@ -117,14 +118,14 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     const state = Buffer.from(Y.encodeStateAsUpdate(src));
     const { gateway } = buildGateway({ state, updates: [] }, { maxDocBytes: 1 * MiB });
     const document = await loadDoc(gateway);
-    const truthBefore = (gateway as any).docTruth.get('p1');
+    const truthBefore = gatewayFacade(gateway).docTruthOf('p1');
     // 装载后的任意写（非 replaying 窗口）→ delta 按帧字节累加
     const w = new Y.Doc();
     w.getMap('x').set('k', 'v'.repeat(2048));
     const u = Y.encodeStateAsUpdate(w);
     Y.applyUpdate(document, u);
-    expect((gateway as any).docDelta.get('p1')).toBe(u.byteLength);
-    expect((gateway as any).docTruth.get('p1')).toBe(truthBefore);   // truth 不随 delta 漂移（单变量分离）
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(u.byteLength);
+    expect(gatewayFacade(gateway).docTruthOf('p1')).toBe(truthBefore);   // truth 不随 delta 漂移（单变量分离）
   });
 
   it('compact 校准仅 pending 空时生效（newSnapshot=持久化真值口径——非空跳过下次）', async () => {
@@ -133,15 +134,15 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     const { gateway, repo } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, { maxDocBytes: 1 * MiB });
     await loadDoc(gateway);
     repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 4242, deletedRows: 0, tombstoneBytes: 0 });
-    (gateway as any).lastCompactAt.delete('p1');   // 绕时间门（loadDocument 已播种基线）
-    (gateway as any).pendingQueues.get('p1').push(new Uint8Array(16));   // 活 doc 含未 store delta
+    gatewayFacade(gateway).clearLastCompactAt('p1');   // 绕时间门（loadDocument 已播种基线）
+    gatewayFacade(gateway).pendingQueueRef('p1')!.push(new Uint8Array(16));   // 活 doc 含未 store delta（真实数组引用——原地 push）
+    await (gateway as any).maybeCompact('p1');   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    expect(gatewayFacade(gateway).docTruthOf('p1')).not.toBe(4242);   // 非空跳过——newSnapshot 非活 doc 真值
+    gatewayFacade(gateway).pendingQueueRef('p1')!.splice(0);           // 队列排空（原地 splice——身份语义保留）
+    gatewayFacade(gateway).clearLastCompactAt('p1');
     await (gateway as any).maybeCompact('p1');
-    expect((gateway as any).docTruth.get('p1')).not.toBe(4242);   // 非空跳过——newSnapshot 非活 doc 真值
-    (gateway as any).pendingQueues.get('p1').splice(0);           // 队列排空
-    (gateway as any).lastCompactAt.delete('p1');
-    await (gateway as any).maybeCompact('p1');
-    expect((gateway as any).docTruth.get('p1')).toBe(4242);       // 采纳=truth 校准
-    expect((gateway as any).docDelta.get('p1')).toBe(0);          // delta 归零（重测口径）
+    expect(gatewayFacade(gateway).docTruthOf('p1')).toBe(4242);       // 采纳=truth 校准
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(0);          // delta 归零（重测口径）
   });
 
   it('真红门②：真实 200KB+累计 update 10MB——truth≈200KB（不随 delta 累加漂移；默认 8MB 阈）', async () => {
@@ -157,7 +158,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     expect(cheap).toBeGreaterThan(10 * MiB * 0.9);   // 装置自检：累计 10MB 量级
     const { gateway } = buildGateway({ state, updates });   // 默认 quota（maxDocBytes=8MB——生产形态）
     await loadDoc(gateway);
-    const truth = (gateway as any).docTruth.get('p1') as number;
+    const truth = gatewayFacade(gateway).docTruthOf('p1')!;
     expect(truth).toBeGreaterThan(150_000);          // ≈200KB（存活内容保留）
     expect(truth).toBeLessThan(500_000);             // 绝非 cheap（10.2MB）——真值口径=实测编码
     expect(truth).toBeLessThan(Math.floor(QUOTA_DEFAULTS.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio));   // 不触软阈=不冻结的前置
@@ -179,7 +180,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     expect(inc).toBe(1);                                  // 降级可观测（现状 deferred 恒 0 静默=红相）
     expect(document.store.pendingStructs).not.toBeNull(); // 病理确认：悬置确实发生
     expect(document.store.pendingDs).toBeNull();          // 未触发 ds 档（双查分列）
-    expect((gateway as any).degradedDocs.has('p1')).toBe(true);
+    expect(gatewayFacade(gateway).degradedDocsHas('p1')).toBe(true);
   });
 
   it('pendingDs 断言：只含删除的跳行（依赖缺失的 delete set）→ deferred 计数 field=ds（双查——Q-O v5）', async () => {
@@ -198,7 +199,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     expect(inc).toBe(1);
     expect(document.store.pendingDs).not.toBeNull();        // 只含删除的跳行——独立字段
     expect(document.store.pendingStructs).toBeNull();       // structs 档不误触（分列不混）
-    expect((gateway as any).degradedDocs.has('p1')).toBe(true);
+    expect(gatewayFacade(gateway).degradedDocsHas('p1')).toBe(true);
   });
 
   it('卸载清理归位（I-1 修复）：取消卸载（beforeUnload 钩子窗）四件套保留；真卸载（afterUnloadDocument）清理+gauge 回落', async () => {
@@ -217,19 +218,19 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     // ① 取消卸载：库时序=beforeUnload 钩子后复检 return（esm:1586-1589）——钩子窗内不得清理（复用 doc
     //    不重跑 loadDocument，truth 族必须延续）。旧实现的 !documents.get 守卫在本窗恒 false=死路径，
     //    四件套永不清理（gauge 随进程寿命漂移=红相）
-    await (gateway as any).unloadDocument({ document, documentName: name });
-    expect((gateway as any).docTruth.has('p1')).toBe(true);
-    expect((gateway as any).docDelta.has('p1')).toBe(true);
-    expect((gateway as any).truthMeasuredAt.has('p1')).toBe(true);
-    expect((gateway as any).degradedDocs.has('p1')).toBe(true);
+    await (gateway as any).unloadDocument({ document, documentName: name });   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    expect(gatewayFacade(gateway).docTruthHas('p1')).toBe(true);
+    expect(gatewayFacade(gateway).docDeltaHas('p1')).toBe(true);
+    expect(gatewayFacade(gateway).truthMeasuredAtHas('p1')).toBe(true);
+    expect(gatewayFacade(gateway).degradedDocsHas('p1')).toBe(true);
     expect(await read()).toBeGreaterThan(0);   // gauge 仍反映当前装载 doc
     // ② 真卸载：库 documents.delete+destroy（esm:1590-1591）之后才调 afterUnloadDocument（esm:1592）
     //    ——必然真卸载无需守卫；直构形态直接调 gateway 钩子函数
     await gateway.hooks.afterUnloadDocument({ instance: gateway.server.hocuspocus, documentName: name });
-    expect((gateway as any).docTruth.has('p1')).toBe(false);
-    expect((gateway as any).docDelta.has('p1')).toBe(false);
-    expect((gateway as any).truthMeasuredAt.has('p1')).toBe(false);
-    expect((gateway as any).degradedDocs.has('p1')).toBe(false);
+    expect(gatewayFacade(gateway).docTruthHas('p1')).toBe(false);
+    expect(gatewayFacade(gateway).docDeltaHas('p1')).toBe(false);
+    expect(gatewayFacade(gateway).truthMeasuredAtHas('p1')).toBe(false);
+    expect(gatewayFacade(gateway).degradedDocsHas('p1')).toBe(false);
     expect(await read()).toBe(0);              // Σ(truth+delta) 回落——容量观测面不随进程寿命漂向"Σ曾装载"
   });
 
@@ -240,7 +241,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     const document = await loadDoc(gateway);
     const gauge: any = register.getSingleMetric('yjs_loaded_doc_bytes');
     const read = async () => (await gauge.get()).values[0]?.value ?? 0;
-    const truth = (gateway as any).docTruth.get('p1') as number;
+    const truth = gatewayFacade(gateway).docTruthOf('p1')!;
     expect(await read()).toBe(truth);   // 装载后=truth
     const w = new Y.Doc();
     w.getMap('x').set('k', 'y'.repeat(4096));
@@ -254,7 +255,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     src.getMap('g').set('live', 'a'.repeat(10_000));
     const { gateway, spool } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, { maxDocBytes: 1 * MiB });
     const document = await loadDoc(gateway);
-    const q = (gateway as any).pendingQueues.get('p1') as Uint8Array[];
+    const q = gatewayFacade(gateway).pendingQueueRef('p1')!;   // 真实数组引用——push 原地累积
     for (let i = 0; i < 3; i++) {
       const d = new Y.Doc();
       d.getMap('g').set('k' + i, 'z'.repeat(400_000));
@@ -280,8 +281,8 @@ describe('Y0c T10：docDelta 按 origin 分流（Z119 锚②）', () => {
     src.getMap('g').set('live', 'a'.repeat(10_000));
     const { gateway } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, quota);
     const document = await loadDoc(gateway);
-    expect((gateway as any).docDelta.get('p1')).toBe(0);              // 装置自检：装载播种零 delta
-    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(0); // 装置自检：装载零队帧（stamp 前置于装载）
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(0);              // 装置自检：装载播种零 delta
+    expect(gatewayFacade(gateway).pendingQueueRef('p1')).toHaveLength(0); // 装置自检：装载零队帧（stamp 前置于装载）
     return { gateway, document };
   }
 
@@ -298,10 +299,10 @@ describe('Y0c T10：docDelta 按 origin 分流（Z119 锚②）', () => {
 
     Y.applyUpdate(document, u, SERVER_TRANSACT_ORIGIN);   // 生产 withDoc 最外层同 origin 形态
 
-    expect((gateway as any).docDelta.get('p1')).toBe(0);                  // 现状红：=u.byteLength（不区分 origin）
-    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(1);     // 持久化不变式：服务端写照 push
-    expect((gateway as any).pendingQueues.get('p1')![0]).toEqual(u);      // push 的就是本帧（事务 update 与 apply 内容同——yjs 发射事务编码帧）
-    expect((gateway as any).pendingSince.get('p1')).toBeGreaterThan(0);   // 空→非空转变=未 flush 窗口起点（全 origin 播种）
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(0);                  // 现状红：=u.byteLength（不区分 origin）
+    expect(gatewayFacade(gateway).pendingQueueRef('p1')).toHaveLength(1);     // 持久化不变式：服务端写照 push
+    expect(gatewayFacade(gateway).pendingQueueRef('p1')![0]).toEqual(u);      // push 的就是本帧（事务 update 与 apply 内容同——yjs 发射事务编码帧）
+    expect(gatewayFacade(gateway).pendingSinceOf('p1')).toBeGreaterThan(0);   // 空→非空转变=未 flush 窗口起点（全 origin 播种）
   });
 
   it('守卫例·客户端写：{source:\'connection\'} 形态 origin ⇒ docDelta 仍累加（防过度排除——判据只翻转服务端写分类，null/其他 origin 维持计数）', async () => {
@@ -310,7 +311,7 @@ describe('Y0c T10：docDelta 按 origin 分流（Z119 锚②）', () => {
 
     Y.applyUpdate(document, u, { source: 'connection' });   // WS 客户端写 origin 形态模拟
 
-    expect((gateway as any).docDelta.get('p1')).toBe(u.byteLength);      // 客户端写照计（配额口径不变）
-    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(1);    // 持久化不变式同守
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(u.byteLength);      // 客户端写照计（配额口径不变）
+    expect(gatewayFacade(gateway).pendingQueueRef('p1')).toHaveLength(1);    // 持久化不变式同守
   });
 });

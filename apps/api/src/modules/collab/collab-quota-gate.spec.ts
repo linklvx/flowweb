@@ -12,6 +12,7 @@ import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../t
 import { pollUntil } from '../../test-utils/poll-until';
 import { makeFrame as frame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
 import { CollabShrinkService } from './collab-shrink.service';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
 /** 小值配额（maxDocBytes 8KB/soft 6553；Update 帧闸 2×maxTxBytes=8192） */
@@ -59,7 +60,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('真红门①a 首触硬限：冻结+放行本帧（客户端编辑不丢）+快照 over 先到——【非断连】', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:q1a');
       const B = kit.connect('project:q1a');
       await A.synced; await B.synced;
@@ -68,11 +69,11 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       // 穿 soft 前置批（fastpath 放行——truth 播种小值）→ 冷却窗外实测：measured(6KB)+bytes(3KB)>MAX → 硬限首触
       A.ydoc.getMap('nodes').set('b1', 'x'.repeat(6000));
       await pollUntil(() => B.ydoc.getMap('nodes').has('b1'), 3_000);
-      g.truthMeasuredAt.set('q1a', Date.now() - 3_000);   // 冷却窗外（白盒——进入判据④实测）
+      g.seedTruthMeasuredAt('q1a', Date.now() - 3_000);   // 冷却窗外（白盒——进入判据④实测）
       A.ydoc.getMap('nodes').set('b2', 'y'.repeat(3000));
       await pollUntil(() => B.ydoc.getMap('nodes').has('b2'), 3_000);   // 触发帧放行不丢（硬限首触禁静默丢合法帧）
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'over'), 3_000);   // 快照 over 先到
-      await pollUntil(() => g.quotaFrozenDocs.has('q1a'), 2_000);       // setImmediate 冻结落地
+      await pollUntil(() => g.quotaFrozenHas('q1a'), 2_000);       // setImmediate 冻结落地
       const over = stateless.find((m) => m?.type === 'doc-status' && m?.quota?.state === 'over');
       expect(isCollabDocStatusPayload(over)).toBe(true);
       expect(over.quota.limit).toBe(QUOTA_SMALL.maxDocBytes);
@@ -80,29 +81,29 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       expect(over.quota.softLimitBytes).toBe(SOFT);
       expect(over.rev).toBeGreaterThanOrEqual(2);                        // 装载播种 1+翻转自增
       expect(over.writeFrozen).toBe(true);
-      expect(serverDoc(g, 'q1a').connections.size).toBe(2);              // 分层——持续强推才 4404（非断连）
-      expect(serverDoc(g, 'q1a').getMap('nodes').has('b2')).toBe(true);  // 服务端真值含触发帧
+      expect(serverDoc(kit.gateway, 'q1a').connections.size).toBe(2);              // 分层——持续强推才 4404（非断连）
+      expect(serverDoc(kit.gateway, 'q1a').getMap('nodes').has('b2')).toBe(true);  // 服务端真值含触发帧
     } finally { await kit.dispose(); }
   }, 30_000);
 
   it('真红门①b 持续强推：冻结后 20 帧且跨 10s → close 4404+writes_dropped{quota}；反例：3 帧突发不升级（分块粘贴不误杀——Q-D v5）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = connectWithCloseSpy(kit, 'project:q1b');
       await A.synced;
-      await freezeDoc(g, 'q1b');
+      await freezeDoc(kit.gateway, 'q1b');
       const dropped = await metricDelta('collab_quota_writes_dropped_total', { reason: 'quota' }, async () => {
         for (let i = 0; i < 3; i++) A.ydoc.getMap('m').set(`k${i}`, i);        // 反例臂：3 帧突发
-        await pollUntil(() => [...g.overPush.values()].some((s: any) => s.count >= 3), 3_000);
+        await pollUntil(() => g.overPushStates().some((s) => s.count >= 3), 3_000);
         await sleep(400);                                                       // 未跨 10s 窗——不升级
         expect(A.closeInfo()).toBeNull();
         for (let i = 3; i < 20; i++) A.ydoc.getMap('m').set(`k${i}`, i);       // 补足 20 帧（真实计数）
-        await pollUntil(() => [...g.overPush.values()].some((s: any) => s.count >= 20), 3_000);
+        await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 3_000);
       });
       expect(dropped).toBeGreaterThanOrEqual(20);
-      // 10s 窗模拟（白盒改 firstAt——零生产侵入）；第 21 帧触发升级判定
-      const st = [...g.overPush.values()][0] as { count: number; bytes: number; firstAt: number; lastAt: number };
+      // 10s 窗模拟（白盒改 firstAt——零生产侵入；overPushStates 返回活 entry 引用，改写直落台账）；第 21 帧触发升级判定
+      const st = g.overPushStates()[0];
       st.firstAt -= 10_000;
       const rejected = await metricDelta('collab_quota_frame_rejected_total', { reason: 'doc-over-quota' }, async () => {
         A.ydoc.getMap('m').set('final', 1);
@@ -130,7 +131,6 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('帧闸 4404（Y0b-5 T8 裁定 24⑧ 改写）：SyncStep2>maxDocBytes+ALLOWANCE → close 4404 doc-over-quota（SS2 大帧="本地持有 ≥8MB 服务端没有的内容经合并必然超配额"——terminal 带 QuotaBanner/shrink/export 自救非 1009 裸逃生；doc-status 通告先行）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, { ...QUOTA_SMALL, maxDocBytes: 2048 });
     try {
-      const g = kit.gateway as any;
       const client = new (makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }))(
         `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
       );
@@ -171,29 +171,28 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('编码成本⑤：冷却窗内连续 50 帧（账面触阈反复）——truth_measured===1+fastpath===49', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:q5');
       await A.synced; await settle();
       const m0 = await counterOf('collab_quota_truth_measured_total');
       const f0 = await counterOf('collab_quota_fastpath_total');
       // 白盒：账面 truth 抬高（stale-high——触发判据④实测后回落真值）+冷却窗基线老化
-      g.docTruth.set('q5', 7000);
-      g.truthMeasuredAt.set('q5', Date.now() - 3_000);
+      g.seedDocTruth('q5', 7000);
+      g.seedTruthMeasuredAt('q5', Date.now() - 3_000);
       for (let i = 0; i < 50; i++) A.ydoc.getMap('m').set(`k${i}`, i);   // 每帧独立事务（~20B）
       await pollUntil(async () => (await counterOf('collab_quota_fastpath_total')) - f0 >= 49, 5_000);   // 帧落定（到达异步）
       expect((await counterOf('collab_quota_truth_measured_total')) - m0).toBe(1);   // 首帧实测 1 次（P0-1：冷却窗内不重测）
       expect((await counterOf('collab_quota_fastpath_total')) - f0).toBe(49);        // 其后 49 帧全快路径
-      expect(g.quotaFrozenDocs.has('q5')).toBe(false);   // 实测回落真值——不冻结
+      expect(g.quotaFrozenHas('q5')).toBe(false);   // 实测回落真值——不冻结
     } finally { await kit.dispose(); }
   }, 30_000);
 
   it('编码成本⑥：冻结态 50 帧——truth_measured===0（over 短路零编码拒绝）+writes_dropped{quota}+50', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
       const A = kit.connect('project:q6');
       await A.synced; await settle();
-      await freezeDoc(g, 'q6');
+      await freezeDoc(kit.gateway, 'q6');
       const m0 = await counterOf('collab_quota_truth_measured_total');
       const d0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
       for (let i = 0; i < 50; i++) A.ydoc.getMap('m').set(`k${i}`, i);
@@ -206,19 +205,19 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('误冻结归零：账面触阈（freezePending 排程）→确认实测<soft → truth 校准+broadcast(ok)+放行；G-1：确认窗内帧闸照常拒（非放行）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:q8');
       await A.synced;
       const stateless: any[] = [];
       A.provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(JSON.parse(payload)));
       // 账面 stale-high + 冷却窗内：帧走 cooled 分支 → 账面>MAX → freezePending（不立即冻结）
-      g.docTruth.set('q8', QUOTA_SMALL.maxDocBytes - 50);
-      g.truthMeasuredAt.set('q8', Date.now());
-      g.docDelta.set('q8', 0);
+      g.seedDocTruth('q8', QUOTA_SMALL.maxDocBytes - 50);
+      g.seedTruthMeasuredAt('q8', Date.now());
+      g.seedDocDelta('q8', 0);
       A.ydoc.getMap('nodes').set('mid', 'm'.repeat(200));
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'over'), 3_000);   // over 先通告
-      await pollUntil(() => serverDoc(g, 'q8').getMap('nodes').has('mid'), 3_000);   // 触发帧照常放行
-      expect(g.quotaFrozenDocs.has('q8')).toBe(false);                               // 两态分离——pending≠frozen
+      await pollUntil(() => serverDoc(kit.gateway, 'q8').getMap('nodes').has('mid'), 3_000);   // 触发帧照常放行
+      expect(g.quotaFrozenHas('q8')).toBe(false);                               // 两态分离——pending≠frozen
       // G-1 红门：确认窗内帧闸照常拒（pending 态不进判据②短路——②只认 quotaFrozenDocs）
       const C = connectWithCloseSpy(kit, 'project:q8');
       await C.synced;
@@ -228,32 +227,32 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await C.provider.destroy(); kit.forget(C.provider);
       // 2s 确认定时器：实测（豁免 truthBudget）回落真值 <soft → broadcast(ok)+truth 校准
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'ok'), 5_000);
-      expect(g.docTruth.get('q8')).toBeLessThan(SOFT);
-      expect(g.quotaFrozenDocs.has('q8')).toBe(false);
+      expect(g.docTruthOf('q8')).toBeLessThan(SOFT);
+      expect(g.quotaFrozenHas('q8')).toBe(false);
       A.ydoc.getMap('nodes').set('after', 'ok');
-      await pollUntil(() => serverDoc(g, 'q8').getMap('nodes').has('after'), 3_000); // 校准后放行如常
+      await pollUntil(() => serverDoc(kit.gateway, 'q8').getMap('nodes').has('after'), 3_000); // 校准后放行如常
     } finally { await kit.dispose(); }
   }, 30_000);
 
   it('overPush idle-reset：帧间隔>5s 的 20 帧 →不升级 4404；间隔<5s 且跨 10s →升级（v6 报告1 P2-2）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = connectWithCloseSpy(kit, 'project:q9');
       await A.synced; await settle();
-      await freezeDoc(g, 'q9');
+      await freezeDoc(kit.gateway, 'q9');
       for (let i = 0; i < 20; i++) A.ydoc.getMap('m').set(`k${i}`, i);
-      await pollUntil(() => [...g.overPush.values()].some((s: any) => s.count >= 20), 5_000);
+      await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 5_000);
       // idle-reset 臂：lastAt 距今>5s（休眠恢复/慢速持续形态）→计数重置——不升级
-      const st = [...g.overPush.values()][0] as { count: number; firstAt: number; lastAt: number };
+      const st = g.overPushStates()[0];
       st.firstAt -= 10_000; st.lastAt -= 6_000;
       A.ydoc.getMap('m').set('wake', 1);
       await sleep(600);
       expect(A.closeInfo()).toBeNull();                              // idle-reset 生效——不升级（计数已清零）
       // 持续形态臂：重新积累 20 帧（帧间隔<5s——无 idle-reset）+firstAt 跨 10s →升级
       for (let i = 100; i < 120; i++) A.ydoc.getMap('m').set(`k${i}`, i);
-      await pollUntil(() => [...g.overPush.values()].some((s: any) => s.count >= 20), 5_000);
-      const st2 = [...g.overPush.values()][0] as { count: number; firstAt: number; lastAt: number };
+      await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 5_000);
+      const st2 = g.overPushStates()[0];
       st2.firstAt = Date.now() - 10_500;   // lastAt 近期（刚写）——持续形态
       A.ydoc.getMap('m').set('final', 1);
       await pollUntil(() => A.closeInfo() !== null, 5_000);
@@ -264,45 +263,45 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('真红门③：冻结期本地写（库吞+计数）→thaw SyncStep1→回灌 SyncStep2→对端可见（静默分叉=红相）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:q3');
       const B = kit.connect('project:q3');
       await A.synced; await B.synced; await settle();
-      await freezeDoc(g, 'q3');
+      await freezeDoc(kit.gateway, 'q3');
       const d0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
       A.ydoc.getMap('nodes').set('fk', 'frozen-edit');
       await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0 >= 1, 5_000);
       expect((await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0).toBe(1);   // 库吞+计数
       await sleep(500);
-      expect(serverDoc(g, 'q3').getMap('nodes').has('fk')).toBe(false);   // 库吞（SyncStatus(false)——静默分叉形态）
+      expect(serverDoc(kit.gateway, 'q3').getMap('nodes').has('fk')).toBe(false);   // 库吞（SyncStatus(false)——静默分叉形态）
       expect(B.ydoc.getMap('nodes').has('fk')).toBe(false);
-      g.thawQuota('q3');
-      await pollUntil(() => serverDoc(g, 'q3').getMap('nodes').has('fk'), 5_000);   // 回灌 SyncStep2 落库
+      kit.gateway.thawQuota('q3');
+      await pollUntil(() => serverDoc(kit.gateway, 'q3').getMap('nodes').has('fk'), 5_000);   // 回灌 SyncStep2 落库
       await pollUntil(() => B.ydoc.getMap('nodes').has('fk'), 5_000);               // 对端可见——回灌无损
-      expect(g.quotaFrozenDocs.has('q3')).toBe(false);
+      expect(g.quotaFrozenHas('q3')).toBe(false);
     } finally { await kit.dispose(); }
   }, 30_000);
 
   it('writeFreeze 单源：VIEWER 冻结期加入→thaw 后仍只读（viewer 原因保留）+解冻广播无 readOnly 字段（B-1 红相）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:qwf');
       await A.synced;
-      await freezeDoc(g, 'qwf');
+      await freezeDoc(kit.gateway, 'qwf');
       kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });
       const V = kit.connect('project:qwf');
       const vStateless: any[] = [];
       V.provider.on('stateless', ({ payload }: { payload: string }) => vStateless.push(JSON.parse(payload)));
       await V.synced;
       kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
-      const doc = serverDoc(g, 'qwf');
+      const doc = serverDoc(kit.gateway, 'qwf');
       const vConn = [...doc.connections.keys()].find((c: any) => c.socketId !== [...doc.connections.keys()][0].socketId) as any;
       const aConn = [...doc.connections.keys()].find((c: any) => c !== vConn) as any;
       expect(vConn.readOnly).toBe(true);
-      expect(g.writeFreeze.get(vConn)?.reasons.has('viewer')).toBe(true);    // auth 意图登记（connected 补推）
-      expect(g.writeFreeze.get(vConn)?.reasons.has('quota')).toBe(true);     // 冻结期加入
-      g.thawQuota('qwf');
+      expect(g.hasWriteFreezeReason(vConn, 'viewer')).toBe(true);    // auth 意图登记（connected 补推）
+      expect(g.hasWriteFreezeReason(vConn, 'quota')).toBe(true);     // 冻结期加入
+      kit.gateway.thawQuota('qwf');
       await new Promise<void>((r) => setImmediate(() => r()));
       expect(vConn.readOnly).toBe(true);                                    // viewer 原因保留——不误解除
       expect(aConn.readOnly).toBe(false);                                   // EDITOR 解除
@@ -316,20 +315,20 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('authenticated 复位 rev：doc 卸载重连后 rev 从 1 重来+翻转自增（不因旧 rev 持续爬升）——T4 最小形态', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:qrev');
       await A.synced;
-      await freezeDoc(g, 'qrev'); g.thawQuota('qrev'); await freezeDoc(g, 'qrev');   // over→ok→over 三次翻转
-      expect(g.docStatusRev.get('qrev')).toBe(4);           // 播种 1+三次翻转
+      await freezeDoc(kit.gateway, 'qrev'); kit.gateway.thawQuota('qrev'); await freezeDoc(kit.gateway, 'qrev');   // over→ok→over 三次翻转
+      expect(g.docStatusRevOf('qrev')).toBe(4);           // 播种 1+三次翻转
       await A.provider.destroy(); kit.forget(A.provider);
-      await pollUntil(() => serverDoc(g, 'qrev') === undefined, 6_000);   // 真卸载（unloadImmediately）
-      expect(g.docStatusRev.get('qrev')).toBeUndefined();    // 卸载清理
+      await pollUntil(() => serverDoc(kit.gateway, 'qrev') === undefined, 6_000);   // 真卸载（unloadImmediately）
+      expect(g.docStatusRevOf('qrev')).toBeUndefined();    // 卸载清理
       const A2 = kit.connect('project:qrev');
       const stateless: any[] = [];
       A2.provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(JSON.parse(payload)));
       await A2.synced;
-      expect(g.docStatusRev.get('qrev')).toBe(1);            // 重装载播种 1（客户端 lastDocStatusRev 复位归 T10）
-      await freezeDoc(g, 'qrev');
+      expect(g.docStatusRevOf('qrev')).toBe(1);            // 重装载播种 1（客户端 lastDocStatusRev 复位归 T10）
+      await freezeDoc(kit.gateway, 'qrev');
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'over'), 3_000);
       const over = stateless.find((m) => m?.type === 'doc-status' && m?.quota?.state === 'over');
       expect(over.rev).toBe(2);                              // 复位后自增——新 epoch 从 1 起步
@@ -367,12 +366,12 @@ describe('Y0b-4 T5 connected 双补推+beginDraining 并轨 doc-status（rev 生
   it('beginDraining 改发 doc-status（writeFrozen:true+rev++，quota.state 不变）——type:write-frozen 退役（census ⑧：服务端清零）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const A = kit.connect('project:qdr');
       await A.synced;
       const stateless: any[] = [];
       A.provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(JSON.parse(payload)));
-      const rev0 = g.docStatusRev.get('qdr');                           // 装载播种 1
+      const rev0 = g.docStatusRevOf('qdr')!;                            // 装载播种 1
       const r = kit.gateway.beginDraining();
       expect(r.draining).toBe(true);
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.writeFrozen === true), 3_000);

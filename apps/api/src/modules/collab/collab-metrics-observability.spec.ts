@@ -24,6 +24,7 @@ import { registerUpdatesRowsReader, unregisterUpdatesRowsReader } from './store.
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 let spoolDir: string;
@@ -48,7 +49,7 @@ function buildGateway(hydration?: { state: Buffer | null; updates: Buffer[] }, q
     undefined, undefined, undefined, spool,
     quota,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, repo, spool };
 }
 
@@ -116,44 +117,44 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     const d = await histogramDelta('yjs_doc_bytes', () => loadDoc(gateway));
     expect(d.count).toBe(1);
     expect(d.sum).toBe(state.length);   // cheap=|state|（updates/spool 空）——与 docTruth 播种值同源
-    expect((gateway as any).docTruth.get('p1')).toBe(state.length);
+    expect(gatewayFacade(gateway).docTruthOf('p1')).toBe(state.length);
   });
 
   it('锚②compact 全量编码：maybeCompact 成功 → yjs_doc_bytes/deleted_rows/tombstone_bytes/duration 四 observe+over_threshold（>16MiB 才计）', async () => {
     const { gateway, repo } = buildGateway();
     await loadDoc(gateway);
-    (gateway as any).lastCompactAt.delete('p1');   // 绕时间门
+    gatewayFacade(gateway).clearLastCompactAt('p1');   // 绕时间门
     repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 4242, deletedRows: 7, tombstoneBytes: 99 });
     const dDoc = await histogramDelta('yjs_doc_bytes', () => (gateway as any).maybeCompact('p1'));
     expect(dDoc.count).toBe(1);
     expect(dDoc.sum).toBe(4242);
     const dRows = await histogramDelta('yjs_compact_deleted_rows', async () => {
-      (gateway as any).lastCompactAt.delete('p1');
+      gatewayFacade(gateway).clearLastCompactAt('p1');
       await (gateway as any).maybeCompact('p1');
     });
     expect(dRows.count).toBe(1);
     expect(dRows.sum).toBe(7);
     const dTomb = await histogramDelta('yjs_compact_tombstone_bytes', async () => {
-      (gateway as any).lastCompactAt.delete('p1');
+      gatewayFacade(gateway).clearLastCompactAt('p1');
       await (gateway as any).maybeCompact('p1');
     });
     expect(dTomb.count).toBe(1);
     expect(dTomb.sum).toBe(99);
     const dDur = await histogramDelta('yjs_compact_duration_seconds', async () => {
-      (gateway as any).lastCompactAt.delete('p1');
+      gatewayFacade(gateway).clearLastCompactAt('p1');
       await (gateway as any).maybeCompact('p1');
     });
     expect(dDur.count).toBe(1);   // 每次 repo.compact 实跑一次计时
     expect(dDur.sum).toBeGreaterThanOrEqual(0);   // ms 粒度瞬时完成可为 0——计数即计时证据
     // over_threshold：4242 < 16MiB 不计；17MiB 计 1
     const dUnder = await counterDelta('yjs_doc_bytes_over_threshold_total', async () => {
-      (gateway as any).lastCompactAt.delete('p1');
+      gatewayFacade(gateway).clearLastCompactAt('p1');
       await (gateway as any).maybeCompact('p1');
     });
     expect(dUnder).toBe(0);
     repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: DOC_BYTES_OVER_THRESHOLD_BYTES + 1, deletedRows: 1, tombstoneBytes: 1 });
     const dOver = await counterDelta('yjs_doc_bytes_over_threshold_total', async () => {
-      (gateway as any).lastCompactAt.delete('p1');
+      gatewayFacade(gateway).clearLastCompactAt('p1');
       await (gateway as any).maybeCompact('p1');
     });
     expect(dOver).toBe(1);
@@ -162,7 +163,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
   it('compact throw → yjs_compact_duration_seconds 仍 observe（采集挂 finally——最该被看见的慢尾不丢样本）', async () => {
     const { gateway, repo } = buildGateway();
     await loadDoc(gateway);
-    (gateway as any).lastCompactAt.delete('p1');   // 绕时间门
+    gatewayFacade(gateway).clearLastCompactAt('p1');   // 绕时间门
     repo.compact.mockRejectedValueOnce(new Error('boom'));
     const dDur = await histogramDelta('yjs_compact_duration_seconds', () =>
       (gateway as any).maybeCompact('p1').catch(() => {}));   // 生产调用点（store/断连 finalize）自有 catch+compact_failure 计数
@@ -243,7 +244,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
     const { gateway } = buildGateway({ state, updates: [] });
     const heaps = [1000, 6000];
     let i = 0;
-    vi.spyOn(gateway as any, 'heapUsedNow').mockImplementation(() => heaps[i++]);
+    gatewayFacade(gateway).spyHeapUsedNow().mockImplementation(() => heaps[i++]);
     await loadDoc(gateway);
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBeCloseTo(5000 / state.length, 5);
   });
@@ -256,7 +257,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
     const baseline = await gaugeValue('yjs_doc_heap_amplification');
     const heaps = [6000, 1000];
     let i = 0;
-    vi.spyOn(gateway as any, 'heapUsedNow').mockImplementation(() => heaps[i++]);
+    gatewayFacade(gateway).spyHeapUsedNow().mockImplementation(() => heaps[i++]);
     await (gateway as any).unloadDocument({ document, documentName: 'project:p1' });   // 播种（不结算）
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBe(baseline);   // beforeUnload 只播种——值未动
     await gateway.hooks.afterUnloadDocument({ instance: gateway.server.hocuspocus, documentName: 'project:p1' });
@@ -267,7 +268,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
     const afterLoad2 = await gaugeValue('yjs_doc_heap_amplification');   // doc2 装载（真采样）后的基线
     let j = 0;
     const flat = [5000, 5000];
-    vi.spyOn(gateway as any, 'heapUsedNow').mockImplementation(() => flat[j++]);
+    gatewayFacade(gateway).spyHeapUsedNow().mockImplementation(() => flat[j++]);
     await (gateway as any).unloadDocument({ document: doc2, documentName: 'project:p3' });
     await gateway.hooks.afterUnloadDocument({ instance: gateway.server.hocuspocus, documentName: 'project:p3' });
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBe(afterLoad2);   // 零差跳过——未动
@@ -292,11 +293,11 @@ describe('Y0b-5 T10：top-N doc 结构日志（docTruth 单源——零 encode�
     const { gateway } = buildGateway();
     expect(gateway.server.hocuspocus.documents.size).toBe(0);   // 结构前提：无 doc 可编码
     for (let k = 0; k < 12; k++) {
-      (gateway as any).docTruth.set(`p${k}`, (k + 1) * 1000);
-      (gateway as any).docDelta.set(`p${k}`, 500);
+      gatewayFacade(gateway).seedDocTruth(`p${k}`, (k + 1) * 1000);
+      gatewayFacade(gateway).seedDocDelta(`p${k}`, 500);
     }
-    const logSpy = vi.spyOn((gateway as any).logger, 'log');
-    (gateway as any).logDocTopN();
+    const logSpy = gatewayFacade(gateway).spyLogger('log');
+    (gateway as any).logDocTopN();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
     expect(logSpy).toHaveBeenCalledTimes(1);
     const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(parsed.event).toBe('yjs_doc_topn');
