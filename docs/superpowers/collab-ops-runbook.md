@@ -107,16 +107,16 @@ journalctl -u flowweb-pm2 -n 50 --no-pager
 
 **P10 探针结论（Z102③——`--only` 与 ecosystem per-app env 块注入组合语义，部署演练实证）＝采用（三步序成立，2026-10-16）**。判据三全过：①api 3000 `/metrics` `collab_role_info{role="api"} 1` ②worker 3002 `collab_role_info{role="worker"} 1`（带 token；无 token 3000/3002 双 403=production fail-closed 姿态实证）③`pm2 jlist` 两 app `COLLAB_ROLE` 各自正确+进程 environ 实测 `COLLAB_ROLE=api`/`=worker`。终轮部署（三步序全程）后复核仍全绿。伴生实证：`--update-env` 对既有 app 条目历史 env 键为 merge 语义（api 遗留 NODE_ENV=production 历经多次部署保持）；**新建条目无历史 env**——生效层完全依赖 dotenv `.env`（§8）。
 
-**部署演练记录（T31 零 503 四判据，RB7）＝PASS（2026-10-16，代际 fe8b95be，unit 托管下全链）**：
+**部署演练记录（T31 零 503 四判据，RB7）＝PASS（2026-10-16，终轮代际 d073d2da，unit 托管下全链 DEPLOY_EXIT=0）**。三轮全貌：首轮 fe8b95be 全链至 ⑥.b 被 cwd 断言拦（**断言价值实证**——捕获 pm2 遗留条目 cwd 不随 startOrReload 更新的失配态，§0.6 偏离 45）→unit 切换全新建条目归一；unit 切换后巡检 P0 暴露 worker 连接命名分裂（§0.6 偏离 46 根修 prefix:'bull'）；终轮 d073d2da 全绿。
 
-| 判据 | 结果 |
+| 判据 | 结果（终轮 d073d2da） |
 |------|------|
-| ① ready 绿 | ⑤三步序内 api ready 8s 绿→worker 起；⑥ ready barrier 1s；guard post verdict=pass epoch 9→10 |
+| ① ready 绿 | ⑤三步序内 api ready 4s 绿→worker 起；⑥ ready barrier 1s；guard post verdict=pass epoch 递增 |
 | ② 双冒烟 | collab-smoke OK（WS→auth→load→双端写→广播互见→store→PG→重放）+exec-smoke OK（ledgerRows=4，哨兵→ECONNREFUSED 零扣费→stub200 settle 全链→stub5xx 退款归零→清理残留 0＝worker 消费端到端无 503 烧 attempts） |
 | ③ failed 零新增 | 三付费队列 ZCARD 前后=execution 0→0 / ai-image-edit 1→1（历史存量）/ ai-result-download 0→0 |
-| ④ 日志噪声 | 双 app error+out 四日志 WORKER_ABSENT=0、503 零命中 |
+| ④ 日志噪声 | WORKER_ABSENT=0、503 零命中（pm2 日志+journal） |
 
-同窗实测：⑥.b 双进程端口归属+cwd 一致断言 OK（3000/3001→api ∧ 3002→worker ∧ worker 名下无 3000/3001 ∧ 双 cwd=/home/ubuntu/flowweb）；unit cgroup 包含性=apps 为 pm2-runtime 直子进程（Memory max 1.1G/swap 128M 罩双 app）；内存水位演练窗 available≈977MB。
+同窗实测：⑥.b 双进程端口归属+cwd 一致断言 OK（3000/3001→api ∧ 3002→worker ∧ worker 名下无 3000/3001 ∧ 双 cwd=/home/ubuntu/flowweb）；unit cgroup 包含性=apps 为 pm2-runtime 直子进程（Memory max 1.1G/swap 128M 罩双 app）；命名修复服务器复验=Redis CLIENT LIST **17/17 `bull:` 零 `undefined:`**+巡检 check-collab-health **exit 0**（registered≥1 转绿）；双 app 无 token /metrics 403/403（production 姿态）；内存水位演练窗 available≈977MB。
 
 ## §2 连接池量纲
 
