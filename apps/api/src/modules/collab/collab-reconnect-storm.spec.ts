@@ -25,6 +25,7 @@ import { describe, it, expect } from 'vitest';
 import { register } from 'prom-client';
 import type { WebSocket as WsSocket } from 'ws';
 import { startDualClientServer, type DualClientKit } from '../../test-utils/dual-client-server';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：authInflightPeak 观测归状态台账组（Z140② as unknown as 活命中三处替换）
 
 const N = 50;
 const ALL_SYNCED_DEADLINE_MS = 30_000;
@@ -48,6 +49,7 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
     const prevTrusted = process.env.COLLAB_TRUSTED_PROXY;
     process.env.COLLAB_TRUSTED_PROXY = '1';   // T11 演练拓扑=生产拓扑（部署清单第 1 项的装置镜像）；trustedProxyEnabled 每升级现读 env
     const kit: DualClientKit = await startDualClientServer();
+    const gf = gatewayFacade(kit.gateway);
     const conns: Array<{ getPendingDocumentCount(): number }> = [];
     const hp = (kit.gateway as unknown as { server: { hocuspocus: Record<string, unknown> } }).server.hocuspocus;
     // 进程级 pending 聚合的唯一可行面：包一层 handleConnection 捕获连接实例（测试装置形态——
@@ -76,7 +78,7 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
       const closeCodes: number[] = [];
       const wsErrors: string[] = [];
       const syncedElapsed: number[] = [];   // 判据⑥：每连接 构造起点→synced 耗时（p95 留档）
-      (kit.gateway as unknown as { authInflightPeak: number }).authInflightPeak = 0;   // 演练专用前置零
+      gf.resetAuthInflightPeak();   // 演练专用前置零
       let pendingPeak = 0;
       let loadingPeak = 0;
       const sample = () => {
@@ -123,13 +125,13 @@ describe('Y0b-3 T11 重连风暴演练（N=50——plan v3 硬判据）', () => 
       const syncedP95 = percentile(syncedElapsed, 0.95);
       // 演练数字留档（T11 出口报告引用；后续回归此行即基线）
       console.error(
-        `[storm-drill] N=${N} conns=${conns.length} closeCodes=${closeCodes.length} wsErrors=${wsErrors.length} authInflightPeak=${(kit.gateway as unknown as { authInflightPeak: number }).authInflightPeak} pendingPeak=${pendingPeak} loadingPeak=${loadingPeak} syncedP95Ms=${syncedP95} syncedMaxMs=${Math.max(0, ...syncedElapsed)}`,
+        `[storm-drill] N=${N} conns=${conns.length} closeCodes=${closeCodes.length} wsErrors=${wsErrors.length} authInflightPeak=${gf.authInflightPeak()} pendingPeak=${pendingPeak} loadingPeak=${loadingPeak} syncedP95Ms=${syncedP95} syncedMaxMs=${Math.max(0, ...syncedElapsed)}`,
       );
       // 判据②：客户端记录的 close code 零 4205/4408+零握手期 error（升级 429/403 形态）
       expect(closeCodes.filter((c) => c === 4205 || c === 4408)).toEqual([]);
       expect(wsErrors).toEqual([]);
       // 判据③：在飞认证峰值≤INFLIGHT_MAX=4
-      expect((kit.gateway as unknown as { authInflightPeak: number }).authInflightPeak).toBeLessThanOrEqual(4);
+      expect(gf.authInflightPeak()).toBeLessThanOrEqual(4);
       // 判据④：unhandled rejection 与 overload tripped 均不增
       const after = await metricSnapshot();
       expect(after.rejection).toBe(before.rejection);

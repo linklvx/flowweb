@@ -12,6 +12,7 @@ import { register } from 'prom-client';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 let spoolDir: string;
@@ -35,7 +36,7 @@ function buildGateway() {
     perm as any, 48000 + Math.floor(Math.random() * 1000),
     undefined, undefined, undefined, spool,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, spool };
 }
 
@@ -56,7 +57,7 @@ describe('Y0b-5 T14：computeDegraded 四键（E54⑤——ready token 档 degra
     const doc = new Y.Doc();
     await (gateway as any).loadDocument({ document: doc, documentName: 'project:p-d1' });
     // 装载 stamp 自愈 update 预期入队（gateway:969-971 注释——update 进 pending 落库）——先排空建立零脏基线
-    (gateway as any).pendingQueues.get('p-d1').splice(0);
+    gatewayFacade(gateway).pendingQueueRef('p-d1')!.splice(0);
     const base = gateway.computeDegraded();
     expect(base.dirtyDocs).toBe(0);
     expect(base.oldestUnflushedAt).toBeNull();
@@ -77,7 +78,7 @@ describe('Y0b-5 T14：computeDegraded 四键（E54⑤——ready token 档 degra
     expect(d.oldestUnflushedAgeSeconds).toBeGreaterThanOrEqual(0);
     expect(await gaugeValue('yjs_oldest_unflushed_age_seconds')).toBeGreaterThan(0);
     // 排空（模拟 flush 落定后队列清空）→ 自愈除账（清账点散布外的结构性兜底）
-    (gateway as any).pendingQueues.get('p-d1').splice(0);
+    gatewayFacade(gateway).pendingQueueRef('p-d1')!.splice(0);
     const d2 = gateway.computeDegraded();
     expect(d2.dirtyDocs).toBe(0);
     expect(d2.oldestUnflushedAt).toBeNull();

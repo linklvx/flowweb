@@ -23,6 +23,7 @@ import { CollabResidencyService } from './collab-residency.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabWriteController } from './collab-write.controller';
 import { HttpCollabWritePort } from './collab-write.port';
@@ -202,8 +203,8 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
       restored = true;
       await setOwner(LEASE_STUB_OWNER);
       repo.setLeaseOwner(LEASE_STUB_OWNER);
-      (gateway as any).transition('serving', 'z125-4-restore');
-      (gateway as any).clearDrainTimer();
+      gatewayFacade(gateway).transitionState('serving', 'z125-4-restore');
+      (gateway as any).clearDrainTimer();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
     };
     try {
       await setOwner(null);

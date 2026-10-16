@@ -405,44 +405,45 @@ export const MEMBER_OWNERSHIP = {
 };
 
 // ── 基线登记红（元纪律⑥：现状违规数按文件登记——2026-10-16 T39b B0 步骤 0 实测回填，空登记
-//    跑出真红 exit 1 后落表；reconcileRegisteredRed 复用 census :267。until='T39b-2'=波 2 机械
-//    替换；计数下降 drift 红⇒强制同步降登记、清零 stale 红⇒强制移除登记、终态登记空。
-//    key 固定 'facade-bypass'（文件级粒度——控制方 RB0）。波 1 评审勘正轮重基线（I-1 受体
-//    限定 8 处假阳性根修 + 词面扩面 12 处真绕过逃逸回收——camelCase 工厂别名/解构/赋值形态）：
-//    基线 534→538 处/29 文件（−8+12+旧 gateway.spec 135 保持）、现态 399→403 处/28 文件
-//    （reaper/ready.controller/telemetry.controller 三文件清零 stale 核销移除；shrink 67→73/
-//    sweep 26→27 drift 同步；read-canvas-routing ×5 新登记——旧窄词面逃逸的 makeGateway 工厂
-//    别名真绕过）。 ──
+//    跑出真红 exit 1 后落表；reconcileRegisteredRed 复用 census :267。计数下降 drift 红⇒强制
+//    同步降登记、清零 stale 红⇒强制移除登记。key 固定 'facade-bypass'（文件级粒度——控制方 RB0）。
+//    until 语义两段（偏离 64——Z140④ 重裁闸裁决 (b) 波 2 范围收窄）：
+//    - until='T39b-2'：波 2 机械替换进行中的过渡登记（字段/状态/splice/身份引用族+spy 族触达
+//      ——façade 全量替换面，替换推进逐文件核销/降数）；
+//    - until='B1-B3'：纯直调族保留 cast（私有方法直调——B1-B3 service 化公有化后 cast 消失
+//      触发 stale 核销；为其造 1:1 转发 façade=短命垫片禁项）。
+//    历史：波 1 评审勘正轮重基线（I-1 受体限定 8 处假阳性根修 + 词面扩面 12 处真绕过逃逸回收）
+//    基线 534→538 处/29 文件、波 1 试点后 403 处/28 文件（全登记 until='T39b-2'）。 ──
 const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-auth-defense.spec.ts': { 'facade-bypass': { n: 30, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-awareness-guard.spec.ts': { 'facade-bypass': { n: 12, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-backpressure.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-degraded.spec.ts': { 'facade-bypass': { n: 4, until: 'T39b-2' } },
+  // 直调族——B1-B3 公有化后 cast 消失触发 stale 核销（偏离 64②；下同）：wrapBackpressure ×1
+  'apps/api/src/modules/collab/collab-backpressure.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
+  // 直调族——loadDocument ×1（pendingQueues.splice/collabState 已 façade 化）
+  'apps/api/src/modules/collab/collab-degraded.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
   'apps/api/src/modules/collab/collab-heap-gate.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-metrics-observability.spec.ts': { 'facade-bypass': { n: 32, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-perm-chain.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-perm-events.spec.ts': { 'facade-bypass': { n: 29, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-pg-breaker.int.spec.ts': { 'facade-bypass': { n: 4, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-pg-breaker.service.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-quota-gate.spec.ts': { 'facade-bypass': { n: 25, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-quota-truth.spec.ts': { 'facade-bypass': { n: 41, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-rate-gate.spec.ts': { 'facade-bypass': { n: 6, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-reconnect-storm.spec.ts': { 'facade-bypass': { n: 3, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-runtime-metrics.spec.ts': { 'facade-bypass': { n: 4, until: 'T39b-2' } },
+  // 直调族——loadDocument ×1+storeDocumentUnlocked ×2
+  'apps/api/src/modules/collab/collab-runtime-metrics.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
   'apps/api/src/modules/collab/collab-sentry.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-shrink.spec.ts': { 'facade-bypass': { n: 73, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-t20-ripples.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-upgrade.spec.ts': { 'facade-bypass': { n: 8, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-version-gate.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 2, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab.gateway.auth-reason.spec.ts': { 'facade-bypass': { n: 2, until: 'T39b-2' } },
+  // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换）
+  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
   'apps/api/src/modules/collab/collab.gateway.persist-status.spec.ts': { 'facade-bypass': { n: 27, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab.gateway.project-gone.spec.ts': { 'facade-bypass': { n: 15, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab.gateway.shutdown.spec.ts': { 'facade-bypass': { n: 14, until: 'T39b-2' } },
   // collab.gateway.spec.ts 登记已移除——T39b B0 波 1 试点替换全文件 façade 化（135→0，stale 机制强制核销）
   'apps/api/src/modules/collab/collab.gateway.sweep.spec.ts': { 'facade-bypass': { n: 27, until: 'T39b-2' } },
   'apps/api/src/modules/collab/read-canvas-routing.spec.ts': { 'facade-bypass': { n: 5, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/write-frozen-chain.int.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
+  // 直调族——recheckFrozenDocs ×1
+  'apps/api/src/modules/collab/write-frozen-chain.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
 };
 
 /** 非递归（M-6 披露——头注「范围」节口径）：只收顶层 *.spec.ts；collab 子目录 spec 现无、
@@ -539,7 +540,9 @@ if (isMain()) {
   const nFiles = Object.keys(hits).length;
   const nReg = Object.keys(REGISTERED_RED).length;
   const pass = unregistered.length === 0 && drift.length === 0 && stale.length === 0;
-  console.log(`${pass ? 'PASS' : 'FAIL'}  ⑲ 测试 façade 门禁（Z140②——cast∧gateway 私有成员合取违规定义；universe ${universe.size} 成员现场解析；执法面 ${specFiles.length} spec 文件；现状违规 ${nTotal} 处/${nFiles} 文件；登记红 ${nReg} 项 until=T39b-2）`);
+  // until 值登记表现场聚合（偏离 64：波 2 推进期 T39b-2/B1-B3 双段并存——写死单值即谎报）
+  const untils = [...new Set(Object.values(REGISTERED_RED).map((s) => s['facade-bypass'].until))].join('/') || '空';
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ⑲ 测试 façade 门禁（Z140②——cast∧gateway 私有成员合取违规定义；universe ${universe.size} 成员现场解析；执法面 ${specFiles.length} spec 文件；现状违规 ${nTotal} 处/${nFiles} 文件；登记红 ${nReg} 项 until=${untils}）`);
   for (const h of unregistered) console.log(`      - 未登记违规 ${h.file} ×${h.n}（façade 替换或登记红 until=任务号）`);
   for (const d of drift) console.log(`      - 登记计数漂移 ${d.file}: 登记 ${d.want} 实际 ${d.n}（替换推进须同步降登记）`);
   for (const s of stale) console.log(`      - 登记项已清零——转绿达成请移除登记（until=${s.until}）${s.file}`);

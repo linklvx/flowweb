@@ -12,6 +12,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
@@ -51,7 +52,7 @@ function buildGateway(seed: PermSeed) {
     perm as any, 43000 + Math.floor(Math.random() * 20000),
     undefined, undefined, undefined, new CollabSpoolService(spoolDir),
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, prisma };
 }
 

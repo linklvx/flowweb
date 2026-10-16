@@ -17,6 +17,7 @@ import { CollabReadyService } from './collab-ready.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -63,7 +64,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
       { resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'y0a-fixture-team' }) } as any,
       49300, undefined, undefined, undefined, spool, undefined, breaker,
     );
-    (gateway as any).collabState = 'serving';
+    gatewayFacade(gateway).forceCollabState('serving');
   });
   afterAll(async () => {
     await restoreLeaseRow(prisma);
@@ -95,7 +96,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
 
   it('熔断面②store 短路：open 期批直落 spool（fsync 落盘）+零 PG 尝试；ready 503 reason=db-unavailable', async () => {
     const doc = new Y.Doc(); doc.getMap('nodes').set('n1', new Y.Map([['x', 1]]));
-    (gateway as any).pendingQueues.set(PID, [Y.encodeStateAsUpdate(doc)]);
+    gatewayFacade(gateway).seedPendingQueue(PID, [Y.encodeStateAsUpdate(doc)]);
     const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: `project:${PID}` } as any);
     expect(ok).toBe(false);
     expect(spool.hasFrames(PID)).toBe(true);   // BOI：批在 spool（fsync 落盘非内存态）
@@ -109,11 +110,11 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
   });
 
   it('恢复腿：换接真库 repo→冷却后半开探测（store 走 PG+补排空 spool 帧）→closed+ready 200', async () => {
-    (gateway as any).repo = realRepo;   // PG 恢复=连接层可达（真库 repo 接管）
+    gatewayFacade(gateway).stubRepo(realRepo);   // PG 恢复=连接层可达（真库 repo 接管）
     await new Promise((r) => setTimeout(r, COOLDOWN_MS + 150));   // 真冷却→half-open
     expect(breaker.stateName()).toBe('half-open');
     const doc = new Y.Doc(); doc.getMap('nodes').set('n2', new Y.Map([['y', 2]]));
-    (gateway as any).pendingQueues.set(PID, [Y.encodeStateAsUpdate(doc)]);
+    gatewayFacade(gateway).seedPendingQueue(PID, [Y.encodeStateAsUpdate(doc)]);
     const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: `project:${PID}` } as any);
     expect(ok).toBe(true);                       // 探测走 PG：append 真落库（批+排空帧一并）
     expect(breaker.stateName()).toBe('closed');  // 半开一次成功→closed

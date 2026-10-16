@@ -21,6 +21,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
@@ -46,7 +47,7 @@ function buildGateway(hydration?: { state: Buffer | null; updates: Buffer[] }) {
     undefined, undefined, undefined, spool,
     undefined as unknown as QuotaConfig,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, repo };
 }
 
