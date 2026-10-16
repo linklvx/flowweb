@@ -201,7 +201,7 @@ test('R4：@ts-expect-error 下一行私有成员访问捕获（无 cast 直访�
   const v = detect(src);
   assert.equal(v.length, 1);
   assert.equal(v[0].member, 'pendingQueues');
-  assert.equal(v[0].kind, 'ts-expect-error');
+  assert.equal(v[0].kind, 'ts-directive');   // M-1 扩展后 kind 更名（@ts-expect-error/@ts-ignore 同族）
 });
 
 test('R4：与同行 cast/alias 命中去重（同一触达点不双计）；无成员访问的 ts-expect-error 不计', () => {
@@ -215,6 +215,147 @@ test('R4：与同行 cast/alias 命中去重（同一触达点不双计）；无
     'await someFn(wrongTypeArg);',
   ].join('\n');
   assert.equal(detect(src2).length, 0);
+});
+
+// ── 波 1 评审收口修复（I-1/I-3/M-1/M-2）──
+
+test('I-1 R1 受体限定：非 gateway 受体 cast 的 universe 同名成员放行（8 处假阳性根修——logger/repo 等通用名）', () => {
+  // 三处实锤形态：collab-residency-reaper ×6 / collab-ready.controller ×1 / telemetry.controller ×1
+  assert.equal(detect("const errSpy = vi.spyOn((fx.residency as any).logger, 'error');").length, 0, 'fx.residency 的 logger=CollabResidencyService 非 gateway');
+  assert.equal(detect("const errSpy = vi.spyOn((controller as any).logger, 'error');").length, 0, 'controller.logger 非 gateway');
+  assert.equal(detect("const logSpy = vi.spyOn((svc as any).logger, 'log');").length, 0, 'svc.logger 非 gateway');
+  // 构造参数深层 gateway 词面不构成 RHS 资格（词面扩面伴生假阳性实锤——ready.controller :38/:187 复活根修）
+  const src = [
+    'controller = new CollabReadyController(readyMock as any, gatewayMock as any, auditMock as any);',
+    "const errSpy = vi.spyOn((controller as any).logger, 'error');",
+  ].join('\n');
+  assert.equal(detect(src).length, 0, 'controller 不入别名集——RHS 头部 CollabReadyController 无 gateway 词面');
+});
+
+test('I-1 R1 受体限定：gateway 受体词（gateway/kit.gateway/gw/this.gateway）cast 的 universe 成员命中', () => {
+  assert.equal(detect("const s = vi.spyOn((gateway as any).logger, 'error');").length, 1);
+  assert.equal(detect("const s = vi.spyOn((kit.gateway as any).logger, 'error');").length, 1);
+  assert.equal(detect("const s = vi.spyOn((gw as any).logger, 'error');").length, 1);
+  assert.equal(detect("const s = vi.spyOn((this.gateway as any).logger, 'error');").length, 1);
+  const v = detect("const s = vi.spyOn((kit.gateway as any).logger, 'error');");
+  assert.equal(v[0].member, 'logger');
+  assert.equal(v[0].kind, 'cast');
+});
+
+test('I-1 R1 受体限定扩面（实测裁决——窄词面丢 6 真阳性的根修）：类名静态/gw 前缀变体/别名受体三形态命中', () => {
+  // 实锤形态：collab-auth-defense :337/:354 `(CollabGateway as any).AUTH_DB_DEADLINE_MS`（类名静态私有常量）
+  assert.equal(detect('const ms = (CollabGateway as any).logger;').length, 1, '类名词面（大小写不敏感 gateway 子串）');
+  // 实锤形态：collab-shrink :284/:300 `(gw2 as any).docTruth`（buildGateway 工厂返回的型化实例）
+  assert.equal(detect('const t = (gw2 as any).pendingQueues;').length, 1, 'gw 前缀变体');
+  // 实锤形态：collab-shrink :314 `(g as any).freezeQuota`（g=R2 已收 gateway 别名——受体词面∨别名集双支）
+  const src = ['const g = gateway as any;', 'const q = (g as any).pendingQueues;'].join('\n');
+  assert.equal(detect(src).filter((x) => x.kind === 'cast').length, 1, '别名受体经别名集判定');
+});
+
+test('I-1 别名 RHS 词面扩（重基线实测裁决）：camelCase 工厂 RHS（makeBareGateway/buildGateway）入别名集', () => {
+  // 实锤形态：旧 gateway.spec :1688 `const g2 = makeBareGateway()` + :1691 `(g2 as any).selfIsolate`
+  // ——窄词面 \bgateway\b（大小写敏感）漏 camelCase 工厂名⇒该 cast 逃逸（重基线 534→525 而非 526 的 −1 根因）
+  const src = [
+    'const g2 = makeBareGateway();',
+    "await (g2 as any).listenServer();",
+  ].join('\n');
+  const v = detect(src);
+  assert.equal(v.length, 1);
+  assert.equal(v[0].member, 'listenServer');
+  assert.equal(v[0].kind, 'cast');
+  // 别名成员触达同链（R2 消费同一别名集）
+  const src2 = [
+    'const gw3 = buildGateway({ x: 1 }) as any;',
+    'gw3.pendingQueues.clear();',
+  ].join('\n');
+  assert.equal(detect(src2).length, 1);
+});
+
+test('I-1 免 cast 型化局部不入别名成员扫描（DTO/façade 假阳性根修——degraded ×7/试点 ×9 实锤）', () => {
+  // 实锤形态一：公有方法返回 DTO 同名字段裸读=合法公有访问（degraded :60-84 `d = gateway.computeDegraded()`）
+  const src = [
+    'const dto = gateway.computeDegraded();',
+    'expect(dto.logger).toBeNull();',
+  ].join('\n');
+  assert.equal(detect(src).length, 0, '免 cast 型化局部不进 R2 成员扫描');
+  // 实锤形态二：façade 工厂对象直调转发同名方法（试点 :127 `g = gatewayFacade(gateway)` + g.listenCollab()）
+  const src2 = [
+    'const g = gatewayFacade(kit.gateway);',
+    'await g.listenServer();',
+  ].join('\n');
+  assert.equal(detect(src2).length, 0, 'façade 转发面同名方法非绕过');
+});
+
+test('I-3① R1 括号计算访问：cast 后 [\'member\'] 字符串字面量成员捕获（平衡括号跳过不再吃掉）', () => {
+  const v = detect("const q = (gateway as any)['pendingQueues'];");
+  assert.equal(v.length, 1);
+  assert.equal(v[0].member, 'pendingQueues');
+  assert.equal(v[0].kind, 'cast');
+  const v2 = detect('const q = (kit.gateway as any)?.["persistRetry"];');
+  assert.equal(v2.length, 1, '?.[ 形态');
+  assert.equal(v2[0].member, 'persistRetry');
+  assert.equal(detect("const q = (fx.residency as any)['logger'];").length, 0, '受体限定同样适用于括号形态');
+  assert.equal(detect("const q = (gateway as any)['notAMember'];").length, 0, '非 universe 成员不计');
+});
+
+test('I-3② R2 解构形态：const { member } = gateway as any 解构绑定名 ∈ universe 逐处计数', () => {
+  const v = detect('const { pendingQueues } = gateway as any;');
+  assert.equal(v.length, 1);
+  assert.equal(v[0].member, 'pendingQueues');
+  assert.equal(v[0].kind, 'alias');
+  const v2 = detect('const { pendingQueues: pq, docProject } = kit.gateway as any;');
+  assert.equal(v2.length, 2, '重命名形态取属性键+多绑定逐处');
+  assert.deepEqual(v2.map((x) => x.member).sort(), ['docProject', 'pendingQueues']);
+  assert.equal(detect('const { x } = foo as any;').length, 0, 'RHS 无 gateway 词不计');
+  assert.equal(detect('const { server } = gateway as any;').length, 0, '公有成员不计');
+});
+
+test('I-3③ R2 赋值语句别名：let g; g = kit.gateway as any 后续 g.member 逐处计数', () => {
+  const src = [
+    'let g;',
+    'g = kit.gateway as any;',
+    'g.pendingQueues.clear();',
+    'g.transition("draining", "test");',
+  ].join('\n');
+  const v = detect(src);
+  assert.equal(v.length, 2);
+  assert.deepEqual(v.map((x) => x.member).sort(), ['pendingQueues', 'transition']);
+  assert.ok(v.every((x) => x.kind === 'alias'));
+  const src2 = ['let h;', 'h = someOther as any;', 'h.pendingQueues.clear();'].join('\n');
+  assert.equal(detect(src2).length, 0, 'RHS 无 gateway 词不入别名集');
+});
+
+test('I-3④ 已知边界钉：函数参数别名形态=已知逃逸面（行级检测不可行需数据流分析——波 2 全量替换纪律+评审承担）', () => {
+  const src = [
+    'function poke(g: any) { g.pendingQueues.clear(); }',
+    'poke(kit.gateway as any);',
+  ].join('\n');
+  // 逃逸面实证钉：参数别名不入别名集、调用点 cast 无成员链⇒零命中。此形态由波 2 替换纪律承担，
+  // 门禁不执法（数据流分析超出符号级门禁口径——偏离 62② 近似边界同族披露）。
+  assert.equal(detect(src).length, 0);
+});
+
+test('M-1 R4 扩展：@ts-ignore 下一行私有成员访问捕获（Z140② 同族绕过形态；kind=ts-directive）', () => {
+  const src = [
+    '// @ts-ignore 私有访问',
+    'gateway.pendingQueues.clear();',
+  ].join('\n');
+  const v = detect(src);
+  assert.equal(v.length, 1);
+  assert.equal(v[0].member, 'pendingQueues');
+  assert.equal(v[0].kind, 'ts-directive');
+});
+
+test('M-2 parsePrivateMembers：private get/set 访问器——修饰词不入 universe、访问器名入 universe', () => {
+  const src = [
+    'class G {',
+    '  private get foo() { return this.x; }',
+    '  private set bar(v: number) { this.x = v; }',
+    '  private static get baz() { return 1; }',
+    '  private settings = new Map();',   // set 前缀同名词不误吞
+    '}',
+  ].join('\n');
+  assert.deepEqual(parsePrivateMembers(src), ['bar', 'baz', 'foo', 'settings']);
 });
 
 // ── countMemberTouches：M1 统计口径（--report 消费，与执法口径分离） ──

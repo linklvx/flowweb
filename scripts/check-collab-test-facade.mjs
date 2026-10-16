@@ -4,30 +4,56 @@
 //
 // ── 违规定义（计数口径写死——Z140②「全形态」非单一拼写正则；Z43「符号级非语法级」同教训）──
 // 违规 = 绕过类型系统访问 gateway 内部状态 = cast 形态 ∧ gateway 私有成员触达（合取语义）：
-//   cast 形态 ∈ { `as any`, `as unknown as`, `@ts-expect-error` }；
+//   cast 形态 ∈ { `as any`, `as unknown as`, `@ts-expect-error`, `@ts-ignore`（M-1 波 1 评审：
+//   同族绕过形态入集——Z140② 原文只列 ts-expect-error=spec 级缺口，正向加强；eslint 无
+//   ban-ts-comment 兜底） }；
 //   私有成员 universe = 本脚本从 collab.gateway.ts 现场解析（private 字段+私有方法+static 常量
-//   +构造器参数属性——解析逻辑写死，gateway 演进自动跟随，无人工名单漂移面）。
-// 检测规则四则（每触达点计 1；kind 标注来源规则）：
-//   R1 cast：stripped 源 `as any`/`as unknown as` token occurrence，其后成员链（跨行、`?.`、
+//   +构造器参数属性+get/set 访问器名〔修饰词跳过——M-2〕——解析逻辑写死，gateway 演进自动跟随，
+//   无人工名单漂移面）。
+// 检测规则（每触达点计 1；kind 标注来源规则）：
+//   R1 cast：stripped 源 `as any`/`as unknown as` token occurrence，**受体限定（I-1 波 1 评审，
+//      词面=实测裁决扩面）**=cast 链受体须含 gateway 对象词面（`/gateway|\bgw/i`——覆盖
+//      gateway/kit.gateway/CollabGateway 类名静态/buildGateway 工厂/gw2 变体）∨ 含 gateway
+//      别名/型化局部名（词边界）；评审原案窄词面 `\bgw\b|\bgateway\b` 丢 6 真阳性实锤（类名
+//      静态 ×2/gw2 ×2/别名受体 ×2）。universe 含 logger/repo/transition/quota 等通用名，
+//      对象无关检测=非 gateway 对象同名单词假阳性（reaper/ready/telemetry 8 处实锤）。
+//      其后成员链（跨行、`?.`、`['member']` 计算访问〔I-3①——字符串名 raw 同偏移读取〕、
 //      平衡 {}[]<>、类型名标识符跳过 ≤1 次）任一成员 ∈ universe ⇒ 违规。类型名跳过限 1 次=
 //      防 ASI 无分号跨语句漂移（本仓风格恒分号结尾；已知近似边界，自测钉行为）。
-//   R2 别名：`const g = <RHS 含 gateway 词> as any` / `const gw: any = <RHS 含 gateway 词>`
-//      定义的文件级别名集（文件级近似=不做作用域分析——同名遮蔽场景由基线登记红人工复核吸收；
-//      二级别名 `const h = g` 不传播，现状零出现），后续 `alias.member`（member ∈ universe）
-//      逐处违规。RHS 无 gateway 词的 any 别名（mock/spool/payload）不入集=非 gateway 对象
-//      的 as any 不违规（Z140② 合取语义）。
+//   R2 别名：`const g = <RHS 头部 gateway 词面> as any` / `const gw: any = <RHS 头部 gateway 词面>` /
+//      `g = <RHS 头部 gateway 词面> as any`（赋值语句——I-3③ 先声明后赋值形态）定义的文件级别名集。
+//      RHS 资格=表达式**头部**标识符链含 gateway 词面（RECEIVER_GATEWAY_RE=`/gateway|\bgw/i`
+//      同源——camelCase 工厂 makeGateway/buildGateway/gw2 亦入集；深层词面不算=构造参数里的
+//      gatewayMock 不构成资格，重基线实测裁决）∧（cast token ∨ `: any` 注解）——免 cast 纳入
+//      会把公有方法 DTO/façade 转发对象同名字段裸读误计（degraded ×7/试点 ×9 实锤⇒cast 要求
+//      保留）。文件级近似=不做作用域分析——同名遮蔽场景由基线登记红人工复核吸收；二级别名
+//      `const h = g` 不传播，现状零出现。后续 `alias.member`（member ∈ universe）逐处违规。
+//      RHS 无 gateway 词面的 any 别名（mock/spool/payload）不入集=非 gateway 对象的 as any
+//      不违规（Z140② 合取语义）。
+//      型化局部第二集（免 cast、仅 R1 受体判定消费）：`const g2 = makeBareGateway()` 型化
+//      gateway 变量 + 使用点 `(g2 as any).member` 形态经受体判定回收（旧 gateway.spec :1691
+//      逃逸实锤）；DTO/façade 裸读无 cast 不进 R1⇒假阳性结构性排除。
+//      R2b 解构（I-3②）：`const { member } = <RHS 含 gateway 词 + cast>`——解构属性键 ∈ universe
+//      逐处计（kind=alias）。
+//      已知边界（I-3④）：函数参数别名 `function f(g: any) { g.pendingQueues }` + 调用点传入
+//      gateway=已知逃逸面——行级符号检测不可行（需数据流分析），由波 2 全量替换纪律+评审承担，
+//      自测钉逃逸实证。
 //   R3 spyOn 字符串成员：`vi.spyOn(<cast 形态|别名|gateway 词>, '<member>')`——member 是字符串
 //      字面量（stripped 剥串结构性消失⇒raw 行消费，census 组⑦同则）。arg1 含逗号形态不支持
 //      （现状零出现）。
-//   R4 @ts-expect-error：指令注释行（raw 检测）的下一行 stripped 触达 universe 成员 ⇒ 违规；
-//      下一行已被 R1/R2/R3 命中则不重复计（同一触达点去重——口径写死）。
+//   R4 ts 指令（@ts-expect-error/@ts-ignore）：指令注释行（raw 检测）的下一行 stripped 触达
+//      universe 成员 ⇒ 违规（kind=ts-directive）；下一行已被 R1/R2/R3 命中则不重复计（同一
+//      触达点去重——口径写死）。
 // 非违规面（合取语义的另一半）：payload cast（`} as any)`）、mock 链（`(repo.append as any).mock`）、
-//   非 gateway 对象成员（`(kit.spool as any).ioBroken`——spool 私有成员不在本门禁 universe，
-//   B 波后续任务面）、gateway 公有成员 cast（`(gateway as any).server`——冗余但非内部状态）。
+//   非 gateway 受体对象成员（`(kit.spool as any).ioBroken`/`(fx.residency as any).logger`——受体
+//   限定 I-1；spool/residency 私有成员不在本门禁 universe，B 波后续任务面）、gateway 公有成员
+//   cast（`(gateway as any).server`——冗余但非内部状态）。
 //
 // ── 范围（自定义写死）──
 // 执法面 = apps/api/src/modules/collab/*.spec.ts（顶层 75 文件，*.int.spec.ts 被 *.spec.ts 后缀
-// 覆盖）。理由：B 波=gateway 领域 service 化，façade 门禁执法面=collab 域 spec；collab 域外
+// 覆盖）。collectSpecFiles 非递归（M-6 结构边界披露）：collab 子目录 spec 现无（test-utils/ 仅
+// façade+stub 非 spec 后缀）；子目录 spec 出现时执法面需同步扩——与偏离 62① 口径一致。
+// 理由：B 波=gateway 领域 service 化，façade 门禁执法面=collab 域 spec；collab 域外
 // spec 经 grep 实证零 gateway 私有成员触达（worker-metrics-server.spec/di-smoke.int.spec 仅
 // 类型引用）。扩面时机=B 波出口复验（T43）。
 // 豁免面 = collab-gateway-test-facade.ts 本体（唯一 sanctioned 绕点——受控 cast 集中地）：
@@ -60,34 +86,95 @@ export const SPEC_DIR_REL = 'apps/api/src/modules/collab';
 // ── universe 解析（写死——gateway 演进自动跟随） ──
 
 /** private 成员名解析：字段/方法/static/构造器参数属性，修饰符组合宽松序。
- *  输入=stripped 源（注释/字符串里的 private 字样结构性消失——自测钉）。 */
+ *  输入=stripped 源（注释/字符串里的 private 字样结构性消失——自测钉）。
+ *  M-2（波 1 评审）：get/set 入修饰词跳过组——`private get x()` 若把 `get` 捕入 universe，
+ *  所有 `.get(` cast 链将误报（`get` 入集=Map/Set 读面全命中）。 */
 export function parsePrivateMembers(strippedSrc) {
   const names = new Set();
-  const re = /\bprivate\s+(?:(?:static|readonly|abstract|override|async)\s+)*([A-Za-z_$][\w$]*)/g;
+  const re = /\bprivate\s+(?:(?:static|readonly|abstract|override|async|get|set)\s+)*([A-Za-z_$][\w$]*)/g;
   for (const m of strippedSrc.matchAll(re)) names.add(m[1]);
   return [...names].sort();
 }
 
-/** gateway 别名的 any 别名定义收集（R2 前置）：行级两形态——
- *  `const X = <RHS 含 \bgateway\b> as any` / `const X: any = <RHS 含 \bgateway\b>`。 */
+/** RHS 资格判定（波 1 评审重基线实测裁决）：RHS 表达式**头部**标识符链（可带 `new`）含
+ *  gateway 词面。深层词面不算——`controller = new CollabReadyController(…gatewayMock as any…)`
+ *  构造参数词面曾把 controller 误入别名集（ready.controller :187 假阳性复活实锤⇒头部限定根修）。
+ *  头部词面覆盖：gateway/kit.gateway/this.gateway/CollabGateway/buildGateway()/makeBareGateway()。 */
+function rhsHeadIsGateway(rhs) {
+  const h = /^\s*(?:new\s+)?([A-Za-z_$][\w$.]*)/.exec(rhs);
+  return h !== null && RECEIVER_GATEWAY_RE.test(h[1]);
+}
+
+/** 别名/型化局部定义扫描（声明 + I-3③ 赋值语句两形态；`==`/`=>` 排除，形态不重叠）。 */
+function scanAliasDefs(strippedSrc) {
+  const defs = [];
+  const re = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*any\s*)?=\s*([^;\n]*)/g;
+  for (const m of strippedSrc.matchAll(re)) defs.push({ name: m[1], rhs: m[2], declText: m[0] });
+  const assignRe = /(?:^|(?<=[;\n{]))\s*([A-Za-z_$][\w$]*)\s*=(?![=>])\s*([^;\n]*)/gm;
+  for (const m of strippedSrc.matchAll(assignRe)) defs.push({ name: m[1], rhs: m[2], declText: m[0] });
+  return defs;
+}
+
+/** gateway 别名的 any 别名定义收集（R2 成员扫描/R3 消费）：RHS 头部 gateway 词面 ∧
+ *  （RHS 含 cast token ∨ `: any` 注解）。cast 要求保留（重基线实测裁决）：免 cast 纳入把
+ *  `gateway.computeDegraded()` DTO 同名字段裸读（degraded ×7）与 `gatewayFacade(gw)` 直调转发
+ *  同名方法（试点 ×9）误计=公有访问非绕过（自测钉两实锤）。头部词面扩 camelCase 工厂
+ *  （makeGateway/buildGateway/gw2 as any——窄词面 `\bgateway\b` 漏 shrink :471/
+ *  read-canvas-routing :49 12 处真绕过逃逸实锤回收）。 */
 export function collectGatewayAliases(strippedSrc) {
   const aliases = new Set();
-  const re = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*any\s*)?=\s*([^;\n]*)/g;
-  for (const m of strippedSrc.matchAll(re)) {
-    const rhs = m[2];
-    if (!/\bgateway\b/.test(rhs)) continue;
-    if (/\bas\s+(?:any|unknown\s+as)\b/.test(rhs) || /:\s*any\s*=/.test(m[0])) aliases.add(m[1]);
+  for (const d of scanAliasDefs(strippedSrc)) {
+    if (!rhsHeadIsGateway(d.rhs)) continue;
+    if (/\bas\s+(?:any|unknown\s+as)\b/.test(d.rhs) || /:\s*any\s*=/.test(d.declText)) aliases.add(d.name);
   }
   return aliases;
+}
+
+/** 型化 gateway 局部收集（头部词面、免 cast）——仅 R1 受体判定第二支消费（I-1 扩面）：
+ *  `const g2 = makeBareGateway()` + 使用点 `(g2 as any).selfIsolate`（旧 gateway.spec :1688/:1691
+ *  逃逸实锤）经受体判定回收；DTO/façade 裸读无 cast 不进 R1⇒假阳性结构性排除。 */
+export function collectGatewayTypedLocals(strippedSrc) {
+  const locals = new Set();
+  for (const d of scanAliasDefs(strippedSrc)) {
+    if (rhsHeadIsGateway(d.rhs)) locals.add(d.name);
+  }
+  return locals;
 }
 
 // ── R1 cast 成员链扫描 ──
 
 const CAST_TOKEN_RE = /\bas\s+any\b|\bas\s+unknown\s+as\b/g;
 
+/** I-1（波 1 评审）受体提取：从 cast token 起始位向后回溯 cast 链受体表达式——收集标识符/`.`，
+ *  平衡跳过 `()`，其余字符（`=` `,` `(` 开括号 `:` 等）停。受体文本供 gateway 对象词判定。
+ *  universe 含 logger/repo/transition/quota 等通用名，对象无关的 cast 链检测把非 gateway 对象
+ *  同名单词误报（reaper/ready/telemetry 8 处假阳性实锤）⇒ 受体限定为违规合取的第二要素。
+ *  词面（实测裁决扩面——评审原案 `\bgw\b|\bgateway\b` 窄词面丢 6 真阳性实锤：auth-defense
+ *  `(CollabGateway as any).AUTH_DB_DEADLINE_MS` ×2 类名静态 + shrink `(gw2 as any).docTruth` ×2
+ *  工厂变体 + `(g as any).freezeQuota` ×2 别名受体）：`/gateway|\bgw/i` 子串/前缀词面（覆盖
+ *  gateway/kit.gateway/CollabGateway/buildGateway/gw2）∨ 受体含 R2 已收 gateway 别名（词边界）。 */
+export function extractCastReceiver(src, castIndex) {
+  let i = castIndex - 1;
+  let depth = 0;
+  let out = '';
+  while (i >= 0) {
+    const c = src[i];
+    if (/\s/.test(c)) { i -= 1; continue; }
+    if (/[\w$]/.test(c) || c === '.') { out = c + out; i -= 1; continue; }
+    if (c === ')') { depth += 1; i -= 1; continue; }
+    if (c === '(' && depth > 0) { depth -= 1; i -= 1; continue; }
+    break;
+  }
+  return out;
+}
+
+const RECEIVER_GATEWAY_RE = /gateway|\bgw/i;
+
 /** 从 cast token 结束位向前扫成员链：跳过空白（含换行）/`)`/`?`/平衡 {}[]<>；标识符跳过
- *  ≤1 次（as unknown as 的类型名）；`.` 后 ident 收集；其他字符停。返回成员名数组。 */
-export function scanMemberChainAfter(src, fromIndex) {
+ *  ≤1 次（as unknown as 的类型名）；`.` 后 ident 收集；I-3①（波 1 评审）`['member']` 计算
+ *  访问收集（字符串内容 stripped 结构性剥空⇒raw 同偏移读取——剥离器长度保持契约）；
+ *  其他字符停。返回成员名数组。 */
+export function scanMemberChainAfter(src, fromIndex, raw = src) {
   const chain = [];
   let i = fromIndex;
   let identSkips = 0;
@@ -95,6 +182,19 @@ export function scanMemberChainAfter(src, fromIndex) {
     const c = src[i];
     if (/\s/.test(c)) { i += 1; continue; }
     if (c === ')' || c === '?') { i += 1; continue; }
+    if (c === '[') {
+      const q = /^\[\s*(['"])/.exec(src.slice(i));          // I-3① 计算访问 ['member']
+      if (q) {
+        const close = src.indexOf(q[1], i + q[0].length);
+        if (close !== -1) {
+          const name = raw.slice(i + q[0].length, close).trim();
+          if (/^[A-Za-z_$][\w$]*$/.test(name)) chain.push(name);
+          const rb = src.indexOf(']', close);
+          if (rb !== -1) { i = rb + 1; continue; }
+        }
+        return chain;
+      }
+    }
     if (c === '{' || c === '[' || c === '<') {           // 类型表达式平衡跳过
       const close = c === '{' ? '}' : c === '[' ? ']' : '>';
       let d = 1; i += 1;
@@ -107,10 +207,10 @@ export function scanMemberChainAfter(src, fromIndex) {
     }
     if (c === '.') {
       const m = /^\.?\s*([A-Za-z_$][\w$]*)/.exec(src.slice(i));
-      if (!m) return chain;
-      chain.push(m[1]);
-      i += m[0].length;
-      continue;
+      if (m) { chain.push(m[1]); i += m[0].length; continue; }
+      const mb = /^\.\s*\[/.exec(src.slice(i));             // `?.['member']` 形态——点后进括号分支
+      if (mb) { i += mb[0].length - 1; continue; }
+      return chain;
     }
     if (/[A-Za-z_$]/.test(c)) {                            // 类型名标识符（限 1 次）
       if (identSkips >= 1) return chain;
@@ -125,16 +225,25 @@ export function scanMemberChainAfter(src, fromIndex) {
 
 // ── 违规检测（四则合一；每触达点计 1） ──
 
-/** 返回 [{ line, kind: 'cast'|'alias'|'spyOn'|'ts-expect-error', member, text }]（line 升序）。 */
+/** 返回 [{ line, kind: 'cast'|'alias'|'spyOn'|'ts-directive', member, text }]（line 升序）。 */
 export function findFacadeViolations({ raw, stripped, universe }) {
   const out = [];
   const lineOf = (idx) => stripped.slice(0, idx).split('\n').length;
   const rawLines = raw.split('\n');
   const stLines = stripped.split('\n');
 
-  // R1 直接 cast
+  // 别名集前置收集（R2/R3 消费）+ 型化局部集（仅 R1 受体判定第二支——免 cast 纳入的假阳性
+  // 面被结构性排除：DTO/façade 裸读无 cast 不进 R1）
+  const aliases = collectGatewayAliases(stripped);
+  const receiverNames = [...new Set([...aliases, ...collectGatewayTypedLocals(stripped)])];
+  const receiverNameRes = receiverNames.map((a) => new RegExp(`\\b${a}\\b`));
+
+  // R1 直接 cast（I-1 受体限定：cast 链受体须含 gateway 对象词面 ∨ gateway 别名/型化局部名
+  // ——非 gateway 受体的 cast+universe 同名单词不违规）
   for (const m of stripped.matchAll(CAST_TOKEN_RE)) {
-    const chain = scanMemberChainAfter(stripped, m.index + m[0].length);
+    const receiver = extractCastReceiver(stripped, m.index);
+    if (!RECEIVER_GATEWAY_RE.test(receiver) && !receiverNameRes.some((re) => re.test(receiver))) continue;
+    const chain = scanMemberChainAfter(stripped, m.index + m[0].length, raw);
     const hit = chain.find((id) => universe.has(id));
     if (hit) {
       const ln = lineOf(m.index);
@@ -143,7 +252,6 @@ export function findFacadeViolations({ raw, stripped, universe }) {
   }
 
   // R2 别名成员触达
-  const aliases = collectGatewayAliases(stripped);
   if (aliases.size) {
     const aliasRe = new RegExp(`\\b(${[...aliases].join('|')})\\s*\\.\\s*([A-Za-z_$][\\w$]*)`, 'g');
     stLines.forEach((l, idx) => {
@@ -151,6 +259,24 @@ export function findFacadeViolations({ raw, stripped, universe }) {
         if (universe.has(m[2])) out.push({ line: idx + 1, kind: 'alias', member: m[2], text: l.trim() });
       }
     });
+  }
+
+  // R2b 解构形态（I-3②）：`const { member } = <RHS 头部 gateway 词面 + cast>`——解构属性键 ∈
+  // universe 逐处计数（重命名 `{ member: x }` 取属性键=触达点；后续裸名使用无 `.member` 链
+  // 不再另计——同一触达面计 1，口径与别名定义点一致。cast 保留要求=解构型化 gateway 不编译，
+  // 现状唯一形态 `= buildGateway() as any`——sweep :172 perm 提取实锤）
+  const destructRe = /(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*([^;\n]*)/g;
+  for (const m of stripped.matchAll(destructRe)) {
+    const rhs = m[2];
+    if (!rhsHeadIsGateway(rhs)) continue;
+    if (!/\bas\s+(?:any|unknown\s+as)\b/.test(rhs)) continue;
+    const ln = lineOf(m.index);
+    for (const part of m[1].split(',')) {
+      const km = /^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/.exec(part);
+      if (km && universe.has(km[1])) {
+        out.push({ line: ln, kind: 'alias', member: km[1], text: (stLines[ln - 1] ?? '').trim() });
+      }
+    }
   }
 
   // R3 spyOn 字符串成员（raw 行级——字符串内容 stripped 结构性消失）
@@ -165,16 +291,17 @@ export function findFacadeViolations({ raw, stripped, universe }) {
     }
   });
 
-  // R4 @ts-expect-error（raw 指令注释行检测；下一行 stripped 成员触达——与同行 R1/R2/R3 去重）
+  // R4 @ts-expect-error/@ts-ignore（M-1 波 1 评审：@ts-ignore 同族入 cast 集——eslint 无
+  // ban-ts-comment 兜底；raw 指令注释行检测；下一行 stripped 成员触达——与同行 R1/R2/R3 去重）
   rawLines.forEach((l, idx) => {
-    if (!/(?:\/\/|\/\*|^\s*\*).*@ts-expect-error/.test(l)) return;
+    if (!/(?:\/\/|\/\*|^\s*\*).*@ts-(?:expect-error|ignore)/.test(l)) return;
     const nextIdx = idx + 1;
     if (nextIdx >= rawLines.length) return;
     if (out.some((v) => v.line === nextIdx + 1)) return;   // 去重：下一行已被 cast/alias/spyOn 计
     const nextStripped = stLines[nextIdx] ?? '';
     for (const m of nextStripped.matchAll(/\.([A-Za-z_$][\w$]*)/g)) {
       if (universe.has(m[1])) {
-        out.push({ line: nextIdx + 1, kind: 'ts-expect-error', member: m[1], text: nextStripped.trim() });
+        out.push({ line: nextIdx + 1, kind: 'ts-directive', member: m[1], text: nextStripped.trim() });
       }
     }
   });
@@ -280,7 +407,12 @@ export const MEMBER_OWNERSHIP = {
 // ── 基线登记红（元纪律⑥：现状违规数按文件登记——2026-10-16 T39b B0 步骤 0 实测回填，空登记
 //    跑出真红 exit 1 后落表；reconcileRegisteredRed 复用 census :267。until='T39b-2'=波 2 机械
 //    替换；计数下降 drift 红⇒强制同步降登记、清零 stale 红⇒强制移除登记、终态登记空。
-//    key 固定 'facade-bypass'（文件级粒度——控制方 RB0）。总计 534 处/31 文件。 ──
+//    key 固定 'facade-bypass'（文件级粒度——控制方 RB0）。波 1 评审勘正轮重基线（I-1 受体
+//    限定 8 处假阳性根修 + 词面扩面 12 处真绕过逃逸回收——camelCase 工厂别名/解构/赋值形态）：
+//    基线 534→538 处/29 文件（−8+12+旧 gateway.spec 135 保持）、现态 399→403 处/28 文件
+//    （reaper/ready.controller/telemetry.controller 三文件清零 stale 核销移除；shrink 67→73/
+//    sweep 26→27 drift 同步；read-canvas-routing ×5 新登记——旧窄词面逃逸的 makeGateway 工厂
+//    别名真绕过）。 ──
 const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-auth-defense.spec.ts': { 'facade-bypass': { n: 30, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-awareness-guard.spec.ts': { 'facade-bypass': { n: 12, until: 'T39b-2' } },
@@ -295,12 +427,10 @@ const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-quota-gate.spec.ts': { 'facade-bypass': { n: 25, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-quota-truth.spec.ts': { 'facade-bypass': { n: 41, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-rate-gate.spec.ts': { 'facade-bypass': { n: 6, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-ready.controller.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-reconnect-storm.spec.ts': { 'facade-bypass': { n: 3, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-residency-reaper.spec.ts': { 'facade-bypass': { n: 6, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-runtime-metrics.spec.ts': { 'facade-bypass': { n: 4, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-sentry.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-shrink.spec.ts': { 'facade-bypass': { n: 67, until: 'T39b-2' } },
+  'apps/api/src/modules/collab/collab-shrink.spec.ts': { 'facade-bypass': { n: 73, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-t20-ripples.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-upgrade.spec.ts': { 'facade-bypass': { n: 8, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-version-gate.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
@@ -310,11 +440,13 @@ const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab.gateway.project-gone.spec.ts': { 'facade-bypass': { n: 15, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab.gateway.shutdown.spec.ts': { 'facade-bypass': { n: 14, until: 'T39b-2' } },
   // collab.gateway.spec.ts 登记已移除——T39b B0 波 1 试点替换全文件 façade 化（135→0，stale 机制强制核销）
-  'apps/api/src/modules/collab/collab.gateway.sweep.spec.ts': { 'facade-bypass': { n: 26, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/telemetry.controller.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
+  'apps/api/src/modules/collab/collab.gateway.sweep.spec.ts': { 'facade-bypass': { n: 27, until: 'T39b-2' } },
+  'apps/api/src/modules/collab/read-canvas-routing.spec.ts': { 'facade-bypass': { n: 5, until: 'T39b-2' } },
   'apps/api/src/modules/collab/write-frozen-chain.int.spec.ts': { 'facade-bypass': { n: 1, until: 'T39b-2' } },
 };
 
+/** 非递归（M-6 披露——头注「范围」节口径）：只收顶层 *.spec.ts；collab 子目录 spec 现无、
+ *  出现时执法面需扩（偏离 62① 同口径）。 */
 function collectSpecFiles() {
   const dir = path.join(ROOT, SPEC_DIR_REL);
   return fs.readdirSync(dir)

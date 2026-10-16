@@ -70,8 +70,9 @@ export class GatewayTestFacade {
   // ── pendingQueues 族（替代形态：(gw as any).pendingQueues.get/set/has/delete——试点 56 处触达
   //    归并为 5 操作；身份引用=真实数组，禁复制） ──
 
-  /** 替代 `(gw as any).pendingQueues.get(pid)`——返回 Map 内真实数组引用（身份契约承载面） */
-  pendingQueueRef(pid: string): Uint8Array[] | undefined {
+  /** 替代 `(gw as any).pendingQueues.get(pid)`——返回 Map 内真实数组引用（身份契约承载面；
+   *  M-5 波 1 评审：返回型经索引访问派生=手写形状零漂移面） */
+  pendingQueueRef(pid: string): ReturnType<GatewayInternals['pendingQueues']['get']> {
     return internals(this.gw).pendingQueues.get(pid);
   }
 
@@ -115,8 +116,9 @@ export class GatewayTestFacade {
 
   // ── persistRetry 族（退避梯台账） ──
 
-  /** 替代 `(gw as any).persistRetry.get(name)`（entry={rung,timer}——timer 真值断言面） */
-  persistRetryEntry(name: string): { rung: number; timer: ReturnType<typeof setTimeout> | null } | undefined {
+  /** 替代 `(gw as any).persistRetry.get(name)`（entry={rung,timer}——timer 真值断言面；
+   *  M-5 波 1 评审：返回型经索引访问派生=手写形状零漂移面） */
+  persistRetryEntry(name: string): ReturnType<GatewayInternals['persistRetry']['get']> {
     return internals(this.gw).persistRetry.get(name);
   }
 
@@ -130,8 +132,8 @@ export class GatewayTestFacade {
     return internals(this.gw).persistRetry.size;
   }
 
-  /** 替代 `(gw as any).persistRetry.set(name, entry)`（FK 收割用例前置装置） */
-  seedPersistRetry(name: string, entry: { rung: number; timer: ReturnType<typeof setTimeout> | null }): void {
+  /** 替代 `(gw as any).persistRetry.set(name, entry)`（FK 收割用例前置装置；entry 型同源派生） */
+  seedPersistRetry(name: string, entry: NonNullable<ReturnType<GatewayInternals['persistRetry']['get']>>): void {
     internals(this.gw).persistRetry.set(name, entry);
   }
 
@@ -184,9 +186,10 @@ export class GatewayTestFacade {
   }
 
   /** 替代 `(gw as any).collabState = state`（测试强置状态机——生产写点唯一 transition()，
-   *  本操作=白盒装置非生产路径；state 值域同 collab.gateway.ts:32 CollabState） */
-  forceCollabState(state: string): void {
-    internals(this.gw).collabState = state as GatewayInternals['collabState'];
+   *  本操作=白盒装置非生产路径；M-5 波 1 评审：入参=CollabGateway['collabState'] 联合型——
+   *  typo 即编译红=façade 类型面收益兑现，值域单源 collab.gateway.ts CollabState，cast 消失） */
+  forceCollabState(state: CollabGateway['collabState']): void {
+    internals(this.gw).collabState = state;
   }
 
   /** 替代 `(gw as any).shuttingDown = true`（V11 关停闸模拟——onApplicationShutdown 步骤 1 等价） */
