@@ -1114,11 +1114,15 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       'docStuckRounds',       // documentName 键观测轮次——非代际敏感态（stuck 判定 n≥2 自清），不属旧代记账污染面
     ]);
     const checked: string[] = [];
-    for (const [name, v] of Object.entries(gateway)) {   // 反射面=gateway 实例自有属性（façade 化不改枚举对象）
-      if (!(v instanceof Map || v instanceof Set) || NON_PID_CONTAINERS.has(name)) continue;
-      checked.push(name);
-      expect((v as Map<string, unknown>).has('p1'), `${name} 应无该 pid 键`).toBe(false);
-      expect((v as Map<string, unknown>).has('project:p1'), `${name} 应无该 documentName 键`).toBe(false);
+    // 反射面=gateway+persistence 域 service 双对象自有属性（T40 B1 锚随迁——8 个 pid 键控容器随域迁
+    // gateway.persistence，防漏方向/must 锚/豁免表语义零变化；§0.6 偏离 68）
+    for (const owner of [gateway, gateway.persistence]) {
+      for (const [name, v] of Object.entries(owner)) {
+        if (!(v instanceof Map || v instanceof Set) || NON_PID_CONTAINERS.has(name)) continue;
+        checked.push(name);
+        expect((v as Map<string, unknown>).has('p1'), `${name} 应无该 pid 键`).toBe(false);
+        expect((v as Map<string, unknown>).has('project:p1'), `${name} 应无该 documentName 键`).toBe(false);
+      }
     }
     // 防退化锚：已知 pid 键控族必须全部出现在反射枚举中（改名/移除→此处红，豁免表滥用同红）
     for (const must of ['docTruth', 'docDelta', 'truthMeasuredAt', 'degradedDocs', 'quotaFrozenDocs', 'freezePending',

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
+import { CollabPersistenceService } from './collab-persistence.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
 import { CollabResidencyService } from './collab-residency.service';
@@ -45,6 +46,7 @@ import { WorkerPresenceModule } from '../worker-presence/worker-presence.module'
     CollabSpoolService,
     CollabLeaseService,   // Y0a-3 T5：PG 租约（gateway 构造参数 4——必填）
     CollabPgBreakerService,   // Y0b-5 T16：PG 熔断器（准入+store 短路——单例供 gateway/ready 同读）
+    CollabPersistenceService,   // Y0c T40（B1）：Persistence 域 service（store/spool/drain/pending 单一所有者——gateway 尾参 @Optional 注入+bindHost 后置绑定；单例=与 gateway 自建路径同一 pgBreaker/repo/spool 实例面）
     CollabReadyService,   // Y0a-3 T7：/api/ready 组装（G-4 九档+1s 单飞）
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）

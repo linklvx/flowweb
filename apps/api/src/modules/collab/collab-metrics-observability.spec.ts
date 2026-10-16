@@ -125,37 +125,37 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     await loadDoc(gateway);
     gatewayFacade(gateway).clearLastCompactAt('p1');   // 绕时间门
     repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 4242, deletedRows: 7, tombstoneBytes: 99 });
-    const dDoc = await histogramDelta('yjs_doc_bytes', () => (gateway as any).maybeCompact('p1'));
+    const dDoc = await histogramDelta('yjs_doc_bytes', () => gateway.persistence.maybeCompact('p1'));
     expect(dDoc.count).toBe(1);
     expect(dDoc.sum).toBe(4242);
     const dRows = await histogramDelta('yjs_compact_deleted_rows', async () => {
       gatewayFacade(gateway).clearLastCompactAt('p1');
-      await (gateway as any).maybeCompact('p1');
+      await gateway.persistence.maybeCompact('p1');
     });
     expect(dRows.count).toBe(1);
     expect(dRows.sum).toBe(7);
     const dTomb = await histogramDelta('yjs_compact_tombstone_bytes', async () => {
       gatewayFacade(gateway).clearLastCompactAt('p1');
-      await (gateway as any).maybeCompact('p1');
+      await gateway.persistence.maybeCompact('p1');
     });
     expect(dTomb.count).toBe(1);
     expect(dTomb.sum).toBe(99);
     const dDur = await histogramDelta('yjs_compact_duration_seconds', async () => {
       gatewayFacade(gateway).clearLastCompactAt('p1');
-      await (gateway as any).maybeCompact('p1');
+      await gateway.persistence.maybeCompact('p1');
     });
     expect(dDur.count).toBe(1);   // 每次 repo.compact 实跑一次计时
     expect(dDur.sum).toBeGreaterThanOrEqual(0);   // ms 粒度瞬时完成可为 0——计数即计时证据
     // over_threshold：4242 < 16MiB 不计；17MiB 计 1
     const dUnder = await counterDelta('yjs_doc_bytes_over_threshold_total', async () => {
       gatewayFacade(gateway).clearLastCompactAt('p1');
-      await (gateway as any).maybeCompact('p1');
+      await gateway.persistence.maybeCompact('p1');
     });
     expect(dUnder).toBe(0);
     repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: DOC_BYTES_OVER_THRESHOLD_BYTES + 1, deletedRows: 1, tombstoneBytes: 1 });
     const dOver = await counterDelta('yjs_doc_bytes_over_threshold_total', async () => {
       gatewayFacade(gateway).clearLastCompactAt('p1');
-      await (gateway as any).maybeCompact('p1');
+      await gateway.persistence.maybeCompact('p1');
     });
     expect(dOver).toBe(1);
   });
@@ -166,7 +166,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     gatewayFacade(gateway).clearLastCompactAt('p1');   // 绕时间门
     repo.compact.mockRejectedValueOnce(new Error('boom'));
     const dDur = await histogramDelta('yjs_compact_duration_seconds', () =>
-      (gateway as any).maybeCompact('p1').catch(() => {}));   // 生产调用点（store/断连 finalize）自有 catch+compact_failure 计数
+      gateway.persistence.maybeCompact('p1').catch(() => {}));   // 生产调用点（store/断连 finalize）自有 catch+compact_failure 计数
     expect(dDur.count).toBe(1);   // throw 路径同样计时（时长面非成功面）
   });
 
@@ -180,7 +180,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     const u = Y.encodeStateAsUpdate(w);
     Y.applyUpdate(document, u);   // update 监听入队（非 replaying 窗；装载戳 update 同队——批=stamp+u）
     const d = await histogramDelta('yjs_store_payload_bytes', () =>
-      (gateway as any).storeDocumentUnlocked({ document, documentName: 'project:p1' }));
+      gateway.persistence.storeDocumentUnlocked({ document, documentName: 'project:p1' }));
     const payload = repo.append.mock.calls[0][1] as Uint8Array;
     expect(d.count).toBe(1);   // 小批=单片直通（PERSIST_MERGE_MAX_BYTES 内不拆）
     expect(d.sum).toBe(payload.byteLength);   // observe 值=实落 payload 字节（与 append 同参同值）
@@ -197,7 +197,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     w.getMap('x').set('k', 'z'.repeat(32));
     Y.applyUpdate(document, Y.encodeStateAsUpdate(w));
     const dStore = await histogramDelta('yjs_store_duration_seconds', () =>
-      (gateway as any).storeDocumentUnlocked({ document, documentName: 'project:p2' }));
+      gateway.persistence.storeDocumentUnlocked({ document, documentName: 'project:p2' }));
     expect(dStore.count).toBe(1);
     expect(dStore.sum).toBeGreaterThanOrEqual(0);
   });
@@ -208,7 +208,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     const document = new Y.Doc();
     await (gateway as any).loadDocument({ document, documentName: 'project:p4' });   // 队列注册且空+spool 空
     const dStore = await histogramDelta('yjs_store_duration_seconds', () =>
-      (gateway as any).storeDocumentUnlocked({ document, documentName: 'project:p4' }));
+      gateway.persistence.storeDocumentUnlocked({ document, documentName: 'project:p4' }));
     expect(dStore.count).toBe(0);   // noop 早退不计时（yjs_store_drain_total{noop} 照常计数）
   });
 });

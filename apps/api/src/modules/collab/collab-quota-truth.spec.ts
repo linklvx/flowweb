@@ -136,11 +136,11 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
     repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 4242, deletedRows: 0, tombstoneBytes: 0 });
     gatewayFacade(gateway).clearLastCompactAt('p1');   // 绕时间门（loadDocument 已播种基线）
     gatewayFacade(gateway).pendingQueueRef('p1')!.push(new Uint8Array(16));   // 活 doc 含未 store delta（真实数组引用——原地 push）
-    await (gateway as any).maybeCompact('p1');   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    await gateway.persistence.maybeCompact('p1');   // B1（T40）：公有化兑现=cast 消失（偏离 64② 预告的核销形态）
     expect(gatewayFacade(gateway).docTruthOf('p1')).not.toBe(4242);   // 非空跳过——newSnapshot 非活 doc 真值
     gatewayFacade(gateway).pendingQueueRef('p1')!.splice(0);           // 队列排空（原地 splice——身份语义保留）
     gatewayFacade(gateway).clearLastCompactAt('p1');
-    await (gateway as any).maybeCompact('p1');
+    await gateway.persistence.maybeCompact('p1');
     expect(gatewayFacade(gateway).docTruthOf('p1')).toBe(4242);       // 采纳=truth 校准
     expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(0);          // delta 归零（重测口径）
   });

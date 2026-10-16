@@ -165,13 +165,13 @@ describe('Y0c T0：load/store trigger 归因', () => {
     const d2document = await loadDoc(gateway, 'p5');
     Y.applyUpdate(d2document, Y.encodeStateAsUpdate(w));
     const dRetry = await labeledCounterDelta('yjs_store_total', { trigger: 'retry' }, () =>
-      (gateway as any).storeDocumentUnlocked({ document: d2document, documentName: 'project:p5' }, 'retry'));
+      gateway.persistence.storeDocumentUnlocked({ document: d2document, documentName: 'project:p5' }, 'retry'));
     expect(dRetry).toBe(1);
 
     // noop 早退：带戳装载（stamp 不入队）+空 spool → 取批零帧
     const noopDoc = await loadDoc(gateway, 'p6');   // stamped——stamp update 在 replay 抑制窗不入队，装载后队列空
     const dNoop = await labeledCounterDelta('yjs_store_total', { trigger: 'debounce' }, () =>
-      (gateway as any).storeDocumentUnlocked({ document: noopDoc, documentName: 'project:p6' }, 'debounce'));
+      gateway.persistence.storeDocumentUnlocked({ document: noopDoc, documentName: 'project:p6' }, 'debounce'));
     expect(dNoop).toBe(0);
   });
 });

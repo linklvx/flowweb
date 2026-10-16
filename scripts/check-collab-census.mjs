@@ -695,7 +695,10 @@ if (isMain()) {
     },
     'apps/api/src/modules/collab/collab.gateway.ts': {
       'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）
-      applyUpdate: { n: 2, until: '片D' },               // :1008,:1028 loadDocument 重放/装载
+      applyUpdate: { n: 1, until: '片D' },               // T40 B1 后=loadDocument spool 帧装载 1 点（重放抑制窗 applyReplayed 随 withReplaySuppressed 迁 service）
+    },
+    'apps/api/src/modules/collab/collab-persistence.service.ts': {
+      applyUpdate: { n: 1, until: '片D' },               // T40 B1：withReplaySuppressed 重放抑制窗（Y.applyUpdate——原 gateway applyReplayed 闭包随域迁；hocuspocus import 零=PersistenceDocument 结构面，闭包纯净）
     },
     'apps/api/src/modules/collab/collab-frame-type.ts': {
       'hocuspocus-server-import': { n: 1, until: '片D' },   // :6 IncomingMessage/MessageType（经 gateway 引入）
@@ -704,7 +707,8 @@ if (isMain()) {
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源）
-    'apps/api/src/modules/collab/collab.gateway.ts': { mergeUpdates: 8, decodeStateVector: 2, encodeStateAsUpdate: 3 },   // Y0c T16：handoffPendingToSpool +1（Z129 强制淘汰交接——:2491 卸载交接同款形态）
+    'apps/api/src/modules/collab/collab.gateway.ts': { decodeStateVector: 2, encodeStateAsUpdate: 3 },   // T40 B1：mergeUpdates 8 点全迁 service（store 链/交接/drain 族随域）；encode 3 点留 gateway（装载真值/residue/measureTruth——④ 同源）
+    'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 8 },   // T40 B1：store coalesce/降级 spool-first/PG 切批/spool 兜底/detached retry/handoff×2/force-spool（Y0c T16 handoffPendingToSpool +1 沿革见 gateway 旧注）
     'apps/api/src/modules/collab/collab-spool.service.ts': { mergeUpdates: 1 },                  // spool 批合并
   };
   {
@@ -886,8 +890,9 @@ if (isMain()) {
   //  每调即读｜函数内=导出的纯/惰性函数调用期读｜惰性单例=首调用构造缓存（auth.ts getAuth 族）
   //  ｜defarg=函数默认参数（调用期求值）｜装饰器回调=元数据内存函数、请求期求值（cors origin）
   //  ｜constraint=class-validator 校验期读｜单源写回点=env.ts validateEnv 赋值（非决策读）。
-  //  模块级 const 仅存历史豁免 1 处：collab.gateway COMPACT_INTERVAL_MS（T34 复核=确认保留——
-  //  值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）。
+  //  模块级 const 仅存历史豁免 1 处：collab-persistence.service COMPACT_INTERVAL_MS（T40 B1 随
+  //  Persistence 域自 collab.gateway 迁移；T34 复核=确认保留——值经 dotenv 先行在位、无 NODE_ENV 类
+  //  default 归一化需求、消费面 compact 判据非部署档位）。
   //  advisory 已知形态边界（非缺陷，白名单在案）：①depth0 惰性箭头（provider-adapters
   //  fakeAiEnabled——调用期求值合规，brace 启发式见不到箭头体）②defarg 参数默认值在花括号体
   //  外（platform-team.seed ADMIN_EMAIL）③上述历史豁免。动态键 4 点（process.env[<非字面量>]
@@ -935,8 +940,11 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-spool.service.ts': {   // 构造器（DIR/CAPACITY）+方法内（validateDir 二次读）
       COLLAB_SPOOL_DIR: 2, COLLAB_SPOOL_CAPACITY_BYTES: 1,
     },
-    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（quota/upgradeBucket）+方法内每调即读族（allowedOrigins/refusalTtl 等）+函数内（resolveCollabDebounce）+模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——T34 复核保留）
-      COMPACT_INTERVAL_MS: 1, COLLAB_DEBOUNCE: 1, NODE_ENV: 2, COLLAB_UPGRADE_RATE_PER_MIN: 1,
+    'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
+      COMPACT_INTERVAL_MS: 1,
+    },
+    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（quota/upgradeBucket）+方法内每调即读族（allowedOrigins/refusalTtl 等）+函数内（resolveCollabDebounce）；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目
+      COLLAB_DEBOUNCE: 1, NODE_ENV: 2, COLLAB_UPGRADE_RATE_PER_MIN: 1,
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
       COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, COLLAB_BIND_ADDR: 2, COLLAB_ALLOWED_ORIGINS: 1, BETTER_AUTH_URL: 1,
       COLLAB_TRUSTED_PROXY: 1, COLLAB_REFUSAL_CACHE_TTL_MS: 1, COLLAB_AUTH_ATTEMPTS_PER_MIN: 1,

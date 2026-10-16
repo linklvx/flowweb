@@ -22,18 +22,13 @@
 import { vi } from 'vitest';
 import * as Y from 'yjs';
 import { CollabGateway } from '../collab.gateway';
+import type { CollabPersistenceService } from '../collab-persistence.service';
 import type { TokenBucket } from '../token-bucket';
 
-/** gateway 内部成员镜像（测试触达面——类型索引访问单源；写面去 readonly 由 stub 方法内 cast 承担） */
+/** gateway 内部成员镜像（测试触达面——类型索引访问单源；写面去 readonly 由 stub 方法内 cast 承担。
+ *  B1〔T40〕：Persistence 族十成员迁 service——镜像面随迁 PersistenceInternals（persistOf 单点 cast），
+ *  身份契约七处（:698/:1233/:1295/:1312/:1334/:1339/:1395）零变化=façade 返回 service Map 内真实引用。 */
 interface GatewayInternals {
-  pendingQueues: CollabGateway['pendingQueues'];
-  docProject: CollabGateway['docProject'];
-  persistRetry: CollabGateway['persistRetry'];
-  persistUnhealthy: CollabGateway['persistUnhealthy'];
-  retryingPersistDocs: CollabGateway['retryingPersistDocs'];
-  lastCompactAt: CollabGateway['lastCompactAt'];
-  flushScheduled: CollabGateway['flushScheduled'];
-  inFlightProjects: CollabGateway['inFlightProjects'];
   writeFreeze: CollabGateway['writeFreeze'];
   collabState: CollabGateway['collabState'];
   initDone: CollabGateway['initDone'];
@@ -56,8 +51,6 @@ interface GatewayInternals {
   docResidue: CollabGateway['docResidue'];
   preVacuumSvCache: CollabGateway['preVacuumSvCache'];
   docEpoch: CollabGateway['docEpoch'];
-  pendingSince: CollabGateway['pendingSince'];
-  deletedProjects: CollabGateway['deletedProjects'];
   repo: CollabGateway['repo'];
   pgBreaker: CollabGateway['pgBreaker'];
   refusalCache: CollabGateway['refusalCache'];
@@ -77,9 +70,37 @@ interface GatewayInternals {
   upgradeBucket: CollabGateway['upgradeBucket'];
 }
 
-/** 唯一受控 cast 点（sanctioned——门禁豁免面本体） */
+/** 受控 cast 点①（sanctioned——门禁豁免面本体） */
 function internals(gw: CollabGateway): GatewayInternals {
   return gw as unknown as GatewayInternals;
+}
+
+/** Persistence service 内部成员镜像（B1/T40——类型索引访问单源 CollabPersistenceService['member']；
+ *  gw.persistence 公有字段=persistOf 的唯一入口，私有成员经本单点 cast 收敛） */
+interface PersistenceInternals {
+  pendingQueues: CollabPersistenceService['pendingQueues'];
+  docProject: CollabPersistenceService['docProject'];
+  persistRetry: CollabPersistenceService['persistRetry'];
+  persistUnhealthy: CollabPersistenceService['persistUnhealthy'];
+  retryingPersistDocs: CollabPersistenceService['retryingPersistDocs'];
+  lastCompactAt: CollabPersistenceService['lastCompactAt'];
+  flushScheduled: CollabPersistenceService['flushScheduled'];
+  inFlightProjects: CollabPersistenceService['inFlightProjects'];
+  pendingSince: CollabPersistenceService['pendingSince'];
+  deletedProjects: CollabPersistenceService['deletedProjects'];
+  spool: CollabPersistenceService['spool'];
+  repo: CollabPersistenceService['repo'];
+  reconcileSpool: CollabPersistenceService['reconcileSpool'];
+  schedulePersistRetry: CollabPersistenceService['schedulePersistRetry'];
+  cancelPersistRetry: CollabPersistenceService['cancelPersistRetry'];
+  retryPersist: CollabPersistenceService['retryPersist'];
+  storeDocumentSerialized: CollabPersistenceService['storeDocumentSerialized'];
+  peekSpoolFrames: CollabPersistenceService['peekSpoolFrames'];
+}
+
+/** 受控 cast 点②（B1——persistence 族单点收敛；gw.persistence 本体公有非 cast 面） */
+function persistOf(gw: CollabGateway): PersistenceInternals {
+  return gw.persistence as unknown as PersistenceInternals;
 }
 
 // ── 波 2 entry 类型派生（索引访问单源——手写形状零漂移面，M-5 同款） ──
@@ -119,17 +140,14 @@ type GatewayMethods = {
   listenCollab: CollabGateway['listenCollab'];
   listenServer: CollabGateway['listenServer'];
   recheckConnection: CollabGateway['recheckConnection'];
-  reconcileSpool: CollabGateway['reconcileSpool'];
-  schedulePersistRetry: CollabGateway['schedulePersistRetry'];
-  cancelPersistRetry: CollabGateway['cancelPersistRetry'];
-  retryPersist: CollabGateway['retryPersist'];
   transition: CollabGateway['transition'];
   closeAllConnections1012: CollabGateway['closeAllConnections1012'];
-  storeDocumentSerialized: CollabGateway['storeDocumentSerialized'];
   // ── 波 2 spy 组缺口扩面（偏离 64——spyOn 字符串成员形态的 sanctioned 替代面；
-  //    直调族本体不转发=收窄裁决，spy 装置面照扩） ──
+  //    直调族本体不转发=收窄裁决，spy 装置面照扩）。
+  //    B1（T40）：reconcileSpool/schedulePersistRetry/cancelPersistRetry/retryPersist/
+  //    storeDocumentSerialized/peekSpoolFrames 六法迁 service——转发面随迁 PersistenceInternals
+  //    （persistOf 单点），façade 公有方法签名零变化。 ──
   heapUsedNow: CollabGateway['heapUsedNow'];
-  peekSpoolFrames: CollabGateway['peekSpoolFrames'];
   sweepSessions: CollabGateway['sweepSessions'];
   measureTruth: CollabGateway['measureTruth'];
   updateResidue: CollabGateway['updateResidue'];
@@ -149,8 +167,8 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).pendingQueues.get(pid)`——返回 Map 内真实数组引用（身份契约承载面；
    *  M-5 波 1 评审：返回型经索引访问派生=手写形状零漂移面） */
-  pendingQueueRef(pid: string): ReturnType<GatewayInternals['pendingQueues']['get']> {
-    return internals(this.gw).pendingQueues.get(pid);
+  pendingQueueRef(pid: string): ReturnType<PersistenceInternals['pendingQueues']['get']> {
+    return persistOf(this.gw).pendingQueues.get(pid);
   }
 
   /** 替代 `(gw as any).pendingQueues.get(pid)?.length ?? 0`（长度读归并） */
@@ -160,29 +178,29 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).pendingQueues.has(pid)` */
   pendingQueueHas(pid: string): boolean {
-    return internals(this.gw).pendingQueues.has(pid);
+    return persistOf(this.gw).pendingQueues.has(pid);
   }
 
   /** 替代 `(gw as any).pendingQueues.set(pid, frames)`（Y19 projectId 键控装置播种） */
   seedPendingQueue(pid: string, frames: Uint8Array[]): void {
-    internals(this.gw).pendingQueues.set(pid, frames);
+    persistOf(this.gw).pendingQueues.set(pid, frames);
   }
 
   /** 替代 `(gw as any).pendingQueues.delete(pid)`（条目丢失模拟/清场） */
   clearPendingQueue(pid: string): void {
-    internals(this.gw).pendingQueues.delete(pid);
+    persistOf(this.gw).pendingQueues.delete(pid);
   }
 
   // ── docProject 族（替代两跳形态 .pendingQueues.get(.docProject.get(doc))） ──
 
   /** 替代 `(gw as any).docProject.get(doc)`（Y4 两跳第一跳） */
   docProjectOf(doc: Y.Doc): string | undefined {
-    return internals(this.gw).docProject.get(doc);
+    return persistOf(this.gw).docProject.get(doc);
   }
 
   /** 替代 `(gw as any).docProject.set(doc, pid)` */
   seedDocProject(doc: Y.Doc, pid: string): void {
-    internals(this.gw).docProject.set(doc, pid);
+    persistOf(this.gw).docProject.set(doc, pid);
   }
 
   /** 两跳归并：`(gw as any).pendingQueues.get((gw as any).docProject.get(doc))` 单操作化 */
@@ -195,50 +213,50 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).persistRetry.get(name)`（entry={rung,timer}——timer 真值断言面；
    *  M-5 波 1 评审：返回型经索引访问派生=手写形状零漂移面） */
-  persistRetryEntry(name: string): ReturnType<GatewayInternals['persistRetry']['get']> {
-    return internals(this.gw).persistRetry.get(name);
+  persistRetryEntry(name: string): ReturnType<PersistenceInternals['persistRetry']['get']> {
+    return persistOf(this.gw).persistRetry.get(name);
   }
 
   /** 替代 `(gw as any).persistRetry.has(name)` */
   persistRetryHas(name: string): boolean {
-    return internals(this.gw).persistRetry.has(name);
+    return persistOf(this.gw).persistRetry.has(name);
   }
 
   /** 替代 `(gw as any).persistRetry.size`（BOI-2 fenced=终态禁梯断言面） */
   persistRetrySize(): number {
-    return internals(this.gw).persistRetry.size;
+    return persistOf(this.gw).persistRetry.size;
   }
 
   /** 替代 `(gw as any).persistRetry.set(name, entry)`（FK 收割用例前置装置；entry 型同源派生） */
-  seedPersistRetry(name: string, entry: NonNullable<ReturnType<GatewayInternals['persistRetry']['get']>>): void {
-    internals(this.gw).persistRetry.set(name, entry);
+  seedPersistRetry(name: string, entry: NonNullable<ReturnType<PersistenceInternals['persistRetry']['get']>>): void {
+    persistOf(this.gw).persistRetry.set(name, entry);
   }
 
   // ── 状态/台账族 ──
 
   /** 替代 `(gw as any).lastCompactAt.set(pid, ms)`（批3-4 compact 时间门回拨装置） */
   backdateLastCompactAt(pid: string, ms: number): void {
-    internals(this.gw).lastCompactAt.set(pid, ms);
+    persistOf(this.gw).lastCompactAt.set(pid, ms);
   }
 
   /** 替代 `(gw as any).lastCompactAt.has(pid)` */
   lastCompactAtHas(pid: string): boolean {
-    return internals(this.gw).lastCompactAt.has(pid);
+    return persistOf(this.gw).lastCompactAt.has(pid);
   }
 
   /** 替代 `(gw as any).persistUnhealthy.add(name)` */
   addPersistUnhealthy(name: string): void {
-    internals(this.gw).persistUnhealthy.add(name);
+    persistOf(this.gw).persistUnhealthy.add(name);
   }
 
   /** 替代 `(gw as any).persistUnhealthy.has(name)` */
   persistUnhealthyHas(name: string): boolean {
-    return internals(this.gw).persistUnhealthy.has(name);
+    return persistOf(this.gw).persistUnhealthy.has(name);
   }
 
   /** 替代 `(gw as any).retryingPersistDocs?.add(name)`（I-2 per-doc 在飞集合装置） */
   addRetryingPersistDoc(name: string): void {
-    internals(this.gw).retryingPersistDocs?.add(name);
+    persistOf(this.gw).retryingPersistDocs?.add(name);
   }
 
   /** 替代 `(gw as any).retryingPersist = true`（I-2 双形态装置红绿同源——旧代码单布尔字段，
@@ -249,12 +267,12 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).flushScheduled.has(pid)`（X10 软阈闩锁断言面） */
   flushScheduledHas(pid: string): boolean {
-    return internals(this.gw).flushScheduled.has(pid);
+    return persistOf(this.gw).flushScheduled.has(pid);
   }
 
   /** 替代 `(gw as any).inFlightProjects.has(pid)`（X2 在飞口径断言面） */
   inFlightHas(pid: string): boolean {
-    return internals(this.gw).inFlightProjects.has(pid);
+    return persistOf(this.gw).inFlightProjects.has(pid);
   }
 
   /** 替代 `(gw as any).initDone`（V9 四步全成置位断言面；读=public getCollabState() 不入 façade） */
@@ -290,9 +308,12 @@ export class GatewayTestFacade {
 
   // ── stub 族（依赖整体替换——白盒故障注入） ──
 
-  /** 替代 `(gw as any).spool = fake`（清理钩子永不抛用例的内部依赖炸装置） */
+  /** 替代 `(gw as any).spool = fake`（清理钩子永不抛用例的内部依赖炸装置）。
+   *  B1（T40）双写：gateway（启动面 scan/replayAll/validateDir）+service（store 链/退避梯/reconciler）
+   *  两引用同换——单写即半 stub 假绿面。 */
   stubSpool(fake: unknown): void {
     (internals(this.gw) as { spool: unknown }).spool = fake;
+    (persistOf(this.gw) as { spool: unknown }).spool = fake;
   }
 
   /** 替代 `gw.transition = fn`（V11 终审收口用例的非法迁移捕获装置——transition 是方法，
@@ -323,9 +344,10 @@ export class GatewayTestFacade {
     return vi.spyOn(methods(this.gw), 'closeAllConnections1012');
   }
 
-  /** 替代 `vi.spyOn(gw as any, 'storeDocumentSerialized')`（M-4(a) 排程计数白盒） */
+  /** 替代 `vi.spyOn(gw as any, 'storeDocumentSerialized')`（M-4(a) 排程计数白盒；B1 随域迁
+   *  service——实例属性 spy 对 service 内部 this. 调用与 gateway 委托调用同命中） */
   spyStoreSerialized() {
-    return vi.spyOn(methods(this.gw), 'storeDocumentSerialized');
+    return vi.spyOn(persistOf(this.gw), 'storeDocumentSerialized');
   }
 
   // ── 私有方法直调转发（测试驱动私有流程——操作即语义，签名经索引访问单源） ──
@@ -350,24 +372,24 @@ export class GatewayTestFacade {
     return methods(this.gw).recheckConnection(...args);
   }
 
-  /** 替代 `(gw as any).reconcileSpool()`（I4 收养回收闭环直调） */
-  reconcileSpool(): ReturnType<GatewayMethods['reconcileSpool']> {
-    return methods(this.gw).reconcileSpool();
+  /** 替代 `(gw as any).reconcileSpool()`（I4 收养回收闭环直调；B1 随域迁 service——persistOf 单点） */
+  reconcileSpool(): ReturnType<PersistenceInternals['reconcileSpool']> {
+    return persistOf(this.gw).reconcileSpool();
   }
 
-  /** 替代 `(gw as any).schedulePersistRetry(name)`（Y19 梯排程直调） */
+  /** 替代 `(gw as any).schedulePersistRetry(name)`（Y19 梯排程直调；B1 随域迁 service） */
   schedulePersistRetry(documentName: string): void {
-    methods(this.gw).schedulePersistRetry(documentName);
+    persistOf(this.gw).schedulePersistRetry(documentName);
   }
 
-  /** 替代 `(gw as any).cancelPersistRetry(name)`（梯清场直调） */
+  /** 替代 `(gw as any).cancelPersistRetry(name)`（梯清场直调；B1 随域迁 service） */
   cancelPersistRetry(documentName: string): void {
-    methods(this.gw).cancelPersistRetry(documentName);
+    persistOf(this.gw).cancelPersistRetry(documentName);
   }
 
-  /** 替代 `(gw as any).retryPersist(name)`（M-2 FK 收割直调） */
-  retryPersist(documentName: string): ReturnType<GatewayMethods['retryPersist']> {
-    return methods(this.gw).retryPersist(documentName);
+  /** 替代 `(gw as any).retryPersist(name)`（M-2 FK 收割直调；B1 随域迁 service） */
+  retryPersist(documentName: string): ReturnType<PersistenceInternals['retryPersist']> {
+    return persistOf(this.gw).retryPersist(documentName);
   }
 
   /** 替代 `(gw as any).transition(next, cause)`（V33 状态机单点直调——非法迁移点名日志面） */
@@ -510,32 +532,32 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).lastCompactAt.delete(name)`（绕 compact 时间门装置） */
   clearLastCompactAt(name: string): void {
-    internals(this.gw).lastCompactAt.delete(name);
+    persistOf(this.gw).lastCompactAt.delete(name);
   }
 
   /** 替代 `(gw as any).pendingSince.get(pid)`（空→非空播种断言面） */
-  pendingSinceOf(projectId: string): ReturnType<GatewayInternals['pendingSince']['get']> {
-    return internals(this.gw).pendingSince.get(projectId);
+  pendingSinceOf(projectId: string): ReturnType<PersistenceInternals['pendingSince']['get']> {
+    return persistOf(this.gw).pendingSince.get(projectId);
   }
 
   /** 替代 `[...((gw as any).persistRetry as Map<string, unknown>)]` 枚举（dispose 后梯收口装置） */
   persistRetryNames(): string[] {
-    return [...internals(this.gw).persistRetry.keys()];
+    return [...persistOf(this.gw).persistRetry.keys()];
   }
 
   /** 替代 `(gw as any).deletedProjects.has(pid)`（project.gone 终态集断言面） */
   deletedProjectsHas(pid: string): boolean {
-    return internals(this.gw).deletedProjects.has(pid);
+    return persistOf(this.gw).deletedProjects.has(pid);
   }
 
   /** 替代 `(gw as any).inFlightProjects.add(pid)`（在飞口径装置） */
   addInFlight(pid: string): void {
-    internals(this.gw).inFlightProjects.add(pid);
+    persistOf(this.gw).inFlightProjects.add(pid);
   }
 
   /** 替代 `(gw as any).inFlightProjects.delete(pid)` */
   removeInFlight(pid: string): void {
-    internals(this.gw).inFlightProjects.delete(pid);
+    persistOf(this.gw).inFlightProjects.delete(pid);
   }
 
   /** 替代 `(gw as any).repo`（身份引用——mock 链装置 `.hydrateWithRecovery.mock…` 消费面；
@@ -544,9 +566,12 @@ export class GatewayTestFacade {
     return internals(this.gw).repo;
   }
 
-  /** 替代 `(gw as any).repo = fake`（恢复腿换接真库 repo——stubSpool 同款整体替换装置） */
+  /** 替代 `(gw as any).repo = fake`（恢复腿换接真库 repo——stubSpool 同款整体替换装置）。
+   *  B1（T40）双写：gateway（loadDocument hydrate/replayAll 传参）+service（store 链 append/compact/
+   *  reconcileSpool replayAll/drainDetached）两引用同换。 */
   stubRepo(fake: unknown): void {
     (internals(this.gw) as { repo: unknown }).repo = fake;
+    (persistOf(this.gw) as { repo: unknown }).repo = fake;
   }
 
   // ── SessionGuard 族扩（refusal/perm 缓存+身份/归属台账+寿命/桶台账+overPush+writeFreeze） ──
@@ -736,9 +761,9 @@ export class GatewayTestFacade {
     return vi.spyOn(methods(this.gw), 'heapUsedNow');
   }
 
-  /** 替代 `vi.spyOn(gw as any, 'peekSpoolFrames')`（Y2 IO 逃逸注入装置） */
+  /** 替代 `vi.spyOn(gw as any, 'peekSpoolFrames')`（Y2 IO 逃逸注入装置；B1 随域迁 service） */
   spyPeekSpoolFrames() {
-    return vi.spyOn(methods(this.gw), 'peekSpoolFrames');
+    return vi.spyOn(persistOf(this.gw), 'peekSpoolFrames');
   }
 
   /** 替代 `vi.spyOn(gw as any, 'sweepSessions')`（风暴合并恰一次执行断言面） */

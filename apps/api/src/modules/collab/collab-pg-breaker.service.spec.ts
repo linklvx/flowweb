@@ -275,9 +275,11 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     expect(gatewayFacade(gateway).pgBreakerRef().stateName()).toBe('open');
   });
 
-  it('★范围静态锚：breaker 闸门调用点+状态谓词恰四（auth/load 准入+store 短路+isPgBreakerOpen 谓词）——不裹 lease 心跳/不拒 WS 帧路径', () => {
-    const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
-    expect(src.match(/\.admitQuery\(\)|\.isOpen\(|\.stateName\(/g)).toHaveLength(4);
+  it('★范围静态锚：breaker 闸门调用点+状态谓词恰四（auth/load 准入+store 短路+isPgBreakerOpen 谓词）——不裹 lease 心跳/不拒 WS 帧路径（T40 B1 锚随迁：store 短路点 .isOpen() 随 storeDocumentUnlocked 迁 collab-persistence.service——四点判据=gateway+service 双文件求和，§0.6 偏离 66①）', () => {
+    const gw = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
+    const svc = readFileSync(resolve(__dirname, 'collab-persistence.service.ts'), 'utf8');
+    const gateRe = () => /\.admitQuery\(\)|\.isOpen\(|\.stateName\(/g;
+    expect((gw.match(gateRe()) ?? []).length + (svc.match(gateRe()) ?? []).length).toBe(4);
   });
 });
 

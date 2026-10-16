@@ -155,7 +155,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       gatewayFacade(kit.gateway).spyStoreSerialized().mockResolvedValue(false);   // 主循环全败=批留队（8s 总闸耗尽后的纯 force-spool 等效态）
       const spies = installLogSpies(kit.gateway);   // Y16：动作前安装
       await seedPendingDoc(kit, 'project:p-dr6', 2);
-      await (kit.gateway as any).drainAllDocuments(Date.now() + 3_000);
+      await kit.gateway.persistence.drainAllDocuments(Date.now() + 3_000);
       const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr6');
       expect(q).toHaveLength(0);                               // 批出队列（J5：真写成才 splice）
       expect(await kit.spool.peek('p-dr6')).toHaveLength(1);   // 批入 spool（磁盘落定）
@@ -174,7 +174,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<string[]>((resolve) => { releases.push(resolve); }));   // spool 挂起（主循环 V1 支+force-spool 双挂）
       const spies = installLogSpies(kit.gateway);
       await seedPendingDoc(kit, 'project:p-dr7', 2);
-      await (kit.gateway as any).drainAllDocuments(Date.now() + 400);   // 短 deadline——两腿 race 超时路径
+      await kit.gateway.persistence.drainAllDocuments(Date.now() + 400);   // 短 deadline——两腿 race 超时路径
       const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr7');
       expect(q).toHaveLength(2);                               // J5：null 不 splice（真写成才出队——批蒸发防线）
       const events = collectEvents(spies);
@@ -208,7 +208,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       await seedPendingDoc(kit, 'project:p-dr8', 2);
       const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr8')!;
       const n = q.length; const tailRef = q[n - 1];   // 与生产锚同点取批尾引用（M-4(b) 同形）
-      const drain = (kit.gateway as any).drainAllDocuments(Date.now() + 5_000);   // 不 await：折并须落挂起窗内
+      const drain = kit.gateway.persistence.drainAllDocuments(Date.now() + 5_000);   // 不 await：折并须落挂起窗内
       await pollUntil(() => calls >= 2, 5_000);   // force-spool append 已挂起（锚已取——主循环 V1 拒在前）
       q.unshift(new Uint8Array([9, 9]));           // 折并交织形态：前缀改写（q[n-1] 身份破坏）
       release(['y0a2-force-anchor']);
