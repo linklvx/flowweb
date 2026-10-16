@@ -6,7 +6,8 @@
 > - 门禁（登记红对账）：`node scripts/check-collab-test-facade.mjs`（verify 链 id=check-collab-test-facade，census 邻位 fast 外）
 > - 门禁自测：`node --test scripts/check-collab-test-facade.test.mjs`（29 例）
 > 注意：--report 输出随替换推进滚动变化（基线态=**重基线后 538 处/29 文件**——勘正轮前旧口径
-> 534/31 见 git 历史 b335d94f；波 1 试点后现态=**403 处/28 文件**——旧口径 399/30）。
+> 534/31 见 git 历史 b335d94f；波 1 试点后=403 处/28 文件；**波 2 终态=78 处/15 文件——全部
+> 直调族保留 cast（登记 until='B1-B3'），替换 325 处，见 §8**）。
 > 本文「步骤 0 基线」节=波 1 替换前全量快照（附录全文=勘正轮重跑输出；旧 534 快照留 git 历史）；偏离登记=spec §0.6 62 号+63 号（勘正轮）。
 
 ## 1. 门禁口径（违规定义终态——写死于脚本头注）
@@ -244,3 +245,98 @@ apps/api/src/modules/collab/read-canvas-routing.spec.ts  ×5  (alias:5)
 apps/api/src/modules/collab/write-frozen-chain.int.spec.ts  ×1  (cast:1)
 违规总数 = 538（29 文件）
 ```
+
+---
+
+# 波 2 执行记录（2026-10-17——偏离 64 收窄裁决落地；façade 门禁全量机械替换 B0 收口）
+
+> 起点=403 处/28 文件/28 项登记（until='T39b-2'）；终点=**78 处/15 文件/15 项登记（全部 until='B1-B3'
+> =仅直调族）**；替换 325 处、13 文件清零 stale 核销。commit 链：15b8cf9e（基座+微档）→dec06f6f
+> （低档）→d1eee575（中档）→本文件落档 commit（高档 shrink+报告）。生产代码零改动（`git diff
+> 3ef63ceb --name-only` 实测：26 spec+façade+门禁脚本+spec §0.6+本报告——collab.gateway.ts/service
+> 面一行未碰；façade 模块扩方法=偏离 64 授权面）。
+
+## 8. 逐文件替换表（原登记数=波 1 勘正轮重基线口径；替换+保留=原登记数 精确对账）
+
+| 文件（collab/ 前缀省略） | 原登记 | 替换 | 保留直调（until=B1-B3） | 保留成员明细 | 该文件 vitest |
+|---|---|---|---|---|---|
+| collab-shrink.spec.ts | 73 | 67 | 6 | freezeQuota×3+scheduleFreezePending×1+loadDocument×2 | 26/26 绿 |
+| collab-quota-truth.spec.ts | 41 | 36 | 5 | loadDocument×1+maybeCompact×2+unloadDocument×2 | 12/12 绿 |
+| collab-metrics-observability.spec.ts | 32 | 15 | 17 | loadDocument×4+maybeCompact×7+storeDocumentUnlocked×3+unloadDocument×2+logDocTopN×1 | 16/16 绿 |
+| collab-auth-defense.spec.ts | 30 | 23 | 7 | startSessionSweep×3+heapPressureSample×2+withAuthDeadline×2 | 28/28 绿 |
+| collab-perm-events.spec.ts | 29 | 16 | 13 | sweepIntervalMs bind 读点×1+wirePermChangedEvents×7+sweepSessions×3+guardAwareness×2 | 19/19 绿 |
+| collab.gateway.persist-status.spec.ts | 27 | 27 | 0（登记移除） | — | 全量批绿 |
+| collab.gateway.sweep.spec.ts | 27 | 17 | 10 | startSessionSweep×10 | 16/16 绿 |
+| collab-quota-gate.spec.ts | 25 | 25 | 0（登记移除） | —（freezeDoc(gw:any) 参数别名内 freezeQuota 直调=I-3④ 已知逃逸面，直调族同款保留至 B1-B3——门禁不计数、纪律面披露） | 18/18 绿 |
+| collab.gateway.project-gone.spec.ts | 15 | 15 | 0（登记移除） | — | 全量批绿 |
+| collab.gateway.shutdown.spec.ts | 14 | 11 | 3 | drainAllDocuments×3 | 全量批绿 |
+| collab-awareness-guard.spec.ts | 12 | 12 | 0（登记移除） | — | 全量批绿 |
+| collab-heap-gate.spec.ts | 9 | 7 | 2 | loadDocument×2 | 全量批绿 |
+| collab-pg-breaker.service.spec.ts | 9 | 9 | 0（登记移除） | — | 全量批绿 |
+| collab-sentry.spec.ts | 9 | 9 | 0（登记移除） | — | 全量批绿 |
+| collab-t20-ripples.spec.ts | 9 | 6 | 3 | recheckFrozenDocs×3 | 全量批绿 |
+| collab-upgrade.spec.ts | 8 | 3 | 5 | clientIpOf×3+handleUpgrade×2 | 全量批绿 |
+| collab-rate-gate.spec.ts | 6 | 6 | 0（登记移除） | — | 全量批绿 |
+| read-canvas-routing.spec.ts | 5 | 5 | 0（登记移除） | — | 全量批绿 |
+| collab-degraded.spec.ts | 4 | 3 | 1 | loadDocument×1 | 5 文件批绿 |
+| collab-pg-breaker.int.spec.ts | 4 | 4 | 0（登记移除） | — | int 链绿 |
+| collab-runtime-metrics.spec.ts | 4 | 1 | 3 | loadDocument×1+storeDocumentUnlocked×2 | 6/6 绿 |
+| collab-reconnect-storm.spec.ts | 3 | 3 | 0（登记移除） | —（authInflightPeak Z140② 活命中三处归状态台账组） | 1/1 绿 |
+| collab-write-endpoint.int.spec.ts | 2 | 1 | 1 | clearDrainTimer×1 | int 链绿 |
+| collab.gateway.auth-reason.spec.ts | 2 | 2 | 0（登记移除） | — | 12/12 绿 |
+| collab-backpressure.spec.ts | 1 | 0 | 1 | wrapBackpressure×1（文件零改动，仅登记改 until） | 全量批绿 |
+| collab-perm-chain.spec.ts | 1 | 1 | 0（登记移除） | — | 5 文件批绿 |
+| collab-version-gate.spec.ts | 1 | 1 | 0（登记移除） | — | 5 文件批绿 |
+| write-frozen-chain.int.spec.ts | 1 | 0 | 1 | recheckFrozenDocs×1（文件零改动，仅登记改 until） | int 链绿 |
+| **合计** | **403** | **325** | **78（15 文件）** | 20 distinct 直调族成员 | **75 文件 818 用例绿** |
+
+保留直调族 20 成员（B1-B3 service 化公有化后 cast 自然消失⇒门禁 stale 红强制核销登记）：
+startSessionSweep 13｜loadDocument 11｜maybeCompact 9｜wirePermChangedEvents 7｜storeDocumentUnlocked 5｜
+unloadDocument 4｜recheckFrozenDocs 4｜freezeQuota 3｜sweepSessions 3｜clientIpOf 3｜drainAllDocuments 3｜
+heapPressureSample 2｜withAuthDeadline 2｜handleUpgrade 2｜guardAwareness 2｜scheduleFreezePending 1｜
+wrapBackpressure 1｜clearDrainTimer 1｜logDocTopN 1｜sweepIntervalMs(bind 读点) 1（合计=78）。
+
+## 9. façade 终态（N=113 class 方法+gatewayFacade 工厂+1 模块级函数——实测口径；波 1 class 方法 40〔§3 表格口径 41 含工厂〕+波 2 扩 73）
+
+波 2 新增 73 方法+1 模块函数（全部 R4 合规：entry 型索引访问派生/NonNullable<ReturnType<…>>、JSDoc「替代的成员访问形态」、新扩方法零新增内联 cast——受控 cast 收敛三单点 internals()/methods()/+波 2 新增 bucketInternals()（TokenBucket 私有 options/buckets 镜像）与 writeFreezeMap()（conn 键形态镜像））：
+
+| 组 | 新方法 | 归并论证（触达点→操作） |
+|---|---|---|
+| DocRegistry 真值台账（12） | docTruthOf/docTruthHas/seedDocTruth/docDeltaOf/docDeltaHas/seedDocDelta/truthMeasuredAtOf/truthMeasuredAtHas/seedTruthMeasuredAt/degradedDocsHas/addDegradedDoc/docEpochOf | 三件套读写 45+ 触达点归并 9 操作（Of/Has/seed 三形态=波 1 pendingQueues 族同款动词前缀） |
+| 配额冻结台账（13） | quotaFrozenHas/addQuotaFrozen/freezePendingHas/addFreezePending/thawCooldownHas/seedThawCooldown/seedRecheckRounds/docStatusRevOf/seedDocStatusRev/seedDocStatusState/seedDocGeneration/seedDocResidue/seedPreVacuumSv | shrink 普查播种块 15 连发+quota-gate/t20 冻结断言 30+ 触达点 |
+| Persistence 扩（8） | clearLastCompactAt/pendingSinceOf/persistRetryNames/deletedProjectsHas/addInFlight/removeInFlight/repoRef/stubRepo | persistRetryNames=枚举形态归并（shutdown `for…of [...Map]` ×2）；repoRef/stubRepo=身份引用/整体替换（pendingQueueRef/stubSpool 先例） |
+| SessionGuard 台账（26） | refusalCacheSize/seedRefusal/authInflightPeak/resetAuthInflightPeak/seedPermCache/evictPermCache/seedConnectionId/connectionIdOf/connectionIdHas/clientIdOwnerHas/clientIdOwnerOf/clientIdOwnerSize/ownedClientIdsOfClient/seedSocketIdentity/socketIdentityOf/socketIdentityHas/addAwarenessDriftLogged/awarenessDriftLoggedHas/seedConnEstablishedAt/connEstablishedAtHas/seedAuthAttemptBucket/authAttemptBucketHas/seedOverPush/overPushHas/overPushStates/writeFreezeHas | ownedClientIdsOfClient=两跳归并单操作（awareness-guard :129 双触达合一——pendingQueueRefForDoc 先例）；overPushStates 返回**活 entry 引用数组**（quota-gate `st.firstAt -= 10_000` 白盒改写直落台账——身份语义保留） |
+| 限流桶操作化（5） | consumeUpgradeBucket/bytesBucketCapacity/consumeBytesBucket/bytesBucketTokens/rateBucketHasKey | rateBucketHasKey 三桶三形态一操作归并（rate-gate :208 三触达合一） |
+| stub 族扩（2） | pgBreakerRef/stubSweepInterval | pgBreakerRef=身份引用（recordFailure/recordSuccess/stateName 均 breaker **公有**面——4 触达点一 Ref；auth-defense/pg-breaker.service 的 `as CollabPgBreakerService` cast 消失）；stubSweepInterval=方法实例属性遮蔽（stubTransition 先例——赋值写 13 触达点） |
+| spy 组扩（7） | spyHeapUsedNow/spyPeekSpoolFrames/spySweepSessions/spyMeasureTruth/spyUpdateResidue/spyAllowedOrigins/spyGraceDirectConnections | R3 检测 17 处 spyOn 形态覆盖度自查：波 1 5 方法覆盖 7 处（gateway.spec 已清）+波 2 扩 7 方法覆盖 10 处缺口（已知陷阱条「缺口按 R4 扩」字面执行）；spyLogger level 面扩 'log'（sentry/metrics-obs 结构化日志断言） |
+| 模块级（1） | authDbDeadlineMs() | `(CollabGateway as any).AUTH_DB_DEADLINE_MS` 类名静态私有常量读 ×2——静态面不依赖实例=façade 唯一非 class 方法出口 |
+
+## 10. 类型债修复清单（R3——api-tsc-scripts 面暴露；全部纯类型面，运行时语义逐字保留）
+
+| 位置 | 形态 | 修法 |
+|---|---|---|
+| persist-status :125 | `clearTimeout(entry.timer)`——entry 型化后 timer 含 null（any 时代宽松） | `clearTimeout(entry.timer!)`（波 1 偏离 62⑥ 同款先例；null 传入 clearTimeout 运行时 no-op 不变） |
+| persist-status/shutdown/quota-truth/degraded/shrink 队列取回 | `.get(…)` any→`Uint8Array[]\|undefined` 后 `.push/.splice/.length` | `pendingQueueRef(…)!` 非空断言（原代码缺条目即 TypeError=红；断言纯编译期） |
+| quota-truth/shrink/quota-gate truth/rev 读点 | `as number` cast→索引派生 `number\|undefined` | `docTruthOf(…)!`/`docStatusRevOf(…)!`/声明点 `overRev!`（undefined+1=NaN 语义 any 时代同款） |
+| awareness-guard :129/:198-199 | `as Set<number>`/`as string` 载荷 cast | `ownedClientIdsOfClient(301)!`/`clientIdOwnerOf(…)!` |
+| rate-gate :121/:198 | 别名去 any 化后 `doc()` 型化 `Document\|undefined` | `doc()!.connections`（pollUntil 已保证存在——原 any 遮蔽同语义） |
+| sweep :173 | 解构去 `as any` 后 `mockResolvedValue({ role: null })` 对推断型 `{role: string}` 不赋 | 载荷 `as never` 型收窄（对象字面量逐字保留——运行时零变化） |
+
+无法保持运行时语义的修复：**零**（未触发「停下问」条款）。
+
+## 11. 终态门禁输出+出口链数字（2026-10-17 实测）
+
+- 门禁：`node scripts/check-collab-test-facade.mjs` **PASS exit 0**——`现状违规 78 处/15 文件；登记红 15 项 until=B1-B3`（**终态登记面=仅直调族**；until 值 header 现场聚合=偏离 64 伴生，双段/单段如实呈现）
+- collab 全量：**unit 链 65 文件 782 用例+int 链 10 文件 36 用例=75 文件 818 用例全绿**（int 带 DATABASE_URL 真库；fileParallelism=false 串行）
+- `pnpm verify:fast` **15 步 PASS**（含 api-tsc/api-tsc-scripts/web-tsc/shared 三件/check-migrate-diff+fresh-replay db 步）
+- census **23/23 PASS**｜check-spec-consistency **OK**（denylist 7 零命中/env 73 键/metric 145 项）｜scripts-node-test 全列举 **187/187**｜门禁自测 **29/29**
+- 生产代码零改动：`git diff 3ef63ceb --name-only` 全集=26 spec+façade+门禁脚本+spec §0.6（偏离 64）+本报告——collab.gateway.ts/service 面一行未碰
+
+## 12. 执行期裁量与披露（单点自裁——大面积歧义零发生，未触发停下问）
+
+- **sweepIntervalMs 双形态分治**：赋值写 13 处=stubSweepInterval（stub 族/stubTransition 先例）；perm-events :104 `.bind(gateway)` 原实现读取点=直调族保留（新建 `sampleSweepIntervalMs()` 即 1:1 转发垫片）。
+- **spy 与直调同文件并存**（perm-events spySweepSessions 替换 :157 / sweepSessions 直调保留 :174/:177/:274）：两裁决面各自字面执行（spy 缺口按 R4 扩=已知陷阱条；直调 1:1 不转发=偏离 64②）——B1-B3 公有化后两侧同时消失。
+- **别名族消除**：shrink gw2/g/g2、quota-gate g×9、rate-gate g×4、t20 g、persist-status g×2、sweep 解构 perm、read-canvas-routing makeGateway() as any——全部消除（替换后无残余触达的别名声明物理删除；quota-gate 公有成员冗余 cast `(kit.gateway as any).server/isVacuuming` 与 :429-497 直构 kit 面按精准修改原则保留不动=非门禁面）。
+- **I-3④ 参数别名逃逸面残留**（如实披露不掩盖）：quota-gate `freezeDoc(gw: any)` 内 `gw.freezeQuota(pid)` 直调（门禁不计数）——直调族处置同款保留至 B1-B3；该形态是全量替换后唯一残存的参数别名逃逸点。
+- **shrink 普查反射面**：`Object.entries(g)` 的 g=any 别名改 `Object.entries(gateway)`（façade 化不改枚举对象——反射语义逐字保留，15 播种全经 seed 方法）。
+- 门禁误报：**零**（403→78 全程无一例假阳性主张——波 1 勘正轮执法面已收敛）。

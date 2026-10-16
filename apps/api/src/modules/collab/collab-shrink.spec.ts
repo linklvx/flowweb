@@ -18,9 +18,10 @@ import { CollabShrinkService, SHRINK_QUEUE_TIMEOUT_MS } from './collab-shrink.se
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabNotServingFilter } from './collab-not-serving.filter';
 import { CollabSpoolService } from './collab-spool.service';
-import { createMockRepo } from '../../test-utils/mock-repo';
+import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const MiB = 1024 * 1024;
@@ -46,7 +47,7 @@ function buildGateway(quota?: Partial<QuotaConfig>): CollabGateway {
     undefined, undefined, undefined, spool,
     quota,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return gateway;
 }
 
@@ -192,7 +193,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(typeof err.getResponse().bytes).toBe('number');   // 预演编码值（影子 doc 实测）
     expect(stillOver).toBe(1);
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before);      // 活 doc 零变更（字节级）
-    expect((gateway as any).docTruth.has('p1')).toBe(false); // 未校准（calibrateTruth 未被触达——docTruth 无键）
+    expect(gatewayFacade(gateway).docTruthHas('p1')).toBe(false); // 未校准（calibrateTruth 未被触达——docTruth 无键）
     expect(thawSpy).not.toHaveBeenCalled();
   });
 
@@ -256,8 +257,8 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     const gateway = buildGateway({ maxDocBytes: 1 * MiB });
     const doc = seedDoc();
     addNode(doc, 'n1', 4096);
-    (gateway as any).docTruth.set('p1', 12345);   // 预置陈旧 truth——校准应覆写
-    (gateway as any).docDelta.set('p1', 999);
+    gatewayFacade(gateway).seedDocTruth('p1', 12345);   // 预置陈旧 truth——校准应覆写
+    gatewayFacade(gateway).seedDocDelta('p1', 999);
     const { svc } = buildSvc(gateway, doc);
     const expectWatermark = Y.encodeStateAsUpdate(doc).byteLength;
     let r1: any;
@@ -268,8 +269,8 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(r1.watermark).toBe(expectWatermark);
     expect(r1.deletedIds).toEqual([]);
     expect(doc.getMap('nodes').has('n1')).toBe(true);                    // 不删内容
-    expect((gateway as any).docTruth.get('p1')).toBe(expectWatermark);   // 校准=truth 覆写
-    expect((gateway as any).docDelta.get('p1')).toBe(0);                 // delta 归零
+    expect(gatewayFacade(gateway).docTruthOf('p1')).toBe(expectWatermark);   // 校准=truth 覆写
+    expect(gatewayFacade(gateway).docDeltaOf('p1')).toBe(0);                 // delta 归零
     expect(recalibrated).toBeGreaterThan(0);
     expect(r1.thawed).toBe(false);                                       // 未冻结 doc——thaw 冻结前置（Concern ①）后无出口
 
@@ -281,7 +282,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     const gw2 = buildGateway({ maxDocBytes: 8 * 1024 });   // softExit=0.6×8KB=4915
     const big = seedDoc();
     addNode(big, 'big', 8192);
-    (gw2 as any).docTruth.set('p1', 1);   // 装载播种态（真实路径 withDoc 装载播种——校准覆写前提，T3"未装载不复活"守卫）
+    gatewayFacade(gw2).seedDocTruth('p1', 1);   // 装载播种态（真实路径 withDoc 装载播种——校准覆写前提，T3"未装载不复活"守卫）
     const s2 = buildSvc(gw2, big);
     const thawSpy = vi.spyOn(gw2, 'thawQuota');
     const r3 = await s2.svc.shrink('p1', 'u1', {});
@@ -297,7 +298,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(r4.result).toBe('noop');
     expect(r4.thawed).toBe(false);
     expect(noop).toBeGreaterThan(0);
-    expect((gw2 as any).docTruth.get('p1')).toBe(r3.watermark);   // noop 不校准（truth 保持上次值）
+    expect(gatewayFacade(gw2).docTruthOf('p1')).toBe(r3.watermark);   // noop 不校准（truth 保持上次值）
   });
 
   it('成功：truth=活文档再编码（白名单点③）+thaw（truth<0.6×MAX 时 SyncStep1 回灌）+广播 rev++/ok/deletedIds', async () => {
@@ -309,13 +310,13 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addEdge(doc, 'e2', 'n2', 'n1');
     const conn = makeConn();
     attachDoc(gateway, doc, 'p1', [conn]);
-    const g = gateway as any;
-    g.docTruth.set('p1', 1);   // 装载播种态（真实路径 withDoc 装载播种——校准覆写前提，T3"未装载不复活"守卫）
-    (g as any).freezeQuota('p1');    // 预冻结：broadcast over+setImmediate 落地（quotaFrozenDocs+readOnly）
+    const g = gatewayFacade(gateway);
+    g.seedDocTruth('p1', 1);   // 装载播种态（真实路径 withDoc 装载播种——校准覆写前提，T3"未装载不复活"守卫）
+    (gateway as any).freezeQuota('p1');    // 直调族（偏离 64②）——预冻结：broadcast over+setImmediate 落地（quotaFrozenDocs+readOnly）
     await nextTick();
-    expect(g.quotaFrozenDocs.has('p1')).toBe(true);
+    expect(g.quotaFrozenHas('p1')).toBe(true);
     expect(conn.readOnly).toBe(true);
-    const overRev = g.docStatusRev.get('p1');
+    const overRev = g.docStatusRevOf('p1')!;   // 非空断言=纯类型面（R3——any 时代宽松不红；运行时语义零变化）
     expect(overRev).toBe(2);   // 无装载播种（直构）——首翻 over：SEED(1)+1
 
     const { svc } = buildSvc(gateway, doc);
@@ -333,13 +334,13 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     // truth=活文档再编码（白名单③——非预演值）+校准落地
     const liveBytes = Y.encodeStateAsUpdate(doc).byteLength;
     expect(r.watermark).toBe(liveBytes);
-    expect(g.docTruth.get('p1')).toBe(liveBytes);
-    expect(g.docDelta.get('p1')).toBe(0);
+    expect(g.docTruthOf('p1')).toBe(liveBytes);
+    expect(g.docDeltaOf('p1')).toBe(0);
     expect(liveBytes).toBeLessThan(Math.floor(1 * MiB * QUOTA_DEFAULTS.softExitRatio));   // 前置：出口阈值内
 
     // thaw：冻结解除+readOnly 复位+SyncStep1 回灌帧+广播 ok（rev++）
     expect(r.thawed).toBe(true);
-    expect(g.quotaFrozenDocs.has('p1')).toBe(false);
+    expect(g.quotaFrozenHas('p1')).toBe(false);
     expect(conn.readOnly).toBe(false);
     expect(conn.send).toHaveBeenCalledTimes(1);   // thaw 回灌一帧 SyncStep1（writeFirstSyncStepFor）
     const okBroadcasts = conn.sendStateless.mock.calls
@@ -347,7 +348,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
       .filter((m: any) => m?.type === 'doc-status' && m?.quota?.state === 'ok');
     expect(okBroadcasts.length).toBeGreaterThanOrEqual(1);
     expect(okBroadcasts[0].rev).toBe(overRev + 1);   // 翻转自增
-    expect(g.docStatusRev.get('p1')).toBe(overRev + 1);
+    expect(g.docStatusRevOf('p1')).toBe(overRev + 1);
 
     // deletedIds 响应携带（客户端 undoManager.clear 数据源——Q-G）
     expect(r.deletedIds).toEqual(['n1']);
@@ -361,7 +362,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addNode(doc, 'n1', 4096);
     const conn = makeConn();
     attachDoc(gateway, doc, 'p1', [conn]);
-    (gateway as any).docTruth.set('p1', 12345);
+    gatewayFacade(gateway).seedDocTruth('p1', 12345);
     const { svc } = buildSvc(gateway, doc);
     const thawSpy = vi.spyOn(gateway, 'thawQuota');
     let r1: any;
@@ -373,13 +374,13 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(thawSpy).not.toHaveBeenCalled();                         // thawQuota 零调用
     expect(exitDelta).toBe(0);                                      // soft_threshold{exit} 零增量
     expect(conn.send).not.toHaveBeenCalled();                       // 冗余 SyncStep1 零往返
-    expect((gateway as any).thawCooldown.has('p1')).toBe(false);    // 30s 冷却窗零污染
-    expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(false);
+    expect(gatewayFacade(gateway).thawCooldownHas('p1')).toBe(false);    // 30s 冷却窗零污染
+    expect(gatewayFacade(gateway).quotaFrozenHas('p1')).toBe(false);
 
     // 臂二：冻结 doc → 照常 thaw（exit 计数配对+冷却窗播种——enter/exit 对账不虚高）
-    (gateway as any).freezeQuota('p1');
+    (gateway as any).freezeQuota('p1');   // 直调族（偏离 64②）
     await nextTick();
-    expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(true);
+    expect(gatewayFacade(gateway).quotaFrozenHas('p1')).toBe(true);
     let r2: any;
     const exitDelta2 = await counterDelta('collab_quota_soft_threshold_total', { action: 'exit' }, async () => {
       r2 = await svc.shrink('p1', 'u1', { recalibrate: true });
@@ -387,8 +388,8 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(r2.thawed).toBe(true);
     expect(thawSpy).toHaveBeenCalledWith('p1');
     expect(exitDelta2).toBe(1);                                     // 冻结出口——配对计数
-    expect((gateway as any).thawCooldown.has('p1')).toBe(true);
-    expect((gateway as any).quotaFrozenDocs.has('p1')).toBe(false);
+    expect(gatewayFacade(gateway).thawCooldownHas('p1')).toBe(true);
+    expect(gatewayFacade(gateway).quotaFrozenHas('p1')).toBe(false);
   });
 
   it('thaw 冻结前置收窄（T8 外审 Minor）：freezePending 确认窗内 shrink 达标 → thawQuota 零调用（真冻结 quotaFrozenDocs 才 thaw）+pending 定时器自收敛（到期实测<soft→calibrate+ok，不 freezeQuota）', async () => {
@@ -399,13 +400,13 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
       addNode(doc, 'n1', 64);   // shrink 删 n1 后 truth 极小 <softExit——达标语境
       const conn = makeConn();
       attachDoc(gateway, doc, 'p1', [conn]);   // pending 定时器到期 documents.get 可达+连接可观测
-      (gateway as any).docTruth.set('p1', 999_000);   // 陈旧大 truth（账面触阈语境）
+      gatewayFacade(gateway).seedDocTruth('p1', 999_000);   // 陈旧大 truth（账面触阈语境）
       const { svc } = buildSvc(gateway, doc);
       const thawSpy = vi.spyOn(gateway, 'thawQuota');
-      const g = gateway as any;
-      g.scheduleFreezePending('p1');   // 账面触阈：broadcast over+挂 2s 确认定时器（两态分离——未冻结）
-      expect(g.freezePending.has('p1')).toBe(true);
-      expect(g.quotaFrozenDocs.has('p1')).toBe(false);
+      const g = gatewayFacade(gateway);
+      (gateway as any).scheduleFreezePending('p1');   // 直调族（偏离 64②）——账面触阈：broadcast over+挂 2s 确认定时器（两态分离——未冻结）
+      expect(g.freezePendingHas('p1')).toBe(true);
+      expect(g.quotaFrozenHas('p1')).toBe(false);
 
       let r: any;
       const exitDelta = await counterDelta('collab_quota_soft_threshold_total', { action: 'exit' }, async () => {
@@ -415,11 +416,11 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
       expect(r.thawed).toBe(false);                   // 红相：改前 isQuotaFrozen=quotaStateOf 含 freezePending → thawed=true
       expect(thawSpy).not.toHaveBeenCalled();         // thawQuota 零调用（真冻结才 thaw）
       expect(exitDelta).toBe(0);                      // 无 enter 不出 exit——计数配对干净
-      expect(g.freezePending.has('p1')).toBe(true);   // shrink 不碰 pending——定时器自收敛（下方推进验证）
+      expect(g.freezePendingHas('p1')).toBe(true);   // shrink 不碰 pending——定时器自收敛（下方推进验证）
 
       await vi.advanceTimersByTimeAsync(TRUTH_COOLDOWN_MS);   // pending 定时器自收敛
-      expect(g.freezePending.has('p1')).toBe(false);
-      expect(g.quotaFrozenDocs.has('p1')).toBe(false);        // 未 freezeQuota（实测<soft→calibrate+ok 分支）
+      expect(g.freezePendingHas('p1')).toBe(false);
+      expect(g.quotaFrozenHas('p1')).toBe(false);        // 未 freezeQuota（实测<soft→calibrate+ok 分支）
       expect(conn.readOnly).toBe(false);                      // 全程未冻结——连接可写
     } finally {
       vi.useRealTimers();
@@ -435,16 +436,16 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addNode(doc, 'n2', 2048);
     const conn = makeConn();
     attachDoc(gateway, doc, 'p1', [conn]);
-    const g = gateway as any;
-    g.docTruth.set('p1', Y.encodeStateAsUpdate(doc).byteLength);   // prevTruth=删除前真值
-    g.docStatusRev.set('p1', 1);            // 装载播种形态
-    g.docStatusState.set('p1', 'ok:false'); // 上次广播同态（state/frozen 均未变——dedup 命中面）
-    const rev0 = g.docStatusRev.get('p1');
+    const g = gatewayFacade(gateway);
+    g.seedDocTruth('p1', Y.encodeStateAsUpdate(doc).byteLength);   // prevTruth=删除前真值
+    g.seedDocStatusRev('p1', 1);            // 装载播种形态
+    g.seedDocStatusState('p1', 'ok:false'); // 上次广播同态（state/frozen 均未变——dedup 命中面）
+    const rev0 = g.docStatusRevOf('p1');
     const { svc } = buildSvc(gateway, doc);
     const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['n1'] });
     expect(r.result).toBe('ok');
     expect(r.thawed).toBe(false);                                 // 未冻结（Concern ①）——走 force 广播支
-    expect(g.docStatusRev.get('p1')).toBe(rev0 + 1);              // 跳过 dedup——rev++（无 force 时被吞=rev 不变）
+    expect(g.docStatusRevOf('p1')).toBe(rev0! + 1);              // 跳过 dedup——rev++（无 force 时被吞=rev 不变）
     const statuses = conn.sendStateless.mock.calls
       .map((c: any[]) => JSON.parse(c[0]))
       .filter((m: any) => m?.type === 'doc-status');
@@ -453,12 +454,12 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(statuses[0].quota.bytes).toBe(r.watermark);            // 新 truth（滞回带/未冻结客户端的校准源）
 
     // 臂二：truth 未变（recalibrate 校准同值）→ 不广播（bytes 无变化——dedup 语义反而正确）
-    const rev1 = g.docStatusRev.get('p1');
+    const rev1 = g.docStatusRevOf('p1');
     conn.sendStateless.mockClear();
     const r2 = await svc.shrink('p1', 'u1', { recalibrate: true });
     expect(r2.result).toBe('recalibrated');
     expect(r2.watermark).toBe(r.watermark);                       // truth 未变（同 doc 再编码同值）
-    expect(g.docStatusRev.get('p1')).toBe(rev1);                  // 零 rev 变化
+    expect(g.docStatusRevOf('p1')).toBe(rev1);                  // 零 rev 变化
     expect(conn.sendStateless).not.toHaveBeenCalled();            // 零广播
 
     // 臂三：滞回带冻结 doc——shrink 成功落在 [softExit, softEnter) → 不 thaw+over 态 force 广播新 bytes
@@ -468,12 +469,12 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addNode(doc2, 'keep', 5500);
     const conn2 = makeConn();
     attachDoc(gw2, doc2, 'p2', [conn2]);
-    const g2 = gw2 as any;
-    g2.docTruth.set('p2', Y.encodeStateAsUpdate(doc2).byteLength);
-    g2.freezeQuota('p2');
+    const g2 = gatewayFacade(gw2);
+    g2.seedDocTruth('p2', Y.encodeStateAsUpdate(doc2).byteLength);
+    (gw2 as any).freezeQuota('p2');   // 直调族（偏离 64②）
     await nextTick();
-    expect(g2.quotaFrozenDocs.has('p2')).toBe(true);
-    const overRev = g2.docStatusRev.get('p2');   // freeze 的 over 广播后（dedup 态=over:true）
+    expect(g2.quotaFrozenHas('p2')).toBe(true);
+    const overRev = g2.docStatusRevOf('p2');   // freeze 的 over 广播后（dedup 态=over:true）
     conn2.sendStateless.mockClear();
     const s2 = buildSvc(gw2, doc2);
     const r3 = await s2.svc.shrink('p2', 'u1', { deleteNodeIds: ['big'] });
@@ -481,10 +482,10 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(r3.watermark!).toBeGreaterThanOrEqual(Math.floor(8192 * QUOTA_DEFAULTS.softExitRatio));
     expect(r3.watermark!).toBeLessThan(Math.floor(8192 * QUOTA_DEFAULTS.softEnterRatio));   // 滞回带
     expect(r3.thawed).toBe(false);                    // 冻结但 truth≥softExit——不 thaw（假冻结出口保持）
-    expect(g2.quotaFrozenDocs.has('p2')).toBe(true);  // 冻结不解除
+    expect(g2.quotaFrozenHas('p2')).toBe(true);  // 冻结不解除
     expect(conn2.readOnly).toBe(true);
     expect(conn2.send).not.toHaveBeenCalled();        // 无 thaw——零 SyncStep1
-    expect(g2.docStatusRev.get('p2')).toBe(overRev + 1);   // over 态 force（dedup 键未变——非 force 被吞）
+    expect(g2.docStatusRevOf('p2')).toBe(overRev! + 1);   // over 态 force（dedup 键未变——非 force 被吞）
     const st3 = conn2.sendStateless.mock.calls
       .map((c: any[]) => JSON.parse(c[0]))
       .filter((m: any) => m?.type === 'doc-status');
@@ -756,7 +757,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
 
     // 模拟新代装载（旧代已卸载——直构无库：直接清 documents 后经 loadDocument 装载）
     gateway.server.hocuspocus.documents.delete('project:p1');
-    (gateway as any).repo.hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [] as Buffer[], stateSeq: 5n });
+    (gatewayFacade(gateway).repoRef() as unknown as MockRepo).hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [] as Buffer[], stateSeq: 5n });   // mock 链 cast=合法面（repoRef 身份引用——同一 mock 对象）
     const reloaded = new Y.Doc();
     await (gateway as any).loadDocument({ document: reloaded, documentName: 'project:p1' });
     expect(reloaded.store.pendingStructs).toBe(null);      // 因果链干净（真空重建——红门⑦ 核心）
@@ -771,12 +772,12 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
 
     // 重连写入新编辑（新 clientID）→再重载⇒新旧 keys 全在（模拟 store 落 PG 后的装载重放）
     reloaded.getMap('nodes').set('post-vac', new Y.Map([['type', 'videoGen']]));
-    const q = (gateway as any).pendingQueues.get('p1') as Uint8Array[];
+    const q = gatewayFacade(gateway).pendingQueueRef('p1')!;
     expect(q.length).toBe(1);                             // update 监听收帧（装载后监听已挂）
     const editFrame = q[0];
     gateway.server.hocuspocus.documents.delete('project:p1');
     reloaded.destroy();
-    (gateway as any).repo.hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [Buffer.from(editFrame)], stateSeq: 6n });
+    (gatewayFacade(gateway).repoRef() as unknown as MockRepo).hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [Buffer.from(editFrame)], stateSeq: 6n });
     const again = new Y.Doc();
     await (gateway as any).loadDocument({ document: again, documentName: 'project:p1' });
     expect(again.store.pendingStructs).toBe(null);
@@ -861,17 +862,17 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       const src = seedDoc();
       addNode(src, 'n1', 32);
       attachDoc(gateway, src, 'p1');        // documents.has=true（常驻钉住形态——不再是 quiesce 动因）
-      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);   // 未 store 编辑——三态滞后
+      gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);   // 未 store 编辑——三态滞后
       const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
       const { svc } = buildVacuumSvc(gateway, repo);
       let settled: string | null = null;
       const vac = svc.vacuum('p1', 'u1').then((r) => { settled = r.result; return r; });
       await vi.advanceTimersByTimeAsync(200);           // ⓪①②③轮询若干拍
       expect(settled).toBe(null);                        // 等待中（不吞队列帧不降级）
-      (gateway as any).pendingQueues.set('p1', [new Uint8Array([4, 5])]);   // 批仍在（新编辑形态）——仍等
+      gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([4, 5])]);   // 批仍在（新编辑形态）——仍等
       await vi.advanceTimersByTimeAsync(500);
       expect(settled).toBe(null);
-      (gateway as any).pendingQueues.delete('p1');       // 批已落（模拟 store 完成；doc 仍挂载）
+      gatewayFacade(gateway).clearPendingQueue('p1');       // 批已落（模拟 store 完成；doc 仍挂载）
       await vi.advanceTimersByTimeAsync(200);
       const r = await vac;
       expect(r.result).toBe('ok');                       // 条件齐备后续走（doc 挂载不阻塞）
@@ -905,7 +906,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       const src = seedDoc();
       addNode(src, 'n1', 32);
       attachDoc(gateway, src, 'p1');                               // 常驻钉住形态（旧代 doc 在——释放义务的靶）
-      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);
+      gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);
       const { repo, vacuumReplace } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
       const { svc } = buildVacuumSvc(gateway, repo);
       const relSpy = vi.spyOn(gateway, 'tryReleaseResidentSession')
@@ -914,7 +915,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       const vac = svc.vacuum('p1', 'u1');
       await vi.advanceTimersByTimeAsync(200);                      // 批在——三态非空全轮零调用
       expect(relSpy).not.toHaveBeenCalled();                       // 旧形态=先调再判（首调即发生）即红
-      (gateway as any).pendingQueues.delete('p1');                 // 批清（三态空——释放轮开启）
+      gatewayFacade(gateway).clearPendingQueue('p1');                 // 批清（三态空——释放轮开启）
       await vi.advanceTimersByTimeAsync(100);
       expect(relSpy).toHaveBeenCalledTimes(1);                     // 首调 rejected——未 break（vacuumReplace 未走）
       expect(vacuumReplace).not.toHaveBeenCalled();
@@ -930,7 +931,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       const src2 = seedDoc();
       addNode(src2, 'n1', 32);
       attachDoc(gw2, src2, 'p1');
-      (gw2 as any).pendingQueues.set('p1', [new Uint8Array([1])]);   // 批恒在——三态永不空
+      gatewayFacade(gw2).seedPendingQueue('p1', [new Uint8Array([1])]);   // 批恒在——三态永不空
       const m2 = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src2)));
       const s2 = buildVacuumSvc(gw2, m2.repo);
       const relSpy2 = vi.spyOn(gw2, 'tryReleaseResidentSession').mockResolvedValue('released' as never);
@@ -968,7 +969,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       expect(r.result).toBe('equivalence-failed');
       expect(gateway.isVacuuming('p1')).toBe(false);                   // 门解除（否则 503 永久）
       expect(conn.readOnly).toBe(false);                               // freeze 恢复可写（中止恢复终态）
-      expect((gateway as any).writeFreeze.has(conn)).toBe(false);
+      expect(gatewayFacade(gateway).writeFreezeHas(conn)).toBe(false);
     }
     // 臂二：unsupported-root
     {
@@ -997,7 +998,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       addNode(src, 'n1', 32);
       const conn = makeVacuumConn('p1');
       attachDoc(gateway, src, 'p1', [conn]);
-      (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);   // 批恒在——30s 内永不排空
+      gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);   // 批恒在——30s 内永不排空
       const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
       const { svc } = buildVacuumSvc(gateway, repo);
       const vac = svc.vacuum('p1', 'u1');
@@ -1073,23 +1074,23 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     addNode(src, 'n1', 64);
     const conn = makeVacuumConn('p1');
     attachDoc(gateway, src, 'p1', [conn]);
-    const g = gateway as any;
+    const g = gatewayFacade(gateway);
     // 预播种全部按 pid 键控状态（模拟长期运行后的记账面）
-    g.docTruth.set('p1', 1234);
-    g.docDelta.set('p1', 56);
-    g.truthMeasuredAt.set('p1', Date.now());
-    g.degradedDocs.add('p1');
-    g.quotaFrozenDocs.add('p1');
-    g.freezePending.add('p1');
-    g.recheckRounds.set('p1', 9);
-    g.thawCooldown.set('p1', Date.now());
-    g.docStatusRev.set('p1', 7);
-    g.docStatusState.set('p1', 'over:true');
-    g.docGeneration.set('p1', 3);
-    g.docResidue.set('p1', 999);
-    g.preVacuumSvCache.set('p1', new Map([[1, 1]]));
-    g.lastCompactAt.set('p1', Date.now());
-    g.overPush.set(conn.socketId, { count: 5, bytes: 100, firstAt: 1, lastAt: 2 });
+    g.seedDocTruth('p1', 1234);
+    g.seedDocDelta('p1', 56);
+    g.seedTruthMeasuredAt('p1', Date.now());
+    g.addDegradedDoc('p1');
+    g.addQuotaFrozen('p1');
+    g.addFreezePending('p1');
+    g.seedRecheckRounds('p1', 9);
+    g.seedThawCooldown('p1', Date.now());
+    g.seedDocStatusRev('p1', 7);
+    g.seedDocStatusState('p1', 'over:true');
+    g.seedDocGeneration('p1', 3);
+    g.seedDocResidue('p1', 999);
+    g.seedPreVacuumSv('p1', new Map([[1, 1]]));
+    g.backdateLastCompactAt('p1', Date.now());
+    g.seedOverPush(conn.socketId, { count: 5, bytes: 100, firstAt: 1, lastAt: 2 });
     const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
     const { svc, docs } = buildVacuumSvc(gateway, repo);
 
@@ -1113,7 +1114,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       'docStuckRounds',       // documentName 键观测轮次——非代际敏感态（stuck 判定 n≥2 自清），不属旧代记账污染面
     ]);
     const checked: string[] = [];
-    for (const [name, v] of Object.entries(g)) {
+    for (const [name, v] of Object.entries(gateway)) {   // 反射面=gateway 实例自有属性（façade 化不改枚举对象）
       if (!(v instanceof Map || v instanceof Set) || NON_PID_CONTAINERS.has(name)) continue;
       checked.push(name);
       expect((v as Map<string, unknown>).has('p1'), `${name} 应无该 pid 键`).toBe(false);
@@ -1127,8 +1128,8 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs']) {
       expect(checked, `反射枚举应覆盖 ${must}（改名或误入豁免表=红）`).toContain(must);
     }
-    expect(g.overPush.has(conn.socketId)).toBe(false);   // writeFreeze 条目 pid 过滤连带清
-    expect(g.writeFreeze.has(conn)).toBe(false);
+    expect(g.overPushHas(conn.socketId)).toBe(false);   // writeFreeze 条目 pid 过滤连带清
+    expect(g.writeFreezeHas(conn)).toBe(false);
     expect(docs.invalidateSnapshotCache).toHaveBeenCalledWith('p1');   // SnapshotDocCache 该 pid 条目（TTL 30s 否则供旧代投影）
   });
 

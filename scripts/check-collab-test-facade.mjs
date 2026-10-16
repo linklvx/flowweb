@@ -433,7 +433,8 @@ const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-quota-truth.spec.ts': { 'facade-bypass': { n: 5, until: 'B1-B3' } },
   // 直调族——loadDocument ×1+storeDocumentUnlocked ×2
   'apps/api/src/modules/collab/collab-runtime-metrics.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
-  'apps/api/src/modules/collab/collab-shrink.spec.ts': { 'facade-bypass': { n: 73, until: 'T39b-2' } },
+  // 直调族——freezeQuota ×3+scheduleFreezePending ×1+loadDocument ×2（gw2/g2 工厂变体别名已消除；repo mock 链经 repoRef 身份引用+mock 链 cast 合法面）
+  'apps/api/src/modules/collab/collab-shrink.spec.ts': { 'facade-bypass': { n: 6, until: 'B1-B3' } },
   // 直调族——recheckFrozenDocs ×3（measureTruth/updateResidue spy 已经 façade spy 组替换）
   'apps/api/src/modules/collab/collab-t20-ripples.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
   // 直调族——clientIpOf ×3+handleUpgrade ×2（upgradeBucket/allowedOrigins spy/logger spy 已替换）
