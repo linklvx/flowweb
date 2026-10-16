@@ -16,8 +16,8 @@ module.exports = {
     exec_mode: 'fork',
     kill_timeout: 45000,              // E43⑤/SV6：HTTP dispose+关停链 ≤22s+垫 ≥23s
     kill_signal: 'SIGTERM',
-    max_memory_restart: '1G',         // 〔待实测校准→T32：§5.1 设计 560M（384+176）；Z103① 实测前维持 1G 不下调；下调则 ecosystem+check-ecosystem+heap-pressure 三处同批再改（Z84③）〕
-    node_args: '--max-old-space-size=512',   // 〔待实测校准→T32：§5.1 设计 384；现值 512=T0 实测定稿（1.9GB 协居机算式解）维持〕
+    max_memory_restart: '1G',         // 〔T32 实测结论（2026-10-16，runbook §9.2/§0.6 偏离 50）：判据达标（p95 api 230.5MB，余量 762MB）但 §5.1 设计 560M 下调与 check-ecosystem 算术冲突无解（Z126③ TRIP 下限 549.8MB > 560M 制式 Z118 上限 377.5MB）⇒ 维持 1G；560/480 数字重设计=停下问项归控制方/Y7〕
+    node_args: '--max-old-space-size=512',   // 〔T32 实测结论：维持 512（=T0 实测定稿）——384 下调与 mmr 560M 同批冲突面（偏离 50），重设计同批再改〕
     min_uptime: '30s',                // A7 守护三件套：防快崩溃重启风暴
     max_restarts: 10,
     restart_delay: 4000,
@@ -45,8 +45,8 @@ module.exports = {
     nice: 10,                         // Z10：CPU 优先级=拆分真实收益（ffmpeg/sharp 重活让位 WS 事件循环）
     kill_timeout: 120000,             // Z10/§5.2：ffmpeg 转码/4K 合成排空上界（check-ecosystem 按 role 断 ≥120000）
     kill_signal: 'SIGTERM',
-    max_memory_restart: '1G',         // 〔待实测校准→T32：§5.1 设计 480M（320+160）；Z103① 实测前维持 1G 不下调；下调则三处同批再改（Z84③）〕
-    node_args: '--max-old-space-size=512',   // 〔待实测校准→T32：§5.1 设计 320；现值 512 与 api 同制式维持〕
+    max_memory_restart: '1G',         // 〔T32 实测结论（runbook §9.2/§0.6 偏离 50）：p95(worker 树)=197.4MB 判据达标，但 480M 下调与 check-ecosystem 算术冲突无解（基线×4=555.2MB < RELEASE < TRIP ≤ 480M−200MiB=293.6MB）⇒ 维持 1G；4K ffmpeg 子进程峰值附注 1411MB>1G=第一层 mmr 兜底语义（§9.2 风险登记）〕
+    node_args: '--max-old-space-size=512',   // 〔T32 实测结论：维持 512 与 api 同制式——320 下调与 mmr 480M 同批冲突面（偏离 50）〕
     min_uptime: '30s',                // A7 守护三件套（worker 同款）
     max_restarts: 10,
     restart_delay: 4000,

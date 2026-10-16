@@ -57,12 +57,14 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 | 层 | 机制 | 现值 | 语义 |
 |----|------|------|------|
-| 第一层 per-process | PM2 `max_memory_restart`（ecosystem） | 1G×2（T32 校准 560/480） | 单进程超限→pm2 只重启该 app（另一进程无感） |
+| 第一层 per-process | PM2 `max_memory_restart`（ecosystem） | **1G×2 维持**（T32 实测判据达标但 560/480 下调与 heap 算术冲突无解——§9.2/§0.6 偏离 50；重设计归 Y7） | 单进程超限→pm2 只重启该 app（另一进程无感） |
 | 机器兜底 | cgroup `MemoryMax`（本 unit） | 1150M（算式=560+480+god 40.4+余量 70） | 双进程+god 总量超限→内核杀 RSS 最大者（=泄漏者），pm2 autorestart 拉起=**设计行为**非事故 |
 | unit 级故障 | systemd `Restart=on-failure` | RestartSec=5 | god 崩溃（pm2 autorestart 管不了自己）→systemd 拉起整 unit |
 | 关停时间轴层（T31 评审补） | systemd `TimeoutStopSec`（本 unit） | 150s | `systemctl stop`/服务器重启→罩 worker `kill_timeout=120s` 排空（ffmpeg/4K 上界，Z10）+余量——防 systemd 缺省 DefaultTimeoutStopSec=90s 在排空完成前 SIGKILL 腰斩 |
 
 `MemorySwapMax=128M`：宁被杀不换页——换页拖垮协居 PG/Redis/MinIO（1.9GB 机 swap 增长=内存画像恶化先行指标，§6③）。**双 unit（api/worker 各自 cgroup）=可选探针登记（Z85），未采用**——单 unit 兜底+pm2 第一层的分工已覆盖设计动机。
+
+**Z10 worker nice:10 CPU 优先收益运行面未兑现（§0.6 偏离 45），处置=降口径登记（T32）**：pm2 7.0.3 不应用 ecosystem `nice` 字段（unit 拉起后 worker NI 实测=0）；ecosystem `nice:10`+check-ecosystem 断言**保留为结构意图**（pm2 升级/替代后自动兑现，禁删）；unit 级 CPUWeight/Nice 与双 unit 均不采（unit 级会连 api 一起降优先级/双 unit +40MB god 开销）；Y7 pm2 替代评估面携带（与方案 B 同窗）。
 
 **方案 B（删 PM2，systemd 模板单元直管双进程）登记 Y7 评估（Z115）**——pm2-runtime 是过渡托管层非终态。
 
@@ -395,6 +397,36 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 
 **装置局限登记**：①Windows 信号通路=drill IPC 替代（服务器轮 SIGTERM 直测）②drain gauge 进程退出后不可直读（等价证据=日志；服务器轮 pushgateway/终态前抓取可补）③withSession 无独立 open 计数序列（spec :625 规划未落——判据 B 分母用装置作业数，后续批可补 yjs_write_session_open_total）④重材料 drain 形态待服务器轮。
 
+### §9.2 D 轮双进程服务器实测（T32 出口轮——2026-10-16 落档）
+
+**环境**：服务器双进程（unit 托管 flowweb-pm2.service，MemoryMax=1150M 生效；代际 `3238c34b`——connection_limit 显式预算生效轮，dist 探针四档 api⇒8/worker⇒4/all⇒8/未设⇒8 实证）；2 核/1967MB；TTL=120_000（default，--ttl-pin 受控通过）；soak 双端点（`--worker-metrics-url http://127.0.0.1:3002`，x-prometheus-token 同源）。原始 JSON 落 `apps/api/.data/soak-t32/`（会话产物不入仓——下表即判定全集，§9.1 同款惯例）。
+
+**装置能力贴档（元纪律⑤/RC2①）**：扩展前现装置服务器实跑一轮（scenario single——EXIT=0/integrityProbe MATCH 1/1/双端点 rss 237.7(api)/210.0(worker 树)MB）；closepage 逐作业采样扩展（§0.6 偏离 48）后预检（closepage j1——samples=3 含 worker 嵌套/EXIT=0）。起跑门：available 966MB ≥300MB（两轮全程 953-966MB 稳定）。
+
+**两轮形态**：①`--scenario closepage --jobs 8`（逐作业采样 n=10，窗 90s，gap=12s——执行链真实作业负载：api enqueue→worker 消费→HTTP 写端点回写；integrityProbe MATCH）②缺省编辑压测 `--docs 2 --clients 2 --rate 1000 --duration 5`（30s 序列 n=12——WS 双客户端编辑稳态；edits=598/connErrors=0/storeP99=100ms 无拐点）。
+
+**p95 口径（Z117②——查询侧离线求，装置只压不统计）**：`sorted[floor(0.95×(n−1))]`（无插值——装置 frameP99 同索引形态；小样本下 p95≈保守上界如实声明）；api 序列=`process_resident_memory_bytes{role="api"}`，worker 序列=`process_tree_rss_bytes{role="worker"}`（进程树合计——Z91①）。
+
+| 轮 | n | p95(api) | p95(worker 树) | max(api/wkr) | 备注 |
+|----|---|----------|----------------|--------------|------|
+| ①closepage j8 | 10 | 226.6MB | 195.9MB | 226.6/196.2MB | api 序列 220.5→226.6 单调缓升（作业负载） |
+| ②编辑 2×2×5min | 12 | 230.5MB | 197.5MB | 230.5/197.5MB | api 序列 228.4→230.5 平稳 |
+| **合并保守（判定采用）** | 22 | **230.5MB** | **197.4MB** | 230.5/197.5MB | 两轮池化后取分位=口径最保守 |
+
+**协居实测（Z68① 第三项）=477.4MB**：minio 243.6 + postgres 11 进程合计 137.9 + redis-server 18.6 + **pm2-runtime 77.3**（unit 前台形态 god 实测——Z85 算式用 40.4 系旧 daemon 形态值，差 36.9MB 由余量 70 项吸收；§0.6 偏离 50 伴生登记）。口径声明三点：①server-profile [F1] 同法（ps RSS 按进程族求和）但**不含 flowweb-api/worker node**（两者各为判据独立 p95 项——profile 514.6 旧值含当时 api 138.8MB，故两值口径不同不可直接相减）②soak 装置客户端=瞬态 harness（跑窗内 node 进程），**不计入判据项**——窗内 available 953-966MB 实证余量充足③非协居常驻（YDService 70.9/journald 42.6/fwupd 28.8/multipathd 26.7≈169MB）沿 profile 先例不入算式，由「系统保留 300」项覆盖。
+
+**稳态预算判据（Z68①——显式结论）**：
+
+> `p95(api) 230.5 + p95(worker 树) 197.4 + 协居 477.4 + 300 = 1205.3 ≤ 1967` ⇒ **达标**（余量 761.7MB）。三口径同判：closepage 轮 1199.9 / soak 轮 1205.5 / 合并 1205.3——全达标，降级出口不触发（COLLAB_ROLE=all 单进程预案维持登记不启用）。
+
+**ffmpeg 口径处理（RC2⑥=保留登记+standalone 附注两形态都落）**：soak 不驱动媒体作业（scenario=stub 文本节点零媒体外呼）⇒ **worker 树 p95 不含 ffmpeg 子进程峰值——判据结论带此保留**。附注数字（服务器 /usr/bin/ffmpeg 6.1.1，libx264 preset medium，lavfi testsrc2 合成源，`/usr/bin/time -v` Maximum resident set size）：1080p 10s ⇒ 峰值 RSS **479MB**（墙钟 13.0s）；4K 5s ⇒ 峰值 RSS **1411MB**（墙钟 45.7s）。风险登记：4K x264 单 ffmpeg 子进程峰值 > mmr 1G ⇒ 真实 4K 媒体作业形态下 worker 进程树将由第一层 mmr 兜底重启（stalled 重投+api 最终一致链承接，Z85/Z41 语义）；**现无流量面**——服务器 .env FFMPEG_PATH/FFPROBE_PATH 为 Windows 路径残留（§0.6 偏离 44），媒体面不可用属既有登记不修项；媒体 preset/分辨率治理归 Y7 媒体面复活评估携带。
+
+**校准决策（RC3/Z84③——§0.6 偏离 50）**：判据达标且余量 762MB **内存面支持下调**，但 §5.1 设计值 560/480 与 check-ecosystem 既有算术**冲突无解**（api：Z126③ 下限 TRIP≥549,841,792 > 560M 制式 Z118 上限 377,487,360；worker：基线×4=555,200,000 < RELEASE < TRIP ≤ 293,601,280——全算式见偏离 50）⇒ **维持 old-space 512/mmr 1G×2**（现制式算术自洽 750MiB+200MiB≤1G）；ecosystem/heap-pressure/check-ecosystem/unit 四处〔待实测校准→T32〕注兑现为实测结论注（数值零变更，同 commit）。560/480 数字重设计（resident_cap 384MiB 下调 ∨ 基线×4 规则重构=spec 级数字面）=**停下问项呈报**（归控制方裁决/Y7），不擅改。**MemoryMax=1150M 张力说明**：维持 1G 制式下单进程趋近 mmr 时 unit 内合计（1G+对侧~200MB+pm2-runtime 77.3MB≈1.3G）**cgroup 1150M 先于 pm2 mmr 触发=机器兜底语义**（Z85 分层分工：mmr 管单进程泄漏快重启/MemoryMax 管机器不炸——触发顺序倒挂不破坏防线；「1150=560+480+40.4+70」闭合算式在 1G 制式下发散，数值闭合归 560/480 重设计同批）。
+
+**T31 基线留档（RC4③——「↺ 计数无部署对应增长」判据基线）**：T32 部署前 pm2 restarts **api=2/worker=2**（uptime since 03:19:35Z/03:19:40Z=d073d2da 终轮）+available 945MB；T32 部署（3238c34b，06:41Z）后 restarts **3/3**——增量与部署一一对应，零异常重启。unit 同窗同步（RC4①）：/etc/systemd/system/flowweb-pm2.service 补 TimeoutStopSec=150（原文备份 `~/flowweb-pm2.service.bak-t32-20261016131724`；scp+sudo cp+daemon-reload 不重启服务；`systemctl show -p TimeoutStopUSec`=**2min 30s** 生效实证）。
+
+**pg_stat_activity 观测（RC5——观测面非门禁）**：部署后稳态 `usename=flowweb` 共 **4 条（全 idle）** ≪ 预算上限 `(3×8)+(2×4)=32`——Prisma 池懒建口径（idle<上限=正常态；connection_limit=上限非预分配）。max_connections=100 实证不变（§2 算式余量充足）。
+
 
 ## §10 依赖版本契约（Y0c T5/Z123 登记，2026-10-14）
 
@@ -421,6 +453,6 @@ quantile_over_time(0.95, process_resident_memory_bytes{role="api"}[5m])
 quantile_over_time(0.95, process_tree_rss_bytes{role="worker"}[5m])
 ```
 
-**内存判定时点（Z91③）**：A2 出口后一次——已落 §9.1（三数回填裁决）；D 出口前一次——归 T32（双进程服务器轮实测，worker 480M 口径校准同窗）。
+**内存判定时点（Z91③）**：A2 出口后一次——已落 §9.1（三数回填裁决）；D 出口前一次——**已落 §9.2（T32 双进程服务器轮实测，2026-10-16：判据达标 1205.3≤1967；worker 480M 口径校准=维持 1G，下调算术冲突登记 §0.6 偏离 50）**。
 
 **registered 活性语义（裁决②/偏离 39）**：ready workers 维度与 enqueue fail-closed 门共用 `queue.getWorkers()`（bullmq 5.75.1=Redis CLIENT LIST 形态）——**无 lastSeen 数据源，registered 即活性信号**：worker 进程死 ⇒ TCP 断 ⇒ CLIENT LIST 立即除名（秒级），registered=0 就是死亡判定，无需陈旧度维度。5s TTL 缓存窗（付费路径零额外 RTT）= 最坏 5s 内漏拒，属可接受窗（留队作业待 worker 恢复即被消费）。

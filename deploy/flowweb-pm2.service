@@ -7,9 +7,11 @@
 # 防第二 god（root 的 pm2 daemon 与 ubuntu 的互不可见——systemctl/pm2 操作落空面）。
 #
 # 分层防线（Z85 写死——runbook §1.1 同源，三层各管各的）：
-#   第一层 per-process = PM2 max_memory_restart（ecosystem 现 1G×2，T32 校准 560/480）
+#   第一层 per-process = PM2 max_memory_restart（ecosystem 现 1G×2 维持——T32 实测判据达标但
+#                        560/480 下调与 heap 算术冲突无解，runbook §9.2/§0.6 偏离 50）
 #                        ——单进程泄漏→只重启该 app
-#   机器兜底           = 本 unit cgroup MemoryMax=1150M（算式 560+480+god 40.4+余量 70）
+#   机器兜底           = 本 unit cgroup MemoryMax=1150M（算式 560+480+god 40.4+余量 70；1G 制式维持下
+#                        本值先于 mmr 触发=机器兜底语义，pm2-runtime 实测 77.3MB——runbook §9.2/偏离 50）
 #                        ——总量超限→内核杀 RSS 最大者（=泄漏者），pm2 autorestart 拉起=设计行为；
 #                        MemorySwapMax=128M：宁被杀不换页（换页拖垮协居 PG/Redis/MinIO）
 #   unit 级故障        = Restart=on-failure+RestartSec=5（god 崩溃面——pm2 autorestart 管不了自己）

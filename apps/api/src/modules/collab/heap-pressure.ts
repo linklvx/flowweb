@@ -15,19 +15,20 @@ import type { CollabRole } from '../../config/env';
  *  fail-open：测量抛错→{tripped:false,...}（指标失败不得全站拒连）。
  *  阈值经参数注入（env 读放 gateway 侧包装——util 收纯数值保持可测）。 */
 /** Y0c T30（Z84②/§0.6 偏离 41）：TRIP/RELEASE 按 role 分离（per-role 映射——不留旧单值导出）。
- *  api/all 维持 Y0b-3 T4 标定值（750MiB/600MiB）；worker 暂用 api 同值〔待实测校准→T32——
- *  worker 无 heap 闸消费者（gateway 只在 api/all 装配），数值面存在为 check-ecosystem 算术与
- *  T32 重标定；§5.1「worker 480M⇒trip<280M」重标定绑定设计杀线，Z103① 实测前维持 1G 制式下
- *  现值算术自洽（750MiB+200MiB≤1G）〕。 */
+ *  api/all 维持 Y0b-3 T4 标定值（750MiB/600MiB）；worker 用 api 同值〔T32 实测结论（2026-10-16，
+ *  runbook §9.2/§0.6 偏离 50）：判据达标（p95 worker 树 197.4MB）但 480M 制式重标定算术无解
+ *  （基线×4=555.2MB < RELEASE < TRIP ≤ 480M−200MiB=293.6MB）⇒ mmr 维持 1G，本档同值维持
+ *  （1G 制式算术自洽 750MiB+200MiB≤1G）；worker 无 heap 闸消费者（gateway 只在 api/all 装配），
+ *  数值面存在为 check-ecosystem 算术；重算定归 560/480 数字重设计同批（停下问项——偏离 50）〕。 */
 export const RSS_TRIP_BYTES: Record<CollabRole, number> = {
   api: 786_432_000, // 750MiB
   all: 786_432_000,
-  worker: 786_432_000, // 〔待实测校准→T32〕
+  worker: 786_432_000, // 〔T32 结论=维持（偏离 50——480M 制式重标定算术无解，随 mmr 重设计同批重算定）〕
 };
 export const RSS_RELEASE_BYTES: Record<CollabRole, number> = {
   api: 629_145_600, // 600MiB（§9.15 人工评估线同值）
   all: 629_145_600,
-  worker: 629_145_600, // 〔待实测校准→T32〕
+  worker: 629_145_600, // 〔T32 结论=维持（同上——基线×4 规则在 480M 制式无解，偏离 50）〕
 };
 
 export interface HeapPressureSample {
