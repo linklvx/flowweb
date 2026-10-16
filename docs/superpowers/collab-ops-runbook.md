@@ -65,36 +65,58 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 **方案 B（删 PM2，systemd 模板单元直管双进程）登记 Y7 评估（Z115）**——pm2-runtime 是过渡托管层非终态。
 
-**安装步骤（一次性手动——deploy.sh 不自动化 systemctl，RB5：一次性 sudo 高危操作简洁优先）**：
+**安装步骤（一次性手动——deploy.sh 不自动化 systemctl，RB5：一次性 sudo 高危操作简洁优先；2026-10-16 T31 演练实录修订版）**：
 
 ```bash
 # ⓪ 预检：现有 pm2 开机机制与 pm2-runtime 路径（防第二 god；结果留部署记录）
 systemctl list-unit-files | grep -i pm2      # 勘察形态：pm2-ubuntu.service（pm2 startup 产物）
+systemctl is-active pm2-ubuntu               # ★可能 inactive 而 daemon 仍活（孤儿态——见②陷阱）
 which pm2-runtime                            # 期望 /usr/bin/pm2-runtime（不同则同批改 unit ExecStart）
-# ① 上传 unit 文件（不在 deploy 上传面——手动 scp）
+# ① 上传 unit 文件（不在 deploy 上传面——手动 scp；服务器 deploy/ 可能不存在，先建）
+ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 'mkdir -p ~/flowweb/deploy'
 scp -i ~/.ssh/flowweb_server deploy/flowweb-pm2.service ubuntu@101.42.94.107:/home/ubuntu/flowweb/deploy/
-# ② 停+禁旧开机机制（pm2-ubuntu 与新 unit 并存=两个 god）
+#    LF 校验=0（.gitattributes *.service eol=lf 钉死——CRLF 上服务器 systemd 解析值带 \r 即无效）
+# ② 停+禁旧开机机制。★孤儿 daemon 陷阱（T31 实录）：pm2-ubuntu 在 systemd 视角可能已 inactive
+#    而 God Daemon 脱离 unit 独活（本机实测 Jul 11 起）——stop 不触发 ExecStop=pm2 kill ⇒ daemon 残留。
+#    此时直接 start 新 unit，pm2-runtime 以 client 身份附着既有 daemon ⇒ apps 落 unit cgroup 之外
+#    ⇒ MemoryMax 兜底失效（第二 god 变体，Z115 防范对象的实弹形态）。必须显式清场并确认死透：
 sudo systemctl disable --now pm2-ubuntu
-# ③ 清场现有 daemon（pm2 save 的 dump 由 pm2-runtime 启动时 resurrect 回双 app）
-pm2 kill
-# ④ 安装+启用新 unit
+sudo systemctl stop flowweb-pm2 2>/dev/null || true   # 若已误 start（附着态）先停 client
+pm2 kill                                              # SIGTERM apps（api 走关停链）+daemon 退出
+pgrep -f "God Daemon" && echo "daemon 残留——sudo kill <pid> 后复核" || echo "daemon 已亡"
+ls ~/.pm2/pm2.pid ~/.pm2/rpc.sock 2>/dev/null && echo "残留 sock/pid——复核" || echo "pm2 home 已清"
+# ③ 安装+启用新 unit（无既有 daemon 时 pm2-runtime 自 spawn——apps=runtime 直子进程，全落 unit cgroup）
 sudo cp /home/ubuntu/flowweb/deploy/flowweb-pm2.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now flowweb-pm2
-# ⑤ 验证：双 app 拉起+ready 绿+cgroup 限额生效
-systemctl status flowweb-pm2 --no-pager
-pm2 ls                                                            # flowweb-api+flowweb-worker 双 online
+# ④ 验证：双 app 拉起+ready 绿+★cgroup 包含性（MemoryMax 生效前提——②陷阱的直接判据）
+systemctl status flowweb-pm2 --no-pager      # Tasks 含 main.js+main-worker.js；Memory=双 app 实量
+pm2 ls                                       # flowweb-api+flowweb-worker 双 online
+ps -o pid,ppid,cmd -p $(pm2 pid flowweb-api) $(pm2 pid flowweb-worker)   # ppid=unit Main PID
+cat /proc/$(pm2 pid flowweb-api)/cgroup      # 期望 0::/system.slice/flowweb-pm2.service
 curl -s http://127.0.0.1:3000/api/ready | grep '"ready":true'
-systemctl show flowweb-pm2 -p MemoryMax -p MemorySwapMax          # 期望 1150M/128M（字节值）
-# ⑥ 日志面（journal 直收——pm2-logrotate 只管 pm2 文件日志，journal 面由 journald 自轮转）
+systemctl show flowweb-pm2 -p MemoryMax -p MemorySwapMax   # 期望 1205862400/134217728（=1150M/128M）
+pm2 jlist | node -e "JSON.parse(require('fs').readFileSync(0,'utf8')).forEach(a=>console.log(a.name,a.pm2_env.pm_cwd,a.pm2_env.COLLAB_ROLE))"
+#    期望双 app pm_cwd=/home/ubuntu/flowweb+role 各自正确（全新条目从 ecosystem 建；遗留条目
+#    cwd 不随 startOrReload 更新——§0.6 偏离 45 的 ⑥.b cwd 断言捕获面）
+# ⑤ 日志面（journal 直收——pm2-logrotate 只管 pm2 文件日志，journal 面由 journald 自轮转）
 journalctl -u flowweb-pm2 -n 50 --no-pager
 ```
 
 **回退路径（unit 安装后双 app 拉不起且原因不明——按序执行勿反复试）**：`sudo systemctl stop flowweb-pm2 && sudo systemctl disable flowweb-pm2` → 恢复旧机制 `sudo systemctl enable --now pm2-ubuntu`（或直接 `pm2 resurrect` 恢复保存的 app 表）→ 报告。
 
-**P10 探针结论（Z102③——`--only` 与 ecosystem per-app env 块注入组合语义，部署演练实证）**：〔待 Phase B 演练回填：**采用**（三步序成立——判据：api 进程 `collab_role_info{role="api"}`=1 ∧ worker 3002 指标带 `role="worker"` ∧ `pm2 jlist` 两 app COLLAB_ROLE 各自正确）/ **退回**（deploy.sh 改回单命令 `startOrReload --update-env`+注释登记退路理由——顺序正确性归 worker ready 门零成本退路）〕
+**P10 探针结论（Z102③——`--only` 与 ecosystem per-app env 块注入组合语义，部署演练实证）＝采用（三步序成立，2026-10-16）**。判据三全过：①api 3000 `/metrics` `collab_role_info{role="api"} 1` ②worker 3002 `collab_role_info{role="worker"} 1`（带 token；无 token 3000/3002 双 403=production fail-closed 姿态实证）③`pm2 jlist` 两 app `COLLAB_ROLE` 各自正确+进程 environ 实测 `COLLAB_ROLE=api`/`=worker`。终轮部署（三步序全程）后复核仍全绿。伴生实证：`--update-env` 对既有 app 条目历史 env 键为 merge 语义（api 遗留 NODE_ENV=production 历经多次部署保持）；**新建条目无历史 env**——生效层完全依赖 dotenv `.env`（§8）。
 
-**部署演练记录（T31 零 503 四判据，RB7）**：〔待 Phase B 回填：日期/commit/①ready 绿 ②collab-smoke+exec-smoke 双绿 ③Redis 三付费队列 failed 前后零新增 ④pm2 logs 无 WORKER_ABSENT/503 噪声〕
+**部署演练记录（T31 零 503 四判据，RB7）＝PASS（2026-10-16，代际 fe8b95be，unit 托管下全链）**：
+
+| 判据 | 结果 |
+|------|------|
+| ① ready 绿 | ⑤三步序内 api ready 8s 绿→worker 起；⑥ ready barrier 1s；guard post verdict=pass epoch 9→10 |
+| ② 双冒烟 | collab-smoke OK（WS→auth→load→双端写→广播互见→store→PG→重放）+exec-smoke OK（ledgerRows=4，哨兵→ECONNREFUSED 零扣费→stub200 settle 全链→stub5xx 退款归零→清理残留 0＝worker 消费端到端无 503 烧 attempts） |
+| ③ failed 零新增 | 三付费队列 ZCARD 前后=execution 0→0 / ai-image-edit 1→1（历史存量）/ ai-result-download 0→0 |
+| ④ 日志噪声 | 双 app error+out 四日志 WORKER_ABSENT=0、503 零命中 |
+
+同窗实测：⑥.b 双进程端口归属+cwd 一致断言 OK（3000/3001→api ∧ 3002→worker ∧ worker 名下无 3000/3001 ∧ 双 cwd=/home/ubuntu/flowweb）；unit cgroup 包含性=apps 为 pm2-runtime 直子进程（Memory max 1.1G/swap 128M 罩双 app）；内存水位演练窗 available≈977MB。
 
 ## §2 连接池量纲
 
@@ -245,8 +267,9 @@ pm2 install pm2-logrotate && pm2 set pm2-logrotate:max_size 10M && pm2 set pm2-l
 df --output=pcent / | tail -1
 # ③ swap 水位（T0：swap 1.9G 已用 377M——存在历史内存压力信号；OOM killer 首选杀协居 postgres，swap 持续增长=内存画像恶化先行指标）
 free -m | grep Swap
-# ④ 开机自启核验（T0 实测 enabled ✓，[6]——服务器重启后 pm2 应自动拉起）
-systemctl is-enabled pm2-ubuntu
+# ④ 开机自启核验（T31 起=flowweb-pm2 unit §1.1——pm2-runtime 从 ecosystem 声明式拉起双 app，不依赖 dump；
+#    旧 pm2-ubuntu 已 disable——T31 前形态为 systemctl is-enabled pm2-ubuntu）
+systemctl is-enabled flowweb-pm2
 ```
 
 **max_memory_restart 触发的重启 = 崩溃路径**（区别于部署驱动的重启）：按 RPO 3s 窗口评估数据丢失面，并查日志中 `shutdown_undrained`/storeInFlight 记录确认关停链是否走完——`↺` 计数无部署对应增长时即此路径。
@@ -310,6 +333,7 @@ Effective NODE_ENV 以进程 environ 实测为准，不认 .env 之外的任何�
 |--------|------|------|
 | 迁移前（T0 已记） | `sudo cat /proc/$(pm2 pid flowweb-api)/environ \| tr '\0' '\n' \| grep NODE_ENV` | production（server-profile [2]） |
 | 首次 startOrReload 后（Y0a-4 T12 已记） | 同上 | production（无变化——会话 env 替换+dotenv 终层合成结果=production） |
+| T31 unit 切换后（2026-10-16 实测） | 同上（environ 无 NODE_ENV 行）+无 token `curl 3000/3002 /metrics` | **production**（生效层换轨：pm2 app 条目全新建 ⇒ pm2_env/environ 均无 NODE_ENV ⇒ dotenv `.env` 成为生效层——`.env` 同窗根修 development→production〔§0.6 偏离 44，改前 environ 载体=pm2 遗留 app env 历史键〕；双端点无 token 403/403=production fail-closed 姿态实证） |
 
 若首刷后 effective 值变化（会话 env 替换 + dotenv 终层的合成结果），=本批行为变更，按八读点逐条评估并记录：
 

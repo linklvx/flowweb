@@ -50,6 +50,12 @@ const env = validateEnv();
     EventEmitterModule.forRoot(),
     BullModule.forRoot('default', {
       connection: { url: env.REDIS_URL, maxRetriesPerRequest: null },
+      // Y0c T31（§0.6 偏离 46）：显式 prefix=bullmq 默认值。BullExplorer 建 worker 时 opts 优先取
+      // registerQueue 的 Queue 实例（.opts.prefix='bull'），图内无 Queue 实例的队列回落本共享配置——
+      // 缺省则 `prefix: undefined` 显式覆盖 bullmq 默认 ⇒ worker 连接命名 "undefined:<b64>" ⇒
+      // getWorkers()（CLIENT LIST 按自身 prefix 过滤）侦测失明（registered=0 假阴性⇒enqueue 门 503
+      // +巡检 P0；键前缀走 QueueKeys 默认参数不受影响——消费正常故单进程时代未暴露）。
+      prefix: 'bull',
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 2000 },

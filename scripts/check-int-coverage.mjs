@@ -13,7 +13,8 @@ import { basename } from 'node:path';
 // Y0b-5 T9 增补（write-frozen-chain 2 例）+存量漂移 1（group-idempotency 16>登记 15）→实测 144。
 // Y0b-5 T16 增补（collab-pg-breaker 4 例）→148。
 // Y0c T22 增补（collab-residency-durability 2 例——Z144 耐久双向）→150。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 150);
+// Y0c T31 增补（worker-naming 3 例——§0.6 偏离 46 连接命名分裂根因红测）→153。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 153);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
@@ -39,6 +40,7 @@ const FILES_MIN = {
   'sv-admission.int.spec.ts': 6,
   'admin-idempotency.int.spec.ts': 5,
   'write-frozen-chain.int.spec.ts': 2,   // Y0b-5 T9：write-frozen 断言链 int 等价用例
+  'worker-naming.int.spec.ts': 3,        // Y0c T31：偏离 46 命名分裂机制/修复/生产结构三 case
 };
 
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));

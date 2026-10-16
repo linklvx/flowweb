@@ -80,11 +80,14 @@ const env = validateEnv();
 
 @Module({
   imports: [
-    // forRoot connection/defaultJobOptions 四键与 app.module 逐字同款（共享连接 default——processor
-    // Worker 创建按 configKey 回落本配置）；app.module 侧另有 extraOptions.manualRegistration 注册门
+    // forRoot connection/prefix/defaultJobOptions 五键与 app.module 逐字同款（共享连接 default——
+    // processor Worker 创建按 configKey 回落本配置；prefix:'bull' 显式=T31/§0.6 偏离 46——本图 12 队列
+    // 无 registerQueue/Queue 实例〔平铺装配，头注①〕，worker opts 全走本回落，缺省即 "undefined:" 命名
+    // ⇒api 侧 getWorkers 侦测失明）；app.module 侧另有 extraOptions.manualRegistration 注册门
     // （T30/Z98 四面之二）——worker 进程恒注册（消费面本体），本 forRoot 不带门
     BullModule.forRoot('default', {
       connection: { url: env.REDIS_URL, maxRetriesPerRequest: null },
+      prefix: 'bull',
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 2000 },
