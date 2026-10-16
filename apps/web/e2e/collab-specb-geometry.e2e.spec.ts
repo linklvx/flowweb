@@ -455,6 +455,10 @@ test('T2a A 拖子中：A 帧冻结恒等，松手后双端按新成员集收敛
     const { groupId, childIds } = await createGroupOfTwo(pageA);
     await expectCountIs(pageB, 3);
     const [c1, c2] = childIds;
+    // B 端沉降竞态根修（T7 同款，§0.6 偏离 49）：c2AbsBefore 在 B 读——分离提交未达时读到堆叠位
+    // （首诊实测污染量 +217px ⇒ 断言 263 vs ≤125 红）。读前等 c2+组帧双端收敛=窗口归零。
+    await expectTransformsConverged(pageA, pageB, c2);
+    await expectTransformsConverged(pageA, pageB, groupId);
 
     const aFrameBefore = await groupFrame(pageA, groupId);
     const c2AbsBefore = await childAbsOn(pageB, c2, groupId);
@@ -800,6 +804,12 @@ test('T7 A/B 各拖不同子：两提交都落，双端逐位收敛（c1=A 末�
     const { groupId, childIds } = await createGroupOfTwo(pageA);
     await expectCountIs(pageB, 3);
     const [c1, c2] = childIds;
+    // B 端沉降竞态根修（T32 诊断实证，§0.6 偏离 49）：createGroupOfTwo 末段 A 侧分离确认只轮询
+    // pageA DOM——分离提交传播到 B 的时延超过下方 pre 读窗口时，pre2 读到未分离堆叠位（515 vs 732）
+    // ⇒ 位移基准被污染（sign 翻转/超程 4.8×）。读前等 c2+组帧 transform 双端逐位收敛=窗口归零
+    // （事件驱动非固定 sleep，机器速度无关；expectCountIs(3) 不含分离更新——组+2 子先于分离到达）。
+    await expectTransformsConverged(pageA, pageB, c2);
+    await expectTransformsConverged(pageA, pageB, groupId);
     const pre1 = await childAbsOn(pageA, c1, groupId);
     const pre2 = await childAbsOn(pageB, c2, groupId);
 
