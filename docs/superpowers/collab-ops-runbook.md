@@ -598,11 +598,11 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 **备份/恢复单一权威=`docs/superpowers/full-stack-backup.md`**（三轨合一/保留分层表/恢复语义 Z16③④/MinIO 缺口 Y7 门槛项/PITR 模板挂 Y7 全在该文档——本节只登记安装面与演练记录，不复刻内容避免双源）。
 
 **安装面**：
-- 脚本=`scripts/pg-dump-daily.sh`（2026-10-16 scp 即时上服务器 `/home/ubuntu/flowweb/scripts/`；下次部署 provision tar 面自然同步——scp 是即时性补充）。
+- 脚本=`scripts/pg-dump-daily.sh`（2026-10-16 scp 即时上服务器 `/home/ubuntu/flowweb/scripts/`；下次部署 provision tar 面自然同步——scp 是即时性补充）。T39 微修（§0.6 偏离 61③：缺键 die 可达性）入仓内版——服务器副本待下次部署/scp 同步，既有键在位场景行为零差异。
 - crontab（check-collab-health 旁，改前仅 1 条已备份）：`17 3 * * * cd /home/ubuntu/flowweb && bash scripts/pg-dump-daily.sh >> .data/pg-dump-daily.log 2>&1`
 - 水位守护只删 `daily-*` 族（`pre-migrate-*`=deploy.sh ② 迁移回滚锚所有权——跨所有者删除越权，spec §0.6 偏离 60）；`BACKUP_DIR`/`WATERMARK_PCT` 两 env=演练/测试面非配置灵活性。
 
-**演练记录**（2026-10-16，两形态原始输出全档见 T38 出口报告）：
-- R3 手动全链（cron 同款调用）：exit 0+`daily-20261016230621.dump`（154606 bytes）+`pg_restore --list` 可读（TOC 352 条/dbname flowweb）+日志落 `.data/pg-dump-daily.log`+既有备份零变化（ls 前后对照）。
+**演练记录**（2026-10-16；两形态原始输出=会话产物未入仓，关键输出已内联本节、全量摘要见 commit `46bfc195` 消息——T39 指针自足化）：
+- R3 手动全链（cron 同款调用）：exit 0+`daily-20261016230621.dump`（154606 bytes）+`pg_restore --list` 可读（TOC 352 条/dbname flowweb）+日志落 `.data/pg-dump-daily.log`+既有备份零变化（ls 前后对照）。日志末行（T39 ssh tail 复核原文）：`[2026-10-16 23:06:21] done OK：/home/ubuntu/backups/daily-20261016230621.dump`。
 - R4 水位守护（/tmp 隔离+假 dump，真实备份零接触）：**首跑红=暴露 locale 排序缺陷**（服务器 `find|sort` 走 locale collation，删除顺序非字节时序）→根修=两处 sort 钉 `LC_ALL=C`→复跑绿：形态A（WATERMARK_PCT=1）5 假 dump 按最旧逐个删（01→05）→真新 dump→族耗尽 ERROR+exit 1（守护失败可见）；形态B（WATERMARK_PCT=99）零删除+exit 0；演练目录已清理。
-- **crontab 首跑**=次日 03:17 自动轮（巡检时核 `.data/pg-dump-daily.log` 新增 done OK 行——T39 承接面）。
+- **crontab 首跑**=2026-10-17 03:17 自动轮（核 `.data/pg-dump-daily.log` 新增 done OK 行）。T39 已复核承接（2026-10-16 23:38 ssh 只读：crontab `17 3 * * *` 与巡检 `*/5` 两条在位+R3 日志末行 done OK+`daily-20261016230621.dump` 154606B 在 ~/backups）；**自动首跑核对义务归片 B 执行窗首日顺手项**。

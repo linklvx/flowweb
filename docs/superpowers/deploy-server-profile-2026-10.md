@@ -5,6 +5,7 @@
 - 服务器：`ubuntu@101.42.94.107`（hostname VM-8-2-ubuntu，Ubuntu 24.04，Mem 1967MB + swap 1987MB，磁盘 /dev/vda2 50G 已用 9.2G）
 - 性质：**只读实测，远端无任何变更**；唯一写操作为本档案 + commit
 - 用途：ecosystem.config.cjs 数值定稿（max_memory_restart/old-space）、部署链设计（spool 账本迁移判据）、runbook 数值的实证依据
+- **Y0c T39 更新（2026-10-16）**：M0/M1/判读行/附录=2026-10-08 单进程时代历史档案**原样保留不改写**；双进程时代以新增两节为准——「数值推导（双进程时代）」（Z44/Z85 口径+协居重实测回填）与「现状快照（Y0c T31-T38 终态）」（T39 出口 ssh 只读复核现值，代际 `1daca1a2`）。
 
 ## M0 六组原始输出（原样，未改写）
 
@@ -192,7 +193,7 @@ Ver Cluster Port Status Owner    Data directory              Log file
 - **PG 连接与内存实占**：server 16.14 单集群（16/main），监听 127.0.0.1:5432（不对公网，[F8]）；`shared_buffers=128MB`、`max_connections=100`、`pg_stat_activity` 全局 11 / flowweb 库 5（[F4][F8]）⇒ runbook connection_limit 据实：上限 100，现用 5，余量充足。
 - **Redis maxmemory**：`134217728`（128MB，**有界**）、policy=`noeviction`、`appendonly=no`（仅 RDB 快照）——Redis 无 OOM 无界风险。
 
-## 数值推导（算式与结论写死）
+## 数值推导（单进程时代档案——2026-10-08 口径；Y0c 双进程起被下节取代，协居 514.6MB 系旧时代数字）
 
 实测口径：协居进程 RSS = [1]+[F1] 之和——minio 224620KB（219.4MB）+ postgres 11 进程合计 108016KB（105.5MB）+ redis-server 10800KB（10.5MB）+ flowweb-api node 142120KB（138.8MB）+ PM2 God Daemon 41364KB（40.4MB）= **526920KB ≈ 514.6MB**。（非协居但常驻：腾讯云 YDService 101.3MB、journald 34MB、fwupd 29.5MB、multipathd 26.7MB——不计入算式，但解释整机 `used=844MB`。）
 
@@ -208,6 +209,38 @@ Ver Cluster Port Status Owner    Data directory              Log file
 **定稿推荐**：`--max-old-space-size=512`、`max_memory_restart: 1024`（1G）。
 
 现网对照（基线）：`--max-old-space-size=384`、max_memory_restart 未启用（堆失控时靠内核 OOM kill）、kill_timeout 默认 1600ms、fork/1 实例、uptime 51D 内重启 312 次（unstable=0，重启均为部署驱动）——ecosystem.config.cjs 切换后上述四项全部显式化。
+
+## 数值推导（双进程时代——Y0c T32 实测/T39 回填，Z44/Z85 口径）
+
+**稳态预算判据现值（runbook §9.2，2026-10-16 T32 出口轮实测）**：
+
+> `p95(api) 230.5 + p95(worker 树) 197.4 + 协居 477.4 + 系统保留 300 = 1205.3 ≤ 1967` ⇒ **达标**（余量 761.7MB；三口径同判：closepage 轮 1199.9 / soak 轮 1205.5 / 合并保守 1205.3——降级出口 COLLAB_ROLE=all 不触发，维持登记不启用）。
+
+**协居重实测 = 477.4MB（取代上节单进程时代旧值 514.6MB）**，四分量：minio 243.6 + postgres（11 进程合计）137.9 + redis-server 18.6 + **pm2-runtime 77.3**（unit 前台形态 god 实测——Z85 算式用 40.4 系旧 daemon 形态值，差 36.9MB 由余量 70 项吸收）。测量时点=2026-10-16 T32 出口轮；口径=本档 [F1] 同法（ps RSS 按进程族求和）但**不含 flowweb-api/worker node**（双进程各为判据独立 p95 项——旧 514.6 含当时 api 138.8MB，两值口径不同不可直接相减比较）；soak 客户端=瞬态 harness 不计入；非协居常驻（YDService 70.9/journald 42.6/fwupd 28.8/multipathd 26.7≈169MB）沿本档先例不入算式，由「系统保留 300」项覆盖（三点口径声明全文=runbook §9.2）。
+
+**算式 1（per-process mmr，Z44）**：`max_memory_restart ≥ old-space + 384MB`——old-space=512 ⇒ 下限 896MB ⇒ **1G×2 维持**（api/worker 各一份；现制式 heap 算术自洽 750MiB+200MiB≤1G）。计划值 560/480 下调与 check-ecosystem 既有算术**冲突无解**（api：Z126③ TRIP≥549.8MB > 560M 制式 Z118 上限 377.5MB；worker：基线×4=555.2MB < RELEASE < TRIP ≤293.6MB）⇒ fail-safe 维持现状，**数字重设计归 Y7**（spec §0.6 偏离 50）。
+
+**算式 2（机器兜底，Z85）**：unit `MemoryMax=1150M`（算式=560+480+god 40.4+余量 70——1G 制式下该闭合算式发散，数值闭合归 560/480 重设计同批）。**cgroup 先触发语义**：单进程趋近 mmr 1G 时 unit 内合计（1G+对侧 ~200MB+pm2-runtime 77.3MB≈1.3G）>1150M ⇒ 内核 cgroup **先于 pm2 mmr** 杀 RSS 最大者（=泄漏者），pm2 autorestart 拉起=设计行为非事故——Z85 分层分工（mmr 管单进程泄漏快重启/MemoryMax 管机器不炸）不因触发顺序倒挂而破坏。`MemorySwapMax=128M`=宁被杀不换页。
+
+**判据形态更替声明**：单进程时代算式 2（`old-space+384+协居+300≤1900`）由上述「p95 三项+协居四分量」判据取代——api/worker 内存各为独立 p95 项（Z117② worker=进程树口径含 ffmpeg 子进程；ffmpeg 峰值保留登记+standalone 附注见 runbook §9.2）。
+
+## 现状快照（Y0c T31-T38 终态——T39 出口复核 2026-10-16 23:38 ssh 只读采集，代际 `1daca1a2`）
+
+| 面 | 终态 | 来源/证据 |
+|---|---|---|
+| 进程形态 | pm2 双 app：flowweb-api（role=api，3000/3001）+ flowweb-worker（role=worker，3002），fork×1 各，pm_cwd=`/home/ubuntu/flowweb`，online，restarts **4/4**（T33 档 3/3 + T36 部署窗 +1 一一对应，零异常重启） | T23-T33 双进程化；T39 pm2 jlist 复核 |
+| systemd | `flowweb-pm2.service` active（pm2-runtime 前台，cgroup 包含性已验）：MemoryMax=**1150M**（systemctl show 实测 1205862400B）+TimeoutStopUSec=**2min 30s**+MemorySwapMax=128M+Restart=on-failure；旧 pm2-ubuntu 已 stop+disable（孤儿 daemon 已清场） | T31；runbook §1.1；T39 systemctl show 复核 |
+| 内存数值 | old-space 512×2 + mmr 1G×2（ecosystem）；判据现值 1205.3≤1967 达标（余量 761.7MB） | T32；runbook §9.2；上节 |
+| NODE_ENV | **production 单源=`.env` 生效层**（T31 unit 切换后 pm2 environ 无 NODE_ENV 行=换轨实证；T34 zod default production fail-closed+8 直读点归一 census ㉒ 清零+COLLAB_FAKE_AI∧production 拒启） | T34；runbook §8 |
+| COOKIE_SECURE | `.env` 未设该键=resolver 按档位兜底（production 恒 Secure）；显式三态+production∧'false' 拒启；`resolveSecureTransport()` 单点驱动 auth.ts+update-profile.dto（禁第二处判断） | T35；spec §0.6 偏离 55 |
+| 网络绑定面 | ss 实测：3000/3001（api pid 3376468）+3002（worker pid 3376681）全 **127.0.0.1**（全网监听退役；API_BIND_ADDR `.env` 未设=main.ts `?? '127.0.0.1'` 默认）；5432/6379 loopback 不变；MinIO 9000/9001 `*:` 全网监听（**批外既有状态**——ufw inactive，公网暴露面依赖腾讯云安全组，如实登记不动作） | T36；T39 ss 复核 |
+| XFF/限流 | req.ip 单源（手写 getClientIp 已删）+api `trust proxy 'loopback'`+nginx `$proxy_add_x_forwarded_for` 追加语义⇒链首伪造不可键控；RN5 四点探测全 PASS（a1 恒不限对照/a2 XFF 键控被限/b 真源被限/c 伪造 127.0.0.1 仍被限）；COLLAB_TRUSTED_PROXY=1 在位（production∧未设拒启）+RATE_LIMIT_IP_WHITELIST 进 zod | T36；runbook §3.8 |
+| nginx | sites-enabled 仅 `flowweb` 1 文件；`location /api/` 计数 **1**（RN6：.bak 重复块 flowweb.bak-1791457973 备份至 ~/backups 后删除+reload 复验）；cert/*.bak-expired-20260823 与 flowweb.pre-y0b2-nginx.bak 历史备份仍在**非加载路径**（nginx 不 include，无生效面——T39 复核如实记录） | T36 RN6；T39 复核 |
+| Redis | AOF 三件：`aof_enabled:1 / aof_last_write_status:ok / loading:0`；CONFIG `appendonly yes / appendfsync everysec / maxmemory 134217728 / maxmemory-policy noeviction`；/etc/redis/redis.conf md5=`a7c8bf56e264563ba2d67736cfcb6431` ≡ 仓内副本头注登记值（T37 后零漂移）；仓内权威=`deploy/redis/server-redis.conf` | T37；runbook §12；T39 INFO/CONFIG/md5 复核 |
+| 备份日常面 | crontab `17 3 * * *` pg-dump-daily.sh 在位（check-collab-health `*/5` 巡检旁）；手动全链首记录（cron 同款调用）done OK：`daily-20261016230621.dump` 154606B+pg_restore TOC 352 条；水位守护双形态演练绿（R4）；**自动首跑=2026-10-17 03:17**（核对 `.data/pg-dump-daily.log` 新增 done OK 行——归片 B 执行窗首日顺手项） | T38；runbook §13；T39 crontab/日志/备份目录复核 |
+| 备份文档面 | `full-stack-backup.md`=备份/恢复单一权威（三轨合一表+保留分层表+恢复语义 Z16③④+MinIO 缺口 Y7 门槛项+PITR 六步执行清单）；`deploy/postgres/pitr-template.conf` 模板入仓（**服务器零动作**，PITR 挂 Y7） | T38 |
+| 巡检 | `node scripts/check-collab-health.mjs` 服务器本地 **exit 0**（T39 复核现值；cron 日志尾三条全 OK） | T39 |
+| 代际 | dist/build-info.json=`{"git":"1daca1a2","builtAt":"2026-10-16T13:54:07Z"}`（T36 绑定面收窄轮） | T39 复核 |
 
 ---
 

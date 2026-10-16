@@ -7,7 +7,7 @@
 
 | 轨 | 载体 | 触发 | 保留 | 用途 |
 |---|---|---|---|---|
-| ① 部署面 pre-migrate | `deploy.sh` ② `pg_dump -Fc ~/backups/pre-migrate-<ts>.dump` | 每次部署 migrate 前自动 | 5 份滚动（`ls -t \| tail -n +6 \| xargs rm`） | 迁移回滚锚（migrate=链上唯一不可逆操作；REBUILD_DB 回退锚） |
+| ① 部署面 pre-migrate | `deploy.sh` ② `pg_dump -Fc ~/backups/pre-migrate-<ts>.dump` | 每次部署 migrate 前自动 | 5 份滚动（`ls -t \| tail -n +6 \| xargs -r rm`） | 迁移回滚锚（migrate=链上唯一不可逆操作；REBUILD_DB 回退锚） |
 | ② 日常面 daily | `scripts/pg-dump-daily.sh`（crontab `17 3 * * *`，日志 `.data/pg-dump-daily.log`） | 每日 03:17 自动 | 14 份滚动 + 水位守护（>85% 删最旧） | 日常恢复面（RPO≤24h；atomic 命名+失败不删旧） |
 | ③ 大版本面手动全栈快照 | 本文档 §6 方法论（v3.10 起） `backups/vX.X/` | 大版本节点人工仪式 | 永久（Git tag+backup 分支双锚） | 代码+DB+MinIO+Redis 全栈恢复 |
 
@@ -69,7 +69,7 @@ pg_restore -d "$DSN" -c --if-exists ~/backups/daily-<ts>.dump
 
 ## 6 手动全栈快照（轨三——大版本节点仪式，v3.10 方法论）
 
-版本节点（核心功能稳定后）执行完整备份，覆盖应用层、数据层、存储层、缓存层。每层独立备份独立恢复，不依赖任何单一工具。**开发机（Windows）本地面**——与服务器 daily 轨互补（快照含 MinIO/Redis/代码，daily 只含 PG）。
+版本节点（核心功能稳定后）执行完整备份，覆盖应用层、数据层、存储层、缓存层。每层独立备份独立恢复，不依赖任何单一工具。**开发机（Windows）本地面**——与服务器 daily 轨互补（快照含 MinIO/Redis/代码，daily 只含 PG）。本节承自 v3.10 方法论：**命令逐字保留，版面重排**（Y0c T38 单一权威重写，方法论语义零变更）。
 
 ### 备份结构
 

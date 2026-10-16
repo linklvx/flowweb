@@ -23,7 +23,9 @@ die() { log "ERROR $*"; exit 1; }
 
 # ── 1. DSN 提取（deploy.sh ② 同款：去引号+剥 Prisma 参数走 libpq；DSN 永不落日志）──
 [[ -f $ENV_FILE ]] || die "缺 $ENV_FILE（须在仓根部署目录内运行）"
-DSN=$(grep -m1 '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | sed 's/?.*$//')
+# 键整体缺失时 grep exit 1 经 pipefail 会被 set -e 静默吞（下一行 die 不可达）——grep || true
+# 使空值落到下一行 die 断言（T39 修复；ERROR 日志可见性=失败不静默语义，零删除语义不变）。
+DSN=$( { grep -m1 '^DATABASE_URL=' "$ENV_FILE" || true; } | cut -d= -f2- | tr -d '"' | sed 's/?.*$//')
 [[ -n $DSN ]] || die "DATABASE_URL 提取为空——中止（零删除动作）"
 
 # ── 2. atomic dump：先写 .tmp，exit 0 且非空才 mv 转正（失败不删旧）──
