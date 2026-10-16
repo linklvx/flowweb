@@ -6,7 +6,7 @@ import { VideoWorkCloneService } from './video-work-clone.service';
 
 @Controller('api/video-works')
 export class VideoWorkController {
-  // 第八轮：三参与 Task 1.3 骨架完全一致（整块粘贴不会丢注入——Task 6.2 用 cloneService）
+  // 第八轮：两参与 Task 1.3 骨架完全一致（整块粘贴不会丢注入——Task 6.2 用 cloneService）
   constructor(
     @Inject(VideoWorkService) private readonly service: VideoWorkService,
     @Inject(VideoWorkCloneService) private readonly cloneService: VideoWorkCloneService, // Task 6.1 前是空壳类，可注入

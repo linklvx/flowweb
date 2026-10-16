@@ -549,3 +549,42 @@ process.exit(problems.length ? 1 : 0);
 ```
 
 输出（PASS，exit 0）：`apiFamilies=193 / workerFamilies=177 / intersectionCount=177`（worker⊆api，workerOnly=0，apiOnly=16=WS/gateway 专属族）；`problems=[]`——交集 177 族每族两侧 role 互异（api 侧全 role="api"∧worker 侧全 role="worker"）；`yjsStoreTotalWorker={sum:0,n:0}`=3002 无 yjs_store_total 样本行（无样本=0 口径，worker 不写 doc）。原始文本关键行摘录：`process_resident_memory_bytes{role="api"} 178278400` / `process_tree_rss_bytes{role="worker"} 140398592` / `nodejs_heap_size_used_bytes{role="api"} 100562904` vs `{role="worker"} 82153736`。结论=Z138 setDefaultLabels 引导层单点在真实双进程下的 B 内容断言成立（T29 进程内仿真〔偏离 37〕与真端点两面齐全，义务闭环）。
+
+---
+
+## §12 Redis 三件配置（Y0c T37/E58②——appendonly everysec+maxmemory 128mb+noeviction；2026-10-16 落地）
+
+**仓内权威副本**=`deploy/redis/server-redis.conf`（服务器 /etc/redis/redis.conf 终态全文照抄+头注块+四条 [T37 旁注]——消灭「生产配置不在仓」）。
+
+**三件终值与依据**（Redis 承载 BullMQ 付费队列+限流桶+会话缓存；服务器 2核/1.9GB）：
+
+| 件 | 终值 | 依据 |
+|---|---|---|
+| appendonly + appendfsync | yes + everysec | AOF RPO≤1s=运行时持久化面（Y0b-5 RDB 备份=落盘面，两面互补） |
+| maxmemory | 128mb | 实测 used_memory 3.11M/峰值 5.68M（2026-10-16，≪100MB 判定阈） |
+| maxmemory-policy | noeviction | 队列数据不被逐出的安全底线（满限拒写不逐出） |
+
+**变更流程**（三件任何一件变更必须全走，禁单改一面）：
+1. 改仓内模板 `deploy/redis/server-redis.conf`（评审面=PR diff）
+2. 服务器备份：`sudo cp /etc/redis/redis.conf ~/backups/redis.conf.bak-<任务>-<ts>`
+3. 运行时生效（免重启优先）：`redis-cli CONFIG SET <k> <v>`
+4. 持久化：`redis-cli CONFIG REWRITE` + `sudo grep` 文件面复核与运行时一致
+5. 断言步骤（下方）重跑
+6. 同批回写仓内模板（全文照抄口径）+本节登记变更行
+
+**断言步骤**（触三件/部署验收必跑）：
+```bash
+ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
+  "redis-cli INFO persistence | grep -E 'aof_enabled|aof_last_write_status|loading'"
+# 期望：aof_enabled:1 / aof_last_write_status:ok / loading:0
+ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
+  "redis-cli CONFIG GET appendonly; redis-cli CONFIG GET appendfsync; redis-cli CONFIG GET maxmemory; redis-cli CONFIG GET maxmemory-policy"
+# 期望：yes / everysec / 134217728 / noeviction
+```
+
+**T37 落地实测**（2026-10-16，Redis 7.0.15，免重启路径，零键丢失）：
+- 改前：appendonly no（aof_enabled:0=唯一缺口；conf :1378 与运行时一致为 no）/appendfsync everysec/maxmemory 134217728/noeviction 三件已达标零动作；used_memory 3.11M、db0 355 keys、rdb_last_bgsave_status:ok、uptime 97 天
+- 操作：备份 `~/backups/redis.conf.bak-t37-20261016T223647`（改前 md5=a51803903c93b57b9f78a317cb5decb8）→ `CONFIG SET appendonly yes`（7.0 自动建 multipart AOF 基线：appendonlydir/appendonly.aof.1.base.rdb 230857B+incr.aof+manifest；日志「Background AOF rewrite finished successfully」）→ `CONFIG REWRITE`
+- 改后：aof_enabled:1/aof_last_write_status:ok/loading:0；db0 358 keys（自然增长无丢失）；conf 终态 md5=a7c8bf56e264563ba2d67736cfcb6431
+- CONFIG REWRITE 伴生归一（良性，均为运行时真值回写）：`daemonize no`（unit 命令行 `--daemonize no` 真相固化）/`supervised systemd`/`save 3600 1|300 100|60 10000` 三行显式化（原文件未写=内置默认在跑）/`user default on nopass ~* &* +@all`（ACL 真相；bind 127.0.0.1+protected-mode yes 防线不变）/引号与 `stream-node-max-bytes 4kb` 等价写法
+- conf 形态核查：单文件无 include（「仓内全量副本」口径成立）；unit ExecStart=/usr/bin/redis-server /etc/redis/redis.conf --supervised systemd，User=redis

@@ -3,7 +3,7 @@
 // 手写 getClientIp（无条件采信 XFF 首元素=伪造面，绕过 trust proxy 防线）已删——消费方
 // （auth.controller:94/:129+video-work.controller recordView）与全局 ThrottlerModule tracker
 // （TelemetryThrottlerGuard 回落 super=req.ip）同吃 req.ip 单源（Z14③ 两条通道同批覆盖）。
-// ① 静态锚：main.ts trust proxy 设置行文本锚（防静默移除——移除即下方行为锚②红）+
+// ① 静态锚：main.ts trust proxy 设置行文本锚（防静默移除——移除即本静态锚红（行为锚独立锁语义））+
 //    rate-limiter.service.ts 手写解析零残留（禁垫片：转发壳也算残留）；
 // ② 行为锚：Nest 测试 app 配 main.ts 同款 trust proxy 'loopback'+回显路由（测试内路由非生产面），
 //    proxy-addr 语义三档：loopback 直连+XFF 单值⇒该值；XFF 链⇒右起首个非 loopback（左端伪造
@@ -23,7 +23,7 @@ const MAIN_TS = readFileSync(resolve(__dirname, '../../main.ts'), 'utf8');
 const RATE_LIMITER_TS = readFileSync(resolve(__dirname, './rate-limiter.service.ts'), 'utf8');
 
 describe('T36 XFF 单源（静态锚）', () => {
-  it("main.ts 含 app.set('trust proxy', 'loopback')（结构锚防静默移除——移除即行为锚②红）", () => {
+  it("main.ts 含 app.set('trust proxy', 'loopback')（结构锚防静默移除——移除即本静态锚红（行为锚独立锁语义））", () => {
     expect(MAIN_TS).toContain("app.set('trust proxy', 'loopback')");
   });
 

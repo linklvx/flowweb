@@ -410,6 +410,8 @@ describe('Y0c T36：API_BIND_ADDR + RATE_LIMIT_IP_WHITELIST 进 schema（形态�
     expect((r.data as Record<string, unknown> | undefined)?.['API_BIND_ADDR'], '实现前红：键未注册⇒zod strip 未知键⇒undefined').toBe('127.0.0.1');
     expect(envSchema.safeParse({ ...good, API_BIND_ADDR: '' }).success).toBe(true);
     expect(envSchema.safeParse(good).success).toBe(true);
+    // 功能面钉死（T37 R6④）：preprocess 包 ZodEffects——下方 _def.typeName 断言抓不到 preprocess 内藏 default
+    expect((envSchema.safeParse(good).data as Record<string, unknown> | undefined)?.['API_BIND_ADDR'], '缺键 parse ⇒ undefined（内藏 default 即红）').toBeUndefined();
     const f = (envSchema.shape as Record<string, any>)['API_BIND_ADDR'];
     expect(f, '实现前红：键未注册⇒shape 无此项').toBeTruthy();
     expect(f._def.typeName, '禁 zod .default（双源 P3——默认值唯一落 main.ts 使用点）').not.toBe('ZodDefault');
@@ -419,6 +421,8 @@ describe('Y0c T36：API_BIND_ADDR + RATE_LIMIT_IP_WHITELIST 进 schema（形态�
     const r = envSchema.safeParse({ ...good, RATE_LIMIT_IP_WHITELIST: '127.0.0.1,::1,10.0.0.0/8' });
     expect((r.data as Record<string, unknown> | undefined)?.['RATE_LIMIT_IP_WHITELIST'], '实现前红：键未注册⇒strip⇒undefined').toBe('127.0.0.1,::1,10.0.0.0/8');
     expect(envSchema.safeParse({ ...good, RATE_LIMIT_IP_WHITELIST: '' }).success).toBe(true);
+    // 功能面钉死（T37 R6④）：同 API_BIND_ADDR——preprocess 内藏 default 由缺键 parse 值面捕获
+    expect((envSchema.safeParse(good).data as Record<string, unknown> | undefined)?.['RATE_LIMIT_IP_WHITELIST'], '缺键 parse ⇒ undefined（内藏 default 即红）').toBeUndefined();
     const f = (envSchema.shape as Record<string, any>)['RATE_LIMIT_IP_WHITELIST'];
     expect(f, '实现前红：键未注册').toBeTruthy();
     expect(f?._def?.typeName).not.toBe('ZodDefault');

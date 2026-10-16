@@ -283,7 +283,7 @@ describe('AuthController', () => {
       mockSmsService.sendSms.mockResolvedValue(undefined);
 
       const mockRes = { status: vi.fn().mockReturnValue({ json: vi.fn() }), json: vi.fn() };
-      const req = { headers: { 'x-forwarded-for': '1.2.3.4' }, ip: '10.0.0.1' };
+      const req = { headers: {}, ip: '10.0.0.1' };
 
       await controller.sendSmsCode(
         { phone: '13800138000' } as any,
