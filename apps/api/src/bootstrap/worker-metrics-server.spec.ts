@@ -6,6 +6,7 @@
 // health 扩读归 T29 第二包。
 import { describe, it, expect, afterAll, vi } from 'vitest';
 import { collectDefaultMetrics, register } from 'prom-client';
+import * as net from 'node:net';
 import type { Server } from 'node:http';
 import { startWorkerMetricsServer, WORKER_METRICS_PORT } from './worker-metrics-server';
 
@@ -112,4 +113,43 @@ describe('Y0c T29-II R0① metrics() reject → 真 500（非 socket 挂断）',
     expect(outcome, `期望 500（实得 ${JSON.stringify(outcome)}——writeHead(200) 先行则 catch 内 500 不可达）`).toMatchObject({ status: 500 });
     expect((outcome as { body: string }).body).toMatch(/metrics boom/);
   });
+});
+
+// Y0c T33（D 出口判据「ws 升级拒绝」·§0.6 偏离 52①）：3002=worker 唯一监听面——node:http 无
+// 'upgrade' 监听器 ⇒ 协议切换结构性不可能（v24 实测：升级请求被当普通请求走 handler，回 200 文本
+// 非 101；旧版行为=socket destroy。断言只钉「非 101」=版本鲁棒的两行为统一判据——WS 客户端收
+// 非 101 即握手失败〔RFC 6455〕；显式钉死防未来加 upgrade 监听器静默漂移）。
+// 判据其余两层=引用面：3000/3001 双 ECONNREFUSED（worker.module.spec——ws 握手前置 TCP 建连即拒）
+// +结构面（worker.module 零 controller/providers 无 CollabGateway；PaymentGateway application-context
+// 实例化不监听——worker.module.ts :156 注）。
+describe('Y0c T33 D 出口：ws 升级拒绝（3002 唯一监听面——偏离 52①）', () => {
+  it('裸 WS 升级请求 ⇒ 非 101（协议切换不可能）；server 不受污染（后续普通 GET 仍 200）', async () => {
+    const server = await startWorkerMetricsServer({ port: 0, nodeEnv: 'development' });
+    servers.push(server);
+    const { port } = server.address() as import('node:net').AddressInfo;
+    const head = await new Promise<string>((resolve) => {
+      let buf = '';
+      const sock = net.connect({ port, host: '127.0.0.1' }, () => {
+        sock.write(
+          'GET /metrics HTTP/1.1\r\n'
+          + `Host: 127.0.0.1:${port}\r\n`
+          + 'Upgrade: websocket\r\n'
+          + 'Connection: Upgrade\r\n'
+          + 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+          + 'Sec-WebSocket-Version: 13\r\n\r\n',
+        );
+      });
+      // v24 行为=200+keep-alive 不主动关：收到完整响应头即判（首个 \r\n\r\n）；被关/3s 兜底同收口
+      const watchdog = setTimeout(() => { sock.destroy(); resolve(buf); }, 3_000);
+      sock.on('data', (d) => {
+        buf += d.toString('latin1');
+        if (buf.includes('\r\n\r\n')) { clearTimeout(watchdog); sock.destroy(); resolve(buf); }
+      });
+      sock.on('error', () => { /* ECONNRESET/被关=拒绝同族——首响应头已足判 */ });
+      sock.on('close', () => { clearTimeout(watchdog); resolve(buf); });
+    });
+    expect(head.startsWith('HTTP/1.1 101'), `升级必须非 101（实收头 ${JSON.stringify(head.slice(0, 80))}）`).toBe(false);
+    // server 不受污染：升级尝试后普通 GET 仍 200（拒绝面非崩溃面）
+    expect((await fetch(`http://127.0.0.1:${port}/metrics`)).status).toBe(200);
+  }, 15_000);
 });

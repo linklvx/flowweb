@@ -458,4 +458,55 @@ const statusOf = async (nodeId: string) =>
     }
     expect(r!.totalCost).toBe(sumConsumed);   // totalCost=实扣真值审计口径（P8）
   }, 30_000);
+
+  // Y0c T33 D 出口⑯（stalled 重投三联——§0.6 偏离 51 构造性桩）：判据字面「在飞 ffmpeg」的测试
+  // 落地形态=deferred 外呼构造在飞段（真实媒体双面不可用：本地零媒体链/服务器 FFMPEG_PATH Windows
+  // 残留〔偏离 44〕；全仓 int 装置外呼恒 stub 同款口径）。三联判别对象=claim 重入/reserve CAS/投影链：
+  // 段1 在飞（外呼 gate 挂起）→ 段2 同 jobId 重投（BullMQ stalled 语义——claim ⓪ rearm 重入 →
+  // reserve CAS alreadyReserved → Z35 skipped 静默退出）→ 段1 完成。交叉引用：team-credit.atomic r3
+  // （CAS 单元面）+generation-intent.service.spec ②（重入单元面）+⑭（rearm 同行真库面）。
+  it('T33 出口⑯：stalled 重投三联（在飞段 deferred 外呼+同 jobId 重投段）→ 完成一次/零重复扣费/零虚假 error 投影', async () => {
+    const n = nid('a16'); const nodes = [imageNode(n)];
+    const e = makeExec(nodes);
+    let providerCalls = 0;
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((r) => { releaseProvider = r; });
+    (e.apiCaller.callImageGen as any).mockImplementation(async () => {
+      providerCalls += 1; await providerGate; return { url: 'http://x/16.png' };
+    });
+    // 段1：enqueue 形态在飞（regenToken+jobId——⑪ 同款 execute 第 5/6 参）
+    const p1 = e.svc.execute(PID, undefined, UID, [n], 'stalled-tok-16', 'job-stalled-16');
+    // 等段1 外呼真在飞（claim RUNNING+reserve 冻结+reanchor 已毕——外呼入口即 providerCalls=1；
+    // 以此为重投段前置=避免 reserve CAS 竞态窗（段1 冻结未落时段2 CAS 可能抢到 count=1）
+    const t0 = Date.now();
+    while (providerCalls < 1) {
+      if (Date.now() - t0 > 10_000) throw new Error('段1 外呼 10s 未进入在飞态——claim/reserve 链断？');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // 段2：stalled 重投（同 jobId 重进 execute——BullMQ maxStalledCount 重排语义的进程内构造）
+    const r2 = await e.svc.execute(PID, undefined, UID, [n], 'stalled-tok-16', 'job-stalled-16');
+    expect(providerCalls, '重投段零新增外呼（Z35 mayCall:false 禁再外呼）').toBe(1);
+    expect(r2.errors.length, '重投段恰一条 skipped 分诊（非 error——Z99 skipped 族）').toBe(1);
+    expect(r2.errors[0]).toMatchObject({ nodeId: n, status: 'skipped' });
+    expect(r2.success, 'success=errors.length===0 单源——skipped 亦非 success（客户端轮换判据）').toBe(false);
+    expect((await rowsOf(n)).length, '重投段零新行（claim ⓪ 同 jobId rearm 续跑同行）').toBe(1);
+    // 段1 完成（"ffmpeg" 归——gate 放行）
+    releaseProvider();
+    const r1 = await p1;
+    expect(r1.success, '在飞段照常完成（Z88：skipped 非终态，done 由在飞段落）').toBe(true);
+    // 三联①完成一次：单行 SUCCEEDED+外呼恰一次
+    const rows = await rowsOf(n);
+    expect(rows.length).toBe(1);
+    expect(rows[0].status).toBe('SUCCEEDED');
+    expect(providerCalls).toBe(1);
+    // 三联②零重复扣费：settle 恰一次+零退款零释放（重投段零新冻结=r3 CAS alreadyReserved 承担）
+    const led = await ledgerOf(n);
+    expect(led).toEqual({ settle: 1, refund: 0, release: 0 });
+    expect(rows[0].reservedCredits).toBe(0);   // 冻结已 settle 清零（无悬留）
+    // 三联③零虚假 error 投影：本节点全部投影零 error 态；序列含 skipped（重投段）且终态 done（在飞段）
+    const statuses = e.writeExecCalls.filter((c) => c.nodeId === n).map((c) => c.patch.status);
+    expect(statuses, `投影序列不得含 error（实收 ${JSON.stringify(statuses)}）`).not.toContain('error');
+    expect(statuses, '重投段 skipped 投影在档（Z35 非终态可观测面）').toContain('skipped');
+    expect(statuses[statuses.length - 1], '终态投影=在飞段 done（Z88 照常落地）').toBe('done');
+  }, 30_000);
 });

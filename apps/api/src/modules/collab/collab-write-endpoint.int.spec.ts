@@ -178,4 +178,76 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     const body = await r.json() as { violations?: Array<{ code: string }> };
     expect(body.violations?.some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
   }, 30_000);
+
+  // Y0c T33 D 出口（Z125-4，spec :390）：drain×write-batch 相遇——drain（owner→NULL）窗内 worker
+  // 投递 ⇒ (a) 端点瞬态 503 非 200 (b) 预算内重试 (c) 租约恢复后同 op 只落 doc 一次。
+  // drain 窗构造=真实 drain 入口 beginDraining（POST /api/drain 的 gateway 调用面——collabState
+  // 'draining'⇒X9 受理门 503）+PG 租约行 owner→NULL+repo 契约 16 内存面同步（lease-fence int spec
+  // 行级 UPDATE 同款装置形态）；恢复=owner 复位+transition('serving')（beginDraining 60s 自动解除
+  // 的同款转移，测试驱动提前——collab-auth-defense「最近合法状态转移链驱动」先例）。
+  it('Z125-4 drain×write-batch 相遇：(a) drain 窗端点瞬态 503 非 200 (b) 端口预算内退避重试 (c) 租约恢复后同 op 只落 doc 一次（服务端恰一次 200 受理+窗内投递零物化）', async () => {
+    await flush(PID);   // drain 前持久化落定——释放会话零在途（beginDraining 的 Z129 释放面干净）
+    const drainRes = gateway.beginDraining();
+    expect(drainRes.draining, 'beginDraining 生效（serving→draining）').toBe(true);
+    await pollUntil(async () => !residency.residentProjectIds().includes(PID), 10_000);   // drain 释放常驻会话完毕
+    // owner→NULL 两层忠实面（PG 行+repo 内存契约 16——生产 drain 释放租约的效果）
+    const setOwner = (o: string | null) => prisma.$executeRawUnsafe(
+      o === null
+        ? `UPDATE "CollabLease" SET owner = NULL WHERE scope = 'primary'`
+        : `UPDATE "CollabLease" SET owner = '${o}', "expiresAt" = now() + interval '5 minutes' WHERE scope = 'primary'`,
+    );
+    let restored = false;
+    const restoreLease = async () => {
+      if (restored) return;
+      restored = true;
+      await setOwner(LEASE_STUB_OWNER);
+      repo.setLeaseOwner(LEASE_STUB_OWNER);
+      (gateway as any).transition('serving', 'z125-4-restore');
+      (gateway as any).clearDrainTimer();
+    };
+    try {
+      await setOwner(null);
+      repo.setLeaseOwner(null);
+      // (a) drain 窗内 worker 投递 ⇒ 端点瞬态 503 非 200（X9 受理门 assertWriteAdmitted 单点）；
+      //     probe 用合法白名单键（controller 层 Z148① manifest 校验先于 writer X9 门——非法键 400
+      //     会截断 503 判别）+哨兵 resultUrl 值=窗内投递零物化的判别标记（(c) 段断言捕获）
+      const probe = await fetch(`${baseUrl}/api/collab/doc/write-batch`, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'https://x/z125-4-probe-must-not-land' } }] }),
+      });
+      expect(probe.status, 'drain 窗内投递必须瞬态 503 非 200（Z125-4(a)）').toBe(503);
+      // (b)+(c) 相遇窗：端口在飞重试（backoffBaseMs=250 ⇒ 尝试节奏 ~0/250/750ms，预算 4 次）×
+      // 租约中途恢复（t≈500ms——第 2 次尝试后、第 3 次尝试前）。fetchImpl=真 fetch 直通计数
+      // （TD-2 教训：非 mock 替换，仅旁路记录 status 序列——响应体仍真 undici）
+      const statuses: number[] = [];
+      const racePort = new HttpCollabWritePort({
+        baseUrl, token: TOKEN, backoffBaseMs: 250,
+        fetchImpl: (async (url: string, init: any) => {
+          const r = await fetch(url, init); statuses.push(r.status); return r;
+        }) as any,
+      });
+      const restoreTask = (async () => { await new Promise((r) => setTimeout(r, 500)); await restoreLease(); })();
+      const results = await racePort.writeOpsBatch(PID, [
+        { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f-z125-4' } },
+      ]);
+      await restoreTask;
+      // (b) 预算内重试：≥1 次 503 尝试+恰一次 2xx 成功（4 次预算内收敛——非 transient-exhausted 合成档；
+      //     2xx 口径=端口三分判据同源〔request :170〕——Nest POST 缺省 201）
+      expect(statuses.filter((s) => s === 503).length, `drain 窗内 ≥1 次 503 尝试（实收 ${JSON.stringify(statuses)}）`).toBeGreaterThanOrEqual(1);
+      expect(statuses.filter((s) => s >= 200 && s < 300), `预算内恰一次成功受理（实收 ${JSON.stringify(statuses)}）`).toHaveLength(1);
+      expect(results, '预算内重试后成功=真端点响应（非耗尽合成 written:true 档）').toEqual([
+        expect.objectContaining({ index: 0, op: 'writeNodeData', written: true }),
+      ]);
+      // (c) 租约恢复后同 op 只落 doc 一次：装载重放读侧终态=恰好该次受理的键级 set；
+      //     窗内投递（probe 哨兵 resultUrl）零物化——503 拒在写前（端点门先于事务），
+      //     resultUrl 维持 ③ 用例落值（键级 set 互不干扰+probe 未落的双重判别）
+      await flush(PID);
+      const revived = await reviveFromPg(PID);
+      const data = (revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON();
+      expect(data).toMatchObject({ content: 'seed', fileId: 'f-z125-4', resultUrl: 'https://x/e2e.png' });
+      expect(data.resultUrl, 'drain 窗内投递必须零物化（503 非 200——写前拒绝）').not.toMatch(/z125-4-probe/);
+    } finally {
+      await restoreLease();   // 断言失败路径同样恢复 serving——不毒化 afterAll/后续面（V31 同款纪律）
+    }
+  }, 60_000);
 });
