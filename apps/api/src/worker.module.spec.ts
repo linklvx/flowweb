@@ -56,10 +56,12 @@ import { MetricsCoreModule } from './metrics/metrics-core.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MinioModule } from './modules/minio/minio.module';
 
-const meta = (key: string, mod: Function) => Reflect.getMetadata(key, mod) ?? [];
-const controllersOf = (mod: Function) => meta(MODULE_METADATA.CONTROLLERS, mod);
-const importsOf = (mod: Function) => meta(MODULE_METADATA.IMPORTS, mod);
-function providerSymbols(mod: Function): unknown[] {
+/** 模块类最小符号类型（T31 preflight 解阻：裸 Function 触 @typescript-eslint/no-unsafe-function-type——显式构造签名替换，纯类型面零行为变化；module-split.spec 同款） */
+type ModuleClass = abstract new (...args: never[]) => unknown;
+const meta = (key: string, mod: ModuleClass) => Reflect.getMetadata(key, mod) ?? [];
+const controllersOf = (mod: ModuleClass) => meta(MODULE_METADATA.CONTROLLERS, mod);
+const importsOf = (mod: ModuleClass) => meta(MODULE_METADATA.IMPORTS, mod);
+function providerSymbols(mod: ModuleClass): unknown[] {
   return meta(MODULE_METADATA.PROVIDERS, mod).map((p: unknown) =>
     typeof p === 'function' ? p : (p as { provide?: unknown }).provide);
 }

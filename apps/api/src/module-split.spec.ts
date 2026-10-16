@@ -37,13 +37,15 @@ import { MetricsHttpModule } from './metrics/metrics-http.module';
 import { MetricsService } from './metrics/metrics.service';
 import { MetricsController } from './metrics/metrics.controller';
 
-const meta = (key: string, mod: Function) => Reflect.getMetadata(key, mod) ?? [];
-const controllersOf = (mod: Function) => meta(MODULE_METADATA.CONTROLLERS, mod);
-const exportsOf = (mod: Function) => meta(MODULE_METADATA.EXPORTS, mod);
-const importsOf = (mod: Function) => meta(MODULE_METADATA.IMPORTS, mod);
+/** 模块类最小符号类型（T31 preflight 解阻：裸 Function 触 @typescript-eslint/no-unsafe-function-type——显式构造签名替换，纯类型面零行为变化） */
+type ModuleClass = abstract new (...args: never[]) => unknown;
+const meta = (key: string, mod: ModuleClass) => Reflect.getMetadata(key, mod) ?? [];
+const controllersOf = (mod: ModuleClass) => meta(MODULE_METADATA.CONTROLLERS, mod);
+const exportsOf = (mod: ModuleClass) => meta(MODULE_METADATA.EXPORTS, mod);
+const importsOf = (mod: ModuleClass) => meta(MODULE_METADATA.IMPORTS, mod);
 
 /** providers 符号面提取（TypeProvider 自身与 ClassProvider.provide 双形态——daemon spec 同款） */
-function providerSymbols(mod: Function): unknown[] {
+function providerSymbols(mod: ModuleClass): unknown[] {
   return meta(MODULE_METADATA.PROVIDERS, mod).map((p: unknown) =>
     typeof p === 'function' ? p : (p as { provide?: unknown }).provide);
 }
