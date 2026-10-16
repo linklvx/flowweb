@@ -12,6 +12,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { stampDocSchema, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { pollUntil } from '../../test-utils/poll-until';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -53,7 +54,7 @@ function buildGateway() {
     44500 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
-  (gateway as any).collabState = 'serving';   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）
+  gatewayFacade(gateway).forceCollabState('serving');   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）
   return { gateway, repo, appends, spool };
 }
 
@@ -89,7 +90,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     await expect(gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any))
       .resolves.toBe(false);   // Y0a-2 契约 3 反转：任何路径不 throw（旧断言 rejects.toThrow 必红点）
     expect(bcSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: false }));
-    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);
+    expect(gatewayFacade(gateway).persistUnhealthyHas('project:p1')).toBe(true);
 
     await vi.advanceTimersByTimeAsync(1_000);   // 1s 后第一档重试触发
     // Y0a-2：重试帧通道 peek/append/confirm 走真实 fs IO（异步于 fake timer 触发点）——真实窗口等其落定
@@ -98,8 +99,8 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     vi.useFakeTimers();
     expect(repo.append).toHaveBeenCalledTimes(2);   // 失败 1 + 重试成功 1
     expect(bcSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: true }));
-    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(false);
-    expect((gateway as any).persistRetry.get('project:p1')).toBeUndefined();
+    expect(gatewayFacade(gateway).persistUnhealthyHas('project:p1')).toBe(false);
+    expect(gatewayFacade(gateway).persistRetryEntry('project:p1')).toBeUndefined();
   });
 
   it('退避无上限：梯子永不耗尽——5 档走完后 60s 封顶档仍排程重试（数据留 spool 帧等下次 load 回灌；梯子只加速恢复）', async () => {
@@ -114,17 +115,17 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     // Y0a-2 Task 4（耗尽语义→永续语义，plan Step 3 首用例+V17⑤ 形态）：重试链含真实 fsync IO——全梯在
     // **单一 fake 会话**内推进（切 useRealTimers 会杀在途 fake 定时器=链断裂）；每轮 60s 推进恒覆盖链式
     // 定时器到期（各档 ≤60s 封顶），realSleep 让链落定并在 fake 时钟上排下一档。链可能级联超跑 → rung 断言下界。
-    const g = gateway as any;
+    const g = gatewayFacade(gateway);
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(60_000);
       await realSleep(50);
       repo.append.mockClear();
     }
-    expect(g.persistRetry.get('project:p1')?.rung).toBeGreaterThanOrEqual(5);   // 5 档全走完
-    const entry = g.persistRetry.get('project:p1');
-    clearTimeout(entry.timer); entry.timer = null;   // V17⑤：作废在途定时器后，在当前时钟断言重排（不清则 schedule 早退=恒真绿）
+    expect(g.persistRetryEntry('project:p1')?.rung).toBeGreaterThanOrEqual(5);   // 5 档全走完
+    const entry = g.persistRetryEntry('project:p1')!;
+    clearTimeout(entry.timer!); entry.timer = null;   // V17⑤：作废在途定时器后，在当前时钟断言重排（不清则 schedule 早退=恒真绿）；非空断言=偏离 62⑥ 同款（any 时代 null 可传——运行时语义零变化）
     g.schedulePersistRetry('project:p1');
-    expect(g.persistRetry.get('project:p1').timer).toBeTruthy();   // rung≥5 → 60s 封顶档（旧实现 :603 耗尽 cancel → timer null=红）
+    expect(g.persistRetryEntry('project:p1')!.timer).toBeTruthy();   // rung≥5 → 60s 封顶档（旧实现 :603 耗尽 cancel → timer null=红）
     repo.append.mockClear();
     await vi.advanceTimersByTimeAsync(60_000);
     await realSleep(50);
@@ -147,7 +148,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     const unhealthy = JSON.stringify({ type: 'persist-status', healthy: false });
     const unhealthyCalls = bcSpy.mock.calls.filter(([payload]) => payload === unhealthy);
     expect(unhealthyCalls).toHaveLength(1);   // 首次失败翻转电平广播 1 次；5 档重试全失败不再广播
-    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 电平保持 unhealthy
+    expect(gatewayFacade(gateway).persistUnhealthyHas('project:p1')).toBe(true);   // 电平保持 unhealthy
   });
 
   it('两阶段·detached：doc 已不在内存（卸载）→ 重试经 spool 帧通道直写 repo.append，帧回收', async () => {
@@ -177,11 +178,11 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     doc.getMap('nodes').set('n1', 1);
     repo.append.mockRejectedValueOnce(new Error('db down'));
     await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any).catch(() => {});
-    expect((gateway as any).persistRetry.has('project:p1')).toBe(true);
+    expect(gatewayFacade(gateway).persistRetryHas('project:p1')).toBe(true);
 
     doc.getMap('nodes').set('n2', 2);
     await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any);   // 有机重试成功
-    expect((gateway as any).persistRetry.has('project:p1')).toBe(false);   // 定时器撤销
+    expect(gatewayFacade(gateway).persistRetryHas('project:p1')).toBe(false);   // 定时器撤销
     expect(bcSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: true }));
 
     await vi.advanceTimersByTimeAsync(60_000);
@@ -236,20 +237,20 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     repo.append.mockRejectedValue(new Error('db down'));
     await gateway.hooks.onStoreDocument({ document: doc as any, documentName: 'project:p1' } as any).catch(() => {});   // 首败：批入 spool+电平 unhealthy+梯 rung0
     doc.getMap('nodes').set('n2', 2);   // 再编辑 → 队列非空（doc 级通道前提：doc 活跃∧队列非空）
-    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 前置：电平已 unhealthy
+    expect(gatewayFacade(gateway).persistUnhealthyHas('project:p1')).toBe(true);   // 前置：电平已 unhealthy
 
-    await (gateway as any).retryPersist('project:p1');   // 白盒直调一轮（既有梯子用例同形）
-    const entry = (gateway as any).persistRetry.get('project:p1');
+    await gatewayFacade(gateway).retryPersist('project:p1');   // 白盒直调一轮（既有梯子用例同形）
+    const entry = gatewayFacade(gateway).persistRetryEntry('project:p1');
     expect(entry).toBeDefined();                     // 旧实现尾部无条件 cancel → undefined → 红
     expect(entry?.timer).toBeTruthy();               // 重试定时器真值（刚排的梯未被杀）
     expect(entry?.rung).toBe(1);                     // rung 推进按既有 catch 形态（失败恰一次）
-    expect((gateway as any).persistUnhealthy.has('project:p1')).toBe(true);   // 电平不翻 healthy（旧实现 false → 红）
+    expect(gatewayFacade(gateway).persistUnhealthyHas('project:p1')).toBe(true);   // 电平不翻 healthy（旧实现 false → 红）
     expect(bcSpy).not.toHaveBeenCalledWith(JSON.stringify({ type: 'persist-status', healthy: true }));   // 无虚假 healthy 广播
   });
 
   it('I-2 批尾锚（detached 队列通道）：spool.append 挂起窗内折并改写队列前缀 → splice 跳过（merged 留队重发）+tail anomaly 计数+1', async () => {
     const { gateway, spool } = buildGateway();
-    const g = gateway as any;
+    const g = gatewayFacade(gateway);
     // 装置：detached 形态（不 registerDoc——doc 不在 server.documents）+梯子 entry+队列 3 条真 Y update
     const src = new Y.Doc();
     src.getMap('nodes').set('k1', 1);
@@ -258,8 +259,8 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     const u2 = Y.encodeStateAsUpdate(src);
     src.getMap('nodes').set('k3', 3);
     const u3 = Y.encodeStateAsUpdate(src);
-    g.pendingQueues.set('p1', [u1, u2, u3]);
-    g.persistRetry.set('project:p1', { rung: 0, timer: null });
+    g.seedPendingQueue('p1', [u1, u2, u3]);
+    g.seedPersistRetry('project:p1', { rung: 0, timer: null });
     let releaseAppend!: () => void;   // Y13 同款：可释放 deferred——append 挂起=锁外 splice 竞态窗的确定性复现
     const appendSpy = vi.spyOn(spool, 'append').mockImplementation(
       () => new Promise<string[]>((resolve) => { releaseAppend = () => resolve(['frame-1']); }),
@@ -267,8 +268,8 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     const metric = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
     const before = (await metric.get()).values[0]?.value ?? 0;   // V17⑥：metric.get() 公开 API
 
-    const done = (gateway as any).retryPersist('project:p1');   // detached 分支（doc 不活∧队列非空）——首段同步，append 已被调用
-    const queue = g.pendingQueues.get('p1') as Uint8Array[];
+    const done = g.retryPersist('project:p1');   // detached 分支（doc 不活∧队列非空）——首段同步，append 已被调用
+    const queue = g.pendingQueueRef('p1')!;   // 真实数组引用——折并 splice 原地语义承载面（身份契约）
     const merged = Y.mergeUpdates(queue);   // 挂起窗内白盒折并（锁内取批点 Y7 同款 splice 原地形态——数组身份恒定）
     queue.splice(0, 3, merged);
     releaseAppend();
@@ -276,7 +277,7 @@ describe('批3-4 persist-status 电平 + 退避重试', () => {
     expect(queue).toHaveLength(1);   // merged 存活（旧实现 splice(0,3) 越界误删未落库内容 → 红）
     expect(queue[0]).toBe(merged);
     expect(((await metric.get()).values[0]?.value ?? 0) - before).toBe(1);   // tail anomaly 计数+1（批留队=可经下次梯子 store 重发）
-    expect(g.persistRetry.has('project:p1')).toBe(false);   // leave 无条件+spool.append 成功=本批已落定（cancel 正常收尾）
+    expect(g.persistRetryHas('project:p1')).toBe(false);   // leave 无条件+spool.append 成功=本批已落定（cancel 正常收尾）
     appendSpy.mockRestore();
   });
 });
@@ -290,10 +291,10 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
     expect(doc.getMap('meta').get('schemaVersion')).toBe(2);
     expect(doc.getMap('meta').size).toBe(1);
     // stamp 发生在 replaying 抑制窗外 → update 进 pending（下次 store 落库）
-    const q = (gateway as any).pendingQueues.get((gateway as any).docProject.get(doc as any));   // Y4：两跳（V4 projectId 键控）
+    const q = gatewayFacade(gateway).pendingQueueRefForDoc(doc as any)!;   // Y4：两跳归并单操作（V4 projectId 键控）
     expect(q.length).toBeGreaterThan(0);
     // epoch 播种契约保留（批3-4）
-    expect(typeof (gateway as any).docEpoch.get(doc as any)).toBe('number');
+    expect(typeof gatewayFacade(gateway).docEpochOf(doc as any)).toBe('number');
   });
 
   it('幂等契约锚：首次 loadDocument 后 meta.size===1 ∧ 第二实例 load 同 doc 新增 update=0（每 doc 至多一次幂等戳）', async () => {
@@ -310,7 +311,7 @@ describe('O0b-0 版本门 v2.1（WS loadDocument=唯一戳源）+ 幂等戳契�
     const doc2 = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc2 as any, documentName: 'project:p1' } as any);
     expect(doc2.getMap('meta').get('schemaVersion')).toBe(2);   // replay 已戳
-    expect((gateway as any).pendingQueues.get((gateway as any).docProject.get(doc2 as any))).toHaveLength(0); // 已戳=CURRENT ⇒ no-op 零新增写（Y4 两跳）
+    expect(gatewayFacade(gateway).pendingQueueRefForDoc(doc2 as any)).toHaveLength(0); // 已戳=CURRENT ⇒ no-op 零新增写（Y4 两跳归并）
   });
 
   it('戳=1（人为写 1 的 DB 快照）→ loadDocument 拒（throw 带明确信息——v1 旧档无迁移）', async () => {
@@ -349,11 +350,11 @@ describe('批3-4 doc epoch + canvas_doc gauge', () => {
     const { gateway } = buildGateway();
     const doc = registerDoc(gateway, 'project:p1');
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
-    const epoch = (gateway as any).docEpoch.get(doc as any);
+    const epoch = gatewayFacade(gateway).docEpochOf(doc as any);
     expect(typeof epoch).toBe('number');
     // 重入不换代（同 doc 实例恒定代际）
     await gateway.hooks.onLoadDocument({ document: doc as any, documentName: 'project:p1' } as any);
-    expect((gateway as any).docEpoch.get(doc as any)).toBe(epoch);
+    expect(gatewayFacade(gateway).docEpochOf(doc as any)).toBe(epoch);
   });
 
   it('Y0b-5 T10：yjs_canvas_doc_bytes 退役——装载播种进 yjs_doc_bytes 直方图+store 批进 yjs_store_payload_bytes（E54② 双指标拆分读者改造）', async () => {

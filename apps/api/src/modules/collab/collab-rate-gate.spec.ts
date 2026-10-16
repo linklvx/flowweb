@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { makeFrame as frame, makeAwarenessUpdateBody } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
 import { AWARENESS_FRAME_LIMIT_BYTES } from './collab.gateway';   // T6 外审 M4：帧闸阈值常量绑定（改值本测试红）
 import { CLIENT_PROTOCOL_VERSION, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
@@ -70,16 +71,16 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
   it('桶容量≥最大合法帧不变量：bytesBuckets capacity===maxDocBytes+FRAME_ALLOWANCE_BYTES（=SS2 闸上界〔maxDocBytes+ALLOWANCE〕——Y0b-5 T8 裁定 24⑵ 同步）+cost>capacity 结构性恒 false（报告1 P0-2——1MB 容量下 >1MB 合法帧永拒形态防复发）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
-      const g = kit.gateway as any;
-      expect(g.bytesBuckets.options.capacity).toBe(QUOTA_SMALL.maxDocBytes + FRAME_ALLOWANCE_BYTES);   // ===SS2 闸上界（最大合法帧恰可被容量吸收——只抬闸不同步桶=(闸,闸+ALLOWANCE] 帧 ⓪′ 恒拒→1008 重连重发循环）
-      expect(g.bytesBuckets.consume('cap-struct', QUOTA_SMALL.maxDocBytes + FRAME_ALLOWANCE_BYTES + 1)).toBe(false);   // 结构性恒 false（tokens≤capacity<cost）——v4 形态防复发断言（须 capacity+1——探针低于容量则恒真假断言）
+      const g = gatewayFacade(kit.gateway);
+      expect(g.bytesBucketCapacity()).toBe(QUOTA_SMALL.maxDocBytes + FRAME_ALLOWANCE_BYTES);   // ===SS2 闸上界（最大合法帧恰可被容量吸收——只抬闸不同步桶=(闸,闸+ALLOWANCE] 帧 ⓪′ 恒拒→1008 重连重发循环）
+      expect(g.consumeBytesBucket('cap-struct', QUOTA_SMALL.maxDocBytes + FRAME_ALLOWANCE_BYTES + 1)).toBe(false);   // 结构性恒 false（tokens≤capacity<cost）——v4 形态防复发断言（须 capacity+1——探针低于容量则恒真假断言）
     } finally { await kit.dispose(); }
   }, 30_000);
 
   it('成对用例（Y0b-5 T8 裁定 24⑧/⑵）：maxDocBytes+30B SS2 帧**同时过 ⓪ 与 ⓪′**（〔maxDocBytes, maxDocBytes+ALLOWANCE〕区间合法——离线合并回灌带包装余量）；`2×maxDocBytes+ALLOWANCE` Update 帧仍 1009（放宽未顺带放宽 Update 闸）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_BIG);
     try {
-      const g = kit.gateway as any;
+      const g = kit.gateway;
       // 臂一：SS2 帧 ∈ (maxDocBytes, maxDocBytes+ALLOWANCE]——过 ⓪（≤闸+ALLOWANCE）且过 ⓪′（桶容量吸收）
       const big = new Y.Doc();
       big.getMap('m').set('blob', 'x'.repeat(8_388_608 + 30));
@@ -106,7 +107,8 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
   it('红门⑧ 离线合并可上传：8MB SyncStep2 回灌第一次通过（桶容量吸收→排空）→第二次 8MB 在 refill 积满后也通过（v4 信用+1MB 桶形态第二次结构性永拒=红相留档——头注【史】）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_BIG);
     try {
-      const g = kit.gateway as any;
+      const gw = kit.gateway;
+      const g = gatewayFacade(gw);
       const big = new Y.Doc();
       big.getMap('m').set('blob', 'x'.repeat(8_388_000));
       const bigUpdate = Y.encodeStateAsUpdate(big);
@@ -115,11 +117,11 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       const { client, closeInfo } = await openAuthedWs(kit, 'project:gate8');
       const b0 = await counterOf('collab_bytes_rate_exceeded_total');
       client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));
-      const doc = () => g.server.hocuspocus.documents.get('project:gate8');
+      const doc = () => gw.server.hocuspocus.documents.get('project:gate8');
       await pollUntil(() => doc()?.getMap('m').get('blob') === 'x'.repeat(8_388_000), 15_000);   // 第一次回灌——桶容量吸收（排空后落库）
       // 白盒排空证据（红相锚：bytesBuckets 缺失=TypeError）——首扣后 tokens≈capacity-cost ≪ 容量一半
-      const sid = [...doc().connections.keys()][0].socketId as string;
-      const tokensAfterFirst = (g.bytesBuckets.buckets.get(sid) as { tokens: number }).tokens;
+      const sid = [...doc()!.connections.keys()][0].socketId as string;
+      const tokensAfterFirst = g.bytesBucketTokens(sid);
       expect(tokensAfterFirst).toBeLessThan(QUOTA_BIG.maxDocBytes / 2);
       await sleep(300);   // refill 100MB/s → ≥30MB（capped 满）——"refill 积满"
       client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));   // 第二次 8MB（v4 形态此处 1008 永拒）
@@ -191,11 +193,12 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
   it('awareness 独立限速 >30 帧/s（capacity 60）→ 1008（共享桶+键前缀 aware:${sid}）；onDisconnect 全桶清理（Map 泄漏防）', async () => {
     const kit = await startDualClientServer({}, 300);
     try {
-      const g = kit.gateway as any;
+      const gw = kit.gateway;
+      const g = gatewayFacade(gw);
       const { client, closeInfo } = await openAuthedWs(kit, 'project:awrate');
-      const doc = () => g.server.hocuspocus.documents.get('project:awrate');
+      const doc = () => gw.server.hocuspocus.documents.get('project:awrate');
       await pollUntil(() => (doc()?.connections?.size ?? 0) >= 1, 5_000);
-      const sid = [...doc().connections.keys()][0].socketId as string;
+      const sid = [...doc()!.connections.keys()][0].socketId as string;
       const upd = awarenessUpdate(555, 1, { tag: 'flood' });
       const exceeded = await metricDelta('collab_awareness_rate_exceeded_total', {}, async () => {
         for (let i = 0; i < 70; i++) client.send(frame('project:awrate', 1 /* Awareness */, null, upd));   // 61 帧/零 refill 窗 → 必拒
@@ -205,7 +208,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       expect(closeInfo()).toEqual({ code: 1008, reason: 'awareness-rate-exceeded' });
       // onDisconnect 三桶清理（socketId 键+aware: 前缀键——断连重置=DoS 兜底语义）
       await pollUntil(() =>
-        !(g.msgBuckets.buckets.has(sid)) && !(g.bytesBuckets.buckets.has(sid)) && !(g.awareBuckets.buckets.has(`aware:${sid}`)),
+        !g.rateBucketHasKey('msg', sid) && !g.rateBucketHasKey('bytes', sid) && !g.rateBucketHasKey('aware', `aware:${sid}`),
       5_000);
     } finally { await kit.dispose(); }
   }, 30_000);

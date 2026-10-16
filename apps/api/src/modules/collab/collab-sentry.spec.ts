@@ -21,6 +21,7 @@ import { CollabLeaseService } from './collab-lease.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import type { MockRepo } from '../../test-utils/mock-repo';
 
@@ -53,7 +54,7 @@ function buildGateway(repoOver: Partial<MockRepo> = {}) {
     perm as any, 43000 + Math.floor(Math.random() * 20000),
     undefined, undefined, undefined, spool,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, prisma, repo };
 }
 
@@ -68,7 +69,7 @@ const authPayload = (documentName = 'project:p1') => ({
 describe('T11 gateway 三样本 catch → captureException+scope{docName,reason,connectionId}', () => {
   it('装载失败：hydrate 抛错 → db-unavailable + capture{docName, reason:load-db-unavailable, connectionId=实值}（onLoadDocumentPayload 带 socketId）', async () => {
     const { gateway } = buildGateway({ hydrateWithRecovery: vi.fn().mockRejectedValue(new Error('P1001')) });
-    (gateway as any).connectionIds.set('sock-1', 'cid-load-1');
+    gatewayFacade(gateway).seedConnectionId('sock-1', 'cid-load-1');
     await expect(gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p1', socketId: 'sock-1' } as any))
       .rejects.toMatchObject({ reason: 'db-unavailable' });
     expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error), {
@@ -78,7 +79,7 @@ describe('T11 gateway 三样本 catch → captureException+scope{docName,reason,
 
   it('store 失败：append 抛错 → capture{docName, reason:store-append-failed, connectionId:"-"}（onStoreDocumentPayload 无 socketId）', async () => {
     const { gateway } = buildGateway({ append: vi.fn().mockRejectedValue(new Error('pg down')) });
-    (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);
+    gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);
     const r = await gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any);
     expect(r).toBe(false);
     expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error), {
@@ -88,7 +89,7 @@ describe('T11 gateway 三样本 catch → captureException+scope{docName,reason,
 
   it('compact 放弃：append 成功后 compact 抛错 → 行已落库仅 WARN + capture{reason:compact-failed, connectionId:"-"}', async () => {
     const { gateway } = buildGateway({ compact: vi.fn().mockRejectedValue(new Error('compact boom')) });
-    (gateway as any).pendingQueues.set('p1', [new Uint8Array([1, 2, 3])]);
+    gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);
     const r = await gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any);
     expect(r).toBe(true);   // compact 是优化不是不变量载体——失败不翻 store 结果
     expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error), {
@@ -100,9 +101,9 @@ describe('T11 gateway 三样本 catch → captureException+scope{docName,reason,
 describe('T11 WS connectionId：onAuthenticate 生成+三元组日志+doc-status 回传+断连清理', () => {
   it('认证成功 → connectionIds 播种 randomUUID + 结构化日志三元组（traceId 预留位=null+connectionId+docName 原文——日志面不 scrub）+context 携带', async () => {
     const { gateway } = buildGateway();
-    const logSpy = vi.spyOn((gateway as any).logger, 'log');
+    const logSpy = gatewayFacade(gateway).spyLogger('log');
     const ctx = await gateway.hooks.onAuthenticate(authPayload() as any);
-    const cid = (gateway as any).connectionIds.get('sock-1');
+    const cid = gatewayFacade(gateway).connectionIdOf('sock-1');
     expect(cid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);   // randomUUID 形态
     expect((ctx as any).connectionId).toBe(cid);   // 进连接 context（后续连接上下文 catch 可取）
     const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.includes('"collab_connection_auth"'));
@@ -114,7 +115,7 @@ describe('T11 WS connectionId：onAuthenticate 生成+三元组日志+doc-status
 
   it('connected 钩子：doc-status 载荷带预留字段 connectionId（回传客户端——遥测 join 通道）', async () => {
     const { gateway } = buildGateway();
-    (gateway as any).connectionIds.set('sock-1', 'cid-push-1');
+    gatewayFacade(gateway).seedConnectionId('sock-1', 'cid-push-1');
     const conn = { sendStateless: vi.fn(), webSocket: { send: vi.fn(), close: vi.fn(), bufferedAmount: 0 } };
     await gateway.hooks.connected({ socketId: 'sock-1', connection: conn, documentName: 'project:p1' } as any);
     const payloads = conn.sendStateless.mock.calls.map((c) => JSON.parse(String(c[0])));
@@ -124,9 +125,9 @@ describe('T11 WS connectionId：onAuthenticate 生成+三元组日志+doc-status
 
   it('断连清理：onDisconnect 删 connectionIds 条目（防无界）', async () => {
     const { gateway } = buildGateway();
-    (gateway as any).connectionIds.set('sock-1', 'cid-gone');
+    gatewayFacade(gateway).seedConnectionId('sock-1', 'cid-gone');
     await gateway.hooks.onDisconnect({ document: new Y.Doc(), documentName: 'project:p1', socketId: 'sock-1', clientsCount: 1 } as any);
-    expect((gateway as any).connectionIds.has('sock-1')).toBe(false);
+    expect(gatewayFacade(gateway).connectionIdHas('sock-1')).toBe(false);
   });
 });
 

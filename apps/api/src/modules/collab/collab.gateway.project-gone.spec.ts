@@ -9,6 +9,7 @@ import { storeInFlightDocs } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { createMockRepo } from '../../test-utils/mock-repo';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 
 const cleanups: (() => Promise<void>)[] = [];
 afterAll(async () => { for (const c of cleanups) await c(); });
@@ -24,24 +25,24 @@ describe('Y0a-2 project.gone 清账', () => {
   it('project.gone 事件 → 关连接+清 persistRetry/lastCompactAt/persistUnhealthy+终态集登记+**队列显式清账（X1）**', async () => {
     const kit = await startDualClientServer();
     try {
-      const g = kit.gateway as any;
-      g.lastCompactAt.set('p-gone', 1);
-      g.persistUnhealthy.add('project:p-gone');
-      g.persistRetry.set('project:p-gone', { rung: 3, timer: setTimeout(() => {}, 60_000) });
-      g.pendingQueues.set('p-gone', [new Uint8Array([7])]);   // X1：僵尸队列——事件处理器必须清（doc 卸载后拦截分支结构性不可达）
+      const g = gatewayFacade(kit.gateway);
+      g.backdateLastCompactAt('p-gone', 1);
+      g.addPersistUnhealthy('project:p-gone');
+      g.seedPersistRetry('project:p-gone', { rung: 3, timer: setTimeout(() => {}, 60_000) });
+      g.seedPendingQueue('p-gone', [new Uint8Array([7])]);   // X1：僵尸队列——事件处理器必须清（doc 卸载后拦截分支结构性不可达）
       // Y1 门用例装置（事件时在飞→落定后归零——平凡 0 断言无鉴别力）：白盒置在飞+gauge 置 1
-      g.inFlightProjects.add('p-gone');
+      g.addInFlight('p-gone');
       storeInFlightDocs.set(1);
       // 活跃连接关断（真 WS）
       const { provider, synced } = kit.connect('project:p-gone');
       await synced;
       // kit await onModuleInit 时已注册订阅（gateway.onModuleInit 内）——用例经 kit.emitter 直发（同步派发，等价 emitAsync 监听路径）
       kit.emitter.emit('project.gone', { projectIds: ['p-gone'] });
-      expect(g.deletedProjects.has('p-gone')).toBe(true);        // 终态集（永久无界——spec §9.10）
-      expect(g.lastCompactAt.has('p-gone')).toBe(false);
-      expect(g.persistUnhealthy.has('project:p-gone')).toBe(false);
-      expect(g.persistRetry.has('project:p-gone')).toBe(false);  // 定时器随清
-      expect(g.pendingQueues.has('p-gone')).toBe(false);         // X1+M6：僵尸队列随事件清账（空条目删除——不清则 computePending 恒>0→drain_complete 永不打印）
+      expect(g.deletedProjectsHas('p-gone')).toBe(true);        // 终态集（永久无界——spec §9.10）
+      expect(g.lastCompactAtHas('p-gone')).toBe(false);
+      expect(g.persistUnhealthyHas('project:p-gone')).toBe(false);
+      expect(g.persistRetryHas('project:p-gone')).toBe(false);  // 定时器随清
+      expect(g.pendingQueueHas('p-gone')).toBe(false);         // X1+M6：僵尸队列随事件清账（空条目删除——不清则 computePending 恒>0→drain_complete 永不打印）
       expect((await storeInFlightDocs.get()).values[0]?.value ?? 0).toBe(0);   // Y1 已删项目门：事件时在飞→落定后归零
       kit.forget(provider);   // 自管 destroy 后从 dispose 清理数组移除（双 destroy=已知 flaky 源）
       await provider.destroy();
@@ -53,10 +54,10 @@ describe('Y0a-2 project.gone 清账', () => {
     const spool = new CollabSpoolService(dir);
     const kit = await startDualClientServer({}, 300, spool);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       kit.emitter.emit('project.gone', { projectIds: ['p-gone2'] });
       const before = await discardedCount();
-      g.pendingQueues.set('p-gone2', [new Uint8Array([1])]);      // Y19：projectId 键控
+      g.seedPendingQueue('p-gone2', [new Uint8Array([1])]);      // Y19：projectId 键控
       const r = await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p-gone2' } as any);   // 白盒直调（Y.Doc 非 Document 满型）
       expect(r).toBe(false);
       expect(kit.repo.append).not.toHaveBeenCalled();            // 不 append（写了也白写——项目行没了）
@@ -69,7 +70,7 @@ describe('Y0a-2 project.gone 清账', () => {
     const kit = await startDualClientServer();
     try {
       kit.emitter.emit('team.disbanded', { teamId: 't1', projectIds: ['p-x'] });
-      expect((kit.gateway as any).deletedProjects.has('p-x')).toBe(true);
+      expect(gatewayFacade(kit.gateway).deletedProjectsHas('p-x')).toBe(true);
     } finally { await kit.dispose(); }
   });
 
@@ -79,13 +80,13 @@ describe('Y0a-2 project.gone 清账', () => {
     const repo = createMockRepo({ append: vi.fn(async () => { throw Object.assign(new Error('Foreign key constraint failed'), { code: 'P2003' }); }) });
     const kit = await startDualClientServer({ ...repo }, 300, spool);
     try {
-      const g = kit.gateway as any;
+      const g = gatewayFacade(kit.gateway);
       const before = await discardedCount();
-      g.pendingQueues.set('p-fk', [new Uint8Array([1])]);        // Y19：projectId 键控
+      g.seedPendingQueue('p-fk', [new Uint8Array([1])]);        // Y19：projectId 键控
       const r = await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p-fk' } as any);   // 白盒直调（Y.Doc 非 Document 满型）
       expect(r).toBe(false);
-      expect(g.pendingQueues.get('p-fk')).toHaveLength(0);       // 批丢弃（DB 权威证据=P6）
-      expect(g.persistRetry.size).toBe(0);                       // 不进重试梯
+      expect(g.pendingQueueRef('p-fk')).toHaveLength(0);       // 批丢弃（DB 权威证据=P6）
+      expect(g.persistRetrySize()).toBe(0);                       // 不进重试梯
       expect(await discardedCount() - before).toBeGreaterThanOrEqual(1);
     } finally { await kit.dispose(); }
   });

@@ -20,6 +20,7 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { failingRepo } from '../../test-utils/failing-repo';
 import { pollUntil } from '../../test-utils/poll-until';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 
 const cleanups: (() => Promise<void>)[] = [];
 afterAll(async () => { for (const c of cleanups) await c(); });
@@ -59,8 +60,8 @@ async function seedPendingDoc(kit: any, name: string, updates: number): Promise<
   const us: Uint8Array[] = [];
   src.on('update', (u: Uint8Array) => us.push(u));
   for (let i = 0; i < updates; i++) src.getMap('nodes').set(`k${i}`, { i });
-  (kit.gateway as any).pendingQueues.set(projectId, us);
-  (kit.gateway as any).docProject.set(doc, projectId);
+  gatewayFacade(kit.gateway).seedPendingQueue(projectId, us);
+  gatewayFacade(kit.gateway).seedDocProject(doc, projectId);
   kit.gateway.server.hocuspocus.documents.set(name, doc);
   return doc;
 }
@@ -151,11 +152,11 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
     const kit = await startDualClientServer();
     try {
       vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②（dispose 复用同一 mock，禁先 restore）
-      vi.spyOn(kit.gateway as any, 'storeDocumentSerialized').mockResolvedValue(false);   // 主循环全败=批留队（8s 总闸耗尽后的纯 force-spool 等效态）
+      gatewayFacade(kit.gateway).spyStoreSerialized().mockResolvedValue(false);   // 主循环全败=批留队（8s 总闸耗尽后的纯 force-spool 等效态）
       const spies = installLogSpies(kit.gateway);   // Y16：动作前安装
       await seedPendingDoc(kit, 'project:p-dr6', 2);
       await (kit.gateway as any).drainAllDocuments(Date.now() + 3_000);
-      const q = (kit.gateway as any).pendingQueues.get('p-dr6');
+      const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr6');
       expect(q).toHaveLength(0);                               // 批出队列（J5：真写成才 splice）
       expect(await kit.spool.peek('p-dr6')).toHaveLength(1);   // 批入 spool（磁盘落定）
       const events = collectEvents(spies);
@@ -174,7 +175,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       const spies = installLogSpies(kit.gateway);
       await seedPendingDoc(kit, 'project:p-dr7', 2);
       await (kit.gateway as any).drainAllDocuments(Date.now() + 400);   // 短 deadline——两腿 race 超时路径
-      const q = (kit.gateway as any).pendingQueues.get('p-dr7');
+      const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr7');
       expect(q).toHaveLength(2);                               // J5：null 不 splice（真写成才出队——批蒸发防线）
       const events = collectEvents(spies);
       const undrained = events.find((e) => e.event === 'shutdown_undrained');
@@ -184,8 +185,9 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       vi.restoreAllMocks();   // Y13：先还原（spool mock+destroy mock）
       (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr7');   // 种子 doc 摘除（真 destroy 等 documents 清空——见文件头②）
       await kit.dispose();
-      for (const [name] of [...((kit.gateway as any).persistRetry as Map<string, unknown>)]) {   // 释放引发的迟到 V1 成功腿会排重试定时器——dispose 后收口
-        (kit.gateway as any).cancelPersistRetry(name);
+      const gf = gatewayFacade(kit.gateway);
+      for (const name of gf.persistRetryNames()) {   // 释放引发的迟到 V1 成功腿会排重试定时器——dispose 后收口
+        gf.cancelPersistRetry(name);
       }
     }
   }, 15_000);
@@ -204,7 +206,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       const anomaly = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
       const before = (await anomaly.get()).values[0]?.value ?? 0;
       await seedPendingDoc(kit, 'project:p-dr8', 2);
-      const q = (kit.gateway as any).pendingQueues.get('p-dr8') as Uint8Array[];
+      const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr8')!;
       const n = q.length; const tailRef = q[n - 1];   // 与生产锚同点取批尾引用（M-4(b) 同形）
       const drain = (kit.gateway as any).drainAllDocuments(Date.now() + 5_000);   // 不 await：折并须落挂起窗内
       await pollUntil(() => calls >= 2, 5_000);   // force-spool append 已挂起（锚已取——主循环 V1 拒在前）
@@ -218,8 +220,9 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       vi.restoreAllMocks();   // Y13：先还原（spool mock+destroy mock）
       (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr8');   // 种子 doc 摘除（真 destroy 等 documents 清空——见文件头②）
       await kit.dispose();
-      for (const [name] of [...((kit.gateway as any).persistRetry as Map<string, unknown>)]) {   // V1 腿败排的退避定时器——dispose 后收口
-        (kit.gateway as any).cancelPersistRetry(name);
+      const gf = gatewayFacade(kit.gateway);
+      for (const name of gf.persistRetryNames()) {   // V1 腿败排的退避定时器——dispose 后收口
+        gf.cancelPersistRetry(name);
       }
     }
   }, 15_000);
@@ -229,7 +232,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
     const kit = await startDualClientServer();
     try {
       const relSpy = vi.spyOn(kit.gateway, 'releaseAllResidentSessions').mockResolvedValue(undefined);
-      const graceSpy = vi.spyOn(kit.gateway as any, 'graceDirectConnections').mockResolvedValue(undefined);
+      const graceSpy = gatewayFacade(kit.gateway).spyGraceDirectConnections().mockResolvedValue(undefined);
       await kit.gateway.onApplicationShutdown();
       expect(relSpy).toHaveBeenCalledWith('shutdown');
       expect(relSpy.mock.invocationCallOrder[0]).toBeLessThan(graceSpy.mock.invocationCallOrder[0]);   // 先于步骤 1.5 宽限

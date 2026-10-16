@@ -10,6 +10,7 @@ import { register } from 'prom-client';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { isTerminalReason, CollabAuthReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
@@ -49,7 +50,7 @@ function buildGateway() {
     perm as any, 47000 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, prisma, perm, spool };
 }
 
@@ -158,7 +159,7 @@ describe('Y0b-3 T4 卡住观测器（纯观测——卸载归库自愈排程）'
     const { gateway } = buildGateway();
     seedDoc(gateway, 'project:queued');
     vi.spyOn(gateway.server.hocuspocus, 'shouldUnloadDocument').mockReturnValue(false);
-    (gateway as any).pendingQueues.set('queued', [new Uint8Array([1])]);
+    gatewayFacade(gateway).seedPendingQueue('queued', [new Uint8Array([1])]);
     const metric: any = register.getSingleMetric('yjs_doc_stuck_total');
     const value = async () => (await metric.get()).values[0]?.value ?? 0;
     const before = await value();
@@ -173,14 +174,14 @@ describe('Y0b-3 T4 卡住观测器（纯观测——卸载归库自愈排程）'
     await expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-c1', 'project:cycle') as any)).rejects.toMatchObject({ reason: 'server-overloaded' });
     const gauge: any = register.getSingleMetric('collab_overload_state');
     expect((await gauge.get()).values.find((s: any) => s.labels.state === 'tripped')?.value).toBe(1);
-    expect((gateway as any).refusalCache.size).toBe(1);
+    expect(gatewayFacade(gateway).refusalCacheSize()).toBe(1);
     // 内存回落 released 档——客户端放弃重试（无新 auth/load）时仅观测器 tick 可消费翻转
     stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });
     await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
     const values = (await gauge.get()).values;
     expect(values.find((s: any) => s.labels.state === 'tripped')?.value).toBe(0);
     expect(values.find((s: any) => s.labels.state === 'ok')?.value).toBe(1);
-    expect((gateway as any).refusalCache.size).toBe(0);   // 释放钩子→onServingTransition 清空（P-Q 钩子②周期消费）
+    expect(gatewayFacade(gateway).refusalCacheSize()).toBe(0);   // 释放钩子→onServingTransition 清空（P-Q 钩子②周期消费）
   });
 });
 
@@ -188,7 +189,7 @@ describe('Y0b-3 T4 观测 gauge（collect 现算——零手动维护点）', ()
   it('yjs_pending_bytes/yjs_zero_conn_docs 可见（池外内存早于 RSS 可见——pendingQueues 在 external 不进 heapUsed）', async () => {
     const { gateway } = buildGateway();
     seedDoc(gateway, 'project:idle');
-    (gateway as any).pendingQueues.set('idle', [new Uint8Array(10), new Uint8Array(5)]);
+    gatewayFacade(gateway).seedPendingQueue('idle', [new Uint8Array(10), new Uint8Array(5)]);
     seedDoc(gateway, 'project:busy');
     ((gateway.server.hocuspocus.documents as Map<string, any>).get('project:busy')!.connections as Map<unknown, unknown>).set({}, {});
     const pendingBytes: any = register.getSingleMetric('yjs_pending_bytes');
@@ -215,8 +216,8 @@ describe('Y0b-3 T4 评审小补 F-1：Y2 兜底计数断言（契约 3 最后一
   // storeDocumentUnlocked（A14），白盒 spy peekSpoolFrames reject（try 内首 await——Y2 注释的"IO 逃逸"场景）。
   it('store 路径意外 throw→yjs_store_unexpected_throw_total 差值 1 且不向上抛（resolve false——批保留原归属地）', async () => {
     const { gateway } = buildGateway();
-    (gateway as any).pendingQueues.set('y2proj', []);   // 队列条目播种（!queue tripwire 早退在 try 之前）
-    vi.spyOn(gateway as any, 'peekSpoolFrames').mockRejectedValue(new Error('io escaped'));
+    gatewayFacade(gateway).seedPendingQueue('y2proj', []);   // 队列条目播种（!queue tripwire 早退在 try 之前）
+    gatewayFacade(gateway).spyPeekSpoolFrames().mockRejectedValue(new Error('io escaped'));
     const inc = await metricDelta('yjs_store_unexpected_throw_total', {}, () =>
       expect(gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:y2proj' } as any)).resolves.toBe(false));
     expect(inc).toBe(1);

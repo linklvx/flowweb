@@ -18,6 +18,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
@@ -194,7 +195,7 @@ function buildGateway() {
     perm as any, 48000 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, prisma, repo, perm, spool };
 }
 
@@ -209,7 +210,7 @@ function authPayload(documentName = 'project:p1') {
 }
 
 function openBreaker(gateway: CollabGateway): void {
-  const b = (gateway as any).pgBreaker as CollabPgBreakerService;
+  const b = gatewayFacade(gateway).pgBreakerRef();
   for (let i = 0; i < 5; i++) b.recordFailure(p1001());
 }
 
@@ -236,10 +237,10 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
   it('熔断面②store 短路：open 时 storeDocumentUnlocked PG 分支首行短路——批直落 spool（返回 false+队列清空+spool 有帧+零 repo）', async () => {
     const { gateway, repo, spool } = buildGateway();
     openBreaker(gateway);
-    (gateway as any).pendingQueues.set('p1', [yupdate()]);
+    gatewayFacade(gateway).seedPendingQueue('p1', [yupdate()]);
     const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);
     expect(ok).toBe(false);
-    expect((gateway as any).pendingQueues.get('p1')).toHaveLength(0);   // 队列清空=批已落新家
+    expect(gatewayFacade(gateway).pendingQueueRef('p1')).toHaveLength(0);   // 队列清空=批已落新家
     expect(spool.hasFrames('p1')).toBe(true);                            // 新家=spool（BOI 契约——不拒 append 同语义）
     expect(repo.append).not.toHaveBeenCalled();                          // 零 PG 等待（省 5s 事务上界）
   });
@@ -249,16 +250,16 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     try {
       const { gateway, repo, spool } = buildGateway();
       openBreaker(gateway);
-      (gateway as any).pendingQueues.set('p1', [yupdate()]);
+      gatewayFacade(gateway).seedPendingQueue('p1', [yupdate()]);
       await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);   // open 期落 spool
       expect(spool.hasFrames('p1')).toBe(true);
-      (gateway as any).cancelPersistRetry('project:p1');   // 撤退避梯（既有自愈通道——不撤会抢先排空帧，隔离本断言面）
+      gatewayFacade(gateway).cancelPersistRetry('project:p1');   // 撤退避梯（既有自愈通道——不撤会抢先排空帧，隔离本断言面）
       vi.advanceTimersByTime(BREAKER_COOLDOWN_MS + 1);   // →half-open
       const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);   // 探测=走 PG
       expect(ok).toBe(true);         // 帧并入 append（新家=PG）→confirm 排空=真成功路径
       expect(repo.append).toHaveBeenCalledTimes(1);   // 探测真打 PG（stash 帧回收通道）
       expect(spool.hasFrames('p1')).toBe(false);      // 补排空：帧已 confirm
-      expect(((gateway as any).pgBreaker as CollabPgBreakerService).stateName()).toBe('closed');
+      expect(gatewayFacade(gateway).pgBreakerRef().stateName()).toBe('closed');
     } finally {
       vi.useRealTimers();
     }
@@ -268,10 +269,10 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     const { gateway, repo } = buildGateway();
     repo.append.mockRejectedValue(p1001());
     for (let i = 0; i < 5; i++) {
-      (gateway as any).pendingQueues.set('p1', [yupdate()]);
+      gatewayFacade(gateway).seedPendingQueue('p1', [yupdate()]);
       await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);
     }
-    expect(((gateway as any).pgBreaker as CollabPgBreakerService).stateName()).toBe('open');
+    expect(gatewayFacade(gateway).pgBreakerRef().stateName()).toBe('open');
   });
 
   it('★范围静态锚：breaker 闸门调用点+状态谓词恰四（auth/load 准入+store 短路+isPgBreakerOpen 谓词）——不裹 lease 心跳/不拒 WS 帧路径', () => {

@@ -10,6 +10,7 @@ import type { HocuspocusProvider } from '@hocuspocus/provider';
 import { register } from 'prom-client';
 import { startDualClientServer, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { makeAwarenessFrame as awarenessFrame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源（原 pushVar 族+awarenessFrame 收口）
 import { userColorOfUserId } from '@flowweb/shared';
 import { AWARENESS_STATES_LIMIT_BYTES, AWARENESS_DISTINCT_USER_STRIP_OVER } from './collab.gateway';   // T12：解码后 states 判常量绑定（改值本测试红——帧闸 M4 同款）；T13：over-8 阈值同款绑定
@@ -126,13 +127,13 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
       sendAwareness(a, cid, { user: { id: 'fake', name: 'x' } });
       await pollUntil(() => (b.awareness!.getStates().get(cid) as any)?.user?.id === 'u1');
     }
-    const own = (kit.gateway as any).ownedClientIds.get((kit.gateway as any).clientIdOwner.get(301)) as Set<number>;
+    const own = gatewayFacade(kit.gateway).ownedClientIdsOfClient(301)!;   // 两跳归并单操作（真实 Set 引用——:136 live 断言面）
     expect(own.size).toBe(4);   // 恰 4 个真内容 clientId
     await metricDelta('collab_awareness_reject_total', { reason: 'owner-limit' }, async () => {
       sendAwareness(a, 305, { user: { id: 'fake', name: 'x' } });   // 第 5 个
     });
     expect(b.awareness!.getStates().get(305)).toBeUndefined();   // 超限帧不进广播
-    expect((kit.gateway as any).clientIdOwner.has(305)).toBe(false);
+    expect(gatewayFacade(kit.gateway).clientIdOwnerHas(305)).toBe(false);
     expect(own.size).toBe(4);   // 上限不被超限帧突破
   });
 
@@ -156,7 +157,7 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     await pollUntil(async () => (await ghostCount()) === before + 2);
     expect((await ghostCount()) - before).toBe(2);   // 每帧恰两条空态剔除：scratch 构造幽灵+555 真条目（改前：剔除无计数→轮询超时必红）
     expect(b.awareness!.getStates().get(555)).toBeUndefined();   // 幽灵帧不进广播
-    expect((kit.gateway as any).clientIdOwner.has(555)).toBe(false);   // 不登记（不吃上限槽位）
+    expect(gatewayFacade(kit.gateway).clientIdOwnerHas(555)).toBe(false);   // 不登记（不吃上限槽位）
   });
 
   it('DirectConnection/服务端内部写（connection undefined 或 context undefined 或 socketId 空串）→整体放行禁删禁改（P0-1）', async () => {
@@ -166,7 +167,7 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
       states, socketId: '', context: undefined, connection: undefined, document: docStub,
     } as any);
     expect(states.get(999)).toEqual({ user: { id: 'ghost' }, cursor: { x: 1 } });   // 禁删禁改
-    expect((kit.gateway as any).clientIdOwner.size).toBe(0);   // 不登记
+    expect(gatewayFacade(kit.gateway).clientIdOwnerSize()).toBe(0);   // 不登记
     const states2 = new Map([[999, { user: { id: 'ghost' } }]]);
     await kit.gateway.hooks.beforeHandleAwareness({
       states: states2, socketId: 'sock-x', context: undefined, connection: { socketId: 'sock-x' }, document: docStub,
@@ -181,7 +182,7 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     await pollUntil(() => (b.awareness!.getStates().get(111) as any)?.user?.id === 'u1');
     const doc = kit.gateway.server.hocuspocus.documents.get(DOC)! as any;
     for (const [, entry] of doc.connections) entry.clients.add(424242);   // 库集人工混入归属表外的 id=漂移形态
-    const warn = vi.spyOn((kit.gateway as any).logger, 'warn');
+    const warn = gatewayFacade(kit.gateway).spyLogger('warn');
     sendAwareness(a, 111, { cursor: { x: 2 } });   // 正常帧驱动探针
     await pollUntil(() => warn.mock.calls.some((c) => String(c[0]).includes('collab_awareness_drift')));
     expect(JSON.parse(warn.mock.calls.find((c) => String(c[0]).includes('collab_awareness_drift'))![0] as string).event).toBe('collab_awareness_drift');
@@ -195,14 +196,15 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
     await pollUntil(() => (b.awareness!.getStates().get(111) as any)?.user?.id === 'u1');
     sendAwareness(a2, 222, { user: { id: 'fake', name: 'x' } });   // 标签2 登记 222
     await pollUntil(() => (b.awareness!.getStates().get(222) as any)?.user?.id === 'u1');
-    const sock1 = (kit.gateway as any).clientIdOwner.get(111) as string;
-    const sock2 = (kit.gateway as any).clientIdOwner.get(222) as string;
+    const gf = gatewayFacade(kit.gateway);
+    const sock1 = gf.clientIdOwnerOf(111)!;
+    const sock2 = gf.clientIdOwnerOf(222)!;
     expect(sock1).not.toBe(sock2);   // socketId 逐连接唯一——双标签天然隔离
     await a1.destroy();   // 标签1 断连
     kit.forget(a1);   // 用例自管 destroy 后从 dispose 台账移除（双 destroy=本仓已知 flaky 源——kit 注释）
-    await pollUntil(() => !(kit.gateway as any).clientIdOwner.has(111));   // 只清自己登记的
-    expect((kit.gateway as any).clientIdOwner.get(222)).toBe(sock2);   // 标签2 所有权不动
-    expect((kit.gateway as any).socketIdentity.has(sock1)).toBe(false);
+    await pollUntil(() => !gf.clientIdOwnerHas(111));   // 只清自己登记的
+    expect(gf.clientIdOwnerOf(222)).toBe(sock2);   // 标签2 所有权不动
+    expect(gf.socketIdentityHas(sock1)).toBe(false);
     sendAwareness(a2, 222, { cursor: { x: 9 } });   // 对端 awareness 仍流动（Y0b-4 T6：VIEWER cursor 被剔字段——锚改 meta.clock 前进）
     await pollUntil(() => ((b.awareness as any).meta.get(222)?.clock ?? 0) >= 2);
     expect((b.awareness!.getStates().get(222) as any).cursor).toBeUndefined();   // T6：VIEWER cursor 零广播
@@ -238,7 +240,7 @@ describe('Y0b-4 T12（E38）：解码后 states 4KB 判（与 64KB 入站帧闸�
     sendAwareness(b, 404, { selection: { nodeIds: ['n'.repeat(AWARENESS_STATES_LIMIT_BYTES + 64)] } });
     await pollUntil(async () => (await rejectCount()) === before + 1);
     expect(a.awareness!.getStates().get(404)).toBeUndefined();   // 整帧丢弃——对端零可见
-    expect((kit.gateway as any).clientIdOwner.has(404)).toBe(false);   // 不登记（不占上限槽）
+    expect(gatewayFacade(kit.gateway).clientIdOwnerHas(404)).toBe(false);   // 不登记（不占上限槽）
     sendAwareness(b, 405, { cursor: { x: 1 } });   // 丢帧不 close——同连接后续正常帧照常广播
     await pollUntil(() => (a.awareness!.getStates().get(405) as any)?.user?.id === 'u2');
   });

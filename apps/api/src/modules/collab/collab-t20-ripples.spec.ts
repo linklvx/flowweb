@@ -16,6 +16,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 let spoolDir: string;
@@ -39,7 +40,7 @@ function buildGateway() {
     undefined, undefined, undefined, spool,
     undefined as unknown as QuotaConfig,
   );
-  (gateway as any).collabState = 'serving';
+  gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, repo };
 }
 
@@ -110,24 +111,24 @@ describe('Y0c T20：三涟漪+第五涟漪+语义定案（Z47/Z73/Z105/Z66 计�
 
   it('读者③：auto-vacuum 判据=零 WS ∧ 零 direct（Z73——常驻会话持有的 doc 不触发 vacuum）+stacked 计数（Z66 计数半边——同 doc 30s 窗内≥2 次触发计数，四稳态③判据面）', async () => {
     const { gateway } = buildGateway();
-    const g = gateway as any;
+    const g = gatewayFacade(gateway);
     const held = seedDoc(gateway, 'project:p-vac', 0, 1);   // 冻结 doc 被常驻会话持有（零 WS）
-    g.quotaFrozenDocs.add('p-vac');
-    g.recheckRounds.set('p-vac', 4);                        // ≥AUTO_VACUUM_ROUNDS（recheck 内 ++ 后=5）
-    g.docResidue.set('p-vac', 10_000_000);                  // > floor(8MiB×0.6)=5MiB（QUOTA_DEFAULTS.maxDocBytes=8MiB）
-    vi.spyOn(g, 'measureTruth').mockReturnValue(16 * 1024 * 1024);   // ≥softEnter(0.8×8MiB)——recheck 分支可达
-    vi.spyOn(g, 'updateResidue').mockImplementation(() => {});      // 跳过全根真空重建重活（判据面外）
+    g.addQuotaFrozen('p-vac');
+    g.seedRecheckRounds('p-vac', 4);                        // ≥AUTO_VACUUM_ROUNDS（recheck 内 ++ 后=5）
+    g.seedDocResidue('p-vac', 10_000_000);                  // > floor(8MiB×0.6)=5MiB（QUOTA_DEFAULTS.maxDocBytes=8MiB）
+    g.spyMeasureTruth().mockReturnValue(16 * 1024 * 1024);   // ≥softEnter(0.8×8MiB)——recheck 分支可达
+    g.spyUpdateResidue().mockImplementation(() => {});      // 跳过全根真空重建重活（判据面外）
     const vacuumRunner = vi.fn(async () => {});
     gateway.setVacuumRunner(vacuumRunner);
 
-    g.recheckFrozenDocs();
+    (gateway as any).recheckFrozenDocs();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
     expect(vacuumRunner).not.toHaveBeenCalled();   // 改造前 WS-only 判据命中=已调用——先红
 
     held.setDirect(0);                              // 会话已释放（零 direct）——真零连接
-    g.recheckFrozenDocs();
+    (gateway as any).recheckFrozenDocs();
     expect(vacuumRunner).toHaveBeenCalledTimes(1);  // 真零连接 ⇒ 触发
 
-    g.recheckFrozenDocs();
+    (gateway as any).recheckFrozenDocs();
     expect(vacuumRunner).toHaveBeenCalledTimes(2);  // 连续第 3 轮（30s 窗内形态——测试时钟同点）
     expect(await counterValue('collab_vacuum_autotrigger_stacked_total')).toBeGreaterThanOrEqual(1);   // 指标未注册=NaN 即红（Z66 计数半边随 T20 落地）
   });

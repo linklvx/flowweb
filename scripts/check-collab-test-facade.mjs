@@ -416,32 +416,29 @@ export const MEMBER_OWNERSHIP = {
 //    基线 534→538 处/29 文件、波 1 试点后 403 处/28 文件（全登记 until='T39b-2'）。 ──
 const REGISTERED_RED = {
   'apps/api/src/modules/collab/collab-auth-defense.spec.ts': { 'facade-bypass': { n: 30, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-awareness-guard.spec.ts': { 'facade-bypass': { n: 12, until: 'T39b-2' } },
   // 直调族——B1-B3 公有化后 cast 消失触发 stale 核销（偏离 64②；下同）：wrapBackpressure ×1
   'apps/api/src/modules/collab/collab-backpressure.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
   // 直调族——loadDocument ×1（pendingQueues.splice/collabState 已 façade 化）
   'apps/api/src/modules/collab/collab-degraded.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
-  'apps/api/src/modules/collab/collab-heap-gate.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
+  // 直调族——loadDocument ×2
+  'apps/api/src/modules/collab/collab-heap-gate.spec.ts': { 'facade-bypass': { n: 2, until: 'B1-B3' } },
   'apps/api/src/modules/collab/collab-metrics-observability.spec.ts': { 'facade-bypass': { n: 32, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-perm-events.spec.ts': { 'facade-bypass': { n: 29, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-pg-breaker.service.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-quota-gate.spec.ts': { 'facade-bypass': { n: 25, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-quota-truth.spec.ts': { 'facade-bypass': { n: 41, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-rate-gate.spec.ts': { 'facade-bypass': { n: 6, until: 'T39b-2' } },
   // 直调族——loadDocument ×1+storeDocumentUnlocked ×2
   'apps/api/src/modules/collab/collab-runtime-metrics.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
-  'apps/api/src/modules/collab/collab-sentry.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
   'apps/api/src/modules/collab/collab-shrink.spec.ts': { 'facade-bypass': { n: 73, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-t20-ripples.spec.ts': { 'facade-bypass': { n: 9, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab-upgrade.spec.ts': { 'facade-bypass': { n: 8, until: 'T39b-2' } },
+  // 直调族——recheckFrozenDocs ×3（measureTruth/updateResidue spy 已经 façade spy 组替换）
+  'apps/api/src/modules/collab/collab-t20-ripples.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
+  // 直调族——clientIpOf ×3+handleUpgrade ×2（upgradeBucket/allowedOrigins spy/logger spy 已替换）
+  'apps/api/src/modules/collab/collab-upgrade.spec.ts': { 'facade-bypass': { n: 5, until: 'B1-B3' } },
   // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换）
   'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
-  'apps/api/src/modules/collab/collab.gateway.persist-status.spec.ts': { 'facade-bypass': { n: 27, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab.gateway.project-gone.spec.ts': { 'facade-bypass': { n: 15, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/collab.gateway.shutdown.spec.ts': { 'facade-bypass': { n: 14, until: 'T39b-2' } },
+  // 直调族——drainAllDocuments ×3（storeDocumentSerialized/graceDirectConnections spy 已经 façade spy 组替换）
+  'apps/api/src/modules/collab/collab.gateway.shutdown.spec.ts': { 'facade-bypass': { n: 3, until: 'B1-B3' } },
   // collab.gateway.spec.ts 登记已移除——T39b B0 波 1 试点替换全文件 façade 化（135→0，stale 机制强制核销）
   'apps/api/src/modules/collab/collab.gateway.sweep.spec.ts': { 'facade-bypass': { n: 27, until: 'T39b-2' } },
-  'apps/api/src/modules/collab/read-canvas-routing.spec.ts': { 'facade-bypass': { n: 5, until: 'T39b-2' } },
   // 直调族——recheckFrozenDocs ×1
   'apps/api/src/modules/collab/write-frozen-chain.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
 };

@@ -11,6 +11,7 @@ import { parseSessionToken } from '../../common/utils/parse-session-token';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { createLeaseStub } from './test-utils/lease-stub';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabAuthReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { register } from 'prom-client';
@@ -207,8 +208,8 @@ describe('T2 handleUpgrade 直调（429 限流路径+fail-open 遥测——(gw a
   it('429：桶耗尽→socket 直写 429 状态行+end+计数 reason=rate-limited（I-2：改前整条路径零覆盖）', async () => {
     const gw = buildGateway();
     const before = await upgradeRejected('rate-limited');
-    const bucket = (gw as any).upgradeBucket as TokenBucket;
-    for (let i = 0; i < 20; i++) expect(bucket.consume('127.0.0.1')).toBe(true);   // 同步排空（capacity 20——零 refill 漂移）
+    const gf = gatewayFacade(gw);
+    for (let i = 0; i < 20; i++) expect(gf.consumeUpgradeBucket('127.0.0.1')).toBe(true);   // 同步排空（capacity 20——零 refill 漂移）
     const writes: string[] = [];
     const socket = { write: (s: string) => { writes.push(s); }, end: vi.fn(), remoteAddress: '127.0.0.1' };
     expect(() => (gw as any).handleUpgrade({ request: { headers: { origin: 'http://localhost:5173' } }, socket })).not.toThrow();
@@ -220,8 +221,8 @@ describe('T2 handleUpgrade 直调（429 限流路径+fail-open 遥测——(gw a
   it('fail-open 兜底：allowedOrigins 抛错（BETTER_AUTH_URL 配垃圾串→new URL TypeError 形态）→吞错放行+logger.warn 留痕', () => {
     // I-3：改前 catch 全吞零遥测——Origin 防线静默失效且运维零可见（红锚=warn 未调）
     const gw = buildGateway();
-    vi.spyOn(gw as any, 'allowedOrigins').mockImplementation(() => { throw new TypeError('Invalid URL'); });
-    const warn = vi.spyOn((gw as any).logger, 'warn').mockImplementation(() => {});
+    gatewayFacade(gw).spyAllowedOrigins().mockImplementation(() => { throw new TypeError('Invalid URL'); });
+    const warn = gatewayFacade(gw).spyLogger('warn').mockImplementation(() => {});
     const socket = { write: vi.fn(), end: vi.fn(), remoteAddress: '127.0.0.1' };
     expect(() => (gw as any).handleUpgrade({ request: { headers: { origin: 'https://x.example' } }, socket })).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);

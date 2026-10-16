@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
+import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { yjsSnapshotFallbackTotal, unregisterPendingCollector } from './store.metrics';
 import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 
@@ -46,36 +47,37 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
   it('谓词三态合一（Y0c T17 Z104 拆分——inFlight/pending/spool 任一非空→false；doc 常驻不再是滞后信号→true；全空→true）', () => {
     // 基线：三态全空 → true
     const frames = new Set<string>();
-    const g = makeGateway(frames) as any;
-    expect(g.isPersistedComplete('p1')).toBe(true);
+    const gw = makeGateway(frames);
+    const g = gatewayFacade(gw);
+    expect(gw.isPersistedComplete('p1')).toBe(true);
 
     // 态⓪（Z104 剔除项）：documents 常驻（doc 在内存）⇒ **true**——doc 常驻=独立谓词 isDocResident
     // （常驻下原四态恒 false ⇒ readCanvasSnapshotCached 永远 fallback+vacuum quiesce 注定 30s 活锁——
     // 常驻 doc 三态空=内存与 PG 同步，快照可信）
-    g.server.hocuspocus.documents.set('project:p1', {} as any);
-    expect(g.isPersistedComplete('p1')).toBe(true);
-    g.server.hocuspocus.documents.delete('project:p1');
+    gw.server.hocuspocus.documents.set('project:p1', {} as any);
+    expect(gw.isPersistedComplete('p1')).toBe(true);
+    gw.server.hocuspocus.documents.delete('project:p1');
 
     // 态①：in-flight store（取批未落定）
-    expect(g.isPersistedComplete('p1')).toBe(true);   // 复位语义锚（⓪清理后回 true）
-    g.inFlightProjects.add('p1');
-    expect(g.isPersistedComplete('p1')).toBe(false);
-    g.inFlightProjects.delete('p1');
+    expect(gw.isPersistedComplete('p1')).toBe(true);   // 复位语义锚（⓪清理后回 true）
+    g.addInFlight('p1');
+    expect(gw.isPersistedComplete('p1')).toBe(false);
+    g.removeInFlight('p1');
 
     // 态②：pending 队列非空（去抖窗内未 store）；空数组条目不阻塞（无在途批）
-    g.pendingQueues.set('p1', []);
-    expect(g.isPersistedComplete('p1')).toBe(true);
-    g.pendingQueues.set('p1', [new Uint8Array([1])]);
-    expect(g.isPersistedComplete('p1')).toBe(false);
-    g.pendingQueues.set('p1', []);
+    g.seedPendingQueue('p1', []);
+    expect(gw.isPersistedComplete('p1')).toBe(true);
+    g.seedPendingQueue('p1', [new Uint8Array([1])]);
+    expect(gw.isPersistedComplete('p1')).toBe(false);
+    g.seedPendingQueue('p1', []);
 
     // 态③：spool 有帧（store 故障期台账未回灌）
     frames.add('p1');
-    expect(g.isPersistedComplete('p1')).toBe(false);
+    expect(gw.isPersistedComplete('p1')).toBe(false);
     frames.delete('p1');
 
     // 全空复位 → true
-    expect(g.isPersistedComplete('p1')).toBe(true);
+    expect(gw.isPersistedComplete('p1')).toBe(true);
   });
 
   it('TTL 窗内并发 N 次 → 底层解码恰 1 次（单飞）；TTL 过期重新解码；命中窗内不重解码', async () => {
