@@ -27,3 +27,4 @@ apps/api/int.json
 .deploy-guard-state.json
 .preflight-*.ok
 .installed-lock-sha
+apps/api/dist-drill/

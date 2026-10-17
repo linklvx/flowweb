@@ -112,7 +112,7 @@ function docNameForms(relPath) {
 // 排除 check-plan-anchors.mjs（T-prep 同款理由）：其 ACTIVE_DOCS 白名单路径是门禁配置引用，
 // 非叙述性证据——命中会把活 plan 推成 canonical，canonical 级引用存在性检查对"引用未来文件的活 plan"必红。
 const C1_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.yml', '.yaml', '.css', '.scss', '.html', '.vue', '.md', '.sql', '.sh']);
-const SKIP_CODE_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo', 'test-results', 'playwright-report']);
+const SKIP_CODE_DIRS = new Set(['node_modules', 'dist', 'dist-drill', 'coverage', '.turbo', 'test-results', 'playwright-report']);   // dist-drill=R1' drill 独立输出根（编译产物不进代码域证据锚——否则 canonical 判据面漂移）
 const C1_SELF_EXEMPT = new Set(['doc-gate.mjs', 'check-plan-anchors.mjs']);
 function walkCode(dirAbs, out) {
   let entries;

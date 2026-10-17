@@ -50,7 +50,7 @@ class DrillHeaderWs extends WebSocket {
 const NODES = 25;                        // 已接受集大小
 const COLLAPSE_MS = 3_200;               // ≥maxDebounce(300×1.5) 的持续判定窗
 const TERM_VIA_SIGNAL = process.platform !== 'win32';   // 见文件头探针实证——win32=false→IPC 主通道
-const DRILL_ENTRY = resolve(__dirname, '..', 'dist', 'scripts', 'collab-drill-server.js');
+const DRILL_ENTRY = resolve(__dirname, '..', 'dist-drill', 'scripts', 'collab-drill-server.js');
 
 // Task 9 审查 Major-1：fail 改 throw——process.exit(1) 会绕过 main 的 finally（触发器/fixture/spoolDir
 // 清理全跳过，实证残留 DB 2 项目+TEMP 2 目录）；throw 后经 main().catch 统一出口（finally 先行，exitCode 收口）。

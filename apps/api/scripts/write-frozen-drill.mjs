@@ -43,7 +43,7 @@ const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
   || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;   // gateway allowedOrigins() 同源推导（collab-smoke 同款）
 const TERM_VIA_SIGNAL = process.platform !== 'win32';   // win32 kill('SIGTERM')=TerminateProcess 硬杀——IPC process.send 主通道（kill9 文件头探针实证）
 const PKG_ROOT = resolve(here, '..', '..');   // here=scripts/*.mjs 文件路径——包根需上跳两级（URL '../.env' 与 path resolve 语义差异：URL 相对文件解析，path resolve 把文件段一并弹出）
-const DRILL_ENTRY = resolve(PKG_ROOT, 'dist', 'scripts', 'collab-drill-server.js');
+const DRILL_ENTRY = resolve(PKG_ROOT, 'dist-drill', 'scripts', 'collab-drill-server.js');
 const CSV = 2;   // CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例——字面量+bump 时随改，collab-smoke 同注）
 
 // frozen-chain 配额档：maxDocBytes=40KB（softEnter=32KB/softExit=24KB——50KB 突发帧确定性越 soft，
@@ -185,7 +185,7 @@ async function waitPendingDrained(h, deadlineMs = 15_000) {
 }
 let repoCtor = null;
 async function replayKeys(prisma, projectId) {   // DB 权威重放（绕过内存 doc——kill9 replayKeys 同形态）
-  repoCtor ??= req('../dist/modules/collab/canvas-doc-update.repository.js').CanvasDocUpdateRepository;
+  repoCtor ??= req('../dist-drill/src/modules/collab/canvas-doc-update.repository.js').CanvasDocUpdateRepository;
   const repo = new repoCtor(prisma);
   const { state, updates } = await repo.readSnapshotOnly(projectId);
   const doc = new Y.Doc();

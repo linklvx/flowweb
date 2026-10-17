@@ -3,10 +3,10 @@
   "compilerOptions": {
     "noEmit": false,
     "rootDir": ".",
-    "outDir": "./dist",
+    "outDir": "./dist-drill",
     "incremental": true,
     "sourceMap": false
   },
   "include": ["src", "scripts/collab-drill-server.ts"],
-  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/test-utils/**"]
+  "exclude": ["node_modules", "dist", "dist-drill", "**/*.spec.ts", "**/test-utils/**"]
 }
