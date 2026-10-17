@@ -134,6 +134,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       // v3：等冻结落地=确定性读面（freezeQuota→quotaFrozenDocs——façade quotaFrozenHas 既有读面，弃 (gw as any) 撞 façade 门禁）
       const dropped0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
       await pollUntil(() => g.quotaFrozenHas('gate8'), 10_000);   // 键=裸 projectId（parseDocName 剥 project: 前缀——quotaFrozenDocs 台账口径；plan 代码块 'project:gate8' 系键笔误勘正）
+      await pollUntil(() => { g.consumeBytesBucket(sid, 0); return (g.bytesBucketTokens(sid) ?? 0) >= bigUpdate.byteLength; }, 5_000);   // T7 评审顺手项：refill 确定性等满（bytesRate 100MB/s）——弃原「靠冻结轮询时长隐式回灌」（超快机窗内未满→1008 低概率红）。桶 refill 惰性结算只于 consume 内推进（纯读 tokens 不增长）——cost 0 零扣减纯结算，与后续真实 consume 的结算步语义同构
       client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));   // 第二次：仍入桶（DR ⓪′ 先于 ① readOnly——B9）→ readOnly 拒 apply
       await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) > dropped0, 8_000);   // readOnly 拒写计数
       await pollUntil(() => g.bytesBucketTokens(sid)! < tokensAfterFirst! + 1_000, 5_000);   // v2：第二次桶消费直接断言（refill 后再扣 ~8MB——tokens 回落；! = sid/桶键已在前文实证存在）
@@ -143,7 +144,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
     } finally { await kit.dispose(); }
   }, 60_000);
 
-  it('红门⑧-b（v3 新增/v2 重写）：128KB 档真 refill——60KB 帧（<softEnter 104,857 不冻结）两次入桶：第一次 apply、第二次 refill 后过桶再 apply（同键覆盖——doc 尺寸不增长）', async () => {
+  it('红门⑧-b（v3 新增/v2 重写）：128KB 档真 refill——60KB 帧——冻结与否取决于装载冷却窗状态（窗内账面/窗外实测腿），用例断言对两分支钝感——两次入桶：第一次 apply、第二次 refill 后过桶再 apply（同键覆盖——doc 尺寸不增长）', async () => {
     const Q = { maxDocBytes: 131_072, maxTxBytes: 16_384, msgRate: 200, bytesRate: 10_000_000 };
     const kit = await startDualClientServer({}, 300, undefined, undefined, Q);
     try {
@@ -155,7 +156,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       const doc = () => gw.server.hocuspocus.documents.get('project:gate8b');
       await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === 60_000, 10_000);   // 第一次 apply
       const sid = [...doc()!.connections.keys()][0].socketId as string;
-      const tokens1 = g.bytesBucketTokens(sid);   // 首扣后 ≈ 192KB-60KB=132KB
+      const tokens1 = g.bytesBucketTokens(sid);   // 首扣后 ~196,608−~60,0xx≈136.5KB（容量 131,072+65,536=196,608；T7 勘正原「≈192KB-60KB=132KB」算术）
       expect(tokens1).toBeLessThan(131_072 + 65_536 - 60_000 + 1);   // 桶已扣（容量=131,072+65,536）
       await sleep(300);   // refill 10MB/s → ≥3MB（capped 桶容量 196,608）——「积满」
       client.send(frame('project:gate8b', 0, 1, mk()));   // 第二帧：同键覆盖（LWW）——refill 后过桶

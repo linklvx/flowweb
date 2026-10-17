@@ -30,6 +30,10 @@ export const VERIFY_STEPS = [
   { id: 'check-no-testutils-in-dist', cmd: 'node scripts/check-no-testutils-in-dist.mjs --require-dist', db: false },
   { id: 'web-test', cmd: 'pnpm --filter @flowweb/web test -- --run', db: false },
   { id: 'api-test', cmd: 'pnpm --filter @flowweb/api test -- --run', db: false },
+  // CI 修复（R4a'）授权插一步：api-test-heavy 紧随 api-test（heavy 串行套件——rate-gate 8MB
+  // 分配与 idle-anchor 90s 实时等待移出主套件并行池，B10 根因；fast 外=插位索引 19 ≥ FAST_PREFIX_LEN
+  // 15——plan T8）=28 步。
+  { id: 'api-test-heavy', cmd: 'pnpm --filter @flowweb/api run test:heavy', db: false },
   { id: 'web-lint', cmd: 'pnpm --filter @flowweb/web lint', db: false },
   { id: 'check-ecosystem', cmd: 'node scripts/check-ecosystem.mjs', db: false },
   { id: 'check-spec-consistency', cmd: 'node scripts/check-spec-consistency.mjs', db: false },

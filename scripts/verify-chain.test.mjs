@@ -17,17 +17,19 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 //   Y0c T39b B0 授权插一步：check-collab-test-facade 紧随 check-collab-census〔façade 门禁
 //   进 verify 链——plan T39b「B0 步门」，census 邻位=本批新门禁全在 fast 外惯例〕=26 步；
 //   Y0c T42 B3 授权插一步：check-collab-module-size 紧随 check-collab-test-facade〔行数防倒退锚
-//   进 verify 链——plan T42「B3 步门」，fast 外惯例同款〕=27 步）
+//   进 verify 链——plan T42「B3 步门」，fast 外惯例同款〕=27 步；
+//   CI 修复 R4a' 授权插一步：api-test-heavy 紧随 api-test〔heavy 串行套件——B10 根因
+//   （rate-gate 8MB 分配与 idle-anchor 90s 实时等待同池并行互抢），fast 外=索引 19〕=28 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
   'shared-typecheck', 'shared-test', 'web-tsc', 'api-tsc', 'api-tsc-scripts',
-  'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'web-lint',
-  'check-ecosystem', 'check-spec-consistency', 'check-collab-census', 'check-collab-test-facade',
+  'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'api-test-heavy',
+  'web-lint', 'check-ecosystem', 'check-spec-consistency', 'check-collab-census', 'check-collab-test-facade',
   'check-collab-module-size', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 27 步基线常量（T42 +check-collab-module-size）', () => {
+test('③ full 的 id 序列逐字等于引入时的 28 步基线常量（R4a\' +api-test-heavy）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 
