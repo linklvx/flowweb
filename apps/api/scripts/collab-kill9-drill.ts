@@ -17,7 +17,7 @@
 //   持有 collab——3000/3001 端口冲突先于租约暴露；租约价值=TTL 崩溃接管/跨主机/误配快速失败。
 // 判定锚=已接受集=驱动侧 provider 文档的节点键集（写入方全量知情）。
 // 载体（Step 1 探针实证登记）：tsx/esbuild 不发射 decorator metadata→AppModule DI 链不可起——
-// 驱动先 `tsc -p tsconfig.drill.json`（gate-collab 先例：tsc 全量+node dist 子进程，重启零重编译）。
+// 驱动先 `tsc -p tsconfig.drill.json`（gate-collab 先例：tsc 全量+node dist-drill 子进程，重启零重编译）。
 // 关停通道：Windows kill('SIGTERM')=TerminateProcess 硬杀（本机探针实证：exit signal=SIGTERM、
 // handler 未执行）→win32 主通道=IPC process.send({type:'shutdown'})（drill-server 双通道 closing 闸
 // 幂等——POSIX 支路经手动 SIGTERM handler 同闸）；POSIX 走真 SIGTERM（CI Linux=生产同构通道）。
@@ -90,6 +90,8 @@ function tcpConnectOK(port: number, timeoutMs = 1_000): Promise<boolean> {
 // Major-1 配套：spawn 后即登记，main().catch 兜底 SIGKILL——覆盖 ready 60s 超时 reject 与 barrier 中途
 // fail 两类"child 尚活即抛出"路径（正常路径 stopServer 时摘除）。
 const liveChildren = new Set<ChildProcess>();
+// R2'（write-frozen-drill.mjs 同款）：client registry——die/watchdog/finally 统一收口面（幂等 destroy）。
+const liveClients = new Set<DrillClient>();
 
 let compiling: Promise<void> | null = null;
 function ensureCompiled(): Promise<void> {
@@ -146,21 +148,47 @@ async function stopServer(h: DrillHandle): Promise<void> {
   await new Promise<void>((r) => { h.child.once('exit', () => r()); setTimeout(r, 2_000).unref?.(); });
 }
 
-async function connectWrite(h: DrillHandle, projectId: string, nodes: number): Promise<{ provider: HocuspocusProvider; keys: string[] }> {
+// R2'（write-frozen-drill T2 同款）：connectWrite 产物 entry——destroy=registry 幂等短路+provider.destroy+
+// provider v4 迟到重连定时器三连掐兜底；die/watchdog/finally 统一收口面。
+interface DrillClient { provider: HocuspocusProvider; keys: string[]; destroy(): void }
+
+async function connectWrite(h: DrillHandle, projectId: string, nodes: number): Promise<DrillClient> {
   const ydoc = new Y.Doc();
   // Y0b-3 T2：URL 无 query token（cookie-only）——凭据经 DrillHeaderWs 的 Origin+Cookie header；
   // Y0b-3 T5 版本门：csv 必带（缺 csv=client-version-missing 恒拒——演练必挂）
   const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?csv=${CLIENT_PROTOCOL_VERSION}`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
+  const keys: string[] = [];
+  const entry: DrillClient = {
+    provider,
+    keys,
+    destroy: () => {   // R2'：registry 注销先判——幂等（二次 destroy 短路）
+      if (!liveClients.delete(entry)) return;
+      try { provider.destroy(); } catch { /* 同步 void——A 已死/已隔离时 destroy 同步抛（socket 已闭） */ }
+      // @hocuspocus/provider v4 缺陷兜底（成功路径自然 exit 的根修）：connected 期服务端被杀（kill9
+      // 演练正是 SIGKILL 服务端）时 onClose 已排定 1s 重连 setTimeout（onClose 尾
+      // `!cancelWebsocketRetry && shouldConnect`——connected 期 onOpen 把 cancelWebsocketRetry 清 void，
+      // 条件必真），destroy() 不清该定时器：迟到的 connect() 复位 shouldConnect 并重启无限退避重连
+      // （maxAttempts=0）→ 进程永生。掐法三连：cancel 已复活循环 + disconnect 复位 shouldConnect +
+      // connect 置空（迟到定时器落地即 no-op——实例遮蔽原型方法）。
+      // 退役判据：库升级（@hocuspocus/provider 修复 onClose/destroy 不清重连定时器缺陷）后复核并退役本兜底。
+      const w = (provider.configuration as any)?.websocketProvider;
+      if (w) {
+        try { w.cancelWebsocketRetry?.(); } catch { /* void */ }
+        try { w.disconnect?.(); } catch { /* void */ }
+        w.connect = () => {};
+      }
+    },
+  };
+  liveClients.add(entry);
   await new Promise<void>((r, rej) => {
     provider.on('synced', () => r());
     // reject 前先 destroy：sync 超时是可抛路径——provider WS 不关会挂住事件循环，exitCode=1 收不了口
-    setTimeout(() => { provider.destroy(); rej(new Error('sync 超时')); }, 15_000);
+    setTimeout(() => { entry.destroy(); rej(new Error('sync 超时')); }, 15_000);
   });
-  const keys: string[] = [];
   for (let i = 0; i < nodes; i++) ydoc.getMap('nodes').set(`drill-${i}`, new Y.Map([['x', i]]));
   keys.push(...[...ydoc.getMap('nodes').keys()]);
   await sleep(200);                     // 上行送达窗
-  return { provider, keys };
+  return entry;
 }
 
 const prisma = DATABASE_URL
@@ -221,8 +249,8 @@ async function kill9Mode(env: Record<string, string>, fault: boolean): Promise<v
   if (fault) await createTrigger();            // V7 修正：触发器先于 startServer（先建再写——"触发器前批次已落 PG"的不可判窗口消除）
   await clearLeaseRow();                       // W19：清残留持行——h 快路径即获取（演练焦点=RPO 非接管时序）
   const h = await startServer(env); await h.ready;
-  const { provider, keys } = await connectWrite(h, PID, NODES);
-  await provider.destroy();                    // 停写（断连触发 flush——故障档 flush 失败批入 spool）
+  const { keys, destroy } = await connectWrite(h, PID, NODES);
+  destroy();                    // 停写（断连触发 flush——故障档 flush 失败批入 spool）——R2'：entry.destroy（registry 幂等短路）
   await barrier(h, { withSpoolStable: fault, requireSpoolNonEmpty: fault });   // V23：三归零判据+故障前置断言
   const accepted = new Set(keys);
   const seqBefore = await prisma!.canvasDocUpdate.count({ where: { projectId: PID } });   // V23 反向下限（barrier 后=已接受集全落定，防"驱动侧没写进去"假绿）
@@ -253,8 +281,8 @@ async function sigtermMode(env: Record<string, string>): Promise<void> {
   await clearLeaseRow();                       // W19：清残留持行
   const h = await startServer(spoolFail ? { ...env, DRILL_SPOOL_FAIL: '1' } : env);   // Y14：服务态注入（monkey-patch append 恒抛——overCapacityFlag 会被滞回解除支自清）
   await h.ready;                               // X3：startServer env 已含 MINIO_INIT=skip
-  const { provider } = await connectWrite(h, PID, NODES);
-  await provider.destroy();
+  const { destroy } = await connectWrite(h, PID, NODES);
+  destroy();
   await sleep(1_500);                          // store 失败已发生（批在队列）
   if (!spoolFail) await dropTrigger();         // Y14b：仅非故障档 drop——让 drain 的 append 成功走 drain_complete；--spool-fail 档保持 trigger（append 恒败+spool 恒败=undrained 判据确定可达）
   // Y0a-3（必办⑤/Z8）：G-2a ii"draining 可见"——B4 修正后唯一可达序=SIGTERM 前 POST /api/drain
@@ -300,7 +328,7 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
   // （≤数秒）vs TTL 接管（≥8.5s）对比才清晰，SV12 断言不被小 TTL 稀释。不变式 HB×2≤TTL 两档均满足。
   const envA = graceful ? env : { ...env, COLLAB_LEASE_TTL_MS: '2000', COLLAB_LEASE_HEARTBEAT_MS: '500' };
   const A = await startServer(envA, WS_PORT); await A.ready;
-  const { provider, keys } = await connectWrite(A, PID, NODES);
+  const { keys, destroy } = await connectWrite(A, PID, NODES);
   const aReady = await readyOf(A);
   const aOwner = aReady.holder as string;
   const epochA = Number(aReady.epoch);
@@ -353,7 +381,7 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
       A.child.kill('SIGKILL');
     }
   }
-  try { await provider.destroy(); } catch { /* A 已死/已隔离时 destroy 同步抛（socket 已闭）——清理 no-op */ }
+  destroy();   // R2'：entry.destroy——内部已吞同步抛（A 已死/已隔离时 socket 已闭——清理 no-op）
 
   if (!usurp) {
     // V28 两段断言（kill9/graceful）：①获租约（DB 行直读——owner 离开 aOwner 即 B 已 CAS；100ms 直读
@@ -411,6 +439,7 @@ async function main(): Promise<void> {
     if (mode === 'handover') return await handoverMode(env);
     return await kill9Mode(env, mode === 'kill9-fault');
   } finally {
+    for (const c of liveClients) c.destroy();   // R2'：成功路径句柄收口——provider/ws 销毁+迟到重连掐灭（自然 exit 0 根修）
     await dropTrigger();
     await cleanupCollabSessionFixture(prisma!, PID, DRILL_TOKEN).catch(() => {});
     await prisma!.$disconnect();
@@ -418,8 +447,24 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((e) => {
+// R2'（write-frozen-drill 同款）：die=stderr 同步写+1s 兜底 exit（CI 管道防截断/防 unref+stderr 背压
+// =exit 0 假绿）；watchdog=兜 catch 不可达的 hang（fetch/Prisma/未知句柄——execSync(tsc) 阻塞期本定时器
+// 不触发，tsc 挂由 CI step timeout 兜底）。保 ref 不 unref；成功/die 路径 clearTimeout。默认 6min < CI
+// kill9 step 8min。exit 2 与业务失败 1 区分。
+function die(e: unknown): void {
+  clearTimeout(watchdog);
+  for (const c of liveClients) c.destroy();
   for (const c of liveChildren) c.kill('SIGKILL');   // Major-1 兜底：ready 60s 超时/barrier 中途 fail 时 child 尚活——孤儿化收口（正常路径 stopServer 已摘除）
-  console.error(e);
-  process.exitCode = 1;   // finally（触发器/fixture/spoolDir 清理）已在 main 体内先行执行完
-});
+  const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
+  process.stderr.write(`\nDRILL FAIL: ${msg}\n`, () => process.exit(1));   // finally（触发器/fixture/spoolDir 清理）已在 main 体内先行执行完
+  setTimeout(() => process.exit(1), 1_000);   // v3：fallback 保 ref
+}
+const WATCHDOG_MS = Number(process.env.WF_DRILL_WATCHDOG_MS) || 6 * 60_000;
+const watchdog = setTimeout(() => {
+  for (const c of liveClients) c.destroy();
+  for (const c of liveChildren) c.kill('SIGKILL');
+  process.stderr.write('DRILL WATCHDOG: 超时强制退出（exit 2）\n', () => process.exit(2));
+  setTimeout(() => process.exit(2), 1_000);   // v3：fallback 保 ref
+}, WATCHDOG_MS);
+
+void main().then(() => { clearTimeout(watchdog); }).catch(die);

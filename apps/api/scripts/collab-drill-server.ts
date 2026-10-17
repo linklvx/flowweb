@@ -3,7 +3,7 @@
 // 载体偏差登记（Step 1 探针实证）：tsx/esbuild 不发射 decorator metadata——CollabGateway 的
 // prisma/repo/perm 等按类型注入参数全落 undefined（collab.gateway.ts:804 TypeError 实证），AppModule
 // 全 DI 链在 tsx 下不可起。改走 gate-collab 先例载体：驱动先 `tsc -p tsconfig.drill.json` 全量编译
-// （emitDecoratorMetadata=true），子进程=纯 node dist/scripts/collab-drill-server.js（重启零重编译）。
+// （emitDecoratorMetadata=true），子进程=纯 node dist-drill/scripts/collab-drill-server.js（重启零重编译）。
 // env 全由驱动进程注入：DATABASE_URL/COLLAB_PORT/DRILL_HTTP_PORT/COLLAB_DEBOUNCE/
 // COLLAB_SPOOL_DIR/PROMETHEUS_TOKEN+COLLAB_ADMIN_TOKEN（W23：drain 独立停机令牌）/MINIO_INIT=skip+三占位（X3：skip 不可省——占位只过 zod，
 // MinioModule.onModuleInit 仍 ensureBucket 3 重试后 throw=listen 永不执行）/DRILL_SPOOL_FAIL（Y14）。

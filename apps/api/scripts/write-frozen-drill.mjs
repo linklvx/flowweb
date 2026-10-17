@@ -164,6 +164,7 @@ function connectClient(h, projectId, { ydoc, tag } = {}) {
       // 不清该定时器：迟到的 connect() 重置 shouldConnect=true 并重启无限退避重连（maxAttempts=0）
       // → 进程永生。掐法三连：cancel 已复活循环 + disconnect 复位 shouldConnect + connect 置空
       // （迟到定时器落地即 no-op）。
+      // 退役判据：库升级（@hocuspocus/provider 修复 onClose/destroy 不清重连定时器缺陷）后复核并退役本兜底。
       const w = provider.configuration?.websocketProvider;
       if (w) {
         try { w.cancelWebsocketRetry?.(); } catch { /* void */ }
