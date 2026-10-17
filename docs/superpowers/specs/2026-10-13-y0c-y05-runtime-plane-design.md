@@ -65,10 +65,10 @@
 | 迁移进部署链（migrate deploy 前置+prisma/ 入 tar+migrate status 入 CI） | **0 号/Y0a-4 已落地** | B24 |
 | gitleaks 进 CI/pre-commit | 0 号动作已落地（.gitleaks.toml 豁免存量+core.hooksPath） | 0 号动作记录 |
 | query token 退役 | **Y0b-3 已落地**（cookie-only） | B23 |
-| trust proxy 设置 | main.ts:98 已设 loopback（E58③ 的 req.ip 前提已成立；XFF 手写解析仍待统一——本批范围） | B19 |
+| trust proxy 设置 | main.ts:98 已设 loopback（E58③ 的 req.ip 前提已成立）；XFF 手写解析统一**已由片 E T36 落地**（getClientIp 退役——消费方统一 req.ip 单源+RATE_LIMIT_IP_WHITELIST 进 zod，env.ts:96） | B19 |
 | E13 残余（绑 127.0.0.1/cookie-only/限流） | Y0a-4（BIND_ADDR）+Y0b-3 已落地 | ecosystem:27 |
 | kill-timeout≥30000 | Y0a-4 已落（45000） | ecosystem:13 |
-| E46 进程定义入库+连接池显式 | Y0a-4 已落（ecosystem 唯一源+check-ecosystem 十三锚）；PrismaClient 单例化三驳维持（Y0a-1 登记）——**Y0.5 连接池治理重评**保留为本批范围（E46 尾巴） | ecosystem.config.cjs |
+| E46 进程定义入库+连接池显式 | Y0a-4 已落（ecosystem 唯一源+check-ecosystem 十三锚）；PrismaClient 单例化三驳维持（Y0a-1 登记）——Y0.5 连接池治理重评（E46 尾巴）**已由片 D T32 落地**（Z11 connection_limit 显式预算替代继承默认：env.ts per-role 单源 api=8/worker=4/all=8+runbook §4 算式） | ecosystem.config.cjs |
 | E69⑥ post-deploy 冒烟 | Y0a-4/Y0b-5 已进链（collab-smoke+exec-smoke 内联 cutover ⑥） | B24 |
 
 > 核销纪律：以上项不再进入本批执行范围；spec 留此表防执行期重复立项。**E59 依赖声明**（总目录）：E59 写通道裁定依赖 E69 迁移链——迁移链已进部署链（核销第 5 行），E59 在本批可安全实施。
