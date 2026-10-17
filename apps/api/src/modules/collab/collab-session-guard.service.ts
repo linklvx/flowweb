@@ -38,6 +38,7 @@ import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
 import { deriveCollabLimits, type CollabLimits } from './collab-limits';
 import { OutboundBudget } from './collab-outbound-budget';
+import { CollabHeartbeat } from './collab-heartbeat';   // R6'：保活心跳独立模块（B15 缓解）
 import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabVersionNegotiationRejectTotal, collabOverloadState, collabWsCloseTotal, collabSweepCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabMsgRateExceededTotal, collabQuotaFrameRejectedTotal } from './store.metrics';
 
 /** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
@@ -281,6 +282,8 @@ export class CollabSessionGuardService {
   private sweepKickPending = false;
   private sessionSweepTimer: ReturnType<typeof setInterval> | null = null;
   private authMapsSweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** R6'：保活心跳（B15 缓解——10s stateless sweep；键=connectedPayload.socketId）——start/stop 随域定时器族 */
+  private readonly heartbeat = new CollabHeartbeat();
 
   // ── writeFreeze 冻结层单源（Q-A v5）+背压 wrap 台账+heap 采样闸（RC3） ──
   /** Y0b-4 T4（Q-A v5/Q-C）：writeFreeze 冻结层单源——conn→{pid, 原因集}（readOnly=原因集非空）。
@@ -457,6 +460,7 @@ export class CollabSessionGuardService {
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }
     this.authMapsSweepTimer = setInterval(() => this.sweepStaleAuthMaps(), 60_000);
     this.authMapsSweepTimer.unref?.();
+    this.heartbeat.start();   // R6'：心跳 timer 随本定时器族启（unref）——gateway onModuleInit 唯一启动位
   }
 
   /** deny 工厂单点（§5.1-5 拒绝与计数同点）：所有 onAuthenticate 拒绝路径经此——reason=词表 13 值，
@@ -658,6 +662,7 @@ export class CollabSessionGuardService {
     const c = connection as unknown as CollabConnection;
     if (c) {
       this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——R4b' Map 幂等）
+      this.heartbeat.register(socketId, c);   // R6'：心跳登记（键=payload.socketId——v3：conn.socketId 可选不可靠；与 onDisconnectCleanup unregister 同键）
       const pid = parseDocName(documentName)?.projectId ?? '';
       // Y0b-4 T9a serving 门（WS 面）：真空窗口新连接 terminal close 4410 'doc-vacuuming'。
       // 形态裁定：plan 原文"auth 503"——但 WS 层无 HTTP 503（auth 期 throw 被库折 close 4403
@@ -805,6 +810,7 @@ export class CollabSessionGuardService {
     this.msgBuckets.delete(socketId);
     this.bytesBuckets.delete(socketId);
     this.awareBuckets.delete(`aware:${socketId}`);
+    this.heartbeat.unregister(socketId);   // R6'：心跳台账键控清理（键与 connected register 严格同源——payload.socketId）
   }
 
   /** 卸载 doc 全连接的 SG 域台账清理（新语义操作——机械提取自 gateway unloadDocument 壳 finally 段
@@ -1215,5 +1221,6 @@ export class CollabSessionGuardService {
   stopTimers(): void {
     if (this.sessionSweepTimer) { clearTimeout(this.sessionSweepTimer); this.sessionSweepTimer = null; }
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }   // Y0b-3 T3：防线 Map 老化 timer 随停
+    this.heartbeat.stop();   // R6'：心跳 timer 随停（onApplicationShutdown 随停族）
   }
 }
