@@ -15,17 +15,19 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 // ③ 引入时 25 步基线常量（改门禁=改常量=有意识动作——防步骤被无声增删/重排；
 //   Y0b-5 T12 授权插两步：immutability 紧随 additive、fresh-replay 紧随 migrate-diff；
 //   Y0c T39b B0 授权插一步：check-collab-test-facade 紧随 check-collab-census〔façade 门禁
-//   进 verify 链——plan T39b「B0 步门」，census 邻位=本批新门禁全在 fast 外惯例〕=26 步）
+//   进 verify 链——plan T39b「B0 步门」，census 邻位=本批新门禁全在 fast 外惯例〕=26 步；
+//   Y0c T42 B3 授权插一步：check-collab-module-size 紧随 check-collab-test-facade〔行数防倒退锚
+//   进 verify 链——plan T42「B3 步门」，fast 外惯例同款〕=27 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
   'shared-typecheck', 'shared-test', 'web-tsc', 'api-tsc', 'api-tsc-scripts',
   'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'web-lint',
   'check-ecosystem', 'check-spec-consistency', 'check-collab-census', 'check-collab-test-facade',
-  'scripts-node-test', 'api-eslint',
+  'check-collab-module-size', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 26 步基线常量（T39b +check-collab-test-facade）', () => {
+test('③ full 的 id 序列逐字等于引入时的 27 步基线常量（T42 +check-collab-module-size）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 

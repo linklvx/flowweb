@@ -35,7 +35,10 @@ export const VERIFY_STEPS = [
   { id: 'check-spec-consistency', cmd: 'node scripts/check-spec-consistency.mjs', db: false },
   { id: 'check-collab-census', cmd: 'node scripts/check-collab-census.mjs', db: false },
   { id: 'check-collab-test-facade', cmd: 'node scripts/check-collab-test-facade.mjs', db: false },
-  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-spec-consistency.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs', db: false },
+  // Y0c T42（B3）授权插一步：check-collab-module-size 紧随 check-collab-test-facade（行数防倒退锚
+  // 进 verify 链——plan T42「B3 步门」，fast 外惯例=T39b façade 同款邻位）=27 步。
+  { id: 'check-collab-module-size', cmd: 'node scripts/check-collab-module-size.mjs', db: false },
+  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-spec-consistency.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs', db: false },
   { id: 'api-eslint', cmd: 'pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"', db: false },
 ];
 
