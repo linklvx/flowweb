@@ -1,5 +1,5 @@
 // apps/api/scripts/write-frozen-drill.mjs —— Y0b-5 T9：write-frozen 全链演练（spec §5.3 验收链+plan T9 断言链①-⑦；collab-core CI 载体）。
-// 形态：collab-kill9-drill 同族（自起 dist/scripts/collab-drill-server.js 子进程——真实 AppModule+PG/Redis；
+// 形态：collab-kill9-drill 同族（自起 dist-drill/scripts/collab-drill-server.js 子进程——真实 AppModule+PG/Redis；
 // 先 tsc -p tsconfig.drill.json——tsx/esbuild 不发射 decorator metadata 的载体偏差同 kill9 文件头登记）。
 // 装置：双 ws client（collab-smoke 同族——cookie+Origin header+csv 版本门）；doc-status/conn-status 经
 // provider 'stateless' 事件捕获（Y0b-4 T5 幂等快照通道——census ⑧：'write-frozen' 字面量已从服务端清零，
@@ -70,6 +70,7 @@ async function pollUntil(cond, deadlineMs, intervalMs = 100, label = 'pollUntil'
 
 // —— 服务管理面（kill9 startServer 同族——mjs 化） ——
 const liveChildren = new Set();
+const liveClients = new Set();   // R2'：client registry——die/watchdog/finally 统一收口面（幂等 destroy）
 let compiling = null;
 function ensureCompiled() {
   compiling ??= new Promise((res, rej) => {
@@ -153,7 +154,25 @@ function connectClient(h, projectId, { ydoc, tag } = {}) {
     const t = setTimeout(() => { try { provider.destroy(); } catch { /* 已闭 */ } rej(new Error('provider synced 超时 15s')); }, 15_000);
     provider.on('synced', () => { clearTimeout(t); res(); });
   });
-  return { tag: tag ?? 'c', provider, doc, statusLog, connStatusLog, wsCloses, synced, destroy: () => { try { provider.destroy(); } catch { /* 同步 void——smoke B4 */ } } };
+  const entry = { tag: tag ?? 'c', provider, doc, statusLog, connStatusLog, wsCloses, synced,
+    destroy: () => {   // R2'：registry 注销先判——幂等（二次 destroy 短路）
+      if (!liveClients.delete(entry)) return;
+      try { provider.destroy(); } catch { /* 同步 void——smoke B4 */ }
+      // @hocuspocus/provider v4 缺陷兜底（成功路径自然 exit 的根修）：connected 期服务端 close（如
+      // closeAll1012）时 onClose 已排定 1s 重连 setTimeout（onClose 尾 `!cancelWebsocketRetry &&
+      // shouldConnect`——connected 期 onOpen 把 cancelWebsocketRetry 清 void，条件必真），destroy()
+      // 不清该定时器：迟到的 connect() 重置 shouldConnect=true 并重启无限退避重连（maxAttempts=0）
+      // → 进程永生。掐法三连：cancel 已复活循环 + disconnect 复位 shouldConnect + connect 置空
+      // （迟到定时器落地即 no-op）。
+      const w = provider.configuration?.websocketProvider;
+      if (w) {
+        try { w.cancelWebsocketRetry?.(); } catch { /* void */ }
+        try { w.disconnect?.(); } catch { /* void */ }
+        w.connect = () => {};
+      }
+    } };
+  liveClients.add(entry);
+  return entry;
 }
 
 async function firstStatus(c, pred, deadlineMs, label) {
@@ -168,7 +187,7 @@ async function firstStatus(c, pred, deadlineMs, label) {
 
 // —— 观测/重放/fixture（collab-smoke 同族——dist 仓库+Prisma 直查） ——
 async function metrics(h) {
-  const res = await fetch(`http://127.0.0.1:${h.port}/metrics`, { headers: { 'x-prometheus-token': h.token } });
+  const res = await fetch(`http://127.0.0.1:${h.port}/metrics`, { headers: { 'x-prometheus-token': h.token }, signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`metrics HTTP ${res.status}`);
   return res.text();
 }
@@ -207,6 +226,7 @@ async function postShrink(h, projectId, body) {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: WS_ORIGIN, cookie: `flowweb.session_token=${TOKEN}` },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!(res.status >= 200 && res.status < 300)) fail(`POST shrink ${JSON.stringify(body)} → HTTP ${res.status} ${await res.text().catch(() => '')}`);   // Nest POST 默认 201（无 @HttpCode——web 侧 res.ok 同口径）
   const j = await res.json();
@@ -262,7 +282,7 @@ async function frozenChainMode(env) {
     await waitReplayHas(prisma, S.project, ['base-node']);
 
     // ② POST /api/drain → 两 client 收 doc-status writeFrozen=true（quota.state 恒 ok——drain 不冒充 quota over）
-    const drainRes = await fetch(`http://127.0.0.1:${h.port}/api/drain`, { method: 'POST', headers: { 'x-prometheus-token': h.token } });
+    const drainRes = await fetch(`http://127.0.0.1:${h.port}/api/drain`, { method: 'POST', headers: { 'x-prometheus-token': h.token }, signal: AbortSignal.timeout(10_000) });
     if (drainRes.status !== 200) fail(`②POST /api/drain 非 200：${drainRes.status}`);
     for (const c of [A, B]) {
       const m = (await firstStatus(c, (x) => x.writeFrozen === true, 5_000, `②${c.tag} drain 冻结通告`)).msg;
@@ -335,6 +355,7 @@ async function frozenChainMode(env) {
     h = null;   // 正常收口——finally 兜底跳过（防对死进程二次 stop 空等 2s）
     console.log(`DRILL PASS: frozen-chain —— ①rev 播种首快照 ②drain 冻结(断言A 拒不物化) ③close(1012) ④断线期 quota 冻结+force 权威定影 ⑤断言B 逐字段重放(rev=${authoritative.rev},bytes=${authoritative.quota.bytes}) ⑥断言C 解除<${SHRINK_RELEASE_N_MS}ms(thaw 即时)+物化`);
   } finally {
+    for (const c of liveClients) c.destroy();   // R2'：成功路径句柄收口——provider/ws 销毁（自然 exit 0 根修）
     await cleanupFixture(prisma, S);
     await prisma.$disconnect();
     if (h) await h.stop();   // 兜底 SIGKILL——中途 fail 不留孤儿进程/端口/DB 连接
@@ -401,6 +422,7 @@ async function midEditKill9Mode(env) {
     h = null;   // 正常收口——finally 兜底跳过（防对死进程二次 stop 空等 2s）
     console.log(`DRILL PASS: mid-edit-kill9 —— (a)服务端独存：观测 RPO≈${observedRpo}ms ≤ 契约上界 ${RPO_BUDGET_MS}ms（视界样本 ${horizon.length}/${stream.length}）；(b)客户端存活：SS2 差分补回 ${stream.length}/${stream.length} 零丢失`);
   } finally {
+    for (const c of liveClients) c.destroy();   // R2'：成功路径句柄收口——provider/ws 销毁（自然 exit 0 根修）
     await cleanupFixture(prisma, S);
     await prisma.$disconnect();
     if (h) await h.stop();
@@ -422,8 +444,24 @@ async function main() {
   }
 }
 
-void main().catch((e) => {
+function die(e) {   // R2'：stderr 同步写（CI 管道防截断）+1s 兜底 exit
+  clearTimeout(watchdog);
+  for (const c of liveClients) c.destroy();
   for (const c of liveChildren) c.kill('SIGKILL');   // 兜底 SIGKILL——孤儿化收口（kill9 Major-1 同款）
-  console.error(e);
-  process.exitCode = 1;
-});
+  const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
+  process.stderr.write(`\nDRILL FAIL: ${msg}\n`, () => process.exit(1));
+  setTimeout(() => process.exit(1), 1_000);   // v3：fallback 保 ref（unref+stderr 背压=exit 0 假绿）
+}
+
+// R2' watchdog（B19 分责）：兜 catch 不可达的 hang（fetch/Prisma/未知句柄）；execSync(tsc) 阻塞期
+// 本定时器不触发——tsc 挂由 CI step timeout 兜底。exit 2 与业务失败 1 区分。
+// 保 ref 不 unref——unref+无句柄 hang=exit 0 假绿；成功/die 路径 clearTimeout。默认 6min < CI step 10min。
+const WATCHDOG_MS = Number(process.env.WF_DRILL_WATCHDOG_MS) || 6 * 60_000;
+const watchdog = setTimeout(() => {
+  for (const c of liveClients) c.destroy();
+  for (const c of liveChildren) c.kill('SIGKILL');
+  process.stderr.write('DRILL WATCHDOG: 超时强制退出（exit 2）\n', () => process.exit(2));
+  setTimeout(() => process.exit(2), 1_000);   // v3：fallback 保 ref
+}, WATCHDOG_MS);
+
+void main().then(() => { clearTimeout(watchdog); }).catch(die);
