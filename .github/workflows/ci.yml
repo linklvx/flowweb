@@ -8,10 +8,18 @@ on:
   # node scripts/gate-collab.mjs）。dispatch 保留=环境修复（如换 S3 兼容源）后的回归入口，
   # 当下 dispatch 仍会红在 specb-gate-seed 的 MinIO 段——属已知，非新回归（TD-26⑤）。
   workflow_dispatch:
+
+# R3'（v3）：新 push 取代旧 run——6h hang 形态下省 runner（#62-66 人工取消的机制化）。
+# 取舍登记（spec §6.3）：master 连续 push 时中间 commit 的 run 被取代（单人线性流信号取舍）。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request' # nightly 只跑 e2e-collab
     runs-on: ubuntu-latest
+    timeout-minutes: 60    # verify tier=full 实测 ~11min
     services:
       postgres:
         image: postgres:16
@@ -51,6 +59,7 @@ jobs:
       # step 已删（Z57 外审收口 2026-10-11：批0e-3 时代的"verify 未含 api lint"已失实——根 verify
       # 尾段现已含，独立 step=重复执行；红信号仍落本 job，无掩蔽）。
       - run: pnpm verify
+        timeout-minutes: 55
       # Y0a-4：deploy.sh 语法校验（CI 承载跨平台兜底——本地也可用 Git for Windows 真 bash -n）
       - name: deploy.sh 语法校验（Y0a-4——bash -n 跨平台承载）
         run: bash -n deploy.sh
@@ -61,6 +70,7 @@ jobs:
   doc-gate:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,6 +85,7 @@ jobs:
   gitleaks:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10    # 全历史扫描+二进制下载
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -140,6 +151,7 @@ jobs:
   collab-core:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -184,15 +196,17 @@ jobs:
       # Y0a-3（V27/X16）：专用配置串行（CollabLease 单行全局资源，fileParallelism=false）+集合断言
       # 单源化——显式清单+条数阈值退役（新增 int 文件漏登记=静默漏跑的根因由 git ls-files 集合比对消除）。
       - name: collab int（专用配置串行——CollabLease 单行全局资源；双 reporter=失败用例名在 CI 日志可读）
+        timeout-minutes: 6
         run: pnpm --filter @flowweb/api test:int:ci
       - name: int 完整性断言（V27——集合+零失败+零跳过+下限）
         run: node scripts/check-int-coverage.mjs
       # Y0a-2/3 演练=本 job 真增量（子进程形态 test job 无法跑，spec §4.5③）：七跑必须串行——触发器函数名
       # 全局共享（Task 9 Minor 5）+租约行全局共享（Z25）；驱动 tsx 直跑（驱动自身无 DI），server 侧由驱动
-      # 先跑 tsconfig.drill.json 全量 tsc（首次编译时间计入本步预算，不设独立上界）+dist 产物在 job
+      # 先跑 tsconfig.drill.json 全量 tsc（首次编译时间计入本步预算，不设独立上界）+dist-drill 产物在 job
       # workspace；Linux 走 SIGTERM 真信号=生产同构通道；env 供给=job 级 DATABASE_URL/REDIS_URL+驱动内
       # 注入 MINIO 占位（双保险）。
       - name: kill -9/SIGTERM/handover 演练（G-1 双模式+G-2a 双档+Z25 三变体——RPO/接管契约的唯一测试证明）
+        timeout-minutes: 8
         run: |
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-normal
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-fault
@@ -203,8 +217,9 @@ jobs:
           pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --usurp
       # Y0b-5 T9：write-frozen 全链演练（spec §5.3 验收链——drain 冻结/权威快照重放/shrink 解除锚+编辑中
       # kill9 RPO 档〔裁定 23⑮/24⑸尾〕）。kill9 族旁追加同款条件/环境：node 直跑 mjs（驱动无 DI——
-      # 首跑自带 tsconfig.drill.json 编译，上一步 kill9 已产出 dist 则增量）；两模式串行（随机端口+租约行全局资源）。
+      # 首跑自带 tsconfig.drill.json 编译，上一步 kill9 已产出 dist-drill 则增量）；两模式串行（随机端口+租约行全局资源）。
       - name: write-frozen 全链演练（T9——drain 冻结+权威快照重放+shrink 解除+编辑中 kill9 双断言）
+        timeout-minutes: 10
         run: |
           pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=frozen-chain
           pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=mid-edit-kill9
