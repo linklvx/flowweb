@@ -7,9 +7,11 @@
 //   cast 形态 ∈ { `as any`, `as unknown as`, `@ts-expect-error`, `@ts-ignore`（M-1 波 1 评审：
 //   同族绕过形态入集——Z140② 原文只列 ts-expect-error=spec 级缺口，正向加强；eslint 无
 //   ban-ts-comment 兜底） }；
-//   私有成员 universe = 本脚本从 collab.gateway.ts 现场解析（private 字段+私有方法+static 常量
-//   +构造器参数属性+get/set 访问器名〔修饰词跳过——M-2〕——解析逻辑写死，gateway 演进自动跟随，
-//   无人工名单漂移面）。
+//   私有成员 universe = 本脚本从 UNIVERSE_FILES_REL 三文件现场解析合并（private 字段+私有方法
+//   +static 常量+构造器参数属性+get/set 访问器名〔修饰词跳过——M-2〕——解析逻辑写死，源文件演进
+//   自动跟随，无人工名单漂移面）。T41 W4 扩面（偏离 71/RC6-a）：B2 切出后 gateway 单文件
+//   universe 150→31 缩至空心，扩为 gateway+SG+DR 三文件——执法加强非放松：违规定义/计数口径/
+//   façade 豁免面（三单点）不变，SG/DR 私有成员触达同规则回收。
 // 检测规则（每触达点计 1；kind 标注来源规则）：
 //   R1 cast：stripped 源 `as any`/`as unknown as` token occurrence，**受体限定（I-1 波 1 评审，
 //      词面=实测裁决扩面）**=cast 链受体须含 gateway 对象词面（`/gateway|\bgw/i`——覆盖
@@ -82,6 +84,24 @@ const rel = (p) => path.relative(ROOT, p).replace(/\\/g, '/');
 export const GATEWAY_REL = 'apps/api/src/modules/collab/collab.gateway.ts';
 export const FACADE_REL = 'apps/api/src/modules/collab/test-utils/collab-gateway-test-facade.ts';
 export const SPEC_DIR_REL = 'apps/api/src/modules/collab';
+
+// ── universe 源文件清单（T41 W4 扩面——偏离 71/RC6-a，写死三文件；B2 切出的两 service 私有
+//    成员与 gateway 同规则入 universe。B3 收敛/新 service 切出时本清单同步扩=执法面只增不减） ──
+export const UNIVERSE_FILES_REL = [
+  GATEWAY_REL,
+  'apps/api/src/modules/collab/collab-session-guard.service.ts',
+  'apps/api/src/modules/collab/collab-doc-registry.service.ts',
+];
+
+/** 多文件 universe 合并（入参=raw 源文本数组——剥离器逐文件前置消费，单文件解析规则同源）。
+ *  跨文件重名成员 Set 自然去重；返回 Set（findFacadeViolations 消费面不变）。 */
+export function buildUniverseFromFiles(srcTexts) {
+  const universe = new Set();
+  for (const t of srcTexts) {
+    for (const n of parsePrivateMembers(stripCommentsAndStrings(t))) universe.add(n);
+  }
+  return universe;
+}
 
 // ── universe 解析（写死——gateway 演进自动跟随） ──
 
@@ -450,10 +470,14 @@ function collectSpecFiles() {
 function isMain() { return process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href; }
 
 if (isMain()) {
-  const gatewayPath = path.join(ROOT, GATEWAY_REL);
-  if (!fs.existsSync(gatewayPath)) { console.error('check-collab-test-facade: 结构性错误（exit 2）——collab.gateway.ts 缺失'); process.exit(2); }
-  const gatewayStripped = stripCommentsAndStrings(fs.readFileSync(gatewayPath, 'utf8'));
-  const universe = new Set(parsePrivateMembers(gatewayStripped));
+  // universe 三文件现场解析（T41 W4 扩面——偏离 71/RC6-a）：任一源文件缺失=结构性错误 exit 2
+  const universeSrcs = [];
+  for (const r of UNIVERSE_FILES_REL) {
+    const p = path.join(ROOT, r);
+    if (!fs.existsSync(p)) { console.error(`check-collab-test-facade: 结构性错误（exit 2）——universe 源文件缺失 ${r}`); process.exit(2); }
+    universeSrcs.push(fs.readFileSync(p, 'utf8'));
+  }
+  const universe = buildUniverseFromFiles(universeSrcs);
   if (!universe.size) { console.error('check-collab-test-facade: 结构性错误（exit 2）——私有成员 universe 解析为空'); process.exit(2); }
   const specFiles = collectSpecFiles();
   if (!specFiles.length) { console.error('check-collab-test-facade: 结构性错误（exit 2）——spec 面为空'); process.exit(2); }
@@ -473,7 +497,7 @@ if (isMain()) {
     // universe 含 repo/spool/disconnect 等与 kit 公有夹具/库对象同名的成员，名字级口径混入
     // kit.repo/provider.disconnect 噪声（实测 658 vs 执法 534）；执法口径带对象上下文限定=准确面。
     console.log(`# check-collab-test-facade --report（步骤 0 枚举——重跑命令：node scripts/check-collab-test-facade.mjs --report）`);
-    console.log(`# universe：collab.gateway.ts 私有成员 ${universe.size} 个（脚本现场解析——gateway 演进自动跟随）`);
+    console.log(`# universe：三文件私有成员合并 ${universe.size} 个（${UNIVERSE_FILES_REL.map((r) => r.split('/').pop()).join('+')} 脚本现场解析——源文件演进自动跟随，T41 W4 扩面/偏离 71）`);
     console.log(`# 执法面：${SPEC_DIR_REL}/*.spec.ts ${specFiles.length} 文件；豁免面：${FACADE_REL}（唯一 sanctioned 绕点，非 spec 后缀天然出圈）\n`);
 
     // 触达统计（M 双口径——执法口径单源）

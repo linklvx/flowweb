@@ -3,8 +3,12 @@
 // `node scripts/check-collab-test-facade.mjs`。TDD 先红：脚本不存在时本文件 import 失败=红。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parsePrivateMembers, collectGatewayAliases, findFacadeViolations, classifyTouch,
+  buildUniverseFromFiles, UNIVERSE_FILES_REL,
 } from './check-collab-test-facade.mjs';
 import { stripCommentsAndStrings } from './check-collab-census.mjs';
 
@@ -368,4 +372,52 @@ test('classifyTouch：五形态分类（直调/赋值写/写/读/引用——三
   assert.deepEqual(classifyTouch('expect(g.pendingQueues.has("p")).toBe(true);', 'pendingQueues'), ['读']);
   assert.deepEqual(classifyTouch('const before = g.pendingQueues.get("p");', 'pendingQueues'), ['读']);
   assert.deepEqual(classifyTouch('q.splice(0, 1); x.foo(g.pendingQueues);', 'pendingQueues'), ['引用']);
+});
+
+// ── T41 W4（偏离 71/RC6-a）：universe 扩三文件（gateway+SG+DR）——执法加强非放松 ──
+
+test('W4 buildUniverseFromFiles：多文件私有成员合并入单一 universe（去重、逐文件解析）', () => {
+  const gwSrc = 'class G { private collabState = "initializing"; private transition() {} }';
+  const sgSrc = 'class SG { private sweepKickPending = false; private sweepIntervalMs() {} }';
+  const drSrc = 'class DR { private docTruth = new Map(); private collabState = "dup-name"; }';
+  const u = buildUniverseFromFiles([gwSrc, sgSrc, drSrc]);
+  for (const m of ['collabState', 'transition', 'sweepKickPending', 'sweepIntervalMs', 'docTruth']) {
+    assert.ok(u.has(m), `${m} 应入合并 universe`);
+  }
+  assert.ok(u instanceof Set, 'universe 为 Set（重名成员自然去重——findFacadeViolations 消费面不变）');
+});
+
+test('W4 buildUniverseFromFiles：注释/字符串内 private 不产成员（剥离器逐文件前置消费——单文件同规则）', () => {
+  const u = buildUniverseFromFiles([
+    '// private notAGatewayMember: string;',
+    'class SG { /* private notASgMember() {} */ private realSg = 1; }',
+    'const s = "private notADrMember"; class DR { private realDr = 2; }',
+  ]);
+  assert.deepEqual([...u].sort(), ['realDr', 'realSg']);
+});
+
+test('W4 合并 universe 下 SG/DR 私有成员触达被回收（扩面=执法加强实证：单 gateway universe 逃逸→合并 universe 违规）', () => {
+  const line = 'expect((gateway as any).sweepKickPending).toBe(true);';
+  const gwOnly = new Set(parsePrivateMembers('class G { private collabState = 1; }'));
+  assert.equal(detect(line, gwOnly).length, 0, '扩面前：SG 成员不在 gateway universe=逃逸（空心化实锤）');
+  const merged = buildUniverseFromFiles([
+    'class G { private collabState = 1; }',
+    'class SG { private sweepKickPending = false; }',
+  ]);
+  const v = detect(line, merged);
+  assert.equal(v.length, 1, '扩面后：同一触达点回收为违规');
+  assert.equal(v[0].member, 'sweepKickPending');
+  assert.equal(v[0].kind, 'cast');
+});
+
+test('W4 UNIVERSE_FILES_REL：恰三文件=gateway+SG+DR（偏离 71 写死清单——防漂移钉）', () => {
+  assert.deepEqual(UNIVERSE_FILES_REL, [
+    'apps/api/src/modules/collab/collab.gateway.ts',
+    'apps/api/src/modules/collab/collab-session-guard.service.ts',
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts',
+  ]);
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  for (const r of UNIVERSE_FILES_REL) {
+    assert.ok(fs.existsSync(path.join(root, r)), `${r} 应存在于仓库（清单≡磁盘对账）`);
+  }
 });
