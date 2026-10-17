@@ -55,7 +55,7 @@ describe('Y0b-5 T14：computeDegraded 四键（E54⑤——ready token 档 degra
   it('①真实路径播种+②自愈：applyUpdate（update 监听唯一 push 点）→ pendingSince 空→非空转变；排空后 reader 消费即除账（漏清守卫——不依赖散布清账点）；gauge 同源可见', async () => {
     const { gateway } = buildGateway();
     const doc = new Y.Doc();
-    await (gateway as any).loadDocument({ document: doc, documentName: 'project:p-d1' });
+    await gateway.docRegistry.loadDocument({ document: doc, documentName: 'project:p-d1' } as any);   // W3a：DR 公有化直调（cast 消失）
     // 装载 stamp 自愈 update 预期入队（gateway:969-971 注释——update 进 pending 落库）——先排空建立零脏基线
     gatewayFacade(gateway).pendingQueueRef('p-d1')!.splice(0);
     const base = gateway.computeDegraded();

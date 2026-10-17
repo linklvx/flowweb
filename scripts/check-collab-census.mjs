@@ -415,8 +415,9 @@ export function reconcileWithDocRegistry(counts, registry) {
  *   全 SV 滤零 structs 段的近似编码，compact ≥60s 时间门内成本有界）；
  *  collab-shrink.service ×5=export-fresh 落地校验/shrink 影子预演（apply 进 scratch+预演结果编码）
  *   /shrink 写后校准（recalibrate truth）/vacuum 真空编码（newDoc 落库快照——T9a）；
- *  collab.gateway ×3=装载真值（cheap≥soft 才实测）/vacuum residue 评估（全根真空重建编码）
- *   /over 检查 measureTruth（冷却窗外实测）；
+ *  collab-doc-registry.service ×3=装载真值（cheap≥soft 才实测）/vacuum residue 评估（全根真空重建
+ *   编码）/over 检查 measureTruth（冷却窗外实测）——T41 W3a 随 DocRegistry 域自 collab.gateway 迁移
+ *   （loadDocument/updateResidue/measureTruth 三点同文件同计数，条目换宿主）；
  *  project.service ×1=项目创建种子快照；
  *  web canvasCollabRuntime ×3=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）
  *   /buildCacheRecord 本地缓存快照编码（Y0b-5 T8——去抖/到期/隐藏强制三触发共用单点）；
@@ -425,7 +426,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
   'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,
   'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
-  'apps/api/src/modules/collab/collab.gateway.ts': 3,
+  'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
   'apps/web/src/stores/canvasCollabRuntime.ts': 3,
   'apps/web/src/collab/canvas-local-backup.ts': 1,
@@ -529,9 +530,11 @@ if (isMain()) {
     const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) => classifyConsumeCall(l)));
     report('⑨', '.consume( 生产调用全显式 cost 参数', hits.length === 0, hits.map((h) => `${h.file}:${h.line} ${h.text}——${h.why}`));
   }
-  // ⑩pendingStructs 装载断言存在性（Q-O 双查——存在性检查非清零）
+  // ⑩pendingStructs 装载断言存在性（Q-O 双查——存在性检查非清零；T41 W3a 锚随迁：loadDocument
+  // 降级双查+measureTruth fail-open 判据随域迁 collab-doc-registry.service——断言目标文件切换
+  // 同批〔偏离 66 族载体适配，判据/正则逐字不变〕）
   {
-    const gw = byFile.get(files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab.gateway.ts')).stripped;
+    const gw = byFile.get(files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab-doc-registry.service.ts')).stripped;
     const hasStructs = /pendingStructs\s*!==\s*null/.test(gw);
     const hasDs = /pendingDs\s*!==\s*null/.test(gw);
     report('⑩', 'pendingStructs&&pendingDs 装载双查断言存在（loadDocument 降级可观测——Q-O）', hasStructs && hasDs,
@@ -694,8 +697,11 @@ if (isMain()) {
       applyUpdate: { n: 2, until: '片D' },               // :255,:256 compact 方法内 temp doc 行集重放（scratch 离线，非 readSnapshotOnly——后者不 apply）
     },
     'apps/api/src/modules/collab/collab.gateway.ts': {
-      'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）
-      applyUpdate: { n: 1, until: '片D' },               // T40 B1 后=loadDocument spool 帧装载 1 点（重放抑制窗 applyReplayed 随 withReplaySuppressed 迁 service）
+      'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）——T41 W3a 后 applyUpdate 条目消失（loadDocument spool 帧装载 1 点随域迁 doc-registry，stale 机制核销）
+    },
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': {
+      'hocuspocus-server-import': { n: 2, until: '片D' },   // T41 W3a：OutgoingMessage（thawQuota writeFirstSyncStepFor 回灌）值 import+Document/onLoadDocumentPayload/beforeSyncPayload 类型 import 两行
+      applyUpdate: { n: 1, until: '片D' },               // T41 W3a：loadDocument spool 帧装载 1 点（原 gateway 条目随域迁——重放抑制窗在 persistence 不变）
     },
     'apps/api/src/modules/collab/collab-persistence.service.ts': {
       applyUpdate: { n: 1, until: '片D' },               // T40 B1：withReplaySuppressed 重放抑制窗（Y.applyUpdate——原 gateway applyReplayed 闭包随域迁；hocuspocus import 零=PersistenceDocument 结构面，闭包纯净）
@@ -707,7 +713,7 @@ if (isMain()) {
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源）
-    'apps/api/src/modules/collab/collab.gateway.ts': { decodeStateVector: 2, encodeStateAsUpdate: 3 },   // T40 B1：mergeUpdates 8 点全迁 service（store 链/交接/drain 族随域）；encode 3 点留 gateway（装载真值/residue/measureTruth——④ 同源）
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': { decodeStateVector: 2, encodeStateAsUpdate: 3 },   // T41 W3a：原 gateway 条目随域迁（decode 2=loadDocument preVacuumSv+guardSyncFrame SV 代际门；encode 3=装载真值/residue/measureTruth——④ 同源同计数换宿主）；gateway 条目消失（stale 机制核销）
     'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 8 },   // T40 B1：store coalesce/降级 spool-first/PG 切批/spool 兜底/detached retry/handoff×2/force-spool（Y0c T16 handoffPendingToSpool +1 沿革见 gateway 旧注）
     'apps/api/src/modules/collab/collab-spool.service.ts': { mergeUpdates: 1 },                  // spool 批合并
   };
@@ -943,13 +949,15 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
       COMPACT_INTERVAL_MS: 1,
     },
-    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（quota/upgradeBucket）+方法内每调即读族（allowedOrigins/refusalTtl 等）+函数内（resolveCollabDebounce）；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目
+    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（upgradeBucket）+方法内每调即读族（allowedOrigins/refusalTtl 等）+函数内（resolveCollabDebounce）；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目（桶容量读面经 activeQuota 单源）
       COLLAB_DEBOUNCE: 1, NODE_ENV: 2, COLLAB_UPGRADE_RATE_PER_MIN: 1,
-      COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
       COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, COLLAB_BIND_ADDR: 2, COLLAB_ALLOWED_ORIGINS: 1, BETTER_AUTH_URL: 1,
       COLLAB_TRUSTED_PROXY: 1, COLLAB_REFUSAL_CACHE_TTL_MS: 1, COLLAB_AUTH_ATTEMPTS_PER_MIN: 1,
       COLLAB_AUTH_INFLIGHT_MAX: 1, COLLAB_ROLE: 1, COLLAB_RSS_TRIP_BYTES: 1, COLLAB_RSS_RELEASE_BYTES: 1,
       COLLAB_HEAP_PRESSURE_RATIO: 1, COLLAB_CONN_MAX_LIFETIME_MS: 1, COLLAB_SWEEP_ENABLED: 1,
+    },
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': {   // T41 W3a：构造器（quota 四值 env 解析随域迁 DR——gateway Partial 直通+DI 路径构造期自足；设计 §8.2「quota 解析留 GW/DR 零 env 键」预估现场核不成立，commit 披露）
+      COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
     },
     'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）
       COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1,
@@ -1085,12 +1093,12 @@ if (isMain()) {
   //  实际落地形态写就（先跑真红再登记——T2/T3 惯例）：fillDoc 适配工厂 3 文件（gate-canvas-state/
   //  doc-like.util/ydocBuilder——gate-canvas-state 为 Z57 非 生产 gate 面）+canvasIntents 4 点
   // （nodes.*.data/nodes.*.position×2 工厂实参/edges 复用守卫）+collab-document.service 2 点
-  // （nodes.*.data 懒建/exec.* 唯一创建者）+gateway deepCopyYMap 1 点（vacuum 真空重建）。
+  // （nodes.*.data 懒建/exec.* 唯一创建者）+doc-registry deepCopyYMap 1 点（vacuum 真空重建——T41 W3a 自 gateway 随域迁，同计数换宿主）。
   //  Y.Text/Y.Array 现状生产零创建点（词表含入=将来引入即红，登记须同批补注）。
   const NESTED_CREATOR_WHITELIST = {
     'apps/api/src/gate-canvas-state.ts': 1,
     'apps/api/src/modules/collab/collab-document.service.ts': 2,
-    'apps/api/src/modules/collab/collab.gateway.ts': 1,
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,   // T41 W3a：gateway deepCopyYMap 1 点（vacuum 真空重建）随域迁——同计数换宿主
     'apps/api/src/modules/collab/doc-like.util.ts': 1,
     'apps/web/src/collab/ydocBuilder.ts': 2,
     'apps/web/src/stores/canvasIntents.ts': 4,

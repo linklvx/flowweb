@@ -120,7 +120,7 @@ describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→�
       const rec2 = await shrink.shrink(pid, 'u1', { deleteNodeIds: ['big-node'] });
       expect(rec2.result).toBe('ok');
       expect(rec2.thawed).toBe(true);   // Y0c T13 根修：删除档判据=shrunk（GC 已执行口径）<softExit→即时 thaw
-      (kit.gateway as any).recheckFrozenDocs();   // int 后门②：已解冻态再 recheck=no-op（保留——drill 走真实 30s 周期同款路径）
+      kit.gateway.docRegistry.recheckFrozenDocs();   // int 后门②：已解冻态再 recheck=no-op（保留——drill 走真实 30s 周期同款路径）；W3a：DR 公有化直调（cast 消失）
       await pollUntil(
         () => [a2, b2].every((cc) => cc.status.some((m) => m.writeFrozen === false && m.quota?.state === 'ok')),
         SHRINK_RELEASE_N_MS,

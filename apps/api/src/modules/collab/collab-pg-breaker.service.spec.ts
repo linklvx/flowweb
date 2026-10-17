@@ -275,11 +275,12 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     expect(gatewayFacade(gateway).pgBreakerRef().stateName()).toBe('open');
   });
 
-  it('★范围静态锚：breaker 闸门调用点+状态谓词恰四（auth/load 准入+store 短路+isPgBreakerOpen 谓词）——不裹 lease 心跳/不拒 WS 帧路径（T40 B1 锚随迁：store 短路点 .isOpen() 随 storeDocumentUnlocked 迁 collab-persistence.service——四点判据=gateway+service 双文件求和，§0.6 偏离 66①）', () => {
+  it('★范围静态锚：breaker 闸门调用点+状态谓词恰四（auth/load 准入+store 短路+isPgBreakerOpen 谓词）——不裹 lease 心跳/不拒 WS 帧路径（T41 W3a 锚随迁〔§0.6 偏离 70④ interim 形态〕：load 准入点 .admitQuery() 随 loadDocument 迁 collab-doc-registry.service——四点判据=gateway+persistence+doc-registry 三文件求和恰 4；session-guard 文件尚不存在〔readFileSync 缺失即抛=假绿结构性不可达〕，W3b 迁 SG 时加列=四文件求和终态〔偏离 70④ 登记原文〕）', () => {
     const gw = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
     const svc = readFileSync(resolve(__dirname, 'collab-persistence.service.ts'), 'utf8');
+    const dr = readFileSync(resolve(__dirname, 'collab-doc-registry.service.ts'), 'utf8');
     const gateRe = () => /\.admitQuery\(\)|\.isOpen\(|\.stateName\(/g;
-    expect((gw.match(gateRe()) ?? []).length + (svc.match(gateRe()) ?? []).length).toBe(4);
+    expect((gw.match(gateRe()) ?? []).length + (svc.match(gateRe()) ?? []).length + (dr.match(gateRe()) ?? []).length).toBe(4);
   });
 });
 

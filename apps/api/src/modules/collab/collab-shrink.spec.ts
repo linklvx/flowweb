@@ -312,7 +312,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     attachDoc(gateway, doc, 'p1', [conn]);
     const g = gatewayFacade(gateway);
     g.seedDocTruth('p1', 1);   // 装载播种态（真实路径 withDoc 装载播种——校准覆写前提，T3"未装载不复活"守卫）
-    (gateway as any).freezeQuota('p1');    // 直调族（偏离 64②）——预冻结：broadcast over+setImmediate 落地（quotaFrozenDocs+readOnly）
+    gateway.docRegistry.freezeQuota('p1');    // W3a：DR 公有化直调（cast 消失——偏离 64② 核销兑现）——预冻结：broadcast over+setImmediate 落地（quotaFrozenDocs+readOnly）
     await nextTick();
     expect(g.quotaFrozenHas('p1')).toBe(true);
     expect(conn.readOnly).toBe(true);
@@ -378,7 +378,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(gatewayFacade(gateway).quotaFrozenHas('p1')).toBe(false);
 
     // 臂二：冻结 doc → 照常 thaw（exit 计数配对+冷却窗播种——enter/exit 对账不虚高）
-    (gateway as any).freezeQuota('p1');   // 直调族（偏离 64②）
+    gateway.docRegistry.freezeQuota('p1');   // W3a：DR 公有化直调（cast 消失）
     await nextTick();
     expect(gatewayFacade(gateway).quotaFrozenHas('p1')).toBe(true);
     let r2: any;
@@ -404,7 +404,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
       const { svc } = buildSvc(gateway, doc);
       const thawSpy = vi.spyOn(gateway, 'thawQuota');
       const g = gatewayFacade(gateway);
-      (gateway as any).scheduleFreezePending('p1');   // 直调族（偏离 64②）——账面触阈：broadcast over+挂 2s 确认定时器（两态分离——未冻结）
+      gateway.docRegistry.scheduleFreezePending('p1');   // W3a：DR 公有化直调（cast 消失）——账面触阈：broadcast over+挂 2s 确认定时器（两态分离——未冻结）
       expect(g.freezePendingHas('p1')).toBe(true);
       expect(g.quotaFrozenHas('p1')).toBe(false);
 
@@ -471,7 +471,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     attachDoc(gw2, doc2, 'p2', [conn2]);
     const g2 = gatewayFacade(gw2);
     g2.seedDocTruth('p2', Y.encodeStateAsUpdate(doc2).byteLength);
-    (gw2 as any).freezeQuota('p2');   // 直调族（偏离 64②）
+    gw2.docRegistry.freezeQuota('p2');   // W3a：DR 公有化直调（cast 消失——gw2 工厂变体逃逸面同批消灭）
     await nextTick();
     expect(g2.quotaFrozenHas('p2')).toBe(true);
     const overRev = g2.docStatusRevOf('p2');   // freeze 的 over 广播后（dedup 态=over:true）
@@ -759,7 +759,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     gateway.server.hocuspocus.documents.delete('project:p1');
     (gatewayFacade(gateway).repoRef() as unknown as MockRepo).hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [] as Buffer[], stateSeq: 5n });   // mock 链 cast=合法面（repoRef 身份引用——同一 mock 对象）
     const reloaded = new Y.Doc();
-    await (gateway as any).loadDocument({ document: reloaded, documentName: 'project:p1' });
+    await gateway.docRegistry.loadDocument({ document: reloaded, documentName: 'project:p1' } as any);   // W3a：DR 公有化直调（cast 消失）
     expect(reloaded.store.pendingStructs).toBe(null);      // 因果链干净（真空重建——红门⑦ 核心）
     expect(reloaded.store.pendingDs).toBe(null);
     expect(reloaded.getMap('meta').get('schemaVersion')).toBe(CANVAS_DOC_SCHEMA_VERSION);   // stamp 保留（U-1）
@@ -779,7 +779,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     reloaded.destroy();
     (gatewayFacade(gateway).repoRef() as unknown as MockRepo).hydrateWithRecovery.mockResolvedValueOnce({ state: vacuumed, updates: [Buffer.from(editFrame)], stateSeq: 6n });
     const again = new Y.Doc();
-    await (gateway as any).loadDocument({ document: again, documentName: 'project:p1' });
+    await gateway.docRegistry.loadDocument({ document: again, documentName: 'project:p1' } as any);   // W3a：DR 公有化直调（cast 消失）
     expect(again.store.pendingStructs).toBe(null);
     expect([...again.getMap('nodes').keys()].sort()).toEqual(['n1', 'n2', 'post-vac']);   // 新旧编辑共存
     expect(again.getMap('exec').get('node-a')).toBeInstanceOf(Y.Map);                     // exec 跨重载保留
@@ -1114,9 +1114,10 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       'docStuckRounds',       // documentName 键观测轮次——非代际敏感态（stuck 判定 n≥2 自清），不属旧代记账污染面
     ]);
     const checked: string[] = [];
-    // 反射面=gateway+persistence 域 service 双对象自有属性（T40 B1 锚随迁——8 个 pid 键控容器随域迁
-    // gateway.persistence，防漏方向/must 锚/豁免表语义零变化；§0.6 偏离 68）
-    for (const owner of [gateway, gateway.persistence]) {
+    // 反射面=gateway+persistence+docRegistry 三对象自有属性（T40 B1 双对象锚〔偏离 68〕→T41 W3a
+    // 三对象扩面〔§0.6 偏离 70⑤〕——15 个 pid 键控容器随域迁 gateway.docRegistry，防漏方向/
+    // must 锚 23 名单/豁免表语义逐字零变化；overPush/docStuckRounds 豁免行随迁 DR 对象仍豁免）
+    for (const owner of [gateway, gateway.persistence, gateway.docRegistry]) {
       for (const [name, v] of Object.entries(owner)) {
         if (!(v instanceof Map || v instanceof Set) || NON_PID_CONTAINERS.has(name)) continue;
         checked.push(name);

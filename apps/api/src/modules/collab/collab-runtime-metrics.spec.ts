@@ -51,10 +51,10 @@ function buildGateway(hydration?: { state: Buffer | null; updates: Buffer[] }) {
   return { gateway, repo };
 }
 
-/** 装载（loadDocument hook 直调——归因断言唯一入口） */
+/** 装载（loadDocument hook 直调——归因断言唯一入口；W3a：DR 公有化直调 cast 消失） */
 async function loadDoc(gateway: CollabGateway, pid = 'p1'): Promise<Y.Doc> {
   const document = new Y.Doc();
-  await (gateway as any).loadDocument({ document, documentName: `project:${pid}` });
+  await gateway.docRegistry.loadDocument({ document, documentName: `project:${pid}` } as any);
   return document;
 }
 

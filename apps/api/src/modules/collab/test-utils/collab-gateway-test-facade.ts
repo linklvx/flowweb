@@ -21,11 +21,16 @@
 //   身份引用族+spy 组缺口；T40 W5 勘正：原记 113 系盘点漏计 1，文件实测=114；B1〔T40〕persistence
 //   族 ~25 法改道 persistOf(gw) 单点 cast——方法数不增减，身份契约七处零变化=service Map 真实引用；
 //   T41 W2 扩 10 法〔B2 前置穷举单测 collab-doc-lifecycle/collab-state-machine 消费——DR 普查
-//   读面/播种面+常驻探针读面，操作化归并同款（Of/Has/seed 族），N=114→124〕）。
+//   读面/播种面+常驻探针读面，操作化归并同款（Of/Has/seed 族），N=114→124〕；
+//   T41 W3a〔B2〕DocRegistry 域迁出——DR 族 ~30 法改道 docRegistryOf(gw) 单点 cast（persistOf/B1
+//   同款先例，控制方波次分工调整：façade 改道同批 W3a 非 W4——不改道则成员迁出后读 undefined=
+//   collab 套件大面积红）。方法数不增减（N=124）、公有签名零变化、身份契约零变化〔States/Ref 族
+//   返回活引用语义保持=service Map 真实引用〕）。
 import { vi } from 'vitest';
 import * as Y from 'yjs';
 import { CollabGateway } from '../collab.gateway';
 import type { CollabPersistenceService } from '../collab-persistence.service';
+import type { CollabDocRegistryService } from '../collab-doc-registry.service';
 import type { TokenBucket } from '../token-bucket';
 
 /** gateway 内部成员镜像（测试触达面——类型索引访问单源；写面去 readonly 由 stub 方法内 cast 承担。
@@ -39,26 +44,6 @@ interface GatewayInternals {
   logger: CollabGateway['logger'];
   eventEmitter: CollabGateway['eventEmitter'];
   spool: CollabGateway['spool'];
-  // ── 波 2 扩面（偏离 64——字段/状态/splice/身份引用族全量替换的镜像面） ──
-  docTruth: CollabGateway['docTruth'];
-  docDelta: CollabGateway['docDelta'];
-  truthMeasuredAt: CollabGateway['truthMeasuredAt'];
-  degradedDocs: CollabGateway['degradedDocs'];
-  quotaFrozenDocs: CollabGateway['quotaFrozenDocs'];
-  freezePending: CollabGateway['freezePending'];
-  thawCooldown: CollabGateway['thawCooldown'];
-  recheckRounds: CollabGateway['recheckRounds'];
-  docStatusRev: CollabGateway['docStatusRev'];
-  docStatusState: CollabGateway['docStatusState'];
-  docGeneration: CollabGateway['docGeneration'];
-  docResidue: CollabGateway['docResidue'];
-  preVacuumSvCache: CollabGateway['preVacuumSvCache'];
-  docEpoch: CollabGateway['docEpoch'];
-  // ── T41 W2 扩面（B2 前置穷举单测——清理点普查定时器/时点台账+卸载锚+常驻探针读面） ──
-  freezePendingTimers: CollabGateway['freezePendingTimers'];
-  autoVacuumLastAt: CollabGateway['autoVacuumLastAt'];
-  unloadHeapAnchors: CollabGateway['unloadHeapAnchors'];
-  residentSessionsProbe: CollabGateway['residentSessionsProbe'];
   repo: CollabGateway['repo'];
   pgBreaker: CollabGateway['pgBreaker'];
   refusalCache: CollabGateway['refusalCache'];
@@ -71,7 +56,6 @@ interface GatewayInternals {
   awarenessDriftLogged: CollabGateway['awarenessDriftLogged'];
   connEstablishedAt: CollabGateway['connEstablishedAt'];
   authAttemptBuckets: CollabGateway['authAttemptBuckets'];
-  overPush: CollabGateway['overPush'];
   bytesBuckets: CollabGateway['bytesBuckets'];
   msgBuckets: CollabGateway['msgBuckets'];
   awareBuckets: CollabGateway['awareBuckets'];
@@ -81,6 +65,43 @@ interface GatewayInternals {
 /** 受控 cast 点①（sanctioned——门禁豁免面本体） */
 function internals(gw: CollabGateway): GatewayInternals {
   return gw as unknown as GatewayInternals;
+}
+
+/** DocRegistry service 内部成员镜像（T41 W3a/B2——DR 域 ~19 字段+3 私有方法迁 service；类型索引
+ *  访问单源 CollabDocRegistryService['member']，gateway 前提=`readonly docRegistry` 公有字段，
+ *  persistOf/B1 同款；镜像面随迁=身份契约零变化〔façade 返回 service Map 内真实引用〕）。 */
+interface DocRegistryInternals {
+  // ── 真值三件套+降级+代际+冻结族+真空态+普查定时器/时点台账+卸载锚+常驻探针+overPush ──
+  docTruth: CollabDocRegistryService['docTruth'];
+  docDelta: CollabDocRegistryService['docDelta'];
+  truthMeasuredAt: CollabDocRegistryService['truthMeasuredAt'];
+  degradedDocs: CollabDocRegistryService['degradedDocs'];
+  quotaFrozenDocs: CollabDocRegistryService['quotaFrozenDocs'];
+  freezePending: CollabDocRegistryService['freezePending'];
+  thawCooldown: CollabDocRegistryService['thawCooldown'];
+  recheckRounds: CollabDocRegistryService['recheckRounds'];
+  docStatusRev: CollabDocRegistryService['docStatusRev'];
+  docStatusState: CollabDocRegistryService['docStatusState'];
+  docGeneration: CollabDocRegistryService['docGeneration'];
+  docResidue: CollabDocRegistryService['docResidue'];
+  preVacuumSvCache: CollabDocRegistryService['preVacuumSvCache'];
+  docEpoch: CollabDocRegistryService['docEpoch'];
+  freezePendingTimers: CollabDocRegistryService['freezePendingTimers'];
+  autoVacuumLastAt: CollabDocRegistryService['autoVacuumLastAt'];
+  unloadHeapAnchors: CollabDocRegistryService['unloadHeapAnchors'];
+  residentSessionsProbe: CollabDocRegistryService['residentSessionsProbe'];
+  overPush: CollabDocRegistryService['overPush'];
+  repo: CollabDocRegistryService['repo'];
+  // ── 私有方法 spy 组（heapUsedNow/measureTruth/updateResidue 随域迁 DR——spyOn 单点收敛） ──
+  heapUsedNow: CollabDocRegistryService['heapUsedNow'];
+  measureTruth: CollabDocRegistryService['measureTruth'];
+  updateResidue: CollabDocRegistryService['updateResidue'];
+}
+
+/** 受控 cast 点④（W3a——DocRegistry 族单点收敛；gw.docRegistry 本体公有非 cast 面，
+ *  persistOf 同款先例）。 */
+function docRegistryOf(gw: CollabGateway): DocRegistryInternals {
+  return gw.docRegistry as unknown as DocRegistryInternals;
 }
 
 /** Persistence service 内部成员镜像（B1/T40——类型索引访问单源 CollabPersistenceService['member']；
@@ -116,8 +137,8 @@ type RefusalEntry = NonNullable<ReturnType<GatewayInternals['refusalCache']['get
 type PermCacheEntry = NonNullable<ReturnType<GatewayInternals['permCache']['get']>>;
 type SocketIdentityEntry = NonNullable<ReturnType<GatewayInternals['socketIdentity']['get']>>;
 type AuthAttemptEntry = NonNullable<ReturnType<GatewayInternals['authAttemptBuckets']['get']>>;
-type OverPushEntry = NonNullable<ReturnType<GatewayInternals['overPush']['get']>>;
-type PreVacuumSv = NonNullable<ReturnType<GatewayInternals['preVacuumSvCache']['get']>>;
+type OverPushEntry = NonNullable<ReturnType<DocRegistryInternals['overPush']['get']>>;   // W3a：overPush 台账随域迁 DR（RC2）——entry 型派生单源随迁
+type PreVacuumSv = NonNullable<ReturnType<DocRegistryInternals['preVacuumSvCache']['get']>>;   // W3a：SV 代际门缓存随域迁 DR
 
 /** writeFreeze conn 键形态受控 cast 单点（seedWriteFreeze/hasWriteFreezeReason 既有内联形态的
  *  波 2 收敛镜像——M-4：新扩方法禁新增内联 cast） */
@@ -154,11 +175,10 @@ type GatewayMethods = {
   //    直调族本体不转发=收窄裁决，spy 装置面照扩）。
   //    B1（T40）：reconcileSpool/schedulePersistRetry/cancelPersistRetry/retryPersist/
   //    storeDocumentSerialized/peekSpoolFrames 六法迁 service——转发面随迁 PersistenceInternals
-  //    （persistOf 单点），façade 公有方法签名零变化。 ──
-  heapUsedNow: CollabGateway['heapUsedNow'];
+  //    （persistOf 单点），façade 公有方法签名零变化。
+  //    W3a（T41/B2）：heapUsedNow/measureTruth/updateResidue 三法迁 DR service——spy 面随迁
+  //    DocRegistryInternals（docRegistryOf 单点），façade 公有方法签名零变化。 ──
   sweepSessions: CollabGateway['sweepSessions'];
-  measureTruth: CollabGateway['measureTruth'];
-  updateResidue: CollabGateway['updateResidue'];
   allowedOrigins: CollabGateway['allowedOrigins'];
   graceDirectConnections: CollabGateway['graceDirectConnections'];
 };
@@ -410,130 +430,130 @@ export class GatewayTestFacade {
   // ── DocRegistry 真值台账族（docTruth/docDelta/truthMeasuredAt 三件套+degraded/epoch） ──
 
   /** 替代 `(gw as any).docTruth.get(name)` */
-  docTruthOf(name: string): ReturnType<GatewayInternals['docTruth']['get']> {
-    return internals(this.gw).docTruth.get(name);
+  docTruthOf(name: string): ReturnType<DocRegistryInternals['docTruth']['get']> {
+    return docRegistryOf(this.gw).docTruth.get(name);
   }
 
   /** 替代 `(gw as any).docTruth.has(name)` */
   docTruthHas(name: string): boolean {
-    return internals(this.gw).docTruth.has(name);
+    return docRegistryOf(this.gw).docTruth.has(name);
   }
 
   /** 替代 `(gw as any).docTruth.set(name, bytes)`（陈旧 truth 预置/普查播种装置） */
   seedDocTruth(name: string, bytes: number): void {
-    internals(this.gw).docTruth.set(name, bytes);
+    docRegistryOf(this.gw).docTruth.set(name, bytes);
   }
 
   /** 替代 `(gw as any).docDelta.get(name)` */
-  docDeltaOf(name: string): ReturnType<GatewayInternals['docDelta']['get']> {
-    return internals(this.gw).docDelta.get(name);
+  docDeltaOf(name: string): ReturnType<DocRegistryInternals['docDelta']['get']> {
+    return docRegistryOf(this.gw).docDelta.get(name);
   }
 
   /** 替代 `(gw as any).docDelta.has(name)` */
   docDeltaHas(name: string): boolean {
-    return internals(this.gw).docDelta.has(name);
+    return docRegistryOf(this.gw).docDelta.has(name);
   }
 
   /** 替代 `(gw as any).docDelta.set(name, bytes)` */
   seedDocDelta(name: string, bytes: number): void {
-    internals(this.gw).docDelta.set(name, bytes);
+    docRegistryOf(this.gw).docDelta.set(name, bytes);
   }
 
   /** 替代 `(gw as any).truthMeasuredAt.get(name)` */
-  truthMeasuredAtOf(name: string): ReturnType<GatewayInternals['truthMeasuredAt']['get']> {
-    return internals(this.gw).truthMeasuredAt.get(name);
+  truthMeasuredAtOf(name: string): ReturnType<DocRegistryInternals['truthMeasuredAt']['get']> {
+    return docRegistryOf(this.gw).truthMeasuredAt.get(name);
   }
 
   /** 替代 `(gw as any).truthMeasuredAt.has(name)` */
   truthMeasuredAtHas(name: string): boolean {
-    return internals(this.gw).truthMeasuredAt.has(name);
+    return docRegistryOf(this.gw).truthMeasuredAt.has(name);
   }
 
   /** 替代 `(gw as any).truthMeasuredAt.set(name, ms)`（冷却窗回拨/窗外装置） */
   seedTruthMeasuredAt(name: string, ms: number): void {
-    internals(this.gw).truthMeasuredAt.set(name, ms);
+    docRegistryOf(this.gw).truthMeasuredAt.set(name, ms);
   }
 
   /** 替代 `(gw as any).degradedDocs.has(name)` */
   degradedDocsHas(name: string): boolean {
-    return internals(this.gw).degradedDocs.has(name);
+    return docRegistryOf(this.gw).degradedDocs.has(name);
   }
 
   /** 替代 `(gw as any).degradedDocs.add(name)` */
   addDegradedDoc(name: string): void {
-    internals(this.gw).degradedDocs.add(name);
+    docRegistryOf(this.gw).degradedDocs.add(name);
   }
 
   /** 替代 `(gw as any).docEpoch.get(doc)`（epoch 播种/重入不换代断言面） */
-  docEpochOf(doc: Y.Doc): ReturnType<GatewayInternals['docEpoch']['get']> {
-    return internals(this.gw).docEpoch.get(doc);
+  docEpochOf(doc: Y.Doc): ReturnType<DocRegistryInternals['docEpoch']['get']> {
+    return docRegistryOf(this.gw).docEpoch.get(doc);
   }
 
   // ── 配额冻结台账族（quotaFrozen/freezePending/thawCooldown/recheck/docStatus 五键+代际） ──
 
   /** 替代 `(gw as any).quotaFrozenDocs.has(name)` */
   quotaFrozenHas(name: string): boolean {
-    return internals(this.gw).quotaFrozenDocs.has(name);
+    return docRegistryOf(this.gw).quotaFrozenDocs.has(name);
   }
 
   /** 替代 `(gw as any).quotaFrozenDocs.add(name)`（冻结态播种——recheck 装置） */
   addQuotaFrozen(name: string): void {
-    internals(this.gw).quotaFrozenDocs.add(name);
+    docRegistryOf(this.gw).quotaFrozenDocs.add(name);
   }
 
   /** 替代 `(gw as any).freezePending.has(name)` */
   freezePendingHas(name: string): boolean {
-    return internals(this.gw).freezePending.has(name);
+    return docRegistryOf(this.gw).freezePending.has(name);
   }
 
   /** 替代 `(gw as any).freezePending.add(name)` */
   addFreezePending(name: string): void {
-    internals(this.gw).freezePending.add(name);
+    docRegistryOf(this.gw).freezePending.add(name);
   }
 
   /** 替代 `(gw as any).thawCooldown.has(name)` */
   thawCooldownHas(name: string): boolean {
-    return internals(this.gw).thawCooldown.has(name);
+    return docRegistryOf(this.gw).thawCooldown.has(name);
   }
 
   /** 替代 `(gw as any).thawCooldown.set(name, ms)` */
   seedThawCooldown(name: string, ms: number): void {
-    internals(this.gw).thawCooldown.set(name, ms);
+    docRegistryOf(this.gw).thawCooldown.set(name, ms);
   }
 
   /** 替代 `(gw as any).recheckRounds.set(name, rounds)`（AUTO_VACUUM_ROUNDS 前置装置） */
   seedRecheckRounds(name: string, rounds: number): void {
-    internals(this.gw).recheckRounds.set(name, rounds);
+    docRegistryOf(this.gw).recheckRounds.set(name, rounds);
   }
 
   /** 替代 `(gw as any).docStatusRev.get(name)`（rev 生命周期断言面） */
-  docStatusRevOf(name: string): ReturnType<GatewayInternals['docStatusRev']['get']> {
-    return internals(this.gw).docStatusRev.get(name);
+  docStatusRevOf(name: string): ReturnType<DocRegistryInternals['docStatusRev']['get']> {
+    return docRegistryOf(this.gw).docStatusRev.get(name);
   }
 
   /** 替代 `(gw as any).docStatusRev.set(name, rev)`（装载播种形态装置） */
   seedDocStatusRev(name: string, rev: number): void {
-    internals(this.gw).docStatusRev.set(name, rev);
+    docRegistryOf(this.gw).docStatusRev.set(name, rev);
   }
 
   /** 替代 `(gw as any).docStatusState.set(name, state)`（上次广播同态 dedup 装置） */
   seedDocStatusState(name: string, state: string): void {
-    internals(this.gw).docStatusState.set(name, state);
+    docRegistryOf(this.gw).docStatusState.set(name, state);
   }
 
   /** 替代 `(gw as any).docGeneration.set(name, generation)` */
   seedDocGeneration(name: string, generation: number): void {
-    internals(this.gw).docGeneration.set(name, generation);
+    docRegistryOf(this.gw).docGeneration.set(name, generation);
   }
 
   /** 替代 `(gw as any).docResidue.set(name, bytes)` */
   seedDocResidue(name: string, bytes: number): void {
-    internals(this.gw).docResidue.set(name, bytes);
+    docRegistryOf(this.gw).docResidue.set(name, bytes);
   }
 
   /** 替代 `(gw as any).preVacuumSvCache.set(name, sv)` */
   seedPreVacuumSv(name: string, sv: PreVacuumSv): void {
-    internals(this.gw).preVacuumSvCache.set(name, sv);
+    docRegistryOf(this.gw).preVacuumSvCache.set(name, sv);
   }
 
   // ── Persistence 族扩（compact 时间门/pendingSince/退避梯枚举/终态集/在飞集/repo） ──
@@ -575,11 +595,13 @@ export class GatewayTestFacade {
   }
 
   /** 替代 `(gw as any).repo = fake`（恢复腿换接真库 repo——stubSpool 同款整体替换装置）。
-   *  B1（T40）双写：gateway（loadDocument hydrate/replayAll 传参）+service（store 链 append/compact/
-   *  reconcileSpool replayAll/drainDetached）两引用同换。 */
+   *  B1（T40）双写：gateway（replayAll 传参）+persistence（store 链 append/compact/reconcileSpool
+   *  replayAll/drainDetached）两引用同换；W3a（T41/B2）三写：+docRegistry（loadDocument
+   *  hydrateWithRecovery 随域迁 DR——单写即半 stub 假绿面同款纪律）。 */
   stubRepo(fake: unknown): void {
     (internals(this.gw) as { repo: unknown }).repo = fake;
     (persistOf(this.gw) as { repo: unknown }).repo = fake;
+    (docRegistryOf(this.gw) as { repo: unknown }).repo = fake;
   }
 
   // ── SessionGuard 族扩（refusal/perm 缓存+身份/归属台账+寿命/桶台账+overPush+writeFreeze） ──
@@ -698,18 +720,18 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).overPush.set(socketId, state)` */
   seedOverPush(socketId: string, state: OverPushEntry): void {
-    internals(this.gw).overPush.set(socketId, state);
+    docRegistryOf(this.gw).overPush.set(socketId, state);
   }
 
   /** 替代 `(gw as any).overPush.has(socketId)` */
   overPushHas(socketId: string): boolean {
-    return internals(this.gw).overPush.has(socketId);
+    return docRegistryOf(this.gw).overPush.has(socketId);
   }
 
   /** 替代 `[...(gw as any).overPush.values()]`（返回活 entry 引用数组——firstAt/lastAt 白盒
    *  改写语义保留：`st.firstAt -= 10_000` 直接落台账，禁复制） */
   overPushStates(): OverPushEntry[] {
-    return [...internals(this.gw).overPush.values()];
+    return [...docRegistryOf(this.gw).overPush.values()];
   }
 
   /** 替代 `(gw as any).writeFreeze.has(conn)`（purge/中止恢复终态断言面） */
@@ -764,9 +786,10 @@ export class GatewayTestFacade {
 
   // ── spy 组缺口扩（偏离 64——spyOn 字符串成员形态替代面；M-4 镜像模式收敛） ──
 
-  /** 替代 `vi.spyOn(gw as any, 'heapUsedNow')`（heap 倍率合成采样装置） */
+  /** 替代 `vi.spyOn(gw as any, 'heapUsedNow')`（heap 倍率合成采样装置；W3a 随域迁 DR service——
+   *  docRegistryOf 单点，实例属性 spy 对 service 内部 this. 调用同命中〔B1 spyStoreSerialized 同款〕） */
   spyHeapUsedNow() {
-    return vi.spyOn(methods(this.gw), 'heapUsedNow');
+    return vi.spyOn(docRegistryOf(this.gw), 'heapUsedNow');
   }
 
   /** 替代 `vi.spyOn(gw as any, 'peekSpoolFrames')`（Y2 IO 逃逸注入装置；B1 随域迁 service） */
@@ -779,14 +802,14 @@ export class GatewayTestFacade {
     return vi.spyOn(methods(this.gw), 'sweepSessions');
   }
 
-  /** 替代 `vi.spyOn(g, 'measureTruth')`（recheck 分支可达装置） */
+  /** 替代 `vi.spyOn(g, 'measureTruth')`（recheck 分支可达装置；W3a 随域迁 DR service） */
   spyMeasureTruth() {
-    return vi.spyOn(methods(this.gw), 'measureTruth');
+    return vi.spyOn(docRegistryOf(this.gw), 'measureTruth');
   }
 
-  /** 替代 `vi.spyOn(g, 'updateResidue')`（全根真空重建重活跳过装置） */
+  /** 替代 `vi.spyOn(g, 'updateResidue')`（全根真空重建重活跳过装置；W3a 随域迁 DR service） */
   spyUpdateResidue() {
-    return vi.spyOn(methods(this.gw), 'updateResidue');
+    return vi.spyOn(docRegistryOf(this.gw), 'updateResidue');
   }
 
   /** 替代 `vi.spyOn(gw as any, 'allowedOrigins')`（fail-open 兜底 TypeError 注入装置） */
@@ -803,57 +826,57 @@ export class GatewayTestFacade {
   //    +常驻探针读面；操作化归并同款（Of/Has/seed 族——1:1 成员暴露禁项不破） ══
 
   /** 替代 `(gw as any).preVacuumSvCache.get(pid)`（SV 代际门缓存读——⑦代际装载播种断言面） */
-  preVacuumSvOf(pid: string): ReturnType<GatewayInternals['preVacuumSvCache']['get']> {
-    return internals(this.gw).preVacuumSvCache.get(pid);
+  preVacuumSvOf(pid: string): ReturnType<DocRegistryInternals['preVacuumSvCache']['get']> {
+    return docRegistryOf(this.gw).preVacuumSvCache.get(pid);
   }
 
   /** 替代 `(gw as any).docGeneration.get(pid)`（⑦代际 doc-status generation 产生源读面） */
-  docGenerationOf(pid: string): ReturnType<GatewayInternals['docGeneration']['get']> {
-    return internals(this.gw).docGeneration.get(pid);
+  docGenerationOf(pid: string): ReturnType<DocRegistryInternals['docGeneration']['get']> {
+    return docRegistryOf(this.gw).docGeneration.get(pid);
   }
 
   /** 替代 `(gw as any).docStatusState.has(pid)`（上次广播复合键存在——清理点普查断言面） */
   docStatusStateHas(pid: string): boolean {
-    return internals(this.gw).docStatusState.has(pid);
+    return docRegistryOf(this.gw).docStatusState.has(pid);
   }
 
   /** 替代 `(gw as any).recheckRounds.has(pid)`（冻结重测轮数台账——清理点普查断言面） */
   recheckRoundsHas(pid: string): boolean {
-    return internals(this.gw).recheckRounds.has(pid);
+    return docRegistryOf(this.gw).recheckRounds.has(pid);
   }
 
   /** 替代 `(gw as any).freezePendingTimers.has(pid)`（确认定时器在飞——scheduleFreezePending
    *  去重判据读面+清理点普查断言面） */
   freezePendingTimersHas(pid: string): boolean {
-    return internals(this.gw).freezePendingTimers.has(pid);
+    return docRegistryOf(this.gw).freezePendingTimers.has(pid);
   }
 
   /** 替代 `(gw as any).freezePendingTimers.set(pid, timer)`（清理点普查播种装置——
    *  seedPersistRetry 同款先例；timer 由被测清理入口负责 clear） */
-  seedFreezePendingTimer(pid: string, timer: Parameters<GatewayInternals['freezePendingTimers']['set']>[1]): void {
-    internals(this.gw).freezePendingTimers.set(pid, timer);
+  seedFreezePendingTimer(pid: string, timer: Parameters<DocRegistryInternals['freezePendingTimers']['set']>[1]): void {
+    docRegistryOf(this.gw).freezePendingTimers.set(pid, timer);
   }
 
   /** 替代 `(gw as any).autoVacuumLastAt.has(pid)`（Z66 自动触发时点台账——purge 专属清理键断言面） */
   autoVacuumLastAtHas(pid: string): boolean {
-    return internals(this.gw).autoVacuumLastAt.has(pid);
+    return docRegistryOf(this.gw).autoVacuumLastAt.has(pid);
   }
 
   /** 替代 `(gw as any).autoVacuumLastAt.set(pid, ms)`（普查播种——三入口差异键钉死装置） */
   seedAutoVacuumLastAt(pid: string, ms: number): void {
-    internals(this.gw).autoVacuumLastAt.set(pid, ms);
+    docRegistryOf(this.gw).autoVacuumLastAt.set(pid, ms);
   }
 
   /** 替代 `(gw as any).unloadHeapAnchors.get(pid)`（beforeUnload 播种→afterUnload 结算——
    *  卸载边界锚生命周期断言面） */
-  unloadHeapAnchorOf(pid: string): ReturnType<GatewayInternals['unloadHeapAnchors']['get']> {
-    return internals(this.gw).unloadHeapAnchors.get(pid);
+  unloadHeapAnchorOf(pid: string): ReturnType<DocRegistryInternals['unloadHeapAnchors']['get']> {
+    return docRegistryOf(this.gw).unloadHeapAnchors.get(pid);
   }
 
   /** 替代 `(gw as any).residentSessionsProbe?.() ?? 0`（T18 hangReason resident-session-open 档
    *  判据读面——未注册〔直构 gateway 无 residency〕=0 语义断言） */
   residentSessionsProbeCount(): number {
-    return internals(this.gw).residentSessionsProbe?.() ?? 0;
+    return docRegistryOf(this.gw).residentSessionsProbe?.() ?? 0;
   }
 }
 

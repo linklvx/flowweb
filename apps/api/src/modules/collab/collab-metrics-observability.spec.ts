@@ -53,10 +53,11 @@ function buildGateway(hydration?: { state: Buffer | null; updates: Buffer[] }, q
   return { gateway, repo, spool };
 }
 
-/** 装载并返回 doc（loadDocument 直调——truth 播种/直方图锚①唯一落点） */
+/** 装载并返回 doc（loadDocument 直调——truth 播种/直方图锚①唯一落点；W3a：DR 公有化直调
+ *  cast 消失——payload 侧 as any=夹具既有合法形态，B1 onStoreDocument 直调先例同款） */
 async function loadDoc(gateway: CollabGateway, pid = 'p1'): Promise<Y.Doc> {
   const document = new Y.Doc();
-  await (gateway as any).loadDocument({ document, documentName: `project:${pid}` });
+  await gateway.docRegistry.loadDocument({ document, documentName: `project:${pid}` } as any);
   return document;
 }
 
@@ -192,7 +193,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     expect(dLoad.count).toBe(1);
     expect(dLoad.sum).toBeGreaterThanOrEqual(0);   // ms 粒度瞬时完成可为 0——计数即计时证据
     const document = new Y.Doc();
-    await (gateway as any).loadDocument({ document, documentName: 'project:p2' });   // 注册队列
+    await gateway.docRegistry.loadDocument({ document, documentName: 'project:p2' } as any);   // 注册队列（W3a：DR 公有化直调）
     const w = new Y.Doc();
     w.getMap('x').set('k', 'z'.repeat(32));
     Y.applyUpdate(document, Y.encodeStateAsUpdate(w));
@@ -206,7 +207,7 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     const state = Buffer.from(Y.encodeStateAsUpdate(stampedDoc()));   // 带戳装载：无 stamp 自愈入队（replay 抑制窗）→ 队列真空
     const { gateway } = buildGateway({ state, updates: [] });
     const document = new Y.Doc();
-    await (gateway as any).loadDocument({ document, documentName: 'project:p4' });   // 队列注册且空+spool 空
+    await gateway.docRegistry.loadDocument({ document, documentName: 'project:p4' } as any);   // 队列注册且空+spool 空（W3a：DR 公有化直调）
     const dStore = await histogramDelta('yjs_store_duration_seconds', () =>
       gateway.persistence.storeDocumentUnlocked({ document, documentName: 'project:p4' }));
     expect(dStore.count).toBe(0);   // noop 早退不计时（yjs_store_drain_total{noop} 照常计数）
@@ -264,7 +265,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
     expect(await gaugeValue('yjs_doc_heap_amplification')).toBeCloseTo(5000 / state.length, 5);   // freed=5000÷truth 结算
     // 噪声跳过：freed ≤ 0 不 set（GC 时延——负值/零差非信息，保持上一次有效样本）
     const doc2 = new Y.Doc();
-    await (gateway as any).loadDocument({ document: doc2, documentName: 'project:p3' });
+    await gateway.docRegistry.loadDocument({ document: doc2, documentName: 'project:p3' } as any);   // W3a：DR 公有化直调
     const afterLoad2 = await gaugeValue('yjs_doc_heap_amplification');   // doc2 装载（真采样）后的基线
     let j = 0;
     const flat = [5000, 5000];
@@ -297,7 +298,7 @@ describe('Y0b-5 T10：top-N doc 结构日志（docTruth 单源——零 encode�
       gatewayFacade(gateway).seedDocDelta(`p${k}`, 500);
     }
     const logSpy = gatewayFacade(gateway).spyLogger('log');
-    (gateway as any).logDocTopN();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    gateway.docRegistry.logDocTopN();   // W3a：DR 公有化直调（cast 消失——偏离 64② 直调族核销兑现）
     expect(logSpy).toHaveBeenCalledTimes(1);
     const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(parsed.event).toBe('yjs_doc_topn');

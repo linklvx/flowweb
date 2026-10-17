@@ -1,6 +1,8 @@
 // apps/api/src/modules/collab/collab-quota-config.spec.ts
 // Y0b-4 T2：quota 构造注入——env 默认（QUOTA_DEFAULTS/常量 fallback）+注入覆盖+parsePositiveInt
-// 拒 0/NaN。Q-P 纪律：构造期一次读入 this.quota，运行期不再读 env；禁模块级测试钩子。
+// 拒 0/NaN。Q-P 纪律：构造期一次读入（运行期不再读 env；禁模块级测试钩子）。W3a（T41/B2）：四值
+// 解析随域迁 DR 构造器（gateway Partial 直通+桶容量经 activeQuota 单源读面）——断言面改读公有
+// activeQuota 委托位（原 bracket 私有读 g['quota'] 门禁盲区形态同批闭合；断言值零变化）。
 // 直构先例=collab-gateway.options.spec buildGateway（esbuild 无 decorator metadata——位置参数全传）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QUOTA_DEFAULTS } from '@flowweb/shared';
@@ -37,7 +39,7 @@ function buildGateway(opts?: { quota?: Partial<QuotaConfig> }): CollabGateway {
 
 describe('Y0b-4 T2：quota 构造注入+parsePositiveInt', () => {
   it('默认=QUOTA_DEFAULTS/常量 fallback（env 未设时构造期读入四值）', () => {
-    expect(buildGateway()['quota']).toEqual({
+    expect(buildGateway().activeQuota).toEqual({
       maxDocBytes: QUOTA_DEFAULTS.maxDocBytes,   // 8MB
       maxTxBytes: QUOTA_DEFAULTS.maxTxBytes,     // 256KB
       msgRate: 200,                              // COLLAB_MSG_RATE_PER_CONN 默认（常量非 QUOTA_DEFAULTS 域）
@@ -47,8 +49,8 @@ describe('Y0b-4 T2：quota 构造注入+parsePositiveInt', () => {
 
   it('quota 构造注入覆盖 env 默认；0/NaN 不静默吞（parsePositiveInt）', () => {
     const g = buildGateway({ quota: { maxDocBytes: 1024 } });
-    expect(g['quota'].maxDocBytes).toBe(1024);
-    expect(g['quota'].maxTxBytes).toBe(QUOTA_DEFAULTS.maxTxBytes);   // 未注入键维持默认
+    expect(g.activeQuota.maxDocBytes).toBe(1024);
+    expect(g.activeQuota.maxTxBytes).toBe(QUOTA_DEFAULTS.maxTxBytes);   // 未注入键维持默认
     expect(parsePositiveInt('0', 99)).toBe(99);   // 0 拒
     expect(parsePositiveInt('abc', 99)).toBe(99); // NaN 拒
     expect(parsePositiveInt('512', 99)).toBe(512); // 合法值直通
@@ -57,7 +59,7 @@ describe('Y0b-4 T2：quota 构造注入+parsePositiveInt', () => {
   it('env 显式值优先于默认（构造期 parsePositiveInt 接线——msgRate/bytesRate 同族取一键代表）', () => {
     process.env.COLLAB_BYTES_RATE_PER_CONN = '1048576';
     const g = buildGateway();
-    expect(g['quota'].bytesRate).toBe(1_048_576);
-    expect(g['quota'].msgRate).toBe(200);   // 未设键不受邻居影响
+    expect(g.activeQuota.bytesRate).toBe(1_048_576);
+    expect(g.activeQuota.msgRate).toBe(200);   // 未设键不受邻居影响
   });
 });

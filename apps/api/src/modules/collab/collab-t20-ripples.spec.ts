@@ -121,14 +121,14 @@ describe('Y0c T20：三涟漪+第五涟漪+语义定案（Z47/Z73/Z105/Z66 计�
     const vacuumRunner = vi.fn(async () => {});
     gateway.setVacuumRunner(vacuumRunner);
 
-    (gateway as any).recheckFrozenDocs();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    gateway.docRegistry.recheckFrozenDocs();   // W3a：DR 公有化直调（cast 消失——偏离 64② 核销兑现）
     expect(vacuumRunner).not.toHaveBeenCalled();   // 改造前 WS-only 判据命中=已调用——先红
 
     held.setDirect(0);                              // 会话已释放（零 direct）——真零连接
-    (gateway as any).recheckFrozenDocs();
+    gateway.docRegistry.recheckFrozenDocs();
     expect(vacuumRunner).toHaveBeenCalledTimes(1);  // 真零连接 ⇒ 触发
 
-    (gateway as any).recheckFrozenDocs();
+    gateway.docRegistry.recheckFrozenDocs();
     expect(vacuumRunner).toHaveBeenCalledTimes(2);  // 连续第 3 轮（30s 窗内形态——测试时钟同点）
     expect(await counterValue('collab_vacuum_autotrigger_stacked_total')).toBeGreaterThanOrEqual(1);   // 指标未注册=NaN 即红（Z66 计数半边随 T20 落地）
   });

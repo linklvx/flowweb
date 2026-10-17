@@ -11,6 +11,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import { startDualClientServer, makeHeaderWs, type DualClientKit } from '../../test-utils/dual-client-server';
 import { pollUntil } from '../../test-utils/poll-until';
 import { makeFrame as frame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
+import type { CollabGateway } from './collab.gateway';   // W3a（承接账④）：freezeDoc 参数改型——I-3④ 参数别名逃逸面闭合
 import { CollabShrinkService } from './collab-shrink.service';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
@@ -45,9 +46,11 @@ function connectWithCloseSpy(kit: DualClientKit, name: string) {
   return { ...entry, closeInfo: () => closeInfo };
 }
 
-/** 白盒冻结（freezeQuota+setImmediate 落地等待——quotaFrozenDocs 与 readOnly 同一 setImmediate） */
-async function freezeDoc(gw: any, pid: string): Promise<void> {
-  gw.freezeQuota(pid);
+/** 白盒冻结（freezeQuota+setImmediate 落地等待——quotaFrozenDocs 与 readOnly 同一 setImmediate）。
+ *  W3a（承接账④兑现）：freezeQuota 随域迁 DR 公有化——参数改型 CollabGateway，I-3④ 参数别名
+ *  逃逸面闭合（cast 消失）。 */
+async function freezeDoc(gw: CollabGateway, pid: string): Promise<void> {
+  gw.docRegistry.freezeQuota(pid);
   await new Promise<void>((r) => setImmediate(() => r()));
 }
 

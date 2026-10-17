@@ -115,7 +115,7 @@ describe('Y0b-3 T4 heap 闸落点（仅拒新物化+fail-open+瞬态档）', () 
     const { gateway } = buildGateway();
     stubHeapTripped();
     const loadInc = await metricDelta('collab_load_rejected_total', { reason: 'server-overloaded' }, () =>
-      expect((gateway as any).loadDocument({ document: new Y.Doc(), documentName: 'project:rest-load' }))
+      expect(gateway.docRegistry.loadDocument({ document: new Y.Doc(), documentName: 'project:rest-load' } as any))   // W3a：DR 公有化直调（cast 消失）
         .rejects.toMatchObject({ reason: 'server-overloaded' }));
     expect(loadInc).toBe(1);
   });
@@ -124,7 +124,7 @@ describe('Y0b-3 T4 heap 闸落点（仅拒新物化+fail-open+瞬态档）', () 
     const { gateway } = buildGateway();
     stubHeapTripped();
     seedDoc(gateway, 'project:resident-load');
-    await (gateway as any).loadDocument({ document: new Y.Doc(), documentName: 'project:resident-load' }); // 不 throw
+    await gateway.docRegistry.loadDocument({ document: new Y.Doc(), documentName: 'project:resident-load' } as any); // 不 throw（W3a：DR 公有化直调）
   });
 });
 

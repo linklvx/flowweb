@@ -44,10 +44,10 @@ function buildGateway(hydration: { state: Buffer | null; updates: Buffer[] }, qu
   return { gateway, repo, spool };
 }
 
-/** 装载并返回 doc（loadDocument 直调——装载路径=truth 播种+双断言唯一落点） */
+/** 装载并返回 doc（loadDocument 直调——装载路径=truth 播种+双断言唯一落点；W3a：DR 公有化直调 cast 消失） */
 async function loadDoc(gateway: CollabGateway, pid = 'p1'): Promise<Y.Doc> {
   const document = new Y.Doc();
-  await (gateway as any).loadDocument({ document, documentName: `project:${pid}` });
+  await gateway.docRegistry.loadDocument({ document, documentName: `project:${pid}` } as any);
   return document;
 }
 

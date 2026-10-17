@@ -255,6 +255,8 @@ persistence.cancelAllRetries→graceDirectConnections→sg.closeAllConnections10
 
 **collabState 七态（GW 单一所有者——既有，B2 补穷举单测）**：LEGAL_TRANSITIONS :263-271 实测 15 条合法有向边+7 自环；非法对=7×7−15−7=**27 对**。现行语义（V33 :272-280）：非法迁移=ERROR 点名（collab_illegal_transition）但**仍置位**（日志非拦截）——穷举单测必须钉死此语义防「顺手改成拦截」=行为变化。**覆盖缺口实测：grep LEGAL_TRANSITIONS/collab_illegal_transition 于 76 spec 文件=0 命中**⇒ 全矩阵无覆盖=B2 新增（W2 先红）。
 
+> **W3a 勘正注记（2026-10-17，控制方核准——W2 上报分歧折入，原文留痕不改写）**：本节「15 条合法边/27 非法对」系报告计数笔误——源码实测（collab-state-machine.spec 现场解析单源，53 用例全绿）=**18 条合法有向边+7 自环/24 非法对**（49=18+7+24）；§11 W2「42+7 对矩阵」同勘正为 49 全矩阵。
+
 **doc 生命周期七维（DR 单一所有者——B2 起）**（跃迁矩阵按维枚举；每维：状态集/合法跃迁/写点/清点/非法跃迁的结构性不可达证明）：
 
 | 维 | 状态与跃迁（实测写点） | 清理点 |
@@ -273,6 +275,8 @@ persistence.cancelAllRetries→graceDirectConnections→sg.closeAllConnections10
 - purgeDocState（DR，15 键+2 persistence 步+SG 缝）：上表+autoVacuumLastAt+writeFreeze/overPush（经 releaseFreezeForDoc 缝）+persistence.purgePersistenceState/recycleEmptyQueue（:1420-1444）。
 - onProjectGoneStateCleanup（DR，14 键）：:1139-1157 实测。
 - **三入口键集差异=穷举断言核心**（vacuumingDocs 仅 projectsGone 清、autoVacuumLastAt 仅 purge 清——差异逐键钉死，防「补齐清理」式行为漂移）。
+
+> **W3a 勘正注记（2026-10-17，控制方核准——W2 上报分歧折入，原文留痕不改写）**：本节键数以源码实测为准（collab-doc-lifecycle.spec D1/D2/D3 逐键钉死，25 用例全绿）：afterUnloadDocument=**15 容器**（14 DR 键+storeFailedDocs persistence 台账）+1 timer 族+锚结算；onProjectGoneStateCleanup=**15 容器**（14+vacuumingDocs 专属兜底——与 §6.1 ②「仅 projectsGone 清」自洽）；purgeDocState=15 键（含 autoVacuumLastAt 专属）+2 persistence 步+SG 缝。「12 键+1 委托/14 键」旧记为盘点口径不一。
 
 ### 6.3 穷举单测清单（W2 先红→W3 绿）
 
@@ -371,6 +375,8 @@ spec 实测导入面（grep from './collab.gateway'）：type QuotaConfig×6、T
 - **W4（测试面改道+门禁核销）**：façade 扩 sessionGuardOf/docRegistryOf+~30 方法改道+≤8 新方法；57 处登记红逐文件核销（56 处公有化改道+clearDrainTimer until 改 B3）；承接账④ 两点消灭；门禁 universe 扩面（RC6-a）+自测扩例；登记基线 drift/stale 同批。出口=门禁 --report 余 1 处+façade N 实测入账+collab 全目录绿（断言零修改自证：diff 中 expect 行仅访问形态改道）。
 - **W5（出口链+B2 步门）**：pnpm verify 全链+di-smoke（新 provider×2 入图）+census+façade 门禁+scripts-node-test+行数三锚实测→偏离 65 重标登记（SessionGuard/DocRegistry 两值+gateway 中间值）+B2 出口报告（账目：三文件行数/委托位数/host 缝位数/核销数/锚随迁数/承接账①-⑥状态）。出口=B2 步门=T43 前置。
 - **风险预案**：W3a/W3b 任一出口红且根因=设计边界（非机械搬移误差）→ 停下问（禁垫片绕行）；flaky 复现按 T40 归因口径单跑复核后如实呈报（⑦）。
+
+> **W3a 勘正注记（2026-10-17）**：W2 行「collab-state-machine.spec 42+7 对矩阵」勘正为 **49 全矩阵**（18 合法边+7 自环+24 非法对——§6.1 勘正注记同源，W2 已按 49 落地 53 用例全绿）；「49 非法对无点名断言载体」之「49」为笔误，非法对实测=24。W2 行「façade 扩面归 W4」表述经控制方波次分工调整：**façade DR 族改道（docRegistryOf 单点+镜像接口）已同批 W3a 兑现**（不改道则 DR 成员迁出后 façade 读 undefined=出口全绿不可达）；SG 族改道+universe 扩面（偏离 71）仍归 W3b/W4。
 
 ## 12. 控制方裁决记录（2026-10-17）
 
