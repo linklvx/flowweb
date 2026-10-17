@@ -88,11 +88,18 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       expect(bigUpdate.byteLength).toBeGreaterThan(QUOTA_BIG.maxDocBytes);                                  // >maxDocBytes——旧闸（1009 形态）下必拒
       expect(bigUpdate.byteLength).toBeLessThanOrEqual(QUOTA_BIG.maxDocBytes + FRAME_ALLOWANCE_BYTES);      // ≤新闸——合法帧
       const { client, closeInfo } = await openAuthedWs(kit, 'project:pair');
+      const slow0 = await counterOf('collab_slow_consumer_disconnect_total');   // v3：基线必须在 send 前（后置取基线=假绿〔1011 在 ack send 同 tick +1，后取的 slow0 已含该次〕）
+      let msgs = 0;
+      client.on('message', () => { msgs += 1; });   // v3：监听也前置（echo 后置挂会漏第一条）
       client.send(frame('project:pair', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));
       const doc = () => g.server.hocuspocus.documents.get('project:pair');
-      await pollUntil(() => doc()?.getMap('m')?.get('blob') === 'x'.repeat(8_388_608 + 30), 15_000);        // 落库=⓪与⓪′双过
-      await sleep(300);
-      expect(closeInfo()).toBeNull();                                                                       // 零断连
+      const BLOB_LEN = 8_388_638;   // R4a'：长度锚（O(1) 零分配——每轮 8MB churn 根除）
+      await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === BLOB_LEN, 30_000);   // 落库=⓪与⓪′双过
+      expect(doc()?.getMap('m').get('blob')).toBe('x'.repeat(BLOB_LEN));   // 一次性全等（单次分配）
+      await pollUntil(() => msgs >= 2, 5_000);   // echo（回显）+SyncStatus ack 两帧序已落
+      await sleep(200);   // close 事件冒泡窗
+      expect(await counterOf('collab_slow_consumer_disconnect_total')).toBe(slow0);   // 零 1011（计数器基线正确）
+      expect(closeInfo()).toBeNull();   // 帧面复核
       client.terminate();
       // 臂二：Update 帧仍 1009——3MB 帧处于「若 Update 闸被错误放宽到 SS2 闸则放行」的区间
       //（3MB>2×maxTxBytes=2MB 仍拒=闸未顺带放宽；<SS2 新闸 8MB+64KB）。规模上界注：ws 库
@@ -104,7 +111,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
     } finally { await kit.dispose(); }
   }, 60_000);
 
-  it('红门⑧ 离线合并可上传：8MB SyncStep2 回灌第一次通过（桶容量吸收→排空）→第二次 8MB 在 refill 积满后也通过（v4 信用+1MB 桶形态第二次结构性永拒=红相留档——头注【史】）', async () => {
+  it('红门⑧（v3 勘正）：8MB 回灌——第一次入桶并 apply 后软阈冻结；等冻结落地后第二次仍入桶（refill 后通过=桶容量断言）但 readOnly 拒 apply（writes_dropped 计数）+零 1008/1011', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_BIG);
     try {
       const gw = kit.gateway;
@@ -112,25 +119,52 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       const big = new Y.Doc();
       big.getMap('m').set('blob', 'x'.repeat(8_388_000));
       const bigUpdate = Y.encodeStateAsUpdate(big);
-      expect(bigUpdate.byteLength).toBeLessThanOrEqual(QUOTA_BIG.maxDocBytes);   // ≤maxDocBytes——Step2 帧闸恰过（合法帧）
-      expect(bigUpdate.byteLength).toBeGreaterThan(8_000_000);                   // ~8MB 规模锚（v4 1MB 桶下必拒的形态）
+      expect(bigUpdate.byteLength).toBeLessThanOrEqual(QUOTA_BIG.maxDocBytes);
       const { client, closeInfo } = await openAuthedWs(kit, 'project:gate8');
+      await sleep(2_100);   // 逃装载冷却窗（loadDocument :423 播种 truthMeasuredAt+TRUTH_COOLDOWN_MS=2s——窗内④走账面上界决策：0+0+8,388,063≯maxDocBytes 即快路径不冻结；窗外首帧走实测腿 measured+bytes≥softEnter → freezeQuota〔触发帧本身照常 apply=Q-S「禁静默丢合法帧」〕——plan v3 时序实况适配）
       const b0 = await counterOf('collab_bytes_rate_exceeded_total');
       client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));
       const doc = () => gw.server.hocuspocus.documents.get('project:gate8');
-      await pollUntil(() => doc()?.getMap('m').get('blob') === 'x'.repeat(8_388_000), 15_000);   // 第一次回灌——桶容量吸收（排空后落库）
+      const BLOB_LEN = 8_388_000;   // R4a' 长度锚
+      await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === BLOB_LEN, 30_000);   // 第一次：入桶+apply
       // 白盒排空证据（红相锚：bytesBuckets 缺失=TypeError）——首扣后 tokens≈capacity-cost ≪ 容量一半
       const sid = [...doc()!.connections.keys()][0].socketId as string;
       const tokensAfterFirst = g.bytesBucketTokens(sid);
-      expect(tokensAfterFirst).toBeLessThan(QUOTA_BIG.maxDocBytes / 2);
-      await sleep(300);   // refill 100MB/s → ≥30MB（capped 满）——"refill 积满"
-      client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));   // 第二次 8MB（v4 形态此处 1008 永拒）
-      await sleep(1_000);
-      expect(closeInfo()).toBeNull();                                          // 无 1008——第二次通过（cost≤积满 tokens）
-      expect(await counterOf('collab_bytes_rate_exceeded_total')).toBe(b0);    // 全程零拒绝
+      expect(tokensAfterFirst).toBeLessThan(QUOTA_BIG.maxDocBytes / 2);   // 桶容量断言（有效——B9 v3 勘正保留；DR.guardSyncFrame 顺序=⓪帧闸→SS2闸→⓪′consumeBytesBucket→①readOnly 早退——通过=桶通过≠doc 应用）
+      // v3：等冻结落地=确定性读面（freezeQuota→quotaFrozenDocs——façade quotaFrozenHas 既有读面，弃 (gw as any) 撞 façade 门禁）
+      const dropped0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
+      await pollUntil(() => g.quotaFrozenHas('gate8'), 10_000);   // 键=裸 projectId（parseDocName 剥 project: 前缀——quotaFrozenDocs 台账口径；plan 代码块 'project:gate8' 系键笔误勘正）
+      client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));   // 第二次：仍入桶（DR ⓪′ 先于 ① readOnly——B9）→ readOnly 拒 apply
+      await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) > dropped0, 8_000);   // readOnly 拒写计数
+      await pollUntil(() => g.bytesBucketTokens(sid)! < tokensAfterFirst! + 1_000, 5_000);   // v2：第二次桶消费直接断言（refill 后再扣 ~8MB——tokens 回落；! = sid/桶键已在前文实证存在）
+      expect(closeInfo()).toBeNull();                                          // 零 1008（桶容量吸收）/零 1011（R4b' 前瞻+回显不误杀）
+      expect(await counterOf('collab_bytes_rate_exceeded_total')).toBe(b0);    // 全程零速率拒
       client.terminate();
     } finally { await kit.dispose(); }
   }, 60_000);
+
+  it('红门⑧-b（v3 新增/v2 重写）：128KB 档真 refill——60KB 帧（<softEnter 104,857 不冻结）两次入桶：第一次 apply、第二次 refill 后过桶再 apply（同键覆盖——doc 尺寸不增长）', async () => {
+    const Q = { maxDocBytes: 131_072, maxTxBytes: 16_384, msgRate: 200, bytesRate: 10_000_000 };
+    const kit = await startDualClientServer({}, 300, undefined, undefined, Q);
+    try {
+      const gw = kit.gateway;
+      const g = gatewayFacade(gw);
+      const mk = () => { const d = new Y.Doc(); d.getMap('m').set('blob', 'x'.repeat(60_000)); return Y.encodeStateAsUpdate(d); };
+      const { client, closeInfo } = await openAuthedWs(kit, 'project:gate8b');
+      client.send(frame('project:gate8b', 0, 1, mk()));
+      const doc = () => gw.server.hocuspocus.documents.get('project:gate8b');
+      await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === 60_000, 10_000);   // 第一次 apply
+      const sid = [...doc()!.connections.keys()][0].socketId as string;
+      const tokens1 = g.bytesBucketTokens(sid);   // 首扣后 ≈ 192KB-60KB=132KB
+      expect(tokens1).toBeLessThan(131_072 + 65_536 - 60_000 + 1);   // 桶已扣（容量=131,072+65,536）
+      await sleep(300);   // refill 10MB/s → ≥3MB（capped 桶容量 196,608）——「积满」
+      client.send(frame('project:gate8b', 0, 1, mk()));   // 第二帧：同键覆盖（LWW）——refill 后过桶
+      await pollUntil(() => g.bytesBucketTokens(sid)! < tokens1! + 1_000, 10_000);   // v2：第二次桶消费直接断言（再扣 ~60KB；! = sid/桶键已在前文实证存在）
+      expect(doc()?.getMap('m').get('blob')).toHaveLength(60_000);   // 同键覆盖——doc 尺寸不增长（配额语义自洽）
+      expect(closeInfo()).toBeNull();
+      client.terminate();
+    } finally { await kit.dispose(); }
+  }, 30_000);
 
   it('bytes 桶：持续超速率滴灌（注入 bytesRate=1KB/s；3 帧×~26KB——桶容量=maxDocBytes+ALLOWANCE=73_728，Y0b-5 T8 同步后算术）→ close 1008 bytes-rate-exceeded（裸 ws 观测；P0-2 红相=v2 consume 无 cost 字节桶空转）', async () => {
     // maxTxBytes=16KB（Update 闸=32KB——~26KB 帧过帧闸进桶判据）
