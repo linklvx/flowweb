@@ -42,10 +42,13 @@ describe('Y0c T22 Z111：integrityProbe 纯函数面（SV 对拍）', () => {
   it('③边界：空 PG⇒空 doc（SV 与新空 doc 全等）；同长异字节⇒false；字节序等同⇒true', () => {
     const empty = replayPgSnapshot(null, []);
     expect(stateVectorsEqual(Y.encodeStateVector(empty), Y.encodeStateVector(new Y.Doc()))).toBe(true);
-    const a = new Y.Doc(); a.getMap('nodes').set('k', new Y.Map([['x', 1]]));
-    const b = new Y.Doc(); b.getMap('nodes').set('k', new Y.Map([['x', 2]]));
+    // clientID 固定为同 varint 长的两个值（42/43 各 1 字节）：随机 clientID 高位字节数不同则 SV 编码
+    // 长度不同（跨 varint 边界），「同长」前提靠运气=固有 flaky（T43 出口轮两次实证）。原注释「同客户端」
+    // 有误——两有内容 doc 的 SV 各含自身 clientID；同长异字节档=异 clientID 同 varint 长+同 clock。
+    const a = new Y.Doc(); a.clientID = 42; a.getMap('nodes').set('k', new Y.Map([['x', 1]]));
+    const b = new Y.Doc(); b.clientID = 43; b.getMap('nodes').set('k', new Y.Map([['x', 2]]));
     const svA = Y.encodeStateVector(a); const svB = Y.encodeStateVector(b);
-    expect(svA.length).toBe(svB.length);                                   // 同客户端同 clock——同长异字节档
+    expect(svA.length).toBe(svB.length);                                   // 同 varint 长异 clientID 同 clock——同长异字节档（构造保证，字节循环路径必被执行）
     expect(Buffer.compare(Buffer.from(svA), Buffer.from(svB))).not.toBe(0);
     expect(stateVectorsEqual(svA, svB)).toBe(false);
     expect(stateVectorsEqual(svA, svA)).toBe(true);
