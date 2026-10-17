@@ -14,12 +14,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 执法锚四文件（T42 B3 出口终标——变更锚值=有意识动作：自测 SIZE_LIMITS 断言同批改）。 */
+/** 执法锚七文件（T42 B3 四文件+CI 双故障根修批 T10 三新文件——变更锚值=有意识动作：自测 SIZE_LIMITS 断言同批改）。 */
 export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/collab.gateway.ts': 934,   // T42 B3 实测终标（偏离 65 兑现：plan ≤600 字面=防倒退锚非可达值——1031→934，手段①②④；手段③委托位零退役）
   'apps/api/src/modules/collab/collab-session-guard.service.ts': 1238,   // T41 W3b B2 实测（偏离 65/74）
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1082,   // T41 W3a B2 实测（偏离 65/74）
   'apps/api/src/modules/collab/collab-persistence.service.ts': 950,   // T40 B1 实测（偏离 65；B3 承接账②删参后 949≤950——锚不回写=上界语义）
+  'apps/api/src/modules/collab/collab-limits.ts': 55,   // CI 修复批 R4b' 新文件入锚（T10 实测 42+1.3 余量——spec 预登记 2 兑现）
+  'apps/api/src/modules/collab/collab-outbound-budget.ts': 155,   // CI 修复批 R4b' 新文件入锚（T10 实测 119+1.3 余量——四档帧型+记账台账）
+  'apps/api/src/modules/collab/collab-heartbeat.ts': 40,   // CI 修复批 R6' 新文件入锚（T10 实测 31+1.3 余量——v3 补：三新文件统一入锚）
 };
 
 /** Z96 计法（plan 钉死）：对齐 wc -l（尾换行文件两口径一致；无尾换行差 1——自测钉）。 */

@@ -12,7 +12,7 @@ export default defineConfig({
     // 文件在 vitest 运行时必炸，api-test 步假红）。
     exclude: [...configDefaults.exclude, '**/*.int.spec.ts', 'scripts/**',
       'src/modules/collab/collab-rate-gate.spec.ts', 'src/modules/collab/collab-idle-anchor.spec.ts',
-      'src/modules/collab/collab-heartbeat.heavy.spec.ts'],   // R4a'：heavy 文件移出主套件（vitest.heavy.config 串行跑——v3 增 heartbeat.heavy；防双跑假隔离）
+      'src/modules/collab/collab-heartbeat.heavy.spec.ts'],   // R4a'：heavy 文件移出主套件（vitest.heavy.config 串行跑——v3 增 heartbeat.heavy；防双跑假隔离）——本 exclude heavy 集 ≡ heavy include 集，双侧同步维护（T8 Minor-1）
   },
   resolve: {
     alias: {

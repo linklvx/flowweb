@@ -16,6 +16,7 @@ describe('R6\' collab-heartbeat（B15——awareness 丢弃与保活解耦）', 
   });
 
   it('已断连接 sendStateless 抛错：吞+自动摘除（强引用 Set 泄漏根修）', () => {
+    // 真实库死连接走 close→disconnect→unregister 主链，此为 send 同步抛的纵深兜底（T9 Minor-2）
     const hb = new CollabHeartbeat();
     const conn = { sendStateless: vi.fn(() => { throw new Error('closed'); }) } as any;
     hb.register('sid-2', conn);

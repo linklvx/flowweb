@@ -48,27 +48,33 @@ test('checkSizes：文件缺失=结构性错误（structural 点名——exit 2 
   assert.equal(structural, 'missing.ts');
 });
 
-// ── 锚表结构（T42 B3 执法面钉死——四文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
+// ── 锚表结构（T42 B3 执法面钉死四文件+CI 双故障根修批 T10 扩三新文件=七文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
 
-test('SIZE_LIMITS：恰四文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚），residency 不入锚', () => {
+test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件），residency 不入锚', () => {
   const keys = Object.keys(SIZE_LIMITS);
-  assert.equal(keys.length, 4);
+  assert.equal(keys.length, 7);
   assert.ok(keys.every((k) => k.startsWith('apps/api/src/modules/collab/')));
   assert.ok(!keys.some((k) => k.includes('residency')), 'residency=片 A 文件非片 B 产物——不入锚');
   assert.ok(keys.some((k) => k.endsWith('collab.gateway.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-session-guard.service.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-doc-registry.service.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-persistence.service.ts')));
+  assert.ok(keys.some((k) => k.endsWith('collab-limits.ts')));
+  assert.ok(keys.some((k) => k.endsWith('collab-outbound-budget.ts')));
+  assert.ok(keys.some((k) => k.endsWith('collab-heartbeat.ts')));
 });
 
-test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082/persistence 950=任务卡钉死值）', () => {
+test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082/persistence 950=任务卡钉死值）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 934);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1238);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1082);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 950);
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 40);
 });
 
-test('现状实测：四文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
+test('现状实测：七文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
   const { structural, results } = checkSizes(SIZE_LIMITS, (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8'));
   assert.equal(structural, null);
   for (const r of results) assert.ok(r.pass, `${r.file} 实测 ${r.lines} > 锚 ${r.limit}`);

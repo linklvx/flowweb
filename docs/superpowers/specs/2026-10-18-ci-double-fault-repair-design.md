@@ -76,7 +76,7 @@ client 发 8MB+30B SS2（合法）→ 服务端 apply（pollUntil 过）
 
 1. **client registry（B3 根因闭环）**：`connectClient` 内注册（模块级 Set）；两 mode 的 finally 统一形态：destroy 全部 client（幂等）→ fixture 清理 → prisma 断开 → h.stop()。成功/失败路径同构——句柄确定性销毁，**自然退出为主**；watchdog 路径 exit(2) 前尽力同款清理（本地残留 WARN+残留 id 打印）。
 2. **stderr 同步写**：`die(e)` = kill children → `process.stderr.write(stack, () => process.exit(1))` + 1s 兜底 exit（防 CI 管道截断）。
-3. **watchdog**：`WF_DRILL_WATCHDOG_MS`（默认 10min）unref 定时器 exit(2)；**分责声明（B19）**：execSync(tsc) 阻塞期 watchdog 不触发——tsc 挂归 CI step timeout 兜底；fetch/Prisma/未知句柄挂归 watchdog。
+3. **watchdog**：`WF_DRILL_WATCHDOG_MS`（默认 6min 保 ref——实现 685d47b6，v2/v3 演进未回写勘正：unref 形态已被「保 ref 养事件循环防进程提前退」取代）定时器 exit(2)；**分责声明（B19）**：execSync(tsc) 阻塞期 watchdog 不触发——tsc 挂归 CI step timeout 兜底；fetch/Prisma/未知句柄挂归 watchdog。
 4. **每个网络 await 有界**：metrics/postShrink/drain fetch 加 `AbortSignal.timeout(10_000)`。
 - TEMP-RED 双脚本：错误注入→秒级 exit 1 栈完整+零孤儿；`WF_DRILL_WATCHDOG_MS=100`+黑洞端口→exit 2。
 
@@ -191,4 +191,11 @@ export function deriveCollabLimits(q: QuotaConfig, budget = OUTBOUND_BUDGET_BYTE
 | 4 | OUTBOUND_BUDGET=96MB 为折衷值非推导值（N_max 分母缺口登记下批） | 预登记 |
 | 5 | ~~census ⑤ 扩白名单~~（v2 预登记，v3 撤回——同步记账不读 bufferedAmount） | 已撤回 |
 | 6 | ~~SG 行数锚重标~~（v1 登记，v2 撤回——净减行不改锚；v3 强化=净减≥R6' 增行硬核算） | 已撤回（强化） |
-| （执行期新增随批滚动） | | |
+| 5 | manifest 28 步+heavy（预登记 1 兑现——api-test-heavy 插步+主套件 exclude） | 已落 295b261f |
+| 6 | 锚表七文件（预登记 2 兑现+heartbeat 补——终值=实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40；四文件锚核验 gateway 928→929（T9 注释 +1）/SG 1238→1226（T6 −19+T9 +7 净 −12）/DR 1082 零触/persistence 950 零触） | 本 commit 实测 |
+| 7 | concurrency cancel 取舍（预登记 3 兑现+I-2 修正：group 入 event_name——dispatch/push 互不取消） | 212a9d8a |
+| 8 | 96MB 折衷值（预登记 4 兑现——实现值 100_663_296=96MiB 字面量） | 67a254ae |
+| 9 | R5' 库行为新增登记：@hocuspocus/provider 4.6.0 迟到重连定时器复活缺陷（destroy 不清 onClose 已排定的 1s 重连 setTimeout，迟到 connect 复活无限退避 maxAttempts=0→进程永生——run 59 5h56m 真凶；演练脚本级三连掐兜底+退役判据注释在位；升级批复核） | 685d47b6/d822e542 |
+| 10 | DR 闸式直读 quota=值恒等（T6 承接：limits 不接 DR——1082 锚零行可加） | 7517f728 |
+| 11 | 执行期 plan 勘误：T5 helper Pick<QuotaConfig>（QUOTA_DEFAULTS as const 字面量型）/T7 quotaFrozenDocs 键=裸 pid+装载冷却窗 2.1s（TRUTH_COOLDOWN）/T7/T9 快照若干方法名与 kit 形态 | 各 commit |
+| 12 | T4 通知取舍：cancelled×cancel-in-progress 自交互（body 带 conclusion+取代注记） | 212a9d8a |

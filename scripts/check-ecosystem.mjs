@@ -3,6 +3,7 @@
 // api+worker 完整性/双向 role 显式断言/kill_timeout 按 role 下限（api≥45000/worker≥120000）/
 // worker nice=10/RSS 口径余量按 role 分离（Z84①）/heap 闸 per-role 解析+Z118+Z126③ 合并算术式
 // （双处取值：resident_cap=collab-residency.service.ts、maxDocBytes=shared collab-quota.ts、
+// outbound_budget=collab-limits.ts OUTBOUND_BUDGET_BYTES（CI 修复批 T10——B13 出站项补入 Z126③ 算式）、
 // 基线=本脚本 RSS_BASELINE_BYTES、TRIP=heap-pressure.ts per-role、mmr=ecosystem per-role）。
 // 全部解析 fail-closed（Z142③：取不到值即红——与 heap/rss 既有 fail-closed 形态一致，禁静默跳过）。
 // Y0c T31（RB1/RB2/RB3/RB8）：deploy.sh 断言族扩展——cutover/rollback 三步序（--only 双 app+
@@ -111,6 +112,9 @@ export function checkEcosystem(apps, deploySrc) {
   const maxDocBytes = Number(/maxDocBytes:\s*([\d_]+)/.exec(
     readFileSync(resolve(ROOT, 'packages/shared/src/constants/collab-quota.ts'), 'utf8'))?.[1]?.replace(/_/g, ''));
   Number.isFinite(maxDocBytes) || fail('maxDocBytes 提取失败（packages/shared/src/constants/collab-quota.ts QUOTA_DEFAULTS——Z126③/Z142③ fail-closed）');
+  const outboundBudget = Number(/OUTBOUND_BUDGET_BYTES\s*=\s*([\d_]+)/.exec(
+    readFileSync(resolve(ROOT, 'apps/api/src/modules/collab/collab-limits.ts'), 'utf8'))?.[1]?.replace(/_/g, ''));
+  Number.isFinite(outboundBudget) || fail('outbound_budget 提取失败（collab-limits.ts OUTBOUND_BUDGET_BYTES——Z142③ fail-closed，禁"提取不到就算过"；字面量形态=T5 已钉死 100_663_296）');
   if (trip && release) {
     // 单调链 per role（Y0b-3 T4 既有断言的 per-role 化——迟滞方向+基线覆盖）
     for (const role of ROLES) {
@@ -140,13 +144,13 @@ export function checkEcosystem(apps, deploySrc) {
       rss <= 1900 * MiB || fail(`${app.name} max_memory_restart(${app.max_memory_restart}) 超 1.9GB 物理粗线`);
     }
     // Z118+Z126③ 合并算术式（per role，替换旧 :73 单向单值断言；数值面缺失已由提取段红，此处只跳过比较）：
-    //   api：resident_cap+maxDocBytes+基线 ≤ TRIP[api] ∧ TRIP[api]+200MiB ≤ mmr[api]
+    //   api：resident_cap+maxDocBytes+outbound_budget+基线 ≤ TRIP[api] ∧ TRIP[api]+200MiB ≤ mmr[api]
     //   worker：基线 ≤ TRIP[worker] ∧ TRIP[worker]+200MiB ≤ mmr[worker]（worker 无常驻 doc——
-    //           resident_cap/maxDocBytes 项不适用，Z126③ worker 变式）
+    //           resident_cap/maxDocBytes/outbound_budget 项不适用，Z126③ worker 变式）
     if (trip && Number.isFinite(rss)) {
       if (role === 'api') {
-        if (Number.isFinite(residentCap) && Number.isFinite(maxDocBytes)) {
-          residentCap + maxDocBytes + RSS_BASELINE_BYTES <= trip.api || fail(`Z126③ 算术[api]：resident_cap(${residentCap})+maxDocBytes(${maxDocBytes})+基线(${RSS_BASELINE_BYTES}) ≤ TRIP[api](${trip.api}) 不成立`);
+        if (Number.isFinite(residentCap) && Number.isFinite(maxDocBytes) && Number.isFinite(outboundBudget)) {
+          residentCap + maxDocBytes + outboundBudget + RSS_BASELINE_BYTES <= trip.api || fail(`Z126③ 算术[api]：resident_cap(${residentCap})+maxDocBytes(${maxDocBytes})+outbound_budget(${outboundBudget})+基线(${RSS_BASELINE_BYTES}) ≤ TRIP[api](${trip.api}) 不成立（B18 口径：650,505,088B ≤ 786,432,000B，余 ~129.4MiB）`);
         }
         trip.api + 200 * MiB <= rss || fail(`Z118 算术[api]：TRIP[api](${trip.api})+200MiB ≤ max_memory_restart[api](${app.max_memory_restart}=${rss}) 不成立（缓解时延预算）`);
       } else {
@@ -233,5 +237,5 @@ if (isMain) {
   const deploySrc = readFileSync(resolve(ROOT, 'deploy.sh'), 'utf8');
   const errs = checkEcosystem(apps, deploySrc);
   if (errs.length) { console.error(`check-ecosystem FAIL:\n  ${errs.join('\n  ')}`); process.exit(1); }
-  console.log('check-ecosystem OK: 双app按role遍历（api+worker恰2）/Z67④双向role显式/fork/1实例/kill_timeout按role（api≥45000/worker≥120000）/worker nice=10/SIGTERM/RSS口径per-role余量fail-closed/heap闸per-role+Z118+Z126③合并算术式/env白名单（含COLLAB_ROLE）/SPOOL_DIR绝对+ BIND_ADDR（api面）/契约9无内联/cutover_api单源（含GIT_COMMIT_HASH行为锚）/上传面三件/T31三步序（cutover+rollback --only双app+wait_api_ready）/spool fail-closed（case守卫+按app名pid+cwd一致）/RB2端口归属（ss -tlnp+worker pid比较面）/3001断言维持');
+  console.log('check-ecosystem OK: 双app按role遍历（api+worker恰2）/Z67④双向role显式/fork/1实例/kill_timeout按role（api≥45000/worker≥120000）/worker nice=10/SIGTERM/RSS口径per-role余量fail-closed/heap闸per-role+Z118+Z126③合并算术式（含outbound_budget项——B13/B18）/env白名单（含COLLAB_ROLE）/SPOOL_DIR绝对+ BIND_ADDR（api面）/契约9无内联/cutover_api单源（含GIT_COMMIT_HASH行为锚）/上传面三件/T31三步序（cutover+rollback --only双app+wait_api_ready）/spool fail-closed（case守卫+按app名pid+cwd一致）/RB2端口归属（ss -tlnp+worker pid比较面）/3001断言维持');
 }

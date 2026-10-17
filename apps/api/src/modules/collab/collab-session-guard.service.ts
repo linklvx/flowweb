@@ -460,7 +460,7 @@ export class CollabSessionGuardService {
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }
     this.authMapsSweepTimer = setInterval(() => this.sweepStaleAuthMaps(), 60_000);
     this.authMapsSweepTimer.unref?.();
-    this.heartbeat.start();   // R6'：心跳 timer 随本定时器族启（unref）——gateway onModuleInit 唯一启动位
+    this.heartbeat.start();   // R6'：心跳 timer 随本定时器族启（unref）——gateway 构造器唯一启动位
   }
 
   /** deny 工厂单点（§5.1-5 拒绝与计数同点）：所有 onAuthenticate 拒绝路径经此——reason=词表 13 值，

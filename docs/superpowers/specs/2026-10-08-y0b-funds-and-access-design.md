@@ -1001,6 +1001,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_lease_row_missing_total
 - collab_load_rejected_total
 - collab_msg_rate_exceeded_total
+- collab_outbound_budget_close_total
 - collab_overload_state
 - collab_pg_breaker_failures_total
 - collab_pg_breaker_state
@@ -1082,6 +1083,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_loaded_documents
 - yjs_oldest_unflushed_age_seconds
 - yjs_outbound_backlog_bytes
+- yjs_outbound_queued_bytes
 - yjs_pending_batches
 - yjs_pending_bytes
 - yjs_pending_projects
