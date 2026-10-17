@@ -12,7 +12,7 @@ on:
 # R3'（v3）：新 push 取代旧 run——6h hang 形态下省 runner（#62-66 人工取消的机制化）。
 # 取舍登记（spec §6.3）：master 连续 push 时中间 commit 的 run 被取代（单人线性流信号取舍）。
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }} # event_name 入键——dispatch/push 互不取消
   cancel-in-progress: true
 
 jobs:
@@ -151,7 +151,7 @@ jobs:
   collab-core:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 30    # 6+8+10=24+setup<30（plan T4 算术）
     services:
       postgres:
         image: postgres:16
