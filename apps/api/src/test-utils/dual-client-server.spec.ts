@@ -13,10 +13,11 @@ describe('T1.5 准入面夹具（注入式 ws）', () => {
     const kit = await startDualClientServer();
     try {
       const seen: Record<string, string | null> = {};
-      // spy 实例方法 authenticate（构造 Server 时捕获的箭头函数 `(p) => this.authenticate(p)`
-      // 运行时经 this 解析到 prototype——spy 生效于真连路径；spy hooks.onAuthenticate 无效，
-      // 因 server 配置在构造时已按值捕获原函数引用）
-      const proto = Object.getPrototypeOf(kit.gateway) as Record<string, any>;
+      // spy 实例方法 authenticate（构造 Server 时捕获的箭头函数运行时经 this 解析到 prototype
+      // ——spy 生效于真连路径；spy hooks.onAuthenticate 无效，因 server 配置在构造时已按值捕获
+      // 原函数引用。T41 W3b 宿主随迁〔偏离 75〕：接线改 `(p) => this.sessionGuard.authenticate(p)`
+      // ⇒ spy 宿主=gateway.sessionGuard 的 prototype，断言逐字保留）
+      const proto = Object.getPrototypeOf(kit.gateway.sessionGuard) as Record<string, any>;
       const orig = proto.authenticate;
       const spy = vi.spyOn(proto, 'authenticate').mockImplementation(async function (this: unknown, p: any) {
         seen.origin = p.requestHeaders?.get?.('origin') ?? null;
@@ -46,7 +47,7 @@ describe('T1.5 准入面夹具（注入式 ws）', () => {
     const kit = await startDualClientServer();
     try {
       const seen: Record<string, string | null> = {};
-      const proto = Object.getPrototypeOf(kit.gateway) as Record<string, any>;
+      const proto = Object.getPrototypeOf(kit.gateway.sessionGuard) as Record<string, any>;   // T41 W3b 宿主随迁（偏离 75）
       const orig = proto.authenticate;
       vi.spyOn(proto, 'authenticate').mockImplementation(async function (this: unknown, p: any) {
         seen.origin = p.requestHeaders?.get?.('origin') ?? null;
