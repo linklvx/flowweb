@@ -646,6 +646,21 @@ export const yjsOutboundBacklogBytes = new Histogram({
   buckets: [16 * 1024, 64 * 1024, 256 * 1024, 1_048_576, 2_097_152, 4_194_304, 8_388_608, 16_777_216],
   registers: [register],
 });
+/** R4b'（v3）：出站全局预算同步记账 gauge——OutboundBudget.total 单源维护（reserve/release/
+ *  close 兜底/60s 对账四处 set；0=无在飞预扣。定义单源=本文件〔SG:39 import 族先例形态〕，
+ *  collab-outbound-budget 模块消费）。 */
+export const yjsOutboundQueuedBytes = new Gauge({
+  name: 'yjs_outbound_queued_bytes',
+  help: '出站全局预算预扣字节（OutboundBudget total——预扣-释放+close 兜底+60s 对账回填；0=无在飞预扣）',
+  registers: [register],
+});
+/** R4b'（v3）：全局预算 close 计数——total+frame>outboundBudgetBytes 大帧组 close(1011)
+ *  global-budget 的**唯一**计数点（hardCloseWs 内 collabWsCloseTotal 记 close 事件——双计分离）。 */
+export const collabOutboundBudgetCloseTotal = new Counter({
+  name: 'collab_outbound_budget_close_total',
+  help: '出站全局预算 close 次数（大帧组 total+frame>outboundBudgetBytes → 1011 global-budget；与 collab_ws_close_total 事件计数分离——本计数为 global-budget 唯一出口）',
+  registers: [register],
+});
 
 /** ===== Y0b-4 T8（spec §5.2/Q-G）：shrink 审计四档+同步段时长直方图 ===== */
 

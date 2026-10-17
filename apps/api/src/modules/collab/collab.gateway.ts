@@ -42,11 +42,11 @@ export { TRUTH_COOLDOWN_MS, TOPN_LOG_INTERVAL_MS, TOPN_LOG_LIMIT, VACUUM_THAW_SE
 
 /** Y0c T41（W3b/B2）：SessionGuard 域常量随域迁 collab-session-guard.service——再导出保既有 import 面
  *  （B1/W3a 先例同款；spec 实测导入面 §8.4：AWARENESS_FRAME_LIMIT_BYTES×1〔rate-gate〕/
- *  AWARENESS_STATES_LIMIT_BYTES+AWARENESS_DISTINCT_USER_STRIP_OVER×1〔awareness-guard〕/
- *  BACKPRESSURE_DROP_BYTES+BACKPRESSURE_CLOSE_BYTES×1〔backpressure〕——全部零触碰）。
+ *  AWARENESS_STATES_LIMIT_BYTES+AWARENESS_DISTINCT_USER_STRIP_OVER×1〔awareness-guard〕——零触碰。
+ *  R4b'：BACKPRESSURE 双名自本行退役（迁 collab-limits 单源——消费方 backpressure spec 改直源 import）。
  *  SESSION_SWEEP_INTERVAL_MS/GRACE_MS 模块私有随迁（spec 导入面实测零，非再导出义务——任务卡列名为
  *  设计预估，现场实测无导入面，commit 披露）。census ⑤⑥⑪ 目标文件同批切换 SG。 */
-export { AWARENESS_FRAME_LIMIT_BYTES, AWARENESS_STATES_LIMIT_BYTES, AWARENESS_DISTINCT_USER_STRIP_OVER, BACKPRESSURE_DROP_BYTES, BACKPRESSURE_CLOSE_BYTES } from './collab-session-guard.service';
+export { AWARENESS_FRAME_LIMIT_BYTES, AWARENESS_STATES_LIMIT_BYTES, AWARENESS_DISTINCT_USER_STRIP_OVER } from './collab-session-guard.service';
 
 /** Y0c T42（B3 手段①）：resolveCollabDebounce 随 Server 构造迁 collab-server.factory（COLLAB_DEBOUNCE/
  *  NODE_ENV 解析单点随消费点）——再导出保既有 import 面（collab.module.ts useFactory/env.spec 零触碰，
@@ -72,8 +72,9 @@ export interface CollabConnection {
   send?: (message: Uint8Array) => void;
   messageAddress?: string;
   /** Y0b-4 T7：webSocket 结构面子集扩 send/bufferedAmount（wrapBackpressure 消费——ws 库
-   *  WebSocketLike 可变窄到本形状；stub ws 测试装置同形）。 */
-  webSocket?: { send: (data: unknown) => void; close: (code: number, reason: string) => void; bufferedAmount?: number };
+   *  WebSocketLike 可变窄到本形状；stub ws 测试装置同形）。R4b'（v3）：send 双参（cb=预算
+   *  release 回调）+once 可选（close 兜底释放监听——OutboundBudget 消费）。 */
+  webSocket?: { send: (data: unknown, cb?: (err?: Error) => void) => void; close: (code: number, reason: string) => void; bufferedAmount?: number; once?: (event: string, cb: () => void) => void };
 }
 
 /** Y0b-5 T10：超阈计数阈值再导出（定义单源=store.metrics——gateway=测试常量绑定面先例〔TRUTH_COOLDOWN_MS 同款〕；

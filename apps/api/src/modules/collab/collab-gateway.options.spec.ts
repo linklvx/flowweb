@@ -40,6 +40,12 @@ describe('Y0b-3 T1：Server 构造 pin', () => {
     const ctor = buildGateway().server.configuration;
     expect(Object.keys(ctor.websocketOptions ?? {}).every((k) => k === 'maxPayload')).toBe(true);
   });
+
+  it("R4b' flush 族顶层 pin（B7——Server 顶层键非 websocketOptions）：flushDelay=0/flushMaxBytes=1MiB（库默认原值——pin 语义非改值，防升级翻转）", () => {
+    const ctor = buildGateway().server.configuration;
+    expect(ctor.flushDelay).toBe(0);
+    expect(ctor.flushMaxBytes).toBe(1_048_576);
+  });
 });
 
 describe('Y0c T21：Server 旋钮 pin（Z82a/Z61）', () => {

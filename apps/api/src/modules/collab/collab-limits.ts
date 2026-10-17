@@ -4,7 +4,7 @@
 // v2 勘正：maxTxBytes>maxDocBytes 不校验（tx=单事务上限/doc=内容配额，tx>doc 合法形态——B17 六夹具
 // +drill 子进程经 app.module:46 validateEnv 会被 40KB/256KB 打死——env superRefine 方案同因撤销）。
 // close 语义：前瞻判定 backlog+frame>close → 帧型分支执法（sync 前瞻 close/stateless 仅 backlog 判定
-// /awareness 永 drop——v3 帧型四档，T6 接线时落档）；+ALLOWANCE 余量=两满帧+ack 不误杀。
+// /awareness 永 drop——v3 帧型四档已落档 collab-outbound-budget.ts）；+ALLOWANCE 余量=两满帧+ack 不误杀。
 // OUTBOUND_BUDGET_BYTES 用字面量（check-ecosystem 提取式 [\d_]+ 不匹配乘式）。
 import { QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
 import type { QuotaConfig } from './collab-doc-registry.service';

@@ -32,11 +32,13 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
-import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, FRAME_ALLOWANCE_BYTES, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabVersionNegotiationRejectTotal, collabOverloadState, collabWsCloseTotal, collabSweepCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabMsgRateExceededTotal, collabQuotaFrameRejectedTotal, collabAwarenessDroppedTotal, collabSlowConsumerDisconnectTotal, yjsOutboundBacklogBytes } from './store.metrics';
+import { deriveCollabLimits, type CollabLimits } from './collab-limits';
+import { OutboundBudget } from './collab-outbound-budget';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabVersionNegotiationRejectTotal, collabOverloadState, collabWsCloseTotal, collabSweepCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabMsgRateExceededTotal, collabQuotaFrameRejectedTotal } from './store.metrics';
 
 /** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
  *  30/s×16MB=480MB/s 解码路径封死，报告1 P1-1）。两个实体两个名：本常量=帧字节闸；
@@ -54,13 +56,6 @@ export const AWARENESS_STATES_LIMIT_BYTES = 4096;
  *  cursor/selection（9 人以上画布光标广播扇出/字节成本放大而收益趋零；user/presence 保留——
  *  成员表/保活链不受影响）。测试常量绑定（BACKPRESSURE 双阈先例——改值本测试红）。W3b 随域迁 SG。 */
 export const AWARENESS_DISTINCT_USER_STRIP_OVER = 8;
-
-/** Y0b-4 T7（Q-F v2）：出站背压双阈——一级 awareness drop（backlog>1MB 只丢 presence）/二级
- *  close(1011)（backlog>4MB 慢消费者断连，backoff 档重连自愈）。census ⑤：bufferedAmount
- *  生产读点唯一=wrapBackpressure（决策每 send 判，两阈具名常量——测试常量绑定防漂移）。W3b 随域迁 SG
- *  （census ⑤ 目标文件同批切换 collab-session-guard.service.ts；gateway 再导出保 import 面——backpressure spec ×2）。 */
-export const BACKPRESSURE_DROP_BYTES = 1_048_576;
-export const BACKPRESSURE_CLOSE_BYTES = 4_194_304;
 
 /** 批3-4 sweep 轮询与 grace 窗。Y0b-3 T8：间隔 60s→5min——事件驱动为主（collab.perm.changed 即时
  *  踢权）后 sweep 降为兜底；±20% jitter 见 sweepIntervalMs（setTimeout 自排链逐轮重排）。W3b 随域迁 SG
@@ -293,7 +288,10 @@ export class CollabSessionGuardService {
    *  退役 frozenConnections prev 快照（H-5 语义的集合化继任：解除=移除本方原因，drain 解除
    *  不误赦免 viewer/spool 降级连接）。onDisconnect 按 socketId 反查清（值含 pid——O(1) 判定域）。 */
   private readonly writeFreeze = new Map<CollabConnection, { pid: string; reasons: Set<FreezeReason> }>();
-  private readonly backpressureWrapped = new WeakSet<NonNullable<CollabConnection['webSocket']>>();
+  /** R4b'（v3）：出站背压/预算契约单源派生（collab-limits——桶容量/close/budget 族消费）+判定核
+   *  本体（OutboundBudget——wrapBackpressure 3 行委托；WeakSet 台账随迁 Map 判重）。 */
+  private readonly limits: CollabLimits;
+  private readonly outbound: OutboundBudget;
   /** Y0b-3 T4（spec §3.2）：heap 压力闸观测态（翻转检测缓存——真实态在 heap-pressure util 迟滞内）。
    *  RC3：采样闸（heapPressureSample/overloadTripped/syncOverloadGauge）归 SG（准入闸判定态——auth/load
    *  两闸+isHeapPressureTripped 委托消费）；stuck 账目（docStuckRounds/stuckDocsSeen/heapObserverTimer）留 DR。 */
@@ -324,6 +322,9 @@ export class CollabSessionGuardService {
   ) {
     this.sessionSvc = sessions;
     this.pgBreaker = pgBreaker ?? new CollabPgBreakerService();
+    // R4b'（v3）：limits 单源派生+出站预算判定核（构造期 activeQuota——fail-fast 校验随 deriveCollabLimits）
+    this.limits = deriveCollabLimits(this.docRegistry.activeQuota);
+    this.outbound = new OutboundBudget(this.limits);
     // Y0b-3 T2：升级限流——COLLAB_UPGRADE_RATE_PER_MIN 默认 60/min；burst=20 常量（多标签友好——
     // 单用户多标签页各持一条 WS 连接，burst 抬高集中握手容忍度；DoS 兜底非配额）。
     this.upgradeBucket = new TokenBucket({
@@ -340,7 +341,7 @@ export class CollabSessionGuardService {
     // W3b：quota 四值读面=docRegistry.activeQuota 单源（RC2「SG 不持 quota 对象，构造取 msgRate/bytesRate/
     // maxDocBytes」——注入 docRegistry 构造期已解析，桶容量≥最大合法帧不变量口径不变，防双源 P3）。
     this.msgBuckets = new TokenBucket({ capacity: 400, refillPerMin: this.docRegistry.activeQuota.msgRate * 60 });
-    this.bytesBuckets = new TokenBucket({ capacity: this.docRegistry.activeQuota.maxDocBytes + FRAME_ALLOWANCE_BYTES, refillPerMin: this.docRegistry.activeQuota.bytesRate * 60 });
+    this.bytesBuckets = new TokenBucket({ capacity: this.limits.bytesBucketCapacity, refillPerMin: this.docRegistry.activeQuota.bytesRate * 60 });
     this.awareBuckets = new TokenBucket({ capacity: 60, refillPerMin: 1_800 });
   }
 
@@ -450,6 +451,7 @@ export class CollabSessionGuardService {
     this.docRegistry.ageOverPush(now);   // W3a（RC2）：overPush 台账归 DR——老化循环体机械提取同点调用（原序保持：断连清理之外的兜底，idle-reset 只清计数不清条目）
     // 防只握手不认证风暴喂新 socketId：TTL 清不掉"未满窗"的桶（60s 内持续新增）——硬上界兜底（Map 插入序=最旧优先）
     while (this.authAttemptBuckets.size > 10_000) this.authAttemptBuckets.delete(this.authAttemptBuckets.keys().next().value!);
+    this.outbound.reconcile();   // R4b'（v3）：预算对账（per-ws 回填）挂本 sweep——authMapsSweeper 在 SWEEP_ENABLED 阀之前=始终运行
   }
   startAuthMapsSweeper(): void {
     if (this.authMapsSweepTimer) { clearInterval(this.authMapsSweepTimer); this.authMapsSweepTimer = null; }
@@ -655,7 +657,7 @@ export class CollabSessionGuardService {
     this.connEstablishedAt.set(socketId, Date.now());   // Y0b-3 T6：寿命台账播种
     const c = connection as unknown as CollabConnection;
     if (c) {
-      this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——WeakSet 幂等）
+      this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——R4b' Map 幂等）
       const pid = parseDocName(documentName)?.projectId ?? '';
       // Y0b-4 T9a serving 门（WS 面）：真空窗口新连接 terminal close 4410 'doc-vacuuming'。
       // 形态裁定：plan 原文"auth 503"——但 WS 层无 HTTP 503（auth 期 throw 被库折 close 4403
@@ -715,36 +717,15 @@ export class CollabSessionGuardService {
     } catch { /* 已断 */ }
   }
 
-  /** ===== Y0b-4 T7（Q-F v2）：出站背压 wrap——webSocket.send 包装（库 Connection.send 恒经
-   *  this.webSocket.send〔esm:390-397 属性查找〕=出站必经点，T0 探针①）=====
-   *  决策每 send 判 O(1) 读 bufferedAmount（**不进采样**——停滞 socket 两次 send 间可再堆 10 帧，
-   *  决策挂采样=内存上界放大一个数量级，外审 P1-3）：二级 >BACKPRESSURE_CLOSE_BYTES 立即
-   *  close(1011)〔backoff 档瞬态〕；一级 >BACKPRESSURE_DROP_BYTES 且 awareness 帧丢弃（判型=
-   *  readFrameType 单源〔H-5 库解析禁字节猜型〕；异常 null=放行；sync/stateless 永不 drop——doc
-   *  同步不可丢）。1/10 采样只归 yjsOutboundBacklogBytes 直方图观测。wrap 点=connected 钩子
-   *  （onAuthenticatePayload 无 connection/webSocket 字段〔d.ts:473-483〕——connected=其后首个
-   *  conn 可得钩子；多文档连接同 ws 多次 connected，WeakSet 防二次包装）。
-   *  census ⑤：bufferedAmount 生产读点唯一=wrapBackpressure（W3b 目标文件切 collab-session-guard.service.ts）。 */
+  /** ===== Y0b-4 T7（Q-F v2）→R4b'（v3）：出站背压 wrap——webSocket.send 包装（库 Connection.send
+   *  恒经 this.webSocket.send〔esm:390-397 属性查找〕=出站必经点，T0 探针①）。判定核整体迁
+   *  OutboundBudget（collab-outbound-budget.ts——四档帧型/预算记账/close 兜底释放）；本壳只留
+   *  委托+getBacklog 闭包。wrap 点=connected 钩子（多文档连接同 ws 多次 connected——budget Map 判重）。
+   *  census ⑤：bufferedAmount 生产读点唯一=wrapBackpressure（读点文本留本文件——脚本/自测/spec 三处零改）。 */
   wrapBackpressure(conn: CollabConnection): void {
     const ws = conn.webSocket;
-    if (!ws || this.backpressureWrapped.has(ws)) return;
-    this.backpressureWrapped.add(ws);
-    const orig = ws.send.bind(ws);
-    let sends = 0;
-    ws.send = (data: unknown) => {
-      const backlog = ws.bufferedAmount ?? 0;   // census ⑤：生产唯一读点（spec 装置除外）
-      if (backlog > BACKPRESSURE_CLOSE_BYTES) {   // 二级：每 send 判（非采样）
-        collabSlowConsumerDisconnectTotal.inc();
-        this.hardCloseWs(ws, CollabCloseCode.SLOW_CONSUMER, 'slow-consumer');
-        return;
-      }
-      if (backlog > BACKPRESSURE_DROP_BYTES && readFrameType(data as Uint8Array) === MessageType.Awareness) {   // 一级：只 drop awareness
-        collabAwarenessDroppedTotal.inc();
-        return;
-      }
-      if (++sends % 10 === 0) yjsOutboundBacklogBytes.observe(backlog);   // 采样只归观测（决策不进采样）
-      orig(data);
-    };
+    if (!ws) return;
+    this.outbound.wrap(ws, (w, code, reason) => this.hardCloseWs(w, code, reason), () => ws.bufferedAmount ?? 0);
   }
 
   /** writeFreeze 单源查询（auth→connected 登记窗的回退：context.freezeIntent 意图 / 冻结期加入映射 quota）。

@@ -50,6 +50,11 @@ describe('R4b\' collab-limits 派生契约', () => {
     expect(() => deriveCollabLimits(q({}), 5 * 1024 * 1024)).toThrow();
   });
 
+  it('边界等值（`>` 严格性钉死——T5 评审顺手项）：ss2Gate 恰=maxPayload 与 2×maxTxBytes 恰=maxPayload 均不抛（等值放行，越界才红）', () => {
+    expect(() => deriveCollabLimits(q({ maxDocBytes: 16_777_216 - 65_536 }))).not.toThrow();   // ss2Gate=16,777,216 恰等
+    expect(() => deriveCollabLimits(q({ maxTxBytes: 8_388_608 }))).not.toThrow();   // 2×=16,777,216 恰等
+  });
+
   it('满帧边界算术：两满帧+一 ack 投影 ≤ close（前瞻判定语义自洽）', () => {
     const l = DEFAULT_COLLAB_LIMITS;
     const full = l.ss2FrameGate;

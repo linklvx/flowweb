@@ -6,12 +6,18 @@
 // 未定义 ③census ⑤ 生产零 bufferedAmount 命中。
 // maxPayload 16MB=零改动验证锚（Q-T v4 撤回 9MB——§7.2 禁回落 ws 默认 100MiB）；越界不变量
 // docSize≤maxDocBytes+maxFrameOvershoot 已由 T4 用例承载（collab-quota-gate）——本文件引用不重写。
+// R4b'（v3）：判定核迁 OutboundBudget（collab-outbound-budget.ts）——常量改直源 collab-limits
+// （gateway 再导出面退役）；新增四档帧型/同步记账/close 释放闭环用例（①close 释放+迟到 cb ②预算
+// close ③控制组豁免 ④SyncReply 大帧前瞻）。census ⑤ 孪生锚零改（读点仍 SG——getBacklog 闭包）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { register } from 'prom-client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CollabGateway, BACKPRESSURE_DROP_BYTES, BACKPRESSURE_CLOSE_BYTES } from './collab.gateway';
+import { QUOTA_DEFAULTS } from '@flowweb/shared';
+import { CollabGateway } from './collab.gateway';
+import { BACKPRESSURE_DROP_BYTES, WS_MAX_PAYLOAD_BYTES, DEFAULT_COLLAB_LIMITS, deriveCollabLimits } from './collab-limits';
+import { OutboundBudget } from './collab-outbound-budget';
 import { CollabSpoolService } from './collab-spool.service';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -35,14 +41,19 @@ function buildGateway(): CollabGateway {
   );
 }
 
-/** stub ws：bufferedAmount 手注入+send/close 落账（wrap 后 sent/closeCalls 记录真实投递面） */
+/** stub ws：bufferedAmount 手注入+send/close 落账（wrap 后 sent/closeCalls 记录真实投递面）。
+ *  R4b'：send 加 cb 参数（存 cbs **不自动调**——预扣驻留供释放用例驱动）；once 注册 close 监听；
+ *  close() 触发监听（close 兜底释放用例的闭环前提）。 */
 function makeStubWs(bufferedAmount: number) {
+  const closeCbs: Array<() => void> = [];
   return {
     bufferedAmount,
     sent: [] as unknown[],
     closeCalls: [] as Array<{ code: number; reason: string }>,
-    send(this: any, data: unknown) { this.sent.push(data); },
-    close(this: any, code: number, reason: string) { this.closeCalls.push({ code, reason }); },
+    cbs: [] as Array<(err?: Error) => void>,
+    send(this: any, data: unknown, cb?: (err?: Error) => void) { this.sent.push(data); if (cb) this.cbs.push(cb); },
+    close(this: any, code: number, reason: string) { this.closeCalls.push({ code, reason }); for (const cb of closeCbs) cb(); },
+    once(_event: string, cb: () => void) { closeCbs.push(cb); },
   };
 }
 type StubWs = ReturnType<typeof makeStubWs>;
@@ -65,6 +76,12 @@ async function observeCountOf(name: string): Promise<number> {
   const metric: any = register.getSingleMetric(name);
   if (!metric) throw new Error(`metric ${name} 未定义（T7 未实现——红相）`);
   return (await metric.get()).values.find((s: any) => s.metricName === `${name}_count`)?.value ?? 0;
+}
+/** gauge 现值（R4b'——yjs_outbound_queued_bytes 观测：release/onClose/reconcile 均单点 set） */
+async function gaugeValue(name: string): Promise<number> {
+  const metric: any = register.getSingleMetric(name);
+  if (!metric) throw new Error(`metric ${name} 未定义（R4b' 未实现——红相）`);
+  return (await metric.get()).values[0]?.value ?? 0;
 }
 
 describe('Y0b-4 T7 出站背压 wrap（Q-F v2：每 send 判+决策/采样分离）', () => {
@@ -94,7 +111,7 @@ describe('Y0b-4 T7 出站背压 wrap（Q-F v2：每 send 判+决策/采样分离
     ws.send(makeFrame('project:bp2', 0, 2, new Uint8Array([1])));   // sends=1
     ws.send(makeFrame('project:bp2', 0, 2, new Uint8Array([2])));   // sends=2
     ws.send(makeFrame('project:bp2', 0, 2, new Uint8Array([3])));   // sends=3——非采样点（%10≠0）
-    ws.bufferedAmount = BACKPRESSURE_CLOSE_BYTES + 1 * 1024 * 1024;  // >4MB（两 send 间堆积——停滞 socket）
+    ws.bufferedAmount = DEFAULT_COLLAB_LIMITS.backpressureCloseBytes + 1 * 1024 * 1024;  // >close（两 send 间堆积——停滞 socket）
     const closed = await metricDelta('collab_slow_consumer_disconnect_total', {}, async () => {
       ws.send(makeFrame('project:bp2', 0, 2, new Uint8Array([4])));   // 第 4 发（若决策进采样须等第 10 发——红相）
     });
@@ -103,8 +120,9 @@ describe('Y0b-4 T7 出站背压 wrap（Q-F v2：每 send 判+决策/采样分离
     expect(ws.sent).toHaveLength(3);               // 触发帧不投递
     // ws 级 close 计数同点（hardCloseWs——collab_ws_close_total{code='1011'}）
     expect(await counterOf('collab_ws_close_total', { code: '1011', reason: 'slow-consumer' })).toBeGreaterThanOrEqual(1);
-    // 边界反例：恰 4MB（≤CLOSE 阈）不 close 只走一级判（sync 帧照发）
-    const ws2 = makeStubWs(BACKPRESSURE_CLOSE_BYTES);
+    // 边界反例（R4b' 前瞻语义改写）：大帧组判定=backlog+frameBytes>close——backlog 留 1MB 余量
+    // 时小 sync 帧仍照发（恰等/越界才关；等值钉死见 collab-limits.spec 满帧边界算术）
+    const ws2 = makeStubWs(DEFAULT_COLLAB_LIMITS.backpressureCloseBytes - 1024 * 1024);
     wrap(gw, ws2);
     ws2.send(makeFrame('project:bp2', 0, 2, new Uint8Array([9])));
     expect(ws2.sent).toHaveLength(1);
@@ -151,4 +169,58 @@ describe('Y0b-4 T7 出站背压 wrap（Q-F v2：每 send 判+决策/采样分离
     const gw = buildGateway();
     expect(gw.server.configuration.websocketOptions).toEqual({ maxPayload: 16 * 1024 * 1024 });   // §7.2 禁回落 ws 默认 100MiB
   }, 15_000);
+});
+
+describe("R4b' OutboundBudget 判定核（v3：四档帧型+同步记账+close 释放闭环）", () => {
+  it('①close 兜底释放+迟到 cb 不复活：发帧不调 cb（预扣驻留）→ws.close()→queuedBytes 一次归零；close 后迟到 cb 调用禁复活 Map（release 幂等护栏）', async () => {
+    const gw = buildGateway();
+    const ws = makeStubWs(600 * 1024);
+    wrap(gw, ws);
+    ws.send(makeFrame('project:bp5', 0, 2, new Uint8Array([1, 2, 3])));
+    expect(await gaugeValue('yjs_outbound_queued_bytes')).toBeGreaterThan(0);   // cb 未回调——预扣驻留
+    ws.close(1000, 'test');
+    expect(await gaugeValue('yjs_outbound_queued_bytes')).toBe(0);   // close 兜底：整连接残账一次释放+台账摘除
+    for (const cb of ws.cbs) cb();   // 迟到 cb（close 后）——onClose 已摘除，release 早退不复活不漂移
+    expect(await gaugeValue('yjs_outbound_queued_bytes')).toBe(0);
+  }, 15_000);
+
+  it('②全局预算 close：小 budget 实例多 stub 连发超限→close(1011 global-budget) 不投递+collab_outbound_budget_close_total 唯一计数（ws_close 事件计数由 hardCloseWs 承——去双计）', async () => {
+    const limits = deriveCollabLimits({ ...QUOTA_DEFAULTS, maxDocBytes: 4096 }, 5 * 1024 * 1024);
+    const budget = new OutboundBudget(limits);
+    const w1 = makeStubWs(0), w2 = makeStubWs(0);
+    budget.wrap(w1, (w, code, reason) => w.close(code, reason), () => 0);
+    budget.wrap(w2, (w, code, reason) => w.close(code, reason), () => 0);
+    const payload = new Uint8Array(1024 * 1024);
+    const closed = await metricDelta('collab_outbound_budget_close_total', {}, () => {
+      for (let i = 0; i < 4; i++) w1.send(makeFrame('project:bp6', 0, 2, payload));   // 4MiB 界内
+      w2.send(makeFrame('project:bp6', 0, 2, payload));   // 第 5 MiB——total+frame>budget 触发
+    });
+    expect(closed).toBe(1);
+    expect(w1.sent).toHaveLength(4);
+    expect(w2.sent).toHaveLength(0);   // 预算失败帧不投递
+    expect(w2.closeCalls).toEqual([{ code: 1011, reason: 'global-budget' }]);
+  }, 15_000);
+
+  it('③控制组不前瞻+预算豁免：backlog=close-1 发 20B stateless 帧→照投不 close（+20B 不前瞻——心跳反杀根修）且 queuedBytes 不计账（状态通道永不因预算静默丢）', async () => {
+    const budget = new OutboundBudget(DEFAULT_COLLAB_LIMITS);
+    const ws = makeStubWs(DEFAULT_COLLAB_LIMITS.backpressureCloseBytes - 1);
+    budget.wrap(ws, (w, code, reason) => w.close(code, reason), () => ws.bufferedAmount);
+    const before = await gaugeValue('yjs_outbound_queued_bytes');   // gauge 全局共享——豁免断言用前后差（本实例不 set）
+    ws.send(makeFrame('project:bp7', 5 /* Stateless */, null, 'x'));
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.closeCalls).toHaveLength(0);
+    expect(await gaugeValue('yjs_outbound_queued_bytes')).toBe(before);   // 预算豁免——控制帧不进记账（零 set）
+  }, 15_000);
+
+  it('④大帧组前瞻（v3 漏网根修证据）：backlog=close-1 发 8MB SyncReply 帧（SS1 回复携全 doc diff 载体——v2 漏归=上界失效）→backlog+frame>close 即 close(1011) 不投递', async () => {
+    const budget = new OutboundBudget(DEFAULT_COLLAB_LIMITS);
+    const ws = makeStubWs(DEFAULT_COLLAB_LIMITS.backpressureCloseBytes - 1);
+    budget.wrap(ws, (w, code, reason) => w.close(code, reason), () => ws.bufferedAmount);
+    const frame = makeFrame('project:bp8', 4 /* SyncReply */, 1 /* SyncStep2 */, new Uint8Array(8 * 1024 * 1024));
+    expect(frame.byteLength).toBeLessThan(WS_MAX_PAYLOAD_BYTES);   // 8MB 帧在 maxPayload 界内=合法帧
+    const closed = await metricDelta('collab_slow_consumer_disconnect_total', {}, () => ws.send(frame));
+    expect(closed).toBe(1);
+    expect(ws.closeCalls).toEqual([{ code: 1011, reason: 'slow-consumer' }]);
+    expect(ws.sent).toHaveLength(0);   // 触发帧不投递
+  }, 30_000);
 });

@@ -9,6 +9,7 @@
 // hocuspocus-server-import 换宿主（gateway 2→1 〔Server 并入 type-only 行〕/本文件 n=1 登记）。
 import { Server } from '@hocuspocus/server';
 import type { CollabGateway } from './collab.gateway';   // type-only 零运行时边（FreezeReason/W3a 同款先例——hooks 签名面类型单源）
+import { WS_MAX_PAYLOAD_BYTES } from './collab-limits';   // R4b'：maxPayload 值单源（B16）
 
 /** 批3-4：COLLAB_DEBOUNCE 接线——显式注入（测试缝）> env > dev 1000 / prod 2000（原硬编码 5000
  *  收紧——连续编辑丢失窗口 prod ≤3s 闭环）；maxDebounce 写死 ≤ debounce×1.5（独立配置则窗口仍为旧值）。 */
@@ -65,7 +66,11 @@ export function createCollabServer(opts: {
     // Y0a-3 T5/T6：跨实例扩展挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
     // 消息同步退役；其固定断开延迟借道语义随之消失，service 本体已删）。
     // Y0b-3 T1：库选项四 pin——文档锚防升级回落（断言在 collab-gateway.options.spec）。
-    websocketOptions: { maxPayload: 16 * 1024 * 1024 }, // §7.2 禁回落 ws 默认 100MiB；键集 ⊆ {maxPayload}（T1 断言）
+    websocketOptions: { maxPayload: WS_MAX_PAYLOAD_BYTES }, // §7.2 禁回落 ws 默认 100MiB；键集 ⊆ {maxPayload}（T1 断言）
+    // R4b'：flush 族显式 pin（B7——顶层键；库默认值 0/1MiB 原值，pin 语义非改值——顶层断言
+    // 在 options.spec；maxPayload 值单源=collab-limits WS_MAX_PAYLOAD_BYTES）
+    flushDelay: 0,
+    flushMaxBytes: 1_048_576,
     maxUnauthenticatedQueueMessages: 256, // §3.1bis 4 pre-auth 三 pin（库默认 1e3）
     maxUnauthenticatedQueueSize: 1024 * 1024, // 库默认 5MiB
     maxPendingDocuments: 100, // 库默认即同值——显式 pin 防升级翻转（P24 先例）
