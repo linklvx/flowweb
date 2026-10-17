@@ -16,10 +16,12 @@
 // - **类型单源**：读面字段类型经 CollabGateway['member'] 索引访问（TS 类型位私有成员合法——
 //   gateway 成员演进时 façade 类型自动跟随=编译红漂移面）；写面 stub 入参宽松（unknown/object）
 //   +内部受控 cast（本文件即 sanctioned 点）。
-// - N=114 class 方法+gatewayFacade 工厂+1 模块级函数 authDbDeadlineMs（实测口径：波 1 class 方法 40
+// - N=124 class 方法+gatewayFacade 工厂+1 模块级函数 authDbDeadlineMs（实测口径：波 1 class 方法 40
 //   〔表格口径 41 含工厂〕+波 2 扩 73——偏离 64 收窄裁决：直调族不转发，扩面=字段/状态/splice/
 //   身份引用族+spy 组缺口；T40 W5 勘正：原记 113 系盘点漏计 1，文件实测=114；B1〔T40〕persistence
-//   族 ~25 法改道 persistOf(gw) 单点 cast——方法数不增减，身份契约七处零变化=service Map 真实引用）。
+//   族 ~25 法改道 persistOf(gw) 单点 cast——方法数不增减，身份契约七处零变化=service Map 真实引用；
+//   T41 W2 扩 10 法〔B2 前置穷举单测 collab-doc-lifecycle/collab-state-machine 消费——DR 普查
+//   读面/播种面+常驻探针读面，操作化归并同款（Of/Has/seed 族），N=114→124〕）。
 import { vi } from 'vitest';
 import * as Y from 'yjs';
 import { CollabGateway } from '../collab.gateway';
@@ -52,6 +54,11 @@ interface GatewayInternals {
   docResidue: CollabGateway['docResidue'];
   preVacuumSvCache: CollabGateway['preVacuumSvCache'];
   docEpoch: CollabGateway['docEpoch'];
+  // ── T41 W2 扩面（B2 前置穷举单测——清理点普查定时器/时点台账+卸载锚+常驻探针读面） ──
+  freezePendingTimers: CollabGateway['freezePendingTimers'];
+  autoVacuumLastAt: CollabGateway['autoVacuumLastAt'];
+  unloadHeapAnchors: CollabGateway['unloadHeapAnchors'];
+  residentSessionsProbe: CollabGateway['residentSessionsProbe'];
   repo: CollabGateway['repo'];
   pgBreaker: CollabGateway['pgBreaker'];
   refusalCache: CollabGateway['refusalCache'];
@@ -790,6 +797,63 @@ export class GatewayTestFacade {
   /** 替代 `vi.spyOn(gw as any, 'graceDirectConnections')`（步骤 0 先于步骤 1.5 时序断言面） */
   spyGraceDirectConnections() {
     return vi.spyOn(methods(this.gw), 'graceDirectConnections');
+  }
+
+  // ══ T41 W2 扩面（B2 前置穷举单测——collab-doc-lifecycle 清理点普查读面/播种面+⑦代际读面
+  //    +常驻探针读面；操作化归并同款（Of/Has/seed 族——1:1 成员暴露禁项不破） ══
+
+  /** 替代 `(gw as any).preVacuumSvCache.get(pid)`（SV 代际门缓存读——⑦代际装载播种断言面） */
+  preVacuumSvOf(pid: string): ReturnType<GatewayInternals['preVacuumSvCache']['get']> {
+    return internals(this.gw).preVacuumSvCache.get(pid);
+  }
+
+  /** 替代 `(gw as any).docGeneration.get(pid)`（⑦代际 doc-status generation 产生源读面） */
+  docGenerationOf(pid: string): ReturnType<GatewayInternals['docGeneration']['get']> {
+    return internals(this.gw).docGeneration.get(pid);
+  }
+
+  /** 替代 `(gw as any).docStatusState.has(pid)`（上次广播复合键存在——清理点普查断言面） */
+  docStatusStateHas(pid: string): boolean {
+    return internals(this.gw).docStatusState.has(pid);
+  }
+
+  /** 替代 `(gw as any).recheckRounds.has(pid)`（冻结重测轮数台账——清理点普查断言面） */
+  recheckRoundsHas(pid: string): boolean {
+    return internals(this.gw).recheckRounds.has(pid);
+  }
+
+  /** 替代 `(gw as any).freezePendingTimers.has(pid)`（确认定时器在飞——scheduleFreezePending
+   *  去重判据读面+清理点普查断言面） */
+  freezePendingTimersHas(pid: string): boolean {
+    return internals(this.gw).freezePendingTimers.has(pid);
+  }
+
+  /** 替代 `(gw as any).freezePendingTimers.set(pid, timer)`（清理点普查播种装置——
+   *  seedPersistRetry 同款先例；timer 由被测清理入口负责 clear） */
+  seedFreezePendingTimer(pid: string, timer: Parameters<GatewayInternals['freezePendingTimers']['set']>[1]): void {
+    internals(this.gw).freezePendingTimers.set(pid, timer);
+  }
+
+  /** 替代 `(gw as any).autoVacuumLastAt.has(pid)`（Z66 自动触发时点台账——purge 专属清理键断言面） */
+  autoVacuumLastAtHas(pid: string): boolean {
+    return internals(this.gw).autoVacuumLastAt.has(pid);
+  }
+
+  /** 替代 `(gw as any).autoVacuumLastAt.set(pid, ms)`（普查播种——三入口差异键钉死装置） */
+  seedAutoVacuumLastAt(pid: string, ms: number): void {
+    internals(this.gw).autoVacuumLastAt.set(pid, ms);
+  }
+
+  /** 替代 `(gw as any).unloadHeapAnchors.get(pid)`（beforeUnload 播种→afterUnload 结算——
+   *  卸载边界锚生命周期断言面） */
+  unloadHeapAnchorOf(pid: string): ReturnType<GatewayInternals['unloadHeapAnchors']['get']> {
+    return internals(this.gw).unloadHeapAnchors.get(pid);
+  }
+
+  /** 替代 `(gw as any).residentSessionsProbe?.() ?? 0`（T18 hangReason resident-session-open 档
+   *  判据读面——未注册〔直构 gateway 无 residency〕=0 语义断言） */
+  residentSessionsProbeCount(): number {
+    return internals(this.gw).residentSessionsProbe?.() ?? 0;
   }
 }
 

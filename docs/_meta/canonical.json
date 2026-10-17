@@ -274,6 +274,22 @@
       ]
     },
     {
+      "path": "docs/superpowers/t41-b2-design.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/src/modules/collab/collab-doc-lifecycle.spec.ts",
+          "line": 2,
+          "text": "// Y0c T41 W2（片 B·B2 前置穷举单测——设计报告 t41-b2-design.md §6.1 七维表/§6.2 清理点普查表/"
+        },
+        {
+          "src": "apps/api/src/modules/collab/collab-state-machine.spec.ts",
+          "line": 2,
+          "text": "// Y0c T41 W2（片 B·B2 前置穷举单测——设计报告 t41-b2-design.md §6.1/§6.3-1）：collabState 七态"
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/tech-debt.md",
       "criteria": "C1",
       "evidence": [
