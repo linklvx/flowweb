@@ -23,6 +23,13 @@
 
 ## 后端（apps/api）
 
+### TD-28 project.gone 残帧收割梯的退避梯键疑为裸 pid（应 documentName 口径族）
+
+- **来源**：T40 B1 照搬披露——collab-persistence.service.ts :919 注释原文「裸 pid 形态逐字承 gateway 前文 :1462——疑点照搬不修登记遗留，后续批裁决」（2026-10-17 现场核实：行号与注释原文一致）；T41 W2 落盘（设计报告 t41-b2-design.md §9③/§12 承接账裁决）
+- **现状**：onProjectGone 内 `spool.hasFrames(projectId)` 为真时 `schedulePersistRetry(projectId)` 传**裸 pid**。键口径消费面现场核实：persistRetry 台账其余写点全为 documentName=`project:${pid}` 口径（rearmQueues :721/卸载交接③保活梯 :804/store 失败分支 :282/:394/:400），且同函数上一行 :918 `cancelPersistRetry(\`project:${projectId}\`)` 先按带前缀键清、:919 再按裸键排=同函数双键分叉；retryPersist(裸 pid) 后 parseDocName 不匹配 ⇒ projectId 折空串，detached 双通道 pendingQueues.get('')/peekSpoolFrames('') 全落空 ⇒ 探空即 cancel——疑 Z11①「cancel 后保收割梯」空转，已删项目 spool 残帧的运行期 FK 收割退化为启动回灌 replayAll 兜底（帧不丢，运行期自愈延迟）
+- **修复方向**：裁决键口径后（疑应传 `project:${projectId}`——与 :918 cancel 同键）单行修+regression spec（project.gone 后收割梯保排断言：persistRetryHas('project:'+pid) 真+retryPersist 实耗 spool 帧）。T41 B2 对 persistence 零回写红线（950 锚恰达，承接账⑤）⇒ 本批不修，登记待裁
+- **登记**：2026-10-17（T41 W2）
+
 ## 数据 / 部署
 
 ## R1c 立项要件（2026-09-30 collab 恢复工程登记——master plan 裁决本轮不实施）

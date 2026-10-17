@@ -40,6 +40,13 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "设计文档成员:行号引用序列误报（t41-b2-design.md §4.1「spoolStateForAuth :913/persistUnhealthy :947」——generic-api-key 把成员名:行号枚举判为密钥；值级豁免=同文件真密钥仍红，RFC 6455 示例键同款先例）"
+regexTarget = "secret"
+regexes = [
+  '''913/persistUnhealthy''',
+]
+
+[[allowlists]]
 description = "E41 测试密钥+测试固定密码（值级豁免：同文件未来真密钥仍会红；勿加 ^$ 锚定——Secret 字段可能带尾随换行，锚定后豁免失效已实证）"
 regexTarget = "secret"
 regexes = [
