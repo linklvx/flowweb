@@ -204,7 +204,7 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
       await setOwner(LEASE_STUB_OWNER);
       repo.setLeaseOwner(LEASE_STUB_OWNER);
       gatewayFacade(gateway).transitionState('serving', 'z125-4-restore');
-      (gateway as any).clearDrainTimer();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+      gatewayFacade(gateway).clearDrainTimer();   // B3 承接账①核销：façade stub 裁决（drain 编排域留 gateway 私有——断言值零变化，仅访问形态改道）
     };
     try {
       await setOwner(null);

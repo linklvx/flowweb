@@ -256,6 +256,21 @@ test('I-1 R1 受体限定扩面（实测裁决——窄词面丢 6 真阳性的�
   assert.equal(detect(src).filter((x) => x.kind === 'cast').length, 1, '别名受体经别名集判定');
 });
 
+test('B3 承接账⑤ 受体词面扩（Minor-3——sg/dr/sessionGuard/docRegistry 别名逃逸面闭合）：四形态命中+子串假阳性对照零命中', () => {
+  // 词边界受体直接命中（(sg as any)/(dr as any) 旧词面逃逸形态）
+  assert.equal(detect('const c = (sg as any).logger;').length, 1, 'sg 词边界受体');
+  assert.equal(detect('const c = (dr as any).logger;').length, 1, 'dr 词边界受体');
+  // camelCase service 名受体（kit.sessionGuard/kit.docRegistry 深层链形态）
+  assert.equal(detect('const c = (kit.sessionGuard as any).logger;').length, 1, 'sessionGuard 词面');
+  assert.equal(detect('const c = (kit.docRegistry as any).logger;').length, 1, 'docRegistry 词面');
+  // RHS 资格面同扩（RECEIVER_GATEWAY_RE 同源）：service 别名入 R2 别名集
+  const src = ['const sg2 = kit.sessionGuard as any;', 'const q = sg2.logger;'].join('\n');
+  assert.equal(detect(src).filter((x) => x.kind === 'alias').length, 1, 'service 别名 R2 回收');
+  // 假阳性对照：子串无词边界不命中（扩面误报面控制——现场评估依据）
+  assert.equal(detect('const c = (sgStub as any).logger;').length, 0, 'sg 子串不命中（词边界）');
+  assert.equal(detect('const c = (drainOpts as any).logger;').length, 0, 'dr 子串不命中（词边界）');
+});
+
 test('I-1 别名 RHS 词面扩（重基线实测裁决）：camelCase 工厂 RHS（makeBareGateway/buildGateway）入别名集', () => {
   // 实锤形态：旧 gateway.spec :1688 `const g2 = makeBareGateway()` + :1691 `(g2 as any).selfIsolate`
   // ——窄词面 \bgateway\b（大小写敏感）漏 camelCase 工厂名⇒该 cast 逃逸（重基线 534→525 而非 526 的 −1 根因）

@@ -222,7 +222,7 @@ export class CollabPersistenceService {
     trigger: CollabStoreTrigger = 'debounce',   // Y0c T0：调用方归因（hooks 直通=debounce；既有白盒直调零参=默认档兼容）
   ): Promise<boolean> {
     const projectId = parseDocName(documentName)?.projectId ?? '';
-    if (this.deletedProjects.has(projectId)) return this.discardForGoneProject(projectId, documentName);   // V10：显式清账+点名
+    if (this.deletedProjects.has(projectId)) return this.discardForGoneProject(projectId);   // V10：显式清账+点名
     const queue = this.pendingQueues.get(projectId);
     if (!queue) {
       this.host.logger.error(`store for unobserved doc ${documentName}: listener never registered`);   // tripwire：!lastSV 同构物不得静默
@@ -410,8 +410,8 @@ export class CollabPersistenceService {
   }
 
   /** V10：终态拦截的显式清账——丢弃是对的，静默丢弃不是。Y1：丢弃=归属落定——leaveInFlight
-   *  （Set.delete 幂等；事件到达时 store 在飞的窗口由此收口，防已删项目永久占用 storeInFlight）。 */
-  private discardForGoneProject(projectId: string, documentName: string): boolean {
+   *  （Set.delete 幂等；事件到达时 store 在飞的窗口由此收口，防已删项目永久占用 storeInFlight）。B3 承接账②：documentName 形参删除（体内零消费——eslint unused 收口；调用点两处同文件内同步）。 */
+  private discardForGoneProject(projectId: string): boolean {
     const q = this.pendingQueues.get(projectId);
     const batches = q?.length ?? 0;
     if (q && batches > 0) {
@@ -919,7 +919,7 @@ export class CollabPersistenceService {
     if (this.spool.hasFrames(projectId)) this.schedulePersistRetry(projectId);   // Z11①（B1 平移注：裸 pid 形态逐字承 gateway 前文 :1462——疑点照搬不修登记遗留，后续批裁决）
     this.lastCompactAt.delete(projectId);                       // 卸载清理的第二入口（Task 7 钩子为第一入口）
     this.persistUnhealthy.delete(`project:${projectId}`);       // 陈旧电平（重连会补推失效横幅）
-    this.discardForGoneProject(projectId, `project:${projectId}`);   // X1：显式清队列+点名
+    this.discardForGoneProject(projectId);   // X1：显式清队列+点名
     this.recycleEmptyQueue(projectId);                           // M6：空队列条目回收（X17 同款——discard 后空数组条目随清）
   }
 

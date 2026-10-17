@@ -209,7 +209,7 @@ export function serverIdentityOf(u: { id: string; name: string; role: string }):
 }
 
 /** W3b host 最小接口（设计 §4.2——逐位消费点证明见各行注；「全消费零投机」纪律：无消费点的位置禁设）。
- *  4 位（logger/allDocuments/isServingState/isShuttingDownFlag）+现场核补 1 位 closeConnections
+ *  4 位（logger/allDocuments/isServingState/isDrainingDerived〔B3 承接账④更名，原 isShuttingDownFlag〕）+现场核补 1 位 closeConnections
  *  （closeTeamDocuments :1949 库 closeConnections 消费——设计 §4.2 表列漏位，DR shouldUnloadDocument
  *  同款先例，commit 披露/偏离登记）。 */
 export interface CollabSessionGuardHost {
@@ -221,8 +221,8 @@ export interface CollabSessionGuardHost {
   /** collabState serving 谓词（authenticateInner gate5 isLeaseServing 消费——V12 判据唯一化）。 */
   isServingState(): boolean;
   /** collabState draining 谓词（authenticateInner gate4 isShuttingDown + recheckConnection 升回守卫消费
-   *  ——现场实测=isShuttingDown() draining 派生〔非布尔 shuttingDown 关停闸〕；任务卡 4 位命名沿用，commit 披露）。 */
-  isShuttingDownFlag(): boolean;
+   *  ——isShuttingDown() draining 派生〔非布尔 shuttingDown 关停闸〕；B3 承接账④更名消同名异义〔Minor-4——persistence host 位 isShuttingDownFlag=真关停闸，两语义各归其名〕）。 */
+  isDrainingDerived(): boolean;
   /** 库 closeConnections（closeTeamDocuments :1949 消费——Connection.close→removeConnection 活 Map 删键，
    *  协议级 CLOSE；设计 §4.2 表列漏位，DR shouldUnloadDocument 同款先例补位）。 */
   closeConnections(name: string): void;
@@ -562,7 +562,7 @@ export class CollabSessionGuardService {
       const heapTripped = !hasDoc ? this.heapPressureSample().tripped : false;   // heapPressureSample 仅 !hasDoc 才采样（原短路 && 惰性——压力期放行存量编辑防自伤）
       const csv = requestParameters?.get('csv') ?? null;
       const docNameValid = isValidDocName(documentName);
-      const shuttingDown = this.host.isShuttingDownFlag();
+      const shuttingDown = this.host.isDrainingDerived();
       const leaseServing = this.host.isServingState();
       // admitQuery 惰性（半开探测槽不得提前消费）：首过 breakerOpen=false 判 gates1-5（decideAuthAdmission
       // 单源，禁复制门序逻辑），proceed 才真调 admitQuery——原 gate 序 heap→…→lease 全过才达熔断面语义保持。
@@ -958,7 +958,7 @@ export class CollabSessionGuardService {
    *  （原 :1631-1635 改 readOnly 不通知=静默分叉洞由单源内推送修复）；drain 冻结窗内复验 VIEWER
    *  结论走同一 applyWriteFreeze('viewer',true)——'draining' 原因并存（集合化=prev 快照跟随语义
    *  继任：60s 解除只移 'draining'，viewer 保持——不打穿越权写窗）。
-   *  W3b：isShuttingDown→host.isShuttingDownFlag()（draining）；isWritableOrDegraded→persistence 直引（§4.1）。 */
+   *  W3b：isShuttingDown→host.isDrainingDerived()（draining——B3 承接账④更名，原 isShuttingDownFlag）；isWritableOrDegraded→persistence 直引（§4.1）。 */
   private async recheckConnection(connection: { context?: { token?: string }; readOnly?: boolean; socketId?: string }, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid'; expiresAt?: Date }> {
     const token = connection.context?.token;
     if (!token) return { revoked: false, expiresAt: undefined };   // 无凭据（authenticate 必播种——理论不可达）不翻案
@@ -982,7 +982,7 @@ export class CollabSessionGuardService {
     // 由 writeFreeze 原因集各自保持：本分支只移除 'viewer' 原因，'draining'/'quota' 并存时
     // readOnly 不翻 false）；降级方向（上一分支）永不加守卫。
     if (role !== null && role !== 'PROJECT_VIEWER' && connection.readOnly
-      && !this.host.isShuttingDownFlag() && this.persistence.isWritableOrDegraded() === 'ok') {
+      && !this.host.isDrainingDerived() && this.persistence.isWritableOrDegraded() === 'ok') {
       this.applyWriteFreeze(connection as unknown as CollabConnection, 'viewer', false);   // 升回可写（VIEWER 翻案/授权变化——仅 serving+spool ok 期）
       this.rewriteAwarenessRole(connection, role, documentName);
     }

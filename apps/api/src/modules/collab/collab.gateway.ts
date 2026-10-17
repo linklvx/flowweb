@@ -1,20 +1,20 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Server } from '@hocuspocus/server';
-import type { afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeHandleMessagePayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';
+import type { Server, afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeHandleMessagePayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';   // B3 手段①：Server 值 import 随构造迁 collab-server.factory——本行并入 type-only（census ⑮ gateway 条目 2→1 同批）
 import type * as Y from 'yjs';   // W3a：值面消费（deepCopyYMap/loadDocument/vacuum 族）已随域迁 DR——仅委托位签名类型位残留（type-only 零运行时边）
 import { PrismaService } from '../../prisma/prisma.service';
 import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, registerAuthInflightReader, registerFrozenDocsReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerPendingCollector, registerDocResidueReader, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, registerAwarenessReader, unregisterAwarenessReader, registerOldestUnflushedReader, unregisterOldestUnflushedReader, registerDegradedDocsReader, unregisterDegradedDocsReader, registerUpdatesRowsReader, unregisterUpdatesRowsReader } from './store.metrics';
-import { encodeAwarenessUpdate } from 'y-protocols/awareness';
+import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService, raceDeadline, type PersistenceDocument } from './collab-persistence.service';
 import { CollabDocRegistryService, type QuotaConfig } from './collab-doc-registry.service';
 import { CollabSessionGuardService } from './collab-session-guard.service';
+import { createCollabServer } from './collab-server.factory';   // B3 手段①：Server 构造 options 块单源工厂（canvas-doc.factory 同址先例）
+import { wireCollabMetricsReaders } from './collab-observability-wiring';   // B3 手段②：metrics reader 注册块单源（unregister×9 关停面留本体）
 import { parseDocName } from './doc-name.util';
 import { CollabCloseCode } from '@flowweb/shared';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
@@ -48,14 +48,10 @@ export { TRUTH_COOLDOWN_MS, TOPN_LOG_INTERVAL_MS, TOPN_LOG_LIMIT, VACUUM_THAW_SE
  *  设计预估，现场实测无导入面，commit 披露）。census ⑤⑥⑪ 目标文件同批切换 SG。 */
 export { AWARENESS_FRAME_LIMIT_BYTES, AWARENESS_STATES_LIMIT_BYTES, AWARENESS_DISTINCT_USER_STRIP_OVER, BACKPRESSURE_DROP_BYTES, BACKPRESSURE_CLOSE_BYTES } from './collab-session-guard.service';
 
-/** 批3-4：COLLAB_DEBOUNCE 接线——显式注入（测试缝）> env > dev 1000 / prod 2000（原硬编码 5000
- *  收紧——连续编辑丢失窗口 prod ≤3s 闭环）；maxDebounce 写死 ≤ debounce×1.5（独立配置则窗口仍为旧值）。 */
-export function resolveCollabDebounce(explicit?: number): number {
-  if (explicit && explicit > 0) return explicit;
-  const fromEnv = Number(process.env.COLLAB_DEBOUNCE);
-  if (fromEnv > 0) return fromEnv;
-  return process.env.NODE_ENV === 'development' ? 1000 : 2000;
-}
+/** Y0c T42（B3 手段①）：resolveCollabDebounce 随 Server 构造迁 collab-server.factory（COLLAB_DEBOUNCE/
+ *  NODE_ENV 解析单点随消费点）——再导出保既有 import 面（collab.module.ts useFactory/env.spec 零触碰，
+ *  B1 COMPACT_INTERVAL_MS 同款先例）。 */
+export { resolveCollabDebounce } from './collab-server.factory';
 
 /** Y0b-4 T4（Q-A v5）：writeFreeze 冻结原因四分位——readOnly=原因集非空（单一真值），
  *  解除=移除本方原因（drain 解除不误赦免 viewer/spool/quota——H-5 prev 快照语义的集合化继任）。
@@ -322,13 +318,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     });
     // W3b：SessionGuard host 绑定（4+1 位——logger 共享实例保 spyLogger 断言面/allDocuments 库读面/
     // collabState serving+draining 谓词/closeConnections 库方法〔设计 §4.2 表列漏位，现场核补，DR
-    // shouldUnloadDocument 同款先例〕；isShuttingDownFlag 现场实测=isShuttingDown() draining 派生——
-    // authenticateInner gate4/recheckConnection 升回守卫消费，任务卡 4 位命名沿用，commit 披露）。
+    // shouldUnloadDocument 同款先例〕；B3 承接账④：SG 位更名 isShuttingDownFlag→isDrainingDerived
+    // ——现场实测=isShuttingDown() draining 派生〔非布尔 shuttingDown 关停闸〕，同名异义消歧〔质量评审
+    // Minor-4〕；persistence host 位 isShuttingDownFlag 不改名=真读 this.shuttingDown 关停闸，语义各归其名）。
     this.sessionGuard.bindHost({
       logger: this.logger,
       allDocuments: () => this.server.hocuspocus.documents,
       isServingState: () => this.collabState === 'serving',
-      isShuttingDownFlag: () => this.isShuttingDown(),
+      isDrainingDerived: () => this.isShuttingDown(),
       closeConnections: (name) => this.server.hocuspocus.closeConnections(name),
     });
     this.hooks = {
@@ -339,109 +336,25 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onAuthenticate: (p) => this.sessionGuard.authenticate(p),   // W3b：SessionGuard 域认证防线三层（refusalCache→信号量→桶→inner→DB）
       onLoadDocument: (p) => this.docRegistry.loadDocument(p),   // W3a：DocRegistry 域直调（钩子接线即编排点——B1 onStoreDocument 直通先例同款）
       onStoreDocument: (p) => this.persistence.storeDocumentUnlocked(p, 'debounce'),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）；Y0c T0：trigger=debounce（库防抖窗到期/断连冲刷同钩子）；B1：Persistence 域直调（非转发壳——钩子接线即编排点）
-      afterStoreDocument: (p) => this.afterStoreDocument(p),
+      // Y0a-2（V22 收缩）：afterStoreDocument=**存活计数探针**（yjs_store_hook_calls_total——钩子链健康面）。
+      // v1 的"队列非空∧非 spool 键"对账判据**撤**（去抖窗内正常新写入必命中=纯噪声——外审 E4 成立）；
+      // 真对账=storeDocumentUnlocked 成功路径的 **splice 点队首前进自检**（零误报）。探针永不抛
+      //（库 saveMutex 锁内执行——A14）。B3 手段④壳再薄化：私有壳唯一消费=本接线——内联（体逐字）。
+      afterStoreDocument: async () => { try { yjsStoreHookCallsTotal.inc(); } catch { /* 探针钩子永不抛 */ } },
       beforeHandleAwareness: (p) => { this.sessionGuard.guardAwarenessRate(p); this.sessionGuard.guardAwareness(p); return Promise.resolve(); },   // W3b：SessionGuard 域（Y0b-3 T7 states 三分支+Y0b-4 T6 独立限速——限速先行；guardAwareness 自吞异常，限速 throw 必须在外层）
       beforeHandleMessage: (p) => this.sessionGuard.guardMessageFrame(p),   // W3b：SessionGuard 域（Y0b-4 T6 awareness 帧闸〔判型单源 readFrameType〕+msg 桶计数 H-3）
       beforeSync: (p) => this.docRegistry.guardSyncFrame(p),   // Y0b-4 T4：配额判据唯一落点（分层：帧闸→bytes 桶→readOnly→over 短路→快路径→账面实测）；W3a：DocRegistry 域直调（RC2=A 分层判定链单一所有者）
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
-      afterUnloadDocument: (p) => this.afterUnloadDocument(p),   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）
+      afterUnloadDocument: async (p) => this.docRegistry.afterUnloadDocument(p.documentName),   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）；DocRegistry 域直调（钩子接线即编排点——onLoadDocument 同款；async 仅为满足库 hook 签名〔原私有壳 async 同形——DR 方法同步体〕；B3 手段④壳再薄化：15 容器清理/键集差异逐键钉死注释见 service 对应位〔W2 穷举单测 D1〕）
       onUpgrade: async (p) => this.sessionGuard.handleUpgrade(p),   // W3b：SessionGuard 域（Y0b-3 T2 Origin 403+升级限流 §3.1ter——socket 直写形态；async 仅为满足库 hook 签名，同步体全吞不 reject）
     };
-    const debounceMs = resolveCollabDebounce(debounce);
-    this.server = new Server({
-      port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
-      debounce: debounceMs,
-      maxDebounce: Math.ceil(debounceMs * 1.5),
-      // 批3-4 COLLAB_TIMEOUT：双语义——同一值既驱动握手/空闲超时，也驱动 ClientConnection 的
-      // 检查周期（库构造 setInterval(check, timeout)）——注入小值测 60s 死线时两者一起变小
-      timeout: timeout ?? (Number(process.env.COLLAB_TIMEOUT) || 30_000),
-      // 批3-2：库默认 stopOnSignals:true 在 listen() 注册信号 handler → destroy 后 process.exit(0)
-      // 抢跑 Nest drain 链（hocuspocus-server.esm.js:1684-1690）——信号统一交 app.enableShutdownHooks()
-      stopOnSignals: false,
-      // Y0a-4/P25 + Y0b-3 T2：绑定面默认收口 127.0.0.1（对外暴露必须显式 COLLAB_BIND_ADDR——
-      // ecosystem:27 已注入同值，翻转对部署零差异；本地 dev 直连 localhost 不受影响）。
-      // 键随读者：COLLAB_BIND_ADDR 同批进 config/env.ts（T1 结构锚方向二防死键）。
-      address: process.env.COLLAB_BIND_ADDR ?? '127.0.0.1',
-      // Y0a-4/P24 显式 pin 双旋钮 Server 级（B20/B26：库 defaultConfiguration 即 true/false——
-      // 文档锚防升级翻转，非行为修复）。Z82a（Y0c T21）：残存价值=护无会话 doc 的关页立即
-      // store（常驻路径「关页即 flush」已结构性失效，但无会话 doc 仍走库谓词卸载链）——
-      // 禁以「谓词已拦」为由关掉；断言锚=options.spec T21 组
-      unloadImmediately: true,
-      quiet: false,
-      connected: this.hooks.connected,   // Y0b-3 T6：寿命台账播种钩子接线
-      onAuthenticate: this.hooks.onAuthenticate,
-      onLoadDocument: this.hooks.onLoadDocument,
-      onStoreDocument: this.hooks.onStoreDocument,
-      afterStoreDocument: this.hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
-      beforeHandleAwareness: this.hooks.beforeHandleAwareness,   // Y0b-3 T7：awareness states 三分支覆写钩子接线（scratch Map 改写=重编码广播——esm:197-207）
-      beforeHandleMessage: this.hooks.beforeHandleMessage,   // Y0b-4 T6：msg 桶+awareness 帧闸钩子接线（ClientConnection.processMessages 每帧必经）
-      beforeSync: this.hooks.beforeSync,   // Y0b-4 T4：beforeSync 配额判据钩子接线（type=y-protocols 内层常量 0/1/2——非库 MessageType）
-      onDisconnect: this.hooks.onDisconnect,
-      beforeUnloadDocument: this.hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
-      afterUnloadDocument: this.hooks.afterUnloadDocument,   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理钩子接线（v4.6.0 Server 配置）
-      onUpgrade: this.hooks.onUpgrade,   // Y0b-3 T2：Origin 403+升级限流钩子接线（hook resolve 后库才 crossws.handleUpgrade）
-      // Y0a-3 T5/T6：跨实例扩展挂载删除（多实例权威=PG 租约 fence——单写者由租约保证，跨实例
-      // 消息同步退役；其固定断开延迟借道语义随之消失，service 本体已删）。
-      // Y0b-3 T1：库选项四 pin——文档锚防升级回落（断言在 collab-gateway.options.spec）。
-      websocketOptions: { maxPayload: 16 * 1024 * 1024 }, // §7.2 禁回落 ws 默认 100MiB；键集 ⊆ {maxPayload}（T1 断言）
-      maxUnauthenticatedQueueMessages: 256, // §3.1bis 4 pre-auth 三 pin（库默认 1e3）
-      maxUnauthenticatedQueueSize: 1024 * 1024, // 库默认 5MiB
-      maxPendingDocuments: 100, // 库默认即同值——显式 pin 防升级翻转（P24 先例）
-      // Y0b-4 T8（spec §4.1④/裁定 21）：gc pin——瘦身语义前提（gc:false=删除不收壳=Yjs 删除后
-      // 编码字节不回落=瘦身静默失效）。库默认即 true——显式声明防升级翻转（P24 文档锚先例）。
-      yDocOptions: { gc: true, gcFilter: () => true },
-    });
-    // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
-    // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
-    registerPendingCollector(() => this.computePending());
-    // Y0b-3 T3：collab_auth_inflight gauge collect 源（pendingCollector 同惯例——同进程单 gateway）
-    registerAuthInflightReader(() => this.sessionGuard.authInflight);   // W3b：authInflight 随域迁 SG（公有读面——B1 stuckDocsSeen 同款；reader 接线留本体）
-    // Y0b-3 T4：观测 gauge collect 源（pendingBytes/zeroConnDocs）+卡住观测器独立 timer
-    //（禁挂 startSessionSweep——SWEEP_ENABLED=false 逃生阀不得静默关掉观测）
-    registerHeapObserverReader(() => ({
-      pendingBytes: this.persistence.pendingBytesTotal(),   // B1：Σ 队列字节读面随域迁 service（现算零台账语义不变）
-      // Y0c T20（Z73 读者②）：零连接口径改读 WS/direct 分解——仅 WS 零且无 direct 持有（常驻会话
-      // 在=即用态非 stuck）才计入。旧口径 connections.size===0 会把常驻会话持有的无人 doc 全量计入
-      // （常驻后「零连接 doc」从异常变常态=纯噪声）；改读后 gauge 回缩为真 stuck 候选池（Z47 同族——
-      // computePending residentDocs/directConns 显式字段的 per-doc 镜像）。
-      zeroConnDocs: [...this.server.hocuspocus.documents.values()].filter((d) => d.connections.size === 0 && (d.directConnectionsCount ?? 0) === 0).length,
-    }));
-    // Y0b-4 T3：容量聚合 gauge collect 源（Σ(truth+delta)——最近实测+插值上界口径；W3a：台账读面
-    // 随域迁 DR 公有字段——reader 接线留本体〔metrics reader 注册在 gateway 构造器，B1 同款〕）
-    registerLoadedDocBytesReader(() => {
-      let sum = 0;
-      for (const [pid, t] of this.docRegistry.docTruth) sum += t + (this.docRegistry.docDelta.get(pid) ?? 0);
-      return sum;
-    });
-    // Y0b-4 T4：冻结面 gauge collect 源（quotaFrozenDocs.size——文档级注册表，与连接在线无关）
-    registerFrozenDocsReader(() => this.docRegistry.quotaFrozenDocs.size);
-    // Y0b-4 T9a：真空残留 gauge collect 源（Σ docResidue——无 projectId 标签，E54 基调）
-    registerDocResidueReader(() => {
-      let sum = 0;
-      for (const v of this.docRegistry.docResidue.values()) sum += v;
-      return sum;
-    });
-    // Y0b-5 T10：awareness 两 gauge collect 源（spec §5.2/E40——collect 现算 Σ：不解码不取字段仅
-    // Σ 编码字节；onAwarenessUpdate 未注册〔E73 观测钩子禁改写〕禁依赖——reader 只读 states Map）
-    registerAwarenessReader(() => {
-      let states = 0, bytes = 0;
-      for (const d of this.server.hocuspocus.documents.values()) {
-        const aw = (d as unknown as { awareness?: { states: Map<number, unknown> } }).awareness;
-        if (!aw?.states || aw.states.size === 0) continue;
-        states += aw.states.size;
-        bytes += encodeAwarenessUpdate(aw as never, [...aw.states.keys()]).byteLength;
-      }
-      return { states, bytes };
-    });
-    // Y0b-5 T14（E54⑤）：最老未 flush 年龄 gauge collect 源（pendingSince 台账——自愈漏清在方法内；B1 随域迁 service）
-    registerOldestUnflushedReader(() => this.persistence.oldestUnflushedAgeSeconds());
-    // Y0c T15（Z111）：装载降级 gauge collect 源（degradedDocs.size——Q-O 可见化+常驻阻断判据载体）
-    registerDegradedDocsReader(() => this.docRegistry.degradedDocs.size);
-    // Y0c T29-II（Z125-5）：canvasDocUpdate 总行数 gauge collect 源（prisma count 每 scrape 一次——
-    // */5 巡检面可接受；观测项非机制项，行数门归 Y1c-3 再裁）。注册落点=degradedDocs 惯例同款
-    //（api 侧持有 prisma 且与 gateway 同生命周期——worker 进程无 gateway⇒无 reader⇒折 0 同款语义）。
-    registerUpdatesRowsReader(() => this.prisma.canvasDocUpdate.count());
+    // Y0c T42（B3 手段①）：Server 构造 options 块=createCollabServer 单源（collab-server.factory——
+    // options/注释逐字平移；接线序不变：this.hooks 上方已赋值，工厂消费只读签名面）。
+    this.server = createCollabServer({ port, debounce, timeout, hooks: this.hooks });
+    // Y0c T42（B3 手段②）：metrics reader 注册块单源（collab-observability-wiring——注册时序=构造器末
+    // 原位；prisma=构造器参数名直通〔私有字段不扩公有面〕；unregister×9 关停面留 onApplicationShutdown 原位原序）。
+    wireCollabMetricsReaders(this, prisma);
     this.docRegistry.startHeapObserver();   // W3a：stuck 观测随域迁 DR（RC3——heapPressureSample 经 host 缝转发 sg）
     this.docRegistry.startFrozenRecheckTimer();   // Y0b-4 T4：冻结 doc 重测（独立 timer——禁挂 sweep 逃生阀）
     this.sessionGuard.syncOverloadGauge(false);   // W3b：heap 采样闸随域迁 SG——初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
@@ -597,13 +510,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.drainAutoReleaseTimer) { clearTimeout(this.drainAutoReleaseTimer); this.drainAutoReleaseTimer = null; }
   }
 
-  /** Y0a-2（V22 收缩）：afterStoreDocument=**存活计数探针**（yjs_store_hook_calls_total——钩子链健康面）。
-   *  v1 的"队列非空∧非 spool 键"对账判据**撤**（去抖窗内正常新写入必命中=纯噪声——外审 E4 成立）；
-   *  真对账=Task 3 storeDocumentUnlocked 成功路径的 **splice 点队首前进自检**（零误报）。
-   *  钩子体 try/catch 永不抛（在库 saveMutex 锁内执行——A14）。 */
-  private async afterStoreDocument(_p: Pick<afterStoreDocumentPayload, 'document' | 'documentName'>): Promise<void> {
-    try { yjsStoreHookCallsTotal.inc(); } catch { /* 探针钩子永不抛 */ }
-  }
+  /** Y0a-2（V22 收缩）：afterStoreDocument 存活计数探针——B3 手段④壳再薄化：内联进构造器 hooks
+   *  接线（探针体逐字平移，判据沿革注释随迁接线位）。 */
 
   /** Y0a-2（P1+V4 单源派生+Y5 键名）：pending 快照——B1 委托位⑤（实现随域迁 service：自有
    *  pendingQueues 单源遍历+spool.depth own/stranded 分区+host.docStats 库四连接计数〔Z47 显式
@@ -812,13 +720,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Y0b-4 T3 外审修复（I-1）：真卸载终态清理钩子壳（X4 永不抛语义在壳）——W3a：清理子步整体
-   *  随域迁 dr.afterUnloadDocument（truth 四件套+冻结族六件+代际/残留族+锚结算+Z110 storeFailedDocs
-   *  委托 delete，15 容器——库时序实证/「到达即必然真卸载」注释全文见 service 对应位；键集差异
-   *  逐键钉死=W2 穷举单测 D1）。 */
-  private async afterUnloadDocument({ documentName }: afterUnloadDocumentPayload): Promise<void> {
-    this.docRegistry.afterUnloadDocument(documentName);
-  }
+  /** Y0b-4 T3 外审修复（I-1）：真卸载终态清理——W3a 清理子步整体随域迁 dr.afterUnloadDocument；
+   *  B3 手段④壳再薄化：钩子接线改 DR 域直调（onLoadDocument 同款——15 容器/键集差异注释见接线位+service）。 */
 
   async onModuleInit(): Promise<void> {
     // 租约回调接线（W5 单点：启动只经 onAcquired；失守/撤销→selfIsolate）

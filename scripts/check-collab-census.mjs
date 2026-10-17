@@ -704,7 +704,10 @@ if (isMain()) {
       applyUpdate: { n: 2, until: '片D' },               // :255,:256 compact 方法内 temp doc 行集重放（scratch 离线，非 readSnapshotOnly——后者不 apply）
     },
     'apps/api/src/modules/collab/collab.gateway.ts': {
-      'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）——T41 W3a 后 applyUpdate 条目消失（loadDocument spool 帧装载 1 点随域迁 doc-registry，stale 机制核销）
+      'hocuspocus-server-import': { n: 1, until: '片D' },   // hook payload 类型 type-only 行（Server 类型并入同行——T42 B3 手段①：Server 值 import 随构造迁 collab-server.factory，2→1 drift 同批降登记）——T41 W3a 后 applyUpdate 条目消失（loadDocument spool 帧装载 1 点随域迁 doc-registry，stale 机制核销）
+    },
+    'apps/api/src/modules/collab/collab-server.factory.ts': {
+      'hocuspocus-server-import': { n: 1, until: '片D' },   // T42 B3 手段①：Server 值 import（createCollabServer 构造单源——经 gateway→doc service 引入闭包；原 gateway :3 条目随迁换宿主）
     },
     'apps/api/src/modules/collab/collab-session-guard.service.ts': {
       'hocuspocus-server-import': { n: 1, until: '片D' },   // T41 W3b：Document/hook payload（connectedPayload/onAuthenticatePayload/beforeHandleMessage/beforeHandleAwareness/onUpgradePayload）type-only import 一行（经 gateway 引入闭包；type-only 零运行时边——W3a DR/gateway 登记同款族）
@@ -959,8 +962,11 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
       COMPACT_INTERVAL_MS: 1,
     },
-    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（server COLLAB_PORT/TIMEOUT/BIND_ADDR）+函数内（resolveCollabDebounce COLLAB_DEBOUNCE/NODE_ENV）+listenCollab 日志（BIND_ADDR）；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目；T41 W3b：SG 域 14 键随域迁 collab-session-guard.service 条目（NODE_ENV 2→1 拆分：resolveCollabDebounce 支留 GW，resolveAllowedOrigins 支迁 SG）
-      COLLAB_DEBOUNCE: 1, NODE_ENV: 1, COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, COLLAB_BIND_ADDR: 2,
+    'apps/api/src/modules/collab/collab.gateway.ts': {   // T42 B3 手段①：server 构造四键随 createCollabServer 迁 collab-server.factory 条目+resolveCollabDebounce 两键同迁——gateway 留 listenCollab 日志 BIND_ADDR×1；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目；T41 W3b：SG 域 14 键随域迁 collab-session-guard.service 条目（NODE_ENV 2→1 拆分：resolveCollabDebounce 支留 GW〔B3 再迁 factory〕，resolveAllowedOrigins 支迁 SG）
+      COLLAB_BIND_ADDR: 1,
+    },
+    'apps/api/src/modules/collab/collab-server.factory.ts': {   // T42 B3 手段①：Server 构造 options 块+resolveCollabDebounce 随迁（createCollabServer 内 COLLAB_PORT/TIMEOUT/BIND_ADDR+函数内 COLLAB_DEBOUNCE/NODE_ENV——默认值落使用点纪律，自 gateway 条目随迁同计数换宿主）
+      COLLAB_DEBOUNCE: 1, NODE_ENV: 1, COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, COLLAB_BIND_ADDR: 1,
     },
     'apps/api/src/modules/collab/collab-session-guard.service.ts': {   // T41 W3b：SG 域 env 键随域迁（构造器 upgradeBucket COLLAB_UPGRADE_RATE_PER_MIN+方法内每调即读族 resolveAllowedOrigins〔ALLOWED_ORIGINS/BETTER_AUTH_URL/NODE_ENV〕/trustedProxyEnabled/refusalTtlMs/authAttemptsPerMin/authInflightMax/heapPressureSample〔ROLE/RSS×2/HEAP_RATIO〕/connMaxLifetimeMs/sweepSessions——默认值落使用点纪律，自 gateway 条目随迁；设计 §8.2 预估 14 键与现场实测吻合）
       COLLAB_UPGRADE_RATE_PER_MIN: 1, COLLAB_ALLOWED_ORIGINS: 1, BETTER_AUTH_URL: 1, NODE_ENV: 1,

@@ -14,7 +14,8 @@
 //   façade 豁免面（三单点）不变，SG/DR 私有成员触达同规则回收。
 // 检测规则（每触达点计 1；kind 标注来源规则）：
 //   R1 cast：stripped 源 `as any`/`as unknown as` token occurrence，**受体限定（I-1 波 1 评审，
-//      词面=实测裁决扩面）**=cast 链受体须含 gateway 对象词面（`/gateway|\bgw/i`——覆盖
+//      词面=实测裁决扩面；T42 B3 承接账⑤ 再扩 `\bsg\b|\bdr\b|sessionGuard|docRegistry`〔Minor-3
+//      service 别名逃逸面闭合——扩面后现状 0 违规 0 误报实测，执法加强非放松；自测扩例同批〕）**=cast 链受体须含 gateway 对象词面（`/gateway|\bgw/i`——覆盖
 //      gateway/kit.gateway/CollabGateway 类名静态/buildGateway 工厂/gw2 变体）∨ 含 gateway
 //      别名/型化局部名（词边界）；评审原案窄词面 `\bgw\b|\bgateway\b` 丢 6 真阳性实锤（类名
 //      静态 ×2/gw2 ×2/别名受体 ×2）。universe 含 logger/repo/transition/quota 等通用名，
@@ -24,8 +25,8 @@
 //      防 ASI 无分号跨语句漂移（本仓风格恒分号结尾；已知近似边界，自测钉行为）。
 //   R2 别名：`const g = <RHS 头部 gateway 词面> as any` / `const gw: any = <RHS 头部 gateway 词面>` /
 //      `g = <RHS 头部 gateway 词面> as any`（赋值语句——I-3③ 先声明后赋值形态）定义的文件级别名集。
-//      RHS 资格=表达式**头部**标识符链含 gateway 词面（RECEIVER_GATEWAY_RE=`/gateway|\bgw/i`
-//      同源——camelCase 工厂 makeGateway/buildGateway/gw2 亦入集；深层词面不算=构造参数里的
+//      RHS 资格=表达式**头部**标识符链含 gateway 词面（RECEIVER_GATEWAY_RE 同源〔含 B3 承接账⑤
+//      sg/dr/sessionGuard/docRegistry 扩面〕——camelCase 工厂 makeGateway/buildGateway/gw2 亦入集；深层词面不算=构造参数里的
 //      gatewayMock 不构成资格，重基线实测裁决）∧（cast token ∨ `: any` 注解）——免 cast 纳入
 //      会把公有方法 DTO/façade 转发对象同名字段裸读误计（degraded ×7/试点 ×9 实锤⇒cast 要求
 //      保留）。文件级近似=不做作用域分析——同名遮蔽场景由基线登记红人工复核吸收；二级别名
@@ -188,7 +189,10 @@ export function extractCastReceiver(src, castIndex) {
   return out;
 }
 
-const RECEIVER_GATEWAY_RE = /gateway|\bgw/i;
+// T42 B3 承接账⑤（Minor-3）：sg/dr/sessionGuard/docRegistry 词面扩——B2 后测试面经
+// gw.sessionGuard/gw.docRegistry 公有字段触达 SG/DR 私有成员，`const sg = … as any`/`(sg as any).x`
+// 别名形态旧词面逃逸；词边界钉死（sgStub/drainOpts 子串不命中——假阳性对照自测钉）。
+const RECEIVER_GATEWAY_RE = /gateway|\bgw|\bsg\b|\bdr\b|sessionGuard|docRegistry/i;
 
 /** 从 cast token 结束位向前扫成员链：跳过空白（含换行）/`)`/`?`/平衡 {}[]<>；标识符跳过
  *  ≤1 次（as unknown as 的类型名）；`.` 后 ident 收集；I-3①（波 1 评审）`['member']` 计算
@@ -449,8 +453,9 @@ const REGISTERED_RED = {
   // collab-shrink.spec.ts 登记已移除——T41 W3a 核销：freezeQuota ×3+scheduleFreezePending ×1+loadDocument ×2 改 gateway.docRegistry 直调=cast 消失（gw2 工厂变体同批消灭；repo mock 链经 repoRef 身份引用合法面不变）
   // collab-t20-ripples.spec.ts 登记已移除——T41 W3a 核销：recheckFrozenDocs ×3 改 gateway.docRegistry 直调=cast 消失（measureTruth/updateResidue spy 已经 façade spy 组替换——W3a 随域改道 docRegistryOf）
   // collab-upgrade.spec.ts 登记已移除——T41 W3b 核销：clientIpOf ×3+handleUpgrade ×2 改 gateway.sessionGuard 直调=cast 消失（handleUpgrade payload 侧 as any=夹具部分形状既有合法面，受体 gw.sessionGuard 公有非违规；upgradeBucket/allowedOrigins spy/logger spy 已替换）
-  // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换；T40 B1「不搬」裁决：clearDrainTimer=drain 编排域留 gateway 私有——承接账②/设计 §9② until 改 B3，B3 收敛时裁公有化或 façade stub）
-  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B3' } },
+  // collab-write-endpoint.int.spec.ts 登记已移除——T42 B3 承接账①核销：clearDrainTimer ×1 改
+  // gatewayFacade(gateway).clearDrainTimer() 直调=cast 消失（裁决=façade stub 非公有化——drain 编排域
+  // 留 gateway 私有，设计 §9②「B3 收敛时裁公有化或 façade stub」兑现；stale 机制强制核销，登记红终态 0）
   // collab.gateway.shutdown.spec.ts 登记已移除——T40 B1 核销：drainAllDocuments ×3 改 gateway.persistence 直调=cast 消失（stale 机制强制核销；storeDocumentSerialized/graceDirectConnections spy 已经 façade spy 组替换）
   // collab.gateway.spec.ts 登记已移除——T39b B0 波 1 试点替换全文件 façade 化（135→0，stale 机制强制核销）
   // collab.gateway.sweep.spec.ts 登记已移除——T41 W3b 核销：startSessionSweep ×10 改 gateway.sessionGuard 直调=cast 消失（closeTeamDocuments ×3 同批改 gw.sessionGuard 公有直调；sweepIntervalMs 赋值/stub 已经 stubSweepInterval 改道 sessionGuard）
