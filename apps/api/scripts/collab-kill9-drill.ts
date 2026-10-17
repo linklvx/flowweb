@@ -171,6 +171,7 @@ async function connectWrite(h: DrillHandle, projectId: string, nodes: number): P
       // （maxAttempts=0）→ 进程永生。掐法三连：cancel 已复活循环 + disconnect 复位 shouldConnect +
       // connect 置空（迟到定时器落地即 no-op——实例遮蔽原型方法）。
       // 退役判据：库升级（@hocuspocus/provider 修复 onClose/destroy 不清重连定时器缺陷）后复核并退役本兜底。
+      // T3 Minor-2：类型面除 connect 遮蔽外全可达（d.ts websocketProvider/cancelWebsocketRetry 均有）——cast 仅为此收窄。
       const w = (provider.configuration as any)?.websocketProvider;
       if (w) {
         try { w.cancelWebsocketRetry?.(); } catch { /* void */ }
@@ -181,9 +182,11 @@ async function connectWrite(h: DrillHandle, projectId: string, nodes: number): P
   };
   liveClients.add(entry);
   await new Promise<void>((r, rej) => {
-    provider.on('synced', () => r());
+    // T3 Important-1：成功路径清超时定时器（write-frozen :153-156 同构）——不清则 handover 持 entry
+    // 期间定时器提前 destroy 活跃 client（CI 冷启 sync>14s 真实可达）。
     // reject 前先 destroy：sync 超时是可抛路径——provider WS 不关会挂住事件循环，exitCode=1 收不了口
-    setTimeout(() => { entry.destroy(); rej(new Error('sync 超时')); }, 15_000);
+    const t = setTimeout(() => { entry.destroy(); rej(new Error('sync 超时')); }, 15_000);
+    provider.on('synced', () => { clearTimeout(t); r(); });
   });
   for (let i = 0; i < nodes; i++) ydoc.getMap('nodes').set(`drill-${i}`, new Y.Map([['x', i]]));
   keys.push(...[...ydoc.getMap('nodes').keys()]);
@@ -430,7 +433,7 @@ async function main(): Promise<void> {
   if (!DATABASE_URL) fail('DATABASE_URL 未设置');
   const mode = (process.argv.find((a) => a.startsWith('--mode=')) ?? '').slice(7);
   if (!['kill9-normal', 'kill9-fault', 'sigterm', 'handover'].includes(mode)) fail('usage: --mode=kill9-normal|kill9-fault|sigterm|handover [--spool-fail|--graceful|--usurp]');
-  await ensureCompiled();                      // 载体：tsc 全量（emitDecoratorMetadata）+node dist 子进程——见文件头
+  await ensureCompiled();                      // 载体：tsc 全量（emitDecoratorMetadata）+node dist-drill 子进程——见文件头
   const spoolDir = await mkdtemp(join(tmpdir(), 'y0a2-drill-spool-'));
   const env = { DATABASE_URL, COLLAB_SPOOL_DIR: spoolDir, NODE_ENV: 'development' };
   await ensureCollabSessionFixture(prisma!, PID, DRILL_TOKEN);   // V7b：User+Team+Project+TeamMember（缺它 authenticate FORBIDDEN）+Session
