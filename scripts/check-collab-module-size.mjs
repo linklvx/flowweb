@@ -45,7 +45,8 @@ if (isMain()) {
   const { structural, results } = checkSizes(SIZE_LIMITS);
   if (structural) { console.error(`check-collab-module-size: 结构性错误（exit 2）——锚文件缺失 ${structural}`); process.exit(2); }
   const pass = results.every((r) => r.pass);
-  console.log(`${pass ? 'PASS' : 'FAIL'}  check-collab-module-size（T42 B3 行数防倒退锚——Z96 计法对齐 wc -l；${results.map((r) => `${path.basename(r.file).replace(/\.ts$/, '')} ${r.lines}/${r.limit}`).join(' ')}）`);
-  for (const r of results.filter((x) => !x.pass)) console.log(`      - 超限 ${r.file}：实测 ${r.lines} > 锚 ${r.limit}（锚语义=防倒退禁再膨胀——偏离 65；超限即红，禁改锚绕行）`);
+  const summary = `${pass ? 'PASS' : 'FAIL'}  check-collab-module-size（T42 B3 行数防倒退锚——Z96 计法对齐 wc -l；${results.map((r) => `${path.basename(r.file).replace(/\.ts$/, '')} ${r.lines}/${r.limit}`).join(' ')}）`;
+  if (pass) console.log(summary); else console.error(summary);   // T43 Minor-1：FAIL 明细走 stderr（check-ecosystem 惯例对齐）
+  for (const r of results.filter((x) => !x.pass)) console.error(`      - 超限 ${r.file}：实测 ${r.lines} > 锚 ${r.limit}（锚语义=防倒退禁再膨胀——偏离 65；超限即红，禁改锚绕行）`);
   if (!pass) { console.error('check-collab-module-size FAIL'); process.exit(1); }
 }

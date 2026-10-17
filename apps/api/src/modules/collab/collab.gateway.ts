@@ -510,9 +510,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (this.drainAutoReleaseTimer) { clearTimeout(this.drainAutoReleaseTimer); this.drainAutoReleaseTimer = null; }
   }
 
-  /** Y0a-2（V22 收缩）：afterStoreDocument 存活计数探针——B3 手段④壳再薄化：内联进构造器 hooks
-   *  接线（探针体逐字平移，判据沿革注释随迁接线位）。 */
-
   /** Y0a-2（P1+V4 单源派生+Y5 键名）：pending 快照——B1 委托位⑤（实现随域迁 service：自有
    *  pendingQueues 单源遍历+spool.depth own/stranded 分区+host.docStats 库四连接计数〔Z47 显式
    *  分解字段 residentDocs/directConns〕；字段口径注释全文见 service computePending）。
@@ -719,9 +716,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.persistence.recycleEmptyQueue(projectId, documentName);
     }
   }
-
-  /** Y0b-4 T3 外审修复（I-1）：真卸载终态清理——W3a 清理子步整体随域迁 dr.afterUnloadDocument；
-   *  B3 手段④壳再薄化：钩子接线改 DR 域直调（onLoadDocument 同款——15 容器/键集差异注释见接线位+service）。 */
 
   async onModuleInit(): Promise<void> {
     // 租约回调接线（W5 单点：启动只经 onAcquired；失守/撤销→selfIsolate）
