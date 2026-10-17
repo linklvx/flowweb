@@ -491,22 +491,26 @@ if (isMain()) {
     for (const f of Object.keys(ENCODE_WHITELIST)) if (!counts.has(f)) details.push(`白名单点消失 ${f}（清单需同步）`);
     report('④', `encodeStateAsUpdate 生产白名单外清零（现行 ${Object.values(ENCODE_WHITELIST).reduce((a, b) => a + b, 0)} 点/7 文件）`, details.length === 0, details);
   }
-  // ⑤.bufferedAmount 仅 collab.gateway.ts 背压段（生产读点唯一——spec 装置除外）
+  // ⑤.bufferedAmount 生产读点唯一=wrapBackpressure（T41 W3b 锚随迁：wrapBackpressure 随域迁
+  //  collab-session-guard.service——目标文件切换同批〔偏离 66 族载体适配〕。扫描词面收窄 `bufferedAmount`→
+  //  `.bufferedAmount`〔属性读=生产读点〕：gateway CollabConnection 结构面 `bufferedAmount?: number` 类型
+  //  声明留 gateway〔W3a 共消费类型裁决〕，裸词扫描会双命中=假红；`.bufferedAmount` 精确隔离读点，commit 披露）
   {
-    const filesHit = files.filter((p) => byFile.get(p).stripped.includes('bufferedAmount')).map(relOf);
-    report('⑤', '.bufferedAmount 生产读点唯一=collab.gateway.ts（wrapBackpressure）', filesHit.length === 1 && filesHit[0] === 'apps/api/src/modules/collab/collab.gateway.ts',
+    const filesHit = files.filter((p) => byFile.get(p).stripped.includes('.bufferedAmount')).map(relOf);
+    report('⑤', '.bufferedAmount 生产读点唯一=collab-session-guard.service.ts（wrapBackpressure）', filesHit.length === 1 && filesHit[0] === 'apps/api/src/modules/collab/collab-session-guard.service.ts',
       filesHit.map((f) => `命中文件 ${f}`));
   }
-  // ⑥new TokenBucket gateway 内恰四处定义点（upgrade/msg/bytes/aware——参数不同不可共实例）
+  // ⑥new TokenBucket 恰四处定义点（upgrade/msg/bytes/aware——参数不同不可共实例）。T41 W3b 锚随迁：
+  //  四桶构造随域迁 collab-session-guard.service 构造器——扫描目标文件切换同批（字段名四个不变）。
   {
-    const gw = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab.gateway.ts');
-    const lines = scanLines(gw, 'stripped', (l) => /new TokenBucket/.test(l) ? 'def' : null);
+    const sg = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab-session-guard.service.ts');
+    const lines = scanLines(sg, 'stripped', (l) => /new TokenBucket/.test(l) ? 'def' : null);
     const fields = lines.map((h) => (h.text.match(/this\.(\w+)\s*=\s*new TokenBucket/) ?? [])[1]).filter(Boolean);
     const want = ['upgradeBucket', 'msgBuckets', 'bytesBuckets', 'awareBuckets'];
-    const stray = files.filter((p) => p !== gw && byFile.get(p).stripped.includes('new TokenBucket')).map(relOf);
+    const stray = files.filter((p) => p !== sg && byFile.get(p).stripped.includes('new TokenBucket')).map(relOf);
     const pass = fields.length === 4 && want.every((w) => fields.includes(w)) && stray.length === 0;
     report('⑥', 'new TokenBucket 恰四处定义点（upgrade/msg/bytes/aware）且无库外实例', pass,
-      [...(fields.length !== 4 || !want.every((w) => fields.includes(w)) ? [`实得字段集 [${fields.join(', ')}]（期望 [${want.join(', ')}]）`] : []), ...stray.map((f) => `gateway 外命中 ${f}`)]);
+      [...(fields.length !== 4 || !want.every((w) => fields.includes(w)) ? [`实得字段集 [${fields.join(', ')}]（期望 [${want.join(', ')}]）`] : []), ...stray.map((f) => `SG 外命中 ${f}`)]);
   }
   // ⑦web setSelection(/setAwarenessField('selection' 仅 awareness.ts 去抖单点（CanvasView 经桥调用）。
   //  raw 行扫描+注释行过滤：词表本身是字符串字面量实参——字符串内容剥离后会结构性消失（⑦特例）。
@@ -541,14 +545,17 @@ if (isMain()) {
       [...(hasStructs ? [] : ['缺 pendingStructs !== null 断言']), ...(hasDs ? [] : ['缺 pendingDs !== null 断言'])]);
   }
   // ⑪readOnly 生产直写点清单（Q-A 单源：applyWriteFreeze 唯一出口+auth connectionConfig 两点；
-  // Y0b-5 T16：viewer 改 auth 期意图+connected 登记=直写 3→2）
+  // Y0b-5 T16：viewer 改 auth 期意图+connected 登记=直写 3→2）。T41 W3b 锚随迁：auth connectionConfig×2
+  // （authenticateInner spool 降级/quotaFrozen）+applyWriteFreeze conn×1 随域迁 collab-session-guard.service
+  // ——目标文件切换同批（设计 §8.2 ⑪「文件无关全局计数/预期零脚本改动」现场核不成立：⑪ 硬编码 gateway
+  // 路径+applyWriteFreeze 体内判据，SG 公有方法无 private 修饰词⇒methodStart/applyEnd 检测同步适配，commit 披露）。
   {
-    const gwPath = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab.gateway.ts');
-    const gwLines = byFile.get(gwPath).stripped.split('\n');
+    const sgPath = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/collab-session-guard.service.ts');
+    const sgLines = byFile.get(sgPath).stripped.split('\n');
     const configWrites = [];
     const connWrites = [];
     const strayWrites = [];
-    gwLines.forEach((l, idx) => {
+    sgLines.forEach((l, idx) => {
       for (const m of l.matchAll(/([A-Za-z_$][\w$]*)\.readOnly\s*=/g)) {
         const lhs = m[1];
         if (lhs === 'connectionConfig') configWrites.push(idx + 1);
@@ -556,15 +563,15 @@ if (isMain()) {
         else strayWrites.push(`${idx + 1}: ${l.trim()}`);
       }
     });
-    const methodStart = gwLines.findIndex((l) => l.includes('private') && l.includes('applyWriteFreeze('));
-    const applyEnd = methodStart < 0 ? -1 : gwLines.slice(methodStart + 1).findIndex((l) => /^  (?:private|public|protected|readonly|async) /.test(l)) + methodStart + 1;
+    const methodStart = sgLines.findIndex((l) => /^  applyWriteFreeze\(/.test(l));   // SG 公有方法（2 空格缩进定义——非 this. 调用）
+    const applyEnd = methodStart < 0 ? -1 : sgLines.slice(methodStart + 1).findIndex((l) => /^  \}/.test(l)) + methodStart + 1;   // 方法闭合 2 空格 `}`（体内 try/catch 4 空格不误命中）
     const inApply = connWrites.length === 1 && methodStart >= 0 && connWrites[0] > methodStart && connWrites[0] < (applyEnd < 0 ? Infinity : applyEnd);
     const literalBans = files.filter((p) => /readOnly:\s*true/.test(byFile.get(p).stripped) && relOf(p).startsWith('apps/api/')).map(relOf);   // doc-status 快照 readOnly 字段防回潮（Q-A）
     const pass = configWrites.length === 2 && inApply && strayWrites.length === 0 && literalBans.length === 0;
     report('⑪', 'readOnly 直写=auth connectionConfig×2（spool 降级/quotaFrozen——viewer 走意图+connected 登记）+applyWriteFreeze×1（唯一出口）；readOnly:true 字面量清零', pass,
       [...(configWrites.length !== 2 ? [`connectionConfig.readOnly 直写 ${configWrites.length} 处（期望 2——spool 降级/quotaFrozen）`] : []),
        ...(inApply ? [] : [`conn.readOnly 直写 ${connWrites.length} 处且须恰 1 处位于 applyWriteFreeze 体内`]),
-       ...strayWrites.map((s) => `越面直写 gateway:${s}`),
+       ...strayWrites.map((s) => `越面直写 sg:${s}`),
        ...literalBans.map((f) => `readOnly: true 字面量命中 ${f}`)]);
   }
 
@@ -698,6 +705,9 @@ if (isMain()) {
     },
     'apps/api/src/modules/collab/collab.gateway.ts': {
       'hocuspocus-server-import': { n: 2, until: '片D' },   // :3,:4 Server/hook payload 类型（经 doc service 引入闭包）——T41 W3a 后 applyUpdate 条目消失（loadDocument spool 帧装载 1 点随域迁 doc-registry，stale 机制核销）
+    },
+    'apps/api/src/modules/collab/collab-session-guard.service.ts': {
+      'hocuspocus-server-import': { n: 1, until: '片D' },   // T41 W3b：Document/hook payload（connectedPayload/onAuthenticatePayload/beforeHandleMessage/beforeHandleAwareness/onUpgradePayload）type-only import 一行（经 gateway 引入闭包；type-only 零运行时边——W3a DR/gateway 登记同款族）
     },
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': {
       'hocuspocus-server-import': { n: 2, until: '片D' },   // T41 W3a：OutgoingMessage（thawQuota writeFirstSyncStepFor 回灌）值 import+Document/onLoadDocumentPayload/beforeSyncPayload 类型 import 两行
@@ -949,12 +959,14 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
       COMPACT_INTERVAL_MS: 1,
     },
-    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（upgradeBucket）+方法内每调即读族（allowedOrigins/refusalTtl 等）+函数内（resolveCollabDebounce）；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目（桶容量读面经 activeQuota 单源）
-      COLLAB_DEBOUNCE: 1, NODE_ENV: 2, COLLAB_UPGRADE_RATE_PER_MIN: 1,
-      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, COLLAB_BIND_ADDR: 2, COLLAB_ALLOWED_ORIGINS: 1, BETTER_AUTH_URL: 1,
-      COLLAB_TRUSTED_PROXY: 1, COLLAB_REFUSAL_CACHE_TTL_MS: 1, COLLAB_AUTH_ATTEMPTS_PER_MIN: 1,
-      COLLAB_AUTH_INFLIGHT_MAX: 1, COLLAB_ROLE: 1, COLLAB_RSS_TRIP_BYTES: 1, COLLAB_RSS_RELEASE_BYTES: 1,
-      COLLAB_HEAP_PRESSURE_RATIO: 1, COLLAB_CONN_MAX_LIFETIME_MS: 1, COLLAB_SWEEP_ENABLED: 1,
+    'apps/api/src/modules/collab/collab.gateway.ts': {   // 构造器（server COLLAB_PORT/TIMEOUT/BIND_ADDR）+函数内（resolveCollabDebounce COLLAB_DEBOUNCE/NODE_ENV）+listenCollab 日志（BIND_ADDR）；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目；T41 W3b：SG 域 14 键随域迁 collab-session-guard.service 条目（NODE_ENV 2→1 拆分：resolveCollabDebounce 支留 GW，resolveAllowedOrigins 支迁 SG）
+      COLLAB_DEBOUNCE: 1, NODE_ENV: 1, COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, COLLAB_BIND_ADDR: 2,
+    },
+    'apps/api/src/modules/collab/collab-session-guard.service.ts': {   // T41 W3b：SG 域 env 键随域迁（构造器 upgradeBucket COLLAB_UPGRADE_RATE_PER_MIN+方法内每调即读族 resolveAllowedOrigins〔ALLOWED_ORIGINS/BETTER_AUTH_URL/NODE_ENV〕/trustedProxyEnabled/refusalTtlMs/authAttemptsPerMin/authInflightMax/heapPressureSample〔ROLE/RSS×2/HEAP_RATIO〕/connMaxLifetimeMs/sweepSessions——默认值落使用点纪律，自 gateway 条目随迁；设计 §8.2 预估 14 键与现场实测吻合）
+      COLLAB_UPGRADE_RATE_PER_MIN: 1, COLLAB_ALLOWED_ORIGINS: 1, BETTER_AUTH_URL: 1, NODE_ENV: 1,
+      COLLAB_TRUSTED_PROXY: 1, COLLAB_REFUSAL_CACHE_TTL_MS: 1, COLLAB_AUTH_ATTEMPTS_PER_MIN: 1, COLLAB_AUTH_INFLIGHT_MAX: 1,
+      COLLAB_ROLE: 1, COLLAB_RSS_TRIP_BYTES: 1, COLLAB_RSS_RELEASE_BYTES: 1, COLLAB_HEAP_PRESSURE_RATIO: 1,
+      COLLAB_CONN_MAX_LIFETIME_MS: 1, COLLAB_SWEEP_ENABLED: 1,
     },
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': {   // T41 W3a：构造器（quota 四值 env 解析随域迁 DR——gateway Partial 直通+DI 路径构造期自足；设计 §8.2「quota 解析留 GW/DR 零 env 键」预估现场核不成立，commit 披露）
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,

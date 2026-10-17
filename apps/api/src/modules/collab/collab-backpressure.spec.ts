@@ -47,7 +47,7 @@ function makeStubWs(bufferedAmount: number) {
 }
 type StubWs = ReturnType<typeof makeStubWs>;
 
-const wrap = (gw: CollabGateway, ws: StubWs): void => (gw as any).wrapBackpressure({ webSocket: ws });
+const wrap = (gw: CollabGateway, ws: StubWs): void => gw.sessionGuard.wrapBackpressure({ webSocket: ws });
 
 /** prom-client 计数现值（rate-gate 同款） */
 async function counterOf(name: string, labels: Record<string, string> = {}): Promise<number> {
@@ -128,18 +128,23 @@ describe('Y0b-4 T7 出站背压 wrap（Q-F v2：每 send 判+决策/采样分离
     expect(ws.sent).toHaveLength(20);              // 零新增投递
   }, 15_000);
 
-  it('census ⑤：bufferedAmount 生产单源——apps/api/src 非测试文件仅 collab.gateway.ts 命中（wrap 决策唯一读点；spec 装置允许）', () => {
+  it('census ⑤：bufferedAmount 生产单源——apps/api/src 非测试文件仅 collab-session-guard.service.ts 命中 `.bufferedAmount`（wrap 决策唯一读点 W3b 随域迁 SG；spec 装置允许）', () => {
+    // T41 W3b 锚随迁（偏离 73——设计 §8.3 表列漏位：本 spec 内 census ⑤ 孪生锚未列于四锚清单，
+    // 但 §8.2 ⑤ 已裁 census 目标文件 gateway→SG，本 spec 孪生锚同批切换=机械随迁）。扫描词面
+    // `bufferedAmount`→`.bufferedAmount`（属性读=生产读点）：gateway CollabConnection 结构面
+    // `bufferedAmount?: number` 类型声明留 gateway（W3a 共消费类型裁决），裸词双命中=假红；`.` 前缀
+    // 精确隔离读点（census ⑤ 脚本同款收窄，判别力不降——唯一读点=SG wrapBackpressure）。
     const src = join(process.cwd(), 'src');   // cwd=包根（body-param-ratchet.spec 同款先例）
     const hits: string[] = [];
     const walk = (dir: string) => {
       for (const e of readdirSync(dir)) {
         const p = join(dir, e);
         if (statSync(p).isDirectory()) walk(p);
-        else if (e.endsWith('.ts') && !e.endsWith('.spec.ts') && readFileSync(p, 'utf8').includes('bufferedAmount')) hits.push(e);
+        else if (e.endsWith('.ts') && !e.endsWith('.spec.ts') && readFileSync(p, 'utf8').includes('.bufferedAmount')) hits.push(e);
       }
     };
     walk(src);
-    expect(hits).toEqual(['collab.gateway.ts']);
+    expect(hits).toEqual(['collab-session-guard.service.ts']);
   }, 15_000);
 
   it('maxPayload 维持 16MB（Q-T v4 撤回 9MB——零改动验证：Server 配置读回）；越界不变量 docSize≤maxDocBytes+maxFrameOvershoot 归 T4 用例（collab-quota-gate）不重写', () => {

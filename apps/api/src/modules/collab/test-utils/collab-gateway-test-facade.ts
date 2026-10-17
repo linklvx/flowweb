@@ -31,13 +31,13 @@ import * as Y from 'yjs';
 import { CollabGateway } from '../collab.gateway';
 import type { CollabPersistenceService } from '../collab-persistence.service';
 import type { CollabDocRegistryService } from '../collab-doc-registry.service';
+import { CollabSessionGuardService } from '../collab-session-guard.service';   // W3b：authDbDeadlineMs 静态读需类值引用（非 type-only）
 import type { TokenBucket } from '../token-bucket';
 
 /** gateway 内部成员镜像（测试触达面——类型索引访问单源；写面去 readonly 由 stub 方法内 cast 承担。
  *  B1〔T40〕：Persistence 族十成员迁 service——镜像面随迁 PersistenceInternals（persistOf 单点 cast），
  *  身份契约七处（:698/:1233/:1295/:1312/:1334/:1339/:1395）零变化=façade 返回 service Map 内真实引用。 */
 interface GatewayInternals {
-  writeFreeze: CollabGateway['writeFreeze'];
   collabState: CollabGateway['collabState'];
   initDone: CollabGateway['initDone'];
   shuttingDown: CollabGateway['shuttingDown'];
@@ -46,25 +46,44 @@ interface GatewayInternals {
   spool: CollabGateway['spool'];
   repo: CollabGateway['repo'];
   pgBreaker: CollabGateway['pgBreaker'];
-  refusalCache: CollabGateway['refusalCache'];
-  authInflightPeak: CollabGateway['authInflightPeak'];
-  permCache: CollabGateway['permCache'];
-  connectionIds: CollabGateway['connectionIds'];
-  clientIdOwner: CollabGateway['clientIdOwner'];
-  ownedClientIds: CollabGateway['ownedClientIds'];
-  socketIdentity: CollabGateway['socketIdentity'];
-  awarenessDriftLogged: CollabGateway['awarenessDriftLogged'];
-  connEstablishedAt: CollabGateway['connEstablishedAt'];
-  authAttemptBuckets: CollabGateway['authAttemptBuckets'];
-  bytesBuckets: CollabGateway['bytesBuckets'];
-  msgBuckets: CollabGateway['msgBuckets'];
-  awareBuckets: CollabGateway['awareBuckets'];
-  upgradeBucket: CollabGateway['upgradeBucket'];
 }
 
 /** 受控 cast 点①（sanctioned——门禁豁免面本体） */
 function internals(gw: CollabGateway): GatewayInternals {
   return gw as unknown as GatewayInternals;
+}
+
+/** SessionGuard service 内部成员镜像（T41 W3b/B2——SG 域 15 字段+4 私有方法迁 service；类型索引
+ *  访问单源 CollabSessionGuardService['member']，gateway 前提=`readonly sessionGuard` 公有字段，
+ *  persistOf/docRegistryOf/B1 同款；镜像面随迁=身份契约零变化〔façade 返回 service Map 内真实引用〕）。 */
+interface SessionGuardInternals {
+  // ── 限流四桶+认证防线三层态+连接寿命/标识台账+awareness 归属双索引/身份表+sweep 复验缓存+writeFreeze ──
+  writeFreeze: CollabSessionGuardService['writeFreeze'];
+  refusalCache: CollabSessionGuardService['refusalCache'];
+  authInflightPeak: CollabSessionGuardService['authInflightPeak'];
+  permCache: CollabSessionGuardService['permCache'];
+  connectionIds: CollabSessionGuardService['connectionIds'];
+  clientIdOwner: CollabSessionGuardService['clientIdOwner'];
+  ownedClientIds: CollabSessionGuardService['ownedClientIds'];
+  socketIdentity: CollabSessionGuardService['socketIdentity'];
+  awarenessDriftLogged: CollabSessionGuardService['awarenessDriftLogged'];
+  connEstablishedAt: CollabSessionGuardService['connEstablishedAt'];
+  authAttemptBuckets: CollabSessionGuardService['authAttemptBuckets'];
+  bytesBuckets: CollabSessionGuardService['bytesBuckets'];
+  msgBuckets: CollabSessionGuardService['msgBuckets'];
+  awareBuckets: CollabSessionGuardService['awareBuckets'];
+  upgradeBucket: CollabSessionGuardService['upgradeBucket'];
+  // ── 私有方法直调/spy 组（recheckConnection/closeAllConnections1012/sweepSessions/allowedOrigins 随域迁 SG） ──
+  recheckConnection: CollabSessionGuardService['recheckConnection'];
+  closeAllConnections1012: CollabSessionGuardService['closeAllConnections1012'];
+  sweepSessions: CollabSessionGuardService['sweepSessions'];
+  allowedOrigins: CollabSessionGuardService['allowedOrigins'];
+}
+
+/** 受控 cast 点⑤（W3b——SessionGuard 族单点收敛；gw.sessionGuard 本体公有非 cast 面，
+ *  persistOf/docRegistryOf 同款先例）。 */
+function sessionGuardOf(gw: CollabGateway): SessionGuardInternals {
+  return gw.sessionGuard as unknown as SessionGuardInternals;
 }
 
 /** DocRegistry service 内部成员镜像（T41 W3a/B2——DR 域 ~19 字段+3 私有方法迁 service；类型索引
@@ -133,17 +152,17 @@ function persistOf(gw: CollabGateway): PersistenceInternals {
 }
 
 // ── 波 2 entry 类型派生（索引访问单源——手写形状零漂移面，M-5 同款） ──
-type RefusalEntry = NonNullable<ReturnType<GatewayInternals['refusalCache']['get']>>;
-type PermCacheEntry = NonNullable<ReturnType<GatewayInternals['permCache']['get']>>;
-type SocketIdentityEntry = NonNullable<ReturnType<GatewayInternals['socketIdentity']['get']>>;
-type AuthAttemptEntry = NonNullable<ReturnType<GatewayInternals['authAttemptBuckets']['get']>>;
+type RefusalEntry = NonNullable<ReturnType<SessionGuardInternals['refusalCache']['get']>>;   // W3b：refusalCache 随域迁 SG——entry 型派生单源随迁
+type PermCacheEntry = NonNullable<ReturnType<SessionGuardInternals['permCache']['get']>>;
+type SocketIdentityEntry = NonNullable<ReturnType<SessionGuardInternals['socketIdentity']['get']>>;
+type AuthAttemptEntry = NonNullable<ReturnType<SessionGuardInternals['authAttemptBuckets']['get']>>;
 type OverPushEntry = NonNullable<ReturnType<DocRegistryInternals['overPush']['get']>>;   // W3a：overPush 台账随域迁 DR（RC2）——entry 型派生单源随迁
 type PreVacuumSv = NonNullable<ReturnType<DocRegistryInternals['preVacuumSvCache']['get']>>;   // W3a：SV 代际门缓存随域迁 DR
 
 /** writeFreeze conn 键形态受控 cast 单点（seedWriteFreeze/hasWriteFreezeReason 既有内联形态的
  *  波 2 收敛镜像——M-4：新扩方法禁新增内联 cast） */
 function writeFreezeMap(gw: CollabGateway): Map<object, { pid: string; reasons: Set<string> }> {
-  return internals(gw).writeFreeze as unknown as Map<object, { pid: string; reasons: Set<string> }>;
+  return sessionGuardOf(gw).writeFreeze as unknown as Map<object, { pid: string; reasons: Set<string> }>;   // W3b：writeFreeze 随域迁 SG（sessionGuardOf 单点）
 }
 
 /** TokenBucket 私有面镜像（options/buckets 是 TokenBucket 自身 private——rate-gate 桶容量/
@@ -157,9 +176,10 @@ function bucketInternals(bucket: TokenBucket): BucketInternals {
 }
 
 /** 替代 `(CollabGateway as any).AUTH_DB_DEADLINE_MS`（类名静态私有常量读——auth deadline
- *  推进断言面；模块级函数=façade 唯一非 class 方法出口，静态面不依赖实例） */
+ *  推进断言面；模块级函数=façade 唯一非 class 方法出口，静态面不依赖实例）。
+ *  W3b：AUTH_DB_DEADLINE_MS 静态随域迁 CollabSessionGuardService（读面改指 SG 类——façade 公有签名零变化）。 */
 export function authDbDeadlineMs(): number {
-  return (CollabGateway as unknown as { AUTH_DB_DEADLINE_MS: number }).AUTH_DB_DEADLINE_MS;
+  return (CollabSessionGuardService as unknown as { AUTH_DB_DEADLINE_MS: number }).AUTH_DB_DEADLINE_MS;
 }
 
 /** 私有方法转发面（直调/替换/spy 对象——方法族经索引访问取签名，运行时 private 仅 TS 层面） */
@@ -168,18 +188,16 @@ type GatewayMethods = {
   selfIsolate: CollabGateway['selfIsolate'];
   listenCollab: CollabGateway['listenCollab'];
   listenServer: CollabGateway['listenServer'];
-  recheckConnection: CollabGateway['recheckConnection'];
   transition: CollabGateway['transition'];
-  closeAllConnections1012: CollabGateway['closeAllConnections1012'];
   // ── 波 2 spy 组缺口扩面（偏离 64——spyOn 字符串成员形态的 sanctioned 替代面；
   //    直调族本体不转发=收窄裁决，spy 装置面照扩）。
   //    B1（T40）：reconcileSpool/schedulePersistRetry/cancelPersistRetry/retryPersist/
   //    storeDocumentSerialized/peekSpoolFrames 六法迁 service——转发面随迁 PersistenceInternals
   //    （persistOf 单点），façade 公有方法签名零变化。
   //    W3a（T41/B2）：heapUsedNow/measureTruth/updateResidue 三法迁 DR service——spy 面随迁
-  //    DocRegistryInternals（docRegistryOf 单点），façade 公有方法签名零变化。 ──
-  sweepSessions: CollabGateway['sweepSessions'];
-  allowedOrigins: CollabGateway['allowedOrigins'];
+  //    DocRegistryInternals（docRegistryOf 单点），façade 公有方法签名零变化。
+  //    W3b（T41/B2）：recheckConnection/closeAllConnections1012/sweepSessions/allowedOrigins 四法迁
+  //    SG service——spy/直调面随迁 SessionGuardInternals（sessionGuardOf 单点），façade 公有签名零变化。 ──
   graceDirectConnections: CollabGateway['graceDirectConnections'];
 };
 
@@ -324,13 +342,13 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).writeFreeze.set(conn, { pid, reasons: new Set([...]) })`（连接形态装置） */
   seedWriteFreeze(conn: object, pid: string, reasons: string[]): void {
-    const map = internals(this.gw).writeFreeze as unknown as Map<object, { pid: string; reasons: Set<string> }>;
+    const map = sessionGuardOf(this.gw).writeFreeze as unknown as Map<object, { pid: string; reasons: Set<string> }>;
     map.set(conn, { pid, reasons: new Set(reasons) });
   }
 
   /** 替代 `(gw as any).writeFreeze.get(conn)?.reasons.has(reason)` */
   hasWriteFreezeReason(conn: object, reason: string): boolean {
-    const map = internals(this.gw).writeFreeze as unknown as Map<object, { pid: string; reasons: Set<string> }>;
+    const map = sessionGuardOf(this.gw).writeFreeze as unknown as Map<object, { pid: string; reasons: Set<string> }>;
     return map.get(conn)?.reasons.has(reason) ?? false;
   }
 
@@ -369,7 +387,7 @@ export class GatewayTestFacade {
 
   /** 替代 `vi.spyOn(gw as any, 'closeAllConnections1012')`（1012 面免真关装置） */
   spyCloseAll1012() {
-    return vi.spyOn(methods(this.gw), 'closeAllConnections1012');
+    return vi.spyOn(sessionGuardOf(this.gw), 'closeAllConnections1012');   // W3b：随域迁 SG（sessionGuardOf 单点）
   }
 
   /** 替代 `vi.spyOn(gw as any, 'storeDocumentSerialized')`（M-4(a) 排程计数白盒；B1 随域迁
@@ -396,8 +414,8 @@ export class GatewayTestFacade {
   }
 
   /** 替代 `(gw as any).recheckConnection(conn, name)`（H-5×E13 复验直调） */
-  recheckConnection(...args: Parameters<GatewayMethods['recheckConnection']>): ReturnType<GatewayMethods['recheckConnection']> {
-    return methods(this.gw).recheckConnection(...args);
+  recheckConnection(...args: Parameters<SessionGuardInternals['recheckConnection']>): ReturnType<SessionGuardInternals['recheckConnection']> {
+    return sessionGuardOf(this.gw).recheckConnection(...args);   // W3b：recheckConnection 随域迁 SG（sessionGuardOf 单点）
   }
 
   /** 替代 `(gw as any).reconcileSpool()`（I4 收养回收闭环直调；B1 随域迁 service——persistOf 单点） */
@@ -608,114 +626,114 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).refusalCache.size`（清空单点断言面） */
   refusalCacheSize(): number {
-    return internals(this.gw).refusalCache.size;
+    return sessionGuardOf(this.gw).refusalCache.size;
   }
 
   /** 替代 `cache.set(fingerprint, { reason, at })`（refusalCache 播种——五钩子清空装置） */
   seedRefusal(fingerprint: string, reason: RefusalEntry['reason'], at: number): void {
-    internals(this.gw).refusalCache.set(fingerprint, { reason, at });
+    sessionGuardOf(this.gw).refusalCache.set(fingerprint, { reason, at });
   }
 
   /** 替代 `(gw as any).authInflightPeak`（读——演练判据③观测面） */
   authInflightPeak(): number {
-    return internals(this.gw).authInflightPeak;
+    return sessionGuardOf(this.gw).authInflightPeak;
   }
 
   /** 替代 `(gw as any).authInflightPeak = 0`（演练前置零装置） */
   resetAuthInflightPeak(): void {
-    internals(this.gw).authInflightPeak = 0;
+    sessionGuardOf(this.gw).authInflightPeak = 0;
   }
 
   /** 替代 `(gw as any).permCache.set(conn, { role, at })`（会话级结论缓存播种/老化装置） */
   seedPermCache(conn: object, role: PermCacheEntry['role'], at: number): void {
-    internals(this.gw).permCache.set(conn, { role, at });
+    sessionGuardOf(this.gw).permCache.set(conn, { role, at });
   }
 
   /** 替代 `cache.delete(conn)`（permCache 手动失效——事件触发复验装置） */
   evictPermCache(conn: object): void {
-    internals(this.gw).permCache.delete(conn);
+    sessionGuardOf(this.gw).permCache.delete(conn);
   }
 
   /** 替代 `(gw as any).connectionIds.set(socketId, cid)` */
   seedConnectionId(socketId: string, connectionId: string): void {
-    internals(this.gw).connectionIds.set(socketId, connectionId);
+    sessionGuardOf(this.gw).connectionIds.set(socketId, connectionId);
   }
 
   /** 替代 `(gw as any).connectionIds.get(socketId)` */
-  connectionIdOf(socketId: string): ReturnType<GatewayInternals['connectionIds']['get']> {
-    return internals(this.gw).connectionIds.get(socketId);
+  connectionIdOf(socketId: string): ReturnType<SessionGuardInternals['connectionIds']['get']> {
+    return sessionGuardOf(this.gw).connectionIds.get(socketId);
   }
 
   /** 替代 `(gw as any).connectionIds.has(socketId)` */
   connectionIdHas(socketId: string): boolean {
-    return internals(this.gw).connectionIds.has(socketId);
+    return sessionGuardOf(this.gw).connectionIds.has(socketId);
   }
 
   /** 替代 `(gw as any).clientIdOwner.has(clientId)` */
   clientIdOwnerHas(clientId: number): boolean {
-    return internals(this.gw).clientIdOwner.has(clientId);
+    return sessionGuardOf(this.gw).clientIdOwner.has(clientId);
   }
 
   /** 替代 `(gw as any).clientIdOwner.get(clientId)` */
-  clientIdOwnerOf(clientId: number): ReturnType<GatewayInternals['clientIdOwner']['get']> {
-    return internals(this.gw).clientIdOwner.get(clientId);
+  clientIdOwnerOf(clientId: number): ReturnType<SessionGuardInternals['clientIdOwner']['get']> {
+    return sessionGuardOf(this.gw).clientIdOwner.get(clientId);
   }
 
   /** 替代 `(gw as any).clientIdOwner.size` */
   clientIdOwnerSize(): number {
-    return internals(this.gw).clientIdOwner.size;
+    return sessionGuardOf(this.gw).clientIdOwner.size;
   }
 
   /** 两跳归并：`(gw as any).ownedClientIds.get((gw as any).clientIdOwner.get(cid))` 单操作化
    *  （返回 Map 内真实 Set 引用——上限槽位 live 断言面；pendingQueueRefForDoc 先例） */
-  ownedClientIdsOfClient(clientId: number): ReturnType<GatewayInternals['ownedClientIds']['get']> {
-    const sock = internals(this.gw).clientIdOwner.get(clientId);
-    return sock === undefined ? undefined : internals(this.gw).ownedClientIds.get(sock);
+  ownedClientIdsOfClient(clientId: number): ReturnType<SessionGuardInternals['ownedClientIds']['get']> {
+    const sock = sessionGuardOf(this.gw).clientIdOwner.get(clientId);
+    return sock === undefined ? undefined : sessionGuardOf(this.gw).ownedClientIds.get(sock);
   }
 
   /** 替代 `(gw as any).socketIdentity.set(socketId, ident)`（事件匹配依据播种装置） */
   seedSocketIdentity(socketId: string, ident: SocketIdentityEntry): void {
-    internals(this.gw).socketIdentity.set(socketId, ident);
+    sessionGuardOf(this.gw).socketIdentity.set(socketId, ident);
   }
 
   /** 替代 `(gw as any).socketIdentity.get(socketId)` */
-  socketIdentityOf(socketId: string): ReturnType<GatewayInternals['socketIdentity']['get']> {
-    return internals(this.gw).socketIdentity.get(socketId);
+  socketIdentityOf(socketId: string): ReturnType<SessionGuardInternals['socketIdentity']['get']> {
+    return sessionGuardOf(this.gw).socketIdentity.get(socketId);
   }
 
   /** 替代 `(gw as any).socketIdentity.has(socketId)`（断连清理断言面） */
   socketIdentityHas(socketId: string): boolean {
-    return internals(this.gw).socketIdentity.has(socketId);
+    return sessionGuardOf(this.gw).socketIdentity.has(socketId);
   }
 
   /** 替代 `(gw as any).awarenessDriftLogged.add(socketId)` */
   addAwarenessDriftLogged(socketId: string): void {
-    internals(this.gw).awarenessDriftLogged.add(socketId);
+    sessionGuardOf(this.gw).awarenessDriftLogged.add(socketId);
   }
 
   /** 替代 `(gw as any).awarenessDriftLogged.has(socketId)` */
   awarenessDriftLoggedHas(socketId: string): boolean {
-    return internals(this.gw).awarenessDriftLogged.has(socketId);
+    return sessionGuardOf(this.gw).awarenessDriftLogged.has(socketId);
   }
 
   /** 替代 `((gw as any).connEstablishedAt as Map<string, number>).set(socketId, ms)`（寿命 4402 装置） */
   seedConnEstablishedAt(socketId: string, ms: number): void {
-    internals(this.gw).connEstablishedAt.set(socketId, ms);
+    sessionGuardOf(this.gw).connEstablishedAt.set(socketId, ms);
   }
 
   /** 替代 `m.has(socketId)`（connEstablishedAt 键控清理断言面） */
   connEstablishedAtHas(socketId: string): boolean {
-    return internals(this.gw).connEstablishedAt.has(socketId);
+    return sessionGuardOf(this.gw).connEstablishedAt.has(socketId);
   }
 
   /** 替代 `(gw as any).authAttemptBuckets.set(key, entry)`（防线桶同批清装置） */
   seedAuthAttemptBucket(key: string, entry: AuthAttemptEntry): void {
-    internals(this.gw).authAttemptBuckets.set(key, entry);
+    sessionGuardOf(this.gw).authAttemptBuckets.set(key, entry);
   }
 
   /** 替代 `(gw as any).authAttemptBuckets.has(key)` */
   authAttemptBucketHas(key: string): boolean {
-    return internals(this.gw).authAttemptBuckets.has(key);
+    return sessionGuardOf(this.gw).authAttemptBuckets.has(key);
   }
 
   /** 替代 `(gw as any).overPush.set(socketId, state)` */
@@ -743,30 +761,30 @@ export class GatewayTestFacade {
 
   /** 替代 `(gw as any).upgradeBucket.consume(key)`（429 排空装置——consume 是 TokenBucket 公有面） */
   consumeUpgradeBucket(key: string): boolean {
-    return internals(this.gw).upgradeBucket.consume(key);
+    return sessionGuardOf(this.gw).upgradeBucket.consume(key);
   }
 
   /** 替代 `(gw as any).bytesBuckets.options.capacity`（桶容量≥最大合法帧不变量断言面） */
   bytesBucketCapacity(): number {
-    return bucketInternals(internals(this.gw).bytesBuckets).options.capacity;
+    return bucketInternals(sessionGuardOf(this.gw).bytesBuckets).options.capacity;
   }
 
   /** 替代 `(gw as any).bytesBuckets.consume(key, cost)`（cost>capacity 结构性恒 false 断言面） */
   consumeBytesBucket(key: string, cost: number): boolean {
-    return internals(this.gw).bytesBuckets.consume(key, cost);
+    return sessionGuardOf(this.gw).bytesBuckets.consume(key, cost);
   }
 
   /** 替代 `((gw as any).bytesBuckets.buckets.get(key) as { tokens: number }).tokens`（白盒排空证据） */
   bytesBucketTokens(key: string): number | undefined {
-    return bucketInternals(internals(this.gw).bytesBuckets).buckets.get(key)?.tokens;
+    return bucketInternals(sessionGuardOf(this.gw).bytesBuckets).buckets.get(key)?.tokens;
   }
 
   /** 替代 `(gw as any).{msgBuckets|bytesBuckets|awareBuckets}.buckets.has(key)`（onDisconnect
    *  三桶清理断言——三形态一操作归并） */
   rateBucketHasKey(kind: 'msg' | 'bytes' | 'aware', key: string): boolean {
-    const bucket = kind === 'msg' ? internals(this.gw).msgBuckets
-      : kind === 'bytes' ? internals(this.gw).bytesBuckets
-        : internals(this.gw).awareBuckets;
+    const bucket = kind === 'msg' ? sessionGuardOf(this.gw).msgBuckets
+      : kind === 'bytes' ? sessionGuardOf(this.gw).bytesBuckets
+        : sessionGuardOf(this.gw).awareBuckets;
     return bucketInternals(bucket).buckets.has(key);
   }
 
@@ -781,7 +799,7 @@ export class GatewayTestFacade {
   /** 替代 `(gw as any).sweepIntervalMs = fn`（jitter 隔离装置——方法实例属性遮蔽，
    *  stubTransition 同款白盒形态） */
   stubSweepInterval(fn: () => number): void {
-    (this.gw as unknown as Record<string, unknown>).sweepIntervalMs = fn;
+    (this.gw.sessionGuard as unknown as Record<string, unknown>).sweepIntervalMs = fn;   // W3b：sweepIntervalMs 随域迁 SG——实例属性遮蔽落 SG 实例（startSessionSweep schedule() 的 this.sweepIntervalMs() 命中）
   }
 
   // ── spy 组缺口扩（偏离 64——spyOn 字符串成员形态替代面；M-4 镜像模式收敛） ──
@@ -799,7 +817,7 @@ export class GatewayTestFacade {
 
   /** 替代 `vi.spyOn(gw as any, 'sweepSessions')`（风暴合并恰一次执行断言面） */
   spySweepSessions() {
-    return vi.spyOn(methods(this.gw), 'sweepSessions');
+    return vi.spyOn(sessionGuardOf(this.gw), 'sweepSessions');   // W3b：随域迁 SG（sessionGuardOf 单点）
   }
 
   /** 替代 `vi.spyOn(g, 'measureTruth')`（recheck 分支可达装置；W3a 随域迁 DR service） */
@@ -814,7 +832,7 @@ export class GatewayTestFacade {
 
   /** 替代 `vi.spyOn(gw as any, 'allowedOrigins')`（fail-open 兜底 TypeError 注入装置） */
   spyAllowedOrigins() {
-    return vi.spyOn(methods(this.gw), 'allowedOrigins');
+    return vi.spyOn(sessionGuardOf(this.gw), 'allowedOrigins');   // W3b：随域迁 SG（sessionGuardOf 单点）
   }
 
   /** 替代 `vi.spyOn(gw as any, 'graceDirectConnections')`（步骤 0 先于步骤 1.5 时序断言面） */

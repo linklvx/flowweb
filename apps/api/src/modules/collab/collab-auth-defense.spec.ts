@@ -103,7 +103,7 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
     gatewayFacade(gateway).seedPermCache(conn, 'PROJECT_EDITOR', Date.now());   // 连接时已复验（5min 会话级结论缓存播种）
     perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_VIEWER', teamId: 't1' });   // DB 直改——降级（session 仍有效）
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离时序（节奏锚在 perm-events spec）
-    (gateway as any).startSessionSweep();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
+    gateway.sessionGuard.startSessionSweep();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②）
     await vi.advanceTimersByTimeAsync(5 * 60_000 * 1.2 + 1_000);   // sweep 兜底窗（permCache 5min+上界）
     expect(conn.readOnly).toBe(true);                              // 改前红：复验未被调用
     expect(conn.webSocket.close).not.toHaveBeenCalled();           // 降级不断连（E13 语义=修越权写）
@@ -128,7 +128,7 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
       outcome === 'null 踢线' ? { role: null, teamId: 't1' } : { role: 'PROJECT_VIEWER', teamId: 't1' });
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离时序（节奏锚在 perm-events spec）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     await vi.advanceTimersByTimeAsync(60_000);   // tick（不越 grace 窗——sweep spec 先例形态）
     if (source === 'cache') {
       expect(prisma.session.findUnique).not.toHaveBeenCalled();   // 缓存命中零 DB（缓存命中不重查库锚）
@@ -160,7 +160,7 @@ describe('Y0b-3 T3 sweep 判据门（快照死线 ∨ permCache 5min 到期—�
     else vi.spyOn(spool, 'isWritable').mockReturnValue(false);   // isWritableOrDegraded()='spool-unwritable'
     perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });   // 复验 role 可写（冻结期授权变化场景）
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离时序（节奏锚在 perm-events spec）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     await vi.advanceTimersByTimeAsync(60_000);   // 一轮 sweep tick——permCache 无条目=首查必复验
     expect(conn.readOnly).toBe(true);            // 改前红：升回分支无条件翻 false=冻结窗内静默解冻
     expect(conn.webSocket.close).not.toHaveBeenCalled();   // 不解冻≠踢线（保持冻结只读）
@@ -263,17 +263,23 @@ describe('Y0b-3 T3 认证防线三层（refusalCache→信号量→桶）+清空
   });
 
   it('heap 释放→refusalCache 清空（T4 已接线：真实释放路径=heapPressureSample 采样翻转驱动 onServingTransition——releaseHook 一次性回调汇入同点；Y0b-5 T16 起清空点恰 2 处=serving 转移汇点+PG 半开成功钩子）', async () => {
-    const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
-    expect(src.match(/refusalCache\.clear\(\)/g)).toHaveLength(2);   // :onServingTransition + setOnRecovered 接线（Y0b-3 预埋锚按设计改写——非放宽）
+    const gwSrc = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
+    const sgSrc = readFileSync(resolve(__dirname, 'collab-session-guard.service.ts'), 'utf8');
+    // T41 W3b 锚随迁（§8.3-1/偏离 70①）：refusalCache 随域迁 SG——原 gateway「refusalCache.clear() 恰 2」
+    //（onServingTransition 体+setOnRecovered 接线）按新宿主重述，判别力不降：SG 清空单点方法体恰 1
+    // + GW setOnRecovered 接线恰 1 + SG serving 汇点（onServingTransition）调用恰 1（this. 前缀精确隔离注释）
+    expect(sgSrc.match(/this\.refusalCache\.clear\(\)/g)).toHaveLength(1);   // SG clearRefusalCache 方法体单点
+    expect(gwSrc.match(/this\.sessionGuard\.clearRefusalCache\(\)/g)).toHaveLength(1);   // GW setOnRecovered 接线恰 1
+    expect(sgSrc.match(/this\.clearRefusalCache\(\)/g)).toHaveLength(1);   // SG serving 汇点调用恰 1
     const { gateway } = buildGateway();
     const gf = gatewayFacade(gateway);
     gf.seedRefusal('doc|t:abc', 'server-overloaded', Date.now());
     stubHeapMeasure({ heapUsed: 0.9e9, heapLimit: 1e9, rss: 100 * 1024 * 1024 });
     measureHeapPressure(); measureHeapPressure();   // util 迟滞预热（2 连续采样=trip）
-    (gateway as any).heapPressureSample();          // 直调族（偏离 64②）——trip 翻转（gauge+日志；缓存不清）
+    gateway.sessionGuard.heapPressureSample();          // 直调族（偏离 64②）——trip 翻转（gauge+日志；缓存不清）
     expect(gf.refusalCacheSize()).toBe(1);
     stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * 1024 * 1024 });   // 双项低于释放线
-    (gateway as any).heapPressureSample();          // released 翻转→onServingTransition 清空
+    gateway.sessionGuard.heapPressureSample();          // released 翻转→onServingTransition 清空
     expect(gf.refusalCacheSize()).toBe(0);
   });
 
@@ -316,7 +322,7 @@ describe('Y0b-3 T3 指标注册', () => {
     try {
       let rejectLater!: (e: Error) => void;
       const slow = new Promise<never>((_res, rej) => { rejectLater = rej; });   // 永挂的"底层查询"
-      await expect((gateway as any).withAuthDeadline(slow)).rejects.toMatchObject({ reason: 'db-unavailable' });
+      await expect(gateway.sessionGuard.withAuthDeadline(slow)).rejects.toMatchObject({ reason: 'db-unavailable' });
       rejectLater(new Error('late failure'));   // race 已弃分支——迟到 reject
       await new Promise((r) => setTimeout(r, 20));
       expect(unhandled).toHaveLength(0);
@@ -349,7 +355,7 @@ describe('Y0b-3 T3 指标注册', () => {
       const before = await value();
       let rejectLater!: (e: Error) => void;
       const slow = new Promise<never>((_res, rej) => { rejectLater = rej; });
-      const raced = (gateway as any).withAuthDeadline(slow).catch((e: any) => e?.reason);
+      const raced = gateway.sessionGuard.withAuthDeadline(slow).catch((e: any) => e?.reason);
       await vi.advanceTimersByTimeAsync(authDbDeadlineMs() + 1);
       expect(await raced).toBe('db-unavailable');
       expect(await value()).toBe(before + 1);   // 恰一次

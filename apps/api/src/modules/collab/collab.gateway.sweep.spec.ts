@@ -98,7 +98,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②；本文件 ×10 同判）
+    gateway.sessionGuard.startSessionSweep();   // 直调族——B1-B3 公有化后 cast 消失（偏离 64②；本文件 ×10 同判）
     await vi.advanceTimersByTimeAsync(65_000);
     expect(conn.sendStateless).toHaveBeenCalledTimes(1);
     expect(conn.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'session-expiring' }));
@@ -112,7 +112,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(conn.webSocket.close).not.toHaveBeenCalled();
     expect(conn.sendStateless).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(conn.sendStateless).toHaveBeenCalledTimes(1);
@@ -144,7 +144,7 @@ describe('批3-4 session sweep', () => {
     gatewayFacade(gateway).seedPermCache(conn, 'PROJECT_EDITOR', Date.now());   // 首查已做（T3 起无条目=首查必复验——判据门语义变更）
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(prisma.session.findUnique).not.toHaveBeenCalled();
     expect(conn.webSocket.close).not.toHaveBeenCalled();
@@ -158,7 +158,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
 
     await vi.advanceTimersByTimeAsync(65_000);
     expect(conn.webSocket.close).not.toHaveBeenCalled();
@@ -175,7 +175,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     await vi.advanceTimersByTimeAsync(65_000);
     expect(conn.webSocket.close).toHaveBeenCalledWith(4401, 'session-expired');
   });
@@ -187,7 +187,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
 
     for (let i = 0; i < 4; i++) {
       await vi.advanceTimersByTimeAsync(60_000);
@@ -204,7 +204,7 @@ describe('批3-4 session sweep', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
 
     prisma.session.findUnique.mockRejectedValue(new Error('flap'));
     for (let i = 0; i < 4; i++) await vi.advanceTimersByTimeAsync(60_000);   // 4 连败
@@ -217,7 +217,7 @@ describe('批3-4 session sweep', () => {
   });
 
   it('原生 setTimeout 自排链 + unref（源码断言——禁 @Cron/@Interval 死代码形态，R28；Y0b-3 T8 起 setTimeout 链承载 jitter 间隔逐轮重排）', () => {
-    const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
+    const src = readFileSync(resolve(__dirname, 'collab-session-guard.service.ts'), 'utf8');   // T41 W3b 锚随迁（§8.3-3/偏离 70③）：startSessionSweep setTimeout 自排链随域迁 SG——readFileSync 宿主切换，断言逐字保留
     expect(src).toMatch(/sessionSweepTimer\s*=\s*setTimeout/);
     expect(src).toMatch(/sessionSweepTimer\.unref/);
     expect(src).toMatch(/sweepIntervalMs\(\)/);
@@ -238,7 +238,7 @@ describe('批3-4 closeTeamDocuments 补 webSocket.close', () => {
       }
     });
 
-    gateway.closeTeamDocuments(['p1']);
+    gateway.sessionGuard.closeTeamDocuments(['p1']);
 
     expect(gateway.server.hocuspocus.closeConnections).toHaveBeenCalledWith('project:p1');
     expect(c1.webSocket.close).toHaveBeenCalled();
@@ -251,7 +251,7 @@ describe('批3-4 closeTeamDocuments 补 webSocket.close', () => {
     c1.webSocket.close.mockImplementation(() => { throw new Error('already closed'); });
     const c2 = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [c1, c2]);
-    expect(() => gateway.closeTeamDocuments(['p1'])).not.toThrow();
+    expect(() => gateway.sessionGuard.closeTeamDocuments(['p1'])).not.toThrow();
     expect(c2.webSocket.close).toHaveBeenCalled();
   });
 
@@ -264,7 +264,7 @@ describe('批3-4 closeTeamDocuments 补 webSocket.close', () => {
     gf.seedConnEstablishedAt('sock-d1', Date.now());
     gf.seedConnEstablishedAt('sock-d2', Date.now());
     gf.seedConnEstablishedAt('sock-other-doc', Date.now());
-    gateway.closeTeamDocuments(['p1']);
+    gateway.sessionGuard.closeTeamDocuments(['p1']);
     expect(gf.connEstablishedAtHas('sock-d1')).toBe(false);
     expect(gf.connEstablishedAtHas('sock-d2')).toBe(false);
     expect(gf.connEstablishedAtHas('sock-other-doc')).toBe(true);
@@ -279,7 +279,7 @@ describe('Y0b-3 T6 连接寿命 4402（socketId 键控——sweep tick 同一脉
     seedDocument(gateway, 'project:aged', [conn]);
     gateway.hooks.connected({ socketId: 'sock-aged', documentName: 'project:aged' } as any);   // connected 播种 connEstablishedAt
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     // 设计注释（算术）：sweep tick=60s，12h=720 tick。先推 718 tick（12h−120s）停在死线前——
     // 每步都未越线（判据 12h−120s+i×60s>12h 恒 false），断言零 close；再推 180s（3 tick）必越线，
     // 越线后的首个 tick 关（4402）。两段式=把"死线前零误关"与"越线必关"拆成独立断言。
@@ -300,7 +300,7 @@ describe('Y0b-3 T6 连接寿命 4402（socketId 键控——sweep tick 同一脉
     seedDocument(gateway, 'project:shortlived', [conn]);
     gateway.hooks.connected({ socketId: 'sock-short', documentName: 'project:shortlived' } as any);
     gatewayFacade(gateway).stubSweepInterval(() => 60_000);   // Y0b-3 T8 jitter：固定间隔隔离本用例时序算术（5min±20% 节奏由 perm-events spec 覆盖）
-    (gateway as any).startSessionSweep();
+    gateway.sessionGuard.startSessionSweep();
     // env=1000ms 时死线远小于 60s tick——首个 tick（60s）即已越线并 close（原注释"首 tick 未越线
     // 第二 tick 越线"与实际时序不符——勘正；推进 120s=跨越首个 tick 的裕量写法）
     await vi.advanceTimersByTimeAsync(120_000);

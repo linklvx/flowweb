@@ -3,6 +3,7 @@ import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { CollabDocRegistryService } from './collab-doc-registry.service';
+import { CollabSessionGuardService } from './collab-session-guard.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
 import { CollabResidencyService } from './collab-residency.service';
@@ -49,6 +50,7 @@ import { WorkerPresenceModule } from '../worker-presence/worker-presence.module'
     CollabPgBreakerService,   // Y0b-5 T16：PG 熔断器（准入+store 短路——单例供 gateway/ready 同读）
     CollabPersistenceService,   // Y0c T40（B1）：Persistence 域 service（store/spool/drain/pending 单一所有者——gateway 尾参 @Optional 注入+bindHost 后置绑定；单例=与 gateway 自建路径同一 pgBreaker/repo/spool 实例面）
     CollabDocRegistryService,   // Y0c T41（W3a/B2）：DocRegistry 域 service（doc 生命周期账目单一所有者——truth/冻结族/真空代际/doc-status/stuck 账目/residency 释放入口〔RC1=B 组合持有〕；gateway 尾参 @Optional 注入+bindHost 后置绑定，B1 同款；单例=与 gateway 自建路径同一 repo/persistence/pgBreaker 实例面，quota 四值构造期 env 解析单点在 DR）
+    CollabSessionGuardService,   // Y0c T41（W3b/B2）：SessionGuard 域 service（连接鉴权/限流/awareness 判定单一所有者——限流四桶/认证防线三层/连接寿命标识台账/awareness 归属双索引/writeFreeze 冻结层单源/heap 采样闸〔RC3〕/sweep 复验；gateway 尾参 @Optional 注入+bindHost 后置绑定，B1/W3a 同款；SG→DR 构造直引〔RC4 connected/RC2 老化清理〕，DR→SG 能力经 DR host 缝 gateway 侧转发 sg.*〔DR 文件两波零改动〕；单例=与 gateway 自建路径同一 sessionSvc/perm/pgBreaker/persistence/docRegistry 实例面）
     CollabReadyService,   // Y0a-3 T7：/api/ready 组装（G-4 九档+1s 单飞）
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）

@@ -415,15 +415,12 @@ export const MEMBER_OWNERSHIP = {
 //    历史：波 1 评审勘正轮重基线（I-1 受体限定 8 处假阳性根修 + 词面扩面 12 处真绕过逃逸回收）
 //    基线 534→538 处/29 文件、波 1 试点后 403 处/28 文件（全登记 until='T39b-2'）。 ──
 const REGISTERED_RED = {
-  // 直调族——startSessionSweep ×3+heapPressureSample ×2+withAuthDeadline ×2（AUTH_DB_DEADLINE_MS 静态读已经 authDbDeadlineMs() 替换）
-  'apps/api/src/modules/collab/collab-auth-defense.spec.ts': { 'facade-bypass': { n: 7, until: 'B1-B3' } },
-  // 直调族——B1-B3 公有化后 cast 消失触发 stale 核销（偏离 64②；下同）：wrapBackpressure ×1
-  'apps/api/src/modules/collab/collab-backpressure.spec.ts': { 'facade-bypass': { n: 1, until: 'B1-B3' } },
+  // collab-auth-defense.spec.ts 登记已移除——T41 W3b 核销：startSessionSweep ×3+heapPressureSample ×2+withAuthDeadline ×2 改 gateway.sessionGuard.<public> 直调=cast 消失（SG 公有化，stale 机制强制核销；AUTH_DB_DEADLINE_MS 静态读已经 authDbDeadlineMs() 改指 CollabSessionGuardService）
+  // collab-backpressure.spec.ts 登记已移除——T41 W3b 核销：wrapBackpressure ×1 改 gateway.sessionGuard 直调=cast 消失
   // collab-degraded.spec.ts 登记已移除——T41 W3a 核销：loadDocument ×1 改 gateway.docRegistry.<public> 直调=cast 消失（DR 公有化，stale 机制强制核销；下同）
   // collab-heap-gate.spec.ts 登记已移除——T41 W3a 核销：loadDocument ×2 改 gateway.docRegistry 直调=cast 消失
   // collab-metrics-observability.spec.ts 登记已移除——T41 W3a 核销：loadDocument ×4+logDocTopN ×1 改 gateway.docRegistry 直调=cast 消失（heapUsedNow spy 已经 façade spy 组替换——W3a 随域改道 docRegistryOf；T40 B1 核销沿革见旧注：maybeCompact/storeDocumentUnlocked/unloadDocument 改道）
-  // 直调族——sweepIntervalMs bind 读点 ×1+wirePermChangedEvents ×7+sweepSessions ×3+guardAwareness ×2（sweepSessions spy 已经 façade spy 组替换）
-  'apps/api/src/modules/collab/collab-perm-events.spec.ts': { 'facade-bypass': { n: 13, until: 'B1-B3' } },
+  // collab-perm-events.spec.ts 登记已移除——T41 W3b 核销：sweepIntervalMs bind 读点 ×1（承接账④改 gw.sessionGuard.sweepIntervalMs.bind）+wirePermChangedEvents ×7+sweepSessions ×3+guardAwareness ×2 改 gateway.sessionGuard 直调=cast 消失（sweepSessions spy 已经 façade spy 组改道 sessionGuardOf）
   // collab-quota-gate.spec.ts 登记已移除——波 2 全量替换清零（25→0；freezeDoc(gw:any) 参数别名内
   // freezeQuota 直调=I-3④ 已知逃逸面——T41 W3a 承接账④兑现：freezeDoc 参数改型 CollabGateway+
   // gw.docRegistry.freezeQuota 公有直调，逃逸面闭合）
@@ -431,14 +428,12 @@ const REGISTERED_RED = {
   // collab-runtime-metrics.spec.ts 登记已移除——T41 W3a 核销：loadDocument ×1 改 gateway.docRegistry 直调=cast 消失（T40 B1 核销沿革见旧注）
   // collab-shrink.spec.ts 登记已移除——T41 W3a 核销：freezeQuota ×3+scheduleFreezePending ×1+loadDocument ×2 改 gateway.docRegistry 直调=cast 消失（gw2 工厂变体同批消灭；repo mock 链经 repoRef 身份引用合法面不变）
   // collab-t20-ripples.spec.ts 登记已移除——T41 W3a 核销：recheckFrozenDocs ×3 改 gateway.docRegistry 直调=cast 消失（measureTruth/updateResidue spy 已经 façade spy 组替换——W3a 随域改道 docRegistryOf）
-  // 直调族——clientIpOf ×3+handleUpgrade ×2（upgradeBucket/allowedOrigins spy/logger spy 已替换）
-  'apps/api/src/modules/collab/collab-upgrade.spec.ts': { 'facade-bypass': { n: 5, until: 'B1-B3' } },
-  // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换；T40 B1「不搬」裁决：clearDrainTimer=drain 编排域留 gateway 私有——until 改 B2-B3）
-  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B2-B3' } },
+  // collab-upgrade.spec.ts 登记已移除——T41 W3b 核销：clientIpOf ×3+handleUpgrade ×2 改 gateway.sessionGuard 直调=cast 消失（handleUpgrade payload 侧 as any=夹具部分形状既有合法面，受体 gw.sessionGuard 公有非违规；upgradeBucket/allowedOrigins spy/logger spy 已替换）
+  // 直调族——clearDrainTimer ×1（transition 已经 façade transitionState 替换；T40 B1「不搬」裁决：clearDrainTimer=drain 编排域留 gateway 私有——承接账②/设计 §9② until 改 B3，B3 收敛时裁公有化或 façade stub）
+  'apps/api/src/modules/collab/collab-write-endpoint.int.spec.ts': { 'facade-bypass': { n: 1, until: 'B3' } },
   // collab.gateway.shutdown.spec.ts 登记已移除——T40 B1 核销：drainAllDocuments ×3 改 gateway.persistence 直调=cast 消失（stale 机制强制核销；storeDocumentSerialized/graceDirectConnections spy 已经 façade spy 组替换）
   // collab.gateway.spec.ts 登记已移除——T39b B0 波 1 试点替换全文件 façade 化（135→0，stale 机制强制核销）
-  // 直调族——startSessionSweep ×10（sweepIntervalMs 赋值/stub 已经 stubSweepInterval 替换；解构 perm 提取已消除）
-  'apps/api/src/modules/collab/collab.gateway.sweep.spec.ts': { 'facade-bypass': { n: 10, until: 'B1-B3' } },
+  // collab.gateway.sweep.spec.ts 登记已移除——T41 W3b 核销：startSessionSweep ×10 改 gateway.sessionGuard 直调=cast 消失（closeTeamDocuments ×3 同批改 gw.sessionGuard 公有直调；sweepIntervalMs 赋值/stub 已经 stubSweepInterval 改道 sessionGuard）
   // write-frozen-chain.int.spec.ts 登记已移除——T41 W3a 核销：recheckFrozenDocs ×1 改 kit.gateway.docRegistry 直调=cast 消失
 };
 

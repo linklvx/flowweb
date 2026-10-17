@@ -191,11 +191,11 @@ describe('T2 clientIpOf（X-Real-IP 信任双门——peer loopback+COLLAB_TRUST
     const saved = process.env.COLLAB_TRUSTED_PROXY;
     try {
       delete process.env.COLLAB_TRUSTED_PROXY;
-      expect((gw as any).clientIpOf({ headers: { 'x-real-ip': '1.2.3.4' } }, { remoteAddress: '127.0.0.1' })).toBe('127.0.0.1');
+      expect(gw.sessionGuard.clientIpOf({ headers: { 'x-real-ip': '1.2.3.4' } }, { remoteAddress: '127.0.0.1' })).toBe('127.0.0.1');
       process.env.COLLAB_TRUSTED_PROXY = '1';
-      expect((gw as any).clientIpOf({ headers: { 'x-real-ip': '1.2.3.4' } }, { remoteAddress: '127.0.0.1' })).toBe('1.2.3.4');
+      expect(gw.sessionGuard.clientIpOf({ headers: { 'x-real-ip': '1.2.3.4' } }, { remoteAddress: '127.0.0.1' })).toBe('1.2.3.4');
       // 非 loopback peer 不信任 X-Real-IP（即使门开——外部直连伪造头无效）
-      expect((gw as any).clientIpOf({ headers: { 'x-real-ip': '1.2.3.4' } }, { remoteAddress: '10.0.0.5' })).toBe('10.0.0.5');
+      expect(gw.sessionGuard.clientIpOf({ headers: { 'x-real-ip': '1.2.3.4' } }, { remoteAddress: '10.0.0.5' })).toBe('10.0.0.5');
     } finally {
       if (saved === undefined) delete process.env.COLLAB_TRUSTED_PROXY; else process.env.COLLAB_TRUSTED_PROXY = saved;
     }
@@ -212,7 +212,7 @@ describe('T2 handleUpgrade 直调（429 限流路径+fail-open 遥测——(gw a
     for (let i = 0; i < 20; i++) expect(gf.consumeUpgradeBucket('127.0.0.1')).toBe(true);   // 同步排空（capacity 20——零 refill 漂移）
     const writes: string[] = [];
     const socket = { write: (s: string) => { writes.push(s); }, end: vi.fn(), remoteAddress: '127.0.0.1' };
-    expect(() => (gw as any).handleUpgrade({ request: { headers: { origin: 'http://localhost:5173' } }, socket })).not.toThrow();
+    expect(() => gw.sessionGuard.handleUpgrade({ request: { headers: { origin: 'http://localhost:5173' } }, socket } as any)).not.toThrow();   // payload 侧 as any（夹具部分形状——W3a 既有合法形态；受体=gw.sessionGuard 公有非 cast 面）
     expect(writes[0]).toContain('HTTP/1.1 429 Too Many Requests');   // 状态行直写（客户端收到真实 HTTP 响应）
     expect(socket.end).toHaveBeenCalledTimes(1);   // end 替代 destroy（write 后立即 destroy=RST 非 429）
     expect((await upgradeRejected('rate-limited')) - before).toBe(1);
@@ -224,7 +224,7 @@ describe('T2 handleUpgrade 直调（429 限流路径+fail-open 遥测——(gw a
     gatewayFacade(gw).spyAllowedOrigins().mockImplementation(() => { throw new TypeError('Invalid URL'); });
     const warn = gatewayFacade(gw).spyLogger('warn').mockImplementation(() => {});
     const socket = { write: vi.fn(), end: vi.fn(), remoteAddress: '127.0.0.1' };
-    expect(() => (gw as any).handleUpgrade({ request: { headers: { origin: 'https://x.example' } }, socket })).not.toThrow();
+    expect(() => gw.sessionGuard.handleUpgrade({ request: { headers: { origin: 'https://x.example' } }, socket } as any)).not.toThrow();   // payload 侧 as any（夹具部分形状——W3a 既有合法形态）
     expect(warn).toHaveBeenCalledTimes(1);
     expect(socket.write).not.toHaveBeenCalled();   // fail-open=不拒（鉴权仍由 onAuthenticate 兜底）
   });

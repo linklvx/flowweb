@@ -102,7 +102,7 @@ afterEach(async () => {
 describe('Y0b-3 T8 sweep 节奏（5min±20% jitter）', () => {
   it('jitter±20%：sweepIntervalMs 连续 10 次采样 ∈ [4min, 6min]（不聚集脉冲——抽间隔函数区间断言）', () => {
     const { gateway } = buildGateway();
-    const fn = (gateway as any).sweepIntervalMs.bind(gateway);   // 直调族（原实现读取+bind——偏离 64②）；现状红：方法不存在
+    const fn = gateway.sessionGuard.sweepIntervalMs.bind(gateway.sessionGuard);   // W3b 承接账④：sweepIntervalMs 随域迁 SG——访问形态改道 gw.sessionGuard.*（jitter 区间断言逐字保留，cast 消失）
     for (let i = 0; i < 10; i++) {
       const ms = fn();
       expect(ms).toBeGreaterThanOrEqual(4 * 60_000);
@@ -111,8 +111,8 @@ describe('Y0b-3 T8 sweep 节奏（5min±20% jitter）', () => {
   });
 
   it('源码锚：startSessionSweep 为 setTimeout 自排链（jitter 间隔逐轮重排——setInterval 固定周期无法表达）+unref 保持（R28 意图：禁 @Cron/@Interval 装饰器死代码）', () => {
-    const src = readFileSync(resolve(__dirname, 'collab.gateway.ts'), 'utf8');
-    expect(src).toMatch(/sessionSweepTimer\s*=\s*setTimeout/);   // 现状红：仍是 setInterval
+    const src = readFileSync(resolve(__dirname, 'collab-session-guard.service.ts'), 'utf8');   // T41 W3b 锚随迁（§8.3-2/偏离 70②）：startSessionSweep setTimeout 自排链随域迁 SG——readFileSync 宿主切换，断言逐字保留
+    expect(src).toMatch(/sessionSweepTimer\s*=\s*setTimeout/);
     expect(src).toMatch(/sessionSweepTimer\.unref/);
     expect(src).toMatch(/sweepIntervalMs\(\)/);
   });
@@ -125,7 +125,7 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
-    (gateway as any).wirePermChangedEvents();   // 现状红：方法不存在
+    gateway.sessionGuard.wirePermChangedEvents();   // 现状红：方法不存在
     const inc = await metricDelta('collab_sweep_close_total', { cause: 'revoked' }, async () => {
       emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });
       await vi.advanceTimersByTimeAsync(1);      // setImmediate 冲洗——scheduleImmediateSweep → sweepSessions 复验
@@ -142,7 +142,7 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
     gatewayFacade(gateway).seedPermCache(conn, 'PROJECT_EDITOR', Date.now());   // 缓存新鲜（未 due）
-    (gateway as any).wirePermChangedEvents();
+    gateway.sessionGuard.wirePermChangedEvents();
     emitter.emit('collab.perm.changed', { userId: 'other', teamId: 't1' });
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 'other' });
     await vi.advanceTimersByTimeAsync(1);
@@ -154,7 +154,7 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
 
   it('事件风暴合并：连续 3 次 emit → sweepSessions 恰执行一次（sweepKickPending 防惊群）；新事件再请求新一轮', async () => {
     const { gateway, emitter } = buildGateway();
-    (gateway as any).wirePermChangedEvents();
+    gateway.sessionGuard.wirePermChangedEvents();
     const spy = gatewayFacade(gateway).spySweepSessions().mockResolvedValue(undefined);
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });
@@ -171,11 +171,11 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
-    (gateway as any).wirePermChangedEvents();
-    await (gateway as any).sweepSessions();      // tick1：首查复验 → permCache 写入
+    gateway.sessionGuard.wirePermChangedEvents();
+    await gateway.sessionGuard.sweepSessions();      // tick1：首查复验 → permCache 写入
     const c1 = prisma.session.findUnique.mock.calls.length;
     expect(c1).toBeGreaterThan(0);
-    await (gateway as any).sweepSessions();      // tick2：缓存命中（<5min）
+    await gateway.sessionGuard.sweepSessions();      // tick2：缓存命中（<5min）
     expect(prisma.session.findUnique.mock.calls.length).toBe(c1);   // 零 DB
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });   // 事件=缓存失效信号
     await vi.advanceTimersByTimeAsync(1);
@@ -188,7 +188,7 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
-    (gateway as any).wirePermChangedEvents();
+    gateway.sessionGuard.wirePermChangedEvents();
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(5_000);
@@ -202,7 +202,7 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     const conn = makeConn('project:p1');
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
-    (gateway as any).wirePermChangedEvents();
+    gateway.sessionGuard.wirePermChangedEvents();
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(5_000);
@@ -218,7 +218,7 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedWriteFreeze(conn, 'p1', ['viewer']);   // connected 登记形态（writeFreeze 单源）
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_VIEWER', teamId: 't1' });
-    (gateway as any).wirePermChangedEvents();
+    gateway.sessionGuard.wirePermChangedEvents();
     emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });   // addMember/changeRole 事件面
     await vi.advanceTimersByTimeAsync(1);   // setImmediate 冲洗→即时 sweep（远小于 plan ≤5s 判据）
     expect(conn.readOnly).toBe(false);      // 升权即时生效（readOnly=原因集非空——'viewer' 移除）
@@ -272,7 +272,7 @@ describe('Y0b-3 T8 对端可见锚（真连——awareness role 改写实接）'
     const conn = [...document.connections.keys()].find((c: any) => c.context?.user?.id === 'u2')!;
     gatewayFacade(kit.gateway).seedPermCache(conn, 'PROJECT_EDITOR', Date.now() - 6 * 60_000);
     const inc = await metricDelta('collab_sweep_close_total', { cause: 'role-downgraded' }, async () => {
-      await (kit.gateway as any).sweepSessions();
+      await kit.gateway.sessionGuard.sweepSessions();
     });
     expect(inc).toBe(1);                                  // 降级计数（现状红：rewriteAwarenessRole 为 no-op——本断言仍绿，锚在对端）
     expect((conn as any).readOnly).toBe(true);            // 服务端旁证①：readOnly 置位
@@ -297,9 +297,9 @@ describe('Y0b-3 T8 附带 T7 评审小修', () => {
     const { gateway } = buildGateway();
     gatewayFacade(gateway).seedSocketIdentity('s1', { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });   // 过未认证提前 return——进 try 抛错路径
     const warnSpy = gatewayFacade(gateway).spyLogger('warn').mockImplementation(() => {});
-    (gateway as any).guardAwareness({ states: null, socketId: 's1', context: {}, connection: {}, document: { awareness: { states: new Map() } } } as any);   // 直调族（偏离 64②）——[...null] 抛 TypeError 进 catch
+    gateway.sessionGuard.guardAwareness({ states: null, socketId: 's1', context: {}, connection: {}, document: { awareness: { states: new Map() } } } as any);   // 直调族（偏离 64②）——[...null] 抛 TypeError 进 catch
     expect(warnSpy).toHaveBeenCalledTimes(1);   // 现状红：catch 块静默
-    expect(() => (gateway as any).guardAwareness({ states: null } as any)).not.toThrow();   // 钩子禁抛契约维持
+    expect(() => gateway.sessionGuard.guardAwareness({ states: null } as any)).not.toThrow();   // 钩子禁抛契约维持
   });
 });
 
