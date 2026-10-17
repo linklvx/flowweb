@@ -6,7 +6,8 @@
 //     仅 backlog>close 才关（+20B 不触发前瞻）且**预算豁免**（doc-status/conn-status/心跳永不因
 //     预算静默丢——控制帧承载状态通道，丢=状态丢失比 close 更糟）；
 //   ③Awareness(1)：永 drop 不 close；
-//   ④预算失败：大帧组 close(reason='global-budget')，控制/awareness 组不计不投。
+//   ④预算失败：大帧组与 awareness（通过 drop 闸者）计入预算，超限 close(reason='global-budget')；
+//     控制组豁免不计账直接投递。
 // getBacklog 闭包（v3）：bufferedAmount 读点文本留 SG 闭包——本文件零该属性读出现
 // → census ⑤ 脚本/自测/backpressure spec 三处零改（读点仍唯一=SG，弃 v2「目标文件切换」方案）。
 import { readFrameType, MessageType } from './collab-frame-type';
@@ -86,6 +87,8 @@ export class OutboundBudget {
 
   release(ws: Ws, bytes: number): void {
     if (!this.reservedByWs.has(ws)) return;   // v3：closed 后迟到 cb 禁复活 Map（onClose 已释放）
+    // 迟到 cb 双扣近似有界（T6 评审 Minor-2）：reconcile 后 reserved 已回填 backlog 基线，迟到
+    // release 再扣可超基线→Math.max(0,…) 钳位不透负（偏差至多一帧字节）；60s reconcile 对账自愈（总账重置 Σper-ws）。
     this.total = Math.max(0, this.total - bytes);
     this.reservedByWs.get(ws)!.reserved = Math.max(0, this.reservedByWs.get(ws)!.reserved - bytes);
     yjsOutboundQueuedBytes.set(this.total);

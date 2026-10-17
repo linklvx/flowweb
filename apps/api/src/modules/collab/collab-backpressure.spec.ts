@@ -8,7 +8,8 @@
 // docSize≤maxDocBytes+maxFrameOvershoot 已由 T4 用例承载（collab-quota-gate）——本文件引用不重写。
 // R4b'（v3）：判定核迁 OutboundBudget（collab-outbound-budget.ts）——常量改直源 collab-limits
 // （gateway 再导出面退役）；新增四档帧型/同步记账/close 释放闭环用例（①close 释放+迟到 cb ②预算
-// close ③控制组豁免 ④SyncReply 大帧前瞻）。census ⑤ 孪生锚零改（读点仍 SG——getBacklog 闭包）。
+// close ③控制组豁免 ④SyncReply 大帧前瞻 ⑤reconcile per-ws 回填+迟到 cb 钳位〔T6 评审收口〕）。
+// census ⑤ 孪生锚零改（读点仍 SG——getBacklog 闭包）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -222,5 +223,23 @@ describe("R4b' OutboundBudget 判定核（v3：四档帧型+同步记账+close �
     expect(closed).toBe(1);
     expect(ws.closeCalls).toEqual([{ code: 1011, reason: 'slow-consumer' }]);
     expect(ws.sent).toHaveLength(0);   // 触发帧不投递
+  }, 30_000);
+
+  it('⑤reconcile per-ws 回填+迟到 cb 钳位（T6 评审 Important-1——v3 记账头条「total≡Σper-ws 永不漂移」补证）：两 stub（backlog 3MB/2MB）各发 Sync 帧不调 cb（预扣驻留）→reconcile 后 queuedBytes=5MB（reserved 逐连接回填 getBacklog 基线=Σbacklog）；再调迟到 cb（release 帧字节>回填基线=双扣近似）→Math.max(0,…) 钳位 queuedBytes 不为负（偏差有界——60s 对账自愈）', async () => {
+    const budget = new OutboundBudget(DEFAULT_COLLAB_LIMITS);
+    const w1 = makeStubWs(3 * 1024 * 1024), w2 = makeStubWs(2 * 1024 * 1024);
+    budget.wrap(w1, (w, code, reason) => w.close(code, reason), () => w1.bufferedAmount);
+    budget.wrap(w2, (w, code, reason) => w.close(code, reason), () => w2.bufferedAmount);
+    const f1 = makeFrame('project:bp9', 0 /* Sync */, 2 /* Update */, new Uint8Array(6 * 1024 * 1024));   // 6MB 帧（<close 16.9MB 界内——3MB backlog+6MB 前瞻不触发）
+    const f2 = makeFrame('project:bp9', 0 /* Sync */, 2 /* Update */, new Uint8Array(1024));
+    w1.send(f1); w2.send(f2);   // cb 不调——预扣驻留（total=Σ帧字节）
+    expect(budget.queuedBytes).toBe(f1.byteLength + f2.byteLength);
+    budget.reconcile();
+    expect(budget.queuedBytes).toBe(5 * 1024 * 1024);   // per-ws 回填=getBacklog 基线：3MB+2MB——total≡Σper-ws 不漂移
+    expect(await gaugeValue('yjs_outbound_queued_bytes')).toBe(5 * 1024 * 1024);   // reconcile 单点 set 同步仪表
+    w1.cbs[0]!();   // 迟到 cb：release 6MB 帧字节>回填基线 3MB——双扣近似（cb 抵达晚于对账）
+    expect(budget.queuedBytes).toBe(0);   // 钳位兜底（无 Math.max 则 5MB-6MB=-1MB 透负）——偏差有界至多一帧
+    expect(await gaugeValue('yjs_outbound_queued_bytes')).toBe(0);
+    expect(w1.closeCalls).toHaveLength(0);   // 钳位路径零误杀
   }, 30_000);
 });
