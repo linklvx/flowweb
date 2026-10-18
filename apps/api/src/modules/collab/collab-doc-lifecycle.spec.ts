@@ -476,6 +476,22 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.writeFreezeHas(conn)).toBe(true);   // 连接态由 closeTeamDocuments 关断后 onDisconnect 常规清（事件处理器不触碰）
     expect(gf.overPushHas('s-gone')).toBe(true);
   });
+
+  it('TD-28 regression：spool 有帧时收割梯按 documentName 键（project:pid）保排+retryPersist 实耗 spool 帧（裸 pid 键=parseDocName 折空串→探空即 cancel→收割梯空转）', async () => {
+    const { gateway, gf, repo, spool, emitter } = buildGateway();
+    await gateway.onModuleInit();   // project.gone 订阅注册
+    const payload = new Uint8Array([1, 2, 3]);
+    await spool.append('p-gone2', payload);   // spool 帧播种（onProjectGone :919 hasFrames 判据）
+    emitter.emit('project.gone', { projectIds: ['p-gone2'] });
+    // 收割梯保排：键=documentName 口径族——与 :918 cancelPersistRetry(`project:${pid}`) 同键
+    expect(gf.persistRetryHas('project:p-gone2')).toBe(true);
+    expect(gf.persistRetryHas('p-gone2')).toBe(false);   // 裸 pid 键禁（同函数双键分叉即本缺陷形态）
+    expect(gf.persistRetryEntry('project:p-gone2')?.timer).toBeTruthy();   // 退避梯真定时器在排
+    // 实耗：retryPersist 走 detached spool 帧通道（peek→append→confirm）——帧清+repo 落帧
+    await gf.retryPersist('project:p-gone2');
+    expect(spool.hasFrames('p-gone2')).toBe(false);
+    expect(repo.append).toHaveBeenCalledWith('p-gone2', payload);
+  });
 });
 
 // ═══ ④降级维：真实写点（hydration deferred）+清理 ═══

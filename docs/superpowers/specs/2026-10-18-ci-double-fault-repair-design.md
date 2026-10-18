@@ -195,7 +195,7 @@ export function deriveCollabLimits(q: QuotaConfig, budget = OUTBOUND_BUDGET_BYTE
 | 6 | 锚表七文件（预登记 2 兑现+heartbeat 补——终值=实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40；四文件锚核验 gateway 928→929（T9 注释 +1）/SG 1238→1226（T6 −19+T9 +7 净 −12）/DR 1082 零触/persistence 950 零触） | 本 commit 实测 |
 | 7 | concurrency cancel 取舍（预登记 3 兑现+I-2 修正：group 入 event_name——dispatch/push 互不取消） | 212a9d8a |
 | 8 | 96MB 折衷值（预登记 4 兑现——实现值 100_663_296=96MiB 字面量） | 67a254ae |
-| 9 | R5' 库行为新增登记：@hocuspocus/provider 4.6.0 迟到重连定时器复活缺陷（destroy 不清 onClose 已排定的 1s 重连 setTimeout，迟到 connect 复活无限退避 maxAttempts=0→进程永生——run 59 5h56m 真凶；演练脚本级三连掐兜底+退役判据注释在位；升级批复核） | 685d47b6/d822e542 |
+| 9 | R5' 库行为新增登记：@hocuspocus/provider 4.6.0 迟到重连定时器复活缺陷（destroy 不清 onClose 已排定的 1s 重连 setTimeout，迟到 connect 复活无限退避 maxAttempts=0→进程永生——run 59 5h56m 真凶；演练脚本级三连掐兜底+退役判据注释在位；升级批复核）。**后续共享提取（2026-10-18 TD-28/R5' 立即修复批）**：三连掐提取为 apps/api/scripts/lib/provider-late-reconnect-guard.js（CJS+.d.ts——kill9 tsx require/write-frozen ESM 导 CJS 双侧可达），双 drill 回接禁内联副本；node:test 单测 apps/api/scripts/provider-late-reconnect-guard.test.mjs 进 verify 链 scripts-node-test 步（manifest 同步——test ⑥ 平铺面防漂移覆盖） | 685d47b6/d822e542 |
 | 10 | DR 闸式直读 quota=值恒等（T6 承接：limits 不接 DR——1082 锚零行可加） | 7517f728 |
 | 11 | 执行期 plan 勘误：T5 helper Pick<QuotaConfig>（QUOTA_DEFAULTS as const 字面量型）/T7 quotaFrozenDocs 键=裸 pid+装载冷却窗 2.1s（TRUTH_COOLDOWN）/T7/T9 快照若干方法名与 kit 形态 | 各 commit |
 | 12 | T4 通知取舍：cancelled×cancel-in-progress 自交互（body 带 conclusion+取代注记） | 212a9d8a |

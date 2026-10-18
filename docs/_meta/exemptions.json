@@ -178,34 +178,27 @@
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 111,
+      "line": 112,
       "symbol": "deleteRefs",
       "reason": "TD 台账已清账行的历史记录（退役指针已落地）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 112,
+      "line": 113,
       "symbol": "syncNodes",
       "reason": "TD-1 清账行的历史记录（REST 批量同步已随画布 REST 链路退役）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 112,
+      "line": 113,
       "symbol": "syncEdges",
       "reason": "TD-1 清账行的历史记录（同上）",
       "expires_at": "2027-01-02"
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 116,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
       "line": 117,
       "symbol": "isHydrating",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
@@ -213,7 +206,14 @@
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 117,
+      "line": 118,
+      "symbol": "isHydrating",
+      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
+      "expires_at": "2027-01-02"
+    },
+    {
+      "file": "docs/superpowers/tech-debt.md",
+      "line": 118,
       "symbol": "isHydrating",
       "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
       "expires_at": "2027-01-02"
@@ -269,7 +269,7 @@
     },
     {
       "file": "docs/superpowers/tech-debt.md",
-      "line": 58,
+      "line": 59,
       "symbol": "apps/web/src/utils/intentRecord.ts",
       "reason": "TD 台账防重做登记的历史记录（批 0.5 已落地物——T6 regenToken 协议落地时整文件退役）",
       "expires_at": "2027-01-06"

@@ -916,7 +916,7 @@ export class CollabPersistenceService {
   onProjectGone(projectId: string): void {
     this.deletedProjects.add(projectId);
     this.cancelPersistRetry(`project:${projectId}`);            // 定时器随清
-    if (this.spool.hasFrames(projectId)) this.schedulePersistRetry(projectId);   // Z11①（B1 平移注：裸 pid 形态逐字承 gateway 前文 :1462——疑点照搬不修登记遗留，后续批裁决）
+    if (this.spool.hasFrames(projectId)) this.schedulePersistRetry(`project:${projectId}`);   // Z11①（TD-28 修复：与 :918 cancel 同键——裸 pid 会被 retryPersist 的 parseDocName 折空串→探空即 cancel，收割梯空转退化为启动回灌兜底）
     this.lastCompactAt.delete(projectId);                       // 卸载清理的第二入口（Task 7 钩子为第一入口）
     this.persistUnhealthy.delete(`project:${projectId}`);       // 陈旧电平（重连会补推失效横幅）
     this.discardForGoneProject(projectId);   // X1：显式清队列+点名

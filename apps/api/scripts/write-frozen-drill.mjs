@@ -28,6 +28,7 @@ import { execSync, spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { killProviderLateReconnect } from './lib/provider-late-reconnect-guard.js';   // R5'：@hocuspocus/provider v4 迟到重连定时器兜底（共享——禁内联副本）
 
 config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });   // apps/api/.env——collab-smoke B3′ 同序；不覆盖已设 env
 const here = fileURLToPath(import.meta.url);
@@ -158,19 +159,7 @@ function connectClient(h, projectId, { ydoc, tag } = {}) {
     destroy: () => {   // R2'：registry 注销先判——幂等（二次 destroy 短路）
       if (!liveClients.delete(entry)) return;
       try { provider.destroy(); } catch { /* 同步 void——smoke B4 */ }
-      // @hocuspocus/provider v4 缺陷兜底（成功路径自然 exit 的根修）：connected 期服务端 close（如
-      // closeAll1012）时 onClose 已排定 1s 重连 setTimeout（onClose 尾 `!cancelWebsocketRetry &&
-      // shouldConnect`——connected 期 onOpen 把 cancelWebsocketRetry 清 void，条件必真），destroy()
-      // 不清该定时器：迟到的 connect() 重置 shouldConnect=true 并重启无限退避重连（maxAttempts=0）
-      // → 进程永生。掐法三连：cancel 已复活循环 + disconnect 复位 shouldConnect + connect 置空
-      // （迟到定时器落地即 no-op）。
-      // 退役判据：库升级（@hocuspocus/provider 修复 onClose/destroy 不清重连定时器缺陷）后复核并退役本兜底。
-      const w = provider.configuration?.websocketProvider;
-      if (w) {
-        try { w.cancelWebsocketRetry?.(); } catch { /* void */ }
-        try { w.disconnect?.(); } catch { /* void */ }
-        w.connect = () => {};
-      }
+      killProviderLateReconnect(provider);   // R5'：provider v4 迟到重连定时器兜底（lib 共享——缺陷形态与退役判据见 provider-late-reconnect-guard.js 头注）
     } };
   liveClients.add(entry);
   return entry;
