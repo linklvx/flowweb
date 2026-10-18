@@ -1,193 +1,213 @@
 <!-- doc-status: active -->
 # Y1a+Y1b：doc 模型 v3·序与尺寸/只读（B 类合并批设计）
 
-- **立项日**：2026-10-18；**唯一上游依据**：[2026-10-06-canvas-yjs-arch-upgrade-review.md](2026-10-06-canvas-yjs-arch-upgrade-review.md)（master spec v8.3）§0.2 Y1a/Y1b 两行+§0.1 裁决（E 系适用批次以 §0.2 行内引用为反向索引）。
-- **B 类合并立项**（Y1a+Y1b——E6 序域与 C5↔D4 同批硬约束〔删 reportNodeSize 整链与服务端元数据写同批〕共用）；plan=`../plans/2026-10-18-y1a-y1b-doc-model-order-size.md`（writing-plans 产出）。
-- **用户立项三澄清（2026-10-18）**：
-  1. 单 spec 单 plan+**三段片序**（C0→A→B——执行序驱动，Y0c 片序 C0→A1→A2→D→E→B 非顺序先例；每片出口=用户确认点）；
-  2. Y1a 收敛 harness=**内存双端 vitest**（N 个 Y.Doc+手动 applyUpdate 交换——纯 CRDT 层，无 provider/无 WS；TD-28/R5' 批立的 provider guard 约定对本 harness 不适用，因无 provider 参与）；
-  3. **UI 变更面=零**（VIEWER 拒写视觉沿用现有只读横幅体系；如设计深化发现需新视觉，再单触发 ui-ux-pro-max 立项——本 spec 明示豁免）。
-- **用户总裁定（2026-10-18）**：两域均按方案 A 走（B/C 弃定维持）；Y1b 服务端尺寸写走 `writeNodeEnvelope` 第七 op（P0——writeNodeData 键域不含信封层键）；Y1a 消费面分流勘正（P1——**=master spec §0.2 原文回归**：「sortNodesByPosition/sortForArrange id tie-break；readRecordsFromMaps 迭代序消费显式化（主画布 z 序由它决定）」——原文从未要求空间序函数改 order 主键，故无须裁定号豁免）；order 缺键 fail-closed（P0）；分数索引四钉/闩锁同批删/固有尺寸最后写胜（P1）；执行序=Y1b-P0 前置。
+- **立项日**：2026-10-18；**唯一上游依据**：[2026-10-06-canvas-yjs-arch-upgrade-review.md](2026-10-06-canvas-yjs-arch-upgrade-review.md)（master spec v8.3）§0.2 Y1a/Y1b 两行+§0.1 裁决（含 **D5/D4/E68/C7③——v1 漏检三条已冻结裁决，v2 修正**）。
+- **B 类合并立项**（Y1a+Y1b——E6 序域与 C5↔D4 同批硬约束〔删 RF 布局测量链与服务端固有尺寸写同批〕共用）；plan=`../plans/2026-10-18-y1a-y1b-doc-model-order-size.md`（writing-plans 产出）。
+- **用户立项三澄清（2026-10-18 一轮）**：①单 spec 单 plan+多段片序（每片出口=用户确认点）；②Y1a 收敛 harness=内存双端为基底（v2 修订：须含期望序断言+真连集成用例，见 Z8'）；③UI 变更面=零（VIEWER 拒写视觉沿用现有只读横幅体系；如深化发现需新视觉再单触发 ui-ux-pro-max）。
+- **v2 修订记录（2026-10-18 二轮·三份外审逐钉核验后）**：
+  - **v1 五条 Z 裁决废止**（经核验违反 master 已冻结裁决）：Z1（writeNodeEnvelope 第七 op——废止：固有尺寸归 data 层与 fileId 同 op 同事务，零新 op）；Z2 读侧 throw（违反 E68 读侧全函数铁律）；Z3 全局 order+id 排序（违反 D5「order 仅同 parentId 层内生效+层序遍历」）；Z4④ 运行期条件全量 rebalance（违反 D5「rebalance 仅会话开始一次」且撞 2×maxTxBytes 帧闸）；Z5 固有尺寸总是覆盖（违反 D4「doc 已有 wh 首写者胜」且 Yjs 冲突胜者≠墙钟 LWW）；Z6 闩锁核销（undo/redo 无 canEdit 门+服务端 readOnly 静默丢帧——闩锁是分叉唯一检测器，须保留）；Z8 text auto 高度（违反 D4「text=持久化作者尺寸」）。
+  - **v1 基线两处核验错误勘正**：①`execution.gateway.ts` 存在于 [apps/api/src/modules/gateway/execution.gateway.ts:116](../../../apps/api/src/modules/gateway/execution.gateway.ts)（`emitStitchStatus` 带 width/height/cellCount；separate/trim 事件无尺寸）——v1 断言「文件不存在」错误（Glob 漏 `gateway/` 段）；②`reportNodeSize` 7 调用点=**内容事件拟合/错误兜底/resize 中途卸载提交/派生布局**（[contentEventSize](../../../packages/shared/src/canvas/geometry.ts:301) 输入 naturalW/H 三分支），**非 DOM 测量**——C5 真删除对象=`dispatchFixtureSizeIntents`+RF `dimensions` 首测固化链。
+  - **用户二轮裁决（2026-10-18）**：固有尺寸载体=**data 层 naturalWidth/naturalHeight+contentEventSize 三分支**（「首写者胜」字面维持）；第七 op 本批不做；cellCount 零读者不做；probeArtifacts 不加 natural*（非产物存在性判据）。
 
-## 0.1 本批有效裁决（master spec 内联+本批新裁 Z 系）
+## 0.1 本批有效裁决（master 内联+本批 Z' 系）
 
 | 编号 | 裁决 | 对本批的效力 |
 |------|------|--------------|
-| C5 | 宽高三源：测量值（DOM 上报）**一律不入 doc**；作者态=命令体写；媒体固有尺寸=服务端落地时元数据命令写（确定性输入两端一致） | Y1b §3 全域——删 reportNodeSize/dispatchFixtureSizeIntents 整链+measured 白名单族 |
-| C6 | order 分层 fractional index | Y1a §2 |
-| C5↔D4 | 同批硬约束：删测量链与服务端元数据写同批，否则图片/视频节点 doc 尺寸零写者 | 片 C0（服务端写）与片 B（删除面）同一 plan 内闭环 |
-| D5 | fractional index 双理由（跨端迭代序实验分叉+RF v12 父先子后契约） | Y1a §2.2 |
-| D13 | 门禁类任务先故意变红再落地，红因与门禁声明一致 | §5 先红门禁清单全员 |
-| E6 | order 键长度上限 ≤32+超限触发 rebalance（maintenance origin）+断言 | §2.1/§2.2 |
-| E8 | 上传/生成链路服务端可取 naturalWidth/视频元数据=前置；不可得则回落方案重议 | 片 C0 首任务一手核验（master spec 行号 execution.gateway.ts:106-118 已漂移——文件不存在，六类产物落地链重定向核验，见 §1 登记） |
-| E15 | 收敛 harness：Node 无浏览器 N 客户端随机操列，双端渲染序逐位相等+扰动到达序仍收敛 | §2.4（Y0a 拆交的 E70 完整版本批兑现） |
-| Z1（本批） | 服务端信封尺寸写=**新第七 op `writeNodeEnvelope{nodeId, patch:{width?,height?}}`**——键域纯（信封子集），与 writeExecStatus 并列同构（键级 set 幂等）；`cellCount` 属产物参数=data 层，扩 `SERVER_NODE_DATA_KEYS`；禁把信封键混进 writeNodeData 做双层语义 op；六类产物=data 写+envelope 写（如需）同 writeBatch 单事务（尺寸与产物引用原子同现，无中间态） | §3.1 |
-| Z2（本批） | order=信封**必填期望键**：读侧（readRecordsFromMaps 排序）与写侧门面（normalizeCanvasRecord/toDocRecords）遇缺 order 一律 throw+专项计数；禁 `?? ''`/按 position 猜（缺键静默兜底=垫片入口）。测试 fixture 全量补 order 由 manifest 断言矩阵强制 | §2.1——与既有「键可选三层表」的关系=order 是唯一必填期望键（特例显式登记，其余信封键维持可选三层表语义） |
-| Z3（本批） | 消费面分流：order 真消费面=渲染 z 序/读出口序（readRecordsFromMaps 出口 order+id 排序+web 投影 nodes 数组序同源）；sortForArrange（落格空间序）/sortNodesByPosition（拼接/组子网格空间序）**仅补 id tie-break**（现状无 tie-break，同坐标依赖输入序——分镜 cells 序确定性即此钉） | §2.3 |
-| Z4（本批） | 分数索引四钉：①字符集=ASCII 递增连续段（0-9A-V base32 或 0-9A-F base16，禁 RFC 4648 字母表——2-7 段字典序≠数值序）；compare 用原生 `<`（禁 localeCompare）；「字典序≡数值序」进单测（相邻字符码差 1 全扫）②头尾插入用虚拟边界锚，between(null,first)/(last,null) 深度耗尽→键长>32→rebalance 兜底闭环，不允许生成失败路径③并发同位插入双端 midpoint 同值→order 相同→id tie-break 定序收敛（视觉次序随机=画布场景可接受）；harness 断言矩阵必须含并发同位插入用例④rebalance：触发=生成结果超 32 键长（条件触发非定期）；范围=全量重排（以当前收敛序 order+id 为基序均匀分配；区段重排边界兼容复杂度不值）；确定性+幂等（双端各自触发亦收敛——后到端键长复原条件自然不再满足）；maintenance origin 事务；均匀分配后键长必然 ≪32 天然防重入；单测覆盖前缀对（a vs ab）与邻接对 | §2.2 |
-| Z5（本批） | 固有尺寸覆盖语义：产物 regenerate 时固有尺寸**总是覆盖**信封 wh（最后写胜）；作者随后手改=作者态写覆盖。禁「作者已手改则保留」分支（需尺寸来源标记元数据=新白名单面+复杂化，垫子） | §3.2 |
-| Z6（本批） | diverged 闩锁（canvasStore.ts:230，裁定 23⑨）同批核销：四写点「先拒绝」后 readOnly 期间本地 update 触发面=零（留着=假防御面）。**核销以先红门禁为证据前提**（readOnly 下零 Y.Doc transact 断言全绿后才删——执行序「先门禁后删除」）；:797 addNode append 回弹/:849 deleteNode 回弹同批改先拒绝 | §3.3 |
-| Z7（本批） | E8 验收锚取值：六类产物断言的 width/height/cellCount 值**从产物实体元探测**（文件探测/HTTP 头），禁从请求参数回填（防参数≠产物的漂移假绿） | §3.1 |
-| Z8（本批） | DEFAULT_CHILD_SIZE 兜底：assertions.ts:131 与 renderCanvas.ts:63 两消费点同源计数进 metric；CI happy-path 用例断言兜底计数=0（防兜底常态化）；文本节点高度=渲染层 auto，doc 无 height 键=合法态（键可选三层表既有语义），不走兜底路径 | §3.5 |
-| Z9（本批） | harness 断言口径：双向断言——(i) 收敛后双端 readRecordsFromMaps 出口 nodes 的 id 序列逐位相等；(ii) 同一 update 集合以不同到达序/分段到达，终态仍满足 (i)。随机操列 seed 固定且进失败输出（可复现） | §2.4 |
+| **D5** | **C6 修订：分层 order**——order 仅同 parentId 层内生效；投影数组序=层序遍历（父先子后）+同层 (order,id) 排序；**不设跨层全局序**；Origin 枚举加第 5 常量 `Maintenance`；**rebalance 仅会话开始一次**（运行期重写 order 与 undo 反演冲突）；`ensureParentOrder` 冻结为「仅 RF 父先子后契约，**禁承担 z 序**」+断言 | §2 全域——v2 核心修正（v1 Z3/Z4④ 违反本条） |
+| **D4** | **C5 修订：尺寸缺口分档**——上传=服务端元数据命令写（confirmUpload 已持对象）；生成=落地时补一次解码写元数据；**视频=受控一次性 bootstrap**（doc 已有 wh 零写**首写者胜**/独立 origin 不入撤销栈/量化幂等）；维度缺失=合法态+DEFAULT_CHILD_SIZE 兜底；text 节点=**持久化作者尺寸**+盒内滚动/裁剪禁 DOM 高度回写；measured 仅影响节点内部视觉，禁入帧派生 | §3 全域——v2 核心修正（v1 Z5/Z8 违反本条） |
+| **E68** | 不变量登记表+铁律：**读侧全函数**（任意 doc 投影出可渲染结果绝不抛）/写侧**显式拒绝**（业务错误码，禁丢帧禁静默跳过）/**禁修复写回 doc**（[canvas-invariants.ts:33-35](../../../packages/shared/src/canvas/canvas-invariants.ts) 三行原文在案；adversarial-readers.spec 直接断言不抛） | §2 读 profile 双轨+§3 尺寸守卫（v1 Z2 违反本条） |
+| **C7①③** | 版本/世代三件套——客户端版本协商拒旧+「**排空切换 runbook（停写→drain→reset→部署→强刷）进 Y1（第一个弄脏 doc 的批次）**」 | §6 版本门——order 键即「弄脏 doc」，本批承担 bump+reset |
+| C5/C6/C5↔D4/D13/E6/E8/E15 | （同 v1 内联——宽高三源/序分层/同批硬约束/门禁先红/order 键长上限/元数据可取性前置/收敛 harness） | §2/§3 |
+| **Z1'（二轮裁决）** | **服务端写事实不写布局**：`SERVER_NODE_DATA_KEYS` 扩 `naturalWidth/naturalHeight`（`valueTypes` 改**逐键显式表**——natural*=number，禁沿用 `Object.fromEntries(... ['string'])`；校验 finite/正整数/>0/≤上限如 16384；**同值 no-op**——Yjs `Y.Map.set` 无同值短路，worker 重试持续建 item=doc 膨胀）；与 `fileId/resultUrl` **同一 writeNodeData op/同 writeBatch 事务**（天然原子，零新 op）；**服务端类型 allowlist**=仅 image/video/imageExt 类产物节点（group/text/storyboard 子节点拒绝）；`cellCount` 零读者本批不做；`probeArtifacts` **不加** natural*（它是产物存在性探针非布局参数） | §3.1 |
+| **Z2'** | **读侧全函数+写侧/装载门执法**：`readRecordsFromMaps` 保持 total（order 有则带、无则 undefined；不抛——adversarial 不变量维持）；新增**严格读边界**=`readOrderedRecords`（缺/非法 order throw——仅装载门/投影入口调用一次，非渲染热路径）+服务端 `loadDocument` shape 校验（失败=terminal `doc-shape-invalid`，非静默非 throw 穿透）；写侧（fillDoc/applyRecordToYMap/applyIntentToDoc）缺 order **显式拒绝**（业务错误码）；`validateNodeRecord`（shared 单源：order=string 非空 ASCII **≤128 硬上限**〔32=服务端重排触发阈值非校验线——32-128 区间合法待装载期重排，与 Z4' 两线分明〕；wh finite>0≤上限；parentId string）客户端命令/服务端 op/fillDoc/装载门/测试五处共用 | §2.1 |
+| **Z3'** | **D5 分层 order 直译**：读出口=**层序遍历 DFS**（根按 (order,id)→父先子后→子层再 (order,id)；孤儿/环按根处理——复用 ensureParentOrder 环守卫语义）；`ensureParentOrder` 冻结为**断言**（输入已层序⇒恒等返回原引用；「仅 RF 父先子后契约，禁承担 z 序」注释+断言收编）；**三份拓扑排序收编 shared 单函数**（nodeOrder.ts/renderCanvas Pass2/snapshot-filter.ensureParentFirst——三个渲染面〔主画布/公开页/clone〕必须同序）；**order 载体=doc 记录**（`DocNodeRecord.order` 必填+`DOC_NODE_KEYS`；`NODE_ENVELOPE_KEYS` 不动——信封通用键不含媒体专属/序细节，view/copy 面 order 可选）；**`applyKeySetTable` 必须保留 order 键**（有则带——否则 stripAuthorState/种子路径静默丢序） | §2.2/§2.3 |
+| **Z4'** | **rebalance=装载期服务端**（D5「仅会话开始一次」直译）：客户端**零重排**；服务端 `loadDocument` replay 后、对外服务前——per-parent 扫描超阈值层（键长>32）单事务重分配（`Origin.Maintenance` 常量新增，不入 UndoManager；此时 undo 栈未挂载天然无反演冲突；WS 装载〔socketId 存在〕才做，REST/direct 读路径禁写）；生成器键长允许超 32 硬上限 128（客户端不因长度失败——耗尽返回 typed `OrderKeyExhausted`，命令拒绝+提示刷新，非异常控制流）；「双端各自触发亦收敛」断言废止——并发重排不存在（装载期单实例租约+load 幂等） | §2.4 |
+| **Z5'** | **尺寸覆盖语义=D4 三分支字面维持**（[contentEventSize](../../../packages/shared/src/canvas/geometry.ts:301) 现役）：`data.natural*`=服务端事实（**最新产物覆盖**，regenerate 亦覆盖——natural 是事实非布局）；`width/height`=作者/命令体（ratio 未变**沿用作者 wh**=D4 首写者胜；ratio 变才 contain-fit）；**单触发点 `applyIntrinsicFit`**：监听 fileId/natural* 变化→纯函数 contentEventSize→写 envelope wh+`data.aspectRatio`（同值零写、`Origin.Geometry` 不入 undo、**禁 ResizeObserver 触发**）；已知取舍（登记接受）：仅 VIEWER 在线时新产物 frame 先按旧比例 letterbox，EDITOR 打开才 contain-fit——比服务端覆盖作者 resize 安全 | §3.2 |
+| **Z6'** | **闩锁保留+undo 门+resync**：`canvasDiverged`/boot-diverged/导出·放弃出边**全保留**（它是服务端 readOnly 静默丢帧〔guardSyncFrame return+计数〕分叉的唯一检测器+数据恢复路径，非假防御）；**`undoCanvas/redoCanvas` 补 canEdit 门**（readOnly 下 toast+计数+零本地 update——origin=UndoManager 也是本地 update）；服务端补 `write-rejected` stateless 通告（readOnly 丢帧非纯静默）；readOnly 解除/重连时若拒绝计数>0 → 强制 resync（重握手重发被拒 update）；闩锁删除移出本批（挂 Y1c-1 后按「发布周期 diverged=0+全写点门测试」证据再裁） | §3.3 |
+| **Z7'** | **E8 验收锚=产物 probe→doc natural***：值从产物实体元探测（**图片 EXIF orientation 5-8 交换/视频 side_data rotation 交换**——`media-process.service` 现只取 width/height 无 rotation，probe 须补）；禁从请求参数回填；禁用 DOM 渲染实测当 oracle（非确定输入）；`Media.metadata` 落 probe 值（后续读方单一服务端事实源）；上传链路=`confirmUpload` probe 返回 `{width,height}`，客户端绑定媒体时**同一命令体**写 natural*+frame（不持久化依赖 DOM）；六类产物绑定矩阵=片 C0a 产出（producer/绑定形态/探测方法/写入键/失败回落逐类列表，禁「等」字） | §3.1 |
+| **Z8'** | **创建默认+兜底单函数**：`addNodeInner` 创建默认 wh（text 300×300 作者尺寸〔D4〕/image·video 按 ratio/multiImage 按 multiImageSize/videoEdit 320）——每节点从创建起有 doc wh，消灭 DEFAULT_CHILD_SIZE 常态兜底；`fallbackSize(node, reason)` **shared 单函数**，全部 `?? DEFAULT_CHILD_SIZE` 消费点（实测 8+ 处：renderCanvas:63/:75、assertions:131、canvasCollabRuntime:1031、canvasStore:1390/:1966/:2008/:2029/:2132/:2278——片内一手再核）同源计数进 metric 带 reason；happy-path 断言=0（text 不豁免——有作者 wh） | §3.4 |
+| **Z9'（新）** | **版本双 bump+reset runbook**（C7③「Y1=第一个弄脏 doc 的批次」直译）：`CANVAS_DOC_SCHEMA_VERSION` 2→3+`CLIENT_PROTOCOL_VERSION` 2→3（A1 片首任务——先 bump 后动 doc）；本地缓存键含 schemaVersion 自动分库（旧 IDB 自然失效）；seed/clone/gate-canvas-state 补 order 并盖章 3；部署窗=服务端+客户端同批+开发/测试库 truncate CanvasDoc/CanvasDocUpdate（reset runbook 进 plan）；**Y1c-1 的 SCHEMA_VERSION=3 职责改为 4**（master 目录表 Y1c 行同步勘正——plan 期回填）；旧标签页走版本终态强刷禁续写；**零迁移**（不做 v2→v3 兼容分支） | §6 |
+| **Z10'（新）** | **校验链收口**：`validateWriteBatch` if 链改 **`switch (op.op)`+`never` 穷尽**（新 op 忘校验分支=编译红——v1「Record 穷尽即 tsc 红」过度承诺废止：Record 只保证表有条目）；`applyOp` default 改 `never` 穷尽断言（现 default=运行时 throw）；`canvas-doc-manifest.test.ts:164` 六 op 硬编码 expected 数组**显式同步**（非自动矩阵）；manifest 服务端 data 域 writers/readers 行随 natural* 扩 | §3.1 |
+| **Z11'（新）** | **客户端服务端事实键禁写门**：`SERVER_ONLY_DATA_KEYS=['naturalWidth','naturalHeight']`——`applyIntentToDoc(updateNodeData)` 跳过+`updateConfig` 全量回写过滤（客户端命令禁写服务端事实键；上传路径不持久化 natural*——confirmUpload 返回值走命令体一次性写入）；data 层无 `NODE_ENVELOPE_KEYS` 级编译锚→`ImageNodeData/VideoNodeData` 补 `naturalWidth?: number/naturalHeight?: number` 类型声明+manifest/fixture 矩阵显式覆盖 | §3.2 |
+| **Z12'（新）** | **创建路径 census+工厂**：节点创建**全部**走单一工厂（生成 id+分配 order+创建默认 wh+构造 DocNodeRecord）——路径清单（片 A2 一手 census 定稿）：addNode/addChildNode/addChildNodes/addNodeWithEdge/addNodeAndBatchConnect/duplicateNodes/pasteGroupClipboard/mergeStoryboard/splitImageNode/createDerivedExtNode/dropImageIntoStoryboard/视频导出/素材库插入/AI 标注·改图·trim·separate 结果插入/seed/clone/gate——**禁各 action 自拼 intent**；`buildCopyPlan` 接受 newOrder 分配器（副本新键置顶层，**禁继承源 order**——副本同键=靠 id tie-break 随机穿插）；`diffProjectionToIntents` 比较含 order；`assignSeedOrder`（按输入数组序均匀分配）服务种子/导入 | §2.5 |
+| **Z13'（新）** | **harness 修订**：断言=**期望序**非重言式双端相等——①构造 Map 插入序与业务 order 相反的 doc 断言读出口=order 序（真红相）②真实 `applyDocToStore`/层序投影断言 store 数组序（含本地 add 后=doc 序）③`deriveRenderCanvas` 公开页同层序④双端并发插入/删除/重排 vs **参考模型**（模型基准：每 parent 期望序列——两端可以一起错，模型不能）⑤并发同位插入 id tie-break；seed+clientIDs+update transcript 进失败输出；**环境**：apps/web vitest 文件级 node 环境仍跑 jsdom setupFiles（test-setup 用 window）→shared 投影纯函数+**shared 加 yjs devDependency**（运行时零依赖不变——devDep 仅测试）或独立 vitest config，片 A3 定载体；真连集成用例（帧闸 1009/旧 csv 拒连/降权）归 heavy/e2e 域一条 | §2.6 |
 
 ## 0.4 偏离登记表（滚动——实现与设计的差异单源）
 
-> 纪律：实现与本文任何差异必须在本表登记（偏离号递增+commit 锚）；执行期裁定以代码仲裁为准（CI 修复批「照抄未验」教训——进 spec 断言一律先实证）。
+> 纪律：实现与本文任何差异必须在本表登记（偏离号递增+commit 锚）；「进 spec 断言一律先实证」。v1→v2 修订本身=设计期外审收敛（非实现偏离），登记于头部 v2 修订记录。
 
 | # | 偏离 | 落地形态与依据 |
 |---|------|----------------|
-| — | （空——立项起点） | — |
+| — | （空——v2 起点） | — |
 
-## 1. 基线快照（2026-10-18 一手核验；行号=master 07b6c436）
+## 1. 基线快照 v2（2026-10-18 二轮一手核验；行号=master c96fecc1）
 
-### 1.1 信封与序域
-
-| 位置 | 现状 | 裁决引用 |
-|------|------|----------|
-| [nodeEnvelope.ts:9-26](../../../packages/shared/src/canvas/nodeEnvelope.ts) | `CanvasNodeRecord`：id/type/parentId/width/height/position{x,y}/data——**无 order 键**；`NODE_ENVELOPE_KEYS` 双向编译锚（satisfies+Exclude 防漂移） | Z2/Z3：order 入信封正道（position 拆键 Y1c-2a 同款先例） |
-| [docShape.ts:138-166](../../../packages/shared/src/canvas/docShape.ts) | `readRecordsFromMaps` 出口 nodes=裸 `[...nodes.entries()]` 迭代序（键可选三层表；null≡缺键） | Z3：读出口排序改造点 |
-| [arrangeSelection.ts:79](../../../packages/shared/src/canvas/arrangeSelection.ts) | `sortForArrange`：y 分行（容差）+行内 x 升序——落格空间序 | Z3：仅补 id tie-break |
-| [geometry.ts:68-71](../../../packages/shared/src/canvas/geometry.ts) | `sortNodesByPosition`：positionX/Y 升序——拼接/组子网格空间序 | Z3：仅补 id tie-break |
-| canvasStore.ts:1969/:2005（sortForArrange 消费——排列落格）、:2512（拼接格序）、:2579（组子网格序） | 空间功能排序四消费点（一手核验 2026-10-18） | Z3：此四处语义不动 |
-
-### 1.2 尺寸写面（Y1b）
+### 1.1 序域与投影链
 
 | 位置 | 现状 | 裁决引用 |
 |------|------|----------|
-| [canvasIntents.ts:224](../../../apps/web/src/stores/canvasIntents.ts)（reportNodeSize 定义）+ImageGenNode:270/:285/:703+VideoGenNode:279/:292/:560+MultiImageNode:122 | reportNodeSize **7 生产调用点**（DOM 测量上报→doc）——C5 裁决删除对象 | C5/D4：片 B 删除面 |
-| canvasIntents.ts:374（dispatchFixtureSizeIntents 定义）+canvasStore.ts:1575/:1579（session∨resizePending 门）+:1640（固化调用） | 首测固化链（RF dimensions 批→doc） | C5/D4：片 B 删除面 |
-| docShape.ts:324 `measured?:{width?,height?}`+assertions.ts:20-23 `CS_ONLY_DERIVED_DATA_KEYS` 注记 | measured 白名单族残面 | C5/D4：片 B 对称核销 |
-| canvasStore.ts:786（addNode envelope 形参——显式 wh 优先于类型默认值，同 intent 单 transact） | 作者态尺寸=命令体写**现状已走** | C5 三源其一零改动 |
-| assertions.ts:131（组 bounds `m.width ?? DEFAULT_CHILD_SIZE`）+renderCanvas.ts:63（rawRect 同式） | DEFAULT_CHILD_SIZE 两兜底消费点 | Z8：计数进 metric |
+| [nodeOrder.ts:17](../../../apps/web/src/utils/nodeOrder.ts) `ensureParentOrder` | 按原顺序拓扑输出（父先子后；环=visiting 跳过不抛）；[applyDocToStore:1301](../../../apps/web/src/stores/canvasCollabRuntime.ts) 消费——**读出口若做全局排序会被它再打乱一次** | D5/Z3'：冻结为断言 |
+| [docShape.ts:138-166](../../../packages/shared/src/canvas/docShape.ts) `readRecordsFromMaps` | 裸 `[...entries()]` 迭代序出口（键可选三层表） | Z2'：保持 total；严格读=新函数 |
+| [docShape.ts:264-292](../../../packages/shared/src/canvas/docShape.ts) `applyKeySetTable` | 逐键显式构造 `{id,type,data}`+条件 position/parentId/wh——**不在表内键静默丢弃**（stripAuthorState/toDocRecords 出口） | Z3'：order 键必须保留 |
+| [nodeEnvelope.ts:19](../../../packages/shared/src/canvas/nodeEnvelope.ts) `NODE_ENVELOPE_KEYS` | 双向编译锚（satisfies+Exclude）；`CanvasNodeRecord` 无 order；[projectCanvasNodes:29-37](../../../apps/web/src/utils/projectCanvasNodes.ts) 末尾 `as CanvasNodeRecord` 强转**绕过编译检查** | Z3'：order 载体=doc 记录非信封 |
+| [copyPlan.ts:53-101](../../../packages/shared/src/canvas/copyPlan.ts) | 复制逐字段构造，**不重分配序** | Z12'：副本新键禁继承 |
+| [canvasIntents.ts:245-263](../../../apps/web/src/stores/canvasIntents.ts) `projectIntentToStore` addNode | `[...s.nodes, 新节点]` append——本地乐观序≠doc 序 | Z13'：投影断言覆盖 |
+| [arrangeSelection.ts:79](../../../packages/shared/src/canvas/arrangeSelection.ts)/[geometry.ts:68](../../../packages/shared/src/canvas/geometry.ts) | 落格/拼接空间序（canvasStore:1969/:2005/:2512/:2579 四消费点） | 仅补 id tie-break（v1 同裁维持） |
 
-### 1.3 只读面（Y1b）
-
-| 位置 | 现状 | 裁决引用 |
-|------|------|----------|
-| canvasStore.ts:315 区域（R2 新命令唯一入口 canEdit 门+单 undo 步） | runCommand 门在位 | Z6：写点收口基础 |
-| canvasStore.ts:797（addNode append 回弹注释原文）/:848-849（deleteNode 回弹——store 侧 set 后回弹） | 「readOnly 先应用后回弹」语义 | Z6：改先拒绝 |
-| canvasStore.ts:230-234 | diverged 闩锁（裁定 23⑨）三出边=导出 .yjs/放弃/服务端接受 | Z6：门禁证据后核销 |
-
-### 1.4 服务端写面（Y1b-P0）
+### 1.2 尺寸域（v1 勘正+扩面）
 
 | 位置 | 现状 | 裁决引用 |
 |------|------|----------|
-| [canvas-doc-manifest.ts:83](../../../packages/shared/src/canvas/canvas-doc-manifest.ts) | `SERVER_NODE_DATA_KEYS=['fileId','resultUrl','videoUrl','content','result','errorCode']`——writeNodeData 键域=data 层 | **Z1 P0 依据**：width/height 是信封键，现 op 写不进（Z108 UNKNOWN_KEY 拒） |
-| canvas-doc-manifest.ts:156-230 | DocWriteOp **六 op** 词汇+`DOC_WRITE_OPS: Record<DocWriteOpType,…>` 穷尽编译断言（:195「新增第七 op 忘分类即 tsc 红」——扩展点已预留） | Z1：writeNodeEnvelope 第七 op 落点 |
-| canvas-doc-manifest.ts:223 | fillDoc 键域=`[...NODE_ENVELOPE_KEYS,...]`（种子专用、非幂等、T27 端点拒收）——**不可借用**为服务端增量信封写通道 | Z1：须新 op 而非复用 fillDoc |
-| collab-doc-writer.service（Y0c 片 B 产物）+collab-document.service.writeNodeData/writeExecStatus | 服务端批量写面 writeBatch 在位（A1 T8/T27 端点） | Z1：第七 op 与 writeExecStatus 并列同构 |
-| **E8 前置登记**：master spec 引 `execution.gateway.ts:106-118` **已不存在**（文件级漂移实证） | 六类产物落地链现状=execute→ai-download / stitch / trim / separate processor 各自 writeNodeData——**载荷是否可取 width/height/cellCount 属片 C0 首任务一手核验**（先红断言驱动，禁照抄行号） | E8/Z7 |
+| [geometry.ts:301-322](../../../packages/shared/src/canvas/geometry.ts) `contentEventSize` | 三分支纯函数（输入 naturalW/H+currentWH+bounds：沿用档/比例变 contain-fit/冷启动） | Z5'：策略单源维持 |
+| reportNodeSize 7 调用点（ImageGen:270/:285/:703+VideoGen:279/:292/:560+MultiImage:122） | **v1 勘正**：内容事件拟合（naturalW→fit）/错误 ratio 兜底/resize 中途卸载提交/multiImageSize 派生——**非 DOM 测量**；真测量链=`dispatchFixtureSizeIntents`（canvasIntents:374+canvasStore:1575/:1579/:1640，RF dimensions 首测仅 textInput） | C5 删除对象=dispatchFixtureSizeIntents 链 |
+| [docShape.ts:324](../../../packages/shared/src/canvas/docShape.ts) `measured?:` | MinimalCSNode 类型注记（非 doc 白名单——assertions:20 白名单实为 hidden/selected/dragging） | 删除面=类型注记+split 兜底改 |
+| [canvasStore.ts:778-781](../../../apps/web/src/stores/canvasStore.ts) addNodeInner | text 固定 300×300（与 D4「持久化作者尺寸」一致——v1 Z8 text auto 废止） | Z8'：创建默认扩展全类型 |
+| DEFAULT_CHILD_SIZE 兜底 | 实测 8+ 消费点（renderCanvas:63/:75+assertions:131+canvasCollabRuntime:1031+canvasStore:1390/:1966/:2008/:2029/:2132/:2278） | Z8'：单函数全站点计数 |
+| [media-process.service:93-135](../../../apps/api/src/modules/media-process/media-process.service.ts) | 只取 width/height——**图片无 probe/视频无 rotation** | Z7'：EXIF/rotation 补 |
 
-## 2. Y1a 序域设计
+### 1.3 只读域（v1 扩面——「四写点」低估勘正）
 
-### 2.1 order 键（信封必填期望键——fail-closed）
+| 位置 | 现状 | 裁决引用 |
+|------|------|----------|
+| [canvasUndo.ts:67-105](../../../apps/web/src/stores/canvasUndo.ts) | undo/redo **无 canEdit 门**（只查栈/预算）——readOnly 期 Ctrl+Z 产生 origin=UndoManager 本地 update | Z6'：补门（第五写点） |
+| [nodeStore.ts:524-560](../../../apps/web/src/stores/nodeStore.ts) | addNode/updateNodeData/deleteNode 等多写方法无 canEdit | Z6'：命令入口 gate（**非投影 sink**——nodeStore 同时被投影使用，盲加门会拦远端投影） |
+| [canvasStore.ts:1648](../../../apps/web/src/stores/canvasStore.ts) onNodesChange | 无条件 `applyNodeChanges`（VIEWER Delete 键路径）+`:1699` onEdgesChange 同 | Z6'：命令入口矩阵收口 |
+| [collab-doc-registry.service.ts:706-746](../../../apps/api/src/modules/collab/collab-doc-registry.service.ts) guardSyncFrame | 帧闸 `Update>2×maxTxBytes(512KB)→1009`；readOnly=**静默 return+计数**（丢帧不回执） | Z4'（帧闸否决运行期全量 rebalance）+Z6'（write-rejected 通告） |
+| [canvasStore.ts:230-234](../../../apps/web/src/stores/canvasStore.ts) diverged 闩锁 | 裁定 23⑨ 三出边（导出/放弃/服务端接受）+boot-diverged 持久恢复路径（canvasCollabRuntime:1720-1733） | Z6'：**保留**（v1 Z6 核销废止） |
 
-- **载体**：`CanvasNodeRecord` 新增 `order: string`；`NODE_ENVELOPE_KEYS` 扩（双向编译锚自动跟随）；`DOC_KEY_MANIFEST.nodes[0]`（信封键域行）键清单+writers/readers 同批扩——manifest 派生断言矩阵自动覆盖。
-- **必填期望键语义（Z2）**：order 是信封中唯一必填期望键（显式特例——其余信封键维持「键可选三层表」）。执法点两处：
-  - 读侧：`readRecordsFromMaps` 出口排序前遇节点缺 `order` → **throw**+专项计数（如 `canvas_doc_order_missing_total`——指标名以 --write-metric-names 落盘惯例定稿）；
-  - 写侧门面：`normalizeCanvasRecord`/`toDocRecords`（经 fillDoc/applyRecordToYMap/ydocBuilder 六写面）缺 order → **throw** 同计数。
-  - 禁 `?? ''`/按 position 推断（垫片入口）。**零迁移纪律**：开发期无存量，不做缺键兼容/回填——测试 fixture 全量补 order 由 manifest 断言矩阵强制（矩阵红=fixture 未补齐）。
-- **六写面同批扩**（fillDoc/applyRecordToYMap/normalizeCanvasRecord/toDocRecord/ydocBuilder+manifest 矩阵）：单事务写 order 与其余信封键同写（同 addNode envelope 形态——canvasStore.ts:786 先例）。
+### 1.4 服务端写面与产物绑定矩阵（v1 勘正）
 
-### 2.2 分数索引（自实现，四钉 Z4）
+| 位置 | 现状 | 裁决引用 |
+|------|------|----------|
+| [execution.gateway.ts:116-126](../../../apps/api/src/modules/gateway/execution.gateway.ts) | **v1 勘正**：`emitStitchStatus` 带 width/height/cellCount；`emitSeparateStatus`(:105-113)/trim 事件**无尺寸** | Z7'/C0a 矩阵输入 |
+| 六类产物绑定形态（C0a 一手核验定稿） | AI 生图/改图/光照=**已有节点**+服务端已写 data（resultUrl/fileId）；stitch/trim/separate=**客户端新建节点**（useStitchTask:25/VideoGen:160-207——服务端不知道 nodeId，事件载荷 stitch 带尺寸 trim/separate 无）；素材上传=客户端新建+confirmUpload 只 statSize 无 probe | Z1'/Z7'：新建节点走事件载荷+命令体；已有节点走服务端 data op |
+| [canvas-doc-manifest.ts:199](../../../packages/shared/src/canvas/canvas-doc-manifest.ts) | `writeNodeData` valueTypes=`Object.fromEntries(...['string'])` 全 string | Z1'：逐键表（natural*=number） |
+| [canvas-doc-manifest.ts:358-368](../../../packages/shared/src/canvas/canvas-doc-manifest.ts) validateWriteBatch | **if 链非穷尽 switch**——新 op 不进 patch 校验分支 | Z10'：switch+never |
+| [collab-doc-writer.service.ts:181](../../../apps/api/src/modules/collab/collab-doc-writer.service.ts) applyOp | default=**运行时 throw**（六 case 之外） | Z10'：never 穷尽 |
+| [canvas-doc-manifest.test.ts:164-176](../../../packages/shared/src/canvas/canvas-doc-manifest.test.ts) | 「六 op 全分类」expected 硬编码数组 | Z10'：显式同步（非自动矩阵） |
 
-- **两函数**（shared `fractional-index.ts` 新文件，纯函数零依赖）：`generateOrderKeyBetween(prev: string|null, next: string|null): string`（头尾 null=虚拟边界锚）+`compareOrderKeys(a,b)`（原生 `<`）。
-- **字符集**：ASCII 递增连续段（实现取 base32 `0-9A-V`——与 32 键长预算匹配；单测全扫「相邻字符码差 1」钉死字典序≡数值序；禁 RFC 4648 字母表）。
-- **键长预算与 rebalance**：生成路径深挖使键长将 >32 时走 rebalance 而非生成失败。rebalance=**全量重排**：以当前收敛序（order+id 排序）为基序均匀分配新键；maintenance origin 事务（E6 直译）；确定性+幂等（双端各自触发亦收敛——后到端键长复原、条件自然不再满足）；均匀分配后键长必然 ≪32 天然防重入。触发=条件触发（生成超 32）非定期。
-- **单测面**：前缀对（`a` vs `ab`——短键是长键前缀时的序语义钉死）+邻接对（两键间插入的收敛性）+头尾插入（null 边界）+并发同位插入（双端 midpoint 同值→order 相同→id tie-break 定序）+字典序≡数值序全扫。
-- **消费协议**：插入节点=相邻两节点键间 between；无相邻参照（空画布/无邻居）=虚拟边界。**不引第三方库**（fractional-indexing 等——库行为锚纪律+需求仅两函数）。
+### 1.5 版本面
 
-### 2.3 消费面（Z3 分流）
+| 位置 | 现状 | 裁决引用 |
+|------|------|----------|
+| [docShape.ts:41](../../../packages/shared/src/canvas/docShape.ts) | `CANVAS_DOC_SCHEMA_VERSION=2`（注释「Y1c bump」——**执行序倒置**，本批先弄脏 doc 须先 bump） | Z9' |
+| [collab-protocol.ts:8](../../../packages/shared/src/constants/collab-protocol.ts) | `CLIENT_PROTOCOL_VERSION=2` | Z9'：双 bump |
+| [local-cache-key.ts:24-33](../../../apps/web/src/collab/local-cache-key.ts) | 缓存键含 schemaVersion——bump 即旧 IDB 自然失效 | Z9' |
+| project.service seed/gate-canvas-state | `stripAuthorState(nodes)+fillDoc` 无 order | Z12'/Z9'：assignSeedOrder+盖章 3 |
 
-| 消费面 | 改造 | 语义 |
-|---|---|---|
-| `readRecordsFromMaps` 出口（docShape.ts:138） | nodes 出口改 `order` 主键+`id` tie-break 排序（「迭代序消费显式化」实义） | **渲染 z 序唯一真源** |
-| web 投影 nodes 数组序（applyDocToStore/reconcile 换芯路径） | 与读出口同源（消费 readRecordsFromMaps 出口序——投影数组序=doc 序） | 主画布 z 序 |
-| `sortForArrange`（arrangeSelection.ts:79）/`sortNodesByPosition`（geometry.ts:68） | **仅补 id tie-break**（主键 x/y 不动） | 空间功能序（落格/拼接/组子网格）——非 z 序，语义不变 |
-| 客户端插入/移动写点 | 生成 order 键走六写面（addNode envelope 形参扩 order；移动=改 order 键事务） | 跨端迭代序收敛 |
+## 2. Y1a 序域设计（D5 分层直译）
 
-### 2.4 收敛 harness（E15/E70 完整版——内存双端 vitest）
+### 2.1 order 键与双读 profile（Z2'/Z3'）
 
-- **载体**：**apps/web vitest Node 环境单文件**（shared 无 yjs 依赖——DocLike 抽象故；web 侧直 import shared `readRecordsFromMaps`+分数索引两函数+N 个 `Y.Doc`）。**无 provider/无 WS**（纯 `Y.encodeUpdateAsUpdate`+`Y.applyUpdate` 手动交换）。
-- **装置**：N 客户端（Y.Doc 实例）随机操列（seed 固定且进失败输出——可复现）；扰动到达序=同一 update 集合以不同顺序/分段 apply 到对端。
-- **断言（Z9 双向）**：(i) 收敛后双端 readRecordsFromMaps 出口 nodes 的 **id 序列逐位相等**；(ii) 同一 update 集合异到达序/分段到达，终态仍满足 (i)。**必含并发同位插入用例**（双端 midpoint 同值→order 相同→id tie-break 定序收敛）。
-- **先红验收（D13）**：harness 在 order 键落地前必须红（现状=迭代序本地操作序——readOnly append 分支 canvasStore.ts:797 实证的投影数组序非 doc 单源，即 E70 根因：Yjs Y.Map 迭代序双端收敛，但渲染序现状=本地 store 投影数组序）。
+- **载体**：`DocNodeRecord.order: string` 必填+`DOC_NODE_KEYS=[...NODE_ENVELOPE_KEYS,'order']`（manifest/fillDoc 域）；`NODE_ENVELOPE_KEYS` **不动**（信封通用键不含序细节——view/copy 面经 `OrderedDocNodeRecord=DocNodeRecord&{order:string}` 严格形态，cs Node 附加 order 投影往返）。
+- **双读 profile**：`readRecordsFromMaps`（total——order 有则带无则 undefined，adversarial 不变量维持）+`readOrderedRecords`（严格——缺/非法 throw，仅装载门/投影入口一次调用；非法含非 string/空串/charset 外/超 128）。`validateNodeRecord` 五处共用（客户端命令/服务端 op/fillDoc/装载门/测试）。
+- **投影链保序**：`applyKeySetTable` 保留 order；`projectCanvasNodes` 删 `as` 强转改显式构造；cs Node 携带 order 投影往返（applyDocToStore 投影/`toDocRecords` 带回/ensureParentOrder·applyNodeChanges·duplicate 不丢字段）。
+
+### 2.2 分数索引（自实现，钉四边界+两函数）
+
+- 两函数（shared `fractional-index.ts`）：`generateOrderKeyBetween(prev,next)` 返回 `{ok:true,key}|{ok:false,reason:'no-space'|'too-long'|'invalid-range'}`（**typed 结果非异常控制流**——调用方决定拒绝命令）；`compareOrderKeys` 原生 `<`。
+- 字符集=base32 `0-9A-V`（**断言字母表数组严格递增无重复**——非「字符码差 1」：`'9'→'A'` 码差 8）；**生成键不得以最小字符结尾**不变量（防 `between("a","a0")` 前缀无解）；头尾虚拟边界锚+首键中位前缀预留；**等值键** `between(a,a)` 定义返回（a 靠 id tie-break 或 a+mid——单测定死）；纯函数（无随机——并发同位 midpoint 同值用例成立前提）。
+- 键长：阈值 32（E6）/硬上限 128——客户端不因长度失败，超阈置标志上报；**耗尽=服务端装载期重排兜底**（Z4'）。
+- 单测：字母表严格递增/前缀对（a vs ab 比较+a vs a0 无解两型）/邻接对/等值/头插 1000 次严格 between+增长曲线/property 随机 10k 插入。
+
+### 2.3 读出口层序与三排序收编（Z3'）
+
+- `readOrderedRecords` 出口=**pre-order 层序 DFS**（每层 (order,id)；孤儿/环=根处理复用环守卫）；`orderRecords` 收编 shared 单函数，三个渲染面（applyDocToStore 主画布/renderCanvas 公开页/snapshot-filter clone）**同序消费**；`ensureParentOrder` 降为断言（输入已层序⇒恒等返回原引用——防「静默改写」）。
+- 本地结构命令（add/delete/parentId 变更/duplicate/paste）dispatch 后按 doc pre-order 重排 store 数组；**position 空间移动不重排**（拖拽≠z 序——UI 变更面零）。
+
+### 2.4 装载期服务端 rebalance（Z4'）
+
+- 服务端 `loadDocument` replay 后、对外服务前：per-parent 扫键长>32 的层→单事务均匀重分配（固定宽度 base32+中位前缀+大间隔，新键 ≪32）；`Origin.Maintenance`（Origin 枚举第 5 常量）；仅 WS 装载做（REST/direct 读路径禁写）；undo 栈未挂载窗口=无反演冲突。
+- 断言：1 万节点重排 update 字节 < 2×maxTxBytes（512KB 帧闸）；两客户端并发装载单次重排（单实例租约+load 幂等）；重排后客户端首帧投影与重排前**相对序一致**。
+
+### 2.5 创建路径 census+工厂（Z12'）
+
+单一节点创建工厂（id+order+创建默认 wh+DocNodeRecord 构造）——全路径走它（清单 §0.1 Z12'，片 A2 census 定稿+grep 锚）；`buildCopyPlan` 接受 newOrder 分配器；`diffProjectionToIntents` 比较 order；`assignSeedOrder` 服务 seed/clone/gate。
+
+### 2.6 收敛 harness（Z13'）
+
+断言=期望序五件套（§0.1 Z13'：反向插入序红相/真实投影 store 序/公开页同层序/参考模型基准/并发同位 tie-break）；seed+clientIDs+失败输出；载体=shared 投影纯函数+shared yjs devDep 或独立 config（片 A3 定——jsdom setupFiles 实证约束）；真连集成（帧闸/旧 csv/降权）归 heavy/e2e 一条。
 
 ## 3. Y1b 尺寸/只读域设计
 
-### 3.1 服务端信封尺寸写（Z1 第七 op——P0）
+### 3.1 服务端固有尺寸写（Z1'/Z10'）
 
-- **新 op**：`writeNodeEnvelope{nodeId, patch:{width?,height?}}`——DocWriteOpType 第七成员；`DOC_WRITE_OPS` 补条目（keys=`['width','height']`，valueTypes=number，idempotent=true 键级 set 语义；`Record<DocWriteOpType,…>` 穷尽断言 :195 自动执法「忘分类即 tsc 红」）。与 writeExecStatus 并列同构。
-- **cellCount**：属产物参数=data 层——`SERVER_NODE_DATA_KEYS` 扩 `'cellCount'`（valueTypes=number）。
-- **写面**：六类产物落地链（ai-download/stitch/trim/separate 等——C0 一手核验后的实际清单）在 writeBatch 内 data 写+envelope 写（如需）**同单事务**（尺寸与产物引用原子同现，无中间态——客户端不会观察到「有 fileId 无尺寸」中间帧）。
-- **E8 验收锚（Z7）**：六类产物逐一断言 doc 尺寸由服务端写入且与渲染实测一致；**取值从产物实体元探测**（文件探测/HTTP 头——sharp metadata/ffprobe 现役形态），禁从请求参数回填。
-- **probeArtifacts 产物键白名单**（canvas-doc-manifest.ts:133 readers 侧）同批跟随（cellCount 入白名单）。
+- `SERVER_NODE_DATA_KEYS` 扩 `naturalWidth/naturalHeight`；`valueTypes` 逐键表（number）+值域（finite/正整数/>0/≤16384）+**同值 no-op**（防 worker 重试膨胀——`applyWriteNodeDataToDoc` 现役直 set 无短路，本批一并补 writeNodeData 同值守卫）；服务端类型 allowlist（image/video/imageExt 产物节点——group/text/storyboard 子节点拒绝，reason 词表进 `collabWriteRejectedTotal`）。
+- 与 fileId/resultUrl 同 op 同 writeBatch 事务（原子——产物引用与固有尺寸同现）；**客户端新建节点**（stitch/trim/separate 结果）：服务端事件载荷补尺寸（stitch 现有 wh 复用；trim/separate 事件补 probe 值）→客户端建点命令体一并写——服务端不写未知 nodeId。
+- `confirmUpload` probe（EXIF orientation 5-8 交换/视频 side_data rotation 交换）返回 `{width,height}`+落 `Media.metadata`；**probeArtifacts 不动**（存在性探针语义）。
+- 校验链收口（Z10'）：switch+never 两处+manifest.test 显式同步+服务端 data 域 writers/readers 行扩。
 
-### 3.2 三源写面与覆盖语义（C5/Z5）
+### 3.2 三分支拟合与事实键禁写（Z5'/Z11'）
 
-| 源 | 写面 | 语义 |
-|---|---|---|
-| 作者态尺寸 | 客户端命令体（addNode envelope 形参/runCommand patch——**现状已走零改动**） | 作者手改=命令写覆盖 |
-| 媒体固有尺寸 | 服务端 `writeNodeEnvelope`（Z1） | regenerate 时**总是覆盖**（最后写胜，Z5——禁「作者已手改则保留」分支） |
-| 测量值（DOM 上报） | **删除**（C5 终裁——reportNodeSize/dispatchFixtureSizeIntents/measured 族整链） | 三源收口后派生帧确定 ⇒ reconcile 失去存在理由（C1 闭环——reconcile 删除归 Y3 批） |
+- `applyIntrinsicFit` 单触发点（监听 fileId/natural* 变化→contentEventSize→写 envelope wh+data.aspectRatio，同值零写、Origin.Geometry 不入 undo）；输入改 `data.natural*`（DOM naturalWidth 只影响本地预览禁写 doc）。
+- `SERVER_ONLY_DATA_KEYS` 客户端禁写门（applyIntentToDoc 跳过+updateConfig 回写过滤）；`ImageNodeData/VideoNodeData` 补类型声明。
+- natural* 只对单产物节点定义（multiImage 按各图+multiImageSize 派生——由 doc 状态触发禁 ResizeObserver）。
 
-### 3.3 VIEWER 四写点收口+闩锁核销（Z6）
+### 3.3 只读命令边界+闩锁保留（Z6'）
 
-- **四写点先拒绝**：nodeStore 四写方法（addNode/deleteNode/updateNode\*/moveNode——以 plan 一手枚举为准）readOnly 下从「先应用后回弹」（:797/:849）改「**先拒绝+拒绝计数**」。dispatch 门已在（canEdit 假时 doc+store 双零写——现状 store 侧 set 走 append 回弹分支即改造对象）。
-- **先红门禁断言**：readOnly 下**零 Y.Doc transact**+拒绝计数递增（VIEWER 四写点全覆盖）。
-- **闩锁核销**：上述门禁全绿后（readOnly 期间本地 update 触发面=零的证据），diverged 闩锁（:230 裁定 23⑨）及其三出边 UI 面同批核销——**顺序不可倒置**（先删闩锁=先失去防御再补门禁）。caveat：核销前 grep 全量确认闩锁无其它触发路径（Y.Doc observer origin!==provider 的写点全量枚举——plan 任务）。
+- **命令入口 gate**（非投影 sink）：canvasStore addNode/deleteNode/onNodesChange（select 类放行）/onEdgesChange/onConnect+nodeStore 命令路径+useGroupKeyboard 全键（group/merge/ungroup/remove/**undo/redo**）+CanvasView deleteKeyCode（!editable 置空）+`cascadeDeleteVideoProject` 仅删除被接受后调用——readOnly 下 cs/ns/doc **三零写**+拒绝计数。
+- 服务端 `write-rejected` stateless 通告（丢帧非纯静默）+readOnly 解除时计数>0→强制 resync；**闩锁/boot-diverged/导出·放弃全保留**（diverged=canary 计数）。
+- 测试：VIEWER 键盘矩阵（add/delete/edge/drag 松手不提交/undo/redo/paste/duplicate/drop）+EDITOR→VIEWER 降级中拖拽+配额冻结→解冻 resync 收敛；断言=**零 local-origin update**（非「零 transact」——远端 apply 也 transact）。
 
-### 3.4 删除面（片 B 收口）
+### 3.4 创建默认与兜底单函数（Z8'）
 
-- 删 `reportNodeSize` 7 调用点+定义；删 `dispatchFixtureSizeIntents` 全链（:1575/:1579 门+:1640 调用+定义 :374）；删 `measured` 类型声明（docShape.ts:324）+assertions.ts:20-23 注记随族清。
-- **对称核销判据**：grep 面全零+TD 台账登记（如涉）+相关既有测试（canvasO0b2.sizing.test 等依赖 mock 的用例）同批改写或删除。
+`addNodeInner` 创建默认 wh 全类型；`fallbackSize(node,reason)` 单函数收编 8+ 消费点+metric 带 reason；happy-path=0（text 有作者 wh 不豁免）。
 
-### 3.5 兜底计数与合法态（Z8）
+### 3.5 删除面（收窄）
 
-- `DEFAULT_CHILD_SIZE` 两消费点（assertions.ts:131+renderCanvas.ts:63）同源计数进 metric；CI happy-path 断言**兜底计数=0**（防兜底常态化=尺寸零写者回归的探测器）。
-- 文本节点高度=渲染层 auto：doc 无 height 键=**合法态**（键可选三层表既有语义），不走兜底路径、不计数。
+删 `dispatchFixtureSizeIntents`+RF dimensions 首测固化链+`measured` 类型注记（splitImageNode measured 兜底改创建默认）；**保留** reportNodeSize 调用链但语义收口为两入口（`commitIntrinsicFit`=applyIntrinsicFit 触发面/`commitAuthorSize`=resize 提交面——改名收口片内定）；grep 面全零（dispatchFixtureSizeIntents/measured）+台账核销。
 
-## 4. 片序与执行门（C0→A→B；每片出口=用户确认点）
+## 4. 片序与执行门（v2 修订——C0a→C0b→A1-A3→B1-B3；每片出口=用户确认点）
 
-| 片 | 内容 | 出口判据（用户确认点） |
-|----|------|------------------------|
-| **C0（前置·Y1b-P0）** | ①六类产物落地链一手核验（E8——行号漂移已登记，禁照抄）②`writeNodeEnvelope` 第七 op+`cellCount` 键扩+manifest 矩阵/writers/probeArtifacts 同批扩③**E8 六类断言先红**（服务端尺寸写未落=红相）④服务端写落地（writeBatch 单事务）转绿 | ①E8 核验报告（六类产物元数据可取性+漂移行号勘正）②第七 op 词汇表+矩阵绿③六类断言绿+先红证据留档 |
-| **A（Y1a 主线）** | ①信封 order 必填期望键+六写面扩+fail-closed 两执法点（先红：缺键 throw 计数）②分数索引两函数+四钉单测③读出口排序+投影同源+两空间函数 id tie-break④harness（双向断言+并发同位插入——**先红**：现状投影数组序非 doc 单源即红相） | ①harness 双向断言绿（先红证据留档）②字典序≡数值序/前缀对/邻接对单测绿③manifest 矩阵绿④web-tsc/vitest 全绿 |
-| **B（Y1b 余量+删除面收口）** | ①VIEWER 四写点先拒绝+拒绝计数门禁（**先红**：现状回弹语义即红相）②readOnly 零 transact 断言全绿→闩锁核销（触发面 grep 全量枚举前置）③固有尺寸覆盖语义断言（最后写胜）④删除面（reportNodeSize/dispatchFixtureSizeIntents/measured 族+对称核销）⑤兜底计数 metric+CI 断言=0 | ①四写点门禁绿（先红证据留档）②闩锁核销+grep 全零③删除面 grep 全零+既有测试改写④终出口=verify 全链+CI 四 job |
+| 片 | 内容 | 出口判据 |
+|----|------|----------|
+| **C0a（spike·契约修正）** | 六类产物绑定矩阵一手核验（producer/绑定形态/探测方法/写入键/失败回落逐类）+probe 可取性证伪（EXIF orientation/视频 rotation fixture——`media-process.service` 现状不含）+stitch/trim/separate 事件载荷核验；writeNodeData 逐键 valueTypes/同值守卫先行 | 矩阵落盘（禁「等」字）+不可得项回落方案（客户端命令体非 DOM） |
+| **C0b（服务端事实写）** | `SERVER_NODE_DATA_KEYS` 扩 natural*+逐键表+值域/类型 allowlist/同值 no-op+校验链收口（switch+never 两处+manifest.test 同步）+**E8 断言先红**（服务端写未落）+客户端禁写门（SERVER_ONLY_DATA_KEYS）+confirmUpload probe 返回 | E8 六类逐项绿（值=实体 probe）+先红证据留档 |
+| **A1（doc 契约）** | **版本双 bump 3（首任务）**+reset runbook+`DocNodeRecord.order`/`DOC_NODE_KEYS`/双读 profile/`validateNodeRecord`+applyKeySetTable 保序+projectCanvasNodes 去 cast+cs 往返 | adversarial 不变量仍绿+装载门用例+旧 csv/schema 拒连拒载用例先红后绿 |
+| **A2（序域主线）** | 分数索引两函数（四边界单测）+`orderRecords` 层序 DFS+三排序收编+ensureParentOrder 降断言+创建工厂+路径 census+assignSeedOrder/copyPlan 新键+装载期服务端 rebalance | 层序三面同序断言+10k 节点重排<512KB+创建路径 grep 锚全走工厂 |
+| **A3（harness）** | Z13' 五件套断言+参考模型+seed 复现+载体定稿（shared yjs devDep 或独立 config） | 期望序红相（先红）→绿；并发同位插入绿 |
+| **B1（只读收口）** | 命令入口 gates（含 undo/redo/Delete 键/onNodesChange/onEdgesChange）+write-rejected 通告+resync+**闩锁保留** | VIEWER 键盘矩阵零 local-origin update+降级中拖拽不提交+冻结→解冻 resync 收敛 |
+| **B2（删除面+写者补齐）** | 删 dispatchFixtureSizeIntents/RF dimensions/measured 注记+创建默认 wh 全类型+applyIntrinsicFit 单触发+multiImage/upload/error/resize 替代写者+fallbackSize 单函数全站点 | 删除面 grep 全零+multiImage 展开/增删图 doc wh 正确+兜底稳态 0 |
+| **B3（终出口）** | verify 全链 28 步×2 轮+CI 四 job+部署窗（版本双 bump 同窗服务端+客户端+开发库 truncate；TD-28/R5' 修复 07b6c436 同车兑现） | 全绿+旧标签页版本终态强刷实证 |
 
-- **执行门**：本批无单向门/破坏性动作（无世代切换/无删 reconcile——reconcile 删除归 Y3 三门全绿后）；删除面动作均在片 B 内、门禁证据前置。
-- **批终出口**：verify 全链（28 步）×2 轮+push 后 CI 四 job 全绿+部署窗（epoch 递增——TD-28/R5' 修复批 07b6c436 未部署代码同车兑现）。
+- **执行门**：本批无单向门；truncate 开发库=片 B3 部署窗动作（停写→drain→reset→部署→强刷——C7③ runbook 直译，执行前单独确认）。
+- **master 目录表回填义务**：Y1c 行 SCHEMA_VERSION=3→4 勘正（本批 Z9'）——plan 期回填 master spec §0.2。
 
-## 5. 验收判据与先红门禁清单（D13——红因须与门禁声明一致）
+## 5. 验收判据与先红门禁清单（v2 重排——G1-G12）
 
-| # | 门禁 | 先红判据（变红时点） | 绿判据 |
-|---|------|---------------------|--------|
-| G1 | order 缺键 fail-closed | 六写面/读出口在 fixture 未补 order 时红（throw+计数） | 全量 fixture 补齐后绿；计数=0 |
-| G2 | 收敛 harness 双向 | order 未落读出口排序时红（投影数组序≠doc 单源） | 双向断言+并发同位插入绿 |
-| G3 | 字典序≡数值序 | 字符集选定后此门禁直接落绿前须先证红路径（人为构造乱序字符集注入=红）——单测内自证 | 全扫绿（相邻码差 1） |
-| G4 | E8 六类产物服务端尺寸 | C0 断言先写即红（服务端写未落） | 六类逐一绿+值=实体元探测 |
-| G5 | VIEWER 四写点先拒绝 | 收口前红（现状回弹语义——store 有中间态） | readOnly 零 transact+计数递增 |
-| G6 | readOnly 零 transact | 闩锁核销前置门禁——四写点收口前红 | 全绿后授权闩锁核销 |
-| G7 | 兜底计数=0 | 删除面未收口时 happy-path 可能红（测量链仍在→兜底常驻） | CI 断言 0 |
-| G8 | manifest 断言矩阵扩 | 新键未分类即红（穷尽断言/矩阵测试面——既有机制） | 矩阵绿（order/width/height/cellCount 全分类） |
+| # | 门禁 | 先红判据 | 绿判据 |
+|---|------|----------|--------|
+| G1 | order 写侧显式拒绝 | 写边界缺 order=业务错误码红（fixture 未补时） | 五处共用 validateNodeRecord 全绿 |
+| G2 | 读侧全函数 | adversarial 套件**不许红**（现存不变量维持）——严格读 throw 仅装载门，红相=装载门拒绝坏 doc 用例 | total 读零抛+装载门 terminal 拒 |
+| G3 | 期望序（真红） | Map 插入序≠order 时读出口=插入序（**先红**）→层序 DFS 绿 | 层序三面（主画布/公开页/clone）同序 |
+| G4 | 字母表/边界 | 无效红相=人为注入乱序字母表 | 严格递增+前缀对/等值/头插 1000 次/10k property 绿 |
+| G5 | rebalance 装载期 | （无运行期重排——红相=帧闸用例：注入>512KB update 收 1009） | 10k 重排<512KB+并发装载单次+相对序一致 |
+| G6 | E8 产物 probe | C0b 断言先写即红 | 六类逐项绿+EXIF/rotation fixture 绿+Media.metadata 落值 |
+| G7 | 三分支拟合 | ratio 未变沿用作者 wh 断言（v1 Z5 覆盖语义红相对照） | 沿用/contain-fit/冷启动三用例+双端同 fact 同 wh |
+| G8 | 只读命令矩阵 | 收口前红（现状回弹+undo 无门） | VIEWER 全键盘零 local-origin update+三零写+拒绝计数+resync |
+| G9 | 创建默认 | DEFAULT_CHILD_SIZE 兜底先红（现状无创建默认） | 兜底稳态 0（全站点单函数计数） |
+| G10 | 校验链 | 第七 op 场景红相=人为漏校验分支（switch+never 编译红自证） | switch+never 落地后该红不可复现（编译级） |
+| G11 | 版本门 | bump 前旧 csv 拒连用例红（现状放行） | 旧 csv 拒连+旧 schema 拒载+旧 IDB 不命中 |
+| G12 | 收敛 harness | 期望序红相（G3 同源）+参考模型 | 五件套全绿+seed 复现 |
 
-## 6. 非目标与移交（显式声明，防「引用了但没执行」）
+## 6. 非目标与移交
 
 | 项 | 归属 | 依据 |
 |----|------|------|
-| positionX/Y 拆键/`Y.Text`/E26 keep 修复/组帧载体 α | **Y1c-2a**（master spec §0.2 Y1c 行） | 本批 position 仍 `{x,y}` 单键（基线 §1.1 钉死） |
-| SCHEMA_VERSION=3/世代通道/CanvasDocSnapshot | Y1c-1 | 本批 doc schema 变更=order 键+信封尺寸写（manifest 矩阵承载，无世代动作） |
-| B14 写门面配额执法/maxDocBytes 评估/N_max/1013 | Y1c-3 | 排程项（CI 修复批 R5' 登记维持） |
-| reconcile 仲裁层删除 | Y3（三门全绿前置） | C1 闭环=本批创造条件（派生帧确定），删除动作本身归 Y3 |
-| exec 契约 v2/outbox | Y1c-2b | 本批 writeNodeEnvelope 是节点信封写，非 exec 面 |
-| UI 视觉变更 | 零变更面（用户裁定③） | 如深化发现需新视觉再单触发 ui-ux-pro-max |
-| 存量数据兼容/迁移 | **无**（开发测试阶段无用户数据——零迁移纪律） | 用户裁定（2026-10-18 重申） |
+| z 序 UI 命令（bringToFront/sendToBack/reorderNode） | 后续 UI 需求批 | 本批只保证创建/粘贴/复制/父变更序确定性（UI 变更面零） |
+| 闩锁删除 | Y1c-1 后按证据再裁 | Z6'（保留） |
+| SCHEMA/generation/CanvasDocSnapshot/positionX-Y 拆键/Y.Text/E26 | Y1c（SCHEMA_VERSION 职责改 **4**——Z9' 勘正回填 master） | master §0.2 |
+| reconcile 仲裁层删除 | Y3（三门全绿前置） | C1 闭环条件本批深化 |
+| v2→v3 兼容/迁移 | **无**（reset runbook） | 无存量纪律 |
+| 运行期客户端 rebalance | **永不做** | Z4'（帧闸+undo 反演） |
+| cellCount | 不做（零读者）——消费方出现时按「事实 vs 派生」定归属 | Z1' |
+| 第七 op writeNodeEnvelope | 本批不做；未来若需「服务端直落有效 wh」须语义 op（writeNodeMediaSize 读改写）非裸 patch | Z1'（用户二轮裁决） |
 
 ## 7. 纪律与观察项
 
-- **执行纪律**：superpowers TDD（红-绿-重构）+门禁先红（D13）+偏离登记（§0.4 滚动）+「进 spec 断言一律先实证」（CI 修复批两处照抄未验教训——本 spec §1 基线全部一手核验，行号=07b6c436）。
-- **harness 两约定带入**（TD-28/R5' 批立）：本批 harness 纯内存无 provider——guard 约定不适用；**yjs_pending 观测约定对本批 vitest 单文件同样不适用**（无 server/persistence 参与）——两项约定自 Y1c 起（涉及真连装置时）恢复生效。
-- **观察项带入**：B15 心跳 FIFO 边界（本批无大帧链路，不触发）；collab.gateway.spec 满载 flaky（本批 verify 轮次若二连命中同一用例转根修——观察级）。
-- **manifest 断言矩阵扩+缩对称**：新增键（order/width/height〔信封写域〕/cellCount）入矩阵；删除面（measured 族）出矩阵——双侧同批，防单向漂移。
+- v1 两处核验错误（execution.gateway 路径/reportNodeSize 分类）已入头部修订记录——**「进 spec 断言一律先实证」**双重教训（本轮我方 Glob 路径漏段+调用点语义未读源码即概括）。
+- harness 真连用例涉及 provider——**destroy 走 scripts/lib/provider-late-reconnect-guard 约定自本批真连面恢复生效**（TD-28/R5' 批立）；纯内存部分不涉。
+- 观察项带入：B15 心跳 FIFO（无大帧链路不触发）；collab.gateway.spec 满载 flaky（verify 二连命中同用例转根修）。
+- manifest 矩阵扩+缩对称（natural* 入服务端 data 域；measured 类型注记出）——双侧同批。
+
 
