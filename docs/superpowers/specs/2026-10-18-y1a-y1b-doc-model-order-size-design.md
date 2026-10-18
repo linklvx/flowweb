@@ -2,7 +2,7 @@
 # Y1a+Y1b：doc 模型 v3·序与尺寸/只读（B 类合并批设计）
 
 - **立项日**：2026-10-18；**唯一上游依据**：[2026-10-06-canvas-yjs-arch-upgrade-review.md](2026-10-06-canvas-yjs-arch-upgrade-review.md)（master spec v8.3）§0.2 Y1a/Y1b 两行+§0.1 裁决（D5/D4/E68/C7①③）。
-- **B 类合并立项**（Y1a+Y1b——E6 序域与 C5↔D4 同批硬约束共用）；plan=`../plans/2026-10-18-y1a-y1b-doc-model-order-size.md`（**v9——九轮外审收敛后当前执行版**；T0-T28/9 片）。
+- **B 类合并立项**（Y1a+Y1b——E6 序域与 C5↔D4 同批硬约束共用）；plan=`../plans/2026-10-18-y1a-y1b-doc-model-order-size.md`（**v10——十轮外审+三份六点终裁报告收敛后当前执行版**；T0-T28/9 片）。
 - **用户立项三澄清（2026-10-18 一轮）**：①单 spec 单 plan+多段片序（每片出口=用户确认点）；②收敛 harness=内存双端基底+期望序断言+真连集成；③UI 变更面=「可接受变更清单+签字」（§0.2-⑥）。
 - **修订链**：
   - v2～v10：历轮沿革全文见 git 历史（ee41624f/feeef2a6/816078ca/14d28d8b 等）。v9 四裁决（media 读模型/artifactState 双轨/复合单键改口/slot 化）与 v10 接缝收口（exec 分档/ArtifactCommit/fileId 第一步）为本版基线；**v10 裁决③ repairRev 被本版推翻**。
@@ -20,6 +20,16 @@
     - **9 P0 收口**：①**EXEC_STATUS_KEYS/ExecStatusPatch 加 execSeq: string**（manifest:90 现状无 execSeq——不进键集则 writeExecStatus 带 execSeq 直接 UNKNOWN_KEY，代际围栏在门口死；旧条目 docSchema v3 拒载不做 0 兜底）；②同 job 复用（裁决 1）；③copy 清锚（裁决 3）；④**StoreOutcome 判别联合先行重构**（storeDocumentUnlocked 现状 boolean——appended→true，noop/spool 成功/spool 失败/FK/fenced **五分支混一个 false**〔persistence:235/:283/:287-395/:308-336/:323-328〕；flushDocument 五态必须以 StoreOutcome 为载体，禁旁路猜 hasFrames/persistUnhealthy；withSession(flush:true) 只 delivery/attach 两消费面）；⑤**stripServerOwnedData web 单点无条件挂全构造点**（diff dataPatch〔canvasIntents:502 全键差异——快照窗口跨远端 apply 时服务端写的 fileId 被 diff 判为"变化"经 WS 发回〕/addNode.data〔:462 全量〕/copyPlan/paste/undo 恢复——服务端 manifest 拒写降第二道；「未修改才不回送」措辞废止）；⑥text/video kind 分支（裁决 2）；⑦**唯一键补维度**：MediaBinding `@@unique([mediaId,projectId,nodeId,role,targetField,targetItemId])`、DocDelivery `+targetField,targetItemId`、**MediaFactOutbox `@@unique([mediaId,projectId,factVersion])`**、targetField 词表补 **videoUrl/resultUrl**（现状 fileId|referenceImage|images|allImages——video 交付无处落）；⑧**If-None-Match 废止**（MinIO 不支持条件写——presign POST policy 表达不了）→key 含 sha256（已有）+**x-amz-meta-sha256 上传元数据+finalize HeadObject 校验**+orphan sweep 维持；⑨**pendingFacts**（fact 可先于 fileId 到达——「忽略未知 mediaId」=丢 natural 到下次重连）：客户端短 TTL Map（fileId 到达即消费）+delivery/attach mark 成功后对该 mediaId lazy GET media-facts 补拉。
     - **8 P1 收口**：重试码补 **55P03**（lock_timeout 抛 55P03 非 40P01）+P2024（pool timeout）有界重试；MediaRegistration 第四形态 **prepareUploadInTx**（presign pending 创建——storage:37）+**11 处 media.create 全映射表**（storage:37/media-process:194/ai-download:100/ai-image-edit:199+200/lighting:167/video-trim:110/stitch:97/generated-media:54/video-work:91——全部可映射四形态，G43 为迁移终态门禁）；幂等前置判据=**FOR UPDATE 下 intent 行状态**（SUCCEEDED∧stored∧creditsConsumed=cost→幂等返回+补建缺行——非仅 Media 存在）；**attach/delivery per-project 进程内互斥**（串行化 apply+flush+recheck+mark——单实例+共享 Y.Doc+saveMutex 下正确性本无虞，纯成本优化）；repair 等价断言含 **exec 根值等价**（vacuumEquivalent 现状只比键集合 registry:655-663——repair 重建必须深拷贝 exec）；attach lease 覆盖 flush（180s）+两 poller **onModuleDestroy**（停 claim/等在飞/释放 lease）；**fail/touchHeartbeat/reanchorDeadline 补 execSeq 维度**（generation-intent:230/:248/:265 现状只守 status——旧 worker 可刷心跳/杀新 attempt）。
     - **误判过滤（六条，防复入）**：attach/delivery DocWriteCoordinator「正确性 P0」不成立（两 poller 写同 project 同 Y.Doc〔共享 residency 池〕+saveMutex per-doc+flush 排空全队列——"delivered/superseded 抖动"推演不成立，降 P1 互斥）；零费 settle no-op 分支多余（已裁决不造 creditCost=0 intent）；P2002 事务内 catch 驱动分支多余（lockBalance 串行同 team 并发 finalize，P2002 到不了——ON CONFLICT 兜底即可）；「grep 零第二处会红」=迁移目标非现状断言（11 处是迁移对象）；fillDoc 逐键写=已覆盖（A1/T15 本就重写写链）；outbox 单 projectId 漏 fanout=已覆盖（attach 按 binding.projectId 补插行——真缺口仅唯一键）。
+  - **v13（十三轮·三份 v9 外审生产级评审〔机制通过/执行驳回×2+方向详审〕+三路并行事实核验+三份六点裁决报告终裁——2026-10-18 十次确认）**。**六项裁决（推翻 v11 裁决①〔repair generation 跳变〕与 v12 裁决②〔video videoUrl〕；裁决④ copy 清锚/attach 交付链整体废止）**：
+    1. **video 不交付 videoUrl——`Media(status=processing)+fileId`**：provider 成功即 settle+finalize（资金流与 v12 零 delta——只换交付载荷）；finalize 事务内建 Media 行（status=processing+sourceUrl 专用列〔provider 源，**禁入 metadata**——media-batch 整行 spread 会泄漏〕+预分配 key+provider 声明 mimeType）+DocDelivery(kind=fileId 交付 mediaId)+settle/complete；**materialize 异步**（自有 processingLeaseUntil/processingAttempts 退避——与 intent attempts/rearm 彻底解耦：存储抖动不污染资金/交付状态机）；完成→单事务 status=completed+size/sha256/sniffedMimeType+probeState 推进+factVersion/outbox；**终态失败→幂等补偿退款+artifactState=failed+告警**（不落人工工单）；processing 期 content proxy 两态：ready=对象流+Range/HEAD/ETag；processing=allowlist 流式代理 sourceUrl（no-store+maxContentLength 上限+超限降级占位 410/425+Retry-After）；**targetField 词表删 videoUrl/resultUrl；DocDelivery kind 收敛 `fileId|text`**；统一不变量 `SUCCEEDED⇒settled∧DocDelivery(kind=fileId)∧Media 行存在∧status∈{processing,completed}`（image=finalize 时已 completed；text 唯一显式例外——kind 分支从两套不变量收敛为一条+一个例外）。UI 适配实证：ImageGenNode:70/VideoGenNode:51 本就走 useMediaUrl(fileId)，videoUrl/resultUrl 是无消费者历史残留。
+    2. **repair=in-place 主路径**（推翻 v11 裁决①/Z4''——**preVacuumSv fence 挡不住从未同步的离线客户端**实证：registry:689-697 只拒「clientID∈preVacuumSv∧clock≥pre」，quota-gate.spec:497 明确放行新 clientID→离线 IDB 未同步 update 重连合并=节点复活/旧键回写）：维护门（CollabMaintenance 行+与 vacuum 共享互斥）→对全部连接 applyWriteFreeze（**不 close 不 reload 不清 IDB**——秒级窗口）+新连接只读+DocDelivery 消费者维护门 503 退避→writesSettled→纯函数修复计划（按层 (oldOrder,id)+带间隙新键+去重）→withSession(write, MAINTENANCE_TRANSACT_ORIGIN) **分块 ≤64KB apply**→回读校验（无重复/无环/无孤儿）→解除 readOnly；幂等可重跑（崩溃→maintenance 行 stale→aborted→重跑）；**帧预算预演**（scratch doc encodeStateAsUpdate 预算——超 256KiB 或不可表达结构才退 vacuum）；**vacuum 兜底仅限「确定无离线客户端」运维窗**（无 generation 握手前提下不得作自动回退——A 条件句；**连接代际握手登记 Y2**）；等价断言维持「忽略 order|slot 的节点/边/data/exec 值等价」；purgeForeignCaches 反语义 bug 修复维持（仅 vacuum 兜底路径关联）。
+    3. **copy=方案二+**（推翻 v12 裁决③ copy 清锚+attach 交付链）：**strip 只对更新不对新建**（updateNodeData/updateConfig/diff/undo 回放剥客户端禁写键——快照窗口跨远端 apply 回退服务端键的真实 bug 面；**addNode/copyPlan/paste/multiImage explode/addImageToStoryboardCell 保留 fileId/images[].id**——新建携带本就是用户可见 media id，保留即渲染，消灭空图窗口）；normalizeCopiedNodeData 收窄（status loading/error→有 fileId 则 done 无则 idle/清 errorCode/删 url/exec 不复制/cells 派生）；**binding 服务端惰性 reconcile**（post-apply guard/周期扫描 mediaRefsOf 七键→校验 Media.teamId===project.teamId〔跨 team 拒+计数〕→幂等 upsert MediaBinding〔清 sourceIntentRowId/sourceExecSeq 锚+attachState=attached〕——零客户端调用/零新端点/离线 paste 天然覆盖/跨项目同 team 自然成立）；跨 team paste=客户端 strip 身份引用+服务端不建 binding+读 ACL 403 兜底；**Media GC 加 doc 引用检查/grace period 护栏**（防副本还在媒体被删）；**attach consumer 整建制取消**（两大存在理由消灭：video 续段〔裁决 1——fileId 已在 finalize 交付，materialize 不写 doc〕+copy 再交付〔本裁决〕）；**交付 owner 收敛为单一 DocDelivery poller**（非资金路径需写 doc 者〔trim/stitch/separate 等〕并入 kind=fileId 无资金字段——plan 重写期逐点 grep 实证）；MediaBinding 降级纯索引（惰性 reconcile 维护）；v12「attach claim sourceIntentRowId IS NULL/copy 清锚交付/sourceRegistrationKey」整套补丁废止。
+    4. **reconcile=R3 幂等 finalize 自动收敛**（推翻 v12「告警人工不自动退款」一刀切）：所有自动收敛走 `ArtifactCommit.finalizeFromExistingArtifact(intentId,execSeq)`（同一幂等 finalize——CAS+补建缺行）——动作表：SUCCEEDED∧Media/artifact 存在∧未 settle→finalize 补 settle+DocDelivery；RUNNING∧provider task 成功∧artifact staged→finalize（provider 不重调）；SUCCEEDED∧DocDelivery 缺失→补建；FAILED/VOIDED∧reserved>0→voidInTx（幂等）；SUCCEEDED∧Media(processing) 源过期/终态失败→重试 materialize→超限 refund+artifactState=failed+告警；delivery failed（node 删/project gone）→orphaned+幂等退款；delivery failed（未知/基础设施）→重试上限→dead+告警不自动退款；**台账不变量/对象缺失/无法判定→告警人工绝不自动动钱**；护栏：每行 CAS+有界尝试（3 次 jitter）+pg_advisory_xact_lock(hashtext(intentId)) 防并发双 reconcile+审计行 reconcile_action{intentRowId/action/before/after/traceId}+auto_converged/manual_required 分计数；**backfillSucceeded 禁写 SUCCEEDED+null**（现状 :224-227 无条件置——stalled 重入 skip→ack→reaper backfill 谎言链根修）。
+    5. **guard/strip=检测/诊断/可修复（shadow 起步）；安全边界=读侧 ACL**：**assertMediaReadable(mediaId,userId) 单门**（覆盖 url/batch/content/facts/thumbs/snapshot 注入全读面——现状散在 media.service:15-43/media-batch:19-31/by-key 例外；校验=项目成员+Media.teamId===project.teamId；公开页按已发布 workId 授权不按 mediaId〔IDOR〕）；**meta.schemaVersion 例外硬删+重连**（DoS 防护——现状 manifest:105-110 writers 仅文档约定，客户端改 meta.schemaVersion=2→ensureSchemaVersion throw→项目被 viewer 永久 brick；**shadow 档也删**）；键集单源两集合四处共用导出常量：SERVER_WRITABLE_DATA_KEYS（**含 content**——否则 text 交付 UNKNOWN_KEY）/CLIENT_FORBIDDEN_DATA_KEYS（不含 content——文本正文客户端本就要编辑）；T20 验收从「拦住」改「检测到+可修复+读侧拒绝」；写端点 op 白名单（服务间授权）维持拒绝验收。
+    6. **R2 大重构登记 Y2 立项候选，本批零代码**（Artifact 一等表/mediaRef typed-ref/去 fileId 所有权/多实例协调〔并 Y7〕+触发条件：一 intent 多产物/跨项目 media 引用/API 实例>1/doc schema 变更>1 次/季）；**双 bump 保留**（csv/docSchema bump 3 照做——生产 epoch 14 在线，旧 tab/旧 bundle 混跑窗真实；csv 门机制已存在，bump 成本两常量）；**fileId 命名保留**（mediaRef 归 Y2——现在改名零行为收益全 web 重刷）。
+    - **四分叉裁定**：video settle 时机=provider 成功即 settle（否「ingest 后 finalize」——**故障域隔离**为决定性理由：materialize 重试与 intent attempts/rearm 解耦，MinIO 抖动不阻塞不回滚资金/交付；补偿退款路径 rollback 族已存在）；双 bump=保留；copy binding=服务端惰性 reconcile（否 links API/客户端 best-effort）；**StoreOutcome 窄接口先行**（推翻 v12 P0「判别联合先行重构」——flushDocument 以 ephemeral flush+isPersistedComplete 三态 `persisted|not-persisted|terminal` 承载交付判定+spoolDeadline 1h 兜底；五态判别联合降后续独立硬化卡——persistence 是 BOI 契约最密集文件，窄接口已足承载「spooled≠delivered」语义）。
+    - **残余 P0 十三条（不因六裁决消失，写码前必须处理）**：①rearm **只释放不重冻**（v12「release+re-reserve——新 worker 重走 reserve 拿 mayCall:true」自相矛盾：team-credit:105 reservedCredits>0∨creditsConsumed>0→mayCall:false——rearm 内 re-reserve 后新 worker 必被静默跳过；修法=rearm 只 voidInTx 释放，re-reserve 留给新 worker reserve）；②execSeq **进程内贯穿**（job data 不带——controller:68-78 enqueue 时无 claim 不可得；DB 为唯一权威）+**同 job 重入三态**（旧 worker 心跳新鲜→skip；过期→接管新 execSeq fence 旧代；未知→抛可重试——「skipped 后成功 ack」废止：现状 job 被 ack→reaper backfillSucceeded 谎言链）；③**providerTaskId submit 后落库**（schema:1014 列在〔Z69〕但全仓无写库点——api-caller 只返回/generation-intent 只有注释）+query-first 重入+Idempotency-Key（intentRowId:execSeq）+**ArtifactCommit/MediaRegistration 置 shared module 双 role DI 测试**（生产 API manualRegistration:true 不消费队列——app.module:71；worker 是真实调用方）；④读 ACL 单门（裁决 5）+**storage.presign 补 projectId**（storage:38-50 create data 无 projectId——上传媒体 binding/facts/IDOR 归属全空）；⑤**非 additive DDL=rebuild cutover runbook**（execSeq NOT NULL/size Int→BigInt/docSchema v3 均非 additive——deploy.sh:129 check-migration-additive 会红，--rebuild-db 走 DROP SCHEMA：pg_dump/MinIO 备份+队列 pause+双进程停机顺序+回滚=restore）+**BigInt toJSON 全链**（storage-quota:16-30 agg._sum.size 算术/storage.service:85 Math.abs/media-batch:22-31 整行 spread/material.service:51-57——BigInt.prototype.toJSON+四读路径序列化测试）+**CI 加 S3 兼容服务**（现状无 MinIO——MIME/presign/Range 零 CI 覆盖）；⑥**targetItemId 非空 sentinel ''**（PG 唯一约束对 NULL 不去重——最常见的单图绑定恰在幂等键上失效；MediaBinding/DocDelivery 两处）；⑦meta 硬保护+键集单源（裁决 5）；⑧**confirmInTx+pending CAS**（现状 storage:69-99 无事务无 status='pending' 守卫——并发双 confirm 可都过配额；配额判定前移 presign/claim）；⑨**用户 replace vs delivery 竞态**：DocDelivery expectedValue CAS（或 fileIdRev 单调计数）——applyWriteNodeDataToDoc 现状无条件 set（document:286-300），用户在飞期间手动替换被旧代 delivery 覆盖；⑩**DOC_NODE_KEYS 契约表钉死**（envelope 7 键+order/slot 判别语义单源；slot=派生单实现禁两可）+compareExecSeq 单源（BigInt 解析+lint 禁裸比较+非法 string drop 不 0 兜底）；⑪**outbox at-least-once**（「重启零回放」断言废止——崩溃窗必然重放；改「零丢失+客户端 factVersion 幂等去重」+dead/retention+spoolDeadline）；⑫**SSRF SafeRemoteFetch**（ai-download:62 axios.get 无 host 校验/重定向限制/大小上限——https+allowlist+私网 IP 拒+maxRedirects:0+流式限长+content-type 白名单）；⑬**file-type pin 16.x 或自研 magic sniff**（≥17 纯 ESM vs tsconfig commonjs——ERR_REQUIRE_ESM）。
+    - **附加修订**：quota claim 前预检（usage+estimatedBytes≤limit——AI 生成不走 presign assertCanUpload，软限=无限超配额）；media.create 门禁改 **grep census**（9 处非 11——ai-image-edit:199+200 同一调用续行；排除 seed/test）；C0b 片出口加**提前 soak 一轮**（不待 T28）；**开工前三实证**（生产 nginx -T 核 /flowai location〔改 /flowai 面前必做——web 24 处/15 文件改写面远大于 v9 所列 2 文件〕/check-migration-additive 对本批 DDL 实判/CI S3 服务到位）。
 
 ## 0.1 本批有效裁决（master 内联+本批 Z'' 系）
 
@@ -30,24 +40,24 @@
 | **E68** | 读侧全函数/写侧显式拒绝/禁修复写回 doc 维持 | §2/§3 |
 | **C7①③** | 版本协商拒旧（**双常量 bump：csv 连接门+docSchema 数据门——Z9''-v10**）+「排空切换 runbook 进 Y1」 | §6 |
 | C5/C6/C5↔D4/D13/E6/E8/E15 | 维持 | §2/§3 |
-| **Z1''（v12 补）** | **media facts=Media 读模型+MediaFactOutbox**：Media 表唯一权威；doc 四根不动；读出口：①REST `GET /api/projects/:id/media-facts?ids=`（≤500+项目成员**且按 binding/project 归属校验**〔join MediaBinding.projectId ∪ Media.projectId——跨项目 IDOR 拒〕+ETag 短 TTL）②**MediaFactOutbox 表**（`id BigInt autoincrement`/mediaId/projectId/factVersion/payload/state pending\|published\|dead/attempts/nextAttemptAt；**v12：`@@unique([mediaId,projectId,factVersion])`**——三写入点并发同版本插重行免疫；写入点三处=probe done/server natural/attach 创建时若 fact 已存在——**同事务插入**；消费=API emitter `state='pending' ∧ nextAttemptAt<=now ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 200`→emit `project:<id>` 房间 `media:fact{mediaId,version,fact}`→published；失败退避；耗尽 dead+告警；**无 watermark——晚提交的行仍是 pending 下轮必达；重启零回放；correction 必产生新 version**；**emitter 单实例假设显式化**〔ecosystem instances:1——多实例归 Y7 评估 Redis pub/sub〕）③快照/viewer=服务端 join 注入 `RawNode.natural{width,height}`（公开 payload 携带——G28）；web=mediaFacts store（重连/切项目全量拉+按 factVersion 忽略旧+**v12：pendingFacts 短 TTL Map——fact 先于 fileId 到达时暂存、fileId 到达即消费（「忽略未知 mediaId」单一路径废止——丢 natural 到重连）+delivery/attach mark 成功后对该 mediaId lazy GET 补拉**+切项目清空） | §3.1 |
+| **Z1''（v12 补）** | **media facts=Media 读模型+MediaFactOutbox**：Media 表唯一权威；doc 四根不动；读出口：①REST `GET /api/projects/:id/media-facts?ids=`（≤500+项目成员**且按 binding/project 归属校验**〔join MediaBinding.projectId ∪ Media.projectId——跨项目 IDOR 拒〕+ETag 短 TTL）②**MediaFactOutbox 表**（`id BigInt autoincrement`/mediaId/projectId/factVersion/payload/state pending\|published\|dead/attempts/nextAttemptAt；**v12：`@@unique([mediaId,projectId,factVersion])`**——三写入点并发同版本插重行免疫；写入点三处=probe done/server natural/attach 创建时若 fact 已存在——**同事务插入**；消费=API emitter `state='pending' ∧ nextAttemptAt<=now ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 200`→emit `project:<id>` 房间 `media:fact{mediaId,version,fact}`→published；失败退避；耗尽 dead+告警；**无 watermark——晚提交的行仍是 pending 下轮必达；at-least-once+客户端 factVersion 幂等去重（v13：「重启零回放」断言废止——崩溃窗必然重放；测「重复投递幂等」不测「零重放」）；correction 必产生新 version**；**emitter 单实例假设显式化**〔ecosystem instances:1——多实例归 Y7 评估 Redis pub/sub〕）③快照/viewer=服务端 join 注入 `RawNode.natural{width,height}`（公开 payload 携带——G28）；web=mediaFacts store（重连/切项目全量拉+按 factVersion 忽略旧+**v12：pendingFacts 短 TTL Map——fact 先于 fileId 到达时暂存、fileId 到达即消费（「忽略未知 mediaId」单一路径废止——丢 natural 到重连）+delivery/attach mark 成功后对该 mediaId lazy GET 补拉**+切项目清空） | §3.1 |
 | **Z2''（维持）** | 四类型链（Raw/Stored/Projected 7+(order\|slot) 判别联合/CanvasStoreNode）+三函数读模型维持 | §2.1 |
 | **Z3''（维持）** | DOC_NODE_KEYS 7 键三处接线；NODE_ENVELOPE_KEYS 不动 | §2.3 |
-| **Z4''（v12 补）** | **repair=一次 generation 跳变的 doc rewrite**：`POST /projects/:id/collab/order/repair`（OWNER/ADMIN，异步 202+jobId+单飞）→执行体**复用 vacuum 协议**：acquire vacuumGate（与 vacuum 共享互斥——不另起 repairingDocs）→beginVacuumEra（冻结全连接+hardClose 4410〔reason 可带 'doc-repairing'〕+serving 门拦新连接）→quiesce（writesSettled 覆盖服务端 outbox 写：DocDelivery/attach 消费者在维护门内 503 退避）→离线装载→纯函数重排（受影响层按 (oldOrder,id)+分片语义在离线构建中无意义——整体重建）→**等价断言=忽略 order|slot 的节点/边/data 内容等价（v12：exec 根属"内容"——值级等价+重建深拷贝保留；vacuumEquivalent 现状只比键集合 registry:655-663 属勘误）**→单事务 vacuumReplace（state+preVacuumSv+generation+1+删增量行+advisory lock）→purgeDocState+invalidateSnapshotCache→释放 gate；**客户端零新协议**：旧客户端重连 SyncStep1 覆盖 preVacuumSv→4410 doc-generation-stale→consumeGenerationJump 单链（undo clear→导出未同步→purge→reload）；**purgePidCaches 修复**（generation jump 清同 pid 全部代——现状反语义 bug 根修+真 IDB 测试）；ack/maintenance-start 降 UX 提示（超时照常 close 不中止 repair）；soft(24)/hard(128)/load 病理档 reaper/repair CLI 维持（CLI 经维护租约）；**repairRev 删除**（doc-status 可带 epochReason 审计）；离线客户端 pending 由 preVacuumSv 内容级 fence 拒（不可合并——导出/放弃显式出口） | §2.4 |
+| **Z4''（v13 重写——in-place 主路径）** | **repair=in-place renumber**：`POST /projects/:id/collab/order/repair`（OWNER/ADMIN，小文档同步 200/大文档 202+jobId+单飞）→执行体：acquire 维护互斥（CollabMaintenance 行+与 vacuum 共享 vacuumGate——不另起 repairingDocs）→对全部连接 applyWriteFreeze('repair')（**不 close 不 reload 不清 IDB 不跳 generation**——秒级窗口）+新连接只读+DocDelivery 消费者维护门 503 退避→writesSettled→纯函数修复计划（受影响层按 (oldOrder,id) 重算+带间隙新键+去重+结构 patch）→**withSession(write, MAINTENANCE_TRANSACT_ORIGIN) 分块 apply（每块 ≤64KB）**→回读校验（无重复/无环/无孤儿+等价断言=忽略 order|slot 的节点/边/data/exec 值等价——非 order/slot 键零变化）→解除 readOnly+恢复交付→写 RepairRun 审计；**幂等可重跑**（输入=当前层节点集合；崩溃→maintenance 行 stale→aborted→进程重启 readOnly 自然消失→重跑）；**帧预算预演**（scratch doc Y.encodeStateAsUpdate——超 256KiB 单帧或遇不可表达结构〔非 Map 根/损坏 update log〕才退 vacuum 兜底）；**vacuum 兜底仅限「确定无离线客户端」运维窗**（无连接代际握手前提下**不得作自动回退**——握手登记 Y2；preVacuumSv fence 对未同步离线客户端无效实证）；vacuum 兜底路径沿用 beginVacuumEra/vacuumReplace+等价断言补 exec 值比较（vacuumEquivalent 浅比较勘误维持）+purgePidCaches 修复维持（仅 vacuum 路径关联）；soft(24)/hard(128)/load 病理档 reaper/repair CLI 维持（CLI 默认 in-place，--vacuum 仅紧急）；客户端并发移动在冻结窗口外=per-key LWW 后写者赢（读侧 (order,id) 稳定排序+重复键可容忍下次收敛） | §2.4 |
 | **Z5''（维持 v10）** | applyIntrinsicFit=纯函数（store 数据源/display 契约 EXIF 5-8/imageRotation 用户变换交换/分镜跳过/sizeMode/clamp/viewer 纯函数） | §3.2 |
 | **Z6''（维持 v10）** | 只读命令门（B1a+七命令补门）+dimensions 分表+resync 三路+节流+闩锁维持 | §3.3 |
-| **Z7''（v12 改）** | **probe 单相+MIME 安全+attach 消费者**：probe 相（worker——重计算）：claim `probeState IN(pending,running∧lease过期) ∧ status='completed' ∧ **sniffedMimeType** image/video 非 SVG ∧ deletedAt IS NULL`（**MIME 路由用 sniffed 非客户端声明**）SKIP LOCKED+probeRunId CAS——**图片批 4+lease 180s；视频 batch=1+lease 5min**（覆盖下载+ffprobe 最坏）；nextProbeAt 带 jitter 指数退避；索引 `@@index([probeState,nextProbeAt])`；create 面置 pending|skipped+**confirm 后按 sniffed 重算 probeState**（伪报 audio 的图片不再永 skipped）；server natural 同事务置 done+**factVersion 推进+outbox 插入**；图片 sharp limitInputPixels **40MP+downscale 产品策略**（超大图 typed 拒+UX 提示——产品参数 UX 签字定）+并发 1+EXIF 5-8 交换；视频 ffprobe 15s+SIGKILL+protocol_whitelist+CI/部署 pin；metadata 只留 codec/duration/bitrate；**MIME 全链**：confirm 读对象头 file-type 嗅探（成熟库）→非白名单拒+删对象+计数→presign POST 增 Content-Type 条件（starts-with image//video//audio/）→**媒体消费走 API 代理流式 `GET /api/media/:id/content`**（服务端查 Media+按 sniffedMimeType 设 Content-Type+非白名单 attachment+CSP sandbox——**生产 MinIO 直链禁用**）→图片 probe 后 sharp 重编码剥 polyglot/EXIF 载荷→SVG 一律拒→**生产上传 /flowai 渗透修复**（mediaUploadUtils 改写逻辑改环境感知）→Media.size BigInt；attach 消费者（API 进程）：claim `attachState IN(pending,attaching∧lease过期) ∧ Media.status='completed'`（不 JOIN probeState）→linkMedia 原子 CAS（withSession 内：节点缺失→orphaned；非空∧≠expected→superseded；同值→applied）→attached；**attach=只填空（expectedValue=空）——非空替换必须走 replaceMedia 显式命令**；targetField+**targetItemId**（稳定 ImageItem.id）定位+**v12：词表补 videoUrl/resultUrl**；**v12：attach claim 条件加 `sourceIntentRowId IS NULL`**（资金原件 binding 永不进 attach 队列——零 churn/零双 owner；copy/clone binding 必清锚后正常入队交付——Z14''）+**lease 覆盖 flush+recheck+mark（180s）+onModuleDestroy 停 claim**；deliverMedia/attach 端点同 team/ImageItem 去 url/mediaRefsOf 七键维持 | §3.1 |
+| **Z7''（v13 重写——probe 单相+MIME 安全；attach 消费者整建制取消）** | **probe 相（worker——重计算）维持 v12 口径**：claim `probeState IN(pending,running∧lease过期) ∧ status='completed' ∧ sniffedMimeType image/video 非 SVG ∧ deletedAt IS NULL`（MIME 路由用 sniffed）SKIP LOCKED+probeRunId CAS——图片批 4+lease 180s；视频 batch=1+lease 5min；nextProbeAt jitter 指数退避；索引 `@@index([probeState,nextProbeAt])`；confirm 后按 sniffed 重算 probeState；server natural 同事务 done+factVersion+outbox；图片 sharp 40MP+downscale+并发 1+EXIF 5-8；视频 ffprobe 15s+SIGKILL+protocol_whitelist+pin；metadata 只留 codec/duration/bitrate；**MIME 全链维持**：confirm 嗅探对象头（**file-type pin 16.x 或自研 magic sniff——≥17 纯 ESM vs commonjs**）→白名单外拒+删对象+计数→presign POST 增 Content-Type 条件（**须同时把 Content-Type 放进 presign.fields——否则全部 403**）→**媒体消费走 `GET /api/media/:id/content` 两态**（ready=对象存储流式+Range/HEAD/ETag/304+sniffedMimeType+非白名单 attachment+nosniff；processing=allowlist 流式代理 sourceUrl+no-store+maxContentLength 上限+超限降级占位——**安全约束：host allowlist/私网 IP 拒/maxRedirects:0/流式限长**〔SafeRemoteFetch〕；**生产 MinIO 直链禁用**；2C 单机带宽约束——大视频优先 X-Accel-Redirect/presigned GET，代理可降级）→图片 sharp 重编码剥载荷→SVG 拒→**/flowai 面迁移**（**web 24 处/15 文件**改写面——`mediaContentUrl(fileId)` 单点+census 禁再出现改写正则；**改前必先生产 nginx -T 实证 /flowai location 存在性**）→Media.size BigInt（**BigInt.prototype.toJSON+四读路径序列化测试**）；**attach 消费者取消（v13）**：两大存在理由消灭（video 续段=裁决 1 fileId 已在 finalize 交付；copy 再交付=裁决 3 新建保留 fileId）——**交付 owner 收敛为单一 DocDelivery poller**（资金+非资金需写 doc 者统一 kind=fileId/text；非资金无资金字段）；**MediaBinding 降级纯索引**：服务端惰性 reconcile（post-apply guard/周期扫描 mediaRefsOf 七键→Media.teamId===project.teamId 校验〔跨 team 拒+计数〕→幂等 upsert〔清锚+attachState=attached+targetItemId 非空 sentinel〕）；attach=只填空语义并入 DocDelivery expectedValue；replaceMedia 显式命令维持（带 expectedValue）；deliverMedia 端点同 team/ImageItem 去 url/mediaRefsOf 七键维持 | §3.1 |
 | **Z8''（维持）** | 工厂类型感知+fallbackSize 单函数+happy-path=0 | §3.4 |
 | **Z9''（维持 v10）** | 版本门=**双常量 bump 3**（csv 连接门 schema-outdated→handleVersionTerminal 一次 reload；docSchema 数据门旧 doc 拒载+IDB 四维键+Redis 键联动）；DEPLOY_EPOCH 废止维持 | §6 |
 | **Z10''（维持）** | collab-doc-ops 纯模块+表驱动校验+switch+never+WriteOutcome 四态（deliverArtifact/linkMedia op 进表） | §3.1 |
-| **Z11''（v12 改）** | **禁写门五层**：①**v12：stripServerOwnedData web 单点——无条件剥服务端身份键（fileId/resultUrl/videoUrl/result/natural/errorCode），挂全构造点（diff dataPatch/addNode.data/copyPlan/paste/undo 恢复——「未修改才不回送」措辞废止：canvasIntents:502 全键差异在快照窗口跨远端 apply 时会把服务端键判为"变化"发回）**+manifest UNKNOWN_KEY；②（并入①）；③generated fileId=服务端所有权+replaceMedia/attach 显式命令+writeNodeData(fileId) expected CAS；④**服务端 writeNodeData 对 fileId/resultUrl/videoUrl/result/natural 键 manifest 拒写**（仅 linkMedia/deliverArtifact 复合 op 可写——worker 写端点 op 白名单 exec-only：HttpCollabWritePort 仅 writeExecStatus loading/skipped 可用；**现状 SERVER_NODE_DATA_KEYS 是白名单且含 content——需按 v12 键集重划，content 客户端可编辑不拒**）；⑤Yjs 客户端直发 update 仍可写身份键——**post-apply 检测（Z19'' exec-only 扩身份键域）+guard 根白名单**；第二步命令族=Y1 末/Y2 边界维持 | §3.2 |
+| **Z11''（v13 改——strip 分更新/新建两路+meta 例外+键集单源）** | **禁写门分层（v13：guard/strip=检测/诊断，安全边界=读侧 ACL——裁决 5）**：①**stripServerOwnedData web 单点——只挂更新路径**（updateNodeData/updateConfig/diff dataPatch/undo 回放剥 CLIENT_FORBIDDEN_DATA_KEYS——快照窗口跨远端 apply 回退服务端键的真实 bug 面）；**新建路径不 strip**（addNode/copyPlan/paste/multiImage explode/addImageToStoryboardCell **保留 fileId/images[].id**——新建携带本就是用户可见 media id，保留即渲染消灭空图窗口〔裁决 3〕）+manifest UNKNOWN_KEY；②（并入①）；③generated fileId=服务端所有权+replaceMedia 显式命令（带 expectedValue）+DocDelivery expectedValue CAS（**用户 replace vs 在飞交付竞态根修**——applyWriteNodeDataToDoc 现状无条件 set document:286-300）；④**服务端 writeNodeData 对客户端禁写键 manifest 拒写**（仅 linkMedia/deliverArtifact 复合 op 可写——worker 写端点 op 白名单 exec-only 维持；**键集单源两集合四处共用导出常量：SERVER_WRITABLE_DATA_KEYS（含 content——否则 text 交付 UNKNOWN_KEY）/CLIENT_FORBIDDEN_DATA_KEYS（不含 content——文本正文客户端可编辑）；四处=manifest/strip/guard/census 任一漂移即红——现状 SERVER_NODE_DATA_KEYS module-private web import 不到是漂移结构性原因**）；⑤Yjs 客户端直发 update 仍可写身份键——post-apply 检测（Z19''）+guard shadow 定档；**⑥meta.schemaVersion 例外硬删+重连**（DoS 防护——现状 writers 仅文档约定 manifest:105-110，客户端改 meta.schemaVersion=2→ensureSchemaVersion throw→项目被 viewer 永久 brick；**shadow 档也删+计数+诊断**；guard 域含 meta.* 整根）；第二步命令族=Y1 末/Y2 边界维持 | §3.2 |
 | **Z12''（维持 v10）** | placement 复合单键+G17 改口+判别联合+allocator 唯一入口+updateNodeEnvelope apply 内合并整对象写+等值键 needs-layer-repair+37 调用点维持 | §2.5 |
 | **Z13''（v11 补）** | harness+**execSeq 代际矩阵**（同 job 双 worker/新 intent 覆盖旧终态/旧 error 不覆盖新 loading）+**flush 四崩溃窗**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）+**repair=vacuum 并发**（互斥/旧 IDB/离线 pending）+outbox 乱序提交+分镜并发维持 | §2.6 |
-| **Z14''（v12 补）** | normalize 五路径+binding DB 复制+nodeId remap（cells remap 删）+**normalizeCopiedNodeData 单函数五路径共用（copyPlan/seed/clone）**：status loading/error→idle（red：copyPlan:63 structuredClone 连 loading 复制=副本永久转圈）/身份键 binding 复制成功才保留否则 strip/exec 永不复制/cells 删；**binding 复制必清锚**（sourceIntentRowId/sourceExecSeq 置空+新 registrationKey——副本非资金产物，attach 可交付 fileId） | §2.5 |
+| **Z14''（v13 重写——copy 方案二+）** | normalize 五路径+nodeId remap（cells remap 删）+**normalizeCopiedNodeData 单函数五路径共用（copyPlan/seed/clone）收窄**：status loading/error→**有 fileId 则 done 无则 idle**（red：copyPlan:63 structuredClone 连 loading 复制=副本永久转圈）/清 errorCode/error/删 ImageItem.url/**保留 fileId/images[].id**（新建路径不 strip——裁决 3）/exec 永不复制/cells 派生删；**binding=服务端惰性 reconcile**（post-apply guard/周期扫描 mediaRefsOf 七键→Media.teamId===project.teamId 校验〔跨 team 拒+计数〕→幂等 upsert〔清 sourceIntentRowId/sourceExecSeq 锚+attachState=attached+targetItemId sentinel〕——零客户端调用/离线 paste 天然覆盖/跨项目同 team 自然成立）；**跨 team paste=客户端 strip 身份引用**+服务端不建 binding+读 ACL 403 兜底（恶意客户端新建节点写他队 mediaId→doc 保留但读 403+facts 不返+binding 不建+guard 计数）；**Media GC 护栏**（删除前检查 doc 引用/活跃 binding+grace period——防副本还在媒体被删）；v12「binding 复制必清锚+新 registrationKey+attach 交付」整套废止（无执行者问题随 attach 取消消灭） | §2.5 |
 | **Z15''（维持）** | cs 面 order/slot 写链维持 | §2.5 |
 | **Z16''（维持）** | multiImage previewSize/恒等断言/fallbackSize/双常量注释维持 | §2.3/§3.4 |
 | **Z17''（维持 v10）** | cells→slot（capacity 派生不落 doc/deriveStoryboardCells 长度恰=capacity+overflowIds/resize 溢出移出/swap 整值写/回流面 11 处删除清单）维持 | §2.3 |
-| **Z18''（v12 改——execSeq+分层+flush+kind 分支）** | **资金=artifactState+交付=DocDelivery 双轨（v9 骨架）+代际/事务/持久化三收口**：**①execSeq 全局代际**（硬约束见修订链 v12）：**EXEC_STATUS_KEYS/ExecStatusPatch 加 execSeq: string 前置**（manifest:90 现状无——UNKNOWN_KEY 门口死）；exec 守卫比较改 `patch.execSeq<stored→older-exec`（BigInt；同 execSeq 内终态幂等/旧 attempts 挡新——反例 A/B/C 全解）；job data 携带 (intentRowId,execSeq)（**现状 ExecutionJobData.intentRowId=死代码——接线**）；reserve 写 reservedExecSeq；settle/void CAS 匹配 reservedExecSeq；**同 jobId RUNNING 重入=复用当前 execSeq 不动 reservation（v12——分配两处 new claim/rearm；重入者 mayCall:false 静默 skipped 等旧 worker）**；rearm 事务=execSeq nextval+**voidInTx 旧冻结（release+re-reserve——新 worker 重走 reserve 拿 mayCall:true）**+旧 DocDelivery/MediaBinding superseded；**fail/touchHeartbeat/reanchorDeadline 补 execSeq 维度**（旧 execSeq 0 命中 no-op）；**②ArtifactCommitService（资金五路径唯一 finalize）**：对象上传/HEAD 事务外（key=`artifacts/{teamId}/{intentRowId}/{execSeq}/{index}-{sha256}`+**x-amz-meta-sha256 上传元数据+finalize HeadObject 校验**〔v12：If-None-Match 废止——MinIO 不支持条件写〕）→单 PG 事务：无锁读 intent 快照→**ledgerTx 首句+lockBalance(teamId)〔契约 20〕**→intent FOR UPDATE 重验（RUNNING∧execSeq∧reservedExecSeq 匹配）→**幂等检查在 CAS 前（v12：判据=FOR UPDATE 下 intent 行状态——SUCCEEDED∧stored∧creditsConsumed=cost→幂等返回+补建缺行；非仅 Media 存在）**→inserts（Media〔registerInTx〕/MediaBinding/DocDelivery〔execSeq+artifactIndex+targetField+targetItemId 快照〕）→CAS updateMany（RUNNING∧execSeq→SUCCEEDED+stored）count===1 唯一凭据→settleInTx（只结算 reservedExecSeq===execSeq；失败**整体回滚**——不得 settle 失败仍交付）→commit；**死锁 40P01/40001/55P03+P2024 有界重试 3 次+jitter**；多产物=一次事务 N Media+一 settle+N DocDelivery；**kind 分支（v12）**：text=跳过 registerInTx（DocDelivery kind=text 携 resultText）；video=即时 finalize 交付 videoUrl（**无 Media 行**——下载→MinIO→Media→fileId=非资金续段走 MediaRegistration+attach）；**资金 quota=软限**（超限告警+计数不回滚；registerInTx 禁调 assertOnConfirm+禁外部 IO——sniff/HEAD/hash 全事务外）；**③MediaRegistrationService（非资金唯一 Media 写入点）**：**prepareUploadInTx/registerInTx/confirmInTx/bindInTx 四形态**（11 处 media.create 全映射——幂等锚 registrationKey+@@unique(bucket,key)）——不碰 settle/complete/DocDelivery/exec；**④DocDelivery 交付（typed flush——裁决④全文）**：认领 CAS（SUCCEEDED∧stored∧pending∨lease过期）+SKIP LOCKED→**deliverArtifact 复合 op**（事务内前置判定全过才写：execSeq 比较→stale 拒/同值幂等/新 intent 已出现→superseded；expectedValue 不匹配→superseded；节点删→orphaned；**然后** data patch+exec done）→批量 flushDocument（**载体=StoreOutcome 判别联合——storeDocumentUnlocked boolean 五分支混 false 先行重构**；与 attach 同 project 进程内互斥串行化）→复核→mark delivered；spooled/PG 故障不消耗 maxAttempts；**⑤exec 投影（v10 分档维持+execSeq 化）**：loading/skipped=worker strict Http（带 execSeq）；error=DB+API reconcile（**(FAILED,VOIDED)∧execProjectedExecSeq≠当前 execSeq**——Epoch 化替代布尔标记；**活跃项目过滤+24h 窗**）；done=DocDelivery；alignExecFromIntents 重建带 execSeq；**⑥清理与不变量**：旧 reconcile 三后门删除（backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts）→**不变量巡检（v12 按 kind 分化**：image/edit=SUCCEEDED⇒stored∧Media 存在∧settled；video=SUCCEEDED⇒videoUrl 已交付∧settled〔Media 后补豁免〕；text=SUCCEEDED⇒resultText 非空∧settled；违反告警人工不自动退款）；cleanTerminalIntents=artifactState 终态∧delivery 终态∧reserved=0∧7d（**resultText 非空行延长 90d**）；缺行 reconcile×2；DocDelivery/MediaBinding 终态 retention+dead-letter 告警 | §3.1 |
+| **Z18''（v13 重写——execSeq+分层+flush+video processing+R3 reconcile）** | **资金=artifactState+交付=DocDelivery 双轨（v9 骨架）+代际/事务/持久化三收口**：**①execSeq 全局代际**：**EXEC_STATUS_KEYS/ExecStatusPatch 加 execSeq: string 前置**（manifest:90 现状无——UNKNOWN_KEY 门口死）；exec 守卫比较改 `patch.execSeq<stored→older-exec`（BigInt；同 execSeq 内终态幂等——反例 A/B/C 全解）；**execSeq 由 claim 返回值进程内贯穿（v13：job data 不带——controller:68-78 enqueue 时无 claim 不可得；DB 为唯一权威，禁第二真源）**；reserve 写 reservedExecSeq；settle/void CAS 匹配 reservedExecSeq；**同 jobId RUNNING 重入三态（v13——「重入者静默 skipped 等旧 worker」废止）**：旧 worker 心跳新鲜→skip（活着）；心跳过期→接管（新 execSeq fence 旧代）；未知→抛可重试错误让 BullMQ 延迟重投——**禁「skipped 后成功 ack」**（现状 job 被 ack→reaper backfillSucceeded 谎言链）；rearm 事务=execSeq nextval+**voidInTx 只释放旧冻结（v13：re-reserve 废止——team-credit:105 reservedCredits>0∨creditsConsumed>0→mayCall:false，rearm 内 re-reserve 后新 worker 必被静默跳过=bug 换壳；re-reserve 留给新 worker 的 reserve）**+旧 DocDelivery superseded；**fail/touchHeartbeat/reanchorDeadline 补 execSeq 维度**（旧 execSeq 0 命中 no-op）；**providerTaskId submit 后落库（v13 P0——schema:1014 列在但全仓无写库点）+同 job 重入 query-first（先查 provider task 已成功→直接 finalize 不重呼）+Idempotency-Key（intentRowId:execSeq）**；**②ArtifactCommitService（资金五路径唯一 finalize——shared module 双 role：API+worker 均可实例化+双 role DI 测试〔生产 API manualRegistration:true 不消费队列，worker 是真实调用方 app.module:71〕）**：**stage 事务外**（image/edit/lighting：provider 结果→SafeRemoteFetch 下载→对象存储 content-addressed key=`artifacts/{teamId}/{intentRowId}/{execSeq}/{index}-{sha256}`→**服务端自算 sha256**→sniff/HeadObject——失败=零 DB 变更 temp orphan 由 sweep 清）→**finalize 短事务**（目标 <50ms/lock_timeout=3s/statement_timeout=5s；**事务内禁 HeadObject/hash/sniff/外部 IO**）：无锁读 intent 快照→ledgerTx 首句 lockBalance(teamId)〔契约 20〕→intent FOR UPDATE 重验（RUNNING∧execSeq∧reservedExecSeq）→**幂等检查在 CAS 前（判据=intent 行状态——SUCCEEDED∧stored∧creditsConsumed=cost→幂等返回+补建缺行）**→inserts（Media〔registerInTx〕/MediaBinding/DocDelivery〔execSeq+artifactIndex+targetField+targetItemId 快照+expectedValue〕）→CAS updateMany（RUNNING∧execSeq→SUCCEEDED+stored）count===1 唯一凭据→settleInTx（失败整体回滚）→commit；死锁 40P01/40001/55P03+P2024 有界重试 3 次+jitter；**kind 分支（v13 裁决 1）**：text=跳过 registerInTx（DocDelivery kind=text 携 resultText）；image/edit/lighting=stage 后 finalize（Media 已 completed）；**video=finalize 事务内建 Media(status=processing, sourceUrl 专用列+预分配 key)+DocDelivery(kind=fileId 交付 mediaId)+settle/complete——materialize 异步**（MaterializeJob：下载→MinIO→单事务 status=completed+size+sniffedMimeType+probeState 推进+factVersion/outbox；幂等键=mediaId；processingLeaseUntil/processingAttempts 自有退避**与 intent attempts/rearm 解耦**；终态失败→**幂等补偿退款**+artifactState=failed+告警）；**资金 quota=软限+claim 前预检（v13）**（claim 前 usage+estimatedBytes≤limit 预检——AI 生成不走 presign 的 assertCanUpload=无限超配额；finalize 仍软限不滚钱）；registerInTx 禁调 assertOnConfirm+禁外部 IO；**统一不变量**：`SUCCEEDED⇒settled∧DocDelivery(kind=fileId)∧Media 行存在∧status∈{processing,completed}`（text 唯一例外=resultText 非空）；**③MediaRegistrationService（非资金唯一 Media 写入点——同 shared module）**：**prepareUploadInTx/registerInTx/confirmInTx/bindInTx 四形态**（**9 处 media.create 映射〔grep census 非固定数字——ai-image-edit:199+200 是同一调用续行〕+storage prepareUploadInTx 补 projectId**；幂等锚 registrationKey+@@unique(bucket,key)+**confirmInTx 带 status='pending' CAS**〔现状 storage:69-99 无事务无守卫——并发双 confirm 可都过配额〕）——不碰 settle/complete/DocDelivery/exec；**④DocDelivery 交付（单一 poller——v13 attach consumer 并入）**：认领 CAS（SUCCEEDED∧stored∧pending∨lease过期）+SKIP LOCKED→**deliverArtifact 复合 op**（事务内前置判定全过才写：execSeq 比较→stale 拒/同值幂等/新 intent 已出现→superseded；**expectedValue 不匹配→superseded（用户 replace 竞态根修——v13 P0⑨）**；节点删→orphaned；然后 data patch+exec done）→按 project 批量 flush（**载体=窄接口三态 persisted|not-persisted|terminal——ephemeral flush+isPersistedComplete〔v13：StoreOutcome 五态判别联合降后续硬化卡〕+spoolDeadline 1h**）→复核 target/execSeq/expectedValue→mark delivered；not-persisted 不消耗 maxAttempts（spoolDeadline 兜底）；onModuleDestroy 停 claim/等在飞；mark 后 lazy GET media-facts 补拉；**⑤exec 投影维持**（loading/skipped=worker strict Http 带 execSeq；error=DB reconcile execProjectedExecSeq+活跃项目+24h；done=DocDelivery；alignExecFromIntents 重建）；**⑥清理与 reconcile=R3 自动收敛（v13 裁决 4——推翻「告警人工」一刀切）**：所有自动收敛走 `finalizeFromExistingArtifact(intentId,execSeq)`（同一幂等 finalize）；动作表+护栏见修订链 v13；**backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts 三后门删除**（直接改 status 的路径全灭——保留入口改走 finalize）；统一不变量巡检（违反→告警+dead-letter；歧义/资损风险绝不自动动钱）；cleanTerminalIntents=artifactState 终态∧delivery 终态∧reserved=0∧7d（resultText 非空行 90d）+**保留矩阵：intent ≥ Media/DocDelivery 引用（Media.sourceIntentRowId 7 天后悬空锚根修——有 artifact 的 intent 不物理删/FK ON DELETE SET NULL+保留 sourceExecSeq/registrationKey）**；DocDelivery/MediaFactOutbox 终态 retention+dead-letter 告警 | §3.1 |
 | **Z19''（v11 扩）** | guard=exec-only+**身份键域**（post-apply 检测扩：exec map 客户端写+fileId/resultUrl/videoUrl/result/natural 客户端直写检测——Z11''⑤）；spike 定档+post-apply 恒做+四根白名单维持 | §3.6 |
 
 ## 0.2 裁决定案（2026-10-18 用户确认；v11 收口更新）
@@ -55,7 +65,7 @@
 | # | 项 | 定案 |
 |---|----|------|
 | ① | media facts 存储 | 维持 v9——Media 读模型（v11:MediaFactOutbox 替换 watermark+IDOR 校验） |
-| ② | 重排出口 | **v11 换轨方案 A**——repair=generation 跳变 doc rewrite（复用 vacuum 协议；**repairRev 删除**；purgeForeignCaches bug 同修） |
+| ② | 重排出口 | **v13 in-place renumber**（推翻 v11 换轨方案 A——preVacuumSv 对未同步离线客户端无效实证；不 close/不 reload/不清 IDB/不跳 generation；分块 ≤64KB+幂等重跑+帧预算预演；**vacuum 兜底仅限确定无离线客户端运维窗**；generation 握手归 Y2；purgeForeignCaches bug 修复维持仅 vacuum 路径关联） |
 | ③ | 片序 | 维持（单列车+P0-pre+B1a 必做——§4 对齐 plan v8） |
 | ④ | Y1c schema | 本批固定 **3**（双常量同值两门） |
 | ⑤ | 键长参数 | 维持（vendor+soft 24+hard 128+四曲线+等值键 repair） |
@@ -68,9 +78,15 @@
 | **⑫** | **producer 分层（v11）** | MediaRegistration（唯一 Media 写入点）+ArtifactCommit（资金）/MediaRegistration（非资金）两编排器；不造零费 intent |
 | **⑬** | **交付持久化（v11）** | typed flushDocument 五态+批量一次 flush+flush 后复核；spooled≠delivered；PG 至少一次（**v12：载体=StoreOutcome 先行重构**） |
 | **⑭** | **同 job 重入（v12）** | 复用当前 execSeq+重入者 mayCall:false 静默 skipped（续跑语义——同 intent 双 worker 只烧一次钱）；仅 rearm=nextval+voidInTx 旧冻结（release+re-reserve） |
-| **⑮** | **video finalize（v12）** | provider 成功即 finalize 交付 videoUrl（无 Media 行）；下载→Media→fileId=非资金续段（ai-download 迁 MediaRegistration+attach）；不变量按 kind 分化（video 豁免 Media 项/text 无 Media） |
-| **⑯** | **copy 资金产物（v12）** | copy/clone binding 清空 sourceIntentRowId/sourceExecSeq+新 registrationKey；attach claim 加 sourceIntentRowId IS NULL；normalizeCopiedNodeData 五路径共用（status loading/error→idle） |
-| **⑰** | **资金 quota（v12）** | 软限——finalize 不因 quota 回滚（钱已付 provider）；超限告警+计数；非资金路径硬拒维持；registerInTx 禁调 assertOnConfirm+禁外部 IO |
+| **⑮** | **video finalize（v13 重写）** | **不交付 videoUrl**——`Media(status=processing)+fileId`：provider 成功即 settle+finalize（资金流零 delta）；materialize 异步（自有 lease/attempts 与 intent 解耦）；终态失败→幂等补偿退款；processing 期 content proxy 两态（带上限可降级）；targetField 词表删 videoUrl/resultUrl；统一不变量一条+text 例外 |
+| **⑯** | **copy 资金产物（v13 重写）** | **方案二+**：strip 只对更新不对新建（新建保留 fileId——消灭空图窗口）；normalizeCopiedNodeData 收窄；binding=服务端惰性 reconcile（mediaRefsOf 扫描+teamId 校验+幂等 upsert 清锚）；跨 team strip+读 ACL 兜底；**attach consumer 取消、交付 owner 收敛单一 DocDelivery poller、MediaBinding 降级纯索引** |
+| **⑰** | **资金 quota（v12 维持+v13 预检）** | 软限——finalize 不因 quota 回滚（钱已付 provider）；超限告警+计数；**claim 前预检 usage+estimatedBytes**；registerInTx 禁调 assertOnConfirm+禁外部 IO |
+| **⑱** | **reconcile（v13）** | R3 幂等 finalize 自动收敛（finalizeFromExistingArtifact+动作表+审计+有界重试+advisory lock）；自动/人工分界=歧义与资损风险绝不自动动钱；backfillSucceeded 禁写 SUCCEEDED+null |
+| **⑲** | **guard/strip 定位（v13）** | 检测/诊断/可修复（shadow 起步）；安全边界=assertMediaReadable 读侧单门；meta.schemaVersion 例外硬删+重连；键集单源两集合四处共用 |
+| **⑳** | **R2 大重构（v13）** | 登记 Y2 立项候选（Artifact 表/mediaRef/多实例+触发条件）；本批零代码；**双 bump 保留**（生产 epoch 14 在线混跑窗真实）；fileId 命名保留 |
+| **㉑** | **StoreOutcome（v13）** | 窄接口先行（ephemeral flush+isPersistedComplete 三态+spoolDeadline 1h）——推翻 v12 P0「判别联合先行重构」；五态降后续独立硬化卡 |
+| **㉒** | **同 job 重入（v13 改）** | 三态：心跳新鲜→skip；过期→接管（新 execSeq fence 旧代）；未知→可重试——禁「skipped 后成功 ack」；execSeq 进程内贯穿（job data 不带） |
+| **㉓** | **rearm（v13 改）** | **只 voidInTx 释放旧冻结**（re-reserve 废止——自相矛盾修复）；re-reserve 留给新 worker 的 reserve；providerTaskId submit 后落库+query-first+Idempotency-Key |
 
 **附 D6 维持**：data.autoOrigin 移 B2；空间序 id tie-break 维持 A1。
 
@@ -129,6 +145,28 @@ v5-v10 各轮基线行维持有效（全文见 git 历史与 v10 版本）；裁
 | execution:480-488/:513-517+ai-download:100 | **text 只产 resultText 不建 Media；video videoUrl（resultRef=URL）先行交付、Media 行下载后才建** | Z18''-②（kind 分支） |
 | registry:655-663 | **vacuumEquivalent 只比根/exec 键集合（浅比较）**——repair 等价断言须明确 exec 值级 | Z4''（exec 值等价） |
 
+### 1.10 v13 核验行（第十轮三份 v9 外审主张三路并行核验+两处子代理误报亲验纠正——2026-10-18；行号=master 9cac518b）
+
+| 位置 | 事实 | 裁决引用 |
+|------|------|----------|
+| [collab-doc-registry.service.ts:689-697](../../../apps/api/src/modules/collab/collab-doc-registry.service.ts)+[collab-quota-gate.spec.ts:497](../../../apps/api/src/modules/collab/collab-quota-gate.spec.ts) | **preVacuumSv fence 只拒「clientID∈preVacuumSv∧clock≥pre」——从未同步的离线客户端（IDB 有未同步 update、clientID 不在服务端 SV）重连被正常放行并合并旧编辑**（测试明确放行新 clientID） | Z4''-v13（in-place 根修依据） |
+| [team-credit.service.ts:105-108](../../../apps/api/src/modules/team/team-credit.service.ts) | reserve 在 `reservedCredits>0 ∨ creditsConsumed>0` 时返 mayCall:false——**v12「rearm 内 release+re-reserve+新 worker 拿 mayCall:true」自相矛盾**（re-reserve 后新 worker 必被静默跳过） | Z18''-①（rearm 只释放） |
+| schema.prisma:1014+api-caller.service.ts 全文+generation-intent.service.ts:129/:157/:173 | **providerTaskId 列存在（Z69「submit 后落库」注释）但全仓无写库点**（api-caller 只返回；generation-intent 只有「保留」注释——从未写入过何谈保留）；query-first 调用不存在 | Z18''-①（providerTaskId P0） |
+| [execution.controller.ts:68-78](../../../apps/api/src/modules/execution/execution.controller.ts) | enqueue job data 只带 projectId/nodeId/userId/regenToken/traceId——**claim 在 worker execute 内才发生，「job data 携 execSeq」前提不存在** | Z18''-①（execSeq 进程内贯穿） |
+| [execution.service.ts:381/:513-516](../../../apps/api/src/modules/execution/execution.service.ts)+[ai-download.processor.ts:62/:118](../../../apps/api/src/modules/ai-download/ai-download.processor.ts) | **video 的 resultRef/fileId 字段放的是 provider URL**（:513 videoUrl=result.url；:381 fileId=URL）；ai-download:118 又写 fileId+resultUrl；:62 axios.get 无 host 校验/重定向限制/大小上限（SSRF 面） | Z18''-②（裁决 1 依据）+P0⑫ |
+| [canvas-doc-manifest.ts:105-110](../../../packages/shared/src/canvas/canvas-doc-manifest.ts) | meta.schemaVersion writers 仅文档约定（stampDocSchema）——**客户端发 Yjs update 可改 meta.schemaVersion→ensureSchemaVersion throw→项目被 viewer 永久 brick** | Z11''-⑥（meta 硬删） |
+| [copyPlan.ts:27-102](../../../packages/shared/src/canvas/copyPlan.ts)+canvasStore duplicate/paste | buildCopyPlan 纯客户端、服务端只看 addNode data——**服务端无 source→target 节点映射，「binding 复制」无执行者**（v12 copy 清锚方案的结构性缺口） | Z14''-v13（方案二+依据） |
+| [nodeStore.ts:632-636](../../../apps/web/src/stores/nodeStore.ts) | updateConfig dispatch `patch: mergeNodeData(existing.data, config)`——注释自认「终态全量」（外审主张实证成立） | Z11''-①（strip 更新路径） |
+| media.create 全仓 grep | **生产调用点 9 处**（storage:37/media-process:194/ai-download:100/ai-image-edit:199〔+200 为续行〕/lighting:167/video-trim:110/stitch:97/generated-media:54/video-work:91）——**v9/v12 的「11 处」为错数**；门禁改 grep census | Z18''-③ |
+| web `/flowai` 改写 grep | **24 处/15 文件**（mediaApi/videoWorkApi/ImageGenNode/MultiImageConfigPanel/MultiImageNode/VideoGenNode/AudioGenNode/AddNodeMenu/AssetPanel/export·upload/useTeamAssets/materialLibraryStore/splitUploadService/useImageUpload/mediaUploadUtils）——远大于 v9 所列 2 文件；deploy/nginx 模板无 /flowai（生产拓扑须 nginx -T 实证） | Z7''-v13（/flowai 面迁移） |
+| [storage.service.ts:38-50/:69-99](../../../apps/api/src/modules/storage/storage.service.ts) | presign create data **无 projectId**（只解析 teamId）；confirmUpload **无事务无 status='pending' CAS**（并发双 confirm 可都过配额读） | Z18''-③（prepareUploadInTx 补 projectId）+P0⑧ |
+| [schema.prisma:287](../../../apps/api/prisma/schema.prisma) | Media.status 为 String（pending\|completed\|failed）——**加 processing 无 enum 迁移成本** | Z18''-②（裁决 1 落地成本） |
+| [app.module.ts:71](../../../apps/api/src/app.module.ts)+ecosystem.config.cjs | 生产 API `manualRegistration:true` **不消费队列**——ArtifactCommit/MediaRegistration 的真实调用方是 worker 进程（shared module 双 role 依据） | Z18''-② |
+| [collab-write.port.ts:181-183/:206](../../../apps/api/src/modules/collab/collab-write.port.ts) | HttpCollabWritePort **瞬态耗尽/永久错误均返回 `{written:true}`**（把没写成当成功——资金路径禁伪造） | Z18''-②（typed outcome） |
+| [intent-reconcile.service.ts:163/:224-227](../../../apps/api/src/modules/execution/intent-reconcile.service.ts) | job completed→backfillSucceeded **无条件置 SUCCEEDED（resultRef 可为 null）**——stalled 重入 skip→ack→deadline 时 reaper 谎言链 | Z18''-⑥（R3 动作表） |
+| [collab-document.service.ts:286-300](../../../apps/api/src/modules/collab/collab-document.service.ts) | applyWriteNodeDataToDoc **无条件 set（无 CAS/expectedValue）**——用户 replace 在飞期间被旧代 delivery 覆盖 | Z11''-③（expectedValue CAS） |
+| ImageGenNode.tsx:70/VideoGenNode.tsx:51/MultiImageConfigPanel.tsx:74 | **web 渲染本就走 useMediaUrl(fileId)/ImageItem.id=media id**——videoUrl/resultUrl 是无消费者历史残留（裁决 1 低风险依据） | Z18''-② |
+
 ## 2. Y1a 序域设计（D5 分层直译+数据流闭合）
 
 ### 2.1 类型链与读出口（Z2''）
@@ -143,34 +181,37 @@ vendor+读写两侧严格+四曲线+同锚+**等值邻居 needs-layer-repair**+s
 
 orderRecords+deriveStoryboardCells（capacity 派生/长度恰=capacity/overflowIds/resize 溢出移出/swap 整值/回流面 11 处删除）维持 v10。
 
-### 2.4 无自动重排+on-demand repair=generation 跳变（Z4''-v11）
+### 2.4 无自动重排+on-demand repair=in-place renumber（Z4''-v13）
 
-维护链：soft/hard/检测/load 病理档 reaper/CLI 维持；**repair 执行体=vacuum 协议复用**（vacuumGate 互斥→beginVacuumEra 冻结+4410→quiesce〔writesSettled——维护门内 DocDelivery/attach 消费者 503 退避〕→离线装载+纯函数重排→**等价断言=忽略 order|slot 的节点/边/data/exec 值等价（exec 根深拷贝保留——v12）**→单事务 vacuumReplace〔generation+1〕→purge+释放）；客户端零新协议（preVacuumSv 内容级 fence+consumeGenerationJump 单链+IDB 四维键联动）；**purgePidCaches 修复**；ack 降 UX；repairRev 删除。
+维护链：soft/hard/检测/load 病理档 reaper/CLI 维持；**repair 执行体=in-place**：维护互斥（CollabMaintenance 行+共享 vacuumGate）→applyWriteFreeze('repair')（不 close/不 reload/不清 IDB/不跳 generation）+新连接只读+DocDelivery 消费者维护门 503→writesSettled→纯函数修复计划→**withSession(write, MAINTENANCE_TRANSACT_ORIGIN) 分块 ≤64KB**→回读校验（**等价断言=忽略 order|slot 的节点/边/data/exec 值等价——非 order/slot 键零变化**）→解除 readOnly+恢复交付+RepairRun 审计；幂等可重跑（崩溃→maintenance 行 stale→aborted→重跑）；**帧预算预演**（scratch doc encodeStateAsUpdate——超 256KiB 或不可表达结构才退 vacuum）；**vacuum 兜底仅限「确定无离线客户端」运维窗**（无 generation 握手不得自动回退；握手归 Y2；vacuum 路径等价断言补 exec 值比较+purgePidCaches 修复维持）；CLI 默认 in-place（--vacuum 仅紧急）；**reason（推翻 v11 跳变）**：preVacuumSv fence 对未同步离线客户端无效（§1.10 实证）——generation 跳变做常规 repair=把数据复活风险常态化；in-place 保留离线编辑/undo 历史/连接，10k 重排实测 56ms+分块写回秒级。
 
 C0a 实测锚：10k 重排≈56ms；投影 p95 18.7ms。
 
 ### 2.5 创建+父变更+order/slot 写链（Z12''/Z14''/Z15''）
 
-维持 v10（复合单键+G17 改口+判别联合+apply 合并整对象写+等值键+37 调用点+normalize 五路径+binding 复制）。
+维持 v10（复合单键+G17 改口+判别联合+apply 合并整对象写+等值键+37 调用点+normalize 五路径）；**v13：binding 复制改惰性 reconcile（Z14''-v13）**；**DOC_NODE_KEYS 契约表钉死**（envelope 7 键〔id/type/parentId/width/height/position/data〕+order/slot 进 data 判别——**slot=派生单实现禁两可**；fillDoc/applyRecordToYMap/readRecordsFromMaps/normalizeCanvasRecord/toDocRecord 全按新表）+**compareExecSeq 单源**（BigInt 解析+lint 禁裸比较+非法 string drop 不 0 兜底）。
 
-### 2.6 收敛 harness（Z13''-v11）
+### 2.6 收敛 harness（Z13''-v13）
 
-五件套+双端真连维持；并发/故障注入补：**execSeq 代际矩阵**（同 job 双 worker/新 intent 覆盖旧终态/旧 error 不覆盖新 loading）+**flush 四崩溃窗**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）+**repair=vacuum 并发**（互斥 409/旧 IDB/离线 pending 拒合并）+outbox 乱序提交/重启零回放+分镜并发零成员丢失+等值邻居/重复键层 repair+attach 503/DocDelivery 三窗/exec alignExecFromIntents 重建/reset 联动。
+五件套+双端真连维持；并发/故障注入补：**execSeq 代际矩阵（同 job 双 worker 三态：心跳新鲜 skip/过期接管/未知重试——v13 改）**+**flush 四崩溃窗**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）+**in-place repair**（10k 重复 order→不断线不 reload/离线客户端事后合并零节点复活/repair vs vacuum 409/维护窗 delivery 503 退避/崩溃重跑收敛/超预算回退 vacuum+旧客户端 4410）+outbox 乱序提交+**重复投递幂等（v13：零回放断言废止）**+分镜并发零成员丢失+等值邻居/重复键层 repair+DocDelivery 三窗/exec alignExecFromIntents 重建/**video materialize 矩阵（下载失败/超时/进程崩溃 resume/URL 过期→退款）**+**copy 保留 fileId 立即渲染+binding 惰性 reconcile+跨 team paste strip**+**R3 五窗收敛**（settle 后崩溃/Media 后崩溃/delivery 缺失/node 删除/源过期）+**guard 检测→修复→ACL 拒绝链路**+reset 联动。
 
 ## 3. Y1b 尺寸/只读域设计
 
 ### 3.1 media 读模型+probe+两编排器+资金双轨（Z1''/Z7''/Z18''-v11）
 
-**进程拓扑（v11）**：
+**进程拓扑（v13）**：
 
 ```
-API 进程：ArtifactCommitService（资金 finalize——producer 在 worker 调用，仅写 DB）
-          +MediaRegistrationService（唯一 Media 写入点——registerInTx/confirmInTx/bindInTx）
-          +DocDelivery 消费者（deliverArtifact+flushDocument+复核）
-          +attach 消费者（linkMedia CAS）+MediaFactOutbox emitter
-          +exec error reconcile（execProjectedExecSeq）+media-facts REST+media content 代理
-          +repair（vacuum 协议复用）
-worker 进程：probe（sharp/ffprobe）+生成/媒体处理 processor
+shared artifact-core module（API+worker 双 role 均可实例化+双 role DI 测试）：
+  ArtifactCommitService（资金 finalize：stage 事务外+finalize 短事务）
+  +MediaRegistrationService（唯一 Media 写入点——prepareUploadInTx/registerInTx/confirmInTx/bindInTx）
+  （只依赖 Prisma/Minio——不依赖 CollabResidency/DocDelivery poller）
+API 进程：DocDelivery poller（唯一交付 owner——资金+非资金 kind=fileId/text；deliverArtifact+flush+复核）
+          +binding 惰性 reconcile（mediaRefsOf 扫描——纯索引维护）
+          +MediaFactOutbox emitter+exec error reconcile（execProjectedExecSeq）
+          +media-facts REST+media content 代理（两态）+repair（in-place 主+vacuum 兜底）
+worker 进程：probe（sharp/ffprobe）+MaterializeJob（video processing→completed）
+          +生成/媒体处理 processor
           ——零直接 Y.Doc 访问+零资金/artifact/fileId doc 写
           exec loading/skipped=strict Http（exec-only op 白名单+execSeq）
           exec error=只写 DB；producer 调 ArtifactCommit/MediaRegistration（纯 DB 调用）
@@ -187,7 +228,8 @@ emitter（API——单实例假设显式化）：
   claim: state='pending' ∧ nextAttemptAt<=now ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 200
   → emit project:<id> 房间 media:fact{mediaId,version,fact} → published
   失败 attempts++/nextAttemptAt 退避（jitter）；耗尽 dead+告警
-  （无 watermark——晚提交行仍 pending 下轮必达；重启零回放；correction 必产生新 version）
+  （无 watermark——晚提交行仍 pending 下轮必达；at-least-once+客户端 factVersion 幂等去重；
+   correction 必产生新 version；published 行 retention 7d）
 客户端：按 factVersion 忽略旧；重连/切项目全量拉（REST 返回 factVersion）
 ```
 
@@ -203,110 +245,146 @@ confirm: file-type 嗅探对象头 → 白名单外拒+删对象+media_content_t
 生产上传通路 /flowai 渗透修复（mediaUploadUtils 环境感知）；Media.size BigInt
 ```
 
-**资金双轨（Z18''-v12）**：
+**资金双轨（Z18''-v13）**：
 
 ```
-⓪前置（v12）: EXEC_STATUS_KEYS/ExecStatusPatch+execSeq: string（旧条目 docSchema v3 拒载）
-  StoreOutcome 判别联合先行重构（storeDocumentUnlocked boolean 五分支混 false 根修）:
-    {kind:'appended'}|{kind:'noop'}|{kind:'spooled'}
-    |{kind:'terminal';reason:'project-gone'|'fenced'|'lease-missing'}|{kind:'failed';error}
-  storeDocumentSerialized 透传；flushDocument=saveMutex 包装+映射（禁旁路猜状态）
-  withSession(flush:true) 只 delivery/attach 两消费面（37 个普通调用点不动）
-①execSeq（全局单调——DB sequence nextval）：
-  分配两处（v12）: new claim/rearm（禁 increment/max+1）
-  同 jobId RUNNING 重入=复用当前 execSeq、不动 reservation
-    （重入者 reserve mayCall:false 静默 skipped——同 intent 双 worker 只烧一次钱；
-     旧 worker finalize 照常匹配；旧 worker 真死归 reaper→rearm 闭环）
-  wire/doc 用 string；守卫 BigInt 比较
-  exec 守卫: patch.execSeq<stored→older-exec 拒；同 execSeq 终态→幂等/rejected（reason-aware）
-  job data 携带 (intentRowId,execSeq)；reserve 写 reservedExecSeq；
-  settle/void CAS 匹配 reservedExecSeq（旧 execSeq 的 void/settle 一律失败）
+⓪前置: EXEC_STATUS_KEYS/ExecStatusPatch+execSeq: string（旧条目 docSchema v3 拒载）
+  flushDocument 窄接口（v13——StoreOutcome 五态判别联合降后续硬化卡）:
+    'persisted'|'not-persisted'|'terminal' 三态
+    （载体=ephemeral flush〔withSession(...,{ephemeral:true})→disconnect(unloadImmediately)
+      触发库 flush〕+isPersistedComplete 判定；not-persistent→重试不耗 maxAttempts
+      +spoolDeadline 1h 兜底〔超时转 failed+告警〕；terminal→orphaned/failed）
+  compareExecSeq 单源（BigInt 解析+lint 禁裸比较+非法 string drop）
+①execSeq（全局单调——DB sequence nextval 两处: new claim/rearm）:
+  execSeq 由 claim 返回值进程内贯穿（v13: job data 不带——enqueue 时无 claim；
+    DB 为唯一权威，禁第二真源）
+  exec 守卫: patch.execSeq<stored→older-exec 拒；同 execSeq 终态→幂等（reason-aware）
+  同 jobId RUNNING 重入三态（v13）: 旧 worker 心跳新鲜→skip；过期→接管
+    （新 execSeq fence 旧代+旧 DocDelivery superseded）；未知→抛可重试错误延迟重投
+    ——禁「skipped 后成功 ack」（现状: skip→job completed→reaper backfillSucceeded
+      谎言链 intent-reconcile:163/:224）
+  providerTaskId submit 后落库（v13 P0——现状 schema:1014 列在但零写库点）
+    +重入 query-first（先查 provider task: 已成功→直接 finalize 不重呼）
+    +Idempotency-Key（intentRowId:execSeq）防 provider 双付
+  reserve 写 reservedExecSeq；settle/void CAS 匹配 reservedExecSeq（旧代一律失败）
   fail/touchHeartbeat/reanchorDeadline 带 execSeq（旧代 0 命中 no-op）
-  rearm 事务: execSeq nextval+voidInTx 旧冻结（release+re-reserve——新 worker 重走
-    reserve 拿 mayCall:true）+旧 DocDelivery/MediaBinding superseded
+  rearm 事务（v13）: execSeq nextval+voidInTx 只释放旧冻结
+    （re-reserve 废止——team-credit:105 reservedCredits>0→mayCall:false，
+      rearm 内 re-reserve 后新 worker 必被静默跳过；re-reserve 留给新 worker reserve）
+    +旧 DocDelivery superseded
   attempts=免费重试配额（≥3 EXHAUSTED）不混用
-②ArtifactCommitService（资金五路径: text/image/video/edit/lighting）:
-  对象上传事务外（key=artifacts/{teamId}/{intentRowId}/{execSeq}/{index}-{sha256}
-    +x-amz-meta-sha256 上传元数据+finalize HeadObject 校验〔If-None-Match 废止〕）
-  单 PG 事务:
+②ArtifactCommitService（资金五路径: text/image/video/edit/lighting
+  ——shared artifact-core module 双 role〔API+worker〕+双 role DI 测试）:
+  stage（事务外、可重试——image/edit/lighting）: provider 结果→SafeRemoteFetch 下载
+    （https+host allowlist+私网 IP 拒+maxRedirects:0+流式限长+content-type 白名单）
+    →对象存储（key=artifacts/{teamId}/{intentRowId}/{execSeq}/{index}-{sha256}）
+    →服务端自算 sha256（x-amz-meta-sha256 仅参考——客户端可控不可当完整性凭据）
+    →sniff——失败=零 DB 变更，temp orphan 由 sweep 清
+  finalize（短事务 <50ms/lock_timeout=3s/statement_timeout=5s——事务内禁外部 IO）:
     无锁读 intent 快照 → ledgerTx 首句 → lockBalance(teamId)〔契约 20〕
     → intent FOR UPDATE 重验（RUNNING∧execSeq∧reservedExecSeq）
     → 幂等检查〔CAS 前〕: 判据=intent 行状态（SUCCEEDED∧stored∧creditsConsumed=cost
-      →幂等返回+补建缺行——非仅 Media 存在）
-    → registerInTx（Media 行）/bindInTx（MediaBinding）/DocDelivery 插入
-      （execSeq+artifactIndex+targetField+targetItemId 快照）
+      →幂等返回+补建缺行）
+    → inserts（Media〔registerInTx〕/MediaBinding/DocDelivery
+      〔execSeq+artifactIndex+targetField+targetItemId 快照+expectedValue〕）
     → CAS updateMany（RUNNING∧execSeq→SUCCEEDED+stored）count===1 唯一凭据
-    → settleInTx（只结算 reservedExecSeq===execSeq；失败整体回滚）
+    → settleInTx（只结算 reservedExecSeq===execSeq；失败整体回滚——不得 settle 失败仍交付）
   死锁 40P01/40001/55P03+P2024 有界重试 3 次+jitter；多产物=一次事务 N Media+一 settle+N DocDelivery
-  kind 分支（v12）: text=跳过 registerInTx（DocDelivery kind=text 携 resultText）；
-    video=即时 finalize 交付 videoUrl（无 Media 行——下载→MinIO→Media→fileId
-      =非资金续段走 MediaRegistration+attach 交付）
-  资金 quota=软限（v12）: 超限告警+计数不回滚（钱已付 provider）；
-    registerInTx 禁调 assertOnConfirm（删对象副作用）+禁外部 IO（sniff/HEAD/hash 全事务外）
-③MediaRegistrationService（非资金唯一 Media 写入点）:
+  kind 分支（v13 裁决 1）: text=跳过 registerInTx（DocDelivery kind=text 携 resultText）；
+    image/edit/lighting=stage 后 finalize（Media 已 completed）；
+    video=finalize 事务内建 Media(status=processing, sourceUrl 专用列+预分配 key
+      +provider 声明 mimeType)+DocDelivery(kind=fileId 交付 mediaId)+settle/complete
+      ——materialize 异步（MaterializeJob: 下载→MinIO→单事务 status=completed+size
+      +sniffedMimeType+probeState 推进+factVersion/outbox；幂等键=mediaId；
+      processingLeaseUntil/processingAttempts 自有退避——与 intent attempts/rearm 解耦；
+      终态失败→幂等补偿退款+artifactState=failed+告警；materialize 不写 doc）
+  资金 quota=软限+claim 前预检（v13）: claim 前 usage+estimatedBytes≤limit 预检
+    （AI 生成不走 presign assertCanUpload=无限超配额）；finalize 超限告警+计数不回滚；
+    registerInTx 禁调 assertOnConfirm+禁外部 IO
+  统一不变量（v13）: SUCCEEDED⇒settled∧DocDelivery(kind=fileId)∧Media 行存在
+    ∧status∈{processing,completed}（text 唯一例外=resultText 非空）
+③MediaRegistrationService（非资金唯一 Media 写入点——同 shared module）:
   prepareUploadInTx/registerInTx/confirmInTx/bindInTx 四形态
-  （11 处 media.create 全映射: storage:37→prepare/media-process:194→register/
-    ai-download:100→register〔video 续段〕/ai-image-edit:199+200→register/
+  （9 处 media.create 映射〔grep census——ai-image-edit:199+200 为同一调用续行〕:
+    storage:37→prepare〔**补 projectId 落库**〕/media-process:194→register/
+    ai-download:100→MaterializeJob 接管〔video〕/ai-image-edit:199→register/
     lighting:167→register/video-trim:110→register/stitch:97→register/
     generated-media:54→register/video-work:91→prepare）
-  （幂等锚 registrationKey=taskId+artifactIndex|mediaId|exportRequestId；
-    Media @@unique([bucket,key])）——不碰 settle/complete/DocDelivery/exec
-④DocDelivery 交付（typed flush）:
+  （幂等锚 registrationKey+Media @@unique([bucket,key])
+    +confirmInTx 带 status='pending' CAS〔现状无事务无守卫〕）
+  ——不碰 settle/complete/DocDelivery/exec
+④DocDelivery 交付（单一 poller——v13 attach consumer 取消并入）:
   认领: SUCCEEDED∧stored∧(pending∨delivering∧lease过期) CAS+SKIP LOCKED
-  deliverArtifact 复合 op（事务内前置判定全过才写——stale/execSeq/expectedValue/节点存活性
-    →superseded|orphaned|幂等；然后 data patch+exec done）
-  按 project 批量: 一个 withSession(flush:true) 内全 apply → 一次 flushDocument
-    （与 attach 同 project 进程内互斥串行化 apply+flush+recheck+mark）
-  flush 返回（StoreOutcome）: 'appended'|'noop'（∧isPersistedComplete∧目标匹配）→ 复核
-    target/execSeq/expectedValue → 一致才 mark delivered
-  'spooled'|'failed' → 保持可重试（不消耗 maxAttempts——PG 才 canonical）
+    （非资金需写 doc 路径〔trim/stitch/separate 等〕并入 kind=fileId 无资金字段）
+  deliverArtifact 复合 op（事务内前置判定全过才写——stale/execSeq/expectedValue/
+    节点存活性→superseded|orphaned|幂等；然后 data patch+exec done）
+    expectedValue 不匹配→superseded（用户 replace vs 在飞交付竞态根修——
+      applyWriteNodeDataToDoc 现状无条件 set；用户替换递增 fileIdRev 或 CAS 期望旧值）
+  按 project 批量: 一个 withSession 内全 apply → 一次 flush（窄接口三态）
+  'persisted'（或 noop∧isPersistedComplete∧目标匹配）→ 复核 target/execSeq/expectedValue
+    → 一致才 mark delivered
+  'not-persisted' → 重试不耗 maxAttempts（spoolDeadline 1h 兜底）
   'terminal' → orphaned/failed
   lease 覆盖 flush+recheck+mark；emit 在 mark 后；onModuleDestroy 停 claim/等在飞
-  mark 成功后对该 mediaId lazy GET media-facts 补拉（v12——pendingFacts 配套）
+  mark 成功后对该 mediaId lazy GET media-facts 补拉（pendingFacts 配套）
+  HttpCollabWritePort typed outcome（appended|transient|permanent|fenced）
+    ——资金路径禁伪造 {written:true}（现状 :181-183/:206 瞬态耗尽返回 written:true）
 ⑤exec 投影: loading/skipped=worker strict Http（exec-only+execSeq）；
   error=DB+API reconcile（(FAILED,VOIDED)∧execProjectedExecSeq≠当前——活跃项目+24h 窗）；
   done=DocDelivery；alignExecFromIntents 重建（execSeq 序）
-⑥清理: 旧三后门删除（backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts）
-  →不变量巡检（按 kind 分化: image/edit=SUCCEEDED⇒stored∧Media∧settled；
-    video=SUCCEEDED⇒videoUrl 已交付∧settled〔Media 后补豁免〕；
-    text=SUCCEEDED⇒resultText 非空∧settled——违反告警人工不自动退款）
+⑥reconcile=R3 自动收敛（v13 裁决 4）:
+  所有自动收敛走 finalizeFromExistingArtifact(intentId,execSeq)（同一幂等 finalize）
+  动作表: SUCCEEDED∧产物存在∧未 settle→finalize 补 settle+DocDelivery；
+    RUNNING∧provider 成功∧artifact staged→finalize（provider 不重调）；
+    SUCCEEDED∧delivery 缺失→补建；FAILED/VOIDED∧reserved>0→voidInTx（幂等）；
+    Media(processing) 源过期/终态失败→重试 materialize→超限 refund+failed+告警；
+    delivery failed（node 删/project gone）→orphaned+幂等退款；
+    delivery failed（未知/基础设施）→重试上限→dead+告警不自动退款；
+    台账不一致/对象缺失/无法判定→告警人工（歧义与资损风险绝不自动动钱）
+  护栏: 每行 CAS+有界尝试 3 次 jitter+pg_advisory_xact_lock(hashtext(intentId))
+    +审计行 reconcile_action{intentRowId/action/before/after/traceId}
+    +auto_converged/manual_required 分计数
+  backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts 三后门删除
+    （直接改 status 路径全灭——保留入口改走 finalize；backfillSucceeded 禁写 SUCCEEDED+null）
   cleanTerminalIntents: artifactState 终态∧delivery 终态∧reserved=0∧7d
-    （resultText 非空行→90d；pending/delivering 保留+计数）
-  缺行 reconcile×2；终态 retention+dead-letter 告警
+    （resultText 非空行→90d；**保留矩阵: 有 artifact 的 intent 不物理删——
+    Media.sourceIntentRowId 7 天悬空锚根修〔soft delete/FK ON DELETE SET NULL
+    +保留 sourceExecSeq/registrationKey〕**）
+  DocDelivery delivered 30d/MediaFactOutbox published 7d retention+dead-letter 告警
 WriteOutcome 四态+同值 no-op（fast-deep-equal）+HTTP 端点真实四态维持 v10
 ```
 
-- **幂等**：同 mediaId/attach/交付重跑 compare-before-set 零增量；finalize 同 epoch 幂等返回已有。
-- **8 类产物绑定矩阵维持**（资金五+非资金六经两编排器结构性覆盖）。
+- **幂等**：同 mediaId/交付重跑 compare-before-set 零增量；finalize 同 execSeq 幂等返回已有；materialize 按 mediaId 幂等。
+- **8 类产物绑定矩阵维持**（资金五+非资金六经两编排器结构性覆盖；**binding 由惰性 reconcile 维护——非交付机制**）。
 - **校验链**：DocWriteOpSpec+deliverArtifact/linkMedia op 进表+switch+never 维持。
 
-### 3.2 尺寸消费+禁写门（Z5''/Z11''-v11）
+### 3.2 尺寸消费+禁写门（Z5''/Z11''-v13）
 
-applyIntrinsicFit/尺寸消费维持 v10。**禁写门五层**（Z11''-v12）：**stripServerOwnedData web 单点无条件剥身份键挂全构造点（diff dataPatch/addNode.data/copyPlan/paste/undo 恢复——「未修改才不回送」废止）**+generated fileId 服务端所有权+replaceMedia/attach 命令+**服务端 writeNodeData manifest 拒写身份键（端点 op 白名单 exec-only；SERVER_NODE_DATA_KEYS 现状白名单含 content 需重划——content 客户端可编辑）**+Yjs 直发面归 post-apply/guard 检测；ImageItem.url 类型级消灭。
+applyIntrinsicFit/尺寸消费维持 v10。**禁写门分层**（Z11''-v13——**guard/strip=检测/诊断，安全边界=读侧 ACL**）：**stripServerOwnedData 只挂更新路径**（updateNodeData/updateConfig/diff dataPatch/undo 回放剥 CLIENT_FORBIDDEN_DATA_KEYS；**新建路径保留 fileId/images[].id——消灭空图窗口**）+generated fileId 服务端所有权+replaceMedia 显式命令（带 expectedValue）+DocDelivery expectedValue CAS（用户 replace 竞态根修）+**服务端 writeNodeData manifest 拒写客户端禁写键（端点 op 白名单 exec-only；键集单源两集合四处共用导出常量——SERVER_WRITABLE_DATA_KEYS 含 content/CLIENT_FORBIDDEN_DATA_KEYS 不含 content）**+**meta.schemaVersion 例外硬删+重连（DoS 防护——shadow 也删）**+Yjs 直发面归 post-apply/guard 检测（shadow 定档+检测到+可修复+读侧拒绝）；ImageItem.url 类型级消灭；**读 ACL 单门 assertMediaReadable**（url/batch/content/facts/thumbs/snapshot 注入全覆盖——校验项目成员+Media.teamId===project.teamId；公开页按已发布 workId 授权不按 mediaId）。
 
 ### 3.3 只读命令边界+resync 分流（Z6'' 维持 v10）
 
-单源门+viewer 早退+七命令补门+dimensions 分表+resync 三路+节流+key-too-long→repair（=generation 跳变）+闩锁维持。
+单源门+viewer 早退+七命令补门+dimensions 分表+resync 三路+节流+key-too-long→repair（=in-place）+闩锁维持。
 
-### 3.4 创建默认与兜底（Z8'' 维持） / 3.5 删除面（维持） / 3.6 入口 guard（Z19''-v11 扩身份键域）
+### 3.4 创建默认与兜底（Z8'' 维持） / 3.5 删除面（维持） / 3.6 入口 guard（Z19''-v13）
 
-维持 v10（guard 检测域扩：exec map+data 身份键客户端直写）。
+维持 v10（guard 检测域扩：exec map+data 身份键客户端直写+**meta.* 根**）；**验收口径 v13 改「检测到+可修复+读侧拒绝」**（shadow 定档；重复违规 close+诊断；server/maintenance origin 零误报；合法内容零误报）。
 
-## 4. 片序与执行门（v11 对齐 plan v8 T0-T28；每片出口=用户确认点）
+## 4. 片序与执行门（v13 对齐 plan v10 T0-T28；每片出口=用户确认点）
 
 | 片 | 内容（T 卡） | 出口判据 |
 |----|--------------|----------|
 | **C0a（spike）** | （v6 完结） | ✅（历史） |
 | **P0-pre（T0-T3）** | T0 pin（yjs/sharp/fast-deep-equal/file-type+ffprobe CI）；T1 改名 StoredNodeRecord；T2 collab-doc-ops；T3 Prisma（**execSeq DB sequence+reservedExecSeq/execProjectedExecSeq**/probe 族+factVersion/MediaBinding 全量/GenerationIntent/DocDelivery 全量/**MediaFactOutbox**/Media sourceExecSeq·artifactIndex·objectKey·sha256·size BigInt·@@unique(bucket,key)/**删除 repairRev**） | 三面 tsc 绿+全量绿+census+pin 绿 |
 | **B1a（T4）** | 只读门+七命令 | G34 |
-| **C0b（T5-T10）** | T5 media-facts（REST+**MediaFactOutbox emitter**+join+ImageItem 去 url+**MIME 全链+media content 代理+生产通路修复**）；T6 **execSeq 链路〔EXEC_STATUS_KEYS 前置〕+StoreOutcome 先行重构+ArtifactCommit〔kind 分支+软限〕+MediaRegistration〔四形态+11 处映射〕+settleInTx+deliverArtifact+flushDocument+exec 守卫 execSeq 化+rearm voidInTx 归一化+后门删除**；T7 probe（参数+sniffed 路由+40MP）；T8 attach 消费者〔claim sourceIntentRowId IS NULL〕+两编排器 producer 分层接线+video 下载续段；T9 stripServerOwnedData 单点全构造点+manifest 拒写+端点白名单；T10 消费端〔pendingFacts+lazy fetch〕+E2E | 五面自检表+G42-G44/G46/G48/G51/G58 v12 全绿 |
-| **A1（T11-T18）** | 维持 v10（placement/slot/四出口/双 bump/写链/回流面） | G54/G55/G11/G57/G29 |
-| **A2（T19-T21）** | T19 repair=**vacuum 协议复用**（vacuumGate+beginVacuumEra+等价断言+vacuumReplace+purgePidCaches 修复）+soft/hard+病理档；T20 guard（exec+身份键域）；T21 CLI | G45/G53+S1+G14 |
+| **C0b（T5-T10）** | T5 media-facts（REST+**MediaFactOutbox emitter〔at-least-once〕**+join+ImageItem 去 url+**MIME 全链+media content 两态代理+读 ACL 单门+/flowai 面迁移〔nginx -T 实证先行〕**）；T6 **execSeq 链路〔EXEC_STATUS_KEYS 前置+job data 不带+同 job 重入三态〕+flushDocument 窄接口+ArtifactCommit〔shared module 双 role+stage/finalize 两段+video Media(processing)+providerTaskId 落库+rearm 只释放〕+MediaRegistration〔四形态+9 处 grep census+prepareUploadInTx 补 projectId+confirmInTx CAS〕+deliverArtifact〔expectedValue CAS〕+exec 守卫 execSeq 化+reconcile=R3 自动收敛**；T7 probe（参数+sniffed 路由+40MP）；T8 MaterializeJob+两编排器 producer 分层接线+**binding 惰性 reconcile**；T9 stripServerOwnedData〔**更新路径 strip/新建保留**〕+manifest 拒写+端点白名单+**meta.schemaVersion 硬删**；T10 消费端〔pendingFacts+lazy fetch〕+E2E | 五面自检表+G42-G44/G46/G48/G51/G58 v13 全绿+**提前 soak 一轮（v13）** |
+| **A1（T11-T18）** | 维持 v10（placement/slot/四出口/双 bump/写链/回流面）+**DOC_NODE_KEYS 契约表+compareExecSeq 单源** | G54/G55/G11/G57/G29 |
+| **A2（T19-T21）** | T19 repair=**in-place 主路径**（维护门+applyWriteFreeze+分块 ≤64KB+幂等重跑+帧预算预演+vacuum 兜底运维窗限定+purgePidCaches 修复〔vacuum 路径〕）+soft/hard+病理档；T20 guard（检测/诊断口径+meta 例外+ACL）；T21 CLI（默认 in-place） | G45/G53+S1+G14 |
 | **A3（T22）** | 五件套+**execSeq 矩阵+flush 四窗+repair=vacuum 并发**+真连 | G12/G17/G55/G58 |
 | **B1-B2（T23-T27）** | 维持 v10（DocShapeInvalid/resync/删除面/applyIntrinsicFit/autoOrigin） | G19/G7/G28/G24/G56 |
 | **B3（T28）** | 双 bump 门+reset（六表）+verify+UX 签字+soak | G21/G33/G35/G57 |
 
-## 5. 验收判据与先红门禁清单（v12 权威表——v10/v11 门禁判据随裁决增强；G36-G41/G49/G50/G52 废弃号不复用）
+## 5. 验收判据与先红门禁清单（v13 权威表——v10/v11/v12 门禁判据随裁决增强；G36-G41/G49/G50/G52 废弃号不复用）
 
 | # | 门禁 | 先红判据 | 绿判据 |
 |---|------|----------|--------|
@@ -319,52 +397,58 @@ applyIntrinsicFit/尺寸消费维持 v10。**禁写门五层**（Z11''-v12）：
 | **G33** | reset 版本门 | 回灌复现 | 双 bump 单动作两门 |
 | **G34** | VIEWER 矩阵 | 漏门红（含七命令） | 零 cs/doc/DB 写 |
 | **G35** | soak | 单端绿≠浏览器绿 | 10k+10 客户端数字 SLO+**artifact commit p95/delivery lag/outbox lag/applied_unpersisted=0** |
-| **G42（v12）** | media 读模型 | watermark 漏发复现（**事务提交乱序：A 先写后提交被 watermark 跳过**）+**fact 先于 fileId 到达丢 natural（忽略未知 mediaId 复现）** | **MediaFactOutbox：乱序提交必达/重启零回放/correction 新 version 必达/attach 后到补发/IDOR 拒**+**pendingFacts 消费+mark 后 lazy GET 补拉**；doc 四根 |
-| **G43（v12）** | producer 分层 | **非资金路径强塞 ArtifactCommit 复现（无 intent 空指针）** | 资金五走 ArtifactCommit（**kind 分支：text 零 Media/video 即时 finalize 交付 videoUrl+下载续段**）/非资金走 MediaRegistration 四形态（**11 处 media.create 全映射——grep 零第二处**）；registrationKey 幂等 |
+| **G42（v13）** | media 读模型 | watermark 漏发复现（**事务提交乱序：A 先写后提交被 watermark 跳过**）+**fact 先于 fileId 到达丢 natural（忽略未知 mediaId 复现）** | **MediaFactOutbox：乱序提交必达/重复投递幂等（factVersion 去重——v13 零回放断言废止）/correction 新 version 必达/惰性 reconcile 后到补发/IDOR 拒（项目成员+Media.teamId）**+**pendingFacts 消费+mark 后 lazy GET 补拉**+published retention；doc 四根 |
+| **G43（v13）** | producer 分层 | **非资金路径强塞 ArtifactCommit 复现（无 intent 空指针）** | 资金五走 ArtifactCommit（**video=Media(processing)+fileId；text 零 Media**）/非资金走 MediaRegistration 四形态（**9 处 media.create grep census 零第二处——排除 seed/test**）；registrationKey 幂等；**prepareUploadInTx 落 projectId；confirmInTx 并发双 confirm 恰一 no-op；**shared module 双 role DI 测试 |
 | **G44（v11）** | WriteOutcome+复合 op | written 现状+合成红 | 四态+deliverArtifact 复合 op+**前置判定在 data patch 前（stale/execSeq/expected 全过才写）**+同值 no-op deep-equal |
 | **G45** | 无自动重排+G17 改口 | 整层覆盖复现 | 维持 v10 |
-| **G46（v12）** | attach 消费者 | probe 卡死+跨会话 CAS 复现+**copy 副本无 fileId 交付者（v8 矛盾复现）** | status=completed 解耦 probe+linkMedia 原子 CAS+**targetItemId 稳定定位**+**claim sourceIntentRowId IS NULL（资金原件零 churn）**+**copy 清锚后正常入队交付+normalizeCopiedNodeData（status loading→idle）**+lease 覆盖 flush+onModuleDestroy |
-| **G48（v12）** | 资金矩阵 | **「Media 已建未 stored 免费」+活跃 RUNNING 被 release+attempts 代际错位（反例 A）+新 intent 被旧终态挡（反例 B）+rearm 静默跳过（现存 bug）+EXEC_STATUS_KEYS 无 execSeq（writeExecStatus UNKNOWN_KEY 红）**全复现 | **execSeq：同 job 双 worker 重入复用代际（重入者 mayCall:false skipped∧旧 worker finalize 照常交付——双烧零）/新 intent 新代不被挡/旧 error 不覆盖新 loading**；**EXEC_STATUS_KEYS+execSeq 进 manifest**；finalize 锁序 balance→intent（**并发 reaper+finalize 死锁注入零 40P01/55P03 或可重试收敛**）；**幂等前置=intent 行状态判据（半状态不误判）**；settle 失败整体回滚；多产物单事务整组；**rearm=nextval+voidInTx+re-reserve（mayCall:true）**；**kind 分支（text 零 Media/video 续段）+quota 软限**；fail/touch/reanchor 旧代 no-op |
-| **S1** | guard（exec+身份键域） | spike 未做 | 报告+post-apply 恒做+enforce 条件默认 |
-| **M1/M2（v11）** | probe+MIME | sniff 缺失+**生产 /flowai 上传通路渗透**红 | file-type 嗅探+presign 条件+**media content 代理（Content-Type/attachment/CSP sandbox）+MinIO 直链禁用**+sharp 重编码+SVG 拒+size BigInt+通路修复 |
+| **G46（v13）** | 交付+binding | **copy 副本空图（v12 strip 全构造点复现）+副本永久转圈（copyPlan:63 复现）+跨 team paste 泄漏** | **copy 保留 fileId 立即渲染（新建路径零 strip）**+normalizeCopiedNodeData（loading→idle/done）+**binding 惰性 reconcile（mediaRefsOf 扫描+teamId 校验+幂等 upsert 清锚——重试只一行）**+跨 team paste strip+读 ACL 403+**Media GC doc 引用/grace 护栏**+targetItemId 非空 sentinel（**同键 NULL 双行必失败——PG NULL 不去重现测**） |
+| **G48（v13）** | 资金矩阵 | **反例 A（attempts 代际错位）+反例 B（新 intent 被旧终态挡）+反例 C（旧 error 覆盖新 loading）+rearm 内 re-reserve 后新 worker 静默跳过（v12 文本矛盾复现）+providerTaskId 零落库+EXEC_STATUS_KEYS 无 execSeq（UNKNOWN_KEY 红）**全复现 | **execSeq：同 job 双 worker 三态（心跳新鲜 skip∧旧 worker 交付/过期接管 fence/未知重试——禁 skip 后 ack）/新 intent 新代不被挡/旧 error 不覆盖新 loading**；**EXEC_STATUS_KEYS+execSeq 进 manifest+compareExecSeq 单源（property test：2^53 边界/前后导零/非法值）**；finalize 锁序 balance→intent（**死锁注入零 40P01/55P03 或可重试收敛**+**finalize 事务注入 100ms sleep 验证锁等待/池不恶化**）；**stage 失败零扣费零 Media；幂等前置=intent 行状态判据**；settle 失败整体回滚；**rearm=nextval+voidInTx 只释放（新 worker reserve 拿 mayCall:true）**；**providerTaskId 落库+query-first（kill worker after submit→重跑零重复 provider submit）+Idempotency-Key**；**video=Media(processing)+fileId（processing 期可播/seek；materialize 幂等重试不重复 Media；源过期 410/重试/终态失败自动补偿退款）+quota claim 前预检**；fail/touch/reanchor 旧代 no-op；**R3 五窗收敛（settle 后崩溃/Media 后崩溃/delivery 缺失/node 删除/源过期——一轮收敛+双 settle 零+双 refund 零+审计行）+backfillSucceeded 禁写 SUCCEEDED+null** |
+| **S1** | guard（exec+身份键+meta 域） | spike 未做 | 报告+post-apply 恒做+shadow 定档+**meta.schemaVersion 硬删（shadow 也删）** |
+| **M1/M2（v13）** | probe+MIME | sniff 缺失+**生产 /flowai 通路渗透**红 | 嗅探（file-type 16.x 或自研）+presign 条件（**Content-Type 进 fields——否则全 403**）+**media content 两态（ready: Range/HEAD/ETag/304——视频可拖动；processing: allowlist 代理+上限降级）+MinIO 直链禁用+读 ACL 单门（跨项目 mediaId 403/公开页按 workId）**+sharp 重编码+SVG 拒+**size BigInt+BigInt.toJSON 四读路径（quota 算术/batch spread/material）**+/flowai 面迁移（mediaContentUrl 单点+census）+**SSRF 用例（SafeRemoteFetch：私网拒/重定向禁/超限断）** |
 | **D2** | 版本双门 | 双源/循环红 | 双 bump 单动作；Redis 故障不拒连 |
-| **G51** | attach 收敛 | 崩溃零 fileId 红 | pending→linkMedia→attached |
-| **G53（v11）** | repair=generation 跳变 | **repairRev 三缺口复现（无自报 rev/rev 被吞/离线 pending 回写）+purgeForeignCaches 保留脏代复现** | **vacuum 协议复用全绿：互斥 409/单事务 generation+1/旧 SV 内容级拒/IDB 全代清/consumeGenerationJump 单链一次 reload**；等价断言（忽略 order\|slot）；与 vacuum 并发一进一 409 |
-| **G54** | order/slot 写链 | 拖序不持久红 | 维持 v10+重复键层 repair |
-| **G55** | slot 单实现 | LWW 丢格+满员 append 红 | 维持 v10+cells 零残留 |
+| **G51（v13）** | 交付收敛 | 崩溃零 fileId 红 | pending→deliverArtifact→flush→delivered（单一 poller） |
+| **G53（v13）** | repair=in-place | **现状无 repair 复现+「repair 必须断线 reload」假预设红（10k 重复 order 修复中客户端连接保持）** | **in-place 全绿：10k 重复 order→修复中零断线零 reload 零 IDB purge/离线客户端事后合并零节点复活（red：preVacuumSv 放行新 clientID 复现——in-place 后该面不存在）/repair vs vacuum 409/维护窗 delivery 503 退避/崩溃重跑幂等/等价断言（忽略 order\|slot+exec 值）**；**超预算回退 vacuum：旧客户端 4410+一次 reload+purgePidCaches 全代清（真 IDB 断言）** |
+| **G54** | order/slot 写链 | 拖序不持久红 | 维持 v10+重复键层 repair+**DOC_NODE_KEYS 契约表 census** |
+| **G55** | slot 单实现 | LWW 丢格+满员 append 红 | 维持 v10+cells 零残留+**slot 派生单源断言** |
 | **G56** | display | 二次旋转红 | EXIF 5-8+imageRotation 交换+分镜跳过 |
 | **G57** | 旧 bundle/旧 doc | 循环+误读红 | csv 一次 reload+docSchema 拒载 |
-| **G58（v12）** | 交付持久化崩溃窗 | **「mark delivered 时 doc 未落库」复现（debounce 窗 kill——扣费无产物无重试）+StoreOutcome 缺失下 spooled 被当 failed 耗 attempts** | **flush 四窗全收敛**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）；**载体=StoreOutcome 五态判别（禁旁路猜）**；spooled≠delivered 继续重试不耗 maxAttempts；批量一次 flush（**与 attach 同 project 互斥**）；flush 后复核（superseded/orphaned/delivered）；**exec alignExecFromIntents 重建** |
+| **G58（v13）** | 交付持久化崩溃窗 | **「mark delivered 时 doc 未落库」复现（debounce 窗 kill——扣费无产物无重试）+窄接口缺失下 not-persisted 被当 failed 耗 attempts** | **flush 四窗全收敛**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）；**载体=窄接口三态（persisted/not-persisted/terminal——ephemeral flush+isPersistedComplete）**；not-persisted 继续重试不耗 maxAttempts（**spoolDeadline 1h 超时转 failed+告警**）；批量一次 flush；flush 后复核（superseded/orphaned/delivered——**用户 replace vs delivery 双向时序：superseded 不覆盖用户值**）；**exec alignExecFromIntents 重建** |
 
-**观测增补（v12）**：v10 全量+`artifact_commit_total{result}`+`artifact_commit_tx_seconds`+`settle_deadlock_retry_total`+`intent_epoch_stale_total`+`doc_delivery_applied_unpersisted`+`doc_delivery_lag_seconds`+`media_fact_outbox_lag/dead_letter`+`exec_projection_stale_rejected_total`+`doc_epoch_mismatch_total`+`maintenance_write_rejected_total`+`worker_write_scope_rejected_total`+`probe_lease_expired_total`+**`artifact_quota_exceeded_total`（软限计数）**。
+**观测增补（v13）**：v10/v12 全量+`artifact_commit_total{result}`+`artifact_commit_tx_seconds`+`settle_deadlock_retry_total`+`intent_epoch_stale_total`+`doc_delivery_applied_unpersisted`+`doc_delivery_lag_seconds`+`media_fact_outbox_lag/dead_letter`+`exec_projection_stale_rejected_total`+`maintenance_write_rejected_total`+`worker_write_scope_rejected_total`+`probe_lease_expired_total`+`artifact_quota_exceeded_total`+**`media_materialize_lag/attempts_total{result}`（v13）+`reconcile_auto_converged_total{action}`/`reconcile_manual_required_total`（v13）+`media_content_proxy_fallback_total`（v13）+`guard_meta_write_deleted_total`（v13）**。
 
 ## 6. 非目标与移交
 
 | 项 | 归属 |
 |----|------|
-| z 序 UI/闩锁删除/SCHEMA=4/reconcile 删除 | 后续批/Y1c-1/Y1c/Y3 维持 |
-| v2→v3 兼容 | 无（reset runbook） |
+| z 序 UI/闩锁删除/SCHEMA=4 | 后续批/Y1c-1/Y1c/Y3 维持 |
+| v2→v3 兼容 | 无（rebuild cutover runbook——**v13：非 additive DDL+pg_dump/MinIO 备份+队列 pause+双进程停机顺序+回滚=restore**） |
 | BullMQ probe 队列/装载期自动 rebalance/doc 内 media 根/DEPLOY_EPOCH/DeliveryState 资金语义/data.cells·capacity | v9/v10 废止维持 |
-| **repairRev（CanvasDoc 列）** | **v11 废止**（方案 A——generation 跳变；epochReason 仅审计） |
+| **repairRev（CanvasDoc 列）** | **v11 废止**（v13：in-place 无需任何 rev/generation 语义） |
+| **repair=generation 跳变（常规路径）** | **v13 废止**（in-place 主路径；vacuum 仅运维窗兜底——preVacuumSv 对未同步离线客户端无效实证 §1.10） |
+| **vacuum 自动回退（无 generation 握手前提下）** | **v13 禁止**（仅「确定无离线客户端」运维窗；**连接代际握手=client 回传最后已知 generation，服务端 SyncStep1 前比对——Y2**） |
+| **attach consumer（独立 poller）** | **v13 废止**（两大存在理由消灭——裁决 1/3；交付 owner 收敛单一 DocDelivery poller；MediaBinding 降级纯索引由惰性 reconcile 维护） |
+| **copy 清锚+attach 交付链（sourceRegistrationKey/claim sourceIntentRowId IS NULL）** | **v13 废止**（方案二+：新建保留 fileId+binding 惰性 reconcile） |
 | **probedAt watermark emitter** | **v11 废止**（MediaFactOutbox） |
 | **统一 ArtifactCommit（非资金路径）** | **v11 废止**（两编排器分层） |
-| **withDoc unloadImmediately 逐条 flush** | **v11 禁用**（flushDocument 批量） |
-| **If-None-Match 条件写** | **v12 废止**（MinIO 不支持条件写——x-amz-meta-sha256+HeadObject 校验替代） |
-| **attach/delivery DocWriteCoordinator** | **v12 不采纳**（降 P1 进程内 per-project 互斥——正确性无虞纯成本；误判过滤#1） |
+| **withDoc unloadImmediately 逐条 flush** | **v11 禁用**（flush 批量） |
+| **If-None-Match 条件写** | **v12 废止**（x-amz-meta-sha256+服务端自算 sha256 校验替代） |
+| **attach/delivery DocWriteCoordinator** | **v12 不采纳**（降 P1 进程内 per-project 互斥） |
 | ExecStatusOutbox 表 | v10 不采纳维持（execProjectedExecSeq reconcile） |
 | emitter 多实例（Redis pub/sub/adapter） | **Y7**（偏离表 #6） |
 | fileId 命令族第二步 | Y1 末/Y2 边界维持 |
-| 跨 team Media 复制 | Y2 维持 |
+| 跨 team Media 复制 | Y2 维持（跨 team paste=strip+显式复制命令 Y2） |
+| **R2 大重构（Artifact 一等表〔intent→N artifact〕/mediaRef typed-ref 取代裸 fileId/DocDelivery 引用 artifactId/统一 text·image·video 语义去 kind 分支/去 fileId 所有权与 strip/若 Y2 前未处理则一并删双 bump）** | **Y2 立项候选（v13 裁决 6 登记——本批零代码）**；触发条件：一 intent 多产物成产品需求/跨项目 media 引用/API 实例>1/doc schema 变更>1 次/季；本批 schema 决策保持 R2 兼容（稳定 Media.id/DocDelivery 作 outbox/execSeq 代际/不引入与 Artifact 表冲突字段） |
 
-**reset runbook（v11）**：停双进程→maintenance→队列 pause→备份→清表（CanvasDoc/CanvasDocUpdate/MediaBinding/DocDelivery/**MediaFactOutbox**/Media 生成物+spool+Redis+MinIO temp+IDB 预置）→双 bump→SCAN→重启→两轮验证。
+**reset runbook（v13）**：停双进程→maintenance→队列 pause→**pg_dump+MinIO 备份**→清表（CanvasDoc/CanvasDocUpdate/MediaBinding/DocDelivery/**MediaFactOutbox**/Media 生成物+spool+Redis+MinIO temp+IDB 预置）→**migrate（check-migration-additive 对非 additive DDL 实判——按 rebuild 设计不走 additive 门）**→双 bump→SCAN→重启→两轮验证→**回滚=restore 备份非 down migration**。
 
 ## 7. 纪律与观察项
 
 - 历轮留痕维持（git 历史）。
 - **v11 留痕**：①「再加一层机制」是三轮共同弯路（attempts→intentAttempts→execSeq 的教训：**代际必须是外部单调序，不能复用业务计数器**；watermark→outbox 的教训：**游标永远追不上乱序提交，用待办队列**；repairRev→generation 的教训：**fence 必须内容级（SV 可证）且与快照同事务，连接级参数 fence 挡不住重连**）；②**锁序契约（契约 20）是全仓不变量——任何新事务先 grep 既有锁序**；③「单事务」必须落为 InTx 方法族+锁序+CAS 凭据三件套，一句话裁决不够；④现存 bug 三处（exec 守卫反例 B/rearm 静默跳过/purgeForeignCaches 反语义）由外审挖出——**评审输入要包含"现状缺陷"维度**；⑤外审的部署形态断言要核验（生产 /flowai 认知偏差——上传侧渗透才是真问题）。
 - **v12 留痕**：①**「分配点越多越安全」反例**——v11「nextval 三处」中同 job 重入一处是自伤（新 seq fence 掉活着的旧 worker+继承后 mayCall 未定义=悬挂）；**代际分配必须区分「新执行段」（nextval）与「续跑」（复用）**；②**manifest 是 op 域第一道墙**——新键进 doc 必须先进 manifest 键集（execSeq 差点门口死：EXEC_STATUS_KEYS 无该键则 writeExecStatus 直接 UNKNOWN_KEY）；③**boolean 返回值混五态=状态机债**（storeDocumentUnlocked noop/spool/FK/fenced 同返 false——五态必须判别联合载体，禁旁路猜）；④**裁决措辞要带 claim 面**（「资金型 binding 跳过 fileId 写」不写 claim 条件→copy 矛盾漏网；「不回送未修改键」不写无条件→跨窗口 diff 漏网）；⑤外审误判六条过滤存档（coordinator 正确性 P0/零费 settle/P2002 驱动/grep 门禁语义/fillDoc/fanout——**"正确性推演"要先核共享状态载体**：两 poller 共享 Y.Doc+saveMutex 则交错无害）；⑥**多产品语义要按 kind 分化不变量**（text/video/image 三态谓词不同——单一谓词迫使 video 等下载或 text 造假 Media）。
-- 观察项：slot 冲突频率；fileId superseded 频率；产物媒体库保留期 N；**outbox lag/死信率**；**execSeq stale 频率**（旧 worker 迟到提交量）；**软限超限频率（artifact_quota_exceeded_total）**；**pendingFacts 命中率**。
+- **v13 留痕**：①**「fence 挡不住未同步者」是内容级 fence 的普遍边界**——preVacuumSv 只覆盖服务端见过的历史，对从未同步的离线 clientID 无效（v11 把它当 repair 的正确性支柱=把低频运维风险常态化为常规路径）；**凡依赖「对方知道我改了」的 fence 都要问：新加入者/从未握手者走哪条路**；②**裁决文本自相矛盾要在开工前抓**（v12「rearm 内 release+re-reserve+新 worker 拿 mayCall:true」两半互斥——**把裁决写成可执行语义时先在代码里走一遍现状**）；③**「无写库点的列」=设计意图未落地**（providerTaskId 列在+注释说保留——从未写入过何谈保留；注释引用「query-first」但调用不存在——**注释不能当实现**）；④**身份键进 doc 前先数消费者**（videoUrl/resultUrl 在 web 零消费者=历史残留；fileId 全走 useMediaUrl——删 URL 键是净简化非破坏）；⑤**「检测」与「拦截」是两种承诺**（Yjs 无字段级 ACL——把 guard 验收写成「拦住」必然假绿或误杀；安全边界要放在唯一可验证处=读侧 ACL）；⑥**「为对称性付复杂度」反例**——image/video 统一「ingest 后 finalize」会用存储抖动污染资金状态机；**统一不变量的正确姿势是措辞覆盖（status∈{processing,completed}）而非时序强行对齐**；⑦**新建路径 strip 是自造困境**（strip 新建→副本无 fileId→需要 attach 再交付→需要 binding 复制→需要服务端映射——一层垫片引出四层垫片；放开新建保留即整链消失）；⑧**外审报告也要核验**（本轮三报告各含事实错误：11 处实为 9 处/「providerTaskId 已落库」子代理误报经亲验纠正/「CollabSessionMeta.generation 现成」过乐观——**核验子代理结论与外审结论同等必要**）。
+- 观察项：slot 冲突频率；fileId superseded 频率；产物媒体库保留期 N；**outbox lag/死信率**；**execSeq stale 频率**（旧 worker 迟到提交量）；**软限超限频率（artifact_quota_exceeded_total）**；**pendingFacts 命中率**；**materialize 失败/补偿退款频率+reconcile auto_converged vs manual_required 比例+guard 检测命中分布+content proxy processing 降级频率（v13）**。
 - harness 真连 provider destroy 走 scripts/lib/provider-late-reconnect-guard。
 - manifest 矩阵对称（deliverArtifact/linkMedia 进表+身份键服务端拒写行+**execSeq 进 EXEC_STATUS_KEYS**）。
 - guard 与 readOnly/帧闸/quota 只加不减。
-- §0.2 v11 修订（②⑪⑫⑬+⑨废止）经用户确认（2026-10-18 四次裁决）；**v12 修订（⑪更新+⑭-⑰+Z1''/Z4''/Z7''/Z11''/Z14''/Z18''-v12 改）经用户确认（2026-10-18 九次确认）**；后续变更走 §0.4。
+- §0.2 v11 修订（②⑪⑫⑬+⑨废止）经用户确认（2026-10-18 四次裁决）；v12 修订（⑪更新+⑭-⑰+Z1''/Z4''/Z7''/Z11''/Z14''/Z18''-v12 改）经用户确认（2026-10-18 九次确认）；**v13 修订（②⑮⑯⑰更新+⑱-㉓新增+Z1''/Z4''/Z7''/Z11''/Z14''/Z18''-v13 重写+残余 P0 十三条）经用户确认（2026-10-18 十次确认——六项裁决+四分叉裁定+三点待确认项全部落地）**；后续变更走 §0.4。
