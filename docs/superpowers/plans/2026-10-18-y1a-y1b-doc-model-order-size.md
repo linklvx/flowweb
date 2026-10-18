@@ -4,6 +4,7 @@
 
 <!-- plan v8（2026-10-18）：三份 v7 外审高度收敛+三并行核验坐实+挖出三现存 bug 后四用户裁决落地（2026-10-18 八次确认）——v10 五大换代方向维持，本轮收敛为**单一代际/单一 epoch/单一事务**。**四裁决**：①**repair 换轨方案 A**（推翻 v10 裁决③——repairRev 三致命缺口实证〔客户端 URL 只 csv/cb 无自报 rev runtime:1572；doc-status dedup=${state}:${frozen}+客户端 msg.rev<=last return 吞 rev 变化；repair 不改 SV preVacuumSv 检测不到〕：repair=一次 generation 跳变的 doc rewrite——vacuumGate 互斥→beginVacuumEra 冻结+4410→quiesce〔writesSettled 覆盖服务端 outbox——DocDelivery/attach 维护门 503 退避〕→离线重排→**等价断言=忽略 order|slot 的节点/边/data 等价**→单事务 vacuumReplace〔state+preVacuumSv+generation+1〕→客户端零新协议〔preVacuumSv 内容级 fence+consumeGenerationJump 单链+IDB 四维键联动〕；**repairRev 删除**；ack 降 UX；**purgeForeignCaches 反语义 bug 同修**〔现状传会话旧键=保留脏代删其他代 local-cache-key:71〕）；②**全局单调 execSeq+三硬约束**（**DB sequence nextval 分配三处**〔new claim/同 jobId 重入/rearm〕禁 increment/max+1；DB BigInt wire/doc 用 string 守卫 BigInt 比较；进 exec 守卫/finalize CAS/唯一键+job data+onTick/reanchor+**reserve/reservedExecSeq+void_/settle CAS**+同 job 重入 claim 事务内 reservation 继承+旧 execSeq void/settle 一律失败；attempts=免费重试配额不混用——反例 A〔同 job stalled 重排 processor:40+重入不递增 attempts generation-intent:130/:158〕/B〔exec 守卫只比 attempts 不比 intentId document:313-331——**新 intent 的 loading/done 被旧 done 永久拦截=现存 bug**〕/C 三实证）；③**producer 分两层=一个 Media 写入服务+两个编排器**（**MediaRegistrationService=唯一 Media 写入点**：register/confirm 两形态共用 sniff/MIME/quota/probeState/natural 初始化+registerInTx/confirmInTx/bindInTx **禁止第二处 media.create/bindMedia**；ArtifactCommit=资金五路径〔text/image/video/edit/lighting〕finalize 事务内调 registerInTx+execSeq CAS+settleInTx+complete+DocDelivery；非资金六路径〔upload confirm/stitch/trim/separate/copy/export〕走 MediaRegistration **不碰 settle/complete/DocDelivery/exec**——四路径零 GenerationIntent 实证；非资金幂等锚 registrationKey=taskId+artifactIndex|mediaId|exportRequestId+Media @@unique(bucket,key)；非资金零 doc 写 attach consumer 交付；**不造 creditCost=0 intent**；两层只共享 Media/linkMedia 原语）；④**DocDelivery=typed flush+批量+复核**（withSession(write) 增 flush:true+**flushDocument(pid):'appended'|'noop'|'spooled'|'terminal'|'failed'**〔storeDocumentSerialized/saveMutex〕；只有 appended〔或 noop∧isPersistedComplete∧目标匹配〕才 delivered；**spooled≠delivered** 继续重试不耗 maxAttempts；按 project 批量一个 withSession 全 apply 后一次 flush；flush 后复核 target/execSeq/expectedValue→superseded/orphaned/delivered；lease 覆盖 flush+recheck+mark；delivered=PG 至少一次；**withSession 写后 debounce 未落库实证 residency:459-468——mark delivered 撒谎根修**）。 -->
 <!-- v8 同批收编：**锁序契约 20**（finalize 先 lockBalance 再 CAS intent——credit-ledger:58 注释+reserve/settle/void/rollback 四处先 balance；先锁 intent=ABBA 死锁）+**InTx 方法族**（completeInTx/settleInTx/createXxxInTx——complete 根 prisma:255+settle 自开事务:132 根修）+finalize 幂等检查事务内 CAS 前+40P01 有界重试 3 次 jitter；**唯一键全带 execSeq+artifactIndex+targetItemId**（稳定 ImageItem.id——删除/重排按 id 现算实证 targetIndex 会漂移）；**对象 key=artifacts/{teamId}/{intentRowId}/{execSeq}/{index}-{sha256}**+If-None-Match+hash 校验+orphan sweep 前缀+龄阈值；**旧 reconcile 三后门删除**（backfillSucceeded:215 直接置 SUCCEEDED/threeCheck resultRef:244/settleStranded probeArtifacts→**不变量巡检**〔SUCCEEDED⇒stored∧Media∧settled——告警人工不自动退款〕）；**rearm 事务**（execSeq nextval+reservation 继承+旧 outbox superseded+**资金归一化**〔rearm 残留冻结 mayCall:false 静默跳过外呼=现存 bug team-credit:102+execution:325〕）；**worker 端点 op 白名单 exec-only**（fileId/resultUrl 在服务端白名单内 write.controller:32+manifest:83——收窄）；**MediaFactOutbox 替换 probedAt watermark**（事务乱序提交必漏实证；factVersion 单调/pending 行+SKIP LOCKED/probe·server-natural·attach 三写入点/来源 union(Media.projectId,binding)/重启零回放/emitter 单实例假设显式化=instances:1 多实例归 Y7）；**MIME 全链**（file-type 库+**API 代理流式 /api/media/:id/content 按 sniffedMimeType 设 Content-Type+attachment+CSP sandbox+生产 MinIO 直链禁用**+presign Content-Type 条件+SVG 拒+sharp 重编码剥载荷+Media.size BigInt〔Int 2.147GB 上限〕+**生产上传 /flowai 渗透修复**〔mediaUploadUtils:31 dev 假设——生产 MinIO 直连下无背书〕）；probe（**图片批 4 lease 180s/视频 batch 1 lease 5min**〔批 2×90s 覆盖不了下载+ffprobe〕/nextProbeAt jitter/claim 按 sniffedMimeType 路由〔伪报 audio 的图片不再永 skipped〕/索引 [probeState,nextProbeAt]/40MP+downscale 产品策略）；text 90 天（resultText 非空行延长）；exec error reconcile 活跃项目过滤+24h 窗；attach=只填空/replace=显式命令；观测+8 指标；**每卡真 PG 并发用例**（A3 不够早）；**交付 owner 唯一**（资金型=DocDelivery；binding 对 sourceIntent 非空跳过 fileId 写）。外审误判修正：生产 /flowai 同源直出不成立（MinIO 域名直连——上传侧渗透才是真问题）；reconcile 带状态+时间窗非全表；multiImage targetIndex 漂移不成立（UI 按 id 现算）。 -->
+<!-- plan v9（2026-10-18）：三份 v8 外审攻击三接缝（finalize 状态机/三 poller 协调/A1-execSeq 交界）+四路并行核验（9 P0 坐实/8 P1/6 误判过滤）+四用户裁决（2026-10-18 九次确认）——v8 四裁决方向维持。**四裁决**：①**同 job 重入复用 execSeq**（推翻 v8「nextval 三处+继承/转移」——重入者 mayCall:false 静默 skipped 等旧 worker 交付〔team-credit:102 现状故意语义〕，旧 worker 真死归 reaper→rearm；**分配收敛两处 new claim/rearm**；rearm=nextval+**voidInTx 旧冻结**〔release+re-reserve——新 worker 重走 reserve 拿 mayCall:true〕+旧 outbox superseded）；②**video 即时 finalize**（provider 成功即 settle+complete+DocDelivery kind=videoUrl 交付 videoUrl **无 Media 行**；下载→MinIO→Media→fileId=**非资金续段**〔ai-download 迁 MediaRegistration+attach〕；不变量按 kind 分化——video 巡检豁免 Media 项/text 无 Media 跳过 registerInTx）；③**copy 清锚零新列**（copy/clone binding **清空 sourceIntentRowId/sourceExecSeq**+新 registrationKey；**attach claim 加 sourceIntentRowId IS NULL**——资金原件 binding 永不进队零 churn；**normalizeCopiedNodeData 五路径共用**——status loading/error→idle〔red：copyPlan:63 structuredClone 连 loading 复制=副本永久转圈〕/身份键 binding 成功才保留/exec 永不复制/cells 删）；④**资金 quota 软限**（finalize 不因 quota 回滚——钱已付 provider；超限告警+计数 artifact_quota_exceeded_total；registerInTx **禁调 assertOnConfirm**〔storage-quota:37-49 删对象+删行副作用〕+**禁外部 IO**——sniff/HEAD/hash 全事务外）。**9 P0**：EXEC_STATUS_KEYS/ExecStatusPatch+execSeq: string（manifest:90 现状无——不进键集 writeExecStatus 直接 UNKNOWN_KEY 代际围栏门口死；旧条目 docSchema v3 拒载）；同 job 复用；copy 清锚；**StoreOutcome 判别联合先行重构**（storeDocumentUnlocked boolean——noop/spool 成功/spool 失败/FK/fenced 五分支混一个 false〔persistence:235/:283/:287-395/:308-336〕；flushDocument 五态以 StoreOutcome 为载体禁旁路猜 hasFrames/persistUnhealthy；withSession(flush:true) 只 delivery/attach 两消费面）；**stripServerOwnedData web 单点无条件挂全构造点**（diff dataPatch〔canvasIntents:502 全键差异——快照窗口跨远端 apply 时服务端写的 fileId 被判"变化"经 WS 发回〕/addNode.data〔:462 全量〕/copyPlan/paste/undo 恢复；服务端 manifest 拒写降第二道——「未修改才不回送」废止）；text/video kind 分支；**唯一键补维度**（MediaBinding `@@unique([mediaId,projectId,nodeId,role,targetField,targetItemId])`/DocDelivery `+targetField,targetItemId`/**MediaFactOutbox `@@unique([mediaId,projectId,factVersion])`**/targetField 词表补 videoUrl/resultUrl——video 交付无处落）；**If-None-Match 废止**（MinIO 不支持条件写）→x-amz-meta-sha256 上传元数据+finalize HeadObject 校验；**pendingFacts**（fact 可先于 fileId——「忽略未知 mediaId」丢 natural 到重连）：客户端短 TTL Map（fileId 到达即消费）+delivery/attach mark 后 lazy GET 补拉。**8 P1**：重试码+**55P03**（lock_timeout）+P2024；MediaRegistration 第四形态 **prepareUploadInTx**+**11 处 media.create 映射表**（storage:37/media-process:194/ai-download:100/ai-image-edit:199+200/lighting:167/video-trim:110/stitch:97/generated-media:54/video-work:91——全部可映射四形态）；幂等前置判据=**FOR UPDATE 下 intent 行状态**（SUCCEEDED∧stored∧creditsConsumed=cost→幂等返回+补建缺行）非仅 Media 存在；attach/delivery **per-project 进程内互斥**（串行化 apply+flush+recheck+mark）；repair 等价断言含 **exec 根值等价**（vacuumEquivalent 现状只比键集合 registry:655-663）；attach lease 覆盖 flush（180s）+两 poller **onModuleDestroy**；**fail/touchHeartbeat/reanchorDeadline 补 execSeq 维度**（generation-intent:230/:248/:265 只守 status——旧 worker 可刷/杀新 attempt）。**误判过滤（勿复入）**：DocWriteCoordinator「正确性 P0」不成立（两 poller 写同 project 同 Y.Doc〔共享 residency 池〕+saveMutex per-doc+flush 排空全队列——纯成本降 P1 互斥）；零费 settle no-op 分支多余（不造 creditCost=0 intent）；P2002 事务内 catch 驱动多余（lockBalance 串行同 team 并发 finalize）；「grep 零第二处会红」=迁移终态门禁非现状断言；fillDoc 逐键写=A1/T15 已覆盖；outbox 单 projectId 漏 fanout=attach 补插行已设计（真缺口仅唯一键）。 -->
 <!-- 执行纪律核心：plan 中每个被调用的 API/类型/DI 令牌/进程形态，写码前 grep 实证。行号=2026-10-18 快照。**每卡先红须含真 PG 并发用例（锁序/双 claim/崩溃窗）——mock 测不出代际/锁序问题。** -->
 
 **Goal:** 落地 doc 模型 v3——placement 复合单键序域（order|slot+vendor+等值键）+Media 读模型（REST/**MediaFactOutbox**/快照 join+probe+MIME 全链）+**execSeq 单一代际**（资金 ArtifactCommit/非资金 MediaRegistration 两编排器+flushDocument 持久化交付）+WriteOutcome+fileId 收口+只读双层+双 bump，批出口=verify 全绿+门禁全过+四曲线+资金矩阵含代际/锁序/flush 崩溃窗。
@@ -14,11 +15,13 @@
 
 **执行纪律：** 每卡先红（真实变红+**真 PG 并发用例**）→绿→commit；写码前 grep 实证；三面 tsc；文档 diff；每片出口用户确认。
 
-## 文件结构（触碰面全景·v8）
+## 文件结构（触碰面全景·v9）
 
 | 文件 | 动作 | 责任 | 片 |
 |---|---|---|---|
 | 根+apps package.json / ci.yml | 改 | T0 pin（yjs/sharp/fast-deep-equal/**file-type**+ffprobe CI/部署） | P0-pre |
+| packages/shared/src/canvas/canvas-doc-manifest.ts | 改 | **EXEC_STATUS_KEYS/ExecStatusPatch+execSeq: string+SERVER_NODE_DATA_KEYS 重划（content 不拒）** | C0b |
+| packages/shared/src/canvas/copyPlan.ts | 改 | **normalizeCopiedNodeData**（status→idle/身份键条件保留/exec 不复制） | C0b/A1 |
 | docShape.ts+全仓 ~141 处 | 改 | T1 改名 StoredNodeRecord | P0-pre |
 | scripts/check-plan-census.mjs | **建** | census | P0-pre |
 | collab-doc-ops.ts | **建** | 写原语+类型同迁 | P0-pre |
@@ -105,7 +108,7 @@ model MediaBinding {
   id String @id @default(cuid())
   mediaId / projectId / nodeId / teamId String
   role String @default("primary")
-  targetField String @default("fileId")    // fileId|referenceImage|images|allImages
+  targetField String @default("fileId")    // fileId|referenceImage|videoUrl|resultUrl|images|allImages（v12：补 videoUrl/resultUrl——video 交付无处落）
   targetItemId String?                     // v11：稳定项 id（ImageItem.id）——非漂移 index
   expectedValue String?                    // attach=空（只填空）；replace 走显式命令
   attachState AttachState @default(pending)
@@ -118,7 +121,7 @@ model MediaBinding {
   lastError String? @db.VarChar(512)
   createdAt DateTime @default(now())
   media Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  @@unique([mediaId, projectId, nodeId, role])
+  @@unique([mediaId, projectId, nodeId, role, targetField, targetItemId])  // v12：补 targetField/targetItemId——同图两槽不撞
   @@index([attachState, nextAttachAt])
   @@index([projectId, nodeId])
 }
@@ -158,7 +161,7 @@ model DocDelivery {
   deliveredAt DateTime?
   lastError String? @db.VarChar(512)
   createdAt DateTime @default(now())
-  @@unique([intentRowId, execSeq, nodeId, kind, artifactIndex])  // v11：含代际
+  @@unique([intentRowId, execSeq, nodeId, kind, artifactIndex, targetField, targetItemId])  // v12：补 targetField/targetItemId——同 artifact 两目标不撞
   @@index([state, nextAttemptAt])
   @@index([intentRowId, execSeq])
 }
@@ -177,6 +180,7 @@ model MediaFactOutbox {                   // v11：替换 watermark
   leaseUntil DateTime?
   publishedAt DateTime?
   createdAt DateTime @default(now())
+  @@unique([mediaId, projectId, factVersion])  // v12：三写入点并发同版本插重行免疫
   @@index([state, nextAttemptAt, id])
 }
 ```
@@ -227,33 +231,36 @@ describe('ADR-1 media 读模型+MIME（G42/G28/M2）', () => {
 ### Task 6: execSeq 链路+ArtifactCommit+MediaRegistration+InTx 族+flushDocument+后门删除
 
 **Files:**
-- Modify: generation-intent.service.ts（**execSeq nextval 三处**+rearm 事务〔execSeq+reservation 继承+资金归一化+旧 outbox superseded〕+completeInTx）+team-credit.service.ts（**settleInTx/voidInTx**+reserve 写 reservedExecSeq+settle/void CAS 匹配）+execution.service.ts（撤自行 settle/complete/交付——producer 迁移）+ai-download/ai-image-edit/lighting/trim processor 迁移
-- Create: artifact-commit.service.ts（**lockBalance→intent FOR UPDATE 重验→幂等前置→registerInTx→CAS→settleInTx**+40P01 重试）+media-registration.service.ts（registerInTx/confirmInTx/bindInTx）
+- Modify: **canvas-doc-manifest.ts（v12 P0 前置：EXEC_STATUS_KEYS/ExecStatusPatch+execSeq: string+SERVER_NODE_DATA_KEYS 重划——content 客户端可编辑不拒；旧条目 docSchema v3 拒载不兜底）**
+- Modify: generation-intent.service.ts（**execSeq nextval 两处〔new claim/rearm——同 jobId RUNNING 重入复用当前值不动 reservation〕**+rearm 事务〔nextval+**voidInTx 旧冻结 release+re-reserve**+旧 outbox superseded〕+completeInTx+**fail/touchHeartbeat/reanchorDeadline 补 execSeq 维度**）+team-credit.service.ts（**settleInTx/voidInTx**+reserve 写 reservedExecSeq+settle/void CAS 匹配）+execution.service.ts（撤自行 settle/complete/交付——producer 迁移）+ai-download/ai-image-edit/lighting/trim processor 迁移
+- Create: artifact-commit.service.ts（**lockBalance→intent FOR UPDATE 重验→幂等前置〔intent 行状态判据：SUCCEEDED∧stored∧creditsConsumed=cost→幂等返回+补建缺行〕→registerInTx〔kind 分支：text 跳过/video 即时交付 videoUrl 无 Media 行〕→CAS→settleInTx**+**40P01/40001/55P03/P2024 重试**+**quota 软限**〔超限告警+计数不回滚〕+**x-amz-meta-sha256+HeadObject 校验**〔If-None-Match 废止〕）+media-registration.service.ts（**prepareUploadInTx**/registerInTx/confirmInTx/bindInTx 四形态——**禁外部 IO**：sniff/HEAD/hash 全事务外）
 - Modify: collab-document.service.ts（**exec 守卫 execSeq 化**——BigInt 比较+reason-aware；deliverArtifact 复合 op 前置判定）+collab-doc-ops（同值 no-op deep-equal）
-- Modify: collab-residency.service.ts+collab-persistence.service.ts（**withSession flush:true+flushDocument 五态**〔storeDocumentSerialized/saveMutex〕+维护门 503）
-- Create: delivery-outbox.service.ts（认领+批量 apply+一次 flush+复核+exec error reconcile〔execProjectedExecSeq+活跃项目+24h〕）
-- Modify: intent-reconcile.service.ts（**三后门删除**〔backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts〕→不变量巡检；cleanTerminalIntents 交付终态门+resultText 90d）
+- Modify: collab-persistence.service.ts（**v12 P0 前置：StoreOutcome 五态判别联合先行重构**——storeDocumentUnlocked boolean〔noop/spool 成功/spool 失败/FK/fenced 五分支混 false〕根修；storeDocumentSerialized 透传）+collab-residency.service.ts（**withSession flush:true**〔只 delivery/attach 两消费面〕+维护门 503）
+- Create: delivery-outbox.service.ts（认领+批量 apply+一次 flush〔**载体=StoreOutcome**+与 attach 同 project 进程内互斥〕+复核+mark 后 lazy GET media-facts+exec error reconcile〔execProjectedExecSeq+活跃项目+24h〕+onModuleDestroy）
+- Modify: intent-reconcile.service.ts（**三后门删除**〔backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts〕→**不变量巡检按 kind 分化**〔image/edit 全项/video 豁免 Media/text 判 resultText〕；cleanTerminalIntents 交付终态门+resultText 90d）
 - Test: 全 spec（**真 PG 并发**）
 
 - [ ] **Step 1: census**。
 - [ ] **Step 2: 先红（G44/G48/G58）**
 
 ```ts
-describe('ADR-3/6 execSeq+finalize+flush（G44/G48/G58）', () => {
-  it('execSeq 代际：**同 job 双 worker（BullMQ stalled）旧提交必败**（red：attempts 不变旧产物通过 CAS 复现）；**新 intent 新代不被旧 done 挡**（red：反例 B 现存 bug 复现——新行 loading 被 terminal-superseded）；旧 error 不覆盖新 loading', async () => { /* 真 PG 并发 */ });
-  it('rearm：execSeq nextval+reservation 继承（reservedExecSeq→新值）+**残留冻结归一化**（red：mayCall:false 静默跳过外呼现存 bug 复现）+旧 outbox superseded', async () => { /* 断言 */ });
-  it('finalize 锁序：**并发 reaper+finalize 死锁注入——零 40P01 或 3 次重试收敛**；lockBalance 先于 intent（契约 20）', async () => { /* 真 PG 并发 */ });
-  it('finalize 幂等：同 (intent,execSeq,index) 重复提交返回已有 Media 零重复 settle；对象 sha256 校验（不同字节拒）', async () => { /* 断言 */ });
+describe('ADR-3/6 execSeq+finalize+flush（G44/G48/G58 v12）', () => {
+  it('**manifest 前置**：writeExecStatus 携 execSeq 过 EXEC_STATUS_KEYS（red：现状 manifest:90 无该键——UNKNOWN_KEY 拒写=代际围栏门口死）；旧条目无 execSeq→docSchema v3 拒载', async () => { /* 断言 */ });
+  it('execSeq 代际：**同 job 双 worker（BullMQ stalled）重入复用当前 execSeq**——重入者 mayCall:false 静默 skipped 不外呼+**旧 worker finalize 照常匹配交付**（red：v8「nextval+继承」下旧 worker CAS 失败∧重入者不外呼=悬挂复现）；**新 intent 新代不被旧 done 挡**（red：反例 B 现存 bug 复现——新行 loading 被 terminal-superseded）；旧 error 不覆盖新 loading；**fail/touchHeartbeat/reanchorDeadline 旧 execSeq 0 命中 no-op**（red：旧 worker 刷新/杀新 attempt 复现）', async () => { /* 真 PG 并发 */ });
+  it('rearm：execSeq nextval+**voidInTx 旧冻结（release+re-reserve——新 worker 重走 reserve 拿 mayCall:true）**（red：mayCall:false 静默跳过外呼现存 bug 复现）+旧 outbox superseded', async () => { /* 断言 */ });
+  it('finalize 锁序：**并发 reaper+finalize 死锁注入——零 40P01/55P03 或 3 次重试收敛**；lockBalance 先于 intent（契约 20）', async () => { /* 真 PG 并发 */ });
+  it('finalize 幂等：**判据=intent 行状态**（SUCCEEDED∧stored∧settled→幂等返回+补建缺行；red：仅查 Media 存在把半状态当已完成）；对象 HeadObject+x-amz-meta-sha256 校验（不同字节拒——If-None-Match 废止）', async () => { /* 断言 */ });
   it('资金矩阵：settle 失败整体回滚（零 Media 零 delivered）；多产物一次事务 N Media 整组；Media 已建未 stored→sourceExecSeq 反查（当前代）不误 release', async () => { /* 矩阵 */ });
-  it('flush：**四崩溃窗**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）全收敛；**spooled≠delivered 继续重试不耗 maxAttempts**（red：mark delivered 时 doc 未落库——debounce 窗 kill 复现=扣费无产物无重试）；批量一次 flush；flush 后复核（execSeq/expectedValue/节点）→superseded/orphaned/delivered', async () => { /* 断言 */ });
+  it('**kind 分支**：text=零 Media（DocDelivery kind=text 携 resultText）；video=即时 finalize 交付 videoUrl（无 Media 行）→下载续段（ai-download→MediaRegistration→attach fileId）→**不变量按 kind 巡检**（video 豁免 Media 项）；**quota 软限**（超限告警+计数不回滚——registerInTx 禁调 assertOnConfirm）', async () => { /* 断言 */ });
+  it('flush：**四崩溃窗**（apply 前/flush 前/flush 后 mark 前/mark 后 emit 前）全收敛；**载体=StoreOutcome 五态**（red：boolean 下 spooled 被当 failed 耗 maxAttempts 复现）；**spooled≠delivered 继续重试不耗 maxAttempts**（red：mark delivered 时 doc 未落库——debounce 窗 kill 复现=扣费无产物无重试）；批量一次 flush+**与 attach 同 project 互斥**；flush 后复核（execSeq/expectedValue/节点）→superseded/orphaned/delivered', async () => { /* 断言 */ });
   it('deliverArtifact 前置判定在 data patch 前（stale/execSeq/expected 全过才写——red：先 data 后 exec 的 partial 复现）', async () => { /* 断言 */ });
-  it('后门删除：backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts grep 零命中；不变量巡检（SUCCEEDED⇒stored∧Media∧settled 违反→告警人工）', async () => { /* grep+断言 */ });
+  it('后门删除：backfillSucceeded/threeCheck resultRef/settleStranded probeArtifacts grep 零命中；不变量巡检（按 kind 分化——违反→告警人工）', async () => { /* grep+断言 */ });
   it('exec 投影：loading/skipped worker strict（exec-only+execSeq）；error=DB→API reconcile（execProjectedExecSeq≠当前+活跃项目+24h 窗）；alignExecFromIntents 重建', async () => { /* 断言 */ });
   it('text：resultText 落库=物化；data.result≤32KB；intent/:id/result 入口；**resultText 非空行 cleanTerminal 延长 90d**（red：7 天删行全文丢失）', async () => { /* 断言 */ });
 });
 ```
 
-- [ ] **Step 3: 实现**→**Step 4: 绿+Commit**（`feat(exec+collab): execSeq+两编排器+flushDocument（ADR-3/6 v8/G44/G48/G58）`）。
+- [ ] **Step 3: 实现**→**Step 4: 绿+Commit**（`feat(exec+collab): execSeq+两编排器+flushDocument（ADR-3/6 v9/G44/G48/G58）`）。
 
 ### Task 7: probe 单相（分型批/lease+sniffed 路由+40MP）
 
@@ -263,18 +270,20 @@ describe('ADR-3/6 execSeq+finalize+flush（G44/G48/G58）', () => {
 ### Task 8: 两编排器 producer 接线+attach 消费者+fileId 命令
 
 **Files:**
-- Modify: **资金五路径**（execution text/image/video+ai-image-edit+lighting——producer 只调 ArtifactCommit）+**非资金六路径**（upload confirm/stitch/trim/separate/copy/export——调 MediaRegistration+bindInTx；**job data 带 registrationKey**）
-- Modify: media-delivery.service.ts（纯 DB）+attach-consumer.poller.ts（**资金型 binding 跳过 fileId 写**——DocDelivery owner 唯一）
+- Modify: **资金五路径**（execution text/image/video+ai-image-edit+lighting——producer 只调 ArtifactCommit）+**非资金路径**（upload confirm/stitch/trim/separate/copy/export+**video 下载续段〔ai-download 迁 MediaRegistration+attach 交付 fileId——裁决②〕**——调 MediaRegistration+bindInTx；**job data 带 registrationKey**）
+- Modify: **11 处 media.create 全映射**（storage:37→prepareUploadInTx〔presign pending〕/media-process:194→register/ai-download:100→register〔video 续段〕/ai-image-edit:199+200→register/lighting:167→register/video-trim:110→register/stitch:97→register/generated-media:54→register/video-work:91→prepareUploadInTx）
+- Modify: media-delivery.service.ts（纯 DB）+attach-consumer.poller.ts（**claim 条件加 sourceIntentRowId IS NULL——资金原件 binding 永不进队零 churn；lease 覆盖 flush（180s）+onModuleDestroy 停 claim/等在飞**）
 - Create/Modify: collab-media.controller.ts（attach 同 team+**replaceMedia/attach 显式命令**〔attach=只填空〕）
 - Test: media-delivery/attach-consumer/controller spec
 
 - [ ] **Step 1: 先红（G43/G46/G51）**
 
 ```ts
-describe('ADR-7 两编排器+attach（G43/G46/G51）', () => {
-  it('**MediaRegistrationService=唯一 media.create 点**（grep 全仓 media.create 零第二处——red：现状 stitch:97/trim:110/generated-media:54 直建复现）；资金五走 ArtifactCommit/非资金六走 MediaRegistration（不碰 settle/complete/DocDelivery/exec——red：无 intent 空指针复现）', async () => { /* grep+矩阵 */ });
-  it('非资金幂等：registrationKey（taskId+index|mediaId|exportRequestId）重试不重复建 Media/binding；@@unique(bucket,key)', async () => { /* 断言 */ });
-  it('attach 消费者：status=completed 解耦 probe；linkMedia 原子 CAS（withSession 内）；**targetItemId 稳定定位**（red：targetIndex 漂移场景——删除/重排后错位复现）；**资金型 binding 跳过 fileId 写**（DocDelivery 唯一 owner）', async () => { /* 断言 */ });
+describe('ADR-7 两编排器+attach（G43/G46/G51 v12）', () => {
+  it('**MediaRegistrationService=唯一 media.create 点**（grep 全仓 media.create 零第二处——red：现状 11 处〔storage:37/stitch:97/trim:110/generated-media:54/video-work:91…〕直建复现）；资金五走 ArtifactCommit〔kind 分支〕/非资金走 MediaRegistration 四形态（不碰 settle/complete/DocDelivery/exec——red：无 intent 空指针复现）', async () => { /* grep+矩阵 */ });
+  it('非资金幂等：registrationKey（taskId+index|mediaId|exportRequestId）重试不重复建 Media/binding；@@unique(bucket,key)；**MediaFactOutbox @@unique(mediaId,projectId,factVersion) 并发同版本零重行**', async () => { /* 断言 */ });
+  it('attach 消费者：status=completed 解耦 probe；linkMedia 原子 CAS（withSession 内）；**targetItemId 稳定定位**（red：targetIndex 漂移场景——删除/重排后错位复现）；**claim sourceIntentRowId IS NULL**（资金原件不入队零 churn——red：claim 后"跳过 fileId"反复 churn/假 attached 复现）', async () => { /* 断言 */ });
+  it('**copy 清锚交付**：copy/clone binding 清空 sourceIntentRowId/sourceExecSeq+新 registrationKey→正常入队→fileId 交付（red：v8 矛盾——copy 副本永无 fileId 交付者=空图复现）；normalizeCopiedNodeData（red：copyPlan:63 structuredClone 连 status:loading 复制=副本永久转圈）', async () => { /* 断言 */ });
   it('attach=只填空/replace=显式命令（非空替换走 replaceMedia 带 expected）；同 team；七键 mediaRefsOf', async () => { /* 断言 */ });
 });
 ```
@@ -283,13 +292,13 @@ describe('ADR-7 两编排器+attach（G43/G46/G51）', () => {
 
 ### Task 9: web 禁写+身份键不回送+服务端 manifest 拒写+端点白名单
 
-**Files:** canvasIntents+nodeStore（updateConfig 显式键）+**canvas-doc-manifest.ts（writeNodeData 拒 fileId/resultUrl/videoUrl/result/natural——仅 linkMedia/deliverArtifact 复合 op 可写）**+collab-write.controller.ts（**op 白名单：worker 仅 writeExecStatus loading/skipped**）
+**Files:** canvasIntents（**stripServerOwnedData 单点——无条件剥 fileId/resultUrl/videoUrl/result/natural/errorCode，挂全构造点：diff dataPatch/addNode.data/copyPlan/paste/undo 恢复**）+nodeStore（updateConfig 显式键）+**canvas-doc-manifest.ts（writeNodeData 拒 fileId/resultUrl/videoUrl/result/natural——仅 linkMedia/deliverArtifact 复合 op 可写；SERVER_NODE_DATA_KEYS 现状含 content 需重划）**+collab-write.controller.ts（**op 白名单：worker 仅 writeExecStatus loading/skipped**）
 
-- [ ] 先红（直发身份键零写/updateConfig 不回送/**服务端 writeNodeData 携 fileId→UNKNOWN_KEY 拒**〔red：现状白名单内可写〕/**worker 端点 writeNodeData→拒**）→绿+Commit。
+- [ ] 先红（直发身份键零写/**diff 跨远端 apply 窗口服务端键被当"变化"发回（red：canvasIntents:502 全键差异复现）→strip 无条件剥；addNode.data/copyPlan/paste/undo 同剥**/updateConfig 不回送/**服务端 writeNodeData 携 fileId→UNKNOWN_KEY 拒**〔red：现状白名单内可写〕/**worker 端点 writeNodeData→拒**）→绿+Commit。
 
-### Task 10: 消费端接线（store 重连全量刷+factVersion）+E2E+片出口
-**Files:** canvasCollabRuntime（全量拉+按 factVersion 忽略旧+清空）+nodeStore
-- [ ] 先红（全量刷/outbox 事件 version/清空）→E2E 真链路+G42/G43/G44/G46/G48/G51/G58 矩阵→Commit+呈报。
+### Task 10: 消费端接线（pendingFacts+store 重连全量刷+factVersion）+E2E+片出口
+**Files:** canvasCollabRuntime（**pendingFacts 短 TTL Map——fact 先于 fileId 到达时暂存、fileId 到达即消费（red：「忽略未知 mediaId」丢 natural 到重连复现）**+全量拉+按 factVersion 忽略旧+清空+**delivery/attach mark 后 lazy GET media-facts 补拉**）+nodeStore
+- [ ] 先红（pendingFacts 消费/全量刷/outbox 事件 version/清空/lazy 补拉）→E2E 真链路+G42/G43/G44/G46/G48/G51/G58 矩阵→Commit+呈报。
 
 ---
 
@@ -301,7 +310,10 @@ describe('ADR-7 两编排器+attach（G43/G46/G51）', () => {
 ### Task 14: orderRecords+deriveStoryboardCells（capacity 派生+overflowIds）+收编——维持 v7。
 ### Task 15: validate+fillDoc slot 写链+四出口+manifest（deliverArtifact/linkMedia 进表）+【T11 双 bump】——维持 v7。
 ### Task 16: 判别联合+allocator+order/slot 写链+**cells 回流面 11 处删除**——维持 v7（T16 测试矩阵维持）。
-### Task 17: normalize 五路径+binding 复制（cells remap 删）——维持 v7。
+### Task 17: **normalizeCopiedNodeData 五路径+binding 复制清锚（v12 裁决③）**
+- **normalizeCopiedNodeData 单函数**（copyPlan/seed/clone 五路径共用）：status loading/error→idle（red：copyPlan:63 structuredClone 连 loading 复制=副本永久转圈）/身份键〔fileId/resultUrl/videoUrl/result〕binding 复制成功才保留否则 strip/exec 永不复制/cells 删（remap 删）。
+- **binding 复制必清锚**：sourceIntentRowId/sourceExecSeq 置空+新 registrationKey（`copy:{sourceNodeId}:{mediaId}:{targetItemId}`）——副本非资金产物，attach 可交付 fileId（配合 T8 claim sourceIntentRowId IS NULL）。
+- [ ] 先红（copy loading 节点→副本 idle/资金产物 copy→binding 清锚→attach 交付 fileId/exec 不复制）→绿+Commit。
 ### Task 18: 空间 tie-break+doc-shape-invalid——维持 v7。
 
 **片 A1 出口**：维持 v7 判据+呈报。
@@ -314,7 +326,7 @@ describe('ADR-7 两编排器+attach（G43/G46/G51）', () => {
 
 **Files:**
 - Create: collab-pathology.ts（soft 计数+病理档+**repair 执行体=vacuum 复用**）
-- Modify: collab-shrink.service.ts（**vacuumGate 共享**——repair 与 vacuum 互斥）+collab-doc-registry.service.ts（beginVacuumEra/vacuumReplace 复用——repair 变换注入+**等价断言=忽略 order|slot 的节点/边/data 等价**）+collab-residency.service.ts（**维护门 assertMaintenanceFree 覆盖 withSession/withDoc 全写路径**——DocDelivery/attach 消费者维护窗 503 退避）+MAINTENANCE origin
+- Modify: collab-shrink.service.ts（**vacuumGate 共享**——repair 与 vacuum 互斥）+collab-doc-registry.service.ts（beginVacuumEra/vacuumReplace 复用——repair 变换注入+**等价断言=忽略 order|slot 的节点/边/data/exec 值等价（exec 根深拷贝保留——vacuumEquivalent 现状只比键集合 registry:655-663 勘误）**）+collab-residency.service.ts（**维护门 assertMaintenanceFree 覆盖 withSession/withDoc 全写路径**——DocDelivery/attach 消费者维护窗 503 退避）+MAINTENANCE origin
 - Modify: **web purgePidCaches 修复**（local-cache-key+runtime——generation jump 清同 pid 全部代+**真 IDB 测试断言实际删除集合**〔red：现状保留脏旧代复现〕）
 - Create/Modify: collab-media.controller.ts（repair 端点——异步 202+单飞+OWNER/ADMIN）
 - Test: collab-pathology.spec.ts
@@ -323,7 +335,7 @@ describe('ADR-7 两编排器+attach（G43/G46/G51）', () => {
 
 ```ts
 describe('ADR-5 v8 repair=generation 跳变（G45/G53）', () => {
-  it('repair 执行体：vacuumGate 互斥（**repair 进行中 vacuum→409/反之**——red：两套内存态互不知复现）→beginVacuumEra 冻结+4410+serving 门→quiesce（writesSettled）→离线重排→**等价断言（忽略 order|slot）**→单事务 vacuumReplace（generation+1）→purge+释放', async () => { /* 断言 */ });
+  it('repair 执行体：vacuumGate 互斥（**repair 进行中 vacuum→409/反之**——red：两套内存态互不知复现）→beginVacuumEra 冻结+4410+serving 门→quiesce（writesSettled）→离线重排→**等价断言（忽略 order|slot——含 exec 根值等价+深拷贝保留）**→单事务 vacuumReplace（generation+1）→purge+释放', async () => { /* 断言 */ });
   it('**旧客户端内容级拒**：repair 前旧 SV 重连→guardSyncFrame preVacuumSv→4410 doc-generation-stale→consumeGenerationJump 单链一次 reload（red：repairRev 三缺口复现——无自报 rev/rev 被吞/离线 pending 回写）', async () => { /* 真连 */ });
   it('**维护门全覆盖**：repair 窗口 DocDelivery/attach 消费者 writeNodeData→503 退避不 mark（red：维护窗内交付 fileId 被 repair 覆盖丢失复现）', async () => { /* 断言 */ });
   it('**purgePidCaches**：generation jump 后同 pid 全部代 IDB 库被清（真 IDB 断言——red：现状保留脏旧代复现）', async () => { /* 断言 */ });
@@ -348,7 +360,7 @@ describe('ADR-5 v8 repair=generation 跳变（G45/G53）', () => {
 
 **Files:** web node config+fixtures+api collab-harness/provider-convergence.e2e-spec.ts
 
-- [ ] 先红：五件套（slot 派生档）/双端收敛/G17 改口档/分镜并发零成员丢失/等值邻居/重复键层 repair/双端避让/真连+分区重启/attach 503/**DocDelivery flush 四窗**/**execSeq 代际矩阵（同 job 双 worker/新 intent 不被旧终态挡/旧 error 不覆盖新 loading）**/**exec alignExecFromIntents 重建**/**repair=vacuum 并发（一进一 409）+旧 IDB 全代清+离线 pending 拒合并**/**outbox 乱序提交+重启零回放**/reset 联动。
+- [ ] 先红：五件套（slot 派生档）/双端收敛/G17 改口档/分镜并发零成员丢失/等值邻居/重复键层 repair/双端避让/真连+分区重启/attach 503/**DocDelivery flush 四窗**/**execSeq 代际矩阵（同 job 双 worker 重入复用——重入者 skipped∧旧 worker 交付/新 intent 不被旧终态挡/旧 error 不覆盖新 loading）**/**exec alignExecFromIntents 重建**/**repair=vacuum 并发（一进一 409）+旧 IDB 全代清+离线 pending 拒合并**/**outbox 乱序提交+重启零回放**/**video 续段（videoUrl 即时+fileId 后补 attach）**/**copy 清锚交付（资金产物 copy→attach fileId）**/**pendingFacts 消费**/reset 联动。
 - [ ] 绿+Commit（`feat(web+api): A3 harness（G12/G17/G45/G46/G53/G55/G58）`）。
 
 ---
@@ -377,32 +389,34 @@ describe('ADR-5 v8 repair=generation 跳变（G45/G53）', () => {
 
 ---
 
-## 验收门禁（v8 汇总——判据随 spec v11 §5 权威表）
+## 验收门禁（v9 汇总——判据随 spec v12 §5 权威表）
 
 **保留**：G1-G15/G17（改口）/G18-G20/G22/G47/G54/G55/G56/G57（v10 口径）。
 
-| 门 | v11 增强点 |
+| 门 | v12 增强点 |
 |---|---|
-| G42 | **MediaFactOutbox（乱序提交必达/重启零回放/correction 必达/attach 补发/IDOR 拒）**——watermark 三缺口根修 |
-| G43 | **两编排器**（MediaRegistration=唯一 media.create 点 grep 零第二处；非资金不碰资金域；registrationKey 幂等） |
+| G42 | **MediaFactOutbox（乱序提交必达/重启零回放/correction 必达/attach 补发/IDOR 拒/@@unique 三写入点零重行）+pendingFacts 消费+mark 后 lazy GET**——watermark 三缺口+fact 先到丢 natural 双根修 |
+| G43 | **两编排器**（MediaRegistration=唯一 media.create 点 grep 零第二处+**11 处全映射+prepareUploadInTx 四形态**；**kind 分支：text 零 Media/video 即时 finalize 交付 videoUrl+下载续段**；非资金不碰资金域；registrationKey 幂等） |
 | G44 | deliverArtifact **前置判定在 data patch 前**+execSeq reason-aware+deep-equal no-op |
-| G46 | targetItemId 稳定定位+**资金型 binding 跳过 fileId 写（owner 唯一）** |
-| G48 | **execSeq 三反例全绿（同 job 双 worker/新 intent 不被挡/旧 error 不覆盖）+锁序死锁注入零 40P01+幂等前置+rearm 归一化（现存 bug 根修）** |
+| G46 | targetItemId 稳定定位+**claim sourceIntentRowId IS NULL（资金原件零 churn）+copy 清锚交付+normalizeCopiedNodeData+lease 覆盖 flush+onModuleDestroy**——v8 copy 矛盾根修 |
+| G48 | **execSeq 三反例全绿（同 job 双 worker 重入复用——重入者 skipped∧旧 worker 交付/新 intent 不被挡/旧 error 不覆盖）+EXEC_STATUS_KEYS+execSeq 进 manifest+锁序死锁注入零 40P01/55P03+幂等前置（intent 行状态判据）+rearm=voidInTx+re-reserve（现存 bug 根修）+fail/touch/reanchor 旧代 no-op+quota 软限** |
 | G23/M1 | 分型批/lease+sniffed 路由+jitter+40MP |
 | M2 | **media content 代理+MinIO 直链禁用+sharp 重编码+size BigInt+生产通路修复** |
-| G53 | **repair=generation 跳变**（vacuumGate 互斥 409/等价断言/旧 SV 内容级拒/IDB 全代清/**维护门全覆盖交付 503**）——repairRev 三缺口根修 |
-| G58 | **flush 四窗全收敛+spooled≠delivered+批量一次 flush+flush 后复核**——mark delivered 撒谎根修 |
+| G53 | **repair=generation 跳变**（vacuumGate 互斥 409/等价断言〔**含 exec 值等价+深拷贝**〕/旧 SV 内容级拒/IDB 全代清/**维护门全覆盖交付 503**）——repairRev 三缺口根修 |
+| G58 | **flush 四窗全收敛+载体=StoreOutcome 五态（boolean 混五态根修）+spooled≠delivered+批量一次 flush（与 attach 同 project 互斥）+flush 后复核**——mark delivered 撒谎根修 |
 
 ---
 
-## 自检（plan v8——writing-plans Self-Review）
+## 自检（plan v9——writing-plans Self-Review）
 
-**四裁决落位**：①repair 方案 A=T19（vacuum 复用+purgePidCaches 修复）+T22（并发/旧 IDB 注入）；②execSeq=T3（sequence+三列）+T6（分配三处+守卫+CAS+rearm 继承归一化——**三现存 bug 同卡根修**）+T22（代际矩阵）；③两编排器=T6（ArtifactCommit+MediaRegistration+InTx 族）+T8（producer 分层接线+grep 单点门）；④flush=T6（flushDocument 五态+批量+复核）+T22（四窗注入）。
+**v12 四裁决落位**：①同 job 重入复用 execSeq+rearm voidInTx=T6（分配两处+rearm release+re-reserve+fail/touch/reanchor execSeq 化）；②video 即时 finalize+下载续段=T6（kind 分支）+T8（ai-download 迁 MediaRegistration+attach）；③copy 清锚+normalizeCopiedNodeData=T8（claim sourceIntentRowId IS NULL）+T17（清锚+五路径）；④quota 软限=T6（registerInTx 禁调 assertOnConfirm+禁外部 IO）。
 
-**五面闭环**：生产端（T6/T8 两编排器）/交付端（T6 flush+T5 outbox）/消费端（T5+T10+T26）/生命周期端（T17+T28 六表+text 90d）/崩溃端（T6 锁序/幂等/四窗+T19 维护门+T22 注入）。
+**v8 四裁决落位（维持）**：①repair 方案 A=T19（vacuum 复用+purgePidCaches 修复）+T22（并发/旧 IDB 注入）；②execSeq=T3（sequence+三列）+T6（守卫+CAS——**三现存 bug 同卡根修**）+T22（代际矩阵）；③两编排器=T6（ArtifactCommit+MediaRegistration+InTx 族）+T8（producer 分层接线+grep 单点门）；④flush=T6（**StoreOutcome 先行+**flushDocument 五态+批量+复核）+T22（四窗注入）。
 
-**v7→v8 实质差异（执行者勿混用）**：①execSeq 全局代际（DB sequence）替代 intentAttempts——三反例根修；②repairRev 删除→repair=generation 跳变（vacuum 协议复用）+purgeForeignCaches bug 修复；③MediaFactOutbox 替换 probedAt watermark；④producer 分两层（MediaRegistration 唯一 media.create 点）；⑤flushDocument typed 五态（spooled≠delivered）；⑥锁序 balance→intent+InTx 方法族+幂等前置+40P01 重试；⑦唯一键全带 execSeq+artifactIndex+targetItemId；⑧对象 key hash+If-None-Match+sweep；⑨旧 reconcile 三后门删除→不变量巡检；⑩MIME 全链（media content 代理+直链禁用+重编码+size BigInt+生产通路修复）；⑪probe 分型批/lease+sniffed 路由；⑫worker 端点 op 白名单+manifest 身份键拒写；⑬每卡真 PG 并发用例。
+**五面闭环**：生产端（T6/T8 两编排器）/交付端（T6 flush+T5 outbox）/消费端（T5+T9 strip+T10 pendingFacts+T26）/生命周期端（T17+T28 六表+text 90d）/崩溃端（T6 锁序/幂等/四窗+T19 维护门+T22 注入）。
 
-**执行期语义定位点（已实证）**：同 jobId 重入不递增 attempts（generation-intent:130/:158）+rearm:183+新行=1（schema:1004）；BullMQ 同 jobId（processor:40）；exec 守卫只比 attempts（document:313-331——反例 B 现存 bug）；reserve mayCall:false（team-credit:102-108+execution:325——rearm 静默跳过现存 bug）；契约 20（credit-ledger:58+team-credit:90/:156/:186/:235）；complete 根 prisma:255+settle 自开:132；后门（reconcile:215/:244）；四路径零 intent（stitch:97/trim:110/generated-media:54/confirmUpload）+ExecutionJobData.intentRowId 死代码:272；withSession 零 flush（residency:459-468）；vacuum 全套（registry:564-581/repo:180-210/registry:679-698/runtime:594-601）；doc-status 去重（registry:965-977+runtime:1450-1470）；URL 只 csv/cb（runtime:1572）；**purgeForeignCaches 反语义（local-cache-key:71+测试只断言参数 cache.spec:100-113——现存 bug）**；worker 端点白名单内含 fileId（write.controller:32+manifest:83）；**生产上传 /flowai 渗透（mediaUploadUtils:31）**；Media.size Int（schema:279）；仓内零嗅探库；UI 按 ImageItem.id 现算（MultiImageConfigPanel:69/:82——targetIndex 批评不成立但整数组覆盖仍在）；reconcile 带时间窗+索引（:102-139/:350-352+schema:1025-1027）。
+**v8→v9 实质差异（执行者勿混用）**：①**EXEC_STATUS_KEYS/ExecStatusPatch+execSeq: string 前置**（manifest:90 现状无——UNKNOWN_KEY 门口死）+SERVER_NODE_DATA_KEYS 重划（content 不拒）；②**同 job 重入复用 execSeq**（分配两处 new claim/rearm；rearm=voidInTx 释放重冻——推翻 v8「nextval 三处+继承」）；③**StoreOutcome 五态判别联合先行重构**（storeDocumentUnlocked boolean 五分支混 false 根修——flushDocument 载体）；④**stripServerOwnedData web 单点无条件挂全构造点**（diff/addNode/copyPlan/paste/undo——「未修改才不回送」废止）；⑤**kind 分支**（text 零 Media/video 即时 finalize+下载续段+不变量按 kind 分化）；⑥**copy 清锚**（binding 清 sourceIntentRowId/sourceExecSeq+attach claim IS NULL+normalizeCopiedNodeData）；⑦**唯一键补维度**（MediaBinding/DocDelivery +targetField/targetItemId+词表补 videoUrl/resultUrl；MediaFactOutbox @@unique）；⑧**If-None-Match 废止**→x-amz-meta-sha256+HeadObject；⑨**pendingFacts+lazy GET**；⑩重试码+55P03/P2024+幂等前置 intent 行状态判据；⑪prepareUploadInTx 四形态+11 处映射表；⑫quota 软限+registerInTx 禁外部 IO；⑬attach/delivery per-project 互斥+lease 覆盖 flush+onModuleDestroy；⑭repair 等价断言含 exec 值等价。
 
-**与 spec v11 的对齐**：全部 T 卡/门禁与 spec v11 §4/§5 一致；裁决引用=§0.1 v11 口径（⑪⑫⑬+②⑨）；偏离走 spec §0.4。
+**执行期语义定位点（已实证）**：同 jobId 重入不递增 attempts（generation-intent:130/:158）+rearm:183+新行=1（schema:1004）；BullMQ 同 jobId（processor:40）；exec 守卫只比 attempts（document:313-331——反例 B 现存 bug）；reserve mayCall:false（team-credit:102-108+execution:325——rearm 静默跳过现存 bug）；契约 20（credit-ledger:58+team-credit:90/:156/:186/:235）；complete 根 prisma:255+settle 自开:132；后门（reconcile:215/:244）；四路径零 intent（stitch:97/trim:110/generated-media:54/confirmUpload）+ExecutionJobData.intentRowId 死代码:272；withSession 零 flush（residency:459-468）；vacuum 全套（registry:564-581/repo:180-210/registry:679-698/runtime:594-601）；doc-status 去重（registry:965-977+runtime:1450-1470）；URL 只 csv/cb（runtime:1572）；**purgeForeignCaches 反语义（local-cache-key:71+测试只断言参数 cache.spec:100-113——现存 bug）**；worker 端点白名单内含 fileId（write.controller:32+manifest:83）；**生产上传 /flowai 渗透（mediaUploadUtils:31）**；Media.size Int（schema:279）；仓内零嗅探库；UI 按 ImageItem.id 现算（MultiImageConfigPanel:69/:82——targetIndex 批评不成立但整数组覆盖仍在）；reconcile 带时间窗+索引（:102-139/:350-352+schema:1025-1027）；**v12 增锚：EXEC_STATUS_KEYS 无 execSeq+SERVER_NODE_DATA_KEYS 白名单含 content（manifest:83/:90）**；**addNode 携 data 全量+dataPatch 全键差异（canvasIntents:462/:502）**；**copyPlan:63 structuredClone 连 status 复制**；**storeDocumentUnlocked boolean 五分支混 false（persistence:235/:283/:287-395/:308-336/:323-328）**；**assertOnConfirm 删对象+删行（storage-quota:37-49）**；**touchHeartbeat/reanchor/fail 只守 status（generation-intent:230/:248/:265）**；**text 零 Media+video videoUrl 先行 Media 后建（execution:480-488/:513-517+ai-download:100）**；**vacuumEquivalent 浅比较（registry:655-663）**；**11 处 media.create 清单（storage:37/media-process:194/ai-download:100/ai-image-edit:199+200/lighting:167/video-trim:110/stitch:97/generated-media:54/video-work:91）**。
+
+**与 spec v12 的对齐**：全部 T 卡/门禁与 spec v12 §4/§5 一致；裁决引用=§0.1 v12 口径（⑪⑫⑬⑭⑮⑯⑰+Z1''/Z4''/Z7''/Z11''/Z14''/Z18''-v12 改）；偏离走 spec §0.4。
