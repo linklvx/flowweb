@@ -10,6 +10,7 @@ dist/
 *.tsbuildinfo
 /services/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 .data/
 backups/
 flowweb.data/
