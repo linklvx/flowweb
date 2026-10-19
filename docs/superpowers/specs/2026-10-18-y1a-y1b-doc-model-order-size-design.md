@@ -2,7 +2,7 @@
 # Y1a+Y1b：doc 模型 v3·序与尺寸/只读（B 类合并批设计）
 
 - **立项日**：2026-10-18；**唯一上游依据**：[2026-10-06-canvas-yjs-arch-upgrade-review.md](2026-10-06-canvas-yjs-arch-upgrade-review.md)（master spec v8.3）§0.2 Y1a/Y1b 两行+§0.1 裁决（D5/D4/E68/C7①③）。
-- **B 类合并立项**（Y1a+Y1b——E6 序域与 C5↔D4 同批硬约束共用）；plan=`../plans/2026-10-18-y1a-y1b-doc-model-order-size.md`（**v11——十五轮修正版架构评审采纳后当前执行版**；T0-T19/6 片 S0-S5）。
+- **B 类合并立项**（Y1a+Y1b——E6 序域与 C5↔D4 同批硬约束共用）；plan=`../plans/2026-10-18-y1a-y1b-doc-model-order-size.md`（**v11.1——十五轮采纳+十六轮复审八条收紧后当前执行版**；T0-T19/6 片 S0-S5）。
 - **用户立项三澄清（2026-10-18 一轮）**：①单 spec 单 plan+多段片序（每片出口=用户确认点）；②收敛 harness=内存双端基底+期望序断言+真连集成；③UI 变更面=「可接受变更清单+签字」（§0.2-⑥）。
 - **修订链**：
   - v2～v10：历轮沿革全文见 git 历史（ee41624f/feeef2a6/816078ca/14d28d8b 等）。v9 四裁决（media 读模型/artifactState 双轨/复合单键改口/slot 化）与 v10 接缝收口（exec 分档/ArtifactCommit/fileId 第一步）为本版基线；**v10 裁决③ repairRev 被本版推翻**。
@@ -59,6 +59,7 @@
       - **pending upload TTL+presign 幂等键**（v14 新增）：`pendingExpiresAt`（24h 定时清理 pending 行+对象）+`clientUploadId @@unique([teamId,uploadId])`（网络重试不建新行/新 key）+estimatedSize 预占（confirm 按 actualSize 结算）——现状 pending 行不清理不占配额可无限占满 MinIO。
       - **StoreOutcome 窄接口维持 v13b**（`{persisted}|{retry,reason:'spooled'|'failed'}|{terminal,reason:'fenced'|'fk'}`——投影推进唯一凭据；boolean flush 推进投影水位=No-Go）。
     - **维持不变**：R2 留 Y2（客户端 useNodeArtifact 直读=seam）、不拆 Blob/Media/Artifact 三层（数据建模优化归 Y2 与 R2 同登记）、非资金零 doc 写（funding-only）、锁序契约 20/InTx 族/MediaFactOutbox/probe/MIME 全链/SSRF、moveToDelayed 三态、rearm 只 voidInTx、providerRequestId write-ahead+providerTaskId 落库+query-first 键序、quota 软限+预检、video 即时 settle（v13 裁决①）、copy 方案二+（新建保留 fileId+normalizeCopiedNodeData）。
+  - **v14.1（十六轮·v11 复审〔确认骨架+契约收紧，零推翻〕+两前提亲验后八条小改——2026-10-19 十三次确认）**：**核验坐实**：①「并发生成胜者规则」场景**结构性不存在**——claim ⓪ RUNNING 闸（Z94：同 nodeId RUNNING 行非本 job 重入→NodeBusy 不建新行 generation-intent:66-76）+RUNNING partial unique+finalize 原子（intent CAS 与 NodeArtifact CAS 同事务）⇒ **胜者规则不变量=「同节点并发意图不存在+finalize 原子⇒时序后发起者必见前者产物版本；在飞 replace→CAS 失败 superseded」=「最新意图优先」的结构性表述**——不采纳 activeIntentId 列（与 RUNNING 闸职责重复）；②CollabLease.epoch 列已存在（schema:858）——缺提交点校验。**八条收紧**（plan v11.1）：①flush 提交前校验 lease epoch 未变（易主后旧会话不得继续落库——复用 epoch 零新机制）；②ArtifactProjection.state→PG enum+targetField/role 域约束+状态迁移前置（终态不可回退）；③provider 能力矩阵第三档=无幂等键且不可查询→**禁自动重投+人工裁决**（本地状态无法单方面保证外部 exactly-once）；④**成员被移除→存量 WS 连接关闭/降权**（teamMember 删除钩子→gateway close/降 readOnly——唯一新功能缺口）；⑤reset 脚本安全（环境白名单+目标库校验+默认 dry-run+路径限定+禁连生产）；⑥验收矩阵补成员移除/reset 安全（阻断）+50 客户端梯度+24h soak（**目标项非阻断**——2C 单机，10 客户端维持阻断门）；⑦file-type 封装独立 sniff 模块+升级期限登记（sharp 重编码=执行边界）；⑧胜者规则不变量入 T10 红测。**外审重述项零动作**（at-least-once 投影/三态分离〔applied-persisted-projected=v11 的 doc apply/flush 结果/projection state〕/团队模型/职责分域——v11 已有）；**不采纳**：activeIntentId 列、多实例协作测试进本批（维持 Y7+单实例启动断言——评审自认「先限制部署拓扑」即本批立场）。
 
 ## 0.1 本批有效裁决（master 内联+本批 Z'' 系）
 
