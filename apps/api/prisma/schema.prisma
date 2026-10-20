@@ -14,33 +14,33 @@ enum Role {
 }
 
 model User {
-  id             String           @id
-  name           String
-  email          String           @unique
-  emailVerified  Boolean
-  role           Role             @default(USER)
-  image               String?
-  phoneNumber         String?  @unique @db.VarChar(20)
-  phoneNumberVerified Boolean  @default(false)
-  wechatOpenid        String?  @unique @db.VarChar(64)
-  wechatUnionid       String?  @db.VarChar(64)
-  createdAt            DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  accounts       Account[]
-  sessions       Session[]
-  templates      Template[]
-  canvasProjects CanvasProject[]
-  media          Media[]
-  materialFolders MaterialFolder[]
-  folders        Folder[]
-  teamsOwned     Team[]
-  teamMemberships TeamMember[]
-  teamJoinRequests TeamJoinRequest[]
-  decidedTeamJoinRequests TeamJoinRequest[] @relation("TeamJoinRequestDecidedBy")
-  projectMembers ProjectMember[]
-  videoProjects VideoProject[]
-  styleFavorites        StyleFavorite[]
-  styleRecentUsages     StyleRecentUsage[]
+  id                      String             @id
+  name                    String
+  email                   String             @unique
+  emailVerified           Boolean
+  role                    Role               @default(USER)
+  image                   String?
+  phoneNumber             String?            @unique @db.VarChar(20)
+  phoneNumberVerified     Boolean            @default(false)
+  wechatOpenid            String?            @unique @db.VarChar(64)
+  wechatUnionid           String?            @db.VarChar(64)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  accounts                Account[]
+  sessions                Session[]
+  templates               Template[]
+  canvasProjects          CanvasProject[]
+  media                   Media[]
+  materialFolders         MaterialFolder[]
+  folders                 Folder[]
+  teamsOwned              Team[]
+  teamMemberships         TeamMember[]
+  teamJoinRequests        TeamJoinRequest[]
+  decidedTeamJoinRequests TeamJoinRequest[]  @relation("TeamJoinRequestDecidedBy")
+  projectMembers          ProjectMember[]
+  videoProjects           VideoProject[]
+  styleFavorites          StyleFavorite[]
+  styleRecentUsages       StyleRecentUsage[]
 }
 
 model Account {
@@ -89,27 +89,27 @@ model Verification {
 }
 
 model Announcement {
-  id         String    @id @default(cuid())
-  message    String    @db.VarChar(200)
-  linkText   String?   @db.VarChar(32)
-  linkUrl    String?   @db.VarChar(500)
-  bgColor    String    @default("#0f2761") @db.VarChar(16)
-  textColor  String    @default("#ffffff") @db.VarChar(16)
-  active     Boolean   @default(false)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  message   String   @db.VarChar(200)
+  linkText  String?  @db.VarChar(32)
+  linkUrl   String?  @db.VarChar(500)
+  bgColor   String   @default("#0f2761") @db.VarChar(16)
+  textColor String   @default("#ffffff") @db.VarChar(16)
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ContentCard {
-  id         String    @id @default(cuid())
-  title      String
-  coverUrl   String
-  tags       String[]
-  desc       String
-  sortOrder  Int       @default(0)
-  active     Boolean   @default(true)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  title     String
+  coverUrl  String
+  tags      String[]
+  desc      String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([active, sortOrder])
 }
@@ -123,25 +123,25 @@ model HomeBanner {
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
-  updatedAt DateTime  @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@index([active, sortOrder])
 }
 
 model Template {
-  id        String             @id @default(cuid())
+  id        String         @id @default(cuid())
   name      String
   folderId  String?
-  folder    Folder?            @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  projectId String?            @unique
-  project   CanvasProject?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  folder    Folder?        @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  projectId String?        @unique
+  project   CanvasProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   userId    String
   teamId    String?
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
-  user User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team Team?              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([folderId])
   @@index([userId])
@@ -149,20 +149,20 @@ model Template {
 }
 
 model CanvasProject {
-  id        String       @id @default(cuid())
-  name      String
-  userId    String?
-  teamId    String
-  templates Template[]
-  canvasDoc CanvasDoc?
+  id             String            @id @default(cuid())
+  name           String
+  userId         String?
+  teamId         String
+  templates      Template[]
+  canvasDoc      CanvasDoc?
   projectMembers ProjectMember[]
-  docUpdates CanvasDocUpdate[]
-  videoProjects VideoProject[]
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  docUpdates     CanvasDocUpdate[]
+  videoProjects  VideoProject[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
-  user      User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([teamId])
@@ -187,79 +187,79 @@ model Folder {
 }
 
 model NodeType {
-  id          String     @id @default(cuid())
-  name        String
-  key         String     @unique
-  description String?
-  active      Boolean    @default(true)
-  models      AIModel[]
+  id           String        @id @default(cuid())
+  name         String
+  key          String        @unique
+  description  String?
+  active       Boolean       @default(true)
+  models       AIModel[]
   pricingRules PricingRule[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
 model AIModel {
-  id          String     @id @default(cuid())
-  nodeTypeId  String
-  nodeType    NodeType   @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
-  name        String
-  provider    String // Y0b-2 裁定 5：slug（moonshot/tencent/stability/openai）——显示名移 providerLabel
-  apiUrl      String
-  apiKey      String?
+  id            String            @id @default(cuid())
+  nodeTypeId    String
+  nodeType      NodeType          @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
+  name          String
+  provider      String // Y0b-2 裁定 5：slug（moonshot/tencent/stability/openai）——显示名移 providerLabel
+  apiUrl        String
+  apiKey        String?
   apiModelName  String? // provider 侧模型 id（active 行断言非空——外呼真名）
   providerLabel String? // 显示名（原 provider 列内容）
-  sortOrder   Int        @default(0)
-  recommended Boolean    @default(false)
-  active      Boolean    @default(true)
-  resolutions ModelResolution[]
-  durations   ModelDuration[]
-  pricingRules PricingRule[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  sortOrder     Int               @default(0)
+  recommended   Boolean           @default(false)
+  active        Boolean           @default(true)
+  resolutions   ModelResolution[]
+  durations     ModelDuration[]
+  pricingRules  PricingRule[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([nodeTypeId, active])
   @@index([nodeTypeId, sortOrder])
 }
 
 model ModelResolution {
-  id        String      @id @default(cuid())
-  modelId   String
-  model     AIModel     @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  label     String
-  width     Int
-  height    Int
+  id           String        @id @default(cuid())
+  modelId      String
+  model        AIModel       @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  label        String
+  width        Int
+  height       Int
   pricingRules PricingRule[]
-  createdAt DateTime    @default(now())
+  createdAt    DateTime      @default(now())
 
   @@index([modelId])
 }
 
 model ModelDuration {
-  id        String      @id @default(cuid())
-  modelId   String
-  model     AIModel     @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  label     String
-  seconds   Int
+  id           String        @id @default(cuid())
+  modelId      String
+  model        AIModel       @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  label        String
+  seconds      Int
   pricingRules PricingRule[]
-  createdAt DateTime    @default(now())
+  createdAt    DateTime      @default(now())
 
   @@index([modelId])
 }
 
 model PricingRule {
-  id           String          @id @default(cuid())
+  id           String           @id @default(cuid())
   nodeTypeId   String
-  nodeType     NodeType        @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
+  nodeType     NodeType         @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
   modelId      String?
-  model        AIModel?        @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  model        AIModel?         @relation(fields: [modelId], references: [id], onDelete: Cascade)
   resolutionId String?
   resolution   ModelResolution? @relation(fields: [resolutionId], references: [id])
   durationId   String?
   duration     ModelDuration?   @relation(fields: [durationId], references: [id])
   creditCost   Int
-  active       Boolean         @default(true)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  active       Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   intentSnapshots GenerationIntent[] // Y0b-1：claim 定价快照反向关系（快照 FK SET NULL——规则行删除时快照仍存活）
 
@@ -268,44 +268,73 @@ model PricingRule {
 }
 
 model Media {
-  id           String    @id @default(uuid())
-  userId       String
+  id     String @id @default(uuid())
+  userId String
 
   // 存储信息
-  bucket       String    @default("flowai")
-  key          String    // MinIO 对象键
-  originalName String    // 原始文件名
+  bucket       String @default("flowai")
+  key          String // MinIO 对象键
+  originalName String // 原始文件名
   mimeType     String
-  size         Int       // 字节数
+  size         Int // 字节数
 
   // 业务关联
-  projectId    String?
-  nodeId       String?
-  taskId       String?
+  projectId String?
+  nodeId    String?
+  taskId    String?
 
   // 状态与类型
-  status       String    @default("pending")  // pending | completed | failed
-  type         String    // uploaded | generated | temp
-  metadata     Json?     // 扩展元数据（ffprobe信息、血缘sourceFileId/bizType等）
+  status   MediaStatus @default(pending) // Y1b T2：String→enum（processing=stage/video 未 materialize；failed=终态失败补偿退款）
+  type     String // uploaded | generated | temp
+  metadata Json? // 扩展元数据（ffprobe信息、血缘sourceFileId/bizType等）
+
+  // Y1b T2（Z1''/Z7''）：sourceUrl 专用列（provider 源禁入 metadata——整行 spread 泄漏；加密是应用层）
+  sourceUrl             String?
+  sourceUrlExpiresAt    DateTime? // 源过期判定（过期→materialize 重试判据）
+  // materialize 族（video 异步物化——自有 lease/attempts 与 intent attempts/rearm 解耦）
+  processingLeaseUntil  DateTime?
+  processingAttempts    Int        @default(0)
+  nextMaterializeAt     DateTime?
+  // probe 族（上传路径 worker 重计算）——裁定3 完整化：v10.1 plan Task 3 Media 块八列全量
+  // （docs/superpowers/plans/2026-10-18-y1a-y1b-doc-model-order-size.md@5c24441c :86-93；未落地六列本批补齐，
+  //  optional/带默认——消费卡 T4/T7 零迁移可用）
+  probeState            ProbeState @default(pending) // confirm 后按 sniffed 重算（v10.1 :86）
+  probeAttempts         Int        @default(0) // v10.1 :87
+  probeError            String?    @db.VarChar(512) // v10.1 :88
+  probeFailureKind      String? // v10.1 :89
+  probeLeaseUntil       DateTime? // v10.1 :90
+  probeRunId            String? // v10.1 :91
+  nextProbeAt           DateTime? // jitter 退避（v10.1 :92）
+  probedAt              DateTime? // 仅审计（v10.1 :93）
+  factVersion           BigInt     @default(0) // 单调事实版本（每次 natural/sniff/status 变更+1）
+  // v11 pending 上传 TTL+presign 幂等键
+  pendingExpiresAt      DateTime?
+  clientUploadId        String?
+  sourceRegistrationKey String? // 非资金幂等锚（nullable——非资金路径 registrationKey）
 
   // 时间戳
-  createdAt    DateTime  @default(now())
-  expiresAt    DateTime? // 临时文件过期时间
+  createdAt DateTime  @default(now())
+  expiresAt DateTime? // 临时文件过期时间
 
   // 素材库关联
-  folderId      String?   // 关联素材库文件夹
-  isFavorite    Boolean   @default(false)  // 收藏标记
-  thumbnailKey  String?   // 缩略图对象键（URL动态生成，避免过期）
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime? // 软删除
+  folderId     String? // 关联素材库文件夹
+  isFavorite   Boolean   @default(false) // 收藏标记
+  thumbnailKey String? // 缩略图对象键（URL动态生成，避免过期）
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime? // 软删除
 
-  folder        MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folder MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
-  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  teamId        String
-  team          Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
+  bindings MediaBinding[]
+
+  @@unique([bucket, key]) // 对象级幂等（v11）
+  @@unique([teamId, clientUploadId]) // presign 幂等键（nullable 复合——PG NULL 不冲突）
+  @@unique([sourceRegistrationKey]) // 非资金幂等（nullable）
   @@index([userId])
   @@index([teamId])
   @@index([projectId])
@@ -315,27 +344,30 @@ model Media {
   @@index([userId, folderId, createdAt])
   @@index([userId, isFavorite])
   @@index([type, status, deletedAt])
+  @@index([status, nextMaterializeAt]) // materialize claim（v11）
+  @@index([probeState, nextProbeAt]) // probe claim（v11）
+  @@index([status, pendingExpiresAt]) // pending TTL 清理（v11）
 }
 
 // 素材文件夹表
 model MaterialFolder {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
   parentId  String?
   userId    String
   teamId    String
-  sortOrder Int      @default(0)
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  sortOrder Int       @default(0)
+  isDefault Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   parent   MaterialFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children MaterialFolder[] @relation("FolderHierarchy")
   files    Media[]
 
-  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team     Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([teamId])
   @@index([userId, sortOrder])
@@ -343,22 +375,22 @@ model MaterialFolder {
 }
 
 model LightingTask {
-  id               String              @id @default(uuid())
+  id               String             @id @default(uuid())
   userId           String
   nodeId           String
   projectId        String?
-  originalImageUrl String              @db.VarChar(512)
-  resultImageUrl   String?             @db.VarChar(512)
+  originalImageUrl String             @db.VarChar(512)
+  resultImageUrl   String?            @db.VarChar(512)
   resultMediaId    String?
   params           Json
-  status           LightingTaskStatus  @default(pending)
-  costCredits      Int                 @default(0)
-  errorMessage     String?             @db.Text
+  status           LightingTaskStatus @default(pending)
+  costCredits      Int                @default(0)
+  errorMessage     String?            @db.Text
   teamId           String
-  createdAt        DateTime            @default(now())
+  createdAt        DateTime           @default(now())
   completedAt      DateTime?
 
-  team             Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([teamId])
@@ -373,21 +405,21 @@ enum LightingTaskStatus {
 }
 
 model VideoTrimTask {
-  id            String    @id @default(cuid())
-  userId        String
-  workflowId    String
-  nodeId        String
-  sourceFileId  String
-  startTime     Float
-  endTime       Float
-  status        String    @default("queued")
-  outputFileId  String?
-  errorMsg      String?
-  teamId        String
-  createdAt     DateTime  @default(now())
-  finishedAt    DateTime?
+  id           String    @id @default(cuid())
+  userId       String
+  workflowId   String
+  nodeId       String
+  sourceFileId String
+  startTime    Float
+  endTime      Float
+  status       String    @default("queued")
+  outputFileId String?
+  errorMsg     String?
+  teamId       String
+  createdAt    DateTime  @default(now())
+  finishedAt   DateTime?
 
-  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([nodeId])
   @@index([userId])
@@ -395,22 +427,22 @@ model VideoTrimTask {
 }
 
 model VideoSeparateTask {
-  id            String    @id @default(cuid())
-  userId        String
-  workflowId    String
-  nodeId        String
-  sourceFileId  String
-  mode          String    @default("split")
-  status        String    @default("queued")
-  videoFileId   String?
-  audioFileId   String?
-  errorMsg      String?
-  errorType     String?
-  teamId        String
-  createdAt     DateTime  @default(now())
-  finishedAt    DateTime?
+  id           String    @id @default(cuid())
+  userId       String
+  workflowId   String
+  nodeId       String
+  sourceFileId String
+  mode         String    @default("split")
+  status       String    @default("queued")
+  videoFileId  String?
+  audioFileId  String?
+  errorMsg     String?
+  errorType    String?
+  teamId       String
+  createdAt    DateTime  @default(now())
+  finishedAt   DateTime?
 
-  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([nodeId])
   @@index([userId])
@@ -419,19 +451,19 @@ model VideoSeparateTask {
 }
 
 model VideoProject {
-  id           String        @id @default(cuid())
+  id           String   @id @default(cuid())
   teamId       String
-  userId       String        // 取当前操作用户（assertEditor 通过者）——与 CanvasProject.userId 可空无关
-  workflowId   String        // CanvasProject.id：regenerate/socket room/资产过滤/级联删除
-  sourceNodeId String        @unique // 视频剪辑节点自身 nodeId——一剪辑节点一工程
+  userId       String // 取当前操作用户（assertEditor 通过者）——与 CanvasProject.userId 可空无关
+  workflowId   String // CanvasProject.id：regenerate/socket room/资产过滤/级联删除
+  sourceNodeId String   @unique // 视频剪辑节点自身 nodeId——一剪辑节点一工程
   title        String
   data         Json
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  team      Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workflow  CanvasProject @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  team     Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflow CanvasProject @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   @@index([teamId])
   @@index([userId])
@@ -486,71 +518,71 @@ enum AuditTargetType {
   TEAM_MEMBER
   PROJECT
   PROJECT_MEMBER
-  COLLAB_LEASE   // Y0a-3：break-glass/drain 审计行（targetId=scope 'primary'）
+  COLLAB_LEASE // Y0a-3：break-glass/drain 审计行（targetId=scope 'primary'）
 }
 
 model SubscriptionPlan {
-  id              String             @id @default(cuid())
-  name            String
-  tier            SubscriptionTier
-  monthlyCredits  Int
-  storageLimitBytes BigInt
-  priceMonthly    Int
+  id                     String             @id @default(cuid())
+  name                   String
+  tier                   SubscriptionTier
+  monthlyCredits         Int
+  storageLimitBytes      BigInt
+  priceMonthly           Int
   originalPriceMonthly   Int                @default(0)
-  priceQuarterly  Int
+  priceQuarterly         Int
   originalPriceQuarterly Int                @default(0)
-  priceAnnually   Int
+  priceAnnually          Int
   originalPriceAnnually  Int                @default(0)
-  sort            Int                @default(0)
-  isActive        Boolean            @default(true)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  subscriptions   UserSubscription[]
+  sort                   Int                @default(0)
+  isActive               Boolean            @default(true)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  subscriptions          UserSubscription[]
 
   @@index([isActive, sort])
 }
 
 model SubscriptionBanner {
-  id                  String    @id @default("subscription-banner-singleton")
+  id                 String    @id @default("subscription-banner-singleton")
   /// Banner 标题文字，最多64字符
-  title               String    @db.VarChar(64)
+  title              String    @db.VarChar(64)
   /// Banner 副标题/描述文字，最多200字符
-  subtitle            String    @db.VarChar(200)
+  subtitle           String    @db.VarChar(200)
   /// 外部图片URL，优先使用已上传图片
-  backgroundImageUrl  String?   @db.VarChar(500)
+  backgroundImageUrl String?   @db.VarChar(500)
   /// MinIO 对象存储 Key，优先级高于外部URL
-  backgroundImageKey  String?   @db.VarChar(255)
+  backgroundImageKey String?   @db.VarChar(255)
   /// 倒计时截止时间，UTC存储；为空则不展示倒计时
-  countdownEndAt      DateTime?
+  countdownEndAt     DateTime?
   /// 倒计时归零后自动顺延3天，仅countdownEndAt非空时生效
-  autoExtend          Boolean   @default(false)
-  isActive            Boolean   @default(true)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  autoExtend         Boolean   @default(false)
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@map("subscription_banner")
 }
 
 model UserSubscription {
-  id                 String               @id @default(cuid())
+  id                 String             @id @default(cuid())
   userId             String
   planId             String
-  plan               SubscriptionPlan     @relation(fields: [planId], references: [id])
+  plan               SubscriptionPlan   @relation(fields: [planId], references: [id])
   tier               SubscriptionTier
   period             SubscriptionPeriod
-  status             SubscriptionStatus   @default(active)
+  status             SubscriptionStatus @default(active)
   paidAmount         Int
   totalCredits       Int
   totalDays          Int
-  consumedCredits    Int                  @default(0)
+  consumedCredits    Int                @default(0)
   subscribedAt       DateTime
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
   nextGrantDate      DateTime
-  grantCount         Int                  @default(1)
+  grantCount         Int                @default(1)
   previousSubId      String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@index([userId])
   @@index([planId])
@@ -559,30 +591,30 @@ model UserSubscription {
 }
 
 model SubscriptionOrder {
-  id                  String                    @id @default(cuid())
-  orderNo             String                    @unique
-  userId              String
-  planId              String
-  period              SubscriptionPeriod
-  type                SubscriptionOrderType
-  originalAmount      Int
-  payableAmount       Int
-  prorationAmount     Int?
-  fromSubscriptionId  String?
-  fromPlanId          String?
-  status              SubscriptionOrderStatus   @default(PENDING)
-  pricingSnapshot     Json?
-  payChannel          String                    @default("wechat") @db.VarChar(32)
-  prepayId            String?                   @db.VarChar(64)
-  transactionId       String?                   @db.VarChar(64)
-  payerOpenid         String?                   @db.VarChar(64)
-  paidAt              DateTime?
-  expiredAt           DateTime?
-  closedAt            DateTime?
-  delayCloseJobId     String?
-  notifySummary       Json?
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
+  id                 String                  @id @default(cuid())
+  orderNo            String                  @unique
+  userId             String
+  planId             String
+  period             SubscriptionPeriod
+  type               SubscriptionOrderType
+  originalAmount     Int
+  payableAmount      Int
+  prorationAmount    Int?
+  fromSubscriptionId String?
+  fromPlanId         String?
+  status             SubscriptionOrderStatus @default(PENDING)
+  pricingSnapshot    Json?
+  payChannel         String                  @default("wechat") @db.VarChar(32)
+  prepayId           String?                 @db.VarChar(64)
+  transactionId      String?                 @db.VarChar(64)
+  payerOpenid        String?                 @db.VarChar(64)
+  paidAt             DateTime?
+  expiredAt          DateTime?
+  closedAt           DateTime?
+  delayCloseJobId    String?
+  notifySummary      Json?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
 }
 
 model AuditLog {
@@ -662,44 +694,44 @@ enum RechargeKind {
 }
 
 model Team {
-  id            String     @id @default(cuid())
-  name          String
-  ownerId       String
-  owner         User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  status        TeamStatus @default(ACTIVE)
-  joinApproval  Boolean    @default(true)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id           String     @id @default(cuid())
+  name         String
+  ownerId      String
+  owner        User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  status       TeamStatus @default(ACTIVE)
+  joinApproval Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  isDefault        Boolean  @default(false)
+  isDefault Boolean @default(false)
 
-  members      TeamMember[]
-  balance      TeamBalance?
-  projects     CanvasProject[]
-  media        Media[]
-  folders      Folder[]
-  templates    Template[]
-  materialFolders  MaterialFolder[]
-  lightingTasks    LightingTask[]
-  videoTrimTasks   VideoTrimTask[]
+  members            TeamMember[]
+  balance            TeamBalance?
+  projects           CanvasProject[]
+  media              Media[]
+  folders            Folder[]
+  templates          Template[]
+  materialFolders    MaterialFolder[]
+  lightingTasks      LightingTask[]
+  videoTrimTasks     VideoTrimTask[]
   videoSeparateTasks VideoSeparateTask[]
-  videoProjects       VideoProject[]
-  subscriptions TeamSubscription[]
-  joinRequests TeamJoinRequest[]
+  videoProjects      VideoProject[]
+  subscriptions      TeamSubscription[]
+  joinRequests       TeamJoinRequest[]
 
   @@index([status])
   @@index([ownerId])
 }
 
 model TeamMember {
-  id            String   @id @default(cuid())
-  teamId        String
-  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role          TeamRole @default(MEMBER)
-  monthlyQuota  Int      @default(0) // 0=不限额
-  joinedAt      DateTime @default(now())
+  id           String   @id @default(cuid())
+  teamId       String
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         TeamRole @default(MEMBER)
+  monthlyQuota Int      @default(0) // 0=不限额
+  joinedAt     DateTime @default(now())
 
   @@unique([teamId, userId])
   @@index([userId])
@@ -717,7 +749,7 @@ model TeamBalance {
 }
 
 model TeamCreditTransaction {
-  id             String                     @id @default(cuid())
+  id             String                    @id @default(cuid())
   teamId         String // Z4：无 FK NOT NULL——append-only 事实+解散后审计留痕（置空语句已随 T1a 删）
   operatorUserId String?
   amount         Int // 派生显示字段（Z8 CHECK 强制 =balanceDelta≠0?balanceDelta:frozenDelta——由 CreditLedgerService 写入）
@@ -726,11 +758,11 @@ model TeamCreditTransaction {
   referenceId    String? // intent 域恒 'intent:'+intentRowId；账户域=事件 id（Z9 契约：订单号/subId:period，禁实体 id）
   balanceDelta   Int // 两列真值（§1.4bis 权威）——Σ(balanceDelta)≡池变化
   frozenDelta    Int // settle 行=−X（冻结核销）；Σ(frozenDelta)≡intent.reservedCredits（派生审计量）
-  seq            BigInt                     @default(autoincrement()) // 稳定行序——balanceAfter 链按 (teamId,creditType) 分区+seq 排序
+  seq            BigInt                    @default(autoincrement()) // 稳定行序——balanceAfter 链按 (teamId,creditType) 分区+seq 排序
   balanceAfter   Int // 本池分量（行级快照）
-  reversesId     String?                    @unique // Z6 三配对 1:1：settle/release→reserve 行 / refund→settle 行
-  idempotencyKey String?                    @unique // Y0b-2 Z100：mutate 前置查幂等锚（money_in 重放）——普通唯一（PG NULL 不冲突=去 partial 语义等价）
-  createdAt      DateTime                   @default(now())
+  reversesId     String?                   @unique // Z6 三配对 1:1：settle/release→reserve 行 / refund→settle 行
+  idempotencyKey String?                   @unique // Y0b-2 Z100：mutate 前置查幂等锚（money_in 重放）——普通唯一（PG NULL 不冲突=去 partial 语义等价）
+  createdAt      DateTime                  @default(now())
 
   @@index([teamId, createdAt])
   @@index([referenceId])
@@ -809,16 +841,19 @@ model TeamJoinRequest {
 }
 
 model CanvasDoc {
-  projectId String   @id
-  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  state     Bytes
-  stateSeq  BigInt @default(0)
+  projectId     String        @id
+  project       CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  state         Bytes
+  stateSeq      BigInt        @default(0)
   // Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换——generation=真空代数（装载播种 docGeneration
   // Map→doc-status 顶层 generation 产生；vacuum ⑥ 单事务 n+1）；preVacuumSv=真空前 doc 的
   // stateVector（beforeSync SyncStep1 SV 重叠检测代际门的 DB 权威源——重启不失效）。
-  generation Int @default(0)
-  preVacuumSv Bytes?
-  updatedAt DateTime @updatedAt
+  generation    Int           @default(0)
+  preVacuumSv   Bytes?
+  // Y1b T2（Z9''-v14）：doc schema 版本移 PG 列承载（meta.schemaVersion 删除——客户端无从篡改）；
+  // 裁定2：@default(3)=Y1c 本批固定值（存量建行走默认——docShape v3 即当前代）
+  schemaVersion Int @default(3)
+  updatedAt     DateTime      @updatedAt
 }
 
 enum ProjectRole {
@@ -868,21 +903,21 @@ enum VideoWorkStatus {
 }
 
 model VideoWork {
-  id               String          @id @default(cuid())
-  title            String          @db.VarChar(200)
-  description      String?         @db.Text
-  authorName       String          @db.VarChar(64)
-  categoryId       String?
-  category         VideoCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  id          String         @id @default(cuid())
+  title       String         @db.VarChar(200)
+  description String?        @db.Text
+  authorName  String         @db.VarChar(64)
+  categoryId  String?
+  category    VideoCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
-  videoKey         String          @db.VarChar(512)
-  videoMediaId     String?
-  coverKey         String?         @db.VarChar(512)
-  canvasProjectId  String?
+  videoKey        String  @db.VarChar(512)
+  videoMediaId    String?
+  coverKey        String? @db.VarChar(512)
+  canvasProjectId String?
 
-  durationSec      Int?
-  width            Int?
-  height           Int?
+  durationSec Int?
+  width       Int?
+  height      Int?
 
   viewCount        Int             @default(0)
   likeCount        Int             @default(0)
@@ -901,7 +936,7 @@ model VideoWork {
 
 model VideoCategory {
   id        String      @id @default(cuid())
-  name      String      @db.VarChar(64) @unique
+  name      String      @unique @db.VarChar(64)
   sortOrder Int         @default(0)
   active    Boolean     @default(true)
   works     VideoWork[]
@@ -913,7 +948,7 @@ model VideoCategory {
 
 model VideoTag {
   id        String   @id @default(cuid())
-  name      String   @db.VarChar(32) @unique
+  name      String   @unique @db.VarChar(32)
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -930,12 +965,13 @@ model VideoWorkSetting {
 }
 
 model StyleCategory {
-  id        String        @id @default(cuid())
-  name      String        @unique
-  sortOrder Int           @default(0)
-  active    Boolean       @default(true)
-  createdAt DateTime      @default(now())
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
   styles    Style[]
+
   @@index([active, sortOrder])
 }
 
@@ -955,6 +991,7 @@ model Style {
   updatedAt    DateTime           @updatedAt
   favorites    StyleFavorite[]
   recents      StyleRecentUsage[]
+
   @@index([active, sortOrder, usageCount(sort: Desc), id])
   @@index([categoryId, active])
 }
@@ -966,6 +1003,7 @@ model StyleFavorite {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   style     Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
+
   @@unique([userId, styleId])
   @@index([userId, createdAt])
 }
@@ -977,44 +1015,56 @@ model StyleRecentUsage {
   lastUsedAt DateTime @default(now())
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   style      Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
+
   @@unique([userId, styleId])
   @@index([userId, lastUsedAt])
 }
 
 /// 会话恢复 spec v5.10 B1/F1/F13——幂等与在飞互斥载体（净删 SETNX/dedup/五段键/失败重放计数）
 model GenerationIntent {
-  id              String       @id @default(cuid())
-  projectId       String
-  nodeId          String
-  userId          String // F13：退款回滚 monthlyUsed 需归因到人；对账三面 join 键
-  teamId          String // Y0b-1（Z4/E1）：无 FK 纯列（契约 14——Restrict 与物理删不兼容；资金路径直查锚）
-  intentId        String // 客户端 runId——与 projectId 复合唯一（F1：跨项目撞键=两行独立不误伤）
-  kind            String // text|video|image|outpaint|erase|redraw|lighting
-  paramsHash      String // 服务端规范化哈希——命中比对谓词（防客户端改参复用 intentId）
-  status          IntentStatus @default(RUNNING)
-  jobId           String? // 同步路径为空——reconcile 三查特判（F13）
-  pricingRuleId   String? // 定价快照（FK SET NULL——规则行删除时快照仍可空存活）
-  pricingRule     PricingRule? @relation(fields: [pricingRuleId], references: [id])
-  modelId         String?
-  resolutionId    String?
-  durationId      String?
-  creditCost      Int // NOT NULL——claim 无条件固化（creditCost:0 也固化——E1/A2）
-  creditsConsumed Int          @default(0) // F13：扣费时即写（consume 事务内 CAS）——崩溃窗口对账可判；退款事务归零
-  reservedCredits Int          @default(0) // 批0.5-9 reserve 冻结载体列（约束①：不用 PENDING 状态）——reserve 事务内置位/settle 清零/void 清零，CAS 锚防 stalled 重入双冻结
-  attempts        Int          @default(1) // F13 补强：免费重放上限——rearm 自增，≥3 拒绝再激活
-  resultRef       String? // Media id / 产物 URL
-  error           String?
+  id                   String       @id @default(cuid())
+  projectId            String
+  nodeId               String
+  userId               String // F13：退款回滚 monthlyUsed 需归因到人；对账三面 join 键
+  teamId               String // Y0b-1（Z4/E1）：无 FK 纯列（契约 14——Restrict 与物理删不兼容；资金路径直查锚）
+  intentId             String // 客户端 runId——与 projectId 复合唯一（F1：跨项目撞键=两行独立不误伤）
+  kind                 String // text|video|image|outpaint|erase|redraw|lighting
+  paramsHash           String // 服务端规范化哈希——命中比对谓词（防客户端改参复用 intentId）
+  status               IntentStatus @default(RUNNING)
+  jobId                String? // 同步路径为空——reconcile 三查特判（F13）
+  pricingRuleId        String? // 定价快照（FK SET NULL——规则行删除时快照仍可空存活）
+  pricingRule          PricingRule? @relation(fields: [pricingRuleId], references: [id])
+  modelId              String?
+  resolutionId         String?
+  durationId           String?
+  creditCost           Int // NOT NULL——claim 无条件固化（creditCost:0 也固化——E1/A2）
+  creditsConsumed      Int          @default(0) // F13：扣费时即写（consume 事务内 CAS）——崩溃窗口对账可判；退款事务归零
+  reservedCredits      Int          @default(0) // 批0.5-9 reserve 冻结载体列（约束①：不用 PENDING 状态）——reserve 事务内置位/settle 清零/void 清零，CAS 锚防 stalled 重入双冻结
+  attempts             Int          @default(1) // F13 补强：免费重放上限——rearm 自增，≥3 拒绝再激活
+  resultRef            String? // Media id / 产物 URL
+  error                String?
   // Y0b-2 T1（Z68/Z83/Z82）：心跳/deadline/外呼起点——无 DB 默认（服务端写入单源）
-  heartbeatAt     DateTime // claim/reaper 心跳锚（RUNNING 生命线）
-  deadlineAt      DateTime // 外呼硬截止（分 kind 常量表 env 注入）
-  startedAt       DateTime? // 外呼真正开始（phase 判据——Z83）
-  idemKey         String @unique // Z82：内容+手势幂等键（deriveIdemKey 单源 sha256）——claim 唯一判据
-  gestureKey      String? // Z79：手势 token 审计列（客户端原始入参截断落库——nullable）
-  traceId         String? // Y0b-5 T13：W3C trace-id（x-request-id 同源，服务端生成）——组执行资金审计锚（一次请求=N 行同 traceId）
-  providerTaskId  String? // Z69：submit 后落库（外呼 provider 任务 id）
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  completedAt     DateTime?
+  heartbeatAt          DateTime // claim/reaper 心跳锚（RUNNING 生命线）
+  deadlineAt           DateTime // 外呼硬截止（分 kind 常量表 env 注入）
+  startedAt            DateTime? // 外呼真正开始（phase 判据——Z83）
+  idemKey              String       @unique // Z82：内容+手势幂等键（deriveIdemKey 单源 sha256）——claim 唯一判据
+  gestureKey           String? // Z79：手势 token 审计列（客户端原始入参截断落库——nullable）
+  traceId              String? // Y0b-5 T13：W3C trace-id（x-request-id 同源，服务端生成）——组执行资金审计锚（一次请求=N 行同 traceId）
+  providerTaskId       String? // Z69：submit 后落库（外呼 provider 任务 id）
+  // Y1b T2（Z18''-v13b）：execSeq 全局单调执行代际（DB sequence "exec_seq" nextval 两处：new claim/rearm——
+  // wire/doc 用 string）+reserve/settle/void CAS 维度+error 投影代际。
+  // 裁定2：@default(nextval)=兜底默认（消解存量 createMany 缺列的 tsc 必填）——T8/T9 claim/rearm
+  // 仍事务内显式取号，默认不参与代际契约（显式赋值覆盖默认，行为等价）。
+  // 注：migrate diff 将迁移侧 nextval 默认 introspect 为 Sequence("exec_seq")、datamodel 侧为
+  // DbGenerated——Prisma 5.22 无 sequence() 属性不可对齐，该漂移行按裁定2 先例登记金标（同 pricing_rule）
+  execSeq              BigInt       @default(dbgenerated("nextval('exec_seq')")) @unique
+  reservedExecSeq      BigInt? // reserve 时写；settle/void CAS 匹配（旧代一律失败）
+  execProjectedExecSeq BigInt? // exec error 投影代际（reconcile 判据）
+  resultText           String?      @db.Text // text kind 产物正文（90 天保留——非空行延长）
+  providerRequestId    String? // v13b write-ahead：submit 前落库（Idempotency-Key——消灭 submit→DB 崩溃窗）
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  completedAt          DateTime?
 
   @@unique([projectId, intentId]) // Z88 保留：exec 投影对齐的零成本保险（行身份列——claim 判据已改 idemKey）
   @@index([projectId, nodeId, status])
@@ -1025,6 +1075,8 @@ model GenerationIntent {
   // Y0b-2 Z114②：@@index([status, updatedAt]) 删除（reaper 判据改 deadlineAt/heartbeatAt 两条 partial——
   // running_deadline_idx/running_heartbeat_idx 保持 migration-SQL-only 不进 Prisma 声明，partial 零棘轮成本）
   @@index([status, completedAt]) // 保留策略清理扫描用（终态 N 天清理——F1）
+  @@index([status, execProjectedExecSeq]) // Y1b T2：exec error reconcile 判据
+  @@index([providerTaskId]) // Y1b T2：query-first 键序 requestId→taskId 重呼
 }
 
 enum IntentStatus {
@@ -1032,4 +1084,140 @@ enum IntentStatus {
   SUCCEEDED
   FAILED
   VOIDED
+}
+
+// ========== Y1a+Y1b T2：产物权威/投影交付/引用索引/媒体事实 ==========
+
+// v11：生成产物状态（video finalize=materializing→materialize 成功 stored；终态失败 failed）
+enum ArtifactState {
+  none
+  materializing
+  stored
+  failed
+}
+
+// v10.1：Media.status String→enum（processing=stage/video 未 materialize；failed=终态失败补偿退款）
+enum MediaStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+// v10.1 词表：probe 单相状态机（claim IN(pending,running∧lease 过期)；MaterializeJob 完成置 done）
+enum ProbeState {
+  pending
+  running
+  done
+  failed
+  skipped
+}
+
+// v11：DocDelivery→ArtifactProjection 六终态（projected 仅来自 projecting；orphaned/superseded/dead 终态不可回退——状态机归 T15）
+enum ProjectionState {
+  pending
+  projecting
+  projected
+  orphaned
+  superseded
+  dead
+}
+
+// v11：MediaFactOutbox 投递状态（pending→published/dead；published retention 7d）
+enum MediaFactState {
+  pending
+  published
+  dead
+}
+
+/// v11 新建——生成产物唯一权威（PG；doc fileId/result 的唯一写入源经投影）。
+/// 权威=(sourceIntentRowId, execSeq, rev)；槽位唯一（role/targetField/targetItemId）；rev=finalize/replace/clear CAS 锚。
+model NodeArtifact {
+  id                String        @id @default(cuid())
+  projectId         String
+  nodeId            String
+  teamId            String
+  role              String        @default("primary") // CHECK 白名单（raw SQL——词表 primary）
+  targetField       String // fileId | result —— CHECK 白名单（raw SQL）
+  targetItemId      String        @default("") // 非空 sentinel；本批一 intent 一 artifact 默认 ''
+  mediaId           String?
+  resultText        String?       @db.Text
+  source            String        @default("generated") // generated | replace
+  sourceIntentRowId String? // 资金锚（=GenerationIntent.id）
+  sourceExecSeq     BigInt?
+  artifactIndex     Int           @default(0)
+  state             ArtifactState @default(none)
+  rev               Int           @default(0) // PG 权威版本——finalize/replace/clear CAS 锚
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([projectId, nodeId, role, targetField, targetItemId]) // 槽位唯一
+  @@unique([sourceIntentRowId, sourceExecSeq, artifactIndex]) // 资金 finalize 幂等
+  @@index([mediaId])
+  @@index([teamId, state])
+}
+
+/// v11——DocDelivery 改造为投影 outbox（六终态；lease 覆盖 flush+recheck+mark；artifactRev=投影时快照）
+model ArtifactProjection {
+  id            String          @id @default(cuid())
+  artifactId    String
+  artifactRev   Int // 投影时快照——recheck 比对 NodeArtifact.rev
+  projectId     String
+  nodeId        String
+  targetField   String // CHECK 白名单（fileId|result）
+  targetItemId  String          @default("")
+  mediaId       String?
+  resultText    String?
+  state         ProjectionState @default(pending)
+  attempts      Int             @default(0)
+  leaseUntil    DateTime?
+  runId         String?
+  nextAttemptAt DateTime        @default(now())
+  lastError     String?         @db.VarChar(512)
+  createdAt     DateTime        @default(now())
+  projectedAt   DateTime?
+
+  @@unique([artifactId, artifactRev])
+  @@index([state, nextAttemptAt])
+  @@index([artifactId])
+}
+
+/// v11——doc 引用索引（current-state upsert：同槽位换 media 即改行；惰性 reconcile 维护）
+model MediaBinding {
+  id           String   @id @default(cuid())
+  mediaId      String
+  projectId    String
+  nodeId       String
+  teamId       String
+  role         String   @default("primary")
+  targetField  String   @default("fileId") // CHECK 白名单（fileId|referenceImage|images|allImages|trimmedFileId|videoFileId|audioFileId）
+  targetItemId String   @default("") // 非空 sentinel（PG NULL 不去重根修）
+  createdAt    DateTime @default(now())
+  media        Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, nodeId, role, targetField, targetItemId]) // 槽位唯一（current-state upsert）
+  @@index([mediaId])
+  @@index([projectId, nodeId])
+}
+
+/// v11——媒体事实 outbox（Z1''-v13b：替换 probedAt watermark；at-least-once+客户端 factVersion 幂等去重）。
+/// 写入点三处（probe done/server natural/processing 态创建）与 Media.factVersion+1 同事务；来源=union(Media.projectId,binding.projectId)。
+model MediaFactOutbox {
+  id            String         @id @default(cuid())
+  mediaId       String
+  projectId     String
+  factVersion   BigInt // 对应 Media.factVersion 快照（单调）
+  factType      String // 事实类型（如 state——payload 含 state 的状态事实）
+  payload       Json // 事实快照
+  state         MediaFactState @default(pending)
+  attempts      Int            @default(0)
+  leaseUntil    DateTime? // emitter claim 崩溃恢复（FOR UPDATE SKIP LOCKED 行锁外的兜底）
+  nextAttemptAt DateTime       @default(now()) // 失败退避（jitter）
+  lastError     String?        @db.VarChar(512)
+  createdAt     DateTime       @default(now())
+  publishedAt   DateTime? // published retention 7d 清理判据
+
+  @@unique([mediaId, projectId, factVersion])
+  @@index([state, nextAttemptAt]) // claim 扫描（state='pending'∧nextAttemptAt<=now ORDER BY id）
+  @@index([mediaId]) // REST POST（≤200 mediaIds）全量拉
 }

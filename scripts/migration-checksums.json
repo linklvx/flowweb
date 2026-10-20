@@ -7,5 +7,8 @@
   },
   "20261013055904_y0b5_trace_id": {
     "migration.sql": "a115f6c2563aeca476a155fb819143a4105220cbe224efc7ee7f852bf00c0b19"
+  },
+  "20261020200300_nodeartifact_projection_v3": {
+    "migration.sql": "472f085fecee6cdd078add2621a40544eda74bdba15303933f8d3815214579d5"
   }
 }

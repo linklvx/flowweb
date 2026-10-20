@@ -1,2 +1,4 @@
+[*] Changed the `GenerationIntent` table
+[*] Altered column `execSeq` (default changed from `Some(Sequence("exec_seq"))` to `Some(DbGenerated(Some("nextval('exec_seq')")))`, column is no longer autoincrementing)
 [*] Changed the `PricingRule` table
 [-] Removed unique index on columns (nodeTypeId, modelId, resolutionId, durationId)

@@ -1,8 +1,9 @@
 // scripts/check-migration-additive.test.mjs —— Y0b-5 T12：DROP INDEX 硬拦名单（红测先行）。
 // analyzeSql 接收的是剥注释后的 bare SQL（主循环职责维持）；此处直测分类纯函数。
+// Y1a+Y1b T2（裁定1）：显式豁免机制用例——命中放行 / 未命中维持硬拦。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSql, CRITICAL_INDEXES } from './check-migration-additive.mjs';
+import { analyzeSql, CRITICAL_INDEXES, EXEMPTIONS, breakingTable, resolveExemptions } from './check-migration-additive.mjs';
 
 test('T12 硬拦：DROP INDEX "pricing_rule_natural_key"→criticalIndex（资金唯一索引——migrate-diff 对比源不可见的双盲对象）', () => {
   const r = analyzeSql('DROP INDEX "pricing_rule_natural_key";');
@@ -32,4 +33,39 @@ test('良性迁移全绿 + 既有 BREAKING 断言不回归', () => {
 
 test('硬拦名单与 migrate-diff-allowlist 唯一永久豁免同源（人工同步 pin——allowlist 按列描述不含索引名）', () => {
   assert.deepEqual([...CRITICAL_INDEXES], ['pricing_rule_natural_key']);
+});
+
+test('裁定1 豁免命中：登记迁移+登记表的 DROP COLUMN→exempted（不计违规）', () => {
+  const sql = 'ALTER TABLE "Media" ADD COLUMN "a" TEXT,\nDROP COLUMN "status",\nADD COLUMN "status" "MediaStatus" NOT NULL DEFAULT \'pending\';';
+  const { exempted, violations } = resolveExemptions('20261020200300_nodeartifact_projection_v3', sql);
+  assert.equal(exempted.length, 1);
+  assert.equal(exempted[0].table, 'Media');
+  assert.ok(exempted[0].reason.length > 0);
+  assert.equal(violations.length, 0);
+});
+
+test('裁定1 豁免未命中=维持硬拦：未登记表/未登记迁移/表名不可提取均红（拦截力不变）', () => {
+  // 同迁移内未登记表照红——豁免精确到〈迁移,表〉，文件级一刀切禁止
+  const two = 'ALTER TABLE "Media" DROP COLUMN "status"; ALTER TABLE "GenerationIntent" DROP COLUMN "paramsHash";';
+  const r = resolveExemptions('20261020200300_nodeartifact_projection_v3', two);
+  assert.equal(r.exempted.length, 1);
+  assert.equal(r.violations.length, 1);
+  // 未登记迁移全红
+  assert.equal(resolveExemptions('99999999999999_other', two).violations.length, 2);
+  // 表名不可提取（裸 DROP CONSTRAINT）→红兜底
+  assert.equal(resolveExemptions('20261020200300_nodeartifact_projection_v3', 'DROP CONSTRAINT "x";').violations.length, 1);
+});
+
+test('裁定1 breakingTable 形态：ALTER/DROP/TRUNCATE TABLE 与 DROP TYPE 取表名，无表引用=null', () => {
+  assert.equal(breakingTable('ALTER TABLE "Media" DROP COLUMN "status"'), 'Media');
+  assert.equal(breakingTable('DROP TABLE "CanvasDoc"'), 'CanvasDoc');
+  assert.equal(breakingTable('TRUNCATE "Media"'), 'Media');
+  assert.equal(breakingTable('TRUNCATE TABLE "Media"'), 'Media');
+  assert.equal(breakingTable('DROP TYPE "MediaStatus"'), 'MediaStatus');
+  assert.equal(breakingTable('DROP CONSTRAINT "x"'), null);
+});
+
+test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工审阅——本批唯一登记=Media.status enum 硬切）', () => {
+  assert.deepEqual(Object.keys(EXEMPTIONS), ['20261020200300_nodeartifact_projection_v3']);
+  assert.deepEqual(Object.keys(EXEMPTIONS['20261020200300_nodeartifact_projection_v3']), ['Media']);
 });
