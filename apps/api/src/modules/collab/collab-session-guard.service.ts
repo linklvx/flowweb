@@ -908,17 +908,25 @@ export class CollabSessionGuardService {
 
   /** ===== Y0b-3 T8：事件驱动即时踢权（spec §3.1"即时"——纯 sweep 5min 兜底撤权退化 ≤6min）=====
    *  权限变更点（team.service removeMember/changeRole/transferOwnership）emit 'collab.perm.changed'
-   *  { userId, teamId }；监听器只做内存两步（V11 禁慢操作纪律）：①匹配连接的 permCache 失效
+   *  { userId, teamId[, removed] }；监听器只做内存两步（V11 禁慢操作纪律）：①匹配连接的 permCache 失效
    *  （仅 delete 不直接 recheck——T3 契约）；②scheduleImmediateSweep 请求一次立即 tick。
    *  project 删除路径不 emit 本事件——已有 project.gone → handleProjectsGone → closeTeamDocuments
-   *  关连接（强于缓存失效；连接亡=WeakMap 键散）。W3b：GW onModuleInit 调用点改 sg.wirePermChangedEvents()。 */
+   *  关连接（强于缓存失效；连接亡=WeakMap 键散）。W3b：GW onModuleInit 调用点改 sg.wirePermChangedEvents()。
+   *  Y1a+Y1b T5（v11.1④）：removed:true（removeMember 专属）→ 匹配连接**直连 scheduleSweepClose 不复验**
+   *  ——removeMember 不触碰 ProjectMember 表，语义 A 复验对显式行档 role 非 null 放行=旧连接仍可写
+   *  doc 的越权面；重连走 authenticate 全链重判（显式行档保留访问=REST 同链语义维持）。COLLAB_SWEEP_ENABLED
+   *  ='false' 逃生阀同辖本腿（session-expiry 回滚面一致）。 */
   wirePermChangedEvents(): void {
-    this.eventEmitter.on('collab.perm.changed', (payload: { userId: string; teamId: string; projectId?: string }) => {
+    this.eventEmitter.on('collab.perm.changed', (payload: { userId: string; teamId: string; projectId?: string; removed?: boolean }) => {
+      const valveOpen = process.env.COLLAB_SWEEP_ENABLED !== 'false';
       for (const document of this.host.allDocuments().values()) {
         for (const connection of document.connections.keys()) {
           const identity = this.socketIdentity.get(connection.socketId);
           if (!identity || identity.id !== payload.userId || identity.teamId !== payload.teamId) continue;
           this.permCache.delete(connection);   // 事件=缓存失效信号（下一 tick 立即复验）
+          if (payload.removed && valveOpen) {
+            this.scheduleSweepClose(connection, 'revoked');   // T5 removed：直关（通知+grace→close 4401）
+          }
         }
       }
       this.scheduleImmediateSweep();

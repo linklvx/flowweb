@@ -1,11 +1,20 @@
 import { apiFetch } from './client';
 
+// Y1a+Y1b T5：读侧迁移 content 路由——api 删除 GET /media/:id/url（读侧 presign 旁路），
+// 媒体字节统一走 GET /api/media/:fileId/content（同源会话 cookie 鉴权+团队级单门+MIME 嗅探面）。
+// content 路径无签名寿命：getMediaUrl 降级为纯本地推导（零网络）；本文件是 /url 调用面的单点收口
+// （mediaContentUrl 单点封装+census 归 T6——本卡最小迁移）。
+export const MEDIA_URL_CACHE_TTL_SEC = 86_400;
+
+/** content 路由路径（同源相对路径——img/video src 与 fetch 直用；variant=thumbnail 读缩略图对象） */
+export function mediaContentUrl(fileId: string, variant?: 'thumbnail'): string {
+  return variant ? `/api/media/${fileId}/content?variant=thumbnail` : `/api/media/${fileId}/content`;
+}
+
 export interface MediaUrlResult { url: string; ttlSec: number }
-export async function getMediaUrl(fileId: string): Promise<MediaUrlResult> {
-  const res = await apiFetch<MediaUrlResult>(`/media/${fileId}/url`);
-  // Rewrite presigned MinIO URL through same-path proxy to avoid CORS/signature issues
-  res.url = (res.url as string).replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
-  return res;
+export function getMediaUrl(fileId: string): Promise<MediaUrlResult> {
+  // Promise 返回维持既有调用面（await/Promise.all/类型签名 DownloadArgs.getMediaUrl）
+  return Promise.resolve({ url: mediaContentUrl(fileId), ttlSec: MEDIA_URL_CACHE_TTL_SEC });   // ttlSec=缓存层有效期提示（非签名寿命）
 }
 
 export interface BatchMediaItem {
@@ -13,27 +22,24 @@ export interface BatchMediaItem {
   originalName: string;
   mimeType: string;
   size: number;
+  /** T5：content 路由引用（api 侧不再 presign——读侧旁路删除；同源路径零 /flowai 改写） */
   url: string;
   thumbnailUrl: string | null;
   metadata: Record<string, unknown>;
-  /** 2d-4 契约（spec §4.5）：服务端 MEDIA_URL_TTL_SEC 常量单源随响应下行，双端各自锁 */
+  /** 契约字段维持（spec §4.5 字段名不变）：content 路径稳定——值=客户端缓存有效期提示（api 侧单源） */
   ttlSec: number;
 }
 
-/** 左面板聚合：按 mediaId 集合批查 + presigned URL（POST /api/media/batch，Plan 1 Task 12 已就绪） */
+/** 左面板聚合：按 mediaId 集合批查 + content 路由引用（POST /api/media/batch） */
 export function batchGetMedia(ids: string[], teamId?: string): Promise<BatchMediaItem[]> {
   const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
   return apiFetch<BatchMediaItem[]>(`/media/batch${qs}`, { method: 'POST', body: JSON.stringify({ ids }) });
 }
 
-/** 2d-4 折叠卡批量预取专用：batchGetMedia 原样（既有 2 消费方 useWorkflowAssets/VideoEditNode 行为不变）
- *  + /flowai 同源改写（getMediaUrl 同款——presigned URL 绕 Vite 代理防 CORS/签名问题） */
+/** 折叠卡批量预取专用：batchGetMedia 原样（既有 2 消费方 useWorkflowAssets/VideoEditNode 行为不变）。
+ *  T5：响应 url 已是同源 content 路径——原 presigned URL 的 /flowai 改写退役（零正则）。 */
 export async function batchGetMediaRewritten(ids: string[], teamId?: string): Promise<BatchMediaItem[]> {
-  const rows = await batchGetMedia(ids, teamId);
-  for (const r of rows) {
-    r.url = r.url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
-  }
-  return rows;
+  return batchGetMedia(ids, teamId);
 }
 
 /**

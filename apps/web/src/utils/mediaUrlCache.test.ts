@@ -5,12 +5,13 @@ import {
   __setUserIdForTests, __resetMediaCacheForTests, __getCacheSizeForTests, __cachePutForTests,
 } from './mediaUrlCache';
 
-// Mock apiFetch（与 useMediaUrl.test.ts 同约定：getMediaUrl → apiFetch）
-vi.mock('@/api/client', () => ({
-  apiFetch: vi.fn(),
+// Mock getMediaUrl（T5 起纯本地 content 路径推导——缓存层测试仍需可控的「取 URL」替身；
+// 与 useMediaUrl.test.ts 同约定：mock 面从 apiFetch 上移到 getMediaUrl）
+vi.mock('@/api/mediaApi', () => ({
+  getMediaUrl: vi.fn(),
 }));
 
-import { apiFetch } from '@/api/client';
+import { getMediaUrl } from '@/api/mediaApi';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,13 +56,13 @@ describe('mediaUrlCache 三档语义（R2b-5 临期窗口）', () => {
 describe('invalidateMediaUrl（R2b-5 onError 自愈缓存入口）', () => {
   it('cache+pending 同清：在飞去重不再短路拿回同一条坏 URL', async () => {
     let resolveA!: (v: any) => void;
-    (apiFetch as any).mockImplementationOnce(() => new Promise((r) => { resolveA = r; }));
+    (getMediaUrl as any).mockImplementationOnce(() => new Promise((r) => { resolveA = r; }));
     const p1 = fetchMediaUrl('f-inv');               // 在飞（将返回坏 url）
     invalidateMediaUrl('f-inv');                     // cache+pending 同清
-    (apiFetch as any).mockResolvedValueOnce({ url: '/flowai/alive', ttlSec: 900 });
+    (getMediaUrl as any).mockResolvedValueOnce({ url: '/flowai/alive', ttlSec: 900 });
     const p2 = fetchMediaUrl('f-inv');               // 若 pending 未清 → 返回 p1（短路）→ 拿回坏 URL
     expect(p2).not.toBe(p1);
-    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(getMediaUrl).toHaveBeenCalledTimes(2);
     resolveA({ url: '/flowai/dead', ttlSec: 900 });  // 旧在飞晚到
     await expect(p1).resolves.toBe('/flowai/dead');
     await expect(p2).resolves.toBe('/flowai/alive');
@@ -70,10 +71,10 @@ describe('invalidateMediaUrl（R2b-5 onError 自愈缓存入口）', () => {
   it('在飞期间被 invalidate：旧 promise 完成后身份校验不写回（防坏 URL 带旧 expiresAt 复活）', async () => {
     let resolveA!: (v: any) => void;
     let resolveB!: (v: any) => void;
-    (apiFetch as any).mockImplementationOnce(() => new Promise((r) => { resolveA = r; }));
+    (getMediaUrl as any).mockImplementationOnce(() => new Promise((r) => { resolveA = r; }));
     const p1 = fetchMediaUrl('f-id');
     invalidateMediaUrl('f-id');
-    (apiFetch as any).mockImplementationOnce(() => new Promise((r) => { resolveB = r; }));
+    (getMediaUrl as any).mockImplementationOnce(() => new Promise((r) => { resolveB = r; }));
     const p2 = fetchMediaUrl('f-id');                // 重取（pending 已清 → 新请求）
     resolveA({ url: '/flowai/dead', ttlSec: 900 });  // 旧在飞先完成
     await expect(p1).resolves.toBe('/flowai/dead');
@@ -111,7 +112,7 @@ describe('折叠卡批量预取（2d-4：prefetchMediaUrls + registerInFlight）
     let resolveBatch!: (v: { url: string; ttlSec: number }) => void;
     registerInFlight('f-race', new Promise((r) => { resolveBatch = r; }));
     invalidateMediaUrl('f-race');                    // onError 自愈：cache+pending 同清
-    (apiFetch as any).mockResolvedValueOnce({ url: '/flowai/fresh', ttlSec: 900 });
+    (getMediaUrl as any).mockResolvedValueOnce({ url: '/flowai/fresh', ttlSec: 900 });
     const p2 = fetchMediaUrl('f-race');              // 继任单取占住 pending 位
     resolveBatch({ url: '/flowai/stale', ttlSec: 120 });  // 批量晚到
     await p2;

@@ -1,11 +1,12 @@
 import { StorageQuotaService } from '../team/storage-quota.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { StorageService } from './storage.service';
 import { MediaRegistrationService } from '../media/media-registration.service';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 /** PNG 最小可判型缓冲（file-type 16.x 需可读 chunk——过短会 EndOfStream） */
 const PNG_HEAD = Buffer.concat([
@@ -19,6 +20,7 @@ describe('StorageService', () => {
   let prisma: any;
   let minio: any;
   let quota: { assertCanUpload: any; assertOnConfirm: any; assertMember: any };
+  let perm: { assertEditorWithTeam: any };
   let registration: { prepareUpload: any; confirmUpload: any; deletePending: any };
 
   beforeEach(async () => {
@@ -53,6 +55,10 @@ describe('StorageService', () => {
       assertOnConfirm: vi.fn(),
       assertMember: vi.fn(),
     };
+    // T5 写 ACL：projectId 分支改 project editor 门（assertEditorWithTeam——真链在 project-permission.service）
+    perm = {
+      assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't-team' }),
+    };
     registration = {
       prepareUpload: vi.fn().mockResolvedValue({
         id: 'media-1', key: 'uploads/u1/2026-01-01/a.png', status: 'pending',
@@ -68,6 +74,7 @@ describe('StorageService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
         { provide: StorageQuotaService, useValue: quota },
+        { provide: ProjectPermissionService, useValue: perm },
         { provide: MediaRegistrationService, useValue: registration },
       ],
     }).compile();
@@ -94,14 +101,22 @@ describe('StorageService', () => {
     );
   });
 
-  it('presign 三级回落①：projectId → project.teamId + 成员校验 + projectId 落行（T4-⑥）', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't-team' });
+  it('presign 三级回落①：projectId → project editor 门（T5 写 ACL）+teamId 同链带出+projectId 落行（T4-⑥）', async () => {
     await service.presignUpload('u1', { projectId: 'p1', fileName: 'a.png', fileType: 'image/png', fileSize: 100, type: 'image' as any });
-    expect(quota.assertMember).toHaveBeenCalledWith('t-team', 'u1');
+    expect(perm.assertEditorWithTeam).toHaveBeenCalledWith('p1', 'u1');
+    expect(quota.assertMember).not.toHaveBeenCalled();   // projectId 分支不再走成员门（viewer 403 语义）
     expect(registration.prepareUpload).toHaveBeenCalledWith(expect.objectContaining({
       teamId: 't-team',
       projectId: 'p1', // 落列（现状缺失根修）
     }));
+  });
+
+  it('T5 写 ACL：projectId 形态 viewer presign → 403（editor 门拒——素材上传进项目是写操作）', async () => {
+    perm.assertEditorWithTeam.mockRejectedValue(new ForbiddenException('无项目编辑权限'));
+    await expect(
+      service.presignUpload('u1', { projectId: 'p1', fileName: 'a.png', fileType: 'image/png', fileSize: 100, type: 'image' as any }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(registration.prepareUpload).not.toHaveBeenCalled();
   });
 
   it('presign 三级回落②：无 projectId 带 teamId → assertMember 放行', async () => {
@@ -128,8 +143,8 @@ describe('StorageService', () => {
     }));
   });
 
-  it('presign 三级回落①：项目不存在 → 拒绝', async () => {
-    prisma.canvasProject.findUnique.mockResolvedValue(null);
+  it('presign 三级回落①：项目不存在 → 404（assertEditorWithTeam 同链抛 NotFound）', async () => {
+    perm.assertEditorWithTeam.mockRejectedValue(new NotFoundException('项目不存在'));
     await expect(
       service.presignUpload('u1', { projectId: 'p-404', fileName: 'a.png', fileType: 'image/png', fileSize: 100, type: 'image' as any }),
     ).rejects.toThrow('项目不存在');

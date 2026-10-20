@@ -933,6 +933,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - EXEC_POLL_TIMEOUT_MS
 - EXEC_SUBMIT_TIMEOUT_MS
 - EXEC_SYNC_HARD_CAP
+- MEDIA_X_ACCEL_PREFIX
 - MINIO_ACCESS_KEY
 - MINIO_BUCKET
 - MINIO_ENDPOINT
@@ -945,6 +946,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - PROVIDER_TENCENT_API_KEY
 - RATE_LIMIT_IP_WHITELIST
 - REDIS_URL
+- SAFE_FETCH_HOST_ALLOWLIST
+- SAFE_FETCH_MAX_CONTENT_LENGTH
 - SENTRY_DSN
 - WECHAT_APP_ID
 - WECHAT_APP_SECRET
@@ -970,6 +973,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 <!-- Y0c T35 键同步（70→71）：COOKIE_SECURE 进 envSchema（Y0c spec Z13 显式三态：'true'/'false' 封闭词表+resolveSecureTransport resolver 单点——显式优先/未设按档位兜底/production∧'false' superRefine 拒启；Z45⑤ 与 update-profile.dto 严格档同一 resolver 驱动同批对齐） -->
 
 <!-- Y0c T36 键同步（71→73）：API_BIND_ADDR+RATE_LIMIT_IP_WHITELIST 进 envSchema（Y0c spec Z14①③：API_BIND_ADDR=API 绑定面分叉键〔main.ts listen 使用点默认 127.0.0.1，生产 ecosystem api env 块注入——COLLAB_BIND_ADDR/P25 同族，禁入服务器 .env〕；RATE_LIMIT_IP_WHITELIST=限流 IP 白名单形态校验〔默认 '127.0.0.1,::1' 唯一落使用点 ipWhitelist()，与删手写 XFF 解析同 commit——防半修〕；两键 zod 均不写 default——防双源 P3） -->
+
+<!-- Y1a+Y1b T5 键同步（73→76）：MEDIA_X_ACCEL_PREFIX+SAFE_FETCH_HOST_ALLOWLIST+SAFE_FETCH_MAX_CONTENT_LENGTH 进 envSchema（media 读 ACL/content 两态批：X-Accel 生产档开关〔设值即 nginx internal location 承载字节，未设=API 直流 S3〕+SafeRemoteFetch SSRF 原语配置〔allowlist 逗号分隔 host 后缀/流式限长字节——默认值落使用点 media/safe-remote-fetch.service〕；三键 zod 均不写 default——防双源 P3） -->
 
 <!-- y0b0:metric-names -->
 ```yaml

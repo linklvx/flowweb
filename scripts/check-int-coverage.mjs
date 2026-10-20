@@ -20,7 +20,9 @@ import { basename } from 'node:path';
 //（155 基数此间漂移 +9 未随记——本次按实测口径校准，非拔高）。
 // Y1a+Y1b T4 增补（media-registration 6+storage-upload 6=12 例——两新文件）→178；
 // spec 收口 bindInTx current-state 分歧场景 +1 例（实测 179，闸门 ≥ 语义不随单例上调）。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 178);
+// Y1a+Y1b T5 增补（media-content 7 例——新文件〔单门四例+删旁路两例+ready 真 S3 全链〕+
+// storage-upload +1〔T5 写 ACL viewer presign 403〕）→187。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 187);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
@@ -49,6 +51,8 @@ const FILES_MIN = {
   'worker-naming.int.spec.ts': 3,        // Y0c T31：偏离 46 命名分裂机制/修复/生产结构三 case
   'collab-write-endpoint.int.spec.ts': 5,   // Y0c T33：T27 端到端四例+Z125-4 drain×write-batch 相遇
   'media-fact-outbox.int.spec.ts': 2,       // Y1a+Y1b S0.1：factType 入键（natural/state 共存+同类 P2002）
+  'media-content.int.spec.ts': 7,           // Y1a+Y1b T5：单门四例+删旁路两例+ready 真 S3 全链（「CI 真 S3」出口判据本体）
+  'storage-upload.int.spec.ts': 7,          // Y1a+Y1b T4 六例+T5 写 ACL viewer presign 403（真权限链）
 };
 
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));

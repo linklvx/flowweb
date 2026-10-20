@@ -208,15 +208,29 @@ jobs:
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      # Y1a+Y1b T5（出口判据「CI 真 S3」）：int 池真 S3 语义（media-content ready 态真上传/下载——
+      # rustfs 选型依据见 test job 同款注释；本地开发=本地 MinIO，双实现 S3 兼容语义互容）。
+      s3:
+        image: rustfs/rustfs:1.0.0
+        env:
+          RUSTFS_ACCESS_KEY: flowweb-ci
+          RUSTFS_SECRET_KEY: flowweb-ci-secret
+        ports: ['9000:9000']
+        options: >-
+          --health-cmd "curl --fail http://localhost:9000/health"
+          --health-interval 10s --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
       REDIS_URL: redis://localhost:6379/0
-      # MINIO_*（X3）：占位值仅过 validateEnv，MINIO_INIT=skip 路径零连接（e2e-collab 先例 B′ 终裁）——
-      # 演练子进程由驱动 startServer 内部再注入同款（双保险）。
-      MINIO_INIT: skip
+      # MINIO_*（X3→T5 演进）：T5 起指真 rustfs（int 池 S3 语义；键同 test job）。演练子进程不受影响——
+      # MINIO_INIT=skip 仍跳过 AppModule 启动期 ensureBucket（演练零对象存储消费），int spec 直构
+      # MinioService 自带 ensureBucket（幂等）。
       MINIO_ENDPOINT: http://localhost:9000
-      MINIO_ACCESS_KEY: drill
-      MINIO_SECRET_KEY: drill-secret
+      MINIO_ACCESS_KEY: flowweb-ci
+      MINIO_SECRET_KEY: flowweb-ci-secret
+      # MINIO_INIT=skip（X3 语义维持）：演练子进程启动期 ensureBucket 显式跳过（app boot 面）——
+      # 不再需要占位 MINIO_* 值（上方已指真 rustfs）。
+      MINIO_INIT: skip
       # Y0b-2 T2（Z93 兜底）：api-caller onModuleInit 缺密钥拒启——CI 零密钥（迁移 INSERT apiKey
       # 显式 NULL、无 seed 步）下演练子进程起 AppModule 会拒启；COLLAB_FAKE_AI=1 显式豁免档。
       # int 套件直构服务不经 onModuleInit（实测断言不触发）——本值是防未来 int 加 .init() 的兜底。

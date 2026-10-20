@@ -103,6 +103,25 @@ export class MinioService {
     return response.Body as Readable;
   }
 
+  /** Y1a+Y1b T5：content 路由 ready 态流式读——Range 透传（S3 语义：206+Content-Range；
+   *  越界由 S3 抛错（$metadata.httpStatusCode=416）交调用方映射，缺失对象同抛 404）。 */
+  async getObjectRanged(key: string, range?: string): Promise<{
+    status: number; stream: Readable; contentLength: number | null; contentRange: string | null; etag: string | null;
+  }> {
+    const response = await this.s3Client.send(new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ...(range ? { Range: range } : {}),
+    }));
+    return {
+      status: response.$metadata.httpStatusCode ?? 200,
+      stream: response.Body as Readable,
+      contentLength: response.ContentLength ?? null,
+      contentRange: response.ContentRange ?? null,
+      etag: response.ETag ?? null,
+    };
+  }
+
   /** Y1b T4：取对象头字节（confirm MIME 嗅探）——Range 限定只拉前 maxBytes，
    *  到量即销流（1GB 视频不整读；file-type 判型只需头部魔数）。
    *  maxBytes=4100 出处：file-type 头部取样惯例值——magic bytes 检测所需头部远小于此。 */

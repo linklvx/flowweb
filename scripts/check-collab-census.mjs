@@ -972,7 +972,7 @@ if (isMain()) {
       COLLAB_UPGRADE_RATE_PER_MIN: 1, COLLAB_ALLOWED_ORIGINS: 1, BETTER_AUTH_URL: 1, NODE_ENV: 1,
       COLLAB_TRUSTED_PROXY: 1, COLLAB_REFUSAL_CACHE_TTL_MS: 1, COLLAB_AUTH_ATTEMPTS_PER_MIN: 1, COLLAB_AUTH_INFLIGHT_MAX: 1,
       COLLAB_ROLE: 1, COLLAB_RSS_TRIP_BYTES: 1, COLLAB_RSS_RELEASE_BYTES: 1, COLLAB_HEAP_PRESSURE_RATIO: 1,
-      COLLAB_CONN_MAX_LIFETIME_MS: 1, COLLAB_SWEEP_ENABLED: 1,
+      COLLAB_CONN_MAX_LIFETIME_MS: 1, COLLAB_SWEEP_ENABLED: 2,   // Y1a+Y1b T5：wirePermChangedEvents removed 直关腿同读阀（session-expiry 回滚面一致）——1→2
     },
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': {   // T41 W3a：构造器（quota 四值 env 解析随域迁 DR——gateway Partial 直通+DI 路径构造期自足；设计 §8.2「quota 解析留 GW/DR 零 env 键」预估现场核不成立，commit 披露）
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
@@ -1010,6 +1010,12 @@ if (isMain()) {
     },
     'apps/api/src/modules/media-process/media-process.service.ts': {   // T34 整改：函数内（ffmpegPath/ffprobePath 惰性）
       FFMPEG_PATH: 1, FFPROBE_PATH: 1,
+    },
+    'apps/api/src/modules/media/media-content.controller.ts': {   // Y1a+Y1b T5：方法内（serveReady 惰性——X-Accel 生产档开关，默认值落使用点=未设即 API 直流 S3）
+      MEDIA_X_ACCEL_PREFIX: 1,
+    },
+    'apps/api/src/modules/media/safe-remote-fetch.service.ts': {   // Y1a+Y1b T5：方法内（allowlist/maxBytes 每调即读——env-stub 可测+默认值落使用点纪律）
+      SAFE_FETCH_HOST_ALLOWLIST: 1, SAFE_FETCH_MAX_CONTENT_LENGTH: 1,
     },
     'apps/api/src/modules/minio/minio.module.ts': {   // 方法内（ensureBucket 工厂/生命周期——MINIO_INIT 显式裁剪门）
       MINIO_INIT: 1,

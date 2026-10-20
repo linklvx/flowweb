@@ -109,6 +109,17 @@ export const envSchema = z.object({
   MINIO_USE_SSL: z.preprocess(blankToUnset, z.string().optional())
     .transform((v) => (v ?? '').toLowerCase() === 'true'),
 
+  // Y1a+Y1b T5：SafeRemoteFetch（SSRF 原语——media/safe-remote-fetch.service）配置面。zod 只验形态
+  // 不写 default（防双源 P3）——默认值单源在消费点（DEFAULT_SAFE_FETCH_ALLOWLIST/
+  // DEFAULT_SAFE_FETCH_MAX_CONTENT_LENGTH）。allowlist=逗号分隔 host 后缀（默认 provider 域
+  // aliyuncs.com/myqcloud.com——来源实证见 service 头注）。
+  SAFE_FETCH_HOST_ALLOWLIST: z.preprocess(blankToUnset, z.string().optional()),
+  SAFE_FETCH_MAX_CONTENT_LENGTH: z.preprocess(blankToUnset, z.coerce.number().int().min(1).optional()),
+  // Y1a+Y1b T5：content ready 态 X-Accel 生产档开关——设值（如 /internal-media）即 api 返回
+  // X-Accel-Redirect 由 nginx internal location 承载字节（deploy/nginx/internal-media-location.replace.conf）；
+  // 未设（dev/CI）= API 直流 S3。零 default：档位本身是部署事实非代码默认。
+  MEDIA_X_ACCEL_PREFIX: z.preprocess(blankToUnset, z.string().optional()),
+
   // WeChat Pay API v3 (optional — only required for recharge feature)
   WECHAT_PAY_APP_ID: z.string().optional().default(''),
   WECHAT_PAY_MCH_ID: z.string().optional().default(''),

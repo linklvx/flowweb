@@ -1,6 +1,7 @@
-// CollapsedPreviewCard.batch.test.tsx（2d-4 折叠卡批量预取单飞）
+// CollapsedPreviewCard.batch.test.tsx（2d-4 折叠卡批量预取单飞；Y1a+Y1b T5 更新）
 // 与 CollapsedPreviewCard.test.tsx 的差异：不 mock useMediaUrl——真实 hook+mediaUrlCache 栈，
-// 仅路由 mock apiFetch（/media/batch 与 /media/{id}/url 双端点），断言网络请求次数这一 spec §5 验收行。
+// 仅 mock apiFetch（/media/batch 端点），断言网络请求次数这一 spec §5 验收行。
+// T5：/media/{id}/url 端点已删——tile 回落单取=纯本地 content 路径推导（零网络）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { StrictMode } from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
@@ -17,10 +18,10 @@ const SIX_CELLS = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'].map((f, i) => cell(`n${i}
 
 const batchRow = (id: string) => ({
   id, originalName: id, mimeType: 'image/png', size: 1,
-  url: `http://minio:9000/flowai/${id}`, thumbnailUrl: null, metadata: {}, ttlSec: 3600,
+  url: `/api/media/${id}/content`, thumbnailUrl: null, metadata: {}, ttlSec: 86_400,
 });
 
-// 批量端点挂起（测试内 resolveBatch 放行）；单取端点即时成功——请求次数可精确计数
+// 批量端点挂起（测试内 resolveBatch 放行）——请求次数可精确计数
 let resolveBatch!: () => void;
 function routeBatchDeferred() {
   (apiFetch as any).mockImplementation((path: string, opts?: { body?: string }) => {
@@ -28,8 +29,7 @@ function routeBatchDeferred() {
       const ids = JSON.parse(opts?.body ?? '{}').ids as string[];
       return new Promise<ReturnType<typeof batchRow>[]>((resolve) => { resolveBatch = () => resolve(ids.map(batchRow)); });
     }
-    const m = path.match(/^\/media\/(.+)\/url$/)!;
-    return Promise.resolve({ url: `http://minio:9000/flowai/${m[1]}`, ttlSec: 3600 });
+    throw new Error(`意外的网络面: ${path}`);   // T5 后读路径唯一网络面=batch（单取=本地推导）
   });
 }
 const calls = (): string[] => (apiFetch as any).mock.calls.map((c: any[]) => c[0] as string);
@@ -53,7 +53,7 @@ describe('折叠卡批量预取（三口径+两段渲染单飞）', () => {
     expect(calls()[0]).toBe('/media/batch?teamId=t1');
   });
 
-  it('必须显式传 teamId（canvasStore 字段——经 prop 显式下行进 batch 查询串）；batch 失败不阻塞（tile 回落单取出图）', async () => {
+  it('必须显式传 teamId（canvasStore 字段——经 prop 显式下行进 batch 查询串）；batch 失败不阻塞（tile 回落本地推导出图——零额外网络）', async () => {
     // 半场1：teamId 显式透传（成功路径锁查询串形态）
     routeBatchDeferred();
     const { unmount } = render(<CollapsedPreviewCard name="组" teamId="t9" cells={[cell('a', 'f1')]} />);
@@ -63,17 +63,15 @@ describe('折叠卡批量预取（三口径+两段渲染单飞）', () => {
     unmount();
     __resetMediaCacheForTests();
     vi.clearAllMocks();
-    // 半场2：batch 拒绝 → settle 后 ready，tile 挂载逐一单取（fallback 不被 batch 失败阻塞）
+    // 半场2：batch 拒绝 → settle 后 ready，tile 挂载各自单取（T5 后单取=纯本地 content 路径——零网络）
     (apiFetch as any).mockImplementation((path: string) => {
       if (path.startsWith('/media/batch')) return Promise.reject(new Error('batch boom'));
-      const m = path.match(/^\/media\/(.+)\/url$/)!;
-      return Promise.resolve({ url: `http://minio:9000/flowai/${m[1]}`, ttlSec: 3600 });
+      throw new Error(`意外的网络面: ${path}`);
     });
     render(<CollapsedPreviewCard name="组" teamId="t9" cells={[cell('b', 'f2'), cell('c', 'f3')]} />);
     await waitFor(() => expect(screen.getAllByTestId('collapsed-tile-img')).toHaveLength(2));
     const batchCalls = calls().filter((p) => p.startsWith('/media/batch'));
-    const singleCalls = calls().filter((p) => /^\/media\/.+\/url$/.test(p));
     expect(batchCalls).toHaveLength(1);
-    expect(singleCalls).toHaveLength(2);             // 2 tile 各自单取
+    expect(calls()).toHaveLength(1);                 // 2 tile 出图零额外网络（fallback=本地推导）
   });
 });

@@ -224,7 +224,9 @@ export class TeamService {
     const removed = await this.prisma.teamMember.delete({
       where: { teamId_userId: { teamId, userId: targetUserId } },
     });
-    this.emitPermChanged(targetUserId, teamId);   // Y0b-3 T8：撤权核心面（collab 连接即时复验踢线）
+    // Y1a+Y1b T5（v11.1④）：removed 标记——gateway 对该用户存量连接**直关**（不复验：removeMember
+    // 不触碰 ProjectMember 表，语义 A 复验会放行显式行档=旧连接仍可写 doc 的越权面）。
+    this.eventEmitter.emit('collab.perm.changed', { userId: targetUserId, teamId, removed: true });
     await this.audit.log({
       operatorId: callerId,
       operatorName: await this.userName(callerId),

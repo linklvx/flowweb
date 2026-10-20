@@ -1,160 +1,80 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MediaService } from './media.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
-describe('MediaService', () => {
+// Y1a+Y1b T5：getMediaUrl（/url 读侧 presign 旁路）删除——本文件改钉 assertMediaReadable 团队级单门
+//（真 PG 四例归 media-content.int.spec；此处为 mock 形状钉：成员放行/公开作品兜底/其余 403）。
+describe('MediaService（assertMediaReadable 单门+findReadable+by-key 维持）', () => {
   let service: MediaService;
   let prisma: any;
   let minio: any;
-  let redis: any;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     prisma = {
       media: {
         findUnique: vi.fn().mockResolvedValue({
-          id: 'media-1',
-          userId: 'user1',
-          teamId: 't-team',
-          key: 'results/user1/proj1/node1/2026-05-20/a.png',
-          status: 'completed',
-          type: 'generated',
+          id: 'media-1', userId: 'user1', teamId: 't-team', key: 'k', bucket: 'flowai',
+          mimeType: 'image/png', sniffedMimeType: null, status: 'completed', sourceUrl: null,
+          originalName: 'a.png', deletedAt: null, thumbnailKey: null,
         }),
       },
       teamMember: { findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }) },
+      videoWork: { findFirst: vi.fn().mockResolvedValue(null) },
     };
-    minio = {
-      generatePresignedGetUrl: vi.fn().mockResolvedValue(
-        'http://127.0.0.1:9000/flowai/results/user1/proj1/node1/2026-05-20/a.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&...',
-      ),
-    };
-    redis = {
-      get: vi.fn().mockResolvedValue(null),
-      set: vi.fn().mockResolvedValue('OK'),
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        MediaService,
-        { provide: PrismaService, useValue: prisma },
-        { provide: MinioService, useValue: minio },
-        { provide: 'REDIS_CLIENT', useValue: redis },
-      ],
-    }).compile();
-    service = module.get<MediaService>(MediaService);
+    minio = { generatePresignedGetUrl: vi.fn() };
+    service = new MediaService(prisma as PrismaService, minio as unknown as MinioService);
   });
 
-  it('getMediaUrl 鉴权前置：非 creator 需团队成员（缓存命中也不得跳过）', async () => {
-    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team', key: 'k' });
-    prisma.teamMember.findFirst.mockResolvedValue(null); // 非成员
-    redis.get.mockResolvedValue(JSON.stringify({ url: 'http://pre-warmed-url', expiresAt: Date.now() + 60_000 })); // 缓存已预热
-    await expect(service.getMediaUrl('m1', 'u-stranger')).rejects.toThrow(ForbiddenException);
-    expect(redis.get).not.toHaveBeenCalled(); // 鉴权未过不得读缓存
-    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
+  describe('assertMediaReadable（团队级单门）', () => {
+    it('团队成员放行（creator 与否同门——单门不分 creator）', async () => {
+      await expect(service.assertMediaReadable({ id: 'media-1', teamId: 't-team' }, 'u-member')).resolves.toBeUndefined();
+      expect(prisma.teamMember.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ teamId: 't-team', userId: 'u-member' }),
+      }));
+    });
+
+    it('非成员+未发布引用 → 403（不区分团队存在性）', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+      await expect(service.assertMediaReadable({ id: 'media-1', teamId: 't-team' }, 'u-stranger')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('非成员+已发布作品引用（videoMediaId 锚）→ 放行（公开页兜底——平台作品对全员可读）', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+      prisma.videoWork.findFirst.mockResolvedValue({ id: 'w1' });
+      await expect(service.assertMediaReadable({ id: 'media-1', teamId: 'platform-team' }, 'u-stranger')).resolves.toBeUndefined();
+      expect(prisma.videoWork.findFirst).toHaveBeenCalledWith({
+        where: { videoMediaId: 'media-1', status: 'PUBLISHED' },
+        select: { id: true },
+      });
+    });
+
+    it('未登录（userId null）仅作品兜底可用——无兜底 403', async () => {
+      prisma.videoWork.findFirst.mockResolvedValue(null);
+      await expect(service.assertMediaReadable({ id: 'media-1', teamId: 't-team' }, null)).rejects.toThrow(ForbiddenException);
+      prisma.videoWork.findFirst.mockResolvedValue({ id: 'w1' });
+      await expect(service.assertMediaReadable({ id: 'media-1', teamId: 't-team' }, null)).resolves.toBeUndefined();
+    });
   });
 
-  it('getMediaUrl 成员命中缓存直接返回（不再生成新 URL）', async () => {
-    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'other', teamId: 't-team', key: 'k' });
-    prisma.teamMember.findFirst.mockResolvedValue({ role: 'MEMBER' });
-    redis.get.mockResolvedValue(JSON.stringify({ url: 'http://cached', expiresAt: Date.now() + 60_000 }));
-    const out = await service.getMediaUrl('m1', 'u-teammate');
-    expect(out.url).toBe('http://cached');
-    expect(out.ttlSec).toBeGreaterThanOrEqual(1);
-    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
+  describe('findReadable（行装载+404 面）', () => {
+    it('缺失行 → null（controller 404）；软删行 → null；在库+单门过 → 整行返回', async () => {
+      prisma.media.findUnique.mockResolvedValueOnce(null);
+      await expect(service.findReadable('nope', 'u1')).resolves.toBeNull();
+      prisma.media.findUnique.mockResolvedValueOnce({ deletedAt: new Date() });
+      await expect(service.findReadable('gone', 'u1')).resolves.toBeNull();
+      const row = await service.findReadable('media-1', 'u1');
+      expect(row).toMatchObject({ id: 'media-1', teamId: 't-team' });
+    });
+
+    it('单门拒 → 透传 403（行不返回）', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue(null);
+      await expect(service.findReadable('media-1', 'stranger')).rejects.toThrow(ForbiddenException);
+    });
   });
 
-  it('getMediaUrl 缓存 key 为团队维度 media:url:v2:${teamId}:${fileId}', async () => {
-    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', teamId: 't-team', key: 'k' });
-    redis.get.mockResolvedValue(null);
-    minio.generatePresignedGetUrl.mockResolvedValue('http://new');
-    const out = await service.getMediaUrl('m1', 'u1');
-    expect(out.url).toBe('http://new');
-    expect(out.ttlSec).toBe(900);
-    expect(redis.set).toHaveBeenCalledWith(
-      'media:url:v2:t-team:m1',
-      expect.stringMatching(/^\{"url":.*,"expiresAt":\d+\}$/),
-      'EX',
-      840,
-    );
-  });
-
-  it('should return cached URL if present', async () => {
-    redis.get = vi.fn().mockResolvedValue(
-      JSON.stringify({ url: 'http://cached-url/path?X-Amz=...', expiresAt: Date.now() + 60_000 }),
-    );
-    const out = await service.getMediaUrl('media-1', 'user1');
-    expect(out.url).toBe('http://cached-url/path?X-Amz=...');
-    expect(out.ttlSec).toBeGreaterThanOrEqual(1);
-    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
-  });
-
-  it('should generate presigned URL and cache it on miss', async () => {
-    const out = await service.getMediaUrl('media-1', 'user1');
-    expect(out.url).toContain('X-Amz-Algorithm');
-    expect(out.ttlSec).toBe(900);
-    expect(redis.set).toHaveBeenCalledWith(
-      'media:url:v2:t-team:media-1',
-      expect.stringMatching(/^\{"url":.*,"expiresAt":\d+\}$/),
-      'EX',
-      840,
-    );
-  });
-
-  it('命中且未过期：返回剩余寿命（expiresAt − now，恒 ≥1），不重签', async () => {
-    redis.get.mockResolvedValue(JSON.stringify({ url: 'http://cached', expiresAt: Date.now() + 60_000 }));
-    const out = await service.getMediaUrl('media-1', 'user1');
-    expect(out.url).toBe('http://cached');
-    expect(out.ttlSec).toBeGreaterThanOrEqual(1);
-    expect(out.ttlSec).toBeLessThanOrEqual(60);
-    expect(minio.generatePresignedGetUrl).not.toHaveBeenCalled();
-  });
-
-  it('命中但已过期（remaining ≤ 0）：重签覆写', async () => {
-    redis.get.mockResolvedValue(JSON.stringify({ url: 'http://stale', expiresAt: Date.now() - 1_000 }));
-    const out = await service.getMediaUrl('media-1', 'user1');
-    expect(out.url).not.toBe('http://stale');
-    expect(out.ttlSec).toBe(900);
-    expect(redis.set).toHaveBeenCalled();
-  });
-
-  it('坏值（非 JSON/缺 expiresAt/NaN）：重签覆写自愈不抛', async () => {
-    redis.get.mockResolvedValueOnce('not-json');
-    await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
-    redis.get.mockResolvedValueOnce(JSON.stringify({ url: 'http://x' }));
-    await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
-    redis.get.mockResolvedValueOnce(JSON.stringify({ url: 'http://x', expiresAt: 'abc' }));
-    await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
-    redis.get.mockResolvedValueOnce(JSON.stringify({ expiresAt: Date.now() + 60_000 }));  // 缺 url
-    await expect(service.getMediaUrl('media-1', 'user1')).resolves.toMatchObject({ ttlSec: 900 });
-  });
-
-  it('缓存键版本化 v2', async () => {
-    await service.getMediaUrl('media-1', 'user1');
-    expect(redis.get).toHaveBeenCalledWith('media:url:v2:t-team:media-1');
-  });
-
-  it('响应形状恰两键（运行时锁——API tsc exclude spec，编译期门禁不适用）', async () => {
-    const out = await service.getMediaUrl('media-1', 'user1');
-    expect(Object.keys(out).sort()).toEqual(['ttlSec', 'url']);
-  });
-
-  it('should throw NotFoundException for non-existent media', async () => {
-    prisma.media.findUnique = vi.fn().mockResolvedValue(null);
-    await expect(
-      service.getMediaUrl('nonexistent', 'user1'),
-    ).rejects.toThrow(NotFoundException);
-  });
-
-  it('should reject access from non-member stranger', async () => {
-    prisma.teamMember.findFirst = vi.fn().mockResolvedValue(null);
-    await expect(
-      service.getMediaUrl('media-1', 'user2'),
-    ).rejects.toThrow(ForbiddenException);
-  });
-
-  describe('getPresignedUrlByKey', () => {
+  describe('getPresignedUrlByKey（by-key 维持——公开素材 uploads/system/ 唯一合法域）', () => {
     it('uploads/system/ 前缀放行并 presign 同一个规范化值', async () => {
       const key = 'uploads/system/2026-01-01/abc.png';
       minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/url');

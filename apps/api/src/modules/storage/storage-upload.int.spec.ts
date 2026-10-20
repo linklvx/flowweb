@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { StorageService } from './storage.service';
 import { MediaRegistrationService } from '../media/media-registration.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -15,6 +16,7 @@ const prisma = new PrismaClient();
 
 const PID = `it-t4-proj-${Date.now()}`;
 const UID = `it-t4-owner-${Date.now()}`;
+const VIEWER = `it-t5-viewer-${Date.now()}`;
 let TID = '';
 
 /** PNG 最小可判型缓冲（签名+IHDR chunk 头——file-type 16.x 需可读 chunk，过短会 EndOfStream） */
@@ -37,8 +39,9 @@ const makeServices = () => {
   };
   const quota: any = { assertCanUpload: vi.fn(), assertOnConfirm: vi.fn(), assertMember: vi.fn() };
   const registration = new MediaRegistrationService(prisma as unknown as PrismaService, minio);
-  const storage = new StorageService(prisma as unknown as PrismaService, minio, quota, registration);
-  return { storage, minio, quota, registration, deletes };
+  const perm = new ProjectPermissionService(prisma as unknown as PrismaService);   // T5 写 ACL：真权限链（显式行>创建者>团队回退）
+  const storage = new StorageService(prisma as unknown as PrismaService, minio, quota, registration, perm);
+  return { storage, minio, quota, registration, perm, deletes };
 };
 
 const presignDto = (over: Record<string, unknown> = {}) => ({
@@ -56,13 +59,22 @@ const presignDto = (over: Record<string, unknown> = {}) => ({
     TID = team.id;
     await prisma.teamMember.create({ data: { teamId: TID, userId: UID, role: 'OWNER' } });
     await prisma.canvasProject.create({ data: { id: PID, name: 'it-t4', userId: UID, teamId: TID } });
+    // T5 写 ACL 夹具：显式 VIEWER 行用户（团队成员但项目只读——resolveWithTeam 显式档）
+    await prisma.user.upsert({
+      where: { id: VIEWER },
+      create: { id: VIEWER, name: 'it-t5-viewer', email: `${VIEWER}@test.local`, emailVerified: false },
+      update: {},
+    });
+    await prisma.teamMember.create({ data: { teamId: TID, userId: VIEWER, role: 'MEMBER' } });
+    await prisma.projectMember.create({ data: { projectId: PID, userId: VIEWER, role: 'PROJECT_VIEWER' } });
   }, 20_000);
 
   afterAll(async () => {
     await prisma.media.deleteMany({ where: { teamId: TID } });
+    await prisma.projectMember.deleteMany({ where: { projectId: PID } });
     await prisma.canvasProject.deleteMany({ where: { id: PID } });
     await deleteTeamsWithPass(prisma as unknown as PrismaService, [TID]);
-    await prisma.user.deleteMany({ where: { id: UID } });
+    await prisma.user.deleteMany({ where: { id: { in: [UID, VIEWER] } } });
     await prisma.$disconnect();
   }, 20_000);
 
@@ -145,5 +157,16 @@ const presignDto = (over: Record<string, unknown> = {}) => ({
     await expect(storage.confirmUpload(UID, { fileId: r.fileId, key: r.key, fileSize: 100 })).rejects.toThrow();
     expect(deletes).toContain(r.key); // 对象已删（行内 key）
     expect(await prisma.media.findUnique({ where: { id: r.fileId } })).toBeNull(); // 行已删
+  });
+
+  it('T5 写 ACL：projectId 形态要 project editor——显式 VIEWER presign → 403 拒（红=现状 quota.assertMember 仅验成员直过）；EDITOR/无显式行团队成员照常（真权限链）', async () => {
+    const { storage } = makeServices();
+    // 红：VIEWER（团队成员+显式 PROJECT_VIEWER 行）——现状 assertMember 放行
+    await expect(storage.presignUpload(VIEWER, presignDto({ teamId: undefined, projectId: PID })))
+      .rejects.toThrow(/编辑权限|Forbidden/);
+    // 无显式行的普通团队成员 → 团队回退 PROJECT_EDITOR 放行（写门收紧不误伤）
+    const { storage: s2 } = makeServices();
+    const ok = await s2.presignUpload(UID, presignDto({ teamId: undefined, projectId: PID }));
+    expect(ok.fileId).toBeTruthy();
   });
 });

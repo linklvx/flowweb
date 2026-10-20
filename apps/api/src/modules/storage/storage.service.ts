@@ -5,6 +5,7 @@ import { PresignUploadDto } from './dto/presign.dto';
 import { ConfirmUploadDto } from './dto/confirm.dto';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 import { StorageQuotaService } from '../team/storage-quota.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import {
   MediaRegistrationService, sniffMimeType, isAllowedUploadMime,
 } from '../media/media-registration.service';
@@ -18,17 +19,17 @@ export class StorageService {
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
     @Inject(MediaRegistrationService) private readonly registration: MediaRegistrationService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
   ) {}
 
   async presignUpload(userId: string, dto: PresignUploadDto) {
-    // 三级回落：projectId（后端解析+成员校验）> teamId（assertMember）> 默认团队
+    // 三级回落：projectId（后端解析+**project editor 门**——T5 写 ACL 独立：写侧要编辑权，
+    // viewer presign 403）> teamId（assertMember——素材库上传是成员级）> 默认团队
     let teamId: string;
     let projectId: string | undefined;
     if (dto.projectId) {
-      const project = await this.prisma.canvasProject.findUnique({ where: { id: dto.projectId }, select: { teamId: true } });
-      if (!project) throw new BadRequestException('项目不存在');
-      await this.quota.assertMember(project.teamId, userId);
-      teamId = project.teamId;
+      const resolved = await this.perm.assertEditorWithTeam(dto.projectId, userId);   // 项目不存在 404/无编辑权 403（teamId 同链带出）
+      teamId = resolved.teamId;
       projectId = dto.projectId;
     } else if (dto.teamId) {
       await this.quota.assertMember(dto.teamId, userId);

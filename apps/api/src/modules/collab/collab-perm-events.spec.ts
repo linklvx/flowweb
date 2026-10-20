@@ -203,11 +203,52 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     seedDocument(gateway, 'project:p1', [conn]);
     gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
     gateway.sessionGuard.wirePermChangedEvents();
-    emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });
+    emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1' });   // 非 removal 面（changeRole 等）
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(5_000);
     expect(conn.webSocket.close).not.toHaveBeenCalled();   // 显式档放行：不踢
     expect(conn.readOnly).toBeUndefined();                 // 也无降级（EDITOR 保持可写）
+  });
+
+  // ===== Y1a+Y1b T5（v11.1④）：成员移除→存量 WS 连接关闭 =====
+  // 越权面：removeMember 不触碰 ProjectMember 表，recheck 走 resolveWithTeam 显式行档=role 非 null
+  // → revoked:false 不踢——旧连接仍可写 doc。修复=removed:true 载荷直连 scheduleSweepClose（不复验）。
+  it('★T5 removed:true（removeMember）→显式 ProjectMember 行连接也直关：通知+grace→close(4401)（红=现状语义 A 放行仍可写 doc=越权面）', async () => {
+    const { gateway, perm, emitter } = buildGateway();
+    perm.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });   // 显式行档（语义 A 本会放行——直关不得依赖复验）
+    const conn = makeConn('project:p1');
+    seedDocument(gateway, 'project:p1', [conn]);
+    gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
+    gateway.sessionGuard.wirePermChangedEvents();
+    const inc = await metricDelta('collab_sweep_close_total', { cause: 'revoked' }, async () => {
+      emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1', removed: true });
+      expect(conn.sendStateless).toHaveBeenCalledWith(JSON.stringify({ type: 'session-expiring' }));   // 即时通知（零复验等待）
+      await vi.advanceTimersByTimeAsync(5_000);   // grace
+    });
+    expect(conn.webSocket.close).toHaveBeenCalledWith(4401, 'session-expired');
+    expect(inc).toBe(1);
+  });
+
+  it('T5 removed:true 不匹配（他用户/他团队）连接零动作；逃生阀 COLLAB_SWEEP_ENABLED=false 下 matched 连接的 removed 直关腿也关（session-expiry 回滚面一致）', async () => {
+    const { gateway, emitter } = buildGateway();
+    const conn = makeConn('project:p1');
+    const other = makeConn('project:p1');
+    seedDocument(gateway, 'project:p1', [conn, other]);
+    gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
+    gatewayFacade(gateway).seedSocketIdentity(other.socketId, { id: 'u2', name: '李四', role: 'PROJECT_EDITOR', teamId: 't2' });
+    gateway.sessionGuard.wirePermChangedEvents();
+    emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't2', removed: true });   // 用户/团队均对不上
+    await vi.advanceTimersByTimeAsync(1);
+    expect(other.sendStateless).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(other.webSocket.close).not.toHaveBeenCalled();
+
+    vi.stubEnv('COLLAB_SWEEP_ENABLED', 'false');
+    emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1', removed: true });   // matched 但阀关
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(conn.sendStateless).not.toHaveBeenCalled();
+    expect(conn.webSocket.close).not.toHaveBeenCalled();   // 阀关=removed 直关腿同关
   });
 
   it('★Y0b-5 T16 VIEWER→EDITOR 升权活路径：连接中 VIEWER 被 addMember 升 EDITOR→perm.changed 即时 sweep→applyWriteFreeze 解除只读+conn-status 通告（≤1 tick 可写——禁手动刷新）', async () => {
@@ -328,10 +369,10 @@ describe('Y0b-3 T8 emit 点接线（team.service）', () => {
     return { service, prisma, emitter };
   }
 
-  it('removeMember → emit("collab.perm.changed", { userId, teamId })（撤权核心面）', async () => {
+  it('removeMember → emit("collab.perm.changed", { userId, teamId, removed: true })（撤权核心面——v11.1 T5 removed 标记：存量连接直关，不复验语义 A）', async () => {
     const { service, emitter } = buildTeamService();
     await service.removeMember('t1', 'caller', 'u-target');
-    expect(emitter.emit).toHaveBeenCalledWith('collab.perm.changed', { userId: 'u-target', teamId: 't1' });   // 现状红：零 emit
+    expect(emitter.emit).toHaveBeenCalledWith('collab.perm.changed', { userId: 'u-target', teamId: 't1', removed: true });   // 现状红：payload 无 removed
   });
 
   it('changeRole → emit（角色变更面——TeamRole 变更使 perm 链结论失效）', async () => {

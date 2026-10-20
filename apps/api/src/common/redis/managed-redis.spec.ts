@@ -35,12 +35,12 @@ describe('批3-2 B6 createManagedRedis', () => {
 });
 
 /** 源码断言（仓内先例：metatype 断言用源码文本——esbuild 不发射 decorator metadata）：
- *  锁 8 个模块工厂 + auth.service/auth.ts 收口形态，防回退裸 new Redis。 */
+ *  锁 7 个模块工厂 + auth.service/auth.ts 收口形态，防回退裸 new Redis。
+ *  Y1a+Y1b T5：media.module.ts 退出清单——getMediaUrl（presign+Redis 缓存旁路）删除后零 Redis 消费。 */
 const APP_ROOT = resolve(__dirname, '../..');
 const MODULE_SITES = [
   'app.module.ts',
   'auth/auth.module.ts',
-  'modules/media/media.module.ts',
   'modules/video-work/video-work.module.ts',
   'modules/recharge/recharge.module.ts',
   'modules/sms/sms.module.ts',
@@ -49,7 +49,7 @@ const MODULE_SITES = [
 ];
 
 describe('批3-2 B6 模块工厂源码收口', () => {
-  it('8 个 REDIS_CLIENT 工厂统一 createManagedRedis（onApplicationShutdown duck-typing）', () => {
+  it('7 个 REDIS_CLIENT 工厂统一 createManagedRedis（onApplicationShutdown duck-typing）', () => {
     for (const site of MODULE_SITES) {
       const src = readFileSync(resolve(APP_ROOT, site), 'utf8');
       expect(src, `${site} 应使用 createManagedRedis`).toContain('createManagedRedis(');
