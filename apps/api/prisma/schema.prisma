@@ -950,6 +950,7 @@ model VideoWork {
 
   @@index([status, sortOrder, publishedAt(sort: Desc)])
   @@index([categoryId, status])
+  @@index([videoMediaId])
 }
 
 model VideoCategory {

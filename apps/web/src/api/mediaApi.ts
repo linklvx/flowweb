@@ -4,6 +4,9 @@ import { apiFetch } from './client';
 // 媒体字节统一走 GET /api/media/:fileId/content（同源会话 cookie 鉴权+团队级单门+MIME 嗅探面）。
 // content 路径无签名寿命：getMediaUrl 降级为纯本地推导（零网络）；本文件是 /url 调用面的单点收口
 // （mediaContentUrl 单点封装+census 归 T6——本卡最小迁移）。
+// 两层缓存关系（Minor-6）：本层=URL 映射缓存（content 路径稳定无签名寿命——1d 只是提示刷新周期）；
+// 字节层=content 响应 Cache-Control: private, max-age=3600（1h——api serveReady 固定值）。上层长/下层短：
+// 路径恒定可长缓存，字节（MIME 嗅探/权限态变化）靠短缓存收敛。
 export const MEDIA_URL_CACHE_TTL_SEC = 86_400;
 
 /** content 路由路径（同源相对路径——img/video src 与 fetch 直用；variant=thumbnail 读缩略图对象） */

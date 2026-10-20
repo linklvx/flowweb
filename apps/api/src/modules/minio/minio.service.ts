@@ -104,7 +104,9 @@ export class MinioService {
   }
 
   /** Y1a+Y1b T5：content 路由 ready 态流式读——Range 透传（S3 语义：206+Content-Range；
-   *  越界由 S3 抛错（$metadata.httpStatusCode=416）交调用方映射，缺失对象同抛 404）。 */
+   *  越界由 S3 抛错（$metadata.httpStatusCode=416）交调用方映射，缺失对象同抛 404）。
+   *  单区间边界：S3 语义不产 multipart/byteranges 多段响应（本路径消费方=浏览器 media/img
+   *  只发单段 Range——多段形态不在支持面，Minor-3 注释补据）。 */
   async getObjectRanged(key: string, range?: string): Promise<{
     status: number; stream: Readable; contentLength: number | null; contentRange: string | null; etag: string | null;
   }> {

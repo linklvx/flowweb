@@ -7,7 +7,7 @@
 //  processing：SafeRemoteFetch allowlist 流式代理 sourceUrl（no-store+限长；超限 410/未就绪 425+Retry-After）。
 // 安全响应头：nosniff 恒置；非白名单 MIME（isAllowedUploadMime）一律 attachment。
 // 旁路删除注记：GET /:fileId/url 端点已删（404）；POST /media/batch 响应降级 content 路由引用（media-batch.service）。
-import { Controller, Get, Head, Req, Param, Query, Res, Inject } from '@nestjs/common';
+import { Controller, Get, Head, Logger, Req, Param, Query, Res, Inject } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -21,6 +21,8 @@ const RETRY_AFTER_SEC = '60';
 
 @Controller('api/media')
 export class MediaContentController {
+  private readonly logger = new Logger(MediaContentController.name);
+
   // 显式 @Inject（media.controller 同款——vitest esbuild 不发射 decorator metadata，类型注入仅生产 tsc 可用）
   constructor(
     @Inject(MediaService) private readonly mediaService: MediaService,
@@ -135,7 +137,7 @@ export class MediaContentController {
   private async serveProcessing(
     req: Request & { user?: { id: string } },
     res: Response,
-    media: { sourceUrl: string | null; mimeType: string; sniffedMimeType: string | null; originalName: string },
+    media: { id: string; sourceUrl: string | null; mimeType: string; sniffedMimeType: string | null; originalName: string },
   ): Promise<void> {
     if (!media.sourceUrl) {
       res.status(425);                        // Too Early：materialize 未落，稍后重试
@@ -146,8 +148,12 @@ export class MediaContentController {
     let opened: Awaited<ReturnType<SafeRemoteFetchService['open']>>;
     try {
       opened = await this.safeFetch.open(media.sourceUrl, { range: req.headers.range as string | undefined });
-    } catch {
+    } catch (err) {
       // SSRF 门拒/DNS/网络/超时——不透传上游细节（防探测）；对象终将 materialize，客户端重试
+      // 摘要=错误 message 冒号前段：SafeRemoteFetch 各拒因 message 形如「safe-fetch xxx: <url/主机>」，
+      // 冒号后即 sourceUrl/主机细节——剥除只留拒因分类（spec 发现 2：502 静默缺可观测）
+      const brief = err instanceof Error ? err.message.split(':')[0] : String(err);
+      this.logger.warn(`processing 代理失败 mediaId=${media.id} 拒因=${brief}`);
       res.status(502).end();
       return;
     }

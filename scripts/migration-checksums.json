@@ -16,5 +16,8 @@
   },
   "20261020224827_outbox_facttype_unique": {
     "migration.sql": "e31f6400a754b2a9374d0346bacd853cd9023e74f417f0be93a5662645328179"
+  },
+  "20261021021059_videowork_videomedia_idx": {
+    "migration.sql": "5c61ed67dd0b4c2205514d21b250559a07a4e6704cf9e4f4b5548b6bae0b6b3c"
   }
 }

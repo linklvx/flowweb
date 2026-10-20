@@ -10,7 +10,7 @@ vi.mock('@/api/client', () => ({
 import { apiFetch } from '@/api/client';
 
 const row = (id: string, url: string) => ({
-  id, originalName: id, mimeType: 'image/png', size: 1, url, thumbnailUrl: null, metadata: {}, ttlSec: 3600,
+  id, originalName: id, mimeType: 'image/png', size: 1, url, thumbnailUrl: null, metadata: {}, ttlSec: 86400,
 });
 
 beforeEach(() => {
@@ -47,6 +47,6 @@ describe('batchGetMediaRewritten（T5：响应 url 已是 content 路径——/f
   it('batch 响应带 ttlSec（BatchMediaItem 契约字段维持——api 侧 MEDIA_CONTENT_URL_TTL_SEC 单源各自锁）', async () => {
     (apiFetch as any).mockResolvedValueOnce([row('f3', '/api/media/f3/content')]);
     const rows = await batchGetMediaRewritten(['f3']);
-    expect(rows[0].ttlSec).toBe(3600);
+    expect(rows[0].ttlSec).toBe(86400);   // 对齐 api 真值 MEDIA_CONTENT_URL_TTL_SEC=86_400（media-batch.service——双端单源锁留 T6 census）
   });
 });
