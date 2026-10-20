@@ -15,7 +15,7 @@ import { pipeline } from 'node:stream/promises';
 import { MediaService } from './media.service';
 import { MinioService } from '../minio/minio.service';
 import { SafeRemoteFetchService } from './safe-remote-fetch.service';
-import { isAllowedUploadMime } from './media-registration.service';
+import { isAllowedUploadMime } from './sniff';   // T6④：file-type 单一 import 点
 
 const RETRY_AFTER_SEC = '60';
 

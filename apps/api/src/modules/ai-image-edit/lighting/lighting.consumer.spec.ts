@@ -8,15 +8,8 @@ import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
+import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
 import { Job } from 'bullmq';
-
-vi.mock('axios', () => ({
-  default: {
-    get: vi.fn(),
-  },
-}));
-
-import axios from 'axios';
 
 describe('LightingConsumer', () => {
   let consumer: LightingConsumer;
@@ -26,6 +19,7 @@ describe('LightingConsumer', () => {
   let apiCaller: any;
   let collabDoc: any;
   let intentService: any;
+  let safeFetch: any;
 
   beforeEach(async () => {
     prisma = {
@@ -41,6 +35,10 @@ describe('LightingConsumer', () => {
       generatePresignedGetUrl: vi.fn().mockResolvedValue('https://minio.local/signed'),
       buildKey: vi.fn().mockReturnValue('generated/key'),
       upload: vi.fn().mockResolvedValue(undefined),
+    };
+    // T6：结果下载经 SafeRemoteFetch（SSRF 四门+限长）——axios 直连退役
+    safeFetch = {
+      fetchBuffer: vi.fn().mockResolvedValue({ buffer: Buffer.from('img'), contentType: 'image/png' }),
     };
     const gateway = { emitNodeStatus: vi.fn() };
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
@@ -66,6 +64,7 @@ describe('LightingConsumer', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabWritePort, useValue: collabDoc },
         { provide: GenerationIntentService, useValue: intentService },
+        { provide: SafeRemoteFetchService, useValue: safeFetch },
       ],
     }).compile();
     consumer = module.get<LightingConsumer>(LightingConsumer);
@@ -90,17 +89,16 @@ describe('LightingConsumer', () => {
       },
     }) as any as Job;
 
-  const mockAxiosResult = () => {
-    (axios.get as any).mockResolvedValue({
-      data: Buffer.from('img'),
-      headers: { 'content-type': 'image/png' },
-    });
+  const mockDownloadResult = () => {
+    safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('img'), contentType: 'image/png' });
   };
 
   it('有 project 上下文：Media 归属 = project.teamId，不反推', async () => {
-    mockAxiosResult();
+    mockDownloadResult();
     await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
 
+    // T6：结果下载经 SafeRemoteFetch.fetchBuffer（SSRF 四门+限长）——不再 axios 直连
+    expect(safeFetch.fetchBuffer).toHaveBeenCalledWith('https://ai.result/r.png');
     expect(prisma.media.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ teamId: 't-team' }),
@@ -112,9 +110,17 @@ describe('LightingConsumer', () => {
     expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
   });
 
+  it('T6 SSRF 拒路径：fetchBuffer 拒（私网/allowlist 外/超限）→ 抛错（BullMQ failed）+零上传零 Media', async () => {
+    safeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch host 不在 allowlist: ai.result'));
+    await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
+      .rejects.toThrow(/safe-fetch/);
+    expect(minio.upload).not.toHaveBeenCalled();
+    expect(prisma.media.create).not.toHaveBeenCalled();
+  });
+
   it('无 projectId（个人任务）→ Media 回落个人团队，不扣团队积分', async () => {
     prisma.team.findFirst.mockResolvedValue({ id: 't-personal' });
-    mockAxiosResult();
+    mockDownloadResult();
 
     await consumer.handleLightingJob(makeJob(undefined));
 
@@ -133,7 +139,7 @@ describe('LightingConsumer', () => {
 
   it('project.teamId 缺失 → task failed 且不建 Media（不回落个人团队）', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue(null);
-    mockAxiosResult();
+    mockDownloadResult();
 
     await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('PROJECT_TEAM_MISSING');
 
@@ -150,7 +156,7 @@ describe('LightingConsumer', () => {
 
   describe('安全止血（spec 批0c-3 + 批0.5-9 两阶段：扣费守卫 + B1 越权读根修）', () => {
     it('A-1 根修：consumer 不再 reserve（收敛 processor 队列入口）——guard 缺失仍接线断言（余额不足路径归 processor 收口）', async () => {
-      mockAxiosResult();
+      mockDownloadResult();
 
       // guard 完整：正常链零 reserve 调用（A-1——二次 reserve 白扣费根修的守护锚）
       await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
@@ -165,7 +171,7 @@ describe('LightingConsumer', () => {
 
     it('外呼抛错（已冻结）→ catch 路径 void_ 解冻（约束②）', async () => {
       apiCaller.callRelighting.mockRejectedValue(new Error('relight boom'));
-      mockAxiosResult();
+      mockDownloadResult();
 
       await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
         .rejects.toThrow('relight boom');
@@ -180,7 +186,7 @@ describe('LightingConsumer', () => {
         userId: 'someone-else',
         projectId: 'other-proj',
       });
-      mockAxiosResult();
+      mockDownloadResult();
 
       await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('Media not found: media-src');
       // 归属校验先于付费 AI 调用：越权读不应触发 relighting
@@ -189,7 +195,7 @@ describe('LightingConsumer', () => {
 
     it('step9 已置 SUCCESS 后 step10 writeNodeData 抛错 → FAILED 覆写须清产物字段（不留 SUCCESS 残留 URL）', async () => {
       collabDoc.writeNodeData.mockRejectedValue(new Error('doc write boom'));
-      mockAxiosResult();
+      mockDownloadResult();
 
       await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }))).rejects.toThrow('doc write boom');
 
@@ -211,14 +217,14 @@ describe('LightingConsumer', () => {
     const intent = { intentRowId: 'row-9', intentId: 'i-9' };
 
     it('A-1：consumer 零 reserve（金额单源 intent 行+冻结收敛 processor 队列入口——双 reserve 白扣费根修守护）', async () => {
-      mockAxiosResult();
+      mockDownloadResult();
       await consumer.handleLightingJob(makeJob('proj-1', intent));
       expect(teamCredit.reserve).not.toHaveBeenCalled();
       expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' }); // 核销照走（冻结在手凭据）
     });
 
     it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {
-      mockAxiosResult();
+      mockDownloadResult();
       await consumer.handleLightingJob(makeJob('proj-1', intent));
       expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-1');
       expect(collabDoc.writeNodeData).toHaveBeenCalledWith('proj-1', 'n1', { fileId: 'media-1' });
@@ -226,7 +232,7 @@ describe('LightingConsumer', () => {
 
     it('complete 门序闭（count===0，reconcile 已 VOIDED）：writeNodeData/SUCCESS 回填/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
       intentService.complete.mockResolvedValue(0);
-      mockAxiosResult();
+      mockDownloadResult();
       const result = await consumer.handleLightingJob(makeJob('proj-1', intent));
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
       expect(prisma.lightingTask.update).not.toHaveBeenCalledWith(

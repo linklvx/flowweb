@@ -8,7 +8,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 
-vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn() }));
+vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn(), toFlowaiUrl: (u: string) => u.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai') }));   // T6③：/flowai 改写单点 mock 同语义
 
 // R4-10：挂 useTeamAssets 后组件 mount 即发 axios.get——不打真 XHR（句柄模块级暴露，上传用例断言复用）。
 // 响应实形：TransformInterceptor 包 {code,data,message} → res.data.data = {success,data:[]}（双层 data）

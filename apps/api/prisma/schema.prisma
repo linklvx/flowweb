@@ -277,7 +277,8 @@ model Media {
   originalName String // 原始文件名
   mimeType     String
   // Y1b T2 质评收口（Important-1）：Int 2.147GB 上限根修（v10 裁决/spec Z7'' :80/M1 门）——
-  // BigInt；JSON 序列化由 T6 BigInt.prototype.toJSON 全局补丁+四读路径序列化测试覆盖（plan T6）
+  // BigInt；JSON 序列化由 T6 收紧裁决执行：禁全局 BigInt.prototype.toJSON——DTO/响应构造处显式转换
+  //（size→Number 展示口径；material/media-batch 响应面已收口，T6 序列化测试覆盖）
   size         BigInt // 字节数
 
   // 业务关联
@@ -308,7 +309,7 @@ model Media {
   probeRunId            String? // v10.1 :91
   nextProbeAt           DateTime? // jitter 退避（v10.1 :92）
   probedAt              DateTime? // 仅审计（v10.1 :93）
-  factVersion           BigInt     @default(0) // 单调事实版本（每次 natural/sniff/status 变更+1）；wire/doc 用 string（v8 裁决②）——JSON 序列化由 T6 BigInt.prototype.toJSON 全局补丁覆盖（spec Z7''/plan T6 四读路径）
+  factVersion           BigInt     @default(0) // 单调事实版本（每次 natural/sniff/status 变更+1）；wire/doc 用 string（v8 裁决②）——JSON 序列化=T6 收紧：DTO/响应构造处显式 String()（禁全局 BigInt.prototype.toJSON）
   // natural/sniffed 族（v10.1 plan Task 3 Media 块 :94-97——质评 Important-1 补齐）：server fact 消费
   // （probe done/server natural 同事务 factVersion+1+outbox）；sniffedMimeType=probe claim 路由
   // （spec Z7'' :80 按 sniffed image/video 非 SVG）+content 端点 Content-Type 源
@@ -1225,7 +1226,7 @@ model MediaFactOutbox {
   id            String         @id @default(cuid())
   mediaId       String
   projectId     String
-  factVersion   BigInt // 对应 Media.factVersion 快照（单调）；wire/doc 用 string——JSON 序列化由 T6 BigInt.prototype.toJSON 全局补丁覆盖（同 Media.factVersion/spec Z7''）
+  factVersion   BigInt // 对应 Media.factVersion 快照（单调）；wire/doc 用 string——JSON 序列化=T6 收紧：DTO/响应构造处显式 String()（禁全局 BigInt.prototype.toJSON，同 Media.factVersion）
   factType      String // 事实类型（如 state——payload 含 state 的状态事实）
   payload       Json // 事实快照
   state         MediaFactState @default(pending)

@@ -11,6 +11,7 @@ import { ExecutionCoreModule } from '../execution/execution-core.module';
 import { TeamModule } from '../team/team.module';
 import { CollabModule } from '../collab/collab.module';
 import { GenerationIntentService } from '../execution/generation-intent.service';
+import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME, AI_IMAGE_EDIT_CONNECTION_NAME } from './ai-image-edit.constants';
 import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
 
@@ -29,7 +30,7 @@ import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
   // 不变——PrismaModule @Global；历史形态保留）；T25 起加导出=Http 半 controller 消费面。
   // Y0c T26 根修（T25 漏项——F2 AppModule 全 compile 冒烟抓到）：LightingService 补导出——Http 半
   // LightingController 注入面（拆分前同模块 providers 直取，漏 exports=api 启动即红）
-  providers: [AiImageEditService, AiImageEditProcessor, LightingService, LightingConsumer, GenerationIntentService],
+  providers: [AiImageEditService, AiImageEditProcessor, LightingService, LightingConsumer, GenerationIntentService, SafeRemoteFetchService],   // T6：下载原语平铺（MediaModule 闭包脏不可导入）
   exports: [AiImageEditService, GenerationIntentService, LightingService],
 })
 export class AiImageEditCoreModule {}

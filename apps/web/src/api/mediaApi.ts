@@ -14,6 +14,12 @@ export function mediaContentUrl(fileId: string, variant?: 'thumbnail'): string {
   return variant ? `/api/media/${fileId}/content?variant=thumbnail` : `/api/media/${fileId}/content`;
 }
 
+/** /flowai 同源改写单点（T6③收编——生产 presign URL 是内网地址不可达〔nginx /flowai location 直代
+ *  127.0.0.1:9000——公网 presigned 面〕+dev CORS；census ⑥禁散抄正则）。videoWorkApi re-export。
+ *  改写语义=上传侧 presigned POST url+读侧 presigned GET（by-key/coverUrl/material 列表）；
+ *  content 路由引用（mediaContentUrl）是同源路径——零改写。 */
+export const toFlowaiUrl = (url: string) => url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+
 export interface MediaUrlResult { url: string; ttlSec: number }
 export function getMediaUrl(fileId: string): Promise<MediaUrlResult> {
   // Promise 返回维持既有调用面（await/Promise.all/类型签名 DownloadArgs.getMediaUrl）
@@ -55,5 +61,5 @@ export async function getPresignedUrlByKey(key: string): Promise<string> {
   const body = await res.json();
   const url = body.data?.url || body.url;
   // Rewrite through /flowai proxy (consistent with all other MinIO access patterns)
-  return url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+  return toFlowaiUrl(url);
 }

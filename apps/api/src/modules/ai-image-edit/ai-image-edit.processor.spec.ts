@@ -9,16 +9,8 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { GenerationIntentService } from '../execution/generation-intent.service';
+import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 import { Job } from 'bullmq';
-
-// Mock axios
-vi.mock('axios', () => ({
-  default: {
-    get: vi.fn(),
-  },
-}));
-
-import axios from 'axios';
 
 describe('AiImageEditProcessor', () => {
   let processor: AiImageEditProcessor;
@@ -29,6 +21,7 @@ describe('AiImageEditProcessor', () => {
   let teamCredit: any;
   let collabDoc: any;
   let intentService: any;
+  let safeFetch: any;
 
   beforeEach(async () => {
     prisma = {
@@ -46,6 +39,10 @@ describe('AiImageEditProcessor', () => {
     };
     gateway = {
       emitNodeStatus: vi.fn(),
+    };
+    // T6：结果下载经 SafeRemoteFetch（SSRF 四门+限长）——axios 直连退役
+    safeFetch = {
+      fetchBuffer: vi.fn().mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' }),
     };
     apiCaller = {
       callOutpainting: vi.fn().mockResolvedValue({ url: 'https://dashscope.result/outpaint.png' }),
@@ -78,6 +75,7 @@ describe('AiImageEditProcessor', () => {
         { provide: CollabWritePort, useValue: collabDoc },
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
         { provide: GenerationIntentService, useValue: intentService },
+        { provide: SafeRemoteFetchService, useValue: safeFetch },
       ],
     }).compile();
     processor = module.get<AiImageEditProcessor>(AiImageEditProcessor);
@@ -86,10 +84,7 @@ describe('AiImageEditProcessor', () => {
   describe('success path', () => {
     it('should outpaint, reserve→settle, and emit edit-result', async () => {
       const mockBuffer = Buffer.from('fake-image-data');
-      (axios.get as any).mockResolvedValue({
-        data: mockBuffer,
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: mockBuffer, contentType: 'image/png' });
 
       const job = {
         data: {
@@ -117,6 +112,8 @@ describe('AiImageEditProcessor', () => {
         expect.objectContaining({ onTick: expect.any(Function) }), // Y0b-2 T4：onTick 双职（心跳+reaper 收敛 abort）
       );
       expect(minio.upload).toHaveBeenCalled();
+      // T6：结果下载经 SafeRemoteFetch.fetchBuffer（SSRF 四门+限长）——不再 axios 直连
+      expect(safeFetch.fetchBuffer).toHaveBeenCalledWith('https://dashscope.result/outpaint.png');
       expect(prisma.media.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -142,10 +139,7 @@ describe('AiImageEditProcessor', () => {
 
     it('should erase with mask, reserve→settle, and emit edit-result', async () => {
       const mockBuffer = Buffer.from('fake-erase-data');
-      (axios.get as any).mockResolvedValue({
-        data: mockBuffer,
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: mockBuffer, contentType: 'image/png' });
 
       const job = {
         data: {
@@ -176,10 +170,7 @@ describe('AiImageEditProcessor', () => {
     });
 
     it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
-      (axios.get as any).mockResolvedValue({
-        data: Buffer.from('fake-image-data'),
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
 
       const job = {
         data: {
@@ -208,10 +199,7 @@ describe('AiImageEditProcessor', () => {
 
     it('project 缺失 → failed 且不建 Media 不外呼（团队解析前移至 reserve/外呼之前）', async () => {
       prisma.canvasProject.findUnique.mockResolvedValue(null);
-      (axios.get as any).mockResolvedValue({
-        data: Buffer.from('fake-image-data'),
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
 
       const job = {
         data: {
@@ -238,6 +226,30 @@ describe('AiImageEditProcessor', () => {
   });
 
   describe('failure path', () => {
+    it('T6 SSRF 拒路径：fetchBuffer 拒（私网/allowlist 外/超限）→ void_ 解冻 + fail 置 FAILED + 零上传零 Media', async () => {
+      safeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch 私网/保留地址拒: dashscope.result → 10.0.0.1'));
+
+      const job = {
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+          intentRowId: 'row-9',
+          intentId: 'i-9',
+        },
+      } as any as Job;
+
+      await expect(processor.process(job)).rejects.toThrow(/safe-fetch/);
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
+      expect(minio.upload).not.toHaveBeenCalled();
+      expect(prisma.media.create).not.toHaveBeenCalled();
+    });
+
     it('API error → void_ 解冻 + fail 置 FAILED（冻结不滞留）+ emit edit-failed', async () => {
       apiCaller.callOutpainting.mockRejectedValue(new Error('API timeout'));
 
@@ -294,10 +306,7 @@ describe('AiImageEditProcessor', () => {
 
     it('reserve 失败（余额不足）→ 外呼零调用 + 意图 VOIDED + 产物零落库 + 返回 failed', async () => {
       teamCredit.reserve.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
-      (axios.get as any).mockResolvedValue({
-        data: Buffer.from('fake-image-data'),
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
 
       const result = await processor.process(makeJob());
       expect(result.status).toBe('failed');
@@ -317,10 +326,7 @@ describe('AiImageEditProcessor', () => {
         userId: 'someone-else',
         projectId: 'other-proj',
       });
-      (axios.get as any).mockResolvedValue({
-        data: Buffer.from('fake-image-data'),
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
 
       await expect(processor.process(makeJob())).rejects.toThrow('Media not found: file-1');
     });
@@ -344,10 +350,7 @@ describe('AiImageEditProcessor', () => {
       }) as any as Job;
 
     const mockResult = () => {
-      (axios.get as any).mockResolvedValue({
-        data: Buffer.from('fake-image-data'),
-        headers: { 'content-type': 'image/png' },
-      });
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
     };
 
     it('reserve 带 intentGuard {intentRowId}（Y0b-1 Z10——金额单源 intent 行；约束① CAS 锚防 stalled 重排双冻结）', async () => {

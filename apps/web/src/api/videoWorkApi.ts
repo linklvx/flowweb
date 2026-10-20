@@ -3,8 +3,9 @@ import type {
   VideoWorkListResult, VideoWorkDetail, VideoCategoryItem, ProcessSnapshotData, VideoWorkSettings,
 } from '@flowweb/shared';
 
-/** /flowai 同源改写（视频 seek 依赖同源拿 Content-Range、img 避 CORS——mediaApi.ts:6 同款） */
-export const toFlowaiUrl = (url: string) => url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+/** /flowai 同源改写单点已收编 mediaApi（T6③——census ⑥正则散抄禁令）；此处 re-export 维持既有 import 面 */
+export { toFlowaiUrl } from './mediaApi';
+import { toFlowaiUrl } from './mediaApi';
 
 export async function fetchVideoWorks(params: { categoryId?: string; page?: number; pageSize?: number } = {}): Promise<VideoWorkListResult> {
   const q = new URLSearchParams();

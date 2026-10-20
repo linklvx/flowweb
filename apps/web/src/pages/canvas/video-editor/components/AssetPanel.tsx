@@ -8,6 +8,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { placeAssetInTrack, assetKindOf } from '../timeline/placement';
 import { ensurePoster } from '../renderer/poster';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 // 批3-3：三种卡片（全集资产/团队素材/生成结果）点击入轨归一化——形状差异由各 onClick 映射，此处只消费统一形状。
 // durationSec 缺省 5 同 drag payload 口径（addClip 未知兜底一致）；无 thumbnailUrl 的视频素材 fire-and-forget 取首帧海报（批3-4）
@@ -74,7 +75,7 @@ export function AssetPanel() {
                 const fd = new FormData();
                 Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
                 fd.append('file', file);
-                await axios.post(uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai'), fd); // /flowai 同源改写避 CORS
+                await axios.post(toFlowaiUrl(uploadUrl), fd); // /flowai 同源改写避 CORS（T6 单点 toFlowaiUrl）
                 await confirmUpload({ fileId, key, fileSize: file.size });
                 setTeamKey(n => n + 1); // 刷新团队素材列表——url/durationSec/mimeType 由 useTeamAssets 的 load 内统一 mergeMediaInfo 回填（R1：上传回调不再手写 merge）
                 void message.success('上传完成');

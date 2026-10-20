@@ -2,6 +2,7 @@
 import axios from 'axios';
 import type { ExportResolution } from '@flowweb/shared';
 import { registerGeneratedMedia, confirmGeneratedMedia } from '@/api/videoProjectApi';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 export interface UploadProductInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width: number; height: number; file: Blob | File; clientRequestId: string; }
 
@@ -30,7 +31,7 @@ export async function uploadExportedProduct(input: UploadProductInput): Promise<
   const fd = new FormData();
   Object.entries(upload.fields).forEach(([k, v]) => fd.append(k, v));
   fd.append('file', input.file);
-  await axios.post(upload.url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai'), fd); // 同源代理改写（AddNodeMenu 同款）
+  await axios.post(toFlowaiUrl(upload.url), fd); // 同源代理改写（toFlowaiUrl 单点——T6③）
   await confirmGeneratedMedia(mediaId);
   return { mediaId };
 }

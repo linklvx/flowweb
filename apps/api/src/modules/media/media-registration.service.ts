@@ -6,7 +6,6 @@ import {
   Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, ConflictException,
 } from '@nestjs/common';
 import { Prisma, Media, ProbeState, MediaBinding } from '@prisma/client';
-import { fromBuffer } from 'file-type';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 
@@ -17,23 +16,7 @@ export const PENDING_UPLOAD_TTL_MS = 24 * 3600_000;
 export const PENDING_UPLOAD_SWEEP_INTERVAL_MS = 3600_000;
 const SWEEP_PAGE = 100;
 
-/** MIME 嗅探（file-type pin 16.x——≥17 纯 ESM vs commonjs；T6 收编独立 sniff 模块单 import 点）。
- *  任何异常（含 EndOfStream 过短缓冲）一律 null=不可判型 → 白名单外拒。 */
-export async function sniffMimeType(head: Buffer): Promise<string | null> {
-  try {
-    return (await fromBuffer(head))?.mime ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** 上传白名单（spec Z7''）：image/|video/|audio/ 家族；SVG 一律拒
- *  （file-type 对 svg 文本报 application/xml——家族外自动拒；显式排除防未来 sniff 升级开口）。 */
-export function isAllowedUploadMime(mime: string | null): boolean {
-  if (!mime) return false;
-  if (mime === 'image/svg+xml' || mime === 'image/svg') return false;
-  return mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/');
-}
+// T6④：sniffMimeType/isAllowedUploadMime 提取至 ./sniff（file-type 单一 import 点）——消费点改经 sniff 模块。
 
 /** confirm 按 sniffed 重算 probeState（spec Z7'' :311——probe claim 只吃 image/video 非 SVG；
  *  audio 无 natural 可算=skipped。伪报 audio 的图片字节→pending，probe 路由以 sniffed 为准）。 */

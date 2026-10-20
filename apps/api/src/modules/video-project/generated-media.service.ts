@@ -78,9 +78,12 @@ export class GeneratedMediaService {
     const seekSec = Math.max(1, durationSec * 0.1); // 防前导黑场黑帧；consumer 需支持可选 seekSec（默认 1 保持旧行为）
     await this.thumbnailQueue.add('generate-thumbnail',
       { mediaId: media.id, key: media.key, mimeType: 'video/mp4', seekSec });
-    return this.prisma.media.update({
+    await this.prisma.media.update({
       where: { id: media.id },
       data: { status: 'completed', size: actualSize, expiresAt: null }, // completed 不进 24h 回收
     });
+    // T6 BigInt 序列化（禁全局 patch）：update 整行含 size/factVersion BigInt 列（JSON.stringify 必炸 500）
+    // ——web 不消费响应体（Promise<unknown>），显式 DTO 同 storage.confirmUpload 口径
+    return { fileId: media.id };
   }
 }

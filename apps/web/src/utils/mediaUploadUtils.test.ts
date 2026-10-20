@@ -17,6 +17,8 @@ vi.mock('@/api/storageApi', () => ({
 
 vi.mock('@/api/mediaApi', () => ({
   getMediaUrl: mocks.getMediaUrl,
+  // T6③：生产面 /flowai 改写单点 toFlowaiUrl——mock 同语义直通（'http://minio/flowai/x'→'/flowai/x'）
+  toFlowaiUrl: (u: string) => u.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai'),
 }));
 
 vi.mock('axios', () => ({

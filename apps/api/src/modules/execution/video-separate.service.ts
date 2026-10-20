@@ -53,7 +53,7 @@ export class VideoSeparateService {
     }
 
     // 2. Lightweight DB-field validation
-    if (Number(media.size) > MAX_FILE_SIZE) { // Media.size BigInt（T2 质评收口）——比较域机械适配（序列化归 T6 BigInt.toJSON）
+    if (Number(media.size) > MAX_FILE_SIZE) { // Media.size BigInt（T2 质评收口）——比较域机械适配（T6 收紧：禁全局 BigInt.prototype.toJSON——job data 无 BigInt 面）
       throw new BadRequestException('文件过大（>2GB），请拆分后处理');
     }
     if (!SUPPORTED_VIDEO_MIME_TYPES.includes(media.mimeType)) {

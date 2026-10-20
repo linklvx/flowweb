@@ -12,6 +12,7 @@ import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
 import { ExecutionCoreModule } from '../execution/execution-core.module';
 import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';
+import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { TeamModule } from '../team/team.module';
       name: AI_DOWNLOAD_QUEUE_NAME,
     }),
   ],
-  providers: [AiDownloadProcessor],
+  providers: [AiDownloadProcessor, SafeRemoteFetchService],   // T6：下载原语（MediaModule 闭包脏不可导入——平铺注册）
   exports: [BullModule],
 })
 export class AiDownloadCoreModule {}

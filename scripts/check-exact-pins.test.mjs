@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkExactPins, EXACT_PINS, OVERRIDES, LOCKFILE_ENTRIES } from './check-exact-pins.mjs';
 
-const okApi = { dependencies: { yjs: '13.6.32', sharp: '0.34.5', 'file-type': '16.5.4' } };
+const okApi = { dependencies: { yjs: '13.6.32', sharp: '0.34.5', 'file-type': '16.5.4', undici: '7.30.1' } };
 const okWeb = { dependencies: { yjs: '13.6.32', 'fast-deep-equal': '3.1.3' } };
 const okRoot = { pnpm: { overrides: { yjs: '13.6.32', sharp: '0.34.5', 'fast-deep-equal': '3.1.3' } } };
 const okLock = [
@@ -100,7 +100,7 @@ test('lockfile 锚缩进边界：嵌套层四空格条目行不命中两空格�
 
 test('常量表自恰：EXACT_PINS 两文件/OVERRIDES 三键/LOCKFILE_ENTRIES 三键（manifest 契约防无声缩水）', () => {
   assert.deepEqual(Object.keys(EXACT_PINS), ['apps/api/package.json', 'apps/web/package.json']);
-  assert.deepEqual(Object.keys(EXACT_PINS['apps/api/package.json']).sort(), ['file-type', 'sharp', 'yjs']);
+  assert.deepEqual(Object.keys(EXACT_PINS['apps/api/package.json']).sort(), ['file-type', 'sharp', 'undici', 'yjs']);
   assert.deepEqual(Object.keys(EXACT_PINS['apps/web/package.json']).sort(), ['fast-deep-equal', 'yjs']);
   assert.deepEqual(Object.keys(OVERRIDES).sort(), ['fast-deep-equal', 'sharp', 'yjs']);
   assert.deepEqual(Object.keys(LOCKFILE_ENTRIES).sort(), ['fast-deep-equal', 'file-type', 'sharp']);

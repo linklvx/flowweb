@@ -1,4 +1,5 @@
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 interface UploadResult {
   index: number;
@@ -70,7 +71,7 @@ async function uploadOne(
   formData.append('file', blob, fileName);
 
   // Rewrite presigned URL through Vite proxy in dev (pattern shared with materialLibraryStore upload)
-  const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+  const proxyUrl = toFlowaiUrl(uploadUrl);
 
   const postRes = await fetch(proxyUrl, {
     method: 'POST',

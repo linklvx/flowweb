@@ -18,7 +18,7 @@ export class StorageQuotaService {
       _sum: { size: true },
       where: { teamId, status: 'completed', deletedAt: null },
     });
-    return Number(agg._sum.size ?? 0); // Media.size BigInt（T2 质评收口）——用量算术域保持 number 机械适配（序列化归 T6 BigInt.toJSON）
+    return Number(agg._sum.size ?? 0); // Media.size BigInt（T2 质评收口）——用量算术域保持 number（T6 收紧：禁全局 BigInt.prototype.toJSON，序列化在响应构造处显式转换——本返回已 number 无 BigInt 面）
   }
 
   /** presign 前校验（Q7 第一道） */

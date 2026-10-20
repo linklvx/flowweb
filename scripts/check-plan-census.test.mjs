@@ -7,6 +7,8 @@ import {
   findBareExecSeqComparison,
   findDocNodeRecordResidue,
   compareExecSeqDefinitionSites,
+  findFlowaiRewriteRedeclaration,
+  extractTtlConstValue,
 } from './check-plan-census.mjs';
 import { stripCommentsAndStrings } from './check-collab-census.mjs';
 
@@ -57,4 +59,23 @@ test('compareExecSeqDefinitionSites：function/= 定义命中；调用/import/�
     'const g: typeof compareExecSeq = compareExecSeq;',                // 命中（= 定义别名）
   ].join('\n'));
   assert.deepEqual(compareExecSeqDefinitionSites(stripped.split('\n')), [1, 5]);
+});
+
+test('findFlowaiRewriteRedeclaration：改写正则字面量命中；单点定义/纯字符串/注释不命中（T6⑥）', () => {
+  const raw = [
+    "const proxy = url.replace(/^https?:\\/\\/[^/]+\\/flowai/, '/flowai');",  // 命中（散抄正则）
+    "export const toFlowaiUrl = (url: string) => url.replace(/^https?:\\/\\/[^/]+\\/flowai/, '/flowai');",  // 单点定义——主流程白名单豁免（helper 本身命中）
+    "const p = '/flowai/up';",                                            // 纯字符串——stripped 剥内容不命中
+    "const mediaUrl = `/api/media/${fileId}/content`;",                  // content 路径——不命中
+    '// 改写 /flowai（注释）',                                             // 注释——剥离不命中
+  ].join('\n');
+  const stripped = stripCommentsAndStrings(raw);
+  assert.deepEqual(findFlowaiRewriteRedeclaration(stripped.split('\n')), [1, 2]);
+});
+
+test('extractTtlConstValue：数字字面量提取（含 _ 分隔）；未定义/非数字形态 null（T6⑦）', () => {
+  assert.equal(extractTtlConstValue('export const MEDIA_URL_CACHE_TTL_SEC = 86_400;', 'MEDIA_URL_CACHE_TTL_SEC'), 86400);
+  assert.equal(extractTtlConstValue('export const MEDIA_CONTENT_URL_TTL_SEC = 86_400;', 'MEDIA_CONTENT_URL_TTL_SEC'), 86400);
+  assert.equal(extractTtlConstValue('export const X = 3600;', 'MEDIA_URL_CACHE_TTL_SEC'), null);
+  assert.equal(extractTtlConstValue('const A = SEC_900;', 'A'), null);   // 非纯数字——null（防误提标识符）
 });

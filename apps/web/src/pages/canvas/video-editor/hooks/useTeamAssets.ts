@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useEditorStore } from '../store/editorStore';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 export interface TeamAssetItem { mediaId: string; name: string; mimeType: string; url?: string; thumbnailUrl?: string | null; durationSec?: number; }
 
@@ -35,8 +36,8 @@ export function useTeamAssets(refreshKey?: number): { items: TeamAssetItem[]; lo
             mediaId: String(f.id),
             name: String(f.originalName ?? f.name ?? f.id),
             mimeType: String(f.mimeType),
-            url: typeof f.url === 'string' ? f.url.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai') : undefined,
-            thumbnailUrl: typeof f.thumbnailUrl === 'string' ? f.thumbnailUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai') : null,
+            url: typeof f.url === 'string' ? toFlowaiUrl(f.url) : undefined,
+            thumbnailUrl: typeof f.thumbnailUrl === 'string' ? toFlowaiUrl(f.thumbnailUrl) : null,
             durationSec: (f.metadata as { durationSec?: number } | null | undefined)?.durationSec,
           }));
         setItems(mapped);

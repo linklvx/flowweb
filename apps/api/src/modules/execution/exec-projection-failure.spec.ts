@@ -77,6 +77,7 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       { writeExecStatus } as any,   // collabDoc
       {} as any,                                                                                                 // lightingConsumer
       { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-2', attempts: 0 }), fail } as any,             // intentService
+      {} as any,                                                                                                 // safeFetch（T6 注入面——onFailed 钩子不触下载）
     );
     const d = await causeDelta('not-serving', () =>
       proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('edit boom')));

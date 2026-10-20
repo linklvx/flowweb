@@ -44,6 +44,7 @@ import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds
 // B6-1（Spec B）：handle 可用性单源谓词——编辑中（editMode 或 transformMode）双侧无（删 !editMode 直判防双轨）
 import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
@@ -344,7 +345,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(uploadUrl);
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -383,7 +384,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
-      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(uploadUrl);
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
@@ -532,7 +533,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       const fd = new FormData();
       Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
       fd.append('file', file);
-      const proxy = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxy = toFlowaiUrl(uploadUrl);
       await axios.post(proxy, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
@@ -603,7 +604,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       const formData = new FormData();
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
-      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(uploadUrl);
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000,
       });
@@ -653,7 +654,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         const fd = new FormData();
         Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
         fd.append('file', maskFile);
-        const proxy = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+        const proxy = toFlowaiUrl(uploadUrl);
         await axios.post(proxy, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
         await confirmUpload({ fileId: maskId, key, fileSize: maskFile.size });
         body.maskFileId = maskId;

@@ -90,6 +90,7 @@ vi.mock('image-conversion', () => ({
 
 vi.mock('@/api/mediaApi', () => ({
   getMediaUrl: vi.fn().mockResolvedValue({ url: 'http://minio/flowai/test-file.png' }),
+  toFlowaiUrl: (u: string) => u.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai'),   // T6③：/flowai 改写单点 mock 同语义
 }));
 
 // Dynamic import AFTER mocks are set up

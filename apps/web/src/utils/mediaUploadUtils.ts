@@ -1,5 +1,5 @@
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { getMediaUrl } from '@/api/mediaApi';
+import { getMediaUrl, toFlowaiUrl } from '@/api/mediaApi';
 import axios from 'axios';
 
 export interface UploadImageBlobResult {
@@ -28,7 +28,7 @@ export async function uploadImageBlob(blob: Blob, projectId?: string): Promise<U
   Object.entries(presign.fields).forEach(([k, v]) => formData.append(k, v));
   formData.append('file', blob, presign.key.split('/').pop() || fileName);
 
-  const proxyUrl = presign.uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+  const proxyUrl = toFlowaiUrl(presign.uploadUrl);
 
   await axios.post(proxyUrl, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

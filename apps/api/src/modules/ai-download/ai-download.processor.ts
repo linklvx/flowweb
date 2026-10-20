@@ -7,10 +7,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { EmitPort } from '../gateway/emit.port';
+import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 import { artifactDiscardedTotal } from '../execution/exec.metrics';
 import { AI_DOWNLOAD_QUEUE_NAME } from './ai-download.constants';
-import axios from 'axios';
-import axiosRetry from 'axios-retry';
 
 export interface AiDownloadJobData {
   userId: string;
@@ -24,7 +23,6 @@ export interface AiDownloadJobData {
 @Processor(AI_DOWNLOAD_QUEUE_NAME)
 export class AiDownloadProcessor extends WorkerHost {
   private readonly logger = new Logger(AiDownloadProcessor.name);
-  private retryConfigured = false;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -32,39 +30,18 @@ export class AiDownloadProcessor extends WorkerHost {
     @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 2 调用点改道 emit 端口（api=Direct/worker=降级 no-op）
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
+    // T6：下载经 SafeRemoteFetch（SSRF 四门+流式限长）——axios/axios-retry 直连退役（BullMQ attempts:3 承担重试面）
+    @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
   ) {
     super();
-  }
-
-  private ensureRetryConfigured(): void {
-    if (this.retryConfigured) return;
-    // Guard: only configure axios-retry when axios has the expected structure
-    // (avoids crash when axios is mocked in tests)
-    if (typeof (axios as any).request === 'function') {
-      axiosRetry(axios, {
-        retries: 3,
-        retryDelay: (retryCount) => axiosRetry.exponentialDelay(retryCount),
-        retryCondition: (error) =>
-          axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-          (!!error.response && error.response.status >= 500),
-      });
-    }
-    this.retryConfigured = true;
   }
 
   async process(job: Job<AiDownloadJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
     const { userId, projectId, nodeId, taskId, resultUrl, mimeType } = job.data;
     this.logger.log(`Downloading AI result: ${resultUrl}`);
 
-    this.ensureRetryConfigured();
-
-    // 1. Download AI result with axios-retry
-    const response = await axios.get(resultUrl, {
-      responseType: 'arraybuffer',
-      timeout: 120000, // 2 min timeout for large files
-    });
-
-    const buffer = Buffer.from(response.data);
+    // 1. Download AI result（T6：SSRF 四门+限长经 SafeRemoteFetch）
+    const { buffer } = await this.safeFetch.fetchBuffer(resultUrl);
     const ext = mimeType.split('/')[1] || 'bin';
 
     // 2. Build key and upload to MinIO

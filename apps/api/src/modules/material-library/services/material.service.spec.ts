@@ -350,4 +350,57 @@ describe('MaterialService', () => {
       expect(prisma.media.updateMany).not.toHaveBeenCalled();
     });
   });
+
+  // T6 BigInt 四读路径④（material spread——收紧裁决：禁全局 BigInt.prototype.toJSON，
+  // 响应构造处显式转换）：Media.size/factVersion/sourceExecSeq 为 BigInt 列，整行 spread 进
+  // HTTP 响应必炸 JSON.stringify（Express "Do not know how to serialize a BigInt" → 500）。
+  const bigintRow = (over: Record<string, unknown> = {}) => ({
+    id: 'm-1', key: 'key1', originalName: 'a.png', mimeType: 'image/png',
+    size: BigInt(1024),            // Media.size BigInt（Y1b T2 列型）
+    factVersion: BigInt(3),        // Media.factVersion BigInt（Z7''——wire 用 string）
+    sourceExecSeq: BigInt(7),      // Media.sourceExecSeq BigInt
+    thumbnailKey: null, folderId: null, ...over,
+  });
+
+  describe('T6 BigInt 序列化（DTO/响应边界显式转换——禁全局 patch）', () => {
+    it('getFilesByFolderId：行可 JSON.stringify（size→number 展示口径；factVersion/sourceExecSeq→string 身份键）', async () => {
+      prisma.media.findMany.mockResolvedValue([bigintRow()]);
+      minio.generatePresignedGetUrl.mockResolvedValue('http://minio/signed/a.png');
+
+      const rows = await service.getFilesByFolderId('user-1', null);
+      const parsed = JSON.parse(JSON.stringify(rows));   // 现状 TypeError——红
+      expect(parsed[0].size).toBe(1024);
+      expect(parsed[0].factVersion).toBe('3');
+      expect(parsed[0].sourceExecSeq).toBe('7');
+    });
+
+    it('getFilesByFolderId：sourceExecSeq null 行可序列化（string|null 联合）', async () => {
+      prisma.media.findMany.mockResolvedValue([bigintRow({ sourceExecSeq: null })]);
+      minio.generatePresignedGetUrl.mockResolvedValue('http://minio/signed/a.png');
+
+      const parsed = JSON.parse(JSON.stringify(await service.getFilesByFolderId('user-1', null)));
+      expect(parsed[0].sourceExecSeq).toBeNull();
+    });
+
+    it('moveFile：update 整行返回可 JSON.stringify', async () => {
+      prisma.media.findFirst.mockResolvedValue(bigintRow());
+      prisma.materialFolder.findFirst.mockResolvedValue({ id: 'f-1', teamId: 't1' });
+      prisma.media.update.mockResolvedValue(bigintRow({ folderId: 'f-1' }));
+
+      const updated = await service.moveFile('user-1', 'm-1', 'f-1');
+      const parsed = JSON.parse(JSON.stringify(updated));   // 现状 TypeError——红
+      expect(parsed.size).toBe(1024);
+      expect(parsed.factVersion).toBe('3');
+    });
+
+    it('toggleFavorite：update 整行返回可 JSON.stringify', async () => {
+      prisma.media.findFirst.mockResolvedValue(bigintRow({ isFavorite: false }));
+      prisma.media.update.mockResolvedValue(bigintRow({ isFavorite: true }));
+
+      const updated = await service.toggleFavorite('user-1', 'm-1');
+      const parsed = JSON.parse(JSON.stringify(updated));   // 现状 TypeError——红
+      expect(parsed.size).toBe(1024);
+      expect(parsed.sourceExecSeq).toBe('7');
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { compressAccurately } from 'image-conversion';
 import axios from 'axios';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 export function useImageUpload(nodeId: string) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
@@ -63,7 +64,7 @@ export function useImageUpload(nodeId: string) {
       formData.append('file', uploadFile, file.name);
 
       // Proxy URL rewrite for dev
-      const proxyUrl = presign.uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(presign.uploadUrl);
 
       // Upload with progress (throttle: only update store when >= 10% change)
       let lastProgress = 0;

@@ -68,6 +68,13 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
     await expect(svc.confirm('u1', { mediaId: 'm1' })).rejects.toThrow(ForbiddenException);
   });
 
+  it('T6 BigInt 序列化：confirm 返回可 JSON.stringify（现状 return media.update 整行——size BigInt 必炸 500；收紧=显式 DTO，禁全局 patch）', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm1', userId: 'u1', key: 'k.mp4', metadata: { durationSec: 30 } });
+    prisma.media.update.mockResolvedValue({ id: 'm1', size: BigInt(12_345_678), factVersion: BigInt(1), sourceExecSeq: null });
+    const r = await svc.confirm('u1', { mediaId: 'm1' });
+    expect(() => JSON.stringify(r)).not.toThrow();   // 现状 TypeError——红
+  });
+
   // —— 批7-1（P1-D）：confirm 终判 + clientRequestId 幂等 + generated pending 24h TTL ——
 
   it('confirm 超限回滚：assertOnConfirm 抛（其内部已删对象+删行）→ BadRequestException 传播且 thumbnailQueue.add 未被调（插入点在 add 之前——缩略图不得指向死行）', async () => {

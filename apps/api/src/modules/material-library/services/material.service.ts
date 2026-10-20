@@ -21,6 +21,18 @@ export class MaterialService {
     return resolved;
   }
 
+  /** T6 BigInt 序列化（禁全局 BigInt.prototype.toJSON——DTO/响应边界显式转换）：
+   *  Media.size（BigInt 列）→ number（<2^53 展示口径）；factVersion/sourceExecSeq（BigInt 身份键列）
+   *  → string（Z7'' wire 口径）/null 保持。本服务三个响应出口共用。 */
+  private serializeMediaRow<T extends Record<string, unknown>>(file: T) {
+    return {
+      ...file,
+      size: Number(file.size),
+      factVersion: String(file.factVersion),
+      sourceExecSeq: file.sourceExecSeq == null ? null : String(file.sourceExecSeq),
+    };
+  }
+
   async getFilesByFolderId(userId: string, folderId: string | null, type?: 'image' | 'video' | 'audio', teamId?: string) {
     const resolved = await this.resolveTeamId(teamId, userId);
     const where: any = { teamId: resolved, folderId, deletedAt: null };
@@ -49,7 +61,7 @@ export class MaterialService {
     // 3600s = 1hr for file list, sufficient for browse session
     return Promise.all(
       files.map(async (file) => ({
-        ...file,
+        ...this.serializeMediaRow(file),   // T6：BigInt 列显式转换（size/factVersion/sourceExecSeq）
         url: await this.minioService.generatePresignedGetUrl(file.key, 3600),
         thumbnailUrl: file.thumbnailKey
           ? await this.minioService.generatePresignedGetUrl(file.thumbnailKey, 3600)
@@ -86,7 +98,7 @@ export class MaterialService {
       });
     }
 
-    return updated;
+    return this.serializeMediaRow(updated as Record<string, unknown>);   // T6：BigInt 列显式转换
   }
 
   async toggleFavorite(userId: string, fileId: string, teamId?: string) {
@@ -96,10 +108,12 @@ export class MaterialService {
     });
     if (!file) throw new BadRequestException('文件不存在');
 
-    return this.prisma.media.update({
+    const updated = await this.prisma.media.update({
       where: { id: fileId },
       data: { isFavorite: !file.isFavorite },
     });
+
+    return this.serializeMediaRow(updated as Record<string, unknown>);   // T6：BigInt 列显式转换
   }
 
   async deleteFile(userId: string, fileId: string, teamId?: string) {

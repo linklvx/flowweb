@@ -17,7 +17,8 @@ export const EXACT_PINS = {
   'apps/api/package.json': {
     yjs: '13.6.32',          // 与 @hocuspocus 契约锁同版（check-hocuspocus-pin 锁 lockfile 面）
     sharp: '0.34.5',         // Y1a probe 40MP+并发 1 的行为基线版本
-    'file-type': '16.5.4',   // 16.x 末版（CJS）；17+ 纯 ESM 禁用
+    'file-type': '16.5.4',   // 16.x 末版（CJS）；17+ 纯 ESM 禁用（T6④ sniff.ts 唯一 import 点）
+    undici: '7.30.1',        // T6① SafeRemoteFetch dispatcher 载体（Agent 钉 IP——TOCTOU 闭环）；与 global fetch 分实例
   },
   'apps/web/package.json': {
     yjs: '13.6.32',

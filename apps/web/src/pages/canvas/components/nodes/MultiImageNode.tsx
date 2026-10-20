@@ -12,6 +12,7 @@ import { MultiImageConfigPanel } from './MultiImageConfigPanel';
 import { calcConstrainedSize, multiImageSize, multiImageGridCols, MULTI_IMAGE_GAP, type SizeBounds } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 import axios from 'axios';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 const STACKED_MAX_W = 450;
 const STACKED_MAX_H = 450;
@@ -156,7 +157,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
         Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
         formData.append('file', file);
 
-        const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+        const proxyUrl = toFlowaiUrl(uploadUrl);
 
         await axios.post(proxyUrl, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },

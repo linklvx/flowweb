@@ -10,7 +10,7 @@ import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { artifactDiscardedTotal } from '../../execution/exec.metrics';
-import axios from 'axios';
+import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
 
 const LightingTaskStatus = {
   PENDING: 'pending',
@@ -82,6 +82,8 @@ export class LightingConsumer {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    // T6：结果下载经 SafeRemoteFetch（SSRF 四门+流式限长）——axios 直连退役
+    @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
   ) {}
 
   async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
@@ -149,14 +151,11 @@ export class LightingConsumer {
         throw new Error('AI relighting returned no result URL');
       }
 
-      // 6. Download result image
-      const response = await axios.get(result.url, {
-        responseType: 'arraybuffer',
-        timeout: 120000,
-      });
+      // 6. Download result image（T6：SSRF 四门+限长经 SafeRemoteFetch）
+      const fetched = await this.safeFetch.fetchBuffer(result.url);
 
-      const buffer = Buffer.from(response.data);
-      const contentType: string = String(response.headers['content-type'] || 'image/png');
+      const buffer = fetched.buffer;
+      const contentType: string = String(fetched.contentType || 'image/png');
       const ext = contentType.split('/')[1] || 'png';
 
       // 7. Upload to MinIO

@@ -13,8 +13,7 @@ import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metri
 import { artifactDiscardedTotal, countExecProjectionFailure } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
-import axios from 'axios';
-import axiosRetry from 'axios-retry';
+import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 
 export interface AiImageEditJobData {
   taskType: 'outpaint' | 'erase' | 'redraw' | 'lighting';
@@ -41,7 +40,6 @@ export interface AiImageEditJobData {
 @Processor(AI_IMAGE_EDIT_QUEUE_NAME, { maxStalledCount: 1, lockDuration: 60_000 })
 export class AiImageEditProcessor extends WorkerHost {
   private readonly logger = new Logger(AiImageEditProcessor.name);
-  private retryConfigured = false;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -52,24 +50,10 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
     @Inject(LightingConsumer) private readonly lightingConsumer: LightingConsumer,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    // T6：结果下载经 SafeRemoteFetch（SSRF 四门+流式限长）——axios/axios-retry 直连退役
+    @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
   ) {
     super();
-  }
-
-  private ensureRetryConfigured(): void {
-    if (this.retryConfigured) return;
-    // Guard: only configure axios-retry when axios has the expected structure
-    // (avoids crash when axios is mocked in tests)
-    if (typeof (axios as any).request === 'function') {
-      axiosRetry(axios, {
-        retries: 3,
-        retryDelay: (retryCount) => axiosRetry.exponentialDelay(retryCount),
-        retryCondition: (error) =>
-          axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-          (!!error.response && error.response.status >= 500),
-      });
-    }
-    this.retryConfigured = true;
   }
 
   private async getMediaKey(fileId: string, userId: string, projectId: string): Promise<string> {
@@ -83,8 +67,6 @@ export class AiImageEditProcessor extends WorkerHost {
   async process(job: Job<AiImageEditJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
     const { taskType, userId, projectId, nodeId, fileId, maskFileId, rect, imageWidth, imageHeight, prompt, strength, intentRowId, intentId } = job.data;
     this.logger.log(`Processing ${taskType} for node ${nodeId}`);
-
-    this.ensureRetryConfigured();
 
     try {
       // 1. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队
@@ -181,14 +163,11 @@ export class AiImageEditProcessor extends WorkerHost {
           throw new Error(`Unknown taskType: ${taskType}`);
       }
 
-      // 7. Download the result image
-      const response = await axios.get(result.url, {
-        responseType: 'arraybuffer',
-        timeout: 120000,
-      });
+      // 7. Download the result image（T6：SSRF 四门+限长经 SafeRemoteFetch）
+      const fetched = await this.safeFetch.fetchBuffer(result.url);
 
-      const buffer = Buffer.from(response.data);
-      const contentType: string = String(response.headers['content-type'] || 'image/png');
+      const buffer = fetched.buffer;
+      const contentType: string = String(fetched.contentType || 'image/png');
       const ext = contentType.split('/')[1] || 'png';
 
       // 8. Upload to MinIO

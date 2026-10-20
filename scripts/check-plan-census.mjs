@@ -53,6 +53,21 @@ export function compareExecSeqDefinitionSites(strippedLines) {
   return strippedLines.flatMap((l, i) => (RE.test(l) ? [i + 1] : []));
 }
 
+/** ⑥/flowai 改写正则散抄检测（T6③）：正则字面量中 `\/flowai`（如 /^https?:\/\/[^/]+\/flowai/）
+ *  ＝绕开 toFlowaiUrl 单点的局部重实现。stripped 面（字符串字面量内容被剥——'/flowai' 纯字符串
+ *  不在此面；注释剥除；正则字面量按 check-collab-census 惯例保留原文）。 */
+export function findFlowaiRewriteRedeclaration(strippedLines) {
+  const RE = /\\\/flowai/;
+  return strippedLines.flatMap((l, i) => (RE.test(l) ? [i + 1] : []));
+}
+
+/** ⑦跨端 TTL 常量提取（T6③ 双端 mediaContentUrl 单源锁）：web mediaApi.MEDIA_URL_CACHE_TTL_SEC
+ *  与 api media-batch.MEDIA_CONTENT_URL_TTL_SEC 跨端无法共享类型——数值提取由 census 比对防漂移。 */
+export function extractTtlConstValue(raw, constName) {
+  const m = raw.match(new RegExp(`${constName}\\s*=\\s*([0-9][0-9_]*)`));
+  return m ? Number(m[1].replace(/_/g, '')) : null;
+}
+
 const results = [];
 function report(id, title, pass, details) {
   results.push({ id, title, pass, details });
@@ -137,6 +152,42 @@ if (isMain()) {
     const pass = sites.length === 1 && sites[0].startsWith('packages/shared/src/canvas/media-fact.ts');
     report('⑤', 'compareExecSeq 定义唯一=shared media-fact.ts（防第二实现漂移）', pass,
       pass ? [] : [`定义点 ${sites.length} 处：${sites.join(' / ') || '零（单源缺失）'}——期望恰 1 处 media-fact.ts`]);
+  }
+
+  // ⑥/flowai 改写正则单点（T6③）：web 生产面改写正则仅 mediaApi.ts toFlowaiUrl 定义点——
+  //    读侧 content 路径（mediaContentUrl）零 /flowai；测试面不在 collectProductionFiles 扫描集。
+  {
+    const TOFLOWAI_DEF_FILE = 'apps/web/src/api/mediaApi.ts';
+    const details = [];
+    for (const f of byFile) {
+      if (!f.rel.startsWith('apps/web/src/')) continue;
+      if (f.rel === TOFLOWAI_DEF_FILE) continue;
+      for (const line of findFlowaiRewriteRedeclaration(f.stripped.split('\n'))) {
+        details.push(`${f.rel}:${line} /flowai 改写正则散抄——改 import { toFlowaiUrl } from '@/api/mediaApi'`);
+      }
+    }
+    report('⑥', `/flowai 改写正则清零（单点=${TOFLOWAI_DEF_FILE} toFlowaiUrl；读侧 content 路径零改写）`, details.length === 0, details);
+  }
+
+  // ⑦双端 mediaContentUrl 单源锁（T6③）：web/api 两处定义恰在锚文件+TTL 常量数值一致（跨端无
+  //    共享类型层——census 数值比对防漂移；值改动=双端同步有意识动作）。
+  {
+    const details = [];
+    const WEB_API = path.join(ROOT, 'apps/web/src/api/mediaApi.ts');
+    const API_SVC = path.join(ROOT, 'apps/api/src/modules/media/media-batch.service.ts');
+    const webRaw = fs.readFileSync(WEB_API, 'utf8');
+    const apiRaw = fs.readFileSync(API_SVC, 'utf8');
+    const defSites = byFile.flatMap((f) =>
+      /export function mediaContentUrl/.test(f.stripped) ? [f.rel] : []);
+    if (!(defSites.length === 2 && defSites.includes('apps/web/src/api/mediaApi.ts') && defSites.includes('apps/api/src/modules/media/media-batch.service.ts'))) {
+      details.push(`mediaContentUrl 定义点 ${defSites.length} 处：${defSites.join(' / ')}——期望恰 2（web mediaApi.ts+api media-batch.service.ts）`);
+    }
+    const webTtl = extractTtlConstValue(webRaw, 'MEDIA_URL_CACHE_TTL_SEC');
+    const apiTtl = extractTtlConstValue(apiRaw, 'MEDIA_CONTENT_URL_TTL_SEC');
+    if (webTtl == null || apiTtl == null || webTtl !== apiTtl) {
+      details.push(`TTL 漂移：web MEDIA_URL_CACHE_TTL_SEC=${webTtl} vs api MEDIA_CONTENT_URL_TTL_SEC=${apiTtl}——双端须同步改`);
+    }
+    report('⑦', '双端 mediaContentUrl 单源锁（定义恰 2 锚文件+TTL 数值一致）', details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

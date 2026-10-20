@@ -27,7 +27,7 @@ export class MediaBatchService {
     });
     return rows.map((r) => ({
       ...r,
-      // size BigInt（Y1b T2 列型）→ number（<2^53 展示口径；T6 BigInt.prototype.toJSON 全局补丁后自然统一）
+      // size BigInt（Y1b T2 列型）→ number（<2^53 展示口径；T6 收紧：禁全局 BigInt.prototype.toJSON——DTO/响应构造处显式转换）
       size: Number(r.size),
       url: mediaContentUrl(r.id),
       thumbnailUrl: r.thumbnailKey ? mediaContentUrl(r.id, 'thumbnail') : null,

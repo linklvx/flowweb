@@ -30,6 +30,7 @@ import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds
 import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 import axios from 'axios';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 const MAX_WIDTH = 548;
 const MAX_HEIGHT = 500;
@@ -465,7 +466,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(uploadUrl);
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },

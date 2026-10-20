@@ -6,9 +6,8 @@ import { ConfirmUploadDto } from './dto/confirm.dto';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import {
-  MediaRegistrationService, sniffMimeType, isAllowedUploadMime,
-} from '../media/media-registration.service';
+import { MediaRegistrationService } from '../media/media-registration.service';
+import { sniffMimeType, isAllowedUploadMime } from '../media/sniff';   // T6④：file-type 单一 import 点
 
 @Injectable()
 export class StorageService {
@@ -81,7 +80,7 @@ export class StorageService {
     // 构成任意对象删除面。禁止回退 `media.size ?? dto.fileSize`（会让本性质静默失效）。
     const actualSize = await this.minio.statSize(media.key);
 
-    if (Math.abs(actualSize - Number(media.size)) > 1024) { // Media.size BigInt（T2 质评收口）——比较域转 number 机械适配（序列化归 T6 BigInt.toJSON）
+    if (Math.abs(actualSize - Number(media.size)) > 1024) { // Media.size BigInt（T2 质评收口）——比较域转 number 机械适配（T6 收紧：禁全局 BigInt.prototype.toJSON——本响应仅 fileId 无 BigInt 面）
       await this.minio.delete(media.key);
       await this.registration.deletePending(dto.fileId);
       throw new BadRequestException('文件大小不匹配，请重新上传');

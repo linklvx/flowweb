@@ -48,6 +48,8 @@ import { VIDEO_SEPARATE_QUEUE } from './modules/execution/video-separate.constan
 import { AiImageEditProcessor } from './modules/ai-image-edit/ai-image-edit.processor';
 import { LightingConsumer } from './modules/ai-image-edit/lighting/lighting.consumer';
 import { AiDownloadProcessor } from './modules/ai-download/ai-download.processor';
+// T6：三处结果下载经 SafeRemoteFetch——MediaModule 闭包含 controller（census ⑰）不可导入，平铺注册（零依赖服务多实例语义等同）
+import { SafeRemoteFetchService } from './modules/media/safe-remote-fetch.service';
 // ── storyboard/material/temp-cleanup ──
 import { StitchConsumer } from './modules/storyboard/stitch.consumer';
 import { ThumbnailGeneratorConsumer } from './modules/material-library/consumers/thumbnail-generator.consumer';
@@ -138,6 +140,7 @@ const env = validateEnv();
     TeamCloseExpiredProcessor,
     // ── execution 链服务（processor 传递依赖平铺） ──
     ExecutionService,
+    SafeRemoteFetchService,   // T6：ai-download/ai-image-edit/lighting 下载原语（SSRF 四门+限长）
     GenerationIntentService,
     TopologyService,
     ValidationService,

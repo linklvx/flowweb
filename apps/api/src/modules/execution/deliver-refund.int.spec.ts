@@ -21,9 +21,8 @@ import { balanceDriftTotal } from './intent-reconcile.metrics';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 
-// A-1 装置：axios mock（processor/consumer 产物下载面——vi.mock 提升覆盖两处 import）
-vi.mock('axios', () => ({ default: { get: vi.fn() } }));
-import axios from 'axios';
+// T6 装置：产物下载面=SafeRemoteFetch（axios 直连退役）
+const safeFetchStub: any = { fetchBuffer: vi.fn(async () => ({ buffer: Buffer.from('img'), contentType: 'image/png' })) };
 import { AiImageEditProcessor } from '../ai-image-edit/ai-image-edit.processor';
 import { LightingConsumer } from '../ai-image-edit/lighting/lighting.consumer';
 import { normalizeIntentParams } from './normalize-intent-params';
@@ -346,13 +345,12 @@ const agePastGrace = async (id: string) =>
     const collabDoc: any = { writeNodeData: vi.fn(async () => ({ written: true })), writeExecStatus: vi.fn(async () => {}) };
     const consumer = new LightingConsumer(
       prisma as unknown as PrismaService, minio, gateway, apiCaller,
-      teamCredit, collabDoc, intentSvc,
+      teamCredit, collabDoc, intentSvc, safeFetchStub,
     );
     const processor = new AiImageEditProcessor(
       prisma as unknown as PrismaService, minio, gateway, apiCaller,
-      teamCredit, collabDoc, consumer, intentSvc,
+      teamCredit, collabDoc, consumer, intentSvc, safeFetchStub,
     );
-    (axios.get as any).mockResolvedValue({ data: Buffer.from('img'), headers: { 'content-type': 'image/png' } });
     // 队列入口 job（lighting.service.createTask 真实形态——无 fileId 键）
     const job = {
       id: `job-l-${Date.now()}`,

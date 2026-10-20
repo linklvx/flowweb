@@ -3,6 +3,7 @@ import axios from 'axios';
 import { message } from 'antd';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import type { MaterialFolder, MaterialFile } from '@flowweb/shared';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 const MAX_FILE_SIZE = { image: 10 * 1024 * 1024, video: 100 * 1024 * 1024 };
 
@@ -130,9 +131,9 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
         // Same pattern as upload: http://127.0.0.1:9000/flowai/... -> /flowai/...
         const files = (data.data.data as any[]).map((f: any) => ({
           ...f,
-          url: (f.url as string).replace(/^https?:\/\/[^/]+\/flowai/, '/flowai'),
+          url: toFlowaiUrl(f.url as string),
           thumbnailUrl: f.thumbnailUrl
-            ? (f.thumbnailUrl as string).replace(/^https?:\/\/[^/]+\/flowai/, '/flowai')
+            ? toFlowaiUrl(f.thumbnailUrl as string)
             : undefined,
         }));
         set({ files });
@@ -224,7 +225,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryState>((set, get) =
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(uploadUrl);
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },

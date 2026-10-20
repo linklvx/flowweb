@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import axios from 'axios';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 interface Props {
   nodeId: string;
@@ -149,7 +150,7 @@ export function MultiImageConfigPanel({ nodeId }: Props) {
         const formData = new FormData();
         Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
         formData.append('file', file);
-        const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+        const proxyUrl = toFlowaiUrl(uploadUrl);
         await axios.post(proxyUrl, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });

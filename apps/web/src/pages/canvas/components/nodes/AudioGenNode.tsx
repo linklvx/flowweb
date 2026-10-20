@@ -11,6 +11,7 @@ import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { canvasProjectId } from '@/utils/uploadContext';
 import axios from 'axios';
+import { toFlowaiUrl } from '@/api/mediaApi';
 
 const NODE_WIDTH = 548;
 const NODE_HEIGHT = 280;
@@ -90,7 +91,7 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
       Object.entries(fields).forEach(([k, v]) => formData.append(k, v));
       formData.append('file', file);
 
-      const proxyUrl = uploadUrl.replace(/^https?:\/\/[^/]+\/flowai/, '/flowai');
+      const proxyUrl = toFlowaiUrl(uploadUrl);
 
       await axios.post(proxyUrl, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },

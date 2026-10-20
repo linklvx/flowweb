@@ -32,6 +32,7 @@ import { AiImageEditController } from './modules/ai-image-edit/ai-image-edit.con
 import { LightingController } from './modules/ai-image-edit/lighting/lighting.controller';
 import { AiDownloadCoreModule } from './modules/ai-download/ai-download-core.module';
 import { AiDownloadProcessor } from './modules/ai-download/ai-download.processor';
+import { SafeRemoteFetchService } from './modules/media/safe-remote-fetch.service';
 import { MetricsCoreModule } from './metrics/metrics-core.module';
 import { MetricsHttpModule } from './metrics/metrics-http.module';
 import { MetricsService } from './metrics/metrics.service';
@@ -95,9 +96,9 @@ describe('Y0c T25 模块拆分——ai-image-edit Core/Http', () => {
 });
 
 describe('Y0c T25 模块拆分——ai-download（无 controllers：Http 半空壳禁入，Core 单体即终态——偏离登记见报告）', () => {
-  it('AiDownloadCoreModule：零 controller；providers 恰 [AiDownloadProcessor]', () => {
+  it('AiDownloadCoreModule：零 controller；providers 恰 [AiDownloadProcessor, SafeRemoteFetchService]（T6 下载原语平铺）', () => {
     expect(controllersOf(AiDownloadCoreModule)).toEqual([]);
-    expect(providerSymbols(AiDownloadCoreModule)).toEqual([AiDownloadProcessor]);
+    expect(providerSymbols(AiDownloadCoreModule)).toEqual([AiDownloadProcessor, SafeRemoteFetchService]);
   });
 });
 
