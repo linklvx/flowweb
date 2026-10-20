@@ -73,19 +73,21 @@ jobs:
       - run: pnpm --filter @flowweb/shared build
       - run: node scripts/check-hocuspocus-pin.mjs
       # Y1a T0：ffprobe/ffmpeg pin 8.1.x（plan Tech Stack「ffprobe 8.1.2」——8.1.2 精确二进制在静态
-      # 构建源不可得：johnvansickle 停更于 7.0.2〔2024-06〕；BtbN 只建分支 head〔autobuild
-      # 2026-10-19 实证=n8.1.3-18-g46d8〕；FedericoCarboni/setup-ffmpeg Linux 源=johnvansickle 同无
-      # 8.x；BtbN autobuild 日期 tag 月度保留会 404 不可作 pin）。取 BtbN latest release 的 n8.1 分支
-      # 资产+sha256 内容锁=URL 虽滚动、上游重建（8.1.4 等）即 sha 不匹配红=有意识重 pin；实际版本由
-      # 首行打印留档+8\.1\. 断言。装 /usr/local/bin 走 PATH（FFPROBE_PATH 消费点缺省 'ffprobe'——
-      # video-trim.constants/media-process 同款）。apt 不满足：ubuntu 镜像滚动自带 ffmpeg 6.1.x。
-      # 服务器侧（Ubuntu 24.04）不经 deploy.sh 装 ffmpeg（grep 实证零命中）——生产 8.1.x 对齐随
-      # Y1a T7 FFPROBE_PATH 落地时另行决策。
-      - name: ffprobe 8.1.x pin（BtbN n8.1 静态构建+sha256 内容锁）
+      # 构建源不可得：johnvansickle 停更于 7.0.2〔2024-06〕；BtbN 只建分支 head；FedericoCarboni/
+      # setup-ffmpeg Linux 源=johnvansickle 同无 8.x；BtbN autobuild 日期 tag 月度保留会 404）。
+      # **S0 CI 修复（2026-10-20，run 39447120329 实证）**：BtbN latest 资产每日重建——T0 落锁当天
+      # 上游即重建致 sha 漂移红；「滚动 URL+sha256 内容锁」结构性矛盾。根修=**资产自托管**：BtbN
+      # n8.1 资产固化到本仓 Release ffmpeg-pin-8.1（prerelease，2026-10-20 抓取，实际版本
+      # n8.1.3-18 系），URL 永稳+sha256 锁有效。重 pin 流程=下载新 BtbN 资产→删除并重传本 Release
+      # 资产（注意 CDN 缓存约 1 分钟过期）→更新下方 sha256→验证版本断言。装 /usr/local/bin 走
+      # PATH（FFPROBE_PATH 消费点缺省 'ffprobe'——video-trim.constants/media-process 同款）。
+      # apt 不满足：ubuntu 镜像滚动自带 ffmpeg 6.1.x。服务器侧（Ubuntu 24.04）不经 deploy.sh 装
+      # ffmpeg（grep 实证零命中）——生产 8.1.x 对齐随 Y1a T7 FFPROBE_PATH 落地时另行决策。
+      - name: ffprobe 8.1.x pin（本仓 Release 自托管+sha256 内容锁）
         run: |
           curl -sfL -o /tmp/ffmpeg-81.tar.xz \
-            https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
-          echo "6f8133b2414d115da4c843f33f7370523e00b78b8c49dec9fdb2f58eaa5e0a3a  /tmp/ffmpeg-81.tar.xz" | sha256sum -c -
+            https://github.com/linklvx/flowweb/releases/download/ffmpeg-pin-8.1/ffmpeg-n8.1-linux64-gpl-8.1.tar.xz
+          echo "e3ae56bf0e735159fb7aa522a01d347e9d842219cd3bbe751e09f6f6be26079e  /tmp/ffmpeg-81.tar.xz" | sha256sum -c -
           tar -xJf /tmp/ffmpeg-81.tar.xz -C /tmp
           sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffprobe /usr/local/bin/ffprobe
           sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin/ffmpeg
