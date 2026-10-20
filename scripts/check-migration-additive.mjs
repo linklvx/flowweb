@@ -13,9 +13,14 @@
 // squash 后 fresh 集合空为预期（本批 DDL 的 additive 审计发生在起草阶段〔20261009140000_y0b2_draft〕，
 // 终态由 census 对象级+行级三验保证）。
 // 双跑：preflight 本地 + cutover ③ 服务器 migrate 前 + 根 verify 链（verify-indexes 之后）。
-// ★Y1a+Y1b T2（裁定1）：显式豁免清单 EXEMPTIONS——migration 目录名→{表名: 理由}。BREAKING 语句命中
-// 〈迁移,表〉二元组→放行并打印 EXEMPTED 行；未命中（含表名不可提取）仍硬拦——豁免力精确到表，
-// 禁文件级一刀切（同迁移多表破坏时未登记表照红），对未来意外迁移的拦截力不变。豁免登记与迁移同 commit 审阅。
+// ★Y1a+Y1b T2（裁定1）：显式豁免清单 EXEMPTIONS——migration 目录名→{表名: {reason,owner,since}}。
+// BREAKING 语句命中〈迁移,表〉二元组→放行并打印 EXEMPTED 行；未命中（含表名不可提取）仍硬拦——豁免力
+// 精确到表，禁文件级一刀切（同迁移多表破坏时未登记表照红），对未来意外迁移的拦截力不变。豁免登记与迁移同 commit 审阅。
+// ★S0.1（2026-10-20）豁免纪律：豁免=迁移历史的**永久登记**（同 immutability checksums 性质）——
+// additive gate 全量检查基线后所有历史迁移，已应用的破坏性迁移一旦登记即不可撤销（删除豁免条目
+// ⇒ 该迁移永红=gate 失效）。「S0 后删除本次豁免」不可执行，正确收敛路径=未来基线 squash（同 Y0b-2
+// 前三次基线重置，仅限无生产环境窗）。纪律三条：禁通配/禁扩大豁免面；本测试文件 pin 锁死登记面；
+// 新增豁免须用户裁定后与迁移同 commit。
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -27,13 +32,22 @@ export const CRITICAL_INDEXES = ['pricing_rule_natural_key'];
 const BREAKING = /\bDROP\s+(COLUMN|TABLE|CONSTRAINT|TYPE)\b|\bSET\s+NOT\s+NULL\b|\bDROP\s+NOT\s+NULL\b|\bTRUNCATE\b|\bRENAME\s+(COLUMN|TO|TABLE)\b|\bALTER\s+COLUMN\b[^\n;]*\bTYPE\b/i;
 const DROP_INDEX = /\bDROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|([A-Za-z_][\w$]*))/ig;
 
-// 豁免登记（controller 裁定专属——reset runbook 全表部署语义，无存量数据不受 expand/contract 保护）
+// 豁免登记（controller 裁定专属——reset runbook 全表部署语义，无存量数据不受 expand/contract 保护）。
+// 元数据（S0.1 2026-10-20 补全）：reason=放行依据 / owner=豁免裁定责任人 / since=登记日期。
 export const EXEMPTIONS = {
   '20261020200300_nodeartifact_projection_v3': {
-    Media: 'Y1a+Y1b v11 硬切批——spec v14 reset runbook 全表部署，无存量数据',
+    Media: {
+      reason: 'Y1a+Y1b v11 硬切批——spec v14 reset runbook 全表部署，无存量数据',
+      owner: 'Y1a+Y1b 批 controller',
+      since: '2026-10-20',
+    },
   },
   '20261020211610_media_v3_natural_sniff_size': {
-    Media: 'Y1a+Y1b v11 硬切批——size Int→BigInt 破坏性变更，spec v14 reset runbook 全表部署',
+    Media: {
+      reason: 'Y1a+Y1b v11 硬切批——size Int→BigInt 破坏性变更，spec v14 reset runbook 全表部署',
+      owner: 'Y1a+Y1b 批 controller',
+      since: '2026-10-20',
+    },
   },
 };
 
@@ -54,7 +68,7 @@ export function resolveExemptions(dir, bare) {
   for (const stmt of bare.split(';')) {
     if (!analyzeSql(stmt).breaking) continue;
     const table = breakingTable(stmt);
-    const reason = table && EXEMPTIONS[dir]?.[table];
+    const reason = table && EXEMPTIONS[dir]?.[table]?.reason;
     if (reason) exempted.push({ table, reason });
     else violations.push(stmt.replace(/\s+/g, ' ').trim().slice(0, 160));
   }

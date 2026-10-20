@@ -16,7 +16,9 @@ import { basename } from 'node:path';
 // Y0c T31 增补（worker-naming 3 例——§0.6 偏离 46 连接命名分裂根因红测）→153。
 // Y0c T33 增补（group-idempotency ⑯ stalled 重投三联〔偏离 51〕+collab-write-endpoint Z125-4
 // drain×write-batch 相遇——D 出口判据）→155。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 155);
+// Y1a+Y1b S0.1 增补（media-fact-outbox 2 例——outbox factType 唯一键真 PG 实证）→实测全量落 166
+//（155 基数此间漂移 +9 未随记——本次按实测口径校准，非拔高）。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 166);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
@@ -44,6 +46,7 @@ const FILES_MIN = {
   'write-frozen-chain.int.spec.ts': 2,   // Y0b-5 T9：write-frozen 断言链 int 等价用例
   'worker-naming.int.spec.ts': 3,        // Y0c T31：偏离 46 命名分裂机制/修复/生产结构三 case
   'collab-write-endpoint.int.spec.ts': 5,   // Y0c T33：T27 端到端四例+Z125-4 drain×write-batch 相遇
+  'media-fact-outbox.int.spec.ts': 2,       // Y1a+Y1b S0.1：factType 入键（natural/state 共存+同类 P2002）
 };
 
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));

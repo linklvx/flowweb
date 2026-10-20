@@ -72,6 +72,20 @@ test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工�
   assert.deepEqual(Object.keys(EXEMPTIONS['20261020211610_media_v3_natural_sniff_size']), ['Media']);
 });
 
+test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since 非空字符串——永久登记可追溯，禁裸字符串条目）', () => {
+  for (const [dir, tables] of Object.entries(EXEMPTIONS)) {
+    for (const [table, meta] of Object.entries(tables)) {
+      assert.equal(typeof meta, 'object', `${dir}/${table} 条目须为元数据对象（S0.1 结构）`);
+      assert.ok(typeof meta.reason === 'string' && meta.reason.length > 0, `${dir}/${table} reason 非空`);
+      assert.ok(typeof meta.owner === 'string' && meta.owner.length > 0, `${dir}/${table} owner 非空`);
+      assert.ok(typeof meta.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.since), `${dir}/${table} since=YYYY-MM-DD`);
+    }
+  }
+  // owner pin：本批两登记=controller 裁定专属
+  assert.equal(EXEMPTIONS['20261020200300_nodeartifact_projection_v3'].Media.owner, 'Y1a+Y1b 批 controller');
+  assert.equal(EXEMPTIONS['20261020211610_media_v3_natural_sniff_size'].Media.since, '2026-10-20');
+});
+
 test('质评 Minor-1 双盲红测：已豁免迁移+critical DROP INDEX→必须红（judgeMigration.bad>0 ⇔ main exit 1——process.exit(bad?1:0)）', () => {
   // 场景：豁免迁移内 BREAKING（命中豁免放行）+ 硬拦名单 DROP INDEX——旧代码走 breaking 分支=双盲放行
   const sql = 'ALTER TABLE "Media" DROP COLUMN "status"; DROP INDEX "pricing_rule_natural_key";';

@@ -1235,7 +1235,7 @@ model MediaFactOutbox {
   createdAt     DateTime       @default(now())
   publishedAt   DateTime? // published retention 7d 清理判据
 
-  @@unique([mediaId, projectId, factVersion])
-  @@index([state, nextAttemptAt]) // claim 扫描（state='pending'∧nextAttemptAt<=now ORDER BY id）
+  @@unique([mediaId, projectId, factType, factVersion]) // factType 入键（S0.1 2026-10-20）——同 factVersion 下 natural/state 两类事实并存互不撞（T7/T16 前置）
+  @@index([state, nextAttemptAt]) // claim 扫描（state='pending'∧nextAttemptAt<=now）；claim 排序契约=ORDER BY nextAttemptAt, createdAt, id（id 为 cuid opaque 非插入序——仅末位 tie-break，禁作代际/时序依据；T7/T16 emitter 按此实现）
   @@index([mediaId]) // REST POST（≤200 mediaIds）全量拉
 }

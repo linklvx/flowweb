@@ -24,7 +24,7 @@
 | 文件 | 动作 | 责任 | 片 |
 |---|---|---|---|
 | 根+apps package.json / ci.yml | 改 | T0 pin（yjs/sharp/fast-deep-equal/file-type 16.x+ffprobe CI/部署+**CI S3 兼容服务**） | S0 |
-| docShape.ts+全仓 ~141 处 | 改 | T1 改名 StoredNodeRecord+**删 meta.schemaVersion 读（移 CanvasDoc.schemaVersion 列）** | S0 |
+| docShape.ts+全仓 ~141 处 | 改 | T1 改名 StoredNodeRecord+**meta.schemaVersion 删除归 T18（carry-over 登记 2026-10-20——T1 本体零 schema 门变更，读点全集 6 处=T18 依据）** | S0 |
 | scripts/check-plan-census.mjs | **建** | census（media.create grep census/键集四处一致/**CLIENT_FORBIDDEN_ON_UPDATE 两键**/NodeArtifact 写点枚举） | S0 |
 | collab-doc-ops.ts | **建** | 写原语+类型同迁 | S0 |
 | apps/api/prisma/schema.prisma + migration | 改 | T2 全量（**NodeArtifact/ArtifactProjection**+exec_seq sequence+MediaBinding current-state 键+Media 补列〔**sourceUrl 加密/pendingExpiresAt/clientUploadId/materialize 族/probe 族/factVersion**〕+**CanvasDoc.schemaVersion**+**删 GenerationIntent.artifactState**） | S0 |
@@ -206,7 +206,7 @@ clientUploadId String?                      // v11：presign 幂等键（网络�
 
 ### Task 9: execSeq/claim/ticket/rearm/takeover/onTick（v10.1 T6a+三补强）
 
-**Files:** generation-intent.service.ts（execSeq nextval 两处+providerRequestId submit 前落库+providerTaskId submit 后落库+rearm 事务〔nextval+voidInTx 只释放+旧 ArtifactProjection superseded〕+completeInTx+fail/touchHeartbeat/reanchorDeadline 补 execSeq）+team-credit.service.ts（settleInTx/voidInTx+reserve 写 reservedExecSeq+CAS）+execution.service.ts（同 job 重入三态 moveToDelayed+**同 job 过期接管路径也 voidInTx(old)**）+execution.processor（skip 路径 moveToDelayed）+ai-image-edit.controller/lighting.controller（**job data 携 ExecutionTicket {intentRowId,execSeq,jobId}**）+api-caller（onTick 回调带 {status,execSeq} 判定——**不匹配即 abort 外呼**）
+**Files:** generation-intent.service.ts（execSeq nextval 两处+providerRequestId submit 前落库+providerTaskId submit 后落库+rearm 事务〔nextval+voidInTx 只释放+旧 ArtifactProjection superseded〕+completeInTx+fail/touchHeartbeat/reanchorDeadline 补 execSeq）+team-credit.service.ts（settleInTx/voidInTx+reserve 写 reservedExecSeq+CAS）+execution.service.ts（同 job 重入三态 moveToDelayed+**同 job 过期接管路径也 voidInTx(old)**）+execution.processor（skip 路径 moveToDelayed）+ai-image-edit.controller/lighting.controller（**job data 携 ExecutionTicket {intentRowId,execSeq,jobId}**）+api-caller（onTick 回调带 {status,execSeq} 判定——**不匹配即 abort 外呼**）；**execSeq `@default(nextval)` 兜底默认不得活过 T9**：T9 必须二选一——删除默认，或加 census/测试证明生产 GenerationIntent.create/createMany 全部显式带 execSeq（用户审核 2026-10-20 裁定）
 
 - [ ] 先红（真 PG+真 BullMQ）：manifest 前置（EXEC_STATUS_KEYS+execSeq）；同 job 重入三态（red：现状「skip 后 return=ack→旧 worker 真死零交付」悬挂复现）；**onTick 旧代 abort**（red：旧 worker 在接管后仍轮询 provider 白烧钱复现）；**takeover void**（red：旧 worker reserve 后 kill→新 worker 接管→恰好扣一次交付一次；无 void 则 mayCall:false 悬挂复现——team-credit:105）；fail/touch/reanchor 旧代 0 命中 no-op；rearm 只释放（red：v9「release+re-reserve」悬挂复现）；providerRequestId write-ahead+providerTaskId 落库+query-first 键序 requestId→taskId（red：现状零写库点；kill worker after submit→重跑零重复 provider submit）；edit/lighting ticket（red：旧 job 在新代后重投零副作用）；**v11.1：能力矩阵第三档——无幂等键且不可查询的 provider 禁自动重投+显式人工裁决路径**（submit 后崩溃→重跑零重复外呼转告警——本地状态无法单方面保证外部 exactly-once）→绿+Commit。
 
@@ -230,7 +230,7 @@ clientUploadId String?                      // v11：presign 幂等键（网络�
 ### Task 12: video finalize-first+MaterializeJob（v10.1 T6d 主体维持）
 
 **Files:** artifact-commit.service.ts（video kind 分支）+worker MaterializeJob（ai-download 迁移改造）
-- [ ] 先红：video=finalize 建 Media(processing,sourceUrl 加密)+**NodeArtifact state=materializing**+settle/complete+ArtifactProjection（fileId 交付 mediaId）——doc 只有 fileId（grep doc data 无 videoUrl/resultUrl）；processing 期可播/seek（content 两态+processing fact 推送）；materialize 幂等键=mediaId（kill 后重跑不重复下载/不重复 Media）+复用同一次下载算 natural/hash/mime 置 probeState=done；自有 lease/attempts 与 intent attempts/rearm 解耦；源过期 410/重试；**终态失败→幂等补偿退款+NodeArtifact state=failed+errorCode=MATERIALIZE_FAILED（不清 fileId——UI 失败/重试）**→绿+Commit。
+- [ ] 先红：video=finalize 建 Media(processing,sourceUrl 加密)+**NodeArtifact state=materializing**+settle/complete+ArtifactProjection（fileId 交付 mediaId）——doc 只有 fileId（grep doc data 无 videoUrl/resultUrl）；processing 期可播/seek（content 两态+processing fact 推送）；materialize 幂等键=mediaId（kill 后重跑不重复下载/不重复 Media）+复用同一次下载算 natural/hash/mime 置 probeState=done；自有 lease/attempts 与 intent attempts/rearm 解耦；源过期 410/重试；**终态失败→幂等补偿退款+NodeArtifact state=failed+errorCode=MATERIALIZE_FAILED（不清 fileId——UI 失败/重试）**；**T12 用例断言 materialize 族列名与状态机一致（processingAttempts/processingLeaseUntil/nextMaterializeAt——T2 schema 列名单源，S0.1 2026-10-20 登记）**→绿+Commit。
 
 ### Task 13: R3 reconcile+三后门删除+保留矩阵（v10.1 T6d 后半维持）
 **Files:** intent-reconcile.service.ts（finalizeFromExistingMediaOrText+动作表+审计行 reconcile_action+pg_advisory_xact_lock）+collab-write.port.ts（typed outcome——资金路径禁伪造 written:true+**v11.2：worker 写端点收窄——op 白名单 exec-only〔worker 仅 writeExecStatus loading/skipped〕+token 作用域化〔HMAC 绑定 projectId+intentRowId+execSeq+exp，静态 WORKER_WRITE_TOKEN 仅传输层〕+nginx 禁公网访问 write-batch 端点**）
