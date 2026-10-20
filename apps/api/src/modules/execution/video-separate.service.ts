@@ -53,7 +53,7 @@ export class VideoSeparateService {
     }
 
     // 2. Lightweight DB-field validation
-    if (media.size > MAX_FILE_SIZE) {
+    if (Number(media.size) > MAX_FILE_SIZE) { // Media.size BigInt（T2 质评收口）——比较域机械适配（序列化归 T6 BigInt.toJSON）
       throw new BadRequestException('文件过大（>2GB），请拆分后处理');
     }
     if (!SUPPORTED_VIDEO_MIME_TYPES.includes(media.mimeType)) {
@@ -88,7 +88,7 @@ export class VideoSeparateService {
         sourceKey: media.key,
         sourceOriginalName: media.originalName,
         sourceMimeType: media.mimeType,
-        sourceSize: media.size,
+        sourceSize: Number(media.size), // job data number 域（processor 磁盘预算算术）——Media.size BigInt 机械适配
         projectId: media.projectId ?? workflowId,
         nodeId,
       };

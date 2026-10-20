@@ -10,5 +10,8 @@
   },
   "20261020200300_nodeartifact_projection_v3": {
     "migration.sql": "472f085fecee6cdd078add2621a40544eda74bdba15303933f8d3815214579d5"
+  },
+  "20261020211610_media_v3_natural_sniff_size": {
+    "migration.sql": "60ce266ff4bee34bf3892162b4e6637cbb4d37e50818d1b4cd6313168f39c6e3"
   }
 }

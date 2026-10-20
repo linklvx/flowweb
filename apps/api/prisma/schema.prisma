@@ -276,7 +276,9 @@ model Media {
   key          String // MinIO 对象键
   originalName String // 原始文件名
   mimeType     String
-  size         Int // 字节数
+  // Y1b T2 质评收口（Important-1）：Int 2.147GB 上限根修（v10 裁决/spec Z7'' :80/M1 门）——
+  // BigInt；JSON 序列化由 T6 BigInt.prototype.toJSON 全局补丁+四读路径序列化测试覆盖（plan T6）
+  size         BigInt // 字节数
 
   // 业务关联
   projectId String?
@@ -306,11 +308,27 @@ model Media {
   probeRunId            String? // v10.1 :91
   nextProbeAt           DateTime? // jitter 退避（v10.1 :92）
   probedAt              DateTime? // 仅审计（v10.1 :93）
-  factVersion           BigInt     @default(0) // 单调事实版本（每次 natural/sniff/status 变更+1）
+  factVersion           BigInt     @default(0) // 单调事实版本（每次 natural/sniff/status 变更+1）；wire/doc 用 string（v8 裁决②）——JSON 序列化由 T6 BigInt.prototype.toJSON 全局补丁覆盖（spec Z7''/plan T6 四读路径）
+  // natural/sniffed 族（v10.1 plan Task 3 Media 块 :94-97——质评 Important-1 补齐）：server fact 消费
+  // （probe done/server natural 同事务 factVersion+1+outbox）；sniffedMimeType=probe claim 路由
+  // （spec Z7'' :80 按 sniffed image/video 非 SVG）+content 端点 Content-Type 源
+  naturalWidth          Int? // display
+  naturalHeight         Int?
+  naturalRotation       Int? // 血缘
+  naturalSource         String?
+  sniffedMimeType       String?
   // v11 pending 上传 TTL+presign 幂等键
   pendingExpiresAt      DateTime?
   clientUploadId        String?
   sourceRegistrationKey String? // 非资金幂等锚（nullable——非资金路径 registrationKey）
+  // origin/审计锚（plan v11.2 T2：资金唯一键 [sourceIntentRowId,sourceExecSeq,artifactIndex] 移
+  // NodeArtifact——Media 侧三列保留为 origin/审计；stageInTx durable 化落行字段 v10.1 头注③）
+  sourceIntentRowId     String? // 资金型锚（=GenerationIntent.id）——有 artifact 的 intent 不物理删（7d 悬空锚根修）
+  sourceExecSeq         BigInt? // 代际
+  artifactIndex         Int        @default(0)
+  // 对象幂等/hash 校验（stageInTx 落行：objectKey/sha256——v10.1 :102）
+  objectKey             String?
+  objectSha256          String?
 
   // 时间戳
   createdAt DateTime  @default(now())
@@ -852,7 +870,7 @@ model CanvasDoc {
   preVacuumSv   Bytes?
   // Y1b T2（Z9''-v14）：doc schema 版本移 PG 列承载（meta.schemaVersion 删除——客户端无从篡改）；
   // 裁定2：@default(3)=Y1c 本批固定值（存量建行走默认——docShape v3 即当前代）
-  schemaVersion Int @default(3)
+  schemaVersion Int           @default(3)
   updatedAt     DateTime      @updatedAt
 }
 
@@ -1057,7 +1075,7 @@ model GenerationIntent {
   // 仍事务内显式取号，默认不参与代际契约（显式赋值覆盖默认，行为等价）。
   // 注：migrate diff 将迁移侧 nextval 默认 introspect 为 Sequence("exec_seq")、datamodel 侧为
   // DbGenerated——Prisma 5.22 无 sequence() 属性不可对齐，该漂移行按裁定2 先例登记金标（同 pricing_rule）
-  execSeq              BigInt       @default(dbgenerated("nextval('exec_seq')")) @unique
+  execSeq              BigInt       @unique @default(dbgenerated("nextval('exec_seq')"))
   reservedExecSeq      BigInt? // reserve 时写；settle/void CAS 匹配（旧代一律失败）
   execProjectedExecSeq BigInt? // exec error 投影代际（reconcile 判据）
   resultText           String?      @db.Text // text kind 产物正文（90 天保留——非空行延长）
@@ -1206,7 +1224,7 @@ model MediaFactOutbox {
   id            String         @id @default(cuid())
   mediaId       String
   projectId     String
-  factVersion   BigInt // 对应 Media.factVersion 快照（单调）
+  factVersion   BigInt // 对应 Media.factVersion 快照（单调）；wire/doc 用 string——JSON 序列化由 T6 BigInt.prototype.toJSON 全局补丁覆盖（同 Media.factVersion/spec Z7''）
   factType      String // 事实类型（如 state——payload 含 state 的状态事实）
   payload       Json // 事实快照
   state         MediaFactState @default(pending)

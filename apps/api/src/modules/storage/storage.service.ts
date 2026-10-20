@@ -82,7 +82,7 @@ export class StorageService {
     // 构成任意对象删除面。禁止回退 `media.size ?? dto.fileSize`（会让本性质静默失效）。
     const actualSize = await this.minio.statSize(media.key);
 
-    if (Math.abs(actualSize - media.size) > 1024) {
+    if (Math.abs(actualSize - Number(media.size)) > 1024) { // Media.size BigInt（T2 质评收口）——比较域转 number 机械适配（序列化归 T6 BigInt.toJSON）
       await this.minio.delete(media.key);
       await this.prisma.media.delete({ where: { id: dto.fileId } });
       throw new BadRequestException('文件大小不匹配，请重新上传');

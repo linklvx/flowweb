@@ -81,7 +81,7 @@ export class VideoWorkService {
   async presignVideo(dto: PresignVideoDto) {
     // 语义校验（中文文案必达前端——见 DTO 头注释）
     if (dto.fileType !== 'video/mp4') throw new BadRequestException('仅支持 MP4 格式（video/mp4）');
-    const ONE_GB = 1024 * 1024 * 1024; // 上限不得超 ~2GiB：Media.size 是 Postgres Int（再高需迁 BigInt）
+    const ONE_GB = 1024 * 1024 * 1024; // 业务上限 1GB（导出时长 15min 约束）；列容量已不设限：Media.size 已迁 BigInt（Y1b T2 质评收口）
     if (dto.fileSize < 1) throw new BadRequestException('文件为空');
     if (dto.fileSize > ONE_GB) throw new BadRequestException('视频不得超过 1GB');
 

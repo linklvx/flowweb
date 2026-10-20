@@ -39,7 +39,7 @@ export class GeneratedMediaService {
         },
       });
       if (existing) {
-        const upload = await this.minio.generatePresignedPost(existing.key, 'video/mp4', existing.size);
+        const upload = await this.minio.generatePresignedPost(existing.key, 'video/mp4', Number(existing.size)); // Media.size BigInt（T2 质评收口）——content-length-range 条件 number 域机械适配
         return { mediaId: existing.id, upload };
       }
     }

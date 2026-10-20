@@ -32,10 +32,15 @@ export const EXEMPTIONS = {
   '20261020200300_nodeartifact_projection_v3': {
     Media: 'Y1a+Y1b v11 硬切批——spec v14 reset runbook 全表部署，无存量数据',
   },
+  '20261020211610_media_v3_natural_sniff_size': {
+    Media: 'Y1a+Y1b v11 硬切批——size Int→BigInt 破坏性变更，spec v14 reset runbook 全表部署',
+  },
 };
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；
- *  提取不到=null=不可豁免（保守兜底——表名不明即维持硬拦）。 */
+ *  提取不到=null=不可豁免（保守兜底——表名不明即维持硬拦）。
+ *  已知边界（质评 Minor-4）：多目标 DROP TABLE（DROP TABLE "A", "B"）首目标命中即整语句豁免——
+ *  Prisma 不产此形态，豁免登记与迁移同 commit 审阅兜底。 */
 export function breakingTable(stmt) {
   return stmt.match(/\b(?:ALTER\s+TABLE|DROP\s+TABLE|TRUNCATE(?:\s+TABLE)?)\s+"([^"]+)"/i)?.[1]
     ?? stmt.match(/\bDROP\s+TYPE\s+"([^"]+)"/i)?.[1]
@@ -68,6 +73,24 @@ export function analyzeSql(bare) {
   return { breaking: hit ? hit[0] : null, criticalIndex, dropIndex };
 }
 
+/** 单迁移裁决（质评收口 Minor-1 抽纯函数）：critical DROP INDEX 与 dropIndex 警告=独立检查，
+ *  先于 breaking/豁免分支——豁免放行不影响两者（曾：豁免迁移夹带 critical DROP INDEX 走 breaking
+ *  分支=双盲绕过）。bad>0 ⇔ main 对该迁移判红（process.exit(1) 驱动量）。 */
+export function judgeMigration(dir, bare) {
+  const { breaking, criticalIndex, dropIndex } = analyzeSql(bare);
+  let bad = 0, warned = 0;
+  const exempted = [], violations = [];
+  if (criticalIndex) bad++;
+  else if (dropIndex) warned++;
+  if (breaking) {
+    const r = resolveExemptions(dir, bare);
+    exempted.push(...r.exempted);
+    violations.push(...r.violations);
+    if (violations.length) bad++;
+  }
+  return { bad, warned, exempted, violations, criticalIndex };
+}
+
 function main() {
   if (!existsSync(MIG_DIR)) { console.error('additive FAIL: migrations 目录缺失'); process.exit(1); }   // fail-closed
   const dirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d)).sort();
@@ -79,15 +102,14 @@ function main() {
     // 匹配前剥 `--` 注释行——手工两步走注释（如 "-- contract step: 将来 DROP COLUMN legacy_x"）不拦，
     // 防门禁训练作者删注释；prisma 生成段头驼峰无空格本就不命中，不受影响。
     const bare = sql.replace(/--[^\n]*/g, '');
-    const { breaking, criticalIndex, dropIndex } = analyzeSql(bare);
-    if (breaking) {
-      const { exempted, violations } = resolveExemptions(d, bare);
-      for (const e of exempted) console.log(`EXEMPTED: ${d} ${e.table} — ${e.reason}`);
-      if (violations.length) { console.error(`additive FAIL: ${d} 含未豁免破坏性变更 ${violations.length} 条（drain 期间 HTTP 面旧代码在跑，破坏性变更=两步走（先加可空/带默认新形态、旧代码下线后再删旧）；豁免=登记 EXEMPTIONS 与迁移同 commit 审阅）:\n  - ${violations.join('\n  - ')}`); bad++; }
-      else exemptedN++;
-    }
-    else if (criticalIndex) { console.error(`additive FAIL: ${d} 含 DROP INDEX "${criticalIndex}"（硬拦名单——资金正确性唯一索引，且 Prisma diff 不可见=双盲；恢复须重建索引而非豁免）`); bad++; }
-    else if (dropIndex) { console.error(`additive WARNING: ${d} 含 DROP INDEX（旧代码不按名引用索引——性能非正确性影响，登记即可）`); warned++; }
+    const { bad: jBad, warned: jWarned, exempted, violations, criticalIndex } = judgeMigration(d, bare);
+    // 质评收口 Minor-1：critical 拦截与 dropIndex 警告独立于豁免分支（judgeMigration 内先裁）
+    if (criticalIndex) console.error(`additive FAIL: ${d} 含 DROP INDEX "${criticalIndex}"（硬拦名单——资金正确性唯一索引，且 Prisma diff 不可见=双盲；独立于豁免裁决——豁免迁移夹带亦红；恢复须重建索引而非豁免）`);
+    else if (jWarned) console.error(`additive WARNING: ${d} 含 DROP INDEX（旧代码不按名引用索引——性能非正确性影响，登记即可）`);
+    for (const e of exempted) console.log(`EXEMPTED: ${d} ${e.table} — ${e.reason}`);
+    if (violations.length) console.error(`additive FAIL: ${d} 含未豁免破坏性变更 ${violations.length} 条（drain 期间 HTTP 面旧代码在跑，破坏性变更=两步走（先加可空/带默认新形态、旧代码下线后再删旧）；豁免=登记 EXEMPTIONS 与迁移同 commit 审阅）:\n  - ${violations.join('\n  - ')}`);
+    bad += jBad; warned += jWarned;
+    if (exempted.length && !violations.length) exemptedN++;
   }
   if (fresh.length === 0) console.log('check-migration-additive: 尚无基线之后的新迁移——本跑无受检对象（非静默：有新迁移才可能红）');
   console.log(bad ? `check-migration-additive: ${bad} 处违规` : `check-migration-additive OK（受检 ${fresh.length} 个迁移，WARNING ${warned}，豁免 ${exemptedN}，基线=${BASELINE}）`);
