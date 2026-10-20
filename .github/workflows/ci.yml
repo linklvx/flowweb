@@ -92,7 +92,7 @@ jobs:
           sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffprobe /usr/local/bin/ffprobe
           sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin/ffmpeg
           ffprobe -version | head -1
-          ffprobe -version | head -1 | grep -q '^ffprobe version 8\.1\.' || { echo 'ffprobe 版本漂移（非 8.1.x）——重 pin 流程见上方注释'; exit 1; }
+          ffprobe -version | head -1 | grep -Eq '^ffprobe version n?8\.1\.' || { echo 'ffprobe 版本漂移（非 8.1.x 线——BtbN 版本串形态=n8.1.3-18-g<sha>-<date>，run 39450135291 实证）——重 pin 流程见上方注释'; exit 1; }
       # 表必须先于 verify 建好（0.5 的 int spec 直连真库且 skip 条件只看 DATABASE_URL 存在——
       # 0.5 已落地，按预留注记启用）。migrate deploy=幂等（已应用跳过）。
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
