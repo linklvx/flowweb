@@ -32,13 +32,34 @@ jobs:
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      # Y1a T0：S3 兼容服务=RustFS（MinIO 镜像 2025 全网下架的替代——选型实证：seaweedfs 官方镜像
+      # entrypoint 需 weed 子命令无法作 GH service container〔seaweedfs#9247〕；localstack 2026-03 起
+      # s3 镜像 healthcheck 损坏〔localstack#13899〕+#11259 ~10% 间歇 unhealthy=CI 稳定性风险；
+      # rustfs=Apache 2.0/alpine 基底含 curl（health-cmd 可用）/默认 CMD 自启动（service container
+      # 免传参）/官方健康端点 /health。pin 1.0.0（2026-09-16 stable tag，禁 latest 滚动）。
+      # api 经 S3 SDK path-style 兼容端点消费（minio.service forcePathStyle——见下方 MINIO_* 接线）。
+      s3:
+        image: rustfs/rustfs:1.0.0
+        env:
+          RUSTFS_ACCESS_KEY: flowweb-ci
+          RUSTFS_SECRET_KEY: flowweb-ci-secret
+        ports: ['9000:9000']
+        options: >-
+          --health-cmd "curl --fail http://localhost:9000/health"
+          --health-interval 10s --health-timeout 5s --health-retries 5
     env:
       # 必填键对照 apps/api/src/config/env.ts：无默认必填 = DATABASE_URL/MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY。
-      # MINIO_* 不设：api 单测全 mock，validateEnv() 仅 main.ts/app.module.ts 链路触发（spec 不 import AppModule），
-      # 设假值反而误导"CI 起了 MinIO"。JWT_SECRET 全仓无引用（env.ts 无此键），不设。
+      # MINIO_*（Y1a T0）：从"不设"翻转为真接线——前提已变：上方 rustfs service 真跑（旧注释"设假值
+      # 反而误导"成立于 service 不可得时代）。键名/形态与本地开发一致（env.ts：ENDPOINT url/
+      # ACCESS_KEY≥3/SECRET_KEY≥8；MINIO_USE_SSL 不设=transform 默认 false 即 http）。
+      # 当下 api 单测仍全 mock（无连接面变化）；接线是 Y1a T4/T7（confirm 嗅探/probe）真消费的前置。
+      # JWT_SECRET 全仓无引用（env.ts 无此键），不设。
       # REDIS_URL 虽有默认值，显式指到 service 端口以免默认值与 service 映射漂移。
       DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
       REDIS_URL: redis://localhost:6379/0
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: flowweb-ci
+      MINIO_SECRET_KEY: flowweb-ci-secret
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -51,6 +72,25 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: node scripts/check-hocuspocus-pin.mjs
+      # Y1a T0：ffprobe/ffmpeg pin 8.1.x（plan Tech Stack「ffprobe 8.1.2」——8.1.2 精确二进制在静态
+      # 构建源不可得：johnvansickle 停更于 7.0.2〔2024-06〕；BtbN 只建分支 head〔autobuild
+      # 2026-10-19 实证=n8.1.3-18-g46d8〕；FedericoCarboni/setup-ffmpeg Linux 源=johnvansickle 同无
+      # 8.x；BtbN autobuild 日期 tag 月度保留会 404 不可作 pin）。取 BtbN latest release 的 n8.1 分支
+      # 资产+sha256 内容锁=URL 虽滚动、上游重建（8.1.4 等）即 sha 不匹配红=有意识重 pin；实际版本由
+      # 首行打印留档+8\.1\. 断言。装 /usr/local/bin 走 PATH（FFPROBE_PATH 消费点缺省 'ffprobe'——
+      # video-trim.constants/media-process 同款）。apt 不满足：ubuntu 镜像滚动自带 ffmpeg 6.1.x。
+      # 服务器侧（Ubuntu 24.04）不经 deploy.sh 装 ffmpeg（grep 实证零命中）——生产 8.1.x 对齐随
+      # Y1a T7 FFPROBE_PATH 落地时另行决策。
+      - name: ffprobe 8.1.x pin（BtbN n8.1 静态构建+sha256 内容锁）
+        run: |
+          curl -sL -o /tmp/ffmpeg-81.tar.xz \
+            https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
+          echo "6f8133b2414d115da4c843f33f7370523e00b78b8c49dec9fdb2f58eaa5e0a3a  /tmp/ffmpeg-81.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/ffmpeg-81.tar.xz -C /tmp
+          sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffprobe /usr/local/bin/ffprobe
+          sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin/ffmpeg
+          ffprobe -version | head -1
+          ffprobe -version | head -1 | grep -q '^ffprobe version 8\.1\.' || { echo 'ffprobe 版本漂移（非 8.1.x）——重 pin 流程见上方注释'; exit 1; }
       # 表必须先于 verify 建好（0.5 的 int spec 直连真库且 skip 条件只看 DATABASE_URL 存在——
       # 0.5 已落地，按预留注记启用）。migrate deploy=幂等（已应用跳过）。
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
