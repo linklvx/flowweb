@@ -5,6 +5,9 @@ import { PresignUploadDto } from './dto/presign.dto';
 import { ConfirmUploadDto } from './dto/confirm.dto';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 import { StorageQuotaService } from '../team/storage-quota.service';
+import {
+  MediaRegistrationService, sniffMimeType, isAllowedUploadMime,
+} from '../media/media-registration.service';
 
 @Injectable()
 export class StorageService {
@@ -12,56 +15,49 @@ export class StorageService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
+    @Inject(MediaRegistrationService) private readonly registration: MediaRegistrationService,
   ) {}
 
   async presignUpload(userId: string, dto: PresignUploadDto) {
     // 三级回落：projectId（后端解析+成员校验）> teamId（assertMember）> 默认团队
     let teamId: string;
+    let projectId: string | undefined;
     if (dto.projectId) {
       const project = await this.prisma.canvasProject.findUnique({ where: { id: dto.projectId }, select: { teamId: true } });
       if (!project) throw new BadRequestException('项目不存在');
       await this.quota.assertMember(project.teamId, userId);
       teamId = project.teamId;
+      projectId = dto.projectId;
     } else if (dto.teamId) {
       await this.quota.assertMember(dto.teamId, userId);
       teamId = dto.teamId;
     } else {
       teamId = await getOwnerTeamId(this.prisma, userId);
     }
+    // quota estimatedSize 预检（=fileSize 预占；confirm 按 actualSize 终判——Q7 两道，两并发 presign 可同过）
     await this.quota.assertCanUpload(teamId, dto.fileSize);
 
+    const clientUploadId = normalizeClientUploadId(dto.clientUploadId);
     const ext = dto.fileName.split('.').pop() || 'bin';
     const key = this.minio.buildKey(dto.type, userId, { ext });
 
-    // Create Media record (pending)
-    const media = await this.prisma.media.create({
-      data: {
-        userId,
-        teamId,
-        bucket: 'flowai',
-        key,
-        originalName: dto.fileName,
-        mimeType: dto.fileType,
-        size: dto.fileSize,
-        status: 'pending',
-        type: dto.type,
-        expiresAt: dto.type === 'temp'
-          ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-          : null,
-      },
+    // 行先落（幂等锚）再 presign（外部 IO 在事务外）——崩溃窗=行在 presign 无，重试同 uploadId 复用行重新 presign
+    const media = await this.registration.prepareUpload({
+      userId, teamId, projectId, clientUploadId, key,
+      fileName: dto.fileName, mimeType: dto.fileType, size: dto.fileSize, type: dto.type,
     });
 
-    // Generate presigned POST
+    // 幂等命中时复用行内 key/声明（Content-Type 进 fields+policy 精确匹配——T4 红测组⑤）
     const { url, fields } = await this.minio.generatePresignedPost(
-      key,
-      dto.fileType,
-      dto.fileSize,
+      media.key,
+      media.mimeType,
+      Number(media.size),
     );
 
     return {
       fileId: media.id,
       uploadUrl: url,
-      key,
+      key: media.key,
       fields,
     };
   }
@@ -84,17 +80,37 @@ export class StorageService {
 
     if (Math.abs(actualSize - Number(media.size)) > 1024) { // Media.size BigInt（T2 质评收口）——比较域转 number 机械适配（序列化归 T6 BigInt.toJSON）
       await this.minio.delete(media.key);
-      await this.prisma.media.delete({ where: { id: dto.fileId } });
+      await this.registration.deletePending(dto.fileId);
       throw new BadRequestException('文件大小不匹配，请重新上传');
     }
 
+    // Z7'' MIME 安全链：嗅探对象头字节（file-type 16.x）→ 白名单外（含不可判型/SVG）拒+删对象+删行
+    //（与 mismatch 分支同构）；sniffed 为准落列，probeState 按 sniffed 路由（T4 红测组④）
+    const head = await this.minio.getHeadBytes(media.key);
+    const sniffed = await sniffMimeType(head);
+    if (sniffed === null || !isAllowedUploadMime(sniffed)) {
+      await this.minio.delete(media.key);
+      await this.registration.deletePending(dto.fileId);
+      throw new BadRequestException('文件类型不受支持（内容校验未通过）');
+    }
+
+    // 上传路径维持硬限语义（v10.1-②软限裁决只针对资金 register 形态——T10 registerInTx 禁调本方法）
     await this.quota.assertOnConfirm(dto.fileId, actualSize);
 
-    await this.prisma.media.update({
-      where: { id: dto.fileId },
-      data: { status: 'completed', size: actualSize },
+    // status='pending' CAS：并发双 confirm 恰一 completed，败方 409（T4 红测组②）
+    await this.registration.confirmUpload({
+      mediaId: dto.fileId,
+      actualSize,
+      sniffedMimeType: sniffed,
     });
 
     return { fileId: dto.fileId };
   }
+}
+
+/** clientUploadId 校验（网络重试幂等键——可选）：非空字符串且 ≤128；空串/缺省=不启用幂等 */
+function normalizeClientUploadId(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (typeof raw !== 'string' || raw.length > 128) throw new BadRequestException('clientUploadId 非法');
+  return raw;
 }
