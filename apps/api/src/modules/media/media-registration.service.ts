@@ -12,7 +12,8 @@ import { MinioService } from '../minio/minio.service';
 
 /** pending 上传 TTL（spec Z7''-v14：24h——presign 900s×重试窗后仍未 confirm 即弃；现状永不过期可占满 MinIO） */
 export const PENDING_UPLOAD_TTL_MS = 24 * 3600_000;
-/** pending 清理轮询周期——R28 纪律：原生 setInterval+unref（@Cron 全仓未导入是死代码，参照 intent-reconcile） */
+/** pending 清理轮询周期——R28 纪律：原生 setInterval+unref（@Cron 全仓未导入是死代码，参照 intent-reconcile）。
+ *  取值依据：TTL 24h 量级下 1h 轮询=过期行至多滞留 1h；每轮 ≤SWEEP_PAGE 100 行限单轮开销；积压>100 按轮消化（有意设计）。 */
 export const PENDING_UPLOAD_SWEEP_INTERVAL_MS = 3600_000;
 const SWEEP_PAGE = 100;
 
@@ -50,7 +51,7 @@ export interface PrepareUploadParams {
   fileName: string;
   mimeType: string;
   size: number | bigint;
-  type: string; // uploaded | temp
+  type: 'uploaded' | 'temp'; // 对齐 PresignUploadDto（generated 形态归 T10 register，不走 presign）
 }
 
 export interface ConfirmUploadParams {
@@ -221,8 +222,7 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
             continue;
           }
         }
-        const { count } = await this.prisma.media.deleteMany({ where: { id: m.id, status: 'pending' } });
-        removed += count;
+        removed += await this.deletePending(m.id); // 守卫删 pending 行（与 mismatch/白名单拒清理同一语义）
       }
       return removed;
     } finally {

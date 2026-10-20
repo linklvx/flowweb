@@ -104,7 +104,8 @@ export class MinioService {
   }
 
   /** Y1b T4：取对象头字节（confirm MIME 嗅探）——Range 限定只拉前 maxBytes，
-   *  到量即销流（1GB 视频不整读；file-type 判型只需头部魔数）。 */
+   *  到量即销流（1GB 视频不整读；file-type 判型只需头部魔数）。
+   *  maxBytes=4100 出处：file-type 头部取样惯例值——magic bytes 检测所需头部远小于此。 */
   async getHeadBytes(key: string, maxBytes: number = 4100): Promise<Buffer> {
     const response = await this.s3Client.send(new GetObjectCommand({
       Bucket: this.bucket,

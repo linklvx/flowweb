@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import {
-  MediaRegistrationService, PENDING_UPLOAD_TTL_MS,
+  MediaRegistrationService, PENDING_UPLOAD_TTL_MS, PrepareUploadParams,
 } from './media-registration.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { deleteTeamsWithPass } from '../../test-utils/intent-fixture';
@@ -27,9 +27,11 @@ const makeReg = () => {
   return { reg, minio, deletes };
 };
 
-const prepareParams = (over: Record<string, unknown> = {}) => ({
+const prepareParams = (over: Partial<PrepareUploadParams> = {}): PrepareUploadParams => ({
   userId: UID, teamId: TID, key: `uploads/${UID}/it/${Math.random().toString(36).slice(2)}.png`,
-  fileName: 'a.png', mimeType: 'image/png', size: 100, type: 'uploaded', ...over,
+  fileName: 'a.png', mimeType: 'image/png', size: 100,
+  ...over,
+  type: over.type ?? 'uploaded', // type 收窄后置必填（spread Partial 会落 optional——显式兜底）
 });
 
 (hasDb ? describe : describe.skip)('Y1b T4：MediaRegistrationService 骨架（真 PG；MinIO mock）', () => {

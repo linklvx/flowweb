@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { PresignUploadDto } from './dto/presign.dto';
@@ -11,6 +11,8 @@ import {
 
 @Injectable()
 export class StorageService {
+  private readonly logger = new Logger(StorageService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
@@ -89,6 +91,7 @@ export class StorageService {
     const head = await this.minio.getHeadBytes(media.key);
     const sniffed = await sniffMimeType(head);
     if (sniffed === null || !isAllowedUploadMime(sniffed)) {
+      this.logger.warn(`confirmUpload MIME 嗅探拒 key=${media.key} sniffed=${sniffed ?? '不可判型'} declared=${media.mimeType}——已删对象+pending 行`);
       await this.minio.delete(media.key);
       await this.registration.deletePending(dto.fileId);
       throw new BadRequestException('文件类型不受支持（内容校验未通过）');
