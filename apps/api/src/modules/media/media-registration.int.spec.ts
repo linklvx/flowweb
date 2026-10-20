@@ -1,6 +1,6 @@
 // apps/api/src/modules/media/media-registration.int.spec.ts —— Y1b T4 骨架红测（真 PG；MinIO mock）
 // 新建 service 的红=编译级（模块/方法不存在）；此处为绿态行为钉：
-// prepareUpload 并发同 clientUploadId（真 PG 并发用例）/pendingExpiresAt 落值窗/TTL sweep 分档/bindInTx create-only。
+// prepareUpload 并发同 clientUploadId（真 PG 并发用例）/pendingExpiresAt 落值窗/TTL sweep 分档/bindInTx current-state upsert。
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
@@ -98,7 +98,7 @@ const prepareParams = (over: Record<string, unknown> = {}) => ({
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
   });
 
-  it('T4-bind bindInTx：同槽位二次 upsert 恰一行（create-only——已有行原样保留）；不同 targetItemId 分行', async () => {
+  it('T4-bind bindInTx：同槽位同 media 重 bind 恰一行（current-state——update 无净变更幂等）；不同 targetItemId 分行', async () => {
     const { reg } = makeReg();
     const m = await reg.prepareUpload(prepareParams({}));
     const projectId = `it-bind-p-${Date.now()}`; // 槽位锚——闭包外单次求值（每调用重算会跨毫秒换槽位）
@@ -106,11 +106,26 @@ const prepareParams = (over: Record<string, unknown> = {}) => ({
       mediaId: m.id, projectId, nodeId: 'n1', teamId: TID, targetItemId,
     }));
     await bind();
-    await bind(); // 同槽位二次=create-only 幂等
+    await bind(); // 同槽位同 media 重 bind=current-state 幂等（update 无净变更）
     await bind('item-2'); // 不同槽位=新行
     const rows = await prisma.mediaBinding.findMany({ where: { mediaId: m.id } });
     expect(rows).toHaveLength(2);
     expect(new Set(rows.map((r) => r.targetItemId))).toEqual(new Set(['', 'item-2']));
+  });
+
+  it('T4-bind 分歧场景（v14.2 裁决㉜）：同槽位先 bind mediaA 再 bind mediaB → 恰一行且行.mediaId===B（current-state；create-only 已废止——旧实现此断言红：mediaId 仍 A）', async () => {
+    const { reg } = makeReg();
+    const mediaA = await reg.prepareUpload(prepareParams({}));
+    const mediaB = await reg.prepareUpload(prepareParams({}));
+    const projectId = `it-bind-cs-${Date.now()}`; // 槽位锚——闭包外单次求值（每调用重算会跨毫秒换槽位）
+    const bind = (mediaId: string) => prisma.$transaction((tx) => reg.bindInTx(tx, {
+      mediaId, projectId, nodeId: 'n1', teamId: TID,
+    }));
+    await bind(mediaA.id);
+    await bind(mediaB.id); // 同槽位换 media=current-state 改行
+    const rows = await prisma.mediaBinding.findMany({ where: { projectId, nodeId: 'n1' } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].mediaId).toBe(mediaB.id);
   });
 
   it('T4-② confirmInTx CAS 语义补充：非 pending 行 confirm → 0 行命中 409（幂等重放/已完成终判拒绝）', async () => {

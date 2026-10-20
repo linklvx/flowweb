@@ -151,7 +151,9 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
     return count;
   }
 
-  /** MediaBinding 槽位 create-only upsert（v13b：绝不改已有行——键 [projectId,nodeId,role,targetField,targetItemId]） */
+  /** MediaBinding 槽位 current-state upsert（v14.2 裁决㉜/Z18''：同槽位换 media 即改行——
+   *  create-only 已废止：永不删行则当前槽位是哪个 media 只能靠 createdAt 猜、GC 被历史行拖住。
+   *  键 [projectId,nodeId,role,targetField,targetItemId]；模型 createdAt only 故 update 仅 mediaId。） */
   async bindInTx(
     tx: Prisma.TransactionClient,
     params: {
@@ -176,7 +178,7 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
         },
       },
       create: data,
-      update: {}, // create-only：已存在行原样保留
+      update: { mediaId: data.mediaId }, // current-state：同槽位换 media 改行（v14.2 废止 create-only）
     });
   }
 

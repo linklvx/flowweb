@@ -18,7 +18,9 @@ import { basename } from 'node:path';
 // drain×write-batch 相遇——D 出口判据）→155。
 // Y1a+Y1b S0.1 增补（media-fact-outbox 2 例——outbox factType 唯一键真 PG 实证）→实测全量落 166
 //（155 基数此间漂移 +9 未随记——本次按实测口径校准，非拔高）。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 166);
+// Y1a+Y1b T4 增补（media-registration 6+storage-upload 6=12 例——两新文件）→178；
+// spec 收口 bindInTx current-state 分歧场景 +1 例（实测 179，闸门 ≥ 语义不随单例上调）。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 178);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
