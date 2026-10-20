@@ -7,6 +7,8 @@ import { VideoTrimService } from './video-trim.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import * as constants from './video-trim.constants';
+import { spawn } from 'child_process';
+import { EventEmitter } from 'events';
 
 vi.mock('child_process', () => ({ spawn: vi.fn() }));
 vi.mock('fs/promises', () => ({
@@ -165,6 +167,48 @@ describe('VideoTrimProcessor', () => {
       expect(mockService.handleTaskFailed).toHaveBeenCalledWith('task-1', 'PROJECT_TEAM_MISSING');
       expect(prisma.media.create).not.toHaveBeenCalled();
       expect(prisma.team.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  // Y1a+Y1b T7（spec Z7''）：ffmpeg spawn 沙箱化——protocol_whitelist 前置+timeout SIGKILL
+  // （trim 与 media-process/thumbnail 同批改——grep 全部 spawn 面清单之一）。
+  describe('Y1a+Y1b T7：runFfmpeg spawn 沙箱（spawn 数组+timeout+protocol_whitelist）', () => {
+    // 顶部 vi.mock('child_process') 工厂拦截——直接 import 取同 mock 引用（events 真身）
+    const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>;
+
+    function makeProc(hang: boolean) {
+      const proc = new EventEmitter() as any;
+      proc.stdout = { on: vi.fn() };
+      proc.stderr = { on: vi.fn() };
+      proc.kill = vi.fn();
+      if (!hang) process.nextTick(() => proc.emit('close', 0));
+      return proc;
+    }
+
+    it('spawn 实参前置 -protocol_whitelist file,http,https,tcp,tls（红：现状无白名单）', async () => {
+      mockSpawn.mockReturnValue(makeProc(false));
+      await (processor as any).runFfmpeg(makeJob().data);
+      const args = mockSpawn.mock.calls[mockSpawn.mock.calls.length - 1][1] as string[];
+      expect(args[0]).toBe('-protocol_whitelist');
+      expect(args[1]).toBe('file,http,https,tcp,tls');
+      expect(args[2]).toBe('-ss');   // buildFfmpegArgs 首项原样后移
+    });
+
+    it('timeout SIGKILL：进程挂死 → 超时 kill+reject（红：现状 trim spawn 无超时——挂死占并发槽）', async () => {
+      vi.useFakeTimers();
+      try {
+        mockSpawn.mockReturnValue(makeProc(true));
+        const ret = (processor as any).runFfmpeg(makeJob().data).then(
+          () => 'resolved',
+          (e: Error) => e.message.includes('timeout') ? 'rejected:timeout' : `rejected:${e.message}`,
+        );
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+        const proc = mockSpawn.mock.results[mockSpawn.mock.results.length - 1].value;
+        expect(proc.kill).toHaveBeenCalledWith('SIGKILL');
+        expect(await ret).toBe('rejected:timeout');
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

@@ -11,6 +11,10 @@ import { buildFfmpegArgs, FfmpegConfig } from './video-trim.utils';
 import { VideoTrimJobData, VideoTrimJobResult } from './video-trim.types';
 import { VIDEO_TRIM_QUEUE, TEMP_DIR, ffmpegPath } from './video-trim.constants';
 import { QUEUE_CONCURRENCY } from '../../config/queue.constants';
+import { FFMPEG_PROTOCOL_WHITELIST } from '../media-process/media-process.service';
+
+/** T7：trim ffmpeg 超时（media-process MAX_TASK_DURATION_MS 同款 5min） */
+const TRIM_FFMPEG_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Y0c T30（Z146）：并发上界补参——QUEUE_CONCURRENCY.VIDEO_TRIM（=max(1,floor(核数×0.7))）
 // 此前定义未消费，实现落 BullMQ 默认 1 与意图不符
@@ -33,18 +37,26 @@ export class VideoTrimProcessor extends WorkerHost {
   }
 
   private runFfmpeg(jobData: VideoTrimJobData): Promise<void> {
-    const args = buildFfmpegArgs(jobData, this.ffmpegConfig);
+    // Y1a+Y1b T7（spec Z7''）：spawn 沙箱——白名单前置（全局 option 须在首个 -i 前）+超时 SIGKILL
+    //（media-process runFfmpeg 同款；既有 trim spawn 无超时=挂死占并发槽根修）
+    const args = ['-protocol_whitelist', FFMPEG_PROTOCOL_WHITELIST, ...buildFfmpegArgs(jobData, this.ffmpegConfig)];
     this.logger.log(`FFmpeg args: ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
       const proc = spawn(ffmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });   // T34：惰性读（constants const 冻结形态退役）
 
       let stderr = '';
+      const timer = setTimeout(() => {
+        proc.kill('SIGKILL');
+        reject(new Error(`FFmpeg execution timeout (${TRIM_FFMPEG_TIMEOUT_MS}ms)`));
+      }, TRIM_FFMPEG_TIMEOUT_MS);
+
       proc.stderr?.on('data', (chunk: Buffer) => {
         stderr += chunk.toString();
       });
 
       proc.on('close', (code) => {
+        clearTimeout(timer);
         if (code === 0) {
           resolve();
         } else {
@@ -53,6 +65,7 @@ export class VideoTrimProcessor extends WorkerHost {
       });
 
       proc.on('error', (err) => {
+        clearTimeout(timer);
         reject(err);
       });
     });

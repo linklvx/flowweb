@@ -11,6 +11,9 @@ import * as tmp from 'tmp';
 // Auto-cleanup temp files on process exit (cross-platform safe)
 tmp.setGracefulCleanup();
 
+/** Y1a+Y1b T7：thumbnail ffmpeg 超时（抽帧轻任务 60s 上界——挂死占并发槽根修） */
+const THUMBNAIL_FFMPEG_TIMEOUT_MS = 60_000;
+
 // Y0c T30（Z146）：BullMQ 默认并发 1 是保守界非「无上界」——显式登记参数防漂移
 @Processor(THUMBNAIL_GENERATOR_QUEUE, { concurrency: 1 })
 export class ThumbnailGeneratorConsumer extends WorkerHost {
@@ -75,15 +78,20 @@ export class ThumbnailGeneratorConsumer extends WorkerHost {
     });
 
     await new Promise<void>((resolve, reject) => {
-      ffmpeg.default(tempPath)
+      // Y1a+Y1b T7（spec Z7''）：fluent-ffmpeg 消费面同批沙箱化——inputOptions 注入 protocol_whitelist
+      // +60s 超时 SIGKILL（挂死占队列并发槽根修；本地临时文件=face 'file'）
+      const cmd = ffmpeg.default(tempPath)
+        .inputOptions(['-protocol_whitelist', 'file,http,https,tcp,tls'])
         .screenshots({
           timestamps: [seekSec ?? 1],
           filename: path.basename(thumbnailPath),
           folder: path.dirname(thumbnailPath),
           size: '300x225',
-        })
-        .on('end', () => resolve())
-        .on('error', reject);
+        });
+      const timer = setTimeout(() => cmd.kill('SIGKILL'), THUMBNAIL_FFMPEG_TIMEOUT_MS);
+      cmd
+        .on('end', () => { clearTimeout(timer); resolve(); })
+        .on('error', (err: Error) => { clearTimeout(timer); reject(err); });
     });
 
     const thumbnailBuffer = fs.readFileSync(thumbnailPath);

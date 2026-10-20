@@ -22,7 +22,9 @@ import { basename } from 'node:path';
 // spec 收口 bindInTx current-state 分歧场景 +1 例（实测 179，闸门 ≥ 语义不随单例上调）。
 // Y1a+Y1b T5 增补（media-content 7 例——新文件〔单门四例+删旁路两例+ready 真 S3 全链〕+
 // storage-upload +1〔T5 写 ACL viewer presign 403〕）→187。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 187);
+// Y1a+Y1b T7 增补（media-probe 9 例——新文件〔claim 并发/lease 接管 fenced/sniffed 路由/EXIF 交换/
+// 40MP downscale/视频 ffprobe/mismatch permanent/jitter 退避耗尽/outbox union〕）→196（实测口径）。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 196);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。
@@ -53,6 +55,7 @@ const FILES_MIN = {
   'media-fact-outbox.int.spec.ts': 2,       // Y1a+Y1b S0.1：factType 入键（natural/state 共存+同类 P2002）
   'media-content.int.spec.ts': 7,           // Y1a+Y1b T5：单门四例+删旁路两例+ready 真 S3 全链（「CI 真 S3」出口判据本体）
   'storage-upload.int.spec.ts': 7,          // Y1a+Y1b T4 六例+T5 写 ACL viewer presign 403（真权限链）
+  'media-probe.int.spec.ts': 9,             // Y1a+Y1b T7：probe 单相九例（真 PG SKIP LOCKED/真 S3/真 sharp+ffprobe）
 };
 
 const report = JSON.parse(readFileSync('apps/api/int.json', 'utf8'));

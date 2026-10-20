@@ -7,6 +7,8 @@ import { mkdir, rm } from 'fs/promises';
 import * as path from 'path';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
+import { Readable } from 'stream';
+import { createWriteStream } from 'fs';
 
 vi.mock('child_process', () => ({ spawn: vi.fn() }));
 vi.mock('fs/promises', () => ({
@@ -15,8 +17,10 @@ vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(Buffer.from('mock-data')),
   writeFile: vi.fn(),
 }));
+vi.mock('fs', () => ({ createWriteStream: vi.fn() }));
 
 const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>;
+const mockCreateWriteStream = createWriteStream as unknown as ReturnType<typeof vi.fn>;
 
 function mockSpawnProc(stdout: string, exitCode = 0): EventEmitter {
   const proc = new EventEmitter() as any;
@@ -27,6 +31,25 @@ function mockSpawnProc(stdout: string, exitCode = 0): EventEmitter {
     proc.emit('close', exitCode);
   });
   return proc;
+}
+
+/** 永不 close 的进程（timeout kill 断言用）——kill 为 spy */
+function mockSpawnHanging(): any {
+  const proc = new EventEmitter() as any;
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.kill = vi.fn();
+  return proc;
+}
+
+/** createWriteStream 替身：收 writes/end/destroy（事件面与真流一致） */
+function mockWritable() {
+  const w = new EventEmitter() as any;
+  w.writes = [] as Buffer[];
+  w.write = vi.fn((c: Buffer) => { w.writes.push(c); });
+  w.end = vi.fn((cb?: () => void) => { cb?.(); });
+  w.destroy = vi.fn();
+  return w;
 }
 
 describe('MediaProcessService', () => {
@@ -304,21 +327,75 @@ describe('MediaProcessService', () => {
     });
   });
 
-  describe('downloadWithRetry', () => {
-    it('should retry once on first failure then succeed', async () => {
-      let attempts = 0;
-      const mockDownload = vi.fn().mockImplementation(() => {
-        attempts++;
-        if (attempts === 1) throw new Error('ECONNRESET');
-        return Promise.resolve();
+  describe('T7 沙箱化（spec Z7 口径「ffprobe 15s+SIGKILL+protocol_whitelist」——trim/separate/thumbnail 同改）', () => {
+    it('runFfmpeg：spawn 实参前置 -protocol_whitelist file,http,https,tcp,tls（红：现状无白名单）', async () => {
+      mockSpawn.mockReturnValue(mockSpawnProc('', 0));
+      await service.runFfmpeg(['-i', 'in.mp4', '-an', '-c:v', 'copy', '-y', 'out.mp4']);
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args[0]).toBe('-protocol_whitelist');
+      expect(args[1]).toBe('file,http,https,tcp,tls');
+      expect(args.slice(2)).toEqual(['-i', 'in.mp4', '-an', '-c:v', 'copy', '-y', 'out.mp4']);
+    });
+
+    it('ffprobe（detectDuration）：args 含 -protocol_whitelist（红：现状无白名单）', async () => {
+      mockSpawn.mockReturnValue(mockSpawnProc('12.5\n', 0));
+      await service.detectDuration('/tmp/a.mp4');
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      const wl = args.indexOf('-protocol_whitelist');
+      expect(wl).toBeGreaterThanOrEqual(0);
+      expect(args[wl + 1]).toBe('file,http,https,tcp,tls');
+    });
+
+    it('ffprobe 15s 超时 SIGKILL（红：现状 detect* 无超时——挂死进程永久占并发）', async () => {
+      const proc = mockSpawnHanging();
+      mockSpawn.mockReturnValue(proc);
+      vi.useFakeTimers();
+      try {
+        const ret = service.detectDuration('/tmp/a.mp4').then(
+          () => 'resolved',
+          (e: Error) => `rejected:${e.message.includes('timeout') ? 'timeout' : 'other'}`,
+        );
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(proc.kill).toHaveBeenCalledWith('SIGKILL');
+        expect(await ret).toBe('rejected:timeout');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('downloadObjectToFile（T6 登记承接：minio SDK 直取——内网数据搬运不经 presigned HTTP 往返）', () => {
+    it('getObject 流写文件：字节顺序落盘（红：方法不存在=编译红）', async () => {
+      mockMinio.getObject = vi.fn().mockResolvedValue(Readable.from([Buffer.from('ab'), Buffer.from('cd')]));
+      const dest = mockWritable();
+      mockCreateWriteStream.mockReturnValue(dest);
+      await service.downloadObjectToFile('k1', '/tmp/f.mp4', { timeoutMs: 5_000, retries: 1 });
+      expect(mockMinio.getObject).toHaveBeenCalledWith('k1');
+      expect(Buffer.concat(dest.writes).toString()).toBe('abcd');
+    });
+
+    it('重试语义维持：首轮 ECONNRESET 次轮成功（getObject 两调）', async () => {
+      let n = 0;
+      mockMinio.getObject = vi.fn().mockImplementation(async () => {
+        n++;
+        if (n === 1) throw new Error('ECONNRESET');
+        return Readable.from([Buffer.from('ok')]);
       });
-      // We test the retry logic by spying on the internal downloadFile
-      await service.downloadWithRetry('http://example.com/file.mp4', '/tmp/file.mp4', {
-        timeoutMs: 1000,
-        retries: 1,
-        downloadFn: mockDownload,
-      });
-      expect(mockDownload).toHaveBeenCalledTimes(2);
+      const dest = mockWritable();
+      mockCreateWriteStream.mockReturnValue(dest);
+      await service.downloadObjectToFile('k2', '/tmp/f.mp4', { timeoutMs: 5_000, retries: 1 });
+      expect(n).toBe(2);
+      expect(Buffer.concat(dest.writes).toString()).toBe('ok');
+    });
+
+    it('超时断流：流不结束 → timeoutMs 后销毁流+reject（防 1GB 视频挂死占 lease）', async () => {
+      const never = new Readable({ read() { /* 永不产出 */ } });
+      mockMinio.getObject = vi.fn().mockResolvedValue(never);
+      mockCreateWriteStream.mockReturnValue(mockWritable());
+      await expect(
+        service.downloadObjectToFile('k3', '/tmp/f.mp4', { timeoutMs: 20, retries: 0 }),
+      ).rejects.toThrow('Download timeout');
+      expect(never.destroyed).toBe(true);
     });
   });
 });

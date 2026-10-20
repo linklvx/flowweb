@@ -3,7 +3,6 @@ import { VideoSeparateProcessor } from './video-separate.processor';
 import { VideoSeparateService } from './video-separate.service';
 import { MediaProcessService } from '../media-process/media-process.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MinioService } from '../minio/minio.service';
 import { NonRetryableError, VideoSeparateJobData } from './video-separate.types';
 import { Job } from 'bullmq';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -18,7 +17,6 @@ describe('VideoSeparateProcessor', () => {
   let mockSeparateService: any;
   let mockMediaProcess: any;
   let mockPrisma: any;
-  let mockMinio: any;
   let mockRedis: any;
 
   const baseJobData: VideoSeparateJobData = {
@@ -56,10 +54,10 @@ describe('VideoSeparateProcessor', () => {
       uploadAndCreateMedia: vi.fn().mockResolvedValue({ id: 'media-1' }),
       cleanupTempDir: vi.fn().mockResolvedValue(undefined),
       cleanupStaleDirs: vi.fn().mockResolvedValue(undefined),
-      downloadWithRetry: vi.fn().mockImplementation((_url, _dest, _opts) => Promise.resolve()),
+      // Y1b T7：minio SDK 直取（T6 登记承接）——downloadWithRetry(presigned URL) 退役
+      downloadObjectToFile: vi.fn().mockImplementation((_key, _dest, _opts) => Promise.resolve()),
     };
     mockPrisma = { media: {}, videoSeparateTask: {} };
-    mockMinio = { generatePresignedGetUrl: vi.fn().mockResolvedValue('https://signed.url') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -67,7 +65,6 @@ describe('VideoSeparateProcessor', () => {
         { provide: VideoSeparateService, useValue: mockSeparateService },
         { provide: MediaProcessService, useValue: mockMediaProcess },
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: MinioService, useValue: mockMinio },
         { provide: 'REDIS_CLIENT', useValue: mockRedis },
       ],
     }).compile();
@@ -119,7 +116,7 @@ describe('VideoSeparateProcessor', () => {
   });
 
   it('should handle download failure with retry via throw', async () => {
-    mockMediaProcess.downloadWithRetry.mockRejectedValue(new Error('ECONNRESET'));
+    mockMediaProcess.downloadObjectToFile.mockRejectedValue(new Error('ECONNRESET'));
     const job = mockJob(baseJobData);
 
     await expect(processor.process(job)).rejects.toThrow('ECONNRESET');

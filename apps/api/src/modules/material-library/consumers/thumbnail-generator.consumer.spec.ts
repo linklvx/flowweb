@@ -8,14 +8,21 @@ import { MinioService } from '../../minio/minio.service';
 import ffmpeg from 'fluent-ffmpeg';
 
 vi.mock('fluent-ffmpeg', () => {
+  // autoEnd：默认 on('end') 即触发（既有 seekSec 用例语义）；T7 超时用例关断走 kill+error 路径
+  let autoEnd = true;
   const command = {
+    inputOptions: vi.fn().mockReturnThis(),
     screenshots: vi.fn().mockReturnThis(),
+    kill: vi.fn(),
     on: vi.fn((event: string, cb: () => void) => {
-      if (event === 'end') setImmediate(cb);
+      if (event === 'end' && autoEnd) setImmediate(cb);
       return command;
     }),
   };
-  return { default: vi.fn(() => command) };
+  return {
+    default: vi.fn(() => command),
+    __setAutoEnd: (v: boolean) => { autoEnd = v; },
+  };
 });
 
 vi.mock('sharp', () => {
@@ -92,6 +99,46 @@ describe('ThumbnailGeneratorConsumer', () => {
     expect(ffmpegCommand().screenshots).toHaveBeenCalledWith(
       expect.objectContaining({ timestamps: [1] }),
     );
+  });
+
+  // Y1a+Y1b T7（spec Z7''）：thumbnail ffmpeg 消费面沙箱化——inputOptions 注入 -protocol_whitelist
+  // +超时 SIGKILL（现状两者皆无=红；fluent-ffmpeg 非裸 spawn 但同批改）。
+  it('T7 沙箱①：视频截图命令注入 -protocol_whitelist file,http,https,tcp,tls（红：现状无白名单）', async () => {
+    const job = {
+      data: { mediaId: 'm-3', key: 'uploads/m-3.mp4', mimeType: 'video/mp4' },
+    } as unknown as Job<ThumbnailJobData>;
+    await consumer.process(job);
+    const cmd = ffmpegCommand() as unknown as { inputOptions: Mock };
+    expect(cmd.inputOptions).toHaveBeenCalledWith(['-protocol_whitelist', 'file,http,https,tcp,tls']);
+  });
+
+  it('T7 沙箱②：截图命令 60s 无 end/error → SIGKILL（红：现状挂死占队列并发槽）', async () => {
+    const ffmock = await import('fluent-ffmpeg') as unknown as { __setAutoEnd: (v: boolean) => void };
+    ffmock.__setAutoEnd(false);
+    // shouldAdvanceTime：真微步推进（getObject→pipe→writeStream finish 的 setImmediate 链真实走完）
+    // ——纯 fake timers 定长 flush 循环在并行负载下偶发饿死（verify 全量实测）；waitFor 到命令构造即稳。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const job = {
+        data: { mediaId: 'm-4', key: 'uploads/m-4.mp4', mimeType: 'video/mp4' },
+      } as unknown as Job<ThumbnailJobData>;
+      const ret = consumer.process(job).catch(() => 'rejected');
+      await vi.waitFor(
+        () => expect((ffmpeg as unknown as Mock).mock.calls.length).toBeGreaterThan(0),
+        { timeout: 5_000, interval: 10 },
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      const cmd = ffmpegCommand() as unknown as { kill: Mock; on: Mock };
+      expect(cmd.kill).toHaveBeenCalledWith('SIGKILL');
+      // kill 后 fluent-ffmpeg 发 error——手动触发收口（process 上抛由 catch 捕获）
+      const onError = (cmd.on.mock.calls as unknown as Array<[string, () => void]>)
+        .find(([e]) => e === 'error')?.[1];
+      onError?.();
+      expect(await ret).toBe('rejected');
+    } finally {
+      vi.useRealTimers();
+      ffmock.__setAutoEnd(true);
+    }
   });
 });
 

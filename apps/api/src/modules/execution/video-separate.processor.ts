@@ -4,12 +4,11 @@ import { Inject, Logger } from '@nestjs/common';
 import * as path from 'path';
 import { mkdir, statfs } from 'fs/promises';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MinioService } from '../minio/minio.service';
 import { MediaProcessService } from '../media-process/media-process.service';
 import { VideoSeparateService } from './video-separate.service';
 import {
   VIDEO_SEPARATE_QUEUE, TEMP_SEPARATE_DIR,
-  PRESIGNED_URL_EXPIRY, DOWNLOAD_TIMEOUT_MS, DOWNLOAD_RETRIES,
+  DOWNLOAD_TIMEOUT_MS, DOWNLOAD_RETRIES,
   ALLOWED_EXTENSIONS, AUDIO_OUTPUT_EXT, AUDIO_OUTPUT_MIME,
 } from './video-separate.constants';
 import { QUEUE_CONCURRENCY } from '../../config/queue.constants';
@@ -27,7 +26,6 @@ export class VideoSeparateProcessor extends WorkerHost {
     @Inject(VideoSeparateService) private readonly separateService: VideoSeparateService,
     @Inject(MediaProcessService) private readonly mediaProcess: MediaProcessService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(MinioService) private readonly minio: MinioService,
     @Inject('REDIS_CLIENT') private readonly redis: any,
   ) {
     super();
@@ -118,12 +116,10 @@ export class VideoSeparateProcessor extends WorkerHost {
       // Disk space pre-check (source × 3.5 buffer for input + 2 outputs)
       await this.ensureDiskSpace(outputDir, job.data.sourceSize);
 
-      // Generate fresh presigned URL
-      const presignedUrl = await this.minio.generatePresignedGetUrl(sourceKey, PRESIGNED_URL_EXPIRY);
-
-      // Download with independent timeout + retry
+      // Y1b T7（T6 登记承接）：minio SDK 直取（getObject 流）——不经 presigned HTTP 往返（内网搬运
+      // +消 SSRF 必拒面）；timeout/retry 语义与旧 downloadWithRetry 同参维持
       const inputPath = path.join(outputDir, `input.${ext}`);
-      await this.mediaProcess.downloadWithRetry(presignedUrl, inputPath, {
+      await this.mediaProcess.downloadObjectToFile(sourceKey, inputPath, {
         timeoutMs: DOWNLOAD_TIMEOUT_MS,
         retries: DOWNLOAD_RETRIES,
       });

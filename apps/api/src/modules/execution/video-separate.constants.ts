@@ -6,7 +6,6 @@ export const MAX_TASK_DURATION_MS = 5 * 60 * 1000; // 5min
 export const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000; // 10min
 export const DOWNLOAD_RETRIES = 1;
 export const USER_CONCURRENT_LIMIT = 3;
-export const PRESIGNED_URL_EXPIRY = 1800; // 30min
 export const IDEMPOTENCY_LOCK_TTL = 3; // 3s
 export const COUNTER_TTL = 86400; // 24h — 覆盖极端排队场景，配合每日 cron 校准兜底
 

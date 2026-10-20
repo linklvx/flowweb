@@ -81,8 +81,8 @@ jobs:
       # n8.1.3-18 系），URL 永稳+sha256 锁有效。重 pin 流程=下载新 BtbN 资产→删除并重传本 Release
       # 资产（注意 CDN 缓存约 1 分钟过期）→更新下方 sha256→验证版本断言。装 /usr/local/bin 走
       # PATH（FFPROBE_PATH 消费点缺省 'ffprobe'——video-trim.constants/media-process 同款）。
-      # apt 不满足：ubuntu 镜像滚动自带 ffmpeg 6.1.x。服务器侧（Ubuntu 24.04）不经 deploy.sh 装
-      # ffmpeg（grep 实证零命中）——生产 8.1.x 对齐随 Y1a T7 FFPROBE_PATH 落地时另行决策。
+      # apt 不满足：ubuntu 镜像滚动自带 ffmpeg 6.1.x。服务器侧（Ubuntu 24.04）同源对齐已随
+      # Y1a T7（E4 裁定）落地=deploy.sh「ffprobe」模式（自托管 Release→/usr/local/bin，人工触发）。
       - name: ffprobe 8.1.x pin（本仓 Release 自托管+sha256 内容锁）
         run: |
           curl -sfL -o /tmp/ffmpeg-81.tar.xz \
@@ -193,7 +193,7 @@ jobs:
   collab-core:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30    # 6+8+10=24+setup<30（plan T4 算术）
+    timeout-minutes: 30    # 6+8+10=24+ffprobe pin<0.5+setup<30（plan T4 算术；Y1a T7 增补 ffprobe 步）
     services:
       postgres:
         image: postgres:16
@@ -244,6 +244,19 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma generate
       - run: pnpm --filter @flowweb/shared build
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
+      # Y1a T7（E4 裁定 2026-10-20）：collab-core job 补装 ffprobe——int 池 media-probe.int.spec 真调
+      # ffprobe/sharp（probe 视频路径）；步内容=test job 同款原样复制（自托管 Release+sha256 内容锁
+      # +版本断言——重 pin 流程见 test job 注释）。生产侧同源对齐=deploy.sh「ffprobe」模式（E4 后半）。
+      - name: ffprobe 8.1.x pin（本仓 Release 自托管+sha256 内容锁）
+        run: |
+          curl -sfL -o /tmp/ffmpeg-81.tar.xz \
+            https://github.com/linklvx/flowweb/releases/download/ffmpeg-pin-8.1/ffmpeg-n8.1-linux64-gpl-8.1.tar.xz
+          echo "e3ae56bf0e735159fb7aa522a01d347e9d842219cd3bbe751e09f6f6be26079e  /tmp/ffmpeg-81.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/ffmpeg-81.tar.xz -C /tmp
+          sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffprobe /usr/local/bin/ffprobe
+          sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin/ffmpeg
+          ffprobe -version | head -1
+          ffprobe -version | head -1 | grep -Eq '^ffprobe version n?8\.1\.' || { echo 'ffprobe 版本漂移（非 8.1.x 线——BtbN 版本串形态=n8.1.3-18-g<sha>-<date>，run 39450135291 实证）——重 pin 流程见 test job 注释'; exit 1; }
       # Y0c T5（Z80/Z18/Z123）：库行为锚=版本 pin 语义的 CI 保障（@hocuspocus 4.6.0 实现细节漂移即红）。
       # unit 形态（独立最小 Server+mock 装置，零 DB/Redis 依赖）；test job 的 verify 全量常跑同文件，
       # 此处 targeted 重跑=第二真源（本 job 注释头同款口径）——Z18 版本变化必重跑清单的执行入口之一。

@@ -50,6 +50,9 @@ import { LightingConsumer } from './modules/ai-image-edit/lighting/lighting.cons
 import { AiDownloadProcessor } from './modules/ai-download/ai-download.processor';
 // T6：三处结果下载经 SafeRemoteFetch——MediaModule 闭包含 controller（census ⑰）不可导入，平铺注册（零依赖服务多实例语义等同）
 import { SafeRemoteFetchService } from './modules/media/safe-remote-fetch.service';
+// T7：probe 单相 poller（DB poller——sharp/ffprobe 上传路径重计算；同上闭包原因平铺注册，
+// 仅 worker 进程装配——API 进程不注册〔spec §3.1 进程拓扑〕；依赖=Prisma/Minio 均已 import）
+import { MediaProbePoller } from './modules/media/media-probe.poller';
 // ── storyboard/material/temp-cleanup ──
 import { StitchConsumer } from './modules/storyboard/stitch.consumer';
 import { ThumbnailGeneratorConsumer } from './modules/material-library/consumers/thumbnail-generator.consumer';
@@ -141,6 +144,7 @@ const env = validateEnv();
     // ── execution 链服务（processor 传递依赖平铺） ──
     ExecutionService,
     SafeRemoteFetchService,   // T6：ai-download/ai-image-edit/lighting 下载原语（SSRF 四门+限长）
+    MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
     GenerationIntentService,
     TopologyService,
     ValidationService,

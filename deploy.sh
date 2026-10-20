@@ -5,6 +5,7 @@
 #   ./deploy.sh api     仅部署后端（本地构建 → 上传 → 条件 install → cutover 全链：guard→备份→migrate→切换→重启→post）
 #   ./deploy.sh api --rollback  快回滚（dist.prev 翻回+重启，30s；跳过 preflight）
 #                         前置依赖：远端需先跑过一次 full 部署（workspace 结构/依赖在位）
+#   ./deploy.sh ffprobe  服务器装同源 ffprobe/ffmpeg 8.1.x（Y1a T7/E4——人工触发，不进部署流，幂等）
 #
 # 注意：deploy.sh 不会覆盖服务器上的 .env 文件，环境变量需在服务器上手动管理。
 # 发布门禁（0 号动作 E69①）：full/api 模式部署前本地跑 pnpm verify + int 单源链 + additive + gate-collab，
@@ -108,6 +109,16 @@ verify_nginx() {
 # ——零成本退路，Z102①），本函数不承担正确性只缩短撞墙窗。
 wait_api_ready() {   # $1=上下文标签
   ssh -i "$KEY" "$SERVER" 'CTX="'"$1"'"; i=0; body=""; while [ $i -lt 60 ]; do i=$((i+1)); body=$(curl -s http://127.0.0.1:3000/api/ready 2>/dev/null); if echo "$body" | grep -q "\"ready\":true"; then echo "$CTX: api ready 绿（${i}s）"; exit 0; fi; sleep 1; done; echo "$CTX: api ready 60s 未达（最后响应: $body）——不起 worker（Z9② 顺序门）；注意：api 已切目标代码而旧 worker 进程仍持内存旧模块在消费（混跑窗勿过夜——runbook §3.1 ⑤中断态）；排查后重新部署或 ./deploy.sh api --rollback"; exit 1'
+}
+
+# Y1a T7（E4 裁定 2026-10-20 后半）：生产侧 ffprobe/ffmpeg 8.1.x 同源对齐——worker probe（Y1b T7
+# media-probe.poller）+media-process 消费 ffmpeg/ffprobe（缺省 PATH 查找；FFPROBE_PATH/FFMPEG_PATH
+# env 可覆写）。二进制源=本仓 Release ffmpeg-pin-8.1（与 CI test/collab-core 两 job 同一资产+同
+# sha256 内容锁——Ubuntu 24.04 apt 只有 ffmpeg 6.1.x）。**人工触发模式**：./deploy.sh ffprobe
+# ——不进任何部署流（全量/api 均不含），幂等可重跑；worker 无需重启（每次 spawn 按 PATH 解析）。
+install_ffprobe_pin() {
+  echo "=== E4：服务器装同源 ffprobe/ffmpeg 8.1.x（自托管 Release→/usr/local/bin——人工触发，不随部署流） ==="
+  ssh -i "$KEY" "$SERVER" 'set -e; f(){ echo "ffprobe pin FAIL: $1"; exit 1; }; command -v curl >/dev/null || f "服务器缺 curl"; curl -sfL -o /tmp/ffmpeg-81.tar.xz https://github.com/linklvx/flowweb/releases/download/ffmpeg-pin-8.1/ffmpeg-n8.1-linux64-gpl-8.1.tar.xz || f "下载失败（Release 资产 URL/sha 见 .github/workflows/ci.yml test job 注释）"; echo "e3ae56bf0e735159fb7aa522a01d347e9d842219cd3bbe751e09f6f6be26079e  /tmp/ffmpeg-81.tar.xz" | sha256sum -c - || f "sha256 不匹配（重 pin 后未同步 deploy.sh——以 ci.yml 同步更新）"; tar -xJf /tmp/ffmpeg-81.tar.xz -C /tmp; sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffprobe /usr/local/bin/ffprobe; sudo install -m 0755 /tmp/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin/ffmpeg; ffprobe -version | head -1; ffprobe -version | head -1 | grep -Eq "^ffprobe version n?8\.1\." || f "版本漂移（非 8.1.x 线）"; echo "ffprobe pin OK: $(command -v ffprobe)"'
 }
 
 cutover_api() {
@@ -267,8 +278,9 @@ case "$MODE" in
   full) [[ $ROLLBACK == 1 ]] && { echo "--rollback 仅支持 api 模式（web 无回滚点/full=铺底）"; exit 1; }; preflight; deploy_full ;;
   web)  deploy_web ;;
   api)  if [[ $ROLLBACK == 1 ]]; then echo "=== 快回滚：跳过 preflight/verify/int（事故路径——runbook §5） ==="; deploy_api; else preflight; deploy_api; fi ;;
+  ffprobe) [[ $# -gt 1 ]] && { echo "ffprobe 模式无附加旗标（E4 人工触发——不进部署流）"; exit 1; }; install_ffprobe_pin ;;
   *)
-    echo "用法: ./deploy.sh [full|web|api] [--force-restart|--allow-legacy|--skip-smoke|--skip-exec-smoke|--skip-preflight|--rollback|--rebuild-db]"
+    echo "用法: ./deploy.sh [full|web|api|ffprobe] [--force-restart|--allow-legacy|--skip-smoke|--skip-exec-smoke|--skip-preflight|--rollback|--rebuild-db]"
     exit 1
     ;;
 esac
