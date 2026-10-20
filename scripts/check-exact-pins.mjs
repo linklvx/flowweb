@@ -35,8 +35,9 @@ export const OVERRIDES = {
 /** overrides 禁入键（进了即红——见文件头 file-type 特例说明）。 */
 export const OVERRIDES_FORBIDDEN = ['file-type'];
 
-/** lockfile packages 段必须存在的 pinned 条目（两空格行首锚——snapshots 段四空格天然排除，
- *  同 check-hocuspocus-pin 的 reYjs 手法）。 */
+/** lockfile 中必须存在的 pinned 条目（两空格行首锚）。pnpm v9 的 packages 与 snapshots 两段顶层
+ *  键同为两空格缩进（本仓 lockfile 行 8951/10613 实证）——锚同时命中两段；存在性断言下重叠无害：
+ *  snapshots 条目必有对应 packages 条目（pnpm 生成不变量），故锚未命中 ⇔ 两段皆缺，假绿/假红均不可能。 */
 export const LOCKFILE_ENTRIES = {
   sharp: '0.34.5',
   'fast-deep-equal': '3.1.3',

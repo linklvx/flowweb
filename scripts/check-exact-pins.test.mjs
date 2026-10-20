@@ -89,8 +89,11 @@ test('lockfile pinned 条目缺失红（改 package.json 未 install 形态）',
   ]);
 });
 
-test('lockfile snapshots 段条目（四空格）不满足锚（两空格行首锚——check-hocuspocus-pin 同手法）', () => {
+test('lockfile 锚缩进边界：嵌套层四空格条目行不命中两空格行首锚（snapshots 嵌套 dependencies 同级缩进）', () => {
   const a = okArgs();
+  // pnpm v9 packages/snapshots 两段顶层键同为两空格——锚同时命中两段，存在性断言下重叠无害
+  // （见 check-exact-pins.mjs LOCKFILE_ENTRIES 注）；本用例证缩进边界：sharp@0.34.5: 唯一出现处
+  // 退到四空格嵌套层即不满足 ^  name@version: 锚=红。
   a.lock = a.lock.replace('  sharp@0.34.5:', '    sharp@0.34.5:');
   assert.equal(checkExactPins(a).length, 1);
 });

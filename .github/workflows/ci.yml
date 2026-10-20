@@ -83,7 +83,7 @@ jobs:
       # Y1a T7 FFPROBE_PATH 落地时另行决策。
       - name: ffprobe 8.1.x pin（BtbN n8.1 静态构建+sha256 内容锁）
         run: |
-          curl -sL -o /tmp/ffmpeg-81.tar.xz \
+          curl -sfL -o /tmp/ffmpeg-81.tar.xz \
             https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
           echo "6f8133b2414d115da4c843f33f7370523e00b78b8c49dec9fdb2f58eaa5e0a3a  /tmp/ffmpeg-81.tar.xz" | sha256sum -c -
           tar -xJf /tmp/ffmpeg-81.tar.xz -C /tmp
