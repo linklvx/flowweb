@@ -1,5 +1,6 @@
 // packages/shared/src/canvas/docShape.fillRead.test.ts
-// O0a-1（Spec B）：docShape 收编行为测试——fillDoc/readRecordsFromMaps/applyRecordToYMap/stripDerivedKeys。
+// O0a-1（Spec B）：docShape 收编行为测试——fillDoc/readRecordsFromMaps/applyRecordToYMap/stripDerivedKeys
+// （applyRecordToYMap 已迁 collab-doc-ops.ts——Y1a T1；行为测试留本文件与 fillDoc 同装置覆盖）。
 // shared 零 yjs 依赖（plan 明文）：round-trip 用 FakeDoc（内存 Map 树）覆盖语义；web 侧 ydocBuilder.test
 // 保留真 Y.Doc 双端比用例（同一 docShape 实现、宿主不同——"双端"恒等的 shared 半边）。
 // 分片不变量（O0a 共用）：①空间语义不变——位置原样拷贝不解释（identity 档，翻转支点=O0b-0）；

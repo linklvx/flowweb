@@ -2,7 +2,8 @@
 // O0a-3（Spec B）：toDocRecords 行为测试——web 投影差分出口（双源合并 F42+键集表内剥键，shared 单源）。
 // O0b-0 格式批：写侧 rel→abs 翻转已切——子输出 abs=cs.rel+组帧 origin（本函数体=唯一翻转点）；
 // 顶层原样；键集剥键在本函数内生效（与 stripAuthorState 同表同谓词——禁复制两份键集表）。
-// setDocPosition 同分片落位：doc position 写原语唯一单源（fillDoc/applyRecordToYMap/moveNode 共口）。
+// setDocPosition 原"同分片落位"注已失效：Y1a T1 已迁 collab-doc-ops.ts（本文件经 import 单源引用）；
+// doc position 写原语唯一单源不变（fillDoc/applyRecordToYMap/moveNode 共口）。
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
   toDocRecords, fillDoc, readRecordsFromMaps, stripDerivedKeys,

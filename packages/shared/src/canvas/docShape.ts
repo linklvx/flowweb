@@ -89,7 +89,10 @@ export function ensureSchemaVersion(doc: DocLike): void {
  *  O0b-0：meta stamp 删除（戳源唯一化——唯一自愈点=WS loadDocument/api 种子显式 stampDocSchema；
  *  fillDoc 每写盖戳会让"每 doc 至多一次幂等戳"契约与"无戳∧有节点拒"门档失真）。
  *  键集表跳过（O0a-1）：position/parentId/width/height 无键（或 null≡缺，批4a 契约）→ 不写 Y.Map——
- *  分镜子无 position 由上游构造纪律保证（diff 剥键=唯一剥键写者），本函数只认记录键、不做父上下文推算。 */
+ *  分镜子无 position 由上游构造纪律保证（diff 剥键=唯一剥键写者），本函数只认记录键、不做父上下文推算。
+ *  Y1a T1 留守注记：fillDoc 不随写原语迁 collab-doc-ops——本函数=doc 级组合入口（nodes/edges 两顶层
+ *  map 整体填充），非该模块的节点级原子原语（对照其头注释分界）；且与版本门族（stampDocSchema/
+ *  ensureSchemaVersion）及读侧（readRecordsFromMaps）的键集契约内聚。后续片清理窗评估搬迁时参考。 */
 export function fillDoc(
   doc: DocLike,
   records: readonly StoredNodeRecord[],
