@@ -50,10 +50,17 @@ const PROBE_BACKOFF_MAX_MS = 3_600_000;
  *  env 键白名单单读点维持（Z79）） */
 export { FFMPEG_PROTOCOL_WHITELIST, FFPROBE_TIMEOUT_MS };
 
+/** probe 失败 kind 全词表（权威源——质评收口 Minor-2）：ProbeFailure 构造器参数收紧为
+ *  字面量联合，词表外 kind 编译期即拒（metric help/probeFailureKind 落库同源此表）。
+ *  permanent=mismatch/missing/unsupported；transient=timeout/download/ffprobe/upload/internal。 */
+export type ProbeFailureKind =
+  | 'mismatch' | 'missing' | 'timeout' | 'download'
+  | 'ffprobe' | 'upload' | 'internal' | 'unsupported';
+
 /** probe 内部失败分类：permanent=true 一轮即 failed（mismatch=permanent 语义 v10.1） */
 class ProbeFailure extends Error {
   constructor(
-    readonly kind: string,
+    readonly kind: ProbeFailureKind,
     readonly permanent: boolean,
     message: string,
   ) {
@@ -84,7 +91,7 @@ const probeLeaseExpiredTotal = new Counter({
 });
 const probeFailTotal = new Counter({
   name: 'probe_fail_total',
-  help: 'Y1b T7：probe 失败分类计数（failure_kind=mismatch/missing=permanent；timeout/download/ffprobe/internal=transient）',
+  help: 'Y1b T7：probe 失败分类计数（failure_kind=mismatch/missing/unsupported=permanent；timeout/download/ffprobe/upload/internal=transient）',
   labelNames: ['failure_kind'],
   registers: [register],
 });
@@ -240,6 +247,8 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
       });
     }
     const format = SHARP_OUTPUT_FORMATS.has(meta.format ?? '') ? meta.format! : 'webp';
+    // 动画 GIF/WebP 重编码后仅保留首帧（sharp 未启 animated）——开发期裁定：动画保持不在本批
+    // 范围，natural 取首帧代表尺寸语义正确；若产品需要动画保持按 sharp animated:true 升级（单点）。
     const out = await pipeline.toFormat(format).toBuffer({ resolveWithObject: true })
       .catch((e: unknown) => {
         throw new ProbeFailure('mismatch', true, `sharp 重编码失败: ${e instanceof Error ? e.message : String(e)}`);

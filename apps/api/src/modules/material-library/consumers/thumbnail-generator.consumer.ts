@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
+import { FFMPEG_PROTOCOL_WHITELIST } from '../../media-process/media-process.service';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
 import sharp from 'sharp';
 import * as fs from 'fs';
@@ -79,9 +80,10 @@ export class ThumbnailGeneratorConsumer extends WorkerHost {
 
     await new Promise<void>((resolve, reject) => {
       // Y1a+Y1b T7（spec Z7''）：fluent-ffmpeg 消费面同批沙箱化——inputOptions 注入 protocol_whitelist
-      // +60s 超时 SIGKILL（挂死占队列并发槽根修；本地临时文件=face 'file'）
+      // （单源=FFMPEG_PROTOCOL_WHITELIST——质评收口 Minor-1）+60s 超时 SIGKILL
+      // （挂死占队列并发槽根修；本地临时文件=face 'file'）
       const cmd = ffmpeg.default(tempPath)
-        .inputOptions(['-protocol_whitelist', 'file,http,https,tcp,tls'])
+        .inputOptions(['-protocol_whitelist', FFMPEG_PROTOCOL_WHITELIST])
         .screenshots({
           timestamps: [seekSec ?? 1],
           filename: path.basename(thumbnailPath),
