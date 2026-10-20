@@ -110,10 +110,11 @@ describe('LightingConsumer', () => {
     expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
   });
 
-  it('T6 SSRF 拒路径：fetchBuffer 拒（私网/allowlist 外/超限）→ 抛错（BullMQ failed）+零上传零 Media', async () => {
+  it('T6 SSRF 拒路径：fetchBuffer 拒（私网/allowlist 外/超限）→ 抛错（BullMQ failed）+ void_ 解冻（对齐 ai-image-edit 同款——冻结不滞留）+零上传零 Media', async () => {
     safeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch host 不在 allowlist: ai.result'));
     await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
       .rejects.toThrow(/safe-fetch/);
+    expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
     expect(minio.upload).not.toHaveBeenCalled();
     expect(prisma.media.create).not.toHaveBeenCalled();
   });

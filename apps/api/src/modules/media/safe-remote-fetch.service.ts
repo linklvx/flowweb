@@ -9,6 +9,8 @@
 // 响应内 URL，仓内零静态样例）——按 provider 域后缀（aliyuncs.com=DashScope 全系、myqcloud.com=腾讯云系）
 // 收口，运营经 SAFE_FETCH_HOST_ALLOWLIST 扩展。moonshot（openai-chat）不产媒体 URL 不入默认表。
 // T6 收口（顺带）：fetch 用 undici 包实例（与 global fetch 分离——dispatcher 必须同包 Agent 实例）。
+// T6 质评收口：①超时归位 Agent 原生（headersTimeout 30s=连接+头阶段/bodyTimeout 0=body 不限时——
+// open 不挂 fetch signal，signal 会中断 body 消费）②res.ok 先于 Content-Length 预检（两处）。
 import { Injectable } from '@nestjs/common';
 import dns from 'node:dns';
 import { Agent, fetch as undiciFetch } from 'undici';
@@ -17,9 +19,9 @@ import { Agent, fetch as undiciFetch } from 'undici';
 export const DEFAULT_SAFE_FETCH_ALLOWLIST = ['aliyuncs.com', 'myqcloud.com'] as const;
 /** 流式限长默认 2GiB（env SAFE_FETCH_MAX_CONTENT_LENGTH 覆盖） */
 export const DEFAULT_SAFE_FETCH_MAX_CONTENT_LENGTH = 2 * 1024 * 1024 * 1024;
-/** 外呼超时（headers 阶段；body 读取由流式限长与调用方 pipe 生命周期管理） */
-const OPEN_TIMEOUT_MS = 30_000;
-/** 下载超时默认（fetchBuffer——对齐被替换的 axios 120s 大文件基线） */
+/** 连接+响应头阶段超时（Agent 原生 headersTimeout——open/fetchBuffer 共用；对齐 open 原 30s 语义） */
+const HEADERS_TIMEOUT_MS = 30_000;
+/** fetchBuffer 全程超时默认（连接+头+body 聚合——对齐被替换的 axios 120s 大文件基线） */
 const FETCH_BUFFER_TIMEOUT_MS = 120_000;
 
 export interface SafeFetchOpenOptions {
@@ -53,6 +55,12 @@ export class SafeRemoteFetchService {
 
   constructor() {
     this.dispatcher = new Agent({
+      // 超时归位（质评 Important-1 根修）：headersTimeout=连接+响应头 30s；bodyTimeout=0=body 阶段不限时
+      // ——open 的流式 body 消费由流式限长（capStream）与调用方 pipe 生命周期管理。fetch init 挂
+      // AbortSignal.timeout 会在计时到期时中断 body 读取（T5 遗留：processing 代理大文件 >30s 断流），
+      // 故 open 不再用 signal；fetchBuffer 另挂全程 signal（见 fetchBuffer）。
+      headersTimeout: HEADERS_TIMEOUT_MS,
+      bodyTimeout: 0,
       connect: {
         lookup: (hostname: string, _opts: unknown, cb: (err: Error | null, address: string | Array<{ address: string; family: number }>) => void) => {
           dns.promises.lookup(hostname, { all: true }).then(
@@ -106,20 +114,24 @@ export class SafeRemoteFetchService {
     return parsed;
   }
 
-  /** 基础 init（门④ redirect 禁随+钉 IP dispatcher+超时） */
-  private baseInit(timeoutMs: number, range?: string) {
+  /** 基础 init（门④ redirect 禁随+钉 IP dispatcher）——不挂 signal：open 的流式 body 消费会被 signal
+   *  到期中断（见 Agent 构造注），连接/头阶段限时由 Agent headersTimeout 承担；fetchBuffer 另挂全程 signal。 */
+  private baseInit(range?: string) {
     return {
       redirect: 'error' as const,               // 门④：重定向禁随
       dispatcher: this.dispatcher,              // 门③连接面：lookup 钉 IP（TOCTOU 闭环）
       headers: range ? { Range: range } : undefined,
-      signal: AbortSignal.timeout(timeoutMs),
     };
   }
 
   async open(url: string, opts: SafeFetchOpenOptions = {}): Promise<SafeFetchOpenResult> {
     this.assertAllowed(url);
-    const res = await undiciFetch(url, this.baseInit(OPEN_TIMEOUT_MS, opts.range)) as unknown as Response;
-
+    const res = await undiciFetch(url, this.baseInit(opts.range)) as unknown as Response;
+    // res.ok 先判（质评 Important-2）：非 2xx+超长 CL 按真实分类=HTTP 错误，不误判 oversize→410
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`safe-fetch HTTP ${res.status}`);
+    }
     const declared = Number(res.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > this.maxBytes()) {
       await res.body?.cancel().catch(() => {});
@@ -129,18 +141,19 @@ export class SafeRemoteFetchService {
   }
 
   /** 整段下载（T6 三处替换消费：ai-download/ai-image-edit/lighting 的 provider 结果 URL）。
-   *  四门同 open；超限（预检或读侧截断）抛 RangeError、非 2xx 抛 Error——调用方按 job 失败处理。 */
+   *  四门同 open；非 2xx 先判抛 Error（超长 CL 的错误响应按 HTTP 错误分类——质评 Important-2）、
+   *  超限（预检或读侧截断）抛 RangeError——调用方按 job 失败处理。 */
   async fetchBuffer(url: string, timeoutMs = FETCH_BUFFER_TIMEOUT_MS): Promise<{ buffer: Buffer; contentType: string | null }> {
     this.assertAllowed(url);
-    const res = await undiciFetch(url, this.baseInit(timeoutMs)) as unknown as Response;
+    const res = await undiciFetch(url, { ...this.baseInit(), signal: AbortSignal.timeout(timeoutMs) }) as unknown as Response;
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`safe-fetch HTTP ${res.status}`);
+    }
     const declared = Number(res.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > this.maxBytes()) {
       await res.body?.cancel().catch(() => {});
       throw new RangeError(`safe-fetch 流式限长超限（>${this.maxBytes()} bytes）`);
-    }
-    if (!res.ok) {
-      await res.body?.cancel().catch(() => {});
-      throw new Error(`safe-fetch HTTP ${res.status}`);
     }
     const contentType = res.headers.get('content-type');
     if (!res.body) return { buffer: Buffer.alloc(0), contentType };

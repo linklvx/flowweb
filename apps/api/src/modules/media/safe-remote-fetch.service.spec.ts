@@ -4,15 +4,18 @@
 // 本地段即拒——**undici Agent connect.lookup 钉 IP（解析即连接，TOCTOU 闭环）**④redirect:'error'
 // （重定向禁随）。流式限长：Content-Length 预检 oversize + body 字节超限中途截断。
 // T6 顺带收口（T5 质评登记）：私网清单补 TEST-NET-2/3+2001:db8::/32；字面 IP host 前置拒。
+// T6 质评收口：超时归位 Agent 原生（headersTimeout 30s/bodyTimeout 0——open 不挂 fetch signal）+
+// res.ok 先于 Content-Length 预检（非 2xx+超长 CL → HTTP 错误不误判超限）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SafeRemoteFetchService, DEFAULT_SAFE_FETCH_ALLOWLIST, isPrivateAddress } from './safe-remote-fetch.service';
 
-// undici mock 面：fetch spy（不真发网）+ Agent 记录构造 opts（connect.lookup 直测——钉 IP 断言）
+// undici mock 面：fetch spy（不真发网）+ Agent 记录构造 opts（connect.lookup 直测——钉 IP 断言；
+// headersTimeout/bodyTimeout 直测——质评 Important-1 超时归位断言）
 const h = vi.hoisted(() => ({
   fetchSpy: vi.fn(),
-  agents: [] as Array<{ opts: { connect?: { lookup?: unknown } } }>,
+  agents: [] as Array<{ opts: { connect?: { lookup?: unknown }; headersTimeout?: number; bodyTimeout?: number } }>,
 }));
-type MockAgentOpts = { connect?: { lookup?: unknown } };
+type MockAgentOpts = { connect?: { lookup?: unknown }; headersTimeout?: number; bodyTimeout?: number };
 vi.mock('undici', () => ({
   fetch: (...a: unknown[]) => h.fetchSpy(...(a as [])),
   Agent: class {
@@ -31,8 +34,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const res = (over: Partial<Response> = {}): Response =>
-  ({ status: 200, headers: new Headers(), body: null, ...over } as unknown as Response);
+// 真实 Response 由 status 派生 ok——mock 同步补齐（res.ok 分支可测）
+const res = (over: Partial<Response> = {}): Response => {
+  const status = over.status ?? 200;
+  return { status, ok: status >= 200 && status < 300, headers: new Headers(), body: null, ...over } as unknown as Response;
+};
 
 describe('SafeRemoteFetchService（SSRF 四门+流式限长+钉 IP）', () => {
   it('DEFAULT_SAFE_FETCH_ALLOWLIST 含 provider 域（仓内静态外呼 host 实证=api-caller dashscope.aliyuncs.com；结果 CDN 域为运行期值——env 可扩）', () => {
@@ -99,12 +105,49 @@ describe('SafeRemoteFetchService（SSRF 四门+流式限长+钉 IP）', () => {
     });
   });
 
+  it('超时归位（质评 Important-1 根修）：Agent 原生 headersTimeout=30s（连接+响应头阶段）/bodyTimeout=0（body 阶段不限时——流式限长与调用方 pipe 管生命周期）', () => {
+    new SafeRemoteFetchService();   // 构造副作用=Agent 注册（h.agents）
+    expect(h.agents[0].opts.headersTimeout).toBe(30_000);
+    expect(h.agents[0].opts.bodyTimeout).toBe(0);
+  });
+
+  it('open 的 fetch init 零 signal（fetch signal 会在计时到期中断 body 消费——processing 代理大文件 >30s 断流根修）；fetchBuffer 仍带全程 signal（120s 全程语义维持）', async () => {
+    const svc = new SafeRemoteFetchService();
+    h.fetchSpy.mockResolvedValueOnce(res());
+    await svc.open('https://cdn.example.com/a.mp4');
+    const [, openInit] = h.fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(openInit.signal).toBeUndefined();
+
+    h.fetchSpy.mockResolvedValueOnce(res({ headers: new Headers({ 'content-length': '10' }) }));
+    await svc.fetchBuffer('https://cdn.example.com/a.mp4');
+    const [, bufInit] = h.fetchSpy.mock.calls[1] as [string, RequestInit];
+    expect(bufInit.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('Content-Length 预检超限 → oversize:true 不发流（调用方映射 410+Retry-After）', async () => {
     h.fetchSpy.mockResolvedValueOnce(res({ headers: new Headers({ 'content-length': '9999' }) }));
     const svc = new SafeRemoteFetchService();
     const out = await svc.open('https://cdn.example.com/a.mp4');
     expect(out.oversize).toBe(true);
     expect(out.upstream).toBeNull();
+  });
+
+  it('res.ok 先于 Content-Length 预检（质评 Important-2）：open 非 2xx+超长 CL → HTTP 错误（不误判 oversize→410）且 body 已释放', async () => {
+    let cancelCalled = false;
+    h.fetchSpy.mockResolvedValueOnce(res({
+      status: 403,
+      headers: new Headers({ 'content-length': '9999' }),
+      body: new ReadableStream({ cancel() { cancelCalled = true; } }),
+    }));
+    const svc = new SafeRemoteFetchService();
+    await expect(svc.open('https://cdn.example.com/a.mp4')).rejects.toThrow(/HTTP 403/);
+    expect(cancelCalled).toBe(true);   // 上游 body 已 cancel（连接面释放）
+  });
+
+  it('res.ok 先于 Content-Length 预检（质评 Important-2）：fetchBuffer 非 2xx+超长 CL → HTTP 错误（不误抛 RangeError 超限分类）', async () => {
+    h.fetchSpy.mockResolvedValueOnce(res({ status: 500, headers: new Headers({ 'content-length': '9999' }) }));
+    const svc = new SafeRemoteFetchService();
+    await expect(svc.fetchBuffer('https://cdn.example.com/a.mp4')).rejects.toThrow(/HTTP 500/);   // Error 而非 RangeError
   });
 
   it('body 流字节超限中途截断：读流至 maxBytes 即 cancel 上游（谎报 content-length 的流式防护）', async () => {
