@@ -12,6 +12,8 @@ import {
   DOC_KEY_MANIFEST,
   DOC_TOP_LEVEL_MAPS,
   NESTED_TYPE_CREATORS,
+  SERVER_WRITABLE_DATA_KEYS,
+  CLIENT_FORBIDDEN_ON_UPDATE,
   type DocWriteOpType,
 } from './canvas-doc-manifest';
 import { QUOTA_DEFAULTS } from '../constants/collab-quota';
@@ -216,5 +218,35 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
       expect(c.container).toBeTruthy();
       expect(c.creators.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('Y1a T3（片 S0）：execSeq 代际键入 exec 键集+服务端/客户端键集单源两常量', () => {
+  it('writeExecStatus patch 带 execSeq 键合法（T9 代际围栏前置——现状 UNKNOWN_KEY 即本卡先红判据）', () => {
+    const violations = validateWriteBatch([
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1, intentId: 'i1', execSeq: '9007199254740993' } },
+    ]);
+    expect(violations).toEqual([]);
+  });
+
+  it('execSeq 值域=string（DB BigInt wire 一律 string 化——number 形态 VALUE_TYPE_MISMATCH）', () => {
+    const violations = validateWriteBatch([
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1, execSeq: 42 } },
+    ]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].code).toBe('VALUE_TYPE_MISMATCH');
+    expect(violations[0].key).toBe('execSeq');
+  });
+
+  it('键集单源两常量同集 {fileId,result}（v11 架构定案：同引用=真单源——分化时再拆）', () => {
+    expect([...SERVER_WRITABLE_DATA_KEYS]).toEqual(['fileId', 'result']);
+    expect(CLIENT_FORBIDDEN_ON_UPDATE).toBe(SERVER_WRITABLE_DATA_KEYS);
+  });
+
+  it('manifest 登记 v3 服务端权威域条目（SERVER_WRITABLE_DATA_KEYS 派生——三 op 归 T10/T11/T15）', () => {
+    const entry = DOC_KEY_MANIFEST.nodes.find((e) => e.path.includes('SERVER_WRITABLE_DATA_KEYS'));
+    expect(entry, 'nodes manifest 须含 v3 服务端权威域条目（path 引用单源常量名）').toBeDefined();
+    expect(entry!.ownership).toBe('projection'); // 真值=PG NodeArtifact，doc 键=投影合成面
+    expect(entry!.undo).toBe('server-only');
   });
 });

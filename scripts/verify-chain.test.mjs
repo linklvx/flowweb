@@ -21,17 +21,19 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 //   CI 修复 R4a' 授权插一步：api-test-heavy 紧随 api-test〔heavy 串行套件——B10 根因
 //   （rate-gate 8MB 分配与 idle-anchor 90s 实时等待同池并行互抢），fast 外=索引 19〕=28 步；
 //   Y1a T0 授权插一步：check-exact-pins 紧随 check-collab-module-size〔exact pin 门禁进 verify 链
-//   ——plan Y1a T0，fast 外惯例同款邻位〕=29 步）
+//   ——plan Y1a T0，fast 外惯例同款邻位〕=29 步；
+//   Y1a T3 授权插一步：check-plan-census 紧随 check-exact-pins〔plan 契约 census——键集单源四处
+//   一致/DocNodeRecord 零残留/execSeq 裸比较禁令，fast 外惯例同款邻位〕=30 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
   'shared-typecheck', 'shared-test', 'web-tsc', 'api-tsc', 'api-tsc-scripts',
   'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'api-test-heavy',
   'web-lint', 'check-ecosystem', 'check-spec-consistency', 'check-collab-census', 'check-collab-test-facade',
-  'check-collab-module-size', 'check-exact-pins', 'scripts-node-test', 'api-eslint',
+  'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 29 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins）', () => {
+test('③ full 的 id 序列逐字等于引入时的 30 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 

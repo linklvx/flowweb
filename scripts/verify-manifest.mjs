@@ -43,9 +43,12 @@ export const VERIFY_STEPS = [
   // 进 verify 链——plan T42「B3 步门」，fast 外惯例=T39b façade 同款邻位）=27 步。
   { id: 'check-collab-module-size', cmd: 'node scripts/check-collab-module-size.mjs', db: false },
   // Y1a T0 授权插一步：check-exact-pins（yjs/sharp/fast-deep-equal/file-type exact 门禁——
-  // check-hocuspocus-pin 只锁 lockfile 面，本步锁 spec/overrides 面；fast 外惯例同款邻位）=29 步。
+  // check-hocuspocus-pin 只锁 lockfile 面，本步锁 spec/overrides 面；fast 外惯例同款邻位）。
   { id: 'check-exact-pins', cmd: 'node scripts/check-exact-pins.mjs', db: false },
-  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-spec-consistency.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
+  // Y1a T3 授权插一步：check-plan-census（plan 契约 census——键集单源四处一致/DocNodeRecord 零残留/
+  // execSeq 裸比较禁令/compareExecSeq 定义唯一；依赖 shared dist——shared-build 步在前恒新）=30 步。
+  { id: 'check-plan-census', cmd: 'node scripts/check-plan-census.mjs', db: false },
+  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-spec-consistency.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
   { id: 'api-eslint', cmd: 'pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"', db: false },
 ];
 

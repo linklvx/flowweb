@@ -47,6 +47,9 @@ export * from './canvas/docShape';
 // Y1a T1（plan v11.2 片 S0）：collab-doc-ops 出口——doc 写原语（setDocPosition/applyRecordToYMap）
 // +关联类型（DocMapLike/StoredNodeRecord）自 docShape 抽离单源（零行为变更纯机械迁移）。
 export * from './canvas/collab-doc-ops';
+// Y1a T3（plan v11.2 片 S0）：media 事实域出口——compareExecSeq 单源（execSeq BigInt string 化
+// 比较——T9 代际围栏/T15 投影 recheck 消费前置；T8 续入 resolveUpstreamMediaUrl）。
+export * from './canvas/media-fact';
 // C0-2（Spec B）：geometryWriterRegistry=纯常量零依赖（写者类别+归类账本）——
 // geometryTrap 写者上下文校验与 B7-1 census 引用源。assertions/C0-1 类型骨架 stub 出口仍归 O0a。
 export * from './canvas/geometryWriterRegistry';

@@ -87,8 +87,29 @@ const SERVER_NODE_DATA_KEYS = ['fileId', 'resultUrl', 'videoUrl', 'content', 're
  *  本常量即单源，path 派生+valueTypes 逐键声明同源，不再此处重抄）。T4 评审勘误（2026-10-14）：
  *  初版注释自称「execution.service 全调用点枚举」实为不实——漏 reason（execution.service.ts:306
  *  reserve 拒重复外呼投影与 :411 Z99 NodeBusy 投影两处 skipped 在写），若不补 A1 DocWriter 消费
- *  即 UNKNOWN_KEY 拒合法写。attempts 必填（编译级）；error 已被 errorPatch slice(0,200) 上界。 */
-const EXEC_STATUS_KEYS = ['status', 'attempts', 'jobId', 'intentId', 'fileId', 'errorCode', 'error', 'rearmable', 'reason'] as const;
+ *  即 UNKNOWN_KEY 拒合法写。attempts 必填（编译级）；error 已被 errorPatch slice(0,200) 上界。
+ *  Y1a T3（片 S0）：+execSeq——DB BigInt 执行代际 wire 一律 string 化（GenerationIntent.execSeq
+ *  BigInt→JSON string；2^53 之上 Number 精度必损），比较单源=compareExecSeq（media-fact.ts——
+ *  T9 代际围栏/onTick abort/takeover void 消费前置）。 */
+const EXEC_STATUS_KEYS = ['status', 'attempts', 'jobId', 'intentId', 'fileId', 'errorCode', 'error', 'rearmable', 'reason', 'execSeq'] as const;
+
+/** Y1a T3（v11 架构定案）：服务端可写 data 键集单源={fileId,result}——v3 doc 契约先行。
+ *  消费面=deliverArtifact/replaceMedia/clearMedia 三 op（T10/T11/T15 建——NodeArtifact PG 权威
+ *  +rev CAS，投影写 data 仅此两键）；census 四处一致断言=凡 import 键集处必用本常量（manifest/
+ *  strip/guard/census——check-plan-census.mjs 执法）。
+ *  现状勘注（2026-10-20 grep 实证，T3 执行纪律「勿强删」）：writeNodeData 现行键集
+ *  SERVER_NODE_DATA_KEYS 含 resultUrl/videoUrl/content/errorCode 且有生产写点（execution.service
+ *  :303 幂等重放投影 videoUrl/resultUrl、:377 deliver 批 artifact={content,result|videoUrl|resultUrl}、
+ *  ai-download.processor:118 交付写 resultUrl）——键集收敛（SERVER_NODE_DATA_KEYS→本常量）
+ *  归 T8-T15 写点改造完成卡（T8 删 topology resultUrl 消费/T10 CAS/T12 video finalize/T15 投影），
+ *  本卡强删即打断交付链。 */
+export const SERVER_WRITABLE_DATA_KEYS = ['fileId', 'result'] as const;
+
+/** Y1a T3：客户端更新路径禁写键集——与 SERVER_WRITABLE_DATA_KEYS 同集（同引用=真单源，防两集
+ *  各自漂移；v11 定案两键，v10.1 七键集 {fileId,resultUrl,videoUrl,result,natural,errorCode,fileIdRev}
+ *  废止——v3 doc 无这些历史键）。只挂更新路径（strip）；新建/copy 保留 fileId（v11 裁决③——
+ *  消灭空图窗口）。消费点=T11（canvasIntents strip 更新路径）/T17（normalizeCopiedNodeData）。 */
+export const CLIENT_FORBIDDEN_ON_UPDATE = SERVER_WRITABLE_DATA_KEYS;
 
 // ── 层③④：键清单种子条目（nodes/edges/exec——plan 指定种子三 map+meta 版本键）──
 export interface DocKeyManifestEntry {
@@ -133,6 +154,13 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
       writers: ['collab-document.service.writeNodeData（逐键写禁整块替换）'],
       readers: [`web 产物消费（${SERVER_NODE_DATA_KEYS.join('/')}——SERVER_NODE_DATA_KEYS 派生）`, 'collab-document.service.probeArtifacts（产物键白名单）'],
       ownership: 'doc', undo: 'server-only',
+    },
+    {
+      // Y1a T3（v3 契约先行条目——三 op 归 T10/T11/T15 建，本条=目标态登记非现状执法）：
+      map: 'nodes', path: `nodes.*.data.*（v3 服务端权威域=SERVER_WRITABLE_DATA_KEYS——${SERVER_WRITABLE_DATA_KEYS.join('/')}，PG NodeArtifact 投影面）`,
+      writers: ['deliverArtifact（T15 投影循环写 data.fileId/result）/replaceMedia·clearMedia（T11 命令——NodeArtifact rev CAS 权威）'],
+      readers: ['web 产物消费（fileId→Media/content proxy；result=text 产物）', 'binding-reconcile（T16 current-state upsert 扫描）'],
+      ownership: 'projection', undo: 'server-only',
     },
   ],
   edges: [
@@ -206,6 +234,7 @@ export const DOC_WRITE_OPS: Record<DocWriteOpType, DocWriteOpSpec> = {
     valueTypes: {
       status: ['string'], attempts: ['number'], jobId: ['string', 'null'], intentId: ['string'],
       fileId: ['string'], errorCode: ['string'], error: ['string'], rearmable: ['boolean'], reason: ['string'],
+      execSeq: ['string'], // Y1a T3：BigInt wire=string（DB BigInt→JSON string 化；number 形态 VALUE_TYPE_MISMATCH）
     },
     keyMaxBytes: 4_096, // errorPatch 已 slice(0,200)——上限防绕过 errorPatch 直写大值
     idempotent: true,   // 键级 set+attempts 代次守卫（Z99/Z111）
