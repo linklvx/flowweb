@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { Readable } from 'stream';
 import { MinioService, MinioConfig } from './minio.service';
 
 const mockConfig: MinioConfig = {
@@ -53,6 +54,29 @@ describe('MinioService', () => {
     (service as any).s3Client = { send: mockSend };
 
     await expect(service.statSize('k.mp4')).resolves.toBe(0);
+  });
+
+  // Y1b T4 红测组⑤：presign Content-Type 条件——policy 须绑定（现状红=未绑，伪造 Content-Type 上传可过）
+  it('T4 presign Content-Type：fields 带 Content-Type+policy 精确匹配条件（进 fields 否则客户端不回传=全 403）', async () => {
+    const { fields } = await service.generatePresignedPost('uploads/u1/2026-10-20/x.png', 'image/png', 100);
+
+    expect(fields['Content-Type']).toBe('image/png'); // Content-Type 必须进 presign.fields（客户端原样回传）
+    const policy = JSON.parse(Buffer.from(String(fields.Policy), 'base64').toString('utf8'));
+    expect(policy.conditions).toContainEqual({ 'Content-Type': 'image/png' }); // 精确匹配条件——回传值不一致⇒MinIO 403
+  });
+
+  // Y1b T4：confirm 嗅探取对象头字节——Range 限定（1GB 视频不整读）
+  it('T4 getHeadBytes：GetObject 带 Range=bytes=0-(n-1)，只收前 n 字节', async () => {
+    const mockSend = vi.fn().mockResolvedValue({
+      Body: Readable.from([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(8192, 0xff)]),
+    });
+    (service as any).s3Client = { send: mockSend };
+
+    const head = await service.getHeadBytes('k.mp4', 16);
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ Range: 'bytes=0-15' }),
+    }));
+    expect(head).toHaveLength(16); // 达到 maxBytes 即止（不吞整流）
   });
 
   it('should have getObject method', () => {

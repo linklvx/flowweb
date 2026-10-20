@@ -75,10 +75,12 @@ export class MinioService {
       Expires: expiresIn,
       Conditions: [
         ['content-length-range', fileSize - 1024, fileSize + 1024],
-        // Note: NOT enforcing $Content-Type here because FormData POST
-        // always sends multipart/form-data, not the file's actual MIME type.
-        // MIME type validation is done server-side after upload.
       ],
+      // Y1b T4（Z7''）：Content-Type 进 fields+policy 精确匹配——客户端 FormData 回传的
+      // Content-Type 字段与 presign 时不一致 ⇒ MinIO 403（旧注释"FormData 外层是
+      // multipart/form-data 故不绑"是误解：policy 校验的是名为 Content-Type 的表单字段，
+      // 客户端逐项回传 fields 即命中——web mediaUploadUtils 正是全量回传）。字节级真身仍由 confirm 嗅探把关。
+      Fields: { 'Content-Type': contentType },
     });
   }
 
@@ -99,6 +101,36 @@ export class MinioService {
     });
     const response = await this.s3Client.send(command);
     return response.Body as Readable;
+  }
+
+  /** Y1b T4：取对象头字节（confirm MIME 嗅探）——Range 限定只拉前 maxBytes，
+   *  到量即销流（1GB 视频不整读；file-type 判型只需头部魔数）。 */
+  async getHeadBytes(key: string, maxBytes: number = 4100): Promise<Buffer> {
+    const response = await this.s3Client.send(new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      Range: `bytes=0-${maxBytes - 1}`,
+    }));
+    const stream = response.Body as Readable;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    return new Promise<Buffer>((resolve, reject) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve(Buffer.concat(chunks));
+      };
+      stream.on('data', (c: Buffer) => {
+        const take = Math.min(c.length, maxBytes - total);
+        chunks.push(c.subarray(0, take)); // 超量 chunk 截断——恰收前 maxBytes
+        total += take;
+        if (total >= maxBytes) stream.destroy(); // 'close' 收尾
+      });
+      stream.on('end', finish);
+      stream.on('close', finish);
+      stream.on('error', reject);
+    });
   }
 
   /** Upload file buffer to MinIO */
