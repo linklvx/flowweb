@@ -6,7 +6,7 @@ import { useNodeStore } from './nodeStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
 import { openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 import type { Node } from '@xyflow/react';
 
@@ -115,13 +115,13 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     groupType: 'storyboard', cells,
     storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' },
   });
-  const sbRecord = (cells: (string | null)[]): DocNodeRecord =>
+  const sbRecord = (cells: (string | null)[]): StoredNodeRecord =>
     ({ id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: sbData(cells) });
-  const cellRecord = (id: string): DocNodeRecord =>
+  const cellRecord = (id: string): StoredNodeRecord =>
     ({ id, type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
-  const freeRecord = (): DocNodeRecord =>
+  const freeRecord = (): StoredNodeRecord =>
     ({ id: 'z', type: 'imageGen', position: { x: 900, y: 900 }, width: 320, height: 180, data: { status: 'done', fileId: 'f-z' } });
-  const rig = (records: DocNodeRecord[]): Y.Doc => {
+  const rig = (records: StoredNodeRecord[]): Y.Doc => {
     openRwWindow();
     const d = new Y.Doc();
     fillDoc(d, records, []);

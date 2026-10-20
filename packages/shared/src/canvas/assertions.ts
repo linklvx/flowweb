@@ -5,11 +5,12 @@
 // 语义分野：断言函数本身=纯谓词的 throw 形态（违例即抛、消息列结构化违例清单）——
 // 调用方决定吞不吞（DEV 直抛 / prod 转 reportShapeViolation 集中上报——O0d 落计数+采样日志载体）。
 //
-// 数据形状假设：输入=DocNodeRecord[]（doc 作者态可选键——docShape.ts）；② 额外吃 cs 侧三方快照
+// 数据形状假设：输入=StoredNodeRecord[]（doc 作者态可选键——docShape.ts）；② 额外吃 cs 侧三方快照
 // {docRecords, csNodes, frames}。帧模式判定内联实现（frameMode/isCollapsed 是 C0-1 stub，调不得——
 // O0b 接线后本文件内联判定换 frameMode 单源，见各处 `O0b` 注释）。C0 期间生产代码零消费——
 // 挂点=assertions.test.ts 的 it.todo（各分片 unskip）。
-import type { DocNodeRecord, RenderNode, Rect } from './docShape';
+import type { StoredNodeRecord } from './collab-doc-ops';
+import type { RenderNode, Rect } from './docShape';
 import { COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, calcGroupBounds } from './geometry';
 
 /** 浮点等价容差（对齐 reconcile 单内核零差异短路的同值 1e-6——RF 小数坐标 1ULP 抖动）。 */
@@ -25,20 +26,20 @@ export type GeometryField = 'position' | 'width' | 'height';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-const isGroupRec = (r: DocNodeRecord): boolean => r.type === 'group';
+const isGroupRec = (r: StoredNodeRecord): boolean => r.type === 'group';
 
 /** 组是否分镜组（内联判定——O0b 接线后换 frameMode 单源）。 */
-const isStoryboardRec = (r: DocNodeRecord): boolean => r.data.groupType === 'storyboard';
+const isStoryboardRec = (r: StoredNodeRecord): boolean => r.data.groupType === 'storyboard';
 
 /** 组是否折叠（内联判定 data.collapsed===true——O0b 接线后换 isCollapsed 单源）。 */
-const isCollapsedRec = (r: DocNodeRecord): boolean => r.data.collapsed === true;
+const isCollapsedRec = (r: StoredNodeRecord): boolean => r.data.collapsed === true;
 
-const hasFrameKey = (r: DocNodeRecord): boolean =>
+const hasFrameKey = (r: StoredNodeRecord): boolean =>
   r.position != null || r.width != null || r.height != null;
 
 /** storedFrame 有效性内联判定（三键齐且有限且宽高>0⇔manual——docShape.frameMode stub 同语义，
  *  O0b 接线后换单源）。 */
-const hasValidStoredFrame = (r: DocNodeRecord): boolean =>
+const hasValidStoredFrame = (r: StoredNodeRecord): boolean =>
   isFiniteNum(r.position?.x) && isFiniteNum(r.position?.y)
   && isFiniteNum(r.width) && isFiniteNum(r.height)
   && (r.width as number) > 0 && (r.height as number) > 0;
@@ -56,7 +57,7 @@ function throwIfViolations(assertName: string, violations: string[]): void {
  * 折叠态不动帧三键（键在即放行）；分镜组豁免（帧走配置型公式）。
  * 判定口径：任一帧键存在而 storedFrame 不齐/无效（=frameMode 判 auto）→ 违例。
  */
-export function assertNoAutoGroupFrameKeys(records: readonly DocNodeRecord[]): void {
+export function assertNoAutoGroupFrameKeys(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   for (const r of records) {
     if (!isGroupRec(r) || isStoryboardRec(r)) continue;
@@ -73,7 +74,7 @@ export function assertNoAutoGroupFrameKeys(records: readonly DocNodeRecord[]): v
  * （无法对照）；顶层节点（无 parentId，不属 rel 对照面）。
  */
 export function assertDocAbsMatchesCsRel(snapshot: {
-  docRecords: readonly DocNodeRecord[];
+  docRecords: readonly StoredNodeRecord[];
   csNodes: readonly RenderNode[];
   frames: ReadonlyMap<string, Rect>;
 }): void {
@@ -100,7 +101,7 @@ export function assertDocAbsMatchesCsRel(snapshot: {
 /** manual 域判定（③/+条口径——O0b-5 随 manuallyResized 整链删除改帧键形态 oracle，终裁 50）：
  *  manual=doc 帧三键齐且有效（hasValidStoredFrame——frameMode 单源同谓词）——帧不归
  *  bbox/COLLAPSED_SIZE 公式管（展开恢复唯一密封源，终裁 82）。 */
-const isManualDomain = (r: DocNodeRecord): boolean => hasValidStoredFrame(r);
+const isManualDomain = (r: StoredNodeRecord): boolean => hasValidStoredFrame(r);
 
 /**
  * 断言③：展开态 auto 组 frame ≡ bbox+padding（成员≥1 才断言——空组归
@@ -113,7 +114,7 @@ const isManualDomain = (r: DocNodeRecord): boolean => hasValidStoredFrame(r);
  * 输入空间无关：doc 快照（过渡/混合形态）与 cs 信封快照均可喂（cs 信封快照的 auto/manual 判别
  * 需 frameModes oracle 扩展——随 O0b 接线批评估）。
  */
-export function assertExpandedAutoFrameEqualsBounds(records: readonly DocNodeRecord[]): void {
+export function assertExpandedAutoFrameEqualsBounds(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   const membersOf = (gid: string) => records.filter((r) => r.parentId === gid);
   for (const g of records) {
@@ -144,7 +145,7 @@ export function assertExpandedAutoFrameEqualsBounds(records: readonly DocNodeRec
  * 断言④：分镜子 doc 无 position。识别=parentId 指向 data.groupType==='storyboard' 的组的记录；
  * 该类记录携带 position 即违例（分镜组子坐标无意义——纯 DOM 宫格渲染）。
  */
-export function assertStoryboardChildNoPosition(records: readonly DocNodeRecord[]): void {
+export function assertStoryboardChildNoPosition(records: readonly StoredNodeRecord[]): void {
   const storyboardIds = new Set(records.filter((r) => isGroupRec(r) && isStoryboardRec(r)).map((r) => r.id));
   const violations: string[] = [];
   for (const r of records) {
@@ -158,7 +159,7 @@ export function assertStoryboardChildNoPosition(records: readonly DocNodeRecord[
  * 断言⑤：cs-only 派生字段（hidden/selected/dragging——CS_ONLY_DERIVED_DATA_KEYS）禁入任何
  * 记录的 data。派生态在 cs 顶层/render 面表达，落 data 即双真相违例。
  */
-export function assertNoCsDerivedKeysInData(records: readonly DocNodeRecord[]): void {
+export function assertNoCsDerivedKeysInData(records: readonly StoredNodeRecord[]): void {
   const block = new Set<string>(CS_ONLY_DERIVED_DATA_KEYS);
   const violations: string[] = [];
   for (const r of records) {
@@ -172,7 +173,7 @@ export function assertNoCsDerivedKeysInData(records: readonly DocNodeRecord[]): 
  * 断言⑥：`__` 前缀键不进组 data。辖域=type==='group' 记录的 data（普通节点 data 的 `__` 键
  * ——如 __fromMulti——不属本断言面）。
  */
-export function assertNoDunderKeysInGroupData(records: readonly DocNodeRecord[]): void {
+export function assertNoDunderKeysInGroupData(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   for (const r of records) {
     if (!isGroupRec(r)) continue;
@@ -187,7 +188,7 @@ export function assertNoDunderKeysInGroupData(records: readonly DocNodeRecord[])
  * 且帧键若在则 width/height ≡ COLLAPSED_SIZE；帧键缺省（doc 目标形态）只查折叠标记。
  * manual 域（O0b-5 起帧三键形态判定——isManualDomain）/storyboard/有成员 → 跳过。
  */
-export function assertEmptyAutoGroupCollapsedSize(records: readonly DocNodeRecord[]): void {
+export function assertEmptyAutoGroupCollapsedSize(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   for (const g of records) {
     if (!isGroupRec(g) || isStoryboardRec(g) || isManualDomain(g)) continue;
@@ -211,7 +212,7 @@ export function assertEmptyAutoGroupCollapsedSize(records: readonly DocNodeRecor
  * 接缝：断言 throw 形态——调用方（O0b-2 接线点）catch 后 DEV 直抛 / prod 转"变更 id 去重 log"
  * （log 计数载体后续分片落，本片只留此接缝注释）。
  */
-export function assertStoryboardMembership(records: readonly DocNodeRecord[]): void {
+export function assertStoryboardMembership(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   for (const g of records) {
     if (!isGroupRec(g) || !isStoryboardRec(g)) continue;
@@ -234,7 +235,7 @@ export function assertStoryboardMembership(records: readonly DocNodeRecord[]): v
  * 全节点锚：任一记录 position 存在即须 Number.isFinite(x/y)。NaN/Infinity 坐标（除零/脏数据
  * 传播终点）就地违例。
  */
-export function assertAllPositionsFinite(records: readonly DocNodeRecord[]): void {
+export function assertAllPositionsFinite(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   for (const r of records) {
     if (r.position == null) continue;

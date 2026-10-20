@@ -651,7 +651,7 @@ export class CollabDocRegistryService {
 
   /** ⑤ 等价断言扩全根（把信任 fillDoc 变成验证 fillDoc）：readRecords 深比+根类型集合相等
    *  +exec 键集合相等+meta.schemaVersion===current（三条 O(键数)——U-1/U-2 直接检测）。
-   *  readRecordsFromMaps 对比用 JSON 序列化（DocNodeRecord 纯 JSON+键序=遍历序稳定）。 */
+   *  readRecordsFromMaps 对比用 JSON 序列化（StoredNodeRecord 纯 JSON+键序=遍历序稳定）。 */
   vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
     // 三常驻根规约化（装载路径同款——loadDocument 恒建 nodes/edges/meta〔nodeCount 遍历+版本门
     // meta 读〕；空源 doc（DB 无行的边界）键集合口径由此对称——fillDoc/stamp 恒建三根）

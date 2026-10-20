@@ -6,10 +6,11 @@
 // ②键集剥键在本族生效（上游构造纪律=唯一剥键写者——fillDoc/readRecords 只按键集表跳过，不写不改）。
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
-  fillDoc, readRecordsFromMaps, applyRecordToYMap, stripDerivedKeys,
+  fillDoc, readRecordsFromMaps, stripDerivedKeys,
   CANVAS_DOC_SCHEMA_VERSION,
-  type DocMapLike, type DocLike, type DocNodeRecord, type DocEdgeRecord,
+  type DocLike, type DocEdgeRecord,
 } from './docShape';
+import { applyRecordToYMap, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 
 // ── FakeDoc：DocLike 内存假实现（零 yjs——shared 测试装置）──
 class FakeMap implements DocMapLike {
@@ -30,11 +31,11 @@ class FakeDoc implements DocLike {
   createMap = (): FakeMap => new FakeMap();
 }
 
-// identity 档（O0a-1）：DocNodeRecord.position 裸 {x,y}——abs helper 只是夹具简洁性命名（无品牌 cast）
+// identity 档（O0a-1）：StoredNodeRecord.position 裸 {x,y}——abs helper 只是夹具简洁性命名（无品牌 cast）
 const abs = (x: number, y: number) => ({ x, y });
 
 /** 分镜组+一子（子无 position 键——上游构造纪律的 records 形态） */
-const storyboardFixture = (): { records: DocNodeRecord[]; edges: DocEdgeRecord[] } => ({
+const storyboardFixture = (): { records: StoredNodeRecord[]; edges: DocEdgeRecord[] } => ({
   records: [
     {
       id: 'sb1', type: 'group',
@@ -51,7 +52,7 @@ const storyboardFixture = (): { records: DocNodeRecord[]; edges: DocEdgeRecord[]
 describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源——web/api 双端同函数）', () => {
   it('普通节点全键恒等（position 原样拷贝——identity 档不解释不翻转）', () => {
     const doc = new FakeDoc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       {
         id: 'n1', type: 'textInput', parentId: 'g1', width: 320, height: 120,
         position: abs(10, 20), data: { content: 'a', status: 'done' },
@@ -66,7 +67,7 @@ describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源—
   it('null 值键≡缺键（批4a 契约保持——运行时 as any 注入 null 与缺键同形）', () => {
     const doc = new FakeDoc();
     fillDoc(doc, [
-      { id: 'n1', type: 'textInput', parentId: null, width: null, height: null, position: abs(1, 2), data: {} } as unknown as DocNodeRecord,
+      { id: 'n1', type: 'textInput', parentId: null, width: null, height: null, position: abs(1, 2), data: {} } as unknown as StoredNodeRecord,
     ], []);
     const m = doc.getMap('nodes').get('n1') as DocMapLike;
     expect(m.has('parentId')).toBe(false);
@@ -211,22 +212,22 @@ describe('stripDerivedKeys（三层防线②：DEV/prod 只读校验谓词——
   });
 });
 
-describe('O0a-1 类型分裂签名（DocNodeRecord 可选键面——CanvasNodeRecord 维持必填不混入）', () => {
-  it('fillDoc 入参 readonly DocNodeRecord[]/DocLike；readRecordsFromMaps 出口 DocNodeRecord[]', () => {
+describe('O0a-1 类型分裂签名（StoredNodeRecord 可选键面——CanvasNodeRecord 维持必填不混入）', () => {
+  it('fillDoc 入参 readonly StoredNodeRecord[]/DocLike；readRecordsFromMaps 出口 StoredNodeRecord[]', () => {
     expectTypeOf<Parameters<typeof fillDoc>>().toEqualTypeOf<
-      [DocLike, readonly DocNodeRecord[], readonly DocEdgeRecord[]]
+      [DocLike, readonly StoredNodeRecord[], readonly DocEdgeRecord[]]
     >();
     expectTypeOf<ReturnType<typeof readRecordsFromMaps>>().toEqualTypeOf<{
-      nodes: DocNodeRecord[];
+      nodes: StoredNodeRecord[];
       edges: DocEdgeRecord[];
     }>();
   });
 
-  it('applyRecordToYMap(m: DocMapLike, r: DocNodeRecord, createMap)；stripDerivedKeys 只读返回违例清单', () => {
+  it('applyRecordToYMap(m: DocMapLike, r: StoredNodeRecord, createMap)；stripDerivedKeys 只读返回违例清单', () => {
     expectTypeOf<Parameters<typeof applyRecordToYMap>>().toEqualTypeOf<
-      [DocMapLike, DocNodeRecord, () => DocMapLike]
+      [DocMapLike, StoredNodeRecord, () => DocMapLike]
     >();
-    expectTypeOf<Parameters<typeof stripDerivedKeys>>().toEqualTypeOf<[readonly DocNodeRecord[]]>();
+    expectTypeOf<Parameters<typeof stripDerivedKeys>>().toEqualTypeOf<[readonly StoredNodeRecord[]]>();
     expectTypeOf<ReturnType<typeof stripDerivedKeys>>().toEqualTypeOf<string[]>();
   });
 

@@ -8,7 +8,8 @@
 import { QUOTA_DEFAULTS } from '../constants/collab-quota';
 import { utf8Bytes } from '../utils/utf8-bytes';
 import { NODE_ENVELOPE_KEYS } from './nodeEnvelope';
-import type { DocNodeRecord, DocEdgeRecord } from './docShape';
+import type { StoredNodeRecord } from './collab-doc-ops';
+import type { DocEdgeRecord } from './docShape';
 
 // ── 层①：顶层 map 集合（生产 getMap 面实测 2026-10-14：nodes/meta/edges/exec 四 map，别无他名）──
 export const DOC_TOP_LEVEL_MAPS = ['meta', 'nodes', 'edges', 'exec'] as const;
@@ -46,7 +47,7 @@ export const NESTED_TYPE_CREATORS: readonly NestedCreatorEntry[] = [
   },
   {
     container: 'nodes.<id>', key: 'position',
-    creators: ['docShape.setDocPosition（唯一创建原语——canvasIntents/ydocBuilder 调用点工厂实参同此一函数）'],
+    creators: ['collab-doc-ops.setDocPosition（唯一创建原语——canvasIntents/ydocBuilder 调用点工厂实参同此一函数；Y1a T1 自 docShape 迁入）'],
     unique: true,
   },
   {
@@ -117,7 +118,7 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
     },
     {
       map: 'nodes', path: 'nodes.*.position',
-      writers: ['docShape.setDocPosition（唯一写原语——逐键 diff 同值 no-op）', '键集表剥键面（分镜子无 position——membership 变更点为剥键写者）'],
+      writers: ['collab-doc-ops.setDocPosition（唯一写原语——逐键 diff 同值 no-op；Y1a T1 自 docShape 迁入）', '键集表剥键面（分镜子无 position——membership 变更点为剥键写者）'],
       readers: ['docShape.toDocRecords（rel→abs 翻转切）', 'web 渲染投影'],
       ownership: 'doc', undo: 'client-undo',
     },
@@ -167,7 +168,7 @@ export type DocWriteOp =
   | { op: 'writeExecStatus'; nodeId: string; patch: Record<string, unknown> }
   | { op: 'deleteNodeDataKeys'; nodeId: string; keys: string[] }
   | { op: 'deleteNodes'; nodeIds: string[] }
-  | { op: 'fillDoc'; nodes: DocNodeRecord[]; edges: DocEdgeRecord[] }
+  | { op: 'fillDoc'; nodes: StoredNodeRecord[]; edges: DocEdgeRecord[] }
   | { op: 'deleteExecOrphans' };
 
 /** 值域词汇（JS typeof 域；null 单列——jobId:string|null 形态）。 */

@@ -3,7 +3,8 @@
 // docShape 值守卫跳过=空转）；scalar-node 一例专测守卫行为。零 yjs 依赖（shared 保持无 yjs）。
 // 接口适配注记：DocMapLike.set/delete 实际签名返回 void，FakeMap 实现返回 this/boolean——
 // TS 允许（非 void 返回可赋 void 期望）；DocLike 含 createMap（mk 已按实际接口供给，无需裁剪）。
-import type { DocLike, DocMapLike } from '../canvas/docShape';
+import type { DocLike } from '../canvas/docShape';
+import type { DocMapLike } from '../canvas/collab-doc-ops';
 
 class FakeMap implements DocMapLike {
   constructor(private readonly backing = new Map<string, unknown>()) {}

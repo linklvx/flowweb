@@ -8,17 +8,11 @@
 // 共用 storyboardGroupIds/hasValidStoredFrameKeys——禁多份键集表）。
 // O0b-0 格式批：doc rel→abs 翻转（toDocRecords 单一翻转点）+版本门 v2.1
 // （stampDocSchema/assertDocSchema/ensureSchemaVersion 三函数——戳源唯一化，fillDoc 不再盖章）。
+// Y1a T1（plan v11.2 片 S0）：写原语+关联类型抽离——setDocPosition/applyRecordToYMap/
+// DocMapLike/isDocMap/StoredNodeRecord 迁 collab-doc-ops.ts（本文件
+// 经 import 单源引用；零行为变更纯机械迁移）。
 import type { RelPos } from './brands';
-
-/** Y.Map 结构性最小面（零 yjs import——防跨实例 instanceof 静默失败，nodeEnvelope 同理由）。
- *  O0a-1 按需扩键：delete（增量删键）/entries（读遍历）——Y.Map 结构兼容零包装。 */
-export interface DocMapLike {
-  get(key: string): unknown;
-  set(key: string, value: unknown): void;
-  has(key: string): boolean;
-  delete(key: string): void;
-  entries(): Iterable<[string, unknown]>;
-}
+import { isDocMap, setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 
 /** Y.Doc 结构性最小面。O0a-1 按需扩 createMap：空 map 工厂（fillDoc 的节点/position/data 子 Map
  *  创建——零 yjs 的代价：宿主注入 new Y.Map()/FakeMap；Y.Doc 无此方法由适配层补）。 */
@@ -91,13 +85,6 @@ export function ensureSchemaVersion(doc: DocLike): void {
   assertDocSchema(doc);                              // 戳=1（或未来未知档）⇒ 拒
 }
 
-/** 结构性子 Map 判定（零 instanceof——鸭子判定 get/has 方法存在；JSON 纯对象无方法不误判）。 */
-function isDocMap(v: unknown): v is DocMapLike {
-  return typeof v === 'object' && v !== null
-    && typeof (v as { get?: unknown }).get === 'function'
-    && typeof (v as { has?: unknown }).has === 'function';
-}
-
 /** doc 直写（fillDoc 单源——web ydocBuilder/api 收编共用）：节点/边逐键写入。
  *  O0b-0：meta stamp 删除（戳源唯一化——唯一自愈点=WS loadDocument/api 种子显式 stampDocSchema；
  *  fillDoc 每写盖戳会让"每 doc 至多一次幂等戳"契约与"无戳∧有节点拒"门档失真）。
@@ -105,7 +92,7 @@ function isDocMap(v: unknown): v is DocMapLike {
  *  分镜子无 position 由上游构造纪律保证（diff 剥键=唯一剥键写者），本函数只认记录键、不做父上下文推算。 */
 export function fillDoc(
   doc: DocLike,
-  records: readonly DocNodeRecord[],
+  records: readonly StoredNodeRecord[],
   edges: readonly DocEdgeRecord[],
 ): void {
   const nodesMap = doc.getMap('nodes');
@@ -132,15 +119,15 @@ export function fillDoc(
   }
 }
 
-/** doc 直读（readRecordsFromMaps 单源）：出口=作者态 DocNodeRecord（键可选——doc 无键⇄records 同形
+/** doc 直读（readRecordsFromMaps 单源）：出口=作者态 StoredNodeRecord（键可选——doc 无键⇄records 同形
  *  无键，三层表；position 原样拷贝——O0b-0 起 doc=abs 空间，读出口即 abs）。
  *  读侧 null 消除（批4a 契约保持：doc 值 null≡缺键→出口 undefined）。 */
-export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edges: DocEdgeRecord[] } {
+export function readRecordsFromMaps(doc: DocLike): { nodes: StoredNodeRecord[]; edges: DocEdgeRecord[] } {
   const nodes = [...doc.getMap('nodes').entries()].flatMap(([id, v]) => {
     if (!isDocMap(v)) return []; // E68 读侧全函数：doc 值可为任意 JSON——非 map 值跳过不抛
     const m = v;
     const posV = m.get('position');
-    const position: DocNodeRecord['position'] | undefined = isDocMap(posV)
+    const position: StoredNodeRecord['position'] | undefined = isDocMap(posV)
       ? { x: posV.get('x') as number, y: posV.get('y') as number }
       : undefined;
     const parentId = m.get('parentId');
@@ -165,49 +152,6 @@ export function readRecordsFromMaps(doc: DocLike): { nodes: DocNodeRecord[]; edg
   return { nodes, edges };
 }
 
-/** 增量写：record 缺键 → Y.Map delete；值变才 set（同值 no-op——无守卫=doc 膨胀）。
- *  键集表跳过（O0a-1）：记录无 position → 不写不删（分镜子剥键写者在上游——既有键不覆写）；
- *  position 子 Map 缺失（人为构造）→ 经 createMap 工厂创建。仅测试消费（生产写路径已收口
- *  canvasIntents——批 4b：updateNodeEnvelope 内联逐键 diff）；O0a-2 起 api 种子写走 fillDoc
- *  （writeNodeToYMap 符号整删——4aaf2fd9，读写同收编 shared docShape 单源）。 */
-export function applyRecordToYMap(
-  m: DocMapLike,
-  r: DocNodeRecord,
-  createMap: () => DocMapLike,
-): void {
-  for (const key of ['parentId', 'width', 'height'] as const) {
-    const cur = m.get(key);
-    const want: unknown = r[key];
-    if (want == null) { if (cur !== undefined) m.delete(key); }
-    else if (cur !== want) m.set(key, want);
-  }
-  if (m.get('type') !== r.type) m.set('type', r.type);
-  const wantPos = r.position;
-  if (wantPos == null) return; // 键集表：无 position 记录不动既有键（不写 {0,0} 不删——上游纪律）
-  setDocPosition(m, wantPos, createMap);
-}
-
-/** doc position 写原语唯一单源（O0a-3——Y.Map 嵌套子 Map）：子 Map 缺失（人为构造）经 createMap
- *  工厂创建，在则复用既有子 Map；x/y 逐键 diff 写（同值 no-op——防 doc 膨胀）。
- *  fillDoc/applyRecordToYMap/web applyIntentToDoc(moveNode) 三写点共此一口——envelope-serialization
- *  门禁 allowlist census 收敛（web 侧内联 position 子 Map 构造同批撤）。 */
-export function setDocPosition(
-  m: DocMapLike,
-  pos: { x: number; y: number },
-  createMap: () => DocMapLike,
-): void {
-  const existing = m.get('position');
-  let p: DocMapLike;
-  if (isDocMap(existing)) {
-    p = existing;
-  } else {
-    p = createMap();
-    m.set('position', p);
-  }
-  if (p.get('x') !== pos.x) p.set('x', pos.x);
-  if (p.get('y') !== pos.y) p.set('y', pos.y);
-}
-
 /** 键集表只读校验（O0a-1 三层防线②——v3.17 终裁 64②，消"同一规则双写者"）：读 records 断言
  *  分镜子无 position 键。storyboard 组判定=**全量预扫**（不依赖遍历序——人为构造序 child 先于
  *  父组入 doc 仍可判，DEV 断言报错而非被静默修好）。
@@ -217,7 +161,7 @@ export function setDocPosition(
  *  且键集判定经全量预扫已对序免疫，防线③的原始动机消解）。
  *  纯只读**不写不修**（原"transact 尾 normalize pass 统一剥键"写动作废止转校验）。
  *  返回违例清单，调用方决定处置（本分片挂载点=漏斗尾 DEV throw；组帧键校验留 O0b 扩）。 */
-export function stripDerivedKeys(records: readonly DocNodeRecord[]): string[] {
+export function stripDerivedKeys(records: readonly StoredNodeRecord[]): string[] {
   const violations: string[] = [];
   const storyboardGroups = storyboardGroupIds(records);
   for (const n of records) {
@@ -240,12 +184,12 @@ export function normalizeSize(n: number): number {
 
 /** storedFrame 有效性三态内联判定：三键齐且有限且宽高>0——O0b-1 起 isValidStoredFrame 单源实装，
  *  本谓词降为记录形入参的薄委托（消同语义双实现——frameMode/键集表同源）。 */
-function hasValidStoredFrameKeys(n: DocNodeRecord): boolean {
+function hasValidStoredFrameKeys(n: StoredNodeRecord): boolean {
   return isValidStoredFrame(n);
 }
 
 /** storyboard 组 id 全量预扫（不依赖遍历序——判定对构造序免疫）。 */
-function storyboardGroupIds(records: readonly DocNodeRecord[]): Set<string> {
+function storyboardGroupIds(records: readonly StoredNodeRecord[]): Set<string> {
   return new Set(
     records
       .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
@@ -262,13 +206,13 @@ function storyboardGroupIds(records: readonly DocNodeRecord[]): Set<string> {
  *  输入已是作者态，无 cs 派生键混入）=现状 record 形态判定，语义不变。oracle 只裁 manual/auto
  *  二态——storyboard 判定恒走 data.groupType（权威）。 */
 function applyKeySetTable(
-  records: readonly DocNodeRecord[],
+  records: readonly StoredNodeRecord[],
   groupFrameModes?: ReadonlyMap<string, FrameMode>,
-): DocNodeRecord[] {
+): StoredNodeRecord[] {
   const storyboardIds = storyboardGroupIds(records);
   return records.map((n) => {
     const data = (n.data ?? {}) as Record<string, unknown>;
-    const out: DocNodeRecord = { id: n.id, type: n.type, data };
+    const out: StoredNodeRecord = { id: n.id, type: n.type, data };
     const isGroup = n.type === 'group';
     const isStoryboard = isGroup && data.groupType === 'storyboard';
     let keepPosition = n.position != null;
@@ -306,7 +250,7 @@ function applyKeySetTable(
  *  纯剥不补：输入无键⇄输出无键（键集表跳过同构；O0b-0 起 normalizeLoadedCanvas 补几何层整删——
  *  种子直读作者态，无补齐层）。data 原样透传不碰内部（白名单/快照域归
  *  O0c-1——snapshot-filter normalizeNodeRecord 是相邻物不收敛）。 */
-export function stripAuthorState(records: readonly DocNodeRecord[]): DocNodeRecord[] {
+export function stripAuthorState(records: readonly StoredNodeRecord[]): StoredNodeRecord[] {
   return applyKeySetTable(records);
 }
 
@@ -340,13 +284,13 @@ export function toDocRecords(
   csNodes: readonly MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
   groupFrameModes?: ReadonlyMap<string, FrameMode>,
-): DocNodeRecord[] {
+): StoredNodeRecord[] {
   // 组帧 origin 表：cs 组 position 现值（一次预扫——子翻转只查表，不做遍历内推算）
   const origins = new Map<string, { x: number; y: number }>();
   for (const nd of csNodes) {
     if (nd.type === 'group') origins.set(nd.id, nd.position);
   }
-  const merged: DocNodeRecord[] = csNodes.map((nd) => {
+  const merged: StoredNodeRecord[] = csNodes.map((nd) => {
     let position = nd.position;
     if (nd.parentId != null && nd.position != null) {
       const origin = origins.get(nd.parentId);
@@ -369,21 +313,6 @@ export function toDocRecords(
 
 /** 冻结帧/快照 rect（DragSession 的 baseline/groupBaseline/frozenFrames 共用）。 */
 export type Rect = { x: number; y: number; width: number; height: number };
-
-/** 作者态 doc 节点记录（docShape 家族出口专用）：键可选——键集表语义：auto 组无帧键 /
- *  manual 组折叠仍保留三键 / storyboard 组无 wh / 分镜子无 position，运行时键集由谓词守卫、
- *  类型层=可选键。与 nodeEnvelope.ts 的 CanvasNodeRecord（cs/渲染/copyPlan 面，必填）分裂并存——不改后者。
- *  position 裸 {x,y} 注（O0b-0）：doc=abs 空间（写侧 toDocRecords rel→abs 翻转、读侧直拷）——
- *  本族读写管道进出同一空间；AbsPos 品牌收紧随翻转批语义落地后按需跟进（本批不加类型层）。 */
-export interface DocNodeRecord {
-  id: string;
-  type: string;
-  parentId?: string;
-  position?: { x: number; y: number };
-  width?: number;
-  height?: number;
-  data: Record<string, unknown>;
-}
 
 /** 渲染面最小骨架（hidden?: boolean 必须出现；完整化留 O0c-2 分片——勿加更多字段）。 */
 export interface RenderNode {

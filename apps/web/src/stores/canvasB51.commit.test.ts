@@ -26,7 +26,7 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, calcGroupBounds, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, calcGroupBounds, type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { attachUndoManager, detachUndoManager, Origin } from './canvasUndo';
 import { openRwWindow, openRoWindow, resetCanvasStores } from '@/test/fixtures/canvas';
@@ -48,7 +48,7 @@ const SB_CONFIG = { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: tr
 
 /** 夹具（B42 同款）：manual 组 g1(100,50,400×300)+双子（c1 abs(120,80)/c1b abs(200,90)）+
  *  auto 组 g2（doc 无帧键——帧=reconcile 派生）+子 c2(abs 300,100)+顶层 t1(700,0)。 */
-const FIXTURE: DocNodeRecord[] = [
+const FIXTURE: StoredNodeRecord[] = [
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
   { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   { id: 'c1b', type: 'imageGen', parentId: 'g1', position: { x: 200, y: 90 }, width: 80, height: 50, data: {} },

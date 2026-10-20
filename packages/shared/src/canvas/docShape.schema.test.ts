@@ -8,9 +8,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CANVAS_DOC_SCHEMA_VERSION, stampDocSchema, assertDocSchema, ensureSchemaVersion,
-  applyRecordToYMap,
-  type DocMapLike, type DocLike,
+  type DocLike,
 } from './docShape';
+import { applyRecordToYMap, type DocMapLike } from './collab-doc-ops';
 
 // ── FakeDoc：DocLike 内存假实现（零 yjs——docShape.fillRead.test 同款装置）──
 class FakeMap implements DocMapLike {

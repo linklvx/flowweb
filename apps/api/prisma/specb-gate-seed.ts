@@ -12,7 +12,7 @@ import { S3Client, PutObjectCommand, HeadBucketCommand, CreateBucketCommand } fr
 import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import {
   fillDoc as fillDocShapes, stampDocSchema,
-  type DocLike, type DocMapLike, type DocNodeRecord,
+  type DocLike, type DocMapLike, type StoredNodeRecord,
 } from '@flowweb/shared';
 
 /** Y.Doc→DocLike 结构性适配（ydocBuilder.toDocLike 同款——api 侧不可 import web 源，结构性复刻） */
@@ -126,7 +126,7 @@ async function main() {
     },
   })));
 
-  const publicRecords: DocNodeRecord[] = [
+  const publicRecords: StoredNodeRecord[] = [
     { // 键集表：storyboard 组 position 有键、width/height 无键（帧=calcStoryboardSize 派生）
       id: 'sb1', type: 'group', position: { x: 100, y: 100 },
       data: {
@@ -160,7 +160,7 @@ async function main() {
   });
 
   // ③ 性能冒烟画布：20 组 × 25 子 = 520 节点（auto 组零帧键；子 abs 定位 1/8 格值——非整数坐标档必跑）
-  const perfRecords: DocNodeRecord[] = [];
+  const perfRecords: StoredNodeRecord[] = [];
   for (let g = 0; g < 20; g++) {
     const gx = (g % 5) * 2000 + 100.125;
     const gy = Math.floor(g / 5) * 2200 + 100.375;

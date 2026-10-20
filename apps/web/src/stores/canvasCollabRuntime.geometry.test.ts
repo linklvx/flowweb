@@ -18,7 +18,7 @@ import { applyDocToStore, checkProjectionInvariant, reconcileGroupGeometry } fro
 import { fillDoc, toDocLike, readCanvasFromDoc } from '@/collab/ydocBuilder';
 import {
   stampDocSchema, calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
-  type DocNodeRecord,
+  type StoredNodeRecord,
 } from '@flowweb/shared';
 import {
   _setIntentDocForTest, dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff,
@@ -36,8 +36,8 @@ function openRwWindow() {
 }
 
 /** 翻转夹具（v2.1 档——doc=abs 空间）：manual 组+auto 组+分镜组+嵌套子+顶层，fillDoc 后显式 stamp。
- *  M-3（O0b-0 质评）：夹具对齐 DocNodeRecord/toDocRecords 同构链风格（去 as any）。 */
-const FLIPPED_RECORDS: DocNodeRecord[] = [
+ *  M-3（O0b-0 质评）：夹具对齐 StoredNodeRecord/toDocRecords 同构链风格（去 as any）。 */
+const FLIPPED_RECORDS: StoredNodeRecord[] = [
   // manual 组（帧三键齐——origin=doc position 键）+子 abs(120,80) → cs 期望 rel(20,30)
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
   { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
@@ -62,7 +62,7 @@ function buildFlippedDoc(): Y.Doc {
 /** O0b-1 折叠档夹具（终裁 82）：manual 组密封帧（doc 三键=展开态值）+collapsed data。 */
 function buildCollapsedManualDoc(): Y.Doc {
   const d = new Y.Doc();
-  const records: DocNodeRecord[] = [
+  const records: StoredNodeRecord[] = [
     { id: 'g3', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'm', collapsed: true } },
     { id: 'c9', type: 'imageGen', parentId: 'g3', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   ];
@@ -201,7 +201,7 @@ describe('O0b-0 翻转主锚（几何）：打开 ⇒ cs 子 rel 逐位≡doc.ab
     useNodeStore.setState({ nodes: {} as any });
     useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 10, height: 10, data: { groupType: 'normal' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 100, height: 60, data: {} },
     ];
@@ -225,7 +225,7 @@ describe('O0b-0 翻转主锚（几何）：打开 ⇒ cs 子 rel 逐位≡doc.ab
 describe('O0b-0 web 读侧版本门（DEV——收到的版本四档同条件）', () => {
   it('无戳∧有节点 → applyDocToStore throw（DEV 断言）', () => {
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
+    const records: StoredNodeRecord[] = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
     fillDoc(d, records, []);
     // 不 stamp——无戳有节点（构造纪律：fillDoc 本批已不写 meta，裸形态即门档）
     expect(() => applyDocToStore(d)).toThrow(/schemaVersion/);
@@ -234,7 +234,7 @@ describe('O0b-0 web 读侧版本门（DEV——收到的版本四档同条件）
   it('戳=1 → applyDocToStore throw（v1 旧档）', () => {
     const d = new Y.Doc();
     d.getMap('meta').set('schemaVersion', 1);
-    const records: DocNodeRecord[] = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
+    const records: StoredNodeRecord[] = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
     fillDoc(d, records, []);
     expect(() => applyDocToStore(d)).toThrow(/schemaVersion/);
   });
@@ -316,7 +316,7 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
   it('写域①折叠档：auto 组 collapsed⇒COLLAPSED_SIZE 覆写（origin 照旧 bbox 派生）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'g4', type: 'group', data: { groupType: 'normal', collapsed: true } },
       { id: 'k1', type: 'imageGen', parentId: 'g4', position: { x: 500, y: 300 }, width: 200, height: 100, data: {} },
       { id: 'k2', type: 'imageGen', parentId: 'g4', position: { x: 800, y: 300 }, width: 100, height: 50, data: {} },
@@ -337,7 +337,7 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
     openRwWindow();
     // 最小 manual 组夹具（无分镜子）：manual oracle=doc 帧三键形态——gm 三键齐⇒manual 档
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'gm', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
       { id: 'cm', type: 'imageGen', parentId: 'gm', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
     ];
@@ -550,7 +550,7 @@ describe('O0b-1 单遍单 origin+零差异短路', () => {
   it("投影派发前非让位节点 doc.abs==cs.rel+origin 逐位成立（'网格内'限定删——二进制分数夹具保浮点逐位，量化单侧）", () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'gm', type: 'group', position: { x: 4, y: 8 }, width: 400, height: 300, data: { groupType: 'normal' } },
       { id: 'cc', type: 'imageGen', parentId: 'gm', position: { x: 1.5, y: 2.25 }, width: 100, height: 60, data: {} },
     ];
@@ -585,7 +585,7 @@ describe('O0b-1 源矩阵：diff 首行 source:\'cs\'——命令几何不丢', 
   it('arrangeSelection 命令几何经 diff 落 doc 不丢——doc.abs≡cs.position 逐位', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'a1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
       { id: 'a2', type: 'textInput', position: { x: 200, y: 600 }, data: {} },
     ];

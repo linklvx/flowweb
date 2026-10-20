@@ -69,7 +69,7 @@ describe('CollabDocumentService.readCanvas（O0a-2 收编 readRecordsFromMaps—
     expect(apiOut).toEqual(webOut);
   });
 
-  it('读出口=作者态 DocNodeRecord：doc 缺键→出口无键（null 消除——批4a 契约/键集表同形）', async () => {
+  it('读出口=作者态 StoredNodeRecord：doc 缺键→出口无键（null 消除——批4a 契约/键集表同形）', async () => {
     const doc = buildDoc();
     stampDocSchema(toDocLike(doc));
     const service = buildService(doc);

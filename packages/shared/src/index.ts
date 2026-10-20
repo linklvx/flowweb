@@ -44,6 +44,9 @@ export * from './canvas/nodeEnvelope';
 // O0a-1（Spec B）：docShape 出口接入——doc 读写单源（fillDoc/readRecordsFromMaps/applyRecordToYMap/
 // stripDerivedKeys）+ C0-1 类型骨架出口随本分片落地（census 守卫使命完成拆除）。
 export * from './canvas/docShape';
+// Y1a T1（plan v11.2 片 S0）：collab-doc-ops 出口——doc 写原语（setDocPosition/applyRecordToYMap）
+// +关联类型（DocMapLike/StoredNodeRecord）自 docShape 抽离单源（零行为变更纯机械迁移）。
+export * from './canvas/collab-doc-ops';
 // C0-2（Spec B）：geometryWriterRegistry=纯常量零依赖（写者类别+归类账本）——
 // geometryTrap 写者上下文校验与 B7-1 census 引用源。assertions/C0-1 类型骨架 stub 出口仍归 O0a。
 export * from './canvas/geometryWriterRegistry';

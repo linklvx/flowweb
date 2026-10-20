@@ -25,7 +25,7 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { seedCanvas, openRwWindow, openRoWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 
@@ -36,7 +36,7 @@ const SB_CONFIG = { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: tr
 
 /** 夹具：manual 组 g1(100,50,400×300)+双子（c1 abs(120,80)/c1b abs(200,90)）+auto 组 g2+子 c2+
  *  分镜组 sb1+分镜子 s1（无 position）+顶层 t1。 */
-const FIXTURE: DocNodeRecord[] = [
+const FIXTURE: StoredNodeRecord[] = [
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
   { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   { id: 'c1b', type: 'imageGen', parentId: 'g1', position: { x: 200, y: 90 }, width: 80, height: 50, data: {} },
@@ -163,7 +163,7 @@ describe("B4'-2 手势期零 intent（doc 写入=0）", () => {
   it('拖 auto-collapsed 组：手势全程 doc 零帧键（auto 组不中途变 manual）', () => {
     openRwWindow();
     const d = buildDoc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'g4', type: 'group', data: { groupType: 'normal', collapsed: true, name: 'ac' } },
       { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
     ];

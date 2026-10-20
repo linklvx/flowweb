@@ -14,7 +14,7 @@ vi.mock('@hocuspocus/provider', async () => {
 });
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import type { DocNodeRecord } from '@flowweb/shared';
+import type { StoredNodeRecord } from '@flowweb/shared';
 import { QUOTA_DEFAULTS, utf8Bytes } from '@flowweb/shared';
 import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
@@ -26,7 +26,7 @@ import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiag
 
 vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 
-const rec = (id: string, data: Record<string, unknown> = { content: 'hi' }): DocNodeRecord => ({
+const rec = (id: string, data: Record<string, unknown> = { content: 'hi' }): StoredNodeRecord => ({
   id, type: 'textInput', data,
 });
 

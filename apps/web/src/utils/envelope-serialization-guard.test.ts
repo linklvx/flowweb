@@ -35,10 +35,12 @@ function listTsFiles(dir: string): string[] {
  *  信封单源与 Y.Map 适配器内。position 子 Map 构造是整信封写入的最强单判据。
  *  O0d（Spec B）census 清扫：nodeEnvelope.ts/ydocBuilder.ts（O0a-1 起零命中——函数迁入 docShape）
  *  + gate-seed.ts（O0b-0 gate-seed 经 docShape 一次到位后零命中）三死行撤——position 子 Map
- *  构造唯一在位者=docShape（fillDoc/setDocPosition/applyRecordToYMap——两咽喉单源）。 */
+ *  构造唯一在位者=collab-doc-ops（Y1a T1 写原语迁出后 setDocPosition 单源——fillDoc/
+ *  applyRecordToYMap/applyIntentToDoc(moveNode) 经此一口）。 */
 const ALLOW_FILES = new Set([
   // O0a-1（Spec B）：fillDoc/applyRecordToYMap/setDocPosition 收编 docShape 单源——position 子 Map 构造随函数迁移
-  'packages/shared/src/canvas/docShape.ts',
+  // Y1a T1（plan v11.2 片 S0）：setDocPosition/applyRecordToYMap 写原语自 docShape 迁 collab-doc-ops——构造点随迁
+  'packages/shared/src/canvas/collab-doc-ops.ts',
 ]);
 
 describe('信封序列化门禁（R1a——防手抄本复活）', () => {

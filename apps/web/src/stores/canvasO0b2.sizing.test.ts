@@ -30,7 +30,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { applyDocToStore, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, calcStoryboardSize, normalizeSize, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, calcStoryboardSize, normalizeSize, type StoredNodeRecord } from '@flowweb/shared';
 import {
   _setIntentDocForTest, dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff,
   reportNodeSize,
@@ -41,7 +41,7 @@ import { contentEventSize } from '@flowweb/shared';
 
 const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
 
-function docRecord(d: Y.Doc, id: string): DocNodeRecord | undefined {
+function docRecord(d: Y.Doc, id: string): StoredNodeRecord | undefined {
   const m = d.getMap('nodes').get(id);
   if (!(m instanceof Y.Map)) return undefined;
   const posV = m.get('position');
@@ -123,7 +123,7 @@ describe('O0b-2 (i) 命令体显式值：addChildNode(s) intent.node 扩 wh 键�
 });
 
 describe('O0b-2 (i) 命令体显式值：复制链迁 doc 源（锚"复制从未 resize 图片节点⇒副本 doc wh≡源 doc wh；源无 wh⇒副本无 wh 键"）', () => {
-  function setupDoc(records: DocNodeRecord[]): Y.Doc {
+  function setupDoc(records: StoredNodeRecord[]): Y.Doc {
     const d = new Y.Doc();
     fillDoc(d, records, []);
     stampDocSchema(toDocLike(d));
@@ -167,7 +167,7 @@ describe('O0b-2 (i) 命令体显式值：分镜落子/生成结果入组（hidde
   it('addImageToStoryboardCell⇒doc wh=载荷尺寸（320×180 命令体——非渲染测量）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'sb', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: [], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
     ];
     fillDoc(d, records, []);
@@ -234,7 +234,7 @@ describe('O0b-2 (ii) 内容事件 dispatch：reportNodeSize 同值去重+Geometr
   it('同值重复触发⇒doc 零 update（终裁 83⑥——Y 层写前比对）；异值⇒doc 落 wh∧cs 同 tick 补齐', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, width: 320, height: 180, data: {} },
     ];
     fillDoc(d, records, []);
@@ -254,7 +254,7 @@ describe('O0b-2 (ii) 内容事件 dispatch：reportNodeSize 同值去重+Geometr
   it('固化/内容事件 Origin.Geometry 不入撤销栈（undoStack 零捕获）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
     ];
     fillDoc(d, records, []);
@@ -272,7 +272,7 @@ describe('O0b-2 (ii) 内容事件 dispatch：reportNodeSize 同值去重+Geometr
 describe('O0b-2 (iii) 首测固化：onNodesChange dimensions 批（非 setAttributes∧非手势期）∧doc 无 wh∧textInput 类', () => {
   function setupTextInputDoc(): Y.Doc {
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 't1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'a' } },
       { id: 't2', type: 'textInput', position: { x: 400, y: 0 }, data: { content: 'b' } },
       { id: 'img', type: 'imageGen', position: { x: 800, y: 0 }, data: {} },
@@ -355,7 +355,7 @@ describe('O0b-2 (iii) 首测固化：onNodesChange dimensions 批（非 setAttri
 describe('O0b-5 组 resize 提交（manual 组 rig——doc 帧三键齐）', () => {
   function setupManualGroupDoc(): Y.Doc {
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'gm', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } },
       { id: 'c1', type: 'imageGen', parentId: 'gm', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
     ];
@@ -407,7 +407,7 @@ describe('O0b-5 组 resize 提交（manual 组 rig——doc 帧三键齐）', ()
 describe('O0b-5 质评收口 C-1：auto 组 dimensions-only resize 提交——pos 回填恒三键密封（终裁 50）', () => {
   function setupAutoGroupDoc(): Y.Doc {
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'ga', type: 'group', data: { groupType: 'normal' } },
       { id: 'k1', type: 'imageGen', parentId: 'ga', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
       { id: 'k2', type: 'imageGen', parentId: 'ga', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
@@ -449,7 +449,7 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
   it('resizeStoryboardGrid 后移出格子⇒尺寸=当前格尺寸（非入格旧值）∧落点=帧右上外 20px∧cells 清槽（O0c-3）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: { groupType: 'storyboard', cells: ['c1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
       { id: 'c1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: 'f' } },
     ];
@@ -481,7 +481,7 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
 describe('O0b-2 台账(a)(b)：reconcile 写域① auto 档写 wh 全三字段∧差分面 auto 帧键零泄漏（applyGroupFrame 收口）', () => {
   function setupAutoGroupDoc(): Y.Doc {
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'g', type: 'group', data: { groupType: 'normal' } },
       { id: 'a', type: 'imageGen', parentId: 'g', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
       { id: 'b', type: 'imageGen', parentId: 'g', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
@@ -529,7 +529,7 @@ describe('O0b-2 台账(c)：reconcile(doc) cs 有子而 doc 无记录⇒该子�
   it('doc 只有组无子记录⇒帧=空 auto 组档 COLLAPSED_SIZE@fallbackOrigin（子活值不掺算术）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    const records: DocNodeRecord[] = [
+    const records: StoredNodeRecord[] = [
       { id: 'g', type: 'group', data: { groupType: 'normal' } },
     ];
     fillDoc(d, records, []);

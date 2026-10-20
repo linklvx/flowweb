@@ -31,14 +31,14 @@ import {
   resolveDraggingIdsFromGesture,
 } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type DocNodeRecord, type DragSession } from '@flowweb/shared';
+import { stampDocSchema, type StoredNodeRecord, type DragSession } from '@flowweb/shared';
 import { seedCanvas, openRwWindow, resetCanvasStores, seedDragSession } from '@/test/fixtures/canvas';
 
 const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
 
 /** 最小夹具：manual 组 g1(100,50,400×300)+子 c1(doc.abs 120,80→cs.rel 20,30)+顶层 t1(700,0)。
  *  g1/t1 顶层（无 parentId）——保护锚不触尾挂 assertDocAbsMatchesCsRel（见文件头纪律）。 */
-const FIXTURE_RECORDS: DocNodeRecord[] = [
+const FIXTURE_RECORDS: StoredNodeRecord[] = [
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
   { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },

@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type DocNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
+import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -121,7 +121,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  Y0b-2 T7：sv 参数/SV 等待退役——客户端同步判定移受理端点 SV 支配门（sync-admission.ts），
    *  执行读恒活读无需客户端 SV。
    *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
-   *  DocNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
+   *  StoredNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
    *  O0b-0 版本门 v2.1（第五行 REST fail-closed）：ensureSchemaVersion 从全量 doc 读 meta（不依赖
    *  sv 差量）——v1 档/无戳∧有节点拒（明确信息，非按 abs 解释 rel 静默错位）；无戳∧零节点放行
    * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。
@@ -371,7 +371,7 @@ export function applyDeleteNodesToDoc(doc: Y.Doc, nodeIds: readonly string[]): W
 /** fillDoc 写核心（收编 collab-shrink.exportFreshRun fillDoc 直写——shared fillDoc 单源引用，
  *  toDocLike 适配）：节点/边种子写入。种子路径专用（idempotent:false——无条件 createMap 重放即
  *  新 item），进程内唯一调用点=export-fresh 干净副本构造（T27 端点执法档拒收）。 */
-export function applyFillDocToDoc(doc: Y.Doc, nodes: readonly DocNodeRecord[], edges: readonly DocEdgeRecord[]): WriteNodeDataResult {
+export function applyFillDocToDoc(doc: Y.Doc, nodes: readonly StoredNodeRecord[], edges: readonly DocEdgeRecord[]): WriteNodeDataResult {
   doc.transact(() => {
     fillDoc(toDocLike(doc), nodes, edges);
   });

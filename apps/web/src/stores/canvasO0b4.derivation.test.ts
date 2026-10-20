@@ -35,7 +35,7 @@ import { useCanvasStore } from './canvasStore';
 import { applyDocToStore, reconcileGroupGeometry, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type DocNodeRecord, type DragSession } from '@flowweb/shared';
+import { stampDocSchema, type StoredNodeRecord, type DragSession } from '@flowweb/shared';
 import { seedCanvas, openRwWindow, openRoWindow, resetCanvasStores, seedDragSession } from '@/test/fixtures/canvas';
 
 const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
@@ -74,13 +74,13 @@ function collectAllSourceFiles(): string[] {
 }
 
 /** 夹具：manual 组 g1(100,50,400×300)+子 c1(abs 120,80)+顶层 t1(700,0)+边 e1(c1→t1)。 */
-const FIXTURE: DocNodeRecord[] = [
+const FIXTURE: StoredNodeRecord[] = [
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } },
   { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
 ];
 
-function buildDoc(records: DocNodeRecord[] = FIXTURE, edges: any[] = []): Y.Doc {
+function buildDoc(records: StoredNodeRecord[] = FIXTURE, edges: any[] = []): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, records, edges);
   stampDocSchema(toDocLike(d));

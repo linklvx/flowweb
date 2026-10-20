@@ -7,11 +7,11 @@ import { describe, it, expect } from 'vitest';
 import { deriveRenderCanvas } from './renderCanvas';
 import { deriveGroupFrame, calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE, GROUP_PADDING, GROUP_PADDING_TOP } from './geometry';
 import { groupHidesChildren } from './arrangeSelection';
-import type { DocNodeRecord } from './docShape';
+import type { StoredNodeRecord } from './collab-doc-ops';
 
 // ── 夹具：manual/collapsed(manual∧auto 两档)/storyboard 三形态 + 分镜 2×2 两子 + 从未 resize 图片节点 ──
 // 坐标全部远离 (0,0)（锚⑥前提）；abs 空间（doc=abs——O0b-0 起）。
-const records: DocNodeRecord[] = [
+const records: StoredNodeRecord[] = [
   { id: 'n1', type: 'textInput', position: { x: 300, y: 400 }, data: { content: 'x' } },
   { id: 'img1', type: 'imageGen', position: { x: 300, y: 0 }, width: 548, height: 309, data: { prompt: 'cat' } }, // 已固化 wh（O0b-2 尺寸固化链）
   { id: 'img2', type: 'imageGen', position: { x: 1000, y: 500 }, data: { prompt: 'dog' } },                        // 从未 resize——wh 无键

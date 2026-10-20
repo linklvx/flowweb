@@ -10,14 +10,14 @@ vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider 
 import * as Y from 'yjs';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, resetShapeViolationStats, shapeViolationStats, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, resetShapeViolationStats, shapeViolationStats, type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { detachUndoManager } from './canvasUndo';
 import { resetCanvasStores } from '@/test/fixtures/canvas';
 
 /** 脏 doc：分镜组 cells=['s1'] + 越权成员 rogue（parentId 指 sb1 但不在 cells——children⊄cells 违例） */
 function buildDirtyStoryboardDoc(): Y.Doc {
-  const records: DocNodeRecord[] = [
+  const records: StoredNodeRecord[] = [
     { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: {
       groupType: 'storyboard', cells: ['s1'],
       storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' },

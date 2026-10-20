@@ -3,10 +3,11 @@
 // 类型锚两手法并用：expectTypeOf（vitest 面）+ 编译锚别名（tsc --noEmit 红——nodeEnvelope.ts:19-22 同族手法）。
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
-  type DocMapLike, type DocLike, type Rect, type DocNodeRecord,
+  type DocLike, type Rect,
   type RenderNode, type DragSession, type FrameMode,
   frameMode, isCollapsed, isValidStoredFrame,
 } from './docShape';
+import { type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 import type { AbsCoord, RelCoord, AbsPos, RelPos, AbsRecords, RelRecords } from './brands';
 import type { CanvasNodeRecord } from './nodeEnvelope';
 
@@ -26,7 +27,7 @@ type _ExactKeysDiff<T, Expected extends readonly string[]> =
 // （空 map 工厂——fillDoc 节点/position/data 子 Map 创建，宿主注入 new Y.Map/FakeMap）。
 type _AnchorDocMapLikeKeys = _AssertNever<_ExactKeysDiff<DocMapLike, ['get', 'set', 'has', 'delete', 'entries']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap', 'createMap']>>;  // 勿删——删即静默失去键集防护
-type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<DocNodeRecord, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data']>>;  // 勿删——删即静默失去键集防护
+type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<StoredNodeRecord, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data']>>;  // 勿删——删即静默失去键集防护
 type _AnchorRenderNodeKeys = _AssertNever<_ExactKeysDiff<RenderNode, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data', 'hidden']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDragSessionKeys = _AssertNever<_ExactKeysDiff<DragSession, [
   'baseline', 'groupBaseline', 'delta', 'draggingIds', 'dragProtectedIds', 'draggedGroupIds',
@@ -68,12 +69,12 @@ describe('DocLike/DocMapLike（Y 结构性最小面——零 yjs import，防跨
   });
 });
 
-describe('DocNodeRecord 分裂（作者态 doc 侧——键可选）vs CanvasNodeRecord（信封必填——一字不动）', () => {
-  it('DocNodeRecord：position?: 裸 {x,y}（O0a-1 identity 档——AbsPos 品牌收紧归 O0b-0 翻转批）/ width? / height? 可选键——键集表语义', () => {
-    expectTypeOf<DocNodeRecord['position']>().toEqualTypeOf<{ x: number; y: number } | undefined>();
-    expectTypeOf<DocNodeRecord['width']>().toEqualTypeOf<number | undefined>();
-    expectTypeOf<DocNodeRecord['height']>().toEqualTypeOf<number | undefined>();
-    expectTypeOf<DocNodeRecord['data']>().toEqualTypeOf<Record<string, unknown>>();
+describe('StoredNodeRecord 分裂（作者态 doc 侧——键可选）vs CanvasNodeRecord（信封必填——一字不动）', () => {
+  it('StoredNodeRecord：position?: 裸 {x,y}（O0a-1 identity 档——AbsPos 品牌收紧归 O0b-0 翻转批）/ width? / height? 可选键——键集表语义', () => {
+    expectTypeOf<StoredNodeRecord['position']>().toEqualTypeOf<{ x: number; y: number } | undefined>();
+    expectTypeOf<StoredNodeRecord['width']>().toEqualTypeOf<number | undefined>();
+    expectTypeOf<StoredNodeRecord['height']>().toEqualTypeOf<number | undefined>();
+    expectTypeOf<StoredNodeRecord['data']>().toEqualTypeOf<Record<string, unknown>>();
   });
 
   it('CanvasNodeRecord 维持必填原状（position 必填裸 number、非品牌）——分裂不波及现有面', () => {

@@ -12,7 +12,7 @@ import type { RelPos, RelCoord } from './brands';
 import { deriveGroupFrame, DEFAULT_CHILD_SIZE } from './geometry';
 import { groupHidesChildren } from './arrangeSelection';
 
-/** 入口结构性最小类型（JSON 边界 null≡缺——DocNodeRecord/SnapshotNode 双喂；spec 终裁 9）。 */
+/** 入口结构性最小类型（JSON 边界 null≡缺——StoredNodeRecord/SnapshotNode 双喂；spec 终裁 9）。 */
 export interface RenderSourceNode {
   id: string;
   type: string;

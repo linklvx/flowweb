@@ -1,9 +1,9 @@
 // packages/shared/src/canvas/nodeEnvelope.ts
-import type { DocNodeRecord } from './docShape';
+import type { StoredNodeRecord } from './collab-doc-ops';
 
 /** 节点信封唯一类型（spec §4.7 纯数据方案，不含 yjs——防跨实例 instanceof 静默失败）。
  *  null 语义（批4a 读归一修订 v3 分家契约）：本函数真删键；doc 读侧出口（O0a-1 起 readRecordsFromMaps
- *  直出 DocNodeRecord——null 值键消除在读侧自做）。API normalizeNodeRecord 是 JSON 序列化边界语义，
+ *  直出 StoredNodeRecord——null 值键消除在读侧自做）。API normalizeNodeRecord 是 JSON 序列化边界语义，
  *  不收敛；读侧出口=docShape readRecordsFromMaps 双端同形（O0a-2 起 api 读收编——readDocCanvas
  *  符号已删，null 值键消除两侧同形，?? null 出口不复存在）。 */
 export interface CanvasNodeRecord {
@@ -42,10 +42,10 @@ export function normalizeCanvasRecord(n: CanvasNodeRecord): CanvasNodeRecord {
   return out;
 }
 
-/** 信封面→作者态 doc 面（O0a-1 类型分裂桥）：normalizeCanvasRecord 同内核（null 真删）+ DocNodeRecord
+/** 信封面→作者态 doc 面（O0a-1 类型分裂桥）：normalizeCanvasRecord 同内核（null 真删）+ StoredNodeRecord
  *  出口——docShape 家族（fillDoc/applyRecordToYMap）与 buildDocFromSnapshot 的唯一入参桥。
  *  position 原样拷贝（identity 档——分片不变量①：不解释空间，翻转判据在 O0b-0）。 */
-export function toDocRecord(n: CanvasNodeRecord): DocNodeRecord {
+export function toDocRecord(n: CanvasNodeRecord): StoredNodeRecord {
   const r = normalizeCanvasRecord(n);
   return {
     id: r.id,

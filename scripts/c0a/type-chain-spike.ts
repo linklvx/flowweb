@@ -15,7 +15,7 @@ interface RawNodeRecord {
 }
 
 /** ② 写输入（规范化——placement 必填；fillDoc/applyIntentToDoc 只收此型） */
-interface DocNodeRecord {
+interface StoredNodeRecord {
   id: string;
   type: string;
   placement: Placement;
@@ -74,7 +74,7 @@ function toStoreNode(p: ProjectedRecord): CanvasStoreNode {
 }
 
 /** 写输入窄化：Raw → Doc（validateNodeRecord 契约——缺 placement=typed 拒绝） */
-function toDocOrReject(r: RawNodeRecord): { ok: true; node: DocNodeRecord } | { ok: false; reason: 'missing-placement' } {
+function toDocOrReject(r: RawNodeRecord): { ok: true; node: StoredNodeRecord } | { ok: false; reason: 'missing-placement' } {
   if (r.placement == null) return { ok: false, reason: 'missing-placement' };
   return { ok: true, node: { ...r, placement: r.placement } };
 }

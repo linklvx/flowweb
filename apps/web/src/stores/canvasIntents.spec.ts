@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // checkProjectionInvariant 与 getDoc 通道，空 mock 即可（spike 同款）
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 import * as Y from 'yjs';
-import type { DocNodeRecord } from '@flowweb/shared';
+import type { StoredNodeRecord } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { checkProjectionInvariant } from './canvasCollabRuntime';
@@ -26,8 +26,8 @@ import { deleteProjectByNode } from '@/api/videoProjectApi';
 vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 
 // O0a-1：可选键 null 夹具改缺键形态（运行时等价——fillDoc != null 判定 null≡缺键同跳过；
-// DocNodeRecord 类型域无 null——键集表精神：不带键而非带 null 键）
-const rec = (id: string, x: number, data: Record<string, unknown> = { content: 'hi' }): DocNodeRecord => ({
+// StoredNodeRecord 类型域无 null——键集表精神：不带键而非带 null 键）
+const rec = (id: string, x: number, data: Record<string, unknown> = { content: 'hi' }): StoredNodeRecord => ({
   id, type: 'textInput',
   position: { x, y: 0 }, data,
 });

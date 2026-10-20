@@ -12,7 +12,7 @@
 // import 声明，各方顶层仅声明/定义（action/投影体运行时才执行）——ESM 本地绑定延迟求值安全。
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
-import type { CanvasNodeRecord, DocMapLike, DocNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
+import type { CanvasNodeRecord, DocMapLike, StoredNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
 import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
   QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS } from '@flowweb/shared';
@@ -44,7 +44,7 @@ export interface NodeEnvelopePatch {
 }
 
 export type CanvasIntent =
-  | { type: 'addNode'; node: DocNodeRecord }
+  | { type: 'addNode'; node: StoredNodeRecord }
   | { type: 'updateNodeData'; id: string; patch: Record<string, unknown> }
   | { type: 'deleteNode'; id: string }
   | { type: 'moveNode'; id: string; position: { x: number; y: number } }

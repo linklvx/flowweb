@@ -29,7 +29,7 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, calcGroupBounds, COLLAPSED_SIZE, type DocNodeRecord } from '@flowweb/shared';
+import { stampDocSchema, calcGroupBounds, COLLAPSED_SIZE, type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { attachUndoManager, detachUndoManager, Origin } from './canvasUndo';
 import { openRwWindow, openRoWindow, resetCanvasStores } from '@/test/fixtures/canvas';
@@ -55,7 +55,7 @@ const SB_CONFIG = { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: tr
 /** 夹具（B51 扩展——整数坐标）：manual 组 g1(100,50,400×300)+双子 c1(abs 120,80)/c1b(abs 200,90)、
  *  auto 组 g2（帧派生 (280,50,240,170)）+子 c2(abs 300,100)、auto 单子组 g3（帧 (680,550,140,130)）+
  *  子 c3(abs 700,600)、分镜组 sb1(0,400, 1×2=容量 2)+子 s1、顶层 t1(700,0)/完成图 img1(0,900)。 */
-const FIXTURE: DocNodeRecord[] = [
+const FIXTURE: StoredNodeRecord[] = [
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal', name: 'manual' } },
   { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   { id: 'c1b', type: 'imageGen', parentId: 'g1', position: { x: 200, y: 90 }, width: 80, height: 50, data: {} },
@@ -69,7 +69,7 @@ const FIXTURE: DocNodeRecord[] = [
   { id: 'img1', type: 'imageGen', position: { x: 0, y: 900 }, width: 320, height: 180, data: { status: 'done' } },
 ];
 
-function buildDoc(records: DocNodeRecord[] = FIXTURE): Y.Doc {
+function buildDoc(records: StoredNodeRecord[] = FIXTURE): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, records, []);
   stampDocSchema(toDocLike(d));
@@ -100,7 +100,7 @@ const frame = (id: string, x: number, y: number, dragging = true) =>
 const release = () => useCanvasStore.getState().handleDragRelease();
 
 /** 拖前 hydrate 同一窗（rw+doc 注入+applyDocToStore——用例公共头）。 */
-function hydrate(records?: DocNodeRecord[]) {
+function hydrate(records?: StoredNodeRecord[]) {
   openRwWindow();
   const d = buildDoc(records);
   _setIntentDocForTest(d);

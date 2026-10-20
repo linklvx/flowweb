@@ -4,9 +4,10 @@
 // 组 width/height⟺manual only（storyboard 尺寸=config 权威故剥）；auto/collapsed 组=0 帧键；
 // 分镜子无 position。与 O0a-1 剥键口径一致（stripDerivedKeys 同一谓词源）。
 import { describe, it, expect } from 'vitest';
-import { stripAuthorState, type DocNodeRecord } from './docShape';
+import { stripAuthorState } from './docShape';
+import type { StoredNodeRecord } from './collab-doc-ops';
 
-const rec = (over: Partial<DocNodeRecord>): DocNodeRecord => ({
+const rec = (over: Partial<StoredNodeRecord>): StoredNodeRecord => ({
   id: 'n1', type: 'textInput', data: {},
   ...over,
 });
@@ -95,7 +96,7 @@ describe('stripAuthorState（键集表④——纯剥不补：输入无键⇄输
   });
 
   it('幂等（O0c-1 验收）：stripAuthorState(stripAuthorState(x)) ≡ stripAuthorState(x)——键集表全档一次入参（种子入口重复剥无害）', () => {
-    const input: DocNodeRecord[] = [
+    const input: StoredNodeRecord[] = [
       rec({ id: 'g1', type: 'group', position: { x: 5, y: 6 }, width: 300, height: 200, data: { groupType: 'normal', collapsed: true } }), // manual（折叠不剥）
       rec({ id: 'ag', type: 'group', position: { x: 9, y: 9 }, width: 100, data: { groupType: 'normal' } }),                              // auto（脏帧键→0 帧键）
       rec({ id: 'sb', type: 'group', position: { x: 0, y: 0 }, width: 642, height: 362, data: { groupType: 'storyboard', cells: ['c1'] } }), // storyboard（剥 wh 留 position）

@@ -1,12 +1,13 @@
 // packages/shared/src/canvas/assertions.test.ts
 // C0-2 断言族行为测试（Spec B）：先红后绿——每断言用构造输入证 throw/不 throw。
-// 输入形状：DocNodeRecord[]（doc 作者态可选键）+ ② 的 cs 侧三方快照 {docRecords, csNodes, frames}。
+// 输入形状：StoredNodeRecord[]（doc 作者态可选键）+ ② 的 cs 侧三方快照 {docRecords, csNodes, frames}。
 // 帧模式判定走被测模块内联实现（frameMode/isCollapsed 已 O0b-1 转实），O0b 接线后换单源。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'fs';
 import * as path from 'path';
-import type { DocNodeRecord, RenderNode, Rect } from './docShape';
+import type { RenderNode, Rect } from './docShape';
 import { toDocRecords } from './docShape';
+import type { StoredNodeRecord } from './collab-doc-ops';
 import type { AbsCoord, RelCoord } from './brands';
 import { calcGroupBounds, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE } from './geometry';
 import {
@@ -29,9 +30,9 @@ import {
 // —— 夹具助手：品牌坐标打点（测试构造受信字面量——cast 即打点）——
 const abs = (x: number, y: number) => ({ x: x as AbsCoord, y: y as AbsCoord });
 const rel = (x: number, y: number) => ({ x: x as RelCoord, y: y as RelCoord });
-const rec = (over: Partial<DocNodeRecord> & { id: string }): DocNodeRecord =>
+const rec = (over: Partial<StoredNodeRecord> & { id: string }): StoredNodeRecord =>
   ({ type: 'imageGen', data: {}, ...over });
-const groupRec = (over: Partial<DocNodeRecord> & { id: string }): DocNodeRecord =>
+const groupRec = (over: Partial<StoredNodeRecord> & { id: string }): StoredNodeRecord =>
   ({ type: 'group', data: { groupType: 'normal' }, ...over });
 const csNode = (over: Partial<RenderNode> & { id: string }): RenderNode =>
   ({ type: 'imageGen', position: rel(0, 0), data: {}, ...over });
@@ -140,11 +141,11 @@ describe('assertDocAbsMatchesCsRel（断言②：doc.abs ≡ cs.rel + 组帧原�
 
 describe('assertExpandedAutoFrameEqualsBounds（断言③：展开态 auto 组 frame ≡ bbox+padding）', () => {
   // 成员 abs rect：(0,50,100,100) 与 (200,250,100,100) → calcGroupBounds = (-20,0,340,370)
-  const members = (): DocNodeRecord[] => [
+  const members = (): StoredNodeRecord[] => [
     rec({ id: 'm1', parentId: 'G', position: abs(0, 50), width: 100, height: 100 }),
     rec({ id: 'm2', parentId: 'G', position: abs(200, 250), width: 100, height: 100 }),
   ];
-  const goodGroup = (): DocNodeRecord =>
+  const goodGroup = (): StoredNodeRecord =>
     groupRec({ id: 'G', position: abs(-20, 0), width: 340, height: 370 });
 
   it('frame ≡ calcGroupBounds(成员)+padding → 不抛', () => {
@@ -533,7 +534,7 @@ describe('O0b-1 接线：reconcile 尾挂①③先决契约（toDocRecords 出�
 });
 
 // —— 测试私有：期望帧计算（与实现同源 calcGroupBounds——只用于构造合法夹具）——
-function calcExpected(members: DocNodeRecord[]) {
+function calcExpected(members: StoredNodeRecord[]) {
   return calcGroupBounds(members.map((m) => ({
     x: m.position!.x, y: m.position!.y,
     width: m.width ?? DEFAULT_CHILD_SIZE.width, height: m.height ?? DEFAULT_CHILD_SIZE.height,

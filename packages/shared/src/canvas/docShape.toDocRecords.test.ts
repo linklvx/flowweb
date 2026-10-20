@@ -5,9 +5,10 @@
 // setDocPosition 同分片落位：doc position 写原语唯一单源（fillDoc/applyRecordToYMap/moveNode 共口）。
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
-  toDocRecords, setDocPosition, fillDoc, readRecordsFromMaps, stripDerivedKeys,
-  type DocMapLike, type DocLike, type DocNodeRecord, type MinimalCSNode,
+  toDocRecords, fillDoc, readRecordsFromMaps, stripDerivedKeys,
+  type DocLike, type MinimalCSNode,
 } from './docShape';
+import { setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 
 // ── FakeDoc：DocLike 内存假实现（零 yjs——docShape.fillRead.test 同款装置）──
 class FakeMap implements DocMapLike {
@@ -262,11 +263,11 @@ describe('setDocPosition（doc position 写原语唯一单源——fillDoc/apply
 });
 
 describe('O0a-3 签名（结构性最小入参——零 xyflow/yjs import；O0b-2 扩第三可选参 groupFrameModes）', () => {
-  it('toDocRecords(csNodes, nsNodes, groupFrameModes?)→DocNodeRecord[]；setDocPosition(m, pos, createMap)', () => {
+  it('toDocRecords(csNodes, nsNodes, groupFrameModes?)→StoredNodeRecord[]；setDocPosition(m, pos, createMap)', () => {
     expectTypeOf<Parameters<typeof toDocRecords>>().toEqualTypeOf<
       [readonly MinimalCSNode[], Record<string, { data?: Record<string, unknown> }>, ReadonlyMap<string, FrameMode>?]
     >();
-    expectTypeOf<ReturnType<typeof toDocRecords>>().toEqualTypeOf<DocNodeRecord[]>();
+    expectTypeOf<ReturnType<typeof toDocRecords>>().toEqualTypeOf<StoredNodeRecord[]>();
     expectTypeOf<Parameters<typeof setDocPosition>>().toEqualTypeOf<
       [DocMapLike, { x: number; y: number }, () => DocMapLike]
     >();
