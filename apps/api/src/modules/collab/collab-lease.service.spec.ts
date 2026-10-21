@@ -56,6 +56,20 @@ describe('CollabLeaseService', () => {
     expect((await svc.diag()).epoch).toBe('5');
   });
 
+  it('T14 currentEpoch 读：held=本代 epoch；非 held（release 后 not-acquired）=null；复得=新代 epoch（flush 提交前校验的捕获/比对单源）', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([{ epoch: 5n }])    // 首获
+      .mockResolvedValueOnce([])                 // release 的 UPDATE（owner 清 NULL）
+      .mockResolvedValueOnce([{ epoch: 6n }]);   // 复得（每次 acquire epoch=epoch+1——换代）
+    const { svc } = buildService(query, spool);
+    await svc.tryAcquireFast();
+    expect(svc.currentEpoch()).toBe(5n);         // 捕获点：调用方 claim/会话开始时取值
+    await svc.release();
+    expect(svc.currentEpoch()).toBe(null);       // 失守/释放=无「当前代」——任何捕获值比对必不等⇒fenced
+    await svc.tryAcquireFast();
+    expect(svc.currentEpoch()).toBe(6n);         // 同进程失守复得也换代——长会话旧捕获值必被拒
+  });
+
   it('CAS 0 行（他人持有/未过期）：false+不触 repo/spool 接线', async () => {
     const { svc, repo } = buildService(vi.fn().mockResolvedValue([]), spool);
     await expect(svc.tryAcquireFast()).resolves.toBe(false);
