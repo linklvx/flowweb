@@ -158,6 +158,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }
     await this.reconcileStranded();
     await this.sweepProjectionBackfill();
+    await this.sweepOrphanedRefund();
     await this.releaseOrphanedReserves();
   }
 
@@ -182,6 +183,31 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         await this.reconcileOneIntent(r.id, BigInt(r.seq));
       } catch (e) {
         this.logger.warn(`[R3] 投影补建单行失败 意图行 ${r.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /** T15 质评 Important#1 根治：orphaned 退款悬置收敛扫——SUCCEEDED 行（已核销 reserved=0，不进
+   *  终态悬留批）∧当前代投影 orphaned（poller 标记 node-deleted/project-gone 后 refundOrphaned
+   *  抛错的悬置窗）⇒ reconcileOneIntent（决策表窗⑥ orphaned-refund——rollbackDeliveryFailed
+   *  锁外 CAS 幂等，与 poller 路径互斥恰一次；退款后行 VOIDED 自然离开本扫描=零循环）。
+   *  龄窗同 Important#2（7d——窗外陈旧行归 admin retry 面）；有界 20 行/轮。 */
+  private async sweepOrphanedRefund(): Promise<void> {
+    const rows = await this.prisma.$queryRaw<{ id: string; seq: bigint }[]>`
+      SELECT na."sourceIntentRowId" AS id, na."sourceExecSeq" AS seq
+      FROM "ArtifactProjection" ap
+      JOIN "NodeArtifact" na ON na."id" = ap."artifactId" AND na."rev" = ap."artifactRev"
+      JOIN "GenerationIntent" gi ON gi."id" = na."sourceIntentRowId"
+      WHERE ap."state" = 'orphaned' AND gi."status" = 'SUCCEEDED'
+        AND na."sourceIntentRowId" IS NOT NULL AND na."sourceExecSeq" IS NOT NULL
+        AND na."updatedAt" > ((now() AT TIME ZONE 'utc') - (${PROJECTION_BACKFILL_MAX_AGE_MS} * interval '1 millisecond'))
+      ORDER BY na."updatedAt"
+      LIMIT 20`;
+    for (const r of rows) {
+      try {
+        await this.reconcileOneIntent(r.id, BigInt(r.seq));
+      } catch (e) {
+        this.logger.warn(`[R3] orphaned 退款收敛单行失败 意图行 ${r.id}: ${(e as Error).message}`);
       }
     }
   }
@@ -341,6 +367,23 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
             this.logger.warn(`[R3] 意图行 ${intentRowId} 悬留无产物——rollbackStranded（两金额归零）`);
           }
           return true;
+        }
+        if (d.action === 'orphaned-refund') {
+          // 窗⑥（T15 质评 Important#1 根治）：SUCCEEDED∧当前代投影 orphaned——poller 退款抛错悬置窗
+          // 的收敛退款（rollbackDeliveryFailed CAS SUCCEEDED→VOIDED+refund；与 poller 路径互斥恰一次
+          // ——false=已退/不适用）。抛错=次轮重扫（SUCCEEDED 态不变——收敛重试不丢）。
+          try {
+            const refunded = await this.teamCredit.rollbackDeliveryFailed(intentRowId, '交付终态失败回滚（投影 orphaned——poller 退款悬置窗收敛）');
+            if (refunded) {
+              await this.auditAfter(intentRowId, 'orphaned-refund');
+              reconcileAutoConvergedTotal.inc({ action: 'orphaned-refund' });
+              this.logger.warn(`[R3] 意图行 ${intentRowId} orphaned 悬置退款收敛——rollbackDeliveryFailed（退款后行 VOIDED 离开扫描=零循环）`);
+            }
+            return true;
+          } catch (e) {
+            this.logger.warn(`[R3] 意图行 ${intentRowId} orphaned 退款抛错（次轮重扫收敛）: ${(e as Error).message}`);
+            return true;   // 已有动作尝试——毒行不冻结整轮
+          }
         }
         if (d.action === 'finalize-from-stage') {
           // 评审 Minor#5：下载/网络瞬态=跨轮有界重试（毒行机制——每轮一次尝试；预算耗尽 ⇒ 本轮返回

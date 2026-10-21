@@ -175,17 +175,24 @@ test('⑨ 资金函数锁先行（漏报加固）：含 mutate/ledgerTx 且 GI �
   assert.deepEqual(scanFiles(mk([[fundRels.reconcile, reader]])), []);
 });
 
-test('⑩ Z118 rollback 双向锚：intent-reconcile 出现 rollbackDeliveryFailed=红；execution.service 出现 rollbackStranded=红；允许向=绿', () => {
+test('⑩ Z118 rollback 双向锚（T15 修订）：intent-reconcile 的 rollbackDeliveryFailed 限窗⑥ orphaned-refund 守卫内=绿/无守卫=红；execution.service 出现 rollbackStranded=红', () => {
   const badReconcile = 'await this.teamCredit.rollbackDeliveryFailed(row.id, "deliver fail");';
   assert.ok(scanFiles(mk([[fundRels.reconcile, badReconcile]]))
-    .some((p) => p.includes('Z92/Z118 双向锚')));
+    .some((p) => p.includes('Z92/Z118 双向锚')), '窗⑥守卫外调用=红');
+  const guardedReconcile = [
+    "        if (d.action === 'orphaned-refund') {",
+    '          // 窗⑥（T15 质评 Important#1 根治）：poller 退款抛错悬置窗的收敛退款（CAS 幂等互斥恰一次）',
+    '          try {',
+    '            const refunded = await this.teamCredit.rollbackDeliveryFailed(intentRowId, "orphaned refund");',
+  ].join('\n');
+  assert.deepEqual(scanFiles(mk([[fundRels.reconcile, guardedReconcile]])), [], '窗⑥守卫内=绿');
   const badExec = 'await this.teamCredit.rollbackStranded(row.id, "stranded", cutoff);';
   assert.ok(scanFiles(mk([['apps/api/src/modules/execution/execution.service.ts', badExec]]))
     .some((p) => p.includes('Z102/Z118 双向锚')));
-  // 允许向：reconcile 调 rollbackRunning/rollbackStranded、execution.service 调 rollbackDeliveryFailed
+  // 允许向：reconcile 调 rollbackRunning/rollbackStranded、投影 poller（T15 交付 owner）调 rollbackDeliveryFailed
   assert.deepEqual(scanFiles(mk([
     [fundRels.reconcile, 'await this.teamCredit.rollbackRunning(row.id, "reap", cutoff);\nawait this.teamCredit.rollbackStranded(row.id, "stranded", cutoff);'],
-    ['apps/api/src/modules/execution/execution.service.ts', 'await this.teamCredit.rollbackDeliveryFailed(intent.id, "node deleted");'],
+    ['apps/api/src/modules/media-delivery/projection-outbox.poller.ts', 'await this.teamCredit.rollbackDeliveryFailed(intent.id, "orphaned refund");'],
   ])), []);
   // 测试文件不拦（红测/spec 直调三入口合法）
   assert.deepEqual(scanFiles(mk([['apps/api/src/modules/execution/deliver-refund.int.spec.ts', badExec]])), []);

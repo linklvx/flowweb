@@ -203,6 +203,56 @@ const agePastGrace = async (id: string) =>
     expect(await prisma.reconcileAction.count({ where: { intentRowId: b.intent.id, action: 'manual-required' } })).toBe(1);
   }, 60_000);
 
+  it('窗⑥（T15 质评 Important#1 根治）：SUCCEEDED∧当前代投影 orphaned（poller 退款抛错悬置形态）→ sweepOrphanedRefund 收敛 rollbackDeliveryFailed 恰一次（VOIDED+refund 1 行+审计 1）；复跑零双退（CAS 幂等互斥+VOIDED 离开扫描）', async () => {
+    const { intent } = await claimIntent();
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await intentSvc.complete(intent.id, 'm-r3-w6', intent.execSeq);   // SUCCEEDED
+    await teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });   // 真核销（poller 退款锚形态：creditsConsumed=cost）
+    const anchor = await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        mediaId: 'm-r3-w6', state: 'stored', rev: 1,
+        sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
+      },
+    });
+    await prisma.artifactProjection.create({
+      data: { artifactId: anchor.id, artifactRev: 1, projectId: PID, nodeId: intent.nodeId, targetField: 'fileId', targetItemId: '', mediaId: 'm-r3-w6', state: 'orphaned' },   // poller 标记 orphaned 后 refundOrphaned 抛错的悬置形态
+    });
+
+    await reconcile.verifyActive();
+    await reconcile.verifyActive();   // 复跑——CAS 幂等+VOIDED 离开扫描=零双退
+
+    const row = await rowOf(intent.id);
+    expect(row!.status).toBe('VOIDED');   // rollbackDeliveryFailed CAS SUCCEEDED→VOIDED
+    expect(row!.reservedCredits).toBe(0);
+    await expect(ledgerRows(intent.id, 'refund')).resolves.toHaveLength(1);   // 退款恰一次
+    await expect(ledgerRows(intent.id, 'release')).resolves.toHaveLength(0);
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: intent.id, action: 'orphaned-refund' } })).toBe(1);
+  }, 60_000);
+
+  it('窗⑥ 非触发形态对照：SUCCEEDED∧当前代投影 projected（正常交付）→ sweepOrphanedRefund 零动作（不误退款）', async () => {
+    const { intent } = await claimIntent();
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await intentSvc.complete(intent.id, 'm-r3-w6b', intent.execSeq);
+    await teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });
+    const anchor = await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        mediaId: 'm-r3-w6b', state: 'stored', rev: 1,
+        sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
+      },
+    });
+    await prisma.artifactProjection.create({
+      data: { artifactId: anchor.id, artifactRev: 1, projectId: PID, nodeId: intent.nodeId, targetField: 'fileId', targetItemId: '', mediaId: 'm-r3-w6b', state: 'projected' },
+    });
+
+    await reconcile.verifyActive();
+
+    const row = await rowOf(intent.id);
+    expect(row!.status).toBe('SUCCEEDED');   // 正常交付态——不进窗⑥（零误退款）
+    await expect(ledgerRows(intent.id, 'refund')).resolves.toHaveLength(0);
+  }, 60_000);
+
   it('并发双 reconcile 恰一次（pg_advisory_xact_lock）：窗①行两实例并行 → settle 恰一次+审计恰一行', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });

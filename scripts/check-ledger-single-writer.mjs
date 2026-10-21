@@ -77,12 +77,22 @@ export function scanFiles(files) {
     //    控制流关键字（if/for/while/switch/catch/return）排除——防止 if 体截断成假函数块。
     //    函数级锚只对生产文件跑（测试文件的 describe/夹具块结构不适配方法分割启发式——
     //    Z116 能力制已由①②④的通行证窗口覆盖测试文件的写面）。
-    // ⑩（Y0b-2 T5/Z118）rollback 入口双向锚：intent-reconcile 禁 rollbackDeliveryFailed（交付退款
-    //    凭据归 worker 交付路径——reaper 侧接受 SUCCEEDED 会重开 Z92 竞态）；execution.service 禁
-    //    rollbackStranded（悬留判龄裁决归 settleStranded——worker 侧无判龄结构）。
+    // ⑩（Y0b-2 T5/Z118→T15 质评 Important#1 修订）rollback 入口双向锚：intent-reconcile 的
+    //    rollbackDeliveryFailed 仅限 R3 窗⑥ orphaned-refund 分派块（T15 后交付 owner=投影 poller，
+    //    「worker 交付路径唯一」前提退役；窗⑥=poller 退款抛错悬置的收敛面——CAS SUCCEEDED→VOIDED
+    //    幂等与 poller 路径互斥恰一次，Z92 竞态由 CAS 承担非调用方隔离）。结构性判据=每个调用点
+    //    前 6 行内须有 orphaned-refund 守卫；execution.service 禁 rollbackStranded 维持（悬留判龄
+    //    裁决归 rollbackStranded 唯一——worker 侧无判龄结构）。
     if (testFile) continue;
     if (/rollbackDeliveryFailed/.test(src) && /intent-reconcile\.service\.ts$/.test(rel)) {
-      problems.push(`Z92/Z118 双向锚：intent-reconcile 出现 rollbackDeliveryFailed（交付退款=worker 交付路径唯一——reaper 侧禁调）: ${rel}`);
+      const lines = src.split('\n');
+      lines.forEach((line, i) => {
+        if (!/rollbackDeliveryFailed/.test(line) || /^\s*(\/\/|\*)/.test(line)) return;   // 注释行不计（// 与 JSDoc * 词表提及≠调用）
+        const guard = lines.slice(Math.max(0, i - 6), i).some((l) => /orphaned-refund/.test(l));
+        if (!guard) {
+          problems.push(`Z92/Z118 双向锚（T15 修订）：intent-reconcile 的 rollbackDeliveryFailed 须限窗⑥ orphaned-refund 分派块（前 6 行无守卫——窗⑥外调用禁入）: ${rel}:${i + 1}`);
+        }
+      });
     }
     if (/rollbackStranded/.test(src) && /execution\.service\.ts$/.test(rel)) {
       problems.push(`Z102/Z118 双向锚：execution.service 出现 rollbackStranded（悬留判龄裁决=settleStranded 唯一——worker 侧禁调）: ${rel}`);

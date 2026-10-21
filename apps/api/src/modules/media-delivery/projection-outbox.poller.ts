@@ -45,7 +45,7 @@ import { CollabLeaseService } from '../collab/collab-lease.service';
 import { CollabDocumentService, type ExecStatusPatch } from '../collab/collab-document.service';
 import { SPOOL_DEADLINE_MS } from '../collab/collab-persistence.service';
 import { TeamCreditService } from '../team/team-credit.service';
-import { artifactProjectionOutcomeTotal, artifactProjectionPendingAgeSeconds } from './projection-outbox.metrics';
+import { artifactProjectionOrphanRefundFailTotal, artifactProjectionOutcomeTotal, artifactProjectionPendingAgeSeconds } from './projection-outbox.metrics';
 
 // ── poller/claim 参数（MaterializeJob/IntentReconcile 同族纪律：常数不进 env——热循环红线非立即重投） ──
 /** tick 周期：交付延迟直连 UX（finalize→fileId 可见）——秒级收口（IntentReconcile 5min 是资金面节奏）。 */
@@ -78,17 +78,23 @@ export function computeProjectionBackoffMs(attempts: number): number {
 
 /** dead 判据（**仅 failed 档/真 apply 失败消费**——G58：spooled 档永不判死由调用面保证不进本函数）：
  *  attempts≥MAX_ATTEMPTS ∨ 行龄超 SPOOL_DEADLINE_MS（1h——「批滞留内存连 spool 都未落」的 failed
- *  档兜底；spec :91「failed=耗 maxAttempts+spoolDeadline 1h」）。 */
+ *  档兜底；spec :91「failed=耗 maxAttempts+spoolDeadline 1h」）。
+ *  登记偏差（T15 质评#7，有单测钉值+on-load/admin retry 兜底）：行龄=createdAt（行自创建起算）非
+ *  「首次 failed 时点」——长期 pending 后才首失败的行会被 createdAt 龄提前判死；语义偏差接受
+ *  （dead 非终局——重驱面在案），收紧需加列（lastFailedAt）非本卡面。 */
 export function isProjectionDead(p: { attempts: number; createdAtMs: number; nowMs: number }): boolean {
   return p.attempts >= PROJECTION_MAX_ATTEMPTS || p.nowMs - p.createdAtMs > FLUSH_FAILED_DEADLINE_MS;
 }
 
-/** 503 双义分类（fencing 红锚的判定单源）：ServiceUnavailable ∧ epoch 已动（含失守 null）⇒ fenced
- *  （不耗 attempts——滚动部署/双开）；其余一切错误 ⇒ transient（真失败——耗 attempts）。
- *  非 503 错误与 epoch 无关一律 transient（epoch 比对是 flushDocument① 段的独立闸——此处不重复判）。 */
+/** 错误分类（fencing 红锚的判定单源——T15 质评 Minor#4：epoch 易主=决定性证据，先于错误形态判）：
+ *  ① currentEpoch≠capturedEpoch（含失守 null）⇒ fenced（不耗 attempts——滚动部署/双开；与错误
+ *  形态无关，任何错误在 epoch 已动窗内一律按失守处置）；② epoch 未动的 503 族 ⇒ fenced（drain/
+ *  真空窗/受理门等租约档——重试无意义且非本代真失败）；其余 ⇒ transient（真失败——耗 attempts，
+ *  如 degraded spool 503∧epoch 恒定）。 */
 export function classifyApplyError(err: unknown, capturedEpoch: bigint | null, currentEpoch: bigint | null): 'fenced' | 'transient' {
+  if (currentEpoch !== capturedEpoch) return 'fenced';   // epoch 易主——决定性证据先判
   const status = (err as { status?: unknown })?.status;
-  if (typeof status === 'number' && status >= 500 && currentEpoch !== capturedEpoch) return 'fenced';
+  if (typeof status === 'number' && status >= 500) return 'fenced';
   return 'transient';
 }
 
@@ -147,6 +153,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
   async tick(): Promise<ProjectionTickSummary> {
     const summary: ProjectionTickSummary = { claimed: 0, fenced: false, outcomes: {} };
     if (this.destroyed) return summary;
+    // Important#2（T15 质评）：lag 刷新在一切早退（fenced 零持有/busy 重入/空 claim）之前——每 tick
+    // 刷新（无 pending=归零），防 gauge 冻结在陈旧正值违约 metrics help「每 tick 刷新」自述。
+    void this.observeLag().catch(() => {});
     const epoch = this.lease.currentEpoch();
     if (epoch === null) return { ...summary, fenced: true };   // 非 holder——零 claim（等租约）
     if (this.busy) return summary;                             // 防重入（长轮不叠）
@@ -167,7 +176,6 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         for (const [k, v] of Object.entries(r.outcomes)) summary.outcomes[k] = (summary.outcomes[k] ?? 0) + (v ?? 0);
         if (r.fenced) { summary.fenced = true; break; }   // fenced 停 claim 等租约——余组本轮放弃
       }
-      void this.observeLag().catch(() => {});
       return summary;
     } finally {
       this.busy = false;
@@ -214,12 +222,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     const inc = (k: OutcomeLabel) => { outcomes[k] = (outcomes[k] ?? 0) + 1; artifactProjectionOutcomeTotal.inc({ outcome: k }); };
     const fencedNow = () => this.lease.currentEpoch() !== capturedEpoch;   // v11.1①：每步前比对
 
-    // ① fence 前置（claim→apply 段）：epoch 已动 ⇒ 行全数回 pending 不耗 attempts
-    if (fencedNow()) {
-      await this.releaseRows(rows, { backoffMs: PROJECTION_POLL_INTERVAL_MS });
-      for (let i = 0; i < rows.length; i += 1) inc('fenced');
-      return { outcomes, fenced: true };
-    }
+    // ① fence 前置（claim→apply 段）：epoch 已动 ⇒ fencedBail 全量释放（不耗 attempts）
+    if (fencedNow()) { await this.fencedBail(rows, inc); return { outcomes, fenced: true }; }
 
     // ② 读 NodeArtifact：rev≠投影锚 ⇒ superseded（终态不重试零 doc 写）
     const artifacts = await this.prisma.nodeArtifact.findMany({
@@ -254,12 +258,13 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       ), { mode: 'read' });
     } catch (err) {
       if (classifyApplyError(err, capturedEpoch, this.lease.currentEpoch()) === 'fenced') {
-        await this.releaseRows(survivors.map((s) => s.row), { backoffMs: PROJECTION_POLL_INTERVAL_MS });
-        for (let i = 0; i < survivors.length; i += 1) inc('fenced');
+        await this.fencedBail(survivors.map((s) => s.row), inc);
         return { outcomes, fenced: true };
       }
-      for (const { row } of survivors) inc(await this.failRow(row, err) ? 'dead' : 'retry-failed');
-      return { outcomes, fenced: false };
+      // Minor#5（T15 质评）：读失败降级全走 apply（equalFlags 全 false）——真失败计数由逐行 apply
+      // 承担（哪行 apply 成功哪行耗尽各归各），不整组预支 attempts。
+      this.logger.warn(`[projection] fast path 读失败降级全走 apply（逐行承担失败计数）project=${projectId}: ${(err as Error).message}`);
+      equalFlags = survivors.map(() => false);
     }
 
     // ④ deliverArtifact 复合 op（非等值行）：data.{fileId|result}+exec done 同 withSession(write) 事务。
@@ -287,10 +292,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         deliverable.push(s);
       } catch (err) {
         if (classifyApplyError(err, capturedEpoch, this.lease.currentEpoch()) === 'fenced') {
-          // fenced：本行+未处理行全数回 pending 不耗 attempts——本轮放弃（停 claim 等租约）
-          const pending = [s.row, ...survivors.slice(i + 1).map((x) => x.row), ...fastPath.map((x) => x.row), ...deliverable.map((x) => x.row)];
-          await this.releaseRows(pending, { backoffMs: PROJECTION_POLL_INTERVAL_MS });
-          for (let i = 0; i < pending.length; i += 1) inc('fenced');
+          // fenced：本行+未处理行+已 apply/快道未 mark 行全数释放（fencedBail）——本轮放弃
+          await this.fencedBail([s.row, ...survivors.slice(i + 1).map((x) => x.row), ...fastPath.map((x) => x.row), ...deliverable.map((x) => x.row)], inc);
           return { outcomes, fenced: true };
         }
         inc(await this.failRow(s.row, err) ? 'dead' : 'retry-failed');   // 真失败——耗 attempts
@@ -309,7 +312,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     }
 
     // ⑥ 逐行 recheck+mark（fast path 同判定——等值是内存态判定，projected 需 flush persisted 背书）
-    for (const s of [...deliverable, ...fastPath]) {
+    const flushLoop = [...deliverable, ...fastPath];
+    for (let fi = 0; fi < flushLoop.length; fi += 1) {
+      const s = flushLoop[fi];
       if (flush.kind === 'terminal' && flush.reason === 'fk') {
         await this.mark(s.row, { state: 'orphaned', lastError: 'project-gone' });
         inc('orphaned');
@@ -317,9 +322,10 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         continue;
       }
       if (flush.kind === 'terminal' && flush.reason === 'fenced') {
-        await this.releaseRows([s.row], { backoffMs: PROJECTION_POLL_INTERVAL_MS });
-        inc('fenced');
-        return { outcomes, fenced: true };   // 停 claim 等租约——余行/余组本轮放弃
+        // Minor#3：flush 段 fenced 出口=当前行+余行全量释放（原仅当前行——余行滞 projecting
+        // 等 lease 过期 60s 才可复投，组内语义不一致）——停 claim 等租约
+        await this.fencedBail(flushLoop.slice(fi).map((x) => x.row), inc);
+        return { outcomes, fenced: true };
       }
       if (flush.kind === 'retry' && flush.reason === 'spooled') {
         await this.releaseRows([s.row], { backoffMs: PROJECTION_BACKOFF_BASE_MS });   // G58：不耗 attempts 无限重试
@@ -346,7 +352,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     return { outcomes, fenced: false };
   }
 
-  /** 行级 mark（runId CAS——lease 过期被新代 reclaim 后 0 行放弃，不污染新代状态机）。 */
+  /** 行级 mark（runId CAS——lease 过期被新代 reclaim 后 0 行放弃，不污染新代状态机）。
+   *  登记口径（T15 质评#7 组）：CAS 0 行（已被新代接管）仍计 outcomes/指标——观测口径=「本代处理
+   *  动作」非「行终态归属」（新代接管后本代计数不回冲；漂移仅出现在 60s lease 过期接管窗，可忽略）。 */
   private async mark(
     row: ArtifactProjection,
     data: Partial<{ state: 'projected' | 'superseded' | 'orphaned' | 'dead' | 'pending'; lastError: string; attempts: number; projectedAt: Date; nextAttemptAt: Date }>,
@@ -359,6 +367,16 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         runId: null,
       },
     }).catch((e) => this.logger.warn(`[projection] mark ${data.state} 失败 row=${row.id}: ${(e as Error).message}`));
+  }
+
+  /** fenced 统一出口（T15 质评 Minor#3）：入参行全数回 pending（不耗 attempts）+逐行 fenced 计数
+   *  +返回本轮放弃信号（调用方停 claim 等租约）——四处 fenced 出口（前置①/fast path 读/apply
+   *  catch/flush 段）单源；组间放弃由 tick 的 r.fenced break 承担（余组行留 pending——leaseUntil
+   *  在 claim 置位但 state 已 pending：claim 条件 nextAttemptAt 到期即复投，无 lease 阻塞）。 */
+  private async fencedBail(rows: ArtifactProjection[], inc: (k: OutcomeLabel) => void): Promise<{ fenced: boolean }> {
+    await this.releaseRows(rows, { backoffMs: PROJECTION_POLL_INTERVAL_MS });
+    for (let i = 0; i < rows.length; i += 1) inc('fenced');
+    return { fenced: true };
   }
 
   /** 行回 pending（fenced/spooled 档——**不耗 attempts**；nextAttemptAt=退避后的重驱点）。 */
@@ -390,7 +408,10 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
 
   /** orphaned 幂等退款（spec R3「delivery failed（node 删/project gone）→orphaned+幂等退款」）：
    *  资金锚=NodeArtifact.sourceIntentRowId（generated 源——replace 命令无资金锚天然跳过）；
-   *  rollbackDeliveryFailed CAS 幂等重跑恰一次；抛错不阻断终态（收敛归 R3 reconcile）。 */
+   *  rollbackDeliveryFailed CAS 幂等重跑恰一次。抛错不阻断终态（orphaned 已落）——Important#1
+   *  （T15 质评）：catch=Sentry+专用计数（artifact_projection_orphan_refund_fail_total）；根治收敛
+   *  =R3 决策表窗⑥（IntentReconcileService.sweepOrphanedRefund 扫「SUCCEEDED∧当前代投影 orphaned」
+   *  →rollbackDeliveryFailed——CAS 与本路径互斥恰一次；旧注「收敛归 R3」泛指已更正为此具体窗口）。 */
   private async refundOrphaned(artifact: NodeArtifact): Promise<void> {
     if (!artifact.sourceIntentRowId || artifact.source !== 'generated') return;
     try {
@@ -400,7 +421,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       );
       if (refunded) this.logger.warn(`[projection] orphaned 退款完成 intent=${artifact.sourceIntentRowId}`);
     } catch (e) {
-      this.logger.warn(`[projection] orphaned 退款失败（终态已落——收敛归 R3）intent=${artifact.sourceIntentRowId}: ${(e as Error).message}`);
+      artifactProjectionOrphanRefundFailTotal.inc();
+      Sentry.captureException(new Error(`projection orphaned refund failed intent=${artifact.sourceIntentRowId}: ${(e as Error).message}（R3 sweepOrphanedRefund 窗⑥下轮收敛）`));
+      this.logger.warn(`[projection] orphaned 退款失败（终态已落——R3 sweepOrphanedRefund 窗⑥下轮收敛）intent=${artifact.sourceIntentRowId}: ${(e as Error).message}`);
     }
   }
 

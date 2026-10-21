@@ -45,18 +45,19 @@ describe('T15 isProjectionDead（仅 failed 档消费——G58：spooled 档永�
   });
 });
 
-describe('T15 classifyApplyError（503 双义分类：epoch 易主=fenced 不耗 attempts；其余=transient 真失败计数）', () => {
+describe('T15 classifyApplyError（Minor#4：epoch 易主=决定性证据先判——任何错误形态；次按 status 分档）', () => {
   const SUE = new ServiceUnavailableException('collab not serving (lease not held)');
-  it('epoch 已动（含失守 null）⇒ fenced——滚动部署/双开不耗 attempts', () => {
+  it('epoch 已动（含失守 null）⇒ fenced——与错误形态无关（滚动部署/双开不耗 attempts）', () => {
     expect(classifyApplyError(SUE, 7n, null)).toBe('fenced');
     expect(classifyApplyError(SUE, 7n, 8n)).toBe('fenced');
+    expect(classifyApplyError(new Error('boom'), 7n, null)).toBe('fenced');   // Minor#4：epoch 不等即决定性——非 503 亦 fenced
+    expect(classifyApplyError(new Error('boom'), 7n, 8n)).toBe('fenced');
   });
-  it('epoch 未动的 503（degraded spool 等）⇒ transient（真 apply 失败——耗 attempts）', () => {
-    expect(classifyApplyError(SUE, 7n, 7n)).toBe('transient');
+  it('epoch 未动的 503 族 ⇒ fenced（drain/真空窗/受理门等租约档——重试无意义非本代真失败）', () => {
+    expect(classifyApplyError(SUE, 7n, 7n)).toBe('fenced');
   });
-  it('非 503 错误一律 transient（与 epoch 无关）', () => {
+  it('epoch 未动的非 503 ⇒ transient（真失败——耗 attempts，如 degraded spool 503 之外的 infra 错误）', () => {
     expect(classifyApplyError(new Error('boom'), 7n, 7n)).toBe('transient');
-    expect(classifyApplyError(new Error('boom'), 7n, null)).toBe('transient');
   });
 });
 

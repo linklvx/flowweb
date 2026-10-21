@@ -62,8 +62,9 @@ export const orphanUnreleasableTotal = new Counter({
 });
 
 /** T13 R3（spec Z18''⑥）：自动收敛动作计数——每动作一行 ReconcileAction 审计行同源同 incr。
- *  action 词表=审计行 action 列同源：settle-backfill/rollback-stranded/void-terminal/
- *  finalize-from-stage/projection-backfill。 */
+ *  action 词表=审计行 action 列同源：settle-backfill/rollback-stranded/orphaned-refund/
+ *  void-terminal/finalize-from-stage/projection-backfill（orphaned-refund=T15 质评 Important#1
+ *  根治窗⑥——SUCCEEDED∧当前代投影 orphaned 退款悬置收敛）。 */
 export const reconcileAutoConvergedTotal = new Counter({
   name: 'intent_reconcile_auto_converged_total',
   help: 'T13 R3：自动收敛动作计数（action 词表=ReconcileAction 审计行 action 同源；判据全量 PG——NodeArtifact/Media/ArtifactProjection）',

@@ -980,6 +980,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 ```yaml
 - acquire_wait_timeout_total
 - ai_artifact_discarded_total
+- artifact_projection_orphan_refund_fail_total
 - artifact_projection_outcome_total
 - artifact_projection_pending_age_seconds
 - awareness_bytes

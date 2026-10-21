@@ -1247,8 +1247,9 @@ model MediaFactOutbox {
 
 /// T13 R3（spec Z18''⑥）：自动收敛审计行——每动作一行（护栏：每行 CAS+pg_advisory_xact_lock
 /// (hashtext(intentRowId))+本表审计；auto_converged/manual_required 分计数在 intent-reconcile.metrics）。
-/// action 词表：settle-backfill/rollback-stranded/void-terminal/finalize-from-stage/
-/// projection-backfill/manual-required（歧义态不动钱——裁决 :27④）。
+/// action 词表：settle-backfill/rollback-stranded/orphaned-refund/void-terminal/
+/// finalize-from-stage/projection-backfill/manual-required（歧义态不动钱——裁决 :27④）；
+/// orphaned-refund=T15 质评 Important#1 窗⑥（SUCCEEDED∧当前代投影 orphaned 退款悬置收敛）。
 model ReconcileAction {
   id          String   @id @default(cuid())
   intentRowId String // 资金锚（=GenerationIntent.id；台账孤儿释放不落本表——非 intent 收敛）

@@ -127,6 +127,10 @@ export type R3Decision =
   | { action: 'projection-backfill' }
   /** SUCCEEDED∧未核销∧无锚行∧无 stage（settle 失败崩溃窗无产物）——调用方走 rollbackStranded（退款）。 */
   | { action: 'rollback-stranded' }
+  /** 窗⑥（T15 质评 Important#1 根治）：SUCCEEDED∧当前代投影行 orphaned（poller 标记后退款抛错悬置
+   *  窗——已核销行不进终态悬留批〔reserved=0〕，旧决策表 noop=退款永悬）——调用方走
+   *  rollbackDeliveryFailed（锁外 CAS 幂等，与 poller 路径互斥收敛恰一次）。 */
+  | { action: 'orphaned-refund' }
   /** FAILED/VOIDED∧reserved>0∧无 artifact/无 delivered——调用方走 voidInTx（幂等 release）。 */
   | { action: 'void-terminal' }
   /** 歧义态（FAILED/VOIDED∧有交付凭据等）——不动钱，审计 manual-required+计数告警（裁决 :27④）。 */
@@ -325,11 +329,15 @@ export class ArtifactCommitService {
         return { action: 'settle-backfill', acted: r.settled };
       }
       // 窗③（投影缺失）：SUCCEEDED∧锚行在∧投影行缺 → 补建 pending 行（T15 poller 前置接线形态）。
+      // 窗⑥（T15 质评 Important#1 根治）：当前代投影行 orphaned（poller node-deleted 判定后退款抛错
+      // 悬置窗）→ orphaned-refund（调用方 rollbackDeliveryFailed——SUCCEEDED 已核销行不进终态悬留
+      // 批〔reserved=0 谓词〕，无此窗则退款永悬且零告警）。
       if (anchor) {
         const proj = await tx.artifactProjection.findUnique({
           where: { artifactId_artifactRev: { artifactId: anchor.id, artifactRev: anchor.rev } },
-          select: { id: true },
+          select: { state: true },
         });
+        if (proj?.state === 'orphaned') return { action: 'orphaned-refund' };
         if (!proj) {
           await tx.artifactProjection.createMany({
             data: [{
