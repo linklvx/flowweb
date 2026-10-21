@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { MaterialService } from './material.service';
+import { MaterialService, MEDIA_DTO_SELECT } from './material.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
@@ -79,6 +79,7 @@ describe('MaterialService', () => {
       expect(prisma.media.findMany).toHaveBeenCalledWith({
         where: { teamId: 't1', folderId: 'folder-1', deletedAt: null },
         orderBy: { createdAt: 'desc' },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
       expect(minio.generatePresignedGetUrl).toHaveBeenCalledWith('key1', 3600);
       expect(result[0].url).toBe('http://minio/signed/test.png');
@@ -98,6 +99,7 @@ describe('MaterialService', () => {
           mimeType: { startsWith: 'image/' },
         },
         orderBy: { createdAt: 'desc' },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
     });
 
@@ -115,6 +117,7 @@ describe('MaterialService', () => {
           mimeType: { startsWith: 'video/' },
         },
         orderBy: { createdAt: 'desc' },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
     });
 
@@ -132,6 +135,7 @@ describe('MaterialService', () => {
           mimeType: { startsWith: 'audio/' },
         },
         orderBy: { createdAt: 'desc' },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
     });
 
@@ -158,6 +162,7 @@ describe('MaterialService', () => {
       expect(prisma.media.findMany).toHaveBeenCalledWith({
         where: { teamId: 't1', folderId: 'folder-1', deletedAt: null },
         orderBy: { createdAt: 'desc' },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
     });
   });
@@ -204,6 +209,7 @@ describe('MaterialService', () => {
 
       expect(prisma.media.findFirst).toHaveBeenCalledWith({
         where: { id: 'm-1', teamId: 't1', deletedAt: null },
+        select: { id: true },   // Y1a T8：行不出响应——存在性判定的最小取数
       });
       expect(prisma.materialFolder.findFirst).toHaveBeenCalledWith({
         where: { id: 'folder-1', teamId: 't1', deletedAt: null },
@@ -211,6 +217,7 @@ describe('MaterialService', () => {
       expect(prisma.media.update).toHaveBeenCalledWith({
         where: { id: 'm-1' },
         data: { folderId: 'folder-1' },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
       expect(queue.add).toHaveBeenCalledWith('generate-thumbnail', {
         mediaId: 'm-1', key: 'uploads/test.png', mimeType: 'image/png',
@@ -261,6 +268,7 @@ describe('MaterialService', () => {
       expect(prisma.media.update).toHaveBeenCalledWith({
         where: { id: 'm-1' },
         data: { deletedAt: expect.any(Date) },
+        select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
       });
     });
 
@@ -352,55 +360,48 @@ describe('MaterialService', () => {
   });
 
   // T6 BigInt 四读路径④（material spread——收紧裁决：禁全局 BigInt.prototype.toJSON，
-  // 响应构造处显式转换）：Media.size/factVersion/sourceExecSeq 为 BigInt 列，整行 spread 进
-  // HTTP 响应必炸 JSON.stringify（Express "Do not know how to serialize a BigInt" → 500）。
+  // 响应构造处显式转换）：Media.size BigInt 列进 HTTP 响应必炸 JSON.stringify——
+  // serializeMediaRow size→number。Y1a T8 白名单化后 factVersion/sourceExecSeq 不在
+  // MaterialFile 契约面（白名单缺席即天然可序列化——两转换退役）。
   const bigintRow = (over: Record<string, unknown> = {}) => ({
     id: 'm-1', key: 'key1', originalName: 'a.png', mimeType: 'image/png',
     size: BigInt(1024),            // Media.size BigInt（Y1b T2 列型）
-    factVersion: BigInt(3),        // Media.factVersion BigInt（Z7''——wire 用 string）
-    sourceExecSeq: BigInt(7),      // Media.sourceExecSeq BigInt
     thumbnailKey: null, folderId: null, ...over,
+    // Y1a T8：MEDIA_DTO_SELECT 白名单——factVersion/sourceExecSeq/sourceUrl 不在真查询返回形态
   });
 
   describe('T6 BigInt 序列化（DTO/响应边界显式转换——禁全局 patch）', () => {
-    it('getFilesByFolderId：行可 JSON.stringify（size→number 展示口径；factVersion/sourceExecSeq→string 身份键）', async () => {
+    it('getFilesByFolderId：行可 JSON.stringify（size→number；factVersion/sourceExecSeq 白名单缺席——Y1a T8）', async () => {
       prisma.media.findMany.mockResolvedValue([bigintRow()]);
       minio.generatePresignedGetUrl.mockResolvedValue('http://minio/signed/a.png');
 
       const rows = await service.getFilesByFolderId('user-1', null);
-      const parsed = JSON.parse(JSON.stringify(rows));   // 现状 TypeError——红
+      const parsed = JSON.parse(JSON.stringify(rows));
       expect(parsed[0].size).toBe(1024);
-      expect(parsed[0].factVersion).toBe('3');
-      expect(parsed[0].sourceExecSeq).toBe('7');
+      expect(parsed[0]).not.toHaveProperty('factVersion');
+      expect(parsed[0]).not.toHaveProperty('sourceExecSeq');
+      expect(parsed[0]).not.toHaveProperty('sourceUrl');   // Y1a T8：白名单零泄漏
     });
 
-    it('getFilesByFolderId：sourceExecSeq null 行可序列化（string|null 联合）', async () => {
-      prisma.media.findMany.mockResolvedValue([bigintRow({ sourceExecSeq: null })]);
-      minio.generatePresignedGetUrl.mockResolvedValue('http://minio/signed/a.png');
-
-      const parsed = JSON.parse(JSON.stringify(await service.getFilesByFolderId('user-1', null)));
-      expect(parsed[0].sourceExecSeq).toBeNull();
-    });
-
-    it('moveFile：update 整行返回可 JSON.stringify', async () => {
-      prisma.media.findFirst.mockResolvedValue(bigintRow());
+    it('moveFile：update 白名单行返回可 JSON.stringify', async () => {
+      prisma.media.findFirst.mockResolvedValue({ id: 'm-1' });
       prisma.materialFolder.findFirst.mockResolvedValue({ id: 'f-1', teamId: 't1' });
       prisma.media.update.mockResolvedValue(bigintRow({ folderId: 'f-1' }));
 
       const updated = await service.moveFile('user-1', 'm-1', 'f-1');
-      const parsed = JSON.parse(JSON.stringify(updated));   // 现状 TypeError——红
+      const parsed = JSON.parse(JSON.stringify(updated));
       expect(parsed.size).toBe(1024);
-      expect(parsed.factVersion).toBe('3');
+      expect(parsed).not.toHaveProperty('factVersion');
     });
 
-    it('toggleFavorite：update 整行返回可 JSON.stringify', async () => {
-      prisma.media.findFirst.mockResolvedValue(bigintRow({ isFavorite: false }));
+    it('toggleFavorite：update 白名单行返回可 JSON.stringify', async () => {
+      prisma.media.findFirst.mockResolvedValue({ id: 'm-1', isFavorite: false });
       prisma.media.update.mockResolvedValue(bigintRow({ isFavorite: true }));
 
       const updated = await service.toggleFavorite('user-1', 'm-1');
-      const parsed = JSON.parse(JSON.stringify(updated));   // 现状 TypeError——红
+      const parsed = JSON.parse(JSON.stringify(updated));
       expect(parsed.size).toBe(1024);
-      expect(parsed.sourceExecSeq).toBe('7');
+      expect(parsed).not.toHaveProperty('sourceExecSeq');
     });
   });
 });

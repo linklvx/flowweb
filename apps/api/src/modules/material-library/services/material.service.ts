@@ -6,6 +6,15 @@ import { MinioService } from '../../minio/minio.service';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
 import { getOwnerTeamId, assertTeamMember } from '../../team/team.util';
 
+/** Media 行 DTO 白名单（Y1a T8：sourceUrl 零泄漏——provider 原始 URL 禁入任何响应面）。
+ *  Prisma 5.22 生成 client 未启用 omitApi preview（构造器全局 omit/查询级 omit 均不可用）——
+ *  出口统一 select 白名单（任务卡 fallback）；字段=shared MaterialFile 契约消费面+
+ *  动态 URL 取数键（key/thumbnailKey——presign 产能非泄漏面）。导出=spec 断言对照。 */
+export const MEDIA_DTO_SELECT = {
+  id: true, key: true, originalName: true, mimeType: true, size: true,
+  thumbnailKey: true, folderId: true, isFavorite: true, createdAt: true, updatedAt: true,
+} as const;
+
 @Injectable()
 export class MaterialService {
   constructor(
@@ -22,14 +31,12 @@ export class MaterialService {
   }
 
   /** T6 BigInt 序列化（禁全局 BigInt.prototype.toJSON——DTO/响应边界显式转换）：
-   *  Media.size（BigInt 列）→ number（<2^53 展示口径）；factVersion/sourceExecSeq（BigInt 身份键列）
-   *  → string（Z7'' wire 口径）/null 保持。本服务三个响应出口共用。 */
+   *  Media.size（BigInt 列）→ number（<2^53 展示口径）。Y1a T8 白名单化后响应行仅 size 为
+   *  BigInt（factVersion/sourceExecSeq 不在 MaterialFile 契约面——两转换随之退役）。 */
   private serializeMediaRow<T extends Record<string, unknown>>(file: T) {
     return {
       ...file,
       size: Number(file.size),
-      factVersion: String(file.factVersion),
-      sourceExecSeq: file.sourceExecSeq == null ? null : String(file.sourceExecSeq),
     };
   }
 
@@ -55,6 +62,7 @@ export class MaterialService {
     const files = await this.prisma.media.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
     });
 
     // Generate presigned URLs dynamically (never store expiring URLs in DB)
@@ -75,6 +83,7 @@ export class MaterialService {
     // 文件与目标文件夹均按 teamId 过滤——跨团队目标统一报「不存在」，防存在性探测
     const file = await this.prisma.media.findFirst({
       where: { id: fileId, teamId: resolved, deletedAt: null },
+      select: { id: true },
     });
     if (!file) throw new BadRequestException('文件不存在');
 
@@ -88,6 +97,7 @@ export class MaterialService {
     const updated = await this.prisma.media.update({
       where: { id: fileId },
       data: { folderId },
+      select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
     });
 
     if (!updated.thumbnailKey) {
@@ -105,12 +115,14 @@ export class MaterialService {
     const resolved = await this.resolveTeamId(teamId, userId);
     const file = await this.prisma.media.findFirst({
       where: { id: fileId, teamId: resolved, deletedAt: null },
+      select: { id: true, isFavorite: true },
     });
     if (!file) throw new BadRequestException('文件不存在');
 
     const updated = await this.prisma.media.update({
       where: { id: fileId },
       data: { isFavorite: !file.isFavorite },
+      select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
     });
 
     return this.serializeMediaRow(updated as Record<string, unknown>);   // T6：BigInt 列显式转换
@@ -120,12 +132,14 @@ export class MaterialService {
     const resolved = await this.resolveTeamId(teamId, userId);
     const file = await this.prisma.media.findFirst({
       where: { id: fileId, teamId: resolved, deletedAt: null },
+      select: { id: true },
     });
     if (!file) throw new BadRequestException('文件不存在');
 
     return this.prisma.media.update({
       where: { id: fileId },
       data: { deletedAt: new Date() },
+      select: MEDIA_DTO_SELECT,   // Y1a T8：sourceUrl 零泄漏
     });
   }
 
