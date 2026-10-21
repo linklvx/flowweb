@@ -1,4 +1,5 @@
 import { Controller, Post, Body, Inject, Req } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Throttle } from '@nestjs/throttler';
 import { AiImageEditService } from './ai-image-edit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
@@ -9,6 +10,7 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { assertSyncAdmitted } from '../collab/sync-admission';
 import { WorkerPresenceService } from '../worker-presence/worker-presence.service';
 import { QUEUE_NAMES } from '../../config/queue.constants';
+import type { ExecutionTicket } from '../execution/execution.types';
 
 // 批0c-8：付费任务端点收紧至 20/min（全局 300/min 见 app.module）
 @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -26,9 +28,11 @@ export class AiImageEditController {
   ) {}
 
   /** 批0.5-8 三端点同构接线（F13）：claim（enqueue 前——意图表是唯一扣费幂等面，队列 attempts:1
-   *  堵不住双击双扣）→ SUCCEEDED 幂等重放短路 → enqueue 携 intentRowId/intentId → attachJob 回写
+   *  堵不住双击双扣）→ SUCCEEDED 幂等重放短路 → enqueue 携 ticket → attachJob 回写
    *  jobId（不回写则 reconcile A 路径对异步队列模块永久失效，长任务被三查误判 VOIDED 照常扣费）。
    *  enqueue 失败 fail 置 FAILED——防 RUNNING 孤儿把节点 partial unique 锁死 15min（execution.service catch 先例）。
+   *  Y1a T9：job data 携 ExecutionTicket {intentRowId,execSeq,jobId}——jobId=controller 预生成 UUID
+   *  （add({jobId})——票完整先于入队；execSeq wire=string）；fail 携代际票（execSeq）。
    *  Y0b-1（E1）：claim 前解析 kind 级定价快照（编辑 4 kind=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
    *  Y0b-2 T6（Z78/Z109）：body.regenToken=客户端手势 token（改名自 intentId 位——防新调用方拿它查
    *  intents 端点）；replayed 返回裸值交全局拦截器单层包裹（信封清剿）。
@@ -42,7 +46,7 @@ export class AiImageEditController {
     stateVector: string;
     kind: 'outpaint' | 'erase' | 'redraw';
     params: Record<string, unknown>;
-    enqueue: (intentRowId: string, intentId: string) => Promise<{ jobId: string }>;
+    enqueue: (ticket: ExecutionTicket) => Promise<{ jobId: string }>;
   }) {
     await assertSyncAdmitted(this.collabDoc, input.projectId, input.stateVector);
     // Y0c T29-II（Z148②/F11 同源）：worker 准入门——定价快照/claim 之前拒 ⇒ 零意图行零冻结零退款
@@ -64,12 +68,14 @@ export class AiImageEditController {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用
       return { replayed: true, resultRef: intent.resultRef };
     }
+    // T9 票三字段完整先于入队：jobId 预生成（add({jobId})）+execSeq wire=string（BigInt 禁入 JSON）
+    const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID() };
     try {
-      const r = await input.enqueue(intent.id, intent.intentId);
+      const r = await input.enqueue(ticket);
       await this.intentService.attachJob(intent.id, r.jobId);
       return r;
     } catch (e) {
-      await this.intentService.fail(intent.id, String(e));
+      await this.intentService.fail(intent.id, String(e), undefined, intent.execSeq);
       throw e;
     }
   }
@@ -96,9 +102,9 @@ export class AiImageEditController {
       kind: 'outpaint',
       // Y0b-2 T6（R3-P0-1）：fileId 进 paramsHash——源图变=操作身份变=新 idemKey（白名单同步）
       params: { fileId: body.fileId, rect: body.rect, imageWidth: body.imageWidth, imageHeight: body.imageHeight },
-      enqueue: (intentRowId, intentId) => this.service.enqueueOutpaint(
+      enqueue: (ticket) => this.service.enqueueOutpaint(
         req.user.id, body.projectId, body.nodeId, body.fileId,
-        body.rect, body.imageWidth, body.imageHeight, intentRowId, intentId,
+        body.rect, body.imageWidth, body.imageHeight, ticket,
       ),
     });
   }
@@ -116,8 +122,8 @@ export class AiImageEditController {
       kind: 'erase',
       // Y0b-2 T6（R3-P0-1）：erase 空集根修——双输入 fileId/maskFileId 进哈希（改前 sha256('{}') 全局常量）
       params: { fileId: body.fileId, maskFileId: body.maskFileId },
-      enqueue: (intentRowId, intentId) => this.service.enqueueErase(
-        req.user.id, body.projectId, body.nodeId, body.fileId, body.maskFileId, intentRowId, intentId,
+      enqueue: (ticket) => this.service.enqueueErase(
+        req.user.id, body.projectId, body.nodeId, body.fileId, body.maskFileId, ticket,
       ),
     });
   }
@@ -135,9 +141,9 @@ export class AiImageEditController {
       kind: 'redraw',
       // Y0b-2 T6（R3-P0-1）：fileId/maskFileId 进 paramsHash——源图/mask 变=新 idemKey
       params: { fileId: body.fileId, maskFileId: body.maskFileId, prompt: body.prompt, strength: body.strength },
-      enqueue: (intentRowId, intentId) => this.service.enqueueRedraw(
+      enqueue: (ticket) => this.service.enqueueRedraw(
         req.user.id, body.projectId, body.nodeId, body.fileId, body.maskFileId,
-        body.prompt, body.strength, intentRowId, intentId,
+        body.prompt, body.strength, ticket,
       ),
     });
   }

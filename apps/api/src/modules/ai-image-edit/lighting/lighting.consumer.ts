@@ -5,12 +5,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
 import { EmitPort } from '../../gateway/emit.port';
-import { ApiCallerService } from '../../execution/api-caller.service';
+import { ApiCallerService, type EditCallOpts } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { artifactDiscardedTotal } from '../../execution/exec.metrics';
 import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
+import type { ExecutionTicket } from '../../execution/execution.types';
 
 const LightingTaskStatus = {
   PENDING: 'pending',
@@ -35,9 +36,11 @@ export interface LightingJobData {
   taskId: string;
   originalImageId: string;
   params: LightingParams;
-  /** 批0.5-8：意图行 id / 客户端幂等键——controller claim 后随 job.data 下传（consume guard/complete 门序） */
+  /** 批0.5-8：意图行 id——controller claim 后随 job.data 下传（consume guard/complete 门序）。
+   *  Y1a T9：ticket=完整执行代际票 {intentRowId,execSeq,jobId}（execSeq wire=string）——reserve 在
+   *  processor 队列入口已携票完成，本 consumer 消费票做 settle/complete/fail/onTick 代际 CAS。 */
   intentRowId?: string;
-  intentId?: string;
+  ticket?: ExecutionTicket;
 }
 
 /** 纯派生稳定串（controller 侧 paramsHash 与 consumer 侧外呼 prompt 共用同一函数——
@@ -86,8 +89,12 @@ export class LightingConsumer {
     @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
   ) {}
 
-  async handleLightingJob(job: Job<LightingJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
-    const { userId, nodeId, projectId, taskId, originalImageId, params, intentRowId, intentId } = job.data;
+  /** processor 队列入口（A-1 根修位）已完成 reserve/重锚/provider 锚——providerOpts 自 processor 透传
+   *  （T9：onTick 代际 fence+resumeTaskId query-first+幂等键+taskId 落库回调——与编辑三 kind 同链）。 */
+  async handleLightingJob(job: Job<LightingJobData>, providerOpts: EditCallOpts): Promise<{ status: string; fileId?: string; reason?: string }> {
+    const { userId, nodeId, projectId, taskId, originalImageId, params, intentRowId, ticket } = job.data;
+    const execSeq = ticket ? BigInt(ticket.execSeq) : undefined;
+    const intentLogId = intentRowId ?? 'unknown';
 
     this.logger.log(`Processing lighting for task ${taskId}, node ${nodeId}`);
 
@@ -124,28 +131,18 @@ export class LightingConsumer {
       const presignedUrl = await this.minio.generatePresignedGetUrl(sourceMedia.key, 3600);
 
       // 3. A-1 根修（Y0b-2 T5）：reserve 收敛 processor 一处（队列入口结构位——全 taskType 统一；
-      //    本 consumer 不再 reserve：旧二次 reserve 必 mayCall:false〔alreadyReserved〕→ skipped 永不外呼
-      //    →deadline 批 backfillSucceeded→settleStranded 补 settle=1 credit 白扣）。
-      //    冻结凭据=processor 已 reserve（guard 校验/余额不足路径同在 processor 收口）。
-      if (projectTeamId && (!intentRowId || !intentId)) {
-        throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）——缺锚即接线断裂
+      //    本 consumer 不再 reserve。冻结凭据=processor 已 reserve；T9 起票=必带代际）。
+      if (projectTeamId && (!intentRowId || !execSeq)) {
+        throw new Error('INTENT_GUARD_MISSING'); // 恒 claim 后入队（0.5-8）+T9 恒带票——缺即接线断裂
       }
 
       // 4. Build prompt from params
       const promptText = paramsToPrompt(params, params.customPrompt);
       this.logger.log(`Lighting prompt: ${promptText}`);
 
-      // 5. Call AI gateway for relighting——Y0b-2 T4：onTick 双职（每 tick touchHeartbeat+读意图状态：
-      //    reaper 收敛〔VOIDED/FAILED〕⇒ abort 停外呼）。外呼前重锚在 processor 侧 reserve 后已做
-      //    （taskType=lighting 同链——编辑链统一接线点）。
-      const onTick = intentRowId
-        ? async (): Promise<'abort' | void> => {
-            await this.intentService.touchHeartbeat(intentRowId);
-            const row = await this.prisma.generationIntent.findUnique({ where: { id: intentRowId! }, select: { status: true } });
-            if (row && row.status !== 'RUNNING') return 'abort';
-          }
-        : undefined;
-      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText, onTick ? { onTick } : undefined);
+      // 5. Call AI gateway for relighting——Y0b-2 T4→Y1a T9：providerOpts 自 processor 透传
+      //    （onTick 双职=心跳+终态/代际 abort；resumeTaskId query-first+幂等键+taskId 落库）。
+      const result = await this.apiCaller.callRelighting?.(presignedUrl, promptText, providerOpts);
 
       if (!result?.url) {
         throw new Error('AI relighting returned no result URL');
@@ -179,18 +176,18 @@ export class LightingConsumer {
         },
       });
 
-      // 8.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
-      if (projectTeamId && intentRowId && intentId) {
-        const settled = await this.teamCredit.settle({ intentRowId });
-        if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
+      // 8.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前；T9 代际 CAS）
+      if (projectTeamId && intentRowId && execSeq) {
+        const settled = await this.teamCredit.settle({ intentRowId, execSeq });
+        if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentLogId} settle 未达（冻结由 reconcile 兜底）`);
       }
 
       // 8.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
-      //     count===0 = 行已被 reconcile VOIDED+退款，SUCCESS 回填/writeNodeData/emit 零调用（外呼产物留作物证）
-      if (intentRowId) {
-        const gated = await this.intentService.complete(intentRowId, media.id);
+      //     count===0 = 行已被 reconcile VOIDED+退款**或已换代**（T9 旧代产物不投递），SUCCESS 回填/writeNodeData/emit 零调用（外呼产物留作物证）
+      if (intentRowId && execSeq) {
+        const gated = await this.intentService.complete(intentRowId, media.id, execSeq);
         if (gated !== 1) {
-          this.logger.warn(`[intent-reconcile] 意图 ${intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+          this.logger.warn(`[intent-reconcile] 意图 ${intentLogId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作物证）`);
           return { status: 'completed', fileId: media.id };
         }
       }
@@ -229,11 +226,22 @@ export class LightingConsumer {
     } catch (error: any) {
       this.logger.error(`Lighting failed: ${error.message}`, error.stack);
 
+      // T9 旧代 fence：行已换代（takeover/rearm 新代接管）——旧 job 失败静默退役：零退款零任务置败
+      // 零投影零 emit（旧代 void_/fail 代际 CAS 亦 0 命中；LightingTask 状态归新代链路收敛）。
+      if (intentRowId && execSeq) {
+        const row = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { status: true, execSeq: true },
+        }).catch(() => null);
+        if (row && row.status === 'RUNNING' && row.execSeq !== execSeq) {
+          this.logger.warn(`[execSeq-fence] 意图 ${intentLogId} 旧代 job 失败让位（行已换代）——零副作用退役`);
+          return { status: 'skipped', reason: 'EXEC_SEQ_STALE' };
+        }
+      }
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还；无冻结/已结算幂等零动作）。
       // SIGKILL 场景本 catch 不执行——冻结滞留由 reconcile 超龄三查②解冻兜底。
-      if (intentRowId && intentId) {
-        await this.teamCredit.void_({ intentRowId })
-          .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentId} void_ 解冻失败（reconcile 兜底）: ${e}`));
+      if (intentRowId && execSeq) {
+        await this.teamCredit.void_({ intentRowId, execSeq })
+          .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentLogId} void_ 解冻失败（reconcile 兜底）: ${e}`));
       }
 
       // Update task to failed——清产物字段：step9 可能已写 SUCCESS+产物 URL，FAILED 覆写须同笔清空，

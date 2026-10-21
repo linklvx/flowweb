@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Body, Param, Inject, Req, UsePipes, ValidationPipe, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Throttle } from '@nestjs/throttler';
 import { LightingService } from './lighting.service';
 import { ProjectPermissionService } from '../../team/project-permission.service';
@@ -11,6 +12,7 @@ import { CollabDocumentService } from '../../collab/collab-document.service';
 import { assertSyncAdmitted } from '../../collab/sync-admission';
 import { WorkerPresenceService } from '../../worker-presence/worker-presence.service';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
+import type { ExecutionTicket } from '../../execution/execution.types';
 
 @Controller('api/image-edit/lighting')
 export class LightingController {
@@ -62,18 +64,21 @@ export class LightingController {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用
       return { replayed: true, resultRef: intent.resultRef };
     }
+    // Y1a T9：ExecutionTicket {intentRowId,execSeq,jobId}——jobId 预生成 UUID（add({jobId})）+
+    // execSeq wire=string；fail 均携代际票（旧代 0 命中）。
+    const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID() };
     try {
-      const result = await this.service.createTask(body, userId, intent.id, intent.intentId);
+      const result = await this.service.createTask(body, userId, ticket);
       if (result.jobId) {
         await this.intentService.attachJob(intent.id, result.jobId);
         return result;
       }
       // createTask 命中 60s 去重未入队——释放执行权（防 RUNNING 孤儿把节点锁死 15min），按重放返回既有任务
-      await this.intentService.fail(intent.id, '任务去重：60 秒内同参数任务已存在');
+      await this.intentService.fail(intent.id, '任务去重：60 秒内同参数任务已存在', undefined, intent.execSeq);
       return { replayed: true, taskId: result.taskId, status: result.status };
     } catch (e: any) {
       // createTask 失败（积分不足/项目不存在等）——防 RUNNING 孤儿锁节点（execution.service catch 先例）
-      await this.intentService.fail(intent.id, String(e?.message ?? e));
+      await this.intentService.fail(intent.id, String(e?.message ?? e), undefined, intent.execSeq);
       throw e;
     }
   }

@@ -31,6 +31,7 @@ describe('AiImageEditProcessor', () => {
         create: vi.fn().mockResolvedValue({ id: 'media-new' }),
       },
       team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+      generationIntent: { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, providerTaskId: null }) },
     };
     minio = {
       upload: vi.fn().mockResolvedValue(undefined),
@@ -60,8 +61,11 @@ describe('AiImageEditProcessor', () => {
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
       findByActiveNode: vi.fn().mockResolvedValue(null), // Y0b-1（N4）：failed 钩子反查
-      reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+      reanchorDeadline: vi.fn().mockResolvedValue(1), // Y0b-2 T4：外呼前重锚（count 形态——T9 代际 CAS）
       touchHeartbeat: vi.fn().mockResolvedValue(undefined),
+      ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+      recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
+      tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -97,7 +101,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       } as any as Job;
 
@@ -124,8 +128,8 @@ describe('AiImageEditProcessor', () => {
         }),
       );
       // 批0.5-9 两阶段：reserve 外呼之前 + settle 外呼成功后（Y0b-1 Z10 金额单源 intent 行——guard 仅带 intentRowId）
-      expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9' });
-      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
+      expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9', execSeq: 9n });
+      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
       expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callOutpainting.mock.invocationCallOrder[0]);
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
@@ -150,7 +154,7 @@ describe('AiImageEditProcessor', () => {
           fileId: 'file-1',
           maskFileId: 'mask-1',
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       } as any as Job;
 
@@ -161,7 +165,7 @@ describe('AiImageEditProcessor', () => {
         'https://minio.local/bucket/key?token=abc',
         expect.objectContaining({ onTick: expect.any(Function) }), // Y0b-2 T4：onTick 双职
       );
-      expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9' });
+      expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9', execSeq: 9n });
       expect(teamCredit.settle).toHaveBeenCalledTimes(1);
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
@@ -183,7 +187,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       } as any as Job;
 
@@ -212,7 +216,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       } as any as Job;
 
@@ -240,12 +244,12 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       } as any as Job;
 
       await expect(processor.process(job)).rejects.toThrow(/safe-fetch/);
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
       expect(minio.upload).not.toHaveBeenCalled();
       expect(prisma.media.create).not.toHaveBeenCalled();
     });
@@ -264,7 +268,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       } as any as Job;
 
@@ -272,8 +276,8 @@ describe('AiImageEditProcessor', () => {
 
       // 冻结在外呼前发生，失败即解冻（批0.5-9）
       expect(teamCredit.reserve).toHaveBeenCalledTimes(1);
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
-      expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('API timeout'));
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
+      expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('API timeout'), undefined, 9n);
 
       // Must emit failure status
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
@@ -300,7 +304,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       }) as any as Job;
 
@@ -312,7 +316,7 @@ describe('AiImageEditProcessor', () => {
       expect(result.status).toBe('failed');
       // 批0.5-9：reserve 前置外呼——余额不足零外呼（不再白付第三方）
       expect(apiCaller.callOutpainting).not.toHaveBeenCalled();
-      expect(intentService.void_).toHaveBeenCalledWith('row-9', expect.stringContaining('CREDIT_INSUFFICIENT'));
+      expect(intentService.void_).toHaveBeenCalledWith('row-9', expect.stringContaining('CREDIT_INSUFFICIENT'), 9n);
       // F4 不变量：看到产物 ⇒ 已扣费——扣费失败则任何产物（Media 行/MinIO 对象）不得落库
       expect(prisma.media.create).not.toHaveBeenCalled();
       expect(minio.upload).not.toHaveBeenCalled();
@@ -345,7 +349,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          intentId: 'i-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
         },
       }) as any as Job;
 
@@ -357,7 +361,7 @@ describe('AiImageEditProcessor', () => {
       mockResult();
       await processor.process(makeIntentJob());
       expect(teamCredit.reserve).toHaveBeenCalledWith(
-        'user1', { intentRowId: 'row-9' },
+        'user1', { intentRowId: 'row-9', execSeq: 9n },
       );
     });
 
@@ -375,7 +379,7 @@ describe('AiImageEditProcessor', () => {
     it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常（O0b-2——AI 只写 fileId，data.{width,height} 键整删）', async () => {
       mockResult();
       await processor.process(makeIntentJob());
-      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-new');
+      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-new', 9n);
       expect(collabDoc.writeNodeData).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ fileId: 'media-new' }),
       );
@@ -398,20 +402,20 @@ describe('AiImageEditProcessor', () => {
     it('catch 路径：void_ 解冻 + fail 置 FAILED + writeExecStatus error（意图终态必达）', async () => {
       apiCaller.callOutpainting.mockRejectedValue(new Error('AI timeout'));
       await expect(processor.process(makeIntentJob())).rejects.toThrow('AI timeout');
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
-      expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('AI timeout'));
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
+      expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('AI timeout'), undefined, 9n);
       expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
-        'proj1', 'node1', expect.objectContaining({ status: 'error', intentId: 'i-9' }),
+        'proj1', 'node1', expect.objectContaining({ status: 'error' }),
       );
     });
 
     it('failed 钩子（SIGKILL 兜底，Y0c T28/Z41 拆两半）：findByActiveNode(job.id) 反查 → fail(jobId 限定)——PG 半；writeExecStatus 零调用（投影半归 api 最终一致链）', async () => {
-      intentService.findByActiveNode.mockResolvedValue({ id: 'row-9' });
+      intentService.findByActiveNode.mockResolvedValue({ id: 'row-9', execSeq: 9n }); // T9：钩子按票验代际——同代才 fail
       const job = { ...makeIntentJob(), id: 'job-9' };
       await processor.onFailed(job as any, new Error('worker killed'));
       expect(collabDoc.writeExecStatus).not.toHaveBeenCalled(); // Z41：投影不走 worker 失败钩子（重连 alignExecFromIntents+reconcile 收敛）
       expect(intentService.findByActiveNode).toHaveBeenCalledWith('proj1', 'node1', 'job-9'); // Z27：jobId 限定
-      expect(intentService.fail).toHaveBeenCalledWith('row-9', 'worker killed', 'job-9');
+      expect(intentService.fail).toHaveBeenCalledWith('row-9', 'worker killed', 'job-9', 9n);
     });
 
     it('failed 钩子：job 为 undefined（移除中）→ 零写零抛', async () => {

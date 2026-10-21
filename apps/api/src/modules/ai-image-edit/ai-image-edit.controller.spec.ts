@@ -38,7 +38,7 @@ describe('AiImageEditController', () => {
       assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'team-1' }),
     };
     intentSvc = {
-      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
+      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }), // T9：claim 返回行携 execSeq（controller 铸票）
       attachJob: vi.fn(),
       fail: vi.fn(),
     };
@@ -79,7 +79,8 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.outpaint(body, req);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512, 'row-1', 'i-1',
+        'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) }, // T9 票
       );
       expect(result).toEqual({ jobId: 'job-outpaint-1' });
     });
@@ -97,7 +98,8 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.erase(body, req);
       expect(service.enqueueErase).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'row-1', 'i-1',
+        'u1', 'proj1', 'node1', 'file-1', 'mask-1',
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) },
       );
       expect(result).toEqual({ jobId: 'job-erase-1' });
     });
@@ -117,7 +119,8 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.redraw(body, req);
       expect(service.enqueueRedraw).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70, 'row-1', 'i-1',
+        'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70,
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) },
       );
       expect(result).toEqual({ jobId: 'job-redraw-1' });
     });
@@ -171,7 +174,8 @@ describe('AiImageEditController', () => {
       const req = { user: { id: 'u1' } } as any;
       await controller.outpaint(outpaintBody, req);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
-        'u1', 'proj1', 'node1', 'file-1', outpaintBody.rect, 512, 512, 'row-1', 'i-1',
+        'u1', 'proj1', 'node1', 'file-1', outpaintBody.rect, 512, 512,
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.any(String) },
       );
       expect(intentSvc.attachJob).toHaveBeenCalledTimes(1);
       expect(intentSvc.attachJob).toHaveBeenCalledWith('row-1', 'job-outpaint-1');
@@ -202,7 +206,7 @@ describe('AiImageEditController', () => {
       service.enqueueOutpaint.mockRejectedValue(new Error('redis down'));
       const req = { user: { id: 'u1' } } as any;
       await expect(controller.outpaint(outpaintBody, req)).rejects.toThrow('redis down');
-      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('redis down'));
+      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('redis down'), undefined, 1n);
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
     });
   });

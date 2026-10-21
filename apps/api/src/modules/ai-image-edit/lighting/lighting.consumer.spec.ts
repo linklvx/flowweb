@@ -30,6 +30,7 @@ describe('LightingConsumer', () => {
         create: vi.fn().mockResolvedValue({ id: 'media-1' }),
       },
       team: { findFirst: vi.fn() },
+      generationIntent: { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING', execSeq: 9n }) }, // T9 catch fence 读行
     };
     minio = {
       generatePresignedGetUrl: vi.fn().mockResolvedValue('https://minio.local/signed'),
@@ -70,7 +71,7 @@ describe('LightingConsumer', () => {
     consumer = module.get<LightingConsumer>(LightingConsumer);
   });
 
-  const makeJob = (projectId?: string, intent?: { intentRowId: string; intentId: string }) =>
+  const makeJob = (projectId?: string, intent?: { intentRowId?: string; ticket?: any }) =>
     ({
       data: {
         taskType: 'lighting',
@@ -95,7 +96,7 @@ describe('LightingConsumer', () => {
 
   it('有 project 上下文：Media 归属 = project.teamId，不反推', async () => {
     mockDownloadResult();
-    await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
+    await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' } }), {});
 
     // T6：结果下载经 SafeRemoteFetch.fetchBuffer（SSRF 四门+限长）——不再 axios 直连
     expect(safeFetch.fetchBuffer).toHaveBeenCalledWith('https://ai.result/r.png');
@@ -107,14 +108,14 @@ describe('LightingConsumer', () => {
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
     // A-1 根修（Y0b-2 T5）：reserve 收敛 processor（队列入口）——consumer 零 reserve；settle 核销照走
     expect(teamCredit.reserve).not.toHaveBeenCalled();
-    expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' });
+    expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
   });
 
   it('T6 SSRF 拒路径：fetchBuffer 拒（私网/allowlist 外/超限）→ 抛错（BullMQ failed）+ void_ 解冻（对齐 ai-image-edit 同款——冻结不滞留）+零上传零 Media', async () => {
     safeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch host 不在 allowlist: ai.result'));
-    await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
+    await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' } }), {}))
       .rejects.toThrow(/safe-fetch/);
-    expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
+    expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
     expect(minio.upload).not.toHaveBeenCalled();
     expect(prisma.media.create).not.toHaveBeenCalled();
   });
@@ -123,7 +124,7 @@ describe('LightingConsumer', () => {
     prisma.team.findFirst.mockResolvedValue({ id: 't-personal' });
     mockDownloadResult();
 
-    await consumer.handleLightingJob(makeJob(undefined));
+    await consumer.handleLightingJob(makeJob(undefined), {});
 
     expect(prisma.team.findFirst).toHaveBeenCalledWith({
       where: { ownerId: 'u1', isDefault: true },
@@ -142,7 +143,7 @@ describe('LightingConsumer', () => {
     prisma.canvasProject.findUnique.mockResolvedValue(null);
     mockDownloadResult();
 
-    await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('PROJECT_TEAM_MISSING');
+    await expect(consumer.handleLightingJob(makeJob('proj-1'), {})).rejects.toThrow('PROJECT_TEAM_MISSING');
 
     // team 解析先于付费 AI 调用：project 缺失属永久性错误，不应浪费一次 relighting 调用
     expect(apiCaller.callRelighting).not.toHaveBeenCalled();
@@ -160,12 +161,12 @@ describe('LightingConsumer', () => {
       mockDownloadResult();
 
       // guard 完整：正常链零 reserve 调用（A-1——二次 reserve 白扣费根修的守护锚）
-      await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }));
+      await consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' } }), {});
       expect(teamCredit.reserve).not.toHaveBeenCalled();
       expect(apiCaller.callRelighting).toHaveBeenCalledTimes(1); // 正常链外呼恰一次
 
       // guard 缺失=接线断裂——拒绝（processor 侧同款守卫的前线兜底）——外呼计数不增
-      await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('INTENT_GUARD_MISSING');
+      await expect(consumer.handleLightingJob(makeJob('proj-1'), {})).rejects.toThrow('INTENT_GUARD_MISSING');
       expect(apiCaller.callRelighting).toHaveBeenCalledTimes(1); // 零外呼
       expect(prisma.media.create).toHaveBeenCalledTimes(1); // 仅首段正常链落库（F4：违约段产物零落库）
     });
@@ -174,10 +175,10 @@ describe('LightingConsumer', () => {
       apiCaller.callRelighting.mockRejectedValue(new Error('relight boom'));
       mockDownloadResult();
 
-      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' })))
+      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' } }), {}))
         .rejects.toThrow('relight boom');
 
-      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9' });
+      expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
     });
 
     it('originalImageId 归属：属他人且非本项目 → 拒绝（不泄露存在性）', async () => {
@@ -189,7 +190,7 @@ describe('LightingConsumer', () => {
       });
       mockDownloadResult();
 
-      await expect(consumer.handleLightingJob(makeJob('proj-1'))).rejects.toThrow('Media not found: media-src');
+      await expect(consumer.handleLightingJob(makeJob('proj-1'), {})).rejects.toThrow('Media not found: media-src');
       // 归属校验先于付费 AI 调用：越权读不应触发 relighting
       expect(apiCaller.callRelighting).not.toHaveBeenCalled();
     });
@@ -198,7 +199,7 @@ describe('LightingConsumer', () => {
       collabDoc.writeNodeData.mockRejectedValue(new Error('doc write boom'));
       mockDownloadResult();
 
-      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', intentId: 'i-9' }))).rejects.toThrow('doc write boom');
+      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' } }), {})).rejects.toThrow('doc write boom');
 
       // SUCCESS 已落库（resultImageUrl/resultMediaId 已写）→ catch 覆写 FAILED 时必须同笔清空，
       // 否则 FAILED 行残留产物 URL（getTask 可取）——状态与产物矛盾
@@ -215,26 +216,26 @@ describe('LightingConsumer', () => {
   });
 
   describe('批0.5-8/0.5-9 意图表扩面（reserve guard + settle 核销 + complete 门序）', () => {
-    const intent = { intentRowId: 'row-9', intentId: 'i-9' };
+    const intent = { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' } };
 
     it('A-1：consumer 零 reserve（金额单源 intent 行+冻结收敛 processor 队列入口——双 reserve 白扣费根修守护）', async () => {
       mockDownloadResult();
-      await consumer.handleLightingJob(makeJob('proj-1', intent));
+      await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(teamCredit.reserve).not.toHaveBeenCalled();
-      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9' }); // 核销照走（冻结在手凭据）
+      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n }); // 核销照走（冻结在手凭据）
     });
 
     it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常', async () => {
       mockDownloadResult();
-      await consumer.handleLightingJob(makeJob('proj-1', intent));
-      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-1');
+      await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-1', 9n);
       expect(collabDoc.writeNodeData).toHaveBeenCalledWith('proj-1', 'n1', { fileId: 'media-1' });
     });
 
     it('complete 门序闭（count===0，reconcile 已 VOIDED）：writeNodeData/SUCCESS 回填/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
       intentService.complete.mockResolvedValue(0);
       mockDownloadResult();
-      const result = await consumer.handleLightingJob(makeJob('proj-1', intent));
+      const result = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
       expect(prisma.lightingTask.update).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'success' }) }),

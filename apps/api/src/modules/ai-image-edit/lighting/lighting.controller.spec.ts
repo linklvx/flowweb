@@ -39,7 +39,7 @@ describe('LightingController', () => {
       resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }),
     };
     intentSvc = {
-      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
+      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }),
       attachJob: vi.fn(),
       fail: vi.fn(),
     };
@@ -87,7 +87,7 @@ describe('LightingController', () => {
     it('EDITOR：assertEditor 放行且 userId 取自 req.user（替换 default-user）', async () => {
       await controller.createTask(body, mockReq('user-1'));
       expect(permSvc.assertEditorWithTeam).toHaveBeenCalledWith('proj-1', 'user-1');
-      expect(service.createTask).toHaveBeenCalledWith(body, 'user-1', 'row-1', 'i-1');
+      expect(service.createTask).toHaveBeenCalledWith(body, 'user-1', { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) }); // T9 票
     });
 
     it('VIEWER：403 拒绝且 service.createTask 未被调用', async () => {
@@ -139,7 +139,7 @@ describe('LightingController', () => {
 
     it('claim 成功 → createTask 携 intentRowId/intentId + attachJob 回写 jobId（F13 资损盲区）', async () => {
       const result = await controller.createTask(body as any, mockReq());
-      expect(service.createTask).toHaveBeenCalledWith(body, 'user-1', 'row-1', 'i-1');
+      expect(service.createTask).toHaveBeenCalledWith(body, 'user-1', { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) }); // T9 票
       expect(intentSvc.attachJob).toHaveBeenCalledTimes(1);
       expect(intentSvc.attachJob).toHaveBeenCalledWith('row-1', 'job-9');
       expect((result as any).taskId).toBe('task-1'); // T6 信封清剿：裸值
@@ -155,7 +155,7 @@ describe('LightingController', () => {
     it('同 token 重放（claim created:false SUCCEEDED）→ createTask 零调用 + 裸值返回既有结果（T6 信封清剿）', async () => {
       intentSvc.claim.mockResolvedValue({
         created: false,
-        intent: { id: 'row-1', intentId: 'i-1', status: 'SUCCEEDED', resultRef: 'media-old' },
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
       });
       const result = await controller.createTask(body as any, mockReq());
       expect(service.createTask).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe('LightingController', () => {
     it('createTask 失败（积分不足等）→ fail 置 FAILED（防 RUNNING 孤儿锁节点）+ 异常透传', async () => {
       service.createTask.mockRejectedValue(new Error('积分不足，无法提交任务'));
       await expect(controller.createTask(body as any, mockReq())).rejects.toThrow('积分不足');
-      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('积分不足'));
+      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('积分不足'), undefined, 1n);
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
     });
 
@@ -174,7 +174,7 @@ describe('LightingController', () => {
       service.createTask.mockResolvedValue({ taskId: 'existing-task', status: 'pending' }); // 无 jobId——去重分支
       const result = await controller.createTask(body as any, mockReq());
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
-      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.any(String));
+      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.any(String), undefined, 1n);
       expect(result).toEqual({ replayed: true, taskId: 'existing-task', status: 'pending' }); // T6 信封清剿：裸值
     });
   });

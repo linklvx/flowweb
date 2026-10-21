@@ -7,6 +7,7 @@ import { getOwnerTeamId, assertTeamMember } from '../../team/team.util';
 import { PricingResolverService } from '../../execution/pricing-resolver.service';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit.constants';
 import type { CreateLightingTaskDto } from './dto/create-lighting-task.dto';
+import type { ExecutionTicket } from '../../execution/execution.types';
 
 const LightingTaskStatus = {
   PENDING: 'pending',
@@ -35,13 +36,13 @@ export class LightingService {
     @Inject(PricingResolverService) private readonly resolver: PricingResolverService,
   ) {}
 
-  /** 批0.5-8：intentRowId/intentId 随 job.data 下传 consumer；新入队返回 jobId 供 controller attachJob
-   *  回写（60s 去重分支无新 job → jobId undefined，controller 侧按重放处理）。 */
+  /** 批0.5-8：意图锚随 job.data 下传 consumer；新入队返回 jobId 供 controller attachJob 回写
+   *  （60s 去重分支无新 job → jobId undefined，controller 侧按重放处理）。
+   *  Y1a T9：ticket=完整执行代际票（jobId 预生成 UUID 随 add({jobId}) 入队——票完整先于入队）。 */
   async createTask(
     dto: CreateLightingTaskDto,
     userId: string,
-    intentRowId?: string,
-    intentId?: string,
+    ticket?: ExecutionTicket,
   ): Promise<{ taskId: string; status: string; jobId?: string }> {
     // Validate params
     const { params, originalImageId } = dto;
@@ -108,20 +109,23 @@ export class LightingService {
       },
     });
 
-    // Enqueue job
-    const job = await this.queue.add('lighting', {
-      taskType: 'lighting',
-      userId,
-      nodeId: dto.nodeId,
-      projectId: dto.projectId,
-      taskId: task.id,
-      originalImageId,
-      params,
-      taskDbId: task.id,
-      ...(intentRowId ? { intentRowId, intentId } : {}),
-    });
-
-    return { taskId: task.id, status: 'pending', jobId: job.id! };
+    // Enqueue job（T9：ticket 随 job.data；jobId=预生成 UUID——add({jobId}) 幂等锚）
+    if (ticket) {
+      const job = await this.queue.add('lighting', {
+        taskType: 'lighting',
+        userId,
+        nodeId: dto.nodeId,
+        projectId: dto.projectId,
+        taskId: task.id,
+        originalImageId,
+        params,
+        taskDbId: task.id,
+        intentRowId: ticket.intentRowId,
+        ticket,
+      }, { jobId: ticket.jobId });
+      return { taskId: task.id, status: 'pending', jobId: job.id! };
+    }
+    return { taskId: task.id, status: 'pending' };
   }
 
   async getTask(taskId: string, userId: string) {

@@ -14,6 +14,7 @@ import { artifactDiscardedTotal, countExecProjectionFailure } from '../execution
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
+import type { ExecutionTicket } from '../execution/execution.types';
 
 export interface AiImageEditJobData {
   taskType: 'outpaint' | 'erase' | 'redraw' | 'lighting';
@@ -27,9 +28,12 @@ export interface AiImageEditJobData {
   imageHeight?: number;
   prompt?: string;
   strength?: number;
-  /** 批0.5-8：意图行 id / 客户端幂等键——controller claim 后随 job.data 下传（consume guard/complete 门序/failed 钩子） */
+  /** 批0.5-8：意图行 id——controller claim 后随 job.data 下传（consume guard/complete 门序/failed 钩子）。
+   *  Y1a T9：ticket=完整执行代际票 {intentRowId,execSeq,jobId}（execSeq wire=string）——reserve/onTick/
+   *  complete/fail 全链代际 CAS；旧 job 在新代后重投=零副作用（reserve 旧票 mayCall:false+onTick abort+
+   *  catch 旧代静默退役）。 */
   intentRowId?: string;
-  intentId?: string;
+  ticket?: ExecutionTicket;
 }
 
 /** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
@@ -65,7 +69,10 @@ export class AiImageEditProcessor extends WorkerHost {
   }
 
   async process(job: Job<AiImageEditJobData>): Promise<{ status: string; fileId?: string; reason?: string }> {
-    const { taskType, userId, projectId, nodeId, fileId, maskFileId, rect, imageWidth, imageHeight, prompt, strength, intentRowId, intentId } = job.data;
+    const { taskType, userId, projectId, nodeId, fileId, maskFileId, rect, imageWidth, imageHeight, prompt, strength, intentRowId, ticket } = job.data;
+    // T9：ticket.execSeq wire=string——解析一次贯穿（reserve/onTick/complete/fail/void_ 代际 CAS 共用）
+    const execSeq = ticket ? BigInt(ticket.execSeq) : undefined;
+    const intentLogId = intentRowId ?? 'unknown';
     this.logger.log(`Processing ${taskType} for node ${nodeId}`);
 
     try {
@@ -80,27 +87,28 @@ export class AiImageEditProcessor extends WorkerHost {
         return { status: 'failed', reason: 'PROJECT_TEAM_MISSING' };
       }
 
-      // 2. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=0.5-8 接线断裂——
-      //    拒绝付费外呼（无幂等锚的扣费=重试双扣/白嫖二义）
-      if (!intentRowId || !intentId) {
-        this.logger.warn(`Edit intent guard missing for node ${nodeId}——拒绝付费外呼（0.5-8 起 enqueue 恒带意图锚）`);
+      // 2. 批0.5-9 reserve 外呼之前（余额不足即拒=零外呼）。guard 缺失=接线断裂——
+      //    拒绝付费外呼（无幂等锚的扣费=重试双扣/白嫖二义）；T9 起 ticket=必带代际票
+      if (!intentRowId || !execSeq) {
+        this.logger.warn(`Edit intent guard/ticket missing for node ${nodeId}——拒绝付费外呼（T9 起 enqueue 恒带代际票）`);
         return { status: 'failed', reason: 'INTENT_GUARD_MISSING' };
       }
       // A-1 根修（Y0b-2 T5）：reserve 收敛 processor 一处（队列入口结构位——全 taskType 统一含
       // lighting）；consumer 不再二次 reserve（旧双 reserve：第二次必 mayCall:false→skipped 永不外呼
       // →deadline 批 backfillSucceeded→settleStranded 补 settle=1 credit 白扣）。
       // Y0b-1（Z10）：金额单源 intent 行（claim 固化 plan 快照）——worker 不再解析定价
-      const reserveResult = await this.teamCredit.reserve(userId, { intentRowId });
+      const reserveResult = await this.teamCredit.reserve(userId, { intentRowId, execSeq });
       if (reserveResult.mayCall === false) {
-        // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
+        // Z35：alreadyReserved=他人在飞（stall 重排）/T9 EXEC_SEQ_STALE=行已换代（旧 job 在新代后重投）
+        // ——静默退出零副作用（不 void_/不 fail/不写 exec/不 emit）
         intentDuplicateAttemptTotal.inc();
-        this.logger.warn(`[reserve] 意图 ${intentId} 重复外呼企图——静默退出（悬挂收敛归 reconcile）`);
+        this.logger.warn(`[reserve] 意图 ${intentLogId} 重复外呼企图（${reserveResult.reason ?? 'alreadyReserved'}）——静默退出（悬挂收敛归 reconcile/接管新代）`);
         return { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT' };
       }
       if (!reserveResult.success) {
         const reason = reserveResult.reason ?? 'RESERVE_FAILED';
         this.logger.warn(`Edit credit-reserve failed for node ${nodeId}: ${reason}`);
-        await this.intentService.void_(intentRowId, `扣费失败：${reason}`); // 零扣费终态——重试照常扣费
+        await this.intentService.void_(intentRowId, `扣费失败：${reason}`, execSeq); // 零扣费终态——重试照常扣费
         this.emitPort.emitNodeStatus(projectId, {
           nodeId,
           status: 'edit-failed',
@@ -112,22 +120,28 @@ export class AiImageEditProcessor extends WorkerHost {
       // 3. Y0b-2 T4：外呼前重锚（startedAt=外呼起点〔Z83 phase 判据〕+deadline 终锚+心跳——
       //    编辑链意图行在 controller claim 时锚=排队档，processor reserve 后外呼将开始才重锚）。
       //    lighting 同链（taskType 即 kind 档表键）——外呼虽转发至 consumer，链起点在此。
-      //    A-2（T4 M-1）：count===0=行已终态（Z84 宽限后 VOID 的迟归 job）——早退不再 submit。
-      const reanchored = await this.intentService.reanchorDeadline(intentRowId, taskType);
+      //    A-2（T4 M-1）：count===0=行已终态**或已换代**（T9）——早退不再 submit。
+      const reanchored = await this.intentService.reanchorDeadline(intentRowId, taskType, execSeq);
       if (reanchored === 0) {
-        this.logger.warn(`[reanchor] 意图 ${intentId} 行已终态（迟归 job）——早退零外呼`);
+        this.logger.warn(`[reanchor] 意图 ${intentLogId} 行已终态/换代（迟归 job）——早退零外呼`);
         return { status: 'skipped', reason: 'INTENT_TERMINAL_EARLY' };
       }
-      // onTick 双职（Z69）：每 tick touchHeartbeat+读意图状态——reaper 收敛（VOIDED/FAILED）⇒ abort 停外呼
-      const onTick = async (): Promise<'abort' | void> => {
-        await this.intentService.touchHeartbeat(intentRowId);
-        const row = await this.prisma.generationIntent.findUnique({ where: { id: intentRowId }, select: { status: true } });
-        if (row && row.status !== 'RUNNING') return 'abort';
+      // T9 provider 锚：write-ahead requestId（submit 前落库）+resumeTaskId（query-first 复用——
+      //    kill after submit→重跑按任务直查零重复外呼）；onTick 双职（Z69+代际）经 tickFence 单源。
+      const idempotencyKey = await this.intentService.ensureProviderRequestId(intentRowId, execSeq);
+      const anchorRow = await this.prisma.generationIntent.findUnique({
+        where: { id: intentRowId }, select: { providerTaskId: true },
+      });
+      const providerOpts = {
+        onTick: async (): Promise<'abort' | void> => this.intentService.tickFence(intentRowId, execSeq),
+        resumeTaskId: anchorRow?.providerTaskId ?? null,
+        idempotencyKey,
+        onProviderTaskId: (taskId: string) => this.intentService.recordProviderTaskId(intentRowId, execSeq, taskId),
       };
 
-      // 4. lighting 转发 consumer（A-1：冻结已在手——consumer 只跑外呼/产物/settle/complete）
+      // 4. lighting 转发 consumer（A-1：冻结已在手——consumer 只跑外呼/产物/settle/complete；T9 票随行）
       if (taskType === 'lighting') {
-        return this.lightingConsumer.handleLightingJob(job as unknown as Job<LightingJobData>);
+        return this.lightingConsumer.handleLightingJob(job as unknown as Job<LightingJobData>, providerOpts);
       }
 
       // 5. Get presigned URLs for source image and optional mask（编辑三类——lighting job 无 fileId 键，
@@ -140,7 +154,7 @@ export class AiImageEditProcessor extends WorkerHost {
         maskUrl = await this.minio.generatePresignedGetUrl(maskKey, 3600);
       }
 
-      // 6. Call the appropriate API method
+      // 6. Call the appropriate API method（T9：providerOpts 全量下传——resume/幂等键/taskId 落库）
       let result: { url: string };
       switch (taskType) {
         case 'outpaint':
@@ -150,14 +164,14 @@ export class AiImageEditProcessor extends WorkerHost {
             imageWidth!,
             imageHeight!,
             undefined,
-            { onTick },
+            providerOpts,
           );
           break;
         case 'erase':
-          result = await this.apiCaller.callErase(imageUrl, maskUrl!, { onTick });
+          result = await this.apiCaller.callErase(imageUrl, maskUrl!, providerOpts);
           break;
         case 'redraw':
-          result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!, { onTick });
+          result = await this.apiCaller.callRedraw(imageUrl, maskUrl!, prompt!, strength!, providerOpts);
           break;
         default:
           throw new Error(`Unknown taskType: ${taskType}`);
@@ -190,16 +204,16 @@ export class AiImageEditProcessor extends WorkerHost {
         },
       });
 
-      // 9.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前）
-      const settled = await this.teamCredit.settle({ intentRowId });
-      if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentId} settle 未达（冻结由 reconcile 兜底）`);
+      // 9.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前；T9 代际 CAS）
+      const settled = await this.teamCredit.settle({ intentRowId, execSeq });
+      if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentLogId} settle 未达（冻结由 reconcile 兜底）`);
 
       // 9.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
-      //     count===0 = 行已被 reconcile VOIDED+退款，writeNodeData/emit 零调用（外呼产物留作物证）
+      //     count===0 = 行已被 reconcile VOIDED+退款**或已换代**（T9 旧代产物不投递），writeNodeData/emit 零调用（外呼产物留作物证）
       if (intentRowId) {
-        const gated = await this.intentService.complete(intentRowId, media.id);
+        const gated = await this.intentService.complete(intentRowId, media.id, execSeq);
         if (gated !== 1) {
-          this.logger.warn(`[intent-reconcile] 意图 ${intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+          this.logger.warn(`[intent-reconcile] 意图 ${intentLogId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作物证）`);
           return { status: 'completed', fileId: media.id };
         }
       }
@@ -225,12 +239,23 @@ export class AiImageEditProcessor extends WorkerHost {
     } catch (error: any) {
       this.logger.error(`Edit failed: ${error.message}`, error.stack);
 
+      // T9 旧代 fence：行已换代（takeover/rearm nextval 新代接管）——旧 job 失败静默退役：
+      // 零终态零退款零投影零 emit（旧代 void_/fail 代际 CAS 亦 0 命中；error 投影会覆盖新代 loading）。
+      if (intentRowId && execSeq) {
+        const row = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { status: true, execSeq: true },
+        }).catch(() => null);
+        if (row && row.status === 'RUNNING' && row.execSeq !== execSeq) {
+          this.logger.warn(`[execSeq-fence] 意图 ${intentLogId} 旧代 job 失败让位（行已换代）——零副作用退役`);
+          return { status: 'skipped', reason: 'EXEC_SEQ_STALE' };
+        }
+      }
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），批0.5-8 终态必达——外呼抛错置 FAILED
       // （SIGKILL 场景本 catch 不执行，由 failed 钩子兜底；冻结滞留由 reconcile 超龄三查②解冻）
       if (intentRowId) {
-        await this.teamCredit.void_({ intentRowId })
-          .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentId} void_ 解冻失败（reconcile 兜底）: ${e}`));
-        await this.intentService.fail(intentRowId, String(error?.message ?? error));
+        await this.teamCredit.void_({ intentRowId, execSeq })
+          .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${intentLogId} void_ 解冻失败（reconcile 兜底）: ${e}`));
+        await this.intentService.fail(intentRowId, String(error?.message ?? error), undefined, execSeq);
       }
       if (projectId) {
         // Z111：投影携 attempts（行已 fail 亦可读——attempts 不随终态变化；读失败按 0 代不挡原始错误上抛）
@@ -242,7 +267,6 @@ export class AiImageEditProcessor extends WorkerHost {
         }
         await this.collabDoc.writeExecStatus(projectId, nodeId, {
           status: 'error', error: String(error?.message ?? error).slice(0, 200), attempts,
-          ...(intentId ? { intentId } : {}),
         }).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
       }
 
@@ -271,11 +295,16 @@ export class AiImageEditProcessor extends WorkerHost {
   async onFailed(job: Job<AiImageEditJobData> | undefined, err: Error) {
     try {
       if (!job) return;
-      const { projectId, nodeId } = job.data ?? {};
+      const { projectId, nodeId, ticket } = job.data ?? {};
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
-      if (running) await this.intentService.fail(running.id, reason, job.id); // ACTIVE 守卫幂等——与 process catch 双写不冲突
+      if (running) {
+        // T9：迟到的旧 job 失败钩子 vs 行已换代——ticket 代际票与行不符即让位（不误杀接管新代；
+        // 无票 job=接线断裂形态，jobId 守卫兜底维持旧语义）
+        if (ticket && running.execSeq !== BigInt(ticket.execSeq)) return;
+        await this.intentService.fail(running.id, reason, job.id, running.execSeq); // ACTIVE 守卫幂等——与 process catch 双写不冲突
+      }
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);
     }
