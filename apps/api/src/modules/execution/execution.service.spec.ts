@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 import { NodeBusyError } from './generation-intent.service';
+import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
 
 describe('ExecutionService', () => {
   let service: ExecutionService;
@@ -29,6 +30,7 @@ describe('ExecutionService', () => {
   let mockDownloadQueue: any;
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
   let intentSvc: any; // Y0c T12：结构断言族/replay 分支需逐测试改 claim/complete/reanchorDeadline 判据
+  let artifactCommit: any;   // T10：image/text finalize（stub——默认 committed）
 
   beforeEach(async () => {
     prisma = {
@@ -83,9 +85,14 @@ describe('ExecutionService', () => {
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     };
 
+    // T10：artifactCommit 默认 committed（mediaId 锚）——本文件焦点在执行链序/交付键；finalize 资金面归 artifact-commit.int.spec
+    artifactCommit = {
+      commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10', key: 'artifacts/t/i/1/0-abc' }),
+      finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }),
+    };
     // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）——本文件只测产物序/余额口径
     intentSvc = {
-      claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }),
+      claim: vi.fn().mockResolvedValue({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }),   // T10：claimCapture 返回槽位 rev
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
@@ -111,6 +118,7 @@ describe('ExecutionService', () => {
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: GenerationIntentService, useValue: intentSvc },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },   // Y1a T8：上游身份读源 mock（默认无上游图）
+        { provide: ArtifactCommitService, useValue: artifactCommit },   // T10
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);
@@ -220,21 +228,50 @@ describe('ExecutionService', () => {
       .toBeLessThan(teamCredit.rollbackDeliveryFailed.mock.invocationCallOrder[0]);
   });
 
-  it('should enqueue ai-result-download after AI returns resultUrl', async () => {
+  it('T10：image 腿交付改 fileId=mediaId 同步落地——ai-result-download 入队删除（Media 已随 finalize 落库）', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
 
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
-    expect(mockDownloadQueue.add).toHaveBeenCalledWith(
-      'ai-result-download',
-      expect.objectContaining({
-        userId: 'default-user',
-        projectId: 'p1',
-        nodeId: 'n2',
-        resultUrl: '/mock/test.jpg',
-        mimeType: 'image/png',
-      }),
-    );
+    expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'p1', nodeId: 'n2', teamId: 't1', userId: 'default-user',
+      intentRowId: 'intent-1', execSeq: 1n, expectedRev: 0, sourceUrl: '/mock/test.jpg',
+    }));
+    expect(mockDownloadQueue.add).not.toHaveBeenCalled();   // 旧红：现状 image 腿必入队
+    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
+    expect(batch[0].patch).toEqual({ fileId: 'media-t10' });   // 旧红：现状 { resultUrl: '/mock/test.jpg' }
+    expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-t10' });
+  });
+
+  it('T10：text 腿 finalizeText+交付只写 {result}（content 回显删除）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [{ id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } }], edges: [] });
+    topology.sort.mockImplementation((nodes: any[]) => nodes);   // 直通（默认 mock 返固定 n1+n2——单节点断言被污染）
+    const result = await service.execute('p1', undefined, 'default-user', ['n1']);   // n1=textInput（单节点作用域）
+    expect(result.success).toBe(true);
+    expect(artifactCommit.finalizeText).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'p1', nodeId: 'n1', resultText: 'hello', expectedRev: 0,
+    }));
+    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
+    expect(batch[0].patch).toEqual({ result: 'hello' });   // 旧红：现状 { content: 'hello', result: 'hello' }
+  });
+
+  it('T10 资金独立判调用方面：superseded → doc 不覆盖用户值（仅 done 投影批）+实扣照计；intent-stale → INTENT_DEADLINE_EXCEEDED 早退', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    const n2Only = { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } };
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [n2Only], edges: [] });
+    topology.sort.mockImplementation((nodes: any[]) => nodes);
+    artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x' });
+    const r1 = await service.execute('p1', undefined, 'default-user', ['n2']);   // 单节点作用域（默认拓扑 n1+n2 双扣）
+    expect(r1.success).toBe(true);   // superseded 非节点失败（产物已入库）
+    expect(r1.totalCost).toBe(5);    // 照常实扣（无条件退款即红）
+    const batchSup = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
+    expect(batchSup.map((o: any) => o.op)).toEqual(['writeExecStatus']);   // 无 data 覆盖 op
+    artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
+    const r2 = await service.execute('p1', undefined, 'default-user', ['n2']);
+    expect(r2.success).toBe(false);
+    expect(r2.errors[0]).toMatchObject({ errorCode: 'INTENT_DEADLINE_EXCEEDED' });
+    expect(r2.totalCost).toBe(0);
   });
 
   it('node:status credits 为完整余额对象（文本/图片节点），total = credits + subscriptionCredits', async () => {
@@ -469,7 +506,7 @@ describe('ExecutionService', () => {
       expect(docWriter.writeBatch).toHaveBeenCalledTimes(1); // 现红：writeBatch 零调用（两单写）
       const ops = vi.mocked(docWriter.writeBatch).mock.calls[0][1] as any[];
       expect(ops.map((o) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']); // artifact 在前 done 在后
-      expect(ops[0].patch).toEqual({ resultUrl: '/mock/replay.png' });            // image 腿产物键
+      expect(ops[0].patch).toEqual({ fileId: '/mock/replay.png' });               // T10：image 腿产物键=fileId（resultRef=mediaId）
       expect(ops[1].patch).toMatchObject({ status: 'done', intentId: 'i-1', attempts: 2, fileId: '/mock/replay.png' });
       expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();  // 单写入口零调用（合并判据）
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();

@@ -46,7 +46,7 @@ export class LightingController {
     // 拒 ⇒ 零意图行零退款义务；503 WORKER_ABSENT+Retry-After: 30）。
     await this.presence.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT);
     const pricing = await this.resolver.resolveByNodeTypeKey('lighting');
-    const { intent, created } = await this.intentService.claim({
+    const { intent, created, artifactRev } = await this.intentService.claim({
       projectId: body.projectId,
       nodeId: body.nodeId,
       userId,
@@ -66,7 +66,7 @@ export class LightingController {
     }
     // Y1a T9：ExecutionTicket {intentRowId,execSeq,jobId}——jobId 预生成 UUID（add({jobId})）+
     // execSeq wire=string；fail 均携代际票（旧代 0 命中）。
-    const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID() };
+    const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID(), expectedRev: artifactRev };   // T10：claimCapture 槽位 rev 随票
     try {
       const result = await this.service.createTask(body, userId, ticket);
       if (result.jobId) {

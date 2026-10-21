@@ -10,6 +10,7 @@ import { CollabWritePort } from '../collab/collab-write.port';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
+import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
 import { Job } from 'bullmq';
 
 describe('AiImageEditProcessor', () => {
@@ -22,6 +23,7 @@ describe('AiImageEditProcessor', () => {
   let collabDoc: any;
   let intentService: any;
   let safeFetch: any;
+  let artifactCommit: any;   // T10：产物落地/资金核销改道（stub——默认 committed）
 
   beforeEach(async () => {
     prisma = {
@@ -56,6 +58,10 @@ describe('AiImageEditProcessor', () => {
       void_: vi.fn().mockResolvedValue(undefined),
     };
     collabDoc = { writeNodeData: vi.fn().mockResolvedValue({ written: true }), writeExecStatus: vi.fn().mockResolvedValue(undefined) }; // Y0b-2 T5：交付判据类型化 {written,reason}
+    // T10：commitImage=stage→下载→上传→finalize 单事务的 stub 面（默认 committed——mediaId 锚 media-new）
+    artifactCommit = {
+      commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-new', key: 'artifacts/t/r/9/0-abc' }),
+    };
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
@@ -80,6 +86,7 @@ describe('AiImageEditProcessor', () => {
         { provide: LightingConsumer, useValue: { handleLightingJob: vi.fn() } },
         { provide: GenerationIntentService, useValue: intentService },
         { provide: SafeRemoteFetchService, useValue: safeFetch },
+        { provide: ArtifactCommitService, useValue: artifactCommit },   // T10
       ],
     }).compile();
     processor = module.get<AiImageEditProcessor>(AiImageEditProcessor);
@@ -101,7 +108,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       } as any as Job;
 
@@ -115,22 +122,18 @@ describe('AiImageEditProcessor', () => {
         undefined,
         expect.objectContaining({ onTick: expect.any(Function) }), // Y0b-2 T4：onTick 双职（心跳+reaper 收敛 abort）
       );
-      expect(minio.upload).toHaveBeenCalled();
-      // T6：结果下载经 SafeRemoteFetch.fetchBuffer（SSRF 四门+限长）——不再 axios 直连
-      expect(safeFetch.fetchBuffer).toHaveBeenCalledWith('https://dashscope.result/outpaint.png');
-      expect(prisma.media.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: 'generated',
-            status: 'completed',
-            userId: 'user1',
-          }),
-        }),
-      );
-      // 批0.5-9 两阶段：reserve 外呼之前 + settle 外呼成功后（Y0b-1 Z10 金额单源 intent 行——guard 仅带 intentRowId）
+      // T10：产物落地/资金核销改道 commitImage（下载/上传/media.create/settle/complete 均在其内——
+      // processor 直用面退役；归属锚 teamId=project.teamId 透传）
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: 'proj1', nodeId: 'node1', teamId: 'team1', userId: 'user1',
+        intentRowId: 'row-9', execSeq: 9n, expectedRev: 0, sourceUrl: 'https://dashscope.result/outpaint.png',
+      }));
+      expect(prisma.media.create).not.toHaveBeenCalled();   // 唯一 Media 写入点=MediaRegistration（commitImage 内）
+      // 批0.5-9 两阶段：reserve 外呼之前（settle 归 finalize 单事务——processor 不再直调）
       expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9', execSeq: 9n });
-      expect(teamCredit.settle).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
+      expect(teamCredit.settle).not.toHaveBeenCalled();
       expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callOutpainting.mock.invocationCallOrder[0]);
+      expect(apiCaller.callOutpainting.mock.invocationCallOrder[0]).toBeLessThan(artifactCommit.commitImage.mock.invocationCallOrder[0]);
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
         expect.objectContaining({
@@ -154,7 +157,7 @@ describe('AiImageEditProcessor', () => {
           fileId: 'file-1',
           maskFileId: 'mask-1',
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       } as any as Job;
 
@@ -166,7 +169,7 @@ describe('AiImageEditProcessor', () => {
         expect.objectContaining({ onTick: expect.any(Function) }), // Y0b-2 T4：onTick 双职
       );
       expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9', execSeq: 9n });
-      expect(teamCredit.settle).toHaveBeenCalledTimes(1);
+      expect(artifactCommit.commitImage).toHaveBeenCalledTimes(1);
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
         'proj1',
         expect.objectContaining({ status: 'edit-result' }),
@@ -187,16 +190,12 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       } as any as Job;
 
       await processor.process(job);
-      expect(prisma.media.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ teamId: 'team1' }),
-        }),
-      );
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team1' }));   // 生成物归属=project.teamId
       // 不再调用 team.findFirst 反推
       expect(prisma.team.findFirst).not.toHaveBeenCalled();
     });
@@ -216,7 +215,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       } as any as Job;
 
@@ -230,8 +229,8 @@ describe('AiImageEditProcessor', () => {
   });
 
   describe('failure path', () => {
-    it('T6 SSRF 拒路径：fetchBuffer 拒（私网/allowlist 外/超限）→ void_ 解冻 + fail 置 FAILED + 零上传零 Media', async () => {
-      safeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch 私网/保留地址拒: dashscope.result → 10.0.0.1'));
+    it('T6/T10 SSRF 拒路径：commitImage 内下载拒（私网/allowlist 外/超限）→ void_ 解冻 + fail 置 FAILED + 零上传零 Media', async () => {
+      artifactCommit.commitImage.mockRejectedValue(new Error('safe-fetch 私网/保留地址拒: dashscope.result → 10.0.0.1'));
 
       const job = {
         data: {
@@ -244,13 +243,12 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       } as any as Job;
 
       await expect(processor.process(job)).rejects.toThrow(/safe-fetch/);
       expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
-      expect(minio.upload).not.toHaveBeenCalled();
       expect(prisma.media.create).not.toHaveBeenCalled();
     });
 
@@ -268,7 +266,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       } as any as Job;
 
@@ -304,7 +302,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       }) as any as Job;
 
@@ -349,7 +347,7 @@ describe('AiImageEditProcessor', () => {
           imageWidth: 512,
           imageHeight: 512,
           intentRowId: 'row-9',
-          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9' },
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
         },
       }) as any as Job;
 
@@ -376,10 +374,11 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.reserve).not.toHaveBeenCalled();
     });
 
-    it('complete 门序开（count===1）：resultRef=media.id + writeNodeData 正常（O0b-2——AI 只写 fileId，data.{width,height} 键整删）', async () => {
+    it('T10 finalize committed：writeNodeData {fileId=mediaId} 正常（O0b-2——AI 只写 fileId，data.{width,height} 键整删；complete 门序归 finalize 内 intent CAS）', async () => {
       mockResult();
       await processor.process(makeIntentJob());
-      expect(intentService.complete).toHaveBeenCalledWith('row-9', 'media-new', 9n);
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ intentRowId: 'row-9', execSeq: 9n }));
+      expect(intentService.complete).not.toHaveBeenCalled();   // intent CAS 归 finalize 单事务（processor 直调退役）
       expect(collabDoc.writeNodeData).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ fileId: 'media-new' }),
       );
@@ -388,15 +387,26 @@ describe('AiImageEditProcessor', () => {
       expect('height' in payload).toBe(false);
     });
 
-    it('complete 门序闭（count===0，reconcile 已 VOIDED）：writeNodeData/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
-      intentService.complete.mockResolvedValue(0);
+    it('T10 finalize intent-stale（行终态/换代——旧 complete 门序闭面）：writeNodeData/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
       mockResult();
       const result = await processor.process(makeIntentJob());
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
       expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith(
         'proj1', expect.objectContaining({ status: 'edit-result' }),
       );
-      expect(result.status).toBe('completed'); // job 本身成功——产物留作证，仅不投递
+      expect(result.status).toBe('completed'); // job 本身成功——产物留作物证，仅不投递
+    });
+
+    it('T10 资金独立判：finalize superseded → 照常 completed+emit，doc 不覆盖用户值（writeNodeData 零调用）', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x' });
+      mockResult();
+      const result = await processor.process(makeIntentJob());
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // 用户在飞替换值保留
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
+        'proj1', expect.objectContaining({ status: 'edit-result', fileId: 'media-x' }),
+      );
+      expect(result.status).toBe('completed');
     });
 
     it('catch 路径：void_ 解冻 + fail 置 FAILED + writeExecStatus error（意图终态必达）', async () => {

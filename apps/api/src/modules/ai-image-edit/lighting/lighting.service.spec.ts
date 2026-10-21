@@ -72,7 +72,7 @@ describe('LightingService', () => {
 
   describe('createTask', () => {
     // Y1a T9：enqueue 管道恒带 ExecutionTicket（controller claim 后铸）——jobId=票内预生成 UUID
-    const TICKET = { intentRowId: 'row-1', execSeq: '7', jobId: 't9-light-job-1' };
+    const TICKET = { intentRowId: 'row-1', execSeq: '7', jobId: 't9-light-job-1', expectedRev: 0 };
 
     it('should create a task and enqueue a job with taskType lighting+ticket（T9）', async () => {
       const result = await service.createTask(validDto, 'user-1', TICKET);

@@ -44,6 +44,9 @@ import { TeamCloseExpiredProcessor } from './modules/team/task/team-recharge-clo
 // 关键服务+端口形态
 import { ExecutionService } from './modules/execution/execution.service';
 import { GenerationIntentService } from './modules/execution/generation-intent.service';
+import { NodeArtifactService } from './modules/artifact-core/node-artifact.service';
+import { MediaRegistrationService } from './modules/artifact-core/media-registration.service';
+import { ArtifactCommitService } from './modules/artifact-core/artifact-commit.service';
 import { TeamCreditService } from './modules/team/team-credit.service';
 import { TeamRechargeService } from './modules/team/team-recharge.service';
 import { StorageQuotaService } from './modules/team/storage-quota.service';
@@ -115,6 +118,11 @@ describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册�
     }
     const moduleRef = await builder.compile();
     expect(moduleRef.get(ExecutionProcessor, { strict: false })).toBeInstanceOf(ExecutionProcessor);
+    // Y1a T10：shared artifact-core 双 role DI——worker 是 ArtifactCommit 真实调用方（生产 API
+    // manualRegistration:true 不消费队列）：三服务必须可解析（缺注册即 compile 红——DI 冒烟承担）。
+    expect(moduleRef.get(ArtifactCommitService, { strict: false })).toBeInstanceOf(ArtifactCommitService);
+    expect(moduleRef.get(NodeArtifactService, { strict: false })).toBeInstanceOf(NodeArtifactService);
+    expect(moduleRef.get(MediaRegistrationService, { strict: false })).toBeInstanceOf(MediaRegistrationService);
     expect(moduleRef.get(AiImageEditProcessor, { strict: false })).toBeInstanceOf(AiImageEditProcessor);
     expect(moduleRef.get(AiDownloadProcessor, { strict: false })).toBeInstanceOf(AiDownloadProcessor);
     const port = moduleRef.get(CollabWritePort, { strict: false });

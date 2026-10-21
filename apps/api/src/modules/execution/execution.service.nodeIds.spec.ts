@@ -3,6 +3,7 @@ import { ExecutionService } from './execution.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { UpstreamMediaService } from './upstream-media.service';
+import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -75,6 +76,8 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },
         // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）
         { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined), reanchorDeadline: vi.fn().mockResolvedValue(1), touchHeartbeat: vi.fn().mockResolvedValue(undefined), ensureProviderRequestId: vi.fn().mockResolvedValue('rid'), recordProviderTaskId: vi.fn(), tickFence: vi.fn() } },
+        // T10：image/text finalize 改道 stub（默认 committed）
+        { provide: ArtifactCommitService, useValue: { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) } },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);

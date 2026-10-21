@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService, IntentExhaustedError } from './generation-intent.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
+import { makeArtifactCommit } from '../../test-utils/artifact-commit-fixture';
 import { ExecutionService } from './execution.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
@@ -94,6 +95,7 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     { add: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
+    makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
   );
   return { svc, collabDoc, writeExecCalls, writeNodeCalls, apiCaller };
 }
@@ -166,10 +168,12 @@ const statusOf = async (nodeId: string) =>
     expect(e2.apiCaller.callImageGen).not.toHaveBeenCalled(); // 零外呼
     expect((await ledgerOf()).settle).toBe(led1.settle);       // 零新增扣费
     expect((await rowsOf(n)).length).toBe(1);                  // 同一行
-    // 回放补投影+补写 node data（image resultUrl——真 URL 锚）
+    // 回放补投影+补写 node data（T10：image replay 产物键=fileId——resultRef=mediaId 真 Media 锚）
     const donePatch = e2.writeExecCalls.filter((c) => c.patch.status === 'done');
     expect(donePatch.length).toBe(1);
-    expect(e2.writeNodeCalls[0]?.patch).toEqual({ resultUrl: 'http://x/1.png' });
+    const replayPatch = e2.writeNodeCalls[0]?.patch as Record<string, unknown>;
+    expect(Object.keys(replayPatch)).toEqual(['fileId']);
+    expect(String(replayPatch.fileId)).toMatch(/^[0-9a-f-]{36}$/);   // 首轮 finalize 落库的 mediaId
   });
 
   it('③ 同参数 enqueue 管道（带 jobId）与 execute 直达交叉 → 同行一次扣费（跨路径）', async () => {

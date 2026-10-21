@@ -40,6 +40,9 @@ export interface ExecutionTicket {
   execSeq: string;
   /** 预生成 jobId（controller 铸 UUID 随 add({jobId}) 入队——票完整先于入队，attachJob 同值回写） */
   jobId: string;
+  /** T10：claim 事务内 claimCapture 捕获的槽位 rev（NodeArtifact CAS 锚——processor/consumer
+   *  finalize（artifactCommit）消费；claim→finalize 窗口内用户 replace/新代 ⇒ CAS 0 行=superseded）。 */
+  expectedRev: number;
 }
 
 export type ExecutionJobResult = any;

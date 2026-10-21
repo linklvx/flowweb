@@ -13,6 +13,7 @@ import { TopologyService } from './topology.service';
 import { ApiCallerService } from './api-caller.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
+import { makeArtifactCommit } from '../../test-utils/artifact-commit-fixture';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
@@ -143,6 +144,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       { add: async () => {} } as any,
       intentService,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
+      makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentService).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
     );
     const v = await validation.validateAll(nodes as any[], f.teamId, f.userId);
     const resolverTotal = await resolverTotalOf(nodes);
@@ -183,6 +185,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       { add: async () => {} } as any,
       intentService,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
+      makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentService).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
     );
     const v = await validation.validateAll(nodes as any[], f.teamId, f.userId);
     const r = await svc.execute(f.projectId, undefined, f.userId, nodes.map((n) => n.id));

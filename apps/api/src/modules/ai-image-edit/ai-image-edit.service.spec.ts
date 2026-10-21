@@ -21,7 +21,7 @@ describe('AiImageEditService', () => {
   });
 
   // Y1a T9：enqueue 携 ExecutionTicket；jobId=票内预生成 UUID（add 第三参幂等锚）
-  const TICKET = { intentRowId: 'row-1', execSeq: '7', jobId: 'ticket-job-1' };
+  const TICKET = { intentRowId: 'row-1', execSeq: '7', jobId: 'ticket-job-1', expectedRev: 0 };
 
   it('enqueueOutpaint 将入参 userId+ticket 写入 job data（T9）', async () => {
     const result = await service.enqueueOutpaint(

@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
+import { makeArtifactCommit } from '../../test-utils/artifact-commit-fixture';
 import { IntentReconcileService } from './intent-reconcile.service';
 import { ExecutionService } from './execution.service';
 import { TopologyService } from './topology.service';
@@ -78,6 +79,7 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     { add: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
+    makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
   );
   return { svc, collabDoc, writeExecCalls, writeNodeCalls, apiCaller };
 }
@@ -158,6 +160,7 @@ const statusOf = async (nodeId: string) =>
       { writeBatch: vi.fn(async () => []) } as any,   // Y0c T8：CYCLE 循环前 throw——writeBatch 不可达
       { emitNodeStatus: vi.fn() } as any, { add: vi.fn() } as any, intentSvc,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia
+      makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
     );
     const ex = await svc.execute(PID, undefined, UID, [a.id, b.id]).catch((e: unknown) => e);
     expect(ex).toBeInstanceOf(BusinessException);
@@ -174,7 +177,8 @@ const statusOf = async (nodeId: string) =>
   it('F4+Z95：gated!==1（reaper 已 VOID）→ results 不含该节点产物+终态 error 投影+error 进 errors（改前红=success:true 无投影永挂 loading）', async () => {
     const n1 = imageNode(`n1-${randomUUID().slice(0, 6)}`);
     const { svc, writeExecCalls, writeNodeCalls } = makeExec([n1]);
-    const completeSpy = vi.spyOn(intentSvc, 'complete').mockResolvedValue(0); // 模拟 reaper 先手 VOID
+    // T10：image 腿 complete 直调退役——finalize 内消费 completeInTx（同一真实现）；mock 其 0 命中=reaper 先手 VOID 面
+    const completeSpy = vi.spyOn(intentSvc, 'completeInTx').mockResolvedValue(0);
     try {
       const r = await svc.execute(PID, undefined, UID, [n1.id], `eps-f4-${randomUUID().slice(0, 6)}`);
       expect(r.success).toBe(false);

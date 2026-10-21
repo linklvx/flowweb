@@ -54,7 +54,7 @@ export class AiImageEditController {
     // 第 4 处 add 在 LightingController.createTask 同款门——不经本方法）。
     await this.presence.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT);
     const pricing = await this.resolver.resolveByNodeTypeKey(input.kind);
-    const { intent, created } = await this.intentService.claim({
+    const { intent, created, artifactRev } = await this.intentService.claim({
       projectId: input.projectId,
       nodeId: input.nodeId,
       userId: input.userId,
@@ -69,7 +69,7 @@ export class AiImageEditController {
       return { replayed: true, resultRef: intent.resultRef };
     }
     // T9 票三字段完整先于入队：jobId 预生成（add({jobId})）+execSeq wire=string（BigInt 禁入 JSON）
-    const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID() };
+    const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID(), expectedRev: artifactRev };   // T10：claimCapture 槽位 rev 随票
     try {
       const r = await input.enqueue(ticket);
       await this.intentService.attachJob(intent.id, r.jobId);

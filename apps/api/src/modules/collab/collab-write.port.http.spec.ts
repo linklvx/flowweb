@@ -229,6 +229,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       { add: vi.fn().mockResolvedValue(undefined) } as any,                                               // downloadQueue
       intentSvc as any,                                                                                   // intentService
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）
+      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) } as any,   // T10 artifactCommit（本用例焦点=503 全程投影面——stub 直通）
     );
     const errors: unknown[] = [];
     const results: unknown[] = [];
@@ -243,7 +244,8 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
     expect(rollbackDeliveryFailed).not.toHaveBeenCalled();
     expect(errors).toEqual([]);
     expect(apiCaller.callImageGen).toHaveBeenCalledTimes(1);
-    expect(teamCredit.settle).toHaveBeenCalledTimes(1);
+    // T10：image 腿 settle 归 finalize 单事务（stub 直通 committed）——settle 直调零
+    expect(teamCredit.settle).not.toHaveBeenCalled();
     expect(results).toHaveLength(1);
   });
 });

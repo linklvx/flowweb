@@ -14,6 +14,7 @@ import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
 import { UpstreamMediaService } from './upstream-media.service';
+import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -47,7 +48,14 @@ interface NodeCallOutcome {
   call: (
     onTick: () => Promise<'abort' | void>,
     provider: { resumeTaskId: string | null; idempotencyKey: string | null; onProviderTaskId: (taskId: string) => Promise<void> | void },
-  ) => Promise<{ resultRef: string; artifact: Record<string, unknown>; resultRow?: ExecutionResult['results'][number]; fileId?: string; downloadMime?: string }>;
+  ) => Promise<{
+    resultRef: string;                                  // video=URL；image=T10 起亦为 provider 源 URL（stage durable 的 sourceUrl）；text=text: 占位
+    resultRow?: ExecutionResult['results'][number];
+    resultText?: string;                                // T10 text 腿：finalizeText 产物正文（NodeArtifact.resultText）
+    artifact?: Record<string, unknown>;                 // video 旧链产物键（T10 起 image/text 交付键由 artifactCommit 产出）
+    fileId?: string;                                    // video 旧链 done fileId（T10 起 image=mediaId）
+    downloadMime?: string;                              // video 旧链下载队列投递（image 腿 T10 同步落地删除）
+  }>;
 }
 
 /** Y0b-2 T8（Z90）：node.type→deadline 档表键——nodeClaimPack kind 分支的单源投影（新增类型两处同步）。
@@ -77,6 +85,7 @@ export class ExecutionService {
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(UpstreamMediaService) private readonly upstreamMedia: UpstreamMediaService,   // Y1a T8：上游身份读源/URL 解析
+    @Inject(ArtifactCommitService) private readonly artifactCommit: ArtifactCommitService,   // Y1a T10：image/text 腿 finalize 单事务（NodeArtifact CAS+intent CAS+settle+投影）
   ) {}
 
   /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
@@ -291,7 +300,7 @@ export class ExecutionService {
 
       // ── claim（外呼实参白名单规范化——paramsHash 身份形态输入；Y1a T8 上游注入读 NodeArtifact PG）──
       const claimPack = await this.nodeClaimPack(projectId, node, ctx);
-      const { intent, created, result: claimResult } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
+      const { intent, created, result: claimResult, artifactRev } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
       if (claimResult === 'same-job-alive') {
         // T9 同 job 重入态①（spec ㉒）：旧 worker 心跳新鲜在飞——本重排 worker 静默让位（零终态零
         // emit——交付归旧 worker；skipped 投影非终态=可观测面，Z88 在飞段 done 照常覆盖）；
@@ -315,7 +324,8 @@ export class ExecutionService {
           ...(claimPack.kind !== 'text' && intent.resultRef
             ? [{
                 op: 'writeNodeData' as const, nodeId: node.id,
-                patch: claimPack.kind === 'video' ? { videoUrl: intent.resultRef } : { resultUrl: intent.resultRef },
+                // T10：image replay 产物键=fileId（resultRef=mediaId——finalize 落地后语义）；video 维持 videoUrl
+                patch: claimPack.kind === 'video' ? { videoUrl: intent.resultRef } : { fileId: intent.resultRef },
               }]
             : []),
           {
@@ -380,24 +390,60 @@ export class ExecutionService {
         onProviderTaskId: (taskId) => this.intentService.recordProviderTaskId(intent.id, intent.execSeq, taskId),
       });
 
-      // ── complete CAS（F13 产物门序：看到产物 ⇒ 意图仍有效——count===1 才投递；T9 代际 CAS：
-      //    count===0 亦含「已被接管换代」——旧代产物不投递，交付归新代〔resume 零重复外呼取同一任务〕）──
-      const gated = await this.intentService.complete(intent.id, outcome.resultRef, intent.execSeq);
-      if (gated !== 1) {
+      // ── T10 产物落地与资金核销分叉：image/text=ArtifactCommit finalize 单事务（stage durable→下载→
+      //    上传→NodeArtifact CAS+intent CAS+settleInTx+投影/binding 原子——complete/settle 独立外置退役）；
+      //    video=T12 前零动作（complete CAS→settle 旧链+ai-result-download 异步落地维持）。 ──
+      let deliverPatch: Record<string, unknown> | null | undefined;   // undefined=video 旧链（outcome.artifact）
+      let deliverFileId: string | undefined;
+      const failDeadlineVoided = async () => {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
-        this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
+        this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作证）`);
         await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('INTENT_DEADLINE_EXCEEDED', '生成已被系统回收（超时）——产物未投递', attempts, attempts < 3, intent.intentId)).catch(countExecProjectionFailure);
         this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）' });
         errors.push({ nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
-        return;
-      }
+      };
+      if (claimPack.kind === 'text' || claimPack.kind === 'image') {
+        const committed = claimPack.kind === 'text'
+          ? await this.artifactCommit.finalizeText({
+              projectId, nodeId: node.id, teamId, userId,
+              intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev,
+              resultText: outcome.resultText!,
+            })
+          : await this.artifactCommit.commitImage({
+              projectId, nodeId: node.id, teamId, userId,
+              intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev,
+              sourceUrl: outcome.resultRef,
+            });
+        if (committed.outcome === 'intent-stale') {
+          // finalize 内 intent CAS 0 命中（行终态/换代——已 void 旧冻结）——旧代产物不投递（同 gated!==1 面）
+          await failDeadlineVoided();
+          return;
+        }
+        // 资金独立判已在 finalize 内裁决（superseded=照常 settle+产物入素材库——doc 不覆盖用户值）；
+        // settle 已随 finalize 原子核销 ⇒ 实扣计入（零额档计入 0 无害）
+        if (cost > 0) onDeducted(cost);
+        deliverPatch = committed.outcome === 'superseded'
+          ? null
+          : (claimPack.kind === 'text' ? { result: outcome.resultText } : { fileId: committed.mediaId! });
+        deliverFileId = committed.mediaId;
+      } else {
+        // ── video 旧链：complete CAS（F13 产物门序：看到产物 ⇒ 意图仍有效——count===1 才投递；T9 代际
+        //    CAS：count===0 亦含「已被接管换代」——旧代产物不投递，交付归新代）──
+        const gated = await this.intentService.complete(intent.id, outcome.resultRef, intent.execSeq);
+        if (gated !== 1) {
+          await failDeadlineVoided();
+          return;
+        }
 
-      // ── settle（complete→settle→deliver 序：冻结转实扣；失败计数+产物照发——对账第四分支兜底；
-      //    T9 execSeq 票——旧代结算 0 命中不得核销新代冻结）──
-      if (cost > 0) {
-        const settled = await this.teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });
-        if (settled.success) onDeducted(cost); // P8：已消费才计入——totalCost=实扣真值（冻结≠消费）
-        else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
+        // ── settle（complete→settle→deliver 序：冻结转实扣；失败计数+产物照发——对账第四分支兜底；
+        //    T9 execSeq 票——旧代结算 0 命中不得核销新代冻结）──
+        if (cost > 0) {
+          const settled = await this.teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });
+          if (settled.success) onDeducted(cost); // P8：已消费才计入——totalCost=实扣真值（冻结≠消费）
+          else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
+        }
+        deliverPatch = outcome.artifact;
+        deliverFileId = outcome.fileId;
       }
 
       // ── deliver+done（Y0c T8：组批经 writeBatch——data 与 exec 同一 withDoc 事务〔先红用例③〕。
@@ -405,16 +451,21 @@ export class ExecutionService {
       // Z75 边界（Y0c T11 演进·偏离 19）：deliver 失败但 done 同批写入 ⇒ done 被 Z4 守卫拦（不建条目
       // ——E22 读侧两形态等价），批照常提交不回滚——禁加 done 前跨 op 节点存在性检查。
       // Z76 幂等：本段无重试路径（writeBatch throw 走 B-1 catch）；
-      // 重试链路（消费改道任务）重入须先校验产物已生效再组批，禁盲目重发同批。 ──
-      const batchResults = await this.docWriter.writeBatch(projectId, [
-        { op: 'writeNodeData', nodeId: node.id, patch: outcome.artifact },
-        { op: 'writeExecStatus', nodeId: node.id, patch: {
-          status: 'done', jobId: jobId ?? null, intentId: intent.intentId, attempts,
-          ...(outcome.fileId ? { fileId: outcome.fileId } : {}),
-        } },
-      ]);
-      const deliver = batchResults[0];
-      if (!deliver.written) {
+      // 重试链路（消费改道任务）重入须先校验产物已生效再组批，禁盲目重发同批。
+      // T10：deliverPatch=null（superseded）⇒ 仅 done op（不覆盖用户在飞替换值——投影行已记 superseded）。 ──
+      const donePatch = {
+        status: 'done' as const, jobId: jobId ?? null, intentId: intent.intentId, attempts,
+        ...(deliverFileId ? { fileId: deliverFileId } : {}),
+      };
+      const batchOps: DocWriteOp[] = deliverPatch
+        ? [
+            { op: 'writeNodeData', nodeId: node.id, patch: deliverPatch },
+            { op: 'writeExecStatus', nodeId: node.id, patch: donePatch },
+          ]
+        : [{ op: 'writeExecStatus', nodeId: node.id, patch: donePatch }];
+      const batchResults = await this.docWriter.writeBatch(projectId, batchOps);
+      const deliver = deliverPatch ? batchResults[0] : ({ written: true } as const);
+      if (deliverPatch && !deliver.written) {
         // 批已提交：done 同批被 Z4 守卫拦（exec 无条目——E22 读侧等价，不写 error 投影对撞终态）；
         // 产物未达⇒退款+用户面 error 照发（emit/errors）
         artifactDiscardedTotal.inc({ cause: 'node-deleted' });
@@ -441,7 +492,7 @@ export class ExecutionService {
       const bal = await Promise.resolve(this.teamCredit.getBalanceView(teamId, userId))
         .catch(() => null);
       this.emitPort.emitNodeStatus(projectId, {
-        nodeId: node.id, status: 'done', ...(outcome.fileId ? { fileId: outcome.fileId } : {}), credits: bal ? this.balancePayload(bal) : undefined,
+        nodeId: node.id, status: 'done', ...(deliverFileId ? { fileId: deliverFileId } : {}), credits: bal ? this.balancePayload(bal) : undefined,
       });
     } catch (err: any) {
       // A-3：BusinessException（409 族/PROVIDER_POLL_ABORTED 等）降级逐节点 error+continue——:367 整批
@@ -527,7 +578,9 @@ export class ExecutionService {
           const textResult = await this.apiCaller.callTextGen(callArgs);
           return {
             resultRef: `text:${String(textResult.content).slice(0, 100)}`, // 无 Media/URL 锚点——观测用占位
-            artifact: { content: data.content || prompt, result: textResult.content },
+            resultText: textResult.content, // T10：finalizeText 产物正文（NodeArtifact.resultText）
+            // T10（v13b-⑥ content 出白名单）：text 交付只写 {result}——content=用户 prompt 回显删除
+            // （双写者竞态从根消失；旧 artifact={content,result} 形态退役）
             resultRow: { nodeId: node.id, type: 'text', content: textResult.content },
           };
         },
@@ -607,11 +660,10 @@ export class ExecutionService {
             onProviderTaskId: provider.onProviderTaskId,
           });
           return {
-            resultRef: result.url, // image 产物锚点 = resultUrl（media.create 在 ai-result-download 侧异步落地）
-            artifact: { resultUrl: result.url },
+            // T10：resultRef=provider 源 URL——artifactCommit.commitImage 的 stage durable sourceUrl
+            //（崩溃后 R3 凭 processing 行重下；MinIO 落地/finalize/下载入队均在 artifactCommit 同步链内）
+            resultRef: result.url,
             resultRow: { nodeId: node.id, type: 'image', resultUrl: result.url },
-            fileId: result.url,
-            downloadMime: 'image/png',
           };
         },
       };

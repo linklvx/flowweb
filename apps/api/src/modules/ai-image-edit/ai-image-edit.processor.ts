@@ -14,6 +14,7 @@ import { artifactDiscardedTotal, countExecProjectionFailure } from '../execution
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
+import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
 import type { ExecutionTicket } from '../execution/execution.types';
 
 export interface AiImageEditJobData {
@@ -56,6 +57,9 @@ export class AiImageEditProcessor extends WorkerHost {
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     // T6：结果下载经 SafeRemoteFetch（SSRF 四门+流式限长）——axios/axios-retry 直连退役
     @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
+    // T10：产物落地改道 ArtifactCommit 同步链（stage durable→下载→sha/sniff→上传→finalize 单事务）
+    // ——下载经 safeFetch 由 commitImage 内部消费（本 processor 直用面退役）；minio 保留源图 presign 面
+    @Inject(ArtifactCommitService) private readonly artifactCommit: ArtifactCommitService,
   ) {
     super();
   }
@@ -177,65 +181,43 @@ export class AiImageEditProcessor extends WorkerHost {
           throw new Error(`Unknown taskType: ${taskType}`);
       }
 
-      // 7. Download the result image（T6：SSRF 四门+限长经 SafeRemoteFetch）
-      const fetched = await this.safeFetch.fetchBuffer(result.url);
-
-      const buffer = fetched.buffer;
-      const contentType: string = String(fetched.contentType || 'image/png');
-      const ext = contentType.split('/')[1] || 'png';
-
-      // 8. Upload to MinIO
-      const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
-      await this.minio.upload(key, buffer, contentType);
-
-      // 9. Create Media record
-      const media = await this.prisma.media.create({
-        data: {
-          userId,
-          teamId: projectTeamId,
-          key,
-          originalName: `ai-edited-${nodeId}.${ext}`,
-          mimeType: contentType,
-          size: buffer.length,
-          projectId,
-          nodeId,
-          type: 'generated',
-          status: 'completed',
-        },
+      // 7-9.5 T10 产物落地+资金核销改道 ArtifactCommit 同步链（与 image 生成腿同构）：stage durable→
+      //     SafeRemoteFetch 下载→sha/sniff→MinIO content-addressed 上传→finalize 单事务
+      //     （NodeArtifact CAS〔claimCapture expectedRev〕+intent CAS+settleInTx+Media 提升/binding/投影）。
+      //     资金独立判在 finalize 内裁决：superseded=照常 settle 产物入素材库（doc 不覆盖用户值）；
+      //     intent-stale=不 settle+void 旧冻结（旧链 gated!==1 面的 finalize 内聚形态）。
+      const committed = await this.artifactCommit.commitImage({
+        projectId, nodeId, teamId: projectTeamId, userId,
+        intentRowId, execSeq, expectedRev: ticket!.expectedRev,
+        sourceUrl: result.url,
       });
-
-      // 9.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前；T9 代际 CAS）
-      const settled = await this.teamCredit.settle({ intentRowId, execSeq });
-      if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentLogId} settle 未达（冻结由 reconcile 兜底）`);
-
-      // 9.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
-      //     count===0 = 行已被 reconcile VOIDED+退款**或已换代**（T9 旧代产物不投递），writeNodeData/emit 零调用（外呼产物留作物证）
-      if (intentRowId) {
-        const gated = await this.intentService.complete(intentRowId, media.id, execSeq);
-        if (gated !== 1) {
-          this.logger.warn(`[intent-reconcile] 意图 ${intentLogId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作物证）`);
-          return { status: 'completed', fileId: media.id };
-        }
+      if (committed.outcome === 'intent-stale') {
+        this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作证）`);
+        return { status: 'completed' };
       }
+      const mediaId = committed.mediaId!;
 
       // 10. Write fileId to server doc；socket 仅进度通知。
       // O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（改写 envelope 会让 api
       // 成信封第 4 写者撞冻结表"信封写者=3"）；尺寸由 web 内容事件路径决定（load/换图 contain-fit）。
-      // Z44 nodeAlive 守卫：written:false=节点已删——产物丢弃计数（账已结清，无退款腿——交付判据归 complete 门序）
-      const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id });
-      if (!deliver.written) {
-        artifactDiscardedTotal.inc({ cause: 'node-deleted' });
-        this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 已删——产物 ${media.id} 丢弃（nodeAlive 守卫）`);
-        return { status: 'completed', fileId: media.id };
+      // T10：superseded=用户在飞替换——不写 doc（投影行已记 superseded，用户值保留）。
+      // Z44 nodeAlive 守卫：written:false=节点已删——产物丢弃计数（账已结清，无退款腿——交付判据归 finalize intent CAS）
+      if (committed.outcome !== 'superseded') {
+        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: mediaId });
+        if (!deliver.written) {
+          artifactDiscardedTotal.inc({ cause: 'node-deleted' });
+          this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 已删——产物 ${mediaId} 丢弃（nodeAlive 守卫）`);
+          return { status: 'completed', fileId: mediaId };
+        }
       }
       this.emitPort.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-result',
-        fileId: media.id,
+        fileId: mediaId,
       });
 
-      this.logger.log(`Edit complete: ${media.id}`);
-      return { status: 'completed', fileId: media.id };
+      this.logger.log(`Edit complete: ${mediaId}`);
+      return { status: 'completed', fileId: mediaId };
     } catch (error: any) {
       this.logger.error(`Edit failed: ${error.message}`, error.stack);
 

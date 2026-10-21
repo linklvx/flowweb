@@ -58,6 +58,8 @@ function makeService(reserveOk: boolean, nodes: any[]) {
   };
   const svc: any = new (ExecutionService as any)(
     prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, downloadQueue, intentService,
+    { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // Y1a T8 upstreamMedia（本夹具无上游）
+    { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) },   // T10 artifactCommit
   );
   return { svc, collabDoc, teamCredit, prisma, perm };
 }

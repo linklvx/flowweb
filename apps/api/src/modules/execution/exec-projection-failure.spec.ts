@@ -47,6 +47,7 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       {} as any,                                                                                                      // downloadQueue
       { void_ } as any,                                                                                               // intentService
       {} as any,                                                                                                      // upstreamMedia（Y1a T8——onReserveFail 不触）
+      {} as any,                                                                                                      // T10 artifactCommit（onReserveFail 不触）
     );
     const d = await causeDelta('not-serving', () =>
       (svc as any).onReserveFail('p1', { id: 'n1' }, { attempts: 1, intentId: 'i1' }, 'boom', 'SOME_CODE'));
@@ -79,6 +80,7 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       {} as any,                                                                                                 // lightingConsumer
       { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-2', attempts: 0, execSeq: 1n }), fail } as any,             // intentService
       {} as any,                                                                                                 // safeFetch（T6 注入面——onFailed 钩子不触下载）
+      {} as any,                                                                                                 // T10 artifactCommit（onFailed 钩子不触）
     );
     const d = await causeDelta('not-serving', () =>
       proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('edit boom')));

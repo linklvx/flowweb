@@ -11,6 +11,7 @@ import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { artifactDiscardedTotal } from '../../execution/exec.metrics';
 import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
+import { ArtifactCommitService } from '../../artifact-core/artifact-commit.service';
 import type { ExecutionTicket } from '../../execution/execution.types';
 
 const LightingTaskStatus = {
@@ -87,6 +88,8 @@ export class LightingConsumer {
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     // T6：结果下载经 SafeRemoteFetch（SSRF 四门+流式限长）——axios 直连退役
     @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
+    // T10：产物落地+资金核销改道 ArtifactCommit 同步链（与 image 生成腿/编辑三 kind 同构）
+    @Inject(ArtifactCommitService) private readonly artifactCommit: ArtifactCommitService,
   ) {}
 
   /** processor 队列入口（A-1 根修位）已完成 reserve/重锚/provider 锚——providerOpts 自 processor 透传
@@ -148,81 +151,60 @@ export class LightingConsumer {
         throw new Error('AI relighting returned no result URL');
       }
 
-      // 6. Download result image（T6：SSRF 四门+限长经 SafeRemoteFetch）
-      const fetched = await this.safeFetch.fetchBuffer(result.url);
-
-      const buffer = fetched.buffer;
-      const contentType: string = String(fetched.contentType || 'image/png');
-      const ext = contentType.split('/')[1] || 'png';
-
-      // 7. Upload to MinIO
-      const key = this.minio.buildKey('generated', userId, { projectId, nodeId, ext });
-      await this.minio.upload(key, buffer, contentType);
-
-      // 8. Create Media record
-      const media = await this.prisma.media.create({
-        data: {
-          userId,
-          teamId,
-          key,
-          originalName: `lighting-${nodeId}.${ext}`,
-          mimeType: contentType,
-          size: buffer.length,
-          projectId,
-          nodeId,
-          taskId,
-          type: 'generated',
-          status: 'completed',
-        },
+      // 6-8.5 T10 产物落地+资金核销改道 ArtifactCommit 同步链（与 image 生成腿/编辑三 kind 同构）：
+      //     stage durable→SafeRemoteFetch 下载→sha/sniff→MinIO content-addressed 上传→finalize 单事务
+      //     （NodeArtifact CAS〔claimCapture expectedRev〕+intent CAS+settleInTx+Media 提升/binding/投影）。
+      //     资金独立判在 finalize 内裁决：superseded=照常 settle 产物入素材库（doc 不覆盖用户值）；
+      //     intent-stale=不 settle+void 旧冻结（旧链 gated!==1 面的 finalize 内聚形态）。
+      // 票守卫（资金链恒有票：LightingController.createTask claim 在 controller+projectId 必填门
+      // ——直达形态（无 projectId 个人任务死径）缺票即 fail-fast，防 ticket!.expectedRev TypeError 静默面。
+      if (!intentRowId || !execSeq || !ticket) throw new Error('INTENT_GUARD_MISSING');
+      // projectId 非空不变量：LightingController.createTask 的 assertEditorWithTeam(body.projectId)
+      // 必填门（claim 在 controller——资金链恒有项目锚）；类型位可选是历史形态，此处断言收口。
+      const committed = await this.artifactCommit.commitImage({
+        projectId: projectId!, nodeId, teamId, userId,
+        intentRowId: intentRowId!, execSeq: execSeq!, expectedRev: ticket!.expectedRev,
+        sourceUrl: result.url, taskId,
       });
-
-      // 8.4 批0.5-9 settle 核销（外呼成功——冻结转实扣；产物落库后 complete 门序前；T9 代际 CAS）
-      if (projectTeamId && intentRowId && execSeq) {
-        const settled = await this.teamCredit.settle({ intentRowId, execSeq });
-        if (!settled.success) this.logger.warn(`[reserve-settle] 意图 ${intentLogId} settle 未达（冻结由 reconcile 兜底）`);
+      if (committed.outcome === 'intent-stale') {
+        this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作物证）`);
+        return { status: 'completed' };
       }
+      const mediaId = committed.mediaId!;
+      const committedKey = committed.key!;
 
-      // 8.5 批0.5-8 complete 门序（F13：看到产物 ⇒ 意图仍有效）：count===1 才投递产物——
-      //     count===0 = 行已被 reconcile VOIDED+退款**或已换代**（T9 旧代产物不投递），SUCCESS 回填/writeNodeData/emit 零调用（外呼产物留作物证）
-      if (intentRowId && execSeq) {
-        const gated = await this.intentService.complete(intentRowId, media.id, execSeq);
-        if (gated !== 1) {
-          this.logger.warn(`[intent-reconcile] 意图 ${intentLogId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作物证）`);
-          return { status: 'completed', fileId: media.id };
-        }
-      }
-
-      // 9. Update LightingTask
-      const presignedResultUrl = await this.minio.generatePresignedGetUrl(key, 3600);
+      // 9. Update LightingTask（T10：结果 URL 经 content-addressed key presign——committedKey）
+      const presignedResultUrl = await this.minio.generatePresignedGetUrl(committedKey, 3600);
       await this.prisma.lightingTask.update({
         where: { id: taskId },
         data: {
           status: LightingTaskStatus.SUCCESS,
           resultImageUrl: presignedResultUrl,
-          resultMediaId: media.id,
+          resultMediaId: mediaId,
           completedAt: new Date(),
         },
       });
 
       // 10. Write fileId to server doc；socket 仅进度通知
       //     Z44 nodeAlive 守卫：written:false=节点已删——产物丢弃计数（账已结清，无退款腿）
-      if (projectId) {
-        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: media.id });
+      // T10：superseded=用户在飞替换——不写 doc（投影行已记 superseded，用户值保留）
+      if (projectId && committed.outcome !== 'superseded') {
+        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: mediaId });
         if (!deliver.written) {
           artifactDiscardedTotal.inc({ cause: 'node-deleted' });
-          this.logger.warn(`[lighting] 节点 ${nodeId} 已删——产物 ${media.id} 丢弃（nodeAlive 守卫）`);
-          return { status: 'completed', fileId: media.id };
+          this.logger.warn(`[lighting] 节点 ${nodeId} 已删——产物 ${mediaId} 丢弃（nodeAlive 守卫）`);
+          return { status: 'completed', fileId: mediaId };
         }
       }
       this.emitPort.emitNodeStatus(projectId || '', {
         nodeId,
         status: 'lighting-result',
-        fileId: media.id,
+        fileId: mediaId,
         resultUrl: presignedResultUrl,
       } as any);
 
-      this.logger.log(`Lighting complete: task ${taskId}, media ${media.id}`);
-      return { status: 'completed', fileId: media.id };
+      this.logger.log(`Lighting complete: task ${taskId}, media ${mediaId}`);
+      return { status: 'completed', fileId: mediaId };
     } catch (error: any) {
       this.logger.error(`Lighting failed: ${error.message}`, error.stack);
 

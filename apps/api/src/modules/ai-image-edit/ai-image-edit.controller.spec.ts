@@ -38,7 +38,7 @@ describe('AiImageEditController', () => {
       assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'team-1' }),
     };
     intentSvc = {
-      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }), // T9：claim 返回行携 execSeq（controller 铸票）
+      claim: vi.fn().mockResolvedValue({ created: true, artifactRev: 0, intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }),   // T10：claimCapture 返回槽位 rev（ticket.expectedRev） // T9：claim 返回行携 execSeq（controller 铸票）
       attachJob: vi.fn(),
       fail: vi.fn(),
     };
@@ -80,7 +80,7 @@ describe('AiImageEditController', () => {
       const result = await controller.outpaint(body, req);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
         'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
-        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) }, // T9 票
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev // T9 票
       );
       expect(result).toEqual({ jobId: 'job-outpaint-1' });
     });
@@ -99,7 +99,7 @@ describe('AiImageEditController', () => {
       const result = await controller.erase(body, req);
       expect(service.enqueueErase).toHaveBeenCalledWith(
         'u1', 'proj1', 'node1', 'file-1', 'mask-1',
-        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev
       );
       expect(result).toEqual({ jobId: 'job-erase-1' });
     });
@@ -120,7 +120,7 @@ describe('AiImageEditController', () => {
       const result = await controller.redraw(body, req);
       expect(service.enqueueRedraw).toHaveBeenCalledWith(
         'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70,
-        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev
       );
       expect(result).toEqual({ jobId: 'job-redraw-1' });
     });
@@ -175,7 +175,7 @@ describe('AiImageEditController', () => {
       await controller.outpaint(outpaintBody, req);
       expect(service.enqueueOutpaint).toHaveBeenCalledWith(
         'u1', 'proj1', 'node1', 'file-1', outpaintBody.rect, 512, 512,
-        { intentRowId: 'row-1', execSeq: '1', jobId: expect.any(String) },
+        { intentRowId: 'row-1', execSeq: '1', jobId: expect.any(String), expectedRev: 0 },
       );
       expect(intentSvc.attachJob).toHaveBeenCalledTimes(1);
       expect(intentSvc.attachJob).toHaveBeenCalledWith('row-1', 'job-outpaint-1');

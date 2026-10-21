@@ -16,6 +16,7 @@ import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
+import { makeArtifactCommit } from '../../test-utils/artifact-commit-fixture';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
@@ -88,6 +89,7 @@ function makeController(nodes: any[]): ExecutionController {
     { add: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
+    makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
   );
   queueAdd = vi.fn(async () => ({ id: 'job-sv-1' }));
   // collabDoc 第 5 参=T7 门依赖（readServerSV）——controller 直构同 app 装配形态

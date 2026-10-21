@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
+import { makeArtifactCommit } from '../../test-utils/artifact-commit-fixture';
 import { IntentReconcileService, SETTLE_STRANDED_GRACE_MS } from './intent-reconcile.service';
 import { ExecutionService } from './execution.service';
 import { TopologyService } from './topology.service';
@@ -282,6 +283,7 @@ const agePastGrace = async (id: string) =>
         { add: vi.fn() } as any,
         intentSvc,
         { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
+        makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
       );
     };
 
@@ -345,13 +347,14 @@ const agePastGrace = async (id: string) =>
     const gateway: any = { emitNodeStatus: vi.fn() };
     const apiCaller: any = { callRelighting: vi.fn(async () => ({ url: 'https://ai/relit.png' })) };
     const collabDoc: any = { writeNodeData: vi.fn(async () => ({ written: true })), writeExecStatus: vi.fn(async () => {}) };
+    const { artifactCommit } = makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc);   // T10：lighting 全链 finalize（真资金链）
     const consumer = new LightingConsumer(
       prisma as unknown as PrismaService, minio, gateway, apiCaller,
-      teamCredit, collabDoc, intentSvc, safeFetchStub,
+      teamCredit, collabDoc, intentSvc, safeFetchStub, artifactCommit,
     );
     const processor = new AiImageEditProcessor(
       prisma as unknown as PrismaService, minio, gateway, apiCaller,
-      teamCredit, collabDoc, consumer, intentSvc, safeFetchStub,
+      teamCredit, collabDoc, consumer, intentSvc, safeFetchStub, artifactCommit,
     );
     // 队列入口 job（lighting.service.createTask 真实形态——无 fileId 键）
     const job = {
@@ -361,7 +364,7 @@ const agePastGrace = async (id: string) =>
         taskId: task.id, originalImageId: media.id,
         params: { position: { x: 0, y: 0, z: 6 }, brightness: 50, colorTemperature: 5600, rimLight: false },
         intentRowId: intent.id,
-        ticket: { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: `job-l-${Date.now()}` }, // T9：代际票随 job.data
+        ticket: { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: `job-l-${Date.now()}`, expectedRev: 0 }, // T9+T10：代际票+claimCapture 槽位 rev 随 job.data
       },
     };
     const result = await processor.process(job as any);
