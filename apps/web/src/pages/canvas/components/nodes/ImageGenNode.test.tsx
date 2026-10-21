@@ -67,8 +67,11 @@ const {
   mockSetCenter,
   mockUseNodeStoreFn,
   mockUseCanvasStoreFn,
+  mockApplyDataPatchToStores,
+  mockSetNodeCallbacks,
 } = vi.hoisted(() => {
   const updateConfig = vi.fn();
+  const applyDataPatchToStores = vi.fn();   // Y1a T11：本地 UI 直写面（AI 回填/命令回退）
   const setActiveTransformNodeId = vi.fn();
   const setActiveEditNodeId = vi.fn();
   const registerSaveHandler = vi.fn();
@@ -83,6 +86,7 @@ const {
   const getNodes = vi.fn(() => [{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]);
   const setNodes = vi.fn();
   const setCenter = vi.fn();
+  const setNodeCallbacks = vi.fn();   // Y1a T11：Angle3D 回调捕获（clear 路径驱动）
 
   const nodeStoreFn = vi.fn((_selector?: any) => {
     // Get fresh state at call time
@@ -91,6 +95,7 @@ const {
       execStatus: mockExecStatus,
       execAligned: mockExecAligned,
       updateConfig,
+      applyDataPatchToStores,
       activeTransformNodeId: mockActiveNodeId,
       cancelRequestedAt: mockCancelRequestedAt,
       setActiveTransformNodeId,
@@ -124,6 +129,7 @@ const {
       writeFrozen: false,
       // O0b-2 挂载恢复 effect 读 cs.wh——夹具不带 wh（undefined⇒不镜像 imgSize，渲染仍走 ratio 默认）
       nodes: [] as any[],
+      projectId: 'p1',   // Y1a T11：canvasProjectId 消费面（replaceMedia/clearMedia 命令）
       selectNode,
       addChildNode,
       addNodeWithEdge,
@@ -155,6 +161,8 @@ const {
     mockSetCenter: setCenter,
     mockUseNodeStoreFn: nodeStoreFn,
     mockUseCanvasStoreFn: canvasStoreFn,
+    mockApplyDataPatchToStores: applyDataPatchToStores,
+    mockSetNodeCallbacks: setNodeCallbacks,
   };
 });
 
@@ -163,6 +171,7 @@ let mockCancelRequestedAt = 0;
 
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: mockUseNodeStoreFn,
+  applyDataPatchToStores: mockApplyDataPatchToStores,
   isImageExtNode: (node: any) => node?.type === 'imageExtGen',
   isImageGenNode: (node: any) => node?.type === 'imageGen',
   isImageNode: (node: any) => node?.type === 'imageGen' || node?.type === 'imageExtGen',
@@ -173,9 +182,30 @@ vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: mockUseCanvasStoreFn,
 }));
 
+// Y1a T11：Angle3D 回调捕获（真实 store 的 nodeCallbacksMap 是模块私有——mock setNodeCallbacks
+// 捕获 onReplaceCurrentNode 供 clear 路径驱动）；openModal 惰性 no-op
+vi.mock('@/stores/angle3DStore', () => ({
+  useAngle3DStore: { getState: () => ({ setNodeCallbacks: mockSetNodeCallbacks, openModal: vi.fn() }) },
+}));
+
 vi.mock('@/api/storageApi', () => ({
   presignUpload: vi.fn(),
   confirmUpload: vi.fn(),
+}));
+
+// Y1a T11：replaceMedia/clearMedia 命令（默认成功——命令失败回退用例内改 mockRejectedValue）
+const { mockReplaceNodeMedia, mockClearNodeMedia } = vi.hoisted(() => ({
+  mockReplaceNodeMedia: vi.fn().mockResolvedValue({ action: 'replace' as const, rev: 2, mediaId: 'm-2' }),
+  mockClearNodeMedia: vi.fn().mockResolvedValue({ action: 'clear' as const, rev: 2, mediaId: null }),
+}));
+vi.mock('@/api/collabApi', async (importOriginal) => {
+  const actual = await importOriginal<any>();   // 既有 shrink 等导出保持真实（本文件未消费亦防漂移）
+  return { ...actual, replaceNodeMedia: mockReplaceNodeMedia, clearNodeMedia: mockClearNodeMedia };
+});
+
+// Y1a T11：transformImage 在 jsdom 无法真加载 Image——mock Blob 出口（handleSave 链路驱动）
+vi.mock('@/utils/imageTransform', () => ({
+  transformImage: vi.fn().mockResolvedValue(new Blob(['x'], { type: 'image/webp' })),
 }));
 
 vi.mock('@/utils/imageCrop', () => ({
@@ -610,7 +640,7 @@ describe('ImageGenNode', () => {
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
     const token = lastBodyToken(fetchSpy);
     expect(token).toMatch(/^[0-9a-f-]{36}$/);
-    expect(sessionStorage.getItem('flowweb:regen:undefined:img1')).toBe(token);
+    expect(sessionStorage.getItem('flowweb:regen:p1:img1')).toBe(token);
     fetchSpy.mockRestore();
   });
 
@@ -661,7 +691,7 @@ describe('ImageGenNode', () => {
     expect(sentToken).toBeTruthy();
     // 已 rotate：sessionStorage 当前值 ≠ 本次上送值（同 token rearm 自锁根堵）
     await waitFor(() => {
-      expect(sessionStorage.getItem('flowweb:regen:undefined:img1')).not.toBe(sentToken);
+      expect(sessionStorage.getItem('flowweb:regen:p1:img1')).not.toBe(sentToken);
     });
     expect(warnSpy).toHaveBeenCalledWith('重试次数已用尽，请重新发起编辑');
     warnSpy.mockRestore();
@@ -900,12 +930,17 @@ describe('ImageGenNode', () => {
       expect(saveBtn.disabled).toBe(false);
     });
 
-    it('成功 payload：updateConfig({ fileId, editMode: null }) + activeEditNodeId 清空', () => {
+    it('成功 payload（T11 裁定：AI 生成物=服务端交付，客户端仅本地 UI）：applyDataPatchToStores({fileId}) + updateConfig({editMode:null}) + activeEditNodeId 清空', () => {
       renderInEditMode();
       mockUpdateConfig.mockClear();
       mockSetActiveEditNodeId.mockClear();
+      mockApplyDataPatchToStores.mockClear();
       fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f1' });
-      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { fileId: 'f1', editMode: null });
+      // fileId=本地 UI 直写（doc 零写——服务端 commitImage 已交付，禁 replaceMedia 双写）
+      expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'f1' });
+      expect(mockReplaceNodeMedia).not.toHaveBeenCalled();
+      // editMode 退出（ephemeral——doc 面本就禁入）
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null });
       expect(mockSetActiveEditNodeId).toHaveBeenCalledWith(null);
     });
 
@@ -934,4 +969,66 @@ describe('ImageGenNode', () => {
       });
     });
   });
+  // ════════ Y1a T11：replaceMedia/clearMedia 命令迁移（变换保存/清空——乐观 UI+命令权威写+失败回退）════════
+
+  describe('T11 命令迁移', () => {
+    it('变换保存：updateConfig 乐观 UI（fileId 本地面）+ replaceMedia 命令权威写', async () => {
+      vi.mocked(presignUpload).mockResolvedValue({
+        fileId: 'transformed-file-id', uploadUrl: 'http://upload.url', key: 'some-key', fields: {},
+      } as any);
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      renderNode(true);
+      const handler = mockRegisterSaveHandler.mock.calls.at(-1)![1] as () => Promise<void>;
+      await act(async () => { await handler(); });
+      // 乐观 UI：updateConfig 携新 fileId（doc 面被 strip 零写——本地面）
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
+      // 权威写：replaceMedia 命令（GET 槽位→POST→409 重试在 api 层）
+      await waitFor(() => {
+        expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id');
+      });
+    });
+
+    it('变换保存命令失败：回退本地 fileId（旧值还原）+toast——乐观 UI 不悬挂', async () => {
+      const errSpy = vi.spyOn(require('antd').message, 'error').mockImplementation(() => ({} as any));
+      mockReplaceNodeMedia.mockRejectedValueOnce(new Error('409 exhausted'));
+      vi.mocked(presignUpload).mockResolvedValue({
+        fileId: 'transformed-file-id', uploadUrl: 'http://upload.url', key: 'some-key', fields: {},
+      } as any);
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      renderNode(true);
+      const handler = mockRegisterSaveHandler.mock.calls.at(-1)![1] as () => Promise<void>;
+      await act(async () => { await handler(); });
+      await waitFor(() => {
+        expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'orig-file-id' });
+      });
+      errSpy.mockRestore();
+    });
+
+    it('清空（Angle3D onReplaceCurrentNode）：referenceImage 客户端写 + clearMedia 命令权威写', async () => {
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', referenceImage: 'ref-1' };
+      renderNode(true);
+      // 捕获组件注册的 Angle3D 回调并触发 clear 路径
+      const cbs = mockSetNodeCallbacks.mock.calls.at(-1)![1] as { onReplaceCurrentNode: (u: string) => void };
+      act(() => { cbs.onReplaceCurrentNode('http://result.url'); });
+      // referenceImage 清空仍客户端写；fileId:undefined 乐观 UI（doc 面被 strip）
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { referenceImage: undefined, fileId: undefined });
+      await waitFor(() => {
+        expect(mockClearNodeMedia).toHaveBeenCalledWith('p1', 'img1');
+      });
+    });
+
+    it('清空命令失败：回退本地 fileId+toast', async () => {
+      const errSpy = vi.spyOn(require('antd').message, 'error').mockImplementation(() => ({} as any));
+      mockClearNodeMedia.mockRejectedValueOnce(new Error('409 exhausted'));
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id' };
+      renderNode(true);
+      const cbs = mockSetNodeCallbacks.mock.calls.at(-1)![1] as { onReplaceCurrentNode: (u: string) => void };
+      act(() => { cbs.onReplaceCurrentNode('http://result.url'); });
+      await waitFor(() => {
+        expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'orig-file-id' });
+      });
+      errSpy.mockRestore();
+    });
+  });
+
 });

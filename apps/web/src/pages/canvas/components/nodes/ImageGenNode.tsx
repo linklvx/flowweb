@@ -3,7 +3,8 @@ import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type Nod
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, applyDataPatchToStores } from '@/stores/nodeStore';
+import { replaceNodeMedia, clearNodeMedia } from '@/api/collabApi';
 import { selectExecStatus } from '@/stores/execStatusView';
 import type { AiToolId } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -392,18 +393,29 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
+      const prevFileId = fileId;   // 回退锚（命令失败还原——闭包值=变换前 fileId）
       updateConfig(id, {
         fileId: newId, referenceImage: undefined,
         imageRotation: 0, flipH: false, flipV: false,
         transformMode: false,
       });
       useNodeStore.getState().setActiveTransformNodeId(null);
+      // Y1a T11（spec Z11''③）：fileId 权威写=replaceMedia 命令（上面 updateConfig 的 fileId 面=
+      // 乐观 UI——doc 面被 CLIENT_FORBIDDEN_ON_UPDATE strip 零写）；409 一轮重试在 api 层，
+      // 耗尽/网络失败回退本地 fileId+toast（UX 签字项基本形态）
+      const pid = canvasProjectId();
+      if (pid) {
+        replaceNodeMedia(pid, id, newId).catch(() => {
+          applyDataPatchToStores(id, prevFileId != null ? { fileId: prevFileId } : { fileId: undefined });
+          message.error('图片替换未生效（版本冲突或网络异常），已还原');
+        });
+      }
     } catch (err) {
       console.error('保存变换失败:', err);
       setSaving(false);
       setErrorMessage('保存失败，请检查网络后重试');
     }
-  }, [id, displayUrl, imageRotation, flipH, flipV, updateConfig]);
+  }, [id, displayUrl, imageRotation, flipH, flipV, fileId, updateConfig]);
 
   // ── Cancel handler ──
 
@@ -733,9 +745,17 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   useEffect(() => {
     useAngle3DStore.getState().setNodeCallbacks(id, {
       onReplaceCurrentNode: (resultUrl: string) => {
-        // Download result, re-upload to get fileId, replace current node
-        // For now, set referenceImage to resultUrl
+        // Y1a T11（spec Z11''③）：fileId 清空迁 clearMedia 命令（乐观 UI——updateConfig 的 fileId
+        // 面 doc 被 strip 零写）；referenceImage 清空仍客户端写（上传引用键不在禁写集）
+        const prevFileId = (useNodeStore.getState().nodes[id]?.data as { fileId?: string } | undefined)?.fileId;
         updateConfig(id, { referenceImage: undefined, fileId: undefined } as any);
+        const pid = canvasProjectId();
+        if (pid) {
+          clearNodeMedia(pid, id).catch(() => {
+            applyDataPatchToStores(id, prevFileId != null ? { fileId: prevFileId } : { fileId: undefined });
+            message.error('清空未生效（版本冲突或网络异常），已还原');
+          });
+        }
       },
       onCreateNewNode: (resultUrl: string) => {
         useCanvasStore.getState().addChildNode(id, {
@@ -883,7 +903,12 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         setEditError(p.error || 'AI 处理失败');
         setProcessing(false);
       } else if (p.fileId) {
-        updateConfig(id, { fileId: p.fileId, editMode: null });
+        // Y1a T11 裁定（不变量：每个用户可见 fileId 变更恰一次权威写入）：AI 生成物=服务端
+        // commitImage 交付（T10 ai-image-edit.processor finalize 直写 doc fileId+NodeArtifact
+        // rev+1）——客户端仅本地 UI（fileId 本地渲染态，doc 零写——服务端写经 Yjs 回流收敛）；
+        // 禁再走 replaceMedia（双写 rev+expectedRev 必过期 409）
+        applyDataPatchToStores(id, { fileId: p.fileId });
+        updateConfig(id, { editMode: null });
         useNodeStore.getState().setActiveEditNodeId(null);
         setProcessing(false);
       }

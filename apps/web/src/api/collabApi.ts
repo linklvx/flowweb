@@ -63,3 +63,62 @@ export function exportFresh(projectId: string): Promise<ExportFreshResult> {
 export function vacuum(projectId: string): Promise<VacuumResult> {
   return apiFetch<VacuumResult>(`/collab/doc/${projectId}/vacuum`, { method: 'POST' });
 }
+
+// ════════ Y1a T11（spec Z11''③）：replaceMedia/clearMedia 命令——用户写 fileId 必经命令 ════════
+// PG NodeArtifact.rev CAS 权威（doc 不携带 rev）：初始 expectedRev 由 GET 槽位取；409
+// ARTIFACT_REV_CONFLICT（errorCode 线形态——HttpExceptionFilter 只透 message/errorCode）复读
+// 槽位重试恰一轮；非 409（网络/403）照 throw 不重试。
+
+export interface MediaSlotState {
+  targetField: 'fileId';
+  rev: number;
+  mediaId: string | null;
+}
+
+export type MediaCommandBody =
+  | { action: 'replace'; mediaId: string; expectedRev: number }
+  | { action: 'clear'; expectedRev: number };
+
+export interface MediaCommandResult {
+  action: 'replace' | 'clear';
+  /** 胜者新 rev——后续命令的 expectedRev 来源（免 GET 往返） */
+  rev: number;
+  mediaId: string | null;
+}
+
+export function getMediaSlot(projectId: string, nodeId: string): Promise<MediaSlotState> {
+  return apiFetch<MediaSlotState>(`/projects/${projectId}/collab/nodes/${nodeId}/media`);
+}
+
+export function postMediaCommand(projectId: string, nodeId: string, body: MediaCommandBody): Promise<MediaCommandResult> {
+  return apiFetch<MediaCommandResult>(`/projects/${projectId}/collab/nodes/${nodeId}/media`, {
+    method: 'POST', body: JSON.stringify(body),
+  });
+}
+
+/** 命令执行（GET 槽位→POST→409 复读重试恰一轮）：make 由两命令构造各自 body 形态。 */
+async function runMediaCommand(
+  projectId: string,
+  nodeId: string,
+  make: (expectedRev: number) => MediaCommandBody,
+): Promise<MediaCommandResult> {
+  const slot = await getMediaSlot(projectId, nodeId);
+  try {
+    return await postMediaCommand(projectId, nodeId, make(slot.rev));
+  } catch (e: unknown) {
+    const err = e as { status?: number; errorCode?: string };
+    if (err?.status !== 409 || err?.errorCode !== 'ARTIFACT_REV_CONFLICT') throw e;
+    const fresh = await getMediaSlot(projectId, nodeId);   // 复读槽位取换代后 rev——重试一轮完成
+    return postMediaCommand(projectId, nodeId, make(fresh.rev));
+  }
+}
+
+/** 变换保存/手工换图路径的权威写（乐观 UI 已先行——调用方本地直写 ns；本命令写 PG+doc）。 */
+export function replaceNodeMedia(projectId: string, nodeId: string, mediaId: string): Promise<MediaCommandResult> {
+  return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'replace', mediaId, expectedRev }));
+}
+
+/** 清空路径的权威写（doc 侧=服务端 deleteNodeDataKeys ['fileId']）。 */
+export function clearNodeMedia(projectId: string, nodeId: string): Promise<MediaCommandResult> {
+  return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'clear', expectedRev }));
+}

@@ -61,7 +61,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/ImageNodeToolbar.tsx': [363, 364],
     'pages/canvas/components/nodes/TextNodeToolbar.tsx': [166, 171],
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
-    'pages/canvas/components/nodes/ImageGenNode.tsx': [165, 166], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166
+    'pages/canvas/components/nodes/ImageGenNode.tsx': [166, 167], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166；Y1a T11：nodeStore 具名 import+collabApi import +2——→167,168
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
     'pages/canvas/components/nodes/VideoGenNode.tsx': [399],   // Y1a+Y1b T6③：toFlowaiUrl import +1——398→399
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],
