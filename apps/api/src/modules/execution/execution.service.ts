@@ -413,6 +413,7 @@ export class ExecutionService {
               projectId, nodeId: node.id, teamId, userId,
               intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev,
               sourceUrl: outcome.resultRef,
+              originalNameBase: `ai-generated-${node.id}`,   // 质评收口 Minor#7：扩展名 sniff 终判分档
             });
         if (committed.outcome === 'intent-stale') {
           // finalize 内 intent CAS 0 命中（行终态/换代——已 void 旧冻结）——旧代产物不投递（同 gated!==1 面）

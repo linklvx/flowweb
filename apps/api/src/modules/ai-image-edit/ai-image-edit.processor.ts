@@ -190,6 +190,7 @@ export class AiImageEditProcessor extends WorkerHost {
         projectId, nodeId, teamId: projectTeamId, userId,
         intentRowId, execSeq, expectedRev: ticket!.expectedRev,
         sourceUrl: result.url,
+        originalNameBase: `ai-edited-${nodeId}`,   // 质评收口 Minor#7：扩展名 sniff 终判分档
       });
       if (committed.outcome === 'intent-stale') {
         this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作证）`);

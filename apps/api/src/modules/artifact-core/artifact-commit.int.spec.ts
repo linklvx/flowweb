@@ -227,6 +227,54 @@ const restoreBalance = async () => {
     expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1); // 恰一次实扣
   });
 
+  it('质评收口 Important#2：commitImage 幂等重驱预检——已 SUCCEEDED∧锚行在 ⇒ 零重下载零重上传+mediaId/key 回填（provider URL 过期复驱白耗 attempts 面根修）', async () => {
+    const c = await claimIntent({ jobId: 't10ac-redrive' });
+    await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+    fakeFetch.fetchBuffer.mockClear();
+    fakeMinio.upload.mockClear();
+    const first = await commitFor(c);
+    expect(first.outcome).toBe('committed');
+    expect(fakeFetch.fetchBuffer).toHaveBeenCalledTimes(1);   // 首程恰一次下载
+    expect(fakeMinio.upload).toHaveBeenCalledTimes(1);
+    // 复驱（同参数 R3/重试形态）——零第二次下载/上传，幂等出口回填 mediaId+key
+    const second = await commitFor(c);
+    expect(second.outcome).toBe('committed');
+    expect(second.mediaId).toBe(first.mediaId);
+    expect(second.key).toBe(first.key);                       // Important#1：幂等路径 key 回填（非 undefined）
+    expect(fakeFetch.fetchBuffer).toHaveBeenCalledTimes(1);   // 红：改前第二次复驱必再下载（URL 过期即 throw）
+    expect(fakeMinio.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('质评收口 Minor#8：finalizeText superseded 分支——result 槽用户替换（rev 已+1）→ 0 行=superseded 不覆盖用户值+投影 superseded+照常 settle', async () => {
+    const c = await claimIntent({ kind: 'text', jobId: 't10ac-text-sup' });
+    await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+    // 用户 replace text 产物（T11 命令形态预演）：result 槽 rev 0→1+用户文本
+    await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'result',
+      expectedRev: 0, source: 'replace', state: 'stored', resultText: '用户已替换的文本',
+    }));
+    const out = await artifactCommit.finalizeText({
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, userId: UID,
+      intentRowId: c.intent.id, execSeq: c.intent.execSeq, expectedRev: c.artifactRev,
+      resultText: '旧代生成的文本',
+    });
+    expect(out.outcome).toBe('superseded');
+    // 槽位：用户值不被覆盖（result 槽 text 消费面）
+    const art = await prisma.nodeArtifact.findUnique({
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'result', targetItemId: '' } },
+    });
+    expect(art!.resultText).toBe('用户已替换的文本');
+    expect(art!.rev).toBe(1);
+    expect(art!.source).toBe('replace');
+    // 投影 superseded（无 pending 行）+照常 settle（资金独立判）
+    const proj = await prisma.artifactProjection.findUnique({ where: { artifactId_artifactRev: { artifactId: art!.id, artifactRev: 1 } } });
+    expect(proj!.state).toBe('superseded');
+    expect(await prisma.artifactProjection.findFirst({ where: { artifactId: art!.id, state: 'pending' } })).toBeNull();
+    expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1);
+    expect(await ledgerRows(c.intent.id, 'refund')).toHaveLength(0);
+    expect((await prisma.generationIntent.findUnique({ where: { id: c.intent.id } }))!.status).toBe('SUCCEEDED');
+  });
+
   it('stage durable 全 kind 落 sourceUrl（红：现状 provider URL 仅内存窗口）：stage 后 kill -9 → processing 行+sourceUrl 在——R3 凭行重下并 finalize', async () => {
     const c = await claimIntent({ jobId: 't10ac-stage' });
     const sourceUrl = `https://provider.example.com/stage-${randomUUID().slice(0, 8)}.png`;

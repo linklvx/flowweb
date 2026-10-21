@@ -217,7 +217,11 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
           mediaId: media.id, projectId: params.projectId, factVersion: media.factVersion,
           factType: 'state', payload: { status: 'processing' },
         }],
-        skipDuplicates: true,   // [mediaId,projectId,factType,factVersion] 唯一
+        // [mediaId,projectId,factType,factVersion] 四元组唯一（S0.1）——skipDuplicates 在此是承载
+        // 非巧合：并发双 stage（(bucket,key) 败者回读同 mediaId 行，两事务同插 version=0 元组）与
+        // 资金锚复用路径的重复插 fact 均被吞；completed fact 在 version+1 的不同元组（doneNatural
+        // 同款）。若未来 fact 语义改动使该四元组不再天然互斥，此处将静默丢 fact——改前必读本注。
+        skipDuplicates: true,
       });
     }
     return media;
@@ -229,6 +233,8 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
   async completeRegisteredInTx(tx: Prisma.TransactionClient, params: {
     mediaId: string; projectId: string; key: string; sha256: string;
     mimeType: string; sniffedMimeType: string | null; size: number | bigint;
+    /** sniff 终判扩展名分档的原始名（质评收口 Minor#7——stage 行 .png 是 provisional，此处改写）。 */
+    originalName?: string;
   }): Promise<void> {
     const { count } = await tx.media.updateMany({
       where: { id: params.mediaId, status: 'processing' },
@@ -238,6 +244,7 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
         objectSha256: params.sha256,
         size: params.size,
         mimeType: params.mimeType,
+        ...(params.originalName ? { originalName: params.originalName } : {}),
         ...(params.sniffedMimeType ? { sniffedMimeType: params.sniffedMimeType } : {}),
         probeState: 'skipped',
         factVersion: { increment: 1 },

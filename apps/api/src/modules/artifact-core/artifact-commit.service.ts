@@ -64,6 +64,8 @@ export interface CommitImageParams {
   /** 业务审计锚（lighting 任务 id——Media.taskId 可空列）。 */
   taskId?: string | null;
   artifactIndex?: number;
+  /** 产物原始名基座（默认 ai-${nodeId}；edit/lighting 传各自前缀）——扩展名由 sniff 终判 MIME 分档。 */
+  originalNameBase?: string;
 }
 
 export interface FinalizeTextParams {
@@ -77,7 +79,11 @@ export interface FinalizeTextParams {
   resultText: string;
 }
 
-/** finalize 三态出口（调用方据此分派 doc 交付：superseded=不覆盖用户值；intent-stale=零交付）。 */
+/** finalize 三态出口（调用方据此分派 doc 交付：superseded=不覆盖用户值；intent-stale=零交付）。
+ *  不变量（质评收口 Important#1——消费方 mediaId!/key! 断言的依据，幂等路径回填保成立）：
+ *  image 系（commitImage）的 committed/superseded 必携 mediaId+key——首程来自 stage/上传描述符，
+ *  幂等复驱（commitImage 入口预检+finalize 事务内幂等分支）从锚定 NodeArtifact/Media 行回填；
+ *  text（finalizeText）的 committed 不携（无 Media）；intent-stale 恒不携。 */
 export interface CommitOutcome {
   outcome: 'committed' | 'superseded' | 'intent-stale';
   mediaId?: string;
@@ -97,7 +103,7 @@ interface FinalizeParams {
   /** intent.resultRef 写入值（image=mediaId；text=`text:` 截断占位——既有语义）。 */
   resultRef: string;
   /** image 系：stage 行提升描述符（text 不传=跳过 Media）。 */
-  media?: { mediaId: string; projectId: string; key: string; sha256: string; mimeType: string; sniffedMimeType: string | null; size: number };
+  media?: { mediaId: string; projectId: string; key: string; sha256: string; mimeType: string; sniffedMimeType: string | null; size: number; originalName: string };
   resultText?: string;
   artifactIndex: number;
 }
@@ -123,10 +129,16 @@ export class ArtifactCommitService {
     @Inject(MediaRegistrationService) private readonly registration: MediaRegistrationService,
   ) {}
 
-  /** image 同步链（image/edit/lighting 共用——T10 集成面）：stage durable→下载→sha/sniff→上传
-   *  content-addressed key→finalize 单事务。下载/上传全在 finalize 事务之外（事务内禁外部 IO）。 */
+  /** image 同步链（image/edit/lighting 共用——T10 集成面）：幂等预检→stage durable→下载→sha/sniff→
+   *  上传 content-addressed key→finalize 单事务。下载/上传全在 finalize 事务之外（事务内禁外部 IO）。 */
   async commitImage(params: CommitImageParams): Promise<CommitOutcome> {
     const artifactIndex = params.artifactIndex ?? 0;
+    // ── 质评收口 Important#2：幂等重驱预检（两索引读，零锁零 IO）——intent 已 SUCCEEDED∧产物锚定行在
+    //    ⇒ 整链曾完整成功，回填出口直接返回零重下载/零重上传（否则 provider URL 过期时 fetch throw→
+    //    上层按失败重试白耗 attempts）；锚行缺（被 T11 replace 改锚）不短路——照走全链由 finalize
+    //    幂等分支收敛。 ──
+    const early = await this.idempotentOutcome(params.intentRowId, params.execSeq, artifactIndex);
+    if (early) return early;
     const stage = await this.stageImage(params);
     const fetched = await this.safeFetch.fetchBuffer(params.sourceUrl);
     const sha256 = createHash('sha256').update(fetched.buffer).digest('hex');
@@ -134,6 +146,9 @@ export class ArtifactCommitService {
     const mimeType = sniffed ?? fetched.contentType ?? params.sourceMimeType ?? 'application/octet-stream';
     const key = `${stage.keyBase}-${sha256}`;
     await this.minio.upload(key, fetched.buffer, mimeType);
+    // 质评收口 Minor#7：originalName 按 sniff 终判 MIME 扩展名分档（edit/lighting 结果可为
+    // jpeg/webp——stage 行的 .png 只是 provisional，提升时改写，不再永久错档）
+    const ext = mimeType.split('/')[1] || 'png';
     return this.finalize({
       projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId, userId: params.userId,
       intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
@@ -141,8 +156,28 @@ export class ArtifactCommitService {
       media: {
         mediaId: stage.mediaId, projectId: params.projectId, key, sha256,
         mimeType, sniffedMimeType: sniffed, size: fetched.buffer.length,
+        originalName: `${params.originalNameBase ?? `ai-${params.nodeId}`}.${ext}`,
       },
     });
+  }
+
+  /** 幂等出口回填（commitImage 预检+finalize 事务内幂等分支共用——Important#1/2）：intent 已
+   *  SUCCEEDED∧核销 且 锚定 NodeArtifact 行存在 ⇒ committed+mediaId/key 回填（消费方非空断言依据）。
+   *  返回 null=不满足幂等（照走全链）。 */
+  private async idempotentOutcome(intentRowId: string, execSeq: bigint, artifactIndex: number): Promise<CommitOutcome | null> {
+    const intent = await this.prisma.generationIntent.findUnique({
+      where: { id: intentRowId },
+      select: { status: true, creditsConsumed: true, creditCost: true },
+    });
+    if (!intent || intent.status !== 'SUCCEEDED' || intent.creditsConsumed !== intent.creditCost) return null;
+    const existing = await this.prisma.nodeArtifact.findUnique({
+      where: { sourceIntentRowId_sourceExecSeq_artifactIndex: { sourceIntentRowId: intentRowId, sourceExecSeq: execSeq, artifactIndex } },
+    });
+    if (!existing) return null;
+    const media = existing.mediaId
+      ? await this.prisma.media.findUnique({ where: { id: existing.mediaId }, select: { key: true } })
+      : null;
+    return { outcome: 'committed', mediaId: existing.mediaId ?? undefined, key: media?.key ?? undefined };
   }
 
   /** stage 短事务（不锁 balance——与 finalize 资金事务解耦）：Media(processing) 落 sourceUrl+
@@ -179,8 +214,7 @@ export class ArtifactCommitService {
    *  count===1 唯一凭据）→Media 提升/binding/投影→settleInTx（失败整体回滚）→commit。
    *  死锁/锁等待/池超时族有界重试 3 次+jitter（IntentStaleSignal 非重试面——确定性退役）。 */
   private async finalize(params: FinalizeParams): Promise<CommitOutcome> {
-    let lastErr: unknown;
-    for (let attempt = 0; attempt <= FINALIZE_TX_MAX_RETRIES; attempt += 1) {
+    for (let attempt = 0; ; attempt += 1) {
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, RETRY_JITTER_BASE_MS + Math.floor(Math.random() * RETRY_JITTER_BASE_MS * 2)));
       }
@@ -195,16 +229,19 @@ export class ArtifactCommitService {
             .catch((err) => this.logger.warn(`[finalize] 意图 ${params.intentRowId} intent-stale void 旧冻结失败（reconcile 兜底）: ${err}`));
           return { outcome: 'intent-stale' };
         }
-        if (!isRetryableFinalizeError(e) || attempt === FINALIZE_TX_MAX_RETRIES) throw e;
-        lastErr = e;
+        if (!isRetryableFinalizeError(e) || attempt >= FINALIZE_TX_MAX_RETRIES) throw e;
         this.logger.warn(`[finalize] 意图 ${params.intentRowId} 事务可重试错误（第 ${attempt + 1} 次重试）: ${(e as Error)?.message ?? e}`);
       }
     }
-    throw lastErr;
+    // 不可达：无界 for 的尾次尝试必 return/throw（质评收口 Minor#5——旧 throw lastErr 死代码删除；
+    // 有界性由上方 attempt>=FINALIZE_TX_MAX_RETRIES 的 throw 承担）
   }
 
   private async finalizeInTx(raw: Prisma.TransactionClient, params: FinalizeParams): Promise<CommitOutcome> {
     const tx = await this.ledger.ledgerTx(raw);               // Z89：首句取通行证（lock_timeout 3s+ledger_tx）
+    // 质评收口（spec Z18''② 明文）：statement_timeout=5s——慢执行（缺索引扫描/计划劣化）截断，
+    // 防 TeamBalance 行锁持有被拖长（ledgerTx 只设 lock_timeout=3s，此处补齐 finalize 域第三参数）
+    await tx.$executeRaw`SET LOCAL statement_timeout = '5s'`;
     await this.ledger.lockBalance(tx, params.teamId);         // 锁序①（契约 20）：先 balance 再碰 intent——ABBA 防线
 
     // intent FOR UPDATE 重验（行锁持有下读终态/代际——幂等与退役判定的事实基础）
@@ -228,9 +265,13 @@ export class ArtifactCommitService {
           }],
           skipDuplicates: true,   // [artifactId,artifactRev] 唯一
         });
-        return { outcome: 'committed', mediaId: existing.mediaId ?? undefined };
+        // Important#1：mediaId/key 回填（image 系消费方非空断言依据）——key 自锚定 Media 行
+        const mediaRow = existing.mediaId
+          ? await tx.media.findUnique({ where: { id: existing.mediaId }, select: { key: true } })
+          : null;
+        return { outcome: 'committed', mediaId: existing.mediaId ?? undefined, key: mediaRow?.key ?? undefined };
       }
-      return { outcome: 'committed' };   // 产物行已被 replace 改锚（T11）——幂等短路不动槽位
+      return { outcome: 'committed' };   // 产物行已被 replace 改锚（T11）——幂等短路不动槽位（text 或改锚面）
     }
     if (rows[0].status !== 'RUNNING' || rows[0].execSeq !== params.execSeq) {
       throw new IntentStaleSignal(`行终态(${rows[0].status})/换代`);
@@ -282,8 +323,13 @@ export class ArtifactCommitService {
     }
 
     // ── settle（资金独立判：provider 成功∧intent CAS 成功 ⇒ 照常核销——superseded 亦然；
-    //    失败（throw）整体回滚——产物/intent 终态/settle 原子）。 ──
-    await this.teamCredit.settleInTx(tx, { intentRowId: params.intentRowId, execSeq: params.execSeq });
+    //    失败（throw）整体回滚——产物/intent 终态/settle 原子）。
+    //    质评收口 Minor#4：付费档 settled:false（冻结灭失/并发已核销的非正常窗）至少 warn——
+    //    禁静默（零额档 creditCost=0 无 reserve 属正常 settled:false，不告警）。 ──
+    const settled = await this.teamCredit.settleInTx(tx, { intentRowId: params.intentRowId, execSeq: params.execSeq });
+    if (!settled.settled && rows[0].creditCost > 0) {
+      this.logger.warn(`[finalize] 意图 ${params.intentRowId} settle 未达核销（settled:false——冻结灭失/并发已核销？对账第四分支兜底）`);
+    }
 
     return { outcome: cas.won ? 'committed' : 'superseded', mediaId: params.media?.mediaId, key: params.media?.key };
   }
