@@ -507,13 +507,14 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
   });
 
   describe('attachJob/listByNode 冒烟', () => {
-    it('attachJob → update 回写 jobId（reconcile A 路径前提）', async () => {
-      prisma.generationIntent.update.mockResolvedValue(row({ jobId: 'job-1' }));
+    it('T9 收尾：attachJob → updateMany RUNNING 守卫回写 jobId（reconcile A 路径前提；红：现状全仓唯一裸 update——claim 与 enqueue 间行被并发收敛终态时覆写 jobId 污染 reconcile 三查判据）', async () => {
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
 
       await service.attachJob('gi-1', 'job-1');
 
-      expect(prisma.generationIntent.update).toHaveBeenCalledWith({
-        where: { id: 'gi-1' },
+      expect(prisma.generationIntent.update).not.toHaveBeenCalled(); // 裸 update 退役
+      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
+        where: { id: 'gi-1', status: 'RUNNING' },
         data: { jobId: 'job-1' },
       });
     });

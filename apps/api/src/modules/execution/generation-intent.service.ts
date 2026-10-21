@@ -386,9 +386,11 @@ export class GenerationIntentService {
 
   /** 扩面模块 controller claim→queue.add 后回写 jobId（F13 补强）：不回写则 reconcile A 路径
    *  （查 BullMQ 真实状态）对 ai-image-edit/lighting 永久失效，且与同步路径（合法无 jobId）
-   *  不可区分——长任务会被三查②按"同步路径崩溃"误判 VOIDED。 */
+   *  不可区分——长任务会被三查②按"同步路径崩溃"误判 VOIDED。
+   *  T9 收尾：status RUNNING 守卫（updateMany）——claim 与 enqueue 间行被并发收敛终态时回写
+   *  零命中（改前全仓唯一裸 update——终态行覆写 jobId 污染 reconcile 三查判据）。 */
   async attachJob(id: string, jobId: string): Promise<void> {
-    await this.prisma.generationIntent.update({ where: { id }, data: { jobId } });
+    await this.prisma.generationIntent.updateMany({ where: { id, status: 'RUNNING' }, data: { jobId } });
   }
 
   async listByNode(projectId: string, nodeId: string) {
