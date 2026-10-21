@@ -81,6 +81,8 @@ const INLINE_BASELINE = new Set<string>([
   /* Y0c T27：worker 写端点（body 校验=controller 内 T4 manifest 执法档 validateWriteBatch——
    * 六 op 判别联合数组非 class-validator 表达面，pipe 零增量；shrink 端点同惯例「校验进门自持」） */
   'modules/collab/collab-write.controller.ts|body: { projectId?: unknown; ops?: unknown }',
+  /* Y1a T11：replaceMedia/clearMedia 命令（body 判别联合进门自持窄化——collab-write 同惯例） */
+  'modules/collab/collab-media.controller.ts|body: { action?: unknown; mediaId?: unknown; expectedRev?: unknown }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; regenToken?: string; stateVector: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',

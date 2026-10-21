@@ -16,6 +16,7 @@ import { CollabReadyService } from './collab-ready.service';
 import { CollabDocController } from './collab-doc.controller';
 import { CollabReadController } from './collab-read.controller';
 import { CollabWriteController } from './collab-write.controller';
+import { CollabMediaController } from './collab-media.controller';   // Y1a T11：replaceMedia/clearMedia 命令（用户写 fileId 必经命令——PG NodeArtifact CAS）
 import { CollabShrinkService } from './collab-shrink.service';
 import { TelemetryController } from './telemetry.controller';
 import { TelemetryService } from './telemetry.service';
@@ -25,10 +26,11 @@ import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
 import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasService（export-fresh 副本创建）——单向依赖无环
 import { WorkerPresenceModule } from '../worker-presence/worker-presence.module';   // Y0c T29-II（Z130②）：CollabReadyService workers 维度供数
+import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   // Y1a T11：CollabMediaController 消费 NodeArtifactService/MediaRegistrationService（CAS+bindInTx）
 
 @Module({
-  imports: [TeamModule, CanvasModule, WorkerPresenceModule],
-  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点
+  imports: [TeamModule, CanvasModule, WorkerPresenceModule, ArtifactCoreModule],
+  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
   providers: [
     // T34（Z45③）：三 token useValue→useFactory——useValue 实参在模块加载期求值（dotenv→validateEnv
     // 写回之前=Z79 违规面），useFactory 在 DI 解析期（NestFactory.create，恒在 main.ts validateEnv 后）
