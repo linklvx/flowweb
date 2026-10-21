@@ -17,8 +17,45 @@ function parseExecSeq(s: string): bigint {
  *  即刻暴露，禁静默 drop 吞代际错判）。返回 -1/0/1 三态（排序友好）。
  *  裸比较禁令：业务代码禁 `a.execSeq > b.execSeq` 字典序裸比——执法面=scripts/check-plan-census.mjs
  *  grep gate（lint 轻形态，仓内 check-*.mjs 惯例）。 */
-export function compareExecSeq(a: string, b: string): number {
+export function compareExecSeq(a: string, b: string): -1 | 0 | 1 {
   const ba = parseExecSeq(a);
   const bb = parseExecSeq(b);
   return ba < bb ? -1 : ba > bb ? 1 : 0;
+}
+
+// ── Y1a T8：上游媒体 URL 解析（S2——上游注入读 NodeArtifact PG 权威后，外呼时身份→可达 URL） ──
+
+/** /flowai URL → MinIO 对象键（同源路径与完整 presigned URL 两形态；query 签名参数剥离）。
+ *  web 侧 toFlowaiUrl 改写（^https?://[^/]+/flowai → /flowai）的逆向提取——手工 doc URL
+ *  （/flowai/ 形态）→ key → Media (bucket,key) 反查身份用。非 /flowai 域（外网 URL）→ null。 */
+export function extractFlowaiObjectKey(url: string): string | null {
+  const m = /^(?:https?:\/\/[^/]+)?\/flowai\/([^?#/][^?#]*)/.exec(url);
+  return m ? m[1] : null;
+}
+
+/** 上游外呼 URL 解析决策输入（Media 行三列投影——sourceUrlExpiresAt 容忍 Date|string）。 */
+export interface UpstreamMediaSource {
+  sourceUrl: string | null;
+  sourceUrlExpiresAt: Date | string | null;
+  key: string; // MinIO 对象键（Media.key 非空列——降级 presign 目标）
+}
+
+/** 上游外呼 URL 解析单源（Y1a T8）：①Media.sourceUrl 未过期直传（provider 取自家 URL）；
+ *  ②过期/缺失降级 MinIO presigned GET（调用方注入回调——生产=nginx /flowai 域名反代 MinIO，
+ *  api 侧 minio.service generatePresignedGetUrl）。
+ *  过期判定：sourceUrlExpiresAt 非空且 <= now 即过期（端点算过期）；null=无显式过期语义，
+ *  按 provider URL 不校验过期直传（schema 列为准，勿臆造续期检查）。
+ *  纯决策零 IO（零依赖叶子模块）——presign 产能与 DB 读行归调用方（upstream-media.service）。 */
+export async function resolveUpstreamMediaUrl(
+  media: UpstreamMediaSource,
+  presignedGet: (key: string) => Promise<string>,
+  now: Date = new Date(),
+): Promise<string> {
+  const expiresAt = media.sourceUrlExpiresAt == null
+    ? null
+    : new Date(media.sourceUrlExpiresAt).getTime();
+  if (media.sourceUrl !== null && (expiresAt === null || expiresAt > now.getTime())) {
+    return media.sourceUrl;
+  }
+  return presignedGet(media.key);
 }
