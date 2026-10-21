@@ -35,6 +35,13 @@ const DROP_INDEX = /\bDROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?(?:"
 // 豁免登记（controller 裁定专属——reset runbook 全表部署语义，无存量数据不受 expand/contract 保护）。
 // 元数据（S0.1 2026-10-20 补全）：reason=放行依据 / owner=豁免裁定责任人 / since=登记日期。
 export const EXEMPTIONS = {
+  '20261022070000_mediabinding_refvideo_refaudio': {
+    MediaBinding: {
+      reason: 'T16 spec 评审 P1#1——targetField CHECK 域放宽（+referenceVideo/referenceAudio）：DROP+ADD CONSTRAINT 形态必经；域扩展非收紧（旧值全合法，旧代码零破坏）',
+      owner: 'Y1a+Y1b T16 spec 评审 P1#1 裁定',
+      since: '2026-10-22',
+    },
+  },
   '20261020200300_nodeartifact_projection_v3': {
     Media: {
       reason: 'Y1a+Y1b v11 硬切批——spec v14 reset runbook 全表部署，无存量数据',

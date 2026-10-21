@@ -22,5 +22,14 @@
   },
   "20261021060000_execseq_drop_default": {
     "migration.sql": "cf8cbf49f25a68491641ed7724eb6427d3e954af72cf21caa9383c55da17a95e"
+  },
+  "20261021150000_reconcile_action_audit": {
+    "migration.sql": "7957d2b9fdf45371d2717456c71fabd5d63d1e6f77ade70cbb7fd998615d1935"
+  },
+  "20261022070000_mediabinding_refvideo_refaudio": {
+    "migration.sql": "ede390496c616cbed031ef4ac317601f4429d60bad48f87204e1d865b5b7c0a1"
+  },
+  "20261022080000_intent_claim_artifact_rev": {
+    "migration.sql": "eb7cde8a4917fcd6abe5f580734ef768fa4c0e54c8c42e75962cc55b2fe58233"
   }
 }

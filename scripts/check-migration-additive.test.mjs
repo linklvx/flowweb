@@ -66,10 +66,13 @@ test('裁定1 breakingTable 形态：ALTER/DROP/TRUNCATE TABLE 与 DROP TYPE 取
   assert.equal(breakingTable('DROP CONSTRAINT "x"'), null);
 });
 
-test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工审阅——两登记=Media.status enum 硬切+T2 质评收口 size Int→BigInt）', () => {
-  assert.deepEqual(Object.keys(EXEMPTIONS), ['20261020200300_nodeartifact_projection_v3', '20261020211610_media_v3_natural_sniff_size']);
+test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工审阅——三登记=Media.status enum 硬切+T2 质评收口 size Int→BigInt+T16 P1#1 MediaBinding CHECK 域放宽）', () => {
+  assert.deepEqual(Object.keys(EXEMPTIONS), ['20261022070000_mediabinding_refvideo_refaudio', '20261020200300_nodeartifact_projection_v3', '20261020211610_media_v3_natural_sniff_size']);
+  assert.deepEqual(Object.keys(EXEMPTIONS['20261022070000_mediabinding_refvideo_refaudio']), ['MediaBinding']);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261020200300_nodeartifact_projection_v3']), ['Media']);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261020211610_media_v3_natural_sniff_size']), ['Media']);
+  // T16 P1#1 owner pin：spec 评审裁定专属（域放宽非收紧——旧值全合法）
+  assert.equal(EXEMPTIONS['20261022070000_mediabinding_refvideo_refaudio'].MediaBinding.owner, 'Y1a+Y1b T16 spec 评审 P1#1 裁定');
 });
 
 test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since 非空字符串——永久登记可追溯，禁裸字符串条目）', () => {

@@ -1213,7 +1213,7 @@ model MediaBinding {
   nodeId       String
   teamId       String
   role         String   @default("primary")
-  targetField  String   @default("fileId") // CHECK 白名单（fileId|referenceImage|images|allImages|trimmedFileId|videoFileId|audioFileId）
+  targetField  String   @default("fileId") // 词表单源=shared MEDIA_REF_TARGET_FIELDS（fileId|referenceImage|referenceVideo|referenceAudio|images|allImages|trimmedFileId|videoFileId|audioFileId——T16 spec 评审 P1#1 补 referenceVideo/referenceAudio；无 DB CHECK，执法面在应用层）
   targetItemId String   @default("") // 非空 sentinel（PG NULL 不去重根修）
   createdAt    DateTime @default(now())
   media        Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
