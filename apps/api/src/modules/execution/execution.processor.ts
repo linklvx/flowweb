@@ -53,12 +53,20 @@ export class ExecutionProcessor extends WorkerHost {
       // moveToDelayed(now+grace, token)+DelayedError 重排续跑（BullMQ moveToDelayed skipAttempt——不耗
       // attempts；下轮重进 claim 三态收敛：fresh→再让位/stale→takeover 接管/终态→回放或 rearm）。
       if (result.errors.some((e) => e.status === 'skipped')) {
-        const moved = await job.moveToDelayed(Date.now() + EXEC_SAME_JOB_RETRY_DELAY_MS, job.token!)
-          .then(() => true).catch(() => false); // move 失败（锁失守等）退回正常 ack——不硬死
+        let moved = true;
+        let moveErr: unknown;
+        try {
+          await job.moveToDelayed(Date.now() + EXEC_SAME_JOB_RETRY_DELAY_MS, job.token!);
+        } catch (e) {
+          moved = false; // move 失败（锁失守等）退回正常 ack——不硬死
+          moveErr = e;
+        }
         if (moved) {
           this.logger.log(JSON.stringify({ event: 'execution_job_skip_delayed', traceId: traceId ?? null, jobId: job.id, projectId }));
           throw new DelayedError('execution skipped——moveToDelayed 重排续跑（T9 三态）');
         }
+        // T9 收尾（评审 Minor）：退 ack 降级显式可观测——warn 携 jobId+原因（改前仅靠缺 delayed 日志间接判）
+        this.logger.warn(JSON.stringify({ event: 'execution_job_skip_move_failed', traceId: traceId ?? null, jobId: job.id, projectId, reason: String((moveErr as Error)?.message ?? moveErr) }));
       }
       // Y0b-5 T13 微修：终态行与 start 行同 JSON 形态携 traceId——跨 Redis trace 全程贯穿（终态行断链即不可关联）
       this.logger.log(JSON.stringify({ event: 'execution_job_done', traceId: traceId ?? null, jobId: job.id, projectId }));

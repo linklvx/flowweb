@@ -3,7 +3,7 @@ import { ExecutionProcessor } from './execution.processor';
 import { ExecutionService } from './execution.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from './generation-intent.service';
-import { Job } from 'bullmq';
+import { Job, DelayedError } from 'bullmq';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ExecutionProcessor', () => {
@@ -228,5 +228,47 @@ describe('T9 收尾：failed 钩子票守卫（旧 worker 不得误杀 takeover 
     await p.process(job);
 
     expect(updateData).not.toHaveBeenCalled(); // 红：现状无回写语义可言——绿后为 nodeId 过滤断言
+  });
+
+  it('红：skip 后 moveToDelayed 失败（锁失守等）→ warn 携 jobId+原因（退回 ack 降级可观测——改前仅缺 execution_job_skip_delayed 日志间接可判）', async () => {
+    const { p, executionService } = makeProc();
+    executionService.execute.mockResolvedValue({
+      success: false,
+      errors: [{ nodeId: 'n1', status: 'skipped' as const, error: '该节点正在生成中', errorCode: 'NODE_BUSY' }],
+      results: [], totalCost: 0,
+    });
+    const warnSpy = vi.spyOn((p as any).logger, 'warn');
+    const job = {
+      id: 'job-move-fail', token: 'tok-1',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1' },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+      moveToDelayed: vi.fn().mockRejectedValue(new Error('Missing lock for job job-move-fail')),
+    } as unknown as Job;
+
+    const result = await p.process(job); // move 失败退回正常 ack——不硬死
+
+    expect(result).toEqual(expect.objectContaining({ success: false }));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('execution_job_skip_move_failed')); // 红：现状零 warn
+    const payload = JSON.parse(warnSpy.mock.calls.find((c: any[]) => c[0].includes('execution_job_skip_move_failed'))![0] as string);
+    expect(payload).toMatchObject({ jobId: 'job-move-fail', projectId: 'p1', reason: expect.stringContaining('Missing lock') });
+  });
+
+  it('skip 后 moveToDelayed 成功 → 照常 DelayedError 重排（既有行为回归钉——warn 零调用）', async () => {
+    const { p, executionService } = makeProc();
+    executionService.execute.mockResolvedValue({
+      success: false,
+      errors: [{ nodeId: 'n1', status: 'skipped' as const, error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' }],
+      results: [], totalCost: 0,
+    });
+    const warnSpy = vi.spyOn((p as any).logger, 'warn');
+    const job = {
+      id: 'job-move-ok', token: 'tok-2',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1' },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+      moveToDelayed: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+
+    await expect(p.process(job)).rejects.toThrow(DelayedError);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
