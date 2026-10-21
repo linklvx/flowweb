@@ -58,6 +58,13 @@ export * from './canvas/media-refs';
 // geometryTrap 写者上下文校验与 B7-1 census 引用源。assertions/C0-1 类型骨架 stub 出口仍归 O0a。
 export * from './canvas/geometryWriterRegistry';
 export * from './canvas/geometry';
+// T17（plan v11.2 S5 片·spec Z12''/Z4''-v14/Z17''）：序域三新单源出口——单一有界 order 键域
+// （自实现分数索引，禁第三方库）+placement 复合单键判别（DOC_NODE_KEYS 契约表/deriveStoryboardCells）
+// +读序单源（层序遍历+同层 (order,id)/(slot,id) 双 tie-break）。sortNodesByPosition/sortForArrange
+// 空间序读面收编本域（读序单实现）。
+export * from './canvas/order-key';
+export * from './canvas/placement';
+export * from './canvas/order-records';
 export * from './canvas/storyboardConfig';
 // O0c-3（终裁 88②）：展开帧单源模块整删——toggleCollapse 展开档消费已随 O0b-5 单意图化消失，
 // 折叠恢复唯一来源=doc 帧三键密封（reconcile 写域①）/auto 重派生 bbox。

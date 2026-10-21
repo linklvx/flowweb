@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildCopyPlan } from './copyPlan';
+import { buildCopyPlan, normalizeCopiedNodeData } from './copyPlan';
 import { normalizeSelection, participation } from './arrangeSelection';
 
-const G = (id: string, cells: string[], extra: any = {}) => {
+const G = (id: string, extra: any = {}) => {
   const { position, ...dataExtra } = extra ?? {};
   return {
     id, type: 'group', parentId: undefined, position: position ?? { x: 0, y: 0 },
-    width: 400, height: 300, data: { groupType: 'normal', cells, ...dataExtra },
+    width: 400, height: 300, data: { groupType: 'normal', ...dataExtra },
   };
 };
 const N = (id: string, parentId?: string, extra: any = {}) =>
@@ -17,26 +17,93 @@ const N = (id: string, parentId?: string, extra: any = {}) =>
 const dupIds = (records: any[], ids: string[]) =>
   participation(normalizeSelection(records, ids), 'duplicate', records).ids;
 
+describe('normalizeCopiedNodeData（Z14 单函数五路径共用）', () => {
+  it('red 锚（copyPlan:63 structuredClone）：loading 不再原样复制——有 fileId → done', () => {
+    const out = normalizeCopiedNodeData({ status: 'loading', fileId: 'm1', prompt: 'p' });
+    expect(out.status).toBe('done');
+    expect(out.fileId).toBe('m1');            // 新建保留 fileId——立即渲染
+  });
+  it('loading 无 fileId → idle（副本不转圈）', () => {
+    expect(normalizeCopiedNodeData({ status: 'loading' }).status).toBe('idle');
+  });
+  it('error → 有 fileId 则 done 无则 idle；errorCode/error 清', () => {
+    expect(normalizeCopiedNodeData({ status: 'error', errorCode: 'E_TIMEOUT', error: 'boom' }).status).toBe('idle');
+    const done = normalizeCopiedNodeData({ status: 'error', fileId: 'm2', errorCode: 'X' });
+    expect(done.status).toBe('done');
+    expect(done.errorCode).toBeUndefined();
+    expect(done.error).toBeUndefined();
+  });
+  it('images[].url 删、images[].id 保留（多图身份引用不 strip）', () => {
+    const out = normalizeCopiedNodeData({
+      images: [{ id: 'img1', status: 'success', url: 'http://x/1' }, { id: 'img2', status: 'uploading' }],
+    }) as any;
+    expect(out.images[0]).toEqual({ id: 'img1', status: 'success' });
+    expect(out.images[1]).toEqual({ id: 'img2', status: 'uploading' });
+  });
+  it('cells 派生删 + slot 保留（分镜副本格位保真）；order 删（allocator 重新分配）', () => {
+    const out = normalizeCopiedNodeData({ cells: ['a', 'b'], slot: 2, order: '5' });
+    expect(out.cells).toBeUndefined();
+    expect(out.slot).toBe(2);
+    expect(out.order).toBeUndefined();
+  });
+  it('终态 done/idle 原样；入参不被就地修改（纯函数）', () => {
+    const input = { status: 'done', fileId: 'f', cells: ['a'] };
+    const out = normalizeCopiedNodeData(input);
+    expect(out.status).toBe('done');
+    expect(input.cells).toEqual(['a']);   // 入参隔离
+    expect(out.cells).toBeUndefined();
+  });
+});
+
 describe('buildCopyPlan（副本构造体——分工单点：participation 裁决前置）', () => {
-  it('组闭包：选中组→成员全纳入，cells 重映射（无旧 id 残留），子副本数==源子节点数', () => {
-    const records: any[] = [G('g1', ['a', 'b']), N('a', 'g1'), N('b', 'g1')];
+  it('组闭包：选中组→成员全纳入；cells 派生删（格位=子 slot 保留重挂），子副本数==源子节点数', () => {
+    const records: any[] = [G('g1'), N('a', 'g1'), N('b', 'g1')];
     const plan = buildCopyPlan(records, dupIds(records, ['g1']), { offset: { x: 40, y: 0 } }, () => 'new-id');
     const newG = plan.copies.find((c) => c.type === 'group')!;
     expect(plan.copies.filter((c) => c.parentId === newG.id).length).toBe(2);
-    // cells 无旧 id：
-    const cells = (newG.data as any).cells as string[];
-    const copyIds = new Set(plan.copies.map((c) => c.id));
-    expect(cells.every((c: string) => copyIds.has(c))).toBe(true);
+    expect((newG.data as any).cells).toBeUndefined();   // T17：cells 不落副本（派生键）
   });
   it('data 保真：普通节点副本 data=records 输入——prompt 等非桥接键逐字保真', () => {
     const records: any[] = [N('n1', undefined, { prompt: '用户改过的长提示词' })];
     const plan = buildCopyPlan(records, dupIds(records, ['n1']), { offset: { x: 40, y: 0 } }, () => 'c1');
     expect((plan.copies[0].data as any).prompt).toBe('用户改过的长提示词');
   });
+  it('副本归一：loading 副本=done（有 fileId）；fileId 保留', () => {
+    const records: any[] = [N('n1', undefined, { status: 'loading', fileId: 'm9' })];
+    const plan = buildCopyPlan(records, dupIds(records, ['n1']), { offset: { x: 40, y: 0 } }, () => 'c1');
+    const d = plan.copies[0].data as any;
+    expect(d.status).toBe('done');
+    expect(d.fileId).toBe('m9');
+  });
+  it('allocateOrder 缝：根层副本/闭包子层各按层分配新 order 键（副本同层同 order 重复键红线）', () => {
+    const records: any[] = [G('g1'), N('a', 'g1'), N('b', 'g1')];
+    const assigned: (string | null)[] = [];
+    const plan = buildCopyPlan(
+      records, dupIds(records, ['g1']), { offset: { x: 40, y: 0 } }, () => 'n',
+      [], (layer) => { assigned.push(layer); return `k${assigned.length}`; },
+    );
+    const newG = plan.copies.find((c) => c.type === 'group')!;
+    expect(newG.data.order).toBe('k1');                       // 根层
+    const childOrders = plan.copies.filter((c) => c.parentId === newG.id).map((c) => c.data.order as string);
+    expect(childOrders).toEqual(['k2', 'k3']);                // 闭包子层（新组层）
+    expect(assigned[0]).toBeNull();
+  });
+  it('分镜组副本：子 slot 保留（宫格保真）、cells 不存在', () => {
+    const records: any[] = [
+      G('s1', { groupType: 'storyboard', cells: ['p', 'q'] }),
+      { ...N('p', 's1'), data: { fileId: 'f', slot: 0 } },
+      { ...N('q', 's1'), data: { fileId: 'g', slot: 1 } },
+    ];
+    const plan = buildCopyPlan(records, dupIds(records, ['s1']), { offset: { x: 40, y: 0 } }, () => 's');
+    const newG = plan.copies.find((c) => c.type === 'group')!;
+    expect((newG.data as any).cells).toBeUndefined();
+    const kids = plan.copies.filter((c) => c.parentId === newG.id);
+    expect(kids.map((k) => k.data.slot).sort()).toEqual([0, 1]);
+  });
   it('hidden 保真：折叠组成员随组入副本集（parentId=组副本 id、rel 保留）+ 副本组继承 collapsed；分镜子副本 position 归零 {0,0}', () => {
     const records: any[] = [
-      G('g2', ['x'], { collapsed: true }), N('x', 'g2'),
-      G('s1', ['p'], { groupType: 'storyboard' }), N('p', 's1'),
+      G('g2', { collapsed: true }), N('x', 'g2'),
+      G('s1', { groupType: 'storyboard' }), { ...N('p', 's1'), data: { fileId: 'f', slot: 0 } },
     ];
     const dup = buildCopyPlan(records, dupIds(records, ['g2']), { offset: { x: 40, y: 0 } }, () => 'd');
     const newG = dup.copies.find((c) => c.type === 'group')!;
@@ -47,7 +114,7 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
     expect(child.position).toEqual({ x: 0, y: 0 });                              // 分镜子 rel 恒 0
   });
   it('detached 副本顶层化：parentId=undefined + 绝对坐标（父位置+rel）+offset + extent=undefined（F41）', () => {
-    const records: any[] = [G('g1', ['a'], { position: { x: 100, y: 100 } }), N('a', 'g1')];
+    const records: any[] = [G('g1', { position: { x: 100, y: 100 } }), N('a', 'g1')];
     const plan = buildCopyPlan(records, dupIds(records, ['a']), { offset: { x: 40, y: 0 } }, () => 'c');
     expect(plan.copies[0].parentId).toBeUndefined();
     expect(plan.copies[0].position).toEqual({ x: 160, y: 150 });
@@ -56,7 +123,7 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
   });
   it('选区闭包互连边重映射（两端都在复制集内）；selected：组副本 true / 子副本 false', () => {
     // e1 连 a→b（两端均在 g1 闭包内）→ 重映射保留；e2 连 a→z、e3 连 z→a（z 不在集合）→ 丢弃
-    const records: any[] = [G('g1', ['a', 'b']), N('a', 'g1'), N('b', 'g1'), N('z')];
+    const records: any[] = [G('g1'), N('a', 'g1'), N('b', 'g1'), N('z')];
     let i = 0;
     const plan = buildCopyPlan(
       records, dupIds(records, ['g1']), { offset: { x: 40, y: 0 } }, () => `id${++i}`,
