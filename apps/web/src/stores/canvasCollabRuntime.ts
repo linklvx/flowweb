@@ -31,6 +31,9 @@ import { AwarenessBridge } from '@/collab/awareness';
 // import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
 import { fetchNodeIntents } from '@/api/executionApi';
 import type { ExecStatusEntry } from './execStatusView';
+// Y1b T16：mediaFacts 拉取/暂存/消费会话编排（nodeStore.mediaFacts 唯一写者——三挂点：
+// 重连全量拉/fileId 到达判定/切项目清空；本模块零事实逻辑，全在 mediaFactsRuntime）
+import { pullMediaFactsFull, onDocRefsChanged, resetMediaFacts } from './mediaFactsRuntime';
 // 批1-0 transport 薄层（门 B 裁决）——Y0b-5 T3b 起改形为 socket 单实例注册表（needKick 语义废弃）：
 // 注入类唯一构造点保留，恢复所有权归 connection-supervisor
 import { createReconnectingWebSocket } from '@/collab/reconnectTransport';
@@ -1376,6 +1379,7 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
     if (status === 'connected' && lastWsStatus !== 'connected') {
       void alignExecFromIntents(); // 批1-6（B2 ③）：connect 边沿恢复对齐（connected 双发仅第一发是边沿）
+      if (doc) pullMediaFactsFull(doc);   // Y1b T16：重连全量拉 media-facts（按 doc mediaId 集 POST）
     }
     if (status === 'connecting') inboundAttemptId = -1;
     if (status !== lastWsStatus) recordCollabDiag('ws_status', { from: lastWsStatus, to: status }); // 批1-5：迁移记录（双发 connected 不重复）
@@ -1691,6 +1695,8 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
   // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
   useNodeStore.setState({ execAligned: new Map() });
+  // Y1b T16：媒体事实会话起点清空（mediaFacts+pendingFacts+lazy 队列——旧项目事实不跨会话）
+  resetMediaFacts();
   // Y0b-5 T8：本地缓存编排态会话起点复位（抑制窗/回放判据/docBytes 去重——不跨会话携带）
   // spec 修复 1a/1b：boot-diverged 会话标记/盘上快照留存同点复位（上一会话 diverged 不跨会话携带）
   suppressCacheWrites = false;
@@ -1903,6 +1909,7 @@ function armSession(epoch: number): void {
   // applyRemote 语义不测）
   const t0Projection = performance.now();
   applyDocToStore(doc!);
+  onDocRefsChanged(doc!);   // Y1b T16：首投影 fileId 到达判定（bootstrap mediaId 集建基+pending 消费）
   useCanvasStore.getState().setHydration('ready');
   // I-1 审查修复：readOnly=跳过检查=不违规（|| 短路——与 onRemote 周期 !readOnly 的跳过语义对齐；
   // 原 !readOnly&&check 语义反转曾致全部 viewer 会话 applyBootstrap 误报）
@@ -1946,6 +1953,8 @@ function armSession(epoch: number): void {
         invariantOk = checkProjectionInvariant(doc!);
       }
       lastAppliedNodeCount = doc!.getMap('nodes').size;
+      // Y1b T16：fileId 到达判定（远端应用尾挂——投影 poller 交付后新见 mediaId 消费 pending/lazy 补拉）
+      onDocRefsChanged(doc!);
       // Y0b-5 T2：投影耗时（包 applyDocToStore+invariant——与 alignExecFromIntents 互不包含）
       recordCollabDiag('projection_duration', { ms: performance.now() - t0Projection });
       if (!invariantOk) {

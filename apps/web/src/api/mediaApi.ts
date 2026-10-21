@@ -51,6 +51,20 @@ export async function batchGetMediaRewritten(ids: string[], teamId?: string): Pr
   return batchGetMedia(ids, teamId);
 }
 
+// ═══ Y1b T16：media-facts 拉取（POST ≤200——spec :45 P1 形态；pendingFacts 重连全量拉/lazy 补拉） ═══
+
+/** media-facts 响应行（api media-facts.controller wire 契约——factVersion=string BigInt 纪律）。 */
+export interface MediaFactsRow {
+  mediaId: string;
+  facts: { factVersion: string; factType: string; payload: Record<string, unknown> }[];
+}
+
+/** 按 mediaId 集拉媒体事实（≤200 超限服务端 400——调用方 mediaFactsRuntime 自行分批）。 */
+export function fetchMediaFacts(mediaIds: string[], teamId?: string): Promise<MediaFactsRow[]> {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  return apiFetch<MediaFactsRow[]>(`/media/facts${qs}`, { method: 'POST', body: JSON.stringify({ mediaIds }) });
+}
+
 /**
  * Get a presigned GET URL for a MinIO object key, rewritten through the Vite proxy.
  * Used for banner background images.

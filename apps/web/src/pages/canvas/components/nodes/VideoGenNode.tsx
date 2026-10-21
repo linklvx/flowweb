@@ -17,6 +17,8 @@ import { videoTrimApi } from '@/services/video-trim.api';
 import { useTrimTaskStatus } from '@/hooks/useTrimTaskStatus';
 import { useVideoSeparateTask } from '@/hooks/useVideoSeparateTask';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { useMediaFact } from '@/hooks/useMediaFact';
+import { pullMediaFactsForIds } from '@/stores/mediaFactsRuntime';
 import { useVideoFrameCapture } from '@/hooks/useVideoFrameCapture';
 import { videoSeparateApi } from '@/services/video-separate.api';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
@@ -51,6 +53,8 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   // R2b-5：onError 自愈直通 <video>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
   const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
   const { url: refVideoUrl, onError: onRefVideoError } = useMediaUrl(referenceVideo);
+  // Y1b T16：媒体事实消费（materialize processing/failed——fileId 已交付而字节在途/终态失败的真实通道）
+  const mediaFact = useMediaFact(fileId);
 
   const displayUrl = resultUrl || refVideoUrl;
 
@@ -717,6 +721,25 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
               <svg width="64" height="64" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M4.66699 2.64248C4.66717 1.82358 5.59736 1.35167 6.25781 1.83584L13.5674 7.19619C14.1117 7.59579 14.1118 8.40897 13.5674 8.8085L6.25781 14.1688C5.59734 14.6528 4.6671 14.1811 4.66699 13.3622V2.64248Z" fill="currentColor" />
               </svg>
+            </div>
+          )}
+
+          {/* Y1b T16：媒体事实 overlay——materialize processing（fileId 已交付字节在途：可播 seek 占位
+              的事实标注——content 两态流式代理源）/failed（终态失败：错误+定向补拉重试）。 */}
+          {mediaFact?.state === 'processing' && (
+            <div className="absolute top-2 left-2 pointer-events-none px-2 py-1 rounded-md bg-black/60 text-white text-xs z-[4]">
+              ⏳ 视频处理中（预览）
+            </div>
+          )}
+          {mediaFact?.state === 'failed' && (
+            <div className="absolute inset-x-0 bottom-0 z-[4] px-2 py-1.5 bg-red-950/80 text-white text-xs flex items-center justify-between gap-2">
+              <span className="truncate" title={mediaFact.error}>⚠️ {mediaFact.errorCode === 'MATERIALIZE_FAILED' ? '视频处理失败' : '媒体处理失败'}{mediaFact.error ? `：${mediaFact.error}` : ''}</span>
+              <button
+                className="nodrag nopan shrink-0 px-2 py-0.5 rounded bg-white/15 hover:bg-white/25"
+                onClick={() => fileId && pullMediaFactsForIds([fileId])}
+              >
+                刷新状态
+              </button>
             </div>
           )}
 

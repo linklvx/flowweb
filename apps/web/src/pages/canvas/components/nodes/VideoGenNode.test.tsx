@@ -70,6 +70,7 @@ vi.mock('@/stores/nodeStore', () => ({
         nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: getMockExecStatus(),
         execAligned: getMockExecAligned(),
+        mediaFacts: new Map(),   // Y1b T16：媒体事实消费 Map（useMediaFact 读——默认空）
         updateConfig: mockUpdateConfig,
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
@@ -82,6 +83,7 @@ vi.mock('@/stores/nodeStore', () => ({
         nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: getMockExecStatus(),
         execAligned: getMockExecAligned(),
+        mediaFacts: new Map(),   // Y1b T16
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
       }),

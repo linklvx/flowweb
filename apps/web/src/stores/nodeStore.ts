@@ -7,8 +7,10 @@ import { canEdit } from './syncStatus';
 import { dispatchCanvasIntent } from './canvasIntents';
 import { Origin } from './canvasUndo';
 import { selectExecStatus, execOverrideStatus, type ExecStatusEntry, type NodeExecStatus } from './execStatusView';
+import type { MediaFactEntry } from './mediaFacts';
 
 export type { ExecStatusEntry, NodeExecStatus } from './execStatusView';
+export type { MediaFactEntry } from './mediaFacts';
 
 // ========== Node type constants ==========
 
@@ -347,6 +349,11 @@ interface NodeState {
   execStatus: Map<string, ExecStatusEntry>;  // doc exec map 投影（服务端唯一写者）
   execAligned: Map<string, ExecStatusEntry>; // 断连恢复 intents 查表终态（只读对齐——零 doc 写）
 
+  // Y1b T16：媒体事实消费 Map（mediaId→事实条目——processing/completed/failed 驱动 UI；
+  // canvasCollabRuntime 唯一写者〔重连全量拉/fileId 到达消费〕，UI 经 useMediaFact 读；
+  // execStatus 同款「服务端事实投影、本端零写」形态）
+  mediaFacts: Map<string, MediaFactEntry>;
+
   referenceSelect: { sourceNodeId: string; notice: string | null } | null;
   startReferenceSelect: (nodeId: string) => void;
   exitReferenceSelect: () => void;
@@ -413,6 +420,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
   execStatus: new Map(),
   execAligned: new Map(),
+  mediaFacts: new Map(),
   activeTransformNodeId: null,
   referenceSelect: null,
   cancelRequestedAt: 0,
