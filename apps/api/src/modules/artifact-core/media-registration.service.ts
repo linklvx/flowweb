@@ -1,11 +1,16 @@
-// Y1b T4（v11 裁决③）：MediaRegistrationService=唯一 Media 写入点——本卡建骨架
-// （prepareUploadInTx/confirmInTx/bindInTx，upload/confirm 两形态共用 sniff/MIME/probeState 初始化）；
-// T10 扩展 register 形态（生成产物路径，shared module 双 role 装配）。
-// 纪律：InTx 方法族只写 DB——事务内禁外部 IO（v10.1-②：外部 IO 在 orchestrator 层、事务之前）。
+// Y1b T4（v11 裁决③）→Y1a T10 迁入 artifact-core（shared module 双 role：API+worker 均可装配）：
+// MediaRegistrationService=唯一 Media 写入点——四形态：prepareUploadInTx/confirmInTx/bindInTx
+// （upload/confirm 两形态共用 sniff/MIME/probeState 初始化）+registerInTx/completeRegisteredInTx
+// （生成产物形态——T10：stage durable Media(processing)+finalize 状态提升；资金路径 media.create
+// 禁第二处，一律经本服务）。
+// 纪律：InTx 方法族只写 DB——事务内禁外部 IO（v10.1-②：外部 IO 在 orchestrator 层、事务之前）；
+// registerInTx 禁调 assertOnConfirm（v12 裁决④：storage-quota 超限删对象+删行——事务内副作用不可
+// 回滚；资金 quota=软限，finalize 不因 quota 回滚）。
 import {
   Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, ConflictException,
 } from '@nestjs/common';
 import { Prisma, Media, ProbeState, MediaBinding } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 
@@ -163,6 +168,89 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       },
       create: data,
       update: { mediaId: data.mediaId }, // current-state：同槽位换 media 改行（v14.2 废止 create-only）
+    });
+  }
+
+  // ── T10：生成产物形态（register=stage durable；completeRegistered=finalize 状态提升） ──
+
+  /** T10 registerInTx：生成产物 stage 行（Media(processing)=统一 stage 句柄——v13b 裁决③ durable 化）。
+   *  幂等锚=@@unique(bucket,key)（provisional key 按 [teamId,intentRowId,execSeq,artifactIndex] 确定性
+   *  预分配——同 intent+execSeq 重跑/崩溃复驱恰一行）；ON CONFLICT DO NOTHING+回读（禁事务内 catch
+   *  P2002 再查——事务一报错即 aborted）。同事务插 processing fact（UI「处理中」推送来源——Z1''）。
+   *  全 kind 的 stage 行落 sourceUrl（image 系 provider URL 崩溃后 R3 凭行重下——v14 骨架补强）。 */
+  async registerInTx(tx: Prisma.TransactionClient, params: {
+    userId: string; teamId: string; projectId?: string | null; nodeId?: string | null; taskId?: string | null;
+    key: string; sourceUrl: string; sourceUrlExpiresAt: Date;
+    mimeType: string; originalName: string;
+    sourceIntentRowId?: string | null; sourceExecSeq?: bigint | null; artifactIndex?: number;
+  }): Promise<Media> {
+    // 资金锚优先复用：同 intent+execSeq+index 的 stage/finalize 复驱（R3/幂等重跑）恒复用同一行——
+    // finalize 提升会把 key 改写为 content-addressed 形态，base-key 的 ON CONFLICT 对复驱失效，
+    // 锚查在先即「零新行」；（bucket,key）唯一仍兜底并发双插（确定性 base key 同键冲突）。
+    if (params.sourceIntentRowId) {
+      const anchored = await tx.media.findFirst({
+        where: {
+          sourceIntentRowId: params.sourceIntentRowId,
+          ...(params.sourceExecSeq !== undefined && params.sourceExecSeq !== null ? { sourceExecSeq: params.sourceExecSeq } : {}),
+          artifactIndex: params.artifactIndex ?? 0,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (anchored) return anchored;
+    }
+    await tx.$executeRaw`
+      INSERT INTO "Media" (
+        "id", "userId", "teamId", "projectId", "nodeId", "taskId",
+        "bucket", "key", "originalName", "mimeType", "size", "type", "status",
+        "sourceUrl", "sourceUrlExpiresAt", "sourceIntentRowId", "sourceExecSeq", "artifactIndex", "objectKey", "updatedAt"
+      ) VALUES (
+        ${randomUUID()}, ${params.userId}, ${params.teamId}, ${params.projectId ?? null}, ${params.nodeId ?? null}, ${params.taskId ?? null},
+        'flowai', ${params.key}, ${params.originalName}, ${params.mimeType}, 0, 'generated', 'processing'::"MediaStatus",
+        ${params.sourceUrl}, ${params.sourceUrlExpiresAt}, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
+        (now() AT TIME ZONE 'utc')
+      )
+      ON CONFLICT ("bucket", "key") DO NOTHING`;
+    const media = await tx.media.findUniqueOrThrow({ where: { bucket_key: { bucket: 'flowai', key: params.key } } });
+    if (params.projectId) {
+      await tx.mediaFactOutbox.createMany({
+        data: [{
+          mediaId: media.id, projectId: params.projectId, factVersion: media.factVersion,
+          factType: 'state', payload: { status: 'processing' },
+        }],
+        skipDuplicates: true,   // [mediaId,projectId,factType,factVersion] 唯一
+      });
+    }
+    return media;
+  }
+
+  /** T10 completeRegisteredInTx：finalize 事务内状态提升（processing→completed 补 key/sha/size/sniff）。
+   *  status CAS 守卫——已 completed（幂等重入）零动作；probeState=skipped（T7：probe 仅上传路径——
+   *  生成产物不入 probe 池，natural 归 materialize/后续）；completed state fact 同事务（factVersion+1）。 */
+  async completeRegisteredInTx(tx: Prisma.TransactionClient, params: {
+    mediaId: string; projectId: string; key: string; sha256: string;
+    mimeType: string; sniffedMimeType: string | null; size: number | bigint;
+  }): Promise<void> {
+    const { count } = await tx.media.updateMany({
+      where: { id: params.mediaId, status: 'processing' },
+      data: {
+        status: 'completed',
+        key: params.key,
+        objectSha256: params.sha256,
+        size: params.size,
+        mimeType: params.mimeType,
+        ...(params.sniffedMimeType ? { sniffedMimeType: params.sniffedMimeType } : {}),
+        probeState: 'skipped',
+        factVersion: { increment: 1 },
+      },
+    });
+    if (count !== 1) return;   // 幂等重入（已完成/R3 复驱）——零动作
+    await tx.mediaFactOutbox.createMany({
+      data: [{
+        mediaId: params.mediaId, projectId: params.projectId,
+        factVersion: (await tx.media.findUniqueOrThrow({ where: { id: params.mediaId }, select: { factVersion: true } })).factVersion,
+        factType: 'state', payload: { status: 'completed' },
+      }],
+      skipDuplicates: true,
     });
   }
 

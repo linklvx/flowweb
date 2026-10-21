@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from './storage.service';
-import { MediaRegistrationService } from '../media/media-registration.service';
+import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { deleteTeamsWithPass } from '../../test-utils/intent-fixture';

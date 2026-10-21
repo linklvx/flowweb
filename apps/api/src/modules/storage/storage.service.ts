@@ -6,7 +6,7 @@ import { ConfirmUploadDto } from './dto/confirm.dto';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { MediaRegistrationService } from '../media/media-registration.service';
+import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 import { sniffMimeType, isAllowedUploadMime } from '../media/sniff';   // T6④：file-type 单一 import 点
 
 @Injectable()

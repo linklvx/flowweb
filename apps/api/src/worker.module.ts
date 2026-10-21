@@ -34,6 +34,8 @@ import { TeamRechargeService } from './modules/team/team-recharge.service';
 import { ExecutionService } from './modules/execution/execution.service';
 import { GenerationIntentService } from './modules/execution/generation-intent.service';
 import { NodeArtifactService } from './modules/artifact-core/node-artifact.service';
+import { MediaRegistrationService } from './modules/artifact-core/media-registration.service';
+import { ArtifactCommitService } from './modules/artifact-core/artifact-commit.service';
 import { TopologyService } from './modules/execution/topology.service';
 import { UpstreamMediaService } from './modules/execution/upstream-media.service';
 import { ValidationService } from './modules/execution/validation.service';
@@ -149,6 +151,8 @@ const env = validateEnv();
     MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
     GenerationIntentService,
     NodeArtifactService,   // T10：claimCapture 依赖（zero-dep——ArtifactCoreModule 闭包含 TeamModule controller，worker 平铺先例=SafeRemoteFetchService）
+    MediaRegistrationService,   // T10：唯一 Media 写入点（registerInTx stage durable——ArtifactCommit 消费）
+    ArtifactCommitService,   // T10：资金路径唯一 finalize（worker 是真实调用方——生产 API manualRegistration:true 不消费队列）
     TopologyService,
     UpstreamMediaService,   // Y1a T8：上游媒体解析（NodeArtifact 读源/身份 canonicalize/外呼 URL 解析）
     ValidationService,

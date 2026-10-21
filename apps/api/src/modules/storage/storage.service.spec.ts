@@ -3,7 +3,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { StorageService } from './storage.service';
-import { MediaRegistrationService } from '../media/media-registration.service';
+import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
