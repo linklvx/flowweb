@@ -10,11 +10,13 @@
 //（AddNodeMenu.tsx:247-251 视频/音频上传引用）/referenceImage（ImageGenNode.tsx:360）/
 // trimmedFileId（nodeStore.setTrimmedResult:855）均此路径。videoFileId/audioFileId 现网不落 doc
 //（VideoGenNode.tsx:176-200 分离产物以 fileId 落**子节点**）——spec :80 七键词表原文名目保留
-//（未来直落形态预留），与 referenceVideo/referenceAudio 一并进词表（应用层单源——schema 无 DB CHECK）。
+//（未来直落形态预留），与 referenceVideo/referenceAudio 一并进词表（应用层单源——DB CHECK 见下行）。
 import type { DocLike } from './docShape';
 import { isDocMap, type DocMapLike } from './collab-doc-ops';
 
-/** 媒体引用键词表（MediaBinding.targetField 应用层单源——schema 无 DB CHECK，本常量即词表执法面；
+/** 媒体引用键词表（MediaBinding.targetField 应用层单源——DB 侧另有 raw SQL CHECK
+ *  media_binding_target_field_domain（migration 20261020200300 建、20261022070000 放宽至九键），
+ *  **加第十键须同批迁移同步 CHECK 域**，否则运行时 DB 拒写；
  *  键形实证 2026-10-22 grep：fileId/referenceImage/referenceVideo/referenceAudio/trimmedFileId/
  *  videoFileId/audioFileId 为 string 槽（值=mediaId；web 写入面 AddNodeMenu/ImageGenNode/
  *  VideoGenNode/AudioGenNode/nodeStore.trim），images/allImages 为 ImageItem 列表槽
