@@ -210,12 +210,21 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
       admitted.push(r);
     }
 
-    // ②单事务：upsert admitted（ON CONFLICT 槽位键 DO UPDATE mediaId——current-state）+
-    //    删 stale（本项目槽位不在 desired 集的行）。
-    const desiredSlots = new Set<string>();
-    for (const r of admitted) desiredSlots.add(slotKeyOf(r));
+    // ②单事务：净变更分类（P2#6——幂等重扫零虚高：unchanged 槽跳写）+upsert 净变更集
+    //    （ON CONFLICT 槽位键 DO UPDATE mediaId——current-state）+删 stale（本项目槽位不在
+    //    desired 集的行）。upserted=create+update 净计数（同 doc 重扫第二轮回零）。
+    const desiredByKey = new Map<string, MediaRef>();
+    for (const r of admitted) desiredByKey.set(slotKeyOf(r), r);
     await this.prisma.$transaction(async (tx) => {
-      for (const r of admitted) {
+      const existing = await tx.mediaBinding.findMany({
+        where: { projectId },
+        select: { id: true, nodeId: true, targetField: true, targetItemId: true, mediaId: true },
+      });
+      const existingByKey = new Map(existing.map((row) => [slotKeyOf(row), row]));
+      let netUpserts = 0;
+      for (const [key, r] of desiredByKey) {
+        const prior = existingByKey.get(key);
+        if (prior && prior.mediaId === r.mediaId) continue;   // unchanged——跳写（幂等重扫零动作）
         await tx.mediaBinding.upsert({
           where: {
             projectId_nodeId_role_targetField_targetItemId: {
@@ -229,18 +238,15 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
           },
           update: { mediaId: r.mediaId },   // current-state：同槽位换 media 即改行（create-only 废止）
         });
+        netUpserts += 1;
       }
-      const existing = await tx.mediaBinding.findMany({
-        where: { projectId },
-        select: { id: true, nodeId: true, targetField: true, targetItemId: true },
-      });
       const staleIds = existing
-        .filter((row) => !desiredSlots.has(slotKeyOf(row)))
+        .filter((row) => !desiredByKey.has(slotKeyOf(row)))
         .map((row) => row.id);
       if (staleIds.length > 0) {
         await tx.mediaBinding.deleteMany({ where: { id: { in: staleIds } } });
       }
-      summary.upserted = admitted.length;
+      summary.upserted = netUpserts;
       summary.deleted = staleIds.length;
     });
     inc('upserted', summary.upserted);

@@ -57,6 +57,8 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
   let M_MULTI_B: string;
   let M_FOREIGN: string;   // 跨 team
   let M_REF: string;
+  let M_REFV: string;   // P1#1：referenceVideo 槽
+  let M_REFA: string;   // P1#1：referenceAudio 槽
   let M_TRIM: string;
   let M_VID: string;
   let M_AUD: string;
@@ -77,6 +79,8 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
     M_MULTI_A = (await seedMedia(TID, 'multi-a')).id;
     M_MULTI_B = (await seedMedia(TID, 'multi-b')).id;
     M_FOREIGN = (await seedMedia(OTHER_TID, 'foreign')).id;
+    M_REFV = (await seedMedia(TID, 'refv')).id;   // P1#1：上传视频引用键用
+    M_REFA = (await seedMedia(TID, 'refa')).id;   // P1#1：上传音频引用键用
     M_REF = (await seedMedia(TID, 'ref')).id;
     M_TRIM = (await seedMedia(TID, 'trim')).id;
     M_VID = (await seedMedia(TID, 'vid')).id;
@@ -140,7 +144,7 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
     await svc.reconcileProject(PID);
   });
 
-  it('④七键全键形扫描（fileId/referenceImage/images[].id/allImages/trimmedFileId/videoFileId/audioFileId）', async () => {
+  it('④全词表键形扫描（spec 评审 P1#1 后九键——referenceVideo/referenceAudio 含）', async () => {
     const n = 'n-seven';
     fillDoc(toDocLike(doc), [{
       id: n,
@@ -148,6 +152,8 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
       data: {
         fileId: M_NEW,
         referenceImage: M_REF,
+        referenceVideo: M_REFV,   // P1#1：AddNodeMenu.tsx:249 上传视频引用（updateConfig→mergeNodeData→data）
+        referenceAudio: M_REFA,   // P1#1：AudioGenNode.tsx:105 上传音频引用（同路径落 data 单域）
         images: [{ id: M_MULTI_A, url: 'x', name: 'a', status: 'success' }, { id: M_MULTI_B, url: 'y', name: 'b', status: 'success' }],
         allImages: [{ id: M_MULTI_A, url: 'x', name: 'a', status: 'success' }],
         trimmedFileId: M_TRIM,
@@ -156,20 +162,41 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
       },
     } as unknown as StoredNodeRecord], []);
     const s = await svc.reconcileProject(PID);
-    expect(s.upserted).toBe(8);   // fileId+referenceImage+images×2+allImages×1+trimmed+video+audio
+    expect(s.upserted).toBe(10);   // fileId+referenceImage+referenceVideo+referenceAudio+images×2+allImages×1+trimmed+video+audio
     expect(s.crossTeamRejected).toBe(0);
     const rows = await bindingsOf(n);
     expect(rows.map((r) => [r.targetField, r.targetItemId, r.mediaId]).sort()).toEqual([
       ['allImages', M_MULTI_A, M_MULTI_A],
+      ['audioFileId', '', M_AUD],
       ['fileId', '', M_NEW],
       ['images', M_MULTI_A, M_MULTI_A],
       ['images', M_MULTI_B, M_MULTI_B],
+      ['referenceAudio', '', M_REFA],
       ['referenceImage', '', M_REF],
+      ['referenceVideo', '', M_REFV],
       ['trimmedFileId', '', M_TRIM],
       ['videoFileId', '', M_VID],
-      ['audioFileId', '', M_AUD],
     ].sort());
     doc.getMap('nodes').delete(n);
+    await svc.reconcileProject(PID);
+  });
+
+  it('⑧P1#1 红测：videoGen/audioGen 上传引用（referenceVideo/referenceAudio——updateConfig 域入口）建行', async () => {
+    // 形状复现面：上传视频/音频经 AddNodeMenu/AudioGenNode updateConfig 落 data（nodeStore.ts:640-646
+    // 终态全量 merge——doc 无独立 config 域）；词表缺此二键 ⇒ binding 不索引+GC doc 终裁不识别
+    // ⇒ 被引用媒体软删 7d 后被硬删（media-gc.int.spec 同形状用例）。
+    fillDoc(toDocLike(doc), [
+      { id: 'n-upv', type: 'videoGen', data: { referenceVideo: M_REFV, status: 'idle' } } as unknown as StoredNodeRecord,
+      { id: 'n-upa', type: 'audioGen', data: { referenceAudio: M_REFA, status: 'idle' } } as unknown as StoredNodeRecord,
+    ], []);
+    const s = await svc.reconcileProject(PID);
+    expect(s.upserted).toBe(2);
+    const vRows = (await bindingsOf('n-upv')).map((r) => r.targetField);
+    const aRows = (await bindingsOf('n-upa')).map((r) => r.targetField);
+    expect(vRows).toEqual(['referenceVideo']);
+    expect(aRows).toEqual(['referenceAudio']);
+    doc.getMap('nodes').delete('n-upv');
+    doc.getMap('nodes').delete('n-upa');
     await svc.reconcileProject(PID);
   });
 
@@ -193,6 +220,11 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
     expect(await bindingsOf(n)).toHaveLength(1);
     // 二次 drain 空队列零动作（幂等）
     expect(await svc.drain()).toBe(0);
+    // P2#6：同 doc 幂等重扫——upserted 净计数回零（改前=admitted 全量虚高）
+    const again = await svc.reconcileProject(PID);
+    expect(again.upserted).toBe(0);
+    expect(again.deleted).toBe(0);
+    expect(await bindingsOf(n)).toHaveLength(1);
     doc.getMap('nodes').delete(n);
     await svc.reconcileProject(PID);
   });

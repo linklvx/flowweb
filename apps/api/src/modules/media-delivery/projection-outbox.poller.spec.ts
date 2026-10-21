@@ -3,6 +3,7 @@
 // 503 分类）+onModuleDestroy 生命周期（停 claim+等在飞有界）——先红（符号不存在=编译级红锚）。
 // 真双端状态机（claim/flush/recheck 六终态）归 projection-outbox.poller.int.spec.ts（真 PG 纪律）。
 import { describe, it, expect, vi } from 'vitest';
+import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import {
   ProjectionOutboxPoller,
@@ -66,7 +67,7 @@ function makePoller(over: {
   claimRows?: any[];
   deliverArtifact?: (...args: any[]) => Promise<any>;
   epoch?: bigint | null;
-} = {}): { poller: ProjectionOutboxPoller; tx: any } {
+} = {}): { poller: ProjectionOutboxPoller; tx: any; reconciler: any; docs: any; prisma: any } {
   const rows = over.claimRows ?? [];
   const artifacts = new Map(rows.map((r) => [r.artifactId, {
     id: r.artifactId, rev: r.artifactRev, mediaId: r.mediaId ?? null, resultText: null,
@@ -103,9 +104,10 @@ function makePoller(over: {
     withSession: vi.fn(async (_p: string, fn: any) => fn({ getMap: () => new Map() })),
   };
   const teamCredit: any = { rollbackDeliveryFailed: vi.fn(async () => true) };
-  // T16：post-apply 触发桩——requestReconcile 仅入队（零 IO），poller 循环对其零内部依赖
+  // T16：post-apply 触发桩——requestReconcile 仅入队（零 IO），poller 循环对其零内部依赖；
+  // 返回桩供触发点断言（spec 评审 P2#3——projected/orphaned 两触发点禁裸奔）
   const reconciler: any = { requestReconcile: vi.fn() };
-  return { poller: new ProjectionOutboxPoller(prisma, lease, docs, teamCredit, reconciler), tx };
+  return { poller: new ProjectionOutboxPoller(prisma, lease, docs, teamCredit, reconciler), tx, reconciler, docs, prisma };
 }
 
 describe('T15 onModuleDestroy（停 claim+等在飞有界）', () => {
@@ -132,5 +134,58 @@ describe('T15 onModuleDestroy（停 claim+等在飞有界）', () => {
     expect(summary.claimed).toBe(0);
     expect(summary.fenced).toBe(true);
     expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3——两触发点断言）', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'p1', artifactId: 'a1', artifactRev: 1, projectId: 'px', nodeId: 'n1',
+    targetField: 'fileId', targetItemId: '', mediaId: 'm1', resultText: null,
+    attempts: 0, createdAt: new Date(), ...over,
+  });
+
+  it('projected（flush persisted+recheck 一致）→ requestReconcile(projectId) 恰一次', async () => {
+    const { poller, reconciler } = makePoller({ claimRows: [row()] });
+    const r = await poller.tick();
+    expect(r.outcomes.projected).toBe(1);
+    expect(reconciler.requestReconcile).toHaveBeenCalledTimes(1);
+    expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
+  });
+
+  it('fast-path（内容等值跳 apply）同触发——fileId 已在 doc 索引对齐面', async () => {
+    // withSession read 返回 doc 当前值==artifact.mediaId ⇒ fast-path 分档（readNodeDataValue
+    // 是 Y.Map 结构守卫读——fake doc 须真 Y.Doc 非 plain Map）
+    const { poller, docs, reconciler } = makePoller({ claimRows: [row()] });
+    const ydoc = new Y.Doc();
+    const node = new Y.Map();
+    const data = new Y.Map();
+    data.set('fileId', 'm1');
+    node.set('data', data);
+    ydoc.getMap('nodes').set('n1', node);
+    (docs.withSession as any).mockImplementation(async (_p: string, fn: any) => fn(ydoc));
+    const r = await poller.tick();
+    expect(r.outcomes['fast-path']).toBe(1);
+    expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
+  });
+
+  it('orphaned（node 删除——written:false 权威观察点）→ requestReconcile（binding stale 清扫触发）', async () => {
+    const { poller, reconciler } = makePoller({
+      claimRows: [row()],
+      deliverArtifact: vi.fn(async () => ({ data: { written: false, reason: 'node-deleted' }, execWritten: false })),
+    });
+    const r = await poller.tick();
+    expect(r.outcomes.orphaned).toBe(1);
+    expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
+  });
+
+  it('superseded/retry/spooled 不触发（非交付落点零索引动作）', async () => {
+    // rev 又进（recheck 不一致）⇒ superseded——requestReconcile 零调用
+    const { poller, prisma, reconciler } = makePoller({ claimRows: [row()] });
+    // recheck（nodeArtifact.findUnique——claim/findMany 走 tx 桩不经此）返回 rev=2（≠artifactRev=1 ⇒ superseded）
+    prisma.nodeArtifact.findUnique = vi.fn(async () => ({ id: 'a1', rev: 2, mediaId: 'm2' }));
+    const r = await poller.tick();
+    expect(r.outcomes.superseded).toBe(1);
+    expect(reconciler.requestReconcile).not.toHaveBeenCalled();
   });
 });

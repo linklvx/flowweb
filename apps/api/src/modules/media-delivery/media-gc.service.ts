@@ -5,12 +5,18 @@
 //   ②NodeArtifact.mediaId（生成产物权威）
 //   ③VideoWork.videoMediaId（已发布作品）
 //   ④VideoProject.data JSON 深扫（剪辑 timeline clip.mediaId——shared VideoClip/ImageClip/AudioClip 词形）
-//   ⑤doc 引用扫描（mediaRefsOf 七键——**护栏权威面**：副本/copy 的引用可能尚未进 binding 索引
-//     〔离线 paste 后 reconcile 未触〕，binding∪NodeArtifact 只是快速预判，doc 扫描是 GC 前的
-//     最终裁决——「副本还在媒体被删」的根防）
+//   ⑤doc 引用扫描（mediaRefsOf 词表=shared MEDIA_REF_TARGET_FIELDS 九键——**护栏权威面**：副本/copy
+//     的引用可能尚未进 binding 索引〔离线 paste 后 reconcile 未触〕，binding∪NodeArtifact 只是
+//     快速预判，doc 扫描是 GC 前的最终裁决——「副本还在媒体被删」的根防）
 //   ∪ grace period（软删期：素材库 deleteFile 仅软删，deletedAt 过 MEDIA_GC_GRACE 才进 GC 候选）。
 // 判定无引用 ⇒ MinIO 对象删除（404 容忍——幂等）+行删除（级联 MediaBinding）；
-// 有引用 ⇒ guarded 计数保留（下轮重判——副本删除后自然放行）。
+// 有引用/扫描源读失败/扫描源超安全阀 ⇒ guarded 计数保留（下轮重判——副本删除后自然放行；
+// **读失败=保守保留**：doc 读 503（lease 失守/vacuum）或 VideoProject 扫描超阀时本轮全量
+// 保留候选——少删=护栏安全方向）。
+// 【跨 team 语义钉明（spec 评审 P2#7——与裁决③一致）】**跨 team 引用不受本 GC 保护**：裁决③
+// 定案跨 team paste=客户端 strip+服务端不建 binding+读 ACL 403 兜底——他队 doc 引用本队 mediaId
+// 是被拒形态（无 binding 行、读侧 403），本队软删+过 grace+队内无引用即可硬删；「跨队副本保图」
+// 不在本 GC 承诺内（恶意/越权引用不得反向拖住资源回收）。
 // 形态=pending-upload sweep/IntentReconcile 同族：原生 setInterval+unref+busy 防重入（R28）。
 // 进程归属=api（media-delivery 模块——ExecutionDaemonModule.register role 门内；需 withSession
 // doc 读，worker 面零实例化）。
@@ -31,6 +37,8 @@ export const MEDIA_GC_PAGE = 50;
 /** doc 扫描项目上界（安全阀——超量团队本轮全量保守保留〔guarded〕不删：少删=护栏安全方向，
  *  禁部分扫描〔漏扫项目的副本引用会被误删=「副本还在媒体被删」正中红测〕）。 */
 export const MEDIA_GC_DOC_SCAN_PAGE = 500;
+/** VideoProject timeline 扫描行上界（安全阀同 doc 扫描——超量=引用图不完整，全量保守保留）。 */
+export const MEDIA_GC_TIMELINE_SCAN_PAGE = 500;
 
 export interface MediaGcSweepSummary {
   candidates: number;
@@ -118,7 +126,7 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
       const projects = await this.prisma.canvasProject.findMany({
         where: { teamId: { in: teamIds } },
         orderBy: { id: 'asc' },
-        take: MEDIA_GC_DOC_SCAN_PAGE + 1,   // +1=超量探测（===PAGE+1 ⇒ 超阀——本团队全量保守保留）
+        take: MEDIA_GC_DOC_SCAN_PAGE + 1,   // +1=超量探测（===PAGE+1 ⇒ 超阀——本轮全量保守保留）
         select: { id: true, teamId: true },
       });
       const scanOverflow = projects.length > MEDIA_GC_DOC_SCAN_PAGE;
@@ -126,27 +134,38 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
         this.logger.warn(`mediaGc doc 扫描超安全阀（>${MEDIA_GC_DOC_SCAN_PAGE} 项目）——本轮全量保守保留 ${ids.length} 候选`);
       }
       const scannable = scanOverflow ? [] : projects;
-      // VideoProject（剪辑 timeline——team 维度行集；JSON 深扫 mediaId 词形）
+      // VideoProject（剪辑 timeline——team 维度行集；JSON 深扫 mediaId 词形）；超阀=引用图不完整→保守保留
       const videoProjects = await this.prisma.videoProject.findMany({
         where: { teamId: { in: teamIds } },
+        orderBy: { id: 'asc' },
+        take: MEDIA_GC_TIMELINE_SCAN_PAGE + 1,   // +1=超量探测（同 doc 扫描安全阀）
         select: { data: true },
       });
+      const timelineOverflow = videoProjects.length > MEDIA_GC_TIMELINE_SCAN_PAGE;
+      if (timelineOverflow) {
+        this.logger.warn(`mediaGc VideoProject 扫描超安全阀（>${MEDIA_GC_TIMELINE_SCAN_PAGE} 行）——本轮全量保守保留 ${ids.length} 候选`);
+      }
       const timelineRefs = new Set<string>();
-      for (const vp of videoProjects) collectJsonMediaIds(vp.data, timelineRefs);
-      for (const id of ids) if (timelineRefs.has(id)) referenced.add(id);
-      // doc 引用扫描（终裁——副本/copy 引用未进 binding 索引的窗）：读失败=保守保留（guarded）。
+      if (!timelineOverflow) {
+        for (const vp of videoProjects) collectJsonMediaIds(vp.data, timelineRefs);
+        for (const id of ids) if (timelineRefs.has(id)) referenced.add(id);
+      }
+      // doc 引用扫描（终裁——副本/copy 引用未进 binding 索引的窗）：**读失败=保守保留**（P1#2——
+      // 503/lease 失守/vacuum 窗本轮全量 guarded，下轮重试；禁「log 后照删」）。
+      let scanFailed = false;
       for (const p of scannable) {
         try {
           const refs = await this.docs.withSession(p.id, (doc) => collectMediaRefs(toDocLike(doc)), { mode: 'read' });
           for (const r of refs) referenced.add(r.mediaId);
         } catch (e) {
-          this.logger.warn(`mediaGc doc 扫描失败 project=${p.id}（本轮保守保留候选）: ${(e as Error).message}`);
+          scanFailed = true;
+          this.logger.warn(`mediaGc doc 扫描失败 project=${p.id}（本轮全量保守保留候选——下轮重试）: ${(e as Error).message}`);
         }
       }
 
-      // ── 判定执行：无引用→对象删（404 容忍）+行删；有引用/超阀未扫→guarded 保留 ──
+      // ── 判定执行：无引用→对象删（404 容忍）+行删；有引用/超阀/读失败→guarded 保留 ──
       for (const c of candidates) {
-        if (referenced.has(c.id) || scanOverflow) {
+        if (referenced.has(c.id) || scanOverflow || timelineOverflow || scanFailed) {
           summary.guarded += 1;
           mediaGcOutcomeTotal.inc({ outcome: 'guarded' });
           continue;

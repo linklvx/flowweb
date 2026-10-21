@@ -164,6 +164,42 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     await prisma.media.delete({ where: { id: mFail.id } });
   });
 
+  it('P1#1 红测：referenceVideo 引用的上传媒体不被 GC 删（词表补全前 doc 终裁不识别此键）', async () => {
+    const m = await seedMedia('ref-video', GRACE_OLD);
+    // 上传视频引用形状：AddNodeMenu updateConfig→data.referenceVideo（binding 索引未建的窗——doc 终裁兜底）
+    doc.getMap('nodes').set('n-upv', new Y.Map());
+    const data = new Y.Map();
+    data.set('referenceVideo', m.id);
+    (doc.getMap('nodes').get('n-upv') as Y.Map<unknown>).set('data', data);
+
+    const s = await svc.sweep();
+    expect(s.guarded).toBeGreaterThanOrEqual(1);   // 护栏命中（doc 扫描词表含 referenceVideo）
+    expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeTruthy();
+
+    doc.getMap('nodes').delete('n-upv');
+    const s2 = await svc.sweep();
+    expect(s2.deleted).toBeGreaterThanOrEqual(1);
+    expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
+  });
+
+  it('P1#2 红测：doc 扫描读失败（503/lease 失守窗）→本轮全量保守保留（禁 log 后照删）', async () => {
+    const m1 = await seedMedia('scanfail-1', GRACE_OLD);
+    const m2 = await seedMedia('scanfail-2', GRACE_OLD);
+    const failDocs = {
+      withSession: async () => { throw Object.assign(new Error('collab not serving'), { status: 503 }); },
+    } as unknown as CollabDocumentService;
+    const svcFail = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), failDocs);
+    const s = await svcFail.sweep();
+    expect(s.deleted).toBe(0);   // 读失败=保守保留（改前：catch 仅 log，判定循环照删）
+    expect(s.guarded).toBeGreaterThanOrEqual(2);
+    for (const id of [m1.id, m2.id]) {
+      expect(await prisma.media.findUnique({ where: { id } })).toBeTruthy();
+    }
+    // 下轮读恢复 → 正常放行删除（无引用）
+    const s2 = await svc.sweep();
+    expect(s2.deleted).toBeGreaterThanOrEqual(2);
+  });
+
   it('collectJsonMediaIds：VideoProject.data JSON 深扫收集 clip.mediaId（纯函数）', () => {
     const ids = collectJsonMediaIds({ tracks: [{ clips: [{ mediaId: 'm1' }, { mediaId: 'm2' }] }], nested: { deep: [{ mediaId: 'm1' }] } });
     expect([...ids].sort()).toEqual(['m1', 'm2']);
