@@ -13,7 +13,7 @@ vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider 
 import * as Y from 'yjs';
 import type { StoredNodeRecord } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
-import { useNodeStore } from './nodeStore';
+import { useNodeStore, applyDataPatchToStores } from './nodeStore';
 import { checkProjectionInvariant } from './canvasCollabRuntime';
 import { dispatchCanvasIntent, dispatchProjectionDiff, captureStoreProjection, _setIntentDocForTest } from './canvasIntents';
 import { applyDocToStore } from './canvasCollabRuntime';
@@ -899,5 +899,66 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     // cs 面构造默认保留（store 侧同值 no-op——三层表第三层，渲染面不在剥键域）
     expect(useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1')!.position).toEqual({ x: 0, y: 0 });
     expect(checkProjectionInvariant(doc)).toBe(true);
+  });
+});
+
+// ════════ Y1a T11（spec Z11''①）：strip 只挂更新路径——CLIENT_FORBIDDEN_ON_UPDATE={fileId,result} ════════
+// 服务端权威域（SERVER_WRITABLE_DATA_KEYS=deliverArtifact/replaceMedia/clearMedia 三 op 专写）：
+// 客户端更新路径剥禁写键（doc 零写——strip=检测/诊断层，安全边界=读侧 ACL）；新建/copy 保留 fileId
+// （消灭空图窗口——裁决③）；上传引用键（referenceImage/allImages）可写不剥；socket done 降本地 UI。
+describe('T11：客户端更新路径禁写键 strip（{fileId,result}——服务端权威域）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('红① dispatch updateNodeData：patch 携 fileId/result → doc 零写两键；referenceImage/allImages 照写（上传引用键不剥）+ns 本地照旧（本地 UI）', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'done', fileId: 'm-old' }) }, Origin.LocalUser);
+    dispatchCanvasIntent({ type: 'updateNodeData', id: 'n1', patch: {
+      fileId: 'm-new', result: 'server-text', referenceImage: 'ref-1', allImages: [{ id: 'a1' }],
+    } }, Origin.LocalUser);
+    const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(data.get('fileId')).toBe('m-old');               // 禁写键不落 doc
+    expect(data.has('result')).toBe(false);                 // 禁写键不落 doc
+    expect(data.get('referenceImage')).toBe('ref-1');       // 上传引用键照写
+    expect(data.get('allImages')).toEqual([{ id: 'a1' }]);  // 上传引用键照写
+    // ns 本地照旧（本地 UI——乐观态在 store 维护，权威写归 replaceMedia 命令/服务端交付）
+    const nsData = useNodeStore.getState().nodes['n1'].data as unknown as Record<string, unknown>;
+    expect(nsData.fileId).toBe('m-new');
+    expect(nsData.result).toBe('server-text');
+  });
+
+  it('红② diff 投影 dataPatch：本地 fileId 变更不生成（diff 生成侧剥）∧referenceImage 变更照落 doc', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'done', fileId: 'm-old', referenceImage: 'r0' }) }, Origin.LocalUser);
+    const before = captureStoreProjection();
+    // 本地 UI 直写（setFileResult/AI 回填的本地面形态）+用户上传键变更
+    applyDataPatchToStores('n1', { fileId: 'm-local' });
+    useNodeStore.setState((s) => ({
+      nodes: { ...s.nodes, n1: { ...s.nodes.n1, data: { ...(s.nodes.n1.data as unknown as Record<string, unknown>), referenceImage: 'r1' } } as any },
+    }));
+    dispatchProjectionDiff(before, Origin.LocalUser);
+    const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(data.get('fileId')).toBe('m-old');        // 本地 fileId 不经 diff 落 doc
+    expect(data.get('referenceImage')).toBe('r1');   // 用户键 diff 照落
+  });
+
+  it('守卫 addNode 不 strip：fileId 保留（新建路径绝不 strip——消灭空图窗口）', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'done', fileId: 'm-keep' }) }, Origin.LocalUser);
+    const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(data.get('fileId')).toBe('m-keep');
+  });
+
+  it('红③ socket done 降本地 UI：setFileResult doc 零写（fileId/status 均不落）+ns 本地照旧', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'loading' }) }, Origin.LocalUser);
+    useNodeStore.getState().setFileResult('n1', 'm-socket');
+    const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(data.get('fileId')).toBeUndefined();  // 现状红：applyNodeDataPatch 落 doc
+    expect(data.get('status')).toBe('loading');  // 现状红：'done'
+    const nsData = useNodeStore.getState().nodes['n1'].data as unknown as Record<string, unknown>;
+    expect(nsData.fileId).toBe('m-socket');      // 本地渲染态照旧
+    expect(nsData.status).toBe('done');
   });
 });

@@ -4,8 +4,8 @@
 //   ①canEdit 假（readOnly/pending）→ 早退：ns 零变更 + cs 零变更（被拒时 store 从未变更——无"先改后回弹"）
 //   ②toast 节流：同一节点 2s 内不重复弹；异节点不共享节流窗；2s 窗过后恢复弹
 //   ③canEdit 真 → 等价现 setState 行为（data merge 保留既有键）+ 白名单键桥接 cs（fileId/status）
-//   ④setFileResult（AI 落地路径——原 nodeStore:243 桥直灌）readOnly 时 fileId/status 不写入 store
-//     （拒本地写非丢数据：服务端产物经 doc exec map 投影照旧可见——批1-6 双源）
+//   ④setFileResult（AI 落地路径）T11 降本地 UI：readOnly 也照常维护本地渲染态（零 doc 写结构保证
+//     ——applyDataPatchToStores 直写不经意图漏斗；doc 收敛归服务端写经 Yjs 回流）
 //   ⑤setFileResult rw 等价旧行为（ns fileId/status done + cs 桥）
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { message } from 'antd';
@@ -100,13 +100,14 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
     expect((csNode().data as any).mediaUrl).toBeUndefined(); // 已从 CANVAS_BRIDGE_KEYS 移除
   });
 
-  it('④setFileResult（AI 落地）readOnly：fileId/status 不写入 ns 也不桥接 cs（拒本地写非丢数据）', () => {
-    const nsBefore = useNodeStore.getState().nodes;
+  it('④setFileResult（AI 落地）readOnly：本地 UI 照常维护（T11 降本地 UI——零 doc 写结构保证，本地渲染态非写路径）', () => {
+    // Y1a T11（spec Z11''②）：socket done 降级本地 UI——applyDataPatchToStores 直写双 store不经
+    // 意图漏斗 ⇒ readOnly 无「先改后回弹」问题（零 doc 写；doc 收敛归服务端写经 Yjs 回流）
     useNodeStore.getState().setFileResult('n1', 'file-9');
-    expect(nsData().fileId).toBeUndefined();
-    expect(nsData().status).toBe('idle');
-    expect(useNodeStore.getState().nodes).toBe(nsBefore);
-    expect((csNode().data as any).fileId).toBeUndefined();
+    expect(nsData().fileId).toBe('file-9');
+    expect(nsData().status).toBe('done');
+    expect((csNode().data as any).fileId).toBe('file-9');
+    expect((csNode().data as any).status).toBe('done');
   });
 
   it('⑤setFileResult rw 等价旧行为：ns fileId+status done + cs 桥', () => {

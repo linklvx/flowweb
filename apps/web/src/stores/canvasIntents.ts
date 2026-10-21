@@ -15,7 +15,7 @@ import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord, DocMapLike, StoredNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
 import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
-  QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS } from '@flowweb/shared';
+  QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE } from '@flowweb/shared';
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -30,6 +30,11 @@ import { Origin } from './canvasUndo';
 import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow } from './canvasCollabRuntime';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import { withGeometryWriter } from './geometryTrap';
+
+/** Y1a T11（spec Z11''①）：客户端更新路径禁写键集（Set 包装 shared 单源——禁手抄键表）：{fileId,result}
+ *  =服务端权威域（SERVER_WRITABLE_DATA_KEYS=deliverArtifact/replaceMedia/clearMedia 三 op 专写）。
+ *  strip=检测/诊断层（doc 零写），安全边界=读侧 ACL 团队级；ns 本地面照写（本地 UI 乐观态）。 */
+const CLIENT_FORBIDDEN_ON_UPDATE_SET = new Set<string>(CLIENT_FORBIDDEN_ON_UPDATE);
 
 /** 信封 patch（updateNodeEnvelope 专域）：type/parentId/position/width/height 任意子集；
  *  值 undefined=删键（对齐 applyRecordToYMap 缺键→delete 语义——入组/出组/resize/convert 写点共用）。
@@ -145,6 +150,9 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
       if (!(data instanceof Y.Map)) { data = new Y.Map(); m.set('data', data); }
       for (const [k, v] of Object.entries(intent.patch)) {
         if (EPHEMERAL_DATA_KEYS.has(k)) continue; // ephemeral 禁入 doc（Spec B editMode 口径 13）
+        // T11（spec Z11''①）：服务端权威域禁写键 strip——doc 零写（删键语义同拦：fileId 清空走
+        // clearMedia 命令，服务端 deleteNodeDataKeys）；ns 本地面不在此层（projectIntentToStore 照写）
+        if (CLIENT_FORBIDDEN_ON_UPDATE_SET.has(k)) continue;
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }
         if (!isEqual(data.get(k), v)) data.set(k, v);
       }
@@ -503,6 +511,9 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
     const keys = new Set([...Object.keys(b.data ?? {}), ...Object.keys(a.data ?? {})]);
     let dataChanged = false;
     for (const k of keys) {
+      // T11（spec Z11''①）：diff 生成侧同剥禁写键——ns 本地 fileId/result 变更（setFileResult 本地 UI/
+      //   AI 回填本地态）不生成 dataPatch（applyIntentToDoc strip 是第二道防线，两入口禁漂移）
+      if (CLIENT_FORBIDDEN_ON_UPDATE_SET.has(k)) continue;
       const bv = (b.data ?? {})[k];
       const av = (a.data ?? {})[k];
       if (!isEqual(bv, av)) { dataPatch[k] = k in (a.data ?? {}) ? av : undefined; dataChanged = true; }

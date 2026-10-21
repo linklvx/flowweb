@@ -696,9 +696,11 @@ export const useNodeStore = create<NodeState>((set, get) => ({
   },
 
   setFileResult: (id, fileId) => {
-    // 批2-2：AI 落地改走收口 wrapper（原 :243 桥直灌路径）——readOnly 时 fileId/status 不写入
-    // store。拒本地写非丢数据：服务端产物经 doc exec map 投影照旧可见（批1-6 双源）
-    get().applyNodeDataPatch(id, { fileId, status: 'done' });
+    // Y1a T11（spec Z11''②）：socket done 降级本地 UI——fileId/status 不写 doc（服务端 T10 已交付：
+    // writeBatch writeNodeData fileId+exec done 投影；本地再写=双写者竞态+strip 被拦的禁写键）。
+    // 本地渲染态照旧维护（applyDataPatchToStores 直写双 store，不经意图漏斗）；doc 收敛归服务端写
+    // 经 Yjs 回流（applyDocToStore 幂等同值）。
+    applyDataPatchToStores(id, { fileId, status: 'done' });
   },
 
   updatePromptImages: (nodeId, allImages) => {
