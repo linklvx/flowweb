@@ -306,8 +306,10 @@ describe('O0b 陷阱接线挂点（C0-2 骨架→O0b-6/7/8/9 逐片接线→B7-1
       { id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} },
       { id: 'a2', type: 'textInput', position: { x: 360, y: 0 }, data: {} },
       { id: 'a3', type: 'textInput', position: { x: 720, y: 0 }, data: {} },
-      { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done' } },
-      { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done' } },
+      // Y1b T16 夹具更正：imageGen 完成判定唯一身份=fileId||referenceImage（spec 5.1——data.status
+      // 不再参与；done 态生成图恒携 fileId，旧夹具 status:'done' 无 fileId 是非现实形态）
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-geo-img1' } },
+      { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-geo-img2' } },
     ], []);
     stampDocSchema(toDocLike(d));
     applyDocToStore(d);
