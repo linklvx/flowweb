@@ -983,6 +983,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/worker-write-auth.guard.ts': {   // 方法内（canActivate 惰性——同上）
       WORKER_WRITE_TOKEN: 1, NODE_ENV: 1,
     },
+    'apps/api/src/modules/collab/collab-write.controller.ts': {   // T13（plan v11.2 ①）：writeBatch 方法内惰性读（scope 验签密钥派生源+dev fail-open 判据与 guard 同判据同向——census ㉒登记）
+      WORKER_WRITE_TOKEN: 1,
+    },
     'apps/api/src/modules/execution/api-caller.service.ts': {   // 方法内（onModuleInit 预算锁+submit/poll 超时族）
       EXEC_SYNC_HARD_CAP: 1, EXEC_SUBMIT_TIMEOUT_MS: 2, EXEC_POLL_TIMEOUT_MS: 3,
     },

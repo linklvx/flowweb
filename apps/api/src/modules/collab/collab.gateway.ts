@@ -154,7 +154,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  会把几十个无人项目钉在内存——故语义本就只看 WS 连接（旧 documents.has 形态在常驻化〔T15〕后恒真
    *  =假门禁 D13 族，本批根除）。
    *  消费=①reaper 终态投影分治（intent-reconcile projectReaped deferred 门——无人看=deferred，用户回来
-   *  alignExecFromIntents 既有机制对齐）②probeArtifacts wasResident 装载归因（yjs_doc_loaded_by_
+   *  alignExecFromIntents 既有机制对齐）②（T13 probeArtifacts 退役——该归因计数面随之退役，指标保留历史读数）装载归因（yjs_doc_loaded_by_
    *  reconciler_total——reconcile 装载=ephemeral 即用即释非常驻，T20 同批）。 */
   isDocResident(projectId: string): boolean {
     return (this.server.hocuspocus.documents.get(`project:${projectId}`)?.connections.size ?? 0) > 0;

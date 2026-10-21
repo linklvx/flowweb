@@ -50,7 +50,9 @@ describe('LightingConsumer', () => {
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
     };
-    collabDoc = { writeNodeData: vi.fn().mockResolvedValue({ written: true }) }; // Y0b-2 T5：交付判据类型化 {written,reason}
+    collabDoc = { // T13 typed outcome：business 档（transient/permanent=悬留档）——交付判据改判别式
+      writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),
+    };
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
@@ -229,7 +231,7 @@ describe('LightingConsumer', () => {
       mockDownloadResult();
       await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(intentService.complete).not.toHaveBeenCalled();
-      expect(collabDoc.writeNodeData).toHaveBeenCalledWith('proj-1', 'n1', { fileId: 'media-1' });
+      expect(collabDoc.writeNodeData).toHaveBeenCalledWith('proj-1', 'n1', { fileId: 'media-1' }, { intentRowId: 'row-9', execSeq: '9' });   // T13：第 4 参=作用域铸造上下文
     });
 
     it('T10 finalize intent-stale（行终态/换代——旧 complete 门序闭面）：writeNodeData/SUCCESS 回填/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {

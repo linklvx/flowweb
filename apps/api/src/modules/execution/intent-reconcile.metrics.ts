@@ -24,7 +24,7 @@ export const intentDuplicateAttemptTotal = new Counter({
 });
 
 /** Y0b-1（F7）：终态∧reservedCredits>0 的行到达保留期仍无法清理（settle 失败悬留——第四分支清账后次轮自然可删）。
- *  持续增长=settleStranded 闭环失效（毒行冻结保留期）——SLO 信号。 */
+ *  持续增长=R3 终态悬留批闭环失效（毒行冻结保留期）——SLO 信号。 */
 export const strandedTotal = new Counter({
   name: 'intent_frozen_stranded_total',
   help: '终态冻结悬留行计数（settle 失败悬留到保留期——第四分支闭环失效信号）',
@@ -58,5 +58,24 @@ export const orphanReleaseTotal = new Counter({
 export const orphanUnreleasableTotal = new Counter({
   name: 'ledger_orphan_unreleasable_total',
   help: '不可释放孤儿冻结计数（钱包已消失——解散销毁，残余登记；每轮观测语义——看 rate 非累计）',
+  registers: [register],
+});
+
+/** T13 R3（spec Z18''⑥）：自动收敛动作计数——每动作一行 ReconcileAction 审计行同源同 incr。
+ *  action 词表=审计行 action 列同源：settle-backfill/rollback-stranded/void-terminal/
+ *  finalize-from-stage/projection-backfill。 */
+export const reconcileAutoConvergedTotal = new Counter({
+  name: 'intent_reconcile_auto_converged_total',
+  help: 'T13 R3：自动收敛动作计数（action 词表=ReconcileAction 审计行 action 同源；判据全量 PG——NodeArtifact/Media/ArtifactProjection）',
+  labelNames: ['action'],
+  registers: [register],
+});
+
+/** T13 R3：歧义态交人工计数（不动钱——如 FAILED/VOIDED∧有交付凭据的失败态；spec 裁决 :27④
+ *  「歧义/资损风险绝不自动动钱」）。 */
+export const reconcileManualRequiredTotal = new Counter({
+  name: 'intent_reconcile_manual_required_total',
+  help: 'T13 R3：歧义态交人工计数（自动收敛禁动钱面——审计行 action=manual-required 同源）',
+  labelNames: ['action'],
   registers: [register],
 });

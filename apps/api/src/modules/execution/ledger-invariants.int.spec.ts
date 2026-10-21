@@ -175,7 +175,13 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     const { CreditLedgerService } = await import('../team/credit-ledger.service');
     const ledger = new CreditLedgerService(prisma as any);
     const teamCredit = new TeamCreditService(prisma as any, ledger);
-    return new IntentReconcileService(prisma as any, collabDoc, { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, ledger, {} as any, {} as any, {} as any, teamCredit); // Y0c T12：exec-GC 改道 writer（第 3 参）
+    // T13 R3：构造器 +artifactCommit（动作表单入口——真资金链）；doc 探测后门已删（stub 面无 probe）
+    const { GenerationIntentService } = await import('./generation-intent.service');
+    const { NodeArtifactService } = await import('../artifact-core/node-artifact.service');
+    const { makeArtifactCommit } = await import('../../test-utils/artifact-commit-fixture');
+    const intentSvc = new GenerationIntentService(prisma as any, teamCredit, new NodeArtifactService());
+    const artifactCommit = makeArtifactCommit(prisma as any, ledger, teamCredit, intentSvc).artifactCommit;
+    return new IntentReconcileService(prisma as any, collabDoc, { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, ledger, {} as any, {} as any, {} as any, teamCredit, artifactCommit); // Y0c T12 改道 +T13 R3
   };
   /** 夹具基线：钱包唯一口 ensureBalance + register_grant 100（计入 Σ——对齐 G-2 不变量①口径，禁裸建绕台账） */
   const fundTeam = async (teamId: string, ts: number) => {
@@ -186,6 +192,7 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     return ledger;
   };
   afterAll(async () => {
+    await prisma.nodeArtifact.deleteMany({ where: { projectId: 'it-p' } });
     await prisma.generationIntent.deleteMany({ where: { intentId: { startsWith: 'cls-' } } });
     // Y0b-2（触发器）：台账清账经通行证（前缀批量——ledgerWipe 单团队形态不适配，GUC 包裹等价）
     await prisma.$transaction(async (raw) => {
@@ -198,16 +205,19 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     await prisma.$disconnect();
   }, 20000);
 
-  it('悬留已交付（SUCCEEDED∧reservedCredits>0∧超宽限∧探针有产物）→ settleStranded 补 settle（Y0b-2 T5 判据=判龄+ArtifactProbe——Z7/Z17/Z98/Z102）', async () => {
+  it('T13 R3 悬留已交付（SUCCEEDED∧reservedCredits>0∧超宽限∧NodeArtifact 锚行在——PG 判据，doc 探测已删）→ reconcileStranded 补 settle', async () => {
     const ts = Date.now();
     const team = await prisma.team.create({ data: { id: `it-cls-a-${ts}`, name: 'it', ownerId: CLS_OWNER } });
     // Y0b-2 T5：completedAt 推过 SETTLE_STRANDED_GRACE_MS（判龄=无活 worker 的结构证明）
-    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-a-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 7, reservedCredits: 7, completedAt: new Date(Date.now() - 11 * 60_000) });
+    const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-a-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 7, reservedCredits: 7, reservedExecSeq: undefined, completedAt: new Date(Date.now() - 11 * 60_000) });
+    await prisma.generationIntent.update({ where: { id: intent.id }, data: { reservedExecSeq: intent.execSeq } });   // T13：post-T9 reserve 恒落代际锚（夹具完备性）
+    // T13：产物权威=NodeArtifact 锚行（探针 found:true 的 PG 等价形态——resultText=text 产物）
+    await prisma.nodeArtifact.create({ data: { projectId: 'it-p', nodeId: 'n', teamId: team.id, targetField: 'result', resultText: 'txt', state: 'stored', rev: 1, sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0 } });
     const ledger = await fundTeam(team.id, ts);
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -7, frozenDelta: 7, referenceId: `intent:${intent.id}` }));
     expect(res.rowId).not.toBeNull();
-    const svc = await mkSvc({ probeArtifacts: async () => [{ nodeId: 'n', kind: 'text', found: true }] });
-    await (svc as any).settleStranded();
+    const svc = await mkSvc();
+    await (svc as any).reconcileStranded();
     const row = await prisma.generationIntent.findUniqueOrThrow({ where: { id: intent.id } });
     expect(row.reservedCredits).toBe(0);
     expect(row.creditsConsumed).toBe(7);
@@ -220,10 +230,11 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     const ts = Date.now();
     const team = await prisma.team.create({ data: { id: `it-cls-c-${ts}`, name: 'it', ownerId: CLS_OWNER } });
     const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-c-${ts}`, kind: 'text', paramsHash: 'h', status: 'FAILED', creditCost: 5, reservedCredits: 5, completedAt: new Date(Date.now() - 11 * 60_000) });
+    await prisma.generationIntent.update({ where: { id: intent.id }, data: { reservedExecSeq: intent.execSeq } });   // T13：post-T9 reserve 恒落代际锚
     const ledger = await fundTeam(team.id, ts);
     const res = await ledger.runInTx((tx) => ledger.mutate(tx, { teamId: team.id, type: 'reserve', creditType: 'regular', balanceDelta: -5, frozenDelta: 5, referenceId: `intent:${intent.id}` }));
     const svc = await mkSvc();
-    await (svc as any).settleStranded();
+    await (svc as any).reconcileStranded();
     const row = await prisma.generationIntent.findUniqueOrThrow({ where: { id: intent.id } });
     expect(row.reservedCredits).toBe(0);
     const rel = await prisma.teamCreditTransaction.findFirst({ where: { teamId: team.id, type: 'release' } });
@@ -262,7 +273,7 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     expect(again).toBe(0);   // 幂等——reversesId 唯一键保证二次调用零动作
   }, 20000);
 
-  it('Z25 反例（防洞静默回归）：SUCCEEDED∧冻结未销的行不被 releaseOrphanedReserves 释放（settleStranded 独占——E53）', async () => {
+  it('Z25 反例（防洞静默回归）：SUCCEEDED∧冻结未销的行不被 releaseOrphanedReserves 释放（终态悬留 R3 批独占——E53）', async () => {
     const ts = Date.now();
     const team = await prisma.team.create({ data: { id: `it-cls-s-${ts}`, name: 'it', ownerId: CLS_OWNER } });
     const intent = await createIntentFixture(prisma as unknown as PrismaService, { projectId: 'it-p', teamId: team.id, nodeId: 'n', userId: CLS_OWNER, intentId: `cls-s-${ts}`, kind: 'text', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 8, reservedCredits: 8, completedAt: new Date(Date.now() - 20 * 60_000) });

@@ -10,11 +10,12 @@ import { SubscriptionSchedulerService } from '../subscription/task/subscription-
 import { COLLAB_ROLE_DEFAULT } from '../../config/env';
 import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';
+import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';
 import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 /** Y0c T23（Z98）：COLLAB_ROLE 角色门第四面「守护与定时器装配」——ExecutionDaemonModule。
  *  收编 Z98 点名三样：IntentReconcileService（onModuleInit 双 timer——5min verifyActive 含
- *  rollbackRunning/settleStranded 资金操作+24h reconcileDaily）+temp-cleanup/subscription-task
+ *  rollbackRunning/R3 终态悬留批（T13 reconcileStranded——旧 settleStranded 已删）资金操作+24h reconcileDaily）+temp-cleanup/subscription-task
  *  repeatable 注册（两 scheduler 的 onModuleInit getRepeatableJobs/add）。worker 装配即
  *  双进程双倍回收钱（P0-3）——「reconcile 只在 api 进程」由本模块从口头前提变结构约束。
  *  仅 role=api｜all 装配（all=本地单进程形态，Z67①）；processor 注册门（四面之二）已落 T30
@@ -40,6 +41,10 @@ export class ExecutionDaemonModule {
       imports: [
         CollabModule,   // CollabWritePort/CollabDocWriterService（reconcile 修复写直调 DocWriter——留 api 的归属依据）
         TeamModule,     // CreditLedgerService/TeamCreditService（资金冲销面）
+        // T13 R3：动作表单入口（finalizeFromExistingMediaOrText/finalizeFromStage——stage 行重下
+        // finalize）。api 进程可安全导入（census ⑰ 闭包约束=worker 专用；worker 侧 R3 不装配=本
+        // 模块 role 门）。Minio 经 @Global MinioModule 直注。
+        ArtifactCoreModule,
         BullModule.registerQueue({
           name: EXECUTION_QUEUE_NAME,
           configKey: EXECUTION_CONNECTION_NAME,

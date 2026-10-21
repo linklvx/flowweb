@@ -233,9 +233,10 @@ const statusOf = async (nodeId: string) =>
     const writeExecStatus = vi.fn(async () => {});
     const reconcile = new IntentReconcileService(
       prisma as unknown as any,
-      { isDocResident: () => false, writeExecStatus, probeArtifacts: vi.fn(async () => []) } as any,
+      { isDocResident: () => false, writeExecStatus } as any,
       { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
+      makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3
     );
     const before = totalOf(execProjectionDeferredTotal);
     await reconcile.verifyActive();
@@ -259,9 +260,10 @@ const statusOf = async (nodeId: string) =>
     const writeExecStatus = vi.fn(async () => {});
     const reconcile = new IntentReconcileService(
       prisma as unknown as any,
-      { isDocResident: () => true, writeExecStatus, probeArtifacts: vi.fn(async () => []) } as any,
+      { isDocResident: () => true, writeExecStatus } as any,
       { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
+      makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3
     );
     await reconcile.verifyActive();
     expect((await prisma.generationIntent.findUnique({ where: { id: intent.id } }))!.status).toBe('VOIDED');

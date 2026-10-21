@@ -42,7 +42,7 @@ describe('ExecutionService', () => {
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
       isLeaseServing: vi.fn().mockReturnValue(true), // Y0a-3 T8 计费读门——默认放行（本文件焦点在执行链）
-      writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
+      writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),   // T13 typed outcome——business 档（transient/permanent=悬留档）, // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
     docWriter = docWriterStubOf(collabDoc); // Y0c T8：deliver+done 组批经 writeBatch——stub 按 op 分派回记录器（断言零改动）
@@ -206,7 +206,7 @@ describe('ExecutionService', () => {
     topology.getScope.mockReturnValue([n9]);
     topology.sort.mockReturnValue([n9]);
     collabDoc.readCanvas.mockResolvedValue({ nodes: [n9], edges: [] });
-    collabDoc.writeNodeData.mockResolvedValue({ written: false, reason: 'node-deleted' });
+    collabDoc.writeNodeData.mockResolvedValue({ kind: 'business', written: false, reason: 'node-deleted' });
 
     const result = await service.execute('p1', undefined, 'u1', ['n9']);
 
@@ -421,7 +421,7 @@ describe('ExecutionService', () => {
       writeEntries = () => cnt.exec + cnt.data + cnt.batch;
       // 独立计数实现（docWriterStubOf 会把批 op 分派回 collabDoc 记录器——双重计数破坏判据）
       collabDoc.writeExecStatus.mockImplementation(async () => { cnt.exec += 1; });
-      collabDoc.writeNodeData.mockImplementation(async () => { cnt.data += 1; });
+      collabDoc.writeNodeData.mockImplementation(async () => { cnt.data += 1; return { kind: 'business', written: true }; });
       vi.mocked(docWriter.writeBatch).mockImplementation(async (_pid: string, ops: readonly any[]) => {
         cnt.batch += 1;
         return ops.map((op, index) => ({ index, op: op.op, written: true }));

@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
+import { makeArtifactCommit } from '../../test-utils/artifact-commit-fixture';   // T13 R3：reconcile 构造器 +artifactCommit
 import { IntentReconcileService } from './intent-reconcile.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
@@ -34,6 +35,7 @@ const reconcile = new IntentReconcileService(
   prisma as unknown as any, {} as any,
   { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer（本文件不触 sweep 断言面）
   ledger, queueMock, queueMock, {} as any, teamCredit,
+  makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3 动作表单入口
 );
 
 /** 带标签 Counter 取值 helper（prom-client 15 的 .get() 不回值——扫 hashMap 按 labels 匹配；api-caller.hardening 同款） */

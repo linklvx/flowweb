@@ -6,7 +6,7 @@ import { CollabResidencyService, type WithSessionOptions } from './collab-reside
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
-import { yjsSnapshotFallbackTotal, yjsDocLoadedByReconcilerTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
+import { yjsSnapshotFallbackTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 
@@ -22,14 +22,6 @@ export interface ExecStatusPatch {
 export interface WriteNodeDataResult {
   written: boolean;
   reason?: 'node-deleted' | 'no-node-map';
-}
-
-/** Z98：ArtifactProbe 结果项——found=doc 有产物；unknownKind=kind 不在产物键白名单（不裁决）。 */
-export interface ArtifactProbeResult {
-  nodeId: string;
-  kind: string;
-  found: boolean;
-  unknownKind?: boolean;
 }
 
 @Injectable()
@@ -127,8 +119,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
    * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。
    *  Y0c T15（A2/Z128）：改道 withSession(read)——共享会话不 disconnect 不武装 debouncer
    *  （旧 withDoc 路径每次 disconnect(true)=每次全量编码 store+计数抖动，终结）。
-   *  Y0c T20（Z105 spec :526）：opts.ephemeral=即用即释档（不入会话表）——**仅 reconcile 5min 周期
-   *  探针面（probeArtifacts）传 true**；REST/作业面读缺省入池（T15 常驻语义不变——端口面签名不动）。 */
+   *  Y0c T20（Z105 spec :526）：opts.ephemeral=即用即释档（不入会话表）——原消费面=reconcile 5min
+   *  周期探针（T13 起 probeArtifacts 删除=doc 探测退款后门根修，R3 判据全量换 PG）；ephemeral 档
+   *  保留为 residency 通用能力（冷读防钉常驻池），REST/作业面读缺省入池（T15 常驻语义不变）。 */
   async readCanvas(projectId: string, opts?: { ephemeral?: boolean }): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withSession(projectId, async (doc) => {
       ensureSchemaVersion(toDocLike(doc));
@@ -186,7 +179,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
 
   /** Y0b-2 T5（Z106/Z112）→Y0c T20（Z105）：doc 常驻透传=hasActiveWsConnection(pid)（仅 WS 连接数>0，
    *  与常驻会话无关——gateway 侧定案注释同源）。消费=reaper 投影分治判据（无人看=跳过投影+deferred
-   *  计数——「无人在看=不为 UX 投影花钱」语义保留）+probeArtifacts wasResident 装载归因。 */
+   *  计数——「无人在看=不为 UX 投影花钱」语义保留）。 */
   isDocResident(projectId: string): boolean {
     return this.gateway.isDocResident(projectId);
   }
@@ -243,31 +236,6 @@ export class CollabDocumentService implements OnApplicationShutdown {
         execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
       }
     }, { mode: 'write' });
-  }
-
-  /** Y0b-2 T5（Z98 端口反转）：ArtifactProbe——settleStranded 的产物探测唯一出口（intent-reconcile
-   *  零 readCanvas——资金分支禁入规则⑤；探针在 collab 侧=活读含 spool 帧无假阴性）。
-   *  产物键白名单（Z102；T10/T12 交付键统一后）：text=result / image|video=fileId（resultUrl/videoUrl
-   *  旧交付键已退役——探错键=settleStranded 误判「无产物」触发错误退款方向）；未知 kind 不裁决
-   *  （unknownKind 标记——调用方计数告警，永不把"不知道"当"无产物"）；节点已删=found:false（无产物）。
-   *  Z112：非常驻 doc 探测=强制装载（钱事实允许但有界）——装载计数归因 heap 闸。
-   *  探针结果可能过期——CAS（rollbackStranded 三重守卫）才是权威。
-   *  Y0c T20（Z105 spec :526）：装载=**ephemeral 即用即释不进常驻池**（5min 一次的 reconcile 探针
-   *  防钉住几十个无人项目）；wasResident=isDocResident 新形（仅 WS 连接——零 WS 即计数，常驻会话
-   *  持有不豁免装载归因）。 */
-  async probeArtifacts(projectId: string, items: Array<{ nodeId: string; kind: string }>): Promise<ArtifactProbeResult[]> {
-    const wasResident = this.gateway.isDocResident(projectId);
-    const { nodes } = await this.readCanvas(projectId, { ephemeral: true });
-    if (!wasResident) yjsDocLoadedByReconcilerTotal.inc();
-    const dataOf = new Map(nodes.map((n: any) => [n.id as string, (n.data ?? {}) as Record<string, unknown>]));
-    return items.map(({ nodeId, kind }) => {
-      const data = dataOf.get(nodeId);
-      if (data === undefined) return { nodeId, kind, found: false }; // 节点已删=无产物
-      if (kind === 'text') return { nodeId, kind, found: data.result != null };
-      // T10/T12：image/video 交付键=fileId（doc data 唯一产物键——SERVER_WRITABLE_DATA_KEYS 单源语义）
-      if (kind === 'image' || kind === 'video') return { nodeId, kind, found: data.fileId != null };
-      return { nodeId, kind, found: false, unknownKind: true };
-    });
   }
 }
 

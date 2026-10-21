@@ -57,7 +57,7 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}, ar
   const collabDoc = {
     readCanvas: vi.fn().mockResolvedValue({ nodes, edges: [] }),
     isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费读门——默认放行
-    writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
+    writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),   // T13 typed outcome——business 档（transient/permanent=悬留档）, // Y0b-2 T5：交付判据类型化 {written,reason}
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
   };
   const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
@@ -185,7 +185,7 @@ describe('批0.5-6 双击 409（NODE_BUSY 组内降级——Y0b-2 T5/Z99 改契�
     expect(r.errors[0]).toMatchObject({ nodeId: 'n3', status: 'skipped', errorCode: 'NODE_BUSY' });
     expect(apiCaller.callImageGen).not.toHaveBeenCalled();
     expect(intentService.fail).not.toHaveBeenCalled(); // 不 fail 他人在飞行
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'skipped', attempts: 0 }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'skipped', attempts: 0 }), undefined);   // T13：第 4 参=scope（claim 抛错=裸档 undefined）
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
   });
 });
@@ -198,8 +198,8 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
       intentRowId: 'row-1', execSeq: 1n, expectedRev: 0, resultText: 'AI结果',
     }));
     expect(intentService.complete).not.toHaveBeenCalled();   // text 腿 complete 直调退役（finalize 内 CAS）
-    expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ result: 'AI结果' }));
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'done', intentId: 'i-1' }));
+    expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ result: 'AI结果' }), { intentRowId: 'row-1', execSeq: '1' });
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'done', intentId: 'i-1' }), { intentRowId: 'row-1', execSeq: '1' });
   });
 
   it('T12：video → finalizeVideo（sourceUrl=provider URL——resultRef=mediaId 归 finalize 写）+ writeNodeData({fileId:mediaId})（videoUrl 交付退役）', async () => {
@@ -209,8 +209,8 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
       intentRowId: 'row-1', execSeq: 1n, expectedRev: 0, sourceUrl: 'http://v', sourceMimeType: 'video/mp4',
     }));
     expect(intentService.complete).not.toHaveBeenCalled();   // T12：video 腿 complete 直调退役（finalize 内 CAS）
-    expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n2', { fileId: 'media-t12' });
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n2', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'media-t12' }));
+    expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n2', { fileId: 'media-t12' }, { intentRowId: 'row-1', execSeq: '1' });
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n2', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'media-t12' }), { intentRowId: 'row-1', execSeq: '1' });
   });
 
   it('count===1：image → commitImage（provider URL=stage durable sourceUrl）+ writeNodeData({fileId:mediaId}) 同步落地（T10——resultUrl/异步下载退役）', async () => {
@@ -220,8 +220,8 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
       intentRowId: 'row-1', execSeq: 1n, expectedRev: 0, sourceUrl: 'http://img',
     }));
     expect(intentService.complete).not.toHaveBeenCalled();   // image 腿 complete 直调退役（finalize 内 CAS）
-    expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n3', { fileId: 'media-t10' });
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'media-t10' }));
+    expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n3', { fileId: 'media-t10' }, { intentRowId: 'row-1', execSeq: '1' });
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'media-t10' }), { intentRowId: 'row-1', execSeq: '1' });
   });
 
   it('T10 finalize intent-stale（行终态/换代——旧 count===0 面）→ writeNodeData/done/download 全跳过 + 终态 error 投影（Z95 补）+对账告警', async () => {
@@ -234,7 +234,7 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
     expect(r.results).toHaveLength(0);
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
     expect(collabDoc.writeExecStatus).not.toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'done' }));
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED' }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED' }), { intentRowId: 'row-1', execSeq: '1' });
     expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done' }));
     expect(warn).toHaveBeenCalledTimes(1);
   });
@@ -309,7 +309,7 @@ describe('批0.5-6 执行开始 loading（exec map 服务端写）', () => {
   it('claim 后 writeExecStatus({status:"loading", jobId, intentId})——异步路径 jobId 透传', async () => {
     const { svc, collabDoc } = makeService([TEXT_NODE]);
     await svc.execute('p1', 'n1', 'u1', undefined, undefined, 'job-9');
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'loading', jobId: 'job-9', intentId: 'i-1' }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'loading', jobId: 'job-9', intentId: 'i-1' }), { intentRowId: 'row-1', execSeq: '1' });
   });
 
   it('loading 写失败 best-effort——执行不受阻', async () => {
@@ -329,7 +329,7 @@ describe('批0.5-6 catch 路径（意图终态必达——error 展示不受门�
     expect(r.success).toBe(false);
     expect(r.errors[0].error).toContain('boom'); // Y0b-2 T5：errors 结构化
     expect(intentService.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('boom'), undefined, 1n);
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }), { intentRowId: 'row-1', execSeq: '1' });
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'error' }));
   });
 
@@ -339,7 +339,7 @@ describe('批0.5-6 catch 路径（意图终态必达——error 展示不受门�
     const r = await svc.execute('p1', 'n1', 'u1');
     expect(r.success).toBe(false);
     expect(intentService.void_).toHaveBeenCalledWith('row-1', expect.stringContaining('扣费'), 1n);
-    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }));
+    expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }), { intentRowId: 'row-1', execSeq: '1' });
   });
 });
 

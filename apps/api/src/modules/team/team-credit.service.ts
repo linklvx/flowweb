@@ -247,7 +247,7 @@ export class TeamCreditService {
    *  Z92 竞态封死（入口语义拆分）：rollbackRunning（CAS 严格 RUNNING）=reaper/deadline 唯一——
    *    complete 先行（SUCCEEDED）后迟归的 reaper 在此零命中，"退款后仍交付"结构性关闭；
    *  rollbackDeliveryFailed（CAS SUCCEEDED——交付凭据 written:false 由调用方持有）=交付路径唯一；
-   *  rollbackStranded（CAS SUCCEEDED∧reservedCredits>0∧判龄——Z102 第三入口）=settleStranded 唯一：
+   *  rollbackStranded（CAS SUCCEEDED∧reservedCredits>0∧判龄——Z102 第三入口）=R3 终态悬留批唯一：
    *    判龄是安全要件（"无活 worker 持有"的结构证明——也是它可被 reaper 侧调用而不重开 Z92 竞态的原因）。
    *  返回值：CAS 是否命中（false=并发已抢/判龄不满足——幂等零动作）。 */
   async rollbackRunning(intentRowId: string, reason: string, cutoff?: Date): Promise<boolean> {

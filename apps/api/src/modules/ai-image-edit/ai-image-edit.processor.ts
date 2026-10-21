@@ -10,7 +10,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
-import { artifactDiscardedTotal, countExecProjectionFailure } from '../execution/exec.metrics';
+import { artifactDiscardedTotal, countExecProjectionFailure, deliverStrandedTotal } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
@@ -99,7 +99,7 @@ export class AiImageEditProcessor extends WorkerHost {
       }
       // A-1 根修（Y0b-2 T5）：reserve 收敛 processor 一处（队列入口结构位——全 taskType 统一含
       // lighting）；consumer 不再二次 reserve（旧双 reserve：第二次必 mayCall:false→skipped 永不外呼
-      // →deadline 批 backfillSucceeded→settleStranded 补 settle=1 credit 白扣）。
+      // →deadline 批旧回填链（T13 前的 backfill 谎言链——已删）补 settle=1 credit 白扣）。
       // Y0b-1（Z10）：金额单源 intent 行（claim 固化 plan 快照）——worker 不再解析定价
       const reserveResult = await this.teamCredit.reserve(userId, { intentRowId, execSeq });
       if (reserveResult.mayCall === false) {
@@ -202,12 +202,19 @@ export class AiImageEditProcessor extends WorkerHost {
       // O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（改写 envelope 会让 api
       // 成信封第 4 写者撞冻结表"信封写者=3"）；尺寸由 web 内容事件路径决定（load/换图 contain-fit）。
       // T10：superseded=用户在飞替换——不写 doc（投影行已记 superseded，用户值保留）。
-      // Z44 nodeAlive 守卫：written:false=节点已删——产物丢弃计数（账已结清，无退款腿——交付判据归 finalize intent CAS）
+      // Z44 nodeAlive 守卫：business 档 written:false=节点已删——产物丢弃计数（账已结清，无退款腿
+      // ——交付判据归 finalize intent CAS）。T13 typed outcome：transient/permanent=交付未知档——
+      // 悬留计数（不判退款不假报交付；收敛归 R3/T15 投影链）+scope=claim 票铸造点（端点收窄面）。
       if (committed.outcome !== 'superseded') {
-        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: mediaId });
-        if (!deliver.written) {
+        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: mediaId }, { intentRowId, execSeq: execSeq.toString() });
+        if (deliver.kind === 'business' && !deliver.written) {
           artifactDiscardedTotal.inc({ cause: 'node-deleted' });
           this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 已删——产物 ${mediaId} 丢弃（nodeAlive 守卫）`);
+          return { status: 'completed', fileId: mediaId };
+        }
+        if (deliver.kind !== 'business') {
+          deliverStrandedTotal.inc({ cause: deliver.kind });
+          this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 交付写${deliver.kind === 'transient' ? '瞬态耗尽' : '通道永久失败'}——悬留（产物 ${mediaId} 在 PG——收敛归 R3/T15 投影链）`);
           return { status: 'completed', fileId: mediaId };
         }
       }
@@ -250,7 +257,7 @@ export class AiImageEditProcessor extends WorkerHost {
         }
         await this.collabDoc.writeExecStatus(projectId, nodeId, {
           status: 'error', error: String(error?.message ?? error).slice(0, 200), attempts,
-        }).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
+        }, intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
       }
 
       // Push failure via WebSocket — do NOT deduct credit on failure

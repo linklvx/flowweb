@@ -152,7 +152,7 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
     {
       map: 'nodes', path: 'nodes.*.data.*（服务端域=DOC_WRITE_OPS.writeNodeData.keys 白名单）',
       writers: ['collab-document.service.writeNodeData（逐键写禁整块替换）'],
-      readers: [`web 产物消费（${SERVER_NODE_DATA_KEYS.join('/')}——SERVER_NODE_DATA_KEYS 派生）`, 'collab-document.service.probeArtifacts（产物键白名单）'],
+      readers: [`web 产物消费（${SERVER_NODE_DATA_KEYS.join('/')}——SERVER_NODE_DATA_KEYS 派生）`],
       ownership: 'doc', undo: 'server-only',
     },
     {
@@ -258,6 +258,16 @@ export const DOC_WRITE_OPS: Record<DocWriteOpType, DocWriteOpSpec> = {
     idempotent: true,            // 重放二次扫描空集
   },
 };
+
+// ── T13（plan v11.2 ①）：worker 写通道（write-batch 端点）op 白名单——两段式过渡档 ──────────────────
+// T13→T15 窗口期 worker 仍需 writeNodeData{fileId,result} 交付（T10-T12 过渡交付模式）+
+// writeExecStatus（loading/skipped/done/error 全 EXEC_STATUS_KEYS 合法域——claim 期/回放/终态投影）。
+// **T15 收口：writeNodeData 与 done 移除——正式投影 poller 接管交付**（届时本表收缩为 exec-only
+// 〔仅 loading/skipped〕——spec Z18''⑥ 字面终态）。
+// 键集单源=SERVER_WRITABLE_DATA_KEYS（{fileId,result}——禁第二真源）；比现状 6 键全开（SERVER_NODE_DATA_KEYS）
+// 真收窄：worker token 写 content/videoUrl/resultUrl/errorCode 即拒（端点 400 WORKER_KEY_NOT_ALLOWED）。
+export const WORKER_CHANNEL_OPS: readonly DocWriteOpType[] = ['writeNodeData', 'writeExecStatus'];
+export const WORKER_WRITE_NODE_DATA_KEYS = SERVER_WRITABLE_DATA_KEYS;
 
 // ── 违规分类码+校验函数（Z108②：业务级拒绝非截断非 sanitize）──
 export type WriteBatchViolationCode =

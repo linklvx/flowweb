@@ -1,81 +1,83 @@
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import type { Queue, Job } from 'bullmq';
-import type { GenerationIntent } from '@prisma/client';
+import type { Queue } from 'bullmq';
+import type { GenerationIntent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
+import { isRetryableFinalizeError } from '../artifact-core/artifact-commit.service';
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import {
   reconcileMismatchTotal, strandedTotal, balanceDriftTotal, frozenDriftTotal,
   orphanReleaseTotal, orphanUnreleasableTotal,
+  reconcileAutoConvergedTotal, reconcileManualRequiredTotal,
 } from './intent-reconcile.metrics';
 import { intentDeadlineExceededTotal, execProjectionDeferredTotal } from './exec.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/外呼心跳都刷新 heartbeatAt，超龄即进程/调度异常嫌疑
  *  （Y0b-2 T4 判据单源：updatedAt→heartbeatAt——外呼 tick 不刷 updatedAt，旧判据会误收长任务）。 */
 const STALE_MS = 15 * 60_000;
-/** Y0b-2 T5（Z102）：settleStranded 判龄宽限（具名常量）——正常链 complete→settle 秒级完成，
+/** Y0b-2 T5（Z102）：终态悬留判龄宽限（具名常量）——正常链 complete→settle 秒级完成，
  *  超宽限仍冻结=崩溃窗悬留（"无活 worker 持有"的结构证明=rollbackStranded 判龄安全要件）。 */
 export const SETTLE_STRANDED_GRACE_MS = 10 * 60_000;
 /** Z84 waiting/delayed 升级宽限——deadline 到点后 job 仍 waiting 的宽限窗（迟归 job 仍可被调度；
  *  超窗即升级收敛：VOID+release，迟归 job 进 processor 时行已终态 ⇒ claim④ rearm 自愈）。 */
 const WAITING_UPGRADE_GRACE_MS = 30 * 60_000;
-/** 终态保留期（F1 保留策略）——SUCCEEDED/FAILED/VOIDED 行 7 天后清理 */
+/** 终态保留期（F1 保留策略）——SUCCEEDED/FAILED/VOIDED 行 7 天后清理；resultText 非空行 90 天
+ *  （T13 保留矩阵——spec Z18''⑥：text 产物正文保留）。 */
 const RETENTION_MS = 7 * 24 * 3600_000;
+export const TEXT_RETENTION_MS = 90 * 24 * 3600_000;
+/** T13 保留矩阵：ArtifactProjection 终态（projected=delivered 语义/orphaned/superseded/dead）30d；
+ *  MediaFactOutbox published 7d（spec Z18''⑥）+dead-letter 告警。 */
+export const PROJECTION_RETENTION_MS = 30 * 24 * 3600_000;
+export const OUTBOX_RETENTION_MS = 7 * 24 * 3600_000;
 /** Z56 每轮页宽 */
 const SWEEP_PAGE = 100;
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
+/** T13 R3 护栏：每行有界尝试 3 次+jitter（spec Z18''⑥——毒行不冻结整轮）。 */
+const R3_MAX_ATTEMPTS = 3;
+const R3_JITTER_BASE_MS = 25;
 
 /** 意图表对账与回收（F12 每日全量 + F13 活跃核验 5min）——R28 纪律：原生 setInterval+unref
  *  （@Cron 是死代码：ScheduleModule 全仓未导入）。
  *
- *  档一【活跃核验，每 5min】= deadline 批 + 心跳 stale 批（Y0b-2 T4 双批）：
+ *  【T13 R3 重写（spec Z18''⑥ 裁决 :27④）——三后门已删，门禁式登记】：
+ *   - backfillSucceeded（BullMQ completed→无条件置 SUCCEEDED+resultRef 回填——T12 P2-③：video
+ *     URL 回填进 doc fileId 的谎言链）已删：其唯一合法场景（provider task completed 的 RUNNING
+ *     收敛）由 R3 动作表「RUNNING∧stage 行在→finalize」承接——判据全量 PG，provider 不重调；
+ *   - threeCheck resultRef 判族（①已扣+resultRef 非空→SUCCEEDED 回填——resultRef 非产物凭据）
+ *     已删：剩余分支=已扣→rollbackRunning/未扣→VOIDED（charge 判定保留）；
+ *   - settleStranded 的 doc 产物探测（probeArtifacts——「以 doc 探测为退款依据」违背 PG 权威）
+ *     已删：终态悬留判定全量换 PG（NodeArtifact 锚行/Media stage 行/ArtifactProjection）。
+ *   grep 三名零命中=门禁（本注释为登记面）。
+ *
+ *  档一【活跃核验，每 5min】= deadline 批 + 心跳 stale 批（Y0b-2 T4 双批）+ 终态悬留 R3 批：
  *
  *  批〇【deadline 批，先跑】RUNNING ∧ deadlineAt<now ∧ heartbeatAt<deadlineAt（心跳先于 deadline 停=外呼死）：
- *    A. 心跳新于 deadline（heartbeatAt>=deadlineAt）⇒ 轮询活着（onTick 每 tick 刷心跳）——不误杀；
- *    B. jobId 行查 BullMQ 真实状态（A 路径禁绕过）：active ⇒ 长任务在跑零动作；
- *       waiting/delayed 超宽限（deadline+WAITING_UPGRADE_GRACE_MS）⇒ Z84 升级档 VOID+release
- *       （worker 死亡 job 滞留 waiting=冻结永久悬挂；本次升级 attempts 不递增——非用户发起重试）；
- *       completed ⇒ 回填 SUCCEEDED；failed/不存在 ⇒ 三查；
- *    C. phase 分诊（Z83）：startedAt 非空=call（外呼期超时）/空=queue（排队期超时——调度积压信号），
- *       intent_deadline_exceeded_total{kind,phase} 计数；收敛走既有 threeCheck（cutoff=行自身 deadline——
- *       CAS 判龄守卫=心跳先于 deadline，并发心跳刷新即 CAS 失败幂等）。
+ *    A. 心跳新于 deadline ⇒ 轮询活着零动作；
+ *    B. jobId 行查 BullMQ 真实状态：active ⇒ 长任务在跑零动作；waiting/delayed 超宽限 ⇒ 升级收敛
+ *       （completed/failed/不存在=PG 动作表+charge 判定收敛——BullMQ 状态不再回填终态）；
+ *    C. phase 分诊（Z83）：startedAt 非空=call/空=queue，intent_deadline_exceeded_total{kind,phase} 计数。
  *
- *  批一【心跳 stale 批】heartbeatAt 超龄 15min（进程/调度异常——正常外呼有 onTick 心跳+deadline 批先收；
- *        partial unique 使同节点新意图被 RUNNING 孤儿 409 锁死——本档把锁死窗口从 24h 压到 ≤15min；
- *        Y0b-2 squash 已删 @@index([status, updatedAt])——判据切换后由 running_heartbeat/running_deadline
- *        两 partial 接管扫描）：
- *    A. 有 jobId → 按 kind 路由到所属队列查 BullMQ 真实状态（禁"job 不存在即判死"——removeOnComplete 清理歧义）：
- *       completed → 按产物回填 SUCCEEDED；failed/不存在 → 走 B 三查；
- *       active/waiting/delayed → 长任务合法在飞（意图行心跳不随外呼刷新时由 deadline 批兜底），零动作
- *    B. 三查（age 一律取 heartbeatAt；批0.5-9 两阶段口径 isCharged=流水存在 reserve/settle 任一）：
- *       ①已扣 && resultRef 非空 → SUCCEEDED 回填
- *       ②已扣无产物 → rollbackRunning 单事务冲销（Y0b-2 T5/Z92：CAS 严格 RUNNING+判龄 heartbeatAt
- *         保持；两金额归零+按流水行分义冲销 settle→refund/reserve→release——refund 落行即回落
- *         monthlyUsed〔已派生〕无列回滚写点；count===0 ⇒ 已处理/并发已抢幂等）+终态投影分治
- *         （Z106/Z112——errorCode 两码分诊）
- *       ③未扣 → VOIDED 免费放行（守卫同款）
+ *  批一【心跳 stale 批】heartbeatAt 超龄 15min：jobId 路由查 BullMQ（active/waiting/delayed=合法在飞
+ *    零动作；其余）→ convergeStale（R3 动作表+charge 剩余分支）。
+ *
+ *  批二【终态悬留 R3 批】TERMINAL ∧ reservedCredits>0 ∧ completedAt<now-宽限 → reconcileOneIntent
+ *    （R3 动作表单入口=ArtifactCommitService.finalizeFromExistingMediaOrText——advisory lock+审计行）。
  *
  *  档二【全量三方对账，每日】：SUCCEEDED 行 creditsConsumed vs 消费流水数额差异 →
- *        reconcileMismatchTotal+WARN（资损前兆；批 7 接 collabDiagnostics）；终态 7 天清理；
- *        exec map 孤儿条目清理（F2 GC）；video-separate 陈旧任务对账+并发额度归还
- *        （自 video-separate.cron.ts 搬入——原 @Cron 死代码从未运行，该功能不被档一覆盖：
- *         VideoSeparateTask 表+Redis 计数器非意图表/积分域，故整体搬入本档保底）。
+ *        reconcileMismatchTotal+WARN（资损前兆）；保留矩阵清理（7d/90d/30d/7d）+artifact 锚守护；
+ *        exec map 孤儿条目清理（F2 GC）；video-separate 陈旧任务对账+并发额度归还。
  *
- *  档一附属【资金闭环巡检，随 5min 同轮】（Y0b-1 §1.5）：settle 失败对账第四分支 settleStranded
- *        （Y0b-2 T5 收窄〔Z76/Z98/Z102〕：判据=TERMINAL∧reservedCredits>0∧判龄 SETTLE_STRANDED_GRACE_MS；
- *         三分支表——SUCCEEDED∧产物在⇒补 settle/SUCCEEDED∧无产物⇒rollbackStranded/FAILED|VOIDED⇒void_；
- *         产物探测走 ArtifactProbe 事务外+按 projectId 记忆化；consumed>0∧reserved=0 历史成功单永不进）
- *        + Z11 未闭合义务巡检 releaseOrphanedReserves（意图行灭失的孤儿 reserve——releaseOrphanReserve
- *        窄口幂等释放；意图行存在的一切情形归第四分支独占，E53）。
- *  档二附属【运行时不变量巡检】verifyLedgerInvariants：①池余额≡ΣbalanceDelta（两池分列+LEFT JOIN——
- *        检出"有钱包零流水"）②RUNNING ΣfrozenDelta≡reservedCredits ③ACTIVE 团队钱包在场
- *        ③'（Z102）VOIDED∧creditsConsumed>0∧无 refund 行=台账漂移 ④（Z102）FAILED/VOIDED⇒reservedCredits=0——
- *        命中即 drift 指标+WARN（台账为真源，钱包可据 Σ 重建）。 */
+ *  附属【Z11 孤儿冻结巡检】（随 5min 同轮）：意图行灭失的孤儿 reserve——releaseOrphanReserve 窄口
+ *        幂等释放（意图行存在的一切情形归 R3 批独占，E53）。
+ *  附属【运行时不变量巡检】verifyLedgerInvariants：①池余额≡ΣbalanceDelta ②RUNNING ΣfrozenDelta≡
+ *        reservedCredits ③ACTIVE 团队钱包在场 ③'VOIDED∧consumed>0∧无 refund=漂移 ④FAILED/VOIDED⇒
+ *        reservedCredits=0——命中即 drift 指标+WARN（台账为真源）。 */
 @Injectable()
 export class IntentReconcileService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(IntentReconcileService.name);
@@ -93,11 +95,12 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly imageEditQueue: Queue,
     @Inject('REDIS_CLIENT') private readonly redis: any,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    @Inject(ArtifactCommitService) private readonly artifactCommit: ArtifactCommitService,   // T13 R3：动作表单入口（finalizeFromExistingMediaOrText/finalizeFromStage）
   ) {}
 
   onModuleInit() {
     void this.verifyActive().catch((e) => this.logger.warn(`startup scan: ${e}`)); // 启动全量扫（覆盖"部署杀在飞任务"）
-    // 在飞守卫（T5 质量审 I-1）：第四分支+孤儿释放并入后单轮最坏可达分钟级≫5min tick——
+    // 在飞守卫（T5 质量审 I-1）：R3 批+孤儿释放并入后单轮最坏可达分钟级≫5min tick——
     // 无守卫叠轮会在同一批 TeamBalance 锁上自我放大竞争；幂等性本就由 CAS/reversesId 唯一保证，跳轮无损
     const t1 = setInterval(() => {
       if (this.verifyActiveRunning) return;
@@ -116,9 +119,8 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.timers = [];
   }
 
-  /** 档一：deadline 批+心跳 stale 批回收 RUNNING（单条失败不阻塞整批——毒行不冻结全表扫描）
-   *  + 资金闭环巡检同轮（第四分支 settleStranded → Z11 孤儿释放 releaseOrphanedReserves——
-   *  顺序固定：先意图侧清账再台账侧孤儿） */
+  /** 档一：deadline 批+心跳 stale 批回收 RUNNING + 终态悬留 R3 批（单条失败不阻塞整批——毒行不冻结全表扫描）
+   *  + 资金闭环巡检同轮（Z11 孤儿释放——顺序固定：先意图侧清账再台账侧孤儿） */
   async verifyActive(): Promise<void> {
     // ── 批〇 deadline 批（Y0b-2 T4/Z68/Z83/Z84）——先跑（行收敛终态后 stale 批不再命中同轮重复处理）
     const now = new Date();
@@ -132,125 +134,115 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`deadline-reaper 意图 ${row.intentId} 失败: ${(e as Error).message}`);
       }
     }
-    // ── 批一 心跳 stale 批（heartbeatAt 超龄=进程/调度异常——T5 的 rollbackRunning 接管收敛）
+    // ── 批一 心跳 stale 批（heartbeatAt 超龄=进程/调度异常——rollbackRunning 接管收敛）
     const cutoff = new Date(Date.now() - STALE_MS);
     const stale = await this.prisma.generationIntent.findMany({
       where: { status: 'RUNNING', heartbeatAt: { lt: cutoff } },
     });
     for (const row of stale) {
       try {
-        await this.reconcileIntent(row, cutoff);
+        await this.convergeViaQueueOrStale(row, cutoff);
       } catch (e) {
         this.logger.warn(`reconcile 意图 ${row.intentId} 失败: ${(e as Error).message}`);
       }
     }
-    await this.settleStranded();
+    await this.reconcileStranded();
+    await this.sweepProjectionBackfill();
     await this.releaseOrphanedReserves();
   }
 
-  /** 批〇单行：deadline 到点的 RUNNING 收敛（threeCheck 复用——cutoff=行自身 deadline：
-   *  判龄守卫语义=心跳先于 deadline 停，外呼死才收敛；并发心跳刷新 ⇒ CAS 失败幂等）。 */
+  /** T13 R3 窗③（投影缺失）专用扫：SUCCEEDED∧已核销行不进终态悬留批（reserved=0 谓词）——锚行在
+   *  而投影行缺（finalize 投影 createMany 竞态/人工清理残余）由本扫兜底补建（判据=PG 反连接；
+   *  有界 50 行/轮——正常链投影行随 finalize 同事务落，命中≈0 属不变量回归信号）。 */
+  private async sweepProjectionBackfill(): Promise<void> {
+    const rows = await this.prisma.$queryRaw<{ id: string; seq: bigint }[]>`
+      SELECT na."sourceIntentRowId" AS id, na."sourceExecSeq" AS seq
+      FROM "NodeArtifact" na
+      LEFT JOIN "ArtifactProjection" ap ON ap."artifactId" = na.id AND ap."artifactRev" = na.rev
+      WHERE na."sourceIntentRowId" IS NOT NULL AND na."sourceExecSeq" IS NOT NULL
+        AND ap.id IS NULL
+      ORDER BY na."updatedAt"
+      LIMIT 50`;
+    for (const r of rows) {
+      try {
+        await this.reconcileOneIntent(r.id, BigInt(r.seq));
+      } catch (e) {
+        this.logger.warn(`[R3] 投影补建单行失败 意图行 ${r.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /** 批〇单行：deadline 到点的 RUNNING 收敛（cutoff=行自身 deadline：判龄守卫语义=心跳先于 deadline
+   *  停，外呼死才收敛；并发心跳刷新 ⇒ CAS 失败幂等）。 */
   private async reapDeadline(row: GenerationIntent, now: Date): Promise<void> {
     if (row.heartbeatAt.getTime() >= row.deadlineAt.getTime()) return; // 轮询活着（onTick 刷心跳）——不误杀
     if (row.jobId) {
       const queue = this.queueForKind(row.kind);
       if (!queue) {
-        this.logger.warn(`[deadline-reaper] 意图 ${row.intentId} kind=${row.kind} 不在 A 路径路由表——落三查裁决`);
+        this.logger.warn(`[deadline-reaper] 意图 ${row.intentId} kind=${row.kind} 不在 A 路径路由表——落 PG 收敛裁决`);
       } else {
         const job = await queue.getJob(row.jobId);
         if (job) {
           const state = await job.getState();
-          if (state === 'completed') return this.backfillSucceeded(row, job);
           if (state === 'active') return; // 长任务在跑——A 路径禁绕过（防误杀）
           if (state === 'waiting' || state === 'delayed') {
             // Z84 升级档：超宽限期才收敛（宽限内迟归 job 仍可被调度——A 路径禁绕过）。
-            // 本次升级 attempts 不递增（非用户发起重试——runbook 处置行注明，更新归 T9）
             if (now.getTime() <= row.deadlineAt.getTime() + WAITING_UPGRADE_GRACE_MS) return;
             intentDeadlineExceededTotal.inc({ kind: row.kind, phase: 'waiting' });
             this.logger.warn(`[deadline-reaper] 意图 ${row.intentId} job=${row.jobId} waiting/delayed 超宽限 ${WAITING_UPGRADE_GRACE_MS}ms——升级收敛（迟归 job 走 claim④ rearm 自愈）`);
-            return this.threeCheck(row, row.deadlineAt, 'INTENT_DEADLINE_EXCEEDED');
+            return this.convergeStale(row, row.deadlineAt, 'INTENT_DEADLINE_EXCEEDED');
           }
-          // failed → 三查裁决（同 stale 批 A 路径尾段；job 不存在同落）
+          // completed/failed——T13：BullMQ 状态不再回填终态（谎言链根修），统一走 PG 动作表收敛
+          // （job completed 而 intent 未收敛=finalize 崩溃窗——stage 行在即 finalize 补达，provider 不重调）。
         }
       }
     }
     // phase 分诊（Z83）：startedAt 非空=外呼期（call）/空=排队期（queue——claim 后未外呼即超时=调度积压信号）
     intentDeadlineExceededTotal.inc({ kind: row.kind, phase: row.startedAt ? 'call' : 'queue' });
-    return this.threeCheck(row, row.deadlineAt, 'INTENT_DEADLINE_EXCEEDED');
+    return this.convergeStale(row, row.deadlineAt, 'INTENT_DEADLINE_EXCEEDED');
   }
 
   /** A 路径 kind→队列路由（attachJob 盲区另一半）——jobId 属于哪个队列由 claim 发起链决定：
-   *  text/video/image 走 execution 队列；outpaint/erase/redraw/lighting 走 ai-image-edit 队列
-   *  （lighting 与三编辑同队列共 consumer——lighting.service.ts 同款注入）。查错队列 getJob 得
-   *  null → 误落三查 → 20min lighting 长任务第 15min 被 VOIDED+退款（F13 要防的资损形态）。
-   *  未知 kind 不猜队列：告警+直接落三查（三查退款有 CAS 判龄守卫、金额 correctness 优先；
-   *  新 kind 接入意图表时须同步登记本路由表）。 */
+   *  text/video/image 走 execution 队列；outpaint/erase/redraw/lighting 走 ai-image-edit 队列。
+   *  未知 kind 不猜队列：告警+直接落 PG 收敛（退款有 CAS 判龄守卫、金额 correctness 优先）。 */
   private queueForKind(kind: string): Queue | null {
     if (kind === 'text' || kind === 'video' || kind === 'image') return this.executionQueue;
     if (kind === 'outpaint' || kind === 'erase' || kind === 'redraw' || kind === 'lighting') return this.imageEditQueue;
     return null;
   }
 
-  private async reconcileIntent(row: GenerationIntent, cutoff: Date): Promise<void> {
+  /** 批一单行：stale RUNNING 收敛——jobId 查 BullMQ 真实状态（active/waiting/delayed=合法在飞零动作；
+   *  completed/failed/不存在=removeOnComplete 清理歧义族）→ convergeStale（PG 动作表+charge 判定）。 */
+  private async convergeViaQueueOrStale(row: GenerationIntent, cutoff: Date): Promise<void> {
     if (row.jobId) {
       const queue = this.queueForKind(row.kind);
       if (!queue) {
-        this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} kind=${row.kind} 不在 A 路径路由表——落三查裁决`);
+        this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} kind=${row.kind} 不在 A 路径路由表——落 PG 收敛裁决`);
       } else {
         const job = await queue.getJob(row.jobId);
         if (job) {
           const state = await job.getState();
-          if (state === 'completed') return this.backfillSucceeded(row, job);
-          if (state !== 'failed') return; // active/waiting/delayed——长任务合法在飞，零动作
+          if (state !== 'failed' && state !== 'completed') return; // active/waiting/delayed——长任务合法在飞，零动作
         }
-        // failed 或 job 不存在（removeOnComplete 清理歧义）→ 三查裁决
+        // failed/completed/job 不存在——T13：不再从 returnvalue 回填（谎言链根修），PG 动作表裁决
       }
     }
-    return this.threeCheck(row, cutoff, 'INTENT_STALE_REAPED');
+    return this.convergeStale(row, cutoff, 'INTENT_STALE_REAPED');
   }
 
-  /** A 路径 completed 回填：resultRef 从 returnvalue.results 取本节点条目（text 无 URL 锚点按
-   *  complete() 同款 'text:' 前缀摘要占位）；ai-image-edit/lighting 产物形状 { status, fileId }
-   *  无 results 数组——取 fileId；无锚点留 null+告警（产物完整性由调用方落地保证）。 */
-  private async backfillSucceeded(row: GenerationIntent, job: Job<any, any>): Promise<void> {
-    const rv = job.returnvalue as any;
-    const entry = (rv?.results ?? []).find((r: any) => r?.nodeId === row.nodeId);
-    const resultRef = entry
-      ? String(entry.resultUrl ?? (entry.content != null ? `text:${String(entry.content).slice(0, 100)}` : '')) || null
-      : typeof rv?.fileId === 'string'
-        ? rv.fileId
-        : null;
-    if (!resultRef) this.logger.warn(`意图 ${row.intentId} job completed 但无产物锚点——resultRef 留空`);
-    await this.prisma.generationIntent.updateMany({
-      where: { id: row.id, status: 'RUNNING' },
-      data: { status: 'SUCCEEDED', resultRef, completedAt: new Date() },
-    });
-  }
-
-  /** 三查裁决（批0.5-9 两阶段口径：isCharged=流水存在 reserve/settle 任一）。
-   *  Y0b-2 T5（Z92/Z75）：②退款/解冻两腿收敛 rollbackRunning 单入口（CAS 严格 RUNNING+判龄 heartbeatAt
-   *  保持——按流水分义冲销 settle→refund/reserve→release 在 doRollback 内完成；Z92 竞态封死=complete
-   *  先行〔SUCCEEDED〕后迟归 reaper 在此零命中）；成功后终态投影分治（Z106/Z112——projectReaped）。
-   *  Y0b-1（F1/Z6）：chargeRows anti-join（未被冲销行）+台账锚 intentRowId（禁 intentId）+
-   *  teamId 过滤（F1 跨团队隔离）；row.teamId null 时空串=零命中兜底。
-   *  errorCode 两码分诊（Z112）：deadline 批=INTENT_DEADLINE_EXCEEDED（provider p99 越界）/
-   *  心跳 stale 批=INTENT_STALE_REAPED（进程/调度异常）——runbook 处置行分列。 */
-  private async threeCheck(row: GenerationIntent, cutoff: Date, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
+  /** T13 R3：stale RUNNING 收敛（两段）——①R3 动作表（stage 行在→重下 finalize：provider 不重调；
+   *  终态幂等动作）②charge 剩余分支（resultRef 判族已删——已扣→rollbackRunning 单事务冲销/
+   *  未扣→VOIDED 免费放行）。返回前每分支落 ReconcileAction 审计行（R3 动作）+投影分治。 */
+  private async convergeStale(row: GenerationIntent, cutoff: Date, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
+    const converged = await this.reconcileOneIntent(row.id, row.execSeq);
+    if (converged) return;   // R3 动作已收敛（finalize-from-stage/终态动作/审计告警面）——不进 charge 分支
     const chargeRows = await this.prisma.$queryRaw<any[]>`
       SELECT r.* FROM "TeamCreditTransaction" r
       WHERE r."teamId" = ${row.teamId ?? ''} AND r."referenceId" = ${'intent:' + row.id}
         AND r.type IN ('reserve', 'settle') AND r.amount < 0
         AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)`;
-    if (chargeRows.length > 0 && row.resultRef) {
-      // ①已扣+产物在（判据=resultRef）→ SUCCEEDED 回填
-      await this.prisma.generationIntent.updateMany({
-        where: { id: row.id, status: 'RUNNING' },
-        data: { status: 'SUCCEEDED', completedAt: new Date() },
-      });
-      return;
-    }
     if (chargeRows.length > 0) {
-      // ②已扣（settle/reserve 任一未冲销）→ rollbackRunning 单事务冲销（两金额归零+按行分义 refund/release）
+      // 已扣（settle/reserve 任一未冲销）→ rollbackRunning 单事务冲销（两金额归零+按行分义 refund/release）
       const rolled = await this.teamCredit.rollbackRunning(row.id, `reaper 收敛（${errorCode}）`, cutoff);
       if (rolled) {
         const total = chargeRows.reduce((s, r) => s + Math.abs(r.amount), 0);
@@ -259,7 +251,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       }
       return;
     }
-    // ③未扣 → VOIDED 免费放行（creditsConsumed 本就 0；守卫同款防 rearm 竞态——Y0b-2 T4 判据 heartbeatAt）
+    // 未扣 → VOIDED 免费放行（creditsConsumed 本就 0；守卫同款防 rearm 竞态——判据 heartbeatAt）
     await this.prisma.generationIntent.updateMany({
       where: { id: row.id, status: 'RUNNING', heartbeatAt: { lt: cutoff } },
       data: { status: 'VOIDED', creditsConsumed: 0, completedAt: new Date() },
@@ -267,12 +259,136 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     this.logger.warn(`[intent-reconcile] 意图 ${row.intentId} 未扣超龄——VOIDED 免费放行`);
   }
 
+  /** T13 R3 动作表执行器（护栏：pg_advisory_xact_lock(hashtext(intentRowId))+每行有界尝试 3 次
+   *  jitter+审计行 ReconcileAction——spec Z18''⑥ 字面）。决策+InTx 资金动作（settle-backfill/
+   *  void-terminal）在 advisory 锁事务内原子；锁外执行面=rollback-stranded（rollbackStranded 自带
+   *  判龄 CAS——恰一次）与 finalize-from-stage（IO 禁入锁事务——commitImage 幂等）。
+   *  返回 true=本轮已有 R3 动作（含 manual-required 审计告警面）；false=无可收敛态（not-recoverable/
+   *  noop/并发败者——调用方进后续分支）。 */
+  private async reconcileOneIntent(intentRowId: string, execSeq: bigint): Promise<boolean> {
+    for (let attempt = 0; attempt < R3_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, R3_JITTER_BASE_MS + Math.floor(Math.random() * R3_JITTER_BASE_MS * 2)));
+      try {
+        const decision = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${intentRowId}))`;
+          const before = await tx.generationIntent.findUnique({
+            where: { id: intentRowId },
+            select: { id: true, intentId: true, status: true, execSeq: true, reservedCredits: true, creditsConsumed: true, creditCost: true, traceId: true },
+          });
+          if (!before || before.execSeq !== execSeq) return null;
+          const d = await this.artifactCommit.finalizeFromExistingMediaOrText(tx, intentRowId, execSeq);
+          if (d.action === 'settle-backfill') {
+            if (!d.acted) return { d: null };   // 并发已抢/幂等未达（settled:false）——零审计零计数
+            await this.auditInTx(tx, before, 'settle-backfill');
+            return { d };
+          }
+          if (d.action === 'projection-backfill') {
+            await this.auditInTx(tx, before, 'projection-backfill');
+            return { d };
+          }
+          if (d.action === 'manual-required') {
+            // 去重：manual-required 行态永不自愈（不动钱）——每轮重复裁决会刷审计行/计数（观测噪声）。
+            // advisory 锁内查既存审计行——已登记即跳过（首次登记后告警面归日志/计数 rate）。
+            const dup = await tx.reconcileAction.findFirst({ where: { intentRowId, action: 'manual-required' }, select: { id: true } });
+            if (dup) return { d: null };
+            await this.auditInTx(tx, before, 'manual-required', d.reason);
+            return { d };
+          }
+          if (d.action === 'void-terminal') {
+            // 幂等 release 锁内原子（voidInTx CAS——双 reconcile 恰一次；双跑第二轮判据 noop）
+            await this.teamCredit.voidInTx(tx, { intentRowId, execSeq });
+            await this.auditInTx(tx, before, 'void-terminal');
+            return { d };
+          }
+          return { d };   // rollback-stranded/finalize-from-stage/not-recoverable/noop → 锁外分派
+        }, { timeout: 15_000, maxWait: 5_000 });
+        if (!decision) return false;
+        const d = decision.d;
+        if (!d || d.action === 'noop' || d.action === 'not-recoverable') return false;
+        if (d.action === 'settle-backfill' || d.action === 'projection-backfill' || d.action === 'void-terminal') {
+          reconcileAutoConvergedTotal.inc({ action: d.action });
+          this.logger.warn(`[R3] 意图行 ${intentRowId} 自动收敛 ${d.action}（判据=PG：NodeArtifact/Media/ArtifactProjection——审计行已落）`);
+          return true;
+        }
+        if (d.action === 'manual-required') {
+          reconcileManualRequiredTotal.inc({ action: 'manual-required' });
+          this.logger.warn(`[R3] 意图行 ${intentRowId} 歧义态交人工（不动钱——裁决 :27④）: ${d.reason}`);
+          return true;
+        }
+        if (d.action === 'rollback-stranded') {
+          const rolled = await this.teamCredit.rollbackStranded(intentRowId, '悬留无产物回滚（settle 失败崩溃窗——PG 判据：无锚行无 stage 行）', new Date(Date.now() - SETTLE_STRANDED_GRACE_MS));
+          if (rolled) {
+            await this.auditAfter(intentRowId, 'rollback-stranded');
+            reconcileAutoConvergedTotal.inc({ action: 'rollback-stranded' });
+            this.logger.warn(`[R3] 意图行 ${intentRowId} 悬留无产物——rollbackStranded（两金额归零）`);
+          }
+          return true;
+        }
+        if (d.action === 'finalize-from-stage') {
+          const out = await this.artifactCommit.finalizeFromStage(d.stage);
+          if (out.outcome !== 'intent-stale') {
+            await this.auditAfter(intentRowId, 'finalize-from-stage');
+            reconcileAutoConvergedTotal.inc({ action: 'finalize-from-stage' });
+            this.logger.warn(`[R3] 意图行 ${intentRowId} stage 行重下 finalize（provider 不重调）——outcome=${out.outcome}`);
+          }
+          return true;
+        }
+        return false;
+      } catch (e) {
+        if (!isRetryableFinalizeError(e) || attempt >= R3_MAX_ATTEMPTS - 1) {
+          this.logger.warn(`[R3] 意图行 ${intentRowId} 收敛失败（毒行不冻结整轮——次轮重试）: ${(e as Error).message}`);
+          return false;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** 审计行（锁内事务形态——与动作原子）。before=决策前快照（调用方持）；after=动作后行重读（同事务）。 */
+  private async auditInTx(tx: Prisma.TransactionClient, before: { id: string; traceId: string | null; status: string; reservedCredits: number; creditsConsumed: number }, action: string, reason?: string): Promise<void> {
+    const after = await tx.generationIntent.findUnique({
+      where: { id: before.id },
+      select: { status: true, reservedCredits: true, creditsConsumed: true },
+    });
+    await tx.reconcileAction.create({
+      data: {
+        intentRowId: before.id,
+        action,
+        before: { status: before.status, reservedCredits: before.reservedCredits, creditsConsumed: before.creditsConsumed },
+        after: after
+          ? { status: after.status, reservedCredits: after.reservedCredits, creditsConsumed: after.creditsConsumed, ...(reason ? { reason } : {}) }
+          : { reason },
+        traceId: before.traceId,
+      },
+    });
+  }
+
+  /** 锁外动作审计（rollback-stranded/finalize-from-stage——动作在独立事务，审计 after 事实）。
+   *  finalize-from-stage 双跑去重：advisory 锁内查既存审计行（双下载无害——finalize 幂等；审计恰一行）。 */
+  private async auditAfter(intentRowId: string, action: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${intentRowId}))`;
+      const dup = await tx.reconcileAction.findFirst({ where: { intentRowId, action }, select: { id: true } });
+      if (dup) return;
+      const row = await tx.generationIntent.findUnique({
+        where: { id: intentRowId },
+        select: { id: true, status: true, reservedCredits: true, creditsConsumed: true, traceId: true },
+      });
+      await tx.reconcileAction.create({
+        data: {
+          intentRowId,
+          action,
+          before: row ? { status: 'pre-action', note: '锁外动作——before 快照不在手' } : undefined,
+          after: row ? { status: row.status, reservedCredits: row.reservedCredits, creditsConsumed: row.creditsConsumed } : undefined,
+          traceId: row?.traceId ?? null,
+        },
+      });
+    }).catch((e) => this.logger.warn(`[R3] 意图行 ${intentRowId} 审计行落账失败（动作已执行——审计 best-effort）: ${e}`));
+  }
+
   /** Y0b-2 T5（Z106/Z112）→Y0c T20（Z105）：reaper 终态投影分治——UX 投影不得成为装载源：
-   *  isDocResident=hasActiveWsConnection（仅 WS 连接数>0，与常驻会话无关——常驻化后旧 documents.has
-   *  形态恒真=deferred 门失效）才写 error 投影（errorCode+rearmable+attempts 同 patch——Z99 代次化后
-   *  可写）；无人看跳过+exec_projection_deferred_total 计数（「无人在看=不为 UX 投影花钱」语义保留
-   *  ——用户重连时 alignExecFromIntents 对齐——T6 职责）。drain 503 best-effort 记 warn（不因投影失败
-   *  回滚资金）。 */
+   *  isDocResident=hasActiveWsConnection 才写 error 投影；无人看跳过+exec_projection_deferred_total
+   *  计数。drain 503 best-effort 记 warn（不因投影失败回滚资金）。 */
   private async projectReaped(row: GenerationIntent, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
     try {
       if (!this.collabDoc.isDocResident(row.projectId)) {
@@ -292,7 +408,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
 
-  /** 档二：每日全量三方对账 + 保留策略清理（F7 守卫） + exec GC（限量） + video-separate 陈旧回收 + 不变量巡检 */
+  /** 档二：每日全量三方对账 + 保留矩阵清理 + exec GC（限量） + video-separate 陈旧回收 + 不变量巡检 */
   async reconcileDaily(): Promise<void> {
     // ① 三方对账：SUCCEEDED creditsConsumed vs 终态消费流水（批0.5-9：settle 计入，
     //    reserve 行是冻结轨迹不计——防 2 倍差异误报）；差异=资损前兆
@@ -312,10 +428,10 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`[资损前兆] 意图 ${r.intentId} creditsConsumed=${r.creditsConsumed} vs 流水=${charged}`);
       }
     }
-    // ② 终态 7 天清理（F1 保留策略+F7 守卫：冻结未销禁删）
+    // ② 保留矩阵清理（T13：7d/90d/锚守护 + projection 30d/outbox 7d/dead-letter 告警）
     await this.cleanTerminalIntents();
-    // ③ exec map 孤儿清理（F2 GC——Y0c T11 Z56 有界全量轮转：orderBy id+游标每轮 100；
-    //    Z4 守卫已止新孤儿，此项消化存量）
+    await this.cleanProjectionAndOutbox();
+    // ③ exec map 孤儿清理（F2 GC——Y0c T11 Z56 有界全量轮转；Z4 守卫已止新孤儿，此项消化存量）
     await this.sweepOrphanExec();
     // ④ video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron.ts 搬入，注记见类头）
     await this.reconcileStaleVideoSeparateTasks();
@@ -323,87 +439,69 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     await this.verifyLedgerInvariants();
   }
 
-  /** F7（Y0b-1 §1.5）：终态保留清理——冻结未清的行禁删（stranded 计数告警）；第四分支清账后次轮自然可删。 */
+  /** F7+T13 保留矩阵：终态行清理——冻结未销禁删（stranded 计数告警）；resultText 非空行 90d
+   *  （text 产物正文）；有 NodeArtifact 锚行的 intent 不物理删（Media.sourceIntentRowId 悬空锚
+   *  根修——spec Z18''⑥）；默认 7d。NOT EXISTS 判定=raw DELETE（Prisma deleteMany 无反连接）。 */
   private async cleanTerminalIntents(): Promise<void> {
     const cutoff = new Date(Date.now() - RETENTION_MS);
     const stuck = await this.prisma.generationIntent.count({
       where: { status: { in: [...TERMINAL] }, reservedCredits: { gt: 0 }, completedAt: { lt: cutoff } },
     });
     if (stuck > 0) strandedTotal.inc(stuck);
-    await this.prisma.generationIntent.deleteMany({
-      where: { status: { in: [...TERMINAL] }, reservedCredits: 0, completedAt: { lt: cutoff } },
-    });
+    await this.prisma.$executeRaw`
+      DELETE FROM "GenerationIntent" gi
+      WHERE gi.status IN ('SUCCEEDED', 'FAILED', 'VOIDED')
+        AND gi."reservedCredits" = 0
+        AND gi."completedAt" < ((now() AT TIME ZONE 'utc') - (${RETENTION_MS} * interval '1 millisecond'))
+        AND (
+          gi."resultText" IS NULL
+          OR gi."resultText" IS NOT NULL AND gi."completedAt" < ((now() AT TIME ZONE 'utc') - (${TEXT_RETENTION_MS} * interval '1 millisecond'))
+        )
+        AND NOT EXISTS (SELECT 1 FROM "NodeArtifact" na WHERE na."sourceIntentRowId" = gi.id)`;
   }
 
-  /** Y0b-1（§1.5/E25①/Z17）第四分支 + Y0b-2 T5 收窄（Z76/Z98/Z102 三分支表）：
-   *  判据=TERMINAL ∧ reservedCredits>0 ∧ completedAt<now-SETTLE_STRANDED_GRACE_MS（具名常量——
-   *  "无活 worker 持有"的结构证明；consumed>0∧reservedCredits=0 历史成功单永不进本分支=Z76 套利防回归）。
-   *  三分支：SUCCEEDED∧有产物 ⇒ 补 settle（产物已交付账补齐）/ SUCCEEDED∧无产物 ⇒ rollbackStranded
-   *  （Z102 第三入口——旧实现恒补 settle=无产物也核销的白扣洞）/ FAILED|VOIDED ⇒ void_（else 兜底保留）。
-   *  产物探测=ArtifactProbe（Z98 端口反转：探针在 collab 侧，本文件零 readCanvas）——事务外先探后开事务
-   *  （锁内不做慢 IO）+按 projectId 记忆化（take:100 行防 100 次直连）；探针失败（503/超时/未知）=本轮
-   *  跳过该行**永不把"不知道"当"无产物"**；未知 kind 不裁决只计数告警；探针结果可能过期——CAS 才是权威
-   *  （rollbackStranded 的 status/reservedCredits/completedAt 三重 CAS 在事务内重验）。逐行容错：
-   *  毒行不冻结整轮（次轮重试）。 */
-  private async settleStranded(): Promise<void> {
+  /** T13 保留矩阵：ArtifactProjection 终态（projected=delivered 语义/orphaned/superseded/dead）30d
+   *  清理 + MediaFactOutbox published 7d 清理 + dead-letter 告警（dead 行保留——人工处置面，计数观测）。 */
+  private async cleanProjectionAndOutbox(): Promise<void> {
+    await this.prisma.artifactProjection.deleteMany({
+      where: { state: { in: ['projected', 'orphaned', 'superseded', 'dead'] }, createdAt: { lt: new Date(Date.now() - PROJECTION_RETENTION_MS) } },
+    });
+    await this.prisma.mediaFactOutbox.deleteMany({
+      where: { state: 'published', publishedAt: { lt: new Date(Date.now() - OUTBOX_RETENTION_MS) } },
+    });
+    const dead = await this.prisma.mediaFactOutbox.count({ where: { state: 'dead' } });
+    if (dead > 0) {
+      reconcileManualRequiredTotal.inc({ action: 'outbox-dead-letter' });
+      this.logger.warn(`[R3] MediaFactOutbox dead-letter ${dead} 行（投递终态失败——人工处置面，行保留告警不自动删）`);
+    }
+  }
+
+  /** Y0b-1（§1.5/E25①/Z17）第四分支（T13 R3 重写：doc 探测删除——判据全量 PG）：
+   *  判据=TERMINAL ∧ reservedCredits>0 ∧ completedAt<now-SETTLE_STRANDED_GRACE_MS（"无活 worker
+   *  持有"的结构证明；consumed>0∧reservedCredits=0 历史成功单永不进本分支=Z76 套利防回归）。
+   *  逐行动作=reconcileOneIntent（R3 动作表：settle-backfill〔锚行在〕/rollback-stranded〔无锚无
+   *  stage〕/void-terminal〔FAILED/VOIDED∧无 artifact 无 delivered〕/manual-required〔有交付凭据
+   *  的失败态〕——advisory lock+审计行+auto_converged/manual_required 分计数）。
+   *  有界：每轮 5min 最多 100 行；逐行容错（毒行不冻结整轮，次轮重试）。 */
+  private async reconcileStranded(): Promise<void> {
     const cutoff = new Date(Date.now() - SETTLE_STRANDED_GRACE_MS);
     const stranded = await this.prisma.generationIntent.findMany({
       where: { status: { in: [...TERMINAL] }, reservedCredits: { gt: 0 }, completedAt: { lt: cutoff } },
       orderBy: { completedAt: 'asc' },
-      take: 100,   // 空预算：每轮 5min 最多 100 行（探针条数同界——Z112 有界装载）
+      take: 100,
     });
-    // ArtifactProbe 事实收集（事务外）：SUCCEEDED 行按 projectId 记忆化批探测（一项目一装载）
-    const artifact = new Map<string, boolean | null>();   // intentRowId → true/false=doc 事实；null=不裁决（探针失败/未知 kind）
-    const byProject = new Map<string, GenerationIntent[]>();
-    for (const row of stranded) {
-      if (row.status !== 'SUCCEEDED') continue;
-      const arr = byProject.get(row.projectId) ?? [];
-      arr.push(row);
-      byProject.set(row.projectId, arr);
-    }
-    for (const [projectId, rows] of byProject) {
-      try {
-        const facts = await this.collabDoc.probeArtifacts(projectId, rows.map((r) => ({ nodeId: r.nodeId, kind: r.kind })));
-        // 按索引关联（probeArtifacts 保序）：同项目同 nodeId 多行悬留时 find(nodeId) 会把事实全落第一行
-        // ——第二行误判"不可裁决"多等一轮（T5 审查 Minor#2）。
-        for (let i = 0; i < facts.length; i++) {
-          const row = rows[i];
-          const f = facts[i];
-          if (row) artifact.set(row.id, f.unknownKind ? null : f.found);
-          if (f.unknownKind) this.logger.warn(`[intent-reconcile] 悬留 意图 kind=${f.kind} 不在产物键白名单——不裁决只计数`);
-        }
-      } catch (e) {
-        this.logger.warn(`[intent-reconcile] 产物探针失败 project=${projectId}——本轮跳过 ${rows.length} 行（不知道≠无产物）: ${(e as Error).message}`);
-      }
-    }
     for (const row of stranded) {
       try {
-        if (row.status === 'SUCCEEDED') {
-          const found = artifact.get(row.id);
-          if (found !== true && found !== false) {
-            this.logger.warn(`[intent-reconcile] 悬留 意图 ${row.intentId} 产物不可裁决（探针失败/未知 kind）——本轮跳过`);
-            continue;
-          }
-          if (found) {
-            const r = await this.teamCredit.settle({ intentRowId: row.id });
-            if (!r.success) this.logger.warn(`[intent-reconcile] 悬留补 settle 失败 意图 ${row.intentId}（次轮重试）`);
-          } else {
-            const rolled = await this.teamCredit.rollbackStranded(row.id, '悬留无产物回滚（settle 失败崩溃窗）', cutoff);
-            if (rolled) this.logger.warn(`[intent-reconcile] 悬留无产物 意图 ${row.intentId}——rollbackStranded（release ${row.reservedCredits}，两金额归零）`);
-          }
-        } else {
-          await this.teamCredit.void_({ intentRowId: row.id });   // FAILED/VOIDED 残留冻结——release 归零
-          this.logger.warn(`[intent-reconcile] 悬留未交付 意图 ${row.intentId}——release ${row.reservedCredits}`);
-        }
+        await this.reconcileOneIntent(row.id, row.execSeq);
       } catch (e) {
-        this.logger.warn(`[intent-reconcile] settleStranded 单行失败 意图 ${row.intentId}: ${(e as Error).message}`);   // 毒行不冻结整轮
+        this.logger.warn(`[R3] 终态悬留单行失败 意图 ${row.intentId}: ${(e as Error).message}`);   // 毒行不冻结整轮
       }
     }
   }
 
   /** Y0b-1（Z11/Z25+四轮 Z38）：台账侧孤儿冻结——reserve 行未被冲销 ∧ **意图行真丢失**（gi.id IS NULL）∧ 超 15min
    *  ⇒ 经 releaseOrphanReserve 窄口（skipIntentCheck）幂等释放。
-   *  四轮收窄：意图行**存在**的一切情形归 void_/settleStranded 全权处理（monthlyUsed 已派生〔Y0b-2 T0〕——窄口跳过=quota 永久占用的旧患随列退役消失）；
+   *  四轮收窄：意图行**存在**的一切情形归 R3/void 批全权处理（monthlyUsed 已派生〔Y0b-2 T0〕——窄口跳过=quota 永久占用的旧患随列退役消失）；
    *  孤儿=行已灭失（quota 无法归因——登记残余），窄口只为此类存在。
    *  钱包存在前置（解散后钱包已级联删——不可释放者计数排除，不每轮刷屏占 LIMIT 槽）。 */
   private async releaseOrphanedReserves(): Promise<number> {
@@ -451,7 +549,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   /** Y0b-1（Z11）：运行时不变量巡检——聚合 SQL 命中即 drift 指标+WARN（台账为真源，钱包可据 Σ 重建）。
    *  四轮 B1：LEFT JOIN+COALESCE+两池分列——INNER JOIN 检不出"有钱包有余额但零流水"。
    *  Y0b-2 T5（Z102）：③' VOIDED∧creditsConsumed>0∧无 refund 行=退款链断裂漂移；④ FAILED/VOIDED⇒
-   *  reservedCredits=0（"泛 TERMINAL"口子的结构性保险——命中=settleStranded 闭环失效信号）。
+   *  reservedCredits=0（"泛 TERMINAL"口子的结构性保险——命中=R3 闭环失效信号）。
    *  不变量① ORDER BY 1（原 ORDER BY b."teamId" 在 UNION 结果集上引用失效别名——T5 红测暴露的既有缺陷）。 */
   private async verifyLedgerInvariants(): Promise<void> {
     const drift1 = await this.prisma.$queryRaw<{ teamId: string }[]>`
@@ -485,21 +583,21 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
                         WHERE t."referenceId" = 'intent:' || gi.id AND t.type = 'refund')
       ORDER BY gi.id LIMIT 20`;
     for (const d of drift3) { balanceDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量③'漂移 intent=${d.id} teamId=${d.teamId}（VOIDED 已扣无 refund 行——退款链断裂）`); }
-    // 不变量④（Z102）：FAILED/VOIDED ⇒ reservedCredits=0（settleStranded 闭环失效信号）
+    // 不变量④（Z102）：FAILED/VOIDED ⇒ reservedCredits=0（R3 闭环失效信号）
     const drift4 = await this.prisma.$queryRaw<{ id: string; teamId: string }[]>`
       SELECT gi.id, gi."teamId" FROM "GenerationIntent" gi
       WHERE gi.status IN ('FAILED', 'VOIDED') AND gi."reservedCredits" > 0
       ORDER BY gi.id LIMIT 20`;
-    for (const d of drift4) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量④漂移 intent=${d.id} teamId=${d.teamId}（FAILED/VOIDED 冻结未清——第四分支失效）`); }
+    for (const d of drift4) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量④漂移 intent=${d.id} teamId=${d.teamId}（FAILED/VOIDED 冻结未清——R3 闭环失效）`); }
   }
 
   /** nodes map 无该 nodeId 的 exec 条目删除
-   *  Y0b-1 限量 → Y0c T11 Z56 有界全量轮转：orderBy id asc+进程内游标每轮 100——「每日随机 10 个
-   *  最新」变「有界全量轮转」（逐项目仍 withDoc 拿锁有界；不足一页=到尾回卷下轮从头；
-   *  Z4 守卫已止新孤儿，本项消化存量）。
+   *  Y0b-1 限量 → Y0c T11 Z56 有界全量轮转：orderBy id asc+进程内游标每轮 100。
    *  Y0c T12 直写收编（裁决 1）：直写段整体改道 collabWriter.writeBatch([{op:deleteExecOrphans}])
    *  ——零孤儿=合法 no-op written:true（守卫/计数/schema 门与组批写同源单点）；503 等基础设施
-   *  失败按原样单项目 try/catch 捕获（不阻塞整批）。 */
+   *  失败按原样单项目 try/catch 捕获（不阻塞整批）。
+   *  T13 注记：本 poller 装配于 ExecutionDaemonModule（role=api|all）——进程内直写（非 HTTP），
+   *  write-batch 端点收窄（worker 通道白名单拒 deleteExecOrphans）不影响本调用面。 */
   private async sweepOrphanExec(): Promise<void> {
     const cursor = this.orphanSweepCursor;
     const projects = await this.prisma.canvasProject.findMany({
@@ -511,9 +609,6 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     for (const p of projects) {
       try {
         const results = await this.collabWriter.writeBatch(p.id, [{ op: 'deleteExecOrphans' }]);
-        // 观测缺口登记（Y0c T12）：原直写实现 log 孤儿删除计数；改道后 WriteOpResult 形状冻结不带
-        // removed 数——存量收敛进度不可观测（开发期无用户数据存量≈0；若 Y1c 需要收敛信号，再议
-        // deleteExecOrphans 原语返回 removed 透出）。
         if (!results[0]?.written) {
           // deleteExecOrphans 无守卫域——written:false 属意外（结构防线信号，非日常路径）
           this.logger.warn(`exec-GC 项目 ${p.id} writeBatch 结果异常: ${JSON.stringify(results[0])}`);

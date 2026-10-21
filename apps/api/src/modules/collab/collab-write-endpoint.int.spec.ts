@@ -12,6 +12,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -26,6 +27,8 @@ import { CollabSpoolService } from './collab-spool.service';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabWriteController } from './collab-write.controller';
+import { PrismaService } from '../../prisma/prisma.service';
+import { mintWorkerScopeToken } from './worker-scope-token';
 import { HttpCollabWritePort } from './collab-write.port';
 import { TransformInterceptor } from '../../interceptors/transform.interceptor';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -41,6 +44,21 @@ const LEASE_STUB_OWNER = 'stub-owner-1';
 
 let prisma: PrismaClient;
 let repo: CanvasDocUpdateRepository;
+/** T13 scope 绑定夹具：全档 token 需真 intent 行（projectId/nodeId/execSeq 匹配）——n1=已种子节点、
+ *  ghost=未种子（business written:false 透传用例的 node-deleted 判别）。 */
+const INTENT_N1 = { id: `gi-t13-n1-${randomUUID().slice(0, 8)}`, execSeq: 91001n };
+const INTENT_GHOST = { id: `gi-t13-ghost-${randomUUID().slice(0, 8)}`, execSeq: 91002n };
+
+async function seedIntentRow(id: string, nodeId: string, execSeq: bigint): Promise<void> {
+  await prisma.generationIntent.create({
+    data: {
+      id, projectId: PID, nodeId, userId: 'u-t13-e2e', teamId: 't-t13-e2e',
+      intentId: `ii-${id}`, kind: 'image', paramsHash: `ph-${id}`, status: 'RUNNING',
+      creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 3600_000),
+      idemKey: `ik-${id}`, execSeq,
+    },
+  });
+}
 let gateway: CollabGateway;
 let residency: CollabResidencyService;
 let spoolDir: string;
@@ -92,7 +110,10 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     // @NoTransform 契约：包裹壳会使 HttpCollabWritePort.writeOpsBatch 的 Array.isArray 假）
     const moduleRef = await Test.createTestingModule({
       controllers: [CollabWriteController],
-      providers: [{ provide: CollabDocWriterService, useValue: writer }],
+      providers: [
+        { provide: CollabDocWriterService, useValue: writer },
+        { provide: PrismaService, useValue: prisma },   // T13：scope 全档绑定校验读点（intent 行）
+      ],
     }).compile();
     app = moduleRef.createNestApplication();
     app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));
@@ -102,6 +123,8 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     baseUrl = `http://127.0.0.1:${addr.port}`;
     savedEnv = process.env.WORKER_WRITE_TOKEN;
     process.env.WORKER_WRITE_TOKEN = TOKEN;
+    await seedIntentRow(INTENT_N1.id, 'n1', INTENT_N1.execSeq);
+    await seedIntentRow(INTENT_GHOST.id, 'ghost', INTENT_GHOST.execSeq);
     workerPort = new HttpCollabWritePort({ baseUrl, token: TOKEN, backoffBaseMs: 1 });
     // 种子 n1（writeNodeData 存在性守卫前置）
     await residency.withSession(PID, (doc) => {
@@ -114,6 +137,7 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
 
   afterAll(async () => {
     if (savedEnv === undefined) delete process.env.WORKER_WRITE_TOKEN; else process.env.WORKER_WRITE_TOKEN = savedEnv;
+    await prisma.generationIntent.deleteMany({ where: { id: { in: [INTENT_N1.id, INTENT_GHOST.id] } } }).catch(() => undefined);
     await app?.close();
     for (const pid of residency?.residentProjectIds() ?? []) await residency.releaseSessionFor(pid);
     await (gateway as any).server.destroy();
@@ -129,15 +153,19 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     const readBadBody = async () =>
       (await outcomeMetric.get()).values.find((v: any) => v.labels.method === 'writeBatch' && v.labels.outcome === 'permanent:bad-body')?.value ?? 0;
     const badBodyBefore = await readBadBody();
-    const results = await workerPort.writeOpsBatch(PID, [
-      { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f-e2e', resultUrl: 'https://x/e2e.png' } },
+    const out = await workerPort.writeOpsBatch(PID, [
+      { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f-e2e' } },   // T13：worker 通道键集={fileId,result}——resultUrl 白名单外即拒
       { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'running', attempts: 1, jobId: 'j-e2e' } },
-    ]);
-    // 裸数组契约（@NoTransform——非 {code,data} 包裹壳）+一一对应（A1 冻结契约）
-    expect(Array.isArray(results)).toBe(true);
-    expect(results).toHaveLength(2);
-    expect(results[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: true });
-    expect(results[1]).toMatchObject({ index: 1, op: 'writeExecStatus', written: true });
+    ], { intentRowId: INTENT_N1.id, execSeq: INTENT_N1.execSeq.toString() });
+    // 裸数组契约（@NoTransform——非 {code,data} 包裹壳）+一一对应（A1 冻结契约）——business 档透传
+    expect(out).toEqual({
+      kind: 'business',
+      results: [
+        { index: 0, op: 'writeNodeData', written: true },
+        { index: 1, op: 'writeExecStatus', written: true },
+      ],
+    });
+    const results = out.kind === 'business' ? out.results : [];
     // 真 undici 响应面回归锚：permanent:bad-body 零增（解绑 r.json 根修前——真链必 bad-body、结果被
     // 合成 written:true 吞，mock fetch 箭头闭包测不出——TD-2 mock 脱节实例）
     expect(await readBadBody()).toBe(badBodyBefore);
@@ -145,16 +173,32 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     await flush(PID);
     const revived = await reviveFromPg(PID);
     expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON())
-      .toEqual({ content: 'seed', fileId: 'f-e2e', resultUrl: 'https://x/e2e.png' });   // 键级 set：sibling 保留
+      .toEqual({ content: 'seed', fileId: 'f-e2e' });   // 键级 set：sibling 保留（resultUrl 已随 T13 白名单收窄退出 worker 写面）
     expect((revived.getMap('exec').get('n1') as Y.Map<any>).toJSON())
       .toEqual({ status: 'running', attempts: 1, jobId: 'j-e2e' });
   }, 60_000);
 
-  it('业务面 written:false 透传（200 非 4xx）：未种节点 writeNodeData ⇒ written:false node-deleted（退款终态链凭据）', async () => {
-    const results = await workerPort.writeOpsBatch(PID, [
+  it('业务面 written:false 透传（200 非 4xx）：未种节点 writeNodeData（scope 绑 ghost intent 行）⇒ business 档 written:false node-deleted（退款终态链凭据）', async () => {
+    const out = await workerPort.writeOpsBatch(PID, [
       { op: 'writeNodeData', nodeId: 'ghost', patch: { fileId: 'x' } },
-    ]);
-    expect(results).toEqual([{ index: 0, op: 'writeNodeData', written: false, reason: 'node-deleted' }]);
+    ], { intentRowId: INTENT_GHOST.id, execSeq: INTENT_GHOST.execSeq.toString() });
+    expect(out).toEqual({ kind: 'business', results: [{ index: 0, op: 'writeNodeData', written: false, reason: 'node-deleted' }] });
+  }, 30_000);
+
+  it('T13 收窄实面（raw fetch）：伪造他 project 的自铸 token ⇒ 403；worker 通道白名单外键（content）⇒ 400 WORKER_KEY_NOT_ALLOWED', async () => {
+    // 伪造者自铸 token（异密钥——验签败）
+    const forged = await fetch(`${baseUrl}/api/collab/doc/write-batch`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}`, 'x-worker-scope': mintWorkerScopeToken('attacker', PID) },
+      body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 0 } }] }),
+    });
+    expect(forged.status).toBe(403);
+    // 合法 scope 但白名单外键（content——Z108 通用键域内、worker 通道键集外）
+    const keyReject = await fetch(`${baseUrl}/api/collab/doc/write-batch`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}`, 'x-worker-scope': mintWorkerScopeToken(TOKEN, PID, { intentRowId: INTENT_N1.id, execSeq: INTENT_N1.execSeq.toString() }) },
+      body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: 'x' } }] }),
+    });
+    expect(keyReject.status).toBe(400);
+    expect(((await keyReject.json()) as { code?: string }).code).toBe('WORKER_KEY_NOT_ALLOWED');
   }, 30_000);
 
   it('②无 token 拒：无 Authorization/错 Bearer ⇒ 403（production 形态 sim——token 已设+失配）', async () => {
@@ -213,8 +257,12 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
       //     probe 用合法白名单键（controller 层 Z148① manifest 校验先于 writer X9 门——非法键 400
       //     会截断 503 判别）+哨兵 resultUrl 值=窗内投递零物化的判别标记（(c) 段断言捕获）
       const probe = await fetch(`${baseUrl}/api/collab/doc/write-batch`, {
-        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-        body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'https://x/z125-4-probe-must-not-land' } }] }),
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json', authorization: `Bearer ${TOKEN}`,
+          'x-worker-scope': mintWorkerScopeToken(TOKEN, PID, { intentRowId: INTENT_N1.id, execSeq: INTENT_N1.execSeq.toString() }),
+        },
+        body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'z125-4-probe-must-not-land' } }] }),
       });
       expect(probe.status, 'drain 窗内投递必须瞬态 503 非 200（Z125-4(a)）').toBe(503);
       // (b)+(c) 相遇窗：端口在飞重试（backoffBaseMs=250 ⇒ 尝试节奏 ~0/250/750ms，预算 4 次）×
@@ -228,26 +276,27 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
         }) as any,
       });
       const restoreTask = (async () => { await new Promise((r) => setTimeout(r, 500)); await restoreLease(); })();
-      const results = await racePort.writeOpsBatch(PID, [
+      const out = await racePort.writeOpsBatch(PID, [
         { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f-z125-4' } },
-      ]);
+      ], { intentRowId: INTENT_N1.id, execSeq: INTENT_N1.execSeq.toString() });
       await restoreTask;
       // (b) 预算内重试：≥1 次 503 尝试+恰一次 2xx 成功（4 次预算内收敛——非 transient-exhausted 合成档；
       //     2xx 口径=端口三分判据同源〔request :170〕——Nest POST 缺省 201）
       expect(statuses.filter((s) => s === 503).length, `drain 窗内 ≥1 次 503 尝试（实收 ${JSON.stringify(statuses)}）`).toBeGreaterThanOrEqual(1);
       expect(statuses.filter((s) => s >= 200 && s < 300), `预算内恰一次成功受理（实收 ${JSON.stringify(statuses)}）`).toHaveLength(1);
-      // T34 微修②：本断言非判别锚——耗尽合成 written:true 档与其同形；判别锚=:237「预算内恰一次 2xx」
-      expect(results, '响应体形状档（判别锚=:237 恰一次 2xx——合成档同形不在此判别）').toEqual([
-        expect.objectContaining({ index: 0, op: 'writeNodeData', written: true }),
-      ]);
+      // T34 微修②+T13 typed：business 档=端点 200 业务响应透传（判别锚=上方「恰一次 2xx」）
+      expect(out).toEqual({
+        kind: 'business',
+        results: [{ index: 0, op: 'writeNodeData', written: true }],
+      });
       // (c) 租约恢复后同 op 只落 doc 一次：装载重放读侧终态=恰好该次受理的键级 set；
       //     窗内投递（probe 哨兵 resultUrl）零物化——503 拒在写前（端点门先于事务），
       //     resultUrl 维持 ③ 用例落值（键级 set 互不干扰+probe 未落的双重判别）
       await flush(PID);
       const revived = await reviveFromPg(PID);
       const data = (revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON();
-      expect(data).toMatchObject({ content: 'seed', fileId: 'f-z125-4', resultUrl: 'https://x/e2e.png' });
-      expect(data.resultUrl, 'drain 窗内投递必须零物化（503 非 200——写前拒绝）').not.toMatch(/z125-4-probe/);
+      expect(data).toEqual({ content: 'seed', fileId: 'f-z125-4' });
+      expect(data.fileId, 'drain 窗内投递必须零物化（503 非 200——写前拒绝；成功受理的 f-z125-4 恰一次覆盖）').not.toMatch(/z125-4-probe/);
     } finally {
       await restoreLease();   // 断言失败路径同样恢复 serving——不毒化 afterAll/后续面（V31 同款纪律）
     }

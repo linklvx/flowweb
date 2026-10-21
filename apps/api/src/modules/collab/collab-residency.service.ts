@@ -114,7 +114,7 @@ export interface WithSessionOptions {
   mode: 'read' | 'write';
   /** Y0c T20（Z105 spec :526）：即用即释档——acquire 走 Z111 degraded 同款 entry:null 路径（新开
    *  conn 用完即 disconnect，**不入会话表**——releaseAcquire 既有收尾，非第二套开连逻辑）。消费面=
-   *  reconcile 5min 周期探针（probeArtifacts→readCanvas）——防 5min 一次把几十个无人项目钉在内存；
+   *  冷读面（原消费方=reconcile 5min 探针——T13 已删，档保留为通用能力）——防周期冷读钉住无人项目；
    *  REST/作业面读缺省入池（T15 常驻语义不变）。 */
   ephemeral?: boolean;
 }

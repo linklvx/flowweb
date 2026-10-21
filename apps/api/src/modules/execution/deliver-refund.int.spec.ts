@@ -37,13 +37,16 @@ const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
 const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit, new NodeArtifactService()); // T9：注入资金面（rearm/takeover 事务内 voidInTx）
 
-/** reconcile 装置：collabDoc stub 可编程（probeArtifacts/isDocResident/writeExecStatus 记录器）。 */
+/** reconcile 装置（T13 R3）：collabDoc stub 可编程（isDocResident/writeExecStatus 记录器——doc 探测
+ *  退款后门已删）+真 ArtifactCommitService（R3 动作表单入口 finalizeFromExistingMediaOrText——
+ *  判据全量 PG；MinIO/下载注入 fake）。 */
 const makeReconcile = (collabDoc: any) => new IntentReconcileService(
   prisma as unknown as any, collabDoc,
   { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
   ledger,
   { getJob: async () => null } as any, { getJob: async () => null } as any,
   {} as any, teamCredit,
+  makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3
 );
 
 /** 无标签 Counter 总值 helper（prom-client 15 的 hashMap 扫描——deadline-reaper 同款纪律）。 */
@@ -98,6 +101,8 @@ const agePastGrace = async (id: string) =>
   }, 20_000);
 
   afterAll(async () => {
+    await prisma.reconcileAction.deleteMany({ where: { intentRowId: { in: (await prisma.generationIntent.findMany({ where: { projectId: PID }, select: { id: true } })).map((r: any) => r.id) } } }).catch(() => undefined);
+    await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
     await prisma.lightingTask.deleteMany({ where: { teamId: TID } });
     await prisma.media.deleteMany({ where: { teamId: TID } });
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
@@ -110,7 +115,7 @@ const agePastGrace = async (id: string) =>
 
   it('Z92 竞态封死：complete→settle 之后 rollbackRunning → CAS=0；行仍 SUCCEEDED、无 refund 行（改前红：无三入口）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     expect(await intentSvc.complete(intent.id, 'http://r/1.png', intent.execSeq)).toBe(1); // complete 先行（SUCCEEDED）
     expect((await teamCredit.settle({ intentRowId: intent.id })).success).toBe(true); // 已核销（真实链序 complete→settle）
     const rolled = await teamCredit.rollbackRunning(intent.id, '迟归 reaper', new Date(Date.now() + 60_000));
@@ -130,7 +135,7 @@ const agePastGrace = async (id: string) =>
       }));
     }
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     await teamCredit.settle({ intentRowId: intent.id }); // 已扣（settle 腿——refund 冲销）
     const rolled = await teamCredit.rollbackRunning(intent.id, 'reaper 收敛', new Date(Date.now() + 60_000));
     expect(rolled).toBe(true);
@@ -150,7 +155,7 @@ const agePastGrace = async (id: string) =>
 
   it('reaper×settle 交错：reaper 先手 VOIDED → 迟归 complete CAS=0（不变量：VOIDED 吸收）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     expect(await teamCredit.rollbackRunning(intent.id, '先手 reaper', new Date(Date.now() + 60_000))).toBe(true);
     expect(await intentSvc.complete(intent.id, 'http://late.png', intent.execSeq)).toBe(0); // 迟归 complete 零命中
     expect(await status(intent.id)).toBe('VOIDED');
@@ -158,7 +163,7 @@ const agePastGrace = async (id: string) =>
 
   it('原子性：注入 refund 抛错 → 整体回滚行仍 RUNNING（方向安全交 reaper 重扫）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     await teamCredit.settle({ intentRowId: intent.id });
     const orig = ledger.mutate.bind(ledger);
     const spy = vi.spyOn(ledger, 'mutate').mockImplementation(async (tx: any, input: any) => {
@@ -179,53 +184,61 @@ const agePastGrace = async (id: string) =>
 
   it('Z76 套利防回归：SUCCEEDED∧consumed>0∧reservedCredits=0 超窗 → settleStranded 不退款', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     await intentSvc.complete(intent.id, 'http://ok/1.png', intent.execSeq);
     await teamCredit.settle({ intentRowId: intent.id }); // 正常链终点：SUCCEEDED∧consumed>0∧reserved=0
     await agePastGrace(intent.id);
-    await makeReconcile({ probeArtifacts: async () => [] }).verifyActive();
+    await makeReconcile({ isDocResident: () => false, writeExecStatus: vi.fn() }).verifyActive();
     expect(await status(intent.id)).toBe('SUCCEEDED'); // 历史成功单永不进回滚腿
     await expect(ledgerRows(intent.id, 'refund')).resolves.toHaveLength(0);
   });
 
-  it('Z76/Z102 真悬留：SUCCEEDED∧reservedCredits>0∧超窗∧doc 无产物 → rollbackStranded ⇒ VOIDED+两金额归零+release 行（改前红=恒补 settle 白扣）', async () => {
+  it('T13 R3 真悬留（窗①无产物侧）：SUCCEEDED∧reserved>0∧超窗∧无 NodeArtifact 锚行∧无 stage 行（PG 判据——doc 探测已删）→ rollbackStranded ⇒ VOIDED+两金额归零+release 行+审计行', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://crash.png', intent.execSeq); // settle 失败崩溃窗——SUCCEEDED∧冻结在
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await intentSvc.complete(intent.id, 'http://crash.png', intent.execSeq); // settle 失败崩溃窗——SUCCEEDED∧冻结在（无 finalize=无锚行）
     await agePastGrace(intent.id);
-    const probeArtifacts = vi.fn(async () => [{ nodeId: intent.nodeId, kind: intent.kind, found: false }]);
-    await makeReconcile({ probeArtifacts }).verifyActive();
+    await makeReconcile({ isDocResident: () => false, writeExecStatus: vi.fn() }).verifyActive();
     const row = await rowOf(intent.id);
     expect(row!.status).toBe('VOIDED'); // 无产物=未交付——退款非补 settle
     expect(row!.reservedCredits).toBe(0);
     expect(row!.creditsConsumed).toBe(0);
     await expect(ledgerRows(intent.id, 'release')).resolves.toHaveLength(1); // reserve 冻结释放
-    await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(0); // 白扣堵死（改前红：补 settle）
-    expect(probeArtifacts).toHaveBeenCalled();
+    await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(0); // 白扣堵死
+    await expect(prisma.reconcileAction.findMany({ where: { intentRowId: intent.id, action: 'rollback-stranded' } })).resolves.toHaveLength(1);   // T13 审计行
   });
 
-  it('Z102 三分支表驱动①：SUCCEEDED∧有产物 ⇒ 补 settle 非 refund', async () => {
+  it('T13 R3 窗①（settle 后崩溃）：SUCCEEDED∧reserved>0∧NodeArtifact 锚行在（PG 判据）⇒ 补 settle 非 refund+审计行（双跑零双 settle）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://ok/2.png', intent.execSeq);
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await intentSvc.complete(intent.id, 'm-crash-window', intent.execSeq); // settle 崩溃窗
+    // 锚行=finalize 产物权威在案（simulate：finalize 已建 NodeArtifact 但 settle 未达核销的崩溃窗）
+    await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        mediaId: 'm-crash-window', state: 'stored', rev: 1,
+        sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
+      },
+    });
     await agePastGrace(intent.id);
-    await makeReconcile({
-      probeArtifacts: async () => [{ nodeId: intent.nodeId, kind: intent.kind, found: true }],
-    }).verifyActive();
+    const reconcile = makeReconcile({ isDocResident: () => false, writeExecStatus: vi.fn() });
+    await reconcile.verifyActive();
+    await reconcile.verifyActive();   // 双跑——恰一次（第二轮判据 noop）
     const row = await rowOf(intent.id);
-    expect(row!.status).toBe('SUCCEEDED'); // 产物已交付——账补齐非退款
+    expect(row!.status).toBe('SUCCEEDED'); // 产物在案——账补齐非退款
     expect(row!.reservedCredits).toBe(0);
     expect(row!.creditsConsumed).toBe(PRICING.creditCost);
-    await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1);
+    await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1); // 零双 settle
     await expect(ledgerRows(intent.id, 'refund')).resolves.toHaveLength(0);
+    await expect(prisma.reconcileAction.findMany({ where: { intentRowId: intent.id, action: 'settle-backfill' } })).resolves.toHaveLength(1);   // 恰一行审计
   });
 
   it('Z102 三分支表驱动②：FAILED 行只 void_（不进 settle 腿）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     await intentSvc.fail(intent.id, 'crash before settle');
     await agePastGrace(intent.id);
-    await makeReconcile({ probeArtifacts: async () => { throw new Error('不应探测 FAILED 行'); } }).verifyActive();
+    await makeReconcile({ isDocResident: () => false, writeExecStatus: vi.fn() }).verifyActive();
     const row = await rowOf(intent.id);
     expect(row!.status).toBe('FAILED'); // void_ 只清冻结不改状态
     expect(row!.reservedCredits).toBe(0);
@@ -233,27 +246,34 @@ const agePastGrace = async (id: string) =>
     await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(0);
   });
 
-  it('探针失败=不知道≠无产物：SUCCEEDED∧reserved>0∧超窗∧probe 503 → 本轮跳过（不退款不补 settle）', async () => {
+  it('T13 R3 歧义态不自动动钱（裁决 :27④）：FAILED∧reserved>0∧有 NodeArtifact 锚行（有交付凭据的失败态）→ manual-required——冻结不动+审计行（v13b 守卫）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://unknown.png', intent.execSeq);
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await intentSvc.fail(intent.id, 'crash with artifact anchored');
+    await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        mediaId: 'm-ambiguous', state: 'stored', rev: 1,
+        sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
+      },
+    });
     await agePastGrace(intent.id);
-    await makeReconcile({
-      probeArtifacts: async () => { throw new Error('503 collab not serving'); },
-    }).verifyActive();
+    await makeReconcile({ isDocResident: () => false, writeExecStatus: vi.fn() }).verifyActive();
     const row = await rowOf(intent.id);
-    expect(row!.status).toBe('SUCCEEDED'); // 不裁决——次轮重试
+    expect(row!.status).toBe('FAILED');   // 不动钱——状态与冻结原样（交人工）
     expect(row!.reservedCredits).toBeGreaterThan(0);
+    await expect(ledgerRows(intent.id, 'release')).resolves.toHaveLength(0);
+    await expect(prisma.reconcileAction.findMany({ where: { intentRowId: intent.id, action: 'manual-required' } })).resolves.toHaveLength(1);
   });
 
   it('第三不变量：人工 VOIDED∧creditsConsumed>0 无 refund 行 → drift 计数（Z102）', async () => {
     const { intent } = await claimIntent();
-    await teamCredit.reserve(UID, { intentRowId: intent.id });
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
     await intentSvc.complete(intent.id, 'http://ok/3.png', intent.execSeq);
     await teamCredit.settle({ intentRowId: intent.id });
     await prisma.generationIntent.update({ where: { id: intent.id }, data: { status: 'VOIDED' } }); // 人工漂移（无 refund 行）
     const before = totalOf(balanceDriftTotal);
-    await (makeReconcile({}) as any).verifyLedgerInvariants();
+    await (makeReconcile({ isDocResident: () => false, writeExecStatus: vi.fn() }) as any).verifyLedgerInvariants();
     expect(totalOf(balanceDriftTotal)).toBeGreaterThan(before); // VOIDED∧consumed>0∧无 refund=台账漂移
   });
 
@@ -295,7 +315,7 @@ const agePastGrace = async (id: string) =>
     const collabDoc = {
       readCanvas: async () => ({ nodes, edges: [] }),
       isLeaseServing: () => true,
-      writeNodeData: vi.fn(async () => ({ written: false, reason: 'node-deleted' as const })),
+      writeNodeData: vi.fn(async () => ({ kind: 'business' as const, written: false, reason: 'node-deleted' as const })),
       writeExecStatus: vi.fn(async () => {}),
     };
     const svc = makeExecSvc(collabDoc);
@@ -345,7 +365,7 @@ const agePastGrace = async (id: string) =>
     };
     const gateway: any = { emitNodeStatus: vi.fn() };
     const apiCaller: any = { callRelighting: vi.fn(async () => ({ url: 'https://ai/relit.png' })) };
-    const collabDoc: any = { writeNodeData: vi.fn(async () => ({ written: true })), writeExecStatus: vi.fn(async () => {}) };
+    const collabDoc: any = { writeNodeData: vi.fn(async () => ({ kind: 'business', written: true })), writeExecStatus: vi.fn(async () => {}) };
     const { artifactCommit } = makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc);   // T10：lighting 全链 finalize（真资金链）
     const consumer = new LightingConsumer(
       prisma as unknown as PrismaService, minio, gateway, apiCaller,
@@ -375,7 +395,7 @@ const agePastGrace = async (id: string) =>
     expect(row!.creditsConsumed).toBe(pricing.creditCost); // 真核销（非 reconcile 补 settle 白扣）
     expect(row!.reservedCredits).toBe(0);
     await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1);
-    expect(collabDoc.writeNodeData).toHaveBeenCalledWith(projectId, nodeId, { fileId: expect.any(String) }); // 产物投递
+    expect(collabDoc.writeNodeData).toHaveBeenCalledWith(projectId, nodeId, { fileId: expect.any(String) }, { intentRowId: intent.id, execSeq: intent.execSeq.toString() });   // 产物投递（T13：第 4 参=作用域铸造上下文）
   }, 30_000);
 });
 });

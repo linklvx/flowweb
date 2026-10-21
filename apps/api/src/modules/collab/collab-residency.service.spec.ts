@@ -393,23 +393,21 @@ describe('Y0c T19 Z65：不变量 !holds ∧ getConnectionsCount()===0 ⇒ !docu
   });
 });
 
-// ═══ Y0c T20（Z105 spec :526）：reconcile 装载即用即释——不进常驻池 ═══
-// reconcile 5min 周期面（settleStranded→probeArtifacts）的读经 ephemeral：acquire 走 Z111 degraded
-// 同款 entry:null 路径（新开 conn 用完即 disconnect，不入会话表——防 5min 一次钉住几十个无人项目）；
-// REST/作业面读（readCanvas 缺省）维持入池（对照臂）。
-describe('Y0c T20（Z105）：reconcile 装载即用即释（ephemeral）——probeArtifacts 不进常驻池', () => {
-  it('probeArtifacts 冷 doc 探测后：会话表空+open 恰 1 次+用完即断+装载计数归因保留（改造前=入池条目在——先红）', async () => {
+// ═══ Y0c T20（Z105 spec :526）：冷读即用即释——不进常驻池 ═══
+// 原消费面=reconcile 5min 周期探针（T13 起 probeArtifacts 删除=doc 探测退款后门根修）；ephemeral
+// 档保留为 residency 通用能力（冷读防钉常驻池）：acquire 走 Z111 degraded 同款 entry:null 路径
+// （新开 conn 用完即 disconnect，不入会话表）；REST/作业面读（readCanvas 缺省）维持入池（对照臂）。
+describe('Y0c T20（Z105）：冷读即用即释（ephemeral）——不进常驻池', () => {
+  it('readCanvas{ephemeral:true} 冷 doc 读后：会话表空+open 恰 1 次+用完即断（改造前=入池条目在——先红）', async () => {
     const fx = makeFixture();
-    const loadedBefore = await counterValue('yjs_doc_loaded_by_reconciler_total');
-    const out = await fx.svc.probeArtifacts('p1', [{ nodeId: 'n1', kind: 'text' }]);
-    expect(out).toEqual([{ nodeId: 'n1', kind: 'text', found: false }]);   // 夹具种子 n1 无 data.result（探针语义面）
-    expect(fx.residency().residentProjectIds()).toEqual([]);               // 改造前=['p1']（readCanvas 入池）——先红
+    const out = await fx.svc.readCanvas('p1', { ephemeral: true });
+    expect(out).toBeTruthy();                                             // 读语义面（nodes/edges 投影）
+    expect(fx.residency().residentProjectIds()).toEqual([]);               // 改造前=['p1']（缺省入池）——先红
     expect(fx.openDirectConnection).toHaveBeenCalledTimes(1);              // 装载发生（冷 doc）
     expect(fx.disconnectCallCount()).toBe(1);                              // 即用即释（entry:null 收尾=disconnect）
-    expect(await counterValue('yjs_doc_loaded_by_reconciler_total')).toBe(loadedBefore + 1);   // Z92③ 装载归因计数保留（wasResident=false 增点）
   });
 
-  it('对照臂：REST/作业面 readCanvas 缺省仍入池（ephemeral 仅 reconcile 探针面——Z105「无人看=deferred」外读面不受影响）', async () => {
+  it('对照臂：REST/作业面 readCanvas 缺省仍入池（ephemeral 仅冷读专用面——Z105「无人看=deferred」外读面不受影响）', async () => {
     const fx = makeFixture();
     await fx.svc.readCanvas('p2');
     expect(fx.residency().residentProjectIds()).toEqual(['p2']);   // 会话表有条目（池化——T15 语义不变）

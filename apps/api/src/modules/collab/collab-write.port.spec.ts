@@ -1,13 +1,13 @@
 // apps/api/src/modules/collab/collab-write.port.spec.ts
-// Y0c T13b（端口先行——Z100 顺序修正）：CollabWritePort 抽象面（7 方法）+DirectCollabWritePort
-// 委托透传单测——端口形态契约：Direct 形态=构造注入 CollabDocumentService，7 方法逐字对齐
+// Y0c T13b（端口先行——Z100 顺序修正）：CollabWritePort 抽象面+DirectCollabWritePort
+// 委托透传单测——端口形态契约：Direct 形态=构造注入 CollabDocumentService，逐字对齐
 // 公开签名、参数原样转发、返回值透传（行为零变化的结构性改道载体；T24 HttpCollabWritePort
-// 同面另一形态——worker 走端点）。7 方法面=8 改道文件实测用面（spec §0.6 偏离 21）。
+// 同面另一形态——worker 走端点）。T13：probeArtifacts 删除（doc 探测退款后门）——面 7→6 方法。
 import { describe, it, expect, vi } from 'vitest';
 import { DirectCollabWritePort } from './collab-write.port';
 import type { CollabDocumentService } from './collab-document.service';
 
-/** spy/stub CollabDocumentService 装置：7 方法全 mock——断言逐方法参数透传+返回值透传。 */
+/** spy/stub CollabDocumentService 装置：6 方法全 mock——断言逐方法参数透传+返回值透传。 */
 function makePort() {
   const svc = {
     withDoc: vi.fn(async (_projectId: string, fn: (doc: unknown) => unknown) => fn({ via: 'svc-doc' })),
@@ -16,13 +16,12 @@ function makePort() {
     isDocResident: vi.fn(() => false),
     writeNodeData: vi.fn(async () => ({ written: false, reason: 'node-deleted' as const })),
     writeExecStatus: vi.fn(async () => undefined),
-    probeArtifacts: vi.fn(async () => [{ nodeId: 'n1', kind: 'text', found: true }]),
   };
   const port = new DirectCollabWritePort(svc as unknown as CollabDocumentService);
   return { port, svc };
 }
 
-describe('DirectCollabWritePort（T13b——7 方法委托透传）', () => {
+describe('DirectCollabWritePort（T13b——6 方法委托透传）', () => {
   it('withDoc：projectId+fn 原样转发，返回值透传（泛型路径）', async () => {
     const { port, svc } = makePort();
     const fn = vi.fn((doc: any) => doc);
@@ -59,12 +58,12 @@ describe('DirectCollabWritePort（T13b——7 方法委托透传）', () => {
     expect(svc.isDocResident).toHaveBeenCalledWith('p3');
   });
 
-  it('writeNodeData：三参透传，WriteNodeDataResult 透传（written:false 退款凭据原样上浮）', async () => {
+  it('writeNodeData：参数透传，business 档包装透传（written:false 退款凭据原样上浮——T13 typed outcome 包装；scope 参数 Direct 忽略）', async () => {
     const { port, svc } = makePort();
     const patch = { result: 'x' };
-    const out = await port.writeNodeData('p4', 'n1', patch);
-    expect(svc.writeNodeData).toHaveBeenCalledWith('p4', 'n1', patch);
-    expect(out).toEqual({ written: false, reason: 'node-deleted' });
+    const out = await port.writeNodeData('p4', 'n1', patch, { intentRowId: 'gi-1', execSeq: '5' });
+    expect(svc.writeNodeData).toHaveBeenCalledWith('p4', 'n1', patch);   // scope 不透传（Direct 忽略）
+    expect(out).toEqual({ kind: 'business', written: false, reason: 'node-deleted' });
   });
 
   it('writeExecStatus：三参透传（含 attempts 代次），void 透传', async () => {
@@ -74,11 +73,4 @@ describe('DirectCollabWritePort（T13b——7 方法委托透传）', () => {
     expect(svc.writeExecStatus).toHaveBeenCalledWith('p5', 'n1', patch);
   });
 
-  it('probeArtifacts：projectId+items 透传，ArtifactProbeResult[] 透传', async () => {
-    const { port, svc } = makePort();
-    const items = [{ nodeId: 'n1', kind: 'text' }];
-    const out = await port.probeArtifacts('p6', items);
-    expect(svc.probeArtifacts).toHaveBeenCalledWith('p6', items);
-    expect(out).toEqual([{ nodeId: 'n1', kind: 'text', found: true }]);
-  });
 });

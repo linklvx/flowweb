@@ -1240,3 +1240,20 @@ model MediaFactOutbox {
   @@index([state, nextAttemptAt]) // claim 扫描（state='pending'∧nextAttemptAt<=now）；claim 排序契约=ORDER BY nextAttemptAt, createdAt, id（id 为 cuid opaque 非插入序——仅末位 tie-break，禁作代际/时序依据；T7/T16 emitter 按此实现）
   @@index([mediaId]) // REST POST（≤200 mediaIds）全量拉
 }
+
+/// T13 R3（spec Z18''⑥）：自动收敛审计行——每动作一行（护栏：每行 CAS+pg_advisory_xact_lock
+/// (hashtext(intentRowId))+本表审计；auto_converged/manual_required 分计数在 intent-reconcile.metrics）。
+/// action 词表：settle-backfill/rollback-stranded/void-terminal/finalize-from-stage/
+/// projection-backfill/manual-required（歧义态不动钱——裁决 :27④）。
+model ReconcileAction {
+  id          String   @id @default(cuid())
+  intentRowId String // 资金锚（=GenerationIntent.id；台账孤儿释放不落本表——非 intent 收敛）
+  action      String // 词表见上（与 metrics label 同源）
+  before      Json? // 收敛前行快照（status/reservedCredits/creditsConsumed）
+  after       Json? // 收敛后行快照
+  traceId     String? // 意图行 traceId 透传（资金审计锚——Y0b-5 T13）
+  createdAt   DateTime @default(now())
+
+  @@index([intentRowId])
+  @@index([createdAt])
+}

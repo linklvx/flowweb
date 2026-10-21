@@ -57,7 +57,10 @@ describe('AiImageEditProcessor', () => {
       settle: vi.fn().mockResolvedValue({ success: true, settled: true }),
       void_: vi.fn().mockResolvedValue(undefined),
     };
-    collabDoc = { writeNodeData: vi.fn().mockResolvedValue({ written: true }), writeExecStatus: vi.fn().mockResolvedValue(undefined) }; // Y0b-2 T5：交付判据类型化 {written,reason}
+    collabDoc = { // T13 typed outcome：business 档（transient/permanent=悬留档）——交付判据改判别式
+      writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),
+      writeExecStatus: vi.fn().mockResolvedValue(undefined),
+    };
     // T10：commitImage=stage→下载→上传→finalize 单事务的 stub 面（默认 committed——mediaId 锚 media-new）
     artifactCommit = {
       commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-new', key: 'artifacts/t/r/9/0-abc' }),
@@ -381,6 +384,7 @@ describe('AiImageEditProcessor', () => {
       expect(intentService.complete).not.toHaveBeenCalled();   // intent CAS 归 finalize 单事务（processor 直调退役）
       expect(collabDoc.writeNodeData).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ fileId: 'media-new' }),
+        { intentRowId: 'row-9', execSeq: '9' },   // T13：第 4 参=作用域铸造上下文（claim 票）
       );
       const payload = collabDoc.writeNodeData.mock.calls.at(-1)?.[2] as Record<string, unknown>;
       expect('width' in payload).toBe(false);    // 终裁 59⑤——api 非信封写者（尺寸归 web 内容事件）
@@ -416,6 +420,7 @@ describe('AiImageEditProcessor', () => {
       expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('AI timeout'), undefined, 9n);
       expect(collabDoc.writeExecStatus).toHaveBeenCalledWith(
         'proj1', 'node1', expect.objectContaining({ status: 'error' }),
+        { intentRowId: 'row-9', execSeq: '9' },
       );
     });
 

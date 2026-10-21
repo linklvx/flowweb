@@ -118,6 +118,31 @@ export interface CommitOutcome {
   key?: string;
 }
 
+/** T13 R3（spec Z18''⑥）：R3 动作表决策——finalizeFromExistingMediaOrText 返回值（护栏执行归
+ *  IntentReconcileService：advisory lock+审计行+锁外 IO 分派）。词表与 ReconcileAction.action/
+ *  intent-reconcile.metrics label 同源。 */
+export type R3Decision =
+  | { action: 'noop' }
+  | { action: 'settle-backfill'; acted: boolean }
+  | { action: 'projection-backfill' }
+  /** SUCCEEDED∧未核销∧无锚行∧无 stage（settle 失败崩溃窗无产物）——调用方走 rollbackStranded（退款）。 */
+  | { action: 'rollback-stranded' }
+  /** FAILED/VOIDED∧reserved>0∧无 artifact/无 delivered——调用方走 voidInTx（幂等 release）。 */
+  | { action: 'void-terminal' }
+  /** 歧义态（FAILED/VOIDED∧有交付凭据等）——不动钱，审计 manual-required+计数告警（裁决 :27④）。 */
+  | { action: 'manual-required'; reason: string }
+  /** RUNNING∧stage 行（Media processing∧sourceUrl）在——provider 成功已 durable 化但 finalize 未达
+   *  （Media 后崩溃窗）→ 调用方锁外重下 finalize（provider 不重调）。 */
+  | {
+      action: 'finalize-from-stage';
+      stage: {
+        intentRowId: string; execSeq: string; sourceUrl: string;
+        projectId: string; nodeId: string; teamId: string; userId: string; kind: string; sourceMimeType: string | null;
+      };
+    }
+  /** 行灭失/换代/无可收敛态（RUNNING 无 stage 等留 reaper 三查剩余分支）。 */
+  | { action: 'not-recoverable' };
+
 interface FinalizeParams {
   projectId: string;
   nodeId: string;
@@ -258,6 +283,117 @@ export class ArtifactCommitService {
         sourceUrlExpiresAt: params.sourceUrlExpiresAt ?? new Date(Date.now() + ARTIFACT_SOURCE_URL_TTL_MS),
       },
       artifactIndex,
+    });
+  }
+
+  /** T13 R3（spec Z18''⑥）：R3 动作表单入口——**所有自动收敛经此**（同一幂等 finalize 语族；判据
+   *  全量 PG：NodeArtifact 锚行/Media stage 行/ArtifactProjection——provider 不重调、doc 不探测
+   *  〔probeArtifacts 退款后门已删〕）。调用方=IntentReconcileService（advisory-lock 事务内调用——
+   *  本方法判定读**不取 intent 行锁**：settleInTx 自带 lockBalance→intent CAS 锁序〔契约 20〕，判定
+   *  竞态由 CAS+advisory 兜底）。InTx 原子执行面=settle-backfill（补核销）/projection-backfill
+   *  （补建投影行）；锁外执行面（返回 decision 由调用方分派）=rollback-stranded（退款——资损方向
+   *  判定归调用方）/void-terminal（幂等 release）/finalize-from-stage（IO 重下——commitImage 同构）。
+   *  幂等：双跑第二轮判据已收敛（SUCCEEDED∧已核销∧行齐）→ noop——零双 settle 零双退款零双审计。 */
+  async finalizeFromExistingMediaOrText(
+    tx: Prisma.TransactionClient,
+    intentRowId: string,
+    execSeq: bigint,
+  ): Promise<R3Decision> {
+    const row = await tx.generationIntent.findUnique({
+      where: { id: intentRowId },
+      select: { status: true, execSeq: true, reservedCredits: true, creditsConsumed: true, creditCost: true, projectId: true, nodeId: true, teamId: true, userId: true, kind: true },
+    });
+    if (!row || row.execSeq !== execSeq) return { action: 'not-recoverable' };
+    const anchor = await tx.nodeArtifact.findUnique({
+      where: { sourceIntentRowId_sourceExecSeq_artifactIndex: { sourceIntentRowId: intentRowId, sourceExecSeq: execSeq, artifactIndex: 0 } },
+    });
+    const stage = row.status === 'RUNNING'
+      ? await tx.media.findFirst({
+          where: { sourceIntentRowId: intentRowId, sourceExecSeq: execSeq, status: 'processing', sourceUrl: { not: null } },
+          orderBy: { createdAt: 'asc' },
+        })
+      : null;
+
+    if (row.status === 'SUCCEEDED') {
+      // 窗①（settle 后崩溃）：SUCCEEDED∧reserved>0（未核销——finalize 事务原子故此态=旧链/settle
+      // 未达核销窗）∧锚行在（产物 PG 在案）→ 补 settle（InTx——锁内原子；幂等 settled:false=零动作）。
+      if (row.reservedCredits > 0 && anchor) {
+        const r = await this.teamCredit.settleInTx(tx, { intentRowId, execSeq });
+        return { action: 'settle-backfill', acted: r.settled };
+      }
+      // 窗③（投影缺失）：SUCCEEDED∧锚行在∧投影行缺 → 补建 pending 行（T15 poller 前置接线形态）。
+      if (anchor) {
+        const proj = await tx.artifactProjection.findUnique({
+          where: { artifactId_artifactRev: { artifactId: anchor.id, artifactRev: anchor.rev } },
+          select: { id: true },
+        });
+        if (!proj) {
+          await tx.artifactProjection.createMany({
+            data: [{
+              artifactId: anchor.id, artifactRev: anchor.rev, projectId: row.projectId, nodeId: row.nodeId,
+              targetField: anchor.targetField, targetItemId: anchor.targetItemId,
+              mediaId: anchor.mediaId, resultText: anchor.resultText, state: 'pending',
+            }],
+            skipDuplicates: true,
+          });
+          return { action: 'projection-backfill' };
+        }
+        return { action: 'noop' };
+      }
+      // SUCCEEDED∧reserved>0∧无锚行∧无 stage=无产物悬留——退款方向判定归调用方（rollbackStranded
+      // 判龄 CAS——宁退勿吞；doc 探测判产物已删）。
+      if (row.reservedCredits > 0 && !stage) return { action: 'rollback-stranded' };
+      return { action: 'noop' };
+    }
+
+    if (row.status === 'RUNNING') {
+      // 窗②（Media 后崩溃）：stage 行在（provider 成功已 durable 化——image 系 stageImage 落行先于
+      // 下载/finalize；video stage 行随 finalize 事务建=RUNNING 窗结构性不可达）→ 锁外重下 finalize
+      // （commitImage 同构——provider 不重调）。
+      if (stage && stage.sourceUrl) {
+        return {
+          action: 'finalize-from-stage',
+          stage: {
+            intentRowId, execSeq: execSeq.toString(), sourceUrl: stage.sourceUrl,
+            projectId: row.projectId, nodeId: row.nodeId,
+            teamId: row.teamId, userId: row.userId, kind: row.kind, sourceMimeType: stage.mimeType,
+          },
+        };
+      }
+      return { action: 'not-recoverable' };   // 无 stage（text 无 stage/外呼未达）——reaper 剩余分支（退款/VOID）
+    }
+
+    // FAILED/VOIDED：有 artifact（锚行）∨有交付凭据（非 superseded 投影行）→ 交人工（禁动钱）；
+    // 否则 void-terminal（调用方锁内 voidInTx 幂等 release——spec「FAILED/VOIDED∧reserved>0∧
+    // 无 artifact/无 delivered→voidInTx」+v13b 守卫）。
+    if (row.reservedCredits > 0) {
+      const deliveredRows = await tx.artifactProjection.count({
+        where: { projectId: row.projectId, nodeId: row.nodeId, state: { in: ['pending', 'projecting', 'projected'] } },
+      });
+      if (anchor || deliveredRows > 0) {
+        return { action: 'manual-required', reason: anchor ? 'FAILED/VOIDED 带 NodeArtifact 锚行（产物在案）' : 'FAILED/VOIDED 带非 superseded 投影行（交付凭据在案）' };
+      }
+      return { action: 'void-terminal' };
+    }
+    return { action: 'noop' };
+  }
+
+  /** T13 R3 窗②锁外执行面：stage 行重下 finalize（commitImage 同构——幂等预检+ON CONFLICT stage
+   *  复用同 mediaId；真 intentRowId+execSeq 驱动——stage 行资金锚复用+intent CAS RUNNING→SUCCEEDED+
+   *  settle 同事务）。expectedRev=当前槽位 claimCapture 现读（stranding 期间用户 replace ⇒ superseded
+   *  正确——不覆盖用户值，资金独立判照常 settle）。provider 不重调（下载源=stage 行 sourceUrl 唯一事实）。 */
+  async finalizeFromStage(stage: {
+    intentRowId: string; execSeq: string; sourceUrl: string;
+    projectId: string; nodeId: string; teamId: string; userId: string; kind: string; sourceMimeType: string | null;
+  }): Promise<CommitOutcome> {
+    const expectedRev = await this.nodeArtifacts.claimCapture(this.prisma, {
+      projectId: stage.projectId, nodeId: stage.nodeId, targetField: targetFieldOfKind(stage.kind),
+    });
+    return this.commitImage({
+      projectId: stage.projectId, nodeId: stage.nodeId, teamId: stage.teamId, userId: stage.userId,
+      intentRowId: stage.intentRowId, execSeq: BigInt(stage.execSeq), expectedRev,
+      sourceUrl: stage.sourceUrl,
+      sourceMimeType: stage.sourceMimeType,
     });
   }
 

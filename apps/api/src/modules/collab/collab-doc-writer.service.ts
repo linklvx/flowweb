@@ -199,8 +199,10 @@ export class CollabDocWriterService {
    *  ③Z108 内容校验（rejectionsOf——事务外·T9 裁定字面：业务拒绝不得降级成基础设施失败触发退款；
    *  批级违规=整批拒绝零执行不进事务·T8 语义；op 级违规归集 byIndex 进事务短路）→ ④会话写事务
    *  （withSession write；transactSync 包裹；回调=applyOpsCore 共享核心——schema 门+逐 op 守卫求值+应用）。
-   *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。 */
-  async writeBatch(projectId: string, ops: readonly DocWriteOp[]): Promise<WriteOpResult[]> {
+   *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。
+   *  T13：可选 scope 形参——进程内（api/Direct）形态忽略；worker 形态（HttpCollabDocWriter 覆盖）
+   *  用于铸造 x-worker-scope 作用域头（write-batch 端点收窄面——collab-write.controller）。 */
+  async writeBatch(projectId: string, ops: readonly DocWriteOp[], _scope?: unknown): Promise<WriteOpResult[]> {
     // 空批=合法 no-op（validateWriteBatch 同判据——零违规放行，不白开一次 doc 事务）
     if (ops.length === 0) return [];
     // ① X9 批面受理门（T9 根修单点——与单写面同判据同 throw；Z40 基础设施档全批 thrown⇒零交付退款）
