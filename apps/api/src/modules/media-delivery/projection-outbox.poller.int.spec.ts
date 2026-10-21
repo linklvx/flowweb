@@ -164,7 +164,9 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
         return true;
       }),
     };
-    poller = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit);
+    // T16：post-apply 触发桩（requestReconcile 仅入队——int 用例不驱动 reconcile drain）
+    const reconciler: any = { requestReconcile: vi.fn() };
+    poller = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconciler);
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
@@ -421,7 +423,8 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await seedNode(PID, 'n1');
     const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-dual' });
     const teamCredit: any = { rollbackDeliveryFailed: vi.fn(async () => true) };
-    const pollerB = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit);
+    const reconcilerB: any = { requestReconcile: vi.fn() };   // T16 post-apply 触发桩
+    const pollerB = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconcilerB);
     const [a, b] = await Promise.all([poller.tick(), pollerB.tick()]);
     expect(a.claimed + b.claimed).toBe(1);   // SKIP LOCKED——并发双 claim 恰一
     expect((await projectionRow(projectionId))?.state).toBe('projected');

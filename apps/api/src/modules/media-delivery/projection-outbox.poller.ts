@@ -46,6 +46,7 @@ import { CollabDocumentService, type ExecStatusPatch } from '../collab/collab-do
 import { SPOOL_DEADLINE_MS } from '../collab/collab-persistence.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { artifactProjectionOrphanRefundFailTotal, artifactProjectionOutcomeTotal, artifactProjectionPendingAgeSeconds } from './projection-outbox.metrics';
+import { BindingReconcileService } from './binding-reconcile.service';
 
 // ── poller/claim 参数（MaterializeJob/IntentReconcile 同族纪律：常数不进 env——热循环红线非立即重投） ──
 /** tick 周期：交付延迟直连 UX（finalize→fileId 可见）——秒级收口（IntentReconcile 5min 是资金面节奏）。 */
@@ -120,6 +121,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     @Inject(CollabLeaseService) private readonly lease: CollabLeaseService,
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    /** T16 交接面：projected/orphaned 后 post-apply 触发该 project 的 MediaBinding 惰性 reconcile
+     *  （requestReconcile 仅入队 fire-and-forget——零阻塞投影循环；spec :25 裁决③「poller mark 后 lazy」）。 */
+    @Inject(BindingReconcileService) private readonly reconciler: BindingReconcileService,
   ) {}
 
   /** dead 行 on-load reconcile（spec :91「dead 行加 on-load reconcile/admin retry 重驱」——启动
@@ -287,6 +291,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
           await this.mark(s.row, { state: 'orphaned', lastError: `node-deleted:${r.data.reason ?? 'unwritten'}` });
           inc('orphaned');
           await this.refundOrphaned(s.artifact);
+          // T16：node 删除=MediaBinding stale 清扫的权威观察点——触发该 project reconcile（删行）。
+          this.reconciler.requestReconcile(projectId);
           continue;
         }
         deliverable.push(s);
@@ -348,6 +354,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       }
       await this.mark(s.row, { state: 'projected', projectedAt: new Date() });
       inc(deliverable.includes(s) ? 'projected' : 'fast-path');
+      // T16 post-apply 触发：fileId/result 落 doc ⇒ MediaBinding 索引对齐（fire-and-forget 入队——
+      // drain 周期收敛，不阻塞本循环）。
+      this.reconciler.requestReconcile(projectId);
     }
     return { outcomes, fenced: false };
   }

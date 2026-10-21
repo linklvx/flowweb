@@ -103,7 +103,9 @@ function makePoller(over: {
     withSession: vi.fn(async (_p: string, fn: any) => fn({ getMap: () => new Map() })),
   };
   const teamCredit: any = { rollbackDeliveryFailed: vi.fn(async () => true) };
-  return { poller: new ProjectionOutboxPoller(prisma, lease, docs, teamCredit), tx };
+  // T16：post-apply 触发桩——requestReconcile 仅入队（零 IO），poller 循环对其零内部依赖
+  const reconciler: any = { requestReconcile: vi.fn() };
+  return { poller: new ProjectionOutboxPoller(prisma, lease, docs, teamCredit, reconciler), tx };
 }
 
 describe('T15 onModuleDestroy（停 claim+等在飞有界）', () => {
