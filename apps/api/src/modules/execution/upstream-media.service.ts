@@ -7,10 +7,12 @@ import { MinioService } from '../minio/minio.service';
 const UPSTREAM_PRESIGN_TTL_SEC = 3600;
 
 /** Y1a T8：上游媒体解析服务（S2）——上游注入读源改 NodeArtifact PG 权威后的三职责：
- *  ①readUpstreamMediaId：NodeArtifact 槽位 [projectId,nodeId,role='primary',targetField='result',
+ *  ①readUpstreamMediaId：NodeArtifact 槽位 [projectId,nodeId,role='primary',targetField='fileId',
  *    targetItemId=''] → state='stored' 且 mediaId 非空 → mediaId（finalize 即建、claim 时刻必可读——
- *    doc 拓扑投影滞后不再取空/漂移；读侧契约——写侧 T10 ArtifactCommit 落地对齐此槽位；
- *    miss〔无行/state 非 stored/mediaId 空〕warn 可观测——禁零信号静默降级 T8 质评 Important）；
+ *    doc 拓扑投影滞后不再取空/漂移；T10 对齐收口：image 系产物槽=targetField 'fileId'（task 契约
+ *    image→fileId/text→result；T8 时写侧未建暂锚 'result'——T10 写侧落地即本槽，'result' 槽承载
+ *    text resultText 无 mediaId 可读）；miss〔无行/state 非 stored/mediaId 空〕warn 可观测——禁零
+ *    信号静默降级 T8 质评 Important）；
  *  ②canonicalizeMediaRef：doc 手工 URL → 身份形态（/flowai/ URL → key → Media (bucket,key) 反查；
  *    外网 URL 原样——用户不变则身份不变）——callArgs 构造（哈希输入）用；
  *  ③resolveCallUrl：身份 → 外呼可达 URL（Media.sourceUrl 未过期直传 provider → 过期/缺失降级
@@ -29,7 +31,7 @@ export class UpstreamMediaService {
    *  拓扑注入路径恒传，直调〔spec〕可省）。 */
   async readUpstreamMediaId(projectId: string, nodeId: string, downstreamNodeId?: string): Promise<string | null> {
     const artifact = await this.prisma.nodeArtifact.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId, nodeId, role: 'primary', targetField: 'result', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
       select: { mediaId: true, state: true },
     });
     if (artifact?.state === 'stored' && artifact.mediaId) return artifact.mediaId;

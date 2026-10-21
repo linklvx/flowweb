@@ -7,6 +7,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
+import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { TopologyService } from './topology.service';
 import { UpstreamMediaService } from './upstream-media.service';
 import { ValidationService } from './validation.service';
@@ -61,6 +62,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     }),
   ],
   providers: [
+  NodeArtifactService,   // T10：GenerationIntentService.claimCapture 依赖（zero-dep 服务）
     ExecutionService,
     GenerationIntentService,
     TopologyService,

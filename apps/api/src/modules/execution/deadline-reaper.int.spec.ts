@@ -10,6 +10,7 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService } from './generation-intent.service';
+import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { IntentReconcileService } from './intent-reconcile.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
@@ -22,7 +23,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
-const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit);
+const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit, new NodeArtifactService());
 
 /** BullMQ 状态查询面 mock（Z84）：jobId → state 可编程——reconcile 经 queue.getJob().getState() 读 */
 const jobStates = new Map<string, string>();

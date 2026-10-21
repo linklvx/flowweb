@@ -7,6 +7,7 @@ import {
   NodeBusyError,
 } from './generation-intent.service';
 import { TeamCreditService } from '../team/team-credit.service';
+import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { createIntentFixture, ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
@@ -21,6 +22,7 @@ const INT_UID = 'int-gi-053-owner';
 const svc = new GenerationIntentService(
   prisma as unknown as PrismaService,
   new TeamCreditService(prisma as unknown as PrismaService, new CreditLedgerService(prisma as unknown as PrismaService)), // T9：注入资金面（rearm/takeover voidInTx）
+  new NodeArtifactService(), // T10：claimCapture 槽位 rev 读
 );
 
 // Y0b-1：claim 需真团队行（FOR SHARE 准入谓词）与真 PricingRule 行（pricingRuleId FK）——beforeAll 建夹具

@@ -13,6 +13,7 @@ import { createServer, type Server } from 'node:http';
 import { Queue, Worker } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService } from './generation-intent.service';
+import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ApiCallerService } from './api-caller.service';
@@ -27,7 +28,7 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
-const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit);
+const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit, new NodeArtifactService());
 
 /** pollLoop 轮询间隔最小档 1000（envMs <1000 视为未设——query-first 用例需秒级轮询） */
 process.env.EXEC_POLL_TIMEOUT_MS = '1000';

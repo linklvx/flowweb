@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerationIntentService } from './generation-intent.service';
+import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { IntentReconcileService, SETTLE_STRANDED_GRACE_MS } from './intent-reconcile.service';
 import { ExecutionService } from './execution.service';
 import { TopologyService } from './topology.service';
@@ -33,7 +34,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
-const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit); // T9：注入资金面（rearm/takeover 事务内 voidInTx）
+const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit, new NodeArtifactService()); // T9：注入资金面（rearm/takeover 事务内 voidInTx）
 
 /** reconcile 装置：collabDoc stub 可编程（probeArtifacts/isDocResident/writeExecStatus 记录器）。 */
 const makeReconcile = (collabDoc: any) => new IntentReconcileService(

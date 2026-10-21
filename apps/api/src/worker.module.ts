@@ -33,6 +33,7 @@ import { TeamRechargeService } from './modules/team/team-recharge.service';
 // ── execution 链（Core 平铺——模块本体闭包脏不可导入，偏离 30） ──
 import { ExecutionService } from './modules/execution/execution.service';
 import { GenerationIntentService } from './modules/execution/generation-intent.service';
+import { NodeArtifactService } from './modules/artifact-core/node-artifact.service';
 import { TopologyService } from './modules/execution/topology.service';
 import { UpstreamMediaService } from './modules/execution/upstream-media.service';
 import { ValidationService } from './modules/execution/validation.service';
@@ -147,6 +148,7 @@ const env = validateEnv();
     SafeRemoteFetchService,   // T6：ai-download/ai-image-edit/lighting 下载原语（SSRF 四门+限长）
     MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
     GenerationIntentService,
+    NodeArtifactService,   // T10：claimCapture 依赖（zero-dep——ArtifactCoreModule 闭包含 TeamModule controller，worker 平铺先例=SafeRemoteFetchService）
     TopologyService,
     UpstreamMediaService,   // Y1a T8：上游媒体解析（NodeArtifact 读源/身份 canonicalize/外呼 URL 解析）
     ValidationService,

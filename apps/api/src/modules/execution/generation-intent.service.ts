@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { deriveIdemKey, normalizeRegenToken, deadlineMsForKind } from './intent-key.util';
 import { intentClaimResultTotal } from './exec.metrics';
+import { NodeArtifactService, targetFieldOfKind } from '../artifact-core/node-artifact.service';
 
 /** Y1a T9（spec ㉒）：同 job 重入心跳新鲜判据——heartbeatAt 距今 < 锁窗（BullMQ lockDuration 60s）
  *  ⇒ 旧 worker 在飞（轮询 tick 每次刷心跳，poll 默认 10s≪窗）。BullMQ 仅在锁过期后才重投，重投时
@@ -69,9 +70,12 @@ export class GenerationIntentService {
   private readonly logger = new Logger(GenerationIntentService.name);
   // @Inject 显式标注——vitest/esbuild 不发射 decorator metadata，类型注解不构成 DI 令牌（仓内惯例）
   // T9：TeamCreditService 注入=rearm/takeover 事务内 voidInTx 只释放旧代冻结（同事务原子——零独立事务竞态窗）
+  // T10：NodeArtifactService 注入=claim 事务内 claimCapture 读槽位 rev（expectedRev 随 claim 返回——
+  // finalize CAS 锚；Z18''-v14：PG 权威非 doc/fileIdRev）
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
+    @Inject(NodeArtifactService) private readonly nodeArtifacts: NodeArtifactService,
   ) {}
 
   /** T9：exec_seq 全局单调取号（claim new/rearm 两处唯一分配点——DB sequence 单源，禁 increment/max+1）。 */
@@ -112,12 +116,12 @@ export class GenerationIntentService {
    *  T9：rearm=nextval 第二处分配点（FAILED/VOIDED 再激活与 takeover 共用「换代+只释放+旧投影 superseded」
    *  语义——重扣费归新段 reserve）；resultRef 清空保留 providerTaskId/providerRequestId（Z83 query-first 链）。
    *  Y0b-2 T6（Z103）：normalizeRegenToken 转严格——非法形态 throw 400 IDEMPOTENCY_TOKEN_INVALID（事务外）。 */
-  async claim(input: ClaimInput): Promise<{ intent: any; created: boolean; result: 'replay' | 'rearm' | 'new' | 'same-job-alive' }> {
+  async claim(input: ClaimInput): Promise<{ intent: any; created: boolean; result: 'replay' | 'rearm' | 'new' | 'same-job-alive'; artifactRev: number }> {
     let result: 'replay' | 'rearm' | 'new' | 'same-job-alive' | undefined;
     try {
       const r = await this.claimTx(input);
       result = r.result;
-      return { intent: r.intent, created: r.created, result: r.result };
+      return { intent: r.intent, created: r.created, result: r.result, artifactRev: r.artifactRev };
     } catch (err) {
       // Y0b-2 T6：claim 出口全覆盖——互斥族（NodeBusy/EXHAUSTED/TEAM_CLOSED 之外的业务 4xx）计 busy
       if (err instanceof NodeBusyError || err instanceof IntentExhaustedError) {
@@ -129,7 +133,7 @@ export class GenerationIntentService {
     }
   }
 
-  private async claimTx(input: ClaimInput): Promise<{ intent: any; created: boolean; result: 'replay' | 'rearm' | 'new' | 'same-job-alive' }> {
+  private async claimTx(input: ClaimInput): Promise<{ intent: any; created: boolean; result: 'replay' | 'rearm' | 'new' | 'same-job-alive'; artifactRev: number }> {
     const gestureToken = normalizeRegenToken(input.gestureToken);
     const idemKey = deriveIdemKey({
       projectId: input.projectId, nodeId: input.nodeId, kind: input.kind,
@@ -142,6 +146,13 @@ export class GenerationIntentService {
       if (teamRow.length !== 1 || teamRow[0].status !== 'ACTIVE') {
         throw new BusinessException('TEAM_CLOSED', `团队不存在或已关闭（teamId=${input.teamId}）`, HttpStatus.CONFLICT);
       }
+
+      // ── T10 claimCapture（Z18''-v14）：claim 事务内读 NodeArtifact 槽位当前 rev 作 expectedRev
+      //    （无行=0）。捕获点=claim 时刻 ⇒ claim→finalize 窗口内任何 replace/新代 finalize（rev+1）
+      //    必与本代 expectedRev 失配=superseded——「最新意图优先」的 CAS 结构表达。 ──
+      const artifactRev = await this.nodeArtifacts.claimCapture(tx, {
+        projectId: input.projectId, nodeId: input.nodeId, targetField: targetFieldOfKind(input.kind),
+      });
 
       // ── ⓪ RUNNING 闸（Z94）：一次索引查 partial unique 至多的在飞行——非本 job ⇒ NodeBusy 零新行零回放；
       //    同 jobId（BullMQ stalled 重排）⇒ T9 三态分义（心跳新鲜=旧 worker 在飞让位/过期=takeover 接管）。
@@ -162,7 +173,7 @@ export class GenerationIntentService {
           // 态① 心跳新鲜：旧 worker 在飞（onTick 持续刷心跳）——本重排 worker 零写行让位（禁重锚/换代/
           // 清 resultRef——行完全归旧 worker）；调用方（processor）moveToDelayed+DelayedError 不 ack
           // ——旧 worker 真死 ⇒ 下轮重排心跳超窗 ⇒ 态② takeover 收敛（「skip 后 return=ack 零交付」根修）。
-          return { intent: running, created: false, result: 'same-job-alive' };
+          return { intent: running, created: false, result: 'same-job-alive', artifactRev };
         }
         // 态② 心跳过期=takeover：nextval 新代 fence 旧代+voidInTx 只释放旧代冻结（v9「release+re-reserve」
         // 废止——re-reserve 后新段 reserve 必 mayCall:false 悬挂）+旧投影 superseded+行换代重锚
@@ -175,7 +186,7 @@ export class GenerationIntentService {
           data: { execSeq, resultRef: null, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)) },
         });
         if (rearmed.count === 1) {
-          return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: running.id } }), created: true, result: 'rearm' };
+          return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: running.id } }), created: true, result: 'rearm', artifactRev };
         }
         throw new NodeBusyError(); // 行已被并发收敛（takeover 竞态败者/已终态）
       }
@@ -186,13 +197,13 @@ export class GenerationIntentService {
           where: { projectId: input.projectId, nodeId: input.nodeId, kind: input.kind, paramsHash: input.paramsHash, status: 'SUCCEEDED' },
           orderBy: { createdAt: 'desc' },
         });
-        if (latest) return { intent: latest, created: false, result: 'replay' };
+        if (latest) return { intent: latest, created: false, result: 'replay', artifactRev };
       }
 
       // ── ①/③ 同键状态机（①=手势键〔有 token〕；③=内容键〔无 token 且②未命中〕） ──
       const existing = await tx.generationIntent.findUnique({ where });
       if (existing) {
-        if (existing.status === 'SUCCEEDED') return { intent: existing, created: false, result: 'replay' };
+        if (existing.status === 'SUCCEEDED') return { intent: existing, created: false, result: 'replay', artifactRev };
         if (existing.status === 'RUNNING') {
           // ⓪ 已拦异 jobId——此处仅剩 running.jobId=null 的同步路径在飞行对同键重入（⓪ 合取 null≠null
           // 已拦，本臂=同键 RUNNING 但节点 partial unique 被 ⓪ 放行的极窄并发残余）——NodeBusy 兜底。
@@ -223,7 +234,7 @@ export class GenerationIntentService {
         });
         if (rearmed.count === 1) {
           const intent = await tx.generationIntent.findUnique({ where: { id: existing.id } });
-          return { intent: intent!, created: true, result: 'rearm' };
+          return { intent: intent!, created: true, result: 'rearm', artifactRev };
         }
         throw new NodeBusyError(); // 再激活被并发抢走
       }
@@ -249,12 +260,12 @@ export class GenerationIntentService {
         skipDuplicates: true,
       });
       if (ins.count === 1) {
-        return { intent: await tx.generationIntent.findUniqueOrThrow({ where }), created: true, result: 'new' };
+        return { intent: await tx.generationIntent.findUniqueOrThrow({ where }), created: true, result: 'new', artifactRev };
       }
       // count===0 ⇒ 撞唯一（idemKey 唯一或 active partial unique）——健康事务内分义：
       const again = await tx.generationIntent.findUnique({ where });
       if (again && input.jobId && again.jobId === input.jobId && again.status === 'RUNNING') {
-        return { intent: again, created: true, result: 'rearm' }; // create 与同 job 重入并发——按可重入处理（同 idemKey=同内容）
+        return { intent: again, created: true, result: 'rearm', artifactRev }; // create 与同 job 重入并发——按可重入处理（同 idemKey=同内容）
       }
       // 无行 ⇒ 撞活跃 partial unique（同节点异 idemKey 在飞）；有行 ⇒ 同 idemKey 异 jobId 在飞——均 NodeBusy
       throw new NodeBusyError();

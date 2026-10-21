@@ -23,7 +23,7 @@ describe('UpstreamMediaService', () => {
       prisma.nodeArtifact.findUnique.mockResolvedValue({ mediaId: 'media-1', state: 'stored' });
       await expect(svc.readUpstreamMediaId('p1', 'n1')).resolves.toBe('media-1');
       expect(prisma.nodeArtifact.findUnique).toHaveBeenCalledWith({
-        where: { projectId_nodeId_role_targetField_targetItemId: { projectId: 'p1', nodeId: 'n1', role: 'primary', targetField: 'result', targetItemId: '' } },
+        where: { projectId_nodeId_role_targetField_targetItemId: { projectId: 'p1', nodeId: 'n1', role: 'primary', targetField: 'fileId', targetItemId: '' } },
         select: { mediaId: true, state: true },
       });
     });

@@ -8,6 +8,7 @@ import {
   NodeBusyError,
   IntentExhaustedError,
 } from './generation-intent.service';
+import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { deriveIdemKey, normalizeRegenToken as normalizeRegenTokenImport } from './intent-key.util';
 import { intentClaimResultTotal } from './exec.metrics';
 
@@ -77,6 +78,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       // Y0b-1（Z26/Z33）：claim 交互式事务——mock 直通（tx=同一 mock 对象）
       $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
       artifactProjection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, // T9：rearm/takeover 旧投影 superseded
+      nodeArtifact: { findUnique: vi.fn().mockResolvedValue(null) }, // T10：claimCapture 槽位 rev 读（默认无行=0）
       // Z26 准入谓词：FOR SHARE 查 Team.status——默认 ACTIVE 放行；T9 nextval('exec_seq') 取号分义
       $queryRaw: vi.fn().mockImplementation(async (q: unknown) =>
         /nextval/.test(String(q)) ? [{ v: 1n }] : [{ status: 'ACTIVE' }]),
@@ -85,6 +87,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GenerationIntentService,
+        NodeArtifactService,
         { provide: PrismaService, useValue: prisma },
         { provide: TeamCreditService, useValue: teamCredit },
       ],

@@ -64,11 +64,12 @@ const DOWNSTREAM_NODE = 'n-down';
       },
     });
     MEDIA_ID = media.id;
-    // 上游 NodeArtifact 行（读侧契约夹具——T10 写侧未建：模拟 finalize 产物形态）
+    // 上游 NodeArtifact 行（读侧契约夹具——T10 写侧已建：image 产物槽 targetField='fileId'
+    // （task 契约 image→fileId/text→result）；红形态=读侧旧读 'result' 槽取不到 image 产物）
     await prisma.nodeArtifact.create({
       data: {
         projectId: PID, nodeId: UPSTREAM_NODE, teamId: TID,
-        role: 'primary', targetField: 'result', targetItemId: '',
+        role: 'primary', targetField: 'fileId', targetItemId: '',
         mediaId: MEDIA_ID, state: 'stored',
       },
     });
@@ -94,12 +95,12 @@ const DOWNSTREAM_NODE = 'n-down';
 
   it('非终态槽位行（materializing）→ 不注入（finalize 未完成）', async () => {
     await prisma.nodeArtifact.update({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'result', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'fileId', targetItemId: '' } },
       data: { state: 'materializing' },
     });
     await expect(upstreamMedia.readUpstreamMediaId(PID, UPSTREAM_NODE)).resolves.toBeNull();
     await prisma.nodeArtifact.update({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'result', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'fileId', targetItemId: '' } },
       data: { state: 'stored' },
     });
   });
