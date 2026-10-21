@@ -67,6 +67,8 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
   // 快照域〕+execution/ai-image-edit/lighting 三 controller〔assertSyncAdmitted 的 readServerSV 读域〕）
   // ——断 exports 即解析红，维持 exports+本登记；收口归片 B 读端口化（读域 4 文件改道读端口/快照域服务
   // 后移除本行），shrink 模块内直注不受 exports 影响。
-  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）
+  // T15：exports += CollabLeaseService（投影 poller claim 时捕获 epoch 的单源读——CollabLeaseService
+  // .currentEpoch；模块外消费面唯一=ProjectionOutboxPoller）。
+  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService, CollabLeaseService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）
 })
 export class CollabModule {}

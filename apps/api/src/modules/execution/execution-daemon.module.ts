@@ -11,6 +11,7 @@ import { COLLAB_ROLE_DEFAULT } from '../../config/env';
 import { CollabModule } from '../collab/collab.module';
 import { TeamModule } from '../team/team.module';
 import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';
+import { MediaDeliveryModule } from '../media-delivery/media-delivery.module';   // T15：ArtifactProjection 投影 poller（api 进程唯一交付 owner——spec 部署图 :280）
 import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 
 /** Y0c T23（Z98）：COLLAB_ROLE 角色门第四面「守护与定时器装配」——ExecutionDaemonModule。
@@ -45,6 +46,11 @@ export class ExecutionDaemonModule {
         // finalize）。api 进程可安全导入（census ⑰ 闭包约束=worker 专用；worker 侧 R3 不装配=本
         // 模块 role 门）。Minio 经 @Global MinioModule 直注。
         ArtifactCoreModule,
+        // T15（spec 部署图 :280「API 进程：DocDelivery poller」）：ArtifactProjection 投影 poller
+        // ——唯一交付 owner（取代 T10-T13 过渡直写）。装配在 role 门内=worker 面零实例化（需
+        // withSession doc 会话+residency 池——结构性不可 worker 化）；admin retry 端点随本模块
+        // 仅 api 进程可达（/api/admin/* 面）。
+        MediaDeliveryModule,
         BullModule.registerQueue({
           name: EXECUTION_QUEUE_NAME,
           configKey: EXECUTION_CONNECTION_NAME,

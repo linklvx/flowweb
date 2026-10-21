@@ -6,6 +6,7 @@ import { CollabResidencyService, type WithSessionOptions } from './collab-reside
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
+import type { FlushOutcome } from './collab-persistence.service';
 import { yjsSnapshotFallbackTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
@@ -235,6 +236,34 @@ export class CollabDocumentService implements OnApplicationShutdown {
       if (!outcome.written && outcome.reason !== 'terminal-superseded') {
         execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
       }
+    }, { mode: 'write' });
+  }
+
+  /** T14（plan v11.2 片 S4）透传面：flushDocument 交付判定窄接口（投影 poller 批尾一次 flush 的
+   *  调用缝——capturedEpoch=claim 时捕获；语义全谱见 CollabPersistenceService.flushDocument/FlushOutcome）。
+   *  经 residency 单例透传（gateway.persistence 同实例——saveMutex/归属地判读单源）。 */
+  flushDocument(projectId: string, capturedEpoch: bigint | null): Promise<FlushOutcome> {
+    return this.residency.flushDocument(projectId, capturedEpoch);
+  }
+
+  /** Y1b T15（spec Z18''④/:91）：deliverArtifact 复合 op——投影 poller 交付原语。同 withSession(write)
+   *  单事务写 data.{fileId|result}（applyWriteNodeDataToDoc 原语——Z44 交付判据）+exec done
+   *  （applyWriteExecStatusToDoc 原语——exec 降 cache〔spec Z18''⑤ done=投影 poller 专写〕；
+   *  exec patch 键集必须 ⊆ EXEC_STATUS_KEYS——红线，调用方=ProjectionOutboxPoller.execDonePatch）。
+   *  data written:false（node-deleted/no-node-map）=「谁观察 node 删除」的权威观察点——调用方按
+   *  orphaned 终态收敛+幂等退款；此档不建 exec 条目（Z4 存在性守卫同源——E22 读侧两形态等价）。
+   *  execWritten=false（代次守卫拦截等）=UI cache 面降级，非交付判据（资金/交付判定读 PG）。 */
+  async deliverArtifact(projectId: string, params: {
+    nodeId: string;
+    targetField: 'fileId' | 'result';
+    value: string;
+    exec: ExecStatusPatch;
+  }): Promise<{ data: WriteNodeDataResult; execWritten: boolean }> {
+    return this.withSession(projectId, (doc) => {
+      const data = applyWriteNodeDataToDoc(doc, params.nodeId, { [params.targetField]: params.value });
+      if (!data.written) return { data, execWritten: false };   // 节点删——data/exec 同拦（不建孤儿 exec 条目）
+      const exec = applyWriteExecStatusToDoc(doc, params.nodeId, params.exec);
+      return { data, execWritten: exec.written };
     }, { mode: 'write' });
   }
 }
