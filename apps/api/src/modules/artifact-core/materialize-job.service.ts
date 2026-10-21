@@ -57,8 +57,10 @@ import { ffprobePath } from '../media-process/media-process.service';
 // ── poller/claim 参数（对齐 probe 分型批纪律：视频大对象批 1 串行） ──
 export const MATERIALIZE_POLL_INTERVAL_MS = 10_000;
 export const MATERIALIZE_BATCH = 1;
-/** lease=下载 8min+ffprobe 15s+上传/收尾余量（1GB 级视频单行串行）。 */
-export const MATERIALIZE_LEASE_MS = 10 * 60_000;
+/** lease=下载 8min+ffprobe 15s+上传/收尾余量（评审#6：10min 对 8min 下载超时余量过紧——20min）。
+ *  lease 只承担「僵尸 worker 接管等待」语义：过期即新代可 claim，不阻塞正常路径（写回按 lease 值
+ *  CAS 非新鲜度——过期未接管仍可完成/终态）。 */
+export const MATERIALIZE_LEASE_MS = 20 * 60_000;
 export const MATERIALIZE_FETCH_TIMEOUT_MS = 8 * 60_000;
 /** 瞬态失败重试上界（源过期/网络族——耗尽即终态：幂等补偿退款+failed）。 */
 export const MATERIALIZE_MAX_ATTEMPTS = 5;
@@ -216,7 +218,10 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
       // provider 声明 video 但字节 sniff 非视频（错误页/HTML 200 等）——重试不可救：permanent
       throw new MaterializeFailure('mismatch', true, `provider 声明 ${row.mimeType} 但内容 sniff=${sniffed}（非视频字节）`);
     }
-    const mimeType = sniffed ?? fetched.contentType ?? row.mimeType ?? 'video/mp4';
+    // 评审#5：sniff 不可判（null）时优先 provider 声明的 video/* 档（row.mimeType），再回落响应
+    // Content-Type——防 octet-stream 之类响应头被持久化为行 MIME（content 端点 Content-Type 源）。
+    const declaredVideo = row.mimeType && row.mimeType.startsWith('video/') ? row.mimeType : null;
+    const mimeType = sniffed ?? declaredVideo ?? fetched.contentType ?? row.mimeType ?? 'video/mp4';
     const natural = await this.probeNatural(fetched.buffer);   // 复用同一次下载（spec :45 P1）
     const sha256 = createHash('sha256').update(fetched.buffer).digest('hex');
     const key = `${row.key}-${sha256}`;                        // 预分配 base+content-addressed 后缀（image 系同构）
@@ -384,11 +389,12 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
           processingLeaseUntil: null,
         },
       }).catch((e) => {
-        this.logger.warn(`materialize 退避写回失败 mediaId=${row.id}（lease 过期自愈重试）: ${e}`);
-        return { count: 0 };
+        // 评审#4：基础设施错误≠fenced（0 行）——分日志；行留 processing+本代 lease，lease 过期自愈重试
+        this.logger.warn(`[materialize] mediaId=${row.id} 退避写回基础设施错误（行留 processing+本代 lease——lease 过期自愈重试）: ${e}`);
+        return { count: -1 };
       });
       if (count !== 1) {
-        this.logger.warn(`[materialize] mediaId=${row.id} 退避写回 0 行（本代 lease 已被新代接管/他方终态）——fenced 放弃写回`);
+        if (count === 0) this.logger.warn(`[materialize] mediaId=${row.id} 退避写回 0 行（本代 lease 已被新代接管/他方终态）——fenced 放弃写回`);
         return 'fenced';
       }
       this.logger.warn(`[materialize] mediaId=${row.id} 第 ${attempts}/${MATERIALIZE_MAX_ATTEMPTS} 次失败（${failure.kind} 瞬态）: ${failure.message}`);
@@ -401,12 +407,13 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
   /** 终态失败三步（序=资金正确性优先，见类头注）：⓪lease 失守前置读检（P2-②——旧代失守即放弃，
    *  不发退款不置 failed；TOCTOU 残窗由 markFailed 事务内 lease CAS 拦截+退款 CAS 幂等兜底）
    *  ①幂等补偿退款（rollbackDeliveryFailed——CAS SUCCEEDED→VOIDED+refund 台账，重跑恰一次；
-   *  reason 同步落 intent.error〔schema :1065 error String?〕——fact payload 的 error 字段同源）
+   *  reason 同步落 intent.error〔schema :1065 error String?〕——fact payload 的 error 字段同源；
+   *  **抛错=立即放弃终态+释放本代 lease**〔Critical#1〕——行留 processing 重 claim 重走终态）
    *  ②单事务 Media failed（status∧本代 lease CAS）+failed fact（payload 携带 errorCode——P1：
    *  durable 事实流=T16 pendingFacts 消费的 UI 真实通道）+NodeArtifact materializing→failed（不清
    *  mediaId）③Sentry 告警+emitNodeStatus（**worker 进程=WorkerEmitPort 计数 no-op——双进程拓扑
    *  下到不了客户端**；保留供 api-role/单进程形态——真实 UI 通道=②的 failed fact）。
-   *  返回 marked=false=终态写回 0 行（lease 失守∨他方已终态）——调用方按 fenced 语义收敛。 */
+   *  返回 marked=false=终态未达（lease 失守∨他方已终态∨退款抛错放弃）——调用方按 fenced 语义收敛。 */
   private async terminate(row: Media, attempts: number, failure: MaterializeFailure): Promise<boolean> {
     const reason = `MATERIALIZE_FAILED(${failure.kind}): ${failure.message}`.slice(0, 500);
     // ⓪ lease 失守前置读检：status/lease 与本代快照不符 → 旧代放弃（新代在飞不退款不终结）
@@ -419,12 +426,24 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
       this.logger.warn(`[materialize] mediaId=${row.id} 终态前 lease 失守（新代接管/他方终态）——放弃退款与终态写回`);
       return false;
     }
+    // ① 幂等补偿退款（rollbackDeliveryFailed——CAS SUCCEEDED→VOIDED+refund 台账，重跑恰一次；
+    //    reason 同步落 intent.error〔schema :1065 error String?〕——fact payload 的 error 字段同源）。
+    //    **Critical#1：抛错（lock_timeout/死锁/池超时瞬态）≠返回 false（CAS 未命中=先前已退/不适用）
+    //    ——抛错必须立即放弃终态**：若仍置 failed ⇒ intent 永留 SUCCEEDED、failed 行永不再 claim、
+    //    全仓无「SUCCEEDED∧failed Media」重扫 ⇒ 用户付了钱退款永不发生。放弃路径=best-effort 释放
+    //    本代 lease（下轮 claim 即重试，不等 lease 自然过期）+行保持 processing。
+    let refunded = false;
     if (row.sourceIntentRowId) {
-      const refunded = await this.teamCredit.rollbackDeliveryFailed(row.sourceIntentRowId, reason)
-        .catch((e) => {
-          this.logger.error(`[materialize] mediaId=${row.id} 补偿退款失败（行仍 processing——重 claim 自愈重试退款）: ${e}`);
-          return false;
-        });
+      try {
+        refunded = await this.teamCredit.rollbackDeliveryFailed(row.sourceIntentRowId, reason);
+      } catch (e) {
+        this.logger.error(`[materialize] mediaId=${row.id} 补偿退款抛错（终态放弃——行留 processing 重 claim 重走终态，退款 CAS 幂等恰一次）: ${e}`);
+        await this.prisma.media.updateMany({
+          where: { id: row.id, status: 'processing', processingLeaseUntil: row.processingLeaseUntil },
+          data: { processingLeaseUntil: null, nextMaterializeAt: null },
+        }).catch((releaseErr) => this.logger.warn(`[materialize] mediaId=${row.id} 退款抛错后 lease 释放失败（lease 自然过期自愈）: ${releaseErr}`));
+        return false;
+      }
       if (refunded) materializeRefundTotal.inc();
     }
     let emitTarget = null as { projectId: string; nodeId: string } | null;   // 闭包内赋值——显式宽化标注（TS 流分析不跟踪）
@@ -483,17 +502,23 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
       this.logger.error(`[materialize] mediaId=${row.id} 终态标记事务失败（行仍 processing——重 claim 自愈）: ${e}`);
       return false;
     });
-    // 告警（不落人工工单——spec 裁决①「终态失败→幂等补偿退款+artifactState=failed+告警」）：
-    // Sentry=运维告警面恒达；emitNodeStatus=**worker 进程计数 no-op**（WorkerEmitPort——双进程拓扑
-    // 下到不了客户端，保留供 api-role/单进程形态）；UI 真实通道=上方 failed fact 的 errorCode。
-    Sentry.captureException(new Error(`materialize 终态失败 mediaId=${row.id} intent=${row.sourceIntentRowId ?? '-'}: ${reason}`));
-    this.logger.error(`[materialize] mediaId=${row.id} 终态失败（attempts=${attempts} ${failure.kind}）——补偿退款已发+artifactState=failed+failed fact(errorCode): ${failure.message}`);
-    if (marked && emitTarget) {
-      this.emit.emitNodeStatus(emitTarget.projectId, {
-        nodeId: emitTarget.nodeId,
-        status: 'error',
-        error: `MATERIALIZE_FAILED: ${failure.message.slice(0, 180)}`,
-      });
+    // ③ 告警（不落人工工单——spec 裁决①「终态失败→幂等补偿退款+artifactState=failed+告警」）：
+    // 评审#2：告警面移入 marked 分支+文案按 refunded 区分（fenced=warn 降级；退款 CAS 未命中=先前
+    // 已退/不适用——非「本轮已发」）。Sentry=运维告警面恒达；emitNodeStatus=**worker 进程计数
+    // no-op**（WorkerEmitPort——双进程拓扑下到不了客户端，保留供 api-role/单进程形态）；UI 真实
+    // 通道=上方 failed fact 的 errorCode。
+    if (marked) {
+      Sentry.captureException(new Error(`materialize 终态失败 mediaId=${row.id} intent=${row.sourceIntentRowId ?? '-'} 退款=${refunded ? '本轮已发' : '先前已发/不适用'}: ${reason}`));
+      this.logger.error(`[materialize] mediaId=${row.id} 终态失败（attempts=${attempts} ${failure.kind}）——artifactState=failed+failed fact(errorCode)；补偿退款=${refunded ? '本轮已发' : '先前已发/不适用（CAS 未命中）'}: ${failure.message}`);
+      if (emitTarget) {
+        this.emit.emitNodeStatus(emitTarget.projectId, {
+          nodeId: emitTarget.nodeId,
+          status: 'error',
+          error: `MATERIALIZE_FAILED: ${failure.message.slice(0, 180)}`,
+        });
+      }
+    } else {
+      this.logger.warn(`[materialize] mediaId=${row.id} 终态写回 0 行（lease 失守/他方已终态）——fenced：不告警不 emit`);
     }
     return marked;
   }

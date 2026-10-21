@@ -14,7 +14,7 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
   beforeEach(() => {
     prisma = { videoProject: { findUnique: vi.fn() } };
     // insertNode/removeNode 已随信箱删除——mock 不提供（regenerate 误用即红）；
-    // writeNodeData 提供并断言零调用：产物落地（fileId/result 写真实节点）由 execute→ai-download 既有链承载
+    // writeNodeData 提供并断言零调用：产物落地（fileId/result 写真实节点）由 execute→artifactCommit 既有链承载
     collab = { readCanvas: vi.fn(), isLeaseServing: vi.fn(() => true), writeNodeData: vi.fn() }; // Y0a-3 T8 语义读门——默认放行
     execution = { execute: vi.fn().mockResolvedValue({ success: true, results: [{ nodeId: 'src1', type: 'video', resultUrl: 'https://x/v.mp4' }] }) };
     svc = new VideoProjectService(prisma, perm as any, collab as any, execution as any, quota as any);
@@ -30,7 +30,7 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
     // retakeId 作 intentId 透传 execute 且目标为唯一 exec 节点（nodeIds 单元素）——intentId 归属目标自身，
     // 幂等裁决在 claim 层（同 retakeId 重放 SUCCEEDED → 零外呼零扣费）
     expect(execution.execute).toHaveBeenCalledWith('w1', undefined, 'u1', ['src1'], 'rtk-1');
-    expect(collab.writeNodeData).not.toHaveBeenCalled(); // Media.create/writeNodeData(fileId) 由 execute→ai-download 落真实节点，服务层不重复落地（防双 Media 行）
+    expect(collab.writeNodeData).not.toHaveBeenCalled(); // Media 行/writeNodeData(fileId) 由 execute→artifactCommit（T12 video=finalizeVideo+MaterializeJob）落真实节点，服务层不重复落地（防双 Media 行）
     // result 原样透传（success=false 早失败语义维持——web 侧 initial 契约）
     expect(r).toEqual({
       retakeId: 'rtk-1',

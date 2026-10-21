@@ -334,4 +334,37 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     expect((await prisma.generationIntent.findUnique({ where: { id: s2.intentId } }))!.status).toBe('SUCCEEDED');
     expect((await anchoredArtifact(s2))!.state).toBe('materializing');        // 不被旧代终结
   });
+
+  it('Critical#1：退款抛错（瞬态 lock_timeout 族）→ 终态放弃（行留 processing 未置 failed 零 emit）；重 claim 重走终态 → 退款恰一次+failed 收敛', async () => {
+    const s = await seedMaterializing();
+    await prisma.media.update({ where: { id: s.mediaId }, data: { processingAttempts: MATERIALIZE_MAX_ATTEMPTS - 1 } });
+    fakeFetch.fetchBuffer.mockReset();
+    fakeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch HTTP 410'));
+    fakeEmit.emitNodeStatus.mockClear();
+    // 第一轮：退款抛错（模拟 lock_timeout/死锁/池超时瞬态）——终态必须放弃
+    const rollbackSpy = vi.spyOn(teamCredit, 'rollbackDeliveryFailed').mockRejectedValueOnce(new Error('db lock timeout'));
+    const c1 = await job.claim();
+    const r1 = await job.materializeRow(c1.find((row: Media) => row.id === s.mediaId)!);
+    expect(r1).toBe('fenced');   // 旧红：现状 catch 吞错继续置 failed → 'terminal'（退款永不发生面）
+    const m1 = await prisma.media.findUnique({ where: { id: s.mediaId } });
+    expect(m1!.status).toBe('processing');                                  // 不置 failed（置了=failed 行永不再 claim→退款永不发生）
+    expect(m1!.processingLeaseUntil).toBeNull();                            // 本代已释放（best-effort）——下轮 claim 即重试
+    expect(fakeEmit.emitNodeStatus).not.toHaveBeenCalled();                 // 未终态零 emit
+    expect(await ledgerRows(s.intentId, 'refund')).toHaveLength(0);
+    expect((await prisma.generationIntent.findUnique({ where: { id: s.intentId } }))!.status).toBe('SUCCEEDED');
+    rollbackSpy.mockRestore();
+    // 第二轮：重 claim（lease 已释放）→ 同瞬态失败 → attempts 仍达 MAX → 终态重走：退款成功恰一次+收敛
+    const c2 = await job.claim();
+    expect(c2.some((row: Media) => row.id === s.mediaId)).toBe(true);
+    const r2 = await job.materializeRow(c2.find((row: Media) => row.id === s.mediaId)!);
+    expect(r2).toBe('terminal');
+    expect(await ledgerRows(s.intentId, 'refund')).toHaveLength(1);   // 退款恰一次（重试收敛）
+    expect((await prisma.generationIntent.findUnique({ where: { id: s.intentId } }))!.status).toBe('VOIDED');
+    expect((await prisma.media.findUnique({ where: { id: s.mediaId } }))!.status).toBe('failed');
+    expect((await anchoredArtifact(s))!.state).toBe('failed');
+    const failedFact = await prisma.mediaFactOutbox.findFirst({
+      where: { mediaId: s.mediaId, factType: 'state' }, orderBy: { factVersion: 'desc' },
+    });
+    expect((failedFact!.payload as any).errorCode).toBe('MATERIALIZE_FAILED');
+  });
 });
