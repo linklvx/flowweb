@@ -76,6 +76,14 @@ export const pollUnknownStatusTotal = new Counter({
   registers: [register],
 });
 
+/** Y1a T9（v11.1③）：第三档 provider（无幂等键且不可查询）submit 后崩溃窗禁自动重投——重投被拦
+ *  转人工裁决的计数（非 0=有意图处 ambiguous 态待人工核实 provider 后台；当前矩阵零第三档=恒 0 观测位）。 */
+export const providerRedriveBlockedTotal = new Counter({
+  name: 'provider_redrive_blocked_total',
+  help: 'Y1a T9：第三档 provider（无幂等键且不可查询）崩溃窗自动重投被拦计数（禁自动重投——人工裁决路径，本地状态无法单方面保证外部 exactly-once）',
+  registers: [register],
+});
+
 /** Z111：writeExecStatus 守卫 fail-closed 丢弃计数——缺 attempts（违约 patch）/严格更老一律丢
  *  （不看终态——老代 error(1) 不得覆盖新代 loading(2)）；Y0c T11 起 cause=node-deleted（存在性守卫）
  *  同事件并入。非 0=有投影被拦（观测代次违约面+守卫丢弃全集）。 */

@@ -1063,6 +1063,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - ledger_balance_drift_total
 - ledger_frozen_drift_total
 - ledger_orphan_unreleasable_total
+- provider_redrive_blocked_total
 - yjs_compact_abandoned_total
 - yjs_compact_deleted_rows
 - yjs_compact_duration_seconds

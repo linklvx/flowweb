@@ -30,7 +30,7 @@ const validation = new ValidationService(prisma as unknown as PrismaService, res
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
-const intentService = new GenerationIntentService(prisma as unknown as PrismaService);
+const intentService = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit);
 
 // 夹具登记（afterAll 清理——id 全部后缀化防上轮失败残留自撞，ledger-invariants.int.spec 同纪律）
 const g1 = { userIds: [] as string[], teamIds: [] as string[], projectIds: [] as string[] };

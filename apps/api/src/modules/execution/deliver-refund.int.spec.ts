@@ -33,7 +33,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
-const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService);
+const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit); // T9：注入资金面（rearm/takeover 事务内 voidInTx）
 
 /** reconcile 装置：collabDoc stub 可编程（probeArtifacts/isDocResident/writeExecStatus 记录器）。 */
 const makeReconcile = (collabDoc: any) => new IntentReconcileService(
@@ -109,7 +109,7 @@ const agePastGrace = async (id: string) =>
   it('Z92 竞态封死：complete→settle 之后 rollbackRunning → CAS=0；行仍 SUCCEEDED、无 refund 行（改前红：无三入口）', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
-    expect(await intentSvc.complete(intent.id, 'http://r/1.png')).toBe(1); // complete 先行（SUCCEEDED）
+    expect(await intentSvc.complete(intent.id, 'http://r/1.png', intent.execSeq)).toBe(1); // complete 先行（SUCCEEDED）
     expect((await teamCredit.settle({ intentRowId: intent.id })).success).toBe(true); // 已核销（真实链序 complete→settle）
     const rolled = await teamCredit.rollbackRunning(intent.id, '迟归 reaper', new Date(Date.now() + 60_000));
     expect(rolled).toBe(false); // CAS 严格 RUNNING——SUCCEEDED 行拒收（Z92：退款后仍交付结构性关闭）
@@ -150,7 +150,7 @@ const agePastGrace = async (id: string) =>
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
     expect(await teamCredit.rollbackRunning(intent.id, '先手 reaper', new Date(Date.now() + 60_000))).toBe(true);
-    expect(await intentSvc.complete(intent.id, 'http://late.png')).toBe(0); // 迟归 complete 零命中
+    expect(await intentSvc.complete(intent.id, 'http://late.png', intent.execSeq)).toBe(0); // 迟归 complete 零命中
     expect(await status(intent.id)).toBe('VOIDED');
   });
 
@@ -178,7 +178,7 @@ const agePastGrace = async (id: string) =>
   it('Z76 套利防回归：SUCCEEDED∧consumed>0∧reservedCredits=0 超窗 → settleStranded 不退款', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://ok/1.png');
+    await intentSvc.complete(intent.id, 'http://ok/1.png', intent.execSeq);
     await teamCredit.settle({ intentRowId: intent.id }); // 正常链终点：SUCCEEDED∧consumed>0∧reserved=0
     await agePastGrace(intent.id);
     await makeReconcile({ probeArtifacts: async () => [] }).verifyActive();
@@ -189,7 +189,7 @@ const agePastGrace = async (id: string) =>
   it('Z76/Z102 真悬留：SUCCEEDED∧reservedCredits>0∧超窗∧doc 无产物 → rollbackStranded ⇒ VOIDED+两金额归零+release 行（改前红=恒补 settle 白扣）', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://crash.png'); // settle 失败崩溃窗——SUCCEEDED∧冻结在
+    await intentSvc.complete(intent.id, 'http://crash.png', intent.execSeq); // settle 失败崩溃窗——SUCCEEDED∧冻结在
     await agePastGrace(intent.id);
     const probeArtifacts = vi.fn(async () => [{ nodeId: intent.nodeId, kind: intent.kind, found: false }]);
     await makeReconcile({ probeArtifacts }).verifyActive();
@@ -205,7 +205,7 @@ const agePastGrace = async (id: string) =>
   it('Z102 三分支表驱动①：SUCCEEDED∧有产物 ⇒ 补 settle 非 refund', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://ok/2.png');
+    await intentSvc.complete(intent.id, 'http://ok/2.png', intent.execSeq);
     await agePastGrace(intent.id);
     await makeReconcile({
       probeArtifacts: async () => [{ nodeId: intent.nodeId, kind: intent.kind, found: true }],
@@ -234,7 +234,7 @@ const agePastGrace = async (id: string) =>
   it('探针失败=不知道≠无产物：SUCCEEDED∧reserved>0∧超窗∧probe 503 → 本轮跳过（不退款不补 settle）', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://unknown.png');
+    await intentSvc.complete(intent.id, 'http://unknown.png', intent.execSeq);
     await agePastGrace(intent.id);
     await makeReconcile({
       probeArtifacts: async () => { throw new Error('503 collab not serving'); },
@@ -247,7 +247,7 @@ const agePastGrace = async (id: string) =>
   it('第三不变量：人工 VOIDED∧creditsConsumed>0 无 refund 行 → drift 计数（Z102）', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id });
-    await intentSvc.complete(intent.id, 'http://ok/3.png');
+    await intentSvc.complete(intent.id, 'http://ok/3.png', intent.execSeq);
     await teamCredit.settle({ intentRowId: intent.id });
     await prisma.generationIntent.update({ where: { id: intent.id }, data: { status: 'VOIDED' } }); // 人工漂移（无 refund 行）
     const before = totalOf(balanceDriftTotal);
@@ -359,7 +359,8 @@ const agePastGrace = async (id: string) =>
         taskType: 'lighting' as const, userId: UID, nodeId, projectId,
         taskId: task.id, originalImageId: media.id,
         params: { position: { x: 0, y: 0, z: 6 }, brightness: 50, colorTemperature: 5600, rimLight: false },
-        intentRowId: intent.id, intentId: intent.intentId,
+        intentRowId: intent.id,
+        ticket: { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: `job-l-${Date.now()}` }, // T9：代际票随 job.data
       },
     };
     const result = await processor.process(job as any);

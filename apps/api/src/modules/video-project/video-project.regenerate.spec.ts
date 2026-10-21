@@ -117,15 +117,18 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       claim: vi.fn(async (input: any) => {
         const key = `${input.nodeId}:${input.intentId}`;
         if (succeeded.has(key)) {
-          return { created: false, intent: { id: `row:${key}`, intentId: input.intentId, status: 'SUCCEEDED', resultRef: succeeded.get(key) } };
+          return { created: false, result: 'replay', intent: { id: `row:${key}`, intentId: input.intentId, execSeq: 1n, attempts: 1, status: 'SUCCEEDED', resultRef: succeeded.get(key) } };
         }
-        return { created: true, intent: { id: `row:${key}`, intentId: input.intentId } };
+        return { created: true, result: 'new', intent: { id: `row:${key}`, intentId: input.intentId, execSeq: 1n, attempts: 1, providerTaskId: null } };
       }),
       complete: vi.fn(async (rowId: string, resultRef: string) => { succeeded.set(rowId.slice('row:'.length), resultRef); return 1; }),
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
-      reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+      reanchorDeadline: vi.fn().mockResolvedValue(1), // Y0b-2 T4：外呼前重锚（T9 count 形态）
       touchHeartbeat: vi.fn().mockResolvedValue(undefined),
+      ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+      recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
+      tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
     const execSvc: any = new (ExecutionService as any)(
       prisma, topology, validation, apiCaller, teamCredit, perm, collab, docWriterStubOf(collab), gateway, downloadQueue, intentService,

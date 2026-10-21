@@ -37,12 +37,16 @@ export interface ExecutionResult {
   totalCost: number;
 }
 
-/** 单节点外呼特化腿（NodeExecutor 表项）产出：complete 锚+doc 产物键+结果行+下载队列投递。 */
+/** 单节点外呼特化腿（NodeExecutor 表项）产出：complete 锚+doc 产物键+结果行+下载队列投递。
+ *  Y1a T9：call 第二参=provider 锚束（write-ahead 幂等键+query-first resumeTaskId+taskId 落库回调）。 */
 interface NodeCallOutcome {
   kind: string;                            // reanchor deadline 档表键（intent-key.util deadlineMsForKind）
   callArgs: Record<string, unknown>;       // claim paramsHash 规范化输入（身份形态——Y1a T8：上游身份字段
                                            // imageMediaId 族进哈希；外呼 URL 在 call 腿解析、不进哈希）
-  call: (onTick: () => Promise<'abort' | void>) => Promise<{ resultRef: string; artifact: Record<string, unknown>; resultRow?: ExecutionResult['results'][number]; fileId?: string; downloadMime?: string }>;
+  call: (
+    onTick: () => Promise<'abort' | void>,
+    provider: { resumeTaskId: string | null; idempotencyKey: string | null; onProviderTaskId: (taskId: string) => Promise<void> | void },
+  ) => Promise<{ resultRef: string; artifact: Record<string, unknown>; resultRow?: ExecutionResult['results'][number]; fileId?: string; downloadMime?: string }>;
 }
 
 /** Y0b-2 T8（Z90）：node.type→deadline 档表键——nodeClaimPack kind 分支的单源投影（新增类型两处同步）。
@@ -79,17 +83,11 @@ export class ExecutionService {
     return bal ? { credits: bal.credits, subscriptionCredits: bal.subscriptionCredits, total: bal.total } : undefined;
   }
 
-  /** Y0b-2 T4：onTick 双职回调（Z69）——pollLoop 每 tick ①touchHeartbeat 续生命线
-   *  （heartbeatAt>=deadlineAt ⇒ reaper deadline 批不收：轮询活着）②读意图状态：
-   *  reaper 已收敛（VOIDED/FAILED）⇒ 'abort' 停外呼（资金已退，外呼产物留作废）。 */
-  private intentOnTick(intentRowId: string) {
-    return async (): Promise<'abort' | void> => {
-      await this.intentService.touchHeartbeat(intentRowId);
-      const row = await this.prisma.generationIntent.findUnique({
-        where: { id: intentRowId }, select: { status: true },
-      });
-      if (row && row.status !== 'RUNNING') return 'abort';
-    };
+  /** Y0b-2 T4→Y1a T9：onTick 双职回调（Z69）——pollLoop 每 tick 经 tickFence 单源：
+   *  ①touchHeartbeat 续生命线（代际 CAS）②读 {status,execSeq}——reaper 已收敛（终态）或
+   *  execSeq 换代（旧代 worker——takeover/rearm 后新代接管）⇒ 'abort' 停外呼（省 provider 轮询白烧钱）。 */
+  private intentOnTick(intentRowId: string, execSeq: bigint) {
+    return async (): Promise<'abort' | void> => this.intentService.tickFence(intentRowId, execSeq);
   }
 
   /** 批0.5-6：意图 claim 前置（外呼之前）。kind/params = 各分支实读外呼参数——
@@ -127,7 +125,7 @@ export class ExecutionService {
   /** 批0.5-9 reserve 失败三连：意图置 VOIDED（零扣费终态——重试照常扣费，与 FAILED 分义不混：
    *  FAILED=外呼失败且冻结已退；VOIDED=从未扣费）+ WS error + exec map error（best-effort）。 */
   private async onReserveFail(projectId: string, node: any, intent: any, msg: string, errorCode: string) {
-    await this.intentService.void_(intent.id, msg);
+    await this.intentService.void_(intent.id, msg, intent.execSeq);
     this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
     await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, msg, intent.attempts ?? 0, (intent.attempts ?? 0) < 3, intent.intentId)).catch(countExecProjectionFailure);
   }
@@ -289,7 +287,17 @@ export class ExecutionService {
 
       // ── claim（外呼实参白名单规范化——paramsHash 身份形态输入；Y1a T8 上游注入读 NodeArtifact PG）──
       const claimPack = await this.nodeClaimPack(projectId, node, ctx);
-      const { intent, created } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
+      const { intent, created, result: claimResult } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
+      if (claimResult === 'same-job-alive') {
+        // T9 同 job 重入态①（spec ㉒）：旧 worker 心跳新鲜在飞——本重排 worker 静默让位（零终态零
+        // emit——交付归旧 worker；skipped 投影非终态=可观测面，Z88 在飞段 done 照常覆盖）；
+        // errors 携 skipped 交 processor moveToDelayed 不 ack（return=completed 即「旧 worker 真死
+        // 零交付」悬挂——结构性修复的信号位）。
+        const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
+        await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_SAME_JOB_ALIVE', attempts, intentId: intent.intentId }).catch(countExecProjectionFailure);
+        errors.push({ nodeId: node.id, status: 'skipped', error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' });
+        return;
+      }
       if (!created) {
         // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
         // Y0b-2 T6（T5 Minor#5 补投影）：回放路径补 done 终态投影+node data——改前只 emit，
@@ -322,9 +330,9 @@ export class ExecutionService {
       const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
       await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }).catch(countExecProjectionFailure); // best-effort
 
-      // ── reserve（外呼之前——余额不足即拒=零外呼零沉没）──
+      // ── reserve（外呼之前——余额不足即拒=零外呼零沉没；T9 execSeq 票——换代行 mayCall:false 静默退役）──
       if (cost > 0) {
-        const reserveResult = await this.teamCredit.reserve(userId, { intentRowId: intent.id });
+        const reserveResult = await this.teamCredit.reserve(userId, { intentRowId: intent.id, execSeq: intent.execSeq });
         if (reserveResult.mayCall === false) {
           // Z35：alreadyReserved=他人在飞（stall 重排）——静默退出（不 void_/不 fail/不 emit）；
           // 投影 skipped 非终态（Z88）——在飞 worker 的 done 照常落地
@@ -343,18 +351,31 @@ export class ExecutionService {
         }
       }
 
-      // ── 外呼前重锚（A-2：count===0=行已终态——Z84 宽限后 VOID 的迟归 job 早退不再 submit）──
-      const reanchored = await this.intentService.reanchorDeadline(intent.id, claimPack.kind);
+      // ── 外呼前重锚（A-2：count===0=行已终态**或已换代**——Z84 宽限后 VOID 的迟归 job 早退不再 submit）──
+      const reanchored = await this.intentService.reanchorDeadline(intent.id, claimPack.kind, intent.execSeq);
       if (reanchored === 0) {
-        this.logger.warn(`[reanchor] 意图 ${intent.intentId} 行已终态（迟归 job）——早退零外呼（终态投影归 reaper）`);
+        this.logger.warn(`[reanchor] 意图 ${intent.intentId} 行已终态/换代（迟归 job）——早退零外呼（终态投影归 reaper）`);
         return;
       }
 
-      // ── 外呼（text 链单次 fetch 无轮询；image/video onTick 双职=心跳续命+reaper 收敛即 abort）──
-      const outcome = await claimPack.call(this.intentOnTick(intent.id));
+      // ── T9 provider 锚（write-ahead+query-first）：submit-poll 类 submit 前落库幂等键（消灭 submit→DB
+      //    崩溃窗）+携行内既有 providerTaskId 为 resumeTaskId（命中即按任务直查零重复 submit——Z83 链）；
+      //    text=openai-chat 同步单次无任务锚（能力矩阵显式标注不可 query-first）零锚直呼。 ──
+      let idempotencyKey: string | null = null;
+      if (claimPack.kind !== 'text') {
+        idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
+      }
 
-      // ── complete CAS（F13 产物门序：看到产物 ⇒ 意图仍有效——count===1 才投递）──
-      const gated = await this.intentService.complete(intent.id, outcome.resultRef);
+      // ── 外呼（text 链单次 fetch 无轮询；image/video onTick 双职=心跳续命+代际/终态即 abort）──
+      const outcome = await claimPack.call(this.intentOnTick(intent.id, intent.execSeq), {
+        resumeTaskId: intent.providerTaskId ?? null,
+        idempotencyKey,
+        onProviderTaskId: (taskId) => this.intentService.recordProviderTaskId(intent.id, intent.execSeq, taskId),
+      });
+
+      // ── complete CAS（F13 产物门序：看到产物 ⇒ 意图仍有效——count===1 才投递；T9 代际 CAS：
+      //    count===0 亦含「已被接管换代」——旧代产物不投递，交付归新代〔resume 零重复外呼取同一任务〕）──
+      const gated = await this.intentService.complete(intent.id, outcome.resultRef, intent.execSeq);
       if (gated !== 1) {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED——跳过产物写入（外呼产物留作物证）`);
@@ -364,9 +385,10 @@ export class ExecutionService {
         return;
       }
 
-      // ── settle（complete→settle→deliver 序：冻结转实扣；失败计数+产物照发——对账第四分支兜底）──
+      // ── settle（complete→settle→deliver 序：冻结转实扣；失败计数+产物照发——对账第四分支兜底；
+      //    T9 execSeq 票——旧代结算 0 命中不得核销新代冻结）──
       if (cost > 0) {
-        const settled = await this.teamCredit.settle({ intentRowId: intent.id });
+        const settled = await this.teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });
         if (settled.success) onDeducted(cost); // P8：已消费才计入——totalCost=实扣真值（冻结≠消费）
         else { settleFailureTotal.inc(); this.logger.warn(`[reserve-settle] 意图 ${intent.intentId} settle 失败（对账第四分支兜底——产物照发）`); }
       }
@@ -424,9 +446,16 @@ export class ExecutionService {
       // 识别 ⇒ rollbackDeliveryFailed（CAS SUCCEEDED→退款 VOIDED——与 written:false 同入口语义）。
       if (claimed) {
         const row = await this.prisma.generationIntent.findUnique({
-          where: { id: claimed.id }, select: { status: true },
+          where: { id: claimed.id }, select: { status: true, execSeq: true },
         }).catch(() => null);
         const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
+        if (row?.status === 'RUNNING' && row.execSeq !== claimed.execSeq) {
+          // T9 旧代退役（spec ㉒态②接管后的旧 worker 迟归）：行已换代（takeover/rearm nextval）——
+          // 新代 worker 全权。静默退出：零终态（fail/void_ 代际 CAS 亦 0 命中）零投影零 emit
+          // （旧代 error 投影会覆盖新代 loading——attempts 不随换代变，doc 守卫拦不住，唯一防=此处让位）。
+          this.logger.warn(`[execSeq-fence] 意图 ${claimed.intentId} 旧代 worker 失败让位（行已换代）——零副作用退役`);
+          return;
+        }
         if (row?.status === 'SUCCEEDED') {
           const msg = '生成成功但交付失败（已退款）——请重试';
           const rolled = await this.teamCredit.rollbackDeliveryFailed(claimed.id, '交付失败：settle 后交付抛错')
@@ -437,9 +466,9 @@ export class ExecutionService {
           errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELIVERY_FAILED' });
           return;
         }
-        await this.teamCredit.void_({ intentRowId: claimed.id })
+        await this.teamCredit.void_({ intentRowId: claimed.id, execSeq: claimed.execSeq })
           .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${claimed.intentId} void_ 解冻失败（reconcile 超龄兜底）: ${e}`));
-        await this.intentService.fail(claimed.id, String(err));
+        await this.intentService.fail(claimed.id, String(err), undefined, claimed.execSeq);
       }
       const attempts: number = typeof claimed?.attempts === 'number' ? claimed.attempts : 0;
       if (err instanceof NodeBusyError) {
@@ -487,7 +516,7 @@ export class ExecutionService {
         kind: 'text',
         callArgs,
         call: async () => {
-          // text 链单次 fetch 无轮询无 onTick——重锚即外呼前唯一心跳写点
+          // text 链单次 fetch 无轮询无 onTick（能力矩阵：openai-chat 同步——不可 query-first 零 provider 锚）
           const textResult = await this.apiCaller.callTextGen(callArgs);
           return {
             resultRef: `text:${String(textResult.content).slice(0, 100)}`, // 无 Media/URL 锚点——观测用占位
@@ -520,7 +549,7 @@ export class ExecutionService {
       return {
         kind: 'video',
         callArgs,
-        call: async (onTick) => {
+        call: async (onTick, provider) => {
           const result = await this.apiCaller.callVideoGen({
             ...callArgs,
             imageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.imageMediaId),
@@ -531,6 +560,10 @@ export class ExecutionService {
                   .filter((u): u is string => !!u)
               : undefined,
             onTick,
+            // T9 query-first/write-ahead：resumeTaskId 命中零重发；submit 携幂等键；taskId submit 后落库
+            resumeTaskId: provider.resumeTaskId,
+            idempotencyKey: provider.idempotencyKey,
+            onProviderTaskId: provider.onProviderTaskId,
           });
           return {
             resultRef: result.url, // video 产物锚点 = videoUrl（writeNodeData 所写产物字段值）
@@ -556,8 +589,16 @@ export class ExecutionService {
       return {
         kind: 'image',
         callArgs,
-        call: async (onTick) => {
-          const result = await this.apiCaller.callImageGen({ ...callArgs, imageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.imageMediaId), onTick });
+        call: async (onTick, provider) => {
+          const result = await this.apiCaller.callImageGen({
+            ...callArgs,
+            imageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.imageMediaId),
+            onTick,
+            // T9 query-first/write-ahead（同 video 腿）
+            resumeTaskId: provider.resumeTaskId,
+            idempotencyKey: provider.idempotencyKey,
+            onProviderTaskId: provider.onProviderTaskId,
+          });
           return {
             resultRef: result.url, // image 产物锚点 = resultUrl（media.create 在 ai-result-download 侧异步落地）
             artifact: { resultUrl: result.url },

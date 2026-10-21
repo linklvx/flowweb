@@ -8,7 +8,41 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { EXEC_DEFAULTS } from '../../config/env';
 import { deadlineMsForKind } from './intent-key.util';
 import { adapterFor, fakeAiEnabled, seedEnvValue, ready, ADAPTERS, type ProviderAdapter } from './provider-adapters';
-import { outboundDuration, intentDeadlineExceededTotal, pollStallTotal, pollUnknownStatusTotal } from './exec.metrics';
+import { outboundDuration, intentDeadlineExceededTotal, pollStallTotal, pollUnknownStatusTotal, providerRedriveBlockedTotal } from './exec.metrics';
+
+/** Y1a T9（v11.1③/spec ㉓）：provider 重投能力矩阵——按 adapter type 三档盘点（2026-10-21）：
+ *  - tencent-submit-poll（image/video）：无文档化幂等键；任务可查（POST /query 按 id）⇒ 第二档 queryable
+ *    ——query-first 按 taskId 复用；submit→落库崩溃窗（requestId 在/taskId 无）⇒ 重呼（外部 at-least-once
+ *    不可避免，本地资金 execSeq CAS exactly-once）。
+ *  - dashscope-submit-poll（outpaint/erase/redraw/lighting）：无幂等键；任务可查（GET /api/v1/tasks/:id）
+ *    ⇒ 第二档（同上）。
+ *  - openai-chat（text）：同步单次无任务 id ⇒ opaque——显式标注**不可 query-first**（无 submit/落库窗，
+ *    外部天然 at-least-once；资金围栏由 execSeq CAS 承担；重投语义=rearm 新段直呼）。
+ *  第三档（无幂等键且不可查询的 submit 型）当前零 provider——redriveDecision/assertRedriveAllowed 结构性
+ *  拦截未来接入：ambiguous 态禁自动重投→告警人工裁决（本地状态无法单方面保证外部 exactly-once）。 */
+export type ProviderRedriveTier = 'idempotent-queryable' | 'queryable' | 'opaque';
+export const PROVIDER_REDRIIVE_MATRIX: Record<ProviderAdapter['type'], ProviderRedriveTier> = {
+  'tencent-submit-poll': 'queryable',
+  'dashscope-submit-poll': 'queryable',
+  'openai-chat': 'opaque',
+};
+
+/** T9 重投键序决策（纯函数——requestId→taskId→重呼 的档位分派）：
+ *  hasTaskId：任务锚在——直接按任务查询复用（全档通用，taskId=provider 权威句柄）；
+ *  hasRequestId∧无 taskId（submit→落库崩溃窗）：第一档=按幂等键查询（provider 幂等键查询——当前矩阵
+ *  零第一档，接入时补键查询腿）；第二档=重呼；第三档=manual-adjudication（禁自动重投）。 */
+export function redriveDecision(
+  tier: ProviderRedriveTier,
+  state: { hasRequestId: boolean; hasTaskId: boolean },
+): 'query-by-idempotency-key' | 'query-by-task-id' | 'resubmit' | 'manual-adjudication' {
+  if (state.hasTaskId) return 'query-by-task-id';
+  if (!state.hasRequestId) return 'resubmit';
+  switch (tier) {
+    case 'idempotent-queryable': return 'query-by-idempotency-key';
+    case 'queryable': return 'resubmit';
+    case 'opaque': return 'manual-adjudication';
+  }
+}
 
 export interface ImageGenParams {
   prompt: string;
@@ -19,8 +53,15 @@ export interface ImageGenParams {
   imageUrl?: string;
   /** Y0b-2 T2：轮询每 tick 回调（双职——T4 接 touchHeartbeat/意图状态检查）；返回 'abort' 立即停轮询 */
   onTick?: PollOnTick;
-  /** submit 回传 providerTaskId（T4 接 GenerationIntent.providerTaskId 落库——reconcile 任务查询锚） */
-  onProviderTaskId?: (taskId: string) => void;
+  /** submit 回传 providerTaskId（T9 接 GenerationIntent.providerTaskId 落库——query-first 锚；await 语义
+   *  ——落库完成才进轮询，kill 窗收敛到 poll 期） */
+  onProviderTaskId?: (taskId: string) => void | Promise<void>;
+  /** T9 query-first：本段开始时已落库的 provider 任务锚——命中即按任务直查零重复 submit；
+   *  任务终态失败/丢失→重呼新任务（键序 taskId 腿耗尽） */
+  resumeTaskId?: string | null;
+  /** T9 write-ahead：幂等键（providerRequestId submit 前落库值）——随 submit 头发 provider
+   *  （X-Idempotency-Key；当前两 submit-poll 档无文档化幂等键=冗余头无害，第一档接入即激活） */
+  idempotencyKey?: string | null;
 }
 
 export interface ImageGenResult {
@@ -44,7 +85,10 @@ export interface VideoGenParams {
   duration?: string;
   audio?: boolean;
   onTick?: PollOnTick;
-  onProviderTaskId?: (taskId: string) => void;
+  onProviderTaskId?: (taskId: string) => void | Promise<void>;
+  /** T9 query-first/write-ahead（ImageGenParams 同款语义） */
+  resumeTaskId?: string | null;
+  idempotencyKey?: string | null;
 }
 
 export interface VideoGenResult {
@@ -67,7 +111,10 @@ export interface TextGenResult {
 /** 编辑链（DashScope submit-poll）可选回调束 */
 export interface EditCallOpts {
   onTick?: PollOnTick;
-  onProviderTaskId?: (taskId: string) => void;
+  onProviderTaskId?: (taskId: string) => void | Promise<void>;
+  /** T9 query-first/write-ahead（ImageGenParams 同款语义） */
+  resumeTaskId?: string | null;
+  idempotencyKey?: string | null;
 }
 
 export type PollOnTick = () => 'abort' | void | Promise<'abort' | void>;
@@ -216,13 +263,45 @@ export class ApiCallerService implements OnModuleInit {
     }
   }
 
-  /** tencent 提交（/submit）——submit 阶段预算 EXEC_SUBMIT_TIMEOUT_MS；返回 taskId */
-  private async tencentSubmit(m: OutboundModel, body: Record<string, unknown>, kind: string): Promise<string> {
+  /** T9 第三档闸门：submit 前裁决崩溃窗重投权——ambiguous（requestId 落库在/taskId 未落）且第三档
+   *  （无幂等键且不可查询）⇒ 禁自动重投（计数+显式错误——人工查 provider 后台核实后裁决）。 */
+  assertRedriveAllowed(tier: ProviderRedriveTier, hasRequestId: boolean): void {
+    if (redriveDecision(tier, { hasRequestId, hasTaskId: false }) !== 'manual-adjudication') return;
+    providerRedriveBlockedTotal.inc();
+    this.logger.error(`[redrive] 第三档 provider（${tier}）submit 后崩溃窗（requestId 在/taskId 无）——禁自动重投，转人工裁决（查 provider 后台核实是否已扣费后 rearm/退款）`);
+    throw new BusinessException(
+      'PROVIDER_REDRIVE_BLOCKED',
+      'provider 无幂等键且不可查询——submit 结果不明，禁自动重投（人工裁决：本地状态无法单方面保证外部 exactly-once）',
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  /** T9 query-first 公共腿：resumeTaskId 命中→按任务轮询复用（零重发）；任务终态失败/丢失→undefined
+   *  交调用方重呼（键序 taskId 腿耗尽）；abort/deadline/stalled→原样上抛（非本腿职责）。 */
+  private async tryResumePoll(kind: string, resumeTaskId: string, onTick: PollOnTick | undefined, poll: () => Promise<PollOutcome>): Promise<any | undefined> {
+    try {
+      return await this.pollLoop(kind, deadlineMsForKind(kind), onTick, poll);
+    } catch (err) {
+      // 重呼域=任务终态失败（pollLoop failed 臂 plain Error）或任务丢失（PROVIDER_TASK_LOST 404）；
+      // PROVIDER_POLL_ABORTED/DEADLINE/STALLED 是外呼生命周期错误——照抛交 executor 收敛
+      if (err instanceof BusinessException && err.errorCode !== 'PROVIDER_TASK_LOST') throw err;
+      this.logger.warn(`[query-first] ${kind} 复用任务 ${resumeTaskId} 已终态失败/丢失——重呼新任务（键序 taskId 腿耗尽→重呼）`);
+      return undefined;
+    }
+  }
+
+  /** tencent 提交（/submit）——submit 阶段预算 EXEC_SUBMIT_TIMEOUT_MS；返回 taskId。
+   *  T9：idempotencyKey（write-ahead 幂等键）随请求头 X-Idempotency-Key 发 provider。 */
+  private async tencentSubmit(m: OutboundModel, body: Record<string, unknown>, kind: string, idempotencyKey?: string | null): Promise<string> {
     const ms = envMs(process.env.EXEC_SUBMIT_TIMEOUT_MS, EXEC_DEFAULTS.SUBMIT);
     const res = await this.withDeadline(ms, (signal) =>
       fetch(`${m.apiUrl}/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${m.apiKey}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${m.apiKey}`,
+          ...(idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {}),
+        },
         body: JSON.stringify(body),
         signal,
       }));
@@ -337,12 +416,16 @@ export class ApiCallerService implements OnModuleInit {
     return key;
   }
 
-  private async dashscopeSubmit(path: string, body: unknown, kind: string): Promise<string> {
+  private async dashscopeSubmit(path: string, body: unknown, kind: string, idempotencyKey?: string | null): Promise<string> {
     const ms = envMs(process.env.EXEC_SUBMIT_TIMEOUT_MS, EXEC_DEFAULTS.SUBMIT);
     const res = await this.withDeadline(ms, (signal) =>
       fetch(`${this.dashscopeBaseUrl}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.dashscopeKey()}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.dashscopeKey()}`,
+          ...(idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {}),   // T9 write-ahead 幂等键头
+        },
         body: JSON.stringify(body),
         signal,
       }));
@@ -353,15 +436,25 @@ export class ApiCallerService implements OnModuleInit {
     return String(taskId);
   }
 
-  /** DashScope 编辑链 submit-poll 公共尾段（url+providerTaskId 双回传——submit-poll 类契约） */
+  /** DashScope 编辑链 submit-poll 公共尾段（url+providerTaskId 双回传——submit-poll 类契约）。
+   *  T9 query-first：resumeTaskId 命中→按任务直查零重发；终态失败/丢失→重呼；第三档崩溃窗闸门前置。 */
   private async dashscopeRun(kind: string, path: string, body: unknown, opts?: EditCallOpts): Promise<{ url: string; providerTaskId: string }> {
-    const taskId = await this.dashscopeSubmit(path, body, kind);
-    opts?.onProviderTaskId?.(taskId);
+    const extract = (json: any, taskId: string) => {
+      const results = json.output?.results ?? json.results ?? [];
+      const first = Array.isArray(results) ? results[0] : results;
+      const resultUrl = typeof first === 'string' ? first : first?.url ?? first;
+      return { url: String(resultUrl), providerTaskId: taskId };
+    };
+    if (opts?.resumeTaskId) {
+      const resumed = await this.tryResumePoll(kind, opts.resumeTaskId, opts?.onTick, () => this.dashscopePoll(this.dashscopeKey(), opts.resumeTaskId!));
+      if (resumed) return extract(resumed, opts.resumeTaskId);
+    } else {
+      this.assertRedriveAllowed(PROVIDER_REDRIIVE_MATRIX['dashscope-submit-poll'], !!opts?.idempotencyKey);
+    }
+    const taskId = await this.dashscopeSubmit(path, body, kind, opts?.idempotencyKey);
+    if (opts?.onProviderTaskId) await opts.onProviderTaskId(taskId);   // T9：落库完成才进轮询（kill 窗收敛）
     const result = await this.pollLoop(kind, deadlineMsForKind(kind), opts?.onTick, () => this.dashscopePoll(this.dashscopeKey(), taskId));
-    const results = result.output?.results ?? result.results ?? [];
-    const first = Array.isArray(results) ? results[0] : results;
-    const resultUrl = typeof first === 'string' ? first : first?.url ?? first;
-    return { url: String(resultUrl), providerTaskId: taskId };
+    return extract(result, taskId);
   }
 
   async callOutpainting(
@@ -469,14 +562,24 @@ export class ApiCallerService implements OnModuleInit {
     try {
       const m = await this.resolveModel(params.model);
       this.assertDispatch(m, 'tencent-submit-poll', 'image');
-      const taskId = await this.tencentSubmit(m, { model: m.apiModelName, prompt: this.combinePrompt(params.prompt, params.extraPrompt) }, 'image');
-      params.onProviderTaskId?.(taskId);
+      const extract = (json: any, taskId: string) => {
+        const urls = json.data ?? json.results ?? json.images ?? [];
+        const first = Array.isArray(urls) ? urls[0] : urls;
+        const resultUrl = typeof first === 'string' ? first : first?.url ?? first;
+        const [w, h] = (params.resolution || '1024×1024').split('×').map(Number);
+        return { url: String(resultUrl), width: w || 1024, height: h || 1024, providerTaskId: taskId };
+      };
+      // T9 query-first：resumeTaskId 命中→按任务直查零重发（kill after submit→重跑零重复外呼）
+      if (params.resumeTaskId) {
+        const resumed = await this.tryResumePoll('image', params.resumeTaskId, params.onTick, () => this.tencentPoll(m, params.resumeTaskId!));
+        if (resumed) return extract(resumed, params.resumeTaskId);
+      } else {
+        this.assertRedriveAllowed(PROVIDER_REDRIIVE_MATRIX['tencent-submit-poll'], !!params.idempotencyKey);
+      }
+      const taskId = await this.tencentSubmit(m, { model: m.apiModelName, prompt: this.combinePrompt(params.prompt, params.extraPrompt) }, 'image', params.idempotencyKey);
+      if (params.onProviderTaskId) await params.onProviderTaskId(taskId);   // T9：落库完成才进轮询
       const json = await this.pollLoop('image', deadlineMsForKind('image'), params.onTick, () => this.tencentPoll(m, taskId));
-      const urls = json.data ?? json.results ?? json.images ?? [];
-      const first = Array.isArray(urls) ? urls[0] : urls;
-      const resultUrl = typeof first === 'string' ? first : first?.url ?? first;
-      const [w, h] = (params.resolution || '1024×1024').split('×').map(Number);
-      return { url: String(resultUrl), width: w || 1024, height: h || 1024, providerTaskId: taskId };
+      return extract(json, taskId);
     } finally {
       outboundDuration.observe({ kind: 'image' }, (Date.now() - t0) / 1000);
     }
@@ -493,13 +596,23 @@ export class ApiCallerService implements OnModuleInit {
       if (params.startImageUrl) body.startImageUrl = params.startImageUrl;
       if (params.endImageUrl) body.endImageUrl = params.endImageUrl;
       if (params.imageUrls?.length) body.imageUrls = params.imageUrls;
-      const taskId = await this.tencentSubmit(m, body, 'video');
-      params.onProviderTaskId?.(taskId);
+      const extract = (json: any, taskId: string) => {
+        const urls = json.data ?? json.results ?? [];
+        const first = Array.isArray(urls) ? urls[0] : urls;
+        const resultUrl = typeof first === 'string' ? first : first?.url ?? first;
+        return { url: String(resultUrl), providerTaskId: taskId };
+      };
+      // T9 query-first（image 腿同款）
+      if (params.resumeTaskId) {
+        const resumed = await this.tryResumePoll('video', params.resumeTaskId, params.onTick, () => this.tencentPoll(m, params.resumeTaskId!));
+        if (resumed) return extract(resumed, params.resumeTaskId);
+      } else {
+        this.assertRedriveAllowed(PROVIDER_REDRIIVE_MATRIX['tencent-submit-poll'], !!params.idempotencyKey);
+      }
+      const taskId = await this.tencentSubmit(m, body, 'video', params.idempotencyKey);
+      if (params.onProviderTaskId) await params.onProviderTaskId(taskId);   // T9：落库完成才进轮询
       const json = await this.pollLoop('video', deadlineMsForKind('video'), params.onTick, () => this.tencentPoll(m, taskId));
-      const urls = json.data ?? json.results ?? [];
-      const first = Array.isArray(urls) ? urls[0] : urls;
-      const resultUrl = typeof first === 'string' ? first : first?.url ?? first;
-      return { url: String(resultUrl), providerTaskId: taskId };
+      return extract(json, taskId);
     } finally {
       outboundDuration.observe({ kind: 'video' }, (Date.now() - t0) / 1000);
     }

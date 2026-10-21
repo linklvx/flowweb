@@ -74,7 +74,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },
         // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）
-        { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined), reanchorDeadline: vi.fn().mockResolvedValue(undefined), touchHeartbeat: vi.fn().mockResolvedValue(undefined) } },
+        { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined), reanchorDeadline: vi.fn().mockResolvedValue(1), touchHeartbeat: vi.fn().mockResolvedValue(undefined), ensureProviderRequestId: vi.fn().mockResolvedValue('rid'), recordProviderTaskId: vi.fn(), tickFence: vi.fn() } },
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);

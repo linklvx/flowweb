@@ -61,13 +61,13 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
     const proc = new ExecutionProcessor(
       {} as any,
       { writeExecStatus } as any,
-      { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-1', attempts: 1, intentId: 'i1' }), fail } as any,
+      { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-1', attempts: 1, intentId: 'i1', execSeq: 1n }), fail } as any,
     );
     const d = await causeDelta('other', () =>
       proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('job boom')));
     expect(d).toBe(0);   // 投影半移交 api 最终一致链——worker 失败钩子不再是吞错点
     expect(writeExecStatus).not.toHaveBeenCalled();
-    expect(fail).toHaveBeenCalledWith('intent-1', 'job boom', undefined);
+    expect(fail).toHaveBeenCalledWith('intent-1', 'job boom', undefined, 1n); // T9：行代际
   });
 
   it('ai-image-edit.processor onFailed（Y0c T28/Z41 拆两半）：钩子零投影写——计数零增 ∧意图终态照达', async () => {
@@ -77,13 +77,13 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       {} as any, {} as any, {} as any, {} as any, {} as any,
       { writeExecStatus } as any,   // collabDoc
       {} as any,                                                                                                 // lightingConsumer
-      { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-2', attempts: 0 }), fail } as any,             // intentService
+      { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-2', attempts: 0, execSeq: 1n }), fail } as any,             // intentService
       {} as any,                                                                                                 // safeFetch（T6 注入面——onFailed 钩子不触下载）
     );
     const d = await causeDelta('not-serving', () =>
       proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('edit boom')));
     expect(d).toBe(0);   // 投影半移交 api 最终一致链——worker 失败钩子不再是吞错点
     expect(writeExecStatus).not.toHaveBeenCalled();
-    expect(fail).toHaveBeenCalledWith('intent-2', 'edit boom', undefined);
+    expect(fail).toHaveBeenCalledWith('intent-2', 'edit boom', undefined, 1n);
   });
 });

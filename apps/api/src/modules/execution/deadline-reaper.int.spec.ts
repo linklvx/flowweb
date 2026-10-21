@@ -22,7 +22,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
-const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService);
+const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit);
 
 /** BullMQ 状态查询面 mock（Z84）：jobId → state 可编程——reconcile 经 queue.getJob().getState() 读 */
 const jobStates = new Map<string, string>();

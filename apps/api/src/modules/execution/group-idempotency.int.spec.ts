@@ -27,7 +27,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
-const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService);
+const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit);
 const resolver = new PricingResolverService(prisma as unknown as PrismaService);
 const validation = new ValidationService(prisma as unknown as PrismaService, resolver);
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
@@ -360,14 +360,24 @@ const statusOf = async (nodeId: string) =>
       teamId: TID, pricing: PAID, jobId: 'job-a14',
     });
     expect(first.intent.status).toBe('RUNNING');
-    // 重排段：**漂移后的 hash**（模拟 doc 重放丢 model 字段）+ 同 jobId——必须续跑同行
+    // 重排段（心跳新鲜——旧 worker 在飞）：**漂移后的 hash**+同 jobId ⇒ T9 态① same-job-alive 零写让位
+    const alive = await intentSvc.claim({
+      projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
+      kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: undefined as any }),
+      teamId: TID, pricing: PAID, jobId: 'job-a14',
+    });
+    expect(alive.created).toBe(false);                        // T9：新鲜=让位（重排 worker moveToDelayed 不 ack）
+    expect((alive as any).result).toBe('same-job-alive');
+    // 心跳陈旧（旧 worker 真死）⇒ 态② takeover：漂移 hash+同 jobId 续跑同行（行身份=jobId+partial unique 非 hash）
+    await prisma.generationIntent.update({ where: { id: first.intent.id }, data: { heartbeatAt: new Date(Date.now() - 61_000) } });
     const drifted = await intentSvc.claim({
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: undefined as any }),
       teamId: TID, pricing: PAID, jobId: 'job-a14',
     });
     expect(drifted.created).toBe(true);
-    expect(drifted.intent.id).toBe(first.intent.id);          // 同一行（行身份=jobId+partial unique 非 hash）
+    expect(drifted.intent.id).toBe(first.intent.id);          // 同一行（takeover 换代续跑）
+    expect(BigInt(drifted.intent.execSeq)).toBeGreaterThan(BigInt(first.intent.execSeq)); // T9：换代
     expect(drifted.intent.heartbeatAt.getTime()).toBeGreaterThan(first.intent.heartbeatAt.getTime()); // 重锚刷新
     const rows = await prisma.generationIntent.count({ where: { nodeId: n } });
     expect(rows).toBe(1);                                     // 零新行（改前=NodeBusy 静默悬挂）

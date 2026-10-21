@@ -63,14 +63,17 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
   const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
   const downloadQueue = { add: vi.fn() };
   const intentService = {
-    claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1' } }),
+    claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }),
     complete: vi.fn().mockResolvedValue(1),
     fail: vi.fn().mockResolvedValue(undefined),
     void_: vi.fn().mockResolvedValue(undefined),
     attachJob: vi.fn(),
     listByNode: vi.fn().mockResolvedValue([]),
-    reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+    reanchorDeadline: vi.fn().mockResolvedValue(1), // Y0b-2 T4：外呼前重锚（T9 count 形态）
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
+    ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+    recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
+    tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     ...intentOverrides,
   };
   const svc: any = new (ExecutionService as any)(
@@ -154,7 +157,7 @@ describe('批0.5-6 幂等重放（claim created=false ⇒ SUCCEEDED）', () => {
     const { svc, apiCaller, teamCredit, gateway, intentService } = makeService([IMAGE_NODE], {
       claim: vi.fn().mockResolvedValue({
         created: false,
-        intent: { id: 'row-1', intentId: 'i-1', status: 'SUCCEEDED', resultRef: 'http://old/img.png' },
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, attempts: 1, status: 'SUCCEEDED', resultRef: 'http://old/img.png' },
       }),
     });
     const r = await svc.execute('p1', 'n3', 'u1');
@@ -185,7 +188,7 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
   it('count===1：text → resultRef=text 产物摘要 + writeNodeData({result}) + writeExecStatus(done, intentId)', async () => {
     const { svc, collabDoc, intentService } = makeService([TEXT_NODE]);
     await svc.execute('p1', 'n1', 'u1');
-    expect(intentService.complete).toHaveBeenCalledWith('row-1', 'text:AI结果');
+    expect(intentService.complete).toHaveBeenCalledWith('row-1', 'text:AI结果', 1n);
     expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ result: 'AI结果' }));
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'done', intentId: 'i-1' }));
   });
@@ -193,7 +196,7 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
   it('count===1：video → resultRef=videoUrl 锚点 + writeExecStatus(done, intentId, fileId)', async () => {
     const { svc, collabDoc, intentService } = makeService([VIDEO_NODE]);
     await svc.execute('p1', 'n2', 'u1');
-    expect(intentService.complete).toHaveBeenCalledWith('row-1', 'http://v');
+    expect(intentService.complete).toHaveBeenCalledWith('row-1', 'http://v', 1n);
     expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n2', { videoUrl: 'http://v' });
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n2', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'http://v' }));
   });
@@ -201,7 +204,7 @@ describe('批0.5-6 complete 门序（F13：看到产物 ⇒ 意图仍有效）',
   it('count===1：image → resultRef=resultUrl 锚点（media.create 在下载侧异步，本服务以 URL 为锚）', async () => {
     const { svc, collabDoc, intentService } = makeService([IMAGE_NODE]);
     await svc.execute('p1', 'n3', 'u1');
-    expect(intentService.complete).toHaveBeenCalledWith('row-1', 'http://img');
+    expect(intentService.complete).toHaveBeenCalledWith('row-1', 'http://img', 1n);
     expect(collabDoc.writeNodeData).toHaveBeenCalledWith('p1', 'n3', { resultUrl: 'http://img' });
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n3', expect.objectContaining({ status: 'done', intentId: 'i-1', fileId: 'http://img' }));
   });
@@ -230,10 +233,10 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
     expect(teamCredit.reserve).toHaveBeenCalledTimes(3);
     expect(teamCredit.settle).toHaveBeenCalledTimes(3);
     for (const c of teamCredit.reserve.mock.calls) {
-      expect(c[1]).toEqual({ intentRowId: 'row-1' });
+      expect(c[1]).toEqual({ intentRowId: 'row-1', execSeq: 1n }); // T9：guard 携代际票
     }
     for (const c of teamCredit.settle.mock.calls) {
-      expect(c[0]).toEqual({ intentRowId: 'row-1' });
+      expect(c[0]).toEqual({ intentRowId: 'row-1', execSeq: 1n });
     }
     // reserve 先于外呼——"余额不足不再白付外呼"的顺序锚
     expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callTextGen.mock.invocationCallOrder[0]);
@@ -250,7 +253,7 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
     expect(r.errors[0].errorCode).toBe('CREDIT_INSUFFICIENT');
     expect(apiCaller.callTextGen).not.toHaveBeenCalled(); // 零外呼——白付外呼面消灭
     expect(teamCredit.settle).not.toHaveBeenCalled();
-    expect(intentService.void_).toHaveBeenCalledWith('row-1', expect.stringContaining('CREDIT_INSUFFICIENT'));
+    expect(intentService.void_).toHaveBeenCalledWith('row-1', expect.stringContaining('CREDIT_INSUFFICIENT'), 1n);
     expect(intentService.fail).not.toHaveBeenCalled(); // 与 FAILED 分义不混
   });
 
@@ -260,14 +263,14 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
 
     await svc.execute('p1', 'n1', 'u1');
 
-    expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-1' });
-    expect(intentService.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('boom'));
+    expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-1', execSeq: 1n });
+    expect(intentService.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('boom'), undefined, 1n);
   });
 
   it('组执行第 N+1 reserve 失败 → 前 N 已 settle 保留产物、第 N+1 零外呼零 settle + VOIDED（约束③）', async () => {
     const { svc, apiCaller, teamCredit, intentService, collabDoc, gateway } = makeService([TEXT_NODE, IMAGE_NODE]);
     intentService.claim.mockImplementation(async (input: any) => ({
-      created: true, intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}` },
+      created: true, result: 'new', intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}`, execSeq: 1n, attempts: 1 },
     }));
     teamCredit.reserve.mockImplementation(async (_userId: string, guard: any) =>
       guard.intentRowId === 'row-n3' ? { success: false, reason: 'CREDIT_INSUFFICIENT' } : { success: true, mayCall: true });
@@ -280,7 +283,7 @@ describe('批0.5-9 reserve→settle 两阶段（外呼前冻结/成功核销/失
     expect(teamCredit.settle).toHaveBeenCalledTimes(1); // 只前 N 核销
     expect(collabDoc.writeNodeData).toHaveBeenCalledTimes(1); // 前 N 产物保留
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ nodeId: 'n1', status: 'done' }));
-    expect(intentService.void_).toHaveBeenCalledWith('row-n3', expect.stringContaining('CREDIT_INSUFFICIENT'));
+    expect(intentService.void_).toHaveBeenCalledWith('row-n3', expect.stringContaining('CREDIT_INSUFFICIENT'), 1n);
   });
 });
 
@@ -307,7 +310,7 @@ describe('批0.5-6 catch 路径（意图终态必达——error 展示不受门�
     const r = await svc.execute('p1', 'n1', 'u1');
     expect(r.success).toBe(false);
     expect(r.errors[0].error).toContain('boom'); // Y0b-2 T5：errors 结构化
-    expect(intentService.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('boom'));
+    expect(intentService.fail).toHaveBeenCalledWith('row-1', expect.stringContaining('boom'), undefined, 1n);
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }));
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'error' }));
   });
@@ -317,7 +320,7 @@ describe('批0.5-6 catch 路径（意图终态必达——error 展示不受门�
     teamCredit.reserve.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
     const r = await svc.execute('p1', 'n1', 'u1');
     expect(r.success).toBe(false);
-    expect(intentService.void_).toHaveBeenCalledWith('row-1', expect.stringContaining('扣费'));
+    expect(intentService.void_).toHaveBeenCalledWith('row-1', expect.stringContaining('扣费'), 1n);
     expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n1', expect.objectContaining({ status: 'error' }));
   });
 });
@@ -326,14 +329,14 @@ describe('Y0b-2 T1（Z109）：组执行 token 整批施加——全节点同 ge
   it('多节点循环各自独立意图行——两节点 claim 均收同一 gestureToken（idemKey 含 nodeId 故无碰撞），reserve 各带各 guard', async () => {
     const { svc, intentService, teamCredit } = makeService([TEXT_NODE, IMAGE_NODE]);
     intentService.claim.mockImplementation(async (input: any) => ({
-      created: true, intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}` },
+      created: true, result: 'new', intent: { id: `row-${input.nodeId}`, intentId: `minted-${input.nodeId}`, execSeq: 1n, attempts: 1 },
     }));
     await svc.execute('p1', undefined, 'u1', ['n1', 'n3'], 'hdr-intent');
     expect(intentService.claim).toHaveBeenCalledTimes(2);
     expect(intentService.claim.mock.calls[0][0]).toEqual(expect.objectContaining({ nodeId: 'n1', gestureToken: 'hdr-intent' }));
     expect(intentService.claim.mock.calls[1][0]).toEqual(expect.objectContaining({ nodeId: 'n3', gestureToken: 'hdr-intent' }));   // 整批施加——旧"仅首个 exec"门已删
-    expect(teamCredit.reserve.mock.calls[0][1]).toEqual({ intentRowId: 'row-n1' });
-    expect(teamCredit.reserve.mock.calls[1][1]).toEqual({ intentRowId: 'row-n3' });
+    expect(teamCredit.reserve.mock.calls[0][1]).toEqual({ intentRowId: 'row-n1', execSeq: 1n });
+    expect(teamCredit.reserve.mock.calls[1][1]).toEqual({ intentRowId: 'row-n3', execSeq: 1n });
   });
 });
 
@@ -358,11 +361,11 @@ function makeProcessor() {
 describe('processor failed 钩子（Y0c T28/Z41 拆两半——PG 半意图终态化留 worker；exec 投影半归 api 最终一致链）', () => {
   it('failed → findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)（PG 半）；writeExecStatus 零调用（投影半移交 api——重连 alignExecFromIntents+reconcile 收敛）', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
-    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1', intentId: 'row-uuid-9' });
+    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1', intentId: 'row-uuid-9', execSeq: 1n });
     const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
     await p.onFailed(job as any, new Error('worker died'));
     expect(intentService.findByActiveNode).toHaveBeenCalledWith('p1', 'n1', 'job-1'); // Z27：jobId 限定
-    expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died', 'job-1');
+    expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died', 'job-1', 1n);
     expect(collabDoc.writeExecStatus).not.toHaveBeenCalled(); // Z41：投影不走 worker 失败钩子
   });
 

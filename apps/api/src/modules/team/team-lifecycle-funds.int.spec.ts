@@ -4,6 +4,8 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
+import { TeamCreditService } from './team-credit.service';
+import { GenerationIntentService } from '../execution/generation-intent.service';
 import { createIntentFixture, ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 const prisma = new PrismaClient();
@@ -54,7 +56,7 @@ describe('Y0b-1 团队/项目生命周期资金门（§1.4ter/Z4）', () => {
     const team = `it-lf-dis-${ts}`;
     await prisma.team.create({ data: { id: team, name: 'dis', ownerId: S.keeper, status: 'DISBANDED' } });
     const { GenerationIntentService } = await import('../execution/generation-intent.service');
-    const svc = new GenerationIntentService(prisma as any);
+    const svc = new GenerationIntentService(prisma as any, new TeamCreditService(prisma as any, new CreditLedgerService(prisma as any)));
     await expect(svc.claim({
       projectId: 'it-p', nodeId: 'n', userId: S.keeper, intentId: `lf-dis-${ts}`, kind: 'text', paramsHash: 'h',
       teamId: team, pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },

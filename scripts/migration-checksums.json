@@ -19,5 +19,8 @@
   },
   "20261021021059_videowork_videomedia_idx": {
     "migration.sql": "5c61ed67dd0b4c2205514d21b250559a07a4e6704cf9e4f4b5548b6bae0b6b3c"
+  },
+  "20261021060000_execseq_drop_default": {
+    "migration.sql": "cf8cbf49f25a68491641ed7724eb6427d3e954af72cf21caa9383c55da17a95e"
   }
 }

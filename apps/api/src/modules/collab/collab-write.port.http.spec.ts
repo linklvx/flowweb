@@ -205,12 +205,15 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
     };
     const apiCaller = { callImageGen: vi.fn().mockResolvedValue({ url: 'http://x/img.png' }) };
     const intentSvc = {
-      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'ir1', intentId: 'i1', attempts: 1 } }),
+      claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'ir1', intentId: 'i1', attempts: 1, execSeq: 1n, providerTaskId: null } }),
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
       reanchorDeadline: vi.fn().mockResolvedValue(1),
       touchHeartbeat: vi.fn().mockResolvedValue(undefined),
+      ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+      recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
+      tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
     const emitPort = { emitNodeStatus: vi.fn() };   // T24 改道后消费面注入 EmitPort（锚与 emit 面正交）
     const svc = new ExecutionService(

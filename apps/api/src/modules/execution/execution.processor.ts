@@ -1,11 +1,11 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Job, DelayedError } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
-import { EXECUTION_QUEUE_NAME } from './execution.constants';
+import { EXECUTION_QUEUE_NAME, EXEC_SAME_JOB_RETRY_DELAY_MS } from './execution.constants';
 
 /** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
  *  reserve 门 alreadyReserved→mayCall:false（Z35 结构门）→静默退出零外呼——重复 submit 结构性不可能；
@@ -39,6 +39,18 @@ export class ExecutionProcessor extends WorkerHost {
       // Y0b-5 T13：traceId 透传（job.data 显式携带——非 fallback jobId：jobId 是 claim 业务 CAS 键，两键域独立）
       const result = await this.executionService.execute(projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id, traceId ?? undefined);
       await job.updateProgress(100);
+      // Y1a T9（spec ㉒）：skip 非 ack——skipped（NodeBusy 别处在飞/INTENT_SAME_JOB_ALIVE 旧 worker 在飞）
+      // 意味着本节点执行权归属未收敛，return=completed 即「旧 worker 真死零交付」悬挂（红形态）；
+      // moveToDelayed(now+grace, token)+DelayedError 重排续跑（BullMQ moveToDelayed skipAttempt——不耗
+      // attempts；下轮重进 claim 三态收敛：fresh→再让位/stale→takeover 接管/终态→回放或 rearm）。
+      if (result.errors.some((e) => e.status === 'skipped')) {
+        const moved = await job.moveToDelayed(Date.now() + EXEC_SAME_JOB_RETRY_DELAY_MS, job.token!)
+          .then(() => true).catch(() => false); // move 失败（锁失守等）退回正常 ack——不硬死
+        if (moved) {
+          this.logger.log(JSON.stringify({ event: 'execution_job_skip_delayed', traceId: traceId ?? null, jobId: job.id, projectId }));
+          throw new DelayedError('execution skipped——moveToDelayed 重排续跑（T9 三态）');
+        }
+      }
       // Y0b-5 T13 微修：终态行与 start 行同 JSON 形态携 traceId——跨 Redis trace 全程贯穿（终态行断链即不可关联）
       this.logger.log(JSON.stringify({ event: 'execution_job_done', traceId: traceId ?? null, jobId: job.id, projectId }));
       return result;
@@ -68,7 +80,7 @@ export class ExecutionProcessor extends WorkerHost {
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
-      if (running) await this.intentService.fail(running.id, reason, job.id);
+      if (running) await this.intentService.fail(running.id, reason, job.id, running.execSeq);
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);
     }

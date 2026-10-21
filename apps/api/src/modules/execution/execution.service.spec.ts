@@ -36,6 +36,7 @@ describe('ExecutionService', () => {
       modelResolution: { findMany: vi.fn().mockResolvedValue([]) },
       modelDuration: { findMany: vi.fn().mockResolvedValue([]) },
       style: { findMany: vi.fn().mockResolvedValue([]) },
+      generationIntent: { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING', execSeq: 1n, attempts: 1 }) }, // T9 catch fence 读行
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
@@ -84,12 +85,15 @@ describe('ExecutionService', () => {
 
     // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）——本文件只测产物序/余额口径
     intentSvc = {
-      claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
+      claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }),
       complete: vi.fn().mockResolvedValue(1),
       fail: vi.fn().mockResolvedValue(undefined),
       void_: vi.fn().mockResolvedValue(undefined),
-      reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
+      reanchorDeadline: vi.fn().mockResolvedValue(1), // Y0b-2 T4：外呼前重锚（T9 count 形态）
       touchHeartbeat: vi.fn().mockResolvedValue(undefined),
+      ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+      recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
+      tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -118,7 +122,7 @@ describe('ExecutionService', () => {
     const result = await service.execute('p1', 'n2', 'default-user');
     expect(result.success).toBe(true);
     expect(gateway.emitNodeStatus).toHaveBeenCalled();
-    expect(teamCredit.reserve).toHaveBeenCalledWith('default-user', { intentRowId: 'intent-1' });
+    expect(teamCredit.reserve).toHaveBeenCalledWith('default-user', { intentRowId: 'intent-1', execSeq: 1n });
     // 预校验传项目所属团队 id（账本换源 TeamBalance）
     expect(validation.validateAll).toHaveBeenCalledWith(expect.any(Array), 't1', 'default-user');
   });
