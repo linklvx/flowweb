@@ -153,8 +153,8 @@ const txOf = async (intentRowId: string, type: string) =>
     });
   });
 
-  describe('旧代生命线/资金写 0 命中 no-op（fail/touch/reanchor/settle/void）', () => {
-    it('旧代 touchHeartbeat/reanchorDeadline/fail 全 0 命中——新代行不受旧 worker 侵害', async () => {
+  describe('旧代生命线/资金写 0 命中 no-op（fail/tickFence/reanchor/settle/void）', () => {
+    it('旧代 tickFence（心跳腿）+reanchorDeadline+fail 全 0 命中——新代行不受旧 worker 侵害', async () => {
       const first = await claimIntent({ jobId: 't9-noop-job' });
       const gen1 = first.intent.execSeq;
       await ageHeartbeat(first.intent.id, 61_000);
@@ -163,7 +163,8 @@ const txOf = async (intentRowId: string, type: string) =>
       await teamCredit.reserve(UID, { intentRowId: first.intent.id, execSeq: gen2 });
       const before = await rowOf(first.intent.id);
       // 旧代三写（红：现状方法忽略代际——heartbeat 被旧 worker 刷新/fail 杀新代行）
-      await intentSvc.touchHeartbeat(first.intent.id, gen1);
+      // T9 收尾：tickFence 已合并 touchHeartbeat 为 UPDATE..RETURNING 单往返——旧代 0 命中即 abort，心跳腿零刷新
+      expect(await intentSvc.tickFence(first.intent.id, gen1)).toBe('abort');
       expect((await rowOf(first.intent.id))!.heartbeatAt.getTime()).toBe(before!.heartbeatAt.getTime()); // 旧代心跳 0 命中
       expect(await intentSvc.reanchorDeadline(first.intent.id, 'image', gen1)).toBe(0);                 // 旧代重锚 0 命中
       await intentSvc.fail(first.intent.id, 'old worker late fail', 't9-noop-job', gen1);

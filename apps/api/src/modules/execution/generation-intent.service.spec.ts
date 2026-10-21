@@ -600,6 +600,42 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       });
     });
   });
+
+  describe('T9 收尾：tickFence 单往返（UPDATE...RETURNING——改前 updateMany+findUnique 每 tick 两次 DB 往返）', () => {
+    it('红：双职合一单 SQL——$queryRaw 恰一次（UPDATE "GenerationIntent" SET heartbeatAt WHERE id+RUNNING+execSeq RETURNING）；updateMany/findUnique 零调用', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'gi-1' }]); // 1 命中=RUNNING 同代
+
+      const r = await service.tickFence('gi-1', 1n);
+
+      expect(r).toBeUndefined(); // 命中继续轮询
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const sql = String(prisma.$queryRaw.mock.calls[0][0]);
+      expect(sql).toContain('UPDATE "GenerationIntent"');
+      expect(sql).toContain('RETURNING');
+      expect(sql).toContain('"status" = \'RUNNING\''); // 红：现状谓词在 updateMany where（findUnique 无 status 守卫）
+      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled(); // 红：现状第一步 updateMany
+      expect(prisma.generationIntent.findUnique).not.toHaveBeenCalled(); // 红：现状第二步 findUnique
+    });
+
+    it('红：0 命中（行灭失/终态/换代三态合并）→ 单次往返即 abort', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([]);
+
+      const r = await service.tickFence('gi-1', 1n);
+
+      expect(r).toBe('abort');
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1); // 无第二步读行
+      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('heartbeatAt 写值为 (now() AT TIME ZONE \'utc\')——Prisma naive UTC 对齐纪律（会话 TZ≠UTC 时裸 now() 恒偏移）', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'gi-1' }]);
+
+      await service.tickFence('gi-1', 1n);
+
+      const sql = String(prisma.$queryRaw.mock.calls[0][0]);
+      expect(sql).toContain("now() AT TIME ZONE 'utc'");
+    });
+  });
 });
 
 describe('Y0b-2 T1：intent-key.util（Z82/Z79/Z68）', () => {

@@ -271,29 +271,22 @@ export class GenerationIntentService {
     });
   }
 
-  /** Y0b-2 T4：外呼心跳续命（best-effort——RUNNING 守卫，终态行零动作）。onTick 每 tick 调用
-   *  （轮询活着 ⇒ deadline 批不收：heartbeatAt>=deadlineAt）。与 reserve gate CAS 的行锁竞争有界
-   *  （reserve 事务 ≤15s 封顶——本 update 单行无事务，锁等待自然消解）。
-   *  T9：execSeq 必带——旧代心跳 0 命中 no-op（旧 worker 不得刷新新代行的生命线）。 */
-  async touchHeartbeat(id: string, execSeq: bigint): Promise<void> {
-    await this.prisma.generationIntent.updateMany({
-      where: { id, status: { in: [...ACTIVE] }, execSeq },
-      data: { heartbeatAt: new Date() },
-    });
-  }
-
   /** T9 tickFence：onTick 双职单源（execution.service/ai-image-edit processor/lighting consumer
    *  三消费面共用）——①touchHeartbeat 续生命线（代际 CAS）②读 {status,execSeq}：终态（reaper 收敛）
    *  或 execSeq 换代（旧代 worker——takeover/rearm 后新代已接管）⇒ 'abort' 停外呼（省 provider 轮询
-   *  白烧钱）；行灭失同 abort（数据完整性兜底）。 */
+   *  白烧钱）；行灭失同 abort（数据完整性兜底）。
+   *  T9 收尾（评审 Minor）：双职合一 UPDATE...RETURNING 单往返（改前 updateMany+findUnique 每 tick
+   *  两次 DB 往返；collab-lease.service 同款 RETURNING 判 rows 形态）。0 命中=行灭失/终态/换代三态
+   *  合并 abort——与旧形态逐态判读等价（where 同谓词 RUNNING+execSeq：RUNNING∧同代必被 UPDATE 命中，
+   *  不存在「读回 RUNNING 同代而写 0 命中」分叉）；touchHeartbeat 随合并退役（生产消费点唯一=本处）。
+   *  heartbeatAt 写值纪律：Prisma DateTime 落 PG naive timestamp=UTC 墙钟——(now() AT TIME ZONE 'utc')
+   *  对齐（media-probe.poller 同款；会话 TZ≠UTC 时裸 now() 恒偏移——heartbeat/deadline 判据漂移）。 */
   async tickFence(id: string, execSeq: bigint): Promise<'abort' | void> {
-    await this.touchHeartbeat(id, execSeq);
-    const row = await this.prisma.generationIntent.findUnique({
-      where: { id }, select: { status: true, execSeq: true },
-    });
-    if (!row) return 'abort';
-    if (row.status !== 'RUNNING') return 'abort';
-    if (row.execSeq !== execSeq) return 'abort'; // BigInt 值等比较（census ④禁 < ></> 裸比较——等值不在禁面）
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      UPDATE "GenerationIntent" SET "heartbeatAt" = (now() AT TIME ZONE 'utc')
+      WHERE "id" = ${id} AND "status" = 'RUNNING' AND "execSeq" = ${execSeq}
+      RETURNING "id"`;
+    if (rows.length === 0) return 'abort';
   }
 
   /** Y0b-2 T4：外呼前重锚——终锚（deadlineAt=now+kind 档）+外呼起点（startedAt——Z83 phase 判据：
