@@ -11,15 +11,13 @@
 // 鉴权：POST=assertEditorWithTeam（编辑权+teamId 固化）；GET=项目成员门（resolve→null 403）。
 // 409 载体=BusinessException errorCode（HttpExceptionFilter 线形态 {code:-1,...,errorCode}——
 // 客户端判 errorCode=ARTIFACT_REV_CONFLICT 复读槽位重试一轮完成）。
-import { Body, Controller, ForbiddenException, Get, HttpStatus, Inject, Logger, NotFoundException, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpStatus, Inject, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import type { DocWriteOp } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { MediaRegistrationService } from '../artifact-core/media-registration.service';
-import { CollabDocWriterService } from './collab-doc-writer.service';
 
 /** expectedRev 上界（Minor#2）：无槽位行走 INSERT rev=expectedRev+1——上界 2^31-2 使新 rev 恰容
  *  PG int4 max（2^31-1）；超出=确定 400 归 BAD_BODY（防 22003 溢出→500 噪声）。 */
@@ -46,14 +44,11 @@ export interface MediaCommandResult {
 
 @Controller('api/projects/:projectId/collab/nodes/:nodeId/media')
 export class CollabMediaController {
-  private readonly logger = new Logger(CollabMediaController.name);
-
   constructor(
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(NodeArtifactService) private readonly nodeArtifacts: NodeArtifactService,
     @Inject(MediaRegistrationService) private readonly registration: MediaRegistrationService,
-    @Inject(CollabDocWriterService) private readonly docWriter: CollabDocWriterService,
   ) {}
 
   /** 槽位状态（primary/fileId 槽单源——四客户端写路径全为 imageGen fileId 面）。 */
@@ -149,17 +144,11 @@ export class CollabMediaController {
       return cas;
     });
 
-    // ── doc 过渡期直写（T15 投影 poller 未建前保交付——writeBatch throw=基础设施级：PG 已权威提交，
-    //    pending 投影行在案由 poller/重试收敛，本命令不回滚 PG（CAS 权威面不因投影基础设施回退））。
-    //    质评 Minor#3：written:false（node 并发删除——Z44 守卫）禁静默成功，至少 warn 留痕
-    //    （收敛归 T15 投影循环按 node 删→orphaned）。──
-    const ops: DocWriteOp[] = isReplace
-      ? [{ op: 'writeNodeData', nodeId, patch: { fileId: mediaId } }]
-      : [{ op: 'deleteNodeDataKeys', nodeId, keys: ['fileId'] }];
-    const results = await this.docWriter.writeBatch(projectId, ops);
-    if (results[0] && !results[0].written) {
-      this.logger.warn(`[media-command] doc 写未落（reason=${results[0].reason ?? 'unwritten'}）——node=${nodeId} action=${isReplace ? 'replace' : 'clear'} rev=${cas.rev}：PG 已权威提交，投影 pending 行在案（T15 orphan 收敛）`);
-    }
+    // ── T15 收口：doc 过渡期直写移除（writeBatch writeNodeData/deleteNodeDataKeys）——交付唯一
+    //    owner=ArtifactProjection 投影 poller（pending 行已在上方事务落；内容等值 fast path/异常
+    //    语义见 projection-outbox.poller）。客户端已有乐观 UI（命令响应即时回填），doc 收敛异步化
+    //    可接受；409/回退语义不变（本命令只管 PG 权威面）。written:false（node 删除）观察点随之
+    //    移交 poller apply 存在性守卫（orphaned 终态）——旧 Minor#3 直写 warn 面退役。 ──
 
     return { action: isReplace ? 'replace' : 'clear', rev: cas.rev, mediaId };
   }

@@ -8,8 +8,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { EmitPort } from '../gateway/emit.port';
 import { isExecutableNode } from './is-executable-node';
-import { CollabWritePort, CollabWriteTransientExhaustedError, CollabWriteChannelPermanentError, type WorkerWriteScope } from '../collab/collab-write.port';
-import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
+import { CollabWritePort, type WorkerWriteScope } from '../collab/collab-write.port';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
 import { UpstreamMediaService } from './upstream-media.service';
 import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
@@ -17,7 +16,7 @@ import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { intentDuplicateAttemptTotal } from './intent-reconcile.metrics';   // T12：settleFailureTotal 消费点随 video 旧链退役（settle 归 finalize 事务内——失败面回滚非计数照发）
-import { artifactDiscardedTotal, countExecProjectionFailure, deliverStrandedTotal } from './exec.metrics';
+import { artifactDiscardedTotal, countExecProjectionFailure } from './exec.metrics';
 import type { ExecutionClaimTicket } from './execution.types';
 
 /** Z95/Z88：组执行错误结构化契约——nodeId 定位+status 分诊（error=节点失败/skipped=别处在飞/重复外呼
@@ -78,7 +77,6 @@ export class ExecutionService {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
-    @Inject(CollabDocWriterService) private readonly docWriter: CollabDocWriterService,   // Y0c T8：deliver+done 组批写门面（首个调用方——其余消费点 T13b 统一改道）
     @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 8 调用点改道 emit 端口（api=Direct 委托 gateway/worker=降级 no-op）
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(UpstreamMediaService) private readonly upstreamMedia: UpstreamMediaService,   // Y1a T8：上游身份读源/URL 解析
@@ -319,32 +317,11 @@ export class ExecutionService {
       }
       if (!created) {
         // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
-        // Y0b-2 T6（T5 Minor#5 补投影）：回放路径补 done 终态投影+node data——改前只 emit，
-        // 回放时 doc exec 停 loading（对齐只能等 visibilitychange）；text 的 resultRef 是
-        // `text:${content.slice(0,100)}` 截断占位，补写会截断真实产物——禁补（emit/投影照写）。
-        // Y0c T12（裁决 3）：两单写合并 writeBatch 单事务（artifact 在前 done 在后——deliver+done 同序），
-        // 批 throw 走 .catch(countExecProjectionFailure)——回放投影 best-effort 不挡回放。
-        // 批口径：原两写各计一次 execProjectionDropped，合并后单批计一次。
+        // T15 收口：回放 doc 写整体移除（fileId+exec done 均归投影 poller deliverArtifact——投影行
+        // 已随原 finalize 事务落 PG，poller 按 pending 行交付；emit 保留即时 UX）。R3 projection-backfill
+        // 兜「SUCCEEDED∧锚行在∧投影行缺」的崩溃窗；text resultRef 截断占位禁写 doc 的旧约束随写面
+        // 移除自然消解（交付值=NodeArtifact.resultText 权威）。
         this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
-        const replayOps: DocWriteOp[] = [
-          ...(claimPack.kind !== 'text' && intent.resultRef
-            ? [{
-                op: 'writeNodeData' as const, nodeId: node.id,
-                // T10/T12：image+video replay 产物键均=fileId（resultRef=mediaId——finalize 落地后语义；
-                // video 旧链 videoUrl 写点退役——VideoGenNode 渲染 fileId，videoUrl=404 不可达路径根修）
-                patch: { fileId: intent.resultRef },
-              }]
-            : []),
-          {
-            op: 'writeExecStatus', nodeId: node.id,
-            patch: {
-              status: 'done', intentId: intent.intentId,
-              attempts: typeof intent.attempts === 'number' ? intent.attempts : 0,
-              ...(intent.resultRef ? { fileId: intent.resultRef } : {}),
-            },
-          },
-        ];
-        await this.docWriter.writeBatch(projectId, replayOps, this.wscope(intent)).catch(countExecProjectionFailure);
         return;
       }
       claimed = intent;
@@ -401,8 +378,7 @@ export class ExecutionService {
       //    +intent CAS+settleInTx+投影/binding 原子；complete/settle 独立外置退役）：image/text 同步链
       //    同前；video=finalize-first（裁决①/⑮：provider 成功即 settle+finalize——Media(processing)
       //    +state=materializing+fileId 交付 mediaId；字节物化归 MaterializeJob DB poller 异步——零队列）。 ──
-      let deliverPatch: Record<string, unknown> | null | undefined;
-      let deliverFileId: string | undefined;
+      let deliverFileId: string | undefined;   // emit 即时 UX 面（交付本身归投影 poller——doc 零写）
       const failDeadlineVoided = async () => {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作证）`);
@@ -438,81 +414,20 @@ export class ExecutionService {
         // 资金独立判已在 finalize 内裁决（superseded=照常 settle+产物入素材库——doc 不覆盖用户值）；
         // settle 已随 finalize 原子核销 ⇒ 实扣计入（零额档计入 0 无害）
         if (cost > 0) onDeducted(cost);
-        deliverPatch = committed.outcome === 'superseded'
-          ? null
-          : (claimPack.kind === 'text' ? { result: outcome.resultText } : { fileId: committed.mediaId! });   // video/image 统一 fileId 交付
-        deliverFileId = committed.mediaId;
+        deliverFileId = committed.mediaId;   // video/image 统一 fileId 交付锚（emit 面；投影交付值=投影行自持）
       }
 
-      // ── deliver+done（Y0c T8：组批经 writeBatch——data 与 exec 同一 withDoc 事务〔先红用例③〕。
-      // Z64/Z92 调用方契约：deliver 类 written:false ⇒ 批提交后独立执行 rollbackDeliveryFailed（先红用例①）。
-      // Z75 边界（Y0c T11 演进·偏离 19）：deliver 失败但 done 同批写入 ⇒ done 被 Z4 守卫拦（不建条目
-      // ——E22 读侧两形态等价），批照常提交不回滚——禁加 done 前跨 op 节点存在性检查。
-      // Z76 幂等：本段无重试路径；重试链路（消费改道任务）重入须先校验产物已生效再组批，禁盲目重发同批。
-      // T10：deliverPatch=null（superseded）⇒ 仅 done op（不覆盖用户在飞替换值——投影行已记 superseded）。
-      // T13 typed outcome：Http 形态瞬态耗尽/通道永久=typed 异常（禁合成 written:true——合成会掩盖
-      // 「节点已删应退款」与「交付未知」的区分）⇒ 悬留：不判退款（business-false 才是唯一退款凭据；
-      // 产物已落 PG+投影 pending 行——交付收敛归 R3/T15 投影链）+计数；Direct/未知异常维持上抛走
-      // B-1 catch（既有语义不变）。 ──
-      const donePatch = {
-        status: 'done' as const, jobId: jobId ?? null, intentId: intent.intentId, attempts,
-        ...(deliverFileId ? { fileId: deliverFileId } : {}),
-      };
-      const batchOps: DocWriteOp[] = deliverPatch
-        ? [
-            { op: 'writeNodeData', nodeId: node.id, patch: deliverPatch },
-            { op: 'writeExecStatus', nodeId: node.id, patch: donePatch },
-          ]
-        : [{ op: 'writeExecStatus', nodeId: node.id, patch: donePatch }];
-      let batchResults: Awaited<ReturnType<CollabDocWriterService['writeBatch']>> | null = null;
-      try {
-        batchResults = await this.docWriter.writeBatch(projectId, batchOps, this.wscope(intent));
-      } catch (e) {
-        if (!(e instanceof CollabWriteTransientExhaustedError || e instanceof CollabWriteChannelPermanentError)) throw e;
-        deliverStrandedTotal.inc({ cause: e instanceof CollabWriteTransientExhaustedError ? 'transient' : 'permanent' });
-        this.logger.warn(`[deliver] 意图 ${intent.intentId} 交付写${e instanceof CollabWriteTransientExhaustedError ? '瞬态耗尽' : '通道永久失败'}——悬留（不判退款：business-false 才是唯一退款凭据；产物在 PG+投影 pending——收敛归 R3/T15 投影链）: ${e.message}`);
-        // 悬留≠失败：产物已 finalize 落 PG（results/emit 照发——doc 交付收敛归投影链，不假报退款也不吞结果行）
-      }
-      if (batchResults !== null) {
-        const deliver = deliverPatch ? batchResults[0] : ({ written: true } as const);
-        if (deliverPatch && !deliver.written) {
-          // 批已提交：done 同批被 Z4 守卫拦（exec 无条目——E22 读侧等价，不写 error 投影对撞终态）；
-          // 产物未达⇒退款+用户面 error 照发（emit/errors）。
-          // T13 R3 窗④（node 删除）：该槽位 pending 投影行同步置 orphaned（过渡期无 poller 推进——
-          // 禁永久滞留 pending；退款幂等单入口 rollbackDeliveryFailed 保持）。
-          artifactDiscardedTotal.inc({ cause: 'node-deleted' });
-          const msg = '节点已被删除——产物未投递，已退款';
-          try {
-            // 评审 Minor#3：where 收窄到本 intent 资金锚的投影行（artifactId∈NodeArtifact{sourceIntentRowId=
-            // intent.id}）——按 projectId+nodeId 笼统标记会误杀同节点他代（在飞新代）pending 行。
-            const anchors = await this.prisma.nodeArtifact.findMany({
-              where: { sourceIntentRowId: intent.id },
-              select: { id: true },
-            });
-            if (anchors.length > 0) {
-              await this.prisma.artifactProjection.updateMany({
-                where: { artifactId: { in: anchors.map((a) => a.id) }, state: { in: ['pending', 'projecting'] } },
-                data: { state: 'orphaned' },
-              });
-            }
-          } catch (e2) {
-            this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 投影行 orphaned 标记失败（R3 兜底）: ${e2}`);
-          }
-          const rolled = await this.teamCredit.rollbackDeliveryFailed(intent.id, '交付失败：节点已删（written:false）')
-            .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
-          this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 节点已删（${deliver.reason}）——rollbackDeliveryFailed=${rolled}`);
-          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
-          errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELETED' });
-          return;
-        }
-      }
+      // ── T15 收口：deliver+done doc 写整体移除——交付唯一 owner=ArtifactProjection 投影 poller
+      //    （api 进程；pending 行已随 finalize 事务落 PG）。worker 本段零 doc 写：fileId/result 与
+      //    exec done 均为 poller deliverArtifact 复合 op 专写面；node 删除观察（旧 written:false 即时
+      //    orphaned+退款）移交 poller apply 存在性守卫（权威观察点）+orphaned 幂等退款——资金语义
+      //    不变、观察时点异步化。emit done 保留即时 UX（乐观收敛：poller 投影 lag=秒级）。 ──
 
-      // ── 结果行+余额推送——done 投影已随批写入 ──
+      // ── 结果行+余额推送（交付归投影链——本段零 doc 写零交付判定） ──
       // T12：ai-result-download 入队面整体退役（video=finalize-first——Media(processing) 行即队列，
       //   MaterializeJob DB poller 按 mediaId claim；MinIO 归档在 materialize 链内）。
-      // 两附带步骤 best-effort（T6 审查 Important①）：交付已随批完成，此后余额读抛错若裸 await 落
-      // catch，会被 B-1 的"SUCCEEDED∧交付抛错"识别误判为交付失败⇒rollbackDeliveryFailed 退款——
-      // 产物已交付+退款=错账面。B-1 识别域收窄=交付本身（writeBatch 本体抛错——基础设施级）。
+      // 两附带步骤 best-effort（T6 审查 Important①）：余额读已 .catch 兜底（null 即跳过推送）——
+      // 本段残余 throw 落 B-1 时行已 SUCCEEDED（T15：防御观测档零资金动作）。
       if (outcome.resultRow) results.push(outcome.resultRow);
       const bal = await Promise.resolve(this.teamCredit.getBalanceView(teamId, userId))
         .catch(() => null);
@@ -523,10 +438,10 @@ export class ExecutionService {
       // A-3：BusinessException（409 族/PROVIDER_POLL_ABORTED 等）降级逐节点 error+continue——:367 整批
       // throw 已退役（Z44 部分成功语义）；F13：意图终态必达——外呼/扣费抛错置 FAILED（SIGKILL 场景
       // process catch 不执行，由 processor failed 钩子兜底）；失败先 void_ 解冻（约束②），再置 FAILED。
-      // Y0b-2 T6（B-1 settle 后交付死区根修）：行已 SUCCEEDED（complete+settle 均核销）∧交付抛错
-      // （writeNodeData 503 drain/租约等）——void_（CAS reserved>0）与 fail（ACTIVE 守卫）双双 no-op，
-      // 行永留 SUCCEEDED（reserved=0）⇒ R3 终态悬留批判龄永不命中+用户重试回放零退款双扣。
-      // 识别 ⇒ rollbackDeliveryFailed（CAS SUCCEEDED→退款 VOIDED——与 written:false 同入口语义）。
+      // Y0b-2 T6（B-1 settle 后交付死区根修）→T15 形态迁移：finalize 后 worker 侧零交付写——
+      // 「SUCCEEDED∧交付抛错」的退款面整体移交投影链（poller orphaned 判定+幂等退款；投影行
+      // 在案=交付有 owner）。本分支保留为防御观测（finalize 后残余段〔emit/余额〕throw 的非资损
+      // 记录——零资金动作：refund 会与投影链双跑退款面）。
       if (claimed) {
         const row = await this.prisma.generationIntent.findUnique({
           where: { id: claimed.id }, select: { status: true, execSeq: true },
@@ -540,13 +455,9 @@ export class ExecutionService {
           return;
         }
         if (row?.status === 'SUCCEEDED') {
-          const msg = '生成成功但交付失败（已退款）——请重试';
-          const rolled = await this.teamCredit.rollbackDeliveryFailed(claimed.id, '交付失败：settle 后交付抛错')
-            .catch((e) => { this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} B-1 交付退款失败（悬留闭环兜底）: ${e}`); return false; });
-          this.logger.warn(`[deliver-refund] 意图 ${claimed.intentId} settle 后交付抛错（行已 SUCCEEDED）——rollbackDeliveryFailed=${rolled}`);
-          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('NODE_DELIVERY_FAILED', msg, attempts, attempts < 3, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
-          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
-          errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'NODE_DELIVERY_FAILED' });
+          // T15：交付归投影 poller——本处零退款零 error 投影（done 投影=deliverArtifact 专写；
+          // error 会与 poller done 对撞）。投影行在案=交付有 owner（node 删⇒orphaned+退款在彼）。
+          this.logger.warn(`[deliver] 意图 ${claimed.intentId} settle 后残余段抛错（交付归投影链零资金动作）: ${err?.message ?? err}`);
           return;
         }
         await this.teamCredit.void_({ intentRowId: claimed.id, execSeq: claimed.execSeq })

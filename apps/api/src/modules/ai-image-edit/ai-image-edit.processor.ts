@@ -10,7 +10,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
-import { artifactDiscardedTotal, countExecProjectionFailure, deliverStrandedTotal } from '../execution/exec.metrics';
+import { countExecProjectionFailure } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
@@ -198,26 +198,11 @@ export class AiImageEditProcessor extends WorkerHost {
       }
       const mediaId = committed.mediaId!;
 
-      // 10. Write fileId to server doc；socket 仅进度通知。
-      // O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（改写 envelope 会让 api
-      // 成信封第 4 写者撞冻结表"信封写者=3"）；尺寸由 web 内容事件路径决定（load/换图 contain-fit）。
-      // T10：superseded=用户在飞替换——不写 doc（投影行已记 superseded，用户值保留）。
-      // Z44 nodeAlive 守卫：business 档 written:false=节点已删——产物丢弃计数（账已结清，无退款腿
-      // ——交付判据归 finalize intent CAS）。T13 typed outcome：transient/permanent=交付未知档——
-      // 悬留计数（不判退款不假报交付；收敛归 R3/T15 投影链）+scope=claim 票铸造点（端点收窄面）。
-      if (committed.outcome !== 'superseded') {
-        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: mediaId }, { intentRowId, execSeq: execSeq.toString() });
-        if (deliver.kind === 'business' && !deliver.written) {
-          artifactDiscardedTotal.inc({ cause: 'node-deleted' });
-          this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 已删——产物 ${mediaId} 丢弃（nodeAlive 守卫）`);
-          return { status: 'completed', fileId: mediaId };
-        }
-        if (deliver.kind !== 'business') {
-          deliverStrandedTotal.inc({ cause: deliver.kind });
-          this.logger.warn(`[ai-image-edit] 节点 ${nodeId} 交付写${deliver.kind === 'transient' ? '瞬态耗尽' : '通道永久失败'}——悬留（产物 ${mediaId} 在 PG——收敛归 R3/T15 投影链）`);
-          return { status: 'completed', fileId: mediaId };
-        }
-      }
+      // 10. T15 收口：doc 交付写移除——fileId 归 ArtifactProjection 投影 poller（finalize 已落 pending
+      //     行；worker 通道 writeNodeData 已 403——旧 Z44 nodeAlive 守卫/typed 悬留计数面随直写退役，
+      //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。socket 仅进度通知（即时 UX）。
+      //     O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（尺寸由 web 内容事件
+      //     路径决定——load/换图 contain-fit）。
       this.emitPort.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-result',

@@ -8,7 +8,7 @@
 // write-batch body（{projectId,ops} 契约面不变，validateWriteBatch 零感知）；验签在端点侧
 // （collab-write.controller）经本模块纯函数完成。
 // 裸项目档（intentRowId=''）：pre-claim 断言路径（PLAN_MISSING/claim 抛错的 error 投影）无 intent 行
-// 可绑——仅绑 projectId+exp；writeNodeData（资金交付面）禁用裸档（端点侧 WORKER_SCOPE_LEVEL 403）。
+// 可绑——仅绑 projectId+exp；writeNodeData 已随 T15 收口退出 worker 通道（全档亦 403 WORKER_OP_NOT_ALLOWED——交付归投影 poller；裸档仅放行 writeExecStatus）。
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 /** scope 令牌专属 header（bearer 仍是 authorization——两层凭据互不混装）。 */

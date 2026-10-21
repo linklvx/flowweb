@@ -9,7 +9,6 @@ import { ApiCallerService, type EditCallOpts } from '../../execution/api-caller.
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
-import { artifactDiscardedTotal, deliverStrandedTotal } from '../../execution/exec.metrics';
 import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
 import { ArtifactCommitService } from '../../artifact-core/artifact-commit.service';
 import type { ExecutionTicket } from '../../execution/execution.types';
@@ -186,24 +185,9 @@ export class LightingConsumer {
         },
       });
 
-      // 10. Write fileId to server doc；socket 仅进度通知
-      //     Z44 nodeAlive 守卫：business 档 written:false=节点已删——产物丢弃计数（账已结清，无退款腿）
-      // T10：superseded=用户在飞替换——不写 doc（投影行已记 superseded，用户值保留）
-      // T13 typed outcome：transient/permanent=交付未知档——悬留计数（收敛归 R3/T15 投影链）+
-      //     scope=claim 票铸造点（write-batch 端点收窄面）。
-      if (projectId && committed.outcome !== 'superseded') {
-        const deliver = await this.collabDoc.writeNodeData(projectId, nodeId, { fileId: mediaId }, intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined);
-        if (deliver.kind === 'business' && !deliver.written) {
-          artifactDiscardedTotal.inc({ cause: 'node-deleted' });
-          this.logger.warn(`[lighting] 节点 ${nodeId} 已删——产物 ${mediaId} 丢弃（nodeAlive 守卫）`);
-          return { status: 'completed', fileId: mediaId };
-        }
-        if (deliver.kind !== 'business') {
-          deliverStrandedTotal.inc({ cause: deliver.kind });
-          this.logger.warn(`[lighting] 节点 ${nodeId} 交付写${deliver.kind === 'transient' ? '瞬态耗尽' : '通道永久失败'}——悬留（产物 ${mediaId} 在 PG——收敛归 R3/T15 投影链）`);
-          return { status: 'completed', fileId: mediaId };
-        }
-      }
+      // 10. T15 收口：doc 交付写移除——fileId 归 ArtifactProjection 投影 poller（finalize 已落 pending
+      //     行；worker 通道 writeNodeData 已 403——旧 Z44 nodeAlive 守卫/typed 悬留计数面随直写退役，
+      //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。socket 仅进度通知（即时 UX）。
       this.emitPort.emitNodeStatus(projectId || '', {
         nodeId,
         status: 'lighting-result',

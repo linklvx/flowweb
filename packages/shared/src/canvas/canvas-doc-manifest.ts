@@ -259,15 +259,16 @@ export const DOC_WRITE_OPS: Record<DocWriteOpType, DocWriteOpSpec> = {
   },
 };
 
-// ── T13（plan v11.2 ①）：worker 写通道（write-batch 端点）op 白名单——两段式过渡档 ──────────────────
-// T13→T15 窗口期 worker 仍需 writeNodeData{fileId,result} 交付（T10-T12 过渡交付模式）+
-// writeExecStatus（loading/skipped/done/error 全 EXEC_STATUS_KEYS 合法域——claim 期/回放/终态投影）。
-// **T15 收口：writeNodeData 与 done 移除——正式投影 poller 接管交付**（届时本表收缩为 exec-only
-// 〔仅 loading/skipped〕——spec Z18''⑥ 字面终态）。
-// 键集单源=SERVER_WRITABLE_DATA_KEYS（{fileId,result}——禁第二真源）；比现状 6 键全开（SERVER_NODE_DATA_KEYS）
-// 真收窄：worker token 写 content/videoUrl/resultUrl/errorCode 即拒（端点 400 WORKER_KEY_NOT_ALLOWED）。
-export const WORKER_CHANNEL_OPS: readonly DocWriteOpType[] = ['writeNodeData', 'writeExecStatus'];
-export const WORKER_WRITE_NODE_DATA_KEYS = SERVER_WRITABLE_DATA_KEYS;
+// ── T13→T15 收口后（plan v11.2 ① 承接）：worker 写通道（write-batch 端点）op 白名单=exec-only ──
+// **T15 已收口：writeNodeData 与 done 移除**——正式投影 poller（api 进程）接管一切 data 域交付
+// （deliverArtifact 复合 op：data.{fileId|result}+exec done 专写）；worker 面只余 writeExecStatus
+// （claim 期 loading/skipped+error 投影——error 非 done：终态 done=投影 poller 专写〔Z99 同代终态
+// 不倒退守卫的通道级前置〕）。WORKER_EXEC_FORBIDDEN_STATUSES=通道级 status 黑名单（现只 done——
+// spec :280 终态字面〔loading/skipped〕保留 error 为 claim 期在案面，扩黑名单=有意识动作）。
+// WORKER_WRITE_NODE_DATA_KEYS 随 writeNodeData 移除退役（键域白名单消费面消失——SERVER_WRITABLE_
+// DATA_KEYS 单源仍在：deliverArtifact/replaceMedia/clearMedia 三 op 消费域不变）。
+export const WORKER_CHANNEL_OPS: readonly DocWriteOpType[] = ['writeExecStatus'];
+export const WORKER_EXEC_FORBIDDEN_STATUSES: readonly string[] = ['done'];
 
 // ── 违规分类码+校验函数（Z108②：业务级拒绝非截断非 sanitize）──
 export type WriteBatchViolationCode =

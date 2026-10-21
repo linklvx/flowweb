@@ -383,9 +383,19 @@ export class ArtifactCommitService {
     // 否则 void-terminal（调用方锁内 voidInTx 幂等 release——spec「FAILED/VOIDED∧reserved>0∧
     // 无 artifact/无 delivered→voidInTx」+v13b 守卫）。
     if (row.reservedCredits > 0) {
-      const deliveredRows = await tx.artifactProjection.count({
-        where: { projectId: row.projectId, nodeId: row.nodeId, state: { in: ['pending', 'projecting', 'projected'] } },
+      // T15 收口（T13 登记「manual-required 凭据查询收窄」）：交付凭据=本 intent 资金锚的投影行
+      // （artifactId∈NodeArtifact{sourceIntentRowId=本行}）——投影行键=artifactId，无锚行则本 intent
+      // 结构性不可能有投影行；旧按 projectId+nodeId 笼统 count 会把他代（在飞/已交付他 intent）投影行
+      // 误计为「有交付凭据」⇒ 假 manual-required（钱冻结永悬）。
+      const anchoredIds = await tx.nodeArtifact.findMany({
+        where: { sourceIntentRowId: intentRowId },
+        select: { id: true },
       });
+      const deliveredRows = anchoredIds.length > 0
+        ? await tx.artifactProjection.count({
+            where: { artifactId: { in: anchoredIds.map((a) => a.id) }, state: { in: ['pending', 'projecting', 'projected'] } },
+          })
+        : 0;
       if (anchor || deliveredRows > 0) {
         return { action: 'manual-required', reason: anchor ? 'FAILED/VOIDED 带 NodeArtifact 锚行（产物在案）' : 'FAILED/VOIDED 带非 superseded 投影行（交付凭据在案）' };
       }

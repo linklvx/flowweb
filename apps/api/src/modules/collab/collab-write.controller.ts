@@ -10,11 +10,10 @@
 //  ③幂等=「端口只收幂等 op」原则（Z133）——端点显式不承诺跨请求去重：重试多落 delta 行=有界
 //    （≤2×N_chunks）/compact 坍缩/retry 可观测（Z76⑤ 观测面仓内承载=collab_write_http_outcome_total
 //    {outcome='transient-retry'}——每重试必计数，冗余 delta 行唯一来源可量化）；禁内存去重表。
-// 鉴权=WorkerWriteAuthGuard（bearer WORKER_WRITE_TOKEN 传输层）+T13 双收窄（plan v11.2 ①）：
-//  ④op 白名单=WORKER_CHANNEL_OPS〔writeNodeData+writeExecStatus〕且 writeNodeData patch 键⊆
-//    WORKER_WRITE_NODE_DATA_KEYS〔{fileId,result}——shared manifest 单源〕（两段式过渡档：T15 收口
-//    writeNodeData+done 移除——投影 poller 接管；比旧 6 键全开真收窄：worker token 写
-//    content/videoUrl/resultUrl/errorCode 即 400）；
+// 鉴权=WorkerWriteAuthGuard（bearer WORKER_WRITE_TOKEN 传输层）+T13→T15 收口（plan v11.2 ① 承接）：
+//  ④op 白名单=WORKER_CHANNEL_OPS〔exec-only——writeNodeData 已移除：交付归投影 poller（T15），
+//    worker token 写 data 域即 403 WORKER_OP_NOT_ALLOWED〕且 writeExecStatus patch.status 禁
+//    WORKER_EXEC_FORBIDDEN_STATUSES〔done——exec done=投影 poller deliverArtifact 专写，403〕；
 //  ⑤token 作用域化=x-worker-scope HMAC 验签（projectId+intentRowId+execSeq+exp 绑定——伪造他
 //    project/intent/execSeq 的写请求 403；裸项目档〔pre-claim 断言路径〕仅放行 writeExecStatus；
 //    全档校验 intent 行在场∧projectId/execSeq 匹配∧逐 op nodeId===intent.nodeId）。dev 未设
@@ -22,7 +21,7 @@
 // AuthGuard 会话面由 auth.guard 精确谓词放行 POST write-batch（静态路径全等）。
 import { BadRequestException, Body, Controller, ForbiddenException, Inject, Post, UseGuards, Headers } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import { WORKER_CHANNEL_OPS, WORKER_WRITE_NODE_DATA_KEYS, validateWriteBatch, type WriteBatchViolation } from '@flowweb/shared';
+import { WORKER_CHANNEL_OPS, WORKER_EXEC_FORBIDDEN_STATUSES, validateWriteBatch, type WriteBatchViolation } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocWriterService, type WriteOpResult } from './collab-doc-writer.service';
@@ -54,8 +53,8 @@ export class CollabWriteController {
     if (violations.length > 0) {
       throw new BadRequestException({ code: 'WRITE_BATCH_REJECTED', violations });
     }
-    // ── T13 双收窄（④op 白名单+⑤scope 验签）——Z108 之后：先按 manifest 通用键域拒内容违规，
-    //    再按 worker 通道专属面收窄（越权 403/白名单外 400 均不进 writer）。token 未设=dev
+    // ── T13→T15 收口（④op 白名单 exec-only+done 禁写+⑤scope 验签）——Z108 之后：先按 manifest
+    //    通用键域拒内容违规，再按 worker 通道专属面收窄（403 均不进 writer）。token 未设=dev
     //    fail-open（与 WorkerWriteAuthGuard 同判据同向——生产由 env 拒启承担主防线）。 ──
     const bearer = process.env.WORKER_WRITE_TOKEN;
     if (bearer) {
@@ -77,31 +76,24 @@ export class CollabWriteController {
     return v.payload;
   }
 
-  /** ④op 白名单+全档绑定：writeNodeData 需全档（intentRowId+execSeq）且逐 op nodeId===intent.nodeId
-   *  （伪造他 intent/execSeq 的写=换 intent 行/nodeId 即 403）；裸档仅放行 writeExecStatus
-   *  （pre-claim 断言路径——PLAN_MISSING/claim 抛错的 error 投影无 intent 行可绑）。 */
+  /** ④op 白名单（exec-only）+done 禁写+全档绑定：逐 op nodeId===intent.nodeId（伪造他
+   *  intent/execSeq 的写=换 intent 行/nodeId 即 403）。T15 收口：writeNodeData 全档亦 403
+   *  （data 域交付=投影 poller 专写）；writeExecStatus status=done 403（exec done=deliverArtifact
+   *  复合 op 专写——Z99 同代终态守卫的通道级前置）。 */
   private async enforceWorkerChannel(
     ops: { op: string; nodeId?: string; patch?: Record<string, unknown> }[],
     scope: WorkerScopePayload,
   ): Promise<void> {
     const channelOps = new Set<string>(WORKER_CHANNEL_OPS);
-    const writableKeys = new Set<string>(WORKER_WRITE_NODE_DATA_KEYS);
-    const keyViolations: string[] = [];
+    const forbiddenStatuses = new Set<string>(WORKER_EXEC_FORBIDDEN_STATUSES);
     for (const op of ops) {
       if (!channelOps.has(op.op)) {
-        throw new BadRequestException({ code: 'WORKER_OP_NOT_ALLOWED', message: `op ${op.op} 不在 worker 通道白名单（${WORKER_CHANNEL_OPS.join('/')}——T15 收口后 writeNodeData 亦移除，交付归投影 poller）` });
+        throw new ForbiddenException({ code: 'WORKER_OP_NOT_ALLOWED', message: `op ${op.op} 不在 worker 通道白名单（${WORKER_CHANNEL_OPS.join('/')}——T15 收口：writeNodeData 已移除，交付归投影 poller）` });
       }
-      if (op.op === 'writeNodeData') {
-        if (scope.i === '') {
-          throw new ForbiddenException({ code: 'WORKER_SCOPE_LEVEL', message: 'writeNodeData（资金交付面）要求全档 scope（intentRowId+execSeq）——裸项目档仅放行 writeExecStatus' });
-        }
-        for (const k of Object.keys(op.patch ?? {})) {
-          if (!writableKeys.has(k)) keyViolations.push(k);
-        }
+      const status = (op.patch as { status?: unknown } | undefined)?.status;
+      if (op.op === 'writeExecStatus' && typeof status === 'string' && forbiddenStatuses.has(status)) {
+        throw new ForbiddenException({ code: 'WORKER_EXEC_STATUS_NOT_ALLOWED', message: `writeExecStatus status=${status} 禁经 worker 通道（WORKER_EXEC_FORBIDDEN_STATUSES——done=投影 poller deliverArtifact 复合 op 专写）` });
       }
-    }
-    if (keyViolations.length > 0) {
-      throw new BadRequestException({ code: 'WORKER_KEY_NOT_ALLOWED', message: `writeNodeData patch 键 ${keyViolations.join('/')} 不在 worker 通道键集白名单（${WORKER_WRITE_NODE_DATA_KEYS.join('/')}——SERVER_WRITABLE_DATA_KEYS 单源；content/videoUrl/resultUrl/errorCode 旧键禁写）` });
     }
     if (scope.i !== '') {
       // 全档绑定：intent 行在场∧projectId/execSeq 匹配∧逐 op nodeId 一致（伪造他 intent/execSeq 即 403）
