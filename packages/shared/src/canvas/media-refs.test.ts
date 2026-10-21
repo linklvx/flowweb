@@ -17,7 +17,7 @@ function makeDoc(): DocLike {
 }
 
 describe('T16 collectMediaRefs（七键扫描）', () => {
-  it('七键全键形（string 槽+列表槽 item.id——targetItemId=item.id）', () => {
+  it('全键形（string 槽+列表槽 item.id——targetItemId=item.id；referenceVideo/referenceAudio=config 域入口同落 data）', () => {
     const doc = makeDoc();
     fillDoc(doc, [{
       id: 'n1',
@@ -25,6 +25,8 @@ describe('T16 collectMediaRefs（七键扫描）', () => {
       data: {
         fileId: 'm-file',
         referenceImage: 'm-ref',
+        referenceVideo: 'm-refv',   // spec 评审 P1#1：AddNodeMenu.tsx:249 上传视频引用（updateConfig→data）
+        referenceAudio: 'm-refa',   // AudioGenNode.tsx:105 上传音频引用（同路径）
         images: [{ id: 'm-i1' }, { id: 'm-i2' }],
         allImages: [{ id: 'm-i1' }],
         trimmedFileId: 'm-trim',
@@ -39,11 +41,13 @@ describe('T16 collectMediaRefs（七键扫描）', () => {
       ['fileId', '', 'm-file'],
       ['images', 'm-i1', 'm-i1'],
       ['images', 'm-i2', 'm-i2'],
+      ['referenceAudio', '', 'm-refa'],
       ['referenceImage', '', 'm-ref'],
+      ['referenceVideo', '', 'm-refv'],
       ['trimmedFileId', '', 'm-trim'],
       ['videoFileId', '', 'm-vid'],
     ].sort());
-    expect([...collectMediaIds(doc)].sort()).toEqual(['m-aud', 'm-file', 'm-i1', 'm-i2', 'm-ref', 'm-trim', 'm-vid']);
+    expect([...collectMediaIds(doc)].sort()).toEqual(['m-aud', 'm-file', 'm-i1', 'm-i2', 'm-ref', 'm-refa', 'm-refv', 'm-trim', 'm-vid']);
   });
 
   it('非引用形态免疫：null（clearMedia 钉 null 写）/空串/非 string 标量槽、坏 item、无 data 节点、非 map 条目', () => {
@@ -57,9 +61,10 @@ describe('T16 collectMediaRefs（七键扫描）', () => {
     expect(collectMediaIds(doc).size).toBe(0);
   });
 
-  it('词表七键恰（MediaBinding.targetField 应用层单源——增删键本测即红）', () => {
+  it('词表九键恰（MediaBinding.targetField 应用层单源——增删键本测即红；P1#1 补 referenceVideo/referenceAudio）', () => {
     expect([...MEDIA_REF_TARGET_FIELDS]).toEqual([
-      'fileId', 'referenceImage', 'images', 'allImages', 'trimmedFileId', 'videoFileId', 'audioFileId',
+      'fileId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'images', 'allImages',
+      'trimmedFileId', 'videoFileId', 'audioFileId',
     ]);
   });
 
