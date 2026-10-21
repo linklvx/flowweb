@@ -247,7 +247,8 @@ export class CollabDocumentService implements OnApplicationShutdown {
 
   /** Y0b-2 T5（Z98 端口反转）：ArtifactProbe——settleStranded 的产物探测唯一出口（intent-reconcile
    *  零 readCanvas——资金分支禁入规则⑤；探针在 collab 侧=活读含 spool 帧无假阴性）。
-   *  产物键白名单（Z102）：text=result / image=resultUrl / video=videoUrl；未知 kind 不裁决
+   *  产物键白名单（Z102；T10/T12 交付键统一后）：text=result / image|video=fileId（resultUrl/videoUrl
+   *  旧交付键已退役——探错键=settleStranded 误判「无产物」触发错误退款方向）；未知 kind 不裁决
    *  （unknownKind 标记——调用方计数告警，永不把"不知道"当"无产物"）；节点已删=found:false（无产物）。
    *  Z112：非常驻 doc 探测=强制装载（钱事实允许但有界）——装载计数归因 heap 闸。
    *  探针结果可能过期——CAS（rollbackStranded 三重守卫）才是权威。
@@ -263,8 +264,8 @@ export class CollabDocumentService implements OnApplicationShutdown {
       const data = dataOf.get(nodeId);
       if (data === undefined) return { nodeId, kind, found: false }; // 节点已删=无产物
       if (kind === 'text') return { nodeId, kind, found: data.result != null };
-      if (kind === 'image') return { nodeId, kind, found: data.resultUrl != null };
-      if (kind === 'video') return { nodeId, kind, found: data.videoUrl != null };
+      // T10/T12：image/video 交付键=fileId（doc data 唯一产物键——SERVER_WRITABLE_DATA_KEYS 单源语义）
+      if (kind === 'image' || kind === 'video') return { nodeId, kind, found: data.fileId != null };
       return { nodeId, kind, found: false, unknownKind: true };
     });
   }
