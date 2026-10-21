@@ -110,6 +110,17 @@ describe('T16 mediaFactsRuntime（会话编排——mock API）', () => {
     return doc;
   };
 
+  const makeRefVideoDoc = (mediaId: string): Y.Doc => {
+    const doc = new Y.Doc();
+    const n = new Y.Map();
+    const data = new Y.Map();
+    data.set('referenceVideo', mediaId);   // P1#1：AddNodeMenu 上传视频引用形态（updateConfig→data）
+    n.set('type', 'videoGen');
+    n.set('data', data);
+    doc.getMap('nodes').set('n1', n);
+    return doc;
+  };
+
   it('重连全量拉：doc mediaId 集分批 POST+响应直入消费 Map（factVersion string wire）', async () => {
     (fetchMediaFacts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { mediaId: 'm1', facts: [{ factVersion: '0', factType: 'state', payload: { status: 'processing' } }] },
@@ -167,8 +178,67 @@ describe('T16 mediaFactsRuntime（会话编排——mock API）', () => {
     });
   });
 
-  it('collectMediaIds（shared 单源）经 web toDocLike 读 Y.Doc 七键', () => {
+  it('P2#4 全链路（模块态非纯函数）：全量拉回未知 mediaId fact→暂存 pending→fileId 到达即消费（零二次拉取）', async () => {
+    vi.useFakeTimers();
+    try {
+      // ①会话起点：doc 含 m-late 引用发起全量拉——响应到达前 doc 已失引用（投影滞后/副本删除竞态窗：
+      // 请求集按拉取时 doc 快照、响应 ingest 按当时 doc 现值判——fact 先于 fileId 到达的真实形态）
+      let resolveFetch!: (v: unknown) => void;
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockImplementationOnce(
+        () => new Promise((res) => { resolveFetch = res; }),
+      );
+      const doc1 = makeDoc('m-late');
+      pullMediaFactsFull(doc1);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(fetchMediaFacts).toHaveBeenCalledWith(['m-late'], 't1');
+      // 拉取在飞窗：doc 删引用（响应未达——此窗的 fact 即「先于 fileId 到达」）
+      doc1.getMap('nodes').delete('n1');
+      onDocRefsChanged(doc1);
+      resolveFetch([
+        { mediaId: 'm-late', facts: [{ factVersion: '0', factType: 'state', payload: { status: 'processing' } }] },
+      ]);
+      await vi.advanceTimersByTimeAsync(10);
+      // 暂存态：nodeStore.mediaFacts 空（doc 未引用——不消费，仅 pending TTL Map 暂存）
+      expect(useNodeStore.getState().mediaFacts.size).toBe(0);
+
+      // ②fileId 到达（新 doc 引用就位——投影 poller 交付/副本 paste 形态）→ 消费暂存 fact 入 store
+      const doc2 = makeDoc('m-late');
+      onDocRefsChanged(doc2);
+      const entry = useNodeStore.getState().mediaFacts.get('m-late');
+      expect(entry?.state).toBe('processing');   // fileId 到达即消费（pending 命中）
+      expect(entry?.factVersion).toBe('0');
+
+      // ③消费后 lazy 队列仍会去抖补拉（拉取通道对账——pending 消费与 lazy 补拉独立不互斥）
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockClear();
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(fetchMediaFacts).toHaveBeenCalledWith(['m-late'], 't1');
+
+      // ④旧 factVersion 重放（补拉返回同版本）——不回退（单调门）
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockClear();
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { mediaId: 'm-late', facts: [{ factVersion: '0', factType: 'state', payload: { status: 'processing' } }] },
+      ]);
+      pullMediaFactsForIds(['m-late']);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(useNodeStore.getState().mediaFacts.get('m-late')?.state).toBe('processing');
+      expect(useNodeStore.getState().mediaFacts.get('m-late')?.factVersion).toBe('0');
+      // 新版本到达——推进
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockClear();
+      (fetchMediaFacts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { mediaId: 'm-late', facts: [{ factVersion: '1', factType: 'state', payload: { status: 'completed' } }] },
+      ]);
+      pullMediaFactsForIds(['m-late']);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(useNodeStore.getState().mediaFacts.get('m-late')?.state).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('collectMediaIds（shared 单源）经 web toDocLike 读 Y.Doc 九键（P1#1 后含 referenceVideo/referenceAudio）', () => {
     const doc = makeDoc('m-file');
     expect([...collectMediaIds(toDocLike(doc))]).toEqual(['m-file']);
+    expect([...collectMediaIds(toDocLike(makeRefVideoDoc('m-rv')))]).toEqual(['m-rv']);   // P1#1 键入集
   });
 });

@@ -43,8 +43,11 @@ function chunk<T>(arr: readonly T[], size: number): T[][] {
   return out;
 }
 
-/** 响应消费：doc 已引用 mediaId 直接并入；未引用暂存 pendingFacts（fact 先于 fileId 到达窗）。 */
-function ingestRows(rows: readonly MediaFactsResponseRow[], docIds: ReadonlySet<string>): void {
+/** 响应消费：**到达时** doc 已引用的 mediaId 直接并入；未引用暂存 pendingFacts（fact 先于 fileId
+ *  到达窗——判定基准=响应到达时的 doc 现值〔getDocIds 闭包现取〕，非请求时快照：拉取在飞窗 doc
+ *  失引用/换引用的竞态下，事实按到达时刻归档——这正是「先到暂存、fileId 再到达即消费」的语义面）。 */
+function ingestRows(rows: readonly MediaFactsResponseRow[], getDocIds: () => ReadonlySet<string>): void {
+  const docIds = getDocIds();
   const current = useNodeStore.getState().mediaFacts;
   const direct: MediaFactsResponseRow[] = [];
   for (const row of rows) {
@@ -62,13 +65,14 @@ function ingestRows(rows: readonly MediaFactsResponseRow[], docIds: ReadonlySet<
   }
 }
 
-/** 按 mediaId 集拉取（分批 ≤FACTS_BATCH；失败静默——重连全量拉自愈，非缓存承诺）。 */
-async function pullIds(ids: readonly string[], docIds: ReadonlySet<string>): Promise<void> {
+/** 按 mediaId 集拉取（分批 ≤FACTS_BATCH；失败静默——重连全量拉自愈，非缓存承诺）。
+ *  getDocIds=到达时 doc 引用集现取（ingestRows 头注——禁请求时快照冻结）。 */
+async function pullIds(ids: readonly string[], getDocIds: () => ReadonlySet<string>): Promise<void> {
   const teamId = teamIdOf();
   for (const batch of chunk(ids, FACTS_BATCH)) {
     try {
       const rows = await fetchMediaFacts([...batch], teamId);
-      ingestRows(rows, docIds);
+      ingestRows(rows, getDocIds);
     } catch { /* 拉取失败静默——下轮重连/lazy 自愈 */ }
   }
 }
@@ -95,17 +99,20 @@ export function pullMediaFactsFull(doc: Y.Doc): void {
       const { pending, consumed } = consumePendingFacts(pendingFacts, docIds, useNodeStore.getState().mediaFacts, Date.now());
       pendingFacts = pending;
       if (consumed) useNodeStore.setState({ mediaFacts: consumed });
-      await pullIds([...docIds], docIds);
+      // 到达时引用集现取（getDocIds——拉取在飞窗 doc 变更竞态按到达时刻归档）
+      await pullIds([...docIds], () => collectMediaIds(toDocLike(doc)));
     } finally {
       fullPullInFlight = false;
     }
   })();
 }
 
-/** 单 mediaId 定向补拉（failed UI 重试面——VideoGenNode「刷新状态」按钮直调）。 */
-export function pullMediaFactsForIds(ids: readonly string[]): void {
+/** 单 mediaId 定向补拉（failed UI 重试面——VideoGenNode「刷新状态」按钮直调）。到达时引用集
+ *  现取（消费判据单源=ingestRows；定向拉取的 mediaId 多为 doc 已引用——未引用档自然入 pending）。 */
+export function pullMediaFactsForIds(ids: readonly string[], getDocIds?: () => ReadonlySet<string>): void {
   if (ids.length === 0) return;
-  void pullIds(ids, new Set(ids));
+  const resolve = getDocIds ?? (() => new Set(ids));
+  void pullIds(ids, resolve);
 }
 
 /** ②fileId 到达判定（doc nodes 变更后——applyDocToStore 尾挂/armSession 首投影）：新见 mediaId
@@ -133,6 +140,6 @@ export function onDocRefsChanged(doc: Y.Doc): void {
     lazyTimer = null;
     const ids = [...lazyQueue];
     lazyQueue = new Set();
-    if (ids.length > 0) void pullIds(ids, collectMediaIds(toDocLike(doc)));
+    if (ids.length > 0) void pullIds(ids, () => collectMediaIds(toDocLike(doc)));
   }, LAZY_PULL_DEBOUNCE_MS);
 }
