@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionService } from './execution.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
+import { UpstreamMediaService } from './upstream-media.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -52,7 +53,7 @@ describe('ExecutionService', () => {
         { id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } },
       ]),
-      collectUpstreamData: vi.fn().mockReturnValue({ textContents: ['hello'], imageUrl: undefined }),
+      collectUpstreamData: vi.fn().mockResolvedValue({ textContents: ['hello'], imageMediaId: undefined }),   // Y1a T8：async+身份形态
     };
     // Y0b-1（E1）：validation 产 plans——动态生成，creditCost 5=reserve 断言锚（对齐既有 12 处基线取值）
     validation = {
@@ -105,6 +106,7 @@ describe('ExecutionService', () => {
         { provide: EmitPort, useValue: gateway },
         { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: GenerationIntentService, useValue: intentSvc },
+        { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },   // Y1a T8：上游身份读源 mock（默认无上游图）
       ],
     }).compile();
     service = module.get<ExecutionService>(ExecutionService);
@@ -273,7 +275,7 @@ describe('ExecutionService', () => {
       topology.sort.mockReturnValue([
         { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
       ]);
-      topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
+      topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined });
       await service.execute('p1', 'n2', 'u1');
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '面板词' }));
       expect(prisma.style.findMany).not.toHaveBeenCalled(); // 无 styleId 批次零查询（B19）
@@ -285,7 +287,7 @@ describe('ExecutionService', () => {
         { id: 'n1', type: 'textInput', data: { content: '上游词', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
       ]);
-      topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
+      topology.collectUpstreamData.mockResolvedValue({ textContents: ['上游词'], imageMediaId: undefined });
       await service.execute('p1', 'n2', 'u1');
       expect(prisma.style.findMany).toHaveBeenCalledWith({ where: { id: { in: ['st1'] } } });
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '上游词, 风格词' }));
@@ -299,7 +301,7 @@ describe('ExecutionService', () => {
       topology.sort.mockReturnValue([
         { id: 'n2', type: 'imageGen', data: { model: 'm1', styleId: 'st1' } },
       ]);
-      topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
+      topology.collectUpstreamData.mockResolvedValue({ textContents: ['上游词'], imageMediaId: undefined });
       await service.execute('p1', 'n2', 'u1');
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '上游词' }));
     });
@@ -312,7 +314,7 @@ describe('ExecutionService', () => {
       topology.sort.mockReturnValue([
         { id: 'n3', type: 'videoGen', data: { model: 'vm', styleId: 'st1', prompt: { text: '', html: '' } } },
       ]);
-      topology.collectUpstreamData.mockReturnValue({ textContents: [], imageUrl: undefined });
+      topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined });
       await service.execute('p1', 'n3', 'u1');
       const arg = apiCaller.callVideoGen.mock.calls[0][0] as { prompt: unknown };
       expect(arg.prompt).toBe('风格词V');           // 纯风格文本（面板为空）
@@ -324,7 +326,7 @@ describe('ExecutionService', () => {
         { id: 'n1', type: 'textInput', data: { content: '上游词', model: 'm-text' } },
         { id: 'n2', type: 'imageGen', data: { model: 'm1', prompt: { text: '面板词', html: '面板词' } } },
       ]);
-      topology.collectUpstreamData.mockReturnValue({ textContents: ['上游词'], imageUrl: undefined });
+      topology.collectUpstreamData.mockResolvedValue({ textContents: ['上游词'], imageMediaId: undefined });
       await service.execute('p1', 'n2', 'u1');
       const arg = apiCaller.callImageGen.mock.calls[0][0] as { prompt: string };
       expect(arg.prompt).toBe('上游词'); // 不含 '面板词'

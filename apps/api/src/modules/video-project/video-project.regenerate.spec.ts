@@ -129,6 +129,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
     };
     const execSvc: any = new (ExecutionService as any)(
       prisma, topology, validation, apiCaller, teamCredit, perm, collab, docWriterStubOf(collab), gateway, downloadQueue, intentService,
+      { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // upstreamMedia（Y1a T8——regenerate 上游 textInput 不触 reader）
     );
     const vsvc = new VideoProjectService(
       { videoProject: { findUnique: vi.fn() } } as any, perm as any, collab as any, execSvc as any, { assertCanUpload: vi.fn() } as any,

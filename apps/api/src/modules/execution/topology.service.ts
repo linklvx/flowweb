@@ -2,8 +2,15 @@ import { Injectable } from '@nestjs/common';
 
 export interface UpstreamData {
   textContents: string[];
-  imageUrl?: string;
+  /** 上游产物媒体身份（NodeArtifact.mediaId——Y1a T8 身份形态：URL 形态退役，
+   *  presign 续签/拓扑投影滞后不再漂移 paramsHash）。 */
+  imageMediaId?: string;
 }
+
+/** 上游产物媒体身份读取器（Y1a T8）：查 NodeArtifact by projectId+nodeId 槽位 → mediaId。
+ *  reader 由调用方注入（upstream-media.service 实现）——本服务保持零 DB 依赖纯拓扑职责
+ *  （sort/getScope 纯函数不动；产物收集的数据源经注入参数化）。 */
+export type UpstreamMediaIdReader = (projectId: string, nodeId: string) => Promise<string | null>;
 
 @Injectable()
 export class TopologyService {
@@ -55,11 +62,16 @@ export class TopologyService {
     return visited;
   }
 
-  /** Collect output data from all upstream nodes for injection into target node */
-  collectUpstreamData(nodeId: string, nodes: any[], edges: any[]): UpstreamData {
+  /** Collect output data from all upstream nodes for injection into target node.
+   *  Y1a T8：上游产物（imageGen/imageExtGen/videoGen）改读 NodeArtifact PG 权威（reader 注入——
+   *  doc resultUrl 读源退役：拓扑投影滞后〔doc 尚无 fileId〕时 claim 取空/漂移缺口根修——
+   *  PG 行 finalize 即建）；textInput 文本仍读 doc（用户输入非产物）。 */
+  async collectUpstreamData(
+    projectId: string, nodeId: string, nodes: any[], edges: any[], readUpstreamMediaId: UpstreamMediaIdReader,
+  ): Promise<UpstreamData> {
     const upstreamEdges = edges.filter(e => e.target === nodeId);
     const textContents: string[] = [];
-    let imageUrl: string | undefined;
+    let imageMediaId: string | undefined;
 
     for (const e of upstreamEdges) {
       const upstream = nodes.find(n => n.id === e.source);
@@ -68,11 +80,14 @@ export class TopologyService {
 
       if (upstream.type === 'textInput' && data?.content) {
         textContents.push(data.content);
-      } else if ((upstream.type === 'imageGen' || upstream.type === 'imageExtGen' || upstream.type === 'videoGen') && data?.resultUrl) {
-        if (!imageUrl) imageUrl = data.resultUrl;
+      } else if (upstream.type === 'imageGen' || upstream.type === 'imageExtGen' || upstream.type === 'videoGen') {
+        if (!imageMediaId) {
+          const mediaId = await readUpstreamMediaId(projectId, upstream.id);
+          if (mediaId) imageMediaId = mediaId;
+        }
       }
     }
 
-    return { textContents, imageUrl };
+    return { textContents, imageMediaId };
   }
 }

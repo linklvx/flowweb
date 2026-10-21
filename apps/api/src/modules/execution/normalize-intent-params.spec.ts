@@ -95,4 +95,47 @@ describe('normalizeIntentParams（F1 白名单规范化哈希）', () => {
   it('未知 kind 抛错（fail-closed——静默回退全键会让 sv/nonce 进哈希，重试按钮永久 409）', () => {
     expect(() => normalizeIntentParams('upscale', { prompt: 'x' })).toThrow(/unknown kind/);
   });
+
+  // ── Y1a T8：上游身份字段化（imageUrl→imageMediaId 族——URL 变即新键的重复扣费缺口根修） ──
+
+  it('Y1a T8 白名单翻转：image 含 imageMediaId 不含 imageUrl（URL 形态退役——presign 续签/重解析不再进哈希）', () => {
+    expect(WHITELIST.image).toContain('imageMediaId');
+    expect(WHITELIST.image).not.toContain('imageUrl');
+  });
+
+  it('Y1a T8 白名单翻转：video 四身份字段（原 URL 字段机械映射）', () => {
+    expect(WHITELIST.video).toContain('imageMediaId');
+    expect(WHITELIST.video).toContain('startImageMediaId');
+    expect(WHITELIST.video).toContain('endImageMediaId');
+    expect(WHITELIST.video).toContain('imageMediaIds');
+    expect(WHITELIST.video).not.toContain('imageUrl');
+    expect(WHITELIST.video).not.toContain('startImageUrl');
+    expect(WHITELIST.video).not.toContain('endImageUrl');
+    expect(WHITELIST.video).not.toContain('imageUrls');
+  });
+
+  it('Y1a T8 红测 2（URL 变即新键根修）：同一 Media 两次 claim（上游注入身份同值）→ 同 hash——重试命中同意图不开新键重复扣费', () => {
+    // 第一次 claim：上游注入=mediaId（NodeArtifact 读源）；重试（presign 续签后）身份不变
+    const a = { model: 'img-v2', prompt: '星空', resolution: '2048x2048', imageMediaId: 'media-111' };
+    const b = { model: 'img-v2', prompt: '星空', resolution: '2048x2048', imageMediaId: 'media-111', sv: 7, requestId: 'r2' };
+    expect(normalizeIntentParams('image', a)).toBe(normalizeIntentParams('image', b));
+  });
+
+  it('Y1a T8 身份语义：URL 噪声字段（imageUrl 遗留键）差异不改变 hash（不在白名单=被剔除）', () => {
+    const a = { model: 'img-v2', prompt: 'p', imageMediaId: 'media-111', imageUrl: 'https://x/flowai/k?sig=A' };
+    const b = { model: 'img-v2', prompt: 'p', imageMediaId: 'media-111', imageUrl: 'https://x/flowai/k?sig=B' };
+    expect(normalizeIntentParams('image', a)).toBe(normalizeIntentParams('image', b));
+  });
+
+  it('Y1a T8 换上游图（imageMediaId 变）→ 不同 hash（不同操作必不同键——身份字段进键）', () => {
+    const a = { model: 'img-v2', prompt: 'p', imageMediaId: 'media-111' };
+    const b = { model: 'img-v2', prompt: 'p', imageMediaId: 'media-222' };
+    expect(normalizeIntentParams('image', a)).not.toBe(normalizeIntentParams('image', b));
+  });
+
+  it('Y1a T8 video 身份字段语义：手工 doc URL 转身份失败时原值进哈希（外网 URL 用户不变则身份不变）', () => {
+    const a = { model: 'wan-v2', prompt: 'p', mode: 'image-to-video', startImageMediaId: 'https://cdn.example.com/ref.png' };
+    const b = { model: 'wan-v2', prompt: 'p', mode: 'image-to-video', startImageMediaId: 'https://cdn.example.com/ref.png' };
+    expect(normalizeIntentParams('video', a)).toBe(normalizeIntentParams('video', b));
+  });
 });

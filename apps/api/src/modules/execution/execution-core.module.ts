@@ -8,6 +8,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ExecutionService } from './execution.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { TopologyService } from './topology.service';
+import { UpstreamMediaService } from './upstream-media.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { ExecutionProcessor } from './execution.processor';
@@ -63,6 +64,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     ExecutionService,
     GenerationIntentService,
     TopologyService,
+    UpstreamMediaService,   // Y1a T8：上游媒体解析（NodeArtifact 读源/身份 canonicalize/外呼 URL 解析——MinIO/Prisma 均 @Global 直注）
     ValidationService,
     ApiCallerService,
     SessionService,   // 批3-3：ExecutionGateway authorize 走 touch（鉴权读面顺带续期）

@@ -13,6 +13,7 @@ import { Queue } from 'bullmq';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
+import { UpstreamMediaService } from './upstream-media.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -39,7 +40,8 @@ export interface ExecutionResult {
 /** 单节点外呼特化腿（NodeExecutor 表项）产出：complete 锚+doc 产物键+结果行+下载队列投递。 */
 interface NodeCallOutcome {
   kind: string;                            // reanchor deadline 档表键（intent-key.util deadlineMsForKind）
-  callArgs: Record<string, unknown>;       // claim paramsHash 规范化输入（与外呼实参同源）
+  callArgs: Record<string, unknown>;       // claim paramsHash 规范化输入（身份形态——Y1a T8：上游身份字段
+                                           // imageMediaId 族进哈希；外呼 URL 在 call 腿解析、不进哈希）
   call: (onTick: () => Promise<'abort' | void>) => Promise<{ resultRef: string; artifact: Record<string, unknown>; resultRow?: ExecutionResult['results'][number]; fileId?: string; downloadMime?: string }>;
 }
 
@@ -69,6 +71,7 @@ export class ExecutionService {
     @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 8 调用点改道 emit 端口（api=Direct 委托 gateway/worker=降级 no-op）
     @InjectQueue('ai-result-download') private readonly downloadQueue: Queue,
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
+    @Inject(UpstreamMediaService) private readonly upstreamMedia: UpstreamMediaService,   // Y1a T8：上游身份读源/URL 解析
   ) {}
 
   /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
@@ -284,8 +287,8 @@ export class ExecutionService {
       }
       const cost = plan.creditCost; // plan 固化快照——reserve 前零额外解析
 
-      // ── claim（外呼实参白名单规范化——paramsHash 与外呼同源）──
-      const claimPack = this.nodeClaimPack(node, ctx);
+      // ── claim（外呼实参白名单规范化——paramsHash 身份形态输入；Y1a T8 上游注入读 NodeArtifact PG）──
+      const claimPack = await this.nodeClaimPack(projectId, node, ctx);
       const { intent, created } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
       if (!created) {
         // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
@@ -459,12 +462,18 @@ export class ExecutionService {
   /** NodeExecutor 表（Y0b-2 T5）：三 exec（text/video/image）显式 switch——kind（reanchor 档键）+
    *  外呼实参（paramsHash 同源）+call 腿（产物锚/doc 产物键/结果行/下载投递）。image 腿覆盖
    *  imageGen/imageExtGen/multiImageGen/audioGen（旧 fall-through 语义显式化）；未知类型=
-   *  UNSUPPORTED_NODE_TYPE 显式 4xx（非静默按 image 处理）。 */
-  private nodeClaimPack(node: any, ctx: {
+   *  UNSUPPORTED_NODE_TYPE 显式 4xx（非静默按 image 处理）。
+   *  Y1a T8：上游注入改 NodeArtifact PG 身份（async）——callArgs=身份形态哈希输入（imageMediaId 族，
+   *  presign 续签/URL 重解析不漂移 paramsHash）；外呼 URL 在 call 腿内解析（身份→可达 URL——
+   *  sourceUrl 未过期直传/过期降级 presigned GET，哈希稳定身份、外呼时解析 URL）。 */
+  private async nodeClaimPack(projectId: string, node: any, ctx: {
     node: any; upstreamSource: any[]; allEdges: any[]; styleTextOf: (data: any) => string;
-  }): NodeCallOutcome {
+  }): Promise<NodeCallOutcome> {
     const { upstreamSource, allEdges, styleTextOf } = ctx;
-    const upstream = this.topology.collectUpstreamData(node.id, upstreamSource, allEdges);
+    const upstream = await this.topology.collectUpstreamData(
+      projectId, node.id, upstreamSource, allEdges,
+      (pid, nid) => this.upstreamMedia.readUpstreamMediaId(pid, nid),
+    );
     const data = node.data as any;
     const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || '';
 
@@ -491,14 +500,18 @@ export class ExecutionService {
     if (node.type === 'videoGen') {
       const vStyleText = styleTextOf(data);
       const vFinalPrompt = [prompt, vStyleText].filter(Boolean).join(', ');
+      // 身份映射（normalize-intent-params 映射表）：imageUrl→imageMediaId（上游优先、回落手工 startImageUrl
+      // 原语义）、startImageUrl→startImageMediaId、endImageUrl→endImageMediaId、imageUrls→imageMediaIds
       const callArgs = {
         prompt: vFinalPrompt,
         model: data?.model,
         mode: data?.mode || 'text-to-video',
-        imageUrl: upstream.imageUrl || data?.startImageUrl,
-        startImageUrl: data?.startImageUrl,
-        endImageUrl: data?.endImageUrl,
-        imageUrls: data?.imageUrls,
+        imageMediaId: upstream.imageMediaId ?? await this.upstreamMedia.canonicalizeMediaRef(data?.startImageUrl),
+        startImageMediaId: await this.upstreamMedia.canonicalizeMediaRef(data?.startImageUrl),
+        endImageMediaId: await this.upstreamMedia.canonicalizeMediaRef(data?.endImageUrl),
+        imageMediaIds: Array.isArray(data?.imageUrls)
+          ? await Promise.all((data.imageUrls as string[]).map((u) => this.upstreamMedia.canonicalizeMediaRef(u)))
+          : undefined,
         ratio: data?.ratio,
         quality: data?.quality,
         duration: data?.duration,
@@ -508,7 +521,17 @@ export class ExecutionService {
         kind: 'video',
         callArgs,
         call: async (onTick) => {
-          const result = await this.apiCaller.callVideoGen({ ...callArgs, onTick });
+          const result = await this.apiCaller.callVideoGen({
+            ...callArgs,
+            imageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.imageMediaId),
+            startImageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.startImageMediaId),
+            endImageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.endImageMediaId),
+            imageUrls: callArgs.imageMediaIds
+              ? (await Promise.all(callArgs.imageMediaIds.map((r) => this.upstreamMedia.resolveCallUrl(r))))
+                  .filter((u): u is string => !!u)
+              : undefined,
+            onTick,
+          });
           return {
             resultRef: result.url, // video 产物锚点 = videoUrl（writeNodeData 所写产物字段值）
             artifact: { videoUrl: result.url },
@@ -528,13 +551,13 @@ export class ExecutionService {
         style: data?.style,
         model: data?.model,
         resolution: data?.resolution,
-        imageUrl: upstream.imageUrl,
+        imageMediaId: upstream.imageMediaId,
       };
       return {
         kind: 'image',
         callArgs,
         call: async (onTick) => {
-          const result = await this.apiCaller.callImageGen({ ...callArgs, onTick });
+          const result = await this.apiCaller.callImageGen({ ...callArgs, imageUrl: await this.upstreamMedia.resolveCallUrl(callArgs.imageMediaId), onTick });
           return {
             resultRef: result.url, // image 产物锚点 = resultUrl（media.create 在 ai-result-download 侧异步落地）
             artifact: { resultUrl: result.url },

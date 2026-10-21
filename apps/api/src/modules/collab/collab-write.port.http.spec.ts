@@ -215,7 +215,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
     const emitPort = { emitNodeStatus: vi.fn() };   // T24 改道后消费面注入 EmitPort（锚与 emit 面正交）
     const svc = new ExecutionService(
       { generationIntent: { findUnique: vi.fn().mockResolvedValue(null) } } as any,   // prisma（B-1 分支读态——不触）
-      { collectUpstreamData: vi.fn().mockReturnValue({ textContents: [], imageUrl: undefined }) } as any,   // topology
+      { collectUpstreamData: vi.fn().mockResolvedValue({ textContents: [], imageMediaId: undefined }) } as any,   // topology（Y1a T8：async+身份形态）
       {} as any,                                                                                          // validation
       apiCaller as any,                                                                                   // apiCaller
       teamCredit as any,                                                                                  // teamCredit
@@ -225,6 +225,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       emitPort as any,                                                                                    // emit 端口
       { add: vi.fn().mockResolvedValue(undefined) } as any,                                               // downloadQueue
       intentSvc as any,                                                                                   // intentService
+      { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）
     );
     const errors: unknown[] = [];
     const results: unknown[] = [];

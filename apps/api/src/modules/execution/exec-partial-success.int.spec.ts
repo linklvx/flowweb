@@ -76,6 +76,7 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     { emitNodeStatus: vi.fn() } as any,
     { add: vi.fn() } as any,
     intentSvc,
+    { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
   );
   return { svc, collabDoc, writeExecCalls, writeNodeCalls, apiCaller };
 }
@@ -155,6 +156,7 @@ const statusOf = async (nodeId: string) =>
       { readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn() } as any,
       { writeBatch: vi.fn(async () => []) } as any,   // Y0c T8：CYCLE 循环前 throw——writeBatch 不可达
       { emitNodeStatus: vi.fn() } as any, { add: vi.fn() } as any, intentSvc,
+      { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia
     );
     const ex = await svc.execute(PID, undefined, UID, [a.id, b.id]).catch((e: unknown) => e);
     expect(ex).toBeInstanceOf(BusinessException);

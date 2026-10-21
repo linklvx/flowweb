@@ -280,6 +280,7 @@ const agePastGrace = async (id: string) =>
         { emitNodeStatus: vi.fn() } as any,
         { add: vi.fn() } as any,
         intentSvc,
+        { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
       );
     };
 

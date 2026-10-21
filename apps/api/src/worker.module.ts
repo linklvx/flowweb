@@ -34,6 +34,7 @@ import { TeamRechargeService } from './modules/team/team-recharge.service';
 import { ExecutionService } from './modules/execution/execution.service';
 import { GenerationIntentService } from './modules/execution/generation-intent.service';
 import { TopologyService } from './modules/execution/topology.service';
+import { UpstreamMediaService } from './modules/execution/upstream-media.service';
 import { ValidationService } from './modules/execution/validation.service';
 import { ApiCallerService } from './modules/execution/api-caller.service';
 import { PricingResolverService } from './modules/execution/pricing-resolver.service';
@@ -147,6 +148,7 @@ const env = validateEnv();
     MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
     GenerationIntentService,
     TopologyService,
+    UpstreamMediaService,   // Y1a T8：上游媒体解析（NodeArtifact 读源/身份 canonicalize/外呼 URL 解析）
     ValidationService,
     ApiCallerService,
     PricingResolverService,

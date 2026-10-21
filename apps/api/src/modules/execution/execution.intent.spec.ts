@@ -12,7 +12,7 @@ import { normalizeIntentParams } from './normalize-intent-params';
  *  → writeExecStatus(done)；catch 路径 fail + exec map error。
  *  装置复用 execution.security.spec 的 makeService 骨架，增 intentService mock 与 collabDoc.writeExecStatus。
  *  构造器参数序对齐 execution.service.ts：
- *  (prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService)。 */
+ *  (prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService, upstreamMedia)。 */
 const TEXT_NODE = { id: 'n1', type: 'textInput', data: { model: 'seed-model-kimi' } };
 const VIDEO_NODE = { id: 'n2', type: 'videoGen', data: { model: 'v1' } };
 const IMAGE_NODE = { id: 'n3', type: 'imageGen', data: { model: 'm1' } };
@@ -28,7 +28,12 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
   const topology = {
     getScope: vi.fn().mockReturnValue(nodes),
     sort: vi.fn().mockReturnValue(nodes),
-    collectUpstreamData: vi.fn().mockReturnValue({ textContents: ['hi'], imageUrl: null }),
+    collectUpstreamData: vi.fn().mockResolvedValue({ textContents: ['hi'], imageMediaId: undefined }),   // Y1a T8：async+身份形态
+  };
+  const upstreamMedia = {   // Y1a T8：上游身份读源 mock（默认无上游图/无手工 URL）
+    readUpstreamMediaId: vi.fn().mockResolvedValue(null),
+    canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined),
+    resolveCallUrl: vi.fn().mockResolvedValue(undefined),
   };
   // Y0b-1（E1）：validation 产 plans——mock 动态生成（nodeId↔plan 一一对应，creditCost 1=reserve 断言锚）
   const validation = {
@@ -69,9 +74,9 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}) {
     ...intentOverrides,
   };
   const svc: any = new (ExecutionService as any)(
-    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, downloadQueue, intentService,
+    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, downloadQueue, intentService, upstreamMedia,
   );
-  return { svc, prisma, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService };
+  return { svc, prisma, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService, topology, upstreamMedia };
 }
 
 describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
@@ -96,8 +101,8 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
       pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
       paramsHash: normalizeIntentParams('video', {
         prompt: 'hi', model: 'v1', mode: 'text-to-video',
-        imageUrl: undefined, startImageUrl: undefined, endImageUrl: undefined,
-        imageUrls: undefined, ratio: undefined, quality: undefined, duration: undefined, audio: undefined,
+        imageMediaId: undefined, startImageMediaId: undefined, endImageMediaId: undefined,
+        imageMediaIds: undefined, ratio: undefined, quality: undefined, duration: undefined, audio: undefined,
       }),
     }));
   });
@@ -111,9 +116,36 @@ describe('批0.5-6 claim 接线（外呼之前，三分支）', () => {
       pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
       paramsHash: normalizeIntentParams('image', {
         prompt: 'hi', extraPrompt: undefined, style: undefined,
-        model: 'm1', resolution: undefined, imageUrl: null,
+        model: 'm1', resolution: undefined, imageMediaId: undefined,
       }),
     }));
+  });
+
+  // Y1a T8 执行链聚合（改造前红形态=callArgs imageUrl 上游 URL 形态进哈希+外呼直传 URL——
+  // topology/normalize/upstream-media 三层红已各自复现，本用例钉聚合契约防回归）：
+  // 上游注入身份（imageMediaId）进 paramsHash；外呼 URL 经 resolveCallUrl 解析（哈希稳定身份、外呼时解析）。
+  it('Y1a T8：上游身份进 paramsHash + 外呼 imageUrl 经 resolveCallUrl 解析（同一 Media presign 续签后重试同键）', async () => {
+    const { svc, intentService, apiCaller, topology, upstreamMedia } = makeService([IMAGE_NODE]);
+    topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: 'media-up-1' });
+    upstreamMedia.resolveCallUrl.mockResolvedValue('https://provider-oss.example.com/upstream.png');
+
+    await svc.execute('p1', 'n3', 'u1', undefined, 'hdr-intent');
+    expect(intentService.claim).toHaveBeenCalledWith(expect.objectContaining({
+      paramsHash: normalizeIntentParams('image', {
+        prompt: '', extraPrompt: undefined, style: undefined,   // 上游 textContents 已清空——prompt 回落空串
+        model: 'm1', resolution: undefined, imageMediaId: 'media-up-1',
+      }),
+    }));
+    expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({
+      imageUrl: 'https://provider-oss.example.com/upstream.png',
+    }));
+
+    // 重试（presign 续签——外呼 URL 变）同 paramsHash（幂等键不变=不重复扣费）
+    upstreamMedia.resolveCallUrl.mockResolvedValue('https://minio.local:9000/flowai/results/u1/x.png?sig=BBB');
+    await svc.execute('p1', 'n3', 'u1', undefined, 'hdr-intent-2');
+    const first = intentService.claim.mock.calls[0][0].paramsHash;
+    const second = intentService.claim.mock.calls[1][0].paramsHash;
+    expect(second).toBe(first);
   });
 });
 

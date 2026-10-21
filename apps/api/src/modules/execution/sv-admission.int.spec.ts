@@ -86,6 +86,7 @@ function makeController(nodes: any[]): ExecutionController {
     { emitNodeStatus: vi.fn() } as any,
     { add: vi.fn() } as any,
     intentSvc,
+    { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
   );
   queueAdd = vi.fn(async () => ({ id: 'job-sv-1' }));
   // collabDoc 第 5 参=T7 门依赖（readServerSV）——controller 直构同 app 装配形态
