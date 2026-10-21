@@ -248,7 +248,6 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       teamCredit as any,                                                                                  // teamCredit
       {} as any,                                                                                          // perm
       port,                                                                                               // collabDoc=Http 形态（503 注入）
-      docWriterStubOf(port) as any,                                                                       // docWriter（writeBatch 按 op 分派回端口）
       emitPort as any,                                                                                    // emit 端口
       intentSvc as any,                                                                                   // intentService
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）

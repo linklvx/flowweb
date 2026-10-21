@@ -198,30 +198,24 @@ describe('ExecutionService', () => {
     expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'error' }));
   });
 
-  it('Y0c T8 红①（Z40 调用方契约）：deliver 命中 node-deleted ⇒ 批提交（done 同批生效）∧rollbackDeliveryFailed 在批后被独立调用', async () => {
+  it('T15 收口：deliver+done doc 写移除——交付归投影 poller（worker 零 writeBatch/零 done 投影/零退款：node 删除观察归 poller apply 守卫〔Z40 旧调用方契约随之退役〕）', async () => {
     prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
-    // 单节点 imageGen 走满执行链到 deliver；交付判据失败（节点已删——writeNodeData 现状守卫语义）
     const n9 = { id: 'n9', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } };
     topology.getScope.mockReturnValue([n9]);
     topology.sort.mockReturnValue([n9]);
     collabDoc.readCanvas.mockResolvedValue({ nodes: [n9], edges: [] });
-    collabDoc.writeNodeData.mockResolvedValue({ kind: 'business', written: false, reason: 'node-deleted' });
+    collabDoc.writeNodeData.mockResolvedValue({ kind: 'business', written: false, reason: 'node-deleted' });   // 现状守卫语义（T15 后 worker 不再消费——poller apply 同款原语）
 
     const result = await service.execute('p1', undefined, 'u1', ['n9']);
 
-    expect(result.success).toBe(false);
-    expect(result.errors[0]).toMatchObject({ nodeId: 'n9', status: 'error', errorCode: 'NODE_DELETED' });
-    // deliver+done 组一批（同 doc 同事务——先红用例③的调用方侧）：一次 writeBatch 含两 op
-    expect(docWriter.writeBatch).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(docWriter.writeBatch).mock.calls[0][1].map((o: any) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']);
-    // 批正常提交：done 投影随批写入（Z75：exec=done∧节点已删=合法终态——不再写 error 投影对撞）
+    // 交付不再阻塞 worker 判定（乐观成功——doc 收敛归投影链；node 删→orphaned+退款在 poller）
+    expect(result.success).toBe(true);
+    expect(docWriter.writeBatch).not.toHaveBeenCalled();
+    expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
     const doneCalls = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.status === 'done');
-    expect(doneCalls).toHaveLength(1);
-    // 退款契约：rollbackDeliveryFailed 在批提交后被独立调用（非批内——Z64/Z92 交付路径唯一退款入口）
-    expect(teamCredit.rollbackDeliveryFailed).toHaveBeenCalledWith('intent-1', expect.any(String));
-    expect(vi.mocked(docWriter.writeBatch).mock.invocationCallOrder[0])
-      .toBeLessThan(teamCredit.rollbackDeliveryFailed.mock.invocationCallOrder[0]);
+    expect(doneCalls).toHaveLength(0);   // exec done=投影 poller deliverArtifact 复合 op 专写
+    expect(teamCredit.rollbackDeliveryFailed).not.toHaveBeenCalled();   // 退款归 poller orphaned 判定（幂等单入口语义保持）
   });
 
   it('T10：image 腿交付改 fileId=mediaId 同步落地——ai-result-download 入队删除（Media 已随 finalize 落库）', async () => {
@@ -233,9 +227,9 @@ describe('ExecutionService', () => {
       projectId: 'p1', nodeId: 'n2', teamId: 't1', userId: 'default-user',
       intentRowId: 'intent-1', execSeq: 1n, expectedRev: 0, sourceUrl: '/mock/test.jpg',
     }));
-    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
-    expect(batch[0].patch).toEqual({ fileId: 'media-t10' });   // 旧红：现状 { resultUrl: '/mock/test.jpg' }
-    expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-t10' });
+    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：交付归投影 poller（fileId=mediaId 键面在彼）
+    const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
+    expect(dones.at(-1)![1].fileId).toBe('media-t10');   // emit fileId=mediaId（即时 UX——旧 { resultUrl } 404 面根修维持）
   });
 
   it('T12：video 腿 finalize-first——finalizeVideo(sourceUrl=provider URL)+交付 fileId=mediaId（doc 无 videoUrl）+旧链 complete/settle 直调删除', async () => {
@@ -253,10 +247,7 @@ describe('ExecutionService', () => {
     expect(intentSvc.complete).not.toHaveBeenCalled();
     expect(teamCredit.settle).not.toHaveBeenCalled();
     // 交付键唯一 fileId=mediaId（旧红：现状 { videoUrl: '/mock/video.mp4' }——VideoGenNode 渲染 fileId=404 不可达）
-    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
-    expect(batch.map((o: any) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']);
-    expect(batch[0].patch).toEqual({ fileId: 'media-t12' });
-    expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-t12' });
+    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：交付归投影 poller（doc 无 videoUrl 键面维持）
     const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
     expect(dones.at(-1)![1].fileId).toBe('media-t12');   // 旧链 emit fileId=result.url（404 面）根修
   });
@@ -271,9 +262,9 @@ describe('ExecutionService', () => {
     });
     const result = await service.execute('p1', 'n3', 'default-user');
     expect(result.success).toBe(true);
-    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
-    expect(batch[0].patch).toEqual({ fileId: 'media-replay' });   // 旧红：video replay 写 { videoUrl }
-    expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-replay' });
+    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：回放 doc 写移除（投影行在案=poller 交付）
+    const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
+    expect(dones.at(-1)![1].fileId).toBe('media-replay');   // replay fileId=mediaId（旧 videoUrl 写点删除维持）
   });
 
   it('T10：text 腿 finalizeText+交付只写 {result}（content 回显删除）', async () => {
@@ -285,8 +276,7 @@ describe('ExecutionService', () => {
     expect(artifactCommit.finalizeText).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'p1', nodeId: 'n1', resultText: 'hello', expectedRev: 0,
     }));
-    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
-    expect(batch[0].patch).toEqual({ result: 'hello' });   // 旧红：现状 { content: 'hello', result: 'hello' }
+    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：交付归投影 poller（交付值=NodeArtifact.resultText 权威——content 回显删除面维持）
   });
 
   it('T10 资金独立判调用方面：superseded → doc 不覆盖用户值（仅 done 投影批）+实扣照计；intent-stale → INTENT_DEADLINE_EXCEEDED 早退', async () => {
@@ -298,8 +288,7 @@ describe('ExecutionService', () => {
     const r1 = await service.execute('p1', undefined, 'default-user', ['n2']);   // 单节点作用域（默认拓扑 n1+n2 双扣）
     expect(r1.success).toBe(true);   // superseded 非节点失败（产物已入库）
     expect(r1.totalCost).toBe(5);    // 照常实扣（无条件退款即红）
-    const batchSup = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
-    expect(batchSup.map((o: any) => o.op)).toEqual(['writeExecStatus']);   // 无 data 覆盖 op
+    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：superseded doc 零覆盖（投影行已记 superseded——poller 终态免投）
     artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
     const r2 = await service.execute('p1', undefined, 'default-user', ['n2']);
     expect(r2.success).toBe(false);
@@ -437,12 +426,13 @@ describe('ExecutionService', () => {
     };
 
     // 下界（T12 质量收尾 I-1）：各分支「确实写」——0 写也绿=投影被误删的回归抓不住。
-    // happy 档精确 toBe(2)（loading 1+deliver 批 1）；单写档 toBeGreaterThanOrEqual(1)；
-    // replay 档封闭断言（恰一次+单写入口零调用）已含下界不动。
-    it('happy：loading 投影+deliver+done 组批 ⇒ 恰 2 写段', async () => {
+    // T15 收口后：worker 写面只余 exec 投影（loading/skipped/error）——happy 档精确 toBe(1)；
+    // 其余档 ≤2 且 ≥1（旧上限随 deliver 批退役自然宽放，下界不动）。
+    it('happy：loading 投影唯一写段（T15：deliver+done 归投影 poller——恰 1 段）', async () => {
       scopedToN2();
       await service.execute('p1', 'n2', 'u1');
-      expect(writeEntries()).toBe(2); // loading 1+deliver 批 1——精确两段
+      expect(writeEntries()).toBe(1); // loading 1——交付批/doc data 写零触达
+      expect(vi.mocked(docWriter.writeBatch)).not.toHaveBeenCalled();
     });
 
     it('plan-missing：PLAN_MISSING error 投影 ⇒ ≤2 且 ≥1', async () => {
@@ -480,26 +470,22 @@ describe('ExecutionService', () => {
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('node-deleted（deliver written:false→批后退款）⇒ ≤2 且 ≥1', async () => {
+    it('T15：node 删除观察归 poller——worker 交付段零写零退款（written:false 旧契约退役）⇒ 恰 1 段（loading）', async () => {
       scopedToN2();
       teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
-      vi.mocked(docWriter.writeBatch).mockImplementation(async (_pid: string, ops: readonly any[]) => {
-        cnt.batch += 1;
-        return ops.map((op, index) => ({ index, op: op.op, written: false, reason: 'node-deleted' }));
-      });
       await service.execute('p1', undefined, 'u1', ['n2']);
-      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+批（written:false 仍计——已执行写段）
-      expect(writeEntries()).toBeLessThanOrEqual(2);
+      expect(writeEntries()).toBe(1); // loading 1——交付批零触达（node 删→orphaned+退款=投影 poller 面）
+      expect(teamCredit.rollbackDeliveryFailed).not.toHaveBeenCalled();
     });
 
-    it('delivery-failed（B-1：writeBatch 基础设施 throw→行已 SUCCEEDED→NODE_DELIVERY_FAILED 投影）⇒ ≤2（reject 不入计）且 ≥1', async () => {
+    it('T15：finalize 后残余段抛错（B-1 SUCCEEDED 防御档）⇒ 零退款零 error 投影（交付归投影链——仅 loading 1 段）', async () => {
       scopedToN2();
       teamCredit.rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
       prisma.generationIntent = { findUnique: vi.fn().mockResolvedValue({ status: 'SUCCEEDED' }) };
-      vi.mocked(docWriter.writeBatch).mockImplementation(async () => { throw new ServiceUnavailableException('drain'); }); // 零写入不入计
+      vi.mocked(gateway.emitNodeStatus).mockImplementation(((_pid: string, p: any) => { if (p?.status === 'done') throw new ServiceUnavailableException('emit down'); }) as any); // finalize 后残余段 throw 注入（done emit 位）
       await service.execute('p1', undefined, 'u1', ['n2']);
-      expect(writeEntries()).toBeGreaterThanOrEqual(1); // loading+NODE_DELIVERY_FAILED 投影写（批 reject 不入计）
-      expect(writeEntries()).toBeLessThanOrEqual(2);
+      expect(writeEntries()).toBe(1); // loading 1——B-1 防御档零投影写（error 会与 poller done 对撞）
+      expect(teamCredit.rollbackDeliveryFailed).not.toHaveBeenCalled(); // 退款归 poller orphaned（双跑退款面根除）
     });
 
     it('claim 过期（reanchorDeadline=0→早退零外呼）⇒ ≤2 且 ≥1', async () => {
@@ -527,7 +513,7 @@ describe('ExecutionService', () => {
       expect(writeEntries()).toBeLessThanOrEqual(2);
     });
 
-    it('红⑤ replay 合并（Y0b-2 T6 回放段）：SUCCEEDED 重放 ⇒ writeBatch 恰一次且含两 op（artifact+done）+单写入口零调用+写段 ≤2', async () => {
+    it('T15：replay 段收口——SUCCEEDED 重放 ⇒ 零 doc 写（writeBatch/单写入口全零——交付归投影行）+emit done 照发+写段 0', async () => {
       scopedToN2();
       intentSvc.claim.mockResolvedValue({
         created: false,
@@ -536,15 +522,11 @@ describe('ExecutionService', () => {
 
       await service.execute('p1', 'n2', 'u1');
 
-      expect(docWriter.writeBatch).toHaveBeenCalledTimes(1); // 现红：writeBatch 零调用（两单写）
-      const ops = vi.mocked(docWriter.writeBatch).mock.calls[0][1] as any[];
-      expect(ops.map((o) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']); // artifact 在前 done 在后
-      expect(ops[0].patch).toEqual({ fileId: '/mock/replay.png' });               // T10：image 腿产物键=fileId（resultRef=mediaId）
-      expect(ops[1].patch).toMatchObject({ status: 'done', intentId: 'i-1', attempts: 2, fileId: '/mock/replay.png' });
-      expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();  // 单写入口零调用（合并判据）
+      expect(docWriter.writeBatch).not.toHaveBeenCalled();    // T15：回放 doc 写移除（投影行在案=poller 交付）
+      expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();   // 单写入口零调用
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done' })); // emit 仍在写前
-      expect(writeEntries()).toBeLessThanOrEqual(2);
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done', fileId: '/mock/replay.png' })); // emit 即时 UX（fileId=resultRef=mediaId 语义）
+      expect(writeEntries()).toBe(0);
     });
   });
 });

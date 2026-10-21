@@ -18,6 +18,7 @@ describe('LightingConsumer', () => {
   let minio: any;
   let teamCredit: any;
   let apiCaller: any;
+  let emitMock: ReturnType<typeof vi.fn>;
   let collabDoc: any;
   let intentService: any;
   let safeFetch: any;
@@ -44,6 +45,7 @@ describe('LightingConsumer', () => {
       fetchBuffer: vi.fn().mockResolvedValue({ buffer: Buffer.from('img'), contentType: 'image/png' }),
     };
     const gateway = { emitNodeStatus: vi.fn() };
+    emitMock = gateway.emitNodeStatus;
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
     teamCredit = {
       reserve: vi.fn().mockResolvedValue({ success: true, mayCall: true }),
@@ -196,11 +198,11 @@ describe('LightingConsumer', () => {
       expect(apiCaller.callRelighting).not.toHaveBeenCalled();
     });
 
-    it('step9 已置 SUCCESS 后 step10 writeNodeData 抛错 → FAILED 覆写须清产物字段（不留 SUCCESS 残留 URL）', async () => {
-      collabDoc.writeNodeData.mockRejectedValue(new Error('doc write boom'));
+    it('step9 已置 SUCCESS 后残余段抛错（T15：emit 注入——doc 交付写已移除）→ FAILED 覆写须清产物字段（不留 SUCCESS 残留 URL）', async () => {
+      emitMock.mockImplementation((() => { throw new Error('emit boom'); }) as any);
       mockDownloadResult();
 
-      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } }), {})).rejects.toThrow('doc write boom');
+      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } }), {})).rejects.toThrow('emit boom');
 
       // SUCCESS 已落库（resultImageUrl/resultMediaId 已写）→ catch 覆写 FAILED 时必须同笔清空，
       // 否则 FAILED 行残留产物 URL（getTask 可取）——状态与产物矛盾
@@ -227,11 +229,13 @@ describe('LightingConsumer', () => {
       expect(teamCredit.settle).not.toHaveBeenCalled();             // settle 直调退役
     });
 
-    it('T10 finalize committed：writeNodeData {fileId=mediaId} 正常（complete 门序归 finalize 内 intent CAS）', async () => {
+    it('T15 finalize committed：交付归投影 poller（worker 零 data 写——writeNodeData 零调用）+SUCCESS 回填+emit 照发（complete 门序归 finalize 内 intent CAS）', async () => {
       mockDownloadResult();
-      await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(intentService.complete).not.toHaveBeenCalled();
-      expect(collabDoc.writeNodeData).toHaveBeenCalledWith('proj-1', 'n1', { fileId: 'media-1' }, { intentRowId: 'row-9', execSeq: '9' });   // T13：第 4 参=作用域铸造上下文
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // T15：fileId=投影 poller deliverArtifact 专写（pending 行随 finalize 落）
+      expect(prisma.lightingTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'success', resultMediaId: 'media-1' }) }));
+      expect(r.status).toBe('completed');
     });
 
     it('T10 finalize intent-stale（行终态/换代——旧 complete 门序闭面）：writeNodeData/SUCCESS 回填/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {

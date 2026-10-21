@@ -74,7 +74,6 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     teamCredit,
     perm,
     collabDoc,
-    docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
     { emitNodeStatus: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
@@ -132,7 +131,9 @@ const statusOf = async (nodeId: string) =>
     expect(r.errors).toHaveLength(1); // n1/n3 不进 errors
     expect(r.errors[0]).toMatchObject({ nodeId: n2.id, status: 'skipped' });
     expect(r.results.map((x: any) => x.nodeId)).toEqual(expect.arrayContaining([n1.id, n3.id])); // ①n1 产物+③n3 照常
-    expect(writeNodeCalls.map((c) => c.nodeId)).toEqual(expect.arrayContaining([n1.id, n3.id]));
+    // T15：交付归投影 poller——worker 零 data 写（产物在案=pending 投影行）
+    expect(writeNodeCalls).toHaveLength(0);
+    expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: { in: [n1.id, n3.id] }, state: 'pending' } })).toBe(2);
     const n2proj = writeExecCalls.filter((c) => c.nodeId === n2.id).at(-1)!;
     expect(n2proj.patch.status).toBe('skipped'); // ④投影 skipped（Z99 禁 error——别处在飞非节点失败）
     expect(typeof n2proj.patch.attempts).toBe('number'); // Z111：投影必携 attempts
@@ -156,7 +157,6 @@ const statusOf = async (nodeId: string) =>
     const svc = new ExecutionService(
       prisma as unknown as PrismaService, new TopologyService(), validation, apiCaller, teamCredit, perm,
       { readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn() } as any,
-      { writeBatch: vi.fn(async () => []) } as any,   // Y0c T8：CYCLE 循环前 throw——writeBatch 不可达
       { emitNodeStatus: vi.fn() } as any, intentSvc,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
@@ -210,8 +210,9 @@ const statusOf = async (nodeId: string) =>
       expect(r.errors).toHaveLength(1);
       expect(r.errors[0]).toMatchObject({ nodeId: n2.id, status: 'error', errorCode: 'CREDIT_INSUFFICIENT' });
       expect((await statusOf(n2.id))!.status).toBe('VOIDED'); // 零扣费终态
-      expect(writeNodeCalls.map((c) => c.nodeId)).toContain(n3.id); // n3 照常（顺序执行不阻断）
+      // T15：交付归投影 poller——n3 照常（顺序执行不阻断）以结果行+pending 投影行为凭（worker 零 data 写）
       expect(r.results.map((x: any) => x.nodeId)).toContain(n3.id);
+      expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: n3.id, state: 'pending' } })).toBe(1);
     } finally {
       spy.mockRestore();
     }

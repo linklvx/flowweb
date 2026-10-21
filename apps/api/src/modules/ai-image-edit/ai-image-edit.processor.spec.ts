@@ -377,18 +377,14 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.reserve).not.toHaveBeenCalled();
     });
 
-    it('T10 finalize committed：writeNodeData {fileId=mediaId} 正常（O0b-2——AI 只写 fileId，data.{width,height} 键整删；complete 门序归 finalize 内 intent CAS）', async () => {
+    it('T15 finalize committed：交付归投影 poller（worker 零 data 写——writeNodeData 零调用+O0b-2 信封面零触碰）+emit 照发（complete 门序归 finalize 内 intent CAS）', async () => {
       mockResult();
-      await processor.process(makeIntentJob());
+      const result = await processor.process(makeIntentJob());
       expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ intentRowId: 'row-9', execSeq: 9n }));
       expect(intentService.complete).not.toHaveBeenCalled();   // intent CAS 归 finalize 单事务（processor 直调退役）
-      expect(collabDoc.writeNodeData).toHaveBeenCalledWith(
-        'proj1', 'node1', expect.objectContaining({ fileId: 'media-new' }),
-        { intentRowId: 'row-9', execSeq: '9' },   // T13：第 4 参=作用域铸造上下文（claim 票）
-      );
-      const payload = collabDoc.writeNodeData.mock.calls.at(-1)?.[2] as Record<string, unknown>;
-      expect('width' in payload).toBe(false);    // 终裁 59⑤——api 非信封写者（尺寸归 web 内容事件）
-      expect('height' in payload).toBe(false);
+      expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // T15：fileId=投影 poller deliverArtifact 专写（pending 行随 finalize 落）
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: 'media-new' }));
+      expect(result.status).toBe('completed');
     });
 
     it('T10 finalize intent-stale（行终态/换代——旧 complete 门序闭面）：writeNodeData/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {

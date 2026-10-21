@@ -21,7 +21,6 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { balanceDriftTotal } from './intent-reconcile.metrics';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 
 // T6 装置：产物下载面=SafeRemoteFetch（axios 直连退役）
 const safeFetchStub: any = { fetchBuffer: vi.fn(async () => ({ buffer: Buffer.from('img'), contentType: 'image/png' })) };
@@ -299,7 +298,6 @@ const agePastGrace = async (id: string) =>
         teamCredit,
         perm,
         collabDoc as any,
-        docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
         { emitNodeStatus: vi.fn() } as any,
         intentSvc,
         { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
@@ -310,7 +308,7 @@ const agePastGrace = async (id: string) =>
     /** 夹具节点（funds-four-way 同款——真 seed 规则键） */
     const imageNode = (id: string) => ({ id, type: 'imageGen', data: { model: 'seed-model-hy-image', resolution: 'seed-res-hy-1024' } });
 
-  it('交付失败退款：外呼期间节点被删（writeNodeData {written:false}）→ rollbackDeliveryFailed ⇒ VOIDED+两金额归零+refund 行（改前红=行停留 SUCCEEDED 无退款）', async () => {
+  it('T15 交付退款移交投影链：外呼期间节点被删——worker 零 doc 交付零退款（行 SUCCEEDED 已核销+pending 投影行在案=交付有 owner；orphaned 判定+幂等退款归 poller——调用面断言见 projection-outbox.poller.int.spec）', async () => {
     const node = imageNode(`n-del-${randomUUID().slice(0, 6)}`);
     const nodes = [node];
     const collabDoc = {
@@ -321,20 +319,18 @@ const agePastGrace = async (id: string) =>
     };
     const svc = makeExecSvc(collabDoc);
     const r = await svc.execute(PROJECT_ID, undefined, UID, nodes.map((n) => n.id), `dr2-del-${randomUUID().slice(0, 6)}`);
-    expect(r.success).toBe(false);
-    expect(r.errors).toHaveLength(1);
-    expect(r.errors[0]).toMatchObject({ nodeId: node.id, status: 'error' });
+    expect(r.success).toBe(true);   // 交付不阻塞 worker（T15：deliver+done 归投影 poller）
     const row = await prisma.generationIntent.findFirst({ where: { projectId: PROJECT_ID, nodeId: node.id } });
-    expect(row!.status).toBe('VOIDED'); // 交付凭据 written:false → SUCCEEDED 也能退（交付路径唯一入口）
+    expect(row!.status).toBe('SUCCEEDED');   // 资金面 finalize 已核销（交付观察归 poller——不再以 written:false 即时退款）
     expect(row!.reservedCredits).toBe(0);
-    expect(row!.creditsConsumed).toBe(0);
-    await expect(ledgerRows(row!.id, 'refund')).resolves.toHaveLength(1); // 已核销 settle 逆向冲销
-    expect(collabDoc.writeNodeData).toHaveBeenCalled(); // 交付尝试确已发生
-    // 评审 Minor#3：本 intent 资金锚的 pending 投影行同步置 orphaned（where 收窄到锚行——不误伤同节点他代）
+    expect(row!.creditsConsumed).toBe(row!.creditCost);
+    await expect(ledgerRows(row!.id, 'refund')).resolves.toHaveLength(0);   // worker 侧零退款（orphaned 退款唯一入口=poller）
+    expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // T15：worker 零 data 写
+    // 交付有 owner：本 intent 资金锚的 pending 投影行在案（poller apply 守卫 written:false→orphaned+幂等退款）
     const anchors = await prisma.nodeArtifact.findMany({ where: { sourceIntentRowId: row!.id }, select: { id: true } });
     expect(anchors).toHaveLength(1);   // 真 commitImage 链落的锚行
     const proj = await prisma.artifactProjection.findFirst({ where: { artifactId: { in: anchors.map((a: { id: string }) => a.id) } } });
-    expect(proj?.state).toBe('orphaned');
+    expect(proj?.state).toBe('pending');
   }, 30_000);
 
   it('A-1 lighting 双 reserve 白扣费根修：团队任务全链（processor→consumer）⇒ 恰一次 reserve 流水+外呼发生+终态 SUCCEEDED 非 skipped（改前红=processor fileId 缺位即炸/二次 reserve 恒 skipped 零外呼）', async () => {
@@ -401,7 +397,9 @@ const agePastGrace = async (id: string) =>
     expect(row!.creditsConsumed).toBe(pricing.creditCost); // 真核销（非 reconcile 补 settle 白扣）
     expect(row!.reservedCredits).toBe(0);
     await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1);
-    expect(collabDoc.writeNodeData).toHaveBeenCalledWith(projectId, nodeId, { fileId: expect.any(String) }, { intentRowId: intent.id, execSeq: intent.execSeq.toString() });   // 产物投递（T13：第 4 参=作用域铸造上下文）
+    expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // T15：交付归投影 poller（worker 零 data 写）
+    const anchorA1 = await prisma.nodeArtifact.findFirst({ where: { sourceIntentRowId: intent.id } });
+    expect(await prisma.artifactProjection.count({ where: { artifactId: anchorA1!.id, state: 'pending' } })).toBe(1);   // 产物有 owner（pending 行）
   }, 30_000);
 });
 });

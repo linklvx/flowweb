@@ -42,7 +42,6 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
     const svc = new ExecutionService(
       {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
       { writeExecStatus: vi.fn().mockRejectedValue(new ServiceUnavailableException('collab not serving')) } as any,   // collabDoc
-      {} as any,                                                                                                      // docWriter（onReserveFail 不触——Y0c T8 组批位）
       { emitNodeStatus } as any,                                                                                      // gateway
       { void_ } as any,                                                                                               // intentService
       {} as any,                                                                                                      // upstreamMedia（Y1a T8——onReserveFail 不触）

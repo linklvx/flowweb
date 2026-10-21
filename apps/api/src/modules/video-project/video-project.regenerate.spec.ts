@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 import { ExecutionService } from '../execution/execution.service';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 import { TopologyService } from '../execution/topology.service';
 
 describe('regenerate（批5-1 直连真实节点——影子信箱删除）', () => {
@@ -111,7 +110,6 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       writeExecStatus: vi.fn().mockResolvedValue(undefined),
     };
     const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
-    const downloadQueue = { add: vi.fn() };
     const succeeded = new Map<string, string>(); // "nodeId:intentId" -> resultRef（complete 落地）
     const intentService = {
       claim: vi.fn(async (input: any) => {
@@ -131,7 +129,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
     const execSvc: any = new (ExecutionService as any)(
-      prisma, topology, validation, apiCaller, teamCredit, perm, collab, docWriterStubOf(collab), gateway, intentService,
+      prisma, topology, validation, apiCaller, teamCredit, perm, collab, gateway, intentService,
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // upstreamMedia（Y1a T8——regenerate 上游 textInput 不触 reader）
       { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn(async (p: any) => { succeeded.set(`${p.nodeId}:${undefined}`, p.sourceUrl); return { outcome: 'committed', mediaId: `media:${p.nodeId}` }; }) },   // T12：video finalize-first（replay 幂等闭环锚——resultRef=mediaId）
     );

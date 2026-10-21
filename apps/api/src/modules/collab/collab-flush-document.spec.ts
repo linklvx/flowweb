@@ -219,4 +219,37 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
     await residency.flushDocument(PID, EPOCH);
     expect(spy).toHaveBeenCalledWith(PID, EPOCH);
   });
+
+  // ── T15 承接（T14 评审 Minor#3）：store 三继承形态落 flushDocument 判读——各自不得伪装失败档 ──
+  it('继承形态①leaseNotHeld（隔离/释放过渡窗 append 撞 owner=null）：批落 spool→{retry,spooled}（非 failed——过渡窗不进耗 attempts 档）', async () => {
+    enqueue(svc, doc, 'k1');
+    repo.append.mockRejectedValue(Object.assign(new Error('lease owner not set'), { leaseNotHeld: true }));
+    const r = await svc.flushDocument(PID, EPOCH);
+    expect(r).toEqual({ kind: 'retry', reason: 'spooled' });   // spool 兜底承接（BOI）——磁盘安全档
+    expect(spool.hasFrames(PID)).toBe(true);
+    expect(svc.hasPendingWrites(PID)).toBe(false);             // 批已离队列（新家=spool）
+  });
+
+  it('继承形态②leaseRowMissing（配置错误——CollabLease 行灭失）：批照走 spool 兜底→{retry,spooled}+collab_lease_row_missing_total 计数（非早退=BOI 实质失效根防）', async () => {
+    const before = await counterValue('collab_lease_row_missing_total');
+    enqueue(svc, doc, 'k1');
+    repo.append.mockRejectedValue(Object.assign(new Error('row gone'), { leaseRowMissing: true }));
+    const r = await svc.flushDocument(PID, EPOCH);
+    expect(r).toEqual({ kind: 'retry', reason: 'spooled' });   // 「配置错误重试无用」但批不丢——修复行后回灌
+    expect(await counterValue('collab_lease_row_missing_total')).toBeGreaterThan(before);
+    expect(spool.hasFrames(PID)).toBe(true);
+    expect(svc.hasPendingWrites(PID)).toBe(false);
+  });
+
+  it('继承形态③degraded（persistUnhealthy 降级态——V12 spool-first）：批先落 spool（新家先落定）再连带试 PG→{persisted}+段回收', async () => {
+    svc.persistUnhealthy.add(NAME);   // 降级电平播种（电平翻转广播面=写失败路径——此处直种判定输入）
+    const spoolAppendSpy = vi.spyOn(spool, 'append');   // 透传观察（真 fsync 不替换）
+    enqueue(svc, doc, 'k1');
+    const r = await svc.flushDocument(PID, EPOCH);
+    expect(r).toEqual({ kind: 'persisted' });
+    expect(spoolAppendSpy).toHaveBeenCalled();          // spool-first 证据：降级态批先落盘再试 PG
+    expect(repo.append).toHaveBeenCalledTimes(1);       // PG 腿随批连带尝试（成功）
+    expect(spool.hasFrames(PID)).toBe(false);           // confirm——段回收
+    expect(svc.hasPendingWrites(PID)).toBe(false);
+  });
 });

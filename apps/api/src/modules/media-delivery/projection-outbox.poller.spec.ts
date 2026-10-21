@@ -67,6 +67,10 @@ function makePoller(over: {
   epoch?: bigint | null;
 } = {}): { poller: ProjectionOutboxPoller; tx: any } {
   const rows = over.claimRows ?? [];
+  const artifacts = new Map(rows.map((r) => [r.artifactId, {
+    id: r.artifactId, rev: r.artifactRev, mediaId: r.mediaId ?? null, resultText: null,
+    targetField: 'fileId', sourceIntentRowId: null, sourceExecSeq: null, source: 'generated',
+  }]));
   const tx: any = {
     $queryRaw: vi.fn(async () => rows.map((r) => ({ id: r.id }))),
     artifactProjection: {
@@ -79,15 +83,19 @@ function makePoller(over: {
     $queryRaw: vi.fn(async () => []),
     $executeRaw: vi.fn(async () => 0),
     artifactProjection: {
-      findUnique: vi.fn(async () => null),
+      findUnique: vi.fn(async ({ where }: any) => rows.find((r) => r.id === where.id) ?? null),
       findFirst: vi.fn(async () => null),
       updateMany: vi.fn(async () => ({ count: 0 })),
       count: vi.fn(async () => 0),
     },
-    nodeArtifact: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
+    nodeArtifact: {
+      findMany: vi.fn(async ({ where }: any) => (where.id.in as string[]).map((id) => artifacts.get(id)).filter(Boolean)),
+      findUnique: vi.fn(async ({ where }: any) => artifacts.get(where.id) ?? null),
+    },
     generationIntent: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
   };
-  const lease: any = { isServing: () => over.epoch !== null, currentEpoch: () => over.epoch ?? null };
+  const epochOf = () => (over.epoch === undefined ? 1n : over.epoch);   // 缺省=held 1n；显式 null=失守
+  const lease: any = { isServing: () => epochOf() !== null, currentEpoch: () => epochOf() };
   const docs: any = {
     deliverArtifact: over.deliverArtifact ?? vi.fn(async () => ({ data: { written: true }, execWritten: true })),
     flushDocument: vi.fn(async () => ({ kind: 'persisted' })),

@@ -15,7 +15,6 @@
 // ——write-endpoint int spec 邻近复用形态（lease 换真实例——epoch 语义是本卡红锚面）。
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -38,8 +37,6 @@ const d = hasDb ? describe : describe.skip;
 
 const DEBOUNCE_MS = 10_000;
 
-/** 无标签 Counter 总值 helper（prom-client hashMap 扫描——deliver-refund int spec 同款纪律）。 */
-const totalOf = (m: any): number => Object.values(m.hashMap ?? {}).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
 const outcomeOf = async (outcome: string): Promise<number> =>
   (await (artifactProjectionOutcomeTotal as any).get()).values.find((v: any) => v.labels.outcome === outcome)?.value ?? 0;
 const flushOutcomeOf = async (outcome: string): Promise<number> =>
@@ -180,7 +177,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const PID = 't15-proj-happy';
     await seedProject(PID);
     await seedNode(PID, 'n1');
-    const { artifactId, projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-happy', sourceIntentRowId: null });
+    const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-happy', sourceIntentRowId: null });
     const projectedBefore = await outcomeOf('projected');
     const summary = await poller.tick();
     expect(summary.claimed).toBe(1);
@@ -220,12 +217,14 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const PID = 't15-proj-sup';
     await seedProject(PID);
     await seedNode(PID, 'n1');
+    // 种子批先落 PG（判别前提：n1 在 canonical——superseded 零写断言才可判）
+    expect(await docSvc.flushDocument(PID, lease.currentEpoch())).toEqual({ kind: 'persisted' });
     const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-old', rev: 2, projectionRev: 1 });   // 投影锚旧代
     const summary = await poller.tick();
     expect(summary.outcomes.superseded ?? 0).toBeGreaterThan(0);
     expect((await projectionRow(projectionId))?.state).toBe('superseded');
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').has('fileId')).toBe(false);   // 零 doc 写
+    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON()).toEqual({ content: 'seed' });   // 零 doc 写（无 fileId）
     expect((await projectionRow(projectionId))?.attempts).toBe(0);
     await teardownProject(PID);
   }, 60_000);
@@ -309,9 +308,8 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await seedNode(PID, 'n1');
     const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-fence' });
     // 注入滚动部署/双开形态：apply 时点失守（release=owner NULL+epoch 缓存 null）+503
-    const real = docSvc.deliverArtifact.bind(docSvc);
-    vi.spyOn(docSvc, 'deliverArtifact').mockImplementation(async (...args: Parameters<typeof real>) => {
-      await lease.release();
+    vi.spyOn(docSvc, 'deliverArtifact').mockImplementation(async () => {
+      await lease.release();   // 注入滚动部署/双开形态：apply 时点失守（owner NULL+epoch 缓存 null）+503
       const { ServiceUnavailableException } = await import('@nestjs/common');
       throw new ServiceUnavailableException('collab not serving (lease not held)');
     });
@@ -321,11 +319,12 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect(row?.state).toBe('pending');
     expect(row?.attempts).toBe(0);   // 红：朴素实现把 503 当失败耗 attempts
     await ensureLeaseHeld();
-    // 租约复得后正常收敛
+    // 租约复得后正常收敛（releaseRows 退避〔3s poll 间隔〕后重 claim——tick 循环驱动至终态）
     vi.restoreAllMocks();
-    const summary2 = await poller.tick();
-    expect(summary2.outcomes.projected ?? 0).toBeGreaterThan(0);
-    expect((await projectionRow(projectionId))?.state).toBe('projected');
+    await pollUntil(async () => {
+      await poller.tick();
+      return (await projectionRow(projectionId))?.state === 'projected';
+    }, 15_000, 500);
     await teardownProject(PID);
   }, 60_000);
 
@@ -347,8 +346,11 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect(row?.attempts).toBe(0);
     await ensureLeaseHeld();
     vi.restoreAllMocks();
-    await poller.tick();   // 复得后收敛（doc 批随下次 flush 落 PG）
-    await pollUntil(async () => (await projectionRow(projectionId))?.state === 'projected', 10_000);
+    // 复得后收敛（doc 批随下次 flush 落 PG——退避后重 claim，tick 循环驱动至终态）
+    await pollUntil(async () => {
+      await poller.tick();
+      return (await projectionRow(projectionId))?.state === 'projected';
+    }, 15_000, 500);
     const revived = await reviveFromPg(PID);
     expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-fence2');
     await teardownProject(PID);
@@ -365,10 +367,11 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const row = await projectionRow(projectionId);
     expect(row?.state).toBe('pending');
     expect(row?.attempts).toBe(0);   // G58：spooled≠delivered 也≠失败——磁盘安全帧永不耗 attempts
-    spy.mockRestore();   // PG 恢复——下轮 claim 回灌 spool 帧
-    const summary2 = await poller.tick();
-    expect(summary2.outcomes.projected ?? 0).toBeGreaterThan(0);
-    expect((await projectionRow(projectionId))?.state).toBe('projected');
+    spy.mockRestore();   // PG 恢复——下轮 claim 回灌 spool 帧（退避 2s 后——tick 循环驱动）
+    await pollUntil(async () => {
+      const s = await poller.tick();
+      return s.claimed > 0 && (await projectionRow(projectionId))?.state === 'projected';
+    }, 15_000, 500);
     const revived = await reviveFromPg(PID);
     expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-spool');
     await teardownProject(PID);

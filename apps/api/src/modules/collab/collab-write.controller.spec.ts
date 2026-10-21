@@ -5,10 +5,10 @@
 // op 数上限/拒 __proto__ 族，全七码违规清单进 400 body）②响应=WriteOpResult[] 裸数组
 // （@NoTransform——TransformInterceptor 包裹壳会破坏 HttpCollabWritePort.writeOpsBatch 直接 cast 契约）
 // ③瞬态 503 显式传递（Z99 端点半——writer throw SUE 原样上抛不吞不换码，worker 侧按瞬态族重试）。
-// T13（plan v11.2 ①）双收窄红测：④op 白名单=WORKER_CHANNEL_OPS 且 writeNodeData 键⊆
-// WORKER_WRITE_NODE_DATA_KEYS〔{fileId,result}〕（worker token 写 content/videoUrl 即 400——比旧
-// 6 键全开真收窄）；⑤x-worker-scope HMAC 验签（伪造他 project/intent/execSeq ⇒ 403——作用域
-// 不匹配；writeNodeData 需全档；裸档仅 writeExecStatus）。
+// T13（plan v11.2 ①）→T15 收口：④op 白名单=WORKER_CHANNEL_OPS〔exec-only——writeNodeData
+// 全档亦 403（交付归投影 poller）〕且 writeExecStatus status 禁 done（WORKER_EXEC_FORBIDDEN_
+// STATUSES——done=deliverArtifact 复合 op 专写）；⑤x-worker-scope HMAC 验签（伪造他
+// project/intent/execSeq ⇒ 403——作用域不匹配；裸档仅 writeExecStatus）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import 'reflect-metadata';
 import { RequestMethod, ServiceUnavailableException } from '@nestjs/common';
@@ -95,7 +95,7 @@ describe('Y0c T27 write-batch 业务面透传（Z99 端点半——200 WriteOpRe
     ];
     const writer = writerStub(async () => results);
     const c = mkController(writer);
-    const body = { projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f1' } }, { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }] };
+    const body = { projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1 } }] };   // T15 后 worker 通道=exec-only（token 未设 fail-open 档——Z108 透传语义不变）
     await expect(c.writeBatch(body)).resolves.toBe(results);   // 同一引用裸透传（非包裹壳）
     expect(writer.writeBatch).toHaveBeenCalledWith('p1', body.ops);
   });
@@ -110,7 +110,7 @@ describe('Y0c T27 write-batch 业务面透传（Z99 端点半——200 WriteOpRe
   it('瞬态 503 显式传递（Z99 端点半）：writer throw SUE ⇒ 原样上抛（不吞不换码——worker 侧按瞬态族退避重试）', async () => {
     const writer = writerStub(async () => { throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'lease' }); });
     const c = mkController(writer);
-    await expect(c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }] }))
+    await expect(c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1 } }] }))
       .rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
@@ -129,34 +129,45 @@ describe('T13（plan v11.2 ①）双收窄——token 已设档（worker 通道 
   const fullScope = () => mintWorkerScopeToken(TOKEN, 'p1', { intentRowId: 'gi-1', execSeq: '77' });
   const bareScope = () => mintWorkerScopeToken(TOKEN, 'p1');
 
-  it('绿·全档合法批：writeNodeData{fileId,result}+writeExecStatus 过收窄面（intent 行绑定匹配）——writer 直调', async () => {
+  it('T15 绿·全档合法批：writeExecStatus（loading）过收窄面（intent 行绑定匹配）——writer 直调', async () => {
     const writer = writerStub();
     const c = mkController(writer, intentRow);
     const body = { projectId: 'p1', ops: [
-      { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f1', result: '文本产物' } },
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
+      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1 } },
     ] };
     await expect(c.writeBatch(body, fullScope())).resolves.toBeDefined();
     expect(writer.writeBatch).toHaveBeenCalledWith('p1', body.ops);
   });
 
-  it('红·绿：worker token 写白名单外键（content/videoUrl/resultUrl/errorCode——Z108 通用键域内但非 worker 通道键集）⇒ 400 WORKER_KEY_NOT_ALLOWED（writer 零调用）', async () => {
+  it('T15 收口红·绿：writeNodeData 全档 scope 亦 403 WORKER_OP_NOT_ALLOWED（交付归投影 poller——worker 零 data 域写）；writeExecStatus done 403（deliverArtifact 复合 op 专写）', async () => {
     const writer = writerStub();
     const c = mkController(writer, intentRow);
-    for (const key of ['content', 'videoUrl', 'resultUrl', 'errorCode']) {
+    const errData: any = await c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f1' } }] }, fullScope()).catch((e) => e);
+    expect(errData.status).toBe(403);
+    expect(errData.response?.code).toBe('WORKER_OP_NOT_ALLOWED');
+    const errDone: any = await c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }] }, fullScope()).catch((e) => e);
+    expect(errDone.status).toBe(403);
+    expect(errDone.response?.code).toBe('WORKER_EXEC_STATUS_NOT_ALLOWED');
+    expect(writer.writeBatch).not.toHaveBeenCalled();
+  });
+
+  it('红·绿：writeNodeData（任意键——content/fileId）⇒ 403 WORKER_OP_NOT_ALLOWED（T15 收口：op 级先拒——键级白名单随 writeNodeData 通道退役；writer 零调用）', async () => {
+    const writer = writerStub();
+    const c = mkController(writer, intentRow);
+    for (const key of ['content', 'fileId', 'result', 'videoUrl', 'resultUrl', 'errorCode']) {
       const err: any = await c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { [key]: 'x' } }] }, fullScope()).catch((e) => e);
-      expect(err.status, `键 ${key} 须 400`).toBe(400);
-      expect(err.response?.code).toBe('WORKER_KEY_NOT_ALLOWED');
+      expect(err.status, `键 ${key} 须 403（op 白名单先拒）`).toBe(403);
+      expect(err.response?.code).toBe('WORKER_OP_NOT_ALLOWED');
     }
     expect(writer.writeBatch).not.toHaveBeenCalled();
   });
 
-  it('红·绿：op 白名单外（deleteExecOrphans/deleteNodeDataKeys/deleteNodes——api 进程内专用 op）⇒ 400 WORKER_OP_NOT_ALLOWED', async () => {
+  it('红·绿：op 白名单外（writeNodeData/deleteExecOrphans/deleteNodeDataKeys/deleteNodes——api 进程内专用/投影 poller 专用 op）⇒ 403 WORKER_OP_NOT_ALLOWED', async () => {
     const writer = writerStub();
     const c = mkController(writer, intentRow);
     for (const op of [{ op: 'deleteExecOrphans' }, { op: 'deleteNodeDataKeys', nodeId: 'n1', keys: ['fileId'] }, { op: 'deleteNodes', nodeIds: ['n1'] }]) {
       const err: any = await c.writeBatch({ projectId: 'p1', ops: [op] }, fullScope()).catch((e) => e);
-      expect(err.status).toBe(400);
+      expect(err.status).toBe(403);
       expect(err.response?.code).toBe('WORKER_OP_NOT_ALLOWED');
     }
     expect(writer.writeBatch).not.toHaveBeenCalled();
@@ -184,24 +195,24 @@ describe('T13（plan v11.2 ①）双收窄——token 已设档（worker 通道 
   it('红·绿：伪造他 intent/execSeq（token 绑 gi-1/77，DB 行 execSeq=88）⇒ 403 WORKER_SCOPE_INTENT_MISMATCH；伪造他 nodeId（op 指向 n2）⇒ 403 WORKER_SCOPE_NODE_MISMATCH', async () => {
     const writer = writerStub();
     const cExec = mkController(writer, { projectId: 'p1', nodeId: 'n1', execSeq: 88n });
-    const errExec: any = await cExec.writeBatch({ projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f1' } }] }, fullScope()).catch((e) => e);
+    const errExec: any = await cExec.writeBatch({ projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1 } }] }, fullScope()).catch((e) => e);
     expect(errExec.status).toBe(403);
     expect(errExec.response?.code).toBe('WORKER_SCOPE_INTENT_MISMATCH');
 
     // 攻击面：token 绑定 intent 行（nodeId=n1）但 op 载荷指向他节点 n2——绑定校验拒
     const cNode = mkController(writer, intentRow);
-    const errNode: any = await cNode.writeBatch({ projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n2', patch: { fileId: 'f1' } }] }, fullScope()).catch((e) => e);
+    const errNode: any = await cNode.writeBatch({ projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n2', patch: { status: 'loading', attempts: 1 } }] }, fullScope()).catch((e) => e);
     expect(errNode.status).toBe(403);
     expect(errNode.response?.code).toBe('WORKER_SCOPE_NODE_MISMATCH');
     expect(writer.writeBatch).not.toHaveBeenCalled();
   });
 
-  it('红·绿：裸项目档 writeNodeData（资金交付面需全档）⇒ 403 WORKER_SCOPE_LEVEL；裸档 writeExecStatus 放行（pre-claim 断言路径——PLAN_MISSING/claim 抛错的 error 投影无 intent 行可绑）', async () => {
+  it('红·绿：裸项目档 writeNodeData（T15：全档亦禁——交付归投影 poller）⇒ 403 WORKER_OP_NOT_ALLOWED（op 白名单先拒）；裸档 writeExecStatus 放行（pre-claim 断言路径——PLAN_MISSING/claim 抛错的 error 投影无 intent 行可绑）', async () => {
     const writer = writerStub();
     const c = mkController(writer, null);
     const err: any = await c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'f1' } }] }, bareScope()).catch((e) => e);
     expect(err.status).toBe(403);
-    expect(err.response?.code).toBe('WORKER_SCOPE_LEVEL');
+    expect(err.response?.code).toBe('WORKER_OP_NOT_ALLOWED');
     await expect(c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'error', attempts: 0, errorCode: 'PLAN_MISSING' } }] }, bareScope())).resolves.toBeDefined();
     expect(writer.writeBatch).toHaveBeenCalledTimes(1);
   });

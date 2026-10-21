@@ -90,7 +90,6 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     teamCredit,
     perm,
     collabDoc,
-    docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
     { emitNodeStatus: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
@@ -151,10 +150,11 @@ const statusOf = async (nodeId: string) =>
     expect(led2.settle).toBe(led1.settle);
     // 行数恰 1
     expect((await rowsOf(n)).length).toBe(1);
-    // 重放补投影（T5 Minor#5）：done 投影落 doc（text 只投影不补写 node data——resultRef 截断占位）
+    // T15 收口：回放零 doc 写（done 投影/fileId 交付=投影 poller deliverArtifact 专写——投影行在案
+    // 驱动交付；旧 T5 Minor#5「回放补 done 投影」面随直写退役）
     const donePatch = e2.writeExecCalls.filter((c) => c.patch.status === 'done');
-    expect(donePatch.length).toBe(1);
-    expect(e2.writeNodeCalls.length).toBe(0); // text 禁补写
+    expect(donePatch.length).toBe(0);
+    expect(e2.writeNodeCalls.length).toBe(0); // worker 零 data 写（text 截断占位禁写面自然消解）
   });
 
   it('② 跨客户端上下文（同参数新请求全新装置）→ 同上结构性生效（idemKey 服务端派生非客户端记忆）', async () => {
@@ -167,12 +167,14 @@ const statusOf = async (nodeId: string) =>
     expect(e2.apiCaller.callImageGen).not.toHaveBeenCalled(); // 零外呼
     expect((await ledgerOf()).settle).toBe(led1.settle);       // 零新增扣费
     expect((await rowsOf(n)).length).toBe(1);                  // 同一行
-    // 回放补投影+补写 node data（T10：image replay 产物键=fileId——resultRef=mediaId 真 Media 锚）
-    const donePatch = e2.writeExecCalls.filter((c) => c.patch.status === 'done');
-    expect(donePatch.length).toBe(1);
-    const replayPatch = e2.writeNodeCalls[0]?.patch as Record<string, unknown>;
-    expect(Object.keys(replayPatch)).toEqual(['fileId']);
-    expect(String(replayPatch.fileId)).toMatch(/^[0-9a-f-]{36}$/);   // 首轮 finalize 落库的 mediaId
+    // T15 收口：回放零 doc 写（fileId 交付=投影 poller——pending 投影行随首轮 finalize 落库，
+    // poller 按 mediaId 交付；旧「replay 补写 fileId」面随直写退役）
+    expect(e2.writeExecCalls.filter((c) => c.patch.status === 'done')).toHaveLength(0);
+    expect(e2.writeNodeCalls).toHaveLength(0);
+    // 交付有 owner：首轮落的 pending 投影行在案（fileId=mediaId 权威锚）
+    const proj = await prisma.artifactProjection.findMany({ where: { projectId: PID, nodeId: n, state: 'pending' } });
+    expect(proj.length).toBe(1);
+    expect(String(proj[0].mediaId)).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('③ 同参数 enqueue 管道（带 jobId）与 execute 直达交叉 → 同行一次扣费（跨路径）', async () => {
@@ -414,23 +416,20 @@ const statusOf = async (nodeId: string) =>
     expect(led2.refund).toBe(0);
   });
 
-  it('B-1 settle 后交付死区根修：settle 成功后 writeNodeData 抛 503 → 行 VOIDED+refund 冲销（改前红：行永留 SUCCEEDED 零退款）', async () => {
+  it('T15 B-1 形态迁移：finalize 后残余段抛错（emit 注入——交付已归投影链）⇒ 行 SUCCEEDED 保持+零退款（防御观测档：投影行在案=交付有 owner）', async () => {
     const n = nid('b1'); const nodes = [imageNode(n)];
-    const drain503 = Object.assign(new Error('collab drain 503'), { status: 503 });
-    const e = makeExec(nodes, {
-      writeNodeData: vi.fn().mockRejectedValue(drain503), // complete+settle 成功后交付抛错
-    });
+    const emitThrow = vi.fn(((_p: string, payload: any) => { if (payload?.status === 'done') throw new Error('emit pipe down'); }) as any);
+    const e = makeExec(nodes);
+    (e.svc as any).emitPort.emitNodeStatus = emitThrow;   // finalize 后残余段（done emit 位）抛错注入（早段 emit 不受扰）
     const r = await e.svc.execute(PID, undefined, UID, [n]);
-    expect(r.success).toBe(false);
-    expect(r.errors[0]).toMatchObject({ errorCode: 'NODE_DELIVERY_FAILED' });
+    expect(r.success).toBe(true);   // 交付不阻塞 worker 判定（旧 NODE_DELIVERY_FAILED 面退役）
     const row = (await rowsOf(n))[0];
-    expect(row.status).toBe('VOIDED'); // 改前红：永留 SUCCEEDED（void_/fail 双 no-op）
+    expect(row.status).toBe('SUCCEEDED');   // 资金面 finalize 已核销——零退款（orphaned 退款归 poller）
     const led = await ledgerOf(n);
-    expect(led.settle).toBeGreaterThanOrEqual(1); // settle 曾发生
-    expect(led.refund).toBeGreaterThanOrEqual(1); // B-1：refund 冲销（rollbackDeliveryFailed）
-    // 投影：error NODE_DELIVERY_FAILED（用户可重试）
-    const errPatch = e.writeExecCalls.find((c) => c.patch.status === 'error');
-    expect(errPatch?.patch.errorCode).toBe('NODE_DELIVERY_FAILED');
+    expect(led.settle).toBeGreaterThanOrEqual(1);
+    expect(led.refund ?? 0).toBe(0);   // B-1 退款面移交投影链（双跑退款面根除）
+    // 零 error 投影（error 会与 poller done 对撞——防御观测档只 WARN）
+    expect(e.writeExecCalls.find((c) => c.patch.status === 'error')).toBeUndefined();
   });
 
   it('Z78 信封清剿 api 侧前提：listByNode 真库行=裸数组（attempts 列在投影——web 对齐消费）', async () => {
@@ -529,6 +528,8 @@ const statusOf = async (nodeId: string) =>
     const statuses = e.writeExecCalls.filter((c) => c.nodeId === n).map((c) => c.patch.status);
     expect(statuses, `投影序列不得含 error（实收 ${JSON.stringify(statuses)}）`).not.toContain('error');
     expect(statuses, '重投段 skipped 投影在档（Z35 非终态可观测面）').toContain('skipped');
-    expect(statuses[statuses.length - 1], '终态投影=在飞段 done（Z88 照常落地）').toBe('done');
+    // T15：worker 写面终态序终指针=skipped（done=投影 poller deliverArtifact 专写——本装置零
+    // poller，doc 终态收敛归 projection-outbox.poller.int.spec 真双端面）
+    expect(statuses[statuses.length - 1], 'worker 投影面最后写=重投段 skipped（done 归投影 poller）').toBe('skipped');
   }, 30_000);
 });

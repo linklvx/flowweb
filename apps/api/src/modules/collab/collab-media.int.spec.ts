@@ -2,25 +2,25 @@
 // replaceMedia/clearMedia 命令真库红绿——POST /api/projects/:id/collab/nodes/:nodeId/media
 //   ①replace：PG NodeArtifact CAS（rev+1+source='replace'+state='stored'）+新 ArtifactProjection
 //     pending（[artifactId,artifactRev]）+旧 pending 投影 superseded+MediaBinding current-state upsert
-//     +doc 过渡期直写（writeBatch writeNodeData {fileId:mediaId}——T15 投影 poller 未建前保交付）；
-//   ②clear：CAS（mediaId 清空+state='none'）+新 pending 投影（mediaId=null）+doc deleteNodeDataKeys
-//     ['fileId']；
+//     ——doc 交付归投影 poller（T15 收口：本命令零 doc 直写，pending 行驱动异步收敛）；
+//   ②clear：CAS（mediaId 清空+state='none'）+新 pending 投影（mediaId=null）——doc 键删同归 poller
+//     （deliverArtifact targetField 等值面：clear 行 mediaId=null=skip 写、recheck 判 superseded 归
+//     fast path 判定——见 projection-outbox.poller.int.spec）；
 //   ③409 ARTIFACT_REV_CONFLICT：expectedRev 过期（0 行=superseded）→槽位不被覆盖；
 //   ④GET 槽位状态：{targetField,rev,mediaId}——客户端初始 expectedRev 来源；
 //   ⑤权限：VIEWER→403；跨团队 mediaId→403（读侧 ACL 团队级 Z7''-v14 的写面同构）。
 // 红形态（改前可复现）：CollabMediaController 全仓不存在（编译级红）；doc 写面零接入。
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
-import { fillDoc, stampDocSchema, type StoredNodeRecord, type DocWriteOp } from '@flowweb/shared';
+import { fillDoc, stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 import { CollabMediaController } from './collab-media.controller';
 import { toDocLike } from './doc-like.util';
-import { applyWriteOpsToDoc } from './collab-doc-writer.service';
 import { deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入
@@ -30,16 +30,6 @@ const prisma = new PrismaClient();
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
 const nodeArtifacts = new NodeArtifactService();
 const registration = new MediaRegistrationService(prisma as unknown as PrismaService, {} as never);
-
-/** doc 写门面替身：录 writeBatch ops（int spec 不起 collab 会话基建——写回真 doc 用共享纯原语
- *  applyWriteOpsToDoc，与生产 writeBatch 同 applyOpsCore 核心，见 collab-doc-writer.service.ts）。 */
-const recordedBatches: { projectId: string; ops: DocWriteOp[] }[] = [];
-const fakeDocWriter = {
-  writeBatch: async (projectId: string, ops: DocWriteOp[]) => {
-    recordedBatches.push({ projectId, ops });
-    return applyWriteOpsToDoc(doc, ops);
-  },
-} as never;
 
 let controller: CollabMediaController;
 let doc: Y.Doc;
@@ -103,7 +93,6 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       prisma as unknown as PrismaService,
       nodeArtifacts,
       registration,
-      fakeDocWriter,
     );
   });
 
@@ -134,7 +123,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
   });
 
   describe('POST replace（变换保存/手工换图路径）', () => {
-    it('CAS 胜：rev+1+source=replace+state=stored+新 pending 投影+旧 pending 投影 superseded+binding upsert+doc fileId 直写', async () => {
+    it('CAS 胜：rev+1+source=replace+state=stored+新 pending 投影+旧 pending 投影 superseded+binding upsert——T15：零 doc 直写（交付归投影 poller）', async () => {
       await seedSlot(NODE, 1, MEDIA_OLD);
       // 旧代 pending 投影（T10 finalize 形态）——胜者命令后必须 superseded
       const artifactId = (await slotRow(NODE))!.id;
@@ -162,11 +151,10 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
         where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'fileId', targetItemId: '' } },
       });
       expect(binding?.mediaId).toBe(MEDIA_NEW);
-      // doc 过渡期直写：writeNodeData {fileId: mediaId} 且应用后 doc data.fileId 落地
-      expect(recordedBatches.at(-1)!.projectId).toBe(PID);
-      expect(recordedBatches.at(-1)!.ops).toEqual([{ op: 'writeNodeData', nodeId: NODE, patch: { fileId: MEDIA_NEW } }]);
+      // T15 收口：命令零 doc 直写（doc data 不被命令触碰——pending 投影行驱动 poller 异步收敛；
+      // poll 驱动的 doc 终态断言归 projection-outbox.poller.int.spec 真双端面）
       const data = (doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>;
-      expect(data.get('fileId')).toBe(MEDIA_NEW);
+      expect(data.get('fileId')).toBe(MEDIA_OLD);
     });
 
     it('409：expectedRev 过期（槽位已换代）→ ARTIFACT_REV_CONFLICT+槽位不被覆盖', async () => {
@@ -196,7 +184,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
   });
 
   describe('POST clear（Angle3D 清空路径）', () => {
-    it('CAS 胜：mediaId 清空+state=none+新 pending 投影（mediaId=null）+doc deleteNodeDataKeys', async () => {
+    it('CAS 胜：mediaId 清空+state=none+新 pending 投影（mediaId=null）——T15：零 doc 直写（键删归 poller）', async () => {
       const nodeId = `n-clear-${randomUUID().slice(0, 6)}`;
       await seedSlot(nodeId, 1, MEDIA_NEW);
       fillDoc(toDocLike(doc), [seedNode(nodeId, { status: 'done', fileId: MEDIA_NEW, referenceImage: 'ref-1' })], []);
@@ -212,11 +200,10 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       const projection = await prisma.artifactProjection.findFirst({ where: { artifactId: row!.id, artifactRev: 2 } });
       expect(projection?.state).toBe('pending');
       expect(projection?.mediaId).toBeNull();
-      // doc：deleteNodeDataKeys ['fileId'] 且应用后键删（referenceImage 不在服务端删域——客户端写）
-      expect(recordedBatches.at(-1)!.ops).toEqual([{ op: 'deleteNodeDataKeys', nodeId, keys: ['fileId'] }]);
+      // T15 收口：命令零 doc 直写（doc fileId 键不被命令触碰——clear 投影行 mediaId=null 归 poller 判定）
       const data = (doc.getMap('nodes').get(nodeId) as Y.Map<any>).get('data') as Y.Map<any>;
-      expect(data.has('fileId')).toBe(false);
-      expect(data.get('referenceImage')).toBe('ref-1');
+      expect(data.get('fileId')).toBe(MEDIA_NEW);
+      expect(data.get('referenceImage')).toBe('ref-1');   // 客户端写域不被触碰
     });
   });
 
@@ -263,18 +250,13 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       expect(r.rev).toBe(2_147_483_647);
     });
 
-    it('红③doc 写 written:false（node 并发删除——doc 无此节点 Z44 守卫）→ logger.warn 留痕（Minor#3——禁静默成功；投影 pending 行在案归 T15 orphan 收敛）', async () => {
+    it('红③（T15 形态迁移）：node 并发删除——命令面零 doc 观察（PG 权威照常成功+pending 投影行在案；node 删除→orphaned 收敛归 poller apply 守卫——旧 Minor#3 直写 warn 面随直写退役）', async () => {
       const nodeId = `n-gone-${randomUUID().slice(0, 6)}`;   // 槽位在 PG、节点不在 doc（并发删除形态）
       await seedSlot(nodeId, 1, MEDIA_OLD);
-      const warnSpy = vi.spyOn((controller as any).logger, 'warn');
-      try {
-        const r = await controller.command(PID, nodeId, { action: 'replace', mediaId: MEDIA_NEW, expectedRev: 1 }, { user: { id: UID } } as never);
-        expect(r.rev).toBe(2);                     // PG 权威面照常成功（CAS 不因投影基础设施回退）
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(String(warnSpy.mock.calls[0])).toContain('node-deleted');
-      } finally {
-        warnSpy.mockRestore();
-      }
+      const r = await controller.command(PID, nodeId, { action: 'replace', mediaId: MEDIA_NEW, expectedRev: 1 }, { user: { id: UID } } as never);
+      expect(r.rev).toBe(2);                     // PG 权威面照常成功（CAS 不因投影基础设施回退）
+      const projection = await prisma.artifactProjection.findFirst({ where: { nodeId, artifactRev: 2 } });
+      expect(projection?.state).toBe('pending'); // 交付有 owner（poller apply written:false→orphaned 终态）
     });
   });
 });

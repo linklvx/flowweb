@@ -56,7 +56,7 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(
-    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, intentService,
+    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, intentService,
     { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // Y1a T8 upstreamMedia（本夹具无上游）
     { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) },   // T10 artifactCommit
   );
@@ -78,10 +78,11 @@ describe('F4 产物序（spec v5.10：看到产物 ⇒ 已扣费）', () => {
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
   });
 
-  it('text：reserve 成功 → writeNodeData 正常写（回归锚）', async () => {
+  it('text：reserve 成功 → 全链成功（T15 回归锚：交付归投影 poller——worker 零 data 写）', async () => {
     const { svc, collabDoc } = makeService(true, [{ id: 'n1', type: 'textInput', data: { model: 'seed-model-kimi' } }]);
-    await svc.execute('p1', 'n1', 'u1');
-    expect(collabDoc.writeNodeData).toHaveBeenCalled();
+    const r = await svc.execute('p1', 'n1', 'u1');
+    expect(r.success).toBe(true);
+    expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // T15：deliver+done doc 写移除（投影 poller 专写）
   });
 });
 

@@ -177,13 +177,21 @@ const agePastGrace = async (id: string) =>
     await expect(ledgerRows(a.intent.id, 'release')).resolves.toHaveLength(1);   // 恰一次
     expect(await prisma.reconcileAction.count({ where: { intentRowId: a.intent.id, action: 'void-terminal' } })).toBe(1);
 
-    // 有交付凭据（投影行 pending）：manual-required——冻结不动
+    // 有交付凭据（本 intent 资金锚的投影行 pending——T15 收口：凭据查询收窄到 artifactId∈
+    // NodeArtifact{sourceIntentRowId=本行}，投影行必联真锚行——生产形态同款）：manual-required——冻结不动
     const b = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: b.intent.id, execSeq: b.intent.execSeq });
     await intentSvc.fail(b.intent.id, 'r3 window4 with-delivery-evidence');
+    const anchorB = await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: b.intent.nodeId, teamId: TID, targetField: 'fileId',
+        mediaId: 'm-x', state: 'stored', rev: 1,
+        sourceIntentRowId: b.intent.id, sourceExecSeq: b.intent.execSeq, artifactIndex: 0,
+      },
+    });
     await prisma.artifactProjection.create({
       data: {
-        artifactId: `art-r3-${randomUUID().slice(0, 8)}`, artifactRev: 1, projectId: PID, nodeId: b.intent.nodeId,
+        artifactId: anchorB.id, artifactRev: 1, projectId: PID, nodeId: b.intent.nodeId,
         targetField: 'fileId', targetItemId: '', mediaId: 'm-x', state: 'pending',
       },
     });
