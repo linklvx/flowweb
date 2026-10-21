@@ -362,7 +362,8 @@ describe('processor failed 钩子（Y0c T28/Z41 拆两半——PG 半意图终�
   it('failed → findByActiveNode(job.id) 反查 → fail(running.id, reason, job.id)（PG 半）；writeExecStatus 零调用（投影半移交 api——重连 alignExecFromIntents+reconcile 收敛）', async () => {
     const { p, collabDoc, intentService } = makeProcessor();
     intentService.findByActiveNode.mockResolvedValue({ id: 'row-1', intentId: 'row-uuid-9', execSeq: 1n });
-    const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
+    // T9 收尾：claim 后 throw 的本 process 代——job.data 携同代票（票守卫过 fence 才 fail）
+    const job = { id: 'job-1', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1', ticket: { nodeId: 'n1', intentRowId: 'row-1', execSeq: '1' } } };
     await p.onFailed(job as any, new Error('worker died'));
     expect(intentService.findByActiveNode).toHaveBeenCalledWith('p1', 'n1', 'job-1'); // Z27：jobId 限定
     expect(intentService.fail).toHaveBeenCalledWith('row-1', 'worker died', 'job-1', 1n);
@@ -379,9 +380,10 @@ describe('processor failed 钩子（Y0c T28/Z41 拆两半——PG 半意图终�
 
   it('intentService.fail 抛错 → 整函数兜底吸收不外抛（Z 终裁 P14：钩子绝不外抛 unhandledRejection——拆分后 PG 半同样适用）', async () => {
     const { p, intentService } = makeProcessor();
-    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1' });
+    // T9 收尾：携同代票过 fence——fail 真被调用后抛错（P14 吸收面不变）
+    intentService.findByActiveNode.mockResolvedValue({ id: 'row-1', execSeq: 1n });
     intentService.fail.mockRejectedValue(new Error('pg down'));
-    const job = { id: 'job-3', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1' } };
+    const job = { id: 'job-3', data: { projectId: 'p1', nodeId: 'n1', regenToken: 'cli-token-1', ticket: { nodeId: 'n1', intentRowId: 'row-1', execSeq: '1' } } };
     await expect(p.onFailed(job as any, new Error('x'))).resolves.toBeUndefined();
   });
 

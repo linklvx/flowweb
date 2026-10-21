@@ -12,11 +12,27 @@ export interface ExecutionJobData {
   traceId?: string | null;
   /** 意图表行 id——claim 接 enqueue 链路（0.5-8）后由 failed 钩子消费（意图终态必达） */
   intentRowId?: string;
+  /** T9 收尾（评审 Important①）：执行代际票——processor 在 claim 成功即回写（job.updateData 同步刷新
+   *  本实例快照+落 Redis）。failed 钩子凭票与行代际比对：无票（claim 前 throw 的旧 worker——
+   *  readCanvas 503/validate 等）/异节点/异代=迟到钩子跳过 fail（行属 takeover 新代，takeover 不改
+   *  jobId 故 findByActiveNode(jobId) 必命中新代行——改前 fail(..., running.execSeq) 自读自写=代际
+   *  CAS 虚设误杀新代）。DB execSeq 仍是唯一权威（票只作钩子 fence 比对，非 CAS 第二真源）。 */
+  ticket?: ExecutionClaimTicket;
+}
+
+/** T9 收尾：worker 内 claim 成功铸造的代际票（execute 的 onClaimed 回调贯穿 processor——execSeq wire
+ *  =string 同 ExecutionTicket 纪律；与 edit/lighting 的 controller 预制票 ExecutionTicket 形态分立：
+ *  claim 时点不同〔controller enqueue 前 vs worker process 中〕，nodeId 位是组执行上游 claim 过滤键）。 */
+export interface ExecutionClaimTicket {
+  nodeId: string;
+  intentRowId: string;
+  /** BigInt wire=string（代际比较=BigInt 解析后值等比较——census ④ 禁 </> 裸比较） */
+  execSeq: string;
 }
 
 /** Y1a T9（spec ①/㉒）：执行代际票——edit/lighting（claim 在 controller 的 enqueue 管道）随 job.data
- *  下传 worker；execution 队列不带（claim 在 worker 内——execSeq 由 claim 返回值进程内贯穿，DB 为
- *  唯一权威禁第二真源）。execSeq=BigInt wire 一律 string（JSON 边界——manifest EXEC_STATUS_KEYS 同纪律，
+ *  下传 worker（execution 队列的钩子 fence 票见 ExecutionClaimTicket——两票形态分立）。
+ *  execSeq=BigInt wire 一律 string（JSON 边界——manifest EXEC_STATUS_KEYS 同纪律，
  *  禁 BigInt 入 Redis 载荷）；消费点 BigInt(execSeq) 解析一次贯穿。 */
 export interface ExecutionTicket {
   intentRowId: string;

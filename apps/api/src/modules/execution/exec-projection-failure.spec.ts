@@ -64,7 +64,7 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-1', attempts: 1, intentId: 'i1', execSeq: 1n }), fail } as any,
     );
     const d = await causeDelta('other', () =>
-      proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1' } } as any, new Error('job boom')));
+      proc.onFailed({ data: { projectId: 'p1', nodeId: 'n1', ticket: { nodeId: 'n1', intentRowId: 'intent-1', execSeq: '1' } } } as any, new Error('job boom')));
     expect(d).toBe(0);   // 投影半移交 api 最终一致链——worker 失败钩子不再是吞错点
     expect(writeExecStatus).not.toHaveBeenCalled();
     expect(fail).toHaveBeenCalledWith('intent-1', 'job boom', undefined, 1n); // T9：行代际

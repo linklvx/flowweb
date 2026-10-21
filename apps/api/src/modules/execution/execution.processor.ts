@@ -37,7 +37,16 @@ export class ExecutionProcessor extends WorkerHost {
       // Y0b-2 T6（Z91）：regenToken 透传（enqueue 管道与 execute 直达同 claim 语义）
       // Y0b-2 T7：SV 字节载荷退役（SV 判定在受理端点门——job 载荷零客户端状态）
       // Y0b-5 T13：traceId 透传（job.data 显式携带——非 fallback jobId：jobId 是 claim 业务 CAS 键，两键域独立）
-      const result = await this.executionService.execute(projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id, traceId ?? undefined);
+      // T9 收尾：onClaimed 回调——claim 成功即回写票进 job.data（updateData 同步刷本实例快照——同代
+      // 后续 throw 的 failed 钩子凭票过 fence；上游节点 claim 不覆盖目标票〔组执行拓扑序目标在末位，
+      // nodeId 过滤兜底〕；best-effort .catch——Redis 故障不挡执行，票缺仅退化钩子 fence）
+      const result = await this.executionService.execute(
+        projectId, nodeId, userId, undefined, regenToken ?? undefined, job.id, traceId ?? undefined,
+        nodeId ? (t) => {
+          if (t.nodeId !== nodeId) return;
+          job.updateData({ ...job.data, ticket: t }).catch(() => {});
+        } : undefined,
+      );
       await job.updateProgress(100);
       // Y1a T9（spec ㉒）：skip 非 ack——skipped（NodeBusy 别处在飞/INTENT_SAME_JOB_ALIVE 旧 worker 在飞）
       // 意味着本节点执行权归属未收敛，return=completed 即「旧 worker 真死零交付」悬挂（红形态）；
@@ -68,6 +77,12 @@ export class ExecutionProcessor extends WorkerHost {
    *  Y0b-1（§1.3/N4）：intentRowId 从不入队（死代码）——改凭 partial unique
    *  generation_intent_active_node_unique 反查在飞行：付费意图悬空从 15min 压到 worker failed 即时。
    *  Z27：jobId 限定——迟到的失败钩子只 fail 本 job 自己的在飞意图（同节点新活意图归属不同 job）。
+   *  T9 收尾票守卫（评审 Important①，对齐 ai-image-edit 票 fence 形态）：claim 在 worker 内——
+   *  job.data 票=本 process 代 claim 成功后回写。无票=claim 前 throw 的旧 worker（GC/网络暂停>60s
+   *  苏醒后 readCanvas 503/validate 等）——行属 takeover 新代（takeover 不改 jobId，findByActiveNode
+   *  (jobId) 必命中新代行），改前 fail(..., running.execSeq) 自读自写=代际 CAS 虚设误杀新代 worker
+   *  （产物 CAS 丢弃+白烧外呼）。无票/异节点/异代 ⇒ 跳过 fail+warn 退役；票匹配 ⇒ fail（此时
+   *  running.execSeq=本代 claim 值——真 CAS）。旧 worker 悬挂行收敛归 takeover/reaper（结构性不变）。
    *  Y0c T28（Z41）拆两半：worker 只做 PG 半（intentService.fail 意图终态化——GenerationIntentService
    *  只依赖 Prisma+Redis=worker 可安全持有）；exec 投影半移交 api 既有最终一致链——用户重连
    *  alignExecFromIntents 拉取 GET intents 对齐+reconcile 装载自检（零新增 Redis 连接、零跨进程事件丢失面）。
@@ -76,11 +91,17 @@ export class ExecutionProcessor extends WorkerHost {
   async onFailed(job: Job<any> | undefined, err: Error) {
     try {
       if (!job) return;
-      const { projectId, nodeId } = job.data ?? {};
+      const { projectId, nodeId, ticket } = job.data ?? {};
       if (!projectId || !nodeId) return;
       const reason = String(err?.message ?? err);
       const running = await this.intentService.findByActiveNode(projectId, nodeId, job.id);
-      if (running) await this.intentService.fail(running.id, reason, job.id, running.execSeq);
+      if (running) {
+        if (!ticket || ticket.nodeId !== nodeId || BigInt(ticket.execSeq) !== running.execSeq) {
+          this.logger.warn(JSON.stringify({ event: 'execution_failed_hook_stale_ticket', jobId: job.id, projectId, nodeId, ticketExecSeq: ticket?.execSeq ?? null, rowExecSeq: running.execSeq != null ? running.execSeq.toString() : null }));
+          return; // 旧代迟到钩子退役——零终态零副作用（行归接管新代/reaper 收敛）
+        }
+        await this.intentService.fail(running.id, reason, job.id, running.execSeq);
+      }
     } catch (e) {
       this.logger.warn(`[onFailed] 兜底失败 job=${job?.id}（意图交由 reconcile 收尾）: ${e}`);
     }

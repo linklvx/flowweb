@@ -224,6 +224,46 @@ const txOf = async (intentRowId: string, type: string) =>
       await intentSvc.void_(first.intent.id, 't9 cleanup5', gen2);
     });
   });
+
+  // T9 收尾（评审 Important①）：claim 前 throw 的旧 worker（GC/网络暂停>60s 苏醒）迟到失败钩子
+  // vs 行已 takeover 换代（jobId 不变——findByActiveNode(jobId) 必命中新代行）。
+  // 红形态：现状 onFailed 无票守卫，fail(..., running.execSeq) 自读自写=代际 CAS 虚设 → 新代行被误杀
+  // （新 worker complete CAS 0 命中——产物丢弃+白烧外呼）。
+  it('failed 钩子票守卫（真 BullMQ）：claim 前 throw 的旧 worker 迟到失败 → 不误杀 takeover 新代 RUNNING 行', async () => {
+    const QN = `t9-hook-${randomUUID().slice(0, 8)}`;
+    const JOBID = `t9-hook-job-${randomUUID().slice(0, 8)}`;
+    // 本 job 的在飞新代行（takeover 换代后形态：jobId 不变、心跳新鲜、RUNNING）
+    const claimed = await claimIntent({ jobId: JOBID });
+    const gen = claimed.intent.execSeq;
+    // 旧 worker 模拟：claim 前即 throw（readCanvas 503/validate 等）——job.data 无票（onClaimed 从未触发）
+    const execSvc = { execute: vi.fn().mockRejectedValue(new Error('readCanvas 503（claim 前 throw 模拟）')) };
+    const processor = new ExecutionProcessor(execSvc as unknown as ExecutionService, {} as any, intentSvc);
+    const worker = new Worker(QN, (job) => processor.process(job as any), { connection: { url: REDIS_URL } });
+    const q = new Queue(QN, { connection: { url: REDIS_URL } });
+    try {
+      await worker.waitUntilReady();
+      // failed 事件手动绑钩子（@nestjs/bullmq explorer 同款直绑——banner-cleanup 先例）；hookDone 序列化断言前钩子已跑完
+      const hookDone = new Promise<void>((resolve) =>
+        worker.on('failed', async (job: any, err: Error) => { await processor.onFailed(job, err); resolve(); }));
+      await q.add('execution', { projectId: PID, nodeId: claimed.intent.nodeId, userId: UID }, { jobId: JOBID });
+      await hookDone;
+      let state = '';
+      const job = await q.getJob(JOBID);
+      for (let i = 0; i < 40; i++) {
+        state = String(await job!.getState());
+        if (state === 'failed') break;
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      expect(state, '模拟旧 worker 的 process 必须真失败（throw 路径走通）').toBe('failed');
+      // 断言：新代行不被 fail（红：现状被钩子以新代 execSeq 误杀 → FAILED）
+      expect((await rowOf(claimed.intent.id))!.status).toBe('RUNNING');
+      await intentSvc.void_(claimed.intent.id, 't9 hook guard cleanup', gen);
+    } finally {
+      await worker.close();
+      await q.obliterate({ force: true });
+      await q.close();
+    }
+  });
 });
 
 // ── query-first（真 HTTP mock provider——AIModel 真行+本地 submit/query 端点计数）──

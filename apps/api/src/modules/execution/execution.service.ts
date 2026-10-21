@@ -19,6 +19,7 @@ import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { settleFailureTotal, intentDuplicateAttemptTotal } from './intent-reconcile.metrics';
 import { artifactDiscardedTotal, countExecProjectionFailure } from './exec.metrics';
+import type { ExecutionClaimTicket } from './execution.types';
 
 /** Z95/Z88：组执行错误结构化契约——nodeId 定位+status 分诊（error=节点失败/skipped=别处在飞/重复外呼
  *  非节点失败）+errorCode（客户端轮换/重试判据单源）。success=errors.length===0（真单出口）。 */
@@ -134,10 +135,12 @@ export class ExecutionService {
    *  Y0b-2 T7：sv 形参删除（SV 支配判定移受理端点门 sync-admission——服务侧 execute 零客户端状态）。
    *  Y0b-5 T13：traceId 第 7 参（服务端生成值非客户端状态）——HTTP 直达=controller 自 ALS（requestTraceStorage）
    *  读出传入；enqueue 管道=processor 自 job.data.traceId 透传（worker 无 HTTP ALS——ALS 不过 Redis）。
-   *  组执行 N 节点共用同一 traceId ⇒ N 行 intent 同 traceId（资金审计锚）。 */
+   *  组执行 N 节点共用同一 traceId ⇒ N 行 intent 同 traceId（资金审计锚）。
+   *  T9 收尾：onClaimed 第 8 参——claim 成功即回调（processor 凭此 job.updateData 回写票进 job.data，
+   *  failed 钩子与行代际比对 fence 旧 worker 迟到钩子；HTTP 直达路径不传=undefined 零行为变化）。 */
   async execute(
     projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], intentId?: string, jobId?: string,
-    traceId?: string | null,
+    traceId?: string | null, onClaimed?: (ticket: ExecutionClaimTicket) => void,
   ): Promise<ExecutionResult> {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
@@ -239,7 +242,7 @@ export class ExecutionService {
       if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行（批5-1 删信箱后无影子直调例外——regenerate 直连真实节点，白名单单判据）
       this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
       await this.runNodeLifecycle({
-        projectId, node, userId, gestureToken: intentId, jobId, traceId,
+        projectId, node, userId, gestureToken: intentId, jobId, traceId, onClaimed,
         teamId: project.teamId, planMap, styleTextOf,
         upstreamSource: nodeIds ? allNodes : scopeNodes, allEdges, // nodeIds 模式读全量（上游可在组外）
         results, errors, onDeducted: (c) => { totalDeducted += c; },
@@ -267,8 +270,9 @@ export class ExecutionService {
     styleTextOf: (data: any) => string;
     results: ExecutionResult['results']; errors: ExecutionErrorEntry[];
     onDeducted: (cost: number) => void;
+    onClaimed?: (ticket: ExecutionClaimTicket) => void; // T9 收尾：claim 成功即回调（processor 回写票）
   }): Promise<void> {
-    const { projectId, node, userId, gestureToken, jobId, traceId, teamId, planMap, upstreamSource, allEdges, results, errors, onDeducted } = ctx;
+    const { projectId, node, userId, gestureToken, jobId, traceId, teamId, planMap, upstreamSource, allEdges, results, errors, onDeducted, onClaimed } = ctx;
     // A-3（T4 I-2）：poll-abort ⇒ 行已终态，清理由 reaper 完成——onTick 抛出的 PROVIDER_POLL_ABORTED
     // 在下方 catch 被降级为逐节点 error（不 re-throw）；该降级安全仅因"onTick abort ⇔ 行已终态
     // （reaper 已收敛资金）"这一不变量——若 abort 语义扩围须重审此处。
@@ -327,6 +331,9 @@ export class ExecutionService {
         return;
       }
       claimed = intent;
+      // T9 收尾：claim 成功（new/rearm/takeover——created:true 全分支汇聚点）即回调——processor 回写票
+      // 进 job.data（updateData 同步刷实例快照：同 process 代后续 throw 的 failed 钩子凭票过 fence）
+      onClaimed?.({ nodeId: node.id, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
       const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
       await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }).catch(countExecProjectionFailure); // best-effort
 
