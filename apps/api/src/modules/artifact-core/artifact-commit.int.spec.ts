@@ -275,6 +275,27 @@ const restoreBalance = async () => {
     expect((await prisma.generationIntent.findUnique({ where: { id: c.intent.id } }))!.status).toBe('SUCCEEDED');
   });
 
+  it('质评复审：T11 replace 改锚后复驱 commitImage → 入口预检不短路照走全链 → 幂等分支回填本轮 mediaId/key（非 replace 行值——committed 必携不变量）', async () => {
+    const c = await claimIntent({ jobId: 't10ac-reanchored' });
+    await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+    const first = await commitFor(c);
+    expect(first.outcome).toBe('committed');
+    // T11 replace 命令形态预演：槽位换用户 media+锚清空（casUpsert replace 不带资金锚——改锚）
+    await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+      expectedRev: 1, source: 'replace', state: 'stored', mediaId: 'media-user-reanchored',
+    }));
+    const art = await slotRow(c.intent.nodeId);
+    expect(art!.mediaId).toBe('media-user-reanchored');           // 前提自证：replace 生效
+    // 复驱：intent 已 SUCCEEDED∧核销但锚行不在——入口预检 miss 照走全链（stage 行资金锚复用同行）
+    const second = await commitFor(c);
+    expect(second.outcome).toBe('committed');
+    expect(second.mediaId).toBe(first.mediaId);                   // 本轮 stage 描述符（改前红=undefined）
+    expect(second.key).toBe(first.key);                           // 改前红=undefined
+    expect(second.mediaId).not.toBe('media-user-reanchored');     // 非 replace 行的值
+    expect((await slotRow(c.intent.nodeId))!.mediaId).toBe('media-user-reanchored'); // 槽位用户值仍不被覆盖
+  });
+
   it('stage durable 全 kind 落 sourceUrl（红：现状 provider URL 仅内存窗口）：stage 后 kill -9 → processing 行+sourceUrl 在——R3 凭行重下并 finalize', async () => {
     const c = await claimIntent({ jobId: 't10ac-stage' });
     const sourceUrl = `https://provider.example.com/stage-${randomUUID().slice(0, 8)}.png`;

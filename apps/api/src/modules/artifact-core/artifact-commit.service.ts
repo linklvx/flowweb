@@ -271,7 +271,10 @@ export class ArtifactCommitService {
           : null;
         return { outcome: 'committed', mediaId: existing.mediaId ?? undefined, key: mediaRow?.key ?? undefined };
       }
-      return { outcome: 'committed' };   // 产物行已被 replace 改锚（T11）——幂等短路不动槽位（text 或改锚面）
+      // 产物行已被 replace 改锚（T11）——幂等短路不动槽位；但 image 系本轮 stage/上传描述符就在
+      // 作用域——回填 mediaId/key（质评复审 Important 残留：否则三消费方 mediaId!/key! 落 undefined，
+      // 违反头注「image 系 committed 必携」不变量；text 不传 media 自然 undefined）
+      return { outcome: 'committed', mediaId: params.media?.mediaId, key: params.media?.key };
     }
     if (rows[0].status !== 'RUNNING' || rows[0].execSeq !== params.execSeq) {
       throw new IntentStaleSignal(`行终态(${rows[0].status})/换代`);
