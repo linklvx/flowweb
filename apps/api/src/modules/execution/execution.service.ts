@@ -483,10 +483,18 @@ export class ExecutionService {
           artifactDiscardedTotal.inc({ cause: 'node-deleted' });
           const msg = '节点已被删除——产物未投递，已退款';
           try {
-            await this.prisma.artifactProjection.updateMany({
-              where: { projectId, nodeId: node.id, state: { in: ['pending', 'projecting'] } },
-              data: { state: 'orphaned' },
+            // 评审 Minor#3：where 收窄到本 intent 资金锚的投影行（artifactId∈NodeArtifact{sourceIntentRowId=
+            // intent.id}）——按 projectId+nodeId 笼统标记会误杀同节点他代（在飞新代）pending 行。
+            const anchors = await this.prisma.nodeArtifact.findMany({
+              where: { sourceIntentRowId: intent.id },
+              select: { id: true },
             });
+            if (anchors.length > 0) {
+              await this.prisma.artifactProjection.updateMany({
+                where: { artifactId: { in: anchors.map((a) => a.id) }, state: { in: ['pending', 'projecting'] } },
+                data: { state: 'orphaned' },
+              });
+            }
           } catch (e2) {
             this.logger.warn(`[deliver-refund] 意图 ${intent.intentId} 投影行 orphaned 标记失败（R3 兜底）: ${e2}`);
           }

@@ -138,6 +138,9 @@ export type R3Decision =
       stage: {
         intentRowId: string; execSeq: string; sourceUrl: string;
         projectId: string; nodeId: string; teamId: string; userId: string; kind: string; sourceMimeType: string | null;
+        /** claim 时捕获的槽位 rev 持久列（评审 Important#1）——finalizeFromStage 的 expectedRev 唯一源：
+         *  悬留窗用户 replace/clear 使槽位 rev 前进 ⇒ 此值失配 ⇒ superseded 不覆盖用户值。 */
+        claimArtifactRev: number;
       };
     }
   /** 行灭失/换代/无可收敛态（RUNNING 无 stage 等留 reaper 三查剩余分支）。 */
@@ -301,7 +304,7 @@ export class ArtifactCommitService {
   ): Promise<R3Decision> {
     const row = await tx.generationIntent.findUnique({
       where: { id: intentRowId },
-      select: { status: true, execSeq: true, reservedCredits: true, creditsConsumed: true, creditCost: true, projectId: true, nodeId: true, teamId: true, userId: true, kind: true },
+      select: { status: true, execSeq: true, reservedCredits: true, creditsConsumed: true, creditCost: true, projectId: true, nodeId: true, teamId: true, userId: true, kind: true, claimArtifactRev: true },
     });
     if (!row || row.execSeq !== execSeq) return { action: 'not-recoverable' };
     const anchor = await tx.nodeArtifact.findUnique({
@@ -351,12 +354,25 @@ export class ArtifactCommitService {
       // 下载/finalize；video stage 行随 finalize 事务建=RUNNING 窗结构性不可达）→ 锁外重下 finalize
       // （commitImage 同构——provider 不重调）。
       if (stage && stage.sourceUrl) {
+        // 评审 Important#1：expectedRev=claim 时持久化的 claimArtifactRev（禁现读 claimCapture——悬留窗
+        // 用户 replace/clear 后现读必胜出=旧代产物覆盖用户值，击穿 T10 superseded 不变量）。legacy 行
+        // （加列前 stranding）：槽位仍空（rev=0）无用户值可覆盖 ⇒ expectedRev=0 安全；槽位非空则无法重建
+        // claim 时 rev ⇒ not-recoverable（宁退勿吞——reaper charge 分支退款，不赌覆盖）。
+        let expectedRev = row.claimArtifactRev;
+        if (expectedRev === null || expectedRev === undefined) {
+          const current = await this.nodeArtifacts.claimCapture(tx, {
+            projectId: row.projectId, nodeId: row.nodeId, targetField: targetFieldOfKind(row.kind),
+          });
+          if (current !== 0) return { action: 'not-recoverable' };
+          expectedRev = 0;
+        }
         return {
           action: 'finalize-from-stage',
           stage: {
             intentRowId, execSeq: execSeq.toString(), sourceUrl: stage.sourceUrl,
             projectId: row.projectId, nodeId: row.nodeId,
             teamId: row.teamId, userId: row.userId, kind: row.kind, sourceMimeType: stage.mimeType,
+            claimArtifactRev: expectedRev,
           },
         };
       }
@@ -380,18 +396,18 @@ export class ArtifactCommitService {
 
   /** T13 R3 窗②锁外执行面：stage 行重下 finalize（commitImage 同构——幂等预检+ON CONFLICT stage
    *  复用同 mediaId；真 intentRowId+execSeq 驱动——stage 行资金锚复用+intent CAS RUNNING→SUCCEEDED+
-   *  settle 同事务）。expectedRev=当前槽位 claimCapture 现读（stranding 期间用户 replace ⇒ superseded
-   *  正确——不覆盖用户值，资金独立判照常 settle）。provider 不重调（下载源=stage 行 sourceUrl 唯一事实）。 */
+   *  settle 同事务）。expectedRev=**claim 时持久化的 claimArtifactRev**（评审 Important#1 根修：禁现读
+   *  claimCapture——悬留窗用户 replace/clear 后现读必与当前槽位 rev 匹配 ⇒ casUpsert 胜出=旧代产物
+   *  覆盖用户值，击穿 T10「生成在飞 replace→superseded 不覆盖」不变量；持久值失配 ⇒ superseded——
+   *  产物照常入素材库+资金独立判照常 settle）。provider 不重调（下载源=stage 行 sourceUrl 唯一事实）。 */
   async finalizeFromStage(stage: {
     intentRowId: string; execSeq: string; sourceUrl: string;
     projectId: string; nodeId: string; teamId: string; userId: string; kind: string; sourceMimeType: string | null;
+    claimArtifactRev: number;
   }): Promise<CommitOutcome> {
-    const expectedRev = await this.nodeArtifacts.claimCapture(this.prisma, {
-      projectId: stage.projectId, nodeId: stage.nodeId, targetField: targetFieldOfKind(stage.kind),
-    });
     return this.commitImage({
       projectId: stage.projectId, nodeId: stage.nodeId, teamId: stage.teamId, userId: stage.userId,
-      intentRowId: stage.intentRowId, execSeq: BigInt(stage.execSeq), expectedRev,
+      intentRowId: stage.intentRowId, execSeq: BigInt(stage.execSeq), expectedRev: stage.claimArtifactRev,
       sourceUrl: stage.sourceUrl,
       sourceMimeType: stage.sourceMimeType,
     });

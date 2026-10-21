@@ -1080,6 +1080,10 @@ model GenerationIntent {
   reservedExecSeq      BigInt? // reserve 时写；settle/void CAS 匹配（旧代一律失败）
   execProjectedExecSeq BigInt? // exec error 投影代际（reconcile 判据）
   resultText           String?      @db.Text // text kind 产物正文（90 天保留——非空行延长）
+  // T13 评审 Important#1：claim 时捕获的 NodeArtifact 槽位 rev 持久化（claimCapture 结果随 claim 事务
+  // 落列——worker 崩溃后 R3 finalizeFromStage 凭此重建 expectedRev；悬留窗内用户 replace/clear 使槽位
+  // rev 前进 ⇒ 持久值失配 ⇒ superseded 不覆盖用户值——T10「生成在飞 replace→superseded」不变量的 R3 面）。
+  claimArtifactRev     Int?
   providerRequestId    String? // v13b write-ahead：submit 前落库（Idempotency-Key——消灭 submit→DB 崩溃窗）
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt

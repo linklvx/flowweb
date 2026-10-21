@@ -253,6 +253,130 @@ const agePastGrace = async (id: string) =>
     expect(await rowOf(t4.id)).not.toBeNull();   // 有 artifact 锚行不物理删（悬空锚根修）
   }, 30_000);
 
+  it('评审 Important#1：悬留窗用户 replace（槽位 rev 前进）⇒ finalizeFromStage 持久 claimRev 失配=superseded——不覆盖用户值+资金独立判照常 settle（红：改前现读 claimCapture 必胜出=旧代产物覆盖用户值）', async () => {
+    const { intent } = await claimIntent();
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    expect((await rowOf(intent.id))!.claimArtifactRev).toBe(0);   // claim 捕获 rev 已持久化（fresh 槽位=0）
+    await artifactCommit.stageImage({
+      projectId: PID, nodeId: intent.nodeId, teamId: TID, userId: UID,
+      intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: 0,
+      sourceUrl: 'http://provider.example/r3-replace-window.png',
+    });
+    // 悬留窗用户 replace（T11 命令同构）：casUpsert 以 claim 捕获 rev=0 胜出 ⇒ 槽位 rev=1+mediaId=用户值
+    const nodeArtifacts = new NodeArtifactService();
+    await prisma.$transaction(async (tx) => {
+      await nodeArtifacts.casUpsert(tx, {
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        expectedRev: 0, source: 'replace', state: 'stored', mediaId: 'm-user-replace',
+      });
+    });
+    await prisma.generationIntent.update({
+      where: { id: intent.id },
+      data: { heartbeatAt: new Date(Date.now() - 20 * 60_000), deadlineAt: new Date(Date.now() - 25 * 60_000) },
+    });
+
+    await reconcile.verifyActive();
+
+    const row = await rowOf(intent.id);
+    expect(row!.status).toBe('SUCCEEDED');                       // intent CAS 成功——资金独立判照常核销
+    expect(row!.creditsConsumed).toBe(PRICING.creditCost);
+    await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1);
+    const slot = await prisma.nodeArtifact.findUnique({
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: intent.nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+    });
+    expect(slot!.mediaId).toBe('m-user-replace');                 // 红锚：用户值不被旧代产物覆盖（改前=stage mediaId）
+    expect(slot!.rev).toBe(1);                                    // replace 的 rev 保持——未被 finalize 覆写
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: intent.id, action: 'finalize-from-stage' } })).toBe(1);
+  }, 60_000);
+
+  it('评审 Minor#5：stage 重下第一次下载失败（瞬态）⇒ 不退款次轮重试（失败审计=1+行仍 RUNNING 零 release/refund）→ 恢复后收敛', async () => {
+    const { intent } = await claimIntent();
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await artifactCommit.stageImage({
+      projectId: PID, nodeId: intent.nodeId, teamId: TID, userId: UID,
+      intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: 0,
+      sourceUrl: 'http://provider.example/r3-flaky.png',
+    });
+    await prisma.generationIntent.update({
+      where: { id: intent.id },
+      data: { heartbeatAt: new Date(Date.now() - 20 * 60_000), deadlineAt: new Date(Date.now() - 25 * 60_000) },
+    });
+
+    safeFetch.fetchBuffer.mockRejectedValueOnce(new Error('ECONNRESET download flaky'));
+    await reconcile.verifyActive();
+
+    expect((await rowOf(intent.id))!.status).toBe('RUNNING');     // 未收敛——瞬态不弃已付费产物
+    await expect(ledgerRows(intent.id, 'release')).resolves.toHaveLength(0);
+    await expect(ledgerRows(intent.id, 'refund')).resolves.toHaveLength(0);
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: intent.id, action: 'finalize-from-stage-failed' } })).toBe(1);
+
+    await reconcile.verifyActive();   // 次轮重试（fetchBuffer 恢复 fake 默认）——收敛
+    const row = await rowOf(intent.id);
+    expect(row!.status).toBe('SUCCEEDED');
+    expect(row!.creditsConsumed).toBe(PRICING.creditCost);
+    await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1);
+  }, 60_000);
+
+  it('评审 Minor#5：三次下载失败耗尽 ⇒ 放弃重下走退款恰一次（release 恰一+VOIDED 终态——后续轮零重复退款）', async () => {
+    const { intent } = await claimIntent();
+    await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });
+    await artifactCommit.stageImage({
+      projectId: PID, nodeId: intent.nodeId, teamId: TID, userId: UID,
+      intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: 0,
+      sourceUrl: 'http://provider.example/r3-dead.png',
+    });
+    await prisma.generationIntent.update({
+      where: { id: intent.id },
+      data: { heartbeatAt: new Date(Date.now() - 20 * 60_000), deadlineAt: new Date(Date.now() - 25 * 60_000) },
+    });
+
+    for (let i = 0; i < 3; i += 1) safeFetch.fetchBuffer.mockRejectedValueOnce(new Error('source 410 gone'));
+    await reconcile.verifyActive();   // 第 1 次失败
+    await reconcile.verifyActive();   // 第 2 次失败
+    await reconcile.verifyActive();   // 第 3 次失败=耗尽 → 本轮即落退款分支
+    let row = await rowOf(intent.id);
+    expect(row!.status).toBe('VOIDED');                            // 退款终态（rollbackRunning——宁退勿吞）
+    expect(row!.reservedCredits).toBe(0);
+    expect(row!.creditsConsumed).toBe(0);
+    await expect(ledgerRows(intent.id, 'release')).resolves.toHaveLength(1);   // 恰一次
+
+    await reconcile.verifyActive();   // 后续轮——行已终态零重复
+    await reconcile.verifyActive();
+    row = await rowOf(intent.id);
+    expect(row!.status).toBe('VOIDED');
+    await expect(ledgerRows(intent.id, 'release')).resolves.toHaveLength(1);   // 仍然恰一次
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: intent.id, action: 'finalize-from-stage-failed' } })).toBe(3);   // 预算=3
+  }, 90_000);
+
+  it('评审 Important#2：投影补建扫龄守卫——7d 外旧锚（retention 删投影行后的常态）不重建（sweep↔retention 复活循环根修）', async () => {
+    // 旧锚：SUCCEEDED 行+锚行（updatedAt 推 8d 前）+无投影行——retention 30d 删投影后的形态
+    const old = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-r3-old-anchor', userId: UID, intentId: `r3-oa-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 1, reservedCredits: 0, creditsConsumed: 1, completedAt: new Date(Date.now() - 40 * 24 * 3600_000) });
+    await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: 'n-r3-old-anchor', teamId: TID, targetField: 'fileId',
+        mediaId: 'm-old-anchor', state: 'stored', rev: 1,
+        sourceIntentRowId: old.id, sourceExecSeq: old.execSeq, artifactIndex: 0,
+        updatedAt: new Date(Date.now() - 8 * 24 * 3600_000),   // 龄守卫判据（7d 窗外）
+      },
+    });
+    await (reconcile as any).sweepProjectionBackfill();
+    expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: 'n-r3-old-anchor' } })).toBe(0);            // 不重建
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: old.id, action: 'projection-backfill' } })).toBe(0);      // 零审计噪声
+
+    // 窗内新锚（竞态/崩溃窗形态）——照常补建恰一次（对照臂）
+    const fresh = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-r3-fresh-anchor', userId: UID, intentId: `r3-fa-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 1, reservedCredits: 0, creditsConsumed: 1 });
+    await prisma.nodeArtifact.create({
+      data: {
+        projectId: PID, nodeId: 'n-r3-fresh-anchor', teamId: TID, targetField: 'fileId',
+        mediaId: 'm-fresh-anchor', state: 'stored', rev: 1,
+        sourceIntentRowId: fresh.id, sourceExecSeq: fresh.execSeq, artifactIndex: 0,
+      },
+    });
+    await (reconcile as any).sweepProjectionBackfill();
+    expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: 'n-r3-fresh-anchor', state: 'pending' } })).toBe(1);
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: fresh.id, action: 'projection-backfill' } })).toBe(1);
+  }, 30_000);
+
   it('保留矩阵 retention：ArtifactProjection 终态 30d 清理+MediaFactOutbox published 7d 清理+dead-letter 告警（计数行保留）', async () => {
     await prisma.artifactProjection.create({ data: { artifactId: `art-old-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-old', targetField: 'fileId', targetItemId: '', state: 'orphaned', createdAt: new Date(Date.now() - 31 * 24 * 3600_000) } });
     await prisma.artifactProjection.create({ data: { artifactId: `art-new-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-new', targetField: 'fileId', targetItemId: '', state: 'orphaned' } });
@@ -267,5 +391,12 @@ const agePastGrace = async (id: string) =>
     expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: 'n-r3-new' } })).toBe(1);   // 30d 内留
     expect(await prisma.mediaFactOutbox.count({ where: { mediaId: ob1 } })).toBe(0);                        // published 7d 外删
     expect(await prisma.mediaFactOutbox.count({ where: { mediaId: ob2, state: 'dead' } })).toBe(1);        // dead 行保留（告警面）
+    // 评审 Minor#6：ReconcileAction 审计行 90d 清理（旧删新留——行 id 随机化防跨 run 残留计数）
+    const auditNewId = `gi-r3-audit-new-${randomUUID().slice(0, 8)}`;
+    const auditOldId = (await prisma.reconcileAction.create({ data: { intentRowId: `gi-r3-audit-old-${randomUUID().slice(0, 8)}`, action: 'settle-backfill', createdAt: new Date(Date.now() - 91 * 24 * 3600_000) } })).id;
+    await prisma.reconcileAction.create({ data: { intentRowId: auditNewId, action: 'settle-backfill' } });
+    await (reconcile as any).cleanProjectionAndOutbox();
+    expect(await prisma.reconcileAction.findUnique({ where: { id: auditOldId } })).toBeNull();
+    expect(await prisma.reconcileAction.count({ where: { intentRowId: auditNewId } })).toBe(1);
   }, 30_000);
 });

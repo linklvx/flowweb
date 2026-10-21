@@ -183,7 +183,9 @@ export class GenerationIntentService {
         await this.supersedeProjections(tx, input.projectId, input.nodeId);
         const rearmed = await tx.generationIntent.updateMany({
           where: { id: running.id, status: 'RUNNING', jobId: input.jobId, execSeq: running.execSeq },
-          data: { execSeq, resultRef: null, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)) },
+          // T13 评审 Important#1：claimCapture 槽位 rev 随 claim 事务持久化（R3 finalizeFromStage 的
+          // expectedRev 重建源——崩溃后凭列重建；悬留窗 replace 失配=superseded 不覆盖用户值）
+          data: { execSeq, resultRef: null, claimArtifactRev: artifactRev, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)) },
         });
         if (rearmed.count === 1) {
           return { intent: await tx.generationIntent.findUniqueOrThrow({ where: { id: running.id } }), created: true, result: 'rearm', artifactRev };
@@ -224,6 +226,7 @@ export class GenerationIntentService {
             error: null,
             resultRef: null,
             execSeq,
+            claimArtifactRev: artifactRev,   // T13 评审 Important#1：claim 捕获 rev 持久化（R3 expectedRev 重建源）
             jobId: input.jobId ?? null,
             completedAt: null,
             attempts: { increment: 1 },
@@ -251,6 +254,7 @@ export class GenerationIntentService {
           traceId: traceId ?? null, // T13：审计锚落列（新行同值——组执行 N 节点共用一 traceId）
           jobId: input.jobId ?? null, status: 'RUNNING', teamId, idemKey,
           execSeq: await this.nextExecSeq(tx),
+          claimArtifactRev: artifactRev,   // T13 评审 Important#1：claim 捕获 rev 随行落列（单真源）
           heartbeatAt: new Date(),
           deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
           pricingRuleId: pricing.pricingRuleId, modelId: pricing.modelId,

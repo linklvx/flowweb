@@ -103,6 +103,7 @@ const agePastGrace = async (id: string) =>
   afterAll(async () => {
     await prisma.reconcileAction.deleteMany({ where: { intentRowId: { in: (await prisma.generationIntent.findMany({ where: { projectId: PID }, select: { id: true } })).map((r: any) => r.id) } } }).catch(() => undefined);
     await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
+    await prisma.artifactProjection.deleteMany({ where: { projectId: PID } });
     await prisma.lightingTask.deleteMany({ where: { teamId: TID } });
     await prisma.media.deleteMany({ where: { teamId: TID } });
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
@@ -329,6 +330,11 @@ const agePastGrace = async (id: string) =>
     expect(row!.creditsConsumed).toBe(0);
     await expect(ledgerRows(row!.id, 'refund')).resolves.toHaveLength(1); // 已核销 settle 逆向冲销
     expect(collabDoc.writeNodeData).toHaveBeenCalled(); // 交付尝试确已发生
+    // 评审 Minor#3：本 intent 资金锚的 pending 投影行同步置 orphaned（where 收窄到锚行——不误伤同节点他代）
+    const anchors = await prisma.nodeArtifact.findMany({ where: { sourceIntentRowId: row!.id }, select: { id: true } });
+    expect(anchors).toHaveLength(1);   // 真 commitImage 链落的锚行
+    const proj = await prisma.artifactProjection.findFirst({ where: { artifactId: { in: anchors.map((a: { id: string }) => a.id) } } });
+    expect(proj?.state).toBe('orphaned');
   }, 30_000);
 
   it('A-1 lighting 双 reserve 白扣费根修：团队任务全链（processor→consumer）⇒ 恰一次 reserve 流水+外呼发生+终态 SUCCEEDED 非 skipped（改前红=processor fileId 缺位即炸/二次 reserve 恒 skipped 零外呼）', async () => {

@@ -281,6 +281,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
           error: null,
           resultRef: null,   // Y0b-2 T5（Z83/Z95）：清 resultRef 保留 providerTaskId——重试 query-first
           execSeq: 1n,       // T9：rearm=nextval 第二处分配点（新执行段新代际）
+          claimArtifactRev: 0,   // T13 评审 Important#1：claim 捕获槽位 rev 随 claim 事务持久化（R3 expectedRev 重建源；claimCapture mock 缺省 0）
           jobId: 'job-1',
           completedAt: null,
           attempts: { increment: 1 },

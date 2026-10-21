@@ -41,6 +41,16 @@ const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
 /** T13 R3 护栏：每行有界尝试 3 次+jitter（spec Z18''⑥——毒行不冻结整轮）。 */
 const R3_MAX_ATTEMPTS = 3;
 const R3_JITTER_BASE_MS = 25;
+/** T13 评审 Important#2：投影补建扫的锚龄窗——正常链投影行随 finalize 同事务落（缺行=竞态/崩溃窗，
+ *  分钟级）；窗（=终态悬留判龄宽限同数量级 7d）外的「锚在无投影」=retention 30d 删投影行后的常态
+ *  （int 行因锚守卫不删）——无龄守卫则 sweep↔retention 成复活循环（删→重建→审计/计数噪声+
+ *  T15 后旧产物重写在档节点）。 */
+export const PROJECTION_BACKFILL_MAX_AGE_MS = 7 * 24 * 3600_000;
+/** T13 评审 Minor#5：窗② stage 重下的跨轮有界重试预算——下载/网络瞬态毒行机制（每轮 verifyActive
+ *  一次尝试，预算耗尽 ⇒ 放弃重下走 charge 分支退款恰一次；禁单次瞬态失败永弃已付费产物）。 */
+export const R3_STAGE_DOWNLOAD_MAX_ATTEMPTS = 3;
+/** T13 评审 Minor#6：ReconcileAction 审计行保留（与 text 90d 对齐；dedupe 面下增长有界）。 */
+export const RECONCILE_ACTION_RETENTION_MS = 90 * 24 * 3600_000;
 
 /** 意图表对账与回收（F12 每日全量 + F13 活跃核验 5min）——R28 纪律：原生 setInterval+unref
  *  （@Cron 是死代码：ScheduleModule 全仓未导入）。
@@ -152,8 +162,11 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** T13 R3 窗③（投影缺失）专用扫：SUCCEEDED∧已核销行不进终态悬留批（reserved=0 谓词）——锚行在
-   *  而投影行缺（finalize 投影 createMany 竞态/人工清理残余）由本扫兜底补建（判据=PG 反连接；
-   *  有界 50 行/轮——正常链投影行随 finalize 同事务落，命中≈0 属不变量回归信号）。 */
+   *  而投影行缺（finalize 投影 createMany 竞态/崩溃窗残余）由本扫兜底补建（判据=PG 反连接；
+   *  有界 50 行/轮——正常链投影行随 finalize 同事务落，命中≈0 属不变量回归信号）。
+   *  评审 Important#2 龄守卫：仅扫 7d 内新锚——retention 30d 删终态投影行后「锚在无投影」是常态
+   *  （intent 行因锚守卫不物理删），无龄窗则 sweep↔retention 成复活循环（删→重建循环+审计噪声+
+   *  T15 后旧产物重写在档节点）。 */
   private async sweepProjectionBackfill(): Promise<void> {
     const rows = await this.prisma.$queryRaw<{ id: string; seq: bigint }[]>`
       SELECT na."sourceIntentRowId" AS id, na."sourceExecSeq" AS seq
@@ -161,6 +174,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       LEFT JOIN "ArtifactProjection" ap ON ap."artifactId" = na.id AND ap."artifactRev" = na.rev
       WHERE na."sourceIntentRowId" IS NOT NULL AND na."sourceExecSeq" IS NOT NULL
         AND ap.id IS NULL
+        AND na."updatedAt" > ((now() AT TIME ZONE 'utc') - (${PROJECTION_BACKFILL_MAX_AGE_MS} * interval '1 millisecond'))
       ORDER BY na."updatedAt"
       LIMIT 50`;
     for (const r of rows) {
@@ -283,6 +297,10 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
             return { d };
           }
           if (d.action === 'projection-backfill') {
+            // 评审 Important#2：审计去重（并发双跑/重复裁决面——投影行重建后判据自愈 noop，本去重
+            // 防锁内竞态窗的重复审计行）
+            const dup = await tx.reconcileAction.findFirst({ where: { intentRowId, action: 'projection-backfill' }, select: { id: true } });
+            if (dup) return { d: null };
             await this.auditInTx(tx, before, 'projection-backfill');
             return { d };
           }
@@ -325,13 +343,30 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
           return true;
         }
         if (d.action === 'finalize-from-stage') {
-          const out = await this.artifactCommit.finalizeFromStage(d.stage);
-          if (out.outcome !== 'intent-stale') {
-            await this.auditAfter(intentRowId, 'finalize-from-stage');
-            reconcileAutoConvergedTotal.inc({ action: 'finalize-from-stage' });
-            this.logger.warn(`[R3] 意图行 ${intentRowId} stage 行重下 finalize（provider 不重调）——outcome=${out.outcome}`);
+          // 评审 Minor#5：下载/网络瞬态=跨轮有界重试（毒行机制——每轮一次尝试；预算耗尽 ⇒ 本轮返回
+          // false 落 convergeStale charge 分支=退款恰一次〔release/refund CAS〕；禁单次瞬态失败永弃已付费产物）。
+          // 失败计数载体=审计行 action='finalize-from-stage-failed'（每败一行——reconcileDaily 90d 清理）。
+          const fails = await this.prisma.reconcileAction.count({ where: { intentRowId, action: 'finalize-from-stage-failed' } });
+          if (fails >= R3_STAGE_DOWNLOAD_MAX_ATTEMPTS) {
+            this.logger.warn(`[R3] 意图行 ${intentRowId} stage 重下预算耗尽（${R3_STAGE_DOWNLOAD_MAX_ATTEMPTS} 次）——放弃重下走退款（宁退勿吞；行终态后不再进扫描）`);
+            return false;
           }
-          return true;
+          try {
+            const out = await this.artifactCommit.finalizeFromStage(d.stage);
+            if (out.outcome !== 'intent-stale') {
+              await this.auditAfter(intentRowId, 'finalize-from-stage');
+              reconcileAutoConvergedTotal.inc({ action: 'finalize-from-stage' });
+              this.logger.warn(`[R3] 意图行 ${intentRowId} stage 行重下 finalize（provider 不重调）——outcome=${out.outcome}`);
+            }
+            return true;
+          } catch (e) {
+            await this.prisma.reconcileAction.create({
+              data: { intentRowId, action: 'finalize-from-stage-failed', after: { attempt: fails + 1, error: String((e as Error).message).slice(0, 200) } },
+            }).catch(() => undefined);
+            this.logger.warn(`[R3] 意图行 ${intentRowId} stage 重下第 ${fails + 1}/${R3_STAGE_DOWNLOAD_MAX_ATTEMPTS} 次失败（下载/网络瞬态——次轮重试，未耗尽禁退款）: ${(e as Error).message}`);
+            if (fails + 1 >= R3_STAGE_DOWNLOAD_MAX_ATTEMPTS) return false;   // 耗尽——本轮即落退款分支
+            return true;
+          }
         }
         return false;
       } catch (e) {
@@ -428,7 +463,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`[资损前兆] 意图 ${r.intentId} creditsConsumed=${r.creditsConsumed} vs 流水=${charged}`);
       }
     }
-    // ② 保留矩阵清理（T13：7d/90d/锚守护 + projection 30d/outbox 7d/dead-letter 告警）
+    // ② 保留矩阵清理（T13：7d/90d/锚守护 + projection 30d/outbox 7d/dead-letter 告警 + 审计行 90d）
     await this.cleanTerminalIntents();
     await this.cleanProjectionAndOutbox();
     // ③ exec map 孤儿清理（F2 GC——Y0c T11 Z56 有界全量轮转；Z4 守卫已止新孤儿，此项消化存量）
@@ -474,6 +509,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       reconcileManualRequiredTotal.inc({ action: 'outbox-dead-letter' });
       this.logger.warn(`[R3] MediaFactOutbox dead-letter ${dead} 行（投递终态失败——人工处置面，行保留告警不自动删）`);
     }
+    // 评审 Minor#6：ReconcileAction 审计行 90d 清理（与 text 产物保留对齐；Important#2 去重面下增长有界——
+    // 'finalize-from-stage-failed' 失败计数除外〔每败一行〕，90d 滚动清理防预算计数跨窗残留误伤）。
+    await this.prisma.reconcileAction.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - RECONCILE_ACTION_RETENTION_MS) } } });
   }
 
   /** Y0b-1（§1.5/E25①/Z17）第四分支（T13 R3 重写：doc 探测删除——判据全量 PG）：

@@ -101,7 +101,7 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       nodeArtifact: { findUnique: vi.fn().mockResolvedValue(null) },
       artifactProjection: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       mediaFactOutbox: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
-      reconcileAction: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn().mockResolvedValue(null) },
+      reconcileAction: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn().mockResolvedValue(null), count: vi.fn().mockResolvedValue(0), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       $executeRaw: vi.fn().mockResolvedValue(0),
       // Y0b-1 F1/Z6：chargeRows 改 anti-join $queryRaw（未被冲销行）；mock 默认零命中
       $queryRaw: vi.fn().mockResolvedValue([]),
