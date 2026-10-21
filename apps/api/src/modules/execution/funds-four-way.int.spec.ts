@@ -79,6 +79,9 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
   afterAll(async () => {
     // Y0b-2（触发器/Z116）：台账清理带证（ledgerWipe）+team 级联删带证——catch 掩码删（触发器报错被吞=假绿）
     for (const tid of g1.teamIds) await ledgerWipe(ledger, { teamId: tid });
+    // P1（T15 评审顺带）：NodeArtifact/ArtifactProjection 显式清（无 project FK——dangling 锚饿死 R3 sweep）
+    await prisma.artifactProjection.deleteMany({ where: { projectId: { in: g1.projectIds } } }).catch(() => undefined);
+    await prisma.nodeArtifact.deleteMany({ where: { projectId: { in: g1.projectIds } } }).catch(() => undefined);
     await prisma.generationIntent.deleteMany({ where: { projectId: { in: g1.projectIds } } });
     await prisma.canvasProject.deleteMany({ where: { id: { in: g1.projectIds } } });
     await deleteTeamsWithPass(prisma as unknown as PrismaService, g1.teamIds);

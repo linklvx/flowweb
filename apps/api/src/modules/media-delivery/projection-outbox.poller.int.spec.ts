@@ -430,6 +430,25 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await teardownProject(PID);
   }, 60_000);
 
+  it('clear 域（P2-⑥ 钉 null 写语义）：mediaId=null ⇒ data.fileId 落 null（web 消费面 null≡缺失等值——旧链删键退役）→projected；已 null 行复投=fast path（null 等值判据）', async () => {
+    const PID = 't15-proj-clear';
+    await seedProject(PID);
+    await seedNode(PID, 'n-clear1', { fileId: 'm-old', content: 'seed' });   // 清空前形态（fileId 有旧值）
+    await seedNode(PID, 'n-clear2', { fileId: null });                       // 已 null 形态（undo/复投窗）
+    const a = await seedArtifact(PID, 'n-clear1', { mediaId: null });        // clear 命令行的投影形态（state=stored 夹具默认无害——判据=mediaId）
+    await seedArtifact(PID, 'n-clear2', { mediaId: null });
+    const fastBefore = await outcomeOf('fast-path');
+    const summary = await poller.tick();
+    expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
+    expect(summary.outcomes['fast-path'] ?? 0).toBeGreaterThan(0);   // n-clear2：null===null 等值——跳 apply
+    expect((await projectionRow(a.projectionId))?.state).toBe('projected');
+    const revived = await reviveFromPg(PID);
+    expect((revived.getMap('nodes').get('n-clear1') as Y.Map<any>).get('data').toJSON().fileId).toBe(null);   // null 写（非删键）
+    expect((revived.getMap('nodes').get('n-clear2') as Y.Map<any>).get('data').toJSON().fileId).toBe(null);
+    expect(await outcomeOf('fast-path')).toBe(fastBefore + 1);
+    await teardownProject(PID);
+  }, 60_000);
+
   it('text 域（targetField=result）：deliverArtifact 写 data.result+exec done→projected', async () => {
     const PID = 't15-proj-text';
     await seedProject(PID);

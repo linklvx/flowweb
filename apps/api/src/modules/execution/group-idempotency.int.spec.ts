@@ -20,7 +20,6 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 import { requestTraceStorage } from '../../middleware/request-trace.middleware';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip
@@ -101,8 +100,6 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
 const rowsOf = async (nodeId: string) =>
   prisma.generationIntent.findMany({ where: { projectId: PID, nodeId }, orderBy: { createdAt: 'asc' } });
 
-const statusOf = async (nodeId: string) =>
-  prisma.generationIntent.findFirst({ where: { projectId: PID, nodeId }, orderBy: { createdAt: 'desc' } });
 
 (hasDb ? describe : describe.skip)('Y0b-2 T6：regenToken 幂等全协议（十三用例+B-1，真库）', () => {
   beforeAll(async () => {
@@ -126,6 +123,14 @@ const statusOf = async (nodeId: string) =>
   }, 20_000);
 
   afterAll(async () => {
+    // P1（spec 评审）：NodeArtifact/ArtifactProjection 必须显式清（无 project FK 不随 cascade 删）——
+    // 残留 dangling 锚会填满 sweepProjectionBackfill 的 oldest-first LIMIT 50，饿死同批 R3 spec
+    // 的窗③/Important#2 用例（int-r3 两用例同批假红的实证根因；deliver-refund afterAll 同款）。
+    await prisma.artifactProjection.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma.reconcileAction.deleteMany({
+      where: { intentRowId: { in: (await prisma.generationIntent.findMany({ where: { projectId: PID }, select: { id: true } })).map((r: any) => r.id) } },
+    }).catch(() => undefined);
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
     await prisma.canvasProject.deleteMany({ where: { id: PID } });
     await ledgerWipe(ledger, { teamId: TID });

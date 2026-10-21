@@ -1,5 +1,4 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
-import type { DocWriteOp } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { ValidationService } from './validation.service';
@@ -270,13 +269,13 @@ export class ExecutionService {
    *  plan 校验（pre-call miss ⇒ artifactDiscarded{precall-miss}+error 投影）→claim（NodeBusy ⇒ 投影 skipped+reason
    *  〔Z99 禁 error——"别处在飞"非节点失败〕）→loading 投影→reserve（失败 onReserveFail+return；
    *  mayCall:false ⇒ skipped 投影+return〔Z35 静默退出——悬挂收敛归 reconcile〕）→reanchorDeadline
-   *  （count===0=A-2 迟归 job 行已终态——早退不再 submit）→外呼（onTick 双职）→complete CAS（gated≠1 ⇒
-   *  discarded{deadline-voided}+终态 error 投影〔Z95 补〕+return）→settle（失败 settleFailureTotal+照发）→
-   *  writeBatch deliver+done 组批（Y0c T8：data 与 exec 同一 withDoc 事务；deliver written:false ⇒
-   *  discarded{node-deleted}+rollbackDeliveryFailed 批后独立退款+return——Z64/Z92 交付路径唯一退款入口，
-   *  Z75（Y0c T11 偏离 19 演进）done 同批被 Z4 守卫拦不落条目——E22 读侧等价不写 error 投影对撞；
-   *  writeBatch 基础设施抛错走悬留闭环 B-1）→
-   *  results.push+余额推送+下载队列。 */
+   *  （count===0=A-2 迟归 job 行已终态——早退不再 submit）→外呼（onTick 双职）→finalize 单事务
+   *  （T10：NodeArtifact CAS+intent CAS+settle+ArtifactProjection pending+binding 原子；intent-stale ⇒
+   *  discarded{deadline-voided}+终态 error 投影〔Z95 补〕+return；superseded=资金独立判照常 settle——
+   *  doc 不覆盖用户值）→交付=T15 投影 poller（本方法零 data/done doc 写：fileId/result 与 exec done 均
+   *  poller deliverArtifact 复合 op 专写；node 删→orphaned+幂等退款在彼〔apply 存在性守卫=权威观察点〕；
+   *  finalize 后残余段〔emit/余额〕throw 落 B-1=防御观测档零退款零 error 投影——投影行在案=交付有 owner）→
+   *  results.push+余额推送。 */
   private async runNodeLifecycle(ctx: {
     projectId: string; node: any; userId: string; gestureToken?: string; jobId?: string; traceId?: string | null;
     teamId: string; planMap: Map<string, any>; upstreamSource: any[]; allEdges: any[];
@@ -446,7 +445,6 @@ export class ExecutionService {
         const row = await this.prisma.generationIntent.findUnique({
           where: { id: claimed.id }, select: { status: true, execSeq: true },
         }).catch(() => null);
-        const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
         if (row?.status === 'RUNNING' && row.execSeq !== claimed.execSeq) {
           // T9 旧代退役（spec ㉒态②接管后的旧 worker 迟归）：行已换代（takeover/rearm nextval）——
           // 新代 worker 全权。静默退出：零终态（fail/void_ 代际 CAS 亦 0 命中）零投影零 emit

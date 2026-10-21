@@ -185,8 +185,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
     return this.gateway.isDocResident(projectId);
   }
 
-  /** Y0c T9（A1·X9 批面受理门单点根修）：写意图受理门——三写入口（writeNodeData/writeExecStatus/
-   *  writeBatch）共用单点（结构性防漏：第三处复制粘贴门=T8 批面回归的成因，本方法即终结形态）。
+  /** Y0c T9（A1·X9 批面受理门单点根修）：写意图受理门——写入口（writeExecStatus/writeBatch/
+   *  deliverArtifact——T15 删 writeNodeData 单写面：交付归投影 poller）共用单点（结构性防漏：
+   *  第三处复制粘贴门=T8 批面回归的成因，本方法即终结形态）。
    *  判据与 throw 与提取前逐字一致：租约档（Y0a-3 R4——lease 失守/drain 期拒）+spool 熔断/容量
    *  熔断档（Y0a-2 X9）。真空档维持 in withDoc 不并入（与既有单写面语义严格一致）。
    *  Z40 基础设施档：throw ⇒ writeBatch 全批 thrown ⇒ 调用方按零交付退款。
@@ -194,20 +195,6 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  内部强制过门）——本方法一行委托（writer/测试消费面签名不变）。 */
   assertWriteAdmitted(): void {
     this.residency.assertWriteAdmitted();
-  }
-
-  /** 服务端写节点 data 字段（逐键写入，禁止整块替换）。写核心=applyWriteNodeDataToDoc 原语
-   *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移）。
-   *  Y0a-2（X9）：写意图受理门——spool 熔断/容量熔断期拒服务端写（503 瞬态，客户端重试）；
-   *  Y0a-3（R4 裁定：必需项非冗余）：门前加租约档——lease 失守/drain 期同样拒（draining 不在
-   *  isWritableOrDegraded 判据内，缺此档则失守期写会静默落 spool 等回灌）；
-   *  readCanvas/withDoc 本体不 gate（PG 健康+数据在 PG——本地磁盘故障不放大成读不可用）。
-   *  Y0c T9：受理门收编单点 assertWriteAdmitted（判据零变化纯去重）。
-   *  Y0c T15（A2）：改道 withSession(write)——会话 acquire+SERVER_TRANSACT_ORIGIN 最外层事务
-   *  （与 withDoc 同款）；degraded/租约档由 withSession 内部 assertWriteAdmitted 强制（写门单点
-   *  随实现迁 residency——显式前置调用移除=同一门恰好执行一次）。 */
-  async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>): Promise<WriteNodeDataResult> {
-    return this.withSession(projectId, (doc) => applyWriteNodeDataToDoc(doc, nodeId, patch), { mode: 'write' });
   }
 
   /** B2/F2：exec map 服务端唯一写者（客户端零 exec 写——批0.5 起静态断言）。
@@ -256,7 +243,11 @@ export class CollabDocumentService implements OnApplicationShutdown {
   async deliverArtifact(projectId: string, params: {
     nodeId: string;
     targetField: 'fileId' | 'result';
-    value: string;
+    /** 交付值（mediaId/resultText）。**null=clearMedia 语义（P2-⑥ 裁定：钉 null 写而非删键）**
+     *  ——web 消费面 null≡缺失等值实证（useMediaUrl !fileId 短路/ImageGenNode·VideoGenNode
+     *  fileId||reference 回退/零处 null-vs-missing 分辨形态）；旧链 deleteNodeDataKeys 删键 op
+     *  随 T15 直写收口退役（op 本体仍在 writeBatch 词汇表——客户端本地语义对应物）。 */
+    value: string | null;
     exec: ExecStatusPatch;
   }): Promise<{ data: WriteNodeDataResult; execWritten: boolean }> {
     return this.withSession(projectId, (doc) => {

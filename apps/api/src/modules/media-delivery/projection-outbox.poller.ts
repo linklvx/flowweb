@@ -245,7 +245,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     if (survivors.length === 0) return { outcomes, fenced: false };
 
     // ③ 内容等值 fast path 判定（裁决 :53：doc 当前值等值=跳 apply 省写——非权威判据）：
-    //    withSession(read) 单次读全部存活行的 doc 当前值。
+    //    withSession(read) 单次读全部存活行的 doc 当前值。null 等值同判（clear 行复投/已 null
+    //    预置=null 值交付的 fast path——readNodeDataValue 缺键=undefined≠null：缺键仍走 apply 补写）。
     let equalFlags: boolean[];
     try {
       equalFlags = await this.docs.withSession(projectId, (doc) => survivors.map(({ row, artifact }) =>
@@ -272,7 +273,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         const r = await this.docs.deliverArtifact(projectId, {
           nodeId: s.row.nodeId,
           targetField: keyOf(s.row),
-          value: valueOf(s.artifact, s.row) as string,
+          // mediaId=null=clearMedia 语义：钉 null 写（P2-⑥ 裁定——web 消费面 null≡缺失等值；
+          // 旧链 deleteNodeDataKeys 删键随直写收口退役）；null≠undefined 不触发 Z5 fail-fast
+          value: valueOf(s.artifact, s.row),
           exec: await this.execDonePatch(s.artifact),
         });
         if (!r.data.written) {
@@ -403,7 +406,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
 
   /** exec done patch（exec 降 cache——spec Z18''⑤ done=投影 poller 专写）：键集 EXEC_STATUS_KEYS 内
    *  （status/attempts/intentId/execSeq/fileId）；attempts=intent 行现值（Z111 代次守卫所需——
-   *  行灭失（保留矩阵守护下不可达）退 0，守卫按 older-attempts 丢弃=UI cache 面无害）。 */
+   *  行灭失（保留矩阵守护下不可达）退 0，守卫按 older-attempts 丢弃=UI cache 面无害）。
+   *  登记（T15 评审 P2-⑤）：jobId 不随投影 done 写（web 零消费面 grep 实证——jobId 仅 loading 期
+   *  UI 关联用；投影 done 到达时 job 已完成无关联对象）。 */
   private async execDonePatch(artifact: NodeArtifact): Promise<ExecStatusPatch> {
     const intent = artifact.sourceIntentRowId
       ? await this.prisma.generationIntent.findUnique({

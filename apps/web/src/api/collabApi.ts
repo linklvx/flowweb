@@ -118,7 +118,8 @@ export function replaceNodeMedia(projectId: string, nodeId: string, mediaId: str
   return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'replace', mediaId, expectedRev }));
 }
 
-/** 清空路径的权威写（doc 侧=服务端 deleteNodeDataKeys ['fileId']）。 */
+/** 清空路径的权威写（doc 侧=投影 poller 写 data.fileId=null〔T15 钉 null 写语义——web 消费面
+ * null≡缺失等值；旧链 deleteNodeDataKeys 删键随直写收口退役〕）。 */
 export function clearNodeMedia(projectId: string, nodeId: string): Promise<MediaCommandResult> {
   return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'clear', expectedRev }));
 }

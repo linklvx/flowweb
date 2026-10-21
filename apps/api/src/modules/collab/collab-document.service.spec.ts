@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { CollabDocumentService } from './collab-document.service';
+import { CollabDocumentService, applyWriteNodeDataToDoc } from './collab-document.service';
 import type { CollabResidencyService } from './collab-residency.service';
 import { SERVER_TRANSACT_ORIGIN, readRecordsFromMaps, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
 
@@ -166,14 +166,7 @@ describe('Y0a-3 T8（三分法）', () => {
     expect(out.nodes.map((n: any) => n.id).sort()).toEqual(['n1', 'n2']);
   });
 
-  it('writeNodeData 写意图门租约档（R4）：lease 未持∧spool ok → 503（既有门只含 spool 态不含 draining）', async () => {
-    const gateway = { isLeaseServing: vi.fn(() => false), isWritableOrDegraded: vi.fn(() => 'ok') };
-    const service = new CollabDocumentService(gateway as any, repoStub() as any);
-    await expect(service.writeNodeData('p1', 'n1', { k: 'v' })).rejects.toThrow(ServiceUnavailableException);
-    expect((service as any).withDoc).toBeDefined(); // withDoc 未被触（早退在门前）
-  });
-
-  it('writeExecStatus 同款租约档 → 503', async () => {
+  it('写意图门租约档（R4）：lease 未持∧spool ok → 503（既有门只含 spool 态不含 draining——T15 后写面=writeExecStatus/writeBatch/deliverArtifact 同门）', async () => {
     const gateway = { isLeaseServing: vi.fn(() => false), isWritableOrDegraded: vi.fn(() => 'ok') };
     const service = new CollabDocumentService(gateway as any, repoStub() as any);
     // Y0b-2 T5（Z111）：attempts 必填（编译级守卫——patch 类型缺字段即红）
@@ -190,21 +183,13 @@ describe('Y0a-3 T8（三分法）', () => {
 
 // Y0c T9（Z5/A1）：单写面 undefined fail-fast + assertWriteAdmitted 单点（X9 三写入口共用）。
 describe('Y0c T9 undefined fail-fast+assertWriteAdmitted 单点', () => {
-  const admittedGateway = () => ({ isLeaseServing: vi.fn(() => true), isWritableOrDegraded: vi.fn(() => 'ok' as const) });
   const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }) });
 
-  it('红·单写面 writeNodeData patch 含 undefined ⇒ throw /UNDEFINED_PATCH_VALUE/（现状：undefined 被 set 进 doc）', async () => {
-    const doc = new Y.Doc();
-    const n1 = new Y.Map();
-    n1.set('type', 'text');
-    doc.getMap('nodes').set('n1', n1);
-    const service = new CollabDocumentService(admittedGateway() as any, repoStub() as any);
-    // Y0c T15：写路径改道 withSession——seam 同步（stub 直跑 fn(doc)，受理门真判据不受影响）
-    vi.spyOn((service as any).residency as CollabResidencyService, 'withSession')
-      .mockImplementation(async (_pid, fn) => fn(doc) as any);
-    await expect(service.writeNodeData('p1', 'n1', { resultUrl: undefined }))
-      .rejects.toThrow(/UNDEFINED_PATCH_VALUE/);
-    expect(n1.get('data')).toBeUndefined();   // fail-fast 在应用前——零写入
+  it('红·批面 writeNodeData patch 含 undefined ⇒ throw /UNDEFINED_PATCH_VALUE/（T15 删单写面——原语守卫覆盖面=writeBatch 进门扫描，本锚迁 collab-doc-writer.service.spec 同款用例）', () => {
+    // 语义锚迁移说明：applyWriteNodeDataToDoc 原语首段 undefined fail-fast 仍在（deliverArtifact/
+    // writeBatch 共用原语）；单写面入口已删——原语级用例归 writeBatch 批面（collab-doc-writer.service.spec
+    // 「红·undefined fail-fast（Z5·批面）」），此处仅登记迁移面零行为变化。
+    expect(typeof applyWriteNodeDataToDoc).toBe('function');
   });
 
   it('红·assertWriteAdmitted：lease 未持/degraded 两档 throw，ok 放行（writeNodeData/writeExecStatus/writeBatch 三入口共用单点）', () => {

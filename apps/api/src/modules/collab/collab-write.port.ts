@@ -2,19 +2,20 @@
 // Y0c T13b（端口先行——Z100 顺序修正）：collab 写端口面。Z100：端口抽象先于 worker 拆分落地
 // （T24 HttpCollabWritePort 复用本抽象——worker 形态=走内部写端点、结果三分契约 Z99 瞬态 503 显式
 // 传递；Direct 形态=api 进程内直调 CollabDocumentService，本文件即该形态）。
-// 端口面=6 方法（withDoc/readCanvas/isLeaseServing/isDocResident/writeNodeData/writeExecStatus）
+// 端口面=5 方法（withDoc/readCanvas/isLeaseServing/isDocResident/writeExecStatus）
 // ——T13 删 probeArtifacts（「以 doc 探测为退款依据」后门根修：R3 判据全量换 PG
-// NodeArtifact/Media/ArtifactProjection——spec Z18''⑥/裁决 :27④）；扩端口=结构性闸——新增成员
+// NodeArtifact/Media/ArtifactProjection——spec Z18''⑥/裁决 :27④）；T15 删 writeNodeData
+// （交付归投影 poller：生产调用方归零+worker 端点 403——死面根修禁留）；扩端口=结构性闸——新增成员
 // 必须先证明属写端口语义，防读/快照域面混入污染写端口抽象。
 // 超面 3 成员域归属（spec §0.6 偏离 21）：readServerSV=读域（sync-admission.ts 受理端点 SV 支配门
 // 参数类型不动）；readCanvasSnapshotCached/invalidateSnapshotCache=快照域（video-work 分享/渲染面）。
 // 三者留在 CollabDocumentService，不经本端口。
 //
-// T13 typed outcome（资金路径禁伪造 written:true）：writeNodeData/writeOpsBatch 返回判别式三分——
-//  business（端点/进程内业务结果——written:false=节点删/结构缺，退款终态链唯一凭据）/transient
+// T13 typed outcome（资金路径禁伪造 written:true）：writeOpsBatch 返回判别式三分——
+//  business（端点 200 业务结果——written:false=节点删/结构缺，Z4/Z44 守卫结果透传）/transient
 // （瞬态耗尽——不判退款，交付收敛归 R3/T15 投影链）/permanent（通道级永久——同不判退款，计数告警）。
 // 旧「瞬态/永久耗尽合成 written:true」两路径（防误退款的伪造面）删除——合成 true 会掩盖「节点已删
-// 应退款」与「交付未知」两态的区分；资金调用面（execution.service deliver 判定）只认 business-false。
+// 与「交付未知」两态的区分。
 //
 // T13（plan v11.2 ①）token 作用域化：Http 形态写方法携带可选 scope（intentRowId+execSeq——claim
 // 返回面在手的上下文）→ 逐请求铸造 x-worker-scope HMAC 头（worker-scope-token.ts 单源）；静态
@@ -22,7 +23,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { Counter, register } from 'prom-client';
 import * as Y from 'yjs';
-import { CollabDocumentService, type ExecStatusPatch, type WriteNodeDataResult } from './collab-document.service';
+import { CollabDocumentService, type ExecStatusPatch } from './collab-document.service';
 import { CollabDocWriterService, type WriteOpResult } from './collab-doc-writer.service';
 import { mintWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerWriteScope } from './worker-scope-token';
 import type { DocWriteOp } from '@flowweb/shared';
@@ -30,16 +31,9 @@ import type { DocWriteOp } from '@flowweb/shared';
 /** worker 作用域上下文（铸造侧形态——intentRowId/execSeq 缺省=裸项目档：见 worker-scope-token.ts 头注）。 */
 export type { WorkerWriteScope } from './worker-scope-token';
 
-/** T13 typed outcome：单写（writeNodeData）三分判别式。business 携带端点/进程内业务结果
- *  （written:false=退款终态链唯一凭据）；transient/permanent 不携 written——禁合成（资金判据只认
- *  business-false；瞬态/永久=交付未知档，收敛归 R3/T15 投影链非即时退款）。 */
-export type NodeDataWriteOutcome =
-  | ({ kind: 'business' } & WriteNodeDataResult)
-  | { kind: 'transient' }
-  | { kind: 'permanent' };
-
 /** T13 typed outcome：批写（writeOpsBatch）三分判别式。business 携带 WriteOpResult[]（与入批
- *  一一对应——A1 冻结契约在 business 档内保持）。 */
+ *  一一对应——A1 冻结契约在 business 档内保持）；transient/permanent 不携结果——禁合成
+ *  （瞬态/永久=交付未知档，收敛归 R3/T15 投影链非即时退款）。 */
 export type OpsBatchOutcome =
   | { kind: 'business'; results: WriteOpResult[] }
   | { kind: 'transient' }
@@ -64,7 +58,7 @@ export class CollabWriteChannelPermanentError extends Error {
   }
 }
 
-/** collab 写端口（6 方法抽象面——签名逐字对齐 CollabDocumentService 公开签名，withDoc 含泛型）。 */
+/** collab 写端口（5 方法抽象面——签名逐字对齐 CollabDocumentService 公开签名，withDoc 含泛型）。 */
 export abstract class CollabWritePort {
   /** Q1 单实例铁律：业务服务端写 doc 一律走 Hocuspocus 直连（try/finally disconnect 保证 unload flush）；
    *  首行租约门+真空档 503 语义随实现继承（契约见 CollabDocumentService.withDoc 头注）。 */
@@ -75,17 +69,14 @@ export abstract class CollabWritePort {
   abstract isLeaseServing(): boolean;
   /** Y0b-2 T5（Z106/Z112）：doc 常驻透传——reaper 投影分治判据。 */
   abstract isDocResident(projectId: string): boolean;
-  /** 服务端写节点 data 字段（逐键写入禁整块替换；business 档 written:false=节点已删/结构缺失——交付
-   *  路径唯一退款凭据；T13 起三分 typed outcome——见 NodeDataWriteOutcome）。scope=Http 形态铸造
-   *  作用域令牌的上下文（Direct 忽略）。 */
-  abstract writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>, scope?: WorkerWriteScope): Promise<NodeDataWriteOutcome>;
   /** B2/F2：exec map 服务端唯一写者（Z99/Z111 代次守卫 fail-closed——语义见 CollabDocumentService.writeExecStatus 头注）。
-   *  投影写非资金面：Http 形态维持 resolve 不上抛（瞬态/永久档计数），无 typed 悬留腿。 */
+   *  投影写非资金面：Http 形态维持 resolve 不上抛（瞬态/永久档计数），无 typed 悬留腿。
+   *  T15：data 域写（writeNodeData）随交付归投影 poller 从端口删除——worker 通道 exec-only。 */
   abstract writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch, scope?: WorkerWriteScope): Promise<void>;
 }
 
-/** Direct 形态（api 进程内直调）：构造注入 CollabDocumentService，6 方法一行委托——行为零变化
- *  （infra 失败仍抛 503 族——调用面既有 .catch 语义保持；business 档包装 {kind:'business'}）。 */
+/** Direct 形态（api 进程内直调）：构造注入 CollabDocumentService，5 方法一行委托——行为零变化
+ *  （infra 失败仍抛 503 族——调用面既有 .catch 语义保持）。 */
 @Injectable()
 export class DirectCollabWritePort extends CollabWritePort {
   constructor(private readonly svc: CollabDocumentService) {
@@ -108,11 +99,6 @@ export class DirectCollabWritePort extends CollabWritePort {
     return this.svc.isDocResident(projectId);
   }
 
-  override async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>, _scope?: WorkerWriteScope): Promise<NodeDataWriteOutcome> {
-    const r = await this.svc.writeNodeData(projectId, nodeId, patch);
-    return { kind: 'business', ...r };
-  }
-
   override writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
     return this.svc.writeExecStatus(projectId, nodeId, patch);
   }
@@ -126,9 +112,10 @@ export class DirectCollabWritePort extends CollabWritePort {
 //  ②业务合法失败（端点 200 业务响应 written:false）⇒business 档原样传递不重试——退款终态链唯一凭据
 //    （HTTP 侧 written:false 唯一生产者=端点业务响应——瞬态/永久一律不产 written:false）；
 //  ③永久（token 失配/404/schema 拒=4xx 族）⇒typed {kind:'permanent'}+计数告警不上抛。
-// 方法面落法（spec :538「worker 侧消费面实测」裁定）：真走 HTTP=writeNodeData/writeExecStatus（Z99 主对象）
-// +readCanvas（spec :540「readCanvas 经 Http 端口读」——计费读 fail-closed E49：503 耗尽**显式传递** throw SUE，
-// 区别于投影写的绝不上抛）；其余 3 方法=NotImplemented 显式面（worker 零消费，逐方法注释）。
+// 方法面落法（spec :538「worker 侧消费面实测」裁定）：真走 HTTP=writeExecStatus（T15 后唯一写面
+// ——writeNodeData 已删）+readCanvas（spec :540「readCanvas 经 Http 端口读」——计费读 fail-closed
+// E49：503 耗尽**显式传递** throw SUE，区别于投影写的绝不上抛）；其余 3 方法=NotImplemented 显式面
+// （worker 零消费，逐方法注释）。
 // WORKER_WRITE_TOKEN=传输层 bearer（worker-write-auth.guard）；T13 起另派生 x-worker-scope 作用域头
 // （端点收窄面——collab-write.controller）。
 
@@ -136,7 +123,7 @@ export class DirectCollabWritePort extends CollabWritePort {
  *  *.metrics.ts 域归 y0b spec §10 围栏块（check-spec-consistency 提取面），Y0c 端口面计数不进该块。 */
 export const collabWriteHttpOutcomeTotal = new Counter({
   name: 'collab_write_http_outcome_total',
-  help: 'Y0c T24（Z99）：Http 写端口结果三分计数（method=writeNodeData/writeExecStatus/readCanvas/writeBatch〔T26 批形态〕；outcome=transient-retry/transient-exhausted/permanent:<status>——T13 起瞬态耗尽与永久均返回 typed outcome 不再合成 written:true，此计数为唯一告警面）',
+  help: 'Y0c T24（Z99）：Http 写端口结果三分计数（method=writeExecStatus/readCanvas/writeBatch〔T26 批形态〕——T15 删 writeNodeData 单写面；outcome=transient-retry/transient-exhausted/permanent:<status>——T13 起瞬态耗尽与永久均返回 typed outcome 不再合成 written:true，此计数为唯一告警面）',
   labelNames: ['method', 'outcome'],
   registers: [register],
 });
@@ -145,8 +132,8 @@ export const collabWriteHttpOutcomeTotal = new Counter({
 type HttpFetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json: () => Promise<unknown> }>;
 
 // ── Y0c T26（偏离 31）：CollabDocWriterService 令牌 worker 形态 ────────────────────────────────────
-// ExecutionService 直注 docWriter 令牌（deliver+done 组批写）——worker 侧无 Http 形态则 DI 图
-// 不可解析。形态=writeOpsBatch 整批单 POST（write-batch 端点契约 {projectId,ops}→WriteOpResult[]）。
+// 形态=writeOpsBatch 整批单 POST（write-batch 端点契约 {projectId,ops}→WriteOpResult[]）——T15 前
+// ExecutionService deliver+done 组批消费；T15 后消费面=writeBatch 词汇表其余 op（如 deleteExecOrphans）。
 // T13：writeOpsBatch 返回 OpsBatchOutcome 三分（business=端点 200 业务响应透传；transient/permanent
 // =typed 不合成）；HttpCollabDocWriter 令牌壳保持父类 writeBatch 签名（WriteOpResult[]）——typed
 // 非 business 档翻译为 CollabWriteTransientExhaustedError/CollabWriteChannelPermanentError throw
@@ -195,14 +182,14 @@ export class HttpCollabWritePort extends CollabWritePort {
     if (this.token) {
       h.authorization = `Bearer ${this.token}`;
       // T13 作用域铸造：逐请求现铸（exp=120s 短命——mint 时点即写时点，非 claim 时点）；scope 缺省
-      // （pre-claim 断言路径）=裸项目档（仅 projectId 绑定——writeNodeData 端点侧拒裸档）。
+      // （pre-claim 断言路径）=裸项目档（仅 projectId 绑定——T15 后通道 exec-only：裸档=writeExecStatus 唯一合法面）。
       h[WORKER_SCOPE_HEADER] = mintWorkerScopeToken(this.token, projectId ?? '', scope);
     }
     return h;
   }
 
   /** 三分单点：网络错误/5xx=瞬态族（预算内退避重试）；2xx=ok；其余=永久。计数全档落本方法。 */
-  private async request(method: 'writeNodeData' | 'writeExecStatus' | 'readCanvas' | 'writeBatch', url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpTriOutcome> {
+  private async request(method: 'writeExecStatus' | 'readCanvas' | 'writeBatch', url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpTriOutcome> {
     for (let attempt = 1; ; attempt += 1) {
       let status: number;
       let json: () => Promise<unknown> = async () => undefined;   // 网络错误档（status=-1）不读 body——占位初始化
@@ -234,25 +221,6 @@ export class HttpCollabWritePort extends CollabWritePort {
       collabWriteHttpOutcomeTotal.inc({ method, outcome: `permanent:${status}` });
       return { kind: 'permanent', status };
     }
-  }
-
-  override async writeNodeData(projectId: string, nodeId: string, patch: Record<string, unknown>, scope?: WorkerWriteScope): Promise<NodeDataWriteOutcome> {
-    const out = await this.request('writeNodeData', `${this.baseUrl}/api/collab/doc/write-batch`, {
-      method: 'POST', headers: this.headers(scope, projectId),
-      body: JSON.stringify({ projectId, ops: [{ op: 'writeNodeData', nodeId, patch }] }),
-    });
-    if (out.kind === 'ok') {
-      const first = Array.isArray(out.body) ? out.body[0] : undefined;
-      if (first && typeof first === 'object' && typeof (first as { written?: unknown }).written === 'boolean') {
-        const r = first as { written: boolean; reason?: string };
-        return { kind: 'business', written: r.written, ...(r.reason ? { reason: r.reason as WriteNodeDataResult['reason'] } : {}) };   // ②业务：原样传递（退款终态链凭据）
-      }
-      collabWriteHttpOutcomeTotal.inc({ method: 'writeNodeData', outcome: 'permanent:bad-body' });
-      return { kind: 'permanent' };
-    }
-    // ①瞬态耗尽/③永久（含 bad-body）：typed outcome（T13——禁合成 written:true：合成会掩盖「节点已删
-    // 应退款」与「交付未知」的区分）。调用面（资金判定）只认 business-false；投影收敛归 R3/T15 链。
-    return out.kind === 'transient-exhausted' ? { kind: 'transient' } : { kind: 'permanent' };
   }
 
   override async writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch, scope?: WorkerWriteScope): Promise<void> {

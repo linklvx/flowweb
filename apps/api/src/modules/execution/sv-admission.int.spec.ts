@@ -118,6 +118,10 @@ const reserveCount = () => prisma.teamCreditTransaction.count({ where: { teamId:
   }, 20_000);
 
   afterAll(async () => {
+    // P1（T15 评审顺带）：NodeArtifact/ArtifactProjection 必须显式清（无 project FK 不随 cascade 删）——
+    // 残留 dangling 锚会填满 sweepProjectionBackfill 的 oldest-first LIMIT 50 饿死 R3 同批用例。
+    await prisma.artifactProjection.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
     await prisma.canvasProject.deleteMany({ where: { id: PID } });
     await ledgerWipe(ledger, { teamId: TID });

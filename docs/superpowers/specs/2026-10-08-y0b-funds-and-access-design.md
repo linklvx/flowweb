@@ -1045,7 +1045,6 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_write_rejected_total
 - collab_write_session_release_timeout_total
 - collab_ws_close_total
-- deliver_stranded_total
 - event_loop_lag_seconds
 - exec_orphan_blocked_total
 - exec_outbound_duration_seconds

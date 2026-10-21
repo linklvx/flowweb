@@ -142,13 +142,3 @@ export function countExecProjectionFailure(err: unknown): void {
   collabExecProjectionFailedTotal.inc({ cause: classifyExecProjectionFailure(err) });
 }
 
-/** T13（typed outcome）：worker 交付写悬留计数——Http 形态瞬态耗尽（transient）/通道永久失败
- *  （permanent）不判退款（business-false 才是唯一退款凭据——合成 written:true 的伪造面已删）；
- *  产物在 PG+投影 pending——交付收敛归 R3/T15 投影链，此计数=悬留面唯一可观测锚。
- *  消费点：execution.service deliver 批+ai-image-edit processor+lighting consumer 三写点。 */
-export const deliverStrandedTotal = new Counter({
-  name: 'deliver_stranded_total',
-  help: 'T13：worker 交付写瞬态耗尽/通道永久失败→悬留计数（不判退款——written:false 才是唯一退款凭据；收敛归 R3/T15 投影链）',
-  labelNames: ['cause'],
-  registers: [register],
-});

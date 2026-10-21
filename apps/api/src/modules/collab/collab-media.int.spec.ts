@@ -3,9 +3,10 @@
 //   ①replace：PG NodeArtifact CAS（rev+1+source='replace'+state='stored'）+新 ArtifactProjection
 //     pending（[artifactId,artifactRev]）+旧 pending 投影 superseded+MediaBinding current-state upsert
 //     ——doc 交付归投影 poller（T15 收口：本命令零 doc 直写，pending 行驱动异步收敛）；
-//   ②clear：CAS（mediaId 清空+state='none'）+新 pending 投影（mediaId=null）——doc 键删同归 poller
-//     （deliverArtifact targetField 等值面：clear 行 mediaId=null=skip 写、recheck 判 superseded 归
-//     fast path 判定——见 projection-outbox.poller.int.spec）；
+//   ②clear：CAS（mediaId 清空+state='none'）+新 pending 投影（mediaId=null）——doc 落值同归
+//     poller（P2-⑥ 裁定：deliverArtifact 写 data.fileId=null〔钉 null 写语义——web 消费面
+//     null≡缺失等值实证；旧链 deleteNodeDataKeys 删键随直写收口退役〕——用例=projection-outbox.
+//     poller.int.spec「clear 域」）；
 //   ③409 ARTIFACT_REV_CONFLICT：expectedRev 过期（0 行=superseded）→槽位不被覆盖；
 //   ④GET 槽位状态：{targetField,rev,mediaId}——客户端初始 expectedRev 来源；
 //   ⑤权限：VIEWER→403；跨团队 mediaId→403（读侧 ACL 团队级 Z7''-v14 的写面同构）。

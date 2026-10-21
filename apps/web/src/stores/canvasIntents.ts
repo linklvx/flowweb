@@ -151,7 +151,7 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
       for (const [k, v] of Object.entries(intent.patch)) {
         if (EPHEMERAL_DATA_KEYS.has(k)) continue; // ephemeral 禁入 doc（Spec B editMode 口径 13）
         // T11（spec Z11''①）：服务端权威域禁写键 strip——doc 零写（删键语义同拦：fileId 清空走
-        // clearMedia 命令，服务端 deleteNodeDataKeys）；ns 本地面不在此层（projectIntentToStore 照写）
+        // clearMedia 命令，投影 poller 写 data.fileId=null〔T15 钉 null 写语义〕）；ns 本地面不在此层（projectIntentToStore 照写）
         if (CLIENT_FORBIDDEN_ON_UPDATE_SET.has(k)) continue;
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }
         if (!isEqual(data.get(k), v)) data.set(k, v);
