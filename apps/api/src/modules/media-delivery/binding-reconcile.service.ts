@@ -3,8 +3,8 @@
 // 废止」/:91 Z18''「MediaBinding current-state upsert+finalize 同步 upsert」）：
 // MediaBinding=doc 引用纯索引（降级纯索引——T2 已无状态机列），本服务=该索引的唯一惰性维护者：
 //
-//   mediaRefsOf(doc) 七键扫描（shared collectMediaRefs 单源——fileId/referenceImage/images[].id/
-//   allImages/trimmedFileId/videoFileId/audioFileId）
+//   mediaRefsOf(doc) 九键扫描（shared collectMediaRefs 单源——fileId/referenceImage/
+//   referenceVideo/referenceAudio/images[].id/allImages/trimmedFileId/videoFileId/audioFileId）
 //   →逐引用：Media 行存在性+Media.teamId===project.teamId 校验（跨 team 拒+计数+不建行——读侧
 //   ACL 403 兜底已由 content 单门承载，binding 只管索引不执法）
 //   →current-state upsert（ON CONFLICT 槽位键 DO UPDATE mediaId——同槽位换 media 即改行；
@@ -21,6 +21,13 @@
 // 503 ⇒ scan-failed 计数本轮跳过，幂等重入下轮收敛——惰性语义不承诺即时）。
 // finalize 同步 upsert（source=generated 主槽位）已由 T10 bindInTx 承载（artifact-commit
 // finalizeInTx cas.won 分支+T11 collab-media replace 命令——本服务不再重复写，只负责兜底收敛）。
+//
+// 【并发语义钉明（T16 质评#2）】本服务事务（ReadCommitted 无锁读）与 finalize bindInTx 并发时
+// last-writer-wins：①doc 快照旧于 finalize ⇒ upsert 可能回写旧 mediaId；②finalize 新建行可能被
+// 误判 stale 删——两形态均由惰性语义自愈（post-apply 触发 ≤drain 周期重建+GC 以 doc 扫描为终裁
+// 不依赖 binding 完整性+facts 按 mediaId 查询不按 project fan-out）。slotKeyOf 省略 role 的前提=
+// 现网全部槽位 role='primary'（schema 默认值+全仓唯一写点 bindInTx 同款）——非 primary role 落地
+// 时须先扩 slotKeyOf 否则会被误判 stale 删。
 import { Inject, Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { collectMediaRefs, type MediaRef } from '@flowweb/shared';
@@ -59,7 +66,7 @@ function inc(outcome: ReconcileOutcome, n = 1): void {
 }
 
 /** 槽位键（MediaBinding @@unique([projectId,nodeId,role,targetField,targetItemId]) 的应用层形态）。
- *  七键引用 role 恒 primary——MediaRef 无 role 字段即此义。 */
+ *  九键引用 role 恒 primary——MediaRef 无 role 字段即此义。 */
 function slotKeyOf(r: { nodeId: string; targetField: string; targetItemId: string }): string {
   return `${r.nodeId}\u0000${r.targetField}\u0000${r.targetItemId}`;
 }

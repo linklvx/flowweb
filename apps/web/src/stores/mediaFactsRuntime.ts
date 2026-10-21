@@ -125,15 +125,12 @@ export function onDocRefsChanged(doc: Y.Doc): void {
     if (!knownMediaIds.has(id)) fresh.push(id);
   }
   knownMediaIds = new Set(docIds);
-  if (fresh.length === 0) {
-    // 无新引用仍跑 pending TTL 清扫（过期丢弃——零成本对账）
-    const { pending } = consumePendingFacts(pendingFacts, docIds, useNodeStore.getState().mediaFacts, Date.now());
-    pendingFacts = pending;
-    return;
-  }
+  // 两分支统一应用 consumed（T16 质评#3：无新引用时 pending 内可消费条目不得丢弃——
+  // fact 晚于 fileId 到达的既有引用同样要在本投影批次入 store，而非等下次重连自愈）
   const { pending, consumed } = consumePendingFacts(pendingFacts, docIds, useNodeStore.getState().mediaFacts, Date.now());
   pendingFacts = pending;
   if (consumed) useNodeStore.setState({ mediaFacts: consumed });
+  if (fresh.length === 0) return;
   for (const id of fresh) lazyQueue.add(id);
   if (lazyTimer) clearTimeout(lazyTimer);
   lazyTimer = setTimeout(() => {

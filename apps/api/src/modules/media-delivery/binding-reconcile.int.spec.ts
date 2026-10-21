@@ -4,8 +4,8 @@
 //     UPDATE mediaId 恰一行非两行）；
 //   ②删除节点→binding 行删除（stale 清扫：doc 无引用但 binding 行在→删）；
 //   ③跨 team 拒+计数不建行（Media.teamId≠project.teamId——读 ACL 403 兜底在 content 单门）；
-//   ④七键全键形（fileId/referenceImage/images[].id/allImages/trimmedFileId/videoFileId/audioFileId
-//     ——collectMediaRefs 单源；images 列表槽 targetItemId=item.id）；
+//   ④九键全键形（fileId/referenceImage/referenceVideo/referenceAudio/images[].id/allImages/
+//     trimmedFileId/videoFileId/audioFileId——collectMediaRefs 单源；images 列表槽 targetItemId=item.id）；
 //   ⑤media 行灭失引用拒建（FK 防线——missing-media 计数）；
 //   ⑥项目灭失→全行清（stale 兜底）；
 //   ⑦post-apply 触发链（requestReconcile 入队→drain 排水恰一轮）。
