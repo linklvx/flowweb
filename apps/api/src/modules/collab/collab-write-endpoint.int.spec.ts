@@ -224,6 +224,25 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     expect(body.violations?.some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
   }, 30_000);
 
+  it('T15 收口（红：现行为 200/201）：writeNodeData 全档 scope 亦 403（交付归投影 poller——worker 零 data 域写）；writeExecStatus done 403（done=投影 poller 专写）', async () => {
+    const post = (ops: unknown[]) => fetch(`${baseUrl}/api/collab/doc/write-batch`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json', authorization: `Bearer ${TOKEN}`,
+        'x-worker-scope': mintWorkerScopeToken(TOKEN, PID, { intentRowId: INTENT_N1.id, execSeq: INTENT_N1.execSeq.toString() }),
+      },
+      body: JSON.stringify({ projectId: PID, ops }),
+    });
+    const r1 = await post([{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 't15-must-not-land' } }]);
+    expect(r1.status, 'T13 登记的「T15 收口：writeNodeData 移除」——worker token 面只余 writeExecStatus').toBe(403);
+    const r2 = await post([{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, fileId: 't15-must-not-land' } }]);
+    expect(r2.status, 'done 不再由 worker 写（exec done=投影 poller deliverArtifact 复合 op 专写）').toBe(403);
+    // 零物化判别：n1 data 不得出现 t15 哨兵
+    await flush(PID);
+    const revived = await reviveFromPg(PID);
+    expect(JSON.stringify((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON())).not.toContain('t15-must-not-land');
+  }, 30_000);
+
   // Y0c T33 D 出口（Z125-4，spec :390）：drain×write-batch 相遇——drain（owner→NULL）窗内 worker
   // 投递 ⇒ (a) 端点瞬态 503 非 200 (b) 预算内重试 (c) 租约恢复后同 op 只落 doc 一次。
   // drain 窗构造=真实 drain 入口 beginDraining（POST /api/drain 的 gateway 调用面——collabState
