@@ -19,7 +19,7 @@ export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/collab.gateway.ts': 934,   // T42 B3 实测终标（偏离 65 兑现：plan ≤600 字面=防倒退锚非可达值——1031→934，手段①②④；手段③委托位零退役）
   'apps/api/src/modules/collab/collab-session-guard.service.ts': 1238,   // T41 W3b B2 实测（偏离 65/74）
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1082,   // T41 W3a B2 实测（偏离 65/74）
-  'apps/api/src/modules/collab/collab-persistence.service.ts': 950,   // T40 B1 实测（偏离 65；B3 承接账②删参后 949≤950——锚不回写=上界语义）
+  'apps/api/src/modules/collab/collab-persistence.service.ts': 1037,   // T40 B1 实测 950→T14 flushDocument 窄接口（交付判定载体——v10.1 T6c 维持）叠加实测重标（锚值=绿相终值，红绿同批）
   'apps/api/src/modules/collab/collab-limits.ts': 55,   // CI 修复批 R4b' 新文件入锚（T10 实测 42+1.3 余量——spec 预登记 2 兑现）
   'apps/api/src/modules/collab/collab-outbound-budget.ts': 155,   // CI 修复批 R4b' 新文件入锚（T10 实测 119+1.3 余量——四档帧型+记账台账）
   'apps/api/src/modules/collab/collab-heartbeat.ts': 40,   // CI 修复批 R6' 新文件入锚（T10 实测 31+1.3 余量——v3 补：三新文件统一入锚）

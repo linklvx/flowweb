@@ -77,6 +77,14 @@ export class CollabLeaseService {
   isServing(): boolean { return this.state === 'held'; }
   getState(): CollabLeaseState { return this.state; }
 
+  /** T14（plan v11.1①——v11.2 片 S4 兑现）：当前持有代 epoch 同步读——flushDocument 提交前校验的
+   *  捕获/比对单源（捕获点=调用方在 claim/会话开始时取值，提交前 flushDocument 比对：捕获≠当前→
+   *  拒绝提交——长会话在租约易主后不得继续落库；复用 epoch 列零新机制）。
+   *  非 held（lost/revoked/not-acquired）一律 null=无「当前代」，任何捕获值比对必不等⇒fenced；
+   *  返回值=onHeld 写入的本代缓存 epoch（每次 acquire epoch=epoch+1——同进程失守后 rejoin 复得
+   *  也换代，旧捕获值必被拒）。语句级 owner 断言（契约 15）仍是飞行中夺锁的兜底围栏——两道既有机制。 */
+  currentEpoch(): bigint | null { return this.state === 'held' ? this.epoch : null; }
+
   /** P9 快路径：一次有界 CAS——健康态一轮往返即获取；成功即由本方法 await 启动回调（W5 单点）。 */
   async tryAcquireFast(): Promise<boolean> {
     if (this.state === 'held') return true;

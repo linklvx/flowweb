@@ -8,7 +8,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { PrismaClient } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import * as Y from 'yjs';
-import { rm } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
 import { CollabSpoolService } from './collab-spool.service';
@@ -85,6 +86,7 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
     lease = new CollabLeaseService(prisma as any, repo, spool);   // 真实例逐用例新建（换代/失守终态不互染）
     expect(await lease.tryAcquireFast()).toBe(true);               // 真 CAS（onHeld 接线 repo/spool owner）
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [P1, P2] } } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [P1, P2] } } });   // 快照表同清——compact 并入的内容不跨用例残留（pgHasNode 内容判据前提）
   });
   afterEach(async () => {
     lease.halt();
@@ -102,31 +104,41 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(w));
   }
 
-  it('persisted 真链：真 lease 捕获 epoch→flush→{persisted}+真 CanvasDocUpdate 行落库；复调 noop→{persisted} 行数不变', async () => {
+  /** PG canonical 内容断言（store 成功即 maybeCompact——CanvasDocUpdate 增量行会被并入 CanvasDoc
+   *  快照后删除；行数计数断言对 compact 不稳定，内容重建才是持久化真值）。 */
+  async function pgHasNode(pid: string, key: string): Promise<boolean> {
+    const snap = await repo.readSnapshotOnly(pid);
+    const rebuilt = new Y.Doc();
+    if (snap.state) Y.applyUpdate(rebuilt, new Uint8Array(snap.state));
+    for (const u of snap.updates) Y.applyUpdate(rebuilt, new Uint8Array(u));
+    return rebuilt.getMap('nodes').has(key);
+  }
+
+  it('persisted 真链：真 lease 捕获 epoch→flush→{persisted}+PG canonical 内容在；复调 noop→{persisted} 内容不变', async () => {
     const epoch = lease.currentEpoch();
     expect(typeof epoch).toBe('bigint');
     enqueue(P1, NAME1, 'k1');
     const r1 = await svc.flushDocument(P1, epoch);
     expect(r1).toEqual({ kind: 'persisted' });
-    const rows1 = await prisma.canvasDocUpdate.count({ where: { projectId: P1 } });
-    expect(rows1).toBeGreaterThan(0);
+    expect(await pgHasNode(P1, 'k1')).toBe(true);     // 真库内容（快照或增量——compact 无关形态）
     const r2 = await svc.flushDocument(P1, epoch);   // noop∧isPersistedComplete=persisted 等价
     expect(r2).toEqual({ kind: 'persisted' });
-    expect(await prisma.canvasDocUpdate.count({ where: { projectId: P1 } })).toBe(rows1);
+    expect(await pgHasNode(P1, 'k1')).toBe(true);     // noop 不改内容
   });
 
-  it('retry/spooled 真链：PG 故障注入→批落真 spool（fsync）→{retry,spooled}；恢复复调→帧回灌真 PG→{persisted}+段回收', async () => {
+  it('retry/spooled 真链：PG 故障注入→批落真 spool（fsync）→{retry,spooled}；恢复复调→帧回灌真 PG→{persisted}+段回收+内容在', async () => {
     const epoch = lease.currentEpoch();
     const spy = vi.spyOn(repo, 'append').mockRejectedValueOnce(new Error('injected pg down'));
     enqueue(P1, NAME1, 'k1');
     const r1 = await svc.flushDocument(P1, epoch);
     expect(r1).toEqual({ kind: 'retry', reason: 'spooled' });
     expect(spool.hasFrames(P1)).toBe(true);          // 真磁盘台账
+    expect(await pgHasNode(P1, 'k1')).toBe(false);    // spooled≠delivered（PG 尚无此内容）
     const r2 = await svc.flushDocument(P1, epoch);   // append 已复原（Once 队列耗尽）——帧三段式回灌
     expect(r2).toEqual({ kind: 'persisted' });
     expect(spy).toHaveBeenCalledTimes(2);            // 故障 1+回灌 1
     expect(spool.hasFrames(P1)).toBe(false);         // confirm→段回收
-    expect(await prisma.canvasDocUpdate.count({ where: { projectId: P1 } })).toBeGreaterThan(0);
+    expect(await pgHasNode(P1, 'k1')).toBe(true);     // 回灌后 PG canonical 在
   });
 
   it('epoch 易主两态（v11.1① red：租约易主后旧会话 flush 被拒）：释放=失守（currentEpoch null）→fenced；复得=换代（epoch+1）→旧捕获值 fenced+新捕获值可提交', async () => {
@@ -136,12 +148,13 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
     expect(lease.currentEpoch()).toBe(null);
     expect(await svc.flushDocument(P1, e1)).toEqual({ kind: 'terminal', reason: 'fenced' });
     expect(svc.hasPendingWrites(P1)).toBe(true);      // 未提交（拒绝落库）
+    expect(await pgHasNode(P1, 'k1')).toBe(false);    // PG 未触达
     expect(await lease.tryAcquireFast()).toBe(true);  // 复得=换代
     const e2 = lease.currentEpoch();
-    expect(e2).toBeGreaterThan(e1!);                  // epoch=epoch+1（每次 acquire 自增）
+    expect(e2!).toBeGreaterThan(e1!);                 // epoch=epoch+1（每次 acquire 自增）
     expect(await svc.flushDocument(P1, e1)).toEqual({ kind: 'terminal', reason: 'fenced' });   // 旧捕获值（长会话）必被拒
     expect(await svc.flushDocument(P1, e2)).toEqual({ kind: 'persisted' });                    // 新捕获值正常提交
-    expect(await prisma.canvasDocUpdate.count({ where: { projectId: P1 } })).toBeGreaterThan(0);
+    expect(await pgHasNode(P1, 'k1')).toBe(true);
   });
 
   it('terminal/fenced 语句级（epoch 缓存未变窗——SQL 夺锁）：append={ok:false,fenced}（写语句 owner 断言）→隔离链→{terminal,fenced}', async () => {
@@ -167,11 +180,13 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('retry/failed 真链（最后执行——毁 spool 目录）：PG 故障∧spool 不可写→批滞留内存队列→{retry,failed}', async () => {
+  it('retry/failed 真链（最后执行——spool 结构性不可写）：PG 故障∧spool 写必败→批滞留内存队列→{retry,failed}', async () => {
     const epoch = lease.currentEpoch();
     enqueue(P1, NAME1, 'k1');
     vi.spyOn(repo, 'append').mockRejectedValueOnce(new Error('injected pg down'));
-    await rm(dir, { recursive: true, force: true });  // 真 fs 失败注入（spool 不可写）
+    // 真 fs 失败注入：owner 子目录路径放普通文件——appendRaw mkdir(recursive) 必抛（rm 目录会被
+    // recursive 自愈重建，占位文件才是结构性不可写形态）。
+    await writeFile(join(dir, lease.owner), 'not-a-dir');
     const r = await svc.flushDocument(P1, epoch);
     expect(r).toEqual({ kind: 'retry', reason: 'failed' });
     expect(svc.hasPendingWrites(P1)).toBe(true);      // 批保留队列（BOI 归属地不变）

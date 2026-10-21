@@ -64,11 +64,11 @@ test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏
   assert.ok(keys.some((k) => k.endsWith('collab-heartbeat.ts')));
 });
 
-test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082/persistence 950=任务卡钉死值）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
+test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 934);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1238);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1082);
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 950);
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1037);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 40);

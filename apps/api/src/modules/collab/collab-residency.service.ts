@@ -44,6 +44,7 @@ import { Injectable, Inject, Logger, OnModuleInit, OnApplicationShutdown, Servic
 import type * as Y from 'yjs';
 import { CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
+import type { FlushOutcome } from './collab-persistence.service';
 import {
   collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabResidencyReleaseInflightTotal,
   collabWriteSessionReleaseTimeoutTotal, consumeDirectLoad, noteDirectLoad, registerResidentReader,
@@ -183,6 +184,16 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
   assertWriteAdmitted(): void {
     if (!this.gateway.isLeaseServing() || this.gateway.isWritableOrDegraded() !== 'ok')
       throw new ServiceUnavailableException('collab degraded: lease or spool');
+  }
+
+  /** T14（plan v11.2 片 S4）：flushDocument 交付判定窄接口透传（实现=CollabPersistenceService——
+   *  显式 storeDocumentSerialized〔saveMutex 内〕+落定后状态判读；分支语义全谱见 FlushOutcome 注释）。
+   *  本面=会话持有者的同域消费位（T15 投影 poller：withSession apply 后一次 flush——替代
+   *  ephemeral-disconnect 当 flush 原语；disconnect 会卸载 doc、recheck 需重载）。
+   *  capturedEpoch=调用方在 claim/会话开始时经 CollabLeaseService.currentEpoch() 捕获——提交前
+   *  校验（易主≠/失守 null→terminal/fenced 拒绝提交）。 */
+  flushDocument(projectId: string, capturedEpoch: bigint | null): Promise<FlushOutcome> {
+    return this.gateway.persistence.flushDocument(projectId, capturedEpoch);
   }
 
   /** 会话式读写（Z128 读写二分唯一入口——生产面=CollabDocumentService.withSession 透传）。

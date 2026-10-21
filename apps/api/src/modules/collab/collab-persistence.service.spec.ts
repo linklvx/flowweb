@@ -30,6 +30,7 @@ function makeHost(over: Partial<CollabPersistenceHost> = {}): CollabPersistenceH
     isServingState: () => true,
     isShuttingDownFlag: () => false,
     onSpoolRecoveredFlip: () => {},
+    currentLeaseEpoch: () => null,   // T14：epoch 读缝缺省（本 spec 不触 flushDocument——flush 用例归 collab-flush-document.spec）
     ...over,
   };
 }

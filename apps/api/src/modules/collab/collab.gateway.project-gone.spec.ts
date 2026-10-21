@@ -85,8 +85,9 @@ describe('Y0a-2 project.gone 清账', () => {
       g.seedPendingQueue('p-fk', [new Uint8Array([1])]);        // Y19：projectId 键控
       const r = await kit.gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p-fk' } as any);   // 白盒直调（Y.Doc 非 Document 满型）
       expect(r).toBe(false);
-      expect(g.pendingQueueRef('p-fk')).toHaveLength(0);       // 批丢弃（DB 权威证据=P6）
-      expect(g.persistRetrySize()).toBe(0);                       // 不进重试梯
+      expect(g.pendingQueueRef('p-fk')?.length ?? 0).toBe(0);   // 批丢弃（DB 权威证据=P6）+空条目回收（M6——T14 起 FK=写路径发现点走 onProjectGone 与事件路径同收敛）
+      expect(g.deletedProjectsHas('p-fk')).toBe(true);          // T14：终态集登记（flushDocument terminal/fk 观测面——不重试不死循环）
+      expect(g.persistRetrySize()).toBe(0);                       // 不进重试梯（无 spool 帧——Z11① 收割梯不触发）
       expect(await discardedCount() - before).toBeGreaterThanOrEqual(1);
     } finally { await kit.dispose(); }
   });

@@ -1031,13 +1031,24 @@ export function consumeDirectLoad(projectId: string): boolean { return directLoa
 
 /** store 非 noop 落库计数——storeDocumentUnlocked 取批后单点（noop 空转早退不计）。
  *  trigger=调用方归因（CollabStoreTrigger）：debounce hooks 直通（库防抖窗到期/断连冲刷同钩子）/
- *  soft 软阈提前（64 条/1MB 闩锁）/disconnect onDisconnect 收尾/retry 退避梯/drain 关停排空。
+ *  soft 软阈提前（64 条/1MB 闩锁）/disconnect onDisconnect 收尾/retry 退避梯/drain 关停排空/
+ *  flush flushDocument 显式交付判定（T14）。
  *  Z107 判据 C：单调 ≤⌈编辑窗/maxDebounce⌉+2；单节点执行链 ≤2 锚。 */
-export type CollabStoreTrigger = 'debounce' | 'soft' | 'disconnect' | 'retry' | 'drain';
+export type CollabStoreTrigger = 'debounce' | 'soft' | 'disconnect' | 'retry' | 'drain' | 'flush';
 export const yjsStoreTotal = new Counter({
   name: 'yjs_store_total',
-  help: 'store 非 noop 落库计数（取批后单点；trigger=debounce 库防抖窗+断连冲刷/soft 软阈提前/disconnect 断连收尾/retry 退避梯/drain 关停排空）',
+  help: 'store 非 noop 落库计数（取批后单点；trigger=debounce 库防抖窗+断连冲刷/soft 软阈提前/disconnect 断连收尾/retry 退避梯/drain 关停排空/flush flushDocument 显式交付判定）',
   labelNames: ['trigger'],
+  registers: [register],
+});
+
+/** T14（plan v11.2 片 S4——Z18''④/:30 四分叉裁定④）：flushDocument 交付判定出口计数（五分支
+ *  闭集——T15 投影 poller 落地前的观测面；retry-spooled 持续增长=G58「spooled 无限重试+告警」
+ *  的告警载体——PG 长停机值班信号，非失败计数）。 */
+export const collabFlushDocumentOutcomeTotal = new Counter({
+  name: 'collab_flush_document_outcome_total',
+  help: 'flushDocument 交付判定出口计数（outcome=persisted/retry-spooled〔磁盘安全无限重试——G58 告警面〕/retry-failed〔耗 attempts 档〕/terminal-fenced/terminal-fk）',
+  labelNames: ['outcome'],
   registers: [register],
 });
 

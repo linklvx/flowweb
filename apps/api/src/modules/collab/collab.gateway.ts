@@ -315,6 +315,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       isIsolated: () => this.collabState === 'isolated',
       isServingState: () => this.collabState === 'serving',
       isShuttingDownFlag: () => this.shuttingDown,
+      currentLeaseEpoch: () => this.lease.currentEpoch(),   // T14（v11.1①）：flushDocument 提交前 epoch 校验读缝——CollabLeaseService 单源
       onSpoolRecoveredFlip: () => this.sessionGuard.onServingTransition(),   // W3b：refusalCache 随域迁 SG——P-Q 清空并集 spool 支经 sg.onServingTransition（serving 汇点）接线
     });
     // W3b：SessionGuard host 绑定（4+1 位——logger 共享实例保 spyLogger 断言面/allDocuments 库读面/

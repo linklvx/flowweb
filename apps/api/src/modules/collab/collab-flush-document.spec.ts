@@ -11,7 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { register } from 'prom-client';
 import * as Y from 'yjs';
-import { rm } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   CollabPersistenceService, SPOOL_DEADLINE_MS,
   type CollabPersistenceHost, type PersistenceDocument,
@@ -138,10 +139,12 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
     expect(spool.hasFrames(PID)).toBe(true);                   // 帧仍在盘（未被弃守）
   });
 
-  it('retry/failed：连 spool 都未落（目录已毁）→批滞留内存队列→{retry,failed}——耗 attempts 档（failed=耗 maxAttempts∨spoolDeadline，归调用方/T15）', async () => {
+  it('retry/failed：连 spool 都未落（owner 目录位被文件占位→mkdir 必败）→批滞留内存队列→{retry,failed}——耗 attempts 档（failed=耗 maxAttempts∨spoolDeadline，归调用方/T15）', async () => {
     enqueue(svc, doc, 'k1');
     repo.append.mockRejectedValue(new Error('pg down'));
-    await rm(dir, { recursive: true, force: true });    // spool 不可写（真 fs 失败注入）
+    // 真 fs 失败注入：owner 子目录路径放普通文件——appendRaw 的 mkdir(recursive) 对非目录路径必抛
+    // （rm 目录无效——mkdir recursive 会自愈重建，占位文件才是结构性不可写形态）。
+    await writeFile(join(dir, 't14-owner'), 'not-a-dir');
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'retry', reason: 'failed' });
     expect(svc.hasPendingWrites(PID)).toBe(true);       // 批保留内存队列（BOI 归属地不变）

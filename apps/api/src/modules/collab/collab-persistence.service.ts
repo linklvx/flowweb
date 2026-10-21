@@ -1,7 +1,7 @@
 // apps/api/src/modules/collab/collab-persistence.service.ts
 // Y0c T40（B1）：Persistence 切出——store/spool/drain/pending 的 doc 持久化状态单一所有者（Z24；
 // E29 原动机=不启 WS Server 可独立实例化——RC2 验收面=collab-persistence.service.spec 全链用例）。
-// 行数锚 ≤950（§0.6 偏离 65）。构造器零 gateway/Server 依赖（显式 @Inject=esbuild 无 metadata 先例）；
+// 行数锚 ≤1037（§0.6 偏离 65；T40 B1 实测 950→T14 flushDocument 窄接口叠加实测重标——check-collab-module-size 同批）。构造器零 gateway/Server 依赖（显式 @Inject=esbuild 无 metadata 先例）；
 // DI/直构双兼容（gateway 尾参缺省自建+bindHost——31 处直构零改动；自建传同 pgBreaker 防脑裂）。
 // 零 @hocuspocus/server import（PersistenceDocument 最小结构面——census ⑮ 闭包纯净）。行为零变化
 // 红线：方法体=gateway 前文逐字平移，仅 host 缝机械替换+eventEmitter 可选链（@Optional 缺席语义
@@ -16,7 +16,7 @@ import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { isFkGone } from './pg-error.util';
 import { parseDocName } from './doc-name.util';
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { storeInFlightDocs, collabLeaseRowMissingTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, yjsStorePayloadBytes, yjsStoreDuration, yjsCompactDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, yjsStoreTotal, type CollabStoreTrigger } from './store.metrics';
+import { storeInFlightDocs, collabLeaseRowMissingTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, collabFlushDocumentOutcomeTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, yjsStorePayloadBytes, yjsStoreDuration, yjsCompactDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, yjsStoreTotal, type CollabStoreTrigger } from './store.metrics';
 
 /** 批3-4：compact 门限由行数（原 COMPACT_THRESHOLD=32）改时间门限——debounce 收紧（5s→1/2s）会让
  *  行数门限的 compact 频率同步放大（advisory lock+重放+deleteMany 成本不低）。loadDocument 播种
@@ -74,6 +74,10 @@ export interface CollabPersistenceHost {
   isServingState(): boolean;
   isShuttingDownFlag(): boolean;
   onSpoolRecoveredFlip(): void;
+  /** T14（plan v11.1①）：当前租约代 epoch 读（接线=CollabLeaseService.currentEpoch——本接口零
+   *  @hocuspocus 依赖红线保持）。null=未持有（任何捕获值比对必不等⇒fenced）。消费=flushDocument
+   *  提交前校验；捕获点=调用方 claim/会话开始时读同一缝。 */
+  currentLeaseEpoch(): bigint | null;
 }
 
 /** X7：op 套 deadline——超时返回 fallback（op 自身继续跑，结果被弃）。B1 形态自裁=export 单源
@@ -81,6 +85,35 @@ export interface CollabPersistenceHost {
 export async function raceDeadline<T>(op: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([op, new Promise<T>((r) => { setTimeout(() => r(fallback), ms).unref?.(); })]);
 }
+
+/** ===== T14（plan v11.2 片 S4——v10.1 T6c 载体维持；Z18''④/spec :30 四分叉裁定④+:91 v13b）：
+ *  flushDocument 带理由窄接口——交付判定载体（T15 投影 poller 推进唯一凭据；boolean flush 推进
+ *  投影水位=No-Go）。窄接口先行裁定：storeDocumentUnlocked 的 boolean 五分支**不动**（判别联合
+ *  重构降后续独立硬化卡——本文件是 BOI 契约最密集载体），flushDocument=显式 storeDocumentSerialized
+ *  （saveMutex 内）+ 落定后状态判读。 ===== */
+
+/** 交付判定判别式（spec :322-328/:516 G58）：
+ *  - persisted：批已落 PG（store true）；或 noop∧isPersistedComplete（三态空=内存与 PG 同步——
+ *    交付判定等价：「目标已匹配」复核归调用方 T15，PG canonical 已含本批语义由此承载）。
+ *  - retry/spooled：批在 spool（fsync 磁盘安全）——**无限重试不耗 attempts、无 deadline**（G58：
+ *    PG 停机>1h 保持 pending 非 failed——「判死磁盘安全帧」=假失败）；告警=本方法 WARN+
+ *    collabFlushDocumentOutcomeTotal{retry-spooled} 持续可见。
+ *  - retry/failed：批仍滞留内存队列（连 spool 都未落——BOI 归属地=队列）——调用方耗 attempts；
+ *    failed 档死判=耗 maxAttempts ∨ spoolDeadline 1h 兜底（行级状态机归 T15 poller——本服务零行级账）。
+ *  - terminal/fenced：epoch 易主（提交前校验：会话捕获时 epoch≠当前 CollabLease.epoch——长会话在
+ *    租约易主后不得继续落库；v11.1①）或 store 语句级 fenced/进程已隔离——停 claim 等租约
+ *    （「停」=调用方语义——claim 归 T15，本接口只判定不建 poller）。
+ *  - terminal/fk：项目已删（deletedProjects 终态集——事件路径 or store/梯 FK 发现点登记）→调用方
+ *    orphaned（T15）；不重试不死循环（终态集命中即短路，零 PG 触达）。 */
+export type FlushOutcome =
+  | { kind: 'persisted' }
+  | { kind: 'retry'; reason: 'spooled' | 'failed' }
+  | { kind: 'terminal'; reason: 'fenced' | 'fk' };
+
+/** failed 档兜底 deadline（spec :30/:91——1h）：耗 maxAttempts **或** 投影行自起算超此时仍 failed
+ *  =dead+告警（磁盘安全帧由 retry/spooled 档保护——超时只判 failed 档，G58「spooled 保持 pending」
+ *  不受它约束）。归属=T15 poller 行级判定（本常量=接口契约文档载体+T15 消费锚）；T14 单测钉值。 */
+export const SPOOL_DEADLINE_MS = 3_600_000;
 
 /** ===== Y0a-2 持久化契约声明（spec v2.4 §2.1，钉死；B1 随域迁本文件）=====
  *  PG=单实例 delta 并集日志（append-only）；CRDT 幂等收敛（重复/乱序 apply 安全）；锁只管 compact；
@@ -325,6 +358,10 @@ export class CollabPersistenceService {
             yjsUpdatesDiscardedDeletedTotal.inc({ source: 'gateway' });
             this.leaveInFlight(projectId);                         // X2 落定点③：FK/终态丢弃
             this.host.logger.warn(`store append hit FK for ${projectId}——batch discarded (project deleted)`);
+            // T14：FK=项目消失的**写路径发现点**（事件送达前的 PG 权威证据——P2003/23503 ⟺ Project
+            // 行已删）。与事件路径同收敛（终态集登记+spool 收割梯 Z11①+清账——幂等，事件到达时重复
+            // 执行无害）；flushDocument 据终态集判 terminal/fk（不重试不死循环）。
+            this.onProjectGone(projectId);
             return false;
           }
           this.host.logger.error(`store append failed for ${projectId}, ${parts.length} updates: ${(err as Error).message}`);
@@ -438,6 +475,55 @@ export class CollabPersistenceService {
    *  Y0c T0：trigger 透传（soft/retry/disconnect/drain 四直调点显式——归因 yjs_store_total）。 */
   storeDocumentSerialized(p: { document: PersistenceDocument; documentName: string }, trigger: CollabStoreTrigger): Promise<boolean> {
     return p.document.saveMutex.runExclusive(() => this.storeDocumentUnlocked(p, trigger));
+  }
+
+  /** T14：flushDocument 交付判定窄接口（FlushOutcome 注释=分支语义全谱）。显式 flush 原语=
+   *  storeDocumentSerialized（saveMutex 内——**替代 ephemeral-disconnect 当 flush 原语**：disconnect
+   *  会卸载 doc、recheck 需重载，spec Z18''④ 裁定）。任何路径不 throw（契约 3 同源——判定载体非
+   *  新异步链；调用方=T15 投影 poller/residency 透传面）。序：①epoch 提交前校验（拒绝提交——先于
+   *  一切，noop 亦被 fence：交付判定权属当前代）→②终态集短路→③noop 分支显式→④doc 缺席=保磁盘
+   *  安全（队列批交接 spool/帧-only 天然 spooled）→⑤显式 store→⑥落定后状态判读（**终态优先于
+   *  retry**——fenced/fk 不得被 spool 在盘状态掩盖）。 */
+  async flushDocument(projectId: string, capturedEpoch: bigint | null): Promise<FlushOutcome> {
+    const outcome = (o: FlushOutcome): FlushOutcome => {
+      collabFlushDocumentOutcomeTotal.inc({ outcome: o.kind === 'persisted' ? 'persisted' : o.kind === 'retry' ? `retry-${o.reason}` : `terminal-${o.reason}` });
+      if (o.kind === 'retry' && o.reason === 'spooled') this.host.logger.warn(JSON.stringify({ event: 'collab_flush_spooled', projectId, note: '批磁盘安全（spool fsync）——无限重试不耗 attempts；PG 恢复后回灌（G58 告警面）' }));
+      return o;
+    };
+    // ① epoch 提交前校验（v11.1①）：会话捕获时 epoch≠当前代（含当前已失守 null）→拒绝提交。
+    //    飞行中夺锁的兜底=语句级 owner 断言（契约 15——store 路径 fenced→onFencedByWrite→⑥ 判读）。
+    const currentEpoch = this.host.currentLeaseEpoch();
+    if (currentEpoch === null || currentEpoch !== capturedEpoch) {
+      this.host.logger.warn(JSON.stringify({ event: 'collab_flush_fenced_epoch', projectId, capturedEpoch: capturedEpoch?.toString() ?? null, currentEpoch: currentEpoch?.toString() ?? null, note: '租约易主/失守——拒绝提交（停 claim 等租约）' }));
+      return outcome({ kind: 'terminal', reason: 'fenced' });
+    }
+    // ② 项目消失终态集（事件路径登记 or store/梯 FK 发现点登记）——不触 store 不重试。
+    if (this.deletedProjects.has(projectId)) return outcome({ kind: 'terminal', reason: 'fk' });
+    const documentName = `project:${projectId}`;
+    const queueEmpty = !this.hasPendingWrites(projectId);
+    // ③ noop 分支显式：无未落库变更（pending 空∧spool 空）∧isPersistedComplete→persisted 等价
+    //    （交付判定语义——零 store 触达）；!complete（在飞 store 未落定）不短路——落到⑤（saveMutex
+    //    排队=在飞落定的自然 join 点，届时按落定后状态判读）。
+    if (queueEmpty && !this.spool.hasFrames(projectId) && this.isPersistedComplete(projectId)) return outcome({ kind: 'persisted' });
+    const document = this.host.getDocument(documentName);
+    if (!document) {
+      // ④ doc 已卸载（reaper/断连窗）：批的 PG 落定归退避梯/下轮 flush（调用方 withSession 会重载）；
+      //    本调用只保磁盘安全——队列批交接 spool（既有原语：fsync 落定才 splice，BOI），帧-only 天然 spooled。
+      if (!queueEmpty) {
+        const handed = await this.handoffPendingToSpool(projectId);
+        return outcome(handed ? { kind: 'retry', reason: 'spooled' } : { kind: 'retry', reason: 'failed' });
+      }
+      return outcome({ kind: 'retry', reason: 'spooled' });   // 帧-only（noop 分支已排除双空）
+    }
+    // ⑤ 显式 flush 原语（trigger='flush' 归因）——永不 reject（契约 3）。
+    const ok = await this.storeDocumentSerialized({ document, documentName }, 'flush');
+    if (ok) return outcome({ kind: 'persisted' });
+    // ⑥ 落定后状态判读（窄接口先行：boolean 不动，按归属地/终态信号判别）——
+    if (this.deletedProjects.has(projectId)) return outcome({ kind: 'terminal', reason: 'fk' });   // store FK 发现点（onProjectGone 登记）
+    if (this.host.isIsolated()) return outcome({ kind: 'terminal', reason: 'fenced' });            // fenced-by-write→selfIsolate（RC4 inline await 后同步可见）/进程已隔离
+    if (this.spool.hasFrames(projectId)) return outcome({ kind: 'retry', reason: 'spooled' });     // 批在盘（PG 停机窗）——磁盘安全无假失败
+    if (this.isPersistedComplete(projectId)) return outcome({ kind: 'persisted' });                // noop 等价（并发 store 已落定/取批点后即本调用 noop 早退窗）
+    return outcome({ kind: 'retry', reason: 'failed' });                                          // 批滞留内存队列（连 spool 未落）——耗 attempts 档（兜底=T15 行级 spoolDeadline）
   }
 
   /** X10 软阈提前 flush（update 监听器跨 64 条/1MB 时闩锁触发）：setImmediate 出 WS 消息路径——
@@ -688,6 +774,7 @@ export class CollabPersistenceService {
               if (isFkGone(err)) {   // M3/必办⑨：已删项目帧无终态出口——与 store 主路径 FK 分支同形（旧实现 throw 卡批=段永滞盘）
                 await this.spool.confirm(projectId, [f.frameId]);
                 yjsUpdatesDiscardedDeletedTotal.inc({ source: 'spool' });
+                this.deletedProjects.add(projectId);   // T14：帧通道 FK=同一「项目已删」终态登记（flushDocument 判 terminal/fk 的观测面；事件路径 onProjectGone 幂等补全清账）
                 this.host.logger.warn(`persist retry frames for ${projectId} discarded (project deleted, FK)`);
                 continue;
               }
