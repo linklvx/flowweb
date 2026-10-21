@@ -371,8 +371,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
 
   /** fenced 统一出口（T15 质评 Minor#3）：入参行全数回 pending（不耗 attempts）+逐行 fenced 计数
    *  +返回本轮放弃信号（调用方停 claim 等租约）——四处 fenced 出口（前置①/fast path 读/apply
-   *  catch/flush 段）单源；组间放弃由 tick 的 r.fenced break 承担（余组行留 pending——leaseUntil
-   *  在 claim 置位但 state 已 pending：claim 条件 nextAttemptAt 到期即复投，无 lease 阻塞）。 */
+   *  catch/flush 段）单源；组间放弃由 tick 的 r.fenced break 承担（余组行未被本出口触达——保持
+   *  projecting+leaseUntil=claim 置位值，claim 在租约到期前有 lease 阻塞、≤PROJECTION_LEASE_MS 自愈）。 */
   private async fencedBail(rows: ArtifactProjection[], inc: (k: OutcomeLabel) => void): Promise<{ fenced: boolean }> {
     await this.releaseRows(rows, { backoffMs: PROJECTION_POLL_INTERVAL_MS });
     for (let i = 0; i < rows.length; i += 1) inc('fenced');
