@@ -18,7 +18,10 @@ const prisma = new PrismaClient();
 const PID = 'int-gi-053';
 const INT_UID = 'int-gi-053-owner';
 
-const svc = new GenerationIntentService(prisma as unknown as PrismaService);
+const svc = new GenerationIntentService(
+  prisma as unknown as PrismaService,
+  new TeamCreditService(prisma as unknown as PrismaService, new CreditLedgerService(prisma as unknown as PrismaService)), // T9：注入资金面（rearm/takeover voidInTx）
+);
 
 // Y0b-1：claim 需真团队行（FOR SHARE 准入谓词）与真 PricingRule 行（pricingRuleId FK）——beforeAll 建夹具
 let TID = '';
@@ -95,7 +98,7 @@ const input = (over: Record<string, unknown> = {}) => ({
   it('Y0b-2 T1/Z109 红测①（改前红=复合唯一被吞+409/NodeBusy）：同手势 token 改参数重试 ⇒ 新行新扣费（非 409 非 NodeBusy）', async () => {
     const first = await svc.claim(input({ gestureToken: `ctx-${Date.now()}`, nodeId: 'n-ctx', paramsHash: 'h1' }));
     expect(first.created).toBe(true);
-    expect(await svc.complete(first.intent.id, 'text:done')).toBe(1);   // 首跑终态（改参重试的真实前置——RUNNING 期同节点本就互斥）
+    expect(await svc.complete(first.intent.id, 'text:done', first.intent.execSeq)).toBe(1);   // 首跑终态（改参重试的真实前置——RUNNING 期同节点本就互斥）
 
     const second = await svc.claim(input({ gestureToken: first.intent.gestureKey ?? undefined, nodeId: 'n-ctx', paramsHash: 'h2' }));
     // 异 paramsHash ⇒ 异 idemKey ⇒ 走分支①新行（旧 INTENT_CONTEXT_MISMATCH 409 语义退役——改参=新意图新扣费）
@@ -127,9 +130,15 @@ const input = (over: Record<string, unknown> = {}) => ({
     expect(a.created).toBe(true);
     expect(a.intent.gestureKey).toBeNull(); // 无 token 行 gestureKey=null——行身份 intentId（铸造 UUID）不进 token 位
     const reentry = await svc.claim({ ...base, jobId: 'j-run' });
-    expect(reentry.created).toBe(true); // ② 内容键+同 jobId 可重入
+    // T9 态①：同 jobId 即时重入（心跳新鲜）=same-job-alive 让位（created:false 零写——重排 worker moveToDelayed）
+    expect(reentry.created).toBe(false);
+    expect((reentry as any).result).toBe('same-job-alive');
+    // T9 态②：心跳陈旧（旧 worker 真死）=takeover 接管（created:true 换代续跑——同 jobId 可重入的 T9 形态）
+    await prisma.generationIntent.update({ where: { id: a.intent.id }, data: { heartbeatAt: new Date(Date.now() - 61_000) } });
+    const takeover = await svc.claim({ ...base, jobId: 'j-run' });
+    expect(takeover.created).toBe(true);
     await expect(svc.claim({ ...base, jobId: 'j-other' })).rejects.toMatchObject({ errorCode: 'NODE_BUSY' }); // ③ 异 jobId 互斥
-    expect(await svc.complete(a.intent.id, 'text:done')).toBe(1);   // 重新生成的真实前置——前跑终态
+    expect(await svc.complete(a.intent.id, 'text:done', takeover.intent.execSeq)).toBe(1);   // 重新生成的真实前置——前跑终态（T9：换代后按新代 complete）
     // 手势路径：新手势 id=新行（同内容不同 token）
     const regen = await svc.claim({ ...base, gestureToken: `rg-${Date.now()}` });
     expect(regen.created).toBe(true);

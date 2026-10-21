@@ -1073,11 +1073,10 @@ model GenerationIntent {
   providerTaskId       String? // Z69：submit 后落库（外呼 provider 任务 id）
   // Y1b T2（Z18''-v13b）：execSeq 全局单调执行代际（DB sequence "exec_seq" nextval 两处：new claim/rearm——
   // wire/doc 用 string）+reserve/settle/void CAS 维度+error 投影代际。
-  // 裁定2：@default(nextval)=兜底默认（消解存量 createMany 缺列的 tsc 必填）——T8/T9 claim/rearm
-  // 仍事务内显式取号，默认不参与代际契约（显式赋值覆盖默认，行为等价）。
-  // 注：migrate diff 将迁移侧 nextval 默认 introspect 为 Sequence("exec_seq")、datamodel 侧为
-  // DbGenerated——Prisma 5.22 无 sequence() 属性不可对齐，该漂移行按裁定2 先例登记金标（同 pricing_rule）
-  execSeq              BigInt       @unique @default(dbgenerated("nextval('exec_seq')"))
+  // T9 裁定（2026-10-20 用户审核二选一）：**删除 @default(nextval) 兜底默认**——显式 nextval 全覆盖后
+  // 默认=第三条隐蔽取号路径，与「DB 为唯一权威，禁第二真源」冲突；删默认后 create/createMany 缺列
+  // 即 tsc 红+DB NOT NULL 红（结构性防漏，胜过 census 证明路径）。
+  execSeq              BigInt       @unique
   reservedExecSeq      BigInt? // reserve 时写；settle/void CAS 匹配（旧代一律失败）
   execProjectedExecSeq BigInt? // exec error 投影代际（reconcile 判据）
   resultText           String?      @db.Text // text kind 产物正文（90 天保留——非空行延长）

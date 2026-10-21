@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TeamCreditService } from '../team/team-credit.service';
 import {
   GenerationIntentService,
   NodeBusyError,
@@ -24,6 +25,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   paramsHash: 'h1',
   status: 'RUNNING',
   jobId: null,
+  execSeq: 1n,   // T9：行携代际（row fixture 基线 gen=1）
   heartbeatAt: new Date(),
   deadlineAt: new Date(Date.now() + 90_000),
   startedAt: null,
@@ -55,9 +57,10 @@ const input = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化）', () => {
+describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化→Y1a T9 三态/代际）', () => {
   let service: GenerationIntentService;
   let prisma: any;
+  let teamCredit: any;
 
   beforeEach(async () => {
     prisma = {
@@ -73,13 +76,17 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       },
       // Y0b-1（Z26/Z33）：claim 交互式事务——mock 直通（tx=同一 mock 对象）
       $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
-      // Z26 准入谓词：FOR SHARE 查 Team.status——默认 ACTIVE 放行
-      $queryRaw: vi.fn().mockResolvedValue([{ status: 'ACTIVE' }]),
+      artifactProjection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, // T9：rearm/takeover 旧投影 superseded
+      // Z26 准入谓词：FOR SHARE 查 Team.status——默认 ACTIVE 放行；T9 nextval('exec_seq') 取号分义
+      $queryRaw: vi.fn().mockImplementation(async (q: unknown) =>
+        /nextval/.test(String(q)) ? [{ v: 1n }] : [{ status: 'ACTIVE' }]),
     };
+    teamCredit = { voidInTx: vi.fn().mockResolvedValue(undefined), void_: vi.fn(), settle: vi.fn(), reserve: vi.fn() }; // T9：mock 资金面（rearm/takeover 只消费 voidInTx）
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GenerationIntentService,
         { provide: PrismaService, useValue: prisma },
+        { provide: TeamCreditService, useValue: teamCredit },
       ],
     }).compile();
     service = module.get(GenerationIntentService);
@@ -185,22 +192,36 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
     });
   });
 
-  describe('② RUNNING 同 jobId → 可重入续跑（stalled 重排不自锁）', () => {
-    it('input.jobId 与 existing.jobId 相等 → created:true + 重锚（Y0b-2 T4：新执行段刷新 heartbeat/deadline，不刷则重排任务被 deadline 批误收）', async () => {
-      const existing = row({ status: 'RUNNING', jobId: 'job-1' });
-      prisma.generationIntent.findUnique
-        .mockResolvedValueOnce(existing) // claim 首查
-        .mockResolvedValueOnce(existing); // 重锚后回读
+  describe('② RUNNING 同 jobId 重入 → T9 三态（same-job-alive/takeover）', () => {
+    it('态① 心跳新鲜（<60s 锁窗）→ same-job-alive：created:false 零写行让位（重排 worker moveToDelayed 不 ack——旧 worker 真死零交付根修）', async () => {
+      const existing = row({ status: 'RUNNING', jobId: 'job-1', heartbeatAt: new Date() });
+      prisma.generationIntent.findFirst.mockResolvedValue(existing);
+
+      const r = await service.claim(input({ jobId: 'job-1' }));
+
+      expect(r.created).toBe(false);
+      expect(r.result).toBe('same-job-alive');
+      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled(); // 零重锚/零换代——行完全归旧 worker
+      expect(prisma.generationIntent.create).not.toHaveBeenCalled();
+    });
+
+    it('态② 心跳过期（≥60s 锁窗）→ takeover：nextval 新代+voidInTx 只释放+行换代重锚（attempts 不动）', async () => {
+      const existing = row({ status: 'RUNNING', jobId: 'job-1', attempts: 2, execSeq: 5n, heartbeatAt: new Date(Date.now() - 61_000) });
+      prisma.generationIntent.findFirst.mockResolvedValue(existing);
+      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue({ ...existing, execSeq: 6n });
       prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
 
       const r = await service.claim(input({ jobId: 'job-1' }));
 
       expect(r.created).toBe(true);
-      expect(prisma.generationIntent.create).not.toHaveBeenCalled();
-      expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: existing.id, status: 'RUNNING', jobId: 'job-1' },
-        data: { resultRef: null, heartbeatAt: expect.any(Date), deadlineAt: expect.any(Date) }, // Y0b-2 T5：清 resultRef 保留 providerTaskId
-      });
+      expect(teamCredit.voidInTx).toHaveBeenCalledWith(expect.anything(), { intentRowId: existing.id, execSeq: 5n }); // 只释放旧代冻结
+      expect(prisma.artifactProjection.updateMany).toHaveBeenCalledWith(expect.objectContaining({ // 旧投影 superseded
+        where: { projectId: 'p1', nodeId: 'n1', state: { in: ['pending', 'projecting'] } },
+      }));
+      const takeoverCall = prisma.generationIntent.updateMany.mock.calls.at(-1)![0];
+      expect(takeoverCall.where).toEqual({ id: existing.id, status: 'RUNNING', jobId: 'job-1', execSeq: 5n }); // 代际 CAS——并发收敛败者 NodeBusy
+      expect(takeoverCall.data).toMatchObject({ execSeq: 1n, resultRef: null }); // 换代+清 resultRef 保留 providerTaskId
+      expect(takeoverCall.data).not.toHaveProperty('attempts'); // 同 job 续跑非用户新意图——attempts 不动
     });
   });
 
@@ -249,12 +270,14 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
 
       expect(r.created).toBe(true);
       expect(r.intent.attempts).toBe(2);
+      expect(teamCredit.voidInTx).toHaveBeenCalledWith(expect.anything(), { intentRowId: existing.id, execSeq: 1n }); // T9：rearm 只释放残留冻结（row fixture execSeq=1n）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: existing.id, status: { in: ['FAILED', 'VOIDED'] } },
         data: {
           status: 'RUNNING',
           error: null,
           resultRef: null,   // Y0b-2 T5（Z83/Z95）：清 resultRef 保留 providerTaskId——重试 query-first
+          execSeq: 1n,       // T9：rearm=nextval 第二处分配点（新执行段新代际）
           jobId: 'job-1',
           completedAt: null,
           attempts: { increment: 1 },
@@ -401,11 +424,11 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
     it('complete：RUNNING 行 → SUCCEEDED 返回 count=1', async () => {
       prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
 
-      const count = await service.complete('gi-1', 'media-9');
+      const count = await service.complete('gi-1', 'media-9', 1n);
 
       expect(count).toBe(1);
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'gi-1', status: { in: ['RUNNING'] } },
+        where: { id: 'gi-1', status: { in: ['RUNNING'] }, execSeq: 1n }, // T9：complete 代际 CAS（旧代 0 命中）
         data: { status: 'SUCCEEDED', resultRef: 'media-9', completedAt: expect.any(Date), heartbeatAt: expect.any(Date) }, // Y0b-2 T4：终态时刻审计戳
       });
     });
@@ -413,7 +436,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
     it('complete 幂等：行已 SUCCEEDED（被 VOIDED/已完成）→ where 零匹配 count=0', async () => {
       prisma.generationIntent.updateMany.mockResolvedValue({ count: 0 });
       // 真库语义：where status in ACTIVE 对终态行匹配零行——mock 直接以 count=0 表达
-      const count = await service.complete('gi-1', 'media-9');
+      const count = await service.complete('gi-1', 'media-9', 1n);
       expect(count).toBe(0);
     });
 
@@ -505,19 +528,14 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       expect(prisma.generationIntent.createMany).not.toHaveBeenCalled(); // 零新行
     });
 
-    it('Y0b-2 T6 ⓪ 同 jobId 豁免（Z104 合取）：RUNNING 行 jobId===input.jobId → 不拦（走①同 job 重入续跑）', async () => {
-      const runningSameJob = row({ id: 'gi-run', idemKey: deriveIdemKey({ projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' }), status: 'RUNNING', jobId: 'job-9' });
-      // findFirst 两次调用序列：⓪ 的 RUNNING 查（返回行——同 job 豁免）→ ② 的 SUCCEEDED 查（无行）
-      prisma.generationIntent.findFirst
-        .mockResolvedValueOnce(runningSameJob)
-        .mockResolvedValueOnce(null);
-      prisma.generationIntent.findUnique.mockResolvedValue(runningSameJob); // ③ 内容键命中 RUNNING 同 job
-      prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(runningSameJob);
-      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+    it('Y0b-2 T6 ⓪ 同 jobId 豁免（Z104 合取）→ Y1a T9 态①：RUNNING 行 jobId===input.jobId 且心跳新鲜 → 不拦（same-job-alive 让位——重排 worker moveToDelayed）', async () => {
+      const runningSameJob = row({ id: 'gi-run', idemKey: deriveIdemKey({ projectId: 'p1', nodeId: 'n1', kind: 'image', paramsHash: 'h1' }), status: 'RUNNING', jobId: 'job-9', heartbeatAt: new Date() });
+      prisma.generationIntent.findFirst.mockResolvedValueOnce(runningSameJob);
 
       const r = await service.claim(input({ jobId: 'job-9' }));
 
-      expect(r.created).toBe(true); // 同 job 重入=执行权（stalled 重排不自锁）
+      expect(r.created).toBe(false);            // T9：让位非执行权（旧 worker 在飞全权）
+      expect(r.result).toBe('same-job-alive');
       expect(prisma.generationIntent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({ projectId: 'p1', nodeId: 'n1', status: 'RUNNING' }),
       }));

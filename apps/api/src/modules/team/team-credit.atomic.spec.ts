@@ -185,7 +185,7 @@ describe('TeamCreditService reserve/settle/void_ 两阶段（批0.5-9+Y0b-1）',
         .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'row-1', reservedCredits: 50 },
-        data: { reservedCredits: 0, creditsConsumed: 50 },
+        data: { reservedCredits: 0, creditsConsumed: 50, reservedExecSeq: null },   // T9：核销清代际锚
       });
       expect(ledger.mutate).toHaveBeenCalledTimes(2);
       expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {
@@ -249,7 +249,7 @@ describe('TeamCreditService reserve/settle/void_ 两阶段（批0.5-9+Y0b-1）',
         .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
         where: { id: 'row-1', reservedCredits: { gt: 0 } },
-        data: { reservedCredits: 0 },
+        data: { reservedCredits: 0, reservedExecSeq: null },   // T9：解冻清代际锚
       });
       expect(ledger.mutate).toHaveBeenCalledTimes(2);
       expect(ledger.mutate).toHaveBeenCalledWith(expect.anything(), {

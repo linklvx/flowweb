@@ -8,7 +8,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditLedgerService } from '../modules/team/credit-ledger.service';
 
-/** 意图行夹具：三 NOT NULL 新列（heartbeatAt/deadlineAt/idemKey）统一铸造——缺省即随机/当下值。
+/** 意图行夹具：必填新列（heartbeatAt/deadlineAt/idemKey/execSeq）统一铸造——缺省即随机/当下值。
+ *  Y1a T9：execSeq 默认已删（显式 nextval 单源）——夹具经 exec_seq sequence 取号（与生产同源单调）。
  *  Unchecked 形态（扁平 FK 列 pricingRuleId/modelId 直填——夹具无嵌套 connect 需求）。 */
 export async function createIntentFixture(
   prisma: PrismaService,
@@ -20,6 +21,7 @@ export async function createIntentFixture(
     ...over,
     status: over.status ?? 'RUNNING',
     idemKey: over.idemKey ?? randomUUID(),
+    execSeq: over.execSeq ?? ((await prisma.$queryRaw<{ v: bigint }[]>`SELECT nextval('exec_seq') AS v`)[0].v),
     heartbeatAt: over.heartbeatAt ?? new Date(),
     deadlineAt: over.deadlineAt ?? new Date(Date.now() + 90_000),
   };

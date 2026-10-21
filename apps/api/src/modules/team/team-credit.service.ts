@@ -77,14 +77,21 @@ export class TeamCreditService {
   /** reserve：外呼前冻结——余额不足即拒=零外呼零沉没（批0.5-9 语义保持）。
    *  Y0b-1（Z10）：金额单源 intent 行（plan 固化快照）——调用方无"定多少钱"的权力；TOCTOU 结构性消失。
    *  写路径全经 CreditLedgerService（Z12 品牌 tx+Z13 锁序①lockBalance 先于 gate CAS+§1.4bis 真值表）。
-   *  mayCall:false（alreadyReserved）=该意图已被他人冻结/结算（典型 stall 重排）——调用方须静默退出（Z35）。 */
+   *  mayCall:false（alreadyReserved）=该意图已被他人冻结/结算（典型 stall 重排）——调用方须静默退出（Z35）。
+   *  Y1a T9：guard.execSeq=当次执行代际票（worker 携 claim 返回值/job.data ticket）——①行已换代
+   *  （takeover/rearm nextval）⇒ 旧代票 mayCall:false 静默退役（死代禁偷冻结）；②gate CAS 补
+   *  execSeq 守卫+写 reservedExecSeq（settleInTx/voidInTx 代际 CAS 锚——旧代资金操作一律 0 命中）。 */
   async reserve(
     userId: string,
-    guard: { intentRowId: string },
+    guard: { intentRowId: string; execSeq?: bigint },
   ): Promise<{ success: boolean; reason?: string; alreadyReserved?: boolean; mayCall?: boolean }> {
     return this.prisma.$transaction(async (raw) => {
       const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
       const intent = await tx.generationIntent.findUniqueOrThrow({ where: { id: guard.intentRowId } });
+      // T9 代际前置：读行即验票——行 execSeq 已换代 ⇒ 旧 worker 的 reserve 静默退役（零冻结零流水）
+      if (guard.execSeq !== undefined && intent.execSeq !== guard.execSeq) {
+        return { success: true, alreadyReserved: true, mayCall: false, reason: 'EXEC_SEQ_STALE' };
+      }
       const teamId = intent.teamId;
       const amount = intent.creditCost;   // 单源：plan 快照
       await this.ledger.lockBalance(tx, teamId);   // 锁序①（契约 20）
@@ -97,13 +104,21 @@ export class TeamCreditService {
       // Y0b-2 T0：月度用量改道派生（lockBalance 之后读——FOR UPDATE 持有下台账写与本读串行化，无 TOCTOU）
       const used = await this.derivedMonthlyUsed(tx, teamId, userId);
       if (member.monthlyQuota > 0 && used + amount > member.monthlyQuota) return { success: false, reason: 'QUOTA_EXCEEDED' };
-      // 锁序②：gate CAS 持锁期间完成（四守卫保留——约束① CAS 锚 reservedCredits 0→amount，creditsConsumed:0 并守）
+      // 锁序②：gate CAS 持锁期间完成（四守卫保留——约束① CAS 锚 reservedCredits 0→amount，creditsConsumed:0 并守；
+      // T9：execSeq 并守（读行后换代并发窗收口）+reservedExecSeq 落冻结代际锚）
       const gate = await tx.generationIntent.updateMany({
-        where: { id: guard.intentRowId, reservedCredits: 0, creditsConsumed: 0 },
-        data: { reservedCredits: amount },
+        where: {
+          id: guard.intentRowId, reservedCredits: 0, creditsConsumed: 0,
+          ...(guard.execSeq !== undefined ? { execSeq: guard.execSeq } : {}),
+        },
+        data: { reservedCredits: amount, ...(guard.execSeq !== undefined ? { reservedExecSeq: guard.execSeq } : {}) },
       });
       if (gate.count === 0) {
         const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
+        // T9：gate 失因换代（读行后行被 takeover/rearm nextval）⇒ 旧代票静默退役（非 onReserveFail——行归新代）
+        if (guard.execSeq !== undefined && row && row.execSeq !== guard.execSeq) {
+          return { success: true, alreadyReserved: true, mayCall: false, reason: 'EXEC_SEQ_STALE' };
+        }
         if (row && (row.reservedCredits > 0 || row.creditsConsumed > 0)) {
           return { success: true, alreadyReserved: true, mayCall: false };   // Z10/H7：幂等续跑但禁再外呼（同 intent 双 worker 只烧一次钱）
         }
@@ -127,81 +142,104 @@ export class TeamCreditService {
   /** settle：外呼成功后核销——冻结转实扣（reservedCredits 清零+creditsConsumed 置位+settle 记账行）。
    *  台账锚（F1）+anti-join（Z6）+锁序①（lockBalance 先于 intent CAS）+reversesId 配对。
    *  CAS 后崩溃修补（报2 P1-1）：reservedCredits 已归零但 settle 行未写——anti-join 补写（reversesId 唯一=幂等安全）。
-   *  幂等：已结清（无未冲销 reserve 行）⇒ settled:false 零动作。 */
-  async settle(guard: { intentRowId: string }): Promise<{ success: boolean; settled: boolean }> {
-    return this.prisma.$transaction(async (raw) => {
-      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
-      const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
-      if (!row?.teamId) return { success: false, settled: false };
-      if (row.reservedCredits === 0 && row.creditsConsumed > 0) {
-        // CAS 后崩溃的中间态——reservedCredits 已归零但 settle 行未写（未冲销 reserve 行仍在）。
-        // anti-join 查未冲销行：存在则补写；空才是正常的已结清早退。
-        // 不修补 ⇒ 不变量②永久破+每日对账 "creditsConsumed vs Σ|settle|" 永久告警（告警疲劳）。
-        // 锁序与正常路径统一：lockBalance 先于台账行锁（T4 质量审 I-2——mutate 内重锁同事务幂等无害）
-        await this.ledger.lockBalance(tx, row.teamId);
-        const patchRows = await tx.$queryRaw<any[]>`
-          SELECT r.* FROM "TeamCreditTransaction" r
-          WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'
-            AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
-          FOR UPDATE OF r`;
-        for (const r of patchRows) {
-          await this.ledger.mutate(tx, {
-            teamId: r.teamId, operatorUserId: row.userId, type: 'settle', creditType: r.creditType,
-            balanceDelta: 0, frozenDelta: r.amount, referenceId: r.referenceId, reversesId: r.id,
-          });
-        }
-        return { success: true, settled: patchRows.length > 0 };
-      }
-      if (row.reservedCredits === 0) return { success: false, settled: false }; // 无冻结（正常链路 reserve 先行——防御）
-      await this.ledger.lockBalance(tx, row.teamId);   // 锁序①：先于 intent CAS（契约 20 全序）
-      const cas = await tx.generationIntent.updateMany({
-        where: { id: guard.intentRowId, reservedCredits: row.reservedCredits },
-        data: { reservedCredits: 0, creditsConsumed: row.reservedCredits },
-      });
-      if (cas.count === 0) return { success: true, settled: false }; // 并发 settle 已抢——只结一次
-      // anti-join：未被 settle/release 冲销的 reserve 行——逐行配对核销
-      const reserveRows = await tx.$queryRaw<any[]>`
+   *  幂等：已结清（无未冲销 reserve 行）⇒ settled:false 零动作。
+   *  Y1a T9：guard.execSeq=代际票——与行 reservedExecSeq 不匹配（takeover/rearm 换代后新代已重冻结）
+   *  ⇒ 旧代结算 0 命中（settled:false 零动作——不得核销新代冻结）。settleInTx=T10 finalize 事务内消费形态。 */
+  async settle(guard: { intentRowId: string; execSeq?: bigint }): Promise<{ success: boolean; settled: boolean }> {
+    return this.prisma.$transaction((raw) => this.settleInTx(raw, guard), { timeout: 15_000, maxWait: 5_000 });
+  }
+
+  /** T9 settleInTx：调用方事务内核销（ledgerTx 内部装饰幂等——SET LOCAL 重执行无害）。 */
+  async settleInTx(rawTx: Prisma.TransactionClient, guard: { intentRowId: string; execSeq?: bigint }): Promise<{ success: boolean; settled: boolean }> {
+    const tx = await this.ledger.ledgerTx(rawTx);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
+    const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
+    if (!row?.teamId) return { success: false, settled: false };
+    // T9 代际前置：携票且行冻结锚已换代（或已释放归 null）⇒ 旧代结算 0 命中（新代冻结禁动）
+    if (guard.execSeq !== undefined && row.reservedExecSeq !== guard.execSeq) {
+      return { success: true, settled: false };
+    }
+    if (row.reservedCredits === 0 && row.creditsConsumed > 0) {
+      // CAS 后崩溃的中间态——reservedCredits 已归零但 settle 行未写（未冲销 reserve 行仍在）。
+      // anti-join 查未冲销行：存在则补写；空才是正常的已结清早退。
+      // 不修补 ⇒ 不变量②永久破+每日对账 "creditsConsumed vs Σ|settle|" 永久告警（告警疲劳）。
+      // 锁序与正常路径统一：lockBalance 先于台账行锁（T4 质量审 I-2——mutate 内重锁同事务幂等无害）
+      await this.ledger.lockBalance(tx, row.teamId);
+      const patchRows = await tx.$queryRaw<any[]>`
         SELECT r.* FROM "TeamCreditTransaction" r
         WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'
           AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
         FOR UPDATE OF r`;
-      for (const r of reserveRows) {
+      for (const r of patchRows) {
         await this.ledger.mutate(tx, {
           teamId: r.teamId, operatorUserId: row.userId, type: 'settle', creditType: r.creditType,
           balanceDelta: 0, frozenDelta: r.amount, referenceId: r.referenceId, reversesId: r.id,
         });
       }
-      return { success: true, settled: true };
-    }, { timeout: 15_000, maxWait: 5_000 });
+      return { success: true, settled: patchRows.length > 0 };
+    }
+    if (row.reservedCredits === 0) return { success: false, settled: false }; // 无冻结（正常链路 reserve 先行——防御）
+    await this.ledger.lockBalance(tx, row.teamId);   // 锁序①：先于 intent CAS（契约 20 全序）
+    // T9：CAS 补 reservedExecSeq 锚（无票调用=reconcile 终态路径——按行自身锚，与携票等价安全）
+    const seqAnchor = guard.execSeq ?? row.reservedExecSeq;
+    const cas = await tx.generationIntent.updateMany({
+      where: {
+        id: guard.intentRowId, reservedCredits: row.reservedCredits,
+        ...(seqAnchor !== null ? { reservedExecSeq: seqAnchor } : {}),
+      },
+      data: { reservedCredits: 0, creditsConsumed: row.reservedCredits, reservedExecSeq: null },
+    });
+    if (cas.count === 0) return { success: true, settled: false }; // 并发 settle 已抢——只结一次
+    // anti-join：未被 settle/release 冲销的 reserve 行——逐行配对核销
+    const reserveRows = await tx.$queryRaw<any[]>`
+      SELECT r.* FROM "TeamCreditTransaction" r
+      WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
+      FOR UPDATE OF r`;
+    for (const r of reserveRows) {
+      await this.ledger.mutate(tx, {
+        teamId: r.teamId, operatorUserId: row.userId, type: 'settle', creditType: r.creditType,
+        balanceDelta: 0, frozenDelta: r.amount, referenceId: r.referenceId, reversesId: r.id,
+      });
+    }
+    return { success: true, settled: true };
   }
 
   /** void_：解冻（外呼失败/组执行第 N+1 放弃）——约束②：reserve 的冲销=release（真值表 (+c,−c)+reversesId，
    *  Z6 正名），不得走反向正账（旧记账法退役）。CAS reservedCredits>0→0 抢解冻权：已 settle/已解冻零动作（幂等）。
-   *  Y0b-2 T0：quota 无需回滚——used 已派生（release 后 frozen 腿自然回落）。 */
-  async void_(guard: { intentRowId: string }): Promise<void> {
-    await this.prisma.$transaction(async (raw) => {
-      const tx = await this.ledger.ledgerTx(raw);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
-      const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
-      if (!row?.teamId) return;
-      await this.ledger.lockBalance(tx, row.teamId);   // 锁序①：先于 intent CAS（契约 20 全序）
-      const cas = await tx.generationIntent.updateMany({
-        where: { id: guard.intentRowId, reservedCredits: { gt: 0 } },
-        data: { reservedCredits: 0 },
+   *  Y0b-2 T0：quota 无需回滚——used 已派生（release 后 frozen 腿自然回落）。
+   *  Y1a T9：guard.execSeq=代际票——CAS 补 reservedExecSeq 锚（旧代票对换代后新代冻结 0 命中）；
+   *  voidInTx=claim rearm/takeover 事务内只释放形态（v9「release+re-reserve」废止——重扣费归新段 reserve）。 */
+  async void_(guard: { intentRowId: string; execSeq?: bigint }): Promise<void> {
+    await this.prisma.$transaction((raw) => this.voidInTx(raw, guard), { timeout: 15_000, maxWait: 5_000 });
+  }
+
+  /** T9 voidInTx：调用方事务内解冻（claimTx rearm/takeover 消费——ledgerTx 内部装饰幂等）。 */
+  async voidInTx(rawTx: Prisma.TransactionClient, guard: { intentRowId: string; execSeq?: bigint }): Promise<void> {
+    const tx = await this.ledger.ledgerTx(rawTx);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL）
+    const row = await tx.generationIntent.findUnique({ where: { id: guard.intentRowId } });
+    if (!row?.teamId) return;
+    await this.ledger.lockBalance(tx, row.teamId);   // 锁序①：先于 intent CAS（契约 20 全序）
+    const seqAnchor = guard.execSeq ?? row.reservedExecSeq;
+    const cas = await tx.generationIntent.updateMany({
+      where: {
+        id: guard.intentRowId, reservedCredits: { gt: 0 },
+        ...(seqAnchor !== null ? { reservedExecSeq: seqAnchor } : {}),
+      },
+      data: { reservedCredits: 0, reservedExecSeq: null },
+    });
+    if (cas.count === 0) return; // 已解冻/已结算/代际锚不匹配（旧代票 vs 新代冻结）——幂等零动作
+    // anti-join：未被冲销的 reserve 行——逐行 release 解冻
+    const reserveRows = await tx.$queryRaw<any[]>`
+      SELECT r.* FROM "TeamCreditTransaction" r
+      WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
+      FOR UPDATE OF r`;
+    for (const r of reserveRows) {
+      await this.ledger.mutate(tx, {
+        teamId: r.teamId, operatorUserId: row.userId, type: 'release', creditType: r.creditType,
+        balanceDelta: -r.amount, frozenDelta: r.amount, referenceId: r.referenceId, reversesId: r.id,
       });
-      if (cas.count === 0) return; // 已解冻/已结算——幂等零动作
-      // anti-join：未被冲销的 reserve 行——逐行 release 解冻
-      const reserveRows = await tx.$queryRaw<any[]>`
-        SELECT r.* FROM "TeamCreditTransaction" r
-        WHERE r."teamId" = ${row.teamId} AND r."referenceId" = ${'intent:' + guard.intentRowId} AND r.type = 'reserve'
-          AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r.id)
-        FOR UPDATE OF r`;
-      for (const r of reserveRows) {
-        await this.ledger.mutate(tx, {
-          teamId: r.teamId, operatorUserId: row.userId, type: 'release', creditType: r.creditType,
-          balanceDelta: -r.amount, frozenDelta: r.amount, referenceId: r.referenceId, reversesId: r.id,
-        });
-      }
-    }, { timeout: 15_000, maxWait: 5_000 });
+    }
   }
 
   /** Z64/Z75/Z92/Z102：资金回滚单实现三入口。锁序=契约 20：读 intent（无锁）→lockBalance（TB 行锁）
