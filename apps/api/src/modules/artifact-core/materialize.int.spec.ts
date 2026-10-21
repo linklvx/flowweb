@@ -11,8 +11,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient, Media } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -48,7 +48,9 @@ const PID = `int-t12mz-${Date.now()}`;
 const UID = `int-t12mz-owner-${Date.now()}`;
 let TID = '';
 let PRICING: any;
-let hasAvTools = false;
+/** ffmpeg/ffprobe 可用性（收集期探针——spawnSync：it/it.skip 分派在 beforeAll 之前求值，异步探针不可用） */
+const hasAvTools = spawnSync(process.env.FFMPEG_PATH || 'ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0
+  && spawnSync(process.env.FFPROBE_PATH || 'ffprobe', ['-version'], { stdio: 'ignore' }).status === 0;
 let MP4: Buffer | null = null;
 
 /** 真 mp4（ffmpeg lavfi testsrc 64x48 1s——media-probe.int.spec 同款夹具；ffmpeg/ffprobe 缺席时成功路用例 skip） */
@@ -137,12 +139,8 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     const rule = await prisma.pricingRule.findFirst({ where: { active: true, modelId: { not: null }, creditCost: { gt: 0 } } });
     if (!rule) throw new Error('真库无 active 付费 PricingRule——seed 未跑？');
     PRICING = { pricingRuleId: rule.id, modelId: rule.modelId, resolutionId: rule.resolutionId, durationId: rule.durationId, creditCost: rule.creditCost };
-    MP4 = await tinyMp4();
-    hasAvTools = !!MP4 && await new Promise<boolean>((resolve) => {
-      const p = spawn(process.env.FFPROBE_PATH || 'ffprobe', ['-version'], { stdio: 'ignore' });
-      p.on('error', () => resolve(false));
-      p.on('close', (code) => resolve(code === 0));
-    });
+    MP4 = hasAvTools ? await tinyMp4() : null;
+    if (hasAvTools && !MP4) throw new Error('ffmpeg 可用但夹具生成失败（t12mz）');
   });
 
   afterAll(async () => {
@@ -242,6 +240,7 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
 
   it('mismatch 永久类（provider 200 但字节非视频）：一轮即终态——failed+补偿退款+artifactState failed（不清 mediaId）', async () => {
     const s = await seedMaterializing();
+    const balanceBefore = await balanceOf();   // seed 已 settle（-c）——退款净零口径（共享钱包前序用例已消耗）
     fakeFetch.fetchBuffer.mockReset();
     // PNG 魔数（sniff 判 image/png——provider 声明 video 但内容非视频）
     fakeFetch.fetchBuffer.mockResolvedValueOnce({
@@ -257,10 +256,10 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     const art = await anchoredArtifact(s);
     expect(art!.state).toBe('failed');
     expect(art!.mediaId).toBe(s.mediaId);        // 不清 fileId——UI 失败/重试（非撤回交付）
-    // 幂等补偿退款：intent VOIDED+refund 恰一+余额回冲
+    // 幂等补偿退款：intent VOIDED+refund 恰一+余额回冲（reserve(-c)→settle→refund(+c)=恢复 reserve 前水位）
     expect((await prisma.generationIntent.findUnique({ where: { id: s.intentId } }))!.status).toBe('VOIDED');
     expect(await ledgerRows(s.intentId, 'refund')).toHaveLength(1);
-    expect(await balanceOf()).toBe(100 - PRICING.creditCost + PRICING.creditCost);   // settle(-c)+refund(+c)=grant 基线
+    expect(await balanceOf()).toBe(balanceBefore + PRICING.creditCost);
     // 告警面（emit errorCode=MATERIALIZE_FAILED——WS 推送非 doc 写）
     expect(fakeEmit.emitNodeStatus).toHaveBeenCalledWith(PID, expect.objectContaining({
       nodeId: s.nodeId, status: 'error', error: expect.stringContaining('MATERIALIZE_FAILED'),
