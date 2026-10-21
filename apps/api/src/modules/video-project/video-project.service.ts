@@ -86,8 +86,8 @@ export class VideoProjectService {
    *    Y0b-2 T6 语义重定位：retakeId=手势 token（Z79——重拍=生成性重跑，error 后同 token 免费重试，
    *    成功后 web 轮换；同 token 重放由 claim 层幂等 SUCCEEDED → created:false 零外呼零扣费回放产物）。
    *    DTO 字段名 retakeId 保持（dto.spec:41 红测锚不动）。
-   * 4. 产物落地不在本方法：Media.create/writeNodeData(fileId)/emitNodeStatus 由 execute→ai-download
-   *    既有链在真实节点上完成（服务层重复落地=双 Media 行）
+   * 4. 产物落地不在本方法：Media 行/writeNodeData(fileId)/emitNodeStatus 由 execute→artifactCommit
+   *    （T12 video=finalizeVideo+MaterializeJob 异步物化）既有链在真实节点上完成（服务层重复落地=双 Media 行）
    */
   async regenerate(userId: string, dto: { sourceNodeId: string; workflowId: string; kind: 'video' | 'audio'; retakeId: string }) {
     await this.perm.assertEditor(dto.workflowId, userId);
