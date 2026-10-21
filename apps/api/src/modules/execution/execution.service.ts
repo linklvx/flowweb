@@ -472,7 +472,7 @@ export class ExecutionService {
     const { upstreamSource, allEdges, styleTextOf } = ctx;
     const upstream = await this.topology.collectUpstreamData(
       projectId, node.id, upstreamSource, allEdges,
-      (pid, nid) => this.upstreamMedia.readUpstreamMediaId(pid, nid),
+      (pid, nid, downstreamNodeId) => this.upstreamMedia.readUpstreamMediaId(pid, nid, downstreamNodeId),
     );
     const data = node.data as any;
     const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || '';

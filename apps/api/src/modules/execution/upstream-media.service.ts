@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { extractFlowaiObjectKey, resolveUpstreamMediaUrl } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
@@ -9,24 +9,33 @@ const UPSTREAM_PRESIGN_TTL_SEC = 3600;
 /** Y1a T8：上游媒体解析服务（S2）——上游注入读源改 NodeArtifact PG 权威后的三职责：
  *  ①readUpstreamMediaId：NodeArtifact 槽位 [projectId,nodeId,role='primary',targetField='result',
  *    targetItemId=''] → state='stored' 且 mediaId 非空 → mediaId（finalize 即建、claim 时刻必可读——
- *    doc 拓扑投影滞后不再取空/漂移；读侧契约——写侧 T10 ArtifactCommit 落地对齐此槽位）；
+ *    doc 拓扑投影滞后不再取空/漂移；读侧契约——写侧 T10 ArtifactCommit 落地对齐此槽位；
+ *    miss〔无行/state 非 stored/mediaId 空〕warn 可观测——禁零信号静默降级 T8 质评 Important）；
  *  ②canonicalizeMediaRef：doc 手工 URL → 身份形态（/flowai/ URL → key → Media (bucket,key) 反查；
  *    外网 URL 原样——用户不变则身份不变）——callArgs 构造（哈希输入）用；
  *  ③resolveCallUrl：身份 → 外呼可达 URL（Media.sourceUrl 未过期直传 provider → 过期/缺失降级
  *    presigned GET——nginx /flowai 域名公网形态）——外呼腿（哈希稳定身份、外呼时解析 URL）。 */
 @Injectable()
 export class UpstreamMediaService {
+  private readonly logger = new Logger(UpstreamMediaService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
   ) {}
 
-  async readUpstreamMediaId(projectId: string, nodeId: string): Promise<string | null> {
+  /** downstreamNodeId（下游目标节点）：仅 miss warn 定位上下文（T8 质评 Important——
+   *  miss 静默不注入=下游按无图模式扣费执行 img2img 降级 t2i 零信号；可选参——
+   *  拓扑注入路径恒传，直调〔spec〕可省）。 */
+  async readUpstreamMediaId(projectId: string, nodeId: string, downstreamNodeId?: string): Promise<string | null> {
     const artifact = await this.prisma.nodeArtifact.findUnique({
       where: { projectId_nodeId_role_targetField_targetItemId: { projectId, nodeId, role: 'primary', targetField: 'result', targetItemId: '' } },
       select: { mediaId: true, state: true },
     });
-    return artifact?.state === 'stored' && artifact.mediaId ? artifact.mediaId : null;
+    if (artifact?.state === 'stored' && artifact.mediaId) return artifact.mediaId;
+    const miss = !artifact ? 'no-row' : artifact.state !== 'stored' ? `state-non-stored:${artifact.state}` : 'mediaId-empty';
+    this.logger.warn(`UPSTREAM_ARTIFACT_MISS: projectId=${projectId} downstreamNodeId=${downstreamNodeId ?? 'unknown'} upstreamNodeId=${nodeId} miss=${miss}（不注入——下游按无图模式执行）`);
+    return null;
   }
 
   async canonicalizeMediaRef(value: string | undefined | null): Promise<string | undefined> {

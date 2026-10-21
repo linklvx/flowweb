@@ -9,8 +9,10 @@ export interface UpstreamData {
 
 /** 上游产物媒体身份读取器（Y1a T8）：查 NodeArtifact by projectId+nodeId 槽位 → mediaId。
  *  reader 由调用方注入（upstream-media.service 实现）——本服务保持零 DB 依赖纯拓扑职责
- *  （sort/getScope 纯函数不动；产物收集的数据源经注入参数化）。 */
-export type UpstreamMediaIdReader = (projectId: string, nodeId: string) => Promise<string | null>;
+ *  （sort/getScope 纯函数不动；产物收集的数据源经注入参数化）。
+ *  downstreamNodeId（下游目标节点）：miss warn 定位上下文透传——miss 形态只在 reader 实现处可辨，
+ *  warn 落实现处（T8 质评 Important：静默不注入=下游无图模式扣费需可观测），本服务恒传。 */
+export type UpstreamMediaIdReader = (projectId: string, nodeId: string, downstreamNodeId: string) => Promise<string | null>;
 
 @Injectable()
 export class TopologyService {
@@ -82,7 +84,7 @@ export class TopologyService {
         textContents.push(data.content);
       } else if (upstream.type === 'imageGen' || upstream.type === 'imageExtGen' || upstream.type === 'videoGen') {
         if (!imageMediaId) {
-          const mediaId = await readUpstreamMediaId(projectId, upstream.id);
+          const mediaId = await readUpstreamMediaId(projectId, upstream.id, nodeId);   // nodeId=下游目标——miss warn 定位上下文
           if (mediaId) imageMediaId = mediaId;
         }
       }

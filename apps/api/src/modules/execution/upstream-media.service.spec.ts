@@ -42,6 +42,35 @@ describe('UpstreamMediaService', () => {
       prisma.nodeArtifact.findUnique.mockResolvedValue(null);
       await expect(svc.readUpstreamMediaId('p1', 'n1')).resolves.toBeNull();
     });
+
+    it('T8 质评 Important：miss 时 warn 可观测（无行/state 非 stored/mediaId 空三形态可辨+定位上下文；命中不 warn）', async () => {
+      const warn = vi.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+      const msg = () => warn.mock.calls[0][0] as string;
+
+      prisma.nodeArtifact.findUnique.mockResolvedValue(null);   // miss 形态①：无槽位行
+      await expect(svc.readUpstreamMediaId('p1', 'n-up', 'n-down')).resolves.toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(msg()).toContain('UPSTREAM_ARTIFACT_MISS');
+      expect(msg()).toContain('projectId=p1');
+      expect(msg()).toContain('upstreamNodeId=n-up');
+      expect(msg()).toContain('downstreamNodeId=n-down');
+      expect(msg()).toContain('miss=no-row');
+
+      warn.mockClear();
+      prisma.nodeArtifact.findUnique.mockResolvedValue({ mediaId: 'm1', state: 'materializing' });   // 形态②：state 非 stored
+      await expect(svc.readUpstreamMediaId('p1', 'n-up', 'n-down')).resolves.toBeNull();
+      expect(msg()).toContain('miss=state-non-stored:materializing');
+
+      warn.mockClear();
+      prisma.nodeArtifact.findUnique.mockResolvedValue({ mediaId: null, state: 'stored' });   // 形态③：mediaId 空
+      await expect(svc.readUpstreamMediaId('p1', 'n-up', 'n-down')).resolves.toBeNull();
+      expect(msg()).toContain('miss=mediaId-empty');
+
+      warn.mockClear();
+      prisma.nodeArtifact.findUnique.mockResolvedValue({ mediaId: 'media-1', state: 'stored' });   // 命中：不 warn
+      await expect(svc.readUpstreamMediaId('p1', 'n-up', 'n-down')).resolves.toBe('media-1');
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 
   describe('canonicalizeMediaRef（doc 手工 URL → 身份形态）', () => {

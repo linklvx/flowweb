@@ -76,7 +76,7 @@ describe('TopologyService', () => {
       const readMediaId = vi.fn().mockResolvedValue('media-upstream-1');
       const upstream = await service.collectUpstreamData('p1', 'n2', nodes as any, edges as any, readMediaId);
       expect(upstream.imageMediaId).toBe('media-upstream-1');
-      expect(readMediaId).toHaveBeenCalledWith('p1', 'n1');
+      expect(readMediaId).toHaveBeenCalledWith('p1', 'n1', 'n2');   // 第三参=下游目标节点（T8 质评：miss warn 定位上下文透传）
       expect(upstream.textContents).toEqual([]);
     });
 
