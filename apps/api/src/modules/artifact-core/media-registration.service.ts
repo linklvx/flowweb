@@ -206,10 +206,14 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       ) VALUES (
         ${randomUUID()}, ${params.userId}, ${params.teamId}, ${params.projectId ?? null}, ${params.nodeId ?? null}, ${params.taskId ?? null},
         'flowai', ${params.key}, ${params.originalName}, ${params.mimeType}, 0, 'generated', 'processing'::"MediaStatus",
-        ${params.sourceUrl}, ${params.sourceUrlExpiresAt}, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
+        ${params.sourceUrl}, ${params.sourceUrlExpiresAt.toISOString()}::timestamp, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
         (now() AT TIME ZONE 'utc')
       )
       ON CONFLICT ("bucket", "key") DO NOTHING`;
+    // 时区陷阱（T12 实证 2026-10-21）：$executeRaw 的 Date 裸参按**本地墙钟**序列化进 naive timestamp
+    //（Asia/Shanghai=+8h 漂移；模型 API〔create/updateMany〕无此面）——sourceUrlExpiresAt 一律
+    // toISOString()::timestamp（PG 对 timestamp 忽略 Z 后缀取 UTC 墙钟，round-trip 精确）。消费面=
+    // upstream resolveCallUrl 新鲜判定+T12 materialize 源过期重试判据——漂移即判错方向。
     const media = await tx.media.findUniqueOrThrow({ where: { bucket_key: { bucket: 'flowai', key: params.key } } });
     if (params.projectId) {
       await tx.mediaFactOutbox.createMany({

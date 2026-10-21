@@ -1,21 +1,30 @@
-// apps/api/src/modules/artifact-core/artifact-commit.service.ts —— Y1a+Y1b T10（spec Z18''-v14 ②③④⑥⑦）：
-// ArtifactCommitService=资金路径（text/image/edit/lighting；video=T12 kind 分支另补）唯一 finalize
+// apps/api/src/modules/artifact-core/artifact-commit.service.ts —— Y1a+Y1b T10（spec Z18''-v14 ②③④⑥⑦）
+// +T12 video kind 分支（裁决①/⑮/㉔-2/㉔-3）：
+// ArtifactCommitService=资金路径（text/image/edit/lighting/video）唯一 finalize
 // 编排器——image 同步链（stageInTx 短事务 durable 化→SafeRemoteFetch 下载→服务端自算 sha256+sniff
 // →MinIO content-addressed key 上传→finalize 单事务）；finalize 事务序列（锁序契约 20：先 lockBalance
 // 再碰 intent——ABBA 死锁防线；幂等检查在 CAS 前；NodeArtifact casUpsert→intent CAS→settleInTx
 // 失败整体回滚；40P01/40001/55P03/P2024 有界重试+jitter）。
 //
+// video=finalize-first（T12）：provider 成功即 settle+finalize（资金流与 image 零 delta——只换交付载荷
+// =fileId 交付 mediaId）；finalize 事务内经 registerInTx 建 Media(processing,sourceUrl 专用列+预分配
+// key)——建行不 stage 字节（㉔-3，区别于 image 系 stage→上传→finalize 提升模式）；NodeArtifact
+// state=materializing；materialize 异步归 MaterializeJob（materialize-job.service.ts——自有
+// processingLeaseUntil/processingAttempts 退避与 intent attempts/rearm 彻底解耦；终态失败幂等补偿退款
+// +artifactState=failed+errorCode=MATERIALIZE_FAILED——不清 fileId）。
+//
 // 资金独立判（NodeArtifact CAS 0 行=superseded 时）：intent CAS 成功∧provider 成功→照常 settle、
 // 产物入素材库（Media 行保留——用户从素材库取）；intent CAS 失败（新代接管/终态）→不 settle、
 // void 旧冻结。禁「CAS 失败静默丢产物」与「无条件退款」两错分支。
 //
-// kind 分支（v13b）：text=跳过 Media（NodeArtifact resultText/state=stored）；image/edit/lighting=
-// stage 行 finalize 提升 completed；video=T12（本卡零动作）。
+// kind 分支（v13b+T12）：text=跳过 Media（NodeArtifact resultText/state=stored）；image/edit/lighting=
+// stage 行 finalize 提升 completed；video=finalize 事务内建 Media(processing)+state=materializing
+// ——materialize 异步（MaterializeJob），本服务不物化字节。
 // 资金 quota=软限：finalize 不因 quota 回滚（钱已付 provider）；registerInTx 禁调 assertOnConfirm
-// +事务内禁外部 IO（下载/上传全在 finalize 事务之前）。
+// +事务内禁外部 IO（下载/上传全在 finalize 事务之前——video 的下载更在 finalize 之后）。
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import type { Media, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -79,6 +88,24 @@ export interface FinalizeTextParams {
   resultText: string;
 }
 
+/** T12 video kind 分支入参（finalize-first——spec 裁决①/⑮：provider 成功即 settle+finalize，
+ *  交付载荷只换 fileId=mediaId；字节物化归 MaterializeJob 异步）。 */
+export interface FinalizeVideoParams {
+  projectId: string;
+  nodeId: string;
+  teamId: string;
+  userId: string;
+  intentRowId: string;
+  execSeq: bigint;
+  expectedRev: number;
+  /** provider 结果源 URL——Media(processing).sourceUrl 专用列（materialize 下载源+processing 期 content 代理源）。 */
+  sourceUrl: string;
+  /** provider 声明 MIME（缺省 video/mp4——与 provider 结果 CDN 声明档对齐）。 */
+  sourceMimeType?: string | null;
+  sourceUrlExpiresAt?: Date;
+  artifactIndex?: number;
+}
+
 /** finalize 三态出口（调用方据此分派 doc 交付：superseded=不覆盖用户值；intent-stale=零交付）。
  *  不变量（质评收口 Important#1——消费方 mediaId!/key! 断言的依据，幂等路径回填保成立）：
  *  image 系（commitImage）的 committed/superseded 必携 mediaId+key——首程来自 stage/上传描述符，
@@ -100,10 +127,13 @@ interface FinalizeParams {
   execSeq: bigint;
   expectedRev: number;
   kind: string;
-  /** intent.resultRef 写入值（image=mediaId；text=`text:` 截断占位——既有语义）。 */
+  /** intent.resultRef 写入值（image=mediaId；text=`text:` 截断占位——既有语义；video=mediaId〔行在
+   *  事务内建，completeInTx 实参取 videoMedia.id——本字段 video 不消费〕）。 */
   resultRef: string;
-  /** image 系：stage 行提升描述符（text 不传=跳过 Media）。 */
+  /** image 系：stage 行提升描述符（text/video 不传——video 建行不提升）。 */
   media?: { mediaId: string; projectId: string; key: string; sha256: string; mimeType: string; sniffedMimeType: string | null; size: number; originalName: string };
+  /** T12 video：finalize 事务内 registerInTx 建行参数（Media(processing)+sourceUrl 专用列+预分配 key）。 */
+  video?: { sourceUrl: string; sourceMimeType?: string | null; sourceUrlExpiresAt?: Date };
   resultText?: string;
   artifactIndex: number;
 }
@@ -209,6 +239,28 @@ export class ArtifactCommitService {
     });
   }
 
+  /** T12 video kind 分支（finalize-first）：finalize 单事务=registerInTx 建 Media(processing, sourceUrl
+   *  专用列+预分配 key+同事务 processing fact)+NodeArtifact state=materializing+intent CAS(resultRef=
+   *  mediaId)+settle/complete+投影/binding（fileId 交付 mediaId）——事务内零 IO（下载归 MaterializeJob
+   *  异步，与 image 系 stage→上传→finalize 提升模式相反：建行不 stage 字节〔㉔-3〕）。
+   *  幂等预检同 commitImage（已 SUCCEEDED∧锚行在 ⇒ 回填零重建）。 */
+  async finalizeVideo(params: FinalizeVideoParams): Promise<CommitOutcome> {
+    const artifactIndex = params.artifactIndex ?? 0;
+    const early = await this.idempotentOutcome(params.intentRowId, params.execSeq, artifactIndex);
+    if (early) return early;
+    return this.finalize({
+      projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId, userId: params.userId,
+      intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
+      kind: 'video', resultRef: '',   // 实参=事务内 videoMedia.id（行在 finalize 事务内建——见 finalizeInTx）
+      video: {
+        sourceUrl: params.sourceUrl,
+        sourceMimeType: params.sourceMimeType ?? 'video/mp4',
+        sourceUrlExpiresAt: params.sourceUrlExpiresAt ?? new Date(Date.now() + ARTIFACT_SOURCE_URL_TTL_MS),
+      },
+      artifactIndex,
+    });
+  }
+
   /** finalize 单事务（短事务目标 <50ms；锁序=契约 20）：ledgerTx→lockBalance(teamId)〔首句〕→
    *  intent FOR UPDATE 重验→幂等检查（CAS 前）→NodeArtifact casUpsert→intent CAS（completeInTx
    *  count===1 唯一凭据）→Media 提升/binding/投影→settleInTx（失败整体回滚）→commit。
@@ -271,49 +323,88 @@ export class ArtifactCommitService {
           : null;
         return { outcome: 'committed', mediaId: existing.mediaId ?? undefined, key: mediaRow?.key ?? undefined };
       }
-      // 产物行已被 replace 改锚（T11）——幂等短路不动槽位；但 image 系本轮 stage/上传描述符就在
-      // 作用域——回填 mediaId/key（质评复审 Important 残留：否则三消费方 mediaId!/key! 落 undefined，
-      // 违反头注「image 系 committed 必携」不变量；text 不传 media 自然 undefined）
+      // 产物行已被 replace 改锚（T11）——幂等短路不动槽位；本轮产物描述符就在作用域——回填 mediaId/key
+      //（质评复审 Important 残留：否则三消费方 mediaId!/key! 落 undefined，违反头注「committed 必携」
+      // 不变量；image=本轮 stage/上传描述符，video=资金锚 Media 行回填〔行在——registerInTx 复用锚〕，
+      // text 不传 media 自然 undefined）。
+      if (params.kind === 'video') {
+        const anchored = await tx.media.findFirst({
+          where: { sourceIntentRowId: params.intentRowId, sourceExecSeq: params.execSeq, artifactIndex: params.artifactIndex },
+          orderBy: { createdAt: 'asc' },
+        });
+        return { outcome: 'committed', mediaId: anchored?.id, key: anchored?.key };
+      }
       return { outcome: 'committed', mediaId: params.media?.mediaId, key: params.media?.key };
     }
     if (rows[0].status !== 'RUNNING' || rows[0].execSeq !== params.execSeq) {
       throw new IntentStaleSignal(`行终态(${rows[0].status})/换代`);
     }
 
-    // ── NodeArtifact CAS（0 行=superseded：生成在飞用户 replace/新代——不更新不投影槽位） ──
+    // ── T12 video：finalize 事务内建行（㉔-3 建行不 stage 字节）——registerInTx（ON CONFLICT 资金锚
+    //    复用幂等）落 Media(processing)+sourceUrl 专用列+预分配 base key+同事务 processing fact；
+    //    materialize 由 MaterializeJob 按 mediaId 异步接管（自有 lease/attempts——与 intent 解耦）。 ──
+    let videoMedia: Media | null = null;
+    if (params.kind === 'video') {
+      const v = params.video!;
+      videoMedia = await this.registration.registerInTx(tx, {
+        userId: params.userId, teamId: params.teamId, projectId: params.projectId, nodeId: params.nodeId,
+        key: artifactObjectKeyBase(params.teamId, params.intentRowId, params.execSeq, params.artifactIndex),
+        sourceUrl: v.sourceUrl,
+        sourceUrlExpiresAt: v.sourceUrlExpiresAt ?? new Date(Date.now() + ARTIFACT_SOURCE_URL_TTL_MS),
+        mimeType: v.sourceMimeType ?? 'video/mp4',
+        originalName: `ai-${params.nodeId}.mp4`,
+        sourceIntentRowId: params.intentRowId, sourceExecSeq: params.execSeq, artifactIndex: params.artifactIndex,
+      });
+    }
+    const artifactMediaId = params.media?.mediaId ?? videoMedia?.id ?? null;
+
+    // ── NodeArtifact CAS（0 行=superseded：生成在飞用户 replace/新代——不更新不投影槽位；
+    //    video 胜者态=materializing〔㉔-2〕——materialize 成功升 stored/终态失败 failed 归 MaterializeJob） ──
     const cas = await this.nodeArtifacts.casUpsert(tx, {
       projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId,
       targetField: targetFieldOfKind(params.kind),
-      expectedRev: params.expectedRev, source: 'generated', state: 'stored',
-      mediaId: params.media?.mediaId ?? null, resultText: params.resultText ?? null,
+      expectedRev: params.expectedRev, source: 'generated',
+      state: params.kind === 'video' ? 'materializing' : 'stored',
+      mediaId: artifactMediaId, resultText: params.resultText ?? null,
       sourceIntentRowId: params.intentRowId, sourceExecSeq: params.execSeq, artifactIndex: params.artifactIndex,
     });
 
-    // ── intent CAS（RUNNING∧execSeq→SUCCEEDED；count===1 唯一凭据——失败即整体回滚+外层 void） ──
-    const gated = await this.intents.completeInTx(tx, params.intentRowId, params.resultRef, params.execSeq);
+    // ── intent CAS（RUNNING∧execSeq→SUCCEEDED；count===1 唯一凭据——失败即整体回滚+外层 void）。
+    //    resultRef：image=mediaId、text=占位、video=mediaId（video 产物锚=mediaId——T12 起 doc 交付键
+    //    唯一 fileId，旧链 resultRef=URL 退役）。 ──
+    const gated = await this.intents.completeInTx(
+      tx, params.intentRowId,
+      videoMedia ? videoMedia.id : params.resultRef,
+      params.execSeq,
+    );
     if (gated !== 1) throw new IntentStaleSignal('intent CAS 0 命中');
 
     if (cas.won) {
       if (params.media) {
         // Media 状态提升（processing→completed 补 key/sha/size/sniff）+binding current-state upsert
         await this.registration.completeRegisteredInTx(tx, params.media);
+      }
+      if (params.media || videoMedia) {
+        const boundId = artifactMediaId!;
         await this.registration.bindInTx(tx, {
-          mediaId: params.media.mediaId, projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId,
+          mediaId: boundId, projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId,
           role: 'primary', targetField: targetFieldOfKind(params.kind), targetItemId: '',
         });
       }
+      // video 不提升 Media（processing 维持——materialize 异步物化；superseded 亦然：产物入素材库，
+      // MaterializeJob 按 claim 条件〔status=processing∧video mime〕照常接管）。
       await tx.artifactProjection.createMany({
         data: [{
           artifactId: cas.artifactId, artifactRev: cas.rev, projectId: params.projectId, nodeId: params.nodeId,
           targetField: targetFieldOfKind(params.kind), targetItemId: '',
-          mediaId: params.media?.mediaId ?? null, resultText: params.resultText ?? null, state: 'pending',
+          mediaId: artifactMediaId, resultText: params.resultText ?? null, state: 'pending',
         }],
         skipDuplicates: true,
       });
     } else {
       // superseded：不更新不投影槽位——投影行记 superseded（槽位当前 rev 锚，T15 poller 终态免投）。
-      // 产物照常入素材库（资金独立判：provider 成功∧intent CAS 成功——Media 状态提升保留，用户从
-      // 素材库取；禁「CAS 失败静默丢产物」）。
+      // 产物照常入素材库（资金独立判：provider 成功∧intent CAS 成功——Media 状态提升保留〔image〕/
+      // processing 维持〔video——materialize 照常物化〕，用户从素材库取；禁「CAS 失败静默丢产物」）。
       if (params.media) await this.registration.completeRegisteredInTx(tx, params.media);
       await tx.artifactProjection.createMany({
         data: [{
@@ -334,6 +425,10 @@ export class ArtifactCommitService {
       this.logger.warn(`[finalize] 意图 ${params.intentRowId} settle 未达核销（settled:false——冻结灭失/并发已核销？对账第四分支兜底）`);
     }
 
-    return { outcome: cas.won ? 'committed' : 'superseded', mediaId: params.media?.mediaId, key: params.media?.key };
+    return {
+      outcome: cas.won ? 'committed' : 'superseded',
+      mediaId: params.media?.mediaId ?? videoMedia?.id,
+      key: params.media?.key ?? videoMedia?.key,   // video=key 预分配 base（content-addressed 后缀归 materialize）
+    };
   }
 }
