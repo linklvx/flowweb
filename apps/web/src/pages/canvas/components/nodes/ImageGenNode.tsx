@@ -905,8 +905,10 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       } else if (p.fileId) {
         // Y1a T11 裁定（不变量：每个用户可见 fileId 变更恰一次权威写入）：AI 生成物=服务端
         // commitImage 交付（T10 ai-image-edit.processor finalize 直写 doc fileId+NodeArtifact
-        // rev+1）——客户端仅本地 UI（fileId 本地渲染态，doc 零写——服务端写经 Yjs 回流收敛）；
-        // 禁再走 replaceMedia（双写 rev+expectedRev 必过期 409）
+        // rev+1）——客户端仅本地 UI（fileId 本地渲染态，doc 零写——服务端写经 Yjs 回流收敛）。
+        // 禁再走 replaceMedia：顺序场景 GET 恰取 finalize 后新 rev → POST CAS 胜出 → NodeArtifact
+        // rev 再 +1=同一变更第二次权威写入（恰一次不变量破）；交错场景（GET 先于 finalize）则
+        // expectedRev 过期 409——两形态皆错，非仅 409 面问题
         applyDataPatchToStores(id, { fileId: p.fileId });
         updateConfig(id, { editMode: null });
         useNodeStore.getState().setActiveEditNodeId(null);

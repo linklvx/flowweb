@@ -11,7 +11,7 @@
 // 鉴权：POST=assertEditorWithTeam（编辑权+teamId 固化）；GET=项目成员门（resolve→null 403）。
 // 409 载体=BusinessException errorCode（HttpExceptionFilter 线形态 {code:-1,...,errorCode}——
 // 客户端判 errorCode=ARTIFACT_REV_CONFLICT 复读槽位重试一轮完成）。
-import { Body, Controller, ForbiddenException, Get, HttpStatus, Inject, NotFoundException, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpStatus, Inject, Logger, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { DocWriteOp } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -20,6 +20,10 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
+
+/** expectedRev 上界（Minor#2）：无槽位行走 INSERT rev=expectedRev+1——上界 2^31-2 使新 rev 恰容
+ *  PG int4 max（2^31-1）；超出=确定 400 归 BAD_BODY（防 22003 溢出→500 噪声）。 */
+export const MAX_EXPECTED_REV = 2_147_483_646;
 
 /** POST body 判别联合（进门自持窄化——wire 形态文档）：replace 携用户上传的新 mediaId；clear 只携期望 rev。 */
 export type MediaCommandBody =
@@ -34,13 +38,16 @@ export interface MediaSlotState {
 
 export interface MediaCommandResult {
   action: 'replace' | 'clear';
-  /** 胜者新 rev（=expectedRev+1）——客户端下次命令的 expectedRev 来源（免 GET 往返）。 */
+  /** 胜者新 rev（=expectedRev+1）。注：客户端命令封装（web collabApi.runMediaCommand）现恒先 GET
+   *  槽位取 rev——本字段不承诺「免 GET 往返」（保守 GET 在 409 重试路径外亦取到最新 rev）。 */
   rev: number;
   mediaId: string | null;
 }
 
 @Controller('api/projects/:projectId/collab/nodes/:nodeId/media')
 export class CollabMediaController {
+  private readonly logger = new Logger(CollabMediaController.name);
+
   constructor(
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -86,17 +93,19 @@ export class CollabMediaController {
     const isReplace = body?.action === 'replace';
     if (
       body === null || typeof body !== 'object'
-      || typeof expectedRev !== 'number' || !Number.isInteger(expectedRev) || expectedRev < 0
+      || typeof expectedRev !== 'number' || !Number.isInteger(expectedRev) || expectedRev < 0 || expectedRev > MAX_EXPECTED_REV
       || (isReplace ? typeof body.mediaId !== 'string' || body.mediaId === '' : body.action !== 'clear')
     ) {
-      throw new BusinessException('MEDIA_COMMAND_BAD_BODY', 'body 须为 {action:"replace",mediaId:string,expectedRev:int≥0} 或 {action:"clear",expectedRev:int≥0}');
+      throw new BusinessException('MEDIA_COMMAND_BAD_BODY', `body 须为 {action:"replace",mediaId:string,expectedRev:int 0..${MAX_EXPECTED_REV}} 或 {action:"clear",expectedRev:int 0..${MAX_EXPECTED_REV}}`);
     }
     const mediaId = isReplace ? (body.mediaId as string) : null;
 
     if (isReplace) {
-      // 读侧 ACL 团队级（Z7''-v14）的写面同构：跨队 mediaId 引用拒（恶意客户端绑定他队资产）
-      const media = await this.prisma.media.findUnique({
-        where: { id: mediaId as string },
+      // 读侧 ACL 团队级（Z7''-v14）的写面同构：跨队 mediaId 引用拒（恶意客户端绑定他队资产）。
+      // 软删（deletedAt）在读侧视为不存在（media.service content 404 同口径——质评 Important#1）：
+      // 绑定软删 mediaId 会 binding+doc fileId 落地成功而渲染永久 404=「绑定即可读」不变量破。
+      const media = await this.prisma.media.findFirst({
+        where: { id: mediaId as string, deletedAt: null },
         select: { teamId: true },
       });
       if (!media) throw new NotFoundException('媒体不存在');
@@ -141,11 +150,16 @@ export class CollabMediaController {
     });
 
     // ── doc 过渡期直写（T15 投影 poller 未建前保交付——writeBatch throw=基础设施级：PG 已权威提交，
-    //    pending 投影行在案由 poller/重试收敛，本命令不回滚 PG（CAS 权威面不因投影基础设施回退））。──
+    //    pending 投影行在案由 poller/重试收敛，本命令不回滚 PG（CAS 权威面不因投影基础设施回退））。
+    //    质评 Minor#3：written:false（node 并发删除——Z44 守卫）禁静默成功，至少 warn 留痕
+    //    （收敛归 T15 投影循环按 node 删→orphaned）。──
     const ops: DocWriteOp[] = isReplace
       ? [{ op: 'writeNodeData', nodeId, patch: { fileId: mediaId } }]
       : [{ op: 'deleteNodeDataKeys', nodeId, keys: ['fileId'] }];
-    await this.docWriter.writeBatch(projectId, ops);
+    const results = await this.docWriter.writeBatch(projectId, ops);
+    if (results[0] && !results[0].written) {
+      this.logger.warn(`[media-command] doc 写未落（reason=${results[0].reason ?? 'unwritten'}）——node=${nodeId} action=${isReplace ? 'replace' : 'clear'} rev=${cas.rev}：PG 已权威提交，投影 pending 行在案（T15 orphan 收敛）`);
+    }
 
     return { action: isReplace ? 'replace' : 'clear', rev: cas.rev, mediaId };
   }

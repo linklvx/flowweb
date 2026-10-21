@@ -81,7 +81,7 @@ export type MediaCommandBody =
 
 export interface MediaCommandResult {
   action: 'replace' | 'clear';
-  /** 胜者新 rev——后续命令的 expectedRev 来源（免 GET 往返） */
+  /** 胜者新 rev（=expectedRev+1）。实现恒先 GET 槽位取 rev（保守写法——本字段不承诺免 GET 往返） */
   rev: number;
   mediaId: string | null;
 }

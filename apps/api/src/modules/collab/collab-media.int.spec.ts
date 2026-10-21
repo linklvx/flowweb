@@ -9,7 +9,7 @@
 //   ④GET 槽位状态：{targetField,rev,mediaId}——客户端初始 expectedRev 来源；
 //   ⑤权限：VIEWER→403；跨团队 mediaId→403（读侧 ACL 团队级 Z7''-v14 的写面同构）。
 // 红形态（改前可复现）：CollabMediaController 全仓不存在（编译级红）；doc 写面零接入。
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
@@ -230,6 +230,51 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       await expect(
         controller.getSlot(PID, NODE, { user: { id: `int-t11-stranger-${randomUUID().slice(0, 6)}` } } as never),
       ).rejects.toMatchObject({ status: 403 });
+    });
+  });
+
+  // ════════ 质评收口（Important#1 软删 media + Minor#2 expectedRev 上界 + Minor#3 written:false 留痕）════════
+  describe('质评收口', () => {
+    it('红①软删 media replace 拒（Important#1）：deletedAt 行 → 404 媒体不存在+槽位/投影零变更（「绑定即可读」不变量——软删 content 读侧 404，绑定落地=渲染永久 404）', async () => {
+      const nodeId = `n-softdel-${randomUUID().slice(0, 6)}`;
+      await seedSlot(nodeId, 1, MEDIA_OLD);
+      const softDeleted = await prisma.media.create({
+        data: { userId: UID, teamId: TID, key: `int-t11/softdel-${randomUUID().slice(0, 6)}`, originalName: 'softdel.png', mimeType: 'image/png', size: 1_000, type: 'uploaded', status: 'completed', deletedAt: new Date() },
+      });
+      await expect(
+        controller.command(PID, nodeId, { action: 'replace', mediaId: softDeleted.id, expectedRev: 1 }, { user: { id: UID } } as never),
+      ).rejects.toMatchObject({ status: 404 });
+      const row = await slotRow(nodeId);
+      expect(row!.rev).toBe(1);                    // 槽位不被覆盖
+      expect(row!.mediaId).toBe(MEDIA_OLD);
+      const binding = await prisma.mediaBinding.findFirst({ where: { projectId: PID, nodeId } });
+      expect(binding).toBeNull();                  // 软删不建 binding
+    });
+
+    it('红②expectedRev 上界（Minor#2）：2^31-1 → 400 MEDIA_COMMAND_BAD_BODY（防无槽位 INSERT rev=2^31 溢出 int4→22003→500 噪声）；上界内 2^31-2 合法（INSERT rev=2147483647 恰容）', async () => {
+      const nodeId = `n-overflow-${randomUUID().slice(0, 6)}`;   // 无槽位行——INSERT 分支才触溢出面
+      await expect(
+        controller.command(PID, nodeId, { action: 'clear', expectedRev: 2_147_483_647 }, { user: { id: UID } } as never),
+      ).rejects.toMatchObject({ status: 400, errorCode: 'MEDIA_COMMAND_BAD_BODY' });
+      expect(await slotRow(nodeId)).toBeNull();    // 400 在 PG 之前——零行零副作用
+      // 上界内恰容：2^31-2 → INSERT rev=2147483647=int4 max
+      const okNodeId = `n-boundary-${randomUUID().slice(0, 6)}`;
+      const r = await controller.command(PID, okNodeId, { action: 'clear', expectedRev: 2_147_483_646 }, { user: { id: UID } } as never);
+      expect(r.rev).toBe(2_147_483_647);
+    });
+
+    it('红③doc 写 written:false（node 并发删除——doc 无此节点 Z44 守卫）→ logger.warn 留痕（Minor#3——禁静默成功；投影 pending 行在案归 T15 orphan 收敛）', async () => {
+      const nodeId = `n-gone-${randomUUID().slice(0, 6)}`;   // 槽位在 PG、节点不在 doc（并发删除形态）
+      await seedSlot(nodeId, 1, MEDIA_OLD);
+      const warnSpy = vi.spyOn((controller as any).logger, 'warn');
+      try {
+        const r = await controller.command(PID, nodeId, { action: 'replace', mediaId: MEDIA_NEW, expectedRev: 1 }, { user: { id: UID } } as never);
+        expect(r.rev).toBe(2);                     // PG 权威面照常成功（CAS 不因投影基础设施回退）
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(String(warnSpy.mock.calls[0])).toContain('node-deleted');
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });
