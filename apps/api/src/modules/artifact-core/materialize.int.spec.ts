@@ -260,10 +260,17 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     expect((await prisma.generationIntent.findUnique({ where: { id: s.intentId } }))!.status).toBe('VOIDED');
     expect(await ledgerRows(s.intentId, 'refund')).toHaveLength(1);
     expect(await balanceOf()).toBe(balanceBefore + PRICING.creditCost);
-    // 告警面（emit errorCode=MATERIALIZE_FAILED——WS 推送非 doc 写）
+    // 告警面（emit errorCode=MATERIALIZE_FAILED——api-role/单进程形态下有义；worker 进程=计数 no-op）
     expect(fakeEmit.emitNodeStatus).toHaveBeenCalledWith(PID, expect.objectContaining({
       nodeId: s.nodeId, status: 'error', error: expect.stringContaining('MATERIALIZE_FAILED'),
     }));
+    // P1：errorCode durable 进事实流（failed fact payload——T16 pendingFacts 消费=UI 失败/重试真实通道；
+    // worker EmitPort=no-op，事实流是双进程拓扑下唯一可达载道）
+    const failedFact = await prisma.mediaFactOutbox.findFirst({
+      where: { mediaId: s.mediaId, factType: 'state' }, orderBy: { factVersion: 'desc' },
+    });
+    expect((failedFact!.payload as any)).toMatchObject({ status: 'failed', errorCode: 'MATERIALIZE_FAILED' });
+    expect((failedFact!.payload as any).error).toEqual(expect.stringContaining('MATERIALIZE_FAILED'));   // intent.error 同源锚
   });
 
   it('终态失败（attempts 耗尽）补偿退款幂等：重跑退款恰一次（rollbackDeliveryFailed CAS 语义）', async () => {
@@ -286,5 +293,45 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     expect(await balanceOf()).toBe(balanceAfterFirst);
     expect(fakeEmit.emitNodeStatus).toHaveBeenCalledTimes(1);
     expect((await anchoredArtifact(s))!.state).toBe('failed');
+  });
+
+  it('P2-② lease fence：旧代 lease 过期被新代接管 → 旧代 fail/终态写回 0 行——不清新代 lease/不叠 attempts/不投退避/零退款', async () => {
+    // ── 瞬态面：旧代迟归失败写回被 lease CAS 拦截 ──
+    const s1 = await seedMaterializing();
+    const gen1 = await job.claim();
+    const row1 = gen1.find((r: Media) => r.id === s1.mediaId)!;
+    expect(row1.processingLeaseUntil).toBeTruthy();   // 本代 lease（claim 置位——写回 CAS 锚）
+    // 模拟 lease 过期+新代接管（旧 worker 仍在下载中——长视频窗）
+    await prisma.media.update({ where: { id: s1.mediaId }, data: { processingLeaseUntil: new Date(Date.now() - 1_000) } });
+    const gen2 = await job.claim();
+    const row2 = gen2.find((r: Media) => r.id === s1.mediaId)!;
+    const newLease = row2.processingLeaseUntil!;
+    expect(newLease.getTime()).not.toBe(row1.processingLeaseUntil!.getTime());
+    fakeFetch.fetchBuffer.mockReset();
+    fakeFetch.fetchBuffer.mockRejectedValue(new Error('safe-fetch HTTP 410'));
+    const r1 = await job.materializeRow(row1);   // 旧代迟归失败
+    expect(r1).toBe('fenced');                    // 旧红：现状写回命中（status-only 守卫）→ 'retry-scheduled' 污染新代
+    const media1 = await prisma.media.findUnique({ where: { id: s1.mediaId } });
+    expect(media1!.processingAttempts).toBe(0);                                 // 不叠计数
+    expect(media1!.nextMaterializeAt).toBeNull();                               // 不投退避（新代正持有）
+    expect(media1!.processingLeaseUntil!.getTime()).toBe(newLease.getTime());   // 新代 lease 不被清（并发双下载窗根修）
+    expect(media1!.status).toBe('processing');
+    expect((await prisma.generationIntent.findUnique({ where: { id: s1.intentId } }))!.status).toBe('SUCCEEDED');   // 零资金动作
+    // ── 终态面：旧代 attempts 耗尽的迟归终态——lease 失守即放弃（不退款不置 failed）──
+    const s2 = await seedMaterializing();
+    await prisma.media.update({ where: { id: s2.mediaId }, data: { processingAttempts: MATERIALIZE_MAX_ATTEMPTS - 1 } });
+    const g1 = await job.claim();
+    const old2 = g1.find((r: Media) => r.id === s2.mediaId)!;
+    await prisma.media.update({ where: { id: s2.mediaId }, data: { processingLeaseUntil: new Date(Date.now() - 1_000) } });
+    const g2 = await job.claim();   // 新代接管 s2
+    expect(g2.some((r: Media) => r.id === s2.mediaId)).toBe(true);
+    const r2 = await job.materializeRow(old2);   // 旧代 attempts=MAX 迟归 → 终态路径
+    expect(r2).toBe('fenced');                    // 旧红：现状照发退款+置 failed——新代在飞被终结
+    const media2 = await prisma.media.findUnique({ where: { id: s2.mediaId } });
+    expect(media2!.status).toBe('processing');
+    expect(media2!.processingAttempts).toBe(MATERIALIZE_MAX_ATTEMPTS - 1);   // 不叠计数
+    expect(await ledgerRows(s2.intentId, 'refund')).toHaveLength(0);          // 终态退款也不发（lease 失守放弃）
+    expect((await prisma.generationIntent.findUnique({ where: { id: s2.intentId } }))!.status).toBe('SUCCEEDED');
+    expect((await anchoredArtifact(s2))!.state).toBe('materializing');        // 不被旧代终结
   });
 });
