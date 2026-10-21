@@ -131,8 +131,9 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
     const execSvc: any = new (ExecutionService as any)(
-      prisma, topology, validation, apiCaller, teamCredit, perm, collab, docWriterStubOf(collab), gateway, downloadQueue, intentService,
+      prisma, topology, validation, apiCaller, teamCredit, perm, collab, docWriterStubOf(collab), gateway, intentService,
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // upstreamMedia（Y1a T8——regenerate 上游 textInput 不触 reader）
+      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn(async (p: any) => { succeeded.set(`${p.nodeId}:${undefined}`, p.sourceUrl); return { outcome: 'committed', mediaId: `media:${p.nodeId}` }; }) },   // T12：video finalize-first（replay 幂等闭环锚——resultRef=mediaId）
     );
     const vsvc = new VideoProjectService(
       { videoProject: { findUnique: vi.fn() } } as any, perm as any, collab as any, execSvc as any, { assertCanUpload: vi.fn() } as any,

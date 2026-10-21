@@ -26,7 +26,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 
 // G-1 真实执行链共享依赖（真 prisma/resolver/validation/teamCredit/perm/intentService——
-// stub 仅 collabDoc/gateway/downloadQueue/apiCaller 外呼面：零真外呼+零真协作面）
+// stub 仅 collabDoc/gateway/apiCaller 外呼面：零真外呼+零真协作面（T12：downloadQueue 形参退役））
 const resolver = new PricingResolverService(prisma as unknown as PrismaService);
 const validation = new ValidationService(prisma as unknown as PrismaService, resolver);
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
@@ -141,7 +141,6 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       collabDoc as any,
       docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
       { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
-      { add: async () => {} } as any,
       intentService,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentService).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
@@ -182,7 +181,6 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       collabDoc as any,
       docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
       { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
-      { add: async () => {} } as any,
       intentService,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentService).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）

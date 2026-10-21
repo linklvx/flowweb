@@ -226,10 +226,9 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       port,                                                                                               // collabDoc=Http 形态（503 注入）
       docWriterStubOf(port) as any,                                                                       // docWriter（writeBatch 按 op 分派回端口）
       emitPort as any,                                                                                    // emit 端口
-      { add: vi.fn().mockResolvedValue(undefined) } as any,                                               // downloadQueue
       intentSvc as any,                                                                                   // intentService
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）
-      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) } as any,   // T10 artifactCommit（本用例焦点=503 全程投影面——stub 直通）
+      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }) } as any,   // T10/T12 artifactCommit（本用例焦点=503 全程投影面——stub 直通）
     );
     const errors: unknown[] = [];
     const results: unknown[] = [];

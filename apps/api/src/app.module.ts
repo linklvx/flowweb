@@ -27,7 +27,6 @@ import { VideoWorkModule } from './modules/video-work/video-work.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
-import { AiDownloadCoreModule } from './modules/ai-download/ai-download-core.module';
 import { AiImageEditCoreModule } from './modules/ai-image-edit/ai-image-edit-core.module';
 import { AiImageEditHttpModule } from './modules/ai-image-edit/ai-image-edit-http.module';
 import { TempCleanupModule } from './modules/temp-cleanup/temp-cleanup.module';
@@ -98,7 +97,6 @@ const env = validateEnv();
     CanvasModule,
     AuthModule,
     MediaModule,
-    AiDownloadCoreModule,
     TempCleanupModule,
     MaterialLibraryModule,
     AiImageEditCoreModule,

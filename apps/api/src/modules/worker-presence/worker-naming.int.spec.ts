@@ -10,7 +10,7 @@
 // 面——worker.module 头注①；feature 模块未被导入），moduleRef.get(queueToken) 抛 ⇒ catch 回落
 // forRoot 共享配置——配置无 prefix 键 ⇒ `prefix: queueOpts.prefix` 显式传 undefined ⇒
 // Object.assign({prefix:'bull'},{prefix:undefined}) 覆盖 ⇒ "undefined:" 命名。worker.module 自
-// registerQueue 的 5 队列（ai-result-download/video-trim/video-separate/双 close-expired）Queue
+// registerQueue 的队列（T12 后 video-trim/video-separate/双 close-expired——ai-result-download 已退役）Queue
 // 实例可解析（.opts.prefix='bull' QueueBase 默认）⇒ bull: 命名——服务器 12/5 分裂与清单一一对应。
 // 修复=forRoot 显式 prefix:'bull'（app.module+worker.module 两处——case C 源码结构断言执法）。
 // 本 spec 需本地 Redis（无门控——缺 Redis 即红是 fail-closed 设计，与 check-int-coverage 零跳过判据一致）。

@@ -76,7 +76,6 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     collabDoc,
     docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
     { emitNodeStatus: vi.fn() } as any,
-    { add: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
     makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
@@ -158,7 +157,7 @@ const statusOf = async (nodeId: string) =>
       prisma as unknown as PrismaService, new TopologyService(), validation, apiCaller, teamCredit, perm,
       { readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn() } as any,
       { writeBatch: vi.fn(async () => []) } as any,   // Y0c T8：CYCLE 循环前 throw——writeBatch 不可达
-      { emitNodeStatus: vi.fn() } as any, { add: vi.fn() } as any, intentSvc,
+      { emitNodeStatus: vi.fn() } as any, intentSvc,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
     );

@@ -186,13 +186,12 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
   });
 
   describe('Y0c T29-II（Z130②/裁决②③）：workers 维度挂 token 档 base——观测非门禁', () => {
-    it('三付费队列 {registered,waiting}（presence 供数）+base 三分支恒带（200 与 pg-down 503 同读）', async () => {
+    it('付费双队列 {registered,waiting}（presence 供数——T12 ai-result-download 退役）+base 三分支恒带（200 与 pg-down 503 同读）', async () => {
       const presence = { getPresence: vi.fn(async (q: string) => ({ registered: 2, waiting: q === 'execution' ? 3 : 0 })) };
       const r = await build({ presence }).svc.getReady();
       expect(r.body.workers).toEqual({
         execution: { registered: 2, waiting: 3 },
         'ai-image-edit': { registered: 2, waiting: 0 },
-        'ai-result-download': { registered: 2, waiting: 0 },
       });
       const down = await build({ pgOk: false, presence }).svc.getReady();
       expect(down.body.reason).toBe('pg-down');

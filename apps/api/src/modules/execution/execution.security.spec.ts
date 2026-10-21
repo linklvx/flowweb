@@ -8,7 +8,7 @@ import { ExecutionController } from './execution.controller';
  *  批0.5-9 起扣费=reserve（外呼前）；失败语义同构：writeNodeData 零调用。
  *  装置只驱动 execute 的 text/video 两分支；依赖全 mock。
  *  构造器参数序对齐 execution.service.ts：
- *  (prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, downloadQueue, intentService)。
+ *  (prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, intentService——T12 downloadQueue 形参退役)。
  *  intentService 默认放行 {created:true, intent:{id,intentId}}——批0.5-6 claim 接线的最小装置（F4 用例只关心产物序）。 */
 function makeService(reserveOk: boolean, nodes: any[]) {
   const prisma = {
@@ -47,7 +47,6 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
   };
   const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
-  const downloadQueue = { add: vi.fn() };
   const intentService = {
     claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
     complete: vi.fn().mockResolvedValue(1),
@@ -57,7 +56,7 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(
-    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, downloadQueue, intentService,
+    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, docWriterStubOf(collabDoc), gateway, intentService,
     { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // Y1a T8 upstreamMedia（本夹具无上游）
     { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) },   // T10 artifactCommit
   );

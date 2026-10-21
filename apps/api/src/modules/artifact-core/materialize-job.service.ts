@@ -392,7 +392,7 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
         });
       if (refunded) materializeRefundTotal.inc();
     }
-    let emitTarget: { projectId: string; nodeId: string } | null = null;
+    let emitTarget = null as { projectId: string; nodeId: string } | null;   // 闭包内赋值——显式宽化标注（TS 流分析不跟踪）
     const marked = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.media.updateMany({
         where: { id: row.id, status: 'processing' },   // 并发终态/完成——恰一胜者

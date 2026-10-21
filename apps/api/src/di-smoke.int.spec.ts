@@ -13,10 +13,10 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { describe, it, expect } from 'vitest';
 
 // ExecutionCoreModule/TeamModule 传递闭包上 BullModule.registerQueue 全集：
-// execution-core.module 4 + team.module 3 + subscription.module 3（经 TeamModule forwardRef RechargeModule→SubscriptionModule）
+// execution-core.module 3（T12：ai-result-download 退役）+ team.module 3 + subscription.module 3（经 TeamModule forwardRef RechargeModule→SubscriptionModule）
 // Y0c T23（Z98）：ai-image-edit 队列注册随 IntentReconcileService 迁 ExecutionDaemonModule（本套件不装）
 const CHAIN_QUEUES = [
-  'execution', 'ai-result-download', 'video-trim', 'video-separate',
+  'execution', 'video-trim', 'video-separate',
   'team-media-cleanup', 'team-recharge-close-expired', 'team-recharge-active-query',
   'banner-cleanup', 'subscription-close-expired', 'subscription-payment-success',
 ].map(getQueueToken);

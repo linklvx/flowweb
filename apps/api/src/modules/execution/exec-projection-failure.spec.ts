@@ -44,7 +44,6 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       { writeExecStatus: vi.fn().mockRejectedValue(new ServiceUnavailableException('collab not serving')) } as any,   // collabDoc
       {} as any,                                                                                                      // docWriter（onReserveFail 不触——Y0c T8 组批位）
       { emitNodeStatus } as any,                                                                                      // gateway
-      {} as any,                                                                                                      // downloadQueue
       { void_ } as any,                                                                                               // intentService
       {} as any,                                                                                                      // upstreamMedia（Y1a T8——onReserveFail 不触）
       {} as any,                                                                                                      // T10 artifactCommit（onReserveFail 不触）

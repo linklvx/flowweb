@@ -1,12 +1,14 @@
 // apps/api/src/worker.module.ts
 // Y0c T26（Z101/Z102/Z139；spec §0.6 偏离 30）：worker 进程装配面——**平铺 provider** 形态
-// （Core 模块〔Execution/AiImageEdit/AiDownload〕imports CollabModule/TeamModule，其 ES import 闭包
-// 含 14 个 controller 文件——census ⑰ 闭包执法〔Z131〕下不可被本模块导入；17 个 @Processor 文件
+// （Core 模块〔Execution/AiImageEdit〕imports CollabModule/TeamModule，其 ES import 闭包
+// 含 14 个 controller 文件——census ⑰ 闭包执法〔Z131〕下不可被本模块导入；16 个 @Processor 文件
 // 自身的传递闭包经实测全纯净 ⇒ processor+服务链直接列 providers）。main-worker.ts 引导序列消费。
 //
 // 装配面四件：
-//  ①processor 全集 17（grep @Processor 全仓清单——BullMQ Worker 创建由 explorer 按 @Processor 元
-//    数据+forRoot('default') 共享配置承担，registerQueue 仅服务 @InjectQueue 注入面）；
+//  ①processor 全集 16+DB poller 2（grep @Processor 全仓清单——T12 ai-download 退役后 16；
+//    BullMQ Worker 创建由 explorer 按 @Processor 元数据+forRoot('default') 共享配置承担，
+//    registerQueue 仅服务 @InjectQueue 注入面；DB poller〔MediaProbePoller/MaterializeJob〕走
+//    OnModuleInit 原生 setInterval——非 @Processor 面）；
 //  ②MetricsCoreModule（Z139——collectDefaultMetrics 全仓唯一调用点=MetricsService 构造器，进程内
 //    恰一次；worker 不装则 3002 无 process_*/nodejs_* 族）；
 //  ③端口形态三令牌：CollabWritePort=HttpCollabWritePort（baseUrl/token env 读——WORKER_READ 门
@@ -26,7 +28,7 @@ import { validateEnv } from './config/env';
 import { QUEUE_NAMES } from './config/queue.constants';
 // 求值序锚（必须先于下方 processor/服务块）：既有文件环 team-subscription ↔ team-recharge
 // （team-subscription:5 回引 generateTeamOrderNo）——TeamRechargeService 的 @Inject(
-// TeamSubscriptionService) 装饰求值要求后者已完成；若 processor 块（如 AiDownloadProcessor→
+// TeamSubscriptionService) 装饰求值要求后者已完成；若消费链（如 MaterializeJob→
 // StorageQuotaService→TeamSubscriptionService）先触发 subscription 半边，环回时该绑定未初始化
 // ⇒Nest 装饰元数据 undefined（resolve "?"）。先 import recharge 半边即安全（函数声明提升）。
 import { TeamRechargeService } from './modules/team/team-recharge.service';
@@ -48,15 +50,17 @@ import { VIDEO_TRIM_QUEUE, VIDEO_TRIM_CONNECTION } from './modules/execution/vid
 import { VideoSeparateService } from './modules/execution/video-separate.service';
 import { VideoSeparateProcessor } from './modules/execution/video-separate.processor';
 import { VIDEO_SEPARATE_QUEUE } from './modules/execution/video-separate.constants';
-// ── ai-image-edit/ai-download 链 ──
+// ── ai-image-edit 链（T12：ai-download 链退役——video materialize 归 MaterializeJob DB poller） ──
 import { AiImageEditProcessor } from './modules/ai-image-edit/ai-image-edit.processor';
 import { LightingConsumer } from './modules/ai-image-edit/lighting/lighting.consumer';
-import { AiDownloadProcessor } from './modules/ai-download/ai-download.processor';
 // T6：三处结果下载经 SafeRemoteFetch——MediaModule 闭包含 controller（census ⑰）不可导入，平铺注册（零依赖服务多实例语义等同）
 import { SafeRemoteFetchService } from './modules/media/safe-remote-fetch.service';
 // T7：probe 单相 poller（DB poller——sharp/ffprobe 上传路径重计算；同上闭包原因平铺注册，
 // 仅 worker 进程装配——API 进程不注册〔spec §3.1 进程拓扑〕；依赖=Prisma/Minio 均已 import）
 import { MediaProbePoller } from './modules/media/media-probe.poller';
+// T12：video materialize DB poller（MaterializeJob——ai-download processor/队列整体退役后的接替面；
+// 同 probe 形态：仅 worker 进程装配；依赖=Prisma/Minio/SafeRemoteFetch/TeamCredit/StorageQuota/EmitPort 均已 import）
+import { MaterializeJob } from './modules/artifact-core/materialize-job.service';
 // ── storyboard/material/temp-cleanup ──
 import { StitchConsumer } from './modules/storyboard/stitch.consumer';
 import { ThumbnailGeneratorConsumer } from './modules/material-library/consumers/thumbnail-generator.consumer';
@@ -106,7 +110,6 @@ const env = validateEnv();
     }),
     // worker 图内 @InjectQueue 消费面（ExecutionService/VideoTrim/VideoSeparate/PaymentSuccess/
     // TeamRecharge）——registerQueue 形态逐字对齐各源模块
-    BullModule.registerQueue({ name: 'ai-result-download' }),
     BullModule.registerQueue({ name: VIDEO_TRIM_QUEUE, configKey: VIDEO_TRIM_CONNECTION }),
     BullModule.registerQueue({
       name: VIDEO_SEPARATE_QUEUE,
@@ -132,7 +135,6 @@ const env = validateEnv();
     VideoSeparateProcessor,
     AiImageEditProcessor,
     LightingConsumer,
-    AiDownloadProcessor,
     StitchConsumer,
     ThumbnailGeneratorConsumer,
     TempCleanupProcessor,
@@ -147,8 +149,9 @@ const env = validateEnv();
     TeamCloseExpiredProcessor,
     // ── execution 链服务（processor 传递依赖平铺） ──
     ExecutionService,
-    SafeRemoteFetchService,   // T6：ai-download/ai-image-edit/lighting 下载原语（SSRF 四门+限长）
+    SafeRemoteFetchService,   // T6：ai-image-edit/lighting/materialize 下载原语（SSRF 四门+限长）
     MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
+    MaterializeJob,           // T12：video materialize DB poller（SKIP LOCKED claim/lease 退避+终态失败幂等补偿退款）
     GenerationIntentService,
     NodeArtifactService,   // T10：claimCapture 依赖（zero-dep——ArtifactCoreModule 闭包含 TeamModule controller，worker 平铺先例=SafeRemoteFetchService）
     MediaRegistrationService,   // T10：唯一 Media 写入点（registerInTx stage durable——ArtifactCommit 消费）

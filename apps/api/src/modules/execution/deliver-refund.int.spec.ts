@@ -260,7 +260,7 @@ const agePastGrace = async (id: string) =>
   // ── 交付退款（written:false → rollbackDeliveryFailed——Z64/Z92）+A-1 lighting 双 reserve ──
   // 嵌套 describe 共享外层脚手架（单一 beforeAll/afterAll——外层 cleanup 后内层重建必炸 FK）。
   // ExecutionService 真链装置（funds-four-way 形态）：真 prisma/validation/teamCredit/perm/intentService；
-  // stub 仅 collabDoc（writeNodeData 可编程 written:false——交付判据）/gateway/downloadQueue/apiCaller。
+  // stub 仅 collabDoc（writeNodeData 可编程 written:false——交付判据）/gateway/apiCaller（T12：downloadQueue 形参退役）。
   describe('交付退款+A-1 lighting', () => {
     const resolver = new PricingResolverService(prisma as unknown as PrismaService);
     const validation = new ValidationService(prisma as unknown as PrismaService, resolver);
@@ -280,7 +280,6 @@ const agePastGrace = async (id: string) =>
         collabDoc as any,
         docWriterStubOf(collabDoc),   // Y0c T8：deliver+done 组批经 writeBatch（stub 分派回记录器——断言零改动）
         { emitNodeStatus: vi.fn() } as any,
-        { add: vi.fn() } as any,
         intentSvc,
         { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
         makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）

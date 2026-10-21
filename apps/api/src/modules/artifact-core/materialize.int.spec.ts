@@ -35,7 +35,7 @@ const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService
 
 // fake 基础设施（T10 fixture 桩模式——MinIO 上传产能+下载注入；资金/claim/事务面全真）
 const fakeMinio = { upload: vi.fn(async () => undefined) };
-const fakeFetch = { fetchBuffer: vi.fn(async () => ({ buffer: Buffer.alloc(0), contentType: null })) };
+const fakeFetch = { fetchBuffer: vi.fn(async () => ({ buffer: Buffer.alloc(0), contentType: null as string | null })) };
 const fakeEmit = { emitNodeStatus: vi.fn() };
 const fakeQuota = { assertCanUpload: vi.fn(async () => undefined) };
 const registration = new MediaRegistrationService(prisma as unknown as PrismaService, fakeMinio as any);

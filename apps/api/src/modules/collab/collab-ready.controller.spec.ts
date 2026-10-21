@@ -115,7 +115,7 @@ describe('CollabReadyController', () => {
 
   it('Y0c T29-II（Z130②/裁决③）：workers 维度进 token 授权档（additive 透传——V17/SV16 五键契约零破坏）；公开五键档不外泄', async () => {
     process.env.PROMETHEUS_TOKEN = 'tok';
-    const workers = { execution: { registered: 1, waiting: 0 }, 'ai-image-edit': null, 'ai-result-download': { registered: 1, waiting: 2 } };
+    const workers = { execution: { registered: 1, waiting: 0 }, 'ai-image-edit': null };
     const full = { ready: true, redis: 'up' as const, pending: PENDING, spoolQuarantined: 0, workers, collabProtocolVersion: 1 };
     readyMock.getReady.mockResolvedValue({ status: 200, body: full });
     const resAuth = fakeRes();

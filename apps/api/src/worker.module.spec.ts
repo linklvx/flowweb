@@ -22,12 +22,12 @@ import { Test } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { register } from 'prom-client';
 import net from 'node:net';
-// 17 processor 全集（grep @Processor 全仓清单——workerProviders 装配面对齐锚）
+// 16 processor 全集（grep @Processor 全仓清单——workerProviders 装配面对齐锚；T12：ai-download 退役）
 import { StitchConsumer } from './modules/storyboard/stitch.consumer';
-import { AiDownloadProcessor } from './modules/ai-download/ai-download.processor';
 import { AiImageEditProcessor } from './modules/ai-image-edit/ai-image-edit.processor';
 import { LightingConsumer } from './modules/ai-image-edit/lighting/lighting.consumer';
 import { ExecutionProcessor } from './modules/execution/execution.processor';
+import { MaterializeJob } from './modules/artifact-core/materialize-job.service';   // T12：video materialize DB poller
 import { VideoTrimProcessor } from './modules/execution/video-trim.processor';
 import { VideoSeparateProcessor } from './modules/execution/video-separate.processor';
 import { GrantCreditProcessor } from './modules/subscription/task/grant-credit.processor';
@@ -70,7 +70,7 @@ function providerSymbols(mod: ModuleClass): unknown[] {
 }
 
 const PROCESSORS = [
-  StitchConsumer, AiDownloadProcessor, AiImageEditProcessor, LightingConsumer,
+  StitchConsumer, AiImageEditProcessor, LightingConsumer,
   ExecutionProcessor, VideoTrimProcessor, VideoSeparateProcessor,
   GrantCreditProcessor, PaymentSuccessProcessor, ExpireSubscriptionProcessor,
   DailyReconProcessor, CloseExpiredSubOrderProcessor, BannerCleanupProcessor,
@@ -94,7 +94,7 @@ describe('Y0c T26 worker.module——结构面（Z131 闭包纯净的模块侧�
     }
   });
 
-  it('providers 含 17 processor 全集+execution/team 链关键服务+三令牌（CollabWritePort/CollabDocWriterService/EmitPort）', async () => {
+  it('providers 含 16 processor 全集+execution/team 链关键服务+三令牌（CollabWritePort/CollabDocWriterService/EmitPort）', async () => {
     const { WorkerModule } = await import('./worker.module');
     const syms = providerSymbols(WorkerModule);
     for (const p of PROCESSORS) expect(syms, `providers 应含 ${p.name}`).toContain(p);
@@ -113,7 +113,7 @@ describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册�
     const stubQueue = { add: async () => {} };
     let builder = Test.createTestingModule({ imports: [WorkerModule] });
     // worker 图内 @InjectQueue 消费面（registerQueue 名全集——processor 的 Worker 创建不依赖注册）
-    for (const name of ['ai-result-download', 'video-trim', 'video-separate', 'subscription-close-expired', 'team-recharge-close-expired']) {
+    for (const name of ['video-trim', 'video-separate', 'subscription-close-expired', 'team-recharge-close-expired']) {
       builder = builder.overrideProvider(getQueueToken(name)).useValue(stubQueue);
     }
     const moduleRef = await builder.compile();
@@ -124,7 +124,8 @@ describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册�
     expect(moduleRef.get(NodeArtifactService, { strict: false })).toBeInstanceOf(NodeArtifactService);
     expect(moduleRef.get(MediaRegistrationService, { strict: false })).toBeInstanceOf(MediaRegistrationService);
     expect(moduleRef.get(AiImageEditProcessor, { strict: false })).toBeInstanceOf(AiImageEditProcessor);
-    expect(moduleRef.get(AiDownloadProcessor, { strict: false })).toBeInstanceOf(AiDownloadProcessor);
+    // T12：MaterializeJob（DB poller——ai-download processor 退役后的 video materialize 接替面）必须可解析
+    expect(moduleRef.get(MaterializeJob, { strict: false })).toBeInstanceOf(MaterializeJob);
     const port = moduleRef.get(CollabWritePort, { strict: false });
     expect(port).toBeInstanceOf(HttpCollabWritePort);
     expect((port as unknown as { baseUrl: string }).baseUrl).toBe(`http://127.0.0.1:${process.env.PORT ?? '3000'}`);
@@ -137,7 +138,7 @@ describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册�
     const { WorkerModule } = await import('./worker.module');
     const stubQueue = { add: async () => {} };
     let builder = Test.createTestingModule({ imports: [WorkerModule] });
-    for (const name of ['ai-result-download', 'video-trim', 'video-separate', 'subscription-close-expired', 'team-recharge-close-expired']) {
+    for (const name of ['video-trim', 'video-separate', 'subscription-close-expired', 'team-recharge-close-expired']) {
       builder = builder.overrideProvider(getQueueToken(name)).useValue(stubQueue);
     }
     await builder.compile();

@@ -24,7 +24,6 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
   let teamCredit: any;
   let collabDoc: any;
   let gateway: any;
-  let mockDownloadQueue: any;
 
   beforeEach(async () => {
     prisma = {
@@ -58,7 +57,6 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
     };
     teamCredit = { reserve: vi.fn().mockResolvedValue({ success: true }), settle: vi.fn().mockResolvedValue({ success: true, settled: true }), void_: vi.fn().mockResolvedValue(undefined), getBalanceView: vi.fn().mockResolvedValue({ total: 100 }) };
     gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
-    mockDownloadQueue = { add: vi.fn().mockResolvedValue({ id: 'job-1' }) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,7 +70,6 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: CollabWritePort, useValue: collabDoc },
         { provide: CollabDocWriterService, useValue: docWriterStubOf(collabDoc) },   // Y0c T8：deliver+done 组批 stub（分派回记录器）
         { provide: EmitPort, useValue: gateway },
-        { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },
         // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）
         { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined), reanchorDeadline: vi.fn().mockResolvedValue(1), touchHeartbeat: vi.fn().mockResolvedValue(undefined), ensureProviderRequestId: vi.fn().mockResolvedValue('rid'), recordProviderTaskId: vi.fn(), tickFence: vi.fn() } },

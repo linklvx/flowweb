@@ -18,11 +18,11 @@ import type { Queue } from 'bullmq';
 import { QUEUE_NAMES } from '../../config/queue.constants';
 import { collabWorkerAbsentTotal } from './worker-presence.metrics';
 
-/** 付费三队列（Z130① 字面 execution/ai-image-edit/ai-download——名单单源 QUEUE_NAMES）。 */
+/** 付费队列（Z130① 字面——名单单源 QUEUE_NAMES；T12：ai-result-download 退役——video materialize
+ *  归 MaterializeJob DB poller，无 BullMQ 消费面即无 presence 探测面）。 */
 export const PAID_QUEUE_NAMES = [
   QUEUE_NAMES.EXECUTION,
   QUEUE_NAMES.AI_IMAGE_EDIT,
-  QUEUE_NAMES.AI_DOWNLOAD,
 ] as const;
 export type PaidQueueName = (typeof PAID_QUEUE_NAMES)[number];
 
@@ -51,12 +51,10 @@ export class WorkerPresenceService {
   constructor(
     @InjectQueue(QUEUE_NAMES.EXECUTION) executionQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AI_IMAGE_EDIT) imageEditQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.AI_DOWNLOAD) downloadQueue: Queue,
   ) {
     this.queues = {
       [QUEUE_NAMES.EXECUTION]: executionQueue,
       [QUEUE_NAMES.AI_IMAGE_EDIT]: imageEditQueue,
-      [QUEUE_NAMES.AI_DOWNLOAD]: downloadQueue,
     };
   }
 

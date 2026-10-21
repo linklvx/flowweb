@@ -27,20 +27,20 @@ describe('Y0c T29-II WorkerPresenceService（Z130/Z148②）', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('PAID_QUEUE_NAMES=付费三队列（execution/ai-image-edit/ai-result-download——Z130① 单源 QUEUE_NAMES）', () => {
-    expect(PAID_QUEUE_NAMES).toEqual([QUEUE_NAMES.EXECUTION, QUEUE_NAMES.AI_IMAGE_EDIT, QUEUE_NAMES.AI_DOWNLOAD]);
+  it('PAID_QUEUE_NAMES=付费双队列（execution/ai-image-edit——Z130① 单源 QUEUE_NAMES；T12 ai-result-download 退役）', () => {
+    expect(PAID_QUEUE_NAMES).toEqual([QUEUE_NAMES.EXECUTION, QUEUE_NAMES.AI_IMAGE_EDIT]);
   });
 
   it('getPresence：registered=getWorkers().length+waiting=getWaitingCount()（偏离 39 两键维度）', async () => {
     const svc = new WorkerPresenceService(
-      fakeQueue([{}, {}], 3) as any, fakeQueue() as any, fakeQueue() as any,
+      fakeQueue([{}, {}], 3) as any, fakeQueue() as any,
     );
     expect(await svc.getPresence(QUEUE_NAMES.EXECUTION)).toEqual({ registered: 2, waiting: 3 });
   });
 
   it('getPresence：TTL 5s 缓存——窗内二次调用零再探测（付费路径不加 RTT）；过窗再探', async () => {
     const exec = fakeQueue([{}], 0);
-    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any, fakeQueue() as any);
+    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any);
     await svc.getPresence(QUEUE_NAMES.EXECUTION);
     await svc.getPresence(QUEUE_NAMES.EXECUTION);
     expect(exec.getWorkers).toHaveBeenCalledTimes(1);
@@ -51,7 +51,7 @@ describe('Y0c T29-II WorkerPresenceService（Z130/Z148②）', () => {
 
   it('getPresence：探测失败（Redis 错）⇒ null=unknown（不写缓存——下轮重探）', async () => {
     const exec = { getWorkers: vi.fn(async () => { throw new Error('redis down'); }), getWaitingCount: vi.fn(async () => 0) };
-    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any, fakeQueue() as any);
+    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any);
     expect(await svc.getPresence(QUEUE_NAMES.EXECUTION)).toBeNull();
     expect(await svc.getPresence(QUEUE_NAMES.EXECUTION)).toBeNull();
     expect(exec.getWorkers).toHaveBeenCalledTimes(2);
@@ -63,7 +63,7 @@ describe('Y0c T29-II WorkerPresenceService（Z130/Z148②）', () => {
       getWorkers: vi.fn(() => (hang ? new Promise<never>(() => {}) : Promise.resolve([{}, {}]))),
       getWaitingCount: vi.fn(async () => 0),
     };
-    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any, fakeQueue() as any);
+    const svc = new WorkerPresenceService(exec as any, fakeQueue() as any);
     let resolved = false;
     const pending = svc.getPresence(QUEUE_NAMES.EXECUTION);
     void pending.then(() => { resolved = true; });
@@ -78,7 +78,7 @@ describe('Y0c T29-II WorkerPresenceService（Z130/Z148②）', () => {
 
   it('assertAdmittable：registered=0 ⇒ 503 WORKER_ABSENT + collab_worker_absent_total{queue} inc', async () => {
     const before = await counterValue(QUEUE_NAMES.AI_IMAGE_EDIT);
-    const svc = new WorkerPresenceService(fakeQueue() as any, fakeQueue([], 0) as any, fakeQueue() as any);
+    const svc = new WorkerPresenceService(fakeQueue() as any, fakeQueue([], 0) as any);
     await expect(svc.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT)).rejects.toMatchObject({
       status: 503,
       response: expect.objectContaining({ code: 'WORKER_ABSENT' }),
@@ -88,21 +88,21 @@ describe('Y0c T29-II WorkerPresenceService（Z130/Z148②）', () => {
 
   it('assertAdmittable：registered≥1 ⇒ 放行（计数不动）', async () => {
     const before = await counterValue(QUEUE_NAMES.EXECUTION);
-    const svc = new WorkerPresenceService(fakeQueue([{}]) as any, fakeQueue() as any, fakeQueue() as any);
+    const svc = new WorkerPresenceService(fakeQueue([{}]) as any, fakeQueue() as any);
     await expect(svc.assertAdmittable(QUEUE_NAMES.EXECUTION)).resolves.toBeUndefined();
     expect(await counterValue(QUEUE_NAMES.EXECUTION)).toBe(before);
   });
 
   it('assertAdmittable：探测失败 ⇒ unknown 放行不拒（enqueue 自身会失败暴露真因——不做双重失败）', async () => {
-    const before = await counterValue(QUEUE_NAMES.AI_DOWNLOAD);
-    const dl = { getWorkers: vi.fn(async () => { throw new Error('redis down'); }), getWaitingCount: vi.fn(async () => 0) };
-    const svc = new WorkerPresenceService(fakeQueue() as any, fakeQueue() as any, dl as any);
-    await expect(svc.assertAdmittable(QUEUE_NAMES.AI_DOWNLOAD)).resolves.toBeUndefined();
-    expect(await counterValue(QUEUE_NAMES.AI_DOWNLOAD)).toBe(before);
+    const before = await counterValue(QUEUE_NAMES.AI_IMAGE_EDIT);
+    const edit = { getWorkers: vi.fn(async () => { throw new Error('redis down'); }), getWaitingCount: vi.fn(async () => 0) };
+    const svc = new WorkerPresenceService(fakeQueue() as any, edit as any);
+    await expect(svc.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT)).resolves.toBeUndefined();
+    expect(await counterValue(QUEUE_NAMES.AI_IMAGE_EDIT)).toBe(before);
   });
 
   it('拒绝异常形态=ServiceUnavailableException（CollabNotServingFilter 认 WORKER_ABSENT 码附 Retry-After: 30）', async () => {
-    const svc = new WorkerPresenceService(fakeQueue([], 0) as any, fakeQueue() as any, fakeQueue() as any);
+    const svc = new WorkerPresenceService(fakeQueue([], 0) as any, fakeQueue() as any);
     const err = await svc.assertAdmittable(QUEUE_NAMES.EXECUTION).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ServiceUnavailableException);
   });

@@ -30,8 +30,6 @@ import { LightingConsumer } from './modules/ai-image-edit/lighting/lighting.cons
 import { GenerationIntentService } from './modules/execution/generation-intent.service';
 import { AiImageEditController } from './modules/ai-image-edit/ai-image-edit.controller';
 import { LightingController } from './modules/ai-image-edit/lighting/lighting.controller';
-import { AiDownloadCoreModule } from './modules/ai-download/ai-download-core.module';
-import { AiDownloadProcessor } from './modules/ai-download/ai-download.processor';
 import { SafeRemoteFetchService } from './modules/media/safe-remote-fetch.service';
 import { MetricsCoreModule } from './metrics/metrics-core.module';
 import { MetricsHttpModule } from './metrics/metrics-http.module';
@@ -95,12 +93,9 @@ describe('Y0c T25 模块拆分——ai-image-edit Core/Http', () => {
   });
 });
 
-describe('Y0c T25 模块拆分——ai-download（无 controllers：Http 半空壳禁入，Core 单体即终态——偏离登记见报告）', () => {
-  it('AiDownloadCoreModule：零 controller；providers 恰 [AiDownloadProcessor, SafeRemoteFetchService]（T6 下载原语平铺）', () => {
-    expect(controllersOf(AiDownloadCoreModule)).toEqual([]);
-    expect(providerSymbols(AiDownloadCoreModule)).toEqual([AiDownloadProcessor, SafeRemoteFetchService]);
-  });
-});
+// T12：ai-download 模块整体退役（video=finalize-first——materialize 归 MaterializeJob DB poller；
+// 原「AiDownloadCoreModule：零 controller+providers 恰 [AiDownloadProcessor, SafeRemoteFetchService]」
+// 结构用例随模块删除）。
 
 describe('Y0c T25 模块拆分——Metrics Core/Http（Z139：collectDefaultMetrics 唯一点=MetricsService 构造器，worker 也装 Core）', () => {
   it('MetricsCoreModule：保持 @Global+零 controller+providers/exports 恰 [MetricsService]', () => {
@@ -121,7 +116,7 @@ describe('Y0c T25 模块拆分——app.module 导入面（Http 子模块+Core�
     const { AppModule } = await import('./app.module');   // 动态导入：validateEnv 在模块作用域（env 桩先行）
     const imports = importsOf(AppModule);
     for (const m of [ExecutionCoreModule, ExecutionHttpModule, AiImageEditCoreModule, AiImageEditHttpModule,
-      AiDownloadCoreModule, MetricsCoreModule, MetricsHttpModule]) {
+      MetricsCoreModule, MetricsHttpModule]) {
       expect(imports, `app.module imports 应含 ${m.name}`).toContain(m);
     }
     const legacy = imports.filter((m: any) =>

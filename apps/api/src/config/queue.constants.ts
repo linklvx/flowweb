@@ -7,7 +7,7 @@ export const QUEUE_NAMES = {
   VIDEO_TRIM: 'video-trim',
   VIDEO_SEPARATE: 'video-separate',
   AI_IMAGE_EDIT: 'ai-image-edit',
-  AI_DOWNLOAD: 'ai-result-download',
+  // T12：AI_DOWNLOAD（ai-result-download）退役——video materialize 归 MaterializeJob DB poller
   THUMBNAIL_GENERATOR: 'thumbnail-generator',
   TEMP_CLEANUP: 'temp-file-cleanup',
   BANNER_CLEANUP: 'banner-cleanup',

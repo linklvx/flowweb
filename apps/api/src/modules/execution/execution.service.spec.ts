@@ -27,7 +27,6 @@ describe('ExecutionService', () => {
   let collabDoc: any;
   let docWriter: ReturnType<typeof docWriterStubOf>;
   let gateway: any;
-  let mockDownloadQueue: any;
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
   let intentSvc: any; // Y0c T12：结构断言族/replay 分支需逐测试改 claim/complete/reanchorDeadline 判据
   let artifactCommit: any;   // T10：image/text finalize（stub——默认 committed）
@@ -77,9 +76,6 @@ describe('ExecutionService', () => {
       getBalanceView: vi.fn().mockResolvedValue({ credits: 95, subscriptionCredits: 0, total: 95, quota: 0, used: 0 }),
     };
     gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（web 零消费者——census 清零）
-    mockDownloadQueue = {
-      add: vi.fn().mockResolvedValue({ id: 'download-job-1' }),
-    };
     permSvc = {
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
@@ -89,6 +85,7 @@ describe('ExecutionService', () => {
     artifactCommit = {
       commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10', key: 'artifacts/t/i/1/0-abc' }),
       finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }),
+      finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12', key: 'artifacts/t/i/1/0' }),   // T12：video finalize-first（materialize 异步归 MaterializeJob）
     };
     // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）——本文件只测产物序/余额口径
     intentSvc = {
@@ -115,7 +112,6 @@ describe('ExecutionService', () => {
         { provide: CollabWritePort, useValue: collabDoc },
         { provide: CollabDocWriterService, useValue: docWriter },
         { provide: EmitPort, useValue: gateway },
-        { provide: 'BullQueue_ai-result-download', useValue: mockDownloadQueue },
         { provide: GenerationIntentService, useValue: intentSvc },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },   // Y1a T8：上游身份读源 mock（默认无上游图）
         { provide: ArtifactCommitService, useValue: artifactCommit },   // T10
@@ -237,10 +233,47 @@ describe('ExecutionService', () => {
       projectId: 'p1', nodeId: 'n2', teamId: 't1', userId: 'default-user',
       intentRowId: 'intent-1', execSeq: 1n, expectedRev: 0, sourceUrl: '/mock/test.jpg',
     }));
-    expect(mockDownloadQueue.add).not.toHaveBeenCalled();   // 旧红：现状 image 腿必入队
     const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
     expect(batch[0].patch).toEqual({ fileId: 'media-t10' });   // 旧红：现状 { resultUrl: '/mock/test.jpg' }
     expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-t10' });
+  });
+
+  it('T12：video 腿 finalize-first——finalizeVideo(sourceUrl=provider URL)+交付 fileId=mediaId（doc 无 videoUrl）+旧链 complete/settle 直调删除', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    topology.getScope.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
+    topology.sort.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
+    const result = await service.execute('p1', 'n3', 'default-user');
+    expect(result.success).toBe(true);
+    expect(artifactCommit.finalizeVideo).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'p1', nodeId: 'n3', teamId: 't1', userId: 'default-user',
+      intentRowId: 'intent-1', execSeq: 1n, expectedRev: 0,
+      sourceUrl: '/mock/video.mp4', sourceMimeType: 'video/mp4',
+    }));
+    // 旧链退役面：intentService.complete/teamCredit.settle 直调删除（settle 归 finalize 事务内）
+    expect(intentSvc.complete).not.toHaveBeenCalled();
+    expect(teamCredit.settle).not.toHaveBeenCalled();
+    // 交付键唯一 fileId=mediaId（旧红：现状 { videoUrl: '/mock/video.mp4' }——VideoGenNode 渲染 fileId=404 不可达）
+    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
+    expect(batch.map((o: any) => o.op)).toEqual(['writeNodeData', 'writeExecStatus']);
+    expect(batch[0].patch).toEqual({ fileId: 'media-t12' });
+    expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-t12' });
+    const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
+    expect(dones.at(-1)![1].fileId).toBe('media-t12');   // 旧链 emit fileId=result.url（404 面）根修
+  });
+
+  it('T12：video replay 产物键=fileId（resultRef=mediaId）——videoUrl 写点删除', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    topology.getScope.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
+    topology.sort.mockReturnValue([{ id: 'n3', type: 'videoGen', data: { model: 'm1', prompt: 'v' } }]);
+    intentSvc.claim.mockResolvedValueOnce({
+      created: false, result: 'replay', artifactRev: 0,
+      intent: { id: 'intent-replay', intentId: 'i-replay', execSeq: 1n, attempts: 1, resultRef: 'media-replay' },
+    });
+    const result = await service.execute('p1', 'n3', 'default-user');
+    expect(result.success).toBe(true);
+    const batch = vi.mocked(docWriter.writeBatch).mock.calls.at(-1)![1] as any[];
+    expect(batch[0].patch).toEqual({ fileId: 'media-replay' });   // 旧红：video replay 写 { videoUrl }
+    expect(batch[1].patch).toMatchObject({ status: 'done', fileId: 'media-replay' });
   });
 
   it('T10：text 腿 finalizeText+交付只写 {result}（content 回显删除）', async () => {
