@@ -304,9 +304,9 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const revivedFileId = ((revived.getMap('nodes').get(NODE) as Y.Map<any>)?.get('data') as Y.Map<any>)?.get('fileId');
     expect(revivedFileId).toBe('media-c');
 
-    // facts outbox 重复投递幂等（实况=重复插入同四元组行——at-least-once 重放形态；乱序提交
-    // 必达面归 media-fact-outbox.int.spec 乱序用例，此处不复刻）：同 (mediaId,projectId,
-    // factType,factVersion) 双写 skipDuplicates 零重复行
+    // facts outbox 重复投递幂等（实况=重复插入同四元组行——at-least-once 重放形态；乱序容忍面=
+    // 客户端单调合并 mediaFacts.test〔factVersion 旧忽略/批内乱序末者胜〕+DB 四元组唯一约束双面，
+    // 此处只钉服务端幂等行）：同 (mediaId,projectId,factType,factVersion) 双写 skipDuplicates 零重复行
     await prisma.mediaFactOutbox.createMany({
       data: [{ mediaId: 'media-c', projectId: PID, factVersion: 1, factType: 'state', payload: { status: 'completed' } }],
       skipDuplicates: true,
