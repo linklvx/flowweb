@@ -380,40 +380,33 @@ export class CollabDocRegistryService {
       this.persistence.seedCompactBaseline(projectId);
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
       const { state, updates, preVacuumSv, generation, schemaVersion } = await this.repo.hydrateWithRecovery(projectId);
-      // Y0b-4 T9a（G-3 纪律：装载路径回填——auth/SV 代际门零新增 DB 查）：preVacuumSv 解码缓存
-      // （SV 重叠检测的进程态——beforeSync SyncStep1 消费）；docGeneration 播种（doc-status 顶层
-      // generation 产生源）。装载先于任何 SyncStep1（库时序）——卸载后清、下次装载重播，无窗口。
+      // Y0b-4 T9a（G-3：装载路径回填零新增 DB 查）：preVacuumSv 解码缓存（SyncStep1 消费）+
+      // docGeneration 播种（doc-status 顶层 generation 源）。装载先于任何 SyncStep1——无窗口。
       if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
       if (generation) this.docGeneration.set(projectId, generation);
-      if (state) {
-        applyReplayed(new Uint8Array(state));
-      }
+      if (state) applyReplayed(new Uint8Array(state));
       for (const u of updates) applyReplayed(new Uint8Array(u));
       // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。
       // apply 事件进 pending（窗口外回灌）；帧的 confirm 出口=下次 store 提前 drain / 断连 flush / 启动回灌。
       // Y0b-4 T3：帧数组显式持有——spool 字节计入 cheap 上界（帧在装载窗内，测量点必须在其后）。
       const spoolFrames = await this.persistence.peekSpoolFrames(projectId);
       for (const f of spoolFrames) Y.applyUpdate(document, f.payload);
-      // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：版本门 v2.1（meta.schemaVersion 四档门+stamp 自愈）
-      // 整链退役——版本判据唯一承载=CanvasDoc.schemaVersion PG 列（readConsistent 行值单源；doc
-      // 内容不再带版本，客户端无从篡改）。两档：行值≠current ⇒ 拒载（旧 doc 档——开发期无迁移
-      // 直接拒，禁垫片）；行缺失（null）⇒ 放行（doc 懒建于 loadDocument——首 store 建行走
-      // @default(3)）。判于 replay 之前（旧档不付重放成本）。
+      // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：meta 门 v2.1 整链退役——版本判据唯一承载=
+      // CanvasDoc.schemaVersion PG 列（readConsistent 行值单源）。行值≠current ⇒ 拒载（旧 doc 档
+      // 无迁移，禁垫片）；行缺失 null ⇒ 放行（懒建档——首 store 建行 @default(3)）。判于 replay 前。
       if (schemaVersion != null && schemaVersion !== CANVAS_DOC_SCHEMA_VERSION) {
         this.host.logger.error(
           `[T18] 版本门拒绝载入 ${documentName}：CanvasDoc.schemaVersion=${schemaVersion} ≠ current ${CANVAS_DOC_SCHEMA_VERSION}（PG 列判定——旧 doc 档拒载，无迁移）`,
         );
-        // schemaRefusal 标记：外层 catch 透传（版本门拒≠db-unavailable——不折瞬态桶）。
-        // E56 v2.1 断链修复（Y0b-3 T6）：附 reason（词表终态档）——库 esm:939 透传 error.reason，
-        // 客户端 authenticationFailed.reason==='schema-outdated' 通路可达（handleVersionTerminal 一次
-        // reload 消费）；缺此行客户端收字面量 permission-denied 落瞬态桶。
+        // schemaRefusal 标记+reason（E56 断链修复惯例）：外层 catch 透传（版本门拒≠db-unavailable——
+        // 库 esm:939 透传 error.reason，客户端 authenticationFailed → handleVersionTerminal 一次 reload）。
         throw Object.assign(
           new Error(`DOC_SCHEMA_STALE: CanvasDoc.schemaVersion=${schemaVersion} ≠ current ${CANVAS_DOC_SCHEMA_VERSION}——拒载（版本硬切批无迁移）`),
           { schemaRefusal: true, reason: CollabAuthReason.SCHEMA_OUTDATED },
         );
       }
-      // T18（Z4''-v14）：order 域病理装载档扫描（挂点选型见 collab-pathology.ts 头注——doc 内容
-      // 进进程唯一咽喉；replay 全量完成后判）。容忍不 500（读序 tie-break）；计数+告警。
+      // T18（Z4''-v14）：order 病理装载档扫描（挂点选型见 collab-pathology.ts 头注——replay 完成
+      // 后判；容忍不 500，计数+告警）。
       observeOrderPathologyOnLoad(this.host.logger, documentName, readRecordsFromMaps(toDocLike(document)).nodes);
       // Y0b-4 T3（Q-B 白名单点①）：docTruth 真值单变量播种——cheap 上界=|state|+Σ|updates|+Σspool
       // （state+updates+spool 帧全部 apply 之后算）；<softLimit 直接当 truth 跳过编码（上界≥真值=
@@ -625,8 +618,7 @@ export class CollabDocRegistryService {
   /** ④ 全根真空重建（vacuum service 与 recheck residue 评估共用单源）：按 doc.share 枚举——
    *  nodes/edges → readRecordsFromMaps+fillDoc（records 真值重放——墓碑/GC 壳/delete set 不随行）；
    *  其余 Y.Map 根（exec/meta/未来新增）→ 逐 key 深拷贝（未来新增根 map 不可能被静默丢弃〔U-2〕）；
-   *  T18 起 meta 零键（版本承载=PG 列——深拷贝为透明搬运非键读写；旧档残留 meta 值随拷贝保留为
-   *  历史载荷，装载门不再解释）；
+   *  T18 起 meta 零键（版本=PG 列——深拷贝=透明搬运；旧档残留值随拷贝保留为历史载荷不解释）；
    *  非 Map 根（Y.Text 等）⇒ null（vacuum 不支持——降级导出通道，DB 零变更）。
    *  ⚠ yjs wire 根类型事实（实测 13.6.32）：applyUpdate 重建的 doc.share 根=AbstractType 占位
    *  （根类型不随 wire 承载——由访问侧 getMap/getText 声明）；序列型内容（Text/Array）挂占位
@@ -656,12 +648,12 @@ export class CollabDocRegistryService {
 
   /** ⑤ 等价断言扩全根（把信任 fillDoc 变成验证 fillDoc）：readRecords 深比+根类型集合相等
    *  +exec 键集合相等（三条 O(键数)——U-1/U-2 直接检测）。T18：meta.schemaVersion===current
-   *  检查随版本移 PG 列退役（行值不随 vacuum 变——列门与 doc 内容正交）。
-   *  readRecordsFromMaps 对比用 JSON 序列化（StoredNodeRecord 纯 JSON+键序=遍历序稳定）。 */
+   *  检查随版本移 PG 列退役（行值不随 vacuum 变）；JSON 序列化对比（键序=遍历序稳定）。 */
   vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
-    // 三常驻根规约化（装载路径同款——loadDocument 恒建 nodes/edges/meta〔根集合对称口径〕；
-    // 空源 doc（DB 无行的边界）键集合口径由此对称——fillDoc 恒建 nodes/edges、rebuild 深拷贝 meta）
-    oldDoc.getMap('nodes'); oldDoc.getMap('edges');   // T18：meta 规约化删除——legacy 根两侧自然对称（source 有 ⇒ fresh 深拷贝亦有；无 ⇒ 双无；单侧 getMap 建根=制造形状差〔stamp 退役后装载不再建 meta——equivalence-failed 根因〕）
+    // 三常驻根规约化（装载路径同款——根集合对称口径；空源 doc 键集合口径由此对称）。
+    // T18：meta 规约化删除——legacy 根两侧自然对称（source 有 ⇒ fresh 深拷贝亦有；无 ⇒ 双无；
+    // 单侧 getMap 建根=制造形状差〔stamp 退役后装载不再建 meta——equivalence-failed 根因〕）。
+    oldDoc.getMap('nodes'); oldDoc.getMap('edges');
     const shapeOf = (d: Y.Doc) => [...d.share.keys()].sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
     if (JSON.stringify(readRecordsFromMaps(toDocLike(oldDoc))) !== JSON.stringify(readRecordsFromMaps(toDocLike(newDoc)))) return false;
