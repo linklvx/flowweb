@@ -83,7 +83,8 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b']);
     useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).toHaveLength(2);
+    // T17：派生 cells 长度恰=新 capacity（2x2=4——旧成员槽不动，空位 null 由渲染器显示）
+    expect(g.data.cells).toEqual(['a', 'b', null, null]);
     expect((g.data as any).storyboard!.gridRows).toBe(2);
   });
 });
@@ -135,7 +136,8 @@ describe('clearStoryboard', () => {
     useCanvasStore.getState().clearStoryboard(gid);
     const s = useCanvasStore.getState();
     expect(s.nodes.find((n) => n.id === gid)).toBeTruthy();
-    expect(s.nodes.find((n) => n.id === gid)!.data.cells).toEqual([]);
+    // T17：派生 cells=全空宫格（长度恰=capacity 4——旧 cells:[] 形态随派生域消亡）
+    expect(s.nodes.find((n) => n.id === gid)!.data.cells).toEqual([null, null, null, null]);
     expect(s.nodes.find((n) => n.id === 'a')).toBeUndefined();
   });
 });

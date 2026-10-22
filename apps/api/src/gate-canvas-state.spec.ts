@@ -31,7 +31,7 @@ describe('gate-seed fixture 形状验收（O0b-0 一次到位——O0c-3 验收�
     expect(node(d, 'gate-auto-child-1').get('parentId')).toBe('gate-auto-group');
   });
 
-  it('分镜组形状：组带 position+完整 storyboard config+cells ∧分镜子无 position 带 width/height', () => {
+  it('分镜组形状：组带 position+完整 storyboard config（T17 cells 派生删——格位=子 slot）∧分镜子无 position 带 width/height', () => {
     const d = decode();
     const g = node(d, 'gate-sb-group');
     expect(g.get('position')).toBeInstanceOf(Y.Map);          // 分镜组 position 保留（键集表）
@@ -39,14 +39,16 @@ describe('gate-seed fixture 形状验收（O0b-0 一次到位——O0c-3 验收�
     expect(g.has('height')).toBe(false);
     const data = g.get('data') as Y.Map<any>;
     expect(data.get('groupType')).toBe('storyboard');
-    expect(data.get('cells')).toEqual(['gate-sb-cell-1', 'gate-sb-cell-2']);
+    // T17（Z17'' cells 派生删）：doc 恒无 cells——格位=子 slot（0/1）
+    expect(data.get('cells')).toBeUndefined();
     expect(data.get('storyboard')).toEqual({ aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' });
-    for (const id of ['gate-sb-cell-1', 'gate-sb-cell-2']) {
+    for (const [id, slot] of [['gate-sb-cell-1', 0], ['gate-sb-cell-2', 1]] as const) {
       const c = node(d, id);
       expect(c.has('position')).toBe(false);                  // 分镜子无 position（键集表）
       expect(c.get('width')).toBe(320);                       // 分镜子带 width/height
       expect(c.get('height')).toBe(180);
       expect(c.get('parentId')).toBe('gate-sb-group');
+      expect((c.get('data') as Y.Map<any>).get('slot')).toBe(slot);   // T17：格位真源=子 slot
     }
   });
 });

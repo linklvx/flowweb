@@ -12,14 +12,13 @@ describe('validateParentGraph（F39 两档）', () => {
     expect(validateParentGraph([n('c1', 'n0'), n('n0')], 'import').violations.some((v) => v.kind === 'non-group-parent')).toBe(true);
   });
 
-  it('导入档：cells 引用完整性（悬空 cell→violation；null 占位合法）', () => {
-    const nodes = [
-      { ...n('g1', undefined, 'group'), data: { cells: ['ok', 'ghost', null] } },
-      n('ok', 'g1'),
-    ] as any;
-    const v = validateParentGraph(nodes, 'import').violations;
-    expect(v.some((x) => x.kind === 'dangling-cell')).toBe(true);
-    expect(validateParentGraph([{ ...n('g2', undefined, 'group'), data: { cells: [null] } } as any], 'import').violations).toEqual([]);
+  it('导入档：cells 域已删（T17——cells 派生不落 doc，data.cells 不再是校验域）', () => {
+    const v = validateParentGraph([
+      { ...n('ok', undefined) },
+      { ...n('g1', undefined, 'group'), data: { cells: ['ok', 'ghost', null] } } as any,
+    ], 'import');
+    expect(v.violations.some((x) => (x.kind as string) === 'dangling-cell')).toBe(false); // 域消亡——残留键零校验（kind 词表已删——cast 比较防 TS 窄化误报）
+    expect(v.violations).toEqual([]);
   });
 
   it('导入档：边端点悬空→violation', () => {

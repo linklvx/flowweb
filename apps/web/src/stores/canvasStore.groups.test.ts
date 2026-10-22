@@ -1160,8 +1160,10 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     try {
       useCanvasStore.getState().duplicateNodes(['sg']);
       const copySg = useCanvasStore.getState().nodes.find((n) => n.type === 'group' && n.id !== 'sg') as any;
-      // T17：cells 派生删（悬空旧 id 面随键消亡——格位=子 slot）
-      expect(copySg.data.cells).toBeUndefined();
+      // T17：doc 恒无 cells（键集表剥）；cs data.cells=派生缓存（子 slot 派生——旧 id 零残留）
+      const copyChildren = useCanvasStore.getState().nodes.filter((n) => n.parentId === copySg.id);
+      expect(copySg.data.cells.filter(Boolean)).toEqual(copyChildren.map((c) => c.id).sort());
+      expect(copySg.data.cells.some((c: any) => c === 'c1' || c === 'ghost')).toBe(false);
     } finally { teardown(); }
   });
 

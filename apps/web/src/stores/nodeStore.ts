@@ -114,6 +114,8 @@ export interface ImageNodeData {
   fileId?: string;
   referenceImage?: string;
   mediaName?: string;
+  /** T17（Z17'' cells→slot）：分镜子格位（非负整数——格位真源；非分镜子无此键）。 */
+  slot?: number;
   status: 'idle' | 'loading' | 'done' | 'error';
   imageRotation?: 0 | 90 | 180 | 270;
   flipH?: boolean;

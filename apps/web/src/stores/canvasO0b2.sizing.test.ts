@@ -168,15 +168,15 @@ describe('O0b-2 (i) 命令体显式值：分镜落子/生成结果入组（hidde
     openRwWindow();
     const d = new Y.Doc();
     const records: StoredNodeRecord[] = [
-      { id: 'sb', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: [], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
+      { id: 'sb', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
     ];
     fillDoc(d, records, []);
     stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     useCanvasStore.getState().addImageToStoryboardCell('sb', 0, 'file-x');
-    const sb = docRecord(d, 'sb');
-    const cellId = (sb?.data.cells as string[])[0] as string;
+    // T17：格位真源=子 slot——槽 0 成员=cs 派生缓存首格（doc 组 data 恒无 cells）
+    const cellId = (csNode('sb').data as any).cells[0] as string;
     const cell = docRecord(d, cellId);
     expect(cell?.width).toBe(320);   // 命令体显式值（经差分 after 快照——分镜子 wh 自由面）
     expect(cell?.height).toBe(180);
@@ -450,8 +450,8 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
     openRwWindow();
     const d = new Y.Doc();
     const records: StoredNodeRecord[] = [
-      { id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: { groupType: 'storyboard', cells: ['c1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
-      { id: 'c1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: 'f' } },
+      { id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
+      { id: 'c1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: 'f', slot: 0 } },
     ];
     fillDoc(d, records, []);
     stampDocSchema(toDocLike(d));
@@ -469,10 +469,11 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
     expect(out?.position).toEqual({ x: 100 + sbSize.width + 20, y: 50 });   // 帧右上外 20px（placementBesideGroup——基准=cs 派生帧）
     expect(out?.parentId).toBeUndefined();
     expect(csNode('c1').width).toBe(normalizeSize(sbSize.cellWidth));
-    // O0c-3 分镜移出三坏收口锚：cells 清槽（槽===null——此前槽位残留 'c1' ⇒ GroupNode cellNodes
-    // 谓词[cells.includes]漏渲染已移出节点；移出后 cellNodes 消失=槽 null ∧ parentId 已解双通道断开）
-    expect(docRecord(d, 'sb')?.data.cells).toEqual([null]);
-    expect((csNode('sb').data as any).cells).toEqual([null]);
+    // T17（Z17''）分镜移出收口锚：格位真源断开——doc 子 slot 键删+组 data 恒无 cells；
+    // cs 派生缓存=空宫格（长度恰=capacity 4——resize 后 2x2）
+    expect(docRecord(d, 'c1')?.data.slot).toBeUndefined();
+    expect(docRecord(d, 'sb')?.data.cells).toBeUndefined();
+    expect((csNode('sb').data as any).cells).toEqual([null, null, null, null]);
   });
 });
 

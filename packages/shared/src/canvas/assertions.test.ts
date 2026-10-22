@@ -301,26 +301,31 @@ describe('assertEmptyAutoGroupCollapsedSize（+：空 auto 组 → COLLAPSED_SIZ
   });
 });
 
-describe('assertStoryboardMembership（membership 写侧：分镜子 ⊆ cells）', () => {
-  it('子 id 全在 cells → 不抛（null 槽位/悬空 cells 项放行——F38 槽位语义）', () => {
+describe('assertStoryboardMembership（T17 slot 域——分镜子携有效 slot+组零 cells 残留）', () => {
+  it('分镜子全携有效 slot 且组无 cells 键 → 不抛', () => {
     expect(() => assertStoryboardMembership([
-      groupRec({ id: 'S', data: { groupType: 'storyboard', cells: ['c1', null, 'ghost'] } }),
-      rec({ id: 'c1', parentId: 'S' }),
+      groupRec({ id: 'S', data: { groupType: 'storyboard' } }),
+      rec({ id: 'c1', parentId: 'S', data: { slot: 0 } }),
+      rec({ id: 'c2', parentId: 'S', data: { slot: 3 } }),
     ])).not.toThrow();
   });
 
-  it('子 id 不在 cells → throw 列出越界 id', () => {
-    expect(() => assertStoryboardMembership([
-      groupRec({ id: 'S', data: { groupType: 'storyboard', cells: ['c1'] } }),
-      rec({ id: 'c1', parentId: 'S' }),
-      rec({ id: 'c2', parentId: 'S' }),
-    ])).toThrow(/c2/);
-  });
-
-  it('cells 缺失/非数组而子存在 → throw；普通组不属本断言', () => {
+  it('分镜子缺/非法 slot → throw 列出越界 id（rogue 挂靠——旧 children⊄cells 对应面）', () => {
     expect(() => assertStoryboardMembership([
       groupRec({ id: 'S', data: { groupType: 'storyboard' } }),
-      rec({ id: 'c1', parentId: 'S' }),
+      rec({ id: 'c1', parentId: 'S', data: { slot: 0 } }),
+      rec({ id: 'rogue', parentId: 'S' }),
+    ])).toThrow(/rogue/);
+    expect(() => assertStoryboardMembership([
+      groupRec({ id: 'S', data: { groupType: 'storyboard' } }),
+      rec({ id: 'bad', parentId: 'S', data: { slot: -1 } }),
+    ])).toThrow(/bad/);
+  });
+
+  it('组 data 残留 cells 键 → throw（G55 零残留）；普通组不属本断言', () => {
+    expect(() => assertStoryboardMembership([
+      groupRec({ id: 'S', data: { groupType: 'storyboard', cells: ['c1'] } }),
+      rec({ id: 'c1', parentId: 'S', data: { slot: 0 } }),
     ])).toThrow(/cells/);
     expect(() => assertStoryboardMembership([
       groupRec({ id: 'G', data: { groupType: 'normal' } }),

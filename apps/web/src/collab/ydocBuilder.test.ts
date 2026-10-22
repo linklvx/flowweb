@@ -185,11 +185,11 @@ describe('O0a-1：分镜子键集表（真 Y.Doc 双端比——shared docShape 
   const sbFixture = () => [
     {
       id: 'sb1', type: 'group',
-      data: { groupType: 'storyboard', cells: ['c1'] },
+      data: { groupType: 'storyboard' },   // T17：格位=子 slot（cells 派生删）
     },
     {
       id: 'c1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180,
-      data: { status: 'done' },
+      data: { status: 'done', slot: 0 },
     },
   ] as any[];
 

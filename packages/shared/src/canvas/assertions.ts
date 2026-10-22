@@ -207,25 +207,25 @@ export function assertEmptyAutoGroupCollapsedSize(records: readonly StoredNodeRe
 }
 
 /**
- * membership 写侧断言：分镜组 children（parentId=G 的记录 id）⊆ cells(G)。
- * 反向不拦（cells 悬空项/槽位无子=F38 槽位语义放行）；cells 缺失或非数组而子存在 → 违例。
- * 接缝：断言 throw 形态——调用方（O0b-2 接线点）catch 后 DEV 直抛 / prod 转"变更 id 去重 log"
- * （log 计数载体后续分片落，本片只留此接缝注释）。
+ * membership 写侧断言（T17 slot 域重写——Z17'' cells 派生删）：分镜子（parentId 指分镜组的
+ * 记录）必须携有效 slot（非负整数——格位真源）；分镜组 data 残留 cells 键=违例（cells 派生
+ * 不落 doc——G55 零残留断言）。重复 slot 不拦（(slot,id) tie-break 容忍——Z4''-v14）；
+ * 缺/非法 slot 的成员= rogue 挂靠（读侧自愈填格、断言层报告）。
+ * 接缝：断言 throw 形态——调用方（O0b-2 接线点）catch 后 DEV 直抛 / prod 转"变更 id 去重 log"。
  */
 export function assertStoryboardMembership(records: readonly StoredNodeRecord[]): void {
   const violations: string[] = [];
   for (const g of records) {
     if (!isGroupRec(g) || !isStoryboardRec(g)) continue;
-    const children = records.filter((r) => r.parentId === g.id).map((r) => r.id);
-    if (children.length === 0) continue;
-    const cells = g.data.cells;
-    if (!Array.isArray(cells)) {
-      violations.push(`${g.id}: 分镜组 cells 缺失/非数组而存在 ${children.length} 个子节点`);
-      continue;
+    if (g.data != null && 'cells' in g.data) {
+      violations.push(`${g.id}: 分镜组 data 残留 cells 键（cells 派生不落 doc——格位=子 slot）`);
     }
-    const cellSet = new Set(cells.filter((c): c is string => typeof c === 'string'));
-    for (const id of children) {
-      if (!cellSet.has(id)) violations.push(`${id}: 分镜组 ${g.id} 子节点不在 cells（children⊆cells 违例）`);
+    for (const r of records) {
+      if (r.parentId !== g.id) continue;
+      const slot = (r.data ?? {} as Record<string, unknown>).slot;
+      if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) {
+        violations.push(`${r.id}: 分镜子缺/非法 slot（${String(slot)}）——格位真源违例`);
+      }
     }
   }
   throwIfViolations('assertStoryboardMembership', violations);

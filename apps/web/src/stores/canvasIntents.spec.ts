@@ -453,8 +453,12 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
     const data = g.get('data') as Y.Map<any>;
     expect(data.get('groupType')).toBe('storyboard');
-    expect((data.get('cells') as any[]).length).toBe(2);
+    // T17（Z17''）：doc 恒无 cells——格位=子 slot（读序 0..n 落 data.slot）
+    expect(data.get('cells')).toBeUndefined();
     expect((data.get('storyboard') as any).gridCols).toBeGreaterThan(0);
+    const slots = [id1, id2].map((cid) =>
+      ((doc.getMap('nodes').get(cid) as Y.Map<any>).get('data') as Y.Map<any>).get('slot'));
+    expect(slots.slice().sort((a, b) => (a as number) - (b as number))).toEqual([0, 1]);
     for (const cid of [id1, id2]) {
       // O0a-1 形状变更（预期）：分镜子 doc 无 position 键（键集表——membership 变更点剥键，
       // convert 的 move intent 落"分镜子无 position"；cs 面归零 {0,0} 构造默认保留）
@@ -510,7 +514,8 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     expect(doc.getMap('nodes').get(id1)).toBeUndefined();
     expect(doc.getMap('nodes').get(id2)).toBeUndefined();
     const data = (doc.getMap('nodes').get(gid) as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('cells')).toEqual([]);
+    // T17（Z17''）：doc 恒无 cells（格位=子 slot，成员已删——组 data 无 cells 键）
+    expect(data.get('cells')).toBeUndefined();
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
@@ -522,7 +527,10 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     useCanvasStore.getState().removeStoryboardCell(gid, 0);
     const data = (doc.getMap('nodes').get(gid) as Y.Map<any>).get('data') as Y.Map<any>;
     expect(doc.getMap('nodes').get(id1)).toBeUndefined();
-    expect(data.get('cells')).toEqual([id2]); // 紧凑前移
+    // T17（Z17''）：doc 恒无 cells——紧凑=存活子 slot 整值前移（id2 slot 1→0）
+    expect(data.get('cells')).toBeUndefined();
+    const id2Data = (doc.getMap('nodes').get(id2) as Y.Map<any>).get('data') as Y.Map<any>;
+    expect(id2Data.get('slot')).toBe(0);
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 

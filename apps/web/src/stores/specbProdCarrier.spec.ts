@@ -15,15 +15,16 @@ import { _setIntentDocForTest } from './canvasIntents';
 import { detachUndoManager } from './canvasUndo';
 import { resetCanvasStores } from '@/test/fixtures/canvas';
 
-/** 脏 doc：分镜组 cells=['s1'] + 越权成员 rogue（parentId 指 sb1 但不在 cells——children⊄cells 违例） */
+/** 脏 doc（T17 slot 域）：分镜组无 cells（派生删）+成员 s1 携 slot 0 +越权成员 rogue（parentId
+ *  指 sb1 但缺 slot——格位真源违例，旧 children⊄cells 对应面） */
 function buildDirtyStoryboardDoc(): Y.Doc {
   const records: StoredNodeRecord[] = [
     { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: {
-      groupType: 'storyboard', cells: ['s1'],
+      groupType: 'storyboard',
       storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' },
     } },
-    { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: {} },
-    { id: 'rogue', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: {} }, // 不在 cells
+    { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: { slot: 0 } },
+    { id: 'rogue', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: {} }, // 缺 slot
   ];
   const d = new Y.Doc();
   fillDoc(d, records, []);
@@ -43,7 +44,7 @@ describe('B7-2 prod 断言载体：脏 doc ⇒ DEV 直抛 / prod 不抛+计数+1
   it('DEV=true：applyDocToStore 尾挂断言直抛（membership 违例）', () => {
     vi.stubEnv('DEV', true);
     const d = buildDirtyStoryboardDoc();
-    expect(() => applyDocToStore(d)).toThrow(/assertStoryboardMembership|cells/);
+    expect(() => applyDocToStore(d)).toThrow(/assertStoryboardMembership|slot/);
   });
 
   it('DEV=false（prod 档）：不抛 + reportShapeViolation 计数+1（rogue 违例入账）', () => {

@@ -63,8 +63,8 @@ const FIXTURE: StoredNodeRecord[] = [
   { id: 'c2', type: 'imageGen', parentId: 'g2', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
   { id: 'g3', type: 'group', data: { groupType: 'normal', name: 'auto-single' } },
   { id: 'c3', type: 'imageGen', parentId: 'g3', position: { x: 700, y: 600 }, width: 100, height: 60, data: {} },
-  { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', cells: ['s1'], storyboard: SB_CONFIG } },
-  { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: {} },
+  { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', storyboard: SB_CONFIG } },   // T17：格位=子 slot（cells 派生删）
+  { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: { slot: 0 } },
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
   { id: 'img1', type: 'imageGen', position: { x: 0, y: 900 }, width: 320, height: 180, data: { status: 'done' } },
 ];
@@ -275,7 +275,9 @@ describe("B5'-2 守卫仍生效（预检/折叠展开留原函数体单层）", 
     expect(csNode('img1').position).toEqual({ x: 0, y: 0 });       // 分镜子构造默认
     expect(nodeMap(d, 'img1').get('parentId')).toBe('sb1');
     expect(nodeMap(d, 'img1').get('position')).toBeUndefined();    // 剥键（分镜子无 position）
-    expect((nodeMap(d, 'sb1').get('data') as Y.Map<any>).get('cells')).toEqual(['s1', 'img1']); // 首空槽=1（plain array 载荷）
+    // T17（Z17''）：格位真源=子 slot——img1 落首空槽 1（doc 组 data 恒无 cells；plain number 载荷）
+    expect((nodeMap(d, 'img1').get('data') as Y.Map<any>).get('slot')).toBe(1);
+    expect((nodeMap(d, 'sb1').get('data') as Y.Map<any>).get('cells')).toBeUndefined();
   });
 
   it('落折叠组⇒函数体先展开：折叠 g3 上落 t1 ⇒ collapsed=false 先行+入组成功', () => {

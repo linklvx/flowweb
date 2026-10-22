@@ -51,8 +51,10 @@ describe('mergeStoryboard', () => {
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'multi']);
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).toHaveLength(3); // a + 2 张展开图
+    // T17：派生 cells 长度恰=capacity（2x2=4；成员 3：a+2 展开图占槽 0..2，槽 3 空）
+    expect(g.data.cells).toHaveLength(4);
     expect((g.data.cells as any)[0]).toBe('a'); // a.x=100 < multi.x=1000 → 展开图不插队（P1-新1）
+    expect((g.data.cells as any).filter(Boolean)).toHaveLength(3);
     const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
     expect(expanded).toHaveLength(2);
     expect(expanded.every((n) => n.type === 'imageGen' && (n.data as any).status === 'done')).toBe(true);

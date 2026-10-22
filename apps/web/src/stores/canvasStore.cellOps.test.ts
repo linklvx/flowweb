@@ -53,7 +53,10 @@ describe('removeStoryboardCell（删单格：不收缩宫格，序号重排）',
     useCanvasStore.getState().removeStoryboardCell(gid, 1); // 删 b
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).toEqual(['a', 'c', 'd']); // 前移补位（紧凑）
+    // T17（Z17''）：派生 cells 长度恰=capacity(4)；紧凑=后续 slot 整值 -1（c:2→1、d:3→2）
+    expect(g.data.cells).toEqual(['a', 'c', 'd', null]);
+    // slot 域真源断言：doc 侧 c=1、d=2（整值前移）
+    expect(g.data.cells).toHaveLength(4);
     expect(s.nodes.find((n) => n.id === 'b')).toBeUndefined();
     const storyboard = (g.data as any).storyboard;
     expect(storyboard.gridRows).toBe(2); // 不收缩
@@ -111,14 +114,17 @@ describe('dropImageIntoStoryboard（multiImageGen 展开拖入）', () => {
 describe('O0c-3 attachMember 分镜成员原语', () => {
   // 生产同构链装置（O0b-2 sizing 同款）：openRwWindow→fillDoc→stamp→applyDocToStore 水合→action；
   // 零裸几何 setState（文件级棘轮 allow-list 纪律）。
-  const sbData = (cells: (string | null)[]) => ({
-    groupType: 'storyboard', cells,
+  // T17（Z17'' cells→slot）：组 data 零 cells（doc 恒无）；格位=子 slot（cellRecord 第二参）。
+  // cs data.cells=派生缓存（reconcile 写域⑥ 水合时派生——断言兼容读）。
+  const sbData = () => ({
+    groupType: 'storyboard',
     storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' },
   });
-  const sbRecord = (cells: (string | null)[]): StoredNodeRecord =>
-    ({ id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: sbData(cells) });
-  const cellRecord = (id: string): StoredNodeRecord =>
-    ({ id, type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
+  const sbRecord = (): StoredNodeRecord =>
+    ({ id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: sbData() });
+  const cellRecord = (id: string, slot?: number): StoredNodeRecord =>
+    ({ id, type: 'imageGen', parentId: 'sb', width: 320, height: 180,
+       data: { status: 'done', fileId: `f-${id}`, ...(slot != null ? { slot } : {}) } });
   const freeRecord = (): StoredNodeRecord =>
     ({ id: 'z', type: 'imageGen', position: { x: 900, y: 900 }, width: 320, height: 180, data: { status: 'done', fileId: 'f-z' } });
   const rig = (records: StoredNodeRecord[]): Y.Doc => {
@@ -136,24 +142,25 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
   afterEach(() => { _setIntentDocForTest(null); resetCanvasStores(); });
 
   it('直调 attachMember 到分镜组走正常入格：cs membership+首空槽 ∧ doc parentId 落+分镜子 position 剥键', () => {
-    const d = rig([sbRecord(['c1', null]), cellRecord('c1'), freeRecord()]);
+    const d = rig([sbRecord(), cellRecord('c1', 0), freeRecord()]);
     const slot = useCanvasStore.getState().attachMember('sb', 'z');
     expect(slot).toBe(1);                                     // 首空槽（cells=['c1',null]——槽序语义）
     const z = csNode('z');
     expect(z.parentId).toBe('sb');
     expect('extent' in z).toBe(false);                          // 去闸门（终裁 43）：cs 节点无 extent 键
     expect(z.position).toEqual({ x: 0, y: 0 });               // 分镜子坐标无意义（mergeStoryboard/addImageToStoryboardCell 同款归零）
-    expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);
+    expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);   // cs 派生缓存
     // doc 面（membership=内容真源）：parentId 落键；position 剥键（键集表"分镜子无 position"——
-    // 顶层入格前带 position，剥键唯一载体=本 intent 的 position:undefined）
+    // 顶层入格前带 position，剥键唯一载体=本 intent 的 position:undefined）；格位=子 slot（doc 无 cells）
     const dz = docNode(d, 'z');
     expect(dz.get('parentId')).toBe('sb');
     expect(dz.has('position')).toBe(false);
-    expect((docNode(d, 'sb').get('data') as Y.Map<any>).get('cells')).toEqual(['c1', 'z']);
+    expect((dz.get('data') as Y.Map<any>).get('slot')).toBe(1);
+    expect((docNode(d, 'sb').get('data') as Y.Map<any>).get('cells')).toBeUndefined();
   });
 
   it('满员 → 返回 null 零写（cs/doc 逐位不变——溢出处置=caller 策略）', () => {
-    const d = rig([sbRecord(['c1', 'c2']), cellRecord('c1'), cellRecord('c2'), freeRecord()]);
+    const d = rig([sbRecord(), cellRecord('c1', 0), cellRecord('c2', 1), freeRecord()]);
     const beforeCs = snapCs();
     const beforeDoc = Y.encodeStateAsUpdate(d);
     expect(useCanvasStore.getState().attachMember('sb', 'z')).toBeNull();
@@ -162,7 +169,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
   });
 
   it('addToGroup/dropIntoGroup 公开面分镜组守卫：拒绝零写（分镜组成员写唯一通道=attachMember）', () => {
-    const d = rig([sbRecord(['c1', null]), cellRecord('c1'), freeRecord()]);
+    const d = rig([sbRecord(), cellRecord('c1', 0), freeRecord()]);
     const beforeCs = snapCs();
     const beforeDoc = Y.encodeStateAsUpdate(d);
     useCanvasStore.getState().addToGroup('sb', 'z');
@@ -172,19 +179,37 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
   });
 
   it('dropImageIntoStoryboard imageGen 完成图：经 attachMember 入格（旧 addToGroup 通道已挂守卫退役）', () => {
-    rig([sbRecord(['c1', null]), cellRecord('c1'), freeRecord()]);
+    rig([sbRecord(), cellRecord('c1', 0), freeRecord()]);
     useCanvasStore.getState().dropImageIntoStoryboard('sb', 'z');
     const z = csNode('z');
     expect(z.parentId).toBe('sb');
     expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);   // 入格成功（守卫后走 attachMember——拒绝则此断言红）
   });
 
+  it('T17 G55：cells 零残留落 doc——全命令族（attach/remove/clear/resize/addImage/removeCell）后 doc 组 data 恒无 cells ∧ slot 派生单源', () => {
+    const d = rig([sbRecord(), cellRecord('c1', 0), freeRecord()]);
+    const st = useCanvasStore.getState();
+    st.attachMember('sb', 'z');                       // 入格
+    st.removeStoryboardCell('sb', 0);                 // 删槽 0（c1）——z slot 1→0 紧凑
+    st.addImageToStoryboardCell('sb', 1, 'f-new');    // 槽 1 建图
+    st.resizeStoryboardGrid('sb', 2, 2);              // 增格
+    // doc 面：组 data 恒无 cells（键集表出口剥+patchGroupData cells 恒剥——回流面收口）
+    const sbData = docNode(d, 'sb').get('data') as Y.Map<any>;
+    expect(sbData.get('cells')).toBeUndefined();
+    expect(sbData.has('cells')).toBe(false);
+    // cs 面：派生缓存长度恰=capacity（2x2=4）——deriveStoryboardCells 单源
+    const csCells = (csNode('sb').data as any).cells as (string | null)[];
+    expect(csCells).toHaveLength(4);
+    expect(csCells.filter(Boolean)).toHaveLength(2);  // z（紧凑后槽 0）+新建槽 1
+    expect(csCells[0]).toBe('z');
+  });
+
   it('跨组拖入分镜：源组失去最后子 → 解组（addToGroup 善后语义随通道退役移入 caller——原语零善后是刻意分层）', () => {
     rig([
       { id: 'ng', type: 'group', position: { x: 500, y: 500 }, width: 340, height: 220, data: { groupType: 'normal' } },
       { id: 'z', type: 'imageGen', parentId: 'ng', position: { x: 520, y: 520 }, width: 320, height: 180, data: { status: 'done', fileId: 'f-z' } },
-      sbRecord(['c1', null]),
-      cellRecord('c1'),
+      sbRecord(),
+      cellRecord('c1', 0),
     ]);
     useCanvasStore.getState().dropImageIntoStoryboard('sb', 'z');
     expect(csNode('z').parentId).toBe('sb');

@@ -214,7 +214,12 @@ function applyKeySetTable(
 ): StoredNodeRecord[] {
   const storyboardIds = storyboardGroupIds(records);
   return records.map((n) => {
-    const data = (n.data ?? {}) as Record<string, unknown>;
+    const rawData = (n.data ?? {}) as Record<string, unknown>;
+    // T17（Z17'' cells 派生不落 doc）：分镜组 data.cells=派生键（cs 缓存/旧档残留）——键集表
+    // 出口剥除（doc 恒无 cells；格位=子 slot 承载——deriveStoryboardCells 单源）。
+    const data = storyboardIds.has(n.id) && 'cells' in rawData
+      ? (() => { const { cells: _c, ...rest } = rawData; return rest; })()
+      : rawData;
     const out: StoredNodeRecord = { id: n.id, type: n.type, data };
     const isGroup = n.type === 'group';
     const isStoryboard = isGroup && data.groupType === 'storyboard';

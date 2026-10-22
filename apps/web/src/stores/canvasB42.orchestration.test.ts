@@ -42,8 +42,8 @@ const FIXTURE: StoredNodeRecord[] = [
   { id: 'c1b', type: 'imageGen', parentId: 'g1', position: { x: 200, y: 90 }, width: 80, height: 50, data: {} },
   { id: 'g2', type: 'group', data: { groupType: 'normal', name: 'auto' } },
   { id: 'c2', type: 'imageGen', parentId: 'g2', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
-  { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', cells: ['s1'], storyboard: SB_CONFIG } },
-  { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: {} },
+  { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', storyboard: SB_CONFIG } },   // T17：格位=子 slot（cells 派生删）
+  { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: { slot: 0 } },
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
 ];
 

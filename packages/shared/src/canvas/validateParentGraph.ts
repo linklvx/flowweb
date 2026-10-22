@@ -1,4 +1,4 @@
-export interface ParentGraphViolation { kind: 'dangling' | 'cycle' | 'nested-group' | 'non-group-parent' | 'dangling-cell' | 'dangling-edge'; id: string }
+export interface ParentGraphViolation { kind: 'dangling' | 'cycle' | 'nested-group' | 'non-group-parent' | 'dangling-edge'; id: string }
 
 /** parentId/edges/cells 结构校验（F39 v8 收窄 + v11 时机前移）。
  *  导入档校验时机 = 跨用户过滤之前、remap 之前（remap 把悬空折 undefined——挂后 dangling 恒 0 假绿；
@@ -21,10 +21,6 @@ export function validateParentGraph(
     for (const nd of nodes) {
       if (nd.parentId != null && !byId.has(nd.parentId)) violations.push({ kind: 'dangling', id: nd.id });
       else if (nd.parentId != null && byId.get(nd.parentId)?.type !== 'group') violations.push({ kind: 'non-group-parent', id: nd.id });
-      const cells = nd.data?.cells;
-      if (nd.type === 'group' && Array.isArray(cells)) {
-        for (const c of cells) if (c != null && !byId.has(c as string)) violations.push({ kind: 'dangling-cell', id: nd.id });
-      }
     }
     for (const e of edges) {
       if (!byId.has(e.source) || !byId.has(e.target)) violations.push({ kind: 'dangling-edge', id: e.id });

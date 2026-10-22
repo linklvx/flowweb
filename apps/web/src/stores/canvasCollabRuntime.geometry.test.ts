@@ -46,8 +46,8 @@ const FLIPPED_RECORDS: StoredNodeRecord[] = [
   { id: 'c2', type: 'imageGen', parentId: 'g2', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
   { id: 'c3', type: 'imageGen', parentId: 'g2', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
   // 分镜组（origin=doc position 键）+分镜子（无 position 带 wh——cs {0,0} 构造默认不动）
-  { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', cells: ['s1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
-  { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: {} },
+  { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
+  { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: { slot: 0 } },
   // 顶层普通节点（abs 直拷）
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
 ];

@@ -17,7 +17,8 @@ export function toDocLike(doc: Y.Doc): DocLike {
 /** 画布 yjs 快照（O0b-0 一次到位——doc=abs 空间 v2 档）：
  *  - gate-node-1/2 保留不动（a0-0-env.spec:27-28 兼容）
  *  - auto 组 1（组+2 子：组无帧三键[键集表]、子带 abs position）
- *  - 分镜组 1（组带 position+storyboard 完整 config+cells；分镜子无 position 带 width/height）
+ *  - 分镜组 1（组带 position+storyboard 完整 config——T17 cells 派生删；分镜子无 position
+ *    带 width/height+slot 格位）
  *  - meta 戳（stampDocSchema——WS loadDocument 版本门放行）
  *  collab.gateway.loadDocument 直接 applyUpdate 本二进制。 */
 export function buildGateCanvasState(): Buffer {
@@ -31,10 +32,11 @@ export function buildGateCanvasState(): Buffer {
     { id: 'gate-auto-group', type: 'group', data: { groupType: 'normal', name: 'Gate Auto 组' } },
     { id: 'gate-auto-child-1', type: 'textInput', parentId: 'gate-auto-group', position: { x: 40, y: 70 }, width: 200, height: 80, data: { content: 'auto child 1' } },
     { id: 'gate-auto-child-2', type: 'textInput', parentId: 'gate-auto-group', position: { x: 280, y: 70 }, width: 200, height: 80, data: { content: 'auto child 2' } },
-    // 分镜组 1（组带 position；storyboard 完整 config+cells；分镜子无 position 带 width/height）
-    { id: 'gate-sb-group', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', cells: ['gate-sb-cell-1', 'gate-sb-cell-2'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
-    { id: 'gate-sb-cell-1', type: 'imageGen', parentId: 'gate-sb-group', width: 320, height: 180, data: { status: 'done' } },
-    { id: 'gate-sb-cell-2', type: 'imageGen', parentId: 'gate-sb-group', width: 320, height: 180, data: { status: 'idle' } },
+    // 分镜组 1（组带 position；storyboard 完整 config——T17：cells 派生不落 doc；分镜子无
+    // position 带 width/height+slot 格位真源）
+    { id: 'gate-sb-group', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
+    { id: 'gate-sb-cell-1', type: 'imageGen', parentId: 'gate-sb-group', width: 320, height: 180, data: { status: 'done', slot: 0 } },
+    { id: 'gate-sb-cell-2', type: 'imageGen', parentId: 'gate-sb-group', width: 320, height: 180, data: { status: 'idle', slot: 1 } },
   ], [
     { id: 'gate-edge-1', source: 'gate-node-1', target: 'gate-node-2' },
   ]);

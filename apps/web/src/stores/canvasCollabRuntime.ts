@@ -25,6 +25,9 @@ import {
   assertAllPositionsFinite, GeometryWriteLedger, type GeometryField,
 } from '@flowweb/shared';
 import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
+// T17（Z17'' cells→slot）：分镜组 cs cells 派生缓存单源（reconcile 写域⑥——doc 子 slot 权威）
+import { deriveStoryboardCells } from '@flowweb/shared';
+import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { deriveHiddenMap, edgeHidden } from '@/utils/groupDerive';
 import { AwarenessBridge } from '@/collab/awareness';
 // 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
@@ -1146,6 +1149,47 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
       );
     });
   }
+  // —— 写域⑥（T17 Z17''）：分镜组 cs cells 派生缓存——ns 子 slot 取数（applyDocToStore 水合/
+  // 远端 apply 先写 ns 后挂本 reconcile——ns 恒新于本点；命令点 syncStoryboardCells 同值幂等）。
+  // 长度恰=capacity（deriveStoryboardCells 单源）；数据域非几何（同写域⑤豁免零差异短路——
+  // 每次调用必跑）；自带 setState（零差异零写）。
+  deriveStoryboardCellsCache();
+}
+
+/** 写域⑥实现：分镜组 cs data.cells ← deriveStoryboardCells(ns 子 slot, capacity)。
+ *  slot 取数=ns 真源（命令点同步写 ns；水合/远端 applyDocToStore 先写 ns 后挂 reconcile）；
+ *  缺 slot/非法 slot 成员由派生自愈填格（读侧修复——Z17''）。返回是否写入。 */
+function deriveStoryboardCellsCache(): boolean {
+  const csNodes = useCanvasStore.getState().nodes as any[];
+  const sbGroups = csNodes.filter(
+    (n) => n.type === 'group' && (n.data as Record<string, unknown>).groupType === 'storyboard',
+  );
+  if (sbGroups.length === 0) return false;
+  const nsNodes = useNodeStore.getState().nodes as Record<string, { data?: unknown }>;
+  const slotOf = (id: string): number | undefined => {
+    const d = nsNodes[id]?.data as Record<string, unknown> | undefined;
+    const slot = d?.slot;
+    return typeof slot === 'number' && Number.isInteger(slot) && slot >= 0 ? slot : undefined;
+  };
+  const childrenByParent = new Map<string, { id: string; data: Record<string, unknown> }[]>();
+  for (const nd of csNodes) {
+    if (nd.parentId == null) continue;
+    const slot = slotOf(nd.id);
+    const rec = { id: nd.id, data: slot != null ? { slot } : {} };
+    const list = childrenByParent.get(nd.parentId);
+    if (list) list.push(rec); else childrenByParent.set(nd.parentId, [rec]);
+  }
+  let mutated = false;
+  const next = csNodes.map((nd: any) => {
+    if (nd.type !== 'group' || (nd.data as Record<string, unknown>).groupType !== 'storyboard') return nd;
+    const cfg = resolveStoryboardConfig(nd.data);
+    const { cells } = deriveStoryboardCells(childrenByParent.get(nd.id) ?? [], cfg.gridRows * cfg.gridCols);
+    if (JSON.stringify((nd.data as Record<string, unknown>).cells ?? null) === JSON.stringify(cells)) return nd;
+    mutated = true;
+    return { ...nd, data: { ...nd.data, cells } };
+  });
+  if (mutated) useCanvasStore.setState({ nodes: next });
+  return mutated;
 }
 
 // ══════════ O0b-3 保护序 v2：手势保护面（三层一函数——捕获/hydrate/回写） ══════════

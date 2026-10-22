@@ -47,8 +47,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y0b-5 T6：横幅单链字段族两处插入（interface +20/初始值 +6——本表 13 行整体再 +20 漂移，集合不变）
     // Y0b-5 T8：pendingBacklog 字段两处插入（interface +4/初始值 +1——本表 13 行整体再 +4 漂移，集合不变）
     // T17：序域片（allocator import/persistArrangeOrder helper/addNodeInner order 键/arrange 读序
-    // 换芯/duplicate·paste allocator）——13 行整体漂移（集合不变）
-    'stores/canvasStore.ts': [939, 940, 946, 947, 1002, 1003, 1074, 1075, 1081, 1082, 1228, 1768, 1769],
+    // 换芯/duplicate·paste allocator）+cells→slot 片（syncStoryboardCells 族）——13 行整体漂移（集合不变）
+    'stores/canvasStore.ts': [969, 970, 976, 977, 1032, 1033, 1104, 1105, 1111, 1112, 1258, 1799, 1800],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],
