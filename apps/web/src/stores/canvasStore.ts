@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
-import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
+import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -676,7 +676,11 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
    *  （ns/投影随 applyDataPatchToStores——order 非 bridge 键不镜像 cs 普通节点 data）。 */
   const persistArrangeOrder = (orderedIds: string[], layerParentId: string | null): void => {
     const layerNodes = get().nodes
-      .filter((n) => (n.parentId ?? null) === layerParentId && orderedIds.includes(n.id))
+      // T17 顺修③（层过滤防御一行）：slot 域成员不入 order 重排面（混合脏层下 arrange 给分镜子
+      // 写 order=order+slot 并存键集违例——readPlacement 判别单源；fitOrderBlock 对非选集/选集
+      // 一律按 order 键域挤压，slot 成员混入即产非法键对）。
+      .filter((n) => (n.parentId ?? null) === layerParentId && orderedIds.includes(n.id)
+        && readPlacement((n.data ?? {}) as Record<string, unknown>).kind === 'order')
       .map((n) => ({ id: n.id, parentId: n.parentId, position: n.position, width: n.width, height: n.height, data: (n.data ?? {}) as Record<string, unknown> }));
     const reassign = fitOrderBlock(layerNodes, orderedIds);
     if (reassign.size === 0) return;
@@ -3049,6 +3053,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (!group) return;
     // T17（Z17''）：removedId=deriveStoryboardCells 读侧派生（cells 不落 doc）；紧凑=后续成员
     // slot 整值 -1（swap/紧凑全走整值写——无分数槽位）；cs cells=派生缓存重算
+    // T17 顺修④（语义钉明）：**紧凑判定按存储 slot 域**——cellIndex 仅在「slot 域紧凑且从 0 连续」
+    // 时与被删成员的存储 slot 数值相等（重复/缺 slot 脏档下 deriveStoryboardCells 的格位索引
+    // ≠存储 slot，删格取 removedId 仍按派生格、后续 -1 比较仍按存储 slot——两域不混读；缺 slot
+    // 自愈填格成员经派生格删除后其存储 slot 缺失天然免 -1）。修复脏档格位域归 CLI renumber。
     const children = s.nodes.filter((n) => n.parentId === groupId)
       .map((n) => ({ id: n.id, data: { slot: storyboardChildSlot(n.id) } }));
     const { cells } = deriveStoryboardCells(children, storyboardCapacityOf(group));

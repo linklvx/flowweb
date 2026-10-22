@@ -115,6 +115,22 @@ describe('ProjectService', () => {
       expect(e1.get('target')).toBe('n2');
     });
 
+    it('T17 顺修①：种子 placement 判别门（stripDerivedKeys 同款）——order+slot 并存/非法 order 键 ⇒ create 拒绝（fail-closed 种子面禁非法 placement 入 doc）', async () => {
+      const mockProject = { id: 'p1', name: '导入', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+
+      // order+slot 并存（禁两可）
+      await expect(service.create('非法1', 'u1', [
+        { id: 'n1', type: 'imageGen', data: { order: '5000', slot: 0 } },
+      ] as any)).rejects.toThrow(/placement 违例|order\+slot 并存/);
+      // 非法 order 键形（尾零=非 canonical）
+      await expect(service.create('非法2', 'u1', [
+        { id: 'n2', type: 'textInput', data: { order: '5.50' } },
+      ] as any)).rejects.toThrow(/placement 违例|非法键形/);
+      expect(prisma.canvasDoc.upsert).not.toHaveBeenCalled();   // 拒绝先于落库
+    });
+
     it('种子剥键（O0a-2 stripAuthorState）：分镜子无 position+storyboard 组无 wh——manual 组帧三键保留（G1）', async () => {
       const mockProject = { id: 'p1', name: '导入', createdAt: new Date(), updatedAt: new Date() };
       prisma.canvasProject.create.mockResolvedValue(mockProject);

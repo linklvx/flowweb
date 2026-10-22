@@ -1193,6 +1193,26 @@ if (isMain()) {
        ...stray.map((h) => `白名单外 .unloadDocument( 直调 ${h.file}:${h.line} ${h.text}`)]);
   }
 
+  // ㉖在线 repair 零存在（T18·G53 改口判据防回潮——Z4''-v14：在线 repair 整建制删除，只留病理
+  //  计数+CLI renumber-layer）：生产代码 CollabMaintenance/RepairRun 标识符零命中+repair 路由
+  //  形态零命中。白名单零清单（合法新载体不存在——CLI 在 scripts/ 非生产面，病理计数不建路由）。
+  {
+    const bannedId = /\b(CollabMaintenance|RepairRun)\b/;
+    const bannedRoute = /order\/repair|repair-layer|['"]\/.*repair/i;
+    const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) =>
+      bannedId.test(l) || bannedRoute.test(l) ? l.trim().slice(0, 90) : null));
+    report('㉖', '在线 repair 零存在（G53 改口——CollabMaintenance/RepairRun/repair 路由生产面零命中；修复载体=CLI scripts/collab-renumber-layer.mjs+病理计数装载档）', hits.length === 0, hits.map((h) => `${h.file}:${h.line} ${h}`));
+  }
+
+  // ㉗meta.schemaVersion 读写零残留（T18·Y1b T2 版本硬切——meta map 读写整链退役，版本判据唯一
+  //  承载=CanvasDoc.schemaVersion PG 列）：生产面 schemaVersion 的 map 访问形态（.get/.set）零命中
+  //  （PG 列访问形态 docRow?.schemaVersion / select schemaVersion: true 合法——map 形态专属禁令）。
+  {
+    const metaAccess = /\.get\(\s*['"]schemaVersion['"]\s*\)|\.set\(\s*['"]schemaVersion['"]\s*,/;
+    const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) => metaAccess.test(l) ? l.trim().slice(0, 90) : null));
+    report('㉗', 'meta.schemaVersion map 读写零残留（T18 版本硬切——版本承载=CanvasDoc.schemaVersion PG 列；旧档 doc 残留 meta 值=历史载荷读侧不解释）', hits.length === 0, hits.map((h) => `${h.file}:${h.line} ${h}`));
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\ncheck-collab-census: ${results.length - failed.length}/${results.length} PASS`);
   if (failed.length) { console.error(`check-collab-census FAIL: ${failed.map((f) => f.id).join(' ')}`); process.exit(1); }

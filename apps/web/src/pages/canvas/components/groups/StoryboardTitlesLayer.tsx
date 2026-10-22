@@ -28,7 +28,7 @@ function StoryboardTitlesLayerComponent() {
         // nameCustom 语义（§4.4）：改名走用户名（2d-6 renameGroup 置位），否则智能标题（空槽不计）
         const title = data.nameCustom
           ? (data.name ?? '')
-          : `分镜组 ${(data.cells ?? []).filter(Boolean).length} 个节点`;
+          : `分镜组 ${((data.cells as (string | null)[] | undefined) ?? []).filter(Boolean).length} 个节点`;   // cs 派生缓存（T18 顺修②：cells 出 shape 后显式窄化）
         return (
           <div
             key={g.id}

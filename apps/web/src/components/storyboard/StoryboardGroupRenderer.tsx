@@ -64,7 +64,7 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes, onRemoveCell, o
       padding: 5,
     }}>
       {Array.from({ length: total }, (_, i) => {
-        const nodeId = data.cells?.[i];
+        const nodeId = (data.cells as (string | null)[] | undefined)?.[i];   // cs 派生缓存（T18 顺修②：cells 出 shape 后显式窄化——shape 只锚 doc/克隆契约键）
         const info = nodeId ? byId.get(nodeId) : undefined;
         return (
           <StoryboardCell key={i} index={i}

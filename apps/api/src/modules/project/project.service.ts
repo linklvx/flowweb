@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -6,7 +6,7 @@ import { TeamService } from '../team/team.service';
 import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
-import { fillDoc, stripAuthorState, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -61,7 +61,17 @@ export class ProjectService {
       //  V19：fillDoc 契约=（DocLike, stripAuthorState 输出, edges）——直传原始记录=往快照写非作者态
       //  键（分镜子 position/组帧键按组类型键集表——clone 传入的正是作者态记录）。
       const seed = createCanvasDoc();
-      if (nodes && nodes.length > 0) fillDoc(toDocLike(seed), stripAuthorState(nodes as any), edges ?? []);
+      if (nodes && nodes.length > 0) {
+        // T17 顺修①：stripAuthorState 只走键集表剥键——placement 判别校验未接（order+slot 并存/
+        // 非法 order 键可经种子入 doc）。接 stripDerivedKeys 同款（web dispatchProjectionDiff 批尾
+        // 断言/api 种子入口共用——零第二 guard 体系）：违例 fail-closed throw，先于 fillDoc/落库。
+        const stripped = stripAuthorState(nodes as any);
+        const placementViolations = stripDerivedKeys(stripped);
+        if (placementViolations.length > 0) {
+          throw new BadRequestException(`种子 placement 违例（DOC_NODE_KEYS 判别）：${placementViolations.slice(0, 3).join('；')}`);
+        }
+        fillDoc(toDocLike(seed), stripped, edges ?? []);
+      }
       await tx.canvasDoc.upsert({
         where: { projectId: created.id },
         create: { projectId: created.id, state: Buffer.from(Y.encodeStateAsUpdate(seed)), stateSeq: 0n },

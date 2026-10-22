@@ -78,7 +78,8 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
   },
   write_reject: {
     reason: { sink: 'log-only', values: [...QUOTA_REJECT_REASONS, 'selection-too-large', 'quota-soft'] },
-    via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck'] },
+    via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck', 'canEditCommand'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）
+    command: { sink: 'log-only' },   // T17 七命令名（EditableCommandName 7 值域归 web 单源，log-only 无 label 基数面不枚举〔name/frame 先例〕）
   },
   invariant_violation: {
     where: { sink: 'log-only', values: ['applyRemote', 'applyBootstrap', 'react-boundary'] },

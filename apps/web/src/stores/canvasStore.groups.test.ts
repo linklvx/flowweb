@@ -450,14 +450,14 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     expect('collapsed' in d).toBe(false);
   });
 
-  it('组 data 键 ⊆ GROUP_NODE_DATA_KEYS（合并不发明新键——7 键白名单门禁；manuallyResized 随 O0b-5、savedSize 随 O0c-3 摘键）', () => {
+  it('组 data 键 ⊆ GROUP_NODE_DATA_KEYS ∪ cs 派生缓存键（合并不发明新键——6 键白名单门禁；manuallyResized 随 O0b-5、savedSize 随 O0c-3、cells 随 T18 顺修②摘键〔cs 派生缓存键合法在 cs 面——doc/克隆白名单不含〕）', () => {
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 },
         data: { groupType: 'normal', name: 'A', color: 'red', nameCustom: true } },
     ] as any, edges: [] });
     useCanvasStore.getState().patchGroupData('g1', { collapsed: false, cells: [] });
     const d = (useCanvasStore.getState().nodes[0] as any).data;
-    expect(Object.keys(d).every((k) => (GROUP_NODE_DATA_KEYS as readonly string[]).includes(k))).toBe(true);
+    expect(Object.keys(d).every((k) => [...GROUP_NODE_DATA_KEYS, 'cells', 'order'].includes(k))).toBe(true);
   });
 
   it('patch collapsed:true → 子节点 hidden===true（O0b-4 单内核——patchGroupData cs 先写后 dispatch，漏斗尾 reconcile 即时派生，无配对义务）', () => {
