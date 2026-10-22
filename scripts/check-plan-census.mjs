@@ -5,6 +5,7 @@
 // 断言组按卡扩展（架构预留——头注释登记后续卡接入面）：
 //   - T7/T10：media.create grep census（唯一编排器点）+NodeArtifact 写点枚举
 //   - T11/T17：strip/guard 键集消费面（凡 import 键集处必用单源常量的 lexical 面）
+//   - T17 评审收口 P2-5（G54）：⑧DOC_NODE_KEYS placement 裸写旁路检测（data.order/slot 直赋白名单外清零）
 // 退出码：0=全 PASS；1=任一 FAIL；2=结构性错误。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,6 +59,14 @@ export function compareExecSeqDefinitionSites(strippedLines) {
  *  不在此面；注释剥除；正则字面量按 check-collab-census 惯例保留原文）。 */
 export function findFlowaiRewriteRedeclaration(strippedLines) {
   const RE = /\\\/flowai/;
+  return strippedLines.flatMap((l, i) => (RE.test(l) ? [i + 1] : []));
+}
+
+/** ⑧DOC_NODE_KEYS placement 裸写旁路检测（T17 G54「契约表 census」·评审收口 P2-5）：行含
+ *  \bdata\b 且出现 `.order =`/`.slot =` 赋值（=(?!=) 排除 ===/==/=>）＝绕开 allocator/copyPlan
+ *  缝/分镜槽位原语族的裸赋值。stripped 面（注释/字符串已剥）。 */
+export function findBarePlacementWrite(strippedLines) {
+  const RE = /\bdata\b.*\.(?:order|slot)\s*=(?!=)/;
   return strippedLines.flatMap((l, i) => (RE.test(l) ? [i + 1] : []));
 }
 
@@ -188,6 +197,26 @@ if (isMain()) {
       details.push(`TTL 漂移：web MEDIA_URL_CACHE_TTL_SEC=${webTtl} vs api MEDIA_CONTENT_URL_TTL_SEC=${apiTtl}——双端须同步改`);
     }
     report('⑦', '双端 mediaContentUrl 单源锁（定义恰 2 锚文件+TTL 数值一致）', details.length === 0, details);
+  }
+
+  // ⑧DOC_NODE_KEYS placement 裸写旁路清零（T17 G54 契约表 census·评审收口 P2-5）：order/slot
+  //    直赋面白名单=canvas-allocator.ts（分配器本体）/copyPlan.ts（allocateOrder 缝）/
+  //    canvasStore.ts（建点 order 键+分镜槽位原语族 slot 直写——唯一命令体直写域）。白名单外
+  //    命中=旁路 allocator 或槽位原语的裸写。
+  {
+    const ALLOW = new Set([
+      'apps/web/src/utils/canvas-allocator.ts',
+      'packages/shared/src/canvas/copyPlan.ts',
+      'apps/web/src/stores/canvasStore.ts',
+    ]);
+    const details = [];
+    for (const f of byFile) {
+      if (ALLOW.has(f.rel)) continue;
+      for (const line of findBarePlacementWrite(f.stripped.split('\n'))) {
+        details.push(`${f.rel}:${line} data.order/slot 裸赋值——placement 写必经 allocator（order）/copyPlan 缝/分镜槽位原语族（canvasStore）`);
+      }
+    }
+    report('⑧', 'DOC_NODE_KEYS placement 裸写清零（order/slot 直赋白名单=allocator+copyPlan 缝+canvasStore 槽位原语族——G54 契约表 census）', details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

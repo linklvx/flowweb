@@ -451,7 +451,7 @@ describe('getProcessSnapshot（安全验收）', () => {
     }
   });
 
-  it('正向断言：textInput 纯文本 / imageGen prompt.text / videoGen label / multiImageGen prompt / group groupType+cells 原样（防 key 写错全绿——spec §7.6 全五类配对）', async () => {
+  it('正向断言：textInput 纯文本 / imageGen prompt.text / videoGen label / multiImageGen prompt / group groupType 原样+cells 派生键剥（T17 Z17）——防 key 写错全绿（spec §7.6 全五类配对）', async () => {
     setup();
     const out = await service.getProcessSnapshot('w1');
     const n1 = out.nodes.find((n: any) => n.id === 'n1')!;
@@ -464,7 +464,7 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect(n3.data.label).toBe('末班地铁 · 导出 1');
     expect(n4.data.prompt).toBe('分镜提示');
     expect(g.data.groupType).toBe('storyboard');
-    expect(g.data.cells).toEqual(['n1', 'ghost-id', null]); // 原样返回逐项比对（含悬空 id/null——勿写"全项可在 nodes 中找到"，悬空 id 是已接受行为会红在已知项上）
+    expect(g.data.cells).toBeUndefined(); // T17（Z17''）：cells 派生不落 doc——快照白名单剥（格位=子 slot 白名单携带；旧"悬空 id 原样"域随键消亡）
     // O0c-1 派生输入完备：storyboard/collapsed 必须进公开 payload——缺任一，O0c-2 deriveRenderCanvas 派生退化 auto
     expect(g.data.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
     expect(g.data.collapsed).toBe(false);

@@ -1,8 +1,10 @@
 import type { CanvasNodeRecord } from './nodeEnvelope';
 
 /**
- * normalizeCopiedNodeData（Z14''-v13 收窄——**单函数五路径共用**：copyPlan[duplicate]/seed/clone/
- * paste/explode）：副本 data 归一，规则：
+ * normalizeCopiedNodeData（Z14''-v13 收窄——**副本归一单函数**；实况消费面：duplicate/paste
+ * 两生产路径经本函数（buildCopyPlan 调用）；explode=dropImageIntoStoryboard multi 展开直构
+ * （status done 源+slot 直赋+无 cells/order——语义与本函数等价，形态为展开构造不复用）；seed
+ * （api 种子）/clone（本仓 clone 白名单路径不产新格位）无此归一需求。规则：
  *   - status loading/error → **有 fileId 则 done 无则 idle**（red 锚：copyPlan:63 structuredClone
  *     连 loading 复制=副本永久转圈——无交付者的 loading 是死态）；
  *   - 清 errorCode/error（副本不继承失败态）；
@@ -109,7 +111,10 @@ export function buildCopyPlan(
     // loading/error→有 fileId 则 done 无则 idle（副本永久转圈红线）、清 errorCode/error、
     // 删 ImageItem.url（保留 fileId/images[].id——新建不 strip，消灭空图窗口）。
     const data: Record<string, unknown> = normalizeCopiedNodeData(rec.data ?? {});
-    if (allocateOrder != null) {
+    // P1-1（评审收口·禁两可）：slot 档副本（分镜子——格位保真）**跳过 order 分配**——
+    // allocator 缝只对自由节点落 order（slot∧order 并存=validatePlacementData 违例，slot 优先
+    // 判别会掩盖双键脏态）
+    if (allocateOrder != null && data.slot == null) {
       data.order = allocateOrder(inClosure ? idMap.get(rec.parentId!)! : null);
     }
     const base = {

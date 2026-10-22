@@ -13,6 +13,9 @@
 // 经 import 单源引用；零行为变更纯机械迁移）。
 import type { RelPos } from './brands';
 import { isDocMap, setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
+// T17 P1-2：DOC_NODE_KEYS placement 判别校验接线（docShape→placement 单向——placement 只依
+// nodeEnvelope/order-key，零环）
+import { validatePlacementData } from './placement';
 
 /** Y.Doc 结构性最小面。O0a-1 按需扩 createMap：空 map 工厂（fillDoc 的节点/position/data 子 Map
  *  创建——零 yjs 的代价：宿主注入 new Y.Map()/FakeMap；Y.Doc 无此方法由适配层补）。 */
@@ -170,6 +173,12 @@ export function stripDerivedKeys(records: readonly StoredNodeRecord[]): string[]
   for (const n of records) {
     if (n.parentId != null && storyboardGroups.has(n.parentId) && n.position != null) {
       violations.push(`分镜子 ${n.id} 带 position 键（键集表：分镜子无 position——剥键写者在上游构造点）`);
+    }
+    // T17 P1-2（评审收口）：DOC_NODE_KEYS 契约表 placement 判别接线既有键集校验面（本函数=
+    // dispatchProjectionDiff 批尾 DEV 断言/api 种子入口共用——零第二 guard 体系）。违例：
+    // order∧slot 并存（禁两可）+order/slot 值非法（键形/非负整数）。
+    for (const v of validatePlacementData(n.data ?? {})) {
+      violations.push(`节点 ${n.id} placement 违例（DOC_NODE_KEYS 判别）：${v}`);
     }
   }
   return violations;

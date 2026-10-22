@@ -874,6 +874,20 @@ describe('O0a-1 键集表：分镜组新增子 ⇒ intent.node 无 position（do
     expect((doc.getMap('nodes').get('c1') as Y.Map<any>).has('position')).toBe(true);
   });
 
+  it('P1-2 集成造案：doc 预埋 order∧slot 并存违例（doc-only）→ dispatchProjectionDiff 批尾 DEV 断言真抛（DOC_NODE_KEYS 判别接线键集校验面）', () => {
+    // 生产不可能形态（attachMember 同 intent 删 order/copyPlan slot 档跳分配——两写点已收口）
+    // 经 fillDoc 直埋——stripDerivedKeys placement 域（P1-2 接线）当场暴露
+    fillDoc(doc, [
+      { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', order: '5000', slot: 0 } },
+    ] as any, []);
+    useCanvasStore.setState({ nodes: [] as any });
+    const before = captureStoreProjection();
+    useCanvasStore.setState({ nodes: [
+      { id: 'n9', type: 'textInput', position: { x: 999, y: 0 }, data: {} } as any,
+    ] });
+    expect(() => dispatchProjectionDiff(before, Origin.LocalUser)).toThrow(/placement 违例|键集校验/);
+  });
+
   it('I-1 角点：既有 normal 组子 rel 恰 {0,0} → convertGroup 归分镜组（零位移）→ 补发 moveNode 剥 doc position 键', () => {
     // doc+store 同构：normal 组 g1 + 子 c1 rel {0,0}（normal 组子带 position=doc 合法键；
     // 组在数组前列——convertGroup setWithParentOrder 后的 ensureParentOrder 保证形态）

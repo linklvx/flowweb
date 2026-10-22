@@ -97,7 +97,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.nodes[0].data.images).toBeUndefined();
   });
 
-  it('group（O0c-1 派生输入完备）：groupType/cells/name/storyboard/collapsed 保留——否则 O0c-2 deriveRenderCanvas 派生退化 auto；nameCustom/color 仍剥（savedSize 键已随 O0c-3 全链删）；真悬空 id（非 dropped）本层原样返回', () => {
+  it('group（O0c-1 派生输入完备）：groupType/name/storyboard/collapsed 保留——否则 O0c-2 deriveRenderCanvas 派生退化 auto；nameCustom/color 仍剥；T17（Z17）cells 派生键剥（快照源 doc 无 cells——格位=子 slot）', () => {
     const input: RawCanvasData = { nodes: [rawNode('n1', 'group', {
       groupType: 'storyboard', cells: ['ghost-id', null], name: '分镜1', collapsed: true,
       storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' },
@@ -106,7 +106,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     const out = buildFilteredSnapshot(input, base);
     const d = out.nodes[0].data;
     expect(d.groupType).toBe('storyboard');
-    expect(d.cells).toEqual(['ghost-id', null]); // 原样返回（§7.6 断言口径）——cells=槽序真源；Task 21 v4 分层注：本层只清"过滤剥除节点"的槽位（见下方剪枝用例），真悬空 id 由导入档 validateParentGraph 报 violation + remap 折 null
+    expect(d.cells).toBeUndefined();   // T17：cells 派生不落 doc——白名单键删（格位=子 slot 白名单携带）
     expect(d.name).toBe('分镜1');
     expect(d.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
     expect(d.collapsed).toBe(true);
@@ -114,7 +114,18 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(d.color).toBeUndefined();
   });
 
-  it('剪枝同批修（Task 21 v4）：过滤剥除节点（videoEdit/dropIdPrefixes——util 机制单测，批5-1 后生产不传前缀）在 group cells 槽位同步清 null——旧 id 不重映射（remap 是 service 层职责）；__ephemeral 标记节点存活（批5 评审 L1：写入方已删，标记不再是过滤判据）', () => {
+  it('T17 P1-3：imageGen/imageExtGen 分镜子 slot 保留（丢 slot ⇒ 宫格退化 id 序）', () => {
+    const input: RawCanvasData = { nodes: [
+      rawNode('g1', 'group', { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } }),
+      rawNode('c1', 'imageGen', { prompt: 'p', slot: 0 }),
+      rawNode('c2', 'imageExtGen', { aspectRatio: 1.5, slot: 1 }),
+    ], edges: [] };
+    const out = buildFilteredSnapshot(input, base);
+    expect((out.nodes.find(n => n.id === 'c1')!.data as any).slot).toBe(0);
+    expect((out.nodes.find(n => n.id === 'c2')!.data as any).slot).toBe(1);
+  });
+
+  it('剪枝（Task 21 v4 域改 T17）：过滤剥除节点照剥——cells 槽位清理段随键死代码删（格位=子 slot：节点被剥即格位随节点消失）；__ephemeral 标记节点存活（批5 评审 L1：写入方已删，标记不再是过滤判据）', () => {
     const input: RawCanvasData = {
       nodes: [
         rawNode('g1', 'group', { groupType: 'storyboard', cells: ['c1', 'edit1', 'shadow-x', 'eph', 'ghost', null], name: '分镜' }),
@@ -126,8 +137,13 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       edges: [],
     };
     const out = buildFilteredSnapshot(input, { ...cloneOpts, dropIdPrefixes: ['shadow-'] });
-    const g = out.nodes.find(n => n.id === 'g1')!;
-    expect(g.data.cells).toEqual(['c1', null, null, 'eph', 'ghost', null]); // 剥除槽位 null（eph 非 dropped 存活原 id）；ghost 非 dropped 本层不动
+    const ids = out.nodes.map(n => n.id);
+    expect(ids).not.toContain('edit1');      // dropTypes 剥除
+    expect(ids).not.toContain('shadow-x');   // dropIdPrefixes 剥除
+    expect(ids).toContain('eph');            // __ephemeral 存活（批5-1 语义维持）
+    expect(ids).toContain('c1');
+    // T17：snapshot 表 group 无 cells 键——零槽位清理面（死代码删除断言）
+    expect((out.nodes.find(n => n.id === 'g1')!.data as any).cells).toBeUndefined();
   });
 
   it('dropIdPrefixes 机制：前缀节点及相连边剥除；__ephemeral 标记节点（无前缀）不再剥除（批5 评审 L1：死判据清除——写入方批5 已删）——util 能力单测（批5-1 删信箱后生产口径不传前缀）', () => {
@@ -294,7 +310,8 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       edges: [],
     };
     const out = buildFilteredSnapshot(input, base);
-    expect(Object.keys(out.nodes[0].data).sort()).toEqual(['cells', 'collapsed', 'groupType', 'name', 'storyboard']);
+    // T17：cells 出 snapshot 表（派生键——doc 恒无；格位=子 slot）
+    expect(Object.keys(out.nodes[0].data).sort()).toEqual(['collapsed', 'groupType', 'name', 'storyboard']);
   });
 
   it('CLONE_WHITELIST.group 与 shared GROUP_NODE_DATA_KEYS parity（防 R1a 切值导入漏项）', async () => {

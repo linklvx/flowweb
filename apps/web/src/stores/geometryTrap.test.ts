@@ -207,7 +207,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   //   ss2 档对照注入，存量 allow-list 文件，store 注入是用例存在目的，同 T9/T4/T11 例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
   // T17：G34 只读命令门造案 +1/1（canvasG34.readonlyCommands.test.ts——viewer 零写矩阵）
-  const BASELINE_COUNT = 309;
+  const BASELINE_COUNT = 311;   // T17 评审收口：cellOps P1-1 造案 +1（attachMember order 删键）
   const BASELINE_FILES = 55;
 
   function* walkTestFiles(dir: string): Generator<string> {

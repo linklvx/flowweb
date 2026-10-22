@@ -2288,13 +2288,19 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         n.id === nodeId ? { ...n, parentId: groupId, position: { x: 0, y: 0 } } : n),
     }));
     // 槽位写：ns 子 data.slot（格位真源）+doc intent（updateNodeData{slot}）+信封 membership；
-    // cs 组 cells=派生缓存（syncStoryboardCells——零 doc intent）
+    // cs 组 cells=派生缓存（syncStoryboardCells——零 doc intent）。
+    // P1-1（评审收口·禁两可）：入格节点携根层 order 键 ⇒ 同 intent 删键（slot∧order 并存=
+    // validatePlacementData 违例——slot 档单键化）
     const nsNode = useNodeStore.getState().nodes[nodeId];
-    if (nsNode) useNodeStore.setState((st) => ({
-      nodes: { ...st.nodes, [nodeId]: { ...nsNode, data: { ...nsNode.data, slot } } as typeof nsNode },
-    }));
+    const hasOrderKey = nsNode != null && 'order' in (nsNode.data as unknown as Record<string, unknown>);
+    if (nsNode) {
+      const { order: _o, ...restNoOrder } = nsNode.data as unknown as Record<string, unknown>;
+      useNodeStore.setState((st) => ({
+        nodes: { ...st.nodes, [nodeId]: { ...nsNode, data: { ...restNoOrder, slot } } as unknown as typeof nsNode },
+      }));
+    }
     dispatchCanvasIntent([
-      { type: 'updateNodeData', id: nodeId, patch: { slot } },
+      { type: 'updateNodeData', id: nodeId, patch: hasOrderKey ? { slot, order: undefined } : { slot } },
       { type: 'updateNodeEnvelope', id: nodeId, patch: { parentId: groupId, position: undefined } },
     ], Origin.LocalUser);
     syncStoryboardCells(groupId);
@@ -2671,12 +2677,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     for (const e of expanded) {
       ns.addNode({ id: e.id, type: 'imageGen', data: e.data as any });
     }
+    // P1-1（禁两可同族）：入格成员 slot 回填 ∧ order 键删（addNode 建点携根层 order——slot 单键化；
+    // order 删经差分 dataPatch[order]=undefined 落 doc）
     for (const id of sorted) {
       const nsChild = useNodeStore.getState().nodes[id];
       const slot = slotOfId.get(id);
       if (nsChild && slot != null) {
+        const { order: _o, ...restNoOrder } = nsChild.data as unknown as Record<string, unknown>;
         useNodeStore.setState((st) => ({
-          nodes: { ...st.nodes, [id]: { ...nsChild, data: { ...(nsChild.data as any), slot } } as typeof nsChild },
+          nodes: { ...st.nodes, [id]: { ...nsChild, data: { ...restNoOrder, slot } } as unknown as typeof nsChild },
         }));
       }
     }
@@ -2728,11 +2737,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }));
       // T17（Z17''）：子 slot=读序 i（格位真源——ns 回填，差分 updateNodeData{slot} 落 doc）；
       // 组 data 零 cells（cells 派生键——cs 缓存由 syncStoryboardCells 落）
+      // P1-1（禁两可同族）：入格成员 slot=读序 i ∧ order 键删（差分 dataPatch[order]=undefined 落 doc）
       sorted.forEach((id, i) => {
         const nsChild = useNodeStore.getState().nodes[id];
         if (nsChild) {
+          const { order: _o, ...restNoOrder } = nsChild.data as unknown as Record<string, unknown>;
           useNodeStore.setState((st) => ({
-            nodes: { ...st.nodes, [id]: { ...nsChild, data: { ...(nsChild.data as any), slot: i } } as typeof nsChild },
+            nodes: { ...st.nodes, [id]: { ...nsChild, data: { ...restNoOrder, slot: i } } as unknown as typeof nsChild },
           }));
         }
       });

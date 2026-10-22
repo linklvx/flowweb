@@ -5,6 +5,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
+import { validatePlacementData } from '@flowweb/shared';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 import { stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
 import { openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
@@ -157,6 +158,26 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     expect(dz.has('position')).toBe(false);
     expect((dz.get('data') as Y.Map<any>).get('slot')).toBe(1);
     expect((docNode(d, 'sb').get('data') as Y.Map<any>).get('cells')).toBeUndefined();
+  });
+
+  it('P1-1 禁两可红线：带根层 order 键的节点入格——attachMember 同 intent 删 order（slot 单键化）∧ validatePlacementData 零违例', () => {
+    // 根节点携 allocator 分配的 order 键（生产形态——addNode 建点必带）
+    const d = rig([sbRecord(), cellRecord('c1', 0), {
+      id: 'z', type: 'imageGen', position: { x: 900, y: 900 }, width: 320, height: 180,
+      data: { status: 'done', fileId: 'f-z', order: '9000' },
+    }]);
+    const slot = useCanvasStore.getState().attachMember('sb', 'z');
+    expect(slot).toBe(1);
+    // doc 面：slot 落键 ∧ order 键删（同 intent）——禁两可
+    const dz = docNode(d, 'z').get('data') as Y.Map<any>;
+    expect(dz.get('slot')).toBe(1);
+    expect(dz.get('order')).toBeUndefined();
+    // ns 面：slot 写 ∧ order 键删
+    const nsZ = useNodeStore.getState().nodes.z;
+    expect((nsZ.data as any).slot).toBe(1);
+    expect('order' in (nsZ.data as any)).toBe(false);
+    // 契约表零违例（validatePlacementData 单源）
+    expect(validatePlacementData(nsZ.data as unknown as Record<string, unknown>)).toEqual([]);
   });
 
   it('满员 → 返回 null 零写（cs/doc 逐位不变——溢出处置=caller 策略）', () => {

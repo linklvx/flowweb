@@ -9,6 +9,7 @@ import {
   compareExecSeqDefinitionSites,
   findFlowaiRewriteRedeclaration,
   extractTtlConstValue,
+  findBarePlacementWrite,
 } from './check-plan-census.mjs';
 import { stripCommentsAndStrings } from './check-collab-census.mjs';
 
@@ -78,4 +79,19 @@ test('extractTtlConstValue：数字字面量提取（含 _ 分隔）；未定义
   assert.equal(extractTtlConstValue('export const MEDIA_CONTENT_URL_TTL_SEC = 86_400;', 'MEDIA_CONTENT_URL_TTL_SEC'), 86400);
   assert.equal(extractTtlConstValue('export const X = 3600;', 'MEDIA_URL_CACHE_TTL_SEC'), null);
   assert.equal(extractTtlConstValue('const A = SEC_900;', 'A'), null);   // 非纯数字——null（防误提标识符）
+});
+
+test('findBarePlacementWrite：data.order/slot 裸赋值命中；===/==/解构/非 data 面/注释不命中（T17⑧ G54）', () => {
+  const raw = [
+    'n.data.order = orderKeyAfter(max);',                    // 命中
+    '(newNode.data as Record<string, unknown>).slot = 2;',   // 命中（cast 面）
+    'itemRest.slot = cellIndex;',                            // 无 data 前缀——不命中（检测面=data.order/slot；itemRest 形态归 canvasStore 白名单域）
+    'if (n.data.order === key) continue;',                   // 相等比较——不命中
+    'const { order: _o, ...rest } = nsNode.data;',           // 解构——不命中（order 无 = 直跟）
+    'patch.slot = 3;',                                       // 非 data 面前缀——不命中（检测面=data.order/slot）
+    '// n.data.slot = 1;',                                   // 注释——stripped 已剥
+    'allocateOrderAfter(nodes, null)',                       // allocator 调用——不命中
+  ].join('\n');
+  const stripped = stripCommentsAndStrings(raw);
+  assert.deepEqual(findBarePlacementWrite(stripped.split('\n')), [1, 2]);
 });

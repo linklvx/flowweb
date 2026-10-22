@@ -36,16 +36,19 @@ export interface FilteredEdge { id: string; source: string; target: string }
  *  `field in node.data` 检查 no-op——与 spec §4.6 合并行语义等价。 */
 export const WHITELIST: Record<string, string[]> = {
   textInput: ['content', 'prompt'],                                  // content=HTML→纯文本；prompt=string
-  imageGen: ['prompt', 'style', 'model', 'quality', 'ratio', 'resolution', 'aspectRatio', 'styleId', 'styleName'],
-  imageExtGen: ['prompt', 'aspectRatio', 'aiTool', 'styleId', 'styleName'],                  // prompt 通常在 extConfig 内随整体剥离——保留为 no-op 兜底
+  // T17 P1-3：slot=分镜格位真源（快照丢 slot ⇒ 宫格退化 id 序）——imageGen/imageExtGen 皆可入格
+  //（dropImageIntoStoryboard 两型受纳）
+  imageGen: ['prompt', 'style', 'model', 'quality', 'ratio', 'resolution', 'aspectRatio', 'styleId', 'styleName', 'slot'],
+  imageExtGen: ['prompt', 'aspectRatio', 'aiTool', 'styleId', 'styleName', 'slot'],          // prompt 通常在 extConfig 内随整体剥离——保留为 no-op 兜底
   videoGen: ['model', 'ratio', 'prompt', 'trimStart', 'trimEnd', 'label', 'styleId', 'styleName'],
   audioGen: ['model', 'content'],
   multiImageGen: ['prompt', 'label'],
   videoEdit: [],   // 仅结构字段
   // O0c-1 派生输入完备：group 补 storyboard/collapsed——缺任一，web deriveRenderCanvas（O0c-2）组模式判定
   // 退化 auto（frameMode oracle 只认 data.groupType/storedFrame 三键）。
-  // nameCustom/color 仍剥（R2c 前向键，公开渲染不消费）。cells 槽序原样（membership=内容真源、cells=槽序）。
-  group: ['groupType', 'cells', 'name', 'storyboard', 'collapsed'],
+  // nameCustom/color 仍剥（R2c 前向键，公开渲染不消费）。T17（Z17''）：cells 派生不落 doc——
+  // 快照源 doc 无 cells，白名单键删（格位=子 slot 白名单携带）。
+  group: ['groupType', 'name', 'storyboard', 'collapsed'],
 };
 
 /** clone 端白名单（spec F21/R0a）：与 snapshot 表唯一差异是 group 7 键（真源=@flowweb/shared GROUP_NODE_DATA_KEYS 值导入，R1a 起合法；O0b-5 manuallyResized 摘键 9→8、O0c-3 savedSize 摘键 8→7）。
@@ -149,11 +152,8 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
     .filter(e => !dropped.has(e.source) && !dropped.has(e.target))
     .map(e => ({ id: e.id, source: e.source, target: e.target })); // edges 单形状 source/target（R1a 收敛）
   const nodes = ensureParentFirst(kept).map(n => applyWhitelist(n, opts));
-  // Task 21 v4 剪枝同批修：过滤剥除节点的 cells 槽位同步清 null（对齐 clone remapIds 先例——
-  // 导入入口守住的不变量不在下一行被过滤破坏）；map 产新数组，不原地改共享引用
-  for (const n of nodes) {
-    if (n.type !== 'group' || !Array.isArray(n.data.cells)) continue;
-    n.data.cells = (n.data.cells as (string | null)[]).map(c => (dropped.has(c as string) ? null : c));
-  }
+  // T17（Z17'' cells 派生删）：旧 cells 槽位剪枝段死代码删——快照源 doc 无 cells（格位=子 slot，
+  // 节点被剥即格位随节点消失；clone 端 CLONE_WHITELIST 的 cs cells 缓存键由 service 层
+  // video-work-clone 的 slot 语义维持——本层零槽位清理职责）
   return { nodes, edges };
 }

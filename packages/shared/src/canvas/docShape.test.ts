@@ -3,6 +3,7 @@
 // 类型锚两手法并用：expectTypeOf（vitest 面）+ 编译锚别名（tsc --noEmit 红——nodeEnvelope.ts:19-22 同族手法）。
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
+  stripDerivedKeys,
   type DocLike, type Rect,
   type RenderNode, type DragSession, type FrameMode,
   frameMode, isCollapsed, isValidStoredFrame,
@@ -55,6 +56,24 @@ type _AnchorAbsRecNotRel = _AssertNever<Extract<AbsRecords<_RecA>, RelRecords<_R
 type _AnchorRelRecArr = _AssertTrue<_IsExtends<RelRecords<_RecR>, readonly _RecR[]>>;
 type _AnchorRelRecBrand = _AssertTrue<_IsExtends<RelRecords<_RecR>, { readonly __recordsSpace: 'rel' }>>;
 type _AnchorRelRecNotAbs = _AssertNever<Extract<RelRecords<_RecR>, AbsRecords<_RecR>>>;
+
+describe('stripDerivedKeys T17 P1-2：DOC_NODE_KEYS placement 判别接线（order∧slot 禁两可+值非法）', () => {
+  it('order+slot 并存 → 违例（id 前缀）；单键/空 data 零违例', () => {
+    expect(stripDerivedKeys([
+      { id: 'n1', type: 'imageGen', data: { order: '5', slot: 0 } },
+    ])).toHaveLength(1);
+    expect(stripDerivedKeys([
+      { id: 'n2', type: 'imageGen', data: { order: '5' } },
+      { id: 'n3', type: 'imageGen', data: { slot: 3 } },
+      { id: 'n4', type: 'textInput', data: {} },
+    ])).toEqual([]);
+  });
+  it('非法 order 键形/非法 slot 值 → 违例（读写两侧严格单源消费）', () => {
+    expect(stripDerivedKeys([{ id: 'bad-order', type: 'imageGen', data: { order: '01' } }])).toHaveLength(1);
+    expect(stripDerivedKeys([{ id: 'bad-slot', type: 'imageGen', data: { slot: -1 } }])).toHaveLength(1);
+    expect(stripDerivedKeys([{ id: 'bad-slot2', type: 'imageGen', data: { slot: 'x' } }])).toHaveLength(1);
+  });
+});
 
 describe('DocLike/DocMapLike（Y 结构性最小面——零 yjs import，防跨实例 instanceof 静默失败）', () => {
   it('getMap(name: string) 返回 DocMapLike；DocMapLike 三方法签名', () => {

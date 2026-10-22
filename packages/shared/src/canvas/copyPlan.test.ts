@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildCopyPlan, normalizeCopiedNodeData } from './copyPlan';
+import { validatePlacementData } from './placement';
 import { normalizeSelection, participation } from './arrangeSelection';
 
 const G = (id: string, extra: any = {}) => {
@@ -74,6 +75,28 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
     const d = plan.copies[0].data as any;
     expect(d.status).toBe('done');
     expect(d.fileId).toBe('m9');
+  });
+  it('P1-1 禁两可红线：slot 档副本跳过 order 分配——全员 validatePlacementData 零违例（分镜宫格保真不降级）', () => {
+    const records: any[] = [
+      { id: 'sg', type: 'group', parentId: undefined, position: { x: 0, y: 0 }, width: 642, height: 182,
+        data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'p', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, data: { fileId: 'f', slot: 0 } },
+      { id: 'q', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, data: { fileId: 'g', slot: 1 } },
+    ];
+    const plan = buildCopyPlan(
+      records, ['sg', 'p', 'q'], { offset: { x: 40, y: 0 } }, () => 'c',
+      [], () => '7000',           // allocator 恒给合法键（生产路径必带——duplicate/paste）
+    );
+    const kids = plan.copies.filter((c) => c.parentId != null);
+    expect(kids).toHaveLength(2);
+    for (const k of kids) {
+      expect((k.data as any).slot).toBeDefined();          // slot 保真
+      expect((k.data as any).order).toBeUndefined();       // 禁两可：slot 档不注入 order
+      expect(validatePlacementData(k.data)).toEqual([]);   // 契约表零违例
+    }
+    const top = plan.copies.find((c) => c.type === 'group')!;
+    expect((top.data as any).order).toBe('7000');           // 自由节点照常分配
+    expect(validatePlacementData(top.data)).toEqual([]);
   });
   it('allocateOrder 缝：根层副本/闭包子层各按层分配新 order 键（副本同层同 order 重复键红线）', () => {
     const records: any[] = [G('g1'), N('a', 'g1'), N('b', 'g1')];
