@@ -3,12 +3,13 @@
  *  注意 color 是 R2c 前向键——现状 store 不产出，为克隆/公开过滤契约预置；nameCustom 已由
  *  canvasStore convertGroup 产出（→storyboard 设 false，→normal 删键）。
  *  O0b-5（终裁 50）：manuallyResized 整链删除（manual 判定=doc 帧三键形态 oracle）；
- *  O0c-3：savedSize 折叠快照键全链删除（折叠恢复唯一来源=doc 帧三键密封——终裁 82）。 */
+ *  O0c-3：savedSize 折叠快照键全链删除（折叠恢复唯一来源=doc 帧三键密封——终裁 82）。
+ *  T18 顺修②：cells 键删除（T17 Z17'' cells→slot 派生后为 CLONE_WHITELIST no-op 死键——克隆
+ *  输入=stripAuthorState 键集表出口〔applyKeySetTable 分镜组剥 cells〕永不匹配；格位真源=子 slot）。 */
 export interface GroupNodeDataShape {
   groupType: 'normal' | 'storyboard';
   name?: string;
   collapsed?: boolean;
-  cells?: (string | null)[];
   storyboard?: {
     aspectRatio: string;
     gridRows: number;
@@ -24,7 +25,7 @@ export interface GroupNodeDataShape {
  *  store 实际还写 aspectRatio 等运行键，不在此表、克隆会剥，属预期）。
  *  API 生产源码已切值导入（snapshot-filter.util.ts 的 CLONE_WHITELIST.group 用 [...GROUP_NODE_DATA_KEYS]）。 */
 export const GROUP_NODE_DATA_KEYS = [
-  'groupType', 'cells', 'name', 'storyboard', 'collapsed',
+  'groupType', 'name', 'storyboard', 'collapsed',
   'nameCustom', 'color',
 ] as const satisfies readonly (keyof GroupNodeDataShape)[];
 
