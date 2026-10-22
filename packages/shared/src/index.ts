@@ -67,6 +67,12 @@ export * from './canvas/geometry';
 export * from './canvas/order-key';
 export * from './canvas/placement';
 export * from './canvas/order-records';
+// T18（plan v11.2 S5 片·spec Z4''-v14）：order 域病理计数单源（soft/hard/重复键/缺键四档扫描
+// 纯函数）——api 装载档挂点+CLI renumber-layer --dry-run 报告共用（禁两份判定）。
+export * from './canvas/order-pathology';
+// T18（Z4''-v14）：CLI renumber-layer 规划单源（按层现序带间隙整键重排——幂等；scripts/
+// collab-renumber-layer.mjs 消费 dist，判定禁在 CLI 本地重实现）。
+export * from './canvas/renumber-layer';
 // T17（spec Z5'' 维持 v10）：applyIntrinsicFit 尺寸域收口纯函数（EXIF 5-8 display 契约/
 // imageRotation 用户变换交换/分镜跳过/sizeMode/clamp）——ImageGen 内容事件消费单源。
 export * from './canvas/intrinsicFit';

@@ -23,6 +23,7 @@ import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { parseDocName, isValidDocName } from './doc-name.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, SERVER_TRANSACT_ORIGIN, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
+import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { captureCollabException } from '../../utils/sentry-scrub';
@@ -411,6 +412,9 @@ export class CollabDocRegistryService {
           { schemaRefusal: true, reason: CollabAuthReason.SCHEMA_OUTDATED },
         );
       }
+      // T18（Z4''-v14）：order 域病理装载档扫描（挂点选型见 collab-pathology.ts 头注——doc 内容
+      // 进进程唯一咽喉；replay 全量完成后判）。容忍不 500（读序 tie-break）；计数+告警。
+      observeOrderPathologyOnLoad(this.host.logger, documentName, readRecordsFromMaps(toDocLike(document)).nodes);
       // Y0b-4 T3（Q-B 白名单点①）：docTruth 真值单变量播种——cheap 上界=|state|+Σ|updates|+Σspool
       // （state+updates+spool 帧全部 apply 之后算）；<softLimit 直接当 truth 跳过编码（上界≥真值=
       // 保守正确，99% 装载零新增成本）；≥softLimit 才付费实测 encodeStateAsUpdate（apply 即 GC——
