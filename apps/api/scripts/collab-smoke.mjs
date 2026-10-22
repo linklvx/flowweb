@@ -59,7 +59,7 @@ async function main() {
     await prisma.session.create({ data: { id: `smoke-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
 
     const mk = () => new HocuspocusProvider({
-      url: `${WS_URL}?csv=${CSV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // csv=2=CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例，字面量+bump 时随改——Y0b-4 T1）
+      url: `${WS_URL}?csv=${CSV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // CSV=shared dist 单源读（T19 根修——字面量惯例已退役）
       WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
     });
     const A = mk(), B = mk();

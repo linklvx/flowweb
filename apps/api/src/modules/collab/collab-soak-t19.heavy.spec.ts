@@ -3,6 +3,10 @@
 // soak=目标项非阻断门（2C 单机现实），10 客户端维持阻断」）。
 //
 // 【soak 形态裁定（T19 现状锚点·写明）】
+//  【质评 Minor#5 钉界】：本档节点规模 N=editors(9)+appended(9×7)=**72**——阻断门语义=并发
+//  正确性+资源域（非容量声明）；72 节点对断言面无害（收敛/帧/尺寸均与 N 弱耦合——10min 档已另证
+//  10k）。flake 处置纪律：环境抖动（CI 同机争抢）导致的偶发超时=**单次重跑**处置，禁松阈值
+//  （30ms/128KB/8MB 为卡文契约值——放宽即门禁失效）。
 //  - 阻断门（本 spec，heavy 池进 verify 链 api-test-heavy 步）：in-process 单 gateway
 //    （dual-client-server kit——mock repo 零 DB 依赖，CI 无 DATABASE_URL 可跑）+10 真 WS 客户端
 //    （HocuspocusProvider）并发编辑 ~70s。断言域=并发收敛正确性+资源域：双端收敛等值/零成员丢失/

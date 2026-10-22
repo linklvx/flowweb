@@ -340,23 +340,26 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const port = serverPort;
     const url = `ws://127.0.0.1:${port}`;
     const conn = connectProvider(url, `project:${PID}`, TOKEN);
-    await conn.synced;   // 真连装载（authenticate 真链：Session+TeamMember+ProjectPermission）
+    try {   // 质评 Minor#7：断言失败也收口清理（WS 连接/Session 行/项目 fixture 泄漏=后续用例串扰源）
+      await conn.synced;   // 真连装载（authenticate 真链：Session+TeamMember+ProjectPermission）
 
-    const revokedBefore = counterOf(memberRevokedConns);
-    emitter.emit('collab.perm.changed', { userId: 'y0a-fixture-user', teamId: TID, removed: true });
-    // close 可能经 grace（scheduleSweepClose 通知+grace→close）——等 close 事件（sweep 立即路径）
-    const code = await Promise.race([conn.closed, new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
-    expect(code).toBe(4401);   // 移除后旧连接关闭（session-expired）
-    expect(counterOf(memberRevokedConns)).toBeGreaterThan(revokedBefore);   // 清理结果计数（v11.2 ③）
-    // 旧连接拒写：连接已关——doc 服务端值不再受该客户端影响（结构性：close 后零写通道）
-    await conn.provider.destroy();
-    await prisma.session.deleteMany({ where: { token: TOKEN } });
+      const revokedBefore = counterOf(memberRevokedConns);
+      emitter.emit('collab.perm.changed', { userId: 'y0a-fixture-user', teamId: TID, removed: true });
+      // close 可能经 grace（scheduleSweepClose 通知+grace→close）——等 close 事件（sweep 立即路径）
+      const code = await Promise.race([conn.closed, new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
+      expect(code).toBe(4401);   // 移除后旧连接关闭（session-expired）
+      expect(counterOf(memberRevokedConns)).toBeGreaterThan(revokedBefore);   // 清理结果计数（v11.2 ③）
+      // 旧连接拒写：连接已关——doc 服务端值不再受该客户端影响（结构性：close 后零写通道）
 
-    // ACL 拒点串联：跨 team assertTeamMember→403+计数（真库他 team）
-    const aclBefore = counterOf(mediaAclDenied);
-    await expect(assertTeamMember(prisma as any, 'team-not-exist-t19', 'y0a-fixture-user')).rejects.toThrow('非团队成员');
-    expect(counterOf(mediaAclDenied)).toBe(aclBefore + 1);   // 授权拒绝计数（v11.2 ③）
-    await teardownProject(PID);
+      // ACL 拒点串联：跨 team assertTeamMember→403+计数（真库他 team）
+      const aclBefore = counterOf(mediaAclDenied);
+      await expect(assertTeamMember(prisma as any, 'team-not-exist-t19', 'y0a-fixture-user')).rejects.toThrow('非团队成员');
+      expect(counterOf(mediaAclDenied)).toBe(aclBefore + 1);   // 授权拒绝计数（v11.2 ③）
+    } finally {
+      await conn.provider.destroy();
+      await prisma.session.deleteMany({ where: { token: TOKEN } }).catch(() => {});
+      await teardownProject(PID);
+    }
   }, 45_000);
 
   it('场景 E（双端收敛+分镜并发零成员丢失+读序稳定）：两真 WS 客户端并发 slot/order 写——两端 doc 收敛等值+成员零丢失+重复键读序稳定（tie-break 不 500）', async () => {
@@ -375,7 +378,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const url = `ws://127.0.0.1:${port}`;
     const a = connectProvider(url, `project:${PID}`, TOKEN);
     const b = connectProvider(url, `project:${PID}`, TOKEN);
-    await Promise.all([a.synced, b.synced]);
+    try {   // 质评 Minor#7：断言失败也收口清理（双 provider/Session 行/项目 fixture）
 
     // 并发写：A 写分镜成员（slot 域+同格位重复 slot 竞态）+B 写 order 域成员+等值键重复（并发键竞态形态）
     const IDS = { slotA: 'n-slot-a', slotB: 'n-slot-b', ordA: 'n-ord-a', ordB: 'n-ord-b' };
@@ -423,9 +426,11 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     expect(report.duplicateKeyNodes).toBe(2);   // 等值 order 键两成员=病理计数档（重复键容忍+计数——v14 口径）
     expect(report.kinds).toContain('duplicate-key');
 
-    await a.provider.destroy();
-    await b.provider.destroy();
-    await prisma.session.deleteMany({ where: { token: TOKEN } });
-    await teardownProject(PID);
+    } finally {
+      await a.provider.destroy();
+      await b.provider.destroy();
+      await prisma.session.deleteMany({ where: { token: TOKEN } }).catch(() => {});
+      await teardownProject(PID);
+    }
   }, 45_000);
 });

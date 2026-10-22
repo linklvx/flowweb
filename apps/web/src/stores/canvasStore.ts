@@ -91,13 +91,16 @@ export function resolveNodeData(node: Node, nsNodes: Record<string, AppNode>): R
 /** ★T17 登记收口（T19）：cs cells 派生缓存双写者共享核心——命令点 syncStoryboardCells（写槽后
  *  定点）与 canvasCollabRuntime 写域⑥（doc 侧 slot 权威——水合/远端 reconcile）统一通道：
  *  slot 取数（ns 真源）+deriveStoryboardCells 派生+同值判定单源于此，两写者只差提交面
- *  （patchGroupDataInner vs 批量 setState）。返回有变更的分镜组 {groupId, cells}（空=全组同值零写）。 */
+ *  （patchGroupDataInner vs 批量 setState）。返回有变更的分镜组 {groupId, cells}（空=全组同值零写）。
+ *  onlyGroupId（质评 Minor#4）：命令点定点档提前过滤（免全组派生计算）；缺省=全组（reconcile 面）。 */
 export function computeStoryboardCellsPatch(
   csNodes: readonly { id: string; parentId?: string | null; type?: string; data?: unknown }[],
   nsNodes: Readonly<Record<string, { data?: unknown }>>,
+  onlyGroupId?: string,
 ): Array<{ groupId: string; cells: (string | null)[] }> {
   const sbGroups = csNodes.filter(
-    (n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard',
+    (n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard'
+      && (onlyGroupId === undefined || n.id === onlyGroupId),
   );
   if (sbGroups.length === 0) return [];
   const slotOf = (nodeId: string): number | undefined => {
@@ -695,12 +698,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   };
   /** cs 派生缓存写：共享核心 computeStoryboardCellsPatch（★T17 登记收口·T19：双写者通道统一——
    *  与 canvasCollabRuntime 写域⑥同取数/派生/同值判定单源）+命令点定点消费
-   *  （patchGroupDataInner 通道，零 doc intent；同值零写）。 */
+   *  （onlyGroupId 提前过滤——质评 Minor#4；patchGroupDataInner 通道，零 doc intent；同值零写）。 */
   const syncStoryboardCells = (groupId: string): void => {
-    const patch = computeStoryboardCellsPatch(get().nodes as any, useNodeStore.getState().nodes as any);
-    for (const p of patch) {
-      if (p.groupId === groupId) get().patchGroupDataInner(groupId, { cells: p.cells });
-    }
+    const patch = computeStoryboardCellsPatch(get().nodes as any, useNodeStore.getState().nodes as any, groupId);
+    for (const p of patch) get().patchGroupDataInner(p.groupId, { cells: p.cells });
   };
 
   /** T17（G54「拖序不持久」order 面）：整理（arrange）后按 laid 序回写层序键——fitOrderBlock

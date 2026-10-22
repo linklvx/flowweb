@@ -88,16 +88,18 @@ export function parseFactRow(f: MediaFactWireRow): Partial<MediaFactEntry> & { f
 
 /** 部分条目 union 进完整条目（factVersion 取更新侧；state/natural 各自保留——正交合并）。
  *  base 缺 state（natural-only 先到）→ 返回 base 原样（不建完整条目——state 必需）。
- *  正交补充豁免：等值版本下 natural 补入 base 缺席面（state 行先到+natural 行同版本号到达——
- *  服务端同事务递增时两类行 factVersion 可相等，严格单调门会吞掉 natural 面）。 */
+ *  正交补充豁免（质评 Minor#3 收紧）：**等值版本**下 natural 补入 base 缺席面（服务端同事务递增
+ *  时 state/natural 两类行 factVersion 可相等——严格单调门会吞 natural 面）；**旧版本**行不豁免
+ *  （旧版本=重放，其 natural 可能过时——禁旧版本补写新代条目）。 */
 function unionFact(base: MediaFactEntry | undefined, part: Partial<MediaFactEntry> & { factVersion: string }): MediaFactEntry | undefined {
   if (base === undefined) {
     if (part.state === undefined) return undefined;   // 纯 natural 无 state 基线——丢弃（state 行到达后 union）
     return { ...(part as MediaFactEntry), receivedAt: Date.now() };
   }
   const newer = factVersionNewer(part.factVersion, base.factVersion);
-  const naturalFill = part.natural !== undefined && base.natural === undefined;
-  if (!newer && !naturalFill) return base;   // 旧/等值重放且无补充面——忽略
+  const equalVersion = !newer && factVersionNewer(base.factVersion, part.factVersion) === false;   // 双向皆非更新=等值
+  const naturalFill = equalVersion && part.natural !== undefined && base.natural === undefined;
+  if (!newer && !naturalFill) return base;   // 旧/等值重放且无豁免面——忽略
   return {
     ...base,
     ...(part.state !== undefined

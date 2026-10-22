@@ -1,12 +1,13 @@
 import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
 import { Response } from 'express';
 
-// 【T19 评审#8·信封键碰撞语义钉明】透传段 custom 字段若与信封键同名（code/data/message）会
-// **覆盖**信封值（spread 序在后胜出）——语义裁定：①HTTP 状态码恒以 getStatus() 为准（response
-// .status 先行，body 内键不改变真实状态码——碰撞只影响 body 字段）；②custom.message 覆盖
-// message=异常构造方显式意图（对象响应体形态 HttpException({message,...}) 本就携带自定义
-// message——透传优先于 exception.message 是 T19 登记收口的修复目标本体）；③custom.code/data
-// 覆盖同理（全仓 BusinessException 族只携 errorCode——现实零碰撞；未来携带方自担显式意图）。
+// 【T19 评审#8·信封键碰撞语义钉明（质评 Minor#2 对齐实况）】透传段剥离 Nest 内部结构键
+// （statusCode/message/error 三键 destructured out——**custom 不透传这三键**）：信封 message 恒=
+// exception.message（对象响应体形态 HttpException({message}) 的自定义 message **不透传**——
+// exception.message 与 body.message 同源，剥离即语义等价）；custom 可覆盖键=code/data（spread 序
+// 在后胜出——语义：①HTTP 状态码恒以 getStatus() 为准（response.status 先行，body 键不改变真实
+// 状态码）；②custom.code/data 覆盖=异常构造方显式意图（全仓 BusinessException 族只携 errorCode
+// ——现实零碰撞；未来携带方自担）。
 // web 消费面论证（碰撞不可见的路径依据）：apps/web apiFetch（client.ts）分两路——非 2xx（本
 // filter 管辖域）读 body.message/errorCode/retryAfter+HTTP status（**不读 body.code**——code 检查
 // 仅在 2xx 成功路 `json.code !== 0`，而成功信封 code:0 产自 TransformInterceptor 非 filter 域）；

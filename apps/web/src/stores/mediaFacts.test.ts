@@ -66,6 +66,9 @@ describe('T16 mediaFacts 纯模块', () => {
     // 等值版本且 base 已有 natural——重放忽略（幂等：同版本不可变）
     const m4 = mergeFactRows(m, [{ mediaId: 'm1', facts: [{ factVersion: '3', factType: 'natural', payload: { naturalWidth: 800, naturalHeight: 600 } }] }]);
     expect(m4.get('m1')?.natural).toEqual({ width: 1280, height: 720, rotation: null });
+    // ★质评 Minor#3 收紧：**旧版本** natural 行不补入（重放的自然尺寸可能过时——禁旧版本写新代条目）
+    const m5 = mergeFactRows(mStateOnly, [{ mediaId: 'm1', facts: [{ factVersion: '2', factType: 'natural', payload: { naturalWidth: 1, naturalHeight: 2 } }] }]);
+    expect(m5.get('m1')?.natural).toBeUndefined();   // 旧版本豁免面=无（改前红=补入 1×2）
   });
 
   it('T16 登记收口（T19）：stagePendingFactRows 两类行 union 暂存+容量帽（超帽逐出最早到期——静止会话防滞留）', () => {

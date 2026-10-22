@@ -49,7 +49,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // T17：序域片（allocator import/persistArrangeOrder helper/addNodeInner order 键/arrange 读序
     // 换芯/duplicate·paste allocator）+cells→slot 片（syncStoryboardCells 族）——13 行整体漂移（集合不变）
     // T18 顺修③：persistArrangeOrder slot 域防御过滤 +4 行——13 行尾部两行 1836,1837→1840,1841 漂移（集合不变）
-    'stores/canvasStore.ts': [1034, 1035, 1041, 1042, 1097, 1098, 1169, 1170, 1176, 1177, 1329, 1872, 1873],
+    'stores/canvasStore.ts': [1035, 1036, 1042, 1043, 1098, 1099, 1170, 1171, 1177, 1178, 1330, 1873, 1874],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],
