@@ -49,12 +49,12 @@ describe('addImageToStoryboardCell', () => {
 
 describe('removeStoryboardCell（删单格：不收缩宫格，序号重排）', () => {
   it('删除 cells[1] → 该格变空、后续前移补位', () => {
-    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']); // 2x2 [a,c,b,d]
-    useCanvasStore.getState().removeStoryboardCell(gid, 1); // 删 c
+    const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']); // 2x2 读序 [a,b,c,d]
+    useCanvasStore.getState().removeStoryboardCell(gid, 1); // 删 b
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).toEqual(['a', 'b', 'd']); // 前移补位（紧凑）
-    expect(s.nodes.find((n) => n.id === 'c')).toBeUndefined();
+    expect(g.data.cells).toEqual(['a', 'c', 'd']); // 前移补位（紧凑）
+    expect(s.nodes.find((n) => n.id === 'b')).toBeUndefined();
     const storyboard = (g.data as any).storyboard;
     expect(storyboard.gridRows).toBe(2); // 不收缩
   });

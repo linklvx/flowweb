@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeSelection, participation, sortForArrange, arrangeRects, ARRANGE_GAP, clampToolbarX } from './arrangeSelection';
+import { normalizeSelection, participation, arrangeRects, ARRANGE_GAP, clampToolbarX } from './arrangeSelection';
 
 const G = (id: string, children: string[], extra: Record<string, unknown> = {}) =>
   ({ id, type: 'group', parentId: undefined, position: { x: 0, y: 0 }, data: { groupType: 'normal', cells: children, ...extra } });
@@ -66,25 +66,6 @@ describe('participation 闭包策略表（v2.1：组→成员闭包展开+hidden
     const all: any[] = [...nodes, ...collapsed()];
     const p = participation(normalizeSelection(all, ['g2']), 'download', all);
     expect(p.ids.sort()).toEqual(['g2', 'x', 'y']);
-  });
-});
-
-describe('sortForArrange 行优先（F40：y 容差 8px 分行、行内 x 升序——先分行再行内排序）', () => {
-  it('同行（|Δy|<8 对行首）按 x 升序；跨行按 y 升序', () => {
-    const items = [
-      { id: 'b', x: 200, y: 100 }, { id: 'a', x: 0, y: 100 },
-      { id: 'd', x: 0, y: 105 }, { id: 'c', x: 0, y: 130 },
-    ];
-    // 第一行 {a(0,100), b(200,100), d(0,105)}（d 与行首差 5<8），行内 x 升序 → [a,d,b]；第二行 [c]
-    expect(sortForArrange(items).map((i) => i.id)).toEqual(['a', 'd', 'b', 'c']);
-  });
-  it('容差链对行首而非前项：c 与行首 a 差 12≥8 分新行（即便与前项 b 仅差 6<8）', () => {
-    const items = [
-      { id: 'a', x: 0, y: 100 }, { id: 'b', x: 10, y: 106 }, { id: 'c', x: 5, y: 112 },
-    ];
-    // 行首语义：行={a,b},{c} → 行内 x 升序 → [a,b,c]。
-    // 若误为"对前项"语义：c(6<8)并入首行 → 行内 x 升序 → [a,c,b]——本断言据此判别。
-    expect(sortForArrange(items).map((i) => i.id)).toEqual(['a', 'b', 'c']);
   });
 });
 

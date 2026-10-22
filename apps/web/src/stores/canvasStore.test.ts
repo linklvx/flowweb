@@ -482,10 +482,12 @@ describe('canvasStore', () => {
     expect(node.data.fileId).toBe('vid-1');
   });
 
-  it('addNode without dataOverride should produce empty data (backward compat)', () => {
+  it('addNode without dataOverride: 业务 data 空（T17——order 键=allocator 唯一分配的层内序键）', () => {
     const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
     const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
-    expect(node.data).toEqual({});
+    const { order, ...rest } = node.data as Record<string, unknown>;
+    expect(rest).toEqual({});
+    expect(typeof order).toBe('string');   // T17：建点必携 order 键（读序单源域）
   });
 
   it('addNode with dataOverride should also populate nodeStore with custom data', () => {

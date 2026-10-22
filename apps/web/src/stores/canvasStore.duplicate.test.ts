@@ -34,8 +34,8 @@ describe('duplicateGroup', () => {
     const orig = s.nodes.find((n) => n.id === gid)!;
     const copy = s.nodes.find((n) => n.id === newGid)!;
     expect(copy.position.x).toBeCloseTo(orig.position.x + 40);
-    expect((copy.data as any).cells).toHaveLength(2);
-    expect((copy.data as any).cells!.every((id: string) => id !== 'a' && id !== 'b')).toBe(true); // 新 ID
+    // T17（Z17''）：cells 派生删——副本宫格由子 slot 派生（deriveStoryboardCells 单源）
+    expect((copy.data as any).cells).toBeUndefined();
     const copyChildren = s.nodes.filter((n) => n.parentId === newGid);
     expect(copyChildren).toHaveLength(2);
     expect((copyChildren[0].data as any).fileId).toMatch(/^f-/); // fileId 复用

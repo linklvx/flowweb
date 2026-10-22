@@ -6,7 +6,7 @@
 export {
   CELL_WIDTH, CELL_GAP, CONVERT_GAP, GROUP_PADDING, GROUP_PADDING_TOP,
   ASPECT_RATIO_MAP, RATIO_MAP, STITCH_WIDTH_MAP,
-  calcDefaultGrid, calcStoryboardSize, calcStitchSize, sortNodesByPosition,
+  calcDefaultGrid, calcStoryboardSize, calcStitchSize,
   calcGroupBounds, clampPositionToPadding, calcGroupMinSize,
   DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, clampChildIntoGroup, isContentDerivedFrame,
 } from '@flowweb/shared';

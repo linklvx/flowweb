@@ -75,22 +75,14 @@ export const ARRANGE_ROW_TOLERANCE = 8;
 export const ARRANGE_GAP = 60;
 export type ArrangeMode = 'grid' | 'horizontal' | 'vertical';
 
-/** F40：先按 y 升序遍历分行（对行首 y 判容差），再每行内按 x 升序——spec"行内 x 升序"字面。 */
-export function sortForArrange<T extends { x: number; y: number }>(items: T[]): T[] {
-  const byY = [...items].sort((a, b) => a.y - b.y);
-  const rows: T[][] = [];
-  for (const it of byY) {
-    const row = rows[rows.length - 1];
-    if (row && Math.abs(it.y - row[0].y) < ARRANGE_ROW_TOLERANCE) row.push(it);
-    else rows.push([it]);
-  }
-  return rows.flatMap((row) => [...row].sort((a, b) => a.x - b.x));
-}
+// T17（读序单源收编）：sortForArrange 空间行优先排序已删——排列读序统一走 order-records.ts 的
+// orderRecords（层序遍历+同层 (order,id)/(slot,id) 双 tie-break；调用方=canvasStore
+// arrangeSelection/arrangeGroupChildren）。ARRANGE_ROW_TOLERANCE 保留供布局容差消费。
 
 export interface ArrangeRect { x: number; y: number; width: number; height: number; }
 
 /** §4.3：cell=行 max 高×列 max 宽、节点按 cell 左上角落位（自身尺寸不变）、n≤1 no-op、包围盒中心不变。
- *  入参顺序即落格顺序——调用方须先 sortForArrange 排序（2a-5）。 */
+ *  入参顺序即落格顺序——调用方须先经 orderRecords 读序排序（T17 读序单源）。 */
 export function arrangeRects(rects: ArrangeRect[], mode: ArrangeMode): ArrangeRect[] {
   const n = rects.length;
   if (n <= 1) return rects;

@@ -483,7 +483,7 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     expect(g.get('height')).toBeUndefined();
     const data = g.get('data') as Y.Map<any>;
     expect(data.get('collapsed')).toBe(true);
-    expect([...data.keys()].sort()).toEqual(['collapsed', 'groupType']);   // 唯 collapsed 写——零快照/标记键
+    expect([...data.keys()].sort()).toEqual(['collapsed', 'groupType', 'order']);   // 唯 collapsed 写——零快照/标记键（order=T17 建组序键）
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 

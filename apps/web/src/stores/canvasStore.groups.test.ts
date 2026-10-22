@@ -7,12 +7,17 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, deriveGroupFrame, sortForArrange, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, deriveGroupFrame, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc, toDocLike, readCanvasFromDoc } from '@/collab/ydocBuilder';
 import { openRwWindow, openRoWindow, seedCanvas } from '@/test/fixtures/canvas';
+
+// T17（读序单源）：排列期望序=orderRecords 读序（无 order 键档=(null,id)=id 序兜底）
+const readOrder = <T extends { id: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
 
 const seedNodes = () => [
   { id: 'n1', type: 'imageGen', position: { x: 100, y: 100 }, width: 300, height: 200, data: {} },
@@ -742,7 +747,7 @@ describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGr
 });
 
 describe('复制型几何例外（§4.8 登记——frame 继承源组±offset，不走重算）', () => {
-  it('duplicateGroup 副本 frame=源 frame+offset；cells 重映射后无悬空旧 id（|| id 兜底改 ?? null）', () => {
+  it('duplicateGroup 副本 frame=源 frame+offset；cells 派生删（T17——格位=子 slot 保留，副本宫格保真）', () => {
     // v6 夹具修正：groupType 必须是 'storyboard'——buildGroupCopy 的 cells 重映射只在
     // isStoryboard 分支（normal 组 structuredClone 原样带过 cells → 断言必红且现状也红=判别力零；
     // 且 normal 组带 cells 本身是语义非法输入）
@@ -760,9 +765,8 @@ describe('复制型几何例外（§4.8 登记——frame 继承源组±offset�
     const copy = st.find((n: any) => n.id !== 'g1' && n.type === 'group') as any;
     expect(copy.position).toEqual({ x: 140, y: 100 });
     expect(copy.width).toBe(300);
-    expect(copy.data.cells.some((c: string | null) => c === 'c1')).toBe(false);
-    expect(copy.data.cells.some((c: string | null) => c === 'ghost')).toBe(false);
-    expect((copy.data.cells as (string | null)[]).filter((c) => c == null).length).toBeGreaterThan(0);
+    // T17（Z17''）：cells 派生键不落副本（doc 恒无 cells；格位=子 slot 承载）
+    expect(copy.data.cells).toBeUndefined();
   });
 });
 
@@ -922,7 +926,7 @@ describe('arrangeSelection（§4.3）', () => {
       expect(posOf('a')).toEqual({ x: 20, y: 50 });   // detached 零位移
       expect(posOf('b')).toEqual({ x: 200, y: 50 });
       // r1/r2 真重排（期望来自纯函数——与「几何不变量」describe 的 calcGroupBounds 惯例同源）
-      const items = sortForArrange([
+      const items = readOrder([
         { id: 'r1', x: 1000, y: 0, width: 100, height: 60 },
         { id: 'r2', x: 1300, y: 300, width: 100, height: 60 },
       ]);
@@ -944,7 +948,7 @@ describe('arrangeSelection（§4.3）', () => {
     const positionsBefore = JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position]));
     useCanvasStore.getState().arrangeSelection(['r1', 'r2'], 'grid');
     expect(JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position]))).not.toBe(positionsBefore);   // 真重排（防恒绿）
-    const items = sortForArrange([
+    const items = readOrder([
       { id: 'r1', x: 100, y: 100, width: 300, height: 200 },
       { id: 'r2', x: 500, y: 50, width: 300, height: 300 },
     ]);
@@ -966,7 +970,7 @@ describe('arrangeSelection（§4.3）', () => {
     ]);
     const childrenBefore = JSON.stringify(useCanvasStore.getState().nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId, n.position]));
     useCanvasStore.getState().arrangeSelection(['gA', 'gB'], 'grid');
-    const items = sortForArrange([
+    const items = readOrder([
       { id: 'gA', x: 0, y: 0, width: 800, height: 600 },
       { id: 'gB', x: 1200, y: 900, width: 400, height: 300 },
     ]);
@@ -1133,7 +1137,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     } finally { teardown(); }
   });
 
-  it('保真③：cells 无旧 id；组 data（color/name）保真；折叠组副本继承 collapsed', () => {
+  it('保真③：cells 派生删；组 data（color/name）保真；折叠组副本继承 collapsed', () => {
     seed([
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240,
         data: { groupType: 'normal', name: 'A', color: 'red', collapsed: true } },
@@ -1156,7 +1160,8 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     try {
       useCanvasStore.getState().duplicateNodes(['sg']);
       const copySg = useCanvasStore.getState().nodes.find((n) => n.type === 'group' && n.id !== 'sg') as any;
-      expect(copySg.data.cells.every((c: any) => c === null || !['c1', 'ghost'].includes(c))).toBe(true);
+      // T17：cells 派生删（悬空旧 id 面随键消亡——格位=子 slot）
+      expect(copySg.data.cells).toBeUndefined();
     } finally { teardown(); }
   });
 
@@ -1383,7 +1388,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
       useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
       expect(JSON.stringify(nodeOf('g1').data)).toBe(dataBefore);   // 组 data 全程不动（排列=纯几何命令）
       // 排列生效：组框派生到 bbox(children laid)+padding（O0b-5 评审收口——帧写归 reconcile，期望来自纯函数）
-      const items = sortForArrange([
+      const items = readOrder([
         { id: 'a', x: 120, y: 150, width: 100, height: 60 },
         { id: 'b', x: 600, y: 400, width: 300, height: 200 },
       ]);
@@ -1396,14 +1401,14 @@ describe('arrangeGroupChildren（2c-4）', () => {
     }
   });
 
-  it('子节点绝对 rect → sortForArrange → arrangeRects → 守恒写回：子新绝对位置恒=laid+组框=bbox(children)+padding（reconcile 派生——O0b-5 评审收口帧写归单写者）', () => {
+  it('子节点绝对 rect → readOrder → arrangeRects → 守恒写回：子新绝对位置恒=laid+组框=bbox(children)+padding（reconcile 派生——O0b-5 评审收口帧写归单写者）', () => {
     const { d } = setupRig();
     try {
       const before = snapshot();
       useCanvasStore.getState().arrangeGroupChildren('g1', 'horizontal');
       expect(snapshot()).not.toBe(before);   // 真重排（防恒绿）
       // 期望来自纯函数（与 2a-5 同源惯例）：子绝对 rect（rel+组原点）→排序→排列
-      const items = sortForArrange([
+      const items = readOrder([
         { id: 'a', x: 120, y: 150, width: 100, height: 60 },
         { id: 'b', x: 600, y: 400, width: 300, height: 200 },
       ]);

@@ -40,7 +40,7 @@ describe('mergeStoryboard', () => {
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
     expect(g.data.groupType).toBe('storyboard');
-    expect(g.data.cells).toEqual(['a', 'c', 'b', 'd']); // x: 100(a,c) < 500(b,d)；a.y<c.y
+    expect(g.data.cells).toEqual(['a', 'b', 'c', 'd']); // T17：读序单源（层 (order,id)——无 order 键档=id 序）
     expect(g.width).toBeCloseTo(642);
     expect(g.data.storyboard).toMatchObject({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: false });
     expect(s.nodes.find((n) => n.id === 'a')!.hidden).toBe(true);
@@ -79,13 +79,13 @@ describe('convertGroup', () => {
     expect(g.data.cells).toBeUndefined();
     const a = s.nodes.find((n) => n.id === 'a')!;
     expect(a.hidden).toBe(false);
-    // cells 顺序 [a,c,b,d]，cols=2：网格间距 40px、单格 320。守恒 refit（applyGroupFrame）后
-    // 首槽 rel 归位 padding 下界 (20,50)，40px 间距判据（相对差）不受影响
+    // cells 顺序 [a,b,c,d]（T17 读序单源），cols=2：网格间距 40px、单格 320。守恒 refit
+    //（applyGroupFrame）后首槽 rel 归位 padding 下界 (20,50)，40px 间距判据（相对差）不受影响
     const c = s.nodes.find((n) => n.id === 'c')!;
     const b = s.nodes.find((n) => n.id === 'b')!;
     expect(a.position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP });
-    expect(c.position.x - a.position.x).toBeCloseTo(320 + 40); // c 在第二列
-    expect(b.position.y - a.position.y).toBeCloseTo(180 + 40); // b 在第二行
+    expect(b.position.x - a.position.x).toBeCloseTo(320 + 40); // b 在第二列
+    expect(c.position.y - a.position.y).toBeCloseTo(180 + 40); // c 在第二行
     expect(a.width).toBe(320);
   });
 

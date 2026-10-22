@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calcDefaultGrid, calcStoryboardSize, calcStitchSize,
-  sortNodesByPosition, calcGroupBounds, ASPECT_RATIO_MAP, clampPositionToPadding, calcGroupMinSize,
+  calcGroupBounds, ASPECT_RATIO_MAP, clampPositionToPadding, calcGroupMinSize,
 } from './groupLayout';
 
 describe('calcDefaultGrid', () => {
@@ -40,16 +40,6 @@ describe('calcStitchSize', () => {
   });
 });
 
-describe('sortNodesByPosition', () => {
-  it('按 (x,y) 字典序（严格弱序）', () => {
-    const nodes = [
-      { id: 'a', positionX: 100, positionY: 50 },
-      { id: 'b', positionX: 50, positionY: 999 },
-      { id: 'c', positionX: 100, positionY: 10 },
-    ];
-    expect(sortNodesByPosition(nodes).map((n) => n.id)).toEqual(['b', 'c', 'a']);
-  });
-});
 
 describe('calcGroupBounds', () => {
   it('包围盒上外扩 50px、左右下外扩 20px（顶部为硬保留区）', () => {

@@ -65,11 +65,6 @@ export function calcStitchSize(rows: number, cols: number, ratio: AspectRatio, t
   };
 }
 
-export function sortNodesByPosition<T extends { positionX: number; positionY: number }>(nodes: T[]): T[] {
-  return [...nodes].sort((a, b) =>
-    a.positionX - b.positionX || a.positionY - b.positionY);
-}
-
 export function calcGroupBounds(items: { x: number; y: number; width: number; height: number }[]) {
   const minX = Math.min(...items.map((i) => i.x)) - GROUP_PADDING;
   const minY = Math.min(...items.map((i) => i.y)) - GROUP_PADDING_TOP;

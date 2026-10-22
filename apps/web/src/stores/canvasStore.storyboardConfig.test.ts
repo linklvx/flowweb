@@ -60,8 +60,8 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     useCanvasStore.getState().resizeStoryboardGrid(gid, 1, 2);
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).toEqual(['a', 'c']); // 字典序前 2
-    const overflowed = s.nodes.find((n) => n.id === 'b')!;
+    expect(g.data.cells).toEqual(['a', 'b']); // 读序前 2（T17 层 (order,id)——无键档 id 序）
+    const overflowed = s.nodes.find((n) => n.id === 'c')!;
     expect(overflowed.parentId).toBeUndefined();
     expect(overflowed.position.x).toBeGreaterThan(before.position.x + (before.width ?? 0)); // 组右侧
     expect(overflowed.hidden).toBe(false);

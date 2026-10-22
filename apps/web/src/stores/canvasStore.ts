@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
-import { normalizeSelection, participation, sortForArrange, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes } from '@flowweb/shared';
+import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -40,7 +40,10 @@ import { Origin, stopCapturing } from './canvasUndo';
 // 循环依赖裁定同 canvasIntents：geometryTrap 顶层仅 import 声明+纯函数定义（prod 自装经
 // queueMicrotask 延后——见彼处注释），action 体运行时才调——安全。
 import { withGeometryWriter } from './geometryTrap';
-import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, sortNodesByPosition, calcDefaultGrid, calcStoryboardSize, DEFAULT_CHILD_SIZE, clampChildIntoGroup, isContentDerivedFrame } from '@/utils/groupLayout';
+import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, calcDefaultGrid, calcStoryboardSize, DEFAULT_CHILD_SIZE, clampChildIntoGroup, isContentDerivedFrame } from '@/utils/groupLayout';
+// T17（plan v11.2 S5 片·G54）：placement/order 分配唯一入口——建点/副本/入组出组/整理全经
+// allocator（副本同层同 order 重复键+粘贴位置重叠红线）。
+import { allocateOrderAfter, createCopyOrderAllocator, nudgeCopiesUntilFree, fitOrderBlock } from '@/utils/canvas-allocator';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { placeGrid } from '@/utils/groupGeometry';
@@ -629,8 +632,28 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   // R2a-6 副本落位公共段（duplicateNodes/pasteGroupClipboard 两薄壳共用）：cs 结构 set（副本信封
   // +选择态+新边，父前子后）先于 ns.addNode（B-2 纪律）；返回首个顶层副本 id（=组复制的新组 id）
-  const appendCopyPlan = (plan: CopyPlan): string | null => {
-    const copyEnvelopes = plan.copies.map((c) => ({
+  /** T17（G54「拖序不持久」order 面）：整理（arrange）后按 laid 序回写层序键——fitOrderBlock
+   *  块内 squeeze 单源；组节点走 cs data（F42 组 data 所有权=cs）+intent，普通节点走 intent
+   *  （ns/投影随 applyDataPatchToStores——order 非 bridge 键不镜像 cs 普通节点 data）。 */
+  const persistArrangeOrder = (orderedIds: string[], layerParentId: string | null): void => {
+    const layerNodes = get().nodes
+      .filter((n) => (n.parentId ?? null) === layerParentId && orderedIds.includes(n.id))
+      .map((n) => ({ id: n.id, parentId: n.parentId, position: n.position, width: n.width, height: n.height, data: (n.data ?? {}) as Record<string, unknown> }));
+    const reassign = fitOrderBlock(layerNodes, orderedIds);
+    if (reassign.size === 0) return;
+    const byId = new Map(get().nodes.map((n) => [n.id, n]));
+    const intents: CanvasIntent[] = [];
+    for (const [id, key] of reassign) {
+      const n = byId.get(id);
+      if (!n) continue;
+      if ((n.data as Record<string, unknown>).order === key) continue; // 同值零 intent
+      if (n.type === 'group') get().patchGroupDataInner(id, { order: key });
+      intents.push({ type: 'updateNodeData', id, patch: { order: key } });
+    }
+    if (intents.length > 0) dispatchCanvasIntent(intents, Origin.LocalUser);
+  };
+
+  const appendCopyPlan = (plan: CopyPlan): string | null => {    const copyEnvelopes = plan.copies.map((c) => ({
       id: c.id,
       type: c.type,
       ...(c.parentId != null ? { parentId: c.parentId } : {}),
@@ -760,7 +783,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   syncLagOver60s: false,
   pendingBacklog: false,
 
-  /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（纯函数出参）。 */
+  /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（get() 只读缝——
+   *  T17 order 键分配读层尾；addNode 薄壳与 addNodeAndBatchConnect（B6-3 收敛）共用，
+   *  B4'/B5' 手势路径直接消费。返回 type 恒非空（构造即落 resolvedType——收窄 RF Node 可选类型）。 */
   addNodeInner: (type, position, dataOverride, envelope): Node & { type: string } => {
     const id = getId('node');
     const resolvedType = nodeTypeMap[type] || type;
@@ -768,6 +793,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       : resolvedType === 'imageExtGen' ? { mediaName: '扩展图片', extConfig: { ...IMAGE_EXT_DEFAULTS }, allImages: [] }
       : {};
     const nodeData = dataOverride ? { ...baseData, ...dataOverride } : baseData;
+    // T17：order 键=allocator 唯一入口（根层尾追加——dataOverride 显式 order 覆写留缝）
+    if (nodeData.order == null) nodeData.order = allocateOrderAfter(get().nodes, null);
     const node: Node & { type: string } = {
       id,
       type: resolvedType,
@@ -995,6 +1022,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       if (typeof itemW === 'number' && typeof itemH === 'number') {
         newWhs.set(nodeId, { width: normalizeSize(itemW), height: normalizeSize(itemH) });
       }
+      // T17：order 键=allocator 唯一入口（含批内已构造成员——after 链零碰撞）
+      if (itemRest.order == null) itemRest.order = allocateOrderAfter([...get().nodes, ...newNodes], null);
       const newNode: Node = {
         id: nodeId,
         type: resolvedType,
@@ -1966,11 +1995,17 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         width: n.width ?? DEFAULT_CHILD_SIZE.width,
         height: n.height ?? DEFAULT_CHILD_SIZE.height,
       });
-      const items = sortForArrange(p.ids.map((id) => {
+      // T17：排列读序=orderRecords 单源（层序 (order,id)——sortForArrange 空间行序收编；
+      // 无 order 键旧档按 (null,id)=id 序兜底）
+      const ordered = orderRecords(p.ids.map((id) => {
         const n = s.nodes.find((x) => x.id === id)!;
-        const wh = storedRectOf(n);
-        return { id, x: n.position.x, y: n.position.y, ...wh };
+        return { id: n.id, ...(n.parentId != null ? { parentId: n.parentId } : {}), data: (n.data ?? {}) as Record<string, unknown> };
       }));
+      const items = ordered.map((rec) => {
+        const n = s.nodes.find((x) => x.id === rec.id)!;
+        const wh = storedRectOf(n);
+        return { id: rec.id, x: n.position.x, y: n.position.y, ...wh };
+      });
       const laid = arrangeRects(items.map(({ id, ...r }) => r), mode);
       // O0b-9：排列=结构命令写点（registry arrangeSelection 条目 structure-command——子 rel 重排）
       withGeometryWriter('structure-command', () => set((st) => ({
@@ -1979,6 +2014,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           return i === -1 ? n : { ...n, position: { x: laid[i].x, y: laid[i].y } };
         }),
       })));
+      // T17（G54「拖序不持久」order 面）：laid 序回写层序键（根层块 squeeze——fitOrderBlock 单源）
+      persistArrangeOrder(ordered.map((r) => r.id), null);
       if (p.excludedCount > 0) message.warning(`${p.excludedCount} 个组内节点未参与排列（需调整请先选中其所在组）`);
     });
   },
@@ -2002,11 +2039,18 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const children = s.nodes.filter((n) => n.parentId === groupId);
     if (children.length < 2) { message.warning('组内节点不足 2 个，无需排列'); return; }
     get().runCommand(() => {
-      const items = sortForArrange(children.map((n) => ({
-        id: n.id,
-        x: n.position.x + group.position.x, y: n.position.y + group.position.y,
-        width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
+      // T17：排列读序=orderRecords 单源（组子层 (order,id)；分镜组上方守卫已拒）
+      const ordered = orderRecords(children.map((n) => ({
+        id: n.id, parentId: groupId, data: (n.data ?? {}) as Record<string, unknown>,
       })));
+      const items = ordered.map((rec) => {
+        const n = children.find((x) => x.id === rec.id)!;
+        return {
+          id: rec.id,
+          x: n.position.x + group.position.x, y: n.position.y + group.position.y,
+          width: n.width ?? DEFAULT_CHILD_SIZE.width, height: n.height ?? DEFAULT_CHILD_SIZE.height,
+        };
+      });
       const laid = arrangeRects(items.map(({ id, ...r }) => r), mode);
       setWithParentOrder((st) => ({
         nodes: st.nodes.map((n) => {
@@ -2014,6 +2058,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           return i === -1 ? n : { ...n, position: { x: laid[i].x - group.position.x, y: laid[i].y - group.position.y } };
         }),
       }));
+      // T17（G54）：laid 序回写组子层序键
+      persistArrangeOrder(ordered.map((r) => r.id), groupId);
     });
   },
 
@@ -2032,7 +2078,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       id, type: 'group',
       position: { x: bounds.x, y: bounds.y },
       width: bounds.width, height: bounds.height,
-      data: { groupType: 'normal' },
+      data: { groupType: 'normal', order: allocateOrderAfter(get().nodes, null) },
       selected: true,
     };
     // 批4b-2 换芯：差分快照→组+入组信封+rel 坐标经 dispatchProjectionDiff 单 transact 落 doc
@@ -2509,8 +2555,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const allNodeIds = [...nodeIds, ...expandedIds, gid];
     const images = [...kept, ...expanded];
     // 2. 字典序排序 + 智能宫格
-    const sorted = sortNodesByPosition(images.map((n) => ({ ...n, positionX: n.position.x, positionY: n.position.y })))
-      .map((n) => (n as any).id);
+    // T17：分镜成员序=读序单源 orderRecords（根层 (order,id)——sortNodesByPosition 空间序收编）
+    const sorted = orderRecords(images.map((n) => ({ id: n.id, data: (n.data ?? {}) as Record<string, unknown> })))
+      .map((n) => n.id);
     const { rows, cols } = calcDefaultGrid(sorted.length);
     // 3. 组中心对齐选中区域中心
     const cx = images.reduce((sum, n) => sum + n.position.x + (n.width ?? 320) / 2, 0) / images.length;
@@ -2576,8 +2623,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         throw new Error('仅包含图片节点的组可转为分镜组');
       }
       // 复用 mergeStoryboard 的宫格逻辑，但保留原组 id 与位置
-      const sorted = sortNodesByPosition(children.map((n) => ({ ...n, positionX: n.position.x + group.position.x, positionY: n.position.y + group.position.y })))
-        .map((n) => (n as any).id);
+      // T17：分镜成员序=读序单源 orderRecords（组子层 (order,id)）
+      const sorted = orderRecords(children.map((n) => ({ id: n.id, parentId: groupId, data: (n.data ?? {}) as Record<string, unknown> })))
+        .map((n) => n.id);
       const { rows, cols } = calcDefaultGrid(sorted.length);
       const size = calcStoryboardSize(rows, cols, '16:9');
       const cx = group.position.x + (group.width ?? 0) / 2;
@@ -2867,6 +2915,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         { offset: DUPLICATE_OFFSET },
         () => getId('node'),
         s.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+        // T17（G54）：副本 order 重新分配（allocator 唯一入口——副本同层同 order 重复键红线）
+        createCopyOrderAllocator(s.nodes),
       );
       firstTopId = appendCopyPlan(plan);
     });
@@ -2918,7 +2968,14 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       { position },
       () => getId('node'),
       groupClipboard.edges,
+      // T17（G54）：副本 order 重新分配+粘贴位置不重叠守卫（源成员除外——粘贴落原件正上=既有
+      // UX 契约「shell 直用 flow 位置」；整体步进平移——内部相对布局保真）
+      createCopyOrderAllocator(get().nodes),
     );
+    plan.copies = nudgeCopiesUntilFree(
+      plan.copies, get().nodes, { x: 40, y: 40 },
+      new Set(groupClipboard.records.map((r) => r.id)),
+    ) as typeof plan.copies;
     let firstTopId: string | null = null;
     stopCapturing();
     for (const chunk of chunkCopyPlan(plan)) {
