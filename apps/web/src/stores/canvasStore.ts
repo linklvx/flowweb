@@ -15,7 +15,7 @@ import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { ensureParentOrder } from '@/utils/nodeOrder';
-import { canEdit } from './syncStatus';
+import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
 import { batchConnectEdges } from '@/utils/handleMenu';
 // 批4b-2：auto 边确定性 id 判定（addEdge/removeEdge 的 origin 分流——AutoEdge 不入撤销栈契约）
 import { isAutoEdgeId } from './autoEdgeIds';
@@ -66,6 +66,16 @@ export function createSessionSeed(): string {
 const sessionSeed = createSessionSeed();
 function getId(prefix: string) {
   return `${prefix}_${Date.now()}_${sessionSeed}_${++counter}`;
+}
+
+/** T17（G34 七命令补门）：viewer 会话拒写提示节流（同命令 5s 窗一次——nodeStore viewer toast
+ *  2s 节流同族形态；零 cs/doc/DB 写）。 */
+const viewerWarnAt = new Map<EditableCommandName, number>();
+function denyCommandUX(command: EditableCommandName): void {
+  const now = Date.now();
+  if (now - (viewerWarnAt.get(command) ?? 0) < 5000) return;
+  viewerWarnAt.set(command, now);
+  message.warning('当前为只读会话，操作已忽略');
 }
 
 /** 节点配置取数单源（同 projectCanvasNodes 分型）：组=cs data；普通节点=ns 全量，取不到即红（无回落）。
@@ -846,6 +856,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   addNode: (type, position, dataOverride, envelope) => {
+    // T17（G34 七命令补门）：viewer 会话零 cs 写（旧 append 回弹分支只在非会话态保留）
+    if (!canEditCommand('addNode', get())) { denyCommandUX('addNode'); return ''; }
     // Inner 化薄壳：构造核归 addNodeInner + dispatch + 选择态/ns 双写
     const node = get().addNodeInner(type, position, dataOverride, envelope);
     const id = node.id;
@@ -881,6 +893,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   deleteNode: (id) => {
+    // T17（G34 七命令补门）：viewer 会话零 cs 写
+    if (!canEditCommand('deleteNode', get())) { denyCommandUX('deleteNode'); return; }
     // 批4b-2：差分快照在 cascade/结构删/组善后全动作之前捕获——收尾 dispatchProjectionDiff
     // 覆盖级联子删+父组框收缩（首行 reconcile('cs')——O0b-5 帧写单写者）。
     // 与显式 deleteNode intent 幂等共存（同值 no-op，撤销栈同窗合并）
@@ -1173,6 +1187,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   addEdge: (source, target, sourceHandle, targetHandle, deterministicId) => {
+    // T17（G34 七命令补门）：viewer 会话零 cs 写（auto 边同拒——RF 只读画布无 auto 触发面）
+    if (!canEditCommand('upsertEdge', get())) { denyCommandUX('upsertEdge'); return deterministicId ?? ''; }
     const id = deterministicId ?? getId('edge');
     // 确定性建边幂等：同 id 已存在 no-op（防 React Flow 双 key）
     if (get().edges.some(e => e.id === id)) return id;
@@ -1193,6 +1209,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   removeEdge: (id) => {
+    // T17（G34 七命令补门）：viewer 会话零 cs 写
+    if (!canEditCommand('deleteEdge', get())) { denyCommandUX('deleteEdge'); return; }
     // 批4b-1 换芯：doc 删边走意图漏斗；filter 型 set 幂等。批4b-2：auto 边 origin=AutoEdge（同 addEdge）
     dispatchCanvasIntent(
       { type: 'deleteEdge', id },
@@ -1760,6 +1778,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   onConnect: (connection) => {
+    // T17（G34 七命令补门）：viewer 会话零 cs 写（onConnect=upsertEdge 命令面——red 实证漏门）
+    if (!canEditCommand('upsertEdge', get())) { denyCommandUX('upsertEdge'); return; }
     // 同源判重（spec 第二节顺手项：现状缺口非本功能引入，同一对节点重复拖线不再叠边）
     if (get().edges.some(e => e.source === connection.source && e.target === connection.target)) return;
     const id = getId('edge');

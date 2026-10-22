@@ -206,8 +206,9 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   // + Y0b-5 T8 spec 修复造案 +2 处/0 新文件（SyncBanner.test.tsx +2——diverged 档盘上导出分档+
   //   ss2 档对照注入，存量 allow-list 文件，store 注入是用例存在目的，同 T9/T4/T11 例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
-  const BASELINE_COUNT = 306;
-  const BASELINE_FILES = 54;
+  // T17：G34 只读命令门造案 +1/1（canvasG34.readonlyCommands.test.ts——viewer 零写矩阵）
+  const BASELINE_COUNT = 309;
+  const BASELINE_FILES = 55;
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

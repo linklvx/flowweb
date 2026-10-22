@@ -15,3 +15,25 @@ export const canEdit = (s: CanvasState): boolean =>
  *  （drain 解除自愈，复用 1012 既有链路；Y0b-4 T5 起通告载体=doc-status writeFrozen 维度）。 */
 export const canExecute = (s: CanvasState): boolean =>
   canEdit(s) && s.connStatus === 'connected' && !s.writeFrozen;
+
+// ══ T17（plan v11.2 S5 片·G34）：只读命令门单源——七命令 canEditCommand ══
+// 客户端写命令的只读裁决**单源**（viewer 角色拒写——spec §3.3「单源门+viewer 早退+七命令补门」）：
+// 七命令=CanvasIntent 七型（addNode/updateNodeData/deleteNode/moveNode/updateNodeEnvelope/
+// upsertEdge/deleteEdge）。裁决=活跃 viewer 会话（hydration ready ∧ readOnly ∨ WS 终态）对
+// **全部七命令一致拒写**（零 cs/doc/DB 写——G34 矩阵）；非会话态（idle/pending——裸 store/
+// 本地窗口/未水合）不在只读裁决域（doc 面仍由 canEdit 门拦——本谓词只裁"角色"，不重复裁会话）。
+export const EDITABLE_COMMAND_NAMES = [
+  'addNode', 'updateNodeData', 'deleteNode', 'moveNode', 'updateNodeEnvelope', 'upsertEdge', 'deleteEdge',
+] as const;
+
+export type EditableCommandName = (typeof EDITABLE_COMMAND_NAMES)[number];
+
+/** 活跃 viewer 会话判定（ready∧只读电平——collabReadOnly 含 connReadOnly∨quotaOver∨writeFrozen）。 */
+export const isActiveViewerSession = (s: CanvasState): boolean =>
+  s.hydration === 'ready' && (s.collabReadOnly || s.wsAuthNotice?.terminal === true);
+
+/** 七命令只读裁决单源：viewer 会话 → 全七命令 false（拒写）；其余 true（非只读域——legacy 行为）。 */
+export function canEditCommand(command: EditableCommandName, s: CanvasState): boolean {
+  void command; // 裁决与命令类型无关（单源一致拒写）——参数留作门挂点诊断/未来命令级策略缝
+  return !isActiveViewerSession(s);
+}

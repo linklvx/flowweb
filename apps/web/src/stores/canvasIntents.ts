@@ -20,7 +20,7 @@ import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
-import { canEdit } from './syncStatus';
+import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
 import { Origin } from './canvasUndo';
 // doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）；
 // O0b-1 挂点：漏斗尾 reconcile（source:'doc'）+dispatchProjectionDiff 首行 reconcile（source:'cs'
@@ -325,8 +325,29 @@ export function projectIntentToStore(intent: CanvasIntent): void {
  * （LocalUser 入撤销栈；拖拽高频路径 Geometry 不入——canvasUndo trackedOrigins 契约）。
  * O0b-1 挂点①（漏斗尾）：投影循环后 doc 已更新=权威，reconcile（source:'doc'）同 tick 收口 cs。
  * 两早退分支（canEdit 拦截/无 doc）不挂——早退也跑 reconcile=语义错误；禁 finally 包裹。 */
+/** T17（G34）：只读命令拒写诊断节流（write-rejected 节流——同一命令 5s 窗一次；B1-B2 节流
+ *  形态对齐）：viewer 七命令拒写留痕 write_reject{via:'canEditCommand'}。 */
+const denyDiagAt = new Map<EditableCommandName, number>();
+function denyEditCommandDiag(command: EditableCommandName): void {
+  const now = Date.now();
+  const last = denyDiagAt.get(command) ?? 0;
+  if (now - last < 5000) return;
+  denyDiagAt.set(command, now);
+  recordCollabDiag('write_reject', { via: 'canEditCommand', command });
+}
+
 export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], origin: string): void {
-  if (!canEdit(useCanvasStore.getState())) return;
+  // T17（G34 七命令只读裁决单源）：canEditCommand 挂 dispatch 七命令总口（viewer 拒写+
+  // 节流诊断）——canEdit（会话/水合/终态）维持 doc 面第二道
+  const gateState = useCanvasStore.getState();
+  const seq0 = Array.isArray(intent) ? intent : [intent];
+  for (const i of seq0) {
+    if (!canEditCommand(i.type, gateState)) {
+      denyEditCommandDiag(i.type);
+      return;
+    }
+  }
+  if (!canEdit(gateState)) return;
   const d = resolveDoc();
   if (!d) return; // canEdit 真 ⇒ runtime 会话在（hydration ready）⇒ doc 非空；null 为异常态零写
   const seq = Array.isArray(intent) ? intent : [intent];
