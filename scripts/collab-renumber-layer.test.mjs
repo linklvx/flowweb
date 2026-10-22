@@ -11,6 +11,24 @@ test('模块可导入且不触发 main（直跑守卫——import 面=纯函数�
   assert.equal(typeof mod.listProjectIds, 'function');
 });
 
+test('★T19（P2#7）listProjectIds 并集：CanvasDoc ∪ CanvasDocUpdate（updates-only doc 不再整体漏掉）+ 排序去重', async () => {
+  const { listProjectIds } = await import('./collab-renumber-layer.mjs');
+  const queries = [];
+  const fakeClient = {
+    query: async (sql) => {
+      queries.push(sql);
+      if (sql.includes('FROM "CanvasDocUpdate"')) {
+        return { rows: [{ projectId: 'p-updates-only' }, { projectId: 'p-both' }, { projectId: 'p-updates-only' }] };   // DISTINCT 在 SQL——mock 含重复形态亦验归并
+      }
+      return { rows: [{ projectId: 'p-state-only' }, { projectId: 'p-both' }] };
+    },
+  };
+  const ids = await listProjectIds(fakeClient);
+  // 并集三源形态全可见（改前红=只查 CanvasDoc——p-updates-only 漏）；sort 稳定
+  assert.deepEqual(ids, ['p-both', 'p-state-only', 'p-updates-only']);
+  assert.equal(queries.length, 2, '两源各一查（CanvasDoc+CanvasDocUpdate DISTINCT）');
+});
+
 test('用法守卫：无 projectId 且无 --all ⇒ usage 退出码 2（fail-closed 非静默空跑）', async () => {
   // main 仅在直跑时执行（isMain 守卫）——子进程直跑无参形态断言
   const { execFileSync } = await import('node:child_process');

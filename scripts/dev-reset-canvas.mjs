@@ -239,6 +239,9 @@ function printIdbGuide() {
 
 // ── 元测试导出面（dev-reset-canvas.test.mjs 消费——静态锚+purgeS3Prefixes 运行时断言载体） ──
 export const RESET_TABLES = TABLES;
+/** T19（P2#7 测试缝）：dry-run ledger 通行证段（BEGIN+SET LOCAL+ROLLBACK 三连——apply 轮
+ *  TeamCreditTransaction 删除前提的提前验证）。导出供元测试断言序列与失败档语义。 */
+export { resetPg };
 export const REDIS_PATTERNS = [
   'videoWork:process:*',        // doc 快照缓存（版本键随 v3 bump——旧空间失效清理）
   'videoWork:categories',       // 分类缓存

@@ -5,6 +5,13 @@
 //  ①execSeq 代际矩阵：单系统锚=execution/execseq-generation.int.spec（三态 moveToDelayed/
 //    takeover void/onTick abort/failed 钩子票守卫）——本 spec 串联「代际接管→doc exec cache 旧代拒写
 //    （exec_seq_stale_rejected）→投影新代赢」全链（场景 A）。
+//    【评审#4 登记不修·flush 四窗组合覆盖映射钉明（G58 四窗=apply 前/flush 前/flush 后 mark 前/
+//    mark 后 emit 前）】：窗①（claim→apply 前 fence）+窗②（apply 后→flush 前）=projection-outbox.
+//    poller.int.spec「fencing（epoch 易主@apply）」+fencedBail 释放族；窗③（flush 后→mark 前）=同
+//    spec「fencing（epoch 易主@flush）」+recheck rev superseded 用例；窗④（mark 后→emit 前）=同
+//    spec spool/retry-spooled 用例（mark projected 与 flush persisted 背书序——G58「spooled 无限
+//    重试不耗 attempts」）。本 e2e 场景 C 消费「重启后仍 projected」读侧——四窗本体归 T15 int
+//    （组合覆盖完备，此处不重复造轮）。
 //  ②投影 rev 竞态矩阵：单系统锚=media-delivery/projection-outbox.poller.int.spec（superseded/
 //    fast path/fencing/spool/fenced/批 flush）——本 spec 串联「旧/新 artifactRev 同时 pending 新代赢
 //    →binding current-state reconcile 反映 doc 现值」（场景 B——投影×binding 跨系统）。
@@ -56,7 +63,6 @@ import { execSeqStaleRejected } from '../../execution/exec.metrics';
 import { memberRevokedConns } from '../store.metrics';
 import { mediaAclDenied } from '../../team/team.metrics';
 import { assertTeamMember } from '../../team/team.util';
-import { reconcileInvariantViolation } from '../../execution/intent-reconcile.metrics';
 import { ensureProjectFixture, cleanupProjectFixture, restoreLeaseRow } from '../../../test-utils/db-fixtures';
 import { pollUntil } from '../../../test-utils/poll-until';
 
@@ -298,7 +304,9 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const revivedFileId = ((revived.getMap('nodes').get(NODE) as Y.Map<any>)?.get('data') as Y.Map<any>)?.get('fileId');
     expect(revivedFileId).toBe('media-c');
 
-    // facts outbox 重复投递幂等（乱序/重放面——四元组唯一约束）：同 (mediaId,projectId,factType,factVersion) 双写零重复行
+    // facts outbox 重复投递幂等（实况=重复插入同四元组行——at-least-once 重放形态；乱序提交
+    // 必达面归 media-fact-outbox.int.spec 乱序用例，此处不复刻）：同 (mediaId,projectId,
+    // factType,factVersion) 双写 skipDuplicates 零重复行
     await prisma.mediaFactOutbox.createMany({
       data: [{ mediaId: 'media-c', projectId: PID, factVersion: 1, factType: 'state', payload: { status: 'completed' } }],
       skipDuplicates: true,
@@ -308,9 +316,9 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
       skipDuplicates: true,
     });
     expect(await prisma.mediaFactOutbox.count({ where: { mediaId: 'media-c', projectId: PID, factType: 'state', factVersion: 1 } })).toBe(1);
-
-    // 观测面在线性：invariant_violation 计数器已注册（R3 manual-required 同事件接线——intent-reconcile spec 红绿锚）
-    expect(counterOf(reconcileInvariantViolation)).toBeGreaterThanOrEqual(0);
+    // 观测面：invariant_violation（资金-产物不一致巡检——R3 manual-required 同事件）真触发锚
+    // =intent-reconcile.service.spec「T19 计数」用例（歧义态行→计数恰 +1）+intent-reconcile-r3.
+    // int.spec 窗④（有交付凭据→manual-required 不动钱）——本 e2e 不复刻资金链装置（重复造轮禁）。
     await prisma.mediaFactOutbox.deleteMany({ where: { projectId: PID } });
     await teardownProject(PID);
   }, 30_000);

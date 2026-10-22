@@ -7,13 +7,12 @@
 //    （dual-client-server kit——mock repo 零 DB 依赖，CI 无 DATABASE_URL 可跑）+10 真 WS 客户端
 //    （HocuspocusProvider）并发编辑 ~70s。断言域=并发收敛正确性+资源域：双端收敛等值/零成员丢失/
 //    单帧 <128KB/doc <8MB/heapUsed 上界/applied_unpersisted=0（编辑全量收敛——mock repo 零 spool
-//    形态）；回显 p95 实测记录（console 数字面——30ms 阈值归 10min 手动档投影链判定，本档断言
-//    宽松回归上界防慢性退化）。
-//  - 完整 10min 手动档（CP-B 人工留档不进 CI）：既有 scripts/collab-soak.mjs 依赖真实 api 进程
+//    形态）；回显 p95 ≤30ms（卡文阈值——评审#9 收紧；实测数字 console 留档）。
+//  - 完整 10min 手动档（CP-B 人工留档不进 CI）：既有 apps/api/scripts/collab-soak.mjs 依赖真实 api 进程
 //    （127.0.0.1:3000/3001+真 PG/Redis/MinIO+worker）——投影 delivery lag/outbox lag/materialize
 //    lag/applied_unpersisted=0 稳态指标在 /metrics 采样（artifact_projection_pending_age_seconds
 //    等 poller lag gauge 族）。跑法（服务器档）：
-//      node scripts/collab-soak.mjs --docs 10 --clients 10 --rate 300 --duration 10 --json soak-t19.json
+//      node apps/api/scripts/collab-soak.mjs --docs 1 --clients 10 --rate 300 --duration 10 --seed-nodes 10000 --json apps/api/soak-t19.json   // 仓根跑（runbook :228/:406 同路径）——T19 实跑档=10k 节点真造档
 //  - 50 客户端梯度+24h soak=目标项非阻断（登记——上生产后按 runbook 服务器实测留档）。
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
@@ -26,7 +25,7 @@ const ROUND_MS = 200;
 const FRAME_BUDGET = 128 * 1024;      // 单帧 <128KB（spec :262 soak 指标）
 const DOC_BUDGET = 8 * 1024 * 1024;   // doc <8MB
 const HEAP_BUDGET = 1024 * 1024 * 1024;   // 内存上界 1GB（2C 单机进程档——回归护栏非容量声明）
-const ECHO_P95_REGRESSION = 1_000;    // 回显 p95 回归上界（真阈值 30ms 归投影链手动档；本档防慢性退化）
+const ECHO_P95_REGRESSION = 30;         // 回显 p95 阈值=卡文口径（投影 p95≤30ms——评审#9 收紧：CI 防抖由 heavy 串行档承载）
 
 const p95 = (xs: number[]): number => {
   if (xs.length === 0) return 0;
@@ -124,7 +123,7 @@ describe('T19 soak 阻断门（10 客户端×~70s 压缩版：收敛+资源域�
       expect(maxFrame).toBeLessThan(FRAME_BUDGET);   // 单帧 <128KB
       expect(docBytes).toBeLessThan(DOC_BUDGET);     // doc <8MB
       expect(heapUsed).toBeLessThan(HEAP_BUDGET);    // 内存上界
-      expect(echoP95).toBeLessThan(ECHO_P95_REGRESSION);   // 回显 p95 回归上界（真阈值 30ms=投影链手动档）
+      expect(echoP95).toBeLessThan(ECHO_P95_REGRESSION);   // 回显 p95 ≤30ms（卡文阈值——评审#9）
       // applied_unpersisted=0：mock repo 零 spool 形态——编辑全量收敛（converged）即零未达写；
       // 真库 spool/persisted 语义归 T15 int spool 用例+10min 手动档 /metrics 稳态
       expect(kit.repo.append.mock.calls.length).toBeGreaterThan(0);

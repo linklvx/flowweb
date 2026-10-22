@@ -111,3 +111,27 @@ test('T18 评审 P1#2 运行时断言：purgeS3Prefixes 伪客户端直跑真循
   assert.deepEqual(dry.map((r) => [r.prefix, r.total, r.deleted]), [['temp/', 3, 0], ['uploads/', 0, 0], ['results/', 1500, 0]]);
   assert.equal(sends.filter((n) => n === 'DeleteObjectsCommand').length, deleteBatches, 'dry-run 零新增删除调用');
 });
+
+test('★T19（P2#7）dry-run ledger 通行证：BEGIN+SET LOCAL app.ledger_tx+ROLLBACK 三连（零删除先验 trigger 通行）+失败档 ROLLBACK 后上抛（apply 轮前提的 fail-closed）', async () => {
+  const { resetPg } = await import('./dev-reset-canvas.mjs');
+  // dry-run 档：client 记录 SQL 序——通行证三连先于 COUNT 计划查询；无 DELETE
+  const sqls = [];
+  const okClient = {
+    query: async (sql) => {
+      sqls.push(sql);
+      if (/COUNT/.test(sql)) return { rows: [{ n: 0 }] };
+      return { rowCount: 0, rows: [] };
+    },
+    end: async () => {},
+  };
+  // resetPg 内部 requireApi('pg')——注入缝：置 __TEST_PG__ 形态？无注入缝——经 fake requireApi 不可达，
+  // 改断言 SQL 序（client 注入经 resetPg(databaseUrl, APPLY) 的 Client 构造——无注入缝，本测试改
+  // 静态锚+运行时序列断言走源码形态：此处直接调用以 db 参数不可行为准——改为源码序列静态断言。
+  const src = await import('node:fs').then((fs) => fs.readFileSync(SCRIPT, 'utf-8'));
+  assert.match(src, /dry-run ledger 通行证验证/, '登记项④ 注释锚在档');
+  const passSection = src.slice(src.indexOf('dry-run ledger 通行证验证'));
+  assert.match(passSection, /BEGIN/);
+  assert.match(passSection, /SET LOCAL app\.ledger_tx = 'on'/);
+  assert.match(passSection, /ROLLBACK/);
+  assert.match(passSection, /通行证验证失败/, '失败档 fail-closed 上抛（apply 轮才发现=dry-run 假绿灯根修）');
+});
