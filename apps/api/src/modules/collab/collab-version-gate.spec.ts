@@ -143,17 +143,37 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
   });
 });
 
-describe('Y0b-3 T6 schemaRefusal reason 通路（E56 v2.1 断链修复——第五终态档）', () => {
-  it('拒载 throw 附 reason=schema-outdated（改前红：仅 schemaRefusal 标记→客户端收字面量 permission-denied 落瞬态桶）；schema-outdated ∈ isTerminalReason（客户端四档 UX 版本过期分支的权威分型）', async () => {
+describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——meta.schemaVersion 退役）', () => {
+  it('旧 doc（行 schemaVersion=2≠current 3）→ 拒载：throw 附 reason=schema-outdated+schemaRefusal 标记（客户端 handleVersionTerminal 一次 reload 通路）——doc meta 残留任何值不再参与判定', async () => {
     const { gateway, repo } = buildGateway();
-    const bad = new Y.Doc();   // 戳存在且≠当前版本——ensureSchemaVersion 判据（绿测试同款装置）
-    bad.getMap('meta').set('schemaVersion', 999);
-    bad.getMap('nodes').set('n', new Y.Map());
-    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(bad)), updates: [], stateSeq: 0n });
+    const stale = new Y.Doc();   // doc 内容：满节点+旧 meta 残留（历史载荷——列门不解释）
+    stale.getMap('meta').set('schemaVersion', 2);
+    stale.getMap('nodes').set('n', new Y.Map());
+    // 行值=2（旧档行——版本硬切前建行）⇒ 列门拒载（先于 replay）
+    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(stale)), updates: [], stateSeq: 0n, schemaVersion: 2 });
     const denial = await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:vg-old' } as any)
       .then(() => { throw new Error('expected rejection'); }, (e: Error & { schemaRefusal?: boolean; reason?: string }) => e);
     expect(denial.reason).toBe(CollabAuthReason.SCHEMA_OUTDATED);   // 库 esm:939 error.reason ?? 'permission-denied' 透传——附上即通
     expect(denial.schemaRefusal).toBe(true);                        // 既有标记保留（无害）
+    expect(denial.message).toMatch(/CanvasDoc\.schemaVersion=2/);  // 列门判据（PG 行值——非 doc meta）
     expect(isTerminalReason(CollabAuthReason.SCHEMA_OUTDATED)).toBe(true);   // 网关侧通路锚（shared 侧已测——此处锚网关链路分型一致）
+  });
+
+  it('行 schemaVersion=3（当前）→ 放行（doc meta 零键也放——doc 内容不再带版本）；行缺失（null，懒建档）→ 放行（首 store 建行 @default(3)）', async () => {
+    stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });   // 前序 heap 桩残留复位（heap-gate.spec 同款——loadDocument 装载门 heap 闸前置）
+    resetHeapPressure();
+    const { gateway, repo } = buildGateway();
+    const fresh = new Y.Doc();   // meta 零键——fillDoc 形态
+    fresh.getMap('nodes').set('n', new Y.Map());
+    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(fresh)), updates: [], stateSeq: 0n, schemaVersion: 3 });
+    const cur = new Y.Doc();
+    await gateway.hooks.onLoadDocument({ document: cur, documentName: 'project:vg-cur' } as any);   // 不抛=放行（hook 返回 void——节点应用为证）
+    expect([...cur.getMap('nodes').keys()]).toEqual(['n']);
+
+    const { gateway: g2, repo: r2 } = buildGateway();
+    stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });
+    resetHeapPressure();
+    r2.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [], stateSeq: 0n, schemaVersion: null });
+    await g2.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:vg-lazy' } as any);   // 行缺失（懒建档）不抛
   });
 });

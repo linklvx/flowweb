@@ -39,7 +39,7 @@ export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
     { name: 'parent-cycle', build: mk({ a: { parentId: 'b' }, b: { parentId: 'a' } }) },
     { name: 'unknown-fields', build: mk({ n1: { totally: 'unknown', data: { extra: 1 } } }) },
     { name: 'empty-maps', build: mk({ n1: { data: {} } }) },
-    { name: 'type-confusion', build: mk({ n1: { x: 'str', data: { width: 'wide' } } }, { schemaVersion: 'not-a-number' }) },
+    { name: 'type-confusion', build: mk({ n1: { x: 'str', data: { width: 'wide' } } }, { legacyMeta: 'not-a-number' }) },   // T18：meta.schemaVersion 退役——对抗面改打任意非版本 meta 键（doc 内容不再带版本）
     { name: 'scalar-node', build: () => {   // 值守卫专测：非 map 节点值 → 跳过
       const nodes = new FakeMap(new Map([['raw', 'just-a-string']]));
       return { getMap: (n: string) => (n === 'nodes' ? nodes : new FakeMap()), createMap: () => new FakeMap() };

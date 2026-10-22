@@ -15,7 +15,8 @@ import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
 import { execOrphanBlockedTotal } from '../execution/exec.metrics';
 import {
-  MAX_WRITE_OPS_PER_BATCH, MAX_WRITE_BATCH_BYTES, stampDocSchema, validateWriteBatch,
+  MAX_WRITE_OPS_PER_BATCH, MAX_WRITE_BATCH_BYTES,
+  validateWriteBatch,
   type DocWriteOp,
 } from '@flowweb/shared';
 
@@ -34,13 +35,11 @@ const rejectedTotalSum = async (): Promise<number> => {
   return v.values.reduce((s, x) => s + x.value, 0);
 };
 
-/** 夹具节点种子：手建节点后盖 v2 戳（生产 doc 恒有戳——WS loadDocument 无戳自愈/api 种子显式盖章；
- *  T9 起 writeBatch 进门 ensureSchemaVersion，无戳∧有节点=拒载档，夹具对齐生产形态）。 */
+/** 夹具节点种子：手建节点（T18 起 meta 零键——版本=PG 列装载门，进程内 doc 无戳档=常态）。 */
 function seedNode(doc: Y.Doc, id = 'n1'): Y.Map<any> {
   const n = new Y.Map();
   n.set('type', 'text');
   doc.getMap('nodes').set(id, n);
-  stampDocSchema(toDocLike(doc));
   return n;
 }
 
@@ -218,26 +217,17 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
     expect(exec.has('reason')).toBe(false);             // undefined 键跳过非写入
   });
 
-  it('红·schema 门双拒码：sv=1 doc ⇒ throw /\\[O0b-0\\]/（ensureSchemaVersion 档——判别性令牌：DOC_SCHEMA_AHEAD 消息不含此串，门判据若回归 sv!==CUR 本用例必红）；sv=3 doc ⇒ throw /DOC_SCHEMA_AHEAD/ + reject 计数（事务回调首段——零 op 已应用）', async () => {
-    const v1 = new Y.Doc();
-    v1.getMap('meta').set('schemaVersion', 1);
-    const w1 = makeWriter(v1);
-    const aheadBefore = await rejectedOf('DOC_SCHEMA_AHEAD'); // 双保险：降版档不得误路由前瞻分支
+  it('T18·meta schema 门退役：meta.schemaVersion（任意残留值——旧档历史载荷）不再拦写——版本判据唯一承载=CanvasDoc.schemaVersion PG 列（装载门结构性先于写路径，进程内已装载 doc 无前瞻档可达态）', async () => {
+    const stale = new Y.Doc();
+    stale.getMap('nodes').set('n1', new Y.Map());   // 守卫放行前提（node-deleted 拦截与版本门正交）
+    stale.getMap('meta').set('schemaVersion', 1);   // 旧档残留载荷——写侧不解释
+    const w1 = makeWriter(stale);
+    const before = await rejectedOf('DOC_SCHEMA_AHEAD');
     await expect(w1.writer.writeBatch('p1', [
       { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(/\[O0b-0\]/);
-    expect(await rejectedOf('DOC_SCHEMA_AHEAD')).toBe(aheadBefore); // 降版不污染 schema-ahead 计数（告警不被降版噪声触发）
-    expect(v1.getMap('exec').size).toBe(0);             // 零 op 已应用
-
-    const v3 = new Y.Doc();
-    v3.getMap('meta').set('schemaVersion', 3);
-    const w3 = makeWriter(v3);
-    const before = await rejectedOf('DOC_SCHEMA_AHEAD');
-    await expect(w3.writer.writeBatch('p3', [
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(/DOC_SCHEMA_AHEAD/);
-    expect(await rejectedOf('DOC_SCHEMA_AHEAD')).toBe(before + 1);   // throw 前计数（spec §6 拒写+reason 计数）
-    expect(v3.getMap('exec').size).toBe(0);
+    ])).resolves.toMatchObject([{ index: 0, op: 'writeExecStatus', written: true }]);   // 门已删——写按 op 语义执行非拒
+    expect(await rejectedOf('DOC_SCHEMA_AHEAD')).toBe(before);   // 计数零增量（分支不存在）
+    expect(stale.getMap('exec').size).toBe(1);          // op 已应用（meta 载荷不影响）
   });
 
   it('红·transactSync 类型门：返回 Promise 的回调 ⇒ throw（会话写事务会把异步回调捕获到事务外续跑——破坏同事务不变量）', () => {
@@ -354,7 +344,6 @@ describe('Y0c T12 直写收编（三 op+doc 域 API+幂等执法面 flag）', ()
       e1.set('source', 'n1');
       e1.set('target', 'n2');
       d.getMap('edges').set('e1', e1);
-      stampDocSchema(toDocLike(d));
       return d;
     };
     const scratch = mkDoc();

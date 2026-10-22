@@ -3,7 +3,7 @@
 // 双路径：①FakeMap DocLike 直读（shared 语料工厂原样）②真 Y.Doc（fillDoc→toDocLike 读写双侧
 // 适配——写侧同样走 toDocLike，Y.Doc 无 createMap，裸传 fillDoc 会 throw 被 catch 吞=断言真空）。
 import { describe, it, expect } from 'vitest';
-import { generateAdversarialDocs, readRecordsFromMaps, ensureSchemaVersion, fillDoc } from '@flowweb/shared';
+import { generateAdversarialDocs, readRecordsFromMaps, fillDoc } from '@flowweb/shared';
 import { toDocLike } from './doc-like.util';
 import * as Y from 'yjs';
 
@@ -50,11 +50,13 @@ describe('api 读者全函数（E68 读侧铁律：任意语料要么产出结�
     if (wrote && r.nodes.length > 0) expect(out.nodes.length).toBeGreaterThan(0);   // 成功支非空转（输入有节点则往返后仍在——scalar-node 输入空集除外）
   });
 
-  it('ensureSchemaVersion：要么放行要么抛 typed Error（畸形 meta 不崩进程）', () => {
-    let threw = 0;
+  it('T18 版本门退役锚：语料全量经 fillDoc→readRecordsFromMaps 往返不因 meta 畸形崩（版本判据=PG 列，doc meta 畸形仅历史载荷——读侧全函数不解释）', () => {
+    let wrote = 0;
     for (const c of cases) {
-      try { ensureSchemaVersion(c.build()); } catch (e) { expect(e).toBeInstanceOf(Error); threw += 1; }
+      const doc = new Y.Doc();
+      try { fillDoc(toDocLike(doc), readRecordsFromMaps(c.build()).nodes, []); wrote += 1; } catch { /* typed 拒绝合法档 */ }
+      expect(Array.isArray(readRecordsFromMaps(toDocLike(doc)).nodes)).toBe(true);   // 畸形 meta 不崩读侧
     }
-    expect(threw).toBeGreaterThan(0);   // 防退化空转：全放行（或语料全合法化）时此组断言不空转
+    expect(wrote).toBeGreaterThan(0);   // 防退化空转：全 typed 拒绝时此组断言不空转
   });
 });

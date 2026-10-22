@@ -261,14 +261,12 @@ describe('O0b 陷阱接线挂点（C0-2 骨架→O0b-6/7/8/9 逐片接线→B7-1
     const { applyDocToStore } = await import('./canvasCollabRuntime');
     const { _setIntentDocForTest } = await import('./canvasIntents');
     const { fillDoc, toDocLike } = await import('@/collab/ydocBuilder');
-    const { stampDocSchema } = await import('@flowweb/shared');
     openRwWindow();
     const d = new (await import('yjs')).Doc();
     fillDoc(d, [
       { id: 'a1', type: 'textInput', position: { x: 0, y: 0 }, data: {} },
       { id: 'a2', type: 'textInput', position: { x: 360, y: 0 }, data: {} },
     ], []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);           // 水合投影（projection-default）+ 尾挂 reconcile（reconcile）——陷阱开启下不抛
     _setIntentDocForTest(d);
     enableGeometryTrap();
@@ -300,7 +298,6 @@ describe('O0b 陷阱接线挂点（C0-2 骨架→O0b-6/7/8/9 逐片接线→B7-1
     const { applyDocToStore } = await import('./canvasCollabRuntime');
     const { _setIntentDocForTest } = await import('./canvasIntents');
     const { fillDoc, toDocLike } = await import('@/collab/ydocBuilder');
-    const { stampDocSchema } = await import('@flowweb/shared');
     openRwWindow();
     const d = new (await import('yjs')).Doc();
     fillDoc(d, [
@@ -312,7 +309,6 @@ describe('O0b 陷阱接线挂点（C0-2 骨架→O0b-6/7/8/9 逐片接线→B7-1
       { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-geo-img1' } },
       { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-geo-img2' } },
     ], []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     enableGeometryTrap();

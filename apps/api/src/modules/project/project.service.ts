@@ -6,7 +6,7 @@ import { TeamService } from '../team/team.service';
 import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
-import { fillDoc, stampDocSchema, stripAuthorState, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { fillDoc, stripAuthorState, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
 interface NodeInput {
@@ -55,13 +55,12 @@ export class ProjectService {
           data: { projectId: created.id, userId, role: 'PROJECT_OWNER' },
         });
       }
-      // Y0a-3（T8①/P1-3/V19）：种子 PG 侧同事务落库——创建原子化（不依赖领导权、不产"行已建无戳"
-      //  半成品、clone 链同受益）；首装载 hydrate state 已含戳——O0b-0 语义不变。
+      // Y0a-3（T8①/P1-3/V19）：种子 PG 侧同事务落库——创建原子化（不依赖领导权、不产"行已建"
+      //  半成品、clone 链同受益）。T18：meta 戳删除（版本承载=PG 列——建行走 @default(3)，
+      //  doc 内容零版本键）；空画布也稳定落 CanvasDoc 行。
       //  V19：fillDoc 契约=（DocLike, stripAuthorState 输出, edges）——直传原始记录=往快照写非作者态
       //  键（分镜子 position/组帧键按组类型键集表——clone 传入的正是作者态记录）。
-      //  O0b-0：无条件盖章（去 nodes.length 闸门——空画布也稳定落 CanvasDoc 行+确定性戳）。
       const seed = createCanvasDoc();
-      stampDocSchema(toDocLike(seed));
       if (nodes && nodes.length > 0) fillDoc(toDocLike(seed), stripAuthorState(nodes as any), edges ?? []);
       await tx.canvasDoc.upsert({
         where: { projectId: created.id },
@@ -76,9 +75,12 @@ export class ProjectService {
   }
 
   /** Y0b-5 T5：世代可见通道（E3「鉴权握手返回」）——collabGeneration（CanvasDoc.generation ??
-   *  0：doc 懒建于 loadDocument，行缺失=确定性 0 代）+collabSchemaVersion（CANVAS_DOC_SCHEMA_VERSION
-   *  单源）+collabViewerUid（请求者 uid——四维本地缓存键 uid 维）。fetchProjectMeta 先于 initCollab
-   *  消费（page.tsx promise 链）——零新往返零新端点。 */
+   *  0：doc 懒建于 loadDocument，行缺失=确定性 0 代）+collabSchemaVersion+collabViewerUid（请求者
+   *  uid——四维本地缓存键 uid 维）。fetchProjectMeta 先于 initCollab 消费（page.tsx promise 链）
+   *  ——零新往返零新端点。
+   *  T18（Y1b T2）：collabSchemaVersion 改传**行值**（CanvasDoc.schemaVersion PG 列——旧档行=2
+   *  ⇒客户端缓存键 s2≠s3 结构性 miss〔IDB 不命中〕且 WS 装载列门拒载双锚一致；行缺失=懒建档
+   *  形态，回落 current 常量——首 store 建行 @default(3) 与回值一致）。 */
   async findById(id: string, viewerId?: string | null) {
     const project = await this.prisma.canvasProject.findUnique({
       where: { id },
@@ -86,12 +88,12 @@ export class ProjectService {
     if (!project) throw new NotFoundException('Project not found');
     const doc = await this.prisma.canvasDoc.findUnique({
       where: { projectId: id },
-      select: { generation: true },
+      select: { generation: true, schemaVersion: true },
     });
     return {
       ...project,
       collabGeneration: doc?.generation ?? 0,
-      collabSchemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+      collabSchemaVersion: doc?.schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION,
       collabViewerUid: viewerId ?? null,
     };
   }

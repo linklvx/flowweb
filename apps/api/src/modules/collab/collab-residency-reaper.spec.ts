@@ -7,7 +7,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
-import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import {
+  type DocLike, type DocMapLike } from '@flowweb/shared';
 import { CollabResidencyService } from './collab-residency.service';
 import {
   unregisterDegradedDocsReader, unregisterResidentReader,
@@ -54,7 +55,6 @@ function makeFixture() {
     let doc = docs.get(name);
     if (!doc) {
       doc = new Y.Doc();
-      stampDocSchema(toDocLikeFixture(doc));
       doc.getMap('nodes').set('n1', new Y.Map([['type', 'text']]));
       const saved = persisted.get(name);
       if (saved) Y.applyUpdate(doc, saved);

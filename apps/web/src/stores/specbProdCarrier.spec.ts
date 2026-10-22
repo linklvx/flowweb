@@ -10,7 +10,7 @@ vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider 
 import * as Y from 'yjs';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, resetShapeViolationStats, shapeViolationStats, type StoredNodeRecord } from '@flowweb/shared';
+import { resetShapeViolationStats, shapeViolationStats, type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { detachUndoManager } from './canvasUndo';
 import { resetCanvasStores } from '@/test/fixtures/canvas';
@@ -28,7 +28,6 @@ function buildDirtyStoryboardDoc(): Y.Doc {
   ];
   const d = new Y.Doc();
   fillDoc(d, records, []);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 

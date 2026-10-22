@@ -29,7 +29,7 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, calcGroupBounds, COLLAPSED_SIZE, type StoredNodeRecord } from '@flowweb/shared';
+import { calcGroupBounds, COLLAPSED_SIZE, type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { attachUndoManager, detachUndoManager, Origin } from './canvasUndo';
 import { openRwWindow, openRoWindow, resetCanvasStores } from '@/test/fixtures/canvas';
@@ -72,7 +72,6 @@ const FIXTURE: StoredNodeRecord[] = [
 function buildDoc(records: StoredNodeRecord[] = FIXTURE): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, records, []);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 

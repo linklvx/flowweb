@@ -17,7 +17,7 @@
 // 失败语义二分（Z40）：
 //  - 守卫失败（node-deleted/attempt 过期〔missing-attempts/older-attempts/terminal-superseded〕/
 //    Z108 内容违规七码）=合法结果进数组（written:false+reason）——不回滚不 throw，同批合法 op 照常提交；
-//  - 仅基础设施级失败（受理门 503/undefined fail-fast/schema 门〔DOC_SCHEMA_AHEAD+[O0b-0]〕/
+//  - 仅基础设施级失败（受理门 503/undefined fail-fast〔T18 起 meta schema 门退役——版本判据=PG 列装载门〕/
 //    DB/事务异常）全批 thrown→调用方按零交付退款。
 //
 // Z75 边界（Y0c T11 演进·spec §0.6 偏离 19）：deliver 失败但 done 同批写入 ⇒ done 被 Z4 存在性
@@ -49,8 +49,6 @@ import { Injectable, Inject } from '@nestjs/common';
 import type * as Y from 'yjs';
 import {
   validateWriteBatch,
-  ensureSchemaVersion,
-  CANVAS_DOC_SCHEMA_VERSION,
   type DocWriteOp,
   type DocWriteOpType,
   type WriteBatchViolation,
@@ -67,7 +65,6 @@ import {
   undefinedPatchValueError,
   type ExecStatusPatch,
 } from './collab-document.service';
-import { toDocLike } from './doc-like.util';
 import { collabWriteRejectedTotal } from './store.metrics';
 import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 
@@ -111,20 +108,15 @@ export function applyWriteOpsToDoc(doc: Y.Doc, ops: readonly DocWriteOp[]): Writ
   return applyOpsCore(doc, ops, byIndex);
 }
 
-/** schema 门+逐 op 应用循环（writeBatch 事务内④段与 applyWriteOpsToDoc 共享核心——不含 Z108
+/** 逐 op 应用循环（writeBatch 事务内④段与 applyWriteOpsToDoc 共享核心——不含 Z108
  *  校验：两入口各自持校验位，writeBatch 事务外/T9 裁定字面、doc 域入口调用方事务内/TOCTOU 唯一
- *  选项；byIndex=入口已验的 op 级违规归集）。 */
+ *  选项；byIndex=入口已验的 op 级违规归集）。
+ *  T18（Y1b T2）：O0b-0 meta schema 门（前瞻档 DOC_SCHEMA_AHEAD 拒码+ensureSchemaVersion throw）
+ *  随 meta.schemaVersion 整链退役——版本判据唯一承载=CanvasDoc.schemaVersion PG 列，装载门
+ *  （loadDocument 行值≠3 拒载）结构性先于一切写路径（withSession/writeBatch 均经装载；scratch
+ *  doc=同进程构造无行概念），进程内已装载 doc 无"前瞻档"可达态——写侧不再重复设门（列门单源）。 */
 function applyOpsCore(doc: Y.Doc, ops: readonly DocWriteOp[], byIndex: Map<number, WriteBatchViolationCode>): WriteOpResult[] {
   const results: WriteOpResult[] = ops.map((op, index) => ({ index, op: op.op, written: false }));
-  // schema 门：前瞻档（sv 为 number 且 > current）⇒ 独立拒码 DOC_SCHEMA_AHEAD——throw 前计数
-  //（spec §6「拒写+reason 计数」）；降版 sv=1/未知档走 ensureSchemaVersion（[O0b-0] throw）；
-  // 无戳档=装载层职责不扩责（无戳∧零节点放行——与 REST 读门同档）。
-  const sv = doc.getMap('meta').get('schemaVersion');
-  if (typeof sv === 'number' && sv > CANVAS_DOC_SCHEMA_VERSION) {
-    collabWriteRejectedTotal.inc({ reason: 'DOC_SCHEMA_AHEAD' });
-    throw new Error(`DOC_SCHEMA_AHEAD: doc schemaVersion=${sv} > current ${CANVAS_DOC_SCHEMA_VERSION}——前瞻档拒写（本进程无法安全写入更高版本 doc）`);
-  }
-  ensureSchemaVersion(toDocLike(doc));
   ops.forEach((op, index) => {
     const rejected = byIndex.get(index);
     if (rejected !== undefined) {

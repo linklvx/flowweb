@@ -9,7 +9,7 @@ import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { CollabDocumentService, applyWriteNodeDataToDoc } from './collab-document.service';
 import type { CollabResidencyService } from './collab-residency.service';
-import { SERVER_TRANSACT_ORIGIN, readRecordsFromMaps, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { SERVER_TRANSACT_ORIGIN, readRecordsFromMaps, type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** web ydocBuilder.toDocLike 同款手法（api 侧不可 import apps/web——测试内联同构对照半边） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -62,7 +62,6 @@ function buildService(doc: Y.Doc): CollabDocumentService {
 describe('CollabDocumentService.readCanvas（O0a-2 收编 readRecordsFromMaps——api 读≡web 读）', () => {
   it('同一 doc 双端比：api readCanvas 输出 ≡ web 手法 readRecordsFromMaps(toDocLike(doc)) 逐位相等', async () => {
     const doc = buildDoc();
-    stampDocSchema(toDocLike(doc));   // O0b-0：REST 读需 v2 戳——夹具显式盖章（生产由 WS loadDocument 自愈/api 种子盖章）
     const service = buildService(doc);
     const apiOut = await service.readCanvas('p1');
     const webOut = readRecordsFromMaps(toDocLike(doc)); // web readCanvasFromDoc = 本调用（ydocBuilder 薄委托）
@@ -71,7 +70,6 @@ describe('CollabDocumentService.readCanvas（O0a-2 收编 readRecordsFromMaps—
 
   it('读出口=作者态 StoredNodeRecord：doc 缺键→出口无键（null 消除——批4a 契约/键集表同形）', async () => {
     const doc = buildDoc();
-    stampDocSchema(toDocLike(doc));
     const service = buildService(doc);
     const { nodes } = await service.readCanvas('p1');
     const bare = nodes.find((n: any) => n.id === 'bare') as any;
@@ -84,7 +82,6 @@ describe('CollabDocumentService.readCanvas（O0a-2 收编 readRecordsFromMaps—
 
   it('edges 单形状键集锁定（R1a 语义锁保留——toEqual 键集敏感）', async () => {
     const doc = buildDoc();
-    stampDocSchema(toDocLike(doc));
     const service = buildService(doc);
     const { edges } = await service.readCanvas('p1');
     expect(edges).toHaveLength(1);
@@ -92,34 +89,24 @@ describe('CollabDocumentService.readCanvas（O0a-2 收编 readRecordsFromMaps—
   });
 });
 
-describe('O0b-0 版本门 v2.1（REST 读入口 fail-closed——第五行：v1 档拒+明确信息，非按 abs 解释 rel 静默错位）', () => {
-  it('戳=2 放行（盖章夹具正常返回）', async () => {
-    const doc = buildDoc();
-    stampDocSchema(toDocLike(doc));
+describe('T18 版本门退役（REST 读面——版本判据=CanvasDoc.schemaVersion PG 列，装载门单源先于 withSession）', () => {
+  it('meta 零键 doc（fillDoc 形态——doc 内容不再带版本）readCanvas 正常返回；meta 残留旧值（历史载荷）不再拦读', async () => {
+    const doc = buildDoc();   // buildDoc=fillDoc 形态：无戳+有节点——旧门「无戳∧有节点拒」档退役
     const service = buildService(doc);
     await expect(service.readCanvas('p1')).resolves.toBeTruthy();
+
+    const stale = buildDoc();
+    stale.getMap('meta').set('schemaVersion', 1);   // 旧档残留载荷——读侧不解释
+    const svc2 = buildService(stale);
+    await expect(svc2.readCanvas('p1')).resolves.toBeTruthy();
   });
 
-  it('戳=1（人为写 1）拒——v1 旧档 fail-closed', async () => {
-    const doc = buildDoc();
-    doc.getMap('meta').set('schemaVersion', 1);
-    const service = buildService(doc);
-    await expect(service.readCanvas('p1')).rejects.toThrow(/schemaVersion/);
-  });
-
-  it('无戳∧有节点 拒（裸 doc 手建节点不经 fillDoc——终裁 92 构造纪律防假绿）', async () => {
-    const doc = buildDoc(); // buildDoc 无戳+有节点——门档构造纪律形态
-    const service = buildService(doc);
-    await expect(service.readCanvas('p1')).rejects.toThrow(/schemaVersion/);
-  });
-
-  it('无戳∧零节点 放行（空画布合法档——REST 侧不盖戳）', async () => {
+  it('空 doc（行缺失懒建档形态）放行（空画布合法档）', async () => {
     const service = buildService(new Y.Doc());
     await expect(service.readCanvas('p1')).resolves.toEqual({ nodes: [], edges: [] });
   });
 });
 
-// Y0a-3 T8：readCanvas 可变性三分法——withDoc 三入口③租约门/投影快照出口/写意图门租约档
 describe('Y0a-3 T8（三分法）', () => {
   const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }) });
 
@@ -133,7 +120,6 @@ describe('Y0a-3 T8（三分法）', () => {
 
   it('readCanvasSnapshotCached（谓词满足档）不走 withDoc/租约：isLeaseServing=false 仍直查 repo 投影（只读档不受租约面影响）', async () => {
     const doc = buildDoc();
-    stampDocSchema(toDocLike(doc));
     const repo = { readSnapshotOnly: vi.fn().mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(doc)), updates: [], stateSeq: 1n }) };
     const gateway = { isLeaseServing: vi.fn(() => false), isPersistedComplete: vi.fn(() => true) };
     const service = new CollabDocumentService(gateway as any, repo as any);
@@ -151,7 +137,6 @@ describe('Y0a-3 T8（三分法）', () => {
 
   it('readCanvasSnapshotCached：state+分页增量同 doc 重放（投影=state∪updates）', async () => {
     const base = new Y.Doc();
-    stampDocSchema(toDocLike(base)); // 生产快照恒有戳（种子无条件盖章）——ensureSchemaVersion 契约
     base.getMap('nodes').set('n1', new Y.Map(Object.entries({ type: 'textInput' })));
     const state = Buffer.from(Y.encodeStateAsUpdate(base));
     const inc = new Y.Doc();

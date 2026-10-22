@@ -19,7 +19,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
-import { SERVER_TRANSACT_ORIGIN, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { SERVER_TRANSACT_ORIGIN,
+  type DocLike, type DocMapLike } from '@flowweb/shared';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
 import {
@@ -64,7 +65,6 @@ function makeFixture() {
     let doc = docs.get(name);
     if (!doc) {
       doc = new Y.Doc();
-      stampDocSchema(toDocLikeFixture(doc));                              // 生产 doc 恒有戳（装载自愈/种子盖章）
       doc.getMap('nodes').set('n1', new Y.Map([['type', 'text']]));       // 种子节点（写守卫 Z4：不存在节点=written:false——夹具对齐生产 doc 有节点形态）
       const saved = persisted.get(name);
       if (saved) Y.applyUpdate(doc, saved);                               // hydration 重放

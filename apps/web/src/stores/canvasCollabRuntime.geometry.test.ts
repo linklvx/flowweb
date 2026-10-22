@@ -17,7 +17,7 @@ import { useNodeStore } from './nodeStore';
 import { applyDocToStore, checkProjectionInvariant, reconcileGroupGeometry } from './canvasCollabRuntime';
 import { fillDoc, toDocLike, readCanvasFromDoc } from '@/collab/ydocBuilder';
 import {
-  stampDocSchema, calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
+  calcGroupBounds, calcStoryboardSize, COLLAPSED_SIZE, DEFAULT_CHILD_SIZE,
   type StoredNodeRecord,
 } from '@flowweb/shared';
 import {
@@ -55,7 +55,6 @@ const FLIPPED_RECORDS: StoredNodeRecord[] = [
 function buildFlippedDoc(): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, FLIPPED_RECORDS, []);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 
@@ -67,7 +66,6 @@ function buildCollapsedManualDoc(): Y.Doc {
     { id: 'c9', type: 'imageGen', parentId: 'g3', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
   ];
   fillDoc(d, records, []);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 
@@ -206,7 +204,6 @@ describe('O0b-0 翻转主锚（几何）：打开 ⇒ cs 子 rel 逐位≡doc.ab
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 100, height: 60, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     const m = d.getMap('nodes').get('g1') as Y.Map<any>;
     expect(m.get('width')).toBe(10);   // 非 calcGroupBounds 修复值——doc 停写
@@ -222,37 +219,33 @@ describe('O0b-0 翻转主锚（几何）：打开 ⇒ cs 子 rel 逐位≡doc.ab
   });
 });
 
-describe('O0b-0 web 读侧版本门（DEV——收到的版本四档同条件）', () => {
-  it('无戳∧有节点 → applyDocToStore throw（DEV 断言）', () => {
+describe('T18 web 读侧版本门退役（版本判据=服务端 PG 列装载门——applyDocToStore DEV 断言删除）', () => {
+  it('无戳∧有节点（fillDoc 形态——doc 内容不再带版本）→ applyDocToStore 正常水合不抛', () => {
     const d = new Y.Doc();
     const records: StoredNodeRecord[] = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
     fillDoc(d, records, []);
-    // 不 stamp——无戳有节点（构造纪律：fillDoc 本批已不写 meta，裸形态即门档）
-    expect(() => applyDocToStore(d)).toThrow(/schemaVersion/);
+    expect(() => applyDocToStore(d)).not.toThrow();   // 旧门「无戳∧有节点拒」档退役——读侧全函数
   });
 
-  it('戳=1 → applyDocToStore throw（v1 旧档）', () => {
+  it('meta 残留旧值（历史载荷）→ applyDocToStore 不抛不解释', () => {
     const d = new Y.Doc();
     d.getMap('meta').set('schemaVersion', 1);
     const records: StoredNodeRecord[] = [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }];
     fillDoc(d, records, []);
-    expect(() => applyDocToStore(d)).toThrow(/schemaVersion/);
+    expect(() => applyDocToStore(d)).not.toThrow();
   });
 
-  it('无戳∧零节点（空 doc）→ 放行（合法空档——与门判据一致）', () => {
+  it('空 doc → 放行（合法空档）', () => {
     expect(() => applyDocToStore(new Y.Doc())).not.toThrow();
   });
 
-  it('v2 档（stamp 夹具）→ 放行且正常水合', () => {
+  it('正常档水合（buildFlippedDoc 夹具）→ 放行且正常水合', () => {
     openRwWindow();
     const d = buildFlippedDoc();
     expect(() => applyDocToStore(d)).not.toThrow();
     expect(useCanvasStore.getState().nodes.length).toBeGreaterThan(0);
   });
 });
-
-// ══════════ O0b-1 reconcile 单内核（Spec B——写域四类+源矩阵+零差异短路）══════════
-
 describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=doc 侧键）', () => {
   it('manual/storyboard/auto 展开档全三字段（O0b-2 接管——台账 a：auto wh=deriveGroupFrame 派生值）', () => {
     openRwWindow();
@@ -322,7 +315,6 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
       { id: 'k2', type: 'imageGen', parentId: 'g4', position: { x: 800, y: 300 }, width: 100, height: 50, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     const b4 = calcGroupBounds([
       { x: 500, y: 300, width: 200, height: 100 },
@@ -342,7 +334,6 @@ describe('O0b-1 写域①：组帧三字段≡deriveGroupFrame 派生（oracle=d
       { id: 'cm', type: 'imageGen', parentId: 'gm', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     let txCount = 0;
@@ -371,7 +362,6 @@ describe('O0b-1 写域②③④+一写者通则', () => {
   it('新顶层节点（addNode 漏斗）同 tick cs.position≡doc.abs 逐位∧渲染位≠{0,0}（前提=applyIntentToDoc addNode 经 fillDoc 落 position——显式锚）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    stampDocSchema(toDocLike(d));
     _setIntentDocForTest(d);
     dispatchCanvasIntent(
       { type: 'addNode', node: { id: 'n9', type: 'textInput', position: { x: 500, y: 300 }, data: {} } },
@@ -555,7 +545,6 @@ describe('O0b-1 单遍单 origin+零差异短路', () => {
       { id: 'cc', type: 'imageGen', parentId: 'gm', position: { x: 1.5, y: 2.25 }, width: 100, height: 60, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     const origin = csNode('gm').position;
     const rel = csNode('cc').position;
@@ -590,7 +579,6 @@ describe('O0b-1 源矩阵：diff 首行 source:\'cs\'——命令几何不丢', 
       { id: 'a2', type: 'textInput', position: { x: 200, y: 600 }, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     useCanvasStore.getState().arrangeSelection(['a1', 'a2'], 'horizontal');

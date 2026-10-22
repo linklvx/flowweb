@@ -7,7 +7,8 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import * as canvasStoreMod from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, deriveGroupFrame, arrangeRects, stampDocSchema, toDocRecords } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, GROUP_PADDING, GROUP_PADDING_TOP, DEFAULT_CHILD_SIZE, COLLAPSED_SIZE, calcGroupBounds, deriveGroupFrame, arrangeRects,
+  toDocRecords } from '@flowweb/shared';
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing } from './canvasUndo';
 import { applyDocToStore, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
@@ -336,7 +337,6 @@ describe('B7-1 修（O0b-9 接线发现）：auto 组分镜往返转回 normal�
       { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-grp-img1' } },
       { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-grp-img2' } },
     ], []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     useCanvasStore.getState().groupNodes(['img1', 'img2']);
@@ -468,7 +468,6 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
         { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 200, data: { groupType: 'normal' } },
         { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 10, y: 10 }, width: 100, height: 60, data: {} },
       ] as any, []);
-      stampDocSchema(toDocLike(d));
       openRwWindow();
       applyDocToStore(d);
       useCanvasStore.getState().patchGroupData('g1', { collapsed: true });
@@ -496,7 +495,6 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
       useCanvasStore.getState().patchGroupData('g1', { name: 'C' });
       expect(um.undoStack.length).toBe(1);          // 两次 patch 同批（<500ms）→ captureTimeout 合并为 1 项
       um.undo();
-      stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);                           // 显式读回（替代跑不动的 onRemote——Task 10 形参化测试缝）
       const g = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
       expect(g.name).toBe('A');                     // undo 恢复旧值
@@ -994,7 +992,6 @@ describe('arrangeSelection（§4.3）', () => {
     useCanvasStore.getState().arrangeSelection(['r1', 'r2'], 'vertical');   // 换 mode 保第二命令必产新位置（防 diff=0 不入栈假绿）
     expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
     um.undo();
-    stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);                    // 显式读回（替代跑不动的 onRemote——照 :413 测试缝）
     expect(posOf('r1')).toEqual(afterFirst.r1);
     expect(posOf('r2')).toEqual(afterFirst.r2);
@@ -1014,7 +1011,6 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
         { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
         { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: {} },
       ] as any, []);
-      stampDocSchema(toDocLike(d));
       openRwWindow();
       applyDocToStore(d);
       seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
@@ -1040,7 +1036,6 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
         { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
         { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
       ] as any, []);
-      stampDocSchema(toDocLike(d));
       openRwWindow();
       applyDocToStore(d);
       seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
@@ -1069,7 +1064,6 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
       const docA = d.getMap('nodes').get('a') as Y.Map<unknown>;
       expect(docA.has('selected')).toBe(false);
       // 模拟远端 applyDocToStore：hidden 推导到位（B 端投影侧真相）
-      stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);
       const aB = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
       expect(aB.hidden).toBe(true);
@@ -1498,7 +1492,6 @@ describe('arrangeGroupChildren（2c-4）', () => {
       useCanvasStore.getState().arrangeGroupChildren('g1', 'vertical');   // 换 mode 保第二命令必产新位置（防 diff=0 不入栈假绿）
       expect(um.undoStack.length).toBe(2);   // stopCapturing 入口——captureTimeout 500ms 不合并
       um.undo();
-      stampDocSchema(toDocLike(d)); // O0b-0：读侧版本门要求 v2 戳
       applyDocToStore(d);                    // 显式读回（照 :413/:917 测试缝）
       expect(snapshot()).toBe(afterFirst);   // undo 回到第一次排列后状态
     } finally {
@@ -1735,7 +1728,6 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     const { d } = setupRig();
     try {
       openRoWindow();
-      stampDocSchema(toDocLike(d));   // 读侧版本门要求 v2 戳（fillDoc 不盖章——setupRig 夹具裸 doc）
       applyDocToStore(d);   // 先水合（reconcile 派生帧落 cs——夹具裸种子无 wh，帧自本步起有值）
       const frameOf = (id: string) => {
         const g = groupOf(id) as any;

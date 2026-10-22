@@ -8,8 +8,8 @@ import { describe, it, expect } from 'vitest';
 import { CollabAuthReason } from '@flowweb/shared';
 import { decideAuthAdmission, decideSweepRecheck, decideClientOwnership, decideAwarenessStrip } from './collab-session-guard.service';
 
-/** 七门全过基线快照（csv='2'=CLIENT_PROTOCOL_VERSION 现值——shared collab-protocol 单源） */
-const PASS_CTX = { hasDoc: true, heapTripped: false, csv: '2', docNameValid: true, shuttingDown: false, leaseServing: true, breakerOpen: false };
+/** 七门全过基线快照（csv='3'=CLIENT_PROTOCOL_VERSION 现值——T18 版本硬切 bump；shared collab-protocol 单源） */
+const PASS_CTX = { hasDoc: true, heapTripped: false, csv: '3', docNameValid: true, shuttingDown: false, leaseServing: true, breakerOpen: false };
 
 describe('decideAuthAdmission（§3.1bis 门序钉死 heap→version→docName→draining→lease→breaker）', () => {
   it('七门全过 → proceed', () => {
@@ -24,7 +24,8 @@ describe('decideAuthAdmission（§3.1bis 门序钉死 heap→version→docName�
     expect(decideAuthAdmission({ ...PASS_CTX, csv: null })).toMatchObject({ proceed: false, reason: CollabAuthReason.CLIENT_VERSION_MISSING, source: 'version' });
     expect(decideAuthAdmission({ ...PASS_CTX, csv: 'abc' })).toMatchObject({ proceed: false, reason: CollabAuthReason.CLIENT_VERSION_INVALID, source: 'version' });
     expect(decideAuthAdmission({ ...PASS_CTX, csv: '1' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });
-    expect(decideAuthAdmission({ ...PASS_CTX, csv: '3' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SERVER_OUTDATED, source: 'version' });
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '2' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // T18 真实旧客户端档（v2 存量 bundle）
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '4' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SERVER_OUTDATED, source: 'version' });
   });
   it('gate3 先于 gate4：docName 无效∧draining 并存 → invalid-doc-name（确定性拒绝零 DB，序漂移即红）', () => {
     expect(decideAuthAdmission({ ...PASS_CTX, docNameValid: false, shuttingDown: true }))

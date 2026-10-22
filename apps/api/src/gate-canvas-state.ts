@@ -4,7 +4,7 @@
 // auto 组 + 分镜组 + meta 戳；fillDoc 走 shared docShape 咽喉——禁自建 Y.Map 绕过。
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build。
 import * as Y from 'yjs';
-import { fillDoc, stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import { fillDoc, type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** Y.Doc→DocLike 结构性适配（doc-like.util 同构——gate 侧不 import api src 编译面外的模块） */
 export function toDocLike(doc: Y.Doc): DocLike {
@@ -19,7 +19,7 @@ export function toDocLike(doc: Y.Doc): DocLike {
  *  - auto 组 1（组+2 子：组无帧三键[键集表]、子带 abs position）
  *  - 分镜组 1（组带 position+storyboard 完整 config——T17 cells 派生删；分镜子无 position
  *    带 width/height+slot 格位）
- *  - meta 戳（stampDocSchema——WS loadDocument 版本门放行）
+ *  - T18：meta 零键（版本承载=CanvasDoc.schemaVersion PG 列——建行 @default(3)）
  *  collab.gateway.loadDocument 直接 applyUpdate 本二进制。 */
 export function buildGateCanvasState(): Buffer {
   const doc = new Y.Doc();
@@ -40,6 +40,5 @@ export function buildGateCanvasState(): Buffer {
   ], [
     { id: 'gate-edge-1', source: 'gate-node-1', target: 'gate-node-2' },
   ]);
-  stampDocSchema(docLike);   // O0b-0：v2 戳（戳源唯一化——fillDoc 不写 meta）
   return Buffer.from(Y.encodeStateAsUpdate(doc));
 }

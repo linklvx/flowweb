@@ -18,13 +18,13 @@ import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './
 export { Origin } from './canvasUndo';
 import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import {
-  ensureSchemaVersion, DEFAULT_CHILD_SIZE,
+  DEFAULT_CHILD_SIZE,
   deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
   type DragSession,
   assertDocAbsMatchesCsRel, assertStoryboardMembership, reportShapeViolation,
   assertAllPositionsFinite, GeometryWriteLedger, type GeometryField,
 } from '@flowweb/shared';
-import { readCanvasFromDoc, toDocLike } from '@/collab/ydocBuilder';
+import { readCanvasFromDoc } from '@/collab/ydocBuilder';
 // T17（Z17'' cells→slot）：分镜组 cs cells 派生缓存单源（reconcile 写域⑥——doc 子 slot 权威）
 import { deriveStoryboardCells } from '@flowweb/shared';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
@@ -1330,11 +1330,6 @@ export function applyDocToStore(d: Y.Doc) {
   // 正则形态是该断言的法定载体（string 字面量形态被静态断言拦截）。
   if (import.meta.env.DEV && nodes.some((n: any) => /^shadow-/.test(n.id))) {
     throw new Error('[collab批5] doc nodes 出现 /^shadow-/ 前缀节点——影子信箱已删（判据⑥），存量 doc 须 truncate');
-  }
-  // O0b-0 web 读侧版本门（DEV）：收到的版本四档同条件（ensureSchemaVersion——戳≠2 拒/
-  // 无戳∧有节点拒/无戳∧零节点放行；真会话由 WS loadDocument 自愈戳兜底）。
-  if (import.meta.env.DEV) {
-    ensureSchemaVersion(toDocLike(d));
   }
   // 保护捕获（hydrate setState 前）：live 活值 rel+freeze 冻结帧三字段（手势活值只存在于此——
   // hydrate 全量重建后即丢失）；B4'-2：传入 doc 记录——远端改被拖节点 parentId 者放弃保护

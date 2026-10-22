@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps, ensureSchemaVersion, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
+import { readRecordsFromMaps, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -115,9 +115,8 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  执行读恒活读无需客户端 SV。
    *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
    *  StoredNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
-   *  O0b-0 版本门 v2.1（第五行 REST fail-closed）：ensureSchemaVersion 从全量 doc 读 meta（不依赖
-   *  sv 差量）——v1 档/无戳∧有节点拒（明确信息，非按 abs 解释 rel 静默错位）；无戳∧零节点放行
-   * （REST 不盖戳——空画布合法档）。挂 sv 等待之前：旧档立即拒，不等 3s。
+   *  T18（Y1b T2）：O0b-0 meta 版本门退役——版本判据=CanvasDoc.schemaVersion PG 列，装载门
+   * （loadDocument 行值≠current 拒载）结构性先于 withSession 回调（读面复用装载门——REST 不再设第二门）。
    *  Y0c T15（A2/Z128）：改道 withSession(read)——共享会话不 disconnect 不武装 debouncer
    *  （旧 withDoc 路径每次 disconnect(true)=每次全量编码 store+计数抖动，终结）。
    *  Y0c T20（Z105 spec :526）：opts.ephemeral=即用即释档（不入会话表）——原消费面=reconcile 5min
@@ -125,7 +124,6 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  保留为 residency 通用能力（冷读防钉常驻池），REST/作业面读缺省入池（T15 常驻语义不变）。 */
   async readCanvas(projectId: string, opts?: { ephemeral?: boolean }): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withSession(projectId, async (doc) => {
-      ensureSchemaVersion(toDocLike(doc));
       return readRecordsFromMaps(toDocLike(doc));
     }, { mode: 'read', ephemeral: opts?.ephemeral });
   }
@@ -140,12 +138,16 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  与直接快照读共用此实现（防两处解码漂移）。不经 openDirectConnection/不装载/不触 store/compact；
    *  陈旧度=进行中编辑未含（去抖窗级，spec §9.9 登记）。 */
   private async decodeSnapshot(projectId: string): Promise<DecodedSnapshot> {
-    const { state, updates } = await this.repo.readSnapshotOnly(projectId);
+    // T18（Y1b T2）：版本门=CanvasDoc.schemaVersion 行值（readSnapshotOnly 随行——快照出口与装载
+    // 出口同一列单源；行值≠current 拒读——旧 doc 档无迁移；行缺失 null=懒建档放行）。
+    const { state, updates, schemaVersion } = await this.repo.readSnapshotOnly(projectId);
+    if (schemaVersion != null && schemaVersion !== CANVAS_DOC_SCHEMA_VERSION) {
+      throw new Error(`DOC_SCHEMA_STALE: CanvasDoc.schemaVersion=${schemaVersion} ≠ current ${CANVAS_DOC_SCHEMA_VERSION}——快照拒读（版本硬切批无迁移）`);
+    }
     const doc = createCanvasDoc();
     try {
       if (state) Y.applyUpdate(doc, new Uint8Array(state));
       for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
-      ensureSchemaVersion(toDocLike(doc));
       return readRecordsFromMaps(toDocLike(doc));
     } finally {
       doc.destroy();

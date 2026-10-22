@@ -30,7 +30,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { applyDocToStore, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, calcStoryboardSize, normalizeSize, type StoredNodeRecord } from '@flowweb/shared';
+import { calcStoryboardSize, normalizeSize, type StoredNodeRecord } from '@flowweb/shared';
 import {
   _setIntentDocForTest, dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff,
   reportNodeSize,
@@ -79,7 +79,6 @@ describe('O0b-2 (i) 命令体显式值：addChildNode(s) intent.node 扩 wh 键�
   it('addChildNode data 携 wh⇒提到信封：doc 落 wh（normalizeSize ceil）∧cs 同 tick wh=值∧data 不带 wh 键', () => {
     openRwWindow();
     const d = new Y.Doc();
-    stampDocSchema(toDocLike(d));
     _setIntentDocForTest(d);
     seedCanvas([makeChild({ id: 'src', type: 'imageGen', position: { x: 0, y: 0 }, width: 400, height: 300, data: { status: 'done' } })]);
     useNodeStore.setState({ nodes: { src: { id: 'src', type: 'imageGen', data: { status: 'done' } } } as any });
@@ -96,7 +95,6 @@ describe('O0b-2 (i) 命令体显式值：addChildNode(s) intent.node 扩 wh 键�
   it('addChildNode data 无 wh⇒intent.node 不带 wh 键（doc 无 wh——内容事件/固化路径接管）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    stampDocSchema(toDocLike(d));
     _setIntentDocForTest(d);
     seedCanvas([makeChild({ id: 'src', type: 'imageGen', position: { x: 0, y: 0 }, width: 400, height: 300, data: { status: 'done' } })]);
     useNodeStore.setState({ nodes: { src: { id: 'src', type: 'imageGen', data: { status: 'done' } } } as any });
@@ -108,7 +106,6 @@ describe('O0b-2 (i) 命令体显式值：addChildNode(s) intent.node 扩 wh 键�
   it('addChildNodes 同通道：item.data 携 wh⇒逐节点信封落 doc（splitImage 命令体路径）', () => {
     openRwWindow();
     const d = new Y.Doc();
-    stampDocSchema(toDocLike(d));
     _setIntentDocForTest(d);
     seedCanvas([makeChild({ id: 'src', type: 'imageGen', position: { x: 0, y: 0 }, width: 400, height: 300, data: { status: 'done' } })]);
     useNodeStore.setState({ nodes: { src: { id: 'src', type: 'imageGen', data: { status: 'done' } } } as any });
@@ -126,7 +123,6 @@ describe('O0b-2 (i) 命令体显式值：复制链迁 doc 源（锚"复制从未
   function setupDoc(records: StoredNodeRecord[]): Y.Doc {
     const d = new Y.Doc();
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     return d;
@@ -171,7 +167,6 @@ describe('O0b-2 (i) 命令体显式值：分镜落子/生成结果入组（hidde
       { id: 'sb', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } } },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     useCanvasStore.getState().addImageToStoryboardCell('sb', 0, 'file-x');
@@ -238,7 +233,6 @@ describe('O0b-2 (ii) 内容事件 dispatch：reportNodeSize 同值去重+Geometr
       { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, width: 320, height: 180, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     let docUpdates = 0;
@@ -258,7 +252,6 @@ describe('O0b-2 (ii) 内容事件 dispatch：reportNodeSize 同值去重+Geometr
       { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     const um = attachUndoManager(d);
     _setIntentDocForTest(d);
@@ -278,7 +271,6 @@ describe('O0b-2 (iii) 首测固化：onNodesChange dimensions 批（非 setAttri
       { id: 'img', type: 'imageGen', position: { x: 800, y: 0 }, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     return d;
@@ -360,7 +352,6 @@ describe('O0b-5 组 resize 提交（manual 组 rig——doc 帧三键齐）', ()
       { id: 'c1', type: 'imageGen', parentId: 'gm', position: { x: 120, y: 80 }, width: 100, height: 60, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     return d;
@@ -413,7 +404,6 @@ describe('O0b-5 质评收口 C-1：auto 组 dimensions-only resize 提交——p
       { id: 'k2', type: 'imageGen', parentId: 'ga', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     return d;
@@ -454,7 +444,6 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
       { id: 'c1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: 'f', slot: 0 } },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     // config 变更（2×2 + 1:1）后移出——格尺寸与入格旧值（320×180）在 height 维度可区分
@@ -488,7 +477,6 @@ describe('O0b-2 台账(a)(b)：reconcile 写域① auto 档写 wh 全三字段�
       { id: 'b', type: 'imageGen', parentId: 'g', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     return d;
@@ -534,7 +522,6 @@ describe('O0b-2 台账(c)：reconcile(doc) cs 有子而 doc 无记录⇒该子�
       { id: 'g', type: 'group', data: { groupType: 'normal' } },
     ];
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     // cs 有组+幽灵子（doc 无记录——结构不可达窗口的防御面）
     seedCanvas([
       makeGroup({ id: 'g', position: { x: 100, y: 100 } }),
@@ -636,7 +623,6 @@ describe('O0b-2 census：customSize 并入 envelope+contain-fit 单源+复制三
 describe('O0b-2 Step3/4 投影删：dispatch 几何 intent⇒投影后 cs 由 reconcile 同 tick 补齐', () => {
   function setupDoc(): Y.Doc {
     const d = new Y.Doc();
-    stampDocSchema(toDocLike(d));
     _setIntentDocForTest(d);
     return d;
   }

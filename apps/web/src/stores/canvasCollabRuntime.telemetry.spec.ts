@@ -11,7 +11,6 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema } from '@flowweb/shared';
 import {
   getRecentCollabDiag, getCollabDiagCounters, _resetCollabDiagForTest,
   _telemetryLoopRunning,
@@ -40,7 +39,6 @@ async function driveToSynced(scope: 'read-write' | 'read' = 'read-write', pid = 
   p.isSynced = true;
   p.emit('synced', {});
   await done;
-  stampDocSchema(toDocLike(runtime.getDoc()!));
   return p;
 }
 

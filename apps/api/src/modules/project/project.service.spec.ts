@@ -104,7 +104,7 @@ describe('ProjectService', () => {
       await service.create('导入', 'u1', nodes, edges);
 
       const doc = upsertStateDoc(prisma);
-      expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // O0b-0：种子显式 stampDocSchema（fillDoc 已不写 meta——戳源唯一化）
+      expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined(); // T18：种子零 meta 写（版本=PG 列——建行 @default(3)，doc 内容不带版本）
       const n1 = doc.getMap('nodes').get('n1') as Y.Map<any>;
       expect(n1.get('type')).toBe('textInput');
       expect(n1.get('position')).toBeInstanceOf(Y.Map);
@@ -158,7 +158,7 @@ describe('ProjectService', () => {
       await service.create('春天的背面 (副本)', 'u1', nodes, []);
 
       const doc = upsertStateDoc(prisma);
-      expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // clone 产物 state 含戳（T8①同事务种子统一戳点——O0b-0，本用例=clone 链验收锚）
+      expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined(); // T18：种子零 meta 写（版本=PG 列 @default(3)） 产物 state 含戳（T8①同事务种子统一戳点——O0b-0，本用例=clone 链验收锚）
       const nodesMap = doc.getMap('nodes');
       const mg = nodesMap.get('mg') as Y.Map<any>;
       expect(mg.get('position')).toBeInstanceOf(Y.Map);   // manual（三键齐）折叠不剥——doc 三键=展开态密封源
@@ -189,7 +189,7 @@ describe('ProjectService', () => {
 
     expect(prisma.canvasDoc.upsert).toHaveBeenCalledTimes(1);
     const doc = upsertStateDoc(prisma);
-    expect(doc.getMap('meta').get('schemaVersion')).toBe(2); // 空画布也稳定盖章
+    expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined(); // T18：种子零 meta 写（版本=PG 列 @default(3)——空画布也稳定落行）
     expect(doc.getMap('nodes').size).toBe(0);                // 无节点写入
   });
 
@@ -251,16 +251,24 @@ describe('ProjectService', () => {
 
     it('Y0b-5 T5：世代可见通道随行——collabGeneration（CanvasDoc.generation）+collabSchemaVersion（=CANVAS_DOC_SCHEMA_VERSION 单源）+collabViewerUid（请求者 uid——四维缓存键 uid 维）', async () => {
       prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'T' });
-      prisma.canvasDoc.findUnique.mockResolvedValue({ generation: 7 });
+      prisma.canvasDoc.findUnique.mockResolvedValue({ generation: 7, schemaVersion: 3 });
 
       const result = await service.findById('p1', 'u9');
       expect(result.collabGeneration).toBe(7);
-      expect(result.collabSchemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);
+      expect(result.collabSchemaVersion).toBe(3);   // T18：行值透传（=CANVAS_DOC_SCHEMA_VERSION）——IDB 缓存键 s 维与装载列门同源
+      expect(CANVAS_DOC_SCHEMA_VERSION).toBe(3);
       expect(result.collabViewerUid).toBe('u9');
       expect(prisma.canvasDoc.findUnique).toHaveBeenCalledWith({
         where: { projectId: 'p1' },
-        select: { generation: true },
+        select: { generation: true, schemaVersion: true },
       });
+    });
+
+    it('T18 旧档行透传：CanvasDoc.schemaVersion=2（版本硬切前建行）⇒ collabSchemaVersion=2（客户端四维缓存键 s2≠s3 结构性 miss——IDB 不命中；WS 装载列门拒载双锚一致）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'T' });
+      prisma.canvasDoc.findUnique.mockResolvedValue({ generation: 0, schemaVersion: 2 });
+      const result = await service.findById('p1', 'u9');
+      expect(result.collabSchemaVersion).toBe(2);
     });
 
     it('Y0b-5 T5：CanvasDoc 行缺失（新建未装载——doc 懒建于 loadDocument）⇒ collabGeneration=0 兜底；viewerUid 缺席⇒null（fail-closed 下游不启用缓存）', async () => {

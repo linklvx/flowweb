@@ -6,8 +6,8 @@
 // O0a-3 收编（Spec B）：toDocRecords（web 投影差分出口——双源合并+键集表内剥键）+
 // setDocPosition（doc position 写原语唯一单源）+ 键集表谓词家族化（stripAuthorState/stripDerivedKeys
 // 共用 storyboardGroupIds/hasValidStoredFrameKeys——禁多份键集表）。
-// O0b-0 格式批：doc rel→abs 翻转（toDocRecords 单一翻转点）+版本门 v2.1
-// （stampDocSchema/assertDocSchema/ensureSchemaVersion 三函数——戳源唯一化，fillDoc 不再盖章）。
+// O0b-0 格式批：doc rel→abs 翻转（toDocRecords 单一翻转点）+版本门 v2.1（T18 随 meta.schemaVersion
+// 整链退役——stampDocSchema/assertDocSchema/ensureSchemaVersion 三函数删除，版本判据=PG 列）。
 // Y1a T1（plan v11.2 片 S0）：写原语+关联类型抽离——setDocPosition/applyRecordToYMap/
 // DocMapLike/isDocMap/StoredNodeRecord 迁 collab-doc-ops.ts（本文件
 // 经 import 单源引用；零行为变更纯机械迁移）。
@@ -31,11 +31,13 @@ export interface DocEdgeRecord {
   target?: string;
 }
 
-/** 批2-3（R1c 前置物）：doc meta schema 版本——结构迁移判据的持久锚点（随 update 传播/服务端持久）。
- *  O0a-1 常量随 fillDoc 上移 shared（api 无法 import apps/web——防第二真源）。
- *  O0b-0 格式批：1→2——doc 子 position 语义 rel→abs 翻转（toDocRecords 单一翻转点），旧 v1 档
- *  无迁移直接拒（开发期无用户数据——禁垫片/向后兼容）。 */
-export const CANVAS_DOC_SCHEMA_VERSION = 2;
+/** doc schema 版本常量（T18 版本硬切 v2→v3）——**版本判据唯一承载=CanvasDoc.schemaVersion PG 列**
+ * （schema.prisma `schemaVersion Int @default(3)`；装载判定=api loadDocument 读行值≠3 拒载）。
+ *  沿革：O0a-1 常量随 fillDoc 上移 shared；O0b-0 格式批 1→2（rel→abs 翻转）；Y1b T2（Z9''-v14）
+ *  版本移 PG 列承载——meta.schemaVersion 整链退役（客户端无从篡改）；T18（Y1c）双常量 bump=3
+ *  （与 CLIENT_PROTOCOL_VERSION 同批——硬切非兼容层）。本常量消费面=PG 列门比对+世代缓存键
+ * （web local-cache-key s 维经 REST collabSchemaVersion 行值透传）。 */
+export const CANVAS_DOC_SCHEMA_VERSION = 3;
 
 /** Y0c T4（B12 键集收编）：canvas 数据键集 shared 单源——web 私有副本删除（键集零私有副本出口）。
  *  EPHEMERAL_DATA_KEYS=本地瞬态 UI 键（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode
@@ -53,49 +55,19 @@ export const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status',
  *  配额口径）。常量缺失=编译错（shared 单源）。 */
 export const SERVER_TRANSACT_ORIGIN = 'server';
 
-/** O0b-0 版本门 v2.1：写 meta.schemaVersion=CURRENT（同值 no-op）。
- *  戳源唯一化：fillDoc 不再盖章——唯一自愈点=WS loadDocument（无戳∧零节点）/api 种子（create
- *  withDoc 回调无条件 stamp）。函数级无条件写 CURRENT，档判定归门函数（ensureSchemaVersion）。 */
-export function stampDocSchema(doc: DocLike): void {
-  const meta = doc.getMap('meta');
-  if (meta.get('schemaVersion') !== CANVAS_DOC_SCHEMA_VERSION) {
-    meta.set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
-  }
-}
-
-/** O0b-0 版本门 v2.1：严格读断言——收到的版本==current 否则 throw（无戳/旧档同拒）。
- *  ensureSchemaVersion 的核心档（复用）——四档门="==current 放行 ∨ 无戳空档放行，其余走本断言"。 */
-export function assertDocSchema(doc: DocLike): void {
-  const sv = doc.getMap('meta').get('schemaVersion');
-  if (sv !== CANVAS_DOC_SCHEMA_VERSION) {
-    throw new Error(
-      `[O0b-0] doc schemaVersion=${String(sv)}（${sv == null ? '无戳' : '旧档'}）≠ current ${CANVAS_DOC_SCHEMA_VERSION}——拒载（开发期无 v1→v2 迁移，禁按 abs 解释 rel 静默错位）`,
-    );
-  }
-}
-
-/** O0b-0 版本门 v2.1：四档门判据（REST 读入口 fail-closed——readCanvas/getProcessSnapshot 共口）：
- *  戳=2 放行 / 戳=1 拒（throw 带明确信息）/ 无戳∧有节点 ⇒ 拒 / 无戳∧零节点 ⇒ 放行（REST 侧
- *  不盖戳——空画布合法档）。门判据以 doc meta 为唯一事实、从全量 doc 读（不依赖 sv 差量——
- *  sv 等待是调用方 readCanvas 的事）。 */
-export function ensureSchemaVersion(doc: DocLike): void {
-  const sv = doc.getMap('meta').get('schemaVersion');
-  if (sv === CANVAS_DOC_SCHEMA_VERSION) return;      // 戳=2 放行
-  if (sv == null) {
-    if ([...doc.getMap('nodes').entries()].length > 0) assertDocSchema(doc); // 无戳∧有节点 ⇒ 拒
-    return;                                                               // 无戳∧零节点 ⇒ 放行
-  }
-  assertDocSchema(doc);                              // 戳=1（或未来未知档）⇒ 拒
-}
+// T18（Y1b T2 裁定 2+Y1c）：O0b-0 版本门 v2.1 三函数（stampDocSchema/assertDocSchema/
+// ensureSchemaVersion）随 meta.schemaVersion 整链退役——版本判据唯一承载=CanvasDoc.schemaVersion
+// PG 列（装载门=api collab-doc-registry loadDocument 行值比对≠3 拒载+告警；REST 读门同源行值）。
+// doc 内容不再带版本：fillDoc/applyRecordToYMap 零 meta 写者；旧档 doc 内残留的 meta.schemaVersion
+// 仅作历史载荷（读侧全函数不解释——getMap('meta') 零 schemaVersion 读点，census 门 ㉗ 防回潮）。
 
 /** doc 直写（fillDoc 单源——web ydocBuilder/api 收编共用）：节点/边逐键写入。
- *  O0b-0：meta stamp 删除（戳源唯一化——唯一自愈点=WS loadDocument/api 种子显式 stampDocSchema；
- *  fillDoc 每写盖戳会让"每 doc 至多一次幂等戳"契约与"无戳∧有节点拒"门档失真）。
+ *  T18：零 meta 写（版本承载=PG 列——doc 内容不再带版本；meta map 无生产写者）。
  *  键集表跳过（O0a-1）：position/parentId/width/height 无键（或 null≡缺，批4a 契约）→ 不写 Y.Map——
  *  分镜子无 position 由上游构造纪律保证（diff 剥键=唯一剥键写者），本函数只认记录键、不做父上下文推算。
  *  Y1a T1 留守注记：fillDoc 不随写原语迁 collab-doc-ops——本函数=doc 级组合入口（nodes/edges 两顶层
- *  map 整体填充），非该模块的节点级原子原语（对照其头注释分界）；且与版本门族（stampDocSchema/
- *  ensureSchemaVersion）及读侧（readRecordsFromMaps）的键集契约内聚。后续片清理窗评估搬迁时参考。 */
+ *  map 整体填充），非该模块的节点级原子原语（对照其头注释分界）；且与读侧（readRecordsFromMaps）
+ *  的键集契约内聚。后续片清理窗评估搬迁时参考。 */
 export function fillDoc(
   doc: DocLike,
   records: readonly StoredNodeRecord[],

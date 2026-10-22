@@ -17,7 +17,6 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import * as runtime from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema } from '@flowweb/shared';
 
 // Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
 vi.mock('@hocuspocus/provider', async () => {
@@ -70,7 +69,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     const p = lastInstance();
     // 种子：服务端 doc 已有 n1（origin=null——种子写不计入本地写计数）
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -93,7 +91,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'server' } } as any], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -119,7 +116,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 100, height: 100, data: { groupType: 'normal' } } as any,
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 500 }, data: {} } as any,
     ], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -150,7 +146,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     const writes = countLocalDocWrites(runtime.getDoc()!);
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
@@ -172,7 +167,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} } as any], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;
@@ -202,7 +196,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 100, height: 100, data: { groupType: 'normal' } } as any,
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 500 }, data: {} } as any,
     ], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;
@@ -224,7 +217,6 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await tick();
     const p = lastInstance();
     fillDoc(runtime.getDoc()!, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: 'server' } } as any], []);
-    stampDocSchema(toDocLike(runtime.getDoc()!));
     p.emit('status', { status: 'connected' });
     p.emit('status', { status: 'connected' });
     p.isAuthenticated = true;

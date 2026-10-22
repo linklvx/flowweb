@@ -25,7 +25,7 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
+import { type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { seedCanvas, openRwWindow, openRoWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 
@@ -50,7 +50,6 @@ const FIXTURE: StoredNodeRecord[] = [
 function buildDoc(): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, FIXTURE, []);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 

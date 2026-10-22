@@ -11,6 +11,17 @@ import {
   yjsStoreCompactFailureTotal,
 } from './store.metrics';
 
+/** T18（Y1b T2）：一致读行形状（readConsistent 单源——装载/快照两出口共用）。
+ *  schemaVersion=CanvasDoc PG 列（版本门唯一判据；null=行缺失——懒建档，装载门放行）。 */
+export interface HydrationRow {
+  state: Buffer | null;
+  updates: Buffer[];
+  stateSeq: bigint;
+  preVacuumSv?: Buffer | null;
+  generation?: number;
+  schemaVersion?: number | null;
+}
+
 @Injectable()
 export class CanvasDocUpdateRepository {
   private readonly logger = new Logger(CanvasDocUpdateRepository.name);
@@ -77,17 +88,20 @@ export class CanvasDocUpdateRepository {
 
   /** Y0a-1 装载读唯一入口（spec §4.3-1）：委托 readConsistent（契约 1"一个实现、两出口"——
    *  装载出口；opts 供自愈路径重试时收紧预算透传）。Y0b-4 T9a：返回扩 preVacuumSv/generation
-   *  （装载播种代际门缓存——gateway loadDocument 消费；readSnapshotOnly 共用实现同带，不消费）。 */
+   *  （装载播种代际门缓存——gateway loadDocument 消费；readSnapshotOnly 共用实现同带，不消费）。
+   *  T18（Y1b T2）：返回扩 schemaVersion（CanvasDoc PG 列——装载版本门唯一判据；行缺失=null=
+   *  懒建档放行，首 store 建行走 @default(3)）。 */
   async loadForHydration(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
+  ): Promise<HydrationRow> {
     return this.readConsistent(projectId, opts);
   }
 
   /** 契约 1（"一个实现、两出口"）：投影出口（video-work 快照）——不 apply 到 doc、不触 store/
-   *  compact；与装载出口共用同一单 RR 事务实现，禁复制第二份。 */
-  async readSnapshotOnly(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
+   *  compact；与装载出口共用同一单 RR 事务实现，禁复制第二份。T18：schemaVersion 随行（快照
+   *  解码侧版本门——readConsistent 行值单源）。 */
+  async readSnapshotOnly(projectId: string): Promise<HydrationRow> {
     yjsSnapshotReadTotal.inc();
     return this.readConsistent(projectId);
   }
@@ -103,10 +117,10 @@ export class CanvasDocUpdateRepository {
   private async readConsistent(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
+  ): Promise<HydrationRow> {
     return this.prisma.$transaction(
       async (tx) => {
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { state: true, stateSeq: true, preVacuumSv: true, generation: true } });
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { state: true, stateSeq: true, preVacuumSv: true, generation: true, schemaVersion: true } });
         const updates: Buffer[] = [];
         let cursor = 0n;
         for (;;) {
@@ -126,7 +140,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state: docRow?.state ?? null, updates, stateSeq: docRow?.stateSeq ?? 0n, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0 };
+        return { state: docRow?.state ?? null, updates, stateSeq: docRow?.stateSeq ?? 0n, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
@@ -150,7 +164,7 @@ export class CanvasDocUpdateRepository {
     return e instanceof Error && /timeout/i.test(e.message);
   }
 
-  async hydrateWithRecovery(projectId: string): Promise<{ state: Buffer | null; updates: Buffer[]; stateSeq: bigint; preVacuumSv?: Buffer | null; generation?: number }> {
+  async hydrateWithRecovery(projectId: string): Promise<HydrationRow> {
     try {
       return await this.loadForHydration(projectId);
     } catch (first) {

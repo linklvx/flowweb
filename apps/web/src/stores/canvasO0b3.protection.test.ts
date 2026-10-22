@@ -31,7 +31,7 @@ import {
   resolveDraggingIdsFromGesture,
 } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type StoredNodeRecord, type DragSession } from '@flowweb/shared';
+import { type StoredNodeRecord, type DragSession } from '@flowweb/shared';
 import { seedCanvas, openRwWindow, resetCanvasStores, seedDragSession } from '@/test/fixtures/canvas';
 
 const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
@@ -47,7 +47,6 @@ const FIXTURE_RECORDS: StoredNodeRecord[] = [
 function buildDoc(): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, FIXTURE_RECORDS, []);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 

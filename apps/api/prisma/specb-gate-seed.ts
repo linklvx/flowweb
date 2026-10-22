@@ -11,7 +11,7 @@ import { PrismaClient } from '@prisma/client';
 import { S3Client, PutObjectCommand, HeadBucketCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
 import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import {
-  fillDoc as fillDocShapes, stampDocSchema,
+  fillDoc as fillDocShapes,
   type DocLike, type DocMapLike, type StoredNodeRecord,
 } from '@flowweb/shared';
 
@@ -140,8 +140,7 @@ async function main() {
     { id: 'c2', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: { status: 'done', fileId: medias[1].id } },
   ];
   const publicDoc = new Y.Doc();
-  fillDocShapes(toDocLike(publicDoc), publicRecords, []);
-  stampDocSchema(toDocLike(publicDoc));
+  fillDocShapes(toDocLike(publicDoc), publicRecords, []);   // T18：meta 零写（版本=PG 列 @default(3)）
   await ensureCanvas(SPECB_GATE.publicCanvasId, publicDoc, userA.id, teamA.id, 'B7-2 公开页源画布');
 
   await prisma.videoWork.upsert({
@@ -175,8 +174,7 @@ async function main() {
     }
   }
   const perfDoc = new Y.Doc();
-  fillDocShapes(toDocLike(perfDoc), perfRecords, []);
-  stampDocSchema(toDocLike(perfDoc));
+  fillDocShapes(toDocLike(perfDoc), perfRecords, []);   // T18：meta 零写（版本=PG 列 @default(3)）
   await ensureCanvas(SPECB_GATE.perfCanvasId, perfDoc, userA.id, teamA.id, 'B7-2 性能冒烟 500 节点');
 
   console.log('SpecB gate fixtures ready: collab-c / public work / perf canvas (520 nodes)');

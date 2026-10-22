@@ -35,7 +35,7 @@ import { useCanvasStore } from './canvasStore';
 import { applyDocToStore, reconcileGroupGeometry, checkProjectionInvariant } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type StoredNodeRecord, type DragSession } from '@flowweb/shared';
+import { type StoredNodeRecord, type DragSession } from '@flowweb/shared';
 import { seedCanvas, openRwWindow, openRoWindow, resetCanvasStores, seedDragSession } from '@/test/fixtures/canvas';
 
 const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
@@ -83,7 +83,6 @@ const FIXTURE: StoredNodeRecord[] = [
 function buildDoc(records: StoredNodeRecord[] = FIXTURE, edges: any[] = []): Y.Doc {
   const d = new Y.Doc();
   fillDoc(d, records, edges);
-  stampDocSchema(toDocLike(d));
   return d;
 }
 

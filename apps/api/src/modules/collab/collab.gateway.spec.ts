@@ -4,9 +4,10 @@ import { Document } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
-import { stampDocSchema, CollabAuthReason, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
+import {
+  CollabAuthReason, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
 
-/** 测试内 Y.Doc→DocLike 适配（stampDocSchema 消费——loadDocument 版本门夹具用） */
+/** 测试内 Y.Doc→DocLike 适配（历史版本门夹具形态——T18 起版本=PG 列，适配保留供读面） */
 function toDocLike(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
@@ -30,10 +31,7 @@ import { join } from 'node:path';
 
 function buildDocState(): Buffer {
   const doc = new Y.Doc();
-  // O0b-0：v2 档快照——loadDocument 版本门放行前提（无戳有节点会被拒）
-  stampDocSchema({
-    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
-  } as DocLike);
+  // T18：meta 零写（版本=PG 列——夹具行值经 repo mock schemaVersion 缺省 null=懒建档放行）
   const nodes = doc.getMap('nodes');
   const n = new Y.Map();
   n.set('type', 'textInput');
@@ -315,7 +313,6 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('onLoadDocument：快照 + 增量按序重放', async () => {
       const { onLoadDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
-      stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（版本门放行前提）
       const incDoc = new Y.Doc(); incDoc.getMap('nodes').set('b', 2);
       repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [Buffer.from(Y.encodeStateAsUpdate(incDoc))], stateSeq: 0n });
       const doc = new Y.Doc();
@@ -421,26 +418,25 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const loading = onLoadDocument({ document: doc, documentName: 'project:p1' });
       await new Promise((r) => setImmediate(r));          // 让 loadDocument 跑到 await hydrateWithRecovery（委托内 loadForHydration）
       doc.getMap('nodes').set('win1', new Y.Map());       // 加载窗口内写入（模板导入/AI 影子节点场景）
-      stampDocSchema(toDocLike(doc));                     // O0b-0：窗口写入的 doc 视为已盖章形态（版本门放行）
       release();
       await loading;
       const pending = gatewayFacade(gateway).pendingQueueRefForDoc(doc) as Uint8Array[];   // Y4：两跳（V4 projectId 键控）——façade 归并单操作
-      expect(pending).toHaveLength(2);                    // 窗口写 win1 + 盖章 meta set（两 update 都进 pending）
+      expect(pending).toHaveLength(1);                    // 窗口写 win1 进 pending（T18：原 +1=stamp 自愈行——meta 零写）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       expect(repo.append).toHaveBeenCalledTimes(1);
       expect(replayOf(appendedRows()).getMap('nodes').has('win1')).toBe(true);
     });
 
-    it('绿1（O0b-0 改写）：无戳空档 load 自愈 stamp 恰落库一次——后续连续 store 全部 noop', async () => {
+    it('绿1（T18 改写）：无戳空档 load 零自愈写——空 doc store 零 append（原 stamp 落库行删除）+连续 store 维持 noop', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
+      expect(doc.getMap('meta').size).toBe(0);         // T18：meta 零键（版本=PG 列）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).toHaveBeenCalledTimes(1);   // stamp 自愈 update 落库（每 doc 至多一次幂等戳）
+      expect(repo.append).not.toHaveBeenCalled();     // 空 doc 零写（无 stamp 自愈 update）
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
       await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      await onStoreDocument({ document: doc, documentName: 'project:p1' });
-      expect(repo.append).toHaveBeenCalledTimes(1);   // 无变更不 append（零写放大契约对已戳 doc 保持）
+      expect(repo.append).not.toHaveBeenCalled();     // 无变更不 append（零写放大契约保持）
     });
 
     it('绿1b：tombstone 三段——真实删除落库 / 重复 tombstone 0 事件不落行 / 对端新 struct 必须落库', async () => {
@@ -478,8 +474,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('绿1c：重放不进队列——load 完成后 pending 为空', async () => {
       const { onLoadDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
-      stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照（已戳重放零新增写——断言前提）
-      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [Buffer.from(Y.encodeStateAsUpdate((() => { const d = new Y.Doc(); d.getMap('nodes').set('b', 2); stampDocSchema(toDocLike(d)); return d; })()))], stateSeq: 0n });
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [Buffer.from(Y.encodeStateAsUpdate((() => { const d = new Y.Doc(); d.getMap('nodes').set('b', 2); return d; })()))], stateSeq: 0n });
       const doc = new Y.Doc();
       await onLoadDocument({ document: doc, documentName: 'project:p1' });
       expect(doc.getMap('nodes').get('a')).toBe(1);
@@ -657,7 +652,6 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     it('绿8c：stash-已在-DB 引理——stash 与 DB 同源（同 clientID）→ load 回灌 0 事件 → store 不 append', async () => {
       const { onLoadDocument, onStoreDocument } = extractHooks();
       const snapDoc = new Y.Doc(); snapDoc.getMap('nodes').set('a', 1);
-      stampDocSchema(toDocLike(snapDoc));   // O0b-0：v2 档快照
       repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(snapDoc)), updates: [], stateSeq: 0n });
       await spool.append('p1', Y.encodeStateAsUpdate(snapDoc));   // Y0a-2：装置行改 spool 帧（与快照同源——apply 0 事件）
       const doc = new Y.Doc();
@@ -671,16 +665,15 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
 
     it('Y0a-1 peek/consume：版本门拒绝 ⇒ stash 存活；正常档 ⇒ 消费后清空', async () => {
       const { onLoadDocument } = extractHooks();
-      // 拒绝档：meta.schemaVersion=999（ensureSchemaVersion 判据=戳存在且≠当前版本）
+      // 拒绝档：行 schemaVersion=2（T18 PG 列门——doc meta 残留非判据）
       const bad = new Y.Doc();
-      bad.getMap('meta').set('schemaVersion', 999);
       bad.getMap('nodes').set('n', new Y.Map());
-      repo.hydrateWithRecovery.mockResolvedValueOnce({ state: Buffer.from(Y.encodeStateAsUpdate(bad)), updates: [], stateSeq: 0n });
+      repo.hydrateWithRecovery.mockResolvedValueOnce({ state: Buffer.from(Y.encodeStateAsUpdate(bad)), updates: [], stateSeq: 0n, schemaVersion: 2 });
       await spool.append('p-peek', Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())));   // Y0a-2：装置行改 spool 帧
       await expect(onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-peek' }))
         .rejects.toMatchObject({ schemaRefusal: true });
       expect(await spool.peek('p-peek')).toHaveLength(1);      // 拒档：帧存活（蒸发路径已关）
-      // 正常档：无戳空 doc（stamp 自愈路径）⇒ 帧 apply 保留（confirm 出口=下次 store 提前 drain）
+      // 正常档：空 doc（行缺失懒建档——T18 无 stamp 自愈）⇒ 帧 apply 保留（confirm 出口=下次 store 提前 drain）
       repo.hydrateWithRecovery.mockResolvedValueOnce({ state: null, updates: [], stateSeq: 0n });
       const okDoc = new Y.Doc();
       await onLoadDocument({ document: okDoc, documentName: 'project:p-peek' });
@@ -1200,8 +1193,8 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const { provider, synced } = kit.connect('project:p-handoff');
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
-      // >=2（非 >0）：stamp 自愈行+k1 两 update 全部落队再交接——WS 送达异步，>0 会在 stamp 时提前放行（k1 迟到→交接后断言假红）
-      await pollUntil(() => g.pendingQueueLen('p-handoff') >= 2, 2_000);
+      // >=1（T18 stamp 自愈退役——原 >=2 含 stamp 行；WS 送达异步，同步内联 set 后 poll 确保落队）
+      await pollUntil(() => g.pendingQueueLen('p-handoff') >= 1, 2_000);
       await kit.gateway.hooks.beforeUnloadDocument({ documentName: 'project:p-handoff', document: provider.document } as any);
       expect(g.pendingQueueRef('p-handoff')).toHaveLength(0);   // 批新家=spool（splice 落定）；空条目保留（I-1：doc 仍在 documents Map——直调非真卸载，回收禁行）
       expect(await kit.spool.peek('p-handoff')).toHaveLength(1);  // 帧在 spool（fsync 已落定）
@@ -1218,8 +1211,8 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const { provider, synced } = kit.connect('project:p-anomaly');
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
-      // >=2 同交接成功用例：stamp+k1 全落队再取身份锚（WS 送达异步——早放行会让锚读到中间水位）
-      await pollUntil(() => g.pendingQueueLen('p-anomaly') >= 2, 2_000);
+      // >=1 同交接成功用例（T18 stamp 退役）：k1 落队再取身份锚（WS 送达异步——早放行会让锚读到中间水位）
+      await pollUntil(() => g.pendingQueueLen('p-anomaly') >= 1, 2_000);
       const q = g.pendingQueueRef('p-anomaly') as Uint8Array[];
       const n = q.length; const tailRef = q[n - 1];
       const anomaly = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
@@ -1243,12 +1236,12 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const { provider, synced } = kit.connect('project:p-unload-fail');
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
-      // >=2 同交接成功用例：stamp+k1 全落队再触发（WS 送达异步——>0 提前放行会让 k1 在断言窗内迟到）
-      await pollUntil(() => g.pendingQueueLen('p-unload-fail') >= 2, 2_000);
+      // >=1 同交接成功用例（T18 stamp 退役）：k1 落队再触发（WS 送达异步——提前放行会让 k1 在断言窗内迟到）
+      await pollUntil(() => g.pendingQueueLen('p-unload-fail') >= 1, 2_000);
       const failMetric = register.getSingleMetric('yjs_unload_handoff_failure_total')!;
       const before = (await failMetric.get()).values[0]?.value ?? 0;   // V17⑥：metric.get() 公开 API（v15 异步）
       await expect(kit.gateway.hooks.beforeUnloadDocument({ documentName: 'project:p-unload-fail', document: provider.document } as any)).resolves.toBeUndefined();
-      expect(g.pendingQueueRef('p-unload-fail')).toHaveLength(2);   // 批留队列（唯一归属地仍在——stamp+k1 两 update 原样）
+      expect(g.pendingQueueRef('p-unload-fail')).toHaveLength(1);   // 批留队列（唯一归属地仍在——k1 update 原样；T18 stamp 退役
       expect(g.persistRetryEntry('project:p-unload-fail')?.timer).toBeTruthy();   // 保活已排且在 ①cancel 之后（排程在 cancel 前=timer 被①清掉=红）
       expect(((await failMetric.get()).values[0]?.value ?? 0) - before).toBeGreaterThanOrEqual(1);   // Y18 指标接线
       appendSpy.mockRestore();
@@ -1266,8 +1259,8 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const { provider, synced } = kit.connect('project:p-fevict');
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
-      // >=2（卸载交接成功用例同款）：stamp+k1 全落队再交接——WS 送达异步，>0 会在 stamp 时提前放行
-      await pollUntil(() => g.pendingQueueLen('p-fevict') >= 2, 2_000);
+      // >=1（卸载交接成功用例同款·T18 stamp 退役）：k1 落队再交接——WS 送达异步
+      await pollUntil(() => g.pendingQueueLen('p-fevict') >= 1, 2_000);
       await expect(kit.gateway.handoffPendingToSpool('p-fevict')).resolves.toBe(true);
       expect(g.pendingQueueRef('p-fevict')).toHaveLength(0);   // 批新家=spool（splice 清空——fsync 落定后才离旧归属）
       expect(await kit.spool.peek('p-fevict')).toHaveLength(1);  // 帧在 spool
@@ -1283,7 +1276,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const { provider, synced } = kit.connect('project:p-fevict-race');
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
-      await pollUntil(() => g.pendingQueueLen('p-fevict-race') >= 2, 2_000);
+      await pollUntil(() => g.pendingQueueLen('p-fevict-race') >= 1, 2_000);   // T18 stamp 退役——原 >=2
       const q = g.pendingQueueRef('p-fevict-race') as Uint8Array[];
       const n = q.length; const tailRef = q[n - 1];
       const handing = kit.gateway.handoffPendingToSpool('p-fevict-race');
@@ -1304,7 +1297,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const { provider, synced } = kit.connect('project:p-fevict-fail');
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
-      await pollUntil(() => g.pendingQueueLen('p-fevict-fail') >= 2, 2_000);
+      await pollUntil(() => g.pendingQueueLen('p-fevict-fail') >= 1, 2_000);   // T18 stamp 退役——原 >=2
       const before = g.pendingQueueRef('p-fevict-fail') as Uint8Array[];
       const refs = [...before];
       await expect(kit.gateway.handoffPendingToSpool('p-fevict-fail')).resolves.toBe(false);
@@ -1326,8 +1319,8 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       await synced;
       provider.document.getMap('nodes').set('k1', 1);
       provider.document.getMap('nodes').set('k2', 2);
-      // >=3（stamp+k1+k2 全落队再取引用——WS 送达异步，>0 会让 beforeLen 读到中间水位）
-      await pollUntil(() => g.pendingQueueLen('p-reconn') >= 3, 2_000);
+      // >=2（T18 stamp 退役——原 >=3 含 stamp 行；k1+k2 全落队再取引用——WS 送达异步，>0 会让 beforeLen 读到中间水位）
+      await pollUntil(() => g.pendingQueueLen('p-reconn') >= 2, 2_000);
       const before = g.pendingQueueRef('p-reconn')!;
       const beforeLen = before.length;
       await kit.gateway.hooks.beforeUnloadDocument({ documentName: 'project:p-reconn', document: provider.document } as any);

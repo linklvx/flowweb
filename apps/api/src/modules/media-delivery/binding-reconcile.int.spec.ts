@@ -15,7 +15,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
-import { fillDoc, stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
+import { fillDoc,
+  type StoredNodeRecord } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { toDocLike } from '../collab/doc-like.util';
@@ -87,7 +88,6 @@ const bindingsOf = (nodeId: string) => prisma.mediaBinding.findMany({
     M_AUD = (await seedMedia(TID, 'aud')).id;
 
     doc = new Y.Doc();
-    stampDocSchema(toDocLike(doc));
     svc = new BindingReconcileService(prisma as unknown as PrismaService, makeDocsStub());
   });
 

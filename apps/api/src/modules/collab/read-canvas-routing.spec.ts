@@ -12,7 +12,8 @@ import { CollabDocumentService } from './collab-document.service';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { yjsSnapshotFallbackTotal, unregisterPendingCollector } from './store.metrics';
-import { stampDocSchema, type DocLike, type DocMapLike } from '@flowweb/shared';
+import {
+  type DocLike, type DocMapLike } from '@flowweb/shared';
 
 /** 测试内 Y.Doc→DocLike 适配（collab-document.service.spec 同款手法——夹具盖章用） */
 function toDocLike(doc: Y.Doc): DocLike {
@@ -25,7 +26,6 @@ function toDocLike(doc: Y.Doc): DocLike {
 /** 已盖章单节点 doc 的快照 state（decodeSnapshot 夹具——生产快照恒有戳） */
 function stampedState(): Buffer {
   const doc = new Y.Doc();
-  stampDocSchema(toDocLike(doc));
   doc.getMap('nodes').set('n1', new Y.Map(Object.entries({ type: 'textInput' })));
   return Buffer.from(Y.encodeStateAsUpdate(doc));
 }

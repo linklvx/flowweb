@@ -11,7 +11,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
-import { fillDoc, stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
+import { fillDoc,
+  type StoredNodeRecord } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { toDocLike } from '../collab/doc-like.util';
@@ -67,7 +68,6 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     await prisma.teamMember.create({ data: { teamId: TID, userId: UID, role: 'OWNER' } });
     await prisma.canvasProject.create({ data: { id: PID, name: 'int-t16gc', userId: UID, teamId: TID } });
     doc = new Y.Doc();
-    stampDocSchema(toDocLike(doc));
     svc = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), makeDocsStub());
   });
 

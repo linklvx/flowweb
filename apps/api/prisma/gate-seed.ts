@@ -4,8 +4,8 @@
 // 幂等：USER 存在即跳过、其余 upsert；重跑零增量残留。
 // 常量契约：apps/web/e2e/global-setup.ts（账号）与 apps/web/e2e/a0-0-env.spec.ts（projectId）引用同值。
 // O0b-0 格式批：buildGateCanvasState 经 shared docShape（fillDoc——O0a-2 裁定 load-bearing：
-// applyRecordToYMap 不写 data 键，种子走它会复现 F29 丢数据；禁自建 Y.Map 绕咽喉）+显式
-// stampDocSchema（fillDoc 不写 meta——戳源唯一化，WS loadDocument 版本门 v2.1 放行前提）。
+// applyRecordToYMap 不写 data 键，种子走它会复现 F29 丢数据；禁自建 Y.Map 绕咽喉）。
+// T18：meta 戳删除（版本承载=CanvasDoc.schemaVersion PG 列——建行 @default(3)，doc 内容零版本键）。
 // O0c-3：二进制构造抽 src/gate-canvas-state.ts 纯模块（零 prisma/auth 副作用——验收断言直解二进制）。
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build（scripts/check-shared-dist.mjs 可校验）。
 import 'dotenv/config';

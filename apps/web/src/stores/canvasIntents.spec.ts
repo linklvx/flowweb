@@ -19,7 +19,7 @@ import { dispatchCanvasIntent, dispatchProjectionDiff, captureStoreProjection, _
 import { applyDocToStore } from './canvasCollabRuntime';
 import { seedCanvas } from '@/test/fixtures/canvas';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, toDocRecords, calcStoryboardSize, resolveStoryboardConfig } from '@flowweb/shared';
+import { toDocRecords, calcStoryboardSize, resolveStoryboardConfig } from '@flowweb/shared';
 import { Origin } from './canvasUndo';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 
@@ -736,7 +736,6 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
       position: { x: 0, y: 0 },
       data: { images: [], mainImageIndex: 0, expanded: true, nodeStatus: 'done' },
     } as any], []);
-    stampDocSchema(toDocLike(doc));   // O0b-0：读侧版本门要求 v2 戳（fillDoc 不写 meta）
     applyDocToStore(doc);
     // expanded 在 doc——远端 apply 重建 ns/cs 后保持源值（渲染尺寸≡doc 尺寸的 data 前提）
     expect((useNodeStore.getState().nodes['m1'].data as any).expanded).toBe(true);

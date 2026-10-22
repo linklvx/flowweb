@@ -21,7 +21,6 @@ import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { Origin } from './canvasUndo';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema } from '@flowweb/shared';
 import { getCollabDiagCounters, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
 // Y0b-5 T3：mock 收敛——唯一载体 @/test/fixtures/fakeHocuspocusProvider（裁定 24⑪⑤）。
@@ -48,7 +47,6 @@ async function driveToSyncedRw(pid = 'p1') {
   p.isSynced = true;
   p.emit('synced', {});
   await done;
-  stampDocSchema(toDocLike(runtime.getDoc()!));
   return p;
 }
 
@@ -237,7 +235,6 @@ describe('批4a：双端 quiescence（burst 后无乒乓 + 两 doc 收敛）', (
         { id: 'g1', type: 'group', data: {} },
         { id: 'c1', type: 'textInput', parentId: 'g1', position: { x: 10, y: 10 }, data: {} },
       ] as any, []);
-      stampDocSchema(toDocLike(B));   // O0b-0：v2 戳随 update 传播到 A
     }, 'b-edit');
     await vi.advanceTimersByTimeAsync(60); // apply 周期：恢复链零回写（S1 停写）
 

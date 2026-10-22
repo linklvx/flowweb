@@ -15,7 +15,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
-import { fillDoc, stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
+import { fillDoc,
+  type StoredNodeRecord } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
@@ -86,7 +87,6 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
 
     // ── doc 夹具：bare Y.Doc 种目标节点（writeBatch 直写的应用面） ──
     doc = new Y.Doc();
-    stampDocSchema(toDocLike(doc));
     fillDoc(toDocLike(doc), [seedNode(NODE, { status: 'done', fileId: MEDIA_OLD })], []);
 
     controller = new CollabMediaController(

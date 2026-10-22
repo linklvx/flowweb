@@ -251,7 +251,7 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
   it('readSnapshotOnly=第二出口（契约 1"一个实现、两出口"）——同 readConsistent 事务形态', async () => {
     const { repo } = buildRepo({ docRow: null });
     const r = await repo.readSnapshotOnly('p1');
-    expect(r).toEqual({ state: null, updates: [], stateSeq: 0n, preVacuumSv: null, generation: 0 });   // T9a：代际两列随行（投影出口不消费）
+    expect(r).toEqual({ state: null, updates: [], stateSeq: 0n, preVacuumSv: null, generation: 0, schemaVersion: null });   // T9a 代际两列+T18 schemaVersion 行值随行（装载/快照两出口同一列门判据——行缺失=null 懒建档）
   });
 
   it('readConsistent 游标初值 0n（SV3 判别性——docRow.stateSeq=42n 时旧实现从 42 起、新实现从 0 起）', async () => {

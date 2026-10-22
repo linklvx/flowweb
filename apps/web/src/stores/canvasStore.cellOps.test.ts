@@ -7,7 +7,7 @@ import { applyDocToStore } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { validatePlacementData } from '@flowweb/shared';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema, type StoredNodeRecord } from '@flowweb/shared';
+import { type StoredNodeRecord } from '@flowweb/shared';
 import { openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 import type { Node } from '@xyflow/react';
 
@@ -132,7 +132,6 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     openRwWindow();
     const d = new Y.Doc();
     fillDoc(d, records, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     _setIntentDocForTest(d);
     return d;

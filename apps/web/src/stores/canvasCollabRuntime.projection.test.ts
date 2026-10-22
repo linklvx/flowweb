@@ -9,7 +9,6 @@ import { applyDocToStore } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { attachUndoManager, detachUndoManager } from './canvasUndo';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { stampDocSchema } from '@flowweb/shared';
 
 /** rw 漏斗窗口（canEdit 真）——dispatch 落注入的裸 doc */
 function openRwWindow() {
@@ -77,7 +76,6 @@ const S1_DOC = () => {
     { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 100, height: 60, data: {} },
     { id: 'n1', type: 'textInput', position: { x: 50, y: 50 }, width: 100, height: 40, data: { fileId: 'new' } },
   ] as any, []);
-  stampDocSchema(toDocLike(d));
   return d;
 };
 
@@ -135,7 +133,6 @@ describe("B5'-1 拖动入栈（终裁 48——旧锚反转为入栈）", () => {
     _setIntentDocForTest(d);
     openRwWindow();
     fillDoc(d, [{ id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} } as any], []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     const um = attachUndoManager(d);
     useCanvasStore.getState().beginDragGesture([{ id: 't1' }], 1);
@@ -160,7 +157,6 @@ describe('恢复链重开逐位不变（Task 18 沿革——S1 停写后结构�
       { id: 'g1', type: 'group', position: { x: 0.1, y: 0.1 }, width: 140, height: 130, data: { groupType: 'normal' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
     ] as any, []);
-    stampDocSchema(toDocLike(d));
     applyDocToStore(d);
     // 期望 = doc 原文（O0b-0：cs g1=origin 直拷；c1 rel=abs−origin 浮点噪声域内 toBeCloseTo）
     const st = useCanvasStore.getState().nodes as any[];

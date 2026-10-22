@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CANVAS_DOC_SCHEMA_VERSION, FRAME_ALLOWANCE_BYTES, QUOTA_DEFAULTS, stampDocSchema } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, FRAME_ALLOWANCE_BYTES, QUOTA_DEFAULTS } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
@@ -211,7 +211,6 @@ describe('T8 boot 回放与能力位', () => {
     // 阶段一（会话 A）：read-write 编辑（结构性节点）→trailing 落盘（unsyncedDirty 随快照存）
     await driveToSynced();
     const dA = runtime.getDoc()!;
-    stampDocSchema(toDocLike(dA));   // 服务端盖戳形态（真快照源——fake provider 无 loadDocument 自愈）
     dA.transact(() => { dA.getMap('nodes').set('rt-1', seedNode()); }, Origin.LocalUser);
     await vi.advanceTimersByTimeAsync(1_000);   // trailing 落盘窗（结构性 150ms 提前到期同窗覆盖）
     expect(flushedRecord()?.unsyncedDirty).toBe(true);   // 前置锚：盘上有未确认编辑

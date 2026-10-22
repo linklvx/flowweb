@@ -12,7 +12,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { stampDocSchema } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 import { initCollab, getDoc, getAwareness, destroyCollab, probeReadyReason, Origin } from './canvasCollabRuntime';
@@ -96,7 +95,6 @@ describe('initCollab 离线兜底：10s 超时分支（批2-1 修D——超时�
 
     // supervisor 恢复路径自然到达：connected→authenticated(read-write)→迟到 synced
     // doc 先落远端内容（stamp 后 DEV 版本门放行——mock 无真 loadDocument 自愈）
-    stampDocSchema(toDocLike(getDoc()!));
     const B = new Y.Doc();
     B.transact(() => {
       const m = new Y.Map(); m.set('type', 'textInput');
@@ -122,7 +120,6 @@ describe('initCollab 离线兜底：10s 超时分支（批2-1 修D——超时�
     const p = initCollab('p1');
     await vi.advanceTimersByTimeAsync(10_000);
     await p;
-    stampDocSchema(toDocLike(getDoc()!));
     const inst = lastInstance();
     inst.emit('status', { status: 'connected' });
     inst.isAuthenticated = true;
@@ -167,7 +164,6 @@ describe('initCollab 离线兜底：10s 超时分支（批2-1 修D——超时�
     const p = initCollab('p1');
     await vi.advanceTimersByTimeAsync(10_000);
     await p;
-    stampDocSchema(toDocLike(getDoc()!));   // 有节点形态过 DEV 版本门（mock 无真 loadDocument 自愈）
     // failed 窗内 LocalUser origin 装载事务（缓存回放/队列 flush 形态）——undoManager trackedOrigins 默认捕获
     getDoc()!.transact(() => {
       const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', new Y.Map());

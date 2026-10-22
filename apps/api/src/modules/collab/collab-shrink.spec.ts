@@ -737,7 +737,7 @@ function addExecEntry(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>
 }
 
 describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/finally+SV 代际门）', () => {
-  it('红门⑦ 代际一致性：vacuum 完成→重连写入新编辑→再重载⇒全部 keys 完整+pendingStructs/pendingDs==null+meta.schemaVersion===2（stamp 保留）+exec 条目保留（写入后 exec 可读回）', async () => {
+  it('红门⑦ 代际一致性：vacuum 完成→重连写入新编辑→再重载⇒全部 keys 完整+pendingStructs/pendingDs==null+meta 零键（T18——版本=PG 列）+exec 条目保留（写入后 exec 可读回）', async () => {
     const gateway = buildGateway();
     const src = seedDoc();
     addNode(src, 'n1', 64);
@@ -762,7 +762,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     await gateway.docRegistry.loadDocument({ document: reloaded, documentName: 'project:p1' } as any);   // W3a：DR 公有化直调（cast 消失）
     expect(reloaded.store.pendingStructs).toBe(null);      // 因果链干净（真空重建——红门⑦ 核心）
     expect(reloaded.store.pendingDs).toBe(null);
-    expect(reloaded.getMap('meta').get('schemaVersion')).toBe(CANVAS_DOC_SCHEMA_VERSION);   // stamp 保留（U-1）
+    expect([...reloaded.getMap('meta').keys()].sort()).toEqual([...src.getMap('meta').keys()].sort());   // T18：meta 深拷贝透明搬运（键集与源逐位相等——零写零删；版本=PG 列与 doc 内容正交）
     expect([...reloaded.getMap('nodes').keys()].sort()).toEqual(['n1', 'n2']);
     expect([...reloaded.getMap('edges').keys()]).toEqual(['e1']);
     const execEntry = reloaded.getMap('exec').get('node-a') as Y.Map<any>;   // exec 条目保留（U-2）
@@ -822,7 +822,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect(m2.vacuumReplace).not.toHaveBeenCalled();      // DB 零变更
   });
 
-  it('等价断言扩全根：readRecords 深比+根类型集合相等+exec 键集合相等+meta.schemaVersion===2；stub rebuild 缺内容 ⇒ equivalence-failed+DB 零变更', async () => {
+  it('等价断言扩全根：readRecords 深比+根类型集合相等+exec 键集合相等+meta 键（T18 退役——版本=PG 列）；stub rebuild 缺内容 ⇒ equivalence-failed+DB 零变更', async () => {
     const gateway = buildGateway();
     const src = seedDoc();
     addNode(src, 'n1', 64);
@@ -831,7 +831,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     const { repo, vacuumReplace } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
     const { svc } = buildVacuumSvc(gateway, repo);
 
-    // 等价断言四条在成功路径的隐式验证（ok 即证 readRecords 深比+根集合+exec 键集+meta 戳全过）
+    // 等价断言四条在成功路径的隐式验证（ok 即证 readRecords 深比+根集合+exec 键集全过）
     const ok = await svc.vacuum('p1', 'u1');
     expect(ok.result).toBe('ok');
 

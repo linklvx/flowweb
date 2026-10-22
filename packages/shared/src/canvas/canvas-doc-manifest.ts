@@ -111,7 +111,7 @@ export const SERVER_WRITABLE_DATA_KEYS = ['fileId', 'result'] as const;
  *  消灭空图窗口）。消费点=T11（canvasIntents strip 更新路径）/T17（normalizeCopiedNodeData）。 */
 export const CLIENT_FORBIDDEN_ON_UPDATE = SERVER_WRITABLE_DATA_KEYS;
 
-// ── 层③④：键清单种子条目（nodes/edges/exec——plan 指定种子三 map+meta 版本键）──
+// ── 层③④：键清单种子条目（nodes/edges/exec——plan 指定种子三 map+meta 顶层登记）──
 export interface DocKeyManifestEntry {
   map: DocTopLevelMap;
   /** 键路径形态（'*'=动态 id 键域；括注=键集域说明） */
@@ -124,9 +124,12 @@ export interface DocKeyManifestEntry {
 export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEntry[]> = {
   meta: [
     {
-      map: 'meta', path: 'meta.schemaVersion',
-      writers: ['docShape.stampDocSchema（唯一戳源——WS loadDocument 无戳空档/api 种子 withDoc）'],
-      readers: ['docShape.ensureSchemaVersion/assertDocSchema（REST 读门+写门）'],
+      // T18（Y1b T2/Y1c 版本硬切）：meta.schemaVersion 退役——版本承载=CanvasDoc.schemaVersion
+      // PG 列（api 装载行值门比对≠3 拒载）。meta map 零生产写者/零版本读者；条目保留=顶层 map
+      // 集合登记（DOC_TOP_LEVEL_MAPS 四 map 面不变——旧档 doc 残留 meta 值仅作历史载荷不解释）。
+      map: 'meta', path: 'meta（空 map——T18 起零键；版本判据=CanvasDoc.schemaVersion PG 列）',
+      writers: ['（无——T18 起 meta 零生产写者）'],
+      readers: ['（无版本读——旧档残留 meta.schemaVersion 仅历史载荷；vacuum rebuildVacuumDoc 深拷贝=透明搬运非键读写）'],
       ownership: 'doc', undo: 'server-only',
     },
   ],

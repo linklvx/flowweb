@@ -14,11 +14,11 @@ describe('gate-seed fixture 形状验收（O0b-0 一次到位——O0c-3 验收�
   };
   const node = (d: Y.Doc, id: string) => d.getMap('nodes').get(id) as Y.Map<any>;
 
-  it('gate-node-1/2 仍在（a0-0-env.spec:27-28 兼容——e2e 强判据的 fixture 侧对偶）+ meta 戳在', () => {
+  it('gate-node-1/2 仍在（a0-0-env.spec:27-28 兼容——e2e 强判据的 fixture 侧对偶）+ meta 零键（T18 版本硬切）', () => {
     const d = decode();
     expect(node(d, 'gate-node-1').get('type')).toBe('videoGen');
     expect(node(d, 'gate-node-2').get('type')).toBe('videoGen');
-    expect(d.getMap('meta').get('schemaVersion')).toBe(2);   // WS loadDocument 版本门放行前提
+    expect(d.getMap('meta').get('schemaVersion')).toBeUndefined();   // T18：meta 零键（版本=CanvasDoc.schemaVersion PG 列——建行 @default(3)）
   });
 
   it('auto 组形状：组零帧键（键集表"auto 组=0 帧键"）∧子带 abs position', () => {
