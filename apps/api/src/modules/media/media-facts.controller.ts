@@ -65,7 +65,12 @@ export class MediaFactsController {
     if (ownMedia.length === 0) return [];
     const rows = await this.prisma.mediaFactOutbox.findMany({
       where: { mediaId: { in: ownMedia.map((m) => m.id) } },
-      orderBy: [{ mediaId: 'asc' }, { factVersion: 'asc' }],
+      // 终审复审②加固：factVersion 追加 factType **desc** tie-break——同 factVersion 的
+      // state 行恒先于 natural（字典序 'state'>'natural'，desc=state 在前）。选形=单键追加
+      // 最小面（无内存排序/无第二查询）；消费面 web mediaFacts unionFact 已**完全序无关**
+      //（等值正交豁免——①主修），本序=加固面：正序消费对任何未升级客户端/其他消费端
+      //（natural 先行抬高版本→state 等值面依赖豁免路径）给出确定序，state 基线先行恒成立。
+      orderBy: [{ mediaId: 'asc' }, { factVersion: 'asc' }, { factType: 'desc' }],
       select: { id: true, mediaId: true, factVersion: true, factType: true, payload: true, state: true },
     });
     // pending→published 标记（at-least-once：读后不删行；retention 7d 归 intent-reconcile 每日清理）

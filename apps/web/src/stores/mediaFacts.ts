@@ -88,9 +88,14 @@ export function parseFactRow(f: MediaFactWireRow): Partial<MediaFactEntry> & { f
 
 /** 部分条目 union 进完整条目（factVersion 取更新侧；state/natural 各自保留——正交合并）。
  *  base 缺 state（natural-only 先到）→ 返回 base 原样（不建完整条目——state 必需）。
- *  正交补充豁免（质评 Minor#3 收紧）：**等值版本**下 natural 补入 base 缺席面（服务端同事务递增
- *  时 state/natural 两类行 factVersion 可相等——严格单调门会吞 natural 面）；**旧版本**行不豁免
- *  （旧版本=重放，其 natural 可能过时——禁旧版本补写新代条目）。 */
+ *  正交补充豁免（质评 Minor#3 收紧+终审复审阻塞修）：**等值版本**下两类行互补充缺席/差异面
+ *  （服务端 completeMaterialized 同事务同 factVersion 双写 state+natural——拉取行序无 factType
+ *  tie-break 保证，合并必须**完全序无关**）：
+ *   - naturalFill：natural 补入 base 缺席面；
+ *   - stateFill：state 行与 base 现值面不等（state/errorCode/error 任一差异）即并入——否则
+ *     wire 序 [state v1, natural v2, state v2] 中 natural v2 先抬版本后 state v2 等值被单调门
+ *     吞没→completed 永久滞留 processing（每个完成视频都触发——终审复审阻塞项）；
+ *   - 等值且对应面全等=纯重放忽略（幂等）；**旧版本**行不豁免（重放可能过时——禁旧版本写新代）。 */
 function unionFact(base: MediaFactEntry | undefined, part: Partial<MediaFactEntry> & { factVersion: string }): MediaFactEntry | undefined {
   if (base === undefined) {
     if (part.state === undefined) return undefined;   // 纯 natural 无 state 基线——丢弃（state 行到达后 union）
@@ -99,7 +104,9 @@ function unionFact(base: MediaFactEntry | undefined, part: Partial<MediaFactEntr
   const newer = factVersionNewer(part.factVersion, base.factVersion);
   const equalVersion = !newer && factVersionNewer(base.factVersion, part.factVersion) === false;   // 双向皆非更新=等值
   const naturalFill = equalVersion && part.natural !== undefined && base.natural === undefined;
-  if (!newer && !naturalFill) return base;   // 旧/等值重放且无豁免面——忽略
+  const stateFill = equalVersion && part.state !== undefined
+    && (part.state !== base.state || part.errorCode !== base.errorCode || part.error !== base.error);
+  if (!newer && !naturalFill && !stateFill) return base;   // 旧版本/等值纯重放/无对应面——忽略
   return {
     ...base,
     ...(part.state !== undefined

@@ -71,6 +71,42 @@ describe('T16 mediaFacts 纯模块', () => {
     expect(m5.get('m1')?.natural).toBeUndefined();   // 旧版本豁免面=无（改前红=补入 1×2）
   });
 
+  it('★终审复审：unionFact 合并完全序无关——wire 序 [state v1, natural v2, state v2] 两向都终态 completed（改前红：natural v2 先抬版本→state v2 等值被单调门吞→processing 滞留）+stagePendingFactRows 同款', () => {
+    // 正序（natural 先到——服务端 completeMaterialized 同事务同 factVersion 双写，拉取行序无 factType tie-break 时不保证）
+    const direct = mergeFactRows(new Map(), [
+      { mediaId: 'mv', facts: [
+        { factVersion: '1', factType: 'state', payload: { status: 'processing' } },
+        { factVersion: '2', factType: 'natural', payload: { naturalWidth: 1920, naturalHeight: 1080 } },
+        { factVersion: '2', factType: 'state', payload: { status: 'completed' } },
+      ] },
+    ]);
+    expect(direct.get('mv')?.state).toBe('completed');   // 改前红=processing（state v2 等值吞没）
+    expect(direct.get('mv')?.natural).toEqual({ width: 1920, height: 1080, rotation: null });
+    // 反序（state 先到——既有等值豁免路径）
+    const reverse = mergeFactRows(new Map(), [
+      { mediaId: 'mv2', facts: [
+        { factVersion: '1', factType: 'state', payload: { status: 'processing' } },
+        { factVersion: '2', factType: 'state', payload: { status: 'completed' } },
+        { factVersion: '2', factType: 'natural', payload: { naturalWidth: 640, naturalHeight: 480 } },
+      ] },
+    ]);
+    expect(reverse.get('mv2')?.state).toBe('completed');
+    expect(reverse.get('mv2')?.natural).toEqual({ width: 640, height: 480, rotation: null });
+    // 纯重放（等值且三面全等）仍忽略（幂等不变）
+    const replay = mergeFactRows(reverse, [
+      { mediaId: 'mv2', facts: [{ factVersion: '2', factType: 'state', payload: { status: 'completed' } }] },
+    ]);
+    expect(replay.get('mv2')).toBe(reverse.get('mv2'));   // 同引用零新建（等值全等=纯重放）
+    // stagePendingFactRows 同款（暂存路径同 unionFact——改前同洞）
+    const pending = stagePendingFactRows(new Map(), 'mv3', [
+      { factVersion: '1', factType: 'state', payload: { status: 'processing' } },
+      { factVersion: '2', factType: 'natural', payload: { naturalWidth: 800, naturalHeight: 600 } },
+      { factVersion: '2', factType: 'state', payload: { status: 'completed' } },
+    ], 1_000);
+    expect(pending.get('mv3')?.entry.state).toBe('completed');   // 改前红=processing
+    expect(pending.get('mv3')?.entry.natural).toEqual({ width: 800, height: 600, rotation: null });
+  });
+
   it('T16 登记收口（T19）：stagePendingFactRows 两类行 union 暂存+容量帽（超帽逐出最早到期——静止会话防滞留）', () => {
     // 两类行 union 暂存（改前红=只 stage state 行——natural 丢失）
     let pending = stagePendingFactRows(new Map(), 'm1', [
