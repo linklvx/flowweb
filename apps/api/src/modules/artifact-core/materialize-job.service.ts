@@ -51,6 +51,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Counter, register } from 'prom-client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { mediaMaterializeLag } from '../media-delivery/delivery-lag.metrics';
 import { MinioService } from '../minio/minio.service';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 import { sniffMimeType } from '../media/sniff';
@@ -145,15 +146,26 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     this.timer = null;
   }
 
-  /** 一轮：claim 批（视频批 1）逐行物化；busy 防重入（长视频不叠轮——probe 同款）。 */
+  /** 一轮：claim 批（视频批 1）逐行物化；busy 防重入（长视频不叠轮——probe 同款）。
+   *  T19（spec :518）media_materialize_lag：每 tick 头刷新最老 processing∧video∧generated 行龄
+   *  （空轮同样刷新归零——与投影 poller observeLag 同纪律，防 gauge 冻结陈旧正值）。 */
   async tick(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     try {
+      void this.observeLag().catch(() => {});
       for (const row of await this.claim()) await this.materializeRow(row);
     } finally {
       this.busy = false;
     }
+  }
+
+  private async observeLag(): Promise<void> {
+    const rows = await this.prisma.$queryRaw<{ oldest: Date | null }[]>(Prisma.sql`
+      SELECT min("createdAt") AS "oldest" FROM "Media"
+      WHERE "status" = 'processing' AND "deletedAt" IS NULL AND "type" = 'generated' AND "mimeType" LIKE 'video/%'`);
+    const oldest = rows[0]?.oldest;
+    mediaMaterializeLag.set(oldest ? (Date.now() - oldest.getTime()) / 1000 : 0);
   }
 
   /** 两段式事务 claim（probe claim 同形态）：SELECT FOR UPDATE SKIP LOCKED（并发双 claim 恰一）

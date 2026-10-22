@@ -1047,6 +1047,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_write_rejected_total
 - collab_write_session_release_timeout_total
 - collab_ws_close_total
+- doc_delivery_applied_unpersisted
+- doc_delivery_lag_seconds
 - event_loop_lag_seconds
 - exec_orphan_blocked_total
 - exec_outbound_duration_seconds
@@ -1074,7 +1076,9 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - ledger_orphan_unreleasable_total
 - media_acl_denied
 - media_binding_reconcile_outcome_total
+- media_fact_outbox_lag
 - media_gc_outcome_total
+- media_materialize_lag
 - member_revoked_conns
 - provider_redrive_blocked_total
 - yjs_compact_abandoned_total

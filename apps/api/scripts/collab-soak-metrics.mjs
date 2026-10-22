@@ -70,6 +70,15 @@ export function sampleProcess(text, role) {
     storeTotal: counterMap('yjs_store_total', STORE_TRIGGERS),
     withdocOpen: histPair('yjs_withdoc_open_duration_seconds'),
     withdoc: histPair('yjs_withdoc_duration_seconds'),
+    // T19（P1#1②）：soak 证据 lag gauge 族（spec 2026-10-18 design :518 钉名四件+poller 队列 gauge
+    // 同值对读——delivery/outbox/materialize lag + applied_unpersisted 稳态判读）。
+    lag: {
+      docDeliverySeconds: pick('doc_delivery_lag_seconds'),
+      projectionPendingAgeSeconds: pick('artifact_projection_pending_age_seconds'),
+      appliedUnpersisted: pick('doc_delivery_applied_unpersisted'),
+      mediaFactOutbox: pick('media_fact_outbox_lag'),
+      mediaMaterialize: pick('media_materialize_lag'),
+    },
   };
 }
 

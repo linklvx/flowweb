@@ -31,6 +31,8 @@ const S = { user: `smoke-u-${ts}`, team: `smoke-t-${ts}`, member: `smoke-m-${ts}
 // token 经 Cookie header 注入（query token 通道已删；undici 全局 WebSocket 不支持自定义 header——ws 包注入）。
 // Y0b-3 T5 版本门：URL 必带 csv=CLIENT_PROTOCOL_VERSION（缺 csv=client-version-missing 恒拒——冒烟必挂）。
 const WebSocket = req('ws');
+// T19（P1#1④根修）：CSV 从 shared dist 单源读（T18 bump=3 后字面量 2 恒拒——「bump 时随改」惯例退役）。
+const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;
 const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
   || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
 const makeHeaderWs = (headers) => class HeaderWs extends WebSocket {
@@ -57,7 +59,7 @@ async function main() {
     await prisma.session.create({ data: { id: `smoke-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
 
     const mk = () => new HocuspocusProvider({
-      url: `${WS_URL}?csv=2&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // csv=2=CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例，字面量+bump 时随改——Y0b-4 T1）
+      url: `${WS_URL}?csv=${CSV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // csv=2=CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例，字面量+bump 时随改——Y0b-4 T1）
       WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
     });
     const A = mk(), B = mk();

@@ -13,8 +13,10 @@
 // intent-reconcile 每日清理；published 行仍在保留窗内可重复拉取——客户端 factVersion 单调去重消费）。
 import { Body, Controller, Inject, Post, Query, Req, BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
+import { mediaFactOutboxLag } from '../media-delivery/delivery-lag.metrics';
 
 /** 单批 mediaId 上界（spec :45 P1：POST ≤200——与 batchGet 的 BatchGetMediaDto @ArrayMaxSize(200) 同源）。 */
 export const MEDIA_FACTS_MAX_IDS = 200;
@@ -74,6 +76,8 @@ export class MediaFactsController {
         data: { state: 'published', publishedAt: new Date() },
       }).catch(() => { /* 标记失败不阻断响应——at-least-once 重拉自愈 */ });
     }
+    // T19（spec :518）media_fact_outbox_lag：消费即观测——拉取点刷新最老 pending 行龄（投递滞后）
+    void this.observeOutboxLag().catch(() => {});
     const byMedia = new Map<string, MediaFactWire[]>();
     for (const r of rows) {
       const list = byMedia.get(r.mediaId) ?? [];
@@ -85,5 +89,14 @@ export class MediaFactsController {
       byMedia.set(r.mediaId, list);
     }
     return [...byMedia.entries()].map(([mediaId, facts]) => ({ mediaId, facts }));
+  }
+
+  /** T19（spec :518）media_fact_outbox_lag gauge 刷新（fire-and-forget——标记后 pending 集已收敛）。
+   *  全局最老 pending 行龄（at-least-once 拉模型：无人拉=无人观测滞后，本端点即唯一消费观测点）。 */
+  private async observeOutboxLag(): Promise<void> {
+    const rows = await this.prisma.$queryRaw<{ oldest: Date | null }[]>(Prisma.sql`
+      SELECT min("createdAt") AS "oldest" FROM "MediaFactOutbox" WHERE "state" = 'pending'`);
+    const oldest = rows[0]?.oldest;
+    mediaFactOutboxLag.set(oldest ? (Date.now() - oldest.getTime()) / 1000 : 0);
   }
 }

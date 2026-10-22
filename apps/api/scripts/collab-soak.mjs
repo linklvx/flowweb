@@ -42,19 +42,21 @@ const API = process.env.COLLAB_API_URL ?? 'http://127.0.0.1:3000';
 const WS_URL = process.env.COLLAB_WS_URL ?? 'ws://127.0.0.1:3001';
 const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
   || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
-const CSV = 2;   // CLIENT_PROTOCOL_VERSION（collab-smoke 同注——bump 时随改）
+// T19（P1#1④勘正根修）：CSV 从 shared dist 单源读——T18 双常量 bump=3 后字面量 2 未随改=soak
+// 全挂（schema-outdated 恒拒）；「bump 时随改」的字面量惯例自此退役（collab-smoke 同根修）。
+const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;
 const METRICS_URL = `${API}/metrics`;
 
 function parseArgs(argv) {
-  const out = { docs: 4, clients: 8, rate: 1000, duration: 5, ttlPin: 120_000, jobs: 3 };
+  const out = { docs: 4, clients: 8, rate: 1000, duration: 5, ttlPin: 120_000, jobs: 3, seedNodes: 0 };
   const STR_KEYS = new Set(['scenario', 'json', 'workerMetricsUrl']);   // 字符串值参数（其余数值——原校验语义不变）
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i];
-    if (!k.startsWith('--')) throw new Error(`坏参数：${k}（用法 --docs N --clients M --rate ms --duration min --scenario single|closepage|group20 --jobs N --ttl-pin ms --json file --worker-metrics-url url）`);
+    if (!k.startsWith('--')) throw new Error(`坏参数：${k}（用法 --docs N --clients M --rate ms --duration min --scenario single|closepage|group20 --jobs N --ttl-pin ms --json file --worker-metrics-url url --seed-nodes N）`);
     const key = k.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());   // kebab→camel 归一（--ttl-pin→ttlPin）
     if (STR_KEYS.has(key)) { out[key] = argv[i + 1]; continue; }
     const v = Number(argv[i + 1]);
-    if (!Number.isFinite(v) || v <= 0) throw new Error(`坏参数：${k} ${argv[i + 1]}（数值参数须为正数）`);
+    if (!Number.isFinite(v) || v < 0) throw new Error(`坏参数：${k} ${argv[i + 1]}（数值参数须 ≥0）`);
     out[key] = v;
   }
   if (out.scenario && !['single', 'closepage', 'group20'].includes(out.scenario))
@@ -214,6 +216,7 @@ async function runSoak() {
   const warnings = [];
   let edits = 0;
   let connErrors = 0;
+  let frameMaxBytes = 0;   // T19（P1#1③）：单帧字节上界（全 client 并集——卡文 <128KB 断言面）
   const frameLatencies = [];
   const samples = [];
   try {
@@ -224,7 +227,6 @@ async function runSoak() {
     await prisma.session.createMany({ data: S.tokens.map((token, ci) => ({ id: `soak-s-${ts}-${ci}`, userId: S.users[ci], token, expiresAt: new Date(Date.now() + 30 * 60_000) })) });
 
     // M clients 轮转铺到 N docs；帧延迟观察=各 client 对「他人 marker」的回显时延（own marker 恒 0 剔除）
-    const seenKeys = Array.from({ length: OPTS.clients }, () => new Set());
     for (let ci = 0; ci < OPTS.clients; ci++) {
       const cookie = { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.tokens[ci]}` };   // 各绑自己 session token
       const p = new HocuspocusProvider({
@@ -233,11 +235,19 @@ async function runSoak() {
       });
       providers.push(p);
       const doc = p.document;
-      doc.on('update', () => {
-        const map = doc.getMap('soak');
-        for (const [k, v] of map.entries()) {
-          if (k.startsWith(`c${ci}#`) || seenKeys[ci].has(k) || typeof v !== 'number') continue;
-          seenKeys[ci].add(k);
+      doc.on('update', (u) => {
+        frameMaxBytes = Math.max(frameMaxBytes, u?.byteLength ?? 0);   // T19（P1#1③）：单帧字节上界（卡文 <128KB 断言面）
+      });
+      // T19（评审#P1#1③ 追加）回显时延测量根修：原 update 回调全量遍历 soak map 找新 marker
+      // （O(N) 随编辑数线性涨——实测 10min 档 frameP95 173/196ms 主因=装置扫描开销非系统时延，
+      // 两档时间维度递增同形态证实）。改 map.observe keys delta（事件恰一次 O(delta)——测量真值化）。
+      const soakMap = doc.getMap('soak');
+      soakMap.observe((ev) => {
+        for (const [k, ch] of ev.keys) {
+          if (k.startsWith(`c${ci}#`) || ch.action === 'delete') continue;
+          // yjs 事件语义：'add' 档 ch.newValue===undefined（实测）——值从 map 现读（事件时序=read 可见）
+          const v = ch.newValue !== undefined ? ch.newValue : soakMap.get(k);
+          if (typeof v !== 'number') continue;
           frameLatencies.push(Date.now() - v);
         }
       });
@@ -249,7 +259,37 @@ async function runSoak() {
         p.on('synced', () => { clearTimeout(t); res(); });
       });
     }
-    console.log(`[soak] 起跑：docs=${OPTS.docs} clients=${OPTS.clients} rate=${OPTS.rate}ms duration=${OPTS.duration}min`);
+    console.log(`[soak] 起跑：docs=${OPTS.docs} clients=${OPTS.clients} rate=${OPTS.rate}ms duration=${OPTS.duration}min${OPTS.seedNodes ? ` seedNodes=${OPTS.seedNodes}` : ''}`);
+
+    // T19（P1#1③）：--seed-nodes N——10k 节点造档（plan T19 卡文「10k+10 客户端」；nodes map 成员
+    // 形态 {data:{order,payload}}——装载/广播/编辑压力面真节点集，非 soak marker 键）。
+    // client0 单端单 transact 建 N 节点（10k≈数十 update 分片广播），全端收敛（nodes 数=N）后起跑
+    // 编辑流；doc 尺寸断言面=结束样本 Y.encodeStateAsUpdate(doc0).byteLength。
+    if (OPTS.seedNodes > 0) {
+      const seeder = providers[0].document;
+      const CHUNK = 500;   // 分片建（单 transact 10k set 的 update 帧可超单帧预算——分片广播）
+      for (let base = 0; base < OPTS.seedNodes; base += CHUNK) {
+        seeder.transact(() => {
+          const nodes = seeder.getMap('nodes');
+          for (let i = base; i < Math.min(base + CHUNK, OPTS.seedNodes); i += 1) {
+            const n = new Y.Map();
+            n.set('type', 'text');
+            n.set('data', new Y.Map(Object.entries({ order: String(5000 + i * 10), content: `seed-${i}` })));
+            nodes.set(`sn-${i}`, n);
+          }
+        });
+        await sleep(50);   // 分片间让出广播窗
+      }
+      await new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error('seedNodes 收敛超时 60s——某端未收到全量节点')), 60_000);
+        const check = () => {
+          if (providers.every((p) => p.document.getMap('nodes').size >= OPTS.seedNodes)) { clearTimeout(t); res(); return; }
+          setTimeout(check, 250);
+        };
+        check();
+      });
+      console.log(`[soak] seedNodes=${OPTS.seedNodes} 全端收敛（nodes map=${providers[0].document.getMap('nodes').size}）`);
+    }
 
     // 编辑流：每 client 每 rate ms 写一次 marker（值=写入时刻——观察方回显时延即帧延迟样本）
     for (let ci = 0; ci < OPTS.clients; ci++) {
@@ -276,17 +316,35 @@ async function runSoak() {
     }
     const finalS = await sample();
     samples.push({ t: Math.round(OPTS.duration * 60), ...finalS });
+    // T19（P1#1③）：doc 尺寸断言面（卡文 doc<8MB）——seed 档=nodes map 全量编码；纯 marker 档=soak map
+    const docBytes = Y.encodeStateAsUpdate(providers[0].document).byteLength;
 
     // ===== 汇总+两张 runbook 数 =====
-    const frameP99 = frameLatencies.length ? frameLatencies.slice().sort((a, b) => a - b)[Math.floor(0.99 * (frameLatencies.length - 1))] : null;
+    const sortedLats = frameLatencies.length ? frameLatencies.slice().sort((a, b) => a - b) : [];
+    const qOf = (arr, q) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(q * (arr.length - 1)))] : null);
+    const frameP99 = qOf(sortedLats, 0.99);
+    const frameP95 = qOf(sortedLats, 0.95);
     const frameNA = OPTS.clients <= OPTS.docs ? 'n/a(M≤N 无同 doc 观察对——帧延迟需 doc 上 ≥2 client)' : 'n/a';
     const storeP99 = bucketP99(finalS.buckets, baseline);
     const maxRss = Math.max(...samples.map((s) => s.rss ?? 0));
     const maxHeap = Math.max(...samples.map((s) => s.heap ?? 0));
     const maxDocs = Math.max(...samples.map((s) => s.docs ?? 0));
+    // T19（P1#1②）：lag gauge 族采样时序汇总（max=窗口最坏；p95=采样序列 p95——gauge 采样的
+    // 分位数近似；null 序列=旧构建缺 gauge，如实注记）
+    const lagOf = (k) => samples.map((s) => s.lag?.[k]).filter((v) => typeof v === 'number');
+    const lagMax = (k) => (lagOf(k).length ? Math.max(...lagOf(k)) : null);
+    const lagP95 = (k) => { const xs = lagOf(k).sort((a, b) => a - b); return qOf(xs, 0.95); };
+    const lagSummary = {
+      docDeliveryLagSeconds: { max: lagMax('docDeliverySeconds'), p95: lagP95('docDeliverySeconds') },
+      projectionPendingAgeSeconds: { max: lagMax('projectionPendingAgeSeconds'), p95: lagP95('projectionPendingAgeSeconds') },
+      mediaFactOutboxLag: { max: lagMax('mediaFactOutbox'), p95: lagP95('mediaFactOutbox') },
+      mediaMaterializeLag: { max: lagMax('mediaMaterialize'), p95: lagP95('mediaMaterialize') },
+      appliedUnpersistedMax: lagMax('appliedUnpersisted'),
+    };
     const mins = Math.max(OPTS.duration, 1 / 60);
     const spoolGrowth = Math.max(0, (finalS.spoolBytes ?? 0) - (baseline.spoolBytes ?? 0)) / mins;
-    console.log(`[soak] 汇总：edits=${edits} connErrors=${connErrors} frameP99=${frameP99 ?? frameNA} storeP99=${fmtMs(storeP99)} maxRSS=${(maxRss / 1048576).toFixed(1)}MB maxHeap=${(maxHeap / 1048576).toFixed(1)}MB maxLoadedDocs=${maxDocs} spoolGrowth=${spoolGrowth.toFixed(1)}B/min`);
+    console.log(`[soak] 汇总：edits=${edits} connErrors=${connErrors} frameP95=${frameP95 ?? frameNA} frameP99=${frameP99 ?? frameNA} storeP99=${fmtMs(storeP99)} maxRSS=${(maxRss / 1048576).toFixed(1)}MB maxHeap=${(maxHeap / 1048576).toFixed(1)}MB maxLoadedDocs=${maxDocs} spoolGrowth=${spoolGrowth.toFixed(1)}B/min`);
+    console.log(`[soak] lag 族（T19 证据）：deliveryLag=${lagSummary.docDeliveryLagSeconds.p95 ?? 'n/a'}s(p95)/${lagSummary.docDeliveryLagSeconds.max ?? 'n/a'}s(max) outboxLag=${lagSummary.mediaFactOutboxLag.p95 ?? 'n/a'}s materializeLag=${lagSummary.mediaMaterializeLag.p95 ?? 'n/a'}s appliedUnpersistedMax=${lagSummary.appliedUnpersistedMax ?? 'n/a'}（null=序列未上报——旧构建缺 gauge）`);
     const noKnee = (storeP99 === null || (Number.isFinite(storeP99) && storeP99 <= 1000));
     console.log(`[soak] runbook 数①并发容量上限：${noKnee ? `本档 ${OPTS.docs} docs × ${OPTS.clients} conns 无拐点（storeP99≤1s）→ 容量上限 ≥ ${OPTS.docs}×${OPTS.clients}（单档下界——正式档多档跑归 T18）` : `本档见拐点（storeP99>1s）——容量上限 < ${OPTS.docs}×${OPTS.clients}`}`);
     const cap = Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) > 0 ? Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) : 256 * 1024 * 1024;
@@ -295,7 +353,9 @@ async function runSoak() {
       harness: 'collab-soak', mode: 'soak', ts: new Date().toISOString(), api: API,
       workerMetricsUrl: WORKER_METRICS_URL,   // T29-I：null=单端点档；非 null 时 samples[].worker 为 per-role 嵌套样本
       docs: OPTS.docs, clients: OPTS.clients, rateMs: OPTS.rate, durationMin: OPTS.duration,
-      counts: { edits, connErrors }, frameP99, storeP99,
+      counts: { edits, connErrors }, frameP95, frameP99, storeP99, frameMaxBytes,
+      seedNodes: OPTS.seedNodes || undefined, docBytes,   // T19：10k 造档档数+doc 全量编码字节（<8MB 断言面）
+      lag: lagSummary,   // T19（P1#1②）：四 lag gauge 采样时序 max/p95+applied_unpersisted 稳态判读
       maxRssBytes: maxRss, maxHeapBytes: maxHeap, maxLoadedDocs: maxDocs, spoolGrowthPerMin: spoolGrowth,
       samples,
     });

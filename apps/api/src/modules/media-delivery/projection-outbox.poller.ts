@@ -46,6 +46,7 @@ import { CollabDocumentService, type ExecStatusPatch } from '../collab/collab-do
 import { SPOOL_DEADLINE_MS } from '../collab/collab-persistence.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { artifactProjectionOrphanRefundFailTotal, artifactProjectionOutcomeTotal, artifactProjectionPendingAgeSeconds } from './projection-outbox.metrics';
+import { docDeliveryLagSeconds, docDeliveryAppliedUnpersisted } from './delivery-lag.metrics';
 import { BindingReconcileService } from './binding-reconcile.service';
 
 // ── poller/claim 参数（MaterializeJob/IntentReconcile 同族纪律：常数不进 env——热循环红线非立即重投） ──
@@ -316,6 +317,11 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       flush = { kind: 'retry', reason: 'failed' };
       this.logger.warn(`[projection] flushDocument 意外抛错（防御档=failed）project=${projectId}: ${(err as Error).message}`);
     }
+    // T19（spec :518）：applied_unpersisted gauge——persisted ⇒ 0；spooled/failed（apply 已做未持久）
+    // ⇒ 本组行数（fast path 行未 apply——不计；稳态目标=0，spool 回灌后下轮归零）
+    docDeliveryAppliedUnpersisted.set(
+      flush.kind === 'persisted' ? 0 : deliverable.length,
+    );
 
     // ⑥ 逐行 recheck+mark（fast path 同判定——等值是内存态判定，projected 需 flush persisted 背书）
     const flushLoop = [...deliverable, ...fastPath];
@@ -492,7 +498,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     const rows = await this.prisma.$queryRaw<{ oldest: Date | null }[]>(Prisma.sql`
       SELECT min("createdAt") AS "oldest" FROM "ArtifactProjection" WHERE "state" IN ('pending', 'projecting')`);
     const oldest = rows[0]?.oldest;
-    artifactProjectionPendingAgeSeconds.set(oldest ? (Date.now() - oldest.getTime()) / 1000 : 0);
+    const seconds = oldest ? (Date.now() - oldest.getTime()) / 1000 : 0;
+    artifactProjectionPendingAgeSeconds.set(seconds);
+    docDeliveryLagSeconds.set(seconds);   // T19（spec :518 钉名面）——同查询同值（help 互注）
   }
 }
 
