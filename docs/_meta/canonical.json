@@ -34,10 +34,13 @@
     },
     {
       "path": "docs/superpowers/full-stack-backup.md",
-      "criteria": "C4",
+      "criteria": "C1",
       "evidence": [
-        "入引用自 docs/superpowers/collab-ops-runbook.md",
-        "入引用自 docs/superpowers/tech-debt.md"
+        {
+          "src": "scripts/deploy-sh-pgrestore.test.mjs",
+          "line": 5,
+          "text": "//     恢复语义权威 full-stack-backup.md §3，此处只产命令不复刻语义）；"
+        }
       ]
     },
     {
