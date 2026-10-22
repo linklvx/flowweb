@@ -32,7 +32,14 @@ export type EditableCommandName = (typeof EDITABLE_COMMAND_NAMES)[number];
 export const isActiveViewerSession = (s: CanvasState): boolean =>
   s.hydration === 'ready' && (s.collabReadOnly || s.wsAuthNotice?.terminal === true);
 
-/** 七命令只读裁决单源：viewer 会话 → 全七命令 false（拒写）；其余 true（非只读域——legacy 行为）。 */
+/** 七命令只读裁决单源：viewer 会话 → 全七命令 false（拒写）；其余 true（非只读域——legacy 行为）。
+ *  【T17-3 登记收口（T19·P2-7 裁定）：七命令外 cs 结构 action 无门=维持登记（程序化旁路面）】
+ *  裁定理由：cs 结构 action（patchGroupDataInner 等直接 setState 面）的写者三类——①命令入口
+ *  （runCommand/dispatch 七命令——已过本门+canEdit 双门）；②投影/reconcile 面（doc 权威镜像
+ *  ——viewer 会话合法只读渲染，禁拦）；③残余程序化直调点（均为用户交互事件驱动，事件源组件
+ *  在 viewer 态已禁用交互/或写值随即被下轮投影覆盖恢复）。对③逐点补门=全仓 setState 写者盘点
+ *  面大而收益为瞬态 UI 假象（doc 权威不变、无持久化路径）；结构性根修（cs 写者 registry 化
+ *  ——geometryTrap 同族）登记 Y2 需求池。 */
 export function canEditCommand(command: EditableCommandName, s: CanvasState): boolean {
   void command; // 裁决与命令类型无关（单源一致拒写）——参数留作门挂点诊断/未来命令级策略缝
   return !isActiveViewerSession(s);

@@ -27,7 +27,9 @@ import { uploadImageBlob } from '@/utils/mediaUploadUtils';
 import { downloadMediaFile } from '@/utils/mediaDownload';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 // O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——三份逐字重复收编；census 定义点=1）
-import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds } from '@flowweb/shared';
+// T17 登记收口（T19）：applyIntrinsicFit 换芯+natural 尺寸 facts 数据源（mediaFacts natural——
+// 服务端 ffprobe 固有尺寸；DOM 未加载也可定尺寸，display 契约后到同值幂等）
+import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBounds } from '@flowweb/shared';
 // B6-1（Spec B）：handle 可用性单源谓词——videoGen 现状保留（无 editMode 门、双侧常开=谓词默认分支）
 import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
@@ -260,6 +262,8 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
 
   // O0b-2 (ii) 内容事件写者（loadedmetadata——仅 DOM 事件触发；禁测量/cs.wh/data 变更触发）：
   // 决策纯函数只吃事件参数；changed⇒envelope 提交（reportNodeSize 同值去重）；沿用档零写。
+  // T17 登记收口（T19）：决策换芯 applyIntrinsicFit（natural=mediaFacts 固有尺寸优先——服务端
+  // ffprobe facts；display=浏览器报告回落源。contentEventSize 同族沿用/重算分档——决策一致性等价）。
   const handleVideoLoad = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     const vidW = vid.videoWidth || 548;
@@ -270,12 +274,13 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
       ? { width: csCur.width, height: csCur.height }
       : null;
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
-    const decision = contentEventSize({
+    const factNatural = mediaFact?.natural;
+    const decision = applyIntrinsicFit({
       currentWH,
-      existingAspectRatio: currentData?.aspectRatio,
-      naturalW: vidW,
-      naturalH: vidH,
+      display: { width: vidW, height: vidH },
+      natural: factNatural ? { width: factNatural.width, height: factNatural.height } : null,
       bounds: VID_SIZE_BOUNDS,
+      existingAspectRatio: currentData?.aspectRatio,
     });
 
     setVidSize({ w: decision.size.width, h: decision.size.height });  // 局部态保留（等价守卫②）
@@ -283,7 +288,32 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
       updateConfig(id, { aspectRatio: decision.aspectRatio } as any);  // aspectRatio 键保留（守卫③）
       reportNodeSize(id, decision.size.width, decision.size.height);
     }
-  }, [id, updateConfig]);
+  }, [id, updateConfig, mediaFact]);
+
+  // T17 登记收口（T19）：natural 尺寸 facts 数据源——facts natural 到达而 DOM 未加载（processing
+  // 态可播 seek 占位/慢加载窗）时先行决策（applyIntrinsicFit natural 源=store 数据源语义）；display
+  // 契约后到=沿用档零写（比例一致）；vidSize 已定（挂载恢复/DOM 事件）零动作。
+  const factNatural = mediaFact?.natural;
+  useEffect(() => {
+    if (!factNatural || vidSize) return;
+    const csCur = useCanvasStore.getState().nodes.find((n: any) => n.id === id);
+    const currentWH = csCur?.width != null && csCur?.height != null
+      ? { width: csCur.width, height: csCur.height }
+      : null;
+    const currentData = useNodeStore.getState().nodes[id]?.data as any;
+    const decision = applyIntrinsicFit({
+      currentWH,
+      natural: { width: factNatural.width, height: factNatural.height },
+      bounds: VID_SIZE_BOUNDS,
+      existingAspectRatio: currentData?.aspectRatio,
+    });
+    setVidSize({ w: decision.size.width, h: decision.size.height });
+    setNaturalSize({ w: factNatural.width, h: factNatural.height });
+    if (decision.changed) {
+      updateConfig(id, { aspectRatio: decision.aspectRatio } as any);
+      reportNodeSize(id, decision.size.width, decision.size.height);
+    }
+  }, [factNatural, vidSize, id, updateConfig]);
 
   useEffect(() => {
     setVidSize(null);

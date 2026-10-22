@@ -49,7 +49,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // T17：序域片（allocator import/persistArrangeOrder helper/addNodeInner order 键/arrange 读序
     // 换芯/duplicate·paste allocator）+cells→slot 片（syncStoryboardCells 族）——13 行整体漂移（集合不变）
     // T18 顺修③：persistArrangeOrder slot 域防御过滤 +4 行——13 行尾部两行 1836,1837→1840,1841 漂移（集合不变）
-    'stores/canvasStore.ts': [1002, 1003, 1009, 1010, 1065, 1066, 1137, 1138, 1144, 1145, 1297, 1840, 1841],
+    'stores/canvasStore.ts': [1034, 1035, 1041, 1042, 1097, 1098, 1169, 1170, 1176, 1177, 1329, 1872, 1873],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [49, 50],
     'pages/canvas/video-editor/export/product-node.ts': [15],
@@ -66,7 +66,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
     'pages/canvas/components/nodes/ImageGenNode.tsx': [166, 167], // Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166；Y1a T11：nodeStore 具名 import+collabApi import +2——→167,168
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
-    'pages/canvas/components/nodes/VideoGenNode.tsx': [403],   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403（前注 T6③ 398→399 随迁）
+    'pages/canvas/components/nodes/VideoGenNode.tsx': [433],   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403；T19 登记收口：applyIntrinsicFit 换芯+facts natural 决策 effect +30——403→433（集合不变）
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],
     'pages/canvas/components/groups/addOutput.ts': [79, 80, 137, 138, 198, 199],
     'pages/canvas/components/RemoteCursors.tsx': [26, 27],   // Y0b-4 T12 E38：selection 高亮层（overlay 屏幕空间）

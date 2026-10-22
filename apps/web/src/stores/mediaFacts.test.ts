@@ -12,8 +12,8 @@ vi.mock('@/stores/teamStore', () => ({
 }));
 
 import {
-  mergeFactRows, stagePendingFact, consumePendingFacts, factVersionNewer, parseFactRow,
-  PENDING_FACTS_TTL_MS, type MediaFactEntry,
+  mergeFactRows, stagePendingFact, stagePendingFactRows, consumePendingFacts, factVersionNewer, parseFactRow,
+  PENDING_FACTS_TTL_MS, PENDING_FACTS_CAP, type MediaFactEntry,
 } from './mediaFacts';
 import { useNodeStore } from './nodeStore';
 import { resetMediaFacts, onDocRefsChanged, pullMediaFactsFull, pullMediaFactsForIds } from './mediaFactsRuntime';
@@ -33,11 +33,57 @@ describe('T16 mediaFacts 纯模块', () => {
     expect(factVersionNewer('1', 'junk')).toBe(true); // stored 非法=最老——新合法版本可覆盖
   });
 
-  it('parseFactRow：state 类透传（errorCode/error）；natural 类/坏 status 忽略', () => {
+  it('parseFactRow：state 类透传（errorCode/error）；T17 登记收口：natural 类进消费面（width/height/rotation）；坏 payload 忽略', () => {
     expect(parseFactRow({ factVersion: '1', factType: 'state', payload: { status: 'failed', errorCode: 'MATERIALIZE_FAILED', error: 'x' } }))
       .toMatchObject({ state: 'failed', errorCode: 'MATERIALIZE_FAILED' });
-    expect(parseFactRow({ factVersion: '1', factType: 'natural', payload: { naturalWidth: 1 } })).toBeNull();
+    expect(parseFactRow({ factVersion: '2', factType: 'natural', payload: { naturalWidth: 1920, naturalHeight: 1080, naturalRotation: 90 } }))
+      .toMatchObject({ natural: { width: 1920, height: 1080, rotation: 90 } });   // T17 登记收口（改前红=natural 一律 null）
     expect(parseFactRow({ factVersion: '1', factType: 'state', payload: { status: 'weird' } })).toBeNull();
+    expect(parseFactRow({ factVersion: '1', factType: 'natural', payload: { naturalWidth: 0, naturalHeight: 10 } })).toBeNull();   // 非法尺寸
+  });
+
+  it('T17 登记收口：mergeFactRows 两类行 union 进同 mediaId 条目（state 先到/natural 补入；纯 natural 不建条目）', () => {
+    const m = mergeFactRows(new Map(), [
+      { mediaId: 'm1', facts: [
+        { factVersion: '3', factType: 'state', payload: { status: 'completed' } },
+        { factVersion: '3', factType: 'natural', payload: { naturalWidth: 1280, naturalHeight: 720 } },
+      ] },
+    ]);
+    expect(m.get('m1')?.state).toBe('completed');
+    expect(m.get('m1')?.natural).toEqual({ width: 1280, height: 720, rotation: null });
+    // 纯 natural 行（state 未到——retention 窗罕见形态）不建条目（state 必需）
+    const m2 = mergeFactRows(new Map(), [
+      { mediaId: 'm2', facts: [{ factVersion: '5', factType: 'natural', payload: { naturalWidth: 1, naturalHeight: 2 } }] },
+    ]);
+    expect(m2.get('m2')).toBeUndefined();
+    // natural 后到补入「无 natural 的既有 state 条目」（等值版本正交补充豁免——严格单调门会吞）
+    const mStateOnly = mergeFactRows(new Map(), [
+      { mediaId: 'm1', facts: [{ factVersion: '3', factType: 'state', payload: { status: 'completed' } }] },
+    ]);
+    const m3 = mergeFactRows(mStateOnly, [{ mediaId: 'm1', facts: [{ factVersion: '3', factType: 'natural', payload: { naturalWidth: 800, naturalHeight: 600 } }] }]);
+    expect(m3.get('m1')?.natural).toEqual({ width: 800, height: 600, rotation: null });
+    expect(m3.get('m1')?.state).toBe('completed');   // state 面不被 natural-only 行覆盖
+    // 等值版本且 base 已有 natural——重放忽略（幂等：同版本不可变）
+    const m4 = mergeFactRows(m, [{ mediaId: 'm1', facts: [{ factVersion: '3', factType: 'natural', payload: { naturalWidth: 800, naturalHeight: 600 } }] }]);
+    expect(m4.get('m1')?.natural).toEqual({ width: 1280, height: 720, rotation: null });
+  });
+
+  it('T16 登记收口（T19）：stagePendingFactRows 两类行 union 暂存+容量帽（超帽逐出最早到期——静止会话防滞留）', () => {
+    // 两类行 union 暂存（改前红=只 stage state 行——natural 丢失）
+    let pending = stagePendingFactRows(new Map(), 'm1', [
+      { factVersion: '1', factType: 'state', payload: { status: 'processing' } },
+      { factVersion: '1', factType: 'natural', payload: { naturalWidth: 640, naturalHeight: 480 } },
+    ], 1_000);
+    expect(pending.get('m1')?.entry.state).toBe('processing');
+    expect(pending.get('m1')?.entry.natural).toEqual({ width: 640, height: 480, rotation: null });
+
+    // 容量帽：PENDING_FACTS_CAP+1 条新暂存 → 最早到期者被逐
+    for (let i = 0; i < PENDING_FACTS_CAP; i += 1) {
+      pending = stagePendingFact(pending, `cap-${i}`, fact(`${i}`, 'processing'), 2_000 + i);
+    }
+    expect(pending.size).toBe(PENDING_FACTS_CAP);   // m1（expiresAt=1000+TTL 最早）被逐
+    expect(pending.has('m1')).toBe(false);
+    expect(pending.size).toBeLessThanOrEqual(PENDING_FACTS_CAP);
   });
 
   it('mergeFactRows：批内升序末者胜+跨 mediaId 独立+旧忽略', () => {

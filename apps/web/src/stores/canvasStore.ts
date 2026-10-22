@@ -88,6 +88,42 @@ export function resolveNodeData(node: Node, nsNodes: Record<string, AppNode>): R
   return ns.data as unknown as Record<string, unknown>;
 }
 
+/** ★T17 登记收口（T19）：cs cells 派生缓存双写者共享核心——命令点 syncStoryboardCells（写槽后
+ *  定点）与 canvasCollabRuntime 写域⑥（doc 侧 slot 权威——水合/远端 reconcile）统一通道：
+ *  slot 取数（ns 真源）+deriveStoryboardCells 派生+同值判定单源于此，两写者只差提交面
+ *  （patchGroupDataInner vs 批量 setState）。返回有变更的分镜组 {groupId, cells}（空=全组同值零写）。 */
+export function computeStoryboardCellsPatch(
+  csNodes: readonly { id: string; parentId?: string | null; type?: string; data?: unknown }[],
+  nsNodes: Readonly<Record<string, { data?: unknown }>>,
+): Array<{ groupId: string; cells: (string | null)[] }> {
+  const sbGroups = csNodes.filter(
+    (n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard',
+  );
+  if (sbGroups.length === 0) return [];
+  const slotOf = (nodeId: string): number | undefined => {
+    const d = nsNodes[nodeId]?.data as Record<string, unknown> | undefined;
+    const slot = d?.slot;
+    return typeof slot === 'number' && Number.isInteger(slot) && slot >= 0 ? slot : undefined;
+  };
+  const childrenByParent = new Map<string, { id: string; data: Record<string, unknown> }[]>();
+  for (const nd of csNodes) {
+    if (nd.parentId == null) continue;
+    const slot = slotOf(nd.id);
+    const rec = { id: nd.id, data: slot != null ? { slot } : {} };
+    const list = childrenByParent.get(nd.parentId);
+    if (list) list.push(rec); else childrenByParent.set(nd.parentId, [rec]);
+  }
+  const patch: Array<{ groupId: string; cells: (string | null)[] }> = [];
+  for (const g of sbGroups) {
+    const cfg = resolveStoryboardConfig((g.data ?? {}) as Record<string, unknown>);
+    const { cells } = deriveStoryboardCells(childrenByParent.get(g.id) ?? [], cfg.gridRows * cfg.gridCols);
+    const cur = (g.data as Record<string, unknown> | undefined)?.cells as (string | null)[] | undefined;
+    if (JSON.stringify(cur ?? null) === JSON.stringify(cells)) continue;   // 同值零写（幂等）
+    patch.push({ groupId: g.id, cells });
+  }
+  return patch;
+}
+
 /** videoEdit 节点删除时级联删 VideoProject（fire-and-forget；失败 console.error 留痕——deleteNode 与 onNodesChange removes 两条路径共用） */
 const cascadeDeleteVideoProject = (nodes: { id: string; type?: string }[], removedIds: string[]) => {
   for (const id of removedIds) {
@@ -646,29 +682,25 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   // 兼容读——GroupNode/StoryboardGroupRenderer/StitchButton 等照读缓存，不触 doc）；doc 面恒无
   // cells（键集表 applyKeySetTable 出口剥除+回流面 doc 写全删）。本派生=deriveStoryboardCells
   // 单源；命令点（写槽后）与 reconcile 写域⑥（doc 侧 slot 权威——水合/远端）共用本缓存写。 ══
-  /** 分镜组容量（capacity 派生不落 doc——gridRows×gridCols 单源解析）。 */
+  /** 分镜组容量（capacity 派生不落 doc——gridRows×gridCols 单源解析；多处消费保留）。 */
   const storyboardCapacityOf = (group: Node): number => {
     const cfg = resolveStoryboardConfig(group.data as Record<string, unknown>);
     return cfg.gridRows * cfg.gridCols;
   };
-  /** 分镜子槽位取数（ns 真源——slot 非 bridge 键不镜像 cs；缺键=undefined）。 */
+  /** 分镜子槽位取数（ns 真源——slot 非 bridge 键不镜像 cs；缺键=undefined；多处消费保留）。 */
   const storyboardChildSlot = (childId: string): number | undefined => {
     const d = useNodeStore.getState().nodes[childId]?.data as unknown as Record<string, unknown> | undefined;
     const slot = d?.slot;
     return typeof slot === 'number' && Number.isInteger(slot) && slot >= 0 ? slot : undefined;
   };
-  /** cs 派生缓存写：deriveStoryboardCells(children slots, capacity) → group data.cells（同值零写；
-   *  纯 cs 面——patchGroupDataInner 通道，零 doc intent）。 */
+  /** cs 派生缓存写：共享核心 computeStoryboardCellsPatch（★T17 登记收口·T19：双写者通道统一——
+   *  与 canvasCollabRuntime 写域⑥同取数/派生/同值判定单源）+命令点定点消费
+   *  （patchGroupDataInner 通道，零 doc intent；同值零写）。 */
   const syncStoryboardCells = (groupId: string): void => {
-    const st = get();
-    const group = st.nodes.find((n) => n.id === groupId);
-    if (!group || group.type !== 'group' || (group.data as any).groupType !== 'storyboard') return;
-    const children = st.nodes.filter((n) => n.parentId === groupId)
-      .map((n) => ({ id: n.id, data: { slot: storyboardChildSlot(n.id) } }));
-    const { cells } = deriveStoryboardCells(children, storyboardCapacityOf(group));
-    const cur = (group.data as any).cells as (string | null)[] | undefined;
-    if (JSON.stringify(cur ?? null) === JSON.stringify(cells)) return;
-    get().patchGroupDataInner(groupId, { cells });
+    const patch = computeStoryboardCellsPatch(get().nodes as any, useNodeStore.getState().nodes as any);
+    for (const p of patch) {
+      if (p.groupId === groupId) get().patchGroupDataInner(groupId, { cells: p.cells });
+    }
   };
 
   /** T17（G54「拖序不持久」order 面）：整理（arrange）后按 laid 序回写层序键——fitOrderBlock

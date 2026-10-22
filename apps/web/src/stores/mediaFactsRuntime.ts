@@ -17,7 +17,7 @@ import { fetchMediaFacts } from '@/api/mediaApi';
 import { useNodeStore } from './nodeStore';
 import { useTeamStore } from './teamStore';
 import {
-  mergeFactRows, stagePendingFact, consumePendingFacts, parseFactRow,
+  mergeFactRows, stagePendingFactRows, consumePendingFacts,
   type MediaFactsResponseRow, type PendingFact,
 } from './mediaFacts';
 
@@ -53,11 +53,9 @@ function ingestRows(rows: readonly MediaFactsResponseRow[], getDocIds: () => Rea
   for (const row of rows) {
     if (docIds.has(row.mediaId)) direct.push(row);
     else {
-      // fact 先于 fileId 到达——暂存短 TTL Map（fileId 到达即消费；TTL 过期丢到下次重连全量拉）
-      for (const f of row.facts) {
-        const entry = parseFactRow(f);
-        if (entry) pendingFacts = stagePendingFact(pendingFacts, row.mediaId, entry, Date.now());
-      }
+      // fact 先于 fileId 到达——暂存短 TTL Map（fileId 到达即消费；TTL 过期丢到下次重连全量拉）。
+      // T17 登记收口：state/natural 两类行 union 暂存（stagePendingFactRows——容量帽在其内）。
+      pendingFacts = stagePendingFactRows(pendingFacts, row.mediaId, row.facts, Date.now());
     }
   }
   if (direct.length > 0) {
