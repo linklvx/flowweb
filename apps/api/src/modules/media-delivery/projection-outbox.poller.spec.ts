@@ -16,6 +16,7 @@ import {
   classifyApplyError,
 } from './projection-outbox.poller';
 import { SPOOL_DEADLINE_MS } from '../collab/collab-persistence.service';
+import { docDeliveryAppliedUnpersisted } from './delivery-lag.metrics';
 
 /** dead 判据消费 T14 契约常量（窄面别名=消费点钉注释——T14 评审命名陷阱收口）。 */
 describe('T15 常量钉值（dead 判据=耗 maxAttempts ∨ failed 档 1h 兜底）', () => {
@@ -188,4 +189,42 @@ describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3�
     expect(r.outcomes.superseded).toBe(1);
     expect(reconciler.requestReconcile).not.toHaveBeenCalled();
   });
+});
+
+describe('★T19 质评 Important#1：doc_delivery_applied_unpersisted 跨 project 累计（tick 全局语义）', () => {
+  const rowOf = (projectId: string, i: number) => ({
+    id: `pr-${projectId}-${i}`, artifactId: `a-${projectId}-${i}`, artifactRev: 1, projectId,
+    nodeId: `n-${projectId}-${i}`, targetField: 'fileId', targetItemId: '', mediaId: `m-${projectId}-${i}`,
+    resultText: null, attempts: 0, createdAt: new Date(),
+  });
+  const gaugeOf = async (): Promise<number> =>
+    (await (docDeliveryAppliedUnpersisted as any).get()).values[0]?.value ?? 0;
+
+  it('双 project：A 组 spooled（2 行）+B 组 persisted ⇒ 终值=2 非 0（改前红=B last-writer-wins 抹 A）；fk 终态档计 0', async () => {
+    const rows = [rowOf('pA', 1), rowOf('pA', 2), rowOf('pB', 1)];
+    const kit = makePoller({ claimRows: rows });
+    // flush 按 project 分档：A=spooled（2 行滞留）/B=persisted
+    (kit.docs.flushDocument as any).mockImplementation(async (pid: string) =>
+      (pid === 'pA' ? { kind: 'retry', reason: 'spooled' } : { kind: 'persisted' }));
+    const r = await kit.poller.tick();
+    expect(r.outcomes['retry-spooled']).toBe(2);   // A 组两行 spooled
+    expect(r.outcomes.projected ?? r.outcomes['fast-path']).toBe(1);   // B 组收敛
+    expect(await gaugeOf()).toBe(2);   // tick 全局累计（改前红=0——B persisted 后写抹掉 A）
+
+    // fk 终态档：行已终态化（orphaned）无待持久语义——计 0 不入累计
+    const kit2 = makePoller({ claimRows: [rowOf('pC', 1)] });
+    (kit2.docs.flushDocument as any).mockImplementation(async () => ({ kind: 'terminal', reason: 'fk' }));
+    await kit2.poller.tick();
+    expect(await gaugeOf()).toBe(0);   // fk 档清零语义（本轮唯一组=终态化零待持久）
+  }, 30_000);
+
+  it('空轮刷新：上轮 spooled 置非 0 后空 claim 轮 ⇒ gauge 归 0（改前红=旧值滞留——空轮/早退不刷新）', async () => {
+    const kit = makePoller({ claimRows: [rowOf('pD', 1)] });
+    (kit.docs.flushDocument as any).mockImplementation(async () => ({ kind: 'retry', reason: 'spooled' }));
+    await kit.poller.tick();
+    expect(await gaugeOf()).toBe(1);
+    const kit2 = makePoller({ claimRows: [] });   // 空轮（零 claim）
+    await kit2.poller.tick();
+    expect(await gaugeOf()).toBe(0);   // tick 头清零（改前红=滞留 1）
+  }, 30_000);
 });

@@ -160,11 +160,15 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     if (this.destroyed) return summary;
     // Important#2（T15 质评）：lag 刷新在一切早退（fenced 零持有/busy 重入/空 claim）之前——每 tick
     // 刷新（无 pending=归零），防 gauge 冻结在陈旧正值违约 metrics help「每 tick 刷新」自述。
+    // T19 质评 Important#1：applied_unpersisted 同纪律 tick 头清零（空轮/fenced 早退不刷新滞留的
+    // 根修）——非 persisted 组行数在循环内累加、循环后一次 set（跨 project last-writer-wins 消除）。
+    docDeliveryAppliedUnpersisted.set(0);
     void this.observeLag().catch(() => {});
     const epoch = this.lease.currentEpoch();
     if (epoch === null) return { ...summary, fenced: true };   // 非 holder——零 claim（等租约）
     if (this.busy) return summary;                             // 防重入（长轮不叠）
     this.busy = true;
+    let unpersisted = 0;
     try {
       const rows = await this.claim();
       summary.claimed = rows.length;
@@ -178,11 +182,13 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       for (const [projectId, prows] of byProject) {
         if (this.destroyed) break;
         const r = await this.processProject(projectId, prows, epoch);
+        unpersisted += r.appliedUnpersisted;   // Important#1：跨 project 累计（各非 persisted 组）
         for (const [k, v] of Object.entries(r.outcomes)) summary.outcomes[k] = (summary.outcomes[k] ?? 0) + (v ?? 0);
         if (r.fenced) { summary.fenced = true; break; }   // fenced 停 claim 等租约——余组本轮放弃
       }
       return summary;
     } finally {
+      docDeliveryAppliedUnpersisted.set(unpersisted);   // 循环后一次 set（含 fenced break 形态——累计至今）
       this.busy = false;
     }
   }
@@ -217,18 +223,21 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     });
   }
 
-  /** 单 project 一组：全序见类头注。返回 outcomes 逐档计数+fenced（本轮放弃信号）。 */
+  /** 单 project 一组：全序见类头注。返回 outcomes 逐档计数+fenced（本轮放弃信号）+
+   *  appliedUnpersisted（T19 Important#1：本组 doc 已 apply 而 flush 未 persisted 的行数——
+   *  persisted ⇒ 0；retry spooled/failed ⇒ deliverable 行数；terminal fk/早退 ⇒ 0〔行已终态化
+   *  或未 apply——无待持久语义〕；累加归 tick 全局）。 */
   private async processProject(
     projectId: string,
     rows: ArtifactProjection[],
     capturedEpoch: bigint,
-  ): Promise<{ outcomes: Partial<Record<string, number>>; fenced: boolean }> {
+  ): Promise<{ outcomes: Partial<Record<string, number>>; fenced: boolean; appliedUnpersisted: number }> {
     const outcomes: Partial<Record<string, number>> = {};
     const inc = (k: OutcomeLabel) => { outcomes[k] = (outcomes[k] ?? 0) + 1; artifactProjectionOutcomeTotal.inc({ outcome: k }); };
     const fencedNow = () => this.lease.currentEpoch() !== capturedEpoch;   // v11.1①：每步前比对
 
     // ① fence 前置（claim→apply 段）：epoch 已动 ⇒ fencedBail 全量释放（不耗 attempts）
-    if (fencedNow()) { await this.fencedBail(rows, inc); return { outcomes, fenced: true }; }
+    if (fencedNow()) { await this.fencedBail(rows, inc); return { outcomes, fenced: true, appliedUnpersisted: 0 }; }
 
     // ② 读 NodeArtifact：rev≠投影锚 ⇒ superseded（终态不重试零 doc 写）
     const artifacts = await this.prisma.nodeArtifact.findMany({
@@ -251,7 +260,7 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       }
       survivors.push({ row, artifact });
     }
-    if (survivors.length === 0) return { outcomes, fenced: false };
+    if (survivors.length === 0) return { outcomes, fenced: false, appliedUnpersisted: 0 };
 
     // ③ 内容等值 fast path 判定（裁决 :53：doc 当前值等值=跳 apply 省写——非权威判据）：
     //    withSession(read) 单次读全部存活行的 doc 当前值。null 等值同判（clear 行复投/已 null
@@ -264,7 +273,7 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     } catch (err) {
       if (classifyApplyError(err, capturedEpoch, this.lease.currentEpoch()) === 'fenced') {
         await this.fencedBail(survivors.map((s) => s.row), inc);
-        return { outcomes, fenced: true };
+        return { outcomes, fenced: true, appliedUnpersisted: 0 };
       }
       // Minor#5（T15 质评）：读失败降级全走 apply（equalFlags 全 false）——真失败计数由逐行 apply
       // 承担（哪行 apply 成功哪行耗尽各归各），不整组预支 attempts。
@@ -301,12 +310,12 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         if (classifyApplyError(err, capturedEpoch, this.lease.currentEpoch()) === 'fenced') {
           // fenced：本行+未处理行+已 apply/快道未 mark 行全数释放（fencedBail）——本轮放弃
           await this.fencedBail([s.row, ...survivors.slice(i + 1).map((x) => x.row), ...fastPath.map((x) => x.row), ...deliverable.map((x) => x.row)], inc);
-          return { outcomes, fenced: true };
+          return { outcomes, fenced: true, appliedUnpersisted: 0 };
         }
         inc(await this.failRow(s.row, err) ? 'dead' : 'retry-failed');   // 真失败——耗 attempts
       }
     }
-    if (deliverable.length === 0 && fastPath.length === 0) return { outcomes, fenced: false };
+    if (deliverable.length === 0 && fastPath.length === 0) return { outcomes, fenced: false, appliedUnpersisted: 0 };
 
     // ⑤ 批尾一次 flush（T14 窄接口——投影推进唯一凭据；capturedEpoch 提交前校验在彼①段）
     let flush: Awaited<ReturnType<CollabDocumentService['flushDocument']>>;
@@ -317,11 +326,14 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       flush = { kind: 'retry', reason: 'failed' };
       this.logger.warn(`[projection] flushDocument 意外抛错（防御档=failed）project=${projectId}: ${(err as Error).message}`);
     }
-    // T19（spec :518）：applied_unpersisted gauge——persisted ⇒ 0；spooled/failed（apply 已做未持久）
-    // ⇒ 本组行数（fast path 行未 apply——不计；稳态目标=0，spool 回灌后下轮归零）
-    docDeliveryAppliedUnpersisted.set(
-      flush.kind === 'persisted' ? 0 : deliverable.length,
-    );
+    // T19（spec :518·质评 Important#1 改道）：本组 applied_unpersisted 改返回值（tick 全局累计
+    // 一次 set——原组内直 set 的跨 project last-writer-wins 缺口根修）。persisted ⇒ 0；
+    // spooled/failed（apply 已做未持久）⇒ deliverable 行数（fast path 行未 apply——不计）；
+    // terminal fk ⇒ 0（行已终态化无待持久语义）；稳态目标=0，spool 回灌后下轮归零。
+    const appliedUnpersisted
+      = flush.kind === 'persisted' || (flush.kind === 'terminal' && flush.reason === 'fk')
+        ? 0
+        : deliverable.length;
 
     // ⑥ 逐行 recheck+mark（fast path 同判定——等值是内存态判定，projected 需 flush persisted 背书）
     const flushLoop = [...deliverable, ...fastPath];
@@ -337,7 +349,7 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         // Minor#3：flush 段 fenced 出口=当前行+余行全量释放（原仅当前行——余行滞 projecting
         // 等 lease 过期 60s 才可复投，组内语义不一致）——停 claim 等租约
         await this.fencedBail(flushLoop.slice(fi).map((x) => x.row), inc);
-        return { outcomes, fenced: true };
+        return { outcomes, fenced: true, appliedUnpersisted: 0 };
       }
       if (flush.kind === 'retry' && flush.reason === 'spooled') {
         await this.releaseRows([s.row], { backoffMs: PROJECTION_BACKOFF_BASE_MS });   // G58：不耗 attempts 无限重试
@@ -364,7 +376,7 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       // drain 周期收敛，不阻塞本循环）。
       this.reconciler.requestReconcile(projectId);
     }
-    return { outcomes, fenced: false };
+    return { outcomes, fenced: false, appliedUnpersisted };
   }
 
   /** 行级 mark（runId CAS——lease 过期被新代 reclaim 后 0 行放弃，不污染新代状态机）。
