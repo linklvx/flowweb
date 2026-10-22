@@ -126,17 +126,25 @@ async function resetQueues(env, APPLY) {
     console.warn(`[dev-reset-canvas] Redis 不可达（${e.message}）——队列/键清理跳过（警告不失败）`);
     return;
   }
+  // T18 评审 P2#4：每队列 duplicate 连接显式持有+finally 全量 quit——Queue.close() 不保证关闭
+  // 注入的 ioredis 实例（实测 10 连接残留⇒进程不退出 EXIT=124）；禁裸 redis.duplicate() 丢弃引用。
+  const conns = [];
   try {
     for (const name of Object.values(QUEUE_NAMES)) {
-      const q = new Queue(name, { connection: redis.duplicate() });
-      const before = await q.getJobCounts().catch(() => null);
-      if (APPLY) {
-        await q.obliterate({ force: true });
-        console.log(`[dev-reset-canvas] 队列 ${name} obliterate（清前 job 计数=${before ? JSON.stringify(before) : 'n/a'}）`);
-      } else {
-        console.log(`[dev-reset-canvas] dry-run 队列 ${name}：job 计数=${before ? JSON.stringify(before) : 'n/a'}（计划 obliterate）`);
+      const conn = redis.duplicate();
+      conns.push(conn);
+      const q = new Queue(name, { connection: conn });
+      try {
+        const before = await q.getJobCounts().catch(() => null);
+        if (APPLY) {
+          await q.obliterate({ force: true });
+          console.log(`[dev-reset-canvas] 队列 ${name} obliterate（清前 job 计数=${before ? JSON.stringify(before) : 'n/a'}）`);
+        } else {
+          console.log(`[dev-reset-canvas] dry-run 队列 ${name}：job 计数=${before ? JSON.stringify(before) : 'n/a'}（计划 obliterate）`);
+        }
+      } finally {
+        await q.close().catch(() => {});
       }
-      await q.close();
     }
     // ── Redis 键（安全门④：固定模式清单 SCAN——禁 FLUSHDB） ──
     for (const pat of REDIS_PATTERNS) {
@@ -150,11 +158,33 @@ async function resetQueues(env, APPLY) {
       console.log(`[dev-reset-canvas] Redis ${pat}：${APPLY ? `${deleted} 键删除` : `${found.length} 键（计划清）`}`);
     }
   } finally {
-    await redis.quit().catch(() => {});
+    await Promise.allSettled([...conns.map((c) => c.quit()), redis.quit()]);   // 全连接收口（进程可退出）
   }
 }
 
 // ── MinIO：三前缀清（不可达容忍——警告跳过） ──
+/** 前缀清除核（可注入 s3 客户端——元测试伪客户端直跑真循环：分页枚举+千件批删）。
+ *  T18 评审 P1#2：本核此前引用未定义 PREFIXES（ReferenceError 被 catch 吞成「MinIO 不可达」
+ *  ——apply 模式对象永不清理且静默伪装）；抽出可注入核+运行时断言测试防该类死码回潮。 */
+async function purgeS3Prefixes(s3, bucket, prefixes, apply, { ListObjectsV2Command, DeleteObjectsCommand }) {
+  const out = [];
+  for (const prefix of prefixes) {
+    let token; let total = 0; const objects = [];
+    do {
+      const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+      for (const o of page.Contents ?? []) { objects.push({ Key: o.Key }); total++; }
+      token = page.NextContinuationToken;
+    } while (token);
+    if (apply) {
+      for (let i = 0; i < objects.length; i += 1000) {
+        await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects.slice(i, i + 1000) } }));
+      }
+    }
+    out.push({ prefix, total, deleted: apply ? objects.length : 0 });
+  }
+  return out;
+}
+
 async function resetMinio(env, APPLY) {
   try {
     const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = requireApi('@aws-sdk/client-s3');
@@ -167,19 +197,8 @@ async function resetMinio(env, APPLY) {
       requestHandler: { connectionTimeout: 2_000, requestTimeout: 5_000 },   // 不可达快失败（默认无超时=挂起——实测 127.0.0.1:9000 常未启动）
     });
     const bucket = env.MINIO_BUCKET ?? 'flowai';
-    for (const prefix of PREFIXES) {
-      let token; let total = 0; const objects = [];
-      do {
-        const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
-        for (const o of page.Contents ?? []) { objects.push({ Key: o.Key }); total++; }
-        token = page.NextContinuationToken;
-      } while (token);
-      if (APPLY) {
-        for (let i = 0; i < objects.length; i += 1000) {
-          await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects.slice(i, i + 1000) } }));
-        }
-      }
-      console.log(`[dev-reset-canvas] MinIO ${prefix}：${APPLY ? `${objects.length} 对象删除` : `${total} 对象（计划清）`}`);
+    for (const r of await purgeS3Prefixes(s3, bucket, MINIO_PREFIXES, APPLY, { ListObjectsV2Command, DeleteObjectsCommand })) {
+      console.log(`[dev-reset-canvas] MinIO ${r.prefix}：${APPLY ? `${r.deleted} 对象删除` : `${r.total} 对象（计划清）`}`);
     }
   } catch (e) {
     console.warn(`[dev-reset-canvas] MinIO 不可达/失败（${e.message}）——对象清理跳过（警告不失败；127.0.0.1:9000 本机常未启动）`);
@@ -202,7 +221,7 @@ function printIdbGuide() {
   console.log('[dev-reset-canvas] IDB（浏览器端，脚本无法清）：DevTools → Application → IndexedDB → 删除全部 flowweb:collab:* 前缀库（四维缓存键 uid:pid:g<gen>:s<schema>——本地 doc 快照）');
 }
 
-// ── 元测试导出面（dev-reset-canvas.test.mjs 消费——安全门④路径限定的静态断言载体） ──
+// ── 元测试导出面（dev-reset-canvas.test.mjs 消费——静态锚+purgeS3Prefixes 运行时断言载体） ──
 export const RESET_TABLES = TABLES;
 export const REDIS_PATTERNS = [
   'videoWork:process:*',        // doc 快照缓存（版本键随 v3 bump——旧空间失效清理）
@@ -211,6 +230,7 @@ export const REDIS_PATTERNS = [
   'lock:video-separate:*',      // 分离幂等锁
 ];
 export const MINIO_PREFIXES = ['temp/', 'uploads/', 'results/'];   // buildKey 词表单源对齐（'artifacts'=results/）
+export { purgeS3Prefixes };   // T18 评审 P1#2：可注入核（伪 s3 客户端直跑真循环——防 PREFIXES 类死码回潮）
 export function isLocalDbHost(url) {
   try { return ['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname); }
   catch { return false; }   // 非法 URL=不可判定=拒（fail-closed）

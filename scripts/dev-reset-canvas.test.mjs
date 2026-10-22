@@ -52,3 +52,62 @@ test('安全门③④：默认 dry-run（--apply 缺席才执行）+ 路径限�
   assert.equal(isLocalDbHost('not-a-url'), false);   // 非法 URL=fail-closed 拒
   // ③ dry-run 默认：--apply 才进执行面（main 消费 APPLY 门——静态面由安全门①②子进程红测承载拒执行序）
 });
+
+test('T18 评审 P1#2 运行时断言：purgeS3Prefixes 伪客户端直跑真循环——apply 档三前缀全枚举（分页拼接）+千件批删；dry-run 零删除（防 PREFIXES 类未定义死码被 catch 吞）', async () => {
+  const { purgeS3Prefixes, MINIO_PREFIXES } = await import('./dev-reset-canvas.mjs');
+  // 伪 S3：temp/ 两页（1+2 对象）+uploads/ 一页空+results/ 一页 1500 对象（跨千件批界）
+  const store = new Map([
+    ['temp/', [
+      { p: [{ Key: 'temp/u1/a.bin' }], next: 'T2' }, { p: [{ Key: 'temp/u2/b.bin' }, { Key: 'temp/u2/c.bin' }], next: undefined },
+    ]],
+    ['uploads/', [{ p: [], next: undefined }]],
+    ['results/', [{ p: Array.from({ length: 1500 }, (_, i) => ({ Key: `results/g/${i}.bin` })), next: undefined }]],
+  ]);
+  const deleted = [];
+  const sends = [];
+  const fakeCmds = {
+    // 命令对象按构造参区分（真核只读 .input 形态——伪命令保留同构面）
+    ListObjectsV2Command: class { constructor(input) { this.input = input; } },
+    DeleteObjectsCommand: class { constructor(input) { this.input = input; } },
+  };
+  const s3 = {
+    async send(cmd) {
+      sends.push(cmd.constructor.name);
+      if (cmd instanceof fakeCmds.ListObjectsV2Command) {
+        const page = store.get(cmd.input.Prefix).shift();
+        return { Contents: page.p, NextContinuationToken: page.next };
+      }
+      deleted.push(...cmd.input.Delete.Objects.map((o) => o.Key));
+      return {};
+    },
+  };
+  // apply 档：枚举=3+1500、删除分两批（1000+500）、逐前缀报告
+  const out = await purgeS3Prefixes(s3, 'flowai', MINIO_PREFIXES, true, fakeCmds);
+  assert.deepEqual(out.map((r) => [r.prefix, r.total, r.deleted]), [
+    ['temp/', 3, 3], ['uploads/', 0, 0], ['results/', 1500, 1500],
+  ]);
+  assert.equal(deleted.length, 1503);
+  assert.ok(deleted.includes('temp/u2/c.bin') && deleted.includes('results/g/1499.bin'));
+  const deleteBatches = sends.filter((n) => n === 'DeleteObjectsCommand').length;
+  assert.equal(deleteBatches, 3, 'results/ 1500 件=1000+500 两批 + temp/ 3 件一批');   // 千件批界（1500/1000=2 批）
+  // dry-run 档：同枚举零删除（store 重建——apply 轮已消费分页）
+  const store2 = new Map([
+    ['temp/', [
+      { p: [{ Key: 'temp/u1/a.bin' }], next: 'T2' }, { p: [{ Key: 'temp/u2/b.bin' }, { Key: 'temp/u2/c.bin' }], next: undefined },
+    ]],
+    ['uploads/', [{ p: [], next: undefined }]],
+    ['results/', [{ p: Array.from({ length: 1500 }, (_, i) => ({ Key: `results/g/${i}.bin` })), next: undefined }]],
+  ]);
+  s3.send = async (cmd) => {
+    sends.push(cmd.constructor.name);
+    if (cmd instanceof fakeCmds.ListObjectsV2Command) {
+      const page = store2.get(cmd.input.Prefix).shift();
+      return { Contents: page.p, NextContinuationToken: page.next };
+    }
+    deleted.push(...cmd.input.Delete.Objects.map((o) => o.Key));
+    return {};
+  };
+  const dry = await purgeS3Prefixes(s3, 'flowai', MINIO_PREFIXES, false, fakeCmds);
+  assert.deepEqual(dry.map((r) => [r.prefix, r.total, r.deleted]), [['temp/', 3, 0], ['uploads/', 0, 0], ['results/', 1500, 0]]);
+  assert.equal(sends.filter((n) => n === 'DeleteObjectsCommand').length, deleteBatches, 'dry-run 零新增删除调用');
+});
