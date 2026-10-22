@@ -282,7 +282,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
 
   // ↓↓↓ 以下追加进既有外层 describe 内部 ↓↓↓
 
-  it('clone 表 group 保留全部 7 键（R0a——manuallyResized 随 O0b-5 摘键、savedSize 随 O0c-3 全链删）', () => {
+  it("clone 表 group 保留全部 6 键（R0a——manuallyResized 随 O0b-5 摘键、savedSize 随 O0c-3 全链删、cells 随 T18 顺修② 摘键〔Z17'' 派生不落 doc——no-op 死键〕）", () => {
     const input: RawCanvasData = {
       nodes: [rawNode('g1', 'group', {
         groupType: 'storyboard', cells: ['n1', null], name: '分镜',
@@ -297,7 +297,7 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
       whitelist: CLONE_WHITELIST,
     });
     expect(Object.keys(out.nodes[0].data).sort()).toEqual(
-      ['cells', 'collapsed', 'color', 'groupType', 'name', 'nameCustom', 'storyboard'].sort(),
+      ['collapsed', 'color', 'groupType', 'name', 'nameCustom', 'storyboard'].sort(),   // cells 剥（T18）
     );
   });
 

@@ -59,34 +59,21 @@ export class VideoWorkCloneService {
     ]).finally(() => clearTimeout(timer)); // 第八轮：与 withTimeout 同款清理，防悬挂定时器
   }
 
-  /** 四元重映射（spec §4.7 红线）：id / parentId / edges source+target / group.data.cells。
-   *  cells 三分支一律不抛（悬空 id 是可达真实状态）；禁止 idMap.get(id) || id 兜底。 */
+  /** 三元重映射（spec §4.7 红线）：id / parentId / edges source+target。
+   *  T18 顺修②：group.data.cells 重映射段删除（Z17'' cells→slot 派生后 CLONE_WHITELIST 无 cells
+   *  键——重映射前已被白名单剥除，段为不可达死代码；格位=子 slot 随子节点 id 重映射承载）。 */
   private remapIds(nodes: FilteredNode[], edges: FilteredEdge[], rawNodes: RawNode[]): { nodes: any[]; edges: FilteredEdge[] } {
-    const droppedIds = new Set(
-      rawNodes
-        .filter(n => n.type === 'videoEdit')
-        .map(n => n.id),
-    );
     const idMap = new Map<string, string>();
     let seq = 0;
     const newId = () => `vw${Date.now().toString(36)}_${seq++}`;
     for (const n of nodes) idMap.set(n.id, newId());
 
     const remapped = nodes.map(n => ({ ...n, id: idMap.get(n.id)!, parentId: n.parentId ? (idMap.get(n.parentId) ?? null) : n.parentId }));
-    // parentId 指向被剥/悬空 → null（与 cells 同语义降级，勿一条抛一条兜）
+    // parentId 指向被剥/悬空 → null（降级不兜底——droppedIds 随 cells 段删除无消费面）
+    void rawNodes;
     const remappedEdges = edges
       .filter(e => idMap.has(e.source) && idMap.has(e.target))
       .map(e => ({ ...e, source: idMap.get(e.source)!, target: idMap.get(e.target)! }));
-
-    for (const n of remapped) {
-      if (n.type !== 'group' || !Array.isArray(n.data.cells)) continue;
-      n.data.cells = (n.data.cells as (string | null)[]).map(c => {
-        if (c === null || c === undefined) return null;      // 空宫格占位保持 null
-        if (droppedIds.has(c)) return null;                   // 被剥槽位 → null
-        const mapped = idMap.get(c);
-        return mapped ?? null;                                // 悬空 id → null（禁 || c 兜底）；数组长度不变
-      });
-    }
     return { nodes: remapped, edges: remappedEdges };
   }
 }

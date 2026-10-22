@@ -76,7 +76,7 @@ describe('VideoWorkCloneService.clone', () => {
     expect(rateLimiter.checkUserRateLimit).toHaveBeenCalledWith('u1', 'video-work:clone', 3600, 10);
   });
 
-  it('四元重映射：videoEdit 剥除（批5-1 后 shadow- id 不剥——普通节点照常 remap）；parentId/cells 换新 id；悬空与被剥槽位 → null 且长度不变', async () => {
+  it('三元重映射（T18 顺修②：cells 段随死键删——克隆输入经 CLONE_WHITELIST 剥 cells，格位=子 slot 随子 id 重映射承载）：videoEdit 剥除（批5-1 后 shadow- id 不剥——普通节点照常 remap）；克隆体组零 cells 键', async () => {
     setup();
     await svc.clone('w1', 'u1');                                  // 返回 { projectId }——断言走 create 收参（第六轮：clone 不返回 nodes，旧解构是 TS2339 + undefined.find）
     const passedNodes = projectService.create.mock.calls[0][2];   // create(title, userId, nodes, edges) 的第 3 参
@@ -84,17 +84,13 @@ describe('VideoWorkCloneService.clone', () => {
     const child1 = passedNodes.find((n: any) => n.data?.label === 'L');
     expect(passedNodes.map((n: any) => n.type)).not.toContain('videoEdit');
     expect(passedNodes.find((n: any) => n.data?.prompt === 'shadow-p')).toBeTruthy(); // shadow- id 节点存活并 remap（id 前缀零特殊处理）
-    expect(grp.data.cells).toHaveLength(4);                       // 长度不变
-    expect(grp.data.cells[0]).toBe(child1.id);                    // 存活子 → 新 id
-    expect(grp.data.cells[1]).toBeNull();                          // edit1 被剥 → null
-    expect(grp.data.cells[2]).toBeNull();                          // 原 null 保持
-    expect(grp.data.cells[3]).toBeNull();                          // 悬空 ghost → null
+    expect(grp.data.cells).toBeUndefined();                       // T18：CLONE_WHITELIST 无 cells（Z17'' 派生不落 doc——格位=子 slot）
     expect(child1.parentId).toBe(grp.id);                          // parentId → 新组 id
     expect(child1.width).toBe(320);                                // width/height 透传（spec §7 后端7——第十一轮补，原夹具无此二字段、断言缺口）
     expect(child1.height).toBe(240);
-    // 测试不变量：所有存活子节点新 id 均出现在新 cells 中
+    // 测试不变量：存活子节点 parentId 均指向新组 id（格位成员关系经 slot+parentId 承载）
     const aliveChildren = passedNodes.filter((n: any) => n.parentId === grp.id);
-    for (const c of aliveChildren) expect(grp.data.cells).toContain(c.id);
+    for (const c of aliveChildren) expect(c.parentId).toBe(grp.id);
   });
 
   it('parentId 降级：存活节点 parentId 指向被剥 videoEdit 节点 → 克隆体 null（与 cells 同语义）', async () => {
@@ -165,17 +161,17 @@ describe('VideoWorkCloneService.clone', () => {
     expect(projectService.create.mock.calls[0][1]).toBe('u1');
   });
 
-  it('克隆保留组 storyboard + 折叠态（G1 行为断言——CLONE_WHITELIST 7 键原样保留，savedSize 键已随 O0c-3 全链删）', async () => {
+  it('克隆保留组 storyboard + 折叠态（G1 行为断言——CLONE_WHITELIST 6 键原样保留，savedSize 随 O0c-3、cells 随 T18 顺修② 摘键）', async () => {
     setup();
     await svc.clone('w1', 'u1');
     expect(projectService.create).toHaveBeenCalled(); // 防悬空取参
     const createdNodes = projectService.create.mock.calls[0][2] as any[];
     const group = createdNodes.find((n: any) => n.type === 'group');
     expect(group.data.storyboard).toEqual({ aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
-    // O0b-0：normalizeLoadedCanvas 剥键层整删——clone 直读 CLONE_WHITELIST（group 7 键：O0b-5
-    // 摘 manuallyResized、O0c-3 摘 savedSize）
+    // O0b-0：normalizeLoadedCanvas 剥键层整删——clone 直读 CLONE_WHITELIST（group 6 键：O0b-5
+    // 摘 manuallyResized、O0c-3 摘 savedSize、T18 摘 cells〔Z17'' 派生不落 doc〕）
     expect(group.data.collapsed).toBe(false);
-    expect(group.data.cells).toBeDefined();
+    expect(group.data.cells).toBeUndefined();   // T18：cells 出白名单——格位=子 slot 承载
   });
 
   it('政策断言：媒体引用仍剥离（F20 维持）+ 状态归一 idle（resetStatusIdle 写入语义）', async () => {
