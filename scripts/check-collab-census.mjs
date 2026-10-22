@@ -20,7 +20,9 @@ export function collectProductionFiles() {
   for (const base of bases) {
     const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) return p.includes('test-utils') ? [] : walk(p);
+      // T19：collab-harness=跨子系统收敛 harness 装置目录（provider-convergence.e2e-spec——测试
+      // 基建同 test-utils 口径；.e2e-spec 命名不匹配 \.(spec|test)\. 排除模式，目录级排除收口）。
+      if (e.isDirectory()) return p.includes('test-utils') || p.includes(`${path.sep}collab-harness`) ? [] : walk(p);
       return /\.(ts|tsx)$/.test(e.name) && !/\.(spec|test)\./.test(e.name) ? [p] : [];
     });
     out.push(...walk(base));
