@@ -20,6 +20,8 @@ export { COLLAB_TELEMETRY_EVENT_TYPES, isKnownTelemetryType, sanitizeTelemetryDe
          MAX_TELEMETRY_EVENTS_PER_BATCH, MAX_TELEMETRY_EVENT_BYTES, QUOTA_REJECT_REASONS } from './constants/collab-telemetry';
 export type { CollabTelemetryEventType, CollabTelemetryEvent, TelemetryDetailKeySpec, QuotaRejectReason } from './constants/collab-telemetry';
 export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/collab-protocol';
+// T17 质评 Minor#8：只读命令拒写节流窗单源（web 两消费面共用）
+export { EDIT_COMMAND_DENY_THROTTLE_MS } from './constants/edit-gate';
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
 // Y0b-4 T1：画布配额常量+doc-status/conn-status 快照类型（T5 服务端产生/T10 客户端消费——键集逐字一致）
 // +utf8Bytes 单源（web/api 两端字节量纲一致）。

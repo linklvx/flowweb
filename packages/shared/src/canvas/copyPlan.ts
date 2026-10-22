@@ -113,7 +113,12 @@ export function buildCopyPlan(
     const data: Record<string, unknown> = normalizeCopiedNodeData(rec.data ?? {});
     // P1-1（评审收口·禁两可）：slot 档副本（分镜子——格位保真）**跳过 order 分配**——
     // allocator 缝只对自由节点落 order（slot∧order 并存=validatePlacementData 违例，slot 优先
-    // 判别会掩盖双键脏态）
+    // 判别会掩盖双键脏态）。
+    // 质评 Minor#3：detached 顶层化副本（父不在闭包）携 slot 残键 ⇒ 剥 slot 补 order——
+    // 根层读序不殿后（slot 档在混合层殿后）且顶层节点无格位语义。
+    if (!inClosure && data.slot != null) {
+      delete data.slot;
+    }
     if (allocateOrder != null && data.slot == null) {
       data.order = allocateOrder(inClosure ? idMap.get(rec.parentId!)! : null);
     }

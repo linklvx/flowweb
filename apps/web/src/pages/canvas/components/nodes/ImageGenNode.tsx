@@ -265,7 +265,9 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     const decision = applyIntrinsicFit({
       currentWH,
       existingAspectRatio: currentData?.aspectRatio,
-      display: { width: img.naturalWidth, height: img.naturalHeight },   // display 契约（EXIF 已应用）
+      // display 契约（EXIF 5-8 已应用）。natural（store 数据源=media facts 固有尺寸）本点未接——
+      // 待 media facts 尺寸事实消费面（T19 harness 验证后接，评审 P2-4 登记项）
+      display: { width: img.naturalWidth, height: img.naturalHeight },
       imageRotation: (currentData?.imageRotation ?? 0) as 0 | 90 | 180 | 270,
       isStoryboardChild,
       sizeMode: currentData?.sizeMode ?? 'auto',

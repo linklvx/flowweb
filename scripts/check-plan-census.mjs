@@ -203,6 +203,10 @@ if (isMain()) {
   //    直赋面白名单=canvas-allocator.ts（分配器本体）/copyPlan.ts（allocateOrder 缝）/
   //    canvasStore.ts（建点 order 键+分镜槽位原语族 slot 直写——唯一命令体直写域）。白名单外
   //    命中=旁路 allocator 或槽位原语的裸写。
+  //    ⚠ 残余风险（质评 Minor#8 钉明）：本 regex=**绊线非真门**——data 前缀外的裸写形态
+  //    （如解构名 itemRest.order=/patch 字面量 order:）不在检测面；真门=docShape.stripDerivedKeys
+  //    placement 判别段（P1-2 执法面——dispatchProjectionDiff 批尾 DEV 断言，违例 doc 形态必
+  //    被 IDE 态抓）。本面只作 lexical 早期绊线（新增裸写直赋大概率命中）。
   {
     const ALLOW = new Set([
       'apps/web/src/utils/canvas-allocator.ts',

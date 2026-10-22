@@ -15,7 +15,7 @@ import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord, DocMapLike, StoredNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
 import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
-  QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE } from '@flowweb/shared';
+  QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -331,7 +331,7 @@ const denyDiagAt = new Map<EditableCommandName, number>();
 function denyEditCommandDiag(command: EditableCommandName): void {
   const now = Date.now();
   const last = denyDiagAt.get(command) ?? 0;
-  if (now - last < 5000) return;
+  if (now - last < EDIT_COMMAND_DENY_THROTTLE_MS) return;
   denyDiagAt.set(command, now);
   recordCollabDiag('write_reject', { via: 'canEditCommand', command });
 }

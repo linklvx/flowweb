@@ -50,17 +50,34 @@ export function isValidOrderKey(key: unknown): key is string {
   return /^[0-9]+$/.test(frac) && !frac.endsWith('0'); // 尾零=等值非规范形
 }
 
-/** 数值序比较（单源——全仓禁裸字符串比较 order 键）。非法键不抛：NaN 语义交由调用方兜底。 */
+/**
+ * 数值序比较（单源——全仓禁裸字符串比较 order 键）。读侧全函数：非法键**不抛且殿后**
+ * （int=null 档排在一切合法键后——E68 读侧全函数承诺在单源原语兑现；双非法=0 等值，
+ * id tie-break 归调用方）。合法键间为纯数值序（BigInt 防邻域精度）。
+ */
 export function compareOrderKeys(a: string, b: string): number {
   const [ai, af] = splitKey(a);
   const [bi, bf] = splitKey(b);
-  if (ai !== bi) return ai < bi ? -1 : 1; // BigInt 比较防 2^53 邻域精度
+  if (ai === null && bi === null) return 0;
+  if (ai === null) return 1;    // 非法殿后
+  if (bi === null) return -1;
+  if (ai !== bi) return ai < bi ? -1 : 1;
   return compareFrac(af, bf);
 }
 
-const splitKey = (k: string): [bigint, string] => {
+/** 安全拆键（质评 Important#2）：非法整数段（BigInt SyntaxError 面）→ int=null——比较器判
+ *  非法键殿后（读侧全函数在单源原语兑现，禁抛穿透调用方）。frac 段保留原文参与字典序（compareFrac
+ *  自身纯字符比较零抛）。 */
+const splitKey = (k: string): [bigint | null, string] => {
   const dot = k.indexOf('.');
-  return dot === -1 ? [BigInt(k === '' ? '0' : k), ''] : [BigInt(k.slice(0, dot) || '0'), k.slice(dot + 1)];
+  const intPart = dot === -1 ? (k === '' ? '0' : k) : (k.slice(0, dot) || '0');
+  let int: bigint | null;
+  try {
+    int = BigInt(intPart);
+  } catch {
+    int = null;   // 非法键（如 'abc'/'1e5'/空档）——不抛，殿后语义
+  }
+  return [int, dot === -1 ? '' : k.slice(dot + 1)];
 };
 
 /** canonical 小数尾字典序=数值序（无尾零规范形下前缀=更小）。 */
@@ -86,18 +103,18 @@ const intToStr = (n: number | bigint): string => n.toString();
 
 /** 尾插键（层末追加）：max.int+1（>max ⇒ 与既有键零碰撞）。非法/越上沿 → null。 */
 export function orderKeyAfter(key: string): string | null {
-  if (!isValidOrderKey(key)) return null;
+  if (!isValidOrderKey(key)) return null;   // isValid 已过 ⇒ splitKey int 非 null（守卫序钉死）
   const [i] = splitKey(key);
-  if (i >= BigInt(ORDER_KEY_MAX_INT)) return null; // 有界上沿
-  return intToStr(i + 1n); // 丢弃小数尾：next-int 恒 > 任意 (int, frac)
+  if (i! >= BigInt(ORDER_KEY_MAX_INT)) return null; // 有界上沿
+  return intToStr(i! + 1n); // 丢弃小数尾：next-int 恒 > 任意 (int, frac)
 }
 
 /** 头插键（层首前插）：min.int−1（<min ⇒ 零碰撞）。floor（=1）/非法 → null（键域下界）。 */
 export function orderKeyBefore(key: string): string | null {
-  if (!isValidOrderKey(key)) return null;
+  if (!isValidOrderKey(key)) return null;   // isValid 已过 ⇒ splitKey int 非 null（守卫序钉死）
   const [i] = splitKey(key);
-  if (i <= 1n) return null; // 键域 [1,·) 下界
-  return intToStr(i - 1n);
+  if (i! <= 1n) return null; // 键域 [1,·) 下界
+  return intToStr(i! - 1n);
 }
 
 /**
@@ -108,21 +125,21 @@ export function orderKeyBefore(key: string): string | null {
 export function orderKeyBetween(a: string, b: string | null): string | null {
   if (!isValidOrderKey(a) || (b != null && !isValidOrderKey(b))) return null;
   if (b != null && compareOrderKeys(a, b) >= 0) return null;
-  const [ai, af] = splitKey(a);
+  const [ai, af] = splitKey(a);   // isValid 双守卫已过 ⇒ ai 非 null
   const [bi, bf] = b == null ? [null, null] as const : splitKey(b);
 
   // 情形一：整数部可推进（b 缺或 b.int - a.int ≥ 2，或 a 有小数尾而 b 是更大整数）
-  if (bi == null || bi - ai >= 2n) {
-    return intToStr(ai + 1n); // a < a+1 ≤ b-1 < b（a 带小数尾时 a < a+1 仍成立）
+  if (bi == null || bi - ai! >= 2n) {
+    return intToStr(ai! + 1n); // a < a+1 ≤ b-1 < b（a 带小数尾时 a < a+1 仍成立）
   }
-  if (bi === ai + 1n) {
+  if (bi === ai! + 1n) {
     // 情形二：邻接整数——落 a 整数档与 b 之间：frac 向 1.0 取中（"5"→"5.5"；"5.5"→"5.75"）
     const fracToTop = midpointFracToCeiling(af);
-    return fracToTop == null ? null : normalize(intToStr(ai), fracToTop);
+    return fracToTop == null ? null : normalize(intToStr(ai!), fracToTop);
   }
   // 情形三：同整数部——小数尾中插（a.frac < b.frac 严格，因 a<b 且 int 相等）
   const mid = midpointFrac(af, bf);
-  return mid == null ? null : normalize(intToStr(ai), mid);
+  return mid == null ? null : normalize(intToStr(ai!), mid);
 }
 
 /** frac → 1.0（槽顶）的**真中位**（邻接档复用——首差位取中位数字，逐层折半 ⇒ 长度对数增长）。 */

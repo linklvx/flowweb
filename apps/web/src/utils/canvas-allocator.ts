@@ -120,8 +120,10 @@ export function fitOrderBlock(
     .map(orderKeyOf)
     .filter((k): k is string => k != null)
     .sort((a, b) => compareOrderKeys(a, b));
-  if (keys.length === 0) return out;
-  const startKey = keys[0];
+  // 质评 Important#1：全键空层（旧档整层无 order 键）零返回=arrange 零 intent——G54「拖序不
+  // 持久」红线该人群残活（且与头注释「缺键=块起点引导」矛盾）。修：空层以 FIRST_ORDER_KEY
+  // 中位点引导全块（层内既有非参与键的相对位由 ceiling squeeze 守恒；键域中点留双向余量）。
+  const startKey = keys.length > 0 ? keys[0] : FIRST_ORDER_KEY;
   // 块上方最近非参与键（块内键须全部 < ceiling 才不动非参与相对位；null=层内无上邻——尾插链）
   const ceiling = layerNodes
     .filter((n) => !selected.has(n.id))

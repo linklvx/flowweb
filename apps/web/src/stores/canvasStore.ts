@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
-import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells } from '@flowweb/shared';
+import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -73,7 +73,7 @@ function getId(prefix: string) {
 const viewerWarnAt = new Map<EditableCommandName, number>();
 function denyCommandUX(command: EditableCommandName): void {
   const now = Date.now();
-  if (now - (viewerWarnAt.get(command) ?? 0) < 5000) return;
+  if (now - (viewerWarnAt.get(command) ?? 0) < EDIT_COMMAND_DENY_THROTTLE_MS) return;
   viewerWarnAt.set(command, now);
   message.warning('当前为只读会话，操作已忽略');
 }
@@ -682,17 +682,32 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (reassign.size === 0) return;
     const byId = new Map(get().nodes.map((n) => [n.id, n]));
     const intents: CanvasIntent[] = [];
+    const csPatches: [string, string][] = [];
     for (const [id, key] of reassign) {
       const n = byId.get(id);
       if (!n) continue;
       if ((n.data as Record<string, unknown>).order === key) continue; // 同值零 intent
       if (n.type === 'group') get().patchGroupDataInner(id, { order: key });
+      else csPatches.push([id, key]);   // 非组节点 cs data 镜像同值写（ns 真源经投影；ns 缺席
+                                        // 恢复窗时 cs 兜底读——投影不变量两侧一致）
       intents.push({ type: 'updateNodeData', id, patch: { order: key } });
+    }
+    if (csPatches.length > 0) {
+      const patchOf = new Map(csPatches);
+      set((st) => ({
+        nodes: st.nodes.map((n) => {
+          const key = patchOf.get(n.id);
+          return key != null && n.type !== 'group'
+            ? { ...n, data: { ...(n.data as Record<string, unknown>), order: key } }
+            : n;
+        }),
+      }));
     }
     if (intents.length > 0) dispatchCanvasIntent(intents, Origin.LocalUser);
   };
 
-  const appendCopyPlan = (plan: CopyPlan): string | null => {    const copyEnvelopes = plan.copies.map((c) => ({
+  const appendCopyPlan = (plan: CopyPlan): string | null => {
+    const copyEnvelopes = plan.copies.map((c) => ({
       id: c.id,
       type: c.type,
       ...(c.parentId != null ? { parentId: c.parentId } : {}),
@@ -1187,8 +1202,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   addEdge: (source, target, sourceHandle, targetHandle, deterministicId) => {
-    // T17（G34 七命令补门）：viewer 会话零 cs 写（auto 边同拒——RF 只读画布无 auto 触发面）
-    if (!canEditCommand('upsertEdge', get())) { denyCommandUX('upsertEdge'); return deterministicId ?? ''; }
+    // T17（G34 七命令补门）：viewer 会话零 cs 写（auto 边同拒——RF 只读画布无 auto 触发面）。
+    // 拒写返回 ''（勿回 deterministicId——调用方会误认边已建；deterministicId 幂等守卫在上
+    // 方 rw 路径首行生效）
+    if (!canEditCommand('upsertEdge', get())) { denyCommandUX('upsertEdge'); return ''; }
     const id = deterministicId ?? getId('edge');
     // 确定性建边幂等：同 id 已存在 no-op（防 React Flow 双 key）
     if (get().edges.some(e => e.id === id)) return id;
@@ -2038,6 +2055,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       message.warning(p.excludedCount > 0 ? '没有可排列的节点：所选节点均在未选中的组内' : '没有可排列的节点');
       return;
     }
+    let arrangeOrderedIds: string[] = [];
     get().runCommand(() => {
       // storedRectOf（v2.1 简化）：信封恒等可见盒现状成立（折叠组信封=reconcile collapsed 档派生尺寸、
       // 分镜组信封=配置尺寸）——直接读 n.width/height + DEFAULT_CHILD_SIZE 兜底，不重算分镜配置尺寸
@@ -2047,11 +2065,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         height: n.height ?? DEFAULT_CHILD_SIZE.height,
       });
       // T17：排列读序=orderRecords 单源（层序 (order,id)——sortForArrange 空间行序收编；
-      // 无 order 键旧档按 (null,id)=id 序兜底）
-      const ordered = orderRecords(p.ids.map((id) => {
+      // 无 order 键旧档按 (null,id)=id 序兜底）。ordered 提升到 runCommand 外（尾置
+      // persistArrangeOrder 消费——laid 序=ordered 序）
+      arrangeOrderedIds = orderRecords(p.ids.map((id) => {
         const n = s.nodes.find((x) => x.id === id)!;
         return { id: n.id, ...(n.parentId != null ? { parentId: n.parentId } : {}), data: (n.data ?? {}) as Record<string, unknown> };
-      }));
+      })).map((r) => r.id);
+      const ordered = arrangeOrderedIds.map((id) => ({ id }));
       const items = ordered.map((rec) => {
         const n = s.nodes.find((x) => x.id === rec.id)!;
         const wh = storedRectOf(n);
@@ -2065,10 +2085,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           return i === -1 ? n : { ...n, position: { x: laid[i].x, y: laid[i].y } };
         }),
       })));
-      // T17（G54「拖序不持久」order 面）：laid 序回写层序键（根层块 squeeze——fitOrderBlock 单源）
-      persistArrangeOrder(ordered.map((r) => r.id), null);
       if (p.excludedCount > 0) message.warning(`${p.excludedCount} 个组内节点未参与排列（需调整请先选中其所在组）`);
     });
+    // T17（G54「拖序不持久」order 面）：laid 序回写层序键（根层块 squeeze——fitOrderBlock 单源）。
+    // ⚠ 必须在 runCommand **之外**（质评 Important#1 收口发现）：fn 内调用 ⇒ 内层 dispatch 尾
+    // reconcile('doc') 读到差分前的旧 doc.abs 直拷 cs——laid 位被回滚（arrange 视觉 no-op）；
+    // 尾置=外层差分已把 laid 位落 doc，内层 reconcile 读到新值零回写。
+    persistArrangeOrder(arrangeOrderedIds, null);
   },
 
   /** §4.4 排列子节点（R2c-4 显式几何命令）：守卫先于 runCommand（零 transact）——缺失/折叠/分镜/
@@ -2089,11 +2112,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (gd.groupType === 'storyboard') { message.warning('分镜组不支持排列子节点'); return; }
     const children = s.nodes.filter((n) => n.parentId === groupId);
     if (children.length < 2) { message.warning('组内节点不足 2 个，无需排列'); return; }
+    // T17：排列读序=orderRecords 单源（组子层 (order,id)；分镜组上方守卫已拒）——提升到
+    // runCommand 外（尾置 persistArrangeOrder 消费）
+    const ordered = orderRecords(children.map((n) => ({
+      id: n.id, parentId: groupId, data: (n.data ?? {}) as Record<string, unknown>,
+    })));
     get().runCommand(() => {
-      // T17：排列读序=orderRecords 单源（组子层 (order,id)；分镜组上方守卫已拒）
-      const ordered = orderRecords(children.map((n) => ({
-        id: n.id, parentId: groupId, data: (n.data ?? {}) as Record<string, unknown>,
-      })));
       const items = ordered.map((rec) => {
         const n = children.find((x) => x.id === rec.id)!;
         return {
@@ -2109,9 +2133,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           return i === -1 ? n : { ...n, position: { x: laid[i].x - group.position.x, y: laid[i].y - group.position.y } };
         }),
       }));
-      // T17（G54）：laid 序回写组子层序键
-      persistArrangeOrder(ordered.map((r) => r.id), groupId);
     });
+    // T17（G54）：laid 序回写组子层序键（runCommand 外——同 arrangeSelection 尾置裁定：
+    // 内层 dispatch 尾 reconcile 读旧 doc 会回滚 laid rel）
+    persistArrangeOrder(ordered.map((r) => r.id), groupId);
   },
 
   groupNodes: (nodeIds) => {

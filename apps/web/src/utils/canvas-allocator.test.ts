@@ -69,6 +69,26 @@ describe('nudgeCopiesUntilFree（粘贴位置重叠红线）', () => {
 });
 
 describe('fitOrderBlock（arrange 后层序回写——「拖序不持久」红线的 order 面）', () => {
+  it('质评 Important#1 红测：全键空层（旧档整层无 order 键）→ 全块引导落键（非零返回）——arrange 持久化不死区', () => {
+    const layer = [N('a', null), N('b', null), N('c', null)];   // 旧档：整层无键
+    const m = fitOrderBlock(layer, ['c', 'a', 'b']);            // arrange laid 序
+    expect(m.size).toBe(3);                                     // 全块落键（旧实现 0 返回=红线）
+    const [ka, kb, kc] = [m.get('c')!, m.get('a')!, m.get('b')!];
+    expect(ka).toBe('5000');                                    // FIRST_ORDER_KEY 引导
+    for (const k of [ka, kb, kc]) expect(isValidOrderKey(k)).toBe(true);
+    expect(compareOrderKeys(ka, kb)).toBeLessThan(0);           // laid 序=键序
+    expect(compareOrderKeys(kb, kc)).toBeLessThan(0);
+  });
+
+  it('Important#1 续：空层+层内非参与既有键 → ceiling squeeze 不越上邻', () => {
+    const layer = [N('a', null), N('b', null), N('z', '5001')]; // z 非参与携键
+    const m = fitOrderBlock(layer, ['a', 'b']);
+    expect(m.size).toBe(2);
+    for (const k of m.values()) {
+      expect(compareOrderKeys(k, '5001')).toBeLessThan(0);      // 不越非参与上邻
+    }
+  });
+
   it('按 laid 序重排：块内键严格递增、首键继承原块最小键、非参与 ceiling 不越', () => {
     // 层：a(5000) b(5001) c(5002) + 非参与 z(6000)。arrange 新序 c,b,a
     const layer = [N('a', '5000'), N('b', '5001'), N('c', '5002'), N('z', '6000')];

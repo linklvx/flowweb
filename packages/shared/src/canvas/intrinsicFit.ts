@@ -45,8 +45,21 @@ export interface IntrinsicFitResult {
 }
 
 const swapWH = (s: { width: number; height: number }) => ({ width: s.height, height: s.width });
-const sameBox = (a: { width: number; height: number }, b: { width: number; height: number }) =>
-  a.width === b.width && a.height === b.height;
+
+/** 冷启动兜底盒（质评 Minor#6：548×306 魔数单源——ratioDimensions 非法比例兜底同值族）。 */
+const INTRINSIC_FIT_COLD_FALLBACK = { width: 548, height: 306 } as const;
+
+/** 兜底档共用出口（分镜跳过/fixed/双源缺席）：沿用 currentWH，缺则冷启动兜底盒过约束框。 */
+const keepCurrent = (
+  currentWH: { width: number; height: number } | null | undefined,
+  bounds: SizeBounds,
+): IntrinsicFitResult => {
+  const fallback = currentWH ?? (() => {
+    const c = calcConstrainedSize(INTRINSIC_FIT_COLD_FALLBACK.width, INTRINSIC_FIT_COLD_FALLBACK.height, bounds);
+    return { width: c.w, height: c.h };
+  })();
+  return { size: { ...fallback }, aspectRatio: fallback.width / fallback.height, changed: false };
+};
 
 /** applyIntrinsicFit（Z5'' 纯函数——全 facet：EXIF 5-8/imageRotation 交换/分镜跳过/sizeMode/clamp）。 */
 export function applyIntrinsicFit(input: IntrinsicFitInput): IntrinsicFitResult {
@@ -55,11 +68,9 @@ export function applyIntrinsicFit(input: IntrinsicFitInput): IntrinsicFitResult 
     isStoryboardChild = false, sizeMode = 'auto', bounds, existingAspectRatio,
   } = input;
 
-  // 分镜跳过 / fixed 档：零尺寸写（沿用 currentWH；冷启动分镜子回落约束框中点——格域权威在渲染层）
+  // 分镜跳过 / fixed 档：零尺寸写（沿用 currentWH；冷启动分镜子回落兜底盒——格域权威在渲染层）
   if (isStoryboardChild || sizeMode === 'fixed') {
-    const c = currentWH == null ? calcConstrainedSize(548, 306, bounds) : null;
-    const fallback = currentWH ?? { width: c!.w, height: c!.h };
-    return { size: { ...fallback }, aspectRatio: fallback.width / fallback.height, changed: false };
+    return keepCurrent(currentWH, bounds);
   }
 
   // 有效内在尺寸：store 数据源（natural）优先；EXIF 5-8 转置档（natural/display 互为转置）取
@@ -76,9 +87,7 @@ export function applyIntrinsicFit(input: IntrinsicFitInput): IntrinsicFitResult 
   }
   if (effective == null || !Number.isFinite(effective.width) || !Number.isFinite(effective.height)
     || effective.width <= 0 || effective.height <= 0) {
-    const c = currentWH == null ? calcConstrainedSize(548, 306, bounds) : null;
-    const fallback = currentWH ?? { width: c!.w, height: c!.h };
-    return { size: { ...fallback }, aspectRatio: fallback.width / fallback.height, changed: false };
+    return keepCurrent(currentWH, bounds);   // 双源缺席/非法——沿用档
   }
 
   // imageRotation 用户变换交换（G56：90/270 转置足迹——二次旋转红锚）
@@ -88,16 +97,12 @@ export function applyIntrinsicFit(input: IntrinsicFitInput): IntrinsicFitResult 
   // 沿用/重算分档（contentEventSize 同族）：现盒在 ∧ 比例未漂 ⇒ 沿用零写；比例漂 ⇒ adaptToFit
   if (currentWH != null) {
     const ratioChanged = existingAspectRatio != null && Math.abs(aspectRatio - existingAspectRatio) > 0.01;
+    // 旋转变换落地窗：90/270 且现盒仍是未旋形态（比例不符旋转后比例）⇒ 重算（含比例漂同路）
     const rotatedMismatch = imageRotation === 90 || imageRotation === 270
       ? Math.abs(currentWH.width / currentWH.height - aspectRatio) > 0.01
       : false;
     if (!ratioChanged && !rotatedMismatch) {
-      return { size: { ...currentWH }, aspectRatio, changed: false };
-    }
-    if (!ratioChanged && rotatedMismatch) {
-      // 旋转变换落地窗：现盒仍是未旋形态 ⇒ 按当前框 contain-fit 到旋转后比例
-      const fit = adaptToFit(currentWH, aspectRatio);
-      return { size: { width: normalizeSize(fit.width), height: normalizeSize(fit.height) }, aspectRatio, changed: true };
+      return { size: { ...currentWH }, aspectRatio, changed: false };   // 沿用档零写
     }
     const fit = adaptToFit(currentWH, aspectRatio);
     return { size: { width: normalizeSize(fit.width), height: normalizeSize(fit.height) }, aspectRatio, changed: true };

@@ -98,6 +98,22 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
     expect((top.data as any).order).toBe('7000');           // 自由节点照常分配
     expect(validatePlacementData(top.data)).toEqual([]);
   });
+  it('质评 Minor#3：detached 副本（分镜子单独复制顶层化）剥 slot 补 order——根层读序不殿后', () => {
+    const records: any[] = [
+      { id: 'sg', type: 'group', parentId: undefined, position: { x: 0, y: 0 }, width: 642, height: 182,
+        data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'p', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, data: { fileId: 'f', slot: 1 } },
+    ];
+    const plan = buildCopyPlan(
+      records, ['p'], { offset: { x: 40, y: 0 } }, () => 'c',
+      [], () => '7000',
+    );
+    const copy = plan.copies[0];
+    expect(copy.parentId).toBeUndefined();               // detached 顶层化（F41）
+    expect((copy.data as any).slot).toBeUndefined();     // slot 残键剥（顶层无格位语义）
+    expect((copy.data as any).order).toBe('7000');       // order 补（根层读序不殿后）
+    expect(validatePlacementData(copy.data)).toEqual([]);
+  });
   it('allocateOrder 缝：根层副本/闭包子层各按层分配新 order 键（副本同层同 order 重复键红线）', () => {
     const records: any[] = [G('g1'), N('a', 'g1'), N('b', 'g1')];
     const assigned: (string | null)[] = [];

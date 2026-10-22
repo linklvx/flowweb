@@ -45,6 +45,13 @@ describe('compareOrderKeys 与字符串序解耦（数值序单源）', () => {
     expect(compareOrderKeys('5', '5')).toBe(0);
     expect(compareOrderKeys('5.5', '5.5')).toBe(0);
   });
+  it('质评 Important#2 红测：非法键不抛且殿后（读侧全函数——BigInt SyntaxError 面消亡）', () => {
+    expect(() => compareOrderKeys('abc', '5000')).not.toThrow();   // 旧实现 BigInt('abc') 抛
+    expect(compareOrderKeys('abc', '5000')).toBeGreaterThan(0);    // 非法殿后（>一切合法键）
+    expect(compareOrderKeys('5000', 'abc')).toBeLessThan(0);
+    expect(compareOrderKeys('abc', 'abc')).toBe(0);                // 双非法等值（id tie-break 归调用方）
+    expect(compareOrderKeys('1e5', '1')).toBeGreaterThan(0);       // 非 BigInt 形态同样殿后不抛
+  });
 });
 
 describe('四曲线：分配键恒严格落位（禁越界/禁碰撞）', () => {
