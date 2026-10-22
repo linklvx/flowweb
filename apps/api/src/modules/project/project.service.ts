@@ -88,9 +88,10 @@ export class ProjectService {
    *  0：doc 懒建于 loadDocument，行缺失=确定性 0 代）+collabSchemaVersion+collabViewerUid（请求者
    *  uid——四维本地缓存键 uid 维）。fetchProjectMeta 先于 initCollab 消费（page.tsx promise 链）
    *  ——零新往返零新端点。
-   *  T18（Y1b T2）：collabSchemaVersion 改传**行值**（CanvasDoc.schemaVersion PG 列——旧档行=2
-   *  ⇒客户端缓存键 s2≠s3 结构性 miss〔IDB 不命中〕且 WS 装载列门拒载双锚一致；行缺失=懒建档
-   *  形态，回落 current 常量——首 store 建行 @default(3) 与回值一致）。 */
+   *  T18（Y1b T2）：collabSchemaVersion 改传**行值**（CanvasDoc.schemaVersion PG 列）。现实性对齐
+   *  （评审 P2#6）：列出生即 @default(3)（20261020200300 迁移）——**行值=2 现实不可达**，≠3 档是
+   *  防御性面向未来 v4 bump 的语义面（届时旧行=3≠4 ⇒缓存键 s3≠s4 结构性 miss〔IDB 不命中〕+WS
+   *  装载列门拒载双锚一致）；行缺失=懒建档形态回落 current 常量——首 store 建行 @default(3) 与回值一致）。 */
   async findById(id: string, viewerId?: string | null) {
     const project = await this.prisma.canvasProject.findUnique({
       where: { id },

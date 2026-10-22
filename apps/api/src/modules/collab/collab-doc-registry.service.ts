@@ -380,20 +380,10 @@ export class CollabDocRegistryService {
       this.persistence.seedCompactBaseline(projectId);
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
       const { state, updates, preVacuumSv, generation, schemaVersion } = await this.repo.hydrateWithRecovery(projectId);
-      // Y0b-4 T9a（G-3：装载路径回填零新增 DB 查）：preVacuumSv 解码缓存（SyncStep1 消费）+
-      // docGeneration 播种（doc-status 顶层 generation 源）。装载先于任何 SyncStep1——无窗口。
-      if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
-      if (generation) this.docGeneration.set(projectId, generation);
-      if (state) applyReplayed(new Uint8Array(state));
-      for (const u of updates) applyReplayed(new Uint8Array(u));
-      // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。
-      // apply 事件进 pending（窗口外回灌）；帧的 confirm 出口=下次 store 提前 drain / 断连 flush / 启动回灌。
-      // Y0b-4 T3：帧数组显式持有——spool 字节计入 cheap 上界（帧在装载窗内，测量点必须在其后）。
-      const spoolFrames = await this.persistence.peekSpoolFrames(projectId);
-      for (const f of spoolFrames) Y.applyUpdate(document, f.payload);
       // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：meta 门 v2.1 整链退役——版本判据唯一承载=
       // CanvasDoc.schemaVersion PG 列（readConsistent 行值单源）。行值≠current ⇒ 拒载（旧 doc 档
-      // 无迁移，禁垫片）；行缺失 null ⇒ 放行（懒建档——首 store 建行 @default(3)）。判于 replay 前。
+      // 无迁移，禁垫片）；行缺失 null ⇒ 放行（懒建档——首 store 建行 @default(3)）。
+      // 评审 P2#5：判于行读取后**立即**（replay 前——旧档不付 state/updates/spool 重放成本）。
       if (schemaVersion != null && schemaVersion !== CANVAS_DOC_SCHEMA_VERSION) {
         this.host.logger.error(
           `[T18] 版本门拒绝载入 ${documentName}：CanvasDoc.schemaVersion=${schemaVersion} ≠ current ${CANVAS_DOC_SCHEMA_VERSION}（PG 列判定——旧 doc 档拒载，无迁移）`,
@@ -405,6 +395,17 @@ export class CollabDocRegistryService {
           { schemaRefusal: true, reason: CollabAuthReason.SCHEMA_OUTDATED },
         );
       }
+      // Y0b-4 T9a（G-3：装载路径回填零新增 DB 查）：preVacuumSv 解码缓存（SyncStep1 消费）+
+      // docGeneration 播种（doc-status 顶层 generation 源）。装载先于任何 SyncStep1——无窗口。
+      if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
+      if (generation) this.docGeneration.set(projectId, generation);
+      if (state) applyReplayed(new Uint8Array(state));
+      for (const u of updates) applyReplayed(new Uint8Array(u));
+      // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。
+      // apply 事件进 pending（窗口外回灌）；帧的 confirm 出口=下次 store 提前 drain / 断连 flush / 启动回灌。
+      // Y0b-4 T3：帧数组显式持有——spool 字节计入 cheap 上界（帧在装载窗内，测量点必须在其后）。
+      const spoolFrames = await this.persistence.peekSpoolFrames(projectId);
+      for (const f of spoolFrames) Y.applyUpdate(document, f.payload);
       // T18（Z4''-v14）：order 病理装载档扫描（挂点选型见 collab-pathology.ts 头注——replay 完成
       // 后判；容忍不 500，计数+告警）。
       observeOrderPathologyOnLoad(this.host.logger, documentName, readRecordsFromMaps(toDocLike(document)).nodes);

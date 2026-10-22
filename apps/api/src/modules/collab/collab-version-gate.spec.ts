@@ -3,8 +3,8 @@
 // 四档拒（negotiateClientVersion 精确相等）+collab_version_negotiation_reject_total{reason}
 // +authRejectTotal{source:'version'} 双计数+执行序（heap 先于 version）+DB 前短路证据。
 // 形态：直构单元组（collab-heap-gate.spec 先例——fake prisma+metricDelta 增量断言）。
-// schema-outdated 档：Y0b-4 T1 bump csv=2 后 csv=1 即真实旧客户端形态（首版=1 下结构性不可达
-// 已消除——注入 mock 已拆除，走 negotiateClientVersion 默认 current 真路径）。
+// schema-outdated 档：T18 版本硬切 bump csv=3 后 csv=2 即真实旧客户端形态（v2 存量 bundle——
+// csv=1 为更早历史档；注入 mock 已拆除，走 negotiateClientVersion 默认 current 真路径）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
@@ -108,7 +108,7 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
     }
   });
 
-  it('csv<current→SCHEMA_OUTDATED（客户端旧——reload 有效档；Y0b-4 T1 bump csv=2 后 csv=1 即真实旧客户端——注入 mock 拆除走默认真路径）', async () => {
+  it('csv<current→SCHEMA_OUTDATED（客户端旧——reload 有效档；T18 bump csv=3 后 csv=2 即真实旧客户端〔v2 存量 bundle〕、csv=1 历史档同拒——注入 mock 拆除走默认真路径）', async () => {
     const { gateway } = buildGateway();
     const inc = await metricDelta('collab_version_negotiation_reject_total', { reason: 'schema-outdated' }, () =>
       expect(gateway.hooks.onAuthenticate(makeAuthPayload('sock-vg-s1', 'csv=1') as any))
@@ -151,12 +151,17 @@ describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——met
     stale.getMap('nodes').set('n', new Y.Map());
     // 行值=2（旧档行——版本硬切前建行）⇒ 列门拒载（先于 replay）
     repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(stale)), updates: [], stateSeq: 0n, schemaVersion: 2 });
-    const denial = await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:vg-old' } as any)
+    const rejected = new Y.Doc();
+    const denial = await gateway.hooks.onLoadDocument({ document: rejected, documentName: 'project:vg-old' } as any)
       .then(() => { throw new Error('expected rejection'); }, (e: Error & { schemaRefusal?: boolean; reason?: string }) => e);
     expect(denial.reason).toBe(CollabAuthReason.SCHEMA_OUTDATED);   // 库 esm:939 error.reason ?? 'permission-denied' 透传——附上即通
     expect(denial.schemaRefusal).toBe(true);                        // 既有标记保留（无害）
     expect(denial.message).toMatch(/CanvasDoc\.schemaVersion=2/);  // 列门判据（PG 行值——非 doc meta）
     expect(isTerminalReason(CollabAuthReason.SCHEMA_OUTDATED)).toBe(true);   // 网关侧通路锚（shared 侧已测——此处锚网关链路分型一致）
+    // 评审 P2#5：判于 replay **前**——拒绝档 doc 零重放残留（state 含节点 n 但未 apply；replay
+    // 先行=节点已入 doc，本断言红——旧档不付重放成本的原设计语义回归锁）。
+    expect([...rejected.getMap('nodes').keys()]).toHaveLength(0);
+    expect(rejected.store.pendingStructs).toBeNull();
   });
 
   it('行 schemaVersion=3（当前）→ 放行（doc meta 零键也放——doc 内容不再带版本）；行缺失（null，懒建档）→ 放行（首 store 建行 @default(3)）', async () => {
