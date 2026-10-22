@@ -97,17 +97,31 @@ async function renumberProject(client, projectId, dryRun) {
       }
       // 应用计划（transact=单 update 语义——新 clientID 的顺序写入集）。
       // svOld 先于 transact 捕获（diff 编码基准=重排前内容——捕获晚于变更=空 diff 丢写）。
+      // T18 评审 P1#3：缺 data map 成员**建图写键**（planner 域含缺 data 档〔missing-key〕——
+      // 静默跳写=每轮 plan 恒有变更+INSERT 空 diff 行=无限不幂等+账本污染；语义=同层成员需要
+      // order 键，缺 data 非豁免面）。
       const svOld = Y.encodeStateVector(oldDoc);
       const newDoc = oldDoc;
       newDoc.transact(() => {
         for (const [id, key] of plan.byId) {
           const m = nodesMap.get(id);
-          const data = m.get('data');
-          if (data && typeof data === 'object' && typeof data.set === 'function') data.set('order', key);
+          if (m == null || typeof m.get !== 'function') continue;   // 非法节点值档（adversarial 形态）——结构性不可写，跳过
+          let data = m.get('data');
+          if (!(data && typeof data === 'object' && typeof data.set === 'function')) {
+            data = new Y.Map();
+            m.set('data', data);   // 建 data map（缺档成员获得 data.order——幂等闭环）
+          }
+          data.set('order', key);
         }
       });
-      // diff 编码（新内容相对旧 SV——仅重排键增量）+ 单行追加
+      // diff 编码（新内容相对旧 SV——仅重排键增量）+ 单行追加。
+      // T18 评审 P1#3：空 diff 零 INSERT（防御档——plan 非空但写集空〔全员非法节点值〕时禁产
+      // 空行污染增量账本；正常路径建图写键后 diff 恒非空）。
       const diff = Y.encodeStateAsUpdate(newDoc, svOld);
+      if (diff.byteLength === 0) {
+        await client.query('COMMIT');
+        return { projectId, changed: 0, layers: 0, pathology: before, rows: 0, note: '写集空（非法节点值档全员跳写）——零行追加' };
+      }
       const r = await client.query(
         `INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
          SELECT gen_random_uuid()::text, $1, nextval('canvas_doc_update_seq')::bigint, $2, now()
