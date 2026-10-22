@@ -34,6 +34,13 @@
 // 退款（缩小「新代在飞被旧代退款」边缘窗，TOCTOU 残窗由退款 CAS 幂等+自愈序兜底）。
 // quota=软限（v10 裁决④）：完成不因 quota 回滚/删产物/退款（钱已付 provider）——超限仅观测
 // （assertCanUpload(teamId,0) 借谓词：usage+0>limit 即抛）+计数+告警。
+// 【T12 登记收口（T19 裁定）：终态/fenced 不清理已上传 content-addressed 对象=登记 Y2（orphan
+// sweep 面）】裁定理由：①fenced 且新代产物内容相同=同 sha 同 key 同对象（content-addressed
+// 幂等——零泄漏）；真 orphan 窗=fenced∧新代重下产物**字节漂移**（provider 重生成同意图不同内容）
+// ——旧 `{base}-{旧sha}` 对象悬空无行引用；②该窗为窄窗且泄漏=免费字节（资损方向正确侧——宁可
+// 免费字节不可吞钱/删在用对象）；③GC poller 扩前缀清理（枚举 `{row.key}-` 变体删非 Media.key 项）
+// 需排除「processing 行在飞 key 集」（lease 换代窗内变体枚举误删在飞对象=上传完成但对象已灭的
+// 真故障面）——竞态排除面>泄漏面，登记 Y2 与 cs 写者 registry 同批需求池，不在本卡造轮。
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { Prisma, Media } from '@prisma/client';
 import * as Sentry from '@sentry/nestjs';

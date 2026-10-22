@@ -30,7 +30,9 @@ export interface RenumberPlan {
   scannedNodes: number;
 }
 
-/** 层键重排规划纯函数（输入只读不改；读序单源=compareWithinLayer 含 (order,id) tie-break）。 */
+/** 层键重排规划纯函数（输入只读不改；读序单源=compareWithinLayer 含 (order,id) tie-break）。
+ *  分桶口径=layerOf（parentId 直读——孤儿/父环成员按字面 parentId 落桶照常重排；与读序渲染
+ *  的折根层口径差见 order-pathology.ts 头注【T19 登记收口 T18-② 钉明】）。 */
 export function planRenumberLayers(records: readonly OrderableRecord[]): RenumberPlan {
   const byLayer = new Map<string | null, OrderableRecord[]>();
   let scanned = 0;

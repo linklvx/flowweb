@@ -41,7 +41,13 @@ export interface OrderPathologyReport {
 }
 
 /** 病理扫描纯函数（读序单源消费方——layerOf/readPlacement 不在本地重实现）。
- *  输入只读不改；缺 data/非 map 值按缺键档计（读侧全函数同口径）。 */
+ *  输入只读不改；缺 data/非 map 值按缺键档计（读侧全函数同口径）。
+ *  【T19 登记收口（T18-②）：分桶口径与读序渲染的口径差钉明】本扫描分桶=layerOf（parentId
+ *  直读——孤儿/父环成员按其字面 parentId 值落桶，悬空层键〔父 id 无对应节点〕照常成桶）；
+ *  而读序渲染（orderRecords emit）把孤儿/环成员**折根层**（null 桶）输出。两口径非缺陷：
+ *  病理报告的 layers 字段=「哪个 parent 索引层病态」的诊断语义（孤儿成员的悬空 parentId 正是
+ *  病理线索——折根层会抹掉该信息）；重排 CLI（planRenumberLayers）分桶同 layerOf 口径
+ *  （悬空层照常重排——重排幂等与渲染层无关）。读侧容忍语义（不丢节点）由渲染层折根保证。 */
 export function scanOrderPathology(records: readonly OrderableRecord[]): OrderPathologyReport {
   const hitLayers = new Set<string | null>();
   const duplicateMembers: string[] = [];   // 参与重复的成员 id（档内计数）

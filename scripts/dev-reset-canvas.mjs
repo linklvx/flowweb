@@ -87,6 +87,22 @@ async function resetPg(databaseUrl, APPLY) {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   const counts = {};
+  // T19 登记收口（T18-④）：dry-run 试 ledger 通行证——BEGIN+SET LOCAL app.ledger_tx+ROLLBACK
+  // 零删除但真验证 trigger 通行语义（apply 轮才发现通行证坏=dry-run 假绿灯——trigger 定义变更/
+  // 权限面变化的提前暴露；int specs 同款 SET LOCAL 形态）。
+  if (!APPLY) {
+    try {
+      await client.query('BEGIN');
+      await client.query("SET LOCAL app.ledger_tx = 'on'");
+      await client.query('ROLLBACK');
+      console.log('[dev-reset-canvas] dry-run ledger 通行证验证 OK（BEGIN+SET LOCAL+ROLLBACK——apply 轮 TeamCreditTransaction 删除前提）');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error(`[dev-reset-canvas] dry-run ledger 通行证验证失败（apply 轮 TeamCreditTransaction 删除将被 trigger 拒）: ${e.message}`);
+      await client.end();
+      throw e;
+    }
+  }
   for (const t of TABLES) {
     if (!APPLY) {
       const n = await client.query(`SELECT COUNT(*)::int AS n FROM "${t}"`).catch(() => ({ rows: [{ n: -1 }] }));

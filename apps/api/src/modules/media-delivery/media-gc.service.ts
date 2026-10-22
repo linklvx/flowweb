@@ -163,11 +163,19 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
         }
       }
 
-      // ── 判定执行：无引用→对象删（404 容忍）+行删；有引用/超阀/读失败→guarded 保留 ──
+      // ── 判定执行：无引用→对象删（404 容忍）+行删；有引用→guarded；阀 bail-out（超阀/读失败）→
+      // valve-bailout 保留（T16 登记收口·T19：outcome 分桶区分「引用命中」vs「阀 bail-out」——
+      // 前者=引用图真实命中（下轮仍会命中直至引用消失），后者=扫描面不完整/失败的保守保留
+      // （下轮恢复即放行；持续 valve-bailout=扫描面异常信号非引用增长）──
       for (const c of candidates) {
-        if (referenced.has(c.id) || scanOverflow || timelineOverflow || scanFailed) {
+        if (referenced.has(c.id)) {
           summary.guarded += 1;
           mediaGcOutcomeTotal.inc({ outcome: 'guarded' });
+          continue;
+        }
+        if (scanOverflow || timelineOverflow || scanFailed) {
+          summary.guarded += 1;
+          mediaGcOutcomeTotal.inc({ outcome: 'valve-bailout' });
           continue;
         }
         try {

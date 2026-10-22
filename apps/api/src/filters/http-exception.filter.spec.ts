@@ -63,4 +63,28 @@ describe('HttpExceptionFilter', () => {
     const callArg = mockJson.mock.calls[0][0];
     expect('errorCode' in callArg).toBe(false);
   });
+
+  it('★T19 登记收口（存量）：对象响应体自定义字段透传（改前红=只捞 errorCode 其余全丢）+Nest 内部键不外泄', () => {
+    const filter = new HttpExceptionFilter();
+    const exception = new HttpException(
+      { statusCode: 400, message: 'obj', error: 'Bad Request', detail: 'd-1', hint: 'h-2' },
+      HttpStatus.BAD_REQUEST,
+    );
+
+    const mockJson = vi.fn();
+    const mockStatus = vi.fn().mockReturnValue({ json: mockJson });
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => ({ status: mockStatus }),
+        getRequest: () => ({ url: '/api/test' }),
+      }),
+    };
+
+    filter.catch(exception, host as any);
+    const callArg = mockJson.mock.calls[0][0];
+    expect(callArg.detail).toBe('d-1');   // 自定义字段透传（改前红=丢失）
+    expect(callArg.hint).toBe('h-2');
+    expect('statusCode' in callArg).toBe(false);   // Nest 内部结构键剥离（不与外层 code 语义打架）
+    expect('error' in callArg).toBe(false);
+  });
 });

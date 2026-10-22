@@ -60,18 +60,18 @@ async function renumberProject(client, projectId, dryRun) {
     try {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1)::bigint)', [projectId]);
       const docRow = (await client.query('SELECT state, "schemaVersion" FROM "CanvasDoc" WHERE "projectId" = $1', [projectId])).rows[0] ?? null;
-      if (!docRow) {
+      const updates = (await client.query('SELECT seq, update FROM "CanvasDocUpdate" WHERE "projectId" = $1 ORDER BY seq ASC', [projectId])).rows;
+      if (!docRow && updates.length === 0) {
         await client.query('COMMIT');
-        return { projectId, changed: 0, layers: 0, skipped: 'no-row（懒建档未装载——无 doc 可重排）', rows: 0 };
+        return { projectId, changed: 0, layers: 0, skipped: 'no-row（CanvasDoc 与 CanvasDocUpdate 皆空——真空档无 doc 可重排）', rows: 0 };
       }
-      if (docRow.schemaVersion !== CANVAS_DOC_SCHEMA_VERSION) {
+      if (docRow && docRow.schemaVersion !== CANVAS_DOC_SCHEMA_VERSION) {
         await client.query('COMMIT');
         return { projectId, changed: 0, layers: 0, skipped: `schemaVersion=${docRow.schemaVersion}≠${CANVAS_DOC_SCHEMA_VERSION}（装载列门同判据——旧档拒重排）`, rows: 0 };
       }
-      const updates = (await client.query('SELECT seq, update FROM "CanvasDocUpdate" WHERE "projectId" = $1 ORDER BY seq ASC', [projectId])).rows;
       const oldDoc = new Y.Doc();
-      if (docRow.state) Y.applyUpdate(oldDoc, new Uint8Array(docRow.state));
-      for (const u of updates) Y.applyUpdate(oldDoc, new Uint8Array(u.update));
+      if (docRow?.state) Y.applyUpdate(oldDoc, new Uint8Array(docRow.state));
+      for (const u of updates) Y.applyUpdate(oldDoc, new Uint8Array(u.update));   // T19 登记收口（T18-①）：updates-only doc（CanvasDoc 无行+增量账本有行）照常重排——此前 docRow null 即 skip 整体漏
 
       // 记录面（读序单源消费——data/parentId 直读 nodes map）
       const nodesMap = oldDoc.getMap('nodes');
@@ -138,8 +138,13 @@ async function renumberProject(client, projectId, dryRun) {
 }
 
 async function listProjectIds(client) {
-  const r = await client.query('SELECT "projectId" FROM "CanvasDoc" ORDER BY "projectId"');
-  return r.rows.map((x) => x.projectId);
+  // T19 登记收口（T18-①）：updates-only doc 覆盖洞——只查 CanvasDoc 会把「CanvasDoc 无行但
+  // CanvasDocUpdate 有行」的 updates-only doc 整体漏掉（懒建档真空窗形态）。并集=
+  // CanvasDoc ∪ CanvasDocUpdate 两源（updates-only 形态照常进重排面——renumberProject
+  // 的 no-row skip 只对两源皆空＝真空档成立）。
+  const a = await client.query('SELECT "projectId" FROM "CanvasDoc"');
+  const b = await client.query('SELECT DISTINCT "projectId" FROM "CanvasDocUpdate"');
+  return [...new Set([...a.rows.map((x) => x.projectId), ...b.rows.map((x) => x.projectId)])].sort();
 }
 
 async function main() {

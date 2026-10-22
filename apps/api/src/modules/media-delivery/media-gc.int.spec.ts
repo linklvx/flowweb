@@ -17,6 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { MediaGcService, collectJsonMediaIds } from './media-gc.service';
+import { mediaGcOutcomeTotal } from './binding-reconcile.metrics';
 import { deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -198,6 +199,37 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     // 下轮读恢复 → 正常放行删除（无引用）
     const s2 = await svc.sweep();
     expect(s2.deleted).toBeGreaterThanOrEqual(2);
+  });
+
+  it('★T19 登记收口：outcome 分桶——引用命中=guarded；扫描读失败阀 bail-out=valve-bailout（两 SLO 信号分桶，改前红=共用 guarded）', async () => {
+    // 引用命中档：doc 引用真实在
+    const mRef = await seedMedia('bucket-ref', GRACE_OLD);
+    doc.getMap('nodes').set('n-bucket-ref', new Y.Map());
+    const dataRef = new Y.Map();
+    dataRef.set('fileId', mRef.id);
+    (doc.getMap('nodes').get('n-bucket-ref') as Y.Map<unknown>).set('data', dataRef);
+    const outcomeOf = async (outcome: string): Promise<number> =>
+      (await (mediaGcOutcomeTotal as any).get()).values.find((v: any) => v.labels.outcome === outcome)?.value ?? 0;
+    const gBefore = await outcomeOf('guarded');
+    const vBefore = await outcomeOf('valve-bailout');
+    const s1 = await svc.sweep();
+    expect(s1.guarded).toBeGreaterThanOrEqual(1);
+    expect(await outcomeOf('guarded')).toBeGreaterThan(gBefore);    // 引用命中进 guarded 桶
+    expect(await outcomeOf('valve-bailout')).toBe(vBefore);         // 非阀场景零 bail-out 计数
+    doc.getMap('nodes').delete('n-bucket-ref');
+
+    // 阀 bail-out 档：无引用但扫描读失败（503）——保守保留进 valve-bailout 桶非 guarded
+    const mFree = await seedMedia('bucket-bailout', GRACE_OLD);
+    const failDocs = {
+      withSession: async () => { throw Object.assign(new Error('collab not serving'), { status: 503 }); },
+    } as unknown as CollabDocumentService;
+    const svcFail = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), failDocs);
+    const v2 = await outcomeOf('valve-bailout');
+    const s2 = await svcFail.sweep();
+    expect(s2.deleted).toBe(0);
+    expect(s2.guarded).toBeGreaterThanOrEqual(1);
+    expect(await outcomeOf('valve-bailout')).toBeGreaterThanOrEqual(v2 + 1); // 阀 bail-out 进独立桶（改前红=共用 guarded 桶零计数）
+    expect(await prisma.media.findUnique({ where: { id: mFree.id } })).toBeTruthy();
   });
 
   it('collectJsonMediaIds：VideoProject.data JSON 深扫收集 clip.mediaId（纯函数）', () => {
