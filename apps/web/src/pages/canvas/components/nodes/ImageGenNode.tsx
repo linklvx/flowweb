@@ -41,7 +41,7 @@ import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
 import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 // O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——web 三份逐字重复收编；census 定义点=1）
-import { calcConstrainedSize, ratioDimensions, contentEventSize, type SizeBounds } from '@flowweb/shared';
+import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBounds } from '@flowweb/shared';
 // B6-1（Spec B）：handle 可用性单源谓词——编辑中（editMode 或 transformMode）双侧无（删 !editMode 直判防双轨）
 import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
@@ -257,11 +257,18 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       ? { width: csCur.width, height: csCur.height }
       : null;
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
-    const decision = contentEventSize({
+    // T17（Z5''）：applyIntrinsicFit 尺寸域收口——EXIF 5-8 display 契约/imageRotation 用户变换
+    // 交换（二次旋转红 G56）/分镜跳过/sizeMode/clamp 全 facet（contentEventSize 直调退役）
+    const parent = csCur?.parentId != null
+      ? useCanvasStore.getState().nodes.find((n: any) => n.id === csCur.parentId) : undefined;
+    const isStoryboardChild = parent?.type === 'group' && (parent?.data as any)?.groupType === 'storyboard';
+    const decision = applyIntrinsicFit({
       currentWH,
       existingAspectRatio: currentData?.aspectRatio,
-      naturalW: img.naturalWidth,
-      naturalH: img.naturalHeight,
+      display: { width: img.naturalWidth, height: img.naturalHeight },   // display 契约（EXIF 已应用）
+      imageRotation: (currentData?.imageRotation ?? 0) as 0 | 90 | 180 | 270,
+      isStoryboardChild,
+      sizeMode: currentData?.sizeMode ?? 'auto',
       bounds: IMG_SIZE_BOUNDS,
     });
 
