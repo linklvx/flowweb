@@ -11,6 +11,12 @@ import { ArtifactCommitService } from '../artifact-core/artifact-commit.service'
 import { EXECUTION_QUEUE_NAME } from './execution.constants';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constants';
 import { IntentReconcileService } from './intent-reconcile.service';
+import { reconcileInvariantViolation } from './intent-reconcile.metrics';
+
+/** prom-client Counter 累计值读取（无 label Counter——T19 观测补断言面）。 */
+function counterOf(c: { hashMap?: Record<string, { value?: number }> } | import('prom-client').Counter<string>): number {
+  return Object.values((c as { hashMap?: Record<string, { value?: number }> }).hashMap ?? {}).reduce((s, v) => s + (v.value ?? 0), 0);
+}
 
 /** 构造一行 RUNNING 意图（默认心跳超龄 20min——Y0b-2 T4 判据单源 heartbeatAt；deadlineAt 更旧
  *  （30min 前）⇒ 心跳新于 deadline=轮询活着——deadline 批跳过，本档只测 stale 批收敛） */
@@ -378,11 +384,14 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       teamCredit.voidInTx.mockClear();
       prisma.reconcileAction.create.mockClear();
       artifactCommit.finalizeFromExistingMediaOrText.mockResolvedValueOnce({ action: 'manual-required', reason: 'FAILED/VOIDED 带 NodeArtifact 锚行' });
+      const invBefore = counterOf(reconcileInvariantViolation);
       await (service as any).reconcileOneIntent('gi-1', 1n);
       expect(teamCredit.voidInTx).not.toHaveBeenCalled();   // 歧义态不动钱（裁决 :27④）
       expect(prisma.reconcileAction.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ action: 'manual-required' }),
       }));
+      // T19（v11.2 ③）：资金-产物不一致巡检专项计数（与 manual_required_total 同事件并列——改前红=不接线）
+      expect(counterOf(reconcileInvariantViolation)).toBe(invBefore + 1);
     });
 
     it('advisory lock 面：每行收敛事务首句 pg_advisory_xact_lock(hashtext(intentRowId))——行灭失早退亦已取锁', async () => {

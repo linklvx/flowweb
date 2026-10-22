@@ -170,6 +170,16 @@ export const collabSweepCloseTotal = new Counter({
   registers: [register],
 });
 
+/** T19（plan v11.2 ③ 观测补）：成员移除 WS 清理结果计数（spec 钉名 member_revoked_conns）——
+ *  wirePermChangedEvents removed:true 分支每 scheduleSweepClose 一次 +1（移除成员的存量匹配连接数
+ *  ——清理结果观测：0=无存量连接，N=已排队关闭 N 条）。与 collab_sweep_close_total{cause='revoked'}
+ *  消费链上下游关系（本计数=事件入队侧即时值，彼=close 完成侧——逃生阀关闭时本计数仍计）。 */
+export const memberRevokedConns = new Counter({
+  name: 'member_revoked_conns',
+  help: 'T19（v11.2 ③）：成员移除 WS 清理结果计数（wirePermChangedEvents removed:true——匹配存量连接 scheduleSweepClose 入队数；上游即时值与 collab_sweep_close_total{cause=revoked} 完成侧互补）',
+  registers: [register],
+});
+
 /** Y0b-3 T1（P14）：进程级 unhandledRejection 兜底计数——库内未 await async 钩子 rethrow 的安全网
  *  （T10 证伪 onStateless 必要性后，真正买单者=T2 onUpgrade catch→throw 路径+库内部未 await 路径）。
  *  消费点=bootstrap/guard.ts installProcessErrorGuards（计数不退出；T11 起 source 增 'uncaught' 档）。 */

@@ -80,3 +80,13 @@ export const reconcileManualRequiredTotal = new Counter({
   labelNames: ['action'],
   registers: [register],
 });
+
+/** T19（plan v11.2 ③ 观测补）：资金-产物不一致巡检计数（spec 钉名 invariant_violation）——
+ *  R3 巡检发现资金与产物不一致的行计数：manual-required 族（有交付凭据但意图终态失败等歧义态
+ *  ——资金-产物不一致且禁自动动钱）。与 intent_reconcile_manual_required_total 同事件并列
+ *  （专项命名信号——v11.2 观测补验收：持续非 0=有资损风险行待人工处置）。 */
+export const reconcileInvariantViolation = new Counter({
+  name: 'invariant_violation',
+  help: 'T19（v11.2 ③）：资金-产物不一致巡检计数（R3 manual-required 歧义态——有交付凭据但资金态矛盾的行；与 intent_reconcile_manual_required_total 同事件专项并列）',
+  registers: [register],
+});

@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import type { TeamStatus } from '@prisma/client'
+import { mediaAclDenied } from './team.metrics'
 
 // 只读解析个人团队 id（判据 ownerId+isDefault，与成员身份无关）；
 // 补建路径走 ensureDefaultTeam/bootstrapPersonalTeam，本函数不建任何行。
@@ -32,12 +33,12 @@ export async function assertTeamMember(
   userId: string,
 ): Promise<void> {
   // 防 Prisma 静默省略 where 中的 undefined 字段（where.userId 缺失 → 匹配团队任意成员 → 鉴权穿透）
-  if (!teamId || !userId) throw new ForbiddenException('非团队成员')
+  if (!teamId || !userId) { mediaAclDenied.inc(); throw new ForbiddenException('非团队成员') }
   const member = await db.teamMember.findFirst({
     where: { teamId, userId, team: { status: 'ACTIVE' } },
     select: { role: true },
   })
-  if (!member) throw new ForbiddenException('非团队成员')
+  if (!member) { mediaAclDenied.inc(); throw new ForbiddenException('非团队成员') }   // T19（v11.2 ③）：拒点计数（403 同事件）
 }
 
 /** 双池可用积分口径（与 teamCredit 扣减核心一致——"禁拿单值猜池"）：credits + subscriptionCredits */

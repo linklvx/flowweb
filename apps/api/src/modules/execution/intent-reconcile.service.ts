@@ -14,7 +14,7 @@ import { AI_IMAGE_EDIT_QUEUE_NAME } from '../ai-image-edit/ai-image-edit.constan
 import {
   reconcileMismatchTotal, strandedTotal, balanceDriftTotal, frozenDriftTotal,
   orphanReleaseTotal, orphanUnreleasableTotal,
-  reconcileAutoConvergedTotal, reconcileManualRequiredTotal,
+  reconcileAutoConvergedTotal, reconcileManualRequiredTotal, reconcileInvariantViolation,
 } from './intent-reconcile.metrics';
 import { intentDeadlineExceededTotal, execProjectionDeferredTotal } from './exec.metrics';
 
@@ -356,6 +356,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         }
         if (d.action === 'manual-required') {
           reconcileManualRequiredTotal.inc({ action: 'manual-required' });
+          reconcileInvariantViolation.inc();   // T19（v11.2 ③）：资金-产物不一致巡检专项（同事件并列）
           this.logger.warn(`[R3] 意图行 ${intentRowId} 歧义态交人工（不动钱——裁决 :27④）: ${d.reason}`);
           return true;
         }

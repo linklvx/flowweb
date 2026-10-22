@@ -110,6 +110,16 @@ export const execProjectionDeferredTotal = new Counter({
   registers: [register],
 });
 
+/** T19（plan v11.2 ③ 观测补）：旧代（execSeq 代际·doc exec cache attempts 域）写入被拒计数——
+ *  writeExecStatus 代次守卫 older-attempts 拒点的专项命名信号（spec 钉名 exec_seq_stale_rejected）。
+ *  与 exec_projection_dropped_total{cause='older-attempts'} 同事件并列（exec_orphan_blocked_total
+ *  先例：彼=守卫丢弃全集，此=旧代拒写专项——takeover/重排场景旧 worker 迟到写的直接观测面）。 */
+export const execSeqStaleRejected = new Counter({
+  name: 'exec_seq_stale_rejected',
+  help: 'T19（v11.2 ③）：旧代 exec cache 写入被拒计数（writeExecStatus 代次守卫 older-attempts 拒点——takeover/重排后旧 worker 迟到写；与 exec_projection_dropped_total{cause=older-attempts} 同事件专项并列）',
+  registers: [register],
+});
+
 /** Y0c T0（Z3）：执行链投影写失败计数——吞错点加观测不改策略
  *  （Z136④ 原口径 14 处：execution.service 11+execution.processor 1+ai-image-edit.processor 2；
  *  Y0c T28（Z41）拆两半后 12 处=execution.service 11+ai-image-edit.processor process catch 1——

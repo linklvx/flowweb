@@ -1054,6 +1054,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - exec_poll_unknown_status_total
 - exec_projection_deferred_total
 - exec_projection_dropped_total
+- exec_seq_stale_rejected
 - exec_sync_pending_total
 - execution_group_duration_seconds
 - execution_settle_failure_total
@@ -1067,11 +1068,14 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - intent_reconcile_auto_converged_total
 - intent_reconcile_manual_required_total
 - intent_reconcile_mismatch_total
+- invariant_violation
 - ledger_balance_drift_total
 - ledger_frozen_drift_total
 - ledger_orphan_unreleasable_total
+- media_acl_denied
 - media_binding_reconcile_outcome_total
 - media_gc_outcome_total
+- member_revoked_conns
 - provider_redrive_blocked_total
 - yjs_compact_abandoned_total
 - yjs_compact_deleted_rows

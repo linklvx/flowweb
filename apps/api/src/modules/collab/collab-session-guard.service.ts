@@ -39,7 +39,7 @@ import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b
 import { deriveCollabLimits, type CollabLimits } from './collab-limits';
 import { OutboundBudget } from './collab-outbound-budget';
 import { CollabHeartbeat } from './collab-heartbeat';   // R6'：保活心跳独立模块（B15 缓解）
-import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabVersionNegotiationRejectTotal, collabOverloadState, collabWsCloseTotal, collabSweepCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabMsgRateExceededTotal, collabQuotaFrameRejectedTotal } from './store.metrics';
+import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabVersionNegotiationRejectTotal, collabOverloadState, collabWsCloseTotal, collabSweepCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabMsgRateExceededTotal, collabQuotaFrameRejectedTotal, memberRevokedConns } from './store.metrics';
 
 /** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
  *  30/s×16MB=480MB/s 解码路径封死，报告1 P1-1）。两个实体两个名：本常量=帧字节闸；
@@ -925,6 +925,7 @@ export class CollabSessionGuardService {
           if (!identity || identity.id !== payload.userId || identity.teamId !== payload.teamId) continue;
           this.permCache.delete(connection);   // 事件=缓存失效信号（下一 tick 立即复验）
           if (payload.removed && valveOpen) {
+            memberRevokedConns.inc();   // T19（v11.2 ③）：成员移除清理结果计数（入队侧即时值）
             this.scheduleSweepClose(connection, 'revoked');   // T5 removed：直关（通知+grace→close 4401）
           }
         }

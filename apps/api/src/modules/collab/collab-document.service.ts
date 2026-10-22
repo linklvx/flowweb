@@ -8,7 +8,7 @@ import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import type { FlushOutcome } from './collab-persistence.service';
 import { yjsSnapshotFallbackTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
-import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
+import { execProjectionDroppedTotal, execOrphanBlockedTotal, execSeqStaleRejected } from '../execution/exec.metrics';
 import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 
 /** Z111：exec 投影 patch 类型——attempts 必填（编译级；请求级投影传 0 代："0 代不得覆盖任何 ≥1 代"）。 */
@@ -224,6 +224,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
       }
       if (!outcome.written && outcome.reason !== 'terminal-superseded') {
         execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
+        if (outcome.reason === 'older-attempts') {
+          execSeqStaleRejected.inc();   // T19（v11.2 ③）：旧代拒写专项命名信号（与全集计数同事件并列）
+        }
       }
     }, { mode: 'write' });
   }

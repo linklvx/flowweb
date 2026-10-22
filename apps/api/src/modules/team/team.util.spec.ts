@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, it, expect, vi } from 'vitest';
+import { register } from 'prom-client';
 import { getOwnerTeamId, assertTeamMember, availableCredits } from './team.util';
 
 describe('availableCredits', () => {
@@ -70,6 +71,19 @@ describe('assertTeamMember', () => {
 
     await expect(assertTeamMember(db as any, 't1', 'u1')).rejects.toThrow(ForbiddenException);
     await expect(assertTeamMember(db as any, 't1', 'u1')).rejects.toThrow('非团队成员');
+  });
+
+  it('★T19（v11.2 ③）media_acl_denied：拒点计数（403 同事件——undefined 早拒/非成员/解散团队三拒档；改前红=计数不接线）', async () => {
+    const countOf = async (): Promise<number> => {
+      const m: any = register.getSingleMetric('media_acl_denied');
+      return (await m.get()).values[0]?.value ?? 0;
+    };
+    const db = makeDb();
+    db.teamMember.findFirst.mockResolvedValue(null);
+    const b1 = await countOf();
+    await expect(assertTeamMember(db as any, 't1', 'u1')).rejects.toThrow(ForbiddenException);   // 非成员拒
+    await expect(assertTeamMember(db as any, '', 'u1')).rejects.toThrow(ForbiddenException);     // 空 teamId 早拒
+    expect(await countOf()).toBe(b1 + 2);   // 两拒点各 +1（早拒不查库也计数）
   });
 
   it('DISBANDED 团队成员 → 403（body-teamId 路径无 TeamGuard，须在查询内拦截解散团队）', async () => {

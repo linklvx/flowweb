@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 import { CollabDocumentService, applyWriteExecStatusToDoc } from './collab-document.service';
-import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
+import { execProjectionDroppedTotal, execOrphanBlockedTotal, execSeqStaleRejected } from '../execution/exec.metrics';
 
 /** B2/F2 批0.5-5：exec map 服务端唯一写者。真 Y.Doc 直驱——
  *  mock withSession 直接执行回调传 doc（gateway 直连细节与本任务无关；Y0c T15 写路径改道 seam 同步）。 */
@@ -133,6 +133,19 @@ describe('Y0b-2 T5：writeExecStatus 守卫代次化 fail-closed（Z99/Z111）',
 
     expect(execEntry(doc, 'n1')!.status).toBe('loading'); // 老代投影（非终态目标也）不倒退新代
     expect(totalOf(execProjectionDroppedTotal)).toBeGreaterThan(before);
+  });
+
+  it('T19（v11.2 ③）旧代拒写专项计数：older-attempts 拒点 ⇒ exec_seq_stale_rejected +1（takeover 后旧 worker 迟到写的直接观测面）', async () => {
+    const doc = new Y.Doc();
+    seedNode(doc);
+    const service = buildService(doc);
+    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2', attempts: 2 });
+    const before = (execSeqStaleRejected as any).hashMap ? Object.values((execSeqStaleRejected as any).hashMap).reduce((s: number, v: any) => s + (v.value ?? 0), 0) : 0;
+
+    await service.writeExecStatus('p1', 'n1', { status: 'error', error: 'stale', attempts: 1 });
+
+    const after = Object.values((execSeqStaleRejected as any).hashMap).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
+    expect(after).toBe(before + 1);   // 改前红=计数器存在但不接线（值不增）
   });
 
   it('遗留 doc 条目兜底：stored 无 attempts（改动前条目）视作 0 代——请求级 attempts:0 同代不倒退终态、attempts:1 可写', async () => {

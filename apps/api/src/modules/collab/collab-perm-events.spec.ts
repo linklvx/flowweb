@@ -229,6 +229,19 @@ describe('Y0b-3 T8 事件驱动即时踢权（collab.perm.changed）', () => {
     expect(inc).toBe(1);
   });
 
+  it('★T19（v11.2 ③）member_revoked_conns：removed:true 匹配连接入队即计数（清理结果观测——改前红=计数不存在/不接线）', async () => {
+    const { gateway, emitter } = buildGateway();
+    const conn = makeConn('project:p1');
+    seedDocument(gateway, 'project:p1', [conn]);
+    gatewayFacade(gateway).seedSocketIdentity(conn.socketId, { id: 'u1', name: '张三', role: 'PROJECT_EDITOR', teamId: 't1' });
+    gateway.sessionGuard.wirePermChangedEvents();
+    const inc = await metricDelta('member_revoked_conns', {}, async () => {
+      emitter.emit('collab.perm.changed', { userId: 'u1', teamId: 't1', removed: true });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(inc).toBe(1);   // 入队侧即时值（与 sweep_close_total{cause=revoked} 完成侧互补）
+  });
+
   it('T5 removed:true 不匹配（他用户/他团队）连接零动作；逃生阀 COLLAB_SWEEP_ENABLED=false 下 matched 连接的 removed 直关腿也关（session-expiry 回滚面一致）', async () => {
     const { gateway, emitter } = buildGateway();
     const conn = makeConn('project:p1');
