@@ -18,7 +18,7 @@ const SH = readFileSync(path.join(ROOT, 'deploy.sh'), 'utf8');
 // 不可作终点标记；rebuild-db.mjs 调用行=DROP 执行步，以其行尾为界）。
 const startIdx = SH.indexOf('REBUILD_DB：DROP SCHEMA 重建');
 const dropIdx = SH.indexOf("rebuild-db.mjs \"$DSN\"", startIdx);
-const rebuildBlock = SH.slice(startIdx, dropIdx + 20);
+const rebuildBlock = SH.slice(startIdx, dropIdx + "rebuild-db.mjs \"$DSN\"".length);
 
 test('① dump 存在性 fail-fast：REBUILD_DB 段 DROP 前置 dump 缺失⇒exit 1 中止（回退锚前置不可绕）', () => {
   assert.ok(rebuildBlock.includes('ls -t ~/backups/pre-migrate-*.dump'), '解析②最新 dump（ls -t | head -1）');
@@ -27,8 +27,10 @@ test('① dump 存在性 fail-fast：REBUILD_DB 段 DROP 前置 dump 缺失⇒ex
   assert.ok(rebuildBlock.indexOf('FAIL-FAST') < rebuildBlock.indexOf('rebuild-db.mjs'), 'fail-fast 先于 DROP 执行步');
 });
 
-test('② 回滚=restore 命令打印：pg_restore -d "$DSN" -c --if-exists（可直接复制执行形态）', () => {
-  assert.match(rebuildBlock, /pg_restore -d \\"?\$DSN\\"? -c --if-exists \$DUMP/, '打印完整 pg_restore 命令');
+test('② 回滚=restore 命令打印：pg_restore -d "$DSN" -c --if-exists（\$DSN 打印字面占位非展开——DSN 含口令禁入终端/日志）', () => {
+  // 远端 echo 内 \"\$DSN\"：本地单引号串保 \|，远端双引号内 \$=字面 $——打印 pg_restore -d "$DSN" 占位
+  assert.ok(rebuildBlock.includes('pg_restore -d \\"\\$DSN\\" -c --if-exists $DUMP'), '打印完整 pg_restore 命令（\\$DSN 字面占位）');
+  assert.ok(!rebuildBlock.includes('pg_restore -d \\"$DSN'), '不存在可展开的 $DSN 泄漏形态（防口令入终端/日志）');
   assert.ok(rebuildBlock.includes('回退锚就绪'), 'dump 就绪留痕（回退锚文件名打印）');
 });
 

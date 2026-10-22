@@ -137,7 +137,7 @@ cutover_api() {
     # dump 缺失=不可逆操作无回退锚⇒中止）+打印**可直接复制执行**的 pg_restore 回滚命令（失败
     # 窗口的操作指引非事后翻文档；恢复语义权威=docs/superpowers/full-stack-backup.md §3
     # 〔collab 三表整库覆盖禁挑拣/恢复后 bump generation〕——此处只产命令不复刻语义）。
-    ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); DUMP=$(ls -t ~/backups/pre-migrate-*.dump 2>/dev/null | head -1); if [ -z "$DUMP" ]; then echo "REBUILD_DB FAIL-FAST: ②pre-migrate dump 缺失（不可逆 DROP 无回退锚）——中止（排查②pg_dump 步后重跑部署）"; exit 1; fi; echo "REBUILD_DB 回退锚就绪：$DUMP"; echo "失败回滚=restore（复制执行）：pg_restore -d \"$DSN\" -c --if-exists $DUMP"'
+    ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); DUMP=$(ls -t ~/backups/pre-migrate-*.dump 2>/dev/null | head -1); if [ -z "$DUMP" ]; then echo "REBUILD_DB FAIL-FAST: ②pre-migrate dump 缺失（不可逆 DROP 无回退锚）——中止（排查②pg_dump 步后重跑部署）"; exit 1; fi; echo "REBUILD_DB 回退锚就绪：$DUMP"; echo "失败回滚=restore（复制执行；\$DSN=apps/api/.env 的 DATABASE_URL——不打印全文防口令入日志）：pg_restore -d \"\$DSN\" -c --if-exists $DUMP"'
     ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//") && node '"$REMOTE_DIR"'/apps/api/scripts/rebuild-db.mjs "$DSN"'
   fi
 
