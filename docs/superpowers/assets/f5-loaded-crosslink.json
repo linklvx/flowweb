@@ -1,0 +1,624 @@
+{
+ "run": {
+  "startedAt": "2026-10-23T06:10:59.195Z",
+  "pid": "cmvkhxmwy0056zcd5cu4qly1g",
+  "node": "node_1792731325675_1w7arqq_1",
+  "seedDurationSec": 150
+ },
+ "seed": {
+  "projections": 24,
+  "facts": 24,
+  "materialize": 4,
+  "projectionIds": [
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af",
+   "799c8ea7-7a62-404f-b9da-faeb4946c4af"
+  ]
+ },
+ "drained": false,
+ "stillPendingProjections": 0,
+ "materializeRows": [
+  {
+   "status": "processing",
+   "attempts": 3,
+   "next": "2026-10-23T06:15:29.389Z"
+  },
+  {
+   "status": "processing",
+   "attempts": 3,
+   "next": "2026-10-23T06:16:17.993Z"
+  },
+  {
+   "status": "processing",
+   "attempts": 4,
+   "next": "2026-10-23T06:16:21.139Z"
+  },
+  {
+   "status": "processing",
+   "attempts": 4,
+   "next": "2026-10-23T06:18:51.817Z"
+  }
+ ],
+ "max": {
+  "docDeliveryLagSec": 2.911,
+  "factOutboxLagSec": 4294.89,
+  "materializeLagSec": 0,
+  "appliedUnpersisted": 0,
+  "loadedDocs": 3,
+  "apiRssMb": 220,
+  "workerRssMb": 177
+ },
+ "final": {
+  "tSec": 270.6,
+  "docDeliveryLagSec": 0,
+  "appliedUnpersisted": 0,
+  "factOutboxLagSec": 4294.89,
+  "materializeLagSec": 0,
+  "loadedDocs": 1,
+  "apiRssMb": 220,
+  "workerRssMb": 177
+ },
+ "samples": [
+  {
+   "tSec": 0,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 3941.616,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 5,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 3941.616,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 10,
+   "docDeliveryLagSec": 2.737,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 3941.616,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 15,
+   "docDeliveryLagSec": 2.787,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4039.327,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 20,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4039.327,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 25,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4049.32,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 216,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 30,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4059.326,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 35.1,
+   "docDeliveryLagSec": 2.805,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4059.326,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 216,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 40,
+   "docDeliveryLagSec": 2.817,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4069.329,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 216,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 45.1,
+   "docDeliveryLagSec": 2.84,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4069.329,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 216,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 50.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4079.358,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 55.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4079.358,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 60.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4089.347,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 174
+  },
+  {
+   "tSec": 65.1,
+   "docDeliveryLagSec": 2.85,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4089.347,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 175
+  },
+  {
+   "tSec": 70.1,
+   "docDeliveryLagSec": 2.854,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4099.357,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 75.1,
+   "docDeliveryLagSec": 2.871,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4099.357,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 175
+  },
+  {
+   "tSec": 80.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4109.357,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 85.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4109.357,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 90.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4119.372,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 95.1,
+   "docDeliveryLagSec": 2.879,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4119.372,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 100.1,
+   "docDeliveryLagSec": 2.887,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4129.385,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 105.1,
+   "docDeliveryLagSec": 2.901,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4129.385,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 110.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4139.386,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 115.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4139.386,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 120.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4149.396,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 125.2,
+   "docDeliveryLagSec": 2.911,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4149.396,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 130.2,
+   "docDeliveryLagSec": 2.902,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4159.4,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 135.2,
+   "docDeliveryLagSec": 2.908,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4159.4,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 140.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4169.406,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 145.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4169.406,
+   "materializeLagSec": 0,
+   "loadedDocs": 3,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 155.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4179.367,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 160.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4184.383,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 165.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4189.398,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 170.1,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4194.417,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 175.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4199.443,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 180.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4204.477,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 185.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4209.507,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 217,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 190.2,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4214.527,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 195.3,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4219.547,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 200.3,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4224.579,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 205.3,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4229.606,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 176
+  },
+  {
+   "tSec": 210.4,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4234.638,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 215.4,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4239.653,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 220.4,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4244.67,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 225.4,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4249.693,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 230.5,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4254.735,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 218,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 235.5,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4259.758,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 240.5,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4264.777,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 245.5,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4269.798,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 250.5,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4274.82,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 255.6,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4279.836,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 260.6,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4284.853,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 265.6,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4289.867,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 219,
+   "workerRssMb": 177
+  },
+  {
+   "tSec": 270.6,
+   "docDeliveryLagSec": 0,
+   "appliedUnpersisted": 0,
+   "factOutboxLagSec": 4294.89,
+   "materializeLagSec": 0,
+   "loadedDocs": 1,
+   "apiRssMb": 220,
+   "workerRssMb": 177
+  }
+ ]
+}

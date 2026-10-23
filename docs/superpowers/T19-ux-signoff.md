@@ -2,6 +2,7 @@
 
 > 纪律：签字权在用户，本记录只承载验收描述与可验证证据面（测试锚/实现/复现步骤），不代签。
 > plan :270 复选框维持未勾（待签）——五项全部签署后勾选并注明日期。
+> 2026-10-23 出口裁定批补验：浏览器级证据（40MP 满幅/超限降尺度+告知/Range 206·416·HEAD/视频双向 seek）=`F4-browser-acceptance.md`；有载跨链路（投递 lag≤3s tick/事实拉取发布/物化退避推进——真 WS soak 并发）=`assets/f5-loaded-crosslink.json`+`assets/soak-f5.json`。
 
 ## ① slot 交互（分镜格位）
 
