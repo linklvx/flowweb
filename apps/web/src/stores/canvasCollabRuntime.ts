@@ -2018,6 +2018,8 @@ async function teardownSession(): Promise<void> {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } // 批1-1 watchdog（会话清理链）
   if (syncLagTimer) { clearInterval(syncLagTimer); syncLagTimer = null; } // Y0b-5 T7：60s 窗检查（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
+  resetMediaFacts();   // F3 P1：media-facts 会话态全清（watcher 自续排定时器+lazy+pending+纪元++弃在飞
+                       // 响应）——离开画布后停后台补拉；lastDoc 释已 destroy doc 引用（会话清理链）
   // Y0b-5 T8：本地缓存会话清理（hide 监听装卸+adapter teardown 清 timer+关连接——discardEntry
   // 走显式路径不在此；置 null 先于 teardown 防 teardown 途中排程新写）
   if (cacheHideListener) {

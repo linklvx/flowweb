@@ -52,12 +52,13 @@
 
 ## ⑤ video processing UX
 
-**验收描述**：video 异步 materialize 期节点=processing 可播 seek 占位（sourceUrl 代理）；失败=MATERIALIZE_FAILED errorCode+补偿退款（UI 失败/重试非撤回交付）；completed 后自然切成品播放。
+**验收描述**：video 异步 materialize 期节点=processing 可播 seek 占位（sourceUrl 代理）；processing→completed/failed 由 web 会话级退避补拉自动刷新（无需用户操作/重连/换引用）；暂态失败由服务端 MaterializeJob 自动重试（无需用户操作）；终态失败=MATERIALIZE_FAILED errorCode+补偿退款（UI 保留 fileId、显示失败及退款结果+「刷新状态」按钮拉取最新 facts——非重走 materialize、非撤回交付；退款后重新生成=正常资金流程）；completed 后自然切成品播放。
 
 **证据锚**：
 - int：`apps/api/src/modules/artifact-core/materialize.int.spec.ts`（processing claim/瞬态退避/mismatch 终态退款/lease fence）；`intent-reconcile-r3.int.spec.ts` 窗⑤（video processing 重试链归 MaterializeJob——R3 不重造）。
 - facts 通道（UI 真实驱动）：`media-facts.controller.ts`（POST /api/media/facts——pending→published at-least-once）+web `mediaFacts.ts`/`useMediaFact`（processing/failed 驱动 VideoGenNode 占位与错误重试；natural 尺寸决策数据源——T19 登记收口）。
-- 复现步骤：生成视频节点→交付后 processing 占位可播放拖动→（源过期形态）失败显示错误+重试按钮→点击重走 materialize。
+- F3 自动刷新：web `apps/web/src/stores/mediaFactsRuntime.ts` processing watcher（仅当前引用中 processing 媒体·会话级退避 4s→8s→16s→帽 30s·集合变化重置·切项目丢弃在飞响应）——红绿测 `apps/web/src/stores/mediaFactsRuntime.test.ts`；组件级测试归 Y2 登记不变。
+- 复现步骤：生成视频节点→交付后 processing 占位可播放拖动→静置不动（无重连/无换引用）节点自动刷新至成品播放或终态失败（退避补拉）→（源过期形态）失败显示错误+「刷新状态」按钮→点击拉取最新 facts（非重走 materialize：暂态失败由服务端 MaterializeJob 自动重试；终态失败保留 fileId+显示失败及退款结果；退款后重新生成=正常资金流程——新生成任务重新计费）。
 - 登记（评审#5 不修）：processing 可播 seek 的**组件级**自动化测试归 Y2（VideoGenNode processing 占位渲染+seek 交互的组件测试面）；本卡以 int 链（materialize/content 两态）+UX 签字复现步骤承载。
 
 **签栏**：＿＿＿＿＿＿＿＿（签字/日期）
