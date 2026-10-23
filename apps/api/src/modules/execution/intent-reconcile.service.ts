@@ -404,6 +404,10 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
             }
             return true;
           } catch (e) {
+            // F1 资金硬门注记：FundsInvariantError（finalize 整体回滚+核销凭据不成立）亦落本兜底——
+            // 记 'finalize-from-stage-failed' 审计行+warn 后跳过该行继续 sweep（毒行不冻结整轮）；
+            // 预算耗尽 return false ⇒ convergeStale charge 分支=本服务（对账面）持判龄 CAS 裁决退款，
+            // 非执行面自动退款——裁定「歧义态交对账」的对账侧归属点。
             await this.prisma.reconcileAction.create({
               data: { intentRowId, action: 'finalize-from-stage-failed', after: { attempt: fails + 1, error: String((e as Error).message).slice(0, 200) } },
             }).catch(() => undefined);

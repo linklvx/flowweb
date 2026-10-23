@@ -176,6 +176,21 @@ class IntentStaleSignal extends Error {
   constructor(reason: string) { super(`INTENT_FINALIZE_STALE: ${reason}`); }
 }
 
+/** F1 资金硬门（用户裁定①）：付费 finalize settle 未达核销且核销凭据不成立——冻结灭失（付费无冻结
+ *  且从未消耗）或冻结锚与行代际不一致等资金不变量破缺。throw 即 finalize 事务整体回滚（intent 终态
+ *  /NodeArtifact/投影/Media 全撤=零交付）。无 code ⇒ 天然不入 isRetryableFinalizeError 有界重试白名单
+ *  （确定性破缺禁重试）；传播到执行面由 catch 按 instanceof 禁自动退款/禁 fail（行留 RUNNING+冻结
+ *  原样，交对账第四分支裁决）。 */
+export class FundsInvariantError extends Error {
+  constructor(d: { intentRowId: string; execSeq: bigint; creditCost: number; reservedCredits: number; creditsConsumed: number; reservedExecSeq: bigint | null }) {
+    super(
+      `FUNDS_INVARIANT_VIOLATION: 意图行 ${d.intentRowId} 代 ${d.execSeq} 付费(${d.creditCost})核销凭据不成立` +
+      `（reservedCredits=${d.reservedCredits} creditsConsumed=${d.creditsConsumed} reservedExecSeq=${d.reservedExecSeq}）`,
+    );
+    this.name = 'FundsInvariantError';
+  }
+}
+
 @Injectable()
 export class ArtifactCommitService {
   private readonly logger = new Logger(ArtifactCommitService.name);
@@ -225,13 +240,18 @@ export class ArtifactCommitService {
 
   /** 幂等出口回填（commitImage 预检+finalize 事务内幂等分支共用——Important#1/2）：intent 已
    *  SUCCEEDED∧核销 且 锚定 NodeArtifact 行存在 ⇒ committed+mediaId/key 回填（消费方非空断言依据）。
+   *  F1 代际守卫（入口面——质评 P2#4）：SUCCEEDED∧已核销但行 execSeq≠票=旧代复驱 ⇒ 直出
+   *  intent-stale（与 finalize 事务内代际守卫同裁决）——免跑 stage/下载/上传浪费链（否则 stage 先落
+   *  新 Media(processing) 行、provider URL 过期再白耗重试 attempts后才在 finalize 被拒=行泄漏）。
+   *  已核销行冻结恒 0 ⇒ finalize 面旧代 void_ 在此形态幂等 no-op——入口直出零资金副作用。
    *  返回 null=不满足幂等（照走全链）。 */
   private async idempotentOutcome(intentRowId: string, execSeq: bigint, artifactIndex: number): Promise<CommitOutcome | null> {
     const intent = await this.prisma.generationIntent.findUnique({
       where: { id: intentRowId },
-      select: { status: true, creditsConsumed: true, creditCost: true },
+      select: { status: true, execSeq: true, creditsConsumed: true, creditCost: true },
     });
     if (!intent || intent.status !== 'SUCCEEDED' || intent.creditsConsumed !== intent.creditCost) return null;
+    if (intent.execSeq !== execSeq) return { outcome: 'intent-stale' };
     const existing = await this.prisma.nodeArtifact.findUnique({
       where: { sourceIntentRowId_sourceExecSeq_artifactIndex: { sourceIntentRowId: intentRowId, sourceExecSeq: execSeq, artifactIndex } },
     });
@@ -473,8 +493,11 @@ export class ArtifactCommitService {
     if (rows.length !== 1) throw new IntentStaleSignal('行灭失');
 
     // ── 幂等检查在 CAS 前（v13b 判据=intent 行状态；artifactState 列已删——产物权威=NodeArtifact）：
-    //    SUCCEEDED∧已核销 ⇒ 本 finalize 曾完整成功——幂等返回+补建缺投影行（零新行零重扣）。 ──
-    if (rows[0].status === 'SUCCEEDED' && rows[0].creditsConsumed === rows[0].creditCost) {
+    //    SUCCEEDED∧已核销∧**同代** ⇒ 本 finalize 曾完整成功——幂等返回+补建缺投影行（零新行零重扣）。
+    //    F1 代际守卫：SUCCEEDED 为终态不换代，成功代恒=行 execSeq——旧代（execSeq<N）重复 finalize
+    //    不得误判「本 finalize 曾成功」（否则旧代产物冒领 committed 出口）；失配自然落入下行
+    //    IntentStaleSignal → outcome 'intent-stale'（外层 void 旧冻结=已核销行幂等 no-op，零副作用）。 ──
+    if (rows[0].status === 'SUCCEEDED' && rows[0].execSeq === params.execSeq && rows[0].creditsConsumed === rows[0].creditCost) {
       const existing = await tx.nodeArtifact.findUnique({
         where: { sourceIntentRowId_sourceExecSeq_artifactIndex: { sourceIntentRowId: params.intentRowId, sourceExecSeq: params.execSeq, artifactIndex: params.artifactIndex } },
       });
@@ -583,16 +606,44 @@ export class ArtifactCommitService {
         }],
         skipDuplicates: true,
       });
-      this.logger.warn(`[finalize] 意图 ${params.intentRowId} NodeArtifact CAS 0 行（槽位 rev=${cas.rev}≠期望 ${params.expectedRev}）——superseded：产物入素材库（Media 保留）+照常 settle（资金独立判）`);
+      this.logger.warn(`[finalize] 意图 ${params.intentRowId} NodeArtifact CAS 0 行（槽位 rev=${cas.rev}≠期望 ${params.expectedRev}）——superseded：产物入素材库（Media 保留）+settle 走资金独立判（核销凭据不成立仍会被硬门整体回滚）`);
     }
 
     // ── settle（资金独立判：provider 成功∧intent CAS 成功 ⇒ 照常核销——superseded 亦然；
     //    失败（throw）整体回滚——产物/intent 终态/settle 原子）。
-    //    质评收口 Minor#4：付费档 settled:false（冻结灭失/并发已核销的非正常窗）至少 warn——
-    //    禁静默（零额档 creditCost=0 无 reserve 属正常 settled:false，不告警）。 ──
+    //    F1 资金硬门（核销凭据校验）：付费档 settled:false 三形态须分诊——b) 已核销幂等
+    //    （锚已清空：settle 完成即原子写 reservedCredits=0∧consumed=cost∧reservedExecSeq=null，
+    //    票对 null 锚≠必在 settleInTx 代际前置守卫 0 命中返 settled:false——anti-join 补写分支需
+    //    锚=票同代，在 finalize 路径结构性不可达）为合法凭据放行；
+    //    a) 冻结锚与行代际不一致 / c) 冻结灭失（付费无冻结且从未消耗）=资金不变量破缺——禁
+    //    「warn 后照常交付」。intent FOR UPDATE 行锁本事务已持有，普通 SELECT 复读即锁内事实：
+    //    凭据成立当且仅当「reservedCredits===0 ∧ creditsConsumed===creditCost ∧ 锚 null 或同代」
+    //    （钱恰扣一次、零冻结、锚同代）；不成立即抛 FundsInvariantError——本事务已落的一切全撤
+    //    （intent 终态/NodeArtifact/投影/Media/binding，superseded 分支同门：资金独立判的前提是
+    //    核销凭据成立），行留 RUNNING 交对账第四分支裁决。零额档 creditCost=0 无 reserve 属正常
+    //    settled:false，不进门。 ──
     const settled = await this.teamCredit.settleInTx(tx, { intentRowId: params.intentRowId, execSeq: params.execSeq });
     if (!settled.settled && rows[0].creditCost > 0) {
-      this.logger.warn(`[finalize] 意图 ${params.intentRowId} settle 未达核销（settled:false——冻结灭失/并发已核销？对账第四分支兜底）`);
+      const re = await tx.$queryRaw<
+        { reservedCredits: number; creditsConsumed: number; reservedExecSeq: bigint | null }[]
+      >`SELECT "reservedCredits", "creditsConsumed", "reservedExecSeq" FROM "GenerationIntent" WHERE "id" = ${params.intentRowId}`;
+      const credentialOk = re.length === 1
+        && re[0].reservedCredits === 0
+        && re[0].creditsConsumed === rows[0].creditCost
+        && (re[0].reservedExecSeq === null || re[0].reservedExecSeq === params.execSeq);
+      if (!credentialOk) {
+        this.logger.error(
+          `[finalize] 意图 ${params.intentRowId} 资金不变量破缺（付费 settle 未达核销且核销凭据不成立——finalize 整体回滚交对账）: ` +
+          `execSeq=${params.execSeq} creditCost=${rows[0].creditCost} ` +
+          `reservedCredits=${re[0]?.reservedCredits} creditsConsumed=${re[0]?.creditsConsumed} reservedExecSeq=${re[0]?.reservedExecSeq ?? null}`,
+        );
+        throw new FundsInvariantError({
+          intentRowId: params.intentRowId, execSeq: params.execSeq, creditCost: rows[0].creditCost,
+          reservedCredits: re[0]?.reservedCredits ?? -1, creditsConsumed: re[0]?.creditsConsumed ?? -1,
+          reservedExecSeq: re[0]?.reservedExecSeq ?? null,
+        });
+      }
+      this.logger.warn(`[finalize] 意图 ${params.intentRowId} settle settled:false 但核销凭据成立（锚已清空=此前 settle 已完成——代际前置守卫 0 命中幂等）——放行`);
     }
 
     return {

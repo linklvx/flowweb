@@ -10,7 +10,7 @@ import { CollabWritePort } from '../collab/collab-write.port';
 import { LightingConsumer } from './lighting/lighting.consumer';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
-import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
+import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import { Job } from 'bullmq';
 
 describe('AiImageEditProcessor', () => {
@@ -433,6 +433,54 @@ describe('AiImageEditProcessor', () => {
       await processor.onFailed(undefined as any, new Error('x'));
       expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();
       expect(intentService.fail).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── F1 资金硬门执行面（spec 评审 P1）：FundsInvariantError 传播到 catch ⇒ 禁 void_（自动退款）/
+  //    禁 intentService.fail（置 FAILED）——行留 RUNNING+冻结原样交对账第四分支裁决；且不 rethrow
+  //    （rethrow=BullMQ failed 事件→onFailed 钩子 fail() 置 FAILED+重试白耗——硬门错误确定性禁重试）。
+  //    用户面=writeExecStatus FUNDS_INVARIANT_VIOLATION error 投影（worker 侧 emit 降级 no-op——
+  //    doc 投影为唯一持久面）+edit-failed emit+logger.error 打点。 ──
+  describe('F1 资金硬门：FundsInvariantError catch 分支（不 void_/不 fail/不 rethrow——行留 RUNNING 交对账）', () => {
+    const makeJob = () =>
+      ({
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+          intentRowId: 'row-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
+        },
+      }) as any as Job;
+
+    it('不 void_、不 intentService.fail、不 rethrow（failed 返回非 throw）+FUNDS_INVARIANT_VIOLATION 投影+edit-failed emit+logger.error', async () => {
+      artifactCommit.commitImage.mockRejectedValueOnce(new FundsInvariantError({
+        intentRowId: 'row-9', execSeq: 9n, creditCost: 5, reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+      }));
+      const loggerSpy = vi.spyOn((processor as any).logger, 'error');
+
+      const result = await processor.process(makeJob());
+
+      expect(result).toMatchObject({ status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' });   // 正常返回=rethrow 面 regressed 即红
+      // 资金禁自动动作：不 void_（解冻退款）、不 fail（置 FAILED）——行留 RUNNING+冻结原样
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      expect(intentService.fail).not.toHaveBeenCalled();
+      // error 级打点（携带意图行 id——资金不变量破缺=对账介入信号）
+      expect(loggerSpy).toHaveBeenCalled();
+      expect(String(loggerSpy.mock.calls.at(-1)![0])).toContain('row-9');
+      // 用户面持久投影（worker emit 降级 no-op——doc 投影为唯一可达面）
+      expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('proj1', 'node1', expect.objectContaining({
+        status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: expect.stringContaining('资金核销异常'),
+      }), { intentRowId: 'row-9', execSeq: '9' });
+      // 即时 UX 面（api 形态有效）
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({
+        nodeId: 'node1', status: 'edit-failed',
+      }));
     });
   });
 });

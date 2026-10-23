@@ -412,4 +412,105 @@ const restoreBalance = async () => {
       expect(rb.outcome).toBe('committed');
     }, 30_000);
   });
+
+  // ── F1 资金硬门（用户裁定①，发布阻断级缺口）——付费 finalize settle 硬门（核销凭据校验）+幂等
+  //    分支代际守卫。settleInTx settled:false 三形态分诊：a) 冻结锚与行代际不一致 / c) 冻结灭失
+  //    （付费无冻结且从未消耗）=资金不变量破缺 ⇒ 抛 FundsInvariantError 整体回滚（零交付零终态化，
+  //    行留 RUNNING 交对账第四分支裁决）；b) 已核销幂等（anti-join 空=真已核销）=合法凭据放行。
+  //    直改 intent 行夹具合法（ledger_guard 只护 TeamCreditTransaction/TeamBalance 两表）。 ──
+  describe('F1 资金硬门：付费 finalize 核销凭据校验+幂等代际守卫', () => {
+    beforeAll(async () => {
+      // 本组多次付费成功链（reserve 冻结+settle）——补币避免耗尽前组余额（register_grant 正账）
+      await ledger.runInTx((tx) => ledger.mutate(tx, {
+        teamId: TID, operatorUserId: UID, type: 'register_grant', creditType: 'regular',
+        balanceDelta: 200, frozenDelta: 0, referenceId: `it-f1-grant-${Date.now()}`,
+      }));
+    });
+
+    it('形态c（冻结灭失）：付费 RUNNING 冻结被灭失（reserved=0∧consumed=0）→ commitImage 抛 FundsInvariantError——行留 RUNNING/零产物/零投影/零 settle/零 release（整体回滚不退款）', async () => {
+      const c = await claimIntent({ jobId: 'f1-form-c' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      // SQL 直改模拟冻结灭失（台账 reserve 行在、行冻结列归零且从未消耗——对账不变量②破缺形态）
+      await prisma.generationIntent.update({ where: { id: c.intent.id }, data: { reservedCredits: 0 } });
+      await expect(commitFor(c)).rejects.toMatchObject({ name: 'FundsInvariantError' });
+      const intent = await prisma.generationIntent.findUnique({ where: { id: c.intent.id } });
+      expect(intent!.status).toBe('RUNNING');                 // 未翻 SUCCEEDED（事务整体回滚）
+      expect(await slotRow(c.intent.nodeId)).toBeNull();      // 零 NodeArtifact 行
+      expect(await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: c.intent.nodeId } })).toBeNull();
+      expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(0);
+      expect(await ledgerRows(c.intent.id, 'release')).toHaveLength(0);   // 不自动退款（对账裁决面）
+    });
+
+    it('superseded∧核销不成立：replace 抬槽位 rev 后灭失冻结 → 抛 FundsInvariantError——superseded 投影行也未落（整体回滚，硬门对 superseded 同样生效）', async () => {
+      const c = await claimIntent({ jobId: 'f1-sup-broken' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      // 用户 replace 抬槽位 rev（finalize 的 NodeArtifact CAS 必败=superseded 分支）
+      await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
+        projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+        expectedRev: 0, source: 'replace', state: 'stored', mediaId: 'media-user-f1',
+      }));
+      await prisma.generationIntent.update({ where: { id: c.intent.id }, data: { reservedCredits: 0 } });
+      await expect(commitFor(c)).rejects.toMatchObject({ name: 'FundsInvariantError' });
+      expect((await prisma.generationIntent.findUnique({ where: { id: c.intent.id } }))!.status).toBe('RUNNING');
+      const art = await slotRow(c.intent.nodeId);
+      expect(art!.mediaId).toBe('media-user-f1');             // 槽位用户值不被覆盖
+      expect(art!.rev).toBe(1);
+      expect(await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: c.intent.nodeId } })).toBeNull();   // superseded 投影行随整体回滚未落
+      expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(0);
+    });
+
+    it('幂等代际守卫：代 N 已成功后用 execSeq=N-1 复驱 → intent-stale（非 committed）+零新产物行/零双 settle/零 release（旧代 void 对已核销行幂等零动作）', async () => {
+      const c = await claimIntent({ jobId: 'f1-oldgen' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      const first = await commitFor(c);
+      expect(first.outcome).toBe('committed');
+      fakeFetch.fetchBuffer.mockClear();
+      fakeMinio.upload.mockClear();
+      const out = await commitFor(c, { execSeq: c.intent.execSeq - 1n });   // 旧代票复驱
+      expect(out.outcome).toBe('intent-stale');                 // 红形态：改前幂等分支不验代际误判 committed
+      expect(await prisma.nodeArtifact.count({ where: { projectId: PID, nodeId: c.intent.nodeId } })).toBe(1);
+      expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: c.intent.nodeId } })).toBe(1);
+      expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1);   // 零双 settle
+      expect(await ledgerRows(c.intent.id, 'release')).toHaveLength(0);  // 已核销行旧代 void 幂等零动作
+      // P2-5：入口代际直出不变量——旧代复驱零浪费链（idempotentOutcome 预检直出 intent-stale：
+      // 零 stage 新 Media(processing) 行+零 provider 重下载+零 MinIO 重上传）
+      expect(await prisma.media.count({ where: { teamId: TID, sourceIntentRowId: c.intent.id } })).toBe(1);
+      expect(fakeFetch.fetchBuffer).not.toHaveBeenCalled();
+      expect(fakeMinio.upload).not.toHaveBeenCalled();
+    });
+
+    it('已核销凭据放行（形态b·防过度阻断）：同代复驱仍幂等 committed；SQL 造 RUNNING∧已核销行复驱 → 凭据成立放行（零双 settle 零抛错）', async () => {
+      const c = await claimIntent({ jobId: 'f1-form-b' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      const first = await commitFor(c);
+      expect(first.outcome).toBe('committed');
+      // 同代（execSeq=N）重复 finalize——幂等 committed（代际守卫不误伤同代幂等）
+      const sameGen = await commitFor(c);
+      expect(sameGen.outcome).toBe('committed');
+      expect(sameGen.mediaId).toBe(first.mediaId);
+      // 形态 b SQL 构造：行翻回 RUNNING（consumed=cost∧reserved=0 保持——「settle 已完成但行状态
+      // 中间态」的复驱形态），复驱：intent CAS 重新命中+settleInTx 代际前置守卫（reservedExecSeq=null
+      // ≠票——锚已清空=此前 settle 已完成）即返 settled:false——凭据（reserved=0∧consumed=cost∧
+      // 锚 null）成立必须放行（盲抛 settled:false 即过度阻断）
+      await prisma.generationIntent.update({ where: { id: c.intent.id }, data: { status: 'RUNNING' } });
+      const out = await commitFor(c);
+      expect(out.outcome).toBe('superseded');                   // 槽位 rev 已 1≠claim 时 0——CAS 败（资金独立判面）
+      expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1);   // 零双 settle
+      expect((await prisma.generationIntent.findUnique({ where: { id: c.intent.id } }))!.status).toBe('SUCCEEDED');
+    });
+
+    it('形态a（代际锚不一致）：reservedExecSeq=execSeq+1∧冻结在 → settle 代际守卫 0 命中+凭据 reserved>0 不成立 → 抛 FundsInvariantError（冻结原样保留）', async () => {
+      const c = await claimIntent({ jobId: 'f1-form-a' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      // SQL 直改模拟冻结锚换代但行未换代（intent CAS 仍同代通过的病理态）
+      await prisma.generationIntent.update({ where: { id: c.intent.id }, data: { reservedExecSeq: c.intent.execSeq + 1n } });
+      await expect(commitFor(c)).rejects.toMatchObject({ name: 'FundsInvariantError' });
+      const intent = await prisma.generationIntent.findUnique({ where: { id: c.intent.id } });
+      expect(intent!.status).toBe('RUNNING');
+      expect(intent!.reservedCredits).toBe(PRICING.creditCost);   // 冻结原样（finalize 未动钱即回滚）
+      expect(await slotRow(c.intent.nodeId)).toBeNull();
+      expect(await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: c.intent.nodeId } })).toBeNull();
+      expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(0);
+    });
+  });
 });

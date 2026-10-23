@@ -2,7 +2,7 @@
 // 分类器+对象 key 基座单测（无 DB 依赖——40P01/40001/55P03/P2024 全码表钉死；行为面归
 // artifact-commit.int.spec 的 ABBA 死锁注入真 40P01 吸收用例）。
 import { describe, it, expect } from 'vitest';
-import { isRetryableFinalizeError, artifactObjectKeyBase, FINALIZE_TX_MAX_RETRIES, ARTIFACT_SOURCE_URL_TTL_MS } from './artifact-commit.service';
+import { isRetryableFinalizeError, artifactObjectKeyBase, FINALIZE_TX_MAX_RETRIES, ARTIFACT_SOURCE_URL_TTL_MS, FundsInvariantError } from './artifact-commit.service';
 
 describe('Y1a T10：isRetryableFinalizeError（40P01/40001/55P03/P2024 有界重试码表）', () => {
   it('可重试集：Prisma P2034（deadlock/write conflict 映射）+P2024（pool timeout）+裸 PG SQLSTATE 双形状（code 直挂/meta.code 挂载）', () => {
@@ -33,5 +33,25 @@ describe('Y1a T10：artifactObjectKeyBase（content-addressed key 基座）', ()
   it('形态=artifacts/{teamId}/{intentRowId}/{execSeq}/{index}——sha 后缀由 commitImage 下载自算后拼接', () => {
     expect(artifactObjectKeyBase('t1', 'row-1', 7n, 0)).toBe('artifacts/t1/row-1/7/0');
     expect(artifactObjectKeyBase('t1', 'row-1', 7n, 2)).toBe('artifacts/t1/row-1/7/2');
+  });
+});
+
+describe('F1 资金硬门：FundsInvariantError 分类面（不进有界重试——确定性资金不变量破缺禁重试）', () => {
+  it('isRetryableFinalizeError=false（无 code 天然白名单外——防回归加码挂 code）+name+六要素详情进 message', () => {
+    const e = new FundsInvariantError({
+      intentRowId: 'row-f1', execSeq: 7n, creditCost: 5,
+      reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+    });
+    expect(e).toBeInstanceOf(Error);
+    expect(e.name).toBe('FundsInvariantError');
+    expect(isRetryableFinalizeError(e)).toBe(false);
+    expect(e.message).toContain('row-f1');
+    expect(e.message).toContain('FUNDS_INVARIANT_VIOLATION');
+    for (const fragment of ['7', '5', '0']) expect(e.message).toContain(fragment);   // execSeq/creditCost/金额详情
+    const anchored = new FundsInvariantError({
+      intentRowId: 'row-f1b', execSeq: 9n, creditCost: 3,
+      reservedCredits: 3, creditsConsumed: 0, reservedExecSeq: 10n,
+    });
+    expect(anchored.message).toContain('10');   // reservedExecSeq 详情（代际锚不一致诊断面）
   });
 });

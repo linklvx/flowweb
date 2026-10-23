@@ -9,7 +9,7 @@ import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
 import { GenerationIntentService } from '../../execution/generation-intent.service';
 import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
-import { ArtifactCommitService } from '../../artifact-core/artifact-commit.service';
+import { ArtifactCommitService, FundsInvariantError } from '../../artifact-core/artifact-commit.service';
 import { Job } from 'bullmq';
 
 describe('LightingConsumer', () => {
@@ -54,6 +54,7 @@ describe('LightingConsumer', () => {
     };
     collabDoc = { // T13 typed outcome：business 档（transient/permanent=悬留档）——交付判据改判别式
       writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),
+      writeExecStatus: vi.fn().mockResolvedValue(undefined),   // F1 资金硬门：FUNDS_INVARIANT_VIOLATION error 投影写面（worker 侧唯一持久用户面）
     };
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
@@ -247,6 +248,41 @@ describe('LightingConsumer', () => {
         expect.objectContaining({ data: expect.objectContaining({ status: 'success' }) }),
       );
       expect(result.status).toBe('completed'); // job 本身成功——产物留作物证，仅不投递
+    });
+  });
+
+  // ── F1 资金硬门执行面（spec 评审 P1）：FundsInvariantError 传播到 catch ⇒ 禁 void_/不置 LightingTask
+  //    FAILED/不 rethrow——意图行留 RUNNING+冻结原样交对账第四分支裁决（任务状态收敛归裁决面）；
+  //    用户面=writeExecStatus FUNDS_INVARIANT_VIOLATION error 投影（worker emit 降级 no-op——doc 投影
+  //    为唯一持久面）+lighting-failed emit+logger.error 打点。 ──
+  describe('F1 资金硬门：FundsInvariantError catch 分支（不 void_/不置任务 FAILED/不 rethrow——行留 RUNNING 交对账）', () => {
+    const intent = { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } };
+
+    it('不 void_、不置 LightingTask FAILED、不 rethrow（failed 返回非 throw）+FUNDS_INVARIANT_VIOLATION 投影+lighting-failed emit+logger.error', async () => {
+      artifactCommit.commitImage.mockRejectedValueOnce(new FundsInvariantError({
+        intentRowId: 'row-9', execSeq: 9n, creditCost: 5, reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+      }));
+      const loggerSpy = vi.spyOn((consumer as any).logger, 'error');
+
+      const result = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+
+      expect(result).toMatchObject({ status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' });   // 正常返回=rethrow 面 regressed 即红
+      // 资金禁自动动作：不 void_（解冻退款）——行留 RUNNING+冻结原样
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      // 不置 LightingTask FAILED（歧义态禁终态化——任务状态收敛归对账裁决面）
+      const failedUpdates = prisma.lightingTask.update.mock.calls.filter((c: any[]) => (c[0] as any)?.data?.status === 'failed');
+      expect(failedUpdates).toHaveLength(0);
+      // error 级打点（携带意图行 id——资金不变量破缺=对账介入信号）
+      expect(loggerSpy).toHaveBeenCalled();
+      expect(String(loggerSpy.mock.calls.at(-1)![0])).toContain('row-9');
+      // 用户面持久投影（worker emit 降级 no-op——doc 投影为唯一可达面）
+      expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('proj-1', 'n1', expect.objectContaining({
+        status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: expect.stringContaining('资金核销异常'),
+      }), { intentRowId: 'row-9', execSeq: '9' });
+      // 即时 UX 面（api 形态有效）
+      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({
+        nodeId: 'n1', status: 'lighting-failed',
+      }));
     });
   });
 });

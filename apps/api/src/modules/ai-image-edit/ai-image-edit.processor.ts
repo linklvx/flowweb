@@ -14,7 +14,7 @@ import { countExecProjectionFailure } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
-import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
+import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import type { ExecutionTicket } from '../execution/execution.types';
 
 export interface AiImageEditJobData {
@@ -224,6 +224,23 @@ export class AiImageEditProcessor extends WorkerHost {
           this.logger.warn(`[execSeq-fence] 意图 ${intentLogId} 旧代 job 失败让位（行已换代）——零副作用退役`);
           return { status: 'skipped', reason: 'EXEC_SEQ_STALE' };
         }
+      }
+      // F1 资金硬门（spec 评审 P1）：finalize 已整体回滚（零交付）且核销凭据不成立——歧义态禁
+      // void_（自动退款）/禁 intentService.fail（置 FAILED）/禁 rethrow（BullMQ failed 事件会触发
+      // onFailed 钩子 fail() 置 FAILED+重试白耗）：意图行留 RUNNING+冻结原样，交对账第四分支裁决。
+      // 用户面=FUNDS_INVARIANT_VIOLATION error 投影（worker 侧 emit 降级 no-op——doc 投影为唯一
+      // 持久面）+edit-failed emit。
+      if (error instanceof FundsInvariantError && intentRowId) {
+        this.logger.error(`[funds-invariant] 意图 ${intentLogId} 资金不变量破缺（行留 RUNNING 交对账第四分支）: ${error.message}`);
+        const attempts = (await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { attempts: true },
+        }).catch(() => null))?.attempts ?? 0;
+        const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
+        await this.collabDoc.writeExecStatus(projectId, nodeId, {
+          status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: msg, attempts,
+        }, intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
+        this.emitPort.emitNodeStatus(projectId, { nodeId, status: 'edit-failed', error: msg });
+        return { status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' };
       }
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），批0.5-8 终态必达——外呼抛错置 FAILED
       // （SIGKILL 场景本 catch 不执行，由 failed 钩子兜底；冻结滞留由 reconcile 超龄三查②解冻）

@@ -10,7 +10,7 @@ import { isExecutableNode } from './is-executable-node';
 import { CollabWritePort, type WorkerWriteScope } from '../collab/collab-write.port';
 import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
 import { UpstreamMediaService } from './upstream-media.service';
-import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
+import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -456,6 +456,18 @@ export class ExecutionService {
           // T15：交付归投影 poller——本处零退款零 error 投影（done 投影=deliverArtifact 专写；
           // error 会与 poller done 对撞）。投影行在案=交付有 owner（node 删⇒orphaned+退款在彼）。
           this.logger.warn(`[deliver] 意图 ${claimed.intentId} settle 后残余段抛错（交付归投影链零资金动作）: ${err?.message ?? err}`);
+          return;
+        }
+        if (err instanceof FundsInvariantError) {
+          // F1 资金硬门（用户裁定①）：finalize 已整体回滚（零交付）且核销凭据不成立——歧义态禁
+          // 自动退款（void_）/禁 fail（置 FAILED）：行保持 RUNNING+冻结原样，留对账第四分支裁决。
+          // 用户面暂缓交付提示；rearmable:false——重试=新代 claim 会 void 旧冻结，绕过对账裁决面。
+          this.logger.error(`[funds-invariant] 意图 ${claimed.intentId} 资金不变量破缺（行留 RUNNING 交对账第四分支）: ${err.message}`);
+          const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
+          const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
+          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('FUNDS_INVARIANT_VIOLATION', msg, attempts, false, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
+          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
+          errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'FUNDS_INVARIANT_VIOLATION' });
           return;
         }
         await this.teamCredit.void_({ intentRowId: claimed.id, execSeq: claimed.execSeq })

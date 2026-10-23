@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 import { NodeBusyError } from './generation-intent.service';
-import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
+import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 
 describe('ExecutionService', () => {
   let service: ExecutionService;
@@ -527,6 +527,43 @@ describe('ExecutionService', () => {
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done', fileId: '/mock/replay.png' })); // emit 即时 UX（fileId=resultRef=mediaId 语义）
       expect(writeEntries()).toBe(0);
+    });
+  });
+
+  // ── F1 资金硬门执行面（用户裁定①）：FundsInvariantError 传播到 catch ⇒ 禁自动退款（void_）/
+  //    禁 fail（置 FAILED）——歧义态行保持 RUNNING+冻结原样，交对账第四分支裁决；用户面
+  //    FUNDS_INVARIANT_VIOLATION error+error 级日志打点。 ──
+  describe('F1 资金硬门：FundsInvariantError catch 分支（不 void_/不 fail——行留 RUNNING 交对账）', () => {
+    const n2Image = { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } };
+
+    it('不 void_、不 intentService.fail、logger.error 打点、writeExecStatus/emitNodeStatus 用户面 error（FUNDS_INVARIANT_VIOLATION）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+      topology.getScope.mockReturnValue([n2Image]);
+      topology.sort.mockReturnValue([n2Image]);
+      collabDoc.readCanvas.mockResolvedValue({ nodes: [n2Image], edges: [] });
+      // 同代 RUNNING 行（默认 prisma.generationIntent.findUnique 夹具——catch 判读不进换代让位/SUCCEEDED 档）
+      artifactCommit.commitImage.mockRejectedValueOnce(new FundsInvariantError({
+        intentRowId: 'intent-1', execSeq: 1n, creditCost: 5, reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+      }));
+      const loggerSpy = vi.spyOn((service as any).logger, 'error');
+
+      const result = await service.execute('p1', undefined, 'u1', ['n2']);
+
+      expect(result.success).toBe(false);
+      expect(result.errors[0]).toMatchObject({ nodeId: 'n2', status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION' });
+      // 资金禁自动动作：不 void_（解冻退款）、不 fail（置 FAILED）——行留 RUNNING+冻结原样
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      expect(intentSvc.fail).not.toHaveBeenCalled();
+      // error 级打点（携带意图行 id——资金不变量破缺=对账介入信号）
+      expect(loggerSpy).toHaveBeenCalledTimes(1);
+      expect(String(loggerSpy.mock.calls[0][0])).toContain('intent-1');
+      // 用户面：writeExecStatus errorPatch + emitNodeStatus error（文案=暂缓交付待对账）
+      expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('p1', 'n2', expect.objectContaining({
+        status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION',
+      }), expect.anything());
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({
+        nodeId: 'n2', status: 'error', error: expect.stringContaining('资金核销异常'),
+      }));
     });
   });
 });
