@@ -4,6 +4,7 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { scheduleUploadFactPull } from '@/stores/mediaFactsRuntime';
 import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
@@ -167,6 +168,9 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
         });
 
         await confirmUpload({ fileId, key, fileSize: file.size });
+
+        // F4c P0：上传者会话告知链锚（逐 fileId）——同 ImageGenNode handleUploadFile 注释
+        scheduleUploadFactPull(fileId);
 
         const { url: realUrl } = await getMediaUrl(fileId);
 

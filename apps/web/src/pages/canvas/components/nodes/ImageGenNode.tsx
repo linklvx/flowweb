@@ -31,6 +31,7 @@ import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { getMediaUrl } from '@/api/mediaApi';
 import { downloadMediaFile } from '@/utils/mediaDownload';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
+import { scheduleUploadFactPull } from '@/stores/mediaFactsRuntime';
 import { apiFetch } from '@/api/client';
 import { withSyncRetry } from '@/api/executionApi';
 import { canExecute } from '@/stores/syncStatus';
@@ -420,6 +421,11 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       });
 
       await confirmUpload({ fileId, key, fileSize: file.size });
+
+      // F4c P0：上传者会话告知链锚——本地 origin 引用写被 onRemote 过滤（②lazy 不触发）+上传图
+      // 无 state fact（④watcher 不适用），confirm 成功时刻双档延时定向补拉 natural fact（携
+      // downscaledFrom 即「已自动缩小至支持尺寸」告知）。组件卸载即失效可接受——重连全量拉自愈。
+      scheduleUploadFactPull(fileId);
 
       updateConfig(id, { referenceImage: fileId });
     } catch (err: any) {

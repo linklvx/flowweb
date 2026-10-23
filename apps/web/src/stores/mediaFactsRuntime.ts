@@ -13,18 +13,29 @@
 //     周期补拉（4s×2 增长帽 30s；集合变化重置回首档），终态退出/引用消失即停；不重连不换引用的
 //     processing 视频也能自然切成品/终态失败。会话边界（initCollab 起点+teardownSession 清理链均
 //     resetMediaFacts）纪元自增——在飞轮次响应丢弃（不 ingest 不续调度，lastDoc 释已 destroy doc）。
-//     ①②③驱动语义不变（watcher 仅在 ingest 落 store 后+②③尾部追加调度点）。
+//     ①②③驱动 ingest 语义不变（watcher 仅在 ingest 落 store 后+②③尾部追加调度点）。
+//     ※F4c P2-2 收口：epoch 守卫自④扩至①②③全驱动（fullPull/lazy/定向补拉的 pullIds 均传 stale）
+//     ——F3 卡「①②语义不变」是当卡范围约束非永久契约：F4c 告知把「先存静默缺口」变成用户可见
+//     toast，在飞响应跨 resetMediaFacts 迟到弹旧项目提示=用户可见副作用，故收口。
 // factVersion 单调忽略旧/等值重放（mediaFacts.ts 纯模块——mergeFactRows/stagePendingFact/
 // consumePendingFacts 单源；红测在 stores/mediaFacts.test.ts+F3 watcher 在 mediaFactsRuntime.test.ts）。
+// F4c（用户裁定④）：超限降尺度用户告知——natural fact payload 携 downscaledFrom（api probe resize
+// 分支写入，形态单源=shared MediaNaturalFactPayload）⇒ doc 已引用（direct 分支）即 message.info
+// 「图片超过尺寸上限，已自动缩小至支持尺寸（原 w×h）」；每 mediaId 每会话恰一次（模块级 Set，
+// resetMediaFacts 清空）；pending 暂存路径记录原尺寸、fileId 到达消费窗（consumePendingFacts 调用后）
+// 同 Set 去重告知。告知与 store 条目正交（纯 natural 行不建条目——不因此吞告知）。上传者本人
+// 会话链锚=scheduleUploadFactPull（P0：②lazy 被本地 origin 过滤+④watcher 结构性不适用→上传
+// confirm 后双档延时定向补拉——组件侧挂点）。
 import * as Y from 'yjs';
-import { collectMediaIds } from '@flowweb/shared';
+import { message } from 'antd';
+import { collectMediaIds, type MediaNaturalFactPayload } from '@flowweb/shared';
 import { toDocLike } from '@/collab/ydocBuilder';
 import { fetchMediaFacts } from '@/api/mediaApi';
 import { useNodeStore } from './nodeStore';
 import { useTeamStore } from './teamStore';
 import {
   mergeFactRows, stagePendingFactRows, consumePendingFacts,
-  type MediaFactsResponseRow, type PendingFact,
+  type MediaFactsResponseRow, type MediaFactEntry, type PendingFact,
 } from './mediaFacts';
 
 /** lazy 补拉去抖窗（fileId 到达→拉取批合并窗——投影 poller 3s tick 的次轮即覆盖）。 */
@@ -52,6 +63,13 @@ let watchBackoffMs: number | null = null;
 let watchInFlight = false;
 /** 会话纪元：resetMediaFacts 自增——watcher 在飞轮次按 seq 判废（项目切换/teardown 丢弃旧响应，裁定原文）。 */
 let sessionSeq = 0;
+// F4c 降尺度告知态（会话生命周期——与 pendingFacts/lazyQueue 同层，resetMediaFacts 清空）：
+// downscaledNotified=已告知 mediaId 集（每会话恰一次）；pendingDownscaledDims=暂存路径的原尺寸
+// 记录（pending 条目不携 payload 面——consume 时按 mediaId 回查告知）。驻留上界=pendingFacts
+// 60s TTL 窗（P2-1 收口）：消费窗顺带 prune「不在 pendingFacts 中的 id」——记录不越过其暂存
+// 条目存活（TTL 丢弃后下次重连全量拉/lazy 补拉重 ingest 会重记录，自愈非缓存承诺）。
+let downscaledNotified = new Set<string>();
+let pendingDownscaledDims = new Map<string, { width: number; height: number }>();
 
 function teamIdOf(): string | undefined {
   return useTeamStore.getState().currentTeamId ?? undefined;
@@ -144,6 +162,49 @@ async function onProcessingWatchTick(): Promise<void> {
   armProcessingWatch(watchBackoffMs);
 }
 
+// ═══ F4c 超限降尺度用户告知（用户裁定④「超限时明确告知已缩小至支持尺寸」） ═══
+
+/** 响应行内 natural fact 的 downscaledFrom 结构校验（wire payload 无 schema——防坏数据炸渲染，
+ *  与 parseFactRow 同哲学：非法形态视同未降尺度）。 */
+function downscaledFromOf(row: MediaFactsResponseRow): { width: number; height: number } | null {
+  for (const f of row.facts) {
+    if (f.factType !== 'natural') continue;
+    const d = (f.payload as Partial<MediaNaturalFactPayload>).downscaledFrom;
+    if (typeof d?.width === 'number' && typeof d?.height === 'number'
+      && Number.isFinite(d.width) && Number.isFinite(d.height) && d.width > 0 && d.height > 0) {
+      return { width: d.width, height: d.height };
+    }
+  }
+  return null;
+}
+
+/** 告知恰一次（每 mediaId 每会话——Set 去重；antd 现有形态同 canvasCollabRuntime message 用法）。
+ *  文案不携「40MP」字面（P2-4）——与 api MAX_IMAGE_PIXELS 解耦，免双源漂移。 */
+function notifyDownscaled(mediaId: string, dims: { width: number; height: number }): void {
+  if (downscaledNotified.has(mediaId)) return;
+  downscaledNotified.add(mediaId);
+  message.info(`图片超过尺寸上限，已自动缩小至支持尺寸（原 ${dims.width}×${dims.height}）`);
+}
+
+/** 暂存路径消费点收口（consumePendingFacts 调用后）：被消费 mediaId 有原尺寸记录即告知+移除；
+ *  顺带 prune 不在新 pending 集中的记录（P2-1——TTL 清扫/消费移除的 id 同步移除，驻留上界=pending
+ *  60s TTL 窗，静止会话不滞留膨胀；重建过滤非迭代删除——no-delete-scan 形态规避）。 */
+function settlePendingDownscaled(
+  pending: ReadonlyMap<string, PendingFact>,
+  consumed: Map<string, MediaFactEntry> | null,
+): void {
+  for (const id of consumed?.keys() ?? []) {
+    const dims = pendingDownscaledDims.get(id);
+    if (dims) {
+      pendingDownscaledDims.delete(id);
+      notifyDownscaled(id, dims);
+    }
+  }
+  if (pendingDownscaledDims.size > 0) {
+    pendingDownscaledDims = new Map([...pendingDownscaledDims].filter(([id]) => pending.has(id)));
+  }
+}
+
 /** 响应消费：**到达时** doc 已引用的 mediaId 直接并入；未引用暂存 pendingFacts（fact 先于 fileId
  *  到达窗——判定基准=响应到达时的 doc 现值〔getDocIds 闭包现取〕，非请求时快照：拉取在飞窗 doc
  *  失引用/换引用的竞态下，事实按到达时刻归档——这正是「先到暂存、fileId 再到达即消费」的语义面）。 */
@@ -152,11 +213,18 @@ function ingestRows(rows: readonly MediaFactsResponseRow[], getDocIds: () => Rea
   const current = useNodeStore.getState().mediaFacts;
   const direct: MediaFactsResponseRow[] = [];
   for (const row of rows) {
-    if (docIds.has(row.mediaId)) direct.push(row);
-    else {
+    if (docIds.has(row.mediaId)) {
+      direct.push(row);
+      // F4c：doc 已引用即到即告知（与 store 条目正交——纯 natural 行不建条目仍告知）。
+      const dims = downscaledFromOf(row);
+      if (dims) notifyDownscaled(row.mediaId, dims);
+    } else {
       // fact 先于 fileId 到达——暂存短 TTL Map（fileId 到达即消费；TTL 过期丢到下次重连全量拉）。
       // T17 登记收口：state/natural 两类行 union 暂存（stagePendingFactRows——容量帽在其内）。
       pendingFacts = stagePendingFactRows(pendingFacts, row.mediaId, row.facts, Date.now());
+      // F4c：暂存路径不即时告知（画布未引用防噪音）——记录原尺寸，fileId 到达消费窗告知。
+      const dims = downscaledFromOf(row);
+      if (dims && !downscaledNotified.has(row.mediaId)) pendingDownscaledDims.set(row.mediaId, dims);
     }
   }
   if (direct.length > 0) {
@@ -167,7 +235,8 @@ function ingestRows(rows: readonly MediaFactsResponseRow[], getDocIds: () => Rea
 
 /** 按 mediaId 集拉取（分批 ≤FACTS_BATCH；失败静默——重连全量拉自愈，非缓存承诺）。
  *  getDocIds=到达时 doc 引用集现取（ingestRows 头注——禁请求时快照冻结）。
- *  stale（仅 watcher 传入）：会话换代→在飞响应丢弃不 ingest；①②驱动不传——语义不变。 */
+ *  stale（F4c P2-2 收口：①②③④全驱动传入）：会话换代→在飞响应丢弃不 ingest（旧项目事实/
+ *  降尺度 toast 不跨会话弹）。 */
 async function pullIds(ids: readonly string[], getDocIds: () => ReadonlySet<string>, stale?: () => boolean): Promise<void> {
   const teamId = teamIdOf();
   for (const batch of chunk(ids, FACTS_BATCH)) {
@@ -189,6 +258,8 @@ export function resetMediaFacts(): void {
   pendingFacts = new Map();
   lazyQueue = new Set();
   knownMediaIds = new Set();
+  downscaledNotified = new Set();          // F4c：告知集清空（新会话同 mediaId 再到再告知）
+  pendingDownscaledDims = new Map();
   if (lazyTimer) { clearTimeout(lazyTimer); lazyTimer = null; }
   useNodeStore.setState({ mediaFacts: new Map() });
 }
@@ -198,6 +269,7 @@ export function resetMediaFacts(): void {
 export function pullMediaFactsFull(doc: Y.Doc): void {
   if (fullPullInFlight || !doc) return;
   fullPullInFlight = true;
+  const seq = sessionSeq;              // P2-2：在飞响应按会话纪元判废（拉取窗切项目→丢弃）
   void (async () => {
     try {
       const docIds = collectMediaIds(toDocLike(doc));
@@ -207,8 +279,9 @@ export function pullMediaFactsFull(doc: Y.Doc): void {
       const { pending, consumed } = consumePendingFacts(pendingFacts, docIds, useNodeStore.getState().mediaFacts, Date.now());
       pendingFacts = pending;
       if (consumed) useNodeStore.setState({ mediaFacts: consumed });
+      settlePendingDownscaled(pending, consumed);   // F4c：重连对账消费窗告知+prune（同 Set 去重）
       // 到达时引用集现取（getDocIds——拉取在飞窗 doc 变更竞态按到达时刻归档）
-      await pullIds([...docIds], () => collectMediaIds(toDocLike(doc)));
+      await pullIds([...docIds], () => collectMediaIds(toDocLike(doc)), () => seq !== sessionSeq);
       scheduleProcessingWatch();      // ④尾部调度点（consume 迁入的 processing 条目入轮询集）
     } finally {
       fullPullInFlight = false;
@@ -216,12 +289,14 @@ export function pullMediaFactsFull(doc: Y.Doc): void {
   })();
 }
 
-/** 单 mediaId 定向补拉（failed UI 重试面——VideoGenNode「刷新状态」按钮直调）。到达时引用集
- *  现取（消费判据单源=ingestRows；定向拉取的 mediaId 多为 doc 已引用——未引用档自然入 pending）。 */
+/** 单 mediaId 定向补拉（failed UI 重试面——VideoGenNode「刷新状态」按钮直调；F4c P0 上传延时
+ *  补拉同入口）。到达时引用集现取（消费判据单源=ingestRows；定向拉取的 mediaId 多为 doc 已
+ *  引用——未引用档自然入 pending）。P2-2：同受会话纪元守卫（在飞跨 reset 迟到→丢弃）。 */
 export function pullMediaFactsForIds(ids: readonly string[], getDocIds?: () => ReadonlySet<string>): void {
   if (ids.length === 0) return;
   const resolve = getDocIds ?? (() => new Set(ids));
-  void pullIds(ids, resolve);
+  const seq = sessionSeq;              // P2-2：定向拉取同受 epoch 守卫
+  void pullIds(ids, resolve, () => seq !== sessionSeq);
 }
 
 /** ②fileId 到达判定（doc nodes 变更后——applyDocToStore 尾挂/armSession 首投影）：新见 mediaId
@@ -240,6 +315,7 @@ export function onDocRefsChanged(doc: Y.Doc): void {
   const { pending, consumed } = consumePendingFacts(pendingFacts, docIds, useNodeStore.getState().mediaFacts, Date.now());
   pendingFacts = pending;
   if (consumed) useNodeStore.setState({ mediaFacts: consumed });
+  settlePendingDownscaled(pending, consumed);   // F4c：fileId 到达消费窗告知+prune（同 Set 去重）
   scheduleProcessingWatch();      // ④尾部调度点（pending 消费入 store 的 processing 进轮询集）
   if (fresh.length === 0) return;
   for (const id of fresh) lazyQueue.add(id);
@@ -248,6 +324,26 @@ export function onDocRefsChanged(doc: Y.Doc): void {
     lazyTimer = null;
     const ids = [...lazyQueue];
     lazyQueue = new Set();
-    if (ids.length > 0) void pullIds(ids, () => collectMediaIds(toDocLike(doc)));
+    if (ids.length > 0) {
+      const seq = sessionSeq;      // P2-2：lazy 补拉同受 epoch 守卫（在飞跨 reset 迟到→丢弃）
+      void pullIds(ids, () => collectMediaIds(toDocLike(doc)), () => seq !== sessionSeq);
+    }
   }, LAZY_PULL_DEBOUNCE_MS);
+}
+
+// ═══ F4c P0（用户裁定④双评审收口）：上传 confirm 后延时定向补拉——上传者会话告知链锚 ═══
+
+/** 上传延时补拉双档：12s=probe 轮询间隔 10s+处理余量（首档对齐 probe 首轮 done 的典型时点）；
+ *  30s=兜底二次（probe 退避/批内串行排队窗）。 */
+export const UPLOAD_FACT_PULL_FIRST_MS = 12_000;
+export const UPLOAD_FACT_PULL_SECOND_MS = 30_000;
+
+/** 上传 confirm 成功后的延时定向补拉（F4c P0 根修）：上传者本人会话的告知链锚——本地 origin
+ *  引用写（updateConfig referenceImage）被 onRemote LOCAL_ORIGINS 过滤→②lazy 不触发；上传图无
+ *  state fact→④watcher（拉取集=引用中∩processing）结构性不适用——confirm 成功时刻是上传者侧
+ *  唯一确定 fileId 的点，双档延时后定向拉取 natural fact（携 downscaledFrom 即告知）。组件卸载
+ *  即失效可接受——重连全量拉自愈；每 mediaId 每会话告知恰一次（Set 去重）。 */
+export function scheduleUploadFactPull(fileId: string): void {
+  setTimeout(() => { pullMediaFactsForIds([fileId]); }, UPLOAD_FACT_PULL_FIRST_MS);
+  setTimeout(() => { pullMediaFactsForIds([fileId]); }, UPLOAD_FACT_PULL_SECOND_MS);
 }

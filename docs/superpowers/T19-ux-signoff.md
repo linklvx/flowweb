@@ -30,12 +30,14 @@
 
 ## ③ 40MP 上限（图片像素域）
 
-**验收描述**：probe 轮对超 40MP（MAX_IMAGE_PIXELS）图片 sharp downscale 到域内再入库——固有尺寸事实=降尺度后值；用户感知=大图可正常装载不炸内存。
+**验收描述**：probe 轮对超 40MP（MAX_IMAGE_PIXELS）图片 sharp downscale 到域内再入库——固有尺寸事实=降尺度后值；超限时明确告知「已自动缩小至支持尺寸」（原尺寸）；用户感知=大图可正常装载不炸内存。
 
 **证据锚**：
-- int：`apps/api/src/modules/media/media-probe.int.spec.ts:246`（`naturalWidth×naturalHeight ≤ MAX_IMAGE_PIXELS`+降尺度断言 :247）。
+- int：`apps/api/src/modules/media/media-probe.int.spec.ts`「40MP+downscale 产品策略」用例（`naturalWidth×naturalHeight ≤ MAX_IMAGE_PIXELS`+降尺度+outbox payload 携 downscaledFrom 断言——锚用例名防行号漂移）。
 - 实现载体：`apps/api/src/modules/media/media-probe.poller.ts`（sharp 重编码=执行边界——probe 分型批卡 T7）。
-- 复现步骤：上传 >40MP 图（如 8000×6000）→素材库事实 natural≈域内值（<7000 宽）→节点装载/渲染正常。
+- 降尺度告知链（F4c——浏览器验收缺口补齐）：api probe resize 分支记录原尺寸 → natural fact payload 携 `downscaledFrom {width,height}`（形态单源=shared `media-fact.ts` `MediaNaturalFactPayload`；正常/视频路径零键——int 同用例 payload 断言）→ web `mediaFactsRuntime.ts` ingest（doc 已引用即到即告知）与 pending 消费窗 `message.info`「图片超过尺寸上限，已自动缩小至支持尺寸（原 w×h）」每 mediaId 每会话恰一次（红绿测 `apps/web/src/stores/mediaFactsRuntime.test.ts` F4c describe）。
+- 上传者会话链锚（F4c 双评审 P0）：上传 confirm 成功后双档延时定向补拉（`mediaFactsRuntime.ts` `scheduleUploadFactPull` 12s/30s——②lazy 被本地 origin 过滤+④watcher 对无 state fact 的上传图结构性不适用；挂点=ImageGenNode `handleUploadFile`+MultiImageNode 逐 fileId confirm 尾）。
+- 复现步骤：上传 >40MP 图（如 8000×6000）→素材库事实 natural≈域内值（<7000 宽）→约 12s 后（同会话内）出现「已自动缩小至支持尺寸（原 8000×6000）」提示（每图每会话一次；重连/其他协作者引用亦触发）→节点装载/渲染正常。
 
 **签栏**：＿＿＿＿＿＿＿＿（签字/日期）
 

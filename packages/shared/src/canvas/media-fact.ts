@@ -59,3 +59,19 @@ export async function resolveUpstreamMediaUrl(
   }
   return presignedGet(media.key);
 }
+
+// ── F4c（用户裁定④）：natural fact 负载 wire 契约（api outbox 写者/web 告知消费者共型单源） ──
+
+/** factType='natural' 的 payload 形态（MediaFactOutbox.payload JSON 面——写者=api probe doneNatural
+ *  与 materialize completeMaterialized；读者=web mediaFacts 消费链）。downscaledFrom 仅图片超
+ *  MAX_IMAGE_PIXELS(40MP) 服务端降尺度路径携带（probe resize 分支）——语义=「该产物曾被降尺度，
+ *  原 display 尺寸为 w×h」；正常图片/视频路径不携（防过度携带）。纯告知面：不参与 factVersion/
+ *  等值判（mergeFactRows 合并语义不动）——幂等安全（factVersion 单调+四元组唯一 skipDuplicates）。 */
+export interface MediaNaturalFactPayload {
+  naturalWidth: number;
+  naturalHeight: number;
+  naturalRotation?: number | null;
+  source?: string;
+  /** 降尺度前原始 display 尺寸（F4c：web「已自动缩小至支持尺寸」告知的数据源）。 */
+  downscaledFrom?: { width: number; height: number };
+}

@@ -50,6 +50,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Counter, register } from 'prom-client';
+import type { MediaNaturalFactPayload } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { mediaMaterializeLag } from '../media-delivery/delivery-lag.metrics';
 import { MinioService } from '../minio/minio.service';
@@ -378,10 +379,11 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
             {
               mediaId: row.id, projectId, factVersion: media.factVersion,
               factType: 'natural',
+              // F4c P2-3：natural payload wire 契约单源（同 probe doneNatural——视频路径零 downscaledFrom）
               payload: {
                 naturalWidth: r.naturalWidth, naturalHeight: r.naturalHeight,
                 naturalRotation: r.naturalRotation, source: 'materialize',
-              },
+              } satisfies MediaNaturalFactPayload,
             },
           ]),
           skipDuplicates: true,   // [mediaId,projectId,factType,factVersion] 四元组唯一（S0.1）

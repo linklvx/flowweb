@@ -274,6 +274,14 @@ vi.mock('./prompt-input/ImageThumbnailBar', () => ({
   ImageThumbnailBar: () => null,
 }));
 
+// F4c P0：上传 confirm 后延时定向补拉钩子捕获（partial mock——真实 mediaFactsRuntime 图不进断言面，
+// 仅钉组件挂点；时序/ingest/toast 行为归 mediaFactsRuntime.test.ts）
+const { mockScheduleUploadFactPull } = vi.hoisted(() => ({ mockScheduleUploadFactPull: vi.fn() }));
+vi.mock('@/stores/mediaFactsRuntime', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return { ...actual, scheduleUploadFactPull: mockScheduleUploadFactPull };
+});
+
 const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
 vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
 
@@ -435,6 +443,21 @@ describe('ImageGenNode', () => {
     const container = uploadBtn.closest('.nodrag');
     expect(container).toBeTruthy();
     expect(container?.classList.contains('nopan')).toBe(true);
+  });
+
+  it('F4c P0：上传 confirm 成功后挂延时定向补拉（scheduleUploadFactPull 携 fileId——上传者会话告知链锚）', async () => {
+    mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
+    const { container } = renderNode(true);
+    vi.mocked(presignUpload).mockResolvedValue({
+      fileId: 'up-file-1', uploadUrl: 'http://upload.url', key: 'k', fields: {},
+    } as any);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] } });
+    await waitFor(() => {
+      expect(confirmUpload).toHaveBeenCalledWith({ fileId: 'up-file-1', key: 'k', fileSize: 1 });
+    });
+    expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { referenceImage: 'up-file-1' });
+    expect(mockScheduleUploadFactPull).toHaveBeenCalledWith('up-file-1');   // 改前红（挂点缺失）
   });
 
   // ---- Multi-selection: hide single-node toolbar (Bug A) ----

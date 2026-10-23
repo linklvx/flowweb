@@ -1,19 +1,29 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MultiImageNode } from './MultiImageNode';
 import { ReactFlowProvider } from '@xyflow/react';
+import { presignUpload, confirmUpload } from '@/api/storageApi';
 
-const { getMockNodeData, setMockNodeData, getStoreUpdateMultiImageImages, getStoreSetMainImageIndex, getStoreToggleExpanded } = vi.hoisted(() => {
+// F4c P0：上传 confirm 后延时定向补拉钩子捕获（partial mock——行为归 mediaFactsRuntime.test.ts）
+const { mockScheduleUploadFactPull } = vi.hoisted(() => ({ mockScheduleUploadFactPull: vi.fn() }));
+vi.mock('@/stores/mediaFactsRuntime', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return { ...actual, scheduleUploadFactPull: mockScheduleUploadFactPull };
+});
+
+const { getMockNodeData, setMockNodeData, getStoreUpdateMultiImageImages, getStoreSetMainImageIndex, getStoreToggleExpanded, getStoreUpdateMultiImageNodeStatus } = vi.hoisted(() => {
   let mockNodeData: any = { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' };
   let storeUpdateMultiImageImages = vi.fn();
   let storeSetMainImageIndex = vi.fn();
   let storeToggleExpanded = vi.fn();
+  let storeUpdateMultiImageNodeStatus = vi.fn();   // F4c P0 上传链驱动面（handleUploadFiles 头尾调用）
   return {
     getMockNodeData: () => mockNodeData,
     setMockNodeData: (d: any) => { mockNodeData = d; },
     getStoreUpdateMultiImageImages: () => storeUpdateMultiImageImages,
     getStoreSetMainImageIndex: () => storeSetMainImageIndex,
     getStoreToggleExpanded: () => storeToggleExpanded,
+    getStoreUpdateMultiImageNodeStatus: () => storeUpdateMultiImageNodeStatus,
   };
 });
 
@@ -48,6 +58,7 @@ vi.mock('@/stores/nodeStore', () => ({
         updateMultiImageImages: getStoreUpdateMultiImageImages(),
         setMainImageIndex: getStoreSetMainImageIndex(),
         toggleExpanded: getStoreToggleExpanded(),
+        updateMultiImageNodeStatus: getStoreUpdateMultiImageNodeStatus(),
       };
       if (typeof selector === 'function') return selector(state);
       return state;
@@ -61,11 +72,15 @@ let mockMarqueeSelecting = false;
 
 vi.mock('@/stores/canvasIntents', () => ({ reportNodeSize: vi.fn() }));
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: vi.fn((selector?: any) => {
-    const state = { selectedId: null, selectNode: vi.fn(), marqueeSelecting: mockMarqueeSelecting };
-    if (typeof selector === 'function') return selector(state);
-    return state;
-  }),
+  // F4c P0 上传链驱动面：canvasProjectId 读 getState().projectId（缺 getState 即断链）
+  useCanvasStore: Object.assign(
+    vi.fn((selector?: any) => {
+      const state = { selectedId: null, selectNode: vi.fn(), marqueeSelecting: mockMarqueeSelecting, projectId: 'p1' };
+      if (typeof selector === 'function') return selector(state);
+      return state;
+    }),
+    { getState: () => ({ projectId: 'p1' }) },
+  ),
 }));
 
 vi.mock('@/api/storageApi', () => ({
@@ -77,6 +92,7 @@ vi.mock('@/api/mediaApi', () => ({
   getMediaUrl: vi.fn((fileId: string) =>
     Promise.resolve({ url: `http://media/${fileId}` }),
   ),
+  toFlowaiUrl: (u: string) => u,   // F4c P0 上传链驱动面（handleUploadFiles 回代上传 URL）
 }));
 
 vi.mock('axios', () => ({
@@ -251,6 +267,20 @@ describe('MultiImageNode', () => {
     setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
     renderNode(false);
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
+  });
+
+  it('F4c P0：上传 confirm 成功后挂延时定向补拉（逐 fileId——上传者会话告知链锚）', async () => {
+    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
+    const { container } = renderNode(true);
+    vi.mocked(presignUpload).mockResolvedValue({
+      fileId: 'multi-up-1', uploadUrl: 'http://upload.url', key: 'k', fields: {},
+    } as any);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'b.png', { type: 'image/png' })] } });
+    await waitFor(() => {
+      expect(confirmUpload).toHaveBeenCalledWith({ fileId: 'multi-up-1', key: 'k', fileSize: 1 });
+    });
+    expect(mockScheduleUploadFactPull).toHaveBeenCalledWith('multi-up-1');   // 改前红（挂点缺失）
   });
 
   // ---- Multi-selection: hide single-node toolbar (Bug A) ----

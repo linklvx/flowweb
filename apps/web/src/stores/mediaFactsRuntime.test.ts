@@ -7,8 +7,12 @@
 // ≥100ms 安全边距（未到=due-100 处断言零调用；跨档=due+100 处断言已调）。
 // 双评审收口：P1 teardown 停轮 / P2-1 活引用集（本地 origin 盲窗）/ P2-2+P2-3 在飞调度不变量
 // （单轮单拉+不跳档）/ epoch 判别（新会话后旧响应直钉）/ 停后重启专项。
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// F4c（用户裁定④）：超限降尺度用户告知——natural fact 载 downscaledFrom（api probe resize 分支
+// 写入）→ doc 已引用即 message.info「已缩小至支持尺寸（原 w×h）」；每 mediaId 每会话恰一次
+// （模块级 Set，resetMediaFacts 清空）；pending 暂存路径 fileId 到达消费窗等价告知。
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import * as Y from 'yjs';
+import { message } from 'antd';
 
 vi.mock('@/api/mediaApi', () => ({
   fetchMediaFacts: vi.fn(async () => []),
@@ -23,9 +27,10 @@ vi.mock('@hocuspocus/provider', async () => {
 });
 
 import { useNodeStore } from './nodeStore';
-import { resetMediaFacts, onDocRefsChanged, pullMediaFactsFull, pullMediaFactsForIds } from './mediaFactsRuntime';
+import { resetMediaFacts, onDocRefsChanged, pullMediaFactsFull, pullMediaFactsForIds, scheduleUploadFactPull } from './mediaFactsRuntime';
 import { destroyCollab } from './canvasCollabRuntime';
 import { fetchMediaFacts } from '@/api/mediaApi';
+import { PENDING_FACTS_TTL_MS } from './mediaFacts';
 import type { MediaFactEntry } from './mediaFacts';
 
 const fetchMock = fetchMediaFacts as ReturnType<typeof vi.fn>;
@@ -37,6 +42,15 @@ const fact = (version: string, state: MediaFactEntry['state']): MediaFactEntry =
 const stateRow = (
   mediaId: string, version: string, status: 'processing' | 'completed' | 'failed', extra: Record<string, unknown> = {},
 ) => ({ mediaId, facts: [{ factVersion: version, factType: 'state', payload: { status, ...extra } }] });
+
+/** natural 行（携 downscaledFrom——F4c：服务端超 40MP 降尺度痕迹；附带 state 行供 pending 暂存建条目）。 */
+const naturalDsRow = (mediaId: string, version: string, withState: boolean, ds: { width: number; height: number } = { width: 7000, height: 7000 }) => ({
+  mediaId,
+  facts: [
+    ...(withState ? [{ factVersion: version, factType: 'state', payload: { status: 'processing' as const } }] : []),
+    { factVersion: version, factType: 'natural', payload: { naturalWidth: 6324, naturalHeight: 6324, downscaledFrom: ds } },
+  ],
+});
 
 /** referenceVideo 引用形态 doc（P1#1 键——collectMediaIds 九键扫描集）。 */
 const makeRefVideoDoc = (...mediaIds: string[]): Y.Doc => {
@@ -368,5 +382,134 @@ describe('F3 mediaFactsRuntime processing watcher（会话级退避补拉）', (
     await vi.advanceTimersByTimeAsync(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);                // 重启确定生效
     expect((fetchMock.mock.calls.at(-1)?.[0] as string[]).slice().sort()).toEqual(['m2']);
+  });
+});
+
+describe('F4c 超限降尺度用户告知（natural fact 携 downscaledFrom → message.info 恰一次）', () => {
+  let infoSpy: MockInstance<typeof message.info>;   // 仓内惯例（canvasCollabRuntime.quota.spec 先例）
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMediaFacts();
+    useNodeStore.setState({ mediaFacts: new Map() });
+    vi.useFakeTimers();
+    infoSpy = vi.spyOn(message, 'info').mockImplementation((() => undefined) as never);   // 仓内惯例（B52 release 同款——防真渲染）
+  });
+  afterEach(() => {
+    resetMediaFacts();
+    useNodeStore.setState({ mediaFacts: new Map() });
+    vi.useRealTimers();
+    infoSpy.mockRestore();
+  });
+
+  it('direct ingest：doc 已引用的 mediaId 携 downscaledFrom → message.info 恰一次（原文+原尺寸）；同 mediaId 重复到达零重复告知', async () => {
+    const doc = makeRefVideoDoc('m-ds');
+    fetchMock.mockResolvedValue([naturalDsRow('m-ds', '1', false)]);   // 上传图典型形态：纯 natural 行
+    pullMediaFactsFull(doc);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith('图片超过尺寸上限，已自动缩小至支持尺寸（原 7000×7000）');   // P2-4：文案与 api MAX_IMAGE_PIXELS 解耦（免双源漂移）
+    expect(useNodeStore.getState().mediaFacts.size).toBe(0);   // 纯 natural 不建条目——告知与 store 条目正交
+
+    // 同 mediaId 等值重放（重连全量拉/定向补拉再收同 fact）——每会话恰一次
+    pullMediaFactsFull(doc);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    pullMediaFactsForIds(['m-ds'], () => new Set(['m-ds']));   // 定向补拉同 direct 路径
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('resetMediaFacts 清告知集（同 mediaId 再到再告知一次）+pending 暂存路径等价（fileId 后到消费窗告知）', async () => {
+    // pending 路径：响应到达时 doc 未引用——暂存不告知；fileId 到达消费即告知
+    fetchMock.mockResolvedValue([naturalDsRow('m-p', '1', true)]);    // state+natural（pending 建条目前提）
+    pullMediaFactsForIds(['m-p'], () => new Set());                   // 到达时引用集空——暂存分支
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).not.toHaveBeenCalled();                          // 未引用不告知（画布上无感——防噪音）
+
+    onDocRefsChanged(makeRefVideoDoc('m-p'));                        // fileId 到达——消费窗
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(1);                        // 消费点告知（改前红=零告知）
+    expect(useNodeStore.getState().mediaFacts.get('m-p')?.state).toBe('processing');
+    onDocRefsChanged(makeRefVideoDoc('m-p'));                        // 重复消费窗——Set 去重
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+
+    // resetMediaFacts（切项目/teardown）清 Set——同 mediaId 再到再告知一次（新会话用户重新可感知）
+    resetMediaFacts();
+    fetchMock.mockResolvedValue([naturalDsRow('m-p', '1', true)]);
+    pullMediaFactsForIds(['m-p'], () => new Set());                  // 新会话先暂存
+    await vi.advanceTimersByTimeAsync(10);
+    onDocRefsChanged(makeRefVideoDoc('m-p'));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('P0：上传 confirm 后延时定向补拉（上传者会话告知链锚）：12s 首轮携 fileId+direct ingest natural 携 downscaledFrom → info 恰一次；30s 兜底二次 → Set 去重', async () => {
+    fetchMock.mockResolvedValue([naturalDsRow('m-up', '1', false)]);   // 上传图典型形态：纯 natural 行
+    scheduleUploadFactPull('m-up');
+    await vi.advanceTimersByTimeAsync(11_900);                  // 12s 档未到（due-100）
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);                     // t=12100：首轮到点
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(['m-up'], 't1');
+    expect(infoSpy).toHaveBeenCalledTimes(1);                   // 默认 resolver=定向拉取视为已引用——direct ingest 即告知
+    await vi.advanceTimersByTimeAsync(20_000);                  // 30s 兜底二次（probe 慢/退避窗）
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(infoSpy).toHaveBeenCalledTimes(1);                   // Set 去重恰一次
+  });
+
+  it('P2-1：pendingDownscaledDims 消费窗顺带 prune（与 pendingFacts 60s TTL 对齐）——TTL 清扫后记录同步移除，暂存重建（无 ds 面）消费零 toast', async () => {
+    fetchMock.mockResolvedValue([naturalDsRow('m-pr', '1', true)]);
+    pullMediaFactsForIds(['m-pr'], () => new Set());            // 未引用——暂存+dims 记录（不告知）
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PENDING_FACTS_TTL_MS + 1_000);   // 暂存条目 TTL 过期
+    onDocRefsChanged(makeRefVideoDoc('m-other'));               // 消费窗：TTL 清扫+prune（dims 随条目移除）
+    // 暂存重建（state v2 无 ds 面——版本更新合法暂存）：消费成功但 dims 已 prune → 零 toast（无 prune 则此处红）
+    fetchMock.mockResolvedValue([{ mediaId: 'm-pr', facts: [{ factVersion: '2', factType: 'state', payload: { status: 'processing' } }] }]);
+    pullMediaFactsForIds(['m-pr'], () => new Set());
+    await vi.advanceTimersByTimeAsync(10);
+    onDocRefsChanged(makeRefVideoDoc('m-pr'));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(useNodeStore.getState().mediaFacts.get('m-pr')?.state).toBe('processing');   // 消费确实发生
+    expect(infoSpy).not.toHaveBeenCalled();                     // dims 不滞留（上界=pending TTL 窗）
+  });
+
+  it('P2-2：①驱动在飞响应跨 resetMediaFacts 迟到——零 store 写+零旧项目降尺度 toast（epoch 守卫扩①②③驱动）', async () => {
+    let resolveFetch!: (v: unknown) => void;                    // ①全量拉在飞（fetch 挂起）
+    fetchMock.mockImplementationOnce(() => new Promise((res) => { resolveFetch = res; }));
+    pullMediaFactsFull(makeRefVideoDoc('m-old'));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resetMediaFacts();                                          // 切项目——会话纪元自增
+    resolveFetch([naturalDsRow('m-old', '9', true)]);           // 旧会话响应迟到（doc 曾引用→无守卫则 direct 入 store+toast）
+    await vi.advanceTimersByTimeAsync(10);
+    expect(useNodeStore.getState().mediaFacts.size).toBe(0);    // 零写入
+    expect(infoSpy).not.toHaveBeenCalled();                     // 零旧项目 toast（改前红）
+  });
+
+  it('P2-5：downscaledFrom 非法形态（NaN/0/负数/字符串/缺键/Infinity）——direct ingest 零 toast 零崩溃；随后合法到达仍可告知', async () => {
+    const bad = [
+      { width: Number.NaN, height: 7000 },
+      { width: 0, height: 7000 },
+      { width: -5, height: 7000 },
+      { width: '7000', height: 7000 },
+      { height: 7000 },
+      { width: 7000, height: Number.POSITIVE_INFINITY },
+    ];
+    fetchMock.mockResolvedValueOnce([{
+      mediaId: 'm-bad',
+      facts: bad.map((ds) => ({ factVersion: '1', factType: 'natural', payload: { naturalWidth: 100, naturalHeight: 100, downscaledFrom: ds } })),
+    }]);
+    pullMediaFactsForIds(['m-bad'], () => new Set(['m-bad']));  // direct ingest 坏 payload——不炸不告知
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce([naturalDsRow('m-bad', '2', false)]);   // 合法随后到达
+    pullMediaFactsForIds(['m-bad'], () => new Set(['m-bad']));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(infoSpy).toHaveBeenCalledTimes(1);                   // 坏行不毒化 mediaId
   });
 });

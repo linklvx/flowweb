@@ -8,7 +8,8 @@
 // 全交换；rotation 血缘留存不渲染，v5 裁决一律 display）+factVersion+1+MediaFactOutbox
 // （factType='natural'，来源=union(Media.projectId, binding.projectId)——spec :288-304）。
 // 图片：sharp 40MP+downscale 产品策略+重编码剥 EXIF/polyglot 载荷（spec「图片 sharp 40MP+downscale
-// +并发 1+EXIF 5-8」；UI 侧 40MP 上限提示归前端）；视频：ffprobe 15s+SIGKILL+protocol_whitelist，
+// +并发 1+EXIF 5-8」；F4c 用户裁定④：降尺度时 natural fact payload 携 downscaledFrom 原尺寸——
+// web 侧「已自动缩小至支持尺寸」告知的数据源）；视频：ffprobe 15s+SIGKILL+protocol_whitelist，
 // metadata 只留 codec/duration/bitrate。
 // probe 仅上传路径：唯一入池面=confirm（T4 confirmInTx 按 sniffed 预置 pending）；生成路径
 // （materialize/八处 generated create 面）零 enqueue——materialize 复用同一次下载算 natural（T12）。
@@ -25,6 +26,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import sharp from 'sharp';
 import { Counter, register } from 'prom-client';
+import type { MediaNaturalFactPayload } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { FFMPEG_PROTOCOL_WHITELIST, FFPROBE_TIMEOUT_MS, ffprobePath } from '../media-process/media-process.service';
@@ -237,7 +239,9 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
     const disp = displayDims(meta.width, meta.height, orientation);
 
     let pipeline = sharp(buffer).rotate(); // auto-orient（EXIF 旋转落入像素+标签剥离）
+    let downscaledFrom: { width: number; height: number } | undefined;
     if (disp.w * disp.h > MAX_IMAGE_PIXELS) {
+      downscaledFrom = { width: disp.w, height: disp.h };   // F4c：降尺度前原 display 尺寸（resize 分支作用域内唯一可知点）
       const scale = Math.sqrt(MAX_IMAGE_PIXELS / (disp.w * disp.h));
       pipeline = pipeline.resize({
         width: Math.max(1, Math.floor(disp.w * scale)),
@@ -265,6 +269,7 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
       naturalRotation: orientation >= 2 ? orientation : null,
       size: BigInt(out.data.length),
       sniffedMimeType: mime === row.sniffedMimeType ? undefined : mime,   // 不可编码族回写后 sniffed 同步
+      ...(downscaledFrom ? { downscaledFrom } : {}),   // F4c：仅超限降尺度路径携（正常路径零键）
     };
   }
 
@@ -423,12 +428,16 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
             projectId,
             factVersion: row.factVersion,
             factType: 'natural',
+            // F4c（用户裁定④）：downscaledFrom 仅图片超限降尺度路径携（正常/视频路径零键）——
+            // 语义=「该产物曾被降尺度，原尺寸为 w×h」（web 告知「已自动缩小至支持尺寸」数据源）；
+            // 形态单源=shared MediaNaturalFactPayload。幂等安全（factVersion 单调+四元组唯一）。
             payload: {
               naturalWidth: params.naturalWidth,
               naturalHeight: params.naturalHeight,
               naturalRotation: params.naturalRotation,
               source: 'probe',
-            },
+              ...(params.downscaledFrom ? { downscaledFrom: params.downscaledFrom } : {}),
+            } satisfies MediaNaturalFactPayload,
           })),
           skipDuplicates: true,   // [mediaId,projectId,factType,factVersion] 四元组唯一（S0.1）
         });
@@ -465,6 +474,9 @@ export interface DoneNaturalParams {
   metadata?: Record<string, unknown>;
   size?: bigint;
   sniffedMimeType?: string;
+  /** F4c：图片超 40MP 降尺度前的原 display 尺寸（仅 probeImage resize 分支携带——正常/视频路径
+   *  不携；进 natural fact payload 供 web「已自动缩小至支持尺寸」告知）。 */
+  downscaledFrom?: { width: number; height: number };
 }
 
 interface FfprobeJson {

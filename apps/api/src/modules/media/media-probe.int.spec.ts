@@ -227,15 +227,17 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     expect(facts[0].projectId).toBe('it-t7-proj-exif');
     expect(facts[0].state).toBe('pending');
     expect((facts[0].payload as { naturalWidth: number }).naturalWidth).toBe(2);
+    // F4c：正常图（未超限）payload 不含 downscaledFrom 键（防过度携带）
+    expect('downscaledFrom' in (facts[0].payload as Record<string, unknown>)).toBe(false);
 
     // 对象重编码已剥 EXIF：重读对象 sharp metadata 无 orientation
     const meta = await sharp(await getObjBytes(key)).metadata();
     expect(meta.orientation).toBeUndefined();
   }, 30_000);
 
-  it('40MP+downscale 产品策略：49MP（7000x7000）→ probe 后 natural 像素≤40MP+对象实宽高同步缩小', async () => {
+  it('40MP+downscale 产品策略：49MP（7000x7000）→ probe 后 natural 像素≤40MP+对象实宽高同步缩小+outbox payload 携 downscaledFrom 原尺寸（F4c 告知数据源）', async () => {
     const bytes = await png(7000, 7000);   // 49MP solid PNG——压缩后极小
-    const id = await makeUploadMedia({ bytes, sniffed: 'image/png' });
+    const id = await makeUploadMedia({ bytes, sniffed: 'image/png', projectId: 'it-t7-proj-ds' });
     const key = createdKeys[createdKeys.length - 1];
     const claimed = await poller.claimImageBatch();
     const target = claimed.find((r) => r.id === id);
@@ -245,6 +247,15 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     expect(after?.probeState).toBe('done');
     expect(Number(after!.naturalWidth) * Number(after!.naturalHeight)).toBeLessThanOrEqual(MAX_IMAGE_PIXELS);
     expect(after!.naturalWidth).toBeLessThan(7000);
+
+    // F4c（用户裁定④）：payload 携 downscaledFrom=降尺度前原尺寸（web「已自动缩小至支持尺寸」告知源）
+    const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: id } });
+    expect(facts).toHaveLength(1);
+    const p = facts[0].payload as {
+      naturalWidth: number; naturalHeight: number; downscaledFrom?: { width: number; height: number };
+    };
+    expect(p.downscaledFrom).toEqual({ width: 7000, height: 7000 });   // 改前红=undefined（零告知数据源）
+    expect(p.naturalWidth! * p.naturalHeight!).toBeLessThanOrEqual(MAX_IMAGE_PIXELS);   // natural=降尺度后值
 
     const meta = await sharp(await getObjBytes(key)).metadata();
     expect(meta.width! * meta.height!).toBeLessThanOrEqual(MAX_IMAGE_PIXELS);   // 对象真身已 downscale
@@ -274,6 +285,8 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: id } });
     expect(facts).toHaveLength(1);
     expect(facts[0].factType).toBe('natural');
+    // F4c：视频路径 payload 不含 downscaledFrom 键（仅图片超限降尺度路径携带）
+    expect('downscaledFrom' in (facts[0].payload as Record<string, unknown>)).toBe(false);
   }, 60_000);
 
   it('mismatch permanent 不无限重试：伪 PNG（文本字节）→ 一轮即 failed+probeFailureKind=mismatch+后续 claim 不命中', async () => {
