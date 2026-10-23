@@ -1,7 +1,7 @@
 // apps/api/scripts/exec-smoke.mjs —— Y0b-5 T17：exec-smoke 资金链冒烟（deploy post 链——collab-smoke 之后）
 // 运行（服务器）：cd ~/flowweb && pnpm --filter @flowweb/api exec node scripts/exec-smoke.mjs
 // 运行（本地）  ：同命令（dev api 3000 / WS 3001 在跑——HTTP/WS 打真实服务；Prisma 只做 fixture/断言/清理）。
-// 形态：collab-smoke 同族（node 直跑零 tsx+dotenv 自加载+ws 包注入 header+csv=2 版本门）。
+// 形态：collab-smoke 同族（node 直跑零 tsx+dotenv 自加载+ws 包注入 header+csv 版本门〔shared 单源〕）。
 //
 // ── 哨兵形态 A（执行期回改——plan 冻结版"实现期发现计划与代码不符时回改"条款的适用）──
 // plan 裁定 13/20 原定 provider='smoke'（∉ADAPTERS ⇒ public 选择器过滤=用户不可见）。谓词核对结论：
@@ -57,7 +57,7 @@ const API = process.env.COLLAB_API_URL ?? 'http://127.0.0.1:3000';
 const WS_URL = process.env.COLLAB_WS_URL ?? 'ws://127.0.0.1:3001';
 const P = 'smoke-y0b5-';                 // 哨兵 id 前缀（与 collab-smoke 的 smoke-* 命名空间隔离）
 const NT_KEY = 'smoke:y0b5:text';        // 哨兵 NodeType key（用户面选择器按已知 key 查询——永不被查）
-const CSV = 2;                           // CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例——字面量+bump 时随改，collab-smoke 同注）
+const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;    // 单源解析（T18 硬切 bump=3 漏改字面量——同 write-frozen-drill 根修，「字面量+bump 时随改」约定废弃）
 const SEED_CREDITS = 10;
 const ts = Date.now();
 const S = {

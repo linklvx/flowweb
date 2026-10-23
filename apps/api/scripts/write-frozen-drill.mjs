@@ -45,7 +45,7 @@ const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
 const TERM_VIA_SIGNAL = process.platform !== 'win32';   // win32 kill('SIGTERM')=TerminateProcess 硬杀——IPC process.send 主通道（kill9 文件头探针实证）
 const PKG_ROOT = resolve(here, '..', '..');   // here=scripts/*.mjs 文件路径——包根需上跳两级（URL '../.env' 与 path resolve 语义差异：URL 相对文件解析，path resolve 把文件段一并弹出）
 const DRILL_ENTRY = resolve(PKG_ROOT, 'dist-drill', 'scripts', 'collab-drill-server.js');
-const CSV = 2;   // CLIENT_PROTOCOL_VERSION（mjs 无 import shared 先例——字面量+bump 时随改，collab-smoke 同注）
+const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;   // 单源解析（T18 硬切 bump=3 漏改本文件字面量→write-frozen 全链演练 CI 红〔onAuthenticate schema-outdated〕——collab-smoke.mjs 同款 req 先例，「字面量+bump 时随改」约定就此废弃）
 
 // frozen-chain 配额档：maxDocBytes=40KB（softEnter=32KB/softExit=24KB——50KB 突发帧确定性越 soft，
 // 且 doc 总量 <SS2 闸 maxDocBytes+64KB=104KB，重连装载同步帧不撞 4404；maxTxBytes 保持默认 256KB）
