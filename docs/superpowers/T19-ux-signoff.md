@@ -14,7 +14,7 @@
 - cells 派生：`apps/web/src/stores/canvasStore.ts` `computeStoryboardCellsPatch`（共享核心——命令点与 reconcile 写域⑥ 同取数/派生/同值判定）；渲染面 `StoryboardGroupRenderer.tsx:67`（cells 缓存读）。
 - 复现步骤：画布建分镜组→两浏览器客户端并发拖入同格位成员→两端节点数一致且排序稳定；`collab_order_pathology_total` 零增长（健康档）。
 
-**签栏**：＿＿＿＿＿＿＿＿（签字/日期）
+**签栏**：用户会话确认通过（2026-10-23——出口裁定 F1-F5 收口批后三项确认）；记录人：ZCode
 
 ## ② replace 命令 409 交互
 
@@ -27,7 +27,7 @@
 - 投影侧 superseded 不覆盖用户值：`projection-outbox.poller.int.spec.ts`（superseded 用例）+e2e 场景 B（replace 后旧投影 superseded+doc 用户值保住）。
 - 复现步骤：两标签页同节点先后触发 replace→后提交者（持旧 rev）收 409 提示；槽位值=先提交者的新产物。
 
-**签栏**：＿＿＿＿＿＿＿＿（签字/日期）
+**签栏**：用户会话确认通过（2026-10-23——出口裁定 F1-F5 收口批后三项确认）；记录人：ZCode
 
 ## ③ 40MP 上限（图片像素域）
 
@@ -40,7 +40,7 @@
 - 上传者会话链锚（F4c 双评审 P0）：上传 confirm 成功后双档延时定向补拉（`mediaFactsRuntime.ts` `scheduleUploadFactPull` 12s/30s——②lazy 被本地 origin 过滤+④watcher 对无 state fact 的上传图结构性不适用；挂点=ImageGenNode `handleUploadFile`+MultiImageNode 逐 fileId confirm 尾）。
 - 复现步骤：上传 >40MP 图（如 8000×6000）→素材库事实 natural≈域内值（<7000 宽）→约 12s 后（同会话内）出现「已自动缩小至支持尺寸（原 8000×6000）」提示（每图每会话一次；重连/其他协作者引用亦触发）→节点装载/渲染正常。
 
-**签栏**：＿＿＿＿＿＿＿＿（签字/日期）
+**签栏**：用户会话确认通过（2026-10-23——出口裁定 F1-F5 收口批后三项确认）；记录人：ZCode
 
 ## ④ content 两态下载行为
 
@@ -51,7 +51,7 @@
 - 实现载体：`apps/api/src/modules/media/`（media-content.controller——ready=X-Accel/processing=sourceUrl 代理；读侧 presign 旁路零存在）。
 - 复现步骤：视频产物 ready 后节点全屏播放拖动进度条（Range 生效）；processing 期占位可播 seek；右键下载=完整文件。
 
-**签栏**：＿＿＿＿＿＿＿＿（签字/日期）
+**签栏**：用户会话确认通过（2026-10-23——出口裁定 F1-F5 收口批后三项确认）；记录人：ZCode
 
 ## ⑤ video processing UX
 
@@ -64,4 +64,4 @@
 - 复现步骤：生成视频节点→交付后 processing 占位可播放拖动→静置不动（无重连/无换引用）节点自动刷新至成品播放或终态失败（退避补拉）→（源过期形态）失败显示错误+「刷新状态」按钮→点击拉取最新 facts（非重走 materialize：暂态失败由服务端 MaterializeJob 自动重试；终态失败保留 fileId+显示失败及退款结果；退款后重新生成=正常资金流程——新生成任务重新计费）。
 - 登记（评审#5 不修）：processing 可播 seek 的**组件级**自动化测试归 Y2（VideoGenNode processing 占位渲染+seek 交互的组件测试面）；本卡以 int 链（materialize/content 两态）+UX 签字复现步骤承载。
 
-**签栏**：＿＿＿＿＿＿＿＿（签字/日期）
+**签栏**：用户会话确认通过（2026-10-23——出口裁定 F1-F5 收口批后三项确认）；记录人：ZCode
