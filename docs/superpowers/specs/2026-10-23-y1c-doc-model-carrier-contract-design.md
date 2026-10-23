@@ -1,10 +1,10 @@
 <!-- doc-status: active -->
-# Y1c：doc 模型 v4·载体与契约（B 类合并批设计——v5.1 四平面架构：P0 契约 / P1 载体 / P2 内容 / P3 业务与恢复 / P4 交付）
+# Y1c：doc 模型 v4·载体与契约（B 类合并批设计——v5.2 四平面架构：P0 契约 / P1 载体 / P2 内容 / P3 业务与恢复 / P4 交付）
 
 - **立项**：2026-10-23，用户指令「Y1a+Y1b 完成，继续下一个任务」。按目录 §0.2 顺序节 B 类分组「Y1c 全批」合并立项（:159）；分阶段验收、批末一个完整发布单元。
 - **唯一上游依据**：[2026-10-06-canvas-yjs-arch-upgrade-review.md](2026-10-06-canvas-yjs-arch-upgrade-review.md)（master v8.3）§0.2 Y1c 行+启动方式/执行门机制+§0.1 裁决；Y0c spec 世代契约冻结直采；Y1a/Y1b spec v14.3 移交行承接。
 - **硬前置**（Y1c 行）：Y0a+Y0.5 迁移链——已满足。
-- **最终原则（用户 2026-10-24 裁定文档——v5，v5.1 维持）**：批准第六轮终裁架构反转。**Yjs 只负责协作内容；PostgreSQL 是业务状态唯一权威源；Spool WAL 是协作更新快速持久化入口；Runtime Feed 承担业务状态投影传输（Stateless 只通知不交付）**。推翻 v4「doc 内受控投影」原则——投影整体出 doc，服务端 serving 期零业务 doc 写入。
+- **最终原则（用户 2026-10-24 裁定文档——v5，v5.1/v5.2 维持）**：批准第六轮终裁架构反转。**Yjs 只负责协作内容；PostgreSQL 是业务状态唯一权威源；Spool WAL 是协作更新快速持久化入口；Runtime Feed 承担业务状态投影传输（Stateless 只通知不交付）**。推翻 v4「doc 内受控投影」原则——投影整体出 doc，服务端 serving 期零业务 doc 写入。
 
 **修订链**：
 - v1（2026-10-23）——首版合稿：三路一手核验+四片锚定+Z1-Z8 呈裁。
@@ -13,33 +13,34 @@
 - v4（2026-10-23）——外审三轮采纳+用户两项裁定（v4-1/v4-2）+v4-3~v4-9 直接采纳；偏离登记 11-15。
 - plan v1（12fa3e8e）→v1.1（87c8507f）→v1.2（47e37467）——均过时存档。
 - v5（2026-10-24）——第六轮「复核终裁」评估+用户裁定文档：架构反转版（三支柱实证+单实例钉死）；偏离登记 16-25。
-- **v5.1（2026-10-24）——第七轮外审「v1.3 四平面复核终裁」评估采纳+用户三项重裁与流程确认：契约收口版（非架构反转）**。三路代理实证：plan v1.3/spec v5 引用 22 条中 19 条坐实；服务端与 yjs 库源码承重主张全证实（preVacuumSv 谓词 `clock>=pre` 且仅 SS1 分支/rebuildVacuumDoc 新 clientID 重写/appliedSeq 两文档 0 命中/当前库无任何 feed 事件表/keepItem 私有+clear 唯一释放口/scope 父链已含子类型/Hocuspocus 无 errorHandler+假 ACK/factory 未接 onStateless）。外审自身两处修正：①本库未用 y-prosemirror（Tiptap onUpdate→dispatchCanvasIntent(LocalUser) 手搓管线——addTrackedOrigin 议题仅在 T16 引入 ySyncPlugin 后出现）；②T2 prompt 现状已每键击落 doc（onChange :204-212），修法收窄为只删 :157 覆盖写。复活路径收窄：真实暴露面=SV 全部 clock<pre 的**部分陈旧客户端**（完全同步离线作者被「provider 强制先 SS1+self-clock 恒≥pre→首帧 4410 清队」挡住）。**用户重裁（2026-10-24）**：①D1 删 appendSeq，水位改 walSeq/appliedSeq/pgSeq；②D2 vacuum=generation++/新 docName，vacuumEpoch 降遥测；③D6 E26 改栈上限+整栈 clear()+rebuild 逃生口，删 addToScope/keepItem。D3/D4/D5/D7/D8/D9/D10+P1 清单随批采纳——偏离登记 26-35。**plan v1.3（3de896c9）退回；v1.4 待本 spec 过门后重写。**
+- v5.1（2026-10-24）——第七轮外审「v1.3 四平面复核终裁」评估采纳+用户三项重裁（D1 水位三元删 appendSeq/D2 vacuum=generation++/D6 Undo clear 收口）：契约收口版；偏离登记 26-35；plan v1.3 退回。
+- **v5.2（2026-10-24）——第八轮外审「四平面架构升级评审」（基线=plan v1.4）评估采纳+用户两项重裁与一项驳回：勘误精化版（无架构变更）**。四项 spec 级修订：①P0-01 `spoolSeq`→`walSeq` 命名统一+不变量 `0≤pgSeq≤appliedSeq≤walSeq`（语义同 v5.1 spoolSeq，纯命名收口）；②P0-04 跨表 CHECK 勘误——`Snapshot.stateSeq≤pgSeq` 非 PostgreSQL CHECK 可表达（v5.1 表述勘误），改快照发布事务行锁+条件更新保证；③P0-05 RuntimeEvent 全局 feedSeq→**per-project feedSeq+同项目行锁内分配且同事务提交**（sequence 分配序≠提交序——漏事件洞；与本仓 canvas_doc_update_seq「seq 序≡提交序」advisory lock 先例同构）——**用户重裁，推翻第七轮 D5 全局 feedSeq**；④T2 收口=删 :157+**改 execution.service:512 读点**（string 直读腿——读链断供实证：`data?.prompt?.text` 只匹配 image/video PromptValue，TextNodeData.prompt:string 恒 miss，textInput 执行 prompt 现状独占依赖 :157 content 覆盖）+**取消 promptText 请求参数**（prompt 权威=doc 单源，P3 服务端从 PG 前缀冻结 ExecutionRequest.promptText）——**用户重裁，推翻第七轮 D7 的请求参数部分**。plan 级注记批量登记（偏离 36）：候选文档验证（对照活动 doc 现状增量语义验证）/每帧 DB 世代验证/per-project 写入背压/ACK 四态 UI 映射/savedSeq 只由持久化回执推进/text 链外呼锚（其余链三层防护已在——外审「重复外呼」普适主张实证驳回）/测试矩阵三补/性能分轴两补。**驳回外审「五个用户确认点改为阶段验收归档节点」——确认点①-⑤+T27 执行门为用户治理纪律维持（v5-15）**。@hocuspocus/server 4.7.0/4.7.1 已发布但 changelog 无 errorHandler 修复——S1 双版本实测。偏离 26/28/30/32 修订+36 新增；plan v1.5 待本 spec 过门后修订。
 
 ---
 
 ## §0 裁定与定案
 
-### 0.1 定案（v5-1～v5-15；**v5.1** 标注=第七轮修订——冻结，实施期不得重新引入旧机制）
+### 0.1 定案（v5-1～v5-15；**v5.1**=第七轮修订、**v5.2**=第八轮勘误精化——冻结，实施期不得重新引入旧机制）
 
 - **v5-1 四平面架构**：Yjs 协作平面（多人文本/结构合并）/PG 业务权威平面（执行、交付、计费、生命周期、维护、幂等、恢复）/Spool WAL 持久化平面（协作更新快速持久化入口——fsync 后 apply，PG 批量后置）/Runtime Feed 平面（业务状态投影传输——有序、可恢复、游标续传）。Yjs 更新的交换/结合/幂等性只保证可安全合并重放，**不替代授权、事务与幂等控制**；不采用 Hocuspocus 常规持久化钩子——保留自有 WAL/批处理管线并明确其与 Hocuspocus 生命周期的集成契约。
 - **v5-2 权威边界**：doc 三根 `meta/nodes/edges`（**exec 根删除**；meta 收缩为 schema 白名单内的用户可编辑配置——身份/权限/维护标志等服务端控制字段禁入）。迁出：`doc.exec` 全部、`data.fileId/result/status` 等服务端交付字段、任何「服务端计算又写回 nodes」的派生元数据、维护标志/执行围栏/内部身份/业务版本字段。**服务端 serving 期零业务 doc 写入=可测试不变量**；初始化/硬重置/离线导入=受控生命周期操作，不入普通请求路径。
-- **v5-3 spool-first 写管线（v5.1 修订：水位上界）**：准入→帧字节精确 copy+**原始帧 SHA-256 去重**→分配 `walSeq`→WAL fsync（含新段目录 fsync）→apply→广播→后台按 **applied 连续前缀**批量写 PG（单事务多行，**上界=appliedSeq——apply 失败的帧不得提交**）→推进 `pgSeq`。**禁止逐帧 PG 事务为默认路径**；保留现有批处理（512 条/8MiB+1MiB 分片实证在役）。
-- **v5-4 ACK 持久性三档（v5.1 修订：档位判据=pgSeq）**：`Applied`（已应用未持久化）/`Spooled`（WAL fsync——本批同步接收的 ACK 等级，仅本机故障模型内可恢复）/`Durable`（PG 连续前缀已提交——判据 `pgSeq`）。Hocuspocus `SyncStatus(true)`=Applied；stateless `{tier:'spooled'}` 可选；save barrier=Durable(pgSeq)。客户端按实际 ACK 级别展示状态，不得把三档映射成同一个「已保存」。耐久契约五档：`local→synced(applied)→spooled→durable(PG)→archived`——spooled 档=kill -9 可恢复、整机丢失不可（诚实登记）；机损 RPO=PG 批延迟（有界秒级），生产由 T29 PITR 兜。
-- **v5-5 代际与水位（v5.1 重写——原「四元解耦」废止）**：`generation`（文档身份——**schema 迁移/硬重置/vacuum 三时机均变**）/`snapshotRev`（快照版本）/`vacuumEpoch`（**遥测计数——不做任何 fence**）+**水位三元 `walSeq/appliedSeq/pgSeq`**（§5.1）。普通 vacuum 不复用「同 name+epoch fence」——同 name 方案存在结构性放行洞（偏离 27）。`schemaVersion`⇒`generation` 启动断言维持（违反拒绝启动）。
-- **v5-6 全类型 schema 矩阵**：以真实创建/保存/加载/执行/导入/导出路径建立**唯一节点类型清单**（含 `group`/`videoEdit` 等 NODE_TYPES 之外的持久类型——33+2 处实证）+全路径字段矩阵（容器类型/写者/读者/权限/预算/撤销/导入导出）。未知类型不静默降级：写侧明确 schema 错误拒绝；读侧必须有显式只读保真策略。**census 现状基准（第七轮实证）**：audioGen 的 prompt 现住 `content:string`（AudioConfigPanel textarea，无 prompt 字段）；multiImageGen.prompt=零写点死字段（面板全文无 prompt 输入）；textInput 的 `data.prompt:string` 已每键击落 doc（onChange :204-212）——T2 最小修期间维持现状形状。
+- **v5-3 spool-first 写管线（v5.1 修订）**：准入→帧字节精确 copy+**原始帧 SHA-256 去重**→分配 `walSeq`→WAL fsync（含新段目录 fsync）→apply→广播→后台按 **applied 连续前缀**批量写 PG（单事务多行，**上界=appliedSeq——apply 失败的帧不得提交**）→推进 `pgSeq`。**禁止逐帧 PG 事务为默认路径**；保留现有批处理（512 条/8MiB+1MiB 分片实证在役）。
+- **v5-4 ACK 持久性三档（v5.2 补 UI 四态映射）**：`Applied`（已应用未持久化）/`Spooled`（WAL fsync——本批同步接收的 ACK 等级，仅本机故障模型内可恢复）/`Durable`（PG 连续前缀已提交——判据 `pgSeq`）。Hocuspocus `SyncStatus(true)`=Applied；stateless `{tier:'spooled'}` 可选；save barrier=Durable(pgSeq)。**UI 四态映射（v5.2）**：`Local`（编辑已入本地 Y.Doc——「编辑中」）/`Spooled`（「已接收，正在保存」）/`Applied`（「已同步，等待数据库提交」）/`Durable`（「已保存」——必须对应可验证的 pgSeq 回执）——协议仍三档，UI 不因 WebSocket 连接或 SyncStatus 自动显示 Durable。耐久契约五档：`local→synced(applied)→spooled→durable(PG)→archived`——spooled 档=kill -9 可恢复、整机丢失不可（诚实登记）；机损 RPO=PG 批延迟（有界秒级），生产由 T29 PITR 兜。
+- **v5-5 代际与水位（v5.1 重写；v5.2 命名统一）**：`generation`（文档身份——**schema 迁移/硬重置/vacuum 三时机均变**）/`snapshotRev`（快照版本）/`vacuumEpoch`（**遥测计数——不做任何 fence**）+**水位三元 `walSeq/appliedSeq/pgSeq`**（§5.1；v5.2 起 CanvasDoc 持久列=`walSeq/pgSeq`——`spoolSeq` 别名删除）。普通 vacuum 不复用「同 name+epoch fence」——同 name 方案存在结构性放行洞（偏离 27）。`schemaVersion`⇒`generation` 启动断言维持（违反拒绝启动）。
+- **v5-6 全类型 schema 矩阵（v5.2 补执行读点注记）**：以真实创建/保存/加载/执行/导入/导出路径建立**唯一节点类型清单**（含 `group`/`videoEdit` 等 NODE_TYPES 之外的持久类型——33+2 处实证）+全路径字段矩阵（容器类型/写者/读者/权限/预算/撤销/导入导出/是否参与执行计划）。未知类型不静默降级：写侧明确 schema 错误拒绝；读侧必须有显式只读保真策略。census 现状基准（第七轮实证）：audioGen 的 prompt 现住 `content:string`（AudioConfigPanel textarea，无 prompt 字段）；multiImageGen.prompt=零写点死字段（面板全文无 prompt 输入）；textInput 的 `data.prompt:string` 已每键击落 doc（onChange :204-212）——**执行读点（execution.service:512）自 T2 起直读 string 形状（v5.2 修）**。
 - **v5-7 字段容器语义按真实协作行为**：字符级并发纯文本=`Y.Text`；Tiptap 富文本正文/prompt=`Y.XmlFragment`（PromptInput=Tiptap+Mention(/,@)+Image 实证——不得当纯文本、不得留过渡形状）；稳定配置/布局 `position{x,y}`=`Y.Map` 逐键；集合=顶层共享结构（稳定 ID+结构操作规则）；媒体列表=`Y.Array` 或显式 LWW（不默认整数组覆盖——迁移单卡读写同卡）；执行/交付/计费状态**不入 Yjs**。
-- **v5-8 ExecutionRequest 受理行（v5.1 修订：全计划冻结——D4）**：受理事务冻结**完整执行计划**（§6.1 字段表：scopeNodeIds/每节点 plan Json〔type/model/resolution/style/pricingRuleId/creditCost/paramsHash〕/teamId/kind/pricing）；`docSeq` 只接受 `pgSeq` 口径；**受理读必须来自 PG 一致前缀**（拿 gate→flush applied→PG→读 live doc，或 snapshot+updates at pgSeq 重建——不读「已 apply 未 PG」的 live doc）；等待上限+明确超时错误；校验失败=整体失败不落半条记录。`GenerationIntent`=执行意图记录（claim 时创建并关联 requestId）。**worker 零 doc 读**。
-- **v5-9 Runtime Feed（v5.1 修订：独立事件表——D5）**：**独立 append-only `RuntimeEvent` 表+全局 `feedSeq`**（§7 DDL）——**禁用 ExecutionOutbox 当 feed 日志**（outbox=可 claim/可更新/可删的可变工作队列，游标会因行状态变化出洞）。首连=RR 事务快照+游标；重连=游标续传，失效=全量快照；事件应用幂等（旧版本忽略/缺口对账）；旧 generation 事件不污染新代；**心跳 15-30s 携带 latestFeedSeq**（防「连接没断但通知丢了」）。`docSeq/execSeq/eventVersion/artifactRev` 语义独立维持。**Stateless 只通知/唤醒，不承担唯一数据交付责任**。
+- **v5-8 ExecutionRequest 受理行（v5.1 修订：全计划冻结——D4；v5.2 补 promptText 来源）**：受理事务冻结**完整执行计划**（§6.1 字段表：scopeNodeIds/每节点 plan Json〔type/model/resolution/style/pricingRuleId/creditCost/paramsHash〕/teamId/kind/pricing）；`docSeq` 只接受 `pgSeq` 口径；**受理读必须来自 PG 一致前缀**（拿 gate→flush applied→PG→读 live doc，或 snapshot+updates at pgSeq 重建——不读「已 apply 未 PG」的 live doc）；等待上限+明确超时错误；校验失败=整体失败不落半条记录。**`promptText` 等冻结字段一律由服务端从 PG 一致前缀恢复 doc 内容冻结——客户端执行请求不携带提示词参数（v5.2：无第二权威通道）**。`GenerationIntent`=执行意图记录（claim 时创建并关联 requestId）。**worker 零 doc 读**。
+- **v5-9 Runtime Feed（v5.1 修订：独立事件表——D5；v5.2 修订：per-project feedSeq）**：**独立 append-only `RuntimeEvent` 表+per-project `feedSeq`（同一项目行锁/advisory lock 键族内分配且同事务提交——分配序≡提交序；裸 sequence 全局自增不保证提交顺序〔偏离 30 v5.2〕）**——**禁用 ExecutionOutbox 当 feed 日志**（outbox=可 claim/可更新/可删的可变工作队列，游标会因行状态变化出洞）。首连=RR 事务快照+游标；重连=游标续传，失效=全量快照；事件应用幂等（旧版本忽略/缺口对账）；旧 generation 事件不污染新代；**心跳 15-30s 携带 latestFeedSeq**（防「连接没断但通知丢了」）。`docSeq/execSeq/eventVersion/artifactRev` 语义独立维持。**Stateless 只通知/唤醒，不承担唯一数据交付责任**。
 - **v5-10 单 UndoManager（v5.1 重写——D6）**：画布级单管理器 `UndoManager([nodes,edges],{trackedOrigins:LocalUser,captureTimeout:500})`——**scope 含根 Map 时 `changedParentTypes` 父链已覆盖全部嵌套子类型（yjs.cjs:3664-3670 实证），不调用 `addToScope`**（无 remove API，重复挂载只增不减）；不挂第二套 UndoManager/yUndoPlugin；Tiptap 焦点快捷键经薄 keymap 路由到统一管理器；文本+画布共享同一撤销栈（跨编辑器顺序非全局=产品语义）。**栈上限>100=整栈 `clear()`**（`keepItem` 模块私有不导出——公开 API 边界上「精确单项释放」不可实现；clear() 是唯一释放口）；**不写「shift 后字节回落」验收**；doc rebuild 仅在测量超标后（`unsyncedChanges===0` 且字节超阈值）。origin 注记（第七轮修正）：本库编辑器为 Tiptap onUpdate→dispatchCanvasIntent(Origin.LocalUser) 手搓管线（canvasIntents.ts:361-362）——现状零额外 origin 需求；T16 引入 ySyncPlugin 后其事务 origin 未必=LocalUser，T0 spike 实测后按需 `addTrackedOrigin`。
-- **v5-11 本地缓存 per-tab+merge**：每标签独立记录（tabId/snapshot/stateVector/savedSeq/unsyncedDirty/diverged/at）；boot 读同键全部记录 `Y.mergeUpdates` 后 apply（CRDT 并集）；clean 不覆盖/删除 dirty；同步成功删己记录；**generation 变更（含 vacuum 换代）清整族**；IDB blocked/quota 降级不阻断协作。
+- **v5-11 本地缓存 per-tab+merge（v5.2 补 savedSeq 口径）**：每标签独立记录（tabId/snapshot/stateVector/savedSeq/unsyncedDirty/diverged/at）；boot 读同键全部记录 `Y.mergeUpdates` 后 apply（CRDT 并集）；clean 不覆盖/删除 dirty；同步成功删己记录；**generation 变更（含 vacuum 换代）清整族**；IDB blocked/quota 降级不阻断协作。**`savedSeq` 只由服务端持久化回执（save barrier 的 pgSeq）推进（v5.2）——不因 provider 显示同步完成或 WebSocket 连接即认定已保存**。
 - **v5-12 单实例 ADR**：`instances:1` 为有意识选择的复杂度边界（非 HA）；同一时刻仅一个协作进程持有某项目活动文档写入权；**重启恢复顺序=先恢复 WAL→校验 PG 前缀→重建文档→再开放写入**；扩容=另立批，不得直接改大 instances。
 - **v5-13 硬重置**：无存量数据——不维护 v3→v4 双读/双写/fallback/渐进兼容；DB schema+doc schema+客户端模型统一切换；reset 脚本可重复执行+测试种子+迁移验证+回滚说明。
 - **v5-14 恢复模式**：握手比较 `g_client` vs `g_server`；`g_client>g_server`（服务端 PITR 回滚）→4410 `server-restored` **不清缓存**，进入只读 recovery+可导出草稿，管理员裁定；`g_client<g_server`（主动换代/vacuum）→4410 全会话重建维持。
-- **v5-15 质量门结构**：六项 go/no-go（§9.1）=**工程门**（实施团队按证据自判，不是用户审批节点）；阶段出口（P0-P4）=用户确认点维持；世代切换首次真跑=执行门（单独请用户确认）。
+- **v5-15 质量门结构**：六项 go/no-go（§9.1）=**工程门**（实施团队按证据自判，不是用户审批节点）；**阶段出口（P0-P4）=用户确认点维持（第八轮外审建议取消——用户 2026-10-24 驳回：确认点①-⑤+T27 执行门为用户治理纪律）**；世代切换首次真跑=执行门（单独请用户确认）。
 
 ### 0.2 master 裁决效力（v5.1 精简重注——E30 自包含）
 
-| 裁决 | v5.1 效力 |
+| 裁决 | v5.2 效力 |
 |---|---|
 | E3（generation 载体=docName #g） | 采纳+**v5.1 修订**：#g 变化=schema 迁移/硬重置/**vacuum**（D2——偏离 27） |
 | E23/E61/E62（世代连带/重建命令/Snapshot 追加） | 采纳：buildDocName 唯一构造器+静态门维持；重建=类型化导出 fresh doc；Snapshot(g,rev) 追加+stateHash；compact 分批+worker 进程（授权=行锁+CAS〔水位口径 pgSeq〕，不拿租约） |
@@ -51,7 +52,7 @@
 | C7③/E45 | 采纳（维护窗口+drain runbook；env 预留档 -3） |
 | Z 系列/E30/E35 | 承袭（spec 自包含/单实例 ADR 化——v5-12） |
 
-### 0.3 偏离登记（spec 级，续 v4 的 11-15；16-25=v5，26-35=v5.1）
+### 0.3 偏离登记（spec 级，续 v4 的 11-15；16-25=v5，26-35=v5.1，36=v5.2）
 
 | # | 偏离 | 废止/修订对象 | 依据 |
 |---|---|---|---|
@@ -60,21 +61,22 @@
 | 18 | admissionEpoch 删除——单 gate 串行受理+freeze 标志+drain 全部已受理帧 | 反转 v4-5 及 v1.2 懒块分配 | CollabLease 单行+gate 单串行口实证 |
 | 19 | CanvasDocProvenance 删除——服务端零写 doc→威胁模型整体蒸发 | 反转 v4-7 及 v1.2 偏离 27 | B3 reset 场景随架构消失 |
 | 20 | 保存屏障=onStateless flush+回执 {nonce,committedSeq}（处理器首语句同步捕获已受理前缀） | 修订 v1.2 偏离 29 | round-5 A1/A3+第六轮终裁 |
-| 21 | （**v5.1 起废止**——被偏离 27 取代）vacuumEpoch 独立——vacuum 不改 generation/docName | 原 v5 对 v4 T11 #g 语义的修订 | 原 vacuumReplace/缓存键实证；第七轮推翻 |
+| 21 | （**v5.1 起废止**——被偏离 27 取代）vacuumEpoch 独立——vacuum 不改 generation/docName | 原 v5 对 v4 T11 #g 语义的修订 | 第七轮推翻 |
 | 22 | 耐久契约四档→五档（插 spooled）+ACK 三档 | 修订 v4-8 | spool WAL 资产实证 |
 | 23 | inputSnapshot 废止→ExecutionRequest 受理行+docSeq 前缀绑定 | 修订 v1.2 偏离 18 | generation-intent.service:251+execution.controller:33 实证 |
 | 24 | RetentionCoordinator 删除；y-protocols fork 删除 | 修订 v1.2 偏离 26/33/24 | 单管理器现状+sync.js:82 errorHandler 实证 |
 | 25 | NODE_TYPES 不作全集——全类型矩阵（group/videoEdit 入册+只读保真策略） | 修订 v1.2 T3/T2 | nodeStore:17-24+canvasStore 33+2 处实证 |
-| 26 | **D1 水位状态机**：`walSeq/appliedSeq/pgSeq` 三元——删 `appendSeq`；PG 批上界=appliedSeq；`docSeq/committedSeq/ETag/read model 新鲜度/公开快照水位`一律 pgSeq；受理读=PG 一致前缀；CanvasDoc 持久列=spoolSeq/pgSeq+CHECK（pgSeq<=spoolSeq、Snapshot.stateSeq<=pgSeq）；appliedSeq 内存级（重启由 WAL+pgSeq 前缀校验重建） | 修订 v5-5/§5.1（appendSeq「每唯一 WAL/PG 更新」三义）+plan v1.3 T7 四水位/T10 无上界/T19 ETag=appendSeq | appliedSeq 两文档 0 命中+T10「连续 WAL 前缀→PG」无 apply 上界实证——**推翻用户裁定文档代际四元之 appendSeq，用户 2026-10-24 重裁确认** |
-| 27 | **D2 vacuum=generation++/新 docName**：fresh doc→generation++→新 #g→4410 doc-vacuuming（discardLocalCache:true）；离线客户端重连旧 #g=auth 直接 generation mismatch（不装载/不 SS1/不上行旧 structs）→导出 DraftEnvelope→清缓存→新 name 重连；vacuumEpoch 仅遥测；preVacuumSv SV 重叠门退役 | 废止偏离 21 与 v5 §4.5 同 name 设计 | **前缀放行洞实证**：谓词 `clock>=pre` 仅 SS1 分支（registry.service.ts:687-695——SS2/Update 零 vacuum 判据）+rebuildVacuumDoc 新 clientID 重写旧墓碑不随行（:628-648）→SV 全部 clock<pre 的部分陈旧客户端 SS2 全量旧 structs 无校验 apply=已删内容复活；官方缓解（缓存键含 g，local-cache-key:24-25）恰依赖 generation 变化——同 name 设计反而拆掉缓解；vacuumEpoch 全库 0 命中——**推翻用户裁定文档 vacuumEpoch fence 角色，用户 2026-10-24 重裁确认** |
-| 28 | **D3 Hocuspocus apply 真相化**：patch `@hocuspocus/server`（SyncStep2/Update 两处传 errorHandler，apply 失败不发 SyncStatus(true)）；不 patch y-protocols；**先查新版是否已传 errorHandler——可升级则升级（版本门 shared csv），不可升级再 patch-package**（仓库现未配 patch-package——引入属 P0 契约卡）；不用 `doc.store` 私有 API（post-check=encodeStateVector decode per-client clock 上界，仅 SS2/大帧诊断）；毒帧协议=隔离 doc+停写+WAL 截断至 appliedSeq+close 4411+从 pgSeq 重放，不跳帧续提交 | 修订偏离 24 的「服务端注入 errorHandler」路线——注入点不存在（readSyncStep2 调用点内部无钩子；factory 未接 onStateless） | server esm:277-281/:290-292 无条件假 ACK+sync.js:82 第 4 参在而未用+factory 全文无 onStateless 实证 |
+| 26 | **D1 水位状态机（v5.2 修订：命名统一+跨表勘误）**：`walSeq/appliedSeq/pgSeq` 三元——删 `appendSeq`；**CanvasDoc 持久列=`walSeq/pgSeq`（`spoolSeq` 别名删除——v5.2）**；不变量 `0≤pgSeq≤appliedSeq≤walSeq`（appliedSeq 可暂时落后——已 fsync 未 apply）；PG 批上界=appliedSeq；`docSeq/committedSeq/ETag/read model 新鲜度/公开快照水位`一律 pgSeq；受理读=PG 一致前缀；**CHECK 仅同行（CanvasDoc `pgSeq<=walSeq`）——`Snapshot.stateSeq<=pgSeq` 为跨表约束非 CHECK 可表达（v5.2 勘误：由快照发布事务行锁+条件更新保证，§4.5）**；appliedSeq 内存级（重启由 WAL+pgSeq 前缀校验重建） | 修订 v5-5/§5.1+plan v1.3 T7 四水位/T10 无上界/T19 ETag=appendSeq | appliedSeq 两文档 0 命中+T10 无 apply 上界实证——推翻 appendSeq（用户 2026-10-24 重裁）；v5.2 命名/勘误=第八轮 P0-01/P0-04 |
+| 27 | **D2 vacuum=generation++/新 docName**：fresh doc→generation++→新 #g→4410 doc-vacuuming（discardLocalCache:true）；离线客户端重连旧 #g=auth 直接 generation mismatch（不装载/不 SS1/不上行旧 structs）→导出 DraftEnvelope→清缓存→新 name 重连导入；vacuumEpoch 仅遥测；preVacuumSv SV 重叠门退役 | 废止偏离 21 与 v5 §4.5 同 name 设计 | 前缀放行洞实证（registry:687-695 仅 SS1 分支+rebuildVacuumDoc 新 clientID 重写 :628-648→部分陈旧客户端 SS2 复活）——**用户 2026-10-24 重裁** |
+| 28 | **D3 Hocuspocus apply 真相化（v5.2 补版本事实）**：patch `@hocuspocus/server`（SyncStep2/Update 两处传 errorHandler，apply 失败不发 SyncStatus(true)）；不 patch y-protocols；**先实测新版是否已传 errorHandler——4.7.0（2026-09-09）/4.7.1 已发布但 changelog 无相关修复（Context 支持/maxAttemptsFailed），S1 双版本（4.6.0+4.7.x）实测定升降；可升级则升级（版本门 shared csv），不可升级再 patch-package**（仓库现未配 patch-package——引入属 P0 契约卡）；验收=完整顺序契约（不只测 errorHandler 被调用）；不用 `doc.store` 私有 API（post-check=encodeStateVector decode per-client clock 上界，仅 SS2/大帧诊断）；毒帧协议=隔离 doc+停写+WAL 截断至 appliedSeq+close 4411+从 pgSeq 重放，不跳帧续提交 | 修订偏离 24 的「服务端注入 errorHandler」路线——注入点不存在（readSyncStep2 调用点内部无钩子；factory 未接 onStateless） | server esm:277-281/:290-292 无条件假 ACK+sync.js:82 第 4 参在而未用+factory 全文无 onStateless 实证；v5.2 版本事实=GitHub changelog 核验 |
 | 29 | **D4 ExecutionRequest 全计划冻结**：字段表 §6.1（补 scopeNodeIds/plan Json 每节点 type/model/resolution/style/pricingRuleId/creditCost/paramsHash/teamId/kind/pricing）；组执行=一行 plan 数组或每节点行+batchId（均自包含，worker 零 doc 读）；docSeq 只收 pgSeq+等待上限+明确超时 | 修订 v5-8 字段面（原仅 prompt/upstream 类） | spec:178 无上述字段实证；受理后改 prompt/拓扑/model/上游/节点删除不得影响已冻结计划 |
-| 30 | **D5 Runtime Feed 独立表**：append-only `RuntimeEvent`+全局 `feedSeq`（§7 DDL）+心跳 15-30s；**禁用 ExecutionOutbox 当 feed 日志**；G6 拆 G6a（doc 平面恢复——P1/T13）/G6b（Feed——P3/T22，即 §9.1 G5 验收位） | 修订 v5-9/§6.2 事件骨干=outbox+NodeExecution projected 元组 | 当前库无任何 feed 事件表；outbox=可变工作队列（MediaFactOutbox state/lease/claim 形态参照）/NodeExecution 当前行原地更新——当游标必出洞；plan v1.3 G6@T13 含 feed=对 spec §9.1 门语义串位（G5=Feed/G6=故障恢复本就分立） |
-| 31 | **D6 Undo 收口**：不调用 addToScope（scope 父链已含子类型）；禁 keepItem 内部 API；栈上限>100=整栈 clear()；删「shift 后字节回落」红测；rebuild=测量后逃生口；T16 ySyncPlugin origin 由 T0 spike 实测（本库现状手搓管线 origin=LocalUser 已跟踪） | 修订 v5-10/E26 精确交集释放+addToScope（偏离 24 相应句） | yjs.cjs:3664-3670（changedParentTypes 父链）/:3726-3740（无 remove）/:9593-9599（不导出）/:3491-3499+:3751-3766（clear 唯一释放口）实证；本库无 y-prosemirror 依赖（package.json）——**推翻用户裁定文档「E26 精确释放保留+addToScope」，用户 2026-10-24 重裁确认** |
-| 32 | **D7 T2 修法收窄**：只删 TextConfigPanel:157 的 content 覆盖写一行；`data.prompt:string` 现有每键击持久化保留（onChange :204-212）；执行请求体加 promptText 通道；T15 才迁 Y.Map{text:Y.Text}；E2E=输入→取消选中→重选→prompt 仍在→生成使用该值 | 修订偏离 25 的 T2 修法（「prompt 只随请求发送不落 doc」废止——会制造回归） | 现状 data.prompt 已每键击落 doc 实证（外审前提「仅组件 state」不成立但结论方向正确） |
+| 30 | **D5 Runtime Feed 独立表（v5.2 修订：per-project feedSeq）**：append-only `RuntimeEvent`+**per-project `feedSeq`——同一项目行锁/advisory lock 键族内分配且同事务提交（分配序≡提交序；`@@unique([projectId,feedSeq])`；游标 per-project）**+心跳 15-30s；**禁用 ExecutionOutbox 当 feed 日志**；G6 拆 G6a（doc 平面恢复——P1/T13）/G6b（Feed——P3/T22，即 §9.1 G5 验收位） | 修订 v5-9/§6.2 事件骨干=outbox+NodeExecution projected 元组；**v5.2 修订 v5.1 的全局 feedSeq autoincrement** | 当前库无任何 feed 事件表；outbox=可变工作队列当游标必出洞；**裸 sequence 分配序≠提交序（事务 A 取 100 未提交/B 取 101 先提交→游标到 101 漏 100）——与本仓 canvas_doc_update_seq「seq 序≡提交序」advisory lock 先例（repository:61-62/:110-112）+TeamCreditTransaction per-team FOR UPDATE（credit-ledger:58-62）同构——用户 2026-10-24 重裁推翻全局序** |
+| 31 | **D6 Undo 收口**：不调用 addToScope（scope 父链已含子类型）；禁 keepItem 内部 API；栈上限>100=整栈 clear()；删「shift 后字节回落」红测；rebuild=测量后逃生口；T16 ySyncPlugin origin 由 T0 spike 实测（本库现状手搓管线 origin=LocalUser 已跟踪） | 修订 v5-10/E26 精确交集释放+addToScope（偏离 24 相应句） | yjs.cjs:3664-3670/:3726-3740/:9593-9599/:3491-3499+:3751-3766 实证；本库无 y-prosemirror 依赖——**用户 2026-10-24 重裁** |
+| 32 | **D7 T2 修法（v5.2 修订：取消请求参数+补读点）**：删 TextConfigPanel:157 的 content 覆盖写一行+**同步改 execution.service:512 执行读点**（`typeof data?.prompt==='string'` 直读腿，兼容 PromptValue `.text`——读链断供实证：TextNodeData.prompt:string 恒 miss `.text`，textInput 执行 prompt 现状独占依赖 :157 覆盖；上游注入〔topology:83-84 读 content〕恢复正文语义）；`data.prompt:string` 现有每键击持久化保留（onChange :204-212）；**不引入 promptText 请求参数（v5.2 废止 v5.1 的请求通道——无第二权威）**；prompt 权威=doc 单源→T21 服务端从 PG 一致前缀冻结 ExecutionRequest.promptText；T15 才迁 Y.Map{text:Y.Text}（读点同卡再改）；E2E=输入→取消选中→重选→prompt 仍在→生成使用该值 | 修订偏离 25 的 T2 修法与 v5.1 的「请求体加 promptText」 | 现状 data.prompt 已每键击落 doc 实证+第八轮读链断供实证（execution.service:512+nodeStore:107-110/:136/:150）——**用户 2026-10-24 重裁推翻请求参数部分** |
 | 33 | **D8 shape/zero-yjs/writer/frameId**：矩阵维持 §3.1（audioGen/multiImageGen{prompt:Y.Text}；imageGen/videoGen/imageExtGen{prompt:XmlFragment}——plan T15 的 Y.Map 合并与 T16 漏 imageExtGen 是起草错误，以本 spec 为准）；**删 zero-yjs DocLike**——DocCodec 直用真 Yjs 类型（shared 增 yjs@13.6.32 依赖），无 transform；DataKeySpec 三元 `writer:'user'|'server'`/`valueSource?:'user'|'server-feed'`/`authority?:'content'|'display-cache'`（尺寸等 server-feed 字段=客户端写的展示缓存，非执行/计费权威输入）+create/write/delete 矩阵；**frameId 批量化**——gate 按原始帧 SHA-256 去重后才分配 walSeq，PG 批行存 firstWalSeq/lastWalSeq/frameCount/updateHash（updateHash 唯一=批重试第二道保险），不存单 frameId | 修订 §10 P0 的「zero-yjs DocLike 注入」与 plan T4 二选一/T7 单 frameId/T15/T16 | fake DocLike=第二套 CRDT 语义镜像；writer:'server-feed' 混淆「谁写」与「值来源」；批 PG 行与单 frameId 语义冲突 |
 | 34 | **D9 过渡顺序**：P2（T19）只改读者（保留 data.fileId/result/status 写者，读者经 read model 兼容）；P3（T22）**同切片**=deliverArtifact 改 PG 写+客户端切 Runtime Store+doc.exec 停写停读（禁 stale doc.exec 窗口）；P4（T32）才删 doc.exec/data.fileId/result/status 读写链/fallback/execAligned 旧链（删码与新路径同可编译切片） | 修订 plan v1.3 T19 删写者（早于 T22 切交付=断交付链）与 T22→T32 窗口 | plan:194/:210/:213/:264 实证 |
 | 35 | **D10 T29 生产硬门实体化**：PITR RPO≤5min/RTO≤30min+MinIO 版本化 RPO≤15min+季度 restore drill+每小时 replay canary+HA 决策+SLO+`doc_append_gap_total` 告警——任一未过不得开放生产流量；本批交付=dev/test/beta（单机诚实登记；Spooled≠已保存） | 修订 plan v1.3 T29「占位」 | 生产可用性收口；与 §8.3 双验收线一致 |
+| 36 | **第八轮 plan 级精化批注记（v5.2）**：①候选文档验证=准入验证对照**活动 doc 现状**做增量语义验证（引用闭包/图约束——解码级查不到的跨节点关系；「字段类型合法≠值/业务关系合法」），apply 后广播前禁全文档扫描（成本），毒帧路径兜底；②每帧对照当前世代权威（DB/同步失效缓存）验证 generation——非连接建立时缓存；③per-project 写入背压（慢项目不拖垮其他项目——观测+限流）；④text 生成链补外呼锚（现零键零锚 rearm 必重呼）——其余链三层防护已在（write-ahead providerRequestId+providerTaskId 先落库+query-first resume——外审「重复外呼」普适主张实证驳回），供应商不认键的 submit→落库窗=外部 at-least-once 诚实登记+资金 execSeq CAS 兜底；⑤reset-collab 阶段状态持久化（中途失败重跑感知已完成阶段）；⑥测试矩阵补三：feedSeq 提交顺序交错（延迟提交不漏事件）/世代切换时旧连接仍在发送/外部生成成功后 worker 崩溃重试零重复副作用；⑦性能分轴补二：`walSeq-pgSeq` 积压规模与持续时间/慢项目对其他项目的隔离影响 | 补充 §3.2/§3.4/§4.4/§6.3/§9.2/§9.4 | 第八轮外审采纳项（外审 §3.2/§4.1/§4.3/§七/性能）+我方三路验证（§1.7） |
 
 ## §1 基线与实证锚点
 
@@ -91,6 +93,13 @@ deliverArtifact 同事务写 data+exec（collab-document.service.ts:248-264）/�
 - **yjs**：scope 含根 Map 时 changedParentTypes 逐级上溯覆盖嵌套子类型（yjs.cjs:3664-3670；d.ts:52「or its children」）；addToScope=去重后 push、全库无 removeFromScope（:3726-3740；仅 add/removeTrackedOrigin :3744-3750 属 origin）；keepItem 模块私有、不在 103 条导出（:9593-9599）；clear() 经 clearUndoManagerStackItem 对两栈整栈 keepItem(false)（:3491-3499/:3751-3766）——唯一公开释放口；popStackItem 不释放。
 - **web 修正**：data.prompt:string 已每键击落 doc（TextConfigPanel.tsx:31 useState 种子=data.prompt；onChange :204-212 applyNodeDataPatch({prompt})）；:157 用 prompt 覆盖正文 content 实证；TextConfigPanel 仅单选中挂载（TextInputNode.tsx:203-207）；imageExtGen 走 PromptEditor=Tiptap（ImageExtConfigPanel.tsx:13,:190-191）；audioGen prompt 住 content:string（AudioConfigPanel textarea :204-212）；multiImageGen.prompt=零写点死字段（MultiImageConfigPanel 全文 0 处）；**本库未用 y-prosemirror**（package.json 无依赖、node_modules 无目录；Tiptap onUpdate→dispatchCanvasIntent(Origin.LocalUser)——canvasIntents.ts:361-362）；canvasUndo shift 截断不释放 keep（:41-43）。
 
+### 1.7 第八轮新增锚点（2026-10-24 核验）
+
+- **Hocuspocus 版本事实**：4.7.0（2026-09-09：generic Context 支持+maxAttemptsFailed 修复）/4.7.1（onLoadDocument 类型修复/send batched changes）已发布——**changelog 无 apply errorHandler 相关变更**（GitHub Releases/CHANGELOG 核验）；S1 spike 双版本（4.6.0+4.7.x）实测真实 SyncStep2/Update 路径，验收=完整顺序契约。
+- **外呼幂等三层已在（外审普适主张驳回）**：write-ahead providerRequestId（submit 前落库随机 UUID+X-Idempotency-Key 头——generation-intent.service.ts:369-378+api-caller.service.ts:300-304/:424-428）/providerTaskId submit 后、轮询前即落 PG（api-caller:580+schema:1073-1087+@@index）/retry query-first tryResumePoll 按任务直查零重发（execution.service.ts:361-374）——「外部成功→提交 PG 前崩溃→重复外呼」对 image/video/编辑链不成立；真缺口=**text 链零键零锚**（callTextGen :533-535 纯直呼、:553 providerTaskId=null、:365 `claimPack.kind!=='text'` 才铸键——rearm 必重呼）+供应商不认键（api-caller:62-63 注释自认；外部 at-least-once、资金 execSeq CAS 保 exactly-once）。
+- **prompt 读链断供（v5.2 T2 修法依据）**：execution.service.ts:512 fallback=`upstream.textContents.join(' ') || data?.prompt?.text || data?.content || ''`——`.text` 只匹配 imageGen/videoGen 的 PromptValue 形状（nodeStore:136/:150）；TextNodeData.prompt 为 string（:107-110）恒 miss→textInput（无上游文本）执行 prompt 现状**独占依赖 :157 的 content 覆盖**；上游注入（topology.service.ts:83-84 读上游 textInput 的 content）同受影响——删 :157 后 content 恢复 tiptap 正文语义（上游注入=正文，正确语义），自身执行 prompt 须改 :512 直读 string。
+- **per-project 序先例双证**：canvas_doc_update_seq nextval 取号+`pg_advisory_xact_lock(hashtext(projectId))` 保「seq 序≡提交序」（canvas-doc-update.repository.ts:61-62 注释+单语句 INSERT :64-69；:110-112 明文「nextval 取号与提交序无绑定，绕锁路径=静默丢内容」）+TeamCreditTransaction per-team `SELECT…FOR UPDATE` 保 ledger 行序（team/credit-ledger.service.ts:58-62）——RuntimeEvent per-project feedSeq 行锁方案与本仓既有纪律同构。
+
 ## §2 四平面架构总纲
 
 ```
@@ -99,7 +108,7 @@ Web 客户端          Y.Doc / Tiptap / 单 UndoManager / 本地草稿(per-tab) 
                     合法更新 → 帧去重(SHA-256) → WAL spool fsync → apply → 广播
 协作持久化平面      Spool WAL → 批量 PG append（applied 前缀单事务，上界=appliedSeq）→ Snapshot / Vacuum
 业务执行平面        ExecutionRequest（全计划冻结）→ GenerationIntent → Worker → NodeArtifact → ExecutionOutbox
-Runtime Feed/REST   RuntimeEvent(append-only) + PG 当前状态 → 有序推送 · 游标续传 · 客户端增量投影
+Runtime Feed/REST   RuntimeEvent(append-only, per-project feedSeq) + PG 当前状态 → 有序推送 · 游标续传 · 客户端增量投影
 ```
 
 | 数据 | 权威源 | 传输 | 客户端 |
@@ -112,16 +121,16 @@ Runtime Feed/REST   RuntimeEvent(append-only) + PG 当前状态 → 有序推送
 
 ## §3 协作平面（Yjs=可协作内容唯一职责）
 
-### 3.1 doc shape（v5-6/v5-7/v5-8 注：矩阵为 v5.1 唯一基准）
+### 3.1 doc shape（v5-6/v5-7/v5-8 注：矩阵为 v5.1/v5.2 唯一基准）
 
 - 顶层三根：`meta`（用户可编辑配置白名单）/`nodes`/`edges`；`exec` 根及读写链路删除。
 - 全类型矩阵（plan 冻结具体表，冻结自真实路径 census——**census 基准见 v5-6**）：textInput{content:XmlFragment, prompt:Y.Map{text:Y.Text}}；audioGen/multiImageGen{prompt:Y.Text}；imageGen/videoGen/imageExtGen{prompt:XmlFragment（mention/image=PM 节点）→PromptValue{text,html,referencedImageIds}}；allImages/images=Y.Array（迁移单卡：写读同卡改道）；通用{position:Y.Map{x,y} 逐键, width/height/parentId:标量 LWW}；group{groupType/name/color/collapsed/order/storyboard/cells}；videoEdit{videoProjectId 等}；edges{source/target}。
 - **DataKeySpec 三元+矩阵**：`writer:'user'|'server'`（谁可写）/`valueSource?:'user'|'server-feed'`（值来源）/`authority?:'content'|'display-cache'`（权威性）；另增 `map`/`items` 容器标注+create·write·delete 三操作矩阵；运行时 gate 同表。尺寸等 server-feed 字段=**客户端写的展示缓存**（display-cache），不是执行/计费权威输入——执行与计费只读 PG。组合合法性断言（writer=server⇒ownership=server 等）。
 - 字段所有权不止 TS 类型：运行时校验+写入 API 双落；未分类字段默认拒绝——用户不能靠构造 update 绕过前端限制。
 
-### 3.2 FrameGate（收缩面）
+### 3.2 FrameGate（收缩面——v5.2 补候选验证与每帧世代）
 
-准入序：身份/项目权限/generation/帧格式→解码+结构/字段权限/预算/图约束→帧字节**精确 copy 至独立 buffer**（禁 subarray 共享 buffer 直解——lib0 越界读实测）→**原始帧 SHA-256 去重（gate 持有；去重后才分配 walSeq——重试/重复帧零重复 walSeq）**→WAL。**DENY 面**：受保护 root/meta 服务端字段/未知类型/未知键/值类型错/容器替换（G17b 对抗面）/超预算（maxStructs/maxDsRanges/maxFrameBytes——**解压后大小**限；普通帧 1MiB；**8MiB SS2=HTTP seed 端点（server→client）/受控 recovery import（client→server）**——T9/T13 落端点/鉴权/ETag/因果；大帧 apply 不阻塞主线程）。**NORMALIZE 面**：悬挂边/父链环/跨组 parent/重复边（读侧确定性屏蔽+graph_anomaly_total{kind}；只读不写回）。**clientID 绑定**：绑定键=`(projectId,generation,userId,clientId)` 四元——同用户重连放行、一连接多 clientID 放行、异活跃用户拒绝、碰撞=可重试 close（扩展 session guard awareness 绑定链）。**无 provenance/无区间授权/无 shadow/clone**。
+准入序：身份/项目权限/generation（**每帧对照当前世代权威——DB 或同步失效缓存，非连接建立时缓存〔偏离 36-②〕**）/帧格式→解码+结构/字段权限/预算/图约束→**对照活动 doc 现状的增量语义验证（偏离 36-①：引用闭包/跨节点关系——「字段类型合法≠值/业务关系合法」，如媒体引用指向不存在资源、边引用不存在节点；apply 后广播前禁全文档扫描，毒帧路径兜底）**→帧字节**精确 copy 至独立 buffer**（禁 subarray 共享 buffer 直解——lib0 越界读实测）→**原始帧 SHA-256 去重（gate 持有；去重后才分配 walSeq——重试/重复帧零重复 walSeq）**→WAL。**DENY 面**：受保护 root/meta 服务端字段/未知类型/未知键/值类型错/容器替换（G17b 对抗面）/超预算（maxStructs/maxDsRanges/maxFrameBytes——**解压后大小**限；普通帧 1MiB；**8MiB SS2=HTTP seed 端点（server→client）/受控 recovery import（client→server）**——T9/T13 落端点/鉴权/ETag/因果；大帧 apply 不阻塞主线程）。**NORMALIZE 面**：悬挂边/父链环/跨组 parent/重复边（读侧确定性屏蔽+graph_anomaly_total{kind}；只读不写回）。**clientID 绑定**：绑定键=`(projectId,generation,userId,clientId)` 四元——同用户重连放行、一连接多 clientID 放行、异活跃用户拒绝、碰撞=可重试 close（clientID=CRDT 结构标识非身份凭证——身份始终由已验证会话提供，绑定仅作冲突检测）。**无 provenance/无区间授权/无 shadow/clone**。
 
 ### 3.3 单 UndoManager（v5-10 v5.1 形态）
 
@@ -129,7 +138,7 @@ Runtime Feed/REST   RuntimeEvent(append-only) + PG 当前状态 → 有序推送
 
 ### 3.4 本地缓存（v5-11）
 
-per-tab 记录+boot mergeUpdates 并集；clean 不覆盖 dirty；同步成功删己记录；**generation 变更（含 vacuum 换代）清整族**（vacuum 走 4410 doc-vacuuming+discardLocalCache:true 显式清，不靠改键）；IDB blocked/quota 降级。
+per-tab 记录+boot mergeUpdates 并集；clean 不覆盖 dirty；同步成功删己记录；**generation 变更（含 vacuum 换代）清整族**（vacuum 走 4410 doc-vacuuming+discardLocalCache:true 显式清，不靠改键；**换代前先保存可恢复脏草稿再清——禁静默丢离线编辑**）；**savedSeq 只由服务端持久化回执（save barrier pgSeq）推进（偏离 36）**；IDB blocked/quota 降级。
 
 ### 3.5 容器规则（G17 收缩）
 
@@ -139,11 +148,11 @@ per-tab 记录+boot mergeUpdates 并集；clean 不覆盖 dirty；同步成功�
 
 ### 4.1 写入次序（七步）
 
-①验证会话身份/项目权限/generation/帧格式→②解码验证结构/字段权限/预算/图约束→③帧字节精确 copy+**SHA-256 去重**+分配 `walSeq`→④追加 WAL+fsync（新段含目录 fsync）→⑤apply 到内存 Y.Doc→⑥广播成功应用的更新→⑦后台将 **applied 队列连续前缀**写 PG（单事务多行，上界=appliedSeq），提交后推进 `pgSeq`。**spool-first≠先 ACK 后验证**——准入先于一切；ACK 与承诺的持久等级严格一致。
+①验证会话身份/项目权限/generation（每帧对照世代权威）/帧格式→②解码验证结构/字段权限/预算/图约束+对照活动 doc 现状增量语义验证→③帧字节精确 copy+**SHA-256 去重**+分配 `walSeq`→④追加 WAL+fsync（新段含目录 fsync）→⑤apply 到内存 Y.Doc→⑥广播成功应用的更新→⑦后台将 **applied 队列连续前缀**写 PG（单事务多行，上界=appliedSeq），提交后推进 `pgSeq`。**spool-first≠先 ACK 后验证**——准入先于一切；ACK 与承诺的持久等级严格一致。
 
 ### 4.2 ACK 与耐久契约（v5-4）
 
-Applied/Spooled/Durable 三档（档位判据=pgSeq）；save barrier=**onStateless**（flush 批量队列→回执 `{nonce,committedSeq=pgSeq}`；处理器首语句同步捕获前缀；**factory 接线 onStateless——现状未接，P1 落**）；barrier 触发即冲刷；拒帧连接屏障不可成功；断线新 nonce。
+Applied/Spooled/Durable 三档（档位判据=pgSeq）+**UI 四态映射（Local 编辑中/Spooled 已接收正在保存/Applied 已同步等待数据库提交/Durable 已保存——Durable 必须对应可验证 pgSeq 回执；不因 WebSocket 连接或 SyncStatus 自动显示）**；save barrier=**onStateless**（flush 批量队列→回执 `{nonce,committedSeq=pgSeq}`；处理器首语句同步捕获前缀；**factory 接线 onStateless——现状未接，P1 落**）；barrier 触发即冲刷；拒帧连接屏障不可成功；断线新 nonce。
 
 ### 4.3 WAL 与内存 doc 原子性边界（状态机——v5.1 水位化）
 
@@ -154,17 +163,17 @@ Applied/Spooled/Durable 三档（档位判据=pgSeq）；save barrier=**onStatel
 - 无法证明状态一致：拒绝服务（fail-closed），不静默跳坏帧。
 - SV 适合确定双方缺失结构，**不替代 WAL 提交水位**。
 
-### 4.4 WAL 能力清单
+### 4.4 WAL 能力清单（v5.2 命名统一）
 
-单调帧序号（walSeq）/SHA-256 帧去重（幂等重放零重复业务效果+零重复 walSeq）/CRC+可验证记录边界；持久确认水位（spoolSeq）+apply 水位（appliedSeq，内存级）+PG 提交水位（pgSeq）+恢复时连续前缀校验；部分批次失败重试；坏段隔离+告警；磁盘空间上限+写入背压+故障停收；崩溃恢复从 pgSeq 重放（不依赖进程内状态）；快照指针发布与 WAL 清理分离（purgeBelowSeq 水位先持久再分批删，启动续跑）。**PG 批行形状**：不存单 frameId——存 firstWalSeq/lastWalSeq/frameCount/updateHash（Char(64)+CHECK；updateHash 唯一=批重试第二道保险）。**WAL 拓扑 spike（T0）**：现状 per-project owner 分段文件、帧内不带 projectId/generation——多项目 fsync 放大实测（10 项目×10 连接，p95>20ms 即改）；超标则改全局 WAL 或分片（帧带 projectId/generation）。**换代（含 vacuum）=WAL 段 namespace 切代+旧段 quarantine+水位重置**（spoolSeq/pgSeq/snapshotRev/purgeBelowSeq）。
+单调帧序号（walSeq）/SHA-256 帧去重（幂等重放零重复业务效果+零重复 walSeq——**传输层去重≠业务层幂等：执行/退款/交付/资源释放由业务幂等键+唯一约束+fencing 保护，两层不混**）/CRC+可验证记录边界；**fsync 前缀上界（CanvasDoc.walSeq 持久列）**+apply 水位（appliedSeq，内存级）+PG 提交水位（pgSeq）+恢复时连续前缀校验（扫描完整有效前缀，截断/隔离无效尾部）；部分批次失败重试；坏段隔离+告警；磁盘空间上限+写入背压+故障停收（fail-closed）+**per-project 写入背压（慢项目不拖垮其他项目——偏离 36-③）**；崩溃恢复从 pgSeq 重放（不依赖进程内状态）；快照指针发布与 WAL 清理分离（purgeBelowSeq 水位先持久再分批删，启动续跑）。**PG 批行形状**：不存单 frameId——存 firstWalSeq/lastWalSeq/frameCount/updateHash（Char(64)+CHECK octet_length≤16MiB；updateHash 唯一=批重试第二道保险）。**WAL 拓扑 spike（T0）**：现状 per-project owner 分段文件——多项目 fsync 放大实测（10 项目×10 连接，p95>20ms 即改）；超标则改全局 WAL 或分片（帧带 projectId/generation；**帧内一律携带 generation**——换代切段后扫描器识别段属代）。**换代（含 vacuum）=WAL 段 namespace 切代+旧段 quarantine+水位重置**（walSeq/pgSeq/snapshotRev/purgeBelowSeq）。
 
-### 4.5 compact/vacuum（v5.1——D2）
+### 4.5 compact/vacuum（v5.1——D2；v5.2 勘误快照约束）
 
-compact=快照前缀发布+WAL 分批清理（指针短事务+水位同事务持久+提交后 worker 进程后台删——COLLAB_ROLE worker，真进程隔离；授权=CanvasDoc 行锁+generation/pgSeq CAS，不拿租约）。**vacuum=文档重建：重放重建 fresh doc（新 clientID 重写）→generation++→新 docName(#g)→替换快照→关连接（4410 doc-vacuuming，载荷 discardLocalCache:true）**；离线 dirty 客户端：重连旧 #g=auth 直接 generation mismatch（不装载、不 SS1、不上行旧 structs）→导出 DraftEnvelope→清缓存→新 name 重连导入。**vacuumEpoch 仅遥测计数**。preVacuumSv SV 重叠门退役（偏离 27）。保留策略=检查点语义（当前代最近 2 份+旧代最终 1 份；禁删指针引用行）。
+compact=快照前缀发布+WAL 分批清理（指针短事务+水位同事务持久+提交后 worker 进程后台删——COLLAB_ROLE worker，真进程隔离；授权=CanvasDoc 行锁+generation/pgSeq CAS，不拿租约；**`Snapshot.stateSeq≤pgSeq` 为跨表不变量——由快照发布事务内行锁+条件更新验证保证（非 CHECK，偏离 26 v5.2）；compact 失败保留原可用快照与 WAL，不提前清理**）。**vacuum=文档重建：重放重建 fresh doc（新 clientID 重写）→generation++→新 docName(#g)→替换快照→关连接（4410 doc-vacuuming，载荷 discardLocalCache:true）**；离线 dirty 客户端：重连旧 #g=auth 直接 generation mismatch（不装载、不 SS1、不上行旧 structs）→导出 DraftEnvelope→清缓存→新 name 重连导入（**导入前执行新 Schema/权限/图结构校验——恢复流程非兼容层**）。**vacuumEpoch 仅遥测计数**。preVacuumSv SV 重叠门退役（偏离 27）。保留策略=检查点语义（当前代最近 2 份+旧代最终 1 份；禁删指针引用行）。
 
 ## §5 代际与版本模型
 
-### 5.1 代际三元+水位三元（v5-5 v5.1 形态）
+### 5.1 代际三元+水位三元（v5-2 v5.2 形态——spoolSeq 别名删除）
 
 | 字段 | 语义 | 变化时机 | 客户端行为 |
 |---|---|---|---|
@@ -173,21 +182,21 @@ compact=快照前缀发布+WAL 分批清理（指针短事务+水位同事务持
 | vacuumEpoch | 压缩操作代次（**遥测**） | 每次 vacuum | 无行为分支（观测/诊断） |
 
 ```text
-walSeq      gate 去重后分配（per project 连续）
-spoolSeq    最后 WAL fsync 的 walSeq（CanvasDoc 持久列）
-appliedSeq  最后 apply 成功的 walSeq（内存/批级，不逐帧落库）
-pgSeq       最后 PG 提交的 walSeq（CanvasDoc 持久列；CanvasDocUpdate 批行 seq=该批 lastWalSeq）
-不变量：spoolSeq >= appliedSeq >= pgSeq
-CHECK：pgSeq <= spoolSeq；Snapshot.stateSeq <= pgSeq
+walSeq      gate 去重后分配的帧序号（per project 连续）；CanvasDoc.walSeq=该项目该世代已成功 fsync 的连续 WAL 前缀上界（持久列）
+appliedSeq  最后 apply 成功的 walSeq（内存/批级，不逐帧落库；重启由 WAL+pgSeq 前缀校验重建——内存值不作持久权威）
+pgSeq       最后 PG 提交的 walSeq（CanvasDoc 持久列；CanvasDocUpdate 批行 seq=该批 lastWalSeq）——对外唯一「已保存」水位
+不变量：0 <= pgSeq <= appliedSeq <= walSeq（appliedSeq 可暂时落后 walSeq——已 fsync 未 apply；PG 批末端序号不得超过 appliedSeq）
+CHECK（同行）：CanvasDoc (pgSeq <= walSeq)
+跨表不变量（Snapshot.stateSeq <= pgSeq）：非 CHECK——快照发布事务内行锁+条件更新保证（§4.5）
 ```
 
-- PG 批只从 applied 队列取（若从 WAL 扫，必须 walSeq<=appliedSeq）；apply 失败不得提交。
+- PG 批只从 applied 队列取（若从 WAL 扫，必须 walSeq≤appliedSeq）；apply 失败不得提交。
 - **docSeq=pgSeq；committedSeq=pgSeq；ETag/read model 新鲜度/公开快照水位一律 pgSeq**。
 - **ExecutionRequest 受理读=PG 一致前缀**（拿 gate→flush applied→PG→读 live doc；或 snapshot+updates at pgSeq 重建）——不读「已 apply 未 PG」的 live doc。
 
 ### 5.2 版本维度
 
-generation/vacuumEpoch(遥测)/snapshotRev/水位族（walSeq·spoolSeq·appliedSeq·pgSeq）/docSeq（=受理冻结的 pgSeq）/execSeq（节点执行序）/eventVersion（节点运行时状态版本）/artifactRev（产物槽位版本）/**feedSeq（RuntimeEvent 全局序）**——作用域/比较方式/持久化位置/重置规则各自明确；**BigInt 入 JSON/WS payload 显式 String()**（bigint-json gate 进 verify）。
+generation/vacuumEpoch(遥测)/snapshotRev/水位族（walSeq·appliedSeq·pgSeq）/docSeq（=受理冻结的 pgSeq）/execSeq（节点执行序）/eventVersion（节点运行时状态版本）/artifactRev（产物槽位版本）/**feedSeq（RuntimeEvent per-project 序）**——作用域/比较方式/持久化位置/重置规则各自明确；**BigInt 入 JSON/WS payload 显式 String()**（bigint-json gate 进 verify）。
 
 ### 5.3 缓存键双轨
 
@@ -195,7 +204,7 @@ generation/vacuumEpoch(遥测)/snapshotRev/水位族（walSeq·spoolSeq·applied
 
 ## §6 业务平面（PG 唯一权威）
 
-### 6.1 ExecutionRequest（v5-8 v5.1 全计划——D4）
+### 6.1 ExecutionRequest（v5-8 v5.1 全计划——D4；v5.2 promptText 来源）
 
 ```text
 projectId / nodeId / scopeNodeIds / generation / docSeq(=pgSeq)
@@ -208,17 +217,17 @@ requestId @unique / userId / state / createdAt / claimedAt
 - 组执行=一行 plan 数组，或每节点一行+batchId——两种均自包含，**worker 零 doc 读**。
 - `docSeq` 只接受 pgSeq；等待上限+明确超时错误。
 - **受理读=PG 一致前缀**（§5.1）——否则冻结的 prompt/upstream 可能包含未持久帧。
-- 客户端流程：save barrier→拿 pgSeq→带 docSeq 调 execute；服务端等 `pgSeq>=docSeq` 再冻结输入。
-- `GenerationIntent` claim 时创建并关联 requestId；paramsHash/pricing 只读 request 不重算。
+- 客户端流程：save barrier→拿 pgSeq→带 docSeq 调 execute（**请求不携带提示词参数——promptText 等冻结字段由服务端从 PG 前缀恢复 doc 内容冻结〔偏离 32 v5.2〕**）；服务端等 `pgSeq>=docSeq` 再冻结输入。
+- `GenerationIntent` claim 时创建并关联 requestId；paramsHash/pricing 只读 request 不重算；**同 requestId 重试返回原请求（幂等受理——PG 已提交但客户端未收到响应的断线重试不创建第二次执行）**。
 - **输入大小上限+PII 策略**（promptHtml 仅存储不渲染/媒体引用白名单/日志禁整 payload）。
 
 ### 6.2 执行链
 
-`ExecutionRequest → GenerationIntent（claim 创建/关联 requestId）→ Worker（零 doc 读）→ NodeArtifact（权威交付）→ ExecutionOutbox`。NodeExecution=**当前行表** PK(projectId,nodeId)+**generation 列+更新守卫（generation 匹配且 execSeq 单调才写）**+projectedExecSeq/projectedEventVersion 元组（历史留 GenerationIntent；artifact 槽位版本读 NodeArtifact 不建第二套）；ExecutionOutbox 唯一键含 generation+业务幂等键 businessKey+claim lease（SKIP LOCKED）——**工作队列职责，不作 feed 日志（feed=RuntimeEvent，§7）**；pending outbox 行不按 watermark 过滤；冷装载/换代/恢复全量对账；ArtifactProjection 分步退役（先证明新链路覆盖六终态/重试再删）。
+`ExecutionRequest → GenerationIntent（claim 创建/关联 requestId）→ Worker（零 doc 读）→ NodeArtifact（权威交付）→ ExecutionOutbox`。NodeExecution=**当前行表** PK(projectId,nodeId)+**generation 列+更新守卫（generation 匹配且 execSeq 单调才写——旧 worker 迟到更新拒绝）**+projectedExecSeq/projectedEventVersion 元组（历史留 GenerationIntent；artifact 槽位版本读 NodeArtifact 不建第二套）；ExecutionOutbox 唯一键含 generation+业务幂等键 businessKey+claim lease（SKIP LOCKED）——**工作队列职责，不作 feed 日志（feed=RuntimeEvent，§7）**；pending outbox 行不按 watermark 过滤；冷装载/换代/恢复全量对账；ArtifactProjection 分步退役（先证明新链路覆盖六终态/重试再删）。
 
-### 6.3 交付状态机与退款 fencing
+### 6.3 交付状态机与退款 fencing（v5.2 补外部副作用幂等注记）
 
-文件生成/对象存储上传/DB 事务非原子——可恢复交付状态机：受控上传任务→受限 objectKey+版本标识→校验身份/大小/完整性/权限→带执行身份 fencing 的 DB 事务终局→outbox 事件→未完成/失效/孤儿可重试清理。退款/删除引用精确业务记录（exact settle row/reversesId 幂等；Refund unique+reversesId），不依据客户端 doc 字段或过期 worker 状态。materializeRunId/expectedExecSeq/StorageReservation 终态释放/GC delete-claim 承袭 v4 §2.9；ObjectManifest claimOwner/claimUntil。
+文件生成/对象存储上传/DB 事务非原子——可恢复交付状态机：受控上传任务→受限 objectKey+版本标识→校验身份/大小/完整性/权限→带执行身份 fencing 的 DB 事务终局→outbox 事件→未完成/失效/孤儿可重试清理。退款/删除引用精确业务记录（exact settle row/reversesId 幂等；Refund unique+reversesId），不依据客户端 doc 字段或过期 worker 状态。materializeRunId/expectedExecSeq/StorageReservation 终态释放/GC delete-claim 承袭 v4 §2.9；ObjectManifest claimOwner/claimUntil。**外部副作用幂等（偏离 36-④）：submit-poll 链三层防护已在（write-ahead providerRequestId+providerTaskId 先落库+query-first resume——§1.7 实证）；text 生成链补外呼锚（现零键零锚）；供应商不认键的 submit→落库窗=外部 at-least-once 诚实登记，资金由 execSeq CAS 保 exactly-once——数据库 fencing 无法撤销已发生的外部调用，外部幂等键是唯一屏障**。
 
 ### 6.4 尺寸元数据模式
 
@@ -226,37 +235,39 @@ requestId @unique / userId / state / createdAt / claimedAt
 
 ### 6.5 生命周期义务（G13/G14 收缩形态）
 
-服务端**只读观察**已受理帧的 nodes/edges 事务→NodeLifecycle（lifecycleSeq 数值序+当前行 partial unique）/DeliveryFence 义务行**与对应帧前缀的 PG 批事务同事务落库**（帧↔义务原子；observer 按 walSeq buffer 与批同行）；incident-edge/media 反查用轻量反向索引（edgesByNode/mediaRefsByNode——装载建+增量维护）；genesis 行=T7/T21 建。delete 已删=no-op 不二次退款；undo 重建=新 lifecycleSeq+恢复态；delete+restore 同帧=两行；两项目同 nodeId 不互串。
+服务端**只读观察**已受理帧的 nodes/edges 事务→NodeLifecycle（lifecycleSeq 数值序+当前行 partial unique）/DeliveryFence 义务行**与对应帧前缀的 PG 批事务同事务落库**（帧↔义务原子；observer 按 walSeq buffer 与批同行；**义务可从帧前缀确定性重建**——崩溃后重放前缀恢复义务，不依赖进程内状态）；incident-edge/media 反查用轻量反向索引（edgesByNode/mediaRefsByNode——装载建+增量维护）；genesis 行=T7/T21 建。delete 已删=no-op 不二次退款；undo 重建=新 lifecycleSeq+恢复态；delete+restore 同帧=两行；两项目同 nodeId 不互串。
 
 ### 6.6 维护窗口（T10-lite）与 genesis
 
-freeze（gate 停收标志）→drain（全部已受理帧至 PG——单串行口无需 epoch）→unload→export（DocCodec canonical）→fresh doc→generation++→snapshot0→**水位重置+WAL 段 namespace 切代+旧段 quarantine**；stage=Prisma enum（非裸 string）；stage 单源在 MaintenanceOperation（sourceGeneration/targetGeneration/schemaVersion/cutoffPgSeq/drainedAt；活跃维护唯一性=其 partial unique——CanvasDoc 不存 stage 副本，只存 maintenanceId）；REST 控制面 admin guard；维护执行者=租约持有者；空画布保头升代；归档=保留一份 PG dump 回滚。genesis 双路+缺头三态承袭（先 reset 再 migrate）。
+freeze（gate 停收标志）→drain（全部已受理帧至 PG——单串行口无需 epoch）→unload→export（DocCodec canonical）→fresh doc→generation++→snapshot0→**水位重置+WAL 段 namespace 切代+旧段 quarantine**；stage=Prisma enum（非裸 string）；stage 单源在 MaintenanceOperation（sourceGeneration/targetGeneration/schemaVersion/cutoffPgSeq/drainedAt；活跃维护唯一性=其 partial unique——CanvasDoc 不存 stage 副本，只存 maintenanceId）；**每阶段可重入可恢复的状态转移（重启从 PG 记录的阶段继续——不据本地临时文件猜测；破坏性步骤定义前置/后置条件；维护失败项目保持只读，不因超时自动恢复写入）**；REST 控制面 admin guard；维护执行者=租约持有者；空画布保头升代；归档=保留一份 PG dump 回滚。genesis 双路+缺头三态承袭（先 reset 再 migrate）。
 
 ### 6.7 删除清单（frozen——P4 收口，删码与新路径同可编译切片）
 
-`CanvasDocProvenance`/区间授权；shadow doc/full clone/candidate-first/ServerDocWrite 服务端写链；admissionEpoch 与 admissionCutoff/`@@unique([maintenanceId])`/DocWriteAudit（v1.2 残留——审计改 CanvasDocUpdate 批行 actor 字段或独立采样表）；appendSeq 列；preVacuumSv 门与缓存播种；RetentionCoordinator；`transformV3ToV4Draft` 与在线归档；y-protocols fork 与 FrameApplyReceipt wire 协议；zero-yjs DocLike 双出口；doc.exec 读写链+writeExecStatus+deliverArtifact 的 doc 写+`data.fileId/result/status` 写者与 fallback（execAligned/data.status）——**删时点=T32（D9 顺序：T19 只改读者/T22 同切片切交付）**；addToScope 调用与「shift 字节回落」验收；v3 兼容层；无调用方的多管理器协调与过度代际维护机制。
+`CanvasDocProvenance`/区间授权；shadow doc/full clone/candidate-first/ServerDocWrite 服务端写链；admissionEpoch 与 admissionCutoff/`@@unique([maintenanceId])`/DocWriteAudit（v1.2 残留——审计改 CanvasDocUpdate 批行 actor 字段或独立采样表）；appendSeq 列与 `spoolSeq` 命名（v5.2 统一 walSeq）；preVacuumSv 门与缓存播种；RetentionCoordinator；`transformV3ToV4Draft` 与在线归档；y-protocols fork 与 FrameApplyReceipt wire 协议；zero-yjs DocLike 双出口；doc.exec 读写链+writeExecStatus+deliverArtifact 的 doc 写+`data.fileId/result/status` 写者与 fallback（execAligned/data.status）——**删时点=T32（D9 顺序：T19 只改读者/T22 同切片切交付）**；addToScope 调用与「shift 字节回落」验收；v3 兼容层；无调用方的多管理器协调与过度代际维护机制。
 
-## §7 Runtime Feed 平面（v5-9 v5.1——D5）
+## §7 Runtime Feed 平面（v5-9 v5.2——D5 per-project feedSeq）
 
 ```prisma
 model RuntimeEvent {
   id         String   @id @default(cuid())
   projectId  String
   generation Int
-  feedSeq    BigInt   @unique @default(autoincrement()) // 全局序列
+  feedSeq    BigInt   // per-project 连续——同一项目行锁/advisory lock 键族内分配且同事务提交（分配序≡提交序；偏离 30 v5.2）
   kind       String
   payload    Json
   docSeq     BigInt?  // 事件对应的 pgSeq 下界
   createdAt  DateTime @default(now())
-  @@index([projectId, feedSeq])
+  @@unique([projectId, feedSeq])
   @@index([projectId, generation, feedSeq])
 }
 ```
 
-- 首连：RR 事务读当前状态+`max(feedSeq)`→返回 `{snapshot,cursor}`；续传：`feedSeq>cursor` 升序；游标失效→全量快照。
+- **feedSeq 分配纪律**：同一项目的 RuntimeEvent 写入事务先取该项目的行锁/advisory lock（与 canvas_doc_update_seq「seq 序≡提交序」同构——§1.7 先例），锁内分配下一 feedSeq 并同事务提交——**分配序=提交序，游标推进不会漏未提交事件**（裸 sequence/BIGSERIAL 全局自增不保证提交顺序——若未来需要全局有序事件流，须采用明确提交顺序语义的日志机制）。全局有序流不承诺；跨项目无序不影响 per-project 游标。
+- 首连：RR 事务读当前状态+该项目 `max(feedSeq)`→返回 `{snapshot,cursor}`；续传：`feedSeq>cursor` 升序；游标失效/事件保留期已过→全量快照。
+- **事件与业务事务原子提交**（执行状态变更与 RuntimeEvent 同一 PG 事务）。
 - **Stateless 只通知；心跳 15-30s 携带 latestFeedSeq**（防「连接没断但通知丢了」——仅靠心跳也能追平）。
 - `docSeq` 应用规则：事件 `docSeq<=` 客户端已同步 pgSeq 才应用，否则 buffer；节点已删则忽略；旧 generation 隔离。
-- UI 契约：feed 未首达=exec `unknown`（生成按钮禁用，**不显示 idle**——防重复点击）；离线 exec 不可见不影响内容编辑。
+- UI 契约：feed 未首达=exec `unknown`（生成按钮禁用，**不显示 idle**——防重复点击）；离线 exec 不可见不影响内容编辑；重复/乱序/旧代事件过滤+缺口对账。
 - **禁用 ExecutionOutbox 当 feed 日志**（可变工作队列——claim/state/delete 使游标出洞）；保留期按代清理。
 
 ## §8 恢复、耐久与安全
@@ -267,11 +278,11 @@ model RuntimeEvent {
 
 ### 8.2 Yjs≠权限系统
 
-文档准入按身份/项目权限/字段白名单/节点类型/预算；业务权限在 PG 事务内重新核验；客户端 origin 非安全凭证；服务器专有数据不因合法 CRDT update 被覆盖；**projectId=项目/团队/个人统一业务隔离边界**。
+文档准入按身份/项目权限/字段白名单/节点类型/预算；业务权限在 PG 事务内重新核验；客户端 origin 非安全凭证；**clientID=CRDT 结构标识非身份凭证（身份始终由已验证服务端会话提供）**；服务器专有数据不因合法 CRDT update 被覆盖；**projectId=项目/团队/个人统一业务隔离边界**（个人与团队同一套项目级协作模型——差异仅在成员权限/连接数/资源配额）。
 
 ### 8.3 双验收线（D10）
 
-本批交付线（dev/test/beta）：单实例+WAL 持久化+PG 批量提交+恢复重放+快照压缩+协作权限+运行时对账（诚实登记：单机不声称 HA；机损 RPO=PG 批延迟；Spooled≠已保存）。生产上线线=T29 **实体化生产硬门**（非占位）：PITR RPO≤5min/RTO≤30min+对象存储版本化 RPO≤15min+季度 restore drill+每小时 replay canary（snapshot+updates 重放 fresh doc，semanticEqual/SV 对比，不一致告警并冻结 compact）+HA 决策+SLO+`doc_append_gap_total` 告警——任一未过不得开放生产流量。
+本批交付线（dev/test/beta）：单实例+WAL 持久化+PG 批量提交+恢复重放+快照压缩+协作权限+运行时对账（诚实登记：单机不声称 HA；机损 RPO=PG 批延迟；Spooled≠已保存）。生产上线线=T29 **实体化生产硬门**（非占位）：PITR RPO≤5min/RTO≤30min+对象存储版本化 RPO≤15min+季度 restore drill+每小时 replay canary（snapshot+updates 重放 fresh doc，semanticEqual/SV 对比，不一致告警并冻结 compact）+HA 决策+SLO+`doc_append_gap_total` 告警——任一未过不得开放生产流量（前置条件纳入发布自动化，非仅 runbook 登记）。
 
 ## §9 质量门与验收
 
@@ -283,33 +294,33 @@ model RuntimeEvent {
 | G2 WAL 与 PG 连续前缀 | fsync/批次失败/重复帧/重启重放/快照发布与清理/**合法帧 apply 失败/毒帧隔离**（§4.3 六态+毒帧）全正确 | P1 | 不得进内容迁移 |
 | G3 富文本与撤销 | Y.Text/嵌套 XmlFragment/mention/undo-redo 双端并发通过（栈≤100/clear 收口形态） | P2 | 调容器或绑定，禁临时 JSON 垫片 |
 | G4 ExecutionRequest 与 docSeq | 受理输入与文档前缀一致；重放不改已冻结输入；受理后改 prompt/拓扑/model/上游/删节点不影响计划 | P3 | 修受理事务与前缀协议 |
-| G5 Runtime Feed 可靠性（=G6b） | RuntimeEvent 游标：断线/漏通知（仅心跳追平）/重复/乱序/旧代/游标失效六语料；feed 不因 outbox claim/delete 出洞 | P3（T22） | 不得移除旧投影写者直至新链路过 |
+| G5 Runtime Feed 可靠性（=G6b） | RuntimeEvent 游标：断线/漏通知（仅心跳追平）/重复/乱序/旧代/游标失效六语料+**feedSeq 提交顺序交错（延迟提交不漏事件）**；feed 不因 outbox claim/delete 出洞 | P3（T22） | 不得移除旧投影写者直至新链路过 |
 | G6 单实例故障恢复（=G6a，doc 平面） | kill -9/坏 WAL/PG 不可用/磁盘满/重启符合耐久契约（不含 Feed——Feed 归 G5） | P1（T13） | fail-closed+隔离恢复，禁静默丢弃或越过 pgSeq |
 
 P1 验收主线（真实故障顺序）：同帧重复送达零重复业务效果零重复 walSeq；PG 提交失败 WAL 可恢复且 pgSeq 不越过失败帧；fsync 前后 kill 符合 ACK 等级；PG 提交成功但内存水位未更新即崩溃→重启零重复；snapshot 已发布 WAL 未清理时重启正确；WAL 达清理条件后重启不误删；坏 CRC/截断/缺号/重复 ID 分类隔离告警；**无 PG 行 walSeq>appliedSeq；ETag 不超前 pgSeq**。
 
-### 9.2 CI 测试清单
+### 9.2 CI 测试清单（v5.2 补三）
 
-三面 tsc strict；Prisma validate+迁移重建+真 PG 集成；双客户端同节点/异节点/边/富文本/媒体列表并发；篡改类型/服务器字段/嵌套容器/序号/版本拒绝测试；WAL 崩溃点矩阵/重复批次/PG 故障/坏段/水位恢复/毒帧；RuntimeEvent 游标六语料+心跳追平；ExecutionRequest 冻结（受理后变更不影响计划）/worker 抢占/过期迟到写/退款重试；vacuum×append 并发（换代语义）/快照发布×分批清理交错；删除/undo 重建/媒体引用/GC claim 竞态；双浏览器/多标签/IDB blocked/拒帧恢复；**10k 节点+8MiB 混合+10 项目×10 连接分轴压力基准（WAL fsync/批延迟/feed 负载/可见节点 culling）**。
+三面 tsc strict；Prisma validate+迁移重建+真 PG 集成；双客户端同节点/异节点/边/富文本/媒体列表并发；篡改类型/服务器字段/嵌套容器/序号/版本拒绝测试；WAL 崩溃点矩阵/重复批次/PG 故障/坏段/水位恢复/毒帧；RuntimeEvent 游标六语料+心跳追平+**feedSeq 分配序=提交序交错（事务 A 取号未提交/B 后提交——游标不漏 A）**；ExecutionRequest 冻结（受理后变更不影响计划）/worker 抢占/过期迟到写/退款重试/**同 requestId 断线重试幂等**；vacuum×append 并发（换代语义）/快照发布×分批清理交错；删除/undo 重建/媒体引用/GC claim 竞态；双浏览器/多标签/IDB blocked/拒帧恢复；**世代切换时旧连接仍在发送（旧世代不写入新文档/不影响新水位）**；**外部生成成功后 worker 崩溃重试零重复副作用（text 链锚验收）**；10k 节点+8MiB 混合+10 项目×10 连接分轴压力基准（WAL fsync/批延迟/feed 负载/可见节点 culling）。
 
 ### 9.3 观测指标
 
 `wal_fsync_latency`/`wal_pending_bytes`/`doc_pg_lag_seq`/`doc_prefix_gap_total`/`doc_recovery_total`/`doc_frame_rejected_total{reason}`/`runtime_feed_lag`/`runtime_feed_gap_total`/`execution_fence_rejected_total`/`doc_snapshot_bytes`/`doc_compaction_duration`/`doc_append_gap_total`。按项目或有限维度聚合（禁高基数标签）；日志禁完整 prompt/正文/敏感 URL/整 payload。
 
-### 9.4 性能门禁原则
+### 9.4 性能门禁原则（v5.2 补两分轴）
 
-10k 冷加载测服务端解码/装载/read model/首屏；8MiB 测传输/解码/fsync/apply/PG 批/投影；**多项目分轴（WAL fsync 放大/批延迟/feed 负载）**；可见节点与文档总量分开；全部报 P50/P95/P99+CPU/RSS/磁盘 IO/PG 锁等待；**先建基准再把实测转 CI 门禁**，不预声称指标。
+10k 冷加载测服务端解码/装载/read model/首屏；8MiB 测传输/解码/fsync/apply/PG 批/投影；**多项目分轴（WAL fsync 放大/批延迟/feed 负载）**；**`walSeq-pgSeq` 积压规模与持续时间（时段分布非仅瞬时值）**；**慢项目对其他项目的隔离影响（背压验证）**；可见节点与文档总量分开；全部报 P50/P95/P99+CPU/RSS/磁盘 IO/PG 锁等待；**先建基准再把实测转 CI 门禁**，不预声称指标。
 
 ## §10 阶段表与任务处置
 
 | 阶段 | 内容 | 出口 |
 |---|---|---|
-| **P0 契约** | 全类型 schema 矩阵+DocCodec 双出口（**真 Yjs 类型直用——shared 增 yjs 依赖，zero-yjs DocLike 删除**；canonical+read model，无 transform）+两现行 bug（T1 isTextNode 单源；**T2=只删 :157 覆盖写——data.prompt:string 每键击持久化保留+请求体 promptText 通道，E2E 取消选中/重选**）+契约冻结：**水位状态机（D1）/Hocuspocus errorHandler 方案（升级优先、patch 兜底——D3）/ExecutionRequest 全字段（D4）/RuntimeEvent+feedSeq+游标（D5）/Undo 策略（D6）/shape 矩阵+writer 三元（D8）/frameId 批量化/WAL 帧协议/ACK 三档/版本维度表/4410 三分+4411/DraftEnvelope merge policy/save barrier**+census 静态门（含服务端读者） | **用户确认点①**（契约门） |
+| **P0 契约** | 全类型 schema 矩阵+DocCodec 双出口（**真 Yjs 类型直用——shared 增 yjs 依赖，zero-yjs DocLike 删除**；canonical+read model，无 transform）+两现行 bug（T1 isTextNode 单源；**T2=删 :157 覆盖写+改 execution.service:512 执行读点 string 直读腿——data.prompt:string 每键击持久化保留，无请求参数**，E2E 取消选中/重选）+契约冻结：**水位状态机（D1 v5.2：walSeq 命名）/Hocuspocus errorHandler 方案（S1 双版本 4.6.0+4.7.x 实测——升级优先、patch 兜底）/ExecutionRequest 全字段（D4）/RuntimeEvent+per-project feedSeq+行锁分配+游标（D5 v5.2）/Undo 策略（D6）/shape 矩阵+writer 三元（D8）/frameId 批量化/WAL 帧协议/ACK 三档+UI 四态映射/版本维度表/4410 三分+4411/DraftEnvelope merge policy/save barrier**+census 静态门（含服务端读者） | **用户确认点①**（契约门） |
 | **P1 载体** | PG 新表+genesis 双路+文档头/generation；单实例 ADR+spool-first 写管线（**applied 前缀+上界**）+批量提交+快照发布+崩溃恢复（真实故障顺序验收+毒帧）；**vacuum=generation++/新 docName（D2）**；WAL 拓扑 spike（多项目 fsync）；**G6a=doc 平面故障恢复**（Feed 不入本阶段） | G1/G2/G6 过→**用户确认点②** |
-| **P2 内容** | 全类型矩阵落地+Y.Text/XmlFragment/Y.Map/媒体数组语义；容器唯一创建者规则先行→Tiptap 双端绑定/mention/粘贴/IME（ySyncPlugin origin 按 T0 spike）；单 UndoManager收口形态（**不 addToScope/栈上限 clear**）；全读者切 DocCodec read model（**只改读者——写者保留，ETag=pgSeq**） | G3 过→**用户确认点③** |
-| **P3 业务** | ExecutionRequest 受理冻结（全计划+PG 一致前缀读+onStateless 接线）；PG 权威执行态+**RuntimeEvent Feed 全量+feedSeq 游标（G5=G6b）**+worker fencing/交付幂等/退款义务；**T22 同切片：deliverArtifact 改 PG 写+客户端切 Runtime Store+doc.exec 停写停读**；收缩 FrameGate/图异常 NORMALIZE/拒帧恢复；维护窗口（水位重置+WAL 切代）+4410 三分+恢复模式 | G4/G5 过→**用户确认点④**（含世代切换首次真跑执行门） |
-| **P4 交付** | reset-collab 工具+部署顺序；多浏览器/并发/断网/kill/磁盘/PG 故障演练；10k+8MiB+**10 项目×10 连接**负载；**删除清单 T32 执行（D9 顺序）**；发布门禁+dev/test/beta 限制登记+T29 生产硬门 charter | **用户确认点⑤=全批终出口**（证据汇编） |
+| **P2 内容** | 全类型矩阵落地+Y.Text/XmlFragment/Y.Map/媒体数组语义；容器唯一创建者规则先行→Tiptap 双端绑定/mention/粘贴/IME（ySyncPlugin origin 按 T0 spike）；单 UndoManager 收口形态（**不 addToScope/栈上限 clear**）；全读者切 DocCodec read model（**只改读者——写者保留，ETag=pgSeq**） | G3 过→**用户确认点③** |
+| **P3 业务** | ExecutionRequest 受理冻结（全计划+PG 一致前缀读+onStateless 接线）；PG 权威执行态+**RuntimeEvent Feed 全量+per-project feedSeq 游标（G5=G6b）**+worker fencing/交付幂等/退款义务（**text 链外呼锚**）；**T22 同切片：deliverArtifact 改 PG 写+客户端切 Runtime Store+doc.exec 停写停读**；收缩 FrameGate（**候选文档验证+每帧世代**）/图异常 NORMALIZE/拒帧恢复；维护窗口（水位重置+WAL 切代）+4410 三分+恢复模式 | G4/G5 过→**用户确认点④**（含世代切换首次真跑执行门） |
+| **P4 交付** | reset-collab 工具（**阶段状态持久化**）+部署顺序；多浏览器/并发/断网/kill/磁盘/PG 故障演练；10k+8MiB+**10 项目×10 连接分轴**负载；**删除清单 T32 执行（D9 顺序）**；发布门禁+dev/test/beta 限制登记+T29 生产硬门 charter（纳入发布自动化） | **用户确认点⑤=全批终出口**（证据汇编） |
 
-任务处置：**plan v1.4 以本 spec（v5.1）+第七轮终裁任务级修订表为依据重写**（plan v1.3/3de896c9 存档）；T0 spike 集=Hocuspocus malformed update+patch（或升级）验证/vacuum 后离线旧客户端重连（旧缓存/旧 SV/dirty draft）/**undo origin+scope（证明 addToScope 不需要）**/WAL 多项目 fsync；P1 validator 用 P1 shape fixture（root/权限/预算/通用格式），全类型最终矩阵运行时准入在 P3 收缩卡激活（分阶段激活非 validator 返工——矩阵本身 P0 已冻结）。迁移按依赖顺序串行（禁并行依赖同一 schema 状态）。
+任务处置：**plan v1.5 以本 spec（v5.2）+第八轮修订要点为依据修订**（plan v1.4/c68087e3 主体保留——第八轮外审：「不建议重写全部任务卡，保留主体修订依赖与少数核心契约」；修订集中在 T0〔S1 双版本+S4 恢复扫描+feedSeq 提交顺序实验〕/T2〔删 :157+改 :512 读点，无请求参数〕/T5〔walSeq 命名+per-project feedSeq+ACK 四态〕/T7〔spoolSeq→walSeq+CHECK 勘误〕/T8〔帧带 generation〕/T9〔每帧世代+背压〕/T21〔promptText 来源+幂等受理〕/T22〔per-project feedSeq 行锁〕/T23〔text 链锚〕/T24〔候选验证〕/T30〔阶段状态持久化〕/T33〔积压时序+慢项目〕）；P1 validator 用 P1 shape fixture（root/权限/预算/通用格式），全类型最终矩阵运行时准入在 P3 收缩卡激活（分阶段激活非 validator 返工——矩阵本身 P0 已冻结）。迁移按依赖顺序串行（禁并行依赖同一 schema 状态）。
 
-**门禁映射**：v4 的 G1-G33/B1-B20 由 plan v1.4 按新架构重编号——requires 规则（任何 gate 依赖后序任务=评审红）与「每卡先红（真实变红+真 PG 并发）→绿→commit」纪律承袭。
+**门禁映射**：v4 的 G1-G33/B1-B20 由 plan 按新架构重编号——requires 规则（任何 gate 依赖后序任务=评审红）与「每卡先红（真实变红+真 PG 并发）→绿→commit」纪律承袭。**用户确认点①-⑤+T27 执行门维持（第八轮外审建议取消——用户 2026-10-24 驳回）。**
