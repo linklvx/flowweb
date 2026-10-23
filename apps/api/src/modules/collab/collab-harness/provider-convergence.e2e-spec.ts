@@ -27,7 +27,9 @@
 //  ⑦outbox 乱序+重复投递幂等：单系统锚=media/media-fact-outbox.int.spec——场景 C 串联投影完成→
 //    facts 落 outbox 同事务→重复 createMany skipDuplicates 幂等。
 //  ⑧双端收敛+分镜并发零成员丢失+读序稳定：本 spec 场景 E（真 WS 双客户端并发 slot/order 写——
-//    零成员丢失+两端收敛）；读序 tie-break 锚=shared order-records.test.ts+order-pathology.test.ts。
+//    零成员丢失+两端收敛）+场景 F（用户裁定④：真双端并发写**同一分镜组同格位**——E 的重复键=单端
+//    自造，F=双客户端无协调路径分配同 slot 键，E 不能替代 F）；读序 tie-break 锚=shared
+//    order-records.test.ts+order-pathology.test.ts。
 //  ⑨reset 联动：静态+运行时锚=scripts/dev-reset-canvas.test.mjs（安全五件套+purgeS3Prefixes
 //    运行时断言）+T19 登记收口 dry-run ledger 通行证——本 spec 不复刻（脚本域）。
 //
@@ -48,7 +50,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
-import { CLIENT_PROTOCOL_VERSION, scanOrderPathology, compareWithinLayer } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, scanOrderPathology, compareWithinLayer, deriveStoryboardCells, isStoryboardChildRecord, resolveStoryboardConfig } from '@flowweb/shared';
 import { CollabGateway } from '../collab.gateway';
 import { CollabResidencyService } from '../collab-residency.service';
 import { CollabDocumentService } from '../collab-document.service';
@@ -426,6 +428,136 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     expect(report.duplicateKeyNodes).toBe(2);   // 等值 order 键两成员=病理计数档（重复键容忍+计数——v14 口径）
     expect(report.kinds).toContain('duplicate-key');
 
+    } finally {
+      await a.provider.destroy();
+      await b.provider.destroy();
+      await prisma.session.deleteMany({ where: { token: TOKEN } }).catch(() => {});
+      await teardownProject(PID);
+    }
+  }, 45_000);
+
+  it('场景 F（用户裁定④·真双端并发写同一分镜组同格位）：A/B 两客户端互不可见窗口内各分配 slot:2——双端收敛零成员丢失+读序 (slot,id) tie-break 双端等值+deriveStoryboardCells 溢出=保留非丢弃（邻位不殃及）', async () => {
+    const PID = 't19-e2e-dupslot';
+    const GROUP = 'n-sb-group';
+    const IDS = { dupA: 'n-dup-a', dupB: 'n-dup-b', normA: 'n-norm-a', normB: 'n-norm-b' };
+    const ALL_IDS = [GROUP, IDS.dupA, IDS.dupB, IDS.normA, IDS.normB];
+    await seedProject(PID);
+    await prisma.teamMember.upsert({
+      where: { teamId_userId: { teamId: TID, userId: 'y0a-fixture-user' } },
+      create: { teamId: TID, userId: 'y0a-fixture-user', role: 'MEMBER' },
+      update: {},
+    });
+    const TOKEN = `t19-dupslot-${randomUUID()}`;
+    await prisma.session.create({
+      data: { id: `sess-${randomUUID().slice(0, 8)}`, userId: 'y0a-fixture-user', token: TOKEN, expiresAt: new Date(Date.now() + 3600_000) },
+    });
+
+    // 预置分镜组（服务端会话直写——fillDoc 信封形态：type=group+data.groupType='storyboard'〔判定面
+    // isStoryboardChildRecord〕+data.order='5000'〔组自身居根层 order 档——真实形态〕+storyboard 2×2
+    // 配置〔capacity 派生不落 doc——resolveStoryboardConfig 单源〕）。
+    await residency.withSession(PID, (doc) => {
+      const g = new Y.Map();
+      g.set('type', 'group');
+      g.set('data', new Y.Map(Object.entries({
+        groupType: 'storyboard',
+        order: '5000',
+        storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: false, stitchResolution: '2K' },
+      })));
+      doc.getMap('nodes').set(GROUP, g);
+    }, { mode: 'write' });
+
+    const url = `ws://127.0.0.1:${serverPort}`;
+    const a = connectProvider(url, `project:${PID}`, TOKEN);
+    const b = connectProvider(url, `project:${PID}`, TOKEN);
+    try {   // 质评 Minor#7：断言失败也收口清理（双 provider/Session 行/项目 fixture）
+      await Promise.all([a.synced, b.synced]);   // 双端开卷（真连装载——组已可见后进入并发窗口）
+
+      // 【与场景 E 的形态差异钉子（用户裁定④——E 不能替代本验收）】E 的重复 slot 键=**单客户端一次
+      // transact 自造两条**（冲突只经本地单写者，无跨端协调面）；F=**两真客户端在互不可见窗口内各自
+      // 分配同一 slot 键**（下列两条 transact 同一同步块连发，零 await——WS 传播异步，B 写入时未见 A
+      // 的成员、反之亦然，slot 键分配无协调路径）——这才是协作画布最真实的同格位冲突形态。
+      const mkChild = (doc: Y.Doc, id: string, slot: number): void => {
+        const n = new Y.Map();
+        n.set('type', 'image');          // 分镜子=图片节点（attachMember/dropImage 形态——判定不查子类型）
+        n.set('parentId', GROUP);        // membership 信封（isStoryboardChildRecord 判据）
+        n.set('data', new Y.Map(Object.entries({ slot })));   // slot 派生真源（禁两可：无 order 键）
+        doc.getMap('nodes').set(id, n);
+      };
+      a.ydoc.transact(() => mkChild(a.ydoc, IDS.dupA, 2));
+      b.ydoc.transact(() => mkChild(b.ydoc, IDS.dupB, 2));   // 同格位 slot:2 真双端并发（键冲突收敛面）
+      // 第二轮交错稳定面：邻位正常成员（验证同格位冲突不殃及 slot:1/slot:3）
+      a.ydoc.transact(() => mkChild(a.ydoc, IDS.normA, 1));
+      b.ydoc.transact(() => mkChild(b.ydoc, IDS.normB, 3));
+
+      // 验收①成员不丢失：双端收敛后 nodes 键集等值且=组+四成员全集（seed 后 doc 恒空——精确等值）
+      await pollUntil(() => {
+        const idsA = new Set(a.ydoc.getMap('nodes').keys());
+        const idsB = new Set(b.ydoc.getMap('nodes').keys());
+        return ALL_IDS.every((id) => idsA.has(id) && idsB.has(id));
+      }, 15_000);
+      const idsA = [...a.ydoc.getMap('nodes').keys()].sort();
+      const idsB = [...b.ydoc.getMap('nodes').keys()].sort();
+      expect(idsA).toEqual([...ALL_IDS].sort());   // A 端全集（零丢失）
+      expect(idsB).toEqual([...ALL_IDS].sort());   // B 端全集=与 A 等值（双端收敛）
+
+      // 读面（信封全键：type/parentId/data——scenario E 的 recordsOf 只读 data，本场景需 membership 面）
+      interface FRec { id: string; parentId: string | null; type: string; data: Record<string, unknown> }
+      const recordsOf = (doc: Y.Doc): FRec[] =>
+        [...doc.getMap('nodes').entries()].flatMap(([id, m]) => {
+          if (!(m instanceof Y.Map)) return [];
+          const data = m.get('data');
+          return [{
+            id,
+            parentId: (m.get('parentId') as string | null) ?? null,
+            type: (m.get('type') as string | null) ?? '',
+            data: data instanceof Y.Map ? Object.fromEntries(data.entries()) : {},
+          }];
+        });
+      const recsA = recordsOf(a.ydoc);
+      const recsB = recordsOf(b.ydoc);
+
+      // fixture 形态合法性（判定函数面）：四成员均被 isStoryboardChildRecord 认定为分镜子、组自身不是
+      const byId = new Map(recsA.map((r) => [r.id, { type: r.type, data: r.data }]));
+      const members = [IDS.dupA, IDS.dupB, IDS.normA, IDS.normB].map((id) => recsA.find((r) => r.id === id)!);
+      for (const m of members) expect(isStoryboardChildRecord(m, byId)).toBe(true);
+      expect(isStoryboardChildRecord(recsA.find((r) => r.id === GROUP)!, byId)).toBe(false);
+
+      // 验收②读序稳定/渲染：compareWithinLayer 全函数（不抛不丢）+双端排序等值（渲染确定性）
+      // ——同格位两成员按 (slot,id) tie-break 定序（'n-dup-a'<'n-dup-b'）；组=order 档 rank 前置。
+      const orderOf = (recs: FRec[]): string[] => [...recs].sort(compareWithinLayer).map((r) => r.id);
+      const orderA = orderOf(recsA);
+      const orderB = orderOf(recsB);
+      expect(orderA).toHaveLength(ALL_IDS.length);   // 读序全函数（重复 slot 键不 500 不丢）
+      expect(orderA).toEqual(orderB);                // 双端渲染序一致（收敛后确定性）
+      expect(orderA).toEqual([GROUP, IDS.normA, IDS.dupA, IDS.dupB, IDS.normB]);   // (slot,id) tie-break 定序钉死
+
+      // 验收③溢出（格位派生单源——capacity=resolveStoryboardConfig 2×2=4，消费形态同 canvasStore）：
+      // 同格位 pair=胜者据 slot:2 格（(slot,id) tie-break——'n-dup-a'），败者**挤首空格保留非丢弃**；
+      // 邻位 slot:1/slot:3 原格不动（冲突不殃及）；双端派生等值（输入序无关——内部 (slot,id) 归一）。
+      const deriveOf = (recs: FRec[]) => {
+        const children = recs.filter((r) => r.parentId === GROUP).map((r) => ({ id: r.id, data: r.data }));
+        const cfg = resolveStoryboardConfig(recs.find((r) => r.id === GROUP)!.data);
+        return deriveStoryboardCells(children, cfg.gridRows * cfg.gridCols);
+      };
+      const dA = deriveOf(recsA);
+      const dB = deriveOf(recsB);
+      expect(dA.cells).toHaveLength(4);                          // 长度恰=capacity（Z17''）
+      expect(dA.cells).toEqual(dB.cells);                        // 双端格位派生一致
+      expect(dA.cells[2]).toBe(IDS.dupA);                        // 争议格位 slot:2=tie-break 胜者
+      expect(dA.cells).toEqual([IDS.dupB, IDS.normA, IDS.dupA, IDS.normB]);   // 败者挤首空格+邻位不动
+      expect(new Set([...dA.cells, ...dA.overflowIds].filter((x): x is string => x != null)))
+        .toEqual(new Set([IDS.dupA, IDS.dupB, IDS.normA, IDS.normB]));        // 四成员全保留（溢出形态=保留非丢弃）
+      expect(dA.overflowIds).toEqual([]);                        // 2×2 容量下零越格溢出
+
+      // 病理面口径钉子：裁定原文期许「duplicate-slot 类病理计数=1」——shared 实现（order-pathology.ts
+      // 头注「slot 域不在本扫描面……格位病理（重复 slot/越格）同源计数属 Y2 扩展面（本批零代码）」
+      // +order-pathology.test「slot 域跳过」）明确 slot 重复**不进** scanOrderPathology 计数；「溢出=
+      // 成员保留」验收语义由上方 deriveStoryboardCells 断言承载。此处钉边界：本形态（组携合法 order
+      // 键+四 slot 成员）扫描须 clean——slot 重复不得误报进 order 病理档（扫描面口径变更须过本用例重审）。
+      const path = scanOrderPathology(recsA);
+      expect(path.kinds).toEqual([]);
+      expect(path.duplicateKeyNodes).toBe(0);
+      expect(path.scannedNodes).toBe(1);   // 仅组（order 档）入扫描分母——四 slot 成员跳过
     } finally {
       await a.provider.destroy();
       await b.provider.destroy();
