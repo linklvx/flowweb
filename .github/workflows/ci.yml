@@ -266,6 +266,10 @@ jobs:
       # 单源化——显式清单+条数阈值退役（新增 int 文件漏登记=静默漏跑的根因由 git ls-files 集合比对消除）。
       - name: collab int（专用配置串行——CollabLease 单行全局资源；双 reporter=失败用例名在 CI 日志可读）
         timeout-minutes: 6
+        # 步级覆盖：job 级 COLLAB_FAKE_AI=1（演练子进程豁免档）不得泄入 int 池——T9 query-first
+        # 用例（execseq-generation.int.spec）依赖真 HTTP mock provider，fake 档会令 callImageGen
+        # 零外呼直接返回假图（api-caller.service.ts fakeAiEnabled 首行短路）=三用例必红。
+        env: { COLLAB_FAKE_AI: '' }
         run: pnpm --filter @flowweb/api test:int:ci
       - name: int 完整性断言（V27——集合+零失败+零跳过+下限）
         run: node scripts/check-int-coverage.mjs
