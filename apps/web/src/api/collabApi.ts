@@ -65,9 +65,12 @@ export function vacuum(projectId: string): Promise<VacuumResult> {
 }
 
 // ════════ Y1a T11（spec Z11''③）：replaceMedia/clearMedia 命令——用户写 fileId 必经命令 ════════
-// PG NodeArtifact.rev CAS 权威（doc 不携带 rev）：初始 expectedRev 由 GET 槽位取；409
-// ARTIFACT_REV_CONFLICT（errorCode 线形态——HttpExceptionFilter 只透 message/errorCode）复读
-// 槽位重试恰一轮；非 409（网络/403）照 throw 不重试。
+// PG NodeArtifact.rev CAS 权威（doc 不携带 rev）：expectedRev 缺省由 GET 槽位取（单次）；
+// 调用方可携 opts.expectedRev 预捕获值跳过入口 GET（变换保存=处理开始时捕获——否则处理
+// 期间发生的替换对 CAS 不可见）。409 ARTIFACT_REV_CONFLICT（errorCode 线形态——
+// HttpExceptionFilter 只透 message/errorCode）→ throw MediaRevConflictError——F2（用户裁定
+// ②①）取消静默复读槽位换 rev 重提：旧操作静默胜出=覆盖协作者新版本，与协作画布「冲突后
+// 保留先提交者」语义冲突；由调用方拿权威值提示用户显式裁定后才重提交。
 
 export interface MediaSlotState {
   targetField: 'fileId';
@@ -81,9 +84,27 @@ export type MediaCommandBody =
 
 export interface MediaCommandResult {
   action: 'replace' | 'clear';
-  /** 胜者新 rev（=expectedRev+1）。实现恒先 GET 槽位取 rev（保守写法——本字段不承诺免 GET 往返） */
+  /** 胜者新 rev（=expectedRev+1）。expectedRev 缺省才 GET 槽位取 rev（保守写法——本字段不承诺免 GET 往返） */
   rev: number;
   mediaId: string | null;
+}
+
+/** F2：槽位已被并发写换代（409 ARTIFACT_REV_CONFLICT）的类型化出口——静默重试已退役，调用方
+ *  须以权威值提示用户裁定（保留待保存产物，「仍要替换」才重新提交）。服务端 409 体线形态
+ *  ={code:-1,data:null,message,errorCode}——当前 rev 仅内嵌 message 文案无结构化字段，故本类
+ *  只透传 status/errorCode/body/message 供面层诊断，不承诺 rev 字段。 */
+export class MediaRevConflictError extends Error {
+  readonly status: number;
+  readonly errorCode: string;
+  readonly body: unknown;
+
+  constructor(message: string, info: { status: number; errorCode: string; body: unknown }) {
+    super(message);
+    this.name = 'MediaRevConflictError';
+    this.status = info.status;
+    this.errorCode = info.errorCode;
+    this.body = info.body;
+  }
 }
 
 export function getMediaSlot(projectId: string, nodeId: string): Promise<MediaSlotState> {
@@ -96,30 +117,39 @@ export function postMediaCommand(projectId: string, nodeId: string, body: MediaC
   });
 }
 
-/** 命令执行（GET 槽位→POST→409 复读重试恰一轮）：make 由两命令构造各自 body 形态。 */
+/** 命令选项：expectedRev=处理开始时预捕获的槽位版本（有则跳过入口 GET——CAS 覆盖整个处理窗口） */
+export interface MediaCommandOpts {
+  expectedRev?: number;
+}
+
+/** 命令执行（单次：expectedRev 缺省则 GET 槽位一次 → POST 一次；409 冲突类型化上抛不重试）。 */
 async function runMediaCommand(
   projectId: string,
   nodeId: string,
   make: (expectedRev: number) => MediaCommandBody,
+  opts?: MediaCommandOpts,
 ): Promise<MediaCommandResult> {
-  const slot = await getMediaSlot(projectId, nodeId);
+  const expectedRev = opts?.expectedRev ?? (await getMediaSlot(projectId, nodeId)).rev;
   try {
-    return await postMediaCommand(projectId, nodeId, make(slot.rev));
+    return await postMediaCommand(projectId, nodeId, make(expectedRev));
   } catch (e: unknown) {
-    const err = e as { status?: number; errorCode?: string };
-    if (err?.status !== 409 || err?.errorCode !== 'ARTIFACT_REV_CONFLICT') throw e;
-    const fresh = await getMediaSlot(projectId, nodeId);   // 复读槽位取换代后 rev——重试一轮完成
-    return postMediaCommand(projectId, nodeId, make(fresh.rev));
+    const err = e as { status?: number; errorCode?: string; body?: unknown; message?: string };
+    if (err?.status === 409 && err?.errorCode === 'ARTIFACT_REV_CONFLICT') {
+      throw new MediaRevConflictError(err.message ?? '槽位已换代', {
+        status: err.status, errorCode: err.errorCode!, body: err.body,
+      });
+    }
+    throw e;   // 非 409（网络/403）照 throw 原错误
   }
 }
 
-/** 变换保存/手工换图路径的权威写（乐观 UI 已先行——调用方本地直写 ns；本命令写 PG+doc）。 */
-export function replaceNodeMedia(projectId: string, nodeId: string, mediaId: string): Promise<MediaCommandResult> {
-  return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'replace', mediaId, expectedRev }));
+/** 变换保存/手工换图路径的权威写（opts.expectedRev=处理开始时捕获的槽位版本）。 */
+export function replaceNodeMedia(projectId: string, nodeId: string, mediaId: string, opts?: MediaCommandOpts): Promise<MediaCommandResult> {
+  return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'replace', mediaId, expectedRev }), opts);
 }
 
 /** 清空路径的权威写（doc 侧=投影 poller 写 data.fileId=null〔T15 钉 null 写语义——web 消费面
  * null≡缺失等值；旧链 deleteNodeDataKeys 删键随直写收口退役〕）。 */
-export function clearNodeMedia(projectId: string, nodeId: string): Promise<MediaCommandResult> {
-  return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'clear', expectedRev }));
+export function clearNodeMedia(projectId: string, nodeId: string, opts?: MediaCommandOpts): Promise<MediaCommandResult> {
+  return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'clear', expectedRev }), opts);
 }

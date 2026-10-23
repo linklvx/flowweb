@@ -4,7 +4,7 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
 import { useNodeStore, applyDataPatchToStores } from '@/stores/nodeStore';
-import { replaceNodeMedia, clearNodeMedia } from '@/api/collabApi';
+import { replaceNodeMedia, clearNodeMedia, getMediaSlot, MediaRevConflictError } from '@/api/collabApi';
 import { selectExecStatus } from '@/stores/execStatusView';
 import type { AiToolId } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -54,6 +54,26 @@ const MIN_HEIGHT = 100;
 // O0b-2 约束 bounds（原本地 calcConstrainedSize 内联常量参数化——shared 单源入参）
 const IMG_SIZE_BOUNDS: SizeBounds = { maxW: MAX_WIDTH, maxH: MAX_HEIGHT, minW: MIN_WIDTH, minH: MIN_HEIGHT };
 
+// F2（用户裁定①）：409/入口冲突的用户裁定面——静默重试已退役（旧操作静默换 rev 重提=把旧
+// 操作变成覆盖协作者新版本的操作，与协作画布「冲突后保留先提交者」语义冲突）。保留待保存
+// 产物，用户明确点击主操作才重新提交；取消/关闭一律视为放弃。
+function confirmMediaOverwrite(title: string, content: string, primaryText: string): Promise<'cancel' | 'primary'> {
+  return new Promise((resolve) => {
+    const done = (r: 'cancel' | 'primary') => {
+      useConfirmModalStore.getState().close();
+      resolve(r);
+    };
+    useConfirmModalStore.getState().show({
+      title, content,
+      cancelText: '取消',
+      primaryText,
+      primaryType: 'primary',
+      onClose: () => { done('cancel'); },
+      onPrimary: () => { done('primary'); },
+    });
+  });
+}
+
 function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
@@ -68,8 +88,26 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceImage = nodeData?.referenceImage;
+  // F2（用户裁定③）：pending 预览层——变换产物仅本地预览（displayUrl 优先取 pending 媒体），
+  // 命令成功才写共享权威状态；失败/取消撤掉预览回落权威值渲染（共享态从未被本操作写过，
+  // 无需恢复任何闭包旧值）
+  const [pendingPreview, setPendingPreview] = useState<{ mediaId: string } | null>(null);
+  // F2 评审 P1-2：pending 同步 ref——load 事件门与渲染优先级同源（state 经渲染异步可见，ref
+  // 在 img src 切换前已就位）；setPendingPreviewMedia 为唯一写者
+  const pendingPreviewRef = useRef<string | null>(null);
+  const setPendingPreviewMedia = useCallback((mediaId: string | null) => {
+    pendingPreviewRef.current = mediaId;
+    setPendingPreview(mediaId ? { mediaId } : null);
+  }, []);
+  // F2（用户裁定③）：节点级媒体操作 token——单调递增分配，activeMediaOpRef 持有在飞操作
+  // token（操作结束置 null）。旧操作异步续段（上传后/命令后/确认回调）先核对 seq，失配即
+  // 弃置（旧回调禁写新态——连点两次保存/确认窗期间再保存等竞态）；edit-result 与
+  // node:status done 回填均以 activeMediaOp 为门：无版本 socket 直写不得覆盖 pending 期间
+  // 产物展示（socket done 只承担执行状态提示）。
+  const mediaOpSeqRef = useRef(0);
+  const activeMediaOpRef = useRef<number | null>(null);
   // R2b-5：onError 自愈直通 <img>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(pendingPreview?.mediaId ?? fileId);
   const { url: refPreviewUrl, onError: onRefPreviewError } = useMediaUrl(referenceImage);
 
   const displayUrl = resultUrl || refPreviewUrl;
@@ -245,42 +283,54 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const titleText = label || 'Image';
 
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  // F2 评审 P1-2：最近权威图 natural 尺寸 ref——变换保存成功自愈的尺寸源（pending 期 load 被
+  // 门不更新——烘焙图非权威形态；成功后随自愈同步为新权威图 natural）
+  const naturalSizeRef = useRef<{ w: number; h: number } | null>(null);
 
-  // O0b-2 (ii) 内容事件写者（终裁 59①[ii]+76）：仅 DOM load 事件触发——决策纯函数只吃事件参数
+  // O0b-2 (ii)+F2 评审 P1-2：内容事件 fit 单源（正常 load 与变换保存成功自愈共用——成功后
+  // useMediaUrl 参数同值不重触发 load，无内容事件可等，须显式重算）。决策纯函数只吃事件参数
   //（禁测量触发/禁 cs.wh 变更触发/禁 data 变更触发——防内容事件↔reconcile 直拷回路 live-lock）。
-  // wh=滚动约束框（终裁 75）：现值从 cs 信封读（reconcile 写域③同步 doc），changed⇒envelope 提交
-  //（Origin.Geometry 允许覆盖；reportNodeSize 同值去重——同值重复 load 零 intent）；沿用档零写。
-  const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
+  // T17（Z5''）：applyIntrinsicFit 尺寸域收口——EXIF 5-8 display 契约/imageRotation 用户变换
+  // 交换（二次旋转红 G56）/分镜跳过/sizeMode/clamp 全 facet。
+  // wh=滚动约束框（终裁 75）：现值从 cs 信封读（reconcile 写域③同步 doc），changed⇒updateConfig
+  // 立档+reportNodeSize envelope 提交（Origin.Geometry 允许覆盖；reportNodeSize 同值去重——同值
+  // 重复 load 零 intent）；沿用档零写。
+  const runIntrinsicFit = useCallback((display: { width: number; height: number }, rotation: 0 | 90 | 180 | 270) => {
     const csCur = useCanvasStore.getState().nodes.find((n: any) => n.id === id);
     const currentWH = csCur?.width != null && csCur?.height != null
       ? { width: csCur.width, height: csCur.height }
       : null;
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
-    // T17（Z5''）：applyIntrinsicFit 尺寸域收口——EXIF 5-8 display 契约/imageRotation 用户变换
-    // 交换（二次旋转红 G56）/分镜跳过/sizeMode/clamp 全 facet（contentEventSize 直调退役）
     const parent = csCur?.parentId != null
       ? useCanvasStore.getState().nodes.find((n: any) => n.id === csCur.parentId) : undefined;
     const isStoryboardChild = parent?.type === 'group' && (parent?.data as any)?.groupType === 'storyboard';
     const decision = applyIntrinsicFit({
       currentWH,
       existingAspectRatio: currentData?.aspectRatio,
-      // display 契约（EXIF 5-8 已应用）。natural（store 数据源=media facts 固有尺寸）本点未接——
-      // 待 media facts 尺寸事实消费面（T19 harness 验证后接，评审 P2-4 登记项）
-      display: { width: img.naturalWidth, height: img.naturalHeight },
-      imageRotation: (currentData?.imageRotation ?? 0) as 0 | 90 | 180 | 270,
+      display: { width: display.width, height: display.height },
+      imageRotation: rotation,
       isStoryboardChild,
       sizeMode: currentData?.sizeMode ?? 'auto',
       bounds: IMG_SIZE_BOUNDS,
     });
-
     setImgSize({ w: decision.size.width, h: decision.size.height });  // 局部态保留（等价守卫②）
-    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
     if (decision.changed) {
       updateConfig(id, { aspectRatio: decision.aspectRatio } as any);  // aspectRatio 键保留（守卫③）
       reportNodeSize(id, decision.size.width, decision.size.height);   // 内容事件提交（envelope）
     }
   }, [id, updateConfig]);
+
+  const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    // F2 评审 P1-2：pending 预览期（烘焙产物渲染中）整体跳过——store 仍持 90/270 时
+    // applyIntrinsicFit 会转置烘焙图 natural 尺寸，把错误 wh 写进 envelope（doc 权威面）；
+    // ref 门与渲染优先级同源，成功路径由 handleSave 显式自愈
+    if (pendingPreviewRef.current !== null) return;
+    const img = e.currentTarget;
+    naturalSizeRef.current = { w: img.naturalWidth, h: img.naturalHeight };
+    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+    const rotation = ((useNodeStore.getState().nodes[id]?.data as any)?.imageRotation ?? 0) as 0 | 90 | 180 | 270;
+    runIntrinsicFit({ width: img.naturalWidth, height: img.naturalHeight }, rotation);
+  }, [id, runIntrinsicFit]);
 
   // Reset dimensions when image URL changes
   useEffect(() => {
@@ -313,7 +363,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const nodeHeight = internalNode?.height ?? baseHeight;
 
   // CSS transform for image preview in transform mode
-  const previewTransform = transformMode
+  // F2（用户裁定③）：pending 预览渲染的是已烘焙变换的产物——CSS 变换须抑制（否则双重旋转）
+  const previewTransform = transformMode && !pendingPreview
     ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
     : undefined;
 
@@ -324,7 +375,11 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       if (data.status === 'loading') {
         useNodeStore.getState().setStatus(id, 'loading');
       } else if (data.status === 'done' && data.fileId) {
-        useNodeStore.getState().setFileResult(id, data.fileId);
+        // F2 评审 P2-1：裁定③「socket done 只承担执行状态提示」主通道同门——在飞媒体操作期间
+        // 不写 fileId（无版本 socket 直写不得覆盖 pending 产物展示）
+        if (activeMediaOpRef.current === null) {
+          useNodeStore.getState().setFileResult(id, data.fileId);
+        }
       } else if (data.status === 'error') {
         useNodeStore.getState().setStatus(id, 'error');
       }
@@ -378,17 +433,47 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
   const handleSave = useCallback(async () => {
     setErrorMessage(null);
+    const pid = canvasProjectId();
+    if (!pid) {   // 无项目上下文无法走权威命令——不落任何共享写
+      setErrorMessage('保存失败，请检查网络后重试');
+      return;
+    }
+    const myToken = ++mediaOpSeqRef.current;
+    activeMediaOpRef.current = myToken;
+    const stale = () => mediaOpSeqRef.current !== myToken;   // 旧操作续段弃置判据
     setSaving(true);
     try {
       const imgUrl = displayUrl;
       if (!imgUrl) throw new Error('No image to save');
+
+      // F2（用户裁定②+评审 P1-1）：入口捕获——开始处理输入图片时锁定槽位版本+输入身份（上传
+      // 完成后才 GET 最新 rev 已迟：处理期间发生的替换对本 CAS 不可见）。身份核对判据=rev>0
+      // 基线行：新变换节点复制源 fileId 进新 nodeId（PG 无 NodeArtifact 行→{rev:0,mediaId:null}）
+      // 属全新 INSERT 路径不弹；rev>0 而 mediaId≠输入（含他人清空 mediaId=null）=输入非最新，
+      // 静默处理旧输入=覆盖协作者新版本——同 409 面交用户裁定
+      const inputId = fileId ?? null;
+      const slot = await getMediaSlot(pid, id);
+      if (stale()) return;
+      if (slot.rev > 0 && slot.mediaId !== inputId) {
+        const entry = await confirmMediaOverwrite(
+          '图片已被更新',
+          '其他协作者已更新这张图片，当前编辑基于旧版本。仍要用你的版本替换吗？',
+          '仍要替换',
+        );
+        if (stale()) return;
+        if (entry === 'cancel') {
+          setPendingPreviewMedia(null);   // P2-4：前序死操作产物不得滞留预览层（本操作此刻最新）
+          message.info('已取消，图片保持协作者版本');
+          return;
+        }
+      }
 
       const blob = await transformImage(imgUrl, imageRotation, flipH, flipV, 2048);
       const file = new File([blob], `transformed-${Date.now()}.webp`, { type: 'image/webp' });
 
       const { fileId: newId, uploadUrl, key, fields } = await presignUpload({
         fileName: file.name, fileSize: file.size, fileType: 'image/webp', type: 'uploaded',
-        projectId: canvasProjectId(),
+        projectId: pid,
       });
 
       const formData = new FormData();
@@ -401,30 +486,77 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       });
 
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
+      if (stale()) return;
 
-      const prevFileId = fileId;   // 回退锚（命令失败还原——闭包值=变换前 fileId）
+      // F2（用户裁定③）：乐观产物只进本地 pending 预览——共享权威状态零写；命令必须 await，
+      // 成功后才清理变换参数（此刻 updateConfig 是本操作对共享态的首个也是唯一写入）
+      setPendingPreviewMedia(newId);
+      try {
+        await replaceNodeMedia(pid, id, newId, { expectedRev: slot.rev });
+      } catch (e) {
+        if (stale()) return;
+        if (!(e instanceof MediaRevConflictError)) {
+          setPendingPreviewMedia(null);
+          message.error('图片替换未生效（网络异常），已显示最新图片');
+          return;
+        }
+        // 裁定①：409 不自动重提。保留 pending 预览与变换参数（待保存产物不丢），弹确认——
+        // 用户明确点击「仍要替换」才重新提交
+        const choice = await confirmMediaOverwrite(
+          '图片已被更新',
+          '其他协作者已更新这张图片，本次替换未生效。仍要用你的版本覆盖吗？',
+          '仍要替换',
+        );
+        if (stale()) return;
+        if (choice === 'cancel') {
+          setPendingPreviewMedia(null);
+          message.info('已取消，图片保持协作者版本');
+          return;
+        }
+        try {
+          await replaceNodeMedia(pid, id, newId);   // 用户显式授权的覆盖：fresh 槽位 rev 单次命令（无 opts）
+        } catch (e2) {
+          if (stale()) return;
+          setPendingPreviewMedia(null);
+          message.error(e2 instanceof MediaRevConflictError
+            ? '图片替换未生效（版本再次冲突），已显示最新图片'
+            : '图片替换未生效（网络异常），已显示最新图片');
+          return;
+        }
+      }
+      if (stale()) return;
       updateConfig(id, {
         fileId: newId, referenceImage: undefined,
         imageRotation: 0, flipH: false, flipV: false,
         transformMode: false,
       });
       useNodeStore.getState().setActiveTransformNodeId(null);
-      // Y1a T11（spec Z11''③）：fileId 权威写=replaceMedia 命令（上面 updateConfig 的 fileId 面=
-      // 乐观 UI——doc 面被 CLIENT_FORBIDDEN_ON_UPDATE strip 零写）；409 一轮重试在 api 层，
-      // 耗尽/网络失败回退本地 fileId+toast（UX 签字项基本形态）
-      const pid = canvasProjectId();
-      if (pid) {
-        replaceNodeMedia(pid, id, newId).catch(() => {
-          applyDataPatchToStores(id, prevFileId != null ? { fileId: prevFileId } : { fileId: undefined });
-          message.error('图片替换未生效（版本冲突或网络异常），已还原');
-        });
+      setPendingPreviewMedia(null);
+      // F2 评审 P1-2 成功自愈：useMediaUrl 参数同值（pending mediaId=新 fileId）不重触发 load——
+      // 按本轮烘焙语义（90/270 转置最近权威 natural）+清理后 rotation 0 显式重算一次 fit，
+      // wh/aspectRatio 收敛到烘焙图正确足迹（pending 期被禁的 fit 在此补账）
+      const nat = naturalSizeRef.current;
+      if (nat) {
+        const baked = imageRotation === 90 || imageRotation === 270
+          ? { width: nat.h, height: nat.w }
+          : { width: nat.w, height: nat.h };
+        naturalSizeRef.current = { w: baked.width, h: baked.height };   // 新权威图 natural
+        setNaturalSize({ w: baked.width, h: baked.height });
+        runIntrinsicFit(baked, 0);
       }
     } catch (err) {
       console.error('保存变换失败:', err);
-      setSaving(false);
-      setErrorMessage('保存失败，请检查网络后重试');
+      if (!stale()) {   // P2-3：stale 续段不写新操作的 UI 态（与 pending 清理同门）
+        setErrorMessage('保存失败，请检查网络后重试');
+        setPendingPreviewMedia(null);
+      }
+    } finally {
+      if (!stale()) {
+        setSaving(false);
+        activeMediaOpRef.current = null;   // 我仍是最新操作才清在飞标记（旧操作不得清新操作的）
+      }
     }
-  }, [id, displayUrl, imageRotation, flipH, flipV, fileId, updateConfig]);
+  }, [id, displayUrl, imageRotation, flipH, flipV, fileId, updateConfig, setPendingPreviewMedia, runIntrinsicFit]);
 
   // ── Cancel handler ──
 
@@ -752,20 +884,51 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
   // Register node callbacks for Angle3D result writeback
   useEffect(() => {
-    useAngle3DStore.getState().setNodeCallbacks(id, {
-      onReplaceCurrentNode: (resultUrl: string) => {
-        // Y1a T11（spec Z11''③）：fileId 清空迁 clearMedia 命令（乐观 UI——updateConfig 的 fileId
-        // 面 doc 被 strip 零写）；referenceImage 清空仍客户端写（上传引用键不在禁写集）
-        const prevFileId = (useNodeStore.getState().nodes[id]?.data as { fileId?: string } | undefined)?.fileId;
+    // F2（用户裁定④）：referenceImage/fileId 清理延后到命令成功——失败保留原参考图，不做
+    // 整快照回滚（快照会覆盖清空期间其他客户端的新编辑）。fileId 权威写=clearMedia 命令
+    //（updateConfig 的 fileId 面 doc 被 strip 零写）；409 同裁定①交用户显式裁定。
+    const runClearMediaCommand = async () => {
+      const pid = canvasProjectId();
+      if (!pid) return;
+      const myToken = ++mediaOpSeqRef.current;
+      activeMediaOpRef.current = myToken;
+      const stale = () => mediaOpSeqRef.current !== myToken;
+      try {
+        await clearNodeMedia(pid, id);
+        if (stale()) return;
         updateConfig(id, { referenceImage: undefined, fileId: undefined } as any);
-        const pid = canvasProjectId();
-        if (pid) {
-          clearNodeMedia(pid, id).catch(() => {
-            applyDataPatchToStores(id, prevFileId != null ? { fileId: prevFileId } : { fileId: undefined });
-            message.error('清空未生效（版本冲突或网络异常），已还原');
-          });
+      } catch (e) {
+        if (stale()) return;
+        if (e instanceof MediaRevConflictError) {
+          const choice = await confirmMediaOverwrite(
+            '图片已被更新',
+            '其他协作者已更新这张图片，本次清空未生效。仍要清空吗？',
+            '仍要清空',
+          );
+          if (stale()) return;
+          if (choice === 'primary') {
+            try {
+              await clearNodeMedia(pid, id);   // 用户显式授权：fresh 槽位 rev 单次命令（无 opts）
+              if (stale()) return;
+              updateConfig(id, { referenceImage: undefined, fileId: undefined } as any);
+            } catch (e2) {
+              if (stale()) return;
+              // F2 评审 P2-2：重提失败分型——409 再冲突非网络态（镜像 handleSave 分支文案）
+              message.error(e2 instanceof MediaRevConflictError
+                ? '清空未生效（版本再次冲突），原图片已保留'
+                : '清空未生效（网络异常），原图片已保留');
+            }
+          }
+          // 取消 → 不动（原参考图原 fileId 原样保留）
+        } else {
+          message.error('清空未生效（网络异常），原图片已保留');
         }
-      },
+      } finally {
+        if (!stale()) activeMediaOpRef.current = null;
+      }
+    };
+    useAngle3DStore.getState().setNodeCallbacks(id, {
+      onReplaceCurrentNode: (_resultUrl: string) => { void runClearMediaCommand(); },
       onCreateNewNode: (resultUrl: string) => {
         useCanvasStore.getState().addChildNode(id, {
           status: 'done',
@@ -795,12 +958,13 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
 
       if (e.key === 'Escape') { e.stopPropagation(); handleCancel(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSave(); }
+      // F2 评审 P2-5：在飞窗口（含 409 确认窗期——saving 贯穿）唯一操作——Ctrl+S 不再启动新保存
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (!isSaving) handleSave(); }
     };
 
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [id, transformMode, handleSave, handleCancel]);
+  }, [id, transformMode, isSaving, handleSave, handleCancel]);
 
   // cancelRequestedAt watcher
   useEffect(() => {
@@ -918,7 +1082,12 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         // 禁再走 replaceMedia：顺序场景 GET 恰取 finalize 后新 rev → POST CAS 胜出 → NodeArtifact
         // rev 再 +1=同一变更第二次权威写入（恰一次不变量破）；交错场景（GET 先于 finalize）则
         // expectedRev 过期 409——两形态皆错，非仅 409 面问题
-        applyDataPatchToStores(id, { fileId: p.fileId });
+        // F2（用户裁定③）：本节点存在进行中的媒体命令操作（activeMediaOp 未清）时，socket 产物
+        // 回填不写 fileId——无版本直写不得覆盖 pending 期间产物展示，socket done 只承担执行状
+        // 态提示（setProcessing/setEditError 面保留）；无 pending 时行为不变
+        if (activeMediaOpRef.current === null) {
+          applyDataPatchToStores(id, { fileId: p.fileId });
+        }
         updateConfig(id, { editMode: null });
         useNodeStore.getState().setActiveEditNodeId(null);
         setProcessing(false);

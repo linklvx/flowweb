@@ -10,7 +10,8 @@
 // POST 同路径=命令 {action:'replace',mediaId,expectedRev} | {action:'clear',expectedRev}。
 // 鉴权：POST=assertEditorWithTeam（编辑权+teamId 固化）；GET=项目成员门（resolve→null 403）。
 // 409 载体=BusinessException errorCode（HttpExceptionFilter 线形态 {code:-1,...,errorCode}——
-// 客户端判 errorCode=ARTIFACT_REV_CONFLICT 复读槽位重试一轮完成）。
+// 客户端判 errorCode=ARTIFACT_REV_CONFLICT 类型化上抛交用户裁定后重提交〔F2：静默复读槽位
+// 换 rev 重试已退役——旧操作静默胜出=覆盖协作者新版本〕）。
 import { Body, Controller, ForbiddenException, Get, HttpStatus, Inject, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -36,8 +37,8 @@ export interface MediaSlotState {
 
 export interface MediaCommandResult {
   action: 'replace' | 'clear';
-  /** 胜者新 rev（=expectedRev+1）。注：客户端命令封装（web collabApi.runMediaCommand）现恒先 GET
-   *  槽位取 rev——本字段不承诺「免 GET 往返」（保守 GET 在 409 重试路径外亦取到最新 rev）。 */
+  /** 胜者新 rev（=expectedRev+1）。注：客户端命令封装（web collabApi.runMediaCommand）expectedRev
+   *  缺省才 GET 槽位取 rev（调用方预捕获值直用——覆盖整个处理窗口）；本字段不承诺「免 GET 往返」。 */
   rev: number;
   mediaId: string | null;
 }
@@ -117,7 +118,7 @@ export class CollabMediaController {
         mediaId,
       });
       if (!cas.won) {
-        // 生成在飞/并发命令已换代——不更新不覆盖用户值；客户端复读槽位（GET rev）重试一轮完成
+        // 生成在飞/并发命令已换代——不更新不覆盖用户值；客户端类型化上抛交用户裁定（F2：静默复读重试已退役）
         throw new BusinessException(
           'ARTIFACT_REV_CONFLICT',
           `槽位已换代（期望 rev=${expectedRev}，当前 rev=${cas.rev}）——请刷新后重试`,

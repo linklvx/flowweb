@@ -2,7 +2,10 @@
 // Y0b-4 T11：shrink/export-fresh/vacuum 三调用——URL/method/body 契约+信封解包+
 // 422 SHRINK_STILL_OVER 结构体解包（{stillOver,bytes,limit}——apiFetch 错误面透传 body）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { shrink, exportFresh, vacuum, getMediaSlot, postMediaCommand, replaceNodeMedia, clearNodeMedia } from './collabApi';
+import {
+  shrink, exportFresh, vacuum, getMediaSlot, postMediaCommand,
+  replaceNodeMedia, clearNodeMedia, MediaRevConflictError,
+} from './collabApi';
 
 const okEnvelope = (data: unknown) => ({ ok: true, json: async () => ({ code: 0, data, message: 'ok' }) });
 
@@ -63,7 +66,8 @@ describe('collabApi（T11）', () => {
   });
 });
 
-// ════════ Y1a T11：replaceMedia/clearMedia 命令（GET 槽位→POST→409 重试一轮）════════
+// ════════ Y1a T11 + F2（用户裁定②①）：replaceMedia/clearMedia 命令（GET 槽位→POST 单次；
+// 409 ARTIFACT_REV_CONFLICT → throw MediaRevConflictError——取消静默换 rev 重提）════════
 describe('collabApi（T11 媒体命令）', () => {
   const okEnvelope = (data: unknown) => ({ ok: true, json: async () => ({ code: 0, data, message: 'ok' }) });
   const err409 = () => ({
@@ -100,29 +104,25 @@ describe('collabApi（T11 媒体命令）', () => {
     expect(JSON.parse((global.fetch as any).mock.calls[1][1].body)).toEqual({ action: 'replace', mediaId: 'm-8', expectedRev: 7 });
   });
 
-  it('replaceNodeMedia 409 一轮重试：首 POST 409 ARTIFACT_REV_CONFLICT → 复读槽位 → 新 rev 重试成功', async () => {
+  it('replaceNodeMedia 409 ARTIFACT_REV_CONFLICT → throw MediaRevConflictError（取消静默重试——旧操作禁自动换 rev 重提）', async () => {
     (global.fetch as any)
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 5, mediaId: null }))   // GET① rev=5（过期前）
-      .mockResolvedValueOnce(err409())                                                        // POST① 409
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 6, mediaId: 'm-gen' })) // GET② 复读 rev=6
-      .mockResolvedValueOnce(okEnvelope({ action: 'replace', rev: 7, mediaId: 'm-8' }));      // POST② 胜
-    const r = await replaceNodeMedia('p1', 'n1', 'm-8');
-    expect(r).toEqual({ action: 'replace', rev: 7, mediaId: 'm-8' });
-    expect(JSON.parse((global.fetch as any).mock.calls[1][1].body)).toEqual({ action: 'replace', mediaId: 'm-8', expectedRev: 5 });
-    expect(JSON.parse((global.fetch as any).mock.calls[3][1].body)).toEqual({ action: 'replace', mediaId: 'm-8', expectedRev: 6 });
-    expect((global.fetch as any)).toHaveBeenCalledTimes(4);   // 重试恰一轮（非 409 错误不重试）
+      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 5, mediaId: null }))   // GET① rev=5
+      .mockResolvedValueOnce(err409());                                                        // POST① 409——到此为止
+    const p = replaceNodeMedia('p1', 'n1', 'm-8');
+    await expect(p).rejects.toBeInstanceOf(MediaRevConflictError);
+    await expect(p).rejects.toMatchObject({ status: 409, errorCode: 'ARTIFACT_REV_CONFLICT' });
+    expect((global.fetch as any)).toHaveBeenCalledTimes(2);   // GET+POST 恰两次（禁复读槽位/禁二次 POST）
   });
 
-  it('replaceNodeMedia 409 耗尽上抛（两轮均 409 → throw——禁无限重试）', async () => {
-    (global.fetch as any)
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 5, mediaId: null }))
-      .mockResolvedValueOnce(err409())
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 6, mediaId: 'm-gen' }))
-      .mockResolvedValueOnce(err409());
-    await expect(replaceNodeMedia('p1', 'n1', 'm-8')).rejects.toMatchObject({ status: 409, errorCode: 'ARTIFACT_REV_CONFLICT' });
+  it('replaceNodeMedia expectedRev 预捕获透传：跳过入口 GET 直用（处理开始时捕获的槽位版本——裁定②）', async () => {
+    (global.fetch as any).mockResolvedValueOnce(okEnvelope({ action: 'replace', rev: 10, mediaId: 'm-8' }));
+    const r = await replaceNodeMedia('p1', 'n1', 'm-8', { expectedRev: 9 });
+    expect((global.fetch as any)).toHaveBeenCalledTimes(1);   // 零 GET——POST 单发
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ action: 'replace', mediaId: 'm-8', expectedRev: 9 });
+    expect(r).toEqual({ action: 'replace', rev: 10, mediaId: 'm-8' });
   });
 
-  it('replaceNodeMedia 非 409 错误不重试（网络/403 照 throw——单次 POST）', async () => {
+  it('replaceNodeMedia 非 409 错误照 throw 原错误（不被包装成 MediaRevConflictError——单次 POST）', async () => {
     (global.fetch as any)
       .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 5, mediaId: null }))
       .mockResolvedValueOnce({
@@ -131,19 +131,24 @@ describe('collabApi（T11 媒体命令）', () => {
         json: async () => ({ code: -1, message: '无项目编辑权限' }),
         headers: new Headers(),
       });
-    await expect(replaceNodeMedia('p1', 'n1', 'm-8')).rejects.toMatchObject({ status: 403 });
+    const p = replaceNodeMedia('p1', 'n1', 'm-8');
+    await expect(p).rejects.not.toBeInstanceOf(MediaRevConflictError);
+    await expect(p).rejects.toMatchObject({ status: 403 });
     expect((global.fetch as any)).toHaveBeenCalledTimes(2);   // GET+POST 恰两次（未复读槽位）
   });
 
-  it('clearNodeMedia：GET→POST {action:"clear",expectedRev}+409 重试同构', async () => {
+  it('clearNodeMedia：GET→POST {action:"clear",expectedRev}；expectedRev 透传+409 throw 同构', async () => {
     (global.fetch as any)
       .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 2, mediaId: 'm-2' }))
-      .mockResolvedValueOnce(err409())
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 3, mediaId: 'm-3' }))
-      .mockResolvedValueOnce(okEnvelope({ action: 'clear', rev: 4, mediaId: null }));
+      .mockResolvedValueOnce(okEnvelope({ action: 'clear', rev: 3, mediaId: null }));
     const r = await clearNodeMedia('p1', 'n1');
-    expect(r).toEqual({ action: 'clear', rev: 4, mediaId: null });
+    expect(r).toEqual({ action: 'clear', rev: 3, mediaId: null });
     expect(JSON.parse((global.fetch as any).mock.calls[1][1].body)).toEqual({ action: 'clear', expectedRev: 2 });
-    expect(JSON.parse((global.fetch as any).mock.calls[3][1].body)).toEqual({ action: 'clear', expectedRev: 3 });
+
+    (global.fetch as any).mockReset().mockImplementation(async () => { throw new Error('reset'); });
+    (global.fetch as any)
+      .mockResolvedValueOnce(err409());
+    await expect(clearNodeMedia('p1', 'n1', { expectedRev: 7 })).rejects.toBeInstanceOf(MediaRevConflictError);
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ action: 'clear', expectedRev: 7 });
   });
 });

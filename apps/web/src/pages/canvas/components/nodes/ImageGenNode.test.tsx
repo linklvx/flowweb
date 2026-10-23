@@ -5,6 +5,8 @@ import { ImageGenNode } from './ImageGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { cropImage } from '@/utils/imageCrop';
+import { MediaRevConflictError } from '@/api/collabApi';
+import { reportNodeSize } from '@/stores/canvasIntents';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
 
 const { mockUseInternalNode } = vi.hoisted(() => ({
@@ -69,6 +71,11 @@ const {
   mockUseCanvasStoreFn,
   mockApplyDataPatchToStores,
   mockSetNodeCallbacks,
+  mockGetMediaSlot,
+  mockConfirmShow,
+  mockConfirmClose,
+  mockSetStatus,
+  mockSetFileResult,
 } = vi.hoisted(() => {
   const updateConfig = vi.fn();
   const applyDataPatchToStores = vi.fn();   // Y1a T11：本地 UI 直写面（AI 回填/命令回退）
@@ -87,6 +94,15 @@ const {
   const setNodes = vi.fn();
   const setCenter = vi.fn();
   const setNodeCallbacks = vi.fn();   // Y1a T11：Angle3D 回调捕获（clear 路径驱动）
+  // F2 评审 P1-1：默认槽位=生产形态 {rev:0, mediaId:null}——变换节点由 addNodeWithEdge 复制源
+  // fileId 进新 nodeId（PG 无 NodeArtifact 行，服务端 GET 归零）；冲突用例用 Once 覆盖 rev>0 形态
+  const getMediaSlot = vi.fn(async (): Promise<{ targetField: 'fileId'; rev: number; mediaId: string | null }> => ({
+    targetField: 'fileId', rev: 0, mediaId: null,
+  }));
+  const confirmShow = vi.fn();   // F2（裁定①）：409/入口冲突确认弹窗捕获
+  const confirmClose = vi.fn();
+  const setStatus = vi.fn();   // F2 P2-1：node:status 提示面出口捕获
+  const setFileResult = vi.fn();   // F2 P2-1：socket done 产物写出口捕获（activeMediaOp 门对象）
 
   const nodeStoreFn = vi.fn((_selector?: any) => {
     // Get fresh state at call time
@@ -96,6 +112,8 @@ const {
       execAligned: mockExecAligned,
       updateConfig,
       applyDataPatchToStores,
+      setStatus,
+      setFileResult,
       activeTransformNodeId: mockActiveNodeId,
       cancelRequestedAt: mockCancelRequestedAt,
       setActiveTransformNodeId,
@@ -128,7 +146,7 @@ const {
       connStatus: 'connected' as const,
       writeFrozen: false,
       // O0b-2 挂载恢复 effect 读 cs.wh——夹具不带 wh（undefined⇒不镜像 imgSize，渲染仍走 ratio 默认）
-      nodes: [] as any[],
+      nodes: mockCsNodes,
       projectId: 'p1',   // Y1a T11：canvasProjectId 消费面（replaceMedia/clearMedia 命令）
       selectNode,
       addChildNode,
@@ -163,11 +181,18 @@ const {
     mockUseCanvasStoreFn: canvasStoreFn,
     mockApplyDataPatchToStores: applyDataPatchToStores,
     mockSetNodeCallbacks: setNodeCallbacks,
+    mockGetMediaSlot: getMediaSlot,
+    mockConfirmShow: confirmShow,
+    mockConfirmClose: confirmClose,
+    mockSetStatus: setStatus,
+    mockSetFileResult: setFileResult,
   };
 });
 
 let mockActiveNodeId: string | null = null;
 let mockCancelRequestedAt = 0;
+// F2 P1-2：canvasStore nodes 夹具（runIntrinsicFit 读 cs 信封 wh——currentWH 供 adaptToFit 分支）
+let mockCsNodes: any[] = [];
 
 vi.mock('@/stores/nodeStore', () => ({
   useNodeStore: mockUseNodeStoreFn,
@@ -193,15 +218,26 @@ vi.mock('@/api/storageApi', () => ({
   confirmUpload: vi.fn(),
 }));
 
-// Y1a T11：replaceMedia/clearMedia 命令（默认成功——命令失败回退用例内改 mockRejectedValue）
+// Y1a T11+F2：replaceMedia/clearMedia/getMediaSlot 命令面（默认成功/默认槽位无冲突——失败与
+// 冲突用例内改 mockRejectedValueOnce/mockResolvedValueOnce）；MediaRevConflictError 等保持真实
 const { mockReplaceNodeMedia, mockClearNodeMedia } = vi.hoisted(() => ({
   mockReplaceNodeMedia: vi.fn().mockResolvedValue({ action: 'replace' as const, rev: 2, mediaId: 'm-2' }),
   mockClearNodeMedia: vi.fn().mockResolvedValue({ action: 'clear' as const, rev: 2, mediaId: null }),
 }));
 vi.mock('@/api/collabApi', async (importOriginal) => {
   const actual = await importOriginal<any>();   // 既有 shrink 等导出保持真实（本文件未消费亦防漂移）
-  return { ...actual, replaceNodeMedia: mockReplaceNodeMedia, clearNodeMedia: mockClearNodeMedia };
+  return {
+    ...actual,
+    replaceNodeMedia: mockReplaceNodeMedia,
+    clearNodeMedia: mockClearNodeMedia,
+    getMediaSlot: mockGetMediaSlot,
+  };
 });
+
+// F2（用户裁定①）：409/入口冲突确认弹窗——捕获 show 配置供用例手动驱动 onPrimary/onClose
+vi.mock('@/stores/confirmModalStore', () => ({
+  useConfirmModalStore: { getState: () => ({ show: mockConfirmShow, close: mockConfirmClose }) },
+}));
 
 // Y1a T11：transformImage 在 jsdom 无法真加载 Image——mock Blob 出口（handleSave 链路驱动）
 vi.mock('@/utils/imageTransform', () => ({
@@ -218,8 +254,9 @@ vi.mock('axios', () => ({
   },
 }));
 
-const { subscribeNodeEditResultMock } = vi.hoisted(() => ({
+const { subscribeNodeEditResultMock, subscribeNodeStatusMock } = vi.hoisted(() => ({
   subscribeNodeEditResultMock: vi.fn((_h: (p: any) => void) => () => {}),
+  subscribeNodeStatusMock: vi.fn((_h: (d: any) => void) => () => {}),   // F2 P2-1：node:status handler 捕获
 }));
 
 vi.mock('@/services/executionSocket', async (importOriginal) => {
@@ -227,7 +264,7 @@ vi.mock('@/services/executionSocket', async (importOriginal) => {
   return {
     ...actual,
     // 组件挂订阅的两个入口 mock 掉（handler 由测试捕获注入）；ensure/teardown 走真实导出（本测试图内无人调用）
-    subscribeNodeStatus: vi.fn(() => () => {}),
+    subscribeNodeStatus: subscribeNodeStatusMock,
     subscribeNodeEditResult: subscribeNodeEditResultMock,
   };
 });
@@ -256,6 +293,7 @@ describe('ImageGenNode', () => {
     mockExecAligned = new Map();
     mockActiveNodeId = null;
     mockCancelRequestedAt = 0;
+    mockCsNodes = [];
     // mockReturnValue 不被 clearAllMocks 清除 → 显式恢复单选默认
     mockGetNodes.mockReturnValue([{ id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, width: 500, height: 500, selected: true, data: mockNodeData }]);
     mockUseInternalNode.mockReturnValue({
@@ -969,65 +1007,372 @@ describe('ImageGenNode', () => {
       });
     });
   });
-  // ════════ Y1a T11：replaceMedia/clearMedia 命令迁移（变换保存/清空——乐观 UI+命令权威写+失败回退）════════
+  // ════════ F2（用户裁定②③④）：媒体命令操作级交互——pending 预览层/入口捕获/409 用户裁定/
+  // op token 竞态/edit-result 门/清空延后。确定性交错=可控 promise 手动 resolve（禁真实定时器）════════
 
-  describe('T11 命令迁移', () => {
-    it('变换保存：updateConfig 乐观 UI（fileId 本地面）+ replaceMedia 命令权威写', async () => {
-      vi.mocked(presignUpload).mockResolvedValue({
-        fileId: 'transformed-file-id', uploadUrl: 'http://upload.url', key: 'some-key', fields: {},
-      } as any);
-      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+  describe('F2 媒体命令交互', () => {
+    const getSaveHandler = () => mockRegisterSaveHandler.mock.calls.at(-1)![1] as () => Promise<void>;
+    const getClearCallback = () =>
+      mockSetNodeCallbacks.mock.calls.at(-1)![1] as { onReplaceCurrentNode: (u: string) => void };
+    const mockPresign = (fid: string) => vi.mocked(presignUpload).mockResolvedValue({
+      fileId: fid, uploadUrl: 'http://upload.url', key: 'k', fields: {},
+    } as any);
+    const deferred = <T,>() => {
+      let resolve!: (v: T) => void; let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+      return { promise, resolve, reject };
+    };
+    const conflictErr = () =>
+      new MediaRevConflictError('槽位已换代', { status: 409, errorCode: 'ARTIFACT_REV_CONFLICT', body: {} });
+    const getConfirm = () => mockConfirmShow.mock.calls.at(-1)![0];
+    const configCallsWith = (key: string) =>
+      mockUpdateConfig.mock.calls.filter((c: any[]) => c[0] === 'img1' && c[1] != null && key in c[1]);
+
+    // —— 裁定③：变换保存 pending 预览层——乐观产物不写共享权威状态 ——
+
+    it('变换保存 pending 期间共享 store 的 fileId/referenceImage/rotation 零写；成功后才落新 fileId+清变换参数+清 referenceImage', async () => {
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90, flipH: true };
+      const cmd = deferred<{ action: 'replace'; rev: number; mediaId: string }>();
+      mockReplaceNodeMedia.mockReturnValueOnce(cmd.promise as any);
       renderNode(true);
-      const handler = mockRegisterSaveHandler.mock.calls.at(-1)![1] as () => Promise<void>;
-      await act(async () => { await handler(); });
-      // 乐观 UI：updateConfig 携新 fileId（doc 面被 strip 零写——本地面）
+      await act(async () => { getSaveHandler()(); });   // 挂起于命令 await（pending 期间）
+      expect(configCallsWith('fileId')).toHaveLength(0);
+      expect(configCallsWith('referenceImage')).toHaveLength(0);
+      expect(configCallsWith('imageRotation')).toHaveLength(0);
+      expect(configCallsWith('transformMode')).toHaveLength(0);
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      // 裁定②：命令携处理开始时捕获的槽位 rev（非上传后 fresh GET）——默认槽位=生产形态
+      // {rev:0,mediaId:null}（新变换节点无基线行）→ expectedRev 0 且零弹窗
+      expect(mockConfirmShow).not.toHaveBeenCalled();
+      expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id', { expectedRev: 0 });
+      // pending 预览层渲染优先：displayUrl 取待保存产物（name=preview——免疫前序用例遗留的
+      // antd message 图标 span[role=img]）
+      const img = screen.getByRole('img', { name: 'preview' });
+      expect(img).toHaveAttribute('src', 'http://media/transformed-file-id');
+      // P3-2：pending 期 CSS transform 抑制（烘焙产物不得双重旋转——取消路径恢复断言见 409 取消用例）
+      expect(img.style.transform).toBe('');
+
+      await act(async () => { cmd.resolve({ action: 'replace', rev: 4, mediaId: 'transformed-file-id' }); });
+      // 成功后一次性落库：fileId+清 referenceImage+清旋转变换（此刻才清理——裁定③）
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', {
+        fileId: 'transformed-file-id', referenceImage: undefined,
+        imageRotation: 0, flipH: false, flipV: false, transformMode: false,
+      });
+    });
+
+    // —— 评审 P1-1：入口身份核对判据=rev>0 基线（新变换节点假冲突根修）——
+
+    it('P1-1 新变换节点（复制源 fileId+槽位 {rev:0,mediaId:null}）→ 零弹窗直 POST（expectedRev 0——全新 INSERT 路径）', async () => {
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'copied-from-source', transformMode: true, imageRotation: 90 };
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });
+      expect(mockConfirmShow).not.toHaveBeenCalled();   // 无基线行≠冲突
+      expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id', { expectedRev: 0 });
       expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
-      // 权威写：replaceMedia 命令（GET 槽位→POST→409 重试在 api 层）
-      await waitFor(() => {
-        expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id');
-      });
     });
 
-    it('变换保存命令失败：回退本地 fileId（旧值还原）+toast——乐观 UI 不悬挂', async () => {
-      const errSpy = vi.spyOn(require('antd').message, 'error').mockImplementation(() => ({} as any));
-      mockReplaceNodeMedia.mockRejectedValueOnce(new Error('409 exhausted'));
-      vi.mocked(presignUpload).mockResolvedValue({
-        fileId: 'transformed-file-id', uploadUrl: 'http://upload.url', key: 'some-key', fields: {},
-      } as any);
+    it('P1-1 槽位被他人清空（rev>0+mediaId:null）→ 真冲突弹窗（取消零处理零写）', async () => {
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 4, mediaId: null });
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
       renderNode(true);
-      const handler = mockRegisterSaveHandler.mock.calls.at(-1)![1] as () => Promise<void>;
-      await act(async () => { await handler(); });
-      await waitFor(() => {
-        expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'orig-file-id' });
-      });
+      await act(async () => { getSaveHandler()(); });
+      expect(mockConfirmShow).toHaveBeenCalledTimes(1);   // rev>0 基线在——真冲突（非新节点假冲突）
+      expect(presignUpload).not.toHaveBeenCalled();
+      const cfg = getConfirm();
+      await act(async () => { cfg.onClose(); });
+      expect(mockReplaceNodeMedia).not.toHaveBeenCalled();
+      expect(configCallsWith('fileId')).toHaveLength(0);
+    });
+
+    // —— 裁定①：409 取消静默重试——确认弹窗+用户显式裁定 ——
+
+    it('409 竞态：reject MediaRevConflictError → 确认弹窗出现+无第二次提交；点「仍要替换」→ fresh 单次命令（无 opts）成功后应用', async () => {
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      mockReplaceNodeMedia
+        .mockRejectedValueOnce(conflictErr())
+        .mockResolvedValueOnce({ action: 'replace', rev: 8, mediaId: 'transformed-file-id' });
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });
+      const cfg = getConfirm();
+      expect(cfg.title).toBe('图片已被更新');
+      expect(cfg.content).toContain('本次替换未生效');
+      expect(cfg.primaryText).toBe('仍要替换');
+      // 未裁定：零重提交+共享态零写（待保存产物不丢——pending 预览保留）
+      expect(mockReplaceNodeMedia).toHaveBeenCalledTimes(1);
+      expect(configCallsWith('fileId')).toHaveLength(0);
+      expect(screen.getByRole('img', { name: 'preview' })).toHaveAttribute('src', 'http://media/transformed-file-id');
+
+      await act(async () => { cfg.onPrimary(); });
+      // 用户授权的覆盖=全新一轮单次命令（无 expectedRev——api 层 fresh GET 槽位）
+      const last = mockReplaceNodeMedia.mock.calls.at(-1)!;
+      expect(last[0]).toBe('p1'); expect(last[1]).toBe('img1'); expect(last[2]).toBe('transformed-file-id');
+      expect(last[3]).toBeUndefined();
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
+    });
+
+    it('409 取消：共享 store 零写+pending 预览撤掉（回落权威值渲染）+toast', async () => {
+      const infoSpy = vi.spyOn(message, 'info').mockImplementation(() => ({} as any));
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      mockReplaceNodeMedia.mockRejectedValueOnce(conflictErr());
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });
+      const cfg = getConfirm();
+      await act(async () => { cfg.onClose(); });   // 取消（X/取消键/遮罩同路）
+      expect(configCallsWith('fileId')).toHaveLength(0);
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      expect(mockReplaceNodeMedia).toHaveBeenCalledTimes(1);   // 无第二次提交
+      // pending 清：回落权威值（共享态从未被本操作写过——无需恢复闭包旧值）
+      expect(screen.getByRole('img', { name: 'preview' })).toHaveAttribute('src', 'http://media/orig-file-id');
+      // 变换参数保留（用户可再试）：CSS transform 恢复生效
+      expect(screen.getByRole('img', { name: 'preview' }).style.transform).toBe('rotate(90deg) scaleX(1) scaleY(1)');
+      expect(infoSpy).toHaveBeenCalledWith('已取消，图片保持协作者版本');
+      infoSpy.mockRestore();
+    });
+
+    it('命令非 409 失败（网络/403）：清 pending 预览+toast 错误+显示权威值；变换参数保留、共享态零写', async () => {
+      const errSpy = vi.spyOn(message, 'error').mockImplementation(() => ({} as any));
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      mockReplaceNodeMedia.mockRejectedValueOnce(new Error('network down'));
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });
+      expect(mockConfirmShow).not.toHaveBeenCalled();   // 非 409 无裁定面
+      expect(configCallsWith('fileId')).toHaveLength(0);
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      expect(screen.getByRole('img', { name: 'preview' })).toHaveAttribute('src', 'http://media/orig-file-id');
+      expect(screen.getByRole('img', { name: 'preview' }).style.transform).toBe('rotate(90deg) scaleX(1) scaleY(1)');
+      expect(errSpy).toHaveBeenCalledWith('图片替换未生效（网络异常），已显示最新图片');
       errSpy.mockRestore();
     });
 
-    it('清空（Angle3D onReplaceCurrentNode）：referenceImage 客户端写 + clearMedia 命令权威写', async () => {
-      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', referenceImage: 'ref-1' };
+    // —— 裁定②：入口捕获——处理开始时发现输入已被换，同 409 面交用户裁定 ——
+
+    it('入口捕获：槽位 mediaId≠本轮输入 fileId → 上传前弹确认；取消 → 零处理零写', async () => {
+      const infoSpy = vi.spyOn(message, 'info').mockImplementation(() => ({} as any));
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 3, mediaId: 'collaborator-new' });
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
       renderNode(true);
-      // 捕获组件注册的 Angle3D 回调并触发 clear 路径
-      const cbs = mockSetNodeCallbacks.mock.calls.at(-1)![1] as { onReplaceCurrentNode: (u: string) => void };
-      act(() => { cbs.onReplaceCurrentNode('http://result.url'); });
-      // referenceImage 清空仍客户端写；fileId:undefined 乐观 UI（doc 面被 strip）
+      await act(async () => { getSaveHandler()(); });
+      const cfg = getConfirm();
+      expect(cfg.title).toBe('图片已被更新');
+      // 未裁定：未处理输入（无上传）/未发命令
+      expect(presignUpload).not.toHaveBeenCalled();
+      expect(mockReplaceNodeMedia).not.toHaveBeenCalled();
+      await act(async () => { cfg.onClose(); });
+      expect(configCallsWith('fileId')).toHaveLength(0);
+      expect(infoSpy).toHaveBeenCalledWith('已取消，图片保持协作者版本');
+      infoSpy.mockRestore();
+    });
+
+    it('入口冲突确认「仍要替换」→ 继续处理+命令携入口捕获 rev 成功应用', async () => {
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 6, mediaId: 'collaborator-new' });
+      mockPresign('transformed-file-id');
+      mockReplaceNodeMedia.mockResolvedValueOnce({ action: 'replace', rev: 7, mediaId: 'transformed-file-id' });
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });
+      const cfg = getConfirm();
+      await act(async () => { cfg.onPrimary(); });
+      expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id', { expectedRev: 6 });
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
+    });
+
+    // —— 裁定③：op token——旧操作回调不能修改新操作 ——
+
+    it('旧操作回调竞态：两次 handleSave，第一次的命令 promise 后 resolve → 第一次续段零写（token 失配弃置）', async () => {
+      vi.mocked(presignUpload)
+        .mockResolvedValueOnce({ fileId: 't-1', uploadUrl: 'http://upload.url', key: 'k', fields: {} } as any)
+        .mockResolvedValueOnce({ fileId: 't-2', uploadUrl: 'http://upload.url', key: 'k', fields: {} } as any);
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      const cmd1 = deferred<{ action: 'replace'; rev: number; mediaId: string }>();
+      mockReplaceNodeMedia
+        .mockReturnValueOnce(cmd1.promise as any)
+        .mockResolvedValueOnce({ action: 'replace', rev: 5, mediaId: 't-2' });
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });   // 保存①挂起于命令
+      await act(async () => { getSaveHandler()(); });   // 保存②完整成功（t-2 落库）
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 't-2' }));
+      const writesBefore = mockUpdateConfig.mock.calls.length;
+      await act(async () => { cmd1.resolve({ action: 'replace', rev: 9, mediaId: 't-1' }); });
+      // 保存①续段弃置：无新增共享写（旧回调禁写新态）
+      expect(mockUpdateConfig.mock.calls.length).toBe(writesBefore);
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+    });
+
+    // —— 裁定③：edit-result 门——socket done 无版本直写不覆盖 pending 期间产物 ——
+
+    it('edit-result 在 pending 操作期间到达 → fileId 不被写；pending 清后到达 → 正常写', async () => {
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'crop' };
+      const cmd = deferred<{ action: 'clear'; rev: number; mediaId: null }>();
+      mockClearNodeMedia.mockReturnValueOnce(cmd.promise as any);
+      renderNode(true);
+      const fireEditResult = (payload: any) => {
+        const calls = subscribeNodeEditResultMock.mock.calls;
+        act(() => calls[calls.length - 1][0](payload));
+      };
+      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });   // clear 挂起=pending 期间
+      fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f-edit' });
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalledWith('img1', { fileId: 'f-edit' });
+      // 裁定④：清空延后——命令 resolve 前 referenceImage/fileId 不动
+      expect(configCallsWith('referenceImage')).toHaveLength(0);
+
+      await act(async () => { cmd.resolve({ action: 'clear', rev: 4, mediaId: null }); });
       expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { referenceImage: undefined, fileId: undefined });
-      await waitFor(() => {
-        expect(mockClearNodeMedia).toHaveBeenCalledWith('p1', 'img1');
-      });
+      fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f-edit2' });
+      expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'f-edit2' });
     });
 
-    it('清空命令失败：回退本地 fileId+toast', async () => {
-      const errSpy = vi.spyOn(require('antd').message, 'error').mockImplementation(() => ({} as any));
-      mockClearNodeMedia.mockRejectedValueOnce(new Error('409 exhausted'));
-      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id' };
+    // —— 裁定④：清空失败——referenceImage 清理延后到命令成功，失败保留原参考图 ——
+
+    it('清空失败（非 409）：referenceImage+fileId 原样保留（零写）+toast', async () => {
+      const errSpy = vi.spyOn(message, 'error').mockImplementation(() => ({} as any));
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', referenceImage: 'ref-1' };
+      mockClearNodeMedia.mockRejectedValueOnce(new Error('network down'));
       renderNode(true);
-      const cbs = mockSetNodeCallbacks.mock.calls.at(-1)![1] as { onReplaceCurrentNode: (u: string) => void };
-      act(() => { cbs.onReplaceCurrentNode('http://result.url'); });
-      await waitFor(() => {
-        expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'orig-file-id' });
-      });
+      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });
+      expect(mockUpdateConfig).not.toHaveBeenCalled();   // 不预清也不回滚（快照回滚会盖掉期间他人编辑）
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      expect(mockConfirmShow).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledWith('清空未生效（网络异常），原图片已保留');
       errSpy.mockRestore();
+    });
+
+    it('清空 409：确认弹窗+无第二次提交；确认「仍要清空」→ fresh 单次命令成功才清；取消原样保留', async () => {
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', referenceImage: 'ref-1' };
+      mockClearNodeMedia
+        .mockRejectedValueOnce(conflictErr())
+        .mockResolvedValueOnce({ action: 'clear', rev: 5, mediaId: null });
+      renderNode(true);
+      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });
+      const cfg = getConfirm();
+      expect(cfg.title).toBe('图片已被更新');
+      expect(cfg.primaryText).toBe('仍要清空');
+      expect(mockClearNodeMedia).toHaveBeenCalledTimes(1);   // 未裁定零重提交
+      expect(mockUpdateConfig).not.toHaveBeenCalled();
+      await act(async () => { cfg.onPrimary(); });
+      expect(mockClearNodeMedia).toHaveBeenCalledTimes(2);
+      expect(mockClearNodeMedia).toHaveBeenLastCalledWith('p1', 'img1');   // 无 opts——fresh 槽位 rev
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { referenceImage: undefined, fileId: undefined });
+    });
+
+    it('清空 409 取消：原样保留（referenceImage+fileId 零写）', async () => {
+      const infoSpy = vi.spyOn(message, 'info').mockImplementation(() => ({} as any));
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', referenceImage: 'ref-1' };
+      mockClearNodeMedia.mockRejectedValueOnce(conflictErr());
+      renderNode(true);
+      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });
+      const cfg = getConfirm();
+      await act(async () => { cfg.onClose(); });
+      expect(mockClearNodeMedia).toHaveBeenCalledTimes(1);
+      expect(mockUpdateConfig).not.toHaveBeenCalled();
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      infoSpy.mockRestore();
+    });
+
+    it('P2-2 清空 409 确认后重提再遇 409 → 冲突专属文案（非一律「网络异常」——镜像 handleSave 分支）', async () => {
+      const errSpy = vi.spyOn(message, 'error').mockImplementation(() => ({} as any));
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', referenceImage: 'ref-1' };
+      mockClearNodeMedia.mockRejectedValueOnce(conflictErr()).mockRejectedValueOnce(conflictErr());
+      renderNode(true);
+      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });
+      const cfg = getConfirm();
+      await act(async () => { cfg.onPrimary(); });
+      expect(mockClearNodeMedia).toHaveBeenCalledTimes(2);
+      expect(mockUpdateConfig).not.toHaveBeenCalled();   // 仍未清（referenceImage/fileId 保留）
+      expect(errSpy).toHaveBeenCalledWith('清空未生效（版本再次冲突），原图片已保留');
+      errSpy.mockRestore();
+    });
+
+    // —— 评审 P1-2：pending 期烘焙图 load 禁 fit（转置 wh 不得写 envelope）；成功自愈收敛 ——
+
+    it('P1-2 90/270 pending 期间零 reportNodeSize；成功后按烘焙语义自愈到正确足迹', async () => {
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90, aspectRatio: 2 };
+      // 变换盒=旋转足迹（竖 274×548——transform 模式渲染拟合后的现盒；cs 信封=fit 的 currentWH 源）
+      mockCsNodes = [{ id: 'img1', width: 274, height: 548 }];
+      const cmd = deferred<{ action: 'replace'; rev: number; mediaId: string }>();
+      mockReplaceNodeMedia.mockReturnValueOnce(cmd.promise as any);
+      renderNode(true);
+      const fireLoad = (w: number, h: number) => {
+        const img = screen.getByRole('img', { name: 'preview' });
+        Object.defineProperty(img, 'naturalWidth', { value: w, configurable: true });
+        Object.defineProperty(img, 'naturalHeight', { value: h, configurable: true });
+        fireEvent.load(img);
+      };
+      fireLoad(400, 200);   // 原图 load（4:2 横）——normal 路径记 naturalSizeRef
+      vi.mocked(reportNodeSize).mockClear();
+      await act(async () => { getSaveHandler()(); });   // pending：img src=烘焙产物
+      fireLoad(200, 400);   // 烘焙图 load（竖）——门内：store 仍持 90° 时转置 fit 会写错误横盒 {274,137}
+      expect(vi.mocked(reportNodeSize)).not.toHaveBeenCalled();   // pending 期零 envelope 写
+      await act(async () => { cmd.resolve({ action: 'replace', rev: 1, mediaId: 'transformed-file-id' }); });
+      // 成功自愈：烘焙语义（90°→转置最近 natural {200,400}）+清理后 rotation 0 显式重算：
+      // adaptToFit({274,548}, 0.5)={274,548}——竖足迹保持（非转置错误横盒）
+      expect(vi.mocked(reportNodeSize)).toHaveBeenCalledWith('img1', 274, 548);
+    });
+
+    // —— 评审 P2-1：node:status done 主通道同门 ——
+
+    it('P2-1 node:status done 在 pending 操作期间不写 fileId（setFileResult 同门）；status 提示面保留+结束后恢复', async () => {
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'crop' };
+      const cmd = deferred<{ action: 'clear'; rev: number; mediaId: null }>();
+      mockClearNodeMedia.mockReturnValueOnce(cmd.promise as any);
+      renderNode(true);
+      const fireStatus = (payload: any) => {
+        const calls = subscribeNodeStatusMock.mock.calls;
+        act(() => calls[calls.length - 1][0](payload));
+      };
+      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });   // pending 期间
+      fireStatus({ nodeId: 'img1', status: 'done', fileId: 'f-status' });
+      expect(mockSetFileResult).not.toHaveBeenCalledWith('img1', 'f-status');
+      fireStatus({ nodeId: 'img1', status: 'loading' });   // 执行状态提示面保留（裁定③）
+      expect(mockSetStatus).toHaveBeenCalledWith('img1', 'loading');
+      await act(async () => { cmd.resolve({ action: 'clear', rev: 4, mediaId: null }); });
+      fireStatus({ nodeId: 'img1', status: 'done', fileId: 'f-status2' });
+      expect(mockSetFileResult).toHaveBeenCalledWith('img1', 'f-status2');
+    });
+
+    // —— 评审 P2-4：入口取消清残留 pending（死操作产物不滞留预览层）——
+
+    it('P2-4 旧操作 409 确认窗期间新保存入口取消 → 残留 pending 预览清除', async () => {
+      const infoSpy = vi.spyOn(message, 'info').mockImplementation(() => ({} as any));
+      mockPresign('t-1');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      mockReplaceNodeMedia.mockRejectedValueOnce(conflictErr());
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });   // 保存①：409 → 确认窗开（pending=t-1 产物）
+      expect(getConfirm().primaryText).toBe('仍要替换');
+      expect(screen.getByRole('img', { name: 'preview' })).toHaveAttribute('src', 'http://media/t-1');
+      // 保存②启动（新入口——真实面=Angle3D 回调等非键盘通道；①成 stale，其确认窗位移作废）
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 5, mediaId: 'collaborator-new' });
+      await act(async () => { getSaveHandler()(); });   // 保存②：入口冲突确认
+      const cfg2 = getConfirm();
+      await act(async () => { cfg2.onClose(); });   // ②取消 → ①残留 pending 必须同批清除
+      expect(screen.getByRole('img', { name: 'preview' })).toHaveAttribute('src', 'http://media/orig-file-id');
+      expect(configCallsWith('fileId')).toHaveLength(0);
+      expect(infoSpy).toHaveBeenCalledWith('已取消，图片保持协作者版本');
+      infoSpy.mockRestore();
+    });
+
+    // —— 评审 P2-5：Ctrl+S 在飞守卫 ——
+
+    it('P2-5 保存中 Ctrl+S 不再启动新保存（在飞窗口唯一操作）', async () => {
+      mockPresign('transformed-file-id');
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
+      mockActiveNodeId = 'img1';   // keydown 门：activeTransformNodeId===id
+      const cmd = deferred<{ action: 'replace'; rev: number; mediaId: string }>();
+      mockReplaceNodeMedia.mockReturnValueOnce(cmd.promise as any);
+      renderNode(true);
+      await act(async () => { getSaveHandler()(); });   // ①在飞（isSaving=true——命令挂起）
+      expect(mockReplaceNodeMedia).toHaveBeenCalledTimes(1);
+      act(() => {
+        fireEvent(document, new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }));
+      });
+      expect(mockReplaceNodeMedia).toHaveBeenCalledTimes(1);   // 守卫：未启保存②
+      await act(async () => { cmd.resolve({ action: 'replace', rev: 1, mediaId: 'transformed-file-id' }); });
     });
   });
 
