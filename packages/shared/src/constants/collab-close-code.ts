@@ -5,7 +5,10 @@
  *  4408 ConnectionTimeout（注意：provider 客户端合成 (4408,'forced') 三击强制〔esm:342-357〕——双键分型
  *  以 synthetic 标记区分诊断）/1009 MessageTooBig。
  *  应用侧：1012 计划内重启（既有）/4401 'session-expired'（sweep）/1000 team disbanded/
- *  4402 max-lifetime/4404 doc-over-quota（Y0b-4 实装）/4410 generation-superseded（Y0b-4 启用——spec §3.5 预留提前消费）。 */
+ *  4402 max-lifetime/4404 doc-over-quota（Y0b-4 实装）/4410 generation-superseded（Y0b-4 启用——spec §3.5 预留提前消费）。
+ *  Y1c T5a 增补（spec v5.4 §3.2/§8.1 协议契约冻结）：4406 client-outdated（版本硬门）/4411 frame-malformed（毒帧）/
+ *  4412 resync-required（pending 区间拒绝）/4413 maintenance-freeze（可重试）/1011 EIO fail-stop（同码异 reason）。
+ *  resolveCloseAction 分档消费面归 T9（本卡只冻结码值+reason 字面量——零行为变更）。 */
 import {
   ConnectionTimeout,
   Forbidden,
@@ -28,6 +31,12 @@ export const CollabCloseCode = {
   GENERATION_SUPERSEDED: 4410, // 代际被超（v6 启用——spec §3.5 预留提前消费）
   RATE_LIMITED_CLOSE: 1008,    // 消息频率超限（瞬态——backoff 重连）
   SLOW_CONSUMER: 1011,         // 消费过慢被踢（瞬态——backoff 重连）
+  // —— Y1c T5a 新增（spec v5.4 §8.1——载荷类型住 collab/doc-protocol.ts，此处只冻结码值）——
+  CLIENT_OUTDATED: 4406,       // 版本硬门拒（protocolVersion+schemaVersion+historyId 不匹配——客户端强刷）
+  FRAME_MALFORMED: 4411,       // 毒帧/apply 失败（REJECTED/RESYNC——WAL 截断至 appliedSeq 后关连接）
+  RESYNC_REQUIRED: 4412,       // pending 区间拒绝（零 WAL 零 apply 零 ACK doc 不变——客户端重置到服务端状态）
+  MAINTENANCE_FREEZE: 4413,    // 维护冻结（Retry-After 可重试——非终态）
+  WAL_FSYNC_EIO: 1011,         // EIO fail-stop 关全部连接（WS 1011 internal error——同码异 reason 先例=SESSION_EXPIRED/LIB_UNAUTHORIZED；与 SLOW_CONSUMER 数值同、reason 分型）
   // —— 库自发码（@hocuspocus/common 单源重导出——P-N：.code 引用，库升级值自动跟随）——
   LIB_RESET: ResetConnection.code,
   LIB_UNAUTHORIZED: Unauthorized.code,
@@ -61,6 +70,21 @@ export const SS2_OVER_LIMIT_TERMINAL_REASON = 'ss2-over-limit' as const;
 /** team disbanded=团队解散（gateway closeTeamDocuments close NORMAL+reason——原裸字面量升单源；
  *  NORMAL 路由按 reason 分型落 terminal：团队解散禁先重连一次，与 doc-over-quota 库抹码特例同款形态）。 */
 export const TEAM_DISBANDED_TERMINAL_REASON = 'team disbanded' as const;
+/** Y1c T5a（spec v5.4 §8.1）：Y1c 新码 reason 字面量单源（载荷类型住 collab/doc-protocol.ts；
+ *  resolveCloseAction 分档映射归 T9——此处只冻结协议串，组件禁散落字面量与四侧矩阵同纪律）。
+ *  4410 三分第三档：server-restored=PITR/整库恢复后 g_client>g_server 或 historyId 不匹配
+ *  ——不清缓存，只读 recovery+草稿导出+管理员裁定（§8.1）。 */
+export const SERVER_RESTORED_TERMINAL_REASON = 'server-restored' as const;
+/** 4411：毒帧/apply 失败（T0-S1 spike ③ 用例已按此串断言——码权威投递=webSocket.close 先行）。 */
+export const FRAME_MALFORMED_REASON = 'frame-malformed' as const;
+/** 4412：pending 区间拒绝（decodeUpdate 各 client 区间 vs SV——零 WAL 零 apply 零 ACK doc 不变）。 */
+export const RESYNC_REQUIRED_REASON = 'resync-required' as const;
+/** 4413：维护冻结（Retry-After 可重试——非终态，载荷带 retryAfterMs）。 */
+export const MAINTENANCE_FREEZE_REASON = 'maintenance-freeze' as const;
+/** 4406：版本硬门（protocolVersion+schemaVersion+historyId 任一不匹配/缺失——客户端强刷）。 */
+export const CLIENT_OUTDATED_REASON = 'client-outdated' as const;
+/** 1011 EIO fail-stop（WAL fsync EIO 档关全部连接——与 SLOW_CONSUMER 同码异 reason 分型）。 */
+export const WAL_FSYNC_EIO_REASON = 'wal-fsync-eio' as const;
 
 export function resolveCloseAction(code: number, reason: string | undefined): CloseAction {
   // (code,reason) 双键分型（spec §5.2 v2.1）——只判 code 会把库 Unauthorized 当会话过期无限续期

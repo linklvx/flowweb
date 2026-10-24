@@ -10,6 +10,8 @@ export { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS, COLLAB_VERSION
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 // Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
 export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON } from './constants/collab-close-code';
+// Y1c T5a：4410 三分第三档+4411/4412/4413/4406/1011-EIO reason 字面量单源（载荷类型住 collab/doc-protocol.ts）。
+export { SERVER_RESTORED_TERMINAL_REASON, FRAME_MALFORMED_REASON, RESYNC_REQUIRED_REASON, MAINTENANCE_FREEZE_REASON, CLIENT_OUTDATED_REASON, WAL_FSYNC_EIO_REASON } from './constants/collab-close-code';
 export type { CloseAction, CloseActionKind } from './constants/collab-close-code';
 // Y0b-5 T0：退避纯函数（spec §5.2 v2.2——route 三路由分流+jitter 入参零 Math.random；T3 删 web RECOVER_BACKOFF_MS 改 import 本表单源）。
 export { TRANSIENT_BACKOFF_STEPS_MS, resolveBackoffPlan } from './constants/collab-close-code';
@@ -111,3 +113,10 @@ export * from './canvas/canvas-invariants';
 export * from './canvas/handles';
 // Y0a-1（E70 最小版）：对抗 DocLike 语料工厂（FakeMap 全量嵌套——读者全函数 E68 测试消费）。
 export * from './testing/adversarial-doc';
+// Y1c T5a（plan v1.7）：协议契约冻结——载体/协议段（水位三元/准入链/pending 区间法/save barrier/
+// WAL 段头+帧记录/ACK 三档+UI 四态+版本门/帧闸数字单源派生/版本维度表/客户端半链）+三语料
+// （双端并发/WAL 故障声明式/barrier）——T8/T9/T10/T13 消费；契约测试=collab/doc-protocol.spec.ts。
+export * from './collab/doc-protocol';
+export * from './testing/y1c-concurrent-corpus';
+export * from './testing/y1c-wal-fault-corpus';
+export * from './testing/y1c-barrier-corpus';

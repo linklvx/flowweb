@@ -606,3 +606,17 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - R3 手动全链（cron 同款调用）：exit 0+`daily-20261016230621.dump`（154606 bytes）+`pg_restore --list` 可读（TOC 352 条/dbname flowweb）+日志落 `.data/pg-dump-daily.log`+既有备份零变化（ls 前后对照）。日志末行（T39 ssh tail 复核原文）：`[2026-10-16 23:06:21] done OK：/home/ubuntu/backups/daily-20261016230621.dump`。
 - R4 水位守护（/tmp 隔离+假 dump，真实备份零接触）：**首跑红=暴露 locale 排序缺陷**（服务器 `find|sort` 走 locale collation，删除顺序非字节时序）→根修=两处 sort 钉 `LC_ALL=C`→复跑绿：形态A（WATERMARK_PCT=1）5 假 dump 按最旧逐个删（01→05）→真新 dump→族耗尽 ERROR+exit 1（守护失败可见）；形态B（WATERMARK_PCT=99）零删除+exit 0；演练目录已清理。
 - **crontab 首跑**=2026-10-17 03:17 自动轮（核 `.data/pg-dump-daily.log` 新增 done OK 行）。T39 已复核承接（2026-10-16 23:38 ssh 只读：crontab `17 3 * * *` 与巡检 `*/5` 两条在位+R3 日志末行 done OK+`daily-20261016230621.dump` 154606B 在 ~/backups）；**自动首跑核对义务归片 B 执行窗首日顺手项**。
+
+---
+
+## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入）
+
+**单一真源=`packages/shared/src/collab/doc-protocol.ts`（+close-code 增补 constants/collab-close-code.ts）**——本节只列运维语义，数字/类型以代码单源为准。
+
+- **水位三元 `0≤pgSeq≤appliedSeq≤spoolHeadSeq`**（内存；永不与持久列比较）：pgSeq=对外唯一「已保存」水位（ETag/docSeq/committedSeq 同源）；appliedSeq=完全整合（无 pending）上界；spoolHeadSeq=最后 fsync 帧。CanvasDoc 持久列改名 `walCheckpointSeq`（批提交时刻 spoolHeadSeq 采样+同行 CHECK pgSeq≤walCheckpointSeq——恢复以 WAL 扫描为准、列只作快路径）。
+- **WAL 段头** `{magic 'FWWALS1\n', version 1, projectId, generation, historyId, lastWriteAt, createdAt}`（164B+52B 帧记录 {walSeq,generation,frameHash,payloadLen,crc32}——与 T0-S4 原型逐字节一致）：坏段四档 bad-crc/truncated/missing-seq/dup-hash；**quarantine 双栅栏**=段头 historyId≠SystemHistory（恢复后旧段禁重放）**或** lastWriteAt>epochStartedAt（忘 bump 拦截）→整段隔离 fail-closed；`--adopt-wal` 仅 historyId 已匹配+operator 显式确认+审计。F-S4-5 注记：时间戳栅栏求值作用域（恢复怀疑态才求值——restore.lock marker/PG 水位倒挂触发；常规重启不触发）**T8/T13 实装前必须钉死**。
+- **fsync 失败分档**：写前失败/ENOSPC=截断回 last-good+复用已分配 seq（fail-closed 停收）；**EIO=fail-stop**（walHealthy=false/停收/close 1011 WSN/要求进程重启+磁盘检查——不进截断复用路径；`wal_fsync_error_total{device}` 告警不自动重试）。
+- **毒帧协议**（WAL fsync 成功+apply 失败）：同步关项目全部连接（广播 flush 前）→停写→WAL 截断至 appliedSeq→close 4411→从 pgSeq 重放——不得跳帧续提交。
+- **save barrier**（onStateless）：回执 `{nonce,clientSeq,committedSeq}`；触发=800ms idle/5s 上限/pagehide/执行前；服务端 flush 节流 ≤250ms；durable watermark 广播 ≤1 次/秒仅辅助。拒帧连接屏障不可成功；maintenance 期回 `{ok:false,reason:'maintenance'}`。
+- **版本硬门**=protocolVersion+schemaVersion+historyId 三元（4406 client-outdated 强刷）；build hash 仅遥测。**onAuthenticate 先比 historyId 再比 generation**（同代 PITR 的 SS2 复活形态）→server-restored 只读 recovery。
+- **帧闸**（单源派生见代码）：普通帧=2×maxTxBytes=512KB；SS2 帧=maxDocBytes+包装余量≈8.06MiB；WS maxPayload=9MiB（T9 翻转 collab-limits 单源改引）；认证后入站排队上限=2×SS2 帧闸超限 1009；SS2 并发信号量 per-project 1+全局预算 4×SS2≈32MiB（工程值，T33 观测后调）。**HTTP seed 端点废止**——重开触发条件 cold p95>3s 或 loop block>50ms（T29 挂 gate，重开即新评审）。
