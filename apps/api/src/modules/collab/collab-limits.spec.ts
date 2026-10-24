@@ -16,7 +16,7 @@ const q = (o: Partial<Pick<QuotaConfig, 'maxDocBytes' | 'maxTxBytes'>>) => ({ ..
 
 describe('R4b\' collab-limits 派生契约', () => {
   it('常量族单源值：maxPayload 16MiB（自 factory:68 迁入）/drop 1MiB（自 SG:62 迁入）/budget 100,663,296B=96MiB（v3: 64→96——10 人×8MB 扇出 80.6<96；字面量=check-ecosystem 提取式兼容）', () => {
-    expect(WS_MAX_PAYLOAD_BYTES).toBe(16_777_216);
+    expect(WS_MAX_PAYLOAD_BYTES).toBe(9_437_184);   // Y1c T9（偏离 38⑱）：16→9MiB——shared COLLAB_WS_MAX_PAYLOAD_BYTES 单源
     expect(BACKPRESSURE_DROP_BYTES).toBe(1_048_576);
     expect(OUTBOUND_BUDGET_BYTES).toBe(100_663_296);
   });
@@ -51,8 +51,8 @@ describe('R4b\' collab-limits 派生契约', () => {
   });
 
   it('边界等值（`>` 严格性钉死——T5 评审顺手项）：ss2Gate 恰=maxPayload 与 2×maxTxBytes 恰=maxPayload 均不抛（等值放行，越界才红）', () => {
-    expect(() => deriveCollabLimits(q({ maxDocBytes: 16_777_216 - 65_536 }))).not.toThrow();   // ss2Gate=16,777,216 恰等
-    expect(() => deriveCollabLimits(q({ maxTxBytes: 8_388_608 }))).not.toThrow();   // 2×=16,777,216 恰等
+    expect(() => deriveCollabLimits(q({ maxDocBytes: 9_437_184 - 65_536 - 1 }))).not.toThrow();   // Y1c T9：ss2Gate=8,454,144（maxDoc 8MiB+ALLOWANCE）恰在 9MiB maxPayload 内
+    expect(() => deriveCollabLimits(q({ maxTxBytes: 4_718_592 }))).not.toThrow();   // Y1c T9：2×=9,437,184 恰等 9MiB maxPayload（`>` 严格性——等值放行）
   });
 
   it('满帧边界算术：两满帧+一 ack 投影 ≤ close（前瞻判定语义自洽）', () => {

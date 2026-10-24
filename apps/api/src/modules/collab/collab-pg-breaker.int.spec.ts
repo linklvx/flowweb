@@ -97,7 +97,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
   it('熔断面②store 短路：open 期批直落 spool（fsync 落盘）+零 PG 尝试；ready 503 reason=db-unavailable', async () => {
     const doc = new Y.Doc(); doc.getMap('nodes').set('n1', new Y.Map([['x', 1]]));
     gatewayFacade(gateway).seedPendingQueue(PID, [Y.encodeStateAsUpdate(doc)]);
-    const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: `project:${PID}` } as any);
+    const ok = await gateway.persistence.storeDocumentUnlocked({ document: {} as any, documentName: `project:${PID}` } as any, 'maintenance');
     expect(ok).toBe(false);
     expect(spool.hasFrames(PID)).toBe(true);   // BOI：批在 spool（fsync 落盘非内存态）
     const ready = await new CollabReadyService(
@@ -115,7 +115,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
     expect(breaker.stateName()).toBe('half-open');
     const doc = new Y.Doc(); doc.getMap('nodes').set('n2', new Y.Map([['y', 2]]));
     gatewayFacade(gateway).seedPendingQueue(PID, [Y.encodeStateAsUpdate(doc)]);
-    const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: `project:${PID}` } as any);
+    const ok = await gateway.persistence.storeDocumentUnlocked({ document: {} as any, documentName: `project:${PID}` } as any, 'maintenance');
     expect(ok).toBe(true);                       // 探测走 PG：append 真落库（批+排空帧一并）
     expect(breaker.stateName()).toBe('closed');  // 半开一次成功→closed
     expect(await gaugeValue('collab_pg_breaker_state')).toBe(0);

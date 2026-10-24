@@ -128,7 +128,7 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
 
   it('retry/spooled 真链：PG 故障注入→批落真 spool（fsync）→{retry,spooled}；恢复复调→帧回灌真 PG→{persisted}+段回收+内容在', async () => {
     const epoch = lease.currentEpoch();
-    const spy = vi.spyOn(repo, 'append').mockRejectedValueOnce(new Error('injected pg down'));
+    const spy = vi.spyOn(repo, 'appendBatch').mockRejectedValueOnce(new Error('injected pg down'));
     enqueue(P1, NAME1, 'k1');
     const r1 = await svc.flushDocument(P1, epoch);
     expect(r1).toEqual({ kind: 'retry', reason: 'spooled' });
@@ -175,7 +175,7 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
     expect(r1).toEqual({ kind: 'terminal', reason: 'fk' });
     expect(svc.deletedProjects.has(P2)).toBe(true);
     expect(svc.hasPendingWrites(P2)).toBe(false);     // 批终态丢弃
-    const spy = vi.spyOn(repo, 'append');
+    const spy = vi.spyOn(repo, 'appendBatch');
     expect(await svc.flushDocument(P2, epoch)).toEqual({ kind: 'terminal', reason: 'fk' });   // 复调不死循环
     expect(spy).not.toHaveBeenCalled();
   });
@@ -183,7 +183,7 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
   it('retry/failed 真链（最后执行——spool 结构性不可写）：PG 故障∧spool 写必败→批滞留内存队列→{retry,failed}', async () => {
     const epoch = lease.currentEpoch();
     enqueue(P1, NAME1, 'k1');
-    vi.spyOn(repo, 'append').mockRejectedValueOnce(new Error('injected pg down'));
+    vi.spyOn(repo, 'appendBatch').mockRejectedValueOnce(new Error('injected pg down'));
     // 真 fs 失败注入：owner 子目录路径放普通文件——appendRaw mkdir(recursive) 必抛（rm 目录会被
     // recursive 自愈重建，占位文件才是结构性不可写形态）。
     await writeFile(join(dir, lease.owner), 'not-a-dir');

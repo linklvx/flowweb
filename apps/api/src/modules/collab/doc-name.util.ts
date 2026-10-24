@@ -21,6 +21,11 @@ export interface ParsedDocName {
   generationFromName: number | undefined;
 }
 
+/** Y1c T9：`project:${pid}` docName 构造单源（㉚ 裸构造门——新增裸模板字面量即红，统一走此）。 */
+export function projectDocName(projectId: string): string {
+  return `project:${projectId}`;
+}
+
 export function parseDocName(docName: string): ParsedDocName | null {
   const m = DOC_NAME_RE.exec(docName);
   if (!m) return null;

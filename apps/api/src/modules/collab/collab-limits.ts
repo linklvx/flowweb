@@ -6,10 +6,12 @@
 // close 语义：前瞻判定 backlog+frame>close → 帧型分支执法（sync 前瞻 close/stateless 仅 backlog 判定
 // /awareness 永 drop——v3 帧型四档已落档 collab-outbound-budget.ts）；+ALLOWANCE 余量=两满帧+ack 不误杀。
 // OUTBOUND_BUDGET_BYTES 用字面量（check-ecosystem 提取式 [\d_]+ 不匹配乘式）。
-import { QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
+import { QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, COLLAB_WS_MAX_PAYLOAD_BYTES } from '@flowweb/shared';
 import type { QuotaConfig } from './collab-doc-registry.service';
 
-export const WS_MAX_PAYLOAD_BYTES = 16_777_216;         // 自 collab-server.factory.ts:68 迁入单源（B16）
+// Y1c T9（偏离 38⑱）：WS maxPayload 16→9MiB——值单源=shared COLLAB_WS_MAX_PAYLOAD_BYTES
+// （>SS2 帧闸 8.06MiB 恰容纳；16MiB 纯增攻击面）。再导出保既有 import 面（factory/census 消费方零触碰）。
+export const WS_MAX_PAYLOAD_BYTES = COLLAB_WS_MAX_PAYLOAD_BYTES;   // 9_437_184
 export const BACKPRESSURE_DROP_BYTES = 1_048_576;      // 自 collab-session-guard.service.ts:62 迁入
 export const OUTBOUND_BUDGET_BYTES = 100_663_296;      // v3: 64→96MiB（10 人×8MB 扇出 80.6<96；折衷值非推导值——spec §6.4 登记）
 

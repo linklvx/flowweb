@@ -68,7 +68,7 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
 
     const ok = await svc.storeDocumentUnlocked({ document: doc, documentName: NAME });
     expect(ok).toBe(true);
-    expect(repo.append).toHaveBeenCalledTimes(1);
+    expect(repo.appendBatch).toHaveBeenCalledTimes(1);
     expect(svc.hasPendingWrites(PID)).toBe(false);   // splice=新家（PG）落定后移出旧归属
     expect(svc.hasInFlightStore(PID)).toBe(false);   // X2 落定点①
     expect(svc.storeFailedDocs.has(PID)).toBe(false);
@@ -86,8 +86,8 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     }
     expect(svc.hasPendingWrites(PID)).toBe(true);
 
-    // —— store 失败腿：repo.append 恒抛（非 FK/非租约分型）→ spool 兜底（BOI：批∈spool 已 fsync）——
-    repo.append.mockRejectedValue(new Error('pg down'));
+    // —— store 失败腿：repo.appendBatch 恒抛（非 FK/非租约分型）→ spool 兜底（BOI：批∈spool 已 fsync）——
+    repo.appendBatch.mockRejectedValue(new Error('pg down'));
     const ok = await svc.storeDocumentUnlocked({ document: doc, documentName: NAME });
     expect(ok).toBe(false);
     expect(svc.hasPendingWrites(PID)).toBe(false);   // 批已离开旧归属（新家=spool）
@@ -98,18 +98,19 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(svc.storeFailedDocs.has(PID)).toBe(true);     // Z110：append 失败标记（reaper 强制淘汰路径）
 
     // —— 回灌腿：repo 恢复→retryPersist（detached 态：host 无 doc/队列空→spool 帧通道三段式 peek→append→confirm）——
-    repo.append.mockResolvedValue({ ok: true, seq: 1n });
+    repo.appendBatch.mockResolvedValue({ ok: true, seq: 1n });
     await svc.retryPersist(NAME);
     expect(spool.hasFrames(PID)).toBe(false);        // 帧 confirm→段回收（磁盘台账清空）
     expect(svc.isPersistedComplete(PID)).toBe(true);   // 三态全空=内存与 PG 同步
     expect(svc.persistUnhealthy.has(NAME)).toBe(false);   // 电平转健康（setPersistStatus(true)）
     expect(svc.storeFailedDocs.has(PID)).toBe(true);      // 帧通道回灌不清标记（清点=store 成功/真卸载两点——行为零变化）
-    expect(repo.append).toHaveBeenCalledTimes(2);    // 失败 1 + 回灌帧 1
+    expect(repo.appendBatch).toHaveBeenCalledTimes(2);    // 失败 1 + 回灌帧 1
 
-    // 内容收敛：回灌落 PG 的帧 apply 进 scratch doc=原 3 键全量（CRDT 幂等语义）
-    const payload = repo.append.mock.calls[1][1] as Uint8Array;
+    // 内容收敛：回灌落 PG 的帧 apply 进 scratch doc=原 3 键全量（CRDT 幂等语义；Y1c T9 新表形态
+    // calls[1][1]=rows[]——帧 payload 取 rows[0].update；断言改为逐行全量重放）
+    const rows2 = repo.appendBatch.mock.calls[1][1] as Array<{ update: Uint8Array }>;
     const rebuilt = new Y.Doc();
-    Y.applyUpdate(rebuilt, payload);
+    for (const row of rows2) Y.applyUpdate(rebuilt, new Uint8Array(row.update));
     expect([...rebuilt.getMap('nodes').keys()].sort()).toEqual(['k0', 'k1', 'k2']);
   });
 

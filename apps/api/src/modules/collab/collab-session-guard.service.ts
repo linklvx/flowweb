@@ -32,7 +32,7 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
-import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
@@ -261,6 +261,11 @@ export class CollabSessionGuardService {
    *  消费：结构化日志三元组（traceId 预留位 null——T13 才有）+doc-status 预留字段回传客户端
    *  （遥测 join）+Sentry scope（装载失败等带 socketId 的 catch 取实值）。 */
   private readonly connectionIds = new Map<string, string>();
+  /** Y1c T9（Controller 裁定 2+修正 #8）：SystemHistory 单行权威快照（gateway 启动接线
+   *  setServerHistory——requireSystemHistory fail-closed 读面；未接线=版本门 historyId 维缺省放行
+   *  首连、回执不下发〔测试直构面〕）。 */
+  private serverHistory: { historyId: string } | null = null;
+  setServerHistory(h: { historyId: string }): void { this.serverHistory = h; }
   /** ===== Y0b-3 T7（E73/spec §3.3）：awareness 归属表（双索引）+认证身份表 =====
    *  clientIdOwner=归属权威（clientId→socketId，O(1) 伪造判定——库 connections 的 clients 集在 hook
    *  之后才填充〔esm:625-634〕不能作权威，自建表语义）；ownedClientIds=socketId→clientIds 反向索引
@@ -588,6 +593,21 @@ export class CollabSessionGuardService {
         freezeIntent = 'spool';                    // Y0b-4 T4：auth 期意图存 context（connected 补登记 writeFreeze 单源）
         this.broadcastSpoolDegraded(documentName); // Y9：独立通告通道
       }
+      // Y1c T9（修正 #8 生效）：版本门三元拆分——csv=protocolVersion 既有四档门之上，historyId 硬门
+      // 经 resolveVersionGate（shared 单源）：客户端 hid 参数缺省=首连放行（allowFirstConnect——无值≠
+      // 有值不匹配，后者 4406 client-outdated）；auth 回执下发 historyId（onConnected stateless——
+      // web 客户端消费归后续卡，登记 deferred）。
+      if (this.serverHistory) {
+        const hidRaw = requestParameters?.get('hid');
+        const verdict = resolveVersionGate(
+          { protocolVersion: Number(csv ?? NaN), schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: hidRaw === null || hidRaw === '' ? undefined : hidRaw },
+          { protocolVersion: CLIENT_PROTOCOL_VERSION, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: this.serverHistory.historyId },
+        );
+        if (verdict === 'client-outdated') {
+          collabVersionNegotiationRejectTotal.inc({ reason: CollabAuthReason.SCHEMA_OUTDATED });
+          throw this.denyAuth(CollabAuthReason.SCHEMA_OUTDATED, `client history/protocol outdated（hid ${hidRaw === null || hidRaw === '' ? '首连' : '不匹配'}）`, 'version');
+        }
+      }
       const token = parseSessionToken(requestHeaders?.get('cookie'));   // T2 cookie-only——query token 通道删除
       if (!token) throw deny(CollabAuthReason.UNAUTHENTICATED, '未登录');
       const { session, expired } = await this.withAuthDeadline(this.sessionSvc.touchWithReason(token));
@@ -679,6 +699,18 @@ export class CollabSessionGuardService {
       if (this.docRegistry.quotaFrozenDocs.has(pid)) this.applyWriteFreeze(c, 'quota', true);   // 冻结期加入（auth 查询兜底之外的第二道登记）
       // Y0b-5 T11：per-conn 推送面带 connectionId 预留字段（回传客户端——遥测 join 通道；per-doc 广播面缺省）
       try { c.sendStateless?.(JSON.stringify(this.docRegistry.buildDocStatus(pid, undefined, this.connectionIds.get(socketId)))); } catch { /* 已断 */ }
+      // Y1c T9（修正 #8 半链）：服务端 auth 回执下发 historyId（+硬门三元——客户端持久化供次连携带
+      // hid；web 客户端消费归后续卡，deferred 登记）。
+      if (this.serverHistory) {
+        try {
+          c.sendStateless?.(JSON.stringify({
+            type: 'auth-receipt',
+            historyId: this.serverHistory.historyId,
+            protocolVersion: CLIENT_PROTOCOL_VERSION,
+            schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+          }));
+        } catch { /* 已断 */ }
+      }
     }
     return Promise.resolve();
   }
@@ -1189,13 +1221,19 @@ export class CollabSessionGuardService {
    *  立即重连，不等 1006 盲区。先复制后关（[...map] 快照）：close 回调可能反噬集合
    *  （连接自清/异常路径），活迭代下漏关未访问项。单个失败各自吞（F11）不阻断其余。 */
   closeAllConnections1012() {
+    this.closeAllConnectionsWs(CollabCloseCode.APP_RESTART, 'service restart');
+  }
+
+  /** Y1c T9（T8 接线）：全连接关闭泛化面（1012 原语+1011 WAL_FSYNC_EIO fail-stop 档共用——
+   *  spool.onWalFailStop→close 全部连接 1011，ADR-01 §4.3 fsync 分档）。 */
+  closeAllConnectionsWs(code: number, reason: string) {
     for (const document of [...this.host.allDocuments().values()]) {
       for (const connection of [...document.connections.keys()]) {
         try {
-          connection.webSocket.close(CollabCloseCode.APP_RESTART, 'service restart');
-          collabWsCloseTotal.inc({ code: String(CollabCloseCode.APP_RESTART), reason: 'service restart' });   // Y0b-3 T6：close 分布面
+          connection.webSocket.close(code, reason);
+          collabWsCloseTotal.inc({ code: String(code), reason });   // Y0b-3 T6：close 分布面
         }
-        catch (err) { this.host.logger.warn(`close(${CollabCloseCode.APP_RESTART}) failed for ${document.name}: ${(err as Error).message}`); }
+        catch (err) { this.host.logger.warn(`close(${code}) failed for ${document.name}: ${(err as Error).message}`); }
       }
     }
   }

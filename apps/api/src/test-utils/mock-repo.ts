@@ -7,6 +7,7 @@ import { vi } from 'vitest';
 
 export interface MockRepo {
   append: ReturnType<typeof vi.fn>;
+  appendBatch: ReturnType<typeof vi.fn>;   // Y1c T9：actor drain 批/回灌行新写面（新表形态）
   loadForHydration: ReturnType<typeof vi.fn>;
   hydrateWithRecovery: ReturnType<typeof vi.fn>;
   compact: ReturnType<typeof vi.fn>;
@@ -15,7 +16,8 @@ export interface MockRepo {
 
 export function createMockRepo(over: Partial<MockRepo> = {}): MockRepo {
   const repo = {
-    append: vi.fn(async () => ({ ok: true as const, seq: 1n })),          // AppendResult（spec v2.4 §1.2——Y0a-2 BOI 按契约 15 消费）
+    append: vi.fn(async () => { throw new Error('append retired in Y1c T9——mock 请走 appendBatch（actor drain 批/回灌行）'); }),   // T9：旧单帧 append 退役（现役写面=appendBatch；保留键防 silent-miss）
+    appendBatch: vi.fn(async (_projectId: string, rows: unknown[] = []) => ({ ok: true as const, rows: rows.length })),   // Y1c T9：批行 append 默认全成功（用例可覆写 fenced/throw）
     loadForHydration: vi.fn(async () => ({ state: null, updates: [] as Buffer[], stateSeq: 0n })),
     compact: vi.fn(async () => ({ compacted: true as const, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0 })),   // 返回契约（spec v2.4 §1.3+Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows/tombstoneBytes——maybeCompact 采纳依赖此形状）
     count: vi.fn(async () => 0),

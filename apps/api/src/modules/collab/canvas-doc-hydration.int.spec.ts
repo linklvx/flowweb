@@ -3,6 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import * as Y from 'yjs';
+import { makeSeedSeq } from '../../test-utils/canvas-doc-row';
+
+/** Y1c T9：repo.append（nextval 单帧）退役——播种替身（单调 walSeq 单帧行，appendBatch 批行）。 */
+const seedAppend = makeSeedSeq();
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -25,11 +29,11 @@ maybe('loadForHydration（真 PG）', () => {
   it('装载=快照+seq>stateSeq 增量，与全量重放逐位等价', async () => {
     await reset();
     const d1 = new Y.Doc(); d1.getMap('nodes').set('a', new Y.Map([['x', 1]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(d1));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d1))]);
     await repo.compact(PID);
     const d2 = new Y.Doc(); Y.applyUpdate(d2, Y.encodeStateAsUpdate(d1));
     d2.getMap('nodes').set('b', new Y.Map([['x', 2]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(d2));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d2))]);
     const { state, updates, stateSeq } = await repo.loadForHydration(PID);
     expect(state).not.toBeNull();
     expect(updates.length).toBe(1);                    // 只拉 seq>stateSeq 的一行
@@ -44,12 +48,12 @@ maybe('loadForHydration（真 PG）', () => {
   it('分页取尽：520 行增量全部装载（页 500）', async () => {
     await reset();
     const base = new Y.Doc(); base.getMap('nodes').set('base', new Y.Map([['x', 0]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(base));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(base))]);
     await repo.compact(PID);
     for (let i = 0; i < 520; i++) {
       const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(base));
       d.getMap('nodes').set(`k${i}`, new Y.Map([['x', i]]));
-      await repo.append(PID, Y.encodeStateAsUpdate(d));
+      await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d))]);
     }
     const { updates } = await repo.loadForHydration(PID);
     expect(updates.length).toBe(520);
@@ -63,7 +67,7 @@ maybe('loadForHydration（真 PG）', () => {
   it('超时自愈（仅可重试类）：P2028 首败 → compact(6s/1s 自愈预算) → 重试装载(2s/500ms) 成功（vi.spyOn 白盒；自愈增量 ≤8s——spec v2.4 契约 13）', async () => {
     await reset();
     const d = new Y.Doc(); d.getMap('nodes').set('s', new Y.Map([['x', 1]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(d));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d))]);
     await repo.compact(PID);   // 先真 compact 造快照行——重试装载（真实现）拿到非空 state
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(Object.assign(new Error('Transaction query timeout'), { code: 'P2028' }));
@@ -128,7 +132,7 @@ maybe('loadForHydration（真 PG）', () => {
   it('message 回退正例：code 缺失但 message 含 timeout → 走自愈（回退仅对无 code 错误生效）', async () => {
     await reset();
     const d = new Y.Doc(); d.getMap('nodes').set('t', new Y.Map([['x', 1]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(d));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d))]);
     await repo.compact(PID);
     const loadSpy = vi.spyOn(repo, 'loadForHydration')
       .mockRejectedValueOnce(new Error('statement timeout'));   // 无 code
@@ -164,12 +168,12 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
   it('RR 事务装载中途并发 compact 提交：事务内行集不变（MVCC 快照一致性——v3 确定序：compact 提交后才放行行读）', async () => {
     await reset();
     const base = new Y.Doc(); base.getMap('nodes').set('s', new Y.Map([['x', 0]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(base));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(base))]);
     await repo.compact(PID);
     for (let i = 0; i < 3; i++) {
       const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(base));
       d.getMap('nodes').set(`c${i}`, new Y.Map([['x', i]]));
-      await repo.append(PID, Y.encodeStateAsUpdate(d));
+      await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d))]);
     }
     let started = false;
     let release!: () => void;
@@ -206,7 +210,7 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
   it('装载进行中直调 compact：装载结果完整（可达性固化——锚 A4 回归防线，防未来 fire-and-forget）', async () => {
     await reset();
     const d = new Y.Doc(); d.getMap('nodes').set('z', new Y.Map([['x', 0]]));
-    await repo.append(PID, Y.encodeStateAsUpdate(d));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(d))]);
     const [loaded] = await Promise.all([
       repo.loadForHydration(PID),
       (async () => { await new Promise((r) => setTimeout(r, 10)); await repo.compact(PID); })(),

@@ -58,6 +58,7 @@ const serverDoc = (gw: any, pid: string) => gw.server.hocuspocus.documents.get(`
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // 裸 ws 帧构造=frame-encoder 单源（T6 外审 M1——varuint/frame 两拷贝收口，本 spec 仅 Sync/Auth 帧形）
+// Y1c T9：写面一律 nodes 根（P1 shape fixture root 白名单 nodes/edges/exec/meta——旧 m 测试根换轨）
 
 describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
   it('真红门①a 首触硬限：冻结+放行本帧（客户端编辑不丢）+快照 over 先到——【非断连】', async () => {
@@ -97,11 +98,11 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await A.synced;
       await freezeDoc(kit.gateway, 'q1b');
       const dropped = await metricDelta('collab_quota_writes_dropped_total', { reason: 'quota' }, async () => {
-        for (let i = 0; i < 3; i++) A.ydoc.getMap('m').set(`k${i}`, i);        // 反例臂：3 帧突发
+        for (let i = 0; i < 3; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);        // 反例臂：3 帧突发
         await pollUntil(() => g.overPushStates().some((s) => s.count >= 3), 3_000);
         await sleep(400);                                                       // 未跨 10s 窗——不升级
         expect(A.closeInfo()).toBeNull();
-        for (let i = 3; i < 20; i++) A.ydoc.getMap('m').set(`k${i}`, i);       // 补足 20 帧（真实计数）
+        for (let i = 3; i < 20; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);       // 补足 20 帧（真实计数）
         await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 3_000);
       });
       expect(dropped).toBeGreaterThanOrEqual(20);
@@ -109,7 +110,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const st = g.overPushStates()[0];
       st.firstAt -= 10_000;
       const rejected = await metricDelta('collab_quota_frame_rejected_total', { reason: 'doc-over-quota' }, async () => {
-        A.ydoc.getMap('m').set('final', 1);
+        A.ydoc.getMap('nodes').set('final', 1);
         await pollUntil(() => A.closeInfo() !== null, 5_000);
       });
       expect(rejected).toBe(1);
@@ -182,7 +183,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       // 白盒：账面 truth 抬高（stale-high——触发判据④实测后回落真值）+冷却窗基线老化
       g.seedDocTruth('q5', 7000);
       g.seedTruthMeasuredAt('q5', Date.now() - 3_000);
-      for (let i = 0; i < 50; i++) A.ydoc.getMap('m').set(`k${i}`, i);   // 每帧独立事务（~20B）
+      for (let i = 0; i < 50; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);   // 每帧独立事务（~20B）
       await pollUntil(async () => (await counterOf('collab_quota_fastpath_total')) - f0 >= 49, 5_000);   // 帧落定（到达异步）
       expect((await counterOf('collab_quota_truth_measured_total')) - m0).toBe(1);   // 首帧实测 1 次（P0-1：冷却窗内不重测）
       expect((await counterOf('collab_quota_fastpath_total')) - f0).toBe(49);        // 其后 49 帧全快路径
@@ -198,7 +199,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await freezeDoc(kit.gateway, 'q6');
       const m0 = await counterOf('collab_quota_truth_measured_total');
       const d0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
-      for (let i = 0; i < 50; i++) A.ydoc.getMap('m').set(`k${i}`, i);
+      for (let i = 0; i < 50; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);
       await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0 >= 50, 5_000);
       expect((await counterOf('collab_quota_truth_measured_total')) - m0).toBe(0);   // 判据② over 短路——冻结面零编码
       expect((await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0).toBe(50);   // readOnly 早退逐帧计数（帧间隔<10s 窗——不升级 4404）
@@ -244,20 +245,20 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const A = connectWithCloseSpy(kit, 'project:q9');
       await A.synced; await settle();
       await freezeDoc(kit.gateway, 'q9');
-      for (let i = 0; i < 20; i++) A.ydoc.getMap('m').set(`k${i}`, i);
+      for (let i = 0; i < 20; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);
       await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 5_000);
       // idle-reset 臂：lastAt 距今>5s（休眠恢复/慢速持续形态）→计数重置——不升级
       const st = g.overPushStates()[0];
       st.firstAt -= 10_000; st.lastAt -= 6_000;
-      A.ydoc.getMap('m').set('wake', 1);
+      A.ydoc.getMap('nodes').set('wake', 1);
       await sleep(600);
       expect(A.closeInfo()).toBeNull();                              // idle-reset 生效——不升级（计数已清零）
       // 持续形态臂：重新积累 20 帧（帧间隔<5s——无 idle-reset）+firstAt 跨 10s →升级
-      for (let i = 100; i < 120; i++) A.ydoc.getMap('m').set(`k${i}`, i);
+      for (let i = 100; i < 120; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);
       await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 5_000);
       const st2 = g.overPushStates()[0];
       st2.firstAt = Date.now() - 10_500;   // lastAt 近期（刚写）——持续形态
-      A.ydoc.getMap('m').set('final', 1);
+      A.ydoc.getMap('nodes').set('final', 1);
       await pollUntil(() => A.closeInfo() !== null, 5_000);
       expect(A.closeInfo()).toEqual({ code: 4404, reason: 'doc-over-quota' });
     } finally { await kit.dispose(); }

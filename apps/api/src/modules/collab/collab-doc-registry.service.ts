@@ -16,13 +16,12 @@
 import { Injectable, Logger, Optional, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { OutgoingMessage } from '@hocuspocus/server';
 import type { Document, onLoadDocumentPayload, beforeSyncPayload } from '@hocuspocus/server';
-import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { parseDocName, isValidDocName } from './doc-name.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, SERVER_TRANSACT_ORIGIN, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
 import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
@@ -30,7 +29,7 @@ import { captureCollabException } from '../../utils/sentry-scrub';
 import type { HeapPressureSample } from './heap-pressure';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3a：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突，commit 披露）
-import { collabLoadRejectedTotal, collabHydrationDeferredTotal, collabVacuumAutotriggerStackedTotal, yjsDocStuckTotal, yjsDocLoadTotal, consumeDirectLoad, yjsLoadDuration, yjsLoadUnloadingWindowTotal, yjsDocHeapAmplification, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, collabQuotaFrameRejectedTotal, yjsInboundFrameBytes, collabBytesRateExceededTotal, collabQuotaWritesDroppedTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasuredTotal, collabQuotaTruthMeasureDuration, collabQuotaSoftThresholdTotal } from './store.metrics';
+import { collabLoadRejectedTotal, collabHydrationDeferredTotal, collabVacuumAutotriggerStackedTotal, yjsDocStuckTotal, yjsDocLoadTotal, consumeDirectLoad, yjsLoadDuration, yjsLoadUnloadingWindowTotal, yjsDocHeapAmplification, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, collabQuotaWritesDroppedTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasuredTotal, collabQuotaTruthMeasureDuration, collabQuotaSoftThresholdTotal } from './store.metrics';
 
 /** Y0b-4 T3（Q-B）：真值测量冷却窗——窗口内最坏编码 CPU 占用 <5% 单核。定标=T0 探针⑦实测
  *  8MB doc 编码 p50=50ms/p95=80.6ms（本机；生产 2 核机 ×2-4）——2000ms 窗下 duty≈4%。
@@ -125,11 +124,11 @@ export interface CollabDocRegistryHost {
   /** code 权威投递关闭（guardSyncFrame :1551/:1566/:1572/:1582/:1598/beginVacuumEra :1412 消费——
    *  SG 域能力，W3b 改接 sg.hardClose）。 */
   hardClose(conn: CollabConnection | undefined | null, code: number, reason: string): void;
-  /** bytes 速率桶扣减（guardSyncFrame ⓪′ :1580 消费——桶 SG 所有〔RC2 代价=经缝 1 位〕）。 */
-  consumeBytesBucket(socketId: string, bytes: number): boolean;
-  /** writeFreeze 单源查询（guardSyncFrame ① :1587 消费——回落分支读 quotaFrozenDocs 经 DR 公有
-   *  字段回接线；本体 SG 域，W3b 改接 sg.freezeReasons）。 */
+  /** writeFreeze 单源查询（noteReadOnlyDrop 丢帧计数分档消费——W3b 改接 sg.freezeReasons；
+   *  Y1c T9：guardSyncFrame ⓪′ bytes 桶缝随 gate 收编迁出（gate host 位））。 */
   freezeReasons(conn: CollabConnection): Set<FreezeReason>;
+  /** Y1c T9（T8 接线）：世代播种缝（loadDocument generation 位——gateway 转发 spool.setProjectGeneration）。 */
+  onGenerationSeeded?(projectId: string, generation: number): void;
   /** WS connectionId 读面（loadDocument :1117 装载失败 Sentry 样本 consumption——台账 SG 域
    *  （connectionIds socketId 键），W3b 改接 sg 读面）。 */
   connectionIdOf(socketId: string): string | undefined;
@@ -398,7 +397,12 @@ export class CollabDocRegistryService {
       // Y0b-4 T9a（G-3：装载路径回填零新增 DB 查）：preVacuumSv 解码缓存（SyncStep1 消费）+
       // docGeneration 播种（doc-status 顶层 generation 源）。装载先于任何 SyncStep1——无窗口。
       if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
-      if (generation) this.docGeneration.set(projectId, generation);
+      if (generation) {
+        this.docGeneration.set(projectId, generation);
+        // Y1c T9（T8 接线）：世代权威播种缝——gateway 转发 spool.setProjectGeneration（帧内一律
+        // 携带 generation 的 WAL 段单源；vacuum 换代=switchGeneration 显式切+此处装载重播）
+        this.host.onGenerationSeeded?.(projectId, generation);
+      }
       if (state) applyReplayed(new Uint8Array(state));
       for (const u of updates) applyReplayed(new Uint8Array(u));
       // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。
@@ -663,105 +667,57 @@ export class CollabDocRegistryService {
     return true;
   }
 
-  /** ===== Y0b-4 T4（Q-B v3/Q-C/Q-D/Q-E/Q-S）：beforeSync 分层判据——配额执法唯一落点 =====
-   *  分层序（钉死）：⓪帧闸（Update>2×maxTxBytes 1009 terminal／SS2>maxDocBytes+ALLOWANCE 4404
-   *  terminal〔Y0b-5 T8 裁定 24⑧〕，先于 readOnly 早退——VIEWER 巨帧也过闸）→⓪′bytes 速率桶
-   *  （T6 1008——独立于权限态）→①readOnly
-   *  早退（计数+per-conn 持续强推升级判定）→②over 短路（冻结面零编码）→③快路径 O(1)（hook 只读
-   *  delta 不回写——update 监听唯一写者，消双计）→④账面触阈（冷却窗内上界决策/窗外实测）。
-   *  type=y-protocols 内层常量（0=SyncStep1/1=SyncStep2/2=Update——T0 探针①；非库 MessageType）。
-   *  SyncStep1 永不判（零成长）；throw 仅兜底中止帧——code 权威投递=hardClose.webSocket.close
-   *  先行（T0 探针②：throw 路径客户端 30s 僵尸零 close）。
-   *  RC2=A：分层判定链单一所有者=DR（bytes 桶/freezeReasons/hardClose 三处经 SG 能力 host 缝——
-   *  链不切两半）。 */
-  async guardSyncFrame({ type, payload, document, connection }: beforeSyncPayload): Promise<void> {
-    const pid = parseDocName(document.name)?.projectId ?? '';
-    if (type === messageYjsSyncStep1) {
-      // Y0b-4 T9a（Q-U v6 报告2 G-2）：SV 代际门——SyncStep1 payload=客户端 SV（T0 探针④实证：
-      // Y.decodeStateVector(payload) 与客户端 encodeStateVector 全等）。客户端 SV 任一 (client,
-      // clock) 覆盖 preVacuumSv 同 client 的 [0,clock) 区间（clock≥pre 且 pre>0）⇒ 持真空前历史
-      // ⇒ terminal 4410 'doc-generation-stale'（码权威投递=hardClose.webSocket.close 先行——
-      // throw 仅兜底中止帧）。空 SV（新页面）天然放行——结构性无污染；新 clientID 不在
-      // preVacuumSv 放行——reload 不循环（v5 ?gen= URL 形态 reload 丢 gen 必循环——已整删）。
-      // preVacuumSvCache 装载播种（loadDocument 读 CanvasDoc.preVacuumSv——真空后首次装载即生效，
-      // 装载先于 SyncStep1〔库时序〕无窗口）；无缓存（从未 vacuum）照旧放行。
-      const preSv = this.preVacuumSvCache.get(pid);
-      if (preSv !== undefined && preSv.size > 0) {
-        for (const [client, clock] of Y.decodeStateVector(payload)) {
-          const pre = preSv.get(client);
-          if (pre !== undefined && pre > 0 && clock >= pre) {
-            this.host.hardClose(connection as unknown as CollabConnection, CollabCloseCode.GENERATION_SUPERSEDED, DOC_GENERATION_STALE_TERMINAL_REASON);
-            throw Object.assign(new Error('doc generation stale'), { code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_GENERATION_STALE_TERMINAL_REASON });
-          }
-        }
-      }
-      return;   // 零成长（SyncStep1=读路径永不判配额）
-    }
-    const bytes = payload.byteLength;
-    const conn = connection as unknown as CollabConnection;
-    // ⓪ 帧闸（Q-E v5：Update>2×maxTxBytes——〔maxTxBytes,2×〕区间放行进配额判据，估算误差退化软冻结非终态。
-    // Y0b-5 T8 裁定 24⑧：SS2 闸改 maxDocBytes+FRAME_ALLOWANCE_BYTES 且超限落 4404 doc-over-quota——
-    // SS2 大帧≠DoS，是"本地持有 ≥8MB 服务端没有的内容经合并必然超配额"=4404 语义准确（terminal 带
-    // QuotaBanner/shrink/export 自救——非 1009 裸逃生）；Update 帧 1009 维持——DoS/意外帧）。
-    if (type === messageYjsUpdate && bytes > 2 * this.quota.maxTxBytes) {
-      collabQuotaFrameRejectedTotal.inc({ reason: 'frame-too-large' });
-      this.host.hardClose(conn, CollabCloseCode.LIB_MESSAGE_TOO_BIG, 'frame-too-large');
-      throw Object.assign(new Error('frame too large'), { code: CollabCloseCode.LIB_MESSAGE_TOO_BIG, reason: 'frame-too-large' });
-    }
-    if (type === messageYjsSyncStep2 && bytes > this.quota.maxDocBytes + FRAME_ALLOWANCE_BYTES) {
-      collabQuotaFrameRejectedTotal.inc({ reason: 'doc-over-quota' });
-      try { conn?.sendStateless?.(JSON.stringify(this.buildDocStatus(pid))); } catch { /* 先通告尽力 */ }
-      this.host.hardClose(conn, CollabCloseCode.DOC_OVER_QUOTA, DOC_OVER_QUOTA_TERMINAL_REASON);
-      throw Object.assign(new Error('doc over quota'), { code: CollabCloseCode.DOC_OVER_QUOTA, reason: DOC_OVER_QUOTA_TERMINAL_REASON });
-    }
-    yjsInboundFrameBytes.observe(bytes);
-    // ⓪′ bytes 速率桶（Y0b-4 T6，H-3 三分落点：bytes=beforeSync——type 现成免重复解析；帧闸后
-    // readOnly 早退前——速率闸独立于权限态：冻结期强推仍被速率闸限〔与 Q-D overPush 并行执法〕）。
-    // SyncStep2 与 Update 同桶同键 sid；容量=maxDocBytes（构造注释不变量）——离线合并回灌合法帧
-    // 首扣由容量吸收（红门⑧）。超限 close 1008（backoff 档）。
-    if (!this.host.consumeBytesBucket(conn.socketId ?? '', bytes)) {
-      collabBytesRateExceededTotal.inc();
-      this.host.hardClose(conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'bytes-rate-exceeded');
-      throw Object.assign(new Error('bytes rate exceeded'), { code: CollabCloseCode.RATE_LIMITED_CLOSE, reason: 'bytes-rate-exceeded' });
-    }
-    // ① readOnly 早退（计数在①不在②——冻结落地后帧进此；延后窗内〔setImmediate 前〕readOnly 未置帧照常 apply 不计数）
-    if (conn?.readOnly) {
-      const reasons = this.host.freezeReasons(conn);
-      collabQuotaWritesDroppedTotal.inc({ reason: reasons.has('quota') ? 'quota' : reasons.has('draining') ? 'draining' : reasons.has('spool') ? 'spool' : 'viewer' });
-      if (reasons.has('quota')) {   // Q-D v5/v6：per-conn 时间字节双窗+idle-reset——持续强推才 4404
-        const sid = conn.socketId ?? '';
-        const st = this.overPush.get(sid) ?? { count: 0, bytes: 0, firstAt: Date.now(), lastAt: Date.now() };
-        if (Date.now() - st.lastAt > OVER_PUSH_IDLE_RESET_MS) { st.count = 0; st.bytes = 0; st.firstAt = Date.now(); }
-        st.count += 1; st.bytes += bytes; st.lastAt = Date.now();
-        this.overPush.set(sid, st);
-        if ((st.count >= OVER_PUSH_COUNT || st.bytes >= 2 * this.quota.maxTxBytes) && Date.now() - st.firstAt >= OVER_PUSH_WINDOW_MS) {
-          collabQuotaFrameRejectedTotal.inc({ reason: 'doc-over-quota' });
-          try { conn.sendStateless?.(JSON.stringify(this.buildDocStatus(pid))); } catch { /* 先通告尽力 */ }
-          this.host.hardClose(conn, CollabCloseCode.DOC_OVER_QUOTA, DOC_OVER_QUOTA_TERMINAL_REASON);
-          throw Object.assign(new Error('doc over quota'), { code: CollabCloseCode.DOC_OVER_QUOTA, reason: DOC_OVER_QUOTA_TERMINAL_REASON });
-        }
-        // 复位只在 thawQuota（freeze 重入不清零）；内容靠 thaw 回灌（库交 SyncStatus(false)——客户端零动作）
-      }
-      return;
-    }
-    // ② over 短路（冻结面零编码；放行窗边界=one-event-loop-turn——quotaFrozenDocs 与 readOnly 同一 setImmediate 落地；
-    // freezePending 态不进本判据——v6 G-1：pending 帧继续走③④，禁"确认窗放行一切"）
-    if (this.quotaFrozenDocs.has(pid)) return;
-    // ③ 快路径 O(1)——hook 只读 delta 不回写（update 监听唯一写者）
+  /** ===== Y1c T9：guardSyncFrame 收编重写（collab-frame-gate.service——偏离 38③）。本域保留
+   *  配额判定/冻结族/overPush 台账（RC2=A：DR 单一所有者），三收编面如下（分层序注释随 gate 服务）：
+   *  ① readOnly 丢帧计数+overPush 升级=noteReadOnlyDrop（actor ⓪ 消费）；
+   *  ②③④ 配额判定=admitFrameQuota（gate 消费——over 短路/f快路径/账面实测+冻结决策）；
+   *  preVacuumSv 读面=preVacuumSvOf（gate SV 代际门消费）。 ===== */
+
+  /** preVacuumSv 缓存读面（gate SyncStep1 SV 代际门消费——装载播种/loadDocument 单点写）。 */
+  preVacuumSvOf(pid: string): Map<number, number> | undefined {
+    return this.preVacuumSvCache.get(pid);
+  }
+
+  /** Y1c T9：世代权威读面（actor 准入链 ① 每帧对照——docGeneration 装载播种/vacuum 换代刷新，
+   *  undefined=未装载未知〔首帧前〕）。 */
+  generationOf(pid: string): number | undefined {
+    return this.docGeneration.get(pid);
+  }
+
+  /** ① readOnly 丢帧计数+per-conn 持续强推升级判定（原 guardSyncFrame ① 段收编——actor ⓪ 短路面
+   *  消费；返回 true=升级 4404 关闭〔Q-D v5/v6 双窗判据〕）。计数在①不在②——冻结落地后帧进此。 */
+  noteReadOnlyDrop(conn: CollabConnection, pid: string, bytes: number): boolean {
+    const reasons = this.host.freezeReasons(conn);
+    collabQuotaWritesDroppedTotal.inc({ reason: reasons.has('quota') ? 'quota' : reasons.has('draining') ? 'draining' : reasons.has('spool') ? 'spool' : 'viewer' });
+    if (!reasons.has('quota')) return false;
+    const sid = conn.socketId ?? '';
+    const st = this.overPush.get(sid) ?? { count: 0, bytes: 0, firstAt: Date.now(), lastAt: Date.now() };
+    if (Date.now() - st.lastAt > OVER_PUSH_IDLE_RESET_MS) { st.count = 0; st.bytes = 0; st.firstAt = Date.now(); }
+    st.count += 1; st.bytes += bytes; st.lastAt = Date.now();
+    this.overPush.set(sid, st);
+    return (st.count >= OVER_PUSH_COUNT || st.bytes >= 2 * this.quota.maxTxBytes) && Date.now() - st.firstAt >= OVER_PUSH_WINDOW_MS;
+    // 复位只在 thawQuota（freeze 重入不清零）；内容靠 thaw 回灌（库交 SyncStatus(false)——客户端零动作）
+  }
+
+  /** ②③④ 配额判定（原 guardSyncFrame ②③④ 段收编——gate 消费；行为零变化平移）：
+   *  ②over 短路（冻结面零编码）→'frozen'；③快路径 O(1)（hook 只读 delta 不回写——update 监听唯一
+   *  写者）→'ok'；④账面触阈（冷却窗内上界决策/窗外实测+冻结决策〔Q-S：硬限首触=冻结+放行本帧，
+   *  禁静默丢合法帧〕）→'ok'（触发帧照常放行——冻结落地=freezeQuota setImmediate 窗）。 */
+  admitFrameQuota(pid: string, bytes: number, document: Y.Doc): 'ok' | 'frozen' {
+    if (this.quotaFrozenDocs.has(pid)) return 'frozen';
     const truth = this.docTruth.get(pid) ?? 0;
     const delta = this.docDelta.get(pid) ?? 0;
     const soft = Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
-    if (truth + delta + bytes <= soft) { collabQuotaFastpathTotal.inc(); return; }
-    // ④ 账面触阈：冷却窗内不测量（上界决策）；窗外实测（fail-open 沿用账面）
+    if (truth + delta + bytes <= soft) { collabQuotaFastpathTotal.inc(); return 'ok'; }
     const cooled = Date.now() - (this.truthMeasuredAt.get(pid) ?? 0) < TRUTH_COOLDOWN_MS;
     if (cooled) {
       if (truth + delta + bytes > this.quota.maxDocBytes) this.scheduleFreezePending(pid);
       else collabQuotaFastpathTotal.inc();
-      return;   // delta 不写——update 监听会计入放行帧
+      return 'ok';
     }
-    if (!this.truthBudgetTryTake()) {   // 进程级测量预算（≤1 次/200ms+duty≤5%）——超预算退上界决策
+    if (!this.truthBudgetTryTake()) {   // 进程级测量预算超限——退上界决策
       if (truth + delta + bytes > this.quota.maxDocBytes) this.scheduleFreezePending(pid);
-      return;
+      return 'ok';
     }
     const t0 = Date.now();
     const measured = this.measureTruth(document);   // null=fail-open（pendingStructs/编码异常）
@@ -772,13 +728,13 @@ export class CollabDocRegistryService {
       this.docTruth.set(pid, measured);
       this.docDelta.set(pid, 0);
       this.truthMeasuredAt.set(pid, Date.now());
-      // Q-S：硬限首触=冻结+放行本帧（禁静默丢合法帧）；软阈受 thaw 复冻冷却窗约束（实测>MAX 除外）
-      if (measured + bytes > this.quota.maxDocBytes) { this.freezeQuota(pid); return; }
+      if (measured + bytes > this.quota.maxDocBytes) { this.freezeQuota(pid); return 'ok'; }
       if (measured + bytes >= soft && Date.now() - (this.thawCooldown.get(pid) ?? 0) >= THAW_COOLDOWN_MS) this.freezeQuota(pid);
-      return;
+      return 'ok';
     }
-    // fail-open：沿用账面决策（不校准——truth+delta 保持；实测重试等 pendingStructs 落定）
+    // fail-open：沿用账面决策（不校准——实测重试等 pendingStructs 落定）
     if (truth + delta + bytes > this.quota.maxDocBytes) this.scheduleFreezePending(pid);
+    return 'ok';
   }
 
   /** v6 G-1 两态分离——账面触阈：广播 over+挂 cooldown 到期确认定时器（单 doc 去重）。禁碰

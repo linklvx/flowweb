@@ -29,6 +29,8 @@ afterEach(async () => { await spoolCleanup(); vi.useRealTimers(); vi.unstubAllEn
 
 function buildGateway() {
   const prisma = {
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id' }) },  // Y1c T9（T8 接线）：listenCollab requireSystemHistory fail-closed 读面 mock
+
     session: {
       findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, userId: 'u1', expiresAt: new Date(Date.now() + 24 * 3600 * 1000) }),
       update: vi.fn(async (args: any) => ({ user: { id: 'u1', name: '张三' }, expiresAt: args.data.expiresAt })),
@@ -219,7 +221,7 @@ describe('Y0b-3 T4 评审小补 F-1：Y2 兜底计数断言（契约 3 最后一
     gatewayFacade(gateway).seedPendingQueue('y2proj', []);   // 队列条目播种（!queue tripwire 早退在 try 之前）
     gatewayFacade(gateway).spyPeekSpoolFrames().mockRejectedValue(new Error('io escaped'));
     const inc = await metricDelta('yjs_store_unexpected_throw_total', {}, () =>
-      expect(gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:y2proj' } as any)).resolves.toBe(false));
+      expect(gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:y2proj' } as any, 'maintenance')).resolves.toBe(false));   // Y1c T9：维护显式 flush
     expect(inc).toBe(1);
   });
 });

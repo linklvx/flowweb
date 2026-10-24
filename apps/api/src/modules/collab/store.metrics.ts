@@ -1084,11 +1084,81 @@ export function consumeDirectLoad(projectId: string): boolean { return directLoa
  *  soft 软阈提前（64 条/1MB 闩锁）/disconnect onDisconnect 收尾/retry 退避梯/drain 关停排空/
  *  flush flushDocument 显式交付判定（T14）。
  *  Z107 判据 C：单调 ≤⌈编辑窗/maxDebounce⌉+2；单节点执行链 ≤2 锚。 */
-export type CollabStoreTrigger = 'debounce' | 'soft' | 'disconnect' | 'retry' | 'drain' | 'flush';
+export type CollabStoreTrigger = 'debounce' | 'soft' | 'disconnect' | 'retry' | 'drain' | 'flush' | 'maintenance';
+// Y1c T9（偏离 38①）：'debounce' 随 onStoreDocument 旧链拆除退出现役（telemetry-only 后零生产调用方
+// ——登记保留历史读数）；'maintenance'=维护写独立 append 通道归因（非 connection 帧的 WAL+PG 落定）。
 export const yjsStoreTotal = new Counter({
   name: 'yjs_store_total',
   help: 'store 非 noop 落库计数（取批后单点；trigger=debounce 库防抖窗+断连冲刷/soft 软阈提前/disconnect 断连收尾/retry 退避梯/drain 关停排空/flush flushDocument 显式交付判定）',
   labelNames: ['trigger'],
+  registers: [register],
+});
+
+// ═══ Y1c T9：spool-first 写管线核心（CollabProjectActor）观测面 ═══
+/** actor drain 批计数：批窗收批三条件（≤20ms 自最老帧/≤1MiB/空闲 1ms）+批帧数直方图锚。 */
+export const actorDrainBatchTotal = new Counter({
+  name: 'collab_actor_drain_batch_total',
+  help: 'CollabProjectActor drain 批计数（一次 WAL appendBatch+fsync→逐帧 apply→逐帧 resolve）',
+  labelNames: ['result'],
+  registers: [register],
+});
+export const actorDrainBatchFrames = new Histogram({
+  name: 'collab_actor_drain_batch_frames',
+  help: 'actor drain 批帧数分布（批验证锚：5 连接×2 帧=单批 10 帧）',
+  buckets: [1, 2, 5, 10, 20, 50, 100],
+  registers: [register],
+});
+/** 帧级结果（ACK 档位前置面——resolve=fsync+apply 后放行；noop=readOnly/冻结/applied 去重命中）。 */
+export const actorFrameOutcomeTotal = new Counter({
+  name: 'collab_actor_frame_outcome_total',
+  help: 'actor 帧级处置计数（applied=fsync+apply 后 resolve；noop-readonly/noop-frozen=短路；noop-dedup=SHA-256 命中；reject-4411=毒帧；reject-4412=pending 区间）',
+  labelNames: ['outcome'],
+  registers: [register],
+});
+/** SHA-256 去重 promise map 命中分档（inflight=await 原帧；applied=no-op）。 */
+export const actorDedupHitTotal = new Counter({
+  name: 'collab_actor_dedup_hit_total',
+  help: 'actor in-flight/applied 去重命中计数（零重复 walSeq 的进程内防线——跨重启由 WAL 去重索引承接）',
+  labelNames: ['state'],
+  registers: [register],
+});
+/** SS2 大帧并发信号量：acquire/deny（全局内存预算+per-project 1——偏离 38⑱）。 */
+export const ss2SemaphoreTotal = new Counter({
+  name: 'collab_ss2_semaphore_total',
+  help: 'SS2 大帧并发信号量计数（acquire=放行解码/apply；deny=预算拒——瞬态 close 1008）',
+  labelNames: ['outcome'],
+  registers: [register],
+});
+/** per-connection 入站排队字节上限超限 close 1009（2×ss2FrameGate）。 */
+export const inboundQueueOverLimitTotal = new Counter({
+  name: 'collab_inbound_queue_over_limit_total',
+  help: '认证后 per-connection 入站排队字节超 2×ss2FrameGate 上限的 close 1009 计数',
+  registers: [register],
+});
+/** per-project 写入背压（偏离 36-③）：队列上限拒收。 */
+export const projectBackpressureTotal = new Counter({
+  name: 'collab_project_backpressure_total',
+  help: 'per-project actor 队列写入背压拒收计数（单项目不拖垮其他项目）',
+  registers: [register],
+});
+/** 毒帧协议触发（WAL 截断至 appliedSeq+4411+从 pgSeq 重放——POISON_FRAME_PROTOCOL）。 */
+export const actorPoisonFrameTotal = new Counter({
+  name: 'collab_actor_poison_frame_total',
+  help: '毒帧协议触发计数（同步关项目全部连接（广播 flush 前）+停写+WAL 截断至 appliedSeq+4411）',
+  registers: [register],
+});
+/** onStoreDocument 旧链拆除后的 telemetry 探针（偏离 38①——所有权切换验收：connection-origin 恒 0）。 */
+export const legacyStoreHookProbeTotal = new Counter({
+  name: 'collab_legacy_store_hook_probe_total',
+  help: 'onStoreDocument telemetry-only 探针（旧链已拆——connection-origin 恒 0；非 connection 维护写经独立通道不经此钩子）',
+  labelNames: ['origin'],
+  registers: [register],
+});
+/** FrameEffects 收集器产出（per-transaction 清空/取走——T24/T26 消费）。 */
+export const frameEffectsTotal = new Counter({
+  name: 'collab_frame_effects_total',
+  help: 'FrameEffects 收集器按 kind 计数（apply 后 actor 临界区内为准——FRAME_EFFECTS_TIMING_AUTHORITY）',
+  labelNames: ['kind'],
   registers: [register],
 });
 

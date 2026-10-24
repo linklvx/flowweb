@@ -490,7 +490,8 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     // 实耗：retryPersist 走 detached spool 帧通道（peek→append→confirm）——帧清+repo 落帧
     await gf.retryPersist('project:p-gone2');
     expect(spool.hasFrames('p-gone2')).toBe(false);
-    expect(repo.append).toHaveBeenCalledWith('p-gone2', payload);
+    // Y1c T9 新表形态：帧通道落 PG=appendBatch(pid,[rows])——rows[0].update=payload（单帧行）
+    expect(repo.appendBatch).toHaveBeenCalledWith('p-gone2', [expect.objectContaining({ update: payload })]);
   });
 });
 

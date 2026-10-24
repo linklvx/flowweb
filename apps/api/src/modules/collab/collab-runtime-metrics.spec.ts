@@ -152,14 +152,16 @@ describe('Y0c T0：load/store trigger 归因', () => {
     expect(dNoResidual).toBe(0);   // 零残留——一次性消费语义锁死
   });
 
-  it('yjs_store_total：hooks 路径=debounce/显式 trigger 参透传=retry；noop 早退不计', async () => {
+  it('yjs_store_total：显式 trigger 参透传=retry；noop 早退不计（Y1c T9：debounce 随 onStoreDocument 拆链退出现役——telemetry-only 后零生产调用）', async () => {
     const { gateway } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(stampedDoc())), updates: [] });
     const document = await loadDoc(gateway, 'p1');
     const w = new Y.Doc();
     w.getMap('x').set('k', 'v'.repeat(64));
     Y.applyUpdate(document, Y.encodeStateAsUpdate(w));   // update 监听入队（非 noop）
-    const dDebounce = await labeledCounterDelta('yjs_store_total', { trigger: 'debounce' }, () =>
-      gateway.hooks.onStoreDocument({ document, documentName: 'project:p1' } as any));
+    // Y1c T9：onStoreDocument 旧链拆除（telemetry-only）——debounce 档零生产调用方；本断言改验
+    // telemetry 探针面（legacy_store_hook_probe_total）+显式 flush 归因（maintenance 档）
+    const dDebounce = await labeledCounterDelta('yjs_store_total', { trigger: 'maintenance' }, () =>
+      gateway.persistence.storeDocumentUnlocked({ document, documentName: 'project:p1' } as any, 'maintenance'));
     expect(dDebounce).toBe(1);
 
     const d2document = await loadDoc(gateway, 'p5');

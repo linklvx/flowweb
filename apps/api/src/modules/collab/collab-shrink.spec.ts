@@ -1047,8 +1047,8 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect(upsertArg.update.generation).toBe(1);         // n+1 同事务落列
     expect(upsertArg.update.preVacuumSv).toBeInstanceOf(Buffer);   // 真空前 SV 同事务落列
     expect(upsertArg.update.preVacuumSv.length).toBeGreaterThan(0);
-    // 按实读行 id 精确删除（compact 同式）
-    expect(updateDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['row-1', 'row-2', 'row-3'] } } });
+    // Y1c T9 新表形态：锁内实读=该项目全部行——deleteMany 按 projectId 整删（行集=被删集等价）
+    expect(updateDeleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
 
     // 行集漂移守卫：④ 读 3 行⇒锁内 4 行（④ 读后有并发 append）⇒ throw（DB 零变更——upsert 未再调）
     const drifted = buildVacuumPrismaTx([...rows, { id: 'row-4', seq: 9n }]);

@@ -6,6 +6,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { makeSeedSeq } from '../../test-utils/canvas-doc-row';
+
+/** Y1c T9：repo.append（nextval 单帧）退役——播种替身（单调 walSeq 单帧行，appendBatch 批行）。 */
+const seedAppend = makeSeedSeq();
 import {
   ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow,
 } from '../../test-utils/db-fixtures';
@@ -28,16 +32,18 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
   it('A 持锁 append ok → B 夺锁（行 UPDATE owner=B）→ A append={ok:false,fenced}（写语句级，非内存布尔）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
     await ensureLeaseFixture(prisma as any, repo, 'owner-A');
-    const r1 = await repo.append(projectId, Y.encodeStateAsUpdate(new Y.Doc()));
+    const d1 = new Y.Doc(); d1.getMap('nodes').set('a', 1);   // 载荷相异（空 doc update 字节恒等——同 hash 会折幂等 no-op 档）
+    const r1 = await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(d1))]);
     expect(r1.ok).toBe(true);
     await prisma.$executeRawUnsafe(`UPDATE "CollabLease" SET owner = 'owner-B', "expiresAt" = now() + interval '1 hour' WHERE scope = 'primary'`);
-    const r2 = await repo.append(projectId, Y.encodeStateAsUpdate(new Y.Doc()));
+    const d2 = new Y.Doc(); d2.getMap('nodes').set('b', 2);
+    const r2 = await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(d2))]);
     expect(r2).toEqual({ ok: false, reason: 'fenced' });
   });
 
   it('A 的 compact 在 B 持锁期不删行（{compacted:false,reason:"not-owner"}+CanvasDocUpdate 行数不减）', async () => {
     await ensureLeaseFixture(prisma as any, repo, 'owner-A');
-    await repo.append(projectId, Y.encodeStateAsUpdate(new Y.Doc()));
+    { const d = new Y.Doc(); d.getMap('nodes').set('c', 3); await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(d))]); }
     const before = await prisma.canvasDocUpdate.count({ where: { projectId } });
     await prisma.$executeRawUnsafe(`UPDATE "CollabLease" SET owner = 'owner-B', "expiresAt" = now() + interval '1 hour' WHERE scope = 'primary'`);
     const r = await repo.compact(projectId);
@@ -49,7 +55,7 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
     repo.setLeaseOwner('owner-A');
     try {
       await prisma.$executeRawUnsafe(`DELETE FROM "CollabLease" WHERE scope = 'primary'`);
-      await expect(repo.append(projectId, new Uint8Array([1]))).rejects.toMatchObject({ leaseRowMissing: true });
+      await expect(repo.appendBatch(projectId, [seedAppend(new Uint8Array([1]))])).rejects.toMatchObject({ leaseRowMissing: true });
     } finally {
       await prisma.$executeRawUnsafe(
         `INSERT INTO "CollabLease" (scope, owner, epoch, "expiresAt") VALUES ('primary', NULL, 0, NULL)
@@ -62,7 +68,7 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
     await ensureLeaseFixture(prisma as any, repo);
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
     await prisma.canvasDoc.deleteMany({ where: { projectId } });
-    await repo.append(projectId, Y.encodeStateAsUpdate(new Y.Doc()));
+    { const d = new Y.Doc(); d.getMap('nodes').set('iso', 1); await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(d))]); }
     const a = await repo.readSnapshotOnly(projectId);
     const b = await repo.loadForHydration(projectId);
     expect(a.updates.length).toBe(b.updates.length);
@@ -75,7 +81,7 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
     await prisma.canvasDoc.deleteMany({ where: { projectId } });
     const base = new Y.Doc();
     base.getMap('nodes').set('base-marker', new Y.Map([['v', 1]]));
-    await repo.append(projectId, Y.encodeStateAsUpdate(base));
+    await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(base))]);
     const c = await repo.compact(projectId);   // stateSeq 落定（快照含 base-marker）
     expect(c.compacted).toBe(true);
     // 模拟绕锁迟到提交（advisory lock 之外的直接 INSERT——运维脚本/极端窗口形态）：低 seq 行,
@@ -85,8 +91,8 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
     const inverted = new Y.Doc();
     inverted.getMap('nodes').set('inverted-marker', new Y.Map([['v', 1]]));
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
-       SELECT gen_random_uuid()::text, $1, $3::bigint, $2::bytea, now()`,
+      `INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", "actorRanges", update, "createdAt")
+       SELECT $1, 1, $3::bigint, $3::bigint, 1, encode(sha256($2::bytea), 'hex'), NULL::jsonb, $2::bytea, now()`,
       projectId, Buffer.from(Y.encodeStateAsUpdate(inverted)), lowSeq,
     );
     let cancelLoadWatch!: () => void;

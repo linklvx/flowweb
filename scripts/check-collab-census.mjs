@@ -886,13 +886,23 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-frame-type.ts': {
       'hocuspocus-server-import': { n: 1, until: '片D' },   // :6 IncomingMessage/MessageType（经 gateway 引入）
     },
+    // Y1c T9（2026-10-24）：spool-first 写管线核心两新文件入闭包（经 gateway 引入）——applyUpdate=gate
+    // 档生产调用点（㉜ 同批登记）；frame-gate hocuspocus import=beforeSyncPayload type-only 行。
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': {
+      applyUpdate: { n: 1, until: '片D' },               // actor pre-apply（准入链 ⑤——apply 归属换代的唯一显式调用）
+    },
+    'apps/api/src/modules/collab/collab-frame-gate.service.ts': {
+      'hocuspocus-server-import': { n: 1, until: '片D' },   // beforeSyncPayload type-only import（零运行时边）
+    },
   };
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源）
-    'apps/api/src/modules/collab/collab-doc-registry.service.ts': { decodeStateVector: 2, encodeStateAsUpdate: 3 },   // T41 W3a：原 gateway 条目随域迁（decode 2=loadDocument preVacuumSv+guardSyncFrame SV 代际门；encode 3=装载真值/residue/measureTruth——④ 同源同计数换宿主）；gateway 条目消失（stale 机制核销）
-    'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 8 },   // T40 B1：store coalesce/降级 spool-first/PG 切批/spool 兜底/detached retry/handoff×2/force-spool（Y0c T16 handoffPendingToSpool +1 沿革见 gateway 旧注）
-    'apps/api/src/modules/collab/collab-spool.service.ts': { mergeUpdates: 1 },                  // spool 批合并
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': { decodeStateVector: 1, encodeStateAsUpdate: 3 },   // T41 W3a+Y1c T9：decode 2→1（guardSyncFrame SV 代际门随收编迁 frame-gate——encode 3=装载真值/residue/measureTruth 不变）
+    'apps/api/src/modules/collab/collab-frame-gate.service.ts': { decodeStateVector: 1 },   // Y1c T9：SS1 SV 代际门（guardSyncFrame 收编随迁）
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登
+    'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 6 },   // T40 B1 8→6（Y1c T9：PG 腿/降级支换轨维护 sink——coalesce/handoff×2/force-spool/detached retry 四位残留）
+    // Y1c T9：spool mergeUpdates 条目撤销（replayAll 改 per-frame 批行——帧合并归 actor PG 腿）
   };
   {
     const roots = files.filter((p) => byFile.get(p).stripped.includes('@Processor('));
@@ -1482,7 +1492,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-document.service.ts': 2,
     'apps/api/src/modules/collab/collab-shrink.service.ts': 3,
     'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
-    // gate 档=T9 建（现状 apply 归属=Hocuspocus 库内部，本仓零显式调用——建后本表收紧注释同批更新）
+    // Y1c T9（2026-10-24）gate 档落地：actor pre-apply 调用点 1（准入链 ⑤——origin=GateApplyOrigin）；
+    // 白名单 14+1=15 点/9 文件（gate 档从注释升级为登记条目——Y1c T9 写入方换代）
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // actor pre-apply（drain 批逐帧——spool 先于 apply）
   };
   {
     const occurrences = {};
@@ -1492,7 +1504,7 @@ if (isMain()) {
     }
     const details = reconcileCountWhitelist(occurrences, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
     const nWl = Object.values(APPLY_UPDATE_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/8 文件冻结；T9 gate 建后收紧；违规明细 file:line）`, details.length === 0, details);
+    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/9 文件冻结〔T9 gate 档已登记〕；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：

@@ -104,22 +104,22 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
     const before = await counterValue('collab_flush_document_outcome_total');
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'persisted' });
-    expect(repo.append).toHaveBeenCalledTimes(1);
+    expect(repo.appendBatch).toHaveBeenCalledTimes(1);
     expect(svc.hasPendingWrites(PID)).toBe(false);
     expect(svc.isPersistedComplete(PID)).toBe(true);
     expect(await counterValue('collab_flush_document_outcome_total')).toBeGreaterThan(before);
   });
 
-  it('noop 分支显式：无未落库变更（pending 空∧spool 空）∧isPersistedComplete→{persisted} 等价（不触 store——repo.append 零调用）', async () => {
+  it('noop 分支显式：无未落库变更（pending 空∧spool 空）∧isPersistedComplete→{persisted} 等价（不触 store——repo.appendBatch 零调用）', async () => {
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'persisted' });
-    expect(repo.append).not.toHaveBeenCalled();
+    expect(repo.appendBatch).not.toHaveBeenCalled();
     expect(spool.hasFrames(PID)).toBe(false);
   });
 
   it('retry/spooled：PG 不可达→批落 spool（fsync 新家）→{retry,spooled}——磁盘安全档（spooled≠delivered，调用方不耗 attempts）', async () => {
     enqueue(svc, doc, 'k1');
-    repo.append.mockRejectedValue(new Error('pg down'));
+    repo.appendBatch.mockRejectedValue(new Error('pg down'));
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'retry', reason: 'spooled' });
     expect(spool.hasFrames(PID)).toBe(true);           // 台账在盘（磁盘安全）
@@ -129,7 +129,7 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
   it('spooled 无限重试不设假失败（red：PG 停机>1h 判死磁盘安全帧=假失败——G58「PG 停机>1h 保持 pending 非 failed」）：时钟前拨>spoolDeadline 仍 {retry,spooled} 非 failed', async () => {
     expect(SPOOL_DEADLINE_MS).toBe(3_600_000);         // 1h 兜底常量=failed 档载体（T15 行级判定），spooled 档不受它约束
     enqueue(svc, doc, 'k1');
-    repo.append.mockRejectedValue(new Error('pg down'));
+    repo.appendBatch.mockRejectedValue(new Error('pg down'));
     expect(await svc.flushDocument(PID, EPOCH)).toEqual({ kind: 'retry', reason: 'spooled' });
     // —— PG 持续停机>1h（时钟注入：系统时间前拨 2×spoolDeadline）——帧在盘安全，不得判死 ——
     vi.useFakeTimers();
@@ -141,7 +141,7 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
 
   it('retry/failed：连 spool 都未落（owner 目录位被文件占位→mkdir 必败）→批滞留内存队列→{retry,failed}——耗 attempts 档（failed=耗 maxAttempts∨spoolDeadline，归调用方/T15）', async () => {
     enqueue(svc, doc, 'k1');
-    repo.append.mockRejectedValue(new Error('pg down'));
+    repo.appendBatch.mockRejectedValue(new Error('pg down'));
     // 真 fs 失败注入：owner 子目录路径放普通文件——appendRaw 的 mkdir(recursive) 对非目录路径必抛
     // （rm 目录无效——mkdir recursive 会自愈重建，占位文件才是结构性不可写形态）。
     await writeFile(join(dir, 't14-owner'), 'not-a-dir');
@@ -150,11 +150,11 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
     expect(svc.hasPendingWrites(PID)).toBe(true);       // 批保留内存队列（BOI 归属地不变）
   });
 
-  it('terminal/fenced（epoch 易主——提交前校验）：捕获值≠当前代→{terminal,fenced} 且不触 store（拒绝提交——repo.append 零调用+批留队未动）', async () => {
+  it('terminal/fenced（epoch 易主——提交前校验）：捕获值≠当前代→{terminal,fenced} 且不触 store（拒绝提交——repo.appendBatch 零调用+批留队未动）', async () => {
     enqueue(svc, doc, 'k1');
     const r = await svc.flushDocument(PID, EPOCH + 1n);   // 模拟租约易主后旧会话（长会话捕获值过期）
     expect(r).toEqual({ kind: 'terminal', reason: 'fenced' });
-    expect(repo.append).not.toHaveBeenCalled();           // 提交被拒（不触 store）
+    expect(repo.appendBatch).not.toHaveBeenCalled();           // 提交被拒（不触 store）
     expect(svc.hasPendingWrites(PID)).toBe(true);         // 批留在队列（未提交）
   });
 
@@ -163,12 +163,12 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
     epochNow = null;                                      // lease 非 held（lost/revoked/not-acquired）
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'terminal', reason: 'fenced' });
-    expect(repo.append).not.toHaveBeenCalled();
+    expect(repo.appendBatch).not.toHaveBeenCalled();
   });
 
   it('terminal/fenced（store 路径语句级 fenced）：epoch 校验过但 append={ok:false,fenced}→selfIsolate 链→{terminal,fenced}（终态优先于 spool 在盘——尽管批已安全落 spool）', async () => {
     enqueue(svc, doc, 'k1');
-    repo.append.mockResolvedValue({ ok: false, reason: 'fenced' });
+    repo.appendBatch.mockResolvedValue({ ok: false, reason: 'fenced' });
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'terminal', reason: 'fenced' });
     expect(spool.hasFrames(PID)).toBe(true);              // 批走 spool（契约 15：fenced 批落 spool+不排梯）
@@ -179,32 +179,32 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
     svc.onProjectGone(PID);                               // project.gone 事件路径（终态集登记+清队列）
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'terminal', reason: 'fk' });
-    expect(repo.append).not.toHaveBeenCalled();
+    expect(repo.appendBatch).not.toHaveBeenCalled();
   });
 
   it('terminal/fk（store 路径 FK 发现点）：append 抛 FK（P2003）→批丢弃+终态集登记→{terminal,fk}；复调仍 fk 不死循环（第二次零 append）', async () => {
     enqueue(svc, doc, 'k1');
-    repo.append.mockRejectedValue(Object.assign(new Error('FK violation'), { code: 'P2003' }));
+    repo.appendBatch.mockRejectedValue(Object.assign(new Error('FK violation'), { code: 'P2003' }));
     const r1 = await svc.flushDocument(PID, EPOCH);
     expect(r1).toEqual({ kind: 'terminal', reason: 'fk' });
     expect(svc.deletedProjects.has(PID)).toBe(true);      // FK=项目消失的写路径发现点（终态登记）
     expect(svc.hasPendingWrites(PID)).toBe(false);        // 批已丢弃（project deleted——终态处置）
-    repo.append.mockClear();
+    repo.appendBatch.mockClear();
     const r2 = await svc.flushDocument(PID, EPOCH);       // 复调：终态集命中——不再触 PG（无重试死循环）
     expect(r2).toEqual({ kind: 'terminal', reason: 'fk' });
-    expect(repo.append).not.toHaveBeenCalled();
+    expect(repo.appendBatch).not.toHaveBeenCalled();
   });
 
   it('doc 已卸载（无会话）：队列批→spool 交接（既有原语）→{retry,spooled}；帧-only→{retry,spooled}（已磁盘安全，PG 落定归退避梯/下轮 flush）', async () => {
     docs.delete(NAME);                                    // doc 不在（reaper/断连窗）
     enqueue(svc, doc, 'k1');
+    repo.appendBatch.mockRejectedValue(new Error('pg down'));   // Y1c T9：维护通道 WAL+PG 一体——PG 不可达注入前置（WAL 落定、帧不 confirm）
     const r1 = await svc.flushDocument(PID, EPOCH);
     expect(r1).toEqual({ kind: 'retry', reason: 'spooled' });
-    expect(spool.hasFrames(PID)).toBe(true);              // 交接落定（fsync）
+    expect(spool.hasFrames(PID)).toBe(true);              // 交接落定（fsync）——PG 失败帧留未 confirm
     expect(svc.hasPendingWrites(PID)).toBe(false);
-    repo.append.mockRejectedValue(new Error('pg down'));  // 帧-only 档：PG 仍不可达
     const r2 = await svc.flushDocument(PID, EPOCH);
-    expect(r2).toEqual({ kind: 'retry', reason: 'spooled' });
+    expect(r2).toEqual({ kind: 'retry', reason: 'spooled' });   // 帧-only 档：重发幂等（dedup 命中原 walSeq 行）——仍磁盘安全
   });
 
   it('residency 透传面：CollabResidencyService.flushDocument 委托 persistence（T15 投影 poller 消费位）', async () => {
@@ -223,7 +223,7 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
   // ── T15 承接（T14 评审 Minor#3）：store 三继承形态落 flushDocument 判读——各自不得伪装失败档 ──
   it('继承形态①leaseNotHeld（隔离/释放过渡窗 append 撞 owner=null）：批落 spool→{retry,spooled}（非 failed——过渡窗不进耗 attempts 档）', async () => {
     enqueue(svc, doc, 'k1');
-    repo.append.mockRejectedValue(Object.assign(new Error('lease owner not set'), { leaseNotHeld: true }));
+    repo.appendBatch.mockRejectedValue(Object.assign(new Error('lease owner not set'), { leaseNotHeld: true }));
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'retry', reason: 'spooled' });   // spool 兜底承接（BOI）——磁盘安全档
     expect(spool.hasFrames(PID)).toBe(true);
@@ -233,7 +233,7 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
   it('继承形态②leaseRowMissing（配置错误——CollabLease 行灭失）：批照走 spool 兜底→{retry,spooled}+collab_lease_row_missing_total 计数（非早退=BOI 实质失效根防）', async () => {
     const before = await counterValue('collab_lease_row_missing_total');
     enqueue(svc, doc, 'k1');
-    repo.append.mockRejectedValue(Object.assign(new Error('row gone'), { leaseRowMissing: true }));
+    repo.appendBatch.mockRejectedValue(Object.assign(new Error('row gone'), { leaseRowMissing: true }));
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'retry', reason: 'spooled' });   // 「配置错误重试无用」但批不丢——修复行后回灌
     expect(await counterValue('collab_lease_row_missing_total')).toBeGreaterThan(before);
@@ -243,12 +243,12 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
 
   it('继承形态③degraded（persistUnhealthy 降级态——V12 spool-first）：批先落 spool（新家先落定）再连带试 PG→{persisted}+段回收', async () => {
     svc.persistUnhealthy.add(NAME);   // 降级电平播种（电平翻转广播面=写失败路径——此处直种判定输入）
-    const spoolAppendSpy = vi.spyOn(spool, 'append');   // 透传观察（真 fsync 不替换）
+    const spoolAppendSpy = vi.spyOn(spool, 'appendTracked');   // Y1c T9：维护通道单帧面（V12 spool-first 语义内在化——恒先落 WAL 再试 PG）
     enqueue(svc, doc, 'k1');
     const r = await svc.flushDocument(PID, EPOCH);
     expect(r).toEqual({ kind: 'persisted' });
-    expect(spoolAppendSpy).toHaveBeenCalled();          // spool-first 证据：降级态批先落盘再试 PG
-    expect(repo.append).toHaveBeenCalledTimes(1);       // PG 腿随批连带尝试（成功）
+    expect(spoolAppendSpy).toHaveBeenCalled();          // spool-first 证据：维护通道恒先落 WAL（fsync）再试 PG
+    expect(repo.appendBatch).toHaveBeenCalledTimes(1);       // PG 腿随批连带尝试（成功）
     expect(spool.hasFrames(PID)).toBe(false);           // confirm——段回收
     expect(svc.hasPendingWrites(PID)).toBe(false);
   });

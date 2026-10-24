@@ -126,10 +126,10 @@ describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→�
         SHRINK_RELEASE_N_MS,
       );
       for (const cc of [a2, b2]) expect(cc.connStatus.some((x) => x.readOnly === false)).toBe(true);
-      const appendsBefore = kit.repo.append.mock.calls.length;
+      const appendsBefore = kit.repo.appendBatch.mock.calls.length;
       a2.ydoc.transact(() => a2.ydoc.getMap('nodes').set('thaw-marker', new Y.Map([['v', 1]])));
       await pollUntil(() => b2.ydoc.getMap('nodes').has('thaw-marker'), 5_000);   // 编辑放行+对端可见
-      await pollUntil(() => kit.repo.append.mock.calls.length > appendsBefore, 5_000);   // 物化（store 链路发生——debounce 窗后落 repo）
+      await pollUntil(() => kit.repo.appendBatch.mock.calls.length > appendsBefore, 5_000);   // 物化（store 链路发生——debounce 窗后落 repo）
     } finally {
       await kit.dispose();
     }

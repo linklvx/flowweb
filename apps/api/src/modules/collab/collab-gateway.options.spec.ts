@@ -30,7 +30,7 @@ function buildGateway(): CollabGateway {
 describe('Y0b-3 T1：Server 构造 pin', () => {
   it('pre-auth 库配置三 pin+maxPayload 显式在位（断言构造入参读回）', () => {
     const ctor = buildGateway().server.configuration;
-    expect(ctor.websocketOptions).toEqual({ maxPayload: 16 * 1024 * 1024 });   // §7.2 禁回落 ws 默认 100MiB
+    expect(ctor.websocketOptions).toEqual({ maxPayload: 9 * 1024 * 1024 });   // Y1c T9 偏离 38⑱：16→9MiB（>SS2 帧闸恰容纳——禁回落 ws 默认 100MiB）
     expect(ctor.maxUnauthenticatedQueueMessages).toBe(256);   // 库默认 1e3 → 未 pin 即红
     expect(ctor.maxUnauthenticatedQueueSize).toBe(1024 * 1024);   // 库默认 5MiB → 未 pin 即红
     expect(ctor.maxPendingDocuments).toBe(100);   // 库默认即 100——文档锚防升级翻转（P24 先例）

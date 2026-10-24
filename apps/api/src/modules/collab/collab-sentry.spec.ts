@@ -36,6 +36,8 @@ afterEach(async () => { await spoolCleanup(); });
 
 function buildGateway(repoOver: Partial<MockRepo> = {}) {
   const prisma = {
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id' }) },  // Y1c T9（T8 接线）：listenCollab requireSystemHistory fail-closed 读面 mock
+
     session: {
       findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }),
       update: vi.fn(async (args: any) => ({ user: { id: 'u1', name: '张三' }, expiresAt: args.data.expiresAt })),
@@ -78,9 +80,9 @@ describe('T11 gateway 三样本 catch → captureException+scope{docName,reason,
   });
 
   it('store 失败：append 抛错 → capture{docName, reason:store-append-failed, connectionId:"-"}（onStoreDocumentPayload 无 socketId）', async () => {
-    const { gateway } = buildGateway({ append: vi.fn().mockRejectedValue(new Error('pg down')) });
+    const { gateway } = buildGateway({ appendBatch: vi.fn().mockRejectedValue(new Error('pg down')) });
     gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);
-    const r = await gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any);
+    const r = await gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p1' } as any, 'maintenance');   // Y1c T9：维护显式 flush
     expect(r).toBe(false);
     expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error), {
       tags: { docName: 'project:p1', reason: 'store-append-failed', connectionId: '-' },
@@ -90,7 +92,7 @@ describe('T11 gateway 三样本 catch → captureException+scope{docName,reason,
   it('compact 放弃：append 成功后 compact 抛错 → 行已落库仅 WARN + capture{reason:compact-failed, connectionId:"-"}', async () => {
     const { gateway } = buildGateway({ compact: vi.fn().mockRejectedValue(new Error('compact boom')) });
     gatewayFacade(gateway).seedPendingQueue('p1', [new Uint8Array([1, 2, 3])]);
-    const r = await gateway.hooks.onStoreDocument({ document: new Y.Doc(), documentName: 'project:p1' } as any);
+    const r = await gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p1' } as any, 'maintenance');   // Y1c T9：维护显式 flush
     expect(r).toBe(true);   // compact 是优化不是不变量载体——失败不翻 store 结果
     expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error), {
       tags: { docName: 'project:p1', reason: 'compact-failed', connectionId: '-' },

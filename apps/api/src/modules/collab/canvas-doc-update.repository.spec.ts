@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { seedRow } from '../../test-utils/canvas-doc-row';
 import { yjsCompactAbandonedTotal } from './store.metrics';
 
 describe('CanvasDocUpdateRepository', () => {
@@ -32,15 +33,15 @@ describe('CanvasDocUpdateRepository', () => {
     repo.setLeaseOwner('spec-owner');   // Y0a-3 契约 16：append/compact fail-closed——既有用例默认持有人
   });
 
-  it('append 单语句：$queryRaw 取号+INSERT 同语句，返回 AppendResult；不经 canvasDocUpdate.create；V8 事务上界 5s/1s', async () => {
+  it('appendBatch（Y1c T9 新表形态）：锁内多行 INSERT ON CONFLICT DO NOTHING，返回实插行数；不经 canvasDocUpdate.create；V8 事务上界 5s/1s', async () => {
     // mock $transaction 直接执行回调（tx 即 prisma 自身——同 compact 三例先例）
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
     prisma.$queryRaw.mockResolvedValue([{ seq: 7n }]);
-    const r = await repo.append('p1', new Uint8Array([1, 2]));
-    expect(r).toEqual({ ok: true, seq: 7n });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1, 2]), 7n), seedRow(new Uint8Array([3]), 8n)]);
+    expect(r).toEqual({ ok: true, rows: 2 });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);   // 每行一条 INSERT（同事务）
     expect(prisma.canvasDocUpdate.create).not.toHaveBeenCalled();
-    // V8（Y0a-2 复审 I-1）：append 包交互式事务——5s 上界/maxWait 1s（挂起的 PG append 不得无上界持 saveMutex）
+    // V8（Y0a-2 复审 I-1）：append 批交互式事务——5s 上界/maxWait 1s（挂起的 PG append 不得无上界持 actor drain）
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000, maxWait: 1_000 });
   });
 
@@ -51,14 +52,14 @@ describe('CanvasDocUpdateRepository', () => {
     doc.getMap('nodes').set('n1', 'x');
     prisma.canvasDoc.findUnique.mockResolvedValue(null);
     prisma.canvasDocUpdate.findMany.mockResolvedValue([
-      { id: 'u1', seq: 1n, update: Buffer.from(Y.encodeStateAsUpdate(doc)) },
+      { projectId: 'p1', generation: 1, seq: 1n, update: Buffer.from(Y.encodeStateAsUpdate(doc)) },
     ]);
     await expect(repo.compact('p1')).resolves.toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: 1, tombstoneBytes: expect.any(Number) });   // 返回契约（spec v2.4 §1.3+Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows/tombstoneBytes）
     expect(prisma.$executeRaw).toHaveBeenCalled();
     expect(prisma.canvasDoc.upsert).toHaveBeenCalled();
     // 被删集 ≡ 被重放集（按实读行 id 精确删除——事务期间新 append 的行不被误删）
     expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['u1'] } },
+      where: { projectId: 'p1' },   // Y1c T9 新表形态：锁内实读=全行集——projectId 整删
     });
     expect(prisma.canvasDoc.upsert.mock.calls[0][0].update.stateSeq).toBe(1n);   // stateSeq 精确 =maxSeq
     // C1：RR 隔离级别，保证删除的行 ⊆ 重放的行（READ COMMITTED 快照不一致丢更新窗口）；
@@ -144,8 +145,8 @@ describe('CanvasDocUpdateRepository', () => {
     expect(prisma.canvasDoc.upsert.mock.calls[0][0].update.stateSeq).toBe(1n);
     expect(prisma.canvasDoc.upsert.mock.calls[1][0].update.stateSeq).toBe(2n);
     // 被删集 ≡ 被重放集（按实读行 id 精确删除——两轮各删各的实读集）
-    expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenNthCalledWith(1, { where: { id: { in: ['u1'] } } });
-    expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenNthCalledWith(2, { where: { id: { in: ['u2'] } } });
+    expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenNthCalledWith(1, { where: { projectId: 'p1' } });
+    expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenNthCalledWith(2, { where: { projectId: 'p1' } });   // Y1c T9：projectId 整删（行集=锁内实读全部）
   });
 
   it('compact：pendingStructs 非空放弃本次——返回 abandoned、不写快照不删行、P0 计数+1（禁 throw——gateway catch 会污染 failure 线）', async () => {
@@ -199,33 +200,41 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     return { repo: new CanvasDocUpdateRepository(prisma as any), prisma, txq, exec, query };
   }
 
-  it('append：advisory lock（值=p1）+owner-only EXISTS（形状无 TTL 项）——与 compact 同 key', async () => {
+  it('appendBatch：advisory lock（值=p1）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）——与 compact 同 key', async () => {
     const txq = vi.fn().mockResolvedValue([{ seq: 1n }]);
     const exec = vi.fn().mockResolvedValue([]);
     const { repo, exec: e } = buildRepo({ txQuery: txq, txExec: exec });
     repo.setLeaseOwner('me');
-    const r = await repo.append('p1', new Uint8Array([1]));
-    expect(r).toEqual({ ok: true, seq: 1n });
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)]);
+    expect(r).toEqual({ ok: true, rows: 1 });
     expect(e.mock.calls.length).toBeGreaterThanOrEqual(1);            // 锁语句被执行
     expect(shape(e.mock.calls[0])).toContain('pg_advisory_xact_lock(hashtext(?)');   // 占位符形态（禁内插）
     expect(e.mock.calls[0].slice(1)).toEqual(['p1']);                 // 锁键=projectId（与 compact 同源）
     const insert = txq.mock.calls[0];
     expect(shape(insert)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
     expect(shape(insert)).not.toContain('"expiresAt" >= now()');      // SV1：fence 去 TTL
+    expect(shape(insert)).toContain('ON CONFLICT DO NOTHING');        // Y1c T9：重试/重组批幂等
     expect(insert.slice(1)).toEqual(expect.arrayContaining(['p1', 'me']));   // owner=绑定值
   });
 
   it('owner=null 显式 throw lease-owner-not-set（P7：配置错误不伪装 fenced）', async () => {
     const { repo } = buildRepo();
-    await expect(repo.append('p1', new Uint8Array([1]))).rejects.toThrow('lease owner not set');
+    await expect(repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)])).rejects.toThrow('lease owner not set');
   });
 
-  it('fenced=0 行不抛异常（B2）→二次查行在→{ok:false,reason:"fenced"}（契约 15；no-row 死值已删）', async () => {
-    const txq = vi.fn().mockResolvedValue([]);                       // INSERT 0 行
-    const query = vi.fn().mockResolvedValue([{ owner: 'other' }]);   // 二次查
+  it('fenced=0 行且行不存在（全新行被 EXISTS 拦）→{ok:false,reason:"fenced"}；行已存在（updateHash 幂等命中）→{ok:true,rows:0}（Y1c T9 幂等轴两分——契约 15 承继）', async () => {
+    const txq = vi.fn().mockResolvedValue([]);                       // INSERT 0 行（两形态共面）
+    const query = vi.fn()
+      .mockResolvedValueOnce([])                                     // 幂等探查：行不存在（fenced 档）
+      .mockResolvedValue([{ owner: 'other' }]);                      // 二次查（fenced 分型确认）
     const { repo } = buildRepo({ query, txQuery: txq });
     repo.setLeaseOwner('me');
-    await expect(repo.append('p1', new Uint8Array([1]))).resolves.toEqual({ ok: false, reason: 'fenced' });
+    await expect(repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)])).resolves.toEqual({ ok: false, reason: 'fenced' });
+    // 幂等命中档：行已在（探查命中）→ ok rows:0（DO NOTHING 吞行=正确 no-op——重试/重组批幂等）
+    const query2 = vi.fn().mockResolvedValue([{ seq: 1n }]);         // 幂等探查命中
+    const { repo: repo2 } = buildRepo({ query: query2, txQuery: vi.fn().mockResolvedValue([]) });
+    repo2.setLeaseOwner('me');
+    await expect(repo2.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)])).resolves.toEqual({ ok: true, rows: 0 });
   });
 
   it('leaseRowMissing：二次查空行→throw（不伪装 fenced/不进重试语义）', async () => {
@@ -233,7 +242,7 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     const query = vi.fn().mockResolvedValue([]);                     // 二次查空
     const { repo } = buildRepo({ query, txQuery: txq });
     repo.setLeaseOwner('me');
-    await expect(repo.append('p1', new Uint8Array([1]))).rejects.toMatchObject({ leaseRowMissing: true });
+    await expect(repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)])).rejects.toMatchObject({ leaseRowMissing: true });
   });
 
   it('compact 事务首行租约断言：不符→{compacted:false,reason:"not-owner"}+零删除+断言先于锁（调用序判据）', async () => {

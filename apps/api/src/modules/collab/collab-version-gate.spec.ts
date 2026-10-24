@@ -32,6 +32,8 @@ afterEach(async () => { await spoolCleanup(); });
 
 function buildGateway() {
   const prisma = {
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id' }) },  // Y1c T9（T8 接线）：listenCollab requireSystemHistory fail-closed 读面 mock
+
     session: {
       findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, userId: 'u1', expiresAt: new Date(Date.now() + 24 * 3600 * 1000) }),
       update: vi.fn(async (args: any) => ({ user: { id: 'u1', name: '张三' }, expiresAt: args.data.expiresAt })),

@@ -16,10 +16,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** 执法锚七文件（T42 B3 四文件+CI 双故障根修批 T10 三新文件——变更锚值=有意识动作：自测 SIZE_LIMITS 断言同批改）。 */
 export const SIZE_LIMITS = {
-  'apps/api/src/modules/collab/collab.gateway.ts': 934,   // T42 B3 实测终标（偏离 65 兑现：plan ≤600 字面=防倒退锚非可达值——1031→934，手段①②④；手段③委托位零退役）
-  'apps/api/src/modules/collab/collab-session-guard.service.ts': 1238,   // T41 W3b B2 实测（偏离 65/74）
+  'apps/api/src/modules/collab/collab.gateway.ts': 979,   // T42 B3 934→Y1c T9 实测 978（+44：actor/gate 构造+host 绑线+maintenance sink 接线+T8 接线块〔requireSystemHistory/setWalHistory/onWalFailStop〕+onStoreDocument 拆链——所有权切换净增面，非膨胀）
+  'apps/api/src/modules/collab/collab-session-guard.service.ts': 1273,   // T41 W3b B2 1238→Y1c T9 实测 1273（+35：closeAllConnectionsWs 泛化〔1011 WAL fail-stop 档〕+版本门 historyId 硬门〔修正 #8 resolveVersionGate 接线〕+auth 回执 historyId 下发半链——三净增面，非膨胀）
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1082,   // T41 W3a B2 实测（偏离 65/74）
-  'apps/api/src/modules/collab/collab-persistence.service.ts': 1037,   // T40 B1 实测 950→T14 flushDocument 窄接口（交付判定载体——v10.1 T6c 维持）叠加实测重标（锚值=绿相终值，红绿同批）
+  'apps/api/src/modules/collab/collab-persistence.service.ts': 1056,   // T40 B1 实测 950→T14 flushDocument 窄接口（交付判定载体——v10.1 T6c 维持）叠加实测重标（锚值=绿相终值，红绿同批）
   'apps/api/src/modules/collab/collab-limits.ts': 55,   // CI 修复批 R4b' 新文件入锚（T10 实测 42+1.3 余量——spec 预登记 2 兑现）
   'apps/api/src/modules/collab/collab-outbound-budget.ts': 155,   // CI 修复批 R4b' 新文件入锚（T10 实测 119+1.3 余量——四档帧型+记账台账）
   'apps/api/src/modules/collab/collab-heartbeat.ts': 40,   // CI 修复批 R6' 新文件入锚（T10 实测 31+1.3 余量——v3 补：三新文件统一入锚）

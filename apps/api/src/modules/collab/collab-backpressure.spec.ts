@@ -166,9 +166,9 @@ describe('Y0b-4 T7 出站背压 wrap（Q-F v2：每 send 判+决策/采样分离
     expect(hits).toEqual(['collab-session-guard.service.ts']);
   }, 15_000);
 
-  it('maxPayload 维持 16MB（Q-T v4 撤回 9MB——零改动验证：Server 配置读回）；越界不变量 docSize≤maxDocBytes+maxFrameOvershoot 归 T4 用例（collab-quota-gate）不重写', () => {
+  it('maxPayload=9MiB（Y1c T9 偏离 38⑱ 翻转：>SS2 帧闸 8.06MiB 恰容纳——Server 配置读回）；越界不变量 docSize≤maxDocBytes+maxFrameOvershoot 归 T4 用例（collab-quota-gate）不重写', () => {
     const gw = buildGateway();
-    expect(gw.server.configuration.websocketOptions).toEqual({ maxPayload: 16 * 1024 * 1024 });   // §7.2 禁回落 ws 默认 100MiB
+    expect(gw.server.configuration.websocketOptions).toEqual({ maxPayload: 9 * 1024 * 1024 });   // Y1c T9 偏离 38⑱：16→9MiB（>SS2 帧闸恰容纳——禁回落 ws 默认 100MiB）
   }, 15_000);
 });
 

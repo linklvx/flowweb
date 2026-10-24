@@ -1,14 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
+import { seedRow } from '../../test-utils/canvas-doc-row';
 import * as Y from 'yjs';
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
 const PID = 'y0a1-append-int';
 
-maybe('append（真 PG）', () => {
+maybe('appendBatch（真 PG——Y1c T9 新表形态）', () => {
   const prisma = new PrismaClient();
   const repo = new CanvasDocUpdateRepository(prisma as any);
 
@@ -17,27 +19,35 @@ maybe('append（真 PG）', () => {
   beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
   afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
-  it('append 返回 AppendResult：ok:true 且 seq 严格递增、行数一致（局部不变量——不读全局序列 last_value：vitest 并行 worker 下它反映所有会话取号，跨文件干扰必红）', async () => {
+  it('appendBatch 返回实插行数：ok:true 且 seq（=walSeq）严格递增、行数一致（局部不变量——walSeq 由 actor/spool 单调分配，此处直接供给）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
-    const u = Y.encodeStateAsUpdate(new Y.Doc());
+    // 每帧载荷相异（@@unique(projectId,generation,updateHash) 幂等轴——同 payload 重发会被 DO NOTHING
+    // 吞行折 fenced；walSeq 严格递增=行 seq 口径）
     const seqs: bigint[] = [];
     for (let i = 0; i < 3; i++) {
-      const r = await repo.append(PID, u);
-      expect(r.ok).toBe(true);          // 契约 15：成功判据=ok===true（本批恒 true；fence 断言 Y0a-3 才追加）
-      if (r.ok) seqs.push(r.seq);
+      const d = new Y.Doc(); d.getMap('nodes').set(`n${i}`, i);
+      const r = await repo.appendBatch(PID, [seedRow(Y.encodeStateAsUpdate(d), BigInt(i + 1))]);
+      expect(r.ok).toBe(true);          // 契约 15 承继：成功判据=ok===true
+      if (r.ok) seqs.push(BigInt(i + 1));
     }
     expect(seqs[1] > seqs[0]).toBe(true);
     expect(seqs[2] > seqs[1]).toBe(true);
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(3);
   });
 
-  it('重复 (projectId,seq) 被唯一约束拒绝（P2002 行为锚——对未迁移库此用例红=Task 1 红相的运行时面）', async () => {
+  it('重复 (projectId,generation,updateHash) 批重发=ON CONFLICT DO NOTHING 幂等（重试/重组批幂等锚——Y1c T9 唯一约束换轴：旧 (projectId,seq) P2002 行为锚随 nextval 退役）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
-    const u = Y.encodeStateAsUpdate(new Y.Doc());
-    const r0 = await repo.append(PID, u);                          // 占用该 seq
-    if (!r0.ok) throw new Error('expected ok');
+    const d = new Y.Doc(); d.getMap('nodes').set('dup', 1);
+    const u = Y.encodeStateAsUpdate(d);
+    const row = seedRow(u, 10n);
+    const r0 = await repo.appendBatch(PID, [row]);                   // 占用该 updateHash
+    expect(r0).toEqual({ ok: true, rows: 1 });
+    const r1 = await repo.appendBatch(PID, [row]);                   // 同帧重发（重试路径——同 hash 同 PK）
+    expect(r1).toEqual({ ok: true, rows: 0 });                       // 幂等零实插（不抛 P2002——静默吸收）
+    expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(1);
+    // 同 seq 异 updateHash 仍被 PK 拒（约束轴拆分锚）
     await expect(
-      prisma.canvasDocUpdate.create({ data: { projectId: PID, seq: r0.seq, update: Buffer.from([0]) } }),
+      prisma.canvasDocUpdate.create({ data: { projectId: PID, generation: 1, seq: 10n, firstWalSeq: 10n, frameCount: 1, updateHash: createHash('sha256').update('other').digest('hex'), update: Buffer.from([0]) } }),
     ).rejects.toMatchObject({ code: 'P2002' });
   });
 });

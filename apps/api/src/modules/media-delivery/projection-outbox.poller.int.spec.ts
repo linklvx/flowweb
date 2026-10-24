@@ -363,7 +363,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await seedProject(PID);
     await seedNode(PID, 'n1');
     const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-spool' });
-    const spy = vi.spyOn(repo, 'append').mockRejectedValue(new Error('injected pg down'));
+    const spy = vi.spyOn(repo, 'appendBatch').mockRejectedValue(new Error('injected pg down'));
     const summary = await poller.tick();
     expect(summary.outcomes['retry-spooled'] ?? 0).toBeGreaterThan(0);
     const row = await projectionRow(projectionId);

@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -44,44 +45,87 @@ export class CanvasDocUpdateRepository {
     return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
   }
 
+  /** T9：批 updateHash 单源（=有序 frameHash 列表 SHA-256——非 merged update 字节；重试/重组批幂等键）。
+   *  actor drain 批/维护单帧/回灌行共用（禁第二份实现）。frameHash=SHA-256(payload) 32B 原始字节。 */
+  static batchUpdateHash(frameHashes: ReadonlyArray<Uint8Array>): string {
+    return createHash('sha256').update(Buffer.concat(frameHashes.map((h) => Buffer.from(h)))).digest('hex');
+  }
+
+  /** T9：单帧行构造便捷面（frameHash 由调用方算好——spool/actor 共用 walSeq 口径）。 */
+  static singleFrameRow(input: { generation: number; walSeq: bigint; frameHash: Uint8Array; update: Uint8Array; actorRanges?: unknown }) {
+    return {
+      generation: input.generation,
+      firstWalSeq: input.walSeq,
+      lastWalSeq: input.walSeq,
+      frameCount: 1,
+      updateHash: CanvasDocUpdateRepository.batchUpdateHash([input.frameHash]),
+      update: input.update,
+      ...(input.actorRanges !== undefined ? { actorRanges: input.actorRanges } : {}),
+    };
+  }
+
   /** Y0a-3 T3 fence 下沉：单语句原子 append（取号+插入同一语句——消灭两语句间进程死窗口）+
    *  owner-only 写断言（SV1：WHERE EXISTS CollabLease owner——去 TTL，TTL 不参与正确性判定）+
    *  与 compact 同 key advisory lock（SV3：seq 序≡提交序，stateSeq 保持可信水位）。
    *  返回契约（spec v2.5 契约 15）：AppendResult 判别类型——fenced=0 行**不抛异常**，调用方
    *  禁以"未抛错"判成功。0 行时二次查区分（v2.5 消静默）：行在=真 fenced；行被删=leaseRowMissing
    *  throw（配置错误，重试无用——gateway 落 spool 不排梯 SV13）。 */
-  async append(projectId: string, update: Uint8Array): Promise<{ ok: true; seq: bigint } | { ok: false; reason: 'fenced' }> {
+  /** Y1c T9 批行（新表形态——Controller 裁定 1：actor drain 批同事务多行 append；T10 精化 applied-driven
+   *  连续批+水位 CAS）：行 seq=wAL 帧序号（firstWalSeq..lastWalSeq 单调）；ON CONFLICT DO NOTHING
+   *  （无目标谓词=覆盖 PK+updateHash 双唯一）——updateHash=有序 frameHash 列表 SHA-256（重试/重组批幂等）。
+   *  advisory lock+lease fence 维持（T10 才删——禁本卡吸进）。返回 rows=实插行数（conflict 命中=幂等
+   *  视为已提交）。 */
+  async appendBatch(projectId: string, rows: ReadonlyArray<{
+    generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
+    updateHash: string; update: Uint8Array; actorRanges?: unknown;
+  }>): Promise<{ ok: true; rows: number } | { ok: false; reason: 'fenced' }> {
     const owner = this.leaseOwner;
     if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
-    // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——裸 $queryRaw 无超时=挂起的 PG append
-    // 无上界持 saveMutex→shutdown drain 等 doc 归零永不满足→恒走 destroy_timeout。与 loadForHydration
-    // 同族（单语句事务体）；P2024（事务超时）以 throw 形态冒出——isRetryableAppendError 已含 P2024。
-    const rows = await this.prisma.$transaction(
+    if (rows.length === 0) return { ok: true, rows: 0 };
+    // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——同旧单帧 append 语义
+    const inserted = await this.prisma.$transaction(
       async (tx) => {
-        // SV3/W14：与 compact 同 key advisory lock——seq 序≡提交序（stateSeq 保持可信水位），
-        // append×compact 竞态结构性消失；单锁无死锁面；亚毫秒级（仅同项目并发写时排队）。
+        // SV3/W14：与 compact 同 key advisory lock——seq 序≡提交序（水位可信前提）；T10 删除归其卡
         await this.lockProject(tx, projectId);
-        return tx.$queryRaw<{ seq: bigint }[]>`
-        INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
-        SELECT gen_random_uuid()::text, ${projectId}, nextval('canvas_doc_update_seq')::bigint, ${Buffer.from(update)}, now()
-        WHERE EXISTS (SELECT 1 FROM "CollabLease"
-                       WHERE scope = 'primary' AND owner = ${owner})
-        RETURNING seq`;
+        let n = 0;
+        for (const r of rows) {
+          // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折
+          // FK 判定失误——text/int/char(64) 三 cast 后真 PG 实测通过）
+          const res = await tx.$queryRaw<{ seq: bigint }[]>`
+          INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", "actorRanges", update, "createdAt")
+          SELECT ${projectId}::text, ${r.generation}::int, ${r.lastWalSeq}::bigint, ${r.firstWalSeq}::bigint, ${r.frameCount}::int, ${r.updateHash}::char(64), ${r.actorRanges === undefined ? null : JSON.stringify(r.actorRanges)}::jsonb, ${Buffer.from(r.update)}, now()
+          WHERE EXISTS (SELECT 1 FROM "CollabLease"
+                         WHERE scope = 'primary' AND owner = ${owner})
+          ON CONFLICT DO NOTHING
+          RETURNING seq`;
+          n += res.length;
+        }
+        return n;
       },
       { timeout: 5_000, maxWait: 1_000 },
     );
-    if (rows.length > 0) return { ok: true, seq: rows[0].seq };
-    // 0 行=fenced（B2 不抛）。二次查区分（v2.5 消静默）：行被删=配置错误（leaseRowMissing，重试无用
-    // ——gateway 落 spool 不排梯 SV13）；行在=确为 fenced（owner≠me）。
-    const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
-      SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
-    if (lease.length === 0) {
-      throw Object.assign(
-        new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
-        { leaseRowMissing: true },
-      );
+    if (inserted > 0) return { ok: true, rows: inserted };
+    // 0 行两分（Y1c T9 幂等轴）：行已存在（updateHash 幂等命中——重试/重组批 no-op）=ok rows:0；
+    // 全新行零插入=fenced（B2 不抛——二次查区分：CollabLease 行删=leaseRowMissing 配置错误〔重试
+    // 无用——gateway 落 spool 不排梯 SV13〕；行在=确 fenced〔owner≠me〕）。
+    for (const r of rows) {
+      const exists = await this.prisma.$queryRaw<{ seq: bigint }[]>`
+        SELECT seq FROM "CanvasDocUpdate"
+        WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int
+          AND "updateHash" = ${r.updateHash}::char(64) LIMIT 1`;
+      if (exists.length === 0) {
+        const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
+          SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
+        if (lease.length === 0) {
+          throw Object.assign(
+            new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
+            { leaseRowMissing: true },
+          );
+        }
+        return { ok: false, reason: 'fenced' };
+      }
     }
-    return { ok: false, reason: 'fenced' };
+    return { ok: true, rows: 0 };   // 幂等重发：全部 updateHash 已在（DO NOTHING 吞行=正确 no-op）
   }
 
   private static readonly PAGE_ROWS = 500;
@@ -203,7 +247,7 @@ export class CanvasDocUpdateRepository {
         const liveRows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },
-          select: { id: true, seq: true },
+          select: { projectId: true, generation: true, seq: true },
         });
         if (liveRows.length !== expectedRowCount) {
           throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true });
@@ -216,7 +260,8 @@ export class CanvasDocUpdateRepository {
           update: { state, stateSeq: maxSeq, preVacuumSv, generation },
           create: { projectId, state, stateSeq: maxSeq, preVacuumSv, generation },
         });
-        await tx.canvasDocUpdate.deleteMany({ where: { id: { in: liveRows.map((r) => r.id) } } });
+        // T9 新表形态：锁内实读=该项目全部增量行（append-only+compact 同键排队）——按 projectId 整删（行集=被删集等价）
+        await tx.canvasDocUpdate.deleteMany({ where: { projectId } });
         return { generation };
       },
       { timeout: 10_000, maxWait: 2_000 },
@@ -261,7 +306,7 @@ export class CanvasDocUpdateRepository {
         const rows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },
-          select: { id: true, seq: true, update: true },
+          select: { projectId: true, generation: true, seq: true, update: true },
         });
         if (rows.length === 0) return { compacted: false, reason: 'empty' as const };
         const maxSeq = rows[rows.length - 1].seq;
@@ -283,7 +328,7 @@ export class CanvasDocUpdateRepository {
           update: { state: Buffer.from(newSnapshot), stateSeq: maxSeq },
           create: { projectId, state: Buffer.from(newSnapshot), stateSeq: maxSeq },
         });
-        await tx.canvasDocUpdate.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+        await tx.canvasDocUpdate.deleteMany({ where: { projectId } });   // T9：行集=锁内实读全部行（同 vacuumReplace 口径）
         return { compacted: true, snapshotBytes: newSnapshot.length, deletedRows: rows.length, tombstoneBytes: tombstone.length };   // Y0b-4 T3 真值上报+Y0b-5 T10 行数/tombstone
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },

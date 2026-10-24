@@ -57,9 +57,12 @@ import {
   walRecoverySuspectTotal,
 } from './store.metrics';
 import { isFkGone } from './pg-error.util';
-import type { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { projectDocName } from './doc-name.util';
 
-export interface SpoolFrame { frameId: string; payload: Uint8Array }
+export interface SpoolFrame { frameId: string; payload: Uint8Array; walSeq: bigint }
+/** T9 actor/维护通道单帧追加结果（walSeq 随帧返回——PG 批行 seq 口径）。 */
+export interface WalAppendedFrame { frameId: string; walSeq: bigint }
 
 const SEGMENT_MAX_BYTES = 4 * 1024 * 1024;
 /** 帧记录 payloadLen 合法上界（spike 同源格式级 sanity 界——>9MiB WS 门/4MiB 批界的宽松上限）。
@@ -437,18 +440,31 @@ export class CollabSpoolService {
   /** 水位三元注册表（内存——pgSeq 持久列归 T10；assertWatermarkInvariants 每次推进断言）。 */
   private watermarks = new Map<string, WatermarkTriple>();
   watermark(projectId: string): WatermarkTriple | undefined { return this.watermarks.get(projectId); }
+  /** T9：per-project 当前世代读面（actor PG 批行 generation 口径——缺省 1 与 appendRaw 同源）。 */
+  currentGeneration(projectId: string): number { return this.projectGeneration.get(projectId) ?? 1; }
+  /** T9 actor：appliedSeq 推进单点（apply 成功后调用——appendBatch 只推 spoolHeadSeq，applied 归 actor）。
+   *  钳制：applied ≤ spoolHead（磁盘为准——apply 状态不得越过已 fsync 面；生产恒等〔append 后即 apply〕，
+   *  钳制只在注入/异常序下兜底——防 assert throw 逃逸杀 drain 批 promise）。 */
+  noteApplied(projectId: string, seq: bigint): void {
+    const w = this.watermarks.get(projectId) ?? ZERO_WATERMARK;
+    const applied = seq > w.spoolHeadSeq ? w.spoolHeadSeq : seq;   // 钳至 spoolHead
+    if (applied <= w.appliedSeq) return;
+    const next: WatermarkTriple = { pgSeq: w.pgSeq, appliedSeq: applied, spoolHeadSeq: w.spoolHeadSeq };
+    assertWatermarkInvariants(next);
+    this.watermarks.set(projectId, next);
+  }
   /** SHA-256 去重有界索引（偏离 38④——跨重启「零重复 walSeq」成立）：键 `${projectId}\u0000${hashHex}`，
    *  插入序 FIFO——超 100k 驱逐最老；条目 24h TTL（查找惰性清除）。探针键排除（探针必须真写）。 */
-  private dedupIndex = new Map<string, { frameId: string; at: number }>();
-  private dedupLookup(projectId: string, hashHex: string): { frameId: string; at: number } | null {
+  private dedupIndex = new Map<string, { frameId: string; walSeq: bigint; at: number }>();
+  private dedupLookup(projectId: string, hashHex: string): { frameId: string; walSeq: bigint; at: number } | null {
     const e = this.dedupIndex.get(`${projectId}\u0000${hashHex}`);
     if (e == null) return null;
     if (Date.now() - e.at > WAL_DEDUP_INDEX_TTL_MS) { this.dedupIndex.delete(`${projectId}\u0000${hashHex}`); return null; }
     return e;
   }
-  private dedupInsert(projectId: string, hashHex: string, frameId: string): void {
+  private dedupInsert(projectId: string, hashHex: string, frameId: string, walSeq: bigint): void {
     const key = `${projectId}\u0000${hashHex}`;
-    this.dedupIndex.set(key, { frameId, at: Date.now() });
+    this.dedupIndex.set(key, { frameId, walSeq, at: Date.now() });
     while (this.dedupIndex.size > WAL_DEDUP_INDEX_MAX_ENTRIES) {
       const oldest = this.dedupIndex.keys().next().value as string | undefined;
       if (oldest === undefined) break;
@@ -576,13 +592,86 @@ export class CollabSpoolService {
       if (hit != null) return [hit.frameId];                  // 命中 applied=no-op 确认（原帧已 fsync）
     }
     try {
-      const ids = await this.appendRaw(projectId, payload);
+      const t = await this.appendTracked(projectId, payload);
       this.noteWriteSuccess();
-      if (projectId !== '__probe__') this.dedupInsert(projectId, frameHashOf(payload).toString('hex'), ids[0]);
-      return ids;
+      if (projectId !== '__probe__') this.dedupInsert(projectId, frameHashOf(payload).toString('hex'), t.frameId, t.walSeq);
+      return [t.frameId];
     } catch (e) {
       this.noteWriteFailure();
-      captureCollabException(e, { docName: `project:${projectId}`, reason: 'spool-append-failed', connectionId: '-' });
+      captureCollabException(e, { docName: `project:${projectId}`, reason: 'spool-append-failed', connectionId: '-' });   // 基线位（㉚ 白名单既有——不改写）
+      throw e;
+    }
+  }
+
+  /** T9 actor/维护通道：单帧追加+追踪返回（容量/EIO/去重语义与 append() 全同——walSeq 随帧返回）。
+   *  旧链 append() 兼容面收窄为 [frameId] 包装（既有消费方零触碰）。 */
+  async appendTracked(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
+    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
+    if (projectId !== '__probe__') {
+      const total = this.depthTotalBytes(this.depth());
+      if (!this.overCapacityFlag && total + payload.byteLength > this.capacityBytes) {
+        this.overCapacityFlag = true;
+        yjsSpoolCapacityTotal.inc();
+        this.logger.error('spool capacity exceeded（总口径含隔离/外来字节）——拒新编辑（不丢最旧：丢=蒸发同罪）；人工处置=collab-spool-quarantine 脚本');
+      } else if (this.overCapacityFlag && total <= this.capacityBytes * 0.9) {
+        this.overCapacityFlag = false;
+        this.logger.log('spool capacity recovered');
+        try { this.onRecovered?.(); } catch { /* I-3：容量恢复缝与 confirm 自评对称 */ }
+      }
+      if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
+      const hashHex = frameHashOf(payload).toString('hex');
+      const hit = this.dedupLookup(projectId, hashHex);
+      if (hit != null) return { frameId: hit.frameId, walSeq: hit.walSeq };   // 命中 applied=no-op 确认（原帧已 fsync）
+      const t = await this.appendRaw(projectId, payload);
+      this.dedupInsert(projectId, hashHex, t.frameId, t.walSeq);   // 入索引（重发幂等命中面——append() 同款）
+      return t;
+    }
+    return this.appendRaw(projectId, payload);
+  }
+
+  /** T9 actor drain 批：多帧一次 fsync（批窗 ≤1MiB→常态单段单 fsync；滚段=每段一次）。
+   *  per-frame SHA-256 去重先行（命中帧不写不烧 seq——返回原 frameId/walSeq）；失败=整批截断回
+   *  批前 last-good+**复用批内全部已分配 seq**（不留洞——appendRaw 可恢复档语义的批粒度）；
+   *  EIO=fail-stop（不截断）。水位=spoolHead-only 推进（appliedSeq 归 actor noteApplied——T8 注记
+   *  「actor 接管后 advanceWatermark 收缩为 spoolHead-only」在批路径兑现）。 */
+  async appendBatch(projectId: string, payloads: Uint8Array[]): Promise<WalAppendedFrame[]> {
+    if (payloads.length === 0) return [];
+    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
+    if (projectId === '__probe__') throw new Error('appendBatch 禁用于探针键（探针必须真写——appendRaw 单帧路径专用）');
+    // 去重先于容量（X6×X9 恢复缝：命中帧零新增字节——容量态下既有 WAL 帧仍可经 PG 腿消化→confirm→
+    // depth 回落→容量解除；容量只挡新字节写入=拒新编辑语义保持）
+    const results: WalAppendedFrame[] = new Array(payloads.length);
+    const writes: Array<{ idx: number; payload: Uint8Array; hashHex: string }> = [];
+    for (let i = 0; i < payloads.length; i++) {
+      const hashHex = frameHashOf(payloads[i]).toString('hex');
+      const hit = this.dedupLookup(projectId, hashHex);
+      if (hit != null) results[i] = { frameId: hit.frameId, walSeq: hit.walSeq };
+      else writes.push({ idx: i, payload: payloads[i], hashHex });
+    }
+    if (writes.length === 0) return results;   // 整批命中——零写零 seq（容量不挡）
+    const total = this.depthTotalBytes(this.depth());
+    const addBytes = writes.reduce((s, w) => s + w.payload.byteLength, 0);
+    if (!this.overCapacityFlag && total + addBytes > this.capacityBytes) {
+      this.overCapacityFlag = true;
+      yjsSpoolCapacityTotal.inc();
+      this.logger.error('spool capacity exceeded（批口径含隔离/外来字节）——拒收整批（不丢最旧：丢=蒸发同罪）');
+    } else if (this.overCapacityFlag && total <= this.capacityBytes * 0.9) {
+      this.overCapacityFlag = false;
+      this.logger.log('spool capacity recovered');
+      try { this.onRecovered?.(); } catch { /* 同 append 缝 */ }
+    }
+    if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
+    try {
+      const written = await this.appendBatchRaw(projectId, writes.map((w) => w.payload));
+      this.noteWriteSuccess();
+      for (let k = 0; k < writes.length; k++) {
+        results[writes[k].idx] = written[k];
+        this.dedupInsert(projectId, writes[k].hashHex, written[k].frameId, written[k].walSeq);
+      }
+      return results;
+    } catch (e) {
+      this.noteWriteFailure();
+      captureCollabException(e, { docName: projectDocName(projectId), reason: 'spool-append-failed', connectionId: '-' });
       throw e;
     }
   }
@@ -616,8 +705,8 @@ export class CollabSpoolService {
   }
   /** 探针=写 1 帧探针载荷+confirm 段回收+fsync——只解 ioBroken（EIO fail-stop 下 appendRaw 拒写）。 */
   async probe(): Promise<void> {
-    const ids = await this.appendRaw('__probe__', new Uint8Array([0]));
-    await this.confirm('__probe__', ids);
+    const t = await this.appendRaw('__probe__', new Uint8Array([0]));
+    await this.confirm('__probe__', [t.frameId]);
     this.noteWriteSuccess();
   }
 
@@ -632,7 +721,7 @@ export class CollabSpoolService {
    *  +新建段 'wx' 排他建（EEXIST=段号递增重试）——滚到同名 writeFile('w') 覆写隔离段
    *  （bad-header 证据/chain-stopped 保留帧/violation 裁定证据销毁）为 Critical 禁径。
    *  收口7 契约：同项目 append 串行调用（生产由 gateway saveMutex/串行 drain 保证）。 */
-  private async appendRaw(projectId: string, payload: Uint8Array): Promise<string[]> {
+  private async appendRaw(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
     if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——要求进程重启+磁盘检查/恢复扫描裁定（探针亦停）');
     if (payload.byteLength > WAL_MAX_FRAME_BYTES) {
       // M2（Q-M7）：>16MiB 帧准入拒绝——先写后扫描必判 truncated（先 Spooled 后静默丢）。
@@ -765,7 +854,215 @@ export class CollabSpoolService {
     }
     const segKey = this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq));
     this.advanceWatermark(projectId, walSeq);
-    return [`${segKey}:${frameIdx}`];
+    return { frameId: `${segKey}:${frameIdx}`, walSeq };
+  }
+
+  /** T9 actor drain 批帧写入（appendRaw 批化——段选择/封段守卫/'wx' 排他建逐字同源；差异：
+   *  ①多帧循环写单段直到 SEGMENT_MAX_BYTES 再滚段（每段恰一次 lastWriteAt pwrite+fsync）；
+   *  ②失败=截断回**批前** last-good（段起点批前偏移）+复用批内全部已分配 seq+新空段回滚 index 插入；
+   *  ③水位 spoolHead-only（appliedSeq 归 actor noteApplied））。收口7：同项目 append/appendBatch
+   *  串行调用（生产=actor 单 drain 循环保证）。 */
+  private async appendBatchRaw(projectId: string, payloads: Uint8Array[]): Promise<WalAppendedFrame[]> {
+    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——要求进程重启+磁盘检查/恢复扫描裁定（探针亦停）');
+    for (const p of payloads) {
+      if (p.byteLength > WAL_MAX_FRAME_BYTES) throw new Error(`WAL 帧 payload 超上界 >16MiB（${p.byteLength}B）——拒收（帧记录定界不可信）`);
+    }
+    const adir = this.activeDir();
+    await mkdir(adir, { recursive: true, mode: 0o700 });
+    const gen = this.projectGeneration.get(projectId) ?? 1;
+    const out: WalAppendedFrame[] = [];
+    let i = 0;
+    while (i < payloads.length) {
+      // —— 段选择（appendRaw 逐字同源：C1 隔离段占名/stat 守卫/封段滚动）——
+      const segs = this.index.get(projectId);
+      let segSeq = -1; let meta: SegmentMeta | undefined;
+      if (segs && segs.size > 0) {
+        let maxSeq = -1;
+        for (const m of segs.values()) {
+          if (m.dir === adir && m.generation === gen && m.seq > maxSeq) maxSeq = m.seq;
+        }
+        if (maxSeq >= 0) {
+          segSeq = maxSeq;
+          meta = segs.get(this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq)));
+          if (meta) {
+            const st = await stat(join(adir, segFileNameOf(projectId, gen, segSeq))).catch(() => null);
+            if (st && st.size !== meta.bytes) meta.sealed = true;
+            if (meta.segQuarantined != null
+              || meta.sealed || meta.goodBytes !== meta.bytes
+              || meta.bytes + WAL_FRAME_FIXED_BYTES + payloads[i].byteLength > SEGMENT_MAX_BYTES) {
+              segSeq += 1; meta = undefined;
+            }
+          }
+        }
+      }
+      if (segSeq < 0) segSeq = 0;
+      const isNewSegment = !meta;
+      if (!meta) {
+        const header: WalSegmentHeader = {
+          projectId, generation: gen, historyId: this.walHistoryId,
+          createdAtMs: Date.now(), lastWriteAtMs: Date.now(),
+        };
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await writeFile(join(adir, segFileNameOf(projectId, gen, segSeq)), encodeWalSegmentHeader(header), { flag: 'wx', mode: 0o600 });
+            break;
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code === 'EEXIST' && attempt < 1024) { segSeq += 1; continue; }
+            throw e;
+          }
+        }
+        meta = { frameCount: 0, goodBytes: WAL_SEGMENT_HEADER_SIZE, bytes: WAL_SEGMENT_HEADER_SIZE,
+          confirmed: new Set(), confirmedCount: 0, sealed: false, quarantinedRange: null, quarantinedBytes: 0,
+          dir: adir, seq: segSeq, foreign: false, generation: gen, seqs: [], frameHashes: [],
+          header, segQuarantined: null };
+        if (!segs) this.index.set(projectId, new Map());
+        this.index.get(projectId)!.set(this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq)), meta);
+      }
+      const path = join(adir, segFileNameOf(projectId, gen, segSeq));
+      const batchStartBytes = meta.bytes;
+      const batchStartFrameCount = meta.frameCount;
+      const firstAllocatedSeq = this.peekNextWalSeq(projectId);
+      const group: Array<{ walSeq: bigint; frameIdx: number; frame: Buffer; frameHashHex: string }> = [];
+      const fh = await open(path, 'r+');
+      try {
+        await fh.chmod(0o600).catch(() => {});
+        // 单帧超段界（4MiB<帧≤16MiB 合法帧——appendRaw 同语义）：空段首帧必纳（否则滚段死循环）
+        while (i < payloads.length && ((group.length === 0 && meta!.bytes === WAL_SEGMENT_HEADER_SIZE)
+          || meta!.bytes + WAL_FRAME_FIXED_BYTES + payloads[i].byteLength <= SEGMENT_MAX_BYTES)) {
+          const walSeq = this.allocateWalSeq(projectId);
+          const frame = encodeWalFrame({ walSeq, payload: payloads[i] }, gen);
+          await fh.write(frame, 0, frame.length, meta!.bytes);
+          group.push({ walSeq, frameIdx: meta!.frameCount, frame, frameHashHex: frameHashOf(payloads[i]).toString('hex') });
+          meta!.bytes += frame.length;
+          i += 1;
+        }
+        const nh = encodeWalSegmentHeader({ ...meta.header!, lastWriteAtMs: Date.now() });
+        await fh.write(nh.subarray(152), 0, 12, 152);
+        await this.syncSegmentHandle(fh);   // 批单 fsync（契约 4：入账先于一切）
+      } catch (e) {
+        if (meta) meta.sealed = true;
+        const tier = classifyFsyncFailure(e);
+        walFsyncErrorTotal.inc({ device: 'spool-root', tier });
+        // 失败回滚：段字节回批前 last-good+复用批内全部已分配 seq（不留洞）
+        this.walSeqCounters.set(projectId, firstAllocatedSeq);
+        if (tier === 'EIO') {
+          this.walHealthyFlag = false;
+          this.logger.error(`WAL 批 fsync EIO fail-stop：walHealthy=false/停收/close 1011（gateway seam）——要求进程重启+磁盘检查；段 ${path} 不截断（证据保留，恢复扫描裁定）`);
+          try { this.onWalFailStop?.(); } catch { /* seam 异常不损 fail-stop 事实 */ }
+          await fh.close().catch(() => {});
+          throw e;
+        }
+        try {
+          await truncate(path, batchStartBytes);
+        } catch {
+          try {
+            await writeWholeSegmentSidecar(adir, segFileNameOf(projectId, gen, segSeq), 'truncate-failed');
+            walSegmentQuarantinedTotal.inc({ reason: 'truncate-failed' });
+            if (meta) meta.segQuarantined = 'truncate-failed';
+          } catch (e2) { this.logger.error(`WAL 批截断失败档 sidecar 写失败（不掩主错）：${(e2 as Error).message}`); }
+          this.walHealthyFlag = false;
+          this.logger.error(`WAL 批截断回批前 last-good 失败——段 ${path} quarantine+walHealthy=false 停收（重启恢复扫描裁定）`);
+          await fh.close().catch(() => {});
+          throw e;
+        }
+        meta!.bytes = batchStartBytes;
+        meta!.goodBytes = batchStartBytes;
+        if (isNewSegment && batchStartFrameCount === 0) {
+          // 新段整批失败——R2 同款：空头段 unlink（截断档已清帧字节，零证据价值）
+          await unlink(path).catch(() => {});
+          const segsNow = this.index.get(projectId)!;
+          segsNow.delete(this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq)));
+          if (segsNow.size === 0) this.index.delete(projectId);
+        }
+        await fh.close().catch(() => {});
+        throw e;
+      }
+      await fh.close();
+      // fsync 落定后提交 meta 记账（appendRaw 同点位语义：成功才入账）
+      for (const g of group) {
+        meta.frameCount = g.frameIdx + 1;
+        meta.seqs.push(g.walSeq);
+        meta.frameHashes.push(g.frameHashHex);
+      }
+      meta.goodBytes = meta.bytes;
+      if (meta.header) meta.header.lastWriteAtMs = Date.now();
+      for (const g of group) {
+        out.push({ frameId: `${this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq))}:${g.frameIdx}`, walSeq: g.walSeq });
+        this.advanceSpoolHeadOnly(projectId, g.walSeq);
+      }
+      if (isNewSegment) {
+        try {
+          const dh = await open(adir, 'r');
+          try { await dh.sync(); } catch { /* ENOTSUP（Windows）——尽力而为 */ } finally { await dh.close(); }
+        } catch { /* 目录句柄打开失败——写已成功，忽略 */ }
+      }
+    }
+    return out;
+  }
+
+  /** spoolHead-only 推进（appendBatch 批路径——appliedSeq 归 actor noteApplied；旧链 append() 仍走
+   *  advanceWatermark 双推〔帧 apply 先于入账——applied=head 语义在旧链成立〕）。 */
+  private advanceSpoolHeadOnly(projectId: string, seq: bigint): void {
+    const w = this.watermarks.get(projectId) ?? ZERO_WATERMARK;
+    if (seq <= w.spoolHeadSeq) return;
+    const next: WatermarkTriple = { pgSeq: w.pgSeq, appliedSeq: w.appliedSeq, spoolHeadSeq: seq };
+    assertWatermarkInvariants(next);
+    this.watermarks.set(projectId, next);
+  }
+
+  /** T9 毒帧协议：WAL 截断至 appliedSeq（walSeq>appliedSeq 的帧移除——不得跳过毒帧继续提交后续序号；
+   *  POISON_FRAME_PROTOCOL 第 3 步）。外来段禁字节处置（P18 纪律）；截断失败=sidecar 整段隔离
+   *  +walHealthy=false fail-closed（同 appendRaw M1 语义）。返回移除帧数。 */
+  async truncateWalAfter(projectId: string, appliedSeq: bigint): Promise<number> {
+    const segs = this.index.get(projectId);
+    if (!segs) return 0;
+    let removed = 0;
+    const ordered = [...segs.entries()]
+      .filter(([, m]) => (m.segQuarantined == null || m.segQuarantined === 'chain-stopped') && !m.foreign)
+      .sort(([, a], [, b]) => a.seq - b.seq || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
+    for (const [segKey, meta] of ordered) {
+      const cut = meta.seqs.findIndex((sq) => sq > appliedSeq);
+      if (cut === -1) continue;
+      const path = join(meta.dir, segFileNameOf(projectId, meta.generation, meta.seq));
+      const buf = await readFile(path).catch(() => null);
+      if (!buf) continue;
+      let off = meta.generation == null ? 0 : WAL_SEGMENT_HEADER_SIZE;
+      for (let fi = 0; fi < cut; fi++) {
+        if (off + WAL_FRAME_FIXED_BYTES > buf.byteLength) break;   // 防御（记账与字节漂移——不前越）
+        off += WAL_FRAME_FIXED_BYTES + buf.readUInt32LE(off);
+      }
+      try {
+        await truncate(path, off);
+        const fh = await open(path, 'r+');
+        try { await this.syncSegmentHandle(fh); } finally { await fh.close().catch(() => {}); }
+      } catch {
+        try {
+          await writeWholeSegmentSidecar(meta.dir, segFileNameOf(projectId, meta.generation, meta.seq), 'truncate-failed');
+          walSegmentQuarantinedTotal.inc({ reason: 'truncate-failed' });
+          meta.segQuarantined = 'truncate-failed';
+        } catch { /* 不掩主错 */ }
+        this.walHealthyFlag = false;
+        this.logger.error(`毒帧 WAL 截断失败——段 ${segKey} quarantine+walHealthy=false 停收（重启恢复扫描裁定）`);
+        throw Object.assign(new Error(`poison truncate failed for ${segKey}`), { poisonTruncateFailed: true });
+      }
+      removed += meta.frameCount - cut;
+      meta.seqs.length = cut;
+      meta.frameHashes.length = cut;
+      let keptConfirmed = 0;
+      for (const n of meta.confirmed) if (n < cut) keptConfirmed += 1;
+      meta.confirmedCount = keptConfirmed;
+      meta.frameCount = cut;
+      meta.bytes = off;
+      meta.goodBytes = off;
+      meta.sealed = true;
+    }
+    // 水位回拨：spoolHead=appliedSeq（applied>head 不可能——毒帧帧未 apply 成功）
+    const w = this.watermarks.get(projectId);
+    const applied = w && w.appliedSeq < appliedSeq ? w.appliedSeq : appliedSeq;
+    const next: WatermarkTriple = { pgSeq: w?.pgSeq ?? 0n, appliedSeq: applied, spoolHeadSeq: appliedSeq };
+    assertWatermarkInvariants(next);
+    this.watermarks.set(projectId, next);
+    return removed;
   }
 
   /** 水位推进（append 成功——旧链帧入 spool 时已 apply：appliedSeq=spoolHeadSeq=walSeq；
@@ -804,7 +1101,8 @@ export class CollabSpoolService {
         const body = buf.subarray(off + 8, off + WAL_FRAME_FIXED_BYTES + len);
         if ((crc32(body) >>> 0) !== buf.readUInt32LE(off + 4)) { this.reportTruncation(projectId, meta.seq); break; }
         const payload = buf.subarray(off + WAL_FRAME_FIXED_BYTES, off + WAL_FRAME_FIXED_BYTES + len);
-        if (!meta.confirmed.has(idx)) frames.push({ frameId: `${segKey}:${idx}`, payload: new Uint8Array(payload) });
+        const walSeq = buf.readBigUInt64LE(off + 8);   // T9：帧 walSeq 随 peek 透出（PG 批行/回灌行 seq 口径）
+        if (!meta.confirmed.has(idx)) frames.push({ frameId: `${segKey}:${idx}`, payload: new Uint8Array(payload), walSeq });
         off += WAL_FRAME_FIXED_BYTES + len; idx += 1;
       }
     }
@@ -1224,7 +1522,7 @@ export class CollabSpoolService {
       for (const [segKey, m] of segs) {
         if (m.segQuarantined != null && m.segQuarantined !== 'chain-stopped') continue;
         for (let i = 0; i < m.frameCount && i < m.frameHashes.length; i++) {
-          this.dedupInsert(pid, m.frameHashes[i], `${segKey}:${i}`);
+          this.dedupInsert(pid, m.frameHashes[i], `${segKey}:${i}`, m.seqs[i] ?? 0n);
         }
       }
     }
@@ -1232,25 +1530,29 @@ export class CollabSpoolService {
 
   /** V16+X8：启动回灌——总墙钟预算+固定退避+每帧有界重试环+合并上界（语义不变，WAL 协议无涉）。 */
   async replayAll(
-    repo: Pick<CanvasDocUpdateRepository, 'append'>,
+    repo: Pick<CanvasDocUpdateRepository, 'appendBatch'>,
     opts?: { budgetMs?: number; retryDelayMs?: number; maxAttempts?: number; projectIds?: string[] },
   ): Promise<{ replayed: number; failed: number; discarded: number }> {
     const deadline = Date.now() + (opts?.budgetMs ?? CollabSpoolService.REPLAY_BUDGET_MS);
     const retryDelay = opts?.retryDelayMs ?? CollabSpoolService.REPLAY_RETRY_MS;
     const maxAttempts = opts?.maxAttempts ?? CollabSpoolService.REPLAY_MAX_ATTEMPTS;
     let replayed = 0, failed = 0, discarded = 0;
+    // T9 新表形态：回灌行=per-frame 单帧行（walSeq 随帧透出——行 seq=原帧 walSeq，「WAL 损坏只允许丢
+    // walSeq>pgSeq 的帧」的 PG 前缀可证性由此保持；X8 合并上界仍管每轮 IO 形状——合批进同事务多行）。
+    const genOf = (projectId: string) => this.currentGeneration(projectId);
     for (const projectId of opts?.projectIds ?? this.keys()) {
       if (Date.now() > deadline) return { replayed, failed, discarded };   // I2：项目间守预算
-      for (;;) {                                                 // X8：分轮合并
+      for (;;) {                                                 // X8：分轮
         const frames = (await this.peek(projectId)).slice(0, CollabSpoolService.REPLAY_MERGE_MAX_FRAMES);
         if (frames.length === 0) break;
         const totalBytes = frames.reduce((s, f) => s + f.payload.byteLength, 0);
         if (totalBytes > CollabSpoolService.REPLAY_MERGE_MAX_BYTES) frames.length = this.truncateByBytes(frames, CollabSpoolService.REPLAY_MERGE_MAX_BYTES);
         let roundAppended = false;
         try {
-          const merged = frames.length === 1 ? frames[0].payload : Y.mergeUpdates(frames.map((f) => f.payload));
-          const r = await repo.append(projectId, merged);
-          if (!r.ok) throw new Error(`append returned no row (${r.reason})`);
+          const r = await repo.appendBatch(projectId, frames.map((f) => CanvasDocUpdateRepository.singleFrameRow({
+            generation: genOf(projectId), walSeq: f.walSeq, frameHash: frameHashOf(f.payload), update: f.payload,
+          })));
+          if (!r.ok) throw new Error(`appendBatch fenced (${r.reason})`);
           await this.confirm(projectId, frames.map((f) => f.frameId));
           replayed += frames.length;
           roundAppended = true;
@@ -1265,8 +1567,10 @@ export class CollabSpoolService {
             for (let attempt = 1; ; attempt++) {
               if (Date.now() > deadline) { failed += 1; this.logger.error(`spool replay budget-exhausted for ${projectId}:${frame.frameId}——帧保留（运行期由退避梯自愈，X5）`); break; }
               try {
-                const r2 = await repo.append(projectId, frame.payload);
-                if (!r2.ok) throw new Error(`append returned no row (${r2.reason})`, { cause: e });
+                const r2 = await repo.appendBatch(projectId, [CanvasDocUpdateRepository.singleFrameRow({
+                  generation: genOf(projectId), walSeq: frame.walSeq, frameHash: frameHashOf(frame.payload), update: frame.payload,
+                })]);
+                if (!r2.ok) throw new Error(`appendBatch fenced (${r2.reason})`, { cause: e });
                 await this.confirm(projectId, [frame.frameId]);
                 replayed += 1;
                 break;

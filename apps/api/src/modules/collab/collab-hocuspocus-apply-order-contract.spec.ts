@@ -122,6 +122,10 @@ interface HarnessOpts {
   readOnlyTokens?: Set<string>;
   /** ⑦：docName→装载源 doc（onLoadDocument 返回 Y.Doc——库回调 applyUpdate 装载） */
   loadDocs?: Map<string, Y.Doc>;
+  /** ⑨ 翻转形态：摘除 onStoreDocument/afterStoreDocument 注册（结构性沉默——弱形态；强形态=生产链
+   *  spy〔storeDocumentUnlocked('debounce') 零调用〕在 collab-t9-ownership-switch.spec——F-3 推论：
+   *  connection-origin 恒触发库防抖钩子，注册计数器恒 ≥1，「零调用」在 harness 只能以摘注册达成）。 */
+  omitStoreHooks?: boolean;
 }
 
 const zeroOrigin = (): Record<OriginClass, number> => ({ gate: 0, connection: 0, load: 0, local: 0, other: 0 });
@@ -224,8 +228,11 @@ async function startContractServer(opts: HarnessOpts = {}) {
       const cls = classifyOrigin(p.transactionOrigin);
       c.hooks.onChange[cls]++; c.log.push(`onChange:${cls}`);
     },
-    onStoreDocument: async () => { c.hooks.onStoreDocument++; c.log.push('onStoreDocument'); },
-    afterStoreDocument: async () => { c.hooks.afterStoreDocument++; },
+    // T9 翻转（⑨）：omitStoreHooks=摘注册（弱形态）——生产强形态 spy 见 ownership-switch spec
+    ...(opts.omitStoreHooks ? {} : {
+      onStoreDocument: async () => { c.hooks.onStoreDocument++; c.log.push('onStoreDocument'); },
+      afterStoreDocument: async () => { c.hooks.afterStoreDocument++; },
+    }),
     onDisconnect: async () => { c.hooks.onDisconnect++; },
     beforeUnloadDocument: async () => { c.hooks.beforeUnloadDocument++; },
     afterUnloadDocument: async () => { c.hooks.afterUnloadDocument++; },
@@ -765,10 +772,13 @@ describe('Y1c T0-S1 Hocuspocus 4.6.0 apply 顺序契约（九验收+行为锁）
   // T9 成立须同步 harness 改造：(i) 摘除 store 钩子注册（断言退化为结构性沉默——弱形态）或
   // (ii) 计数器改接旧链探针（onStoreDocument→storeDocumentUnlocked('debounce') 生产链 spy——零调用
   // =旧链确已拆，强形态推荐）。翻转≠只改常量（计数面改造随 T9 所有权切换切片同卡——doc §5.2）。
-  const T9_OWNERSHIP_SWITCHED = false;
+  // Y1c T9 翻转（2026-10-24）：所有权切换已落地（onStoreDocument 旧链拆除 telemetry-only——
+  // 偏离 38①）；本用例断「零调用」需 harness 摘注册（弱形态——F-3：库对 connection-origin 恒调钩子）
+  // +生产强形态 spy 在 collab-t9-ownership-switch.spec（storeDocumentUnlocked 零 'debounce' 触发）。
+  const T9_OWNERSHIP_SWITCHED = true;
 
-  it('⑨ onStoreDocument×connection-origin：库基线=突发三帧防抖恰一次+顺序锁（onChange 先于 store）+skipStoreHooks 逃生舱实证（local+true=零 store、onChange 照发）——T9 翻转点已标记', async () => {
-    const h = await startContractServer({});
+  it('⑨ onStoreDocument×connection-origin：T9 翻转态=摘注册结构性零调用+机制面逃生舱实证（local+true=零 store、onChange 照发）——生产强形态 spy 见 ownership-switch spec', async () => {
+    const h = await startContractServer(T9_OWNERSHIP_SWITCHED ? { omitStoreHooks: true } : {});
     try {
       const a = new RawSyncClient(h.url, 'project:c9');
       h.track(a);

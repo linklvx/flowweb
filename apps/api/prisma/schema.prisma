@@ -1017,15 +1017,26 @@ model ProjectMember {
   @@index([userId])
 }
 
+// Y1c T9（Controller 裁定 1——T7 勘误既定切片）：写入方换代——spool-first actor 批行形态。
+// seq=批 lastWalSeq（walSeq 单调——T8 WAL 帧协议）；updateHash=有序 frameHash 列表 SHA-256
+// （非 merged update 字节——重试/重组批幂等）；actorRanges 本卡先落空 Json（T5b 冻结 system-history
+// 形态约束住类型——T10/T22 补齐面，如实登记）。
+// raw SQL（迁移段附注，Prisma 不可表达）：CHECK (octet_length(update) <= 16MiB)
+// +CHECK (seq >= firstWalSeq)+CHECK (frameCount > 0)——不存单 frameId（偏离 33）。
 model CanvasDocUpdate {
-  id        String        @id @default(cuid())
-  projectId String
-  seq       BigInt
-  update    Bytes
-  createdAt DateTime      @default(now())
-  project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  generation  Int
+  seq         BigInt
+  firstWalSeq BigInt
+  frameCount  Int
+  updateHash  String        @db.Char(64)
+  actorRanges Json?
+  update      Bytes
+  createdAt   DateTime      @default(now())
+  project     CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, seq])
+  @@id([projectId, generation, seq])
+  @@unique([projectId, generation, updateHash])
 }
 
 // Y0a-1：单实例租约行（Y0a-3 T2 起消费：expiresAt/renewedAt 用 timestamptz(3)——Z19/P2）

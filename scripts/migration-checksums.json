@@ -34,5 +34,8 @@
   },
   "20261024120000_y1c_t7_carrier_genesis": {
     "migration.sql": "c3f07eba04c281ffc66d8d38244367e53bf3febec728662ff3e3b0234c405971"
+  },
+  "20261024130000_y1c_t9_canvas_doc_update_v17": {
+    "migration.sql": "b7f0296102397d1cfcd5b8f2ed3b0cb45fbf06857cdc8229736dc8f1ca77366a"
   }
 }

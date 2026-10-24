@@ -6,6 +6,10 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { svDominates } from './sv.util';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import * as Y from 'yjs';
+import { makeSeedSeq } from '../../test-utils/canvas-doc-row';
+
+/** Y1c T9：repo.append（nextval 单帧）退役——播种替身（单调 walSeq 单帧行，appendBatch 批行）。 */
+const seedAppend = makeSeedSeq();
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -46,8 +50,8 @@ maybe('compact（真 PG）', () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     expect(await repo.compact(PID)).toEqual({ compacted: false, reason: 'empty' });   // 返回契约：无行=empty（spec §1.3 v2.4）
-    await repo.append(PID, Y.encodeStateAsUpdate(docWithNodes(5)));
-    await repo.append(PID, Y.encodeStateAsUpdate(docWithNodes(3)));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(5)))]);
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(3)))]);
     const rows = await prisma.canvasDocUpdate.findMany({ where: { projectId: PID }, select: { seq: true }, orderBy: { seq: 'asc' } });
     const t0 = Date.now();
     expect(await repo.compact(PID)).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: rows.length, tombstoneBytes: expect.any(Number) });   // 返回契约：成功（Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows〔=被删行数〕/tombstoneBytes）
@@ -56,7 +60,7 @@ maybe('compact（真 PG）', () => {
     expect(docRow!.updatedAt.getTime()).toBeGreaterThanOrEqual(t0);  // updatedAt create 分支（@updatedAt 只在 Client 层生效——防未来改裸 SQL）
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
     // update 分支（v3）：库已清空⇒首次 compact 走 upsert.create；再 append+compact 命中 update 分支
-    await repo.append(PID, Y.encodeStateAsUpdate(docWithNodes(2)));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(2)))]);
     await repo.compact(PID);
     const row2 = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
     expect(row2!.updatedAt.getTime()).toBeGreaterThan(docRow!.updatedAt.getTime());   // update 分支 updatedAt 前进（两 DB 读值比较——免时钟容忍，堵快速机 <5ms roundtrip 的 vacuous-pass 窗口）
@@ -66,7 +70,7 @@ maybe('compact（真 PG）', () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     const src = docWithNodes(8);
-    await repo.append(PID, Y.encodeStateAsUpdate(src));
+    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(src))]);
     await repo.compact(PID);
     const row = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
     const revived = new Y.Doc();
@@ -80,12 +84,15 @@ maybe('compact（真 PG）', () => {
   it('G2（Z125-2）：append 同一 update ×3 → compact → 重复行全坍缩（deletedRows=3+行数 0）+读行覆盖全部行禁 LIMIT（声明式）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    // Y1c T9 幂等轴：同一 update（同 updateHash）×3 重发 → 恰 1 行（DO NOTHING 吞 2）——「重复行
+    // 全坍缩」的 T9 形态=幂等轴先坍缩+compact 清源行；旧 nextval 轴 3 行形态随之退役
     const u = Y.encodeStateAsUpdate(docWithNodes(3));
-    await repo.append(PID, u);
-    await repo.append(PID, u);
-    await repo.append(PID, u);
+    await repo.appendBatch(PID, [seedAppend(u)]);
+    await repo.appendBatch(PID, [seedAppend(u)]);
+    await repo.appendBatch(PID, [seedAppend(u)]);
+    expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(1);   // 幂等坍缩（重试/重组批幂等锚）
     const r = await repo.compact(PID);
-    expect(r).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: 3, tombstoneBytes: expect.any(Number) });
+    expect(r).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: 1, tombstoneBytes: expect.any(Number) });
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
     // 声明式断言（census 源码文本风格）：compact 读行方法禁 take:/LIMIT——分页/限行读会把
     // 「被删集≡被重放集」破成「删了没重放的行」或「重放没删的行」两类撕裂（readConsistent 的

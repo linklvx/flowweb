@@ -630,6 +630,8 @@ export class GatewayTestFacade {
     (internals(this.gw) as { repo: unknown }).repo = fake;
     (persistOf(this.gw) as { repo: unknown }).repo = fake;
     (docRegistryOf(this.gw) as { repo: unknown }).repo = fake;
+    // Y1c T9：actor PG 腿 repo 同步换接（构造持有引用——漏此=探测腿仍打旧桩=假 half-open）
+    (this.gw.projectActor as unknown as { rebindRepoForTest(r: unknown): void }).rebindRepoForTest(fake);
   }
 
   // ── SessionGuard 族扩（refusal/perm 缓存+身份/归属台账+寿命/桶台账+overPush+writeFreeze） ──

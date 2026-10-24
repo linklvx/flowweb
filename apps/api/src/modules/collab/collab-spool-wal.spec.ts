@@ -425,9 +425,10 @@ describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理
     const repo = createMockRepo();
     const r = await s.replayAll(repo as any);
     expect(r.replayed, 'replayAll 送达 PG（对照旧链同形态能力）').toBe(2);
-    // 语料 payload=确定性非 Y 字节：mergeUpdates 结构解码失败→V16 逐帧回退（合并单次面归
-    // service.spec 的真 Y update 用例）——恰 2 次逐帧 append。
-    expect(repo.append).toHaveBeenCalledTimes(2);
+    // Y1c T9 新表形态：replayAll=per-frame 行同批单事务（一次 appendBatch 携 2 行——旧「merge 失败
+    // 逐帧回退」形态随帧合并退役；replayed=2 帧语义保持）
+    expect(repo.appendBatch).toHaveBeenCalledTimes(1);
+    expect((repo.appendBatch.mock.calls[0] as unknown as Array<[string, unknown[]]>)[1]).toHaveLength(2);
     // R3（复核 Minor）：本用例声称「段回收」——补显式断言：全部帧 confirmed 后段文件+恢复截断
     // sidecar unlink（confirm 回收判据 V3：frameCount>0 ∧ 全 confirmed ∧ 坏尾已处置）+owner 目录零残留。
     expect(existsSync(path), '段文件已 unlink（回收）').toBe(false);

@@ -230,14 +230,14 @@ describe('spool 启动回灌（V16：总预算+固定短退避+同项目帧合�
     const s2 = svc(); await s2.scan();
     const report = await s2.replayAll(repo as any);
     expect(report.replayed).toBe(2); expect(report.failed).toBe(0);
-    expect(repo.append).toHaveBeenCalledTimes(1);                // V16：合并单次（v1 逐帧=2 次必红）
+    expect(repo.appendBatch).toHaveBeenCalledTimes(1);                // V16：合并单次（v1 逐帧=2 次必红）
     expect((await readdir(join(dir, 'test-owner')).catch(() => [] as string[])).filter((f) => f.endsWith('.spool'))).toHaveLength(0);   // 段 unlink 触发点②（R3：空 owner 目录已 rmdir）
   });
 
   it('FK 失败（真库形状 P2010+meta 23503——mock 形状 V6 标注无效，此用例仅测分支逻辑）→帧按终态丢弃+段收割', async () => {
     const s1 = svc();
     await s1.append('gone', new Uint8Array([1]));
-    const repo = createMockRepo({ append: vi.fn(async () => { throw Object.assign(new Error('Raw query failed'), { code: 'P2010', meta: { code: '23503' } }); }) });
+    const repo = createMockRepo({ appendBatch: vi.fn(async () => { throw Object.assign(new Error('Raw query failed'), { code: 'P2010', meta: { code: '23503' } }); }) });
     const s2 = svc(); await s2.scan();
     const report = await s2.replayAll(repo as any);
     expect(report.discarded).toBe(1);
@@ -247,12 +247,12 @@ describe('spool 启动回灌（V16：总预算+固定短退避+同项目帧合�
   it('PG 未起（P1001）→总预算耗尽返回 failed（不阻塞 listen；固定 200ms 重试非指数）', async () => {
     const s1 = svc();
     await s1.append('p1', new Uint8Array([1]));
-    const repo = createMockRepo({ append: vi.fn(async () => { throw Object.assign(new Error("Can't reach database server"), { code: 'P1001' }); }) });
+    const repo = createMockRepo({ appendBatch: vi.fn(async () => { throw Object.assign(new Error("Can't reach database server"), { code: 'P1001' }); }) });
     const s2 = svc(); await s2.scan();
     const t0 = Date.now();
     const report = await s2.replayAll(repo as any, { budgetMs: 500, retryDelayMs: 50 });   // 测试缝收紧
     expect(report.failed).toBe(1);
-    expect(repo.append.mock.calls.length).toBeGreaterThanOrEqual(2);   // 预算内重试
+    expect(repo.appendBatch.mock.calls.length).toBeGreaterThanOrEqual(2);   // 预算内重试
     expect(Date.now() - t0).toBeLessThan(1_500);                        // V16：总预算有界（v1 最坏 15s/帧）
     expect((await readdir(join(dir, 'test-owner'))).filter((f) => f.endsWith('.spool'))).toHaveLength(1);   // 帧保留（未丢弃）
   });
@@ -334,7 +334,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
       await a.append('p1', new Uint8Array([1]));
       const b = new CollabSpoolService(d); b.setOwner('owner-B');
       await b.scan();
-      const repo = { append: vi.fn(async () => ({ ok: true as const, seq: 1n })) };
+      const repo = { appendBatch: vi.fn(async () => ({ ok: true as const, seq: 1n })) };
       const r = await b.replayAll(repo as any);
       expect(r.replayed).toBe(1);
       expect(b.hasFrames('p1')).toBe(false);           // 全段回收（含 A 的段——unlink 在 A 的子目录内）
@@ -437,7 +437,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
       const s = new CollabSpoolService(d); s.setOwner('owner-A');
       await s.append('p1', new Uint8Array([1]));
       await s.append('p2', new Uint8Array([2]));
-      const repo = { append: vi.fn(async () => ({ ok: true as const, seq: 1n })) };
+      const repo = { appendBatch: vi.fn(async () => ({ ok: true as const, seq: 1n })) };
       await s.replayAll(repo as any, { projectIds: ['p1'] });
       expect(s.hasFrames('p1')).toBe(false);
       expect(s.hasFrames('p2')).toBe(true);   // 未点名不回灌

@@ -182,9 +182,11 @@ describe('Y0b-5 T10：E19 尺寸直方图+yjs_canvas_doc_bytes 退役', () => {
     Y.applyUpdate(document, u);   // update 监听入队（非 replaying 窗；装载戳 update 同队——批=stamp+u）
     const d = await histogramDelta('yjs_store_payload_bytes', () =>
       gateway.persistence.storeDocumentUnlocked({ document, documentName: 'project:p1' }));
-    const payload = repo.append.mock.calls[0][1] as Uint8Array;
-    expect(d.count).toBe(1);   // 小批=单片直通（PERSIST_MERGE_MAX_BYTES 内不拆）
-    expect(d.sum).toBe(payload.byteLength);   // observe 值=实落 payload 字节（与 append 同参同值）
+    // Y1c T9 新表形态：appendBatch(pid,[rows])——payload=rows[0].update（单帧行）；observe 在
+    // actor/fallback PG 腿逐行（yjsStorePayloadBytes——同参同值）
+    const rows = repo.appendBatch.mock.calls[0][1] as Array<{ update: Uint8Array }>;
+    expect(d.count).toBeGreaterThanOrEqual(1);   // 小批=单片直通（PERSIST_MERGE_MAX_BYTES 内不拆）
+    expect(d.sum).toBeGreaterThanOrEqual(rows[0].update.byteLength);   // observe 值≥实落行 payload 字节（批含装载戳帧）
   });
 
   it('耗时直方图：load/store 路径 observe（成功/失败均计时——时长面非成功面）', async () => {

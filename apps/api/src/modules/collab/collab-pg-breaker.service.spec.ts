@@ -174,6 +174,8 @@ afterEach(async () => { await spoolCleanup(); });
 
 function buildGateway() {
   const prisma = {
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id' }) },  // Y1c T9（T8 接线）：listenCollab requireSystemHistory fail-closed 读面 mock
+
     session: {
       findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, userId: 'u1', expiresAt: new Date(Date.now() + 24 * 3600 * 1000) }),
       update: vi.fn(async (args: any) => ({ user: { id: 'u1', name: '张三' }, expiresAt: args.data.expiresAt })),
@@ -238,11 +240,11 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     const { gateway, repo, spool } = buildGateway();
     openBreaker(gateway);
     gatewayFacade(gateway).seedPendingQueue('p1', [yupdate()]);
-    const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);
+    const ok = await gateway.persistence.storeDocumentUnlocked({ document: {} as any, documentName: 'project:p1' } as any, 'maintenance');
     expect(ok).toBe(false);
     expect(gatewayFacade(gateway).pendingQueueRef('p1')).toHaveLength(0);   // 队列清空=批已落新家
     expect(spool.hasFrames('p1')).toBe(true);                            // 新家=spool（BOI 契约——不拒 append 同语义）
-    expect(repo.append).not.toHaveBeenCalled();                          // 零 PG 等待（省 5s 事务上界）
+    expect(repo.appendBatch).not.toHaveBeenCalled();                          // 零 PG 等待（省 5s 事务上界）
   });
 
   it('half-open 成功→store 走 PG+补排空 spool（帧 confirm 段回收）+breaker 回 closed', async () => {
@@ -251,13 +253,13 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
       const { gateway, repo, spool } = buildGateway();
       openBreaker(gateway);
       gatewayFacade(gateway).seedPendingQueue('p1', [yupdate()]);
-      await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);   // open 期落 spool
+      await gateway.persistence.storeDocumentUnlocked({ document: {} as any, documentName: 'project:p1' } as any, 'maintenance');   // open 期落 spool
       expect(spool.hasFrames('p1')).toBe(true);
       gatewayFacade(gateway).cancelPersistRetry('project:p1');   // 撤退避梯（既有自愈通道——不撤会抢先排空帧，隔离本断言面）
       vi.advanceTimersByTime(BREAKER_COOLDOWN_MS + 1);   // →half-open
-      const ok = await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);   // 探测=走 PG
+      const ok = await gateway.persistence.storeDocumentUnlocked({ document: {} as any, documentName: 'project:p1' } as any, 'maintenance');   // 探测=走 PG
       expect(ok).toBe(true);         // 帧并入 append（新家=PG）→confirm 排空=真成功路径
-      expect(repo.append).toHaveBeenCalledTimes(1);   // 探测真打 PG（stash 帧回收通道）
+      expect(repo.appendBatch).toHaveBeenCalledTimes(1);   // 探测真打 PG（stash 帧回收通道）
       expect(spool.hasFrames('p1')).toBe(false);      // 补排空：帧已 confirm
       expect(gatewayFacade(gateway).pgBreakerRef().stateName()).toBe('closed');
     } finally {
@@ -265,12 +267,12 @@ describe('Y0b-5 T16 C：gateway 两熔断面+三调用点静态锚', () => {
     }
   });
 
-  it('gateway 接线推闸：repo.append 连续连接族失败 5 次→breaker open（经 catch recordFailure）', async () => {
+  it('gateway 接线推闸：repo.appendBatch 连续连接族失败 5 次→breaker open（经 catch recordFailure）', async () => {
     const { gateway, repo } = buildGateway();
-    repo.append.mockRejectedValue(p1001());
+    repo.appendBatch.mockRejectedValue(p1001());
     for (let i = 0; i < 5; i++) {
       gatewayFacade(gateway).seedPendingQueue('p1', [yupdate()]);
-      await gateway.hooks.onStoreDocument({ document: {} as any, documentName: 'project:p1' } as any);
+      await gateway.persistence.storeDocumentUnlocked({ document: {} as any, documentName: 'project:p1' } as any, 'maintenance');
     }
     expect(gatewayFacade(gateway).pgBreakerRef().stateName()).toBe('open');
   });

@@ -54,7 +54,7 @@ export function createCollabServer(opts: {
     connected: hooks.connected,   // Y0b-3 T6：寿命台账播种钩子接线
     onAuthenticate: hooks.onAuthenticate,
     onLoadDocument: hooks.onLoadDocument,
-    onStoreDocument: hooks.onStoreDocument,
+    onStoreDocument: hooks.onStoreDocument,   // Y1c T9（偏离 38①）：telemetry-only 探针（旧 store 链已拆——connection 帧恒触发库防抖钩子 S1-F-3，保留 store 调用=双写；帧持久化归 actor）
     afterStoreDocument: hooks.afterStoreDocument,   // Y0a-2 V22：最小对账钩子接线（构造 Server 配置同步——同 T3 onStoreDocument 直通位置）
     beforeHandleAwareness: hooks.beforeHandleAwareness,   // Y0b-3 T7：awareness states 三分支覆写钩子接线（scratch Map 改写=重编码广播——esm:197-207）
     beforeHandleMessage: hooks.beforeHandleMessage,   // Y0b-4 T6：msg 桶+awareness 帧闸钩子接线（ClientConnection.processMessages 每帧必经）

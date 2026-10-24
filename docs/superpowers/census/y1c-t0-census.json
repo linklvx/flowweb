@@ -12,29 +12,144 @@
     "title": "① 节点类型全集（真实创建/保存/加载/执行/导入/导出路径——group/videoEdit 必入册）",
     "conclusion": "全集=8 类型：textInput/imageGen/imageExtGen/videoGen/audioGen/multiImageGen/videoEdit/group。渲染注册表（CanvasView nodeTypes 8 键）为全集真值；NODE_TYPES 常量 6 键非全集（bug① 面）；nodeTypeMap 短名映射 6 键+直通腿（videoEdit 经直通）。执行面 6 类型（videoEdit/group 不可执行）。",
     "entries": [
-      { "file": "apps/web/src/stores/nodeStore.ts", "line": 17, "classification": "类型常量源", "note": "NODE_TYPES 6 键：imageGen/imageExtGen/textInput/videoGen/audioGen/multiImageGen——非全集（snapshot-filter.util.ts:2 头注自证「nodeStore NODE_TYPES 只有 6 键不是全集」）" },
-      { "file": "apps/web/src/pages/canvas/components/CanvasView.tsx", "line": 57, "classification": "渲染注册表=全集真值", "note": "nodeTypes 8 键（:57-65）：textInput(:58)/imageGen/imageExtGen/videoGen/audioGen/multiImageGen/videoEdit(:64)/group(:65)——API 侧静态照抄源（snapshot-filter.util.ts:2-3）" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 159, "classification": "创建链·短名映射", "note": "nodeTypeMap 6 短名（text/image/imageExt/video/audio/multiImage）→ NODE_TYPES 名" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 882, "classification": "创建链·直通腿", "note": "resolvedType = nodeTypeMap[type] || type——videoEdit 不在 map 直通（AddNodeMenu 短名 'videoEdit' 即真实类型名）" },
-      { "file": "apps/web/src/pages/canvas/components/AddNodeMenu.tsx", "line": 91, "classification": "创建链·UI 入口", "note": "ADD_NODE_ITEMS 7 项（:91-99）：text/image/imageExt/video/videoEdit(:96)/audio/multiImage；:198 addNode(item.type)" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 2191, "classification": "创建链·group（normal）", "note": "打组路径构造 type:'group' 节点（:2190-2196，data={groupType:'normal',order}）；:2209 ns 双写；:2215-2218 addNode intent 落 doc" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 2711, "classification": "创建链·group（storyboard）", "note": "分镜组构造 type:'group'（data={groupType:'storyboard',name,storyboard,cells}——cells=cs 派生缓存，doc 面经 applyKeySetTable 剥除 docShape.ts:199-203）" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 900, "classification": "创建链·videoEdit 默认宽", "note": "resolvedType==='videoEdit' → node.width=320（产物位置 fallback 链规避）" },
-      { "file": "apps/web/src/stores/canvasIntents.ts", "line": 138, "classification": "保存链·写单源", "note": "applyIntentToDoc 六 intent（addNode/updateNodeData/deleteNode/moveNode/updateNodeEnvelope/upsertEdge/deleteEdge）→ doc 写；经 dispatchCanvasIntent 单 transact" },
-      { "file": "packages/shared/src/canvas/docShape.ts", "line": 71, "classification": "保存链·doc 种子单源", "note": "fillDoc（web ydocBuilder/api 种子共用）——envelope 键=NODE_ENVELOPE_KEYS；data 逐键 set" },
-      { "file": "packages/shared/src/canvas/docShape.ts", "line": 103, "classification": "加载链·doc 直读单源", "note": "readRecordsFromMaps——web/api 双端同函数（census③ 全调用点）" },
-      { "file": "apps/web/src/collab/ydocBuilder.ts", "line": 48, "classification": "加载链·web 薄委托", "note": "readCanvasFromDoc(doc)=readRecordsFromMaps(toDocLike(doc))（:49）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 125, "classification": "加载链·api 读出口", "note": "readCanvas（withSession read）→ :127 readRecordsFromMaps" },
-      { "file": "apps/api/src/modules/execution/is-executable-node.ts", "line": 2, "classification": "执行链·可执行集", "note": "EXECUTABLE_TYPES=6：textInput/imageGen/imageExtGen/videoGen/audioGen/multiImageGen——videoEdit/group 不在执行面" },
-      { "file": "apps/api/src/modules/execution/execution.service.ts", "line": 514, "classification": "执行链·textInput 分支", "note": "nodeClaimPack 三 exec 分支：:514 textInput(kind=text)/:536 videoGen(kind=video)/:583 imageGen|imageExtGen|multiImageGen|audioGen(kind=image)；:616 未知类型 UNSUPPORTED_NODE_TYPE" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 131, "classification": "删除链·videoEdit 级联", "note": "cascadeDeleteVideoProject（:131-136）——videoEdit 节点删除级联删 VideoProject（fire-and-forget）；两路径 :968（deleteNode）+:1661（键盘 Delete）" },
-      { "file": "apps/web/src/collab/canvas-local-backup.ts", "line": 27, "classification": "导出链·本地备份", "note": "buildLocalBackupPayload 双产物：.yjs=encodeStateAsUpdate+ .json=readCanvasFromDoc 反投影（:29-31）；exportLocalBackup :44-51" },
-      { "file": "apps/web/src/collab/canvas-local-backup.ts", "line": 71, "classification": "导入链·本地备份", "note": "applyLocalBackup（:75 Y.applyUpdate(doc,bin,provider)——origin=provider 抑制回发+forceSync 走 SS2）；runtime 包装 importLocalBackup（canvasCollabRuntime.ts:702）" },
-      { "file": "apps/api/src/modules/video-work/snapshot-filter.util.ts", "line": 37, "classification": "导出链·快照/克隆白名单表（8 类型逐类型 data 键域）", "note": "WHITELIST 8 键全类型登记（:37-51——textInput:38/imageGen:41/imageExtGen:42/videoGen:43/audioGen:44/multiImageGen:45/videoEdit:46/group:51）；CLONE_WHITELIST（:57-60）group 7 键差异（:59）；R0b 公开模板过滤复用 CLONE 表（:54-56 注）" },
-      { "file": "apps/api/src/modules/video-work/video-work-clone.service.ts", "line": 33, "classification": "导入链·克隆即新画布", "note": "readCanvas 活读（:33）→buildFilteredSnapshot（CLONE_WHITELIST，dropTypes:['videoEdit']）→新画布" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 141, "classification": "导出链·export-fresh", "note": "exportFreshRun：墓碑主导文档唯一出路——withDoc 内 fillDoc 干净副本→编码落库（applyFillDocToDoc collab-document.service.ts:368）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 628, "classification": "加载链·vacuum 重建", "note": "rebuildVacuumDoc（:635 readRecordsFromMaps(source)→fillDoc 新 doc+deepCopyYMap exec/meta 根搬运）——换代装载路径" },
-      { "file": "apps/api/src/modules/project/project.service.ts", "line": 73, "classification": "种子链·项目创建", "note": "fillDoc(toDocLike(seed),stripAuthorState(...),edges)（:73）+encodeStateAsUpdate 落 CanvasDoc.state（:77）——genesis 种子写" }
+      {
+        "file": "apps/web/src/stores/nodeStore.ts",
+        "line": 17,
+        "classification": "类型常量源",
+        "note": "NODE_TYPES 6 键：imageGen/imageExtGen/textInput/videoGen/audioGen/multiImageGen——非全集（snapshot-filter.util.ts:2 头注自证「nodeStore NODE_TYPES 只有 6 键不是全集」）"
+      },
+      {
+        "file": "apps/web/src/pages/canvas/components/CanvasView.tsx",
+        "line": 57,
+        "classification": "渲染注册表=全集真值",
+        "note": "nodeTypes 8 键（:57-65）：textInput(:58)/imageGen/imageExtGen/videoGen/audioGen/multiImageGen/videoEdit(:64)/group(:65)——API 侧静态照抄源（snapshot-filter.util.ts:2-3）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 159,
+        "classification": "创建链·短名映射",
+        "note": "nodeTypeMap 6 短名（text/image/imageExt/video/audio/multiImage）→ NODE_TYPES 名"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 882,
+        "classification": "创建链·直通腿",
+        "note": "resolvedType = nodeTypeMap[type] || type——videoEdit 不在 map 直通（AddNodeMenu 短名 'videoEdit' 即真实类型名）"
+      },
+      {
+        "file": "apps/web/src/pages/canvas/components/AddNodeMenu.tsx",
+        "line": 91,
+        "classification": "创建链·UI 入口",
+        "note": "ADD_NODE_ITEMS 7 项（:91-99）：text/image/imageExt/video/videoEdit(:96)/audio/multiImage；:198 addNode(item.type)"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 2191,
+        "classification": "创建链·group（normal）",
+        "note": "打组路径构造 type:'group' 节点（:2190-2196，data={groupType:'normal',order}）；:2209 ns 双写；:2215-2218 addNode intent 落 doc"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 2711,
+        "classification": "创建链·group（storyboard）",
+        "note": "分镜组构造 type:'group'（data={groupType:'storyboard',name,storyboard,cells}——cells=cs 派生缓存，doc 面经 applyKeySetTable 剥除 docShape.ts:199-203）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 900,
+        "classification": "创建链·videoEdit 默认宽",
+        "note": "resolvedType==='videoEdit' → node.width=320（产物位置 fallback 链规避）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasIntents.ts",
+        "line": 138,
+        "classification": "保存链·写单源",
+        "note": "applyIntentToDoc 六 intent（addNode/updateNodeData/deleteNode/moveNode/updateNodeEnvelope/upsertEdge/deleteEdge）→ doc 写；经 dispatchCanvasIntent 单 transact"
+      },
+      {
+        "file": "packages/shared/src/canvas/docShape.ts",
+        "line": 71,
+        "classification": "保存链·doc 种子单源",
+        "note": "fillDoc（web ydocBuilder/api 种子共用）——envelope 键=NODE_ENVELOPE_KEYS；data 逐键 set"
+      },
+      {
+        "file": "packages/shared/src/canvas/docShape.ts",
+        "line": 103,
+        "classification": "加载链·doc 直读单源",
+        "note": "readRecordsFromMaps——web/api 双端同函数（census③ 全调用点）"
+      },
+      {
+        "file": "apps/web/src/collab/ydocBuilder.ts",
+        "line": 48,
+        "classification": "加载链·web 薄委托",
+        "note": "readCanvasFromDoc(doc)=readRecordsFromMaps(toDocLike(doc))（:49）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 125,
+        "classification": "加载链·api 读出口",
+        "note": "readCanvas（withSession read）→ :127 readRecordsFromMaps"
+      },
+      {
+        "file": "apps/api/src/modules/execution/is-executable-node.ts",
+        "line": 2,
+        "classification": "执行链·可执行集",
+        "note": "EXECUTABLE_TYPES=6：textInput/imageGen/imageExtGen/videoGen/audioGen/multiImageGen——videoEdit/group 不在执行面"
+      },
+      {
+        "file": "apps/api/src/modules/execution/execution.service.ts",
+        "line": 514,
+        "classification": "执行链·textInput 分支",
+        "note": "nodeClaimPack 三 exec 分支：:514 textInput(kind=text)/:536 videoGen(kind=video)/:583 imageGen|imageExtGen|multiImageGen|audioGen(kind=image)；:616 未知类型 UNSUPPORTED_NODE_TYPE"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 131,
+        "classification": "删除链·videoEdit 级联",
+        "note": "cascadeDeleteVideoProject（:131-136）——videoEdit 节点删除级联删 VideoProject（fire-and-forget）；两路径 :968（deleteNode）+:1661（键盘 Delete）"
+      },
+      {
+        "file": "apps/web/src/collab/canvas-local-backup.ts",
+        "line": 27,
+        "classification": "导出链·本地备份",
+        "note": "buildLocalBackupPayload 双产物：.yjs=encodeStateAsUpdate+ .json=readCanvasFromDoc 反投影（:29-31）；exportLocalBackup :44-51"
+      },
+      {
+        "file": "apps/web/src/collab/canvas-local-backup.ts",
+        "line": 71,
+        "classification": "导入链·本地备份",
+        "note": "applyLocalBackup（:75 Y.applyUpdate(doc,bin,provider)——origin=provider 抑制回发+forceSync 走 SS2）；runtime 包装 importLocalBackup（canvasCollabRuntime.ts:702）"
+      },
+      {
+        "file": "apps/api/src/modules/video-work/snapshot-filter.util.ts",
+        "line": 37,
+        "classification": "导出链·快照/克隆白名单表（8 类型逐类型 data 键域）",
+        "note": "WHITELIST 8 键全类型登记（:37-51——textInput:38/imageGen:41/imageExtGen:42/videoGen:43/audioGen:44/multiImageGen:45/videoEdit:46/group:51）；CLONE_WHITELIST（:57-60）group 7 键差异（:59）；R0b 公开模板过滤复用 CLONE 表（:54-56 注）"
+      },
+      {
+        "file": "apps/api/src/modules/video-work/video-work-clone.service.ts",
+        "line": 33,
+        "classification": "导入链·克隆即新画布",
+        "note": "readCanvas 活读（:33）→buildFilteredSnapshot（CLONE_WHITELIST，dropTypes:['videoEdit']）→新画布"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 141,
+        "classification": "导出链·export-fresh",
+        "note": "exportFreshRun：墓碑主导文档唯一出路——withDoc 内 fillDoc 干净副本→编码落库（applyFillDocToDoc collab-document.service.ts:368）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 628,
+        "classification": "加载链·vacuum 重建",
+        "note": "rebuildVacuumDoc（:635 readRecordsFromMaps(source)→fillDoc 新 doc+deepCopyYMap exec/meta 根搬运）——换代装载路径"
+      },
+      {
+        "file": "apps/api/src/modules/project/project.service.ts",
+        "line": 73,
+        "classification": "种子链·项目创建",
+        "note": "fillDoc(toDocLike(seed),stripAuthorState(...),edges)（:73）+encodeStateAsUpdate 落 CanvasDoc.state（:77）——genesis 种子写"
+      }
     ],
     "findings": [
       "NODE_TYPES（nodeStore:17，6 键）≠ 全集（8 键）——bug① 面既有事实，snapshot-filter.util.ts:2 头注已自证",
@@ -47,140 +162,634 @@
     "title": "② 全类型字段路径 census（envelope+data 键树——T2/T3 现状基准）",
     "envelope": {
       "source": "packages/shared/src/canvas/nodeEnvelope.ts:19",
-      "keys": ["id", "type", "parentId", "width", "height", "position", "data"],
+      "keys": [
+        "id",
+        "type",
+        "parentId",
+        "width",
+        "height",
+        "position",
+        "data"
+      ],
       "note": "NODE_ENVELOPE_KEYS 单源（satisfies 双向编译锚定 :24-26）；fillDoc 写侧 docShape.ts:79-88（键集表跳过：position/parentId/width/height 无键不写）；读侧 readRecordsFromMaps docShape.ts:107-122（null≡缺键→出口 undefined）"
     },
     "dataKeyTrees": {
-      "textInput": { "decl": "apps/web/src/stores/nodeStore.ts:107-110", "keys": "content:string（tiptap HTML 正文）+ prompt?:string（面板态）+ model?（:39 面板读/model 写 :77/:100）+ order/slot（placement 域）", "note": "content=执行正文真源（topology:83 上游注入）；prompt=每键击写（见基准③）" },
-      "imageGen": { "decl": "apps/web/src/stores/nodeStore.ts:112-141", "keys": "根级通用（fileId/referenceImage/mediaName/slot/status/imageRotation/flipH/flipV/transformMode/editMode/aspectRatio/allImages）+ imageGen 专属（style/styleId/styleName/model/quality/ratio/resolution/prompt:PromptValue{text,html,referencedImageIds}）", "note": "prompt=PromptValue 对象（ImageConfigPanel:47/:97 消费）" },
-      "imageExtGen": { "decl": "apps/web/src/stores/nodeStore.ts:138-140", "keys": "imageGen 全量+extConfig:ImageExtConfig（nodeStore:28-42，ratio/resolution/quality/generateCount/prompt?{text,html}）+aiTool", "note": "快照白名单 imageExtGen: ['prompt','aspectRatio','aiTool','styleId','styleName','slot']（snapshot-filter:42）——extConfig 整体剥离" },
-      "videoGen": { "decl": "apps/web/src/stores/nodeStore.ts:143-158", "keys": "model/status/fileId/aspectRatio/referenceVideo/ratio/prompt:PromptValue/styleId/styleName/allImages/trimStart/trimEnd/trimTaskStatus/trimmedFileId", "note": "trim 域=video-trim 链（trimStart/trimEnd/trimTaskStatus/trimmedFileId）" },
-      "audioGen": { "decl": "apps/web/src/stores/nodeStore.ts:160-166", "keys": "model/content:string/status/fileId/referenceAudio", "note": "prompt 语义住 content:string（AudioConfigPanel:45 初始化/:155 生成时写/:210 每键击写）——无 prompt 键（快照白名单 audioGen: ['model','content'] snapshot-filter:44）" },
-      "multiImageGen": { "decl": "apps/web/src/stores/nodeStore.ts:168-176", "keys": "label/images:ImageItem[]/mainImageIndex/expanded/nodeStatus/generationBatchId/prompt?:string", "note": "prompt=死字段（零写点——见基准②）；快照白名单 ['prompt','label']（snapshot-filter:45）" },
-      "videoEdit": { "decl": "无独立 data 接口（NODE_TYPES 外类型）", "keys": "结构仅 envelope（快照 WHITELIST.videoEdit=[] snapshot-filter:46）；轨道数据住 VideoProject PG（video-project 域）非 doc", "note": "ProcessSnapshot 尺寸表 videoEdit {w:320,h:110}（apps/web/src/pages/videos/ProcessSnapshot.tsx:30）" },
-      "group": { "decl": "packages/shared/src/types/group.ts:27-30", "keys": "GROUP_NODE_DATA_KEYS 7 键：groupType/name/storyboard/collapsed/nameCustom/color（+order——canvasStore:2194 构造带 order）", "note": "快照面 4 键 ['groupType','name','storyboard','collapsed']（snapshot-filter:51）；克隆面 7 键（CLONE_WHITELIST.group）；cells=cs 派生缓存禁入 doc（docShape.ts:199-203 剥）" }
+      "textInput": {
+        "decl": "apps/web/src/stores/nodeStore.ts:107-110",
+        "keys": "content:string（tiptap HTML 正文）+ prompt?:string（面板态）+ model?（:39 面板读/model 写 :77/:100）+ order/slot（placement 域）",
+        "note": "content=执行正文真源（topology:83 上游注入）；prompt=每键击写（见基准③）"
+      },
+      "imageGen": {
+        "decl": "apps/web/src/stores/nodeStore.ts:112-141",
+        "keys": "根级通用（fileId/referenceImage/mediaName/slot/status/imageRotation/flipH/flipV/transformMode/editMode/aspectRatio/allImages）+ imageGen 专属（style/styleId/styleName/model/quality/ratio/resolution/prompt:PromptValue{text,html,referencedImageIds}）",
+        "note": "prompt=PromptValue 对象（ImageConfigPanel:47/:97 消费）"
+      },
+      "imageExtGen": {
+        "decl": "apps/web/src/stores/nodeStore.ts:138-140",
+        "keys": "imageGen 全量+extConfig:ImageExtConfig（nodeStore:28-42，ratio/resolution/quality/generateCount/prompt?{text,html}）+aiTool",
+        "note": "快照白名单 imageExtGen: ['prompt','aspectRatio','aiTool','styleId','styleName','slot']（snapshot-filter:42）——extConfig 整体剥离"
+      },
+      "videoGen": {
+        "decl": "apps/web/src/stores/nodeStore.ts:143-158",
+        "keys": "model/status/fileId/aspectRatio/referenceVideo/ratio/prompt:PromptValue/styleId/styleName/allImages/trimStart/trimEnd/trimTaskStatus/trimmedFileId",
+        "note": "trim 域=video-trim 链（trimStart/trimEnd/trimTaskStatus/trimmedFileId）"
+      },
+      "audioGen": {
+        "decl": "apps/web/src/stores/nodeStore.ts:160-166",
+        "keys": "model/content:string/status/fileId/referenceAudio",
+        "note": "prompt 语义住 content:string（AudioConfigPanel:45 初始化/:155 生成时写/:210 每键击写）——无 prompt 键（快照白名单 audioGen: ['model','content'] snapshot-filter:44）"
+      },
+      "multiImageGen": {
+        "decl": "apps/web/src/stores/nodeStore.ts:168-176",
+        "keys": "label/images:ImageItem[]/mainImageIndex/expanded/nodeStatus/generationBatchId/prompt?:string",
+        "note": "prompt=死字段（零写点——见基准②）；快照白名单 ['prompt','label']（snapshot-filter:45）"
+      },
+      "videoEdit": {
+        "decl": "无独立 data 接口（NODE_TYPES 外类型）",
+        "keys": "结构仅 envelope（快照 WHITELIST.videoEdit=[] snapshot-filter:46）；轨道数据住 VideoProject PG（video-project 域）非 doc",
+        "note": "ProcessSnapshot 尺寸表 videoEdit {w:320,h:110}（apps/web/src/pages/videos/ProcessSnapshot.tsx:30）"
+      },
+      "group": {
+        "decl": "packages/shared/src/types/group.ts:27-30",
+        "keys": "GROUP_NODE_DATA_KEYS 7 键：groupType/name/storyboard/collapsed/nameCustom/color（+order——canvasStore:2194 构造带 order）",
+        "note": "快照面 4 键 ['groupType','name','storyboard','collapsed']（snapshot-filter:51）；克隆面 7 键（CLONE_WHITELIST.group）；cells=cs 派生缓存禁入 doc（docShape.ts:199-203 剥）"
+      }
     },
     "crossCuttingKeySets": [
-      { "file": "packages/shared/src/canvas/docShape.ts", "line": 48, "classification": "禁入键集", "note": "EPHEMERAL_DATA_KEYS={editMode,transformMode}——本地瞬态禁入 doc" },
-      { "file": "packages/shared/src/canvas/docShape.ts", "line": 49, "classification": "ns→cs 桥", "note": "CANVAS_BRIDGE_KEYS={fileId,referenceImage,status,images}" },
-      { "file": "packages/shared/src/canvas/canvas-doc-manifest.ts", "line": 84, "classification": "服务端 data 键域", "note": "SERVER_NODE_DATA_KEYS=[fileId,resultUrl,videoUrl,content,result,errorCode]——writeNodeData 现行写面（写点收编归 Y1c T8-T15）" },
-      { "file": "packages/shared/src/canvas/canvas-doc-manifest.ts", "line": 106, "classification": "v3 服务端权威域", "note": "SERVER_WRITABLE_DATA_KEYS=[fileId,result]（目标态）；CLIENT_FORBIDDEN_ON_UPDATE 同集（:112——客户端更新路径 strip）" },
-      { "file": "packages/shared/src/canvas/canvas-doc-manifest.ts", "line": 94, "classification": "exec 键域", "note": "EXEC_STATUS_KEYS 10 键=[status,attempts,jobId,intentId,fileId,errorCode,error,rearmable,reason,execSeq]" },
-      { "file": "packages/shared/src/canvas/placement.ts", "line": 20, "classification": "placement 契约表", "note": "DOC_NODE_KEYS={envelope:NODE_ENVELOPE_KEYS,dataPlacement:PLACEMENT_DATA_KEYS}——order/slot 判别" },
-      { "file": "packages/shared/src/types/group.ts", "line": 27, "classification": "组键集单源", "note": "GROUP_NODE_DATA_KEYS 7 键（快照 4 键为子集——公开渲染面收缩）" }
+      {
+        "file": "packages/shared/src/canvas/docShape.ts",
+        "line": 48,
+        "classification": "禁入键集",
+        "note": "EPHEMERAL_DATA_KEYS={editMode,transformMode}——本地瞬态禁入 doc"
+      },
+      {
+        "file": "packages/shared/src/canvas/docShape.ts",
+        "line": 49,
+        "classification": "ns→cs 桥",
+        "note": "CANVAS_BRIDGE_KEYS={fileId,referenceImage,status,images}"
+      },
+      {
+        "file": "packages/shared/src/canvas/canvas-doc-manifest.ts",
+        "line": 84,
+        "classification": "服务端 data 键域",
+        "note": "SERVER_NODE_DATA_KEYS=[fileId,resultUrl,videoUrl,content,result,errorCode]——writeNodeData 现行写面（写点收编归 Y1c T8-T15）"
+      },
+      {
+        "file": "packages/shared/src/canvas/canvas-doc-manifest.ts",
+        "line": 106,
+        "classification": "v3 服务端权威域",
+        "note": "SERVER_WRITABLE_DATA_KEYS=[fileId,result]（目标态）；CLIENT_FORBIDDEN_ON_UPDATE 同集（:112——客户端更新路径 strip）"
+      },
+      {
+        "file": "packages/shared/src/canvas/canvas-doc-manifest.ts",
+        "line": 94,
+        "classification": "exec 键域",
+        "note": "EXEC_STATUS_KEYS 10 键=[status,attempts,jobId,intentId,fileId,errorCode,error,rearmable,reason,execSeq]"
+      },
+      {
+        "file": "packages/shared/src/canvas/placement.ts",
+        "line": 20,
+        "classification": "placement 契约表",
+        "note": "DOC_NODE_KEYS={envelope:NODE_ENVELOPE_KEYS,dataPlacement:PLACEMENT_DATA_KEYS}——order/slot 判别"
+      },
+      {
+        "file": "packages/shared/src/types/group.ts",
+        "line": 27,
+        "classification": "组键集单源",
+        "note": "GROUP_NODE_DATA_KEYS 7 键（快照 4 键为子集——公开渲染面收缩）"
+      }
     ],
     "baselineVerification": {
-      "claim1_audioGenPromptInContent": { "verdict": "CONFIRMED", "evidence": ["apps/web/src/pages/canvas/components/nodes/AudioConfigPanel.tsx:45（useState 初始化 nodeData?.content）", "apps/web/src/pages/canvas/components/nodes/AudioConfigPanel.tsx:155（生成时 applyNodeDataPatch({content:prompt})）", "apps/web/src/pages/canvas/components/nodes/AudioConfigPanel.tsx:210（每键击 applyNodeDataPatch({content:e.target.value})）", "apps/web/src/stores/nodeStore.ts:162（AudioNodeData.content:string——无 prompt 键）"] },
-      "claim2_multiImageGenPromptDeadField": { "verdict": "CONFIRMED", "evidence": ["apps/web/src/stores/nodeStore.ts:175（MultiImageNodeData.prompt?:string 声明）", "零写点：web 全仓 multiImageGen×prompt 写点零命中（MultiImageConfigPanel.tsx 内 'prompt' 零命中）；api 侧 snapshot-filter.util.ts:124-126（string prompt 透传=读侧兜底，非写点）", "读侧现状：execution.service.ts:512 data?.prompt?.text 对 string 恒 miss（.text 于 string=undefined）"] },
-      "claim3_textInputPromptPerKeystroke": { "verdict": "CONFIRMED", "evidence": ["apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx:211（onChange applyNodeDataPatch({prompt:e.target.value})——每键击）", "apps/web/src/stores/nodeStore.ts:585（applyNodeDataPatch→dispatchCanvasIntent(updateNodeData)）", "apps/web/src/stores/canvasIntents.ts:157（applyIntentToDoc data.set(k,v)——同值 diff no-op，异值即写 doc；prompt 不在 EPHEMERAL/CLIENT_FORBIDDEN 两拦集）"] },
-      "claim4_execReadPoint512": { "verdict": "CONFIRMED", "evidence": ["apps/api/src/modules/execution/execution.service.ts:512（const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || ''——.text 腿只匹配 PromptValue 对象形态，TextInputData.prompt:string 恒 miss→落 content 正文）", "apps/api/src/modules/execution/execution.service.ts:516（textInput callArgs.prompt = prompt || 'Hello' 兜底）"] },
-      "claim5_textInputContentOverwrite": { "verdict": "CONFIRMED（bug② 前半）", "evidence": ["apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx:157（生成时 applyNodeDataPatch({content:prompt})——用面板 prompt 覆盖 content 正文）"] }
+      "claim1_audioGenPromptInContent": {
+        "verdict": "CONFIRMED",
+        "evidence": [
+          "apps/web/src/pages/canvas/components/nodes/AudioConfigPanel.tsx:45（useState 初始化 nodeData?.content）",
+          "apps/web/src/pages/canvas/components/nodes/AudioConfigPanel.tsx:155（生成时 applyNodeDataPatch({content:prompt})）",
+          "apps/web/src/pages/canvas/components/nodes/AudioConfigPanel.tsx:210（每键击 applyNodeDataPatch({content:e.target.value})）",
+          "apps/web/src/stores/nodeStore.ts:162（AudioNodeData.content:string——无 prompt 键）"
+        ]
+      },
+      "claim2_multiImageGenPromptDeadField": {
+        "verdict": "CONFIRMED",
+        "evidence": [
+          "apps/web/src/stores/nodeStore.ts:175（MultiImageNodeData.prompt?:string 声明）",
+          "零写点：web 全仓 multiImageGen×prompt 写点零命中（MultiImageConfigPanel.tsx 内 'prompt' 零命中）；api 侧 snapshot-filter.util.ts:124-126（string prompt 透传=读侧兜底，非写点）",
+          "读侧现状：execution.service.ts:512 data?.prompt?.text 对 string 恒 miss（.text 于 string=undefined）"
+        ]
+      },
+      "claim3_textInputPromptPerKeystroke": {
+        "verdict": "CONFIRMED",
+        "evidence": [
+          "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx:211（onChange applyNodeDataPatch({prompt:e.target.value})——每键击）",
+          "apps/web/src/stores/nodeStore.ts:585（applyNodeDataPatch→dispatchCanvasIntent(updateNodeData)）",
+          "apps/web/src/stores/canvasIntents.ts:157（applyIntentToDoc data.set(k,v)——同值 diff no-op，异值即写 doc；prompt 不在 EPHEMERAL/CLIENT_FORBIDDEN 两拦集）"
+        ]
+      },
+      "claim4_execReadPoint512": {
+        "verdict": "CONFIRMED",
+        "evidence": [
+          "apps/api/src/modules/execution/execution.service.ts:512（const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || ''——.text 腿只匹配 PromptValue 对象形态，TextInputData.prompt:string 恒 miss→落 content 正文）",
+          "apps/api/src/modules/execution/execution.service.ts:516（textInput callArgs.prompt = prompt || 'Hello' 兜底）"
+        ]
+      },
+      "claim5_textInputContentOverwrite": {
+        "verdict": "CONFIRMED（bug② 前半）",
+        "evidence": [
+          "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx:157（生成时 applyNodeDataPatch({content:prompt})——用面板 prompt 覆盖 content 正文）"
+        ]
+      }
     }
   },
   "item3_readRecordsFromMaps": {
     "title": "③ readRecordsFromMaps 全调用点（web+server）",
-    "definition": { "file": "packages/shared/src/canvas/docShape.ts", "line": 103, "classification": "单源定义", "note": "doc 直读单源（DocLike 结构入参——零 yjs 依赖）" },
+    "definition": {
+      "file": "packages/shared/src/canvas/docShape.ts",
+      "line": 103,
+      "classification": "单源定义",
+      "note": "doc 直读单源（DocLike 结构入参——零 yjs 依赖）"
+    },
     "production": [
-      { "file": "apps/web/src/collab/ydocBuilder.ts", "line": 49, "classification": "web·薄委托", "note": "readCanvasFromDoc 本体（runtime/canvasStore/local-backup 经此）" },
-      { "file": "apps/web/src/stores/canvasIntents.ts", "line": 380, "classification": "web", "note": "组帧模式 oracle 读域（readGroupFrameModes 消费面）" },
-      { "file": "apps/web/src/stores/canvasIntents.ts", "line": 446, "classification": "web", "note": "组 record 读（groupId 找组记录）" },
-      { "file": "apps/web/src/stores/canvasIntents.ts", "line": 580, "classification": "web", "note": "差分尾 order 键分配读层（tailRecords）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 127, "classification": "api·readCanvas", "note": "withSession(read) 活读出口（计费/语义读统一）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 151, "classification": "api·decodeSnapshot", "note": "快照解码（scratch doc 重放后投影）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 411, "classification": "api·loadDocument", "note": "装载序病理观测（observeOrderPathologyOnLoad）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 635, "classification": "api·vacuum 重建", "note": "rebuildVacuumDoc——活 records 重放至新 doc" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 660, "classification": "api·vacuum 等价校验", "note": "新旧 doc records JSON 比对（vacuum 预演判据）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 132, "classification": "api·shrink 读", "note": "withDoc 读 records（shrink 影子源）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 163, "classification": "api·shrink 预演", "note": "shrink 影子预演读（apply 进 scratch 后编码）" }
+      {
+        "file": "apps/web/src/collab/ydocBuilder.ts",
+        "line": 49,
+        "classification": "web·薄委托",
+        "note": "readCanvasFromDoc 本体（runtime/canvasStore/local-backup 经此）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasIntents.ts",
+        "line": 380,
+        "classification": "web",
+        "note": "组帧模式 oracle 读域（readGroupFrameModes 消费面）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasIntents.ts",
+        "line": 446,
+        "classification": "web",
+        "note": "组 record 读（groupId 找组记录）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasIntents.ts",
+        "line": 580,
+        "classification": "web",
+        "note": "差分尾 order 键分配读层（tailRecords）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 127,
+        "classification": "api·readCanvas",
+        "note": "withSession(read) 活读出口（计费/语义读统一）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 151,
+        "classification": "api·decodeSnapshot",
+        "note": "快照解码（scratch doc 重放后投影）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 411,
+        "classification": "api·loadDocument",
+        "note": "装载序病理观测（observeOrderPathologyOnLoad）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 635,
+        "classification": "api·vacuum 重建",
+        "note": "rebuildVacuumDoc——活 records 重放至新 doc"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 660,
+        "classification": "api·vacuum 等价校验",
+        "note": "新旧 doc records JSON 比对（vacuum 预演判据）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 132,
+        "classification": "api·shrink 读",
+        "note": "withDoc 读 records（shrink 影子源）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 163,
+        "classification": "api·shrink 预演",
+        "note": "shrink 影子预演读（apply 进 scratch 后编码）"
+      }
     ],
     "indirectViaReadCanvasFromDoc": [
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 815, "classification": "web·reconcile", "note": "doc abs 读取（几何 reconcile）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 841, "classification": "web·装载投影", "note": "装载投影（applyDocToStore 入口）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 973, "classification": "web·reconcile", "note": "docNodes 对账读" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1309, "classification": "web", "note": "缓存快照构造读（buildCacheRecord）" },
-      { "file": "apps/web/src/stores/canvasStore.ts", "line": 627, "classification": "web", "note": "commitIntents 末帧差分 doc.abs 单源读" },
-      { "file": "apps/web/src/collab/canvas-local-backup.ts", "line": 30, "classification": "web·导出", "note": "本地备份 .json 反投影" }
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 815,
+        "classification": "web·reconcile",
+        "note": "doc abs 读取（几何 reconcile）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 841,
+        "classification": "web·装载投影",
+        "note": "装载投影（applyDocToStore 入口）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 973,
+        "classification": "web·reconcile",
+        "note": "docNodes 对账读"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1309,
+        "classification": "web",
+        "note": "缓存快照构造读（buildCacheRecord）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasStore.ts",
+        "line": 627,
+        "classification": "web",
+        "note": "commitIntents 末帧差分 doc.abs 单源读"
+      },
+      {
+        "file": "apps/web/src/collab/canvas-local-backup.ts",
+        "line": 30,
+        "classification": "web·导出",
+        "note": "本地备份 .json 反投影"
+      }
     ],
     "tests": [
-      { "file": "apps/web/src/collab/ydocBuilder.test.ts", "line": 139, "classification": "test" },
-      { "file": "apps/api/src/modules/collab/adversarial-readers.spec.ts", "line": 15, "classification": "test（E68 全函数语料）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.spec.ts", "line": 67, "classification": "test（api 读≡web 读双端比）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.spec.ts", "line": 611, "classification": "test" },
-      { "file": "apps/api/src/modules/collab/collab-vacuum-stale-client-resurrection.spec.ts", "line": 201, "classification": "test" },
-      { "file": "packages/shared/src/canvas/docShape.fillRead.test.ts", "line": 53, "classification": "test（round-trip 恒等族）" },
-      { "file": "packages/shared/src/canvas/docShape.toDocRecords.test.ts", "line": 208, "classification": "test" }
+      {
+        "file": "apps/web/src/collab/ydocBuilder.test.ts",
+        "line": 139,
+        "classification": "test"
+      },
+      {
+        "file": "apps/api/src/modules/collab/adversarial-readers.spec.ts",
+        "line": 15,
+        "classification": "test（E68 全函数语料）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.spec.ts",
+        "line": 67,
+        "classification": "test（api 读≡web 读双端比）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.spec.ts",
+        "line": 611,
+        "classification": "test"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-vacuum-stale-client-resurrection.spec.ts",
+        "line": 201,
+        "classification": "test"
+      },
+      {
+        "file": "packages/shared/src/canvas/docShape.fillRead.test.ts",
+        "line": 53,
+        "classification": "test（round-trip 恒等族）"
+      },
+      {
+        "file": "packages/shared/src/canvas/docShape.toDocRecords.test.ts",
+        "line": 208,
+        "classification": "test"
+      }
     ],
-    "guard": { "file": "apps/api/src/modules/collab/doc-shape-single-source.guard.spec.ts", "line": 3, "classification": "守卫", "note": "api 生产源码 docShape 符号直用零命中守卫（readCanvas 收编后）——T4 re-export 删除的现役防线" }
+    "guard": {
+      "file": "apps/api/src/modules/collab/doc-shape-single-source.guard.spec.ts",
+      "line": 3,
+      "classification": "守卫",
+      "note": "api 生产源码 docShape 符号直用零命中守卫（readCanvas 收编后）——T4 re-export 删除的现役防线"
+    }
   },
   "item4_textInputPromptConsumers": {
     "title": "④ textInput prompt 全消费面（含 :512 执行读点+topology:83-84 上游注入）",
     "entries": [
-      { "file": "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx", "line": 31, "classification": "web·读（初始化）", "note": "useState(()=>nodeData?.prompt||'')——面板态引导" },
-      { "file": "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx", "line": 211, "classification": "web·写（每键击）", "note": "applyNodeDataPatch({prompt:e.target.value})——基准③ 写点" },
-      { "file": "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx", "line": 157, "classification": "web·写（生成时覆盖）", "note": "applyNodeDataPatch({content:prompt})——bug② :157 覆盖写（执行正文注入的现役机制——T2 删）" },
-      { "file": "apps/web/src/stores/nodeStore.ts", "line": 109, "classification": "类型声明", "note": "TextNodeData.prompt?:string" },
-      { "file": "apps/web/src/stores/nodeStore.ts", "line": 572, "classification": "web·写通道", "note": "applyNodeDataPatch（:585 dispatchCanvasIntent updateNodeData）" },
-      { "file": "apps/web/src/stores/canvasIntents.ts", "line": 146, "classification": "web·doc 写核心", "note": "applyIntentToDoc updateNodeData case（:157 data.set——prompt 经此落 doc）" },
-      { "file": "apps/api/src/modules/execution/execution.service.ts", "line": 512, "classification": "api·执行读点", "note": "data?.prompt?.text——string 形态恒 miss（基准④；T2 改调 shared resolvePromptText）" },
-      { "file": "apps/api/src/modules/execution/topology.service.ts", "line": 83, "classification": "api·上游注入", "note": "upstream.type==='textInput' && data?.content → textContents.push(data.content)（:83-84）——读 content 正文非 prompt；:157 删除后上游注入恢复正文语义（plan T2 锚）" },
-      { "file": "apps/api/src/modules/video-work/snapshot-filter.util.ts", "line": 122, "classification": "api·快照/克隆读", "note": "prompt 键白名单透传（:122-126：对象取 .text；string 原样——textInput/multiImageGen string prompt 通道）" },
-      { "file": "apps/web/src/pages/videos/ProcessSnapshot.tsx", "line": 43, "classification": "web·展示读", "note": "typeof d.prompt==='string' 展示（视频工作台简版节点）" },
-      { "file": "apps/api/src/modules/execution/execution.service.ts", "line": 247, "classification": "api·styleTextOf（非 prompt 但同读面）", "note": "styleTextOf 读 style/styleId 族——image/video 腿 iFinalPrompt/vFinalPrompt 组装（:537-538/:584-585）" }
+      {
+        "file": "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx",
+        "line": 31,
+        "classification": "web·读（初始化）",
+        "note": "useState(()=>nodeData?.prompt||'')——面板态引导"
+      },
+      {
+        "file": "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx",
+        "line": 211,
+        "classification": "web·写（每键击）",
+        "note": "applyNodeDataPatch({prompt:e.target.value})——基准③ 写点"
+      },
+      {
+        "file": "apps/web/src/pages/canvas/components/nodes/TextConfigPanel.tsx",
+        "line": 157,
+        "classification": "web·写（生成时覆盖）",
+        "note": "applyNodeDataPatch({content:prompt})——bug② :157 覆盖写（执行正文注入的现役机制——T2 删）"
+      },
+      {
+        "file": "apps/web/src/stores/nodeStore.ts",
+        "line": 109,
+        "classification": "类型声明",
+        "note": "TextNodeData.prompt?:string"
+      },
+      {
+        "file": "apps/web/src/stores/nodeStore.ts",
+        "line": 572,
+        "classification": "web·写通道",
+        "note": "applyNodeDataPatch（:585 dispatchCanvasIntent updateNodeData）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasIntents.ts",
+        "line": 146,
+        "classification": "web·doc 写核心",
+        "note": "applyIntentToDoc updateNodeData case（:157 data.set——prompt 经此落 doc）"
+      },
+      {
+        "file": "apps/api/src/modules/execution/execution.service.ts",
+        "line": 512,
+        "classification": "api·执行读点",
+        "note": "data?.prompt?.text——string 形态恒 miss（基准④；T2 改调 shared resolvePromptText）"
+      },
+      {
+        "file": "apps/api/src/modules/execution/topology.service.ts",
+        "line": 83,
+        "classification": "api·上游注入",
+        "note": "upstream.type==='textInput' && data?.content → textContents.push(data.content)（:83-84）——读 content 正文非 prompt；:157 删除后上游注入恢复正文语义（plan T2 锚）"
+      },
+      {
+        "file": "apps/api/src/modules/video-work/snapshot-filter.util.ts",
+        "line": 122,
+        "classification": "api·快照/克隆读",
+        "note": "prompt 键白名单透传（:122-126：对象取 .text；string 原样——textInput/multiImageGen string prompt 通道）"
+      },
+      {
+        "file": "apps/web/src/pages/videos/ProcessSnapshot.tsx",
+        "line": 43,
+        "classification": "web·展示读",
+        "note": "typeof d.prompt==='string' 展示（视频工作台简版节点）"
+      },
+      {
+        "file": "apps/api/src/modules/execution/execution.service.ts",
+        "line": 247,
+        "classification": "api·styleTextOf（非 prompt 但同读面）",
+        "note": "styleTextOf 读 style/styleId 族——image/video 腿 iFinalPrompt/vFinalPrompt 组装（:537-538/:584-585）"
+      }
     ],
     "finding": "textInput 执行链 prompt 供给现状=独占依赖 TextConfigPanel:157 的 content 覆盖写（:512 .text miss string + topology 读 content）——:157 删除后无 prompt 请求参数情形下面板 prompt 执行断供=T2 先红②的实证基础"
   },
   "item5_docExecTouchPoints": {
     "title": "⑤ doc.exec 全触碰面清单（P3/P4 删除输入——T22/T32）",
     "entries": [
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 311, "classification": "api·写原语", "note": "applyWriteExecStatusToDoc（:307-326）：exec=getMap('exec')（:311）+代次守卫（:310-319）+m.set 逐键（:324）——exec map 唯一写核心" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 380, "classification": "api·删原语", "note": "applyDeleteExecOrphansToDoc（:378-387）：孤儿 exec 条目删除（nodes 无该 id）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 217, "classification": "api·写方法", "note": "writeExecStatus（withSession write→applyWriteExecStatusToDoc）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 248, "classification": "api·写方法（复合）", "note": "deliverArtifact（:258-263：applyWriteNodeDataToDoc+applyWriteExecStatusToDoc——data.{fileId|result}+exec done 同事务）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-writer.service.ts", "line": 151, "classification": "api·批写 op", "note": "writeBatch writeExecStatus op（applyOpsCore :147-173 分支）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 661, "classification": "api·读（vacuum 等价校验）", "note": "新旧 doc exec keys 排序比对（vacuum 等价判据之一）——rebuildVacuumDoc 侧另有 exec 根深拷贝搬运（deepCopyYMap :81 注）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 728, "classification": "web·读+投影", "note": "projectExecToStore（:726-）：exec map entries → nodeStore exec 投影（execStatusView 消费面）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1996, "classification": "web·订阅", "note": "exec.observeDeep(()=>projectExecToStore(doc))（:1995 首投影+:1996 订阅——会话期 exec→store 单通道）" },
-      { "file": "packages/shared/src/canvas/canvas-doc-manifest.ts", "line": 179, "classification": "shared·键域契约", "note": "DOC_KEY_MANIFEST.exec 条目（EXEC_STATUS_KEYS 10 键派生）+writers/readers 登记" },
-      { "file": "packages/shared/src/canvas/canvas-doc-manifest.ts", "line": 60, "classification": "shared·创建者登记", "note": "NESTED_TYPE_CREATORS exec.<nodeId> 唯一创建者=writeExecStatus（客户端零 exec 写）" }
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 311,
+        "classification": "api·写原语",
+        "note": "applyWriteExecStatusToDoc（:307-326）：exec=getMap('exec')（:311）+代次守卫（:310-319）+m.set 逐键（:324）——exec map 唯一写核心"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 380,
+        "classification": "api·删原语",
+        "note": "applyDeleteExecOrphansToDoc（:378-387）：孤儿 exec 条目删除（nodes 无该 id）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 217,
+        "classification": "api·写方法",
+        "note": "writeExecStatus（withSession write→applyWriteExecStatusToDoc）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 248,
+        "classification": "api·写方法（复合）",
+        "note": "deliverArtifact（:258-263：applyWriteNodeDataToDoc+applyWriteExecStatusToDoc——data.{fileId|result}+exec done 同事务）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-writer.service.ts",
+        "line": 151,
+        "classification": "api·批写 op",
+        "note": "writeBatch writeExecStatus op（applyOpsCore :147-173 分支）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 661,
+        "classification": "api·读（vacuum 等价校验）",
+        "note": "新旧 doc exec keys 排序比对（vacuum 等价判据之一）——rebuildVacuumDoc 侧另有 exec 根深拷贝搬运（deepCopyYMap :81 注）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 728,
+        "classification": "web·读+投影",
+        "note": "projectExecToStore（:726-）：exec map entries → nodeStore exec 投影（execStatusView 消费面）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1996,
+        "classification": "web·订阅",
+        "note": "exec.observeDeep(()=>projectExecToStore(doc))（:1995 首投影+:1996 订阅——会话期 exec→store 单通道）"
+      },
+      {
+        "file": "packages/shared/src/canvas/canvas-doc-manifest.ts",
+        "line": 179,
+        "classification": "shared·键域契约",
+        "note": "DOC_KEY_MANIFEST.exec 条目（EXEC_STATUS_KEYS 10 键派生）+writers/readers 登记"
+      },
+      {
+        "file": "packages/shared/src/canvas/canvas-doc-manifest.ts",
+        "line": 60,
+        "classification": "shared·创建者登记",
+        "note": "NESTED_TYPE_CREATORS exec.<nodeId> 唯一创建者=writeExecStatus（客户端零 exec 写）"
+      }
     ],
     "upstreamWriters": [
-      { "file": "apps/api/src/modules/execution/execution.service.ts", "lines": [143, 298, 313, 331, 341, 384, 468, 481, 490], "classification": "api·执行链写点 ×9", "note": "error/skipped/loading 投影族（.catch(countExecProjectionFailure) best-effort）" },
-      { "file": "apps/api/src/modules/execution/intent-reconcile.service.ts", "line": 481, "classification": "api·写点", "note": "reconcile 投影写" },
-      { "file": "apps/api/src/modules/execution/intent-reconcile.service.ts", "line": 697, "classification": "api·写点（批）", "note": "writeBatch([{op:deleteExecOrphans}])——孤儿清扫（5min 周期）" },
-      { "file": "apps/api/src/modules/ai-image-edit/ai-image-edit.processor.ts", "lines": [239, 260], "classification": "api·写点 ×2", "note": "图片编辑链投影" },
-      { "file": "apps/api/src/modules/ai-image-edit/lighting/lighting.consumer.ts", "line": 225, "classification": "api·写点", "note": "打光链投影" },
-      { "file": "apps/api/src/modules/media-delivery/projection-outbox.poller.ts", "line": 292, "classification": "api·写点", "note": "deliverArtifact（exec done=投影 poller 专写——WORKER_EXEC_FORBIDDEN_STATUSES=['done'] 通道级前置）" },
-      { "file": "apps/api/src/modules/collab/collab-write.controller.ts", "line": 64, "classification": "api·HTTP 端点", "note": "POST /api/collab/doc/write-batch（worker 通道——writeExecStatus-only 白名单 WORKER_CHANNEL_OPS）" }
+      {
+        "file": "apps/api/src/modules/execution/execution.service.ts",
+        "lines": [
+          143,
+          298,
+          313,
+          331,
+          341,
+          384,
+          468,
+          481,
+          490
+        ],
+        "classification": "api·执行链写点 ×9",
+        "note": "error/skipped/loading 投影族（.catch(countExecProjectionFailure) best-effort）"
+      },
+      {
+        "file": "apps/api/src/modules/execution/intent-reconcile.service.ts",
+        "line": 481,
+        "classification": "api·写点",
+        "note": "reconcile 投影写"
+      },
+      {
+        "file": "apps/api/src/modules/execution/intent-reconcile.service.ts",
+        "line": 697,
+        "classification": "api·写点（批）",
+        "note": "writeBatch([{op:deleteExecOrphans}])——孤儿清扫（5min 周期）"
+      },
+      {
+        "file": "apps/api/src/modules/ai-image-edit/ai-image-edit.processor.ts",
+        "lines": [
+          239,
+          260
+        ],
+        "classification": "api·写点 ×2",
+        "note": "图片编辑链投影"
+      },
+      {
+        "file": "apps/api/src/modules/ai-image-edit/lighting/lighting.consumer.ts",
+        "line": 225,
+        "classification": "api·写点",
+        "note": "打光链投影"
+      },
+      {
+        "file": "apps/api/src/modules/media-delivery/projection-outbox.poller.ts",
+        "line": 292,
+        "classification": "api·写点",
+        "note": "deliverArtifact（exec done=投影 poller 专写——WORKER_EXEC_FORBIDDEN_STATUSES=['done'] 通道级前置）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-write.controller.ts",
+        "line": 64,
+        "classification": "api·HTTP 端点",
+        "note": "POST /api/collab/doc/write-batch（worker 通道——writeExecStatus-only 白名单 WORKER_CHANNEL_OPS）"
+      }
     ],
     "readers": [
-      { "file": "apps/web/src/stores/execStatusView.ts", "line": 1, "classification": "web·投影消费", "note": "selectExecStatus/execOverrideStatus（TextConfigPanel/ImageConfigPanel 等 UI 消费 selectExecEntry）" },
-      { "file": "apps/api/src/modules/execution/intent-reconcile.service.ts", "line": 84, "classification": "api·读者", "note": "sweepOrphanExec（exec map 孤儿条目清理 F2 GC——经 writeBatch deleteExecOrphans）" }
+      {
+        "file": "apps/web/src/stores/execStatusView.ts",
+        "line": 1,
+        "classification": "web·投影消费",
+        "note": "selectExecStatus/execOverrideStatus（TextConfigPanel/ImageConfigPanel 等 UI 消费 selectExecEntry）"
+      },
+      {
+        "file": "apps/api/src/modules/execution/intent-reconcile.service.ts",
+        "line": 84,
+        "classification": "api·读者",
+        "note": "sweepOrphanExec（exec map 孤儿条目清理 F2 GC——经 writeBatch deleteExecOrphans）"
+      }
     ],
     "deletionScope": "T22/T32 删除清单输入：写链（writeExecStatus/applyWriteExecStatusToDoc/deliverArtifact exec 腿/deleteExecOrphans/writeBatch writeExecStatus op+worker 端点）+读链（projectExecToStore+observeDeep+execStatusView doc 源+vacuum exec 搬运 deepCopyYMap+等价校验 :661）+契约（EXEC_STATUS_KEYS/DOC_KEY_MANIFEST.exec/DOC_WRITE_OPS.writeExecStatus/WORKER_CHANNEL_OPS）"
   },
   "item6_serverDocWritePaths": {
     "title": "⑥ 服务端写 doc 全路径清单（不变量验收输入——T9/T22/T32「serving 期零业务 doc 写」）",
     "entries": [
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 68, "classification": "通道A·withDoc（DirectConnection）", "note": "openDirectConnection(:78)+doc.transact(SERVER_TRANSACT_ORIGIN)(:90-102)——非常驻「用完即走」面；消费方=shrink 族（census ⑭ 登记 shrink ×3）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 101, "classification": "通道A·业务写（维护域）", "note": "shrinkSync——applyDeleteNodesToDoc/applyWriteOpsToDoc（deleteNodes 经 doc 域应用核心）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 132, "classification": "通道A·读", "note": "withDoc 读 records（shrink 影子源）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 141, "classification": "通道A·业务写（维护域）", "note": "exportFreshRun——applyFillDocToDoc（fillDoc 干净副本）+落库" },
-      { "file": "apps/api/src/modules/collab/collab-residency.service.ts", "line": 445, "classification": "通道B·withSession（DirectConnection 常驻）", "note": "常驻会话 acquire 新开 openDirectConnection——withSession(read/write) 全部读写经此通道（Z59）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 220, "classification": "通道B·业务写（serving 期）", "note": "writeExecStatus withSession(write)——exec map 业务写（T32 退役面）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 258, "classification": "通道B·业务写（serving 期）", "note": "deliverArtifact withSession(write)——data.{fileId|result}+exec done 业务写（T22 退役面）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-writer.service.ts", "line": 222, "classification": "通道B·业务写（serving 期）", "note": "writeBatch withSession(write)——六 op 批写门面（writeExecStatus/deleteNodeDataKeys/deleteNodes/fillDoc/deleteExecOrphans）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 408, "classification": "装载·inbound apply", "note": "loadDocument spool 帧重放 Y.applyUpdate(document,f.payload)——装载期（replaying 抑制窗内）" },
-      { "file": "apps/api/src/modules/collab/collab-persistence.service.ts", "line": 217, "classification": "装载·inbound apply", "note": "withReplaySuppressed——重放抑制窗内 applyUpdate（防 listener 二次 append）" },
-      { "file": "apps/api/src/modules/collab/collab-persistence.service.ts", "line": 502, "classification": "持久化·onStoreDocument 链", "note": "debounce store（documentName=project:${projectId} :502/:539）——doc→PG 写（非 doc 变更本身；Y1c T9/T10 拆 telemetry-only 的对象）" },
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 628, "classification": "维护·vacuum 重建", "note": "rebuildVacuumDoc——新 doc fillDoc+deepCopyYMap（exec/meta 根递归搬运）——换代维护写" },
-      { "file": "apps/api/src/modules/project/project.service.ts", "line": 73, "classification": "种子·genesis", "note": "fillDoc(seed)+encodeStateAsUpdate 落 CanvasDoc.state（:73/:77）——项目创建种子" },
-      { "file": "apps/api/src/gate-canvas-state.ts", "line": 27, "classification": "种子·gate 面（非生产）", "note": "fillDoc 走 shared 咽喉（:27）——census ⑯ Z57 豁免（gate-seed/spec 消费）" },
-      { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 270, "classification": "离线·scratch（compact）", "note": "compact 方法 temp doc 重放（:270-271 applyUpdate）——PG 行集→临时 doc（离线非 in-doc 写）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 149, "classification": "离线·scratch（快照解码）", "note": "decodeSnapshot scratch doc 重放（:149-150）——读路径（createCanvasDoc+destroy）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 176, "classification": "离线·scratch（shrink 预演）", "note": "影子预演 applyUpdate(scratch,...)" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 323, "classification": "离线·scratch（shrink 校准）", "note": "oldDoc PG 行集重放（:323-324）——recalibrate truth" },
-      { "file": "apps/api/src/modules/collab/collab-integrity-probe.ts", "line": 14, "classification": "离线·scratch（巡检）", "note": "replayPgSnapshot（:14-15）——soak 脚本消费的纯函数（观测非门禁）" },
-      { "file": "scripts/collab-renumber-layer.mjs", "line": 73, "classification": "CLI·维护工具", "note": "renumber-layer 重排（:73-74 重放+:127 nextval append）——T19 CLI 修复载体" }
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 68,
+        "classification": "通道A·withDoc（DirectConnection）",
+        "note": "openDirectConnection(:78)+doc.transact(SERVER_TRANSACT_ORIGIN)(:90-102)——非常驻「用完即走」面；消费方=shrink 族（census ⑭ 登记 shrink ×3）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 101,
+        "classification": "通道A·业务写（维护域）",
+        "note": "shrinkSync——applyDeleteNodesToDoc/applyWriteOpsToDoc（deleteNodes 经 doc 域应用核心）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 132,
+        "classification": "通道A·读",
+        "note": "withDoc 读 records（shrink 影子源）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 141,
+        "classification": "通道A·业务写（维护域）",
+        "note": "exportFreshRun——applyFillDocToDoc（fillDoc 干净副本）+落库"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-residency.service.ts",
+        "line": 445,
+        "classification": "通道B·withSession（DirectConnection 常驻）",
+        "note": "常驻会话 acquire 新开 openDirectConnection——withSession(read/write) 全部读写经此通道（Z59）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 220,
+        "classification": "通道B·业务写（serving 期）",
+        "note": "writeExecStatus withSession(write)——exec map 业务写（T32 退役面）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 258,
+        "classification": "通道B·业务写（serving 期）",
+        "note": "deliverArtifact withSession(write)——data.{fileId|result}+exec done 业务写（T22 退役面）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-writer.service.ts",
+        "line": 222,
+        "classification": "通道B·业务写（serving 期）",
+        "note": "writeBatch withSession(write)——六 op 批写门面（writeExecStatus/deleteNodeDataKeys/deleteNodes/fillDoc/deleteExecOrphans）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 408,
+        "classification": "装载·inbound apply",
+        "note": "loadDocument spool 帧重放 Y.applyUpdate(document,f.payload)——装载期（replaying 抑制窗内）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
+        "line": 217,
+        "classification": "装载·inbound apply",
+        "note": "withReplaySuppressed——重放抑制窗内 applyUpdate（防 listener 二次 append）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
+        "line": 502,
+        "classification": "持久化·onStoreDocument 链",
+        "note": "debounce store（documentName=project:${projectId} :502/:539）——doc→PG 写（非 doc 变更本身；Y1c T9/T10 拆 telemetry-only 的对象）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 628,
+        "classification": "维护·vacuum 重建",
+        "note": "rebuildVacuumDoc——新 doc fillDoc+deepCopyYMap（exec/meta 根递归搬运）——换代维护写"
+      },
+      {
+        "file": "apps/api/src/modules/project/project.service.ts",
+        "line": 73,
+        "classification": "种子·genesis",
+        "note": "fillDoc(seed)+encodeStateAsUpdate 落 CanvasDoc.state（:73/:77）——项目创建种子"
+      },
+      {
+        "file": "apps/api/src/gate-canvas-state.ts",
+        "line": 27,
+        "classification": "种子·gate 面（非生产）",
+        "note": "fillDoc 走 shared 咽喉（:27）——census ⑯ Z57 豁免（gate-seed/spec 消费）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+        "line": 270,
+        "classification": "离线·scratch（compact）",
+        "note": "compact 方法 temp doc 重放（:270-271 applyUpdate）——PG 行集→临时 doc（离线非 in-doc 写）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 149,
+        "classification": "离线·scratch（快照解码）",
+        "note": "decodeSnapshot scratch doc 重放（:149-150）——读路径（createCanvasDoc+destroy）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 176,
+        "classification": "离线·scratch（shrink 预演）",
+        "note": "影子预演 applyUpdate(scratch,...)"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 323,
+        "classification": "离线·scratch（shrink 校准）",
+        "note": "oldDoc PG 行集重放（:323-324）——recalibrate truth"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-integrity-probe.ts",
+        "line": 14,
+        "classification": "离线·scratch（巡检）",
+        "note": "replayPgSnapshot（:14-15）——soak 脚本消费的纯函数（观测非门禁）"
+      },
+      {
+        "file": "scripts/collab-renumber-layer.mjs",
+        "line": 73,
+        "classification": "CLI·维护工具",
+        "note": "renumber-layer 重排（:73-74 重放+:127 nextval append）——T19 CLI 修复载体"
+      }
     ],
     "invariantNote": "「serving 期零业务 doc 写」现状缺口=通道B 三点（writeExecStatus/deliverArtifact/writeBatch——exec/data 投影族）：均为 T22/T32 计划删除面；通道A 两写点属维护域（shrink/export-fresh——allowlist maintenance 档）。库内 apply（客户端帧经 gate 校验后由 Hocuspocus 库 apply——apply 归属 T9 切 gate pre-apply 前的库既有行为）"
   },
@@ -190,29 +799,151 @@
     "productionBreakdown": {
       "total": 39,
       "yjsDocAddressing": [
-        { "file": "apps/api/src/modules/collab/collab-document.service.ts", "lines": [69, 78], "classification": "server·DirectConnection 入口（isValidDocName 守卫+openDirectConnection）" },
-        { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "lines": [572, 794, 817, 831, 860, 970], "classification": "server·documents().get/const name ×6（装载/真空/常驻查址）" },
-        { "file": "apps/api/src/modules/collab/collab-persistence.service.ts", "lines": [502, 539, 808, 925, 1005, 1006, 1008, 1016], "classification": "server·store/retry/unhealthy 键 ×8" },
-        { "file": "apps/api/src/modules/collab/collab-session-guard.service.ts", "lines": [1205], "classification": "server·const name（连接查址）" },
-        { "file": "apps/api/src/modules/collab/collab-residency.service.ts", "lines": [203, 445, 620], "classification": "server·isValidDocName+openDirectConnection+documents.get" },
-        { "file": "apps/api/src/modules/collab/collab.gateway.ts", "lines": [160], "classification": "server·documents.get（isDocResident）" },
-        { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "lines": [1601], "classification": "client runtime·provider name" }
+        {
+          "file": "apps/api/src/modules/collab/collab-document.service.ts",
+          "lines": [
+            69,
+            78
+          ],
+          "classification": "server·DirectConnection 入口（isValidDocName 守卫+openDirectConnection）"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+          "lines": [
+            572,
+            794,
+            817,
+            831,
+            860,
+            970
+          ],
+          "classification": "server·documents().get/const name ×6（装载/真空/常驻查址）"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
+          "lines": [
+            502,
+            539,
+            808,
+            925,
+            1005,
+            1006,
+            1008,
+            1016
+          ],
+          "classification": "server·store/retry/unhealthy 键 ×8"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab-session-guard.service.ts",
+          "lines": [
+            1205
+          ],
+          "classification": "server·const name（连接查址）"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab-residency.service.ts",
+          "lines": [
+            203,
+            445,
+            620
+          ],
+          "classification": "server·isValidDocName+openDirectConnection+documents.get"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab.gateway.ts",
+          "lines": [
+            160
+          ],
+          "classification": "server·documents.get（isDocResident）"
+        },
+        {
+          "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+          "lines": [
+            1601
+          ],
+          "classification": "client runtime·provider name"
+        },
+        {
+          "file": "apps/api/src/modules/collab/doc-name.util.ts",
+          "lines": [
+            26
+          ],
+          "note": "Y1c T9 projectDocName 单源（构造面本体——㉚ 白名单登记）"
+        }
       ],
       "errorMessages": [
-        { "file": "apps/api/src/modules/collab/collab-document.service.ts", "lines": [70], "classification": "server·throw 消息" },
-        { "file": "apps/api/src/modules/collab/collab-residency.service.ts", "lines": [204], "classification": "server·throw 消息" }
+        {
+          "file": "apps/api/src/modules/collab/collab-document.service.ts",
+          "lines": [
+            70
+          ],
+          "classification": "server·throw 消息"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab-residency.service.ts",
+          "lines": [
+            204
+          ],
+          "classification": "server·throw 消息"
+        }
       ],
       "logTelemetryStrings": [
-        { "file": "apps/api/src/modules/collab/collab-residency.service.ts", "lines": [370, 460, 609, 626, 727, 742], "classification": "server·logger ×6" },
-        { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "lines": [177], "classification": "server·captureCollabException docName 字段" },
-        { "file": "apps/api/src/modules/collab/collab-spool.service.ts", "lines": [219], "classification": "server·captureCollabException docName 字段" }
+        {
+          "file": "apps/api/src/modules/collab/collab-residency.service.ts",
+          "lines": [
+            370,
+            460,
+            609,
+            626,
+            727,
+            742
+          ],
+          "classification": "server·logger ×6"
+        },
+        {
+          "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+          "lines": [
+            177
+          ],
+          "classification": "server·captureCollabException docName 字段"
+        },
+        {
+          "file": "apps/api/src/modules/collab/collab-spool.service.ts",
+          "lines": [
+            219
+          ],
+          "classification": "server·captureCollabException docName 字段"
+        }
       ],
       "socketIoRooms_notYjsDocNames": [
-        { "file": "apps/api/src/modules/gateway/execution.gateway.ts", "lines": [78, 89, 102, 113, 127], "classification": "server·Socket.IO room 名 ×5（join/to().emit——非 Yjs docName 但同字面模式；:102/:113 用 workflowId）", "note": "socketio-retirement-assessment.md 评估中的退役面" }
+        {
+          "file": "apps/api/src/modules/gateway/execution.gateway.ts",
+          "lines": [
+            78,
+            89,
+            102,
+            113,
+            127
+          ],
+          "classification": "server·Socket.IO room 名 ×5（join/to().emit——非 Yjs docName 但同字面模式；:102/:113 用 workflowId）",
+          "note": "socketio-retirement-assessment.md 评估中的退役面"
+        }
       ],
       "comments": [
-        { "file": "apps/api/src/modules/collab/collab-document.service.ts", "lines": [64], "classification": "注释" },
-        { "file": "apps/api/src/modules/collab/doc-name.util.ts", "lines": [32], "classification": "注释" }
+        {
+          "file": "apps/api/src/modules/collab/collab-document.service.ts",
+          "lines": [
+            64
+          ],
+          "classification": "注释"
+        },
+        {
+          "file": "apps/api/src/modules/collab/doc-name.util.ts",
+          "lines": [
+            32
+          ],
+          "classification": "注释"
+        }
       ]
     },
     "note": "分类计数：Yjs 寻址 22 + 报错消息 2 + 日志/遥测 8 + Socket.IO room 5 + 注释 2 = 39。doc-name 单源=doc-name.util.ts（isValidDocName 等）——散布点为 T24/T32 docName 收口（换代 #g 后缀）改造面"
@@ -221,41 +952,176 @@
     "title": "⑧ per-tab 缓存现状与 IDB 键面",
     "conclusion": "现状≠per-tab：缓存键=四维 (uid,pid,generation,schemaVersion) 每 (键) 一库单记录——无 tabId 维度（跨标签 last-writer-wins+dirty 保护守卫）。plan T5c「缓存键五元」（+historyId）为未来项。",
     "entries": [
-      { "file": "apps/web/src/collab/local-cache-key.ts", "line": 14, "classification": "键布局", "note": "DB_PREFIX='flowweb:collab:'+uid:pid:g<generation>:s<schemaVersion>（buildLocalCacheKey :24-26；parseLocalCacheKey :29-34）" },
-      { "file": "apps/web/src/collab/local-collab-cache.ts", "line": 23, "classification": "IDB 结构", "note": "DB_LAYOUT_VERSION=1；STORE_NAME='kv'；RECORD_KEY='snapshot'——单库单 store 单键单记录（LocalCacheRecord{snapshot,unsyncedDirty,diverged,at} :34-42）" },
-      { "file": "apps/web/src/collab/local-collab-cache.ts", "line": 59, "classification": "缓存体", "note": "LocalCollabCache：open(:87)/load(:114)/put(:134 原子+dirty 守卫 :150)/checkSizeGate(:173)/scheduleFlush(:187 ≥1s 去抖)/expireFlushSoon(:196 结构性 150ms)/flushNow(:203 pagehide/hidden)/teardown(:210)/discardEntry(:219 deleteDatabase)/evictForTotalQuota(:235 总量闸滞回 0.8/0.6)" },
-      { "file": "apps/web/src/collab/local-collab-cache.ts", "line": 20, "classification": "尺寸闸", "note": "LOCAL_CACHE_MAX_DOC_BYTES=QUOTA_DEFAULTS.maxDocBytes 同源（LOCAL_BACKUP_MAX_BYTES 同值 canvas-local-backup.ts:12）" },
-      { "file": "apps/web/src/collab/local-cache-key.ts", "line": 71, "classification": "purge 三形态", "note": "purgeForeignCaches(:71 世代变化——同 uid:pid 异代)/purgePidCaches(:81 无读权/项目删除——全代)/purgeUidCaches(:89 登出——全 pid)" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1675, "classification": "runtime 接线·键合成", "note": "buildLocalCacheKey({uid,pid,generation:collabGeneration,schemaVersion:collabSchemaVersion})——REST project meta 透传维度" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1745, "classification": "runtime 接线·实例", "note": "new LocalCollabCache(session.cacheKey, hooks)（cacheHideListener flush 族 :1780+）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1770, "classification": "runtime 接线·回放", "note": "bootRecord 装载回放 Y.applyUpdate(doc,snapshot,provider)（:1770——diverged 档跳过 :1754-1760）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1309, "classification": "runtime 接线·快照编码", "note": "buildCacheRecord（encodeStateAsUpdate——census④ 白名单点）" },
-      { "file": "apps/web/src/collab/local-collab-cache.ts", "line": 150, "classification": "跨标签语义", "note": "dirty 守卫：existing.unsyncedDirty ∧ !mine.unsyncedDirty → skip（标签 A diverged 唯一副本不被标签 B 覆盖；两 dirty LWW 按 clientID 分行方案=登记升级路径）" }
+      {
+        "file": "apps/web/src/collab/local-cache-key.ts",
+        "line": 14,
+        "classification": "键布局",
+        "note": "DB_PREFIX='flowweb:collab:'+uid:pid:g<generation>:s<schemaVersion>（buildLocalCacheKey :24-26；parseLocalCacheKey :29-34）"
+      },
+      {
+        "file": "apps/web/src/collab/local-collab-cache.ts",
+        "line": 23,
+        "classification": "IDB 结构",
+        "note": "DB_LAYOUT_VERSION=1；STORE_NAME='kv'；RECORD_KEY='snapshot'——单库单 store 单键单记录（LocalCacheRecord{snapshot,unsyncedDirty,diverged,at} :34-42）"
+      },
+      {
+        "file": "apps/web/src/collab/local-collab-cache.ts",
+        "line": 59,
+        "classification": "缓存体",
+        "note": "LocalCollabCache：open(:87)/load(:114)/put(:134 原子+dirty 守卫 :150)/checkSizeGate(:173)/scheduleFlush(:187 ≥1s 去抖)/expireFlushSoon(:196 结构性 150ms)/flushNow(:203 pagehide/hidden)/teardown(:210)/discardEntry(:219 deleteDatabase)/evictForTotalQuota(:235 总量闸滞回 0.8/0.6)"
+      },
+      {
+        "file": "apps/web/src/collab/local-collab-cache.ts",
+        "line": 20,
+        "classification": "尺寸闸",
+        "note": "LOCAL_CACHE_MAX_DOC_BYTES=QUOTA_DEFAULTS.maxDocBytes 同源（LOCAL_BACKUP_MAX_BYTES 同值 canvas-local-backup.ts:12）"
+      },
+      {
+        "file": "apps/web/src/collab/local-cache-key.ts",
+        "line": 71,
+        "classification": "purge 三形态",
+        "note": "purgeForeignCaches(:71 世代变化——同 uid:pid 异代)/purgePidCaches(:81 无读权/项目删除——全代)/purgeUidCaches(:89 登出——全 pid)"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1675,
+        "classification": "runtime 接线·键合成",
+        "note": "buildLocalCacheKey({uid,pid,generation:collabGeneration,schemaVersion:collabSchemaVersion})——REST project meta 透传维度"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1745,
+        "classification": "runtime 接线·实例",
+        "note": "new LocalCollabCache(session.cacheKey, hooks)（cacheHideListener flush 族 :1780+）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1770,
+        "classification": "runtime 接线·回放",
+        "note": "bootRecord 装载回放 Y.applyUpdate(doc,snapshot,provider)（:1770——diverged 档跳过 :1754-1760）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1309,
+        "classification": "runtime 接线·快照编码",
+        "note": "buildCacheRecord（encodeStateAsUpdate——census④ 白名单点）"
+      },
+      {
+        "file": "apps/web/src/collab/local-collab-cache.ts",
+        "line": 150,
+        "classification": "跨标签语义",
+        "note": "dirty 守卫：existing.unsyncedDirty ∧ !mine.unsyncedDirty → skip（标签 A diverged 唯一副本不被标签 B 覆盖；两 dirty LWW 按 clientID 分行方案=登记升级路径）"
+      }
     ],
     "finding": "「per-tab」措辞与现状不符：现行=per-(uid,pid,generation,schemaVersion) 单记录多标签共享写（LWW+dirty 保护）。plan T5c 缓存键五元（+historyId）与 T28 增量投影（mergeUpdates+savedSeq 持久化回执推进）均为改造目标非现状"
   },
   "item9_applyUpdateConsumers": {
     "title": "⑨ 全仓 Y.applyUpdate 消费面（T5/T24 lint 门输入——inbound doc apply 目标白名单=gate/load/import 三处）",
     "production": [
-      { "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts", "line": 408, "classification": "inbound-doc-apply·load", "note": "loadDocument spool 帧重放（装载路径——目标白名单 load 档）" },
-      { "file": "apps/api/src/modules/collab/collab-persistence.service.ts", "line": 217, "classification": "inbound-doc-apply·replay", "note": "withReplaySuppressed 抑制窗 applyUpdate（重放抑制——load/replay 档；census ⑮ 登记红 until=片D）" },
-      { "file": "apps/web/src/collab/canvas-local-backup.ts", "line": 75, "classification": "inbound-doc-apply·import", "note": "applyLocalBackup（origin=provider 抑制 Update 帧回发+forceSync SS2）——导入路径（目标白名单 import 档）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 1770, "classification": "inbound-doc-apply·load（boot 缓存回放）", "note": "本地缓存装载回放（origin=provider 同款抑制）——boot load 档" },
-      { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 270, "classification": "离线·scratch", "note": "compact temp doc 重放（:270-271——census ⑮ 登记红 until=片D）" },
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 149, "classification": "离线·scratch", "note": "decodeSnapshot（:149-150 快照解码 scratch doc——census ⑮ 登记红 until=片D）" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 176, "classification": "离线·scratch", "note": "shrink 影子预演" },
-      { "file": "apps/api/src/modules/collab/collab-shrink.service.ts", "line": 323, "classification": "离线·scratch", "note": "shrink 写后校准 oldDoc 重放（:323-324）" },
-      { "file": "apps/api/src/modules/collab/collab-integrity-probe.ts", "line": 14, "classification": "离线·scratch", "note": "replayPgSnapshot（:14-15 巡检纯函数）" },
-      { "file": "apps/web/src/stores/canvasCollabRuntime.ts", "line": 689, "classification": "离线·tmp（web）", "note": "exportDivergedContent 临时 doc（盘上 diverged 快照导出——临时构造即弃）" }
+      {
+        "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+        "line": 408,
+        "classification": "inbound-doc-apply·load",
+        "note": "loadDocument spool 帧重放（装载路径——目标白名单 load 档）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
+        "line": 217,
+        "classification": "inbound-doc-apply·replay",
+        "note": "withReplaySuppressed 抑制窗 applyUpdate（重放抑制——load/replay 档；census ⑮ 登记红 until=片D）"
+      },
+      {
+        "file": "apps/web/src/collab/canvas-local-backup.ts",
+        "line": 75,
+        "classification": "inbound-doc-apply·import",
+        "note": "applyLocalBackup（origin=provider 抑制 Update 帧回发+forceSync SS2）——导入路径（目标白名单 import 档）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 1770,
+        "classification": "inbound-doc-apply·load（boot 缓存回放）",
+        "note": "本地缓存装载回放（origin=provider 同款抑制）——boot load 档"
+      },
+      {
+        "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+        "line": 270,
+        "classification": "离线·scratch",
+        "note": "compact temp doc 重放（:270-271——census ⑮ 登记红 until=片D）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 149,
+        "classification": "离线·scratch",
+        "note": "decodeSnapshot（:149-150 快照解码 scratch doc——census ⑮ 登记红 until=片D）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 176,
+        "classification": "离线·scratch",
+        "note": "shrink 影子预演"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+        "line": 323,
+        "classification": "离线·scratch",
+        "note": "shrink 写后校准 oldDoc 重放（:323-324）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-integrity-probe.ts",
+        "line": 14,
+        "classification": "离线·scratch",
+        "note": "replayPgSnapshot（:14-15 巡检纯函数）"
+      },
+      {
+        "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+        "line": 689,
+        "classification": "离线·tmp（web）",
+        "note": "exportDivergedContent 临时 doc（盘上 diverged 快照导出——临时构造即弃）"
+      }
     ],
     "scripts": [
-      { "file": "scripts/collab-renumber-layer.mjs", "line": 73, "classification": "CLI 维护工具", "note": ":73-74 PG 行集重放（T19 CLI 修复载体——锁消费见⑩ :61 同键）" },
-      { "file": "scripts/c0a/guard-prototype.mjs", "line": 203, "classification": "spike 脚本", "note": ":203/:209 帧闸原型" },
-      { "file": "scripts/c0a/placement-atomicity.mjs", "line": 30, "classification": "spike 脚本", "note": ":30/:45-46/:76/:85-86 双 doc 交换" },
-      { "file": "apps/api/scripts/collab-kill9-drill.ts", "line": 193, "classification": "运维演练脚本", "note": ":193-194 PG 行集重放（G6a kill -9 演练——评审修：初版漏 apps/api/scripts 目录）" },
-      { "file": "apps/api/scripts/collab-smoke.mjs", "line": 87, "classification": "运维 smoke 脚本", "note": ":87-88 装载探针重放" },
-      { "file": "apps/api/scripts/write-frozen-drill.mjs", "line": 201, "classification": "运维演练脚本", "note": ":201-202 write-frozen 演练重放" },
-      { "file": "apps/api/scripts/collab-spool-quarantine.ts", "line": 65, "classification": "运维脚本", "note": "spool 隔离段摘要重放（try/catch 尽力而为）" }
+      {
+        "file": "scripts/collab-renumber-layer.mjs",
+        "line": 73,
+        "classification": "CLI 维护工具",
+        "note": ":73-74 PG 行集重放（T19 CLI 修复载体——锁消费见⑩ :61 同键）"
+      },
+      {
+        "file": "scripts/c0a/guard-prototype.mjs",
+        "line": 203,
+        "classification": "spike 脚本",
+        "note": ":203/:209 帧闸原型"
+      },
+      {
+        "file": "scripts/c0a/placement-atomicity.mjs",
+        "line": 30,
+        "classification": "spike 脚本",
+        "note": ":30/:45-46/:76/:85-86 双 doc 交换"
+      },
+      {
+        "file": "apps/api/scripts/collab-kill9-drill.ts",
+        "line": 193,
+        "classification": "运维演练脚本",
+        "note": ":193-194 PG 行集重放（G6a kill -9 演练——评审修：初版漏 apps/api/scripts 目录）"
+      },
+      {
+        "file": "apps/api/scripts/collab-smoke.mjs",
+        "line": 87,
+        "classification": "运维 smoke 脚本",
+        "note": ":87-88 装载探针重放"
+      },
+      {
+        "file": "apps/api/scripts/write-frozen-drill.mjs",
+        "line": 201,
+        "classification": "运维演练脚本",
+        "note": ":201-202 write-frozen 演练重放"
+      },
+      {
+        "file": "apps/api/scripts/collab-spool-quarantine.ts",
+        "line": 65,
+        "classification": "运维脚本",
+        "note": "spool 隔离段摘要重放（try/catch 尽力而为）"
+      }
     ],
     "countsReproducible": {
       "patternTest": "grep -rn \"applyUpdate\" apps/api/src apps/web/src packages/shared/src scripts apps/api/scripts --include=*.ts --include=*.tsx --include=*.mjs | grep -v node_modules | grep -E \"\\.(spec|test)\\.\"",
@@ -269,65 +1135,219 @@
       "opsScriptLines": 17,
       "opsScriptNote": "scripts/ 根（renumber×2+guard-prototype×2+placement-atomicity×6 行 8 调用）+apps/api/scripts（×7）——共 17 行（check-collab-census.test.mjs:165 为脚本自测字符串字面量非调用，不计）"
     },
-    "tests": { "count": 145, "countNote": "任意 applyUpdate 出现行（路径匹配 \\.(spec|test)\\.）；其中 Y.applyUpdate( 调用形态 119 行；另 collab-harness e2e 装置 2 行（.e2e-spec 不匹配路径正则——归测试面合计 147）。初版「147」为宽松过滤（grep -e spec 匹配行内容含 'spec' 字样的误计数）已废——以本条 stated pattern 为准", "classification": "spec/test 文件命中（apps/api/apps/web/packages/shared/scripts/apps/api/scripts）——测试装置面，不入 lint 门白名单" },
+    "tests": {
+      "count": 145,
+      "countNote": "任意 applyUpdate 出现行（路径匹配 \\.(spec|test)\\.）；其中 Y.applyUpdate( 调用形态 119 行；另 collab-harness e2e 装置 2 行（.e2e-spec 不匹配路径正则——归测试面合计 147）。初版「147」为宽松过滤（grep -e spec 匹配行内容含 'spec' 字样的误计数）已废——以本条 stated pattern 为准",
+      "classification": "spec/test 文件命中（apps/api/apps/web/packages/shared/scripts/apps/api/scripts）——测试装置面，不入 lint 门白名单"
+    },
     "gateNote": "目标白名单（T5 census 静态门）=gate（T9 建——现状 apply 归属=Hocuspocus 库内部，本仓代码零显式调用）/load（registry:408+persistence:217+runtime:1770）/import（canvas-local-backup:75）。其余生产显式调用全为离线 scratch/临时 doc（repository/decodeSnapshot/shrink×2/integrity-probe/runtime:689——14 调用点中占 10）——T24 门须按「inbound-doc-apply」语义收口（scratch 域=非 inbound 面，Y1c T5 措辞「其余零」按 inbound 语义解读；若按裸调用清零解读则现状 14 生产调用点对 4 白名单=缺口 10，全部为离线 scratch 域——需 T5 立门时裁定口径）"
   },
   "item10_advisoryLockAndSequence": {
     "title": "⑩ `doc_advisory_xact_lock`+`canvas_doc_update_seq` 全消费面（T10 删除前置）",
     "docAdvisoryLock": {
-      "definition": { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 44, "classification": "锁键单源", "note": "lockProject（:40-45）：pg_advisory_xact_lock(hashtext(${projectId})::bigint)——append/vacuumReplace/compact 三路共用（P23/V26 锁键单源；S5 spike 锚=repository:61-62 append 首行注释段）" },
+      "definition": {
+        "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+        "line": 44,
+        "classification": "锁键单源",
+        "note": "lockProject（:40-45）：pg_advisory_xact_lock(hashtext(${projectId})::bigint)——append/vacuumReplace/compact 三路共用（P23/V26 锁键单源；S5 spike 锚=repository:61-62 append 首行注释段）"
+      },
       "consumers": [
-        { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 63, "classification": "append 事务内（消费点①）", "note": "append(:53-85)：lockProject(:63)+单语句 INSERT...nextval（:64-69）——SV3 seq 序≡提交序" },
-        { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 202, "classification": "vacuumReplace 事务内（消费点②）", "note": "vacuumReplace(:194-224)：首行 lockProject(:202)——锁内实读行集+expectedRowCount 漂移守卫+upsert 真空快照/generation=n+1+deleteMany（头注 :188-193：serving 门是概率保证，advisory lock 是结构保证）" },
-        { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 260, "classification": "compact 事务内（消费点③）", "note": "compact：租约断言（:252-258 SV8 owner-only）后 lockProject(:260)（行内注 P23：与 append 同 helper）——:61 是 append 体内注释行非调用点（初版误标已修）" }
+        {
+          "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+          "line": 63,
+          "classification": "append 事务内（消费点①）",
+          "note": "append(:53-85)：lockProject(:63)+单语句 INSERT...nextval（:64-69）——SV3 seq 序≡提交序"
+        },
+        {
+          "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+          "line": 202,
+          "classification": "vacuumReplace 事务内（消费点②）",
+          "note": "vacuumReplace(:194-224)：首行 lockProject(:202)——锁内实读行集+expectedRowCount 漂移守卫+upsert 真空快照/generation=n+1+deleteMany（头注 :188-193：serving 门是概率保证，advisory lock 是结构保证）"
+        },
+        {
+          "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+          "line": 260,
+          "classification": "compact 事务内（消费点③）",
+          "note": "compact：租约断言（:252-258 SV8 owner-only）后 lockProject(:260)（行内注 P23：与 append 同 helper）——:61 是 append 体内注释行非调用点（初版误标已修）"
+        }
       ],
       "sameKeyExternalConsumer": [
-        { "file": "scripts/collab-renumber-layer.mjs", "line": 61, "classification": "CLI·同键外部消费点", "note": "renumberProject 事务首句 pg_advisory_xact_lock(hashtext($1)::bigint)（实参 [projectId]——与 lockProject 完全同键；:57 行内注自证「与 append/compact 同键」）——api 已停前提下的跨进程保险；T10 处置时与 :127 nextval 同批同步" }
+        {
+          "file": "scripts/collab-renumber-layer.mjs",
+          "line": 61,
+          "classification": "CLI·同键外部消费点",
+          "note": "renumberProject 事务首句 pg_advisory_xact_lock(hashtext($1)::bigint)（实参 [projectId]——与 lockProject 完全同键；:57 行内注自证「与 append/compact 同键」）——api 已停前提下的跨进程保险；T10 处置时与 :127 nextval 同批同步"
+        }
       ],
       "verdict": "doc 写路径锁（hashtext(projectId) 键）消费面=canvas-doc-update.repository 单文件三调用（append:63/vacuumReplace:202/compact:260）+renumber CLI 同键一点（collab-renumber-layer.mjs:61）——api 侧无其他依赖，T10 随写路径切换可删；⚠️ 若 T10 只摘 append/compact 而 vacuumReplace 链未随批处置，lockProject 定义+vacuumReplace:202 仍是活锁调用点（T12 vacuumReplace 委托状态机化时须同批收口）"
     },
     "otherAdvisoryLocks_notDocPath": [
-      { "file": "apps/api/src/modules/canvas/canvas.service.ts", "line": 34, "classification": "他键·非 doc 面", "note": "pg_advisory_xact_lock(hashtext('canvas_untitled:'+teamId))——未命名画布唯一性（与 doc 写路径无关——T10 不触碰）" },
-      { "file": "apps/api/src/modules/execution/intent-reconcile.service.ts", "line": 313, "classification": "他键·非 doc 面", "note": "pg_advisory_xact_lock(hashtext(intentRowId))——R3 动作表执行器护栏（:313/:453 两处；与 doc 写路径无关）" },
-      { "file": "apps/api/src/modules/subscription/admin/admin-subscription.service.ts", "line": 89, "classification": "他键·非 doc 面", "note": "pg_advisory_xact_lock(hashtext('admin:'+opts.idempotencyKey))——admin 订阅操作幂等业务锁（:56 头注：前置查对并发无效，双方 miss⇒后者撞唯一键；与 doc 写路径无关——T10 不触碰）" }
+      {
+        "file": "apps/api/src/modules/canvas/canvas.service.ts",
+        "line": 34,
+        "classification": "他键·非 doc 面",
+        "note": "pg_advisory_xact_lock(hashtext('canvas_untitled:'+teamId))——未命名画布唯一性（与 doc 写路径无关——T10 不触碰）"
+      },
+      {
+        "file": "apps/api/src/modules/execution/intent-reconcile.service.ts",
+        "line": 313,
+        "classification": "他键·非 doc 面",
+        "note": "pg_advisory_xact_lock(hashtext(intentRowId))——R3 动作表执行器护栏（:313/:453 两处；与 doc 写路径无关）"
+      },
+      {
+        "file": "apps/api/src/modules/subscription/admin/admin-subscription.service.ts",
+        "line": 89,
+        "classification": "他键·非 doc 面",
+        "note": "pg_advisory_xact_lock(hashtext('admin:'+opts.idempotencyKey))——admin 订阅操作幂等业务锁（:56 头注：前置查对并发无效，双方 miss⇒后者撞唯一键；与 doc 写路径无关——T10 不触碰）"
+      }
     ],
     "canvasDocUpdateSeq": [
-      { "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts", "line": 66, "classification": "生产·唯一 nextval 消费点", "note": "append 单语句 INSERT...nextval('canvas_doc_update_seq')（协作写命脉）" },
-      { "file": "apps/api/prisma/migrations/20261009140100_y0b2_init/migration.sql", "line": 1245, "classification": "迁移·CREATE SEQUENCE", "note": "序列创建（不可重放迁移——check-migration-immutability 域）" },
-      { "file": "apps/api/prisma/verify-indexes.sql", "line": 54, "classification": "运维·断言", "note": "seq-ok 存在性断言（deployment-db-baseline.md §七锚族——T10 删序列须同批撤此断言）" },
-      { "file": "scripts/collab-renumber-layer.mjs", "line": 127, "classification": "CLI·维护工具", "note": "renumber-layer 重建行 nextval（T19 CLI——T10 后需同步处置）" }
+      {
+        "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
+        "line": 66,
+        "classification": "生产·唯一 nextval 消费点",
+        "note": "append 单语句 INSERT...nextval('canvas_doc_update_seq')（协作写命脉）"
+      },
+      {
+        "file": "apps/api/prisma/migrations/20261009140100_y0b2_init/migration.sql",
+        "line": 1245,
+        "classification": "迁移·CREATE SEQUENCE",
+        "note": "序列创建（不可重放迁移——check-migration-immutability 域）"
+      },
+      {
+        "file": "apps/api/prisma/verify-indexes.sql",
+        "line": 54,
+        "classification": "运维·断言",
+        "note": "seq-ok 存在性断言（deployment-db-baseline.md §七锚族——T10 删序列须同批撤此断言）"
+      },
+      {
+        "file": "scripts/collab-renumber-layer.mjs",
+        "line": 127,
+        "classification": "CLI·维护工具",
+        "note": "renumber-layer 重建行 nextval（T19 CLI——T10 后需同步处置）"
+      }
     ],
     "verdict": "⑩ 删除前置结论：doc advisory lock（projectId 键）消费面=repository 三调用（append:63/vacuumReplace:202/compact:260）+renumber CLI 同键（:61）；canvas_doc_update_seq 消费面=repository:66 nextval+renumber CLI:127+迁移/运维断言——api 侧无独立第三方依赖，T10 切换后可删；需同批：verify-indexes.sql:54 断言撤除+collab-renumber-layer.mjs:61/:127 CLI 双点处置+deployment-db-baseline.md 锚更新+vacuumReplace:202 随 T12 状态机化收口。canvas.service:34/intent-reconcile:313/:453/admin-subscription:89 为异键 advisory lock 不受影响"
   },
   "item11_obligationKinds": {
     "title": "⑪ 义务种类候选对照真实子系统（T5b 生命周期观察者 closed enum 定员输入——必含 FEED_TOMBSTONE）",
     "nodeDeletionToday": [
-      { "subsystem": "doc.exec（执行投影）", "staleState": "节点删除后 exec 条目残留（孤儿）", "currentCleanup": "两防线：写侧存在性守卫（applyWriteExecStatusToDoc collab-document.service.ts:309 node-deleted 不建条目——Z4 止新）+读侧周期清扫（intent-reconcile.service.ts:697 sweepOrphanExec deleteExecOrphans 5min）", "obligationCandidate": "TOMBSTONE 可省（T22/T32 整链删除后此域消失）——过渡期保留 sweep" },
-      { "subsystem": "ArtifactProjection/投影 outbox（media-delivery）", "staleState": "节点删除时在飞投影行 pending→投递失败", "currentCleanup": "投递时点检测：deliverArtifact written:false node-deleted（collab-document.service.ts:259）→poller 标记 orphaned（projection-outbox.poller.ts:301）+幂等退款（:447）；sweepOrphanedRefund 悬置收敛（intent-reconcile.service.ts:195）", "obligationCandidate": "NODE_DELETED 义务（观察者 buffer 化——投递前 tombstone 可省一轮失败投递）" },
-      { "subsystem": "NodeArtifact（PG 产物行）", "staleState": "节点删除后产物行永久残留（nodeId 键无级联——doc 节点非 PG 行）", "currentCleanup": "无删除时清理（TD-15：产物=素材库资产不随节点删）；binding-reconcile 周期重扫对账 MediaBinding", "obligationCandidate": "无需 tombstone（保留=产品语义）；FEED_TOMBSTONE 使 RuntimeProjection 消费端知删即可" },
-      { "subsystem": "MediaBinding（doc 引用索引）", "staleState": "节点删除→绑定行 stale", "currentCleanup": "惰性 reconcile（binding-reconcile.service.ts:181 collectMediaRefs 全量重扫→applyRefs stale 清扫 :257-260；发现游标=NodeArtifact.projectId :150）", "obligationCandidate": "NODE_DELETED 义务（帧级 effects 驱动——免周期全扫；FrameEffects NODE_DELETED=T24 索引增量维护输入）" },
-      { "subsystem": "MediaFactOutbox（媒体事实）", "staleState": "按 (mediaId,projectId,factType,factVersion) 键——节点删除本身不产事实行；媒体生命周期（probe/natural）驱动", "currentCleanup": "emitter at-least-once+published 7d retention（schema.prisma:1228-1248）", "obligationCandidate": "无需 node 级义务（键域无 nodeId）——非 T5b enum 候选" },
-      { "subsystem": "GenerationIntent（执行意图/资金）", "staleState": "节点删除时在飞意图行（RUNNING/reserved credits）", "currentCleanup": "deadline-reaper+intent-reconcile（RUNNING 孤儿判龄 :21/:134 verifyActive；orphaned-refund 决策表窗⑥ :195-210）", "obligationCandidate": "EXEC_FINALIZE 义务（观察者同事务 buffer——收口悬置窗）" },
-      { "subsystem": "ExecutionOutbox（Y1c 新建）", "staleState": "T5b/T21 新表——feed 事件投递 at-least-once", "currentCleanup": "（未建）", "obligationCandidate": "FEED_TOMBSTONE+EXEC_STATUS 类义务载体（T26 观察者 per-walSeq buffer 与 PG 批同事务）" },
-      { "subsystem": "搜索（material-library）", "staleState": "material-library 搜索按 Media 行——无 nodeId 引用（grep 零命中 node 键）", "currentCleanup": "不适用", "obligationCandidate": "无 node 级义务——非候选" },
-      { "subsystem": "公开快照（video-work /process+模板）", "staleState": "请求时从 doc 现读生成（readCanvas/readCanvasSnapshotCached）——无持久 per-node 状态", "currentCleanup": "不适用（快照天然随 doc 演进）", "obligationCandidate": "无义务（换代 doc.vacuumed 事件通知缓存失效=已有 invalidation 链 canvas.doc-saved 事件族）" },
-      { "subsystem": "配额（doc bytes）", "staleState": "节点删除后 doc 字节回落依赖 yjs GC+compact/vacuum", "currentCleanup": "compact（COMPACT_INTERVAL_MS 周期）+vacuum（换代重建）", "obligationCandidate": "无即时义务（异步收敛语义）" },
-      { "subsystem": "VideoProject（videoEdit 级联）", "staleState": "videoEdit 节点删除→PG VideoProject 行", "currentCleanup": "web 侧 fire-and-forget 级联删除（canvasStore.ts:131-136 cascadeDeleteVideoProject——失败仅 console.error）", "obligationCandidate": "NODE_DELETED 义务候选（服务端观察者化后可收编该 fire-and-forget——失败留痕现状=明确缺口）" }
+      {
+        "subsystem": "doc.exec（执行投影）",
+        "staleState": "节点删除后 exec 条目残留（孤儿）",
+        "currentCleanup": "两防线：写侧存在性守卫（applyWriteExecStatusToDoc collab-document.service.ts:309 node-deleted 不建条目——Z4 止新）+读侧周期清扫（intent-reconcile.service.ts:697 sweepOrphanExec deleteExecOrphans 5min）",
+        "obligationCandidate": "TOMBSTONE 可省（T22/T32 整链删除后此域消失）——过渡期保留 sweep"
+      },
+      {
+        "subsystem": "ArtifactProjection/投影 outbox（media-delivery）",
+        "staleState": "节点删除时在飞投影行 pending→投递失败",
+        "currentCleanup": "投递时点检测：deliverArtifact written:false node-deleted（collab-document.service.ts:259）→poller 标记 orphaned（projection-outbox.poller.ts:301）+幂等退款（:447）；sweepOrphanedRefund 悬置收敛（intent-reconcile.service.ts:195）",
+        "obligationCandidate": "NODE_DELETED 义务（观察者 buffer 化——投递前 tombstone 可省一轮失败投递）"
+      },
+      {
+        "subsystem": "NodeArtifact（PG 产物行）",
+        "staleState": "节点删除后产物行永久残留（nodeId 键无级联——doc 节点非 PG 行）",
+        "currentCleanup": "无删除时清理（TD-15：产物=素材库资产不随节点删）；binding-reconcile 周期重扫对账 MediaBinding",
+        "obligationCandidate": "无需 tombstone（保留=产品语义）；FEED_TOMBSTONE 使 RuntimeProjection 消费端知删即可"
+      },
+      {
+        "subsystem": "MediaBinding（doc 引用索引）",
+        "staleState": "节点删除→绑定行 stale",
+        "currentCleanup": "惰性 reconcile（binding-reconcile.service.ts:181 collectMediaRefs 全量重扫→applyRefs stale 清扫 :257-260；发现游标=NodeArtifact.projectId :150）",
+        "obligationCandidate": "NODE_DELETED 义务（帧级 effects 驱动——免周期全扫；FrameEffects NODE_DELETED=T24 索引增量维护输入）"
+      },
+      {
+        "subsystem": "MediaFactOutbox（媒体事实）",
+        "staleState": "按 (mediaId,projectId,factType,factVersion) 键——节点删除本身不产事实行；媒体生命周期（probe/natural）驱动",
+        "currentCleanup": "emitter at-least-once+published 7d retention（schema.prisma:1228-1248）",
+        "obligationCandidate": "无需 node 级义务（键域无 nodeId）——非 T5b enum 候选"
+      },
+      {
+        "subsystem": "GenerationIntent（执行意图/资金）",
+        "staleState": "节点删除时在飞意图行（RUNNING/reserved credits）",
+        "currentCleanup": "deadline-reaper+intent-reconcile（RUNNING 孤儿判龄 :21/:134 verifyActive；orphaned-refund 决策表窗⑥ :195-210）",
+        "obligationCandidate": "EXEC_FINALIZE 义务（观察者同事务 buffer——收口悬置窗）"
+      },
+      {
+        "subsystem": "ExecutionOutbox（Y1c 新建）",
+        "staleState": "T5b/T21 新表——feed 事件投递 at-least-once",
+        "currentCleanup": "（未建）",
+        "obligationCandidate": "FEED_TOMBSTONE+EXEC_STATUS 类义务载体（T26 观察者 per-walSeq buffer 与 PG 批同事务）"
+      },
+      {
+        "subsystem": "搜索（material-library）",
+        "staleState": "material-library 搜索按 Media 行——无 nodeId 引用（grep 零命中 node 键）",
+        "currentCleanup": "不适用",
+        "obligationCandidate": "无 node 级义务——非候选"
+      },
+      {
+        "subsystem": "公开快照（video-work /process+模板）",
+        "staleState": "请求时从 doc 现读生成（readCanvas/readCanvasSnapshotCached）——无持久 per-node 状态",
+        "currentCleanup": "不适用（快照天然随 doc 演进）",
+        "obligationCandidate": "无义务（换代 doc.vacuumed 事件通知缓存失效=已有 invalidation 链 canvas.doc-saved 事件族）"
+      },
+      {
+        "subsystem": "配额（doc bytes）",
+        "staleState": "节点删除后 doc 字节回落依赖 yjs GC+compact/vacuum",
+        "currentCleanup": "compact（COMPACT_INTERVAL_MS 周期）+vacuum（换代重建）",
+        "obligationCandidate": "无即时义务（异步收敛语义）"
+      },
+      {
+        "subsystem": "VideoProject（videoEdit 级联）",
+        "staleState": "videoEdit 节点删除→PG VideoProject 行",
+        "currentCleanup": "web 侧 fire-and-forget 级联删除（canvasStore.ts:131-136 cascadeDeleteVideoProject——失败仅 console.error）",
+        "obligationCandidate": "NODE_DELETED 义务候选（服务端观察者化后可收编该 fire-and-forget——失败留痕现状=明确缺口）"
+      }
     ],
     "t5bEnumInput": "closed enum 定员建议（供 T5b 裁定）：必含 FEED_TOMBSTONE（RuntimeProjection 墓碑）；强候选=NODE_DELETED（MediaBinding/ArtifactProjection/VideoProject 三消费面）、EXEC_FINALIZE（GenerationIntent 资金收口——观察者同事务化免悬置窗）；MediaFactOutbox/搜索/公开快照/配额四候选经对照=无 node 级删除义务（键域或生命周期不含 nodeId/请求时派生/异步收敛）"
   },
   "item12_directConnectionSites": {
     "title": "⑫ DirectConnection 全调用点标注（S1 遗留——「serving 期业务 doc 写经 DirectConnection=0」静态门 allowlist）",
     "openSites": [
-      { "file": "apps/api/src/modules/collab/collab-document.service.ts", "line": 78, "classification": "读+维护写（allowlist 内）", "note": "withDoc 内 openDirectConnection（:78）——非常驻「用完即走」通道；消费方=collab-shrink ×3（:101 shrinkSync=维护写 deleteNodes/:132 读/:141 exportFresh=维护写 fillDoc）+DirectCollabWritePort.withDoc 委托（collab-write.port.ts:87——零生产调用方，Z100 实测消费面=shrink 族）。业务写判定：无（维护域 shrink/export-fresh 属 allowlist maintenance 档；读面属 readCanvas/withDoc-read 档）" },
-      { "file": "apps/api/src/modules/collab/collab-residency.service.ts", "line": 445, "classification": "生命周期+业务写载体（现状违例——T22/T32 退役面）", "note": "withSession 常驻会话 acquire openDirectConnection（:445）——全部 withSession 读写经此通道；当前承载业务 doc 写三点：writeExecStatus（collab-document.service.ts:220——exec 投影族 13 上游写点）、deliverArtifact（:258——data.{fileId|result}+exec done）、writeBatch（collab-doc-writer.service.ts:222——六 op 批写）。判定：**serving 期业务 doc 写经 DirectConnection 现状≠0**（此通道即业务写通道）；S1 静态门 allowlist 须将其标注为「until=T22/T32 退役」登记红形态（对照 check-collab-census.mjs 元纪律⑥先登记红机制）" }
+      {
+        "file": "apps/api/src/modules/collab/collab-document.service.ts",
+        "line": 78,
+        "classification": "读+维护写（allowlist 内）",
+        "note": "withDoc 内 openDirectConnection（:78）——非常驻「用完即走」通道；消费方=collab-shrink ×3（:101 shrinkSync=维护写 deleteNodes/:132 读/:141 exportFresh=维护写 fillDoc）+DirectCollabWritePort.withDoc 委托（collab-write.port.ts:87——零生产调用方，Z100 实测消费面=shrink 族）。业务写判定：无（维护域 shrink/export-fresh 属 allowlist maintenance 档；读面属 readCanvas/withDoc-read 档）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-residency.service.ts",
+        "line": 445,
+        "classification": "生命周期+业务写载体（现状违例——T22/T32 退役面）",
+        "note": "withSession 常驻会话 acquire openDirectConnection（:445）——全部 withSession 读写经此通道；当前承载业务 doc 写三点：writeExecStatus（collab-document.service.ts:220——exec 投影族 13 上游写点）、deliverArtifact（:258——data.{fileId|result}+exec done）、writeBatch（collab-doc-writer.service.ts:222——六 op 批写）。判定：**serving 期业务 doc 写经 DirectConnection 现状≠0**（此通道即业务写通道）；S1 静态门 allowlist 须将其标注为「until=T22/T32 退役」登记红形态（对照 check-collab-census.mjs 元纪律⑥先登记红机制）"
+      }
     ],
     "otherTouches": [
-      { "file": "apps/api/src/modules/collab/collab-write.port.ts", "line": 87, "classification": "委托面（零生产调用）", "note": "DirectCollabWritePort.withDoc 一行委托（census ⑭ 登记 write-via-writer ×1——Y0c T13b 端口 Direct 形态）" },
-      { "file": "apps/api/src/modules/collab/collab-write.port.ts", "line": 248, "classification": "NotImplemented 面", "note": "HttpCollabWritePort.withDoc throw（worker 不消费——Z100）" },
-      { "file": "apps/api/src/modules/collab/collab.gateway.ts", "line": 889, "classification": "生命周期", "note": "graceDirectConnections（:917 shutdown 在飞直连宽限+Σdirect 计数 :302）——关停序非 doc 写" },
-      { "file": "apps/api/src/modules/collab/collab-residency.service.ts", "line": 56, "classification": "类型面", "note": "DirectConn 类型推导（:58）——无行为" },
-      { "file": "apps/api/src/modules/collab/test-utils/collab-gateway-test-facade.ts", "line": 204, "classification": "测试装置", "note": "graceDirectConnections 引用（测试基建）" }
+      {
+        "file": "apps/api/src/modules/collab/collab-write.port.ts",
+        "line": 87,
+        "classification": "委托面（零生产调用）",
+        "note": "DirectCollabWritePort.withDoc 一行委托（census ⑭ 登记 write-via-writer ×1——Y0c T13b 端口 Direct 形态）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-write.port.ts",
+        "line": 248,
+        "classification": "NotImplemented 面",
+        "note": "HttpCollabWritePort.withDoc throw（worker 不消费——Z100）"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab.gateway.ts",
+        "line": 889,
+        "classification": "生命周期",
+        "note": "graceDirectConnections（:917 shutdown 在飞直连宽限+Σdirect 计数 :302）——关停序非 doc 写"
+      },
+      {
+        "file": "apps/api/src/modules/collab/collab-residency.service.ts",
+        "line": 56,
+        "classification": "类型面",
+        "note": "DirectConn 类型推导（:58）——无行为"
+      },
+      {
+        "file": "apps/api/src/modules/collab/test-utils/collab-gateway-test-facade.ts",
+        "line": 204,
+        "classification": "测试装置",
+        "note": "graceDirectConnections 引用（测试基建）"
+      }
     ],
     "verdict": "S1 验收⑧现状核验：withDoc(:78) 通道=读/维护写（allowlist 合规）；residency(:445) 通道=业务 doc 写现役载体（writeExecStatus/deliverArtifact/writeBatch 全部经 withSession(write)）——「serving 期业务 doc 写经 DirectConnection=0」为 T22/T32 后的目标态，当前静态门只能以登记红形态先行（业务写调用面清单=⑥ 通道B 三点+上游 13 写点）。另注：T9 所有权切换后 gate pre-apply 帧不新增 DirectConnection 面（actor 直连 doc 内存实例）"
   }

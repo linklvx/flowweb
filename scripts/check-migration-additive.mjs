@@ -56,6 +56,13 @@ export const EXEMPTIONS = {
       since: '2026-10-20',
     },
   },
+  '20261024130000_y1c_t9_canvas_doc_update_v17': {
+    CanvasDocUpdate: {
+      reason: 'Y1c T9 写入方换代——dev 无存量数据（表已 TRUNCATE）：id/@@unique(projectId,seq) 旧形态拆除+actor 批行新形态（T7 勘误既定切片，Controller 裁定 1）',
+      owner: 'Y1c T9 controller',
+      since: '2026-10-24',
+    },
+  },
 };
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；

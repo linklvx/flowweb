@@ -7,12 +7,15 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
+import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService, raceDeadline, type PersistenceDocument } from './collab-persistence.service';
 import { CollabDocRegistryService, type QuotaConfig } from './collab-doc-registry.service';
 import { CollabSessionGuardService } from './collab-session-guard.service';
+import { CollabProjectActorService } from './collab-project-actor.service';   // Y1c T9：spool-first 写管线核心（偏离 38③）
+import { CollabFrameGateService } from './collab-frame-gate.service';   // Y1c T9：guardSyncFrame 收编重写（偏离 38①③）
+import { requireSystemHistory } from './canvas-doc-head';   // Y1c T9（T8 接线）：真 historyId 自 SystemHistory（复用读面禁重抄——Controller 裁定 2）
 import { createCollabServer } from './collab-server.factory';   // B3 手段①：Server 构造 options 块单源工厂（canvas-doc.factory 同址先例）
 import { wireCollabMetricsReaders } from './collab-observability-wiring';   // B3 手段②：metrics reader 注册块单源（unregister×9 关停面留本体）
 import { parseDocName } from './doc-name.util';
@@ -103,6 +106,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  防线三层/连接寿命标识台账/awareness 归属双索引/writeFreeze 冻结层单源/heap 采样闸〔RC3〕/sweep 复验）；
    *  公有读面=委托语义位/钩子接线背后的本体+测试直调族（gw.sessionGuard.startSessionSweep 等——cast 消失面，§0.6 偏离 64②）。 */
   readonly sessionGuard: CollabSessionGuardService;
+  /** Y1c T9（偏离 38③）：CollabProjectActor——per-project spool-first 写管线单写者（submit 入队→
+   *  单 drain 批量→WAL appendBatch+fsync→逐帧 apply（gate origin）→逐帧 resolve→PG 批行）。
+   *  DI/直构双兼容（gateway 尾参自建+bindHost——B1/W3a 同款）。 */
+  readonly projectActor: CollabProjectActorService;
+  /** Y1c T9（偏离 38①③）：FrameGate——guardSyncFrame 收编重写（gate 提交 actor 并 await；
+   *  配额判定/冻结族经 DR 单源）。公有面=hooks.beforeSync 接线背后的本体+测试直调族。 */
+  readonly frameGate: CollabFrameGateService;
   /** Y0b-5 T16：PG 熔断器（准入+store 短路——spec §5.9 E57；直构测试不注入时自建） */
   private readonly pgBreaker: CollabPgBreakerService;
   /** SV7/W 状态机（单枚举消灭布尔组合态）：ready reason 与三入口门 1:1 派生（P6）。
@@ -253,6 +263,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // Y0c T41（W3b/B2）：SessionGuard 域 service 注入（B1/W3a 尾参先例同款——既有直构零改动；
     // Nest 由 module provider 注入单例；直构顺序 DR→SG，SG 构造器读 docRegistry.activeQuota 桶容量三值）。
     @Optional() sessionGuard?: CollabSessionGuardService,
+    // Y1c T9：actor/gate 尾参注入（直构自建传同 repo/spool 实例——W3a 同款双兼容）。
+    @Optional() projectActor?: CollabProjectActorService,
+    @Optional() frameGate?: CollabFrameGateService,
   ) {
     // W3b：sessionSvc 所有权迁 SG（原 this.sessionSvc 字段退役——局部构造后直通 SG 构造器；gateway
     // 不再直持〔authenticateInner/recheckConnection 消费面随域迁 SG〕）。批3-3：手写 findUnique 收口语义不变。
@@ -291,9 +304,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       applyWriteFreeze: (conn, reason, on) => this.sessionGuard.applyWriteFreeze(conn, reason, on),
       releaseFreezeForDoc: (pid, reason) => this.sessionGuard.releaseFreezeForDoc(pid, reason),
       hardClose: (conn, code, reason) => this.sessionGuard.hardClose(conn, code, reason),
-      consumeBytesBucket: (socketId, bytes) => this.sessionGuard.consumeBytesBucket(socketId, bytes),
+      // Y1c T9：consumeBytesBucket 缝随 guardSyncFrame 收编迁 frame-gate host（DR 消费点消失）
       freezeReasons: (conn) => this.sessionGuard.freezeReasons(conn),
       connectionIdOf: (socketId) => this.sessionGuard.connectionIdOf(socketId),
+      onGenerationSeeded: (pid, generation) => this.spool.setProjectGeneration(pid, generation),   // T8 接线：世代权威播种（帧内一律携带 generation 的 WAL 段单源）
     });
     this.persistence.bindHost({
       logger: this.logger,
@@ -330,6 +344,26 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       isDrainingDerived: () => this.isShuttingDown(),
       closeConnections: (name) => this.server.hocuspocus.closeConnections(name),
     });
+    // Y1c T9：actor+gate 构造与接线（顺序 SG→actor→gate——gate 消费 DR/actor；actor host=文档读面/
+    // SG 能力三位经 1 行转发+DR 判定三位直引；persistence 维护写独立 append 通道 sink=actor
+    // submitMaintenance——偏离 38①：connection 帧=actor 管线唯一写者，旧 store 链降级 telemetry）。
+    this.projectActor = projectActor ?? new CollabProjectActorService(this.spool, this.repo, this.pgBreaker);
+    this.projectActor.bindHost({
+      logger: this.logger,
+      documents: () => this.server.hocuspocus.documents,
+      hardClose: (conn, code, reason) => this.sessionGuard.hardClose(conn, code, reason),
+      isQuotaFrozen: (pid) => this.docRegistry.isQuotaFrozen(pid),
+      generationOf: (pid) => this.docRegistry.generationOf(pid),
+      noteReadOnlyDrop: (conn, pid, bytes) => this.docRegistry.noteReadOnlyDrop(conn, pid, bytes),
+      onFencedByWrite: () => this.selfIsolate('fenced-by-write'),   // RC4 承接（actor PG 腿 fenced→隔离链）
+    });
+    this.frameGate = frameGate ?? new CollabFrameGateService(this.docRegistry, this.projectActor);
+    this.frameGate.bindHost({
+      logger: this.logger,
+      hardClose: (conn, code, reason) => this.sessionGuard.hardClose(conn, code, reason),
+      consumeBytesBucket: (socketId, bytes) => this.sessionGuard.consumeBytesBucket(socketId, bytes),
+    });
+    this.persistence.setMaintenanceSink((pid, payload) => this.projectActor.submitMaintenance(pid, payload));
     this.hooks = {
       // W3b（RC4=A）：connected 钩子体即迁 SG.onConnected（消费面 8 成员 5 SG 所有+isVacuuming/
       // quotaFrozenDocs/buildDocStatus SG→DR 直引 3 位）——GW 接线改 1 行（寿命台账播种/wrapBackpressure/
@@ -337,7 +371,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       connected: (p) => this.sessionGuard.onConnected(p),
       onAuthenticate: (p) => this.sessionGuard.authenticate(p),   // W3b：SessionGuard 域认证防线三层（refusalCache→信号量→桶→inner→DB）
       onLoadDocument: (p) => this.docRegistry.loadDocument(p),   // W3a：DocRegistry 域直调（钩子接线即编排点——B1 onStoreDocument 直通先例同款）
-      onStoreDocument: (p) => this.persistence.storeDocumentUnlocked(p, 'debounce'),   // Y0a-2 A14：钩子直通 Unlocked（库已在 saveMutex 内调钩子——禁再包=重入死锁）；Y0c T0：trigger=debounce（库防抖窗到期/断连冲刷同钩子）；B1：Persistence 域直调（非转发壳——钩子接线即编排点）
+      // Y1c T9（偏离 38①——P1 入口条件）：onStoreDocument 旧链拆除 telemetry-only——
+      // connection 帧经 gate pre-apply（origin={source:'connection',...,gate:true}）恒触发库防抖
+      // store（S1-F-3：connection 档 shouldSkipStoreHooks 恒 false 无逃生舱），保留 store 调用=每帧
+      // 新旧双写；帧持久化归 actor（WAL→PG），维护写走 persistence 独立通道（soft/disconnect/retry/
+      // drain/maintenance 五直调点）。验收=onStoreDocument 对 connection-origin 零调用（S1 ⑨ 翻转）。
+      onStoreDocument: async () => { try { legacyStoreHookProbeTotal.inc({ origin: 'library-debounce' }); } catch { /* telemetry 探针永不抛（A14） */ } return true; },
+      // 注：storeDocumentUnlocked('debounce') 退出现役——trigger 枚举保留 'debounce' 历史读数（零生产调用方）。
       // Y0a-2（V22 收缩）：afterStoreDocument=**存活计数探针**（yjs_store_hook_calls_total——钩子链健康面）。
       // v1 的"队列非空∧非 spool 键"对账判据**撤**（去抖窗内正常新写入必命中=纯噪声——外审 E4 成立）；
       // 真对账=storeDocumentUnlocked 成功路径的 **splice 点队首前进自检**（零误报）。探针永不抛
@@ -345,7 +385,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       afterStoreDocument: async () => { try { yjsStoreHookCallsTotal.inc(); } catch { /* 探针钩子永不抛 */ } },
       beforeHandleAwareness: (p) => { this.sessionGuard.guardAwarenessRate(p); this.sessionGuard.guardAwareness(p); return Promise.resolve(); },   // W3b：SessionGuard 域（Y0b-3 T7 states 三分支+Y0b-4 T6 独立限速——限速先行；guardAwareness 自吞异常，限速 throw 必须在外层）
       beforeHandleMessage: (p) => this.sessionGuard.guardMessageFrame(p),   // W3b：SessionGuard 域（Y0b-4 T6 awareness 帧闸〔判型单源 readFrameType〕+msg 桶计数 H-3）
-      beforeSync: (p) => this.docRegistry.guardSyncFrame(p),   // Y0b-4 T4：配额判据唯一落点（分层：帧闸→bytes 桶→readOnly→over 短路→快路径→账面实测）；W3a：DocRegistry 域直调（RC2=A 分层判定链单一所有者）
+      beforeSync: (p) => this.frameGate.guardSyncFrame(p),   // Y1c T9：guardSyncFrame 收编 frame-gate（SS1 SV 代际门/帧闸/bytes 桶/配额判定→actor.submit——apply 归属=actor pre-apply，ACK 时帧必已 fsync）
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
       afterUnloadDocument: async (p) => this.docRegistry.afterUnloadDocument(p.documentName),   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）；DocRegistry 域直调（钩子接线即编排点——onLoadDocument 同款；async 仅为满足库 hook 签名〔原私有壳 async 同形——DR 方法同步体〕；B3 手段④壳再薄化：15 容器清理/键集差异逐键钉死注释见 service 对应位〔W2 穷举单测 D1〕）
@@ -668,7 +708,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     if (clientsCount > 0) return;
     const projectId = parseDocName(documentName)?.projectId ?? '';
     const wrote = await this.persistence.storeDocumentSerialized({ document, documentName }, 'disconnect');   // Y0c T0：断连收尾归因；B1 编排点直调（非转发壳）
-    if (wrote) {
+    const actorLanded = this.projectActor.takeActorLanded(parseDocName(documentName)?.projectId ?? '');   // Y1c T9：connection 帧=actor 管线（不经维护队列）——disconnect compact 触发承接（wrote 契约继任）
+    if (wrote || actorLanded) {
       try {
         await this.persistence.maybeCompact(projectId);   // 会话结束收敛增量行；没写就不 compact（消除每次 readCanvas 全量 compact）
       } catch (err) {
@@ -841,6 +882,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.logger.warn('listen 完成但关停已在途——不转 serving（draining 契约保持），listener 随关停链 destroy 销毁');
       return;
     }
+    // Y1c T9（Controller 裁定 2——T8 接线归本卡）：真 historyId 自 SystemHistory（requireSystemHistory
+    // 复用读面禁重抄——缺头/为零 fail-closed throw→start-failed 有界重试）；setWalHistory（段头权威）+
+    // sg.setServerHistory（版本门 historyId 硬门+auth 回执下发半链）；onWalFailStop→close 全部连接
+    // 1011 WAL_FSYNC_EIO（EIO fail-stop 档——不进复用路径）。幂等（rejoin 重跑无害）。
+    const { historyId } = await requireSystemHistory(this.prisma);
+    this.spool.setWalHistory(historyId);
+    this.sessionGuard.setServerHistory({ historyId });
+    this.spool.onWalFailStop = () => this.sessionGuard.closeAllConnectionsWs(CollabCloseCode.WAL_FSYNC_EIO, 'wal-fsync-eio');
     this.listenRetries = 0;   // 成功即重置端口重试预算（防终身保守漂移）
     this.sessionGuard.startSessionSweep();     // W3b：sweep 自排链随域迁 SG——W8/M2②：先 clear 再 set（幂等——rejoin 不泄漏定时器）
     this.persistence.startSpoolReconciler();

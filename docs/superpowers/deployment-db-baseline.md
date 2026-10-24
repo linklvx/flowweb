@@ -90,7 +90,7 @@ diff /tmp/census-old.json /tmp/census-new.json
 
 - 9 条 partial unique 索引：`team_owner_default_unique`、`folder_team_root_name_unique`、`folder_team_parent_name_unique`、`material_folder_team_root_name_unique`、`material_folder_team_parent_name_unique`、`user_subscription_one_active`、`team_subscription_one_active`、`announcement_single_active`、`generation_intent_active_node_unique`（claim P2002 分义直依赖）
 - 1 条 append 序列：`canvas_doc_update_seq`（协作写命脉——丢=每次 nextval 抛错）
-- 1 个约束形态唯一：`CanvasDocUpdate_projectId_seq_key`（pg_constraint 口径——勿改建索引形态；schema `@@unique` 对应的 diff 裸索引行需删除，否则同名冲突）
+- ~~1 个约束形态唯一：`CanvasDocUpdate_projectId_seq_key`~~（Y1c T9 表改形撤销——@@unique([projectId,seq]) 随写入方换代退役，锚 JSON 行同批删除；新唯一=PK(projectId,generation,seq)+@@unique([projectId,generation,updateHash])〔schema 物化——无手写 raw 锚义务〕）
 - 1 行种子：`CollabLease('primary')`（`ON CONFLICT DO NOTHING` 幂等）
 
 **永久门禁**：`apps/api/prisma/verify-indexes.sql` 文末 Y0b-1 块（22 块全 ≥1 行——runner `scripts/verify-indexes.mjs`，已进根 verify 链）。
@@ -138,8 +138,7 @@ raw 对象总账（20261009140100_y0b2_init 起实测 28 项）：§五 12 类�
   { "name": "announcement_single_active", "table": "Announcement", "columns": ["active"], "unique": true, "partial": true },
   { "name": "generation_intent_active_node_unique", "table": "GenerationIntent", "columns": ["projectId", "nodeId"], "unique": true, "partial": true },
   { "name": "money_in_once", "table": "TeamCreditTransaction", "columns": ["type", "referenceId", "creditType"], "unique": true, "partial": true },
-  { "name": "pricing_rule_natural_key", "table": "PricingRule", "columns": ["nodeTypeId", "modelId", "resolutionId", "durationId"], "unique": true, "partial": false, "note": "偏离 52 当事对象——同列集 schema @@unique 复现即双等价红" },
-  { "name": "CanvasDocUpdate_projectId_seq_key", "table": "CanvasDocUpdate", "columns": ["projectId", "seq"], "unique": true, "partial": false, "form": "constraint", "deliberate": true, "note": "constraint 形态=schema @@unique([projectId,seq]) 的 DB 物化（§五第 3 项——勿改建索引形态）" }
+  { "name": "pricing_rule_natural_key", "table": "PricingRule", "columns": ["nodeTypeId", "modelId", "resolutionId", "durationId"], "unique": true, "partial": false, "note": "偏离 52 当事对象——同列集 schema @@unique 复现即双等价红" }
 ]
 ```
 
@@ -152,7 +151,7 @@ raw 对象总账（20261009140100_y0b2_init 起实测 28 项）：§五 12 类�
 
 - Prisma 生成唯一索引名=`<Table>_<col1>_<col2>_key`（PascalCase 表名）；raw 手写名惯用 snake_case。同一 (表, 列集) 两名并存=**双等价索引**：写入双倍维护+计划器歧义+迁移链漂移源。
 - 唯一性归属二选一：可进 datamodel 的 full unique 走 schema `@@unique`/`@unique`（Prisma 管）；Prisma 表达不了的（partial WHERE/NULLS NOT DISTINCT/CHECK/触发器/序列）走 raw SQL 并**同批**登记本节锚+verify-indexes.sql 断言。
-- census 组㉔（`scripts/check-collab-census.mjs`，Z58）执法：解析 schema 全部唯一声明拼生成名 × 本节锚逐条比对，full（非 partial）同表同列集⇒红 `duplicate-equivalent-index`；`CanvasDocUpdate_projectId_seq_key` deliberate 豁免，schema 失配即 stale 红（防陈旧豁免吞真红）。锚漏登记=探针盲区——新 raw unique 未登记锚时组㉔不判其等价性，评审须核对。
+- census 组㉔（`scripts/check-collab-census.mjs`，Z58）执法：解析 schema 全部唯一声明拼生成名 × 本节锚逐条比对，full（非 partial）同表同列集⇒红 `duplicate-equivalent-index`；deliberate 豁免失配即 stale 红（防陈旧豁免吞真红——Y1c T9 后无 deliberate 豁免项）。锚漏登记=探针盲区——新 raw unique 未登记锚时组㉔不判其等价性，评审须核对。
 
 ## 附录：schema 沙箱验证方法（无 CREATEDB 时）
 

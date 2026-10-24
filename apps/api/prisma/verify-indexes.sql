@@ -17,7 +17,8 @@ WHERE tablename = 'UserSubscription'
   );
 
 -- Y0a-1: unique constraint on CanvasDocUpdate(projectId, seq)（pg_constraint 口径）
-SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass AND contype = 'u' AND pg_get_constraintdef(oid) LIKE '%projectId%seq%';
+-- Y1c T9 表改形：复合 PK (projectId,generation,seq)（旧 unique(projectId,seq) 随写入方换代退役）
+SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass AND contype = 'p' AND pg_get_constraintdef(oid) LIKE '%projectId%generation%seq%';
 
 -- Y0a-1: CanvasDoc.stateSeq column NOT NULL DEFAULT 0
 SELECT column_name FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name = 'stateSeq' AND is_nullable = 'NO' AND column_default LIKE '%0%';
@@ -53,7 +54,8 @@ SELECT indexdef FROM pg_indexes WHERE indexname='material_folder_team_parent_nam
 
 SELECT 'seq-ok' AS assert WHERE EXISTS (SELECT 1 FROM pg_class WHERE relkind='S' AND relname='canvas_doc_update_seq');
 
-SELECT conname FROM pg_constraint WHERE conname='CanvasDocUpdate_projectId_seq_key';
+-- Y1c T9：CanvasDocUpdate_projectId_seq_key 退役（表改形 DROP——存在即异常态）；改断新 unique 轴在位
+SELECT indexname FROM pg_indexes WHERE tablename='CanvasDocUpdate' AND indexname='CanvasDocUpdate_projectId_generation_updateHash_key';
 
 SELECT COUNT(*) AS n FROM "CollabLease" HAVING COUNT(*) >= 1;
 

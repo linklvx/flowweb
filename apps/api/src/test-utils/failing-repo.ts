@@ -9,9 +9,10 @@ export function failingRepo(opts: { failAppend?: number; failCompact?: number } 
   // 而非 resolve undefined（undefined 违反 AppendResult 契约 §1.2——消费者 `r.ok` 判别读到
   // undefined 会误入"no row"分支，红相失真）。
   if (opts.failAppend != null) {
-    const defaultImpl = repo.append.getMockImplementation()!;   // 工厂默认（{ok:true,seq:1n}）
+    // Y1c T9：注入面=appendBatch（旧 append 随写入方换代退役）；工厂默认（{ok:true,rows:n}）
+    const defaultImpl = repo.appendBatch.getMockImplementation()!;
     let appends = 0;
-    repo.append.mockImplementation(async (...args: Parameters<MockRepo['append']>) => {
+    repo.appendBatch.mockImplementation(async (...args: Parameters<MockRepo['appendBatch']>) => {
       appends += 1;
       if (appends <= opts.failAppend!) throw new Error(`injected append failure #${appends}`);
       return defaultImpl(...args);

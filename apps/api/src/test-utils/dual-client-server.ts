@@ -70,6 +70,8 @@ export function makeHeaderWs(headers: Record<string, string>, onCreated?: (ws: W
 /** Y0b-4 T4：第五参 quota——gateway 构造注入面透传（真连配额用例注入小值；缺省 env/QUOTA_DEFAULTS） */
 export async function startDualClientServer(over: Partial<MockRepo> = {}, debounce = 300, spool?: CollabSpoolService, lease?: unknown, quota?: import('../modules/collab/collab.gateway').QuotaConfig): Promise<DualClientKit> {
   const prisma: Record<string, any> = {
+    // Y1c T9（T8 接线）：listenCollab requireSystemHistory fail-closed 读面 mock（缺头=start-failed）
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id' }) },
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }) },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },

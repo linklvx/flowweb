@@ -253,7 +253,7 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
   it('spool merge 产生侧切批 ≤1MB（Q-O）：卸载交接 3×400KB 队列 → 多帧且每帧 ≤1MB（超限行结构性不可产生）', async () => {
     const src = new Y.Doc();
     src.getMap('g').set('live', 'a'.repeat(10_000));
-    const { gateway, spool } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, { maxDocBytes: 1 * MiB });
+    const { gateway, repo, spool } = buildGateway({ state: Buffer.from(Y.encodeStateAsUpdate(src)), updates: [] }, { maxDocBytes: 1 * MiB });
     const document = await loadDoc(gateway);
     const q = gatewayFacade(gateway).pendingQueueRef('p1')!;   // 真实数组引用——push 原地累积
     for (let i = 0; i < 3; i++) {
@@ -261,10 +261,14 @@ describe('Y0b-4 T3：docTruth 真值单变量（Q-B v3）', () => {
       d.getMap('g').set('k' + i, 'z'.repeat(400_000));
       q.push(Y.encodeStateAsUpdate(d));   // 模拟故障期累积（现状单次 merge=1.2MB 帧=红相）
     }
-    await gateway.hooks.beforeUnloadDocument({ document, documentName: 'project:p1' } as any);   // 真卸载路径+队列交接落 spool（T40 B1「不搬」裁决：hooks 等价驱动）
+    await gateway.hooks.beforeUnloadDocument({ document, documentName: 'project:p1' } as any);   // 真卸载路径+队列交接（Y1c T9：维护通道 WAL+PG——切批 ≤1MB 逐帧）
     const frames = await spool.peek('p1');
-    expect(frames.length).toBeGreaterThanOrEqual(2);   // 现状单帧（1.2MB）必红
-    for (const f of frames) expect(f.payload.byteLength).toBeLessThanOrEqual(PERSIST_MERGE_MAX_BYTES);
+    // Y1c T9：PG 默认 mock 成功 →帧 confirm 段回收（peek 空）——切批证据改读 WAL 帧真值（按 walSeq
+    // 前缀）与 PG 批行（appendBatch rows 各 ≤1MB）。PG 失败形态下 peek 可见性归 flush/spooled 用例。
+    const landed = (repo.appendBatch.mock.calls as unknown as Array<[string, Array<{ update: Uint8Array }>]>).flatMap((c) => c[1]);
+    expect(landed.length).toBeGreaterThanOrEqual(2);   // 现状单帧（1.2MB）必红——切批后多行
+    for (const row of landed) expect(row.update.byteLength).toBeLessThanOrEqual(PERSIST_MERGE_MAX_BYTES);
+    expect(spool.hasFrames('p1')).toBe(false);   // PG 行落定→confirm 回收（Q-O 产生侧不变量保持）
   });
 });
 

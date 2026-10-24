@@ -77,7 +77,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       await kit.gateway.onApplicationShutdown();
       expect(kit.gateway.getCollabState()).toBe('draining');   // W33：collabState draining（步骤 1 语义——V33 状态机）
       expect(kit.gateway.isShuttingDown()).toBe(true);         // 受理门派生读点翻转
-      expect(kit.repo.append).toHaveBeenCalledTimes(2);        // 两项目各一批单行 append
+      expect(kit.repo.appendBatch).toHaveBeenCalledTimes(2);        // 两项目各一批单行 append
       const events = collectEvents(spies);
       const done = events.find((e) => e.event === 'shutdown_drain_complete');
       expect(done).toMatchObject({ pending: { projects: 0, batches: 0 } });   // Y5：projects 键名
@@ -88,7 +88,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
   it('drain force-spool：append 失败+spool 可用 → 批入 spool（归属落定）→ drain_complete pending.projects===0（批已出队列）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-shut2-'); cleanups.push(cleanup);
     const spool = new CollabSpoolService(dir);
-    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 300, spool);
+    const kit = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 300, spool);
     try {
       vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
       const spies = installLogSpies(kit.gateway);
@@ -106,8 +106,9 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
     const { dir, cleanup } = await makeSpoolDir('y0a2-shut3-'); cleanups.push(cleanup);
     const spool = new CollabSpoolService(dir);
     (spool as any).overCapacityFlag = true;                    // Y14：服务态容量位——受理闸/重试梯首行读点同态（mkdir 段路径占位会被 V2 封段滚动绕过：seg0 EISDIR→seg1 可写=注入失效）
-    vi.spyOn(spool, 'append').mockRejectedValue(new Error('spool capacity exceeded'));   // 见文件头④：容量态 append 恒抛且不触盘（滞回解除支对空盘自清白盒位——双保险）
-    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append }, 300, spool);
+    vi.spyOn(spool, 'appendBatch').mockRejectedValue(new Error('spool capacity exceeded'));   // Y1c T9：维护通道批面（主循环腿）
+    vi.spyOn(spool, 'append').mockRejectedValue(new Error('spool capacity exceeded'));   // 见文件头④：force-spool 直调腿（容量态恒抛不触盘——滞回解除支对空盘自清白盒位=双保险）
+    const kit = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 300, spool);
     try {
       vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
       const spies = installLogSpies(kit.gateway);
@@ -167,11 +168,13 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
   }, 15_000);
 
   it('J5 反向：force-spool race 超时 → ids===null 不 splice（批保留）且不 leave（storeInFlight 点名一致）', async () => {
-    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append });
-    const releases: ((v: string[]) => void)[] = [];
+    const kit = await startDualClientServer();
+    const releases: (() => void)[] = [];
     try {
       vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
-      vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<string[]>((resolve) => { releases.push(resolve); }));   // spool 挂起（主循环 V1 支+force-spool 双挂）
+      // Y1c T9 双腿挂起：主循环腿=维护通道 appendBatch（WAL 批挂起=store race 超时批保留）；force-spool 腿=spool.append 直调挂起
+      vi.spyOn(kit.spool, 'appendBatch').mockImplementation(() => new Promise<Array<{ frameId: string; walSeq: bigint }>>((resolve) => { releases.push(() => resolve([{ frameId: 'seg:0', walSeq: 1n }])); }));
+      vi.spyOn(kit.spool, 'append').mockImplementation(() => new Promise<string[]>((resolve) => { releases.push(() => resolve(['seg:0'])); }));
       const spies = installLogSpies(kit.gateway);
       await seedPendingDoc(kit, 'project:p-dr7', 2);
       await kit.gateway.persistence.drainAllDocuments(Date.now() + 400);   // 短 deadline——两腿 race 超时路径
@@ -181,7 +184,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       const undrained = events.find((e) => e.event === 'shutdown_undrained');
       expect(undrained).toMatchObject({ batches: 2, projects: 1, storeInFlight: 1, forcedSpool: 0 });   // Y12：race 超时不 leave——点名一致
     } finally {
-      for (const release of releases) release(['y0a2-late-release']);   // 释放挂起 append（结果已被 race 弃——防悬挂）
+      for (const release of releases) release();   // 释放挂起 appendBatch/append（结果已被 race 弃——防悬挂）
       vi.restoreAllMocks();   // Y13：先还原（spool mock+destroy mock）
       (kit.gateway.server.hocuspocus.documents as Map<string, unknown>).delete('project:p-dr7');   // 种子 doc 摘除（真 destroy 等 documents 清空——见文件头②）
       await kit.dispose();
@@ -193,14 +196,15 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
   }, 15_000);
 
   it('I-2 终审收口：force-spool append 挂起窗内白盒折并改写队列（批尾身份断）→ 跳过 splice+tail_anomaly 恰 1 计数（旧实现无条件 splice=折并产物被误删=残余蒸发窗）', async () => {
-    const kit = await startDualClientServer({ append: failingRepo({ failAppend: 99 }).append });
+    const kit = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch });
     let calls = 0;
     let release!: (v: string[]) => void;
     try {
       vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
+      // Y1c T9 双腿分面：主循环 V1 支=维护通道 appendBatch（拒）；force-spool 腿=spool.append 直调（挂起窗）
+      vi.spyOn(kit.spool, 'appendBatch').mockRejectedValue(new Error('v1 leg：主循环维护通道拒——批留队进 force-spool'));
       vi.spyOn(kit.spool, 'append').mockImplementation(() => {
         calls += 1;
-        if (calls === 1) return Promise.reject(new Error('v1 leg：主循环 spool 兜底拒——批留队进 force-spool'));   // 主循环 V1 支：拒（队列不动）
         return new Promise<string[]>((r) => { release = r; });   // force-spool 腿：挂起窗（锚已取）
       });
       const anomaly = register.getSingleMetric('yjs_store_tail_anomaly_total')!;
@@ -209,7 +213,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
       const q = gatewayFacade(kit.gateway).pendingQueueRef('p-dr8')!;
       const n = q.length; const tailRef = q[n - 1];   // 与生产锚同点取批尾引用（M-4(b) 同形）
       const drain = kit.gateway.persistence.drainAllDocuments(Date.now() + 5_000);   // 不 await：折并须落挂起窗内
-      await pollUntil(() => calls >= 2, 5_000);   // force-spool append 已挂起（锚已取——主循环 V1 拒在前）
+      await pollUntil(() => calls >= 1, 5_000);   // force-spool append 已挂起（锚已取——主循环 V1 拒在前）
       q.unshift(new Uint8Array([9, 9]));           // 折并交织形态：前缀改写（q[n-1] 身份破坏）
       release(['y0a2-force-anchor']);
       await drain;

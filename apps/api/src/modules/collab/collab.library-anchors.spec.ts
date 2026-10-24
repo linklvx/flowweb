@@ -85,7 +85,7 @@ describe('A1/A5/A6（独立最小 Server——库直挂钩子）', () => {
 describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spool 承重性锚）', () => {
   it('append 持续失败下 provider 断开：store 已失败后最后一连关闭仍卸载（else 分支不问 store 成败——A2 四条件实证）', async () => {
     const appendFail = vi.fn(async () => { throw new Error('boom'); });
-    const kit = await startDualClientServer({ append: appendFail }, 200);
+    const kit = await startDualClientServer({ appendBatch: appendFail }, 200);   // Y1c T9：注入面=appendBatch（actor PG 腿）
     try {
       const name = 'project:p-anchor-a9';
       const { provider, synced } = kit.connect(name);
@@ -99,7 +99,7 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
       const debouncer = (kit.gateway.server.hocuspocus as any).debouncer;
       const debounceId = `onStoreDocument-${name}`;
       await pollUntil(() => !debouncer.isDebounced(debounceId) && !debouncer.isCurrentlyExecuting(debounceId), 5_000);
-      expect(appendFail.mock.calls.length).toBeGreaterThanOrEqual(1);   // store 确已失败过（防"未触发即断开"的通过无意义竞态）
+      expect(appendFail.mock.calls.length).toBeGreaterThanOrEqual(1);   // PG 腿确已失败过（防"未触发即断开"的通过无意义竞态——帧已 WAL 落定=磁盘安全）
       await provider.destroy();
       kit.forget(provider);   // 自管 destroy 后移出 dispose 数组——防双 destroy（flaky 源，惯例同 gateway.spec:262）
       await pollUntil(() => !kit.gateway.server.hocuspocus.documents.has(name), 8_000);   // A2 四条件不含"store 成功"
