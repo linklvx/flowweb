@@ -80,15 +80,13 @@ export type PlanHashExcludedField = typeof PLAN_HASH_EXCLUDED_FIELDS[number];
 /** planHash canonical payload（纯函数——**不含 sha256**：shared 无 crypto 先例且需 web 同构，
  *  sha256hex 调用点归 api 侧消费卡 T21/T26；不引第三方库）：
  *  =JSON.stringify(按 order 升序〔并列按 nodeId tie-break〕子行的不可变字段元组数组，可选字段归一 null)。
- *  只读 PLAN_HASH_IMMUTABLE_FIELDS 九字段——status/execSeq/generationIntentId 任意变化不改变输出（负控由测试锁定）。 */
+ *  元组=PLAN_HASH_IMMUTABLE_FIELDS.map(f => p[f] ?? null) **单源派生**（数组序=canonical 序——清单与元组
+ *  互为派生零平行字面量；paramsHash 必填故其 ?? null 仅为统一归一形态）。status/execSeq/generationIntentId
+ *  任意变化不改变输出（负控由测试锁定）。 */
 export function canonicalPlanHashPayload(plans: readonly ExecutionNodePlanRow[]): string {
   const tuples = [...plans]
     .sort((a, b) => a.order - b.order || (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0))
-    .map((p) => [
-      p.nodeId, p.order, p.type,
-      p.model ?? null, p.resolution ?? null, p.styleId ?? null, p.pricingRuleId ?? null,
-      p.creditCost, p.paramsHash ?? null,
-    ]);
+    .map((p) => PLAN_HASH_IMMUTABLE_FIELDS.map((f) => p[f] ?? null));
   return JSON.stringify(tuples);
 }
 
@@ -115,12 +113,12 @@ export interface ExecutionInputRow {
   expiresAtMs: number;
 }
 
-/** 输入预算（spec §6.1 冻结数字——全新数字，本文件唯一真源） */
-export const EXEC_INPUT_RAW_MAX_BYTES = 8 * 1024 * 1024;        // 8MiB——解压后上限（列超限 nodeId 不落请求）
-export const EXEC_INPUT_STORED_MAX_BYTES = 2 * 1024 * 1024;      // 2MiB——压缩存储上限
-export const EXEC_PROMPT_MAX_BYTES = 256 * 1024;                 // 256KiB——promptText 413 不截断（组执行超限 UI 提示缩小范围）
-export const EXEC_UPSTREAM_MEDIA_IDS_MAX = 200;                  // upstreamMediaIds 上限
-export const EXEC_REFERENCED_IMAGE_IDS_MAX = 50;                 // referencedImageIds 上限
+/** 输入预算（spec §6.1 冻结数字——全新数字，本文件唯一真源；算式常量字面量直书以配 as const——doc-protocol.ts:381 同款） */
+export const EXEC_INPUT_RAW_MAX_BYTES = 8_388_608 as const;        // 8MiB=8*1024*1024——解压后上限（列超限 nodeId 不落请求）
+export const EXEC_INPUT_STORED_MAX_BYTES = 2_097_152 as const;      // 2MiB=2*1024*1024——压缩存储上限
+export const EXEC_PROMPT_MAX_BYTES = 262_144 as const;              // 256KiB=256*1024——promptText 413 不截断（组执行超限 UI 提示缩小范围）
+export const EXEC_UPSTREAM_MEDIA_IDS_MAX = 200 as const;            // upstreamMediaIds 上限
+export const EXEC_REFERENCED_IMAGE_IDS_MAX = 50 as const;           // referencedImageIds 上限
 /** 终态后输入保留期（清理 worker——生产前置常驻，T29 挂 gate） */
 export const EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS = 30 as const;
 
@@ -128,7 +126,7 @@ export const EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS = 30 as const;
 export const EXEC_MAX_NODES = 20 as const;
 
 /** 父行过期（spec §6.1——expiresAt=now+15min；未 claim 由 sweeper 逐 item void 释放） */
-export const EXEC_REQUEST_EXPIRES_AT_MS = 15 * 60 * 1000;        // 15min
+export const EXEC_REQUEST_EXPIRES_AT_MS = 900_000 as const;        // 15min=15*60*1000（字面量直书以配 as const）
 
 // ═══ §4 受理校验纯函数族（插入前一次性——任一失败整请求 4xx 不落半行）════════════════════════
 

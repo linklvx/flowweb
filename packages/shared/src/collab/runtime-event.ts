@@ -81,7 +81,7 @@ export interface RuntimeEventRow {
 }
 
 /** payload 上限 64KB（超限**拒绝写入**——业务 bug 非截断；resultText 大文本放 NodeArtifact 事件只带引用） */
-export const RUNTIME_EVENT_PAYLOAD_MAX_BYTES = 64 * 1024;
+export const RUNTIME_EVENT_PAYLOAD_MAX_BYTES = 65_536 as const;   // 64KB=64*1024（字面量直书以配 as const——doc-protocol.ts:381 同款）
 
 // ═══ §2 PII 扫描（事件写入前——禁 prompt/正文/URL 原文）══════════════════════════════════════
 

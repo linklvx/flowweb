@@ -34,8 +34,10 @@ export const OBLIGATION_EXCLUDED_CANDIDATES: Readonly<Record<string, string>> = 
 
 // ═══ §2 NodeLifecycle（lifecycleSeq 数值序+当前行 partial unique）════════════════════════════
 
-/** 生命周期态（二值——undo 重建=新行回 ACTIVE 无第三态） */
-export type NodeLifecycleState = 'ACTIVE' | 'DELETED';
+/** 生命周期态 registry（二值——undo 重建=新行回 ACTIVE 无第三态；T26 观察器消费+registry 锁形态
+ *  与 EVENT_KINDS/OBLIGATION_KINDS 同构——新增值=新功能走 spec 修订非随手加 string） */
+export const NODE_LIFECYCLE_STATES = ['ACTIVE', 'DELETED'] as const;
+export type NodeLifecycleState = typeof NODE_LIFECYCLE_STATES[number];
 
 /** NodeLifecycle 行（spec §6.5——服务端只读观察已受理帧的 nodes/edges 事务产物；incarnation=PG lifecycleSeq）：
  *  - lifecycleSeq=per-project 单调数值序（DB sequence——BigInt wire string 化）

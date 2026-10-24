@@ -34,14 +34,16 @@ export type MaintenanceStage = MaintenanceMainStage | MaintenanceTerminalStage;
  *    SWITCHING 起 ✗（**事务已提交=只许 roll-forward**；事务未提交失败=stage 留前段幂等重试）
  *  - 终态无出边：FAILED/ABORTED/COMPLETED 全 false */
 export function canTransitionMaintenanceStage(from: MaintenanceStage, to: MaintenanceStage): boolean {
+  /** 主段序号（终态值不在主段表→-1；cast 因入参值域=11 值超主段表 9 值） */
+  const idx = (stage: MaintenanceStage): number =>
+    (MAINTENANCE_MAIN_STAGES as readonly string[]).indexOf(stage);
   if (from === 'FAILED' || from === 'ABORTED' || from === 'COMPLETED') return false;   // 终态无出边
   if (to === 'FAILED') return true;                                                    // 任意非终态可 FAILED
   if (to === 'ABORTED') {
-    return (MAINTENANCE_MAIN_STAGES as readonly string[]).indexOf(from)
-      < (MAINTENANCE_MAIN_STAGES as readonly string[]).indexOf('SWITCHING');           // 仅 SWITCHING 前
+    return idx(from) < idx('SWITCHING');                                               // 仅 SWITCHING 前
   }
-  const fromIdx = (MAINTENANCE_MAIN_STAGES as readonly string[]).indexOf(from);
-  const toIdx = (MAINTENANCE_MAIN_STAGES as readonly string[]).indexOf(to);
+  const fromIdx = idx(from);
+  const toIdx = idx(to);
   return fromIdx !== -1 && toIdx !== -1 && toIdx === fromIdx + 1;                      // 单步 forward 唯一通边
 }
 

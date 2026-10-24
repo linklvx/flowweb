@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DeliveryFenceRow, DELIVERY_FENCE_CONTRACT, LifecycleObligationRow, NodeLifecycleRow,
   NodeLifecycleState, NODE_LIFECYCLE_CURRENT_ROW_UNIQUE, NODE_LIFECYCLE_SEMANTICS,
-  OBLIGATION_EXCLUDED_CANDIDATES, OBLIGATION_KINDS, OBLIGATION_KIND_CONSUMERS,
+  NODE_LIFECYCLE_STATES, OBLIGATION_EXCLUDED_CANDIDATES, OBLIGATION_KINDS, OBLIGATION_KIND_CONSUMERS,
   shouldEmitDeleteObligation,
 } from './lifecycle';
 
@@ -72,8 +72,8 @@ describe('Y1c T5b 契约冻结：DeliveryFence（交付 fencing——偏离 38�
     expect(DELIVERY_FENCE_CONTRACT.authoritySwitch).toContain('T22');
     expect(DELIVERY_FENCE_CONTRACT.observerOrder).toContain('T26');
   });
-  it('NodeLifecycleState 二值：ACTIVE/DELETED（undo 重建=新行回 ACTIVE——无第三态）', () => {
-    const states: NodeLifecycleState[] = ['ACTIVE', 'DELETED'];
-    expect(states.sort()).toEqual(['ACTIVE', 'DELETED']);
+  it('NODE_LIFECYCLE_STATES registry 锁：二值 ACTIVE/DELETED（undo 重建=新行回 ACTIVE——无第三态；锁形态与 EVENT_KINDS/OBLIGATION_KINDS 同构）', () => {
+    const states: NodeLifecycleState[] = [...NODE_LIFECYCLE_STATES];
+    expect(states).toEqual(['ACTIVE', 'DELETED']);
   });
 });

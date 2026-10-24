@@ -21,6 +21,7 @@ export interface FeedEventFixture {
 export interface FeedCursorFixture {
   historyId: string;
   generation: number;
+  /** fixture=行面 bigint——与 RuntimeEventRow 行面同口径（镜像物化行实体）；wire string 化归 T22 消费点 */
   feedSeq: bigint;
 }
 
