@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { canvasProjectId } from '@/utils/uploadContext';
 import axios from 'axios';
@@ -88,14 +88,17 @@ interface MenuItem {
   badge?: string;
 }
 
+// Y1c T1（创建链收口）：菜单项携带生产节点类型名（NODE_TYPES 常量——同 handleMenuItems 先例），
+// 不再用短名别名（旧 'text' 等经 canvasStore.nodeTypeMap 翻译——拼错无人拦；现 addNodeInner
+// 断言 resolvedType ∈ CANVAS_NODE_TYPES 全集，fail-fast）
 const ADD_NODE_ITEMS: MenuItem[] = [
-  { type: 'text', label: '文本', desc: '剧本、广告词、品牌文案', icon: <TextIcon /> },
-  { type: 'image', label: '图片', desc: '海报、分镜、角色设计', icon: <ImageIcon /> },
-  { type: 'imageExt', label: '扩展图片', desc: '图片扩展节点', icon: <ImageIcon /> },
-  { type: 'video', label: '视频', desc: '创意广告、动画、电影', icon: <VideoIcon /> },
-  { type: 'videoEdit', label: '多轨道剪辑', desc: '多轨剪辑视频/音频/字幕', icon: <CompositeIcon /> },
-  { type: 'audio', label: '音频', desc: '音效、配音、音乐', icon: <AudioIcon /> },
-  { type: 'multiImage', label: '堆叠图片', desc: '生成或上传一组风格统一的图片', icon: <StackedImageIcon /> },
+  { type: NODE_TYPES.TEXT, label: '文本', desc: '剧本、广告词、品牌文案', icon: <TextIcon /> },
+  { type: NODE_TYPES.IMAGE_GEN, label: '图片', desc: '海报、分镜、角色设计', icon: <ImageIcon /> },
+  { type: NODE_TYPES.IMAGE_EXT_GEN, label: '扩展图片', desc: '图片扩展节点', icon: <ImageIcon /> },
+  { type: NODE_TYPES.VIDEO_GEN, label: '视频', desc: '创意广告、动画、电影', icon: <VideoIcon /> },
+  { type: NODE_TYPES.VIDEO_EDIT, label: '多轨道剪辑', desc: '多轨剪辑视频/音频/字幕', icon: <CompositeIcon /> },
+  { type: NODE_TYPES.AUDIO_GEN, label: '音频', desc: '音效、配音、音乐', icon: <AudioIcon /> },
+  { type: NODE_TYPES.MULTI_IMAGE_GEN, label: '堆叠图片', desc: '生成或上传一组风格统一的图片', icon: <StackedImageIcon /> },
 ];
 
 const ADD_RESOURCE_ITEMS: MenuItem[] = [
@@ -229,10 +232,10 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
       // 3. 确认上传
       await confirmUpload({ fileId, key, fileSize: file.size });
 
-      // 4. 确定节点类型
-      const nodeType = file.type.startsWith('image/') ? 'image'
-        : file.type.startsWith('video/') ? 'video'
-        : file.type.startsWith('audio/') ? 'audio'
+      // 4. 确定节点类型（Y1c T1：生产名常量——创建链单源）
+      const nodeType = file.type.startsWith('image/') ? NODE_TYPES.IMAGE_GEN
+        : file.type.startsWith('video/') ? NODE_TYPES.VIDEO_GEN
+        : file.type.startsWith('audio/') ? NODE_TYPES.AUDIO_GEN
         : null;
       if (!nodeType) throw new Error(`Unsupported file type: ${file.type}`);
 
@@ -245,8 +248,8 @@ export function AddNodeMenu({ isOpen, onClose, triggerRef, position }: AddNodeMe
 
       // 7. 设置文件引用到节点数据
       const refField =
-        nodeType === 'image' ? 'referenceImage'
-        : nodeType === 'video' ? 'referenceVideo'
+        nodeType === NODE_TYPES.IMAGE_GEN ? 'referenceImage'
+        : nodeType === NODE_TYPES.VIDEO_GEN ? 'referenceVideo'
         : 'referenceAudio';
       useNodeStore.getState().updateConfig(nodeId, { [refField]: fileId });
 

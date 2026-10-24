@@ -11,7 +11,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useTheme } from '@/stores/themeStore';
 import { getAwareness } from '@/stores/canvasCollabRuntime';
 import { RemoteCursors } from './RemoteCursors';
-import { useNodeStore, type ImageItem } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES, type ImageItem } from '@/stores/nodeStore';
 import { selectIsLocked } from '@/stores/canvasLock';
 import { useMenuStore } from '@/stores/menuStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
@@ -54,15 +54,17 @@ import { GridSizeDropdown } from './groups/GridSizeDropdown';
 import { StitchButton } from './groups/StitchButton';
 import type { StoryboardConfig } from '@/types/group';
 
+// Y1c T1：渲染注册表键=NODE_TYPES 常量（8 键全集真值与常量单源绑定——键集漂移在
+// CANVAS_NODE_TYPES 断言面拦截，TS 层经 as any 维持既有宽容）
 export const nodeTypes: NodeTypes = {
-  textInput: TextInputNode,
-  imageGen: ImageGenNode,
-  imageExtGen: ImageExtNode,
-  videoGen: VideoGenNode,
-  audioGen: AudioGenNode,
-  multiImageGen: MultiImageNode,
-  videoEdit: VideoEditNode,
-  group: GroupNode,
+  [NODE_TYPES.TEXT]: TextInputNode,
+  [NODE_TYPES.IMAGE_GEN]: ImageGenNode,
+  [NODE_TYPES.IMAGE_EXT_GEN]: ImageExtNode,
+  [NODE_TYPES.VIDEO_GEN]: VideoGenNode,
+  [NODE_TYPES.AUDIO_GEN]: AudioGenNode,
+  [NODE_TYPES.MULTI_IMAGE_GEN]: MultiImageNode,
+  [NODE_TYPES.VIDEO_EDIT]: VideoEditNode,
+  [NODE_TYPES.GROUP]: GroupNode,
 } as any;
 
 const edgeTypes: any = {
@@ -196,7 +198,7 @@ function CanvasViewComponent(_props: Props) {
         };
 
         const isVideo = file.mimeType?.startsWith('video/');
-        const nodeType = isVideo ? 'video' : 'image';
+        const nodeType = isVideo ? NODE_TYPES.VIDEO_GEN : NODE_TYPES.IMAGE_GEN;
         const nodeData = {
           fileId: file.id,
           status: 'done',
@@ -284,7 +286,7 @@ function CanvasViewComponent(_props: Props) {
   }, [selectNode, handleReferencePick]);
 
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
-    if (node.type === 'group') {
+    if (node.type === NODE_TYPES.GROUP) {
       event.preventDefault();
       setGroupContextMenu({ groupId: node.id, x: event.clientX, y: event.clientY });
     }
@@ -488,7 +490,7 @@ function CanvasViewComponent(_props: Props) {
       if (count > 1) return undefined;
     }
     return count === 1 && !lastPointerShiftKey && !marqueeSelecting
-      ? nodes.find((n) => n.type === 'group' && n.selected)
+      ? nodes.find((n) => n.type === NODE_TYPES.GROUP && n.selected)
       : undefined;
   }, [nodes, lastPointerShiftKey, marqueeSelecting]);
 

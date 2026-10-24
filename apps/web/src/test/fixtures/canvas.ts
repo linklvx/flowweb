@@ -6,6 +6,7 @@
 import type { Edge, Node } from '@xyflow/react';
 import type { DragSession } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { NODE_TYPES } from '@/stores/nodeStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { withGeometryWriter } from '@/stores/geometryTrap';
 
@@ -23,7 +24,7 @@ export interface MakeChildOverrides {
 export function makeChild(o: MakeChildOverrides): Node {
   return {
     id: o.id,
-    type: o.type ?? 'imageGen',
+    type: o.type ?? NODE_TYPES.IMAGE_GEN,
     position: o.position ?? { x: 0, y: 0 },
     ...(o.parentId != null ? { parentId: o.parentId } : {}),
     ...(o.width != null ? { width: o.width } : {}),
@@ -36,7 +37,7 @@ export function makeChild(o: MakeChildOverrides): Node {
 export function makeGroup(o: MakeChildOverrides & { groupType?: string }): Node {
   return {
     id: o.id,
-    type: 'group',
+    type: NODE_TYPES.GROUP,
     position: o.position ?? { x: 0, y: 0 },
     ...(o.width != null ? { width: o.width } : {}),
     ...(o.height != null ? { height: o.height } : {}),

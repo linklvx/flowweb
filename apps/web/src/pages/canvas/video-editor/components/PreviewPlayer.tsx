@@ -7,7 +7,7 @@ import { togglePlayback, seekPlayback } from '../hooks/playback'; // R3 五-5：
 import { audioEngine } from '../audio-engine/engine';
 import { formatShortTime, totalDuration } from '../timeline/timecode';
 import { regenerateNode } from '@/api/videoProjectApi';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
@@ -52,7 +52,7 @@ export function PreviewPlayer() {
   }, [retakeEntry?.status, retakeEntry?.rearmable, sourceNodeId]);
   // R4-7：排除产物节点（type 同为 videoGen，但 origin='video-edit' 无 prompt/model）——后端 regenerate 只校验类型
   // （video-project.service.ts），放行会空 prompt 触发一次真实生成/莫名失败；产物节点是终点不参与重拍（验收 13 口径）
-  const canRetake = retakeSource?.type === 'videoGen'
+  const canRetake = retakeSource?.type === NODE_TYPES.VIDEO_GEN
     && (retakeSource.data as { origin?: string } | undefined)?.origin !== 'video-edit'; // 仅真实视频分支（spec §4）——imageGen 源/产物节点置灰
   const onRetake = () => {
     if (!retakeSource) return;

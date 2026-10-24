@@ -258,7 +258,7 @@ describe('CanvasView', () => {
       });
 
       const callArgs = mockAddNode.mock.calls[0];
-      expect(callArgs[0]).toBe('image'); // node type
+      expect(callArgs[0]).toBe('imageGen'); // node type（Y1c T1：媒体落点建点改传生产名常量）
       expect(callArgs[2].fileId).toBe('img-1');
       expect(callArgs[2].status).toBe('done');
       expect(callArgs[2].mediaName).toBe('photo.jpg');
@@ -294,7 +294,7 @@ describe('CanvasView', () => {
         expect(mockAddNode).toHaveBeenCalled();
       });
 
-      expect(mockAddNode.mock.calls[0][0]).toBe('video');
+      expect(mockAddNode.mock.calls[0][0]).toBe('videoGen');
       expect(mockAddNode.mock.calls[0][2].fileId).toBe('vid-1');
       expect(mockAddNode.mock.calls[0][2].status).toBe('done');
     });

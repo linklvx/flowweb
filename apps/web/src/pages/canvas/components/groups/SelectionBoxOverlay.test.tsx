@@ -27,7 +27,9 @@ vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: (sel: any) => sel({ nodes: rf.state.nodes, groupNodes: storeApi.groupNodes, marqueeSelecting: rf.state.marqueeSelecting, arrangeSelection: storeApi.arrangeSelection, duplicateNodes: storeApi.duplicateNodes }),
 }));
 vi.mock('@/utils/batchDownload', () => ({ runBatchDownload: batchDl.runBatchDownload }));
-vi.mock('@/stores/nodeStore', () => ({
+vi.mock('@/stores/nodeStore', async (importOriginal) => ({
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  ...(await importOriginal<typeof import('@/stores/nodeStore')>()),
   useNodeStore: (sel: any) => sel({ nodes: ns.state }),
   execStatusOf: () => undefined,
 }));

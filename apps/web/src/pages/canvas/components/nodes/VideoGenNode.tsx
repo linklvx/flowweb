@@ -4,7 +4,7 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeStatus, ensureExecutionSocket } from '@/services/executionSocket';
 import { message } from 'antd';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { selectExecStatus } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { stopCapturing } from '@/stores/canvasUndo';
@@ -199,7 +199,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
           },
           gridRow: 0,
           gridCol: 0,
-          nodeType: 'videoGen',
+          nodeType: NODE_TYPES.VIDEO_GEN,
         },
         {
           data: {
@@ -209,7 +209,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
           },
           gridRow: 1,
           gridCol: 0,
-          nodeType: 'audioGen',
+          nodeType: NODE_TYPES.AUDIO_GEN,
         },
       ], { skipEdges: true });
 
@@ -436,7 +436,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
         y: videoNode.position.y + 40,
       };
 
-      const newNodeId = store.addNode('image', position, {
+      const newNodeId = store.addNode(NODE_TYPES.IMAGE_GEN, position, {
         fileId,
         status: 'done',
       });

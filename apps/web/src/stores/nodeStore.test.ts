@@ -537,10 +537,12 @@ describe('nodeStore (AppNode nested structure)', () => {
   });
 
   // 18. isTextNode type guard should correctly narrow type
-  it('should correctly narrow via isTextNode type guard', () => {
+  // Y1c T1 红：夹具改生产名 'textInput'（真实节点类型全集无 'text'）——生产 isTextNode 判
+  // NODE_TYPES.TEXT（='textInput'），旧实现判裸 'text' 必 miss → unreachable 分支红
+  it('should correctly narrow via isTextNode type guard (production type textInput)', () => {
     const textNode: AppNode = {
       id: 'txt-guard-2',
-      type: 'text',
+      type: 'textInput',
       data: { content: 'hello world' } as TextNodeData,
     };
 

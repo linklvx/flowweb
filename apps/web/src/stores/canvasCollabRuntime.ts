@@ -12,7 +12,7 @@ import { CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTermina
 import isEqual from 'fast-deep-equal';
 import { message } from 'antd';
 import { useCanvasStore, computeStoryboardCellsPatch } from './canvasStore';
-import { useNodeStore, toAppNode } from './nodeStore';
+import { useNodeStore, toAppNode, NODE_TYPES } from './nodeStore';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './canvasUndo';
 export { Origin } from './canvasUndo';
@@ -813,7 +813,7 @@ function storeProjection(d?: Y.Doc) {
 export function readGroupFrameModes(d: Y.Doc): ReadonlyMap<string, FrameMode> {
   const modes = new Map<string, FrameMode>();
   for (const rec of readCanvasFromDoc(d).nodes) {
-    if (rec.type !== 'group') continue;
+    if (rec.type !== NODE_TYPES.GROUP) continue;
     modes.set(rec.id, frameMode({
       data: rec.data,
       storedFrame: { position: rec.position, width: rec.width, height: rec.height },
@@ -856,7 +856,7 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
   // position 仍如实比较（密封 origin 两域一致）。守卫按 collapsed===true 判（storyboard 不可折叠
   // ⇒域内天然不达；即便脏 data 达亦豁免 wh 无害——storyboard 组 wh 两域同为派生值或空）。
   const collapsedWhGuarded = (n: any) => {
-    if (n.type !== 'group' || (n.data as Record<string, unknown> | undefined)?.collapsed !== true) return n;
+    if (n.type !== NODE_TYPES.GROUP || (n.data as Record<string, unknown> | undefined)?.collapsed !== true) return n;
     return { ...n, width: GUARDED, height: GUARDED };
   };
   const stripGuarded = (n: any) => {
@@ -883,7 +883,7 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
 function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>['nodes']) {
   const sbGroups = new Set(
     nodes
-      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
+      .filter((n) => n.type === NODE_TYPES.GROUP && (n.data as Record<string, unknown> | undefined)?.groupType === 'storyboard')
       .map((n) => n.id),
   );
   return nodes.map((n) =>
@@ -986,7 +986,7 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   }
   const sbGroups = new Set(
     docNodes
-      .filter((n) => n.type === 'group' && (n.data as Record<string, unknown>).groupType === 'storyboard')
+      .filter((n) => n.type === NODE_TYPES.GROUP && (n.data as Record<string, unknown>).groupType === 'storyboard')
       .map((n) => n.id),
   );
 
@@ -995,7 +995,7 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   const writeWH = new Map<string, boolean>();
   const oldOrigins = new Map<string, { x: number; y: number }>();
   for (const nd of csNodes) {
-    if (nd.type !== 'group') continue;
+    if (nd.type !== NODE_TYPES.GROUP) continue;
     oldOrigins.set(nd.id, nd.position);
     // O0b-3 让位硬规则（终裁 66③）：position 让位的组跳过派生——
     // 帧原样=cs 当前值（手势内核写者面/冻结帧），仅作子代 rebase 的 origin 源。
@@ -1050,7 +1050,7 @@ export function reconcileGroupGeometry(d: Y.Doc, source: ReconcileSource = 'doc'
   let mutated = false;
   const nextNodes = csNodes.map((nd: any) => {
     const gg = gestureGuard.get(nd.id);
-    if (nd.type === 'group') {
+    if (nd.type === NODE_TYPES.GROUP) {
       // 写域①：组帧=deriveGroupFrame 派生——组 position 唯一写者（wh 写入面分档见函数头）；
       // position 让位 ⇒ 帧整体让位（组帧单写者语义，见 Pass 1 注）
       if (gg?.position) return nd;
@@ -1365,7 +1365,7 @@ export function applyDocToStore(d: Y.Doc) {
   if (nodes.length > 0) {
     const csAfter = useCanvasStore.getState().nodes;
     const frames = new Map(
-      (csAfter as any[]).filter((n) => n.type === 'group')
+      (csAfter as any[]).filter((n) => n.type === NODE_TYPES.GROUP)
         .map((n) => [n.id, { x: n.position.x, y: n.position.y, width: n.width ?? 0, height: n.height ?? 0 }]),
     );
     const gestureGuard = resolveGestureYield(useCanvasStore.getState().dragSession, csAfter as never[]);

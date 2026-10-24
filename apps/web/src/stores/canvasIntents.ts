@@ -19,7 +19,7 @@ import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
 import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
-import { useNodeStore, toAppNode, applyDataPatchToStores } from './nodeStore';
+import { useNodeStore, toAppNode, applyDataPatchToStores, NODE_TYPES } from './nodeStore';
 import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
 import { Origin } from './canvasUndo';
 // doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）；
@@ -414,7 +414,7 @@ export function dispatchFixtureSizeIntents(
   const csById = new Map(useCanvasStore.getState().nodes.map((n: any) => [n.id, n]));
   const intents: CanvasIntent[] = [];
   for (const c of candidates) {
-    if (csById.get(c.id)?.type !== 'textInput') continue;  // 仅 textInput 类（内容型退出/被删节点 skip）
+    if (csById.get(c.id)?.type !== NODE_TYPES.TEXT) continue;  // 仅 textInput 类（内容型退出/被删节点 skip）
     const m: unknown = nodesMap.get(c.id);
     if (m instanceof Y.Map && (m.get('width') != null || m.get('height') != null)) continue; // 首写者胜
     intents.push({
@@ -473,7 +473,7 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
     after.nodes.filter((n) => {
       if (n.parentId == null) return false;
       const p = afterNodes.get(n.parentId);
-      return p?.type === 'group' && (p.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
+      return p?.type === NODE_TYPES.GROUP && (p.data as Record<string, unknown> | undefined)?.groupType === 'storyboard';
     }).map((n) => n.id),
   );
   for (const id of beforeNodes.keys()) {

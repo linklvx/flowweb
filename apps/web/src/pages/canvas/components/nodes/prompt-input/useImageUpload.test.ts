@@ -62,7 +62,9 @@ const {
 
 // ========== Module mocks (use hoisted refs) ==========
 
-vi.mock('@/stores/nodeStore', () => ({
+vi.mock('@/stores/nodeStore', async (importOriginal) => ({
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  ...(await importOriginal<typeof import('@/stores/nodeStore')>()),
   isImageNode: (node: unknown) => {
     if (!node || typeof node !== 'object') return false;
     const type = (node as { type?: string }).type;

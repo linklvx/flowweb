@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { batchGetMedia, type BatchMediaItem } from '@/api/mediaApi';
 
 export interface AssetItem extends BatchMediaItem {
@@ -10,7 +10,7 @@ export interface AssetItem extends BatchMediaItem {
   kind: 'video' | 'audio' | 'image';
 }
 
-const SOURCE_TYPES = new Set(['videoGen', 'audioGen', 'imageGen']);
+const SOURCE_TYPES = new Set([NODE_TYPES.VIDEO_GEN, NODE_TYPES.AUDIO_GEN, NODE_TYPES.IMAGE_GEN]);
 const kindOf = (mime: string): AssetItem['kind'] =>
   mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'image';
 

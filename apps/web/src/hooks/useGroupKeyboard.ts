@@ -2,7 +2,7 @@
 import { useEffect } from 'react';
 import { message } from 'antd'; // Vite ESM：静态导入（require 不可用）
 import { useCanvasStore } from '@/stores/canvasStore';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { undoCanvas, redoCanvas } from '@/stores/canvasUndo';
 
@@ -65,12 +65,12 @@ export function useGroupKeyboard() {
             if (selected.length >= 2) { e.preventDefault(); s.mergeStoryboard(selected.map((n) => n.id)); }
             break;
           case 'ungroup': {
-            const g = selected.find((n) => n.type === 'group');
+            const g = selected.find((n) => n.type === NODE_TYPES.GROUP);
             if (g) { e.preventDefault(); s.ungroup(g.id); }
             break;
           }
           case 'remove-from-group': {
-            const child = selected.find((n) => n.parentId && n.type !== 'group');
+            const child = selected.find((n) => n.parentId && n.type !== NODE_TYPES.GROUP);
             if (child?.parentId) { e.preventDefault(); s.removeNodeFromGroup(child.parentId, child.id); }
             break;
           }

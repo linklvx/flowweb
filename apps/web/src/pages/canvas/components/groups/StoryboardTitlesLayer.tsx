@@ -5,6 +5,7 @@
 import { memo } from 'react';
 import { useViewport } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { NODE_TYPES } from '@/stores/nodeStore';
 import type { GroupNodeData } from '@/types/group';
 import { STORYBOARD_TITLE } from './selectionTokens';
 
@@ -15,7 +16,7 @@ const shallowArrEq = (a: readonly unknown[], b: readonly unknown[]) =>
 function StoryboardTitlesLayerComponent() {
   const { x: vpX, y: vpY, zoom } = useViewport();
   const groups = useCanvasStore((s) => s.nodes.filter(
-    (n) => n.type === 'group' && (n.data as GroupNodeData).groupType === 'storyboard',
+    (n) => n.type === NODE_TYPES.GROUP && (n.data as GroupNodeData).groupType === 'storyboard',
   ), shallowArrEq);
 
   return (

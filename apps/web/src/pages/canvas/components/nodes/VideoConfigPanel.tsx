@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useState, useEffect } from 'react';
 import { useViewport } from '@xyflow/react';
-import { useNodeStore, type VideoNodeData } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES, type VideoNodeData } from '@/stores/nodeStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { canExecute } from '@/stores/syncStatus';
@@ -224,8 +224,9 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   }, [allImages.length, uploadSingleImage]);
 
   // VideoConfigPanel is rendered inside VideoGenNode which already
-  // guarantees video context. Only render for videoGen (and legacy 'video') nodes.
-  if (!node || (node.type !== 'videoGen' && node.type !== 'video')) return null;
+  // guarantees video context. Only render for videoGen nodes.
+  // Y1c T1：删 legacy 'video' 分支（创建链经 nodeTypeMap 单源解析——'video' 别名节点不存在）
+  if (!node || node.type !== NODE_TYPES.VIDEO_GEN) return null;
 
   return (
     <div

@@ -14,6 +14,8 @@ export type { MediaFactEntry } from './mediaFacts';
 
 // ========== Node type constants ==========
 
+/** Y1c T1（F-5 全集补齐）：节点类型全集 8 键=CanvasView nodeTypes 注册表真值——
+ *  videoEdit/group 直建路径（canvasStore groupNodes/groupMultiImageNodes 等）同在集内。 */
 export const NODE_TYPES = {
   IMAGE_GEN: 'imageGen',
   IMAGE_EXT_GEN: 'imageExtGen',
@@ -21,7 +23,13 @@ export const NODE_TYPES = {
   VIDEO_GEN: 'videoGen',
   AUDIO_GEN: 'audioGen',
   MULTI_IMAGE_GEN: 'multiImageGen',
+  VIDEO_EDIT: 'videoEdit',
+  GROUP: 'group',
 } as const;
+
+/** Y1c T1：画布节点类型全集（只读值集）——创建链单源断言用（canvasStore.addNodeInner
+ *  resolvedType ∈ 本集，fail-fast 拦未知类型名入画布/文档）。 */
+export const CANVAS_NODE_TYPES: ReadonlySet<string> = new Set<string>(Object.values(NODE_TYPES));
 
 // ========== Ext config ==========
 
@@ -202,39 +210,41 @@ export function toAppNode(r: { id: string; type: string; data: Record<string, un
 
 // ========== Type guards ==========
 
-export function isImageExtNode(node: unknown): node is AppNode & { type: 'imageExtGen'; data: ImageNodeData & { extConfig: ImageExtConfig } } {
+export function isImageExtNode(node: unknown): node is AppNode & { type: typeof NODE_TYPES.IMAGE_EXT_GEN; data: ImageNodeData & { extConfig: ImageExtConfig } } {
   if (!isImageNode(node)) return false;
-  if (node.type !== 'imageExtGen') return false;
+  if (node.type !== NODE_TYPES.IMAGE_EXT_GEN) return false;
   // ★ 运行时兜底：无 extConfig 不判定为扩展节点，避免空值风险
   if (!node.data?.extConfig) return false;
   return true;
 }
 
-export function isImageGenNode(node: unknown): node is AppNode & { type: 'imageGen'; data: ImageNodeData } {
+export function isImageGenNode(node: unknown): node is AppNode & { type: typeof NODE_TYPES.IMAGE_GEN; data: ImageNodeData } {
   if (!isImageNode(node)) return false;
-  return node.type === 'imageGen';
+  return node.type === NODE_TYPES.IMAGE_GEN;
 }
 
 export function isImageNode(node: unknown): node is AppNode & { data: ImageNodeData } {
   if (!node || typeof node !== 'object') return false;
   const type = (node as { type?: string }).type;
-  return type === 'imageGen' || type === 'imageExtGen';
+  return type === NODE_TYPES.IMAGE_GEN || type === NODE_TYPES.IMAGE_EXT_GEN;
 }
 
 export function isTextNode(node: AppNode): node is AppNode & { data: TextNodeData } {
-  return node.type === 'text';
+  // Y1c T1（bug① 根修）：判 NODE_TYPES.TEXT（='textInput' 生产名）——旧裸 'text' 判非生产
+  // 类型名，生产 textInput 节点恒 miss（正文读侧退空串）
+  return node.type === NODE_TYPES.TEXT;
 }
 
 export function isMultiImageNode(node: AppNode): node is AppNode & { data: MultiImageNodeData } {
-  return node.type === 'multiImageGen';
+  return node.type === NODE_TYPES.MULTI_IMAGE_GEN;
 }
 
 export function isVideoGenNode(node: AppNode): node is AppNode & { data: VideoNodeData } {
-  return node.type === 'videoGen';
+  return node.type === NODE_TYPES.VIDEO_GEN;
 }
 
 export function isAudioGenNode(node: AppNode): node is AppNode & { data: AudioNodeData } {
-  return node.type === 'audioGen';
+  return node.type === NODE_TYPES.AUDIO_GEN;
 }
 
 // ========== Private helpers ==========
@@ -599,6 +609,9 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     }
     // 批4b-2 换芯：content 键 doc 直写（node 不在 doc 时 no-op——同旧订阅路径投影不含语义）
     dispatchCanvasIntent({ type: 'updateNodeData', id, patch: { content } }, Origin.LocalUser);
+    // Y1c T1：删 else 幽灵兜底——缺席节点不再以裸 'text' 名 fabricated 重建（undo 撤销创建后
+    // 迟到的键入回调若重建幽灵条目会被 persistence 持久化、下次刷新复活；缺席=no-op，
+    // doc 侧同步 no-op——同 updateConfig 的 I-3 幽灵守卫语义）
     const existing = getNode(get().nodes, id);
     if (existing) {
       set((s) => ({
@@ -607,17 +620,6 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           [id]: {
             ...existing,
             data: { ...existing.data, content },
-          },
-        },
-      }));
-    } else {
-      set((s) => ({
-        nodes: {
-          ...s.nodes,
-          [id]: {
-            id,
-            type: 'text',
-            data: { content },
           },
         },
       }));
@@ -652,7 +654,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
         [id]: {
           id,
           // Preserve node type — never overwrite (image/video/text each own their type)
-          type: nodeType ?? 'imageGen',
+          type: nodeType ?? NODE_TYPES.IMAGE_GEN,
           selected: existing?.selected,
           dragging: existing?.dragging,
           data: merged,
@@ -715,14 +717,16 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
   updatePromptImages: (nodeId, allImages) => {
     // 批4b-2 换芯：allImages 键 doc 直写（text 节点 no-op 同旧——ns 面与 doc 面同判）
+    // Y1c T1：裸 'text' → NODE_TYPES.TEXT（生产名 textInput——旧判非生产名，生产文本节点
+    // 误走 allImages 写路径）
     const node = get().nodes[nodeId];
-    if (node && node.type !== 'text') {
+    if (node && node.type !== NODE_TYPES.TEXT) {
       dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { allImages } }, Origin.LocalUser);
     }
     set((state) => {
       const n = state.nodes[nodeId];
       // text nodes have no prompt — noop. image/video nodes share prompt shape.
-      if (!n || n.type === 'text') return state;
+      if (!n || n.type === NODE_TYPES.TEXT) return state;
       return {
         nodes: {
           ...state.nodes,

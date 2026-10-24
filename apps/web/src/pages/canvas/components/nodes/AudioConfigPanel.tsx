@@ -1,6 +1,6 @@
 import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { useViewport } from '@xyflow/react';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { canExecute } from '@/stores/syncStatus';
@@ -169,7 +169,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   }, [nodeId, setStatus, prompt, status, entry?.rearmable]);
 
   // Type guard — only render for audioGen
-  if (!node || node.type !== 'audioGen') return null;
+  if (!node || node.type !== NODE_TYPES.AUDIO_GEN) return null;
 
   return (
     <div

@@ -4,7 +4,11 @@
  * B6-1（Spec B 终裁 57①）自 pages/canvas/components/ 迁入 utils/（13 符号全量）：
  * DRAG_THRESHOLD_PX 补导出=B6-3 点击/连线唯一阈值；clientPoint 多指落点修（终裁 37⑤）。 */
 import type { HandleSide } from '@flowweb/shared';
+import { NODE_TYPES } from '@/stores/nodeStore'; // Y1c T1：仅函数体内使用（顶层 Set 见下方 TDZ 注）
 
+// Y1c T1 刻意留裸字面量：本模块处 nodeStore→canvasStore→handleMenu→nodeStore 循环依赖环上，
+// 顶层 Set 构造无法延迟求值（引用 NODE_TYPES 触发 TDZ TypeError——实测红）；等值字面量
+// 由创建链 CANVAS_NODE_TYPES 断言兜底（handle 菜单建点同经 addNodeInner）。
 export const HANDLE_MENU_NODE_TYPES = new Set(['imageGen', 'imageExtGen']);
 export const DRAG_THRESHOLD_PX = 5;
 
@@ -44,7 +48,7 @@ export function absoluteRectsOf(nodes: HandleMenuNodeLike[]): NodeRect[] {
   };
   const rects: NodeRect[] = [];
   for (const n of nodes) {
-    if (n.type === 'group') continue;
+    if (n.type === NODE_TYPES.GROUP) continue;
     if (n.hidden) continue;
     const w = n.width ?? n.measured?.width;
     const h = n.height ?? n.measured?.height;

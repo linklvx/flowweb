@@ -1,6 +1,7 @@
 // apps/web/src/utils/collectDownloadables.ts
 import { normalizeSelection, participation, type CanvasNodeRecord } from '@flowweb/shared';
 import { isImageCompletedNode } from './imageNodeGuards';
+import { NODE_TYPES } from '@/stores/nodeStore';
 
 export interface DownloadableItem { fileId: string; filename: string; type: string; }
 
@@ -29,10 +30,10 @@ export function collectDownloadables(
   for (const id of p.ids) {
     const node = nsMap[id];
     const d = node?.data;
-    if (!node || !d || node.type === 'group') continue;
+    if (!node || !d || node.type === NODE_TYPES.GROUP) continue;
     // guard 签名是 React Flow Node，但仅读 {id,type,data}——传最小结构视图桥接 CanvasNodeRecord
     const guardNode = { id: node.id, type: node.type, position: node.position, data: d };
-    if (node.type === 'imageGen' || node.type === 'imageExtGen') {
+    if (node.type === NODE_TYPES.IMAGE_GEN || node.type === NODE_TYPES.IMAGE_EXT_GEN) {
       if (!isImageCompletedNode(guardNode)) continue;
       const fileId = d.fileId || d.referenceImage;
       if (typeof fileId === 'string' && fileId) {
@@ -40,7 +41,7 @@ export function collectDownloadables(
       }
       continue;
     }
-    if (node.type === 'multiImageGen') {
+    if (node.type === NODE_TYPES.MULTI_IMAGE_GEN) {
       if (!isImageCompletedNode(guardNode)) continue;
       const images = Array.isArray(d.images) ? (d.images as Array<Record<string, unknown>>) : [];
       const idx = typeof d.mainImageIndex === 'number' ? d.mainImageIndex : -1;
@@ -51,7 +52,7 @@ export function collectDownloadables(
       }
       continue;
     }
-    if ((node.type === 'videoGen' || node.type === 'audioGen') && d.status === 'done' && typeof d.fileId === 'string' && d.fileId) {
+    if ((node.type === NODE_TYPES.VIDEO_GEN || node.type === NODE_TYPES.AUDIO_GEN) && d.status === 'done' && typeof d.fileId === 'string' && d.fileId) {
       out.push({ fileId: d.fileId, filename: mediaNameOf(d) ?? fallbackName(node), type: node.type });
     }
   }

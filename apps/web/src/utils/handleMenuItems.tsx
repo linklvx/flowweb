@@ -1,5 +1,7 @@
 /** handle 拖拽弹菜单的菜单项定义（B6-1（Spec B 终裁 57①）：SOURCE_ITEMS/TARGET_ITEMS
- * 自 HandleAddNodeMenu.tsx 组件文件迁入 utils/——与 handleMenu.ts 守卫/决策纯函数同层。 */
+ * 自 HandleAddNodeMenu.tsx 组件文件迁入 utils/——与 handleMenu.ts 守卫/决策纯函数同层。
+ * Y1c T1：type 判 NODE_TYPES 常量（裸字面量清零——值不变）。 */
+import { NODE_TYPES } from '@/stores/nodeStore';
 
 export interface MenuItemDef {
   type: string;
@@ -33,12 +35,12 @@ const ICON_AUDIO = (
 );
 
 export const SOURCE_ITEMS: MenuItemDef[] = [
-  { type: 'textInput', label: '文本', icon: ICON_TEXT },
-  { type: 'imageGen', label: '图片', icon: ICON_IMAGE },
-  { type: 'videoGen', label: '视频', icon: ICON_VIDEO },
-  { type: 'audioGen', label: '音频', icon: ICON_AUDIO },
+  { type: NODE_TYPES.TEXT, label: '文本', icon: ICON_TEXT },
+  { type: NODE_TYPES.IMAGE_GEN, label: '图片', icon: ICON_IMAGE },
+  { type: NODE_TYPES.VIDEO_GEN, label: '视频', icon: ICON_VIDEO },
+  { type: NODE_TYPES.AUDIO_GEN, label: '音频', icon: ICON_AUDIO },
 ];
 export const TARGET_ITEMS: MenuItemDef[] = [
-  { type: 'textInput', label: '文本', icon: ICON_TEXT },
-  { type: 'imageGen', label: '图片', icon: ICON_IMAGE },
+  { type: NODE_TYPES.TEXT, label: '文本', icon: ICON_TEXT },
+  { type: NODE_TYPES.IMAGE_GEN, label: '图片', icon: ICON_IMAGE },
 ];

@@ -17,7 +17,9 @@ let mockNodeData: any = {
   status: 'idle',
 };
 
-vi.mock('@/stores/nodeStore', () => {
+vi.mock('@/stores/nodeStore', async (importOriginal) => {
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  const real = await importOriginal<typeof import('@/stores/nodeStore')>();
   const buildState = () => ({
     nodes: {
       a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: mockNodeData },
@@ -28,6 +30,7 @@ vi.mock('@/stores/nodeStore', () => {
     applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
   });
   return {
+    ...real,
     useNodeStore: Object.assign(
       vi.fn((selector?: any) => {
         const state = buildState();

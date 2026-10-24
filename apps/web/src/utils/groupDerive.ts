@@ -1,5 +1,7 @@
 // apps/web/src/utils/groupDerive.ts
 import { groupHidesChildren } from '@flowweb/shared';
+// Y1c T1：NODE_TYPES 函数体内延迟使用（nodeStore→canvasCollabRuntime→本模块→nodeStore 环——同 imageNodeGuards 裁定）
+import { NODE_TYPES } from '@/stores/nodeStore';
 
 /** hidden 推导规则单一来源（spec 3.3）：不持久化，每次全量推导；hidden 判定同引 shared
  *  groupHidesChildren（19(i) 防漂移）。O0b-4 并入 reconcile 单内核（终裁 54④）——本模块只
@@ -10,7 +12,7 @@ export function deriveHiddenMap(
 ): Map<string, boolean> {
   const groupHidden = new Map<string, boolean>();
   for (const n of nodes) {
-    if (n.type === 'group') {
+    if (n.type === NODE_TYPES.GROUP) {
       groupHidden.set(n.id, groupHidesChildren((n.data ?? {}) as Record<string, unknown>));
     }
   }

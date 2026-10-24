@@ -18,7 +18,9 @@ vi.mock('@xyflow/react', () => ({
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: (sel: any) => sel({ nodes: cs.nodes, setGroupColor: storeApi.setGroupColor, arrangeGroupChildren: storeApi.arrangeGroupChildren }),
 }));
-vi.mock('@/stores/nodeStore', () => ({
+vi.mock('@/stores/nodeStore', async (importOriginal) => ({
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  ...(await importOriginal<typeof import('@/stores/nodeStore')>()),
   useNodeStore: (sel: any) => sel({ nodes: ns.state }),
 }));
 vi.mock('@/utils/batchDownload', () => ({ runBatchDownload: batchDl.runBatchDownload }));

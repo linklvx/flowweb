@@ -3,7 +3,7 @@ import { memo, useMemo, useState, useCallback, useRef, useEffect, useLayoutEffec
 import { createPortal } from 'react-dom';
 import { useStore, useViewport, getNodesBounds, type InternalNode } from '@xyflow/react';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { useNodeStore } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { clampToolbarX, type CanvasNodeRecord } from '@flowweb/shared';
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { collectDownloadables } from '@/utils/collectDownloadables';
@@ -155,7 +155,7 @@ function SelectionBoxOverlayComponent({ onGroup, onMergeStoryboard }: Props) {
   if (!portalRoot) return null;
 
   const selected = selectedInternal as any[];
-  const hasGroup = selected.some((n) => n.type === 'group');
+  const hasGroup = selected.some((n) => n.type === NODE_TYPES.GROUP);
   const allImage = selected.every((n) => isImageCompletedNode(n));
 
   return createPortal(

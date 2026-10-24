@@ -1,5 +1,6 @@
 // apps/web/src/pages/canvas/video-editor/export/product-node.ts
 import { useCanvasStore } from '@/stores/canvasStore';
+import { NODE_TYPES } from '@/stores/nodeStore';
 import { autoOutEdgeId } from '@/stores/autoEdgeIds'; // 该边走 AutoEdge 通道不入撤销栈
 
 const GAP = 80;
@@ -19,7 +20,7 @@ export function createProductNode(editNodeId: string, videoProjectId: string, fi
   ).length;
   const position = { x: editNode.position.x + sw + GAP + count * PRODUCT_STEP, y: editNode.position.y };
   const label = `${projectTitle} · 导出 ${count + 1}`;
-  const nodeId = addNode('videoGen', position, { origin: 'video-edit', videoProjectId, status: 'done', fileId, label });
+  const nodeId = addNode(NODE_TYPES.VIDEO_GEN, position, { origin: 'video-edit', videoProjectId, status: 'done', fileId, label });
   addEdge(editNodeId, nodeId, undefined, undefined, autoOutEdgeId(editNodeId, nodeId));
   return nodeId;
 }

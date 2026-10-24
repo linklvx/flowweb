@@ -69,7 +69,9 @@ let mockNodeData: any = {
   prompt: { text: '', html: '', referencedImageIds: [] },
 };
 
-vi.mock('@/stores/nodeStore', () => {
+vi.mock('@/stores/nodeStore', async (importOriginal) => {
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  const real = await importOriginal<typeof import('@/stores/nodeStore')>();
   const buildState = () => ({
     nodes: {
       v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: mockNodeData },
@@ -85,6 +87,7 @@ vi.mock('@/stores/nodeStore', () => {
     execAligned: getMockExec().execAligned,
   });
   return {
+    ...real,
     useNodeStore: Object.assign(
       vi.fn((selector?: any) => {
         const state = buildState();

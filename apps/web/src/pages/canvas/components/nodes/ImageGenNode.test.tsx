@@ -194,7 +194,9 @@ let mockCancelRequestedAt = 0;
 // F2 P1-2：canvasStore nodes 夹具（runIntrinsicFit 读 cs 信封 wh——currentWH 供 adaptToFit 分支）
 let mockCsNodes: any[] = [];
 
-vi.mock('@/stores/nodeStore', () => ({
+vi.mock('@/stores/nodeStore', async (importOriginal) => ({
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  ...(await importOriginal<typeof import('@/stores/nodeStore')>()),
   useNodeStore: mockUseNodeStoreFn,
   applyDataPatchToStores: mockApplyDataPatchToStores,
   isImageExtNode: (node: any) => node?.type === 'imageExtGen',

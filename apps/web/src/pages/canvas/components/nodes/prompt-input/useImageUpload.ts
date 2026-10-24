@@ -1,4 +1,4 @@
-import { useNodeStore, isImageNode, type ImageItem, type ImageNodeData, type VideoNodeData } from '@/stores/nodeStore';
+import { useNodeStore, isImageNode, NODE_TYPES, type ImageItem, type ImageNodeData, type VideoNodeData } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
@@ -26,7 +26,8 @@ export function useImageUpload(nodeId: string) {
     onProgress?: (p: number) => void,
   ): Promise<ImageItem | null> {
     // Type guard: image nodes and video nodes (both support prompt images)
-    if (!node || (!isImageNode(node) && node.type !== 'videoGen' && node.type !== 'video')) return null;
+    // Y1c T1：删 legacy 'video' 分支（创建链单源解析后无 'video' 类型名节点）+ 判 NODE_TYPES 常量
+    if (!node || (!isImageNode(node) && node.type !== NODE_TYPES.VIDEO_GEN)) return null;
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const tempUrl = URL.createObjectURL(file);
@@ -135,7 +136,7 @@ export function useImageUpload(nodeId: string) {
     files: File[],
     maxCount?: number,
   ): Promise<ImageItem[]> {
-    if (!node || (!isImageNode(node) && node.type !== 'videoGen' && node.type !== 'video')) return [];
+    if (!node || (!isImageNode(node) && node.type !== NODE_TYPES.VIDEO_GEN)) return [];
 
     // Get existing images to calculate remaining slots
     const existingImages = getLatestAllImages();

@@ -49,10 +49,11 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // T17：序域片（allocator import/persistArrangeOrder helper/addNodeInner order 键/arrange 读序
     // 换芯/duplicate·paste allocator）+cells→slot 片（syncStoryboardCells 族）——13 行整体漂移（集合不变）
     // T18 顺修③：persistArrangeOrder slot 域防御过滤 +4 行——13 行尾部两行 1836,1837→1840,1841 漂移（集合不变）
-    'stores/canvasStore.ts': [1035, 1036, 1042, 1043, 1098, 1099, 1170, 1171, 1177, 1178, 1330, 1873, 1874],
+    // Y1c T1：nodeTypeMap 惰性化(+5)/创建断言(+4)/nodeTypes 常量化等插入——13 行 +16 行号漂移（零增删行）
+    'stores/canvasStore.ts': [1051, 1052, 1058, 1059, 1114, 1115, 1186, 1187, 1193, 1194, 1346, 1889, 1890],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
-    'utils/handleMenu.ts': [49, 50],
-    'pages/canvas/video-editor/export/product-node.ts': [15],
+    'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
+    'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移
   },
   B: {
     // 屏幕空间 UI+RF internals（measured 权威禁进投影）=27 行：六 Toolbar 12 + ImageGen setCenter 2 +
@@ -68,7 +69,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
     'pages/canvas/components/nodes/VideoGenNode.tsx': [433],   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403；T19 登记收口：applyIntrinsicFit 换芯+facts natural 决策 effect +30——403→433（集合不变）
     'pages/canvas/components/nodes/TextInputNode.tsx': [31, 32],
-    'pages/canvas/components/groups/addOutput.ts': [79, 80, 137, 138, 198, 199],
+    'pages/canvas/components/groups/addOutput.ts': [80, 81, 138, 139, 199, 200],  // Y1c T1：import 插入 +1 漂移
     'pages/canvas/components/RemoteCursors.tsx': [26, 27],   // Y0b-4 T12 E38：selection 高亮层（overlay 屏幕空间）
   },
 };

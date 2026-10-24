@@ -30,6 +30,13 @@ describe('canvasStore', () => {
     expect(s.nodes[0].position).toEqual({ x: 100, y: 200 });
   });
 
+  // Y1c T1 评审 Minor#1：创建链单源断言契约——resolvedType ∉ CANVAS_NODE_TYPES 全集（8 键）
+  // 在 addNodeInner fail-fast throw，未知类型名不入画布（无渲染器=隐形节点）也不留半态
+  it('addNode 未知节点类型 fail-fast throw（创建断言契约——零节点残留）', () => {
+    expect(() => useCanvasStore.getState().addNode('bogus', { x: 0, y: 0 })).toThrow(/未知节点类型/);
+    expect(useCanvasStore.getState().nodes).toHaveLength(0);
+  });
+
   it('should add an image node', () => {
     useCanvasStore.getState().addNode('image', { x: 50, y: 60 });
     const s = useCanvasStore.getState();

@@ -1,6 +1,7 @@
 // apps/web/src/pages/canvas/components/groups/addOutput.ts
 // B6-2（Spec B 需求 6 / 撞车② B 案）+号输出按钮纯函数层：显隐单源/锚框/源集/命中区/松手落点。
 // rect 读 cs（v3.16 终裁 57②）：组帧三字段=useCanvasStore 订阅（编辑器渲染面=cs），
+import { NODE_TYPES } from '@/stores/nodeStore';
 // 不读 RF internals.measured；组恒顶层（组深≤1）⇒组 position 即绝对坐标（rel≡abs）。
 // 消费面：AddOutputHandle（渲染+手势）、CanvasView onConnectEnd（撞车①c 喂 shouldOpenHandleMenu）。
 import { ADD_OUTPUT_HANDLE } from './selectionTokens';
@@ -31,7 +32,7 @@ export function resolveAddOutputTarget(nodes: AddOutputNodeLike[], opts: AddOutp
   if (selected.length >= 2) return { kind: 'selection', ids: selected.map((n) => n.id) };
   if (selected.length === 1) {
     const g = selected[0];
-    if (g.type !== 'group') return null;
+    if (g.type !== NODE_TYPES.GROUP) return null;
     if (g.data?.groupType === 'storyboard') return null;
     const effCollapsed = opts.localCollapsed?.[g.id] ?? g.data?.collapsed === true;
     if (effCollapsed) return null;
@@ -98,7 +99,7 @@ export function addOutputSourceIds(nodes: AddOutputNodeLike[], target: AddOutput
   const seen = new Set<string>();
   for (const n of nodes) {
     if (!idSet.has(n.id)) continue;
-    if (n.type === 'group') {
+    if (n.type === NODE_TYPES.GROUP) {
       for (const c of nodes) {
         if (c.parentId === n.id && !c.hidden && !seen.has(c.id)) { seen.add(c.id); out.push(c.id); }
       }
@@ -194,7 +195,7 @@ export function resolveBatchDropTarget(
   const sources = new Set(sourceIds);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   for (const n of nodes) {
-    if (n.type === 'group' || n.hidden || sources.has(n.id)) continue;
+    if (n.type === NODE_TYPES.GROUP || n.hidden || sources.has(n.id)) continue;
     const w = n.width ?? n.measured?.width;
     const h = n.height ?? n.measured?.height;
     if (!w || !h) continue;

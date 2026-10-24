@@ -3,7 +3,7 @@ import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type Nod
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
-import { useNodeStore, applyDataPatchToStores } from '@/stores/nodeStore';
+import { useNodeStore, applyDataPatchToStores, NODE_TYPES } from '@/stores/nodeStore';
 import { replaceNodeMedia, clearNodeMedia, getMediaSlot, MediaRevConflictError } from '@/api/collabApi';
 import { selectExecStatus } from '@/stores/execStatusView';
 import type { AiToolId } from '@/stores/nodeStore';
@@ -181,7 +181,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
   const handleAiToolAction = useCallback(async (toolId: AiToolId) => {
     const nodeType = useNodeStore.getState().nodes[id]?.type;
-    if (nodeType === 'imageExtGen') {
+    if (nodeType === NODE_TYPES.IMAGE_EXT_GEN) {
       updateConfig(id, { aiTool: toolId });
     } else {
       // 构建参考图 ImageItem（需要完整 url/name/status）
@@ -304,7 +304,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     const currentData = useNodeStore.getState().nodes[id]?.data as any;
     const parent = csCur?.parentId != null
       ? useCanvasStore.getState().nodes.find((n: any) => n.id === csCur.parentId) : undefined;
-    const isStoryboardChild = parent?.type === 'group' && (parent?.data as any)?.groupType === 'storyboard';
+    const isStoryboardChild = parent?.type === NODE_TYPES.GROUP && (parent?.data as any)?.groupType === 'storyboard';
     const decision = applyIntrinsicFit({
       currentWH,
       existingAspectRatio: currentData?.aspectRatio,

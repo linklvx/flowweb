@@ -84,7 +84,9 @@ vi.mock('@/stores/canvasStore', () => ({
   ),
 }));
 
-vi.mock('@/stores/nodeStore', () => ({
+vi.mock('@/stores/nodeStore', async (importOriginal) => ({
+  // Y1c T1：spread 真模块（生产源现引 NODE_TYPES 常量——mock 面保持原覆写）
+  ...(await importOriginal<typeof import('@/stores/nodeStore')>()),
   useNodeStore: Object.assign(
     vi.fn((selector?: any) => {
       const state = { nodes: {} };

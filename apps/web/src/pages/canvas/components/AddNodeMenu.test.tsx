@@ -13,7 +13,9 @@ vi.mock('@/stores/canvasStore', () => ({
 
 // Mock node store
 const mockUpdateConfig = vi.fn();
-vi.mock('@/stores/nodeStore', () => ({
+vi.mock('@/stores/nodeStore', async (importOriginal) => ({
+  // Y1c T1：spread 真模块（AddNodeMenu 现直引 NODE_TYPES 常量——mock 面只覆写 useNodeStore）
+  ...(await importOriginal<typeof import('@/stores/nodeStore')>()),
   useNodeStore: {
     getState: () => ({ updateConfig: mockUpdateConfig }),
   },
@@ -80,27 +82,27 @@ describe('AddNodeMenu', () => {
     expect(screen.queryByText('从生成历史选择')).not.toBeInTheDocument();
   });
 
-  it('calls addNode with "text" when clicking text menu item', () => {
+  it('calls addNode with production type textInput when clicking text menu item (Y1c T1)', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
     fireEvent.click(screen.getByText('文本'));
-    expect(mockAddNode).toHaveBeenCalledWith('text', expect.any(Object));
+    expect(mockAddNode).toHaveBeenCalledWith('textInput', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls addNode with "image" when clicking image menu item', () => {
+  it('calls addNode with production type imageGen when clicking image menu item (Y1c T1)', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
     fireEvent.click(screen.getByText('图片'));
-    expect(mockAddNode).toHaveBeenCalledWith('image', expect.any(Object));
+    expect(mockAddNode).toHaveBeenCalledWith('imageGen', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls addNode with "video" when clicking video menu item', () => {
+  it('calls addNode with production type videoGen when clicking video menu item (Y1c T1)', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
     fireEvent.click(screen.getByText('视频'));
-    expect(mockAddNode).toHaveBeenCalledWith('video', expect.any(Object));
+    expect(mockAddNode).toHaveBeenCalledWith('videoGen', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -112,27 +114,27 @@ describe('AddNodeMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls addNode with "audio" when clicking audio menu item', () => {
+  it('calls addNode with production type audioGen when clicking audio menu item (Y1c T1)', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
     fireEvent.click(screen.getByText('音频'));
-    expect(mockAddNode).toHaveBeenCalledWith('audio', expect.any(Object));
+    expect(mockAddNode).toHaveBeenCalledWith('audioGen', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls addNode with "multiImage" when clicking stacked image menu item', () => {
+  it('calls addNode with production type multiImageGen when clicking stacked image menu item (Y1c T1)', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
     fireEvent.click(screen.getByText('堆叠图片'));
-    expect(mockAddNode).toHaveBeenCalledWith('multiImage', expect.any(Object));
+    expect(mockAddNode).toHaveBeenCalledWith('multiImageGen', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('calls addNode with "imageExt" when clicking image extension menu item', () => {
+  it('calls addNode with production type imageExtGen when clicking image extension menu item (Y1c T1)', () => {
     const onClose = vi.fn();
     render(<AddNodeMenu isOpen={true} onClose={onClose} triggerRef={{ current: null }} />);
     fireEvent.click(screen.getByText('扩展图片'));
-    expect(mockAddNode).toHaveBeenCalledWith('imageExt', expect.any(Object));
+    expect(mockAddNode).toHaveBeenCalledWith('imageExtGen', expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -261,7 +263,7 @@ describe('AddNodeMenu', () => {
       fireEvent.change(fileInput, { target: { files: [file] } });
 
       await waitFor(() => {
-        expect(mockAddNode).toHaveBeenCalledWith('image', expect.any(Object));
+        expect(mockAddNode).toHaveBeenCalledWith('imageGen', expect.any(Object));
         expect(mockUpdateConfig).toHaveBeenCalledWith('test-node-id', { referenceImage: 'file-1' });
         expect(onClose).toHaveBeenCalled();
       });
@@ -276,7 +278,7 @@ describe('AddNodeMenu', () => {
       fireEvent.change(fileInput, { target: { files: [file] } });
 
       await waitFor(() => {
-        expect(mockAddNode).toHaveBeenCalledWith('video', expect.any(Object));
+        expect(mockAddNode).toHaveBeenCalledWith('videoGen', expect.any(Object));
         expect(mockUpdateConfig).toHaveBeenCalledWith('test-node-id', { referenceVideo: 'file-1' });
         expect(onClose).toHaveBeenCalled();
       });
@@ -291,7 +293,7 @@ describe('AddNodeMenu', () => {
       fireEvent.change(fileInput, { target: { files: [file] } });
 
       await waitFor(() => {
-        expect(mockAddNode).toHaveBeenCalledWith('audio', expect.any(Object));
+        expect(mockAddNode).toHaveBeenCalledWith('audioGen', expect.any(Object));
         expect(mockUpdateConfig).toHaveBeenCalledWith('test-node-id', { referenceAudio: 'file-1' });
         expect(onClose).toHaveBeenCalled();
       });
@@ -348,7 +350,7 @@ describe('AddNodeMenu', () => {
       const onClose = vi.fn();
       render(<AddNodeMenu isOpen={true} onClose={onClose} position={{ x: 500, y: 200 }} />);
       fireEvent.click(screen.getByText('文本'));
-      expect(mockAddNode).toHaveBeenCalledWith('text', expect.any(Object));
+      expect(mockAddNode).toHaveBeenCalledWith('textInput', expect.any(Object));
       expect(onClose).toHaveBeenCalled();
     });
 
