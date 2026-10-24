@@ -8,6 +8,7 @@
 // T18：meta 戳删除（版本承载=CanvasDoc.schemaVersion PG 列——建行 @default(3)，doc 内容零版本键）。
 // O0c-3：二进制构造抽 src/gate-canvas-state.ts 纯模块（零 prisma/auth 副作用——验收断言直解二进制）。
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build（scripts/check-shared-dist.mjs 可校验）。
+import { createHash } from 'node:crypto';
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
@@ -45,11 +46,24 @@ async function main() {
   });
   const state = buildGateCanvasState();
   await prisma.canvasDocUpdate.deleteMany({ where: { projectId: GATE.projectId } });
+  await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: GATE.projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId: GATE.projectId },
-    update: { state },
-    create: { projectId: GATE.projectId, state },
+    update: {},
+    create: { projectId: GATE.projectId },
   });
+  // Y1c T11（快照权威）：doc 态种子落 CanvasDocSnapshot(g,0,0)（头行零 doc 态列；指针
+  // currentSnapshotRev=0 默认与 (g,0) 对齐——装载=快照+增量尾）；stateHash=SHA-256（genesis 同口径）
+  await prisma.canvasDocSnapshot.upsert({
+    where: { projectId_generation_snapshotRev: { projectId: GATE.projectId, generation: 0, snapshotRev: 0n } },
+    create: {
+      projectId: GATE.projectId, generation: 0, snapshotRev: 0n, stateSeq: 0n, state,
+      stateHash: createHash('sha256').update(state).digest('hex'),
+      vacuumEpoch: 0, schemaVersion: 3,
+    },
+    update: {},
+  });
+
 
   // 工作空间个人页网格行（/works 列表经 getTemplates type=my：userId OR project.teamId）
   await prisma.template.upsert({

@@ -110,13 +110,13 @@ describe('CanvasService', () => {
       await service.create('新画布', 'f1', 'u1');
 
       expect(heads.systemHistory.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }));
-      // 旧 state 种子语义（Y0a-3 T8① 同款 upsert 形状——空画布种子=[0,0] 合法空 update）
+      // Y1c T11 快照权威：头行零 doc 态列（state/stateSeq 退役——禁双写）；种子字节唯去处=Snapshot
       expect(heads.canvasDoc.upsert).toHaveBeenCalledWith({
         where: { projectId: 'p1' },
-        create: { projectId: 'p1', state: expect.any(Buffer), stateSeq: 0n },
+        create: { projectId: 'p1' },
         update: {},
       });
-      const seedState = (heads.canvasDoc.upsert.mock.calls[0] as unknown as [{ create: { state: Buffer } }])[0].create.state;
+      const seedState = (heads.canvasDocSnapshot.upsert.mock.calls[0] as unknown as [{ create: { state: Buffer } }])[0].create.state;
       expect(seedState.length).toBeGreaterThan(0);   // 非零长空 update（Y.applyUpdate 零长 buffer 会抛——[0,0] 形态安全）
       expect(heads.canvasDocSnapshot.upsert).toHaveBeenCalledWith({
         where: { projectId_generation_snapshotRev: { projectId: 'p1', generation: 0, snapshotRev: 0n } },

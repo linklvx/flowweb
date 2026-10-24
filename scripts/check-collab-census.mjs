@@ -587,7 +587,7 @@ export function reconcileWithDocRegistry(counts, registry) {
  *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
-  'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 3,   // Y1c T10：+1=懒建档种子（appendBatch cas-miss 行缺失档——createCanvasDoc 空 doc 合法 update）
+  'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // Y1c T11：compact 快照重编码+tombstone 余量测量（懒建档种子编码随 state 列退役删除——3→2）
   'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
@@ -897,7 +897,7 @@ if (isMain()) {
   };
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
-    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 3 },   // compact 快照重编码+tombstone 余量测量+Y1c T10 懒建档种子（④同源 2→3）
+    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源——Y1c T11 懒建档种子随 state 列退役删除 3→2）
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': { decodeStateVector: 1, encodeStateAsUpdate: 3 },   // T41 W3a+Y1c T9：decode 2→1（guardSyncFrame SV 代际门随收编迁 frame-gate——encode 3=装载真值/residue/measureTruth 不变）
     'apps/api/src/modules/collab/collab-frame-gate.service.ts': { decodeStateVector: 1 },   // Y1c T9：SS1 SV 代际门（guardSyncFrame 收编随迁）
     'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登
@@ -1135,6 +1135,9 @@ if (isMain()) {
     },
     'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
       COMPACT_INTERVAL_MS: 1,
+    },
+    'apps/api/src/modules/collab/collab-compact.poller.ts': {   // Y1c T11：worker compact 轮询周期键（COMPACT_POLL_INTERVAL_MS——COMPACT_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档、消费面=worker 轮询周期非部署档位）
+      COMPACT_POLL_INTERVAL_MS: 1,
     },
     'apps/api/src/modules/collab/collab.gateway.ts': {   // T42 B3 手段①：server 构造四键随 createCollabServer 迁 collab-server.factory 条目+resolveCollabDebounce 两键同迁——gateway 留 listenCollab 日志 BIND_ADDR×1；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目；T41 W3b：SG 域 14 键随域迁 collab-session-guard.service 条目（NODE_ENV 2→1 拆分：resolveCollabDebounce 支留 GW〔B3 再迁 factory〕，resolveAllowedOrigins 支迁 SG）
       COLLAB_BIND_ADDR: 1,

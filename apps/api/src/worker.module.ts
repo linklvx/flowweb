@@ -88,6 +88,11 @@ import { WechatPaymentProvider } from './modules/recharge/providers/wechat-payme
 import { CollabWritePort, HttpCollabWritePort, HttpCollabDocWriter } from './modules/collab/collab-write.port';
 import { CollabDocWriterService } from './modules/collab/collab-doc-writer.service';
 import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
+// ── Y1c T11：compact 轮询 DB poller（worker 进程——重放在 worker；MediaProbePoller/MaterializeJob
+//    同款平铺先例；闭包纯净=repo 族〔canvas-doc.factory/sentry-scrub/store.metrics〕零 controller/
+//    Http 面，census ⑰ 不破。API 进程不注册——compact 触发面在 api 侧经 maybeCompact 原位承接） ──
+import { CanvasDocUpdateRepository } from './modules/collab/canvas-doc-update.repository';
+import { CollabCompactPoller } from './modules/collab/collab-compact.poller';
 
 const env = validateEnv();
 
@@ -172,6 +177,10 @@ const env = validateEnv();
     TeamRechargeService,
     AuditService,
     PaymentGateway,   // WS gateway 类在 application context 实例化不监听（@WebSocketServer 恒 undefined；emit 调用面 try/catch best-effort 既有）
+    // ── Y1c T11：compact 轮询面（DB poller——启动续跑 purgeBelowSeq 清理义务+周期扫描前缀折叠；
+    // 授权=行锁+generation/pgSeq CAS 不拿租约——worker 进程零 CollabLease 依赖） ──
+    CanvasDocUpdateRepository,
+    CollabCompactPoller,
     // ── recharge 域（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/active-query 消费面） ──
     {
       provide: 'PAYMENT_PROVIDER',

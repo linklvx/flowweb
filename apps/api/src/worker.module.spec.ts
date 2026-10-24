@@ -104,6 +104,11 @@ describe('Y0c T26 worker.module——结构面（Z131 闭包纯净的模块侧�
     for (const t of [CollabWritePort, CollabDocWriterService, EmitPort]) {
       expect(syms, `providers 应含令牌 ${t.name}`).toContain(t);
     }
+    // Y1c T11：compact 轮询面（DB poller+repo 平铺——worker 进程重放载体；真新行为断言）
+    const { CanvasDocUpdateRepository } = await import('./modules/collab/canvas-doc-update.repository');
+    const { CollabCompactPoller } = await import('./modules/collab/collab-compact.poller');
+    expect(syms, 'providers 应含 CanvasDocUpdateRepository').toContain(CanvasDocUpdateRepository);
+    expect(syms, 'providers 应含 CollabCompactPoller').toContain(CollabCompactPoller);
   });
 });
 
@@ -126,6 +131,12 @@ describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册�
     expect(moduleRef.get(AiImageEditProcessor, { strict: false })).toBeInstanceOf(AiImageEditProcessor);
     // T12：MaterializeJob（DB poller——ai-download processor 退役后的 video materialize 接替面）必须可解析
     expect(moduleRef.get(MaterializeJob, { strict: false })).toBeInstanceOf(MaterializeJob);
+    // Y1c T11：CollabCompactPoller（compact 轮询 DB poller——启动续跑 purgeBelowSeq+周期扫描；
+    // 依赖=PrismaService+CanvasDocUpdateRepository 平铺——缺注册即 compile 红）必须可解析
+    const { CollabCompactPoller: Poller } = await import('./modules/collab/collab-compact.poller');
+    const { CanvasDocUpdateRepository: Repo } = await import('./modules/collab/canvas-doc-update.repository');
+    expect(moduleRef.get(Poller, { strict: false })).toBeInstanceOf(Poller);
+    expect(moduleRef.get(Repo, { strict: false })).toBeInstanceOf(Repo);
     const port = moduleRef.get(CollabWritePort, { strict: false });
     expect(port).toBeInstanceOf(HttpCollabWritePort);
     expect((port as unknown as { baseUrl: string }).baseUrl).toBe(`http://127.0.0.1:${process.env.PORT ?? '3000'}`);

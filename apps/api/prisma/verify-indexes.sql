@@ -20,8 +20,14 @@ WHERE tablename = 'UserSubscription'
 -- Y1c T9 表改形：复合 PK (projectId,generation,seq)（旧 unique(projectId,seq) 随写入方换代退役）
 SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocUpdate"'::regclass AND contype = 'p' AND pg_get_constraintdef(oid) LIKE '%projectId%generation%seq%';
 
--- Y0a-1: CanvasDoc.stateSeq column NOT NULL DEFAULT 0
-SELECT column_name FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name = 'stateSeq' AND is_nullable = 'NO' AND column_default LIKE '%0%';
+-- Y1c T11（快照权威切换）：CanvasDoc 旧 doc 态列 state/stateSeq 已退役（否定断言——列在即红；
+-- 权威=CanvasDocSnapshot+currentSnapshotRev 指针，存在性由下块断言）
+SELECT 'canvas_doc_state_columns_absent' AS ok WHERE NOT EXISTS (
+  SELECT 1 FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name IN ('state', 'stateSeq')
+);
+
+-- Y1c T11: 快照权威表复合 PK（projectId,generation,snapshotRev）在位
+SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocSnapshot"'::regclass AND contype = 'p' AND pg_get_constraintdef(oid) LIKE '%projectId%generation%snapshotRev%';
 
 -- Y0a-3（Z1）：租约行不变量——epoch 恒非空；(owner IS NULL)=(expiresAt IS NULL) 耦合
 --（持有者必有过期时刻；释放后两者同 NULL；break-glass 态 owner='revoked'+expiresAt=now() 双非 NULL——不变量对全五态恒立）。

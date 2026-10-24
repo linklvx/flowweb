@@ -76,6 +76,21 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(repo.compact).toHaveBeenCalledTimes(1);   // store 成功即 compact（lastCompactAt 无键=首跑放行）
   });
 
+  it('Y1c T11 WAL 段清理（purgeBelowSeq 消费）：maybeCompact 成功 → spool 未 confirm 帧 walSeq≤purgeBelowSeq 全 confirm（段回收）；>purgeBelowSeq 帧保留', async () => {
+    // 布景：spool 三帧（appendTracked 次次 fsync——walSeq 1/2/3 连续分配）；compact 发布 purgeBelowSeq=2n
+    const f1 = await spool.appendTracked(PID, new Uint8Array([1]));
+    const f2 = await spool.appendTracked(PID, new Uint8Array([2]));
+    const f3 = await spool.appendTracked(PID, new Uint8Array([3]));
+    expect([f1.walSeq, f2.walSeq, f3.walSeq]).toEqual([1n, 2n, 3n]);
+    expect(spool.hasFrames(PID)).toBe(true);
+    repo.compact.mockResolvedValue({ compacted: true, snapshotBytes: 10, deletedRows: 2, tombstoneBytes: 0, snapshotRev: 2n, stateSeq: 2n, purgeBelowSeq: 2n });
+    await svc.maybeCompact(PID);
+    // ≤purgeBelowSeq 的帧=内容已证在 PG 前缀（pgSeq≥purgeBelowSeq）——confirm 授权段回收
+    expect(spool.hasFrames(PID)).toBe(true);             // f3（walSeq=3>2）仍在
+    const frames = await spool.peek(PID);
+    expect(frames.map((f) => f.walSeq)).toEqual([3n]);   // f1/f2 已 confirm（peek 只回未 confirm 好帧）
+  });
+
   it('全链（RC2 硬判据）：append 失败→批落 spool（fsync 新家先落定）+退避梯排程+unhealthy 电平→repo 恢复 retryPersist detached 帧三段式→PG 落定+段回收+三态空+电平转健康+内容收敛', async () => {
     const doc = new Y.Doc();
     svc.observeDocument(doc, PID, NAME);

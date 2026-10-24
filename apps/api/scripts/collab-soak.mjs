@@ -110,9 +110,14 @@ async function integrityProbe(ctx) {
   const results = [];
   for (const pid of ctx.projectIds) {
     try {
-      const docRow = await ctx.prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { state: true } });
+      // Y1c T11（快照权威）：doc 态源=CanvasDocSnapshot 指针行（CanvasDoc.state 列退役）；
+      // 头行读 currentSnapshotRev/generation 供指针定位（缺行=懒建档折空态）
+      const head = await ctx.prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { generation: true, currentSnapshotRev: true } });
+      const snap = head
+        ? await ctx.prisma.canvasDocSnapshot.findUnique({ where: { projectId_generation_snapshotRev: { projectId: pid, generation: head.generation, snapshotRev: head.currentSnapshotRev } }, select: { state: true } })
+        : null;
       const rows = await ctx.prisma.canvasDocUpdate.findMany({ where: { projectId: pid }, orderBy: { seq: 'asc' }, select: { update: true } });
-      const replayed = replayPgSnapshot(docRow?.state ?? null, rows.map((r) => r.update));
+      const replayed = replayPgSnapshot(snap?.state ?? null, rows.map((r) => r.update));
       const liveDoc = ctx.liveDocs?.get(pid) ?? null;
       let svLive = null;
       let liveSource = null;

@@ -56,7 +56,7 @@ maybe('appendBatch（真 PG——Y1c T9 新表形态）', () => {
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     // 布景：CanvasDoc 行在（pgSeq=0——首帧前形态；generation=1 与 seedRow 默认一致）
     await prisma.canvasDoc.create({
-      data: { projectId: PID, state: Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())), stateSeq: 0n, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n },
+      data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n },   // Y1c T11：零 doc 态列
     });
     // 租约易主（模拟丢失窗：repo 侧 owner 已绑 fixture owner，DB 行 owner=外来者）
     await prisma.$executeRawUnsafe(`UPDATE "CollabLease" SET owner = 'c1-intruder' WHERE scope = 'primary'`);

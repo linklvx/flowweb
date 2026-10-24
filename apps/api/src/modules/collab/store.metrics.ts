@@ -298,10 +298,28 @@ export const collabLeaseRowMissingTotal = new Counter({
   help: '写路径遇 CollabLease 行缺失次数（配置错误——批走 spool 不排梯，SV13）',
   registers: [register],
 });
-/** Y0a-3（SV8）：compact 租约档拒绝（与 pendingStructs 的 abandoned 分立——计数不混） */
-export const yjsCompactNotOwnerTotal = new Counter({
-  name: 'yjs_compact_not_owner_total',
-  help: 'compact 因租约档拒绝次数（not-owner——出现即租约与 compact 判据不一致，需值班关注）',
+/** Y0a-3（SV8）原 compact 租约档拒绝计数 yjs_compact_not_owner_total 已随 Y1c T11 compact 授权换轴
+ *  退役（行锁+generation/pgSeq CAS 仲裁——与写入方 lease 正交；并发败者={compacted:false,reason:'miss'}
+ *  正常折返非告警档，不再有 not-owner 形态）。 */
+
+/** Y1c T11（卡文「snapshot 独立观测 gauge」）：doc_snapshot_bytes——快照发布字节独立观测面。
+ *  set 点=canvas-doc-update.repository compact 发布成功单点（最近一次发布快照字节；与 yjs_doc_bytes
+ *  直方图分工：彼=doc 编码尺寸分布三锚〔装载播种/compact/shrink〕，此=发布产物字节 gauge——
+ *  worker 进程 compact 管线同点覆盖〔3002 侧同族可读〕）。 */
+export const docSnapshotBytes = new Gauge({
+  name: 'doc_snapshot_bytes',
+  help: '最近发布快照字节（Y1c T11 compact 发布成功单点 set——独立观测面；与 yjs_doc_bytes 直方图分工：尺寸分布 vs 发布产物 gauge）',
+  registers: [register],
+});
+
+/** Y1c T11（卡文「compact 时长」）：doc_compaction_duration——新 compact 管线全程（授权读+前缀重放+
+ *  发布事务+提交后分批删）耗时。与 yjs_compact_duration_seconds（maybeCompact 门内 repo.compact 实跑
+ *  ——api 触发路径）分工：本表在管线内部观测=worker 进程轮询触发亦覆盖；采集挂 finally（家族纪律：
+ *  throw 的慢尾恰是最该被看见的样本）。 */
+export const docCompactionDuration = new Histogram({
+  name: 'doc_compaction_duration_seconds',
+  help: 'compact 管线全程耗时秒（授权读+PG 前缀重放+发布事务+提交后分批删——管线内部单点，worker 轮询触发同覆盖；采集挂 finally）',
+  buckets: DURATION_BUCKETS_SECONDS,
   registers: [register],
 });
 /** Y0a-3（§3.2）：投影类快照读计数（readSnapshotOnly 出口） */

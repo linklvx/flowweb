@@ -1,6 +1,7 @@
 // 批7 双客户端 E2E fixtures（collab-global-setup 调用）：两个测试账号（A=OWNER/B=成员）+ 共享画布。
 // 幂等：账号存在即跳过、其余 upsert；重跑零增量残留。
 // 契约：apps/web/e2e/collab-global-setup.ts（账号）与 collab-recovery.e2e.spec.ts（projectId）引用同值。
+import { createHash } from 'node:crypto';
 import 'dotenv/config';
 import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
@@ -74,11 +75,24 @@ async function main() {
   });
   const state = Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()));
   await prisma.canvasDocUpdate.deleteMany({ where: { projectId: COLLAB_GATE.projectId } });
+  await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: COLLAB_GATE.projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId: COLLAB_GATE.projectId },
-    update: { state },
-    create: { projectId: COLLAB_GATE.projectId, state },
+    update: {},
+    create: { projectId: COLLAB_GATE.projectId },
   });
+  // Y1c T11（快照权威）：doc 态种子落 CanvasDocSnapshot(g,0,0)（头行零 doc 态列；指针
+  // currentSnapshotRev=0 默认与 (g,0) 对齐——装载=快照+增量尾）；stateHash=SHA-256（genesis 同口径）
+  await prisma.canvasDocSnapshot.upsert({
+    where: { projectId_generation_snapshotRev: { projectId: COLLAB_GATE.projectId, generation: 0, snapshotRev: 0n } },
+    create: {
+      projectId: COLLAB_GATE.projectId, generation: 0, snapshotRev: 0n, stateSeq: 0n, state,
+      stateHash: createHash('sha256').update(state).digest('hex'),
+      vacuumEpoch: 0, schemaVersion: 3,
+    },
+    update: {},
+  });
+
 
   console.log('Collab gate fixtures ready: userA/userB/member/shared canvas');
 }

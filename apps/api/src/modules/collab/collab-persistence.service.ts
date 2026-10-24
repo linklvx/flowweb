@@ -403,8 +403,9 @@ export class CollabPersistenceService {
     return false;
   }
 
-  /** 提前 drain 的帧读（IO 错误不阻断主路径——帧留待下次；正常态键集判定零 IO）。公有=loadDocument 回灌消费+façade spy 缝。 */
-  async peekSpoolFrames(projectId: string): Promise<{ frameId: string; payload: Uint8Array }[]> {
+  /** 提前 drain 的帧读（IO 错误不阻断主路径——帧留待下次；正常态键集判定零 IO）。公有=loadDocument 回灌消费+façade spy 缝。
+   *  T11：随 SpoolFrame 透出 walSeq（purgeBelowSeq 消费面=maybeCompact confirm 授权判据）。 */
+  async peekSpoolFrames(projectId: string): Promise<{ frameId: string; payload: Uint8Array; walSeq: bigint }[]> {
     try { return this.spool.hasFrames(projectId) ? await this.spool.peek(projectId) : []; }
     catch (err) {
       this.host.logger.error(`spool peek failed for ${projectId}（帧跳过本次合并，留待下次）: ${(err as Error).message}`);
@@ -625,6 +626,19 @@ export class CollabPersistenceService {
       yjsCompactDeletedRows.observe(r.deletedRows);
       yjsCompactTombstoneBytes.observe(r.tombstoneBytes);
       this.lastCompactAt.set(projectId, Date.now());
+      // Y1c T11：WAL 段清理走 spool 现有 confirm/purge 面——purgeBelowSeq 消费（walSeq≤purgeBelowSeq
+      // 的未 confirm 帧=内容已证在 PG 前缀〔purgeBelowSeq≤pgSeq 且发布快照即该前缀〕，confirm 授权
+      // 段回收；kill 窗残留帧由启动回灌 replayAll 承接——本处零容错语义：peek/confirm 失败仅 WARN，
+      // 下次 compact/store 重试）。
+      if (this.spool.hasFrames(projectId)) {
+        try {
+          const frames = await this.peekSpoolFrames(projectId);
+          const consumed = frames.filter((f) => f.walSeq <= r.purgeBelowSeq);
+          if (consumed.length > 0) await this.spool.confirm(projectId, consumed.map((f) => f.frameId));
+        } catch (err) {
+          this.host.logger.warn(`purgeBelowSeq spool confirm failed for ${projectId}（帧留待回灌/重试）: ${(err as Error).message}`);
+        }
+      }
       if ((this.pendingQueues.get(projectId)?.length ?? 0) === 0) this.host.calibrateTruth(projectId, r.snapshotBytes);
     }
   }

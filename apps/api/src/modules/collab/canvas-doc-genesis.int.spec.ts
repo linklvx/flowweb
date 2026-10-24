@@ -45,7 +45,7 @@ maybe('Y1c T7 genesis 建头 helper（真 PG）', () => {
     return bytes;
   }
 
-  it('①头集三件同事务：head（旧 state 种子+新列默认零）+Snapshot(g,0,0)（stateHash=种子 SHA-256）+RuntimeFeedCursor(0,0)', async () => {
+  it('①头集三件同事务：head（T11 纯新形态——零 doc 态列）+Snapshot(g,0,0)（state=种子字节/stateHash=种子 SHA-256）+RuntimeFeedCursor(0,0)', async () => {
     const seed = seedBytes(true);
     await prisma.$transaction(async (tx) => {
       await ensureCanvasDocHead(tx, PID_A, seed);
@@ -60,11 +60,12 @@ maybe('Y1c T7 genesis 建头 helper（真 PG）', () => {
     expect(head.purgeBelowSeq).toBeNull();
     expect(head.maintenanceId).toBeNull();
 
-    // 旧平面 state 种子语义（逐字保留——旧装载/hydration 路径依赖）
+    // Y1c T11（快照权威切换）：CanvasDoc 头行零 doc 态列（state/stateSeq 已删——禁双写；
+    // 种子字节唯去处=Snapshot(g,0,0).state，权威断言见下）；schemaVersion 列照旧
     const rawHead = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_A } });
-    expect(rawHead.state.equals(seed)).toBe(true);
-    expect(rawHead.stateSeq).toBe(0n);
     expect(rawHead.schemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);
+    const staleCols = await prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name IN ('state', 'stateSeq')`;
+    expect(staleCols[0]!.n).toBe(0);   // 退役列不复活（迁移回归锚）
 
     const snap = await prisma.canvasDocSnapshot.findUniqueOrThrow({
       where: { projectId_generation_snapshotRev: { projectId: PID_A, generation: 0, snapshotRev: 0n } },

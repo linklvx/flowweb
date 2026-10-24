@@ -8,14 +8,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 
-/** T8①：种子 PG 化——upsert.create.state 是 Yjs update 二进制，解码回 Y.Doc 断言内容 */
+/** T8①→Y1c T11（快照权威）：种子字节=canvasDocSnapshot.upsert(g,0,0).create.state（Yjs update
+ *  二进制——CanvasDoc 头行零 doc 态列；解码回 Y.Doc 断言内容）。 */
 const decodeState = (state: Buffer): Y.Doc => {
   const d = new Y.Doc();
   Y.applyUpdate(d, new Uint8Array(state));
   return d;
 };
 const upsertStateDoc = (prisma: any): Y.Doc =>
-  decodeState(prisma.canvasDoc.upsert.mock.calls[0][0].create.state);
+  decodeState(prisma.canvasDocSnapshot.upsert.mock.calls[0][0].create.state as Buffer);
 
 describe('ProjectService', () => {
   let service: ProjectService;
@@ -89,9 +90,10 @@ describe('ProjectService', () => {
       const nodes = [{ id: 'n1', type: 'textInput', position: { x: 1, y: 2 }, data: { text: 'a' } }];
       const edges = [{ id: 'e1', source: 'n1', target: 'n2' }];
       await service.create('导入', 'u1', nodes, edges);
+      // Y1c T11：头行零 doc 态列（快照权威=Snapshot(g,0,0)——禁双写）；种子字节断言经 upsertStateDoc
       expect(prisma.canvasDoc.upsert).toHaveBeenCalledWith({
         where: { projectId: 'p1' },
-        create: { projectId: 'p1', state: expect.any(Buffer), stateSeq: 0n },
+        create: { projectId: 'p1' },
         update: {},
       });
       // 行已建无戳半成品消灭：create 与种子同事务（mock 透传 tx——同一次 $transaction 回调内）
@@ -269,8 +271,9 @@ describe('ProjectService', () => {
 
       // SystemHistory fail-closed 读（id=1 单行权威）
       expect(prisma.systemHistory.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }));
-      // Snapshot(g,0,0)：state=种子字节（=canvasDoc.upsert create.state 同源）、stateHash=sha256 hex
-      const headState = prisma.canvasDoc.upsert.mock.calls[0][0].create.state as Buffer;
+      // Snapshot(g,0,0)：state=种子字节（Yjs update——T11 起唯一种子去处）、stateHash=sha256 hex
+      const headState = prisma.canvasDocSnapshot.upsert.mock.calls[0][0].create.state as Buffer;
+      expect(headState).toBeInstanceOf(Buffer);
       expect(prisma.canvasDocSnapshot.upsert).toHaveBeenCalledWith({
         where: { projectId_generation_snapshotRev: { projectId: 'p1', generation: 0, snapshotRev: 0n } },
         create: {

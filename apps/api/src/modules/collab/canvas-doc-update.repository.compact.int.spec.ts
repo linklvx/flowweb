@@ -36,73 +36,104 @@ describe('svDominates 纯函数锚（无需 DB）', () => {
   });
 });
 
-maybe('compact（真 PG）', () => {
+maybe('compact（真 PG——Y1c T11 快照发布形态；发布事务语义/红组/保留策略/交错在 canvas-doc-compact-publish.int.spec）', () => {
   const prisma = new PrismaClient();
   const repo = new CanvasDocUpdateRepository(prisma as any);
   const PID = 'y0a1-compact-int';
 
   beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
-  // Y0a-3（P13）：fence 落地后真库 append/compact 需 CollabLease 行 owner 匹配（beforeEach 续 5min 窗）
-  beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
+  // Y0a-3（P13）：fence 落地后真库 append 需 CollabLease 行 owner 匹配（beforeEach 续 5min 窗）
+  beforeEach(async () => {
+    await ensureLeaseFixture(prisma, repo);
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+  });
   afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
 
-  it('stateSeq 恒等于被删行最大 seq（精确赋值——禁 GREATEST；注释口径：精确 = 依赖 advisory lock 串行，去锁并发化必须先落 Y1c-1 CAS 形态）', async () => {
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
-    expect(await repo.compact(PID)).toEqual({ compacted: false, reason: 'empty' });   // 返回契约：无行=empty（spec §1.3 v2.4）
-    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(5)))]);
-    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(3)))]);
-    const rows = await prisma.canvasDocUpdate.findMany({ where: { projectId: PID }, select: { seq: true }, orderBy: { seq: 'asc' } });
+  /** actor 单写者播种链（appendBatch+水位 CAS——pgSeq 权威推进，compact 授权读真值源）。
+   *  行 seq 取自 seedAppend 返回（makeSeedSeq 文件级计数器跨用例连续——wm 与行 seq 同源）。 */
+  async function seedWm(frames: Uint8Array[]) {
     const t0 = Date.now();
-    expect(await repo.compact(PID)).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: rows.length, tombstoneBytes: expect.any(Number) });   // 返回契约：成功（Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows〔=被删行数〕/tombstoneBytes）
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      PID,
+    );
+    let pg = 0n;
+    for (const f of frames) {
+      const row = seedAppend(f);
+      const r = await repo.appendBatch(PID, [row], { expectedPgSeq: pg, newPgSeq: row.lastWalSeq, walCheckpointSeq: row.lastWalSeq });
+      expect(r.ok).toBe(true);
+      pg = row.lastWalSeq;
+    }
+    return { lastSeq: pg, t0 };
+  }
+
+  it('水位精确：快照 rev/stateSeq=pgSeq（=被折前缀末行 seq——禁 GREATEST）+purgeBelowSeq 同值+行清+updatedAt 前进（update 分支）', async () => {
+    const { lastSeq, t0 } = await seedWm([Y.encodeStateAsUpdate(docWithNodes(5)), Y.encodeStateAsUpdate(docWithNodes(3))]);
+    const rows = await prisma.canvasDocUpdate.findMany({ where: { projectId: PID }, select: { seq: true }, orderBy: { seq: 'asc' } });
+    const r = await repo.compact(PID);
+    expect(r).toMatchObject({ compacted: true, snapshotRev: lastSeq, stateSeq: lastSeq, purgeBelowSeq: lastSeq, deletedRows: rows.length });
+    if (!r.compacted) return;
     const docRow = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
-    expect(docRow!.stateSeq).toBe(rows[rows.length - 1].seq);        // 精确 =
-    expect(docRow!.updatedAt.getTime()).toBeGreaterThanOrEqual(t0);  // updatedAt create 分支（@updatedAt 只在 Client 层生效——防未来改裸 SQL）
+    expect(docRow!.currentSnapshotRev).toBe(lastSeq);   // 指针=被折前缀末行 seq（精确——禁 GREATEST/回退）
+    expect(docRow!.purgeBelowSeq).toBe(lastSeq);
+    expect(docRow!.updatedAt.getTime()).toBeGreaterThanOrEqual(t0);
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
-    // update 分支（v3）：库已清空⇒首次 compact 走 upsert.create；再 append+compact 命中 update 分支
-    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(2)))]);
+    // 第二轮（update 分支）：再 append+compact 命中既有头行（指针/水位再推进）
+    const r2 = await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(docWithNodes(2)))], { expectedPgSeq: lastSeq, newPgSeq: lastSeq + 1n, walCheckpointSeq: lastSeq + 1n });
+    expect(r2.ok).toBe(true);
     await repo.compact(PID);
     const row2 = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
-    expect(row2!.updatedAt.getTime()).toBeGreaterThan(docRow!.updatedAt.getTime());   // update 分支 updatedAt 前进（两 DB 读值比较——免时钟容忍，堵快速机 <5ms roundtrip 的 vacuous-pass 窗口）
+    expect(row2!.updatedAt.getTime()).toBeGreaterThan(docRow!.updatedAt.getTime());   // 两 DB 读值比较（免时钟容忍）
+    expect(row2!.currentSnapshotRev).toBe(lastSeq + 1n);
   });
 
-  it('compact 后新 Y.Doc 重放 state ≡ 原 doc 节点集', async () => {
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+  it('compact 后新 Y.Doc 重放快照 ≡ 原 doc 节点集（快照权威=CanvasDocSnapshot——旧 CanvasDoc.state 断言随列退役迁移）', async () => {
     const src = docWithNodes(8);
-    await repo.appendBatch(PID, [seedAppend(Y.encodeStateAsUpdate(src))]);
+    const { lastSeq } = await seedWm([Y.encodeStateAsUpdate(src)]);
     await repo.compact(PID);
-    const row = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
+    const snap = await prisma.canvasDocSnapshot.findUniqueOrThrow({
+      where: { projectId_generation_snapshotRev: { projectId: PID, generation: 1, snapshotRev: lastSeq } },
+    });
     const revived = new Y.Doc();
-    Y.applyUpdate(revived, new Uint8Array(row!.state));
+    Y.applyUpdate(revived, new Uint8Array(snap.state));
     expect(revived.getMap('nodes').size).toBe(src.getMap('nodes').size);
+    // 装载（快照+增量尾）等价
+    const h = await repo.loadForHydration(PID);
+    const viaLoad = new Y.Doc();
+    Y.applyUpdate(viaLoad, new Uint8Array(h.state!));
+    expect(viaLoad.getMap('nodes').size).toBe(src.getMap('nodes').size);
   });
 
   // G2（Y0c T40/Z125-2）：重复行坍缩从实现巧合升格为契约——同一 update append ×3 产生 3 条
-  // 内容相同行，compact 必须全量读行（被删集≡被重放集，契约 §1.3）：行数归零+deletedRows=3。
-  // 判别力（TEMP-RED 实证）：compact 读方法注入 take: 1 ⇒ 只删 1 行留 2 行 ⇒ 两断言即红。
-  it('G2（Z125-2）：append 同一 update ×3 → compact → 重复行全坍缩（deletedRows=3+行数 0）+读行覆盖全部行禁 LIMIT（声明式）', async () => {
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
-    // Y1c T9 幂等轴：同一 update（同 updateHash）×3 重发 → 恰 1 行（DO NOTHING 吞 2）——「重复行
-    // 全坍缩」的 T9 形态=幂等轴先坍缩+compact 清源行；旧 nextval 轴 3 行形态随之退役
+  // 内容相同行，compact 必须全量读行（被折集=被删集）：行数归零+deletedRows=实删数。
+  it('G2（Z125-2）：append 同一 update ×3 → 幂等坍缩 1 行 → compact 折叠清源（行数 0）；声明式锚——重放页带上界 seq<=pgSeq（禁折 pgSeq 之外行）+发布事务零删除（清理只在提交后）', async () => {
     const u = Y.encodeStateAsUpdate(docWithNodes(3));
-    await repo.appendBatch(PID, [seedAppend(u)]);
-    await repo.appendBatch(PID, [seedAppend(u)]);
+    const { lastSeq } = await seedWm([u]);
+    await repo.appendBatch(PID, [seedAppend(u)]);   // 幂等重发（同 updateHash——DO NOTHING 吞行）
     await repo.appendBatch(PID, [seedAppend(u)]);
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(1);   // 幂等坍缩（重试/重组批幂等锚）
     const r = await repo.compact(PID);
-    expect(r).toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: 1, tombstoneBytes: expect.any(Number) });
+    expect(r.compacted).toBe(true);
+    if (r.compacted) expect(r.deletedRows).toBe(1);
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
-    // 声明式断言（census 源码文本风格）：compact 读行方法禁 take:/LIMIT——分页/限行读会把
-    // 「被删集≡被重放集」破成「删了没重放的行」或「重放没删的行」两类撕裂（readConsistent 的
-    // 分页 LIMIT 是装载读路径、游标推进全覆盖，不在本断言面——本断言只辖 compact 方法体）。
-    // 提取形态：compact 是文件末方法（写死本断言时成立；后接新方法时改花括号平衡提取）。
+    // 声明式断言（census 源码文本风格——T11 语义迁移：旧「禁 take/LIMIT」锚辖被删集≡被重放集；
+    // 新形态=重放分页有界推进（游标收尾全覆盖）+页谓词带上界 seq<=pgSeq（快照只到 pgSeq——
+    // 禁折 PG 前缀之外行）；发布事务（$transaction 回调）零 DELETE（删除只在提交后=purgeBelow）。
     const src = readFileSync(join(__dirname, 'canvas-doc-update.repository.ts'), 'utf8');
     const at = src.indexOf('async compact(');
     expect(at, 'compact 方法定位失败（方法改名/换文件——同步本断言提取形态）').toBeGreaterThan(0);
-    const compactSrc = src.slice(at);
-    expect(compactSrc, 'compact 读行禁 take:（限行读破被删集≡被重放集契约）').not.toMatch(/take\s*:/);
-    expect(compactSrc, 'compact 读行禁 LIMIT（同上——raw SQL 改写形态兜底）').not.toMatch(/\bLIMIT\b/i);
+    const compactSrc = src.slice(at, src.indexOf('async purgeBelow('));
+    const pageAt = compactSrc.indexOf('SELECT seq, update FROM "CanvasDocUpdate"');
+    expect(pageAt).toBeGreaterThan(0);
+    const pageSrc = compactSrc.slice(pageAt, compactSrc.indexOf(';', pageAt));
+    expect(pageSrc, '重放页谓词带上界 seq<=pgSeq（快照只到 pgSeq——卡文铁律）').toContain('seq <= ${pg}::bigint');
+    expect(pageSrc).toContain('LIMIT');   // 分页有界（游标收尾全覆盖——禁 take 截断集的旧形态由「空页收尾」保证）
+    const txAt = compactSrc.indexOf('const publish = await this.prisma.$transaction(');
+    expect(txAt).toBeGreaterThan(0);
+    const txSrc = compactSrc.slice(txAt, compactSrc.indexOf('if (!publish.ok)'));
+    expect(txSrc, '发布事务零删除（compact 失败保留原可用快照与 WAL 不提前清理——卡文铁律）').not.toMatch(/DELETE FROM "CanvasDocUpdate"/);
+    void lastSeq;
   });
 });

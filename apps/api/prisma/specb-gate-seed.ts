@@ -5,6 +5,7 @@
 //   ③ specb-perf-canvas——性能冒烟 nightly（500 节点/20 组，auto 组零帧键 + textInput 子 abs 定位）。
 // 幂等：账号/作品/画布 upsert、doc 快照重写 + 增量行清残（collab-gate-seed 同款自愈）、MinIO putObject 幂等。
 // 契约：apps/web/e2e/collab-specb-public.e2e.spec.ts / collab-specb-perf.e2e.spec.ts 引用同值 id。
+import { createHash } from 'node:crypto';
 import 'dotenv/config';
 import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
@@ -81,11 +82,24 @@ async function ensureCanvas(projectId: string, doc: Y.Doc, userId: string, teamI
   });
   const state = Buffer.from(Y.encodeStateAsUpdate(doc));
   await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
+  await prisma.canvasDocSnapshot.deleteMany({ where: { projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId },
-    update: { state },
-    create: { projectId, state },
+    update: {},
+    create: { projectId },
   });
+  // Y1c T11（快照权威）：doc 态种子落 CanvasDocSnapshot(g,0,0)（头行零 doc 态列；指针
+  // currentSnapshotRev=0 默认与 (g,0) 对齐——装载=快照+增量尾）；stateHash=SHA-256（genesis 同口径）
+  await prisma.canvasDocSnapshot.upsert({
+    where: { projectId_generation_snapshotRev: { projectId: projectId, generation: 0, snapshotRev: 0n } },
+    create: {
+      projectId: projectId, generation: 0, snapshotRev: 0n, stateSeq: 0n, state,
+      stateHash: createHash('sha256').update(state).digest('hex'),
+      vacuumEpoch: 0, schemaVersion: 3,
+    },
+    update: {},
+  });
+
 }
 
 /** Y.Map 节点构造零手写（R1a 信封门禁）：doc 装配走 shared docShape fillDoc 单源

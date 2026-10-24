@@ -1,19 +1,25 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import {
+  docCompactionDuration,
+  docSnapshotBytes,
   yjsCompactAbandonedTotal,
-  yjsCompactNotOwnerTotal,
   yjsHydrationHugeRowTotal,
   yjsSnapshotReadTotal,
   yjsStoreCompactFailureTotal,
 } from './store.metrics';
 
 /** T18（Y1b T2）：一致读行形状（readConsistent 单源——装载/快照两出口共用）。
- *  schemaVersion=CanvasDoc PG 列（版本门唯一判据；null=行缺失——懒建档，装载门放行）。 */
+ *  Y1c T11（快照权威切换）：state/stateSeq 改源自 CanvasDocSnapshot（按 CanvasDoc.currentSnapshotRev
+ *  指针行——非 CanvasDoc 旧列，旧列随本卡退役）；updates=增量尾（CanvasDocUpdate seq>stateSeq）。
+ *  schemaVersion=CanvasDoc PG 列（版本门唯一判据；null=行缺失——懒建档，装载门放行）。
+ *  state=null 两形态：CanvasDoc 行缺失（懒建档——全量行重放）∨ 指针行缺失（结构性不发生——
+ *  genesis/发布/换代三写点与指针同事务；防御性折空尾全量重放，内容安全）。 */
 export interface HydrationRow {
   state: Buffer | null;
   updates: Buffer[];
@@ -31,8 +37,10 @@ export class CanvasDocUpdateRepository {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /** 契约 16（v2.5）：唯一写者=CollabLeaseService（获取/失守/释放时调用）；owner=null ⇒
-   *  append/compact 断言恒不通过=天然 fail-closed（P7：null 显式 throw——"lease service 从未注入"
-   *  是排序/配置 bug，伪装 fenced 会误导自隔离方向）。禁逐调用点传参（漏传=静默破防）。 */
+   *  append 断言恒不通过=天然 fail-closed（P7：null 显式 throw——"lease service 从未注入"
+   *  是排序/配置 bug，伪装 fenced 会误导自隔离方向）。禁逐调用点传参（漏传=静默破防）。
+   *  Y1c T11：compact 授权换轴（行锁+generation/pgSeq CAS）——**不再读本值**（与写入方 lease
+   *  正交：worker 进程无租约照常 compact）；本值辖 append 族（appendBatch/懒建档/adopt）。 */
   private leaseOwner: string | null = null;
   setLeaseOwner(owner: string | null): void { this.leaseOwner = owner; }
 
@@ -165,37 +173,36 @@ export class CanvasDocUpdateRepository {
       // 全前缀=缺行帧 WAL 副本被段回收=不可恢复丢失）；缺行=按 fenced 档（不 confirm 对应前缀）。
       const row = await this.prisma.$queryRaw<{ pgSeq: bigint }[]>`
         SELECT "pgSeq" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
-      const partialOk = async () => watermarkLanded.inserted === rows.length
-        || (await this.verifyRowsLanded(projectId, rows));
+      // T10 Minor 移交（Y1c T11 根修）：adopt UPDATE 与懒建档 INSERT **先回查行全在**才执行——
+      // lease「批内失→adopt/建档前复得」翻覆窗下，旧序（先提交水位再 partialOk）会把 pgSeq 推过
+      // 缺行后折 fenced 返回=DB 恢复基线污染（重启从 pgSeq 起放跳过缺行）。行缺=按 fenced 档，
+      // 水位零触碰（fenced 返回保 WAL 副本，自愈重发收敛）。
+      if (!(await this.verifyRowsLanded(projectId, rows))) return this.fencedClassify(projectId);
       if (row.length === 0) {
         // 懒建档（genesis 双路之外的老项目首写——行不在与 fenced 不可区分，单写者下 INSERT 幂等收敛；
-        // updatedAt=Prisma @updatedAt 无 DB 默认——raw INSERT 须显式给值；state=空 doc 合法 update 字节
-        // ——禁空 bytea〔读侧 if(docRow.state) 形态直 applyUpdate=lib0 解码 throw〕）。
+        // updatedAt=Prisma @updatedAt 无 DB 默认——raw INSERT 须显式给值。Y1c T11：state/stateSeq 列
+        // 退役（快照权威=CanvasDocSnapshot；懒建档 doc 无快照行 → 装载折空态全量行重放，内容安全）。
         // C1：建档 INSERT 同带 lease fence（建档即写 pgSeq——租约不在我手禁推水位，否则懒建档 facet
         // 同「水位越过未插入行」污染）。
         await this.prisma.$executeRaw`
-          INSERT INTO "CanvasDoc" ("projectId", state, "stateSeq", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
-          SELECT ${projectId}::text, ${Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()))}, 0, ${rows[0].generation}::int, 3, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint
+          INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
+          SELECT ${projectId}::text, ${rows[0].generation}::int, 3, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint
           WHERE EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           ON CONFLICT DO NOTHING`;
-        if (await partialOk()) return { ok: true, rows: watermarkLanded.inserted };
-        return this.fencedClassify(projectId);
+        return { ok: true, rows: watermarkLanded.inserted };
       }
-      if (row[0].pgSeq >= wm!.newPgSeq) {
-        if (await partialOk()) return { ok: true, rows: watermarkLanded.inserted };   // 并发收敛（幂等）
-        return this.fencedClassify(projectId);   // 水位已超前但缺行——禁落 adopt（SET pgSeq=new 会回拨）；fenced 档
-      }
+      if (row[0].pgSeq >= wm!.newPgSeq) return { ok: true, rows: watermarkLanded.inserted };   // 并发收敛（幂等——行全在已由上方回查担保）
       {
         // 单写者内存水位滞后（T10 G2 ④：CAS 已提交但 confirm 未跑——崩溃窗/confirm 静默）：
         // 行已入（cas-miss 事务行照常提交+updateHash 幂等）——以 PG 行真值重试 CAS 一次（adopt）。
         // Q-M8：adopt 补 generation 谓词（与 CAS 主路径同判——T12 换代窗口防陈旧 adopt：doc 已换代
-        // 时旧代 actor 不得推水位）。C1：同带 lease fence+partialOk 回查。
+        // 时旧代 actor 不得推水位）。C1：同带 lease fence（行全在已验）。
         const adopt = await this.prisma.$queryRaw<{ pgSeq: bigint }[]>`
           UPDATE "CanvasDoc" SET "walCheckpointSeq" = GREATEST("walCheckpointSeq", ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint), "pgSeq" = ${wm!.newPgSeq}::bigint
           WHERE "projectId" = ${projectId}::text AND generation = ${rows[0].generation}::int AND "pgSeq" = ${row[0].pgSeq}::bigint
             AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           RETURNING "pgSeq"`;
-        if (adopt.length > 0 && await partialOk()) return { ok: true, rows: watermarkLanded.inserted };
+        if (adopt.length > 0) return { ok: true, rows: watermarkLanded.inserted };
       }
       return this.fencedClassify(projectId);
     }
@@ -248,11 +255,13 @@ export class CanvasDocUpdateRepository {
     return this.readConsistent(projectId);
   }
 
-  /** 两出口共用实现体：单 RR 事务覆盖快照+全部分页增量（E42①(i)——MVCC 使 compact 的 DELETE
-   *  对本快照不可见，撕裂结构性不存在）。apply 由调用方在事务外执行。
-   *  SV3/W15：游标初值恒 0n——nextval 取号与提交序无绑定，水位过滤在绕锁路径下=静默丢内容；
-   *  append 侧 advisory lock 已使 seq 序≡提交序（stateSeq 重新可信），读侧全量为双保险且正常路径等价。
-   *  分页 seq>cursor 谓词保留——去掉谓词=满页死循环。
+  /** 两出口共用实现体：单 RR 事务覆盖「指针快照+增量尾」（Y1c T11 快照权威——CanvasDocSnapshot
+   *  按 currentSnapshotRev 指针行 + CanvasDocUpdate >stateSeq 分页尾；E42①(i) MVCC 使发布事务对
+   *  本快照不可见，指针与尾集恒一致——撕裂结构性不存在）。apply 由调用方在事务外执行。
+   *  游标初值=指针快照 stateSeq（旧 SV3「恒 0n 全量」双保险随快照权威退役：单写者+WAL walSeq 构造性
+   *  保证 seq 序≡提交序〔census⑩〕+insert-ratchet 静态门+本仓唯一 INSERT 单源——合法行结构性
+   *  不可能落在 stateSeq 之下；绕锁直插行按设计排除在装载尾外）。分页 seq>cursor 谓词保留——
+   *  去掉谓词=满页死循环（W15）。
    *  预算规则：timeout 8s < 客户端 synced 死线 10s−2s；maxWait 2s（池排队由 connection_limit 承担）；
    *  opts 供自愈路径重试时收紧预算（契约 13 v2.4）。
    *  raw SQL 规则：bigint 参数一律显式 ::bigint。 */
@@ -262,9 +271,19 @@ export class CanvasDocUpdateRepository {
   ): Promise<HydrationRow> {
     return this.prisma.$transaction(
       async (tx) => {
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { state: true, stateSeq: true, preVacuumSv: true, generation: true, schemaVersion: true } });
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { preVacuumSv: true, generation: true, schemaVersion: true, currentSnapshotRev: true } });
+        let state: Buffer | null = null;
+        let stateSeq = 0n;
+        if (docRow) {
+          const snap = await tx.canvasDocSnapshot.findUnique({
+            where: { projectId_generation_snapshotRev: { projectId, generation: docRow.generation, snapshotRev: docRow.currentSnapshotRev } },
+            select: { state: true, stateSeq: true },
+          });
+          state = snap?.state ?? null;   // 指针行缺失=防御折空（全量行重放——内容安全）
+          stateSeq = snap?.stateSeq ?? 0n;
+        }
         const updates: Buffer[] = [];
-        let cursor = 0n;
+        let cursor = stateSeq;
         for (;;) {
           const page = await tx.$queryRaw<{ seq: bigint; update: Buffer }[]>`
             SELECT seq, update FROM "CanvasDocUpdate"
@@ -282,7 +301,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state: docRow?.state ?? null, updates, stateSeq: docRow?.stateSeq ?? 0n, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null };
+        return { state, updates, stateSeq, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
@@ -327,12 +346,14 @@ export class CanvasDocUpdateRepository {
   }
 
   /** Y0b-4 T9a（Q-U v6 报告1 P1-2/报告2 G-3）：vacuum ⑥ 单事务——快照代际替换。
-   *  首行 lockProject（与 append/compact 同键——P23/V26 锁键单源：serving 门是概率保证，
-   *  advisory lock 是结构保证〔scheduler/运维脚本/未 drain spool 残路径〕）；被删增量行精确
+   *  首行 lockProject（T10 后仅 vacuumReplace 消费——T12 状态机化收口）；被删增量行精确
    *  取号基准=锁内实读行集（禁 0/GREATEST 包装——canvas-doc-insert-ratchet 红线）；expected
    *  行数守卫=④ 读与锁内读之间有并发 append ⇒ 中止（行集在锁协议下只增不删〔append-only+
-   *  compact 同键排队〕——长度相等即同一集合）；upsert {state=真空编码, 取号基准, preVacuumSv=
-   *  真空前 SV, generation=n+1}+deleteMany 按实读行 id（compact 同式）。 */
+   *  compact 排队〕——长度相等即同一集合）。
+   *  Y1c T11（快照权威过渡形态）：CanvasDoc.state/stateSeq 列退役——真空态字节落 **CanvasDocSnapshot
+   *  (g+1, rev 0)**（新代权威快照，stateHash 同 genesis 口径）+指针 currentSnapshotRev=0+purgeBelowSeq
+   *  清档（新代 walSeq 自 1 重起——跨代阈值不承继）+preVacuumSv/generation 落列+按 projectId 整删。
+   *  state 形参保留（shrink 侧真空产物字节——本事务唯一去处=新代快照行；T12 换代状态机全量重写本方法）。 */
   async vacuumReplace(
     projectId: string,
     state: Buffer,
@@ -350,15 +371,33 @@ export class CanvasDocUpdateRepository {
         if (liveRows.length !== expectedRowCount) {
           throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true });
         }
-        const liveDoc = await tx.canvasDoc.findUnique({ where: { projectId }, select: { stateSeq: true, generation: true } });
-        const maxSeq = liveRows.length > 0 ? liveRows[liveRows.length - 1].seq : (liveDoc?.stateSeq ?? 0n);
+        const liveDoc = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, vacuumEpoch: true, currentSnapshotRev: true } });
+        // 取号基准：有行=末行 seq；零行=当前指针快照 stateSeq（锁内实读——禁 0/GREATEST 包装）
+        const curSnap = liveDoc
+          ? await tx.canvasDocSnapshot.findUnique({
+              where: { projectId_generation_snapshotRev: { projectId, generation: liveDoc.generation, snapshotRev: liveDoc.currentSnapshotRev } },
+              select: { stateSeq: true },
+            })
+          : null;
+        const maxSeq = liveRows.length > 0 ? liveRows[liveRows.length - 1].seq : (curSnap?.stateSeq ?? 0n);
         const generation = (liveDoc?.generation ?? 0) + 1;
+        // 新代权威快照 (g+1, rev 0)：真空态字节（快照权威——T11 起 CanvasDoc 不再承载 doc 态列）
+        await tx.canvasDocSnapshot.upsert({
+          where: { projectId_generation_snapshotRev: { projectId, generation, snapshotRev: 0n } },
+          create: {
+            projectId, generation, snapshotRev: 0n, stateSeq: maxSeq, state,
+            stateHash: createHash('sha256').update(state).digest('hex'),
+            vacuumEpoch: liveDoc?.vacuumEpoch ?? 0,
+            schemaVersion: liveDoc?.schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION,
+          },
+          update: {},
+        });
         await tx.canvasDoc.upsert({
           where: { projectId },
-          update: { state, stateSeq: maxSeq, preVacuumSv, generation },
-          create: { projectId, state, stateSeq: maxSeq, preVacuumSv, generation },
+          update: { preVacuumSv, generation, currentSnapshotRev: 0n, purgeBelowSeq: null },
+          create: { projectId, preVacuumSv, generation },
         });
-        // T9 新表形态：锁内实读=该项目全部增量行（append-only+compact 同键排队）——按 projectId 整删（行集=被删集等价）
+        // 锁内实读=该项目全部增量行（append-only+compact 排队）——按 projectId 整删（行集=被删集等价）
         await tx.canvasDocUpdate.deleteMany({ where: { projectId } });
         return { generation };
       },
@@ -366,73 +405,184 @@ export class CanvasDocUpdateRepository {
     );
   }
 
-  /** Y0a-1 compact（spec v2.5 §1.3）：事务首行租约断言（SV8：owner-only，先于 advisory lock——
-   *  无权者不排队不删行）后按实读行 id 精确删除（被删集≡被重放集）；stateSeq 精确 =maxSeq
-   *  （精确赋值依赖 advisory lock 串行——去锁并发化必须先落 Y1c-1 CAS 形态，禁 GREATEST/单调化包装）；
-   *  返回契约 {compacted,reason}：empty=无行静默；not-owner=租约档拒绝（SV8 分立计数，行数不减）；
-   *  abandoned=pendingStructs!=null 放弃本次——计数+ERROR 落本分支单点（gateway 与装载自愈两路覆盖，
-   *  防双计），**禁 throw**（gateway :297-301 catch 会把它计入 yjsStoreCompactFailureTotal=污染
-   *  abandoned 的 P0 告警线；not-owner 同理不抛——调用方只看 compacted）。
-   *  （SV inline 哨兵已删——pendingStructs 检查通过前提下 per-row SV 支配性恒真，探针证伪见 spec §1.5。）
-   *  Y0b-4 T3（Q-B 白名单点②）：成功分支附 snapshotBytes（newSnapshot 实测编码字节——编码已在做，
-   *  byteLength 零新增）；gateway maybeCompact 判 pending 空才采纳为 docTruth（持久化真值口径）。
-   *  Y0b-5 T10（spec §5.8③）：成功分支扩 deletedRows（被删增量行数）+tombstoneBytes（delete set
-   *  编码字节——encodeStateAsUpdate(temp, 全 SV) 把 structs 段滤零后的余量近似；compact 受 ≥60s
-   *  时间门约束，附加编码成本有界）。
-   *  opts：交互式事务独立预算（自愈路径 6s/1s·运维脚本 120s/5s；默认 5s/2s 与 Prisma 隐含值对齐）。 */
+  /** Y1c T11 compact 重写（plan Task 11——快照发布+WAL 清理）：快照只从 **PG 前缀**生成且只到
+   *  **pgSeq**。四段管线：
+   *   ①授权读（无事务）：CanvasDoc 行 {generation,pgSeq,currentSnapshotRev}——compact 授权=行锁+
+   *     generation/pgSeq CAS（**不拿租约**——与写入方 lease 正交：worker 进程无租约照常 compact，
+   *     并发单写者 append 推 pgSeq ⇒ 发布 CAS miss 正常折返）。
+   *   ②前缀重放（worker 进程内存，无事务）：指针快照行 (g,currentSnapshotRev) + 增量尾
+   *     (stateSeq0, pgSeq] 分页重放 → encodeStateAsUpdate canonical 编码（genesis 同口径字节形态）
+   *     +SHA-256 stateHash。pendingStructs!=null → abandoned（P0 计数+ERROR 落本分支单点，**禁
+   *     throw**——gateway/hydrate 两路 catch 会把它计入 compact_failure 污染 abandoned 告警线）。
+   *   ③发布事务（短事务·默认 RC+FOR UPDATE 行锁）：锁内复核三元组 {generation,pgSeq,rev} 未漂移
+   *     （漂移=miss——写入方推进/并发 compact 已发布；正常折返非异常）→ INSERT CanvasDocSnapshot
+   *     ON CONFLICT DO NOTHING（0 行=miss）→ 条件 UPDATE 指针 currentSnapshotRev+purgeBelowSeq
+   *     **同事务持久**（WHERE 三元组 CAS=跨表不变量 Snapshot.stateSeq≤pgSeq 的发布事务内验证
+   *     ——偏离 26 v5.2 非 CHECK：锁内 pgSeq 已复核且 stateSeq≡捕获 pgSeq ⇒ 提交时刻不变量恒真）。
+   *     **失败保留原可用快照与 WAL 不提前清理**（发布前零删除；purgeBelowSeq 与指针同事务落定）。
+   *   ④提交后分批删（worker 分批）：CanvasDocUpdate (projectId,generation,seq≤purgeBelowSeq) 批删
+   *     （500/批）+保留策略收敛（当前代 top-2+旧代各 top-1——指针行恒保留）+snapshot gauge/duration。
+   *  返回契约：empty=指针快照已覆盖 pgSeq（无前缀可折）；abandoned/miss 同上；deletedRows=本次
+   *  实删增量行数（发布后批删真值——Y0b-5 T10 口径承继）。opts 预算辖发布事务（重放/批删无事务）。
+   *  触发面（T9 后收敛=takeActorLanded/维护直调点/装载自愈）经 maybeCompact 原位接入，不断链；
+   *  worker 进程轮询触发面=CollabCompactPoller（COLLAB_ROLE worker 调度——启动续跑同载体）。 */
+  private static readonly PURGE_BATCH_ROWS = 500;
+
   async compact(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
-  ): Promise<{ compacted: true; snapshotBytes: number; deletedRows: number; tombstoneBytes: number } | { compacted: false; reason?: 'abandoned' | 'empty' | 'not-owner' }> {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const owner = this.leaseOwner;
-        if (owner == null) throw Object.assign(new Error('compact blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
-        const fence = await tx.$queryRaw<{ ok: number }[]>`
-          SELECT 1 AS ok WHERE EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})`;
-        if (fence.length === 0) {
-          const row = await tx.$queryRaw<{ owner: string | null }[]>`
-            SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
-          if (row.length === 0) {
-            throw Object.assign(new Error('CollabLease row missing（compact fence）'), { leaseRowMissing: true });
-          }
-          yjsCompactNotOwnerTotal.inc();   // SV8：not-owner 分立（abandoned=pendingStructs 专用不污染）
-          this.logger.warn(`compact not-owner for ${projectId}（租约档——行数不减）`);
-          return { compacted: false, reason: 'not-owner' as const };
-        }
-        // Y1c T10（census⑩）：compact 去 advisory lock——被删集≡被重放集由 RR 快照保证（DELETE 只删
-        // 事务快照可见行；并发 appendBatch 新行幸存）；「seq 序≡提交序」由 actor 单写者+WAL walSeq
-        // 构造性保证（行 seq=已 fsync walSeq 非 DB 取号）。与 appendBatch 水位 CAS 的 CanvasDoc 行
-        // 写写冲突=compact 侧 P2034 序列化失败→调用方 WARN+下窗重试（compact=优化非不变量载体）。
-        const rows = await tx.canvasDocUpdate.findMany({
-          where: { projectId },
-          orderBy: { seq: 'asc' },
-          select: { projectId: true, generation: true, seq: true, update: true },
+  ): Promise<
+    | { compacted: true; snapshotBytes: number; deletedRows: number; tombstoneBytes: number; snapshotRev: bigint; stateSeq: bigint; purgeBelowSeq: bigint }
+    | { compacted: false; reason?: 'abandoned' | 'empty' | 'miss' }
+  > {
+    const t0 = Date.now();
+    try {
+      // ①授权读（无事务——真值即捕获值；漂移由 ③ 锁内复核收口）
+      const head = await this.prisma.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint }[]>`
+        SELECT generation, "pgSeq", "currentSnapshotRev" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+      if (head.length === 0) return { compacted: false, reason: 'empty' as const };
+      const g = head[0].generation, pg = head[0].pgSeq, rev0 = head[0].currentSnapshotRev;
+      const snap0 = await this.prisma.canvasDocSnapshot.findUnique({
+        where: { projectId_generation_snapshotRev: { projectId, generation: g, snapshotRev: rev0 } },
+        select: { stateSeq: true },
+      });
+      const stateSeq0 = snap0?.stateSeq ?? 0n;
+      if (pg <= stateSeq0) return { compacted: false, reason: 'empty' as const };   // 指针快照已覆盖 pgSeq
+
+      // ②前缀重放（worker 进程内存——快照+增量尾 (stateSeq0, pgSeq] 全页推进，禁 take/LIMIT 截断集）
+      const temp = createCanvasDoc();
+      let replayed = 0;
+      try {
+        const snapState = await this.prisma.canvasDocSnapshot.findUnique({
+          where: { projectId_generation_snapshotRev: { projectId, generation: g, snapshotRev: rev0 } },
+          select: { state: true },
         });
-        if (rows.length === 0) return { compacted: false, reason: 'empty' as const };
-        const maxSeq = rows[rows.length - 1].seq;
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId } });
-        const temp = createCanvasDoc();
-        if (docRow) Y.applyUpdate(temp, new Uint8Array(docRow.state));
-        for (const r of rows) Y.applyUpdate(temp, new Uint8Array(r.update));
+        if (snapState?.state) Y.applyUpdate(temp, new Uint8Array(snapState.state));
+        let cursor = stateSeq0;
+        for (;;) {
+          const page = await this.prisma.$queryRaw<{ seq: bigint; update: Buffer }[]>`
+            SELECT seq, update FROM "CanvasDocUpdate"
+            WHERE "projectId" = ${projectId} AND generation = ${g}::int AND seq > ${cursor}::bigint AND seq <= ${pg}::bigint
+            ORDER BY seq ASC LIMIT ${CanvasDocUpdateRepository.PAGE_ROWS}`;
+          if (page.length === 0) break;
+          for (const r of page) Y.applyUpdate(temp, new Uint8Array(r.update));
+          replayed += page.length;
+          cursor = page[page.length - 1].seq;
+          if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
+        }
         if (temp.store.pendingStructs !== null) {
           yjsCompactAbandonedTotal.inc();
-          this.logger.error(`compact abandoned (pendingStructs non-null) for ${projectId}——保留全部行，下次 store 立即重试`);
-          return { compacted: false, reason: 'abandoned' as const };   // 空事务提交：不写不删，行全保留
+          this.logger.error(`compact abandoned (pendingStructs non-null) for ${projectId}——保留全部行与原快照，下次触发立即重试`);
+          return { compacted: false, reason: 'abandoned' as const };   // 零写零删：原可用快照与 WAL 全保留
         }
-        const newSnapshot = Y.encodeStateAsUpdate(temp);
-        // Y0b-5 T10：tombstone 近似——全 SV 使 structs 段滤零，余量≈delete set 编码（temp 尚未 destroy）
-        const tombstone = Y.encodeStateAsUpdate(temp, Y.encodeStateVector(temp));
+        const newSnapshot = Buffer.from(Y.encodeStateAsUpdate(temp));   // canonical 编码（genesis 种子同形态）
+        const tombstone = Y.encodeStateAsUpdate(temp, Y.encodeStateVector(temp));   // Y0b-5 T10 口径承继（全 SV 滤零 structs 段余量近似）
+        const stateHash = createHash('sha256').update(newSnapshot).digest('hex');
+        const schemaVersionRow = await this.prisma.canvasDoc.findUnique({ where: { projectId }, select: { schemaVersion: true, vacuumEpoch: true } });
+
+        // ③发布事务（短事务：行锁+三元组 CAS+指针/purgeBelowSeq 同事务持久）
+        const publish = await this.prisma.$transaction(
+          async (tx) => {
+            const locked = await tx.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint }[]>`
+              SELECT generation, "pgSeq", "currentSnapshotRev" FROM "CanvasDoc"
+              WHERE "projectId" = ${projectId}::text FOR UPDATE`;
+            if (locked.length === 0) return { ok: false as const, reason: 'empty' as const };
+            if (locked[0].generation !== g || locked[0].pgSeq !== pg || locked[0].currentSnapshotRev !== rev0) {
+              return { ok: false as const, reason: 'miss' as const };   // 行锁+generation/pgSeq CAS 授权：写入方推进/并发 compact 已发布
+            }
+            const inserted = await tx.$queryRaw<{ snapshotRev: bigint }[]>`
+              INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion", "createdAt")
+              SELECT ${projectId}::text, ${g}::int, ${pg}::bigint, ${pg}::bigint, ${newSnapshot}, ${stateHash}::char(64), ${schemaVersionRow?.vacuumEpoch ?? 0}::int, ${(schemaVersionRow?.schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION)}::int, now()
+              ON CONFLICT DO NOTHING
+              RETURNING "snapshotRev"`;
+            if (inserted.length === 0) return { ok: false as const, reason: 'miss' as const };   // 同 rev 已在（并发发布者先到）
+            // 指针短事务+purgeBelowSeq 同事务持久；条件 UPDATE=跨表不变量 Snapshot.stateSeq≤pgSeq 的
+            // 发布事务内验证（WHERE pgSeq=捕获值 ⇒ 锁内 pgSeq 未动且 stateSeq≡pgSeq——非 CHECK，偏离 26 v5.2）
+            const moved = await tx.$queryRaw<{ currentSnapshotRev: bigint }[]>`
+              UPDATE "CanvasDoc" SET "currentSnapshotRev" = ${pg}::bigint,
+                "purgeBelowSeq" = GREATEST(COALESCE("purgeBelowSeq", 0), ${pg}::bigint), "updatedAt" = now()
+              WHERE "projectId" = ${projectId}::text AND generation = ${g}::int
+                AND "pgSeq" = ${pg}::bigint AND "currentSnapshotRev" = ${rev0}::bigint
+              RETURNING "currentSnapshotRev"`;
+            if (moved.length === 0) return { ok: false as const, reason: 'miss' as const };
+            return { ok: true as const };
+          },
+          { timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },
+        );
+        if (!publish.ok) return { compacted: false, reason: publish.reason };
+
+        // ④提交后 worker 分批删+保留策略（发布已落定——清理义务由 purgeBelowSeq 持久承载，中途崩=启动续跑）
+        const deletedRows = await this.purgeBelow(projectId, g, pg);
+        await this.pruneSnapshots(projectId, g, pg);
+        docSnapshotBytes.set(newSnapshot.length);   // T11：snapshot 独立观测 gauge（发布成功单点）
+        return {
+          compacted: true, snapshotBytes: newSnapshot.length, deletedRows, tombstoneBytes: tombstone.length,
+          snapshotRev: pg, stateSeq: pg, purgeBelowSeq: pg,
+        };
+      } finally {
         temp.destroy();
-        await tx.canvasDoc.upsert({
-          where: { projectId },
-          update: { state: Buffer.from(newSnapshot), stateSeq: maxSeq },
-          create: { projectId, state: Buffer.from(newSnapshot), stateSeq: maxSeq },
-        });
-        await tx.canvasDocUpdate.deleteMany({ where: { projectId } });   // T9：行集=锁内实读全部行（同 vacuumReplace 口径）
-        return { compacted: true, snapshotBytes: newSnapshot.length, deletedRows: rows.length, tombstoneBytes: tombstone.length };   // Y0b-4 T3 真值上报+Y0b-5 T10 行数/tombstone
-      },
-      { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },
-    );
+      }
+    } finally {
+      docCompactionDuration.observe((Date.now() - t0) / 1000);   // 采集挂 finally（家族纪律）：throw 的慢尾恰是最该被看见的样本
+    }
+  }
+
+  /** T11 提交后分批删（幂等·续跑安全）：删 (projectId,generation,seq≤below) 增量行——500/批循环。
+   *  行集=发布事务折叠的前缀（≤purgeBelowSeq=新快照 stateSeq）——快照权威已覆盖其内容；被删集⊆
+   *  被重放集由 purgeBelowSeq≡发布 stateSeq 构造保证。跨代行不删（换代 walSeq 自 1 重起——归
+   *  换代事务自身 deleteMany，T12 收口）。返回实删行数。 */
+  async purgeBelow(projectId: string, generation: number, belowSeq: bigint): Promise<number> {
+    let deleted = 0;
+    for (;;) {
+      const r = await this.prisma.$queryRaw<{ n: number }[]>`
+        WITH victims AS (
+          SELECT ctid FROM "CanvasDocUpdate"
+          WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND seq <= ${belowSeq}::bigint
+          ORDER BY seq ASC LIMIT ${CanvasDocUpdateRepository.PURGE_BATCH_ROWS}
+        )
+        DELETE FROM "CanvasDocUpdate" WHERE ctid IN (SELECT ctid FROM victims) RETURNING 1`;
+      const n = r.length;
+      deleted += n;
+      if (n < CanvasDocUpdateRepository.PURGE_BATCH_ROWS) return deleted;
+    }
+  }
+
+  /** T11 保留策略：当前代 2 份（指针行+其前一 rev）+旧代各最终 1 份（新快照发布后删旧）。
+   *  指针行恒保留（两式删除域均排除 top 集合；currentSnapshotRev∈当代 top-1）。 */
+  async pruneSnapshots(projectId: string, currentGeneration: number, currentRev: bigint): Promise<void> {
+    // 当代：保留 top-2 rev（指针+前一发布）
+    await this.prisma.$executeRaw`
+      DELETE FROM "CanvasDocSnapshot" s
+      WHERE s."projectId" = ${projectId}::text AND s.generation = ${currentGeneration}::int
+        AND s."snapshotRev" < (
+          SELECT COALESCE(MIN(t.rev), 0) FROM (
+            SELECT "snapshotRev" AS rev FROM "CanvasDocSnapshot"
+            WHERE "projectId" = ${projectId}::text AND generation = ${currentGeneration}::int
+            ORDER BY "snapshotRev" DESC LIMIT 2
+          ) t
+        )`;
+    // 旧代：各代保留最大 rev 一份（vacuum 换代后的历史代快照收敛）
+    await this.prisma.$executeRaw`
+      DELETE FROM "CanvasDocSnapshot" s
+      WHERE s."projectId" = ${projectId}::text AND s.generation < ${currentGeneration}::int
+        AND s."snapshotRev" < (
+          SELECT MAX(s2."snapshotRev") FROM "CanvasDocSnapshot" s2
+          WHERE s2."projectId" = s."projectId" AND s2.generation = s.generation
+        )`;
+    void currentRev;   // 指针行∈当代 top-1（rev 单调=pgSeq）——显式钉锚：删除域结构性排除指针行
+  }
+
+  /** T11 启动续跑（kill 在指针发布后/分批删完成前 ⇒ 重启不丢清理义务）：扫全部 purgeBelowSeq 已
+   *  持久化 doc，续跑批删+保留策略收敛。幂等（无残留行=no-op）；消费方=CollabCompactPoller
+   *  onModuleInit（worker 进程）。返回续跑 doc 数（含无残留行命中——可观测口径）。 */
+  async resumePurges(): Promise<number> {
+    const pending = await this.prisma.$queryRaw<{ projectId: string; generation: number; purgeBelowSeq: bigint; currentSnapshotRev: bigint }[]>`
+      SELECT "projectId", generation, "purgeBelowSeq", "currentSnapshotRev" FROM "CanvasDoc"
+      WHERE "purgeBelowSeq" IS NOT NULL`;
+    for (const p of pending) {
+      await this.purgeBelow(p.projectId, p.generation, p.purgeBelowSeq);
+      await this.pruneSnapshots(p.projectId, p.generation, p.currentSnapshotRev);
+    }
+    return pending.length;
   }
 }

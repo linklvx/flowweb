@@ -705,15 +705,22 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
   const upsert = vi.fn(async (_args: unknown) => ({}));
   const updateDeleteMany = vi.fn(async (_where: unknown) => ({ count: rows.length }));
   const txExecRaw = vi.fn(async (..._q: unknown[]) => 1);
+  const snapUpsert = vi.fn(async (_args: unknown) => ({}));
   const tx = {
     $executeRaw: txExecRaw,
     canvasDocUpdate: { findMany: vi.fn(async () => rows), deleteMany: updateDeleteMany },
-    canvasDoc: { findUnique: vi.fn(async () => ({ stateSeq: 0n, generation: 0 })), upsert },
+    // Y1c T11 快照权威：canvasDoc.findUnique=generation/schemaVersion/vacuumEpoch/currentSnapshotRev
+    // （doc 态列已退役）；指针快照 stateSeq 经 canvasDocSnapshot.findUnique 读（零行基准）
+    canvasDoc: { findUnique: vi.fn(async () => ({ generation: 0, schemaVersion: 3, vacuumEpoch: 0, currentSnapshotRev: 0n })), upsert },
+    canvasDocSnapshot: {
+      findUnique: vi.fn(async () => ({ stateSeq: 0n })),
+      upsert: snapUpsert,
+    },
   };
   const prisma = {
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(tx)),
   };
-  return { prisma, upsert, updateDeleteMany, txExecRaw };
+  return { prisma, upsert, updateDeleteMany, txExecRaw, snapUpsert };
 }
 
 /** vacuum 专用 service 直构（buildSvc 的 docs mock 缺 invalidateSnapshotCache——本族需要；
@@ -1023,7 +1030,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     ];
     // ⑥ 走真 CanvasDocUpdateRepository.vacuumReplace（契约 1/10——repository 单源）：prisma $transaction
     // 直透 mock（repository.spec:37 先例）；④ 装载读 mock（state+三真实帧——CRDT 幂等重复 apply 无害）
-    const { prisma, upsert, updateDeleteMany, txExecRaw } = buildVacuumPrismaTx(rows);
+    const { prisma, upsert, updateDeleteMany, txExecRaw, snapUpsert } = buildVacuumPrismaTx(rows);
     const docRepo = new CanvasDocUpdateRepository(prisma as any);
     const repo = {
       loadForHydration: vi.fn(async () => ({ state: update, updates: [update, update, update], stateSeq: 0n })),
@@ -1040,13 +1047,21 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect(String(firstCall[1])).toBe('p1');
     const allSql = txExecRaw.mock.calls.map((c) => String(c[0])).join(';');
     expect(allSql).not.toContain('GREATEST');            // insert-ratchet 红线——禁 GREATEST 包装
-    // 取号基准=被删行最大 seq（非 0——取号基准错=stateSeq 谎话）
+    // Y1c T11 快照权威：取号基准=被删行最大 seq 落 **新代快照 (g+1, rev 0)** 的 stateSeq（非 0——
+    // 取号基准错=快照水位谎话）；CanvasDoc 头行 upsert 零 doc 态列（指针/purgeBelowSeq 换代重置）
+    const snapArg = snapUpsert.mock.calls[0]![0] as any;
+    expect(snapArg.where).toEqual({ projectId_generation_snapshotRev: { projectId: 'p1', generation: 1, snapshotRev: 0n } });
+    expect(snapArg.create.stateSeq).toBe(7n);
+    expect(snapArg.create.stateSeq).not.toBe(0n);
+    expect(snapArg.create.state).toBeInstanceOf(Buffer);   // 真空态字节落新代快照（唯一去处——禁双写）
+    expect(snapArg.create.stateHash).toMatch(/^[0-9a-f]{64}$/);
     const upsertArg = upsert.mock.calls[0]![0] as any;
-    expect(upsertArg.update.stateSeq).toBe(7n);
-    expect(upsertArg.update.stateSeq).not.toBe(0n);
     expect(upsertArg.update.generation).toBe(1);         // n+1 同事务落列
+    expect(upsertArg.update.currentSnapshotRev).toBe(0n);   // 指针指新代快照
+    expect(upsertArg.update.purgeBelowSeq).toBeNull();      // 新代 walSeq 自 1 重起——跨代阈值不承继
     expect(upsertArg.update.preVacuumSv).toBeInstanceOf(Buffer);   // 真空前 SV 同事务落列
     expect(upsertArg.update.preVacuumSv.length).toBeGreaterThan(0);
+    expect(upsertArg.update.stateSeq).toBeUndefined();   // 旧 doc 态列退役（禁双写锚）
     // Y1c T9 新表形态：锁内实读=该项目全部行——deleteMany 按 projectId 整删（行集=被删集等价）
     expect(updateDeleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
 

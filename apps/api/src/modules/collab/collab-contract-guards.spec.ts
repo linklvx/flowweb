@@ -59,12 +59,13 @@ describe('Y0a-1 冻结契约扫描', () => {
       expect(f.src, f.name).not.toMatch(/stateSeq/);
     }
   });
-  it('契约 10 Y1c T7 形态锚：canvas-doc-genesis.ts 的 stateSeq token 全部=建行字面 `stateSeq: 0n,`（无读/无 CAS 更新/无注释提及）', () => {
+  it('契约 10 Y1c T7 形态锚（Y1c T11 快照权威收口）：canvas-doc-genesis.ts 的 stateSeq token 全部=建行字面 `stateSeq: 0n,`（无读/无 CAS 更新/无注释提及）', () => {
     const gen = prodFiles.find((f) => f.name === Y1C_GENESIS)!;
     const tokens = gen.src.match(/stateSeq/g) ?? [];
     const literals = gen.src.match(/stateSeq: 0n\s*[,}]/g) ?? [];
     expect(tokens, 'stateSeq token 数必须=字面数（token 出现即建行字面——注释/读/更新零容忍）').toHaveLength(literals.length);
-    expect(literals.length, '恰两处：CanvasDoc 头行旧种子字面+CanvasDocSnapshot(g,0,0) 新平面列').toBe(2);
+    // T11 起 CanvasDoc 头行零 doc 态列（state/stateSeq 退役——禁双写）：唯一字面=CanvasDocSnapshot(g,0,0)
+    expect(literals.length, '恰一处：CanvasDocSnapshot(g,0,0) 建行字面（CanvasDoc 头行旧种子随快照权威切换删除）').toBe(1);
   });
   it('loadUpdates 已删（唯一入口靠删除保证）', () => {
     expect(repoSrc).not.toMatch(/async loadUpdates/);

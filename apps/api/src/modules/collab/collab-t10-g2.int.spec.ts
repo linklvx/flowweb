@@ -100,8 +100,8 @@ maybe('Y1c T10 G2 故障矩阵（十红组——真 PG）', () => {
     await ensureLeaseFixture(prisma, repo);
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
-    // 空文档合法字节（Y.applyUpdate(空数组)=lib0 解码 throw——genesis 真实形态=空 doc 的合法 update）
-    await prisma.canvasDoc.create({ data: { projectId: PID, state: Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())), generation: 1 } });
+    // Y1c T11：CanvasDoc 零 doc 态列（快照权威=CanvasDocSnapshot——懒建档形态头行无快照，装载折空态全量行重放）
+    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1 } });
     // per-test 隔离：fresh spool（walSeq/水位/段全零起）——共享 spool 会跨用例携带水位/去重索引
     const d = await makeSpoolDir('t10-g2-');
     spoolDirPath = d.dir;
@@ -214,7 +214,7 @@ maybe('Y1c T10 G2 故障矩阵（十红组——真 PG）', () => {
   it('⑤ snapshot（CanvasDoc.state）已发布+WAL 未清重启：hydrate state+重放帧=内容等价+零重复行', async () => {
     const r1 = await actor.submit(PID, frameOf('snap-1', 1), makeConn(), 'update');
     await actor.flushThrough(PID, r1.walSeq);
-    // 「snapshot 已发布」：compact 语义（state=前缀重放）——直接调 repo.compact（T11 重写前的过渡形态）
+    // 「snapshot 已发布」：T11 compact=PG 前缀重放+发布事务（快照权威=CanvasDocSnapshot+指针）
     await repo.compact(PID);
     spool.skipConfirm = false;
     // WAL 未清=confirm 静默一次（段残留）→ 重启

@@ -68,7 +68,7 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1020);   // Y1c T10 重标 985→1015（onStateless barrier+unload drain 纪律净增 30 行）→T10 收口 1015→1020（Q-I3 typed 分类 +5——锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1273);   // Y1c T9 重标
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1082);
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1056);
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1070);   // Y1c T11：1056→1070（maybeCompact purgeBelowSeq spool confirm 消费面净增）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 40);

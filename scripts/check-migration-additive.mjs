@@ -63,6 +63,13 @@ export const EXEMPTIONS = {
       since: '2026-10-24',
     },
   },
+  '20261024150000_y1c_t11_snapshot_authority': {
+    CanvasDoc: {
+      reason: 'Y1c T11 快照权威切换——dev 无存量数据：CanvasDoc.state/stateSeq 列退役（doc 态权威=CanvasDocSnapshot+currentSnapshotRev 指针，T7 勘误切片三既定）',
+      owner: 'Y1c T11 controller',
+      since: '2026-10-24',
+    },
+  },
 };
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；

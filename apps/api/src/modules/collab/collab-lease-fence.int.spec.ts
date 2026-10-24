@@ -1,7 +1,8 @@
 // Y0a-3 T3：fence 写语句真库证明（G-3b+leaseRowMissing+两出口同构+提交序倒挂）——repo 层直接
 // 操纵租约行模拟 A 持锁/B 夺锁（lease service 获取路径语义归 collab-lease.service.spec mock 层）。
-// 倒挂用例判别性设计：手工低 seq 行的内容与 compact 进快照的内容**不同**（快照含 base 标记、
-// 低 seq 行含 inverted 标记）——水位过滤旧实现（cursor=stateSeq）会把低 seq 行永久跳过=断言红。
+// 倒挂用例（Y1c T11 语义迁移）：手工低 seq 行=单写者契约外绕锁写（insert-ratchet 静态门执法对象）；
+// 快照权威+增量尾(>stateSeq) 设计性排除之——「读侧全量双保险」旧语义随快照权威退役（单写者+WAL
+// walSeq 构造性保证 seq 序≡提交序——census⑩）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
@@ -41,14 +42,26 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
     expect(r2).toEqual({ ok: false, reason: 'fenced' });
   });
 
-  it('A 的 compact 在 B 持锁期不删行（{compacted:false,reason:"not-owner"}+CanvasDocUpdate 行数不减）', async () => {
+  it('Y1c T11 授权换轴：compact 在租约他持（B 持锁）期照常发布——零 CollabLease 交互（行锁+generation/pgSeq CAS 仲裁，与写入方 lease 正交；旧 not-owner 语义退役）', async () => {
     await ensureLeaseFixture(prisma as any, repo, 'owner-A');
-    { const d = new Y.Doc(); d.getMap('nodes').set('c', 3); await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(d))]); }
-    const before = await prisma.canvasDocUpdate.count({ where: { projectId } });
+    // 播种+水位（compact 授权读需要 pgSeq>指针 stateSeq）
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      projectId,
+    );
+    const d = new Y.Doc(); d.getMap('nodes').set('c', new Y.Map([['x', 3]]));
+    const row = seedAppend(Y.encodeStateAsUpdate(d));
+    const ar = await repo.appendBatch(projectId, [row], { expectedPgSeq: 0n, newPgSeq: row.lastWalSeq, walCheckpointSeq: row.lastWalSeq });
+    expect(ar.ok).toBe(true);
     await prisma.$executeRawUnsafe(`UPDATE "CollabLease" SET owner = 'owner-B', "expiresAt" = now() + interval '1 hour' WHERE scope = 'primary'`);
-    const r = await repo.compact(projectId);
-    expect(r).toEqual({ compacted: false, reason: 'not-owner' });
-    expect(await prisma.canvasDocUpdate.count({ where: { projectId } })).toBe(before);
+    const r = await repo.compact(projectId);   // 租约在 owner-B 手——compact 不读租约（worker 进程形态）
+    expect(r.compacted).toBe(true);
+    if (r.compacted) {
+      expect(r.stateSeq).toBe(row.lastWalSeq);   // 发布落定（快照+指针+purgeBelowSeq）
+      expect(await prisma.canvasDocUpdate.count({ where: { projectId } })).toBe(0);   // 提交后批删
+    }
+    const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId } });
+    expect(doc.currentSnapshotRev).toBe(row.lastWalSeq);
   });
 
   it('租约行缺失：append throws leaseRowMissing（配置错误不伪装 fenced）——finally 复原（V31：中途失败不毒化本地 verify 链）', async () => {
@@ -75,19 +88,24 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
     expect(a.stateSeq).toBe(b.stateSeq);
   });
 
-  it('提交序倒挂（SV3 证明——10s 超时防死循环形态）：compact 后手工 INSERT 低 seq 行 → 装载必含其内容', async () => {
+  it('提交序倒挂（SV3——Y1c T11 语义迁移：快照权威+增量尾设计性排除低 seq 绕锁行；单写者构造性保证由 census⑩+insert-ratchet 静态门承载）：compact 后手工 INSERT 低 seq 行 → 装载尾不含其（>stateSeq 谓词）+高 seq 行照常装载', async () => {
     await ensureLeaseFixture(prisma as any, repo);
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId } });
     await prisma.canvasDoc.deleteMany({ where: { projectId } });
     const base = new Y.Doc();
     base.getMap('nodes').set('base-marker', new Y.Map([['v', 1]]));
-    await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(base))]);
-    const c = await repo.compact(projectId);   // stateSeq 落定（快照含 base-marker）
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      projectId,
+    );
+    const headRow = seedAppend(Y.encodeStateAsUpdate(base));
+    await repo.appendBatch(projectId, [headRow], { expectedPgSeq: 0n, newPgSeq: headRow.lastWalSeq, walCheckpointSeq: headRow.lastWalSeq });
+    const c = await repo.compact(projectId);   // 快照发布（含 base-marker；stateSeq=headRow.lastWalSeq）
     expect(c.compacted).toBe(true);
-    // 模拟绕锁迟到提交（advisory lock 之外的直接 INSERT——运维脚本/极端窗口形态）：低 seq 行,
-    // 内容与快照**不同**（inverted-marker 只在本行——水位过滤会永久跳过=断言红）
-    const docRow = await prisma.canvasDoc.findUnique({ where: { projectId } });
-    const lowSeq = docRow!.stateSeq - 1n;   // 判别性保证 <stateSeq；项目内行已清空=无 UNIQUE 撞
+    // 绕锁迟到提交（单写者外直接 INSERT——运维脚本/极端窗口形态）：低 seq 行内容与快照**不同**
+    const snap = await prisma.canvasDocSnapshot.findFirstOrThrow({ where: { projectId }, orderBy: { snapshotRev: 'desc' } });
+    const lowSeq = snap.stateSeq - 1n;   // 判别性保证 <stateSeq；项目内行已清空=无 UNIQUE 撞
     const inverted = new Y.Doc();
     inverted.getMap('nodes').set('inverted-marker', new Y.Map([['v', 1]]));
     await prisma.$executeRawUnsafe(
@@ -95,19 +113,26 @@ d('fence 下沉真库（G-3b+SV3 倒挂）', () => {
        SELECT $1, 1, $3::bigint, $3::bigint, 1, encode(sha256($2::bytea), 'hex'), NULL::jsonb, $2::bytea, now()`,
       projectId, Buffer.from(Y.encodeStateAsUpdate(inverted)), lowSeq,
     );
+    // 合法高 seq 行（>stateSeq——装载尾必含）
+    const later = new Y.Doc();
+    later.getMap('nodes').set('later-marker', new Y.Map([['v', 1]]));
+    await repo.appendBatch(projectId, [seedAppend(Y.encodeStateAsUpdate(later))]);
     let cancelLoadWatch!: () => void;
     const loadWatch = new Promise<never>((_, rej) => {
-      const t = setTimeout(() => rej(new Error('装载死循环/超时——cursor 未从 0 起')), 10_000);
+      const t = setTimeout(() => rej(new Error('装载死循环/超时——尾谓词失效')), 10_000);
       cancelLoadWatch = () => clearTimeout(t);
     });
     try {
       const loaded = await Promise.race([repo.loadForHydration(projectId), loadWatch]);
-      expect(loaded.updates.length).toBe(1);   // 低 seq 行被装载（非跳过）
+      expect(loaded.updates.length).toBe(1);   // 高 seq later-marker 行在尾；低 seq 绕锁行设计性排除
       const replay = new Y.Doc();
+      Y.applyUpdate(replay, new Uint8Array(loaded.state!));
       for (const u of loaded.updates) Y.applyUpdate(replay, new Uint8Array(u));
-      expect(replay.getMap('nodes').has('inverted-marker')).toBe(true);
+      expect(replay.getMap('nodes').has('base-marker')).toBe(true);   // 快照内容
+      expect(replay.getMap('nodes').has('later-marker')).toBe(true);  // 尾内容
+      expect(replay.getMap('nodes').has('inverted-marker')).toBe(false);   // 绕锁低 seq 行=单写者契约外（设计性排除——census⑩/insert-ratchet 执法）
     } finally {
-      cancelLoadWatch();   // 装载先完成时撤销看门狗——迟到 rej 不成 unhandled rejection
+      cancelLoadWatch();
     }
   }, 10_000);
 });
