@@ -64,8 +64,17 @@ export function walFixtureHeader(over: Partial<WalSegmentHeader> = {}): WalSegme
   };
 }
 
-/** WAL 故障语料全集（期望值=spike §4 表逐条语料化——epochStartedAt 取段头 lastWriteAt 之后为「正常收养」基线） */
-export function buildWalFaultCorpus(systemHistory: SystemHistoryState): WalSegmentFixture[] {
+/** 完好段 fixture 成立的 epochStartedAtMs 下界（=段头缺省 lastWriteAtMs——等值不落栅栏：fence 为严格 >）。
+ *  调用方传入早于此值的 epoch 会使「完好段」自身落入 timestamp-fence 候选——原仅靠 JSDoc 散文约束的隐式耦合
+ *  （评审 Minor#5），现作 buildWalFaultCorpus 的 epochStartedAtMs 缺省值显式化。 */
+export const WAL_FAULT_CORPUS_EPOCH_STARTED_AT_FLOOR_MS = Date.UTC(2026, 9, 24, 12, 0, 30);
+
+/** WAL 故障语料全集（期望值=spike §4 表逐条语料化——epochStartedAt 取段头 lastWriteAt 之后为「正常收养」基线；
+ *  epochStartedAtMs 缺省=完好段成立下界 WAL_FAULT_CORPUS_EPOCH_STARTED_AT_FLOOR_MS） */
+export function buildWalFaultCorpus(
+  systemHistory: Omit<SystemHistoryState, 'epochStartedAtMs'> & { epochStartedAtMs?: number },
+): WalSegmentFixture[] {
+  const epochStartedAtMs = systemHistory.epochStartedAtMs ?? WAL_FAULT_CORPUS_EPOCH_STARTED_AT_FLOOR_MS;
   const header = walFixtureHeader({ historyId: systemHistory.historyId });
   const good = (name: string, frames: WalFrameFixtureInput[], prefix: bigint[]): WalSegmentFixture => ({
     name, header, frames, expectedReplayPrefix: prefix,
@@ -75,7 +84,8 @@ export function buildWalFaultCorpus(systemHistory: SystemHistoryState): WalSegme
     { name: '坏 CRC 尾帧（载荷字节翻转）', header, frames: walFrameInputs(3),
       fault: { kind: 'bad-crc', frameIndex: 2 },
       expectedReplayPrefix: [1n, 2n], expectedBadTier: 'bad-crc' },
-    { name: '撕裂尾（帧记录半写）', header, frames: walFrameInputs(3),
+    { name: '撕裂尾（帧记录半写）', header, frames: walFrameInputs(4),   // 须存在第 4 帧可撕（评审 Important#1：
+      // frameIndex=3 越界 3 帧下标 0-2 会使物化器读 undefined——seq 4 被撕尾吞没→前缀 [1,2,3] 自洽）
       fault: { kind: 'truncated', frameIndex: 3, keepBytes: 30 },
       expectedReplayPrefix: [1n, 2n, 3n], expectedBadTier: 'truncated' },
     { name: '缺号 gap（seq 3 缺失）', header,
@@ -95,9 +105,9 @@ export function buildWalFaultCorpus(systemHistory: SystemHistoryState): WalSegme
       fault: { kind: 'history-mismatch', historyId: 'h-old-epoch' },
       expectedReplayPrefix: [], expectedQuarantine: 'history-mismatch' },
     { name: '时间戳栅栏（lastWriteAt>epochStartedAt——忘 bump 形态整段隔离）',
-      header: walFixtureHeader({ historyId: systemHistory.historyId, lastWriteAtMs: systemHistory.epochStartedAtMs + 5_000 }),
+      header: walFixtureHeader({ historyId: systemHistory.historyId, lastWriteAtMs: epochStartedAtMs + 5_000 }),
       frames: walFrameInputs(1),
-      fault: { kind: 'timestamp-fence', lastWriteAtMs: systemHistory.epochStartedAtMs + 5_000 },
+      fault: { kind: 'timestamp-fence', lastWriteAtMs: epochStartedAtMs + 5_000 },
       expectedReplayPrefix: [], expectedQuarantine: 'timestamp-fence' },
   ];
 }

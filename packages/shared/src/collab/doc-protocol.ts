@@ -378,7 +378,7 @@ export function shouldQuarantineSegment(
 
 /** SHA-256 去重启动重建有界索引（偏离 38④——跨重启「零重复 walSeq」成立）：帧记录存 frameHash+
  *  启动重建有界索引（24h TTL/100k 条上界——时窗与条数双界防无界内存）。去重先于 walSeq 分配（§3.2）。 */
-export const WAL_DEDUP_INDEX_TTL_MS = 24 * 60 * 60 * 1000;   // 24h
+export const WAL_DEDUP_INDEX_TTL_MS = 86_400_000 as const;   // 24h=24*60*60*1000（字面量直书以配 as const——邻行同风格）
 export const WAL_DEDUP_INDEX_MAX_ENTRIES = 100_000 as const;
 
 // ═══ §6 ACK 三档+UI 四态+版本门拆分（偏离 38⑧）═════════════════════════════════════════
@@ -479,8 +479,10 @@ export const COLLAB_WS_MAX_PAYLOAD_BYTES = 9 * 1024 * 1024;   // 9_437_184
 export const INBOUND_QUEUE_LIMIT_BYTES = 2 * SS2_FRAME_GATE_BYTES;   // 16_908_288
 export const INBOUND_QUEUE_OVER_LIMIT_CLOSE_CODE = CollabCloseCode.LIB_MESSAGE_TOO_BIG;   // 1009
 
-/** 入站速率桶：bytes 桶容量=SS2 帧闸（api deriveCollabLimits().bytesBucketCapacity 同式——闸与桶同源，
- *  只抬闸不同步桶=(闸,闸+余量] 帧恒拒→重连重发循环=裁定 24⑵）。 */
+/** 入站速率桶注记（评审 Minor#4 显式化——**本文件无对应常量**）：bytes 桶容量=SS2 帧闸
+ *  （闸与桶同源——只抬闸不同步桶=(闸,闸+余量] 帧恒拒→重连重发循环=裁定 24⑵）。
+ *  数值真源=apps/api/src/modules/collab/collab-limits.ts:39 deriveCollabLimits().bytesBucketCapacity
+ *  =ss2FrameGate 同式派生；T9 翻转时该处改引 shared 单源（届时方在本文件立常量）。 */
 
 /** SS2 大帧并发信号量：per-project 1（plan 冻结）+全局内存预算（初始工程值=4×SS2 帧闸≈32MiB——
  *  plan 未钉全局数，T33 观测后调；信号量只约束并发解码内存面，不约束普通帧）。 */
@@ -521,15 +523,23 @@ export const DEPRECATED_VERSION_DIMENSION_KEYS = ['eventVersion', 'projectedEven
 // ═══ §9 客户端半链（§8.1 v5.4⑦——堵同代 PITR 客户端 SS2 复活）═══════════════════════════
 
 /** providerVersion 版本通道 `h=<historyId>` 参数（与 csv=/cb= 同通道——URL query，非凭证）：
- *  首连无 historyId 由服务端 auth 回执下发并客户端持久化。 */
+ *  首连无 historyId 由服务端 auth 回执下发并客户端持久化。
+ *  percent-encoding 与 parse 对称（评审 Minor#2）：值经 encodeURIComponent——含保留字符（空格、%、&、=…）
+ *  的 historyId 往返不失真；unreserved 字符输出逐字节不变（既有断言面零破坏）。 */
 export function formatProviderHistoryParam(historyId: string): string {
-  return `h=${historyId}`;
+  return `h=${encodeURIComponent(historyId)}`;
 }
 
-/** 自 URL search 串解析 h= 参数（无则 null——R-6：URL 由调用方构造，本函数只做键提取）。 */
+/** 自 URL search 串解析 h= 参数（无则 null——R-6：URL 由调用方构造，本函数只做键提取）。
+ *  decodeURIComponent 与 format 对称（评审 Minor#2）：畸形 % 串（URIError）归 null 不抛——解析面防御。 */
 export function parseProviderHistoryParam(search: string): string | null {
   const m = /(?:^|[?&])h=([^&]*)/.exec(search);
-  return m ? decodeURIComponent(m[1]) : null;
+  if (m == null) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return null;   // 畸形 % 串——URIError 归 null
+  }
 }
 
 /** 本地缓存键五元 (uid,pid,generation,schemaVersion,historyId)——per-tab 记录+boot mergeUpdates 并集；

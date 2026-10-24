@@ -32,6 +32,8 @@ import {
 import { CLIENT_PROTOCOL_VERSION } from '../constants/collab-protocol';
 import { CANVAS_DOC_SCHEMA_VERSION } from '../canvas/docShape';
 import { buildTwoClientConcurrentCorpus } from '../testing/y1c-concurrent-corpus';
+import { buildBarrierCorpus } from '../testing/y1c-barrier-corpus';
+import { buildWalFaultCorpus, walFixtureHeader } from '../testing/y1c-wal-fault-corpus';
 
 describe('Y1c T5a 契约冻结：水位拆义（偏离 38⑥）', () => {
   it('不变量 0≤pgSeq≤appliedSeq≤spoolHeadSeq——合法三元全过（零位/等值/严格递增）', () => {
@@ -332,6 +334,19 @@ describe('Y1c T5a 契约冻结：客户端半链（providerVersion h=/缓存键�
     expect(parseProviderHistoryParam('csv=3&cb=build9')).toBeNull();
     expect(parseProviderHistoryParam('')).toBeNull();
   });
+  it('h= 编解码对称（评审 Minor#2）：format 补 encodeURIComponent——含保留字符 historyId 往返恒等且安全字符输出逐字节不变', () => {
+    // 安全字符（RFC 3986 unreserved）——encodeURIComponent 不动，既有断言面零破坏
+    expect(formatProviderHistoryParam('h-2026-10-24-a')).toBe('h=h-2026-10-24-a');
+    expect(formatProviderHistoryParam('h-x')).toBe('h=h-x');
+    // 保留字符（空格、%、&、=、?、#）与非 ASCII——format→parse 往返恒等
+    for (const h of ['a b/c%d', 'x&y=z?q#r', 'ü-mlaut']) {
+      expect(parseProviderHistoryParam(formatProviderHistoryParam(h))).toBe(h);
+    }
+  });
+  it('h= 解析防御（评审 Minor#2）：畸形 % 串 parse 归 null 不抛 URIError（URL 由调用方构造不可信）', () => {
+    expect(parseProviderHistoryParam('h=%zz')).toBeNull();
+    expect(parseProviderHistoryParam('csv=3&h=tail%')).toBeNull();
+  });
   it('本地缓存键五元 (uid,pid,generation,schemaVersion,historyId)——任一元不同则键不同（换代清整族不靠改键）', () => {
     const base: LocalCacheKeyFiveTuple = { uid: 'u1', pid: 'p1', generation: 3, schemaVersion: 3, historyId: 'h1' };
     const k0 = formatLocalCacheKey(base);
@@ -374,5 +389,75 @@ describe('Y1c T5a 契约冻结：barrier/WAL/并发语料 fixture 自洽（T8/T9
     expect(purposes).toEqual(new Set(['ss2-self-contained', 'incremental', 'missing-predecessor', 'hole', 'concurrent']));
     expect(corpus.duplicatePair.frame.byteLength).toBeGreaterThan(0);
     expect(corpus.concurrentSameKeyFrames.a).not.toEqual(corpus.concurrentSameKeyFrames.b);
+  });
+});
+
+describe('Y1c T5a 契约冻结：wal-fault/barrier 语料不变式（评审 Important#2——零测试消费面补齐）', () => {
+  const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
+    a.length === b.length && a.every((v, i) => v === b[i]);
+
+  it('wal-fault：帧级 fault 的 frameIndex 全部落在 frames 界内（物化器按文件契约对 frames[frameIndex] 执行——撕裂尾须存在第 4 帧可撕，Important#1 回归锁）', () => {
+    const corpus = buildWalFaultCorpus({ historyId: 'h-fixture-2026-10-24' });
+    let frameLevelFaults = 0;
+    for (const f of corpus) {
+      if (f.fault == null || !('frameIndex' in f.fault)) continue;
+      frameLevelFaults += 1;
+      expect(f.fault.frameIndex).toBeGreaterThanOrEqual(0);
+      expect(f.fault.frameIndex).toBeLessThan(f.frames.length);   // 越界=物化器读 undefined
+    }
+    expect(frameLevelFaults).toBe(5);   // 五帧级形态齐备（bad-crc/truncated/missing-seq/dup×2）
+  });
+
+  it('wal-fault：dup 两形态载荷与原帧逐字节相等——dup-seq-same-hash 同 seq 同 payload；dup-hash-new-seq 载荷=repeatOf 帧 payload 且 seq 为新', () => {
+    const corpus = buildWalFaultCorpus({ historyId: 'h-fixture-2026-10-24' });
+    const sameSeq = corpus.find((f) => f.fault?.kind === 'dup-seq-same-hash')!;
+    const fault = sameSeq.fault as { kind: 'dup-seq-same-hash'; frameIndex: number };
+    const dup = sameSeq.frames[fault.frameIndex];
+    const orig = sameSeq.frames.find((fr, i) => i < fault.frameIndex && fr.walSeq === dup.walSeq)!;
+    expect(orig).toBeDefined();                                   // 旧 seq 重放须有对应原帧
+    expect(bytesEqual(dup.payload, orig.payload)).toBe(true);     // 载荷逐字节相等（同 hash 的语料前提）
+    expect(dup.generation ?? 3).toBe(orig.generation ?? 3);
+    const newSeq = corpus.find((f) => f.fault?.kind === 'dup-hash-new-seq')!;
+    const nf = newSeq.fault as { kind: 'dup-hash-new-seq'; frameIndex: number; repeatOf: number };
+    expect(nf.repeatOf).toBeGreaterThanOrEqual(0);
+    expect(nf.repeatOf).toBeLessThan(newSeq.frames.length);
+    expect(bytesEqual(newSeq.frames[nf.frameIndex].payload, newSeq.frames[nf.repeatOf].payload)).toBe(true);
+    expect(newSeq.frames[nf.frameIndex].walSeq).not.toBe(newSeq.frames[nf.repeatOf].walSeq);   // 新 seq 承载旧 hash
+  });
+
+  it('wal-fault：expectedQuarantine 为真 ⇒ expectedReplayPrefix 恒空（整段 fail-closed 零帧重放）', () => {
+    const corpus = buildWalFaultCorpus({ historyId: 'h-fixture-2026-10-24', epochStartedAtMs: Date.UTC(2026, 9, 24, 13, 0, 0) });
+    const quarantined = corpus.filter((f) => f.expectedQuarantine != null);
+    expect(quarantined.length).toBe(2);   // history-mismatch + timestamp-fence 两段级形态
+    for (const f of quarantined) expect(f.expectedReplayPrefix).toEqual([]);
+  });
+
+  it('wal-fault：epochStartedAtMs 缺省=完好段成立下界（评审 Minor#5 隐式耦合显式化）——非 quarantine 条目对缺省 epoch 全过双栅栏、timestamp-fence 条目确被栅', () => {
+    const corpus = buildWalFaultCorpus({ historyId: 'h-fixture-2026-10-24' });   // 不传 epochStartedAtMs——取缺省下界
+    const sysDefault = { historyId: 'h-fixture-2026-10-24', epochStartedAtMs: walFixtureHeader().lastWriteAtMs };
+    for (const f of corpus) {
+      if (f.expectedQuarantine == null) {
+        expect(shouldQuarantineSegment(f.header, sysDefault)).toEqual({ quarantined: false });
+      } else if (f.expectedQuarantine === 'timestamp-fence') {
+        expect(shouldQuarantineSegment(f.header, sysDefault)).toEqual({ quarantined: true, reason: 'timestamp-fence' });
+      }
+    }
+  });
+
+  it('barrier：全部回执 nonce/clientSeq 回显请求（幂等匹配面）；nonceRetry 两回执逐字段等值；错误回执同形带 committedSeq', () => {
+    const c = buildBarrierCorpus();
+    c.concurrentTabs.requests.forEach((req, i) => {
+      expect(c.concurrentTabs.receipts[i].nonce).toBe(req.nonce);
+      expect(c.concurrentTabs.receipts[i].clientSeq).toBe(req.clientSeq);
+    });
+    expect(c.nonceRetry.receipts[0]).toEqual(c.nonceRetry.receipts[1]);   // 幂等——重试同结果
+    expect(c.nonceRetry.receipts[0].nonce).toBe(c.nonceRetry.request.nonce);
+    expect(c.nonceRetry.receipts[0].clientSeq).toBe(c.nonceRetry.request.clientSeq);
+    for (const { request, receipt } of [c.maintenanceReject, c.barrierFailed]) {
+      expect(receipt.nonce).toBe(request.nonce);                          // nonce 回显——幂等匹配键
+      expect(typeof receipt.committedSeq).toBe('string');
+    }
+    expect(c.maintenanceReject.receipt.error).toBe('maintenance');
+    expect(c.barrierFailed.receipt.error).toBe('BARRIER_FAILED');
   });
 });

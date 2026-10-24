@@ -4,7 +4,8 @@
 //   - 并发双 tab barrier（两 nonce 各自回执——服务端 ≤250ms 节流合并 flushThrough；
 //     barrier 语义=per-tab 只覆盖本连接此前帧，两回执 committedSeq 可同值不可互替）
 //   - 同 nonce 重试幂等（handler 按 nonce 幂等——重发同请求回执逐字段等值）
-//   - maintenance 冻结期拒绝（{ok:false,reason:'maintenance'} 形态——error 回执不产生 Durable）
+//   - maintenance 冻结期拒绝（BarrierErrorReceipt 冻结线形 {nonce,error:'maintenance',committedSeq}——
+//     nonce 回显供幂等匹配；error 回执不产生 Durable）
 //   - handler catch 兜底（永不 throw——BARRIER_FAILED 带 committedSeq=当时 pgSeq）
 import type { BarrierErrorReceipt, BarrierReceipt, BarrierRequest } from '../collab/doc-protocol';
 
