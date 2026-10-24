@@ -40,6 +40,12 @@ WAL 段按 owner 子目录分 namespace，fenced 前任物理上写不进新 own
    lastGoodSeq<pgSeq ⟺ 存在 PG 已提交（≤pgSeq）而 WAL 无法证明的帧=账本失真——该段
    整段隔离保证据+violation 上报，禁静默截断续跑；丢的全部是 walSeq>pgSeq 的帧
    （从未对外承诺 Durable）才允许截断续跑。
+   - **链断/全隔离同归 violation（不 assert 崩 boot）**：段级隔离/恢复怀疑/链断使可证
+     前缀尾<pgSeq（典型=restore+bump 后旧段全 history-mismatch+PG 残留 pgSeq>0）与上款
+     同义=账本失真——同样 violation 上报（证据保全+禁截断+人工裁定），恢复扫描**不因
+     水位不变量断言崩溃**；「bump 后 pgSeq 跨代裁定归恢复流」（T13/运维），WAL 侧只报告
+     不修复。链干净而前缀尾<pgSeq（confirm 回收后剩 ≤pgSeq 幂等重放残帧）=常态：水位
+     以 head=max(前缀尾,pgSeq) 重建，残帧照常重放（去重索引+CRDT 幂等双防线吸收）。
 3. **重建 appliedSeq**：以恢复扫描的有效前缀+pgSeq 输入重建水位三元
    （`WatermarkTriple`：0≤pgSeq≤appliedSeq≤spoolHeadSeq，`assertWatermarkInvariants`）。
 4. **开放写**：水位重建完成+去重索引（有界：24h TTL/100k 条——`WAL_DEDUP_INDEX_*`）
@@ -85,9 +91,11 @@ spike 发现（c5a3e383）：长命 epoch 下全部在役段恒满足 lastWriteA
 
 - **fsync 分档**（`WAL_FSYNC_TIER_SEMANTICS`）：写前失败/ENOSPC=可恢复档——截断回
   last-good offset+**复用已分配未落盘 walSeq**（不留洞）+fail-closed 停收；截断本身失败=
-  quarantine 段+拒服务。EIO=fail-stop——walHealthy=false/停收/close 1011
-  （`CollabCloseCode.WAL_FSYNC_EIO`）/要求进程重启+磁盘检查；**不进截断复用路径**；
-  `wal_fsync_error_total{device}` 告警不自动重试。
+  quarantine 段（sidecar 整段隔离保证据）+`walHealthy=false` 拒服务，直至恢复路径
+  （重启恢复扫描）裁定——非仅计数+连败熔断的软档。EIO=fail-stop——walHealthy=false/
+  停收/close 1011（`CollabCloseCode.WAL_FSYNC_EIO`）/要求进程重启+磁盘检查；
+  **不进截断复用路径**；`wal_fsync_error_total{device}` 告警不自动重试
+  （device=固定稳定标签，绝对路径不入指标）。
 - **坏段四档**：帧级 granular 缺陷码（`WalDefectKind`）经 `walDefectTier` 穷尽映射到
   crc/truncated/missing-seq/dup-hash 四档（分类码单源在契约——实现禁散写字符串）；
   良性 dup（旧 seq 同 hash/新 seq 旧 hash）跳过不停链，致命缺陷即停链（坏记录后的
@@ -96,7 +104,23 @@ spike 发现（c5a3e383）：长命 epoch 下全部在役段恒满足 lastWriteA
   +段头/帧内 generation）+旧段 quarantine（sidecar 整段隔离记录，重启扫描按 sidecar
   识别=禁重放）+水位与去重索引重置。
 - **新建段 fsync 纪律**：段头写入后接受首帧前 fsync(文件)+fsync(父目录)
-  （F-S4-6：lastWriteAt pwrite 必须与段头 CRC 成对更新）。
+  （F-S4-6：lastWriteAt 与段头 CRC 以单次 12B pwrite〔offset 152-164〕成对更新——两次
+  pwrite 之间崩溃=新时间戳+旧 CRC 自毁段头）。
+
+### 7. 升级裁定：盘上旧格式不兼容（不做 legacy 读取器）
+
+Y1c 处于 dev 阶段——用户指令明确**无存量数据兼容义务**。T8 帧协议升级（v1.7 段头+52B 帧）
+与盘上任何旧格式（spike 原型段/更早 dev 段/legacy 平铺名段）不兼容时的裁定：
+
+- **预发布格式重置声明**：升级=清空 spool 目录重新开始。dev/test 环境既有 spool 段一律
+  作废（清目录后重启——恢复扫描对空目录自然重建空链）。这是**文档化裁定而非代码迁移**：
+  不为读取旧格式保留任何兼容读取器；legacy 平铺名段在解析器中的唯一在役语义=
+  「只可隔离不可追加」（`parseSegFileName` generation=null 档；含 `.g<digits>.` 子串的
+  歧义名直接拒绝防跨档重读）。
+- **生产上线前置**：T29 硬门内含**格式冻结检查**——上线后段格式变更必须走新版本号+显式
+  迁移/重置裁定（本 ADR 不授权静默改格式）。
+- 结论：**不做 legacy 读取器**。旧段若混入新目录，恢复扫描按坏段头整段隔离（bad-header）
+  ——零重放 fail-closed、证据保留待人工处置。
 
 ## Consequences
 

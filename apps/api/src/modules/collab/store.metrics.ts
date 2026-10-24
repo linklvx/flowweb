@@ -432,11 +432,12 @@ export const yjsSpoolQuarantinedTotal = new Counter({
 /** ===== Y1c T8（spec v5.4 §4.3/§4.4+ADR-01）：WAL 帧协议升级指标族 ===== */
 
 /** fsync 失败分档计数（契约 WAL_FSYNC_TIER_SEMANTICS——tier=EIO fail-stop 不自动重试/ENOSPC
- *  截断复用档/fsync-fail-pre 写前失败；device=spool 根目录（跨平台无稳定设备 id 的诚实代理——
- *  单实例单卷部署下目录即卷）。 */
+ *  截断复用档/fsync-fail-pre 写前失败；device=固定稳定标签 'spool-root'——M7（Q-M11）：绝对
+ *  路径不入指标标签（跨部署/迁移不可比且标签基数随配置漂移；单实例单卷部署下无稳定设备 id，
+ *  常量标签即诚实形态）。 */
 export const walFsyncErrorTotal = new Counter({
   name: 'wal_fsync_error_total',
-  help: 'WAL append/fsync 失败分档（tier=EIO fail-stop：walHealthy=false 停收要求重启+磁盘检查/ENOSPC 截断复用档/fsync-fail-pre 写前失败——EIO 不自动重试；device=spool 根目录）',
+  help: 'WAL append/fsync 失败分档（tier=EIO fail-stop：walHealthy=false 停收要求重启+磁盘检查/ENOSPC 截断复用档/fsync-fail-pre 写前失败——EIO 不自动重试；device=固定标签 spool-root）',
   labelNames: ['device', 'tier'],
   registers: [register],
 });
@@ -451,10 +452,11 @@ export const yjsSpoolBadSegmentTotal = new Counter({
 });
 
 /** 整段隔离计数（reason=bad-header/history-mismatch（契约档）/generation-switch 换代切段/
- *  pg-prefix-violation 证据保全——fail-closed 零帧重放面）。 */
+ *  pg-prefix-violation 证据保全/truncate-failed 截断失败拒服务（M1——契约 fsync 分档档内档）
+ *  ——fail-closed 零帧重放面。 */
 export const walSegmentQuarantinedTotal = new Counter({
   name: 'wal_segment_quarantined_total',
-  help: 'WAL 整段隔离计数（reason=bad-header 坏段头/history-mismatch≠SystemHistory fail-closed/generation-switch 换代切段/pg-prefix-violation PG 前缀校验证据保全）',
+  help: 'WAL 整段隔离计数（reason=bad-header 坏段头/history-mismatch≠SystemHistory fail-closed/generation-switch 换代切段/pg-prefix-violation PG 前缀校验证据保全/truncate-failed 截断失败段拒服务）',
   labelNames: ['reason'],
   registers: [register],
 });

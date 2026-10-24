@@ -7,7 +7,8 @@
 // 段文件 `<projectId>.g<generation>.<segSeq>.spool`（owner 子目录——fenced 前任各写各目录
 // 物理不撞名；换代=namespace 切代+旧段 quarantine+水位/去重重置）；段满 4MB 滚动。
 // 段头 164B {magic,version,generation,projectId,historyId,createdAt,lastWriteAt,headerCrc32}
-// ——lastWriteAt pwrite 与 headerCrc32 **成对**更新（F-S4-6：只写时间戳不更新 CRC=自毁段头）；
+// ——lastWriteAt 与 headerCrc32 以**单次 12B pwrite**（offset 152-164）成对更新（F-S4-6：只写
+// 时间戳不更新 CRC=自毁段头；I2：两次 pwrite 的撕裂窗口已并一写）；
 // 新建段 fsync 文件+父目录。putStash 语义=append 帧+同步 fsync（唯一持久动作——fsync 分档
 // 注入缝=syncSegmentHandle）；confirm=按 frameId 内存记账，段内全部帧 confirmed（或整段
 // 隔离且人工处置）→整段 unlink。持久化模型头注释见 collab.gateway.ts（§2.1 契约声明）。
@@ -61,7 +62,9 @@ import type { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 export interface SpoolFrame { frameId: string; payload: Uint8Array }
 
 const SEGMENT_MAX_BYTES = 4 * 1024 * 1024;
-/** 帧记录 payloadLen 合法上界（spike 同源格式级 sanity 界——>9MiB WS 门/4MiB 批界的宽松上限）。 */
+/** 帧记录 payloadLen 合法上界（spike 同源格式级 sanity 界——>9MiB WS 门/4MiB 批界的宽松上限）。
+ *  M2（Q-M7）：append 准入同界拒绝（本文件单源——共享契约无此常量且冻结；scanWalSegmentBuffer
+ *  与 appendRaw 共消费）：>16MiB 帧先写后扫描必判 truncated=先 Spooled 后静默丢，准入即拒。 */
 const WAL_MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 // ═══════════════════ 段格式编解码（单源——语料/spike/生产共消费）═══════════════════
@@ -71,10 +74,14 @@ export function walSegmentFileName(projectId: string, generation: number, segSeq
   return `${projectId}.g${generation}.${segSeq}.spool`;
 }
 
-/** 段文件名解析：g-form 主档+legacy 平铺兼容（generation=null=旧名段——只可隔离不可追加）。 */
+/** 段文件名解析：g-form 主档+legacy 平铺兼容（generation=null=旧名段——只可隔离不可追加）。
+ *  M7（Q-M11）收紧：含 `.g<digits>.` 子串的名一律拒绝 legacy 回退——否则 `p1.g1.0.5.spool`
+ *  会被 legacy 正则重释为 projectId='p1.g1.0'/segSeq=5（歧义名跨档重读）。显式裁定=
+ *  拒绝（null=消费方跳过）而非显式 legacy 命名空间（dev 阶段无存量义务——ADR-01 §7）。 */
 export function parseSegFileName(f: string): { projectId: string; segSeq: number; generation: number | null } | null {
   const g = /^(.+)\.g(\d+)\.(\d+)\.spool$/.exec(f);
   if (g) return { projectId: g[1], generation: Number(g[2]), segSeq: Number(g[3]) };
+  if (/\.g\d+\./.test(f)) return null;   // g 形态子串歧义名——拒绝重释
   const m = /^(.+)\.(\d+)\.spool$/.exec(f);
   return m ? { projectId: m[1], generation: null, segSeq: Number(m[2]) } : null;
 }
@@ -254,9 +261,11 @@ function noteBadSegmentTier(kind: WalDefectKind): WalBadSegmentTier {
 
 // ═══════════════════ 恢复扫描报告（T13 消费面）═══════════════════
 
-/** 整段隔离原因（契约三档+本服务内部扩展档：换代切段/PG 前缀 violation 证据保全/链断截尾
- *  ——扩展档不进契约枚举，只在服务内部分派 peek/replay 零帧语义）。 */
-export type SegQuarantineReason = WalQuarantineReason | 'generation-switch' | 'pg-prefix-violation' | 'chain-stopped';
+/** 整段隔离原因（契约三档+本服务内部扩展档：换代切段/PG 前缀 violation 证据保全/链断截尾/
+ *  截断失败拒服务——扩展档不进契约枚举，只在服务内部分派 peek/replay 零帧语义）。
+ *  两档重放语义（I1/S-I1）：chain-stopped=链断但**有效前缀可重放**（截断/外来段——peek 可取回）；
+ *  其余整段隔离档（含 timestamp-fence 恢复怀疑态/truncate-failed）零帧重放（证据保全/裁定面）。 */
+export type SegQuarantineReason = WalQuarantineReason | 'generation-switch' | 'pg-prefix-violation' | 'chain-stopped' | 'truncate-failed';
 
 export interface WalRecoveryProjectReport {
   projectId: string;
@@ -491,12 +500,26 @@ export class CollabSpoolService {
     return false;
   }
 
-  /** 隔离段清单（诊断/运维面——帧级坏尾+整段隔离）。 */
+  /** 隔离段清单（诊断/运维面——帧级坏尾+整段隔离）。M5（S-M4）：恢复怀疑态段
+   *  （segQuarantined='timestamp-fence'——内部表达零重放语义）**不属真隔离**，不泄入本清单。 */
   quarantinedSegments(): { projectId: string; segKey: string; quarantinedBytes: number }[] {
     const out: { projectId: string; segKey: string; quarantinedBytes: number }[] = [];
     for (const [pid, segs] of this.index) {
       for (const [key, m] of segs.entries()) {
+        if (m.segQuarantined === 'timestamp-fence') continue;   // M5：怀疑态分维（suspectSegments）
         if (m.quarantinedRange != null || m.segQuarantined != null) out.push({ projectId: pid, segKey: key, quarantinedBytes: m.quarantinedBytes });
+      }
+    }
+    return out;
+  }
+
+  /** 恢复怀疑态段清单（M5/S-M4 分维——timestamp-fence 触发的 recoverySuspect：自动扫描零重放，
+   *  重放归恢复流裁定非真隔离；非空=存在待人工裁定的「忘 bump」形态段）。 */
+  suspectSegments(): { projectId: string; segKey: string }[] {
+    const out: { projectId: string; segKey: string }[] = [];
+    for (const [pid, segs] of this.index) {
+      for (const [key, m] of segs.entries()) {
+        if (m.segQuarantined === 'timestamp-fence') out.push({ projectId: pid, segKey: key });
       }
     }
     return out;
@@ -532,7 +555,7 @@ export class CollabSpoolService {
    *  frameId 不写新帧不烧 seq；探针键排除=探针必须真写否则熔断永不解）。
    *  V14：容量判定=总字节（own+stranded 磁盘真值）；容量计数不进写失败 streak；10% 滞回。 */
   async append(projectId: string, payload: Uint8Array): Promise<string[]> {
-    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查（不进复用路径）');
+    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
     if (projectId !== '__probe__') {
       const total = this.depthTotalBytes(this.depth());
       if (!this.overCapacityFlag && total + payload.byteLength > this.capacityBytes) {
@@ -601,9 +624,16 @@ export class CollabSpoolService {
   /** 帧写入唯一实现（V2 封段守卫+X14 耐久性+WAL 帧协议 v1.7）。
    *  R3：写路径只落 activeDir（owner 子目录）；滚段计算只看同活动目录同 generation 段
    *  （换代=namespace 切代——旧代/legacy 段不参与追加候选）。
+   *  C1（Q-C1/S-I2）：maxSeq 计入 dir+gen 下**全部**段（隔离段占文件名——只滚动不追加）
+   *  +新建段 'wx' 排他建（EEXIST=段号递增重试）——滚到同名 writeFile('w') 覆写隔离段
+   *  （bad-header 证据/chain-stopped 保留帧/violation 裁定证据销毁）为 Critical 禁径。
    *  收口7 契约：同项目 append 串行调用（生产由 gateway saveMutex/串行 drain 保证）。 */
   private async appendRaw(projectId: string, payload: Uint8Array): Promise<string[]> {
-    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO）——要求进程重启+磁盘检查（探针亦停）');
+    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——要求进程重启+磁盘检查/恢复扫描裁定（探针亦停）');
+    if (payload.byteLength > WAL_MAX_FRAME_BYTES) {
+      // M2（Q-M7）：>16MiB 帧准入拒绝——先写后扫描必判 truncated（先 Spooled 后静默丢）。
+      throw new Error(`WAL 帧 payload 超上界 >16MiB（${payload.byteLength}B）——拒收（帧记录定界不可信）`);
+    }
     const adir = this.activeDir();   // Z13：owner 必填断点
     await mkdir(adir, { recursive: true, mode: 0o700 });
     const gen = this.projectGeneration.get(projectId) ?? 1;
@@ -612,7 +642,8 @@ export class CollabSpoolService {
     if (segs && segs.size > 0) {
       let maxSeq = -1;
       for (const m of segs.values()) {
-        if (m.dir === adir && m.generation === gen && !m.segQuarantined && m.seq > maxSeq) maxSeq = m.seq;
+        // C1：隔离段占名计入 maxSeq（旧实现过滤 segQuarantined→滚到同名段号→writeFile 覆写隔离段）。
+        if (m.dir === adir && m.generation === gen && m.seq > maxSeq) maxSeq = m.seq;
       }
       if (maxSeq >= 0) {
         segSeq = maxSeq;
@@ -621,7 +652,8 @@ export class CollabSpoolService {
           // stat 守卫：文件实际大小≠内存记账=外部写入/半写残留→封段滚动
           const st = await stat(join(adir, segFileNameOf(projectId, gen, segSeq))).catch(() => null);
           if (st && st.size !== meta.bytes) meta.sealed = true;
-          if (meta.sealed || meta.goodBytes !== meta.bytes
+          if (meta.segQuarantined != null   // C1：整段隔离段禁追加——占名只滚动
+            || meta.sealed || meta.goodBytes !== meta.bytes
             || meta.bytes + WAL_FRAME_FIXED_BYTES + payload.byteLength > SEGMENT_MAX_BYTES) {
             segSeq += 1; meta = undefined;
           }
@@ -635,12 +667,22 @@ export class CollabSpoolService {
         projectId, generation: gen, historyId: this.walHistoryId,
         createdAtMs: Date.now(), lastWriteAtMs: Date.now(),
       };
+      // C1 双保险：新建段 'wx' 排他建——maxSeq 计入隔离段后仍可能撞盘上幻影段（index 未记账的
+      // 崩溃残留/外部写入）：EEXIST=段号递增重试，绝不覆写未知字节。
+      for (let attempt = 0; ; attempt++) {
+        try {
+          // 新建段：段头先落（头+首帧一次 fsync 后父目录 fsync——spike appendBatch 同款单 fsync 纪律）
+          await writeFile(join(adir, segFileNameOf(projectId, gen, segSeq)), encodeWalSegmentHeader(header), { flag: 'wx', mode: 0o600 });
+          break;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'EEXIST' && attempt < 1024) { segSeq += 1; continue; }
+          throw e;
+        }
+      }
       meta = { frameCount: 0, goodBytes: WAL_SEGMENT_HEADER_SIZE, bytes: WAL_SEGMENT_HEADER_SIZE,
         confirmed: new Set(), confirmedCount: 0, sealed: false, quarantinedRange: null, quarantinedBytes: 0,
         dir: adir, seq: segSeq, foreign: false, generation: gen, seqs: [], frameHashes: [],
         header, segQuarantined: null };
-      // 新建段：段头先落（头+首帧一次 fsync 后父目录 fsync——spike appendBatch 同款单 fsync 纪律）
-      await writeFile(join(adir, segFileNameOf(projectId, gen, segSeq)), encodeWalSegmentHeader(header), { mode: 0o600 });
       if (!segs) this.index.set(projectId, new Map());
       this.index.get(projectId)!.set(this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq)), meta);
     }
@@ -654,18 +696,18 @@ export class CollabSpoolService {
       try {
         await fh.chmod(0o600).catch(() => {});
         await fh.write(frame, 0, frame.length, frameOffset);
-        // F-S4-6：lastWriteAt pwrite 与段头 CRC **成对**更新（只写时间戳不更新 CRC=自毁段头）
+        // F-S4-6：lastWriteAt pwrite 与段头 CRC **成对**更新——I2（Q-I2）合并单次 12B pwrite
+        // （offset 152-164 子缓冲一次写）：两写之间崩溃=新时间戳+旧 CRC→bad-header 整段隔离。
         const nh = encodeWalSegmentHeader({ ...meta.header!, lastWriteAtMs: Date.now() });
-        await fh.write(nh.subarray(152, 160), 0, 8, 152);
-        await fh.write(nh.subarray(160, 164), 0, 4, 160);
+        await fh.write(nh.subarray(152), 0, 12, 152);
         await this.syncSegmentHandle(fh);   // fsync 完成才返回（契约 4：入账先于一切）
       } finally {
         await fh.close();
       }
     } catch (e) {
-      meta.sealed = true;   // V2：写/同步失败即封段——消灭半写后继续追加同段黑洞
+      if (meta) meta.sealed = true;   // V2：写/同步失败即封段——消灭半写后继续追加同段黑洞
       const tier = classifyFsyncFailure(e);
-      walFsyncErrorTotal.inc({ device: this.dir, tier });
+      walFsyncErrorTotal.inc({ device: 'spool-root', tier });   // M7（Q-M11）：稳定标签——绝对路径不入指标标签
       if (tier === 'EIO') {
         // fail-stop：不截断不复用（不进复用路径）——烧号防 dup-seq（字节可能已在缓存），要求重启+磁盘检查
         this.walHealthyFlag = false;
@@ -675,15 +717,22 @@ export class CollabSpoolService {
         // 可恢复档（写前失败/ENOSPC）：截断回 last-good+复用已分配未落盘 walSeq（不留洞）
         this.walSeqCounters.set(projectId, walSeq);
         try {
-          await truncate(path, meta.goodBytes);
+          await truncate(path, meta!.goodBytes);
         } catch {
-          // 截断本身失败=quarantine 段+拒服务（契约 fsync 分档）——sealed 已置，坏尾字节保留待人工
-          this.logger.error(`WAL 截断回 last-good 失败——段 ${path} 拒服务待人工处置`);
+          // M1（Q-M10/S-M1）：截断失败=契约 fail-closed 停收（「截断本身失败=quarantine 段+拒服务」）
+          // ——sidecar 整段隔离（证据保全）+walHealthy=false 直至恢复路径（重启恢复扫描）裁定。
+          try {
+            await writeWholeSegmentSidecar(adir, segFileNameOf(projectId, gen, segSeq), 'truncate-failed');
+            walSegmentQuarantinedTotal.inc({ reason: 'truncate-failed' });
+            if (meta) meta.segQuarantined = 'truncate-failed';
+          } catch (e2) { this.logger.error(`WAL 截断失败档 sidecar 写失败（不掩主错）：${(e2 as Error).message}`); }
+          this.walHealthyFlag = false;
+          this.logger.error(`WAL 截断回 last-good 失败——段 ${path} quarantine+walHealthy=false 停收（重启恢复扫描裁定）`);
           throw e;
         }
       }
       // 收口1：新段首帧失败→回滚 index 插入（不留幻影元数据；截断档已清帧字节，EIO 档留证）
-      if (isNewSegment && meta.frameCount === 0) {
+      if (isNewSegment && meta && meta.frameCount === 0) {
         const segsNow = this.index.get(projectId)!;
         segsNow.delete(this.segKeyOf(adir, segFileNameOf(projectId, gen, segSeq)));
         if (segsNow.size === 0) this.index.delete(projectId);
@@ -717,14 +766,17 @@ export class CollabSpoolService {
     this.watermarks.set(projectId, next);
   }
 
-  /** 读全部未 confirm 好帧（以 index 的 frameCount=可解析帧数为界；整段隔离段零帧——
-   *  bad-header/history-mismatch/换代/violation/链断统一 skip）。循环内解析失败=tripwire：计数+停读。 */
+  /** 读全部未 confirm 好帧（以 index 的 frameCount=可解析帧数为界）。I1（S-I1）两档重放语义：
+   *  整段隔离不可重放档（bad-header/history-mismatch/timestamp-fence/换代/violation/truncate-failed）
+   *  =零帧（证据保全/裁定面）；chain-stopped 链断档（恢复扫描截断段/外来坏尾段）=**有效前缀帧
+   *  可重放**——(pgSeq,lastGoodSeq] 已 fsync 帧不得搁浅（报告 replayPrefix 与 peek 通道一致，
+   *  replayAll 由此送达 PG——对照旧链同形态能力）。循环内解析失败=tripwire：计数+停读。 */
   async peek(projectId: string): Promise<SpoolFrame[]> {
     const segs = this.index.get(projectId);
     if (!segs) return [];
     const frames: SpoolFrame[] = [];
     const ordered = [...segs.entries()]
-      .filter(([, m]) => m.segQuarantined == null)
+      .filter(([, m]) => m.segQuarantined == null || m.segQuarantined === 'chain-stopped')
       .sort(([, a], [, b]) => a.seq - b.seq || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
     for (const [segKey, meta] of ordered) {
       let buf: Buffer;
@@ -895,7 +947,9 @@ export class CollabSpoolService {
         if (m.segQuarantined == null) {
           await writeWholeSegmentSidecar(m.dir, name, 'generation-switch');
           walSegmentQuarantinedTotal.inc({ reason: 'generation-switch' });
-          m.quarantinedBytes = m.bytes - WAL_SEGMENT_HEADER_SIZE;
+          // M3（Q-M8）：按段实际 headerSize 计（legacy 平铺段无 164B 段头）+下界 0——<164B 段不为负。
+          const headerBytes = m.generation == null ? 0 : WAL_SEGMENT_HEADER_SIZE;
+          m.quarantinedBytes = Math.max(0, m.bytes - headerBytes);
         }
         m.segQuarantined = m.segQuarantined ?? 'generation-switch';
         m.sealed = true;
@@ -957,6 +1011,7 @@ export class CollabSpoolService {
       const chainDedupe: WalDedupeState = { hashBySeq: new Map(), seenHashes: new Set() };
       let expectedNext: bigint | null = null;
       let chainStopped = false;
+      let chainBreakSegKey: string | null = null;   // I3（Q-I4）：链可证性中断锚点（violation 上报表位）
       for (const seg of withGen) {
         const segKey = this.segKeyOf(seg.dir, seg.name);
         const path = join(seg.dir, seg.name);
@@ -967,7 +1022,7 @@ export class CollabSpoolService {
           segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header, 0, WAL_SEGMENT_HEADER_SIZE, [], [], 'bad-header', true, 0, seg.parsed.generation));
           pr.quarantined.push({ segKey, reason: 'bad-header' });
           walSegmentQuarantinedTotal.inc({ reason: 'bad-header' });
-          chainStopped = true;   // 坏头=链上不可证明缺口
+          chainStopped = true; chainBreakSegKey ??= segKey;   // 坏头=链上不可证明缺口
           continue;
         }
         if (seg.gen < currentGen) {
@@ -987,7 +1042,7 @@ export class CollabSpoolService {
           const { frameCount, goodBytes, seqs, frameHashes } = parseSegmentFramesPermissive(seg.buf);
           segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header, frameCount, goodBytes, seqs, frameHashes, reason, true));
           pr.quarantined.push({ segKey, reason });
-          chainStopped = true;   // 隔离段=链上缺口（后续段不可证明连续）
+          chainStopped = true; chainBreakSegKey ??= segKey;   // 隔离段=链上缺口（后续段不可证明连续）
           continue;
         }
         if (chainStopped) {
@@ -1006,7 +1061,7 @@ export class CollabSpoolService {
           const { frameCount, goodBytes, seqs, frameHashes } = parseSegmentFramesPermissive(seg.buf);
           segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header, frameCount, goodBytes, seqs, frameHashes, 'history-mismatch', true));
           pr.quarantined.push({ segKey, reason: 'history-mismatch' });
-          chainStopped = true;
+          chainStopped = true; chainBreakSegKey ??= segKey;
           continue;
         }
         if (fence.recoverySuspect && !opts.adoptSuspect) {   // 修正 #6：恢复怀疑态（非 quarantine）
@@ -1015,7 +1070,7 @@ export class CollabSpoolService {
           // 零帧重放（内存态——无 sidecar：裁定归恢复流，非持久隔离）
           segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header, frameCount, goodBytes, seqs, frameHashes, 'timestamp-fence', true));
           pr.recoverySuspect.push({ segKey, lastWriteAtMs: seg.header.lastWriteAtMs });
-          chainStopped = true;   // 未裁定的怀疑段=链上缺口
+          chainStopped = true; chainBreakSegKey ??= segKey;   // 未裁定的怀疑段=链上缺口
           continue;
         }
         if (fence.recoverySuspect && opts.adoptSuspect) {
@@ -1056,7 +1111,19 @@ export class CollabSpoolService {
             res.frames.length, res.lastGoodOffset, res.frames.map((f) => f.walSeq),
             res.frames.map((f) => f.frameHash.toString('hex')), 'pg-prefix-violation', true));
           this.logger.error(`WAL PG 前缀校验 violation：${segKey} lastGoodSeq=${lastGood ?? 'null'}<pgSeq=${pg}——段证据保全禁截断，人工裁定`);
-          chainStopped = true;
+          chainStopped = true; chainBreakSegKey ??= segKey;
+          continue;
+        }
+        if (isForeign) {
+          // I4（Q-I5）：外来段禁字节处置（与 scan() P18 纪律对称——fenced 前任可能仍在写）：
+          // 仅 sealed+报告，不截断不 sidecar（不动外来目录任何字节/条目）；有效前缀帧照常可证
+          // 可重放（chain-stopped 档——I1）。
+          segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header,
+            res.frames.length, res.lastGoodOffset, res.frames.map((f) => f.walSeq),
+            res.frames.map((f) => f.frameHash.toString('hex')), 'chain-stopped', true,
+            seg.buf.byteLength - res.lastGoodOffset));
+          pr.replayPrefix.push(...res.frames.map((f) => f.walSeq));
+          chainStopped = true; chainBreakSegKey ??= segKey;   // 链断（后续段不可证明连续）
           continue;
         }
         // 完整有效前缀截断（丢的全是 walSeq>pgSeq 的帧——从未承诺 Durable）+sidecar 审计
@@ -1072,17 +1139,30 @@ export class CollabSpoolService {
           res.frames.map((f) => f.frameHash.toString('hex')), 'chain-stopped', true,
           seg.buf.byteLength - res.lastGoodOffset));
         pr.replayPrefix.push(...res.frames.map((f) => f.walSeq));
-        chainStopped = true;   // 链断（后续段不可证明连续）
+        chainStopped = true; chainBreakSegKey ??= segKey;   // 链断（后续段不可证明连续）
       }
-      // 水位重建（ADR-01 §3.3）——violation 项目不重建（报告携带 violation，T13 阻断开放写）
+      // 水位重建（ADR-01 §3.3）——violation 项目不重建（报告携带 violation，T13 阻断开放写）。
+      const pgW = opts.pgSeq(projectId);
       const maxSeq = pr.replayPrefix.reduce<bigint>((m, s) => (s > m ? s : m), 0n);
+      if (pr.pgPrefixViolation.length === 0 && maxSeq < pgW && chainStopped) {
+        // I3（Q-I4）：链可证性中断（全段隔离/链断/怀疑——restore+bump 形态）+PG 残留 pgSeq>可证链尾
+        // =同归 pgPrefixViolation 报告（证据保全+禁截断+人工裁定；bump 后 pgSeq 跨代裁定归恢复流
+        // ——ADR-01 §3.2/§7），不 assert 崩 boot。
+        pr.pgPrefixViolation.push({ segKey: chainBreakSegKey ?? `${projectId}(chain-unproven)`, lastGoodSeq: maxSeq > 0n ? maxSeq : null, pgSeq: pgW });
+        this.logger.error(`WAL PG 前缀校验 violation（链断/全隔离+PG 残留）：${projectId} 可证链尾=${maxSeq}<pgSeq=${pgW}——证据保全禁截断，bump 后跨代裁定归恢复流（人工/T13）`);
+      }
       if (pr.pgPrefixViolation.length === 0) {
-        const w: WatermarkTriple = { pgSeq: opts.pgSeq(projectId), appliedSeq: maxSeq, spoolHeadSeq: maxSeq };
+        // M4（Q-M9）/契约 §3.3：重建以有效前缀+pgSeq 输入——PG 已提交帧必曾 spooled/applied
+        // （confirm 回收后 WAL 只剩 ≤pgSeq 幂等重放残帧）→ head=max(maxSeq,pgSeq)；
+        // 报告水位写回 watermarks 注册表（T13 消费面——rebuildRuntimeStateFromIndex 重建同值）。
+        const head = maxSeq > pgW ? maxSeq : pgW;
+        const w: WatermarkTriple = { pgSeq: pgW, appliedSeq: head, spoolHeadSeq: head };
         assertWatermarkInvariants(w);
         pr.watermarks = w;
+        this.watermarks.set(projectId, w);
       }
     }
-    this.index = next;   // 恢复裁定落 index（整段隔离/链断段 peek 零帧——与 replayPrefix 一致）
+    this.index = next;   // 恢复裁定落 index（整段隔离档零帧；chain-stopped 段前缀帧 peek 可取回——与 replayPrefix 一致，I1）
     this.rebuildRuntimeStateFromIndex();
     return report;
   }
@@ -1102,21 +1182,27 @@ export class CollabSpoolService {
     };
   }
 
-  /** scan/recoverScan 后运行期状态重建：walSeq 续号（隔离段不计）+水位+有界去重索引。 */
+  /** scan/recoverScan 后运行期状态重建：walSeq 续号（隔离段不计）+水位+有界去重索引。
+   *  I1（S-I1）：chain-stopped 段的有效前缀帧=已证链尾——计入续号与去重索引（其帧可重放）；
+   *  其余整段隔离档/恢复怀疑态零帧不计。 */
   private rebuildRuntimeStateFromIndex(): void {
     for (const [pid, segs] of this.index) {
       let maxSeq = 0n;
       for (const m of segs.values()) {
-        if (m.segQuarantined) continue;
+        if (m.segQuarantined != null && m.segQuarantined !== 'chain-stopped') continue;
         for (const s of m.seqs) if (s > maxSeq) maxSeq = s;
       }
       this.walSeqCounters.set(pid, maxSeq + 1n);
-      const w: WatermarkTriple = { pgSeq: this.watermarks.get(pid)?.pgSeq ?? 0n, appliedSeq: maxSeq, spoolHeadSeq: maxSeq };
+      // M4/I3 同式：head=max(maxSeq,pgSeq)——PG 已提交帧必曾 applied/spooled（rebuild 与
+      // recoverScan 报告水位同值；prev pgSeq 来自 M4 写回——scan 旧链路径恒 0n）。
+      const prevPg = this.watermarks.get(pid)?.pgSeq ?? 0n;
+      const head = maxSeq > prevPg ? maxSeq : prevPg;
+      const w: WatermarkTriple = { pgSeq: prevPg, appliedSeq: head, spoolHeadSeq: head };
       assertWatermarkInvariants(w);
       this.watermarks.set(pid, w);
       if (pid === '__probe__') continue;
       for (const [segKey, m] of segs) {
-        if (m.segQuarantined) continue;
+        if (m.segQuarantined != null && m.segQuarantined !== 'chain-stopped') continue;
         for (let i = 0; i < m.frameCount && i < m.frameHashes.length; i++) {
           this.dedupInsert(pid, m.frameHashes[i], `${segKey}:${i}`);
         }

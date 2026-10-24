@@ -260,10 +260,22 @@ describe('spool 启动回灌（V16：总预算+固定短退避+同项目帧合�
 
 describe('Task 1 收口（幻影 meta/scan 幂等/残尾可观测——质量审查行为面）', () => {
   it('appendRaw 失败不残留幻影段元数据（新段首帧写失败→回滚 index 插入）', async () => {
-    const s = svc();
-    await mkdir(join(dir, 'test-owner', 'p1.g1.0.spool'), { recursive: true });   // 段文件位置被目录占位：writeFile 段头 → EISDIR 必败（R3：占位在活动目录内）
+    // T8 收口 C1 后注入形态更新：段名占位（目录/幻影文件）经 'wx' 排他建=EEXIST 段号递增
+    // 不再失败（隔离段/未知段证据保全是 C1 Critical 根修——旧 EISDIR 注入随该修复退役）；
+    // 新段首帧失败改经 fsync seam 注入 ENOSPC（可恢复档截断回 last-good 后回滚 index 插入
+    // ——同一收口1 判据：writeFile 成功+首帧失败）。
+    class FailFirstSyncSpool extends CollabSpoolService {
+      private failedOnce = false;
+      constructor(d: string) { super(d); }
+      protected async syncSegmentHandle(fh: import('node:fs/promises').FileHandle): Promise<void> {
+        if (!this.failedOnce) { this.failedOnce = true; throw Object.assign(new Error('simulated ENOSPC'), { code: 'ENOSPC' }); }
+        await fh.sync();
+      }
+    }
+    const s = new FailFirstSyncSpool(dir);
+    s.setOwner('test-owner');
     await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
-    expect(s.hasFrames('p1')).toBe(false);   // 幻影 meta 回滚（收口 1：当前实现 index 留幽灵键必红）
+    expect(s.hasFrames('p1')).toBe(false);   // 幻影 meta 回滚（收口 1：index 留幽灵键必红）
   });
 
   it('scan：<8B 残片段（0 字节）直接 unlink——零帧零数据不进 index', async () => {
@@ -430,5 +442,19 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
       expect(s.hasFrames('p1')).toBe(false);
       expect(s.hasFrames('p2')).toBe(true);   // 未点名不回灌
     } finally { await cleanup(); }
+  });
+
+  // —— Y1c T8 双评审收口 M3（Q-M8）——
+  it('M3：switchGeneration quarantinedBytes 下界 0——legacy <164B 段（bytes-164 为负）按段实际 headerSize 计', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));   // g1 段 0（164+53=217B）建立 index/p1
+    // 白盒注入 legacy 形态段（generation=null+<164B 字节——盘上 legacy 残段的 index 投影形态）
+    (s as any).index.get('p1').set('test-owner/p1.0.spool', {
+      frameCount: 0, goodBytes: 0, bytes: 10, confirmed: new Set(), confirmedCount: 0,
+      sealed: false, quarantinedRange: null, quarantinedBytes: 0, dir: join(dir, 'test-owner'), seq: 0, foreign: false,
+      generation: null, seqs: [], frameHashes: [], header: null, segQuarantined: null,
+    });
+    await s.switchGeneration('p1', 2);
+    expect(s.depth().quarantinedBytes, 'legacy 段隔离字节下界 0（旧实现 10-164=-154 必红）').toBeGreaterThanOrEqual(0);
   });
 });
