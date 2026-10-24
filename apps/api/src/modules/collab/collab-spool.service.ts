@@ -261,11 +261,15 @@ function noteBadSegmentTier(kind: WalDefectKind): WalBadSegmentTier {
 
 // ═══════════════════ 恢复扫描报告（T13 消费面）═══════════════════
 
-/** 整段隔离原因（契约三档+本服务内部扩展档：换代切段/PG 前缀 violation 证据保全/链断截尾/
- *  截断失败拒服务——扩展档不进契约枚举，只在服务内部分派 peek/replay 零帧语义）。
- *  两档重放语义（I1/S-I1）：chain-stopped=链断但**有效前缀可重放**（截断/外来段——peek 可取回）；
- *  其余整段隔离档（含 timestamp-fence 恢复怀疑态/truncate-failed）零帧重放（证据保全/裁定面）。 */
-export type SegQuarantineReason = WalQuarantineReason | 'generation-switch' | 'pg-prefix-violation' | 'chain-stopped' | 'truncate-failed';
+/** 整段隔离原因（契约三档+本服务内部扩展档：换代切段/PG 前缀 violation 证据保全/链断两类/
+ *  截断失败拒服务——扩展档不进契约枚举：WalQuarantineReason 冻结于 doc-protocol.ts，本类型为
+ *  **服务侧本地联合扩展**（单源关系：契约档语义归契约，扩展档只在服务内部分派 peek/replay 零帧语义）。
+ *  链断两档重放语义（I1/S-I1+复核 R1 拆分）：chain-stopped=截断段/外来坏尾段（自身有效前缀
+ *  已经链式扫描器证实）**有效前缀可重放**（peek 可取回）；unproven-tail=链断后续段（仅过
+ *  permissive len/CRC 解析、未过 dup-seq/gap/generation/hash 链校验网）**零帧重放**——证据
+ *  保全（不截断不覆写，报告 quarantined 维可见，下轮恢复重裁定）；其余整段隔离档（含
+ *  timestamp-fence 恢复怀疑态/truncate-failed）零帧重放（证据保全/裁定面）。 */
+export type SegQuarantineReason = WalQuarantineReason | 'generation-switch' | 'pg-prefix-violation' | 'chain-stopped' | 'unproven-tail' | 'truncate-failed';
 
 export interface WalRecoveryProjectReport {
   projectId: string;
@@ -730,6 +734,13 @@ export class CollabSpoolService {
           this.logger.error(`WAL 截断回 last-good 失败——段 ${path} quarantine+walHealthy=false 停收（重启恢复扫描裁定）`);
           throw e;
         }
+        // R2（复核 Minor）：'wx' 新段首帧写失败（截断复用档）——164B 空头段文件顺手 unlink：frameCount=0
+        // 永不满足 confirm 回收判据（孤儿永不可回收），且占名迫使后续 append 'wx' EEXIST 递增泄漏段号；
+        // 该档语义=截断回 last-good+复用 seq，空孤儿零证据价值（按档分处置——EIO fail-stop 留证语义
+        // 相反不得动；截断失败档已在上方上抛前留证，不到此处）。
+        if (isNewSegment && meta && meta.frameCount === 0) {
+          await unlink(path).catch(() => {});   // 尽力而为：失败仅余孤儿（无数据完整性影响，主错照抛）
+        }
       }
       // 收口1：新段首帧失败→回滚 index 插入（不留幻影元数据；截断档已清帧字节，EIO 档留证）
       if (isNewSegment && meta && meta.frameCount === 0) {
@@ -766,11 +777,14 @@ export class CollabSpoolService {
     this.watermarks.set(projectId, next);
   }
 
-  /** 读全部未 confirm 好帧（以 index 的 frameCount=可解析帧数为界）。I1（S-I1）两档重放语义：
+  /** 读全部未 confirm 好帧（以 index 的 frameCount=可解析帧数为界）。I1（S-I1）+复核 R1 三面重放语义：
    *  整段隔离不可重放档（bad-header/history-mismatch/timestamp-fence/换代/violation/truncate-failed）
-   *  =零帧（证据保全/裁定面）；chain-stopped 链断档（恢复扫描截断段/外来坏尾段）=**有效前缀帧
-   *  可重放**——(pgSeq,lastGoodSeq] 已 fsync 帧不得搁浅（报告 replayPrefix 与 peek 通道一致，
-   *  replayAll 由此送达 PG——对照旧链同形态能力）。循环内解析失败=tripwire：计数+停读。 */
+   *  =零帧（证据保全/裁定面）；chain-stopped 链断档（恢复扫描截断段/外来坏尾段——自身前缀已经
+   *  链式扫描器证实）=**有效前缀帧可重放**——(pgSeq,lastGoodSeq] 已 fsync 帧不得搁浅（报告
+   *  replayPrefix 与 peek 通道一致，replayAll 由此送达 PG——对照旧链同形态能力）；
+   *  unproven-tail 链断后续段=零帧（未过链校验网不可证连续——复核 R1：旧实现混入 chain-stopped
+   *  致 peek 泄漏未证帧）。过滤=白名单（下方 filter）：null+chain-stopped 之外一律零帧。
+   *  循环内解析失败=tripwire：计数+停读。 */
   async peek(projectId: string): Promise<SpoolFrame[]> {
     const segs = this.index.get(projectId);
     if (!segs) return [];
@@ -1046,9 +1060,13 @@ export class CollabSpoolService {
           continue;
         }
         if (chainStopped) {
-          // 链断后的当前代段：零重放（不可证明与前缀连续）——不隔离（下轮恢复重裁定）
+          // 链断后的当前代段（复核 R1）：仅过 permissive len/CRC 解析、未过链校验网（dup-seq/gap/
+          // generation/hash）——不可证明与前缀连续，**零重放**（unproven-tail——与截断段/外来坏尾段
+          // 的 chain-stopped①类分档，旧实现混用致 peek 泄漏）。处置=证据保全：不截断不覆写（C1 占名
+          // 只滚动）+报告 quarantined 维可见；不隔离（无 sidecar——下轮恢复重裁定）。
           const { frameCount, goodBytes, seqs, frameHashes } = parseSegmentFramesPermissive(seg.buf);
-          segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header, frameCount, goodBytes, seqs, frameHashes, 'chain-stopped', true));
+          segs.set(segKey, this.buildMeta(seg.dir, seg.parsed.segSeq, isForeign, seg.buf, seg.header, frameCount, goodBytes, seqs, frameHashes, 'unproven-tail', true));
+          pr.quarantined.push({ segKey, reason: 'unproven-tail' });
           continue;
         }
         // 双栅栏（契约 shouldQuarantineSegment——修正 #6 两维分派；F-S4-5 作用域门控）
@@ -1162,7 +1180,7 @@ export class CollabSpoolService {
         this.watermarks.set(projectId, w);
       }
     }
-    this.index = next;   // 恢复裁定落 index（整段隔离档零帧；chain-stopped 段前缀帧 peek 可取回——与 replayPrefix 一致，I1）
+    this.index = next;   // 恢复裁定落 index（整段隔离档+unproven-tail 零帧；chain-stopped 段前缀帧 peek 可取回——两类均与 replayPrefix 一致，I1/复核 R1）
     this.rebuildRuntimeStateFromIndex();
     return report;
   }
@@ -1184,7 +1202,9 @@ export class CollabSpoolService {
 
   /** scan/recoverScan 后运行期状态重建：walSeq 续号（隔离段不计）+水位+有界去重索引。
    *  I1（S-I1）：chain-stopped 段的有效前缀帧=已证链尾——计入续号与去重索引（其帧可重放）；
-   *  其余整段隔离档/恢复怀疑态零帧不计。 */
+   *  unproven-tail（复核 R1）与其余整段隔离档/恢复怀疑态零帧不计——其帧不可重放，若入去重
+   *  索引会使同 payload append 被误判「已持久化」（dedup 命中 no-op 但帧永不可达 PG）。
+   *  判定=白名单（!=null 且 !=='chain-stopped' 即跳过——unproven-tail 天然落排除面）。 */
   private rebuildRuntimeStateFromIndex(): void {
     for (const [pid, segs] of this.index) {
       let maxSeq = 0n;

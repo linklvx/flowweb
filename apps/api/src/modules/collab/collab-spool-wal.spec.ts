@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildWalFaultCorpus,
+  walFixturePayload,
   WAL_FAULT_CORPUS_EPOCH_STARTED_AT_FLOOR_MS,
   WAL_DEDUP_INDEX_MAX_ENTRIES,
   WAL_DEDUP_INDEX_TTL_MS,
@@ -61,10 +62,10 @@ function svc(): CollabSpoolService {
   s.setWalHistory(HISTORY);
   return s;
 }
-/** 语料段文件落盘（owner 子目录+codec 单源物化）——返回 segKey 相对名 */
-async function writeFixture(s: CollabSpoolService, header: WalSegmentHeader, frames: WalFrameFixtureInput[], fault?: WalFaultInjection): Promise<{ segKey: string; path: string }> {
+/** 语料段文件落盘（owner 子目录+codec 单源物化）——返回 segKey 相对名（segSeq 缺省 0） */
+async function writeFixture(s: CollabSpoolService, header: WalSegmentHeader, frames: WalFrameFixtureInput[], fault?: WalFaultInjection, segSeq = 0): Promise<{ segKey: string; path: string }> {
   await mkdir(join(dir, OWNER), { recursive: true });
-  const name = walSegmentFileName(header.projectId, header.generation, 0);
+  const name = walSegmentFileName(header.projectId, header.generation, segSeq);
   const path = join(dir, OWNER, name);
   await writeFile(path, encodeWalSegmentBytes(header, frames, fault));
   return { segKey: `${OWNER}/${name}`, path };
@@ -268,6 +269,22 @@ describe('Y1c T8 红组 D：fsync 分档（EIO fail-stop / ENOSPC 截断回 last
     const frames = await s.peek('p1');
     expect(frames.map((f) => Array.from(f.payload))).toEqual([[1, 2, 3], [4, 5, 6]]);
   });
+
+  it('R2（复核 Minor）：\'wx\' 新段首帧 ENOSPC 回滚——空 164B 头段文件顺手 unlink（无孤儿）+seq 复用不变', async () => {
+    const s = new FaultSpool(dir);
+    s.setOwner(OWNER); s.setWalHistory(HISTORY);
+    await s.append('p1', new Uint8Array([1, 2, 3]));                       // 段 0 好（回滚基准）
+    const nextSeqBefore = s.peekNextWalSeq('p1');
+    s.failNextSync = 'ENOSPC';
+    // 4MiB payload 撑爆段滚动上限（SEGMENT_MAX_BYTES）→ 本次 append 必 'wx' 新建段 1（首帧即失败档）
+    await expect(s.append('p1', new Uint8Array(4 * 1024 * 1024))).rejects.toThrow(/ENOSPC/);
+    expect(s.walHealthy(), 'ENOSPC 可恢复档——walHealthy 仍 true').toBe(true);
+    const segFiles = (await readdir(join(dir, OWNER))).filter((f) => f.endsWith('.spool'));
+    expect(segFiles, '回滚后目录无新段文件（旧实现留 164B 空头孤儿——frameCount=0 永不满足 confirm 回收判据必红）')
+      .toEqual([walSegmentFileName('p1', 1, 0)]);
+    expect(s.peekNextWalSeq('p1'), 'seq 复用不变（截断档语义——空孤儿无证据价值按档分处置）').toBe(nextSeqBefore);
+    expect(await s.peek('p1'), '段 0 帧无损').toHaveLength(1);
+  });
 });
 
 // ═══ 红组 E：帧协议本体（walSeq 去重/换带 generation/水位/换代切段/启动重建）═══
@@ -397,7 +414,7 @@ describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理
     const corpus = buildWalFaultCorpus({ historyId: HISTORY });
     const badCrc = corpus.find((f) => f.expectedBadTier === 'bad-crc')!;
     const s = svc();
-    await writeFixture(s, badCrc.header, badCrc.frames, badCrc.fault);
+    const { path } = await writeFixture(s, badCrc.header, badCrc.frames, badCrc.fault);
     const report = await s.recoverScan({ systemHistory: sysHistory(), pgSeq: () => 0n });
     const pr = report.projects[0];
     expect(pr.replayPrefix).toEqual([1n, 2n]);
@@ -411,6 +428,11 @@ describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理
     // 语料 payload=确定性非 Y 字节：mergeUpdates 结构解码失败→V16 逐帧回退（合并单次面归
     // service.spec 的真 Y update 用例）——恰 2 次逐帧 append。
     expect(repo.append).toHaveBeenCalledTimes(2);
+    // R3（复核 Minor）：本用例声称「段回收」——补显式断言：全部帧 confirmed 后段文件+恢复截断
+    // sidecar unlink（confirm 回收判据 V3：frameCount>0 ∧ 全 confirmed ∧ 坏尾已处置）+owner 目录零残留。
+    expect(existsSync(path), '段文件已 unlink（回收）').toBe(false);
+    expect(existsSync(`${path}.quarantine`), '恢复截断 sidecar 随段回收').toBe(false);
+    expect((await readdir(join(dir, OWNER)).catch(() => [] as string[])).filter((f) => f.endsWith('.spool')), 'owner 目录零残留段').toHaveLength(0);
   });
 
   it('I4：外来段（dir≠adir）坏尾禁物理截断（P18 对称——fenced 前任可能仍在写）：仅 sealed+前缀可重放', async () => {
@@ -428,6 +450,34 @@ describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理
     expect(pr.replayPrefix).toEqual([1n, 2n]);                        // 前缀帧照常可证（I1 维度）
     expect(pr.truncated, '不进 truncated 报告（未动字节）').toHaveLength(0);
     expect(await s.peek('proj-fixture')).toHaveLength(2);
+  });
+});
+
+// ═══ 复核收口 R1（Important）：chain-stopped 两态拆分——链断后续段（unproven-tail）禁重放 ═══
+describe('Y1c T8 复核收口 R1：链断后续段=unproven-tail（未过链校验网）零重放——与截断段 chain-stopped 分档', () => {
+  it('状态 B（seg0[1,2]+seg1 缺号致命+seg2[5,6]）：replayPrefix/peek 恰 [1,2]，seg2 帧不可达（旧实现两态混用 peek 泄漏 4 帧必红）', async () => {
+    const corpus = buildWalFaultCorpus({ historyId: HISTORY });
+    const header = corpus[0].header;   // proj-fixture / g3 / historyId=HISTORY（与 sysHistory 匹配）
+    const s = svc();
+    await writeFixture(s, header, corpus[0].frames.slice(0, 2));   // 完好 [1,2]——链式起点
+    const seg1 = await writeFixture(s, header, [{ walSeq: 4n, payload: walFixturePayload(64, 21) }], undefined, 1);   // 首帧缺号（期望 3）→ gap 致命
+    const seg2 = await writeFixture(s, header, [
+      { walSeq: 5n, payload: walFixturePayload(64, 22) },
+      { walSeq: 6n, payload: walFixturePayload(64, 23) },
+    ], undefined, 2);   // 链断后续段：len/CRC permissive 全过、dup-seq/gap/generation/hash 链校验网零过
+    const seg2BytesBefore = await readFile(seg2.path);
+    const report = await s.recoverScan({ systemHistory: sysHistory(), pgSeq: () => 0n });
+    const pr = report.projects[0];
+    expect(pr.replayPrefix, '重放前缀恰 [1,2]（seg1 截断空前缀+seg2 不可证）').toEqual([1n, 2n]);
+    expect(pr.truncated.map((t) => t.segKey), 'seg1 截断到空前缀（164B 头）').toEqual([seg1.segKey]);
+    expect(pr.quarantined, 'seg2=unproven-tail 报告 quarantined 维可见（证据保全零重放）').toEqual([{ segKey: seg2.segKey, reason: 'unproven-tail' }]);
+    // 旧实现：:1051 对链断后续段赋 'chain-stopped' → peek 白名单放行 → seg2 [5,6] 泄漏（4 帧）
+    const frames = await s.peek('proj-fixture');
+    expect(frames.map((f) => Array.from(f.payload)), 'peek 恰 seg0 前缀两帧——seg2 帧不可达').toEqual([
+      Array.from(corpus[0].frames[0].payload), Array.from(corpus[0].frames[1].payload),
+    ]);
+    expect(s.peekNextWalSeq('proj-fixture'), 'unproven-tail seq 不计入续号（帧不可重放，防同号混淆）').toBe(3n);
+    expect((await readFile(seg2.path)).equals(seg2BytesBefore), 'seg2 证据保全——不截断不覆写（下轮恢复重裁定）').toBe(true);
   });
 });
 
