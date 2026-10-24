@@ -65,6 +65,7 @@
     "@types/express": "^5.0.6",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/node": "^20.11.0",
+    "@types/pg": "^8.23.1",
     "@types/tmp": "^0.2.6",
     "@types/ws": "^8.18.2",
     "eslint": "^10.10.0",

@@ -161,6 +161,9 @@ importers:
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.40
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       '@types/tmp':
         specifier: ^0.2.6
         version: 0.2.6
@@ -2330,6 +2333,9 @@ packages:
 
   '@types/node@20.19.40':
     resolution: {integrity: sha512-xxx6M2IpSTnnKcR0cMvIiohkiCx20/oRPtWGbenFygKCGl3zqUzdNjQ/1V4solq1LU+dgv0nQzeGOuqkqZGg0Q==}
+
+  '@types/pg@8.23.1':
+    resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
@@ -7732,6 +7738,12 @@ snapshots:
   '@types/node@20.19.40':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/pg@8.23.1':
+    dependencies:
+      '@types/node': 20.19.40
+      pg-protocol: 1.15.0
+      pg-types: 2.2.0
 
   '@types/prop-types@15.7.15': {}
 
