@@ -52,7 +52,8 @@ SELECT indexdef FROM pg_indexes WHERE indexname='material_folder_team_root_name_
 
 SELECT indexdef FROM pg_indexes WHERE indexname='material_folder_team_parent_name_unique' AND indexdef LIKE '%WHERE%';
 
-SELECT 'seq-ok' AS assert WHERE EXISTS (SELECT 1 FROM pg_class WHERE relkind='S' AND relname='canvas_doc_update_seq');
+-- Y1c T10（census⑩）：canvas_doc_update_seq 退役（T10 DROP——行 seq=WAL walSeq 非 DB 取号）；存在即异常态
+SELECT 'seq-gone-ok' AS assert WHERE NOT EXISTS (SELECT 1 FROM pg_class WHERE relkind='S' AND relname='canvas_doc_update_seq');
 
 -- Y1c T9：CanvasDocUpdate_projectId_seq_key 退役（表改形 DROP——存在即异常态）；改断新 unique 轴在位
 SELECT indexname FROM pg_indexes WHERE tablename='CanvasDocUpdate' AND indexname='CanvasDocUpdate_projectId_generation_updateHash_key';

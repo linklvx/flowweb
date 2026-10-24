@@ -488,13 +488,14 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
     actor.failNextApply = true;
     await expect(actor.submit('p1', poisonBytes, makeConn(), 'update')).rejects.toMatchObject({ code: CollabCloseCode.FRAME_MALFORMED });
     expect(spool.watermark('p1')!.spoolHeadSeq).toBe(1n);   // WAL 截断至 appliedSeq=1（毒帧 walSeq2 已截）
-    // 截断后重发同字节毒帧（apply 恢复）：必须按新帧处理——新 walSeq（3）+真 WAL 写入
-    // （红相：spool dedupIndex 残留→appendBatch 零写返回已截 walSeq=2→ACK 声称的 walSeq 在 WAL 不存在）
+    // 截断后重发同字节毒帧（apply 恢复）：必须按新帧处理——真 WAL 写入+去重条目已作废（S-I1 主轴）
+    // walSeq=复用被截 2n（Y1c T10 修正：truncateWalAfter 回拨续号——WAL 密集前缀=恢复链可证性前提，
+    // scanWalSegmentBuffer gap 缺号 fatal；T9 旧「跳号 3n」形态=每次 recoverScan 链断截尾——G2 ⑦ 红）。
     actor.failNextApply = false;
     const r2 = await actor.submit('p1', poisonBytes, makeConn(), 'update');
-    expect(r2.walSeq, '新 walSeq≠已截 2n').toBe(3n);
+    expect(r2.walSeq, '复用被截 walSeq（密集前缀——不留洞）').toBe(2n);
     expect(r2.noop).not.toBe(true);
-    expect(spool.watermark('p1')!.spoolHeadSeq, '真 WAL 写入（spoolHead 随新帧推进）').toBe(3n);
+    expect(spool.watermark('p1')!.spoolHeadSeq, '真 WAL 写入（spoolHead 随新帧推进）').toBe(2n);
     expect((doc.getMap('nodes') as Y.Map<unknown>).get('sibad')).toBe(1);
   }, 20_000);
 

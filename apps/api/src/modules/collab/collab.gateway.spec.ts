@@ -842,8 +842,12 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         await pollUntil(async () => { const fr = await spool.peek('p-boi3'); return fr.some((f) => { const t = new Y.Doc(); try { Y.applyUpdate(t, f.payload); } catch { return false; } return t.getMap('nodes').has('n'); }); }, 5_000);   // BOI 失败路径：新家=WAL 已 fsync（含所写节点帧——Y1c T9 逐帧入账：空 SS2 帧亦独立在册；旧实现=内存 Map，spool 空 → 红）
         await provider.destroy();
         kit.forget(provider);   // 自管 destroy 后移出 dispose 清理数组——防双 destroy（flaky 源，惯例同上方 spec:262）
-        await pollUntil(() => !kit.gateway.server.hocuspocus.documents.has(name), 8_000);   // A9：卸载发生
-        {   // 卸载后批仍在磁盘（旧实现随 doc 消失+内存 Map 崩溃丢 → 红）——逐帧检所写节点在册
+        // Y1c T10（偏离 37⑩+38⑤）翻转：PG 恒败 → applied 前缀不可 drain → beforeUnloadDocument 拒绝卸载
+        // （doc 常驻 fail-closed——旧断言「卸载发生」=T9 形态）。BOI 主轴不变：批必须在 spool（磁盘）
+        // ——常驻窗下逐帧检所写节点在册（帧已 fsync=新家落定；旧实现 stash 内存=spool 空 → 红）。
+        await new Promise((r) => setTimeout(r, 500));
+        expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // 拒绝卸载=常驻
+        {
           const fr = await spool.peek('p-boi3');
           expect(fr.length).toBeGreaterThanOrEqual(1);
           const revived = new Y.Doc();
@@ -1172,8 +1176,13 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
   });
 
   it('入队只 push 不折叠：70 条全留队列+软阈触发 setImmediate 提前 flush（旧实现 :207 封顶合并后=1=红相）', async () => {
-    let release!: (v: { ok: true; seq: bigint }) => void;   // Y13：可释放 deferred（append 挂起持 saveMutex→不释放则 dispose 挂死）
-    const kit = await startDualClientServer({ appendBatch: vi.fn(() => new Promise((r) => { release = r; })) }, 60_000);   // 大 debounce+append 挂起：只看入队形态
+    // Y1c T10：applied-driven flusher 对多前缀多次 appendBatch（维护帧+连接 SS2 空帧各成前缀）——
+    // 挂起阀改「释放后全放行」形态（T9 单 release 单批形态不再覆盖多前缀；Y13 dispose 干净语义保持）。
+    const OK = { ok: true as const, rows: 1 };
+    let released = false;
+    const pending: Array<(v: typeof OK) => void> = [];
+    const release = () => { released = true; for (const r of pending.splice(0)) r(OK); };   // Y13：可释放 deferred（append 挂起持 saveMutex→不释放则 dispose 挂死）
+    const kit = await startDualClientServer({ appendBatch: vi.fn(() => new Promise((r) => { if (released) r(OK); else pending.push(r); })) }, 60_000);   // 大 debounce+append 挂起：只看入队形态
     try {
       const g = gatewayFacade(kit.gateway);
       const { provider, synced } = kit.connect('project:p-many');   // 真路径装载（pendingQueues 由 loadDocument 播种——Y19 禁裸插装置）
@@ -1186,7 +1195,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(q).toBeDefined();
       expect(q.length).toBeGreaterThan(60);      // 不折叠（监听面只 push——折叠归 store 取批点；软阈 flush 已尝试=append 挂起批留队，BOI copy-first）
       expect((kit.repo.appendBatch as MockRepo['appendBatch']).mock.calls.length).toBeGreaterThanOrEqual(1);   // 提前 flush 确已触发（防空转）
-      release({ ok: true, seq: 1n });            // 释放——mutex 归还，dispose 干净
+      release();                                  // 释放（已挂起+后续 appendBatch 全放行）——mutex 归还，dispose 干净
       await provider.destroy();
       kit.forget(provider);   // 自管 destroy 后移出 dispose 清理数组（双 destroy=已知 flaky 源，惯例同上）
     } finally { await kit.dispose(); }
@@ -1752,7 +1761,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
         expect(kit.spool.depth()).toMatchObject({ strandedFiles: 0, ownFiles: 0 });   // 收养+回灌+回收闭环（缺 quarantine 步=段永不 unlink=红）
         await expect(stat(segPath)).rejects.toMatchObject({ code: 'ENOENT' });
         await expect(stat(`${segPath}.quarantine`)).rejects.toMatchObject({ code: 'ENOENT' });   // sidecar 随段回收
-        expect(kit.repo.appendBatch).toHaveBeenCalledWith('prc', expect.anything());   // 好帧已回灌 PG
+        expect(kit.repo.appendBatch).toHaveBeenCalledWith('prc', expect.anything(), expect.objectContaining({ expectedPgSeq: null }));   // 好帧已回灌 PG（Y1c T10：回灌带水位 catch-up——expectedPgSeq=null 单调追赶形态）
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });

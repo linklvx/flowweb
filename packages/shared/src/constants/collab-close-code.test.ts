@@ -9,6 +9,7 @@ import {
 import type { BackoffPlan, CloseActionKind } from './collab-close-code';
 import { CollabAuthReason } from './collab-auth-reason';
 import { ConnectionTimeout, Forbidden, MessageTooBig, ResetConnection, Unauthorized } from '@hocuspocus/common';
+import { Y1C_RECOVERY_DISPATCH_TIERS, assertY1cCodesNotBackoffRouted, resolveRecoveryAction } from '../collab/recovery-flow';
 
 describe('CollabCloseCode 分配表（spec §3.5）——库值单源锚（P-N）', () => {
   it('应用侧自有码=1000/1012/4401/4402（4401 双 reason 分型同码——sweep 与库 Unauthorized 异 reason 同 code）', () => {
@@ -169,23 +170,27 @@ describe('退避计划（spec §5.2 v2.2——RECOVER_BACKOFF_MS 族一张表；
   it('normal(1000) 改带退避的一次重连(库抹码形态 (1000,reason) 可能掩盖瞬态关闭;真终态服务端下次握手以带 reason 的 auth 拒档权威分型)', () => {
     expect(resolveBackoffPlan('close', 1000, '', 0, 0).kind).toBe('exponential');
   });
-  it('五档穷尽性表驱动用例:对 CloseActionKind 全五档 × 常见 reason 矩阵断言 kind 映射穷尽且合法(terminal→none/silent-renew-once→silent-renew/planned-restart→short/backoff→exponential/normal→exponential);未来新增 kind 未映射即红(kind 联合类型驱动编译期+运行时双重穷尽)', () => {
+  it('七档穷尽性表驱动用例:对 CloseActionKind 全七档 × 常见 reason 矩阵断言 kind 映射穷尽且合法(terminal→none/silent-renew-once→silent-renew/planned-restart→short/backoff→exponential/normal→exponential/resync→short/retry→short);未来新增 kind 未映射即红(kind 联合类型驱动编译期+运行时双重穷尽)', () => {
     const EXPECTED: Record<CloseActionKind, BackoffPlan['kind']> = {
       'terminal': 'none',
       'silent-renew-once': 'silent-renew',
       'planned-restart': 'short',
       'backoff': 'exponential',
       'normal': 'exponential',
+      'resync': 'short',    // Y1c T10 修正 #7 新档
+      'retry': 'short',     // Y1c T10 修正 #7 新档
     };
     // 代表矩阵：每档至少一对 (code,reason)——档判定经 resolveCloseAction 真值分派
     const matrix: ReadonlyArray<readonly [code: number, reason: string]> = [
       [4401, 'Unauthorized'], [4404, DOC_OVER_QUOTA_TERMINAL_REASON], [4410, DOC_VACUUMING_TERMINAL_REASON],
-      [1009, ''], [1000, DOC_OVER_QUOTA_TERMINAL_REASON],                                        // terminal
+      [1009, ''], [1000, DOC_OVER_QUOTA_TERMINAL_REASON], [4406, 'client-outdated'],                 // terminal
       [4401, 'session-expired'],                                                                  // silent-renew-once
       [1012, ''],                                                                                 // planned-restart
       [1008, 'msg-rate-exceeded'], [4408, 'forced'], [4408, 'Connection Timeout'],
       [1011, 'slow-consumer'], [4205, ''], [4403, ''], [4402, 'max-lifetime'], [4999, ''],       // backoff
       [1000, ''],                                                                                 // normal
+      [4411, 'frame-malformed'], [4412, 'resync-required'],                                       // resync（Y1c 修正 #7）
+      [4413, 'maintenance-freeze'],                                                               // retry（Y1c 修正 #7）
     ];
     const seenKinds = new Set<CloseActionKind>();
     for (const [code, reason] of matrix) {
@@ -204,5 +209,53 @@ describe('退避计划（spec §5.2 v2.2——RECOVER_BACKOFF_MS 族一张表；
     // 锁实现形态：函数内部不得有独立瞬态 reason 集合（第二张 reason 表=未来新增瞬态 reason 漏登即误判终态）
     const src = readFileSync(new URL('./collab-close-code.ts', import.meta.url), 'utf8');
     expect(src).not.toMatch(/TRANSIENT_REASONS/);
+  });
+});
+
+// ══════════ Y1c T10 修正 #7：Y1c 四码（4406/4411/4412/4413）先走 resolveRecoveryAction 分派——禁被通用 backoff 吞 ══════════
+describe('Y1c T10 修正 #7：四码 close 分派（4406→terminal/4411·4412→resync/4413→retry——现状全落表尾 backoff 兜底=红）', () => {
+  const REASON_OF: Record<number, string> = {
+    [CollabCloseCode.CLIENT_OUTDATED]: 'client-outdated',
+    [CollabCloseCode.FRAME_MALFORMED]: 'frame-malformed',
+    [CollabCloseCode.RESYNC_REQUIRED]: 'resync-required',
+    [CollabCloseCode.MAINTENANCE_FREEZE]: 'maintenance-freeze',
+  };
+  it('四码经分派档（与 recovery-flow Y1C_RECOVERY_DISPATCH_TIERS 同源）：terminal→terminal(client-outdated)/resync→resync/retry→retry——任一落 backoff 即红', () => {
+    for (const [codeStr, tier] of Object.entries(Y1C_RECOVERY_DISPATCH_TIERS)) {
+      const code = Number(codeStr);
+      const a = resolveCloseAction(code, REASON_OF[code]);
+      expect(a.kind, `code ${code}（tier=${tier}）不得落通用 backoff 兜底（修正 #7）`).not.toBe('backoff');
+      if (tier === 'terminal') {
+        expect(a.kind).toBe('terminal');
+        expect(a.terminalReason).toBe('client-outdated');
+      } else if (tier === 'resync') {
+        expect(a.kind).toBe('resync');   // 重置到服务端状态后重连（resolveRecoveryAction→resync-full）
+      } else {
+        expect(a.kind).toBe('retry');    // Retry-After 可重试（resolveRecoveryAction→retry-after-maintenance）
+      }
+    }
+  });
+  it('守卫负控：assertY1cCodesNotBackoffRouted 对含任一四码的 backoff 处理集必 throw（4413 入集=红——T9 收口批契约消费锚）', () => {
+    expect(() => assertY1cCodesNotBackoffRouted([4413])).toThrow(/must dispatch via resolveRecoveryAction/);
+    expect(() => assertY1cCodesNotBackoffRouted(Object.keys(Y1C_RECOVERY_DISPATCH_TIERS).map(Number))).toThrow(/Y1c close code/);
+    expect(() => assertY1cCodesNotBackoffRouted([1008, 1011, 4205])).not.toThrow();   // 非 Y1c 码照常 backoff
+  });
+  it('装配守卫（正向）：resolveCloseAction 全码空间探测的 backoff 处理集 ∩ Y1c 四码 = ∅', () => {
+    const probeCodes = [1000, 1008, 1009, 1011, 1012, 4205, 4401, 4402, 4403, 4404, 4406, 4408, 4410, 4411, 4412, 4413, 4999];
+    const backoffRouted = probeCodes.filter((c) => resolveCloseAction(c, '').kind === 'backoff');
+    expect(backoffRouted).not.toContain(CollabCloseCode.CLIENT_OUTDATED);
+    expect(() => assertY1cCodesNotBackoffRouted(backoffRouted)).not.toThrow();
+  });
+  it('resolveBackoffPlan 传导：4406→none（强刷终态）；4411/4412/4413→short（resync/retry 后快速重连——不进 2s 起步指数阶梯）', () => {
+    expect(resolveBackoffPlan('close', 4406, 'client-outdated', 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 4411, 'frame-malformed', 0, 0).kind).toBe('short');
+    expect(resolveBackoffPlan('close', 4412, 'resync-required', 0, 0).kind).toBe('short');
+    expect(resolveBackoffPlan('close', 4413, 'maintenance-freeze', 0, 0).kind).toBe('short');
+  });
+  it('分派档与 resolveRecoveryAction 动作一致性（修正 #7 路由优先级契约——close 分派先于 backoff 环）', () => {
+    expect(resolveRecoveryAction({ code: CollabCloseCode.CLIENT_OUTDATED, reason: 'client-outdated' })).toBe('force-refresh-protocol');
+    expect(resolveRecoveryAction({ code: CollabCloseCode.FRAME_MALFORMED })).toBe('resync-full');
+    expect(resolveRecoveryAction({ code: CollabCloseCode.RESYNC_REQUIRED })).toBe('resync-full');
+    expect(resolveRecoveryAction({ code: CollabCloseCode.MAINTENANCE_FREEZE })).toBe('retry-after-maintenance');
   });
 });

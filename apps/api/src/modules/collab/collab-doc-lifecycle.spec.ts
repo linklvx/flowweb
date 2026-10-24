@@ -491,7 +491,7 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     await gf.retryPersist('project:p-gone2');
     expect(spool.hasFrames('p-gone2')).toBe(false);
     // Y1c T9 新表形态：帧通道落 PG=appendBatch(pid,[rows])——rows[0].update=payload（单帧行）
-    expect(repo.appendBatch).toHaveBeenCalledWith('p-gone2', [expect.objectContaining({ update: payload })]);
+    expect(repo.appendBatch).toHaveBeenCalledWith('p-gone2', [expect.objectContaining({ update: payload, actorRanges: expect.anything() })], expect.objectContaining({ newPgSeq: 1n }));   // Y1c T10：applied-driven flusher（行带 actorRanges 真值+水位 CAS/追赶第三参）
   });
 });
 

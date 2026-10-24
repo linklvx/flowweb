@@ -130,7 +130,13 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
       // Y0c T15：常驻会话先释放（Z81 测试等价——direct 在则库 runDestroy 永不 settle；
       // 释放=releaseSessionFor 逐条目（T18 releaseAllSessions 关停序前的基础形态复用））
       for (const pid of residency.residentProjectIds()) await residency.releaseSessionFor(pid);
-      await (gateway as any).server.destroy();
+      // Y1c T10：destroy 套 4s race——beforeUnloadDocument 拒绝卸载（applied 未 drain——doc 常驻
+      // fail-closed）会取消库卸载=destroy 永不 resolve（生产 onApplicationShutdown 自带 4s race 同款；
+      // kit 不走 Nest 关停链，此处补齐等价兜底）。
+      await Promise.race([
+        (gateway as any).server.destroy(),
+        new Promise((r) => { setTimeout(r, 4_000).unref?.(); }),
+      ]);
       if (ownedSpoolDir) await rm(ownedSpoolDir, { recursive: true, force: true }).catch(() => {});   // mkdtemp tmpdir 域——自建才清
     },
   };

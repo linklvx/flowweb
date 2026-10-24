@@ -25,6 +25,7 @@
 //   node scripts/collab-renumber-layer.mjs <projectId> [--dry-run]
 //   node scripts/collab-renumber-layer.mjs --all [--dry-run]      # 全项目逐个（含健康 doc——幂等零写）
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,7 +60,8 @@ async function renumberProject(client, projectId, dryRun) {
   return client.query('BEGIN').then(async () => {
     try {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1)::bigint)', [projectId]);
-      const docRow = (await client.query('SELECT state, "schemaVersion" FROM "CanvasDoc" WHERE "projectId" = $1', [projectId])).rows[0] ?? null;
+      const docRow = (await client.query('SELECT state, "schemaVersion", generation FROM "CanvasDoc" WHERE "projectId" = $1', [projectId])).rows[0] ?? null;
+      const gen = Number(docRow?.generation ?? 1) || 1;   // Y1c T10：行 generation 口径（缺省 1 与装载面同源）
       const updates = (await client.query('SELECT seq, update FROM "CanvasDocUpdate" WHERE "projectId" = $1 ORDER BY seq ASC', [projectId])).rows;
       if (!docRow && updates.length === 0) {
         await client.query('COMMIT');
@@ -122,11 +124,19 @@ async function renumberProject(client, projectId, dryRun) {
         await client.query('COMMIT');
         return { projectId, changed: 0, layers: 0, pathology: before, rows: 0, note: '写集空（非法节点值档全员跳写）——零行追加' };
       }
+      // Y1c T10（census⑩）：新表形态行（T9 表改形：id 列删/PK=(projectId,generation,seq)/updateHash
+      // unique/firstWalSeq·frameCount·generation NOT NULL）+nextval 退役（canvas_doc_update_seq DROP
+      // ——离线工具 api 停写前提下 MAX(seq)+1 单调；updateHash=diff 字节 SHA-256 hex；generation=
+      // CanvasDoc 行值缺省 1）。锁（pg_advisory_xact_lock hashtext(pid)）保留——与 vacuumReplace 同键
+      // （T12 收口锚），append/compact 已去锁不与本 CLI 竞。
+      const hashHex = createHash('sha256').update(Buffer.from(diff)).digest('hex');
       const r = await client.query(
-        `INSERT INTO "CanvasDocUpdate" (id, "projectId", seq, update, "createdAt")
-         SELECT gen_random_uuid()::text, $1, nextval('canvas_doc_update_seq')::bigint, $2, now()
+        `INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
+         SELECT $1, $3::int, (SELECT COALESCE(MAX(seq), 0) + 1 FROM "CanvasDocUpdate" WHERE "projectId" = $1)::bigint,
+                (SELECT COALESCE(MAX(seq), 0) + 1 FROM "CanvasDocUpdate" WHERE "projectId" = $1)::bigint,
+                1, $4::char(64), $2, now()
          RETURNING seq`,
-        [projectId, Buffer.from(diff)],
+        [projectId, Buffer.from(diff), gen, hashHex],
       );
       await client.query('COMMIT');
       return { projectId, changed: plan.byId.size, layers: plan.layers.size, pathology: before, rows: r.rowCount, seq: r.rows[0].seq };

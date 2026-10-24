@@ -50,6 +50,8 @@ export type CloseActionKind =
   | 'silent-renew-once'   // 4401 'session-expired'：静默重连一次，失败才终态
   | 'planned-restart'     // 1012：既有 30s 窗+1~3s 短退避链路（runtime 收编）
   | 'backoff'             // 瞬态退避（4205/4403/4408/4402/未知——machine 既有退避表；v3：reconnect 档删除=死档）
+  | 'resync'              // Y1c T10（修正 #7）：4411/4412——重置到服务端状态后重连（recovery-flow resync-full）
+  | 'retry'               // Y1c T10（修正 #7）：4413 maintenance-freeze——Retry-After 可重试（非终态）
   | 'normal';             // 1000
 
 export interface CloseAction { kind: CloseActionKind; terminalReason?: string; synthetic?: boolean }
@@ -120,6 +122,16 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
   }
   if (code === CollabCloseCode.RATE_LIMITED_CLOSE) return { kind: 'backoff' };  // 1008 消息频率超限——瞬态
   if (code === CollabCloseCode.SLOW_CONSUMER) return { kind: 'backoff' };       // 1011 消费过慢——瞬态
+  // Y1c T10（修正 #7）：Y1c 四码先经 resolveRecoveryAction 档分派——**禁落表尾 backoff 兜底**
+  //（backoff 吞掉 4406 强刷/4411·4412 重同步/4413 Retry-After=重连循环反复撞同一硬门/毒帧——
+  // 用户态永久错乱）。分派档与 recovery-flow Y1C_RECOVERY_DISPATCH_TIERS 同源：terminal→terminal/
+  // resync→resync/retry→retry。注：本文件=constants 底层，静态 import recovery-flow 成环
+  //（recovery-flow 模块初始化消费本文件 CollabCloseCode——先载本文件时 tiers 键折 undefined），
+  // 档一致性由 collab-close-code.test 双源断言+assertY1cCodesNotBackoffRouted 装配守卫锁定（非 import）。
+  if (code === CollabCloseCode.CLIENT_OUTDATED) return { kind: 'terminal', terminalReason: CLIENT_OUTDATED_REASON };
+  if (code === CollabCloseCode.FRAME_MALFORMED) return { kind: 'resync' };
+  if (code === CollabCloseCode.RESYNC_REQUIRED) return { kind: 'resync' };
+  if (code === CollabCloseCode.MAINTENANCE_FREEZE) return { kind: 'retry' };
   return { kind: 'backoff' }; // 4205/4403/4402 max-lifetime/未知——全瞬态退避档（4403：sweep/事件驱动先踢，此处 fail-safe 重连后 auth 面给权威 reason）
 }
 
@@ -144,7 +156,7 @@ export function resolveBackoffPlan(route: BackoffRoute, code: number | undefined
   });
   if (route === 'timeout') return exponential();                                    // socket OPEN 未认证 10s 超时
   if (route === 'auth' || code === undefined) return isTerminalReason(reason) ? { kind: 'none', ms: 0 } : exponential(); // code 缺失归 auth 路由（裁定 25⑵ 去 code! 断言）
-  // close 路由：五档穷尽（kind 联合类型+无 default——新增档未映射即编译红）
+  // close 路由：七档穷尽（kind 联合类型+无 default——新增档未映射即编译红）
   const action = resolveCloseAction(code, reason);
   switch (action.kind) {
     case 'planned-restart': return { kind: 'short', ms: 1_000 + jitterMs };
@@ -152,5 +164,7 @@ export function resolveBackoffPlan(route: BackoffRoute, code: number | undefined
     case 'backoff': return exponential();
     case 'normal': return exponential();                                            // 裁定 24⑴——库抹码掩盖瞬态；真终态由下次握手 auth 拒档权威分型
     case 'terminal': return { kind: 'none', ms: 0 };
+    case 'resync': return { kind: 'short', ms: 1_000 + jitterMs };                  // Y1c 修正 #7：4411/4412——重置到服务端状态后快速重连（恢复编排归 T25）
+    case 'retry': return { kind: 'short', ms: 1_000 + jitterMs };                   // Y1c 修正 #7：4413——Retry-After 语义（载荷 retryAfterMs 消费归 T25；档=short 不进指数阶梯）
   }
 }

@@ -59,6 +59,7 @@ export function createCollabServer(opts: {
     beforeHandleAwareness: hooks.beforeHandleAwareness,   // Y0b-3 T7：awareness states 三分支覆写钩子接线（scratch Map 改写=重编码广播——esm:197-207）
     beforeHandleMessage: hooks.beforeHandleMessage,   // Y0b-4 T6：msg 桶+awareness 帧闸钩子接线（ClientConnection.processMessages 每帧必经）
     beforeSync: hooks.beforeSync,   // Y0b-4 T4：beforeSync 配额判据钩子接线（type=y-protocols 内层常量 0/1/2——非库 MessageType）
+    onStateless: hooks.onStateless,   // Y1c T10（偏离 37⑦+38⑳）：save barrier 接线——{nonce,clientSeq} wire 载体（返回值被库丢弃 esm:219-224——回执=显式 connection.sendStateless）
     onDisconnect: hooks.onDisconnect,
     beforeUnloadDocument: hooks.beforeUnloadDocument,   // Y0a-2 Task 7：卸载清理钩子接线（v4.6.0 Server 配置）
     afterUnloadDocument: hooks.afterUnloadDocument,   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理钩子接线（v4.6.0 Server 配置）

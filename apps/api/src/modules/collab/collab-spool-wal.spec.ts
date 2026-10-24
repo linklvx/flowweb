@@ -419,12 +419,13 @@ describe('Y1c T9 收口 S-I1：truncateWalAfter 逐被截帧清去重索引—�
     expect(appended.map((a) => a.walSeq)).toEqual([1n, 2n]);
     const removed = await s.truncateWalAfter('p1', 1n);   // 毒帧协议形态：保留 f1（applied），截 f2
     expect(removed).toBe(1);
-    // 截断帧重发：必须按新帧处理——新 walSeq（3）+真 WAL 写入
-    // （红相：dedupIndex 残留→零 WAL 写入返回已截 walSeq=2→ACK 声称的 walSeq 在 WAL 不存在→PG 行落已截序号）
+    // 截断帧重发：必须按新帧处理——真 WAL 写入（dedupIndex 残留红相=零写返回已截 walSeq）
+    // walSeq=复用被截 2n（Y1c T10 修正：truncateWalAfter 回拨续号——WAL 密集前缀=恢复链可证性前提，
+    // scanWalSegmentBuffer gap 缺号 fatal；T9 旧「跳号 3n」=每次 recoverScan 链断截尾——G2 ⑦ 红）。
     const re2 = await s.appendBatch('p1', [new Uint8Array(f2)]);
-    expect(re2[0].walSeq, '新 walSeq（≠已截 2n）').toBe(3n);
+    expect(re2[0].walSeq, '复用被截 walSeq（密集前缀——appliedSeq+1 下界）').toBe(2n);
     const frames = await s.peek('p1');
-    expect(frames.map((fr) => fr.walSeq), 'WAL 真写入：peek=f1+新帧（红相=仅 f1）').toEqual([1n, 3n]);
+    expect(frames.map((fr) => fr.walSeq), 'WAL 真写入：peek=f1+新帧（红相=仅 f1）').toEqual([1n, 2n]);
     // 保留前缀帧条目不动（WAL 帧在——dedup 命中=no-op 语义正确）
     const re1 = await s.appendBatch('p1', [new Uint8Array(f1)]);
     expect(re1[0].walSeq, '保留帧 dedup 命中原 walSeq（截断只清被截帧）').toBe(1n);
@@ -438,9 +439,9 @@ describe('Y1c T9 收口 S-I1：truncateWalAfter 逐被截帧清去重索引—�
     await s.appendBatch('p1', [f1, f2]);
     expect(await s.truncateWalAfter('p1', 0n)).toBe(2);
     const re = await s.appendBatch('p1', [new Uint8Array(f1), new Uint8Array(f2)]);
-    expect(re.map((a) => a.walSeq), '两帧均新 walSeq（3/4——零陈旧命中）').toEqual([3n, 4n]);
-    expect((await s.peek('p1')).map((fr) => fr.walSeq)).toEqual([3n, 4n]);
-    expect(s.watermark('p1')!.spoolHeadSeq, 'spoolHead 随真写入推进').toBe(4n);
+    expect(re.map((a) => a.walSeq), '两帧均复用被截 walSeq（1/2——零陈旧命中+密集前缀；T10 回拨修正）').toEqual([1n, 2n]);
+    expect((await s.peek('p1')).map((fr) => fr.walSeq)).toEqual([1n, 2n]);
+    expect(s.watermark('p1')!.spoolHeadSeq, 'spoolHead 随真写入推进').toBe(2n);
   });
 });
 

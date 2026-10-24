@@ -150,11 +150,13 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     for (const pid of residency?.residentProjectIds() ?? []) await residency.releaseSessionFor(pid).catch(() => {});
     lease?.halt();
     await lease?.release().catch(() => {});
-    await (gateway as any)?.server.destroy().catch(() => {});
+    // Y1c T10：直调 onApplicationShutdown（真关停链——shuttingDown 置位=卸载 drain 豁免窗+destroy
+    // 4s race 兜底）；裸 server.destroy() 在卸载拒绝（applied 未 drain）时永不 resolve=hook 30s 超时。
+    await gateway?.onApplicationShutdown().catch(() => {});
     await rm(spoolDir, { recursive: true, force: true }).catch(() => {});
     await restoreLeaseRow(prisma);
     await prisma.$disconnect();
-  }, 30_000);
+  }, 60_000);
 
   beforeEach(() => {
     refundCalls = [];

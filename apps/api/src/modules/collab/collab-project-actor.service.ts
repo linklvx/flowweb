@@ -50,21 +50,26 @@ import {
   INBOUND_QUEUE_OVER_LIMIT_CLOSE_CODE,
   WAL_DEDUP_INDEX_TTL_MS,
   WAL_DEDUP_INDEX_MAX_ENTRIES,
+  SAVE_BARRIER_FLUSH_THROTTLE_MS,
   CollabCloseCode,
   DOC_OVER_QUOTA_TERMINAL_REASON,
   DOC_GENERATION_STALE_TERMINAL_REASON,
   QUOTA_DEFAULTS,
+  type FlushThroughResult,
 } from '@flowweb/shared';
 import {
   MEDIA_REF_TARGET_FIELDS,
   isFrameNodeTypeName,
+  validateActorRanges,
   type FrameEffect,
   type ProjectDocIndex,
   type GateApplyOrigin,
+  type ActorRange,
+  type CanvasActorKind,
 } from '@flowweb/shared';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
-import { projectDocName } from './doc-name.util';
+import { projectDocName, parseDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, inboundQueueOverLimitTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
@@ -100,6 +105,9 @@ export interface CollabProjectActorHost {
   noteReadOnlyDrop(conn: CollabConnection, pid: string, bytes: number): boolean;
   /** PG append fenced（RC4 承接：fenced→selfIsolate→closeAll→释放 listener——gateway selfIsolate 同链）。 */
   onFencedByWrite(): Promise<void>;
+  /** Y1c T10：维护/冻结窗口判定（barrier maintenance 拒绝语义——gateway 接线=DR.isVacuuming∨维护态；
+   *  缺省 false=无维护窗口〔直构/测试〕；T27 维护状态机扩展同缝）。 */
+  isMaintenanceBlocked?(pid: string): boolean;
 }
 
 /** P1 shape fixture 校验（准入链 ①——root/预算/通用格式；全类型最终矩阵运行时准入在 T24 激活）。 */
@@ -351,8 +359,27 @@ interface QueueItem {
   bytes: number;
   enqueuedAt: number;
   submitGeneration: number | undefined;
+  /** Y1c T10：帧认领者（actorRanges 事实源——submit 时捕获；维护帧='system'）。 */
+  actor: { userId: string; actorKind: CanvasActorKind };
   resolve: (r: ActorFrameResult) => void;
   reject: (e: FrameRejectError) => void;
+}
+
+/** Y1c T10（applied-driven 批量 PG）：已 apply（维护帧=WAL fsync 即视同 applied）帧的待落库条目——
+ *  批只从本队列取（连续前缀，上界=appliedSeq 构造性成立：仅 apply 成功帧入队）；行=512 条/8MiB 批+
+ *  1MiB 行分片（复用旧链 COALESCE 数字）；维护帧 resolve 延后至本 flush 落定（Q-M5 更强承诺保持）。 */
+interface AppliedEntry {
+  walSeq: bigint;
+  frameId: string;              // spool confirm 面
+  frameHash: Uint8Array;        // sha256 原始 32B（updateHash=列表 SHA 单源）
+  payload: Uint8Array;
+  actor: { userId: string; actorKind: CanvasActorKind };
+  kind: QueueItem['kind'];
+  effects: FrameEffect[];       // T26 义务 buffer 承载（per-walSeq——帧↔义务同事务）
+  /** 维护帧落定回调（resolve 延后至 PG 落定——null=connection 帧〔fsync+apply 即 resolved〕）。 */
+  onLanded: (() => void) | null;
+  onFailed: ((flags: Record<string, unknown>) => void) | null;
+  hashHex: string;              // 失败面 clearDedup 用（connection 帧已 settle——仅维护帧消费）
 }
 
 interface ProjectActorState {
@@ -360,12 +387,26 @@ interface ProjectActorState {
   draining: boolean;
   appliedSeq: bigint;
   readonly docIndex: ProjectDocIndexImpl;
+  /** Y1c T10：applied 待落库队列+flusher 状态。 */
+  appliedQueue: AppliedEntry[];
+  flushing: boolean;
+  lastFlushKickAt: number;
 }
 
 /** per-project 写入背压上限（偏离 36-③——工程值：512 帧/2×入站限〔33.8MB——容纳 SS2 大帧对〕；
  *  超限=瞬态拒 close 1008 单项目不拖垮其他项目）。 */
 const PROJECT_QUEUE_MAX_FRAMES = 512;
 const PROJECT_QUEUE_MAX_BYTES = 2 * INBOUND_QUEUE_LIMIT_BYTES;
+
+/** applied 批上界（复用旧链 COALESCE 数字——512 条/8MiB 批+1MiB 行分片）。 */
+const PG_BATCH_MAX_FRAMES = 512;
+const PG_BATCH_MAX_BYTES = 8 * 1024 * 1024;
+const PG_ROW_MERGE_MAX_BYTES = 1_048_576;
+/** flushThrough 有界等待（barrier 回执上界——T33 save barrier p95<2s 预算带内）。 */
+const FLUSH_THROUGH_MAX_WAIT_MS = 2_000;
+/** barrier nonce 幂等回执台账上界（FIFO 驱逐+5min TTL——重试窗覆盖）。 */
+const BARRIER_NONCE_CACHE_MAX = 256;
+const BARRIER_NONCE_TTL_MS = 5 * 60_000;
 
 @Injectable()
 export class CollabProjectActorService {
@@ -417,16 +458,27 @@ export class CollabProjectActorService {
     const st = this.states.get(projectId);
     if (!st) return;
     if (st.draining || st.queue.length > 0) return;   // 帧落定中——保守留驻
+    // T10 注记：applied 队列不设清理守卫——生产到达面=beforeUnloadDocument 已 drain（或关停豁免：
+    // 帧 WAL 落定+启动回灌承接）；appliedQueue 随 states 键一并弃置（test 直调 afterUnload 的
+    // PG-fail 形态同弃——恢复链以 WAL 为准）。barrier nonce 台账=全局有界（FIFO+TTL）不随单项目清。
     this.states.delete(projectId);
   }
 
   private stateOf(pid: string): ProjectActorState {
     let st = this.states.get(pid);
     if (!st) {
-      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl() };
+      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], flushing: false, lastFlushKickAt: 0 };
       this.states.set(pid, st);
     }
     return st;
+  }
+
+  /** Y1c T10：连接帧认领者捕获（actorRanges 事实源——userId 仅内部 ID；缺认证面=空串占位）。 */
+  private actorOfConn(conn: CollabConnection | null): { userId: string; actorKind: CanvasActorKind } {
+    if (!conn) return { userId: 'system', actorKind: 'system' };
+    const ctx = conn.context as { user?: { id?: unknown } } | undefined;
+    const uid = typeof ctx?.user?.id === 'string' ? ctx.user.id : '';
+    return { userId: uid, actorKind: 'user' };
   }
 
   /** connection 帧受理入口（gate beforeSync await 本 promise——resolve=fsync+apply 完成）。
@@ -484,6 +536,7 @@ export class CollabProjectActorService {
       st.queue.push({
         payload, hashHex, conn, kind, bytes: payload.byteLength, enqueuedAt: Date.now(),
         submitGeneration: this.host.generationOf(projectId),
+        actor: this.actorOfConn(conn),
         resolve: (r) => { this.settleConnBytes(conn, payload.byteLength, projectId, kind); resolve(r); },
         reject: (e) => { this.settleConnBytes(conn, payload.byteLength, projectId, kind); reject(e); },
       });
@@ -506,6 +559,7 @@ export class CollabProjectActorService {
       st.queue.push({
         payload, hashHex: createHash('sha256').update(payload).digest('hex'), conn: null, kind: 'maintenance',
         bytes: payload.byteLength, enqueuedAt: Date.now(), submitGeneration: undefined,
+        actor: { userId: 'system', actorKind: 'system' },
         resolve: (r) => resolve(r), reject: (e) => reject(e),
       });
       void this.drain(projectId);
@@ -697,26 +751,9 @@ export class CollabProjectActorService {
       }
       // 维护帧 appliedSeq 推进（detached 形态同正常路径：payload 已生效——confirm 推 pgSeq 的不变量前提）
       for (let k = 0; k < maintOnly.length; k++) this.spool.noteApplied(pid, maintAppended[k].walSeq);
-      let detachedFlush: PgFlushOutcome;
-      try {
-        detachedFlush = await this.flushBatchToPg(pid, maintOnly, maintAppended, maintOnly.map(() => []));
-      } catch (flushErr) {
-        // FK 重抛面（同正常路径）：维护帧按 FK 拒绝透传——drain 批不悬挂
-        for (let k = 0; k < maintOnly.length; k++) {
-          this.rejectItem(maintOnly[k], Object.assign(new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'maintenance-pg-fk'), { pgPending: true, fk: true, cause: flushErr }));
-          this.clearDedup(pid, maintOnly[k].hashHex);
-        }
-        actorDrainBatchTotal.inc({ result: 'pg-fk' });
-        return;
-      }
-      for (let k = 0; k < maintOnly.length; k++) {
-        if (detachedFlush.landed) this.resolveItem(maintOnly[k], { walSeq: maintAppended[k].walSeq });
-        else {
-          // Q-I2：失败旗标随 flush 返回元组走（跨 await 共享字段在并发 drain 下错挂——元组=批内单源）
-          this.rejectItem(maintOnly[k], Object.assign(new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'maintenance-pg-pending'), this.pgPendingFlags(detachedFlush.errorKind)));
-          this.clearDedup(pid, maintOnly[k].hashHex);
-        }
-      }
+      // Y1c T10（applied-driven）：detached 维护帧入 applied 队列——resolve 延后至 PG 批落定（Q-M5）。
+      for (let k = 0; k < maintOnly.length; k++) this.pushApplied(pid, maintOnly[k], maintAppended[k].frameId, maintAppended[k].walSeq, []);
+      void this.flushApplied(pid).catch(() => {});
       actorDrainBatchTotal.inc({ result: 'maintenance-detached' });
       return;
     }
@@ -744,7 +781,9 @@ export class CollabProjectActorService {
     //（confirm 推 pgSeq 时不变量 pgSeq≤appliedSeq 由本位保持；connection 帧的 noteApplied 在 apply 后）
     for (const k of maintIdx) this.spool.noteApplied(pid, appended[k].walSeq);
     // —— ⑤ 逐帧 apply（gate origin——Hocuspocus 随后幂等重放零事件）+逐帧 resolve ——
-    const effectsByFrame: FrameEffect[][] = [];
+    // Y1c T10（applied-driven）：apply 成功（维护帧=WAL fsync）即建 applied 条目——**index 对齐 admitted**
+    //（毒帧 cut 之前者入队、≥cut 者丢弃〔毒帧路径 reject 兜底〕）；批后统一按序入队（walSeq 密集前缀）。
+    const entries: (AppliedEntry | undefined)[] = new Array(admitted.length).fill(undefined);
     let collector = this.collectorsByDoc.get(document);
     if (!collector) { collector = new FrameEffectsCollector(); this.collectorsByDoc.set(document, collector); }
     collector.install(document);
@@ -754,8 +793,12 @@ export class CollabProjectActorService {
     try {
       for (let k = 0; k < admitted.length; k++) {
         const item = admitted[k];
-        if (item.kind === 'maintenance') { effectsByFrame.push([]); continue; }   // 已生效字节——不 apply（上方已 resolve）
         const walSeq = appended[k].walSeq;
+        if (item.kind === 'maintenance') {
+          // 维护帧：payload 已生效不 apply——applied 条目即建（resolve 延后至 PG 批落定——Q-M5）
+          entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, []);
+          continue;
+        }
         collector.begin(walSeq);
         try {
           // ③④⑤ apply：origin={source:'connection',connection,gate:true}——isGateApplyOrigin 判过
@@ -780,10 +823,15 @@ export class CollabProjectActorService {
           }
           this.host.logger.error(`毒帧 4411 for ${pid} walSeq=${walSeq}: ${(err as Error).message}——WAL 截断至 appliedSeq=${appliedSeq}+全连接 close+doc 重装载=从 pgSeq 重放`);
           // 毒帧与其后批内帧全部拒绝（4411）；批内先前帧已 apply+resolve（截断保其下帧）
+          // **已 apply 前缀（k 之前——含维护帧）仍须入 applied 队列落 PG**（⑦「不跳帧续提交」——
+          // applied 前缀的 PG 行不因毒帧丢失，恢复重放面=从 pgSeq 起点连续）。
           for (let m = k; m < admitted.length; m++) {
             this.rejectItem(admitted[m], new FrameRejectError(CollabCloseCode.FRAME_MALFORMED, 'frame-malformed'));
             this.clearDedup(pid, admitted[m].hashHex);
+            entries[m] = undefined;
           }
+          for (let m = 0; m < k; m++) if (entries[m]) this.pushAppliedEntry(pid, entries[m]!);
+          void this.flushApplied(pid).catch(() => {});
           captureCollabException(err, { docName: projectDocName(pid), reason: 'actor-poison-frame', connectionId: '-' });
           return;
         }
@@ -792,46 +840,75 @@ export class CollabProjectActorService {
         this.spool.noteApplied(pid, walSeq);
         this.settleDedup(pid, item.hashHex, walSeq);
         const effects = collector.take();
-        effectsByFrame.push(effects);
         for (const e of effects) frameEffectsTotal.inc({ kind: e.kind });
         st.docIndex.apply(effects);
+        entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, effects);
         actorFrameOutcomeTotal.inc({ outcome: 'applied' });
         this.resolveItem(item, { walSeq });   // 逐帧 resolve（beforeSync await——ACK 时帧必已 fsync+apply）
       }
     } finally {
       if (ss2Bytes > 0) { this.ss2BytesInFlight -= ss2Bytes; this.ss2Projects.delete(pid); }
     }
+    // 批内全帧 applied（walSeq 密集）按序入队 → applied-driven PG 批
+    for (const e of entries) if (e) this.pushAppliedEntry(pid, e);
     actorDrainBatchFrames.observe(admitted.length);
     actorDrainBatchTotal.inc({ result: 'appended' });
-    // —— PG drain 批同事务多行 append（Controller 裁定 1——connection 批=单行〔firstWalSeq..lastWalSeq/
-    //    frameCount/updateHash=frameHash 列表 SHA〕；维护帧=逐帧行）→confirm spool 帧 ——
-    let pgFlush: PgFlushOutcome;
-    try {
-      pgFlush = await this.flushBatchToPg(pid, admitted, appended, effectsByFrame);
-    } catch (flushErr) {
-      // FK 重抛面（项目已删写路径发现点）：维护帧按 FK 拒绝透传（维护方收割/终态）；connection 帧已
-      // resolve（Applied 档——PG 归属由恢复链）；drain 批不悬挂（未 settle 项=僵尸 promise 禁径）。
-      for (const k of maintIdx) {
-        this.rejectItem(admitted[k], Object.assign(new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'maintenance-pg-fk'), { pgPending: true, fk: true, cause: flushErr }));
-        this.clearDedup(pid, admitted[k].hashHex);
-      }
-      actorDrainBatchTotal.inc({ result: 'pg-fk' });
+    void this.flushApplied(pid).catch(() => {});
+  }
+
+  /** Y1c T10：applied 条目构造（维护帧 resolve/reject 延后至 flush 落定/失败——connection 帧已 settle）。 */
+  private mkAppliedEntry(pid: string, item: QueueItem, frameId: string, walSeq: bigint, effects: FrameEffect[]): AppliedEntry {
+    return {
+      walSeq,
+      frameId,
+      frameHash: createHash('sha256').update(item.payload).digest(),
+      payload: item.payload,
+      actor: item.actor,
+      kind: item.kind,
+      effects,
+      onLanded: item.kind === 'maintenance' ? () => { actorFrameOutcomeTotal.inc({ outcome: 'applied' }); this.resolveItem(item, { walSeq }); } : null,
+      onFailed: item.kind === 'maintenance'
+        ? (flags: Record<string, unknown>) => {
+            // pgPending=帧 WAL 安全未 confirm（维护方可出队）；fk=项目已删终态（收割路径）；旗标随 flush 元组（Q-I2）
+            this.rejectItem(item, Object.assign(
+              new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, flags.fk ? 'maintenance-pg-fk' : 'maintenance-pg-pending'), flags));
+            this.clearDedup(pid, item.hashHex);
+          }
+        : null,
+      hashHex: item.hashHex,
+    };
+  }
+
+  /** 便捷面（detached 路径——维护条目直推）。 */
+  private pushApplied(pid: string, item: QueueItem, frameId: string, walSeq: bigint, effects: FrameEffect[]): void {
+    this.pushAppliedEntry(pid, this.mkAppliedEntry(pid, item, frameId, walSeq, effects));
+  }
+
+  /** applied 队列入队单点（**walSeq 严格递增守卫**——G2 ①零重复）：维护通道重发已 applied 帧
+   *  （disconnect/退避梯回灌：spool dedup 命中原 walSeq——payload 与原帧同字节）不得二次入账：
+   *  重复 walSeq 破坏 actorRanges 区间铺满（overlap/inverted）+双计 frameCount。处置：
+   *  ①walSeq≤pgSeq（原条目已落定）→ 维护 promise 即刻 resolve（同承诺已兑现）；
+   *  ②在队（同 walSeq 条目）→ 维护回调链挂既有条目（同 walSeq 的 PG 落定=同一承诺）；
+   *  ③孤例（>pgSeq 不在队——理论不可达）→ 拒绝 pgPending 交维护方退避（fail-closed 方向）。 */
+  private pushAppliedEntry(pid: string, entry: AppliedEntry): void {
+    const st = this.stateOf(pid);
+    const tail = st.appliedQueue[st.appliedQueue.length - 1];
+    if (tail == null || entry.walSeq > tail.walSeq) { st.appliedQueue.push(entry); return; }
+    const pg = this.spool.watermark(pid)?.pgSeq ?? 0n;
+    if (entry.walSeq <= pg) { entry.onLanded?.(); return; }   // 原条目已 flush 落定
+    const existing = st.appliedQueue.find((e) => e.walSeq === entry.walSeq);
+    if (existing) {
+      const prevL = existing.onLanded; const prevF = existing.onFailed;
+      existing.onLanded = prevL ? () => { prevL(); entry.onLanded?.(); } : entry.onLanded;
+      existing.onFailed = prevF ? (f: Record<string, unknown>) => { prevF(f); entry.onFailed?.(f); } : entry.onFailed;
       return;
     }
-    for (const k of maintIdx) {
-      if (pgFlush.landed) {
-        actorFrameOutcomeTotal.inc({ outcome: 'applied' });
-        this.resolveItem(admitted[k], { walSeq: appended[k].walSeq });
-      } else {
-        // PG 未落定：帧 WAL 安全未 confirm——reject 交维护方（pgPending 标志=批可出队〔WAL 已落定〕，
-        // 退避梯只加速 PG 回灌——旧 spool 兜底「新家先落定才 splice」语义承继；终态族旗标透传）。
-        // Q-I2：旗标随 flush 返回元组推导（共享字段 lastPgError 在两项目 drain 并发下错挂——
-        // 一批 fenced 残留+他批 breaker-open 短路读档=维护帧 fenced/leaseRowMissing 走错分支）。
-        this.rejectItem(admitted[k], Object.assign(new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'maintenance-pg-pending'), this.pgPendingFlags(pgFlush.errorKind)));
-        this.clearDedup(pid, admitted[k].hashHex);
-      }
-    }
+    entry.onFailed?.({ pgPending: true });
+    this.host.logger.warn(`applied 队列重复 walSeq=${entry.walSeq} 孤例 for ${pid}——维护帧按 pgPending 拒绝（fail-closed）`);
   }
+
+  /** actor 读面（barrier/卸载/观测）：applied 队列深度（PG 待落库帧数）。 */
+  appliedQueueDepth(pid: string): number { return this.states.get(pid)?.appliedQueue.length ?? 0; }
 
   /** per-project 自上次取走后有无 actor 落定行（disconnect flush-then-compact 判据——
    *  connection 帧不经 maintenance 队列，旧 wrote 契约的继任信号；取走即清）。 */
@@ -841,6 +918,28 @@ export class CollabProjectActorService {
     const landed = this.landedSince.has(pid);
     this.landedSince.delete(pid);
     return landed;
+  }
+
+  /** Y1c T10：actorRanges 装配（T9 落空 Json 补真值——Controller 裁定 1）：按批内帧 **连续同 actor 段**
+   *  聚合区间 [{from,to,userId,actorKind}]（from/to=十进制字符串半开 [from,to)；applied 队列=walSeq
+   *  密集前缀 ⇒ 区间铺满 [firstWalSeq,lastWalSeq+1) 不重叠无空洞——T5b validateActorRanges 批级校验）。 */
+  private buildActorRanges(entries: AppliedEntry[]): ActorRange[] {
+    const ranges: ActorRange[] = [];
+    let start = 0;
+    for (let i = 1; i <= entries.length; i++) {
+      const a = entries[start].actor;
+      const b = i < entries.length ? entries[i].actor : null;
+      if (b == null || b.userId !== a.userId || b.actorKind !== a.actorKind) {
+        ranges.push({
+          from: entries[start].walSeq.toString(),
+          to: (entries[i - 1].walSeq + 1n).toString(),
+          userId: a.userId,
+          actorKind: a.actorKind,
+        });
+        start = i;
+      }
+    }
+    return ranges;
   }
 
   /** PG 批落定结果（Q-I2：fenced/lease 族失败档随返回值走——**禁跨 await 共享字段**，两项目 drain
@@ -861,36 +960,47 @@ export class CollabProjectActorService {
    *  appendBatch 幂等〔updateHash/seq 复用〕；返回 landed=true=PG 落定〔维护帧 resolve 判据〕+
    *  errorKind=失败档（Q-I2 元组——单批单源）。breaker 样本：repo throw=recordFailure〔连接族推闸〕；
    *  ok=recordSuccess。 */
-  private async flushBatchToPg(pid: string, admitted: QueueItem[], appended: Awaited<ReturnType<CollabSpoolService['appendBatch']>>, effectsByFrame: FrameEffect[][]): Promise<PgFlushOutcome> {
+  private async flushPrefixToPg(pid: string, prefix: AppliedEntry[]): Promise<PgFlushOutcome> {
     // 熔断面②（T16 承继）：open 期 PG 腿首行短路（零 PG 等待——省 5s 事务上界）——帧已 WAL 安全
     // 未 confirm，false 交维护方退避梯（half-open 放行=本次即探测）
     if (this.pgBreaker?.isOpen()) return { landed: false, errorKind: null };
     try {
       const generation = this.spool.currentGeneration(pid);
-      const connFrames = admitted.map((i, k) => ({ item: i, frame: appended[k] })).filter((x) => x.item.kind !== 'maintenance');
-      const maintFrames = admitted.map((i, k) => ({ item: i, frame: appended[k] })).filter((x) => x.item.kind === 'maintenance');
-      const rows: Array<{ generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number; updateHash: string; update: Uint8Array }> = [];
-      if (connFrames.length > 0) {
-        const merged = connFrames.length === 1 ? connFrames[0].item.payload : Y.mergeUpdates(connFrames.map((x) => x.item.payload));
+      // 行分片：贪心 ≤1MiB/行（单帧超限=独立行——CRDT 帧结构性不可再分；批上界 512 帧/8MiB 已在取前缀面）
+      const rows: Array<{ generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number; updateHash: string; update: Uint8Array; actorRanges: ActorRange[] }> = [];
+      let cur: AppliedEntry[] = [];
+      let curBytes = 0;
+      const flushRow = () => {
+        if (cur.length === 0) return;
+        const actorRanges = this.buildActorRanges(cur);
+        const verdict = validateActorRanges(actorRanges, { firstWalSeq: cur[0].walSeq, lastWalSeq: cur[cur.length - 1].walSeq });
+        if (!verdict.ok) throw Object.assign(new Error(`actorRanges 装配违约 ${verdict.reason}: ${verdict.detail}`), { actorRangesInvalid: true });
         rows.push({
           generation,
-          firstWalSeq: connFrames[0].frame.walSeq,
-          lastWalSeq: connFrames[connFrames.length - 1].frame.walSeq,
-          frameCount: connFrames.length,
-          updateHash: CanvasDocUpdateRepository.batchUpdateHash(connFrames.map((x) => createHash('sha256').update(x.item.payload).digest())),
-          update: merged,
+          firstWalSeq: cur[0].walSeq,
+          lastWalSeq: cur[cur.length - 1].walSeq,
+          frameCount: cur.length,
+          updateHash: CanvasDocUpdateRepository.batchUpdateHash(cur.map((e) => e.frameHash)),
+          update: cur.length === 1 ? cur[0].payload : Y.mergeUpdates(cur.map((e) => e.payload)),
+          actorRanges,
         });
+        cur = []; curBytes = 0;
+      };
+      for (const e of prefix) {
+        if (cur.length > 0 && curBytes + e.payload.byteLength > PG_ROW_MERGE_MAX_BYTES) flushRow();
+        cur.push(e); curBytes += e.payload.byteLength;
       }
-      for (const mf of maintFrames) {
-        rows.push(CanvasDocUpdateRepository.singleFrameRow({
-          generation, walSeq: mf.frame.walSeq,
-          frameHash: createHash('sha256').update(mf.item.payload).digest(),
-          update: mf.item.payload,
-        }));
-      }
-      void effectsByFrame;
+      flushRow();
       for (const row of rows) yjsStorePayloadBytes.observe(row.update.byteLength);   // Y0b-5 T10 锚位承接：append 成功路径逐片 observe（actor PG 腿）
-      const r = await this.repo.appendBatch(pid, rows);
+      // 水位 CAS（v1.7 拆义）：expected=spool 内存 pgSeq（confirm 单点推进——单写者口径）；
+      // walCheckpointSeq=提交时刻 spoolHeadSeq 采样（永不写 appliedSeq 口径）；newPgSeq=批 lastWalSeq。
+      const w = this.spool.watermark(pid);
+      const lastWalSeq = prefix[prefix.length - 1].walSeq;
+      const r = await this.repo.appendBatch(pid, rows, {
+        expectedPgSeq: w?.pgSeq ?? 0n,
+        newPgSeq: lastWalSeq,
+        walCheckpointSeq: w?.spoolHeadSeq ?? lastWalSeq,
+      });
       if (!r.ok) {
         this.host.logger.error(`actor PG append fenced for ${pid}——帧留 spool（磁盘安全），回灌由恢复链承接`);
         try {
@@ -902,13 +1012,11 @@ export class CollabProjectActorService {
         }
         return { landed: false, errorKind: 'fenced' };
       }
-      await this.spool.confirm(pid, appended.map((a) => a.frameId));
       this.pgBreaker?.recordSuccess();
-      this.landedSince.add(pid);   // disconnect flush-then-compact 判据（connection 帧不经维护队列——wrote 契约继任）
       return { landed: true, errorKind: null };
     } catch (err) {
       if ((err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)) {
-        throw err;   // FK=项目已删写路径发现点——重抛交维护方终态处置（discard+confirm+收割——V6/T14 同判）
+        throw err;   // FK=项目已删写路径发现点——重抛交 flushApplied 终态处置（discard+notify+收割——V6/T14 同判）
       }
       yjsStoreTotal.inc({ trigger: 'maintenance' });   // 归因：actor PG 腿失败面（帧留 spool 未 confirm）
       this.pgBreaker?.recordFailure(err);              // PG 健康样本（连接族推闸——T16 熔断面②承继）
@@ -916,6 +1024,160 @@ export class CollabProjectActorService {
       captureCollabException(err, { docName: projectDocName(pid), reason: 'store-append-failed', connectionId: '-' });
       this.host.logger.error(`actor PG append failed for ${pid}: ${(err as Error).message}——帧留 spool（磁盘安全），reconciler/退避梯回灌`);
       return { landed: false, errorKind: err as Error };
+    }
+  }
+
+  /** **Y1c T10 applied-driven 批量 PG flusher**：批只从 applied 队列取（连续前缀——上界=appliedSeq
+   *  构造性成立〔仅 applied 帧入队〕，≤512 帧/8MiB）→单事务多行 append+水位 CAS→confirm spool 帧
+   *  →维护帧 resolve。失败：帧 WAL 安全留队（BOI）+re-kick 重试；fenced=隔离链+留队（恢复链承接）；
+   *  FK=项目终态（条目弃置+维护帧 fk 拒绝——收割归维护方）。单 flusher（st.flushing 闸——重入合并）。 */
+  private async flushApplied(pid: string): Promise<void> {
+    const st = this.stateOf(pid);
+    if (st.flushing) return;
+    st.flushing = true;
+    st.lastFlushKickAt = Date.now();
+    try {
+      for (;;) {
+        const queue = st.appliedQueue;
+        if (queue.length === 0) break;
+        let n = 0;
+        let bytes = 0;
+        while (n < queue.length && n < PG_BATCH_MAX_FRAMES) {
+          if (n > 0 && bytes + queue[n].payload.byteLength > PG_BATCH_MAX_BYTES) break;
+          bytes += queue[n].payload.byteLength;
+          n += 1;
+        }
+        const prefix = queue.slice(0, n);
+        let outcome: PgFlushOutcome;
+        try {
+          outcome = await this.flushPrefixToPg(pid, prefix);
+        } catch (err) {
+          if ((err as { fk?: boolean })?.fk || (err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)) {
+            // FK=项目已删写路径发现点：条目终态弃置+维护帧 fk 拒绝（persistence 帧通道 confirm+收割）
+            st.appliedQueue.splice(0, n);
+            for (const e of prefix) e.onFailed?.({ pgPending: true, fk: true });
+            actorDrainBatchTotal.inc({ result: 'pg-fk' });
+            this.host.logger.warn(`actor PG flush FK for ${pid}——applied 条目弃置（项目已删），维护帧终态拒绝`);
+            continue;
+          }
+          outcome = { landed: false, errorKind: err as Error };
+        }
+        if (!outcome.landed) {
+          // 失败档：帧 WAL 安全留队（BOI 归属地=spool 未 confirm）+维护帧 pgPending 拒绝（可出队）。
+          // **不排独立重试 timer**（与 persistence 退避梯/reconciler 职责去重）：再驱动面=①退避梯
+          // （maintenance 帧——persistence 域）②flushThrough kick（barrier/卸载 drain）③下一 drain 批
+          // kick ④生产 reconciler replayAll（30s 全帧兜底）。fenced 隔离链已在 flushPrefixToPg 内先行。
+          for (const e of prefix) e.onFailed?.(this.pgPendingFlags(outcome.errorKind));
+          return;
+        }
+        // 落定：新家=PG（CAS 同事务）——splice+confirm+维护帧 resolve（Q-M5：resolve 延后至此）
+        st.appliedQueue.splice(0, n);
+        await this.spool.confirm(pid, prefix.map((e) => e.frameId));
+        for (const e of prefix) e.onLanded?.();
+        this.landedSince.add(pid);   // disconnect flush-then-compact 判据（connection 帧不经维护队列——wrote 契约继任）
+      }
+    } finally {
+      st.flushing = false;
+    }
+    // flush 期间新帧入队（drain 并行推进）→ 尾轮再跑（st.flushing 已复位=新单 flusher）
+    if (st.appliedQueue.length > 0) void this.flushApplied(pid).catch(() => {});
+  }
+
+  /** **flushThrough 契约（§4.2 v5.4——T10 实现）**：幂等（同 target 重复调用同结果）/有界等待（≤250ms
+   *  节流合并——只承诺「目标前缀已提交」不承诺「立刻新建 PG 事务」）/不阻塞写入（drain 照常）/返回当前
+   *  pgSeq。target=handler 首语句同步捕获的 appliedSeq；pgSeq≥target ⇒ 行已 CAS 提交（confirm 后置）。 */
+  async flushThrough(pid: string, target: bigint, opts?: { maxWaitMs?: number }): Promise<FlushThroughResult> {
+    const deadline = Date.now() + Math.max(1, Math.min(opts?.maxWaitMs ?? FLUSH_THROUGH_MAX_WAIT_MS, FLUSH_THROUGH_MAX_WAIT_MS));
+    for (;;) {
+      const w = this.spool.watermark(pid);
+      const pg = w?.pgSeq ?? 0n;
+      if (pg >= target) return { pgSeq: pg, targetReached: true };
+      if (Date.now() >= deadline) return { pgSeq: pg, targetReached: false };
+      const st = this.states.get(pid);
+      // 项目级 flush 节流 ≤250ms（多 barrier 合并等待——节流窗内不新建 flush；在飞 flush/retry timer 承接）
+      if (st && !st.flushing && st.appliedQueue.length > 0 && Date.now() - st.lastFlushKickAt >= SAVE_BARRIER_FLUSH_THROTTLE_MS) {
+        void this.flushApplied(pid).catch(() => {});
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // ═══════════════════ save barrier（Y1c T10——onStateless 接线）═══════════════════
+
+  /** barrier nonce 幂等回执台账（FIFO 驱逐+TTL——重试同 nonce 回执逐字段等值）。 */
+  private readonly barrierReceipts = new Map<string, { payload: string; at: number }>();
+  private rememberBarrierReceipt(nonce: string, payload: string): void {
+    this.barrierReceipts.set(nonce, { payload, at: Date.now() });
+    while (this.barrierReceipts.size > BARRIER_NONCE_CACHE_MAX) {
+      const oldest = this.barrierReceipts.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.barrierReceipts.delete(oldest);
+    }
+    if (this.barrierReceipts.size < BARRIER_NONCE_CACHE_MAX / 2) return;
+    const now = Date.now();
+    for (const [k, v] of [...this.barrierReceipts.entries()]) if (now - v.at > BARRIER_NONCE_TTL_MS) this.barrierReceipts.delete(k);
+  }
+
+  /** **onStateless handler（偏离 37⑦+38⑳）**：barrier 请求={nonce,clientSeq,tabId,sessionEpoch}（无
+   *  type 域——T5a 冻结 wire 形态；含 string nonce+number clientSeq 即判 barrier，其余 payload 静默
+   *  忽略）。**首语句同步捕获 target=appliedSeq**（任何 await 之前——捕 pgSeq 会少报已 apply 未落 PG
+   *  的帧）；flushThrough(target)→有界等待→显式 connection.sendStateless 回执（库丢弃返回值）。
+   *  nonce 幂等（重试同结果）；**永不 throw**（catch 回 BARRIER_FAILED 回执）；maintenance 冻结期回
+   *  error:'maintenance' 档（不产生 Durable）。同连接串行=库 processMessages 队列（stateless 与 sync
+   *  同队列序——契约测试锁定）。 */
+  async handleStateless(p: { connection: unknown; documentName: string; payload: string }): Promise<void> {
+    let request: { nonce: string; clientSeq: number } | null = null;
+    try {
+      const parsed: unknown = JSON.parse(p.payload);
+      if (parsed && typeof parsed === 'object' && typeof (parsed as { nonce?: unknown }).nonce === 'string' && typeof (parsed as { clientSeq?: unknown }).clientSeq === 'number') {
+        request = parsed as { nonce: string; clientSeq: number };
+      }
+    } catch { /* 非 JSON payload——非 barrier 面，静默忽略（永不 throw） */ }
+    if (!request) return;
+    const conn = p.connection as CollabConnection;
+    const pid = parseDocName(p.documentName)?.projectId ?? '';
+    const send = (payload: string) => {
+      try { conn?.sendStateless?.(payload); } catch (err) { this.host.logger.warn(`barrier receipt send failed for ${p.documentName}: ${(err as Error).message}`); }
+    };
+    // nonce 幂等：重试同 nonce → 回执逐字段等值（T5a corpus nonceRetry 档）
+    const cached = this.barrierReceipts.get(request.nonce);
+    if (cached) { send(cached.payload); return; }
+    // ★ 同步捕获 target=appliedSeq（首语句纪律——任何 await 之前）
+    const target = this.appliedSeqOf(pid);
+    try {
+      if (this.host.isMaintenanceBlocked?.(pid)) {
+        const receipt = JSON.stringify({ nonce: request.nonce, error: 'maintenance', committedSeq: (this.spool.watermark(pid)?.pgSeq ?? 0n).toString() });
+        this.rememberBarrierReceipt(request.nonce, receipt);
+        send(receipt);
+        return;
+      }
+      const r = await this.flushThrough(pid, target);
+      const receipt = r.targetReached
+        ? JSON.stringify({ nonce: request.nonce, clientSeq: request.clientSeq, committedSeq: r.pgSeq.toString() })
+        : JSON.stringify({ nonce: request.nonce, error: 'BARRIER_FAILED', committedSeq: r.pgSeq.toString() });
+      this.rememberBarrierReceipt(request.nonce, receipt);
+      send(receipt);
+    } catch (err) {
+      // 永不 throw（契约——库对 hook throw 重抛进连接消息环）：catch 回 BARRIER_FAILED 回执
+      const receipt = JSON.stringify({ nonce: request.nonce, error: 'BARRIER_FAILED', committedSeq: (this.spool.watermark(pid)?.pgSeq ?? 0n).toString() });
+      try { this.rememberBarrierReceipt(request.nonce, receipt); } catch { /* 台账失败不掩回执 */ }
+      send(receipt);
+      this.host.logger.warn(`barrier handler error for ${p.documentName}: ${(err as Error).message}——已回 BARRIER_FAILED 回执`);
+    }
+  }
+
+  /** **doc 卸载纪律（偏离 37⑩+38⑤——beforeUnloadDocument drain 面）**：drain applied→PG（有界预算）
+   *  或返回 false=拒绝卸载（throw 由调用方 gateway 钩子执行——doc 常驻 fail-closed；PG 不可用/隔离态
+   *  均阻塞）；fenced 隔离链已由 flush 面（帧 WAL 安全——恢复链承接，但本实例无法证明落库=拒卸载）。 */
+  async drainAppliedForUnload(pid: string, budgetMs = 5_000): Promise<boolean> {
+    const deadline = Date.now() + budgetMs;
+    for (;;) {
+      if ((this.states.get(pid)?.appliedQueue.length ?? 0) === 0) return true;
+      const wait = Math.max(50, deadline - Date.now());
+      const r = await this.flushThrough(pid, this.appliedSeqOf(pid), { maxWaitMs: wait });
+      if ((this.states.get(pid)?.appliedQueue.length ?? 0) === 0) return true;
+      if (r.targetReached && (this.states.get(pid)?.appliedQueue.length ?? 0) === 0) return true;
+      if (Date.now() >= deadline) return false;
     }
   }
 

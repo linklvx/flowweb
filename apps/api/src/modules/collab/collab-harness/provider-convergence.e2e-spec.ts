@@ -199,11 +199,13 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     for (const pid of residency?.residentProjectIds() ?? []) await residency.releaseSessionFor(pid).catch(() => {});
     lease?.halt();
     await lease?.release().catch(() => {});
-    await (gateway as any)?.server.destroy().catch(() => {});
+    // Y1c T10：直调 onApplicationShutdown（真关停链——shuttingDown 置位=卸载 drain 豁免+destroy race）；
+    // 裸 server.destroy() 在卸载拒绝（applied 未 drain）时永不 resolve=hook 30s 超时。
+    await gateway?.onApplicationShutdown().catch(() => {});
     await rm(spoolDir, { recursive: true, force: true }).catch(() => {});
     await restoreLeaseRow(prisma);
     await prisma.$disconnect();
-  }, 30_000);
+  }, 60_000);
 
   const makePoller = () => {
     const teamCredit: any = {

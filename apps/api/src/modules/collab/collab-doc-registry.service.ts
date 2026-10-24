@@ -244,6 +244,17 @@ export class CollabDocRegistryService {
       bytesRate: parsePositiveInt(process.env.COLLAB_BYTES_RATE_PER_CONN, 2_097_152),
       ...quota,   // 注入覆盖 env 默认
     };
+    // Y1c T10（偏离 38⑤）：全局驻留字节上界（load 入口闸——默认 384MiB；residency reaper LRU 为
+    // 回收面、本门为 Z55「拒载归 Y1c-3」入口闸——到顶新项目 onLoad 503）。
+    this.maxResidentDocBytes = parsePositiveInt(process.env.COLLAB_MAX_RESIDENT_DOC_BYTES, 402_653_184);
+  }
+
+  /** Y1c T10：全局驻留 doc 真值字节和（docTruth+docDelta——零 encode 现成台账求和）。 */
+  private readonly maxResidentDocBytes: number;
+  residentBytesOverCap(): boolean {
+    let sum = 0;
+    for (const [pid, t] of this.docTruth) sum += t + (this.docDelta.get(pid) ?? 0);
+    return sum >= this.maxResidentDocBytes;
   }
 
   /** host 后置绑定（B1 persistence.bindHost 同形先例）——业务方法消费前必 bind。 */
@@ -362,6 +373,15 @@ export class CollabDocRegistryService {
     if (!this.host.documents().has(documentName) && this.host.heapPressureSample().tripped) {
       collabLoadRejectedTotal.inc({ reason: 'server-overloaded' });
       throw Object.assign(new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'server overloaded' }), { reason: CollabAuthReason.SERVER_OVERLOADED });
+    }
+    // Y1c T10（偏离 38⑤ maxResidentDocBytes）：全局驻留字节上界——到顶拒**新项目**装载（503 档——
+    // REST 面 CollabNotServingFilter 附 Retry-After；WS 面 err.reason 透传 PermissionDenied 帧重连退避
+    // 〔4413 maintenance-freeze close 档归 T27 维护状态机——本门先落 load 拒绝事实面〕）。已装载 doc
+    // 恒放行（重放/复用窗自伤防护——heap 闸同判据）；存量回收=residency reaper LRU（字节主序——
+    // enforceResidentBudgets 既有面，「到顶拒载」补 Z55「拒载归 Y1c-3」的入口闸）。
+    if (!this.host.documents().has(documentName) && this.residentBytesOverCap()) {
+      collabLoadRejectedTotal.inc({ reason: 'resident-bytes-cap' });
+      throw Object.assign(new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'resident docs over cap' }), { reason: CollabAuthReason.SERVER_OVERLOADED });
     }
     const projectId = parseDocName(documentName)?.projectId ?? '';
     const loadT0 = Date.now();   // Y0b-5 T10：装载耗时（拒绝早退不计时——只测 hydrate+replay+播种段）

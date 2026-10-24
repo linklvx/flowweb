@@ -1,13 +1,13 @@
 import { Injectable, Logger, Optional, Inject, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { Server, afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeHandleMessagePayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';   // B3 手段①：Server 值 import 随构造迁 collab-server.factory——本行并入 type-only（census ⑮ gateway 条目 2→1 同批）
+import type { Server, afterStoreDocumentPayload, afterUnloadDocumentPayload, beforeHandleAwarenessPayload, beforeHandleMessagePayload, beforeSyncPayload, beforeUnloadDocumentPayload, connectedPayload, onAuthenticatePayload, onDisconnectPayload, onLoadDocumentPayload, onStatelessPayload, onStoreDocumentPayload, onUpgradePayload } from '@hocuspocus/server';   // B3 手段①：Server 值 import 随构造迁 collab-server.factory——本行并入 type-only（census ⑮ gateway 条目 2→1 同批）
 import type * as Y from 'yjs';   // W3a：值面消费（deepCopyYMap/loadDocument/vacuum 族）已随域迁 DR——仅委托位签名类型位残留（type-only 零运行时边）
 import { PrismaService } from '../../prisma/prisma.service';
 import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
+import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, docUnloadBlockedTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService, raceDeadline, type PersistenceDocument } from './collab-persistence.service';
@@ -228,6 +228,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     beforeHandleAwareness: (p: beforeHandleAwarenessPayload) => Promise<any>;
     beforeHandleMessage: (p: beforeHandleMessagePayload) => Promise<void>;
     beforeSync: (p: beforeSyncPayload) => Promise<void>;
+    onStateless: (p: onStatelessPayload) => Promise<void>;   // Y1c T10：save barrier（偏离 37⑦+38⑳——首语句同步捕获 appliedSeq）
     onDisconnect: (p: onDisconnectPayload) => Promise<void>;
     beforeUnloadDocument: (p: beforeUnloadDocumentPayload) => Promise<void>;
     afterUnloadDocument: (p: afterUnloadDocumentPayload) => Promise<void>;
@@ -356,6 +357,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       generationOf: (pid) => this.docRegistry.generationOf(pid),
       noteReadOnlyDrop: (conn, pid, bytes) => this.docRegistry.noteReadOnlyDrop(conn, pid, bytes),
       onFencedByWrite: () => this.selfIsolate('fenced-by-write'),   // RC4 承接（actor PG 腿 fenced→隔离链）
+      isMaintenanceBlocked: (pid) => this.docRegistry.isVacuuming(pid),   // Y1c T10：barrier maintenance 拒绝语义（T27 维护状态机扩同缝）
     });
     this.frameGate = frameGate ?? new CollabFrameGateService(this.docRegistry, this.projectActor);
     this.frameGate.bindHost({
@@ -386,6 +388,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       beforeHandleAwareness: (p) => { this.sessionGuard.guardAwarenessRate(p); this.sessionGuard.guardAwareness(p); return Promise.resolve(); },   // W3b：SessionGuard 域（Y0b-3 T7 states 三分支+Y0b-4 T6 独立限速——限速先行；guardAwareness 自吞异常，限速 throw 必须在外层）
       beforeHandleMessage: (p) => this.sessionGuard.guardMessageFrame(p),   // W3b：SessionGuard 域（Y0b-4 T6 awareness 帧闸〔判型单源 readFrameType〕+msg 桶计数 H-3）
       beforeSync: (p) => this.frameGate.guardSyncFrame(p),   // Y1c T9：guardSyncFrame 收编 frame-gate（SS1 SV 代际门/帧闸/bytes 桶/配额判定→actor.submit——apply 归属=actor pre-apply，ACK 时帧必已 fsync）
+      // Y1c T10（偏离 37⑦+38⑳——save barrier 服务端接线）：{nonce,clientSeq,tabId,sessionEpoch} wire
+      // 载体 → actor.handleStateless（首语句同步捕获 target=appliedSeq→flushThrough 有界→显式
+      // connection.sendStateless 回执；nonce 幂等/永不 throw/maintenance 拒绝语义在 actor）。
+      // 同连接串行=库 processMessages 队列（stateless 与 sync 同队列序——契约测试锁定）。
+      onStateless: async (p) => { await this.projectActor.handleStateless(p); },
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
       afterUnloadDocument: async (p) => {
@@ -745,6 +752,29 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // 〔destroy 之后〕；卸载取消=残留条目下次装载同键覆写，无泄漏）——W3a：播种子步机械提取
     // dr.beforeUnloadAnchor（锚台账/heapUsedNow/docTruth 全 DR 域；X4 永不抛语义在本壳）。
     this.docRegistry.beforeUnloadAnchor(projectId);
+    // Y1c T10（偏离 37⑩+38⑤——doc 卸载纪律）：drain applied→PG **先行**——失败=throw=**拒绝卸载**
+    // （库对 beforeUnloadDocument 抛错=取消卸载〔正名：无 onUnloadDocument 钩子〕；doc 常驻
+    // fail-closed：PG 不可用/隔离态/applied 前缀未落库均不得丢内存账）。帧 WAL 安全≠可卸载——卸载
+    // 后本实例无法自证 PG 前缀，恢复链代价（重启回灌）不应由被动卸载触发。
+    // **关停豁免**：进程关停（shuttingDown）=destroy 在途，拒绝只会挂 destroy（库 unloadAll 永不
+    // resolve）；关停路径 drain 尽力后放行（帧 WAL 落定+启动回灌承接——drainAllDocuments 同语义）。
+    try {
+      const drained = await this.projectActor.drainAppliedForUnload(projectId, this.shuttingDown ? 1_000 : 5_000);
+      if (!drained) {
+        if (this.shuttingDown) {
+          this.logger.warn(`unload drain 未竟（关停窗——放行卸载：帧 WAL 落定，启动回灌承接）for ${documentName}`);
+        } else {
+          docUnloadBlockedTotal.inc();
+          throw new Error(`applied 前缀未 drain 至 PG——拒绝卸载（doc 常驻 fail-closed）`);
+        }
+      }
+    } catch (err) {
+      if ((err as Error).message?.includes('拒绝卸载')) throw err;   // 本方拒绝语义=向上抛（取消卸载）
+      // drain 意外异常：保守同样拒绝卸载（fail-closed 方向）——计数留痕
+      docUnloadBlockedTotal.inc();
+      this.logger.warn(`unload drain unexpected error for ${documentName}: ${(err as Error).message}——拒绝卸载（保守）`);
+      throw err;
+    }
     try {
       // B1（T40）：①cancel 退避梯+②交接（fsync 落定才 splice，BOI）+③失败重排梯保活=persistence
       // 内联块整体提取（handoffOnUnload——Y3 顺序/I-2 批尾锚/Q-O 切批语义逐字随迁）

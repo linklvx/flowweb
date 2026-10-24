@@ -638,7 +638,23 @@ export class CollabSpoolService {
    *  批前 last-good+**复用批内全部已分配 seq**（不留洞——appendRaw 可恢复档语义的批粒度）；
    *  EIO=fail-stop（不截断）。水位=spoolHead-only 推进（appliedSeq 归 actor noteApplied——T8 注记
    *  「actor 接管后 advanceWatermark 收缩为 spoolHead-only」在批路径兑现）。 */
+  /** Y1c T10：per-project WAL IO 串行链——appendBatch（段写/fsync）与 confirm 的**段回收 unlink 相**
+   *  互排斥（applied-driven PG flusher 与 drain 循环解耦后两路径并发：confirm unlink 与下一批 append
+   *  的段文件 open 'r+'/写偏移竞态=ENOENT 中批拒绝——「wal-append-failed」假档）。链化不改语义：
+   *  两操作本就 per-project 逻辑串行，仅时序窗收口；失败不断链（catch 吞后继）。 */
+  private readonly walIoChains = new Map<string, Promise<unknown>>();
+  private chainWalIo<T>(projectId: string, op: () => Promise<T>): Promise<T> {
+    const prev = this.walIoChains.get(projectId) ?? Promise.resolve();
+    const next = prev.then(op, op);
+    this.walIoChains.set(projectId, next.then(() => undefined, () => undefined));
+    return next;
+  }
+
   async appendBatch(projectId: string, payloads: Uint8Array[]): Promise<WalAppendedFrame[]> {
+    return this.chainWalIo(projectId, () => this.appendBatchInner(projectId, payloads));
+  }
+
+  private async appendBatchInner(projectId: string, payloads: Uint8Array[]): Promise<WalAppendedFrame[]> {
     if (payloads.length === 0) return [];
     if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
     if (projectId === '__probe__') throw new Error('appendBatch 禁用于探针键（探针必须真写——appendRaw 单帧路径专用）');
@@ -725,7 +741,11 @@ export class CollabSpoolService {
    *  +新建段 'wx' 排他建（EEXIST=段号递增重试）——滚到同名 writeFile('w') 覆写隔离段
    *  （bad-header 证据/chain-stopped 保留帧/violation 裁定证据销毁）为 Critical 禁径。
    *  收口7 契约：同项目 append 串行调用（生产由 gateway saveMutex/串行 drain 保证）。 */
-  private async appendRaw(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
+  private appendRaw(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
+    return this.chainWalIo(projectId, () => this.appendRawInner(projectId, payload));
+  }
+
+  private async appendRawInner(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
     if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——要求进程重启+磁盘检查/恢复扫描裁定（探针亦停）');
     if (payload.byteLength > WAL_MAX_FRAME_BYTES) {
       // M2（Q-M7）：>16MiB 帧准入拒绝——先写后扫描必判 truncated（先 Spooled 后静默丢）。
@@ -1023,7 +1043,11 @@ export class CollabSpoolService {
   /** T9 毒帧协议：WAL 截断至 appliedSeq（walSeq>appliedSeq 的帧移除——不得跳过毒帧继续提交后续序号；
    *  POISON_FRAME_PROTOCOL 第 3 步）。外来段禁字节处置（P18 纪律）；截断失败=sidecar 整段隔离
    *  +walHealthy=false fail-closed（同 appendRaw M1 语义）。返回移除帧数。 */
-  async truncateWalAfter(projectId: string, appliedSeq: bigint): Promise<number> {
+  truncateWalAfter(projectId: string, appliedSeq: bigint): Promise<number> {
+    return this.chainWalIo(projectId, () => this.truncateWalAfterInner(projectId, appliedSeq));
+  }
+
+  private async truncateWalAfterInner(projectId: string, appliedSeq: bigint): Promise<number> {
     const segs = this.index.get(projectId);
     if (!segs) return 0;
     let removed = 0;
@@ -1079,6 +1103,17 @@ export class CollabSpoolService {
     const next: WatermarkTriple = { pgSeq: w?.pgSeq ?? 0n, appliedSeq: applied, spoolHeadSeq: appliedSeq };
     assertWatermarkInvariants(next);
     this.watermarks.set(projectId, next);
+    // Y1c T10（G2 ⑦/⑨ 不留洞）：walSeq 续号随截断回拨——被截区间复用（WAL 密集前缀是恢复链可证性
+    // 前提：scanWalSegmentBuffer 的 gap 缺号=fatal——不回拨则截断后下一帧跳号=每次 recoverScan 链断
+    // 截尾+pgPrefixViolation 阻断 boot）。回拨下界=appliedSeq+1（applied 前缀=已提交历史，恒不可复用
+    // ——confirm 已回收其段时 scan 面为空，纯 index 回拨会落到 appliedSeq 之下=walSeq 碰撞）；上界
+    // 口径与 rebuildRuntimeStateFromIndex 同（排除整段隔离档——其 seqs 不在可证链上）。
+    let rewindMax = applied;
+    for (const m of segs.values()) {
+      if (m.segQuarantined != null && m.segQuarantined !== 'chain-stopped') continue;
+      for (const s of m.seqs) if (s > rewindMax) rewindMax = s;
+    }
+    this.walSeqCounters.set(projectId, rewindMax + 1n);
     return removed;
   }
 
@@ -1127,8 +1162,13 @@ export class CollabSpoolService {
   }
 
   /** confirm=append 成功后的记账性动作（契约 12：本方法不触 DB）+内存 pgSeq 水位推进。
-   *  段回收判据（V3）：全部可解析帧 confirmed ∧ 坏尾已处置（quarantinedRange 已记 ∨ 段尾干净）。 */
+   *  段回收判据（V3）：全部可解析帧 confirmed ∧ 坏尾已处置（quarantinedRange 已记 ∨ 段尾干净）。
+   *  Y1c T10：unlink 相经 per-project WAL IO 链——与 appendBatch 段写互斥（解耦 flusher 竞态，见 chainWalIo）。 */
   async confirm(projectId: string, frameIds: string[]): Promise<void> {
+    return this.chainWalIo(projectId, () => this.confirmInner(projectId, frameIds));
+  }
+
+  private async confirmInner(projectId: string, frameIds: string[]): Promise<void> {
     const segs = this.index.get(projectId);
     if (!segs) return;
     for (const id of frameIds) {
@@ -1566,9 +1606,13 @@ export class CollabSpoolService {
         if (totalBytes > CollabSpoolService.REPLAY_MERGE_MAX_BYTES) frames.length = this.truncateByBytes(frames, CollabSpoolService.REPLAY_MERGE_MAX_BYTES);
         let roundAppended = false;
         try {
+          const lastWalSeq = frames.reduce((m, f) => (f.walSeq > m ? f.walSeq : m), 0n);
+          // Y1c T10：回灌带水位 catch-up（expectedPgSeq=null 形态——`SET pgSeq=$new WHERE pgSeq<$new`
+          // 单调追赶；CAS 0 行/已超前=幂等 no-op）——崩溃恢复后 CanvasDoc.pgSeq 与实插行同步收敛
+          //（恢复=从 pgSeq 重放——T13 编排，本处机械推进）。
           const r = await repo.appendBatch(projectId, frames.map((f) => CanvasDocUpdateRepository.singleFrameRow({
             generation: genOf(projectId), walSeq: f.walSeq, frameHash: frameHashOf(f.payload), update: f.payload,
-          })));
+          })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq });
           if (!r.ok) throw new Error(`appendBatch fenced (${r.reason})`);
           await this.confirm(projectId, frames.map((f) => f.frameId));
           replayed += frames.length;
@@ -1586,7 +1630,7 @@ export class CollabSpoolService {
               try {
                 const r2 = await repo.appendBatch(projectId, [CanvasDocUpdateRepository.singleFrameRow({
                   generation: genOf(projectId), walSeq: frame.walSeq, frameHash: frameHashOf(frame.payload), update: frame.payload,
-                })]);
+                })], { expectedPgSeq: null, newPgSeq: frame.walSeq, walCheckpointSeq: frame.walSeq });
                 if (!r2.ok) throw new Error(`appendBatch fenced (${r2.reason})`, { cause: e });
                 await this.confirm(projectId, [frame.frameId]);
                 replayed += 1;

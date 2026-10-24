@@ -36,8 +36,9 @@ export class CanvasDocUpdateRepository {
   private leaseOwner: string | null = null;
   setLeaseOwner(owner: string | null): void { this.leaseOwner = owner; }
 
-  /** P23/V26 锁键单源：append/compact 共用——任何一处漂移=stateSeq 静默变谎话（配合
-   *  canvas-doc-insert-ratchet.spec.ts 静态断言"INSERT 仅在本文件"形成双守卫）。 */
+  /** P23/V26 锁键单源：**T10 后仅 vacuumReplace 消费**（T12 状态机化收口）——append/compact 已去锁
+   *  （census⑩：actor 单写者+WAL walSeq 构造性保证 seq 序≡提交序；compact 一致性=RR 快照）。跨进程
+   *  同键消费=scripts/collab-renumber-layer.mjs（离线 CLI——api 停写前提下与 vacuumReplace 互斥保险）。 */
   private lockProject(
     tx: { $executeRaw: (q: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> },
     projectId: string,
@@ -71,22 +72,28 @@ export class CanvasDocUpdateRepository {
    *  禁以"未抛错"判成功。0 行时二次查区分（v2.5 消静默）：行在=真 fenced；行被删=leaseRowMissing
    *  throw（配置错误，重试无用——gateway 落 spool 不排梯 SV13）。 */
   /** Y1c T9 批行（新表形态——Controller 裁定 1：actor drain 批同事务多行 append；T10 精化 applied-driven
-   *  连续批+水位 CAS）：行 seq=wAL 帧序号（firstWalSeq..lastWalSeq 单调）；ON CONFLICT DO NOTHING
+   *  连续批+水位 CAS）：行 seq=WAL 帧序号（firstWalSeq..lastWalSeq 单调）；ON CONFLICT DO NOTHING
    *  （无目标谓词=覆盖 PK+updateHash 双唯一）——updateHash=有序 frameHash 列表 SHA-256（重试/重组批幂等）。
-   *  advisory lock+lease fence 维持（T10 才删——禁本卡吸进）。返回 rows=实插行数（conflict 命中=幂等
-   *  视为已提交）。 */
+   *  **T10 水位 CAS（v1.7 拆义——同事务原子）**：wm.expectedPgSeq 非 null=actor 单写者 CAS 形态
+   *  （`UPDATE CanvasDoc SET walCheckpointSeq=<提交时刻 spoolHeadSeq>, pgSeq=$new WHERE projectId AND
+   *  generation AND pgSeq=$expected RETURNING`——永不写 appliedSeq 口径）；null=恢复回灌 catch-up 形态
+   *  （`SET pgSeq=$new WHERE pgSeq<$new` 单调追赶——replayAll 消费，禁回退）。CAS 0 行两分：pgSeq 已
+   *  ≥new（回灌/reconciler 并发收敛——updateHash 幂等已覆盖）=ok；否则 fenced。
+   *  **T10 删 advisory lock（census⑩）**：append/compact 不再取锁——actor 单写者+WAL walSeq 使「seq 序≡
+   *  提交序」由构造保证（行 seq=已 fsync 的 walSeq，非 DB 取号）；compact 一致性=RR 快照（DELETE 只删
+   *  快照可见行=被重放集，新 append 行天然幸存）。vacuumReplace 保留同键锁（T12 状态机化收口锚——
+   *  CLI renumber 跨进程保险）。旧取号序列（canvas doc update seq——T9 退役 nextval 单帧取号）同批 DROP
+   *  （迁移 20261024140000——行 seq=WAL walSeq 非取号）。返回 rows=实插行数（conflict 命中=幂等视为已提交）。 */
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
-  }>): Promise<{ ok: true; rows: number } | { ok: false; reason: 'fenced' }> {
+  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' }> {
     const owner = this.leaseOwner;
     if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
     if (rows.length === 0) return { ok: true, rows: 0 };
     // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——同旧单帧 append 语义
-    const inserted = await this.prisma.$transaction(
+    const watermarkLanded = await this.prisma.$transaction(
       async (tx) => {
-        // SV3/W14：与 compact 同 key advisory lock——seq 序≡提交序（水位可信前提）；T10 删除归其卡
-        await this.lockProject(tx, projectId);
         let n = 0;
         for (const r of rows) {
           // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折
@@ -100,11 +107,59 @@ export class CanvasDocUpdateRepository {
           RETURNING seq`;
           n += res.length;
         }
-        return n;
+        if (!wm) return { inserted: n, watermark: 'skipped' as const };
+        // —— 水位推进（与行插入同事务——崩溃恢复=从 pgSeq 重放 WAL，不依赖进程内状态）——
+        const newPg = wm.newPgSeq;
+        const wc = wm.walCheckpointSeq > newPg ? wm.walCheckpointSeq : newPg;   // CHECK pgSeq≤walCheckpointSeq 守恒
+        const updated = wm.expectedPgSeq != null
+          ? await tx.$queryRaw<{ pgSeq: bigint }[]>`
+              UPDATE "CanvasDoc" SET "walCheckpointSeq" = ${wc}::bigint, "pgSeq" = ${newPg}::bigint
+              WHERE "projectId" = ${projectId}::text AND generation = ${rows[0].generation}::int AND "pgSeq" = ${wm.expectedPgSeq}::bigint
+              RETURNING "pgSeq"`
+          : await tx.$queryRaw<{ pgSeq: bigint }[]>`
+              UPDATE "CanvasDoc" SET "walCheckpointSeq" = GREATEST("walCheckpointSeq", ${wc}::bigint), "pgSeq" = ${newPg}::bigint
+              WHERE "projectId" = ${projectId}::text AND "pgSeq" < ${newPg}::bigint
+              RETURNING "pgSeq"`;
+        return { inserted: n, watermark: updated.length > 0 ? 'advanced' as const : (wm.expectedPgSeq != null ? 'cas-miss' as const : 'noop' as const) };
       },
       { timeout: 5_000, maxWait: 1_000 },
     );
-    if (inserted > 0) return { ok: true, rows: inserted };
+    if (watermarkLanded.watermark === 'cas-miss') {
+      // CAS 0 行两分：pgSeq 已 ≥ newPgSeq（回灌/reconciler 并发先收敛——行 updateHash 幂等已覆盖）=ok；
+      // 行缺失=懒建档（旧链 compact create 同语义——首 CAS 建行）；其余=真 fenced（二次查区分同旧契约）。
+      const row = await this.prisma.$queryRaw<{ pgSeq: bigint }[]>`
+        SELECT "pgSeq" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+      if (row.length === 0) {
+        // 懒建档（genesis 双路之外的老项目首写——行不在与 fenced 不可区分，单写者下 INSERT 幂等收敛；
+        // updatedAt=Prisma @updatedAt 无 DB 默认——raw INSERT 须显式给值；state=空 doc 合法 update 字节
+        // ——禁空 bytea〔读侧 if(docRow.state) 形态直 applyUpdate=lib0 解码 throw〕）
+        await this.prisma.$executeRaw`
+          INSERT INTO "CanvasDoc" ("projectId", state, "stateSeq", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
+          VALUES (${projectId}::text, ${Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()))}, 0, ${rows[0].generation}::int, 3, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint)
+          ON CONFLICT DO NOTHING`;
+        return { ok: true, rows: watermarkLanded.inserted };
+      }
+      if (row[0].pgSeq >= wm!.newPgSeq) return { ok: true, rows: watermarkLanded.inserted };   // 并发收敛（幂等）
+      {
+        // 单写者内存水位滞后（T10 G2 ④：CAS 已提交但 confirm 未跑——崩溃窗/confirm 静默）：
+        // 行已入（cas-miss 事务行照常提交+updateHash 幂等）——以 PG 行真值重试 CAS 一次（adopt）。
+        const adopt = await this.prisma.$queryRaw<{ pgSeq: bigint }[]>`
+          UPDATE "CanvasDoc" SET "walCheckpointSeq" = GREATEST("walCheckpointSeq", ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint), "pgSeq" = ${wm!.newPgSeq}::bigint
+          WHERE "projectId" = ${projectId}::text AND "pgSeq" = ${row[0].pgSeq}::bigint
+          RETURNING "pgSeq"`;
+        if (adopt.length > 0) return { ok: true, rows: watermarkLanded.inserted };
+      }
+      const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
+        SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
+      if (lease.length === 0) {
+        throw Object.assign(
+          new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
+          { leaseRowMissing: true },
+        );
+      }
+      return { ok: false, reason: 'fenced' };
+    }
+    if (watermarkLanded.inserted > 0) return { ok: true, rows: watermarkLanded.inserted };
     // 0 行两分（Y1c T9 幂等轴）：行已存在（updateHash 幂等命中——重试/重组批 no-op）=ok rows:0；
     // 全新行零插入=fenced（B2 不抛——二次查区分：CollabLease 行删=leaseRowMissing 配置错误〔重试
     // 无用——gateway 落 spool 不排梯 SV13〕；行在=确 fenced〔owner≠me〕）。
@@ -126,6 +181,13 @@ export class CanvasDocUpdateRepository {
       }
     }
     return { ok: true, rows: 0 };   // 幂等重发：全部 updateHash 已在（DO NOTHING 吞行=正确 no-op）
+  }
+
+  /** T10：CanvasDoc 水位读面（恢复链/测试——pgSeq 权威从 PG 行读，非进程内状态）。 */
+  async readWatermark(projectId: string): Promise<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number } | null> {
+    const row = await this.prisma.$queryRaw<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number }[]>`
+      SELECT "pgSeq", "walCheckpointSeq", generation FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+    return row[0] ?? null;
   }
 
   private static readonly PAGE_ROWS = 500;
@@ -302,7 +364,10 @@ export class CanvasDocUpdateRepository {
           this.logger.warn(`compact not-owner for ${projectId}（租约档——行数不减）`);
           return { compacted: false, reason: 'not-owner' as const };
         }
-        await this.lockProject(tx, projectId);   // P23：锁键单源（与 append 同 helper）
+        // Y1c T10（census⑩）：compact 去 advisory lock——被删集≡被重放集由 RR 快照保证（DELETE 只删
+        // 事务快照可见行；并发 appendBatch 新行幸存）；「seq 序≡提交序」由 actor 单写者+WAL walSeq
+        // 构造性保证（行 seq=已 fsync walSeq 非 DB 取号）。与 appendBatch 水位 CAS 的 CanvasDoc 行
+        // 写写冲突=compact 侧 P2034 序列化失败→调用方 WARN+下窗重试（compact=优化非不变量载体）。
         const rows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },

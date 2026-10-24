@@ -587,7 +587,7 @@ export function reconcileWithDocRegistry(counts, registry) {
  *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
-  'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,
+  'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 3,   // Y1c T10：+1=懒建档种子（appendBatch cas-miss 行缺失档——createCanvasDoc 空 doc 合法 update）
   'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
@@ -897,7 +897,7 @@ if (isMain()) {
   };
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
-    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源）
+    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 3 },   // compact 快照重编码+tombstone 余量测量+Y1c T10 懒建档种子（④同源 2→3）
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': { decodeStateVector: 1, encodeStateAsUpdate: 3 },   // T41 W3a+Y1c T9：decode 2→1（guardSyncFrame SV 代际门随收编迁 frame-gate——encode 3=装载真值/residue/measureTruth 不变）
     'apps/api/src/modules/collab/collab-frame-gate.service.ts': { decodeStateVector: 1 },   // Y1c T9：SS1 SV 代际门（guardSyncFrame 收编随迁）
     'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登
@@ -1150,6 +1150,7 @@ if (isMain()) {
     },
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': {   // T41 W3a：构造器（quota 四值 env 解析随域迁 DR——gateway Partial 直通+DI 路径构造期自足；设计 §8.2「quota 解析留 GW/DR 零 env 键」预估现场核不成立，commit 披露）
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
+      COLLAB_MAX_RESIDENT_DOC_BYTES: 1,   // Y1c T10（偏离 38⑤）：maxResidentDocBytes 驻留上界（load 入口闸——默认 384MiB 落使用点）
     },
     'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）
       COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1,
@@ -1488,7 +1489,7 @@ if (isMain()) {
     // import 档（备份导入）
     'apps/web/src/collab/canvas-local-backup.ts': 1,                     // applyLocalBackup（origin=provider 抑制回发；:64 注释提及不计——census⑨ 同注）
     // 离线 scratch 档（非 inbound——compact/快照解码/shrink 预演校准/巡检）
-    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,
+    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // compact temp doc 行集重放 ×2（applyUpdate 面——Y1c T10 未增：懒建档种子只 encode 不 apply）
     'apps/api/src/modules/collab/collab-document.service.ts': 2,
     'apps/api/src/modules/collab/collab-shrink.service.ts': 3,
     'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
@@ -1537,6 +1538,43 @@ if (isMain()) {
     }
     report('㉝', 'DirectConnection 检查（openDirectConnection 恰 2 调用点=census ⑫ openSites；serving 期业务写=0 目标态——现役业务写登记红 until=T22/T32）',
       details.length === 0, [...details, ...registered]);
+  }
+
+  // ── ㉞ Y1c T10（census⑩ 删除面）：doc 写路径 advisory lock+canvas_doc_update_seq 清零断言 ──
+  //  前置=census⑩ 三项消费点核（appendBatch/vacuumReplace/compact——y1c-t0-census.md §⑩）：
+  //  T10 删 append/compact 两路（actor 单写者+WAL walSeq 构造性保证 seq 序≡提交序；compact=RR 快照），
+  //  vacuumReplace 保留同键锁=**恰 1 处**（T12 状态机化收口锚——census⑩ ⚠️ 注记兑现）；CLI
+  //  collab-renumber-layer.mjs 离线锁保留（跨进程保险，api 停写前提）。canvas_doc_update_seq 全仓清零
+  //  （DROP 迁移 20261024140000——nextval 生产消费=旧单帧 append 已随 T9 退役；CLI 改道 MAX(seq)+1）。
+  //  计法：repo 侧数 `this.lockProject(` 调用点（stripped——锁 SQL 住模板串会被剥，调用的语义锚）；
+  //  序列名数 raw（迁移文件不在扫描面，仓内残留=代码/注释均可定位）。
+  {
+    const repoFile = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/canvas-doc-update.repository.ts');
+    const lockCalls = repoFile ? (byFile.get(repoFile).stripped.match(/this\.lockProject\(/g) ?? []).length : -1;
+    const lockPass = lockCalls === 1;   // vacuumReplace 仅存（appendBatch/compact 清零）
+    const seqDetails = [];
+    for (const p of files) {
+      const rel = relOf(p);
+      if (!rel.startsWith('apps/api/src/')) continue;
+      if (/canvas_doc_update_seq/.test(byFile.get(p).raw)) seqDetails.push(`${rel} 残留 canvas_doc_update_seq`);
+    }
+    // CLI（离线工具——.mjs 不在 collectProductionFiles 面，直读核对；行注释不计——命中面=真调用/真 SQL）
+    let cliLock = -1; let cliSeq = -1;
+    try {
+      const cliSrc = fs.readFileSync(path.join(ROOT, 'scripts/collab-renumber-layer.mjs'), 'utf8');
+      const cliCode = cliSrc.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+      cliLock = (cliCode.match(/pg_advisory_xact_lock/g) ?? []).length;
+      cliSeq = (cliCode.match(/canvas_doc_update_seq|nextval\('canvas_doc/g) ?? []).length;
+    } catch { /* 结构性缺失由 cliLock=-1 兜底判红 */ }
+    const cliPass = cliLock === 1 && cliSeq === 0;   // 离线 CLI 同键锁保留（与 vacuumReplace 互斥保险）+序列清零
+    report('㉞',
+      `doc 写路径 advisory lock 清零（census⑩ T10——repo lockProject 恰 1 调用点=vacuumReplace〔T12 收口〕+CLI 离线锁保留；canvas_doc_update_seq 全仓清零）`,
+      lockPass && seqDetails.length === 0 && cliPass,
+      [
+        ...(!lockPass ? [`lockProject 调用点=${lockCalls}（期望恰 1=vacuumReplace——appendBatch/compact 须清零）`] : []),
+        ...seqDetails,
+        ...(!cliPass ? [`CLI renumber：锁消费点=${cliLock}（期望恰 1）/序列残留=${cliSeq}（期望 0）`] : []),
+      ]);
   }
 
   const failed = results.filter((r) => !r.pass);

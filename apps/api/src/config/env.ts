@@ -164,6 +164,8 @@ export const envSchema = z.object({
   // zod 只验形态不写 default（默认值落使用点——Z107 TTL 默认 120_000/Z142 RESIDENT 默认 384MiB；防双源 P3 同款）。
   COLLAB_SESSION_IDLE_TTL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_MAX_RESIDENT_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // Y1c T10（偏离 38⑤ maxResidentDocBytes）：全局驻留 doc 字节上界（load 入口闸——默认 384MiB 落使用点 DR）。
+  COLLAB_MAX_RESIDENT_DOC_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   // Y0a-4（P25）：绑定面收窄——reader 在 gateway listen 配置（键随读者同批收口，防 T1 结构锚方向二死键红）。
   // 默认缺省=0.0.0.0 不变；ecosystem 未来注入 127.0.0.1（nginx 同机唯一合法路径）。
   COLLAB_BIND_ADDR: z.preprocess(blankToUnset, z.string().min(1).optional()),

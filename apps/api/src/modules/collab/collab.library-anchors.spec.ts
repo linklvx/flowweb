@@ -102,8 +102,12 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
       expect(appendFail.mock.calls.length).toBeGreaterThanOrEqual(1);   // PG 腿确已失败过（防"未触发即断开"的通过无意义竞态——帧已 WAL 落定=磁盘安全）
       await provider.destroy();
       kit.forget(provider);   // 自管 destroy 后移出 dispose 数组——防双 destroy（flaky 源，惯例同 gateway.spec:262）
-      await pollUntil(() => !kit.gateway.server.hocuspocus.documents.has(name), 8_000);   // A2 四条件不含"store 成功"
-      expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(false);
+      // Y1c T10（偏离 37⑩+38⑤）翻转：applied 前缀不可 drain（PG 恒败）→ beforeUnloadDocument **拒绝卸载**
+      // ——doc 常驻 fail-closed（旧 A9「仍卸载」=T9 形态：帧 WAL 安全即卸载；T10 起内存账未清不卸载）。
+      // 库谓词 else 分支（A2 四条件）不再可达（钩子 throw=取消卸载）——断言翻转为常驻+applied 滞留。
+      await new Promise((r) => setTimeout(r, 500));
+      expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // 拒绝卸载=doc 常驻（fail-closed）
+      expect(kit.gateway.projectActor.appliedQueueDepth('p-anchor-a9')).toBeGreaterThanOrEqual(1);   // applied 前缀滞留（PG 恒败——WAL 安全）
     } finally {
       await kit.dispose();
     }

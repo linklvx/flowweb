@@ -45,7 +45,7 @@ describe('CanvasDocUpdateRepository', () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000, maxWait: 1_000 });
   });
 
-  it('compact：advisory lock + 按实读行 id 精确删除 + stateSeq 精确 =maxSeq', async () => {
+  it('compact：Y1c T10 去 advisory lock（census⑩——RR 快照承继被删集≡被重放集）+按 projectId 整删 + stateSeq 精确 =maxSeq', async () => {
     // mock $transaction 直接执行回调（tx 即 prisma 自身）
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
     const doc = new Y.Doc();
@@ -55,7 +55,9 @@ describe('CanvasDocUpdateRepository', () => {
       { projectId: 'p1', generation: 1, seq: 1n, update: Buffer.from(Y.encodeStateAsUpdate(doc)) },
     ]);
     await expect(repo.compact('p1')).resolves.toEqual({ compacted: true, snapshotBytes: expect.any(Number), deletedRows: 1, tombstoneBytes: expect.any(Number) });   // 返回契约（spec v2.4 §1.3+Y0b-4 T3 snapshotBytes+Y0b-5 T10 deletedRows/tombstoneBytes）
-    expect(prisma.$executeRaw).toHaveBeenCalled();
+    // Y1c T10（census⑩）：compact 去 advisory lock——「seq 序≡提交序」由 actor 单写者+WAL walSeq 构造性
+    // 保证；$executeRaw（锁语句）不再出现（compact 事务内零 raw 执行语句）。
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
     expect(prisma.canvasDoc.upsert).toHaveBeenCalled();
     // 被删集 ≡ 被重放集（按实读行 id 精确删除——事务期间新 append 的行不被误删）
     expect(prisma.canvasDocUpdate.deleteMany).toHaveBeenCalledWith({
@@ -200,21 +202,24 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     return { repo: new CanvasDocUpdateRepository(prisma as any), prisma, txq, exec, query };
   }
 
-  it('appendBatch：advisory lock（值=p1）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）——与 compact 同 key', async () => {
+  it('appendBatch：Y1c T10 去锁（census⑩）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）+水位 CAS 同事务', async () => {
     const txq = vi.fn().mockResolvedValue([{ seq: 1n }]);
     const exec = vi.fn().mockResolvedValue([]);
     const { repo, exec: e } = buildRepo({ txQuery: txq, txExec: exec });
     repo.setLeaseOwner('me');
-    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)]);
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
     expect(r).toEqual({ ok: true, rows: 1 });
-    expect(e.mock.calls.length).toBeGreaterThanOrEqual(1);            // 锁语句被执行
-    expect(shape(e.mock.calls[0])).toContain('pg_advisory_xact_lock(hashtext(?)');   // 占位符形态（禁内插）
-    expect(e.mock.calls[0].slice(1)).toEqual(['p1']);                 // 锁键=projectId（与 compact 同源）
+    expect(e.mock.calls.length).toBe(0);                              // Y1c T10：锁语句退役（actor 单写者+WAL walSeq 构造性保证 seq 序≡提交序）
     const insert = txq.mock.calls[0];
     expect(shape(insert)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
     expect(shape(insert)).not.toContain('"expiresAt" >= now()');      // SV1：fence 去 TTL
     expect(shape(insert)).toContain('ON CONFLICT DO NOTHING');        // Y1c T9：重试/重组批幂等
     expect(insert.slice(1)).toEqual(expect.arrayContaining(['p1', 'me']));   // owner=绑定值
+    // Y1c T10 水位 CAS（同事务）：UPDATE CanvasDoc SET walCheckpointSeq/pgSeq WHERE pgSeq=$expected RETURNING
+    const cas = txq.mock.calls.find((c: any[]) => shape(c).includes('UPDATE "CanvasDoc"')) as unknown as any[];
+    expect(cas, '水位 CAS 与行插入同事务').toBeDefined();
+    expect(shape(cas)).toContain('RETURNING "pgSeq"');
+    expect(shape(cas)).toContain('"pgSeq" = ?::bigint');   // CAS 谓词（expected 绑定——永不写 appliedSeq 口径）
   });
 
   it('owner=null 显式 throw lease-owner-not-set（P7：配置错误不伪装 fenced）', async () => {

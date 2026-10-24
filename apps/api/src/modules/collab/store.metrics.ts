@@ -1222,3 +1222,11 @@ export const collabRoleInfo = new Gauge({
   labelNames: ['role'],
   registers: [register],
 });
+
+/** Y1c T10（偏离 37⑩+38⑤ doc 卸载纪律）：卸载被拒计数——beforeUnloadDocument drain applied→PG
+ *  失败（PG 不可用/隔离态/fenced）时 throw=拒绝卸载（doc 常驻 fail-closed）的留痕面。 */
+export const docUnloadBlockedTotal = new Counter({
+  name: 'doc_unload_blocked_total',
+  help: 'beforeUnloadDocument 拒绝卸载次数（applied 前缀未能 drain 至 PG——doc 常驻 fail-closed；PG 不可用/隔离/fenced 档）',
+  registers: [register],
+});
