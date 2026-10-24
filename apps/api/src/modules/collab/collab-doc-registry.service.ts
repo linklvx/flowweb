@@ -695,7 +695,13 @@ export class CollabDocRegistryService {
     if (Date.now() - st.lastAt > OVER_PUSH_IDLE_RESET_MS) { st.count = 0; st.bytes = 0; st.firstAt = Date.now(); }
     st.count += 1; st.bytes += bytes; st.lastAt = Date.now();
     this.overPush.set(sid, st);
-    return (st.count >= OVER_PUSH_COUNT || st.bytes >= 2 * this.quota.maxTxBytes) && Date.now() - st.firstAt >= OVER_PUSH_WINDOW_MS;
+    const escalate = (st.count >= OVER_PUSH_COUNT || st.bytes >= 2 * this.quota.maxTxBytes) && Date.now() - st.firstAt >= OVER_PUSH_WINDOW_MS;
+    if (escalate) {
+      // Q-M4（旧链语义补回）：升级 4404 关闭前 doc-status stateless 先行通告——客户端收终态码前先
+      // 得配额真相（自救面；原 guardSyncFrame ① 升级位同款 try 尽力，通告失败不阻关闭）
+      try { conn.sendStateless?.(JSON.stringify(this.buildDocStatus(pid))); } catch { /* 先通告尽力 */ }
+    }
+    return escalate;
     // 复位只在 thawQuota（freeze 重入不清零）；内容靠 thaw 回灌（库交 SyncStatus(false)——客户端零动作）
   }
 

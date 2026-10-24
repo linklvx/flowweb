@@ -388,7 +388,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       beforeSync: (p) => this.frameGate.guardSyncFrame(p),   // Y1c T9：guardSyncFrame 收编 frame-gate（SS1 SV 代际门/帧闸/bytes 桶/配额判定→actor.submit——apply 归属=actor pre-apply，ACK 时帧必已 fsync）
       onDisconnect: (p) => this.disconnect(p),
       beforeUnloadDocument: (p) => this.unloadDocument(p),   // Y0a-2 Task 7：卸载清理+交接（永不抛——X4）
-      afterUnloadDocument: async (p) => this.docRegistry.afterUnloadDocument(p.documentName),   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）；DocRegistry 域直调（钩子接线即编排点——onLoadDocument 同款；async 仅为满足库 hook 签名〔原私有壳 async 同形——DR 方法同步体〕；B3 手段④壳再薄化：15 容器清理/键集差异逐键钉死注释见 service 对应位〔W2 穷举单测 D1〕）
+      afterUnloadDocument: async (p) => {
+        this.docRegistry.afterUnloadDocument(p.documentName);
+        this.projectActor.onProjectStateCleanup(parseDocName(p.documentName)?.projectId ?? '');   // Q-I1：actor per-project 状态随真卸载清（unload 链——queue 空/drain 静止守卫在 actor 方法内）
+      },   // Y0b-4 T3 外审修复（I-1）：真卸载终态清理（库删键+destroy 后才调）；DocRegistry 域直调（钩子接线即编排点——onLoadDocument 同款；async 仅为满足库 hook 签名〔原私有壳 async 同形——DR 方法同步体〕；B3 手段④壳再薄化：15 容器清理/键集差异逐键钉死注释见 service 对应位〔W2 穷举单测 D1〕）
       onUpgrade: async (p) => this.sessionGuard.handleUpgrade(p),   // W3b：SessionGuard 域（Y0b-3 T2 Origin 403+升级限流 §3.1ter——socket 直写形态；async 仅为满足库 hook 签名，同步体全吞不 reject）
     };
     // Y0c T42（B3 手段①）：Server 构造 options 块=createCollabServer 单源（collab-server.factory——
@@ -434,6 +437,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       // （含 vacuumingDocs 真空窗兜底 :1157——B1 onProjectGone 同款机械提取，事件编排壳留 gateway，
       // V11 禁慢操作纪律在壳；键集差异逐键钉死=W2 穷举单测 D3）。
       this.docRegistry.onProjectGoneStateCleanup(projectId);
+      // Q-I1：actor per-project 状态随项目终态清（projectGone 链——queue 空/drain 静止守卫在 actor 方法内；
+      // 纯内存操作不违 V11 禁慢操作）
+      this.projectActor.onProjectStateCleanup(projectId);
     }
     yjsDeletedProjects.set(this.persistence.deletedProjects.size);   // V25：永久无界的可见化（终态集随域迁 service——gauge set 留 gateway 原点）
     this.sessionGuard.closeTeamDocuments(projectIds);             // W3b：关连接随域迁 SG（payload-only 不查库；handleProjectsGone 内部直调 sg，不设公有委托 §4.4）

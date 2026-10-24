@@ -18,7 +18,7 @@ let spoolDir: { dir: string; cleanup: () => Promise<void> };
 beforeEach(async () => { const d = await makeSpoolDir('t9-own-'); spoolDir = d; });
 afterEach(async () => { await spoolDir.cleanup(); });
 
-function buildGateway() {
+function buildGateway(opts: { lease?: ReturnType<typeof createLeaseStub> } = {}) {
   const prisma = {
     systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 't9-history' }) },
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, userId: 'u1', expiresAt: new Date(Date.now() + 86400000) }) },
@@ -27,18 +27,19 @@ function buildGateway() {
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
   };
   const repo = createMockRepo();
-  const lease = createLeaseStub();
+  const lease = opts.lease ?? createLeaseStub();
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
   const spool = new CollabSpoolService(spoolDir.dir);
   spool.setOwner('t9-owner');
+  const eventEmitter = new EventEmitter2();
   const gateway = new CollabGateway(
-    prisma as any, new EventEmitter2() as any, repo as any, lease as any,
+    prisma as any, eventEmitter as any, repo as any, lease as any,
     perm as any, 48000 + Math.floor(Math.random() * 2000),
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');
   const storeUnlockedSpy = vi.spyOn(gateway.persistence, 'storeDocumentUnlocked');
-  return { gateway, repo, spool, prisma, storeUnlockedSpy };
+  return { gateway, repo, spool, prisma, storeUnlockedSpy, eventEmitter };
 }
 
 function makeFrame(name: string, key: string, val: unknown) {
@@ -110,24 +111,55 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
     expect(JSON.parse(receipt!).historyId).toBe('server-history-1');
   }, 20_000);
 
-  it('T8 接线：setProjectGeneration（装载世代播种）——帧内 generation=WAL 段 g 域同源', async () => {
-    const { gateway, spool } = buildGateway();
-    const doc = new Y.Doc();
-    await gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p4', socketId: 's0' } as never);
-    // 装载播代：hydrateWithRecovery 默认 generation=0（未带）——host 缝不触发；带 generation 装载触发 spool 播种
-    const repo2 = createMockRepo({ loadForHydration: vi.fn(async () => ({ state: null, updates: [], stateSeq: 0n, generation: 7 })) });
-    void repo2;
-    const { gateway: gw2 } = buildGatewayWithGen(7);
+  it('S-M2：setProjectGeneration 接线真行为——装载 generation=7 → spool.currentGeneration=7+后续段名 g7 域', async () => {
+    const { gateway: gw2, spool, repo } = buildGatewayWithGen(7);
+    // PG 腿失败（帧留 spool 未 confirm——段名可观测；connection 帧已 resolve 不受影响）
+    repo.appendBatch.mockImplementation(async () => { throw new Error('pg down'); });
     const doc2 = new Y.Doc();
     (doc2 as unknown as { name: string }).name = 'project:p5';
     await gw2.hooks.onLoadDocument({ document: doc2, documentName: 'project:p5', socketId: 's0' } as never);
+    expect(spool.currentGeneration('p5'), '装载播种经 onGenerationSeeded 缝直达 spool（gateway 1 行转发接线面）').toBe(7);
     (gw2.server.hocuspocus.documents as Map<string, Y.Doc>).set('project:p5', doc2);
     const conn = { socketId: 's5', readOnly: false, sendStateless: vi.fn() };
     const f = makeFrame('project:p5', 'gen1', 1);
     await gw2.hooks.beforeSync({ type: f.type, payload: f.payload, document: doc2, connection: conn } as never);
-    const segs = (spool as unknown as { index: Map<string, Map<string, { generation: number | null }>> });
-    void segs;   // 段 g 域断言在 actor.spec 世代用例承载——此处锚装载→spool.currentGeneration 接线面
-    expect(gw2.frameGate).toBeDefined();
+    const frames = await spool.peek('p5');
+    expect(frames).toHaveLength(1);                                    // 未 confirm 帧留 spool（PG 腿失败档）
+    expect(frames[0].frameId, '后续段名 g7 域（appendBatchRaw 消费播种值——空断言空心化修复）').toContain('.g7.');
+    expect(frames[0].walSeq).toBe(1n);
+  }, 20_000);
+
+  it('Q-I1：卸载/projectGone 链清 actor states——两项目建态→卸载一 states 键消失；project.gone 事件同钩', async () => {
+    // lease fast=false：onModuleInit 只注册 project.gone 订阅不 listen（doc-lifecycle spec :448 同款装置）
+    const lease = createLeaseStub({ tryAcquireFast: vi.fn(async () => false), isServing: vi.fn(() => false) });
+    const { gateway, repo, eventEmitter } = buildGateway({ lease });
+    await gateway.onModuleInit();   // project.gone/team.disbanded 订阅注册（本用例锚事件链）
+    gatewayFacade(gateway).forceCollabState('serving');   // onModuleInit 置 acquiring（fast=false 不 listen）——回播种放行态
+    // PG 腿恒失败：帧留 spool 未 confirm——owner 目录不回收（规避 confirm rmdir×并发 append 的
+    // ENOENT 竞态，本用例锚 states 清理链非 WAL 写面；竞态本体已登记 T33 收口）
+    repo.appendBatch.mockImplementation(async () => { throw new Error('pg down'); });
+    // 两项目各装载+提交一帧（actor states 建键）
+    for (const pid of ['pa', 'pb']) {
+      const doc = new Y.Doc();
+      (doc as unknown as { name: string }).name = `project:${pid}`;
+      (doc as unknown as { connections: Map<unknown, unknown> }).connections = new Map();   // 库 Document 结构面（projectGone 链 closeTeamDocuments 消费）
+      await gateway.hooks.onLoadDocument({ document: doc, documentName: `project:${pid}`, socketId: 's0' } as never);
+      (gateway.server.hocuspocus.documents as Map<string, Y.Doc>).set(`project:${pid}`, doc);
+      const f = makeFrame(pid, 'k1', 1);
+      await gateway.hooks.beforeSync({ type: f.type, payload: f.payload, document: doc, connection: { socketId: pid, readOnly: false, sendStateless: vi.fn() } } as never);
+    }
+    const states = (gateway.projectActor as unknown as { states: Map<string, unknown> }).states;
+    expect(states.size, '两项目态在位（红相基线——卸载链不触达 actor=无界驻留）').toBe(2);
+    // 卸载链：afterUnloadDocument → DR 终态清理 + actor.onProjectStateCleanup
+    await gateway.hooks.afterUnloadDocument({ documentName: 'project:pa' } as never);
+    expect(states.has('pa'), '卸载一 → states 键消失（cleanupKey 契约兑现）').toBe(false);
+    expect(states.has('pb')).toBe(true);
+    // 项目消失链：project.gone 事件 → handleProjectsGone → actor 清理（同一钩；drain 末轮收尾后触发
+    // ——beforeSync resolve 在 apply 点，PG flush 尾段仍可能在飞，守卫=留驻下次钩）
+    await new Promise((r) => setTimeout(r, 20));
+    eventEmitter.emit('project.gone', { projectIds: ['pb'] });
+    expect(states.has('pb'), 'projectGone 链同钩清理').toBe(false);
+    expect(states.size).toBe(0);
   }, 20_000);
 });
 
@@ -146,5 +178,5 @@ function buildGatewayWithGen(generation: number) {
   spool.setOwner('t9-owner');
   const gateway = new CollabGateway(prisma as any, new EventEmitter2() as any, repo as any, lease as any, perm as any, 49000 + Math.floor(Math.random() * 1000), undefined, undefined, undefined, spool);
   gatewayFacade(gateway).forceCollabState('serving');
-  return { gateway, spool };
+  return { gateway, spool, repo };
 }

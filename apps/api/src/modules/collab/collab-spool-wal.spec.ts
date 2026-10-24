@@ -409,6 +409,41 @@ describe('Y1c T8 收口 C1：段号命名空间碰撞——隔离段占名不覆
   });
 });
 
+// ═══ Y1c T9 双评审收口 S-I1（Important）：毒帧截断×去重索引互不作废=ACK 铁律破口 ═══
+describe('Y1c T9 收口 S-I1：truncateWalAfter 逐被截帧清去重索引——重发同字节按新帧处理', () => {
+  it('两帧批截断后段（appliedSeq=1 保留前缀）→ 重发第二帧=新 walSeq+真 WAL 写入；保留帧 dedup 仍命中', async () => {
+    const s = svc();
+    const f1 = new Uint8Array([1, 1, 1]);
+    const f2 = new Uint8Array([2, 2, 2]);
+    const appended = await s.appendBatch('p1', [f1, f2]);
+    expect(appended.map((a) => a.walSeq)).toEqual([1n, 2n]);
+    const removed = await s.truncateWalAfter('p1', 1n);   // 毒帧协议形态：保留 f1（applied），截 f2
+    expect(removed).toBe(1);
+    // 截断帧重发：必须按新帧处理——新 walSeq（3）+真 WAL 写入
+    // （红相：dedupIndex 残留→零 WAL 写入返回已截 walSeq=2→ACK 声称的 walSeq 在 WAL 不存在→PG 行落已截序号）
+    const re2 = await s.appendBatch('p1', [new Uint8Array(f2)]);
+    expect(re2[0].walSeq, '新 walSeq（≠已截 2n）').toBe(3n);
+    const frames = await s.peek('p1');
+    expect(frames.map((fr) => fr.walSeq), 'WAL 真写入：peek=f1+新帧（红相=仅 f1）').toEqual([1n, 3n]);
+    // 保留前缀帧条目不动（WAL 帧在——dedup 命中=no-op 语义正确）
+    const re1 = await s.appendBatch('p1', [new Uint8Array(f1)]);
+    expect(re1[0].walSeq, '保留帧 dedup 命中原 walSeq（截断只清被截帧）').toBe(1n);
+    expect(await s.peek('p1'), '命中零写——帧数不变').toHaveLength(2);
+  });
+
+  it('整段截断（appliedSeq=0）→ 两帧条目全清，重发两帧均新 walSeq+真 WAL 写入', async () => {
+    const s = svc();
+    const f1 = new Uint8Array([5, 5]);
+    const f2 = new Uint8Array([6, 6]);
+    await s.appendBatch('p1', [f1, f2]);
+    expect(await s.truncateWalAfter('p1', 0n)).toBe(2);
+    const re = await s.appendBatch('p1', [new Uint8Array(f1), new Uint8Array(f2)]);
+    expect(re.map((a) => a.walSeq), '两帧均新 walSeq（3/4——零陈旧命中）').toEqual([3n, 4n]);
+    expect((await s.peek('p1')).map((fr) => fr.walSeq)).toEqual([3n, 4n]);
+    expect(s.watermark('p1')!.spoolHeadSeq, 'spoolHead 随真写入推进').toBe(4n);
+  });
+});
+
 describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理截断', () => {
   it('I1：截断段有效前缀帧不搁浅——peek 可取回+replayAll 可达 PG（(pgSeq,lastGoodSeq] 已 fsync 帧）', async () => {
     const corpus = buildWalFaultCorpus({ historyId: HISTORY });

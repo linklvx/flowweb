@@ -379,6 +379,143 @@ describe('Y1c T9 用例组（actor 批验证/去重/copy/毒帧/SS2/上限/Frame
   }, 20_000);
 });
 
+// ═══ Y1c T9 双评审收口（quality C1+I1+I2 / spec I1 + M 系）——红先行 ═══
+describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 旗标元组/S-I1 截断×去重/S-M3 全局预算）', () => {
+  it('C1：detached 维护批 WAL 失败 → 维护 promise 全 reject（wal-append-failed 不带 pgPending）+drain 可继续', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    const { actor } = buildActor(spool, doc, 'other');   // documents 只含 other——p1=detached（doc 不在库）
+    const appendSpy = vi.spyOn(spool, 'appendBatch').mockRejectedValueOnce(new Error('wal capacity exceeded'));
+    const m1 = actor.submitMaintenance('p1', frameSetting('p1', 'wm1', 1));
+    const m2 = actor.submitMaintenance('p1', frameSetting('p1', 'wm2', 2));
+    // 红相锚：未守卫=异常穿透 drain（void this.drain() 未处理拒绝）→promise 永挂（2s 内零 settle）
+    const settled = await Promise.race([
+      Promise.allSettled([m1, m2]).then(() => true),
+      new Promise<boolean>((res) => { setTimeout(() => res(false), 2_000); }),
+    ]);
+    expect(settled, '维护 promise 必须 settle（红=永挂：saveMutex/handoff 链随之永挂）').toBe(true);
+    const e1 = await m1.then(() => null, (e) => e);
+    const e2 = await m2.then(() => null, (e) => e);
+    expect(e1).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'wal-append-failed' });
+    expect(e2).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'wal-append-failed' });
+    expect((e1 as { pgPending?: boolean }).pgPending, 'WAL 未落定语义——不带 pgPending（对照 pg-pending 档）').toBeUndefined();
+    expect((e2 as { pgPending?: boolean }).pgPending).toBeUndefined();
+    appendSpy.mockRestore();
+    // drain 可继续：同项目后续维护帧照常落定（守卫 return 不悬挂 drain 循环）
+    const r3 = await actor.submitMaintenance('p1', frameSetting('p1', 'wm3', 3));
+    expect(r3.walSeq).toBe(1n);
+  }, 20_000);
+
+  it('Q-I1：states Map 卸载/项目消失清理钩——两项目建态→清一→size 减一；帧落定中守卫保守留驻', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    const { actor } = buildActor(spool, doc, 'pa');
+    actor.docIndexOf('pa'); actor.docIndexOf('pb');   // states 建键（docIndex 读面=装载路径同源）
+    const states = (actor as unknown as { states: Map<string, unknown> }).states;
+    expect(states.size).toBe(2);
+    actor.onProjectStateCleanup('pa');   // 卸载/项目消失钩（gateway afterUnloadDocument/handleProjectsGone 接线）
+    expect(states.size, '清理后 size 减一').toBe(1);
+    expect(states.has('pb')).toBe(true);
+    // 幂等+无键 no-op
+    actor.onProjectStateCleanup('pa');
+    actor.onProjectStateCleanup('p-none');
+    expect(states.size).toBe(1);
+    // 帧落定中守卫：挂起 appendBatch（drain 在飞+队列占用）→ cleanup 保守留驻（防删除+重建破单 drain 串行/丢 appliedSeq）
+    let releaseAppend!: (v: Array<{ frameId: string; walSeq: bigint }>) => void;
+    const gate = vi.spyOn(spool, 'appendBatch').mockImplementation((() => new Promise((res) => { releaseAppend = res; })) as never);
+    const m = actor.submitMaintenance('pb', frameSetting('pb', 'qg1', 1));
+    await new Promise((r) => setTimeout(r, 30));   // drain 进入挂起批（draining=true）
+    actor.onProjectStateCleanup('pb');
+    expect(states.has('pb'), '落定中不删').toBe(true);
+    releaseAppend([{ frameId: 'g:0', walSeq: 1n }]);
+    await m;
+    gate.mockRestore();
+    await new Promise((r) => setTimeout(r, 10));   // drain 末轮收尾（resolve 先于 finally draining=false 恢复——微任务序）
+    actor.onProjectStateCleanup('pb');   // 落定后（drain 静止+队列空）→真删
+    expect(states.has('pb')).toBe(false);
+  }, 20_000);
+
+  it('Q-I2：PG 失败旗标随 flush 元组走——他批残留旗标不再错挂（breaker-open 档读到 fenced/lease 族=红相）', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    let breakerOpen = false;
+    const breaker = { isOpen: () => breakerOpen, recordSuccess: () => {}, recordFailure: () => {} };
+    const repo = createMockRepo();
+    const documents = new Map([['project:pa', doc]]);   // pb=detached（维护帧形态）
+    const actor = new CollabProjectActorService(spool, repo as never, breaker as never);
+    actor.bindHost({
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+      documents: () => documents,
+      hardClose: () => {},
+      isQuotaFrozen: () => false,
+      generationOf: () => 1,
+      noteReadOnlyDrop: () => false,
+      onFencedByWrite: async () => {},
+    });
+    // 项目 pa：connection 批 PG 失败（leaseRowMissing 语义）——批内零维护帧=旧实现 lastPgError 残留不读不清
+    repo.appendBatch.mockImplementation(async (pid: string) => {
+      if (pid === 'pa') throw Object.assign(new Error('CollabLease row missing'), { leaseRowMissing: true });
+      if (pid === 'pc') return { ok: false as const, reason: 'fenced' as const };
+      return { ok: true as const, rows: 1 };
+    });
+    await actor.submit('pa', frameSetting('pa', 'qc1', 1), makeConn(), 'update');   // connection 帧 resolve（Applied 档）；flush 失败旗标残留（旧共享字段）
+    // 项目 pb：breaker-open 档 flush 短路（不产生新失败样本）——旧实现读到 pa 残留 leaseRowMissing=旗标错挂
+    breakerOpen = true;
+    const eb = await actor.submitMaintenance('pb', frameSetting('pb', 'qm1', 1)).then(() => null, (e) => e);
+    expect(eb).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'maintenance-pg-pending' });
+    expect((eb as { pgPending?: boolean }).pgPending).toBe(true);
+    expect((eb as { leaseRowMissing?: boolean }).leaseRowMissing, '红相：错挂他批 leaseRowMissing').toBeUndefined();
+    expect((eb as { fenced?: boolean }).fenced).toBeUndefined();
+    // 正控：真 fenced 批旗标仍正确（元组单源——批内多维护帧均 fenced:true，旧首帧读后置 null=次帧丢旗标）
+    breakerOpen = false;
+    const [f1, f2] = await Promise.allSettled([
+      actor.submitMaintenance('pc', frameSetting('pc', 'qf1', 1)),
+      actor.submitMaintenance('pc', frameSetting('pc', 'qf2', 2)),
+    ]).then((rs) => rs.map((r) => r.status === 'rejected' ? (r as PromiseRejectedResult).reason : null));
+    expect(f1).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'maintenance-pg-pending' });
+    expect(f2).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'maintenance-pg-pending' });
+    expect((f1 as { fenced?: boolean }).fenced).toBe(true);
+    expect((f2 as { fenced?: boolean }).fenced, '批内次帧旗标不丢（元组=批内单源）').toBe(true);
+  }, 20_000);
+
+  it('S-I1：毒帧截断后重发同字节=新帧（新 walSeq+真 WAL 写入）——截断×spool 去重互不作废=ACK 铁律破口（红相）', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    const { actor } = buildActor<FlakyApplyActor>(spool, doc, 'p1', FlakyApplyActor as never);
+    const poisonBytes = frameSetting('p1', 'sibad', 1);
+    const ok1 = await actor.submit('p1', frameSetting('p1', 'siok', 1), makeConn(), 'update');
+    expect(ok1.walSeq).toBe(1n);
+    actor.failNextApply = true;
+    await expect(actor.submit('p1', poisonBytes, makeConn(), 'update')).rejects.toMatchObject({ code: CollabCloseCode.FRAME_MALFORMED });
+    expect(spool.watermark('p1')!.spoolHeadSeq).toBe(1n);   // WAL 截断至 appliedSeq=1（毒帧 walSeq2 已截）
+    // 截断后重发同字节毒帧（apply 恢复）：必须按新帧处理——新 walSeq（3）+真 WAL 写入
+    // （红相：spool dedupIndex 残留→appendBatch 零写返回已截 walSeq=2→ACK 声称的 walSeq 在 WAL 不存在）
+    actor.failNextApply = false;
+    const r2 = await actor.submit('p1', poisonBytes, makeConn(), 'update');
+    expect(r2.walSeq, '新 walSeq≠已截 2n').toBe(3n);
+    expect(r2.noop).not.toBe(true);
+    expect(spool.watermark('p1')!.spoolHeadSeq, '真 WAL 写入（spoolHead 随新帧推进）').toBe(3n);
+    expect((doc.getMap('nodes') as Y.Map<unknown>).get('sibad')).toBe(1);
+  }, 20_000);
+
+  it('S-M3：SS2 全局预算跨项目并发——4×ss2FrameGate（4 项目各 1 pending）占满 → 第 5 项目 SS2 瞬态拒 1008', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    const { actor, hardClose } = buildActor(spool, doc);
+    const ss2Gate = 8 * 1024 * 1024 + 64 * 1024;   // SS2 帧上界（SS2_FRAME_GATE_BYTES 同式——全局预算=4×此值）
+    // 同 tick 连发 5 项目 SS2（drain 微任务前 pending 双计面已占满——跨项目并发形态）
+    const first = [0, 1, 2, 3].map((i) => actor.submit(`spx${i}`, makeBigFrame(ss2Gate, i), makeConn(), 'ss2').catch(() => {}));
+    const r5 = await actor.submit('spx5', makeBigFrame(ss2Gate, 5), makeConn(), 'ss2').then((r) => ({ ok: true as const, r }), (e) => ({ ok: false as const, e }));
+    expect(r5.ok, '第 5 帧（4×gate+gate>4×gate）全局预算拒').toBe(false);
+    if (!r5.ok) {
+      expect((r5.e as { code?: number }).code).toBe(CollabCloseCode.RATE_LIMITED_CLOSE);
+      expect((r5.e as { frameReason?: string }).frameReason).toBe('ss2-budget-exceeded');
+      expect(hardClose).toHaveBeenCalledWith(expect.anything(), CollabCloseCode.RATE_LIMITED_CLOSE, 'ss2-budget-exceeded');
+    }
+    await Promise.allSettled(first);   // 首四帧后续在准入段被拒（预算用例只锚第 5 帧全局 deny）
+  }, 30_000);
+});
+
 /** 大帧构造（入站上限用例——常量字节载荷，Wal 入账前已被闸拒不真写盘）。 */
 function makeBigFrame(bytes: number, seed: number): Uint8Array {
   const u = new Uint8Array(bytes);

@@ -475,6 +475,10 @@ export class CollabSpoolService {
     const prefix = `${projectId}\u0000`;
     for (const k of [...this.dedupIndex.keys()]) if (k.startsWith(prefix)) this.dedupIndex.delete(k);
   }
+  /** S-I1：逐帧条目作废（毒帧截断配套——被截帧的去重条目必须同步清，见 truncateWalAfter）。 */
+  private dedupDelete(projectId: string, hashHex: string): void {
+    this.dedupIndex.delete(`${projectId}\u0000${hashHex}`);
+  }
 
   // @Optional()：Nest DI 对原始类型参数无法解析，不加会在模块实例化时让整个应用 boot 崩。
   private readonly capacityBytes: number;
@@ -933,6 +937,7 @@ export class CollabSpoolService {
           const frame = encodeWalFrame({ walSeq, payload: payloads[i] }, gen);
           await fh.write(frame, 0, frame.length, meta!.bytes);
           group.push({ walSeq, frameIdx: meta!.frameCount, frame, frameHashHex: frameHashOf(payloads[i]).toString('hex') });
+          meta!.frameCount += 1;   // S-I1 红测暴露（自审修复）：批内逐帧推进——旧码全组同 frameIdx 且 frameCount 恒 1（多帧批 peek/confirm/截断 removed 计数失真；帧字节已落盘仅内存记账错——重启 scan 自愈）
           meta!.bytes += frame.length;
           i += 1;
         }
@@ -1046,6 +1051,13 @@ export class CollabSpoolService {
         throw Object.assign(new Error(`poison truncate failed for ${segKey}`), { poisonTruncateFailed: true });
       }
       removed += meta.frameCount - cut;
+      // S-I1（ACK 铁律）：逐被截帧清去重索引条目——截断后客户端重发同字节必须按**新帧**处理（新
+      // walSeq+真 WAL 写入）。截断不清索引=appendBatch/dedupLookup 命中陈旧条目→零 WAL 写入返回
+      // 原 walSeq→ACK 声称的 walSeq 在 WAL 已不存在→PG 行落已截 walSeq（毒帧截断×去重索引互不
+      // 作废=ACK 铁律破口）。保留前缀帧（j<cut）条目不动（WAL 帧在——命中=no-op 语义正确）。
+      // 与 actor 层 clearDedup 的双层关系：actor promise map=进程内 submit 层（reject 面自清），
+      // 本索引=WAL 磁床位——两层任一残留都破坏「重发=新帧」，故截断点必须双侧同步作废。
+      for (let j = cut; j < meta.frameHashes.length; j++) this.dedupDelete(projectId, meta.frameHashes[j]);
       meta.seqs.length = cut;
       meta.frameHashes.length = cut;
       let keptConfirmed = 0;

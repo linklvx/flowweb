@@ -42,10 +42,11 @@ function buildGateway() {
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
   };
-  const appends: Uint8Array[] = [];
   // Y0a-1：repo stub 收敛 mock-repo 工厂（快照经 hydrateWithRecovery 喂——装载读唯一入口）
+  // Q-M1：mock 签名对齐新表形态 appendBatch(pid, rows[])——返回 {ok,rows}（Y1c T9 批行契约；
+  // 旧签名 u:Uint8Array+{ok,seq} 形为 T9 前残帧，实收 rows 数组死装置）
   const repo = createMockRepo({
-    appendBatch: vi.fn(async (_pid: string, u: Uint8Array) => { appends.push(new Uint8Array(u)); return { ok: true as const, seq: 1n }; }),   // AppendResult 契约（Y0a-2 判别消费）
+    appendBatch: vi.fn(async (_pid: string, rows: ReadonlyArray<{ update: Uint8Array }> = []) => ({ ok: true as const, rows: rows.length })),
   });
   const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true）
   const spool = new CollabSpoolService(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
@@ -58,7 +59,7 @@ function buildGateway() {
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）
-  return { gateway, repo, appends, spool };
+  return { gateway, repo, spool };
 }
 
 function registerDoc(gateway: CollabGateway, name: string): Document {
