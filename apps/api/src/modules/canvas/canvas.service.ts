@@ -54,8 +54,8 @@ export class CanvasService {
     });
     this.templateService.clearCache();
     if (folderId) await this.folderService.touch([folderId]);
-    // Y0b-5 T5：世代可见通道随行（与 GET /projects/:id 同族）——doc 懒建于 loadDocument（本事务
-    // 不建 CanvasDoc 行）⇒ 新建确定性 0 代；新建路径首会话同享四维缓存键通道（fail-closed 不误伤）
+    // Y0b-5 T5：世代可见通道随行（与 GET /projects/:id 同族）——本事务建头集（T7 genesis
+    // ensureCanvasDocHead）⇒ 确定性 0 代；新建路径首会话同享四维缓存键通道（fail-closed 不误伤）
     return {
       ...result,
       collabGeneration: 0,

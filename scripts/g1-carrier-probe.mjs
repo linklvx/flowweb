@@ -3,14 +3,17 @@
 // 覆盖：行锁 SELECT FOR UPDATE 生效 / 水位 UPDATE RETURNING（T10 CAS 形态）/ RuntimeFeedCursor
 // 冻结 upsert SQL（自 T5b runtime-event.ts 冻结文本提取执行——顺作漂移守卫）/ CHECK 负控×4
 // （SystemHistory id=2、pgSeq>walCheckpointSeq、Snapshot>16MiB、活跃维护 partial unique）/
-// 快照发布事务模式（行锁+条件插入+指针条件更新+跨表不变量——真实发布者=T11，本探针只证 PG 事务形态）。
-// 产出 gate-evidence/g1.json（spec §9.1 manifest 形态；skipped 必须=0；负控不红=门无效）。
+// 快照发布事务模式（行锁+条件插入+指针条件更新+跨表不变量——真实发布者=T11，本探针只证 PG 事务形态）/
+// prisma validate 负控×3（V1 空 model/V2 单侧 relation/V3 缺 opposite——临时 schema 副本真跑 CLI 机判）。
+// 产出 gate-evidence/g1.json（spec §9.1 manifest 形态——cases 带 artifacts；skipped 必须=0；负控不红=门无效）。
 // 运行：node scripts/g1-carrier-probe.mjs（DATABASE_URL 取 apps/api/.env——真 PG）
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
 const API = join(ROOT, 'apps/api');
@@ -29,7 +32,22 @@ function extractFrozenUpsertSql() {
 }
 const FROZEN_UPSERT = extractFrozenUpsertSql();
 
-const url = readFileSync(join(API, '.env'), 'utf8').match(/^DATABASE_URL\s*=\s*"?([^"\r\n]+)"?/m)[1];
+/** 结构性错误（对照 check-migrate-diff.mjs structural()——明示缺什么+怎么补；exit 2 区别于门红 exit 1） */
+function structural(msg) { console.error(`g1-carrier-probe: 结构性错误（exit 2）——${msg}`); process.exit(2); }
+
+let url;
+{
+  const envPath = join(API, '.env');
+  let envSrc;
+  try {
+    envSrc = readFileSync(envPath, 'utf8');
+  } catch {
+    structural(`apps/api/.env 缺失（探针需真 PG——在 apps/api/.env 配 DATABASE_URL=postgresql://… 后重跑）`);
+  }
+  const m = envSrc.match(/^DATABASE_URL\s*=\s*"?([^"\r\n]+)"?/m);
+  if (!m) structural('apps/api/.env 无 DATABASE_URL 行（探针需真 PG——补 DATABASE_URL=postgresql://… 后重跑）');
+  url = m[1].trim();   // 无引号时捕获含行尾空白——trim 防连接串带尾随空白
+}
 const PID = `y1c-g1-probe-${Date.now().toString(36)}`;
 const EMPTY_UPDATE = Buffer.from([0, 0]);   // 合法空 Yjs update（encodeStateAsUpdate(emptyDoc)=[0,0] 实测）
 
@@ -40,10 +58,10 @@ let failures = 0;
 async function record(id, command, fn, expect) {
   try {
     const detail = await fn();
-    cases.push({ id, command, status: 'pass', expect, detail });
+    cases.push({ id, command, status: 'pass', expect, detail, artifacts: [] });
   } catch (e) {
     failures++;
-    cases.push({ id, command, status: 'fail', expect, error: `${e.code ?? ''} ${e.message}`.trim().slice(0, 300) });
+    cases.push({ id, command, status: 'fail', expect, error: `${e.code ?? ''} ${e.message}`.trim().slice(0, 300), artifacts: [] });
   }
 }
 /** 负控：故意破坏被测不变量必须红（不红=门无效）；红但错误形态非预期也判 fail */
@@ -51,11 +69,47 @@ async function recordNegative(id, command, fn, expectErrorRe) {
   try {
     await fn();
     failures++;
-    cases.push({ id, command, status: 'fail', expect: `红（${expectErrorRe}）`, error: '负控未红：违约操作被 DB 接受（约束失效）' });
+    cases.push({ id, command, status: 'fail', expect: `红（${expectErrorRe}）`, error: '负控未红：违约操作被 DB 接受（约束失效）', artifacts: [] });
   } catch (e) {
     const msg = `${e.code ?? ''} ${e.message}`.trim();
-    if (expectErrorRe.test(msg)) cases.push({ id, command, status: 'pass', expect: `红（${expectErrorRe}）`, detail: msg.slice(0, 200) });
-    else { failures++; cases.push({ id, command, status: 'fail', expect: `红（${expectErrorRe}）`, error: `负控红但错误形态非预期: ${msg.slice(0, 200)}` }); }
+    if (expectErrorRe.test(msg)) cases.push({ id, command, status: 'pass', expect: `红（${expectErrorRe}）`, detail: msg.slice(0, 200), artifacts: [] });
+    else { failures++; cases.push({ id, command, status: 'fail', expect: `红（${expectErrorRe}）`, error: `负控红但错误形态非预期: ${msg.slice(0, 200)}`, artifacts: [] }); }
+  }
+}
+
+// ── V1-V3 机判基建：prisma validate 对临时 schema 副本真跑（卡文先红③——不再登记硬编码结论） ──
+// prisma CLI 经 node 直启（spawnSync('pnpm') Windows ENOENT——check-migrate-diff.mjs Y0a-4 v4 同款实测登记）
+const prismaCli = createRequire(join(API, 'package.json')).resolve('prisma/build/index.js');
+const schemaSrc = readFileSync(join(API, 'prisma', 'schema.prisma'), 'utf8');
+/** 负控（validate 形态）：突变 schema 必须让 CLI exit≠0 且 stderr 含 P1012 对应错误文本——与 recordNegative 同构机判 */
+function recordValidateRed(id, command, mutate, expectErrorRe) {
+  const mutated = mutate(schemaSrc);
+  const expect = `红（exit≠0 + P1012：${expectErrorRe}）`;
+  if (mutated === schemaSrc) {
+    failures++;
+    cases.push({ id, command, status: 'fail', expect, error: '形态突变未生效（schema 副本与原文相同——突变函数失配？）', artifacts: [] });
+    return;
+  }
+  const tmp = join(tmpdir(), `g1-probe-${id}-${PID}.prisma`);   // 副本落 os.tmpdir——finally 恒清理
+  let r;
+  try {
+    writeFileSync(tmp, mutated);
+    r = spawnSync(process.execPath, [prismaCli, 'validate', '--schema', tmp], { cwd: API, encoding: 'utf8', env: { ...process.env, DATABASE_URL: url } });
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+  const clean = (r.stderr ?? '').replace(/\x1B\[[0-9;]*m/g, '');
+  if (r.error) {
+    failures++;
+    cases.push({ id, command, status: 'fail', expect, error: `prisma validate 启动失败: ${r.error.message}`, artifacts: [] });
+  } else if (r.status === 0) {
+    failures++;
+    cases.push({ id, command, status: 'fail', expect, error: '负控未红：破坏形态被 prisma validate 接受（exit=0——validate 不再拦截该形态？）', artifacts: [] });
+  } else if (/Error code: P1012/.test(clean) && expectErrorRe.test(clean)) {
+    cases.push({ id, command, status: 'pass', expect, detail: clean.split(/\r?\n/).filter((l) => /P1012|Error validating/.test(l)).join(' | ').slice(0, 300), artifacts: [] });
+  } else {
+    failures++;
+    cases.push({ id, command, status: 'fail', expect, error: `负控红但错误形态非预期: ${clean.trim().slice(0, 200)}`, artifacts: [] });
   }
 }
 
@@ -82,8 +136,8 @@ try {
     let held = false;
     try {
       await c.query('BEGIN');
+      held = true;   // BEGIN 成功即置位——后续 SELECT 任一抛错也保证 finally ROLLBACK（连接不停在打开事务）
       await c.query('SELECT "pgSeq" FROM "CanvasDoc" WHERE "projectId" = $1 FOR UPDATE', [PID]);
-      held = true;
       try {
         await c2.query('SELECT "pgSeq" FROM "CanvasDoc" WHERE "projectId" = $1 FOR UPDATE NOWAIT', [PID]);
         throw new Error('tx2 NOWAIT 未被行锁挡下（FOR UPDATE 未生效）');
@@ -188,20 +242,37 @@ try {
     { id: 'INV7-maintenance-stage-enum-anchor', sql: 'Prisma enum "MaintenanceStage" 值集 ≡ shared MAINTENANCE_STAGES（11 值——Controller 裁定 3 setEqual 锚）', expect: 'carrier-contract-anchor.spec 绿' },
   );
 
-  // V1-V3：prisma validate 三形态红实测（卡文先红③——探针外执行，此处登记实测结论）
-  cases.push(
-    { id: 'V1-validate-empty-model-red', command: 'npx prisma validate --schema <临时副本+model BrokenEmpty{\n}>', status: 'pass', expect: 'P1012 红', detail: 'Error validating model "BrokenEmpty": Each model must have at least one unique criteria…（空 model 形态红）' },
-    { id: 'V2-validate-one-sided-relation-red', command: 'npx prisma validate --schema <临时副本+BrokenA→BrokenB 单侧 @relation>', status: 'pass', expect: 'P1012 红', detail: 'The relation field `broken` on model `BrokenA` is missing an opposite relation field on the model `BrokenB`（单侧 relation 形态红）' },
-    { id: 'V3-validate-missing-opposite-red', command: 'npx prisma validate --schema <临时副本-删 CanvasProject.docSnapshots 反向>', status: 'pass', expect: 'P1012 红', detail: 'The relation field `project` on model `CanvasDocSnapshot` is missing an opposite relation field on the model `CanvasProject`（缺 opposite 形态红——载体族真实关系）' },
+  // V1-V3：prisma validate 三形态机判红（卡文先红③——临时 schema 副本真跑 CLI：突变形态必须
+  // exit≠0 且 stderr 含 P1012 对应错误文本，未红=case fail；断言文本=既往 g1.json 登记文本同源）
+  recordValidateRed(
+    'V1-validate-empty-model-red',
+    'npx prisma validate --schema <临时副本+model BrokenEmpty{\n}>',
+    (s) => `${s}\nmodel BrokenEmpty {\n}\n`,
+    /Error validating model "BrokenEmpty": Each model must have at least one unique criteria/,
+  );
+  recordValidateRed(
+    'V2-validate-one-sided-relation-red',
+    'npx prisma validate --schema <临时副本+BrokenA→BrokenB 单侧 @relation>',
+    (s) => `${s}\nmodel BrokenA {\n  id String @id\n  broken BrokenB\n}\n\nmodel BrokenB {\n  id String @id\n}\n`,
+    /The relation field `broken` on model `BrokenA` is missing an opposite relation field on the model `BrokenB`/,
+  );
+  recordValidateRed(
+    'V3-validate-missing-opposite-red',
+    'npx prisma validate --schema <临时副本-删 CanvasProject.docSnapshots 反向>',
+    (s) => s.replace(/^  docSnapshots\s+CanvasDocSnapshot\[\].*$/m, ''),
+    /The relation field `project` on model `CanvasDocSnapshot` is missing an opposite relation field on the model `CanvasProject`/,
   );
 } finally {
-  // 探针残留清理（CanvasDocSnapshot/MaintenanceOperation 经 Cascade 随项目行；Cursor 无 FK 显式删；Team/User 链尾删）
+  // 探针残留清理（CanvasDocSnapshot/MaintenanceOperation 经 Cascade 随项目行；Cursor 无 FK 显式删；
+  // Team/User 链尾删——按 FK 依赖序先删依赖表：Team.ownerId→User 故 Team 先于 User）
   for (const [sql, args] of [
     ['DELETE FROM "RuntimeFeedCursor" WHERE "projectId" = $1', [PID]],
     ['DELETE FROM "CanvasDocSnapshot" WHERE "projectId" = $1', [PID]],
     ['DELETE FROM "MaintenanceOperation" WHERE "projectId" = $1', [PID]],
     ['DELETE FROM "CanvasDoc" WHERE "projectId" = $1', [PID]],
     ['DELETE FROM "CanvasProject" WHERE "id" = $1', [PID]],
+    ['DELETE FROM "Team" WHERE "id" = $1', ['g1-probe-t']],
+    ['DELETE FROM "User" WHERE "id" = $1', ['g1-probe-u']],
   ]) {
     await c.query(sql, args).catch(() => {});
   }
@@ -210,20 +281,22 @@ try {
 
 const manifest = {
   gate: 'G1',
-  commit: process.env.G1_COMMIT ?? 'T7-worktree（单 commit 随证据同 commit 落盘——commit hash 见 git log 本 manifest 所在提交）',
+  commit: process.env.G1_COMMIT ?? 'uncommitted（G1_COMMIT 未设——证据认证对象=工作区当前状态）',
   env: { pg: 'PostgreSQL 16.13 (localhost:5432/flowweb)', migration: '20261024120000_y1c_t7_carrier_genesis', date: new Date().toISOString() },
   cases,
   invariants,
   skipped: 0,
   notes: [
+    `commit 字段=证据认证对象${process.env.G1_COMMIT ? `=commit ${process.env.G1_COMMIT}（探针修复代码落点）` : '（G1_COMMIT 未设——工作区当前状态）'}；本 g1.json 于其后的独立证据 commit 落盘（A=代码修复 → G1_COMMIT=<A hash> 重跑探针 → B=证据再生——消除 manifest 自引用循环）`,
     'updateHash 去重 no-op 探针 deferred-to-T9（勘误方案 B：CanvasDocUpdate 表改形+帧协议归 T9 同切片——卡文 CanvasDocUpdate 块=T9 形态参考非本卡交付）',
     '快照发布事务的真实发布者=T11（本门只证 PG 事务形态：行锁授权+条件指针更新+跨表不变量事务内成立）',
     'CanvasDoc.state/stateSeq/preVacuumSv/schemaVersion@default(3) 与 CanvasDocUpdate 旧形态过渡保留（勘误：T9/T10/T11 各自同可编译切片拆除）',
-    '负控清单=N1(SystemHistory 单行 CHECK)/N2(水位同行 CHECK)/N3(Snapshot 16MiB CHECK)/N4(活跃维护 partial unique)——四负控全红=门有效（spec §9.1）',
+    '负控清单=N1(SystemHistory 单行 CHECK)/N2(水位同行 CHECK)/N3(Snapshot 16MiB CHECK)/N4(活跃维护 partial unique)+V1-V3(prisma validate 三形态机判——空 model/单侧 relation/缺 opposite，临时 schema 副本真跑 CLI：exit≠0+P1012 对应错误文本)——七负控全红=门有效（spec §9.1）',
   ],
 };
 
 mkdirSync(join(ROOT, 'gate-evidence'), { recursive: true });
 writeFileSync(join(ROOT, 'gate-evidence', 'g1.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log(`G1 probe: ${cases.length} cases（负控 ${cases.filter((x) => /^N/.test(x.id)).length}），失败 ${failures}`);
+const nNeg = cases.filter((x) => /^[NV]/.test(x.id)).length;
+console.log(`G1 probe: ${cases.length} cases（负控 N/V×${nNeg}——未红即门无效），失败 ${failures}`);
 process.exit(failures ? 1 : 0);
