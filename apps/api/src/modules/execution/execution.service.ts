@@ -13,6 +13,7 @@ import { UpstreamMediaService } from './upstream-media.service';
 import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
+import { resolvePromptText } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { intentDuplicateAttemptTotal } from './intent-reconcile.metrics';   // T12：settleFailureTotal 消费点随 video 旧链退役（settle 归 finalize 事务内——失败面回滚非计数照发）
 import { artifactDiscardedTotal, countExecProjectionFailure } from './exec.metrics';
@@ -509,7 +510,9 @@ export class ExecutionService {
       (pid, nid, downstreamNodeId) => this.upstreamMedia.readUpstreamMediaId(pid, nid, downstreamNodeId),
     );
     const data = node.data as any;
-    const prompt = upstream.textContents.join(' ') || data?.prompt?.text || data?.content || '';
+    // Y1c T2（bug② 后半）：执行读点改调 resolvePromptText 单源（string 形态直读——改前 .text 恒 miss
+    // textInput data.prompt:string；T15 终形迁移只改函数实现，本读点永不再改）。上游文本仍优先（B21）。
+    const prompt = upstream.textContents.join(' ') || resolvePromptText(data);
 
     if (node.type === 'textInput') {
       const callArgs = {

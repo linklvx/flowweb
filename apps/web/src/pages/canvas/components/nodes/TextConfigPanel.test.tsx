@@ -278,4 +278,58 @@ describe('TextConfigPanel', () => {
     expect(lastToken()).toMatch(/^[0-9a-f-]{36}$/);
     expect(lastToken()).not.toBe('exhausted-tok');
   });
+
+  // ── Y1c T2（bug②）：:157 生成时 {content: prompt} 覆盖写删除——正文语义归正文（tiptap 正文/
+  //    上游注入），prompt 供给归执行读点（服务端 resolvePromptText 读 data.prompt:string）。──
+
+  it('Y1c T2 红①：生成后正文不被覆盖——生成动作零 content 写（:211 每键击 prompt 持久化保留）', async () => {
+    mockNodeStoreState.execStatus = new Map(); // 夹具复位（token 用例残余不渗入）
+    sessionStorage.removeItem('flowweb:regen:real-pid:n1');
+    const applyPatch = mockNodeStoreState.applyNodeDataPatch as any;
+    const { container } = render(<TextConfigPanel nodeId="n1" />);
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: '面板提示词' } });
+    const buttons = container.querySelectorAll('button');
+    fireEvent.click(buttons[buttons.length - 1]); // 生成
+    await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+
+    // 每键击 prompt 持久化保留（:211 不删——doc 单源 data.prompt:string）
+    expect(applyPatch).toHaveBeenCalledWith('n1', { prompt: '面板提示词' });
+    // 生成动作零 content 覆盖写——正文不被 prompt 覆盖（今日红：:157 applyNodeDataPatch({content: prompt})）
+    const contentWrites = applyPatch.mock.calls.filter((c: any[]) => c[1] && 'content' in c[1]);
+    expect(contentWrites).toHaveLength(0);
+  });
+
+  it('Y1c T2 红③（用户序列回归）：输入 prompt→取消选中→重新选中→prompt 仍在→生成使用该值（正文不被覆盖）', async () => {
+    mockNodeStoreState.execStatus = new Map();
+    sessionStorage.removeItem('flowweb:regen:real-pid:n1');
+    // mock store 真实落 patch（模拟 applyNodeDataPatch 的 store 写侧——doc 意图分发在真链路，此处以 store 投影为锚）
+    const applyPatch = mockNodeStoreState.applyNodeDataPatch as any;
+    applyPatch.mockImplementation((id: string, patch: Record<string, unknown>) => {
+      Object.assign(mockNodeStoreState.nodes[id].data, patch);
+    });
+    mockNodeStoreState.nodes.n1.data.content = '正文在案'; // 正文在案（tiptap 正文/上游注入语义）
+    mockNodeStoreState.nodes.n1.data.prompt = '';
+    try {
+      // 选中（面板挂载）→ 输入（:211 每键击持久化落 store）
+      const first = render(<TextConfigPanel nodeId="n1" />);
+      fireEvent.change(first.container.querySelector('textarea')!, { target: { value: '用户提示词' } });
+      first.unmount(); // 取消选中
+
+      // 重新选中 → prompt 仍在（store 单源恢复）
+      const second = render(<TextConfigPanel nodeId="n1" />);
+      expect((second.container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('用户提示词');
+
+      // 生成使用该值（enqueue 上送——服务端读点=data.prompt:string，resolvePromptText 单源，见 api 侧红②）
+      const buttons = second.container.querySelectorAll('button');
+      fireEvent.click(buttons[buttons.length - 1]);
+      await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
+
+      expect(mockNodeStoreState.nodes.n1.data.prompt).toBe('用户提示词'); // 值仍在且为生成所用（doc 单源）
+      expect(mockNodeStoreState.nodes.n1.data.content).toBe('正文在案'); // 正文不被覆盖（今日红：:157 覆盖写）
+    } finally {
+      applyPatch.mockImplementation(() => {}); // 还原 mock（clearAllMocks 不清 implementation）
+      mockNodeStoreState.nodes.n1.data.content = '';
+      mockNodeStoreState.nodes.n1.data.prompt = '';
+    }
+  });
 });

@@ -49,6 +49,10 @@ export * from './canvas/docShape';
 // Y1a T1（plan v11.2 片 S0）：collab-doc-ops 出口——doc 写原语（setDocPosition/applyRecordToYMap）
 // +关联类型（DocMapLike/StoredNodeRecord）自 docShape 抽离单源（零行为变更纯机械迁移）。
 export * from './canvas/collab-doc-ops';
+// Y1c T2（bug② 后半）：节点 data prompt 解析单源（resolvePromptText）——执行读点
+// （execution.service nodeClaimPack）唯一入口：string 直读 > PromptValue.text > content 回落。
+// T15 终形 prompt=Y.Map{text:Y.Text} 迁移时只改函数实现与单测，执行读点永不再改。
+export * from './canvas/promptText';
 // Y1a T3（plan v11.2 片 S0）：media 事实域出口——compareExecSeq 单源（execSeq BigInt string 化
 // 比较——T9 代际围栏/T15 投影 recheck 消费前置；T8 续入 resolveUpstreamMediaUrl）。
 export * from './canvas/media-fact';

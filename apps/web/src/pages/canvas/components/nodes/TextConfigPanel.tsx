@@ -152,9 +152,9 @@ function TextConfigPanelComponent({ nodeId }: Props) {
     setStatus(nodeId, 'loading');
     const projectId = useCanvasStore.getState().projectId;
     try {
-      // Inject prompt as content for execution
-      // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
-      useNodeStore.getState().applyNodeDataPatch(nodeId, { content: prompt });
+      // Y1c T2（bug②）：删生成时 {content: prompt} 覆盖写——正文语义归正文（tiptap 正文/上游注入），
+      // prompt 供给归执行读点（execution.service resolvePromptText 读 data.prompt:string——
+      // 每键击 :211 持久化即 doc 单源，无请求参数）。
       if (!projectId) return;
       // Y0b-2 T6（Z79/Z118）：held 一律上送（error 后重试=免费 rearm）；done/EXHAUSTED 无 held=新"重新生成"手势；
       // 否则无 token 普通执行（内容键——服务端②回放最新）

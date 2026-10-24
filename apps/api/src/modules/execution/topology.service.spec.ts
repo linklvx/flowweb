@@ -67,6 +67,18 @@ describe('TopologyService', () => {
       expect(upstream.imageMediaId).toBeUndefined();
     });
 
+    it('Y1c T2 锚（bug② :157 删除后语义归正）：上游注入读 textInput 正文 content（tiptap 正文）——不读面板 prompt', async () => {
+      // textInput 双键并存（正文=content 语义 / 面板词=prompt 生成指令）——上游注入供给下游的是
+      // 正文；:157 覆盖写删除后 content 不再被 prompt 覆盖，本语义自动归正。锚死防 T15 迁移时误改读键。
+      const nodes = [
+        { id: 'n1', type: 'textInput', data: { content: '正文在案', prompt: '面板提示词' } },
+        { id: 'n2', type: 'imageGen', data: {} },
+      ];
+      const edges = [{ source: 'n1', target: 'n2' }];
+      const upstream = await service.collectUpstreamData('p1', 'n2', nodes as any, edges as any, noMedia);
+      expect(upstream.textContents).toEqual(['正文在案']); // 不含 '面板提示词'——prompt 非上游注入供给面
+    });
+
     it('Y1a T8 红测 1（拓扑投影滞后）：doc 尚无 fileId/resultUrl 时 NodeArtifact reader 取到 mediaId（PG 行 finalize 即建——doc 滞后不再漂移）', async () => {
       const nodes = [
         { id: 'n1', type: 'imageGen', data: {} },   // doc 无 resultUrl/fileId（投影滞后）
