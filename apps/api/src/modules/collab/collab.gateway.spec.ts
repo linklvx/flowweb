@@ -2,7 +2,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { Document } from '@hocuspocus/server';
 import * as Y from 'yjs';
-import { CollabGateway } from './collab.gateway';
+import { CollabGateway, UnloadDrainRefusedError } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import {
   CollabAuthReason, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
@@ -845,8 +845,12 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         // Y1c T10（偏离 37⑩+38⑤）翻转：PG 恒败 → applied 前缀不可 drain → beforeUnloadDocument 拒绝卸载
         // （doc 常驻 fail-closed——旧断言「卸载发生」=T9 形态）。BOI 主轴不变：批必须在 spool（磁盘）
         // ——常驻窗下逐帧检所写节点在册（帧已 fsync=新家落定；旧实现 stash 内存=spool 空 → 红）。
-        await new Promise((r) => setTimeout(r, 500));
-        expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // 拒绝卸载=常驻
+        // Q-M7（T10 收口）：固定 500ms sleep 改硬信号——卸载拒绝实际发生（doc_unload_blocked_total
+        // 递增）才断常驻（sleep=竞态宽限非证据）。
+        const unloadBlocked = async () => (register.getSingleMetric('doc_unload_blocked_total') as { get(): Promise<{ values: Array<{ value: number }> }> }).get().then((m) => m.values[0]?.value ?? 0);
+        const blockedBefore = await unloadBlocked();
+        await pollUntil(async () => (await unloadBlocked()) > blockedBefore, 12_000);   // 拒绝在 drain 预算（5s）耗尽后——窗宽 > 预算
+        expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // 拒绝卸载=常驻——硬信号后直读
         {
           const fr = await spool.peek('p-boi3');
           expect(fr.length).toBeGreaterThanOrEqual(1);
@@ -856,7 +860,20 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         }
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
-  });
+  }, 20_000);
+
+  it('Q-I3 卸载拒绝分类=typed（UnloadDrainRefusedError·instanceof）——改文案不影响分类：无关键词的 typed 拒绝原样上抛且不双计 doc_unload_blocked_total（红=旧 message 子串分类误判意外异常）', async () => {
+    const kit = await startDualClientServer({}, 200);
+    try {
+      const read = async () => (register.getSingleMetric('doc_unload_blocked_total') as { get(): Promise<{ values: Array<{ value: number }> }> }).get().then((m) => m.values[0]?.value ?? 0);
+      const before = await read();
+      // 文案已改（无「拒绝卸载」子串）的 typed 拒绝——分类必须按类型：原样上抛（取消卸载）+零双计
+      const refusal = new UnloadDrainRefusedError('drain refused — wording changed（Q-I3 红轴：文案无关）');
+      vi.spyOn(kit.gateway.projectActor, 'drainAppliedForUnload').mockImplementation(async () => { throw refusal; });
+      await expect(kit.gateway.hooks.beforeUnloadDocument({ documentName: 'project:p-qi3' } as never)).rejects.toBe(refusal);
+      expect(await read()).toBe(before);   // 红：旧 message 子串分类落「意外异常」档=再计 +1
+    } finally { await kit.dispose(); }
+  }, 10_000);
 
   it('BOI-4 崩溃模拟（V19 红相层）：append 失败 → 丢弃 gateway 实例（等价进程死）→ 同 spool 目录新实例 → 批存活可回灌（旧实现批在内存=红）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-boi4-');

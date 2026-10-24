@@ -54,6 +54,23 @@ describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', (
     expect(await s.peek('p1')).toEqual([]);               // 键已删
   });
 
+  it('Q-M5（T10 收口）walIoChains 链尾自摘：WAL IO 全 settle 后 per-project 链键不驻留（红=旧实现永不清理=无界 Map）；键消失后再写再 confirm 串行语义不变', async () => {
+    const s = svc();
+    const flushMicrotasks = () => new Promise((res) => setTimeout(res, 0));   // tail 自摘回调（微任务尾）全 flush
+    const r1 = await s.appendBatch('p1', [new Uint8Array([1]), new Uint8Array([2])]);
+    for (const f of r1) s.noteApplied('p1', f.walSeq);   // actor 同序（confirm 推 pgSeq 的不变量前提）
+    await s.confirm('p1', r1.map((f) => f.frameId));
+    await flushMicrotasks();
+    expect((s as any).walIoChains.size).toBe(0);          // 红：旧实现链尾常驻（confirm 链 settle 后仍留键）
+    expect(s.hasFrames('p1')).toBe(false);                // 段回收照常（index 生命周期对齐面）
+    const r2 = await s.appendBatch('p1', [new Uint8Array([3])]);   // 键已摘后再写——链从 Promise.resolve() 重起
+    for (const f of r2) s.noteApplied('p1', f.walSeq);
+    await s.confirm('p1', r2.map((f) => f.frameId));
+    await flushMicrotasks();
+    expect((s as any).walIoChains.size).toBe(0);
+    expect(s.hasFrames('p1')).toBe(false);
+  });
+
   it('段滚动：累计写超 4MB 滚动新段（文件名 segSeq 递增）；跨段 peek 全量返回', async () => {
     const s = svc();
     const big = new Uint8Array(2_500_000); big.fill(7);   // 注①：每帧 2.5MB——两帧即超 4MB 段上限

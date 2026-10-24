@@ -7,11 +7,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
-import { CollabProjectActorService } from './collab-project-actor.service';
+import { CollabProjectActorService, APPLIED_QUEUE_MAX_FRAMES } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { pollUntil } from '../../test-utils/poll-until';
 import { buildBarrierCorpus } from '@flowweb/shared';
 import type { Logger, ServiceUnavailableException } from '@nestjs/common';
 
@@ -218,10 +219,36 @@ describe('Y1c T10 doc 卸载纪律（drain applied→PG 或拒绝卸载）', () 
     });
     const actor = build(repo);
     const r = await actor.submit('bp', frameOf('u2', 1), makeConn(), 'update');
-    expect(await actor.drainAppliedForUnload('bp', 3_000)).toBe(true);   // retry timer（1s）窗内落定
+    expect(await actor.drainAppliedForUnload('bp', 3_000)).toBe(true);   // flushThrough 轮询（10ms 步进）在 250ms 项目级 flush 节流窗后 re-kick flushApplied——预算 3s 内落定（Q-M6 勘误：无独立 retry timer）
     expect(actor.appliedQueueDepth('bp')).toBe(0);
     void r;
   });
+
+  it('Q-I2 appliedQueue 有界：PG 恒败+持续提交→深度峰值≤上界+超界瞬态拒（applied-flush-backpressure）+恢复后全部落定零丢失（红=旧实现无界堆积）', async () => {
+    const actor = build(new DeadPgRepo());
+    const over = 40;
+    const accepted: bigint[] = [];
+    let rejected = 0;
+    for (let i = 0; i < APPLIED_QUEUE_MAX_FRAMES + over; i++) {
+      // 逐帧 await：帧 resolve（fsync+apply）先于 applied 入队完成（processBatch 同步段序）——判界确定性
+      await actor.submit('bp', frameOf(`qi2-${i}`, i), makeConn(), 'update')
+        .then((res) => { accepted.push(res.walSeq); }, (e: unknown) => {
+          rejected += 1;
+          expect((e as { frameReason?: string }).frameReason).toBe('applied-flush-backpressure');
+        });
+      expect(actor.appliedQueueDepth('bp')).toBeLessThanOrEqual(APPLIED_QUEUE_MAX_FRAMES);   // 峰值≤上界（红：旧实现无界）
+    }
+    expect(accepted.length).toBe(APPLIED_QUEUE_MAX_FRAMES);   // 恰上界后全拒（红：旧实现 1064 全收）
+    expect(rejected).toBe(over);
+    // 恢复：换健康 repo（rebind 测试缝）→ flushThrough kick（maxWait 钳 2s——kick 只需等 250ms 项目级
+    // 节流窗；清空由 flushApplied 内循环自持〔单 kick 连续消费全部前缀〕）→ 轮询队列清零（全量并发
+    // 下事件循环抢占——轮询窗 30s 冗余）→ spool confirm 段回收+水位=末帧（零丢失）
+    actor.rebindRepoForTest(createMockRepo() as never);
+    await actor.flushThrough('bp', actor.appliedSeqOf('bp'));
+    // 队列清零（splice）先于 confirm（fsync unlink+水位推进）完成——两条件同轮询（全量并发下竞态窗实宽）
+    await pollUntil(() => actor.appliedQueueDepth('bp') === 0 && !spool.hasFrames('bp'), 30_000);
+    expect(spool.watermark('bp')!.pgSeq).toBe(accepted[accepted.length - 1]);        // 末帧 walSeq=pgSeq（零丢失）
+  }, 90_000);
 });
 
 describe('Y1c T10 maxResidentDocBytes 装载闸（DR resident gate——到顶新项目 onLoad 拒载）', () => {

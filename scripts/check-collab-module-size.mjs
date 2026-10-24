@@ -16,7 +16,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** 执法锚七文件（T42 B3 四文件+CI 双故障根修批 T10 三新文件——变更锚值=有意识动作：自测 SIZE_LIMITS 断言同批改）。 */
 export const SIZE_LIMITS = {
-  'apps/api/src/modules/collab/collab.gateway.ts': 1015,   // T42 B3 934→Y1c T9 985→T10 实测 1015（+30：onStateless barrier 接线+beforeUnloadDocument drain 纪律〔拒卸载 throw 面〕+isMaintenanceBlocked 缝——G2 净增面，非膨胀）
+  'apps/api/src/modules/collab/collab.gateway.ts': 1020,   // T42 B3 934→Y1c T9 985→T10 1015（+30：onStateless barrier 接线+beforeUnloadDocument drain 纪律〔拒卸载 throw 面〕+isMaintenanceBlocked 缝）→T10 收口 1020（+5：Q-I3 UnloadDrainRefusedError typed 分类——净增面，非膨胀）
   'apps/api/src/modules/collab/collab-session-guard.service.ts': 1273,   // T41 W3b B2 1238→Y1c T9 实测 1273（+35：closeAllConnectionsWs 泛化〔1011 WAL fail-stop 档〕+版本门 historyId 硬门〔修正 #8 resolveVersionGate 接线〕+auth 回执 historyId 下发半链——三净增面，非膨胀）
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1082,   // T41 W3a B2 实测（偏离 65/74）
   'apps/api/src/modules/collab/collab-persistence.service.ts': 1056,   // T40 B1 实测 950→T14 flushDocument 窄接口（交付判定载体——v10.1 T6c 维持）叠加实测重标（锚值=绿相终值，红绿同批）

@@ -1568,7 +1568,7 @@ if (isMain()) {
     } catch { /* 结构性缺失由 cliLock=-1 兜底判红 */ }
     const cliPass = cliLock === 1 && cliSeq === 0;   // 离线 CLI 同键锁保留（与 vacuumReplace 互斥保险）+序列清零
     report('㉞',
-      `doc 写路径 advisory lock 清零（census⑩ T10——repo lockProject 恰 1 调用点=vacuumReplace〔T12 收口〕+CLI 离线锁保留；canvas_doc_update_seq 全仓清零）`,
+      `doc 写路径 advisory lock 清零（census⑩ T10——repo lockProject 恰 1 调用点=vacuumReplace〔T12 收口〕+CLI 离线锁保留；canvas_doc_update_seq src+CLI 面清零）`,
       lockPass && seqDetails.length === 0 && cliPass,
       [
         ...(!lockPass ? [`lockProject 调用点=${lockCalls}（期望恰 1=vacuumReplace——appendBatch/compact 须清零）`] : []),

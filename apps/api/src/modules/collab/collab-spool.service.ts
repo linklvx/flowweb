@@ -646,7 +646,16 @@ export class CollabSpoolService {
   private chainWalIo<T>(projectId: string, op: () => Promise<T>): Promise<T> {
     const prev = this.walIoChains.get(projectId) ?? Promise.resolve();
     const next = prev.then(op, op);
-    this.walIoChains.set(projectId, next.then(() => undefined, () => undefined));
+    // Q-M5（T10 收口）：链尾自摘——tail settle 后若仍是台账在册值即删键（与 index 生命周期同效对齐：
+    // confirm 回收完段→segs 删键→项目 WAL IO 空闲，链键随之消失——原实现 per-project 永不清理=无界
+    // Map〔长寿命进程多项目进出累积〕）。不在 confirmInner 的 index.delete 同点删：op 内先删会被本
+    // 方法 settle 后的 set 回写覆盖（时序恒败）；自摘以「在册值===本 tail」判等，并发后续链（新 tail
+    // 已覆盖键）不误删——空闲键消失后新调用自然从 Promise.resolve() 起链，语义不变。
+    const tail = next.then(() => undefined, () => undefined);
+    this.walIoChains.set(projectId, tail);
+    void tail.then(() => {
+      if (this.walIoChains.get(projectId) === tail) this.walIoChains.delete(projectId);
+    });
     return next;
   }
 

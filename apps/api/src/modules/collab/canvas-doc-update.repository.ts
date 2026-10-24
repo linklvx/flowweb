@@ -84,6 +84,34 @@ export class CanvasDocUpdateRepository {
    *  快照可见行=被重放集，新 append 行天然幸存）。vacuumReplace 保留同键锁（T12 状态机化收口锚——
    *  CLI renumber 跨进程保险）。旧取号序列（canvas doc update seq——T9 退役 nextval 单帧取号）同批 DROP
    *  （迁移 20261024140000——行 seq=WAL walSeq 非取号）。返回 rows=实插行数（conflict 命中=幂等视为已提交）。 */
+  /** C1（T10 收口）：缺行判定的 fenced 分型单点——CollabLease 行删=leaseRowMissing throw
+   *  （配置错误非 fenced，重试无用——gateway 落 spool 不排梯 SV13）；行在=确 fenced〔owner≠me〕。 */
+  private async fencedClassify(projectId: string): Promise<{ ok: false, reason: 'fenced' }> {
+    const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
+      SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
+    if (lease.length === 0) {
+      throw Object.assign(
+        new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
+        { leaseRowMissing: true },
+      );
+    }
+    return { ok: false, reason: 'fenced' };
+  }
+
+  /** C1（T10 收口）：部分插入（inserted<rows.length——RC 批内租约易主窗）回查单点——**按 PK**（
+   *  (projectId,generation,seq)）验证全行已落才放行 ok；缺行=按 fenced 档返回（调用方不 confirm
+   *  对应前缀——缺行帧 WAL 副本保留，DB 水位亦不越过缺行）。禁以 inserted>0 短路吞缺口。 */
+  private async verifyRowsLanded(projectId: string, rows: ReadonlyArray<{ generation: number; lastWalSeq: bigint }>): Promise<boolean> {
+    for (const r of rows) {
+      const exists = await this.prisma.$queryRaw<{ seq: bigint }[]>`
+        SELECT seq FROM "CanvasDocUpdate"
+        WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int AND seq = ${r.lastWalSeq}::bigint
+        LIMIT 1`;
+      if (exists.length === 0) return false;
+    }
+    return true;
+  }
+
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
@@ -109,16 +137,21 @@ export class CanvasDocUpdateRepository {
         }
         if (!wm) return { inserted: n, watermark: 'skipped' as const };
         // —— 水位推进（与行插入同事务——崩溃恢复=从 pgSeq 重放 WAL，不依赖进程内状态）——
+        // C1（T10 收口）：两条 UPDATE 的 WHERE 各带 lease fence（与 INSERT fence 同 owner 语义）——
+        // 否则「全 fenced」facet（租约丢失窗 CAS expected 恰匹配）INSERT 0 行而 CAS 照常推 pgSeq
+        // =newPgSeq → DB 水位越过未插入行（恢复基线被污染——重启回灌从 pgSeq 起放将跳过缺行）。
         const newPg = wm.newPgSeq;
         const wc = wm.walCheckpointSeq > newPg ? wm.walCheckpointSeq : newPg;   // CHECK pgSeq≤walCheckpointSeq 守恒
         const updated = wm.expectedPgSeq != null
           ? await tx.$queryRaw<{ pgSeq: bigint }[]>`
               UPDATE "CanvasDoc" SET "walCheckpointSeq" = ${wc}::bigint, "pgSeq" = ${newPg}::bigint
               WHERE "projectId" = ${projectId}::text AND generation = ${rows[0].generation}::int AND "pgSeq" = ${wm.expectedPgSeq}::bigint
+                AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
               RETURNING "pgSeq"`
           : await tx.$queryRaw<{ pgSeq: bigint }[]>`
               UPDATE "CanvasDoc" SET "walCheckpointSeq" = GREATEST("walCheckpointSeq", ${wc}::bigint), "pgSeq" = ${newPg}::bigint
               WHERE "projectId" = ${projectId}::text AND "pgSeq" < ${newPg}::bigint
+                AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
               RETURNING "pgSeq"`;
         return { inserted: n, watermark: updated.length > 0 ? 'advanced' as const : (wm.expectedPgSeq != null ? 'cas-miss' as const : 'noop' as const) };
       },
@@ -127,39 +160,52 @@ export class CanvasDocUpdateRepository {
     if (watermarkLanded.watermark === 'cas-miss') {
       // CAS 0 行两分：pgSeq 已 ≥ newPgSeq（回灌/reconciler 并发先收敛——行 updateHash 幂等已覆盖）=ok；
       // 行缺失=懒建档（旧链 compact create 同语义——首 CAS 建行）；其余=真 fenced（二次查区分同旧契约）。
+      // C1（T10 收口）：本块内全部 ok 出口在 inserted<rows.length 时一律按 PK 回查全行在才 ok——
+      // 「部分 fenced」facet（RC 批内两 INSERT 之间租约易主）缺行禁随 ok 放行（调用方会 splice+confirm
+      // 全前缀=缺行帧 WAL 副本被段回收=不可恢复丢失）；缺行=按 fenced 档（不 confirm 对应前缀）。
       const row = await this.prisma.$queryRaw<{ pgSeq: bigint }[]>`
         SELECT "pgSeq" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+      const partialOk = async () => watermarkLanded.inserted === rows.length
+        || (await this.verifyRowsLanded(projectId, rows));
       if (row.length === 0) {
         // 懒建档（genesis 双路之外的老项目首写——行不在与 fenced 不可区分，单写者下 INSERT 幂等收敛；
         // updatedAt=Prisma @updatedAt 无 DB 默认——raw INSERT 须显式给值；state=空 doc 合法 update 字节
-        // ——禁空 bytea〔读侧 if(docRow.state) 形态直 applyUpdate=lib0 解码 throw〕）
+        // ——禁空 bytea〔读侧 if(docRow.state) 形态直 applyUpdate=lib0 解码 throw〕）。
+        // C1：建档 INSERT 同带 lease fence（建档即写 pgSeq——租约不在我手禁推水位，否则懒建档 facet
+        // 同「水位越过未插入行」污染）。
         await this.prisma.$executeRaw`
           INSERT INTO "CanvasDoc" ("projectId", state, "stateSeq", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
-          VALUES (${projectId}::text, ${Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()))}, 0, ${rows[0].generation}::int, 3, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint)
+          SELECT ${projectId}::text, ${Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()))}, 0, ${rows[0].generation}::int, 3, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint
+          WHERE EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           ON CONFLICT DO NOTHING`;
-        return { ok: true, rows: watermarkLanded.inserted };
+        if (await partialOk()) return { ok: true, rows: watermarkLanded.inserted };
+        return this.fencedClassify(projectId);
       }
-      if (row[0].pgSeq >= wm!.newPgSeq) return { ok: true, rows: watermarkLanded.inserted };   // 并发收敛（幂等）
+      if (row[0].pgSeq >= wm!.newPgSeq) {
+        if (await partialOk()) return { ok: true, rows: watermarkLanded.inserted };   // 并发收敛（幂等）
+        return this.fencedClassify(projectId);   // 水位已超前但缺行——禁落 adopt（SET pgSeq=new 会回拨）；fenced 档
+      }
       {
         // 单写者内存水位滞后（T10 G2 ④：CAS 已提交但 confirm 未跑——崩溃窗/confirm 静默）：
         // 行已入（cas-miss 事务行照常提交+updateHash 幂等）——以 PG 行真值重试 CAS 一次（adopt）。
+        // Q-M8：adopt 补 generation 谓词（与 CAS 主路径同判——T12 换代窗口防陈旧 adopt：doc 已换代
+        // 时旧代 actor 不得推水位）。C1：同带 lease fence+partialOk 回查。
         const adopt = await this.prisma.$queryRaw<{ pgSeq: bigint }[]>`
           UPDATE "CanvasDoc" SET "walCheckpointSeq" = GREATEST("walCheckpointSeq", ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint), "pgSeq" = ${wm!.newPgSeq}::bigint
-          WHERE "projectId" = ${projectId}::text AND "pgSeq" = ${row[0].pgSeq}::bigint
+          WHERE "projectId" = ${projectId}::text AND generation = ${rows[0].generation}::int AND "pgSeq" = ${row[0].pgSeq}::bigint
+            AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           RETURNING "pgSeq"`;
-        if (adopt.length > 0) return { ok: true, rows: watermarkLanded.inserted };
+        if (adopt.length > 0 && await partialOk()) return { ok: true, rows: watermarkLanded.inserted };
       }
-      const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
-        SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
-      if (lease.length === 0) {
-        throw Object.assign(
-          new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
-          { leaseRowMissing: true },
-        );
-      }
-      return { ok: false, reason: 'fenced' };
+      return this.fencedClassify(projectId);
     }
-    if (watermarkLanded.inserted > 0) return { ok: true, rows: watermarkLanded.inserted };
+    if (watermarkLanded.inserted === rows.length) return { ok: true, rows: watermarkLanded.inserted };
+    if (watermarkLanded.inserted > 0) {
+      // C1（T10 收口）：部分插入禁「inserted>0 即 ok」短路——按 PK 回查全行在才 ok（fence 窗后段
+      // UPDATE 亦被拦/或 lease 失而复得的窗），缺行=按 fenced 档（不 confirm 对应前缀）。
+      if (await this.verifyRowsLanded(projectId, rows)) return { ok: true, rows: watermarkLanded.inserted };
+      return this.fencedClassify(projectId);
+    }
     // 0 行两分（Y1c T9 幂等轴）：行已存在（updateHash 幂等命中——重试/重组批 no-op）=ok rows:0；
     // 全新行零插入=fenced（B2 不抛——二次查区分：CollabLease 行删=leaseRowMissing 配置错误〔重试
     // 无用——gateway 落 spool 不排梯 SV13〕；行在=确 fenced〔owner≠me〕）。
@@ -168,17 +214,7 @@ export class CanvasDocUpdateRepository {
         SELECT seq FROM "CanvasDocUpdate"
         WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int
           AND "updateHash" = ${r.updateHash}::char(64) LIMIT 1`;
-      if (exists.length === 0) {
-        const lease = await this.prisma.$queryRaw<{ owner: string | null }[]>`
-          SELECT owner FROM "CollabLease" WHERE scope = 'primary'`;
-        if (lease.length === 0) {
-          throw Object.assign(
-            new Error('CollabLease row missing（行被删——配置错误非 fenced；修复=补行后重启回灌）'),
-            { leaseRowMissing: true },
-          );
-        }
-        return { ok: false, reason: 'fenced' };
-      }
+      if (exists.length === 0) return this.fencedClassify(projectId);
     }
     return { ok: true, rows: 0 };   // 幂等重发：全部 updateHash 已在（DO NOTHING 吞行=正确 no-op）
   }

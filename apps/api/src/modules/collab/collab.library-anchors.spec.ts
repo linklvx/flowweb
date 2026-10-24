@@ -105,8 +105,12 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
       // Y1c T10（偏离 37⑩+38⑤）翻转：applied 前缀不可 drain（PG 恒败）→ beforeUnloadDocument **拒绝卸载**
       // ——doc 常驻 fail-closed（旧 A9「仍卸载」=T9 形态：帧 WAL 安全即卸载；T10 起内存账未清不卸载）。
       // 库谓词 else 分支（A2 四条件）不再可达（钩子 throw=取消卸载）——断言翻转为常驻+applied 滞留。
-      await new Promise((r) => setTimeout(r, 500));
-      expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // 拒绝卸载=doc 常驻（fail-closed）
+      // Q-M7（T10 收口）：固定 500ms sleep 改硬信号——卸载拒绝实际发生（doc_unload_blocked_total 递增）
+      // 才断常驻（sleep=竞态宽限非证据：库卸载链慢于 500ms 时假绿/快于时冗余）。
+      const unloadBlocked = async () => (register.getSingleMetric('doc_unload_blocked_total') as { get(): Promise<{ values: Array<{ value: number }> }> }).get().then((m) => m.values[0]?.value ?? 0);
+      const blockedBefore = await unloadBlocked();
+      await pollUntil(async () => (await unloadBlocked()) > blockedBefore, 12_000);   // 拒绝在 drain 预算（5s）耗尽后——窗宽 > 预算
+      expect(kit.gateway.server.hocuspocus.documents.has(name)).toBe(true);   // 拒绝卸载=doc 常驻（fail-closed）——硬信号后直读
       expect(kit.gateway.projectActor.appliedQueueDepth('p-anchor-a9')).toBeGreaterThanOrEqual(1);   // applied 前缀滞留（PG 恒败——WAL 安全）
     } finally {
       await kit.dispose();

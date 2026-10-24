@@ -277,3 +277,120 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     expect(page.slice(1)).toEqual(['p1', 0n, 500]);              // 游标=0n 非 42n+页大小绑定值
   });
 });
+
+// ══ C1（T10 收口 Critical）：水位 CAS UPDATE 缺 lease fence——两 facet 红→绿 ══
+//  装置=最小词法 PG sim：按 SQL 形状+绑定值应答（CollabLease.owner / CanvasDoc.pgSeq / 行集）。
+//  UPDATE 应答模型=fence 子句**在场且**租约易主才拦——红相（旧代码 SQL 无 fence 子句）与绿相（新
+//  代码）同一装置判别：旧代码无子句=模拟 PG 放行（水位推进）——正是缺陷形态本身。
+describe('C1 水位 UPDATE lease fence（全 fenced/部分 fenced 两 facet）', () => {
+  const shapeOf = (c: unknown[]) => (c[0] as string[]).join('?');
+
+  function buildSim(
+    initial: { leaseOwner: string | null; docPgSeq: bigint | null },
+    before?: (sql: string, st: { leaseOwner: string | null }) => void,
+  ) {
+    const st = {
+      leaseOwner: initial.leaseOwner as string | null,
+      docRow: initial.docPgSeq === null ? null : { pgSeq: initial.docPgSeq },
+      rows: new Set<string>(),          // 键 `${pid}:${gen}:${seq}` 与 `${pid}:${gen}:${hash}` 双唯一面
+      pgSeqAdvanced: 0,                 // 观测面：UPDATE 实际推水位次数
+    };
+    const respond = async (strings: string[], ...vals: unknown[]): Promise<unknown[]> => {
+      const sql = strings.join('?');
+      before?.(sql, st);
+      if (sql.includes('INSERT INTO "CanvasDocUpdate"')) {
+        if (st.leaseOwner !== 'me') return [];                          // INSERT fence（既有——T9 已在）
+        const key = `${vals[0]}:${Number(vals[1])}:${vals[2]}`;
+        const hashKey = `${vals[0]}:${Number(vals[1])}:${vals[5]}`;
+        if (st.rows.has(key) || st.rows.has(hashKey)) return [];        // PK/updateHash 双唯一幂等
+        st.rows.add(key); st.rows.add(hashKey);
+        return [{ seq: vals[2] }];
+      }
+      if (sql.includes('INSERT INTO "CanvasDoc"')) {
+        // 懒建档（INSERT..SELECT..WHERE EXISTS fence）——租约不在我手禁建行推水位
+        if (sql.includes('EXISTS (SELECT 1 FROM "CollabLease"') && st.leaseOwner !== 'me') return [];
+        if (st.docRow) return [];                                       // ON CONFLICT DO NOTHING
+        st.docRow = { pgSeq: vals[3] as bigint };
+        return [];
+      }
+      if (sql.includes('UPDATE "CanvasDoc"')) {
+        if (!st.docRow) return [];
+        if (sql.includes('EXISTS (SELECT 1 FROM "CollabLease"') && st.leaseOwner !== 'me') return [];   // C1 fence：在场且易主=拦
+        const newPg = vals[1] as bigint;                                // SET 第二参=newPgSeq（CAS/catch-up/adopt 三形态同位）
+        if (newPg > st.docRow.pgSeq) { st.docRow.pgSeq = newPg; st.pgSeqAdvanced += 1; }
+        return [{ pgSeq: st.docRow.pgSeq }];
+      }
+      if (sql.includes('SELECT "pgSeq" FROM "CanvasDoc"')) return st.docRow ? [{ pgSeq: st.docRow.pgSeq }] : [];
+      if (sql.includes('SELECT owner FROM "CollabLease"')) return st.leaseOwner == null ? [] : [{ owner: st.leaseOwner }];
+      if (sql.includes('AND seq = ')) {                                  // C1 按 PK 回查（verifyRowsLanded）
+        return st.rows.has(`${vals[0]}:${Number(vals[1])}:${vals[2]}`) ? [{ seq: vals[2] }] : [];
+      }
+      if (sql.includes('"updateHash" = ')) {                             // 0 行两分幂等探查（既有）
+        return st.rows.has(`${vals[0]}:${Number(vals[1])}:${vals[2]}`) ? [{ seq: 1n }] : [];
+      }
+      return [];
+    };
+    const prisma = {
+      $queryRaw: vi.fn((strings: string[], ...vals: unknown[]) => respond(strings, ...vals)),
+      $executeRaw: vi.fn((strings: string[], ...vals: unknown[]) => respond(strings, ...vals)),
+      $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn({
+        $queryRaw: (strings: string[], ...vals: unknown[]) => respond(strings, ...vals),
+        $executeRaw: (strings: string[], ...vals: unknown[]) => respond(strings, ...vals),
+      })),
+    };
+    const repo = new CanvasDocUpdateRepository(prisma as any);
+    repo.setLeaseOwner('me');
+    return { repo, st };
+  }
+
+  it('facet A 全 fenced（租约丢失窗 CAS expected 恰匹配）：INSERT 0 行+UPDATE 亦被 fence 拦——pgSeq 不推进+返回 fenced（红=旧实现水位越过未插入行）', async () => {
+    const { repo, st } = buildSim({ leaseOwner: 'intruder', docPgSeq: 0n });   // 租约已易主；CanvasDoc 行在 pgSeq=0
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
+    expect(r).toEqual({ ok: false, reason: 'fenced' });
+    expect(st.docRow!.pgSeq).toBe(0n);          // 红：旧实现 UPDATE 无 fence——pgSeq 被推到 1（恢复基线被污染）
+    expect(st.rows.size).toBe(0);               // 零行插入（fence 拦）
+    expect(st.pgSeqAdvanced).toBe(0);           // 水位零推进（红：旧实现=1）
+  });
+
+  it('facet B 部分 fenced（RC 批内两 INSERT 之间租约易主，inserted>0 但<rows.length）：缺行=按 fenced 档（禁 ok 短路吞缺口）+水位不越过缺行', async () => {
+    let insertSeen = 0;
+    const { repo, st } = buildSim({ leaseOwner: 'me', docPgSeq: 0n }, (sql, st2) => {
+      if (sql.includes('INSERT INTO "CanvasDocUpdate"')) { insertSeen += 1; if (insertSeen === 2) st2.leaseOwner = 'intruder'; }   // 批内第 2 条 INSERT 前易主（RC 每语句新快照）
+    });
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n), seedRow(new Uint8Array([2]), 2n)], { expectedPgSeq: 0n, newPgSeq: 2n, walCheckpointSeq: 2n });
+    expect(r).toEqual({ ok: false, reason: 'fenced' });   // 红：旧实现 UPDATE 无 fence=advanced→inserted=1>0 短路 {ok:true,rows:1}（吞缺口——调用方将 confirm 全前缀=缺行帧 WAL 副本被段回收=不可恢复丢失）
+    expect(st.docRow!.pgSeq).toBe(0n);                    // 水位不越过缺行（红：旧实现=2n）
+    expect(st.rows.has('p1:1:1')).toBe(true);             // 行1 已插（inserted=1）
+    expect(st.rows.has('p1:1:2')).toBe(false);            // 行2 缺（红断言面：缺行实体）
+  });
+
+  it('facet B 变体（lease 失而复得——UPDATE 窗租约回手，watermark=advanced 仍缺行）：inserted<rows.length 短路禁用——按 PK 回查缺行=fenced', async () => {
+    let insertSeen = 0;
+    const { repo, st } = buildSim({ leaseOwner: 'me', docPgSeq: 0n }, (sql, st2) => {
+      if (sql.includes('INSERT INTO "CanvasDocUpdate"')) { insertSeen += 1; if (insertSeen === 2) st2.leaseOwner = 'intruder'; }
+      if (sql.includes('UPDATE "CanvasDoc"')) st2.leaseOwner = 'me';     // UPDATE 窗租约回手——fence 放行（watermark=advanced）
+    });
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n), seedRow(new Uint8Array([2]), 2n)], { expectedPgSeq: 0n, newPgSeq: 2n, walCheckpointSeq: 2n });
+    expect(r).toEqual({ ok: false, reason: 'fenced' });   // 红：旧实现 inserted=1>0 即 ok（缺行静默吞——锚定短路修复）
+    expect(st.rows.has('p1:1:2')).toBe(false);            // 行2 缺
+  });
+
+  it('形状锚：CAS/adopt 两 UPDATE 的 WHERE 均含 CollabLease EXISTS fence+adopt 补 generation 谓词（Q-M8）', async () => {
+    const txq = vi.fn()
+      .mockResolvedValueOnce([{ seq: 1n }])   // INSERT → 1 行
+      .mockResolvedValueOnce([]);             // UPDATE CAS → 0 行（cas-miss）
+    const query = vi.fn()
+      .mockResolvedValueOnce([{ pgSeq: 0n }]) // cas-miss 二次查（0<new→adopt 档）
+      .mockResolvedValue([{ pgSeq: 1n }]);    // adopt UPDATE → 成功（G2 ④ 收敛）
+    const prisma = { $queryRaw: query, $transaction: vi.fn((fn: any) => fn({ $queryRaw: txq, $executeRaw: vi.fn().mockResolvedValue([]) })) };
+    const repo = new CanvasDocUpdateRepository(prisma as any);
+    repo.setLeaseOwner('me');
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)], { expectedPgSeq: 5n, newPgSeq: 1n, walCheckpointSeq: 1n });
+    expect(r).toEqual({ ok: true, rows: 1 });
+    const cas = txq.mock.calls.find((c: any[]) => shapeOf(c).includes('UPDATE "CanvasDoc"'))!;
+    expect(shapeOf(cas)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
+    const adopt = query.mock.calls.find((c: any[]) => shapeOf(c).includes('UPDATE "CanvasDoc"'))!;
+    expect(shapeOf(adopt)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
+    expect(shapeOf(adopt)).toContain('generation = ?::int');   // Q-M8：adopt 谓词补 generation（T12 换代窗口防陈旧 adopt）
+  });
+});

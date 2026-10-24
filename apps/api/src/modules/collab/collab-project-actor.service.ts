@@ -387,8 +387,10 @@ interface ProjectActorState {
   draining: boolean;
   appliedSeq: bigint;
   readonly docIndex: ProjectDocIndexImpl;
-  /** Y1c T10：applied 待落库队列+flusher 状态。 */
+  /** Y1c T10：applied 待落库队列+flusher 状态。Q-I2：appliedBytes=队列 payload 字节运行和
+   *  （入队/出队单点维护——submit 背压 O(1) 判界，禁逐帧 reduce）。 */
   appliedQueue: AppliedEntry[];
+  appliedBytes: number;
   flushing: boolean;
   lastFlushKickAt: number;
 }
@@ -402,6 +404,15 @@ const PROJECT_QUEUE_MAX_BYTES = 2 * INBOUND_QUEUE_LIMIT_BYTES;
 const PG_BATCH_MAX_FRAMES = 512;
 const PG_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 const PG_ROW_MERGE_MAX_BYTES = 1_048_576;
+/** Q-I2（T10 收口）：applied 待落库队列上界（帧数/字节）——与 submit 背压同语义耦合：满=瞬态拒
+ *  close 1008（applied-flush-backpressure）。根修选型（按代码实况）：PG 长期不可用时帧流过 drain
+ *  在 appliedQueue 堆积且条目持完整 payload，卸载 fail-closed 使 doc 常驻=复合放大——方案取「上界+
+ *  背压耦合」而非「去 payload 按 frameId 从 spool 重读」：peek 按 frameId 重读需逐 flush 全量解析未
+ *  confirm 段（O(WAL depth) IO——健康路径每 drain 批一次的常态放大），且行合并/字节记账本就消费
+ *  payload；上界方案与既有 512 帧背压同语义（瞬态拒+重连自愈），内存界确定（2×PG 批=一批在飞+
+ *  一批准入余量，健康路径永不触界）。维护帧豁免（服务端帧低速率——与既有背压豁免同界）。 */
+export const APPLIED_QUEUE_MAX_FRAMES = 2 * PG_BATCH_MAX_FRAMES;
+export const APPLIED_QUEUE_MAX_BYTES = 2 * PG_BATCH_MAX_BYTES;
 /** flushThrough 有界等待（barrier 回执上界——T33 save barrier p95<2s 预算带内）。 */
 const FLUSH_THROUGH_MAX_WAIT_MS = 2_000;
 /** barrier nonce 幂等回执台账上界（FIFO 驱逐+5min TTL——重试窗覆盖）。 */
@@ -467,7 +478,7 @@ export class CollabProjectActorService {
   private stateOf(pid: string): ProjectActorState {
     let st = this.states.get(pid);
     if (!st) {
-      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], flushing: false, lastFlushKickAt: 0 };
+      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], appliedBytes: 0, flushing: false, lastFlushKickAt: 0 };
       this.states.set(pid, st);
     }
     return st;
@@ -509,6 +520,13 @@ export class CollabProjectActorService {
       projectBackpressureTotal.inc();
       this.host.hardClose(conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'project-write-backpressure');
       return Promise.reject(new FrameRejectError(CollabCloseCode.RATE_LIMITED_CLOSE, 'project-write-backpressure'));
+    }
+    // Q-I2（T10 收口）：applied 待落库面上界（PG 长期不可用=帧流过 drain 堆积且卸载 fail-closed 使
+    // doc 常驻——与既有背压同语义：满即瞬态拒 close 1008；PG 恢复→flush 落定→自愈重连）
+    if (st.appliedQueue.length >= APPLIED_QUEUE_MAX_FRAMES || st.appliedBytes + payload.byteLength > APPLIED_QUEUE_MAX_BYTES) {
+      projectBackpressureTotal.inc();
+      this.host.hardClose(conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'applied-flush-backpressure');
+      return Promise.reject(new FrameRejectError(CollabCloseCode.RATE_LIMITED_CLOSE, 'applied-flush-backpressure'));
     }
     // 认证后 per-connection 入站排队字节上限（2×ss2FrameGate 超限 1009）
     if (conn) {
@@ -893,7 +911,11 @@ export class CollabProjectActorService {
   private pushAppliedEntry(pid: string, entry: AppliedEntry): void {
     const st = this.stateOf(pid);
     const tail = st.appliedQueue[st.appliedQueue.length - 1];
-    if (tail == null || entry.walSeq > tail.walSeq) { st.appliedQueue.push(entry); return; }
+    if (tail == null || entry.walSeq > tail.walSeq) {
+      st.appliedQueue.push(entry);
+      st.appliedBytes += entry.payload.byteLength;   // Q-I2：字节运行和单点（submit 背压判界）
+      return;
+    }
     const pg = this.spool.watermark(pid)?.pgSeq ?? 0n;
     if (entry.walSeq <= pg) { entry.onLanded?.(); return; }   // 原条目已 flush 落定
     const existing = st.appliedQueue.find((e) => e.walSeq === entry.walSeq);
@@ -1055,6 +1077,7 @@ export class CollabProjectActorService {
           if ((err as { fk?: boolean })?.fk || (err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)) {
             // FK=项目已删写路径发现点：条目终态弃置+维护帧 fk 拒绝（persistence 帧通道 confirm+收割）
             st.appliedQueue.splice(0, n);
+            st.appliedBytes -= prefix.reduce((s, e) => s + e.payload.byteLength, 0);   // Q-I2：出队单点同步
             for (const e of prefix) e.onFailed?.({ pgPending: true, fk: true });
             actorDrainBatchTotal.inc({ result: 'pg-fk' });
             this.host.logger.warn(`actor PG flush FK for ${pid}——applied 条目弃置（项目已删），维护帧终态拒绝`);
@@ -1072,6 +1095,7 @@ export class CollabProjectActorService {
         }
         // 落定：新家=PG（CAS 同事务）——splice+confirm+维护帧 resolve（Q-M5：resolve 延后至此）
         st.appliedQueue.splice(0, n);
+        st.appliedBytes -= prefix.reduce((s, e) => s + e.payload.byteLength, 0);   // Q-I2：出队单点同步
         await this.spool.confirm(pid, prefix.map((e) => e.frameId));
         for (const e of prefix) e.onLanded?.();
         this.landedSince.add(pid);   // disconnect flush-then-compact 判据（connection 帧不经维护队列——wrote 契约继任）

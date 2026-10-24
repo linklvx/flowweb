@@ -85,6 +85,11 @@ export interface CollabConnection {
 export { DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
 
 /** Y0a-2 持久化契约声明（spec v2.4 §2.1，钉死）已随 B1 域迁 collab-persistence.service.ts 头注。 */
+/** Q-I3（T10 收口）：卸载拒绝 typed error——unloadDocument catch 面分类判据=instanceof（禁 message
+ *  子串『拒绝卸载』——文案改动即静默改控制流：拒绝档误分「意外异常」=双计 docUnloadBlockedTotal；
+ *  测试红轴=改文案不影响分类）。 */
+export class UnloadDrainRefusedError extends Error {}
+
 @Injectable()
 export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(CollabGateway.name);
@@ -765,11 +770,11 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           this.logger.warn(`unload drain 未竟（关停窗——放行卸载：帧 WAL 落定，启动回灌承接）for ${documentName}`);
         } else {
           docUnloadBlockedTotal.inc();
-          throw new Error(`applied 前缀未 drain 至 PG——拒绝卸载（doc 常驻 fail-closed）`);
+          throw new UnloadDrainRefusedError(`applied 前缀未 drain 至 PG——拒绝卸载（doc 常驻 fail-closed）`);
         }
       }
     } catch (err) {
-      if ((err as Error).message?.includes('拒绝卸载')) throw err;   // 本方拒绝语义=向上抛（取消卸载）
+      if (err instanceof UnloadDrainRefusedError) throw err;   // 本方拒绝语义=向上抛（取消卸载）——Q-I3：typed 判定（文案无关）
       // drain 意外异常：保守同样拒绝卸载（fail-closed 方向）——计数留痕
       docUnloadBlockedTotal.inc();
       this.logger.warn(`unload drain unexpected error for ${documentName}: ${(err as Error).message}——拒绝卸载（保守）`);
