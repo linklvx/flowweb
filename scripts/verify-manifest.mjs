@@ -7,8 +7,12 @@
 //     check-migration-immutability（迁移 sha256 棘轮静态步）+ check-fresh-replay（scratch 重放双向比对 DB 步）。
 // db:true = 无 DATABASE_URL 即非零退出的 DB 硬依赖（verify-indexes/check-migrate-diff/check-fresh-replay/
 //   check-pricing-coverage——exit code 口径"非零"：verify-indexes 是 throw exit 1）。
-// FAST_PREFIX_LEN=15：fast=纯前缀切片（裁定 24⑶ 前缀轴）；nest build(16) 与 check-no-testutils(17)
+// FAST_PREFIX_LEN=16：fast=纯前缀切片（裁定 24⑶ 前缀轴）；nest build(17) 与 check-no-testutils(18)
 //   同在 fast 外（同档约束满足；pre-commit 静态档不跑 nest build 保 commit 可用速度）。
+//   Y1c T5c 授权移位：check-collab-census 自静态门组（原 check-spec-consistency 邻位）前移至
+//   api-tsc-scripts 后（fast 尾）——census 静态门进 verify fast（plan T5c 配套节：六组新检查
+//   ㉘㉙㉚㉛㉜㉝ 未分类字段/读者清单/裸构造/doc.exec 零增长/applyUpdate 白名单/DirectConnection）；
+//   步骤总数不变（30），fast 15→16。shared dist 依赖不变（shared-build(10) 在前恒新）。
 //   pre-commit 静态档=--tier=fast --static-only（fast∩skip-db）；出口判据只认 `pnpm verify` 全量——verify:fast 非出口判据。
 export const VERIFY_STEPS = [
   { id: 'doc-gate', cmd: 'node scripts/doc-gate.mjs', db: false },
@@ -26,6 +30,9 @@ export const VERIFY_STEPS = [
   { id: 'web-tsc', cmd: 'pnpm --filter @flowweb/web exec tsc --noEmit', db: false },
   { id: 'api-tsc', cmd: 'pnpm --filter @flowweb/api exec tsc --noEmit', db: false },
   { id: 'api-tsc-scripts', cmd: 'pnpm --filter @flowweb/api exec tsc -p tsconfig.scripts.json --noEmit', db: false },
+  // Y1c T5c 授权移位：check-collab-census 前移至 fast 尾（原 check-spec-consistency 邻位——
+  // census 静态门进 verify fast；30 步总数不变，FAST_PREFIX_LEN 15→16；移位理由见文件头注）。
+  { id: 'check-collab-census', cmd: 'node scripts/check-collab-census.mjs', db: false },
   { id: 'api-nest-build', cmd: 'pnpm --filter @flowweb/api exec nest build', db: false },
   { id: 'check-no-testutils-in-dist', cmd: 'node scripts/check-no-testutils-in-dist.mjs --require-dist', db: false },
   { id: 'web-test', cmd: 'pnpm --filter @flowweb/web test -- --run', db: false },
@@ -37,7 +44,6 @@ export const VERIFY_STEPS = [
   { id: 'web-lint', cmd: 'pnpm --filter @flowweb/web lint', db: false },
   { id: 'check-ecosystem', cmd: 'node scripts/check-ecosystem.mjs', db: false },
   { id: 'check-spec-consistency', cmd: 'node scripts/check-spec-consistency.mjs', db: false },
-  { id: 'check-collab-census', cmd: 'node scripts/check-collab-census.mjs', db: false },
   { id: 'check-collab-test-facade', cmd: 'node scripts/check-collab-test-facade.mjs', db: false },
   // Y0c T42（B3）授权插一步：check-collab-module-size 紧随 check-collab-test-facade（行数防倒退锚
   // 进 verify 链——plan T42「B3 步门」，fast 外惯例=T39b façade 同款邻位）=27 步。
@@ -52,7 +58,7 @@ export const VERIFY_STEPS = [
   { id: 'api-eslint', cmd: 'pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"', db: false },
 ];
 
-export const FAST_PREFIX_LEN = 15;
+export const FAST_PREFIX_LEN = 16;
 
 // 三正交轴（裁定 24⑶）：tier=前缀长度 ⊥ skipDb=db:true 过滤（--static-only 是 CLI 层 fast∩skip-db 组合快捷）。
 export function selectSteps({ tier = 'full', skipDb = false } = {}) {

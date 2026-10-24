@@ -134,3 +134,15 @@ export * from './collab/maintenance';
 export * from './collab/system-history';
 export * from './collab/undo-policy';
 export * from './testing/y1c-feed-fault-corpus';
+// Y1c T5c（plan v1.7 Task 5 客户端/恢复段）：客户端/恢复契约冻结——DraftEnvelope 类型+三场景表
+// （B=用户裁定式，§4.5）、4410/4411/4412/4413/4406 恢复动作+重复 DENY 逃生口+historyId 半链消费
+// （§8.1）、saved 四态驱动（§4.2）、RuntimeProjection 契约+mergeRuntimeProjection 唯一 merge+
+// composeRenderModel+四读径+Runtime Store 离线语义（§6.4/§7）、XML_ELEMENTS/MARKS/ATTRS 单表
+// （§3.2 L1——PromptInput PM schema 实测派生+web parity setEqual 执法锚）、T19 census 形态
+// （read-model-census.json）——T10/T16/T19/T22/T24/T25 消费；契约测试=collab/*.spec.ts。
+export * from './collab/draft-envelope';
+export * from './collab/recovery-flow';
+export * from './collab/save-driver';
+export * from './collab/runtime-projection';
+export * from './collab/xml-schema';
+export * from './collab/read-model-census';

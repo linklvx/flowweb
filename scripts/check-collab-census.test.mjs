@@ -13,6 +13,8 @@ import {
   reconcileRegisteredRed, reconcileWithDocRegistry,
   extractProcessEnvKeys, countDynamicEnvAccess, computeBraceDepth, parseDotEnvKeys, ecosystemEnvKeys,
   parsePrismaUniques, parseRawIndexAnchor, findEquivalentIndexes,
+  extractNodeDataWriteKeys, reconcileKeyRegistry, countBareProjectDocNames,
+  countExecMapAccess, countApplyUpdateCalls, reconcileCountWhitelist,
 } from './check-collab-census.mjs';
 
 test('stripCommentsAndStrings：行注释/块注释/字符串内容剥离、代码保留、换行保位', () => {
@@ -364,4 +366,84 @@ test('findEquivalentIndexes：full 同表同列集→duplicate-equivalent-index�
     { name: 'some_plain_idx', table: 'PricingRule', columns: ['nodeTypeId', 'modelId', 'resolutionId', 'durationId'], unique: false, partial: true },
   ]);
   assert.equal(r4.violations.length, 0);
+});
+
+// ── Y1c T5c（组㉘㉙㉚㉛㉜㉝）：未分类新字段/服务端读者/裸 docName 构造/doc.exec 触碰面/
+//    Y.applyUpdate 消费面/DirectConnection 六组新门的纯 helper 负控（每组至少一个故意破坏必须红）──
+
+// ㉘ extractNodeDataWriteKeys：nodes data 写面静态键提取（raw 扫描——对象键/data.set 字面量在
+// 剥离面结构性消失，组⑦同则用 raw+注释行过滤）。
+test('Y1c T5c ㉘：extractNodeDataWriteKeys 提取 applyNodeDataPatch 对象键+data.set 字面量键；注释行/动态键不计', () => {
+  const src = [
+    "import { x } from './y';",
+    "useNodeStore.getState().applyNodeDataPatch(nodeId, { model: modelId });",       // 对象键 model
+    "applyNodeDataPatch(nodeId, {",                                                   // 跨行对象
+    "  content: prompt,",
+    '  prompt: { text, html },',
+    '});',
+    "if (!isEqual(data.get(k), v)) data.set(k, v);",                                  // 动态键——不计（运行时面归 T24 gate）
+    "data.set('width', w);",                                                          // 字面量键 width
+    "// applyNodeDataPatch(nodeId, { ghostKey: 1 });  注释行",                         // 注释行不计
+    'const patch = applyNodeDataPatch(nodeId, patchVar);',                            // 非对象字面量——键不可静态知
+  ].join('\n');
+  const keys = extractNodeDataWriteKeys(src);
+  assert.deepEqual([...new Set(keys)].sort(), ['content', 'model', 'prompt', 'width']);
+});
+
+// ㉘ 负控：未入册新键必须红（reconcileKeyRegistry——门自身有效性）
+test('Y1c T5c ㉘ 负控：未入册新字段红——allowed 集外的键进 violations；入册键零问题', () => {
+  const allowed = new Set(['model', 'content', 'prompt']);
+  assert.deepEqual(reconcileKeyRegistry(['model', 'content'], allowed), []);
+  const bad = reconcileKeyRegistry(['model', 'brandNewMysteryKey', 'content'], allowed);
+  assert.deepEqual(bad, ['brandNewMysteryKey']);
+});
+
+// ㉙ 服务端读者清单：计数白名单对账（reconcileCountWhitelist 通用面——㉙㉛㉜㉝ 共用）
+test('Y1c T5c ㉙㉛㉜㉝：reconcileCountWhitelist 三分——白名单外新调用点红/计数漂移红/白名单点消失红', () => {
+  const whitelist = { 'a.ts': 2, 'b.ts': 1 };
+  assert.deepEqual(reconcileCountWhitelist({ 'a.ts': 2, 'b.ts': 1 }, whitelist, '读'), []);
+  const details = reconcileCountWhitelist({ 'a.ts': 3, 'c.ts': 1 }, whitelist, '读');
+  assert.equal(details.length, 3);   // c.ts 白名单外+a.ts 漂移+b.ts 点消失（三分全触发）
+  assert.ok(details.some((d) => d.includes('c.ts') && d.includes('白名单外')), `新直读点必须红：${details}`);
+  assert.ok(details.some((d) => d.includes('a.ts') && d.includes('漂移')), `计数漂移必须红：${details}`);
+  assert.ok(details.some((d) => d.includes('b.ts') && d.includes('消失')), `白名单点消失必须红：${details}`);
+  const stale = reconcileCountWhitelist({}, whitelist, '读');
+  assert.equal(stale.length, 2);   // 白名单点全消失=清单需同步红
+});
+
+// ㉚ 裸 docName 构造计数：raw 扫描+注释行过滤（模板串前缀在剥离面消失——⑦ raw 同则）
+test('Y1c T5c ㉚：countBareProjectDocNames 计 `project:${` 出现数——注释行不计、同键模板计真实出现', () => {
+  const src = [
+    'const conn = await server.openDirectConnection(`project:${projectId}`);',   // 1
+    'const name2 = `project:${pid}`; const name3 = `project:${p2}`;',            // 2（同行双读全可见）
+    '// docName 形如 project:${pid}（注释行——不计）',
+    'throw new Error(`invalid doc name project:${name}`);',                      // 1（报错消息同计——census⑦ 分类面）
+  ].join('\n');
+  assert.equal(countBareProjectDocNames(src), 4);
+  assert.equal(countBareProjectDocNames('// project:${x} 注释'), 0);
+  assert.equal(countBareProjectDocNames('const a = 1;'), 0);
+});
+
+// ㉛ doc.exec 触碰面计数（stripped 面）
+test('Y1c T5c ㉛ 负控：countExecMapAccess 数 getMap(\'exec\') 出现数（同行两次计 2——vacuum 等价校验实况）', () => {
+  const stripped = [
+    "const exec = doc.getMap('exec');",
+    "if ([...oldDoc.getMap('exec').keys()] !== [...newDoc.getMap('exec').keys()]) return false;",
+    "const nodes = doc.getMap('nodes');",
+  ].join('\n');
+  assert.equal(countExecMapAccess(stripped), 3);
+  assert.equal(countExecMapAccess(stripCommentsAndStrings("// doc.getMap('exec') 注释")), 0);
+  assert.equal(countExecMapAccess("doc.getMap('meta')"), 0);
+});
+
+// ㉜ Y.applyUpdate 消费面计数（stripped 面——调用形态 `Y.applyUpdate(`）
+test('Y1c T5c ㉜ 负控：countApplyUpdateCalls 数 Y.applyUpdate( 调用形态；注释/其他符号不计', () => {
+  const src = [
+    'Y.applyUpdate(document, frame.payload);',
+    'await Y.applyUpdate(doc, bin);',
+    'const r = Y.decodeUpdate(u);',
+    'Y.applyUpdateV2(doc, v);',   // V2 变体不计本词面（⑮ classifyWorkerBannedSymbol 另辖）
+  ].join('\n');
+  assert.equal(countApplyUpdateCalls(src), 2);
+  assert.equal(countApplyUpdateCalls(stripCommentsAndStrings('// Y.applyUpdate(doc, u) 注释')), 0);
 });

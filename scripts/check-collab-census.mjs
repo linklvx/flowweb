@@ -9,7 +9,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // ⑬detail 白名单锚单源：schema 从 shared dist 导入（TS 源不可直接 import .ts——verify 链
 // shared-build 步在前，dist 恒新；standalone 跑依赖 dist 已构建——与 check-shared-dist 同前提）。
-import { TELEMETRY_DETAIL_SCHEMA } from '../packages/shared/dist/index.js';
+// Y1c T5c ㉘：DOC_SCHEMA_V4 同一前提（data 键矩阵单源——apps 生产键注册面）。
+import { TELEMETRY_DETAIL_SCHEMA, DOC_SCHEMA_V4 } from '../packages/shared/dist/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -394,6 +395,145 @@ export function findEquivalentIndexes(generated, raws) {
     if (g) violations.push({ code: 'duplicate-equivalent-index', raw: r.name, generated: g.name, table: r.table, columns: r.columns });
   }
   return { violations, staleDeliberate };
+}
+
+/** ── Y1c T5c helpers（组㉘㉙㉚㉛㉜㉝——未分类新字段/服务端读者/裸 docName/doc.exec 触碰面/
+ *  Y.applyUpdate 消费面/DirectConnection；每组纯 helper 负控见 check-collab-census.test.mjs） ──
+ *  ㉘跳串器（对象键/字符串字面量在剥离面结构性消失——组⑦ raw 同则）；行级注释过滤。 */
+function skipRawString(src, i) {
+  const q = src[i];
+  i += 1;
+  while (i < src.length) {
+    if (src[i] === '\\') { i += 2; continue; }
+    if (src[i] === q) return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+/** ㉘nodes data 写面静态键提取（raw 扫描+注释行过滤）：applyNodeDataPatch(id, { key: … })
+ *  对象字面量首层键（含跨行对象）+ data.set('key', …) 字面量键。动态键（data.set(k, v)——键
+ *  静态不可知）不计：运行时字段校验归 T24 gate（本组=注册面静态门）。返回键出现序列（重复键
+ *  多元素——按出现序，去重归对账面）。 */
+export function extractNodeDataWriteKeys(src) {
+  const keys = [];
+  const isCommentLine = (l) => /^\s*(?:\/\/|\*|\/\*)/.test(l);
+  const lineAt = (idx) => {
+    const start = src.lastIndexOf('\n', idx) + 1;
+    const end = src.indexOf('\n', idx);
+    return src.slice(start, end === -1 ? src.length : end);
+  };
+  const re = /applyNodeDataPatch\s*\(|\bdata\.set\(\s*['"]([\w$-]+)['"]\s*,/g;
+  let m;
+  while ((m = re.exec(src))) {
+    if (isCommentLine(lineAt(m.index))) continue;
+    if (m[1] !== undefined) { keys.push(m[1]); continue; }
+    // applyNodeDataPatch(：逐字扫描定位对象字面量参（首参=nodeId 标识符；跳过字符串/嵌套括号）
+    let i = m.index + m[0].length;
+    let depth = 0;
+    let sawComma = false;
+    let objStart = -1;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === '"' || c === "'" || c === '`') { i = skipRawString(src, i) - 1; continue; }
+      if (c === '(' || c === '[') { depth += 1; continue; }
+      if (c === ')' && depth === 0) break;                        // 调用闭合——无对象参（patch 变量形态）
+      if (c === ')' || c === ']') { depth -= 1; continue; }
+      if (c === ',' && depth === 0) { sawComma = true; continue; }
+      if (c === '{' && sawComma) { objStart = i; break; }         // 第二参=patch 对象
+    }
+    if (objStart === -1) continue;
+    // 对象首层键解析（extractDiagCalls detail 同族：字符串键/标识符键/简写键；展开与计算键跳值）
+    i = objStart + 1;
+    for (;;) {
+      while (i < src.length && /\s/.test(src[i])) i += 1;
+      if (i >= src.length) break;
+      if (src[i] === '}') break;
+      if (src.startsWith('...', i)) {                              // 展开——键不可静态知，跳值
+        i += 3;
+        i = skipValueRaw(src, i);
+        continue;
+      }
+      let key = null;
+      if (src[i] === "'" || src[i] === '"') {
+        const end = src.indexOf(src[i], i + 1);
+        if (end === -1) break;
+        key = src.slice(i + 1, end);
+        i = end + 1;
+      } else {
+        const km = /^[A-Za-z_$][\w$]*/.exec(src.slice(i));
+        if (km) { key = km[0]; i += km[0].length; }
+      }
+      if (key === null) { i = skipValueRaw(src, i); continue; }
+      keys.push(key);
+      while (i < src.length && /\s/.test(src[i])) i += 1;
+      if (src[i] === ':') i = skipValueRaw(src, i);                // 值表达式整体跳过（嵌套对象不递归——首层域）
+      if (src[i] === ',') { i += 1; continue; }
+      if (src[i] === '}') break;
+      i = skipValueRaw(src, i);                                    // 简写键（无值冒号）——顺推防死循环
+    }
+  }
+  return keys;
+  /** 值表达式扫描：跨到首层 `,`/`}`（嵌套 ()[]{} 计深；字符串整体跳过）。返回停位。 */
+  function skipValueRaw(s, i) {
+    let d = 0;
+    for (; i < s.length; i++) {
+      const c = s[i];
+      if (c === '"' || c === "'" || c === '`') { i = skipRawString(s, i) - 1; continue; }
+      if (c === '(' || c === '[' || c === '{') { d += 1; continue; }
+      if (c === ')' || c === ']') { if (d === 0) return i; d -= 1; continue; }
+      if (c === '}') { if (d === 0) return i; d -= 1; continue; }
+      if (c === ',' && d === 0) return i;
+    }
+    return i;
+  }
+}
+
+/** ㉘注册对账：collected 键 ⊆ allowed 集——集外键=未分类新字段红（未入册即红）。 */
+export function reconcileKeyRegistry(collected, allowed) {
+  return [...new Set(collected)].filter((k) => !allowed.has(k));
+}
+
+/** 通用计数白名单对账（㉙㉛㉜㉝共用——④同则三分）：白名单外新调用点红/计数漂移红/白名单点消失红。
+ *  counts/whitelist 均 file→n。 */
+export function reconcileCountWhitelist(counts, whitelist, label) {
+  const details = [];
+  for (const [f, n] of Object.entries(counts)) {
+    const want = whitelist[f];
+    if (want === undefined) details.push(`白名单外${label}调用点 ${f} ×${n}（清单外新增即红）`);
+    else if (want !== n) details.push(`${label}白名单计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
+  }
+  for (const f of Object.keys(whitelist)) if (!counts[f]) details.push(`${label}白名单点消失 ${f}（清单需同步）`);
+  return details;
+}
+
+/** ㉚裸 docName 构造计数：raw 扫描 `` `project:${` `` 字面量模板出现数（行级注释过滤——模板串
+ *  前缀在剥离面结构性消失故用 raw 面；census ⑦ 分类口径：Yjs 寻址+报错消息+日志/遥测+Socket.IO
+ *  room 同字面模式全计，注释不计）。 */
+export function countBareProjectDocNames(src) {
+  let n = 0;
+  for (const line of src.split('\n')) {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) continue;
+    for (const _ of line.matchAll(/project:\$\{/g)) n += 1;
+  }
+  return n;
+}
+
+/** ㉛doc.exec 触碰计数：raw 扫描+行级注释过滤（`'exec'` 字面量在剥离面结构性消失——组⑦ raw
+ *  同则）——getMap('exec') 出现数（同行两次计 2——vacuum 等价校验实况）。 */
+export function countExecMapAccess(src) {
+  let n = 0;
+  for (const line of src.split('\n')) {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) continue;
+    for (const _ of line.matchAll(/getMap\(\s*['"]exec['"]\s*\)/g)) n += 1;
+  }
+  return n;
+}
+
+/** ㉜Y.applyUpdate 消费面计数：stripped 面 `Y.applyUpdate(` 调用形态出现数（注释剥离面——
+ *  classifyWorkerBannedSymbol 词面同源）。 */
+export function countApplyUpdateCalls(strippedSrc) {
+  return (strippedSrc.match(/Y\.applyUpdate\(/g) ?? []).length;
 }
 
 /** ⑭withDoc 登记对账：counts（file→命中数）对 WITHDOC_REGISTRY（file→{三态→数}）——
@@ -1213,6 +1353,156 @@ if (isMain()) {
     const metaAccess = /\.get\(\s*['"]schemaVersion['"]\s*\)|\.set\(\s*['"]schemaVersion['"]\s*,/;
     const hits = files.flatMap((p) => scanLines(p, 'stripped', (l) => metaAccess.test(l) ? l.trim().slice(0, 90) : null));
     report('㉗', 'meta.schemaVersion map 读写零残留（T18 版本硬切——版本承载=CanvasDoc.schemaVersion PG 列；旧档 doc 残留 meta 值=历史载荷读侧不解释）', hits.length === 0, hits.map((h) => `${h.file}:${h.line} ${h}`));
+  }
+
+  // ── Y1c T5c 六组（plan T5c 卡配套节；基线优先自 docs/superpowers/census/y1c-t0-census.json
+  //    运行时读取保单源——㉚整组派生；㉙㉛㉜㉝ census 为行号语义清单非机械计数，冻结值=2026-10-24
+  //    实测登记〔先跑真红再登记惯例〕，commit 披露口径差异）──
+
+  // ㉘未分类新字段红（nodes data 写面键 ⊆ DOC_SCHEMA_V4 矩阵键集——新键未入册即红）：
+  //  写面词表=applyNodeDataPatch(id,{…}) 对象首层键+data.set('k',…) 字面量键（动态键归 T24
+  //  运行时 gate）；矩阵=shared dist DOC_SCHEMA_V4 单源（键集=census ② 实测冻结——含
+  //  server-forbidden 键的注册面；嵌套容器键（extConfig.*/storyboard.*）随父键顶层登记）。
+  {
+    const allowed = new Set(Object.values(DOC_SCHEMA_V4).flatMap((t) => Object.keys(t.data)));
+    const collected = [];
+    for (const p of files) collected.push(...extractNodeDataWriteKeys(byFile.get(p).raw));
+    const unregistered = reconcileKeyRegistry(collected, allowed);
+    report('㉘', `未分类新字段红（data 写面键 ⊆ DOC_SCHEMA_V4 矩阵 ${allowed.size} 键——新键未入册即红；写面 ${new Set(collected).size} 静态键）`,
+      unregistered.length === 0,
+      unregistered.map((k) => `未入册 data 键 '${k}'——同批登记 DOC_SCHEMA_V4（T3 矩阵）或改道既有键`));
+  }
+
+  // ㉙服务端读者清单（doc 读面=toReadModel/readCanvas 出口白名单——新增直读即红）：
+  //  词表=toReadModel( 直读（T4 后 readRecordsFromMaps 收编 doc-codec——apps 面直调该符号=绕出口
+  //  直读 doc）。冻结值=2026-10-24 实测（census ③ 语义源——web 4+api 8 调用点〔行号清单〕的
+  //  toReadModel 词面投影；readCanvas 消费面经 collab-document.service 单出口不计入）。
+  const DOC_READER_WHITELIST = {
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': 4,   // 装载病理观测/vacuum 重建×1+等价校验×2
+    'apps/api/src/modules/collab/collab-document.service.ts': 2,       // readCanvas 出口+decodeSnapshot 投影
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // shrink 影子源+预演读
+    'apps/web/src/collab/ydocBuilder.ts': 1,                           // readCanvasFromDoc 薄委托（web 读单源）
+    'apps/web/src/stores/canvasIntents.ts': 3,                         // 组帧 oracle/组记录/差分尾 order
+  };
+  {
+    const counts = {};
+    for (const p of files) {
+      const n = (byFile.get(p).stripped.match(/toReadModel\(/g) ?? []).length;
+      if (n) counts[relOf(p)] = n;
+    }
+    const details = reconcileCountWhitelist(counts, DOC_READER_WHITELIST, 'doc 读面');
+    const nTotal = Object.values(counts).reduce((a, b) => a + b, 0);
+    report('㉙', `服务端读者清单（toReadModel 直读白名单 ${Object.values(DOC_READER_WHITELIST).reduce((a, b) => a + b, 0)} 点/5 文件——新增直读即红）`, details.length === 0, details);
+    void nTotal;
+  }
+
+  // ㉚裸构造门（裸 `project:${pid}` docName 构造——census ⑦ 39 裸名基线派生）：白名单自
+  //  y1c-t0-census.json item7.productionBreakdown 运行时聚合（yjsDocAddressing/errorMessages/
+  //  logTelemetryStrings/socketIoRooms_notYjsDocNames 四分类 lines 逐文件求和；comments 分类
+  //  =行级注释被扫描器过滤故不进基线）——散布点为 T24/T32 docName 收口（换代 #g 后缀）改造面，
+  //  新增裸构造（应走 doc-name.util 单源）即红。
+  {
+    let whitelist = null;
+    try {
+      const census = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'superpowers', 'census', 'y1c-t0-census.json'), 'utf8'));
+      whitelist = {};
+      for (const cls of ['yjsDocAddressing', 'errorMessages', 'logTelemetryStrings', 'socketIoRooms_notYjsDocNames']) {
+        for (const e of census.item7_bareProjectDocNames.productionBreakdown[cls] ?? []) {
+          whitelist[e.file] = (whitelist[e.file] ?? 0) + (e.lines?.length ?? 0);
+        }
+      }
+    } catch (e) {
+      console.error(`check-collab-census: 结构性错误（exit 2）——y1c-t0-census.json item7 基线加载失败：${e.message}`);
+      process.exit(2);
+    }
+    const counts = {};
+    for (const p of files) {
+      const n = countBareProjectDocNames(byFile.get(p).raw);
+      if (n) counts[relOf(p)] = n;
+    }
+    const details = reconcileCountWhitelist(counts, whitelist, '裸 docName 构造');
+    const nBase = Object.values(whitelist).reduce((a, b) => a + b, 0);
+    report('㉚', `裸 \`project:\${pid}\` docName 构造门（census ⑦ 基线派生 ${nBase} 处/${Object.keys(whitelist).length} 文件——新增裸构造须走 doc-name.util 单源）`, details.length === 0, details);
+  }
+
+  // ㉛doc.exec 触碰面零增长（census ⑤ 基线清单——P3/P4 删除前只许零增长）：词面投影=
+  //  getMap('exec') 出现数（census ⑤ 十条目+上游写点+读者中直触 exec map 的机械子集——上游写点
+  //  经 writeExecStatus/deliverArtifact/writeBatch 服务原语不直触 map 故不计）。冻结值=2026-10-24
+  //  实测；T22/T32 删除 doc.exec 读写链时本组白名单清零同步。
+  const EXEC_MAP_WHITELIST = {
+    'apps/api/src/modules/collab/collab-document.service.ts': 2,   // applyWriteExecStatusToDoc:312+applyDeleteExecOrphansToDoc:381（写原语直触）
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': 2, // vacuum 等价校验 :662 同行两次（新旧 doc keys 比对）
+    'apps/web/src/stores/canvasCollabRuntime.ts': 2,               // projectExecToStore:728+observeDeep:1996（web 投影单通道）
+  };
+  {
+    const counts = {};
+    for (const p of files) {
+      const n = countExecMapAccess(byFile.get(p).raw);
+      if (n) counts[relOf(p)] = n;
+    }
+    const details = reconcileCountWhitelist(counts, EXEC_MAP_WHITELIST, 'doc.exec 触碰');
+    report('㉛', `doc.exec 触碰面零增长（getMap('exec') ${Object.values(EXEC_MAP_WHITELIST).reduce((a, b) => a + b, 0)} 处/3 文件冻结——census ⑤ 词面投影；T22/T32 删除时同步清零）`, details.length === 0, details);
+  }
+
+  // ㉜Y.applyUpdate 消费面白名单（census ⑨ 现状调用点为基线；目标态=gate/load/import 三处——
+  //  T9 建 gate pre-apply 后收紧）：冻结值=2026-10-24 实测 14 调用点/8 文件（=census ⑨
+  //  productionCallPoints 14 逐文件对齐：inbound 4+离线 scratch 10；raw 计 15 含 local-backup:64
+  //  注释提及——stripped 面不计，census⑨ 同注）。
+  const APPLY_UPDATE_WHITELIST = {
+    // load 档（装载/boot 回放）
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,     // loadDocument spool 帧重放
+    'apps/api/src/modules/collab/collab-persistence.service.ts': 1,     // withReplaySuppressed 重放抑制窗
+    'apps/web/src/stores/canvasCollabRuntime.ts': 2,                    // boot 缓存回放:1770+tmp 导出:689（离线 tmp——load 档邻位）
+    // import 档（备份导入）
+    'apps/web/src/collab/canvas-local-backup.ts': 1,                     // applyLocalBackup（origin=provider 抑制回发；:64 注释提及不计——census⑨ 同注）
+    // 离线 scratch 档（非 inbound——compact/快照解码/shrink 预演校准/巡检）
+    'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,
+    'apps/api/src/modules/collab/collab-document.service.ts': 2,
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 3,
+    'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
+    // gate 档=T9 建（现状 apply 归属=Hocuspocus 库内部，本仓零显式调用——建后本表收紧注释同批更新）
+  };
+  {
+    const counts = {};
+    for (const p of files) {
+      const n = countApplyUpdateCalls(byFile.get(p).stripped);
+      if (n) counts[relOf(p)] = n;
+    }
+    const details = reconcileCountWhitelist(counts, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
+    const nWl = Object.values(APPLY_UPDATE_WHITELIST).reduce((a, b) => a + b, 0);
+    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/8 文件冻结；T9 gate 建后收紧）`, details.length === 0, details);
+  }
+
+  // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：
+  //  口径=「serving 期业务写=0」——openDirectConnection 调用点=census ⑫ openSites 恰 2 处冻结
+  //  （withDoc 直连读路径 readCanvas/shrink/export 在役 allowlist；residency withSession 常驻通道）；
+  //  任何新增调用点即红。该通道当前承载业务 doc 写三点（writeExecStatus/deliverArtifact/writeBatch
+  //  ——经 withSession(write)）=登记红 until=T22/T32（删除达成须移除登记否则 stale 红）。
+  const DIRECT_CONNECTION_WHITELIST = {
+    'apps/api/src/modules/collab/collab-document.service.ts': 1,   // withDoc 直连（:78——读+维护写 shrink 族）
+    'apps/api/src/modules/collab/collab-residency.service.ts': 1,  // withSession 常驻会话 acquire（:445）
+  };
+  const DIRECT_CONNECTION_BUSINESS_WRITE_REGISTERED_RED = {
+    writeExecStatus: { file: 'apps/api/src/modules/collab/collab-document.service.ts', until: 'T32' },
+    deliverArtifact: { file: 'apps/api/src/modules/collab/collab-document.service.ts', until: 'T22' },
+    writeBatch: { file: 'apps/api/src/modules/collab/collab-doc-writer.service.ts', until: 'T32' },
+  };
+  {
+    const counts = {};
+    for (const p of files) {
+      const n = (byFile.get(p).stripped.match(/openDirectConnection\s*\(/g) ?? []).length;
+      if (n) counts[relOf(p)] = n;
+    }
+    const details = reconcileCountWhitelist(counts, DIRECT_CONNECTION_WHITELIST, 'DirectConnection');
+    const registered = [];
+    for (const [method, reg] of Object.entries(DIRECT_CONNECTION_BUSINESS_WRITE_REGISTERED_RED)) {
+      const target = files.find((p) => relOf(p) === reg.file);
+      const present = target !== undefined && new RegExp(`\\b${method}\\s*\\(`).test(byFile.get(target).stripped);
+      if (present) registered.push(`登记红（until=${reg.until}）${reg.file} ${method}——serving 期业务 doc 写经 withSession 直连通道（T22/T32 删除项）`);
+      else details.push(`业务写登记项已消失——转绿达成请移除登记 ${reg.file} ${method}（until=${reg.until}）`);
+    }
+    report('㉝', 'DirectConnection 检查（openDirectConnection 恰 2 调用点=census ⑫ openSites；serving 期业务写=0 目标态——现役业务写登记红 until=T22/T32）',
+      details.length === 0, [...details, ...registered]);
   }
 
   const failed = results.filter((r) => !r.pass);
