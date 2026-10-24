@@ -107,6 +107,25 @@ export const META_WHITELIST: readonly string[];
 - [ ] census 静态门进 verify fast（check-collab-census 扩：未分类新字段红+服务端读者清单+裸构造门+doc.exec 触碰面零增长+**`Y.applyUpdate` 消费面=gate/load/import 三处白名单**+**DirectConnection 零使用**）
 - [ ] **P0 出口=用户确认点①**（T5a/b/c 三段证据）→Commit。
 
+### 确认点①附带裁定（2026-10-24 用户批准 P1）——首批 11 条契约修正（不改架构；按卡生效：对应修正未完成不得开对应卡）
+
+| # | 修正 | 生效卡 |
+|---|---|---|
+| 1 | FrameEffects 以 apply 后 actor 临界区内为准；ProjectDocIndex 由 T9 建、T24/T26 复用；NODE_CREATED/RESTORED 加 type | T9 |
+| 2 | pending 区间扣除 svClock 已覆盖前缀；SV 覆盖的 Skip 放行；DS-only 未知 clock → 4412 | T9 |
+| 3 | 删 media.fact/RuntimeProjection.mediaFacts；加 artifact 槽、exec.status/artifact 分槽、node.restored | T22 |
+| 4 | execSeq（执行代际）与 lifecycleSeq/fenceSeq（生命周期）全文分离 | T21/T26 |
+| 5 | image.src = mediaId，渲染层解析受控 URL；URL allowlist 仅留给 link href | T16 |
+| 6 | shouldQuarantineSegment 时间戳栅栏显式 recoverySuspect，默认 false | T8 |
+| 7 | Y1c 四码先走 resolveRecoveryAction；4406 terminal、4411/4412 resync、4413 retry，不被 backoff 吞 | T10/T25 |
+| 8 | 版本门加 allowFirstConnect；首连无 historyId 放行并由 auth 下发 | T9 |
+| 9 | DraftEnvelope 加 historyId；C 场景逐节点冲突 + 默认 skip | T25 |
+| 10 | projection 换代必须全量 snapshot；feed 读 CanvasDoc 用 plain SELECT，不用 FOR SHARE | T22 |
+| 11 | LifecycleObligation 定队列：state/attempts/lease + effect→obligation 映射 + 退款路径 | T21/T26 |
+
+开工顺序：**T7 立即开工（不依赖以上业务项）**；T8←#6 后；T9←#1/#2/#8 后；T10←#7 后；T16←#5 后；T21/T26←#4/#11 后；T22←#3/#10 后；T25←#9 后；**T34 发布门=check-collab-census 登记红必须为 0**。
+落点纪律：涉 T5 冻结契约文件的项（#1/#2/#3/#5/#6/#7/#8/#9/#11）在对应卡开工前以 TDD 修正批落 shared 契约+测试（独立 commit）；涉卡文语义的项（#4/#10 及各卡步骤措辞）随修正批同步进 plan 卡文；T7 本卡不受门控。
+
 ## P1：载体（T7-T14——最小可恢复协作垂直切片；G1/G2/G6a 三工程门）
 
 ### Task 7: G1 门——迁移一载体族+genesis 双路+缺头三态
