@@ -28,10 +28,13 @@
 //     ③dirty=拒（own clock>pre）②部分陈旧=放行（全部 clock<pre）——即现状门只漏②，但②恰是
 //     「从未 author 的查看端/早期同步端」常态人群；目标链 auth 层对三者一致拒绝（不装载/不 SS1/
 //     不上行旧 structs），差异只在载荷形态。
-//  E. 【v4 前瞻探针】rebuildVacuumDoc 对嵌套 Y.Text（T15/T16 目标形状 data.content:Y.Text）的现状
-//     实测=**静默跨 doc 别名**（不拷贝不拒绝——readRecordsFromMaps 把 Y.Text 实例当 record 值原样
-//     传给 fillDoc 重放，新 doc 持有与源 doc 同一实例；源 doc destroy 后别名仍可读写=对已亡 doc 的
-//     结构空间继续写）。为 T15/T18/T27 提供「vacuum 链必须先扩或先拒」的裁定输入。
+//  E. 【v4 前瞻探针】rebuildVacuumDoc 对嵌套 Y.Text（T15/T16 目标形状 data.content:Y.Text）——
+//     Y1c T4 前实测=**静默跨 doc 别名**（readRecordsFromMaps 把 Y.Text 实例当 record 值原样传给
+//     fillDoc 重放，新 doc 持有与源 doc 同一实例；源 doc destroy 后别名仍可读写=对已亡 doc 的
+//     结构空间继续写）。T4 起读侧收编 doc-codec toReadModel：嵌套 Y 类型解码 plain JSON 后重放
+//     ——别名亡（零共享实例），代价=类型保真平面化（Y.Text→string）；保真重建（serializeCanvas
+//     全新实例形态）归 T15/T18/T27 vacuum 链扩裁随卡。仍为 T15/T18/T27 提供「vacuum 链必须先扩
+//     或先拒」的裁定输入。
 //
 // 【装置语义对齐】
 //  · wire 形态：客户端 SS2=y-protocols writeSyncStep2=encodeStateAsUpdate(doc, serverSv)（diff 形
@@ -42,7 +45,7 @@
 //    SV={A:t0 clock} 全部 <preVacuumSv 同 client 条目。
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { fillDoc, readRecordsFromMaps } from '@flowweb/shared';
+import { fillDoc } from '@flowweb/shared';
 import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { toDocLike } from './doc-like.util';
 
@@ -181,7 +184,7 @@ describe('Y1c T0-S2 vacuum 离线重连——纯 Yjs 机制实验', () => {
     c.server.destroy(); c.staleViewer.destroy(); c.cleanViewer.destroy(); c.dirtyAuthor.destroy();
   });
 
-  it('Phase E【v4 前瞻探针】：rebuildVacuumDoc×嵌套 Y.Text——实测=静默跨 doc 别名（不拷贝不拒绝）', () => {
+  it('Phase E【v4 前瞻探针】：rebuildVacuumDoc×嵌套 Y.Text——Y1c T4 改道 doc-codec 后=平面化解码（别名亡、类型保真重建归 T15+ 写点迁移随卡）', () => {
     const v4 = new Y.Doc();
     fillDoc(toDocLike(v4), [{ id: 'x1', type: 'textInput', data: {} }], []);
     const data = (v4.getMap('nodes').get('x1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
@@ -191,20 +194,20 @@ describe('Y1c T0-S2 vacuum 离线重连——纯 Yjs 机制实验', () => {
     const registry = vacuumRegistry();
     const rebuilt = registry.rebuildVacuumDoc(v4);
     expect(rebuilt).not.toBeNull();                                    // 非 Map 根守卫（:629-632）只看根——嵌套类型不设防
-    // 注：上行 rebuild 调用在 stderr 留一条 yjs 内部 console.error TypeError（YText._integrate
-    // catch——别名实例经 fillDoc data.set 二次集成时 _pending=null→null.forEach；yjs 吞掉不外抛）
-    // ——套件输出含此噪音属预期；下文 not.toThrow 断言的是 API 层语义。
+    // Y1c T4 前实测=静默跨 doc 别名（readRecordsFromMaps 传 Y.Text 引用给 fillDoc 重放——源 doc
+    // destroy 后别名仍可写=对已亡 doc 结构空间继续写，F-S2-1）。T4 起 rebuild 读侧=doc-codec
+    // toReadModel（readRecordsFromMaps 收编 codec 内部单源）：嵌套 Y 类型解码为 plain JSON 后重放
+    // ——**别名结构性亡**（零共享实例）；代价=类型保真损失（Y.Text→string 平面化）。类型保真的
+    // vacuum 重建（serializeCanvas+全新实例重建——doc-codec 备份路径形态）归 T15/T16 写点迁移
+    // 随卡定裁（vacuum 链届时先扩或先拒，本探针保留为新现状行为锁）。
     const rdata = (rebuilt!.getMap('nodes').get('x1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
     const rcontent = rdata.get('content');
-    expect(rcontent).toBeInstanceOf(Y.Text);
-    // 实测核心：records 重放传引用不拷贝——新 doc 的 content 与源 doc 是**同一 Y.Text 实例**
-    //（readRecordsFromMaps Object.fromEntries 原样带出+fillDoc data.set 原样置入；无第二 doc 校验）
-    expect(rcontent).toBe(text);
-    // 生产 vacuumCore finally 对源 doc destroy（collab-shrink.service:336）——别名实例不随死：
-    // 经新 doc 视图继续写=对已 destroy 源 doc 的结构空间继续写（静默腐坏类，非崩溃类）
+    expect(rcontent).not.toBeInstanceOf(Y.Text);                       // 非共享 Y 实例（别名亡——F-S2-1 危险面消除）
+    expect(rcontent).toBe('v4-nested');                                // 文本内容保真（Y.Text 解码=显式 string）
+    // 源 doc destroy 后重建 doc 独立存活（无跨 doc 结构空间共享——写不互达）
     v4.destroy();
-    expect(() => (rcontent as Y.Text).insert(0, 'X')).not.toThrow();
-    expect((rcontent as Y.Text).toString()).toBe('Xv4-nested');
+    expect(() => rdata.set('content', 'after-destroy')).not.toThrow();
+    expect(rdata.get('content')).toBe('after-destroy');
     rebuilt!.destroy();
   });
 });

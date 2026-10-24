@@ -137,7 +137,7 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
     {
       map: 'nodes', path: `nodes.*（信封键=${NODE_ENVELOPE_KEYS.join('/')}——NODE_ENVELOPE_KEYS 单源派生）`,
       writers: ['docShape.fillDoc（种子）/applyRecordToYMap（增量）', 'canvasIntents.applyIntentToDoc(addNode/updateNodeEnvelope/moveNode/deleteNode)'],
-      readers: ['docShape.readRecordsFromMaps→readCanvas/REST 快照', 'web reconcile（applyDocToStore 投影）'],
+      readers: ['doc-codec.toReadModel→readCanvas/REST 快照（Y1c T4 起——原 docShape 直读函数收编 codec 内部）', 'web reconcile（applyDocToStore 投影）'],
       ownership: 'doc', undo: 'client-undo',
     },
     {
@@ -170,7 +170,7 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
     {
       map: 'edges', path: `edges.*（${DOC_EDGE_RECORD_KEYS.join('/')} 单形状——R1a 收敛，DOC_EDGE_RECORD_KEYS 派生）`,
       writers: ['docShape.fillDoc（种子）', 'canvasIntents.applyIntentToDoc(upsertEdge/deleteEdge/deleteNode 级联删)'],
-      readers: ['docShape.readRecordsFromMaps', 'web 连线渲染投影'],
+      readers: ['doc-codec.toReadModel（Y1c T4 起——原 docShape 直读函数收编 codec 内部）', 'web 连线渲染投影'],
       ownership: 'doc', undo: 'client-undo',
     },
   ],

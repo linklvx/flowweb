@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { readRecordsFromMaps, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
+import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -113,10 +113,11 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  readCanvasSnapshotCached 仅无客户端面（video-work 分享/渲染等）。
    *  Y0b-2 T7：sv 参数/SV 等待退役——客户端同步判定移受理端点 SV 支配门（sync-admission.ts），
    *  执行读恒活读无需客户端 SV。
-   *  O0a-2 收编：读实现单源 shared readRecordsFromMaps（docShape——api 读≡web 读，出口=作者态
-   *  StoredNodeRecord：doc 缺键→出口无键，null 消除在读侧自做；Y.Doc→DocLike 适配见 doc-like.util）。
+   *  O0a-2 收编→Y1c T4 改道：读实现单源 shared doc-codec.toReadModel（原 docShape 直读函数收编
+   *  codec 内部——api 读≡web 读，出口=作者态 StoredNodeRecord：doc 缺键→出口无键，null 消除在
+   *  读侧自做；v3 纯 JSON 值逐位同出口零行为变更）。
    *  T18（Y1b T2）：O0b-0 meta 版本门退役——版本判据=CanvasDoc.schemaVersion PG 列，装载门
-   * （loadDocument 行值≠current 拒载）结构性先于 withSession 回调（读面复用装载门——REST 不再设第二门）。
+   *  （loadDocument 行值≠current 拒载）结构性先于 withSession 回调（读面复用装载门——REST 不再设第二门）。
    *  Y0c T15（A2/Z128）：改道 withSession(read)——共享会话不 disconnect 不武装 debouncer
    *  （旧 withDoc 路径每次 disconnect(true)=每次全量编码 store+计数抖动，终结）。
    *  Y0c T20（Z105 spec :526）：opts.ephemeral=即用即释档（不入会话表）——原消费面=reconcile 5min
@@ -124,7 +125,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  保留为 residency 通用能力（冷读防钉常驻池），REST/作业面读缺省入池（T15 常驻语义不变）。 */
   async readCanvas(projectId: string, opts?: { ephemeral?: boolean }): Promise<{ nodes: any[]; edges: any[] }> {
     return this.withSession(projectId, async (doc) => {
-      return readRecordsFromMaps(toDocLike(doc));
+      return toReadModel(doc);
     }, { mode: 'read', ephemeral: opts?.ephemeral });
   }
 
@@ -148,7 +149,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
     try {
       if (state) Y.applyUpdate(doc, new Uint8Array(state));
       for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
-      return readRecordsFromMaps(toDocLike(doc));
+      return toReadModel(doc);
     } finally {
       doc.destroy();
     }

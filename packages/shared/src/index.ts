@@ -43,9 +43,16 @@ export * from './types/video-work';
 export * from './types/group';
 export * from './types/stitch';
 export * from './canvas/nodeEnvelope';
-// O0a-1（Spec B）：docShape 出口接入——doc 读写单源（fillDoc/readRecordsFromMaps/applyRecordToYMap/
-// stripDerivedKeys）+ C0-1 类型骨架出口随本分片落地（census 守卫使命完成拆除）。
-export * from './canvas/docShape';
+// O0a-1（Spec B）→Y1c T4：docShape 出口——doc 读写单源（fillDoc/stripDerivedKeys/toDocRecords/
+// C0-1 类型骨架）。readRecordsFromMaps 自 Y1c T4 起收编 doc-codec 内部（唯一 import=doc-codec——
+// 外部读出口=doc-codec.toReadModel；index 再导出删除，doc-shape-single-source.guard 执法）。
+export { fillDoc, stripDerivedKeys, stripAuthorState, toDocRecords, normalizeSize, frameMode, isCollapsed, isValidStoredFrame,
+         CANVAS_DOC_SCHEMA_VERSION, EPHEMERAL_DATA_KEYS, CANVAS_BRIDGE_KEYS, SERVER_TRANSACT_ORIGIN } from './canvas/docShape';
+export type { DocLike, DocEdgeRecord, MinimalCSNode, Rect, RenderNode, DragSession, FrameMode } from './canvas/docShape';
+// Y1c T4（plan v1.7）：DocCodec 双出口——serializeCanvas（canonical 备份/重建/semanticEqual）+
+// toReadModel（plain JSON read model——REST/执行/导出唯一共享读类型）+toPublicReadModel（公开快照
+// sanitize+URL allowlist）+rebuildCanvasDoc/semanticEqual；真 Yjs 类型直用（zero-yjs 废止）。
+export * from './canvas/doc-codec';
 // Y1a T1（plan v11.2 片 S0）：collab-doc-ops 出口——doc 写原语（setDocPosition/applyRecordToYMap）
 // +关联类型（DocMapLike/StoredNodeRecord）自 docShape 抽离单源（零行为变更纯机械迁移）。
 export * from './canvas/collab-doc-ops';

@@ -13,14 +13,13 @@
 // 零连接窄版自动（gateway recheckFrozenDocs 判据链经 setVacuumRunner 回调注入）。
 import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import * as Y from 'yjs';
-import { QUOTA_DEFAULTS, readRecordsFromMaps } from '@flowweb/shared';
+import { QUOTA_DEFAULTS, toReadModel } from '@flowweb/shared';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasService } from '../canvas/canvas.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
-import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { applyWriteOpsToDoc } from './collab-doc-writer.service';
 import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
@@ -129,7 +128,7 @@ export class CollabShrinkService {
    *  createMap，裸传 throw 被 catch 吞=断言真空——adversarial-readers 先例）；新 doc 装载=空画布
    *  合法档（无戳∧零节点→装载自愈点 stamp，gateway loadDocument 单源——fill 前已有戳）。 */
   private async exportFreshRun(pid: string, userId: string): Promise<ExportFreshResult> {
-    const records = await this.docs.withDoc(pid, (doc) => readRecordsFromMaps(toDocLike(doc)));
+    const records = await this.docs.withDoc(pid, (doc) => toReadModel(doc));
     const src = await this.prisma.canvasProject.findUnique({
       where: { id: pid },
       include: { templates: { select: { folderId: true } } },
@@ -160,7 +159,7 @@ export class CollabShrinkService {
     try {
       // 空体（三字段全无）=纯 recalibrate 同语义（Q-G"二选一或空体=纯 recalibrate"）
       const recalibrate = body.recalibrate === true || (body.deleteNodeIds === undefined && body.keepNodeIds === undefined);
-      const records = readRecordsFromMaps(toDocLike(doc));
+      const records = toReadModel(doc);
       const victims = recalibrate ? [] : resolveVictims(records, body);
       if (victims.length === 0 && !recalibrate) {
         collabDocShrinkTotal.inc({ result: 'noop' });

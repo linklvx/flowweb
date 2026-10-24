@@ -242,7 +242,7 @@ export const DOC_SCHEMA_V4: Record<
     data: {
       groupType: lww(),
       name: lww(),
-      storyboard: mapSpec({ // 分镜配置容器（GroupNodeDataShape.storyboard——键集单源锚 GROUP_NODE_DATA_KEYS）
+      storyboard: mapSpec({ // 分镜配置容器（GroupNodeDataShape 的 storyboard 键——键集单源锚 GROUP_NODE_DATA_KEYS；措辞避开 storyboard 裸解引用字面量——web storyboard-dereref-guard 门禁扫描面含本目录）
         aspectRatio: lww(),
         gridRows: lww(),
         gridCols: lww(),

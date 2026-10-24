@@ -1,6 +1,8 @@
 // apps/api/src/modules/collab/doc-shape-single-source.guard.spec.ts
 // O0a-2（Spec B）符号级断言："api 无第二 doc 节点读写实现"——readDocCanvas/writeNodeToYMap
 // 收编 shared docShape 单源（readRecordsFromMaps/fillDoc）后符号在 api 生产源码零命中。
+// Y1c T4 扩：readRecordsFromMaps 收编 doc-codec 内部（唯一 import=shared doc-codec）+index 再导出
+// 删除——api 生产源码直用该符号=绕过 read model 单源出口，零命中执法。
 // 扫描域=apps/api/src 非 spec 文件（cwd=包根——api vitest 环境陷阱登记）；api/prisma 脚本面
 // 注释提及不在收编语义域，不扫。
 import { describe, it, expect } from 'vitest';
@@ -18,10 +20,10 @@ function listTsFiles(dir: string): string[] {
 }
 
 describe('api 无第二 doc 节点读写实现（O0a-2 符号级断言）', () => {
-  it('readDocCanvas/writeNodeToYMap 符号在 api 源码零命中（收编 shared docShape 单源）', () => {
+  it('readDocCanvas/writeNodeToYMap/readRecordsFromMaps 符号在 api 源码零命中（收编 shared 单源——Y1c T4 起读出口=doc-codec.toReadModel）', () => {
     const offenders: string[] = [];
     for (const f of listTsFiles(path.join(process.cwd(), 'src'))) {
-      if (/readDocCanvas|writeNodeToYMap/.test(readFileSync(f, 'utf8'))) {
+      if (/readDocCanvas|writeNodeToYMap|readRecordsFromMaps/.test(readFileSync(f, 'utf8'))) {
         offenders.push(path.relative(process.cwd(), f));
       }
     }

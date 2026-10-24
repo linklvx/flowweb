@@ -1,11 +1,13 @@
 // Y.Doc 结构构造/反序列化——O0a-1 收编薄委托：实现单源 shared/canvas/docShape（fillDoc/
-// readRecordsFromMaps/applyRecordToYMap——DocLike 结构性入参），本文件仅承担 Y.Doc→DocLike
+// applyRecordToYMap——DocLike 结构性入参），本文件仅承担 Y.Doc→DocLike
 // 类型适配（createMap 工厂注入，零行为）+ CanvasNodeRecord 快照面→StoredNodeRecord 桥。
 // 调用点>10 处（生产 2+测试 6 文件）——plan 授权留 re-export 形态薄委托并注明 O0b 拆。
+// Y1c T4：读出口改道 doc-codec.toReadModel（readRecordsFromMaps 收编 codec 内部——readCanvasFromDoc
+// =全 web 读入口薄委托不变，出口 read model 同形）。
 import * as Y from 'yjs';
 import {
   fillDoc as fillDocShapes,
-  readRecordsFromMaps,
+  toReadModel,
   applyRecordToYMap as applyRecordToMap,
   toDocRecord,
   type DocLike, type DocMapLike, type StoredNodeRecord, type DocEdgeRecord,
@@ -44,9 +46,10 @@ export function fillDoc(
 }
 
 /** doc 直读（O0a-1 出口=作者态 StoredNodeRecord 可选键——doc 无键⇄records 同形无键，三层表；
- *  分镜子 cs {0,0} 构造默认由消费面（applyDocToStore hydrate）补齐）。 */
+ *  分镜子 cs {0,0} 构造默认由消费面（applyDocToStore hydrate）补齐。Y1c T4：实现改道
+ *  doc-codec.toReadModel（readRecordsFromMaps 收编单源——v3 纯 JSON 值逐位同出口零行为变更）。 */
 export function readCanvasFromDoc(doc: Y.Doc): { nodes: StoredNodeRecord[]; edges: PlainEdge[] } {
-  return readRecordsFromMaps(toDocLike(doc));
+  return toReadModel(doc);
 }
 
 /** 增量写（createMap 工厂注入——Y.Map 无自建方法）。仅测试消费（生产写路径已收口 canvasIntents）。 */

@@ -13,10 +13,10 @@
 import * as Y from 'yjs';
 import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord, DocMapLike, StoredNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
-import { setDocPosition, stripDerivedKeys, readRecordsFromMaps, normalizeSize,
+import { setDocPosition, stripDerivedKeys, toReadModel, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
   QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
-import { fillDoc, toDocLike, type PlainEdge } from '@/collab/ydocBuilder';
+import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore, toAppNode, applyDataPatchToStores, NODE_TYPES } from './nodeStore';
@@ -377,7 +377,7 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
  *  原位+新组 append，groupNodes 打组场景子恒先于组入 doc=合法形态），序断言会误报；漏斗层
  *  不变量（新父组 addNode intent 先于其子 intent）由 dispatchProjectionDiff 遍历序结构保证。 */
 function assertDocKeySetInvariants(d: Y.Doc): void {
-  const { nodes } = readRecordsFromMaps(toDocLike(d));
+  const { nodes } = toReadModel(d);
   const violations = stripDerivedKeys(nodes);
   if (violations.length > 0) {
     throw new Error(`[O0a-1 键集校验] ${violations.join('; ')}`);
@@ -443,7 +443,7 @@ export function readGroupStoredFrameFromDoc(groupId: string): {
 } | undefined {
   const d = resolveDoc();
   if (!d) return undefined;
-  const rec = readRecordsFromMaps(toDocLike(d)).nodes.find((n) => n.id === groupId);
+  const rec = toReadModel(d).nodes.find((n) => n.id === groupId);
   if (!rec) return undefined;
   return { position: rec.position, width: rec.width, height: rec.height };
 }
@@ -577,7 +577,7 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
       assertDocKeySetInvariants(d);
       // O0b-3 接线（it.todo 转实）：批尾同读 doc 记录挂三断言——分镜子无 position④/
       // cs-only 派生键禁入 data⑤/组 data 禁 __ 键⑥（违例 DEV 抛——prod 只读零动作同 stripDerivedKeys 口径）
-      const { nodes: tailRecords } = readRecordsFromMaps(toDocLike(d));
+      const { nodes: tailRecords } = toReadModel(d);
       assertStoryboardChildNoPosition(tailRecords);
       assertNoCsDerivedKeysInData(tailRecords);
       assertNoDunderKeysInGroupData(tailRecords);

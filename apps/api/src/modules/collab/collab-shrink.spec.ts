@@ -11,9 +11,8 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, readRecordsFromMaps } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, toReadModel } from '@flowweb/shared';
 import { CollabGateway, TRUTH_COOLDOWN_MS, type QuotaConfig } from './collab.gateway';
-import { toDocLike } from './doc-like.util';
 import { CollabShrinkService, SHRINK_QUEUE_TIMEOUT_MS } from './collab-shrink.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabNotServingFilter } from './collab-not-serving.filter';
@@ -608,7 +607,7 @@ describe('POST /api/collab/doc/:projectId/export-fresh（Q-H——真实签名/�
     expect(r1.result).toBe('ok');
     expect(r1.bytes).toBe(bytesOf(fresh1));                      // 落地编码校验值=新 doc 真实编码
     expect(r1.bytes).toBeLessThan(bytesOf(src1) / 2);            // 新 doc 编码显著小于源
-    expect(readRecordsFromMaps(toDocLike(fresh1))).toEqual(readRecordsFromMaps(toDocLike(src1)));   // records 等价
+    expect(toReadModel(fresh1)).toEqual(toReadModel(src1));   // records 等价（Y1c T4 起读出口=doc-codec toReadModel）
     expect(r1.warning).toBeUndefined();                          // 限内无 warning
 
     // 档二：新副本编码仍超限（内容真大）——不阻断+响应带 warning 字段

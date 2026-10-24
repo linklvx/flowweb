@@ -824,7 +824,7 @@ export function readGroupFrameModes(d: Y.Doc): ReadonlyMap<string, FrameMode> {
 
 /** 批4a：doc⇄store 投影不变量（红1-不变量安全网）——projectionFromDoc(doc) ≡ storeProjection()。
  *  O0b-0 格式批改写：doc=abs 空间（toDocRecords 翻转后），两侧同空间直接深等——读侧
- *  readCanvasFromDoc 直出 abs（docShape readRecordsFromMaps）、写侧 projectCanvasNodes 经
+ *  readCanvasFromDoc 直出 abs（Y1c T4 起芯=doc-codec.toReadModel——readRecordsFromMaps 收编 codec 内部）、写侧 projectCanvasNodes 经
  *  toDocRecords 同变换出 abs（共同变换两侧各跑一遍自然相等）；normalizeLoadedCanvas 双侧包裹
  *  随模块整删（补缺层退役——无设计内分叉源）。withStoryboardChildDefault 保留（分镜子
  *  doc 无键⇄cs {0,0} 构造默认——三层表仍需双侧同变换）。
@@ -904,7 +904,7 @@ function withStoryboardChildDefault(nodes: ReturnType<typeof readCanvasFromDoc>[
 // （O0b-0 已摘全部调用点——符号级 census 断言在 canvasO0b4.derivation.test.ts）。
 
 /** O0b-1 reconcile 单内核（cs 几何唯一写者——写域四类+单遍单 origin+零差异短路；源矩阵见下）。
- *  doc 读取=readRecordsFromMaps（readCanvasFromDoc 薄委托——docShape 单源，禁从 nsNodes/csNodes
+ *  doc 读取=doc-codec.toReadModel（readCanvasFromDoc 薄委托——codec 单源，禁从 nsNodes/csNodes
  *  反推=直拷回灌）；帧派生=deriveGroupFrame 单源（帧装配算术实现点=1 calcGroupBounds）。
  *  源矩阵（卡一）：'doc'=doc 权威直拷（漏斗尾/applyDocToStore 尾）；'cs'=cs 活值反推 abs
  * （dispatchProjectionDiff 首行——命令几何已落 cs、doc 未更新：manual/storyboard 组帧值取 cs 活值、

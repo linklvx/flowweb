@@ -1,7 +1,7 @@
 // apps/api/src/modules/collab/collab-document.service.spec.ts
-// O0a-2（Spec B）：api 读≡web 读——readCanvas 收编 shared readRecordsFromMaps 后，
-// 同一真 Y.Doc 双跑对照（api 收编后读出口 vs web readCanvasFromDoc 同款手法
-// readRecordsFromMaps(toDocLike(doc))）逐位相等。
+// O0a-2（Spec B）→Y1c T4：api 读≡web 读——readCanvas 读出口（Y1c T4 起=shared doc-codec
+// toReadModel——readRecordsFromMaps 收编 codec 内部）同一真 Y.Doc 双跑对照（api 出口 vs
+// toReadModel 直调=web readCanvasFromDoc 薄委托实现）逐位相等。
 // O0b-0（Spec B）格式批：REST 读入口版本门 v2.1 fail-closed——v1 档/无戳∧有节点拒、
 // 无戳∧零节点放行（REST 不盖戳）。Y0b-2 T7：sv 参数两锚随 SV 等待机制退役删除（门档判定不依赖 sv 差量）。
 import { describe, it, expect, vi } from 'vitest';
@@ -9,15 +9,7 @@ import * as Y from 'yjs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { CollabDocumentService, applyWriteNodeDataToDoc } from './collab-document.service';
 import type { CollabResidencyService } from './collab-residency.service';
-import { SERVER_TRANSACT_ORIGIN, readRecordsFromMaps, type DocLike, type DocMapLike } from '@flowweb/shared';
-
-/** web ydocBuilder.toDocLike 同款手法（api 侧不可 import apps/web——测试内联同构对照半边） */
-function toDocLike(doc: Y.Doc): DocLike {
-  return {
-    getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
-    createMap: () => new Y.Map() as unknown as DocMapLike,
-  };
-}
+import { SERVER_TRANSACT_ORIGIN, toReadModel } from '@flowweb/shared';
 
 /** 真 Y.Doc 夹具：全键节点+缺键节点（无 parentId/width/height/position）+单边 */
 function buildDoc(): Y.Doc {
@@ -59,12 +51,12 @@ function buildService(doc: Y.Doc): CollabDocumentService {
   return service;
 }
 
-describe('CollabDocumentService.readCanvas（O0a-2 收编 readRecordsFromMaps——api 读≡web 读）', () => {
-  it('同一 doc 双端比：api readCanvas 输出 ≡ web 手法 readRecordsFromMaps(toDocLike(doc)) 逐位相等', async () => {
+describe('CollabDocumentService.readCanvas（O0a-2 收编→Y1c T4 改道 doc-codec toReadModel——api 读≡web 读）', () => {
+  it('同一 doc 双端比：api readCanvas 输出 ≡ toReadModel(doc)（web readCanvasFromDoc 薄委托实现）逐位相等', async () => {
     const doc = buildDoc();
     const service = buildService(doc);
     const apiOut = await service.readCanvas('p1');
-    const webOut = readRecordsFromMaps(toDocLike(doc)); // web readCanvasFromDoc = 本调用（ydocBuilder 薄委托）
+    const webOut = toReadModel(doc); // web readCanvasFromDoc = 本调用（ydocBuilder 薄委托）
     expect(apiOut).toEqual(webOut);
   });
 

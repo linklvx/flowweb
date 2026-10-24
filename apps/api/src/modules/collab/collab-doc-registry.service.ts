@@ -22,7 +22,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { parseDocName, isValidDocName } from './doc-name.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, SERVER_TRANSACT_ORIGIN, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, readRecordsFromMaps, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, FRAME_ALLOWANCE_BYTES, SERVER_TRANSACT_ORIGIN, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
 import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
@@ -408,7 +408,7 @@ export class CollabDocRegistryService {
       for (const f of spoolFrames) Y.applyUpdate(document, f.payload);
       // T18（Z4''-v14）：order 病理装载档扫描（挂点选型见 collab-pathology.ts 头注——replay 完成
       // 后判；容忍不 500，计数+告警）。
-      observeOrderPathologyOnLoad(this.host.logger, documentName, readRecordsFromMaps(toDocLike(document)).nodes);
+      observeOrderPathologyOnLoad(this.host.logger, documentName, toReadModel(document).nodes);
       // Y0b-4 T3（Q-B 白名单点①）：docTruth 真值单变量播种——cheap 上界=|state|+Σ|updates|+Σspool
       // （state+updates+spool 帧全部 apply 之后算）；<softLimit 直接当 truth 跳过编码（上界≥真值=
       // 保守正确，99% 装载零新增成本）；≥softLimit 才付费实测 encodeStateAsUpdate（apply 即 GC——
@@ -617,7 +617,8 @@ export class CollabDocRegistryService {
   }
 
   /** ④ 全根真空重建（vacuum service 与 recheck residue 评估共用单源）：按 doc.share 枚举——
-   *  nodes/edges → readRecordsFromMaps+fillDoc（records 真值重放——墓碑/GC 壳/delete set 不随行）；
+   *  nodes/edges → toReadModel+fillDoc（records 真值重放——墓碑/GC 壳/delete set 不随行；Y1c T4
+   *  起读侧改道 doc-codec toReadModel）；
    *  其余 Y.Map 根（exec/meta/未来新增）→ 逐 key 深拷贝（未来新增根 map 不可能被静默丢弃〔U-2〕）；
    *  T18 起 meta 零键（版本=PG 列——深拷贝=透明搬运；旧档残留值随拷贝保留为历史载荷不解释）；
    *  非 Map 根（Y.Text 等）⇒ null（vacuum 不支持——降级导出通道，DB 零变更）。
@@ -632,7 +633,7 @@ export class CollabDocRegistryService {
     }
     const fresh = createCanvasDoc();
     try {
-      const records = readRecordsFromMaps(toDocLike(source));   // 读侧建 nodes/edges 根（与 fillDoc 对称——根集合守恒）
+      const records = toReadModel(source);   // 读侧建 nodes/edges 根（与 fillDoc 对称——根集合守恒；Y1c T4 改道 doc-codec）
       fillDoc(toDocLike(fresh), records.nodes, records.edges);
       fresh.transact(() => {
         for (const [name] of source.share) {
@@ -657,7 +658,7 @@ export class CollabDocRegistryService {
     oldDoc.getMap('nodes'); oldDoc.getMap('edges');
     const shapeOf = (d: Y.Doc) => [...d.share.keys()].sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
-    if (JSON.stringify(readRecordsFromMaps(toDocLike(oldDoc))) !== JSON.stringify(readRecordsFromMaps(toDocLike(newDoc)))) return false;
+    if (JSON.stringify(toReadModel(oldDoc)) !== JSON.stringify(toReadModel(newDoc))) return false;
     if ([...oldDoc.getMap('exec').keys()].sort().join('\x00') !== [...newDoc.getMap('exec').keys()].sort().join('\x00')) return false;
     return true;
   }
