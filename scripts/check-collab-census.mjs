@@ -398,7 +398,10 @@ export function findEquivalentIndexes(generated, raws) {
 }
 
 /** ── Y1c T5c helpers（组㉘㉙㉚㉛㉜㉝——未分类新字段/服务端读者/裸 docName/doc.exec 触碰面/
- *  Y.applyUpdate 消费面/DirectConnection；每组纯 helper 负控见 check-collab-census.test.mjs） ──
+ *  Y.applyUpdate 消费面/DirectConnection；每组纯 helper 负控见 check-collab-census.test.mjs。
+ *  评审 Minor#3：六组违规明细统一 file:line 粒度（对齐既有组 scanLines 三元组）——helper 返回
+ *  行号数组/键行条目，reconcile 输出 :line；仅「白名单点消失」（文件零命中=无行号可标）保持
+ *  文件级） ──
  *  ㉘跳串器（对象键/字符串字面量在剥离面结构性消失——组⑦ raw 同则）；行级注释过滤。 */
 function skipRawString(src, i) {
   const q = src[i];
@@ -413,8 +416,9 @@ function skipRawString(src, i) {
 
 /** ㉘nodes data 写面静态键提取（raw 扫描+注释行过滤）：applyNodeDataPatch(id, { key: … })
  *  对象字面量首层键（含跨行对象）+ data.set('key', …) 字面量键。动态键（data.set(k, v)——键
- *  静态不可知）不计：运行时字段校验归 T24 gate（本组=注册面静态门）。返回键出现序列（重复键
- *  多元素——按出现序，去重归对账面）。 */
+ *  静态不可知）不计：运行时字段校验归 T24 gate（本组=注册面静态门）。返回 {key,line}[] 出现
+ *  序列（重复键多元素——按出现序，去重归对账面；line=键所在行 1 起——违规明细可定位，评审
+ *  Minor#3 粒度对齐既有组 file:line）。 */
 export function extractNodeDataWriteKeys(src) {
   const keys = [];
   const isCommentLine = (l) => /^\s*(?:\/\/|\*|\/\*)/.test(l);
@@ -423,11 +427,12 @@ export function extractNodeDataWriteKeys(src) {
     const end = src.indexOf('\n', idx);
     return src.slice(start, end === -1 ? src.length : end);
   };
+  const lineOf = (idx) => src.slice(0, idx).split('\n').length;   // 1 起行号
   const re = /applyNodeDataPatch\s*\(|\bdata\.set\(\s*['"]([\w$-]+)['"]\s*,/g;
   let m;
   while ((m = re.exec(src))) {
     if (isCommentLine(lineAt(m.index))) continue;
-    if (m[1] !== undefined) { keys.push(m[1]); continue; }
+    if (m[1] !== undefined) { keys.push({ key: m[1], line: lineOf(m.index) }); continue; }
     // applyNodeDataPatch(：逐字扫描定位对象字面量参（首参=nodeId 标识符；跳过字符串/嵌套括号）
     let i = m.index + m[0].length;
     let depth = 0;
@@ -465,7 +470,7 @@ export function extractNodeDataWriteKeys(src) {
         if (km) { key = km[0]; i += km[0].length; }
       }
       if (key === null) { i = skipValueRaw(src, i); continue; }
-      keys.push(key);
+      keys.push({ key, line: lineOf(i) });
       while (i < src.length && /\s/.test(src[i])) i += 1;
       if (src[i] === ':') i = skipValueRaw(src, i);                // 值表达式整体跳过（嵌套对象不递归——首层域）
       if (src[i] === ',') { i += 1; continue; }
@@ -489,51 +494,65 @@ export function extractNodeDataWriteKeys(src) {
   }
 }
 
-/** ㉘注册对账：collected 键 ⊆ allowed 集——集外键=未分类新字段红（未入册即红）。 */
+/** ㉘注册对账：collected（{key,line}[]——main 侧附 file）键 ⊆ allowed 集——集外键=未分类新字段
+ *  红（未入册即红）；违规项按 key 去重保留首个出现（file:line 可定位）。 */
 export function reconcileKeyRegistry(collected, allowed) {
-  return [...new Set(collected)].filter((k) => !allowed.has(k));
+  const seen = new Set();
+  const violations = [];
+  for (const e of collected) {
+    if (allowed.has(e.key) || seen.has(e.key)) continue;
+    seen.add(e.key);
+    violations.push(e);
+  }
+  return violations;
 }
 
-/** 通用计数白名单对账（㉙㉛㉜㉝共用——④同则三分）：白名单外新调用点红/计数漂移红/白名单点消失红。
- *  counts/whitelist 均 file→n。 */
-export function reconcileCountWhitelist(counts, whitelist, label) {
+/** 通用计数白名单对账（㉙㉚㉛㉜㉝共用——④同则三分）：白名单外新调用点红/计数漂移红/白名单点
+ *  消失红。occurrences: file→行号数组（同行多次=多元素——违规明细带 :line 可定位，评审 Minor#3
+ *  粒度对齐既有组；「点消失」=该文件零命中=无行号可标，文件级）；whitelist: file→n。 */
+export function reconcileCountWhitelist(occurrences, whitelist, label) {
   const details = [];
-  for (const [f, n] of Object.entries(counts)) {
+  for (const [f, lines] of Object.entries(occurrences)) {
     const want = whitelist[f];
-    if (want === undefined) details.push(`白名单外${label}调用点 ${f} ×${n}（清单外新增即红）`);
-    else if (want !== n) details.push(`${label}白名单计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
+    if (want === undefined) details.push(`白名单外${label}调用点 ${f}:${lines.join(',')}（清单外新增即红）`);
+    else if (want !== lines.length) details.push(`${label}白名单计数漂移 ${f}: 期望 ${want} 实际 ${lines.length}（:${lines.join(',')}）`);
   }
-  for (const f of Object.keys(whitelist)) if (!counts[f]) details.push(`${label}白名单点消失 ${f}（清单需同步）`);
+  for (const f of Object.keys(whitelist)) if (!occurrences[f]) details.push(`${label}白名单点消失 ${f}（清单需同步）`);
   return details;
 }
 
-/** ㉚裸 docName 构造计数：raw 扫描 `` `project:${` `` 字面量模板出现数（行级注释过滤——模板串
+/** 行号扫描（㉙㉜㉝ stripped 面共用）：regex 逐行 matchAll 计出现并记 1 起行号（同行多次=多元素）。
+ *  注：跨行 `\s*` 形态（如 openDirectConnection\\s*\\( 拆行写）行级扫描不可见——计数下降=漂移红
+ *  可见（现状零拆行调用，实测等值）。 */
+export function findLineOccurrences(text, re) {
+  const lines = [];
+  text.split('\n').forEach((l, idx) => {
+    for (const _ of l.matchAll(re)) lines.push(idx + 1);
+  });
+  return lines;
+}
+
+/** ㉚裸 docName 构造行号：raw 扫描 `` `project:${` `` 字面量模板出现行（行级注释过滤——模板串
  *  前缀在剥离面结构性消失故用 raw 面；census ⑦ 分类口径：Yjs 寻址+报错消息+日志/遥测+Socket.IO
- *  room 同字面模式全计，注释不计）。 */
-export function countBareProjectDocNames(src) {
-  let n = 0;
-  for (const line of src.split('\n')) {
-    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) continue;
-    for (const _ of line.matchAll(/project:\$\{/g)) n += 1;
-  }
-  return n;
+ *  room 同字面模式全计，注释不计；同行多次=多元素——违规明细可定位）。 */
+export function findBareProjectDocNameLines(src) {
+  const lines = [];
+  src.split('\n').forEach((line, idx) => {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
+    for (const _ of line.matchAll(/project:\$\{/g)) lines.push(idx + 1);
+  });
+  return lines;
 }
 
-/** ㉛doc.exec 触碰计数：raw 扫描+行级注释过滤（`'exec'` 字面量在剥离面结构性消失——组⑦ raw
- *  同则）——getMap('exec') 出现数（同行两次计 2——vacuum 等价校验实况）。 */
-export function countExecMapAccess(src) {
-  let n = 0;
-  for (const line of src.split('\n')) {
-    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) continue;
-    for (const _ of line.matchAll(/getMap\(\s*['"]exec['"]\s*\)/g)) n += 1;
-  }
-  return n;
-}
-
-/** ㉜Y.applyUpdate 消费面计数：stripped 面 `Y.applyUpdate(` 调用形态出现数（注释剥离面——
- *  classifyWorkerBannedSymbol 词面同源）。 */
-export function countApplyUpdateCalls(strippedSrc) {
-  return (strippedSrc.match(/Y\.applyUpdate\(/g) ?? []).length;
+/** ㉛doc.exec 触碰行号：raw 扫描+行级注释过滤（`'exec'` 字面量在剥离面结构性消失——组⑦ raw
+ *  同则）——getMap('exec') 出现行（同行两次计两元素——vacuum 等价校验实况）。 */
+export function findExecMapAccessLines(src) {
+  const lines = [];
+  src.split('\n').forEach((line, idx) => {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
+    for (const _ of line.matchAll(/getMap\(\s*['"]exec['"]\s*\)/g)) lines.push(idx + 1);
+  });
+  return lines;
 }
 
 /** ⑭withDoc 登记对账：counts（file→命中数）对 WITHDOC_REGISTRY（file→{三态→数}）——
@@ -1366,11 +1385,13 @@ if (isMain()) {
   {
     const allowed = new Set(Object.values(DOC_SCHEMA_V4).flatMap((t) => Object.keys(t.data)));
     const collected = [];
-    for (const p of files) collected.push(...extractNodeDataWriteKeys(byFile.get(p).raw));
+    for (const p of files) {
+      for (const e of extractNodeDataWriteKeys(byFile.get(p).raw)) collected.push({ key: e.key, file: relOf(p), line: e.line });
+    }
     const unregistered = reconcileKeyRegistry(collected, allowed);
-    report('㉘', `未分类新字段红（data 写面键 ⊆ DOC_SCHEMA_V4 矩阵 ${allowed.size} 键——新键未入册即红；写面 ${new Set(collected).size} 静态键）`,
+    report('㉘', `未分类新字段红（data 写面键 ⊆ DOC_SCHEMA_V4 矩阵 ${allowed.size} 键——新键未入册即红〔明细 file:line〕；写面 ${new Set(collected.map((e) => e.key)).size} 静态键）`,
       unregistered.length === 0,
-      unregistered.map((k) => `未入册 data 键 '${k}'——同批登记 DOC_SCHEMA_V4（T3 矩阵）或改道既有键`));
+      unregistered.map((e) => `未入册 data 键 '${e.key}'——${e.file}:${e.line}（同批登记 DOC_SCHEMA_V4（T3 矩阵）或改道既有键）`));
   }
 
   // ㉙服务端读者清单（doc 读面=toReadModel/readCanvas 出口白名单——新增直读即红）：
@@ -1385,15 +1406,13 @@ if (isMain()) {
     'apps/web/src/stores/canvasIntents.ts': 3,                         // 组帧 oracle/组记录/差分尾 order
   };
   {
-    const counts = {};
+    const occurrences = {};
     for (const p of files) {
-      const n = (byFile.get(p).stripped.match(/toReadModel\(/g) ?? []).length;
-      if (n) counts[relOf(p)] = n;
+      const lines = findLineOccurrences(byFile.get(p).stripped, /toReadModel\(/g);
+      if (lines.length) occurrences[relOf(p)] = lines;
     }
-    const details = reconcileCountWhitelist(counts, DOC_READER_WHITELIST, 'doc 读面');
-    const nTotal = Object.values(counts).reduce((a, b) => a + b, 0);
-    report('㉙', `服务端读者清单（toReadModel 直读白名单 ${Object.values(DOC_READER_WHITELIST).reduce((a, b) => a + b, 0)} 点/5 文件——新增直读即红）`, details.length === 0, details);
-    void nTotal;
+    const details = reconcileCountWhitelist(occurrences, DOC_READER_WHITELIST, 'doc 读面');
+    report('㉙', `服务端读者清单（toReadModel 直读白名单 ${Object.values(DOC_READER_WHITELIST).reduce((a, b) => a + b, 0)} 点/5 文件——新增直读即红；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉚裸构造门（裸 `project:${pid}` docName 构造——census ⑦ 39 裸名基线派生）：白名单自
@@ -1415,14 +1434,14 @@ if (isMain()) {
       console.error(`check-collab-census: 结构性错误（exit 2）——y1c-t0-census.json item7 基线加载失败：${e.message}`);
       process.exit(2);
     }
-    const counts = {};
+    const occurrences = {};
     for (const p of files) {
-      const n = countBareProjectDocNames(byFile.get(p).raw);
-      if (n) counts[relOf(p)] = n;
+      const lines = findBareProjectDocNameLines(byFile.get(p).raw);
+      if (lines.length) occurrences[relOf(p)] = lines;
     }
-    const details = reconcileCountWhitelist(counts, whitelist, '裸 docName 构造');
+    const details = reconcileCountWhitelist(occurrences, whitelist, '裸 docName 构造');
     const nBase = Object.values(whitelist).reduce((a, b) => a + b, 0);
-    report('㉚', `裸 \`project:\${pid}\` docName 构造门（census ⑦ 基线派生 ${nBase} 处/${Object.keys(whitelist).length} 文件——新增裸构造须走 doc-name.util 单源）`, details.length === 0, details);
+    report('㉚', `裸 \`project:\${pid}\` docName 构造门（census ⑦ 基线派生 ${nBase} 处/${Object.keys(whitelist).length} 文件——新增裸构造须走 doc-name.util 单源；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉛doc.exec 触碰面零增长（census ⑤ 基线清单——P3/P4 删除前只许零增长）：词面投影=
@@ -1435,13 +1454,13 @@ if (isMain()) {
     'apps/web/src/stores/canvasCollabRuntime.ts': 2,               // projectExecToStore:728+observeDeep:1996（web 投影单通道）
   };
   {
-    const counts = {};
+    const occurrences = {};
     for (const p of files) {
-      const n = countExecMapAccess(byFile.get(p).raw);
-      if (n) counts[relOf(p)] = n;
+      const lines = findExecMapAccessLines(byFile.get(p).raw);
+      if (lines.length) occurrences[relOf(p)] = lines;
     }
-    const details = reconcileCountWhitelist(counts, EXEC_MAP_WHITELIST, 'doc.exec 触碰');
-    report('㉛', `doc.exec 触碰面零增长（getMap('exec') ${Object.values(EXEC_MAP_WHITELIST).reduce((a, b) => a + b, 0)} 处/3 文件冻结——census ⑤ 词面投影；T22/T32 删除时同步清零）`, details.length === 0, details);
+    const details = reconcileCountWhitelist(occurrences, EXEC_MAP_WHITELIST, 'doc.exec 触碰');
+    report('㉛', `doc.exec 触碰面零增长（getMap('exec') ${Object.values(EXEC_MAP_WHITELIST).reduce((a, b) => a + b, 0)} 处/3 文件冻结——census ⑤ 词面投影；T22/T32 删除时同步清零；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉜Y.applyUpdate 消费面白名单（census ⑨ 现状调用点为基线；目标态=gate/load/import 三处——
@@ -1463,14 +1482,14 @@ if (isMain()) {
     // gate 档=T9 建（现状 apply 归属=Hocuspocus 库内部，本仓零显式调用——建后本表收紧注释同批更新）
   };
   {
-    const counts = {};
+    const occurrences = {};
     for (const p of files) {
-      const n = countApplyUpdateCalls(byFile.get(p).stripped);
-      if (n) counts[relOf(p)] = n;
+      const lines = findLineOccurrences(byFile.get(p).stripped, /Y\.applyUpdate\(/g);
+      if (lines.length) occurrences[relOf(p)] = lines;
     }
-    const details = reconcileCountWhitelist(counts, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
+    const details = reconcileCountWhitelist(occurrences, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
     const nWl = Object.values(APPLY_UPDATE_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/8 文件冻结；T9 gate 建后收紧）`, details.length === 0, details);
+    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/8 文件冻结；T9 gate 建后收紧；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：
@@ -1488,12 +1507,12 @@ if (isMain()) {
     writeBatch: { file: 'apps/api/src/modules/collab/collab-doc-writer.service.ts', until: 'T32' },
   };
   {
-    const counts = {};
+    const occurrences = {};
     for (const p of files) {
-      const n = (byFile.get(p).stripped.match(/openDirectConnection\s*\(/g) ?? []).length;
-      if (n) counts[relOf(p)] = n;
+      const lines = findLineOccurrences(byFile.get(p).stripped, /openDirectConnection\s*\(/g);
+      if (lines.length) occurrences[relOf(p)] = lines;
     }
-    const details = reconcileCountWhitelist(counts, DIRECT_CONNECTION_WHITELIST, 'DirectConnection');
+    const details = reconcileCountWhitelist(occurrences, DIRECT_CONNECTION_WHITELIST, 'DirectConnection');
     const registered = [];
     for (const [method, reg] of Object.entries(DIRECT_CONNECTION_BUSINESS_WRITE_REGISTERED_RED)) {
       const target = files.find((p) => relOf(p) === reg.file);

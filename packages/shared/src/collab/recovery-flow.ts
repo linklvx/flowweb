@@ -3,7 +3,12 @@
 // 恢复动作契约+重复 DENY 逃生口状态机+historyId 半链消费。**CONTRACT-FREEZE**——类型+常量+纯函数；
 // 消费方=T10 web 恢复机/T25 恢复实现。复用纪律：close 载荷+reason 常量+auth 半链判定全部 import
 // 自 T5a doc-protocol.ts/collab-close-code.ts（禁重抄第二份 reason 表）。契约测试=recovery-flow.spec.ts。
-import { CollabCloseCode } from '../constants/collab-close-code';
+import {
+  CollabCloseCode,
+  DOC_GENERATION_STALE_TERMINAL_REASON,
+  DOC_VACUUMING_TERMINAL_REASON,
+  SERVER_RESTORED_TERMINAL_REASON,
+} from '../constants/collab-close-code';
 import type { CollabY1cClosePayload, AuthHistoryVerdict } from './doc-protocol';
 
 // ═══ §1 恢复动作枚举+close 载荷分派（§8.1）══════════════════════════════════════════════════
@@ -35,10 +40,10 @@ export function resolveRecoveryAction(
   payload: CollabY1cClosePayload | { code: number; reason?: string },
 ): RecoveryAction {
   if (payload.code === CollabCloseCode.GENERATION_SUPERSEDED) {
-    // 4410 三分（reason 字面量=collab-close-code 单源常量同值——union 已按字面量窄化）
-    if (payload.reason === 'doc-generation-stale') return 'reconnect-new-generation';
-    if (payload.reason === 'doc-vacuuming') return 'export-draft-then-clear';
-    return 'readonly-recovery-user-adjudication';   // 'server-restored'
+    // 4410 三分（判据=collab-close-code 单源常量 import——禁重抄 reason 字面量〔头注纪律〕）
+    if (payload.reason === DOC_GENERATION_STALE_TERMINAL_REASON) return 'reconnect-new-generation';
+    if (payload.reason === DOC_VACUUMING_TERMINAL_REASON) return 'export-draft-then-clear';
+    return 'readonly-recovery-user-adjudication';   // SERVER_RESTORED_TERMINAL_REASON（三分兜底档）
   }
   if (payload.code === CollabCloseCode.FRAME_MALFORMED) return 'resync-full';        // 4411 毒帧/apply 失败
   if (payload.code === CollabCloseCode.RESYNC_REQUIRED) return 'resync-full';        // 4412 pending 区间拒绝

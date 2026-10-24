@@ -1,6 +1,7 @@
 // packages/shared/src/collab/save-driver.spec.ts
-// Y1c T5c（plan v1.7 Task 5 客户端/恢复段；spec v5.4 §4.2/§3.4）：saved 四态驱动契约的契约测试
-// ——clientSeq+sessionEpoch 判 Durable；断线/重连不改保存态（「不因连接/SyncStatus 显示」负控）。先红→绿。
+// Y1c T5c（plan v1.7 Task 5 客户端/恢复段——spec v5.4 §4.2/§3.4）：saved 四态驱动契约的契约测试
+// ——clientSeq+sessionEpoch 判 Durable（回执按同 session 比较=reducer 双门执法）；断线/重连不改
+// 保存态（「不因连接/SyncStatus 显示」负控）。先红→绿（Minor#8 sessionEpoch 消费红先行）。
 import { describe, expect, it } from 'vitest';
 import { SAVE_BARRIER_BACKOFF_STEPS_MS, BarrierRequest } from './doc-protocol';
 import {
@@ -17,8 +18,8 @@ const initial = (): SaveDriverState => ({
   backoffStep: 0,
 });
 
-const barrier = (nonce: string, clientSeq: number): BarrierRequest => ({
-  nonce, clientSeq, tabId: 'tab-1', sessionEpoch: 1,
+const barrier = (nonce: string, clientSeq: number, sessionEpoch = 1): BarrierRequest => ({
+  nonce, clientSeq, tabId: 'tab-1', sessionEpoch,
 });
 
 describe('Y1c T5c 契约冻结：本地编辑→Local（脏态推进）', () => {
@@ -47,7 +48,7 @@ describe('Y1c T5c 契约冻结：barrier 回执→按 committedSeq/clientSeq 映
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('n1', 1) });
     s = reduceSaveDriver(s, { type: 'sync-phase', phase: 'applied' });
     expect(saveDriverUiState(s)).toBe('applied');                  // 回执未到≠Durable
-    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' } });
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' }, sessionEpoch: 1 });
     expect(s.lastReceipt).toEqual({ nonce: 'n1', clientSeq: 1, committedSeq: '42' });
     expect(s.inFlightBarrier).toBeNull();                          // 回执消解在飞 barrier
     expect(s.backoffStep).toBe(0);
@@ -57,7 +58,7 @@ describe('Y1c T5c 契约冻结：barrier 回执→按 committedSeq/clientSeq 映
     let s = initial();
     s = reduceSaveDriver(s, { type: 'local-edit' });               // seq=1
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('n1', 1) });
-    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' } });
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' }, sessionEpoch: 1 });
     expect(saveDriverUiState(s)).toBe('durable');
     s = reduceSaveDriver(s, { type: 'local-edit' });               // seq=2——旧回执失效
     expect(saveDriverUiState(s)).toBe('local');
@@ -66,21 +67,21 @@ describe('Y1c T5c 契约冻结：barrier 回执→按 committedSeq/clientSeq 映
     let s = initial();
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('n-new', 5) });
     const before = { ...s };
-    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n-old', clientSeq: 4, committedSeq: '41' } });
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n-old', clientSeq: 4, committedSeq: '41' }, sessionEpoch: 1 });
     expect(s).toEqual(before);   // 陈旧回执不落 lastReceipt 不消解在飞
   });
   it('错误回执（BARRIER_FAILED/maintenance）永不产生 Durable——lastReceipt 不更新+退避步进', () => {
     let s = initial();
     s = reduceSaveDriver(s, { type: 'local-edit' });
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('n1', 1) });
-    s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: 'n1', error: 'BARRIER_FAILED', committedSeq: '40' } });
+    s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: 'n1', error: 'BARRIER_FAILED', committedSeq: '40' }, sessionEpoch: 1 });
     expect(s.lastReceipt).toBeNull();                              // 错误回执≠持久化回执
     expect(s.inFlightBarrier).toBeNull();
     expect(s.backoffStep).toBe(1);
     expect(saveDriverUiState(s)).not.toBe('durable');
     // maintenance 档同型（freeze 期回 maintenance 档不产生 Durable——§4.2）
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('n2', 1) });
-    s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: 'n2', error: 'maintenance', committedSeq: '40' } });
+    s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: 'n2', error: 'maintenance', committedSeq: '40' }, sessionEpoch: 1 });
     expect(s.backoffStep).toBe(2);
     expect(s.lastReceipt).toBeNull();
   });
@@ -91,12 +92,12 @@ describe('Y1c T5c 契约冻结：失败退避（复用 T5a SAVE_BARRIER_BACKOFF_
     let s = initial();
     for (let i = 0; i < 6; i++) {
       s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier(`n${i}`, s.lastLocalEditSeq) });
-      s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: `n${i}`, error: 'BARRIER_FAILED', committedSeq: '0' } });
+      s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: `n${i}`, error: 'BARRIER_FAILED', committedSeq: '0' }, sessionEpoch: 1 });
     }
     expect(s.backoffStep).toBe(SAVE_BARRIER_BACKOFF_STEPS_MS.length - 1);
     expect(nextBarrierBackoffMs(s)).toBe(SAVE_BARRIER_BACKOFF_STEPS_MS[SAVE_BARRIER_BACKOFF_STEPS_MS.length - 1]);
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('ok', 0) });
-    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'ok', clientSeq: 0, committedSeq: '99' } });
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'ok', clientSeq: 0, committedSeq: '99' }, sessionEpoch: 1 });
     expect(s.backoffStep).toBe(0);
     expect(nextBarrierBackoffMs(s)).toBe(SAVE_BARRIER_BACKOFF_STEPS_MS[0]);
   });
@@ -107,7 +108,7 @@ describe('Y1c T5c 契约冻结：断线/重连不改保存态（负控——「�
     let s = initial();
     s = reduceSaveDriver(s, { type: 'local-edit' });
     s = reduceSaveDriver(s, { type: 'barrier-sent', request: barrier('n1', 1) });
-    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' } });
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' }, sessionEpoch: 1 });
     const durableState = { ...s };
     expect(saveDriverUiState(s)).toBe('durable');
     for (const online of [false, true, false]) {
@@ -126,5 +127,34 @@ describe('Y1c T5c 契约冻结：断线/重连不改保存态（负控——「�
     expect(s.sessionEpoch).toBe(1);
     const ev: SaveDriverEvent = { type: 'connection', online: true };
     expect(reduceSaveDriver(s, ev).sessionEpoch).toBe(1);   // 连接事件不碰 sessionEpoch
+  });
+});
+
+describe('Y1c T5c 评审收口 Minor#8：sessionEpoch 消费（§4.2 回执按同 session 比较——reducer 执法）', () => {
+  it('旧 session 回执整体忽略（reload 后旧连接迟到回执 nonce 未换禁误判 Durable）——零状态变化；再同 session 正确回执→Durable', () => {
+    // 场景：reload 后新纪元 state（sessionEpoch=2——nonce 未换的旧连接回执迟到）
+    let s: SaveDriverState = {
+      ...initial(), sessionEpoch: 2, lastLocalEditSeq: 1, syncPhase: 'applied',
+      inFlightBarrier: barrier('n1', 1, 2),
+    };
+    const before = { ...s };
+    // 旧 session 回执（sessionEpoch 1≠2）——整体忽略（与陈旧 nonce 同款处理）
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' }, sessionEpoch: 1 });
+    expect(s).toEqual(before);                       // 零状态变化：不落 lastReceipt/不消解 inFlight/退避不动
+    expect(saveDriverUiState(s)).not.toBe('durable'); // 旧 session 回执禁产生 Durable
+    // 同 session 正确回执（sessionEpoch 2）——Durable 唯一路径恢复成立
+    s = reduceSaveDriver(s, { type: 'barrier-receipt', receipt: { nonce: 'n1', clientSeq: 1, committedSeq: '42' }, sessionEpoch: 2 });
+    expect(s.lastReceipt).toEqual({ nonce: 'n1', clientSeq: 1, committedSeq: '42' });
+    expect(s.inFlightBarrier).toBeNull();
+    expect(saveDriverUiState(s)).toBe('durable');
+  });
+  it('barrier-error 同款：旧 session 错误回执不步进退避；同 session 正常步进', () => {
+    let s: SaveDriverState = { ...initial(), sessionEpoch: 2, inFlightBarrier: barrier('n1', 1, 2) };
+    const before = { ...s };
+    s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: 'n1', error: 'BARRIER_FAILED', committedSeq: '40' }, sessionEpoch: 1 });
+    expect(s).toEqual(before);                       // 旧 session 错误回执——零状态变化（不步进退避不清 inFlight）
+    s = reduceSaveDriver(s, { type: 'barrier-error', receipt: { nonce: 'n1', error: 'BARRIER_FAILED', committedSeq: '40' }, sessionEpoch: 2 });
+    expect(s.backoffStep).toBe(1);                   // 同 session——正常退避步进
+    expect(s.inFlightBarrier).toBeNull();
   });
 });

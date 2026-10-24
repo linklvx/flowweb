@@ -14,7 +14,8 @@ import {
  *  backoffStep=barrier 失败退避步进（成功归零）。 */
 export interface SaveDriverState {
   lastLocalEditSeq: number;
-  /** 会话纪元（reload 递增——回执按同 session 比较的载体；barrier 请求携带，回执 nonce 匹配消解） */
+  /** 会话纪元（reload 递增——回执按同 session 比较的载体：barrier 请求携带同字段；回执类事件
+   *  携带所属 session 纪元，reducer 对 ≠state.sessionEpoch 的回执整体忽略〔§4.2 执法〕） */
   sessionEpoch: number;
   /** 客户端观测同步面：local=有未发送编辑/spooled=已发送未收 SyncStatus(true)/applied=已收 SyncStatus(true) */
   syncPhase: 'local' | 'spooled' | 'applied';
@@ -23,21 +24,26 @@ export interface SaveDriverState {
   backoffStep: number;
 }
 
-/** 驱动事件（转移面全部事件——connection 事件为**恒等转移**负控载体）。 */
+/** 驱动事件（转移面全部事件——connection 事件为**恒等转移**负控载体）。回执类事件携带
+ *  sessionEpoch（所属会话纪元——调用方按回执抵达的连接会话注入；BarrierRequest 同字段语义；
+ *  §4.2「回执按同 session 比较」的执法输入面）。 */
 export type SaveDriverEvent =
   | { type: 'local-edit' }                                       // 本地编辑→clientSeq 自增+回 local
   | { type: 'sync-phase'; phase: 'local' | 'spooled' | 'applied' }  // SyncStatus/发送面观测
   | { type: 'barrier-sent'; request: BarrierRequest }            // barrier 发出（断线新 nonce——调用方）
-  | { type: 'barrier-receipt'; receipt: BarrierReceipt }         // 成功回执（nonce 匹配才落）
-  | { type: 'barrier-error'; receipt: BarrierErrorReceipt }      // 错误回执（退避步进；永不 Durable）
+  | { type: 'barrier-receipt'; receipt: BarrierReceipt; sessionEpoch: number }   // 成功回执（同 session+nonce 匹配才落）
+  | { type: 'barrier-error'; receipt: BarrierErrorReceipt; sessionEpoch: number }   // 错误回执（同 session+nonce 匹配才步进退避）
   | { type: 'connection'; online: boolean };                     // 断线/重连——恒等转移（负控）
 
 /** 纯转移函数（reduce）：
  *  - local-edit：lastLocalEditSeq+1、syncPhase='local'（旧回执失效由 resolveSaveUiState 判据自然回退）；
- *  - barrier-receipt：nonce 匹配 inFlightBarrier 才生效——落 lastReceipt、清 inFlight、退避归零；
- *    nonce 不匹配=陈旧回执（断线新 nonce 后旧回执迟到）整体忽略；
- *  - barrier-error：nonce 匹配才生效——退避步进（封顶表尾）、清 inFlight、**lastReceipt 不动**
- *    （BARRIER_FAILED/maintenance 档永不产生 Durable——§4.2）；
+ *  - barrier-receipt：**先按 sessionEpoch 同 session 比较**（event.sessionEpoch≠state.sessionEpoch=
+ *    旧 session 迟到回执——reload 后 clientSeq 重置，旧连接回执即使 nonce 未换也禁误判 Durable〔§4.2〕
+ *    ——整体忽略与陈旧 nonce 同款）；再 nonce 匹配 inFlightBarrier 才生效——落 lastReceipt、清
+ *    inFlight、退避归零；nonce 不匹配=陈旧回执（断线新 nonce 后旧回执迟到）整体忽略；
+ *  - barrier-error：sessionEpoch/nonce 同款双门——旧 session 整体忽略；匹配才生效——退避步进
+ *    （封顶表尾）、清 inFlight、**lastReceipt 不动**（BARRIER_FAILED/maintenance 档永不产生
+ *    Durable——§4.2）；
  *  - connection：**恒等**（断线/重连不改保存态——「不因连接/SyncStatus 显示」负控断言面）。 */
 export function reduceSaveDriver(state: SaveDriverState, event: SaveDriverEvent): SaveDriverState {
   switch (event.type) {
@@ -48,11 +54,17 @@ export function reduceSaveDriver(state: SaveDriverState, event: SaveDriverEvent)
     case 'barrier-sent':
       return { ...state, inFlightBarrier: event.request };
     case 'barrier-receipt':
+      if (event.sessionEpoch !== state.sessionEpoch) {
+        return state;   // 旧 session 迟到回执——整体忽略（§4.2 回执按同 session 比较；与陈旧 nonce 同款）
+      }
       if (state.inFlightBarrier != null && event.receipt.nonce !== state.inFlightBarrier.nonce) {
         return state;   // 陈旧回执——零状态变化
       }
       return { ...state, lastReceipt: event.receipt, inFlightBarrier: null, backoffStep: 0 };
     case 'barrier-error':
+      if (event.sessionEpoch !== state.sessionEpoch) {
+        return state;   // 旧 session 错误回执——整体忽略（同款双门）
+      }
       if (state.inFlightBarrier != null && event.receipt.nonce !== state.inFlightBarrier.nonce) {
         return state;
       }
@@ -87,5 +99,5 @@ export const SAVE_DRIVER_NEGATIVE_CONTROL = {
   connection: '断线/重连不改保存态——不因连接显示（connection 事件=恒等转移）',
   syncStatus: '不因 SyncStatus 显示（applied≠durable——SyncStatus(true)=applied 档诚实语义）',
   durableOnlyVia: 'Durable 唯一路径=barrier 回执覆盖 clientSeq（receipt.clientSeq>=lastLocalEditSeq && committedSeq）',
-  perTab: 'barrier 语义=per-tab（只覆盖本连接此前帧；回执按 nonce 匹配消解——断线新 nonce）',
+  perTab: 'barrier 语义=per-tab（只覆盖本连接此前帧；回执按 sessionEpoch 同 session+nonce 双门消解——断线新 nonce/reload 新 session）',
 } as const;

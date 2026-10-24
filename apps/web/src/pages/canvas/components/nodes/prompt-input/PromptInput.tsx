@@ -8,15 +8,14 @@ import React, {
 } from 'react';
 import './PromptInput.css';
 import { useEditor, EditorContent, type NodeViewRendererProps } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Mention from '@tiptap/extension-mention';
-import Placeholder from '@tiptap/extension-placeholder';
-import Image from '@tiptap/extension-image';
 import { createRoot } from 'react-dom/client';
 import { CommandMentionList } from './CommandMentionList';
 import { ImageMentionList } from './ImageMentionList';
 import { COMMANDS, CATEGORY_DEFAULTS } from './types';
 import type { PromptValue, CommandItem, ImageItem } from './types';
+// extensions 单源 builder（Y1c T5c 评审 Important#1：schema 面提取共享——本组件与
+// collab/xmlSchemaParity.spec import 同一 builder；渲染/交互回调经 opts 注入保持行为零变化）
+import { buildPromptInputSchemaExtensions } from './extensions';
 
 export interface PromptInputRef {
   forceSync: () => void;
@@ -246,92 +245,56 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
     // ---- 1. Tiptap Editor Setup ----
     const editor = useEditor({
-      extensions: [
-        StarterKit.configure({
-          heading: false,
-          bold: false,
-          italic: false,
-          strike: false,
-          code: false,
-          blockquote: false,
-          orderedList: false,
-          bulletList: false,
-          horizontalRule: false,
-          hardBreak: false,
-        }),
-        Placeholder.configure({ placeholder }),
-        // Custom inline image chip (NodeView replaces block <img>)
-        Image.extend({
-          inline: true,
-          group: 'inline',
-          addNodeView() {
-            return ({ node }: NodeViewRendererProps) => {
-              const dom = document.createElement('span');
-              dom.className = 'image-chip';
-              dom.setAttribute('contenteditable', 'false');
-              dom.style.cssText =
-                'display:inline-flex;align-items:center;gap:4px;height:20px;min-width:24px;max-width:120px;padding:1px 4px;border-radius:4px;background:#333;vertical-align:middle;white-space:normal;cursor:default;user-select:none;';
+      // extensions 单源 builder（schema 面与 xmlSchemaParity.spec 同源——见 import 注）；以下
+      // 回调为原内联配置逐项搬移（纯提取——行为零变化）。
+      extensions: buildPromptInputSchemaExtensions({
+        placeholder,
+        imageNodeView: ({ node }: NodeViewRendererProps) => {
+          const dom = document.createElement('span');
+          dom.className = 'image-chip';
+          dom.setAttribute('contenteditable', 'false');
+          dom.style.cssText =
+            'display:inline-flex;align-items:center;gap:4px;height:20px;min-width:24px;max-width:120px;padding:1px 4px;border-radius:4px;background:#333;vertical-align:middle;white-space:normal;cursor:default;user-select:none;';
 
-              const thumb = document.createElement('span');
-              thumb.style.cssText =
-                'width:14px;height:14px;border-radius:3px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.16),0 0.5px 0 0 inset rgba(255,255,255,0.16);';
+          const thumb = document.createElement('span');
+          thumb.style.cssText =
+            'width:14px;height:14px;border-radius:3px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.16),0 0.5px 0 0 inset rgba(255,255,255,0.16);';
 
-              const img = document.createElement('img');
-              img.src = node.attrs.src;
-              img.alt = '';
-              img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-              thumb.appendChild(img);
+          const img = document.createElement('img');
+          img.src = node.attrs.src;
+          img.alt = '';
+          img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+          thumb.appendChild(img);
 
-              const label = document.createElement('span');
-              label.textContent = 'Image';
-              label.style.cssText =
-                'flex:1;min-width:0;font-size:12px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.6);';
+          const label = document.createElement('span');
+          label.textContent = 'Image';
+          label.style.cssText =
+            'flex:1;min-width:0;font-size:12px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.6);';
 
-              dom.appendChild(thumb);
-              dom.appendChild(label);
+          dom.appendChild(thumb);
+          dom.appendChild(label);
 
-              return { dom };
-            };
-          },
-        }),
-        Mention.extend({ name: 'command' }).configure({
-          HTMLAttributes: {
-            class: 'command-chip',
-          },
-          suggestion: {
-            char: '/',
-            allowSpaces: true,
-            items: ({ query }: { query: string }) => {
-              return COMMANDS.filter(
-                (cmd) =>
-                  cmd.name.toLowerCase().includes(query.toLowerCase()) ||
-                  cmd.description.toLowerCase().includes(query.toLowerCase()),
-              ).slice(0, 10);
-            },
-            render: createNativeSuggestionRenderer(onCommandSelect),
-          },
-        }),
-        // @mention — inline image insertion from allImages pool
-        Mention.extend({ name: 'imageMention' }).configure({
-          HTMLAttributes: { class: 'hidden' },
-          suggestion: {
-            char: '@',
-            items: ({ query }: { query: string }) => {
-              const latest = allImagesRef.current;
-              return latest
-                .filter((img) => img.status === 'success' && img.name.toLowerCase().includes(query.toLowerCase()))
-                .slice(0, 8);
-            },
-            render: createImageSuggestionRenderer(),
-            command: ({ editor, range, props }) => {
-              editor.chain().focus().deleteRange(range).insertContent({
-                type: 'image',
-                attrs: { src: (props as ImageItem).url },
-              }).run();
-            },
-          },
-        }),
-      ],
+          return { dom };
+        },
+        commandItems: (query: string) =>
+          COMMANDS.filter(
+            (cmd) =>
+              cmd.name.toLowerCase().includes(query.toLowerCase()) ||
+              cmd.description.toLowerCase().includes(query.toLowerCase()),
+          ).slice(0, 10),
+        commandRender: createNativeSuggestionRenderer(onCommandSelect),
+        imageMentionItems: (query: string) =>
+          allImagesRef.current
+            .filter((img) => img.status === 'success' && img.name.toLowerCase().includes(query.toLowerCase()))
+            .slice(0, 8),
+        imageMentionRender: createImageSuggestionRenderer(),
+        imageMentionCommand: ({ editor, range, props }) => {
+          editor.chain().focus().deleteRange(range).insertContent({
+            type: 'image',
+            attrs: { src: (props as ImageItem).url },
+          }).run();
+        },
+      }),
       content: value.html || value.text,
       editable: !disabled,
       editorProps: {

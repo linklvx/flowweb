@@ -8,7 +8,7 @@ import {
   DraftScenario, resolveDraftScenario,
   DraftFieldConflict, DraftAdjudication, DRAFT_FIELD_CHOICE_DEFAULT,
   resolveAdjudicatedFieldValues, DRAFT_ADJUDICATION_NO_AUTO_REPLAY, DRAFT_NO_THREE_WAY_MERGE,
-  NODE_ID_CONFLICT_POLICIES, NodeIdConflictPolicy,
+  NODE_ID_CONFLICT_POLICIES,
   DraftContentCounts, DraftDroppedRefs, DraftNotRestoredNotice, DRAFT_IMPORT_NOT_RESTORED,
   DRAFT_MERGE_ANOMALY_KINDS, DraftMergeAnomalyKind,
 } from './draft-envelope';
@@ -39,10 +39,7 @@ describe('Y1c T5c 契约冻结：DraftEnvelope 类型化导出清单（§4.5—�
     // nodes/edges=T4 canonical 快照类型复用（禁重抄第二份形状）
     expect(env.nodes[0]!.data.prompt).toEqual({ $yjs: 'xml', json: [] });
   });
-  it('负控：类型面零 CRDT update 裸字节字段（serialize 值域禁 Uint8Array——类型化导出清单非字节载荷）', () => {
-    const env = {} as DraftEnvelope;
-    // 类型级断言：DraftEnvelope 的序列化值域不含 Uint8Array（编译期契约——此处值级验证键面不变量）
-    expect('update' in env).toBe(false);
+  it('负控：DraftEnvelope 类型面零 CRDT update 裸字节字段为编译期契约（键集冻结见上）——导入上限 8MiB 冻结', () => {
     expect(DRAFT_ENVELOPE_MAX_BYTES).toBe(8 * 1024 * 1024);   // 8MiB=8_388_608（§3.2 recovery import 上限）
   });
   it('导入契约冻结：≤8MiB 单飞（每项目同时一个 draftId）+幂等键+OWNER·EDITOR 且仅本人 draft+超限导出文件不开导入', () => {
@@ -136,8 +133,6 @@ describe('Y1c T5c 契约冻结：C 场景确认面三行+nodeId 冲突处置（i
   });
   it('nodeId 冲突处置枚举：skip|replace 二值（用户选——nodeId 稳定不重映射，不自动改 ID）', () => {
     expect([...NODE_ID_CONFLICT_POLICIES]).toEqual(['skip', 'replace']);
-    const policy: NodeIdConflictPolicy = 'skip';
-    expect(['skip', 'replace']).toContain(policy);
   });
 });
 

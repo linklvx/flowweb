@@ -129,6 +129,19 @@ describe('Y1c T5c 契约冻结：mergeRuntimeProjection（shared 唯一 merge �
     const merged = mergeRuntimeProjection(current, incoming);
     expect(Object.keys(merged.nodes).sort()).toEqual(['n1', 'n2']);
   });
+  it('seq() fail-fast：非十进制形态（1e3/空串/负号/0x10）→RUNTIME_PROJECTION_SEQ_INVALID（wire 纪律破坏即刻暴露）', () => {
+    const cur = proj({ feedSeq: '10', pgSeq: '100' });
+    const curWithNode = proj({ nodes: { n1: entry({ exec: { status: 'cur', nodeVersion: '1' } }) } });
+    for (const bad of ['1e3', '', '-1', '0x10']) {
+      // 水位面（maxSeq→seq）与节点槽面（mergeSlot→seq）双路径均 fail-fast
+      expect(() => mergeRuntimeProjection(cur, proj({ feedSeq: bad })), `feedSeq='${bad}' 必须红`)
+        .toThrow(/RUNTIME_PROJECTION_SEQ_INVALID/);
+      expect(() => mergeRuntimeProjection(
+        curWithNode,
+        proj({ nodes: { n1: entry({ exec: { status: 'inc', nodeVersion: bad } }) } }),
+      ), `nodeVersion='${bad}' 必须红`).toThrow(/RUNTIME_PROJECTION_SEQ_INVALID/);
+    }
+  });
 });
 
 describe('Y1c T5c 契约冻结：composeRenderModel（read model ⊕ projection——服务端派生字段永不进 doc）', () => {

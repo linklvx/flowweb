@@ -2,7 +2,12 @@
 // Y1c T5c（plan v1.7 Task 5 客户端/恢复段；spec v5.4 §8.1）：4410 三分/4411/4412/4413/4406 客户端恢复
 // 动作契约+重复 DENY 逃生口状态机+historyId 半链消费的契约测试。先红→绿。
 import { describe, expect, it } from 'vitest';
-import { CollabCloseCode } from '../constants/collab-close-code';
+import {
+  CollabCloseCode,
+  DOC_GENERATION_STALE_TERMINAL_REASON,
+  DOC_VACUUMING_TERMINAL_REASON,
+  SERVER_RESTORED_TERMINAL_REASON,
+} from '../constants/collab-close-code';
 import {
   CollabY1cClosePayload, resolveAuthHistoryVerdict,
 } from './doc-protocol';
@@ -44,17 +49,15 @@ describe('Y1c T5c 契约冻结：resolveRecoveryAction 按 T5a 冻结 close 载�
     expect(resolveRecoveryAction({ code: CollabCloseCode.SLOW_CONSUMER, reason: undefined })).toBe('backoff-retry');
     expect(resolveRecoveryAction({ code: 4205, reason: undefined })).toBe('backoff-retry');
   });
-  it('穷尽性：CollabY1cClosePayload 判别 union 每个 variant 均有动作（零 undefined 出口）', () => {
-    const payloads: CollabY1cClosePayload[] = [
-      { code: CollabCloseCode.GENERATION_SUPERSEDED, reason: 'doc-generation-stale' },
-      { code: CollabCloseCode.GENERATION_SUPERSEDED, reason: 'doc-vacuuming' },
-      { code: CollabCloseCode.GENERATION_SUPERSEDED, reason: 'server-restored' },
-      { code: CollabCloseCode.FRAME_MALFORMED, reason: 'frame-malformed' },
-      { code: CollabCloseCode.RESYNC_REQUIRED, reason: 'resync-required' },
-      { code: CollabCloseCode.MAINTENANCE_FREEZE, reason: 'maintenance-freeze', retryAfterMs: 1000 },
-      { code: CollabCloseCode.CLIENT_OUTDATED, reason: 'client-outdated', gate: { protocolVersion: 3, schemaVersion: 3, historyId: 'h1' } },
-    ];
-    for (const p of payloads) expect(resolveRecoveryAction(p)).toBeTruthy();
+  it('防回归（评审 Important#2）：4410 三分判据=collab-close-code 单源常量——常量值漂移即红；分派面经同一常量构造载荷路由', () => {
+    // 单源常量值面冻结（协议串漂移=执行卡死——四侧矩阵同纪律；改常量值字面量本断言即红）
+    expect(DOC_GENERATION_STALE_TERMINAL_REASON).toBe('doc-generation-stale');
+    expect(DOC_VACUUMING_TERMINAL_REASON).toBe('doc-vacuuming');
+    expect(SERVER_RESTORED_TERMINAL_REASON).toBe('server-restored');
+    // recovery-flow 分派面 import 同一常量构造载荷路由（重抄第二份值域即路由失配红）
+    expect(resolveRecoveryAction({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_GENERATION_STALE_TERMINAL_REASON })).toBe('reconnect-new-generation');
+    expect(resolveRecoveryAction({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON })).toBe('export-draft-then-clear');
+    expect(resolveRecoveryAction({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: SERVER_RESTORED_TERMINAL_REASON })).toBe('readonly-recovery-user-adjudication');
   });
 });
 
