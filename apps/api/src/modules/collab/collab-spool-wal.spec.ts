@@ -444,6 +444,45 @@ describe('Y1c T9 收口 S-I1：truncateWalAfter 逐被截帧清去重索引—�
   });
 });
 
+// ═══ Y1c T9 复核收口 N1（Important）：上轮 S-I1 附带修复引入的回归——appendBatchRaw 写循环
+// mutate frameCount（fsync 前），可恢复档回滚只还原 bytes/goodBytes→计数未回滚。后果三面：
+// ①peek 假报「spool truncated」ERROR+yjs_spool_truncated_total 虚增；②confirmedCount 永达不到
+// 虚高 frameCount→段进程内永不可回收；③truncateWalAfter removed 计数失真。 ═══
+describe('Y1c T9 收口 N1：appendBatch 批 ENOSPC 回滚——frameCount 随 bytes 同步回批前值（peek 零假告警+段可回收）', () => {
+  it('现有段 1 帧+新批 2 帧注入 ENOSPC→frameCount 回滚=原值（红相=3：字节回滚计数未回滚——复核员实证 {frameCount:3, seqsLen:1, bytes:218}）', async () => {
+    const count = async () => { const m = (await import('prom-client')).register.getSingleMetric('yjs_spool_truncated_total')!; return (await m.get()).values[0]?.value ?? 0; };
+    const before = await count();
+    const s = new FaultSpool(dir);
+    s.setOwner(OWNER); s.setWalHistory(HISTORY);
+    const first = await s.appendBatch('p1', [new Uint8Array([1, 1, 1])]);   // 现有段 1 帧（回滚基准）
+    const segKey = `${OWNER}/${walSegmentFileName('p1', 1, 0)}`;
+    const meta = () => (s as any).index.get('p1').get(segKey);              // 白盒（本 spec/服务 spec 既有先例）
+    const fcBefore = meta().frameCount;                                     // =1
+    const bytesBefore = meta().bytes;
+    expect(meta().seqs).toHaveLength(1);
+    const nextSeqBefore = s.peekNextWalSeq('p1');
+    s.failNextSync = 'ENOSPC';
+    await expect(s.appendBatch('p1', [new Uint8Array([2, 2]), new Uint8Array([3, 3])])).rejects.toThrow(/ENOSPC/);
+    expect(s.walHealthy(), 'ENOSPC 可恢复档——walHealthy 仍 true').toBe(true);
+    // 核断言：frameCount 回滚=批前值（红相=3——写循环 mutate 未随回滚还原，bytes 已回 218→peek 面三连失真）
+    expect(meta().frameCount, 'frameCount 回滚=批前值（N1 红相=3）').toBe(fcBefore);
+    expect(meta().seqs, 'seqs 记账归 post-fsync（成功才入账）').toHaveLength(1);
+    expect(meta().bytes, 'bytes 回滚=批前 last-good').toBe(bytesBefore);
+    expect(meta().goodBytes, 'goodBytes 回滚=批前 last-good').toBe(bytesBefore);
+    // 后果面 1：peek 零假告警（红相：虚高 frameCount=3>盘上 1 帧→reportTruncation 假 ERROR+指标虚增）
+    const frames = await s.peek('p1');
+    expect(frames.map((f) => Array.from(f.payload)), 'peek=段内真帧无损零假读').toEqual([[1, 1, 1]]);
+    expect(await count() - before, 'yjs_spool_truncated_total 零虚增（红相=1）').toBe(0);
+    // 后果面 2：重试成功+全帧 confirm→段进程内可回收（红相：confirmedCount 恒 1<虚高 3 永不满足回收判据）
+    expect(s.peekNextWalSeq('p1'), '复用批内全部已分配 seq（不留洞）').toBe(nextSeqBefore);
+    const retry = await s.appendBatch('p1', [new Uint8Array([2, 2]), new Uint8Array([3, 3])]);
+    for (const r of [...first, ...retry]) s.noteApplied('p1', r.walSeq);   // T9 协议：apply 后 noteApplied（confirm 推 pgSeq 前置——actor 生产同款）
+    await s.confirm('p1', [...first, ...retry].map((r) => r.frameId));
+    expect((s as any).index.get('p1'), '全帧 confirmed→段回收（confirm 判据 confirmedCount===frameCount 可达）').toBeUndefined();
+    expect(existsSync(join(dir, OWNER, walSegmentFileName('p1', 1, 0))), '段文件已 unlink').toBe(false);
+  });
+});
+
 describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理截断', () => {
   it('I1：截断段有效前缀帧不搁浅——peek 可取回+replayAll 可达 PG（(pgSeq,lastGoodSeq] 已 fsync 帧）', async () => {
     const corpus = buildWalFaultCorpus({ historyId: HISTORY });

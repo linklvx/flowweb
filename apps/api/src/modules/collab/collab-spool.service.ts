@@ -936,8 +936,12 @@ export class CollabSpoolService {
           const walSeq = this.allocateWalSeq(projectId);
           const frame = encodeWalFrame({ walSeq, payload: payloads[i] }, gen);
           await fh.write(frame, 0, frame.length, meta!.bytes);
-          group.push({ walSeq, frameIdx: meta!.frameCount, frame, frameHashHex: frameHashOf(payloads[i]).toString('hex') });
-          meta!.frameCount += 1;   // S-I1 红测暴露（自审修复）：批内逐帧推进——旧码全组同 frameIdx 且 frameCount 恒 1（多帧批 peek/confirm/截断 removed 计数失真；帧字节已落盘仅内存记账错——重启 scan 自愈）
+          // N1（复核 Important，根修形态）：写循环**不 mutate** frameCount——frameIdx 计算式
+          // （batchStartFrameCount+group.length，S-I1 批内逐帧推进语义保持）；frameCount 唯一写点=
+          // 下方 post-fsync 入账（与 appendRaw「meta.frameCount = frameIdx + 1」同形）。旧实现写循环
+          // 预推进 frameCount 且回滚只还原 bytes/goodBytes→计数未回滚（批失败后 peek 假报 truncated
+          // /confirmedCount 永不达虚高 frameCount 段不可回收/truncateWalAfter removed 失真）。
+          group.push({ walSeq, frameIdx: batchStartFrameCount + group.length, frame, frameHashHex: frameHashOf(payloads[i]).toString('hex') });
           meta!.bytes += frame.length;
           i += 1;
         }
@@ -983,7 +987,8 @@ export class CollabSpoolService {
         throw e;
       }
       await fh.close();
-      // fsync 落定后提交 meta 记账（appendRaw 同点位语义：成功才入账）
+      // fsync 落定后提交 meta 记账（appendRaw 同点位语义：成功才入账）——frameCount 唯一写点
+      // （N1：末组 g.frameIdx+1 即段终值——与 appendRaw「frameIdx+1」单点赋值同形）。
       for (const g of group) {
         meta.frameCount = g.frameIdx + 1;
         meta.seqs.push(g.walSeq);

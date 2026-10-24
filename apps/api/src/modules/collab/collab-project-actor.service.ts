@@ -407,7 +407,9 @@ export class CollabProjectActorService {
    *  '(projectId,generation)' 契约兑现——gateway afterUnloadDocument/handleProjectsGone 链接线；
    *  无此钩=per-project ProjectDocIndex/states 无界驻留）。守卫：仅在队列空且 drain 静止时删除
    *  （在飞/残留帧=落定中，删除+重建会破单 drain 串行不变量+丢 appliedSeq——留驻待下次钩，doc 重装
-   *  后 stateOf 重建=「卸载+装载」既有语义：appliedSeq 归零由 spool 水位钳制兜底）。dedupMap 有界
+   *  后 stateOf 重建=「卸载+装载」既有语义：appliedSeq 归零**不靠 spool 水位钳制兜底**——正确性由
+   *  spool 侧 noteApplied 单调门+min 钳制（applied≤spoolHead，磁盘为准）+assertWatermarkInvariants
+   *  tripwire 保序，重建一致性交恢复链〔重启 WAL+pgSeq 前缀校验〕）。dedupMap 有界
    *  （TTL/100k 驱逐）不随删；landedSince 残留标记随清（已卸载 doc 的 disconnect 判据无消费面）。
    *  幂等（无键 no-op）。 */
   onProjectStateCleanup(projectId: string): void {
