@@ -1,0 +1,165 @@
+{
+  "gate": "G2",
+  "commit": "74287e10",
+  "env": {
+    "pg": "PostgreSQL 16.13 (localhost:5432/flowweb)",
+    "migration": "20261024140000_y1c_t10_drop_canvas_doc_update_seq",
+    "date": "2026-10-25T04:58:00.000Z",
+    "suite": "apps/api/src/modules/collab/collab-t10-g2.int.spec.ts（真 PG/真 spool tmpdir/真 repo——vitest.int.config；kill -9=进程内 seam 注入+服务重实例化+recoverScan 本地路径模拟——生产 boot 接线归 T13）"
+  },
+  "cases": [
+    {
+      "id": "R1-dup-frame-zero-dup-effect",
+      "command": "cd apps/api && DATABASE_URL=… npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t10-g2.int.spec.ts -t '① 同帧重复送达'",
+      "status": "pass",
+      "expect": "零重复业务效果+零重复 walSeq+单 PG 行+水位推进+actorRanges 真值",
+      "detail": "重发 noop 命中原 walSeq；CanvasDocUpdate 单行；CanvasDoc.pgSeq=lastWalSeq；actorRanges=[{from:'1',to:'2',userId:'u-1',actorKind:'user'}] validateActorRanges ok。红轴=水位/actorRanges（T9 基线恒 0/NULL——tmp 探针实证 expected '1' received '0'）；dedup applied=T9 已满足锚",
+      "artifacts": []
+    },
+    {
+      "id": "R2-pg-fail-wal-retained-pgseq-not-advancing",
+      "command": "… -t '② PG 提交失败'",
+      "status": "pass",
+      "expect": "WAL 保留（spool 帧）+pgSeq 不越失败帧；恢复后重试落定+CAS 推进",
+      "detail": "FaultRepo 注入 appendBatch 单败：spool.hasFrames=true；内存/PG 水位均停 r1.walSeq；flushThrough(3s) 后 CAS 推进至 r2.walSeq",
+      "artifacts": []
+    },
+    {
+      "id": "R3-kill9-before-after-fsync-ack-grade",
+      "command": "… -t '③ kill -9 两档'",
+      "status": "pass",
+      "expect": "fsync 前=零 WAL 零 PG 零 ACK（reject）；fsync 后崩=帧在 WAL，重启 recoverScan+replayAll 零丢失零重复",
+      "detail": "档 A：spool.appendBatch 注入 throw→submit reject+零行；档 B：直写 WAL 帧→重实例化+recoverScan（pgSeq callback=CanvasDoc 行值）→replayAll 恰一行新落+二次重放零重复+catch-up 水位推进",
+      "artifacts": []
+    },
+    {
+      "id": "R4-pg-committed-memory-watermark-lost-restart",
+      "command": "… -t '④ PG 落定后 confirm 前崩'",
+      "status": "pass",
+      "expect": "重启以 CanvasDoc.pgSeq 为准+重放零重复（updateHash 幂等）+水位不回退",
+      "detail": "NoConfirmSpool（confirm 静默=CAS 提交后内存水位未更即崩）：CanvasDoc.pgSeq=2 已提交；recoverScan 重建 watermark.pgSeq=2（M4 以 PG 为准）；replayAll 行数不变；catch-up WHERE pgSeq<$new 零行（不回退）。修复轴=cas-miss adopt（单写者水位滞后以行真值重试 CAS——红相根因：expected=confirm 口径在 confirm 缺席时恒滞后）",
+      "artifacts": []
+    },
+    {
+      "id": "R5-snapshot-published-wal-unclean-restart",
+      "command": "… -t '⑤ snapshot（CanvasDoc.state）已发布'",
+      "status": "pass",
+      "expect": "hydrate state+重放帧=内容等价+零重复行",
+      "detail": "repo.compact 发布 state（T11 前过渡形态）+WAL 残帧→重启 replayAll→loadForHydration state+updates 重放节点在+水位保持 pgSeq=lastWalSeq",
+      "artifacts": []
+    },
+    {
+      "id": "R6-wal-clean-condition-restart-no-misdelete",
+      "command": "… -t '⑥ WAL 全 confirm'",
+      "status": "pass",
+      "expect": "段回收后重启零帧重放+水位保留；未 confirm 帧不误删",
+      "detail": "flushThrough 落定+confirm 段 unlink→重启 scan 零段→replayAll replayed=0；PG 行全在+pgSeq 保留",
+      "artifacts": []
+    },
+    {
+      "id": "R7-poison-frame-truncate-4411-no-skip",
+      "command": "… -t '⑦ 毒帧'",
+      "status": "pass",
+      "expect": "applied 前缀仍落 PG（不跳帧续提交）+WAL 截断至 appliedSeq+4411+下一帧复用 seq",
+      "detail": "FlakyApply 注入：pre-poison 帧落 PG（T9 红轴=毒帧早退永不上 PG）；毒帧及其后零 PG 行；hardClose 4411；spoolHead 回拨 appliedSeq；post-poison 帧 walSeq=appliedSeq+1（truncateWalAfter 续号回拨——WAL 密集前缀=恢复链可证性前提，scanWalSegmentBuffer gap=fatal；T9 跳号形态修正=S-I1 期望 3n→2n）；PG 行 seq 连续无洞",
+      "artifacts": []
+    },
+    {
+      "id": "R8-no-pg-row-beyond-appliedseq",
+      "command": "… -t '⑧ 不变量探测'",
+      "status": "pass",
+      "expect": "任一时刻 max PG row seq ≤ appliedSeq（含 PG 失败滞留窗）",
+      "detail": "PG 失败窗：maxSeq(0n)≤appliedSeq；落定后 maxSeq==appliedSeq（上界达界不越——applied-driven 批只从 applied 队列取的构造性保证）",
+      "artifacts": []
+    },
+    {
+      "id": "R9-fsync-fail-truncate-seq-reuse-no-hole",
+      "command": "… -t '⑨ fsync 失败'",
+      "status": "pass",
+      "expect": "截断回 last-good+复用已分配 seq：后续成功路径 PG 行连续无洞",
+      "detail": "syncSegmentHandle 注入 ENOSPC：首帧 submit reject（未 ACK）+复用 walSeq=1n；flushThrough 后 PG 行 seq 严格连续+pgSeq=尾 seq",
+      "artifacts": []
+    },
+    {
+      "id": "R10-pending-reject-not-in-appliedseq",
+      "command": "… -t '⑩ pending 区间拒绝'",
+      "status": "pass",
+      "expect": "4412：appliedSeq 不动+零 WAL+零 PG 行+连接 close 4412",
+      "detail": "缺前驱帧（encodeStateAsUpdate vs 前驱 SV diff 构造）→reject code 4412+hardClose 4412+appliedSeq 不变+PG 行全部 ≤before（T9 已满足锚——回归锁定）",
+      "artifacts": []
+    },
+    {
+      "id": "B1-barrier-onstateless-contract",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t10-barrier-unload.spec.ts",
+      "status": "pass",
+      "expect": "corpus 消费（并发双 tab/nonce 重试幂等/maintenance 拒绝/BARRIER_FAILED）+target 同步捕获+同连接串行+flushThrough 契约+永不 throw",
+      "detail": "T5a y1c-barrier-corpus import 消费（禁重抄）；首语句同步捕获=apply 挂起窗 committedSeq='0'（不含在飞帧）；串行=await submit 后回执 committedSeq≥帧 walSeq；sendStateless 抛错被吞；幂等（同 target 重复同结果）+不阻塞写",
+      "artifacts": []
+    },
+    {
+      "id": "U1-unload-drain-or-refuse",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t10-barrier-unload.spec.ts -t 'doc 卸载纪律'",
+      "status": "pass",
+      "expect": "drain applied→PG 或拒绝卸载（false→gateway throw）+doc_unload_blocked_total+maxResidentDocBytes 装载闸",
+      "detail": "PG 恒败→drainAppliedForUnload false+appliedQueue 保留（WAL 安全）+指标 +1；PG 恢复窗内落定=真；DR resident gate：docTruth 和到顶→loadDocument throw SERVER_OVERLOADED（503 档）+已装载 doc 复用窗放行。gateway 级翻转锚=A9/BOI-3（doc 常驻 fail-closed——旧「仍卸载」=T9 形态）",
+      "artifacts": []
+    },
+    {
+      "id": "F7-y1c-four-codes-recovery-dispatch",
+      "command": "cd packages/shared && npx vitest run src/constants/collab-close-code.test.ts src/collab/recovery-flow.spec.ts",
+      "status": "pass",
+      "expect": "4406→terminal/4411·4412→resync/4413→retry（禁 backoff 兜底）+守卫负控+backoff 传导",
+      "detail": "修正 #7 装配：resolveCloseAction 四码显式分派（CloseActionKind +resync/+retry 两档——resolveBackoffPlan 七档穷尽）；assertY1cCodesNotBackoffRouted 全码空间探测正向+负控（4413 入集必 throw——负控本体）；4406→none/4411·4412·4413→short。红相=T9 基线 3 用例红（分派/探测/传导——落表尾 backoff）",
+      "artifacts": []
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV1-watermark-triple",
+      "sql": "0≤pgSeq≤appliedSeq≤spoolHeadSeq（内存三元，assertWatermarkInvariants 每次推进断言）∧ CanvasDoc CHECK pgSeq≤walCheckpointSeq",
+      "expect": "R1-R6 各用例 watermark/pgSeq 断言全绿（pgSeq 永不写 appliedSeq 口径——CAS 列=walCheckpointSeq 采样+pgSeq 提交序）"
+    },
+    {
+      "id": "INV2-pg-commits-applied-prefix-only",
+      "sql": "max(CanvasDocUpdate.seq) ≤ appliedSeq（批只从 applied 队列取——上界构造性）",
+      "expect": "R8 探测（含 PG 失败滞留窗）+R7 毒帧轴（截断保留 applied 前缀）"
+    },
+    {
+      "id": "INV3-wal-dense-prefix-replayable",
+      "sql": "WAL walSeq 密集前缀（truncateWalAfter 续号回拨 appliedSeq+1 下界；scanWalSegmentBuffer gap=fatal）→recoverScan+replayAll 全前缀可证",
+      "expect": "R3/R7/R9（复用不跳号）+restartServices 各例 recoverScan 零 pgPrefixViolation"
+    },
+    {
+      "id": "INV4-actorranges-tiling",
+      "sql": "CanvasDocUpdate.actorRanges 铺满 [firstWalSeq,lastWalSeq+1) 半开无重叠无空洞（validateActorRanges 批级）",
+      "expect": "R1（真值校验）+flushPrefixToPg 装配内联 throw（违约=flush 失败留队——fail-closed）+pushAppliedEntry 重复 walSeq 守卫"
+    },
+    {
+      "id": "INV5-updatehash-idempotent-replay",
+      "sql": "@@unique(projectId,generation,updateHash)+ON CONFLICT DO NOTHING——重放/重组批幂等",
+      "expect": "R3/R4（二次 replayAll 行数不变）+append int spec 既有锚"
+    },
+    {
+      "id": "INV6-no-advisory-lock-in-write-path",
+      "sql": "canvas-doc-update.repository.ts lockProject 调用点恰 1（=vacuumReplace，T12 收口）+canvas_doc_update_seq 全仓清零",
+      "expect": "check-collab-census ㉞ PASS（负控形态：计数偏离即红——appendBatch/compact 清零断言）"
+    },
+    {
+      "id": "INV7-y1c-codes-not-backoff-routed",
+      "sql": "resolveCloseAction(backoff 处理集) ∩ {4406,4411,4412,4413} = ∅（修正 #7 路由优先级）",
+      "expect": "F7 负控：4413 入 backoff 集 assertY1cCodesNotBackoffRouted 必 throw"
+    }
+  ],
+  "skipped": 0,
+  "notes": [
+    "commit 字段=证据认证对象=commit 74287e10（A=代码）；本 g2.json 于其后独立证据 commit 落盘（B=g2.json——G1 两 commit 形态先例）",
+    "负控清单=F7（4413 入 backoff 集必 throw——守卫负控）+INV6（census ㉞ 计数偏离即红）+R7（T9 基线毒帧跳号红相——truncateWalAfter 续号回拨修正）+R4（T9 基线水位恒 0 红相）——四负控全红过=门有效（spec §9.1）",
+    "十红组中 ①dedup applied/⑩4412 拒帧=T9 已满足锚（红组注明+回归锁定）；真红轴=水位 CAS/actorRanges/毒帧前缀落 PG（tmp 探针实证后即删）",
+    "kill -9 语义=进程内 seam（FaultRepo/FaultSpool/NoConfirmSpool——T8/T9 故障注入先例）+「重启」=服务重实例化+recoverScan 本地路径（recoverScan 生产 boot 接线归 T13——测试内直调函数）",
+    "barrier 4413 close 投递面与 maintenance-freeze 完整语义归 T27（本卡=isMaintenanceBlocked 缝+error:'maintenance' 回执）；maxResidentDocBytes 到顶 4413 close 同归 T27（本卡=503 SERVER_OVERLOADED 档装载拒绝）",
+    "修正 #7 档一致性由测试双源锚定（非 import——collab-close-code 静态 import recovery-flow 成环：recovery-flow 模块初始化消费 CollabCloseCode，先载本文件时 Y1C_RECOVERY_DISPATCH_TIERS 键折 undefined——init 序脆弱，注释披露）",
+    "T9 语义修正三处（同批评审议定）：S-I1 截断后重发 walSeq 3n→2n（密集前缀）+spool-wal 两例同轴；A9/BOI-3 卸载期望翻转（帧 WAL 安全即卸载→applied 未 drain 拒绝卸载——偏离 37⑩+38⑤）；dual-client-server dispose destroy 套 4s race（生产 onApplicationShutdown 同款兜底）",
+    "全量：api vitest 2828/2828+int 池 351/351（MinIO minioadmin 补启后——media 三文件 ECONNREFUSED 为环境缺失非回归）+shared 691/691+web 3995/3995+census 32/32（㉞ 新组+④⑮㉒ ㉜ 白名单同批登记）+module-size（gateway 985→1015 锚重标：onStateless+卸载纪律净增 30 行）+verify:fast 16/16"
+  ],
+  "go": true
+}
