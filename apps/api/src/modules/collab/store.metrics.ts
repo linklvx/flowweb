@@ -429,6 +429,44 @@ export const yjsSpoolQuarantinedTotal = new Counter({
   registers: [register],
 });
 
+/** ===== Y1c T8（spec v5.4 §4.3/§4.4+ADR-01）：WAL 帧协议升级指标族 ===== */
+
+/** fsync 失败分档计数（契约 WAL_FSYNC_TIER_SEMANTICS——tier=EIO fail-stop 不自动重试/ENOSPC
+ *  截断复用档/fsync-fail-pre 写前失败；device=spool 根目录（跨平台无稳定设备 id 的诚实代理——
+ *  单实例单卷部署下目录即卷）。 */
+export const walFsyncErrorTotal = new Counter({
+  name: 'wal_fsync_error_total',
+  help: 'WAL append/fsync 失败分档（tier=EIO fail-stop：walHealthy=false 停收要求重启+磁盘检查/ENOSPC 截断复用档/fsync-fail-pre 写前失败——EIO 不自动重试；device=spool 根目录）',
+  labelNames: ['device', 'tier'],
+  registers: [register],
+});
+
+/** 坏段四档分类（tier=契约 WalBadSegmentTier：bad-crc/truncated/missing-seq/dup-hash——
+ *  分类码单源=walDefectTier 穷尽映射，实现禁散写）。 */
+export const yjsSpoolBadSegmentTotal = new Counter({
+  name: 'yjs_spool_bad_segment_total',
+  help: 'WAL 恢复扫描坏段四档分类计数（tier=bad-crc 含骗过 CRC 网的 hash/generation 校验失败/truncated 撕裂/missing-seq 缺号/dup-hash 重复——含良性 dup 观测）',
+  labelNames: ['tier'],
+  registers: [register],
+});
+
+/** 整段隔离计数（reason=bad-header/history-mismatch（契约档）/generation-switch 换代切段/
+ *  pg-prefix-violation 证据保全——fail-closed 零帧重放面）。 */
+export const walSegmentQuarantinedTotal = new Counter({
+  name: 'wal_segment_quarantined_total',
+  help: 'WAL 整段隔离计数（reason=bad-header 坏段头/history-mismatch≠SystemHistory fail-closed/generation-switch 换代切段/pg-prefix-violation PG 前缀校验证据保全）',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
+/** 修正 #6：时间戳栅栏触发的恢复怀疑态段计数（recoverySuspect——自动扫描零重放，重放归恢复流
+ *  裁定非静默丢段；非零=存在待人工裁定的「忘 bump」形态段）。 */
+export const walRecoverySuspectTotal = new Counter({
+  name: 'wal_recovery_suspect_total',
+  help: 'WAL 时间戳栅栏触发段计数（lastWriteAt>epochStartedAt 仅恢复怀疑态求值——F-S4-5；recoverySuspect 恢复怀疑态自动扫描零重放，重放归恢复流裁定）',
+  registers: [register],
+});
+
 /** Y0a-2（X17 更名+标签统一口径）：已删项目的更新丢弃计数——source 标签区分 gateway 终态拦截与
  *  spool 回灌 FK 收割两条路径（无标签调用会产出 source="" 的脏 series——禁）。 */
 export const yjsUpdatesDiscardedDeletedTotal = new Counter({

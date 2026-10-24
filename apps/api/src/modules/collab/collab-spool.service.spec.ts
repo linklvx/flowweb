@@ -1,4 +1,7 @@
 // Y0a-2：spool 单测——真文件系统（tmp 目录），禁 mock fs（文件系统语义正是被测对象）。
+// Y1c T8（v1.7 帧协议）：段文件名 `<projectId>.g<generation>.<segSeq>.spool`（默认 generation=1）
+// +段头 164B+帧记录 52B 头——原 8B 帧/平铺名断言已随协议升级同步（行为面断言不变）；
+// 手工坏帧一律用垃圾字节尾（<52B 残尾=truncated 档——旧 8B 头构造形态随格式退役）。
 // 注①（对 plan 文本的算术修正）：段滚动用例 payload 取 2,500,000B——plan 原值 1,500,000B 时
 // 3 次追加在 4MB 段上限下只产生 2 段（1.5+1.5=3.0MB 未超限），断言 3 段必红；2.5MB 每帧使
 // 第 2/3 次追加均超限滚动，3 段断言与「跨段 peek」意图同时成立。
@@ -6,10 +9,11 @@
 // （用例 2 锁定的整段 unlink 语义）段文件已删除，重启 scan 后磁盘为空，断言必红；改为两帧中
 // confirm 一帧（段保留）——confirmed 集在内存、崩溃即丢，重启后含已 confirm 帧在内全部帧重新
 // 可见，正是「幂等降级」要验证的完整语义（service 头注释同款表述）。
+// 注③（T8 去重语义）：append 对同字节 payload 去重（SHA-256 命中返回原 frameId 零新帧）——
+// 回灌/容量用例的 payload 必须互异（空 Y.Doc 的 update 两份字节相同会被并帧）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { crc32 } from 'node:zlib';
 import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -33,7 +37,8 @@ describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', (
     expect(frames.map((f) => Array.from(f.payload))).toEqual([Array.from(p1), Array.from(p2)]);
     const files = await readdir(join(dir, 'test-owner'));   // R3：段在 owner 子目录
     expect(files.filter((f) => f.endsWith('.spool'))).toHaveLength(1);   // 同段追加
-    expect((await readFile(join(dir, 'test-owner', files[0]))).byteLength).toBe(8 + 5 + 8 + 2);
+    // T8 v1.7：164B 段头 + 帧(52B 头+5B) + 帧(52B 头+2B)
+    expect((await readFile(join(dir, 'test-owner', files[0]))).byteLength).toBe(164 + 57 + 54);
     expect(s.hasFrames('p1')).toBe(true);
   });
 
@@ -52,14 +57,15 @@ describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', (
   it('段滚动：累计写超 4MB 滚动新段（文件名 segSeq 递增）；跨段 peek 全量返回', async () => {
     const s = svc();
     const big = new Uint8Array(2_500_000); big.fill(7);   // 注①：每帧 2.5MB——两帧即超 4MB 段上限
-    await s.append('p1', big); await s.append('p1', big); await s.append('p1', big);   // 7.5MB → 3 段
+    await s.append('p1', big); await s.append('p1', new Uint8Array(2_500_000).fill(8));   // T8：payload 互异（同字节会被 SHA-256 去重并帧——注③）
+    await s.append('p1', new Uint8Array(2_500_000).fill(9));
     const files = (await readdir(join(dir, 'test-owner'))).filter((f) => f.endsWith('.spool')).sort();
     expect(files).toHaveLength(3);
-    expect(files[0]).toBe('p1.0.spool'); expect(files[2]).toBe('p1.2.spool');
+    expect(files[0]).toBe('p1.g1.0.spool'); expect(files[2]).toBe('p1.g1.2.spool');
     const frames = await s.peek('p1');
     expect(frames).toHaveLength(3);
-    expect(frames[0].frameId.endsWith('p1.0.spool:0')).toBe(true);   // R3：frameId=segKey:idx（owner 前缀）
-    expect(frames[2].frameId.endsWith('p1.2.spool:0')).toBe(true);
+    expect(frames[0].frameId.endsWith('p1.g1.0.spool:0')).toBe(true);   // R3：frameId=segKey:idx（owner 前缀+g 域）
+    expect(frames[2].frameId.endsWith('p1.g1.2.spool:0')).toBe(true);
   });
 
   it('崩溃语义（confirmed 集丢失）：新实例 scan 同目录→peek 返回全部帧（幂等降级为第二道防线）', async () => {
@@ -79,11 +85,9 @@ describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', (
     const s = svc();
     const good = new Uint8Array([1, 2, 3]);
     await s.append('p1', good);
-    // 手工追加坏帧：长度声明 100 但实际 payload 2 字节（截断形态）
-    const file = join(dir, 'test-owner', 'p1.0.spool');
-    const bad = Buffer.alloc(8 + 2);
-    bad.writeUInt32LE(100, 0); bad.writeUInt32LE(crc32(Buffer.from([9, 9])), 4); bad[8] = 9; bad[9] = 9;
-    await writeFile(file, Buffer.concat([await readFile(file), bad]));   // 默认 'w' 整写=读旧+拼新（注④：plan 的 flag:'a' 会把旧内容再追加一遍——双帧假象）
+    // 手工追加坏尾：2B 垃圾（<52B 帧头=truncated 档——T8 v1.7 帧构造形态）
+    const file = join(dir, 'test-owner', 'p1.g1.0.spool');
+    await writeFile(file, Buffer.concat([await readFile(file), Buffer.from([9, 9])]));
     const s2 = svc(); await s2.scan();
     const frames = await s2.peek('p1');
     expect(frames).toHaveLength(1);                       // 只有 good 帧；坏帧停读
@@ -93,13 +97,13 @@ describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', (
 
   it('V2 段封禁：段尾注入坏字节→append 守卫滚动新段→重启 scan 后坏尾前后帧全部可 peek（v1 黑洞形态必红）', async () => {
     const s = svc();
-    await s.append('p1', new Uint8Array([1]));                       // 段 0 帧 0（干净：goodBytes===bytes===9）
-    const file = join(dir, 'test-owner', 'p1.0.spool');
+    await s.append('p1', new Uint8Array([1]));                       // 段 0 帧 0（干净：goodBytes===bytes）
+    const file = join(dir, 'test-owner', 'p1.g1.0.spool');
     const junk = Buffer.alloc(2, 0x99);
-    await writeFile(file, Buffer.concat([await readFile(file), junk]));   // 外部坏尾：磁盘 11 字节≠内存记账 9（整写同注④）
-    await s.append('p1', new Uint8Array([3]));                       // 追加前守卫 stat.size(11)≠bytes(9)→封段 0 滚动段 1
+    await writeFile(file, Buffer.concat([await readFile(file), junk]));   // 外部坏尾：磁盘字节≠内存记账
+    await s.append('p1', new Uint8Array([3]));                       // 追加前守卫 stat.size≠bytes→封段 0 滚动段 1
     const files = (await readdir(join(dir, 'test-owner'))).filter((f) => f.endsWith('.spool')).sort();
-    expect(files).toEqual(['p1.0.spool', 'p1.1.spool']);             // 段 0 封存+段 1 承接新帧
+    expect(files).toEqual(['p1.g1.0.spool', 'p1.g1.1.spool']);       // 段 0 封存+段 1 承接新帧
     const s2 = svc(); await s2.scan();
     const frames = await s2.peek('p1');
     expect(frames).toHaveLength(2);                                  // 段 0 帧 0+段 1 帧 0 全可读——v1 黑洞（继续追加坏尾段）下段 1 帧永不可读=红
@@ -130,20 +134,18 @@ describe('spool quarantine sidecar（v2.4：标记不搬字节——追加-only 
   it('坏帧段：非隔离帧全 confirm→段可回收（unlink 条件≠全部帧 confirmed）+sidecar 保留记录', async () => {
     const s = svc();
     const ids = await s.append('p1', new Uint8Array([1]));               // 好帧 0:0
-    // 追加坏帧（CRC 错）——真实故障形态：落盘不完整
-    const file = join(dir, 'test-owner', 'p1.0.spool');
-    const bad = Buffer.alloc(8 + 2);
-    bad.writeUInt32LE(2, 0); bad.writeUInt32LE(0xdeadbeef, 4); bad[8] = 1; bad[9] = 2;
-    await writeFile(file, Buffer.concat([await readFile(file), bad]));   // 勘误：无 flag 整写
+    // 追加坏尾（10B 垃圾——<52B 帧头=truncated 档）
+    const file = join(dir, 'test-owner', 'p1.g1.0.spool');
+    await writeFile(file, Buffer.concat([await readFile(file), Buffer.alloc(10, 0x99)]));
     const s2 = svc();
     const report = await s2.scan();
-    expect(report.truncatedSegments).toEqual(['p1.0.spool']);
+    expect(report.truncatedSegments).toEqual(['p1.g1.0.spool']);
     const quarantined = await s2.quarantineTruncatedFrames('p1');       // 坏帧段处置：非隔离帧重新可见
     expect(quarantined).toBeGreaterThan(0);                              // 隔离帧数（0:1）
     expect(await s2.peek('p1')).toHaveLength(1);                         // 好帧 0:0 仍可回灌
-    const sidecar = join(dir, 'test-owner', 'p1.0.spool.quarantine');
+    const sidecar = join(dir, 'test-owner', 'p1.g1.0.spool.quarantine');
     const sidecarLines = (await readFile(sidecar, 'utf8')).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    expect(sidecarLines.at(-1)).toMatchObject({ segSeq: 0, quarantinedFromOffset: 9 });   // V3 字节区间形态
+    expect(sidecarLines.at(-1)).toMatchObject({ segSeq: 0, quarantinedFromOffset: 164 + 52 + 1 });   // V3 字节区间（T8：段头 164+好帧 53）
     await s2.confirm('p1', ids);                                          // 唯一非隔离帧 confirm→段回收（R3：frameId=segKey:idx——capture 后跨实例同 owner 同键）
     const after = await readdir(join(dir, 'test-owner')).catch(() => [] as string[]);   // R3：末段回收后空 owner 目录已 rmdir
     expect(after.filter((f) => f.endsWith('.spool'))).toHaveLength(0);
@@ -152,30 +154,28 @@ describe('spool quarantine sidecar（v2.4：标记不搬字节——追加-only 
 
   it('V3/E5 容量核算含隔离字节+隔离区间=字节偏移口径：quarantinedBytes=坏帧起始偏移→EOF（含坏帧头）', async () => {
     const s = svc();
-    await s.append('p1', new Uint8Array(1024));                       // 好帧=8+1024=1032
-    const bad = Buffer.alloc(8 + 512);
-    bad.writeUInt32LE(512, 0); bad.writeUInt32LE(0, 4);   // CRC 恒不匹配
-    await writeFile(join(dir, 'test-owner', 'p1.0.spool'), Buffer.concat([await readFile(join(dir, 'test-owner', 'p1.0.spool')), bad]));   // 勘误：无 flag
+    await s.append('p1', new Uint8Array(1024));                       // 好帧=164+52+1024=1240
+    const file = join(dir, 'test-owner', 'p1.g1.0.spool');
+    await writeFile(file, Buffer.concat([await readFile(file), Buffer.alloc(520, 0x99)]));   // 520B 垃圾坏尾
     const s2 = svc(); await s2.scan();
     await s2.quarantineTruncatedFrames('p1');
     const d = s2.depth();
-    expect(d.quarantinedBytes).toBe(520);                             // 1552-1032=520（v1 的 -8 off-by-8 必红）
-    expect(d.ownBytes + d.strandedBytes).toBe(1552);                  // V14：容量核算=总字节（R3 五元组=own+stranded 磁盘真值）
+    expect(d.quarantinedBytes).toBe(520);                             // 1760-1240=520
+    expect(d.ownBytes + d.strandedBytes).toBe(1760);                  // V14：容量核算=总字节（R3 五元组=own+stranded 磁盘真值）
   });
 
   it('sidecar 写失败→异常上抛且 meta 未动（quarantinedRange 仍 null）——段与坏尾证据保留可重试（ENOSPC 同型：先记账后落盘=证据销毁必红）', async () => {
     const s = svc();
-    await s.append('p1', new Uint8Array([1]));                          // 好帧 0:0（9B）
-    const bad = Buffer.alloc(8 + 2);                                    // 坏尾（CRC 错）
-    bad.writeUInt32LE(2, 0); bad.writeUInt32LE(0xdeadbeef, 4); bad[8] = 1; bad[9] = 2;
-    await writeFile(join(dir, 'test-owner', 'p1.0.spool'), Buffer.concat([await readFile(join(dir, 'test-owner', 'p1.0.spool')), bad]));
+    await s.append('p1', new Uint8Array([1]));                          // 好帧 0:0（164+53=217B）
+    const file = join(dir, 'test-owner', 'p1.g1.0.spool');
+    await writeFile(file, Buffer.concat([await readFile(file), Buffer.alloc(2, 0x99)]));   // 坏尾
     const s2 = svc(); await s2.scan();
-    await mkdir(join(dir, 'test-owner', 'p1.0.spool.quarantine'));      // 目录占位 sidecar 路径→open('a') throw（同幻影 meta 用例 EISDIR 形态）
+    await mkdir(join(dir, 'test-owner', 'p1.g1.0.spool.quarantine'));      // 目录占位 sidecar 路径→open('a') throw（同幻影 meta 用例 EISDIR 形态）
     await expect(s2.quarantineTruncatedFrames('p1')).rejects.toBeInstanceOf(Error);
-    expect((s2 as any).index.get('p1').get('test-owner/p1.0.spool').quarantinedRange).toBeNull();   // 白盒：sidecar 未落盘则 meta 三字段不改（R3：内键=segKey）（现状先改 meta 必红）
-    await rm(join(dir, 'test-owner', 'p1.0.spool.quarantine'), { recursive: true });   // 清占位目录（重试路径——重算 offset 保守正确）
+    expect((s2 as any).index.get('p1').get('test-owner/p1.g1.0.spool').quarantinedRange).toBeNull();   // 白盒：sidecar 未落盘则 meta 三字段不改（R3：内键=segKey）
+    await rm(join(dir, 'test-owner', 'p1.g1.0.spool.quarantine'), { recursive: true });   // 清占位目录（重试路径——重算 offset 保守正确）
     expect(await s2.quarantineTruncatedFrames('p1')).toBe(1);            // 重试成功（现状 meta 已改→重试跳段返回 0 同红）
-    expect(await readFile(join(dir, 'test-owner', 'p1.0.spool.quarantine'), 'utf8')).toContain('"quarantinedFromOffset":9');
+    expect(await readFile(join(dir, 'test-owner', 'p1.g1.0.spool.quarantine'), 'utf8')).toContain('"quarantinedFromOffset":217');
   });
 });
 
@@ -221,9 +221,11 @@ describe('spool 熔断与探针解熔断（V14 两态：ioBroken 探针可解 / 
 describe('spool 启动回灌（V16：总预算+固定短退避+同项目帧合并；FK=真库 int 背书 V6）', () => {
   it('回灌：同项目连续帧合并为一次 append+confirm→段 unlink', async () => {
     const s1 = svc();
-    // 合法 Y update（实测 Y.mergeUpdates 对任意字节 throw——plan 文本 payload 需合法形态，逐帧退化路径另由 FK/PG 用例覆盖）
-    await s1.append('p1', Y.encodeStateAsUpdate(new Y.Doc()));
-    await s1.append('p1', Y.encodeStateAsUpdate(new Y.Doc()));
+    // 合法 Y update 互异（注③：两份空 Doc 的 update 字节相同会被 SHA-256 去重并帧——内容互异才成两帧）
+    const d1 = new Y.Doc(); d1.getMap('m').set('a', 1);
+    const d2 = new Y.Doc(); d2.getMap('m').set('b', 2);
+    await s1.append('p1', Y.encodeStateAsUpdate(d1));
+    await s1.append('p1', Y.encodeStateAsUpdate(d2));
     const repo = createMockRepo();
     const s2 = svc(); await s2.scan();
     const report = await s2.replayAll(repo as any);
@@ -259,7 +261,7 @@ describe('spool 启动回灌（V16：总预算+固定短退避+同项目帧合�
 describe('Task 1 收口（幻影 meta/scan 幂等/残尾可观测——质量审查行为面）', () => {
   it('appendRaw 失败不残留幻影段元数据（新段首帧写失败→回滚 index 插入）', async () => {
     const s = svc();
-    await mkdir(join(dir, 'test-owner', 'p1.0.spool'), { recursive: true });   // 段文件位置被目录占位：open('a') → EISDIR 必败（R3：占位在活动目录内）
+    await mkdir(join(dir, 'test-owner', 'p1.g1.0.spool'), { recursive: true });   // 段文件位置被目录占位：writeFile 段头 → EISDIR 必败（R3：占位在活动目录内）
     await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
     expect(s.hasFrames('p1')).toBe(false);   // 幻影 meta 回滚（收口 1：当前实现 index 留幽灵键必红）
   });
@@ -273,14 +275,14 @@ describe('Task 1 收口（幻影 meta/scan 幂等/残尾可观测——质量审
     expect(s2.hasFrames('p1')).toBe(false);
   });
 
-  it('scan：好帧后 <8B 残尾也进 truncated 报告（坏尾必有可观测面）', async () => {
+  it('scan：好帧后 <52B 残尾也进 truncated 报告（坏尾必有可观测面）', async () => {
     const s = svc();
-    await s.append('p1', new Uint8Array([1, 2, 3]));    // 11B 好帧
-    const f = join(dir, 'test-owner', 'p1.0.spool');
-    await writeFile(f, Buffer.concat([await readFile(f), Buffer.from([0x99, 0x98, 0x97])]));   // +3B 残尾=14B
+    await s.append('p1', new Uint8Array([1, 2, 3]));    // 好帧（164+55=219B）
+    const f = join(dir, 'test-owner', 'p1.g1.0.spool');
+    await writeFile(f, Buffer.concat([await readFile(f), Buffer.from([0x99, 0x98, 0x97])]));   // +3B 残尾=222B
     const s2 = svc();
     const report = await s2.scan();
-    expect(report.truncatedSegments).toEqual(['p1.0.spool']);
+    expect(report.truncatedSegments).toEqual(['p1.g1.0.spool']);
   });
 
   it('scan 幂等：二次 scan 不合并陈旧条目（外部删段后 index 反映磁盘事实）', async () => {
@@ -289,7 +291,7 @@ describe('Task 1 收口（幻影 meta/scan 幂等/残尾可观测——质量审
     const s2 = svc();
     await s2.scan();
     expect(s2.hasFrames('p1')).toBe(true);
-    await unlink(join(dir, 'test-owner', 'p1.0.spool'));
+    await unlink(join(dir, 'test-owner', 'p1.g1.0.spool'));
     await s2.scan();
     expect(s2.hasFrames('p1')).toBe(false);   // clear 重建——陈旧 meta 保留必红
   });
@@ -336,7 +338,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
       await a.append('p1', new Uint8Array([1]));
       // 造坏尾：直接 append 半个头（不经 service——模拟前任 kill 瞬间）
       const { appendFile } = await import('node:fs/promises');
-      await appendFile(join(d, 'owner-A', 'p1.0.spool'), Buffer.alloc(3));
+      await appendFile(join(d, 'owner-A', 'p1.g1.0.spool'), Buffer.alloc(3));
       const b = new CollabSpoolService(d); b.setOwner('owner-B');
       const { truncatedSegments } = await b.scan();
       expect(truncatedSegments).toHaveLength(0);      // 外来坏尾不报告（P18 分档）
@@ -354,12 +356,12 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
     try {
       const a = new CollabSpoolService(d); a.setOwner('owner-A');
       const b = new CollabSpoolService(d); b.setOwner('owner-B');
-      // 各自写超过半量（b 视角：own(p2)+stranded(p1) 合计越限）
-      for (let i = 0; i < 7; i++) await a.append('p1', new Uint8Array(64));   // 7×(8+64)=504B
-      await b.scan();                                                          // p1 → stranded 504B
+      // 各自写超过半量（payload 互异防 SHA-256 去重并帧——注③）：b 视角 own(p2)+stranded(p1) 合计越限
+      for (let i = 0; i < 7; i++) await a.append('p1', new Uint8Array(64).fill(i));   // 首帧 164+52+64 后每帧 116
+      await b.scan();                                                          // p1 → stranded
       let threw = false;
       for (let i = 0; i < 100; i++) {
-        try { await b.append('p2', new Uint8Array(64)); } catch { threw = true; break; }   // 1008+72=1080>1024 处抛
+        try { await b.append('p2', new Uint8Array(64).fill(i + 200)); } catch { threw = true; break; }   // 互异 payload 逐帧增长越限
       }
       expect(threw).toBe(true);
       expect(b.isWritable()).toBe(false);

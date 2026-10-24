@@ -1017,7 +1017,7 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
         g.seedPendingQueue('pd1', [new Uint8Array([1]), new Uint8Array([2])]);
         g.seedPendingQueue('pd2', []);   // 空条目不计 projects（验证语义）
         const p = kit.gateway.computePending();
-        expect(p).toMatchObject({ projects: 1, batches: 2, spoolFiles: 1, spoolBytes: 8 + 2 });
+        expect(p).toMatchObject({ projects: 1, batches: 2, spoolFiles: 1, spoolBytes: 164 + 52 + 2 });   // T8 v1.7：段头 164+帧 52B 头+载荷 2
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });
@@ -1720,7 +1720,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       const spoolA = new CollabSpoolService(dir);
       spoolA.setOwner('owner-A');
       await spoolA.append('prc', Y.encodeStateAsUpdate(new Y.Doc()));
-      const segPath = join(dir, 'owner-A', 'prc.0.spool');
+      const segPath = join(dir, 'owner-A', 'prc.g1.0.spool');   // T8 v1.7：g 域文件名
       await appendFile(segPath, Buffer.alloc(7, 0xAB));   // 1-7B 残尾=truncated（parseSegmentFrames 收口2 同判）
       const past = new Date(Date.now() - 120_000);
       await utimes(segPath, past, past);                  // 静默窗（≥60s 无写入=前任已死）
