@@ -120,3 +120,17 @@ export * from './collab/doc-protocol';
 export * from './testing/y1c-concurrent-corpus';
 export * from './testing/y1c-wal-fault-corpus';
 export * from './testing/y1c-barrier-corpus';
+// Y1c T5b（plan v1.7）：业务平面 DDL 契约冻结——ExecutionRequest 父子行/ExecutionInput 受理预算+
+// planHash 不可变字段（§6.1）、RuntimeEvent taxonomy+RuntimeFeedCursor+锁序（§7）、FrameEffects+
+// ProjectDocIndex（§6.5 解 T24↔T26 循环）、执行链五表（§6.2/§6.3）、生命周期义务 closed enum（census⑪）、
+// 维护 9 主段+2 终态转移表+行级关闸（§6.6）、SystemHistory 单行权威+actorRanges+DocAuditEvent、
+// Undo 策略（D6）+feed 故障语料——T7/T9/T10/T16/T21/T22/T23/T26/T27/T31 消费；契约测试=collab/*.spec.ts。
+export * from './collab/execution-request';
+export * from './collab/runtime-event';
+export * from './collab/frame-effects';
+export * from './collab/lifecycle';
+export * from './collab/execution-chain';
+export * from './collab/maintenance';
+export * from './collab/system-history';
+export * from './collab/undo-policy';
+export * from './testing/y1c-feed-fault-corpus';
