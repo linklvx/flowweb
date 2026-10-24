@@ -1,10 +1,13 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
 import { TeamService } from '../team/team.service';
 import { assertTeamMember } from '../team/team.util';
+import { createCanvasDoc } from '../collab/canvas-doc.factory';
+import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
 
 @Injectable()
 export class CanvasService {
@@ -40,6 +43,13 @@ export class CanvasService {
       const template = await tx.template.create({
         data: { name: finalName, userId, teamId: teamIdResolved, projectId: project.id, folderId },
       });
+      // Y1c T7（勘误方案 B·Controller 裁定 4）：genesis 双路之二——本路径原先不建 CanvasDoc 行
+      // （doc 懒建于 loadDocument）；现同事务补建头集（空种子=[0,0] 合法空 update 字节——不破坏
+      // 旧装载对行的容忍语义：行在 state=合法 update 与行缺 state=null 两态装载结果等价）。
+      // SystemHistory 缺失/为零=fail-closed 整事务回滚（无 Template 半建）。
+      const seed = createCanvasDoc();
+      await ensureCanvasDocHead(tx, project.id, Buffer.from(Y.encodeStateAsUpdate(seed)));
+      seed.destroy();
       return { templateId: template.id, projectId: project.id, name: finalName, teamId: teamIdResolved };
     });
     this.templateService.clearCache();

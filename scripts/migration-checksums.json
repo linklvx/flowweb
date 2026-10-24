@@ -31,5 +31,8 @@
   },
   "20261022080000_intent_claim_artifact_rev": {
     "migration.sql": "eb7cde8a4917fcd6abe5f580734ef768fa4c0e54c8c42e75962cc55b2fe58233"
+  },
+  "20261024120000_y1c_t7_carrier_genesis": {
+    "migration.sql": "c3f07eba04c281ffc66d8d38244367e53bf3febec728662ff3e3b0234c405971"
   }
 }

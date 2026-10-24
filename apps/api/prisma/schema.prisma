@@ -155,6 +155,7 @@ model CanvasProject {
   teamId         String
   templates      Template[]
   canvasDoc      CanvasDoc?
+  docSnapshots   CanvasDocSnapshot[]   // Y1c T7：载体族快照反向关系（双侧全补）
   projectMembers ProjectMember[]
   docUpdates     CanvasDocUpdate[]
   videoProjects  VideoProject[]
@@ -862,6 +863,9 @@ model TeamJoinRequest {
 model CanvasDoc {
   projectId     String        @id
   project       CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // ── 旧平面（Y0a-3/Y0b-4 形态）——Y1c T7 勘误（方案 B）：过渡保留，拆除时点=
+  // state/stateSeq→T11（compact 重写+state 列退役）、preVacuumSv→T12（门退役）、
+  // schemaVersion @default(3) 默认移除→T9/T10 旧列拆除切片。此前旧装载/hydration 路径依赖。
   state         Bytes
   stateSeq      BigInt        @default(0)
   // Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换——generation=真空代数（装载播种 docGeneration
@@ -873,6 +877,20 @@ model CanvasDoc {
   // 裁定2：@default(3)=Y1c 本批固定值（存量建行走默认——docShape v3 即当前代）
   schemaVersion Int           @default(3)
   updatedAt     DateTime      @updatedAt
+  // ── Y1c T7（方案 B 增量）：v1.7 载体头行新列（spec §4.4/§5.1 水位拆义+§6.6 行级关闸）──
+  // vacuumEpoch：压缩操作代次（遥测——无行为分支）；currentSnapshotRev：当前快照指针（compact 发布推进）
+  vacuumEpoch        Int    @default(0)
+  currentSnapshotRev BigInt @default(0)
+  // walCheckpointSeq（v1.7 拆义）：批提交时刻 spoolHeadSeq 采样（T10 写入方）——永不与 appliedSeq
+  // 比较；同行 raw CHECK pgSeq≤walCheckpointSeq（Y1c T7 迁移一）
+  walCheckpointSeq   BigInt @default(0)
+  // pgSeq：最后 PG 提交的 walSeq——对外唯一「已保存」水位（T10 起由批提交 CAS 推进）
+  pgSeq              BigInt @default(0)
+  // purgeBelowSeq：WAL 清理水位（T11 compact 指针短事务持久——null=从未清理）
+  purgeBelowSeq      BigInt?
+  // maintenanceId：行级关闸（§6.6 REQUESTED 同事务写入+执行受理读 IS NULL 放行）——stage 单源在
+  // MaintenanceOperation；无 FK 无 @@unique（唯一性=活跃维护 partial unique，非 CanvasDoc 责任）
+  maintenanceId      String?
 }
 
 enum ProjectRole {
@@ -880,6 +898,111 @@ enum ProjectRole {
   PROJECT_EDITOR
   PROJECT_VIEWER
 }
+
+// ══════ Y1c T7（方案 B 增量——2026-10-24 勘误落定）：v1.7 载体族新对象 ══════
+// spec §4.4/§5.1/§6（2026-10-23-y1c-doc-model-carrier-contract-design.md）；冻结契约=
+// packages/shared/src/collab/{runtime-event,maintenance,system-history,doc-protocol}.ts。
+// 纪律：BigInt 默认 @default(0)（非 0n）；JSON 面 BigInt 恒十进制字符串（system-history.ts 契约）。
+
+/// SystemHistory 全局单行唯一权威（spec §4.4⑦——删 CanvasDoc.historyId 列语义：restore 恒整库恢复）。
+/// bump 单事务（更新本行+trigger 同步缓存）提交后才允许启动；启动任一不匹配/缺失/为零=fail-closed
+/// 不自动修复（禁 --adopt-wal 窄窗外自动建行）。raw SQL：CHECK (id = 1)（Prisma 无法表达单行约束——
+/// Controller 裁定 1）；引导行=迁移内 INSERT id=1（安装语义非运行时自动修复——Controller 裁定 3）。
+model SystemHistory {
+  id             Int      @id @default(1)
+  historyId      String
+  epochStartedAt DateTime
+  updatedAt      DateTime @updatedAt
+}
+
+/// RuntimeFeedCursor 专用计数行（spec §7 D5 per-project feedSeq——表名无 @@map：与 T5b 冻结
+/// RUNTIME_FEED_CURSOR_UPSERT_SQL 的 "RuntimeFeedCursor" 表名一致〔Controller 裁定 2〕）。
+/// upsert ON CONFLICT=唯一取号路径；genesis 建项目同事务插行；锁序=业务行→counter（counter 恒最后拿）。
+/// 无 Prisma relation（卡文表形如此——feed 平面计数行不挂 Cascade FK；项目删除清理归 T29 reset 工具域）。
+model RuntimeFeedCursor {
+  projectId      String @id
+  lastSeq        BigInt @default(0)
+  minRetainedSeq BigInt @default(0)
+}
+
+/// CanvasDocSnapshot 快照行（spec §4.5——快照只从 PG 前缀生成且只到 pgSeq）。
+/// 跨表不变量 Snapshot.stateSeq≤pgSeq 非 CHECK——由快照发布事务行锁+条件更新保证（T11 落地）。
+/// raw SQL：CHECK (octet_length(state) <= 16MiB)。
+model CanvasDocSnapshot {
+  projectId     String
+  generation    Int
+  snapshotRev   BigInt
+  stateSeq      BigInt
+  state         Bytes
+  /// SHA-256 hex（64 字符）——genesis=建头种子字节哈希；compact 发布=前缀重放态哈希（T11）
+  stateHash     String        @db.Char(64)
+  vacuumEpoch   Int
+  schemaVersion Int
+  createdAt     DateTime      @default(now())
+
+  project CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, generation, snapshotRev])
+}
+
+/// DocAuditEvent 敏感操作同 PG 事务审计（spec §6.4 注记——180d 保留，清理 worker 归 T29）。
+/// kind 词表单源=shared DOC_AUDIT_KINDS（delete/execute/permission/maintenance/refund）；
+/// payload 不含正文（PII 扫描纪律同 RuntimeEvent）。写入方=T21/T27（本卡只落表）。
+model DocAuditEvent {
+  id        String   @id
+  projectId String
+  kind      String
+  userId    String
+  requestId String?
+  payload   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+/// MaintenanceOperation 维护窗口载体（spec §6.6——stage 单源在本表；CanvasDoc 不存 stage 副本）。
+/// stage 11 值=shared MAINTENANCE_STAGES 冻结（防漂移锚=api 侧 setEqual 测试——Prisma enum 无法
+/// import shared 常量，用测试锚定单源）；status=String（T5b 冻结 MaintenanceOperationRow.status:string
+/// 即如此——卡文 enum 记号无值集出处，值域待 T27 消费方定，届时如需 enum 随其迁移收紧）。
+/// raw SQL：活跃维护 partial unique（一项目一活跃——stage NOT IN 三终态）。
+model MaintenanceOperation {
+  maintenanceId    String            @id
+  projectId        String
+  stage            MaintenanceStage
+  status           String
+  attempt          Int               @default(0)
+  sourceGeneration Int
+  targetGeneration Int
+  schemaVersion    Int
+  cutoffPgSeq      BigInt
+  drainedAt        DateTime?
+  error            String?
+  idempotencyKey   String            @unique
+  leaseOwner       String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([projectId, status])
+}
+
+/// 9 主段+2 终态（11 值）——逐字对照 shared MAINTENANCE_STAGES（maintenance.ts T5b 冻结）：
+/// REQUESTED→FREEZING→DRAINING→DRAINED→EXPORTING→REBUILDING→SWITCHING→VERIFYING→COMPLETED
+/// +FAILED/ABORTED（SWITCHING=唯一不可回退点）
+enum MaintenanceStage {
+  REQUESTED
+  FREEZING
+  DRAINING
+  DRAINED
+  EXPORTING
+  REBUILDING
+  SWITCHING
+  VERIFYING
+  COMPLETED
+  FAILED
+  ABORTED
+}
+
 
 model ProjectMember {
   id        String        @id @default(cuid())

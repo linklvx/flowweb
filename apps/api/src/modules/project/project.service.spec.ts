@@ -42,6 +42,10 @@ describe('ProjectService', () => {
         findUnique: vi.fn().mockResolvedValue(null),
         upsert: vi.fn().mockResolvedValue({}), // Y0a-3 T8①：种子 PG 侧同事务落库
       },
+      // Y1c T7：genesis 头行集（SystemHistory fail-closed 读+Snapshot(g,0,0)+RuntimeFeedCursor）
+      systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'y1c-sys-history-1' }) },
+      canvasDocSnapshot: { upsert: vi.fn().mockResolvedValue({}) },
+      runtimeFeedCursor: { upsert: vi.fn().mockResolvedValue({}) },
       projectMember: { create: vi.fn().mockResolvedValue({}) },
     };
     prisma.$transaction = vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma));
@@ -253,6 +257,64 @@ describe('ProjectService', () => {
     it('团队化：传非成员 teamId 抛 403', async () => {
       await expect(service.create('x', 'u1', undefined, undefined, 't-team')).rejects.toThrow('非团队成员');
       expect(prisma.canvasProject.create).not.toHaveBeenCalled();
+    });
+
+    // ═══ Y1c T7：genesis 头行集（双路之一——ProjectService.create） ═══
+    it('T7①：同事务建头集——SystemHistory 读+CanvasDocSnapshot(g,0,0)+RuntimeFeedCursor（stateHash=种子字节 SHA-256；schemaVersion=CANVAS_DOC_SCHEMA_VERSION）', async () => {
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+
+      await service.create('未命名项目', 'u1');
+
+      // SystemHistory fail-closed 读（id=1 单行权威）
+      expect(prisma.systemHistory.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }));
+      // Snapshot(g,0,0)：state=种子字节（=canvasDoc.upsert create.state 同源）、stateHash=sha256 hex
+      const headState = prisma.canvasDoc.upsert.mock.calls[0][0].create.state as Buffer;
+      expect(prisma.canvasDocSnapshot.upsert).toHaveBeenCalledWith({
+        where: { projectId_generation_snapshotRev: { projectId: 'p1', generation: 0, snapshotRev: 0n } },
+        create: {
+          projectId: 'p1', generation: 0, snapshotRev: 0n, stateSeq: 0n,
+          state: headState,
+          stateHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+          vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+        },
+        update: {},
+      });
+      // sha256 单源断言（stateHash 与种子字节强绑定——非任意 hex）
+      const { createHash } = await import('node:crypto');
+      expect((prisma.canvasDocSnapshot.upsert.mock.calls[0][0] as { create: { stateHash: string } }).create.stateHash)
+        .toBe(createHash('sha256').update(headState).digest('hex'));
+      // RuntimeFeedCursor 行（默认 0/0——T5b 冻结 upsert 契约的 genesis 插行侧）
+      expect(prisma.runtimeFeedCursor.upsert).toHaveBeenCalledWith({
+        where: { projectId: 'p1' },
+        create: { projectId: 'p1' },
+        update: {},
+      });
+      // 同一 $transaction（头集与项目行原子——无部分写入）
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('T7① fail-closed：SystemHistory 行缺失 ⇒ create 拒绝且不落头集（不自动建不自动修复）', async () => {
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+      prisma.systemHistory.findUnique.mockResolvedValue(null);
+
+      await expect(service.create('未命名项目', 'u1')).rejects.toThrow(/SystemHistory/);
+      expect(prisma.canvasDocSnapshot.upsert).not.toHaveBeenCalled();
+      expect(prisma.runtimeFeedCursor.upsert).not.toHaveBeenCalled();
+    });
+
+    it('T7① fail-closed：SystemHistory.historyId 为零值（"0"/空串）⇒ create 拒绝（缺头三态=缺失/为零均拒）', async () => {
+      const mockProject = { id: 'p1', name: '未命名项目', createdAt: new Date(), updatedAt: new Date() };
+      prisma.canvasProject.create.mockResolvedValue(mockProject);
+      prisma.canvasProject.findUnique.mockResolvedValue(mockProject);
+      for (const degenerate of ['0', '']) {
+        prisma.systemHistory.findUnique.mockResolvedValue({ historyId: degenerate });
+        await expect(service.create('未命名项目', 'u1')).rejects.toThrow(/SystemHistory/);
+      }
+      expect(prisma.canvasDocSnapshot.upsert).not.toHaveBeenCalled();
     });
   });
 

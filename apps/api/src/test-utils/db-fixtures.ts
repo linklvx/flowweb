@@ -28,6 +28,9 @@ export async function ensureProjectFixture(prisma: PrismaClient, projectId: stri
 export async function cleanupProjectFixture(prisma: PrismaClient, projectId: string): Promise<void> {
   await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
   await prisma.canvasDoc.deleteMany({ where: { projectId } });
+  // Y1c T7：RuntimeFeedCursor 无 FK（feed 平面计数行——卡文表形）：项目清理须显式删行；
+  // CanvasDocSnapshot 经 FK Cascade 随 doc/项目行删除。
+  await prisma.runtimeFeedCursor.deleteMany({ where: { projectId } });
   await prisma.canvasProject.deleteMany({ where: { id: projectId } });
 }
 

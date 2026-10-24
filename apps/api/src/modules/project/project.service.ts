@@ -6,6 +6,7 @@ import { TeamService } from '../team/team.service';
 import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
+import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
 import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 
@@ -72,11 +73,10 @@ export class ProjectService {
         }
         fillDoc(toDocLike(seed), stripped, edges ?? []);
       }
-      await tx.canvasDoc.upsert({
-        where: { projectId: created.id },
-        create: { projectId: created.id, state: Buffer.from(Y.encodeStateAsUpdate(seed)), stateSeq: 0n },
-        update: {},
-      });
+      // Y1c T7（勘误方案 B·Controller 裁定 4）：genesis 双路共用建头 helper——旧 state 种子 upsert
+      // 形态逐字保留（update 由内聚 helper 落），同事务追加 Snapshot(g,0,0)+RuntimeFeedCursor 行；
+      // SystemHistory 缺失/为零=fail-closed（整事务回滚，无部分写入）。
+      await ensureCanvasDocHead(tx, created.id, Buffer.from(Y.encodeStateAsUpdate(seed)));
       seed.destroy();
       return created;
     });

@@ -580,6 +580,8 @@ export function reconcileWithDocRegistry(counts, registry) {
  *   编码）/over 检查 measureTruth（冷却窗外实测）——T41 W3a 随 DocRegistry 域自 collab.gateway 迁移
  *   （loadDocument/updateResidue/measureTruth 三点同文件同计数，条目换宿主）；
  *  project.service ×1=项目创建种子快照；
+ *  canvas.service ×1=Y1c T7 genesis 双路之二建头种子编码（POST /canvases 同事务补建头集——与
+ *   project.service ×1 同族；编码点留 service 侧=建头 helper 收 Buffer 种子单参〔勘误方案 B·裁定 4〕）；
  *  web canvasCollabRuntime ×3=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）
  *   /buildCacheRecord 本地缓存快照编码（Y0b-5 T8——去抖/到期/隐藏强制三触发共用单点）；
  *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
@@ -589,6 +591,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
+  'apps/api/src/modules/canvas/canvas.service.ts': 1,   // Y1c T7：genesis 双路之二建头种子（project.service 同族）
   'apps/web/src/stores/canvasCollabRuntime.ts': 3,
   'apps/web/src/collab/canvas-local-backup.ts': 1,
 };
@@ -650,7 +653,7 @@ if (isMain()) {
       else if (want !== n) details.push(`白名单计数漂移 ${f}: 期望 ${want} 实际 ${n}`);
     }
     for (const f of Object.keys(ENCODE_WHITELIST)) if (!counts.has(f)) details.push(`白名单点消失 ${f}（清单需同步）`);
-    report('④', `encodeStateAsUpdate 生产白名单外清零（现行 ${Object.values(ENCODE_WHITELIST).reduce((a, b) => a + b, 0)} 点/7 文件）`, details.length === 0, details);
+    report('④', `encodeStateAsUpdate 生产白名单外清零（现行 ${Object.values(ENCODE_WHITELIST).reduce((a, b) => a + b, 0)} 点/${Object.keys(ENCODE_WHITELIST).length} 文件）`, details.length === 0, details);
   }
   // ⑤.bufferedAmount 生产读点唯一=wrapBackpressure（T41 W3b 锚随迁：wrapBackpressure 随域迁
   //  collab-session-guard.service——目标文件切换同批〔偏离 66 族载体适配〕。扫描词面收窄 `bufferedAmount`→

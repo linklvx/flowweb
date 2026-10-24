@@ -8,6 +8,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 
+/** Y1c T7：genesis 头行集 mock 面（tx 侧四个模型——SystemHistory fail-closed 读+头+快照+游标） */
+function genesisHeadMocks() {
+  return {
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'y1c-sys-history-1' }) },
+    canvasDoc: { upsert: vi.fn().mockResolvedValue({}) },
+    canvasDocSnapshot: { upsert: vi.fn().mockResolvedValue({}) },
+    runtimeFeedCursor: { upsert: vi.fn().mockResolvedValue({}) },
+  };
+}
+
 describe('CanvasService', () => {
   let service: CanvasService;
   let prisma: any;
@@ -23,6 +33,7 @@ describe('CanvasService', () => {
         findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: 't1' }),
       },
+      ...genesisHeadMocks(),   // Y1c T7：团队化用例 fn(prisma) 直通 tx——顶层 mock 亦需头集面
       $transaction: vi.fn(),
     };
     folderService = { touch: vi.fn() };
@@ -46,6 +57,7 @@ describe('CanvasService', () => {
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
+        ...genesisHeadMocks(),
       }));
       const result = await service.create('新画布', 'f1', 'u1');
       expect(result).toEqual(expect.objectContaining({ templateId: 't1', projectId: 'p1', name: '新画布', teamId: 'team1' }));
@@ -59,6 +71,7 @@ describe('CanvasService', () => {
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
+        ...genesisHeadMocks(),
       }));
       const result = await service.create('新画布', 'f1', 'u1');
       expect(result.collabGeneration).toBe(0);
@@ -72,6 +85,7 @@ describe('CanvasService', () => {
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: templateCreate },
+        ...genesisHeadMocks(),
       }));
       await service.create('新画布', null, 'u1');
       expect(templateCreate).toHaveBeenCalledWith({
@@ -81,6 +95,58 @@ describe('CanvasService', () => {
         },
       });
       expect(folderService.touch).not.toHaveBeenCalled();
+    });
+
+    // ═══ Y1c T7：genesis 头行集（双路之二——CanvasService.create / POST /canvases） ═══
+    it('T7①：同事务补建头集——CanvasDoc 行+Snapshot(g,0,0)+RuntimeFeedCursor+SystemHistory fail-closed 守卫（空种子=合法空 update 字节——不破坏旧装载容忍语义）', async () => {
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
+      const heads = genesisHeadMocks();
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+        canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
+        template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
+        ...heads,
+      }));
+      await service.create('新画布', 'f1', 'u1');
+
+      expect(heads.systemHistory.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }));
+      // 旧 state 种子语义（Y0a-3 T8① 同款 upsert 形状——空画布种子=[0,0] 合法空 update）
+      expect(heads.canvasDoc.upsert).toHaveBeenCalledWith({
+        where: { projectId: 'p1' },
+        create: { projectId: 'p1', state: expect.any(Buffer), stateSeq: 0n },
+        update: {},
+      });
+      const seedState = (heads.canvasDoc.upsert.mock.calls[0] as unknown as [{ create: { state: Buffer } }])[0].create.state;
+      expect(seedState.length).toBeGreaterThan(0);   // 非零长空 update（Y.applyUpdate 零长 buffer 会抛——[0,0] 形态安全）
+      expect(heads.canvasDocSnapshot.upsert).toHaveBeenCalledWith({
+        where: { projectId_generation_snapshotRev: { projectId: 'p1', generation: 0, snapshotRev: 0n } },
+        create: expect.objectContaining({
+          projectId: 'p1', generation: 0, snapshotRev: 0n, stateSeq: 0n,
+          state: seedState, vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+        }),
+        update: {},
+      });
+      expect(heads.runtimeFeedCursor.upsert).toHaveBeenCalledWith({
+        where: { projectId: 'p1' },
+        create: { projectId: 'p1' },
+        update: {},
+      });
+    });
+
+    it('T7① fail-closed：SystemHistory 缺失 ⇒ create 拒绝（无 Template/头集部分写入——事务原子回滚）', async () => {
+      prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
+      const heads = genesisHeadMocks();
+      heads.systemHistory.findUnique.mockResolvedValue(null);
+      const templateCreate = vi.fn().mockResolvedValue({ id: 't1' });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
+        canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
+        template: { create: templateCreate },
+        ...heads,
+      }));
+      await expect(service.create('新画布', 'f1', 'u1')).rejects.toThrow(/SystemHistory/);
+      expect(heads.canvasDocSnapshot.upsert).not.toHaveBeenCalled();
+      expect(heads.runtimeFeedCursor.upsert).not.toHaveBeenCalled();
     });
 
     it('folderId 非本人文件夹抛 BadRequest', async () => {
@@ -99,6 +165,7 @@ describe('CanvasService', () => {
             findMany: vi.fn().mockResolvedValue(names.map((name) => ({ name }))),
             create: vi.fn().mockResolvedValue({ id: 't1' }),
           },
+          ...genesisHeadMocks(),
         };
         prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
         return tx;
