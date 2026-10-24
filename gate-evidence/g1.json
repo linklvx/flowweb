@@ -1,10 +1,10 @@
 {
   "gate": "G1",
-  "commit": "T7-worktree（单 commit 随证据同 commit 落盘——commit hash 见 git log 本 manifest 所在提交）",
+  "commit": "e5a4e8e4",
   "env": {
     "pg": "PostgreSQL 16.13 (localhost:5432/flowweb)",
     "migration": "20261024120000_y1c_t7_carrier_genesis",
-    "date": "2026-10-24T10:16:01.160Z"
+    "date": "2026-10-24T11:14:51.786Z"
   },
   "cases": [
     {
@@ -12,77 +12,88 @@
       "command": "tx1: SELECT \"pgSeq\" FROM \"CanvasDoc\" WHERE \"projectId\"=$1 FOR UPDATE ‖ tx2: 同行 FOR UPDATE NOWAIT",
       "status": "pass",
       "expect": "tx2 NOWAIT → 55P03",
-      "detail": "tx2 55P03 lock_not_available——行锁持有至 tx1 事务结束（成立）"
+      "detail": "tx2 55P03 lock_not_available——行锁持有至 tx1 事务结束（成立）",
+      "artifacts": []
     },
     {
       "id": "P2-watermark-cas-update-returning",
       "command": "UPDATE \"CanvasDoc\" SET \"walCheckpointSeq\"=$2,\"pgSeq\"=$2 WHERE \"projectId\"=$1 AND \"generation\"=0 AND \"pgSeq\"=$3 RETURNING \"pgSeq\"",
       "status": "pass",
       "expect": "前推 1 行带回 / 陈旧 CAS 0 行",
-      "detail": "前推 RETURNING pgSeq=5；陈旧 pgSeq=0 谓词 0 行（CAS 授权语义成立）"
+      "detail": "前推 RETURNING pgSeq=5；陈旧 pgSeq=0 谓词 0 行（CAS 授权语义成立）",
+      "artifacts": []
     },
     {
       "id": "P3-runtime-feed-cursor-frozen-upsert",
       "command": "T5b 冻结 SQL 原文（源文本提取）×2：\"INSERT INTO \\\"RuntimeFeedCursor\\\" (\\\"projectId\\\", \\\"lastSeq\\\", \\\"minRetainedSeq\\\") VALUE\"…",
       "status": "pass",
       "expect": "RETURNING 1→2 / 行数=1",
-      "detail": "首事件 RETURNING lastSeq=1、次=2；行数恒 1（ON CONFLICT 冲突不重复插不报错——genesis 插行后唯一取号路径）"
+      "detail": "首事件 RETURNING lastSeq=1、次=2；行数恒 1（ON CONFLICT 冲突不重复插不报错——genesis 插行后唯一取号路径）",
+      "artifacts": []
     },
     {
       "id": "N1-system-history-single-row-check",
       "command": "INSERT INTO \"SystemHistory\" VALUES (2, gen_random_uuid(), now(), now())",
       "status": "pass",
       "expect": "红（/system_history_single_row_check/）",
-      "detail": "23514 关系 \"SystemHistory\" 的新列违反了检查约束 \"system_history_single_row_check\""
+      "detail": "23514 关系 \"SystemHistory\" 的新列违反了检查约束 \"system_history_single_row_check\"",
+      "artifacts": []
     },
     {
       "id": "N2-canvas-doc-watermark-order-check",
       "command": "UPDATE \"CanvasDoc\" SET \"pgSeq\" = \"walCheckpointSeq\" + 1",
       "status": "pass",
       "expect": "红（/canvas_doc_watermark_order_check/）",
-      "detail": "23514 关系 \"CanvasDoc\" 的新列违反了检查约束 \"canvas_doc_watermark_order_check\""
+      "detail": "23514 关系 \"CanvasDoc\" 的新列违反了检查约束 \"canvas_doc_watermark_order_check\"",
+      "artifacts": []
     },
     {
       "id": "N3-snapshot-16mib-check",
       "command": "INSERT CanvasDocSnapshot(state=16MiB+1)",
       "status": "pass",
       "expect": "红（/canvas_doc_snapshot_state_size_check/）",
-      "detail": "23514 关系 \"CanvasDocSnapshot\" 的新列违反了检查约束 \"canvas_doc_snapshot_state_size_check\""
+      "detail": "23514 关系 \"CanvasDocSnapshot\" 的新列违反了检查约束 \"canvas_doc_snapshot_state_size_check\"",
+      "artifacts": []
     },
     {
       "id": "N4-maintenance-one-active-partial-unique",
       "command": "INSERT 同 projectId 两条活跃 stage（REQUESTED+DRAINING）",
       "status": "pass",
       "expect": "红（/maintenance_operation_one_active_idx/）",
-      "detail": "23505 重复键违反唯一约束\"maintenance_operation_one_active_idx\""
+      "detail": "23505 重复键违反唯一约束\"maintenance_operation_one_active_idx\"",
+      "artifacts": []
     },
     {
       "id": "P4-snapshot-publish-tx-pattern",
       "command": "BEGIN; SELECT FOR UPDATE 头; INSERT Snapshot(stateSeq=pgSeq); UPDATE currentSnapshotRev WHERE pgSeq=$cas RETURNING; 不变量复查; ROLLBACK",
       "status": "pass",
       "expect": "不变量违例行=0 / 指针条件更新 1 行 / 零残留",
-      "detail": "发布事务形态成立（行锁授权+指针条件更新 1 行+不变量违例 0+回滚零残留）"
+      "detail": "发布事务形态成立（行锁授权+指针条件更新 1 行+不变量违例 0+回滚零残留）",
+      "artifacts": []
     },
     {
       "id": "V1-validate-empty-model-red",
       "command": "npx prisma validate --schema <临时副本+model BrokenEmpty{\n}>",
       "status": "pass",
-      "expect": "P1012 红",
-      "detail": "Error validating model \"BrokenEmpty\": Each model must have at least one unique criteria…（空 model 形态红）"
+      "expect": "红（exit≠0 + P1012：/Error validating model \"BrokenEmpty\": Each model must have at least one unique criteria/）",
+      "detail": "Error code: P1012 | error: Error validating model \"BrokenEmpty\": Each model must have at least one unique criteria that has only required fields. Either mark a single field with `@id`, `@unique` or add a multi field criterion with `@@id([])` or `@@unique([])` to the model.",
+      "artifacts": []
     },
     {
       "id": "V2-validate-one-sided-relation-red",
       "command": "npx prisma validate --schema <临时副本+BrokenA→BrokenB 单侧 @relation>",
       "status": "pass",
-      "expect": "P1012 红",
-      "detail": "The relation field `broken` on model `BrokenA` is missing an opposite relation field on the model `BrokenB`（单侧 relation 形态红）"
+      "expect": "红（exit≠0 + P1012：/The relation field `broken` on model `BrokenA` is missing an opposite relation field on the model `BrokenB`/）",
+      "detail": "Error code: P1012 | error: Error validating field `broken` in model `BrokenA`: The relation field `broken` on model `BrokenA` is missing an opposite relation field on the model `BrokenB`. Either run `prisma format` or add it manually.",
+      "artifacts": []
     },
     {
       "id": "V3-validate-missing-opposite-red",
       "command": "npx prisma validate --schema <临时副本-删 CanvasProject.docSnapshots 反向>",
       "status": "pass",
-      "expect": "P1012 红",
-      "detail": "The relation field `project` on model `CanvasDocSnapshot` is missing an opposite relation field on the model `CanvasProject`（缺 opposite 形态红——载体族真实关系）"
+      "expect": "红（exit≠0 + P1012：/The relation field `project` on model `CanvasDocSnapshot` is missing an opposite relation field on the model `CanvasProject`/）",
+      "detail": "Error code: P1012 | error: Error validating field `project` in model `CanvasDocSnapshot`: The relation field `project` on model `CanvasDocSnapshot` is missing an opposite relation field on the model `CanvasProject`. Either run `prisma format` or add it manually.",
+      "artifacts": []
     }
   ],
   "invariants": [
@@ -124,9 +135,10 @@
   ],
   "skipped": 0,
   "notes": [
+    "commit 字段=证据认证对象=commit e5a4e8e4（探针修复代码落点）；本 g1.json 于其后的独立证据 commit 落盘（A=代码修复 → G1_COMMIT=<A hash> 重跑探针 → B=证据再生——消除 manifest 自引用循环）",
     "updateHash 去重 no-op 探针 deferred-to-T9（勘误方案 B：CanvasDocUpdate 表改形+帧协议归 T9 同切片——卡文 CanvasDocUpdate 块=T9 形态参考非本卡交付）",
     "快照发布事务的真实发布者=T11（本门只证 PG 事务形态：行锁授权+条件指针更新+跨表不变量事务内成立）",
     "CanvasDoc.state/stateSeq/preVacuumSv/schemaVersion@default(3) 与 CanvasDocUpdate 旧形态过渡保留（勘误：T9/T10/T11 各自同可编译切片拆除）",
-    "负控清单=N1(SystemHistory 单行 CHECK)/N2(水位同行 CHECK)/N3(Snapshot 16MiB CHECK)/N4(活跃维护 partial unique)——四负控全红=门有效（spec §9.1）"
+    "负控清单=N1(SystemHistory 单行 CHECK)/N2(水位同行 CHECK)/N3(Snapshot 16MiB CHECK)/N4(活跃维护 partial unique)+V1-V3(prisma validate 三形态机判——空 model/单侧 relation/缺 opposite，临时 schema 副本真跑 CLI：exit≠0+P1012 对应错误文本)——七负控全红=门有效（spec §9.1）"
   ]
 }
