@@ -48,7 +48,7 @@ export const APPLY_ADMISSION_STAGES = [
   /** ① 会话身份/项目权限/generation（每帧对照当前世代权威——DB 或同步失效缓存，非连接建立时缓存）/帧格式
    *  →解码+结构/字段权限/预算（maxStructs/maxDsRanges/maxFrameBytes——解压后大小限） */
   'frame-local-validation',
-  /** ② pending 区间预检（analyzePendingIntervals——缺前驱/区间有洞→4412 零 WAL 零 apply 零 ACK） */
+  /** ② pending 区间预检（analyzePendingIntervals——缺前驱/区间有洞/DS-only 未知 clock（修正 #2③）→4412 零 WAL 零 apply 零 ACK） */
   'pending-interval-precheck',
   /** ③ 帧字节精确 copy 至独立 buffer（禁 subarray 共享）+SHA-256 去重（promise map——去重后才分配 walSeq；
    *  命中 inflight 须 await 原帧 fsync+apply 完成才放行；命中 applied=no-op 确认） */
@@ -146,34 +146,52 @@ export const MAX_RESIDENT_DOC_BYTES_CONTRACT = {
 /** 单 client 连续时钟区间 [start,end)（半开——end=下一区间起点语义下的排他端）。 */
 export interface ClientClockInterval { client: number; start: number; end: number }
 
-/** pending 区间预检裁定（§3.2/§4.3）：
- *  - self-contained：各 client 区间起点 clock≤SV 且区间内部连续（覆盖自包含——SS2 合法放行
- *    **即使 max clock>SV**；**禁 max-clock 单值判断**）
- *  - missing-predecessor：起点 clock>SV（缺前驱）或区间内部有洞→4412 零 WAL 零 apply 零 ACK doc 不变；
- *    预检通过后 apply 仍现 pending（理论不应发生）=毒帧 4411 路径。
- *  intervals=各 client 合并排序后的连续区间（self-contained 时回传供审计）。 */
+/** pending 区间预检裁定（§3.2/§4.3；**修正 #2 三分精化**）：
+ *  - self-contained：各 client 区间（**扣除 SV 已覆盖前缀后**）与接收端已知前缀连续衔接（覆盖自包含
+ *    ——SS2 合法放行 **即使 max clock>SV**；**禁 max-clock 单值判断**）
+ *  - missing-predecessor →4412 零 WAL 零 apply 零 ACK doc 不变：
+ *    - start-after-sv：帧首区间起点 clock>SV（缺前驱）
+ *    - hole：区间有洞——**洞区间先扣除 SV 已覆盖前缀**（SV 覆盖域内的 Skip/缺口不算 pending，只报未覆盖段）
+ *    - ds-unknown-clock（修正 #2③）：DS-only 更新（纯删集零 struct）引用接收端未知 client clock
+ *  预检通过后 apply 仍现 pending（理论不应发生）=毒帧 4411 路径。
+ *  intervals=各 client 合并排序后的连续区间（self-contained 时回传供审计——含 SV 覆盖重叠段原样回传）。 */
 export type PendingIntervalAnalysis =
   | { kind: 'self-contained'; intervals: ClientClockInterval[] }
   | {
       kind: 'missing-predecessor';
       client: number;
-      reason: 'start-after-sv' | 'hole';
-      /** 帧内该 client 首区间起点（start-after-sv 档） */
+      reason: 'start-after-sv' | 'hole' | 'ds-unknown-clock';
+      /** 帧内该 client 首区间起点（start-after-sv 档）；ds-unknown-clock 档=触发的删集区间 clock */
       startClock: number;
       /** 接收端 SV 中该 client 的 clock（client 不在 SV 即 0——新 client 必须自 clock 0 起） */
       svClock: number;
-      /** hole 档的洞区间（Skip struct 或合并后计算缺口——半开 [from,to)） */
+      /** hole 档的洞区间（Skip struct 或合并后计算缺口——**已扣 SV 覆盖前缀**的未覆盖段，半开 [from,to)） */
       hole?: { from: number; to: number };
     };
 
 /** pending 区间预检（纯函数——准入链 ② 消费；入参须已过 ① 解码验证，decode 异常由调用方归 4411 毒帧面）。
- *  算法：Y.decodeUpdate 取各 client struct（Item/GC 计入覆盖；Skip=显式洞标记——mergeUpdates 挖洞形态）
- *  →按 client 合并排序区间 →首区间 start>SV[c]（c 不在 SV 即 0）=缺前驱；区间间缺口或 Skip=区间有洞
- *  （**无条件拒**——预检先于 apply，fail-closed 方向）。双层校验：CRC 管损坏、hash 管身份（§4.4）——
- *  本函数只管区间覆盖，不做内容校验。 */
+ *  算法（修正 #2 三分精化）：Y.decodeUpdate 取各 client struct 与删集 →
+ *  ① **区间判定先扣除 SV 已覆盖前缀**（SV clock=s 的 [0,s) 域内 struct/Skip/缺口不算 pending——起点
+ *    clock≤SV 的前缀段不触发拒绝）；② **SV 已覆盖的 Skip 放行**（删集/跳过结构引用区间已被 SV 覆盖
+ *    =接收端已持有该内容，不视为 pending；未覆盖部分仍为洞→拒）；③ **DS-only 更新（纯删集零 struct）
+ *    遇未知 client clock→missing-predecessor**（4412——client 不在 SV 或删集区间超出 SV 覆盖）。
+ *  →按 client 合并排序区间 →首区间 start>SV[c]（c 不在 SV 即 0）=缺前驱；未覆盖缺口或 Skip=区间有洞
+ *  （fail-closed 方向）。双层校验：CRC 管损坏、hash 管身份（§4.4）——本函数只管区间覆盖，不做内容校验。 */
 export function analyzePendingIntervals(update: Uint8Array, stateVector: Uint8Array): PendingIntervalAnalysis {
   const sv = Y.decodeStateVector(stateVector);                          // Map<client, clock>
-  const { structs } = Y.decodeUpdate(update);                            // Array<Item|GC|Skip>
+  const { structs, ds } = Y.decodeUpdate(update);                        // structs: Array<Item|GC|Skip>；ds: { clients: Map<client, {clock,len}[]> }
+  // 修正 #2③：DS-only 更新（零 struct）遇未知 client clock→4412（fail-closed——删集引用接收端未持有的内容）
+  if (structs.length === 0) {
+    for (const [client, ranges] of ds.clients) {
+      const svClock = sv.get(client) ?? 0;                               // 不在 SV=接收端从未见过该 client
+      for (const r of ranges) {
+        if (sv.get(client) === undefined || r.clock + r.len > svClock) {
+          return { kind: 'missing-predecessor', client, reason: 'ds-unknown-clock', startClock: r.clock, svClock };
+        }
+      }
+    }
+    return { kind: 'self-contained', intervals: [] };
+  }
   const byClient = new Map<number, Array<{ start: number; end: number; isSkip: boolean }>>();
   for (const s of structs) {
     const list = byClient.get(s.id.client) ?? [];
@@ -188,24 +206,21 @@ export function analyzePendingIntervals(update: Uint8Array, stateVector: Uint8Ar
     if (first.start > svClock) {                                         // 缺前驱：帧起点晚于接收端已知前缀
       return { kind: 'missing-predecessor', client, reason: 'start-after-sv', startClock: first.start, svClock };
     }
-    if (first.isSkip) {                                                  // 首 struct 即 Skip（洞在帧首）
-      return { kind: 'missing-predecessor', client, reason: 'hole', startClock: first.start, svClock,
-        hole: { from: first.start, to: first.end } };
-    }
-    let end = first.end;
-    for (let i = 1; i < raw.length; i++) {                               // 区间连续性：Skip 标记或计算缺口=洞
-      const cur = raw[i];
-      if (cur.isSkip) {                                                  // Skip 前另有缺口时缺口并入洞区间
+    // 修正 #2①：连续性判定自 SV 已覆盖前缀末端起算——coveredEnd 初值=svClock（[0,svClock) 不算 pending）
+    let coveredEnd = svClock;
+    for (const cur of raw) {
+      if (cur.end <= svClock) continue;                                  // 修正 #2②：SV 已覆盖的 struct/Skip 放行
+      if (cur.isSkip) {                                                  // 未覆盖 Skip：未覆盖段=洞（覆盖段已扣除）
         return { kind: 'missing-predecessor', client, reason: 'hole', startClock: first.start, svClock,
-          hole: { from: Math.min(end, cur.start), to: cur.end } };
+          hole: { from: Math.max(Math.min(coveredEnd, cur.start), svClock), to: cur.end } };
       }
-      if (cur.start > end) {
+      if (cur.start > coveredEnd) {                                      // 计算缺口——洞=未覆盖段 [coveredEnd,cur.start)
         return { kind: 'missing-predecessor', client, reason: 'hole', startClock: first.start, svClock,
-          hole: { from: end, to: cur.start } };
+          hole: { from: coveredEnd, to: cur.start } };
       }
-      end = Math.max(end, cur.end);
+      coveredEnd = Math.max(coveredEnd, cur.end);
     }
-    merged.push({ client, start: first.start, end });
+    merged.push({ client, start: first.start, end: coveredEnd });
   }
   return { kind: 'self-contained', intervals: merged };
 }
@@ -319,7 +334,8 @@ export interface WalFrameRecord {
 }
 
 /** 坏段四档（T8 恢复扫描告警/处置分档）。帧级 granular 缺陷码→四档映射见 walDefectTier；
- *  段级 quarantine（bad-header/history-mismatch/timestamp-fence）独立于四档（整段 fail-closed 不重放）。 */
+ *  段级栅栏（bad-header/history-mismatch=整段 quarantine fail-closed；timestamp-fence=修正 #6 后
+ *  recoverySuspect 恢复怀疑态——见 shouldQuarantineSegment 两维裁定）独立于四档。 */
 export type WalBadSegmentTier = 'bad-crc' | 'truncated' | 'missing-seq' | 'dup-hash';
 
 /** 帧级 granular 缺陷码（T0-S4 §5「四档对齐+扩展」的扩展层——扫描器分类码全集）。 */
@@ -340,7 +356,7 @@ export function walDefectTier(kind: WalDefectKind): WalBadSegmentTier {
   }
 }
 
-/** 段级 quarantine 原因（整段隔离零帧重放 fail-closed——§4.4）。 */
+/** 段级栅栏原因（§4.4——修正 #6 两维分派后：history-mismatch=quarantine 维；timestamp-fence=recoverySuspect 维）。 */
 export type WalQuarantineReason = 'bad-header' | 'history-mismatch' | 'timestamp-fence';
 
 /** SystemHistory 全局单行权威（v5.4⑦——删 CanvasDoc.historyId 列；bump=单事务更新 SystemHistory
@@ -350,30 +366,40 @@ export interface SystemHistoryState {
   epochStartedAtMs: number;
 }
 
-/** 恢复扫描双 quarantine 栅栏（§4.4/T13 恢复顺序第一步）：
- *  - historyId≠SystemHistory → 整段 quarantine（防恢复后 WAL 回放复活已回滚内容——本仓备份=pg_dump 恢复实证）
- *  - lastWriteAt>epochStartedAt（忘 bump 形态——段比 epoch 新）→ 整段 quarantine+RESTORED_READONLY
- *    （同机时钟偏移可接受——fail-closed 方向正确）+备份工具 restore.lock marker 双保险
+/** 恢复扫描双栅栏判定（§4.4/T13 恢复顺序第一步；**修正 #6——单布尔拆两维**）：
+ *  - historyId≠SystemHistory → **quarantine=true**（fail-closed 整段隔离零帧重放——防恢复后 WAL 回放
+ *    复活已回滚内容，本仓备份=pg_dump 恢复实证；语义不变）
+ *  - lastWriteAt>epochStartedAt（忘 bump 形态——段比 epoch 新）→ **recoverySuspect=true**（默认 false
+ *    ——触发才置真）：**不再直接并入整段 quarantine**（修正 #6 前语义）——T8 消费方据此走恢复流裁定
+ *    （RESTORED_READONLY/恢复怀疑态路径——同机时钟偏移可接受，fail-closed 方向正确）而非静默丢段；
+ *    备份工具 restore.lock marker 双保险。
  *  **时间戳栅栏求值作用域（F-S4-5 契约级收窄——T8/T13 必须按此实现）**：仅在**恢复怀疑态**求值
  *  （restore.lock marker 在位 或 PG pgSeq 水位倒挂于 WAL 段）——长命 epoch 下全部在役段恒满足
  *  lastWriteAt>epochStartedAt，每次恢复都求值会把正常崩溃恢复隔离成空 WAL；historyId 栅栏每次恢复先查。
  *  `--adopt-wal` 窄窗：仅 historyId 已匹配+operator 显式确认+审计（三条件缺一不可——不自动修复）。 */
-export type WalSegmentQuarantineResult =
-  | { quarantined: false }
-  | { quarantined: true; reason: 'history-mismatch' | 'timestamp-fence' };
+export interface WalSegmentQuarantineResult {
+  /** 整段隔离 fail-closed（零帧重放）——唯一成因=history-mismatch（默认 false） */
+  quarantine: boolean;
+  /** 时间戳栅栏触发的恢复怀疑态（默认 false）——T8 据此走恢复流，非静默丢段 */
+  recoverySuspect: boolean;
+  /** 任一维触发时的原因（两维皆真=history-mismatch 优先——fail-closed 档先判先报） */
+  reason?: WalQuarantineReason;
+}
 
 export function shouldQuarantineSegment(
   header: Pick<WalSegmentHeader, 'historyId' | 'lastWriteAtMs'>,
   systemHistory: SystemHistoryState,
   opts?: { evaluateTimestampFence?: boolean },   // 缺省 true=谓词本身；调用方按 F-S4-5 作用域门控
 ): WalSegmentQuarantineResult {
+  const recoverySuspect = opts?.evaluateTimestampFence !== false
+    && header.lastWriteAtMs > systemHistory.epochStartedAtMs;
   if (header.historyId !== systemHistory.historyId) {
-    return { quarantined: true, reason: 'history-mismatch' };
+    return { quarantine: true, recoverySuspect, reason: 'history-mismatch' };
   }
-  if (opts?.evaluateTimestampFence !== false && header.lastWriteAtMs > systemHistory.epochStartedAtMs) {
-    return { quarantined: true, reason: 'timestamp-fence' };
+  if (recoverySuspect) {
+    return { quarantine: false, recoverySuspect: true, reason: 'timestamp-fence' };
   }
-  return { quarantined: false };
+  return { quarantine: false, recoverySuspect: false };
 }
 
 /** SHA-256 去重启动重建有界索引（偏离 38④——跨重启「零重复 walSeq」成立）：帧记录存 frameHash+
@@ -435,17 +461,20 @@ export const VERSION_GATE_SERVER_BASE = {
 
 export type VersionGateVerdict = 'allow' | 'client-outdated';
 
-/** 版本门判定（纯函数——运行时=字面量精确比较，无区间协商）：三元任一缺失/不匹配（含高于服务端——
- *  reload 无效档）→ client-outdated。 */
+/** 版本门判定（纯函数——运行时=字面量精确比较，无区间协商）：三元任一不匹配（含高于服务端——
+ *  reload 无效档）→ client-outdated。**修正 #8 allowFirstConnect**：客户端首连未携带 historyId
+ *  （无本地缓存键五元历史——「无值」≠「有值不匹配」，后者仍 4406）→ **放行**（非 4406），由服务端
+ *  auth 回执下发 historyId 客户端持久化（§9 半链注记——formatProviderHistoryParam/缓存键五元同源）。
+ *  protocolVersion/schemaVersion 不匹配与首连正交：首连且版本不匹配仍 4406（版本硬门不因首连豁免）。 */
 export function resolveVersionGate(
   client: Partial<VersionGateHardTriple> | undefined,
   server: VersionGateHardTriple,
 ): VersionGateVerdict {
   if (client == null) return 'client-outdated';
-  return client.protocolVersion === server.protocolVersion
-    && client.schemaVersion === server.schemaVersion
-    && client.historyId === server.historyId
-    ? 'allow' : 'client-outdated';
+  if (client.protocolVersion !== server.protocolVersion
+    || client.schemaVersion !== server.schemaVersion) return 'client-outdated';
+  if (client.historyId === undefined) return 'allow';   // 修正 #8：首连无 historyId=放行——auth 回执下发
+  return client.historyId === server.historyId ? 'allow' : 'client-outdated';
 }
 
 /** Y1c 码 close 载荷（§8.1——码值自 collab-close-code 单源；reason 字面量常量同源文件）：

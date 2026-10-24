@@ -34,7 +34,8 @@ export interface WalSegmentFixture {
   fault?: WalFaultInjection;
   /** 期望恢复扫描重放前缀（walSeq 十进制 bigint 列表——spike §4 精确性口径：无漏好帧/无收坏帧） */
   expectedReplayPrefix: bigint[];
-  /** 期望整段 quarantine（零帧重放——fail-closed） */
+  /** 期望段级栅栏触发（修正 #6 两维分派后：history-mismatch=quarantine 整段隔离零帧重放 fail-closed；
+ *  timestamp-fence=recoverySuspect 恢复怀疑态——T8 据此走恢复流裁定重放，非静默丢段。字段名沿旧称=栅栏触发期望值） */
   expectedQuarantine?: 'history-mismatch' | 'timestamp-fence';
   /** 期望坏段四档（帧级缺陷档——quarantine 档不落此字段） */
   expectedBadTier?: WalBadSegmentTier;
@@ -104,7 +105,7 @@ export function buildWalFaultCorpus(
       frames: walFrameInputs(2),
       fault: { kind: 'history-mismatch', historyId: 'h-old-epoch' },
       expectedReplayPrefix: [], expectedQuarantine: 'history-mismatch' },
-    { name: '时间戳栅栏（lastWriteAt>epochStartedAt——忘 bump 形态整段隔离）',
+    { name: '时间戳栅栏（lastWriteAt>epochStartedAt——忘 bump 形态；修正 #6 后=recoverySuspect 恢复怀疑态，自动扫描零帧重放、重放归 T8 恢复流裁定）',
       header: walFixtureHeader({ historyId: systemHistory.historyId, lastWriteAtMs: epochStartedAtMs + 5_000 }),
       frames: walFrameInputs(1),
       fault: { kind: 'timestamp-fence', lastWriteAtMs: epochStartedAtMs + 5_000 },

@@ -172,6 +172,7 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 - [ ] ADR-01：instances:1 复杂度边界（非 HA）/单写者/重启恢复顺序（WAL→PG 前缀校验→重建 appliedSeq→开放写）/扩容=独立批前置条件（共享耐久日志/所有权租约/fencing）
 - [ ] spool 帧协议升级：**SHA-256 帧去重+walSeq 单调序号（per project）+帧内一律携带 generation+帧记录存 frameHash（v1.7——启动重建有界去重索引 24h/100k）**+水位字段+坏段分类码（crc/truncated/missing-seq/dup-hash 四档）+**段头 {magic,version,projectId,generation,historyId,lastWriteAt,createdAt}（v1.7 增 lastWriteAt——时间戳栅栏）——新建段 fsync 文件+目录**；磁盘上限+背压+故障停收（fail-closed）；**拓扑=per-project 定形终态（S4 用 actor 原型管线测；升级序=组提交→4-way hash 分片→全局 WAL=新 ADR）**；**换代=段 namespace 切代+旧段 quarantine**；**恢复扫描=完整有效前缀截断/隔离无效尾部+段头 historyId≠SystemHistory 或 lastWriteAt>epochStartedAt=整段 quarantine fail-closed（`--adopt-wal` 仅 historyId 已匹配+人工确认例外）**；**WAL 损坏只允许丢 walSeq>pgSeq 的帧；fsync 分档（v1.7）：写前失败/ENOSPC=截断回 last-good+复用已分配 seq；EIO=fail-stop（walHealthy=false/停收/close 1011/要求重启+磁盘检查——不进复用路径；`wal_fsync_error_total{device}`）**
 - [ ] 先红：坏段分类用例（构造坏 CRC/截断/缺号/重复 hash→分档隔离告警=现无分类红）+**historyId 不匹配段 quarantine（bump 后旧段禁重放）+lastWriteAt 时间戳栅栏（模拟忘 bump：段比 epoch 新→quarantine）+EIO fail-stop（不截断不复用）=红前置**→绿→Commit。
+- [ ] 修正 #6 生效：shouldQuarantineSegment 时间戳栅栏显式 recoverySuspect，默认 false（时间戳栅栏不再并入整段 quarantine——据 recoverySuspect 走恢复流非静默丢段）——见「确认点①附带裁定」节
 
 ### Task 9: spool-first 写管线核心（v1.7：CollabProjectActor+所有权切换——P1 入口条件）
 **Files:** collab-frame-gate.service.ts（重写 guardSyncFrame 收编）+**新建 collab-project-actor.service.ts**；collab-persistence.service.ts（降级 telemetry）；**collab-server.factory.ts+collab.gateway.ts（onStoreDocument 钩子链拆除——偏离 38①）**
@@ -180,6 +181,9 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 - [ ] **所有权切换（偏离 38①——P1 入口条件非 T32）**：factory/gateway 的 `onStoreDocument/afterStoreDocument` 改 telemetry-only（计数器）或移除；`storeDocumentUnlocked('debounce')` 退出现役调用；**验收=一帧→恰一次 WAL append+一次 PG row+一次广播+旧 spool append 计数 0+onStoreDocument 对 connection-origin 零调用**；per-project 写入背压〔偏离 36-③〕；维护写独立 append 通道；**SS2 大帧并发信号量（全局内存预算+per-project 1）+WS maxPayload 16→9MiB+认证后 per-connection 入站排队字节上限（2×ss2FrameGate 超限 1009）**
 - [ ] **P1 validator=P1 shape fixture**（root/权限/预算/通用格式——全类型最终矩阵运行时准入在 T24 激活）
 - [ ] 用例：并发双连接帧串行准入+**5 连接各 2 帧→1 次 fsync+10 ACK 顺序与 walSeq 一致（actor 批验证）**；**并发同字节双连接→一个 walSeq+两 ACK 均在 fsync 后（in-flight 去重）**；**S1 九验收回归（含发送者回声 no-op/VIEWER 短路/onStoreDocument 零调用）**；SS2 大帧预算拒（WS 通道承载 8.06MiB——无 HTTP seed；recovery import 归 T25）；帧字节 copy（lib0 subarray 越界读反例）→Commit。
+- [ ] 修正 #1 生效：FrameEffects 以 apply 后 actor 临界区内为准；ProjectDocIndex 由 T9 建、T24/T26 复用；NODE_CREATED/RESTORED 加 type——见「确认点①附带裁定」节
+- [ ] 修正 #2 生效：pending 区间扣除 svClock 已覆盖前缀；SV 覆盖的 Skip 放行；DS-only 未知 clock → 4412——见「确认点①附带裁定」节
+- [ ] 修正 #8 生效：版本门加 allowFirstConnect；首连无 historyId 放行并由 auth 下发——见「确认点①附带裁定」节
 
 ### Task 10: G2 门——applied 前缀+批量 PG+水位三元+barrier 接线（v1.6 前移）
 **Files:** collab-persistence.service.ts（worker 批提交改造）；collab-server.factory.ts（**onStateless 接线——v1.6 自 T21 前移本卡**）
@@ -188,6 +192,7 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 - [ ] **save barrier 服务端接线（偏离 37⑦+38⑳）**：factory onStateless→handler **首语句同步捕获 target=appliedSeq**→flushThrough(target)→等 pgSeq>=target 有界→`connection.sendStateless({nonce,clientSeq,committedSeq})`；nonce 幂等/永不 throw（catch 回 error 回执）/maintenance 拒绝语义；**项目级 flush 节流 ≤250ms（多 barrier 合并等待——flushThrough=幂等/有界/不阻塞写/返回当前 pgSeq）**；同连接串行保证（processMessages 队列）契约测试
 - [ ] **doc 卸载纪律（偏离 37⑩+38⑤）**：**beforeUnloadDocument**（正名——无 onUnloadDocument 钩子；throw=拒绝卸载）drain applied→PG 或拒绝卸载；PG 不可用=doc 常驻/fail-closed；**maxResidentDocBytes 全局驻留上界（到顶新项目 onLoad 503/4413）+doc_unload_blocked_total**；LRU+按 (projectId,generation) 清互斥/队列/去重 hash
 - [ ] **G2 go/no-go 判定**（manifest+负控；不过=不进 P2）→Commit。
+- [ ] 修正 #7 生效：Y1c 四码先走 resolveRecoveryAction；4406 terminal、4411/4412 resync、4413 retry，不被 backoff 吞——见「确认点①附带裁定」节
 
 ### Task 11: 快照发布+compact+WAL 清理
 **Files:** canvas-doc-update.repository.ts（compact 重写）；COLLAB_ROLE worker 调度

@@ -15,6 +15,7 @@ import {
   RecoveryAction, resolveRecoveryAction,
   CONSECUTIVE_DENY_RECOVERY_THRESHOLD, RecoveryDenyState, advanceRecoveryDenyState,
   recoveryActionForAuthVerdict, DENY_ESCAPE_HATCH_CONTRACT, HISTORY_ID_HALF_CHAIN_CONTRACT,
+  Y1C_RECOVERY_DISPATCH_TIERS, assertY1cCodesNotBackoffRouted,
 } from './recovery-flow';
 
 describe('Y1c T5c 契约冻结：恢复动作枚举七值（§8.1）', () => {
@@ -58,6 +59,36 @@ describe('Y1c T5c 契约冻结：resolveRecoveryAction 按 T5a 冻结 close 载�
     expect(resolveRecoveryAction({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_GENERATION_STALE_TERMINAL_REASON })).toBe('reconnect-new-generation');
     expect(resolveRecoveryAction({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON })).toBe('export-draft-then-clear');
     expect(resolveRecoveryAction({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: SERVER_RESTORED_TERMINAL_REASON })).toBe('readonly-recovery-user-adjudication');
+  });
+});
+
+describe('Y1c T5c 契约修正 #7：Y1c 四码先走 resolveRecoveryAction——不被 backoff 吞（T10/T25）', () => {
+  it('四码分派档表：4406→terminal/4411·4412→resync/4413→retry（Retry-After 语义）——与 resolveRecoveryAction 动作映射单源一致', () => {
+    expect(Y1C_RECOVERY_DISPATCH_TIERS[CollabCloseCode.CLIENT_OUTDATED]).toBe('terminal');
+    expect(Y1C_RECOVERY_DISPATCH_TIERS[CollabCloseCode.FRAME_MALFORMED]).toBe('resync');
+    expect(Y1C_RECOVERY_DISPATCH_TIERS[CollabCloseCode.RESYNC_REQUIRED]).toBe('resync');
+    expect(Y1C_RECOVERY_DISPATCH_TIERS[CollabCloseCode.MAINTENANCE_FREEZE]).toBe('retry');
+    expect(Object.keys(Y1C_RECOVERY_DISPATCH_TIERS).length).toBe(4);   // 恰四码——不多不少
+    // 分派档↔动作单源对齐：四码各经 resolveRecoveryAction 得正确档（禁 backoff-retry）
+    const tierToAction: Record<'terminal' | 'resync' | 'retry', RecoveryAction> = {
+      terminal: 'force-refresh-protocol',
+      resync: 'resync-full',
+      retry: 'retry-after-maintenance',
+    };
+    for (const [code, tier] of Object.entries(Y1C_RECOVERY_DISPATCH_TIERS)) {
+      const action = resolveRecoveryAction({ code: Number(code) });
+      expect(action).toBe(tierToAction[tier]);
+      expect(action).not.toBe('backoff-retry');   // 「不被 backoff 吞」——四码永不落通用退避档
+    }
+  });
+  it('守卫 assertY1cCodesNotBackoffRouted：四码任一入 backoff 处理集合即 throw（负控——4413 放进去必须红）', () => {
+    // 负控：把 4413 放进 backoff 集合→守卫必 throw（消费方测试红——「不被 backoff 吞」的编译/装配面防线）
+    expect(() => assertY1cCodesNotBackoffRouted([CollabCloseCode.MAINTENANCE_FREEZE])).toThrow(/resolveRecoveryAction/);
+    expect(() => assertY1cCodesNotBackoffRouted([1008, CollabCloseCode.CLIENT_OUTDATED])).toThrow(/4406|resolveRecoveryAction/);
+    expect(() => assertY1cCodesNotBackoffRouted([4406, 4411, 4412, 4413])).toThrow();
+    // 合法 backoff 集合（瞬态码——1008/1011/4205）不触发
+    expect(() => assertY1cCodesNotBackoffRouted([CollabCloseCode.RATE_LIMITED_CLOSE, CollabCloseCode.SLOW_CONSUMER, 4205])).not.toThrow();
+    expect(() => assertY1cCodesNotBackoffRouted([])).not.toThrow();
   });
 });
 

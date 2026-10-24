@@ -126,6 +126,72 @@ describe('Y1c T5a 契约冻结：pending 区间法（真 yjs 双端语料——�
   });
 });
 
+describe('Y1c T5a 契约修正 #2：pending 区间三分精化（SV 前缀扣除/SV 覆盖 Skip 放行/DS-only 未知 clock→4412）', () => {
+  // 确定性单 client 语料：clock 0..7 逐笔 update（同 corpus 单实例续写纪律——一 doc 连续编辑）
+  const C = 555555;
+  const ups: Uint8Array[] = [];
+  {
+    const src = new Y.Doc();
+    src.clientID = C;
+    src.on('update', (u) => ups.push(u));
+    for (let i = 0; i < 8; i++) src.getMap('nodes').set(`k${i}`, { i });
+    if (ups.length !== 8) throw new Error('修正#2 语料构造异常');
+  }
+  /** 接收端含前 applyCount 笔（SV clock=applyCount——覆盖 [0,applyCount)） */
+  const svOf = (applyCount: number): Uint8Array => {
+    const d = new Y.Doc();
+    for (let i = 0; i < applyCount; i++) Y.applyUpdate(d, ups[i]!);
+    return Y.encodeStateVector(d);
+  };
+  /** 删除 clock=delClock 键产生的 DS-only 帧（纯删集零 struct——deleter 持全量后删） */
+  const dsOnlyFrame = (delClock: number): Uint8Array => {
+    const deleter = new Y.Doc();
+    Y.applyUpdate(deleter, Y.mergeUpdates(ups));
+    const captured: Uint8Array[] = [];
+    deleter.on('update', (u) => captured.push(u));
+    deleter.getMap('nodes').delete(`k${delClock}`);
+    return captured[0]!;
+  };
+
+  it('① SV 已覆盖前缀扣除：区间 [3,8) 含 SV 覆盖洞 [4,5)（Skip）——SV=5 时仅 [5,8) 待判 → self-contained 放行', () => {
+    // frame=Item[3,4)+Skip[4,5)+Item[5,8)（mergeUpdates 挖中段）；接收端 SV clock=5 已覆盖 [0,5)
+    const frame = Y.mergeUpdates([ups[3]!, ups[5]!, ups[6]!, ups[7]!]);
+    const r = analyzePendingIntervals(frame, svOf(5));
+    expect(r.kind).toBe('self-contained');
+  });
+  it('① 反向锚：同帧对未见前驱的接收端（SV=0）仍拒——扣除只豁免 SV 实际覆盖的前缀段', () => {
+    const frame = Y.mergeUpdates([ups[3]!, ups[5]!, ups[6]!, ups[7]!]);
+    const r = analyzePendingIntervals(frame, svOf(0));
+    expect(r.kind).toBe('missing-predecessor');   // 起点 clock 3>SV 0——缺前驱拒（4412）
+  });
+  it('② SV 已覆盖的 Skip 放行：Item[2,3)+Skip[3,4)+Item[4,5) 全落 SV=5 覆盖域 → self-contained', () => {
+    const frame = Y.mergeUpdates([ups[2]!, ups[4]!]);
+    const r = analyzePendingIntervals(frame, svOf(5));
+    expect(r.kind).toBe('self-contained');
+  });
+  it('② 半覆盖 Skip 仍拒且洞区间扣除 SV 覆盖段：Skip[4,6) 对 SV=5 → hole 恰为未覆盖段 {from:5,to:6}', () => {
+    const frame = Y.mergeUpdates([ups[3]!, ups[6]!, ups[7]!]);   // Item[3,4)+Skip[4,6)+Item[6,8)
+    const r = analyzePendingIntervals(frame, svOf(5));
+    if (r.kind !== 'missing-predecessor') throw new Error('unreachable');
+    expect(r.reason).toBe('hole');
+    expect(r.hole).toEqual({ from: 5, to: 6 });   // 覆盖段 [4,5) 不进洞区间——只报待判缺口
+  });
+  it('③ DS-only 更新（纯删集零 struct）遇未知 client clock → missing-predecessor（4412 零 WAL 零 apply）', () => {
+    const frame = dsOnlyFrame(4);                    // 删 client C clock=4——接收端从未见过 C
+    const r = analyzePendingIntervals(frame, Y.encodeStateVector(new Y.Doc()));
+    if (r.kind !== 'missing-predecessor') throw new Error('unreachable');
+    expect(r.reason).toBe('ds-unknown-clock');
+    expect(r.client).toBe(C);
+    expect(r.startClock).toBe(4);
+    expect(r.svClock).toBe(0);                       // client 不在 SV 即 0——新 client 的删集也须自 clock 0 起可覆盖
+  });
+  it('③ 反向锚：DS-only 删已覆盖区间（SV 含该 client 全量）→ self-contained 放行（不扩大拒绝面）', () => {
+    const frame = dsOnlyFrame(4);                    // 同帧——接收端已含 C 全量（SV clock=8 覆盖 [0,8)）
+    const r = analyzePendingIntervals(frame, svOf(8));
+    expect(r.kind).toBe('self-contained');
+  });
+});
+
 describe('Y1c T5a 契约冻结：save barrier（偏离 37⑦+38⑳）', () => {
   it('触发数字冻结：800ms idle/5s 上限/250ms flush 节流/1s watermark 广播/退避 1-2-5-10s', () => {
     expect(SAVE_BARRIER_IDLE_TRIGGER_MS).toBe(800);
@@ -196,21 +262,29 @@ describe('Y1c T5a 契约冻结：WAL 段头/帧记录布局（T0-S4 §5 复用�
     expect(WAL_DEDUP_INDEX_TTL_MS).toBe(24 * 60 * 60 * 1000);
     expect(WAL_DEDUP_INDEX_MAX_ENTRIES).toBe(100_000);
   });
-  it('shouldQuarantineSegment 真值表：historyId≠SystemHistory→整段隔离；lastWriteAt>epochStartedAt→时间戳栅栏（求值作用域=F-S4-5 收窄）', () => {
+  it('shouldQuarantineSegment 两维真值表（修正 #6）：historyId 错=quarantine 不置 recoverySuspect；时间戳栅栏=recoverySuspect 不 quarantine；两因同触=两维皆真；正常段=两维皆 false（默认）', () => {
     const sys = { historyId: 'h-sys', epochStartedAtMs: 1_000 };
     const base = { historyId: 'h-sys', lastWriteAtMs: 999 };
-    expect(shouldQuarantineSegment(base, sys)).toEqual({ quarantined: false });
+    // 正常段：两维皆 false（默认值）
+    expect(shouldQuarantineSegment(base, sys)).toEqual({ quarantine: false, recoverySuspect: false });
+    // historyId 不匹配 → quarantine fail-closed（语义不变）——不置 recoverySuspect
     expect(shouldQuarantineSegment({ historyId: 'h-old', lastWriteAtMs: 999 }, sys))
-      .toEqual({ quarantined: true, reason: 'history-mismatch' });
+      .toEqual({ quarantine: true, recoverySuspect: false, reason: 'history-mismatch' });
+    // 时间戳栅栏 → 显式 recoverySuspect（默认 false——触发才置真）；不再并入整段 quarantine
     expect(shouldQuarantineSegment({ historyId: 'h-sys', lastWriteAtMs: 1_001 }, sys))
-      .toEqual({ quarantined: true, reason: 'timestamp-fence' });
+      .toEqual({ quarantine: false, recoverySuspect: true, reason: 'timestamp-fence' });
+    // 边界：lastWriteAt==epoch（严格 > 才触发）→ 两维皆 false
     expect(shouldQuarantineSegment({ historyId: 'h-sys', lastWriteAtMs: 1_000 }, sys))
-      .toEqual({ quarantined: false });   // 边界：> 严格大于才隔离
-    // F-S4-5 作用域收窄：时间戳栅栏仅在恢复怀疑态求值（restore.lock marker/水位倒挂）——historyId 栅栏每次恢复先查
+      .toEqual({ quarantine: false, recoverySuspect: false });
+    // 两因同触：两维皆真（reason=history-mismatch 优先——fail-closed 档先判先报）
+    expect(shouldQuarantineSegment({ historyId: 'h-old', lastWriteAtMs: 1_001 }, sys))
+      .toEqual({ quarantine: true, recoverySuspect: true, reason: 'history-mismatch' });
+    // F-S4-5 作用域收窄：时间戳栅栏仅在恢复怀疑态求值（restore.lock marker/水位倒挂）——跳过求值=recoverySuspect 恒 false；
+    // historyId 栅栏每次恢复先查（不受该 opt 影响）
     expect(shouldQuarantineSegment({ historyId: 'h-sys', lastWriteAtMs: 1_001 }, sys, { evaluateTimestampFence: false }))
-      .toEqual({ quarantined: false });
+      .toEqual({ quarantine: false, recoverySuspect: false });
     expect(shouldQuarantineSegment({ historyId: 'h-old', lastWriteAtMs: 1_001 }, sys, { evaluateTimestampFence: false }))
-      .toEqual({ quarantined: true, reason: 'history-mismatch' });
+      .toEqual({ quarantine: true, recoverySuspect: false, reason: 'history-mismatch' });
   });
   it('坏段四档映射穷尽：granular 缺陷码→{bad-crc,truncated,missing-seq,dup-hash}', () => {
     expect(walDefectTier('truncated')).toBe('truncated');
@@ -262,6 +336,20 @@ describe('Y1c T5a 契约冻结：ACK 三档+UI 四态+版本门拆分（偏离 3
     expect(resolveVersionGate({ protocolVersion: 3, schemaVersion: 3, historyId: 'h2' }, server)).toBe('client-outdated');
     expect(resolveVersionGate({ schemaVersion: 3, historyId: 'h1' }, server)).toBe('client-outdated');                      // 缺 protocolVersion
     expect(resolveVersionGate(undefined, server)).toBe('client-outdated');
+  });
+  it('修正 #8 allowFirstConnect：首连无 historyId（protocol/schema 匹配）→ allow 放行（非 4406——auth 回执下发 historyId 客户端持久化）', () => {
+    const server: VersionGateHardTriple = { protocolVersion: 3, schemaVersion: 3, historyId: 'h1' };
+    // 首连=无本地缓存键五元历史——historyId 无值（区分「无值」与「有值不匹配」）
+    expect(resolveVersionGate({ protocolVersion: 3, schemaVersion: 3 }, server)).toBe('allow');
+    expect(resolveVersionGate({ protocolVersion: 3, schemaVersion: 3, historyId: undefined }, server)).toBe('allow');
+    // 有值不匹配→仍 4406（同代 PITR 面归 resolveAuthHistoryVerdict/4406 硬门——本门不豁免）
+    expect(resolveVersionGate({ protocolVersion: 3, schemaVersion: 3, historyId: 'h-old' }, server)).toBe('client-outdated');
+  });
+  it('修正 #8 正交性：protocolVersion 或 schemaVersion 不匹配与首连正交——首连也 4406（版本硬门不因首连豁免）', () => {
+    const server: VersionGateHardTriple = { protocolVersion: 3, schemaVersion: 3, historyId: 'h1' };
+    expect(resolveVersionGate({ protocolVersion: 2, schemaVersion: 3 }, server)).toBe('client-outdated');   // 首连+协议旧
+    expect(resolveVersionGate({ protocolVersion: 4, schemaVersion: 3 }, server)).toBe('client-outdated');   // 首连+协议新（高于也拒）
+    expect(resolveVersionGate({ protocolVersion: 3, schemaVersion: 2 }, server)).toBe('client-outdated');   // 首连+schema 旧
   });
   it('Y1c 码载荷：4410 三分/4411/4412/4413（Retry-After）/4406（带硬门三元）——码值与 collab-close-code 单源一致', () => {
     const payloads: CollabY1cClosePayload[] = [
@@ -425,21 +513,24 @@ describe('Y1c T5a 契约冻结：wal-fault/barrier 语料不变式（评审 Impo
     expect(newSeq.frames[nf.frameIndex].walSeq).not.toBe(newSeq.frames[nf.repeatOf].walSeq);   // 新 seq 承载旧 hash
   });
 
-  it('wal-fault：expectedQuarantine 为真 ⇒ expectedReplayPrefix 恒空（整段 fail-closed 零帧重放）', () => {
+  it('wal-fault：expectedQuarantine 为真 ⇒ expectedReplayPrefix 恒空（自动扫描零帧重放——history-mismatch=整段 fail-closed；timestamp-fence=修正 #6 后 recoverySuspect 恢复怀疑态，重放归 T8 恢复流裁定非静默丢段）', () => {
     const corpus = buildWalFaultCorpus({ historyId: 'h-fixture-2026-10-24', epochStartedAtMs: Date.UTC(2026, 9, 24, 13, 0, 0) });
     const quarantined = corpus.filter((f) => f.expectedQuarantine != null);
     expect(quarantined.length).toBe(2);   // history-mismatch + timestamp-fence 两段级形态
     for (const f of quarantined) expect(f.expectedReplayPrefix).toEqual([]);
   });
 
-  it('wal-fault：epochStartedAtMs 缺省=完好段成立下界（评审 Minor#5 隐式耦合显式化）——非 quarantine 条目对缺省 epoch 全过双栅栏、timestamp-fence 条目确被栅', () => {
+  it('wal-fault：epochStartedAtMs 缺省=完好段成立下界（评审 Minor#5 隐式耦合显式化）——非栅栏条目对缺省 epoch 两维皆 false、timestamp-fence 条目确落 recoverySuspect（修正 #6 分派）', () => {
     const corpus = buildWalFaultCorpus({ historyId: 'h-fixture-2026-10-24' });   // 不传 epochStartedAtMs——取缺省下界
     const sysDefault = { historyId: 'h-fixture-2026-10-24', epochStartedAtMs: walFixtureHeader().lastWriteAtMs };
     for (const f of corpus) {
       if (f.expectedQuarantine == null) {
-        expect(shouldQuarantineSegment(f.header, sysDefault)).toEqual({ quarantined: false });
+        expect(shouldQuarantineSegment(f.header, sysDefault)).toEqual({ quarantine: false, recoverySuspect: false });
       } else if (f.expectedQuarantine === 'timestamp-fence') {
-        expect(shouldQuarantineSegment(f.header, sysDefault)).toEqual({ quarantined: true, reason: 'timestamp-fence' });
+        // timestamp-fence 条目段头直载栅栏值（lastWriteAtMs=epoch+5s）——修正 #6 后落 recoverySuspect 档；
+        // history-mismatch 条目段头未物化故障（fault 由 T8 物化器注入）——不在本断言面（真值表测试已覆盖）
+        expect(shouldQuarantineSegment(f.header, sysDefault))
+          .toEqual({ quarantine: false, recoverySuspect: true, reason: 'timestamp-fence' });
       }
     }
   });

@@ -33,9 +33,11 @@ export type RecoveryAction =
   | 'backoff-retry';
 
 /** close 载荷→恢复动作（纯函数——按 T5a 冻结的 close reason 常量分派，穷尽 CollabY1cClosePayload
- *  判别 union 无 default；非 Y1c 码面统一落 backoff-retry〔resolveCloseAction 瞬态退避档同语义〕）。
+ *  判别 union 无 default；非 Y1c 码面统一落 backoff-retry〔resolveCloseAction backoff 档同语义〕）。
  *  4411/4412 同落 resync-full：拒帧恢复=重置到服务端状态+DraftEnvelope 同代 fresh doc（§8.1）——
- *  4411 的连续计数归 §2 逃生口状态机（本函数不携带计数状态）。 */
+ *  4411 的连续计数归 §2 逃生口状态机（本函数不携带计数状态）。
+ *  **修正 #7 路由优先级契约**：Y1c 四码（4406/4411/4412/4413）**必须先经本函数分派**，不得直接进
+ *  通用 backoff/重连环——分派档见 Y1C_RECOVERY_DISPATCH_TIERS；装配面守卫=assertY1cCodesNotBackoffRouted。 */
 export function resolveRecoveryAction(
   payload: CollabY1cClosePayload | { code: number; reason?: string },
 ): RecoveryAction {
@@ -50,6 +52,32 @@ export function resolveRecoveryAction(
   if (payload.code === CollabCloseCode.MAINTENANCE_FREEZE) return 'retry-after-maintenance';
   if (payload.code === CollabCloseCode.CLIENT_OUTDATED) return 'force-refresh-protocol';
   return 'backoff-retry';
+}
+
+/** Y1c 四码恢复分派档（修正 #7——路由优先级契约常量；码值自 collab-close-code 单源）：
+ *  四码必须先经 resolveRecoveryAction 分派，禁直接进通用 backoff/重连环——backoff 吞掉 4406 强刷/
+ *  4411·4412 重同步/4413 Retry-After = 用户态永久错乱（重连循环反复撞同一硬门/毒帧）。档语义：
+ *  - terminal：4406 client-outdated——强刷终态（动作=force-refresh-protocol）
+ *  - resync：4411/4412——重置到服务端状态（动作=resync-full）
+ *  - retry：4413 maintenance-freeze——Retry-After 语义可重试（动作=retry-after-maintenance） */
+export const Y1C_RECOVERY_DISPATCH_TIERS: Readonly<Record<number, 'terminal' | 'resync' | 'retry'>> = {
+  [CollabCloseCode.CLIENT_OUTDATED]: 'terminal',
+  [CollabCloseCode.FRAME_MALFORMED]: 'resync',
+  [CollabCloseCode.RESYNC_REQUIRED]: 'resync',
+  [CollabCloseCode.MAINTENANCE_FREEZE]: 'retry',
+};
+
+/** 「不被 backoff 吞」守卫（修正 #7——T10/T25 装配 backoff 环/close 分派表时调用）：断言给定通用
+ *  backoff 处理码集合不含任一 Y1c 四码——含即 throw（fail-closed，消费方测试红）。负控：把任一四码
+ *  （如 4413）放进集合本守卫必 throw。 */
+export function assertY1cCodesNotBackoffRouted(backoffHandledCodes: readonly number[]): void {
+  for (const code of Object.keys(Y1C_RECOVERY_DISPATCH_TIERS).map(Number)) {
+    if (backoffHandledCodes.includes(code)) {
+      throw new Error(
+        `Y1c close code ${code} must dispatch via resolveRecoveryAction (tier=${Y1C_RECOVERY_DISPATCH_TIERS[code]})——禁入通用 backoff 处理集合`,
+      );
+    }
+  }
 }
 
 // ═══ §2 重复 DENY 逃生口（§8.1——N 次 4411 后 recovery 模式）══════════════════════════════════
