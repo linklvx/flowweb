@@ -31,7 +31,6 @@ import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
-import { ensureCollabSessionFixture, cleanupCollabSessionFixture } from '../src/test-utils/db-fixtures';
 import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { killProviderLateReconnect } from './lib/provider-late-reconnect-guard';   // R5'：@hocuspocus/provider v4 迟到重连定时器兜底（共享——禁内联副本；类型面经 .d.ts）
 
@@ -417,6 +416,47 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
   console.log(`DRILL PASS: handover${graceful ? ' --graceful' : ''}${usurp ? ' --usurp' : ''}（Z25 三变体：${variant}——epoch +${epochDelta}，键集 ${keys.length} ⊇）`);
 }
 
+// ── drill 专用 fixture（内联——R1' dist-drill 纯净门）══════════════════════════
+// 语义=src/test-utils/db-fixtures.ts 的 ensureCollabSessionFixture/cleanupCollabSessionFixture
+// 同源快照；禁 import 原件：tsc exclude 挡不住显式引用，test-utils 会随之编译进
+// dist-drill（check-no-testutils-in-dist --require-dist 红）。常量同值（fixture 行幂等互认）。
+const DRILL_FIXTURE_USER = 'y0a-fixture-user';
+const DRILL_FIXTURE_TEAM = 'y0a-fixture-team';
+async function ensureDrillSessionFixture(prisma: PrismaClient, projectId: string, token: string): Promise<void> {
+  await prisma.user.upsert({
+    where: { id: DRILL_FIXTURE_USER },
+    update: {},
+    create: { id: DRILL_FIXTURE_USER, name: 'y0a-fixture', email: 'y0a-fixture@local.test', emailVerified: true },
+  });
+  await prisma.team.upsert({
+    where: { id: DRILL_FIXTURE_TEAM },
+    update: {},
+    create: { id: DRILL_FIXTURE_TEAM, name: 'y0a-fixture-team', ownerId: DRILL_FIXTURE_USER },
+  });
+  await prisma.canvasProject.upsert({
+    where: { id: projectId },
+    update: {},
+    create: { id: projectId, name: 'y0a2-drill', teamId: DRILL_FIXTURE_TEAM },
+  });
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: DRILL_FIXTURE_TEAM, userId: DRILL_FIXTURE_USER } },
+    update: { role: 'MEMBER' },
+    create: { teamId: DRILL_FIXTURE_TEAM, userId: DRILL_FIXTURE_USER, role: 'MEMBER' },
+  });
+  await prisma.session.deleteMany({ where: { token } });
+  await prisma.session.create({
+    data: { id: `sess-${token}`, userId: DRILL_FIXTURE_USER, token, expiresAt: new Date(Date.now() + 3_600_000) },
+  });
+}
+async function cleanupDrillFixture(prisma: PrismaClient, projectId: string, token: string): Promise<void> {
+  await prisma.session.deleteMany({ where: { token } });
+  await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
+  await prisma.canvasDocSnapshot.deleteMany({ where: { projectId } });
+  await prisma.canvasDoc.deleteMany({ where: { projectId } });
+  await prisma.runtimeFeedCursor.deleteMany({ where: { projectId } });
+  await prisma.canvasProject.deleteMany({ where: { id: projectId } });
+}
+
 async function main(): Promise<void> {
   if (!DATABASE_URL) fail('DATABASE_URL 未设置');
   const mode = (process.argv.find((a) => a.startsWith('--mode=')) ?? '').slice(7);
@@ -424,7 +464,7 @@ async function main(): Promise<void> {
   await ensureCompiled();                      // 载体：tsc 全量（emitDecoratorMetadata）+node dist-drill 子进程——见文件头
   const spoolDir = await mkdtemp(join(tmpdir(), 'y0a2-drill-spool-'));
   const env = { DATABASE_URL, COLLAB_SPOOL_DIR: spoolDir, NODE_ENV: 'development' };
-  await ensureCollabSessionFixture(prisma!, PID, DRILL_TOKEN);   // V7b：User+Team+Project+TeamMember（缺它 authenticate FORBIDDEN）+Session
+  await ensureDrillSessionFixture(prisma!, PID, DRILL_TOKEN);   // V7b：User+Team+Project+TeamMember（缺它 authenticate FORBIDDEN）+Session——**内联副本**（禁 import src/test-utils：tsc exclude 挡不住显式引用，test-utils 会随之编译进 dist-drill 违反 check-no-testutils-in-dist 纯净门 R1'；语义=ensureCollabSessionFixture 同源快照）
   try {
     if (mode === 'sigterm') return await sigtermMode(env);
     if (mode === 'handover') return await handoverMode(env);
@@ -432,7 +472,7 @@ async function main(): Promise<void> {
   } finally {
     for (const c of liveClients) c.destroy();   // R2'：成功路径句柄收口——provider/ws 销毁+迟到重连掐灭（自然 exit 0 根修）
     await dropTrigger();
-    await cleanupCollabSessionFixture(prisma!, PID, DRILL_TOKEN).catch(() => {});
+    await cleanupDrillFixture(prisma!, PID, DRILL_TOKEN).catch(() => {});   // 内联副本（同 ensureDrillSessionFixture 注记）
     await prisma!.$disconnect();
     await rm(spoolDir, { recursive: true, force: true });
   }

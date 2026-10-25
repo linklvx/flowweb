@@ -8,5 +8,5 @@
     "sourceMap": false
   },
   "include": ["src", "scripts/collab-drill-server.ts"],
-  "exclude": ["node_modules", "dist", "dist-drill", "**/*.spec.ts", "**/test-utils/**"]
+  "exclude": ["node_modules", "dist", "dist-drill", "**/*.spec.ts", "**/*-spec.ts", "**/test-utils/**"]
 }
