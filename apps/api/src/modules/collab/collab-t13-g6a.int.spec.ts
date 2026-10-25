@@ -13,7 +13,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as Y from 'yjs';
 import { randomUUID } from 'node:crypto';
-import { writeFile, unlink, stat } from 'node:fs/promises';
+import { writeFile, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CollabProjectActorService } from './collab-project-actor.service';
@@ -28,17 +29,17 @@ const execFileP = promisify(execFile);
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
 
-/** pg 工具探测（实弹工具链）：PG_BIN_DIR 显式覆盖→常见安装路径 stat 探测；缺=I1 惰性 skip（登记）。 */
-let pgBinDirCache: string | null | undefined;
-async function pgBinDir(): Promise<string | null> {
-  if (pgBinDirCache !== undefined) return pgBinDirCache;
-  if (process.env.PG_BIN_DIR) { pgBinDirCache = process.env.PG_BIN_DIR; return pgBinDirCache; }
-  for (const c of ['D:/programfiles/PostgreSQL/16/bin', 'C:/Program Files/PostgreSQL/16/bin', 'C:/Program Files/PostgreSQL/15/bin']) {
-    try { await stat(join(c, 'pg_dump.exe')); pgBinDirCache = c; return c; } catch { /* next */ }
-  }
-  pgBinDirCache = null;
-  return null;
-}
+/** pg 工具探测（实弹工具链）：PG_BIN_DIR 显式覆盖→常见安装路径同步探测；缺=I1 显式 it.skip（登记）。
+ *  M2（T13 收口）：①二进制名按平台（win=.exe/unix 无后缀——旧硬编码 'pg_dump.exe' 使 Linux CI 恒
+ *  miss）；②缺工具改 it.skip（旧形态 console.error+return=vitest 判 pass 的假绿——显式 skip 进
+ *  skipped 计数=CI 面诚实显式化；本机实弹工具在位时 skipped=0 语义实然不变）。 */
+const PG_DUMP_BIN = process.platform === 'win32' ? 'pg_dump.exe' : 'pg_dump';
+const PSQL_BIN = process.platform === 'win32' ? 'psql.exe' : 'psql';
+const PG_BIN_CANDIDATES: string[] = process.platform === 'win32'
+  ? ['D:/programfiles/PostgreSQL/16/bin', 'C:/Program Files/PostgreSQL/16/bin', 'C:/Program Files/PostgreSQL/15/bin']
+  : ['/usr/lib/postgresql/16/bin', '/usr/lib/postgresql/15/bin', '/usr/lib/postgresql/14/bin', '/usr/local/bin', '/usr/bin'];
+const PG_BIN_DIR: string | null = process.env.PG_BIN_DIR
+  || PG_BIN_CANDIDATES.find((c) => existsSync(join(c, PG_DUMP_BIN))) || null;
 
 const DB_URL = (process.env.DATABASE_URL ?? '').replace(/^"|"$/g, '');
 const PIDS = ['y1c-t13-a', 'y1c-t13-b', 'y1c-t13-c'];
@@ -148,12 +149,9 @@ maybe('Y1c T13 G6a 实弹（真 PG+真 spool+真 actor 管线——boot 生产�
     await prisma.$disconnect();
   });
 
-  it('I1 pg_dump 实弹：dump 工具产出→delete→psql 灌回真恢复→bump historyId→旧段全 quarantine 禁重放+PG pgSeq 残留=violation（fail-closed 拒开放写）', async () => {
-    const binDir = await pgBinDir();
-    if (!binDir) {
-      console.error('[I1 skip] pg_dump/psql 工具不可探测（实弹环境前置缺失——登记：实弹形态需 PG bin 目录；PG_BIN_DIR 可覆盖）');
-      return;
-    }
+  const i1It = PG_BIN_DIR ? it : it.skip;   // M2：缺实弹工具=显式 skip（旧 console.error+return=假绿）
+  i1It('I1 pg_dump 实弹：dump 工具产出→delete→psql 灌回真恢复→bump historyId→旧段全 quarantine 禁重放+PG pgSeq 残留=violation（fail-closed 拒开放写）', async () => {
+    const binDir = PG_BIN_DIR!;
     const pid = PIDS[0]!;
     // NoConfirm seam（T10 g2 R4 同形态）：PG CAS 落定但 confirm 静默（kill -9 等价）——段留盘
     //（全 confirm 段会即时回收=目录空；「忘 bump 场景段在」是恢复拦截的物理前提）。
@@ -175,14 +173,14 @@ maybe('Y1c T13 G6a 实弹（真 PG+真 spool+真 actor 管线——boot 生产�
 
     // ①真 pg_dump 工具产出 dump 文件（--data-only --column-inserts 单表——含本项目两行）
     const dumpPath = join(tmpdir(), `t13-drill-${randomUUID()}.sql`);
-    await execFileP(join(binDir, 'pg_dump.exe'), [
+    await execFileP(join(binDir, PG_DUMP_BIN), [
       '-d', DB_URL, '--data-only', '--column-inserts', '--no-owner', '--no-privileges',
       '--table=public."CanvasDocUpdate"', '-f', dumpPath,   // Prisma model 名=物理表名（PascalCase 大小写敏感）
     ]);
     // ②灾后模拟+真恢复：delete 本项目行→psql 灌回（dump 文件——ON_ERROR_STOP=0：其他项目残留行冲突无害）
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } });
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: pid } })).toBe(0);
-    try { await execFileP(join(binDir, 'psql.exe'), ['-v', 'ON_ERROR_STOP=0', '-d', DB_URL, '-f', dumpPath]); } catch { /* 其他行冲突=预期 */ }
+    try { await execFileP(join(binDir, PSQL_BIN), ['-v', 'ON_ERROR_STOP=0', '-d', DB_URL, '-f', dumpPath]); } catch { /* 其他行冲突=预期 */ }
     const restored = await prisma.canvasDocUpdate.count({ where: { projectId: pid } });
     expect(restored, 'psql 灌回=从 dump 文件恢复出本项目行（实弹）').toBe(2);
     await unlink(dumpPath).catch(() => {});

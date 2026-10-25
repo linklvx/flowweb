@@ -8,12 +8,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
-import { readFile, writeFile, readdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, readdir, unlink, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { register } from 'prom-client';
 import { CollabGateway } from './collab.gateway';
-import { CollabSpoolService } from './collab-spool.service';
+import { CollabSpoolService, encodeWalSegmentBytes, walSegmentFileName } from './collab-spool.service';
+import { buildWalFaultCorpus } from '@flowweb/shared';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
 import { createMockRepo } from '../../test-utils/mock-repo';
@@ -196,6 +197,26 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
     } finally { await cleanup(); }
   }, 20_000);
 
+  it('K2b（M3 收口）pgSeq=0+全段隔离=合法续跑 serving（K2 只测 pgSeq 残留 blocked 侧——本用例补正向半直锚：丢帧全为未承诺 Durable 档 ADR-01 §3.2，拒服务判定=violation 维非 quarantine 维）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y1c-t13-k2b-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      spool.setOwner('k2b-owner');
+      spool.setWalHistory(HISTORY_ID);
+      await seedFrame(spool, 'p-k2b', frameOf('k2b'));   // 段帧 walSeq=1（无 PG 残留——floors 空集 pgSeq()=0n）
+      await patchSegHistoryId(dir, 'stale-history-no-pg-residue');   // 全段 history-mismatch 隔离布景
+      const { gateway, facade } = makeBoot(spool);       // floors 缺省 [] → pgSeq=0（对照 K2：floors pgSeq=1 残留）
+      const listenSpy = facade.spyListenServer().mockResolvedValue(undefined);
+      try {
+        await facade.startCollabAfterLease();
+        expect(gateway.getCollabState(), 'pgSeq=0+全隔离：maxSeq=0≮pgW=0 ⇒ violation 维不触发→合法续跑（开放写）').toBe('serving');
+        expect((await spool.quarantinedSegments()).length, '隔离档照常可见（quarantine 维独立于拒服务判定）').toBe(1);
+        expect(await spool.peek('p-k2b'), '零重放（隔离段帧不复活）').toHaveLength(0);
+      } finally { listenSpy.mockRestore(); }
+      await gateway.onApplicationShutdown();
+    } finally { await cleanup(); }
+  }, 15_000);
+
   it('K5 PG 不可用 boot：pgSeqFloors 抛错（恢复扫描前置输入不可达）→start-failed 不 listen（fail-closed 重试语义——不半截上线）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k5-');
     try {
@@ -282,6 +303,30 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
       expect(gapAfter, 'doc_prefix_gap_total：撕裂段扫描 inc').toBeGreaterThan(gapBefore);
       // doc_recovery_total：boot 消费点（K1 ok/K2·K4 blocked 已覆盖 inc 面——本用例注册面锚）
       expect(/doc_recovery_total_total\{result="ok"\}/.test(textGap) || /doc_recovery_total\{result="ok"\}/.test(textGap)).toBe(true);
+    } finally { await cleanup(); }
+  }, 15_000);
+
+  it('M4 启动自检噪声收口：良性 dup 段（dup-seq 同 hash——崩溃重试天然重复，fatal=false）零 quarantine/truncated → boot serving+不落 spool_startup_selfcheck ERROR（观测面=yjs_spool_bad_segment_total 全档含良性——旧实现 defects.length>0 含良性必红）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('y1c-t13-m4-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      spool.setOwner('m4-owner');
+      spool.setWalHistory(HISTORY_ID);
+      // 语料良性 dup 段（链式扫描 defects 仅一条 fatal=false 条目——无 quarantine/truncated/violation）
+      const corpus = buildWalFaultCorpus({ historyId: HISTORY_ID });
+      const benign = corpus.find((f) => f.fault?.kind === 'dup-seq-same-hash')!;
+      await mkdir(join(dir, 'm4-owner'), { recursive: true });
+      const name = walSegmentFileName(benign.header.projectId, benign.header.generation, 0);
+      await writeFile(join(dir, 'm4-owner', name), encodeWalSegmentBytes(benign.header, benign.frames, benign.fault));
+      const { gateway, facade } = makeBoot(spool);
+      const listenSpy = facade.spyListenServer().mockResolvedValue(undefined);
+      const errSpy = facade.spyLogger('error');
+      try {
+        await facade.startCollabAfterLease();
+        expect(gateway.getCollabState(), '良性 dup=合法续跑（非人工介入信号）').toBe('serving');
+        expect(errSpy.mock.calls.some((c) => String(c[0]).includes('spool_startup_selfcheck')), '良性维不进 ERROR 自检（条件收窄 fatal 维）').toBe(false);
+      } finally { listenSpy.mockRestore(); errSpy.mockRestore(); }
+      await gateway.onApplicationShutdown();
     } finally { await cleanup(); }
   }, 15_000);
 });

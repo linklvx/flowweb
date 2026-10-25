@@ -11,7 +11,7 @@ import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 const DEGRADED_ZERO = { dirtyDocs: 0, oldestUnflushedAt: null, oldestUnflushedAgeSeconds: 0, spoolDepthBytes: 0, stuckDocs: 0 };
 
 function build(over: {
-  pgOk?: boolean; diag?: any; gateway?: any; redisOk?: boolean; presence?: any;
+  pgOk?: boolean; diag?: any; gateway?: any; redisOk?: boolean; presence?: any; spool?: any;
 } = {}) {
   const prisma = { $queryRaw: vi.fn(async () => { if (over.pgOk === false) throw new Error('PG down'); return [{}]; }) };
   const lease = {
@@ -29,7 +29,7 @@ function build(over: {
   const redis = { status: 'ready', connect: vi.fn(async () => {}), ping: vi.fn(async () => over.redisOk === false ? Promise.reject(new Error('x')) : 'PONG'), disconnect: vi.fn() };
   // Y0c T29-II（Z130②）：presence 第 6 参（workers 维度供数）——缺省假 presence=单进程常态（registered 1）
   const presence = over.presence ?? { getPresence: vi.fn(async () => ({ registered: 1, waiting: 0 })) };
-  const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, { quarantinedSegments: () => [], suspectSegments: () => [] } as any, redis as any, presence as any);   // Y1c T13（G6a）：恢复怀疑态分维读面 stub
+  const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, over.spool ?? { quarantinedSegments: () => [], suspectSegments: () => [] } as any, redis as any, presence as any);   // Y1c T13（G6a）：恢复怀疑态分维读面 stub（over.spool=分维断言装置缝）
   return { svc, gateway, redis };
 }
 
@@ -61,6 +61,16 @@ describe('CollabReadyService（G-4 八档+P6 优先级+collabState 主导）', (
     expect(Object.keys(r.body.pending)).not.toContain('directConns');
     // 精确键集冻结：rest 解构防呆——computePending 未来新字段会被 ...pending 静默吸收进响应形状，此处即红
     expect(Object.keys(r.body.pending).sort()).toEqual(['batches', 'projects', 'spoolBytes', 'spoolFiles', 'storeInFlight', 'strandedBytes', 'strandedFiles']);
+  });
+  it('Y1c T13（G6a spec 登记）：ready payload walRecoverySuspect/spoolQuarantined 端到端字段断言（spool 分维读面入 base——恢复怀疑态与真隔离分轨计数，缺任一字段即红）', async () => {
+    const spool = {
+      quarantinedSegments: () => [{ projectId: 'p1', segKey: 'o1/p1.g1.0.spool', quarantinedBytes: 8 }],
+      suspectSegments: () => [{ projectId: 'p2', segKey: 'o1/p2.g1.0.spool' }],
+    };
+    const r = await build({ spool }).svc.getReady();
+    expect(r.status).toBe(200);
+    expect(r.body.spoolQuarantined, '真隔离分维计数（LIST .length 口径）').toBe(1);
+    expect(r.body.walRecoverySuspect, '恢复怀疑态分维计数（M5——与 quarantine 分维不并轨）').toBe(1);
   });
   it('pg-down：SELECT 1 抛错→503 reason=pg-down（最高优先）+collabProtocolVersion（503 分支同带）', async () => {
     const r = await build({ pgOk: false }).svc.getReady();

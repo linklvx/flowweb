@@ -755,3 +755,110 @@ describe('Y1c T8 收口 M1/M2/M5/M6/M7（fail-closed 停收/帧上界/诊断分�
     expect(parseSegFileName('notaspool')).toBeNull();
   });
 });
+
+// ═══ Y1c T13 双评审收口 C1/I1/M1：chain-stopped 外来段收养保链式裁定+前缀缺口计数+fsync 失败尾 ═══
+describe('Y1c T13 双评审收口 C1/I1/M1：外来 chain-stopped 段收养保裁定前缀+前缀缺口计数+fsync 时延失败尾', () => {
+  /** 布景：外来（predecessor 目录）gap 段 [1,2,4,5]——seq 3 缺号对链式扫描=fatal 停链、对 permissive
+   *  len/CRC 网=干净假象（四帧全可解析）；recoverScan 裁定 chain-stopped 前缀 [1,2]（I4 外来禁字节处置）。 */
+  async function seedForeignGapSeg(): Promise<{ path: string; name: string; segKey: string }> {
+    const corpus = buildWalFaultCorpus({ historyId: HISTORY });
+    const gap = corpus.find((f) => f.expectedBadTier === 'missing-seq')!;
+    await mkdir(join(dir, 'predecessor'), { recursive: true });
+    const name = walSegmentFileName(gap.header.projectId, gap.header.generation, 0);
+    const path = join(dir, 'predecessor', name);
+    await writeFile(path, encodeWalSegmentBytes(gap.header, gap.frames));
+    return { path, name, segKey: `predecessor/${name}` };
+  }
+
+  it('C1①：gap 段收养后 peek=裁定前缀 [1,2]（非 [1,2,4,5]——链后未证帧不复活）+quarantineTruncatedFrames 走链缺陷档非 no-op+replayAll 仅前缀两帧+段回收闭环', async () => {
+    const { path } = await seedForeignGapSeg();
+    const s = svc();
+    const report = await s.recoverScan({ systemHistory: sysHistory(), pgSeq: () => 0n });
+    const pr = report.projects[0]!;
+    expect(pr.replayPrefix, 'boot 链裁定前缀 [1,2]').toEqual([1n, 2n]);
+    expect(pr.truncated, '外来段禁字节处置（I4）').toHaveLength(0);
+    const adopted = await s.adoptSilentForeignSegments(0);   // 0ms=立即静默（测试形态）
+    expect(adopted).toHaveLength(1);
+    const frames = await s.peek('proj-fixture');
+    expect(frames.map((f) => f.walSeq), 'C1：收养保裁定前缀（旧实现 permissive 重算=[1,2,4,5] 链后未证帧复活必红）').toEqual([1n, 2n]);
+    // 坏尾处置闭环：permissive 干净假象下 quarantineTruncatedFrames 以 meta.goodBytes（链式裁定界）
+    // 隔离——旧实现判干净段 continue=坏尾零处置+收养段 confirm tailSettled 恒 false 永不回收。
+    const quarantined = await s.quarantineTruncatedFrames('proj-fixture');
+    expect(quarantined, '链缺陷档隔离非 no-op').toBe(1);
+    expect(await s.peek('proj-fixture'), '前缀帧处置后仍可重放').toHaveLength(2);
+    const expectOff = 164 + (52 + 1024) + (52 + 1088);   // 帧 3（seq 4）起点=帧 1/2 全记录后（payload 1024/1088）
+    const scLine = JSON.parse((await readFile(`${path}.quarantine`, 'utf8')).trim().split('\n').at(-1)!);
+    expect(scLine).toMatchObject({ segSeq: 0, quarantinedFromOffset: expectOff, reason: 'chain-defect-tail' });
+    // replay 通道：仅裁定前缀两帧（旧实现 4 帧复活进 PG 通道=密集前缀破口）+全 confirm 段回收闭环
+    const repo = createMockRepo();
+    const r = await s.replayAll(repo as any);
+    expect(r.replayed, 'replayAll 仅前缀两帧').toBe(2);
+    expect(existsSync(path), '全 confirm+坏尾已处置=段文件回收').toBe(false);
+    expect(existsSync(`${path}.quarantine`), 'sidecar 随段回收').toBe(false);
+  });
+
+  it('C1②：收养推进 walSeq 计数器（max 语义不回拨）+去重索引同步——连续 append 两帧 seq 唯一无碰撞+全 peek seqs 无双重占用+同字节重发命中 dedup（ACK 铁律）', async () => {
+    const corpus = buildWalFaultCorpus({ historyId: HISTORY });
+    const gap = corpus.find((f) => f.expectedBadTier === 'missing-seq')!;
+    const { segKey } = await seedForeignGapSeg();
+    const s = svc();
+    await s.recoverScan({ systemHistory: sysHistory(), pgSeq: () => 0n });
+    await s.adoptSilentForeignSegments(0);
+    expect(s.peekNextWalSeq('proj-fixture'), '计数器承接裁定前缀尾+1').toBe(3n);
+    // 同字节重发裁定前缀帧 → dedup 命中（收养帧入索引——返回原 frameId/原 walSeq，零新帧零烧号）
+    const resend = await s.appendTracked('proj-fixture', gap.frames[0]!.payload);
+    expect(resend.frameId, 'ACK 铁律：同字节重发=原帧命中').toBe(`${segKey}:0`);
+    expect(resend.walSeq).toBe(1n);
+    // 收养后连续两帧：walSeq 承接（不与收养段 seq 碰撞）+全 peek 无双重占用
+    const a = await s.appendTracked('proj-fixture', new Uint8Array([41]));
+    const b = await s.appendTracked('proj-fixture', new Uint8Array([42]));
+    expect([a.walSeq, b.walSeq], '新帧承接 3/4').toEqual([3n, 4n]);
+    const all = (await s.peek('proj-fixture')).map((f) => f.walSeq);
+    expect(all.length).toBe(4);
+    expect(new Set(all.map(String)).size, '全 peek seqs 无双重占用（旧实现收养 permissive seq 4 与新帧 4 双占=PG 密集前缀破口→下次 boot dup-seq fatal 级联）').toBe(all.length);
+  });
+
+  it('I1：外来 chain-stopped fatal 分支计入 doc_prefix_gap_total（帧级致命停链=前缀缺口事件——旧实现既不 push quarantined 也不 push truncated=零观测必红）', async () => {
+    const reg = (await import('prom-client')).register;
+    const metric = reg.getSingleMetric('doc_prefix_gap_total')!;
+    const before = (await metric.get()).values[0]?.value ?? 0;
+    await seedForeignGapSeg();
+    const s = svc();
+    const report = await s.recoverScan({ systemHistory: sysHistory(), pgSeq: () => 0n });
+    const pr = report.projects[0]!;
+    expect(pr.quarantined, '外来 chain-stopped 不进 quarantined 报告维（I4 无 sidecar）').toHaveLength(0);
+    expect(pr.truncated, '不进 truncated 报告维（未动字节）').toHaveLength(0);
+    const after = (await metric.get()).values[0]?.value ?? 0;
+    expect(after - before, '前缀缺口事件 inc（「帧级致命缺陷」档——help 语义与实现对齐，语义不缩水）').toBe(1);
+  });
+
+  it('M1：wal_fsync_latency 失败尾不进直方图（成功路径观测——失败分档归 wal_fsync_error_total；旧实现 finally observe=EIO 长尾污染 p95 观测源必红）', async () => {
+    const reg = (await import('prom-client')).register;
+    const histCount = async () => Number(/wal_fsync_latency_count (\d+)/.exec(await reg.metrics())?.[1] ?? 0);
+    // 经 super.syncSegmentHandle 的 fh stub 注入（直测基类观测路径——FaultSpool 覆写整个 seam 绕开基类）
+    class FailSyncSpool extends CollabSpoolService {
+      failOnce = false;
+      constructor(d: string) { super(d); }
+      protected async syncSegmentHandle(fh: import('node:fs/promises').FileHandle): Promise<void> {
+        if (this.failOnce) {
+          this.failOnce = false;
+          await super.syncSegmentHandle({
+            sync: async () => { throw Object.assign(new Error('simulated EIO'), { code: 'EIO' }); },
+          } as unknown as import('node:fs/promises').FileHandle);
+          return;
+        }
+        await super.syncSegmentHandle(fh);
+      }
+    }
+    const before = await histCount();
+    const s = new FailSyncSpool(dir);
+    s.setOwner(OWNER); s.setWalHistory(HISTORY);
+    s.failOnce = true;
+    await expect(s.append('p1', new Uint8Array([1]))).rejects.toThrow(/EIO/);
+    expect(s.walHealthy(), 'EIO fail-stop 语义不变').toBe(false);
+    expect(await histCount(), '失败尾零观测（旧实现 finally observe 必红）').toBe(before);
+    const s2 = svc();
+    await s2.append('p1', new Uint8Array([2]));
+    expect(await histCount(), '成功路径照常 observe（S4/T33 p95 观测源不缺失）').toBe(before + 1);
+  });
+});

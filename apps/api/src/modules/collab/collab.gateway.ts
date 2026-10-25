@@ -889,8 +889,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           throw Object.assign(new Error(`WAL 恢复 fail-closed：violation=${violationProjects.length} 项目 suspect=${suspectProjects.length} 项目（detail 见 wal_recovery_blocked 日志）`), { walRecoveryBlocked: true });
         }
         docRecoveryTotal.inc({ result: 'ok' });
-        if (report.projects.some((p) => p.quarantined.length > 0 || p.truncated.length > 0 || p.defects.length > 0)) {
-          // 启动自检（spec §5.2 口径——ERROR 结构化日志；丢的全是 walSeq>pgSeq 帧才截断续跑=合法形态）
+        if (report.projects.some((p) => p.quarantined.length > 0 || p.truncated.length > 0 || p.defects.some((d) => d.fatal))) {
+          // 启动自检（spec §5.2 口径——ERROR 结构化日志；丢的全是 walSeq>pgSeq 帧才截断续跑=合法形态）。
+          // M4（T13 收口）：条件收窄 fatal 维——良性 dup-seq/dup-hash（崩溃重试天然重复，非人工介入信号）
+          // 不再 ERROR 噪声；良性观测面=yjs_spool_bad_segment_total 全档含良性。
           this.logger.error(JSON.stringify({
             event: 'spool_startup_selfcheck',
             quarantined: report.projects.reduce((n, p) => n + p.quarantined.length, 0),

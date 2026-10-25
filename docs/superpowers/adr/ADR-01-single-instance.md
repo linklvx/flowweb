@@ -73,6 +73,11 @@ spike 发现（c5a3e383）：长命 epoch 下全部在役段恒满足 lastWriteA
   倒挂于 WAL 段（PG 声称的 pgSeq 超过 WAL 可证明的链尾）。正常崩溃恢复（两信号皆无）
   不求值时间戳栅栏——段比 epoch 新是长命 epoch 的常态。historyId 栅栏不受作用域门控，
   每次恢复先查。
+- **信号②的实现等价性注记（T13/G6a 定形回写）**：冻结契约字面「或 PG pgSeq 水位倒挂」在 T13
+  生产接线中**不由求值门控布尔消费**——倒挂形态由 §3.2 violation 维等价拦截（可证链尾<pgSeq
+  ⇒ pgPrefixViolation ⇒ fail-closed 拒服务，证据保全禁截断），拦截强度不弱于栅栏路径；且链干净
+  常态（两信号皆无的崩溃恢复）禁求值时间戳栅栏（本节首条）。两读法等价对齐——G6a INV3 的
+  `evaluateTimestampFence=marker 在位`收窄即此口径（契约 doc-protocol.ts 本体冻结不动）。
 - **求值基准快照与 bump 竞态**：epochStartedAt/historyId 在恢复扫描**入口一次性快照**
   （调用方自 `requireSystemHistory` 读 SystemHistory 单行传入——canvas-doc-head.ts
   fail-closed 读面），扫描期间不重读。恢复扫描发生在 boot 前置（listen 之前）且单写者

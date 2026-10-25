@@ -613,6 +613,31 @@ export class CollabSpoolService {
         if (!buf) continue;
         const hdr = decodeWalSegmentHeader(buf);
         if ('badHeader' in hdr) continue;   // 坏头段不收养（隔离裁定归 scan/recoverScan）
+        if (m.segQuarantined === 'chain-stopped') {
+          // C1（T13 双评审 Critical）：chain-stopped 段保留 recoverScan 链式裁定的 seqs/frameCount/
+          // goodBytes——收养面与 boot 链两通道裁定一致。旧实现 permissive 重算对非字节缺陷段
+          // （gap/恶性 dup-seq/hash-mismatch/generation-mismatch——len/CRC 网全过）=干净段假象：
+          // ①quarantineTruncatedFrames 判干净段 no-op（坏尾零处置+段永不回收）；②peek 帧集=
+          // permissive 全集≠裁定前缀（链后未证帧复活进 replay 通道）；③收养不推进计数器/去重索引
+          // （新帧 walSeq 与收养段 seq 碰撞→PG 落行违反密集前缀→下次 boot dup-seq fatal 级联）。
+          // 计数器按裁定前缀 maxSeq 上抬（max 语义同 seedWalSeqFromPg 不回拨——reconciler 回拨/
+          // 索引清理后收养窗也安全）+裁定前缀帧入去重索引（同字节重发命中 dedup 返回原 frameId
+          // ——ACK 铁律）；坏尾归 quarantineTruncatedFrames 处置（reconciler 注记②——meta.goodBytes
+          // =链式 lastGoodOffset 即其隔离界）。
+          const maxSeq = m.seqs.reduce((mx, sq) => (sq > mx ? sq : mx), 0n);
+          const floor = maxSeq + 1n;
+          const cur = this.walSeqCounters.get(pid) ?? 1n;
+          if (floor > cur) this.walSeqCounters.set(pid, floor);
+          for (let i = 0; i < m.frameCount && i < m.frameHashes.length; i++) {
+            this.dedupInsert(pid, m.frameHashes[i]!, `${key}:${i}`, m.seqs[i] ?? 0n);
+          }
+          segs.set(key, { frameCount: m.frameCount, goodBytes: m.goodBytes, bytes: buf.byteLength,
+            confirmed: new Set(), confirmedCount: 0, sealed: true, quarantinedRange: null,
+            quarantinedBytes: 0, dir: m.dir, seq: m.seq, foreign: false, generation: m.generation,
+            seqs: m.seqs, frameHashes: m.frameHashes, header: hdr.header, segQuarantined: null });
+          adopted.push({ projectId: pid, dir: m.dir, name: segFileNameOf(pid, m.generation, m.seq) });
+          continue;
+        }
         const { frameCount, goodBytes, truncated, seqs, frameHashes } = parseSegmentFramesPermissive(buf);
         segs.set(key, { frameCount, goodBytes, bytes: buf.byteLength, confirmed: new Set(), confirmedCount: 0,
           sealed: truncated, quarantinedRange: null, quarantinedBytes: 0, dir: m.dir, seq: m.seq, foreign: false,
@@ -790,11 +815,13 @@ export class CollabSpoolService {
 
   /** fsync 分档注入缝（生产恒 fh.sync()——测试 subclass 注入 EIO/ENOSPC 故障；非垫片：
    *  生产路径零分支变化，seam 与 onRecovered 同族）。
-   *  Y1c T13（G6a wal_fsync_latency）：时延观测单点（成功/失败均计时——失败尾不进直方图，
-   *  分档归 wal_fsync_error_total；S4/T33「fsync p95>20ms」硬门观测源）。 */
+   *  Y1c T13（G6a wal_fsync_latency）：时延观测单点（**成功路径**计时——M1〔T13 收口〕失败尾
+   *  不进直方图：EIO/ENOSPC 长尾不污染 p95 观测源，失败分档归 wal_fsync_error_total——与
+   *  store.metrics 注释口径对齐；S4/T33「fsync p95>20ms」硬门观测源）。 */
   protected async syncSegmentHandle(fh: FileHandle): Promise<void> {
     const t0 = Date.now();
-    try { await fh.sync(); } finally { walFsyncLatency.observe(Date.now() - t0); }
+    await fh.sync();
+    walFsyncLatency.observe(Date.now() - t0);
   }
 
   /** 帧写入唯一实现（V2 封段守卫+X14 耐久性+WAL 帧协议 v1.7）。
@@ -1286,6 +1313,7 @@ export class CollabSpoolService {
       if (!meta || meta.quarantinedRange != null || meta.segQuarantined != null) continue;
       const buf = await readFile(join(dir, f));
       let off: number;
+      let reason = 'truncated-or-crc';
       const hdr = decodeWalSegmentHeader(buf);
       if ('badHeader' in hdr) {
         off = 0;   // 段头即坏——整文件字节区间隔离（帧区不可信）
@@ -1297,10 +1325,15 @@ export class CollabSpoolService {
             || (crc32(buf.subarray(off + 8, off + WAL_FRAME_FIXED_BYTES + len)) >>> 0) !== buf.readUInt32LE(off + 4)) break;
           off += WAL_FRAME_FIXED_BYTES + len;
         }
+        // C1（T13 双评审 Critical）：链式裁定前缀界优先——非字节缺陷坏尾（gap/恶性 dup-seq/hash-
+        // mismatch/generation-mismatch——permissive len/CRC 网全过的「干净段」假象）以 meta.goodBytes
+        // （recoverScan 链式 lastGoodOffset——收养 chain-stopped 段保留）为隔离界；不收窄=no-op=
+        // 坏尾零处置+收养段 confirm tailSettled 恒 false 永不回收。
+        if (meta.goodBytes < off) { off = meta.goodBytes; reason = 'chain-defect-tail'; }
         if (off >= buf.byteLength) continue;                     // 干净段
       }
       // I1：sidecar 先落盘后记账——写失败即异常上抛且 meta 三字段未动（保守正确可重试）。
-      const line = JSON.stringify({ segSeq: parsed.segSeq, quarantinedFromOffset: off, toOffset: buf.byteLength, reason: 'truncated-or-crc', firstSeenAt: new Date().toISOString() }) + '\n';
+      const line = JSON.stringify({ segSeq: parsed.segSeq, quarantinedFromOffset: off, toOffset: buf.byteLength, reason, firstSeenAt: new Date().toISOString() }) + '\n';
       await appendSidecarLineRaw(dir, f, line);
       meta.quarantinedRange = { fromOffset: off };
       meta.sealed = true;                                      // V2：含坏尾的段封禁
@@ -1480,6 +1513,7 @@ export class CollabSpoolService {
       let expectedNext: bigint | null = null;
       let chainStopped = false;
       let chainBreakSegKey: string | null = null;   // I3（Q-I4）：链可证性中断锚点（violation 上报表位）
+      let foreignChainStopped = 0;   // I1（T13 双评审 Important）：外来 chain-stopped fatal 段计数——前缀缺口事件维（不进 truncated/quarantined 报告面）
       for (const seg of withGen) {
         const segKey = this.segKeyOf(seg.dir, seg.name);
         const path = join(seg.dir, seg.name);
@@ -1596,6 +1630,7 @@ export class CollabSpoolService {
             seg.buf.byteLength - res.lastGoodOffset));
           pr.replayPrefix.push(...res.frames.map((f) => f.walSeq));
           chainStopped = true; chainBreakSegKey ??= segKey;   // 链断（后续段不可证明连续）
+          foreignChainStopped += 1;   // I1（T13 收口）：帧级致命停链=前缀缺口事件（I4 禁字节处置故不进 truncated/quarantined 报告维——计数维并入，help 语义不缩水）
           continue;
         }
         // 完整有效前缀截断（丢的全是 walSeq>pgSeq 的帧——从未承诺 Durable）+sidecar 审计
@@ -1634,11 +1669,11 @@ export class CollabSpoolService {
         this.watermarks.set(projectId, w);
       }
       // Y1c T13（G6a doc_prefix_gap_total）：前缀缺口事件——帧级致命截断+停链性隔离（换代切段
-      // 不停链不计）+恢复怀疑+violation；正常重启恒 0（观测口径见 store.metrics help）。
+      // 不停链不计）+恢复怀疑+violation+外来 chain-stopped fatal（I1：禁字节处置不进 truncated/
+      // quarantined 报告维——计数维并入「帧级致命缺陷」档）；正常重启恒 0（观测口径见 store.metrics help）。
       const stopChainSegs = pr.quarantined.filter((q) => q.reason !== 'generation-switch').length;
-      if (pr.truncated.length + stopChainSegs + pr.recoverySuspect.length + pr.pgPrefixViolation.length > 0) {
-        docPrefixGapTotal.inc(pr.truncated.length + stopChainSegs + pr.recoverySuspect.length + pr.pgPrefixViolation.length);
-      }
+      const gapEvents = pr.truncated.length + stopChainSegs + pr.recoverySuspect.length + pr.pgPrefixViolation.length + foreignChainStopped;
+      if (gapEvents > 0) docPrefixGapTotal.inc(gapEvents);
     }
     this.index = next;   // 恢复裁定落 index（整段隔离档+unproven-tail 零帧；chain-stopped 段前缀帧 peek 可取回——两类均与 replayPrefix 一致，I1/复核 R1）
     this.rebuildRuntimeStateFromIndex();
