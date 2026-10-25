@@ -1069,6 +1069,41 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
   });
 });
 
+// ══ C1'（T11 复核 round-2 Critical）boot 三元组播种接线：pgSeqFloors（含 generation）先于 replayAll ══
+//  缺陷形态（真 PG 复现）：真空纪 doc（gen-2+snapshot(g2,rev0)）崩溃幸存段→boot scan 不播种
+//  projectGeneration→replayAll 以 genOf=??1 插行→compact ② 代辖重放滤掉错代行=帧不可见+僵尸行永留。
+// 本用例钉 gateway 接线（int 侧链路语义=walseq-seeding.int.spec C1' 两用例）。
+describe('Y1c T11 复核 round-2：boot 三元组播种接线（generation+walSeq floor 先于 replayAll）', () => {
+  it("C1' 接线：startCollabAfterLease 读 pgSeqFloors→setProjectGeneration+seedWalSeqFromPg→replayAll 回灌行落当代（红=不播种→行落 g1×compact ② 代辖滤除）+无段项目计数器自 PG 抬底", async () => {
+    const { dir, cleanup } = await makeSpoolDir('y1c-c1p-');
+    try {
+      const spool = new CollabSpoolService(dir);
+      spool.setOwner('test-owner');
+      spool.setProjectGeneration('p-gen', 7);   // 运行中形态：帧属 g7（真空纪后当代）
+      spool.seedWalSeqFromPg('p-gen', 3n);      // 运行中形态：计数器=pgSeq+1=4（帧 walSeq=4>已发布基线 3）
+      await spool.append('p-gen', Y.encodeStateAsUpdate(new Y.Doc()));   // 崩溃幸存段帧（未 confirm）
+      const appendBatch = vi.fn(async (_pid: string, rows: unknown[] = []) => ({ ok: true as const, rows: rows.length }));
+      const kit = await startDualClientServer({
+        appendBatch,
+        pgSeqFloors: vi.fn(async () => [
+          { projectId: 'p-gen', generation: 7, pgSeq: 3n },
+          { projectId: 'p-floor', generation: 1, pgSeq: 9n },   // 无段项目：walSeq floor 单独生效（scan 面=1）
+        ]),
+      }, 200, spool);
+      try {
+        // ①generation 接线：回灌行落当代 g7（replayAll 的 genOf 读播种值——红=缺省 1 落错代）
+        const replayRows = appendBatch.mock.calls.filter((c) => c[0] === 'p-gen').flatMap((c) => c[1] as { generation: number }[]);
+        expect(replayRows.length, '幸存段帧经 boot replayAll 回灌').toBeGreaterThan(0);
+        expect(replayRows.every((r) => r.generation === 7), 'boot 播种先于 replayAll——回灌行代辖=CanvasDoc.generation').toBe(true);
+        // ②walSeq floor 接线：无段项目计数器自 PG 抬底（scan 面零段=1 → pgSeq=9 播种 10）
+        expect(spool.peekNextWalSeq('p-floor')).toBe(10n);
+        // ③generation map 接线：后续帧通道（append）落当代段
+        expect(spool.currentGeneration('p-gen')).toBe(7);
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  }, 15_000);
+});
+
 // Y0a-2 Task 4 审查修复（红相先行）：I-1 回灌后 rearm 排程（X5 必修漏落——onRecovered seam 只在
 // ioBroken 翻转时回调，spool 健康时启动回灌失败无任何唤醒路径）+ I-2 retryingPersist 单布尔改
 // per-doc 集合（A 项目梯在飞窗跨 saveMutex 等待+append 5s 上界，误罩 B 项目三处守卫→B 批滞留无恢复）

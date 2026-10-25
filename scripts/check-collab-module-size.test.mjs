@@ -65,7 +65,7 @@ test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏
 });
 
 test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1025);   // Y1c T10 重标 985→1015（onStateless barrier+unload drain 纪律净增 30 行）→T10 收口 1020（Q-I3 typed 分类）→T11 收口 1025（C1① 播种两接线 +5——锚=实测同批）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1032);   // Y1c T10 1020→T11 收口 1025（C1① 播种接线）→复核 round-2 1032（C1' 三元组播种块前移 +7——锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1273);   // Y1c T9 重标
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1082);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1073);   // Y1c T11：1056→1070（maybeCompact confirm 消费面）→1073（Q-M6 断言锚注释 +3）

@@ -850,11 +850,18 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           const projectId = seg.replace(/\.\d+\.spool$/, '');
           quarantined += await this.spool.quarantineTruncatedFrames(projectId);
         }
+        // C1'（复核 round-2 Critical）+C1①（T11 双评审 Critical）boot 三元组播种——**先于 replayAll**：
+        // ①generation=回灌插行代辖单源（不播种则 genOf=??1 落错代×compact ② 代辖滤除=真空纪静默丢
+        // 数据链——scan 面不重建 projectGeneration）；②walSeq floor=max(当前值, pgSeq+1)（段全回收+
+        // 重启项目计数器自 1 重起——新帧将落已发布快照基线之下不可见；幸存段承载未落 PG 帧时 scan
+        // 重建值更高，PG 值只抬底不压顶；先播无害——replayAll catch-up 推 pgSeq 后计数器=scan 值恒≥）。
+        // 与 loadDocument 缝（onGenerationSeeded/onWalSeqFloorSeeded）同方法单源。
+        const floors = await this.repo.pgSeqFloors();
+        for (const p of floors) {
+          this.spool.setProjectGeneration(p.projectId, p.generation);
+          this.spool.seedWalSeqFromPg(p.projectId, p.pgSeq);
+        }
         const replay = await this.spool.replayAll(this.repo);
-        // C1①（T11 双评审 Critical）boot PG 播种：段全回收+重启项目 scan 面为零（计数器自 1 重起
-        // ——新帧将落已发布快照基线之下不可见），自 CanvasDoc.pgSeq 真值播种（max 语义：幸存段
-        // 未落 PG 帧由 scan 重建值更高承载；与 loadDocument 缝同方法单源）。
-        for (const p of await this.repo.pgSeqFloors()) this.spool.seedWalSeqFromPg(p.projectId, p.pgSeq);
         if (quarantined > 0 || replay.failed > 0) {
           // 启动自检（spec §5.2 口径——ERROR 结构化日志；Y0a-3 起随 ready.spoolQuarantined 可见）
           this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', quarantined, replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded, truncatedSegments }));

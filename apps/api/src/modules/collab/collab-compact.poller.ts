@@ -47,8 +47,9 @@ export class CollabCompactPoller implements OnModuleInit, OnApplicationShutdown 
       const resumed = await this.repo.resumePurges();
       if (resumed > 0) this.logger.log(`T11 启动续跑：${resumed} doc 的 purgeBelowSeq 清理义务已收敛`);
     } catch (e) {
-      // 续跑失败不阻启动（下轮 tick 的扫描面会再次命中同一批 doc——purgeBelowSeq 持久承载义务）
-      this.logger.error(`T11 启动续跑失败（下轮 tick 兜底）: ${(e as Error).message}`);
+      // 续跑失败不阻启动（tick 首步兜底重跑——Q-M2 复核 round-2：tick 扫描面只命中「seq≤pgSeq 在场」
+      // doc，kill 窗残留行已删+快照已覆盖的纯清理义务不在其列，compact empty 早退于 ④ 不续删）
+      this.logger.error(`T11 启动续跑失败（tick 首步兜底）: ${(e as Error).message}`);
     }
     this.timer = setInterval(() => { void this.tick(); }, COMPACT_POLL_INTERVAL_MS);
     this.timer.unref?.();
@@ -58,11 +59,19 @@ export class CollabCompactPoller implements OnModuleInit, OnApplicationShutdown 
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
   }
 
-  /** 周期 tick：扫描可折前缀在场的 doc → 时间门 → compact 全管线。单飞互斥（重放吃内存——防 tick 叠跑）。 */
+  /** 周期 tick：扫描可折前缀在场的 doc → 时间门 → compact 全管线。单飞互斥（重放吃内存——防 tick 叠跑）。
+   *  首步=清理义务兜底续跑（Q-M2 复核 round-2：boot resumePurges 单项目抛错即中断全部续跑〔无
+   *  per-project try/catch〕，且 compact empty 分支早退于 ④——义务只能等重启；tick 首步重跑使
+   *  purgeBelowSeq 持久义务的最长滞留=一个 tick 周期。失败仅 WARN 不阻 compact 主面）。 */
   async tick(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
+      try {
+        await this.repo.resumePurges();
+      } catch (e) {
+        this.logger.warn(`T11 tick 清理义务续跑失败（义务由 purgeBelowSeq 持久承载——下轮 tick 再试）: ${(e as Error).message}`);
+      }
       const candidates = await this.prisma.$queryRaw<{ projectId: string }[]>`
         SELECT d."projectId" FROM "CanvasDoc" d
         WHERE EXISTS (

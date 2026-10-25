@@ -12,7 +12,7 @@ export interface MockRepo {
   hydrateWithRecovery: ReturnType<typeof vi.fn>;
   compact: ReturnType<typeof vi.fn>;
   count: ReturnType<typeof vi.fn>;
-  pgSeqFloors: ReturnType<typeof vi.fn>;   // C1①（T11 双评审）：boot PG 播种读面（gateway startCollabAfterLease init 步消费）
+  pgSeqFloors: ReturnType<typeof vi.fn>;   // C1'①（T11 双评审+复核 round-2）：boot 三元组播种读面（gateway startCollabAfterLease init 步消费——先于 replayAll）
 }
 
 export function createMockRepo(over: Partial<MockRepo> = {}): MockRepo {
@@ -25,7 +25,7 @@ export function createMockRepo(over: Partial<MockRepo> = {}): MockRepo {
     // （not-owner 随授权换轴〔行锁+CAS〕退役）。
     compact: vi.fn(async () => ({ compacted: true as const, snapshotBytes: 0, deletedRows: 0, tombstoneBytes: 0, snapshotRev: 0n, stateSeq: 0n, purgeBelowSeq: 0n })),
     count: vi.fn(async () => 0),
-    pgSeqFloors: vi.fn(async () => [] as Array<{ projectId: string; pgSeq: bigint }>),   // C1①：boot 播种默认空集（用例可覆写布景）
+    pgSeqFloors: vi.fn(async () => [] as Array<{ projectId: string; generation: number; pgSeq: bigint }>),   // C1'①：boot 三元组播种默认空集（用例可覆写布景）
     ...over,
   };
   // 委托本身也是 vi.fn：用例可直接 repo.hydrateWithRecovery.mockResolvedValueOnce(...) 覆写；

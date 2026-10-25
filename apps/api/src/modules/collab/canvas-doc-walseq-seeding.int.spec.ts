@@ -68,8 +68,7 @@ maybe('C1（T11 双评审 Critical）：walSeq 计数器 PG 恒真播种+appendB
 
   /** era1 稳态布景：3 帧→PG 行（CAS 推 pgSeq=3）→compact 发布快照 stateSeq=3+purge 行→confirm
    *  全确认段 unlink（段全回收=链第一环：PG 落地稳态下 WAL 无幸存段）。 */
-  async function seedEra1(): Promise<Uint8Array[]> {
-    await prisma.$executeRawUnsafe(
+  async function seedEra1(): Promise<Uint8Array[]> {    await prisma.$executeRawUnsafe(
       `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
       PID,
     );
@@ -173,5 +172,79 @@ maybe('C1（T11 双评审 Critical）：walSeq 计数器 PG 恒真播种+appendB
     expect(s2.peekNextWalSeq(PID)).toBe(6n);
     s2.seedWalSeqFromPg(PID, 3n);   // pgSeq=3（后两帧未落 PG）——播种不得回拨
     expect(s2.peekNextWalSeq(PID), 'max 语义：scan 值（6）> pgSeq+1（4）——幸存段承载未落 PG 帧时更高').toBe(6n);
+  });
+
+  // ══ C1'（复核 round-2 Critical——88ef123b 引入）：boot replayAll generation 缺省 1 × compact ②
+  //  代辖重放 = 真空纪 doc 同型静默丢数据链 ══
+  // 链（评审员真 PG 复现）：gen-2 doc（vacuum 后形态 snapshot(g2,rev0)）+崩溃幸存 g2 段帧→boot 新实例
+  // scan 不播种 projectGeneration→replayAll 以 genOf=??1 插行+catch-up 照推 pgSeq→装载尾（无代滤）暂
+  // 可见→compact ② 重放页 generation=g 滤掉 gen-1 行→发布快照不含其内容→purgeBelow(g2) 不删 gen-1
+  // 行→尾谓词 seq≤新快照基线跳过——终态=帧不可见+僵尸行永留。修复=boot 三元组播种（generation+
+  // walSeq floor）前移至 replayAll 之前（gateway 接线单测另钉）。
+  /** gen-2 真空纪布景：CanvasDoc(g=2,pgSeq=3)+snapshot(g2,rev0,基线=3)+幸存 g2 段帧（walSeq=4 未落 PG
+   *  未 confirm——运行中实例计数器自 pgSeq 连续〔seed 后 append〕，崩溃后段幸存、进程内状态蒸发）。 */
+  async function seedEraVacuumed(): Promise<Uint8Array> {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "pgSeq", "walCheckpointSeq", "currentSnapshotRev", "updatedAt")
+       VALUES ($1, 2, 3, 3, 3, 0, now()) ON CONFLICT DO NOTHING`,
+      PID,
+    );
+    const base = docWithNode('v2base', 0);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion", "createdAt")
+       VALUES ($1, 2, 0, 3, $2, $3, 0, 3, now()) ON CONFLICT DO NOTHING`,
+      PID, Buffer.from(base), createHash('sha256').update(base).digest('hex'),
+    );
+    const running = newSpool();
+    running.setProjectGeneration(PID, 2);
+    running.seedWalSeqFromPg(PID, 3n);   // 运行中形态：计数器=pgSeq+1=4（与 PG 连续）
+    const frame = docWithNode('g2frame', 7);
+    const appended = await running.appendBatch(PID, [frame]);
+    expect(appended[0].walSeq).toBe(4n);   // 幸存段帧 walSeq=4>基线 3（在已发布基线之上——非 C1① 面）
+    return frame;
+  }
+
+  it("C1' 根因钉锚：boot 不播种 generation→replayAll 行落 g1（genOf=??1）→compact ② 代辖滤除=帧不可见+僵尸行永留（修复=boot 播种先于 replayAll——本用例锁 spool 层契约，gateway 接线单测另钉）", async () => {
+    await seedEraVacuumed();
+    const s2 = newSpool();
+    await s2.scan();   // 段幸存重建 walSeq 面；projectGeneration 面 scan 不重建（进程内状态蒸发）
+    expect(s2.currentGeneration(PID), 'scan 面零 generation——播种义务在 PG 侧（同 C1① 根因形态）').toBe(1);
+    const replay = await s2.replayAll(repo);
+    expect(replay.failed).toBe(0);
+    const rows = await prisma.$queryRaw<{ generation: number }[]>`SELECT generation FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text`;
+    expect(rows.map((r) => r.generation), '根因：不播种即错——行落 g1（当代=g2）').toEqual([1]);   // 钉「不播种=错位」契约（gateway 修复后本用例仍绿=锁行为面）
+    expect((await repo.readWatermark(PID))!.pgSeq, 'catch-up 无代滤照推水位').toBe(4n);
+    const c = await repo.compact(PID);
+    expect(c.compacted).toBe(true);   // ② 重放页 generation=2 滤掉 g1 行——发布快照基线推进到 4 但不含 g2frame
+    const h = await repo.loadForHydration(PID);
+    const revived = new Y.Doc();
+    if (h.state) Y.applyUpdate(revived, new Uint8Array(h.state));
+    for (const u of h.updates) Y.applyUpdate(revived, new Uint8Array(u));
+    expect(revived.getMap('nodes').has('g2frame'), '终态：行在库（g1）+尾谓词 seq≤4 跳过=内容不可见').toBe(false);
+    expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID, generation: 1 } }), 'purgeBelow(g2) 不删 g1 行=僵尸行永留').toBe(1);
+  });
+
+  it("C1' 修复形态：boot 三元组播种（pgSeqFloors 扩 generation+先 setProjectGeneration/seedWalSeqFromPg 后 replayAll）→行落 g2+compact 后内容可见+行清理", async () => {
+    await seedEraVacuumed();
+    const s2 = newSpool();
+    await s2.scan();
+    // gateway boot 修复形态：pgSeqFloors（含 generation）先于 replayAll 播种（红=pgSeqFloors 无 generation 列）
+    const floors = await repo.pgSeqFloors();
+    const mine = floors.find((x) => x.projectId === PID)!;
+    expect(mine.generation, 'pgSeqFloors 扩 generation（红=undefined——boot 播种三元组缺一不可）').toBe(2);
+    s2.setProjectGeneration(PID, mine.generation);
+    s2.seedWalSeqFromPg(PID, mine.pgSeq);
+    const replay = await s2.replayAll(repo);
+    expect(replay.failed).toBe(0);
+    const rows = await prisma.$queryRaw<{ generation: number }[]>`SELECT generation FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text`;
+    expect(rows.map((r) => r.generation), '播种后回灌行落当代 g2').toEqual([2]);
+    const c = await repo.compact(PID);
+    expect(c.compacted).toBe(true);   // ② 重放页含 g2 行——发布快照含 g2frame 内容
+    const h = await repo.loadForHydration(PID);
+    const revived = new Y.Doc();
+    if (h.state) Y.applyUpdate(revived, new Uint8Array(h.state));
+    for (const u of h.updates) Y.applyUpdate(revived, new Uint8Array(u));
+    expect(revived.getMap('nodes').has('g2frame'), '修复终态：内容可见').toBe(true);
+    expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } }), '当代行被 purgeBelow 清理（无僵尸行）').toBe(0);
   });
 });

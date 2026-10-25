@@ -655,10 +655,12 @@ export class CanvasDocUpdateRepository {
     return pending.length;
   }
 
-  /** C1①（T11 双评审 Critical）boot 播种读面：CanvasDoc (projectId,pgSeq) 全集——gateway
-   *  startCollabAfterLease init 步消费（逐行 spool.seedWalSeqFromPg——max 语义；段全回收项目
-   *  计数器自 PG 真值重建，scan 面零段不可得）。单查询全表（CanvasDoc 每项目一行）。 */
-  async pgSeqFloors(): Promise<Array<{ projectId: string; pgSeq: bigint }>> {
-    return this.prisma.$queryRaw`SELECT "projectId", "pgSeq" FROM "CanvasDoc"`;
+  /** C1①（T11 双评审 Critical）boot 播种读面：CanvasDoc (projectId,generation,pgSeq) 全集——gateway
+   *  startCollabAfterLease init 步消费（逐行 spool.setProjectGeneration+spool.seedWalSeqFromPg——
+   *  boot 三元组播种，**先于 replayAll**：generation 是回灌插行代辖单源〔C1' 复核 round-2 Critical——
+   *  不播种则 genOf=??1 落错代×compact ② 代辖滤除=真空纪静默丢数据链〕；walSeq floor max 语义，段全
+   *  回收项目计数器自 PG 真值重建，scan 面零段不可得）。单查询全表（CanvasDoc 每项目一行）。 */
+  async pgSeqFloors(): Promise<Array<{ projectId: string; generation: number; pgSeq: bigint }>> {
+    return this.prisma.$queryRaw`SELECT "projectId", generation, "pgSeq" FROM "CanvasDoc"`;
   }
 }
