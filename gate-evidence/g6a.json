@@ -1,0 +1,185 @@
+{
+  "gate": "G6a",
+  "commit": "5accab40",
+  "env": {
+    "pg": "PostgreSQL 16.13（localhost:5432/flowweb——pg_dump 16.13 实弹工具链 D:/programfiles/PostgreSQL/16/bin）",
+    "date": "2026-10-25",
+    "suite": "collab-t13-g6a.spec（boot 接线 K1-K7 单池）+collab-t13-kill9.process.spec（真子进程 spawn+SIGKILL P1-P3）+collab-t13-g6a.int.spec（真 PG 实弹 I1-I4——vitest.int.config）+collab-spool-wal.spec M3；kill -9=进程内 seam（NoConfirmSpool/FaultRepo——T8/T9/T10 先例）+真子进程物理形态双轨；「重启」=服务重实例化+boot 生产恢复路径（T13 接线——与 G2 套件直调函数形态的差异面）"
+  },
+  "cases": [
+    {
+      "id": "K1-boot-recovery-order-wired",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t13-g6a.spec.ts -t 'K1'",
+      "status": "pass",
+      "expect": "boot init 走 recoverScan（SystemHistory 快照 historyId+epochStartedAtMs+pgSeq 回调=pgSeqFloors 单源）+旧链 scan 零调用+幸存帧经 replayAll 回灌+开放写",
+      "detail": "红相=recoverSpy 零调用（expected 1 got 0——T8 遗留 #1「仅测试消费」实证）；修后 boot 生产路径=ADR-01 §3 全序：assert→floors→快照→restore.lock 门控→recoverScan→fail-closed 判定→播种→replayAll→listen",
+      "artifacts": []
+    },
+    {
+      "id": "K2-history-mismatch-violation-fail-closed",
+      "command": "… -t 'K2'",
+      "status": "pass",
+      "expect": "bump 后旧段 history-mismatch 整段 quarantine 零重放+PG pgSeq 残留（I3 链断 violation）→start-failed 不 listen",
+      "detail": "红相=旧链照常 serving；装置=段头 historyId 篡改（offset 80 zero-pad+CRC 重算）+floors pgSeq=1 残留（pg_dump 恢复后 dump 行形态）。K2 初版期望（pgSeq=0 时也拒）经语义复核修正：pgSeq=0=丢帧全为未承诺 Durable 档→合法续跑（ADR-01 §3.2）——拒服务判定=violation 维非 quarantine 维",
+      "artifacts": []
+    },
+    {
+      "id": "K3-pg-prefix-violation-fail-closed",
+      "command": "… -t 'K3'",
+      "status": "pass",
+      "expect": "WAL 链断（帧 walSeq 篡改 gap=fatal→lastGood=1）+PG pgSeq=3>lastGood=账本失真→boot 拒服务（证据保全禁截断续跑）",
+      "detail": "红相=旧链无 PG 前缀校验照常 serving；帧字节级装置（帧 2 walSeq 改 4+帧 CRC 重算——真 gap 缺号档）",
+      "artifacts": []
+    },
+    {
+      "id": "K4-restore-lock-timestamp-fence-intercept",
+      "command": "… -t 'K4'",
+      "status": "pass",
+      "expect": "忘 bump 形态（historyId 匹配+段比 epoch 新=长命 epoch 常态）+restore.lock 在位→时间戳栅栏求值（F-S4-5 信号①）→recoverySuspect 零重放+boot 拒服务；人工清 marker→正常恢复 serving（自愈边界=人工处置）",
+      "detail": "红相=marker 零读取照常 serving；suspectSegments 分维可见（T8 遗留 #2 消费面）+peek=0（旧段禁复活）",
+      "artifacts": []
+    },
+    {
+      "id": "K5-pg-unavailable-boot",
+      "command": "… -t 'K5'",
+      "status": "pass",
+      "expect": "pgSeqFloors 抛错（恢复输入不可达）→start-failed 不 listen+帧保留（WAL 磁盘安全）",
+      "detail": "fail-closed 重试语义（5s 循环——人工/恢复后自愈），对照 K1 正常路径",
+      "artifacts": []
+    },
+    {
+      "id": "K6-eio-failstop-restart-recovery",
+      "command": "… -t 'K6'",
+      "status": "pass",
+      "expect": "EIO=walHealthy=false 停收不截断（段证据保留——不进复用路径）→新实例（重启等价）recoverScan 裁定+CRC 可证帧全数恢复+walHealthy 复位+续号不跳号",
+      "detail": "T8 契约面 G6a 收口：EIO 档字节面（write 已完成字节在页缓存）——帧 CRC 通过=可证即重放；磁盘真坏时 CRC 网拒（fail-closed 方向正确）；「不进复用路径」=进程内 walSeq 不复用（拒收新帧）非截断",
+      "artifacts": []
+    },
+    {
+      "id": "K7-six-metrics-placement",
+      "command": "… -t 'K7'",
+      "status": "pass",
+      "expect": "wal_fsync_latency/wal_pending_bytes/doc_pg_lag_seq/doc_prefix_gap_total/doc_recovery_total 注册（registry=/api/metrics 暴露）+inc/collect 点真值（fsync count 递增/pendingSpoolBytes>0/maxPgLagSeq=1/撕裂段 gap inc）",
+      "detail": "doc_frame_rejected_total{reason}=既有等价 collab_actor_frame_outcome_total{reject-4411|reject-4412}+collab_quota_frame_rejected_total（核实登记——不重复新增）；文本暴露面断言（register.metrics()）",
+      "artifacts": []
+    },
+    {
+      "id": "M3-empty-seg-switchgen-cleanup",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-spool-wal.spec.ts -t 'M3'",
+      "status": "pass",
+      "expect": "空段（零帧无既有隔离）换代即删（文件+sidecar 不滞留——多次 vacuum 无累积）；含未提交帧段 sidecar 保留策略锁定（文件+sidecar 保全+跨重启禁重放）",
+      "detail": "T12 双评审 M3 落地；红相实证=临时回退修复后 expected true to be false（空段滞留）；既有隔离段（bad-header）sidecar 证据形态保留",
+      "artifacts": []
+    },
+    {
+      "id": "P1-kill9-fsynced-full-recovery",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t13-kill9.process.spec.ts -t 'P1'",
+      "status": "pass",
+      "expect": "真子进程（spawn node fs 写手）完整写段+fh.sync()→父进程 SIGKILL→recoverScan 全帧恢复（进程死亡后磁盘字节存活）+续号承接",
+      "detail": "纪律「kill -9=真进程/真子进程形态（spawn+signal）——不得只 mock」的物理形态轨道；进程内 seam 轨道=G2 套件（互补）",
+      "artifacts": []
+    },
+    {
+      "id": "P2-kill9-torn-tail-truncate-no-hole",
+      "command": "… -t 'P2'",
+      "status": "pass",
+      "expect": "子进程物理半写（段头+帧 1 完整+帧 2 前 20B）→SIGKILL→recoverScan 判 truncated→完整前缀保留（帧 1）+截断裁定+前缀密集无洞+续号=前缀尾+1（复用不跳号）",
+      "detail": "撕裂点=精确字节偏移（WAL_SEGMENT_HEADER_SIZE+55+20）非比例切割（比例落帧 1 内=零帧保留的合法形态已排除）",
+      "artifacts": []
+    },
+    {
+      "id": "P3-kill9-multi-project-s4",
+      "command": "… -t 'P3'",
+      "status": "pass",
+      "expect": "子进程写 3 项目段→SIGKILL→recoverScan per-project 前缀 [1,2] 独立恢复互不干扰+水位三元重建（pgSeq=0/appliedSeq=spoolHeadSeq=2）",
+      "detail": "S4 决策落地验证（actor 原型管线拓扑下多项目恢复正确——per-project 定形终态）",
+      "artifacts": []
+    },
+    {
+      "id": "I1-pgdump-live-bump-quarantine",
+      "command": "cd apps/api && DATABASE_URL=… npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t13-g6a.int.spec.ts -t 'I1'",
+      "status": "pass",
+      "expect": "真 pg_dump 工具产出 dump 文件（--data-only --column-inserts 单表）→delete 本项目行→psql 灌回（真恢复——行从 dump 文件回来）→bump historyId→旧段全 history-mismatch quarantine 零重放+PG pgSeq=2 残留=violation fail-closed",
+      "detail": "S4「pg_dump 恢复→bump→旧段禁重放」实弹；表名=PascalCase 物理名（Prisma model 直用）+psql ON_ERROR_STOP=0（他项目残留行冲突无害）；SystemHistory 测后恢复原值（共享库纪律）；createdb 无权限（rolcreatedb=f）→恢复目标=同库（语义等价：PG 状态=dump 点+bump 后）",
+      "artifacts": []
+    },
+    {
+      "id": "I2-forgot-bump-restore-lock-live",
+      "command": "… -t 'I2'",
+      "status": "pass",
+      "expect": "historyId 未 bump+restore.lock 在位→时间戳栅栏（F-S4-5 定形面）→recoverySuspect 零重放+violation fail-closed；bump+清 marker（恢复流处置）→history-mismatch 档+suspect 归零",
+      "detail": "忘 bump 拦截实弹（长命 epoch 常态段比 epoch 新——仅恢复怀疑态求值的作用域门控负控=K1 正常恢复不误伤）；NoConfirmSpool seam（CAS 落定 confirm 静默）保段——全 confirm 段即时回收=目录空是忘 bump 拦截的物理前提缺失",
+      "artifacts": []
+    },
+    {
+      "id": "I3-8mib-ss2-recovery-no-http-seed",
+      "command": "… -t 'I3'",
+      "status": "pass",
+      "expect": "8MiB SS2 帧（63×128KiB≈7.7MiB<8.06MiB 帧闸）经 actor submit kind='ss2'（WS 通道服务端入口）→PG 批提交前 kill（FaultRepo seam）→重启 recoverScan+replayAll→帧整部落 PG（octet_length>7MiB）+装载重放内容等价（big-0 在）",
+      "detail": "无 HTTP seed（端点已废——唯一通道=WS）；boot 重启=repo.setLeaseOwner 重持（契约 16 单写者门——缺此=fenced）",
+      "artifacts": []
+    },
+    {
+      "id": "I4-multi-project-idempotent-etag",
+      "command": "… -t 'I4'",
+      "status": "pass",
+      "expect": "A 两帧落定/B·C 批提交前 kill→重启 per-project 零 violation+replayed=4（A 段幸存帧=≤pgSeq 幂等重放残帧 ADR-01 §3.2 常态）+PG 行数幂等（A=2/B=1/C=1 零重复）+ETag=formatDocETag(generation,pgSeq)=DB 真值不超前",
+      "detail": "S4 多项目恢复+S4 附带（ETag 不超前 pgSeq 断言）；A 段留存实证=confirm 回收条件（tailSettled）未满足形态下幂等重放由 updateHash ON CONFLICT+CRDT 双防线吸收——零重复由行数断言证明",
+      "artifacts": []
+    },
+    {
+      "id": "REG-prior-gate-coverage",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t10-g2.int.spec.ts src/modules/collab/collab-t10-barrier-unload.spec.ts src/modules/collab/collab-spool-wal.spec.ts src/modules/collab/collab-hocuspocus-apply-order-contract.spec.ts",
+      "status": "pass",
+      "expect": "G6a 矩阵既有覆盖回归（不重复 G2/T8-T11 已锁面）：kill -9 各阶段=G2 R1-R10（fsync 前后/PG 提交失败/confirm 前崩/快照发布/WAL 清理/毒帧 4411+截断/fscopy 复用/4412 拒帧）+EIO fail-stop=T8+坏段四档 crc/truncated/missing-seq/dup-hash=T8+ENOSPC 分档=T8/T9+barrier flush 中=T10 B1+快照发布 kill=T11+doc 卸载×PG 故障交错误卸载=红（U1 drain 拒绝+doc 常驻 fail-closed——A9/BOI-3 翻转）+maxResidentDocBytes 到顶 503 SERVER_OVERLOADED=T10 U1 DR resident gate",
+      "detail": "G6a 增量=boot 生产路径端到端（K/P/I 三轨）；4413 close 投递面归 T27（T10 注记承袭——本卡=503 装载档）",
+      "artifacts": []
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV1-recovery-order-adr01-3",
+      "sql": "boot init 序=assert→pgSeqFloors→SystemHistory 入口快照（F-S4-5 不重读）→restore.lock 门控→recoverScan（段头 historyId 每次必查+时间戳栅栏仅恢复怀疑态求值→WAL 前缀→PG 前缀校验）→水位重建→播种→replayAll→listen（开放写）",
+      "expect": "K1（spy 序+快照两字段）+K2/K3/K4（各裁定维）+I1-I4（int 生产序 restartBoot 同构）"
+    },
+    {
+      "id": "INV2-fail-closed-no-unprovable-service",
+      "sql": "pgPrefixViolation∨recoverySuspect 非空 ⇒ 不 listen 不开放写（start-failed 有界重试——doc_recovery_total{blocked}；处置=bump 收尾/--adopt-wal/清 marker 人工）",
+      "expect": "K2/K3/K4/K5+I1/I2；正常崩溃恢复（marker 无+零缺口）不受影响（K1/K4 后半+P1/P3/I4 负控）"
+    },
+    {
+      "id": "INV3-timestamp-fence-scope-fs45",
+      "sql": "evaluateTimestampFence=restore.lock 在位（信号①——写入面=备份工具 T29/T30；spool 只读）∧恢复怀疑态下段 lastWriteAt>epochStartedAt→recoverySuspect（修正 #6 两维——非 quarantine）；正常崩溃恢复不求值（长命 epoch 常态不误伤）",
+      "expect": "K4（双相：marker 在=拦截/清除=serving）+I2 实弹；K1 传参断言（evaluateTimestampFence=false 默认）"
+    },
+    {
+      "id": "INV4-etag-pgseq-derivation",
+      "sql": "ETag=formatDocETag(generation,pgSeq)——pgSeq 分量=DB CanvasDoc 行真值（恢复后 read model 新鲜度=pgSeq——永不超前）",
+      "expect": "I4（三项目 pgSeq≥maxRowSeq+etag 字面断言）；ETag 消费面归 T19（本卡=恢复链真值断言）"
+    },
+    {
+      "id": "INV5-six-metrics-registry",
+      "sql": "wal_fsync_latency/wal_pending_bytes/doc_pg_lag_seq/doc_prefix_gap_total/doc_recovery_total ∈ prom-client register（/api/metrics 自动暴露+wireCollabMetricsReaders 注册+shutdown 注销）；doc_frame_rejected_total{reason}=既有等价面（不重复新增——登记）",
+      "expect": "K7（注册面+inc/collect 真值）+ready 面 walRecoverySuspect 兄弟字段（shared 类型+ready.service）"
+    },
+    {
+      "id": "INV6-switchgen-cleanup-m3",
+      "sql": "switchGeneration：全提交段即删（既有）+空段即删（M3 新——零滞留）+未提交帧段 sidecar 保全（证据）+计数器/水位保留（T12 跨代连续 seq）",
+      "expect": "M3（空段零残留+未提交保全+跨重启禁重放）+T12 既有换代切段用例回归"
+    }
+  ],
+  "skipped": 0,
+  "notes": [
+    "commit 字段=证据认证对象=commit 5accab40（A=代码）；本 g6a.json 于其后独立证据 commit 落盘（B=g6a.json——G1/G2 两 commit 形态先例）",
+    "负控清单=K4（marker 清除前 blocked/清除后 ok——恢复怀疑态自愈边界=人工处置）+K5（PG 不可用 start-failed）+K1/K4 后半（正常崩溃恢复不误伤——F-S4-5 作用域负控）+M3 红相（临时回退修复实证空段滞留）+K1-K4 四红组（基线 e642bb37 实证：recoverScan 零生产调用/栅栏零消费/marker 零读取/PG 前缀零校验）——负控全红过=门有效（spec §9.1）",
+    "T8 遗留三项处置登记（commit message 同步）：#1 recoverScan 生产接线=boot init 改造（旧链 scan 退役——gateway.spec I3 测试同语义迁移）；#2 suspectSegments 消费=boot fail-closed 判定+ready.walRecoverySuspect 暴露+K4 断言；#3 unproven-tail 处置边界=ADR-01 §6 注记定形（无自动处置：段排序确定性=同盘恒同裁定；收敛面=换代清理〔M3 空段即删+全提交即删〕/人工处置；--adopt-wal 仅限 recoverySuspect 不适用 unproven-tail）——观测=恢复报告 quarantined 维+doc_prefix_gap_total 计入",
+    "T12 评审 M3 处置=清理面落地（空段换代即删）非数字化登记；未提交段 sidecar 保留策略=证据保全锁定（M3 用例锚死）",
+    "K2 语义修正登记：初版期望「history-mismatch 即拒服务」经 ADR-01 §3.2 复核修正为「violation 维判定」（pgSeq=0+全隔离=丢帧全为未承诺 Durable 档→合法续跑；bump 后真实形态=PG dump 行 pgSeq 残留→I3 链断 violation→拒服务）——测试装置补 floors pgSeq 残留对齐实弹形态",
+    "六指标核实账（spec §9.3 全批清单非逐卡新增义务）：五新增+doc_frame_rejected_total 既有等价（collab_actor_frame_outcome_total reject-4411/reject-4412+collab_quota_frame_rejected_total 帧闸档）——store.metrics 注释块登记",
+    "装置适配面（boot 读面前移波及——requireSystemHistory epochStartedAtMs fail-closed）：kit prisma mock+9 spec mock 补 epochStartedAt+预投帧装置 setWalHistory 对齐（空串 historyId 段被 recoverScan 判 mismatch=fail-closed 方向正确——装置化非生产行为变化）+ready.service.spec stub 补 suspectSegments",
+    "adoptSilentForeignSegments 收养面放宽（chain-stopped 外来段可收养）=boot recoverScan 接线的配套（recoverScan 对外来 fatal 段判 chain-stopped 档〔帧前缀可重放 I1〕——旧判定 segQuarantined!=null 全拒使 I4 reconciler 回收闭环断链）；其余隔离档不收养保持",
+    "全量：api vitest 262 文件/2880 用例+int 池 373/373（真 PG——含本卡 4 实弹）+shared 692/692+三面 tsc 0 错+census 32/32+module-size（gateway 锚 1054→1080 净增面）+⑲ façade 0 违规（执法面 107 spec 文件）+verify:fast 16/16",
+    "G6a go 判定=pass：恢复顺序生产接线（ADR-01 §3 全序机判）+fail-closed 双维（violation/suspect）+时间戳栅栏实弹拦截（忘 bump 形态）+真子进程 kill -9 物理形态+pg_dump 实弹工具链+8MiB SS2 恢复+多项目 S4 验证+ETag 真值+六指标落位——零 skipped"
+  ],
+  "go": true
+}
