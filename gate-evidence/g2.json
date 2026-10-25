@@ -1,11 +1,11 @@
 {
   "gate": "G2",
-  "commit": "74287e10",
+  "commit": "ee958acc",
   "env": {
     "pg": "PostgreSQL 16.13 (localhost:5432/flowweb)",
     "migration": "20261024140000_y1c_t10_drop_canvas_doc_update_seq",
-    "date": "2026-10-25T04:58:00.000Z",
-    "suite": "apps/api/src/modules/collab/collab-t10-g2.int.spec.ts（真 PG/真 spool tmpdir/真 repo——vitest.int.config；kill -9=进程内 seam 注入+服务重实例化+recoverScan 本地路径模拟——生产 boot 接线归 T13）"
+    "date": "2026-10-25T13:08:00.000Z",
+    "suite": "apps/api/src/modules/collab/collab-t10-g2.int.spec.ts（真 PG/真 spool tmpdir/真 repo——vitest.int.config；kill -9=进程内 seam 注入+服务重实例化+recoverScan 本地路径模拟——生产 boot 接线归 T13）+C1 lease-fence：canvas-doc-update.repository.append.int.spec.ts（facet A 真 PG——vitest.int.config）+canvas-doc-update.repository.spec.ts（facet B 词法 sim+形状锚——默认池）；barrier/unload=collab-t10-barrier-unload.spec.ts（默认池）；F7=packages/shared collab-close-code.test.ts+recovery-flow.spec.ts"
   },
   "cases": [
     {
@@ -89,6 +89,22 @@
       "artifacts": []
     },
     {
+      "id": "C1A-watermark-cas-lease-fence-full-fenced",
+      "command": "cd apps/api && DATABASE_URL=… npx vitest run -c vitest.int.config.ts src/modules/collab/canvas-doc-update.repository.append.int.spec.ts -t 'C1（T10 收口）facet A 真 PG'",
+      "status": "pass",
+      "expect": "租约易主窗 CAS 形态——INSERT/UPDATE 全被 fence 拦：pgSeq 不推进+返回 fenced+恢复基线不被污染（红=旧实现水位越过未插入行）",
+      "detail": "8cb01edc C1 根修红测 facet A（CAS/catch-up 两 UPDATE+adopt+懒建档 INSERT 四写点全带 CollabLease owner fence——与行 INSERT 同 owner 语义）；词法 sim 同 facet+形状锚（CAS/adopt WHERE 均含 CollabLease EXISTS fence+adopt 补 generation 谓词 Q-M8）在 canvas-doc-update.repository.spec.ts 同 describe 组",
+      "artifacts": []
+    },
+    {
+      "id": "C1B-watermark-cas-lease-fence-partial-fenced",
+      "command": "cd apps/api && npx vitest run src/modules/collab/canvas-doc-update.repository.spec.ts -t 'facet B'",
+      "status": "pass",
+      "expect": "部分插入（RC 批内两 INSERT 之间租约易主，inserted>0 但<rows.length）按 PK 回查：缺行=按 fenced 档（禁 ok 短路吞缺口）+水位不越过缺行+调用方不 confirm（缺行帧 WAL 副本保留=不可恢复丢失面闭合）",
+      "detail": "含 lease 失而复得变体（UPDATE 窗租约回手 watermark=advanced 仍缺行——inserted>0 短路禁用）；8cb01edc C1 根修第二 facet 红测",
+      "artifacts": []
+    },
+    {
       "id": "B1-barrier-onstateless-contract",
       "command": "cd apps/api && npx vitest run src/modules/collab/collab-t10-barrier-unload.spec.ts",
       "status": "pass",
@@ -152,7 +168,8 @@
   ],
   "skipped": 0,
   "notes": [
-    "commit 字段=证据认证对象=commit 74287e10（A=代码）；本 g2.json 于其后独立证据 commit 落盘（B=g2.json——G1 两 commit 形态先例）",
+    "commit 字段=证据认证对象=commit ee958acc（A=最终代码 HEAD——含 8cb01edc C1 根修与 T11-T13 全部后续代码）；本 g2.json 为确认点②裁定后的重跑再生版（独立证据 commit 落盘——G1 两 commit 形态先例）。历史版=d1c9dd7b（认证 74287e10）——8cb01edc 收口落在其后且注记「认证对象不动/免重跑」=证据纪律违规（manifest commit 须==最终代码），2026-10-24 用户确认点②裁定：功能出口通过+G2 须在最终代码重跑且 C1 两 facet 入 cases——本版即该重跑（13→15 cases）",
+    "确认点②重跑记录（HEAD=ee958acc 全绿）：int 池 13/13（t10-g2 十红组 10+append.int 3 含 C1A 真 PG）+api 默认池 40/40（barrier-unload=B1/U1/Q-I2 有界+repository.spec=C1B 词法 sim/失而复得变体/形状锚）+shared 48/48（F7 双文件）——15 cases 全绿=go 维持。质量出口挂账（裁定）：T14 未关——一次 verify:full 30/30 全绿为 P2 出口/T34 硬门（推荐 CI 存档，待 master push 后跑）；T13 同族时间敏感 flake=CI 复现单独收口，不影响本门功能裁定",
     "负控清单=F7（4413 入 backoff 集必 throw——守卫负控）+INV6（census ㉞ 计数偏离即红）+R7（T9 基线毒帧跳号红相——truncateWalAfter 续号回拨修正）+R4（T9 基线水位恒 0 红相）——四负控全红过=门有效（spec §9.1）",
     "十红组中 ①dedup applied/⑩4412 拒帧=T9 已满足锚（红组注明+回归锁定）；真红轴=水位 CAS/actorRanges/毒帧前缀落 PG（tmp 探针实证后即删）",
     "kill -9 语义=进程内 seam（FaultRepo/FaultSpool/NoConfirmSpool——T8/T9 故障注入先例）+「重启」=服务重实例化+recoverScan 本地路径（recoverScan 生产 boot 接线归 T13——测试内直调函数）",
@@ -160,7 +177,7 @@
     "修正 #7 档一致性由测试双源锚定（非 import——collab-close-code 静态 import recovery-flow 成环：recovery-flow 模块初始化消费 CollabCloseCode，先载本文件时 Y1C_RECOVERY_DISPATCH_TIERS 键折 undefined——init 序脆弱，注释披露）",
     "T9 语义修正三处（同批评审议定）：S-I1 截断后重发 walSeq 3n→2n（密集前缀）+spool-wal 两例同轴；A9/BOI-3 卸载期望翻转（帧 WAL 安全即卸载→applied 未 drain 拒绝卸载——偏离 37⑩+38⑤）；dual-client-server dispose destroy 套 4s race（生产 onApplicationShutdown 同款兜底）",
     "全量：api vitest 2828/2828+int 池 351/351（MinIO minioadmin 补启后——media 三文件 ECONNREFUSED 为环境缺失非回归）+shared 691/691+web 3995/3995+census 32/32（㉞ 新组+④⑮㉒ ㉜ 白名单同批登记）+module-size（gateway 985→1015 锚重标：onStateless+卸载纪律净增 30 行）+verify:fast 16/16",
-    "T10 双评审收口注记（quality 1C+2I+6M+spec 3 Minor 合并批——cases/invariants 认证对象〔commit 74287e10 探针产物〕不改：C1 根修=水位 CAS/adopt/懒建档三写点补 lease fence+部分插入按 PK 回查（G2 证据轴水位/confirm 语义**强化**——旧实现「全 fenced 水位越过未插入行」与「部分 fenced ok 短路吞缺口→confirm 回收缺行 WAL」两 facet 由红测锁死，历史 cases 无一依赖缺陷行为＝免重跑）；Q-I2 appliedQueue 上界 1024 帧/16MiB 与 submit 背压同语义耦合（G2 批前缀/水位断言面不变——上界=2×批上界，健康路径不触界）",
+    "T10 双评审收口注记（quality 1C+2I+6M+spec 3 Minor 合并批——原「认证对象 74287e10 不动/免重跑」口径已被确认点②裁定推翻：C1 根修=水位 CAS/adopt/懒建档三写点补 lease fence+部分插入按 PK 回查（G2 证据轴水位/confirm 语义强化——旧实现「全 fenced 水位越过未插入行」与「部分 fenced ok 短路吞缺口→confirm 回收缺行 WAL」两 facet 由红测锁死=现 C1A/C1B 两 cases 入列）；Q-I2 appliedQueue 上界 1024 帧/16MiB 与 submit 背压同语义耦合（G2 批前缀/水位断言面不变——上界=2×批上界，健康路径不触界；红测在 barrier-unload 文件内随 B1/U1 面重跑）",
     "登记项（冻结面不动）：Q-M4 recovery-flow assertY1cCodesNotBackoffRouted 生产调用点=T25 close 分派表装配时接线（T10 无装配面——api/web 均未消费 resolveRecoveryAction；commit message 同步登记）；Q-M9 system-history canonicalUpdateHashPayload 双 canonical 形并存=修正批#2 候选（T22 前裁）；spec-M2 g2 notes 广度低报+spec-M3 replayAll 回灌行 actorRanges NULL=T27 审计消费面裁定时补齐（回灌行=单帧行 singleFrameRow 不带 actorRanges——审计消费面定口径）"
   ],
   "go": true
