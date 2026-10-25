@@ -94,13 +94,19 @@ describe('Y1c T5c/T16 web parity：两域 PM schema 并集 ⇔ shared xml-schema
     expect(setEqual([...new Set(pmMarkNames)], XML_MARKS)).toBe(true);
   });
 
-  it('逐元素属性名双向相等：XML_ATTRS 每条目 ⇔ 所属域 PM schema.nodes[name] 属性集（零单侧漂移）', () => {
+  it('逐元素属性名双向相等：XML_ATTRS 每条目 ⇔ 各域 PM schema.nodes[name] 属性集（共有元素双侧各验——Q-M-2）', () => {
     for (const element of XML_ELEMENTS) {
+      // Q-M-2（双评审收口）：共有元素（paragraph/codeBlock/listItem）在两域 schema 均存在——
+      // `?? ` 短路只验先命侧会漏后侧漂移；逐侧在场即验（两域独立 builder 可各自漂移）
+      for (const [side, table] of [['prompt', schemaNodes], ['text', textSchemaNodes]] as const) {
+        const nodeType = table[element];
+        if (nodeType === undefined) continue;   // 该域无此元素（域专属面）——另一侧覆盖
+        const pmAttrs = Object.keys(nodeType.spec.attrs ?? {});
+        expect(setEqual(pmAttrs, XML_ATTRS[element]!),
+          `元素 ${element}（${side} 域）属性漂移：PM=[${pmAttrs.join(',')}] shared=[${XML_ATTRS[element]!.join(',')}]`).toBe(true);
+      }
       const nodeType = schemaNodes[element] ?? textSchemaNodes[element];
       expect(nodeType, `两域 PM schema 均缺元素 ${element}（shared 表已登记——builder 侧漂移）`).toBeTruthy();
-      const pmAttrs = Object.keys(nodeType!.spec.attrs ?? {});
-      expect(setEqual(pmAttrs, XML_ATTRS[element]!),
-        `元素 ${element} 属性漂移：PM=[${pmAttrs.join(',')}] shared=[${XML_ATTRS[element]!.join(',')}]`).toBe(true);
     }
     // 反向：两域 PM 面非根非文本元素并集全在 XML_ATTRS 表内（shared 漏登即红）
     const pmNodeNames: string[] = [];

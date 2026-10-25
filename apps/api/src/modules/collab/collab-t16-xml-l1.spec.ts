@@ -207,7 +207,16 @@ describe('Y1c T16 XML L1 frame-local 对抗语料：拒帧七类（单表白名�
       a.setAttribute('language', 'md');
       frag.insert(0, [a]);
     });
-    expect(validateXmlL1(noHosts).ok).toBe(true);   // 缺省=零 URL 执法
+    const urlFrameUndefined = frameWith((frag) => {
+      const img = new Y.XmlElement('image');
+      img.setAttribute('src', 'https://any.host/x.png');
+      frag.insert(0, [img]);
+    });
+    expect(validateXmlL1(noHosts).ok).toBe(true);   // 缺省 fail-closed（deny-all http(s)——spec-M-2 收口）：非 URL 属性值不受影响
+    // spec-M-2（双评审收口）：undefined 缺省档 fail-closed——http(s) attr URL 一律拒（漏传
+    // allowlist 不放行攻击面；择一说明=改 deny-all 形态而非调用点断言——扫描器纯函数缺省即安全，
+    // 零生产窗口〔gate 恒传数组〕+零调用点改动）
+    expect(validateXmlL1(urlFrameUndefined).ok).toBe(false);
     // 空表=deny-all http(s)（修正批#1：src=mediaId 后绝对 URL 属性值 off-spec——不留 P2 窗口）
     const urlFrame = frameWith((frag) => {
       const img = new Y.XmlElement('image');

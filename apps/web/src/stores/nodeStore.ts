@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { message } from 'antd';
-import { CANVAS_BRIDGE_KEYS, EMPTY_XML_VALUE, referencedMediaIdsOf, type RichTextValue } from '@flowweb/shared';
+import { CANVAS_BRIDGE_KEYS, EMPTY_XML_VALUE, referencedMediaIdsOf, isXmlDomainKey, type RichTextValue } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 // 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
 import { dispatchCanvasIntent, stripRejectedPatchKeys } from './canvasIntents';
+// Y1c T16 收口 C-1：config 携带域键单次留痕（write_reject via=xml-domain）
+import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import { Origin } from './canvasUndo';
 import { selectExecStatus, execOverrideStatus, type ExecStatusEntry, type NodeExecStatus } from './execStatusView';
 import type { MediaFactEntry } from './mediaFacts';
@@ -640,13 +642,40 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const merged = mergeNodeData(existing?.data, config, nodeType) as NodeData;
     // 批4b-2 换芯：doc data 直写=mergeNodeData 终态全量（旧订阅路径同步的就是该 ns 终态——
     // defaults 填充随写直达 doc，缺省键漂移由投影不变量兜住）。
-    // Y1c T16 收口（T15 收口 A 同款）：消费 dispatch outcome——被拒域键（xml 域整串写=容器
-    // 替换对抗面）从 ns 终态同剥（doc 拒 ⇒ ns 拒，半落根修；全拒=原 data 原样）。
+    // **Y1c T16 双评审收口 C-1（根修——quality 探针实证）**：merged 是 ns 全量终态（摊开
+    // existing 全键，含投影域键）——xml 域键若入 dispatch 载荷则 seam 无条件拒（容器替换对抗
+    // 面）→ outcome 剥除后整体替换 ns ⇒ 域键消失（生成判据静默失效）+每次调用 write_reject
+    // 噪声。修法=T15「域键不进 updateConfig 载荷」纪律：**dispatch patch 先行剔除 xml 域键**
+    //（patch 不带域键——容器写入面=编辑器绑定/创建 seam 唯二）；ns 侧保留 existing 域键引用
+    // 不动（config 显式携带域键=剔除不落——半落防护同拒语义，单次留痕）。
+    const existingData = existing?.data as Record<string, unknown> | undefined;
+    const isXmlKey = (k: string): boolean => isXmlDomainKey(nodeType, k);
+    if (Object.keys(config).some(isXmlKey)) {
+      recordCollabDiag('write_reject', { reason: 'xml-fragment-domain-editor-bound', via: 'xml-domain' });
+      // config 携带域键=调用方误用（现产零调用点）——单次留痕（非每键噪声）
+    }
+    const dispatchPatch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(merged as unknown as Record<string, unknown>)) {
+      if (isXmlKey(k)) continue;   // 域键不入载荷（含 existing 摊开面与 config 面）
+      dispatchPatch[k] = v;
+    }
     const [outcome] = dispatchCanvasIntent(
-      { type: 'updateNodeData', id, patch: merged as unknown as Record<string, unknown> },
+      { type: 'updateNodeData', id, patch: dispatchPatch },
       Origin.LocalUser,
     );
-    const mergedEffective = stripRejectedPatchKeys(merged as unknown as Record<string, unknown>, outcome) as unknown as NodeData;
+    // ns 终态：域键回填 existing 投影值（config 域键不落）+T15 收口 A outcome 消费（非 xml 域
+    // 键的拒=结构错误同剥——半落防护原语义保持）
+    let mergedEffective = { ...(merged as unknown as Record<string, unknown>) };
+    if (existingData !== undefined) {
+      for (const k of Object.keys(existingData)) {
+        if (isXmlKey(k)) mergedEffective[k] = existingData[k];
+      }
+    }
+    for (const k of Object.keys(config)) {
+      if (isXmlKey(k) && existingData?.[k] === undefined) delete mergedEffective[k];
+    }
+    mergedEffective = stripRejectedPatchKeys(mergedEffective, outcome) as Record<string, unknown>;
+    const effective = mergedEffective as unknown as NodeData;
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -656,7 +685,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           type: nodeType ?? NODE_TYPES.IMAGE_GEN,
           selected: existing?.selected,
           dragging: existing?.dragging,
-          data: mergedEffective,
+          data: effective,
         },
       },
     }));

@@ -4,6 +4,8 @@ import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, 
 import * as Y from 'yjs';
 // Y1c T16：域键拒测试装置（doc 种子缝）
 import { _setIntentDocForTest } from './canvasIntents';
+// Y1c T16 收口 C-1：write_reject 零噪声断言面（诊断 ring 观测）
+import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { useCanvasStore } from './canvasStore';
 import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, AudioNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
@@ -218,6 +220,46 @@ describe('nodeStore (AppNode nested structure)', () => {
       // 非域键写照常（对照组）
       useNodeStore.getState().updateConfig('img9', { style: '动漫' });
       expect((useNodeStore.getState().nodes['img9'].data as unknown as ImageNodeData).style).toBe('动漫');
+    } finally {
+      _setIntentDocForTest(null);
+    }
+  });
+
+  // ── Y1c T16 双评审收口 C-1（quality 探针实证——评审员真 store 复现）：updateConfig 全量终态
+  //    摊开 ns 投影域键 → seam 无条件拒 → outcome 剥除后整体替换 ns → prompt 键消失（生成判据
+  //    !nodeData?.prompt?.text 永久失效）。红测=探针复现：非域键写后域键保留+零 write_reject。
+  it('T16 收口 C-1：updateConfig({model}) ⇒ ns prompt 保留+doc 容器原样+零 write_reject（现状红）', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const data = new Y.Map();
+      data.set('prompt', new Y.XmlFragment());
+      const n = new Y.Map();
+      n.set('type', 'imageGen');
+      n.set('data', data);
+      doc.getMap('nodes').set('i1', n);
+    });
+    _setIntentDocForTest(doc);
+    _resetCollabDiagForTest();
+    try {
+      useCanvasStore.setState((s) => ({
+        hydration: 'ready', collabReadOnly: false, wsAuthNotice: null,
+        nodes: [...s.nodes, { id: 'i1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
+      }));
+      // ns 投影含 prompt 域键（RichTextValue 形）——评审探针 'a cat' 同构
+      useNodeStore.setState((s) => ({
+        nodes: { ...s.nodes, i1: { id: 'i1', type: 'imageGen', data: { model: 'm1', prompt: { text: 'a cat', html: '<p>a cat</p>', json: [] } } as any } },
+      }));
+      useNodeStore.getState().updateConfig('i1', { model: 'm2' });
+      const dataAfter = useNodeStore.getState().nodes['i1'].data as any;
+      expect(dataAfter.model).toBe('m2');
+      // 域键保留（现状红：undefined——生成按钮静默失效根）
+      expect(dataAfter.prompt).toEqual({ text: 'a cat', html: '<p>a cat</p>', json: [] });
+      // 零 write_reject 诊断噪声（现状红：全量摊开 existing 域键每次必发）
+      expect(getRecentCollabDiag().filter((e) => e.type === 'write_reject')).toHaveLength(0);
+      // doc 面：非域键落+容器原样
+      const docData = (doc.getMap('nodes').get('i1') as Y.Map<any>).get('data') as Y.Map<any>;
+      expect(docData.get('model')).toBe('m2');
+      expect(docData.get('prompt') instanceof Y.XmlFragment).toBe(true);
     } finally {
       _setIntentDocForTest(null);
     }
@@ -691,17 +733,18 @@ describe('nodeStore (AppNode nested structure)', () => {
     };
     useNodeStore.getState().addNode(videoNode);
 
-    // Simulate VideoConfigPanel saving a prompt
+    // Y1c T16/C-1：prompt=xml 域——updateConfig 载荷禁域键（编辑器直绑容器；config 携带
+    // =剔除不落——上方「updateConfig prompt 写被拒」用例锚）。本用例焦点=类型保留，改非域键。
     useNodeStore.getState().updateConfig('vid-config', {
-      prompt: { text: 'a sunset', html: '', json: [] },
+      model: 'vm-9',
     });
 
     const stored = useNodeStore.getState().nodes['vid-config'];
     expect(stored).toBeDefined();
     // Must preserve videoGen type — NOT overwrite to imageGen
     expect(stored.type).toBe('videoGen');
-    // Data must include the updated prompt
-    expect((stored.data as VideoNodeData).prompt!.text).toBe('a sunset');
+    // Data must include the updated config
+    expect((stored.data as VideoNodeData).model).toBe('vm-9');
   });
 
   // ── activeTransformNodeId ──

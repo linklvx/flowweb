@@ -186,7 +186,10 @@ export function isXmlDomainKey(nodeType: unknown, key: string): boolean {
 
 /** XML 域空值规范形（RichTextValue 空载——ensure 缺省/ns 投影/执行读面三处同形）：
  *  fillDoc 物化空容器（json:[] 分支）；ns/store 侧与 toReadModel 解码形一致。 */
-export const EMPTY_XML_VALUE: { text: string; html: string; json: never[] } = { text: '', html: '', json: [] };
+// Q-M-5（双评审收口）：浅冻结——ns 多节点共享同一常量引用，防跨节点原地变异串扰
+//（freeze 后写静默失败/严格模式抛——变异面不存在）；深拷贝面（promptValueOf 等）产新对象不受影响。
+export const EMPTY_XML_VALUE: { readonly text: string; readonly html: string; readonly json: readonly never[] } =
+  Object.freeze({ text: '', html: '', json: [] });
 
 /** 单值 canonical 化：''（空哨兵）/非空 string（纯文本语义——零 HTML 解析按字面文本收编）
  *  → RichTextValue；RichTextLike/其他形态原样（异形透传=结构错误暴露，text-domains 同哲学）。 */
@@ -286,7 +289,9 @@ export function materializeXmlDomainValue(value: unknown, f: XmlDomainFactories)
 // ══════════════════════════════════════════════════════════════════════════
 
 export interface XmlL1Options {
-  /** URL allowlist（真源住调用方——gate 注入；缺省=零 URL 执法〔PublicSnapshotPolicy 同款缺省〕）。 */
+  /** URL allowlist（真源住调用方——gate 注入；spec-M-2：缺省=deny-all http(s)——fail-closed，
+   *  与 doc-codec PublicSnapshotPolicy「缺省不滤」语义有意相反：公开快照=剥除面（宽松缺省
+   *  只降信息），L1=拒帧面（宽松缺省=放行攻击面）。 */
   allowedUrlHosts?: readonly string[];
 }
 
@@ -297,14 +302,15 @@ const MARK_NAMES = new Set<string>(XML_MARKS);
 
 const textEncoder = new TextEncoder();
 
-/** attr/格式字符串值 URL 域外判定（**执法档区分**：undefined=零 URL 执法〔扫描器缺省——调用方
- *  显式决策〕；提供（含空表）=执法开——空表 deny-all http(s)〔修正批#1 后 src=mediaId，绝对
- *  http(s) URL 属性值一律 off-spec〕；非空=host 白名单）。 */
+/** attr/格式字符串值 URL 域外判定（spec-M-2 双评审收口：**fail-closed**——undefined 缺省=
+ * deny-all http(s)（生产调用点恒传数组无窗口；扫描器缺省档防御纵深：漏传 allowlist 不放行
+ * 任何绝对 http(s) URL）；空表=deny-all；非空=host 白名单）。
+ * 注：非 http(s) scheme（相对路径/mediaId/data: 等）不属本判定面（Q-M-4 归 T24 L2 清单）。 */
 function urlOutsideAllowlist(s: string, hosts: readonly string[] | undefined): boolean {
-  if (hosts === undefined) return false;
   let u: URL;
   try { u = new URL(s); } catch { return false; }
-  return (u.protocol === 'http:' || u.protocol === 'https:') && !hosts.includes(u.hostname);
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  return hosts === undefined || !hosts.includes(u.hostname);   // undefined 档 fail-closed（deny-all）
 }
 
 /** 帧内 struct id 键（ID 字符串化——in-frame 父链解析用）。 */

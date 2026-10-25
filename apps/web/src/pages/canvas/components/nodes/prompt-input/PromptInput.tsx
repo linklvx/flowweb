@@ -278,17 +278,25 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
                 'width:14px;height:14px;border-radius:3px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.16),0 0.5px 0 0 inset rgba(255,255,255,0.16);';
 
               // 修正批#1：node.attrs.src=mediaId——渲染层受控 URL 解析（allImages 池按 id
-              // 查 url；miss=占位灰块，不外联不加载未知 URL）
+              // 查 url；miss=占位灰块，不外联不加载未知 URL）。
+              // Q-M-1（双评审收口）：池查找双档=创建时一次+updateNodeView 重解析（chip 先于
+              // allImages 到达/媒体后加载——编辑器事务触达节点视图时刷新；allImages 单独变更
+              // 不触发编辑器事务=失效方向安全但 UI 陈旧，评审接受面）
               const img = document.createElement('img');
-              const resolved = allImagesRef.current.find((it) => it.id === node.attrs.src)?.url;
-              if (resolved) {
-                img.src = resolved;
-                img.alt = '';
-                img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-                thumb.appendChild(img);
-              } else {
-                thumb.style.background = '#555';
-              }
+              const resolveInto = (mediaId: unknown): void => {
+                const resolved = allImagesRef.current.find((it) => it.id === mediaId)?.url;
+                thumb.textContent = '';
+                if (resolved) {
+                  img.src = resolved;
+                  img.alt = '';
+                  img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+                  thumb.appendChild(img);
+                  thumb.style.background = '';
+                } else {
+                  thumb.style.background = '#555';
+                }
+              };
+              resolveInto(node.attrs.src);
 
               const label = document.createElement('span');
               label.textContent = 'Image';
@@ -298,7 +306,13 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
               dom.appendChild(thumb);
               dom.appendChild(label);
 
-              return { dom };
+              return {
+                dom,
+                // Q-M-1：attrs/编辑器事务触达节点视图时池重解析（复用 dom 不重建）
+                updateNodeView: (props: NodeViewRendererProps) => {
+                  resolveInto(props.node.attrs.src);
+                },
+              };
             },
             commandItems: (query: string) =>
               COMMANDS.filter(
