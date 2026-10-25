@@ -5,6 +5,12 @@
 // （>64KB 帧解码失败折 1012≠1009）。装置=dual-client-server 真连+裸 ws 手编帧（T4 :140 先例）。
 // 【史】报告1 P0-2 红相留档：v4 形态（信用+1MB 桶）下 >1MB 合法离线合并帧第二次结构性永拒——
 // v5 桶容量=maxDocBytes（"桶容量≥最大合法帧"不变量）+信用整删（首帧突发由容量吸收）修复。
+// 【Y1c 收口迁移】T9（e8c892f3）actor 管线新增 P1 shape 根白名单（nodes/edges/exec/meta——
+// validateP1Shape 准入链 ①）：夹具旧用 `m` 根的帧被 4411 unknown-root:m 拒+全连接关闭=帧永不
+// apply（本文件 5 例红的共同根因）。判别结论=闸面功能（⓪帧闸/⓪′bytes 桶/msg 桶/冻结族/close
+// 码投递）在 T9 管线下完好（探针实证：nodes 根下 8MB+30B SS2 落库/1008/1009 全投递）——本文件
+// 迁移=T9 对默认池 quota-gate 的同款收编迁移（m 根换 nodes——commit e8c892f3 先例），断言面
+// （桶算术/close 码/冻结落地/writes_dropped）逐字保持，非放松。
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
@@ -83,7 +89,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       const g = kit.gateway;
       // 臂一：SS2 帧 ∈ (maxDocBytes, maxDocBytes+ALLOWANCE]——过 ⓪（≤闸+ALLOWANCE）且过 ⓪′（桶容量吸收）
       const big = new Y.Doc();
-      big.getMap('m').set('blob', 'x'.repeat(8_388_608 + 30));
+      big.getMap('nodes').set('blob', 'x'.repeat(8_388_608 + 30));   // Y1c 迁移：m→nodes 根（T9 P1 白名单——夹具根非断言面）
       const bigUpdate = Y.encodeStateAsUpdate(big);
       expect(bigUpdate.byteLength).toBeGreaterThan(QUOTA_BIG.maxDocBytes);                                  // >maxDocBytes——旧闸（1009 形态）下必拒
       expect(bigUpdate.byteLength).toBeLessThanOrEqual(QUOTA_BIG.maxDocBytes + FRAME_ALLOWANCE_BYTES);      // ≤新闸——合法帧
@@ -94,8 +100,8 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       client.send(frame('project:pair', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));
       const doc = () => g.server.hocuspocus.documents.get('project:pair');
       const BLOB_LEN = 8_388_638;   // R4a'：长度锚（O(1) 零分配——每轮 8MB churn 根除）
-      await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === BLOB_LEN, 30_000);   // 落库=⓪与⓪′双过
-      expect(doc()?.getMap('m').get('blob')).toBe('x'.repeat(BLOB_LEN));   // 一次性全等（单次分配）
+      await pollUntil(() => (doc()?.getMap('nodes').get('blob') as string | undefined)?.length === BLOB_LEN, 30_000);   // 落库=⓪与⓪′双过
+      expect(doc()?.getMap('nodes').get('blob')).toBe('x'.repeat(BLOB_LEN));   // 一次性全等（单次分配）
       await pollUntil(() => msgs >= 2, 5_000);   // echo（回显）+SyncStatus ack 两帧序已落
       await sleep(200);   // close 事件冒泡窗
       expect(await counterOf('collab_slow_consumer_disconnect_total')).toBe(slow0);   // 零 1011（计数器基线正确）
@@ -117,16 +123,23 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       const gw = kit.gateway;
       const g = gatewayFacade(gw);
       const big = new Y.Doc();
-      big.getMap('m').set('blob', 'x'.repeat(8_388_000));
+      big.getMap('nodes').set('blob', 'x'.repeat(8_388_000));   // Y1c 迁移：m→nodes 根（T9 P1 白名单）
       const bigUpdate = Y.encodeStateAsUpdate(big);
       expect(bigUpdate.byteLength).toBeLessThanOrEqual(QUOTA_BIG.maxDocBytes);
+      // Y1c 迁移（T9 ③ 去重契约）：第二帧=**异字节**（新 clientID 独立 doc——'y' 载荷）。原「重发同
+      // bigUpdate」在 T9 下命中 actor SHA-256 applied 去重=幂等 no-op ACK（红组不变量「同字节恰一
+      // walSeq」），readOnly 丢帧计数面（actor ⓪）不执行=writes_dropped 恒不增。异字节帧走真实
+      // ⓪ readOnly 拒写路径——本用例断言语义（冻结后入桶但拒 apply+计数）原样钉住，非放松。
+      const big2 = new Y.Doc();
+      big2.getMap('nodes').set('blob2', 'y'.repeat(8_388_000));
+      const bigUpdate2 = Y.encodeStateAsUpdate(big2);
       const { client, closeInfo } = await openAuthedWs(kit, 'project:gate8');
-      await sleep(2_100);   // 逃装载冷却窗（loadDocument :423 播种 truthMeasuredAt+TRUTH_COOLDOWN_MS=2s——窗内④走账面上界决策：0+0+8,388,063≯maxDocBytes 即快路径不冻结；窗外首帧走实测腿 measured+bytes≥softEnter → freezeQuota〔触发帧本身照常 apply=Q-S「禁静默丢合法帧」〕——plan v3 时序实况适配）
+      await sleep(2_100);   // 逃装载冷却窗（loadDocument :423 播种 truthMeasuredAt+TRUTH_COOLDOWN_MS=2s——窗内④走账面上界决策：0+0+8,388,063≯maxDocBytes 即快路径不冻结；窗外首帧走实测腿 measured+bytes≥softEnter → freezeQuota〔触发帧本身照常 apply=Q-S「禁静默丢合法帧」——T9 actor 化后不变：gate admitFrameQuota 的 freezeQuota setImmediate 落地晚于 actor drain 微任务准入，触发帧照常入 WAL+apply〕——plan v3 时序实况适配）
       const b0 = await counterOf('collab_bytes_rate_exceeded_total');
       client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));
       const doc = () => gw.server.hocuspocus.documents.get('project:gate8');
       const BLOB_LEN = 8_388_000;   // R4a' 长度锚
-      await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === BLOB_LEN, 30_000);   // 第一次：入桶+apply
+      await pollUntil(() => (doc()?.getMap('nodes').get('blob') as string | undefined)?.length === BLOB_LEN, 30_000);   // 第一次：入桶+apply
       // 白盒排空证据（红相锚：bytesBuckets 缺失=TypeError）——首扣后 tokens≈capacity-cost ≪ 容量一半
       const sid = [...doc()!.connections.keys()][0].socketId as string;
       const tokensAfterFirst = g.bytesBucketTokens(sid);
@@ -134,8 +147,8 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       // v3：等冻结落地=确定性读面（freezeQuota→quotaFrozenDocs——façade quotaFrozenHas 既有读面，弃 (gw as any) 撞 façade 门禁）
       const dropped0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
       await pollUntil(() => g.quotaFrozenHas('gate8'), 10_000);   // 键=裸 projectId（parseDocName 剥 project: 前缀——quotaFrozenDocs 台账口径；plan 代码块 'project:gate8' 系键笔误勘正）
-      await pollUntil(() => { g.consumeBytesBucket(sid, 0); return (g.bytesBucketTokens(sid) ?? 0) >= bigUpdate.byteLength; }, 5_000);   // T7 评审顺手项：refill 确定性等满（bytesRate 100MB/s）——弃原「靠冻结轮询时长隐式回灌」（超快机窗内未满→1008 低概率红）。桶 refill 惰性结算只于 consume 内推进（纯读 tokens 不增长）——cost 0 零扣减纯结算，与后续真实 consume 的结算步语义同构
-      client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate));   // 第二次：仍入桶（DR ⓪′ 先于 ① readOnly——B9）→ readOnly 拒 apply
+      await pollUntil(() => { g.consumeBytesBucket(sid, 0); return (g.bytesBucketTokens(sid) ?? 0) >= Math.max(bigUpdate.byteLength, bigUpdate2.byteLength); }, 5_000);   // T7 评审顺手项：refill 确定性等满（bytesRate 100MB/s；目标=两帧 max——第二帧异字节可能略大，防 1B 级窗内误拒）。桶 refill 惰性结算只于 consume 内推进（纯读 tokens 不增长）——cost 0 零扣减纯结算，与后续真实 consume 的结算步语义同构
+      client.send(frame('project:gate8', 0 /* Sync */, 1 /* SyncStep2 */, bigUpdate2));   // 第二次：仍入桶（DR ⓪′ 先于 ① readOnly——B9）→ readOnly 拒 apply
       await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) > dropped0, 8_000);   // readOnly 拒写计数
       await pollUntil(() => g.bytesBucketTokens(sid)! < tokensAfterFirst! + 1_000, 5_000);   // v2：第二次桶消费直接断言（refill 后再扣 ~8MB——tokens 回落；! = sid/桶键已在前文实证存在）
       expect(closeInfo()).toBeNull();                                          // 零 1008（桶容量吸收）/零 1011（R4b' 前瞻+回显不误杀）
@@ -150,18 +163,18 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
     try {
       const gw = kit.gateway;
       const g = gatewayFacade(gw);
-      const mk = () => { const d = new Y.Doc(); d.getMap('m').set('blob', 'x'.repeat(60_000)); return Y.encodeStateAsUpdate(d); };
+      const mk = () => { const d = new Y.Doc(); d.getMap('nodes').set('blob', 'x'.repeat(60_000)); return Y.encodeStateAsUpdate(d); };   // Y1c 迁移：m→nodes 根
       const { client, closeInfo } = await openAuthedWs(kit, 'project:gate8b');
       client.send(frame('project:gate8b', 0, 1, mk()));
       const doc = () => gw.server.hocuspocus.documents.get('project:gate8b');
-      await pollUntil(() => (doc()?.getMap('m').get('blob') as string | undefined)?.length === 60_000, 10_000);   // 第一次 apply
+      await pollUntil(() => (doc()?.getMap('nodes').get('blob') as string | undefined)?.length === 60_000, 10_000);   // 第一次 apply
       const sid = [...doc()!.connections.keys()][0].socketId as string;
       const tokens1 = g.bytesBucketTokens(sid);   // 首扣后 ~196,608−~60,0xx≈136.5KB（容量 131,072+65,536=196,608；T7 勘正原「≈192KB-60KB=132KB」算术）
       expect(tokens1).toBeLessThan(131_072 + 65_536 - 60_000 + 1);   // 桶已扣（容量=131,072+65,536）
       await sleep(300);   // refill 10MB/s → ≥3MB（capped 桶容量 196,608）——「积满」
       client.send(frame('project:gate8b', 0, 1, mk()));   // 第二帧：同键覆盖（LWW）——refill 后过桶
       await pollUntil(() => g.bytesBucketTokens(sid)! < tokens1! + 1_000, 10_000);   // v2：第二次桶消费直接断言（再扣 ~60KB；! = sid/桶键已在前文实证存在）
-      expect(doc()?.getMap('m').get('blob')).toHaveLength(60_000);   // 同键覆盖——doc 尺寸不增长（配额语义自洽）
+      expect(doc()?.getMap('nodes').get('blob')).toHaveLength(60_000);   // 同键覆盖——doc 尺寸不增长（配额语义自洽）
       expect(closeInfo()).toBeNull();
       client.terminate();
     } finally { await kit.dispose(); }
@@ -175,9 +188,9 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       await A.synced;
       await sleep(200);   // 初始 Step2（~2B）安置窗
       const exceeded = await metricDelta('collab_bytes_rate_exceeded_total', {}, async () => {
-        A.ydoc.getMap('m').set('k0', 'z'.repeat(26_000));   // ~26KB/帧：73_728→~47_728
-        A.ydoc.getMap('m').set('k1', 'z'.repeat(26_000));   // ~47_728→~21_728
-        A.ydoc.getMap('m').set('k2', 'z'.repeat(26_000));   // ~21_728+refill(ε)<26_000 → 拒
+        A.ydoc.getMap('nodes').set('k0', 'z'.repeat(26_000));   // Y1c 迁移：m→nodes 根（T9 P1 白名单）——~26KB/帧：73_728→~47_728
+        A.ydoc.getMap('nodes').set('k1', 'z'.repeat(26_000));   // ~47_728→~21_728
+        A.ydoc.getMap('nodes').set('k2', 'z'.repeat(26_000));   // ~21_728+refill(ε)<26_000 → 拒
         await pollUntil(() => A.closeInfo() !== null, 8_000);
       });
       expect(exceeded).toBe(1);
@@ -192,7 +205,7 @@ describe('Y0b-4 T6 速率闸（Q-E v5）+awareness 治理（Q-L）', () => {
       await A.synced;
       await sleep(200);
       const exceeded = await metricDelta('collab_msg_rate_exceeded_total', {}, async () => {
-        for (let i = 0; i < 460; i++) A.ydoc.getMap('m').set(`k${i}`, i);   // 400 容量+~1/s 补充 <460 → 必拒
+        for (let i = 0; i < 460; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);   // 400 容量+~1/s 补充 <460 → 必拒（m→nodes 根迁移——T9 P1 白名单）
         await pollUntil(() => A.closeInfo() !== null, 10_000);
       });
       expect(exceeded).toBeGreaterThanOrEqual(1);
