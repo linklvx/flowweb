@@ -76,14 +76,24 @@ export async function requireRuntimeFeedCursor(db: Prisma.TransactionClient, pro
 
 /** SystemHistory 全局单行权威 fail-closed 读（spec §4.4⑦勘误+Controller 裁定 3 语义）：
  *  行缺失/historyId 为零值（"0"/空串）=安装或 bump 纪律破坏——**不自动建不自动修复**
- *  （启动校验语义同源；`--adopt-wal` 窄窗=historyId 已匹配+operator 显式确认+审计，非本路径）。 */
-export async function requireSystemHistory(db: Prisma.TransactionClient): Promise<{ historyId: string }> {
-  const row = await db.systemHistory.findUnique({ where: { id: 1 }, select: { historyId: true } });
+ *  （启动校验语义同源；`--adopt-wal` 窄窗=historyId 已匹配+operator 显式确认+审计，非本路径）。
+ *  Y1c T13（G6a）：补 epochStartedAtMs——recoverScan 时间戳栅栏求值基准（F-S4-5 入口一次性快照
+ *  契约 SystemHistoryState 两字段单源）；epochStartedAt 缺失/零值同 fail-closed（缺头三态纪律——
+ *  「零值 epoch+段比 epoch 新恒真」会使时间戳栅栏语义失真，禁 `?? 0` 静默默认）。 */
+export async function requireSystemHistory(db: Prisma.TransactionClient): Promise<{ historyId: string; epochStartedAtMs: number }> {
+  const row = await db.systemHistory.findUnique({ where: { id: 1 }, select: { historyId: true, epochStartedAt: true } });
   if (row == null || row.historyId === '0' || row.historyId === '') {
     throw Object.assign(
       new Error('SystemHistory 缺失或为零（id=1 全局单行权威——fail-closed 不自动建不自动修复；修复=迁移引导行/restore 工具收尾 bump）'),
       { systemHistoryMissing: true },
     );
   }
-  return { historyId: row.historyId };
+  const epochStartedAtMs = row.epochStartedAt instanceof Date ? row.epochStartedAt.getTime() : 0;
+  if (!Number.isFinite(epochStartedAtMs) || epochStartedAtMs <= 0) {
+    throw Object.assign(
+      new Error('SystemHistory.epochStartedAt 缺失或为零（时间戳栅栏求值基准失真——fail-closed 拒启动；修复=restore 工具收尾 bump 重置纪元）'),
+      { systemHistoryMissing: true },
+    );
+  }
+  return { historyId: row.historyId, epochStartedAtMs };
 }

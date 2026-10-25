@@ -29,7 +29,7 @@ function build(over: {
   const redis = { status: 'ready', connect: vi.fn(async () => {}), ping: vi.fn(async () => over.redisOk === false ? Promise.reject(new Error('x')) : 'PONG'), disconnect: vi.fn() };
   // Y0c T29-II（Z130②）：presence 第 6 参（workers 维度供数）——缺省假 presence=单进程常态（registered 1）
   const presence = over.presence ?? { getPresence: vi.fn(async () => ({ registered: 1, waiting: 0 })) };
-  const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, { quarantinedSegments: () => [] } as any, redis as any, presence as any);
+  const svc = new CollabReadyService(prisma as any, lease as any, gateway as any, { quarantinedSegments: () => [], suspectSegments: () => [] } as any, redis as any, presence as any);   // Y1c T13（G6a）：恢复怀疑态分维读面 stub
   return { svc, gateway, redis };
 }
 

@@ -7,7 +7,7 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, docUnloadBlockedTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
+import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, docRecoveryTotal, docUnloadBlockedTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, unregisterWalObserverReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService, raceDeadline, type PersistenceDocument } from './collab-persistence.service';
@@ -422,7 +422,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.server = createCollabServer({ port, debounce, timeout, hooks: this.hooks });
     // Y0c T42（B3 手段②）：metrics reader 注册块单源（collab-observability-wiring——注册时序=构造器末
     // 原位；prisma=构造器参数名直通〔私有字段不扩公有面〕；unregister×9 关停面留 onApplicationShutdown 原位原序）。
-    wireCollabMetricsReaders(this, prisma);
+    wireCollabMetricsReaders(this, prisma, spool);
     this.docRegistry.startHeapObserver();   // W3a：stuck 观测随域迁 DR（RC3——heapPressureSample 经 host 缝转发 sg）
     this.docRegistry.startFrozenRecheckTimer();   // Y0b-4 T4：冻结 doc 重测（独立 timer——禁挂 sweep 逃生阀）
     this.sessionGuard.syncOverloadGauge(false);   // W3b：heap 采样闸随域迁 SG——初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
@@ -858,35 +858,60 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     try {
       this.transition('starting');   // 锁定适配：无条件（isolated rejoin 合法迁移——藏进 !initDone 则 isolated→serving 直跳=非法迁移）
       if (!this.initDone) {
-        // Y0a-2：启动回灌（先于 listen——fail-closed：先服务后回灌=第二次撕裂）。坏帧 scan 报告→隔离处置；
-        // 回灌失败不阻塞启动（帧保留待下次+自检点名）；FK 帧（P2003）随 replayAll 收割。
-        const { truncatedSegments } = await this.spool.scan();
-        let quarantined = 0;
-        for (const seg of truncatedSegments) {
-          const projectId = seg.replace(/\.\d+\.spool$/, '');
-          quarantined += await this.spool.quarantineTruncatedFrames(projectId);
+        // Y1c T13（G6a——ADR-01 §3 恢复顺序生产接线，T8 遗留 #1 收口）：旧链 scan/quarantineTruncated
+        // Frames 退役——recoverScan 承载全链（段头双栅栏→WAL 前缀→PG 前缀校验→重建 appliedSeq）；
+        // 正常崩溃恢复零缺口=直接开放写，violation/恢复怀疑态=fail-closed 拒服务（人工裁定解除前
+        // 每次 5s 重试均 blocked——doc_recovery_total{result} 观测；恢复后 rejoin 不重跑 init 块）。
+        await this.repo.assertSchemaGenerationDiscipline();   // T12：schemaVersion⇒generation 拒启断言（前置——省恢复 IO）
+        const floors = await this.repo.pgSeqFloors();   // C1'① 播种读面前移（恢复扫描 pgSeq 回调单源）
+        const pgSeqOf = new Map(floors.map((p) => [p.projectId, p.pgSeq] as const));
+        // F-S4-5（ADR-01 §5）：SystemHistory 入口一次性快照（historyId+epochStartedAtMs——扫描期间
+        // 不重读）；restore.lock marker 在位=恢复怀疑态信号①（时间戳栅栏求值——忘 bump 拦截）。
+        const sysHist = await requireSystemHistory(this.prisma);
+        const evaluateTimestampFence = await this.spool.restoreLockPresent();
+        const report = await this.spool.recoverScan({
+          systemHistory: sysHist,
+          pgSeq: (pid) => pgSeqOf.get(pid) ?? 0n,
+          evaluateTimestampFence,
+        });
+        const violationProjects = report.projects.filter((p) => p.pgPrefixViolation.length > 0);
+        const suspectProjects = report.projects.filter((p) => p.recoverySuspect.length > 0);
+        if (violationProjects.length > 0 || suspectProjects.length > 0) {
+          docRecoveryTotal.inc({ result: 'blocked' });
+          // BigInt 纪律（spec §5.2）：wire/日志序列化恒 String()
+          const detail = JSON.stringify({
+            event: 'wal_recovery_blocked',
+            violations: violationProjects.map((p) => ({ projectId: p.projectId, segKey: p.pgPrefixViolation[0]!.segKey, lastGoodSeq: p.pgPrefixViolation[0]!.lastGoodSeq == null ? null : String(p.pgPrefixViolation[0]!.lastGoodSeq), pgSeq: String(p.pgPrefixViolation[0]!.pgSeq) })),
+            suspects: suspectProjects.map((p) => ({ projectId: p.projectId, segKey: p.recoverySuspect[0]!.segKey, lastWriteAtMs: p.recoverySuspect[0]!.lastWriteAtMs })),
+            note: 'fail-closed 拒服务（ADR-01 §3.2/§5）——violation=账本失真证据保全禁截断；suspect=恢复怀疑态重放归恢复流裁定；处置=bump historyId 收尾/--adopt-wal 窄窗/清 restore.lock（人工）',
+          });
+          this.logger.error(detail);
+          throw Object.assign(new Error(`WAL 恢复 fail-closed：violation=${violationProjects.length} 项目 suspect=${suspectProjects.length} 项目（detail 见 wal_recovery_blocked 日志）`), { walRecoveryBlocked: true });
+        }
+        docRecoveryTotal.inc({ result: 'ok' });
+        if (report.projects.some((p) => p.quarantined.length > 0 || p.truncated.length > 0 || p.defects.length > 0)) {
+          // 启动自检（spec §5.2 口径——ERROR 结构化日志；丢的全是 walSeq>pgSeq 帧才截断续跑=合法形态）
+          this.logger.error(JSON.stringify({
+            event: 'spool_startup_selfcheck',
+            quarantined: report.projects.reduce((n, p) => n + p.quarantined.length, 0),
+            truncated: report.projects.reduce((n, p) => n + p.truncated.length, 0),
+            defects: report.projects.reduce((n, p) => n + p.defects.length, 0),
+            projects: report.projects.length,
+          }));
         }
         // C1'（复核 round-2 Critical）+C1①（T11 双评审 Critical）boot 三元组播种——**先于 replayAll**：
         // ①generation=回灌插行代辖单源（不播种则 genOf=??1 落错代×compact ② 代辖滤除=真空纪静默丢
-        // 数据链——scan 面不重建 projectGeneration）；②walSeq floor=max(当前值, pgSeq+1)（段全回收+
-        // 重启项目计数器自 1 重起——新帧将落已发布快照基线之下不可见；幸存段承载未落 PG 帧时 scan
-        // 重建值更高，PG 值只抬底不压顶；先播无害——replayAll catch-up 推 pgSeq 后计数器=scan 值恒≥）。
+        // 数据链——recoverScan 重建 projectGeneration 面=段头，DB 权威在此播种）；②walSeq floor=max
+        // （当前值, pgSeq+1）（段全回收+重启项目计数器自 1 重起——新帧将落已发布快照基线之下不可见；
+        // 幸存段承载未落 PG 帧时 recoverScan 重建值更高，PG 值只抬底不压顶）。
         // 与 loadDocument 缝（onGenerationSeeded/onWalSeqFloorSeeded）同方法单源。
-        // Y1c T12：schemaVersion⇒generation 启动断言（spec §2 v5-5——违反拒启）。deploy 纪律=
-        // schema 硬切换（CANVAS_DOC_SCHEMA_VERSION bump）必伴随换代（generation++——docName/缓存键
-        // 失效链）或行清理（reset-collab）；违例行（schemaVersion≠current ∧ generation=0——未按纪律
-        // 收口的旧 schema 残行 / schemaVersion>current——代码 downgrade 于数据）→ throw=start-failed
-        // 有界重试（同 requireSystemHistory fail-closed 形态，不自动修复）。
-        await this.repo.assertSchemaGenerationDiscipline();
-        const floors = await this.repo.pgSeqFloors();
         for (const p of floors) {
           this.spool.setProjectGeneration(p.projectId, p.generation);
           this.spool.seedWalSeqFromPg(p.projectId, p.pgSeq);
         }
         const replay = await this.spool.replayAll(this.repo);
-        if (quarantined > 0 || replay.failed > 0) {
-          // 启动自检（spec §5.2 口径——ERROR 结构化日志；Y0a-3 起随 ready.spoolQuarantined 可见）
-          this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', quarantined, replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded, truncatedSegments }));
+        if (replay.failed > 0) {
+          this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded }));
         }
         // 审查 I-1（X5 必修漏落）：回灌失败残帧必须落梯——listen 前调用=先备恢复路径后受理。
         // 幂等安全：schedulePersistRetry 对已有 timer return。
@@ -1009,6 +1034,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     unregisterOldestUnflushedReader();   // Y0b-5 T14：最老未 flush gauge collect 闭包随 gateway 死（同惯例）
     unregisterDegradedDocsReader();   // Y0c T15（Z111）：装载降级 gauge collect 闭包随 gateway 死（同惯例）
     unregisterUpdatesRowsReader();   // Y0c T29-II（Z125-5）：行数 gauge collect 闭包随 gateway 死（同惯例）
+    unregisterWalObserverReader();   // Y1c T13（G6a）：wal_pending_bytes/doc_pg_lag_seq collect 闭包随 gateway 死（同惯例）
     this.persistence.cancelAllRetries();                                         // 定时器随停——drain 主动接管（B1 提取=cancelAllRetries）
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
     this.sessionGuard.closeAllConnections1012();                                 // W3b：连接批量关闭随域迁 SG——步骤 2：瞬时

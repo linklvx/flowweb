@@ -103,8 +103,14 @@ describe('Y1c T7 SystemHistory fail-closed 读取（requireSystemHistory）', ()
     await expect(requireSystemHistory(mockDb({ systemHistory: { historyId: '' } }))).rejects.toMatchObject({ systemHistoryMissing: true });
   });
 
-  it('行在且非零 → 返回 {historyId}（id=1 单行权威读）', async () => {
-    const r = await requireSystemHistory(mockDb({ systemHistory: { historyId: 'h-1' } }));
-    expect(r).toEqual({ historyId: 'h-1' });
+  it('行在且非零 → 返回 {historyId, epochStartedAtMs}（id=1 单行权威读——T13 快照两字段）', async () => {
+    const epoch = new Date('2026-10-01T00:00:00Z');
+    const r = await requireSystemHistory(mockDb({ systemHistory: { historyId: 'h-1', epochStartedAt: epoch } }));
+    expect(r).toEqual({ historyId: 'h-1', epochStartedAtMs: epoch.getTime() });
+  });
+
+  it('epochStartedAt 缺失或为零 → throw（T13：时间戳栅栏求值基准失真 fail-closed——缺头三态纪律禁 ?? 0 静默默认）', async () => {
+    await expect(requireSystemHistory(mockDb({ systemHistory: { historyId: 'h-1' } }))).rejects.toMatchObject({ systemHistoryMissing: true });
+    await expect(requireSystemHistory(mockDb({ systemHistory: { historyId: 'h-1', epochStartedAt: new Date(0) } }))).rejects.toMatchObject({ systemHistoryMissing: true });
   });
 });

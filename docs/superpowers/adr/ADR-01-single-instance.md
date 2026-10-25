@@ -100,6 +100,13 @@ spike 发现（c5a3e383）：长命 epoch 下全部在役段恒满足 lastWriteA
   crc/truncated/missing-seq/dup-hash 四档（分类码单源在契约——实现禁散写字符串）；
   良性 dup（旧 seq 同 hash/新 seq 旧 hash）跳过不停链，致命缺陷即停链（坏记录后的
   定界不可信）。
+- **unproven-tail 处置边界（T13 定形）**：链断后的当前代段（`unproven-tail` 档——仅过
+  permissive 解析未过链校验网）=零帧重放+不写 sidecar+下轮恢复幂等重裁定。自愈边界：
+  **无自动处置**——段排序确定性（gen asc→seq asc→dir）使同盘状态恒得同裁定，根因
+  （前段致命缺陷/隔离）消除前 unproven-tail 稳定复现；收敛面=①换代清理
+  （`switchGeneration` 对旧代段的全提交即删/未提交 sidecar 保全——M3 后空段即删不滞留）
+  ②人工处置（运维删除/`--adopt-wal` 窄窗仅限 recoverySuspect 档，unproven-tail 不适用）。
+  观测=恢复报告 quarantined 维（`doc_prefix_gap_total` 计入）。
 - **换代切段**：换代（含 vacuum）=WAL 段 namespace 切代（段文件名携带 g<generation>
   +段头/帧内 generation）+旧段 quarantine（sidecar 整段隔离记录，重启扫描按 sidecar
   识别=禁重放）+水位与去重索引重置。

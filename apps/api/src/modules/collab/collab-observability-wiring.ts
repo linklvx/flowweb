@@ -9,13 +9,15 @@
 // 本迁不涉——现场核；㉒ env 表/⑮ worker 闭包登记均不涉本文件：零 env 读零 hocuspocus import）。
 import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import type { CollabGateway } from './collab.gateway';   // type-only 零运行时边（server.factory 同款先例）
+import type { CollabSpoolService } from './collab-spool.service';   // Y1c T13：wal observer reader 消费面（type-only）
 import type { PrismaService } from '../../prisma/prisma.service';
-import { registerPendingCollector, registerAuthInflightReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerFrozenDocsReader, registerDocResidueReader, registerAwarenessReader, registerOldestUnflushedReader, registerDegradedDocsReader, registerUpdatesRowsReader } from './store.metrics';
+import { registerPendingCollector, registerAuthInflightReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerFrozenDocsReader, registerDocResidueReader, registerAwarenessReader, registerOldestUnflushedReader, registerDegradedDocsReader, registerUpdatesRowsReader, registerWalObserverReader } from './store.metrics';
 
 /** reader 注册单源（构造器末调用——注册序逐字保持：pendingCollector→authInflight→heapObserver→
  *  loadedDocBytes→frozenDocs→docResidue→awareness→oldestUnflushed→degradedDocs→updatesRows）。
- *  prisma 显式入参=gateway 私有字段（updatesRows reader count 消费——构造器参数名直通，公有面不扩）。 */
-export function wireCollabMetricsReaders(gw: CollabGateway, prisma: PrismaService): void {
+ *  prisma 显式入参=gateway 私有字段（updatesRows reader count 消费——构造器参数名直通，公有面不扩）；
+ *  spool 同理显式入参（Y1c T13 G6a：wal observer reader 消费——pendingSpoolBytes/maxPgLagSeq 公有读面）。 */
+export function wireCollabMetricsReaders(gw: CollabGateway, prisma: PrismaService, spool: CollabSpoolService): void {
   // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
   // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
   registerPendingCollector(() => gw.computePending());
@@ -66,4 +68,10 @@ export function wireCollabMetricsReaders(gw: CollabGateway, prisma: PrismaServic
   // */5 巡检面可接受；观测项非机制项，行数门归 Y1c-3 再裁）。注册落点=degradedDocs 惯例同款
   //（api 侧持有 prisma 且与 gateway 同生命周期——worker 进程无 gateway⇒无 reader⇒折 0 同款语义）。
   registerUpdatesRowsReader(() => prisma.canvasDocUpdate.count());
+  // Y1c T13（G6a）：wal_pending_bytes/doc_pg_lag_seq collect 源（spool 公有读面——BigInt lag 转
+  // Number：水位差为运行期小量纲，JSON 序列化安全域内）。
+  registerWalObserverReader(() => ({
+    pendingBytes: spool.pendingSpoolBytes(),
+    maxLagSeq: Number(spool.maxPgLagSeq()),
+  }));
 }

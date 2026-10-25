@@ -503,6 +503,58 @@ export const walSegmentQuarantinedTotal = new Counter({
 export const walRecoverySuspectTotal = new Counter({
   name: 'wal_recovery_suspect_total',
   help: 'WAL 时间戳栅栏触发段计数（lastWriteAt>epochStartedAt 仅恢复怀疑态求值——F-S4-5；recoverySuspect 恢复怀疑态自动扫描零重放，重放归恢复流裁定）',
+});
+
+/** ===== Y1c T13（G6a——spec §9.3 六指标落地）：恢复观测族 =====
+ *  六指标核实账：doc_frame_rejected_total{reason}=既有等价面 collab_actor_frame_outcome_total
+ *  {outcome='reject-4411'|'reject-4412'}+collab_quota_frame_rejected_total（帧闸档）——不重复新增
+ *  （spec §9.3 为全批清单非逐卡新增义务）；本族新增其余五项。 */
+
+/** WAL fsync 时延（S4/T33 硬门「WAL fsync p95>20ms」的观测源——syncSegmentHandle 单点包裹，
+ *  含截断后 sync 与批单 fsync；EIO/ENOSPC 失败路径经 wal_fsync_error_total 分档，不入本图尾）。 */
+export const walFsyncLatency = new Histogram({
+  name: 'wal_fsync_latency',
+  help: 'WAL 段 fsync 时延毫秒（syncSegmentHandle 单点——append 批单 fsync/截断后 sync；失败分档见 wal_fsync_error_total）',
+  buckets: [1, 2, 5, 10, 20, 50, 100, 250, 500, 1_000, 5_000],
+  registers: [register],
+});
+
+/** wal_pending_bytes/doc_pg_lag_seq collect 源（heapObserverReader 同惯例——注册时序
+ *  wireCollabMetricsReaders；api 侧持有 gateway⇒worker 进程无 reader 折 0 同款语义）。 */
+let walObserverReader: (() => { pendingBytes: number; maxLagSeq: number }) | null = null;
+export function registerWalObserverReader(fn: () => { pendingBytes: number; maxLagSeq: number }): void { walObserverReader = fn; }
+export function unregisterWalObserverReader(): void { walObserverReader = null; }
+
+/** WAL 待落 PG 字节（own 段未全 confirm 字节和——段级口径：存在未 confirm 帧的段计全段 bytes，
+ *  上界观测；全 confirm 段待回收字节归 yjs_spool_depth_bytes 容量口径，两图分工不重复计「待 flush」语义）。 */
+export const walPendingBytes = new Gauge({
+  name: 'wal_pending_bytes',
+  help: 'WAL own 段待落 PG 字节和（段级上界口径：存在未 confirm 帧的段计全段——机损 RPO=PG 批延迟的观测面；磁盘总字节归 yjs_spool_depth_bytes）',
+  collect() { try { this.set(walObserverReader?.().pendingBytes ?? 0); } catch { this.set(0); } },
+});
+
+/** doc 已 apply 未提交 PG 的最大水位滞后（跨项目 max(appliedSeq−pgSeq)——G6a 恢复正确性观测：
+ *  重启恢复后应归零（replayAll catch-up）；持续非零=flush 链滞留）。 */
+export const docPgLagSeq = new Gauge({
+  name: 'doc_pg_lag_seq',
+  help: '跨项目 max(appliedSeq−pgSeq)（doc 帧已 apply 未提交 PG 的最大滞后——恢复后 catch-up 应归零；spoolHeadSeq−pgSeq 积压分轴见 §9.4）',
+  collect() { try { this.set(walObserverReader?.().maxLagSeq ?? 0); } catch { this.set(0); } },
+});
+
+/** 恢复扫描发现的前缀缺口事件（每轮 recoverScan：帧级 fatal 停链截断/段级隔离停链/unproven-tail/
+ *  PG 前缀 violation——「有效前缀」断点计数；正常重启恒 0，非零=崩溃窗口有帧不可证）。 */
+export const docPrefixGapTotal = new Counter({
+  name: 'doc_prefix_gap_total',
+  help: 'WAL 恢复扫描前缀缺口事件计数（帧级致命缺陷截断/段级隔离停链/unproven-tail 链断续段/PG 前缀 violation——正常重启恒 0）',
+  registers: [register],
+});
+
+/** boot 恢复结果（result=ok 正常开放写/blocked fail-closed 拒服务——violation 或 recoverySuspect
+ *  人工裁定解除前每次重试均计 blocked；ready 面 walRecoverySuspect 兄弟字段同源）。 */
+export const docRecoveryTotal = new Counter({
+  name: 'doc_recovery_total',
+  help: 'boot 恢复扫描结果计数（result=ok 恢复顺序全过开放写/blocked fail-closed 拒服务——PG 前缀 violation 或恢复怀疑态，人工裁定解除）',
+  labelNames: ['result'],
   registers: [register],
 });
 

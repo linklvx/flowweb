@@ -363,6 +363,29 @@ describe('Y1c T8 红组 E：帧协议本体——SHA-256 去重+per-project walS
     expect(w, '水位三元在位').toBeDefined();
   });
 
+  it('M3（T12 双评审，T13 落地）：空段换代即删——零帧零证据价值不写 sidecar 不滞留（红=空段 sidecar 滞留多次 vacuum 无界累积）；含未提交帧段 sidecar 保留策略锁定（证据保全）', async () => {
+    // 空段（零帧）落 owner 目录——新段首帧失败档（R2）真实形态的等价物
+    const s1 = svc();
+    await writeFixture(s1, { projectId: 'p-m3', generation: 1, historyId: HISTORY, createdAtMs: Date.now(), lastWriteAtMs: Date.now() }, [], undefined, 0);
+    const s2 = svc();
+    await s2.scan();   // 空段入 index（scan permissive 零帧）
+    const emptySeg = join(dir, OWNER, walSegmentFileName('p-m3', 1, 0));
+    expect(existsSync(emptySeg), '装置前置：空段在盘').toBe(true);
+    await s2.switchGeneration('p-m3', 2);
+    expect(existsSync(emptySeg), '空段换代即删（无内容无证据价值）').toBe(false);
+    expect(existsSync(`${emptySeg}.quarantine`), '空段不写 sidecar（滞留=多次 vacuum 无界累积）').toBe(false);
+    // 未提交帧段保留策略（锁定锚——同用例钉死不漂移）：帧 walSeq>pgSeq（从未 Durable）→sidecar 持久隔离+文件保全
+    const s3 = svc();
+    await s3.append('p-m3b', new Uint8Array([9]));
+    await s3.switchGeneration('p-m3b', 2);
+    const uncommittedSeg = join(dir, OWNER, walSegmentFileName('p-m3b', 1, 0));
+    expect(existsSync(uncommittedSeg), '含未提交帧段文件保全（证据）').toBe(true);
+    expect(existsSync(`${uncommittedSeg}.quarantine`), 'sidecar 持久隔离（跨重启禁重放）').toBe(true);
+    const s4 = svc();
+    await s4.scan();
+    expect(await s4.peek('p-m3b'), '未提交段跨重启禁重放（sidecar 识别）').toHaveLength(0);
+  });
+
   it('帧内携带 generation（段头≠帧 generation=隔离档 bad-crc）', async () => {
     const corpus = buildWalFaultCorpus({ historyId: HISTORY });
     const good = corpus[0];

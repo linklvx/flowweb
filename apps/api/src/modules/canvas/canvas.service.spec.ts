@@ -11,7 +11,7 @@ import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 /** Y1c T7：genesis 头行集 mock 面（tx 侧四个模型——SystemHistory fail-closed 读+头+快照+游标） */
 function genesisHeadMocks() {
   return {
-    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'y1c-sys-history-1' }) },
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'y1c-sys-history-1', epochStartedAt: new Date() }) },   // Y1c T13：epochStartedAt 快照字段（requireSystemHistory 消费面）
     canvasDoc: { upsert: vi.fn().mockResolvedValue({}) },
     canvasDocSnapshot: { upsert: vi.fn().mockResolvedValue({}) },
     runtimeFeedCursor: { upsert: vi.fn().mockResolvedValue({}) },

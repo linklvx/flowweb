@@ -20,7 +20,7 @@ afterEach(async () => { await spoolDir.cleanup(); });
 
 function buildGateway(opts: { lease?: ReturnType<typeof createLeaseStub> } = {}) {
   const prisma = {
-    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 't9-history' }) },
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 't9-history', epochStartedAt: new Date() }) },
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, userId: 'u1', expiresAt: new Date(Date.now() + 86400000) }) },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     projectMember: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -167,7 +167,7 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
 
 function buildGatewayWithGen(generation: number) {
   const prisma = {
-    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 't9-history' }) },
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 't9-history', epochStartedAt: new Date() }) },
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, userId: 'u1', expiresAt: new Date(Date.now() + 86400000) }) },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     projectMember: { findUnique: vi.fn().mockResolvedValue(null) },

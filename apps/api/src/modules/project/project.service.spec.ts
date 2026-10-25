@@ -44,7 +44,7 @@ describe('ProjectService', () => {
         upsert: vi.fn().mockResolvedValue({}), // Y0a-3 T8①：种子 PG 侧同事务落库
       },
       // Y1c T7：genesis 头行集（SystemHistory fail-closed 读+Snapshot(g,0,0)+RuntimeFeedCursor）
-      systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'y1c-sys-history-1' }) },
+      systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'y1c-sys-history-1', epochStartedAt: new Date() }) },   // Y1c T13：epochStartedAt 快照（requireSystemHistory 消费面）
       canvasDocSnapshot: { upsert: vi.fn().mockResolvedValue({}) },
       runtimeFeedCursor: { upsert: vi.fn().mockResolvedValue({}) },
       projectMember: { create: vi.fn().mockResolvedValue({}) },

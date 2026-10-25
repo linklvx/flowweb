@@ -51,7 +51,7 @@ export class CollabReadyService {
     const degraded = this.gateway.computeDegraded();
     // Y0b-3 T5（P-C）：collabProtocolVersion 进 base=三分支（pg-down/reason/200）恒带——客户端
     // 版本终态时单次探测拿服务端版本作 loop 键；503 降级同发时键仍可得。
-    const base = { pending, degraded, spoolQuarantined: this.spool.quarantinedSegments().length, loadedDocs, connections, residentDocs, directConns, collabProtocolVersion: CLIENT_PROTOCOL_VERSION, workers: await this.workersSnapshot() };   // T4 勘误：诊断 LIST 取 .length；Y0c T29-II：workers 维度（Z130②）
+    const base = { pending, degraded, spoolQuarantined: this.spool.quarantinedSegments().length, walRecoverySuspect: this.spool.suspectSegments().length, loadedDocs, connections, residentDocs, directConns, collabProtocolVersion: CLIENT_PROTOCOL_VERSION, workers: await this.workersSnapshot() };   // T4 勘误：诊断 LIST 取 .length；Y0c T29-II：workers 维度（Z130②）；Y1c T13（G6a）：恢复怀疑态分维暴露（M5——与 quarantine 分维不并轨）
     let pgOk = true;
     try { await this.prisma.$queryRaw`SELECT 1`; } catch { pgOk = false; }
     if (!pgOk) return { status: 503, body: { ready: false, reason: 'pg-down', redis: await this.redisStatus(), ...base } };

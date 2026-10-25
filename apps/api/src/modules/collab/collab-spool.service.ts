@@ -55,6 +55,8 @@ import {
   yjsSpoolBadSegmentTotal,
   walSegmentQuarantinedTotal,
   walRecoverySuspectTotal,
+  walFsyncLatency,
+  docPrefixGapTotal,
 } from './store.metrics';
 import { isFkGone } from './pg-error.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -453,6 +455,33 @@ export class CollabSpoolService {
   /** EIO fail-stop 唯一态（false 后停收一切新帧+探针拒写——仅进程重启可复位，禁自动恢复）。 */
   private walHealthyFlag = true;
   walHealthy(): boolean { return this.walHealthyFlag; }
+  /** Y1c T13（G6a/F-S4-5 信号①）：restore.lock marker 读取面——备份/恢复工具 post-restore 步骤
+   *  写入（写入面=运维工具契约，T29/T30 reset-collab 收口；本服务只读不写不删）。在位 ⇒ boot
+   *  恢复按恢复怀疑态求值时间戳栅栏（ADR-01 §5——忘 bump 拦截双保险之一）；清除=bump historyId
+   *  收尾后运维删除（人工处置面，非代码自动清理）。 */
+  async restoreLockPresent(): Promise<boolean> {
+    await mkdir(this.dir, { recursive: true, mode: 0o700 }).catch(() => {});
+    try { await stat(join(this.dir, 'restore.lock')); return true; } catch { return false; }
+  }
+  /** Y1c T13（G6a wal_pending_bytes collect 源）：own 段未全 confirm 字节和（段级上界口径——
+   *  存在未 confirm 帧的段计全段 bytes；全 confirm 段待回收字节归容量口径图，两图分工）。 */
+  pendingSpoolBytes(): number {
+    let sum = 0;
+    for (const segs of this.index.values())
+      for (const m of segs.values())
+        if (!m.foreign && m.confirmedCount < m.frameCount) sum += m.bytes;
+    return sum;
+  }
+  /** Y1c T13（G6a doc_pg_lag_seq collect 源）：跨项目 max(appliedSeq−pgSeq)——恢复 catch-up 后
+   *  应归零；持续非零=flush 链滞留观测。 */
+  maxPgLagSeq(): bigint {
+    let max = 0n;
+    for (const w of this.watermarks.values()) {
+      const lag = w.appliedSeq - w.pgSeq;
+      if (lag > max) max = lag;
+    }
+    return max;
+  }
   /** 水位三元注册表（内存——pgSeq 持久列归 T10；assertWatermarkInvariants 每次推进断言）。 */
   private watermarks = new Map<string, WatermarkTriple>();
   watermark(projectId: string): WatermarkTriple | undefined { return this.watermarks.get(projectId); }
@@ -572,7 +601,11 @@ export class CollabSpoolService {
     const adopted: { projectId: string; dir: string; name: string }[] = [];
     for (const [pid, segs] of [...this.index.entries()]) {
       for (const [key, m] of [...segs.entries()]) {
-        if (!m.foreign || m.segQuarantined != null) continue;
+        // Y1c T13（G6a）：chain-stopped 外来段（recoverScan 帧级 fatal/坏尾裁定——**帧前缀可重放**档
+        // I1）可收养：own 化+坏尾归 reconciler quarantineTruncatedFrames 处置（回收闭环保持——旧链
+        // scan 的 truncated sealed 段同语义）；其余隔离档（bad-header/history-mismatch/violation/
+        // truncate-failed/unproven-tail）=证据保全或不可证——不收养。
+        if (!m.foreign || (m.segQuarantined != null && m.segQuarantined !== 'chain-stopped')) continue;
         const path = join(m.dir, segFileNameOf(pid, m.generation, m.seq));
         const st = await stat(path).catch(() => null);
         if (!st || now - st.mtimeMs < silentMs) continue;
@@ -756,8 +789,13 @@ export class CollabSpoolService {
   }
 
   /** fsync 分档注入缝（生产恒 fh.sync()——测试 subclass 注入 EIO/ENOSPC 故障；非垫片：
-   *  生产路径零分支变化，seam 与 onRecovered 同族）。 */
-  protected async syncSegmentHandle(fh: FileHandle): Promise<void> { await fh.sync(); }
+   *  生产路径零分支变化，seam 与 onRecovered 同族）。
+   *  Y1c T13（G6a wal_fsync_latency）：时延观测单点（成功/失败均计时——失败尾不进直方图，
+   *  分档归 wal_fsync_error_total；S4/T33「fsync p95>20ms」硬门观测源）。 */
+  protected async syncSegmentHandle(fh: FileHandle): Promise<void> {
+    const t0 = Date.now();
+    try { await fh.sync(); } finally { walFsyncLatency.observe(Date.now() - t0); }
+  }
 
   /** 帧写入唯一实现（V2 封段守卫+X14 耐久性+WAL 帧协议 v1.7）。
    *  R3：写路径只落 activeDir（owner 子目录）；滚段计算只看同活动目录同 generation 段
@@ -1355,6 +1393,15 @@ export class CollabSpoolService {
       for (const [segKey, m] of [...segs.entries()]) {
         const name = segFileNameOf(projectId, m.generation, m.seq);
         const maxSeq = m.seqs.reduce((mx, sq) => (sq > mx ? sq : mx), 0n);
+        // M3（T12 双评审，T13 落地）：空段（零帧且无既有隔离裁定）换代即删——零帧零证据价值，
+        // sidecar 滞留=多次 vacuum 无界累积面；既有隔离段（bad-header 等）保留 sidecar 证据形态。
+        if (m.segQuarantined == null && maxSeq === 0n) {
+          await unlink(join(m.dir, name)).catch(() => {});
+          await unlink(join(m.dir, `${name}.quarantine`)).catch(() => {});
+          if (m.dir !== this.dir) await rmdir(m.dir).catch(() => {});
+          segs.delete(segKey);
+          continue;
+        }
         if (m.segQuarantined == null) {
           await writeWholeSegmentSidecar(m.dir, name, 'generation-switch');
           walSegmentQuarantinedTotal.inc({ reason: 'generation-switch' });
@@ -1368,7 +1415,8 @@ export class CollabSpoolService {
           segs.delete(segKey);
           continue;
         }
-        // 含未提交帧段（或空段）：sidecar 持久隔离（证据保全——M3 同款 headerBytes 计账+下界 0）
+        // 含未提交帧段：sidecar 持久隔离（证据保全——未提交帧=可能丢的用户数据必须保全；
+        // 保留策略=保留至人工处置（quarantine 纪律同源）——headerBytes 计账+下界 0）
         const headerBytes = m.generation == null ? 0 : WAL_SEGMENT_HEADER_SIZE;
         m.quarantinedBytes = Math.max(0, m.bytes - headerBytes);
         m.segQuarantined = m.segQuarantined ?? 'generation-switch';
@@ -1584,6 +1632,12 @@ export class CollabSpoolService {
         assertWatermarkInvariants(w);
         pr.watermarks = w;
         this.watermarks.set(projectId, w);
+      }
+      // Y1c T13（G6a doc_prefix_gap_total）：前缀缺口事件——帧级致命截断+停链性隔离（换代切段
+      // 不停链不计）+恢复怀疑+violation；正常重启恒 0（观测口径见 store.metrics help）。
+      const stopChainSegs = pr.quarantined.filter((q) => q.reason !== 'generation-switch').length;
+      if (pr.truncated.length + stopChainSegs + pr.recoverySuspect.length + pr.pgPrefixViolation.length > 0) {
+        docPrefixGapTotal.inc(pr.truncated.length + stopChainSegs + pr.recoverySuspect.length + pr.pgPrefixViolation.length);
       }
     }
     this.index = next;   // 恢复裁定落 index（整段隔离档+unproven-tail 零帧；chain-stopped 段前缀帧 peek 可取回——两类均与 replayPrefix 一致，I1/复核 R1）

@@ -1079,6 +1079,7 @@ describe('Y1c T11 复核 round-2：boot 三元组播种接线（generation+walSe
     try {
       const spool = new CollabSpoolService(dir);
       spool.setOwner('test-owner');
+      spool.setWalHistory('spec-history-id');   // Y1c T13（G6a）：段头栅栏装置对齐（kit mock historyId——缺省 '' 会被 boot recoverScan 判 history-mismatch 隔离）
       spool.setProjectGeneration('p-gen', 7);   // 运行中形态：帧属 g7（真空纪后当代）
       spool.seedWalSeqFromPg('p-gen', 3n);      // 运行中形态：计数器=pgSeq+1=4（帧 walSeq=4>已发布基线 3）
       await spool.append('p-gen', Y.encodeStateAsUpdate(new Y.Doc()));   // 崩溃幸存段帧（未 confirm）
@@ -1114,7 +1115,8 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
     try {
       const spool = new CollabSpoolService(dir);
       spool.setOwner('test-owner');   // R3：早于 kit 的直接 append 需自设 owner（kit 装置只覆盖 start 之后的路径）
-      await spool.append('p-i1', Y.encodeStateAsUpdate(new Y.Doc()));   // 预投帧：kit onModuleInit 的 scan+replayAll 读它（append 永败→3 次尝试≈400ms 后 failed=1，帧保留）
+      spool.setWalHistory('spec-history-id');   // Y1c T13（G6a）：段头栅栏装置对齐（kit mock historyId——缺省 '' 会被 boot recoverScan 判 history-mismatch 隔离）
+      await spool.append('p-i1', Y.encodeStateAsUpdate(new Y.Doc()));   // 预投帧：kit onModuleInit 的恢复扫描+replayAll 读它（append 永败→3 次尝试≈400ms 后 failed=1，帧保留）
       const kit = await startDualClientServer({ appendBatch: vi.fn(async () => { throw new Error('pg down'); }) }, 200, spool);
       try {
         // 判定点：回灌失败项目必须经退避梯运行期自愈（R1 拒绝理由的自洽前提）——梯入口=onModuleInit 回灌后 rearmQueues()
@@ -1540,11 +1542,11 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     try {
       const lease = createLeaseStub();
       const spool = new CollabSpoolService(dir);
-      const scanSpy = vi.spyOn(spool, 'scan')
-        .mockRejectedValueOnce(new Error('scan boom'))
-        .mockResolvedValue({ truncatedSegments: [] });
-      const gateway = new CollabGateway({ systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'i3-history' }) } } as any, new EventEmitter2() as any, createMockRepo() as any,
-        lease as any, { resolve: vi.fn() } as any, 48100, 300, undefined, undefined, spool);   // Y1c T9（T8 接线）：listenCollab requireSystemHistory 读面 mock
+      const scanSpy = vi.spyOn(spool, 'recoverScan')
+        .mockRejectedValueOnce(new Error('recoverScan boom'))
+        .mockResolvedValue({ projects: [] });
+      const gateway = new CollabGateway({ systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'i3-history', epochStartedAt: new Date() }) } } as any, new EventEmitter2() as any, createMockRepo() as any,
+        lease as any, { resolve: vi.fn() } as any, 48100, 300, undefined, undefined, spool);   // Y1c T9（T8 接线）：listenCollab requireSystemHistory 读面 mock；Y1c T13（G6a）：boot init=recoverScan（旧链 scan 退役）+epochStartedAt 快照（F-S4-5）
       const facade = gatewayFacade(gateway);
       const listenSpy = facade.spyListenServer().mockResolvedValue(undefined);
       try {
@@ -1802,6 +1804,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     try {
       const spoolA = new CollabSpoolService(dir);
       spoolA.setOwner('owner-A');
+      spoolA.setWalHistory('spec-history-id');   // Y1c T13（G6a）：段头栅栏装置对齐（kit mock historyId——缺省 '' 会被 boot recoverScan 判 history-mismatch 隔离而失去收养资格）
       await spoolA.append('prc', Y.encodeStateAsUpdate(new Y.Doc()));
       const segPath = join(dir, 'owner-A', 'prc.g1.0.spool');   // T8 v1.7：g 域文件名
       await appendFile(segPath, Buffer.alloc(7, 0xAB));   // 1-7B 残尾=truncated（parseSegmentFrames 收口2 同判）

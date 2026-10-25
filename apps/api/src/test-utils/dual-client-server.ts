@@ -71,7 +71,8 @@ export function makeHeaderWs(headers: Record<string, string>, onCreated?: (ws: W
 export async function startDualClientServer(over: Partial<MockRepo> = {}, debounce = 300, spool?: CollabSpoolService, lease?: unknown, quota?: import('../modules/collab/collab.gateway').QuotaConfig): Promise<DualClientKit> {
   const prisma: Record<string, any> = {
     // Y1c T9（T8 接线）：listenCollab requireSystemHistory fail-closed 读面 mock（缺头=start-failed）
-    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id' }) },
+    // Y1c T13（G6a）：epochStartedAtMs 补——boot init recoverScan 入口快照（F-S4-5）读面前移
+    systemHistory: { findUnique: vi.fn().mockResolvedValue({ historyId: 'spec-history-id', epochStartedAt: new Date() }) },
     session: { findUnique: vi.fn().mockResolvedValue({ user: { id: 'u1', name: '张三' }, expiresAt: new Date(Date.now() + 86400000) }) },
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
