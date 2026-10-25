@@ -62,7 +62,7 @@ maybe('Y1c T11 compact 发布（真 PG）', () => {
     if (!r.compacted) return;
     const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID } });
     expect(doc.currentSnapshotRev).toBe(pg);
-    expect(doc.purgeBelowSeq).toBe(pg);   // 指针+purgeBelowSeq 同事务持久（kill 窗=要么都在要么都不在）
+    expect(doc.purgeBelowSeq).toBeNull();   // Q-M3（T11 双评审）：④两段全成→义务衰减（指针+purgeBelowSeq 同事务发布持久已由返回契约/红组② kill 窗锚证——衰减防 NOT NULL 全量扫描空转）
     const snap = await prisma.canvasDocSnapshot.findUniqueOrThrow({
       where: { projectId_generation_snapshotRev: { projectId: PID, generation: 1, snapshotRev: pg } },
     });
@@ -162,6 +162,9 @@ maybe('Y1c T11 compact 发布（真 PG）', () => {
     // 幂等：再跑 no-op
     await repo.resumePurges();
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
+    // Q-M3（T11 双评审）：续跑两段全成→义务衰减（purgeBelowSeq=null）——boot NOT NULL 全量扫描
+    // 稳态不再命中本项目（防随时间单调增长的空转扫描）
+    expect((await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID } })).purgeBelowSeq).toBeNull();
   });
 
   it('交错组（装载×compact×append 并行）绿：终态装载=全内容等价+不变量 Snapshot.stateSeq≤pgSeq 恒立', async () => {

@@ -429,6 +429,22 @@ export class CollabSpoolService {
   /** per-project 下一 walSeq（单调；崩溃后 scan/recoverScan 自段内容重建）。 */
   private walSeqCounters = new Map<string, bigint>();
   peekNextWalSeq(projectId: string): bigint { return this.walSeqCounters.get(projectId) ?? 1n; }
+  /** C1（T11 双评审 Critical）①：walSeq 计数器 PG 真值播种——seed=max(当前值, pgSeq+1)（**max 语义
+   *  不回拨**：applied 未落 PG 帧由幸存段承载时 scan 重建值更高，PG 值只抬底不压顶）。调用面两缝同
+   *  方法单源=gateway boot 面（startCollabAfterLease init 步——repo.pgSeqFloors 全表）+registry
+   *  loadDocument 缝（hydration 行 pgSeq——新会话一切帧通道〔actor/维护〕的必经前置）。
+   *  根因链（评审员端到端复现）：hydration 游标改道已发布快照基线（repository 侧装载游标）后
+   *  「段全回收+重启→计数器自 1 重起」变致命——confirm 全确认段 unlink（PG 落地稳态）→scan 只从
+   *  幸存段重建（零段=1n）→新帧落 seq≤已发布基线→repository 装载尾谓词跳过（内容不可见）→compact
+   *  发布快照不含重置纪行→purgeBelow 永久删除。播种使新帧恒 >pgSeq；配合 appendBatch tripwire（C1②）
+   *  双保险。T12 硬输入（Q-I2 登记）：换代若改「新代自 1 重起」须同步重定基（新代快照基线归零或换代
+   *  重定基）——否则本播种（pgSeq+1 不分代）与新代 1 起点互相打架。 */
+  seedWalSeqFromPg(projectId: string, pgSeq: bigint | null | undefined): void {
+    if (pgSeq == null || pgSeq < 0n) return;
+    const floor = pgSeq + 1n;
+    const cur = this.walSeqCounters.get(projectId) ?? 1n;
+    if (floor > cur) this.walSeqCounters.set(projectId, floor);
+  }
   private allocateWalSeq(projectId: string): bigint {
     const next = this.peekNextWalSeq(projectId);
     this.walSeqCounters.set(projectId, next + 1n);
@@ -1315,7 +1331,13 @@ export class CollabSpoolService {
   }
 
   /** 换代切段（ADR-01 §6/契约 §5 注记）：旧段整段隔离（sidecar 持久——跨重启禁重放）
-   *  +namespace 切代（后续 append 落 g<generation> 新段）+水位与去重索引重置（新代自 walSeq=1）。 */
+   *  +namespace 切代（后续 append 落 g<generation> 新段）+水位与去重索引重置（计数器自 1 起）。
+   *  Q-I2（T11 双评审）事实钉锚：本方法**零生产调用方**（vacuum 换代走 repo.vacuumReplace——新代
+   *  快照基线=旧代 maxSeq，即现行语义=**跨代连续 seq**；本方法「计数器重置自 1」与连续语义
+   *  相悖且与 C1① PG 播种互相打架〔装载缝会把计数器抬回 pgSeq+1〕）。T12 接线前**硬输入**：
+   *  ①新代快照基线归零或换代重定基（否则新代帧落旧基线之下=装载尾跳过——复刻 C1
+   *  重置链）；②C1① 播种面（seedWalSeqFromPg/boot+loadDocument 两缝）复核——pgSeq 不分代，
+   *  「换代自 1 起」与「播种 pgSeq+1」必须二选一对齐。 */
   async switchGeneration(projectId: string, generation: number): Promise<void> {
     this.projectGeneration.set(projectId, generation);
     const segs = this.index.get(projectId);
@@ -1333,7 +1355,7 @@ export class CollabSpoolService {
         m.sealed = true;
       }
     }
-    this.walSeqCounters.set(projectId, 1n);                    // 水位重置（新代自 1 起）
+    this.walSeqCounters.set(projectId, 1n);                    // 计数器重置（Q-I2 钉锚：本形态零生产调用方——现行=跨代连续 seq；T12 接线硬输入见方法头注）
     this.watermarks.set(projectId, ZERO_WATERMARK);
     this.dedupClearProject(projectId);
   }

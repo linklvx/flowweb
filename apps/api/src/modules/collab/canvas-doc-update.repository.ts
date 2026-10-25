@@ -3,12 +3,15 @@ import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
+import { projectDocName } from './doc-name.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import {
   docCompactionDuration,
   docSnapshotBytes,
+  walSeqResetTripwireTotal,
   yjsCompactAbandonedTotal,
+  yjsCompactPurgeDeferredTotal,
   yjsHydrationHugeRowTotal,
   yjsSnapshotReadTotal,
   yjsStoreCompactFailureTotal,
@@ -27,6 +30,9 @@ export interface HydrationRow {
   preVacuumSv?: Buffer | null;
   generation?: number;
   schemaVersion?: number | null;
+  /** C1①（T11 双评审）：CanvasDoc.pgSeq 随行（walSeq 计数器 PG 真值播种消费面——loadDocument 缝
+   *  转发 spool.seedWalSeqFromPg；行缺失=null=懒建档无需播种）。 */
+  pgSeq?: bigint | null;
 }
 
 @Injectable()
@@ -123,10 +129,38 @@ export class CanvasDocUpdateRepository {
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
-  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' }> {
+  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' }> {
     const owner = this.leaseOwner;
     if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
     if (rows.length === 0) return { ok: true, rows: 0 };
+    // —— C1②（T11 双评审 Critical）fail-closed tripwire：新帧调用形（actor CAS〔expectedPgSeq≠null〕/
+    // 维护无 wm 形）若 lastWalSeq≤doc.pgSeq 且**非幂等重放在档**（同 seq 同 updateHash 行不在）→拒收。
+    // 配合 C1① PG 播种（spool.seedWalSeqFromPg——boot+loadDocument 两缝）正常路径永不触发；触发=
+    // 播种面缺口（计数器重置纪新帧落已发布 stateSeq 之下——readConsistent 尾谓词跳过+purgeBelow
+    // 永删的静默丢数据链）。豁免面：replayAll 回灌 catch-up 形（expectedPgSeq=null——旧 seq 行幂等
+    // 重放合法）不查；幂等重试（committed-未-confirm：行在+同 hash——ordered-commit 纪律下
+    // walSeq≤pgSeq 必为此形态）放行。调用方（actor/维护回退）对 !ok 统一 fenced→selfIsolate——
+    // tripwire 触发即进程级 fail-stop（数据完整性级事故面，禁静默续跑）。
+    if (wm?.expectedPgSeq !== null) {
+      const doc = await this.prisma.$queryRaw<{ pgSeq: bigint | null }[]>`
+        SELECT "pgSeq" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+      const docPg = doc[0]?.pgSeq;
+      if (docPg != null) {
+        for (const r of rows.filter((x) => x.lastWalSeq <= docPg)) {
+          const present = await this.prisma.$queryRaw<{ seq: bigint }[]>`
+            SELECT seq FROM "CanvasDocUpdate"
+            WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int
+              AND seq = ${r.lastWalSeq}::bigint AND "updateHash" = ${r.updateHash}::char(64) LIMIT 1`;
+          if (present.length === 0) {
+            walSeqResetTripwireTotal.inc();
+            const err = new Error(`appendBatch walSeq reset tripwire: 新帧 lastWalSeq(${r.lastWalSeq})≤CanvasDoc.pgSeq(${docPg}) 且非幂等重放在档——C1① 播种面缺口（计数器重置纪），fail-closed 拒收（红链=行落已发布 stateSeq 之下装载尾跳过）`);
+            this.logger.error(err.message);
+            captureCollabException(err, { docName: projectDocName(projectId), reason: 'wal-seq-reset-tripwire', connectionId: '-' });
+            return { ok: false, reason: 'wal-seq-reset' };
+          }
+        }
+      }
+    }
     // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——同旧单帧 append 语义
     const watermarkLanded = await this.prisma.$transaction(
       async (tx) => {
@@ -271,7 +305,7 @@ export class CanvasDocUpdateRepository {
   ): Promise<HydrationRow> {
     return this.prisma.$transaction(
       async (tx) => {
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { preVacuumSv: true, generation: true, schemaVersion: true, currentSnapshotRev: true } });
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { preVacuumSv: true, generation: true, schemaVersion: true, currentSnapshotRev: true, pgSeq: true } });
         let state: Buffer | null = null;
         let stateSeq = 0n;
         if (docRow) {
@@ -301,7 +335,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state, updates, stateSeq, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null };
+        return { state, updates, stateSeq, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
@@ -352,8 +386,15 @@ export class CanvasDocUpdateRepository {
    *  compact 排队〕——长度相等即同一集合）。
    *  Y1c T11（快照权威过渡形态）：CanvasDoc.state/stateSeq 列退役——真空态字节落 **CanvasDocSnapshot
    *  (g+1, rev 0)**（新代权威快照，stateHash 同 genesis 口径）+指针 currentSnapshotRev=0+purgeBelowSeq
-   *  清档（新代 walSeq 自 1 重起——跨代阈值不承继）+preVacuumSv/generation 落列+按 projectId 整删。
-   *  state 形参保留（shrink 侧真空产物字节——本事务唯一去处=新代快照行；T12 换代状态机全量重写本方法）。 */
+   *  清档（**义务清档**：行已同事务整删，非阈值承继问题——Q-I2 钉锚：**现行语义=跨代连续 seq**，
+   *  新代快照 stateSeq=旧代 maxSeq 恰只在连续语义自洽〔readConsistent 尾谓词 seq>stateSeq 跨代
+   *  单调〕）+preVacuumSv/generation 落列+按 projectId 整删。
+   *  state 形参保留（shrink 侧真空产物字节——本事务唯一去处=新代快照行；T12 换代状态机全量重写本方法）。
+   *  **T12 硬输入（Q-I2 登记——接线 switchGeneration 前必须）**：①新代快照 stateSeq 改 0 或换代
+   *  重定基（禁「换代 walSeq 自 1 重起」与「stateSeq=旧代 maxSeq」并存——新代帧落旧 stateSeq 之下
+   *  =装载尾跳过，复刻 C1 重置链）；②walSeq 计数器播种面复核（C1① seedWalSeqFromPg 的 pgSeq+1
+   *  不分代——与「换代自 1 起」互斥，二选一对齐）；③spool.switchGeneration 换代切段的旧代清理
+   *  滞留面（spec-M2）同批复核。 */
   async vacuumReplace(
     projectId: string,
     state: Buffer,
@@ -478,13 +519,14 @@ export class CanvasDocUpdateRepository {
         const newSnapshot = Buffer.from(Y.encodeStateAsUpdate(temp));   // canonical 编码（genesis 种子同形态）
         const tombstone = Y.encodeStateAsUpdate(temp, Y.encodeStateVector(temp));   // Y0b-5 T10 口径承继（全 SV 滤零 structs 段余量近似）
         const stateHash = createHash('sha256').update(newSnapshot).digest('hex');
-        const schemaVersionRow = await this.prisma.canvasDoc.findUnique({ where: { projectId }, select: { schemaVersion: true, vacuumEpoch: true } });
 
         // ③发布事务（短事务：行锁+三元组 CAS+指针/purgeBelowSeq 同事务持久）
         const publish = await this.prisma.$transaction(
           async (tx) => {
-            const locked = await tx.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint }[]>`
-              SELECT generation, "pgSeq", "currentSnapshotRev" FROM "CanvasDoc"
+            // Q-M5（T11 双评审）TOCTOU 收口：schemaVersion/vacuumEpoch 读入 ③ 锁内（随 FOR UPDATE
+            // 行锁同读——旧实现锁前无锁读，读-锁间隙换代/升级列写=快照行携带陈旧版本对）。
+            const locked = await tx.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint; schemaVersion: number | null; vacuumEpoch: number | null }[]>`
+              SELECT generation, "pgSeq", "currentSnapshotRev", "schemaVersion", "vacuumEpoch" FROM "CanvasDoc"
               WHERE "projectId" = ${projectId}::text FOR UPDATE`;
             if (locked.length === 0) return { ok: false as const, reason: 'empty' as const };
             if (locked[0].generation !== g || locked[0].pgSeq !== pg || locked[0].currentSnapshotRev !== rev0) {
@@ -492,7 +534,7 @@ export class CanvasDocUpdateRepository {
             }
             const inserted = await tx.$queryRaw<{ snapshotRev: bigint }[]>`
               INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion", "createdAt")
-              SELECT ${projectId}::text, ${g}::int, ${pg}::bigint, ${pg}::bigint, ${newSnapshot}, ${stateHash}::char(64), ${schemaVersionRow?.vacuumEpoch ?? 0}::int, ${(schemaVersionRow?.schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION)}::int, now()
+              SELECT ${projectId}::text, ${g}::int, ${pg}::bigint, ${pg}::bigint, ${newSnapshot}, ${stateHash}::char(64), ${locked[0].vacuumEpoch ?? 0}::int, ${(locked[0].schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION)}::int, now()
               ON CONFLICT DO NOTHING
               RETURNING "snapshotRev"`;
             if (inserted.length === 0) return { ok: false as const, reason: 'miss' as const };   // 同 rev 已在（并发发布者先到）
@@ -511,9 +553,22 @@ export class CanvasDocUpdateRepository {
         );
         if (!publish.ok) return { compacted: false, reason: publish.reason };
 
-        // ④提交后 worker 分批删+保留策略（发布已落定——清理义务由 purgeBelowSeq 持久承载，中途崩=启动续跑）
-        const deletedRows = await this.purgeBelow(projectId, g, pg);
-        await this.pruneSnapshots(projectId, g, pg);
+        // ④提交后 worker 分批删+保留策略（发布已落定——清理义务由 purgeBelowSeq 持久承载，中途崩=启动续跑）。
+        // Q-M4（T11 双评审）：④段错误不再以 throw 逸出 compact()——发布已成功，throw 会被
+        // maybeCompact/hydrateWithRecovery 两路 catch 计入 yjsStoreCompactFailureTotal 污染 compact
+        // 失败告警线；改 WARN+独立计数（yjsCompactPurgeDeferredTotal），义务由 purgeBelowSeq 持久
+        // 承载（boot/tick resumePurges 续跑——Q-M3 衰减前）。deletedRows=本次实删真值（清理被
+        // 延迟=0——「发布成功+清理延迟」与「发布失败」在返回契约上可区分）。
+        let deletedRows = 0;
+        try {
+          deletedRows = await this.purgeBelow(projectId, g, pg);
+          await this.pruneSnapshots(projectId, g, pg);
+          await this.dischargePurgeObligation(projectId, g);   // Q-M3：两段全成→义务衰减（boot 空转扫描收敛）
+        } catch (err) {
+          yjsCompactPurgeDeferredTotal.inc();
+          this.logger.warn(`compact ④清理段延迟 for ${projectId}（发布已落定——义务由 purgeBelowSeq 持久承载，boot/tick 续跑）: ${(err as Error).message}`);
+          captureCollabException(err, { docName: projectDocName(projectId), reason: 'compact-purge-deferred', connectionId: '-' });
+        }
         docSnapshotBytes.set(newSnapshot.length);   // T11：snapshot 独立观测 gauge（发布成功单点）
         return {
           compacted: true, snapshotBytes: newSnapshot.length, deletedRows, tombstoneBytes: tombstone.length,
@@ -529,8 +584,10 @@ export class CanvasDocUpdateRepository {
 
   /** T11 提交后分批删（幂等·续跑安全）：删 (projectId,generation,seq≤below) 增量行——500/批循环。
    *  行集=发布事务折叠的前缀（≤purgeBelowSeq=新快照 stateSeq）——快照权威已覆盖其内容；被删集⊆
-   *  被重放集由 purgeBelowSeq≡发布 stateSeq 构造保证。跨代行不删（换代 walSeq 自 1 重起——归
-   *  换代事务自身 deleteMany，T12 收口）。返回实删行数。 */
+   *  被重放集由 purgeBelowSeq≡发布 stateSeq 构造保证。跨代行不删：**现行语义=跨代连续 seq**
+   *  （Q-I2/T11 双评审钉锚——旧代行由 vacuumReplace 换代事务整删，本 generation 谓词=换代竞态窗
+   *  防御；T12 若改「换代自 1 重起」须同步把本谓词改新代域+新代快照重定基，否则跨代同 seq 撞行）。
+   *  返回实删行数。 */
   async purgeBelow(projectId: string, generation: number, belowSeq: bigint): Promise<number> {
     let deleted = 0;
     for (;;) {
@@ -572,9 +629,20 @@ export class CanvasDocUpdateRepository {
     void currentRev;   // 指针行∈当代 top-1（rev 单调=pgSeq）——显式钉锚：删除域结构性排除指针行
   }
 
+  /** Q-M3（T11 双评审）：清理义务衰减——purgeBelowSeq 在「分批删+保留策略两段全成」后置 null
+   *  （义务闭环）。防随时间单调增长的空转扫描：resumePurges 的 NOT NULL 全量扫描在无衰减语义下
+   *  恒命中全部已发布 doc（每 doc 每次发布 GREATEST 落定一次，永不清理）；衰减后稳态 boot/tick
+   *  扫描=仅 kill 窗残留义务。幂等（WHERE IS NOT NULL——0 行 no-op）；换代竞态窗（vacuum 置
+   *  null 后本 UPDATE 0 行）无害。 */
+  private async dischargePurgeObligation(projectId: string, generation: number): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "CanvasDoc" SET "purgeBelowSeq" = NULL
+      WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND "purgeBelowSeq" IS NOT NULL`;
+  }
+
   /** T11 启动续跑（kill 在指针发布后/分批删完成前 ⇒ 重启不丢清理义务）：扫全部 purgeBelowSeq 已
    *  持久化 doc，续跑批删+保留策略收敛。幂等（无残留行=no-op）；消费方=CollabCompactPoller
-   *  onModuleInit（worker 进程）。返回续跑 doc 数（含无残留行命中——可观测口径）。 */
+   *  onModuleInit（worker 进程）。返回续跑 doc 数（Q-M3 衰减后稳态=0——仅 kill 窗残留命中）。 */
   async resumePurges(): Promise<number> {
     const pending = await this.prisma.$queryRaw<{ projectId: string; generation: number; purgeBelowSeq: bigint; currentSnapshotRev: bigint }[]>`
       SELECT "projectId", generation, "purgeBelowSeq", "currentSnapshotRev" FROM "CanvasDoc"
@@ -582,7 +650,15 @@ export class CanvasDocUpdateRepository {
     for (const p of pending) {
       await this.purgeBelow(p.projectId, p.generation, p.purgeBelowSeq);
       await this.pruneSnapshots(p.projectId, p.generation, p.currentSnapshotRev);
+      await this.dischargePurgeObligation(p.projectId, p.generation);   // Q-M3：两段全成→衰减（下轮扫描不再命中）
     }
     return pending.length;
+  }
+
+  /** C1①（T11 双评审 Critical）boot 播种读面：CanvasDoc (projectId,pgSeq) 全集——gateway
+   *  startCollabAfterLease init 步消费（逐行 spool.seedWalSeqFromPg——max 语义；段全回收项目
+   *  计数器自 PG 真值重建，scan 面零段不可得）。单查询全表（CanvasDoc 每项目一行）。 */
+  async pgSeqFloors(): Promise<Array<{ projectId: string; pgSeq: bigint }>> {
+    return this.prisma.$queryRaw`SELECT "projectId", "pgSeq" FROM "CanvasDoc"`;
   }
 }

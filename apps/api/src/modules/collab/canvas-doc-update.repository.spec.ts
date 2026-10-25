@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { seedRow } from '../../test-utils/canvas-doc-row';
-import { yjsCompactAbandonedTotal } from './store.metrics';
+import { yjsCompactAbandonedTotal, yjsCompactPurgeDeferredTotal } from './store.metrics';
 
 describe('CanvasDocUpdateRepository', () => {
   let repo: CanvasDocUpdateRepository;
@@ -39,7 +39,7 @@ describe('CanvasDocUpdateRepository', () => {
     prisma.$queryRaw.mockResolvedValue([{ seq: 7n }]);
     const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1, 2]), 7n), seedRow(new Uint8Array([3]), 8n)]);
     expect(r).toEqual({ ok: true, rows: 2 });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);   // 每行一条 INSERT（同事务）
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);   // C1② tripwire 前置 SELECT pgSeq（docPg=undefined 缝跳过）+每行一条 INSERT（同事务）
     expect(prisma.canvasDocUpdate.create).not.toHaveBeenCalled();
     // V8（Y0a-2 复审 I-1）：append 批交互式事务——5s 上界/maxWait 1s（挂起的 PG append 不得无上界持 actor drain）
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000, maxWait: 1_000 });
@@ -162,6 +162,41 @@ describe('CanvasDocUpdateRepository', () => {
     // 提交后分批删+保留策略（purgeBelow/pruneSnapshots 两面）
     expect(sim.calls.some((c) => c.includes('DELETE FROM "CanvasDocUpdate"') && c.includes('seq <= ?::bigint'))).toBe(true);
     expect(sim.calls.some((c) => c.includes('DELETE FROM "CanvasDocSnapshot"'))).toBe(true);
+  });
+
+  it('Q-M5（T11 双评审）TOCTOU 收口：schemaVersion/vacuumEpoch 读入 ③ 锁内（随 FOR UPDATE 行锁同读）——INSERT 绑定值=锁内行值', async () => {
+    const oldSnap = docBytes('old', 1);
+    const sim = buildCompactSim({
+      head: { generation: 1, pgSeq: 2n, currentSnapshotRev: 0n },
+      // 锁内行携带版本对（与锁前 head 不同的值——证明 INSERT 取锁内读非锁前读）
+      locked: { generation: 1, pgSeq: 2n, currentSnapshotRev: 0n, schemaVersion: 7, vacuumEpoch: 4 } as never,
+      snapshot: { state: oldSnap, stateSeq: 0n },
+      pages: [[{ seq: 1n, update: docBytes('m1', 1) }, { seq: 2n, update: docBytes('m2', 2) }]],
+    });
+    const r = await sim.repo.compact('p1');
+    expect(r.compacted).toBe(true);
+    // INSERT 列序：projectId, generation, snapshotRev, stateSeq, state, stateHash, vacuumEpoch(6), schemaVersion(7)
+    expect(sim.insertVals()[6]).toBe(4);   // vacuumEpoch=锁内行值（非锁前缺省 0）
+    expect(sim.insertVals()[7]).toBe(7);   // schemaVersion=锁内行值（非锁前缺省 CANVAS_DOC_SCHEMA_VERSION）
+  });
+
+  it('Q-M4（T11 双评审）：④清理段抛错不以 throw 逸出 compact()——发布已落定仍返回 compacted:true+deletedRows=0+独立计数（义务由 purgeBelowSeq 持久承载）', async () => {
+    const oldSnap = docBytes('old', 1);
+    const sim = buildCompactSim({
+      head: { generation: 1, pgSeq: 2n, currentSnapshotRev: 0n },
+      snapshot: { state: oldSnap, stateSeq: 0n },
+      pages: [[{ seq: 1n, update: docBytes('d1', 1) }, { seq: 2n, update: docBytes('d2', 2) }]],
+    }, (sql) => { if (sql.includes('DELETE FROM "CanvasDocUpdate"')) throw new Error('purge io boom'); });   // ④分批删 IO 故障
+    const incSpy = vi.spyOn(yjsCompactPurgeDeferredTotal, 'inc');
+    try {
+      const r = await sim.repo.compact('p1');
+      expect(r, '发布已落定——throw 逸出会被 maybeCompact/hydrate 两路 catch 计入 compact_failure 污染告警线').toMatchObject({ compacted: true, deletedRows: 0 });
+      expect(incSpy).toHaveBeenCalledTimes(1);
+      // 义务未衰减（Q-M3 discharge 在同一 try 尾——④失败即保留 purgeBelowSeq 供 boot/tick 续跑）
+      expect(sim.calls.some((c) => c.includes('SET "purgeBelowSeq" = NULL'))).toBe(false);
+    } finally {
+      incSpy.mockRestore();
+    }
   });
 
   it('compact：pendingStructs 非空放弃本次——返回 abandoned、零发布零删除、P0 计数+1（禁 throw）', async () => {
@@ -337,6 +372,7 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
   it('fenced=0 行且行不存在（全新行被 EXISTS 拦）→{ok:false,reason:"fenced"}；行已存在（updateHash 幂等命中）→{ok:true,rows:0}（Y1c T9 幂等轴两分——契约 15 承继）', async () => {
     const txq = vi.fn().mockResolvedValue([]);                       // INSERT 0 行（两形态共面）
     const query = vi.fn()
+      .mockResolvedValueOnce([])                                     // C1② tripwire 前置 SELECT pgSeq（行缺失=懒建档——跳过；无 wm 形同查）
       .mockResolvedValueOnce([])                                     // 幂等探查：行不存在（fenced 档）
       .mockResolvedValue([{ owner: 'other' }]);                      // 二次查（fenced 分型确认）
     const { repo } = buildRepo({ query, txQuery: txq });
@@ -360,7 +396,7 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
   it('readSnapshotOnly=第二出口（契约 1"一个实现、两出口"）——同 readConsistent 事务形态', async () => {
     const { repo } = buildRepo({ docRow: null });
     const r = await repo.readSnapshotOnly('p1');
-    expect(r).toEqual({ state: null, updates: [], stateSeq: 0n, preVacuumSv: null, generation: 0, schemaVersion: null });   // T9a 代际两列+T18 schemaVersion 行值随行（装载/快照两出口同一列门判据——行缺失=null 懒建档）
+    expect(r).toEqual({ state: null, updates: [], stateSeq: 0n, preVacuumSv: null, generation: 0, schemaVersion: null, pgSeq: null });   // T9a 代际两列+T18 schemaVersion 行值随行+T11 C1① pgSeq 随行（装载/快照两出口同一列门判据——行缺失=null 懒建档）
   });
 
   it('readConsistent 游标=指针快照 stateSeq（Y1c T11 快照权威——旧「恒 0n 全量」SV3 双保险随单写者构造性保证退役）', async () => {
@@ -516,6 +552,7 @@ describe('C1 水位 UPDATE lease fence（全 fenced/部分 fenced 两 facet）',
       .mockResolvedValueOnce([{ seq: 1n }])   // INSERT → 1 行
       .mockResolvedValueOnce([]);             // UPDATE CAS → 0 行（cas-miss）
     const query = vi.fn()
+      .mockResolvedValueOnce([{ pgSeq: 0n }]) // C1② tripwire 前置 SELECT pgSeq（0<lastWalSeq=1——放行）
       .mockResolvedValueOnce([{ pgSeq: 0n }]) // cas-miss 二次查（0<new→adopt 档）
       .mockResolvedValue([{ pgSeq: 1n }]);    // adopt UPDATE → 成功（G2 ④ 收敛）
     const prisma = { $queryRaw: query, $transaction: vi.fn((fn: any) => fn({ $queryRaw: txq, $executeRaw: vi.fn().mockResolvedValue([]) })) };

@@ -314,6 +314,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       freezeReasons: (conn) => this.sessionGuard.freezeReasons(conn),
       connectionIdOf: (socketId) => this.sessionGuard.connectionIdOf(socketId),
       onGenerationSeeded: (pid, generation) => this.spool.setProjectGeneration(pid, generation),   // T8 接线：世代权威播种（帧内一律携带 generation 的 WAL 段单源）
+      onWalSeqFloorSeeded: (pid, pgSeq) => this.spool.seedWalSeqFromPg(pid, pgSeq),   // C1①（T11 双评审）：装载缝 PG 播种——段全回收项目计数器自 PG 真值重建（红链见 canvas-doc-walseq-seeding.int.spec）
     });
     this.persistence.bindHost({
       logger: this.logger,
@@ -850,6 +851,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           quarantined += await this.spool.quarantineTruncatedFrames(projectId);
         }
         const replay = await this.spool.replayAll(this.repo);
+        // C1①（T11 双评审 Critical）boot PG 播种：段全回收+重启项目 scan 面为零（计数器自 1 重起
+        // ——新帧将落已发布快照基线之下不可见），自 CanvasDoc.pgSeq 真值播种（max 语义：幸存段
+        // 未落 PG 帧由 scan 重建值更高承载；与 loadDocument 缝同方法单源）。
+        for (const p of await this.repo.pgSeqFloors()) this.spool.seedWalSeqFromPg(p.projectId, p.pgSeq);
         if (quarantined > 0 || replay.failed > 0) {
           // 启动自检（spec §5.2 口径——ERROR 结构化日志；Y0a-3 起随 ready.spoolQuarantined 可见）
           this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', quarantined, replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded, truncatedSegments }));

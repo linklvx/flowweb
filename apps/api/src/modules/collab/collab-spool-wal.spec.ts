@@ -321,13 +321,32 @@ describe('Y1c T8 红组 E：帧协议本体——SHA-256 去重+per-project walS
     expect(s2.peekNextWalSeq('p1')).toBe(3n);
   });
 
+  it('C1① PG 播种（T11 双评审 Critical）：seedWalSeqFromPg=max(当前值, pgSeq+1)——段全回收计数器抬底/幸存段重建值更高不回拨/null 缝 no-op', async () => {
+    const s = svc();
+    expect(s.peekNextWalSeq('p1')).toBe(1n);          // 段全回收+scan 面零段=1n（根因链钉锚）
+    s.seedWalSeqFromPg('p1', 3n);                     // pgSeq=3 → 播种 4
+    expect(s.peekNextWalSeq('p1')).toBe(4n);
+    s.seedWalSeqFromPg('p1', 1n);                     // 更低 PG 值不回拨（max 语义）
+    expect(s.peekNextWalSeq('p1')).toBe(4n);
+    s.seedWalSeqFromPg('p1', null);                   // 懒建档行缺失缝
+    s.seedWalSeqFromPg('p1', undefined);
+    expect(s.peekNextWalSeq('p1')).toBe(4n);
+    const s2 = svc();
+    await s2.append('p2', new Uint8Array([1]));
+    await s2.append('p2', new Uint8Array([2]));
+    const s3 = svc();
+    await s3.scan();                                  // 幸存段重建=3（未落 PG 帧由段承载）
+    s3.seedWalSeqFromPg('p2', 1n);                    // pgSeq 落后于段面——播种不得压顶
+    expect(s3.peekNextWalSeq('p2'), 'max 语义：scan 重建值（3）> pgSeq+1（2）').toBe(3n);
+  });
+
   it('换代切段：switchGeneration→旧段禁重放（跨重启）+新段 namespace g2+水位与去重重置', async () => {
     const s1 = svc();
     const p = new Uint8Array([7, 7]);
     await s1.append('p1', p);
     await s1.switchGeneration('p1', 2);
     expect(await s1.peek('p1'), '切代后旧段零重放').toHaveLength(0);
-    expect(s1.peekNextWalSeq('p1'), '水位重置——新代自 1 起').toBe(1n);
+    expect(s1.peekNextWalSeq('p1'), 'Q-I2 钉锚：隔离方法形态=计数器重置自 1（零生产调用方——现行生产语义=跨代连续 seq；T12 接线硬输入=换代重定基+C1① 播种面对齐，见 switchGeneration 头注）').toBe(1n);
     await s1.append('p1', new Uint8Array(p));                             // 同 payload 但新代——去重索引已清
     const files = (await readdir(join(dir, OWNER))).filter((f) => f.endsWith('.spool')).sort();
     expect(files.some((f) => f === walSegmentFileName('p1', 2, 0)), '新段 namespace g2').toBe(true);

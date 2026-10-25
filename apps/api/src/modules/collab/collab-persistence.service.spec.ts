@@ -89,6 +89,10 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(spool.hasFrames(PID)).toBe(true);             // f3（walSeq=3>2）仍在
     const frames = await spool.peek(PID);
     expect(frames.map((f) => f.walSeq)).toEqual([3n]);   // f1/f2 已 confirm（peek 只回未 confirm 好帧）
+    // Q-M6（T11 双评审）断言锚：C1 修复后新帧 walSeq 恒>pgSeq≥purgeBelowSeq——confirm 过滤只命中
+    // 「发布前纪」残留帧（f1/f2）；f3（walSeq=3>purgeBelowSeq=2）禁入 confirm 集=上方 peek 断言
+    // （播种面破洞才可能越界——端到端链钉锚=canvas-doc-walseq-seeding.int.spec）。
+    void frames;
   });
 
   it('全链（RC2 硬判据）：append 失败→批落 spool（fsync 新家先落定）+退避梯排程+unhealthy 电平→repo 恢复 retryPersist detached 帧三段式→PG 落定+段回收+三态空+电平转健康+内容收敛', async () => {

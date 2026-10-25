@@ -77,7 +77,7 @@ maybe('compact（真 PG——Y1c T11 快照发布形态；发布事务语义/红
     if (!r.compacted) return;
     const docRow = await prisma.canvasDoc.findUnique({ where: { projectId: PID } });
     expect(docRow!.currentSnapshotRev).toBe(lastSeq);   // 指针=被折前缀末行 seq（精确——禁 GREATEST/回退）
-    expect(docRow!.purgeBelowSeq).toBe(lastSeq);
+    expect(docRow!.purgeBelowSeq).toBeNull();   // Q-M3（T11 双评审）：④两段全成→义务衰减（boot NOT NULL 扫描稳态零命中）
     expect(docRow!.updatedAt.getTime()).toBeGreaterThanOrEqual(t0);
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
     // 第二轮（update 分支）：再 append+compact 命中既有头行（指针/水位再推进）

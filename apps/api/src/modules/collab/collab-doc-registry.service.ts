@@ -129,6 +129,11 @@ export interface CollabDocRegistryHost {
   freezeReasons(conn: CollabConnection): Set<FreezeReason>;
   /** Y1c T9（T8 接线）：世代播种缝（loadDocument generation 位——gateway 转发 spool.setProjectGeneration）。 */
   onGenerationSeeded?(projectId: string, generation: number): void;
+  /** C1①（Y1c T11 双评审 Critical）：walSeq 计数器 PG 真值播种缝（loadDocument hydration 行 pgSeq
+   *  位——gateway 转发 spool.seedWalSeqFromPg）。段全回收项目 scan 面为零（计数器自 1 重起），装载=
+   *  新会话一切帧通道（actor/维护——observeDocument 在首 await 前已建队列面）的必经前置，此缝使
+   *  新帧恒 walSeq>pgSeq（readConsistent 尾可见）。 */
+  onWalSeqFloorSeeded?(projectId: string, pgSeq: bigint): void;
   /** WS connectionId 读面（loadDocument :1117 装载失败 Sentry 样本 consumption——台账 SG 域
    *  （connectionIds socketId 键），W3b 改接 sg 读面）。 */
   connectionIdOf(socketId: string): string | undefined;
@@ -398,7 +403,7 @@ export class CollabDocRegistryService {
       // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗——B1 随域迁 service）
       this.persistence.seedCompactBaseline(projectId);
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
-      const { state, updates, preVacuumSv, generation, schemaVersion } = await this.repo.hydrateWithRecovery(projectId);
+      const { state, updates, preVacuumSv, generation, schemaVersion, pgSeq } = await this.repo.hydrateWithRecovery(projectId);
       // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：meta 门 v2.1 整链退役——版本判据唯一承载=
       // CanvasDoc.schemaVersion PG 列（readConsistent 行值单源）。行值≠current ⇒ 拒载（旧 doc 档
       // 无迁移，禁垫片）；行缺失 null ⇒ 放行（懒建档——首 store 建行 @default(3)）。
@@ -423,6 +428,10 @@ export class CollabDocRegistryService {
         // 携带 generation 的 WAL 段单源；vacuum 换代=switchGeneration 显式切+此处装载重播）
         this.host.onGenerationSeeded?.(projectId, generation);
       }
+      // C1①（T11 双评审 Critical）：walSeq 计数器 PG 真值播种（max 语义——幸存段承载未落 PG 帧时
+      // scan 重建值更高不回拨）。行缺失（懒建档）pgSeq=null 缝自 no-op。红链与双保险全貌见
+      // canvas-doc-walseq-seeding.int.spec 头注。
+      if (pgSeq != null) this.host.onWalSeqFloorSeeded?.(projectId, pgSeq);
       if (state) applyReplayed(new Uint8Array(state));
       for (const u of updates) applyReplayed(new Uint8Array(u));
       // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。

@@ -630,6 +630,9 @@ export class CollabPersistenceService {
       // 的未 confirm 帧=内容已证在 PG 前缀〔purgeBelowSeq≤pgSeq 且发布快照即该前缀〕，confirm 授权
       // 段回收；kill 窗残留帧由启动回灌 replayAll 承接——本处零容错语义：peek/confirm 失败仅 WARN，
       // 下次 compact/store 重试）。
+      // Q-M6（T11 双评审）断言锚：C1 修复后（计数器 PG 播种+appendBatch tripwire）**新帧 walSeq 恒
+      // >doc.pgSeq≥本阈值**——本过滤只应命中「发布前纪」残留帧；新纪帧进 confirm 集=播种面破洞
+      // （红组钉锚：collab-persistence.service.spec WAL 段清理用例+canvas-doc-walseq-seeding.int.spec）。
       if (this.spool.hasFrames(projectId)) {
         try {
           const frames = await this.peekSpoolFrames(projectId);

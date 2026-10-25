@@ -1053,12 +1053,15 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect(snapArg.where).toEqual({ projectId_generation_snapshotRev: { projectId: 'p1', generation: 1, snapshotRev: 0n } });
     expect(snapArg.create.stateSeq).toBe(7n);
     expect(snapArg.create.stateSeq).not.toBe(0n);
+    // Q-I2（T11 双评审）跨代连续 seq 语义锚：现行=新代快照 stateSeq 承接旧代 maxSeq（vacuumReplace
+    // 不重起 walSeq——readConsistent 尾谓词 seq>stateSeq 跨代单调自洽）；「换代自 1 重起」为零生产
+    // 调用方的 spool.switchGeneration 形态，T12 接线硬输入见 repository.vacuumReplace 头注。
     expect(snapArg.create.state).toBeInstanceOf(Buffer);   // 真空态字节落新代快照（唯一去处——禁双写）
     expect(snapArg.create.stateHash).toMatch(/^[0-9a-f]{64}$/);
     const upsertArg = upsert.mock.calls[0]![0] as any;
     expect(upsertArg.update.generation).toBe(1);         // n+1 同事务落列
     expect(upsertArg.update.currentSnapshotRev).toBe(0n);   // 指针指新代快照
-    expect(upsertArg.update.purgeBelowSeq).toBeNull();      // 新代 walSeq 自 1 重起——跨代阈值不承继
+    expect(upsertArg.update.purgeBelowSeq).toBeNull();      // Q-I2 勘误：义务清档（行已同事务整删）——非「新代 walSeq 自 1 重起/跨代阈值不承继」（现行=跨代连续 seq）
     expect(upsertArg.update.preVacuumSv).toBeInstanceOf(Buffer);   // 真空前 SV 同事务落列
     expect(upsertArg.update.preVacuumSv.length).toBeGreaterThan(0);
     expect(upsertArg.update.stateSeq).toBeUndefined();   // 旧 doc 态列退役（禁双写锚）

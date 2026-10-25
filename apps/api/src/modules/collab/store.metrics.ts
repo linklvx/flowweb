@@ -28,6 +28,25 @@ export const yjsStoreCompactFailureTotal = new Counter({
   registers: [register],
 });
 
+/** C1②（Y1c T11 双评审 Critical）：appendBatch walSeq 重置 tripwire 计数——新帧调用形
+ *  （actor CAS/维护无 wm）lastWalSeq≤CanvasDoc.pgSeq 且非幂等重放在档的 fail-closed 拒收。
+ *  配合 C1① PG 播种（spool.seedWalSeqFromPg）正常路径零触发；触发=播种面缺口（计数器重置纪
+ *  新帧将落已发布快照基线之下=装载尾跳过+purgeBelow 永删的静默丢数据链）即侦测。 */
+export const walSeqResetTripwireTotal = new Counter({
+  name: 'yjs_store_wal_seq_reset_tripwire_total',
+  help: 'appendBatch walSeq 重置 tripwire：新帧 lastWalSeq≤CanvasDoc.pgSeq 且非幂等重放在档 fail-closed 拒收（C1① 播种面缺口侦测——正常路径零触发）',
+  registers: [register],
+});
+
+/** Q-M4（Y1c T11 双评审）：compact ④提交后清理段（purgeBelow 分批删/pruneSnapshots 保留策略/
+ *  Q-M3 义务衰减）失败计数——发布已落定非 compact 失败（独立于 yjs_store_compact_failure_total
+ *  防污染告警线）；清理义务由 purgeBelowSeq 持久承载（boot/tick resumePurges 续跑）。 */
+export const yjsCompactPurgeDeferredTotal = new Counter({
+  name: 'yjs_compact_purge_deferred_total',
+  help: 'compact ④提交后清理段失败（发布已落定——义务由 purgeBelowSeq 持久承载 boot/tick 续跑；与 compact 失败告警线分立）',
+  registers: [register],
+});
+
 /** ===== Y0b-5 T10（spec §5.8②③/E19 回归）：服务端指标面 ===== */
 
 /** E19「改尺寸直方图」原文回归：yjs_canvas_doc_bytes（projectId gauge——标签基数随项目数无界）退役，
