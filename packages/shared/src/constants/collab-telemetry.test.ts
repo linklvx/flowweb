@@ -122,7 +122,7 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     expect(sanitizeTelemetryDetail('close_code', { code: 9999 })).toEqual({ code: 'other' });
     expect(sanitizeTelemetryDetail('close_code', { code: '4408' })).toEqual({ code: 'other' }); // 数值域——字符串形态不收
   });
-  it('auth_reject.reason 查 CollabAuthReason 14 值域（COLLAB_AUTH_REASONS 单源）', () => {
+  it('auth_reject.reason 查 CollabAuthReason 15 值域（COLLAB_AUTH_REASONS 单源）', () => {
     for (const r of COLLAB_AUTH_REASONS) {
       expect(sanitizeTelemetryDetail('auth_reject', { reason: r })).toEqual({ reason: r });
     }

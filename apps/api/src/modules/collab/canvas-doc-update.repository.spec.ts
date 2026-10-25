@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import * as Y from 'yjs';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { seedRow } from '../../test-utils/canvas-doc-row';
@@ -565,5 +566,97 @@ describe('C1 水位 UPDATE lease fence（全 fenced/部分 fenced 两 facet）',
     const adopt = query.mock.calls.find((c: any[]) => shapeOf(c).includes('UPDATE "CanvasDoc"'))!;
     expect(shapeOf(adopt)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
     expect(shapeOf(adopt)).toContain('generation = ?::int');   // Q-M8：adopt 谓词补 generation（T12 换代窗口防陈旧 adopt）
+  });
+});
+
+// ══ I1.2（T12 双评审收口）：vacuumReplace 锁内 generation 复核——头注「锁内实读复核漂移即中止」缺落实装 ══
+//  布景=投影滞后于 DB（并发窗）：调用方（vacuumCore）传 beginVacuumEra 投影的当代 expectedGeneration，
+//  锁内实读 generation ≠ 投影 ⇒ 整体中止 DB 零变更（返回 aborted 档——先于任何写）。
+describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——beginVacuumEra 投影的当代）', () => {
+  const shape = (c: any[]) => (c[0] as string[]).join('?');
+
+  function buildVacuumSim(liveDoc: { generation: number; schemaVersion: number; vacuumEpoch: number; currentSnapshotRev: bigint } | null) {
+    const writes = { upsertSnap: 0, upsertDoc: 0, deleteMany: 0 };
+    const prisma = {
+      $transaction: vi.fn((fn: any) => fn({
+        $executeRaw: vi.fn().mockResolvedValue([]),   // advisory lock
+        canvasDocUpdate: {
+          findMany: vi.fn().mockResolvedValue([]),    // 锁内实读行集（expectedRowCount=0 对齐）
+          deleteMany: vi.fn(async () => { writes.deleteMany += 1; }),
+        },
+        canvasDoc: {
+          findUnique: vi.fn().mockResolvedValue(liveDoc),   // 锁内实读 generation（漂移注入位）
+          upsert: vi.fn(async () => { writes.upsertDoc += 1; }),
+        },
+        canvasDocSnapshot: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          upsert: vi.fn(async () => { writes.upsertSnap += 1; }),
+        },
+      })),
+    };
+    return { repo: new CanvasDocUpdateRepository(prisma as any), writes };
+  }
+  const liveDocAt = (generation: number) => ({ generation, schemaVersion: 3, vacuumEpoch: 0, currentSnapshotRev: 0n });
+
+  it('投影滞后于 DB（expected=1，锁内实读 generation=2——并发换代窗）⇒ aborted 档返回+DB 零变更（upsert/deleteMany 零调用；红=旧实现照常换代提交）', async () => {
+    const { repo, writes } = buildVacuumSim(liveDocAt(2));
+    const r = await repo.vacuumReplace('p1', Buffer.from([0, 0]), 0, 1);
+    expect(r).toEqual({ aborted: 'generation-drift', dbGeneration: 2 });
+    expect(writes.upsertSnap).toBe(0);   // 新代快照未写（红：旧实现=1）
+    expect(writes.upsertDoc).toBe(0);    // 头行未推进（红：旧实现=1）
+    expect(writes.deleteMany).toBe(0);   // 旧代行未删（红：旧实现=1）
+  });
+
+  it('投影对齐（expected=锁内实读）⇒ 照常换代（守卫不误伤主路径——generation++ 提交）', async () => {
+    const { repo, writes } = buildVacuumSim(liveDocAt(2));
+    const r = await repo.vacuumReplace('p1', Buffer.from([0, 0]), 0, 2);
+    expect(r).toEqual({ generation: 3 });
+    expect(writes.upsertSnap).toBe(1);
+    expect(writes.upsertDoc).toBe(1);
+    expect(writes.deleteMany).toBe(1);
+  });
+
+  it('行缺失（懒建档形态）：锁内折 0 与 expected=0 对齐 ⇒ 放行（create 档不受守卫误伤）', async () => {
+    const { repo, writes } = buildVacuumSim(null);
+    const r = await repo.vacuumReplace('p1', Buffer.from([0, 0]), 0, 0);
+    expect(r).toEqual({ generation: 1 });
+    expect(writes.upsertDoc).toBe(1);
+  });
+});
+
+// ══ M4（T12 双评审收口）：懒建档 raw INSERT schemaVersion 绑定 CANVAS_DOC_SCHEMA_VERSION 常量参数 ══
+//  三源（raw INSERT 字面量 3 / @default(3) / CANVAS_DOC_SCHEMA_VERSION）→ 单源化：INSERT 绑常量参数
+//  （@default 保留为 DDL 兜底）。断言=绑定值（常量改值场景随行）+词法（SQL 无内联字面量）。
+describe('M4 懒建档 INSERT schemaVersion 绑定常量（appendBatch cas-miss→行缺失布景）', () => {
+  const shape = (c: any[]) => (c[0] as string[]).join('?');
+
+  it('schemaVersion 位=绑定参数且绑定值=CANVAS_DOC_SCHEMA_VERSION（红=旧实现 SQL 内联字面量 3 无绑定）', async () => {
+    const execCalls: any[][] = [];
+    const txRespond = async (strings: string[], ...vals: unknown[]): Promise<unknown[]> => {
+      const sql = strings.join('?');
+      if (sql.includes('INSERT INTO "CanvasDocUpdate"')) return [{ seq: vals[2] }];   // 批行全插
+      if (sql.includes('UPDATE "CanvasDoc"')) return [];                              // CAS → 0 行（cas-miss）
+      return [];
+    };
+    const query = vi.fn(async (strings: string[], ...vals: unknown[]): Promise<unknown[]> => {
+      const sql = strings.join('?');
+      if (sql.includes('SELECT "pgSeq" FROM "CanvasDoc"')) return [];   // tripwire 前置+cas-miss 二次查均=行缺失
+      if (sql.includes('AND seq = ')) return [{ seq: vals[2] }];        // verifyRowsLanded 全在
+      return txRespond(strings, ...vals);
+    });
+    const prisma = {
+      $queryRaw: query,
+      $executeRaw: vi.fn(async (strings: string[], ...vals: unknown[]) => { execCalls.push([strings, ...vals]); return []; }),
+      $transaction: vi.fn((fn: any) => fn({ $queryRaw: vi.fn(txRespond), $executeRaw: vi.fn(async () => []) })),
+    };
+    const repo = new CanvasDocUpdateRepository(prisma as any);
+    repo.setLeaseOwner('me');
+    const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
+    expect(r).toEqual({ ok: true, rows: 1 });   // cas-miss+行缺失 → 懒建档路径已达
+    const insert = execCalls.find((c: any[]) => shape(c).includes('INSERT INTO "CanvasDoc"')) as any[] | undefined;
+    expect(insert, '懒建档 INSERT 已触达').toBeDefined();
+    const insertCall = insert as any[];
+    expect(shape(insertCall)).toContain('SELECT ?::text, ?::int, ?::int, now()');   // 词法：schemaVersion 位=占位参数（红：旧=?::int, 3, now()）
+    expect(insertCall.slice(1)[2]).toBe(CANVAS_DOC_SCHEMA_VERSION);                 // 绑定值=常量（改值场景随行——红：旧无此绑定）
   });
 });

@@ -857,7 +857,7 @@
         {
           "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
           "lines": [
-            177
+            382
           ],
           "classification": "server·captureCollabException docName 字段"
         },
@@ -900,7 +900,7 @@
         }
       ]
     },
-    "note": "分类计数：Yjs 寻址 22 + 报错消息 2 + 日志/遥测 8 + Socket.IO room 5 + 注释 2 = 39。doc-name 单源=doc-name.util.ts（isValidDocName 等）——散布点为 T24/T32 docName 收口（换代 #g 后缀）改造面",
+    "note": "分类计数（T12 收口 M2 改写——现口径 total=22 的构成）：persistence 内部键 5 + residency 守卫 1 + web 客户端 1 + doc-name.util 单源 1 + 报错 1 + 日志遥测 8 + Socket.IO room 5 = 22（旧文「Yjs 寻址 22+报错 2+…=39」混入 29 处测试口径与 total 自相矛盾——已废）。doc-name 单源=doc-name.util.ts（isValidDocName/canvasDocName/projectDocName）——散布点为 T24/T32 docName 收口改造面",
     "total": 22
   },
   "item8_localCacheIdb": {

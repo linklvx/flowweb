@@ -44,7 +44,7 @@ import { Injectable, Inject, Logger, OnModuleInit, OnApplicationShutdown, Servic
 import type * as Y from 'yjs';
 import { CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
-import { projectDocName } from './doc-name.util';
+import { canvasDocName, projectDocName } from './doc-name.util';
 import type { FlushOutcome } from './collab-persistence.service';
 import {
   collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabResidencyReleaseInflightTotal,
@@ -198,9 +198,23 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** Y1c T12：canonical wire 名解析（gateway.docRegistry.liveDocName 单源；极简 gateway 桩缺
-   *  docRegistry 面〔直构 spec 形态〕折裸名=gen0 canonical 等价——E23 direct 连带）。 */
+   *  docRegistry 面〔直构 spec 形态〕折裸名=gen0 canonical 等价——E23 direct 连带）。
+   *  消费面=**已装载 doc 内部寻址**（forceEvictStoreFailed documents.get——liveDocName 命中在驻实例）；
+   *  fresh-open 开连名归 freshOpenDocName（收口 C1）。 */
   private canonicalDocName(projectId: string): string {
     return this.gateway.docRegistry?.liveDocName(projectId) ?? projectDocName(projectId);
+  }
+
+  /** T12 收口 C1：fresh-open canonical wire 名=DB 真值（同 withDoc readWatermark 形态——单列
+   *  readGeneration 更轻）。红相：只折进程内 docGeneration（唯一写点=loadDocument）——gen≥1 项目在
+   *  「进程重启后/vacuum 后/idle 释放后」doc 未装载（无键折 0=裸名）⇒ 装载闸
+   *  admitDocNameForGeneration(裸名,g>0) 拒 generation-stale ⇒ 装载因名字错永不成功=鸡生蛋死锁。
+   *  已在装载会话不走此（held 复用分支——docGeneration 已播种真值）；docRegistry 缺面（极简桩）
+   *  =null 折裸名=gen0 canonical 等价（既有 fallback 语义保持）。世代竞态窗（读后代际推进）由装载闸
+   *  第二道 fail-closed 拒（withDoc 同款语义）。 */
+  private async freshOpenDocName(projectId: string): Promise<string> {
+    const dbGeneration = await this.gateway.docRegistry?.generationInDb(projectId);
+    return canvasDocName(projectId, dbGeneration ?? 0);
   }
 
   /** 会话式读写（Z128 读写二分唯一入口——生产面=CollabDocumentService.withSession 透传）。
@@ -449,7 +463,7 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     // fresh open（zombie/无会话/等待后）：直连开窗标记语义与 withDoc 一致（yjs_doc_load_total 归因）
     const openT0 = Date.now();
     noteDirectLoad(projectId);
-    const conn = await this.gateway.server.hocuspocus.openDirectConnection(this.canonicalDocName(projectId))   // Y1c T12：canonical wire 名（#g 换代通道——E23 direct 连带）
+    const conn = await this.gateway.server.hocuspocus.openDirectConnection(await this.freshOpenDocName(projectId))   // T12 收口 C1：canonical wire 名=DB 真值（#g 换代通道——E23 direct 连带）
       .finally(() => {
         consumeDirectLoad(projectId);   // 装载未触发（doc 常驻/open 失败）清残留；已触发时 loadDocument 已消费（幂等）
         yjsWithdocOpenDuration.observe((Date.now() - openT0) / 1000);   // open 段耗时（含装载段——与 withDoc 同一观测面）

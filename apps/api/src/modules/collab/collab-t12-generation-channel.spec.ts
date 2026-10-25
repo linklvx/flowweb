@@ -20,6 +20,8 @@ import { formatLocalCacheKey } from '@flowweb/shared';
 import { canvasDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabGateway } from './collab.gateway';
+import { CollabDocumentService } from './collab-document.service';
+import type { CollabResidencyService } from './collab-residency.service';
 import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -171,6 +173,45 @@ describe('Y1c T12 / I2 三对齐：switchGeneration 接线形态=跨代连续 se
       const sc = await readFile(join(spoolDir, 't12-owner', seg + '.quarantine'), 'utf8').catch(() => null);
       expect(sc).toContain('generation-switch');
     }
+  });
+});
+
+// ══ 收口 C1（T12 双评审 Critical）：withSession fresh-open 世代名=DB 真值 ══
+//  红相：canonicalDocName 只折进程内 docRegistry.docGeneration（唯一写点=loadDocument）——gen≥1 项目
+//  在「进程重启后/vacuum 后/idle 释放后」doc 未装载（docGeneration 无键）⇒ 裸名 openDirectConnection
+//  ⇒ 装载闸 admitDocNameForGeneration(裸名,g>0) 拒 generation-stale（REST 500）⇒ 装载因名字错永不
+//  成功=鸡生蛋死锁（无自愈）。修=同 withDoc 形态（读 DB 真值→canvasDocName）；真 gateway 直构+真
+//  hocuspocus openDirectConnection（评审探针形态固化）。
+describe('Y1c T12 收口 C1：withSession fresh-open canonical 名=DB 真值（readGeneration→canvasDocName）', () => {
+  it('gen=1 布景 doc 未装载：withSession 携 #g1 canonical 名装载成功+readCanvas 全链端到端；withDoc 对照同布景恒 ok（红=裸名折 generation-stale 永久锁死）', async () => {
+    const { gateway } = buildGateway();
+    const repo = gatewayFacade(gateway).repoRef() as unknown as MockRepo;
+    const seedSrc = new Y.Doc();
+    seedSrc.getMap('nodes').set('n1', new Y.Map([['type', 'textInput']]));
+    const seed = Buffer.from(Y.encodeStateAsUpdate(seedSrc));
+    seedSrc.destroy();
+    // CanvasDoc 行 generation=1（DB 真值）；doc 未装载（进程重启后形态——docRegistry.docGeneration 无键）
+    repo.readGeneration.mockResolvedValue(1);
+    repo.readWatermark.mockResolvedValue({ pgSeq: 5n, walCheckpointSeq: 5n, generation: 1 });
+    repo.hydrateWithRecovery.mockResolvedValue({ state: seed, updates: [], stateSeq: 5n, generation: 1, schemaVersion: 3, pgSeq: 5n });
+    const svc = new CollabDocumentService(gateway, repo as any);
+    const residency = (svc as any).residency as CollabResidencyService;   // svc 惰性自建单例（residency spec 同款装置）
+
+    // ①主断言：withSession fresh-open ok（红：裸名 openDirectConnection→装载闸拒 {reason:'generation-stale'}——REST 500 无自愈）
+    const out = await residency.withSession('p-c1', (doc) => doc.getMap('nodes').size, { mode: 'read' });
+    expect(out).toBe(1);
+    expect(gateway.docRegistry.generationOf('p-c1')).toBe(1);   // 装载播种真值（鸡生蛋死锁解除自证）
+    expect(gateway.server.hocuspocus.documents.has('project:p-c1#g1')).toBe(true);   // canonical 名实例（非裸名别名双实例）
+
+    // ②全链端到端：readCanvas（REST 读主链——writeExecStatus/readServerSV/writeBatch/deliverArtifact 同 withSession 通道）
+    const canvas = await svc.readCanvas('p-c1');
+    expect(canvas.nodes).toHaveLength(1);
+
+    // ③withDoc 对照（同布景——T12 本体已修对的面，恒 ok）
+    const svLen = await svc.withDoc('p-c1', (doc) => Y.encodeStateVector(doc).byteLength);
+    expect(svLen).toBeGreaterThan(0);
+
+    await residency.tryRelease('p-c1', 'shutdown');   // 会话收尾（disconnect+真卸载——装置不留驻）
   });
 });
 

@@ -205,6 +205,30 @@ describe('T41 W2 ①物化+⑦代际：loadDocument 播种/门族/connected 真�
     expect(JSON.parse(payloadCalls[0])).toEqual({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON, generation: 1, discardLocalCache: true });
     expect(gf.connEstablishedAtHas('s-c')).toBe(true);   // 寿命台账播种=钩子首行（门检查之前 :467）
   });
+
+  it('门族④′（T12 收口 I1）：4410 载荷目标代真空后半窗——purgeDocState 删 docGeneration 后 onConnected 投影=纪元开启定格值（红=投影折 0+1 恒 1）', async () => {
+    const { gateway, repo } = buildGateway();
+    // 装载 #g2 播种 gen=2（真值链——评审探针 2 形态布景）
+    repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [], stateSeq: 0n, generation: 2, schemaVersion: 3, pgSeq: 0n });
+    const loaded = new Y.Doc();
+    await gateway.hooks.onLoadDocument({ document: loaded, documentName: 'project:p-i1#g2', socketId: 's0' } as any);
+    loaded.destroy();
+    expect(gateway.docRegistry.generationOf('p-i1')).toBe(2);
+    // 真空时序中段复刻：beginVacuumEra（目标代投影 3=2+1）→ quiesce → purgeDocState（docGeneration 删——后半窗）
+    await gateway.beginVacuumEra('p-i1');
+    expect(gateway.docRegistry.vacuumTargetGeneration('p-i1')).toBe(3);   // 纪元开启即定格（读点①）
+    gateway.purgeDocState('p-i1');
+    expect(gateway.docRegistry.generationOf('p-i1')).toBeUndefined();    // 后半窗前提锚：docGeneration 已无键
+    // purge 后 finally setVacuuming(false) 前的真空窗 onConnected close 4410（读点②）——目标代投影不随 docGeneration 消亡
+    const conn = makeConn('s-i1', 'project:p-i1#g2');
+    await gateway.hooks.connected({ socketId: 's-i1', connection: conn, documentName: 'project:p-i1#g2' } as any);
+    const payload = conn.sendStateless.mock.calls.map((c: unknown[]) => String(c[0])).filter((x: string) => x.includes('doc-vacuuming'));
+    expect(payload).toHaveLength(1);
+    expect(JSON.parse(payload[0])).toEqual({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON, generation: 3, discardLocalCache: true });   // 红：旧=generation 1（docGeneration 无键折 0+1）
+    // 真空完成（成功/失败/中止任一）清纪元态——投影回落装载真值链
+    gateway.setVacuuming('p-i1', false);
+    expect(gateway.docRegistry.vacuumTargetGeneration('p-i1')).toBe(1);   // 纪元外=非真空投影（docGeneration 无键折 0+1）
+  });
 });
 
 // ═══ ②真空维：状态跃迁+纪元开启序（§6.1 表②行） ═══

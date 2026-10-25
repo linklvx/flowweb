@@ -1034,7 +1034,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     const docRepo = new CanvasDocUpdateRepository(prisma as any);
     const repo = {
       loadForHydration: vi.fn(async () => ({ state: update, updates: [update, update, update], stateSeq: 0n })),
-      vacuumReplace: (pid: string, st: Buffer, n: number) => docRepo.vacuumReplace(pid, st, n),   // Y1c T12：preVacuumSv 参数随 SV 代际门退役删除
+      vacuumReplace: (pid: string, st: Buffer, n: number, expectedGeneration: number) => docRepo.vacuumReplace(pid, st, n, expectedGeneration),   // T12 收口 I1.2：四参透传（expectedGeneration=纪元投影当代）
     };
     const { svc } = buildVacuumSvc(gateway, repo);
 
@@ -1076,7 +1076,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     addNode(src2, 'n1', 32);
     const s2 = buildVacuumSvc(g2, {
       loadForHydration: vi.fn(async () => ({ state: Buffer.from(Y.encodeStateAsUpdate(src2)), updates: [update, update, update], stateSeq: 0n })),
-      vacuumReplace: (pid: string, st: Buffer, n: number) => docRepo2.vacuumReplace(pid, st, n),   // Y1c T12：preVacuumSv 参数退役
+      vacuumReplace: (pid: string, st: Buffer, n: number, expectedGeneration: number) => docRepo2.vacuumReplace(pid, st, n, expectedGeneration),   // T12 收口 I1.2：四参透传
     });
     const caught = s2.svc.vacuum('p1', 'u1').catch((e) => e);   // 立即挂 handler（快路径 reject 窗口的 unhandled 防护）
     await nextTick();
@@ -1146,7 +1146,8 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       'freezePendingTimers',
       'recheckRounds', 'thawCooldown', 'docStatusRev', 'docStatusState', 'docGeneration', 'docResidue',
       'lastCompactAt', 'vacuumingDocs', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
-      'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs']) {
+      'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs',
+      'vacuumEraGen']) {   // T12 收口 I1：真空纪元代投影（vacuum 完成 setVacuuming(false) 清——防旧代投影污染下纪元）
       expect(checked, `反射枚举应覆盖 ${must}（改名或误入豁免表=红）`).toContain(must);
     }
     expect(g.overPushHas(conn.socketId)).toBe(false);   // writeFreeze 条目 pid 过滤连带清

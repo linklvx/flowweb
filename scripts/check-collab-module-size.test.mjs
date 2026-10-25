@@ -65,9 +65,9 @@ test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏
 });
 
 test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1048);   // Y1c T10 1020→T11 1025→复核 1032→T12 1048（#g canonical 寻址+拒启断言+switchWalGeneration 委托 +16——净增面非膨胀，锚=实测同批）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1054);   // Y1c T10 1020→T11 1025→复核 1032→T12 1048→T12 收口 1054（vacuumEraGeneration 委托 +6——净增面非膨胀，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1298);   // Y1c T9 1273→T12 1298（auth 世代准入+4410 载荷先行 +25——净增面非膨胀）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1114);   // Y1c T12 1082→1114（世代准入+真值链+liveDocName 族——preVacuumSv 删除对冲后净 +32）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1134);   // Y1c T12 1082→1114→T12 收口 1134（I1 真空纪元代投影会话态 +20——preVacuumSv 删除对冲后净增面非膨胀）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1091);   // Y1c T11 1073→T12 1091（docNameOf 缝+persistKey 归一 +18——净增面非膨胀）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);

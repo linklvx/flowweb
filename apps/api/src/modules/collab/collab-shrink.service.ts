@@ -54,10 +54,11 @@ export interface ExportFreshResult {
 }
 
 /** T9a vacuum 出口（Q-U v6）：generation=新代数（ok 时）；bytes=真空编码字节（ok 时）。
- *  中止三档（equivalence-failed/unsupported-root/quiesce-timeout）DB 零变更+状态全恢复；
+ *  中止四档（equivalence-failed/unsupported-root/quiesce-timeout/generation-drift〔T12 收口
+ *  I1.2——⑥ 锁内实读≠beginVacuumEra 投影的当代=并发换代窗，DB 零变更〕）DB 零变更+状态全恢复；
  *  skip-low-residue=零连接自动路径残留不足跳过；error=意外（throw 前计数）。 */
 export interface VacuumResult {
-  result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'error';
+  result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'generation-drift' | 'error';
   generation?: number;
   bytes?: number;
 }
@@ -300,6 +301,8 @@ export class CollabShrinkService {
     };
     try {
       await this.gateway.beginVacuumEra(pid);   // ⓪①②
+      // T12 收口 I1.2：纪元开启定格的当代投影（purge ③ 后 docGeneration 无键仍可读——⑥ 锁内复核源）
+      const expectedGeneration = this.gateway.vacuumEraGeneration(pid)?.current ?? 0;
       // ③ quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4 重排）：循环先判三态滞后度谓词
       // （isPersistedComplete——pending 空+spool 空+无在飞 store；doc 常驻不再是等待动因），三态空才
       // 经统一入口释放常驻会话，并以 released（或 undefined=releaser 未注册〔直构无 residency〕——
@@ -330,9 +333,12 @@ export class CollabShrinkService {
         if (!this.gateway.vacuumEquivalent(oldDoc, newDoc)) return done({ result: 'equivalence-failed' });   // 把信任 fillDoc 变成验证 fillDoc
         const state = Buffer.from(Y.encodeStateAsUpdate(newDoc));
         // ⑥ 单事务代际替换（repository.vacuumReplace——lockProject 同键咨询锁+被删行取号基准
-        //  精确赋值+同事务落列+按实读行 id 删+行集漂移守卫；T12 连续 seq 形态：新代快照基线=旧代
-        //  maxSeq+pgSeq/walCheckpointSeq 不重置+preVacuumSv 列随 SV 代际门退役删除）
-        const { generation } = await this.docRepo.vacuumReplace(pid, state, srcUpdates.length);
+        //  精确赋值+同事务落列+按实读行 id 删+行集漂移守卫+**锁内 generation 复核**〔T12 收口 I1.2：
+        //  ≠beginVacuumEra 投影的当代=并发换代窗 ⇒ aborted 档整体中止 DB 零变更〕；T12 连续 seq 形态：
+        //  新代快照基线=旧代 maxSeq+pgSeq/walCheckpointSeq 不重置+preVacuumSv 列随 SV 代际门退役删除）
+        const replaced = await this.docRepo.vacuumReplace(pid, state, srcUpdates.length, expectedGeneration);
+        if ('aborted' in replaced) return done({ result: 'generation-drift' });   // 中止档（⑦ finally 恢复——equivalence-failed 同形态）
+        const { generation } = replaced;
         committed = true;
         // ⑥′ Y1c T12（I2 ③ 接线）：WAL 段 namespace 切代——**事务提交后**（事务内禁切：提交前切段=
         // 新代帧落隔离旧段语义颠倒）。连续 seq 形态（计数器/水位保留）+旧代段清理滞留面收口

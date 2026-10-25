@@ -55,9 +55,11 @@ maybe('Y1c T12 vacuum 换代通道（真 PG）', () => {
         VALUES (${PID}::text, 0::int, ${seq}::bigint, ${seq}::bigint, 1::int, ${'h' + String(seq).padStart(63, '0')}::char(64), ${upd}, now()) ON CONFLICT DO NOTHING`;
     }
 
-    // ⑥ vacuumReplace（T12 三参形态——preVacuumSv 参数退役）
+    // ⑥ vacuumReplace（T12 收口 I1.2 四参形态——expectedGeneration=beginVacuumEra 投影的当代 0）
     const state = vacuumState();
-    const { generation } = await repo.vacuumReplace(PID, state, 3);
+    const replaced = await repo.vacuumReplace(PID, state, 3, 0);
+    if ('aborted' in replaced) throw new Error(`vacuumReplace 意外 aborted（I1.2 判别面）: ${replaced.dbGeneration}`);
+    const { generation } = replaced;
     expect(generation).toBe(1);
 
     // 换代通道 name 面：canonical wire 名跨代互异（generation/docName 必变——v1.3 同 name 反例死）

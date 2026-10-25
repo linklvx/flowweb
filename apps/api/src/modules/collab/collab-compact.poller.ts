@@ -4,7 +4,8 @@
 // @Cron 全仓未导入纪律；装配=worker.module 平铺 provider，API 进程不注册〔compact 触发面在 api
 // 侧经 maybeCompact 原位承接不断链；本 poller 是「无人断连也收敛」的兜底扫描+启动续跑载体〕）：
 //  ①启动续跑：resumePendingPurges——kill 在指针发布后/分批删完成前的清理义务不丢（purgeBelowSeq
-//    已随发布事务持久，重启续删；红组②验收锚）；
+//    已随发布事务持久，重启续删；红组②验收锚）；首步=schemaVersion⇒generation 启动断言（M1——
+//    worker 启动面 fail-closed，违例拒启周期零 CanvasDoc 触碰）；
 //  ②周期扫描：CanvasDoc ∃ 增量行 seq≤pgSeq（可折前缀在场）的 doc → COMPACT_INTERVAL_MS 时间门
 //    （api 侧 maybeCompact 同源常量）→ repo.compact（重放+发布+分批删全管线——重放在 worker 进程）；
 //  ③观测：tick 结果计数（candidate/skipped/compacted/miss/empty/abandoned——worker 3002 侧可读）。
@@ -41,8 +42,18 @@ export class CollabCompactPoller implements OnModuleInit, OnApplicationShutdown 
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
   ) {}
 
-  /** 启动续跑先行（清理义务先于新扫描——kill 窗残留即刻收敛），随后武装周期 tick。 */
+  /** 启动续跑先行（清理义务先于新扫描——kill 窗残留即刻收敛），随后武装周期 tick。
+   *  M1（T12 双评审）：首步=schemaVersion⇒generation 启动断言（api 面 startCollabAfterLease 同源
+   *  fail-closed——worker 进程原本不经断言：poller 是 worker 唯一 CanvasDoc 触碰面）。违例=拒启
+   *  poller 周期+ERROR（不阻进程退出——与 api 面 throw=start-failed 语义可不同）+零 CanvasDoc
+   *  触碰（resumePurges/compact/tick 武装全不达）。 */
   async onModuleInit(): Promise<void> {
+    try {
+      await this.repo.assertSchemaGenerationDiscipline();
+    } catch (e) {
+      this.logger.error(`compact poller 拒启（schemaVersion⇒generation 启动断言违反——零 CanvasDoc 触碰；deploy 纪律=换代或 reset-collab 清行）: ${(e as Error).message}`);
+      return;
+    }
     try {
       const resumed = await this.repo.resumePurges();
       if (resumed > 0) this.logger.log(`T11 启动续跑：${resumed} doc 的 purgeBelowSeq 清理义务已收敛`);

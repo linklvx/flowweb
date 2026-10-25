@@ -670,6 +670,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return this.docRegistry.beginVacuumEra(pid);
   }
 
+  /** T12 收口 I1.2：真空纪元当代/target 读面委托（vacuumCore ⑥ expectedGeneration 源——纪元开启
+   *  定格投影；purge ③ 后 docGeneration 无键仍可读）。 */
+  vacuumEraGeneration(pid: string): { current: number; target: number } | undefined {
+    return this.docRegistry.vacuumEraGeneration(pid);
+  }
+
   /** ③ 清进程态=共享状态普查表（v6：防旧代记账污染新代；writeFreeze/overPush 经 SG 缝+persistence
    *  两步——键集差异注释见 service 对应位；shrink spec I-1 反射普查锚=三对象〔偏离 70⑤〕）。 */
   purgeDocState(pid: string): void {

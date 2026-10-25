@@ -217,9 +217,11 @@ export class CanvasDocUpdateRepository {
         // 退役（快照权威=CanvasDocSnapshot；懒建档 doc 无快照行 → 装载折空态全量行重放，内容安全）。
         // C1：建档 INSERT 同带 lease fence（建档即写 pgSeq——租约不在我手禁推水位，否则懒建档 facet
         // 同「水位越过未插入行」污染）。
+        // T12 收口 M4：schemaVersion 绑 CANVAS_DOC_SCHEMA_VERSION 常量参数（原字面量 3 与 @default(3)
+        // +常量三源——单源化；@default 保留为 DDL 兜底）。
         await this.prisma.$executeRaw`
           INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
-          SELECT ${projectId}::text, ${rows[0].generation}::int, 3, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint
+          SELECT ${projectId}::text, ${rows[0].generation}::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint
           WHERE EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           ON CONFLICT DO NOTHING`;
         return { ok: true, rows: watermarkLanded.inserted };
@@ -392,6 +394,9 @@ export class CanvasDocUpdateRepository {
    *  取号基准=锁内实读行集（禁 0/GREATEST 包装——canvas-doc-insert-ratchet 红线）；expected
    *  行数守卫=④ 读与锁内读之间有并发 append ⇒ 中止（行集在锁协议下只增不删〔append-only+
    *  compact 排队〕——长度相等即同一集合）。
+   *  T12 收口 I1.2：锁内实读 generation 复核（头注「漂移即整体中止 DB 零变更」的缺落实装）——
+   *  锁内头行 generation ≠ beginVacuumEra 投影的当代（调用方传入 expectedGeneration）⇒ 并发
+   *  换代窗（跨进程 CLI/另一 vacuumer）⇒ 返回 aborted 档整体中止（先于任何写=事务提交零变更）。
    *  Y1c T11（快照权威过渡形态）：CanvasDoc.state/stateSeq 列退役——真空态字节落 **CanvasDocSnapshot
    *  (g+1, rev 0)**（新代权威快照，stateHash 同 genesis 口径）+指针 currentSnapshotRev=0+purgeBelowSeq
    *  清档（行已同事务整删）+generation 落列+按 projectId 整删。
@@ -408,7 +413,8 @@ export class CanvasDocUpdateRepository {
     projectId: string,
     state: Buffer,
     expectedRowCount: number,
-  ): Promise<{ generation: number }> {
+    expectedGeneration: number,
+  ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number }> {
     return this.prisma.$transaction(
       async (tx) => {
         await this.lockProject(tx, projectId);
@@ -421,6 +427,11 @@ export class CanvasDocUpdateRepository {
           throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true });
         }
         const liveDoc = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, vacuumEpoch: true, currentSnapshotRev: true } });
+        // I1.2：锁内 generation 复核——≠beginVacuumEra 投影的当代 ⇒ aborted 档（先于任何写=DB 零变更）
+        const dbGeneration = liveDoc?.generation ?? 0;
+        if (dbGeneration !== expectedGeneration) {
+          return { aborted: 'generation-drift' as const, dbGeneration };
+        }
         // 取号基准：有行=末行 seq；零行=当前指针快照 stateSeq（锁内实读——禁 0/GREATEST 包装）
         const curSnap = liveDoc
           ? await tx.canvasDocSnapshot.findUnique({
@@ -429,7 +440,7 @@ export class CanvasDocUpdateRepository {
             })
           : null;
         const maxSeq = liveRows.length > 0 ? liveRows[liveRows.length - 1].seq : (curSnap?.stateSeq ?? 0n);
-        const generation = (liveDoc?.generation ?? 0) + 1;
+        const generation = dbGeneration + 1;   // I1.2 复核后锁内实读单源（=expectedGeneration+1）
         // T12：vacuumEpoch=纯遥测计数列（spec §2 v5-5「不做任何 fence」——每次真空 +1；快照行随行携带）
         const vacuumEpoch = (liveDoc?.vacuumEpoch ?? 0) + 1;
         // 新代权威快照 (g+1, rev 0)：真空态字节（快照权威——T11 起 CanvasDoc 不再承载 doc 态列）
