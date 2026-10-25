@@ -7,8 +7,9 @@
 //   - yType=各键的 **v4 目标语义**（spec §3.1：textInput{content:xml, prompt:map{text}}；
 //     imageGen/videoGen/imageExtGen{prompt:xml}；audioGen/multiImageGen{prompt:text}；
 //     allImages/images=array）——Y1c T15 已落三域（audioGen/multiImageGen prompt=text、
-//     textInput prompt=map{text}——text-domains 单源词表自本矩阵派生）；其余 string/JSON
-//     载体（content:xml 三域/allImages:array）由 T16/T17 同卡迁移后与矩阵一致；
+//     textInput prompt=map{text}——text-domains 单源词表自本矩阵派生）；T16 已迁 content/
+//     三域 prompt=XmlFragment（xml-schema 同族单源）；**T17 已迁 allImages/images=Y.Array**
+//     （array-domains 同族单源——矩阵与载体一致）；
 //   - writer 二元（'user'|'server'）——**v4 矩阵内不得出现 writer:'server' 条目**（spec §3.1：
 //     writer:'server' 字段一律禁入 doc；服务端派生数据只住 PG+Feed，v3 现存服务端域键
 //     〔status/fileId/result 族〕以 yType:'server-forbidden' 登记其「禁入」语义而非给写权）。
@@ -81,10 +82,12 @@ const mapSpec = (children: Record<string, DataKeySpec>, overrides?: Partial<Data
   ...overrides,
 });
 
-/** Y.Array 媒体列表（T17 单卡改道——items 条目集届时细化）。 */
+/** Y.Array 媒体列表（Y1c T17 已迁：allImages/images=Y.Array<item>——item=plain JSON 对象携
+ *  稳定 string id〔ImageItem{id,url,name,status,progress}——array-domains 写 seam 值域执法〕；
+ *  并发 add/remove/reorder 经稳定 id 结构操作合并（禁整串 LWW 覆盖）；写读 seam=array-domains 单源）。 */
 const arraySpec = (overrides?: Partial<DataKeySpec>): DataKeySpec => lww({
   yType: 'array', reader: ['web'], mediaRef: true, canDelete: false,
-  items: lww({ mediaRef: true }),
+  items: lww({ mediaRef: true }),   // item 级可删（remove item=数组结构操作——容器键级 canDelete=false 已在父面）
   ...overrides,
 });
 
@@ -134,7 +137,7 @@ export const DOC_SCHEMA_V4: Record<
       flipH: lww(),
       flipV: lww(),
       aspectRatio: lww(),
-      allImages: arraySpec(), // T17 Y.Array 单卡改道（条目字段集届时细化）
+      allImages: arraySpec(), // Y1c T17 已迁：Y.Array<item>（array-domains 写 seam——稳定 id 结构操作）
       style: lww(),
       styleId: lww(), // D16 契约：键存在值 null=已取消
       styleName: lww(),
@@ -222,7 +225,7 @@ export const DOC_SCHEMA_V4: Record<
     envelope: NODE_ENVELOPE_KEYS,
     data: {
       label: lww(),
-      images: arraySpec(), // T17 Y.Array 单卡改道
+      images: arraySpec(), // Y1c T17 已迁：Y.Array<item>（array-domains 写 seam——稳定 id 结构操作）
       mainImageIndex: lww(),
       expanded: lww(),
       nodeStatus: forbidden(), // 生成批次执行态——服务端进度域（v4 禁入）

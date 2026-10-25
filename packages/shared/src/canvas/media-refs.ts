@@ -33,8 +33,9 @@ const SCALAR_REF_FIELDS: readonly MediaRefTargetField[] = [
   'fileId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'videoFileId', 'audioFileId',
 ];
 
-/** 列表槽键（值=ImageItem 数组〔Y.Array 或 plain array 双形态——fillDoc 写 plain、canvasIntents
- *  实时可写 Y.Array〕；每 item 一槽位 targetItemId=item.id）。 */
+/** 列表槽键（值=ImageItem 列表——Y1c T17 后 doc 载体=Y.Array 容器〔fillDoc 物化+array-domains
+ *  写 seam 结构操作〕；读侧双形态收敛维持：Y.Array 可迭代 / plain array 直用——后者=对抗/
+ *  异形 doc 与纯 JSON 装置面；每 item 一槽位 targetItemId=item.id）。 */
 const LIST_REF_FIELDS: readonly MediaRefTargetField[] = ['images', 'allImages'];
 
 /** 单条 doc 引用（MediaBinding 槽位键 [projectId,nodeId,role,targetField,targetItemId] 的 doc 侧来源；

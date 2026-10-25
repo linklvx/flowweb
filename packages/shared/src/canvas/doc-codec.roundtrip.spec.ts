@@ -31,6 +31,8 @@ const toDocLike = (doc: Y.Doc): DocLike => ({
   createXmlFragment: () => new Y.XmlFragment() as never,
   createXmlElement: (name: string) => new Y.XmlElement(name) as never,
   createXmlText: () => new Y.XmlText() as never,
+  // Y1c T17：媒体列表 Y.Array 域容器物化工厂（rebuild 回灌创建 seam——真 Y.Array）
+  createArray: () => new Y.Array() as never,
 });
 const asDocMap = (m: Y.Map<unknown>) => m as unknown as DocMapLike;
 
@@ -41,7 +43,9 @@ function buildV3FixtureDoc(): Y.Doc {
     // Y1c T16：content/prompt=textInput 域键（fillDoc 物化容器——非透传值）；v3 透传等价锚面
     // 用非域键（string 透传覆盖=au1 content/ig1 referenceImage）
     { id: 'ti1', type: 'textInput', parentId: 'g1', width: 320, height: 120, position: { x: 10, y: 20 }, data: { model: 'm1', order: 1 } },
-    { id: 'ig1', type: 'imageGen', width: 512, position: { x: 0, y: 0 }, data: { referenceImage: 'ref-1', style: 'anime', allImages: ['m-1', 'm-2'], status: 'done' } },
+    // Y1c T17：allImages=imageGen 域键（fillDoc 物化 Y.Array——非透传值）；v3 透传等价锚面用非域键
+    //（string 透传覆盖=au1 content/ig1 referenceImage——Y.Array 域等价锚面=下方 v4 fixture yarray）
+    { id: 'ig1', type: 'imageGen', width: 512, position: { x: 0, y: 0 }, data: { referenceImage: 'ref-1', style: 'anime', status: 'done' } },
     { id: 'au1', type: 'audioGen', data: { content: '旁白', model: 'm2' } },
     { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', name: '组' } },
   ] as StoredNodeRecord[], [

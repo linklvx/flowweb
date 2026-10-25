@@ -3,8 +3,9 @@
 // api 侧不可 import apps/web（防第二真源），api 无法共享其实现——同构五行适配在此落位。
 // Y1c T15 增 createText：Y.Text 域容器物化工厂（fillDoc 创建 seam——text-domains 单源消费）。
 // Y1c T16 增三 XML 工厂：XmlFragment 域容器物化（fillDoc 创建 seam——xml-schema 单源消费）。
+// Y1c T17 增 createArray：媒体列表 Y.Array 域容器物化（fillDoc 创建 seam——array-domains 单源消费）。
 import * as Y from 'yjs';
-import { type DocLike, type DocMapLike, type TextLike, type XmlFragmentLike, type XmlElementLike, type XmlTextLike } from '@flowweb/shared';
+import { type DocLike, type DocMapLike, type TextLike, type XmlFragmentLike, type XmlElementLike, type XmlTextLike, type YArrayLike } from '@flowweb/shared';
 
 export function toDocLike(doc: Y.Doc): DocLike {
   return {
@@ -14,5 +15,6 @@ export function toDocLike(doc: Y.Doc): DocLike {
     createXmlFragment: () => new Y.XmlFragment() as unknown as XmlFragmentLike,
     createXmlElement: (name: string) => new Y.XmlElement(name) as unknown as XmlElementLike,
     createXmlText: () => new Y.XmlText() as unknown as XmlTextLike,
+    createArray: () => new Y.Array() as unknown as YArrayLike,
   };
 }

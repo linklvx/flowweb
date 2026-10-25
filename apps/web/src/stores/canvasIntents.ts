@@ -17,7 +17,8 @@ import { setDocPosition, stripDerivedKeys, toReadModel, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
   QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS,
   ensureTextDomainDefaults, textDomainOf, writeTextDomainValue,
-  ensureXmlDomainDefaults, isXmlDomainKey } from '@flowweb/shared';
+  ensureXmlDomainDefaults, isXmlDomainKey,
+  ensureArrayDomainDefaults, isMediaListDomainKey, writeArrayDomainValue } from '@flowweb/shared';
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -158,11 +159,15 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
       // Y1c T15 容器规则——创建 seam 单点：Y.Text 域键缺省补齐（audioGen/multiImageGen.prompt=''、
       // textInput.prompt={text:''}；G 纯函数副本——入参不突变）。Y1c T16：XmlFragment 域键缺省
       // 补齐+string canonical 收编同缝（textInput.content/三域 prompt——fillDoc 物化容器与
-      // ns 投影同形）。补缺记录经 outcome 上浮：fillDoc 物化 doc 容器与 projectIntentToStore
-      // 投影同读一源（doc ≡ store 不变量口径）。
+      // ns 投影同形）。Y1c T17：媒体列表 Y.Array 域键缺省补齐同缝（imageGen/imageExtGen/
+      // videoGen.allImages=[]、multiImageGen.images=[]）。补缺记录经 outcome 上浮：fillDoc 物化
+      // doc 容器与 projectIntentToStore 投影同读一源（doc ≡ store 不变量口径）。
       const effectiveNode: StoredNodeRecord = {
         ...intent.node,
-        data: ensureXmlDomainDefaults(intent.node.type, ensureTextDomainDefaults(intent.node.type, intent.node.data)),
+        data: ensureXmlDomainDefaults(
+          intent.node.type,
+          ensureTextDomainDefaults(intent.node.type, ensureArrayDomainDefaults(intent.node.type, intent.node.data)),
+        ),
       };
       fillDoc(d, [{ ...effectiveNode, data: stripEphemeralDataKeys(effectiveNode.data) }], []);
       return { rejectedKeys: OUTCOME_OK.rejectedKeys, node: effectiveNode };
@@ -202,6 +207,18 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
         if (isXmlDomainKey(nodeType, k)) {
           recordCollabDiag('write_reject', { reason: 'xml-fragment-domain-editor-bound', via: 'xml-domain' });
           (rejectedKeys ??= new Set<string>()).add(k);
+          continue;
+        }
+        // Y1c T17：媒体列表域键（imageGen/imageExtGen/videoGen.allImages、multiImageGen.images）
+        // =Y.Array 容器稳定 id 结构操作 seam（add/remove/reorder=delete+insert——并发合并不丢
+        // 一方；面板全量 ImageItem[] 形态 diff 落最小 op）。缺容器/形状错/值形态错=拒绝——命中
+        // 域键永不 data.set（整串数组替换=旧载体 LWW 丢一方反例的载体，G17b 同族对抗面）。
+        if (isMediaListDomainKey(nodeType, k)) {
+          const r = writeArrayDomainValue(data, k, v);
+          if (!r.ok) {
+            recordCollabDiag('write_reject', { reason: r.reason, via: 'array-domain' });
+            (rejectedKeys ??= new Set<string>()).add(k);
+          }
           continue;
         }
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }

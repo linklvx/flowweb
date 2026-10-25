@@ -18,6 +18,9 @@ import { materializeTextDomainValue, textTargetOf, textDomainOf, type TextDomain
 // Y1c T16：XmlFragment 域创建 seam（容器物化单源——isXmlDomainKey/materializeXmlDomainValue；
 // 词表自 DOC_SCHEMA_V4 派生驻 xml-schema.ts——text-domains 同族纪律）
 import { isXmlDomainKey, materializeXmlDomainValue, type XmlFragmentLike, type XmlElementLike, type XmlTextLike } from './xml-schema';
+// Y1c T17：媒体列表 Y.Array 域创建 seam（容器物化单源——isMediaListDomainKey/materializeArrayDomainValue；
+// 词表自 DOC_SCHEMA_V4 派生驻 array-domains.ts——text/xml-domains 同族纪律）
+import { isMediaListDomainKey, materializeArrayDomainValue, type YArrayLike } from './array-domains';
 // T17 P1-2：DOC_NODE_KEYS placement 判别校验接线（docShape→placement 单向——placement 只依
 // nodeEnvelope/order-key，零环）
 import { validatePlacementData } from './placement';
@@ -26,7 +29,8 @@ import { validatePlacementData } from './placement';
  *  创建——零 yjs 的代价：宿主注入 new Y.Map()/FakeMap；Y.Doc 无此方法由适配层补）。
  *  Y1c T15 扩 createText：Y.Text 域容器物化工厂（fillDoc 创建 seam——text-domains 单源消费）。
  *  Y1c T16 扩三 XML 工厂：XmlFragment 域容器物化（fillDoc 创建 seam——xml-schema 单源消费；
- *  必选成员=适配层编译面全量收口，禁 optional 掩盖缺工厂的假适配器）。 */
+ *  必选成员=适配层编译面全量收口，禁 optional 掩盖缺工厂的假适配器）。
+ *  Y1c T17 扩 createArray：Y.Array 媒体列表域容器物化（fillDoc 创建 seam——array-domains 单源消费）。 */
 export interface DocLike {
   getMap(name: string): DocMapLike;
   createMap(): DocMapLike;
@@ -34,6 +38,7 @@ export interface DocLike {
   createXmlFragment(): XmlFragmentLike;
   createXmlElement(name: string): XmlElementLike;
   createXmlText(): XmlTextLike;
+  createArray(): YArrayLike;
 }
 
 /** doc 边记录（fillDoc/readRecordsFromMaps 面——单形状 source/target，缺写 '' 由写侧守卫）。 */
@@ -116,6 +121,12 @@ export function fillDoc(
             createXmlElement: (name) => doc.createXmlElement(name),
             createXmlText: () => doc.createXmlText(),
           }));
+          continue;
+        }
+        // Y1c T17：媒体列表 Y.Array 域创建 seam（容器规则=T15——结构创建时一次性建；plain
+        // array→容器+items/实例透传=回灌；异形透传=结构错误暴露不掩盖——域键写 seam 拒）。
+        if (isMediaListDomainKey(rec.type, k)) {
+          data.set(k, materializeArrayDomainValue(v, { createArray: () => doc.createArray() }));
           continue;
         }
         data.set(k, v);

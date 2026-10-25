@@ -28,6 +28,15 @@ class FakeText {
   insert(index: number, text: string): void { this.s = this.s.slice(0, index) + text + this.s.slice(index); }
   delete(index: number, len: number): void { this.s = this.s.slice(0, index) + this.s.slice(index + len); }
 }
+/** FakeArray：YArrayLike 内存假实现（Y1c T17 DocLike.createArray——fillDoc 媒体列表域容器物化消费；
+ *  items 真持有——用例若携数组域键，读回与写播同形）。 */
+class FakeArray {
+  items: unknown[] = [];
+  get length(): number { return this.items.length; }
+  get(i: number): unknown { return this.items[i]; }
+  insert(i: number, xs: unknown[]): void { this.items.splice(i, 0, ...xs); }
+  delete(i: number, len: number): void { this.items.splice(i, len); }
+}
 class FakeDoc implements DocLike {
   private maps = new Map<string, FakeMap>();
   getMap = (name: string): FakeMap => {
@@ -37,6 +46,8 @@ class FakeDoc implements DocLike {
   };
   createMap = (): FakeMap => new FakeMap();
   createText = (): FakeText => new FakeText();
+  // Y1c T17：媒体列表 Y.Array 域工厂 fake（items 真持有——域键物化同形）
+  createArray = (): FakeArray => new FakeArray();
   // Y1c T16：XML 三工厂 fake（零行为容器——本 spec 无 XML 域键物化路径）
   createXmlFragment = (): { insert(): void } => ({ insert: () => {} });
   createXmlElement = (_name: string): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });

@@ -492,10 +492,12 @@ describe('canvasStore', () => {
   it('addNode without dataOverride: 业务 data 空（T17——order 键=allocator 唯一分配的层内序键）', () => {
     const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
     const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
-    // Y1c T16：imageGen prompt=XmlFragment 域——创建 seam 缺省入 ns（canonical 空 RichTextValue）
-    const { order, prompt, ...rest } = node.data as Record<string, unknown>;
+    // Y1c T16：imageGen prompt=XmlFragment 域——创建 seam 缺省入 ns（canonical 空 RichTextValue）；
+    // Y1c T17：allImages=媒体列表 Y.Array 域——创建 seam 缺省入 ns（空数组——fillDoc 物化空容器同形）
+    const { order, prompt, allImages, ...rest } = node.data as Record<string, unknown>;
     expect(rest).toEqual({});
     expect(prompt).toEqual({ text: '', html: '', json: [] });
+    expect(allImages).toEqual([]);   // T17 创建 seam 域键缺省补齐（ns 投影形——doc 侧=Y.Array 容器）
     expect(typeof order).toBe('string');   // T17：建点必携 order 键（读序单源域）
   });
 

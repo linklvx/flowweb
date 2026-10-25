@@ -53,7 +53,10 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y1c T15：addChildNode 域键缺省补齐 +3；T15 收口 G（纯预填五构造点）——13 行再 +4 漂移（集合不变）
     // Y1c T16：resolveNodeType 别名表吸收（-7）/addChildNode·addChildNodes·transform·addNodeAndBatchConnect
     // ensureXmlDomainDefaults 复合（+4/-2）——13 行漂移至 1047..1902（集合不变）
-    'stores/canvasStore.ts': [1047, 1048, 1054, 1055, 1117, 1118, 1192, 1193, 1199, 1200, 1358, 1901, 1902],
+    // Y1c T17：媒体列表域 ensureArrayDomainDefaults 复合（前半批 addNode/addChildNode 两构造点 +4；
+    // 后半批补齐 addChildNodes/transform/addNodeAndBatchConnect 三构造点 +6）——13 行漂移至
+    // 1051..1912（集合不变——域键缺省预填不改 measured 读者集）
+    'stores/canvasStore.ts': [1051, 1052, 1058, 1059, 1122, 1123, 1201, 1202, 1208, 1209, 1368, 1911, 1912],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { message } from 'antd';
-import { CANVAS_BRIDGE_KEYS, EMPTY_XML_VALUE, referencedMediaIdsOf, isXmlDomainKey, type RichTextValue } from '@flowweb/shared';
+import { CANVAS_BRIDGE_KEYS, EMPTY_XML_VALUE, referencedMediaIdsOf, isXmlDomainKey, isMediaListDomainKey, type RichTextValue } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 // 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
@@ -648,31 +648,41 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     // 噪声。修法=T15「域键不进 updateConfig 载荷」纪律：**dispatch patch 先行剔除 xml 域键**
     //（patch 不带域键——容器写入面=编辑器绑定/创建 seam 唯二）；ns 侧保留 existing 域键引用
     // 不动（config 显式携带域键=剔除不落——半落防护同拒语义，单次留痕）。
+    // **Y1c T17 同 C-1 形态扩媒体列表域键（allImages/images）**：updateConfig 全量摊开携带
+    // stale ns 投影数组若过 seam，会以整串 diff **删掉 doc 容器内 ns 未见项**（整串替换语义
+    // 经 diff 回潮——并发 add 丢失反例的载荷面）；数组域键不入 updateConfig 载荷（写路径=
+    // updatePromptImages/updateMultiImageImages/applyNodeDataPatch 专用）。
     const existingData = existing?.data as Record<string, unknown> | undefined;
     const isXmlKey = (k: string): boolean => isXmlDomainKey(nodeType, k);
+    const isArrayKey = (k: string): boolean => isMediaListDomainKey(nodeType, k);
+    const isSeamDomainKey = (k: string): boolean => isXmlKey(k) || isArrayKey(k);
     if (Object.keys(config).some(isXmlKey)) {
       recordCollabDiag('write_reject', { reason: 'xml-fragment-domain-editor-bound', via: 'xml-domain' });
       // config 携带域键=调用方误用（现产零调用点）——单次留痕（非每键噪声）
     }
+    if (Object.keys(config).some(isArrayKey)) {
+      recordCollabDiag('write_reject', { reason: 'array-domain-write-path-required', via: 'array-domain' });
+      // 同上：数组域键写=updatePromptImages/updateMultiImageImages 专用路径——单次留痕
+    }
     const dispatchPatch: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(merged as unknown as Record<string, unknown>)) {
-      if (isXmlKey(k)) continue;   // 域键不入载荷（含 existing 摊开面与 config 面）
+      if (isSeamDomainKey(k)) continue;   // 域键不入载荷（含 existing 摊开面与 config 面）
       dispatchPatch[k] = v;
     }
     const [outcome] = dispatchCanvasIntent(
       { type: 'updateNodeData', id, patch: dispatchPatch },
       Origin.LocalUser,
     );
-    // ns 终态：域键回填 existing 投影值（config 域键不落）+T15 收口 A outcome 消费（非 xml 域
+    // ns 终态：域键回填 existing 投影值（config 域键不落）+T15 收口 A outcome 消费（非域
     // 键的拒=结构错误同剥——半落防护原语义保持）
     let mergedEffective = { ...(merged as unknown as Record<string, unknown>) };
     if (existingData !== undefined) {
       for (const k of Object.keys(existingData)) {
-        if (isXmlKey(k)) mergedEffective[k] = existingData[k];
+        if (isSeamDomainKey(k)) mergedEffective[k] = existingData[k];
       }
     }
     for (const k of Object.keys(config)) {
-      if (isXmlKey(k) && existingData?.[k] === undefined) delete mergedEffective[k];
+      if (isSeamDomainKey(k) && existingData?.[k] === undefined) delete mergedEffective[k];
     }
     mergedEffective = stripRejectedPatchKeys(mergedEffective, outcome) as Record<string, unknown>;
     const effective = mergedEffective as unknown as NodeData;
@@ -747,6 +757,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     // 批4b-2 换芯：allImages 键 doc 直写（text 节点 no-op 同旧——ns 面与 doc 面同判）
     // Y1c T1：裸 'text' → NODE_TYPES.TEXT（生产名 textInput——旧判非生产名，生产文本节点
     // 误走 allImages 写路径）
+    // Y1c T17：allImages=Y.Array 域——dispatch 过 updateNodeData 数组域 seam（稳定 id 结构
+    // 操作：并发 add/remove/reorder 由 Y.Array CRDT 合并不丢一方；禁整串 data.set 覆盖）。
     const node = get().nodes[nodeId];
     if (node && node.type !== NODE_TYPES.TEXT) {
       dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { allImages } }, Origin.LocalUser);
@@ -774,6 +786,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     const existing = getNode(get().nodes, nodeId);
     if (!existing) return;
     // 批4b-2 换芯：增量 patch 与下方 set 同值（含清空/越界回正条件键）
+    // Y1c T17：images=Y.Array 域——dispatch 过数组域 seam（稳定 id 结构操作；伴随键
+    // mainImageIndex/nodeStatus 仍普通 LWW 写）
     const patch: Record<string, unknown> = { images };
     if (images.length === 0) { patch.mainImageIndex = -1; patch.nodeStatus = 'idle'; }
     else if ('mainImageIndex' in existing.data && (existing.data as any).mainImageIndex >= images.length) {

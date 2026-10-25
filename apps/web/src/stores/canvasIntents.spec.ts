@@ -655,7 +655,10 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
     useNodeStore.getState().updateMultiImageNodeStatus('m1', 'done');
     useNodeStore.getState().toggleExpanded('m1');
     const d = dataOf('m1');
-    expect(d.get('images')).toEqual(imgs);
+    // Y1c T17：images=Y.Array 域容器（fillDoc 物化+seam 稳定 id 结构操作）——读出口=容器 toArray
+    const imagesC = d.get('images') as Y.Array<unknown>;
+    expect(imagesC instanceof Y.Array).toBe(true);
+    expect(imagesC.toArray()).toEqual(imgs);
     expect(d.get('mainImageIndex')).toBe(3);
     expect(d.get('nodeStatus')).toBe('done');
     expect(d.get('expanded')).toBe(true);
@@ -672,7 +675,10 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
     });
     const imgs = [{ id: 'r1', url: 'u', name: 'n', status: 'success' }];
     useNodeStore.getState().updatePromptImages('img2', imgs as any);
-    expect(dataOf('img2').get('allImages')).toEqual(imgs);
+    // Y1c T17：allImages=Y.Array 域容器（seam 稳定 id 结构操作）——读出口=容器 toArray
+    const allImagesC = dataOf('img2').get('allImages') as Y.Array<unknown>;
+    expect(allImagesC instanceof Y.Array).toBe(true);
+    expect(allImagesC.toArray()).toEqual(imgs);
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });

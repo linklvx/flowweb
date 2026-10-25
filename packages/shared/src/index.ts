@@ -150,4 +150,7 @@ export * from './collab/runtime-projection';
 // Y1c T16：xml-schema 单表+L1 扫描器自 collab/ 迁 canvas/ 同族（Controller 指令——非冻结区；
 // 与 text-domains/doc-schema-v4 同族——XML 域词表/L1 扫描共用 DOC_SCHEMA_V4 单源）。
 export * from './canvas/xml-schema';
+// Y1c T17：媒体列表 Y.Array 域单源（allImages/images——text/xml-domains 同族第三域；
+// 词表自 DOC_SCHEMA_V4 派生+创建/写 seam+稳定 id 结构操作 diff——canvasIntents/canvasStore 消费）。
+export * from './canvas/array-domains';
 export * from './collab/read-model-census';

@@ -25,6 +25,8 @@ function toDocLike(doc: Y.Doc): DocLike {
     createXmlFragment: () => new Y.XmlFragment() as never,
     createXmlElement: (name: string) => new Y.XmlElement(name) as never,
     createXmlText: () => new Y.XmlText() as never,
+    // Y1c T17：媒体列表 Y.Array 域工厂（fillDoc 创建 seam——真 Y.Array）
+    createArray: () => new Y.Array() as never,
   };
 }
 

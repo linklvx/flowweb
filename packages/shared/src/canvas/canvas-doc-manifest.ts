@@ -58,6 +58,14 @@ export const NESTED_TYPE_CREATORS: readonly NestedCreatorEntry[] = [
     note: 'Y1c T15 容器规则：结构创建时一次性建（fillDoc 物化在册在记域键——不发明缺席键）；业务写走 text-domains.writeTextDomainValue splice 单一 seam（缺容器=拒绝不懒建，永不 data.set 整串覆盖）；undo 重建合法（Yjs UndoManager 子树恢复）；rebuild 回灌=别名禁入（全新实例）',
   },
   {
+    // Y1c T17：媒体列表 Y.Array 域容器（imageGen/imageExtGen/videoGen.allImages；multiImageGen.images）
+    container: 'nodes.<id>.data', key: 'allImages|images',
+    creators: ['docShape.fillDoc（创建 seam——materializeArrayDomainValue 经 DocLike.createArray 工厂）',
+      'doc-codec.rebuildCanvasDoc（buildYValue 快照回灌——$yjs:"array" 标签还原）'],
+    unique: false,
+    note: 'Y1c T17 容器规则（T15 同族）：结构创建时一次性建（fillDoc 物化在册域键——plain array→容器+items/实例透传=回灌；不发明缺席键——完整性归 ensureArrayDomainDefaults 于 addNode seam）；业务写走 array-domains.writeArrayDomainValue 稳定 id 结构操作 seam（add/remove/reorder=delete+insert——并发合并不丢一方；缺容器/形状错/值形态错=拒绝不懒建，永不 data.set 整串覆盖）；undo 重建合法（新容器）；updateConfig 载荷先剔域键（C-1 同族）',
+  },
+  {
     container: 'edges', key: '<edgeId>',
     creators: ['docShape.fillDoc（种子）', 'canvasIntents.applyIntentToDoc(upsertEdge)（在则复用守卫）'],
     unique: false,

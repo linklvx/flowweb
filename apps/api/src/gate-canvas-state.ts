@@ -4,10 +4,10 @@
 // auto 组 + 分镜组 + meta 戳；fillDoc 走 shared docShape 咽喉——禁自建 Y.Map 绕过。
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build。
 import * as Y from 'yjs';
-import { fillDoc, type DocLike, type DocMapLike, type TextLike, type XmlFragmentLike, type XmlElementLike, type XmlTextLike } from '@flowweb/shared';
+import { fillDoc, type DocLike, type DocMapLike, type TextLike, type XmlFragmentLike, type XmlElementLike, type XmlTextLike, type YArrayLike } from '@flowweb/shared';
 
 /** Y.Doc→DocLike 结构性适配（doc-like.util 同构——gate 侧不 import api src 编译面外的模块；
- *  Y1c T15 增 createText——Y.Text 域容器物化工厂）。 */
+ *  Y1c T15 增 createText——Y.Text 域容器物化工厂；Y1c T17 增 createArray——媒体列表域容器物化）。 */
 export function toDocLike(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
@@ -16,6 +16,7 @@ export function toDocLike(doc: Y.Doc): DocLike {
     createXmlFragment: () => new Y.XmlFragment() as unknown as XmlFragmentLike,
     createXmlElement: (name) => new Y.XmlElement(name) as unknown as XmlElementLike,
     createXmlText: () => new Y.XmlText() as unknown as XmlTextLike,
+    createArray: () => new Y.Array() as unknown as YArrayLike,
   };
 }
 

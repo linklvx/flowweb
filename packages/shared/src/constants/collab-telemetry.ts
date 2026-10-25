@@ -46,7 +46,9 @@ const CLOSE_CODE_VALUES: readonly number[] = Object.values(CollabCloseCode);
  *  write_reject{reason,via}（awareness:111 'selection-too-large'+runtime:1002 'quota-soft'+canvasIntents:327
  *  +canvasStore:1900/:2892+canvasUndo:100——值域=QuotaRejectReason∪{selection-too-large,quota-soft}
  *  ∪Y1c T15 容器规则四值{container-missing,container-type-mismatch,value-form-mismatch,data-map-missing}
- *  （via='text-domain'——canvasIntents Y.Text 域写 seam）；msg-rate-exceeded/doc-over-quota 系服务端
+ *  （via='text-domain'——canvasIntents Y.Text 域写 seam）∪Y1c T16 xml 域两值+Y1c T17 媒体列表域
+ *  'array-domain-write-path-required'（via='array-domain'——array-domains 写 seam/updateConfig 剔键留痕）；
+ *  msg-rate-exceeded/doc-over-quota 系服务端
  *  词表客户端零产生〔裁定 25⑴〕）/
  *  invariant_violation{where}（runtime:1267 'applyRemote'——值域含 T2 'applyBootstrap'/'react-boundary'）/
  *  sync_pending_retry{n}（executionApi:43 现无 detail）/conn_scope{scope|null}（runtime:955——scope∈
@@ -83,10 +85,14 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
       // Y1c T15 容器规则拒写（text-domains 拒绝词表——canvasIntents 写 seam 唯一产生面）
       'container-missing', 'container-type-mismatch', 'value-form-mismatch', 'data-map-missing',
       // Y1c T16：XmlFragment 域拒写（编辑器直绑容器——整串写=容器替换对抗面 G17b）
-      'xml-fragment-domain-editor-bound', 'xml-container-missing'] },
+      'xml-fragment-domain-editor-bound', 'xml-container-missing',
+      // Y1c T17：媒体列表域键误入 updateConfig 载荷拒（写路径=updatePromptImages/updateMultiImageImages
+      // 专用 seam——array-domains 三档拒绝词 container/type/value 复用 T15 三值已在册）
+      'array-domain-write-path-required'] },
     via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck', 'canEditCommand', 'text-domain',
-      // Y1c T16 增两 via（xml 域 seam 拒/容器解析结构错误面）
-      'xml-domain', 'prompt-input'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）；Y1c T15 增 text-domain（Y.Text 域 seam 拒）
+      // Y1c T16 增两 via（xml 域 seam 拒/容器解析结构错误面）；Y1c T17 增 array-domain（媒体列表
+      // Y.Array 域写 seam 拒/updateConfig 域键剔除留痕）
+      'xml-domain', 'prompt-input', 'array-domain'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）；Y1c T15 增 text-domain（Y.Text 域 seam 拒）
     command: { sink: 'log-only' },   // T17 七命令名（EditableCommandName 7 值域归 web 单源，log-only 无 label 基数面不枚举〔name/frame 先例〕）
   },
   invariant_violation: {

@@ -1300,18 +1300,21 @@ if (isMain()) {
   //  canvas-doc-manifest NESTED_TYPE_CREATORS；本组=lexical 执法面）。词表按 2026-10-24 HEAD
   //  实际落地形态写就（先跑真红再登记——T2/T3 惯例）：fillDoc 适配工厂 3 文件（gate-canvas-state/
   //  doc-like.util/ydocBuilder——gate-canvas-state 为 Z57 非 生产 gate 面；**Y1c T15 各 +1
-  //  createText 工厂**〔Y.Text 域容器物化——DocLike 扩键〕）+canvasIntents 3 点（position×2 工厂
+  //  createText 工厂**〔Y.Text 域容器物化——DocLike 扩键〕；**Y1c T17 各 +1 createArray 工厂**
+  //  〔媒体列表 Y.Array 域容器物化——array-domains materialize 消费；ydocBuilder 另有
+  //  applyRecordToMap data 工厂 1 点=原 3 计〕）+canvasIntents 3 点（position×2 工厂
   //  实参/edges 复用守卫；**T15 删 nodes.*.data 懒建 1 点**〔容器规则——缺 data 拒绝不懒建〕）
   //  +collab-document.service 1 点（exec.* 唯一创建者；**T15 删 nodes.*.data 懒建 1 点**）
   //  +doc-registry deepCopyYMap 1 点（vacuum 真空重建——T41 W3a 自 gateway 随域迁，同计数换宿主）。
   //  Y.Text 生产创建点=Y1c T15 fillDoc 物化工厂 3 处（text-domains materialize 消费）；
-  //  Y.Array 现状生产零创建点（词表含入=将来引入即红，登记须同批补注）。
+  //  Y.Array 生产创建点=Y1c T17 fillDoc 物化工厂 3 处（array-domains materialize 消费——原
+  //  「零创建点」注记随 T17 域迁移失效，doc-codec buildYValue/rebuild=shared 面不在本组扫描域）。
   const NESTED_CREATOR_WHITELIST = {
-    'apps/api/src/gate-canvas-state.ts': 2,
+    'apps/api/src/gate-canvas-state.ts': 3,
     'apps/api/src/modules/collab/collab-document.service.ts': 1,
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,   // T41 W3a：gateway deepCopyYMap 1 点（vacuum 真空重建）随域迁——同计数换宿主
-    'apps/api/src/modules/collab/doc-like.util.ts': 2,
-    'apps/web/src/collab/ydocBuilder.ts': 3,
+    'apps/api/src/modules/collab/doc-like.util.ts': 3,
+    'apps/web/src/collab/ydocBuilder.ts': 4,
     'apps/web/src/stores/canvasIntents.ts': 3,
   };
   {
@@ -1328,7 +1331,7 @@ if (isMain()) {
     }
     for (const f of Object.keys(NESTED_CREATOR_WHITELIST)) if (!(f in counts)) details.push(`嵌套创建点白名单点消失 ${f}（清单需同步）`);
     const nWl = Object.values(NESTED_CREATOR_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉓', `E27 嵌套类型创建点全登记（Y0c T4+Y1c T15——new Y.Map/Array/Text 白名单 ${nWl} 点/6 文件；Y.Text 创建点=fillDoc 物化工厂 3 处〔T15〕，Y.Array 零创建点）`, details.length === 0, details);
+    report('㉓', `E27 嵌套类型创建点全登记（Y0c T4+Y1c T15/T17——new Y.Map/Array/Text 白名单 ${nWl} 点/6 文件；Y.Text 创建点=fillDoc 物化工厂 3 处〔T15〕，Y.Array 创建点=fillDoc 物化工厂 3 处〔T17 媒体列表域〕）`, details.length === 0, details);
   }
 
   // ㉔双等价索引 census（Y0c T6，Z58/偏离 52 门禁化）：schema.prisma 全部唯一声明按 Prisma 命名
