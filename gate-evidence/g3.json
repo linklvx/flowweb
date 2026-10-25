@@ -1,0 +1,145 @@
+{
+  "gate": "G3",
+  "commit": "c7cec599",
+  "env": {
+    "date": "2026-10-26",
+    "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；web=jsdom（真 @tiptap/react 2.10.0 Editor 实例×双 Y.Doc 帧交换——非单 doc 模拟）+y-prosemirror 1.3.7 exact pin（S3 结论②）+yjs 13.6.32",
+    "suite": "apps/web src/collab/t16-g3-dual-end.spec（真编辑器双端 6 用例）+src/stores/canvasIntents.t16-xml-domains.spec（红绿三轴 7 用例）+src/collab/xmlSchemaParity.spec（两域 builder 并集 setEqual 6 用例）+apps/api src/modules/collab/collab-t16-xml-l1.spec（L1 对抗语料 11 用例）+packages/shared src/canvas/xml-schema.spec（单表契约 14 用例）",
+    "scope": "P2 内容门（spec §9.1 G3 行）：Y.Text/嵌套 XmlFragment/mention/undo-redo 双端并发+XML L1 同卡激活（偏离 38⑫）；L2/全类型矩阵=T24；单 UndoManager 收口形态（栈上限 clear）=T18（本门只验 ySyncPluginKey origin 入栈与键入撤销可用）",
+    "redEvidence": "红①web 5 用例首跑红（getHTML 整串写/三域容器物化/容器替换拒——canvasIntents.t16-xml-domains.spec 首跑 5 failed|2 passed 留证）；红②双 doc 整串写 LWW 丢一方红相（修后容器载体并发回合两方均在）；红③api 11 用例 import 红（validateXmlL1 不存在——首跑 11 failed 留证）"
+  },
+  "cases": [
+    {
+      "id": "G3-C1-dual-end-concurrent-formatting",
+      "command": "cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts -t 'G3-1'",
+      "status": "pass",
+      "expect": "两编辑器各绑己方 doc 的 textInput.content XmlFragment；A 端加粗段落+B 端普通段落并发插入后帧交换——合并后两方内容均在+格式（<strong>）保持+双端 getHTML 逐字节一致（树合法）",
+      "detail": "真 Editor（StarterKit heading{1,2,3}+ySyncHostExtension）×双 doc；富文本并发=CRDT 合并非 LWW——对照红②（旧整串载体必丢一方）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C2-paste-parse",
+      "command": "cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts -t 'G3-2'",
+      "status": "pass",
+      "expect": "insertContent HTML（h2+paragraph）经 PM schema 解析入 fragment——远端 doc 编辑器同构渲染（双端一致）",
+      "detail": "粘贴面=PM parseHTML 入 fragment；未知结构由 L1+PM schema 双验兜底（C7）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C3-node-delete-fragment-subtree-undo-restore",
+      "command": "cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts -t 'G3-3'",
+      "status": "pass",
+      "expect": "deleteNode 后容器解析=null（fragment 随子树消失）；画布级单 manager um.undo() 重建——节点+容器+正文恢复；重建后新编辑器绑定渲染恢复内容",
+      "detail": "键入入栈断言（undoStack≥1）=S3 结论③ addTrackedOrigin(ySyncPluginKey) 接线验证；stopCapturing 分项（captureTimeout 500ms 并项防御）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C4-typing-undo-single-manager",
+      "command": "cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts -t 'G3-4'",
+      "status": "pass",
+      "expect": "两次键入分项入画布撤销栈；um.undo() 后 fragment 净文本回滚（第二段消失/第一段保留）+PM 面同步回滚（isChangeOrigin 渲染）",
+      "detail": "不挂 yUndoPlugin（单 manager——T18）；编辑器历史=StarterKit history:false（本地栈与 Y 态分化根除）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C5-mention-image-mediaid-promptvalue-outlets",
+      "command": "cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts -t 'G3-5'",
+      "status": "pass",
+      "expect": "prompt 域（imageGen）双端并发：command mention+文本（A 端）/imageMention+image src=mediaId（B 端）——合并后双端 getHTML 一致+全部锚点在；PromptValue 三出口=richTextOfFragment{text,html,json}+referencedMediaIdsOf（image.src mediaId+command/imageMention id 并集保序去重）",
+      "detail": "修正批#5 落法：image.src=mediaId（受控 URL 解析在渲染层 NodeView）；referencedImageIds=派生出口非存储面（nodeStore referencedImageIdsOf 薄委托同值断言）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C6-adversarial-client-pm-double-check",
+      "command": "cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts -t 'G3-6'",
+      "status": "pass",
+      "expect": "恶意端 fragA 直插未知元素（script/xss 文本+合法段）经帧到达 B 端——客户端 PM 渲染删除未知元素（y-prosemirror createNodeIfNotExists schema.node throw→delete 兜底），合法段保留",
+      "detail": "L1 拒帧（服务端第一道，C8）之外的客户端 PM schema 双验第二道——两道独立生效",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C7-schema-parity-setequal",
+      "command": "cd apps/web && npx vitest run src/collab/xmlSchemaParity.spec.ts",
+      "status": "pass",
+      "expect": "两域 builder（prompt=buildPromptInputSchemaExtensions/text=buildTextContentSchemaExtensions）PM 节点名/mark 名/逐元素属性名并集 ⇔ shared canvas/xml-schema 单表（XML_ELEMENTS 12/XML_MARKS 4/XML_ATTRS 逐元素）双向 setEqual；对抗元素名（script/iframe/customWidget/video）不在两域 schema",
+      "detail": "同源禁两份：schema 面=生产 builder 单源（PromptInput.tsx/TextInputNode.tsx 与 spec import 同一 builder）；表=并集底表（L1 帧内不辨域）——单侧漂移即红",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C8-xml-l1-adversarial-corpus",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t16-xml-l1.spec.ts",
+      "status": "pass",
+      "expect": "拒帧七类：未知 XmlElement（script）/超深 40>32/单 ContentString 128KiB+1/attr 外链 URL（host 域外）/伪造 mention 未知 attr 键/未知 format-mark 键/XmlHook/XmlElement 内嵌套 XmlFragment；放行面：合法语料（paragraph/text/bold mark/image mediaId/mention 三键/heading.level/codeBlock.language）+纯 Y.Text/Y.Map 域帧零误伤+prompt 域同表同拒+缺省零 URL 执法+空表 deny-all+正文 URL 不扫",
+      "detail": "L1=frame-local struct 扫描（decodeUpdate 纯解码级——元素名/ContentFormat format key/parentSub attr key 白名单+字节/深度/URL 域）；api actor 准入链 ① P1 shape 后接线（违规 4411 DENY 零 WAL 零 apply）；既有深链语义=L2 归 T24（边界如实登记）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C9-container-seam-and-wholestring-reject",
+      "command": "cd apps/web && npx vitest run src/stores/canvasIntents.t16-xml-domains.spec.ts",
+      "status": "pass",
+      "expect": "创建 seam：textInput addNode→data.content=Y.XmlFragment 容器+三域（imageGen/videoGen/imageExtGen）addNode→data.prompt=容器；整串写拒：getHTML 形态 content patch 与 PromptValue JSON 形态 prompt patch 双拒（rejectedKeys 含域键+容器实例原样——G17b 容器替换对抗面）；非域键写不受影响；双端并发：整串写双端全拒+容器载体并发回合两方内容均在且双端一致",
+      "detail": "红①证据位：本套件首跑 5 failed（整串写未拒/容器未物化）；updateConfig outcome 同剥（ns 同拒零半落——T15 收口 A 同款）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-C10-single-table-contract",
+      "command": "cd packages/shared && npx vitest run src/canvas/xml-schema.spec.ts",
+      "status": "pass",
+      "expect": "单表契约：XML_ELEMENTS 12 值精确冻结（prompt 六+text 六）/XML_MARKS 四值（text 域 StarterKit 默认）/XML_ATTRS 逐元素（orderedList{start,type} 实测）/深度 32/文本 128KiB=131_072/URL allowlist 机制注记/mediaId 锚/消费注记（T16 L1 激活+T24 全类型矩阵+L2）；XML_DOMAINS 四域自 DOC_SCHEMA_V4 派生（派生不变量：yType==='xml' 全集）+ensure 缺省/string canonical 收编入参不突变+referencedMediaIdsOf 派生",
+      "detail": "模块自 collab/（CONTRACT-FREEZE 区）迁 canvas/ 同族（Controller 指令）；单表=白名单底表唯一真源（禁第二份）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-REG-full-pools",
+      "command": "cd apps/web && npx vitest run && cd ../api && npx vitest run && cd ../../packages/shared && npx vitest run",
+      "status": "pass",
+      "expect": "全池回归零红：web 370 文件/4025 用例；api 264 文件/2908 用例；shared 53 文件/720 用例",
+      "detail": "含 T15 域（Y.Text 三域）+全部面板/undo/projection 既有用例同批收敛（updateText 删除/VIEWER 门探针改 applyNodeDataPatch/vacuum 语料键换 note 等锚同步）",
+      "artifacts": []
+    },
+    {
+      "id": "G3-GATES-static",
+      "command": "node scripts/check-collab-census.mjs && node scripts/check-collab-module-size.mjs && node scripts/check-collab-test-facade.mjs && node scripts/check-plan-anchors.mjs && node scripts/check-exact-pins.mjs && node scripts/verify-chain.mjs --tier=fast",
+      "status": "pass",
+      "expect": "census 32/32（⑬ diag 值域扩 xml 两 reason 两 via/㉒ COLLAB_XML_URL_HOSTS 白名单登记——module-level const 豁免形态 COMPACT_INTERVAL_MS 同族）；module-size/façade⑲（零 as any 私有成员 cast 违规）/plan-anchors（y0b-5 updateText 旧锚再锚 applyNodeDataPatch:606）/exact-pins（yjs 13.6.32 同源）全过；verify:fast 16 步 PASS（三面 tsc strict 含）",
+      "detail": "y-prosemirror=1.3.7 exact（apps/web 非 override 面——exact-pins 表外新 pin，peer 矩阵满足=S3 结论②F-S3-1 解析后矩阵）",
+      "artifacts": []
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV1-container-never-replaced",
+      "sql": "命中 XML 域键（XML_DOMAINS：textInput.content+imageGen/videoGen/imageExtGen.prompt）的 updateNodeData 整串写=seam 拒（rejectedKeys 含域键；容器 Y.XmlFragment 实例原样）——容器替换对抗面（G17b）结构性禁止",
+      "expect": "C9 双形态（getHTML string/PromptValue JSON）拒断言绿+updateConfig outcome 同剥（ns prompt 不落）绿"
+    },
+    {
+      "id": "INV2-l1-whitelist-deny",
+      "sql": "validateXmlL1：未知 XmlElement nodeName ∉ XML_ELEMENTS / ContentFormat.key ∉ XML_MARKS / 帧内可解析 XML 父 parentSub ∉ XML_ATTRS[元素] / 单 ContentString>131_072B / attr 值 http(s) URL host ∉ allowlist（缺省=执法关/空表=deny-all）/ 新子树元素链深度>32 / XmlHook / XML 树内嵌套 XmlFragment ⇒ {ok:false}",
+      "expect": "C8 七类拒+三放行（合法语料/非 XML 帧零误伤/正文 URL 不扫）全绿"
+    },
+    {
+      "id": "INV3-schema-single-source",
+      "sql": "两域 Tiptap builder PM schema 节点/mark/属性名并集 ≡ XML_ELEMENTS/XML_MARKS/XML_ATTRS（双向 setEqual）∧ XML_DOMAINS ≡ {yType:'xml'} 自 DOC_SCHEMA_V4 派生",
+      "expect": "C7 parity 6 用例+C10 派生不变量绿——单侧漂移即红（同源禁两份）"
+    },
+    {
+      "id": "INV4-ysync-origin-tracked",
+      "sql": "编辑器本地键入的 Yjs 事务 origin=ySyncPluginKey（≠LocalUser）⇒ canvasUndo attachUndoManager addTrackedOrigin（S3 结论③）——键入入画布撤销栈+undo 回滚 fragment+PM 同步；远端 origin 不入栈",
+      "expect": "C3（undoStack≥1+undo 重建恢复）/C4（键入撤销+PM 回滚）绿"
+    },
+    {
+      "id": "INV5-image-src-mediaid",
+      "sql": "修正批#5：image PM 节点 src=mediaId（插入链 insertImage(id)——非 URL 直存）∧ URL allowlist 仅 attr 值域（link href 面预留）∧ 渲染层受控 URL 解析（NodeView allImages 池按 id 查 url；miss=灰块不外联）",
+      "expect": "C5（mediaId 锚双向一致+referencedImageIds 派生）+C8（attr URL deny-all 档）绿"
+    }
+  ],
+  "skipped": 0,
+  "notes": [
+    "G3 go 判定=go：C1-C10 全 pass+INV1-INV5 全绿+REG 全池零红+静态门禁全过——富文本与撤销双端并发通过（spec §9.1 G3 行：不过=调容器或绑定，禁临时 JSON 垫片——全程未用垫片）。",
+    "T24 边界如实登记：L2（apply 后 changed-subtree walk）+全类型矩阵运行时准入+既有节点深链语义（L1 帧内父链外的 XML 结构）归 T24；单 UndoManager 收口形态（栈上限>100 clear/per-tab 缓存）归 T18。",
+    "Q-I-3 裁定=(b) 非聚焦/非 IME 订阅 doc 变更重同步（AudioConfigPanel/TextConfigPanel）；残余=同 textarea 双端聚焦并发仍本地基线覆盖——跨卡移交（裁定理由全文见 commit c7cec599 message）。",
+    "manifest 认证对象=c7cec599（最终代码 commit——确认点②裁定：manifest 须==最终代码；本文件为 B 段独立 commit）。",
+    "红证据：C9 套件首跑 5 failed（红①）/红② 双端 LWW 丢一方红相/C8 套件首跑 11 failed（红③ import 红）——均本卡实跑留证（vitest 输出）非事后推断。"
+  ],
+  "go": true
+}
