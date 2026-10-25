@@ -43,7 +43,9 @@ export interface PromptInputSchemaExtensionsOptions {
 }
 
 /** PromptInput Tiptap extensions 单源 builder（schema 面唯一真源——PromptInput 与
- *  xmlSchemaParity.spec 共用；提取自 PromptInput 原 extensions 数组，配置逐项一致）。 */
+ *  xmlSchemaParity.spec 共用；提取自 PromptInput 原 extensions 数组，配置逐项一致）。
+ *  Y1c T16 增 history:false——单 UndoManager 纪律（spec §3.3：Tiptap 自带 history 与
+ *  ySyncPlugin 冲突；撤销走画布级单 manager，非 schema 面〔history=plugin〕故 parity 零影响）。 */
 export function buildPromptInputSchemaExtensions(opts: PromptInputSchemaExtensionsOptions) {
   return [
     StarterKit.configure({
@@ -57,6 +59,7 @@ export function buildPromptInputSchemaExtensions(opts: PromptInputSchemaExtensio
       bulletList: false,
       horizontalRule: false,
       hardBreak: false,
+      history: false,
     }),
     Placeholder.configure({ placeholder: opts.placeholder }),
     // Custom inline image chip (NodeView replaces block <img>——nodeView 经 opts 注入)

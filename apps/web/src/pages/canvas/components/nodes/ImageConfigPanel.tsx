@@ -44,7 +44,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
   // Y0b-2 T6（Z79）：整条投影 entry——token 轮换与按钮三态的判据单源（rearmable/attempts）
   const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
-  const prompt = nodeData?.prompt ?? { text: '', html: '' };
+  const prompt = nodeData?.prompt ?? { text: '', html: '', json: [] };
   const allImages = nodeData?.allImages ?? [];
 
   const [models, setModels] = useState<imageNodeApi.ModelWithDimensions[]>([]);
@@ -147,11 +147,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       </button>
 
       <div className="p-3 flex flex-col gap-0">
+        {/* Y1c T16：prompt=XmlFragment 域——编辑器直绑 doc 容器（onChange→updateConfig 整串写
+            链路删除）；value=ns 投影只读面（回退渲染） */}
         <PromptEditor
           nodeId={nodeId}
-          value={{ text: prompt.text || '', html: prompt.html || '', referencedImageIds: [] }}
+          value={prompt}
           allImages={allImages}
-          onChange={(newPrompt) => updateConfig(nodeId, { prompt: { text: newPrompt.text, html: newPrompt.html, referencedImageIds: [] } })}
           onAllImagesChange={(images) => updatePromptImages(nodeId, images)}
           onGenerate={handleGenerate}
           disabled={status === 'loading'}

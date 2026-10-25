@@ -1,12 +1,14 @@
-import { memo, useCallback, useState, useRef, useEffect } from 'react';
+import { memo, useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import { NodeResizeControl, useInternalNode, type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
 import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { stopCapturing } from '@/stores/canvasUndo';
+import { resolveDoc } from '@/stores/canvasIntents';
+import { resolveNodeXmlFragment, ySyncHostExtension } from '@/collab/yXmlFragmentBinding';
+import { buildTextContentSchemaExtensions } from './textExtensions';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
 import { TextNodeFullscreen } from './TextNodeFullscreen';
@@ -23,9 +25,10 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
   const [isResizing, setIsResizing] = useState(false);
 
-  const updateText = useNodeStore((s) => s.updateText);
   const appNode = useNodeStore((s) => s.nodes[id]);
-  const content = (appNode && isTextNode(appNode)) ? (appNode.data.content ?? '') : '';
+  // Y1c T16：content=XmlFragment 域读模型 RichTextValue{text,html,json}——只读回退渲染面
+  //（容器缺失=结构错误时 html 静态展示，不掩盖；正常路径编辑器直绑容器）。
+  const fallbackHtml = (appNode && isTextNode(appNode)) ? (appNode.data.content?.html ?? '') : '';
 
   const internalNode = useInternalNode(id);
   const nodeWidth = internalNode?.measured?.width ?? 300;
@@ -34,22 +37,30 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
   const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-      }),
-    ],
-    content: content,
-    editorProps: {
-      attributes: {
-        class: 'nodrag tiptap-content focus:outline-none w-full max-w-full',
+  // ── Y1c T16：content=嵌套 XmlFragment 双端绑定 ──
+  // 容器解析零懒建（T15 容器规则：创建 seam 一次性建——本组件挂载时 doc 容器必在〔addNode
+  // 先落 doc 后投影 ns〕；缺=结构错误走只读回退）。单 editor 实例（全屏/工具栏复用——
+  // TextNodeFullscreen/TextNodeToolbar 共用本 editor）；content 恒 ''（fragment 权威——
+  // ySyncPlugin view() 初始装载）；getHTML 只读导出（onChange→updateText 整串写链路删除）。
+  const fragment = useMemo(() => resolveNodeXmlFragment(resolveDoc(), id, 'content'), [id]);
+
+  const editor = useEditor(
+    {
+      // extensions 恒合法 schema（容器缺失档 StarterKit 兜底——空 extensions 会 RangeError）；
+      // ySync 宿主仅容器在时挂（结构错误档=无绑定编辑器，渲染走只读回退）
+      extensions: [
+        ...buildTextContentSchemaExtensions(),
+        ...(fragment ? [ySyncHostExtension(fragment)] : []),
+      ],
+      content: '',
+      editorProps: {
+        attributes: {
+          class: 'nodrag tiptap-content focus:outline-none w-full max-w-full',
+        },
       },
     },
-    onUpdate: ({ editor }) => {
-      updateText(id, editor.getHTML());
-    },
-  });
+    [fragment],   // fragment 解析态变化（结构错误↔容器在）重建 editor——绑定唯一性
+  );
 
   // Destroy editor on unmount to prevent memory leaks
   useEffect(() => {
@@ -182,7 +193,12 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
               className="w-full overflow-y-auto rounded-md transition-colors editor-scroll nowheel flex-1 min-h-0"
               style={{ backgroundColor: bgColor || 'transparent' }}
             >
-              <EditorContent editor={editor} />
+              {fragment && editor ? (
+                <EditorContent editor={editor} />
+              ) : (
+                // Y1c T16 只读回退：容器缺失=结构错误（不懒建不掩盖）——读模型 html 静态展示
+                <div className="tiptap-content" dangerouslySetInnerHTML={{ __html: fallbackHtml }} />
+              )}
             </div>
           )}
         </div>

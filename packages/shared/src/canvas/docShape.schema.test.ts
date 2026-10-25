@@ -34,6 +34,10 @@ class FakeDoc implements DocLike {
   };
   createMap = (): FakeMap => new FakeMap();
   createText = (): FakeText => new FakeText();
+  // Y1c T16：XML 三工厂 fake（零行为容器——schema 用例无 XML 域键物化路径）
+  createXmlFragment = (): { insert(): void } => ({ insert: () => {} });
+  createXmlElement = (_name: string): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
+  createXmlText = (): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
 }
 
 describe('CANVAS_DOC_SCHEMA_VERSION=3（T18 版本硬切——meta 门退役，版本承载=CanvasDoc.schemaVersion PG 列）', () => {

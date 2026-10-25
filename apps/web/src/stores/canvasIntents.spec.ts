@@ -58,7 +58,10 @@ describe('批4b-1：七 action 三面（doc 直写 + store 投影回填 + 批4a 
     expect(m.get('parentId')).toBeUndefined();
     expect(m.get('width')).toBeUndefined();
     expect((m.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 10, y: 0 });
-    expect((m.get('data') as Y.Map<any>).get('content')).toBe('hi');
+    // Y1c T16：content=XmlFragment 域——string 种子 canonical 收编（'hi'=单段纯文本）
+    const contentFrag = (m.get('data') as Y.Map<any>).get('content') as Y.XmlFragment;
+    expect(contentFrag instanceof Y.XmlFragment).toBe(true);
+    expect(contentFrag.toString()).toContain('hi');
     expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toEqual(['n1']);
     expect(useNodeStore.getState().nodes['n1']).toBeTruthy();
     expect(checkProjectionInvariant(doc)).toBe(true);
@@ -92,13 +95,13 @@ describe('批4b-1：七 action 三面（doc 直写 + store 投影回填 + 批4a 
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('②updateNodeData：doc data 逐键更新 + ns 投影 + 不变量', () => {
+  it('②updateNodeData：doc data 逐键更新 + ns 投影 + 不变量（Y1c T16：content=xml 域禁整串写——非域键面）', () => {
     dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10) }, Origin.LocalUser);
-    dispatchCanvasIntent({ type: 'updateNodeData', id: 'n1', patch: { content: 'changed', status: 'idle' } }, Origin.LocalUser);
+    dispatchCanvasIntent({ type: 'updateNodeData', id: 'n1', patch: { model: 'changed', order: 99 } }, Origin.LocalUser);
     const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('content')).toBe('changed');
-    expect(data.get('status')).toBe('idle');
-    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ content: 'changed', status: 'idle' });
+    expect(data.get('model')).toBe('changed');
+    expect(data.get('order')).toBe(99);
+    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ model: 'changed', order: 99 });
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
@@ -366,11 +369,11 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
-  it('ns.applyNodeDataPatch（2-2 wrapper）：doc data 直写 + 不变量（setStatus/setFileResult 同 wrapper 链）', () => {
+  it('ns.applyNodeDataPatch（2-2 wrapper）：doc data 直写 + 不变量（Y1c T16：content=xml 域禁整串写——T15 域键 prompt 面）', () => {
     const id = useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
-    useNodeStore.getState().applyNodeDataPatch(id, { content: 'changed' });
+    useNodeStore.getState().applyNodeDataPatch(id, { prompt: { text: 'changed' } });
     const data = (doc.getMap('nodes').get(id) as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('content')).toBe('changed');
+    expect(((data.get('prompt') as Y.Map<any>).get('text') as Y.Text).toString()).toBe('changed');
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });
@@ -572,10 +575,16 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
 
   const dataOf = (id: string) => (doc.getMap('nodes').get(id) as Y.Map<any>).get('data') as Y.Map<any>;
 
-  it('updateText：content 落 doc data', () => {
+  it('Y1c T16：content=XmlFragment 域——创建 seam 物化容器+域键整串写拒（updateText 删除锚）', () => {
     const id = useCanvasStore.getState().addNode('text', { x: 0, y: 0 });
-    useNodeStore.getState().updateText(id, '新内容');
-    expect(dataOf(id).get('content')).toBe('新内容');
+    // 创建 seam：容器物化（非 string 载体）
+    expect(dataOf(id).get('content') instanceof Y.XmlFragment).toBe(true);
+    // getHTML 整串写（原 updateText 链路形态）=容器替换对抗面——seam 拒
+    const [outcome] = dispatchCanvasIntent(
+      { type: 'updateNodeData', id, patch: { content: '<p>新内容</p>' } }, Origin.LocalUser,
+    );
+    expect([...outcome.rejectedKeys]).toContain('content');
+    expect(dataOf(id).get('content') instanceof Y.XmlFragment).toBe(true);
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 

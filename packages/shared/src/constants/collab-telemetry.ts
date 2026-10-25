@@ -81,8 +81,12 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
   write_reject: {
     reason: { sink: 'log-only', values: [...QUOTA_REJECT_REASONS, 'selection-too-large', 'quota-soft',
       // Y1c T15 容器规则拒写（text-domains 拒绝词表——canvasIntents 写 seam 唯一产生面）
-      'container-missing', 'container-type-mismatch', 'value-form-mismatch', 'data-map-missing'] },
-    via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck', 'canEditCommand', 'text-domain'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）；Y1c T15 增 text-domain（Y.Text 域 seam 拒）
+      'container-missing', 'container-type-mismatch', 'value-form-mismatch', 'data-map-missing',
+      // Y1c T16：XmlFragment 域拒写（编辑器直绑容器——整串写=容器替换对抗面 G17b）
+      'xml-fragment-domain-editor-bound', 'xml-container-missing'] },
+    via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck', 'canEditCommand', 'text-domain',
+      // Y1c T16 增两 via（xml 域 seam 拒/容器解析结构错误面）
+      'xml-domain', 'prompt-input'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）；Y1c T15 增 text-domain（Y.Text 域 seam 拒）
     command: { sink: 'log-only' },   // T17 七命令名（EditableCommandName 7 值域归 web 单源，log-only 无 label 基数面不枚举〔name/frame 先例〕）
   },
   invariant_violation: {

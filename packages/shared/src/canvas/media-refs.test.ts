@@ -14,6 +14,10 @@ function makeDoc(): DocLike {
     },
     createMap: () => new Map() as never,
     createText: () => ({ length: 0, toString: () => '', insert: () => {}, delete: () => {} }),
+    // Y1c T16：XML 三工厂 fake（零行为容器）
+    createXmlFragment: () => ({ insert: () => {} }) as never,
+    createXmlElement: (_name: string) => ({ insert: () => {}, setAttribute: () => {} }) as never,
+    createXmlText: () => ({ insert: () => {}, setAttribute: () => {} }) as never,
   };
 }
 

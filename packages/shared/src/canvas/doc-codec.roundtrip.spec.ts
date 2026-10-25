@@ -28,6 +28,9 @@ const toDocLike = (doc: Y.Doc): DocLike => ({
   getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
   createMap: () => new Y.Map() as unknown as DocMapLike,
   createText: () => new Y.Text() as unknown as TextLike,
+  createXmlFragment: () => new Y.XmlFragment() as never,
+  createXmlElement: (name: string) => new Y.XmlElement(name) as never,
+  createXmlText: () => new Y.XmlText() as never,
 });
 const asDocMap = (m: Y.Map<unknown>) => m as unknown as DocMapLike;
 
@@ -35,7 +38,9 @@ const asDocMap = (m: Y.Map<unknown>) => m as unknown as DocMapLike;
 function buildV3FixtureDoc(): Y.Doc {
   const doc = new Y.Doc();
   fillDoc(toDocLike(doc), [
-    { id: 'ti1', type: 'textInput', parentId: 'g1', width: 320, height: 120, position: { x: 10, y: 20 }, data: { content: '<p>正文</p>', prompt: '提示词', model: 'm1', order: 1 } },
+    // Y1c T16：content/prompt=textInput 域键（fillDoc 物化容器——非透传值）；v3 透传等价锚面
+    // 用非域键（string 透传覆盖=au1 content/ig1 referenceImage）
+    { id: 'ti1', type: 'textInput', parentId: 'g1', width: 320, height: 120, position: { x: 10, y: 20 }, data: { model: 'm1', order: 1 } },
     { id: 'ig1', type: 'imageGen', width: 512, position: { x: 0, y: 0 }, data: { referenceImage: 'ref-1', style: 'anime', allImages: ['m-1', 'm-2'], status: 'done' } },
     { id: 'au1', type: 'audioGen', data: { content: '旁白', model: 'm2' } },
     { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', name: '组' } },

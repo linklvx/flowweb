@@ -61,6 +61,7 @@ import {
   MEDIA_REF_TARGET_FIELDS,
   isFrameNodeTypeName,
   validateActorRanges,
+  validateXmlL1,
   type FrameEffect,
   type ProjectDocIndex,
   type GateApplyOrigin,
@@ -116,6 +117,11 @@ const P1_ALLOWED_ROOTS = new Set(['nodes', 'edges', 'exec', 'meta']);
  *  ds 区间 ≤4096；帧字节闸在 gate ⓪ 先行（Update 2×maxTxBytes/SS2 maxDocBytes+ALLOWANCE）。 */
 const P1_MAX_STRUCTS = 8 * QUOTA_DEFAULTS.maxNodesPerTx;
 const P1_MAX_DS_RANGES = 4096;
+/** Y1c T16：L1 扫描 URL allowlist（真源住调用方——xml-schema XML_URL_ALLOWLIST_CONTRACT）：
+ *  默认空表=deny-all http(s) 属性 URL（修正批#1：image.src=mediaId/link href 未启用——绝对
+ *  URL 值 off-spec）；部署受控域经 COLLAB_XML_URL_HOSTS 逗号分隔注入（同源 MinIO/CDN 面）。 */
+const XML_ATTR_URL_ALLOWED_HOSTS: readonly string[] = (process.env.COLLAB_XML_URL_HOSTS ?? '')
+  .split(',').map((h) => h.trim()).filter((h) => h !== '');
 
 export function validateP1Shape(update: Uint8Array): { ok: true } | { ok: false; code: number; reason: string } {
   let decoded: ReturnType<typeof Y.decodeUpdate>;
@@ -712,6 +718,19 @@ export class CollabProjectActorService {
         if (!shape.ok) {
           this.host.hardClose(item.conn, shape.code, shape.reason);
           this.rejectItem(item, new FrameRejectError(shape.code, shape.reason));
+          this.clearDedup(pid, item.hashHex);
+          continue;
+        }
+        // ①' Y1c T16：XML 白名单 L1 frame-local struct 扫描（偏离 38⑫ 同卡激活——不留 P2 安全
+        //    窗口）：元素名/format key/attr 白名单+ContentString 上限+URL allowlist+新子树深度；
+        //    拒 XmlHook/嵌套 XmlFragment/未知 XmlElement。违规=4411 DENY（零 WAL 零 apply 零 ACK）。
+        //    URL 执法档=XML_ATTR_URL_ALLOWED_HOSTS（空表 deny-all——修正批#1 后 src=mediaId，
+        //    绝对 http(s) URL 属性值 off-spec）；L2 apply 后 changed-subtree walk 归 T24。
+        const xmlL1 = validateXmlL1(item.payload, { allowedUrlHosts: XML_ATTR_URL_ALLOWED_HOSTS });
+        if (!xmlL1.ok) {
+          actorFrameOutcomeTotal.inc({ outcome: 'rejected' });
+          this.host.hardClose(item.conn, CollabCloseCode.FRAME_MALFORMED, `xml-l1:${xmlL1.reason}`);
+          this.rejectItem(item, new FrameRejectError(CollabCloseCode.FRAME_MALFORMED, `xml-l1:${xmlL1.reason}`));
           this.clearDedup(pid, item.hashHex);
           continue;
         }

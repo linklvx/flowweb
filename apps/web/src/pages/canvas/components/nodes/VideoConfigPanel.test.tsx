@@ -17,12 +17,13 @@ vi.mock('./prompt-input/PromptInput', () => ({
     capturedOnPasteImage = props.onPasteImage;
     capturedOnGenerate = props.onGenerate;
     React.useImperativeHandle(ref, () => ({
-      forceSync: vi.fn(),
+      // Y1c T16：forceSync 删（无 debounce 链）；getRichText=只读导出（fragment 单源——mock 固定文本）
       focus: vi.fn(),
       clear: vi.fn(),
       insertImage: vi.fn(),
       removeImage: vi.fn(),
       setText: vi.fn(),
+      getRichText: () => ({ text: 'hello video', html: '<p>hello video</p>', json: [] }),
     }));
     return <div data-testid="prompt-input" data-max-height={props.maxHeight}>PromptInput</div>;
   }),

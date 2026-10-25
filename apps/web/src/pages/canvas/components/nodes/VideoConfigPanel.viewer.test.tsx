@@ -15,7 +15,9 @@ vi.mock('./prompt-input/PromptInput', () => ({
   default: React.forwardRef((_props: any, ref: any) => {
     capturedOnGenerate = _props.onGenerate;
     React.useImperativeHandle(ref, () => ({
-      forceSync: vi.fn(), focus: vi.fn(), clear: vi.fn(), insertImage: vi.fn(), removeImage: vi.fn(), setText: vi.fn(),
+      // Y1c T16：forceSync 删；getRichText=只读导出（fragment 单源——mock 固定文本）
+      focus: vi.fn(), clear: vi.fn(), insertImage: vi.fn(), removeImage: vi.fn(), setText: vi.fn(),
+      getRichText: () => ({ text: 'hello video', html: '<p>hello video</p>', json: [] }),
     }));
     return <div data-testid="prompt-input">PromptInput</div>;
   }),
@@ -53,20 +55,21 @@ describe('批2-2 VideoConfigPanel：readOnly 生成提交不落 store（真 stor
     capturedOnGenerate = undefined;
   });
 
-  it('readOnly :185 生成时 prompt 快照写不落 store（data.prompt 引用不变——setStatus 重建 data 但保留键引用）', async () => {
+  it('readOnly 生成提交：prompt 引用不变（Y1c T16——:185 prompt 快照写整链删除，域键零 ns 写面）', async () => {
     seedSession(true);
     render(<VideoConfigPanel nodeId="v1" />);
     const before = promptRef();
     await act(async () => { capturedOnGenerate?.(); });
-    expect(promptRef()).toBe(before); // 收口写点早退——prompt 键引用原样
+    expect(promptRef()).toBe(before); // prompt 权威=doc 容器——生成链零 ns 域键写
     expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1); // 提交链路照常
   });
 
-  it('rw 锚 :185 生成时 prompt 快照照常落 store（引用更新）', async () => {
+  it('rw 锚：生成提交 prompt 引用同样不变（T16 后快照写=xml 域对抗面——生成判据经 getRichText 只读）', async () => {
     seedSession(false);
     render(<VideoConfigPanel nodeId="v1" />);
     const before = promptRef();
     await act(async () => { capturedOnGenerate?.(); });
-    expect(promptRef()).not.toBe(before); // 新 prompt 对象写入
+    expect(promptRef()).toBe(before); // Y1c T16：快照写删除（原 :185 写为 PromptValue JSON 整串——容器替换对抗面）
+    expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1);
   });
 });

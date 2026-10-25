@@ -81,7 +81,11 @@ export class TopologyService {
       const data = upstream.data as any;
 
       if (upstream.type === 'textInput' && data?.content) {
-        textContents.push(data.content);
+        // Y1c T16：content=XmlFragment 域读模型 RichTextValue{text,html,json}——净文本取 .text
+        //（resolvePromptText 同语义窄面：拓扑只吃 textInput.content 单键）。
+        const content = data.content as string | { text?: string };
+        const text = typeof content === 'string' ? content : (content.text ?? '');
+        if (text) textContents.push(text);
       } else if (upstream.type === 'imageGen' || upstream.type === 'imageExtGen' || upstream.type === 'videoGen') {
         if (!imageMediaId) {
           const mediaId = await readUpstreamMediaId(projectId, upstream.id, nodeId);   // nodeId=下游目标——miss warn 定位上下文

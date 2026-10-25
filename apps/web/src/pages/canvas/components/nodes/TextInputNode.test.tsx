@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 
@@ -69,17 +69,22 @@ mocks.useInternalNode.mockImplementation(() => ({
 // Y1c T1：useEditor 入参记录缝——正文（content）断言用：夹具正文是否真经 isTextNode 流入编辑器
 const editorOptionsLog: Array<{ content?: unknown }> = [];
 
-vi.mock('@tiptap/react', () => ({
-  useEditor: (options: { content?: unknown }) => {
-    editorOptionsLog.push(options);
-    return buildChain();
-  },
-  EditorContent: ({ editor }: any) => (
-    <div data-testid="tiptap-editor" className="tiptap-content">
-      <p>rendered content</p>
-    </div>
-  ),
-}));
+vi.mock('@tiptap/react', async (importOriginal) => {
+  // Y1c T16：Extension 走真实现（ySyncHostExtension 经 @tiptap/react 重导出面——部分 mock）
+  const mod = await importOriginal<typeof import('@tiptap/react')>();
+  return {
+    ...mod,
+    useEditor: (options: { content?: unknown }) => {
+      editorOptionsLog.push(options);
+      return buildChain();
+    },
+    EditorContent: ({ editor }: any) => (
+      <div data-testid="tiptap-editor" className="tiptap-content">
+        <p>rendered content</p>
+      </div>
+    ),
+  };
+});
 
 // Mock nodeStore（Y1c T1：isTextNode 走生产实现——importOriginal 直通；旧
 // `isTextNode: node?.type === 'text'` mock 删除，夹具同步改生产名 'textInput'，
@@ -92,7 +97,7 @@ vi.mock('@/stores/nodeStore', async (importOriginal) => {
     useNodeStore: Object.assign(
       vi.fn((selector?: any) => {
         const state = {
-          nodes: { n1: { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '<p>一只猫在窗台上</p>' } } },
+          nodes: { n1: { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: { text: '一只猫在窗台上', html: '<p>一只猫在窗台上</p>', json: [] } } } },
           updateText: mockUpdateText,
         };
         if (typeof selector === 'function') return selector(state);
@@ -103,6 +108,8 @@ vi.mock('@/stores/nodeStore', async (importOriginal) => {
 });
 
 import { TextInputNode } from './TextInputNode';
+import * as Y from 'yjs';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 
 describe('TextInputNode (Tiptap)', () => {
   const defaultProps = { id: 'n1', data: { content: 'initial' }, selected: false } as any;
@@ -115,6 +122,17 @@ describe('TextInputNode (Tiptap)', () => {
     );
 
   beforeEach(() => {
+    // Y1c T16：doc 容器装置（n1 content=XmlFragment——编辑器直绑解析面；个别用例自行覆盖）
+    const seedDoc = new Y.Doc();
+    seedDoc.transact(() => {
+      const data = new Y.Map();
+      data.set('content', new Y.XmlFragment());
+      const n = new Y.Map();
+      n.set('type', 'textInput');
+      n.set('data', data);
+      seedDoc.getMap('nodes').set('n1', n);
+    });
+    _setIntentDocForTest(seedDoc);
     // Tiptap mocks
     mockChainRun.mockClear();
     mockEditorIsActive.mockClear();
@@ -128,6 +146,10 @@ describe('TextInputNode (Tiptap)', () => {
     mockStoreNodes = [{ id: 'n1', selected: true }];
     mockOnResizeStart.mockClear();
     mockOnResizeEnd.mockClear();
+  });
+
+  afterEach(() => {
+    _setIntentDocForTest(null);
   });
 
   it('should render node title', () => {
@@ -189,13 +211,24 @@ describe('TextInputNode (Tiptap)', () => {
     expect(screen.getByTestId('tiptap-editor')).toBeInTheDocument();
   });
 
-  // Y1c T1 红：生产名 'textInput' 节点的正文必须流入编辑器（真 isTextNode 守卫——非 mock）。
-  // 旧生产实现判裸 'text' → 生产节点恒 miss → content 退空串 → 本断言红
-  it('生产名 textInput 节点正文流入编辑器（真 isTextNode 守卫）', () => {
+  // Y1c T16：content=XmlFragment 域——编辑器直绑 doc 容器（content 恒 ''=fragment 权威，
+  // ySyncPlugin view() 初始装载）；旧 T1 红（生产名正文流入 content 选项）随整串写链路删除。
+  it('T16 绑定契约：doc 容器在 → editor content 恒空串（fragment 权威非受控注入）', () => {
     editorOptionsLog.length = 0;
     renderNode();
     expect(editorOptionsLog.length).toBeGreaterThan(0);
-    expect(editorOptionsLog[0]!.content).toBe('<p>一只猫在窗台上</p>');
+    const defined = editorOptionsLog.filter((o) => o != null);
+    expect(defined.length).toBeGreaterThan(0);
+    expect(defined[0]!.content).toBe('');
+  });
+
+  it('T16 结构错误回退：doc 无该节点 → 只读 fallback html 展示（不懒建不掩盖）', () => {
+    _setIntentDocForTest(new Y.Doc());   // 覆盖 beforeEach 装置：容器缺席=结构错误档
+    const { container } = renderNode();
+    // fallback div（dangerouslySetInnerHTML 静态展示）——非 EditorContent
+    expect(container.querySelector('[data-testid="tiptap-editor"]')).toBeNull();
+    expect((container.querySelector('.tiptap-content') as HTMLElement)?.innerHTML)
+      .toContain('<p>一只猫在窗台上</p>');
   });
 
   it('should have input and output handles with circle-plus SVG icons', () => {

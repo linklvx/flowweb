@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { message } from 'antd';
-import { CANVAS_BRIDGE_KEYS } from '@flowweb/shared';
+import { CANVAS_BRIDGE_KEYS, EMPTY_XML_VALUE, referencedMediaIdsOf, type RichTextValue } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 // 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
@@ -104,16 +104,31 @@ export interface ImageItem {
   progress?: number;
 }
 
-export interface PromptValue {
-  text: string;
-  html: string;
-  referencedImageIds: string[];
+/**
+ * Y1c T16：prompt 三域（imageGen/videoGen/imageExtGen）与 textInput.content=XmlFragment 域——
+ * ns/读模型形态=RichTextValue{text,html,json}（doc-codec 解码单源）。PromptValue=执行/面板
+ * 消费的三出口派生形（referencedImageIds=image.src mediaId+mention.id 并集——referencedMediaIdsOf
+ * shared 单源派生；面板生成判据读 .text 同形兼容）。
+ */
+export type PromptValue = RichTextValue;
+
+/** RichTextValue → PromptValue 三出口（referencedImageIds 派生——执行引用面）。 */
+export function promptValueOf(rich: RichTextValue | undefined | null): PromptValue {
+  if (!rich) return { ...EMPTY_XML_VALUE, json: [...EMPTY_XML_VALUE.json] };
+  return { text: rich.text, html: rich.html, json: rich.json };
+}
+
+/** 引用媒体 id 派生（PromptValue 第三出口——shared referencedMediaIdsOf 单源薄委托）。 */
+export function referencedImageIdsOf(rich: RichTextValue | undefined | null): string[] {
+  return referencedMediaIdsOf(rich?.json ?? []);
 }
 
 // ========== Node data types ==========
 
 export interface TextNodeData {
-  content: string;
+  /** Y1c T16：content=XmlFragment 域（Tiptap 双端直绑——ySyncPlugin）——ns/读模型形态=
+   *  RichTextValue{text,html,json}（doc-codec 解码；创建缺省=EMPTY_XML_VALUE）。 */
+  content: RichTextValue;
   /** Y1c T15：prompt=Y.Map{text:Y.Text} 迁移——ns/读模型/patch 形态={text:string}
    *  （容器随节点创建一次建；写走 splice 单一 seam——text-domains 单源）。 */
   prompt?: { text: string };
@@ -143,7 +158,8 @@ export interface ImageNodeData {
   quality?: string;
   ratio?: string;
   resolution?: string;
-  prompt?: PromptValue;
+  /** Y1c T16：XmlFragment 域（PromptInput Tiptap 双端直绑）——ns 形态=RichTextValue。 */
+  prompt?: RichTextValue;
 
   // —— imageExtGen 专属 ——
   extConfig?: ImageExtConfig;
@@ -157,7 +173,8 @@ export interface VideoNodeData {
   aspectRatio?: number;
   referenceVideo?: string;
   ratio?: string;
-  prompt?: PromptValue;
+  /** Y1c T16：XmlFragment 域（PromptInput Tiptap 双端直绑）——ns 形态=RichTextValue。 */
+  prompt?: RichTextValue;
   styleId?: string | null;   // 风格库选中（null=已取消，D16 契约：键存在值 null）
   styleName?: string | null;
   allImages?: ImageItem[];
@@ -328,7 +345,10 @@ function mergeNodeData(existing: Record<string, any> | undefined, overrides: Rec
     // 面板 !nodeData?.model 自动选首模型短路）——空值走 MODEL_NOT_SELECTED/面板自选首行（存行 id）
     quality: 'standard',
     ratio: '16:9',
-    prompt: { text: '', html: '', referencedImageIds: [] },
+    // Y1c T16：prompt 缺省注入删除——xml 域键缺省归创建 seam（ensureXmlDomainDefaults：
+    // addNode/canvasStore 构造点统一补空 RichTextValue）；updateConfig defaults 注入会造
+    // doc 拒/ns 落半分叉（域键写=容器替换对抗面——seam 必拒）。ns 形态=RichTextValue
+    //（referencedImageIds=派生出口非存储面——promptValueOf/referencedImageIdsOf 按需取）。
   };
 
   const merged = { ...(existing ?? {}) };
@@ -384,7 +404,6 @@ interface NodeState {
   // 真时等价原 ConfigPanel setState 直写行为 + 白名单键桥接 cs）
   applyNodeDataPatch: (nodeId: string, patch: Record<string, unknown>) => void;
 
-  updateText: (id: string, content: string) => void;
   updateConfig: (id: string, config: Partial<NodeData>) => void;
   updateExtConfig: (id: string, partial: Partial<ImageExtConfig>) => void;
   setStatus: (id: string, status: ImageNodeData['status']) => void;
@@ -603,36 +622,6 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     applyDataPatchToStores(nodeId, stripRejectedPatchKeys(patch, outcome));
   },
 
-  updateText: (id, content) => {
-    // Y0b-5 T7（C6 收口）：VIEWER 门——canEdit 假（readOnly/terminal/非 ready）早退，applyNodeDataPatch
-    // 批2-2 三行早退同款（缺席节点 else 建幽灵条目路径同拦）；doc 零写由 dispatch 第一层硬门兜底
-    if (!canEdit(useCanvasStore.getState())) {
-      const now = Date.now();
-      if (now - (viewerToastAt.get(id) ?? 0) >= VIEWER_TOAST_THROTTLE_MS) {
-        viewerToastAt.set(id, now);
-        message.warning('当前为只读会话，编辑未生效');
-      }
-      return;
-    }
-    // 批4b-2 换芯：content 键 doc 直写（node 不在 doc 时 no-op——同旧订阅路径投影不含语义）
-    dispatchCanvasIntent({ type: 'updateNodeData', id, patch: { content } }, Origin.LocalUser);
-    // Y1c T1：删 else 幽灵兜底——缺席节点不再以裸 'text' 名 fabricated 重建（undo 撤销创建后
-    // 迟到的键入回调若重建幽灵条目会被 persistence 持久化、下次刷新复活；缺席=no-op，
-    // doc 侧同步 no-op——同 updateConfig 的 I-3 幽灵守卫语义）
-    const existing = getNode(get().nodes, id);
-    if (existing) {
-      set((s) => ({
-        nodes: {
-          ...s.nodes,
-          [id]: {
-            ...existing,
-            data: { ...existing.data, content },
-          },
-        },
-      }));
-    }
-  },
-
   updateConfig: (id, config) => {
     const existing = getNode(get().nodes, id);
     const nodeType = existing?.type;
@@ -650,11 +639,14 @@ export const useNodeStore = create<NodeState>((set, get) => ({
 
     const merged = mergeNodeData(existing?.data, config, nodeType) as NodeData;
     // 批4b-2 换芯：doc data 直写=mergeNodeData 终态全量（旧订阅路径同步的就是该 ns 终态——
-    // defaults 填充随写直达 doc，缺省键漂移由投影不变量兜住）
-    dispatchCanvasIntent(
+    // defaults 填充随写直达 doc，缺省键漂移由投影不变量兜住）。
+    // Y1c T16 收口（T15 收口 A 同款）：消费 dispatch outcome——被拒域键（xml 域整串写=容器
+    // 替换对抗面）从 ns 终态同剥（doc 拒 ⇒ ns 拒，半落根修；全拒=原 data 原样）。
+    const [outcome] = dispatchCanvasIntent(
       { type: 'updateNodeData', id, patch: merged as unknown as Record<string, unknown> },
       Origin.LocalUser,
     );
+    const mergedEffective = stripRejectedPatchKeys(merged as unknown as Record<string, unknown>, outcome) as unknown as NodeData;
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -664,7 +656,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           type: nodeType ?? NODE_TYPES.IMAGE_GEN,
           selected: existing?.selected,
           dragging: existing?.dragging,
-          data: merged,
+          data: mergedEffective,
         },
       },
     }));

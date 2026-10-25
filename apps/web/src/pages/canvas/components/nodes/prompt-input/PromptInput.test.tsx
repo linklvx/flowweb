@@ -3,13 +3,12 @@ import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import React from 'react';
+import * as Y from 'yjs';
 
 // ========== Hoisted mock variables (accessible inside vi.mock factories) ==========
 
 const {
   mockCreateRoot,
-  mockPopupRender,
-  mockUnmount,
   capturedEditorConfig,
   mockGetTextResult,
   mockGetHTMLResult,
@@ -19,8 +18,6 @@ const {
     render: vi.fn(),
     unmount: vi.fn(),
   }));
-  const mockPopupRenderFn = vi.fn();
-  const mockUnmountFn = vi.fn();
   const capturedEditorConfigHolder: { current: Record<string, any> | null } = { current: null };
   const mockGetTextResultHolder: { current: string } = { current: 'test text' };
   const mockGetHTMLResultHolder: { current: string } = { current: '<p>test text</p>' };
@@ -47,8 +44,6 @@ const {
 
   return {
     mockCreateRoot: mockCreateRootFn,
-    mockPopupRender: mockPopupRenderFn,
-    mockUnmount: mockUnmountFn,
     capturedEditorConfig: capturedEditorConfigHolder,
     mockGetTextResult: mockGetTextResultHolder,
     mockGetHTMLResult: mockGetHTMLResultHolder,
@@ -74,43 +69,58 @@ vi.mock('./CommandMentionList', () => ({
   ),
 }));
 
-vi.mock('@tiptap/react', () => ({
-  useEditor: vi.fn((config: any) => {
-    capturedEditorConfig.current = config;
-    return mockEditor;
-  }),
-  EditorContent: ({ editor: _editor }: any) => (
-    <div data-testid="editor-content" role="textbox">
-      Mock Editor
-    </div>
-  ),
-}));
+vi.mock('@tiptap/react', async (importOriginal) => {
+  // Y1c T16：useEditor 两参形态（options ?? undefined + deps=[fragment]）——mock 同签名透传；
+  // Extension 走真实现（ySyncHostExtension 经 @tiptap/react 重导出面——部分 mock importOriginal）
+  const actual = await importOriginal<typeof import('@tiptap/react')>();
+  return {
+    ...actual,
+    useEditor: vi.fn((config: any) => {
+      capturedEditorConfig.current = config;
+      return mockEditor;
+    }),
+    EditorContent: ({ editor: _editor }: any) => (
+      <div data-testid="editor-content" role="textbox">
+        Mock Editor
+      </div>
+    ),
+  };
+});
 
 // ========== Dynamic imports (after mocks are set up) ==========
 
 import PromptInput from './PromptInput';
 import type { PromptInputRef } from './PromptInput';
-import type { PromptValue } from './types';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 
-// ========== Tests ==========
+// ========== Tests（Y1c T16 重写：prompt=XmlFragment 域——编辑器直绑 doc 容器，
+// onChange/forceSync/debounce 链路删除；装置=真 Y.Doc 种子节点+prompt 容器） ==========
 
 describe('PromptInput', () => {
-  const defaultOnChange = vi.fn();
   const defaultOnCommandSelect = vi.fn();
   const defaultOnGenerate = vi.fn();
-  const defaultValue: PromptValue = {
-    text: '',
-    html: '',
-    referencedImageIds: [],
-  };
+
+  let doc: Y.Doc;
 
   beforeEach(() => {
     vi.clearAllMocks();
     capturedEditorConfig.current = null;
     mockGetTextResult.current = 'test text';
+    // 装置：真 doc + imageGen 节点（data.prompt=XmlFragment 容器——创建 seam 形态）
+    doc = new Y.Doc();
+    doc.transact(() => {
+      const data = new Y.Map();
+      data.set('prompt', new Y.XmlFragment());
+      const n = new Y.Map();
+      n.set('type', 'imageGen');
+      n.set('data', data);
+      doc.getMap('nodes').set('node-1', n);
+    });
+    _setIntentDocForTest(doc);
   });
 
   afterEach(() => {
+    _setIntentDocForTest(null);
     vi.useRealTimers();
   });
 
@@ -122,8 +132,6 @@ describe('PromptInput', () => {
     const { unmount } = render(
       React.createElement(PromptInput, {
         nodeId: 'node-1',
-        value: defaultValue,
-        onChange: defaultOnChange,
         onCommandSelect: defaultOnCommandSelect,
         onGenerate: defaultOnGenerate,
         placeholder: '描述你想要的画面...',
@@ -134,79 +142,27 @@ describe('PromptInput', () => {
     return { ref, unmount };
   }
 
-  // ---- 1. renders EditorContent ----
+  // ---- 1. renders EditorContent（容器在——编辑器直绑）----
   it('1. renders EditorContent with placeholder text visible', () => {
     renderPromptInput();
     const editorEl = screen.getByTestId('editor-content');
     expect(editorEl).toBeInTheDocument();
   });
 
-  // ---- 2. typing triggers debounced onChange ----
-  it('2. typing triggers debounced onChange with updated text', () => {
-    vi.useFakeTimers();
-    renderPromptInput();
-
-    // useEditor must have been called with onUpdate
-    expect(capturedEditorConfig.current).not.toBeNull();
-    expect(capturedEditorConfig.current!.onUpdate).toBeDefined();
-
-    mockGetTextResult.current = 'hello world';
-    mockGetHTMLResult.current = '<p>hello world</p>';
-
-    // Simulate Tiptap's onUpdate callback
-    act(() => {
-      capturedEditorConfig.current!.onUpdate({ editor: mockEditor } as any);
+  // ---- 1b. 容器缺失=只读回退（结构错误不掩盖——T15 容器规则）----
+  it('1b. container missing renders read-only fallback html', () => {
+    doc.transact(() => {
+      ((doc.getMap('nodes').get('node-1') as Y.Map<any>).get('data') as Y.Map<any>).delete('prompt');
     });
-
-    // Debounce timer has NOT fired yet — onChange not called
-    expect(defaultOnChange).not.toHaveBeenCalled();
-
-    // Advance past debounceMs (300ms)
-    vi.advanceTimersByTime(300);
-
-    // Now onChange should be called with preserved value fields + updated text
-    expect(defaultOnChange).toHaveBeenCalledTimes(1);
-    expect(defaultOnChange).toHaveBeenCalledWith({
-      text: 'hello world',
-      html: '<p>hello world</p>',
-      referencedImageIds: [],
-    });
-
-    vi.useRealTimers();
+    renderPromptInput({ fallbackHtml: '<p>legacy</p>' });
+    expect(screen.getByText('legacy')).toBeInTheDocument();
+    expect(screen.queryByTestId('editor-content')).toBeNull();
   });
 
   // ---- 3. disabled prop makes editor non-editable ----
   it('3. when disabled=true, editor should not be editable', () => {
     renderPromptInput({ disabled: true });
     expect(capturedEditorConfig.current!.editable).toBe(false);
-  });
-
-  // ---- 4. forceSync flush ----
-  it('4. forceSync() flushes pending debounce and calls onChange immediately', () => {
-    vi.useFakeTimers();
-    const { ref } = renderPromptInput();
-
-    mockGetTextResult.current = 'forced text';
-    mockGetHTMLResult.current = '<p>forced text</p>';
-
-    // Trigger debounced onUpdate
-    act(() => {
-      capturedEditorConfig.current!.onUpdate({ editor: mockEditor } as any);
-    });
-
-    // Call forceSync via ref — debounce should be flushed
-    act(() => {
-      ref.current!.forceSync();
-    });
-
-    // onChange must be called synchronously (not after debounce delay)
-    expect(defaultOnChange).toHaveBeenCalledWith({
-      text: 'forced text',
-      html: '<p>forced text</p>',
-      referencedImageIds: [],
-    });
-
-    vi.useRealTimers();
   });
 
   // ---- 5. clear ----
@@ -245,36 +201,28 @@ describe('PromptInput', () => {
     }).not.toThrow();
   });
 
-  // ---- 8. unmount flushes pending debounced writes ----
-  it('8. flushes pending debounced onChange on unmount so content is not lost', () => {
-    vi.useFakeTimers();
+  // ---- 8. unmount destroys editor（ySync binding 随 editor 销毁链）----
+  it('8. destroys editor on unmount', () => {
     const { unmount } = renderPromptInput();
-
-    mockGetTextResult.current = 'typed before deselection';
-    mockGetHTMLResult.current = '<p>typed before deselection</p>';
-
-    // Simulate user typing — triggers debounced onUpdate
-    act(() => {
-      capturedEditorConfig.current!.onUpdate({ editor: mockEditor } as any);
-    });
-
-    // onChange NOT yet called (debounce pending)
-    expect(defaultOnChange).not.toHaveBeenCalled();
-
-    // Unmount (simulates panel hiding when node deselected)
     unmount();
-
-    // After unmount, onChange should have been called with the latest text
-    expect(defaultOnChange).toHaveBeenCalledWith({
-      text: 'typed before deselection',
-      html: '<p>typed before deselection</p>',
-      referencedImageIds: [],
-    });
-
-    // Editor should be destroyed
     expect(mockEditor.destroy).toHaveBeenCalled();
+  });
 
-    vi.useRealTimers();
+  // ---- 8b. getRichText 只读导出（fragment 单源——PromptValue 三出口基座）----
+  it('8b. getRichText() derives from the bound fragment (read-only export)', () => {
+    const frag = ((doc.getMap('nodes').get('node-1') as Y.Map<any>).get('data') as Y.Map<any>).get('prompt') as Y.XmlFragment;
+    doc.transact(() => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, '你好');
+      p.insert(0, [t]);
+      frag.insert(0, [p]);
+    });
+    const { ref } = renderPromptInput();
+    const rich = ref.current!.getRichText();
+    expect(rich.text).toContain('你好');
+    expect(rich.html).toContain('你好');
+    expect(Array.isArray(rich.json)).toBe(true);
   });
 
   // ---- 默认 placeholder 文案（需求 3）----

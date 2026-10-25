@@ -77,15 +77,15 @@ function buildCorpus(): Corpus {
   for (let i = 0; i < 100; i++) author.transact(() => f0data.set('rev', i));
   // t0：n1('old')+n2 创建 → 同步 server+staleViewer（形态②截断点）
   fillDoc(toDocLike(author), [
-    { id: 'n1', type: 'textInput', data: { content: 'old' } },
-    { id: 'n2', type: 'textInput', data: { content: 'dead-man-walking' } },
+    { id: 'n1', type: 'textInput', data: { note: 'old' } },
+    { id: 'n2', type: 'textInput', data: { note: 'dead-man-walking' } },
   ], []);
   const t0 = Y.encodeStateAsUpdate(author);
   Y.applyUpdate(server, t0);
   Y.applyUpdate(staleViewer, t0);
   // t1：n1 → 'current'；同步 server+deleter（deleter 全量同步到 t1）
   const n1dataA = (author.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
-  author.transact(() => n1dataA.set('content', 'current'));
+  author.transact(() => n1dataA.set('note', 'current'));
   const t1 = Y.encodeStateAsUpdate(author);
   Y.applyUpdate(server, t1);
   Y.applyUpdate(deleter, t1);
@@ -93,7 +93,7 @@ function buildCorpus(): Corpus {
   deleter.transact(() => deleter.getMap('nodes').delete('n2'));
   Y.applyUpdate(server, Y.encodeStateAsUpdate(deleter));
   // t3：作者离线继续编辑（形态③：同一 clientID 连续会话——own clock 越过 server 已知，SS2 永未上行）
-  author.transact(() => n1dataA.set('content', 'draft-offline'));
+  author.transact(() => n1dataA.set('note', 'draft-offline'));
   // 形态①：clean viewer=旧缓存（server 终态整份，此后离线）
   Y.applyUpdate(cleanViewer, Y.encodeStateAsUpdate(server));
   deleter.destroy();   // author 存活=形态③语料（dirtyAuthor 即 author 本体）
@@ -105,8 +105,10 @@ function vacuumRegistry(): CollabDocRegistryService {
   return new CollabDocRegistryService({} as never, {} as never, {} as never);
 }
 
+// Y1c T16：值追踪键=note（非域透传键——content=textInput xml 域物化容器后语料锚面换键；
+// 机制语义〔复活/覆盖/膨胀〕不依赖键名）
 const contentOf = (doc: Y.Doc, id: string): unknown =>
-  ((doc.getMap('nodes').get(id) as Y.Map<unknown> | undefined)?.get('data') as Y.Map<unknown> | undefined)?.get('content');
+  ((doc.getMap('nodes').get(id) as Y.Map<unknown> | undefined)?.get('data') as Y.Map<unknown> | undefined)?.get('note');
 
 describe('Y1c T0-S2 vacuum 离线重连——纯 Yjs 机制实验', () => {
   it('Phase 0：语料前置——真空前终态（n1=current/n2 已删）与三形态持有面', () => {
@@ -228,7 +230,10 @@ describe('Y1c T0-S2 vacuum 离线重连——纯 Yjs 机制实验', () => {
     const rdata = (rebuilt!.getMap('nodes').get('x1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
     const rcontent = rdata.get('content');
     expect(rcontent).not.toBeInstanceOf(Y.Text);                       // 非共享 Y 实例（别名亡——F-S2-1 危险面消除）
-    expect(rcontent).toBe('v4-nested');                                // 文本内容保真（Y.Text 解码=显式 string）
+    // Y1c T16：content=textInput xml 域——rebuild 重放面 string 种子经 canonical 收编物化容器
+    //（fillDoc 创建 seam——非共享全新实例；文本保真=段落净文本）
+    expect(rcontent).toBeInstanceOf(Y.XmlFragment);
+    expect((rcontent as Y.XmlFragment).toString()).toContain('v4-nested');
     // 源 doc destroy 后重建 doc 独立存活（无跨 doc 结构空间共享——写不互达）
     v4.destroy();
     expect(() => rdata.set('content', 'after-destroy')).not.toThrow();

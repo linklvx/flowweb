@@ -33,6 +33,12 @@ const fm = (o: Record<string, unknown>): FakeMap => new FakeMap(new Map(
 
 export interface AdversarialCase { name: string; build(): DocLike }
 
+/** Y1c T16：XML 工厂 fake（零行为容器——insert/setAttribute 吃调用不抛；fillDoc 对抗语料
+ *  的 XML 物化面无读路径，容器形态不参与断言）。 */
+function fakeXmlContainer(): { insert(): void; setAttribute(): void } {
+  return { insert: () => {}, setAttribute: () => {} };
+}
+
 export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
   let s = seed >>> 0;
   const rnd = () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -40,7 +46,9 @@ export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
   const deep = (n: number): unknown => (n <= 0 ? { leaf: true } : { child: deep(n - 1) });
   const mk = (nodes: Record<string, unknown>, meta: Record<string, unknown> = {}) => (): DocLike => {
     const maps: Record<string, FakeMap> = { nodes: fm(nodes), edges: new FakeMap(), meta: fm(meta) };
-    return { getMap: (n: string) => maps[n] ?? new FakeMap(), createMap: () => new FakeMap(), createText: () => new FakeText() };
+    // Y1c T16：DocLike 扩三 XML 工厂（fillDoc 创建 seam——fakes 同步补；Fake 系零行为容器）
+    return { getMap: (n: string) => maps[n] ?? new FakeMap(), createMap: () => new FakeMap(), createText: () => new FakeText(),
+      createXmlFragment: () => fakeXmlContainer() as never, createXmlElement: () => fakeXmlContainer() as never, createXmlText: () => fakeXmlContainer() as never };
   };
   return [
     { name: 'long-content', build: mk({ n1: { data: { content: LONG } } }) },
@@ -51,7 +59,8 @@ export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
     { name: 'type-confusion', build: mk({ n1: { x: 'str', data: { width: 'wide' } } }, { legacyMeta: 'not-a-number' }) },   // T18：meta.schemaVersion 退役——对抗面改打任意非版本 meta 键（doc 内容不再带版本）
     { name: 'scalar-node', build: () => {   // 值守卫专测：非 map 节点值 → 跳过
       const nodes = new FakeMap(new Map([['raw', 'just-a-string']]));
-      return { getMap: (n: string) => (n === 'nodes' ? nodes : new FakeMap()), createMap: () => new FakeMap(), createText: () => new FakeText() };
+      return { getMap: (n: string) => (n === 'nodes' ? nodes : new FakeMap()), createMap: () => new FakeMap(), createText: () => new FakeText(),
+        createXmlFragment: () => fakeXmlContainer() as never, createXmlElement: () => fakeXmlContainer() as never, createXmlText: () => fakeXmlContainer() as never };
     } },
     ...Array.from({ length: 8 }, (_, i): AdversarialCase => ({
       name: `fuzz-${i}`,

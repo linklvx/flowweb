@@ -33,7 +33,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
         ratio: '16:9',
         resolution: '2K',
         quality: 'standard',
-        prompt: { text: 'a beautiful sunset', html: '<p>a beautiful sunset</p>', referencedImageIds: [] },
+        prompt: { text: 'a beautiful sunset', html: '<p>a beautiful sunset</p>', json: [] },
         allImages: [],
       } as ImageNodeData,
     };
@@ -50,7 +50,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
       data: {
         status: 'idle',
         model: 'flux',
-        prompt: { text: '', html: '', referencedImageIds: [] },
+        prompt: { text: '', html: '', json: [] },
         allImages: [
           { id: 'ref-1', url: '/img1.png', name: 'ref1.png', status: 'success' },
           { id: 'ref-2', url: '/img2.png', name: 'ref2.png', status: 'success' },
@@ -74,7 +74,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
         ratio: '9:16',
         resolution: '4K',
         quality: 'high',
-        prompt: { text: 'test', html: '<p>test</p>', referencedImageIds: [] },
+        prompt: { text: 'test', html: '<p>test</p>', json: [] },
         allImages: [],
       } as ImageNodeData,
     };
@@ -94,7 +94,7 @@ describe('imageNodeApi — buildImageGenParams', () => {
       data: {
         status: 'idle',
         model: 'sdxl',
-        prompt: { text: '', html: '', referencedImageIds: [] },
+        prompt: { text: '', html: '', json: [] },
       } as ImageNodeData,
     };
     useNodeStore.getState().addNode(node);

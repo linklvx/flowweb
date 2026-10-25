@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { message } from 'antd';
 import { useNodeStore, isImageNode, isImageExtNode, isImageGenNode, isTextNode, ANNOTATION_DEFAULTS, NODE_TYPES, IMAGE_EXT_DEFAULTS, _resetViewerToastForTest } from './nodeStore';
+import * as Y from 'yjs';
+// Y1c T16：域键拒测试装置（doc 种子缝）
+import { _setIntentDocForTest } from './canvasIntents';
 import { useCanvasStore } from './canvasStore';
 import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, AudioNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
@@ -24,7 +27,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 't1',
       type: 'text',
-      data: { content: 'hello world' } as TextNodeData,
+      data: { content: 'hello world' } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(textNode);
@@ -33,7 +36,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(stored).toBeDefined();
     expect(stored.id).toBe('t1');
     expect(stored.type).toBe('text');
-    const textData = stored.data as TextNodeData;
+    const textData = stored.data as unknown as TextNodeData;
     expect(textData.content).toBe('hello world');
   });
 
@@ -48,8 +51,8 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: '', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+        prompt: { text: '', html: '', json: [] },   // Y1c T16：RichTextValue 形
+      } as unknown as ImageNodeData,
     };
 
     useNodeStore.getState().addNode(imageNode);
@@ -57,13 +60,14 @@ describe('nodeStore (AppNode nested structure)', () => {
 
     expect(stored).toBeDefined();
     expect(stored.type).toBe('imageGen');
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.style).toBe('写实');
     expect(imgData.model).toBe('sdxl');
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('1:1');
     expect(imgData.status).toBe('idle');
-    expect(imgData.prompt).toEqual({ text: '', html: '', referencedImageIds: [] });
+    // Y1c T16：prompt=xml 域——种子 RichTextValue 原样保留（ns 本地面；defaults 注入已删）
+    expect(imgData.prompt).toEqual({ text: '', html: '', json: [] });
   });
 
   // 4. addNode should store id/type metadata at node level
@@ -103,15 +107,15 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: '', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+        prompt: { text: '', html: '', json: [] },   // Y1c T16：RichTextValue 形
+      } as unknown as ImageNodeData,
     };
 
     useNodeStore.getState().addNode(node);
     useNodeStore.getState().updateNodeData<ImageNodeData>('img1', { model: 'flux' });
 
     const stored = useNodeStore.getState().nodes['img1'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.model).toBe('flux');
     // Other fields preserved
     expect(imgData.style).toBe('写实');
@@ -132,7 +136,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         ratio: '1:1',
         status: 'idle',
         prompt: { text: 'a cat', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+      } as unknown as ImageNodeData,
     };
 
     useNodeStore.getState().addNode(node);
@@ -141,46 +145,31 @@ describe('nodeStore (AppNode nested structure)', () => {
       .updateNodeData<ImageNodeData>('img2', { model: 'flux', ratio: '16:9', quality: '2k' });
 
     const stored = useNodeStore.getState().nodes['img2'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.model).toBe('flux');
     expect(imgData.ratio).toBe('16:9');
     expect(imgData.quality).toBe('2k');
   });
 
-  // 7. updateNodeData should update text node content
-  it('should update text node content', () => {
+  // 7. updateNodeData should update text node data（Y1c T16：content=XmlFragment 域——ns 本地
+  //    写面保留（updateNodeData 非 dispatch 面），doc 侧域键写由 canvasIntents seam 拒——t16 spec 锚）
+  it('should update text node data', () => {
     const textNode: AppNode = {
       id: 't1',
       type: 'text',
-      data: { content: 'original' } as TextNodeData,
+      data: { content: { text: 'original', html: '<p>original</p>', json: [] } } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(textNode);
-    useNodeStore.getState().updateNodeData<TextNodeData>('t1', { content: 'updated' });
+    useNodeStore.getState().updateNodeData<TextNodeData>('t1', { prompt: { text: 'p1' } });
 
     const stored = useNodeStore.getState().nodes['t1'];
-    const textData = stored.data as TextNodeData;
-    expect(textData.content).toBe('updated');
+    const textData = stored.data as unknown as TextNodeData;
+    expect(textData.prompt?.text).toBe('p1');
   });
 
-  // 8. updateText convenience method should update content
-  it('should update text content via updateText convenience method', () => {
-    // Y0b-5 T7：updateText 挂 VIEWER 门（canEdit）——机理验证需编辑窗（与下方 T7 describe 的 EDITOR 零回归同基底）
-    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
-    const textNode: AppNode = {
-      id: 't2',
-      type: 'text',
-      data: { content: 'hello' } as TextNodeData,
-    };
-
-    useNodeStore.getState().addNode(textNode);
-    useNodeStore.getState().updateText('t2', 'world');
-
-    const stored = useNodeStore.getState().nodes['t2'];
-    const textData = stored.data as TextNodeData;
-    expect(textData.content).toBe('world');
-    expect(stored.type).toBe('text');
-  });
+  // 8.（Y1c T16 删）updateText 整串便捷方法删除——content=XmlFragment 域（编辑器直绑，
+  //    getHTML 整串写=容器替换对抗面；t16-xml-domains.spec 红①锚）
 
   // 9. updateConfig convenience method should set config with defaults
   it('should set config with defaults via updateConfig', () => {
@@ -191,7 +180,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
     const stored = useNodeStore.getState().nodes['img3'];
     expect(stored).toBeDefined();
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.style).toBe('写实');
     // Y0b-1（三轮 Z30/P0-6）：model/resolution 缺省不注入字面量默认——空值留给面板自选首模型/首分辨率（存行 id）
     expect(imgData.model).toBeUndefined();
@@ -199,18 +188,39 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('16:9');
     expect(imgData.status).toBe('idle');
-    expect(imgData.prompt).toEqual({ text: '', html: '', referencedImageIds: [] });
+    // Y1c T16：prompt=xml 域——defaults 注入删除（缺省归创建 seam；域键写 seam 拒）
+    expect(imgData.prompt).toBeUndefined();
     expect(imgData.allImages).toEqual([]);
   });
 
-  it('should persist prompt text via updateConfig', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img9', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
-    useNodeStore.getState().updateConfig('img9', {
-      prompt: { text: 'hello world', html: '', referencedImageIds: [] },
+  it('Y1c T16：prompt=xml 域——updateConfig prompt 写被拒（域键=编辑器直绑容器，ns 同剥零半落）', () => {
+    // 装置：真 doc 种子（dispatch 拒需 doc 在——域键 seam 判定面）
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const data = new Y.Map();
+      data.set('prompt', new Y.XmlFragment());
+      const n = new Y.Map();
+      n.set('type', 'imageGen');
+      n.set('data', data);
+      doc.getMap('nodes').set('img9', n);
     });
-    const stored = useNodeStore.getState().nodes['img9'];
-    const imgData = stored.data as ImageNodeData;
-    expect(imgData.prompt!.text).toBe('hello world');
+    _setIntentDocForTest(doc);
+    try {
+      // 编辑窗（dispatch 门：hydration ready——域键拒判定可达）
+      useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+      useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img9', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+      useNodeStore.getState().updateConfig('img9', {
+        prompt: { text: 'hello world', html: '', json: [] },
+      });
+      const stored = useNodeStore.getState().nodes['img9'];
+      const imgData = stored.data as unknown as ImageNodeData;
+      expect(imgData.prompt).toBeUndefined();   // doc 拒 ⇒ ns 同剥（收口——半落根修）
+      // 非域键写照常（对照组）
+      useNodeStore.getState().updateConfig('img9', { style: '动漫' });
+      expect((useNodeStore.getState().nodes['img9'].data as unknown as ImageNodeData).style).toBe('动漫');
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   // 10. setStatus should update status field
@@ -220,7 +230,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useNodeStore.getState().setStatus('img4', 'loading');
 
     const stored = useNodeStore.getState().nodes['img4'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.status).toBe('loading');
   });
 
@@ -233,7 +243,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useNodeStore.getState().setFileResult('img5', 'file-abc-123');
 
     const stored = useNodeStore.getState().nodes['img5'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.fileId).toBe('file-abc-123');
     expect(imgData.status).toBe('done');
   });
@@ -243,7 +253,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const node: AppNode = {
       id: 'to-delete',
       type: 'text',
-      data: { content: 'delete me' } as TextNodeData,
+      data: { content: 'delete me' } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(node);
@@ -258,7 +268,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 't-data',
       type: 'text',
-      data: { content: 'test data' } as TextNodeData,
+      data: { content: 'test data' } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(textNode);
@@ -303,9 +313,9 @@ describe('nodeStore (AppNode nested structure)', () => {
         prompt: {
           text: 'test',
           html: '',
-          referencedImageIds: ['ref-img-1'],
-        } as PromptValue,
-      } as ImageNodeData,
+          json: [],
+        } as unknown as PromptValue,
+      } as unknown as ImageNodeData,
     };
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -337,7 +347,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         status: 'done',
         allImages: [{ id: 'f1', url: '/f1.png', name: 'f1.png', status: 'success' }],
         prompt: { text: '', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+      } as unknown as ImageNodeData,
     };
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -366,7 +376,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           allImages: [{ id: 'f2', url: '/f2.png', name: 'f2.png', status: 'success' }],
           referencedImageIds: [],
         },
-      } as ImageNodeData,
+      } as unknown as ImageNodeData,
     };
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -392,7 +402,7 @@ describe('nodeStore (AppNode nested structure)', () => {
         status: 'done',
         allImages: [shared],
         prompt: { text: '', html: '', allImages: [shared], referencedImageIds: [] },
-      } as ImageNodeData,
+      } as unknown as ImageNodeData,
     };
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -420,16 +430,9 @@ describe('nodeStore (AppNode nested structure)', () => {
         referenceVideo: 'ref-video-1',
         trimmedFileId: 'trim-out-1',
         allImages: [{ id: 'vf1', url: '/vf1.png', name: 'vf1.png', status: 'success' }],
-        prompt: {
-          text: '',
-          html: '',
-          allImages: [
-            { id: 'vf1', url: '/vf1.png', name: 'vf1.png', status: 'success' },
-            { id: 'vf2', url: '/vf2.png', name: 'vf2.png', status: 'success' },
-          ],
-          referencedImageIds: [],
-        },
-      } as VideoNodeData,
+        // Y1c T16：prompt=RichTextValue（allImages/referencedImageIds 出 prompt——引用走 json/池）
+        prompt: { text: '', html: '', json: [] },
+      } as unknown as VideoNodeData,
     };
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -483,14 +486,14 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: '2k',
         ratio: '16:9',
         status: 'idle',
-        prompt: { text: '', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+        prompt: { text: '', html: '', json: [] },   // Y1c T16：RichTextValue 形
+      } as unknown as ImageNodeData,
     };
 
     const textNode: AppNode = {
       id: 'txt-guard',
       type: 'text',
-      data: { content: 'hello' } as TextNodeData,
+      data: { content: 'hello' } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(imageNode);
@@ -522,8 +525,8 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: '2k',
         ratio: '16:9',
         status: 'idle',
-        prompt: { text: '', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+        prompt: { text: '', html: '', json: [] },   // Y1c T16：RichTextValue 形
+      } as unknown as ImageNodeData,
     };
 
     useNodeStore.getState().addNode(extNode);
@@ -543,7 +546,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 'txt-guard-2',
       type: 'textInput',
-      data: { content: 'hello world' } as TextNodeData,
+      data: { content: 'hello world' } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(textNode);
@@ -565,8 +568,8 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: '', html: '', referencedImageIds: [] },
-      } as ImageNodeData,
+        prompt: { text: '', html: '', json: [] },   // Y1c T16：RichTextValue 形
+      } as unknown as ImageNodeData,
     };
 
     useNodeStore.getState().addNode(imageNode);
@@ -585,9 +588,9 @@ describe('nodeStore (AppNode nested structure)', () => {
         quality: 'standard',
         ratio: '1:1',
         status: 'idle',
-        prompt: { text: 'a cat', html: '', referencedImageIds: [] },
+        prompt: { text: 'a cat', html: '<p>a cat</p>', json: [] },   // Y1c T16：RichTextValue 形
         allImages: [],
-      } as ImageNodeData,
+      } as unknown as ImageNodeData,
     };
 
     useNodeStore.getState().addNode(node);
@@ -599,7 +602,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useNodeStore.getState().updatePromptImages('img-prompt', newImages);
 
     const stored = useNodeStore.getState().nodes['img-prompt'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.allImages).toEqual(newImages);
     // Other prompt fields preserved
     expect(imgData.prompt!.text).toBe('a cat');
@@ -610,7 +613,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     const textNode: AppNode = {
       id: 'txt-prompt',
       type: 'text',
-      data: { content: 'hello' } as TextNodeData,
+      data: { content: 'hello' } as unknown as TextNodeData,
     };
 
     useNodeStore.getState().addNode(textNode);
@@ -653,7 +656,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img-rotate-defaults', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('img-rotate-defaults', {});
     const stored = useNodeStore.getState().nodes['img-rotate-defaults'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.imageRotation).toBe(0);
     expect(imgData.flipH).toBe(false);
     expect(imgData.flipV).toBe(false);
@@ -672,7 +675,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       transformMode: true,
     });
     const stored = useNodeStore.getState().nodes['img-rotate-1'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect(imgData.imageRotation).toBe(90);
     expect(imgData.flipH).toBe(true);
     expect(imgData.flipV).toBe(true);
@@ -690,7 +693,7 @@ describe('nodeStore (AppNode nested structure)', () => {
 
     // Simulate VideoConfigPanel saving a prompt
     useNodeStore.getState().updateConfig('vid-config', {
-      prompt: { text: 'a sunset', html: '', referencedImageIds: [] },
+      prompt: { text: 'a sunset', html: '', json: [] },
     });
 
     const stored = useNodeStore.getState().nodes['vid-config'];
@@ -775,7 +778,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-default', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('edit-default', {});
     const stored = useNodeStore.getState().nodes['edit-default'];
-    const imgData = stored.data as ImageNodeData;
+    const imgData = stored.data as unknown as ImageNodeData;
     expect('editMode' in imgData).toBe(false);
     expect('transformMode' in imgData).toBe(false);
   });
@@ -784,7 +787,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-persist', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     useNodeStore.getState().updateConfig('edit-persist', { style: '写实', editMode: 'crop' });
     const stored = useNodeStore.getState().nodes['edit-persist'];
-    expect((stored.data as ImageNodeData).editMode).toBe('crop');
+    expect((stored.data as unknown as ImageNodeData).editMode).toBe('crop');
   });
 
   // ── selectIsLocked 单源（Spec B editMode 分片——CanvasView 订阅式/isLockedNow 命令式同源；
@@ -1079,7 +1082,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-annotate', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
       useNodeStore.getState().updateConfig('edit-annotate', { style: '写实', editMode: 'annotate' });
       const stored = useNodeStore.getState().nodes['edit-annotate'];
-      expect((stored.data as ImageNodeData).editMode).toBe('annotate');
+      expect((stored.data as unknown as ImageNodeData).editMode).toBe('annotate');
     });
 
     // -- updateAnnotationTool/Color/LineWidth noop --
@@ -1118,7 +1121,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
           extConfig: { model: 'ext-model', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
       const stored = useNodeStore.getState().nodes['ext-valid'];
@@ -1133,7 +1136,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           status: 'idle',
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
       const stored = useNodeStore.getState().nodes['ext-no-config'];
@@ -1149,7 +1152,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           model: 'sdxl',
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
       const stored = useNodeStore.getState().nodes['img-regular'];
@@ -1167,7 +1170,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           model: 'sdxl',
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
       const stored = useNodeStore.getState().nodes['img-gen'];
@@ -1183,7 +1186,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
           extConfig: { model: 'x' },
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
       const stored = useNodeStore.getState().nodes['ext-not-gen'];
@@ -1194,7 +1197,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       const node: AppNode = {
         id: 'txt',
         type: 'text',
-        data: { content: 'hello' } as TextNodeData,
+        data: { content: 'hello' } as unknown as TextNodeData,
       };
       useNodeStore.getState().addNode(node);
       const stored = useNodeStore.getState().nodes['txt'];
@@ -1222,14 +1225,14 @@ describe('nodeStore (AppNode nested structure)', () => {
             quality: 'standard',
             generateCount: 1,
           },
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
 
       useNodeStore.getState().updateExtConfig('ext-update', { model: 'new-model' });
 
       const stored = useNodeStore.getState().nodes['ext-update'];
-      const extConfig = (stored.data as ImageNodeData).extConfig!;
+      const extConfig = (stored.data as unknown as ImageNodeData).extConfig!;
       expect(extConfig.model).toBe('new-model');
       // Other fields preserved
       expect(extConfig.ratio).toBe('1:1');
@@ -1247,7 +1250,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           model: 'sdxl',
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
 
@@ -1257,7 +1260,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       }).not.toThrow();
 
       const stored = useNodeStore.getState().nodes['img-noop'];
-      expect((stored.data as ImageNodeData).model).toBe('sdxl');
+      expect((stored.data as unknown as ImageNodeData).model).toBe('sdxl');
     });
 
     it('should noop when called on non-existent node', () => {
@@ -1275,14 +1278,14 @@ describe('nodeStore (AppNode nested structure)', () => {
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
           extConfig: { model: 'm', ratio: '1:1', resolution: '2K', quality: 'standard', generateCount: 1 },
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
 
       useNodeStore.getState().updateExtConfig('ext-count', { generateCount: 4 });
 
       const stored = useNodeStore.getState().nodes['ext-count'];
-      expect((stored.data as ImageNodeData).extConfig!.generateCount).toBe(4);
+      expect((stored.data as unknown as ImageNodeData).extConfig!.generateCount).toBe(4);
     });
   });
 
@@ -1296,7 +1299,7 @@ describe('nodeStore (AppNode nested structure)', () => {
           model: 'sdxl',
           prompt: { text: '', html: '', referencedImageIds: [] },
           allImages: [],
-        } as ImageNodeData,
+        } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
 
@@ -1307,7 +1310,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       } as any);
 
       const stored = useNodeStore.getState().nodes['img-filter'];
-      const data = stored.data as ImageNodeData;
+      const data = stored.data as unknown as ImageNodeData;
       expect(data.model).toBe('flux');
       // extConfig should NOT be set on imageGen node
       expect(data.extConfig).toBeUndefined();
@@ -1426,8 +1429,9 @@ describe('referenceSelect（画布参考选择模式，spec §3.1）', () => {
   });
 });
 
-// ══════════ Y0b-5 T7（C6 收口）：updateText VIEWER 门（applyNodeDataPatch 批2-2 三行早退同款） ══════════
-describe('Y0b-5 T7：updateText VIEWER 门', () => {
+// ══════════ Y0b-5 T7（C6 收口）：applyNodeDataPatch VIEWER 门（Y1c T16：updateText 删除——
+// canEdit 门探针改 applyNodeDataPatch 同门面〔批2-2 三行早退同款〕；prompt={text} 走 T15 域键形态） ══════════
+describe('Y0b-5 T7：applyNodeDataPatch VIEWER 门', () => {
   beforeEach(() => {
     _resetViewerToastForTest();
     useNodeStore.setState({ nodes: {} });
@@ -1438,11 +1442,11 @@ describe('Y0b-5 T7：updateText VIEWER 门', () => {
     useCanvasStore.setState({ hydration: 'idle', collabReadOnly: false, wsAuthNotice: null });
     const warnSpy = vi.spyOn(message, 'warning');
     useNodeStore.setState({
-      nodes: { t9: { id: 't9', type: 'text', data: { content: '原' } as TextNodeData } },
+      nodes: { t9: { id: 't9', type: 'text', data: { content: { text: '', html: '', json: [] }, prompt: { text: '原' } } as unknown as TextNodeData } },
     });
-    useNodeStore.getState().updateText('t9', '被拒写入');
-    useNodeStore.getState().updateText('t-ghost', '被拒写入');
-    expect((useNodeStore.getState().nodes['t9']!.data as TextNodeData).content).toBe('原');
+    useNodeStore.getState().applyNodeDataPatch('t9', { prompt: { text: '被拒写入' } });
+    useNodeStore.getState().applyNodeDataPatch('t-ghost', { prompt: { text: '被拒写入' } });
+    expect((useNodeStore.getState().nodes['t9']!.data as unknown as TextNodeData).prompt?.text).toBe('原');
     expect(useNodeStore.getState().nodes['t-ghost']).toBeUndefined();
     expect(warnSpy).toHaveBeenCalledTimes(2);   // 异节点各自计时（节流=同节点 2s 窗——下一用例）
     expect(warnSpy).toHaveBeenCalledWith('当前为只读会话，编辑未生效');
@@ -1451,24 +1455,13 @@ describe('Y0b-5 T7：updateText VIEWER 门', () => {
   it('toast 节流：同节点 2s 窗内连续键入不风暴（一次提示）；窗后再写再提示', () => {
     useCanvasStore.setState({ hydration: 'idle', collabReadOnly: false, wsAuthNotice: null });
     const warnSpy = vi.spyOn(message, 'warning');
-    useNodeStore.getState().updateText('t9', 'a');
-    useNodeStore.getState().updateText('t9', 'ab');
-    useNodeStore.getState().updateText('t9', 'abc');
+    useNodeStore.getState().applyNodeDataPatch('t9', { prompt: { text: 'a' } });
+    useNodeStore.getState().applyNodeDataPatch('t9', { prompt: { text: 'ab' } });
+    useNodeStore.getState().applyNodeDataPatch('t9', { prompt: { text: 'abc' } });
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const ts = Date.now();
     vi.spyOn(Date, 'now').mockReturnValue(ts + 2_001);   // 出 2s 节流窗（viewerToastAt 同 Date.now 基准）
-    useNodeStore.getState().updateText('t9', 'abcd');
+    useNodeStore.getState().applyNodeDataPatch('t9', { prompt: { text: 'abcd' } });
     expect(warnSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('EDITOR（canEdit 真）零回归：内容正常写入（批4b-2 换芯路径不动+零 toast）', () => {
-    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
-    const warnSpy = vi.spyOn(message, 'warning');
-    useNodeStore.setState({
-      nodes: { t10: { id: 't10', type: 'text', data: { content: 'hello' } as TextNodeData } },
-    });
-    useNodeStore.getState().updateText('t10', 'world');
-    expect((useNodeStore.getState().nodes['t10']!.data as TextNodeData).content).toBe('world');
-    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

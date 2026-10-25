@@ -2,7 +2,7 @@
 // Y1c T3：DOC_SCHEMA_V4 契约断言族——矩阵冻结的执法面（plan v1.7 T3 红清单逐项）。
 // 现无类型维度=红前置（本文件建立前矩阵不存在——先红后绿已由建卡过程隐含，本文件=常驻锁）。
 import { describe, expect, it } from 'vitest';
-import { DOC_SCHEMA_V4, META_WHITELIST, type DataKeySpec } from './doc-schema-v4';
+import { DOC_SCHEMA_V4, META_WHITELIST, NODE_TYPE_ALIASES, type DataKeySpec } from './doc-schema-v4';
 import { NODE_ENVELOPE_KEYS } from './nodeEnvelope';
 import { EPHEMERAL_DATA_KEYS } from './docShape';
 import { GROUP_NODE_DATA_KEYS } from '../types/group';
@@ -170,5 +170,20 @@ describe('Y1c T3 DOC_SCHEMA_V4 契约（矩阵冻结唯一基准）', () => {
         expect(key.startsWith('exec')).toBe(false);
       }
     }
+  });
+
+  // ── Y1c T16（挂账#3：T3 遗留别名表吸收）────────────────────────────────
+  it('NODE_TYPE_ALIASES 派生不变量：值集 ⊆ 矩阵全集+alias=全名剥 {Gen,Input} 后缀正则象+无撞车', () => {
+    const matrixTypes = new Set(Object.keys(DOC_SCHEMA_V4));
+    for (const [alias, full] of Object.entries(NODE_TYPE_ALIASES)) {
+      expect(matrixTypes, `别名值 ${full} 不在 DOC_SCHEMA_V4 全集`).toContain(full);
+      const stripped = full.replace(/(Gen|Input)$/, '');
+      expect(alias, `${full} 剥后缀=${stripped} ≠ 表值 ${alias}（后缀派生不变量）`).toBe(stripped);
+    }
+    // 撞车排除面：videoEdit 剥 'Gen|Input' 后='videoEdit'（无后缀）不入表；盲剥派生在
+    // videoGen/videoEdit 上短名撞车 ⇒ 显式冻结表（doc-schema-v4 注记锚）
+    expect('videoEdit' in NODE_TYPE_ALIASES).toBe(false);
+    expect('group' in NODE_TYPE_ALIASES).toBe(false);
+    expect(Object.keys(NODE_TYPE_ALIASES)).toHaveLength(6);
   });
 });

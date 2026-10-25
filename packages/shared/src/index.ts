@@ -147,5 +147,7 @@ export * from './collab/draft-envelope';
 export * from './collab/recovery-flow';
 export * from './collab/save-driver';
 export * from './collab/runtime-projection';
-export * from './collab/xml-schema';
+// Y1c T16：xml-schema 单表+L1 扫描器自 collab/ 迁 canvas/ 同族（Controller 指令——非冻结区；
+// 与 text-domains/doc-schema-v4 同族——XML 域词表/L1 扫描共用 DOC_SCHEMA_V4 单源）。
+export * from './canvas/xml-schema';
 export * from './collab/read-model-census';

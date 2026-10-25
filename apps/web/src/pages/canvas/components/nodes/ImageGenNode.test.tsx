@@ -204,7 +204,11 @@ vi.mock('@/stores/nodeStore', async (importOriginal) => ({
   isImageNode: (node: any) => node?.type === 'imageGen' || node?.type === 'imageExtGen',
 }));
 
-vi.mock('@/stores/canvasIntents', () => ({ reportNodeSize: vi.fn() }));
+// Y1c T16：PromptInput→resolveDoc 装置链补（partial mock importOriginal——reportNodeSize 仍 mock）
+vi.mock('@/stores/canvasIntents', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/stores/canvasIntents')>();
+  return { ...mod, reportNodeSize: vi.fn() };
+});
 vi.mock('@/stores/canvasStore', () => ({
   useCanvasStore: mockUseCanvasStoreFn,
 }));

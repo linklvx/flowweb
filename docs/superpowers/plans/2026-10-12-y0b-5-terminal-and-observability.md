@@ -527,7 +527,7 @@ it('persist-status {healthy:false}→persistUnhealthy=true→单链 persist 档�
 
 **Files:**
 - Modify: `apps/web/src/stores/canvasCollabRuntime.ts`（60s 计时）+ canvasStore（syncLagOver60s）+ SyncBanner（syncLag 档——T6 单链内）
-- Modify: `apps/web/src/stores/nodeStore.ts:606-632`（updateText 首段三行——T18 补正：T17 812909bb 上移 +10 行锚漂移未同步；Y1c T12 期间再漂 +10（599）重定位；Y1c T15 收口 A applyNodeDataPatch outcome 剥除 +4 再漂（606）重定位）
+- Modify: `apps/web/src/stores/nodeStore.ts:606`（applyNodeDataPatch 首段三行〔canEdit 早退+toast 节流——本卡 VIEWER 门先例体〕——T18 补正：T17 812909bb 上移 +10 行锚漂移未同步；Y1c T12 期间再漂 +10（599）重定位；Y1c T15 收口 A outcome 剥除 +4 再漂（606）重定位；**Y1c T16 再锚**：原 updateText 整串便捷方法随 textInput.content=XmlFragment 域迁移删除（getHTML 整串写=容器替换对抗面——canvasIntents.t16-xml-domains.spec 红①锚）；VIEWER 门探针同批改 applyNodeDataPatch〔nodeStore.test 批2-2 describe〕，本锚点符号随锚 applyNodeDataPatch）
 
 - [ ] **Step 1: 红测**
 

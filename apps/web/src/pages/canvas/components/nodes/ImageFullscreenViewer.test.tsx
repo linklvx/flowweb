@@ -13,7 +13,7 @@ const mockNodeData: ImageNodeData = {
   ratio: '16:9',
   fileId: 'img-001',
   status: 'done',
-  prompt: { text: '一只猫在花园里', html: '', referencedImageIds: [] },
+  prompt: { text: '一只猫在花园里', html: '', json: [] },
 };
 
 describe('ImageFullscreenViewer', () => {
@@ -90,7 +90,7 @@ describe('ImageFullscreenViewer', () => {
   it('displays fallback when prompt is empty', () => {
     const dataWithNoPrompt = {
       ...mockNodeData,
-      prompt: { text: '', html: '', referencedImageIds: [] },
+      prompt: { text: '', html: '', json: [] },
     };
     render(
       <ImageFullscreenViewer
@@ -111,7 +111,7 @@ describe('ImageFullscreenViewer', () => {
       quality: '',
       ratio: '',
       status: 'done',
-      prompt: { text: '', html: '', referencedImageIds: [] },
+      prompt: { text: '', html: '', json: [] },
     };
     render(
       <ImageFullscreenViewer
@@ -228,7 +228,7 @@ describe('ImageFullscreenViewer', () => {
   });
 
   it('alt falls back to "生成的图片" when prompt is empty', () => {
-    const noPrompt = { ...mockNodeData, prompt: { text: '', html: '', referencedImageIds: [] } };
+    const noPrompt = { ...mockNodeData, prompt: { text: '', html: '', json: [] } };
     render(
       <ImageFullscreenViewer
         open={true}

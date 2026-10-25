@@ -55,7 +55,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
   // Y0b-2 T6（Z79）：投影单源——entry 轮换/三态判据（ImageConfigPanel 同型）
   const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
-  const prompt = nodeData?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
+  // Y1c T16：prompt=XmlFragment 域——ns 投影 RichTextValue（编辑器直绑 doc 容器）
+  const prompt = nodeData?.prompt ?? { text: '', html: '', json: [] };
   const allImages = nodeData?.allImages ?? [];
 
   // ── Model selector state ──
@@ -152,9 +153,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       return;
     }
 
-    promptRef.current?.forceSync();
-    const currentText = useNodeStore.getState().getNodeData<VideoNodeData>(nodeId)?.prompt?.text || '';
-    voiceBaseRef.current = currentText;
+    // Y1c T16：容器直绑后无 debounce 链——基线文本经 getRichText 只读导出（fragment 单源）
+    voiceBaseRef.current = promptRef.current?.getRichText().text || '';
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'zh-CN';
@@ -189,18 +189,13 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
 
   // Generate
   const handleGenerate = useCallback(async () => {
-    promptRef.current?.forceSync();
-    const latestText = useNodeStore.getState().getNodeData<VideoNodeData>(nodeId)?.prompt?.text || '';
+    // Y1c T16：fragment 只读导出（getRichText——生成判据；ns 投影 50ms 滞后面不再吃）
+    const latestText = promptRef.current?.getRichText().text || '';
     if (!latestText.trim()) return;
     setExecuting(true);
     setStatus(nodeId, 'loading');
     const projectId = useCanvasStore.getState().projectId;
     try {
-      const nodeState = useNodeStore.getState();
-      const existing = nodeState.nodes[nodeId] as any;
-      const currentPrompt = existing?.data?.prompt ?? { text: '', html: '', allImages: [], referencedImageIds: [] };
-      // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
-      useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: { ...currentPrompt, text: latestText } });
       if (!projectId) return;
       // Y0b-2 T6（Z79/Z118）：held 一律上送（error 后重试=免费 rearm）；done/EXHAUSTED 无 held=新"重新生成"；
       // 否则无 token 普通执行（内容键——服务端②回放最新）
@@ -220,7 +215,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const handlePasteImage = useCallback(async (file: File) => {
     if (allImages.length >= 9) return;
     const uploaded = await uploadSingleImage(file);
-    if (uploaded) promptRef.current?.insertImage(uploaded.url);
+    // 修正批#1：插入锚=mediaId（受控 URL 解析在 NodeView）
+    if (uploaded) promptRef.current?.insertImage(uploaded.id);
   }, [allImages.length, uploadSingleImage]);
 
   // VideoConfigPanel is rendered inside VideoGenNode which already
@@ -262,30 +258,31 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
           onChange={(allImages) => updatePromptImages(nodeId, allImages)}
           onImageClick={(imageId) => {
             const img = allImages.find((i: any) => i.id === imageId);
-            if (img) promptRef.current?.insertImage(img.url);
+            if (img) promptRef.current?.insertImage(img.id);
           }}
           onImageUploaded={(imageId) => {
             const img = allImages.find((i: any) => i.id === imageId);
-            if (img) promptRef.current?.insertImage(img.url);
+            if (img) promptRef.current?.insertImage(img.id);
           }}
           onBeforeImageDelete={(imageId) => {
             const img = allImages.find((i: any) => i.id === imageId);
-            if (img) promptRef.current?.removeImage(img.url);
+            if (img) promptRef.current?.removeImage(img.id);
           }}
           disabled={status === 'loading'}
         />
 
+        {/* Y1c T16：prompt=XmlFragment 域——编辑器直绑 doc 容器（onChange→updateConfig 整串写
+            链路删除）；value=ns 投影只读面（回退渲染） */}
         <PromptInput
           ref={promptRef}
           nodeId={nodeId}
-          value={prompt}
           allImages={allImages}
           onPasteImage={handlePasteImage}
-          onChange={(newPrompt) => updateConfig(nodeId, { prompt: newPrompt })}
           onCommandSelect={handleCommandSelect}
           onGenerate={handleGenerate}
           disabled={status === 'loading'}
           maxHeight={maximized ? 350 : 80}
+          fallbackHtml={prompt.html || ''}
         />
 
         <div className="flex items-center justify-between mt-2">

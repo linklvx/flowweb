@@ -33,6 +33,10 @@ function toDocLikeFixture(doc: Y.Doc): DocLike {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
     createText: () => new Y.Text() as unknown as TextLike,
+    // Y1c T16：XML 三工厂（fillDoc 创建 seam——真 Y 实例）
+    createXmlFragment: () => new Y.XmlFragment() as never,
+    createXmlElement: (name: string) => new Y.XmlElement(name) as never,
+    createXmlText: () => new Y.XmlText() as never,
   };
 }
 

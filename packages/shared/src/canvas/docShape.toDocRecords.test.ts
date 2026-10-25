@@ -37,6 +37,10 @@ class FakeDoc implements DocLike {
   };
   createMap = (): FakeMap => new FakeMap();
   createText = (): FakeText => new FakeText();
+  // Y1c T16：XML 三工厂 fake（零行为容器——本 spec 无 XML 域键物化路径）
+  createXmlFragment = (): { insert(): void } => ({ insert: () => {} });
+  createXmlElement = (_name: string): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
+  createXmlText = (): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
 }
 
 /** cs 节点夹具（position 必填——cs 层恒有；width/height 缺=auto 组 record 键集判定形态） */
@@ -114,7 +118,7 @@ describe('O0b-0 写侧翻转：子输出 abs=cs.rel+组帧 origin（origin 取 c
     const csNodes = [
       csNode({ id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } }),
       csNode({ id: 'c1', parentId: 'g1', position: { x: 10, y: 20 }, width: 100, height: 60, data: {} }),
-      csNode({ id: 't1', position: { x: 500, y: 0 }, data: { content: 'a' } }),
+      csNode({ id: 't1', position: { x: 500, y: 0 }, data: { model: 'a' } }),   // Y1c T16：content=xml 域（fillDoc 物化容器）——透传面改非域键
     ];
     const out = toDocRecords(csNodes, {});
     const doc = new FakeDoc();

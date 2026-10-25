@@ -101,9 +101,10 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
     await done0;
 
     useNodeStore.setState((s) => ({
-      nodes: { ...s.nodes, n1: { ...s.nodes.n1, data: { ...s.nodes.n1.data, content: 'viewer-edit' } } },
+      nodes: { ...s.nodes, n1: { ...s.nodes.n1, data: { ...s.nodes.n1.data, content: { text: 'viewer-edit', html: '<p>viewer-edit</p>', json: [] } } } },
     }));
-    expect(nodeData(runtime.getDoc()!, 'n1').content).toBe('server'); // doc 零写
+    // Y1c T16：content=XmlFragment 域——toJSON 形 '<paragraph>server</paragraph>'（doc 零写）
+    expect(nodeData(runtime.getDoc()!, 'n1').content).toContain('server');
     expect(writes()).toBe(0);
   });
 

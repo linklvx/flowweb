@@ -149,6 +149,9 @@ export const envSchema = z.object({
   // 无害不拒——不新增启动失败面）；拒启判据唯一在 superRefine（production∧'1'）。消费面=
   // provider-adapters fakeAiEnabled() 惰性单源 helper（形态不变——调用期读，写回等价）。
   COLLAB_FAKE_AI: z.preprocess(blankToUnset, z.string().optional()),
+  // Y1c T16：L1 扫描 URL allowlist 注入键（XML_ATTR_URL_ALLOWED_HOSTS 消费——逗号分隔 host；
+  // 缺省=空表 deny-all http(s) 属性 URL〔修正批#1：image.src=mediaId 后绝对 URL off-spec〕）
+  COLLAB_XML_URL_HOSTS: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_PORT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_DEBOUNCE: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_TIMEOUT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),

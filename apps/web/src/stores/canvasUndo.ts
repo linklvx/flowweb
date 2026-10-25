@@ -1,6 +1,12 @@
 // apps/web/src/stores/canvasUndo.ts
 // Y.UndoManager 集成（spec 4.2/4.4）：trackedOrigins 仅 local-user，快捷键入口。
+// Y1c T16（S3 spike 结论③）：ySyncPlugin 本地键入的 Yjs 事务 origin=ySyncPluginKey
+//（PluginKey 实例）≠LocalUser——attach 时 addTrackedOrigin（T18 单 manager 构造面
+// trackedOrigins:[LocalUser,ySyncPluginKey] 一次到位前的 T16 接线；单副本 y-prosemirror
+// exact pin 1.3.7 ⇒ PluginKey 单例身份成立）。远端变更=网络 applyUpdate origin（连接对象）
+// 不入栈——语义不变。
 import * as Y from 'yjs';
+import { ySyncPluginKey } from 'y-prosemirror';
 import { SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 
@@ -29,6 +35,9 @@ export function attachUndoManager(doc: Y.Doc): Y.UndoManager {
     trackedOrigins: new Set([Origin.LocalUser]),
     captureTimeout: 500,
   });
+  // Y1c T16（S3）：ySyncPlugin 事务 origin 入栈（addToScope 不需要——scope 父链实证 S3 §1；
+  // attach 时点=initCollab 会话起点，editor 挂载晚于 doc ⇒ 首次事务前注册成立）
+  um.addTrackedOrigin(ySyncPluginKey);
   // T10：同事务 update 回填（origin=UndoManager 的 undo/redo 事务不计——回放≠新写）
   doc.on('update', (u: Uint8Array, origin: unknown) => {
     if (origin !== Origin.LocalUser || itemNeedingBytes == null) return;

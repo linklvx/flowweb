@@ -39,6 +39,10 @@ class FakeDoc implements DocLike {
   };
   createMap = (): FakeMap => new FakeMap();
   createText = (): FakeText => new FakeText();
+  // Y1c T16：XML 三工厂 fake（零行为容器——fillRead 用例无 XML 域键物化路径）
+  createXmlFragment = (): { insert(): void } => ({ insert: () => {} });
+  createXmlElement = (_name: string): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
+  createXmlText = (): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
 }
 
 // identity 档（O0a-1）：StoredNodeRecord.position 裸 {x,y}——abs helper 只是夹具简洁性命名（无品牌 cast）
@@ -65,7 +69,8 @@ describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源—
     const records: StoredNodeRecord[] = [
       {
         id: 'n1', type: 'textInput', parentId: 'g1', width: 320, height: 120,
-        position: abs(10, 20), data: { content: 'a', status: 'done' },
+        // Y1c T16：content=textInput xml 域（物化容器——非透传键）；identity 契约面用非域键
+        position: abs(10, 20), data: { model: 'a', status: 'done' },
       },
     ];
     fillDoc(doc, records, []);

@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useImperativeHandle,
   forwardRef,
+  useMemo,
   createElement,
 } from 'react';
 import './PromptInput.css';
@@ -12,35 +13,42 @@ import { createRoot } from 'react-dom/client';
 import { CommandMentionList } from './CommandMentionList';
 import { ImageMentionList } from './ImageMentionList';
 import { COMMANDS, CATEGORY_DEFAULTS } from './types';
-import type { PromptValue, CommandItem, ImageItem } from './types';
+import type { CommandItem, ImageItem } from './types';
 // extensions 单源 builder（Y1c T5c 评审 Important#1：schema 面提取共享——本组件与
 // collab/xmlSchemaParity.spec import 同一 builder；渲染/交互回调经 opts 注入保持行为零变化）
 import { buildPromptInputSchemaExtensions } from './extensions';
+// Y1c T16：prompt=XmlFragment 域（imageGen/videoGen/imageExtGen）——ySyncPlugin 双端直绑
+//（doc 容器权威；onChange→updateConfig PromptValue JSON 整串写链路删除；getHTML 只读导出）
+import { resolveDoc } from '@/stores/canvasIntents';
+import { resolveNodeXmlFragment, ySyncHostExtension, richTextOfFragment } from '@/collab/yXmlFragmentBinding';
+import { recordCollabDiag } from '@/utils/collabDiagnostics';
 
 export interface PromptInputRef {
-  forceSync: () => void;
   focus: () => void;
   clear: () => void;
-  insertImage: (src: string) => void;
-  removeImage: (src: string) => void;
+  /** 插入图片 chip（src=mediaId——修正批#1：渲染层受控 URL 解析；非 URL 直存） */
+  insertImage: (mediaId: string) => void;
+  removeImage: (mediaId: string) => void;
   setText: (text: string) => void;
+  /** getHTML 只读导出（PromptValue 三出口——RichTextValue 单源派生，禁编辑器态写回） */
+  getRichText: () => { text: string; html: string; json: unknown[] };
 }
 
 interface PromptInputProps {
   nodeId: string;
-  value: PromptValue;
-  onChange: (value: PromptValue) => void;
+  /** XmlFragment 域键（'prompt'——三域同键；默认 prompt） */
+  domainKey?: string;
   onCommandSelect?: (command: CommandItem) => void;
   onGenerate?: () => void;
 
-  // Phase 3
   allImages?: ImageItem[];
   onPasteImage?: (file: File) => void;
 
   placeholder?: string;
   disabled?: boolean;
   maxHeight?: number;
-  debounceMs?: number;
+  /** Y1c T16：只读回退 html（容器缺失=结构错误——静态展示不掩盖；正常路径编辑器直绑） */
+  fallbackHtml?: string;
 }
 
 // =========================================================================
@@ -96,7 +104,6 @@ function createImageSuggestionRenderer() {
     };
   };
 }
-
 /**
  * Creates a native-DOM suggestion renderer (no tippy.js).
  * Renders CommandMentionList into a document.body portal via createRoot.
@@ -121,7 +128,7 @@ function createNativeSuggestionRenderer(
         popupRoot.render(
           createElement(CommandMentionList, {
             items: props.items,
-            onSelect: (item: CommandItem) => props.command(item),
+            onSelect: (item) => props.command(item),
             onClose: () => props.editor.commands.blur(),
             clientRect: props.clientRect(),
           }),
@@ -133,7 +140,7 @@ function createNativeSuggestionRenderer(
           popupRoot.render(
             createElement(CommandMentionList, {
               items: props.items,
-              onSelect: (item: CommandItem) => props.command(item),
+              onSelect: (item) => props.command(item),
               onClose: () => props.editor.commands.blur(),
               clientRect: props.clientRect(),
             }),
@@ -219,9 +226,8 @@ function useCommandChipSync(
 const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
   (
     {
-      nodeId: _nodeId,
-      value,
-      onChange,
+      nodeId,
+      domainKey = 'prompt',
       onCommandSelect,
       onGenerate,
       allImages = [],
@@ -229,89 +235,106 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       placeholder = '描述你想要生成的画面内容，@引用素材',
       disabled = false,
       maxHeight = 120,
-      debounceMs = 300,
+      fallbackHtml = '',
     },
     ref,
   ) => {
-    const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
-
-    // Track latest value for imperative methods (avoids stale-closure on onChange)
-    const valueRef = useRef(value);
-    valueRef.current = value;
-
     // Same pattern for allImages — @mention callback must see latest images after upload
+    // + Y1c T16 修正批#1：NodeView 的 mediaId→受控 URL 解析消费同一最新池
     const allImagesRef = useRef(allImages);
     allImagesRef.current = allImages;
 
-    // ---- 1. Tiptap Editor Setup ----
-    const editor = useEditor({
-      // extensions 单源 builder（schema 面与 xmlSchemaParity.spec 同源——见 import 注）；以下
-      // 回调为原内联配置逐项搬移（纯提取——行为零变化）。
-      extensions: buildPromptInputSchemaExtensions({
-        placeholder,
-        imageNodeView: ({ node }: NodeViewRendererProps) => {
-          const dom = document.createElement('span');
-          dom.className = 'image-chip';
-          dom.setAttribute('contenteditable', 'false');
-          dom.style.cssText =
-            'display:inline-flex;align-items:center;gap:4px;height:20px;min-width:24px;max-width:120px;padding:1px 4px;border-radius:4px;background:#333;vertical-align:middle;white-space:normal;cursor:default;user-select:none;';
+    // ── Y1c T16：prompt=嵌套 XmlFragment 双端绑定 ──
+    // 容器解析零懒建（T15 容器规则——缺=结构错误：只读回退 fallbackHtml 展示+诊断留痕）；
+    // 单 editor 实例（工具栏/maximize 复用——面板 maxHeight 变化不改绑定）；content 恒 ''
+    //（fragment 权威——ySyncPlugin view() 初始装载）；不挂 yUndoPlugin（单 manager——T18）；
+    // 本地编辑 origin=ySyncPluginKey（canvasUndo attach 时 addTrackedOrigin——S3 结论③）。
+    const fragment = useMemo(
+      () => resolveNodeXmlFragment(resolveDoc(), nodeId, domainKey),
+      [nodeId, domainKey],
+    );
+    useEffect(() => {
+      if (!fragment) {
+        recordCollabDiag('write_reject', { reason: 'xml-container-missing', via: 'prompt-input' });
+      }
+    }, [fragment]);
 
-          const thumb = document.createElement('span');
-          thumb.style.cssText =
-            'width:14px;height:14px;border-radius:3px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.16),0 0.5px 0 0 inset rgba(255,255,255,0.16);';
+    const editor = useEditor(
+      {
+        // extensions 恒合法 schema（容器缺失档 StarterKit 兜底——空 extensions 会 RangeError）；
+        // ySync 宿主仅容器在时挂（结构错误档=无绑定编辑器，渲染走只读回退）
+        extensions: [
+          ...buildPromptInputSchemaExtensions({
+            placeholder,
+            imageNodeView: ({ node }: NodeViewRendererProps) => {
+              const dom = document.createElement('span');
+              dom.className = 'image-chip';
+              dom.setAttribute('contenteditable', 'false');
+              dom.style.cssText =
+                'display:inline-flex;align-items:center;gap:4px;height:20px;min-width:24px;max-width:120px;padding:1px 4px;border-radius:4px;background:#333;vertical-align:middle;white-space:normal;cursor:default;user-select:none;';
 
-          const img = document.createElement('img');
-          img.src = node.attrs.src;
-          img.alt = '';
-          img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-          thumb.appendChild(img);
+              const thumb = document.createElement('span');
+              thumb.style.cssText =
+                'width:14px;height:14px;border-radius:3px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.16),0 0.5px 0 0 inset rgba(255,255,255,0.16);';
 
-          const label = document.createElement('span');
-          label.textContent = 'Image';
-          label.style.cssText =
-            'flex:1;min-width:0;font-size:12px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.6);';
+              // 修正批#1：node.attrs.src=mediaId——渲染层受控 URL 解析（allImages 池按 id
+              // 查 url；miss=占位灰块，不外联不加载未知 URL）
+              const img = document.createElement('img');
+              const resolved = allImagesRef.current.find((it) => it.id === node.attrs.src)?.url;
+              if (resolved) {
+                img.src = resolved;
+                img.alt = '';
+                img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+                thumb.appendChild(img);
+              } else {
+                thumb.style.background = '#555';
+              }
 
-          dom.appendChild(thumb);
-          dom.appendChild(label);
+              const label = document.createElement('span');
+              label.textContent = 'Image';
+              label.style.cssText =
+                'flex:1;min-width:0;font-size:12px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.6);';
 
-          return { dom };
-        },
-        commandItems: (query: string) =>
-          COMMANDS.filter(
-            (cmd) =>
-              cmd.name.toLowerCase().includes(query.toLowerCase()) ||
-              cmd.description.toLowerCase().includes(query.toLowerCase()),
-          ).slice(0, 10),
-        commandRender: createNativeSuggestionRenderer(onCommandSelect),
-        imageMentionItems: (query: string) =>
-          allImagesRef.current
-            .filter((img) => img.status === 'success' && img.name.toLowerCase().includes(query.toLowerCase()))
-            .slice(0, 8),
-        imageMentionRender: createImageSuggestionRenderer(),
-        imageMentionCommand: ({ editor, range, props }) => {
-          editor.chain().focus().deleteRange(range).insertContent({
-            type: 'image',
-            attrs: { src: (props as ImageItem).url },
-          }).run();
-        },
-      }),
-      content: value.html || value.text,
-      editable: !disabled,
-      editorProps: {
-        attributes: {
-          class: 'prompt-editor outline-none',
-          style: `min-height: 80px; max-height: var(--prompt-maxh, 80px); overflow-y: auto; font-size: 14px; line-height: 24px; color: rgb(245, 245, 245);`,
+              dom.appendChild(thumb);
+              dom.appendChild(label);
+
+              return { dom };
+            },
+            commandItems: (query: string) =>
+              COMMANDS.filter(
+                (cmd) =>
+                  cmd.name.toLowerCase().includes(query.toLowerCase()) ||
+                  cmd.description.toLowerCase().includes(query.toLowerCase()),
+              ).slice(0, 10),
+            commandRender: createNativeSuggestionRenderer(onCommandSelect),
+            imageMentionItems: (query: string) =>
+              allImagesRef.current
+                .filter((img) => img.status === 'success' && img.name.toLowerCase().includes(query.toLowerCase()))
+                .slice(0, 8),
+            imageMentionRender: createImageSuggestionRenderer(),
+            imageMentionCommand: ({ editor, range, props }) => {
+              // 修正批#1：插入 mediaId（ImageItem.id=服务端 file 身份）非 URL——受控解析在 NodeView
+              editor.chain().focus().deleteRange(range).insertContent({
+                type: 'image',
+                attrs: { src: (props as ImageItem).id },
+              }).run();
+            },
+          }),
+          ...(fragment ? [ySyncHostExtension(fragment)] : []),
+        ],
+        content: '',
+        editable: !disabled,
+        editorProps: {
+          attributes: {
+            class: 'prompt-editor outline-none',
+            style: `min-height: 80px; max-height: var(--prompt-maxh, 80px); overflow-y: auto; font-size: 14px; line-height: 24px; color: rgb(245, 245, 245);`,
+          },
         },
       },
-      onUpdate: ({ editor: ed }) => {
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = setTimeout(() => {
-          onChange({ ...valueRef.current, text: ed.getText(), html: ed.getHTML() });
-        }, debounceMs);
-      },
-    });
+      [fragment],   // fragment 解析态变化（结构错误↔容器在）重建 editor——绑定唯一性
+    );
 
-    // ---- 2. Command chip deletion sync ----
+    // ---- 1. Command chip deletion sync ----
     useCommandChipSync(editor, onCommandSelect);
 
     // ---- 2a. Sync maxHeight/minHeight to CSS + DOM (bypasses Tiptap useEditor staleness) ----
@@ -387,36 +410,28 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       return () => el.removeEventListener('keydown', handleGenerateKeyDown);
     }, [editor, onGenerate, handleGenerateKeyDown]);
 
-    // ---- 4. Expose imperative methods ----
-    const forceSync = useCallback(() => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      if (editor) {
-        onChange({ ...valueRef.current, text: editor.getText(), html: editor.getHTML() });
-      }
-    }, [editor, onChange]);
-
+    // ---- 4. Expose imperative methods（getHTML 只读导出=fragment 单源派生）----
     const focus = useCallback(() => editor?.commands.focus(), [editor]);
 
     const clear = useCallback(() => editor?.commands.clearContent(), [editor]);
 
     const insertImage = useCallback(
-      (src: string) => {
+      (mediaId: string) => {
+        // 修正批#1：src=mediaId（受控 URL 解析在 NodeView——allImages 池）
         editor?.chain().focus().insertContent({
           type: 'image',
-          attrs: { src },
+          attrs: { src: mediaId },
         }).run();
       },
       [editor],
     );
 
     const removeImage = useCallback(
-      (src: string) => {
+      (mediaId: string) => {
         if (!editor) return;
         const positions: { from: number; to: number }[] = [];
         editor.state.doc.descendants((node, pos) => {
-          if (node.type.name === 'image' && node.attrs.src === src) {
+          if (node.type.name === 'image' && node.attrs.src === mediaId) {
             positions.push({ from: pos, to: pos + node.nodeSize });
           }
           return true;
@@ -439,24 +454,34 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       [editor],
     );
 
-    useImperativeHandle(
-      ref,
-      () => ({ forceSync, focus, clear, insertImage, removeImage, setText }),
-      [forceSync, focus, clear, insertImage, removeImage, setText],
+    const getRichText = useCallback(
+      () => (fragment ? richTextOfFragment(fragment) : { text: '', html: '', json: [] as unknown[] }),
+      [fragment],
     );
 
-    // ---- 5. Cleanup: flush pending writes + destroy on unmount ----
-    const forceSyncRef = useRef(forceSync);
-    forceSyncRef.current = forceSync;
+    useImperativeHandle(
+      ref,
+      () => ({ focus, clear, insertImage, removeImage, setText, getRichText }),
+      [focus, clear, insertImage, removeImage, setText, getRichText],
+    );
 
-    // ---- 5b. Cleanup: flush pending writes + destroy on unmount ----
+    // ---- 5. Destroy on unmount（ySyncPlugin binding.destroy 随 editor 销毁链）----
     useEffect(() => {
       return () => {
-        forceSyncRef.current();
         editor?.destroy();
       };
     }, [editor]);
 
+    if (!fragment || !editor) {
+      // 只读回退：容器缺失=结构错误（不懒建不掩盖）——读模型 html 静态展示
+      return (
+        <div
+          className="prompt-editor outline-none"
+          style={{ minHeight: 80, maxHeight, overflowY: 'auto', fontSize: 14, lineHeight: '24px' }}
+          dangerouslySetInnerHTML={{ __html: fallbackHtml }}
+        />
+      );
+    }
     return <EditorContent editor={editor} />;
   },
 );

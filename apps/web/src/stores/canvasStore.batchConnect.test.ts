@@ -129,12 +129,14 @@ describe('addNodeAndBatchConnect（点击建点/+号拖线落空=建点+连线�
     expect(docEdgeIds()).toEqual([]);
   });
 
-  it('addNode 命令体同款类型默认（textInput baseData content 空串+默认 300×300 信封）', () => {
+  it('addNode 命令体同款类型默认（textInput content=空 XmlFragment 容器〔Y1c T16〕+默认 300×300 信封）', () => {
     const newId = useCanvasStore.getState().addNodeAndBatchConnect('textInput', { x: 0, y: 0 }, ['a'])!;
     const m = doc.getMap('nodes').get(newId) as Y.Map<any>;
     expect(m.get('width')).toBe(300);
     expect(m.get('height')).toBe(300);
-    expect((m.get('data') as Y.Map<any>).get('content')).toBe('');
+    const content = (m.get('data') as Y.Map<any>).get('content');
+    expect(content instanceof Y.XmlFragment).toBe(true);
+    expect((content as Y.XmlFragment).length).toBe(0);   // 空容器
   });
 
   it('落空建点场景（源集含将建节点不可能——新 id 全新边）+多源 N 边', () => {

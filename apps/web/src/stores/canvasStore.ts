@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS, NODE_TYPES, CANVAS_NODE_TYPES } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
-import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS, ensureTextDomainDefaults } from '@flowweb/shared';
+import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS, ensureTextDomainDefaults, ensureXmlDomainDefaults, NODE_TYPE_ALIASES } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -156,24 +156,13 @@ interface NodeProcessState {
   abortController?: AbortController;
 }
 
-/** Y1c T1（创建链收口）：菜单短名→生产节点类型名 单源翻译表——值全来自 NODE_TYPES 常量。
- *  惰性构造：nodeStore↔canvasStore 顶层互 import 环上，模块体直引 NODE_TYPES 触发 TDZ
- *  （先例：nodeStore 顶部循环依赖裁定——action 体/运行时求值安全）。生产名直传原样透传；
- *  resolvedType 由 addNodeInner 统一断言 ∈ CANVAS_NODE_TYPES（8 键全集），未知类型名
- *  fail-fast 不入画布/doc。 */
-let _nodeTypeMap: Record<string, string> | null = null;
+/** Y1c T1（创建链收口）：菜单短名→生产节点类型名 翻译——**T16 挂账#3**：短名表自本文件
+ *  （原 :159-170 惰性构造副本）归 schema 模块单源（shared doc-schema-v4 NODE_TYPE_ALIASES
+ *  ——派生不变量锚 schema-contract.spec：值集⊆矩阵全集+后缀正则象+video 撞车显式冻结）。
+ *  生产名直传原样透传；resolvedType 由 addNodeInner 统一断言 ∈ CANVAS_NODE_TYPES（8 键全集），
+ *  未知类型名 fail-fast 不入画布/doc。 */
 function resolveNodeType(type: string): string {
-  if (_nodeTypeMap === null) {
-    _nodeTypeMap = {
-      text: NODE_TYPES.TEXT,
-      image: NODE_TYPES.IMAGE_GEN,
-      imageExt: NODE_TYPES.IMAGE_EXT_GEN,
-      video: NODE_TYPES.VIDEO_GEN,
-      audio: NODE_TYPES.AUDIO_GEN,
-      multiImage: NODE_TYPES.MULTI_IMAGE_GEN,
-    };
-  }
-  return _nodeTypeMap[type] || type;
+  return NODE_TYPE_ALIASES[type] || type;
 }
 
 interface AddChildNodeItem {
@@ -896,7 +885,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (!CANVAS_NODE_TYPES.has(resolvedType)) {
       throw new Error(`[canvasStore] addNodeInner 未知节点类型: "${type}" → "${resolvedType}"（不在 CANVAS_NODE_TYPES 全集）`);
     }
-    const baseData: Record<string, unknown> = resolvedType === NODE_TYPES.TEXT ? { content: '' }
+    // Y1c T16：textInput content 不再预置 ''（旧 string 载体）——ensureXmlDomainDefaults 填
+    // canonical 空 RichTextValue（doc 容器物化与 ns 投影同形；invariant 双侧一致）
+    const baseData: Record<string, unknown> = resolvedType === NODE_TYPES.TEXT ? {}
       : resolvedType === NODE_TYPES.IMAGE_EXT_GEN ? { mediaName: '扩展图片', extConfig: { ...IMAGE_EXT_DEFAULTS }, allImages: [] }
       : {};
     const nodeData = dataOverride ? { ...baseData, ...dataOverride } : baseData;
@@ -929,8 +920,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // Inner 化薄壳：构造核归 addNodeInner + dispatch + 选择态/ns 双写
     const node = get().addNodeInner(type, position, dataOverride, envelope);
     // Y1c T15 收口 G：域键缺省**纯预填**（ensure 纯函数——返回补齐副本/原引用直通；入参不突变）：
-    // intent data 与下方 ns 直写同读 node.data——doc 容器/投影/ns 三面同源
-    node.data = ensureTextDomainDefaults(node.type, node.data) as typeof node.data;
+    // intent data 与下方 ns 直写同读 node.data——doc 容器/投影/ns 三面同源。
+    // Y1c T16：XmlFragment 域缺省同缝（textInput.content/三域 prompt=空 RichTextValue——
+    // fillDoc 物化空容器与 ns 投影同形）。
+    node.data = ensureXmlDomainDefaults(node.type, ensureTextDomainDefaults(node.type, node.data)) as typeof node.data;
     const id = node.id;
     // 批4b-1 换芯：协作语义（doc 首写+投影回填）走意图漏斗——canEdit 假时 dispatch doc+store
     // 双零写，下方 set 走 append 分支 = 既有"readOnly 可加节点后回弹"语义保留同型
@@ -1074,8 +1067,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // O0b-2 (i) 命令体显式值：data.width/height（载荷尺寸——splitImage 同源形态）提到信封并从 data 剥除
     //（终裁 59①[i]——addChildNode intent.node 扩 wh 键=删 customSize 后初始尺寸的显式形参）
     // Y1c T15 收口 G：域键缺省纯预填（副本——入参 data 不突变）；restData 入 intent 与 ns 直写
-    //（data）两路同含缺省——doc 容器/投影/ns 三面同源
-    const fullData = ensureTextDomainDefaults(sourceNode.type, data) as Record<string, unknown>;
+    //（data）两路同含缺省——doc 容器/投影/ns 三面同源。Y1c T16：XmlFragment 域缺省+string
+    // canonical 收编同缝（addNode 同款两 ensure 复合）
+    const fullData = ensureXmlDomainDefaults(
+      sourceNode.type,
+      ensureTextDomainDefaults(sourceNode.type, data),
+    ) as Record<string, unknown>;
     const { width: dataW, height: dataH, ...restData } = fullData;
     const hasWh = typeof dataW === 'number' && typeof dataH === 'number';
     const edge: Edge = { id: edgeId, source: sourceId, target: id };
@@ -1142,8 +1139,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }
       // T17：order 键=allocator 唯一入口（含批内已构造成员——after 链零碰撞）
       if (itemRest.order == null) itemRest.order = allocateOrderAfter([...get().nodes, ...newNodes], null);
-      // Y1c T15 收口 G：域键缺省纯预填（newNode.data=补齐副本——intent 与 ns 直写同引用同形）
-      const nodeData = ensureTextDomainDefaults(resolvedType, itemRest);
+      // Y1c T15 收口 G：域键缺省纯预填（newNode.data=补齐副本——intent 与 ns 直写同引用同形）。
+      // Y1c T16：XmlFragment 域缺省+canonical 同缝
+      const nodeData = ensureXmlDomainDefaults(resolvedType, ensureTextDomainDefaults(resolvedType, itemRest));
       const newNode: Node = {
         id: nodeId,
         type: resolvedType,
@@ -1223,9 +1221,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     // Copy source node data to nodeStore + set transformMode（批4b-2：前置计算——dispatch 与 set 同值）
     const sourceNsNode = useNodeStore.getState().nodes[sourceId];
-    // Y1c T15 收口 G：域键缺省纯预填（transform 载荷同走创建 seam——intent 与 ns 直写同源）
-    const nsData = ensureTextDomainDefaults(sourceNode.type,
-      sourceNsNode?.data ? { ...sourceNsNode.data, transformMode: true, imageRotation: 0, flipH: false, flipV: false } : { transformMode: true });
+    // Y1c T15 收口 G：域键缺省纯预填（transform 载荷同走创建 seam——intent 与 ns 直写同源）。
+    // Y1c T16：XmlFragment 域 canonical 同缝（ns data.content=RichTextValue 投影形直拷）
+    const nsData = ensureXmlDomainDefaults(sourceNode.type, ensureTextDomainDefaults(sourceNode.type,
+      sourceNsNode?.data ? { ...sourceNsNode.data, transformMode: true, imageRotation: 0, flipH: false, flipV: false } : { transformMode: true }));
 
     // 批4b-2 换芯：node+edge 双 intent 单 transact（data 取 nsData——与 nodeStore 写入同值）；
     // set exists 自适应防投影 append 叠重复（addChildNode 同款）
@@ -1319,8 +1318,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // v3.17 终裁 65③ 的"Inner 化批随迁改名"迁移注释核销）+源集→新节点 N 边同批单 transact
     // （addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
     const node = get().addNodeInner(type, position);
-    // Y1c T15 收口 G：域键缺省纯预填（addNode 同款——intent/ns 直写/投影三面同源）
-    node.data = ensureTextDomainDefaults(node.type, node.data) as typeof node.data;
+    // Y1c T15 收口 G：域键缺省纯预填（addNode 同款——intent/ns 直写/投影三面同源）。
+    // Y1c T16：XmlFragment 域缺省+canonical 同缝
+    node.data = ensureXmlDomainDefaults(node.type, ensureTextDomainDefaults(node.type, node.data)) as typeof node.data;
     const id = node.id;
     const edges = batchConnectEdges(sourceIds, id); // 新目标 id ⇒ 全新 handle: 边
     dispatchCanvasIntent([

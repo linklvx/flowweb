@@ -264,3 +264,18 @@ export const DOC_SCHEMA_V4: Record<
  *  T18 起 meta 零生产写者零活键（版本承载=CanvasDoc.schemaVersion PG 列——manifest meta 条目），
  *  v4 冻结=空集；后续用户可编辑 meta 键落此单源（schema-contract.spec 锚 ⊆ 现活键=空）。 */
 export const META_WHITELIST: readonly string[] = [];
+
+/** 菜单短名→生产节点类型名翻译表（Y1c T3 遗留——T15 收口转登记 T16 吸收：自 canvasStore.ts
+ *  :159-170 归 schema 模块单源；web canvasStore/nodeStore 消费本表，禁第二副本）。
+ *  派生不变量（schema-contract.spec 锚）：①值集 ⊆ DOC_SCHEMA_V4 键集（矩阵全集=创建链
+ *  CANVAS_NODE_TYPES 断言源）；②alias=全名剥已知后缀 {Gen,Input} 的正则象——videoEdit/video
+ *  与 videoGen/video 短名撞车故为**显式冻结表**非盲剥后缀派生（撞车排除面=本注记，新增类型
+ *  撞车=表+锚同批改）；③group/videoEdit 无菜单短名（组=交互创建/剪辑产物节点——不在表）。 */
+export const NODE_TYPE_ALIASES: Readonly<Record<string, string>> = {
+  text: 'textInput',
+  image: 'imageGen',
+  imageExt: 'imageExtGen',
+  video: 'videoGen',
+  audio: 'audioGen',
+  multiImage: 'multiImageGen',
+};

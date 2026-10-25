@@ -267,7 +267,7 @@ describe('canvasStore', () => {
   it('addNodeWithEdge should create new node and edge from source', () => {
     const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
     // Load source node with image data
-    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', html: '', referencedImageIds: [] } });
+    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz', prompt: { text: '', html: '', json: [] } });
 
     const { addNodeWithEdge } = useCanvasStore.getState() as any;
     expect(typeof addNodeWithEdge).toBe('function');
@@ -492,8 +492,10 @@ describe('canvasStore', () => {
   it('addNode without dataOverride: 业务 data 空（T17——order 键=allocator 唯一分配的层内序键）', () => {
     const nodeId = useCanvasStore.getState().addNode('image', { x: 10, y: 10 });
     const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
-    const { order, ...rest } = node.data as Record<string, unknown>;
+    // Y1c T16：imageGen prompt=XmlFragment 域——创建 seam 缺省入 ns（canonical 空 RichTextValue）
+    const { order, prompt, ...rest } = node.data as Record<string, unknown>;
     expect(rest).toEqual({});
+    expect(prompt).toEqual({ text: '', html: '', json: [] });
     expect(typeof order).toBe('string');   // T17：建点必携 order 键（读序单源域）
   });
 

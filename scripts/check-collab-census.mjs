@@ -1133,6 +1133,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-spool.service.ts': {   // 构造器（DIR/CAPACITY）+方法内（validateDir 二次读）
       COLLAB_SPOOL_DIR: 2, COLLAB_SPOOL_CAPACITY_BYTES: 1,
     },
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': {   // Y1c T16：L1 扫描 URL allowlist 键（模块级 const——COMPACT_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、缺省=空表 deny-all 档、消费面=准入 L1 URL 执法非部署档位）
+      COLLAB_XML_URL_HOSTS: 1,
+    },
     'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
       COMPACT_INTERVAL_MS: 1,
     },

@@ -16,7 +16,8 @@ import type { CanvasNodeRecord, DocMapLike, StoredNodeRecord, FrameMode, QuotaRe
 import { setDocPosition, stripDerivedKeys, toReadModel, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
   QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS,
-  ensureTextDomainDefaults, textDomainOf, writeTextDomainValue } from '@flowweb/shared';
+  ensureTextDomainDefaults, textDomainOf, writeTextDomainValue,
+  ensureXmlDomainDefaults, isXmlDomainKey } from '@flowweb/shared';
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -155,9 +156,14 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
       // Y.Map=新 item，嵌套/重放 addNode 形态会 doc 膨胀（与 cs 投影侧同 id 跳过守卫对齐）。
       if (d.getMap('nodes').has(intent.node.id)) break;
       // Y1c T15 容器规则——创建 seam 单点：Y.Text 域键缺省补齐（audioGen/multiImageGen.prompt=''、
-      // textInput.prompt={text:''}；G 纯函数副本——入参不突变）。补缺记录经 outcome 上浮：
-      // fillDoc 物化 doc 容器与 projectIntentToStore 投影同读一源（doc ≡ store 不变量口径）。
-      const effectiveNode: StoredNodeRecord = { ...intent.node, data: ensureTextDomainDefaults(intent.node.type, intent.node.data) };
+      // textInput.prompt={text:''}；G 纯函数副本——入参不突变）。Y1c T16：XmlFragment 域键缺省
+      // 补齐+string canonical 收编同缝（textInput.content/三域 prompt——fillDoc 物化容器与
+      // ns 投影同形）。补缺记录经 outcome 上浮：fillDoc 物化 doc 容器与 projectIntentToStore
+      // 投影同读一源（doc ≡ store 不变量口径）。
+      const effectiveNode: StoredNodeRecord = {
+        ...intent.node,
+        data: ensureXmlDomainDefaults(intent.node.type, ensureTextDomainDefaults(intent.node.type, intent.node.data)),
+      };
       fillDoc(d, [{ ...effectiveNode, data: stripEphemeralDataKeys(effectiveNode.data) }], []);
       return { rejectedKeys: OUTCOME_OK.rejectedKeys, node: effectiveNode };
     case 'updateNodeData': {
@@ -188,6 +194,14 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
             recordCollabDiag('write_reject', { reason: r.reason, via: 'text-domain' });
             (rejectedKeys ??= new Set<string>()).add(k);
           }
+          continue;
+        }
+        // Y1c T16：XmlFragment 域键（textInput.content/三域 prompt）=Tiptap 双端编辑器直绑
+        // （ySyncPlugin 直写容器，origin=ySyncPluginKey）——updateNodeData 域键写（getHTML 整串/
+        // PromptValue JSON 形态）一律拒（容器替换对抗面 G17b；写入面=编辑器绑定/创建 seam 唯二）。
+        if (isXmlDomainKey(nodeType, k)) {
+          recordCollabDiag('write_reject', { reason: 'xml-fragment-domain-editor-bound', via: 'xml-domain' });
+          (rejectedKeys ??= new Set<string>()).add(k);
           continue;
         }
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }

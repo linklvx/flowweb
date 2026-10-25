@@ -1,4 +1,5 @@
 import { memo, useCallback, useState, useEffect, useRef } from 'react';
+import { useRemoteTextareaResync, attachImeCompositionMark } from './useRemoteTextareaResync';
 import { useViewport } from '@xyflow/react';
 import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
@@ -49,6 +50,12 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   const [maximized, setMaximized] = useState(false);
   const recognitionRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Q-I-3(b)：IME 组段标记（重同步让位面——useRemoteTextareaResync 消费）
+  useEffect(() => attachImeCompositionMark(textareaRef), [textareaRef]);
+  // Y1c T16 挂账#2（Q-I-3 裁定 b）：远端 prompt 变更（非聚焦/非 IME）重同步本地 state——
+  // 消灭 mount-once 陈旧基线（远端编辑被下一键击整串 patch 抹除面）；残余=聚焦中并发（登记）
+  const docPrompt = useNodeStore((s) => (s.nodes[nodeId]?.data as { prompt?: string } | undefined)?.prompt ?? '');
+  useRemoteTextareaResync(docPrompt, setPrompt, textareaRef);
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
   const selectedModel = models.find((m) => m.id === model);
