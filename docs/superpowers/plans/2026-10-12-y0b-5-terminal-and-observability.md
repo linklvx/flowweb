@@ -527,7 +527,7 @@ it('persist-status {healthy:false}→persistUnhealthy=true→单链 persist 档�
 
 **Files:**
 - Modify: `apps/web/src/stores/canvasCollabRuntime.ts`（60s 计时）+ canvasStore（syncLagOver60s）+ SyncBanner（syncLag 档——T6 单链内）
-- Modify: `apps/web/src/stores/nodeStore.ts:589-615`（updateText 首段三行——T18 补正：T17 812909bb 上移 +10 行锚漂移未同步）
+- Modify: `apps/web/src/stores/nodeStore.ts:599-625`（updateText 首段三行——T18 补正：T17 812909bb 上移 +10 行锚漂移未同步；Y1c T12 期间再漂 +10（599）重定位）
 
 - [ ] **Step 1: 红测**
 
