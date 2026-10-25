@@ -28,8 +28,12 @@ export interface PromptInputSchemaExtensionsOptions {
   /** Placeholder 文案（Placeholder.configure 同参直通） */
   placeholder: string;
   /** inline image chip 的 NodeView（DOM 构造——渲染面不影响 schema：attrs/node 名只由
-   *  extension 类型与 configure 决定） */
-  imageNodeView: (props: NodeViewRendererProps) => { dom: HTMLElement };
+   *  extension 类型与 configure 决定）。update=PM NodeView 规范更新钩子（prosemirror-view
+   *  只识别 dom/contentDOM/update/…——非规范名（如 updateNodeView）为死成员静默漂移，F-1） */
+  imageNodeView: (props: NodeViewRendererProps) => {
+    dom: HTMLElement;
+    update?: (node: NodeViewRendererProps['node']) => boolean;
+  };
   /** '/' 命令面板 items 查询（消费 COMMANDS 表——PromptInput 注入过滤实现） */
   commandItems: (query: string) => CommandItem[];
   /** '/' 命令面板 suggestion 渲染器工厂（React portal 渲染面） */

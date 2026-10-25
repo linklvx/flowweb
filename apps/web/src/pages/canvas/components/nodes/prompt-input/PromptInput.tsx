@@ -279,9 +279,10 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
               // 修正批#1：node.attrs.src=mediaId——渲染层受控 URL 解析（allImages 池按 id
               // 查 url；miss=占位灰块，不外联不加载未知 URL）。
-              // Q-M-1（双评审收口）：池查找双档=创建时一次+updateNodeView 重解析（chip 先于
+              // Q-M-1（双评审收口）：池查找双档=创建时一次+update 钩子重解析（chip 先于
               // allImages 到达/媒体后加载——编辑器事务触达节点视图时刷新；allImages 单独变更
-              // 不触发编辑器事务=失效方向安全但 UI 陈旧，评审接受面）
+              // 不触发编辑器事务=失效方向安全但 UI 陈旧，评审接受面。F-1 复核勘误：PM 更新
+              // 钩子规范名=update——updateNodeView 非规范名永不被调，原修复实为 no-op）
               const img = document.createElement('img');
               const resolveInto = (mediaId: unknown): void => {
                 const resolved = allImagesRef.current.find((it) => it.id === mediaId)?.url;
@@ -308,9 +309,12 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
               return {
                 dom,
-                // Q-M-1：attrs/编辑器事务触达节点视图时池重解析（复用 dom 不重建）
-                updateNodeView: (props: NodeViewRendererProps) => {
-                  resolveInto(props.node.attrs.src);
+                // Q-M-1/F-1：attrs/编辑器事务触达节点视图时池重解析（返回 true 复用 dom 不重建；
+                // 节点类型漂移=返 false 走 PM 重建档）
+                update: (node: NodeViewRendererProps['node']) => {
+                  if (node.type.name !== 'image') return false;
+                  resolveInto(node.attrs.src);
+                  return true;
                 },
               };
             },

@@ -216,7 +216,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       });
       const stored = useNodeStore.getState().nodes['img9'];
       const imgData = stored.data as unknown as ImageNodeData;
-      expect(imgData.prompt).toBeUndefined();   // doc 拒 ⇒ ns 同剥（收口——半落根修）
+      expect(imgData.prompt).toBeUndefined();   // 域键经 updateConfig=patch 先剔不过 seam（T16 C-1 载荷根修——ns 恒无 config 域值）
       // 非域键写照常（对照组）
       useNodeStore.getState().updateConfig('img9', { style: '动漫' });
       expect((useNodeStore.getState().nodes['img9'].data as unknown as ImageNodeData).style).toBe('动漫');
