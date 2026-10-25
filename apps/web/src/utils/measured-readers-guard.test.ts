@@ -50,8 +50,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // 换芯/duplicate·paste allocator）+cells→slot 片（syncStoryboardCells 族）——13 行整体漂移（集合不变）
     // T18 顺修③：persistArrangeOrder slot 域防御过滤 +4 行——13 行尾部两行 1836,1837→1840,1841 漂移（集合不变）
     // Y1c T1：nodeTypeMap 惰性化(+5)/创建断言(+4)/nodeTypes 常量化等插入——13 行 +16 行号漂移（零增删行）
-    // Y1c T15：addChildNode 域键缺省补齐（ensureTextDomainDefaults 注释 +2+1 行）——13 行 +3 漂移（集合不变）
-    'stores/canvasStore.ts': [1051, 1052, 1058, 1059, 1117, 1118, 1189, 1190, 1196, 1197, 1349, 1892, 1893],
+    // Y1c T15：addChildNode 域键缺省补齐 +3；T15 收口 G（纯预填五构造点）——13 行再 +4 漂移（集合不变）
+    'stores/canvasStore.ts': [1054, 1055, 1061, 1062, 1120, 1121, 1194, 1195, 1201, 1202, 1358, 1901, 1902],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移

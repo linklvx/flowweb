@@ -26,14 +26,14 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
   const base: FilterOptions = { dropTypes: [], dropIdPrefixes: [], resetStatusIdle: false, injectThumbnails: false };       // 快照口径（getProcessSnapshot 实参——批5-1 删信箱后不再剥 shadow-）
   const cloneOpts: FilterOptions = { dropTypes: ['videoEdit'], dropIdPrefixes: [], resetStatusIdle: false, injectThumbnails: false }; // 剥除口径——仅 dropTypes 维度与 clone 一致（clone 真实实参另传 resetStatusIdle:true；本组用例只测剥除行为，第十轮注）
 
-  it('textInput：content HTML→纯文本、prompt（string）直保留', () => {
+  it('textInput：content HTML→纯文本、prompt={text}（Y1c T15 Y.Map 域读模型形态）取 .text 保留', () => {
     const input: RawCanvasData = {
-      nodes: [rawNode('n1', 'textInput', { content: '<p>一只猫在窗台上</p>', prompt: '副提示词' })],
+      nodes: [rawNode('n1', 'textInput', { content: '<p>一只猫在窗台上</p>', prompt: { text: '副提示词' } })],
       edges: [],
     };
     const out = buildFilteredSnapshot(input, base);
     expect(out.nodes[0].data.content).toBe('一只猫在窗台上');
-    expect(out.nodes[0].data.prompt).toBe('副提示词');
+    expect(out.nodes[0].data.prompt).toBe('副提示词');   // prompt 分支 object→String(.text)——出口恒 string
   });
 
   it('imageGen：prompt.text 保留；html/fileId/mediaUrl/allImages/referenceImage/mediaName/generationBatchId/extConfig 全剥', () => {

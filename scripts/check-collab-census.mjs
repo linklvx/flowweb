@@ -1325,7 +1325,7 @@ if (isMain()) {
     }
     for (const f of Object.keys(NESTED_CREATOR_WHITELIST)) if (!(f in counts)) details.push(`嵌套创建点白名单点消失 ${f}（清单需同步）`);
     const nWl = Object.values(NESTED_CREATOR_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉓', `E27 嵌套类型创建点全登记（Y0c T4——new Y.Map/Array/Text 白名单 ${nWl} 点/6 文件；Y.Text/Y.Array 零创建点）`, details.length === 0, details);
+    report('㉓', `E27 嵌套类型创建点全登记（Y0c T4+Y1c T15——new Y.Map/Array/Text 白名单 ${nWl} 点/6 文件；Y.Text 创建点=fillDoc 物化工厂 3 处〔T15〕，Y.Array 零创建点）`, details.length === 0, details);
   }
 
   // ㉔双等价索引 census（Y0c T6，Z58/偏离 52 门禁化）：schema.prisma 全部唯一声明按 Prisma 命名

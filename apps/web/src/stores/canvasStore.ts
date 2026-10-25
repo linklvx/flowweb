@@ -928,6 +928,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (!canEditCommand('addNode', get())) { denyCommandUX('addNode'); return ''; }
     // Inner 化薄壳：构造核归 addNodeInner + dispatch + 选择态/ns 双写
     const node = get().addNodeInner(type, position, dataOverride, envelope);
+    // Y1c T15 收口 G：域键缺省**纯预填**（ensure 纯函数——返回补齐副本/原引用直通；入参不突变）：
+    // intent data 与下方 ns 直写同读 node.data——doc 容器/投影/ns 三面同源
+    node.data = ensureTextDomainDefaults(node.type, node.data) as typeof node.data;
     const id = node.id;
     // 批4b-1 换芯：协作语义（doc 首写+投影回填）走意图漏斗——canEdit 假时 dispatch doc+store
     // 双零写，下方 set 走 append 分支 = 既有"readOnly 可加节点后回弹"语义保留同型
@@ -1070,10 +1073,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     }
     // O0b-2 (i) 命令体显式值：data.width/height（载荷尺寸——splitImage 同源形态）提到信封并从 data 剥除
     //（终裁 59①[i]——addChildNode intent.node 扩 wh 键=删 customSize 后初始尺寸的显式形参）
-    // Y1c T15 容器规则：域键缺省补齐在**原 data 对象**上（下方解构 restData 入 intent 后 dispatch
-    // seam 只见副本——此处补齐使 ns 双写（data 原对象）与 doc 容器同形，doc ≡ store 不变量保持）
-    ensureTextDomainDefaults(sourceNode.type, data);
-    const { width: dataW, height: dataH, ...restData } = data as Record<string, unknown>;
+    // Y1c T15 收口 G：域键缺省纯预填（副本——入参 data 不突变）；restData 入 intent 与 ns 直写
+    //（data）两路同含缺省——doc 容器/投影/ns 三面同源
+    const fullData = ensureTextDomainDefaults(sourceNode.type, data) as Record<string, unknown>;
+    const { width: dataW, height: dataH, ...restData } = fullData;
     const hasWh = typeof dataW === 'number' && typeof dataH === 'number';
     const edge: Edge = { id: edgeId, source: sourceId, target: id };
 
@@ -1096,7 +1099,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     useNodeStore.getState().addNode({
       id,
       type: sourceNode.type!,
-      data: data as any,
+      data: fullData as any,
     });
 
     return id;
@@ -1139,11 +1142,13 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }
       // T17：order 键=allocator 唯一入口（含批内已构造成员——after 链零碰撞）
       if (itemRest.order == null) itemRest.order = allocateOrderAfter([...get().nodes, ...newNodes], null);
+      // Y1c T15 收口 G：域键缺省纯预填（newNode.data=补齐副本——intent 与 ns 直写同引用同形）
+      const nodeData = ensureTextDomainDefaults(resolvedType, itemRest);
       const newNode: Node = {
         id: nodeId,
         type: resolvedType,
         position: { x, y },
-        data: itemRest as Record<string, unknown>,
+        data: nodeData as Record<string, unknown>,
         selected: false,
       };
 
@@ -1218,7 +1223,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
     // Copy source node data to nodeStore + set transformMode（批4b-2：前置计算——dispatch 与 set 同值）
     const sourceNsNode = useNodeStore.getState().nodes[sourceId];
-    const nsData = sourceNsNode?.data ? { ...sourceNsNode.data, transformMode: true, imageRotation: 0, flipH: false, flipV: false } : { transformMode: true };
+    // Y1c T15 收口 G：域键缺省纯预填（transform 载荷同走创建 seam——intent 与 ns 直写同源）
+    const nsData = ensureTextDomainDefaults(sourceNode.type,
+      sourceNsNode?.data ? { ...sourceNsNode.data, transformMode: true, imageRotation: 0, flipH: false, flipV: false } : { transformMode: true });
 
     // 批4b-2 换芯：node+edge 双 intent 单 transact（data 取 nsData——与 nodeStore 写入同值）；
     // set exists 自适应防投影 append 叠重复（addChildNode 同款）
@@ -1312,6 +1319,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // v3.17 终裁 65③ 的"Inner 化批随迁改名"迁移注释核销）+源集→新节点 N 边同批单 transact
     // （addNode intent+upsertEdge×N 一批——同 runCommand 单 undo）。
     const node = get().addNodeInner(type, position);
+    // Y1c T15 收口 G：域键缺省纯预填（addNode 同款——intent/ns 直写/投影三面同源）
+    node.data = ensureTextDomainDefaults(node.type, node.data) as typeof node.data;
     const id = node.id;
     const edges = batchConnectEdges(sourceIds, id); // 新目标 id ⇒ 全新 handle: 边
     dispatchCanvasIntent([

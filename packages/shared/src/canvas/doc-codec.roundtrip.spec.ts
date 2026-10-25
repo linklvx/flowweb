@@ -11,7 +11,7 @@
 // URL host allowlist）⑥属性式 fuzz（种子 PRNG——随机 doc 反复 round-trip）。
 // 附：E68 对抗语料族（Y1c T4 收编迁移自 apps/api adversarial-readers.spec——readRecordsFromMaps
 // 转 codec 内部单源 import，FakeMap DocLike 直读用例随迁 shared；api 侧该 spec 删除）。
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import {
   serializeCanvas, toReadModel, toPublicReadModel, rebuildCanvasDoc, semanticEqual,
@@ -19,6 +19,7 @@ import {
 } from './doc-codec';
 import { fillDoc, readRecordsFromMaps, type DocLike, type DocEdgeRecord } from './docShape';
 import type { TextLike } from './text-domains';
+import { materializeTextDomainValue } from './text-domains';
 import { setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 import { generateAdversarialDocs } from '../testing/adversarial-doc';
 
@@ -444,5 +445,33 @@ describe('E68 读者全函数（对抗语料：要么产出结果要么 typed �
       expect(Array.isArray(readRecordsFromMaps(toDocLike(doc)).nodes)).toBe(true);
     }
     expect(wrote).toBeGreaterThan(0);
+  });
+});
+
+
+// ── Y1c T15 收口 D（Q-M-2）：物化路径零 premature-access 告警（isTextLike duck 化+初值集成后写入）──
+describe('T15 收口 D：fillDoc 域键物化零 premature-access 告警（yjs warnPrematureAccess 噪声根修）', () => {
+  it('创建初值形态（string→容器）+rebuild 透传形态（Y 实例）双路零 console.warn（现状红：isTextLike 读 .length/ detached insert 内部读触发）', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // ① 创建初值形态：fillDoc 物化 string 初值（materialize 内部建容器+fillDoc 集成后落初值）
+      const doc = new Y.Doc();
+      fillDoc(toDocLike(doc), [
+        { id: 'a1', type: 'audioGen', data: { model: 'm', prompt: '初值词' } },
+        { id: 't1', type: 'textInput', data: { content: '', prompt: { text: '面板初值' } } },
+      ], []);
+      const aData = (doc.getMap('nodes').get('a1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
+      expect((aData.get('prompt') as Y.Text).toString()).toBe('初值词');
+      const tData = (doc.getMap('nodes').get('t1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
+      expect(((tData.get('prompt') as Y.Map<unknown>).get('text') as Y.Text).toString()).toBe('面板初值');
+      // ② rebuild 透传形态：materialize 对未集成 Y.Text 实例（buildYValue 产物）in-duck 判定不读 getter
+      const detached = new Y.Text();
+      const out = materializeTextDomainValue('text', detached, { createText: () => new Y.Text(), createMap: () => new Y.Map() as never });
+      expect(out.value).toBe(detached);          // 原样透传（别名禁入）
+      expect(out.initialText).toBeNull();
+      expect(warnSpy).not.toHaveBeenCalled();   // 现状红：① detached insert 内部读 + ② .length 读各触发 warn
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

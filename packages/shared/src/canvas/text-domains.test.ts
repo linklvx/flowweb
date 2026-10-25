@@ -4,10 +4,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   TEXT_DOMAINS, textDomainOf, computeTextSplice, spliceTextLike, isTextLike,
-  materializeTextDomainValue, ensureTextDomainDefaults, writeTextDomainValue,
+  materializeTextDomainValue, ensureTextDomainDefaults, writeTextDomainValue, textTargetOf,
   type TextLike, type TextDomainShape,
 } from './text-domains';
-import type { DocMapLike } from './collab-doc-ops';
+import { isDocMap, type DocMapLike } from './collab-doc-ops';
+
+/** FakeMap 结构判定（isDocMap 同判——本文件 FakeMap 局部形态断言用）。 */
+const isDocMapShape = (v: unknown): boolean => isDocMap(v);
 
 // ── 内存装置（零 yjs——shared 测试纪律同 docShape.fillRead.test）──
 class FakeText {
@@ -69,36 +72,42 @@ describe('Y1c T15 computeTextSplice（整串 → 最小 splice——公共前缀
   });
 });
 
-describe('Y1c T15 创建 seam（materialize+ensure——fillDoc 消费面）', () => {
-  it("materialize 'text'：string→TextLike（值随容器）；TextLike 实例原样（rebuild 别名禁入）；异形原样不发明", () => {
-    const t = materializeTextDomainValue('text', '词', F) as TextLike;
-    expect(isTextLike(t)).toBe(true);
-    expect(t.toString()).toBe('词');
+describe('Y1c T15 创建 seam（materialize 两段式+ensure 纯函数——fillDoc 消费面；收口 D/G 形态）', () => {
+  it("materialize 'text'：string→空容器+initialText（两段式——初值集成后写入）；TextLike 实例原样透传（rebuild 别名禁入）；异形原样不发明", () => {
+    const r = materializeTextDomainValue('text', '词', F);
+    expect(isTextLike(r.value)).toBe(true);
+    expect((r.value as TextLike).toString()).toBe('');   // 容器空——初值归调用方集成后写入
+    expect(r.initialText).toBe('词');
+    expect(textTargetOf('text', r.value)).toBe(r.value);
     const existing = F.createText();
-    expect(materializeTextDomainValue('text', existing, F)).toBe(existing);
-    expect(materializeTextDomainValue('text', 42, F)).toBe(42);
+    expect(materializeTextDomainValue('text', existing, F)).toEqual({ value: existing, initialText: null });
+    expect(materializeTextDomainValue('text', 42, F)).toEqual({ value: 42, initialText: null });
+    expect(textTargetOf('text', 42)).toBeUndefined();
   });
-  it("materialize 'map-text'：{text}→Map{text:TextLike}；DocMapLike 原样；异形原样", () => {
-    const m = materializeTextDomainValue('map-text', { text: '面板词' }, F) as FakeMap;
-    expect(m.get('text')).toBeTruthy();
-    expect((m.get('text') as TextLike).toString()).toBe('面板词');
+  it("materialize 'map-text'：{text}→Map{text:空容器}+initialText（textTargetOf 定位内层）；DocMapLike 原样；异形原样", () => {
+    const r = materializeTextDomainValue('map-text', { text: '面板词' }, F);
+    const m = r.value as FakeMap;
+    expect(isDocMapShape(m)).toBe(true);
+    expect((m.get('text') as TextLike).toString()).toBe('');
+    expect(r.initialText).toBe('面板词');
+    expect(textTargetOf('map-text', m)).toBe(m.get('text'));
     const existingMap = F.createMap();
-    expect(materializeTextDomainValue('map-text', existingMap, F)).toBe(existingMap);
-    expect(materializeTextDomainValue('map-text', '裸串', F)).toBe('裸串');
+    expect(materializeTextDomainValue('map-text', existingMap, F)).toEqual({ value: existingMap, initialText: null });
+    expect(materializeTextDomainValue('map-text', '裸串', F)).toEqual({ value: '裸串', initialText: null });
+    expect(textTargetOf('map-text', '裸串')).toBeUndefined();
   });
-  it("ensureTextDomainDefaults：域键缺省补齐（空串/{text:空串}）——已在键不覆写", () => {
+  it("ensureTextDomainDefaults（收口 G 纯函数）：缺省键→补齐副本（入参不突变）；无缺省/非域类型→原引用直通", () => {
     const d1: Record<string, unknown> = { model: 'm' };
-    ensureTextDomainDefaults('audioGen', d1);
-    expect(d1).toEqual({ model: 'm', prompt: '' });
+    const out1 = ensureTextDomainDefaults('audioGen', d1);
+    expect(out1).toEqual({ model: 'm', prompt: '' });
+    expect(out1).not.toBe(d1);                      // 副本——入参不突变
+    expect(d1).toEqual({ model: 'm' });             // 原对象原样
     const d2: Record<string, unknown> = { content: '' };
-    ensureTextDomainDefaults('textInput', d2);
-    expect(d2).toEqual({ content: '', prompt: { text: '' } });
-    const d3: Record<string, unknown> = { prompt: '显式初值' };
-    ensureTextDomainDefaults('audioGen', d3);
-    expect(d3.prompt).toBe('显式初值');
+    expect(ensureTextDomainDefaults('textInput', d2)).toEqual({ content: '', prompt: { text: '' } });
+    const d3: Record<string, unknown> = { prompt: '显式初值', model: 'm' };
+    expect(ensureTextDomainDefaults('audioGen', d3)).toBe(d3);   // 已在键→原引用直通（零拷贝）
     const d4: Record<string, unknown> = {};
-    ensureTextDomainDefaults('videoGen', d4); // 非域类型零动作
-    expect(d4).toEqual({});
+    expect(ensureTextDomainDefaults('videoGen', d4)).toBe(d4);   // 非域类型零动作
   });
 });
 

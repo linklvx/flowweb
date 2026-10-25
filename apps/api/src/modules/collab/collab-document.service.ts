@@ -251,8 +251,11 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  单事务写 data.{fileId|result}（applyWriteNodeDataToDoc 原语——Z44 交付判据）+exec done
    *  （applyWriteExecStatusToDoc 原语——exec 降 cache〔spec Z18''⑤ done=投影 poller 专写〕；
    *  exec patch 键集必须 ⊆ EXEC_STATUS_KEYS——红线，调用方=ProjectionOutboxPoller.execDonePatch）。
-   *  data written:false（node-deleted/no-node-map）=「谁观察 node 删除」的权威观察点——调用方按
-   *  orphaned 终态收敛+幂等退款；此档不建 exec 条目（Z4 存在性守卫同源——E22 读侧两形态等价）。
+   *  data written:false **按 reason 分档**（Y1c T15 收口 B②〔Q-M-3〕）：node-deleted/no-node-map=
+   *  「谁观察 node 删除」的权威观察点——调用方按 orphaned 终态收敛+幂等退款；no-data-map/
+   *  text-domain-protected 等**活节点结构缺/域键拒**≠node-deleted——调用方走 retry/failed 档
+   *  （耗 attempts）不 orphaned 不退款（见 projection-outbox.poller 分档）。此档不建 exec 条目
+   *  （Z4 存在性守卫同源——E22 读侧两形态等价）。
    *  execWritten=false（代次守卫拦截等）=UI cache 面降级，非交付判据（资金/交付判定读 PG）。 */
   async deliverArtifact(projectId: string, params: {
     nodeId: string;
@@ -286,10 +289,15 @@ export function undefinedPatchValueError(opName: string, k: string): Error {
 
 /** writeNodeData 写核心（Z44 交付判据：written:false=节点已删/结构缺失——交付路径唯一退款凭据）。
  *  Y0c T9（Z5）：首段 undefined fail-fast（应用前全扫——单写面覆盖；writeBatch 同函数两路径禁漂移）。
- *  Y1c T15 容器规则（服务端写 seam）：①Y.Text 域键（text-domains 词表——audioGen/multiImageGen/
- *  textInput.prompt）整串覆盖=容器替换对抗面，服务端无 splice 写腿一律 written:false 拒绝
- *  （text-domain-protected）；②缺 data Y.Map=结构错误拒绝不懒建（no-data-map——原懒建 Y.Map
- *  掩盖结构错误，§3.5 撤除；writeBatch 路径另受 Z108 SERVER_NODE_DATA_KEYS 键白名单先行拦）。 */
+ *  Y1c T15 容器规则（服务端写 seam；收口 B①〔Q-I-2〕**逐键拒**——与 web applyIntentToDoc 同尺）：
+ *  ①Y.Text 域键（text-domains 词表——audioGen/multiImageGen/textInput.prompt）skip 拒（服务端无
+ *  splice 写腿——容器替换对抗面），**非域键照写**（混 patch 不整 op 连坐丢）；written 语义=至少一
+ *  键落=true，全键被拒=written:false+text-domain-protected（WriteOpResult A1 冻结形状无逐键明细——
+ *  调用面 deliverArtifact 单键 {fileId|result} 非域键结构性不触此档；writeBatch 路径另受 Z108
+ *  SERVER_NODE_DATA_KEYS 键白名单先行拦，逐键守卫=直调原语面的防御纵深）；
+ *  ②结构缺整 op 拒：node-deleted/no-node-map/no-data-map（缺 data Y.Map=结构错误拒绝不懒建
+ *  ——原懒建 Y.Map 掩盖结构错误，§3.5 撤除；**poller 消费面按 reason 分档**——no-data-map ≠
+ *  node-deleted，见 projection-outbox.poller）。 */
 export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>): WriteNodeDataResult {
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) throw undefinedPatchValueError('writeNodeData', k);
@@ -297,13 +305,17 @@ export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Recor
   const entry = doc.getMap('nodes').get(nodeId);
   if (entry === undefined) return { written: false, reason: 'node-deleted' };   // Z44：交付判据类型化（原静默 return void）
   if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
-  const nodeType = entry.get('type');
-  for (const k of Object.keys(patch)) {
-    if (textDomainOf(nodeType, k)) return { written: false, reason: 'text-domain-protected' };
-  }
   const dataMap = entry.get('data');
   if (!(dataMap instanceof Y.Map)) return { written: false, reason: 'no-data-map' };
-  for (const [k, v] of Object.entries(patch)) dataMap.set(k, v);
+  const nodeType = entry.get('type');
+  let landed = 0;
+  let rejectedAny = false;
+  for (const [k, v] of Object.entries(patch)) {
+    if (textDomainOf(nodeType, k)) { rejectedAny = true; continue; }   // 域键 skip 拒——非域键照写
+    dataMap.set(k, v);
+    landed += 1;
+  }
+  if (landed === 0 && rejectedAny) return { written: false, reason: 'text-domain-protected' };
   return { written: true };
 }
 

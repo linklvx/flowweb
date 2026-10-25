@@ -4,7 +4,7 @@ import { CANVAS_BRIDGE_KEYS } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 // 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
-import { dispatchCanvasIntent } from './canvasIntents';
+import { dispatchCanvasIntent, stripRejectedPatchKeys } from './canvasIntents';
 import { Origin } from './canvasUndo';
 import { selectExecStatus, execOverrideStatus, type ExecStatusEntry, type NodeExecStatus } from './execStatusView';
 import type { MediaFactEntry } from './mediaFacts';
@@ -596,9 +596,11 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       return;
     }
     // 批4b-1 换芯：协作语义走意图漏斗（doc 首写+投影回填；dispatch 前置门重复拦截无害）；
-    // 下方写入体保留——与投影双写同值幂等（组 2 删旧路径后投影是唯一 store 写者）
-    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
-    applyDataPatchToStores(nodeId, patch);
+    // 下方写入体保留——与投影双写同值幂等（组 2 删旧路径后投影是唯一 store 写者）。
+    // Y1c T15 收口 A（Q-I-1）：直写体消费 dispatch outcome——被拒域键同剥（doc 拒 ⇒ ns 拒，
+    // 半落「面板显示新值/reload 静默消失」根修；全拒=空 patch no-op）。
+    const [outcome] = dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
+    applyDataPatchToStores(nodeId, stripRejectedPatchKeys(patch, outcome));
   },
 
   updateText: (id, content) => {

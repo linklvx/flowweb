@@ -131,33 +131,46 @@ export function resolveDoc(): Y.Doc | null {
   return testDoc ?? getDoc();
 }
 
+/** applyIntentToDoc 结果（T15 收口 A〔Q-I-1〕——doc 拒/补半落根修）：dispatch 投影与调用方
+ *  直写面（applyNodeDataPatch/canvasStore 构造点）消费，使 doc 与 store **同拒同落**
+ *  （checkProjectionInvariant 口径）；常态零拒时 rejectedKeys=空集、node=补缺省后记录（G 纯函数
+ *  副本——入参 intent.node.data 不突变）。 */
+export interface IntentApplyOutcome {
+  /** updateNodeData：被拒域键集（doc 未落——store 投影/直写面同剥，reload 不静默消失）。 */
+  readonly rejectedKeys: ReadonlySet<string>;
+  /** addNode：域键缺省补齐后的节点记录（副本——fillDoc 物化与 store 投影同源）。 */
+  readonly node?: StoredNodeRecord;
+}
+const OUTCOME_OK: IntentApplyOutcome = { rejectedKeys: new Set<string>() };
+
 /** doc 直写（fillDoc 复用新建路径；update/move 沿 ydocBuilder 的逐键 diff 守卫——同值 no-op
  *  防 doc 膨胀）。origin 由 dispatch 外层单 transact 统一（复合序列原子；本函数不开事务）。
  *  updateNodeData 的删键语义约定：patch 值 === undefined ⇒ delete 键（全量对账的"缺键删除"
  *  在意图形态的对应物）。此为客户端本地语义、永不上线（JSON wire 传不了 undefined——服务端
  *  收不到该形态）；服务端对应物=deleteNodeDataKeys 显式删键 op（Y0c T9——writeBatch 词汇）。 */
-export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
+export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOutcome {
   switch (intent.type) {
     case 'addNode':
       // 幂等守卫（批4b 评审 Minor）：doc 已有同 id 节点跳过重写——fillDoc 无条件 set 新
       // Y.Map=新 item，嵌套/重放 addNode 形态会 doc 膨胀（与 cs 投影侧同 id 跳过守卫对齐）。
       if (d.getMap('nodes').has(intent.node.id)) break;
       // Y1c T15 容器规则——创建 seam 单点：Y.Text 域键缺省补齐（audioGen/multiImageGen.prompt=''、
-      // textInput.prompt={text:''}）。**原位补 intent.node.data**：fillDoc 物化 doc 容器与
-      // projectIntentToStore 的 store 投影同读一源（doc ≡ store 不变量口径）；已在键不覆写。
-      ensureTextDomainDefaults(intent.node.type, intent.node.data);
-      fillDoc(d, [{ ...intent.node, data: stripEphemeralDataKeys(intent.node.data) }], []);
-      break;
+      // textInput.prompt={text:''}；G 纯函数副本——入参不突变）。补缺记录经 outcome 上浮：
+      // fillDoc 物化 doc 容器与 projectIntentToStore 投影同读一源（doc ≡ store 不变量口径）。
+      const effectiveNode: StoredNodeRecord = { ...intent.node, data: ensureTextDomainDefaults(intent.node.type, intent.node.data) };
+      fillDoc(d, [{ ...effectiveNode, data: stripEphemeralDataKeys(effectiveNode.data) }], []);
+      return { rejectedKeys: OUTCOME_OK.rejectedKeys, node: effectiveNode };
     case 'updateNodeData': {
       const m = d.getMap('nodes').get(intent.id);
-      if (!(m instanceof Y.Map)) return;
+      if (!(m instanceof Y.Map)) return OUTCOME_OK;
       // Y1c T15 容器规则：缺 data Y.Map=结构错误——拒绝不懒建（懒建掩盖结构错误，§3.5）
       const data = m.get('data');
       if (!(data instanceof Y.Map)) {
         recordCollabDiag('write_reject', { reason: 'data-map-missing', via: 'text-domain' });
-        return;
+        return OUTCOME_OK;
       }
       const nodeType = m.get('type');
+      let rejectedKeys: Set<string> | null = null;   // 收口 A：被拒域键上浮（投影/直写面同剥）
       for (const [k, v] of Object.entries(intent.patch)) {
         if (EPHEMERAL_DATA_KEYS.has(k)) continue; // ephemeral 禁入 doc（Spec B editMode 口径 13）
         // T11（spec Z11''①）：服务端权威域禁写键 strip——doc 零写（删键语义同拦：fileId 清空走
@@ -168,13 +181,16 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
         const domainShape = textDomainOf(nodeType, k);
         if (domainShape) {
           const r = writeTextDomainValue(data, domainShape, k, v);
-          if (!r.ok) recordCollabDiag('write_reject', { reason: r.reason, via: 'text-domain' });
+          if (!r.ok) {
+            recordCollabDiag('write_reject', { reason: r.reason, via: 'text-domain' });
+            (rejectedKeys ??= new Set<string>()).add(k);
+          }
           continue;
         }
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }
         if (!isEqual(data.get(k), v)) data.set(k, v);
       }
-      break;
+      return rejectedKeys ? { rejectedKeys } : OUTCOME_OK;
     }
     case 'deleteNode': {
       d.getMap('nodes').delete(intent.id);
@@ -191,7 +207,7 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
     }
     case 'moveNode': {
       const m = d.getMap('nodes').get(intent.id);
-      if (!(m instanceof Y.Map)) return;
+      if (!(m instanceof Y.Map)) return OUTCOME_OK;
       // O0a-1 键集表：目标父=分镜组 ⇒ 分镜子坐标无意义（纯 DOM 宫格）——move 语义=剥 position 键
       //（membership 变更点=剥键写者：convertGroup/addToGroup/dropImageIntoStoryboard 的 doc 面
       // move intent 在此落"分镜子无 position"；cs 面归零 {0,0} 构造默认由 projectIntentToStore 保留）。
@@ -211,7 +227,7 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
     }
     case 'updateNodeEnvelope': {
       const m = d.getMap('nodes').get(intent.id);
-      if (!(m instanceof Y.Map)) return;
+      if (!(m instanceof Y.Map)) return OUTCOME_OK;
       // O0b-5：position 经 setDocPosition 单源（子 Map 构造唯一原语——envelope-serialization 门禁口径；
       // 逐键 diff no-op 同 moveNode）
       if ('position' in intent.patch) {
@@ -240,6 +256,7 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
       d.getMap('edges').delete(intent.id);
       break;
   }
+  return OUTCOME_OK;
 }
 
 /** O0b-2 (ii) 内容事件写者统一入口（允许覆盖——终裁 59①[ii]）：图片 load/换图比例/替换/拼接完成/
@@ -354,7 +371,31 @@ function denyEditCommandDiag(command: EditableCommandName): void {
   recordCollabDiag('write_reject', { via: 'canEditCommand', command });
 }
 
-export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], origin: string): void {
+/** 投影侧 intent 修正（收口 A〔Q-I-1〕）：doc 拒的域键从投影 patch 剥除、addNode 用补缺省后
+ *  记录——doc 与 store 同拒同落（doc ≡ store；被拒键不因投影落 ns 造成「面板显示新值/reload
+ *  静默消失」半落）。 */
+function projectionIntentOf(intent: CanvasIntent, outcome: IntentApplyOutcome | undefined): CanvasIntent {
+  if (!outcome) return intent;
+  if (intent.type === 'updateNodeData' && outcome.rejectedKeys.size > 0) {
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(intent.patch)) if (!outcome.rejectedKeys.has(k)) patch[k] = v;
+    return { ...intent, patch };
+  }
+  if (intent.type === 'addNode' && outcome.node) return { ...intent, node: outcome.node };
+  return intent;
+}
+
+/** patch 剥除被拒域键（applyNodeDataPatch 直写面消费——与投影同尺；全拒=空 patch no-op）。 */
+export function stripRejectedPatchKeys(patch: Record<string, unknown>, outcome: IntentApplyOutcome | undefined): Record<string, unknown> {
+  if (!outcome || outcome.rejectedKeys.size === 0) return patch;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) if (!outcome.rejectedKeys.has(k)) out[k] = v;
+  return out;
+}
+
+/** dispatch 返回=逐 intent 对齐的 outcome 数组（收口 A：调用方直写面消费 rejectedKeys/node；
+ *  早退分支=空数组——doc+store 双零写，无拒绝/补缺语义）。 */
+export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], origin: string): IntentApplyOutcome[] {
   // T17（G34 七命令只读裁决单源）：canEditCommand 挂 dispatch 七命令总口（viewer 拒写+
   // 节流诊断）——canEdit（会话/水合/终态）维持 doc 面第二道
   const gateState = useCanvasStore.getState();
@@ -362,28 +403,30 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   for (const i of seq0) {
     if (!canEditCommand(i.type, gateState)) {
       denyEditCommandDiag(i.type);
-      return;
+      return [];
     }
   }
-  if (!canEdit(gateState)) return;
+  if (!canEdit(gateState)) return [];
   const d = resolveDoc();
-  if (!d) return; // canEdit 真 ⇒ runtime 会话在（hydration ready）⇒ doc 非空；null 为异常态零写
+  if (!d) return []; // canEdit 真 ⇒ runtime 会话在（hydration ready）⇒ doc 非空；null 为异常态零写
   const seq = Array.isArray(intent) ? intent : [intent];
   // T10 兜底断言（Q-I v3 seam 前置配套）：写路径应经 runCommand precheck/粘贴逐块/redo precheck
   // 前置判定——dispatch 收到拒判 intent 序列=前置设计漏洞（非常规路径），diag 留痕+静默零写。
   const v = canApplyIntent(seq);
   if (!v.ok) {
     recordCollabDiag('write_reject', { reason: v.reason, via: 'dispatch-fallback' });
-    return;
+    return [];
   }
+  const outcomes: IntentApplyOutcome[] = [];
   d.transact(() => {
-    for (const i of seq) applyIntentToDoc(d, i);
+    for (const i of seq) outcomes.push(applyIntentToDoc(d, i));
   }, origin);
-  for (const i of seq) projectIntentToStore(i);
+  for (let k = 0; k < seq.length; k += 1) projectIntentToStore(projectionIntentOf(seq[k], outcomes[k]));
   reconcileGroupGeometry(d, 'doc');
   // B7-1（O0b-4 接线）：transact 边界字段级一写者断言（reconcileWriteLedger 窗口收口+reset——
   // 窗口=本次 dispatch 全链[diff 首行 reconcile('cs') 携前序命令体写]至漏斗尾 reconcile 后）
   assertReconcileSingleWriterWindow();
+  return outcomes;
 }
 
 /** O0a-1 键集表 DEV 校验（三层防线②挂载点=复合批尾 dispatchProjectionDiff——非每个原子

@@ -65,3 +65,23 @@ describe('Y1c T15 服务端写 seam 原语：Y.Text 域整串覆盖拒 + 缺容�
     expect((data.get('prompt') as Y.Text).toString()).toBe('abc');
   });
 });
+
+describe('T15 收口 B①（Q-I-2）：api 逐键拒对称化——混 patch 域键 skip 非域键照写（与 web 同尺）', () => {
+  it('混 patch {prompt,model}：written:true+model 落+prompt 容器原样（现状红：整 op 拒 model 丢）', () => {
+    const doc = new Y.Doc();
+    const { data } = seedAudioNode(doc, 'a1', { promptContainer: 'abc' });
+    const r = applyWriteNodeDataToDoc(doc, 'a1', { prompt: 'whole-overwrite', model: 'm2' });
+    expect(r.written).toBe(true);                          // 至少一键落=true（A1 语义：written=有写入）
+    expect(data.get('model')).toBe('m2');                  // 非域键照写（现状红：整 op 拒连带丢）
+    expect(data.get('prompt') instanceof Y.Text).toBe(true);
+    expect((data.get('prompt') as Y.Text).toString()).toBe('abc');
+  });
+
+  it('全域键 patch 仍 written:false（text-domain-protected 档不变）+空 patch 维持 written:true no-op', () => {
+    const doc = new Y.Doc();
+    const { data } = seedAudioNode(doc, 'a1', { promptContainer: 'abc' });
+    expect(applyWriteNodeDataToDoc(doc, 'a1', { prompt: 'x' })).toMatchObject({ written: false, reason: 'text-domain-protected' });
+    expect(applyWriteNodeDataToDoc(doc, 'a1', {})).toEqual({ written: true });
+    expect((data.get('prompt') as Y.Text).toString()).toBe('abc');
+  });
+});

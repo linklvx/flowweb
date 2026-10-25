@@ -57,12 +57,12 @@ export function textDomainOf(nodeType: unknown, key: string): TextDomainShape | 
   return typeof nodeType === 'string' ? TEXT_DOMAINS[nodeType]?.[key] : undefined;
 }
 
-/** TextLike 结构判定（零 instanceof——鸭子判定 insert/delete/length）。 */
+/** TextLike 结构判定（零 instanceof——in 运算符 duck 化：**禁读属性**——未集成 Y.Text 的
+ *  `length` getter/方法属性读取触发 yjs warnPrematureAccess 噪声（rebuild 回灌路径在 fillDoc
+ *  物化面前拿到的是未集成实例；`in` 检查原型链存在性不触发 getter，Q-M-2 根修）。 */
 export function isTextLike(v: unknown): v is TextLike {
   return typeof v === 'object' && v !== null
-    && typeof (v as { length?: unknown }).length === 'number'
-    && typeof (v as { insert?: unknown }).insert === 'function'
-    && typeof (v as { delete?: unknown }).delete === 'function';
+    && 'insert' in v && 'delete' in v;
 }
 
 /** 整串 → 最小 splice（公共前缀/后缀裁剪——IME 组段/粘贴/选区替换全形态收敛为单次 delete+insert）。 */
@@ -99,40 +99,55 @@ function plainTextOf(shape: TextDomainShape, v: unknown): { text: string } | und
   return undefined;
 }
 
-/** 创建 seam 物化（fillDoc 消费——域键的 plain 值 → 共享容器；已实例/异形原样透传不发明）：
- *  - 'text'：string → 新 TextLike（值随容器落位）；TextLike → 原样（rebuild/快照回灌别名禁入面）。
- *  - 'map-text'：{text} → 新 Map{text:TextLike}；DocMapLike → 原样。
- *  - 其他（含键缺席 undefined）：原样返回——fillDoc 只物化在册在记域键，结构完整性归创建 seam
- *    （ensureTextDomainDefaults）——重建等价断言（fresh 不多于 source）依赖本不发明语义。 */
-export function materializeTextDomainValue(shape: TextDomainShape, value: unknown, f: { createText(): TextLike; createMap(): DocMapLike }): unknown {
+/** 创建 seam 物化结果（两段式——Q-M-2 根修）：container=物化容器（initialText=null 时原样
+ *  透传值）；initialText≠null ⇒ 调用方须在**容器集成后**对 textTarget 写入初值（detached
+ *  Y.Text 上 insert 依赖 yjs 内部 buffer 读取〔warnPrematureAccess 噪声〕——集成后写入=真 op）。
+ *  'text'：string → 空容器+初值；TextLike → 原样透传（rebuild/快照回灌别名禁入面，内容自带）。
+ *  'map-text'：{text} → Map{text:空容器}+初值；DocMapLike → 原样。
+ *  其他（含键缺席 undefined）：原样透传——fillDoc 只物化在册在记域键，结构完整性归创建 seam
+ *  （ensureTextDomainDefaults）——重建等价断言（fresh 不多于 source）依赖本不发明语义。 */
+export interface MaterializeTextDomainResult {
+  /** 物化容器（或原样透传值）——fillDoc 直接 data.set。 */
+  value: unknown;
+  /** 初值文本（null=无需写入：透传/异形/空串）；目标=shape 'text' 的 value 本体/'map-text' 的 text 子键。 */
+  initialText: string | null;
+}
+export function materializeTextDomainValue(shape: TextDomainShape, value: unknown, f: { createText(): TextLike; createMap(): DocMapLike }): MaterializeTextDomainResult {
   if (shape === 'text') {
-    if (isTextLike(value)) return value;
+    if (isTextLike(value)) return { value, initialText: null };
     const plain = plainTextOf('text', value);
-    if (!plain) return value;
-    const t = f.createText();
-    if (plain.text !== '') t.insert(0, plain.text);
-    return t;
+    if (!plain) return { value, initialText: null };
+    return { value: f.createText(), initialText: plain.text };
   }
-  if (isDocMap(value)) return value;
+  if (isDocMap(value)) return { value, initialText: null };
   const plain = plainTextOf('map-text', value);
-  if (!plain) return value;
-  const t = f.createText();
-  if (plain.text !== '') t.insert(0, plain.text);
+  if (!plain) return { value, initialText: null };
   const m = f.createMap();
-  m.set('text', t);
-  return m;
+  m.set('text', f.createText());
+  return { value: m, initialText: plain.text };
 }
 
-/** 创建 seam 域键缺省补齐（web dispatch addNode 单点——intent.node.data 原位补缺省，doc 容器与
- *  store 投影同读一源）：audioGen/multiImageGen.prompt=''、textInput.prompt={text:''}。
- *  已在键不覆写（dataOverride 显式初值优先）。 */
-export function ensureTextDomainDefaults(nodeType: unknown, data: Record<string, unknown>): void {
+/** 物化结果的初值写入目标解析（fillDoc 集成后消费——shape 定位 text 键）。 */
+export function textTargetOf(shape: TextDomainShape, container: unknown): TextLike | undefined {
+  if (shape === 'text') return isTextLike(container) ? container : undefined;
+  if (!isDocMap(container)) return undefined;
+  const inner = container.get('text');
+  return isTextLike(inner) ? inner : undefined;
+}
+
+/** 创建 seam 域键缺省补齐（**纯函数**——Q-M-6：不突变入参，返回补齐副本；无缺省键时返回原引用
+ *  便于调用方零拷贝直通）：audioGen/multiImageGen.prompt=''、textInput.prompt={text:''}。
+ *  已在键不覆写（dataOverride 显式初值优先）。调用面=canvasIntents.applyIntentToDoc（fillDoc 前）
+ *  +canvasStore 构造点预填（doc 容器/store 投影/ns 直写三面同源）。 */
+export function ensureTextDomainDefaults(nodeType: unknown, data: Record<string, unknown>): Record<string, unknown> {
   const domains = typeof nodeType === 'string' ? TEXT_DOMAINS[nodeType] : undefined;
-  if (!domains) return;
+  if (!domains) return data;
+  let out: Record<string, unknown> | null = null;
   for (const [key, shape] of Object.entries(domains)) {
     if (data[key] !== undefined) continue;
-    data[key] = shape === 'text' ? '' : { text: '' };
+    (out ??= { ...data })[key] = shape === 'text' ? '' : { text: '' };
   }
+  return out ?? data;
 }
 
 /** 写 seam 拒绝词表（closed enum——canvasIntents diag reason + 观测面同词）。 */

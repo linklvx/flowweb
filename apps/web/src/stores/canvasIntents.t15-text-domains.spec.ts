@@ -14,7 +14,7 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { dispatchCanvasIntent, _setIntentDocForTest } from './canvasIntents';
-import { Origin } from './canvasUndo';
+import { Origin, attachUndoManager, detachUndoManager, stopCapturing, undoCanvas } from './canvasUndo';
 
 /** canEdit 真（hydration ready + 非 readOnly + 无 terminal）——漏斗 dispatch 门放行。 */
 function openRwWindow() {
@@ -223,5 +223,82 @@ describe('Y1c T15 用例面：IME/粘贴/选区/两端同位插入并发（splic
     expect(merged).toContain('X');
     expect(merged).toContain('Y');
     expect(merged.startsWith('abc')).toBe(true);
+  });
+});
+
+describe('T15 收口 A（Q-I-1）：拒写半落根修——doc 拒 ⇒ store 投影同拒（doc ≡ store）', () => {
+  let doc: Y.Doc;
+  const seedMismatch = (): void => {
+    // 容器形状错：prompt=string 覆在 Y.Text 位（结构错误——写 seam 拒 container-type-mismatch）
+    const data = new Y.Map();
+    data.set('model', 'm-audio');
+    data.set('prompt', 'legacy-string');
+    const n = new Y.Map();
+    n.set('type', 'audioGen');
+    n.set('data', data);
+    doc.getMap('nodes').set('a1', n);
+  };
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+    seedMismatch();
+    // ns 同形种子（applyDocToStore 水合形态——updateNodeData 投影对缺席 ns 节点 no-op，须在案）
+    useNodeStore.setState({
+      nodes: { a1: { id: 'a1', type: 'audioGen', data: { model: 'm-audio', prompt: 'legacy-string' } as any } },
+    });
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('dispatch 混 patch {prompt,model}：doc 拒 prompt 落 model ⇒ ns 同拒 prompt 同落 model（现状红：ns 半落 prompt 新值）', () => {
+    dispatchCanvasIntent({ type: 'updateNodeData', id: 'a1', patch: { prompt: 'whole', model: 'm2' } }, Origin.LocalUser);
+    const docData = (doc.getMap('nodes').get('a1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
+    expect(docData.get('prompt')).toBe('legacy-string');   // doc 拒（结构错误不掩盖）
+    expect(docData.get('model')).toBe('m2');
+    const nsData = useNodeStore.getState().nodes['a1']?.data as unknown as Record<string, unknown>;
+    expect(nsData?.prompt).toBe('legacy-string');          // ns 同拒——不显示 doc 未收的新值（reload 静默消失根修）
+    expect(nsData?.model).toBe('m2');
+  });
+
+  it('applyNodeDataPatch 直写面同拒：面板路径全拒 patch ⇒ ns 零落（现状红：直写体无条件落 ns）', () => {
+    useNodeStore.getState().applyNodeDataPatch('a1', { prompt: 'whole-overwrite' });
+    const docData = (doc.getMap('nodes').get('a1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
+    const nsData = useNodeStore.getState().nodes['a1']?.data as unknown as Record<string, unknown>;
+    expect(docData.get('prompt')).toBe('legacy-string');
+    expect(nsData?.prompt).toBe('legacy-string');          // 直写体与投影同剥被拒键
+  });
+});
+
+describe('T15 收口 E（Q-M-5）：真 UndoManager 路径——um.undo() item 级恢复后写经 seam 合法（不绕懒建）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => { _setIntentDocForTest(null); detachUndoManager(); });
+
+  it('attachUndoManager 真配置（[nodes,edges]×trackedOrigins LocalUser）：删节点→undoCanvas() 恢复同实例容器，后续 seam 写 ok', async () => {
+    const um = attachUndoManager(doc);
+    dispatchCanvasIntent({
+      type: 'addNode',
+      node: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: { model: 'm', prompt: 'v1' } },
+    }, Origin.LocalUser);
+    const before = ((doc.getMap('nodes').get('a1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('prompt') as Y.Text;
+    expect(before.toString()).toBe('v1');   // 删除前容器在案（集成态读取零告警）
+    stopCapturing();
+    dispatchCanvasIntent({ type: 'deleteNode', id: 'a1' }, Origin.LocalUser);
+    expect(doc.getMap('nodes').has('a1')).toBe(false);
+    await undoCanvas();
+    expect(doc.getMap('nodes').has('a1')).toBe(true);
+    const restored = ((doc.getMap('nodes').get('a1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('prompt');
+    expect(restored instanceof Y.Text).toBe(true);
+    // 恢复态=完整容器（undo 后 map 入口是新 JS 句柄——删除期旧句柄 first 已失效〔delete set 读空〕，
+    // item 级内容经 UndoManager 保留：值随子树恢复）
+    expect((restored as Y.Text).toString()).toBe('v1');
+    // 恢复后写经 seam 合法：容器在（undo 不产生缺容器态），splice 直落
+    dispatchCanvasIntent({ type: 'updateNodeData', id: 'a1', patch: { prompt: 'v2' } }, Origin.LocalUser);
+    expect((restored as Y.Text).toString()).toBe('v2');
+    um.destroy();
   });
 });

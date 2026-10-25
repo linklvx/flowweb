@@ -180,6 +180,42 @@ describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3�
     expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
   });
 
+  // ── Y1c T15 收口 B②（Q-M-3）：written:false reason 分档——结构缺≠node-deleted ──
+  it('no-data-map（活节点缺 data Map）≠node-deleted：不 orphaned 不退款不 reconcile——走 retry-failed 档（现状红：误判 orphaned 终态）', async () => {
+    const { poller, prisma, reconciler } = makePoller({
+      claimRows: [row()],
+      deliverArtifact: vi.fn(async () => ({ data: { written: false, reason: 'no-data-map' }, execWritten: false })),
+    });
+    const r = await poller.tick();
+    expect(r.outcomes.orphaned ?? 0).toBe(0);                   // 活节点误删根修（未置键=0）
+    expect(r.outcomes['retry-failed']).toBe(1);                 // 真失败档——耗 attempts 退避重试
+    expect(reconciler.requestReconcile).not.toHaveBeenCalled(); // MediaBinding 误删面
+    // 状态落 pending+attempts=1（非 orphaned 终态）——退款路径结构性不可达（mark 走 prisma 面）
+    const updateArgs = (prisma.artifactProjection.updateMany as any).mock.calls;
+    expect(updateArgs.some((c: any[]) => c[0]?.data?.state === 'orphaned')).toBe(false);
+    expect(updateArgs.some((c: any[]) => c[0]?.data?.state === 'pending' && c[0]?.data?.attempts === 1)).toBe(true);
+  });
+
+  it('no-node-map 维持 orphaned/refund（真删/结构壳档——node-deleted 同族）', async () => {
+    const { poller, reconciler } = makePoller({
+      claimRows: [row()],
+      deliverArtifact: vi.fn(async () => ({ data: { written: false, reason: 'no-node-map' }, execWritten: false })),
+    });
+    const r = await poller.tick();
+    expect(r.outcomes.orphaned).toBe(1);
+    expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
+  });
+
+  it('text-domain-protected（域键拒）同走 retry-failed 档——不 orphaned', async () => {
+    const { poller } = makePoller({
+      claimRows: [row()],
+      deliverArtifact: vi.fn(async () => ({ data: { written: false, reason: 'text-domain-protected' }, execWritten: false })),
+    });
+    const r = await poller.tick();
+    expect(r.outcomes.orphaned ?? 0).toBe(0);
+    expect(r.outcomes['retry-failed']).toBe(1);
+  });
+
   it('superseded/retry/spooled 不触发（非交付落点零索引动作）', async () => {
     // rev 又进（recheck 不一致）⇒ superseded——requestReconcile 零调用
     const { poller, prisma, reconciler } = makePoller({ claimRows: [row()] });

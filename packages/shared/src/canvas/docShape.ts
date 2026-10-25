@@ -14,7 +14,7 @@
 import type { RelPos } from './brands';
 import { isDocMap, setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 // Y1c T15：Y.Text 域创建 seam（容器物化单源——textDomainOf/materializeTextDomainValue）
-import { materializeTextDomainValue, textDomainOf, type TextLike } from './text-domains';
+import { materializeTextDomainValue, textTargetOf, textDomainOf, type TextDomainShape, type TextLike } from './text-domains';
 // T17 P1-2：DOC_NODE_KEYS placement 判别校验接线（docShape→placement 单向——placement 只依
 // nodeEnvelope/order-key，零环）
 import { validatePlacementData } from './placement';
@@ -92,12 +92,23 @@ export function fillDoc(
     // （string→Y.Text / {text}→Y.Map{text:Y.Text}；已实例原样——rebuild/快照回灌）。**不发明
     // 缺席键**：记录真值优先（vacuum 重建等价断言=fresh 不多于 source）；web 创建完整性由
     // ensureTextDomainDefaults 在 dispatch addNode seam 补域键缺省（doc 容器与 store 投影同源）。
+    // 收口 D（Q-M-2）：物化两段式——初值文本在容器**集成后**写入（detached Y.Text 上 insert
+    // 依赖 yjs 内部 buffer 读取=warnPrematureAccess 噪声；集成后写入=真 op 零告警）。
+    const pendingTexts: Array<[TextDomainShape, unknown, string]> = [];
     for (const [k, v] of Object.entries(rec.data ?? {})) {
       const shape = textDomainOf(rec.type, k);
-      data.set(k, shape ? materializeTextDomainValue(shape, v, { createText: () => doc.createText(), createMap: () => doc.createMap() }) : v);
+      if (!shape) { data.set(k, v); continue; }
+      const { value, initialText } = materializeTextDomainValue(shape, v, { createText: () => doc.createText(), createMap: () => doc.createMap() });
+      data.set(k, value);
+      if (initialText != null && initialText !== '') pendingTexts.push([shape, value, initialText]);
     }
     m.set('data', data);
     nodesMap.set(rec.id, m);
+    // 集成后写入初值（目标解析同窗——detached Y.Map.get 不可达，集成前解析必 undefined）
+    for (const [shape, container, text] of pendingTexts) {
+      const target = textTargetOf(shape, container);
+      if (target) target.insert(0, text);
+    }
   }
   const edgesMap = doc.getMap('edges');
   for (const e of edges) {

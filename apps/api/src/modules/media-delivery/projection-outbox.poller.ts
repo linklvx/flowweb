@@ -298,11 +298,22 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
           exec: await this.execDonePatch(s.artifact),
         });
         if (!r.data.written) {
-          await this.mark(s.row, { state: 'orphaned', lastError: `node-deleted:${r.data.reason ?? 'unwritten'}` });
-          inc('orphaned');
-          await this.refundOrphaned(s.artifact);
-          // T16：node 删除=MediaBinding stale 清扫的权威观察点——触发该 project reconcile（删行）。
-          this.reconciler.requestReconcile(projectId);
+          const unwrittenReason = r.data.reason ?? 'unwritten';
+          // Y1c T15 收口 B②（Q-M-3）：written:false 按 reason 分档——只有真删族（node-deleted/
+          // no-node-map=节点不存在/非 map 壳）走 orphaned 权威观察点；活节点结构缺（no-data-map）
+          // /域键拒（text-domain-protected）≠node-deleted——误判 orphaned 会错终态+误退款+MediaBinding
+          // 误删（reconcile 触发），改走真失败档（耗 attempts 退避重试）+Sentry 告警（结构缺=bug 面）。
+          if (unwrittenReason === 'node-deleted' || unwrittenReason === 'no-node-map') {
+            await this.mark(s.row, { state: 'orphaned', lastError: `node-deleted:${unwrittenReason}` });
+            inc('orphaned');
+            await this.refundOrphaned(s.artifact);
+            // T16：node 删除=MediaBinding stale 清扫的权威观察点——触发该 project reconcile（删行）。
+            this.reconciler.requestReconcile(projectId);
+            continue;
+          }
+          const structErr = new Error(`deliverArtifact data unwritten reason=${unwrittenReason}（非 node-deleted 档——活节点结构缺/域键拒，T15 收口 B② 分档）`);
+          Sentry.captureException(structErr);
+          inc(await this.failRow(s.row, structErr) ? 'dead' : 'retry-failed');   // 真失败档——耗 attempts
           continue;
         }
         deliverable.push(s);
