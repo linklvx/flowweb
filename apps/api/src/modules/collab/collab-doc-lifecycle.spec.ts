@@ -210,6 +210,9 @@ describe('T41 W2 ①物化+⑦代际：loadDocument 播种/门族/connected 真�
     const { gateway, repo } = buildGateway();
     // 装载 #g2 播种 gen=2（真值链——评审探针 2 形态布景）
     repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [], stateSeq: 0n, generation: 2, schemaVersion: 3, pgSeq: 0n });
+    // 复核残留 I1.2 修适配：era 定格源=DB 真值（readGeneration——装载形态与 docGeneration 等值，
+    // 装载播种自 DB）——布景 DB 行 gen=2 同值（缺此布景 mock 缺省 null=未建档，era 折 0）
+    repo.readGeneration.mockResolvedValue(2);
     const loaded = new Y.Doc();
     await gateway.hooks.onLoadDocument({ document: loaded, documentName: 'project:p-i1#g2', socketId: 's0' } as any);
     loaded.destroy();

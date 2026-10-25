@@ -570,9 +570,11 @@ describe('C1 水位 UPDATE lease fence（全 fenced/部分 fenced 两 facet）',
 });
 
 // ══ I1.2（T12 双评审收口）：vacuumReplace 锁内 generation 复核——头注「锁内实读复核漂移即中止」缺落实装 ══
-//  布景=投影滞后于 DB（并发窗）：调用方（vacuumCore）传 beginVacuumEra 投影的当代 expectedGeneration，
-//  锁内实读 generation ≠ 投影 ⇒ 整体中止 DB 零变更（返回 aborted 档——先于任何写）。
-describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——beginVacuumEra 投影的当代）', () => {
+//  布景=expectedGeneration 滞后于 DB（并发窗）：调用方（vacuumCore）传 ④ 装载读行值
+//  （复核残留 I1.2 修——era 投影源退役；④ 读后⑥ 前的 DB 推进=真漂移窗），锁内实读 generation
+//  ≠ 该值 ⇒ 整体中止 DB 零变更（返回 aborted 档——先于任何写）。repository 直测形态
+//  （expectedGeneration 显式传错值→aborted——漂移档守卫面单点钉死）。
+describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——vacuumCore ④ 装载读行值）', () => {
   const shape = (c: any[]) => (c[0] as string[]).join('?');
 
   function buildVacuumSim(liveDoc: { generation: number; schemaVersion: number; vacuumEpoch: number; currentSnapshotRev: bigint } | null) {

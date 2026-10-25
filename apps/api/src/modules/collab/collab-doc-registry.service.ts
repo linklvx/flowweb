@@ -197,10 +197,12 @@ export class CollabDocRegistryService {
   private readonly vacuumingDocs = new Set<string>();
   private readonly docGeneration = new Map<string, number>();
   readonly docResidue = new Map<string, number>();
-  /** T12 收口 I1：真空纪元代投影会话态（beginVacuumEra 定格——current=当代〔vacuumReplace 锁内复核
-   *  的 expectedGeneration 源〕/target=当代+1〔4410 载荷〕）。独立于 docGeneration 生命周期：purge ③/
-   *  afterUnload 不清（真空后半窗 purge 已跑，onConnected 真空窗 close 4410 投影恒 1 的根修），
-   *  setVacuuming(false)〔vacuum ⑦ finally——成功/失败/中止统一出口〕+projectsGone 兜底清理。 */
+  /** T12 收口 I1：真空纪元代投影会话态（beginVacuumEra 定格——**DB 真值**〔readGeneration——复核
+   *  残留 I1.2 修：旧进程内源未装载形态恒 0〕：target=当代+1〔4410 载荷与 vacuumTargetGeneration
+   *  投影源——⑥ 复核源已改 vacuumCore ④ 装载读行值，era 定格值此后仅供载荷/target〕）。独立于
+   *  docGeneration 生命周期：purge ③/afterUnload 不清（真空后半窗 purge 已跑，onConnected 真空窗
+   *  close 4410 投影恒 1 的根修），setVacuuming(false)〔vacuum ⑦ finally——成功/失败/中止统一出口〕
+   *  +projectsGone 兜底清理。 */
   private readonly vacuumEraGen = new Map<string, { current: number; target: number }>();
   /** 零连接窄版自动 vacuum 注入点（CollabShrinkService 构造期后置注入——gateway↔service 循环依赖
    *  最小形态：service 单向注入 gateway，gateway 经回调反向调用）。 */
@@ -619,9 +621,15 @@ export class CollabDocRegistryService {
    *  ⑥ vacuumReplace 锁内实读复核，漂移即整体中止 DB 零变更）。 */
   async beginVacuumEra(pid: string): Promise<void> {
     this.vacuumingDocs.add(pid);
-    // I1：纪元开启即定格代投影（先于 thaw/settle——beginVacuumEra 全程可用；docGeneration 真空期
-    // 冻结：装载被 vacuuming 门拒+generation 唯一写点 vacuumReplace 排除=投影无竞态前提）
-    this.vacuumEraGen.set(pid, { current: this.docGeneration.get(pid) ?? 0, target: (this.docGeneration.get(pid) ?? 0) + 1 });
+    // I1+复核残留 I1.2 修：纪元开启即定格代投影（先于 thaw/settle——beginVacuumEra 全程可用）。
+    // 定格源=DB 真值（repo.readGeneration 单行 PK 读——行缺失折 0=懒建档）：旧源 docGeneration.get
+    // (pid)??0（进程内）在 doc 未装载形态（REST 显式 vacuum 不要求装载——gen≥1 项目重启后首次/
+    // 同进程第二次〔purge ③ 后 docGeneration 已清〕）投影恒 0 ⇒ ⑥ expectedGeneration≠DB=永久
+    // generation-drift 中止+4410 载荷 target 错（=1 非真代+1）；装载形态 DB 读与 docGeneration
+    // 等值（装载播种自 DB）——投影源直接替换，不保留进程内 fallback（根修禁双源）。真空期 generation
+    // 唯一写点=vacuumReplace 事务（装载被 vacuuming 门拒）=投影无竞态前提保持。
+    const dbGen = (await this.repo.readGeneration(pid)) ?? 0;
+    this.vacuumEraGen.set(pid, { current: dbGen, target: dbGen + 1 });
     if (this.quotaFrozenDocs.has(pid)) {
       this.thawQuota(pid);
       const deadline = Date.now() + VACUUM_THAW_SETTLE_MS;
@@ -754,8 +762,10 @@ export class CollabDocRegistryService {
     return (this.docGeneration.get(pid) ?? 0) + 1;
   }
 
-  /** T12 收口 I1.2：真空纪元当代/target 读面（vacuumCore ⑥ expectedGeneration 源——beginVacuumEra
-   *  投影定格值；purge ③ 后 docGeneration 无键仍可读；非真空期=undefined 调用方折 0）。 */
+  /** T12 收口 I1.2：真空纪元当代/target 读面（beginVacuumEra 定格值——DB 真值；purge ③ 后
+   *  docGeneration 无键仍可读；非真空期=undefined 调用方折 0）。复核残留 I1.2 修：vacuumCore ⑥
+   *  expectedGeneration 源已改 ④ loadForHydration 行值（复核窗口最小化 ④→⑥）——era 定格值此后
+   *  仅供 4410 载荷与 target 投影。 */
   vacuumEraGeneration(pid: string): { current: number; target: number } | undefined {
     return this.vacuumEraGen.get(pid);
   }

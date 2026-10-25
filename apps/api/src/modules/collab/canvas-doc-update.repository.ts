@@ -394,9 +394,10 @@ export class CanvasDocUpdateRepository {
    *  取号基准=锁内实读行集（禁 0/GREATEST 包装——canvas-doc-insert-ratchet 红线）；expected
    *  行数守卫=④ 读与锁内读之间有并发 append ⇒ 中止（行集在锁协议下只增不删〔append-only+
    *  compact 排队〕——长度相等即同一集合）。
-   *  T12 收口 I1.2：锁内实读 generation 复核（头注「漂移即整体中止 DB 零变更」的缺落实装）——
-   *  锁内头行 generation ≠ beginVacuumEra 投影的当代（调用方传入 expectedGeneration）⇒ 并发
-   *  换代窗（跨进程 CLI/另一 vacuumer）⇒ 返回 aborted 档整体中止（先于任何写=事务提交零变更）。
+   *  T12 收口 I1.2：锁内实读 generation 复核（头注「漂移即整体中止」的缺落实装）——
+   *  锁内头行 generation ≠ 调用方传入 expectedGeneration（vacuumCore ④ 装载读行值——post-quiesce，
+   *  复核窗口=④→⑥）⇒ 并发换代窗（跨进程 CLI/另一 vacuumer）⇒ 返回 aborted 档整体中止
+   *  （先于任何写=事务提交零变更）。
    *  Y1c T11（快照权威过渡形态）：CanvasDoc.state/stateSeq 列退役——真空态字节落 **CanvasDocSnapshot
    *  (g+1, rev 0)**（新代权威快照，stateHash 同 genesis 口径）+指针 currentSnapshotRev=0+purgeBelowSeq
    *  清档（行已同事务整删）+generation 落列+按 projectId 整删。
@@ -427,7 +428,7 @@ export class CanvasDocUpdateRepository {
           throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true });
         }
         const liveDoc = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, vacuumEpoch: true, currentSnapshotRev: true } });
-        // I1.2：锁内 generation 复核——≠beginVacuumEra 投影的当代 ⇒ aborted 档（先于任何写=DB 零变更）
+        // I1.2：锁内 generation 复核——≠expectedGeneration（调用方 ④ 装载读行值）⇒ aborted 档（先于任何写=DB 零变更）
         const dbGeneration = liveDoc?.generation ?? 0;
         if (dbGeneration !== expectedGeneration) {
           return { aborted: 'generation-drift' as const, dbGeneration };

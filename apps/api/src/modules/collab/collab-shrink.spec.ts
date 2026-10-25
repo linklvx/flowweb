@@ -1034,7 +1034,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     const docRepo = new CanvasDocUpdateRepository(prisma as any);
     const repo = {
       loadForHydration: vi.fn(async () => ({ state: update, updates: [update, update, update], stateSeq: 0n })),
-      vacuumReplace: (pid: string, st: Buffer, n: number, expectedGeneration: number) => docRepo.vacuumReplace(pid, st, n, expectedGeneration),   // T12 收口 I1.2：四参透传（expectedGeneration=纪元投影当代）
+      vacuumReplace: (pid: string, st: Buffer, n: number, expectedGeneration: number) => docRepo.vacuumReplace(pid, st, n, expectedGeneration),   // T12 收口 I1.2：四参透传（expectedGeneration=④ 装载读行值）
     };
     const { svc } = buildVacuumSvc(gateway, repo);
 

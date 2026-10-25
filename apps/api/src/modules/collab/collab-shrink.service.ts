@@ -55,7 +55,7 @@ export interface ExportFreshResult {
 
 /** T9a vacuum 出口（Q-U v6）：generation=新代数（ok 时）；bytes=真空编码字节（ok 时）。
  *  中止四档（equivalence-failed/unsupported-root/quiesce-timeout/generation-drift〔T12 收口
- *  I1.2——⑥ 锁内实读≠beginVacuumEra 投影的当代=并发换代窗，DB 零变更〕）DB 零变更+状态全恢复；
+ *  I1.2——⑥ 锁内实读≠④ 装载读行值=④→⑥ 间并发换代窗，DB 零变更〕）DB 零变更+状态全恢复；
  *  skip-low-residue=零连接自动路径残留不足跳过；error=意外（throw 前计数）。 */
 export interface VacuumResult {
   result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'generation-drift' | 'error';
@@ -300,9 +300,7 @@ export class CollabShrinkService {
       return r;
     };
     try {
-      await this.gateway.beginVacuumEra(pid);   // ⓪①②
-      // T12 收口 I1.2：纪元开启定格的当代投影（purge ③ 后 docGeneration 无键仍可读——⑥ 锁内复核源）
-      const expectedGeneration = this.gateway.vacuumEraGeneration(pid)?.current ?? 0;
+      await this.gateway.beginVacuumEra(pid);   // ⓪①②（era 定格 DB 真值——4410 载荷与 target 投影源）
       // ③ quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4 重排）：循环先判三态滞后度谓词
       // （isPersistedComplete——pending 空+spool 空+无在飞 store；doc 常驻不再是等待动因），三态空才
       // 经统一入口释放常驻会话，并以 released（或 undefined=releaser 未注册〔直构无 residency〕——
@@ -321,8 +319,11 @@ export class CollabShrinkService {
       }
       this.gateway.purgeDocState(pid);                     // 清进程态（普查表）
       this.docs.invalidateSnapshotCache(pid);              // SnapshotDocCache 旧代投影条目
-      // ④ 离线全根真空：装载读唯一入口（契约 1——repo.loadForHydration；不经 withDoc）
-      const { state: srcState, updates: srcUpdates } = await this.docRepo.loadForHydration(pid);
+      // ④ 离线全根真空：装载读唯一入口（契约 1——repo.loadForHydration；不经 withDoc）。
+      // 复核残留 I1.2 修：expectedGeneration=**④ 同一次 DB 读**的行值 generation（post-quiesce——
+      // ⑥ 复核窗口最小化到 ④→⑥；行缺失/桩缺省折 0=懒建档口径；④ 读后⑥ 前的 DB 推进才是真漂移窗
+      // ——锁内复核是权威防线）。era 定格值此后仅供 4410 载荷与 target 投影（purge ③ 后半窗不漂移）。
+      const { state: srcState, updates: srcUpdates, generation: expectedGeneration = 0 } = await this.docRepo.loadForHydration(pid);
       const oldDoc = createCanvasDoc();
       let newDoc: Y.Doc | null = null;
       try {
@@ -334,7 +335,7 @@ export class CollabShrinkService {
         const state = Buffer.from(Y.encodeStateAsUpdate(newDoc));
         // ⑥ 单事务代际替换（repository.vacuumReplace——lockProject 同键咨询锁+被删行取号基准
         //  精确赋值+同事务落列+按实读行 id 删+行集漂移守卫+**锁内 generation 复核**〔T12 收口 I1.2：
-        //  ≠beginVacuumEra 投影的当代=并发换代窗 ⇒ aborted 档整体中止 DB 零变更〕；T12 连续 seq 形态：
+        //  ≠④ 装载读行值=④→⑥ 间并发换代窗 ⇒ aborted 档整体中止 DB 零变更〕；T12 连续 seq 形态：
         //  新代快照基线=旧代 maxSeq+pgSeq/walCheckpointSeq 不重置+preVacuumSv 列随 SV 代际门退役删除）
         const replaced = await this.docRepo.vacuumReplace(pid, state, srcUpdates.length, expectedGeneration);
         if ('aborted' in replaced) return done({ result: 'generation-drift' });   // 中止档（⑦ finally 恢复——equivalence-failed 同形态）

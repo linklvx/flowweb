@@ -791,12 +791,13 @@ export const collabDocResidueBytes = new Gauge({
   collect() { try { this.set(docResidueReader?.() ?? 0); } catch { this.set(0); } },
 });
 
-/** vacuum 结果六档（Q-U v6）：ok=代际替换落地 / skip-low-residue=零连接自动路径残留不足跳过 /
- *  equivalence-failed=等价断言中止（DB 零变更） / unsupported-root=非 Map 根不支持中止（DB 零变更）/
- *  quiesce-timeout=卸载等待 30s 超时中止（禁降级继续）/ error=意外。 */
+/** vacuum 结果七档（Q-U v6+T12 收口 I1.2）：ok=代际替换落地 / skip-low-residue=零连接自动路径
+ *  残留不足跳过 / equivalence-failed=等价断言中止（DB 零变更） / unsupported-root=非 Map 根不支持
+ *  中止（DB 零变更）/ quiesce-timeout=卸载等待 30s 超时中止（禁降级继续）/ generation-drift=锁内
+ *  世代复核漂移中止（④ 装载读后并发换代——DB 零变更）/ error=意外。 */
 export const collabDocVacuumTotal = new Counter({
   name: 'collab_doc_vacuum_total',
-  help: 'vacuum 文档代际替换结果（result=ok 成功/skip-low-residue 自动路径残留不足跳过/equivalence-failed 等价断言中止 DB 零变更/unsupported-root 非 Map 根中止/quiesce-timeout 卸载等待超时中止/error 意外）',
+  help: 'vacuum 文档代际替换结果（result=ok 成功/skip-low-residue 自动路径残留不足跳过/equivalence-failed 等价断言中止 DB 零变更/unsupported-root 非 Map 根中止/quiesce-timeout 卸载等待超时中止/generation-drift 锁内世代漂移中止 DB 零变更/error 意外）',
   labelNames: ['result'],
   registers: [register],
 });
