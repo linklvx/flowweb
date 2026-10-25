@@ -117,7 +117,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
      *  语义=旧 debounce 直调：null-origin 写经 update 监听入维护队列→维护通道 sink〔WAL+PG〕落定）。 */
     async function maintenanceFlush(document: any, documentName: string): Promise<boolean> {
       // 白盒直调 Unlocked（旧 onStoreDocument 钩子直通同形——hook 文档无 saveMutex，禁再包=A14）
-      return (gateway as any).persistence.storeDocumentUnlocked({ document, documentName }, 'maintenance');
+      return gatewayFacade(gateway).storeDocumentUnlocked({ document, documentName }, 'maintenance');
     }
 
 
@@ -696,7 +696,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
       const okDoc = new Y.Doc();
       await onLoadDocument({ document: okDoc, documentName: 'project:p-peek' });
       expect(await spool.peek('p-peek')).toHaveLength(1);      // Y0a-2：帧保留（Y0a-1"消费后清空"随契约 12 反转）
-      await gateway.persistence.storeDocumentUnlocked({ document: okDoc, documentName: 'project:p-peek' } as any, 'maintenance');   // store 直调：帧随批落库并 confirm（白盒直调）
+      await gatewayFacade(gateway).storeDocumentUnlocked({ document: okDoc, documentName: 'project:p-peek' } as any, 'maintenance');   // store 直调：帧随批落库并 confirm（白盒直调）
       expect(await spool.peek('p-peek')).toHaveLength(0);      // confirm → 段回收
     });
 
@@ -797,7 +797,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       const g = gatewayFacade(kit.gateway);
       g.seedPendingQueue('p-boi1', [new Uint8Array([1, 2, 3])]);                 // Y19：projectId 键控装置（V4——旧字段 pendingUpdates 直插=种子不可见）
       const errSpy = g.spyLogger('error');
-      void kit.gateway.persistence.storeDocumentUnlocked({ document: doc, documentName: name } as any, 'maintenance');   // 不 await——append 挂起（白盒直调：Y.Doc 非 Document 满型——Step 3b 注）
+      void g.storeDocumentUnlocked({ document: doc, documentName: name } as any, 'maintenance');   // 不 await——append 挂起（白盒直调：Y.Doc 非 Document 满型——Step 3b 注）
       await pollUntil(() => (kit.repo.appendBatch as MockRepo['append']).mock.calls.length >= 1, 2_000);   // Y4：等 append 真被调——防 tripwire 早退的空转绿
       try {
         expect(errSpy.mock.calls.some((c) => String(c[0]).includes('unobserved'))).toBe(false);   // Y4 反向断言：tripwire 未吞掉用例
@@ -817,7 +817,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       try {
         const g = gatewayFacade(kit.gateway);
         g.seedPendingQueue('p-boi2', [new Uint8Array([9, 9])]);                  // Y19：projectId 键控
-        const r = await kit.gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p-boi2' } as any, 'maintenance');   // 白盒直调（Y.Doc 非 Document 满型）
+        const r = await g.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p-boi2' } as any, 'maintenance');   // 白盒直调（Y.Doc 非 Document 满型）
         expect(r).toBe(false);
         expect(g.pendingQueueRef('p-boi2')).toHaveLength(0);                     // 批已迁 spool 新家（splice 恒在新家 fsync 落定之后——旧实现 splice 后批两头蒸发：队列空∧spool 空，红相由下行 peek 断言承担）
         expect(await spool.peek('p-boi2')).toHaveLength(1);                      // 批入 spool（旧实现无 spool 写入 → 红）
@@ -933,7 +933,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         return ((metrics.find((m: any) => m.name === 'yjs_store_tail_anomaly_total') as any)?.values?.[0]?.value ?? 0) as number;
       };
       const before = await readAnomaly();
-      const storeP = kit.gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p-i2' } as any, 'maintenance');   // 不 await——append 挂起（白盒直调同 BOI-1）
+      const storeP = g.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p-i2' } as any, 'maintenance');   // 不 await——append 挂起（白盒直调同 BOI-1）
       await pollUntil(() => (kit.repo.appendBatch as MockRepo['append']).mock.calls.length >= 1, 2_000);
       const q = g.pendingQueueRef('p-i2') as Uint8Array[];
       q.splice(0, q.length, Y.mergeUpdates(q));   // 白盒模拟 update 监听器封顶折并（await 交织窗——合并元素含快照后内容）
@@ -959,7 +959,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       const doc = new Y.Doc();
       await kit.gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p-cap' } as any);
       doc.getMap('nodes').set('n1', new Y.Map());
-      const wrote = await kit.gateway.persistence.storeDocumentUnlocked({ document: doc, documentName: 'project:p-cap' } as any, 'maintenance');
+      const wrote = await gatewayFacade(kit.gateway).storeDocumentUnlocked({ document: doc, documentName: 'project:p-cap' } as any, 'maintenance');
       expect(wrote).toBe(true);                                 // PG 腿健康：容量态不挡 store（帧消化到 PG——独立故障域）
       expect(await spool.peek('p-cap')).toHaveLength(0);        // confirm → 段回收 → depth 回落
       expect((spool as any).overCapacityFlag).toBe(false);      // confirm 自评解除（旧实现滞留 true → 红）
@@ -974,7 +974,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       await kit.gateway.hooks.onLoadDocument({ document: doc, documentName: 'project:p-e71' } as any);
       doc.getMap('nodes').set('n1', new Y.Map());
       const emitSpy = gatewayFacade(kit.gateway).spyEventEmit();
-      const wrote = await kit.gateway.persistence.storeDocumentUnlocked({ document: doc, documentName: 'project:p-e71' } as any, 'maintenance');
+      const wrote = await gatewayFacade(kit.gateway).storeDocumentUnlocked({ document: doc, documentName: 'project:p-e71' } as any, 'maintenance');
       expect(wrote).toBe(true);                                  // 前置：走 appended 成功支（emit 唯一位）
       expect(emitSpy).toHaveBeenCalledWith('canvas.doc-saved', { projectId: 'p-e71' });
     } finally { await kit.dispose(); }
@@ -1014,7 +1014,7 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
         const doc = new Y.Doc();
         const name = 'project:p-retry';
         gatewayFacade(kit.gateway).seedPendingQueue('p-retry', [new Uint8Array([1])]);   // Y19：projectId 键控装置
-        const r1 = await kit.gateway.persistence.storeDocumentUnlocked({ document: doc, documentName: name } as any, 'maintenance');
+        const r1 = await gatewayFacade(kit.gateway).storeDocumentUnlocked({ document: doc, documentName: name } as any, 'maintenance');
         expect(r1).toBe(false);
         // 第一次失败即入 spool（BOI）+排程——spool 键命中 ⇒ 本用例只验证"排程不耗尽"：
         // 手工把 rung 推到 5+（模拟多轮失败）再断言 schedulePersistRetry 仍重排
@@ -1037,7 +1037,7 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
       const g = gatewayFacade(kit.gateway);
       const doc = new Y.Doc();
       g.seedDocProject(doc, 'p-tail'); g.seedPendingQueue('p-tail', [new Uint8Array([1])]);
-      await kit.gateway.persistence.storeDocumentUnlocked({ document: doc, documentName: 'project:p-tail' } as any, 'maintenance');   // append ok→队列清空
+      await g.storeDocumentUnlocked({ document: doc, documentName: 'project:p-tail' } as any, 'maintenance');   // append ok→队列清空
       await kit.gateway.hooks.afterStoreDocument({ document: doc, documentName: 'project:p-tail' } as any);
       const callsAfter = (await register.getSingleMetric('yjs_store_hook_calls_total')!.get()).values[0]?.value ?? 0;
       expect(callsAfter - callsBefore).toBe(1);          // 存活计数（V17⑥：metric.get() 公开 API——hashMap 内部读取作废）
@@ -1136,7 +1136,7 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
         g.seedLegacyRetryingFlag();
         g.addRetryingPersistDoc('project:p-i2-a');
         g.seedPendingQueue('p-i2-b', [new Uint8Array([1])]);   // Y19：projectId 键控装置（B 独立批）
-        const r = await kit.gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p-i2-b' } as any, 'maintenance');
+        const r = await g.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:p-i2-b' } as any, 'maintenance');
         expect(r).toBe(false);   // 契约 3：任何路径不 throw
         expect(await spool.peek('p-i2-b')).toHaveLength(1);   // 对照组：B 失败批已入 spool（fsync 落定，spool 腿独立可用）
         expect(g.persistRetryEntry('project:p-i2-b')).toBeTruthy();   // 判定点：旧实现被 A 的布尔误罩 → undefined → 红
@@ -1328,7 +1328,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(g.persistRetryEntry('project:p-unload-fail')?.timer).toBeTruthy();   // 保活已排且在 ①cancel 之后（排程在 cancel 前=timer 被①清掉=红）
       expect(((await failMetric.get()).values[0]?.value ?? 0) - before).toBeGreaterThanOrEqual(1);   // Y18 指标接线
       appendSpy.mockRestore();
-      await kit.gateway.persistence.storeDocumentSerialized({ document: ufDoc, documentName: 'project:p-unload-fail' } as any, 'maintenance');   // Y1c T9：维护显式 flush 收尾（成功路径 cancel 保活梯）
+      await g.storeDocumentSerialized({ document: ufDoc, documentName: 'project:p-unload-fail' } as any, 'maintenance');   // Y1c T9：维护显式 flush 收尾（成功路径 cancel 保活梯）
       expect(g.pendingQueueRef('p-unload-fail')).toHaveLength(0);
     } finally { appendSpy.mockRestore(); await kit.dispose(); }
   });
@@ -1388,7 +1388,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(after).toHaveLength(refs.length);               // 批原样（逐元素身份不断）
       appendSpy.mockRestore();
       const fd = kit.gateway.server.hocuspocus.documents.get('project:p-fevict-fail');
-      await kit.gateway.persistence.storeDocumentSerialized({ document: fd, documentName: 'project:p-fevict-fail' } as any, 'maintenance');   // Y1c T9：维护显式 flush 收尾
+      await g.storeDocumentSerialized({ document: fd, documentName: 'project:p-fevict-fail' } as any, 'maintenance');   // Y1c T9：维护显式 flush 收尾
       expect(g.pendingQueueRef('p-fevict-fail')).toHaveLength(0);
     } finally { appendSpy.mockRestore(); await kit.dispose(); }
   });
@@ -1413,7 +1413,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       appendSpy.mockRestore();
       await kit.gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-reconn' } as any);   // 重连装载（白盒——库 documents 缓存使真重连不重走 load）
       expect(g.pendingQueueRef('p-reconn')).toBe(before);        // get-or-create 撞已有条目=同身份（批未因重连蒸发）
-      await kit.gateway.persistence.storeDocumentSerialized({ document: reconnDoc, documentName: 'project:p-reconn' } as any, 'maintenance');
+      await g.storeDocumentSerialized({ document: reconnDoc, documentName: 'project:p-reconn' } as any, 'maintenance');
       expect(g.pendingQueueRef('p-reconn')).toHaveLength(0);     // 批落库
       expect((kit.repo.appendBatch as MockRepo['appendBatch']).mock.calls.length).toBe(1);   // 一次（无重复入队）
     } finally { appendSpy.mockRestore(); await kit.dispose(); }
@@ -1439,7 +1439,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       const gauge = (await yjsPendingBatches.get()).values[0]?.value ?? 0;
       expect(gauge).toBeLessThanOrEqual(513);   // gauge 与队列同源收敛（不随 update 数线性增长）
       walSpy.mockRestore(); passthrough = true;   // 双腿恢复——下轮 store 落定（合并元素 CRDT 幂等）
-      await kit.gateway.persistence.storeDocumentUnlocked({ document: provider.document, documentName: 'project:p-coalesce' } as any, 'maintenance').catch(() => {});
+      await gatewayFacade(kit.gateway).storeDocumentUnlocked({ document: provider.document, documentName: 'project:p-coalesce' } as any, 'maintenance').catch(() => {});
       await pollUntil(() => kit.gateway.computePending().batches === 0, 5_000);   // 排空（dispose 干净）
       expect(kit.gateway.computePending().batches).toBe(0);
     } finally { walSpy.mockRestore(); await kit.dispose(); }
@@ -1475,7 +1475,7 @@ describe('Y0a-2 beforeUnloadDocument 清理+mergeUpdates 出 WS 路径', () => {
       expect(revived.getMap('nodes').get('k599')).toBe('x'.repeat(8192));
       appendSpy.mockRestore();
       passthrough = true; if (release) release({ ok: true, seq: 1n });   // Y1c T9：passthrough 先置（多 chunk 逐个 deferred——后继调用直通，防 release 重定义悬挂窗）
-      await kit.gateway.persistence.storeDocumentUnlocked({ document: kit.gateway.server.hocuspocus.documents.get('project:p-coalesce2'), documentName: 'project:p-coalesce2' } as any, 'maintenance');   // 直调排空（dispose 干净）
+      await g.storeDocumentUnlocked({ document: kit.gateway.server.hocuspocus.documents.get('project:p-coalesce2'), documentName: 'project:p-coalesce2' } as any, 'maintenance');   // 直调排空（dispose 干净）
       expect(kit.gateway.computePending().batches).toBe(0);
     } finally { appendSpy.mockRestore(); if (release) release({ ok: true, seq: 1n }); await kit.dispose(); }
   }, 20_000);
@@ -1567,7 +1567,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       const g = gatewayFacade(kit.gateway);
       const closeSpy = g.spyCloseAll1012().mockImplementation(() => {});   // 1012 面免真关（无连接面）
       g.seedPendingQueue('pf1', [new Uint8Array([1])]);
-      await kit.gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:pf1' } as any, 'maintenance');
+      await g.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:pf1' } as any, 'maintenance');
       expect(kit.gateway.getCollabState()).toBe('isolated');
       expect(closeSpy).toHaveBeenCalled();
       expect(await kit.spool.peek('pf1')).toHaveLength(1);                 // 批已落 spool（契约 15——fsync 落定）
@@ -1606,7 +1606,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     try {
       const g = gatewayFacade(kit.gateway);
       g.seedPendingQueue('prm1', [new Uint8Array([1])]);
-      await kit.gateway.persistence.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:prm1' } as any, 'maintenance');
+      await g.storeDocumentUnlocked({ document: new Y.Doc(), documentName: 'project:prm1' } as any, 'maintenance');
       expect(await kit.spool.peek('prm1')).toHaveLength(1);                // 落 spool（早退=批只留内存重启即丢）
       expect(g.persistRetryHas('project:prm1')).toBe(false);              // 配置错误重试无用（旧实现排梯=红）
     } finally { await kit.dispose(); }

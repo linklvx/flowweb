@@ -38,7 +38,7 @@ function buildGateway(opts: { lease?: ReturnType<typeof createLeaseStub> } = {})
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');
-  const storeUnlockedSpy = vi.spyOn(gateway.persistence, 'storeDocumentUnlocked');
+  const storeUnlockedSpy = gatewayFacade(gateway).spyStoreUnlocked();
   return { gateway, repo, spool, prisma, storeUnlockedSpy, eventEmitter };
 }
 
@@ -68,7 +68,7 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
     expect(rows[0].frameCount).toBe(1);
     expect(updateEvents).toBe(1);                                 // 一次广播（gate apply 事件恰一——库重放幂等零事件）
     expect(await spool.peek('p1')).toHaveLength(0);               // WAL 帧 confirm 回收（旧 spool append 计数 0=维护队列恒空）
-    expect(gateway.persistence.hasPendingWrites('p1')).toBe(false);   // 旧链队列零帧（双写红①的验收面）
+    expect(gateway.hasPendingWrites('p1')).toBe(false);   // 旧链队列零帧（双写红①的验收面——B1 委托位②公有直调）
     expect(storeUnlockedSpy).not.toHaveBeenCalled();              // onStoreDocument 旧链确已拆（强形态 spy——零调用）
     // onStoreDocument 钩子 telemetry-only：可调用不触达 store
     await gateway.hooks.onStoreDocument({ document: doc, documentName: 'project:p1' } as never);

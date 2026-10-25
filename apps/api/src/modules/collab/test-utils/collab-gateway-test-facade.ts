@@ -16,7 +16,11 @@
 // - **类型单源**：读面字段类型经 CollabGateway['member'] 索引访问（TS 类型位私有成员合法——
 //   gateway 成员演进时 façade 类型自动跟随=编译红漂移面）；写面 stub 入参宽松（unknown/object）
 //   +内部受控 cast（本文件即 sanctioned 点）。
-// - N=125 class 方法+gatewayFacade 工厂+1 模块级函数 authDbDeadlineMs（T42 B3 扩 1 法〔clearDrainTimer
+// - N=128 class 方法+gatewayFacade 工厂+1 模块级函数 authDbDeadlineMs（Y1c T9 遗留收口 扩 3 法
+//   〔storeDocumentUnlocked/storeDocumentSerialized 直调转发+spyStoreUnlocked——⑲ 门禁 19 处
+//   `.persistence` 触达改道（T41 W4 universe 扩面后 persistence ∈ universe=DR 私有字段同名，spec 侧
+//   gateway.persistence/kit.gateway.persistence 直访全数回收），登记红 0 全替换〕，N=125→128；
+//   T42 B3 扩 1 法〔clearDrainTimer
 //   ——承接账① 登记红核销，façade stub 裁决：drain 编排域留 gateway 私有、生产 API 面零扩〕，N=124→125；
 //   历史实测口径：波 1 class 方法 40
 //   〔表格口径 41 含工厂〕+波 2 扩 73——偏离 64 收窄裁决：直调族不转发，扩面=字段/状态/splice/
@@ -398,6 +402,13 @@ export class GatewayTestFacade {
     return vi.spyOn(persistOf(this.gw), 'storeDocumentSerialized');
   }
 
+  /** 替代 `vi.spyOn(gateway.persistence, 'storeDocumentUnlocked')`（Y1c T9 旧链拆除强形态 spy——
+   *  零调用验收面；spyStoreSerialized 同款实例属性 spy——persistence 域公有方法 spyOn 免 cast，
+   *  `.persistence` 触达经本点收敛〔persistence ∈ 门禁 universe——DR 私有字段同名〕） */
+  spyStoreUnlocked() {
+    return vi.spyOn(this.gw.persistence, 'storeDocumentUnlocked');
+  }
+
   // ── 私有方法直调转发（测试驱动私有流程——操作即语义，签名经索引访问单源） ──
 
   /** 替代 `(gw as any).startCollabAfterLease()`（onAcquired 唯一入口直调） */
@@ -438,6 +449,20 @@ export class GatewayTestFacade {
   /** 替代 `(gw as any).retryPersist(name)`（M-2 FK 收割直调；B1 随域迁 service） */
   retryPersist(documentName: string): ReturnType<PersistenceInternals['retryPersist']> {
     return persistOf(this.gw).retryPersist(documentName);
+  }
+
+  /** 替代 `gw.persistence.storeDocumentUnlocked(p, trigger)`（Y1c T9 维护写显式 flush 白盒直调——
+   *  旧 onStoreDocument 语义面；方法=persistence 域公有〔Y.Doc 直收〕非内部状态，但 `.persistence`
+   *  触达 ∈ 门禁 universe（DR 私有字段同名——T41 W4 扩面）⇒ spec 侧 gateway.persistence/
+   *  kit.gateway.persistence 直访经本点收敛，签名索引访问单源） */
+  storeDocumentUnlocked(...args: Parameters<CollabPersistenceService['storeDocumentUnlocked']>): ReturnType<CollabPersistenceService['storeDocumentUnlocked']> {
+    return this.gw.persistence.storeDocumentUnlocked(...args);
+  }
+
+  /** 替代 `gw.persistence.storeDocumentSerialized(p, trigger)`（维护写显式 flush 收尾直调——saveMutex
+   *  串行面〔A14〕；同上 `.persistence` 触达经本点收敛，签名索引访问单源） */
+  storeDocumentSerialized(...args: Parameters<CollabPersistenceService['storeDocumentSerialized']>): ReturnType<CollabPersistenceService['storeDocumentSerialized']> {
+    return this.gw.persistence.storeDocumentSerialized(...args);
   }
 
   /** 替代 `(gw as any).transition(next, cause)`（V33 状态机单点直调——非法迁移点名日志面） */
