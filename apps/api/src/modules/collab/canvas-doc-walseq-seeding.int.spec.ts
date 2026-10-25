@@ -68,7 +68,8 @@ maybe('C1（T11 双评审 Critical）：walSeq 计数器 PG 恒真播种+appendB
 
   /** era1 稳态布景：3 帧→PG 行（CAS 推 pgSeq=3）→compact 发布快照 stateSeq=3+purge 行→confirm
    *  全确认段 unlink（段全回收=链第一环：PG 落地稳态下 WAL 无幸存段）。 */
-  async function seedEra1(): Promise<Uint8Array[]> {    await prisma.$executeRawUnsafe(
+  async function seedEra1(): Promise<Uint8Array[]> {
+    await prisma.$executeRawUnsafe(
       `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
       PID,
     );
