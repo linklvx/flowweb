@@ -452,7 +452,7 @@ describe('nodeStore (AppNode nested structure)', () => {
       type: 'audioGen',
       data: {
         model: 'tts-1',
-        content: 'hello',
+        prompt: 'hello',   // Y1c T15：audioGen content:string 同卡迁 prompt（Y.Text 域）
         status: 'done',
         fileId: 'gen-audio-1',
         referenceAudio: 'ref-audio-1',

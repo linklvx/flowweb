@@ -83,10 +83,10 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(d.origin).toBeUndefined(); expect(d.videoProjectId).toBeUndefined(); expect(d.fileId).toBeUndefined();
   });
 
-  it('audioGen：model/content 保留（类型键是 audioGen 非 audio）', () => {
-    const input: RawCanvasData = { nodes: [rawNode('n1', 'audioGen', { model: 'tts', content: '旁白文字', fileId: 'f', status: 'done' })], edges: [] };
+  it('audioGen：model/prompt 保留（类型键是 audioGen 非 audio；Y1c T15 content→prompt 同卡迁）', () => {
+    const input: RawCanvasData = { nodes: [rawNode('n1', 'audioGen', { model: 'tts', prompt: '旁白文字', fileId: 'f', status: 'done' })], edges: [] };
     const out = buildFilteredSnapshot(input, base);
-    expect(out.nodes[0].data.content).toBe('旁白文字');
+    expect(out.nodes[0].data.prompt).toBe('旁白文字');
     expect(out.nodes[0].data.fileId).toBeUndefined();
   });
 
@@ -177,16 +177,16 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(out.edges).toHaveLength(1);  // 连线保留
   });
 
-  it('剥离范围收口（第七轮）：audioGen.content 是纯文本旁白——含尖括号的正常文本原样保留；PromptValue.text 不做二次 strip', () => {
+  it('剥离范围收口（第七轮；Y1c T15 更正键面）：audioGen.prompt 是纯文本旁白——含尖括号的正常文本原样保留；PromptValue.text 不做二次 strip', () => {
     const input: RawCanvasData = {
       nodes: [
-        rawNode('a1', 'audioGen', { model: 'tts', content: '若 3 < 5 且 6 > 4 则对', fileId: 'f', status: 'done' }),
+        rawNode('a1', 'audioGen', { model: 'tts', prompt: '若 3 < 5 且 6 > 4 则对', fileId: 'f', status: 'done' }),
         rawNode('i1', 'imageGen', { prompt: { text: '数量 2 < 10 的猫', html: '<p>x</p>' }, style: 's' }),
       ],
       edges: [],
     };
     const out = buildFilteredSnapshot(input, base);
-    expect(out.nodes[0].data.content).toBe('若 3 < 5 且 6 > 4 则对'); // 不剥——audioGen content 非 HTML
+    expect(out.nodes[0].data.prompt).toBe('若 3 < 5 且 6 > 4 则对'); // 不剥——audioGen prompt 非 HTML（Y1c T15 迁键后 strip 面仅 textInput.content）
     expect(out.nodes[1].data.prompt).toBe('数量 2 < 10 的猫');        // .text 原文，不再 strip
   });
 

@@ -207,8 +207,8 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   //   ss2 档对照注入，存量 allow-list 文件，store 注入是用例存在目的，同 T9/T4/T11 例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
   // T17：G34 只读命令门造案 +1/1（canvasG34.readonlyCommands.test.ts——viewer 零写矩阵）
-  const BASELINE_COUNT = 311;   // T17 评审收口：cellOps P1-1 造案 +1（attachMember order 删键）
-  const BASELINE_FILES = 55;
+  const BASELINE_COUNT = 312;   // T17 评审收口 +1（cellOps P1-1）；Y1c T15 +1（text-domains 造案 openRwWindow）
+  const BASELINE_FILES = 56;    // Y1c T15 +1（canvasIntents.t15-text-domains.spec.ts——容器规则/Y.Text 域红绿造案）
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -222,7 +222,7 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
     }
   }
 
-  it('test/spec 面 store 侧 setState 处数 ≤306 且文件数 ≤54（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1+Y0b-4 T5 quota 造案 2/1+D-14 quota spec 补登 1/1+T10 判据④/分块粘贴造案 8/1+T11 quota UX 造案 15/2+Y0b-5 T2 遥测造案 1/1+Y0b-5 T4 探测/横幅造案 3/0+Y0b-5 T5 造案 1/1+Y0b-5 T6 单源/diverged/safeReload 造案 27/1+Y0b-5 T6 质量修复 escape 档/元数据快照造案 5/0+Y0b-5 T7 E40 窗/VIEWER 门造案 12/1+Y0b-5 T8 本地缓存造案 6/1+Y0b-5 T8 spec 修复 diverged 导出分档造案 2/0，只降不升）', () => {
+  it('test/spec 面 store 侧 setState 处数 ≤312 且文件数 ≤56（起点 201/38+造案夹具+O0a-1 剥键锚/集成造案/I-1 角点造案+O0b-0 翻转锚造案 5/1+T7 归零边沿造案 1/1+T5 版本通道造案 1/1+T9 终态/write-frozen 档造案 3/1+12/1+Y0b-4 T5 quota 造案 2/1+D-14 quota spec 补登 1/1+T10 判据④/分块粘贴造案 8/1+T11 quota UX 造案 15/2+Y0b-5 T2 遥测造案 1/1+Y0b-5 T4 探测/横幅造案 3/0+Y0b-5 T5 造案 1/1+Y0b-5 T6 单源/diverged/safeReload 造案 27/1+Y0b-5 T6 质量修复 escape 档/元数据快照造案 5/0+Y0b-5 T7 E40 窗/VIEWER 门造案 12/1+Y0b-5 T8 本地缓存造案 6/1+Y0b-5 T8 spec 修复 diverged 导出分档造案 2/0+T17 cellOps 造案 1/1+Y1c T15 文本域造案 1/1，只降不升）', () => {
     let count = 0;
     let files = 0;
     for (const f of walkTestFiles(SRC_ROOT)) {

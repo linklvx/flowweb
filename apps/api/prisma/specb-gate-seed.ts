@@ -13,7 +13,7 @@ import { S3Client, PutObjectCommand, HeadBucketCommand, CreateBucketCommand } fr
 import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import {
   fillDoc as fillDocShapes,
-  type DocLike, type DocMapLike, type StoredNodeRecord,
+  type DocLike, type DocMapLike, type StoredNodeRecord, type TextLike,
 } from '@flowweb/shared';
 
 /** Y.Doc→DocLike 结构性适配（ydocBuilder.toDocLike 同款——api 侧不可 import web 源，结构性复刻） */
@@ -21,6 +21,7 @@ function toDocLike(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
+    createText: () => new Y.Text() as unknown as TextLike,
   };
 }
 

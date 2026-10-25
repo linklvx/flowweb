@@ -21,7 +21,8 @@ const CENSUS_DATA_KEYS: Record<string, readonly string[]> = {
   videoGen: ['model', 'status', 'fileId', 'aspectRatio', 'referenceVideo', 'ratio', 'prompt', 'styleId', 'styleName',
     'allImages', 'trimStart', 'trimEnd', 'trimTaskStatus', 'trimmedFileId', 'order',
     'origin', 'videoProjectId', 'label'],
-  audioGen: ['model', 'content', 'status', 'fileId', 'referenceAudio', 'order'],
+  // Y1c T15：audioGen content:string → prompt:Y.Text 同卡迁（写面实测键集同步——AudioConfigPanel）
+  audioGen: ['model', 'prompt', 'status', 'fileId', 'referenceAudio', 'order'],
   multiImageGen: ['label', 'images', 'mainImageIndex', 'expanded', 'nodeStatus', 'generationBatchId', 'prompt', 'order'],
   videoEdit: ['order'],
   group: ['groupType', 'name', 'storyboard', 'collapsed', 'nameCustom', 'color', 'order'],
@@ -87,8 +88,9 @@ describe('Y1c T3 DOC_SCHEMA_V4 契约（矩阵冻结唯一基准）', () => {
         }
       }
     }
-    // 例外白名单：audioGen.content / textInput.content = 用户文本域（content 在 audioGen=textInput 域
-    // 是用户键——serverDomain 的 content 指 videoGen text 产物域；产物键现状住 exec/投影不进 data 矩阵）
+    // 例外白名单：textInput.content = 用户文本域（Y1c T15 后矩阵内 content 用户键仅 textInput——
+    // audioGen.content 已随 T15 迁 prompt 退册；serverDomain 的 content 指 videoGen text 产物域，
+    // 产物键现状住 exec/投影不进 data 矩阵）
   });
 
   it('EPHEMERAL_DATA_KEYS 禁入矩阵（本地瞬态 UI 键不入 doc schema）', () => {
@@ -110,7 +112,7 @@ describe('Y1c T3 DOC_SCHEMA_V4 契约（矩阵冻结唯一基准）', () => {
     expect(DOC_SCHEMA_V4.textInput.data.slot).toBeUndefined(); // census ② slot 字样按快照白名单（:38 无 slot）裁定不入册
   });
 
-  it('v4 目标 yType 基准（spec §3.1 矩阵线）：textInput{content:xml,prompt:map{text}}；image/video/imageExt prompt=xml；audioGen content=text（T15 迁 prompt）；multiImageGen prompt=text（T15 赋形）；allImages/images=array', () => {
+  it('v4 目标 yType 基准（spec §3.1 矩阵线）：textInput{content:xml,prompt:map{text}}；image/video/imageExt prompt=xml；audioGen prompt=text（T15 已迁——content 退册）；multiImageGen prompt=text（T15 已赋形）；allImages/images=array', () => {
     const s = DOC_SCHEMA_V4;
     expect(s.textInput.data.content?.yType).toBe('xml');
     expect(s.textInput.data.prompt?.yType).toBe('map');
@@ -118,7 +120,8 @@ describe('Y1c T3 DOC_SCHEMA_V4 契约（矩阵冻结唯一基准）', () => {
     expect(s.imageGen.data.prompt?.yType).toBe('xml');
     expect(s.videoGen.data.prompt?.yType).toBe('xml');
     expect(s.imageExtGen.data.prompt?.yType).toBe('xml');
-    expect(s.audioGen.data.content?.yType).toBe('text');
+    expect(s.audioGen.data.prompt?.yType).toBe('text');
+    expect(s.audioGen.data.content).toBeUndefined(); // T15 同卡迁——content 键退册（写面=AudioConfigPanel 已改键）
     expect(s.multiImageGen.data.prompt?.yType).toBe('text');
     expect(s.imageGen.data.allImages?.yType).toBe('array');
     expect(s.videoGen.data.allImages?.yType).toBe('array');

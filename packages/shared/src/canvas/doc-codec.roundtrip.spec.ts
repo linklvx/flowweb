@@ -18,6 +18,7 @@ import {
   type CanvasReadModel, type RichTextValue,
 } from './doc-codec';
 import { fillDoc, readRecordsFromMaps, type DocLike, type DocEdgeRecord } from './docShape';
+import type { TextLike } from './text-domains';
 import { setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 import { generateAdversarialDocs } from '../testing/adversarial-doc';
 
@@ -25,6 +26,7 @@ import { generateAdversarialDocs } from '../testing/adversarial-doc';
 const toDocLike = (doc: Y.Doc): DocLike => ({
   getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
   createMap: () => new Y.Map() as unknown as DocMapLike,
+  createText: () => new Y.Text() as unknown as TextLike,
 });
 const asDocMap = (m: Y.Map<unknown>) => m as unknown as DocMapLike;
 

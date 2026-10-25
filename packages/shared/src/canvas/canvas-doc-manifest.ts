@@ -40,15 +40,22 @@ export const NESTED_TYPE_CREATORS: readonly NestedCreatorEntry[] = [
   },
   {
     container: 'nodes.<id>', key: 'data',
-    creators: ['docShape.fillDoc（种子）', 'canvasIntents.applyIntentToDoc(updateNodeData)（客户端意图）',
-      'collab-document.service.writeNodeData（服务端写面）'],
-    unique: false,
-    note: '客户端/服务端/种子三创建点跨进程并存（现状勘注）——Y0a 红例「两 doc 并发对同 nodeId 首建 data 合并单边胜出」风险域，收敛裁度归 Y1c-3',
+    creators: ['docShape.fillDoc（种子——结构创建 seam 唯一创建者）'],
+    unique: true,
+    note: 'Y1c T15 容器规则收口：客户端 canvasIntents.applyIntentToDoc(updateNodeData) 与服务端 applyWriteNodeDataToDoc 的 data 懒建点均撤除（缺 data=结构错误拒绝不懒建）；data Y.Map 仅随节点结构创建（fillDoc）',
   },
   {
     container: 'nodes.<id>', key: 'position',
     creators: ['collab-doc-ops.setDocPosition（唯一创建原语——canvasIntents/ydocBuilder 调用点工厂实参同此一函数；Y1a T1 自 docShape 迁入）'],
     unique: true,
+  },
+  {
+    // Y1c T15：Y.Text 域容器（audioGen/multiImageGen.prompt=Y.Text；textInput.prompt=Y.Map{text:Y.Text}）
+    container: 'nodes.<id>.data', key: 'prompt',
+    creators: ['docShape.fillDoc（创建 seam——materializeTextDomainValue 经 DocLike.createText/createMap 工厂）',
+      'doc-codec.rebuildCanvasDoc（buildYValue 快照回灌——$yjs 标签还原）'],
+    unique: false,
+    note: 'Y1c T15 容器规则：结构创建时一次性建（fillDoc 物化在册在记域键——不发明缺席键）；业务写走 text-domains.writeTextDomainValue splice 单一 seam（缺容器=拒绝不懒建，永不 data.set 整串覆盖）；undo 重建合法（Yjs UndoManager 子树恢复）；rebuild 回灌=别名禁入（全新实例）',
   },
   {
     container: 'edges', key: '<edgeId>',

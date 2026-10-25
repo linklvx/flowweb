@@ -1,6 +1,6 @@
 // TextConfigPanel.viewer.test.tsx
 // 批2-2 VIEWER 第二层组件面（真 store）：readOnly ⇒ 四处内容写不落 store。
-//   :66 模型列表加载默认值 effect / :92 模型下拉选择 / :153 生成时 content 提交 / :220 textarea 即时输入。
+//   :66 模型列表加载默认值 effect / :92 模型下拉选择 / :153 生成时 prompt 提交（Y1c T15：{text} patch）/ :220 textarea 即时输入。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { TextConfigPanel } from './TextConfigPanel';
@@ -29,7 +29,7 @@ function seedSession(readOnly: boolean) {
     projectId: 'p1', nodes: [], edges: [],
   });
   useNodeStore.setState((s) => ({
-    nodes: { ...s.nodes, t1: { id: 't1', type: 'textInput', data: { content: '', prompt: '' } as any } },
+    nodes: { ...s.nodes, t1: { id: 't1', type: 'textInput', data: { content: '', prompt: { text: '' } } as any } },   // Y1c T15：prompt={text} 形态
   }));
 }
 const dataOf = () => useNodeStore.getState().nodes.t1?.data as any;
@@ -67,14 +67,14 @@ describe('批2-2 TextConfigPanel：readOnly 输入不落 store（真 store）', 
     seedSession(true);
     const { container } = render(<TextConfigPanel nodeId="t1" />);
     fireEvent.change(container.querySelector('textarea')!, { target: { value: 'hello text' } });
-    expect(dataOf().prompt).toBe('');
+    expect(dataOf().prompt).toEqual({ text: '' });
   });
 
   it('rw 锚 :220 textarea 输入照常落 store', () => {
     seedSession(false);
     const { container } = render(<TextConfigPanel nodeId="t1" />);
     fireEvent.change(container.querySelector('textarea')!, { target: { value: 'hello text' } });
-    expect(dataOf().prompt).toBe('hello text');
+    expect(dataOf().prompt).toEqual({ text: 'hello text' });
   });
 
   it('readOnly :92 模型下拉选择不落 store', async () => {
@@ -86,7 +86,7 @@ describe('批2-2 TextConfigPanel：readOnly 输入不落 store（真 store）', 
     expect(dataOf().model).toBeUndefined();
   });
 
-  it('readOnly :153 生成时 content 提交不落 store；Y0b-2 T7：canExecute 禁执行——enqueue 零调用', async () => {
+  it('readOnly :153 生成时 prompt 提交不落 store；Y0b-2 T7：canExecute 禁执行——enqueue 零调用', async () => {
     seedSession(true);
     const { container } = render(<TextConfigPanel nodeId="t1" />);
     fireEvent.change(container.querySelector('textarea')!, { target: { value: 'gen prompt' } });

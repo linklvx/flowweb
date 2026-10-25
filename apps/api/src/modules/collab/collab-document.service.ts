@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
+import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { canvasDocName } from './doc-name.util';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
@@ -23,7 +23,8 @@ export interface ExecStatusPatch {
  *  drain/租约 503 是抛错（走悬留闭环）非 written:false，两路径分义。 */
 export interface WriteNodeDataResult {
   written: boolean;
-  reason?: 'node-deleted' | 'no-node-map';
+  // Y1c T15 增容器规则两值（text-domain-protected/no-data-map——见 applyWriteNodeDataToDoc 头注）
+  reason?: 'node-deleted' | 'no-node-map' | 'text-domain-protected' | 'no-data-map';
 }
 
 @Injectable()
@@ -284,7 +285,11 @@ export function undefinedPatchValueError(opName: string, k: string): Error {
 }
 
 /** writeNodeData 写核心（Z44 交付判据：written:false=节点已删/结构缺失——交付路径唯一退款凭据）。
- *  Y0c T9（Z5）：首段 undefined fail-fast（应用前全扫——单写面覆盖；writeBatch 同函数两路径禁漂移）。 */
+ *  Y0c T9（Z5）：首段 undefined fail-fast（应用前全扫——单写面覆盖；writeBatch 同函数两路径禁漂移）。
+ *  Y1c T15 容器规则（服务端写 seam）：①Y.Text 域键（text-domains 词表——audioGen/multiImageGen/
+ *  textInput.prompt）整串覆盖=容器替换对抗面，服务端无 splice 写腿一律 written:false 拒绝
+ *  （text-domain-protected）；②缺 data Y.Map=结构错误拒绝不懒建（no-data-map——原懒建 Y.Map
+ *  掩盖结构错误，§3.5 撤除；writeBatch 路径另受 Z108 SERVER_NODE_DATA_KEYS 键白名单先行拦）。 */
 export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>): WriteNodeDataResult {
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) throw undefinedPatchValueError('writeNodeData', k);
@@ -292,11 +297,12 @@ export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Recor
   const entry = doc.getMap('nodes').get(nodeId);
   if (entry === undefined) return { written: false, reason: 'node-deleted' };   // Z44：交付判据类型化（原静默 return void）
   if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
-  let dataMap = entry.get('data');
-  if (!(dataMap instanceof Y.Map)) {
-    dataMap = new Y.Map();
-    entry.set('data', dataMap);
+  const nodeType = entry.get('type');
+  for (const k of Object.keys(patch)) {
+    if (textDomainOf(nodeType, k)) return { written: false, reason: 'text-domain-protected' };
   }
+  const dataMap = entry.get('data');
+  if (!(dataMap instanceof Y.Map)) return { written: false, reason: 'no-data-map' };
   for (const [k, v] of Object.entries(patch)) dataMap.set(k, v);
   return { written: true };
 }
@@ -341,6 +347,11 @@ export function applyDeleteNodeDataKeysToDoc(doc: Y.Doc, nodeId: string, keys: r
   const entry = doc.getMap('nodes').get(nodeId);
   if (entry === undefined) return { written: false, reason: 'node-deleted' };
   if (!(entry instanceof Y.Map)) return { written: false, reason: 'no-node-map' };
+  // Y1c T15 容器规则：域容器 canDelete=false（矩阵三操作面）——删域键=容器移除对抗面，拒绝
+  const nodeType = entry.get('type');
+  for (const k of keys) {
+    if (textDomainOf(nodeType, k)) return { written: false, reason: 'text-domain-protected' };
+  }
   const dataMap = entry.get('data');
   if (!(dataMap instanceof Y.Map)) return { written: true };
   for (const k of keys) dataMap.delete(k);

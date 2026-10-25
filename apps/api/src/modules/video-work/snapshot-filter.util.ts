@@ -35,13 +35,13 @@ export interface FilteredEdge { id: string; source: string; target: string }
  *  （风格库选中，spec §7.3）。缺失字段由 applyWhitelist 的
  *  `field in node.data` 检查 no-op——与 spec §4.6 合并行语义等价。 */
 export const WHITELIST: Record<string, string[]> = {
-  textInput: ['content', 'prompt'],                                  // content=HTML→纯文本；prompt=string
+  textInput: ['content', 'prompt'],                                  // content=HTML→纯文本；prompt={text}（Y1c T15 Y.Map 域——下方 prompt 分支取 .text）
   // T17 P1-3：slot=分镜格位真源（快照丢 slot ⇒ 宫格退化 id 序）——imageGen/imageExtGen 皆可入格
   //（dropImageIntoStoryboard 两型受纳）
   imageGen: ['prompt', 'style', 'model', 'quality', 'ratio', 'resolution', 'aspectRatio', 'styleId', 'styleName', 'slot'],
   imageExtGen: ['prompt', 'aspectRatio', 'aiTool', 'styleId', 'styleName', 'slot'],          // prompt 通常在 extConfig 内随整体剥离——保留为 no-op 兜底
   videoGen: ['model', 'ratio', 'prompt', 'trimStart', 'trimEnd', 'label', 'styleId', 'styleName'],
-  audioGen: ['model', 'content'],
+  audioGen: ['model', 'prompt'],   // Y1c T15：content:string 同卡迁 prompt（Y.Text 域——读模型=string 原样）
   multiImageGen: ['prompt', 'label'],
   videoEdit: [],   // 仅结构字段
   // O0c-1 派生输入完备：group 补 storyboard/collapsed——缺任一，web deriveRenderCanvas（O0c-2）组模式判定
@@ -117,11 +117,11 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
     if (!(field in src)) continue;
     const v = src[field];
     if (field === 'content' && node.type === 'textInput' && typeof v === 'string') {
-      data.content = stripHtmlToText(v);           // 仅 textInput.content 是 tiptap HTML；audioGen.content 是纯文本旁白——误剥会把 "3 < 5" 吃成 "3 5"（第七轮收口）
+      data.content = stripHtmlToText(v);           // textInput.content 是 tiptap HTML（Y1c T15 后矩阵内 content 用户键仅 textInput——audioGen.content 已迁 prompt 退册，误剥面收敛）
     } else if (field === 'prompt') {
       data.prompt = (v && typeof v === 'object')
         ? String((v as any).text ?? '')            // PromptValue → 只取 .text 原文（红线 1：永不返回 .html；.text 本身是纯文本，勿再 strip——防正常尖括号文本被吃）
-        : v;                                       // textInput/multiImageGen 的 string prompt
+        : v;                                       // audioGen/multiImageGen 的 string prompt（Y.Text 域——读模型=string）
     } else {
       data[field] = v;
     }

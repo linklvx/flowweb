@@ -1139,10 +1139,12 @@ export const collabDrainProjectsTotal = new Counter({
  *  VALUE_TYPE_MISMATCH/NON_IDEMPOTENT_OP——shared WriteBatchViolationCode 单源）
  *  ② 写守卫 reason 五值（node-deleted/no-node-map/missing-attempts/older-attempts/terminal-superseded
  *  ——collab-doc-writer.service 头注词表；Z40② 守卫失败=合法结果进数组，本计数=其唯一统一观测面）
- *  ③ Y0c T9 增 DOC_SCHEMA_AHEAD（schema 前瞻档事务级 throw——throw 前计数，spec §6「拒写+reason 计数」）。 */
+ *  ③ Y0c T9 增 DOC_SCHEMA_AHEAD（schema 前瞻档事务级 throw——throw 前计数，spec §6「拒写+reason 计数」）
+ *  ④ Y1c T15 容器规则两值（text-domain-protected/no-data-map——Y.Text 域键整串覆盖拒+缺 data
+ *  不懒建，collab-document.service 写核心守卫）。 */
 export const collabWriteRejectedTotal = new Counter({
   name: 'collab_write_rejected_total',
-  help: 'writeBatch 业务级拒绝计数（reason=Z108 校验码七值+写守卫 reason 五值+DOC_SCHEMA_AHEAD 前瞻档——守卫失败亦计，统一观测面）',
+  help: 'writeBatch 业务级拒绝计数（reason=Z108 校验码七值+写守卫 reason 五值+DOC_SCHEMA_AHEAD 前瞻档+T15 容器规则两值——守卫失败亦计，统一观测面）',
   labelNames: ['reason'],
   registers: [register],
 });

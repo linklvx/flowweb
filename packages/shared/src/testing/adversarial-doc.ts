@@ -5,6 +5,7 @@
 // TS 允许（非 void 返回可赋 void 期望）；DocLike 含 createMap（mk 已按实际接口供给，无需裁剪）。
 import type { DocLike } from '../canvas/docShape';
 import type { DocMapLike } from '../canvas/collab-doc-ops';
+import type { TextLike } from '../canvas/text-domains';
 
 class FakeMap implements DocMapLike {
   constructor(private readonly backing = new Map<string, unknown>()) {}
@@ -13,6 +14,14 @@ class FakeMap implements DocMapLike {
   has(k: string) { return this.backing.has(k); }
   delete(k: string) { this.backing.delete(k); return true; }
   entries(): Iterable<[string, unknown]> { return this.backing.entries(); }
+}
+
+/** 最小 TextLike（读侧对抗装置零写路径——Y1c T15 DocLike.createText 结构满足即可）。 */
+class FakeText implements TextLike {
+  length = 0;
+  toString() { return ''; }
+  insert(_index: number, _text: string) { /* 读侧装置无写路径 */ }
+  delete(_index: number, _len: number) { /* 读侧装置无写路径 */ }
 }
 
 /** 递归嵌套：对象值→FakeMap；原始值原样（content/width 等叶子保持 string/number） */
@@ -31,7 +40,7 @@ export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
   const deep = (n: number): unknown => (n <= 0 ? { leaf: true } : { child: deep(n - 1) });
   const mk = (nodes: Record<string, unknown>, meta: Record<string, unknown> = {}) => (): DocLike => {
     const maps: Record<string, FakeMap> = { nodes: fm(nodes), edges: new FakeMap(), meta: fm(meta) };
-    return { getMap: (n: string) => maps[n] ?? new FakeMap(), createMap: () => new FakeMap() };
+    return { getMap: (n: string) => maps[n] ?? new FakeMap(), createMap: () => new FakeMap(), createText: () => new FakeText() };
   };
   return [
     { name: 'long-content', build: mk({ n1: { data: { content: LONG } } }) },
@@ -42,7 +51,7 @@ export function generateAdversarialDocs(seed = 42): AdversarialCase[] {
     { name: 'type-confusion', build: mk({ n1: { x: 'str', data: { width: 'wide' } } }, { legacyMeta: 'not-a-number' }) },   // T18：meta.schemaVersion 退役——对抗面改打任意非版本 meta 键（doc 内容不再带版本）
     { name: 'scalar-node', build: () => {   // 值守卫专测：非 map 节点值 → 跳过
       const nodes = new FakeMap(new Map([['raw', 'just-a-string']]));
-      return { getMap: (n: string) => (n === 'nodes' ? nodes : new FakeMap()), createMap: () => new FakeMap() };
+      return { getMap: (n: string) => (n === 'nodes' ? nodes : new FakeMap()), createMap: () => new FakeMap(), createText: () => new FakeText() };
     } },
     ...Array.from({ length: 8 }, (_, i): AdversarialCase => ({
       name: `fuzz-${i}`,

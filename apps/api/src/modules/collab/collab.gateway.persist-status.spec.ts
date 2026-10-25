@@ -10,7 +10,7 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
 import {
-  CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
+  CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
@@ -28,6 +28,7 @@ function toDocLike(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
+    createText: () => new Y.Text() as unknown as TextLike,
   };
 }
 

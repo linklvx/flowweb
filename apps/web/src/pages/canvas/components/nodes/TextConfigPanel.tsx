@@ -28,7 +28,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
-  const [prompt, setPrompt] = useState(() => nodeData?.prompt || '');
+  // Y1c T15：prompt=Y.Map{text:Y.Text} 迁移——ns/读模型形态={text:string}
+  const [prompt, setPrompt] = useState(() => nodeData?.prompt?.text ?? '');
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -207,8 +208,9 @@ function TextConfigPanelComponent({ nodeId }: Props) {
           onChange={(e) => {
             setPrompt(e.target.value);
             // Persist to nodeStore immediately so text survives panel hide/show
-            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
-            useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: e.target.value });
+            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）。Y1c T15：prompt=Y.Map{text:Y.Text}
+            // ——patch {text} 形态经 splice 单一 seam 落内层 Y.Text 最小 diff（canvasIntents 写 seam）
+            useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: { text: e.target.value } });
           }}
           placeholder="描述你要生成的内容、场景或角色设定。例如：星际宇航员，站在月球表面眺望蓝色地球。"
           className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none scrollbar-dark"

@@ -44,7 +44,8 @@
 // 写守卫 reason 词表（本文件枚举——CollabAuthReason 是 auth 拒绝域不混入；wire 面 T27 端点透传
 // 只增不改）：node-deleted（writeNodeData/deleteNodeDataKeys/writeExecStatus——Z44/Z4）/ no-node-map
 // （writeNodeData，Z44）/ missing-attempts / older-attempts（Z111 代次 fail-closed）/
-// terminal-superseded（Z99 同代终态不倒退）。
+// terminal-superseded（Z99 同代终态不倒退）/ text-domain-protected + no-data-map（Y1c T15 容器
+// 规则——Y.Text 域键整串覆盖拒+缺 data Y.Map 拒绝不懒建，collab-document.service 写核心守卫）。
 import { Injectable, Inject } from '@nestjs/common';
 import type * as Y from 'yjs';
 import {

@@ -5,13 +5,14 @@ import * as Y from 'yjs';
 import { CollabGateway, UnloadDrainRefusedError } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import {
-  CollabAuthReason, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike } from '@flowweb/shared';
+  CollabAuthReason, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 
 /** 测试内 Y.Doc→DocLike 适配（历史版本门夹具形态——T18 起版本=PG 列，适配保留供读面） */
 function toDocLike(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
+    createText: () => new Y.Text() as unknown as TextLike,
   };
 }
 import { register } from 'prom-client';

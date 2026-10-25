@@ -13,13 +13,14 @@ import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { yjsSnapshotFallbackTotal, unregisterPendingCollector } from './store.metrics';
 import {
-  type DocLike, type DocMapLike } from '@flowweb/shared';
+  type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 
 /** 测试内 Y.Doc→DocLike 适配（collab-document.service.spec 同款手法——夹具盖章用） */
 function toDocLike(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
+    createText: () => new Y.Text() as unknown as TextLike,
   };
 }
 

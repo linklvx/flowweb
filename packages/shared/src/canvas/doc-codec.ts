@@ -20,6 +20,7 @@
 // 无 transformV3ToV4Draft（硬重置——spec v5-13：v3 值由 T15/T16/T17 写点改造迁移，读侧双载体兼容）。
 import * as Y from 'yjs';
 import { fillDoc, readRecordsFromMaps, type DocLike, type DocEdgeRecord } from './docShape';
+import type { TextLike } from './text-domains';
 import { type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
 
 // ── 值域类型：PM JSON / 富文本 / canonical 打标签快照 ──
@@ -118,10 +119,11 @@ export interface PublicSnapshotPolicy {
 // ── 内部装置 ──
 
 /** Y.Doc→DocLike 结构适配（fillDoc/createMap 工厂注入——doc-like.util/ydocBuilder 同款手法；
- *  readRecordsFromMaps 只用 getMap 面）。 */
+ *  readRecordsFromMaps 只用 getMap 面。Y1c T15 增 createText——Y.Text 域容器物化工厂）。 */
 const asDocLike = (doc: Y.Doc): DocLike => ({
   getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
   createMap: () => new Y.Map() as unknown as DocMapLike,
+  createText: () => new Y.Text() as unknown as TextLike,
 });
 
 /** plain JSON 值深拷贝（read model/canonical 双出口防 doc 内值引用逃逸——mutate 隔离）。

@@ -35,10 +35,13 @@ const rejectedTotalSum = async (): Promise<number> => {
   return v.values.reduce((s, x) => s + x.value, 0);
 };
 
-/** 夹具节点种子：手建节点（T18 起 meta 零键——版本=PG 列装载门，进程内 doc 无戳档=常态）。 */
+/** 夹具节点种子：手建节点（T18 起 meta 零键——版本=PG 列装载门，进程内 doc 无戳档=常态）。
+ *  Y1c T15 容器规则：data Y.Map 随节点种子落位（缺 data=结构错误——applyWriteNodeDataToDoc
+ *  已撤懒建，no-data-map 拒写；写面夹具对齐创建 seam 形态）。 */
 function seedNode(doc: Y.Doc, id = 'n1'): Y.Map<any> {
   const n = new Y.Map();
   n.set('type', 'text');
+  n.set('data', new Y.Map());
   doc.getMap('nodes').set(id, n);
   return n;
 }
@@ -201,7 +204,8 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
     await expect(writer.writeBatch('p1', [
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: undefined } },
     ])).rejects.toThrow(/UNDEFINED_PATCH_VALUE/);
-    expect(n1.get('data')).toBeUndefined();             // fail-fast 在应用前——零写入
+    // fail-fast 在应用前——零写入（Y1c T15 起种子自带 data Y.Map〔容器规则〕——断言=零键写入）
+    expect([...(n1.get('data') as Y.Map<unknown>).keys()]).toEqual([]);
   });
 
   it('红·undefined skip（Z5·exec 档）：writeBatch writeExecStatus patch 含 undefined 值 ⇒ written:true ∧ 该键不在 exec map（救活 :261 跳过语义）', async () => {

@@ -114,7 +114,9 @@ export interface PromptValue {
 
 export interface TextNodeData {
   content: string;
-  prompt?: string;
+  /** Y1c T15：prompt=Y.Map{text:Y.Text} 迁移——ns/读模型/patch 形态={text:string}
+   *  （容器随节点创建一次建；写走 splice 单一 seam——text-domains 单源）。 */
+  prompt?: { text: string };
 }
 
 export interface ImageNodeData {
@@ -167,7 +169,9 @@ export interface VideoNodeData {
 
 export interface AudioNodeData {
   model: string;
-  content: string;
+  /** Y1c T15：content:string 同卡迁 prompt（Y.Text 容器——读模型/ns 形态=string）；
+   *  AudioConfigPanel textarea 写读同键。 */
+  prompt: string;
   status: 'idle' | 'loading' | 'done' | 'error';
   fileId?: string;
   referenceAudio?: string;
@@ -180,6 +184,7 @@ export interface MultiImageNodeData {
   expanded: boolean;
   nodeStatus: 'idle' | 'loading' | 'done' | 'error';
   generationBatchId?: string;
+  /** Y1c T15 赋形：Y.Text 容器随结构创建（现状零面板写点死字段——写点落位即走 splice seam）。 */
   prompt?: string;
 }
 

@@ -510,8 +510,9 @@ export class ExecutionService {
       (pid, nid, downstreamNodeId) => this.upstreamMedia.readUpstreamMediaId(pid, nid, downstreamNodeId),
     );
     const data = node.data as any;
-    // Y1c T2（bug② 后半）：执行读点改调 resolvePromptText 单源（string 形态直读——改前 .text 恒 miss
-    // textInput data.prompt:string；T15 终形迁移只改函数实现，本读点永不再改）。上游文本仍优先（B21）。
+    // Y1c T2/T15：执行读点=resolvePromptText 单源（读模型形态：audioGen/multiImageGen.prompt=string
+    // 〔Y.Text 域〕、textInput.prompt={text}〔Y.Map{text:Y.Text} 域〕——函数两腿对号，本读点永不再改）。
+    // 上游文本仍优先（B21）。
     const prompt = upstream.textContents.join(' ') || resolvePromptText(data);
 
     if (node.type === 'textInput') {

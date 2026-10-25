@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS, NODE_TYPES, CANVAS_NODE_TYPES } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
-import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
+import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS, ensureTextDomainDefaults } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -1070,6 +1070,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     }
     // O0b-2 (i) 命令体显式值：data.width/height（载荷尺寸——splitImage 同源形态）提到信封并从 data 剥除
     //（终裁 59①[i]——addChildNode intent.node 扩 wh 键=删 customSize 后初始尺寸的显式形参）
+    // Y1c T15 容器规则：域键缺省补齐在**原 data 对象**上（下方解构 restData 入 intent 后 dispatch
+    // seam 只见副本——此处补齐使 ns 双写（data 原对象）与 doc 容器同形，doc ≡ store 不变量保持）
+    ensureTextDomainDefaults(sourceNode.type, data);
     const { width: dataW, height: dataH, ...restData } = data as Record<string, unknown>;
     const hasWh = typeof dataW === 'number' && typeof dataH === 'number';
     const edge: Edge = { id: edgeId, source: sourceId, target: id };

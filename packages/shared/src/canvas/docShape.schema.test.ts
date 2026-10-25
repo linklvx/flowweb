@@ -17,6 +17,14 @@ class FakeMap implements DocMapLike {
   delete = (key: string): void => { this.inner.delete(key); };
   entries = (): Iterable<[string, unknown]> => this.inner.entries();
 }
+/** FakeText：TextLike 内存假实现（Y1c T15 DocLike.createText——fillDoc 域容器物化消费）。 */
+class FakeText {
+  private s = '';
+  get length(): number { return this.s.length; }
+  toString(): string { return this.s; }
+  insert(index: number, text: string): void { this.s = this.s.slice(0, index) + text + this.s.slice(index); }
+  delete(index: number, len: number): void { this.s = this.s.slice(0, index) + this.s.slice(index + len); }
+}
 class FakeDoc implements DocLike {
   private maps = new Map<string, FakeMap>();
   getMap = (name: string): FakeMap => {
@@ -25,6 +33,7 @@ class FakeDoc implements DocLike {
     return m;
   };
   createMap = (): FakeMap => new FakeMap();
+  createText = (): FakeText => new FakeText();
 }
 
 describe('CANVAS_DOC_SCHEMA_VERSION=3（T18 版本硬切——meta 门退役，版本承载=CanvasDoc.schemaVersion PG 列）', () => {

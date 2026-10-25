@@ -8,7 +8,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
 import {
-  type DocLike, type DocMapLike } from '@flowweb/shared';
+  type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 import { CollabResidencyService } from './collab-residency.service';
 import {
   unregisterDegradedDocsReader, unregisterResidentReader,
@@ -18,6 +18,7 @@ function toDocLikeFixture(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
+    createText: () => new Y.Text() as unknown as TextLike,
   };
 }
 

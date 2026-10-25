@@ -42,7 +42,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
-  const [prompt, setPrompt] = useState(() => nodeData?.content || '');
+  // Y1c T15：content:string 同卡迁 prompt（Y.Text 域——读模型/ns 形态=string）
+  const [prompt, setPrompt] = useState(() => nodeData?.prompt || '');
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -152,7 +153,7 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
     setStatus(nodeId, 'loading');
     try {
       // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
-      useNodeStore.getState().applyNodeDataPatch(nodeId, { content: prompt });
+      useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt });
       const projectId = useCanvasStore.getState().projectId;
       if (!projectId) return;
       // Y0b-2 T6（Z79/Z118）：held 一律上送；done/EXHAUSTED 无 held=新"重新生成"；否则内容键普通执行
@@ -206,8 +207,9 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
           value={prompt}
           onChange={(e) => {
             setPrompt(e.target.value);
-            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）
-            useNodeStore.getState().applyNodeDataPatch(nodeId, { content: e.target.value });
+            // 批2-2：收口 wrapper（readOnly 早退——输入不落 store）。Y1c T15：prompt=Y.Text 域
+            // ——patch 整串形态经 splice 单一 seam 落最小 diff（canvasIntents 写 seam）
+            useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt: e.target.value });
           }}
           placeholder="描述你要生成的音频内容。例如：一段轻快的钢琴曲，带有雨声背景。"
           className="flex-1 bg-transparent border-0 rounded-md text-xs text-[#ccc] pl-2.5 pr-4 py-2 focus:outline-none resize-none scrollbar-dark"

@@ -6,7 +6,9 @@
 //     矩阵不发明键、不漏真实键——T24「未分类字段默认拒绝」的执法底表）；
 //   - yType=各键的 **v4 目标语义**（spec §3.1：textInput{content:xml, prompt:map{text}}；
 //     imageGen/videoGen/imageExtGen{prompt:xml}；audioGen/multiImageGen{prompt:text}；
-//     allImages/images=array）——现状 string/JSON 载体由 T15/T16 同卡迁移后与矩阵一致；
+//     allImages/images=array）——Y1c T15 已落三域（audioGen/multiImageGen prompt=text、
+//     textInput prompt=map{text}——text-domains 单源词表自本矩阵派生）；其余 string/JSON
+//     载体（content:xml 三域/allImages:array）由 T16/T17 同卡迁移后与矩阵一致；
 //   - writer 二元（'user'|'server'）——**v4 矩阵内不得出现 writer:'server' 条目**（spec §3.1：
 //     writer:'server' 字段一律禁入 doc；服务端派生数据只住 PG+Feed，v3 现存服务端域键
 //     〔status/fileId/result 族〕以 yType:'server-forbidden' 登记其「禁入」语义而非给写权）。
@@ -111,7 +113,8 @@ export const DOC_SCHEMA_V4: Record<
     data: {
       // v4 目标：content=XmlFragment（Tiptap 正文——T16 迁移；现状 string HTML 载体）
       content: xmlSpec({ reader: ['web', 'server', 'public'] }),
-      // v4 目标：Y.Map{text:Y.Text}（T15 迁移——T2 起现状载体=string，resolvePromptText 单源读）
+      // Y1c T15 已迁：Y.Map{text:Y.Text}（T2 的 data.prompt:string 同卡迁移——容器随结构创建
+      // 一次建，写走 splice 单一 seam；执行读点=resolvePromptText 单源读 {text} 形态）
       prompt: mapSpec({ text: textSpec() }, { inExecutionPlan: true }),
       model: lww({ inExecutionPlan: true }),
       order: lww(), // Y1a 序域（order-key.ts 分数索引——addNodeInner 通用分配）
@@ -206,9 +209,9 @@ export const DOC_SCHEMA_V4: Record<
     envelope: NODE_ENVELOPE_KEYS,
     data: {
       model: lww({ inExecutionPlan: true }),
-      // 现状=prompt 真源载体（AudioConfigPanel textarea——census ② 实测）；T15 同卡迁
-      // prompt:Y.Text（届时本条目改键——content 移除、prompt{yType:'text'} 落位）
-      content: textSpec({ reader: ['web', 'server', 'public'] }),
+      // Y1c T15 已迁：prompt=Y.Text（content:string 同卡迁——AudioConfigPanel textarea 写读同改；
+      // 容器随结构创建一次建/写走 splice 单一 seam——text-domains 单源词表）
+      prompt: textSpec({ reader: ['web', 'server', 'public'] }),
       status: forbidden(),
       fileId: forbidden(),
       referenceAudio: mediaLww(),
@@ -224,7 +227,7 @@ export const DOC_SCHEMA_V4: Record<
       expanded: lww(),
       nodeStatus: forbidden(), // 生成批次执行态——服务端进度域（v4 禁入）
       generationBatchId: lww(), // census ② 接口声明键（现状零生产写点——保留登记防未分类拒）
-      // v4 目标：Y.Text（T15 赋形写点——现状零写点死字段，census ② 实测）
+      // Y1c T15 已赋形：Y.Text 容器随结构创建（现状零面板写点死字段——写点落位即走 splice seam）
       prompt: textSpec(),
       order: lww(),
     },

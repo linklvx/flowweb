@@ -15,7 +15,8 @@ import isEqual from 'fast-deep-equal';
 import type { CanvasNodeRecord, DocMapLike, StoredNodeRecord, FrameMode, QuotaRejectReason } from '@flowweb/shared';
 import { setDocPosition, stripDerivedKeys, toReadModel, normalizeSize,
   assertStoryboardChildNoPosition, assertNoCsDerivedKeysInData, assertNoDunderKeysInGroupData,
-  QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS } from '@flowweb/shared';
+  QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS,
+  ensureTextDomainDefaults, textDomainOf, writeTextDomainValue } from '@flowweb/shared';
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -141,18 +142,35 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): void {
       // 幂等守卫（批4b 评审 Minor）：doc 已有同 id 节点跳过重写——fillDoc 无条件 set 新
       // Y.Map=新 item，嵌套/重放 addNode 形态会 doc 膨胀（与 cs 投影侧同 id 跳过守卫对齐）。
       if (d.getMap('nodes').has(intent.node.id)) break;
+      // Y1c T15 容器规则——创建 seam 单点：Y.Text 域键缺省补齐（audioGen/multiImageGen.prompt=''、
+      // textInput.prompt={text:''}）。**原位补 intent.node.data**：fillDoc 物化 doc 容器与
+      // projectIntentToStore 的 store 投影同读一源（doc ≡ store 不变量口径）；已在键不覆写。
+      ensureTextDomainDefaults(intent.node.type, intent.node.data);
       fillDoc(d, [{ ...intent.node, data: stripEphemeralDataKeys(intent.node.data) }], []);
       break;
     case 'updateNodeData': {
       const m = d.getMap('nodes').get(intent.id);
       if (!(m instanceof Y.Map)) return;
-      let data = m.get('data');
-      if (!(data instanceof Y.Map)) { data = new Y.Map(); m.set('data', data); }
+      // Y1c T15 容器规则：缺 data Y.Map=结构错误——拒绝不懒建（懒建掩盖结构错误，§3.5）
+      const data = m.get('data');
+      if (!(data instanceof Y.Map)) {
+        recordCollabDiag('write_reject', { reason: 'data-map-missing', via: 'text-domain' });
+        return;
+      }
+      const nodeType = m.get('type');
       for (const [k, v] of Object.entries(intent.patch)) {
         if (EPHEMERAL_DATA_KEYS.has(k)) continue; // ephemeral 禁入 doc（Spec B editMode 口径 13）
         // T11（spec Z11''①）：服务端权威域禁写键 strip——doc 零写（删键语义同拦：fileId 清空走
         // clearMedia 命令，投影 poller 写 data.fileId=null〔T15 钉 null 写语义〕）；ns 本地面不在此层（projectIntentToStore 照写）
         if (CLIENT_FORBIDDEN_ON_UPDATE_SET.has(k)) continue;
+        // Y1c T15：Y.Text 域键走 splice 单一 seam（整串 diff→最小 splice；缺容器/形状错/值形态错
+        // =拒绝——命中域键永不 data.set 整串覆盖，G17b 容器替换对抗面）
+        const domainShape = textDomainOf(nodeType, k);
+        if (domainShape) {
+          const r = writeTextDomainValue(data, domainShape, k, v);
+          if (!r.ok) recordCollabDiag('write_reject', { reason: r.reason, via: 'text-domain' });
+          continue;
+        }
         if (v === undefined) { if (data.has(k)) data.delete(k); continue; }
         if (!isEqual(data.get(k), v)) data.set(k, v);
       }

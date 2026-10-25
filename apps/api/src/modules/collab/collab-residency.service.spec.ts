@@ -20,7 +20,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { SERVER_TRANSACT_ORIGIN,
-  type DocLike, type DocMapLike } from '@flowweb/shared';
+  type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
 import {
@@ -32,6 +32,7 @@ function toDocLikeFixture(doc: Y.Doc): DocLike {
   return {
     getMap: (name) => doc.getMap(name) as unknown as DocMapLike,
     createMap: () => new Y.Map() as unknown as DocMapLike,
+    createText: () => new Y.Text() as unknown as TextLike,
   };
 }
 
@@ -65,7 +66,7 @@ function makeFixture() {
     let doc = docs.get(name);
     if (!doc) {
       doc = new Y.Doc();
-      doc.getMap('nodes').set('n1', new Y.Map([['type', 'text']]));       // 种子节点（写守卫 Z4：不存在节点=written:false——夹具对齐生产 doc 有节点形态）
+      doc.getMap('nodes').set('n1', new Y.Map([['type', 'text'], ['data', new Y.Map()]]));   // 种子节点（写守卫 Z4：不存在节点=written:false；Y1c T15 容器规则：data 随种子落位——缺 data=no-data-map 拒写）
       const saved = persisted.get(name);
       if (saved) Y.applyUpdate(doc, saved);                               // hydration 重放
       // M-4：directConnectionsCount 与 counts Map 同步（getter 形态，最小实现）——库 addDirectConnection
@@ -192,7 +193,7 @@ describe('Y0c T15 Z83：释放窗口并发 acquire', () => {
     const fnHold = deferred();
     let wroteK1 = false;
     const s1 = fx.svc.withSession('p1', async (doc: Y.Doc) => {
-      doc.getMap('nodes').set('k1', new Y.Map([['type', 'text']]));
+      doc.getMap('nodes').set('k1', new Y.Map([['type', 'text'], ['data', new Y.Map()]]));   // Y1c T15：data 随种子落位
       wroteK1 = true;
       await fnHold.promise;                                      // fn 在飞挂起——释放窗开启
       return 's1';

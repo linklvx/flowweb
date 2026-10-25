@@ -13,15 +13,19 @@
 // 经 import 单源引用；零行为变更纯机械迁移）。
 import type { RelPos } from './brands';
 import { isDocMap, setDocPosition, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
+// Y1c T15：Y.Text 域创建 seam（容器物化单源——textDomainOf/materializeTextDomainValue）
+import { materializeTextDomainValue, textDomainOf, type TextLike } from './text-domains';
 // T17 P1-2：DOC_NODE_KEYS placement 判别校验接线（docShape→placement 单向——placement 只依
 // nodeEnvelope/order-key，零环）
 import { validatePlacementData } from './placement';
 
 /** Y.Doc 结构性最小面。O0a-1 按需扩 createMap：空 map 工厂（fillDoc 的节点/position/data 子 Map
- *  创建——零 yjs 的代价：宿主注入 new Y.Map()/FakeMap；Y.Doc 无此方法由适配层补）。 */
+ *  创建——零 yjs 的代价：宿主注入 new Y.Map()/FakeMap；Y.Doc 无此方法由适配层补）。
+ *  Y1c T15 扩 createText：Y.Text 域容器物化工厂（fillDoc 创建 seam——text-domains 单源消费）。 */
 export interface DocLike {
   getMap(name: string): DocMapLike;
   createMap(): DocMapLike;
+  createText(): TextLike;
 }
 
 /** doc 边记录（fillDoc/readRecordsFromMaps 面——单形状 source/target，缺写 '' 由写侧守卫）。 */
@@ -84,7 +88,14 @@ export function fillDoc(
       setDocPosition(m, rec.position, () => doc.createMap());
     }
     const data = doc.createMap();
-    for (const [k, v] of Object.entries(rec.data ?? {})) data.set(k, v);
+    // Y1c T15 容器规则——创建 seam：Y.Text 域键（在册且在记录 data 中出现）物化共享容器
+    // （string→Y.Text / {text}→Y.Map{text:Y.Text}；已实例原样——rebuild/快照回灌）。**不发明
+    // 缺席键**：记录真值优先（vacuum 重建等价断言=fresh 不多于 source）；web 创建完整性由
+    // ensureTextDomainDefaults 在 dispatch addNode seam 补域键缺省（doc 容器与 store 投影同源）。
+    for (const [k, v] of Object.entries(rec.data ?? {})) {
+      const shape = textDomainOf(rec.type, k);
+      data.set(k, shape ? materializeTextDomainValue(shape, v, { createText: () => doc.createText(), createMap: () => doc.createMap() }) : v);
+    }
     m.set('data', data);
     nodesMap.set(rec.id, m);
   }

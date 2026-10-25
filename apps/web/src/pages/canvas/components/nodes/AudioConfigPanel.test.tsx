@@ -13,7 +13,7 @@ vi.mock('@xyflow/react', () => ({
 const mockUpdateConfig = vi.fn();
 let mockNodeData: any = {
   model: 'audio-model-1',
-  content: '',
+  prompt: '',   // Y1c T15：content:string 同卡迁 prompt（Y.Text 域）
   status: 'idle',
 };
 
@@ -70,7 +70,7 @@ describe('AudioConfigPanel', () => {
     vi.clearAllMocks();
     mockNodeData = {
       model: 'audio-model-1',
-      content: '',
+      prompt: '',   // Y1c T15：content→prompt 迁移
       status: 'idle',
     };
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no fetch in test'));

@@ -29,7 +29,7 @@ vi.mock('@xyflow/react', () => ({
 // Mock stores
 const { mockNodeStoreState } = vi.hoisted(() => {
   const state: any = {
-    nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '', prompt: '', model: 'm1' } } },
+    nodes: { n1: { id: 'n1', type: 'text', position: { x: 0, y: 0 }, data: { content: '', prompt: { text: '' }, model: 'm1' } } },   // Y1c T15：prompt=Y.Map{text:Y.Text} 域——ns/读模型形态={text}
     setStatus: vi.fn(),
     applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
     // Y0b-2 T6：exec 投影两源（token 轮换/三态判据——用例内直接注入 Map）
@@ -148,11 +148,11 @@ describe('TextConfigPanel', () => {
 
   it('should restore persisted prompt from nodeStore on mount', () => {
     // Set stored content in mock nodeStore
-    mockNodeStoreState.nodes.n1.data.prompt = 'saved text';
+    mockNodeStoreState.nodes.n1.data.prompt = { text: 'saved text' };   // Y1c T15：{text} 形态
     const { container } = render(<TextConfigPanel nodeId="n1" />);
     const textarea = container.querySelector('textarea');
     expect(textarea?.value).toBe('saved text');
-    mockNodeStoreState.nodes.n1.data.prompt = '';
+    mockNodeStoreState.nodes.n1.data.prompt = { text: '' };
   });
 
   it('should have dark scrollbar class on textarea', () => {
@@ -280,9 +280,9 @@ describe('TextConfigPanel', () => {
   });
 
   // ── Y1c T2（bug②）：:157 生成时 {content: prompt} 覆盖写删除——正文语义归正文（tiptap 正文/
-  //    上游注入），prompt 供给归执行读点（服务端 resolvePromptText 读 data.prompt:string）。──
+  //    上游注入），prompt 供给归执行读点（服务端 resolvePromptText 单源——T15 起读 {text} 形态）。──
 
-  it('Y1c T2 红①：生成后正文不被覆盖——生成动作零 content 写（:211 每键击 prompt 持久化保留）', async () => {
+  it('Y1c T2 红①：生成后正文不被覆盖——生成动作零 content 写（每键击 prompt 持久化保留——T15 起 {text} patch）', async () => {
     mockNodeStoreState.execStatus = new Map(); // 夹具复位（token 用例残余不渗入）
     sessionStorage.removeItem('flowweb:regen:real-pid:n1');
     const applyPatch = mockNodeStoreState.applyNodeDataPatch as any;
@@ -292,9 +292,9 @@ describe('TextConfigPanel', () => {
     fireEvent.click(buttons[buttons.length - 1]); // 生成
     await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
 
-    // 每键击 prompt 持久化保留（:211 不删——doc 单源 data.prompt:string）
-    expect(applyPatch).toHaveBeenCalledWith('n1', { prompt: '面板提示词' });
-    // 生成动作零 content 覆盖写——正文不被 prompt 覆盖（今日红：:157 applyNodeDataPatch({content: prompt})）
+    // 每键击 prompt 持久化保留（不删——doc 单源；Y1c T15：patch={text} 形态经 splice seam）
+    expect(applyPatch).toHaveBeenCalledWith('n1', { prompt: { text: '面板提示词' } });
+    // 生成动作零 content 覆盖写——正文不被 prompt 覆盖（T2 前红：:157 applyNodeDataPatch({content: prompt})）
     const contentWrites = applyPatch.mock.calls.filter((c: any[]) => c[1] && 'content' in c[1]);
     expect(contentWrites).toHaveLength(0);
   });
@@ -308,7 +308,7 @@ describe('TextConfigPanel', () => {
       Object.assign(mockNodeStoreState.nodes[id].data, patch);
     });
     mockNodeStoreState.nodes.n1.data.content = '正文在案'; // 正文在案（tiptap 正文/上游注入语义）
-    mockNodeStoreState.nodes.n1.data.prompt = '';
+    mockNodeStoreState.nodes.n1.data.prompt = { text: '' };
     try {
       // 选中（面板挂载）→ 输入（:211 每键击持久化落 store）
       const first = render(<TextConfigPanel nodeId="n1" />);
@@ -319,17 +319,17 @@ describe('TextConfigPanel', () => {
       const second = render(<TextConfigPanel nodeId="n1" />);
       expect((second.container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('用户提示词');
 
-      // 生成使用该值（enqueue 上送——服务端读点=data.prompt:string，resolvePromptText 单源，见 api 侧红②）
+      // 生成使用该值（enqueue 上送——服务端读点=resolvePromptText 单源读 {text} 形态，见 api 侧红②）
       const buttons = second.container.querySelectorAll('button');
       fireEvent.click(buttons[buttons.length - 1]);
       await vi.waitFor(() => expect(mockEnqueueWorkflow).toHaveBeenCalledTimes(1));
 
-      expect(mockNodeStoreState.nodes.n1.data.prompt).toBe('用户提示词'); // 值仍在且为生成所用（doc 单源）
+      expect(mockNodeStoreState.nodes.n1.data.prompt).toEqual({ text: '用户提示词' }); // 值仍在且为生成所用（doc 单源；T15 {text} 形态）
       expect(mockNodeStoreState.nodes.n1.data.content).toBe('正文在案'); // 正文不被覆盖（今日红：:157 覆盖写）
     } finally {
       applyPatch.mockImplementation(() => {}); // 还原 mock（clearAllMocks 不清 implementation）
       mockNodeStoreState.nodes.n1.data.content = '';
-      mockNodeStoreState.nodes.n1.data.prompt = '';
+      mockNodeStoreState.nodes.n1.data.prompt = { text: '' };
     }
   });
 });

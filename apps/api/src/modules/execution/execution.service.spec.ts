@@ -395,16 +395,28 @@ describe('ExecutionService', () => {
       expect(arg.prompt).toBe('上游词'); // 不含 '面板词'
     });
 
-    it('Y1c T2（bug② 后半）：textInput data.prompt:string 直读——无上游时不落 content 串位（:512 .text 恒 miss 根修）', async () => {
-      // TextConfigPanel:211 每键击落 doc 的形态=data.prompt:string（nodeStore TextNodeData）——
-      // 现状 :512 data?.prompt?.text 对 string 恒 miss ⇒ 正文 content 串位成 prompt（面板 prompt 执行链断供）。
-      const textNode = { id: 'n1', type: 'textInput', data: { content: '正文在案', prompt: '面板提示词', model: 'm-text' } };
+    it('Y1c T2/T15：textInput prompt={text}（Y.Map{text:Y.Text} 读模型）直读——无上游时不落 content 串位（:512 改前 .text 恒 miss 根修）', async () => {
+      // Y1c T15 迁移后形态：textInputs prompt=Y.Map{text:Y.Text}——readCanvas 读模型={text:string}
+      // （改前 T2 时点为 data.prompt:string——:512 data?.prompt?.text 对 string 恒 miss ⇒ 正文
+      // content 串位成 prompt，面板 prompt 执行链断供——resolvePromptText 单源两腿对号）。
+      const textNode = { id: 'n1', type: 'textInput', data: { content: '正文在案', prompt: { text: '面板提示词' }, model: 'm-text' } };
       topology.getScope.mockReturnValue([textNode]);
       topology.sort.mockReturnValue([textNode]);
       topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined }); // 无上游文本
       const result = await service.execute('p1', 'n1', 'u1');
       expect(result.success).toBe(true); // text 腿完整执行（防断言因未执行假红）
-      expect(apiCaller.callTextGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '面板提示词' })); // 今日红：.text miss → content '正文在案' 串位
+      expect(apiCaller.callTextGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '面板提示词' }));
+    });
+
+    it('Y1c T15：audioGen prompt=Y.Text 读模型 string 直读（content 键已退册——不落 content 回落）', async () => {
+      // T15 同卡迁：audioGen content:string → prompt:Y.Text——readCanvas 读模型 prompt=string
+      //（resolvePromptText string 腿对号；旧 content 回落腿对 audioGen 结构性不可达）。
+      const audioNode = { id: 'a1', type: 'audioGen', data: { model: 'm-audio', prompt: '音频旁白词' } };
+      topology.getScope.mockReturnValue([audioNode]);
+      topology.sort.mockReturnValue([audioNode]);
+      topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined });
+      await service.execute('p1', 'a1', 'u1');
+      expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '音频旁白词' }));
     });
   });
 

@@ -62,6 +62,9 @@ export * from './canvas/collab-doc-ops';
 // （execution.service nodeClaimPack）唯一入口：string 直读 > PromptValue.text > content 回落。
 // T15 终形 prompt=Y.Map{text:Y.Text} 迁移时只改函数实现与单测，执行读点永不再改。
 export * from './canvas/promptText';
+// Y1c T15：Y.Text 域单源（TEXT_DOMAINS 词表自 DOC_SCHEMA_V4 派生+splice 单一 seam
+// writeTextDomainValue+创建 seam materialize/ensureTextDomainDefaults+容器规则拒写词表）。
+export * from './canvas/text-domains';
 // Y1c T3：doc 模型 v4 全类型树形矩阵（DOC_SCHEMA_V4 8 类型+DataKeySpec 二元+META_WHITELIST）——
 // spec §3.1 矩阵冻结唯一基准；键集=census ② 实测精确冻结；运行时准入 T24 激活。
 export * from './canvas/doc-schema-v4';

@@ -44,8 +44,10 @@ const CLOSE_CODE_VALUES: readonly number[] = Object.values(CollabCloseCode);
  *  recover_triggered{level}（runtime:197）/watchdog_fire{executed}（runtime:1200）∪ reason('stalled')（裁定 24⑩）/
  *  hydration_fail{}（runtime:1234 无 detail）/auth_reject{reason,terminal}（runtime:1012——reason∈CollabAuthReason）/
  *  write_reject{reason,via}（awareness:111 'selection-too-large'+runtime:1002 'quota-soft'+canvasIntents:327
- *  +canvasStore:1900/:2892+canvasUndo:100——值域=QuotaRejectReason∪{selection-too-large,quota-soft}，
- *  msg-rate-exceeded/doc-over-quota 系服务端词表客户端零产生〔裁定 25⑴〕）/
+ *  +canvasStore:1900/:2892+canvasUndo:100——值域=QuotaRejectReason∪{selection-too-large,quota-soft}
+ *  ∪Y1c T15 容器规则四值{container-missing,container-type-mismatch,value-form-mismatch,data-map-missing}
+ *  （via='text-domain'——canvasIntents Y.Text 域写 seam）；msg-rate-exceeded/doc-over-quota 系服务端
+ *  词表客户端零产生〔裁定 25⑴〕）/
  *  invariant_violation{where}（runtime:1267 'applyRemote'——值域含 T2 'applyBootstrap'/'react-boundary'）/
  *  sync_pending_retry{n}（executionApi:43 现无 detail）/conn_scope{scope|null}（runtime:955——scope∈
  *  {read-write,readonly}，库 L23 authenticated 载荷）/close_code{code}（T2 接线）/
@@ -77,8 +79,10 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     terminal: { sink: 'log-only' },
   },
   write_reject: {
-    reason: { sink: 'log-only', values: [...QUOTA_REJECT_REASONS, 'selection-too-large', 'quota-soft'] },
-    via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck', 'canEditCommand'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）
+    reason: { sink: 'log-only', values: [...QUOTA_REJECT_REASONS, 'selection-too-large', 'quota-soft',
+      // Y1c T15 容器规则拒写（text-domains 拒绝词表——canvasIntents 写 seam 唯一产生面）
+      'container-missing', 'container-type-mismatch', 'value-form-mismatch', 'data-map-missing'] },
+    via: { sink: 'log-only', values: ['dispatch-fallback', 'redo-precheck', 'canEditCommand', 'text-domain'] },   // T17 只读门 via（T18 顺修：T17 落地漏 schema 登记——census ⑬ 红根因）；Y1c T15 增 text-domain（Y.Text 域 seam 拒）
     command: { sink: 'log-only' },   // T17 七命令名（EditableCommandName 7 值域归 web 单源，log-only 无 label 基数面不枚举〔name/frame 先例〕）
   },
   invariant_violation: {

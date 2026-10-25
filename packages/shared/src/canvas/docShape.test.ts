@@ -27,7 +27,7 @@ type _ExactKeysDiff<T, Expected extends readonly string[]> =
 // O0a-1 按需扩键（保持零 yjs）：DocMapLike+delete/entries（增量删键+读遍历）；DocLike+createMap
 // （空 map 工厂——fillDoc 节点/position/data 子 Map 创建，宿主注入 new Y.Map/FakeMap）。
 type _AnchorDocMapLikeKeys = _AssertNever<_ExactKeysDiff<DocMapLike, ['get', 'set', 'has', 'delete', 'entries']>>;  // 勿删——删即静默失去键集防护
-type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap', 'createMap']>>;  // 勿删——删即静默失去键集防护
+type _AnchorDocLikeKeys = _AssertNever<_ExactKeysDiff<DocLike, ['getMap', 'createMap', 'createText']>>;  // 勿删——删即静默失去键集防护（Y1c T15 增 createText——Y.Text 域容器物化工厂）
 type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<StoredNodeRecord, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data']>>;  // 勿删——删即静默失去键集防护
 type _AnchorRenderNodeKeys = _AssertNever<_ExactKeysDiff<RenderNode, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data', 'hidden']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDragSessionKeys = _AssertNever<_ExactKeysDiff<DragSession, [

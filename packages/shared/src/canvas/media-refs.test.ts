@@ -13,6 +13,7 @@ function makeDoc(): DocLike {
       return maps.get(name);
     },
     createMap: () => new Map() as never,
+    createText: () => ({ length: 0, toString: () => '', insert: () => {}, delete: () => {} }),
   };
 }
 
