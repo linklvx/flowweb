@@ -1,10 +1,10 @@
 {
   "gate": "G6a",
-  "commit": "5accab40",
+  "commit": "32194478",
   "env": {
     "pg": "PostgreSQL 16.13（localhost:5432/flowweb——pg_dump 16.13 实弹工具链 D:/programfiles/PostgreSQL/16/bin）",
     "date": "2026-10-25",
-    "suite": "collab-t13-g6a.spec（boot 接线 K1-K7 单池）+collab-t13-kill9.process.spec（真子进程 spawn+SIGKILL P1-P3）+collab-t13-g6a.int.spec（真 PG 实弹 I1-I4——vitest.int.config）+collab-spool-wal.spec M3；kill -9=进程内 seam（NoConfirmSpool/FaultRepo——T8/T9/T10 先例）+真子进程物理形态双轨；「重启」=服务重实例化+boot 生产恢复路径（T13 接线——与 G2 套件直调函数形态的差异面）"
+    "suite": "collab-t13-g6a.spec（boot 接线 K1-K7+K2b/M4 收口单池）+collab-t13-kill9.process.spec（真子进程 spawn+SIGKILL P1-P3）+collab-t13-g6a.int.spec（真 PG 实弹 I1-I4——vitest.int 配置池，pg 工具探测平台化 win=.exe/unix 无后缀+缺工具 it.skip 显式化）+collab-spool-wal.spec M3/T13 收口 C1①②/I1/M1；kill -9=进程内 seam（NoConfirmSpool/FaultRepo——T8/T9/T10 先例）+真子进程物理形态双轨；「重启」=服务重实例化+boot 生产恢复路径（T13 接线——与 G2 套件直调函数形态的差异面）"
   },
   "cases": [
     {
@@ -21,6 +21,14 @@
       "status": "pass",
       "expect": "bump 后旧段 history-mismatch 整段 quarantine 零重放+PG pgSeq 残留（I3 链断 violation）→start-failed 不 listen",
       "detail": "红相=旧链照常 serving；装置=段头 historyId 篡改（offset 80 zero-pad+CRC 重算）+floors pgSeq=1 残留（pg_dump 恢复后 dump 行形态）。K2 初版期望（pgSeq=0 时也拒）经语义复核修正：pgSeq=0=丢帧全为未承诺 Durable 档→合法续跑（ADR-01 §3.2）——拒服务判定=violation 维非 quarantine 维",
+      "artifacts": []
+    },
+    {
+      "id": "K2b-pgseq0-all-quarantined-serving",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t13-g6a.spec.ts -t 'K2b'",
+      "status": "pass",
+      "expect": "pgSeq=0+全段隔离（history-mismatch 布景+floors 空集）→violation 维不触发（maxSeq=0≮pgW=0）→合法续跑 serving+隔离档可见+零重放",
+      "detail": "T13 收口 M3（与 spec 登记重合）：K2 只测 pgSeq 残留 blocked 侧——本用例补「丢帧全为未承诺 Durable 档」正向半直锚（拒服务判定=violation 维非 quarantine 维，ADR-01 §3.2）",
       "artifacts": []
     },
     {
@@ -128,10 +136,18 @@
       "artifacts": []
     },
     {
+      "id": "M4-benign-defects-no-selfcheck-noise",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-t13-g6a.spec.ts -t 'M4'",
+      "status": "pass",
+      "expect": "良性 dup 段（dup-seq 同 hash——崩溃重试天然重复，fatal=false）零 quarantine/truncated →boot serving+不落 spool_startup_selfcheck ERROR（观测面=yjs_spool_bad_segment_total 全档含良性）",
+      "detail": "T13 收口 M4：启动自检条件收窄 fatal 维（旧实现 defects.length>0 含良性=ERROR 噪声必红）——语料良性 dup fixture 经真 boot 路径（makeBoot+语料段物化）",
+      "artifacts": []
+    },
+    {
       "id": "REG-prior-gate-coverage",
       "command": "cd apps/api && npx vitest run src/modules/collab/collab-t10-g2.int.spec.ts src/modules/collab/collab-t10-barrier-unload.spec.ts src/modules/collab/collab-spool-wal.spec.ts src/modules/collab/collab-hocuspocus-apply-order-contract.spec.ts",
       "status": "pass",
-      "expect": "G6a 矩阵既有覆盖回归（不重复 G2/T8-T11 已锁面）：kill -9 各阶段=G2 R1-R10（fsync 前后/PG 提交失败/confirm 前崩/快照发布/WAL 清理/毒帧 4411+截断/fscopy 复用/4412 拒帧）+EIO fail-stop=T8+坏段四档 crc/truncated/missing-seq/dup-hash=T8+ENOSPC 分档=T8/T9+barrier flush 中=T10 B1+快照发布 kill=T11+doc 卸载×PG 故障交错误卸载=红（U1 drain 拒绝+doc 常驻 fail-closed——A9/BOI-3 翻转）+maxResidentDocBytes 到顶 503 SERVER_OVERLOADED=T10 U1 DR resident gate",
+      "expect": "G6a 矩阵既有覆盖回归（不重复 G2/T8-T11 已锁面——**全量池覆盖**：上列命令=抽样直跑锚，全量=api vitest 262 文件+int 池 53 文件全绿含 T11 canvas-doc-compact-publish.int.spec 快照发布面）：kill -9 各阶段=G2 R1-R10（fsync 前后/PG 提交失败/confirm 前崩/快照发布/WAL 清理/毒帧 4411+截断/fscopy 复用/4412 拒帧）+EIO fail-stop=T8+坏段四档 crc/truncated/missing-seq/dup-hash=T8+ENOSPC 分档=T8/T9+barrier flush 中=T10 B1+快照发布 kill=T11+doc 卸载×PG 故障交错误卸载=红（U1 drain 拒绝+doc 常驻 fail-closed——A9/BOI-3 翻转）+maxResidentDocBytes 到顶 503 SERVER_OVERLOADED=T10 U1 DR resident gate+T13 收口 C1①②/I1/M1=collab-spool-wal.spec 尾组",
       "detail": "G6a 增量=boot 生产路径端到端（K/P/I 三轨）；4413 close 投递面归 T27（T10 注记承袭——本卡=503 装载档）",
       "artifacts": []
     }
@@ -170,15 +186,16 @@
   ],
   "skipped": 0,
   "notes": [
-    "commit 字段=证据认证对象=commit 5accab40（A=代码）；本 g6a.json 于其后独立证据 commit 落盘（B=g6a.json——G1/G2 两 commit 形态先例）",
+    "commit 字段=证据认证对象=commit 32194478（A'=T13 双评审收口代码——C1/I1/M1-M4+spec 三登记微项）；本 g6a.json 于其后独立证据 commit 再生落盘（B'——manifest 纪律：认证对象随代码 commit 更新）；cases 实测 18=原 16（K1-K7/M3/P1-P3/I1-I4/REG）+K2b/M4 增补——前 B commit message 记「15 cases」为计数勘误，本批按实测 18 如实改记",
     "负控清单=K4（marker 清除前 blocked/清除后 ok——恢复怀疑态自愈边界=人工处置）+K5（PG 不可用 start-failed）+K1/K4 后半（正常崩溃恢复不误伤——F-S4-5 作用域负控）+M3 红相（临时回退修复实证空段滞留）+K1-K4 四红组（基线 e642bb37 实证：recoverScan 零生产调用/栅栏零消费/marker 零读取/PG 前缀零校验）——负控全红过=门有效（spec §9.1）",
     "T8 遗留三项处置登记（commit message 同步）：#1 recoverScan 生产接线=boot init 改造（旧链 scan 退役——gateway.spec I3 测试同语义迁移）；#2 suspectSegments 消费=boot fail-closed 判定+ready.walRecoverySuspect 暴露+K4 断言；#3 unproven-tail 处置边界=ADR-01 §6 注记定形（无自动处置：段排序确定性=同盘恒同裁定；收敛面=换代清理〔M3 空段即删+全提交即删〕/人工处置；--adopt-wal 仅限 recoverySuspect 不适用 unproven-tail）——观测=恢复报告 quarantined 维+doc_prefix_gap_total 计入",
     "T12 评审 M3 处置=清理面落地（空段换代即删）非数字化登记；未提交段 sidecar 保留策略=证据保全锁定（M3 用例锚死）",
-    "K2 语义修正登记：初版期望「history-mismatch 即拒服务」经 ADR-01 §3.2 复核修正为「violation 维判定」（pgSeq=0+全隔离=丢帧全为未承诺 Durable 档→合法续跑；bump 后真实形态=PG dump 行 pgSeq 残留→I3 链断 violation→拒服务）——测试装置补 floors pgSeq 残留对齐实弹形态",
+    "K2 语义修正登记：初版期望「history-mismatch 即拒服务」经 ADR-01 §3.2 复核修正为「violation 维判定」（pgSeq=0+全隔离=丢帧全为未承诺 Durable 档→合法续跑；bump 后真实形态=PG dump 行 pgSeq 残留→I3 链断 violation→拒服务）——测试装置补 floors pgSeq 残留对齐实弹形态；正向半直锚=K2b 用例（T13 收口 M3 落地——该半此前零断言）",
     "六指标核实账（spec §9.3 全批清单非逐卡新增义务）：五新增+doc_frame_rejected_total 既有等价（collab_actor_frame_outcome_total reject-4411/reject-4412+collab_quota_frame_rejected_total 帧闸档）——store.metrics 注释块登记",
     "装置适配面（boot 读面前移波及——requireSystemHistory epochStartedAtMs fail-closed）：kit prisma mock+9 spec mock 补 epochStartedAt+预投帧装置 setWalHistory 对齐（空串 historyId 段被 recoverScan 判 mismatch=fail-closed 方向正确——装置化非生产行为变化）+ready.service.spec stub 补 suspectSegments",
-    "adoptSilentForeignSegments 收养面放宽（chain-stopped 外来段可收养）=boot recoverScan 接线的配套（recoverScan 对外来 fatal 段判 chain-stopped 档〔帧前缀可重放 I1〕——旧判定 segQuarantined!=null 全拒使 I4 reconciler 回收闭环断链）；其余隔离档不收养保持",
-    "全量：api vitest 262 文件/2880 用例+int 池 373/373（真 PG——含本卡 4 实弹）+shared 692/692+三面 tsc 0 错+census 32/32+module-size（gateway 锚 1054→1080 净增面）+⑲ façade 0 违规（执法面 107 spec 文件）+verify:fast 16/16",
+    "adoptSilentForeignSegments 收养面放宽（chain-stopped 外来段可收养）=boot recoverScan 接线的配套（recoverScan 对外来 fatal 段判 chain-stopped 档〔帧前缀可重放 I1〕——旧判定 segQuarantined!=null 全拒使 I4 reconciler 回收闭环断链）；其余隔离档不收养保持；T13 收口 C1 定形：收养 chain-stopped 段**保留链式裁定**（permissive 重算退役——非字节缺陷段〔gap/恶性 dup-seq/hash-mismatch〕链后未证帧不复活+walSeq 计数器按裁定前缀 maxSeq 上抬〔max 语义同 seedWalSeqFromPg〕+裁定前缀帧入去重索引〔ACK 铁律〕）",
+    "T13 双评审收口登记（A'=32194478，红→绿两探针形态固化=collab-spool-wal.spec 尾组）：C1 收养保链式裁定+quarantineTruncatedFrames 链式裁定界（sidecar reason=chain-defect-tail——回收闭环闭合）；I1 外来 chain-stopped fatal 分支计入 doc_prefix_gap_total（「帧级致命缺陷」档——help 语义不缩水）；M1 wal_fsync_latency 成功路径观测（失败尾不进直方图——p95 观测源不污染）；M2 int 池 pg 工具探测平台化+缺工具 it.skip 显式化（本机工具在位 skipped=0 实然不变）；M4 启动自检收窄 fatal 维；ADR §5 信号②等价达成注记（倒挂由 §3.2 violation 维等价拦截——冻结契约 doc-protocol.ts 本体不动）；ready payload walRecoverySuspect/spoolQuarantined 端到端断言（INV5 收口半）",
+    "全量：api vitest 262 文件/2887 用例+int 池 373（真 PG——364 pass+9 既有 MinIO 环境位 skip；本卡 4 实弹 4/4）+shared 692/692（本批未触碰——承 A/B 版实测口径）+三面 tsc 0 错+census 32/32+module-size（gateway 锚 1080→1082 净增面=M4 收窄注释锚，自测 SIZE_LIMITS 断言同批改）+⑲ façade 0 违规（执法面 107 spec 文件）+verify:fast 16/16",
     "G6a go 判定=pass：恢复顺序生产接线（ADR-01 §3 全序机判）+fail-closed 双维（violation/suspect）+时间戳栅栏实弹拦截（忘 bump 形态）+真子进程 kill -9 物理形态+pg_dump 实弹工具链+8MiB SS2 恢复+多项目 S4 验证+ETag 真值+六指标落位——零 skipped"
   ],
   "go": true
