@@ -224,7 +224,7 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 - [ ] IME/粘贴/选区/两端同位插入并发用例绿→Commit。
 
 ### Task 16: XmlFragment+Tiptap 双端（G3 主体）
-**Files:** TextInputNode/PromptInput/**ImageExtConfigPanel+PromptEditor**/TextNodeFullscreen/TextNodeToolbar；apps/web package.json（y-prosemirror exact pin 按 S3）
+**Files:** TextInputNode/PromptInput/**ImageExtConfigPanel+PromptEditor**/TextNodeFullscreen/TextNodeToolbar；apps/web package.json（y-prosemirror exact pin 按 S3）；**+T3 遗留：resolveNodeType 短名翻译表（canvasStore.ts:159-170）归 schema 模块派生（T15 收口转登记）**
 - [ ] 先红：现 getHTML 整串写 data.content=红；两客户端格式化合并后树合法性=红
 - [ ] content=嵌套 XmlFragment（容器规则=T15）；**PromptInput 三域（image/video/imageExtGen）=XmlFragment**+mention(/,@)+image PM 节点（PromptValue{text,html,referencedImageIds} 三出口）；单 editor 实例（全屏/工具栏复用）；plugin 首次事务前注册；getHTML 只读导出；**不挂 yUndoPlugin**（单 manager——T18）；ySyncPlugin origin 按 S3（≠LocalUser 则 addTrackedOrigin）；**XML 白名单 L1 同卡激活（v1.7 偏离 38⑫——不留 P2 安全窗口）：gate frame-local struct 扫描（元素名/format key 白名单=XML_ELEMENTS/MARKS/ATTRS 单表、ContentString 字节上限、字符串 URL allowlist、新子树深度上限；拒 XmlHook/嵌套 XmlFragment/未知 XmlElement）；Tiptap schema 由单表派生+G3 setEqual 测试（同源禁两份）；T24 扩全类型矩阵+L2**
 - [ ] **G3 用例**：双端并发格式化/mention 插入/图片引用/粘贴/删除节点 fragment 随子树/undo 重建恢复+**XML 对抗语料（未知元素/超深/超长/外链/伪造 mention——L1 拒帧+客户端 PM 解析双验）**→**G3 go/no-go 判定**（不过=调容器或绑定，禁 JSON 垫片）→Commit。

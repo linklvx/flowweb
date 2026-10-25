@@ -57,12 +57,15 @@ export function textDomainOf(nodeType: unknown, key: string): TextDomainShape | 
   return typeof nodeType === 'string' ? TEXT_DOMAINS[nodeType]?.[key] : undefined;
 }
 
-/** TextLike 结构判定（零 instanceof——in 运算符 duck 化：**禁读属性**——未集成 Y.Text 的
- *  `length` getter/方法属性读取触发 yjs warnPrematureAccess 噪声（rebuild 回灌路径在 fillDoc
- *  物化面前拿到的是未集成实例；`in` 检查原型链存在性不触发 getter，Q-M-2 根修）。 */
+/** TextLike 结构判定（零 instanceof——**typeof 函数检且不读 length**：告警根因仅 `.length`
+ *  getter（未集成 Y.Text 读即 warnPrematureAccess——rebuild 回灌路径在 fillDoc 物化面前拿到的是
+ *  未集成实例）；方法属性 typeof 读零告警（Q-M-2 根修+微收口 RI-2：`in` 检查对 wire 可达伪形态
+ *  `{insert:1,delete:1}`〔plain JSON 经 ContentAny〕误判真 ⇒ spliceTextLike TypeError 破三档
+ *  closed-enum——typeof 函数检把该形态归还 container-type-mismatch 干净拒）。 */
 export function isTextLike(v: unknown): v is TextLike {
   return typeof v === 'object' && v !== null
-    && 'insert' in v && 'delete' in v;
+    && typeof (v as { insert?: unknown }).insert === 'function'
+    && typeof (v as { delete?: unknown }).delete === 'function';
 }
 
 /** 整串 → 最小 splice（公共前缀/后缀裁剪——IME 组段/粘贴/选区替换全形态收敛为单次 delete+insert）。 */
@@ -99,9 +102,10 @@ function plainTextOf(shape: TextDomainShape, v: unknown): { text: string } | und
   return undefined;
 }
 
-/** 创建 seam 物化结果（两段式——Q-M-2 根修）：container=物化容器（initialText=null 时原样
- *  透传值）；initialText≠null ⇒ 调用方须在**容器集成后**对 textTarget 写入初值（detached
- *  Y.Text 上 insert 依赖 yjs 内部 buffer 读取〔warnPrematureAccess 噪声〕——集成后写入=真 op）。
+/** 创建 seam 物化结果（两段式——Q-M-2 根修；微收口 RM-1 归因勘正：detached Y.Text 上
+ *  insert 本身**零告警**——yjs 内部 buffer 集成时落，告警仅来自 `.length`/toString 读）：container=
+ *  物化容器（initialText=null 时原样透传值）；initialText≠null ⇒ 调用方须在**容器集成后**对
+ *  textTarget 写入初值（集成后写入=显式真 op——不依赖 buffer 语义）。
  *  'text'：string → 空容器+初值；TextLike → 原样透传（rebuild/快照回灌别名禁入面，内容自带）。
  *  'map-text'：{text} → Map{text:空容器}+初值；DocMapLike → 原样。
  *  其他（含键缺席 undefined）：原样透传——fillDoc 只物化在册在记域键，结构完整性归创建 seam

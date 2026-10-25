@@ -17,7 +17,7 @@
 // 收编（readRecordsFromMaps 唯一 import=本模块）：读基座沿用 docShape.readRecordsFromMaps
 // （信封键/position 读/null 消除/E68 全函数——语义零改动），本层只做嵌套 Y 类型的编码/解码。
 // fillDoc 同引（重建的信封+data 写单源——data.set 收全新 Y 实例=合法首集成，非别名）。
-// 无 transformV3ToV4Draft（硬重置——spec v5-13：v3 值由 T15/T16/T17 写点改造迁移，读侧双载体兼容）。
+// 无 transformV3ToV4Draft（硬重置——spec v5-13：v3 值由 T15/T16/T17 写点改造迁移，codec/执行读面双载体〔面板/快照消费面已单载体——T15〕）。
 import * as Y from 'yjs';
 import { fillDoc, readRecordsFromMaps, type DocLike, type DocEdgeRecord } from './docShape';
 import type { TextLike } from './text-domains';

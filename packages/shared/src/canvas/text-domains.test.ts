@@ -128,6 +128,15 @@ describe('Y1c T15 写 seam 拒写三档（writeTextDomainValue——容器规则
     expect(writeTextDomainValue(data, 'text', 'prompt', 'x')).toEqual({ ok: false, reason: 'container-missing' });
     expect(data.has('prompt')).toBe(false);
   });
+  it('微收口 RI-2：wire 可达伪形态 {insert:1,delete:1}（plain JSON 经 ContentAny）容器位 ⇒ 干净拒不抛（现状红：in-duck 误判真→spliceTextLike TypeError）', () => {
+    const data = F.createMap();
+    data.set('prompt', { insert: 1, delete: 1 });   // 恶意/异形帧可达形态——键值 plain JSON
+    expect(isTextLike({ insert: 1, delete: 1 })).toBe(false);   // typeof 函数检——数字属性非 TextLike
+    expect(() => writeTextDomainValue(data, 'text', 'prompt', 'x')).not.toThrow();
+    expect(writeTextDomainValue(data, 'text', 'prompt', 'x')).toEqual({ ok: false, reason: 'container-type-mismatch' });
+    expect((data.get('prompt') as { insert: number }).insert).toBe(1);   // 原值不动
+  });
+
   it('容器形状错=container-type-mismatch（string 覆在容器位——不掩盖）', () => {
     const data = F.createMap();
     data.set('prompt', 'legacy-string');

@@ -161,13 +161,16 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
       fillDoc(d, [{ ...effectiveNode, data: stripEphemeralDataKeys(effectiveNode.data) }], []);
       return { rejectedKeys: OUTCOME_OK.rejectedKeys, node: effectiveNode };
     case 'updateNodeData': {
+      // 微收口 RI-1：两结构缺早退=**整 patch 全键拒**（doc 零落 ⇒ 投影/直写面同剥成 no-op——
+      // 返回空 rejectedKeys 会让 ns 全量落，doc ≡ store 双面同尺在此两档破）
+      const rejectAllKeys = (): IntentApplyOutcome => ({ rejectedKeys: new Set(Object.keys(intent.patch)) });
       const m = d.getMap('nodes').get(intent.id);
-      if (!(m instanceof Y.Map)) return OUTCOME_OK;
+      if (!(m instanceof Y.Map)) return rejectAllKeys();
       // Y1c T15 容器规则：缺 data Y.Map=结构错误——拒绝不懒建（懒建掩盖结构错误，§3.5）
       const data = m.get('data');
       if (!(data instanceof Y.Map)) {
         recordCollabDiag('write_reject', { reason: 'data-map-missing', via: 'text-domain' });
-        return OUTCOME_OK;
+        return rejectAllKeys();
       }
       const nodeType = m.get('type');
       let rejectedKeys: Set<string> | null = null;   // 收口 A：被拒域键上浮（投影/直写面同剥）

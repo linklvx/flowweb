@@ -260,6 +260,21 @@ describe('T15 收口 A（Q-I-1）：拒写半落根修——doc 拒 ⇒ store �
     expect(nsData?.model).toBe('m2');
   });
 
+  it('微收口 RI-1：节点缺 data Y.Map（data-map-missing 档）+混 patch ⇒ 整 patch 全键拒——ns 零落（现状红：投影/直写全量落 ns）', () => {
+    // 节点在 doc（type 在案）但无 data Y.Map——结构缺档（本卡登记的拒写档，ns 在案形态）
+    const n = new Y.Map();
+    n.set('type', 'audioGen');
+    doc.getMap('nodes').set('a3', n);
+    useNodeStore.setState({
+      nodes: { a3: { id: 'a3', type: 'audioGen', data: { model: 'm-audio' } as any } },
+    });
+    dispatchCanvasIntent({ type: 'updateNodeData', id: 'a3', patch: { prompt: 'x', model: 'm2' } }, Origin.LocalUser);
+    const nsData = useNodeStore.getState().nodes['a3']?.data as unknown as Record<string, unknown>;
+    expect(doc.getMap('nodes').get('a3')).toBeTruthy();
+    expect(nsData?.model).toBe('m-audio');   // 全键拒——model 不落（现状红：ns.model='m2' doc 拒/ns 落半落）
+    expect(nsData?.prompt).toBeUndefined();
+  });
+
   it('applyNodeDataPatch 直写面同拒：面板路径全拒 patch ⇒ ns 零落（现状红：直写体无条件落 ns）', () => {
     useNodeStore.getState().applyNodeDataPatch('a1', { prompt: 'whole-overwrite' });
     const docData = (doc.getMap('nodes').get('a1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;

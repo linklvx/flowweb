@@ -92,8 +92,9 @@ export function fillDoc(
     // （string→Y.Text / {text}→Y.Map{text:Y.Text}；已实例原样——rebuild/快照回灌）。**不发明
     // 缺席键**：记录真值优先（vacuum 重建等价断言=fresh 不多于 source）；web 创建完整性由
     // ensureTextDomainDefaults 在 dispatch addNode seam 补域键缺省（doc 容器与 store 投影同源）。
-    // 收口 D（Q-M-2）：物化两段式——初值文本在容器**集成后**写入（detached Y.Text 上 insert
-    // 依赖 yjs 内部 buffer 读取=warnPrematureAccess 噪声；集成后写入=真 op 零告警）。
+    // 收口 D（Q-M-2；RM-1 归因勘正：detached insert 本身零告警——告警仅 .length/toString 读，
+    // isTextLike 已免读 length）：物化两段式——初值文本在容器**集成后**写入（显式真 op——
+    // 不依赖 yjs detached buffer 语义）。
     const pendingTexts: Array<[TextDomainShape, unknown, string]> = [];
     for (const [k, v] of Object.entries(rec.data ?? {})) {
       const shape = textDomainOf(rec.type, k);

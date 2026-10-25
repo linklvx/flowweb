@@ -302,7 +302,7 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
           // Y1c T15 收口 B②（Q-M-3）：written:false 按 reason 分档——只有真删族（node-deleted/
           // no-node-map=节点不存在/非 map 壳）走 orphaned 权威观察点；活节点结构缺（no-data-map）
           // /域键拒（text-domain-protected）≠node-deleted——误判 orphaned 会错终态+误退款+MediaBinding
-          // 误删（reconcile 触发），改走真失败档（耗 attempts 退避重试）+Sentry 告警（结构缺=bug 面）。
+          // 误删（reconcile 触发），改走真失败档（耗 attempts 退避重试；dead 耗尽时 Sentry——RM-2）。
           if (unwrittenReason === 'node-deleted' || unwrittenReason === 'no-node-map') {
             await this.mark(s.row, { state: 'orphaned', lastError: `node-deleted:${unwrittenReason}` });
             inc('orphaned');
@@ -311,8 +311,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
             this.reconciler.requestReconcile(projectId);
             continue;
           }
+          // 微收口 RM-2：Sentry 仅 dead 档上报（failRow 死档自带 captureException——此处不再逐
+          // attempt 重复上报；retry 档留 metric+warn 日志，噪声有界）
           const structErr = new Error(`deliverArtifact data unwritten reason=${unwrittenReason}（非 node-deleted 档——活节点结构缺/域键拒，T15 收口 B② 分档）`);
-          Sentry.captureException(structErr);
           inc(await this.failRow(s.row, structErr) ? 'dead' : 'retry-failed');   // 真失败档——耗 attempts
           continue;
         }

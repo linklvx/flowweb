@@ -469,7 +469,7 @@ describe('T15 收口 D：fillDoc 域键物化零 premature-access 告警（yjs w
       const out = materializeTextDomainValue('text', detached, { createText: () => new Y.Text(), createMap: () => new Y.Map() as never });
       expect(out.value).toBe(detached);          // 原样透传（别名禁入）
       expect(out.initialText).toBeNull();
-      expect(warnSpy).not.toHaveBeenCalled();   // 现状红：① detached insert 内部读 + ② .length 读各触发 warn
+      expect(warnSpy).not.toHaveBeenCalled();   // 现状红归因（RM-1 勘正）：仅 ② isTextLike 的 .length getter 读触发——detached insert 本身零告警（探针实证）
     } finally {
       warnSpy.mockRestore();
     }
