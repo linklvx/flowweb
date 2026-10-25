@@ -691,7 +691,7 @@ describe('POST /api/collab/doc/:projectId/export-fresh（Q-H——真实签名/�
 
 /** vacuum 专用 repo mock：④ 装载读（loadForHydration——契约 1 唯一入口）+⑥ 代际替换事务桩 */
 function buildVacuumRepo(state: Buffer | null, updates: Buffer[] = []) {
-  const vacuumReplace = vi.fn(async (_pid: string, _state: Buffer, _sv: Buffer, _n: number) => ({ generation: 1 }));
+  const vacuumReplace = vi.fn(async (_pid: string, _state: Buffer, _n: number) => ({ generation: 1 }));   // Y1c T12：preVacuumSv 参数退役
   const repo = {
     loadForHydration: vi.fn(async () => ({ state, updates, stateSeq: 0n })),
     vacuumReplace,
@@ -1034,7 +1034,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     const docRepo = new CanvasDocUpdateRepository(prisma as any);
     const repo = {
       loadForHydration: vi.fn(async () => ({ state: update, updates: [update, update, update], stateSeq: 0n })),
-      vacuumReplace: (pid: string, st: Buffer, sv: Buffer, n: number) => docRepo.vacuumReplace(pid, st, sv, n),
+      vacuumReplace: (pid: string, st: Buffer, n: number) => docRepo.vacuumReplace(pid, st, n),   // Y1c T12：preVacuumSv 参数随 SV 代际门退役删除
     };
     const { svc } = buildVacuumSvc(gateway, repo);
 
@@ -1062,8 +1062,8 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect(upsertArg.update.generation).toBe(1);         // n+1 同事务落列
     expect(upsertArg.update.currentSnapshotRev).toBe(0n);   // 指针指新代快照
     expect(upsertArg.update.purgeBelowSeq).toBeNull();      // Q-I2 勘误：义务清档（行已同事务整删）——非「新代 walSeq 自 1 重起/跨代阈值不承继」（现行=跨代连续 seq）
-    expect(upsertArg.update.preVacuumSv).toBeInstanceOf(Buffer);   // 真空前 SV 同事务落列
-    expect(upsertArg.update.preVacuumSv.length).toBeGreaterThan(0);
+    expect(upsertArg.update.preVacuumSv).toBeUndefined();   // Y1c T12：preVacuumSv 列随 SV 代际门退役（迁移 20261024160000）——禁回写锚
+    expect(upsertArg.update.vacuumEpoch).toBe(1);           // Y1c T12：遥测计数列每真空 +1（无行为分支）
     expect(upsertArg.update.stateSeq).toBeUndefined();   // 旧 doc 态列退役（禁双写锚）
     // Y1c T9 新表形态：锁内实读=该项目全部行——deleteMany 按 projectId 整删（行集=被删集等价）
     expect(updateDeleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1' } });
@@ -1076,7 +1076,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     addNode(src2, 'n1', 32);
     const s2 = buildVacuumSvc(g2, {
       loadForHydration: vi.fn(async () => ({ state: Buffer.from(Y.encodeStateAsUpdate(src2)), updates: [update, update, update], stateSeq: 0n })),
-      vacuumReplace: (pid: string, st: Buffer, sv: Buffer, n: number) => docRepo2.vacuumReplace(pid, st, sv, n),
+      vacuumReplace: (pid: string, st: Buffer, n: number) => docRepo2.vacuumReplace(pid, st, n),   // Y1c T12：preVacuumSv 参数退役
     });
     const caught = s2.svc.vacuum('p1', 'u1').catch((e) => e);   // 立即挂 handler（快路径 reject 窗口的 unhandled 防护）
     await nextTick();
@@ -1090,7 +1090,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     const src = seedDoc();
     addNode(src, 'n1', 64);
     const conn = makeVacuumConn('p1');
-    attachDoc(gateway, src, 'p1', [conn]);
+    attachDoc(gateway, src, 'p1#g3', [conn]);   // Y1c T12：docGeneration 播种 3 ⇒ canonical wire 名 #g3（beginVacuumEra liveDocName 寻址——裸名挂载 miss=freeze/close 面漏施）
     const g = gatewayFacade(gateway);
     // 预播种全部按 pid 键控状态（模拟长期运行后的记账面）
     g.seedDocTruth('p1', 1234);
@@ -1105,7 +1105,6 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     g.seedDocStatusState('p1', 'over:true');
     g.seedDocGeneration('p1', 3);
     g.seedDocResidue('p1', 999);
-    g.seedPreVacuumSv('p1', new Map([[1, 1]]));
     g.backdateLastCompactAt('p1', Date.now());
     g.seedOverPush(conn.socketId, { count: 5, bytes: 100, firstAt: 1, lastAt: 2 });
     const { repo } = buildVacuumRepo(Buffer.from(Y.encodeStateAsUpdate(src)));
@@ -1146,7 +1145,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     for (const must of ['docTruth', 'docDelta', 'truthMeasuredAt', 'degradedDocs', 'quotaFrozenDocs', 'freezePending',
       'freezePendingTimers',
       'recheckRounds', 'thawCooldown', 'docStatusRev', 'docStatusState', 'docGeneration', 'docResidue',
-      'preVacuumSvCache', 'lastCompactAt', 'vacuumingDocs', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
+      'lastCompactAt', 'vacuumingDocs', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
       'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs']) {
       expect(checked, `反射枚举应覆盖 ${must}（改名或误入豁免表=红）`).toContain(must);
     }

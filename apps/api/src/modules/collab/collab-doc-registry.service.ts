@@ -20,7 +20,7 @@ import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
-import { parseDocName, isValidDocName } from './doc-name.util';
+import { parseDocName, isValidDocName, admitDocNameForGeneration, canvasDocName, projectDocName } from './doc-name.util';
 import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
 import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
@@ -187,13 +187,14 @@ export class CollabDocRegistryService {
   private readonly thawCooldown = new Map<string, number>();
   /** ===== Y0b-4 T9a（Q-U v6）：vacuum 代际替换进程态 =====
    *  vacuumingDocs=serving 门（真空窗口内 WS connected→close 4410/REST withDoc→503/loadDocument→503）；
-   *  preVacuumSvCache=SV 代际门缓存（装载播种——loadDocument 读 CanvasDoc.preVacuumSv 解码为
-   *  Map<client, clock>；与客户端 SyncStep1 payload〔=SV，T0 探针④〕比对区间重叠 ⇒ terminal 4410）；
-   *  docGeneration=doc-status 顶层 generation 产生源（装载播种 CanvasDoc.generation）；docResidue=
-   *  truth−全根真空重建编码（recheck≥2 轮更新——gauge reader Σ+doc-status quota.residueBytes 产生源，
-   *  公有=gateway registerDocResidueReader 消费面）。 */
+   *  Y1c T12（偏离 27）：preVacuumSvCache/SV 代际门**退役**（装载播种与 SyncStep1 门删除——SV clock
+   *  关系层防不住 Update 帧路径〔S2 Phase C〕且形态②〔全 clock<pre〕结构性放行；世代执法改道 docName
+   *  段 auth/load 双校验〔admitDocNameForGeneration 单源〕）；docGeneration=doc-status 顶层 generation
+   *  产生源+**世代真值链**（装载恒播种当代真值——含 0：DR:403 缝修复，旧 `if (generation)` truthy 门
+   *  使未换代项目永不播种=spool/PG 批行落缺省代 1 与 CanvasDoc.generation=0 分叉）+liveDocName 内部
+   *  寻址源（#g canonical wire 名）；docResidue=truth−全根真空重建编码（recheck≥2 轮更新——gauge
+   *  reader Σ+doc-status quota.residueBytes 产生源，公有=gateway registerDocResidueReader 消费面）。 */
   private readonly vacuumingDocs = new Set<string>();
-  private readonly preVacuumSvCache = new Map<string, Map<number, number>>();
   private readonly docGeneration = new Map<string, number>();
   readonly docResidue = new Map<string, number>();
   /** 零连接窄版自动 vacuum 注入点（CollabShrinkService 构造期后置注入——gateway↔service 循环依赖
@@ -403,7 +404,7 @@ export class CollabDocRegistryService {
       // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗——B1 随域迁 service）
       this.persistence.seedCompactBaseline(projectId);
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
-      const { state, updates, preVacuumSv, generation, schemaVersion, pgSeq } = await this.repo.hydrateWithRecovery(projectId);
+      const { state, updates, generation, schemaVersion, pgSeq } = await this.repo.hydrateWithRecovery(projectId);
       // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：meta 门 v2.1 整链退役——版本判据唯一承载=
       // CanvasDoc.schemaVersion PG 列（readConsistent 行值单源）。行值≠current ⇒ 拒载（旧 doc 档
       // 无迁移，禁垫片）；行缺失 null ⇒ 放行（懒建档——首 store 建行 @default(3)）。
@@ -419,15 +420,26 @@ export class CollabDocRegistryService {
           { schemaRefusal: true, reason: CollabAuthReason.SCHEMA_OUTDATED },
         );
       }
-      // Y0b-4 T9a（G-3：装载路径回填零新增 DB 查）：preVacuumSv 解码缓存（SyncStep1 消费）+
-      // docGeneration 播种（doc-status 顶层 generation 源）。装载先于任何 SyncStep1——无窗口。
-      if (preVacuumSv) this.preVacuumSvCache.set(projectId, Y.decodeStateVector(new Uint8Array(preVacuumSv)));
-      if (generation) {
-        this.docGeneration.set(projectId, generation);
-        // Y1c T9（T8 接线）：世代权威播种缝——gateway 转发 spool.setProjectGeneration（帧内一律
-        // 携带 generation 的 WAL 段单源；vacuum 换代=switchGeneration 显式切+此处装载重播）
-        this.host.onGenerationSeeded?.(projectId, generation);
+      // Y1c T12（偏离 27/E23 双校验②——onAuthenticate 为①）：docName 世代准入。装载读行值单源
+      // （generation=CanvasDoc PG 列真值；行缺失=0〔懒建档〕）——canonical 形不符 ⇒ generationRefusal
+      // 拒载（先于 state/updates/spool apply：不装载不 SS1 不上行——S2 复活链在装载面结构性关闭）。
+      // auth 缝（SessionGuard.authenticateInner DB 段）同谓词前置执法；本处=防御第二道（Direct/竞态窗）。
+      const dbGeneration = generation ?? 0;
+      const admission = admitDocNameForGeneration(documentName, dbGeneration);
+      if (!admission.ok) {
+        throw Object.assign(
+          new Error(`DOC_GENERATION_STALE: docName=${documentName} 世代段≠DB generation=${admission.generation}（真空换代后旧世代名——拒载；恢复=携 #g${admission.generation} 重连）`),
+          { generationRefusal: true, reason: CollabAuthReason.GENERATION_STALE },
+        );
       }
+      // T12 真值链（DR:403 缝修复）：docGeneration 恒播种当代真值——含 0（旧 `if (generation)` truthy
+      // 门使未换代项目永不播种 ⇒ spool 帧世代缺省 1 × CanvasDoc.generation=0 分叉 ⇒ compact ② 代辖
+      // 滤除增量行=真空纪静默丢数据链）。docGeneration 三消费面：actor 准入链世代权威（generationOf）/
+      // doc-status 顶层 generation/liveDocName 内部寻址（#g canonical wire 名）。
+      this.docGeneration.set(projectId, dbGeneration);
+      // Y1c T9（T8 接线）：世代权威播种缝——gateway 转发 spool.setProjectGeneration（帧内一律
+      // 携带 generation 的 WAL 段单源；vacuum 换代=switchGeneration 显式切+此处装载重播）
+      this.host.onGenerationSeeded?.(projectId, dbGeneration);
       // C1①（T11 双评审 Critical）：walSeq 计数器 PG 真值播种（max 语义——幸存段承载未落 PG 帧时
       // scan 重建值更高不回拨）。行缺失（懒建档）pgSeq=null 缝自 no-op。红链与双保险全貌见
       // canvas-doc-walseq-seeding.int.spec 头注。
@@ -503,9 +515,9 @@ export class CollabDocRegistryService {
     this.thawCooldown.delete(projectId);
     this.docStatusRev.delete(projectId);
     this.docStatusState.delete(projectId);
-    // Y0b-4 T9a：代际/残留族同点清理（项目终态——与 afterUnload 同族）
+    // Y0b-4 T9a：代际/残留族同点清理（项目终态——与 afterUnload 同族）；Y1c T12：preVacuumSv 缓存
+    // 随 SV 代际门退役删除（偏离 27——列 Drop 同批迁移 20261024160000）
     this.docGeneration.delete(projectId);
-    this.preVacuumSvCache.delete(projectId);
     this.docResidue.delete(projectId);
     this.vacuumingDocs.delete(projectId);   // 真空窗口中项目消失的兜底（service finally 也删——双保险）
   }
@@ -590,9 +602,13 @@ export class CollabDocRegistryService {
   /** 纪元代开启（service vacuum ⓪①② 调用）：② serving 门先开（close 后新连接即被拦——竞态窗
    *  关闭）→⓪ thaw 回灌（U-5：冻结期客户端编辑靠 SyncStep1 回灌保命——vacuum 直接 close=真丢；
    *  收敛窗=RTT+debounce+store 上界，超时尽力继续〔残余在途帧由 close 语义+terminal reload 接住〕）
-   *  →① freeze 全连接（applyWriteFreeze 单源——close 前拦截在飞写帧）+terminal close
-   *  4410 'doc-vacuuming'（T11 终态档消费——reload UX 通道；reason 复用 GENERATION_SUPERSEDED
-   *  预留码〔resolveCloseAction(4410)→terminal〕）。 */
+   *  →① freeze 全连接（applyWriteFreeze 单源——close 前拦截在飞写帧）+**4410 close 载荷先行**
+   *  （Y1c T12：{code:4410, reason:'doc-vacuuming', generation:<目标代>, discardLocalCache:true}
+   *  stateless 通告——契约 CollabY1cClosePayload 4410 档；客户端链=export-draft-then-clear+
+   *  携新世代重连（T25 消费；WS close reason ≤123B 载不动结构化载荷——stateless 先行+close 权威
+   *  投递两段式，auth-receipt 同款形态））+terminal close 4410 'doc-vacuuming'。
+   *  目标代=当代+1（vacuumGate 并发 1+generation 唯一写点=vacuumReplace 事务——投影无竞态；
+   *  ⑥ vacuumReplace 锁内实读复核，漂移即整体中止 DB 零变更）。 */
   async beginVacuumEra(pid: string): Promise<void> {
     this.vacuumingDocs.add(pid);
     if (this.quotaFrozenDocs.has(pid)) {
@@ -602,11 +618,18 @@ export class CollabDocRegistryService {
         await new Promise((r) => setTimeout(r, VACUUM_QUIESCE_POLL_MS));
       }
     }
-    const document = this.host.documents().get(`project:${pid}`);
+    const document = this.host.documents().get(this.liveDocName(pid));
+    const targetGeneration = this.vacuumTargetGeneration(pid);
     if (document) {
       for (const c of [...document.connections.keys()]) {
         const conn = c as unknown as CollabConnection;
         this.host.applyWriteFreeze(conn, 'quota', true);
+        try {
+          conn.sendStateless?.(JSON.stringify({
+            code: 4410, reason: DOC_VACUUMING_TERMINAL_REASON,
+            generation: targetGeneration, discardLocalCache: true,
+          }));
+        } catch { /* 已断——载荷尽力，close 权威投递仍在 */ }
         this.host.hardClose(conn, CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);
       }
     }
@@ -630,7 +653,6 @@ export class CollabDocRegistryService {
     this.docStatusRev.delete(pid);
     this.docStatusState.delete(pid);
     this.docGeneration.delete(pid);
-    this.preVacuumSvCache.delete(pid);
     this.docResidue.delete(pid);
     this.autoVacuumLastAt.delete(pid);   // Y0c T20（Z66）：自动触发时点台账同批清（pid 键控普查表）
     this.persistence.purgePersistenceState(pid);   // B1：lastCompactAt+persistUnhealthy 清账随域迁 service（普查表 Persistence 行）
@@ -697,14 +719,34 @@ export class CollabDocRegistryService {
   }
 
   /** ===== Y1c T9：guardSyncFrame 收编重写（collab-frame-gate.service——偏离 38③）。本域保留
-   *  配额判定/冻结族/overPush 台账（RC2=A：DR 单一所有者），三收编面如下（分层序注释随 gate 服务）：
+   *  配额判定/冻结族/overPush 台账（RC2=A：DR 单一所有者），两收编面如下（分层序注释随 gate 服务）：
    *  ① readOnly 丢帧计数+overPush 升级=noteReadOnlyDrop（actor ⓪ 消费）；
-   *  ②③④ 配额判定=admitFrameQuota（gate 消费——over 短路/f快路径/账面实测+冻结决策）；
-   *  preVacuumSv 读面=preVacuumSvOf（gate SV 代际门消费）。 ===== */
+   *  ②③④ 配额判定=admitFrameQuota（gate 消费——over 短路/f快路径/账面实测+冻结决策）。
+   *  Y1c T12：preVacuumSv 读面（preVacuumSvOf）随 SV 代际门退役删除——世代执法改道 docName 段
+   *  （admitDocNameForGeneration auth/load 双校验，偏离 27）。 ===== */
 
-  /** preVacuumSv 缓存读面（gate SyncStep1 SV 代际门消费——装载播种/loadDocument 单点写）。 */
-  preVacuumSvOf(pid: string): Map<number, number> | undefined {
-    return this.preVacuumSvCache.get(pid);
+  /** Y1c T12：世代 canonical wire 名读面（内部寻址单源——库 documents Map 键）。docGeneration
+   *  装载播种（真值链）→已装载 doc 恒命中 canonical 名；未装载/已卸载（docGeneration 无键）折裸名
+   *  =gen0 canonical（documents 无实例=结构性 miss，语义不变）。消费面=freeze/thaw/broadcast/
+   *  vacuum 族查活 doc+gateway isDocResident+actor/SG/persistence 同名（E23 内部寻址连带）。 */
+  liveDocName(pid: string): string {
+    return canvasDocName(pid, this.docGeneration.get(pid) ?? 0);
+  }
+
+  /** Y1c T12：vacuum 目标代（4410 doc-vacuuming 载荷源——beginVacuumEra/onConnected 真空窗 close
+   *  共用）：当代真值+1（vacuumGate 并发 1+generation 唯一写点=vacuumReplace 事务=投影无竞态；
+   *  ⑥ 锁内实读复核漂移即整体中止 DB 零变更）。 */
+  vacuumTargetGeneration(pid: string): number {
+    return (this.docGeneration.get(pid) ?? 0) + 1;
+  }
+
+  /** Y1c T12（E23 双校验①——auth 面世代准入读面）：CanvasDoc.generation DB 真值（契约 1——
+   *  CanvasDoc 读单源在 repository.readGeneration；行缺失=null〔懒建档——调用方折 0=裸名 canonical〕）。
+   *  面判据 `typeof readGeneration`：极简 repo 桩（直构 spec 形态）缺面=返回 null=裸名放行
+   *  ——load 面〔DR.loadDocument 装载读行值〕第二道恒在（双校验降级单校验非无校验）。 */
+  async generationInDb(pid: string): Promise<number | null> {
+    if (typeof this.repo.readGeneration !== 'function') return null;
+    return this.repo.readGeneration(pid);
   }
 
   /** Y1c T9：世代权威读面（actor 准入链 ① 每帧对照——docGeneration 装载播种/vacuum 换代刷新，
@@ -783,7 +825,7 @@ export class CollabDocRegistryService {
     const t = setTimeout(() => {
       this.freezePendingTimers.delete(pid);
       this.freezePending.delete(pid);
-      const document = this.host.documents().get(`project:${pid}`);
+      const document = this.host.documents().get(this.liveDocName(pid));   // Y1c T12：canonical wire 名（#g 换代通道——E23 内部寻址连带）
       if (!document) return;   // 已卸载（afterUnload 已清——防御性）
       const measured = this.measureTruth(document);
       if (measured !== null && measured < Math.floor(this.quota.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio)) {
@@ -806,7 +848,7 @@ export class CollabDocRegistryService {
     this.broadcastDocStatus(pid, 'over');
     setImmediate(() => {
       if (this.quotaFrozenDocs.has(pid)) return;   // 同步窗内二次 freezeQuota 已落地——去重
-      const document = this.host.documents().get(`project:${pid}`);
+      const document = this.host.documents().get(this.liveDocName(pid));   // Y1c T12：canonical wire 名（#g 换代通道——E23 内部寻址连带）
       if (!document) return;   // 已卸载——afterUnload 清理域
       this.quotaFrozenDocs.add(pid);
       for (const c of document.connections.keys()) this.host.applyWriteFreeze(c as unknown as CollabConnection, 'quota', true);
@@ -820,7 +862,7 @@ export class CollabDocRegistryService {
    *  T8 shrink 通道复用前的防御收口）。Y0b-4 T8 起公共方法（shrink 滞回出口复用——阈值判定在
    *  调用方：truth<softExit 才 thaw，与 recheckFrozenDocs 同判据形态）。 */
   thawQuota(pid: string): void {
-    const name = `project:${pid}`;
+    const name = this.liveDocName(pid);   // Y1c T12：canonical wire 名寻址+writeFirstSyncStepFor 回灌连接集
     const document = this.host.documents().get(name);
     if (!document) return;   // 未装载——无冻结面可解除（quotaFrozenDocs 残留由 recheck/卸载清理收口）
     this.quotaFrozenDocs.delete(pid);
@@ -849,7 +891,7 @@ export class CollabDocRegistryService {
   }
   recheckFrozenDocs(): void {
     for (const pid of [...this.quotaFrozenDocs]) {
-      const document = this.host.documents().get(`project:${pid}`);
+      const document = this.host.documents().get(this.liveDocName(pid));   // Y1c T12：canonical wire 名（#g 换代通道——E23 内部寻址连带）
       if (!document) { this.quotaFrozenDocs.delete(pid); this.docResidue.delete(pid); continue; }   // 卸载残留（afterUnload 同清——双保险）
       const measured = this.measureTruth(document);
       if (measured === null) continue;   // fail-open deferred——保守保持冻结
@@ -959,7 +1001,7 @@ export class CollabDocRegistryService {
     if (!forceRevBump && this.docStatusState.get(pid) === key) return;
     this.docStatusState.set(pid, key);
     this.docStatusRev.set(pid, (this.docStatusRev.get(pid) ?? DOC_STATUS_REV_SEED) + 1);
-    const document = this.host.documents().get(`project:${pid}`);
+    const document = this.host.documents().get(this.liveDocName(pid));   // Y1c T12：canonical wire 名（#g 换代通道——E23 内部寻址连带）
     if (!document) return;
     const payload = JSON.stringify(this.buildDocStatus(pid, state));
     for (const c of document.connections.keys()) {
@@ -1042,10 +1084,9 @@ export class CollabDocRegistryService {
     this.thawCooldown.delete(projectId);
     this.docStatusRev.delete(projectId);
     this.docStatusState.delete(projectId);
-    // Y0b-4 T9a：代际/残留族同点清理（卸载=新 epoch：下次装载从 DB 重播种——装载先于 SyncStep1
-    // 无 SV 门窗口；docResidue 过期记账同清）
+    // Y0b-4 T9a：代际/残留族同点清理（卸载=新 epoch：下次装载从 DB 重播种——世代准入/auth 面
+    // 由装载重播收口；docResidue 过期记账同清）；Y1c T12：preVacuumSv 缓存随门退役删除
     this.docGeneration.delete(projectId);
-    this.preVacuumSvCache.delete(projectId);
     this.docResidue.delete(projectId);
   }
 

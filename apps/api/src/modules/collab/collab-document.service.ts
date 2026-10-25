@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type
 import * as Y from 'yjs';
 import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
+import { canvasDocName } from './doc-name.util';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { toDocLike } from './doc-like.util';
@@ -61,13 +62,19 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  不触发装载重连风暴）。消息非协议形态（通用入口，客户端不按 body.code 分型）。
    *  Y0b-4 T9a（Q-U v6/U-3/G-7）：vacuum serving 门——真空窗口拒物化（readServerSV/readCanvas/
    *  writeExecStatus 同挂）；REST 面真 503（COLLAB_NOT_SERVING 族——filter 附 Retry-After: 2）。
-   *  Y0b-5 T16：docName 全匹配守卫（三入口③ direct——`project:${projectId}` 须全匹配，别名执法分叉根修）。
+   *  Y0b-5 T16：docName 全匹配守卫（三入口③ direct——别名执法分叉根修）。
+   *  Y1c T12（偏离 27/E23）：**canonical wire 名开直连**——readWatermark 读 CanvasDoc.generation 真值
+   *  →canvasDocName(pid, g)（gen>0=#g 段——换代后裸名 openDirectConnection=第二 doc 实例别名分叉）；
+   *  行缺失（懒建档）=0=裸名。世代竞态窗（读后代际推进）：openDirectConnection 触发 onLoadDocument
+   *  →DR 装载面世代准入（admitDocNameForGeneration 第二道）拒绝——fail-closed 非别名。
    *  Y0c T15（A2）：**非常驻面专用**——常驻读写已改道 withSession（会话复用零 disconnect 零重装，
    *  Z128）；本方法保留给「用完即走」面（shrink/exportFresh 源读等——census ⑭ registry 同步分类），
    *  既有 gates/origin/disconnect(true) 语义逐字不变。 */
   async withDoc<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>): Promise<T> {
-    if (!isValidDocName(`project:${projectId}`)) {
-      throw Object.assign(new Error(`invalid doc name: project:${projectId}`), { reason: CollabAuthReason.INVALID_DOC_NAME });
+    const wm = await this.repo.readWatermark(projectId);   // T12：generation 真值（PK 读——REST 面既有 PG 往返预算内）
+    const canonicalName = canvasDocName(projectId, wm?.generation ?? 0);
+    if (!isValidDocName(canonicalName)) {
+      throw Object.assign(new Error(`invalid doc name: ${canonicalName}`), { reason: CollabAuthReason.INVALID_DOC_NAME });
     }
     if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③
     if (this.gateway.isVacuuming(projectId)) {
@@ -75,7 +82,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
     }
     const withdocT0 = Date.now();   // Y0c T0（Z3）：起点前移至 open 之前——装载段并入全路径（原 Y0b-5 T10 从 open 后起算，装载时间不可见）
     noteDirectLoad(projectId);   // Y0c T0：直连开窗标记——装载在本 open 窗内命中即归因 trigger='direct'（yjs_doc_load_total）
-    const connection = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`)
+    const connection = await this.gateway.server.hocuspocus.openDirectConnection(canonicalName)
       .finally(() => {
         consumeDirectLoad(projectId);   // 装载未触发（doc 常驻/open 失败）清残留；已触发时 loadDocument 已消费（幂等）
         yjsWithdocOpenDuration.observe((Date.now() - withdocT0) / 1000);   // open 段耗时（时长面非成功面——装载失败是最该被看见的慢尾）

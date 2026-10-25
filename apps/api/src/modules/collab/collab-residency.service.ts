@@ -44,6 +44,7 @@ import { Injectable, Inject, Logger, OnModuleInit, OnApplicationShutdown, Servic
 import type * as Y from 'yjs';
 import { CollabAuthReason, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
+import { projectDocName } from './doc-name.util';
 import type { FlushOutcome } from './collab-persistence.service';
 import {
   collabAcquireWaitTimeoutTotal, collabResidencyReconcileDriftTotal, collabResidencyReleaseInflightTotal,
@@ -194,6 +195,12 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
    *  校验（易主≠/失守 null→terminal/fenced 拒绝提交）。 */
   flushDocument(projectId: string, capturedEpoch: bigint | null): Promise<FlushOutcome> {
     return this.gateway.persistence.flushDocument(projectId, capturedEpoch);
+  }
+
+  /** Y1c T12：canonical wire 名解析（gateway.docRegistry.liveDocName 单源；极简 gateway 桩缺
+   *  docRegistry 面〔直构 spec 形态〕折裸名=gen0 canonical 等价——E23 direct 连带）。 */
+  private canonicalDocName(projectId: string): string {
+    return this.gateway.docRegistry?.liveDocName(projectId) ?? projectDocName(projectId);
   }
 
   /** 会话式读写（Z128 读写二分唯一入口——生产面=CollabDocumentService.withSession 透传）。
@@ -442,7 +449,7 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     // fresh open（zombie/无会话/等待后）：直连开窗标记语义与 withDoc 一致（yjs_doc_load_total 归因）
     const openT0 = Date.now();
     noteDirectLoad(projectId);
-    const conn = await this.gateway.server.hocuspocus.openDirectConnection(`project:${projectId}`)
+    const conn = await this.gateway.server.hocuspocus.openDirectConnection(this.canonicalDocName(projectId))   // Y1c T12：canonical wire 名（#g 换代通道——E23 direct 连带）
       .finally(() => {
         consumeDirectLoad(projectId);   // 装载未触发（doc 常驻/open 失败）清残留；已触发时 loadDocument 已消费（幂等）
         yjsWithdocOpenDuration.observe((Date.now() - openT0) / 1000);   // open 段耗时（含装载段——与 withDoc 同一观测面）
@@ -617,7 +624,7 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
         yjsDocEvictedTotal.inc({ reason: 'forced' });
         yjsDocEvictedResidencySeconds.observe((Date.now() - entry.heldSince) / 1000);
       }
-      const document = this.gateway.server.hocuspocus.documents.get(`project:${pid}`);   // 释放尾程可能已并发卸载
+      const document = this.gateway.server.hocuspocus.documents.get(this.canonicalDocName(pid));   // Y1c T12：canonical wire 名——释放尾程可能已并发卸载
       if (!document) continue;   // 已不在——条目已清即达淘汰目的
       try {
         await this.gateway.server.hocuspocus.unloadDocument(document);   // 并发卸载由库 unloadingDocuments 去重（esm:1578）

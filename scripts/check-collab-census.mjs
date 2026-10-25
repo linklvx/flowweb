@@ -898,8 +898,8 @@ if (isMain()) {
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源——Y1c T11 懒建档种子随 state 列退役删除 3→2）
-    'apps/api/src/modules/collab/collab-doc-registry.service.ts': { decodeStateVector: 1, encodeStateAsUpdate: 3 },   // T41 W3a+Y1c T9：decode 2→1（guardSyncFrame SV 代际门随收编迁 frame-gate——encode 3=装载真值/residue/measureTruth 不变）
-    'apps/api/src/modules/collab/collab-frame-gate.service.ts': { decodeStateVector: 1 },   // Y1c T9：SS1 SV 代际门（guardSyncFrame 收编随迁）
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': { encodeStateAsUpdate: 3 },   // T41 W3a+Y1c T9 decode 2→1（SV 代际门迁 frame-gate）→Y1c T12 decode 1→0（SV 代际门退役〔偏离 27〕——世代执法改道 docName 段；encode 3=装载真值/residue/measureTruth 不变）
+    // Y1c T12：collab-frame-gate decodeStateVector 1→0 随 SV 代际门退役删除（偏离 27——条目同步移除）
     'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登
     'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 6 },   // T40 B1 8→6（Y1c T9：PG 腿/降级支换轨维护 sink——coalesce/handoff×2/force-spool/detached retry 四位残留）
     // Y1c T9：spool mergeUpdates 条目撤销（replayAll 改 per-frame 批行——帧合并归 actor PG 腿）
@@ -1155,8 +1155,8 @@ if (isMain()) {
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
       COLLAB_MAX_RESIDENT_DOC_BYTES: 1,   // Y1c T10（偏离 38⑤）：maxResidentDocBytes 驻留上界（load 入口闸——默认 384MiB 落使用点）
     },
-    'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）
-      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1,
+    'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）；Y1c T12 +COLLAB_ROLE（role=all compact 轮询面装配门——ExecutionDaemonModule.register 同族）
+      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1, COLLAB_ROLE: 1,
     },
     'apps/api/src/modules/collab/worker-write-auth.guard.ts': {   // 方法内（canActivate 惰性——同上）
       WORKER_WRITE_TOKEN: 1, NODE_ENV: 1,

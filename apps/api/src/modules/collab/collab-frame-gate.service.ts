@@ -4,18 +4,19 @@
 // 帧已 fsync+apply，库随后的重放=幂等零事件+恰一 SyncStatus(true)——S1 验收①）。
 //
 // 分层序（生产 guardSyncFrame 前半保留+尾部换轨提交）：
-//  SS1 SV 代际门（零成长——preVacuumSv 缓存比对，DR 装载播种）→⓪帧闸（Update>2×maxTxBytes 1009
-//  terminal／SS2>maxDocBytes+ALLOWANCE 4404 doc-over-quota——VIEWER 巨帧也过闸）→⓪′bytes 速率桶
-//  （1008——独立于权限态）→②③④配额判定（DR.admitFrameQuota——truth/冻结族单一所有者仍 DR）→
-//  actor.submit（⓪ readOnly/writeFreeze/quota 短路最先+世代权威+P1 shape+pending 区间预检+去重
-//  +WAL fsync+apply 归 actor 串行段——APPLY_ADMISSION_STAGES）。
+//  SS1 读路径零成长（Y1c T12：preVacuumSv SV 代际门**退役**〔偏离 27〕——SV clock 关系层防不住
+//  Update 帧路径〔S2 Phase C〕且形态②〔全 clock<pre〕结构性放行；世代执法改道 docName 段
+//  auth/load 双校验〔admitDocNameForGeneration——装载先于任何帧，SS1 到达前已拦〕）→⓪帧闸
+//  （Update>2×maxTxBytes 1009 terminal／SS2>maxDocBytes+ALLOWANCE 4404 doc-over-quota——VIEWER
+//  巨帧也过闸）→⓪′bytes 速率桶（1008——独立于权限态）→②③④配额判定（DR.admitFrameQuota——
+//  truth/冻结族单一所有者仍 DR）→actor.submit（⓪ readOnly/writeFreeze/quota 短路最先+世代权威
+//  +P1 shape+pending 区间预检+去重+WAL fsync+apply 归 actor 串行段——APPLY_ADMISSION_STAGES）。
 //  readOnly 短路面**后置 actor ⓪**（库 readOnly 检查在 beforeSync 之后 esm:264-276——gate 若先
 //  apply 则 VIEWER 帧已入 doc，F-5；本 gate 不 apply，短路在 actor apply 之前语义等价且计数在彼）。
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import type { beforeSyncPayload } from '@hocuspocus/server';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from 'y-protocols/sync';
-import * as Y from 'yjs';
-import { CollabCloseCode, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
+import { CollabCloseCode, DOC_OVER_QUOTA_TERMINAL_REASON, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
 import { parseDocName } from './doc-name.util';
 import { CollabDocRegistryService, type QuotaConfig } from './collab-doc-registry.service';
 import { CollabProjectActorService } from './collab-project-actor.service';
@@ -52,20 +53,10 @@ export class CollabFrameGateService {
   async guardSyncFrame({ type, payload, document, connection }: beforeSyncPayload): Promise<void> {
     const pid = parseDocName((document as unknown as { name: string }).name)?.projectId ?? '';
     if (type === messageYjsSyncStep1) {
-      // SV 代际门（Y0b-4 T9a Q-U v6 G-2）：客户端 SV 任一 (client,clock) 覆盖 preVacuumSv 同 client
-      // 的 [0,clock) 区间 ⇒ 持真空前历史 ⇒ terminal 4410（码权威投递=webSocket.close 先行）。
-      // SS1 永不判（零成长）；空 SV/新 clientID 放行——reload 不循环。
-      const preSv = this.docRegistry.preVacuumSvOf(pid);
-      if (preSv !== undefined && preSv.size > 0) {
-        for (const [client, clock] of Y.decodeStateVector(payload)) {
-          const pre = preSv.get(client);
-          if (pre !== undefined && pre > 0 && clock >= pre) {
-            this.host.hardClose(connection as unknown as CollabConnection, CollabCloseCode.GENERATION_SUPERSEDED, DOC_GENERATION_STALE_TERMINAL_REASON);
-            throw Object.assign(new Error('doc generation stale'), { code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_GENERATION_STALE_TERMINAL_REASON });
-          }
-        }
-      }
-      return;   // 零成长（SyncStep1=读路径永不判配额）
+      // Y1c T12（偏离 27）：SS1=读路径零成长——preVacuumSv SV 代际门退役（SV clock 关系层防不住
+      // Update 帧路径且形态②〔全 clock<pre〕结构性放行——S2 Phase C/D 实证）；世代执法=docName 段
+      // auth/load 双校验（admitDocNameForGeneration——装载先于任何帧，陈旧世代名到不了本钩子）。
+      return;
     }
     const bytes = payload.byteLength;
     const conn = connection as unknown as CollabConnection;

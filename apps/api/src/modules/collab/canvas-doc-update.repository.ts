@@ -27,7 +27,6 @@ export interface HydrationRow {
   state: Buffer | null;
   updates: Buffer[];
   stateSeq: bigint;
-  preVacuumSv?: Buffer | null;
   generation?: number;
   schemaVersion?: number | null;
   /** C1①（T11 双评审）：CanvasDoc.pgSeq 随行（walSeq 计数器 PG 真值播种消费面——loadDocument 缝
@@ -260,6 +259,14 @@ export class CanvasDocUpdateRepository {
     return { ok: true, rows: 0 };   // 幂等重发：全部 updateHash 已在（DO NOTHING 吞行=正确 no-op）
   }
 
+  /** Y1c T12（契约 1——CanvasDoc 读单源在 repository）：世代真值读面（auth 准入消费——E23 双校验①；
+   *  行缺失=null ⇒ 调用方折 0〔懒建档 canonical=裸名〕）。 */
+  async readGeneration(projectId: string): Promise<number | null> {
+    const row = await this.prisma.$queryRaw<{ generation: number }[]>`
+      SELECT generation FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+    return row[0]?.generation ?? null;
+  }
+
   /** T10：CanvasDoc 水位读面（恢复链/测试——pgSeq 权威从 PG 行读，非进程内状态）。 */
   async readWatermark(projectId: string): Promise<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number } | null> {
     const row = await this.prisma.$queryRaw<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number }[]>`
@@ -270,10 +277,11 @@ export class CanvasDocUpdateRepository {
   private static readonly PAGE_ROWS = 500;
 
   /** Y0a-1 装载读唯一入口（spec §4.3-1）：委托 readConsistent（契约 1"一个实现、两出口"——
-   *  装载出口；opts 供自愈路径重试时收紧预算透传）。Y0b-4 T9a：返回扩 preVacuumSv/generation
-   *  （装载播种代际门缓存——gateway loadDocument 消费；readSnapshotOnly 共用实现同带，不消费）。
+   *  装载出口；opts 供自愈路径重试时收紧预算透传）。
    *  T18（Y1b T2）：返回扩 schemaVersion（CanvasDoc PG 列——装载版本门唯一判据；行缺失=null=
-   *  懒建档放行，首 store 建行走 @default(3)）。 */
+   *  懒建档放行，首 store 建行走 @default(3)）。
+   *  Y1c T12（偏离 27）：preVacuumSv 随 SV 代际门退役删除（列 Drop=迁移 20261024160000；世代
+   *  执法改道 docName 段——admitDocNameForGeneration auth/load 双校验）。 */
   async loadForHydration(
     projectId: string,
     opts?: { timeoutMs?: number; maxWaitMs?: number },
@@ -305,7 +313,7 @@ export class CanvasDocUpdateRepository {
   ): Promise<HydrationRow> {
     return this.prisma.$transaction(
       async (tx) => {
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { preVacuumSv: true, generation: true, schemaVersion: true, currentSnapshotRev: true, pgSeq: true } });
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, currentSnapshotRev: true, pgSeq: true } });
         let state: Buffer | null = null;
         let stateSeq = 0n;
         if (docRow) {
@@ -335,7 +343,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state, updates, stateSeq, preVacuumSv: docRow?.preVacuumSv ?? null, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null };
+        return { state, updates, stateSeq, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
@@ -380,25 +388,25 @@ export class CanvasDocUpdateRepository {
   }
 
   /** Y0b-4 T9a（Q-U v6 报告1 P1-2/报告2 G-3）：vacuum ⑥ 单事务——快照代际替换。
-   *  首行 lockProject（T10 后仅 vacuumReplace 消费——T12 状态机化收口）；被删增量行精确
+   *  首行 lockProject（T10 后仅 vacuumReplace 消费——T27 状态机化收口）；被删增量行精确
    *  取号基准=锁内实读行集（禁 0/GREATEST 包装——canvas-doc-insert-ratchet 红线）；expected
    *  行数守卫=④ 读与锁内读之间有并发 append ⇒ 中止（行集在锁协议下只增不删〔append-only+
    *  compact 排队〕——长度相等即同一集合）。
    *  Y1c T11（快照权威过渡形态）：CanvasDoc.state/stateSeq 列退役——真空态字节落 **CanvasDocSnapshot
    *  (g+1, rev 0)**（新代权威快照，stateHash 同 genesis 口径）+指针 currentSnapshotRev=0+purgeBelowSeq
-   *  清档（**义务清档**：行已同事务整删，非阈值承继问题——Q-I2 钉锚：**现行语义=跨代连续 seq**，
-   *  新代快照 stateSeq=旧代 maxSeq 恰只在连续语义自洽〔readConsistent 尾谓词 seq>stateSeq 跨代
-   *  单调〕）+preVacuumSv/generation 落列+按 projectId 整删。
-   *  state 形参保留（shrink 侧真空产物字节——本事务唯一去处=新代快照行；T12 换代状态机全量重写本方法）。
-   *  **T12 硬输入（Q-I2 登记——接线 switchGeneration 前必须）**：①新代快照 stateSeq 改 0 或换代
-   *  重定基（禁「换代 walSeq 自 1 重起」与「stateSeq=旧代 maxSeq」并存——新代帧落旧 stateSeq 之下
-   *  =装载尾跳过，复刻 C1 重置链）；②walSeq 计数器播种面复核（C1① seedWalSeqFromPg 的 pgSeq+1
-   *  不分代——与「换代自 1 起」互斥，二选一对齐）；③spool.switchGeneration 换代切段的旧代清理
-   *  滞留面（spec-M2）同批复核。 */
+   *  清档（行已同事务整删）+generation 落列+按 projectId 整删。
+   *  Y1c T12（换代通道定形——I2 三对齐**落定形态=跨代连续 seq**）：①新代快照 stateSeq=旧代 maxSeq
+   *  （连续语义唯一自洽形——与 ②C1① 播种面〔seedWalSeqFromPg pgSeq+1 不分代/boot+装载两缝〕与
+   *  spool.switchGeneration〔T12 起计数器/水位保留不重置〕三方单源对齐；「换代 walSeq 自 1 重起」
+   *  形态废止——并存=新代帧落旧基线之下→readConsistent 尾谓词跳过=C1 重置链复刻）；③pgSeq/
+   *  walCheckpointSeq **不重置**（连续 seq 下载入尾/compact 前缀/purgeBelow 谓词跨代单调恒成立；
+   *  spec §4.4「水位重置」=T27 维护状态机 SWITCHING 事务单入口语义——本处为其 rebuild payload
+   *  预演，快照替换+purgeBelow 清档两义务已兑现）。「水位重置预演」=本形态。
+   *  T12（偏离 27）：preVacuumSv 参数/列写随 SV 代际门退役删除（迁移 20261024160000——世代执法
+   *  =docName 段 auth/load 双校验）。 */
   async vacuumReplace(
     projectId: string,
     state: Buffer,
-    preVacuumSv: Buffer,
     expectedRowCount: number,
   ): Promise<{ generation: number }> {
     return this.prisma.$transaction(
@@ -422,21 +430,23 @@ export class CanvasDocUpdateRepository {
           : null;
         const maxSeq = liveRows.length > 0 ? liveRows[liveRows.length - 1].seq : (curSnap?.stateSeq ?? 0n);
         const generation = (liveDoc?.generation ?? 0) + 1;
+        // T12：vacuumEpoch=纯遥测计数列（spec §2 v5-5「不做任何 fence」——每次真空 +1；快照行随行携带）
+        const vacuumEpoch = (liveDoc?.vacuumEpoch ?? 0) + 1;
         // 新代权威快照 (g+1, rev 0)：真空态字节（快照权威——T11 起 CanvasDoc 不再承载 doc 态列）
         await tx.canvasDocSnapshot.upsert({
           where: { projectId_generation_snapshotRev: { projectId, generation, snapshotRev: 0n } },
           create: {
             projectId, generation, snapshotRev: 0n, stateSeq: maxSeq, state,
             stateHash: createHash('sha256').update(state).digest('hex'),
-            vacuumEpoch: liveDoc?.vacuumEpoch ?? 0,
+            vacuumEpoch,
             schemaVersion: liveDoc?.schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION,
           },
           update: {},
         });
         await tx.canvasDoc.upsert({
           where: { projectId },
-          update: { preVacuumSv, generation, currentSnapshotRev: 0n, purgeBelowSeq: null },
-          create: { projectId, preVacuumSv, generation },
+          update: { generation, vacuumEpoch, currentSnapshotRev: 0n, purgeBelowSeq: null },
+          create: { projectId, generation, vacuumEpoch },
         });
         // 锁内实读=该项目全部增量行（append-only+compact 排队）——按 projectId 整删（行集=被删集等价）
         await tx.canvasDocUpdate.deleteMany({ where: { projectId } });
@@ -584,10 +594,12 @@ export class CanvasDocUpdateRepository {
 
   /** T11 提交后分批删（幂等·续跑安全）：删 (projectId,generation,seq≤below) 增量行——500/批循环。
    *  行集=发布事务折叠的前缀（≤purgeBelowSeq=新快照 stateSeq）——快照权威已覆盖其内容；被删集⊆
-   *  被重放集由 purgeBelowSeq≡发布 stateSeq 构造保证。跨代行不删：**现行语义=跨代连续 seq**
-   *  （Q-I2/T11 双评审钉锚——旧代行由 vacuumReplace 换代事务整删，本 generation 谓词=换代竞态窗
-   *  防御；T12 若改「换代自 1 重起」须同步把本谓词改新代域+新代快照重定基，否则跨代同 seq 撞行）。
-   *  返回实删行数。 */
+   *  被重放集由 purgeBelowSeq≡发布 stateSeq 构造保证。跨代行不删：**现行语义=跨代连续 seq（T12 落定
+   *  ——I2/Q-I2 钉锚）**：旧代行由 vacuumReplace 换代事务**同事务整删**（本 generation 谓词=换代竞态
+   *  窗防御）；连续 seq 下跨代行 seq 单调（新代帧承接旧代 maxSeq）——若未来改「换代自 1 重起」须同步
+   *  把本谓词改新代域+新代快照重定基+C1① 播种分代，否则跨代同 seq 撞行（repository 本头注=偏离面
+   *  钉锚——readConsistent 尾谓词无 generation 过滤**同为设计**：换代正确性由「插行代辖正确+旧代行
+   *  同事务整删」构造性保证，非读侧过滤）。返回实删行数。 */
   async purgeBelow(projectId: string, generation: number, belowSeq: bigint): Promise<number> {
     let deleted = 0;
     for (;;) {
@@ -662,5 +674,25 @@ export class CanvasDocUpdateRepository {
    *  回收项目计数器自 PG 真值重建，scan 面零段不可得）。单查询全表（CanvasDoc 每项目一行）。 */
   async pgSeqFloors(): Promise<Array<{ projectId: string; generation: number; pgSeq: bigint }>> {
     return this.prisma.$queryRaw`SELECT "projectId", generation, "pgSeq" FROM "CanvasDoc"`;
+  }
+
+  /** Y1c T12：schemaVersion⇒generation 启动断言（spec §2 v5-5「维持（违反拒绝启动）」——gateway
+   *  boot init 消费，违例 throw=start-failed 有界重试不自动修复）。deploy 纪律：schema 硬切换
+   *  （CANVAS_DOC_SCHEMA_VERSION bump）必伴随换代（generation++——docName/缓存键失效链）或行清理
+   *  （reset-collab——本仓 schema 切换批既定「无迁移」纪律）。违例两类：
+   *  ①schemaVersion≠current ∧ generation=0——旧 schema 残行未按纪律收口（换代或清理二选一）；
+   *  ②schemaVersion>current——代码 downgrade 于数据（任何 generation 形态皆拒——新版数据结构
+   *  不可由旧代码解释，per-row 版本门拒载=静默半服务，不如拒启显性）。 */
+  async assertSchemaGenerationDiscipline(): Promise<void> {
+    const violations = await this.prisma.$queryRaw<{ projectId: string; schemaVersion: number | null; generation: number }[]>`
+      SELECT "projectId", "schemaVersion", generation FROM "CanvasDoc"
+      WHERE ("schemaVersion" IS DISTINCT FROM ${CANVAS_DOC_SCHEMA_VERSION}::int AND generation = 0)
+         OR "schemaVersion" > ${CANVAS_DOC_SCHEMA_VERSION}::int`;
+    if (violations.length > 0) {
+      throw Object.assign(
+        new Error(`schemaVersion⇒generation 启动断言违反（${violations.length} 行——schema 硬切换未伴随换代/清理，或数据 schemaVersion 新于代码）：${violations.slice(0, 5).map((v) => `${v.projectId}(sv=${v.schemaVersion},g=${v.generation})`).join(',')}${violations.length > 5 ? '…' : ''}——拒启（deploy 纪律=换代或 reset-collab 清行）`),
+        { schemaGenerationViolation: true },
+      );
+    }
   }
 }

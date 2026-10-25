@@ -269,7 +269,8 @@ export class CollabShrinkService {
   }
 
   /** 七步协议体（plan Task 9a sketch——语义为准）：
-   *  ⓪ thaw 回灌〔gateway.beginVacuumEra〕→①freeze 全连接+terminal close 4410 'doc-vacuuming'
+   *  ⓪ thaw 回灌〔gateway.beginVacuumEra——Y1c T12：4410 close 载荷 {generation, discardLocalCache:true}
+   *  stateless 先行〕→①freeze 全连接+terminal close 4410 'doc-vacuuming'
    *  →②serving 门〔vacuumingDocs——WS connected close 4410/loadDocument+withDoc 503〕
    *  →③quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4：先判 isPersistedComplete 三态滞后度谓词〔pending 空
    *  +spool 空+无在飞 store——doc 常驻不再等 documents.has 翻转，常驻下恒在=30s 注定活锁的根修〕，
@@ -281,13 +282,16 @@ export class CollabShrinkService {
    *  →④离线全根真空（repo.loadForHydration 装载读唯一入口〔契约 1〕——不经 withDoc；
    *  gateway.rebuildVacuumDoc 单源）
    *  →⑤等价断言扩全根（gateway.vacuumEquivalent——不等中止 DB 零变更）
-   *  →⑥单事务代际替换（repo.vacuumReplace——首行同键咨询锁〔与 append/compact 同键：P23/V26〕
-   *  +被删增量行取号基准精确赋值〔禁 0/GREATEST——insert-ratchet 红线〕+preVacuumSv/generation
-   *  同事务落列+按实读行 id 删〔compact 同式〕+行集漂移守卫）
+   *  →⑥单事务代际替换（repo.vacuumReplace——T12 连续 seq 形态+首行同键咨询锁〔与 CLI renumber
+   *  互斥保险〕+被删增量行取号基准精确赋值〔禁 0/GREATEST——insert-ratchet 红线〕+generation 落列
+   *  +按实读行 id 删〔compact 同式〕+行集漂移守卫）→⑥′WAL 段 namespace 切代〔**事务提交后**
+   *  gateway.switchWalGeneration——I2 ③ 接线；T27 换代状态机 SWITCHING 后接管〕
    *  →⑦解除（finally：vacuumingDocs.delete 无论成败+未提交恢复可写——v6 报告3 P1-2：中止路径
-   *  503 永久+全员只读=比不 vacuum 更糟的状态不允许存在）。
-   *  SV 代际门（拦旧历史重连）=gateway guardSyncFrame SyncStep1 分支——preVacuumSv 由真空后首次
-   *  装载播种（⑥ 落 DB 即生效——装载先于 SyncStep1 无窗口）。 */
+   *  503 永久+全员只读=比不 vacuum 更糟）。
+   *  Y1c T12（偏离 27）：SV 代际门〔guardSyncFrame SyncStep1 preVacuumSv 分支〕**退役**——世代执法
+   *  改道 docName 段 auth/load 双校验（admitDocNameForGeneration）：换代后旧 #g/裸名重连=auth 直接
+   *  generation mismatch（不装载/不 SS1/不上行旧 structs）→DraftEnvelope 导出〔T25〕→清缓存→
+   *  新 name（canvasDocName(pid,g)）重连导入（导入前新 Schema/权限/图结构校验）。 */
   private async vacuumCore(pid: string): Promise<VacuumResult> {
     let committed = false;
     const done = (r: VacuumResult): VacuumResult => {
@@ -324,12 +328,16 @@ export class CollabShrinkService {
         newDoc = this.gateway.rebuildVacuumDoc(oldDoc);
         if (newDoc === null) return done({ result: 'unsupported-root' });   // 非 Map 根——DB 零变更
         if (!this.gateway.vacuumEquivalent(oldDoc, newDoc)) return done({ result: 'equivalence-failed' });   // 把信任 fillDoc 变成验证 fillDoc
-        const preVacuumSv = Buffer.from(Y.encodeStateVector(oldDoc));   // 真空前 SV（代际门 DB 权威源）
         const state = Buffer.from(Y.encodeStateAsUpdate(newDoc));
         // ⑥ 单事务代际替换（repository.vacuumReplace——lockProject 同键咨询锁+被删行取号基准
-        // 精确赋值+同事务落列+按实读行 id 删+行集漂移守卫）
-        const { generation } = await this.docRepo.vacuumReplace(pid, state, preVacuumSv, srcUpdates.length);
+        //  精确赋值+同事务落列+按实读行 id 删+行集漂移守卫；T12 连续 seq 形态：新代快照基线=旧代
+        //  maxSeq+pgSeq/walCheckpointSeq 不重置+preVacuumSv 列随 SV 代际门退役删除）
+        const { generation } = await this.docRepo.vacuumReplace(pid, state, srcUpdates.length);
         committed = true;
+        // ⑥′ Y1c T12（I2 ③ 接线）：WAL 段 namespace 切代——**事务提交后**（事务内禁切：提交前切段=
+        // 新代帧落隔离旧段语义颠倒）。连续 seq 形态（计数器/水位保留）+旧代段清理滞留面收口
+        // （全提交段即删/含未提交帧段 sidecar 保全）——语义与消费面全注见 spool.switchGeneration。
+        await this.gateway.switchWalGeneration(pid, generation);
         return done({ result: 'ok', generation, bytes: state.length });
       } finally {
         oldDoc.destroy();

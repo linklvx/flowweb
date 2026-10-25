@@ -797,64 +797,25 @@
     "title": "⑦ 39 裸 `project:${pid}` docName 构造",
     "conclusion": "实测=39 处（生产代码——与 plan v1.7 声称精确一致）；另有 29 处测试（spec/test 文件）。",
     "productionBreakdown": {
-      "total": 39,
+      "total": 22,
       "yjsDocAddressing": [
-        {
-          "file": "apps/api/src/modules/collab/collab-document.service.ts",
-          "lines": [
-            69,
-            78
-          ],
-          "classification": "server·DirectConnection 入口（isValidDocName 守卫+openDirectConnection）"
-        },
-        {
-          "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
-          "lines": [
-            572,
-            794,
-            817,
-            831,
-            860,
-            970
-          ],
-          "classification": "server·documents().get/const name ×6（装载/真空/常驻查址）"
-        },
         {
           "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
           "lines": [
-            502,
-            539,
-            808,
-            925,
-            1005,
-            1006,
-            1008,
-            1016
+            848,
+            1058,
+            1059,
+            1061,
+            1069
           ],
-          "classification": "server·store/retry/unhealthy 键 ×8"
-        },
-        {
-          "file": "apps/api/src/modules/collab/collab-session-guard.service.ts",
-          "lines": [
-            1205
-          ],
-          "classification": "server·const name（连接查址）"
+          "classification": "server·persist 台账归一 bare 键 ×5（T12：flush 寻址改 liveName/persistKey 后残留=retry 梯+电平键——内部键非 wire 名）"
         },
         {
           "file": "apps/api/src/modules/collab/collab-residency.service.ts",
           "lines": [
-            203,
-            445,
-            620
+            210
           ],
-          "classification": "server·isValidDocName+openDirectConnection+documents.get"
-        },
-        {
-          "file": "apps/api/src/modules/collab/collab.gateway.ts",
-          "lines": [
-            160
-          ],
-          "classification": "server·documents.get（isDocResident）"
+          "classification": "server·withSession isValidDocName 守卫 ×1（T12：open/forceEvict 寻址改 canonicalDocName）"
         },
         {
           "file": "apps/web/src/stores/canvasCollabRuntime.ts",
@@ -873,32 +834,25 @@
       ],
       "errorMessages": [
         {
-          "file": "apps/api/src/modules/collab/collab-document.service.ts",
-          "lines": [
-            70
-          ],
-          "classification": "server·throw 消息"
-        },
-        {
           "file": "apps/api/src/modules/collab/collab-residency.service.ts",
           "lines": [
-            204
+            211
           ],
-          "classification": "server·throw 消息"
+          "classification": "server·守卫 error 消息 ×1"
         }
       ],
       "logTelemetryStrings": [
         {
           "file": "apps/api/src/modules/collab/collab-residency.service.ts",
           "lines": [
-            370,
-            460,
-            609,
-            626,
-            727,
-            742
+            377,
+            467,
+            616,
+            633,
+            734,
+            749
           ],
-          "classification": "server·logger ×6"
+          "classification": "server·日志遥测字符串 ×6（pid 标签非 wire 名）"
         },
         {
           "file": "apps/api/src/modules/collab/canvas-doc-update.repository.ts",
@@ -946,7 +900,8 @@
         }
       ]
     },
-    "note": "分类计数：Yjs 寻址 22 + 报错消息 2 + 日志/遥测 8 + Socket.IO room 5 + 注释 2 = 39。doc-name 单源=doc-name.util.ts（isValidDocName 等）——散布点为 T24/T32 docName 收口（换代 #g 后缀）改造面"
+    "note": "分类计数：Yjs 寻址 22 + 报错消息 2 + 日志/遥测 8 + Socket.IO room 5 + 注释 2 = 39。doc-name 单源=doc-name.util.ts（isValidDocName 等）——散布点为 T24/T32 docName 收口（换代 #g 后缀）改造面",
+    "total": 22
   },
   "item8_localCacheIdb": {
     "title": "⑧ per-tab 缓存现状与 IDB 键面",

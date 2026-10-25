@@ -75,7 +75,7 @@ maybe('Y1c T10 G2 故障矩阵（十红组——真 PG）', () => {
       documents: () => documents,
       hardClose: (c, code, reason) => hardCloseCalls.push([c, code, reason]),
       isQuotaFrozen: () => false,
-      generationOf: () => 1,
+      generationOf: () => 0,   // Y1c T12：canonical 名=裸名（gen0——原缺省 1 使 processBatch #g1 寻址 miss）
       noteReadOnlyDrop: () => false,
       onFencedByWrite: async () => {},
     });
@@ -261,7 +261,7 @@ maybe('Y1c T10 G2 故障矩阵（十红组——真 PG）', () => {
     flaky.bindHost({
       logger: { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, verbose: () => {}, fatal: () => {} } as unknown as Logger,
       documents: () => documents, hardClose: (c, code, reason) => hardCloseCalls.push([c, code, reason]),
-      isQuotaFrozen: () => false, generationOf: () => 1, noteReadOnlyDrop: () => false, onFencedByWrite: async () => {},
+      isQuotaFrozen: () => false, generationOf: () => 0, noteReadOnlyDrop: () => false, onFencedByWrite: async () => {},   // Y1c T12：generationOf 1→0（canonical 名=裸名 gen0——原缺省 1 使 processBatch #g1 寻址 miss）
     });
     const ok1 = await flaky.submit(PID, frameOf('pre-poison', 1), makeConn(), 'update');   // applied 前缀帧
     (flaky as unknown as { failNext: boolean }).failNext = true;

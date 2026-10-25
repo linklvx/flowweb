@@ -55,7 +55,7 @@ function buildActor<T extends CollabProjectActorService = CollabProjectActorServ
     documents: () => documents,
     hardClose: (c: unknown, code: number, reason: string) => hardClose(c, code, reason),
     isQuotaFrozen: () => false,
-    generationOf: () => 1,
+    generationOf: () => 0,   // Y1c T12：canonical wire 名对齐（gen0=裸名——世代真值链下未换代项目=0；原缺省 1 使 processBatch canonical 寻址 #g1 miss）
     noteReadOnlyDrop: () => false,
     onFencedByWrite: async () => {},
   });
@@ -357,7 +357,7 @@ describe('Y1c T9 用例组（actor 批验证/去重/copy/毒帧/SS2/上限/Frame
   it('世代权威（偏离 36-②）：submit 与 drain 之间换代 → 4410 拒（每帧对照当前权威）', async () => {
     const spool = makeSpool();
     const doc = new Y.Doc();
-    let gen = 1;
+    let gen = 0;   // Y1c T12：canonical 名=裸名（gen0）——换代 bump 至 1（#g1 名对 fixture documents miss 无碍：换代拒绝在 admission 循环〔先于 document 判定〕）
     const repo = createMockRepo();
     const documents = new Map([['project:p1', doc]]);
     const actor = new CollabProjectActorService(spool, repo as never);
@@ -372,8 +372,8 @@ describe('Y1c T9 用例组（actor 批验证/去重/copy/毒帧/SS2/上限/Frame
       onFencedByWrite: async () => {},
     });
     await actor.submit('p1', frameSetting('p1', 'g1', 1), makeConn(), 'update');
-    // submit 捕获 gen=1 后、drain 微任务准入前同步换代（authGen=2≠submitGeneration=1→4410）
-    const r = await (async () => { const p = actor.submit('p1', frameSetting('p1', 'g2', 2), makeConn(), 'update'); gen = 2; return p.then((x) => ({ ok: true as const }), (e) => ({ ok: false as const, e })); })();
+    // submit 捕获 gen=0 后、drain 微任务准入前同步换代（authGen=1≠submitGeneration=0→4410）
+    const r = await (async () => { const p = actor.submit('p1', frameSetting('p1', 'g2', 2), makeConn(), 'update'); gen = 1; return p.then((x) => ({ ok: true as const }), (e) => ({ ok: false as const, e })); })();
     expect(r.ok).toBe(false);
     if (!r.ok) expect((r.e as { code?: number }).code).toBe(CollabCloseCode.GENERATION_SUPERSEDED);
   }, 20_000);
@@ -448,7 +448,7 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
       documents: () => documents,
       hardClose: () => {},
       isQuotaFrozen: () => false,
-      generationOf: () => 1,
+      generationOf: () => 0,   // Y1c T12：gen0=裸名 canonical（fixture 对齐）
       noteReadOnlyDrop: () => false,
       onFencedByWrite: async () => {},
     });

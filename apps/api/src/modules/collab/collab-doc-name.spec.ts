@@ -41,11 +41,32 @@ describe('Y0c T4 parseDocName（docName 语法单源——project:<id>#g<N>）',
     expect(parseDocName('project:abc#G7')).toBeNull();
   });
 
-  it('Y0b-5 T16 全匹配守卫语义保持：isValidDocName 现状档=无世代段才放行', () => {
+  it('Y0b-5 T16 全匹配守卫语义（Y1c T12 换代通道激活）：isValidDocName=语法面（裸名+#g 规范段均收）；世代匹配归 admitDocNameForGeneration（DB 真值对比）', () => {
     expect(isValidDocName('project:abc123')).toBe(true);
-    expect(isValidDocName('project:abc123#g1')).toBe(false); // 世代段语法已冻结、语义 Y1c-1 启用——现状拒（防别名双实例执法分叉复辟）
+    expect(isValidDocName('project:abc123#g1')).toBe(true);   // Y1c T12：世代段激活（偏离 27——世代身份载体=docName 段）
+    expect(isValidDocName('project:abc#g0')).toBe(true);      // 语法合法（gen0 canonical=裸名——#g0 别名拒在准入谓词层）
     expect(isValidDocName('abc123')).toBe(false);
     expect(isValidDocName('')).toBe(false);
+    expect(isValidDocName('project:abc#g007')).toBe(false);   // 前导零别名照拒（parseDocName null）
+    expect(isValidDocName('project:abc#G7')).toBe(false);     // 大写照拒
+  });
+});
+
+describe('Y1c T12 canvasDocName/admitDocNameForGeneration（换代通道——canonical 名+世代准入）', () => {
+  it('canonical 名单源：gen0=裸名 / gen>0=#g<N>（跨代互异——v1.3 同 name 反例死）', async () => {
+    const { canvasDocName } = await import('./collab.gateway');
+    expect(canvasDocName('abc', 0)).toBe('project:abc');
+    expect(canvasDocName('abc', 1)).toBe('project:abc#g1');
+    expect(canvasDocName('abc', 12)).toBe('project:abc#g12');
+  });
+
+  it('世代准入（auth/load 双校验单源）：canonical 收；陈旧/裸名@gen>0/#g0 别名拒并携带目标世代', async () => {
+    const { admitDocNameForGeneration } = await import('./collab.gateway');
+    expect(admitDocNameForGeneration('project:abc', 0)).toEqual({ ok: true });
+    expect(admitDocNameForGeneration('project:abc#g0', 0)).toEqual({ ok: false, generation: 0 });
+    expect(admitDocNameForGeneration('project:abc#g1', 1)).toEqual({ ok: true });
+    expect(admitDocNameForGeneration('project:abc', 1)).toEqual({ ok: false, generation: 1 });
+    expect(admitDocNameForGeneration('project:abc#g1', 2)).toEqual({ ok: false, generation: 2 });
   });
 });
 

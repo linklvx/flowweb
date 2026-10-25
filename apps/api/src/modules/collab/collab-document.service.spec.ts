@@ -100,7 +100,7 @@ describe('T18 版本门退役（REST 读面——版本判据=CanvasDoc.schemaVe
 });
 
 describe('Y0a-3 T8（三分法）', () => {
-  const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }) });
+  const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }), readWatermark: vi.fn().mockResolvedValue(null) });   // Y1c T12：withDoc canonical 名读面（null=gen0 裸名）
 
   it('withDoc 三入口③：lease 未持 → 503 早退（不触 openDirectConnection）', async () => {
     const gateway = { isLeaseServing: vi.fn(() => false) };
@@ -160,7 +160,7 @@ describe('Y0a-3 T8（三分法）', () => {
 
 // Y0c T9（Z5/A1）：单写面 undefined fail-fast + assertWriteAdmitted 单点（X9 三写入口共用）。
 describe('Y0c T9 undefined fail-fast+assertWriteAdmitted 单点', () => {
-  const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }) });
+  const repoStub = () => ({ readSnapshotOnly: vi.fn().mockResolvedValue({ state: null, updates: [], stateSeq: 0n }), readWatermark: vi.fn().mockResolvedValue(null) });   // Y1c T12：withDoc canonical 名读面（null=gen0 裸名）
 
   it('红·批面 writeNodeData patch 含 undefined ⇒ throw /UNDEFINED_PATCH_VALUE/（T15 删单写面——原语守卫覆盖面=writeBatch 进门扫描，本锚迁 collab-doc-writer.service.spec 同款用例）', () => {
     // 语义锚迁移说明：applyWriteNodeDataToDoc 原语首段 undefined fail-fast 仍在（deliverArtifact/
@@ -193,7 +193,7 @@ describe('Y0a-4 Connection 级 disconnect pin（unloadImmediately——withDoc f
       isVacuuming: vi.fn(() => false),   // Y0b-4 T9a：vacuum serving 门（withDoc 第二门）
       server: { hocuspocus: { openDirectConnection: vi.fn(async () => ({ document: doc, transact: (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect })) } },
     };
-    const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
+    const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark 缺省 gen0
     await service.withDoc('p1', () => 'x');
     expect(disconnect).toHaveBeenCalledWith({ unloadImmediately: true });   // 旧实现裸调（无参）→ 红
   });
@@ -225,7 +225,7 @@ describe('Y0c T10 origin=SERVER_TRANSACT_ORIGIN（withDoc 最外层写事务—�
       isVacuuming: vi.fn(() => false),
       server: { hocuspocus: { openDirectConnection: vi.fn(async () => directConnectionStub(doc, disconnect)) } },
     };
-    const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
+    const service = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark 缺省 gen0
     await service.withDoc('p1', (d) => { d.getMap('nodes').set('n1', new Y.Map([['type', 'text']])); });
 
     expect(captured).toHaveLength(1);                       // 单事务单写=单 update 帧

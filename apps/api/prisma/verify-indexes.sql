@@ -26,6 +26,12 @@ SELECT 'canvas_doc_state_columns_absent' AS ok WHERE NOT EXISTS (
   SELECT 1 FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name IN ('state', 'stateSeq')
 );
 
+-- Y1c T12（偏离 27）: preVacuumSv 列退役（否定断言——列在即红；SV 代际门改道 docName 世代段
+-- auth/load 双校验，迁移 20261024160000 DROP）
+SELECT 'prevacuum_sv_absent' AS ok WHERE NOT EXISTS (
+  SELECT 1 FROM information_schema.columns WHERE table_name = 'CanvasDoc' AND column_name = 'preVacuumSv'
+);
+
 -- Y1c T11: 快照权威表复合 PK（projectId,generation,snapshotRev）在位
 SELECT conname FROM pg_constraint WHERE conrelid = '"CanvasDocSnapshot"'::regclass AND contype = 'p' AND pg_get_constraintdef(oid) LIKE '%projectId%generation%snapshotRev%';
 

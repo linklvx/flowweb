@@ -202,9 +202,9 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 
 ### Task 12: vacuum=generation++/新 docName（换代通道）
 **Files:** canvas-doc-update.repository.ts:194-224（vacuumReplace）；collab-shrink.service.ts:292-347；collab-doc-registry.service.ts:628-698（rebuildVacuumDoc+preVacuumSv 播种）；registry 4410 载荷
-- [ ] 先红：①vacuum 后 generation/docName/缓存键**不变**（v1.3 同 name 语义反例——现设计=必须变）=红②**部分陈旧客户端复活路径**（S2 spike 语料：全 clock<pre 客户端 SS2 旧 structs apply 到新 doc）在换代语义下=auth 直接拒（不装载/不 SS1/不上行）=红前置
-- [ ] vacuumReplace：重放重建 fresh doc（新 clientID 重写）→**generation++→新 docName(#g)**→替换快照+水位重置预演；4410 `doc-vacuuming` 载荷 {generation, discardLocalCache:true}；离线 dirty 客户端=旧 #g auth generation mismatch→DraftEnvelope 导出→清缓存→新 name 重连导入（**导入前新 Schema/权限/图结构校验**）；**vacuumEpoch 仅遥测计数列**；**preVacuumSv 缓存播种与门退役**（registry:400,:687-696 删——偏离 27）；`schemaVersion⇒generation` 启动断言（违反拒启）
-- [ ] vacuum 前后 generation/docName/缓存键变化断言+换代预演+S2 语料全绿→Commit。
+- [x] 先红：①vacuum 后 generation/docName/缓存键**不变**（v1.3 同 name 语义反例——现设计=必须变）=红②**部分陈旧客户端复活路径**（S2 spike 语料：全 clock<pre 客户端 SS2 旧 structs apply 到新 doc）在换代语义下=auth 直接拒（不装载/不 SS1/不上行）=红前置
+- [x] vacuumReplace：重放重建 fresh doc（新 clientID 重写）→**generation++→新 docName(#g)**→替换快照+水位重置预演；4410 `doc-vacuuming` 载荷 {generation, discardLocalCache:true}；离线 dirty 客户端=旧 #g auth generation mismatch→DraftEnvelope 导出→清缓存→新 name 重连导入（**导入前新 Schema/权限/图结构校验**）；**vacuumEpoch 仅遥测计数列**；**preVacuumSv 缓存播种与门退役**（registry:400,:687-696 删——偏离 27）；`schemaVersion⇒generation` 启动断言（违反拒启）
+- [x] vacuum 前后 generation/docName/缓存键变化断言+换代预演+S2 语料全绿→Commit。（T12 落地批注：世代执法=admitDocNameForGeneration〔auth〔CollabAuthReason.GENERATION_STALE 第十五值·终态〕/load 双校验——E23 连带=canonical wire 名 canvasDocName 全内部寻址改道〕；I2 落定=**跨代连续 seq**〔switchGeneration 计数器/水位保留不重置+全提交旧段换代即删/含未提交帧段 sidecar 保全——vacuum ⑥ 事务提交后经 gateway.switchWalGeneration 接线〕；preVacuumSv 列随门退役 DROP〔迁移 20261024160000+EXEMPTIONS〕；generation=0 真值链播种〔DR:403 缝修复〕；schemaVersion⇒generation 断言=repo.assertSchemaGenerationDiscipline〔boot 拒启——sv≠current∧gen=0 ∨ sv>current 两类违例〕。）
 
 ### Task 13: G6a 门——单实例故障恢复（doc 平面）
 **Files:** registry 恢复路径；collab-spool/persistence；观测接线

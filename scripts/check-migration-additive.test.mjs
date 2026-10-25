@@ -66,22 +66,25 @@ test('裁定1 breakingTable 形态：ALTER/DROP/TRUNCATE TABLE 与 DROP TYPE 取
   assert.equal(breakingTable('DROP CONSTRAINT "x"'), null);
 });
 
-test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工审阅——五登记=Media.status enum 硬切+T2 质评收口 size Int→BigInt+T16 P1#1 MediaBinding CHECK 域放宽+Y1c T9 表改形+Y1c T11 快照权威切换）', () => {
+test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工审阅——六登记=Media.status enum 硬切+T2 质评收口 size Int→BigInt+T16 P1#1 MediaBinding CHECK 域放宽+Y1c T9 表改形+Y1c T11 快照权威切换+Y1c T12 preVacuumSv 退役）', () => {
   assert.deepEqual(Object.keys(EXEMPTIONS), [
     '20261022070000_mediabinding_refvideo_refaudio',
     '20261020200300_nodeartifact_projection_v3',
     '20261020211610_media_v3_natural_sniff_size',
     '20261024130000_y1c_t9_canvas_doc_update_v17',
     '20261024150000_y1c_t11_snapshot_authority',
+    '20261024160000_y1c_t12_prevacuum_retirement',
   ]);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261022070000_mediabinding_refvideo_refaudio']), ['MediaBinding']);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261020200300_nodeartifact_projection_v3']), ['Media']);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261020211610_media_v3_natural_sniff_size']), ['Media']);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261024130000_y1c_t9_canvas_doc_update_v17']), ['CanvasDocUpdate']);
   assert.deepEqual(Object.keys(EXEMPTIONS['20261024150000_y1c_t11_snapshot_authority']), ['CanvasDoc']);
+  assert.deepEqual(Object.keys(EXEMPTIONS['20261024160000_y1c_t12_prevacuum_retirement']), ['CanvasDoc']);
   // T16 P1#1 owner pin：spec 评审裁定专属（域放宽非收紧——旧值全合法）
   assert.equal(EXEMPTIONS['20261022070000_mediabinding_refvideo_refaudio'].MediaBinding.owner, 'Y1a+Y1b T16 spec 评审 P1#1 裁定');
   assert.equal(EXEMPTIONS['20261024150000_y1c_t11_snapshot_authority'].CanvasDoc.owner, 'Y1c T11 controller');
+  assert.equal(EXEMPTIONS['20261024160000_y1c_t12_prevacuum_retirement'].CanvasDoc.owner, 'Y1c T12 controller');
 });
 
 test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since 非空字符串——永久登记可追溯，禁裸字符串条目）', () => {

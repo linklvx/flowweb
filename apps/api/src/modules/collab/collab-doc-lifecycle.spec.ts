@@ -132,7 +132,6 @@ function seedAllPidState(gateway: CollabGateway, gf: GatewayTestFacade, pid: str
   gf.seedDocStatusState(pid, 'ok:false');
   gf.seedDocGeneration(pid, 2);
   gf.seedDocResidue(pid, 50);
-  gf.seedPreVacuumSv(pid, new Map([[1, 2]]));
   gf.seedAutoVacuumLastAt(pid, Date.now());
   gateway.setVacuuming(pid, true);          // 公有写点（setVacuuming=service vacuumGate 同款）
   gateway.storeFailedDocs.add(pid);         // 公有 getter=persistence 台账真实 Set 引用（B1 委托位④）
@@ -145,7 +144,7 @@ function seedAllPidState(gateway: CollabGateway, gf: GatewayTestFacade, pid: str
 
 // ═══ ①物化维+⑦代际维：装载播种与四门拒绝（§6.1 表①⑦行——写点=loadDocument :982） ═══
 describe('T41 W2 ①物化+⑦代际：loadDocument 播种/门族/connected 真空 terminal（钩子公有面驱动）', () => {
-  it('装载成功播种六键：docTruth=cheap 上界/docDelta=0/truthMeasuredAt/docStatusRev=SEED(1)/docEpoch；无 preVacuumSv/generation 不播种', async () => {
+  it('装载成功播种六键：docTruth=cheap 上界/docDelta=0/truthMeasuredAt/docStatusRev=SEED(1)/docEpoch；generation 真值链恒播种（T12——0 也播种，DR:403 缝修复）', async () => {
     const { gateway, gf, repo } = buildGateway();
     repo.hydrateWithRecovery.mockResolvedValueOnce({ state: null, updates: [], stateSeq: 0n });
     const doc = new Y.Doc();
@@ -155,20 +154,17 @@ describe('T41 W2 ①物化+⑦代际：loadDocument 播种/门族/connected 真�
     expect(gf.truthMeasuredAtHas('p-load')).toBe(true);   // 冷却窗基线（T4 判据④消费）
     expect(gf.docStatusRevOf('p-load')).toBe(DOC_STATUS_REV_SEED);   // 装载播种 1（初值 0 被客户端 rev 守卫丢首快照）
     expect(gf.docEpochOf(doc)).toBeTypeOf('number');   // doc 代际 WeakMap 播种（:1043）
-    expect(gf.preVacuumSvOf('p-load')).toBeUndefined();   // 无 preVacuumSv 行不播种（⑦代际条件写点）
-    expect(gf.docGenerationOf('p-load')).toBeUndefined();
+    expect(gf.docGenerationOf('p-load')).toBe(0);   // Y1c T12 真值链：缺 generation 行（懒建档）=0 恒播种（旧 `if (generation)` truthy 门=DR:403 缝——0 永不播种）
   });
 
-  it('⑦代际装载播种：preVacuumSv 解码缓存（SV 代际门数据源）+docGeneration（doc-status 顶层 generation 产生源）', async () => {
+  it('⑦代际装载播种（Y1c T12 形态）：generation=7 播种 docGeneration（canonical wire 名 #g7=装载准入前提；preVacuumSv 缓存随 SV 代际门退役删除——偏离 27）', async () => {
     const { gateway, gf, repo } = buildGateway();
-    const src = new Y.Doc();
-    src.getMap('nodes').set('n1', 'x');
-    repo.hydrateWithRecovery.mockResolvedValueOnce({ state: null, updates: [], preVacuumSv: Buffer.from(Y.encodeStateVector(src)), generation: 7, stateSeq: 0n });
-    await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-gen', socketId: 's-gen' } as any);
-    const sv = gf.preVacuumSvOf('p-gen');
-    expect(sv).toBeInstanceOf(Map);
-    expect(sv!.size).toBe(1);   // src 的 (client,clock) 播种（:1053 decodeStateVector）
-    expect(gf.docGenerationOf('p-gen')).toBe(7);   // :1054 播种
+    repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [], generation: 7, stateSeq: 0n });
+    await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-gen#g7', socketId: 's-gen' } as any);
+    expect(gf.docGenerationOf('p-gen')).toBe(7);   // 播种（doc-status 顶层 generation 产生源+liveDocName 内部寻址）
+    // 世代准入：gen=7 下裸名/旧 #g 拒（admitDocNameForGeneration——auth/load 双校验）
+    await expect(gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-gen', socketId: 's-x' } as any))
+      .rejects.toMatchObject({ reason: CollabAuthReason.GENERATION_STALE });
   });
 
   it('门族①（T19/Z64②）：unloadingDocuments 窗口拒新装载——SUE doc-unloading+瞬态档 LEASE_NOT_READY（B 窗口第二实例风险面守卫）', async () => {
@@ -202,7 +198,11 @@ describe('T41 W2 ①物化+⑦代际：loadDocument 播种/门族/connected 真�
     const conn = makeConn('s-c', 'project:p-c');
     await gateway.hooks.connected({ socketId: 's-c', connection: conn, documentName: 'project:p-c' } as any);
     expect(conn.webSocket.close).toHaveBeenCalledWith(CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);   // 4410 terminal（T11 reload 通道）
-    expect(conn.sendStateless).not.toHaveBeenCalled();   // 早退——buildDocStatus 补推不达
+    // Y1c T12：4410 close 载荷先行（stateless {code,reason,generation,discardLocalCache:true}——契约
+    // CollabY1cClosePayload 4410 档）；doc-status 补推仍不达（载荷≠doc-status——唯一 stateless 调用）
+    const payloadCalls = conn.sendStateless.mock.calls.map((c: unknown[]) => String(c[0])).filter((x: string) => x.includes('doc-vacuuming'));
+    expect(payloadCalls).toHaveLength(1);
+    expect(JSON.parse(payloadCalls[0])).toEqual({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON, generation: 1, discardLocalCache: true });
     expect(gf.connEstablishedAtHas('s-c')).toBe(true);   // 寿命台账播种=钩子首行（门检查之前 :467）
   });
 });
@@ -397,7 +397,6 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.docStatusRevOf('p-au')).toBeUndefined();         // rev 删除=重装载复位新 epoch
     expect(gf.docStatusStateHas('p-au')).toBe(false);
     expect(gf.docGenerationOf('p-au')).toBeUndefined();
-    expect(gf.preVacuumSvOf('p-au')).toBeUndefined();
     expect(gateway.docResidueOf('p-au')).toBe(0);
     expect(gf.unloadHeapAnchorOf('p-au')).toBeUndefined();     // 锚结算消耗（:2033-2034）
     // ── 差异键保留（afterUnload 不清——逐键钉死） ──
@@ -428,7 +427,6 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.docStatusRevOf('p-pg')).toBeUndefined();
     expect(gf.docStatusStateHas('p-pg')).toBe(false);
     expect(gf.docGenerationOf('p-pg')).toBeUndefined();
-    expect(gf.preVacuumSvOf('p-pg')).toBeUndefined();
     expect(gateway.docResidueOf('p-pg')).toBe(0);
     expect(gf.autoVacuumLastAtHas('p-pg')).toBe(false);   // **purge 专属**（:1436——afterUnload/projectsGone 均不清）
     // ── SG 缝+persistence 两步+回收 ──
@@ -462,7 +460,6 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.docStatusRevOf('p-gone')).toBeUndefined();
     expect(gf.docStatusStateHas('p-gone')).toBe(false);
     expect(gf.docGenerationOf('p-gone')).toBeUndefined();
-    expect(gf.preVacuumSvOf('p-gone')).toBeUndefined();
     expect(gateway.docResidueOf('p-gone')).toBe(0);
     expect(gateway.isVacuuming('p-gone')).toBe(false);   // **projectsGone 专属**（真空窗口中项目消失的兜底——afterUnload/purge 均不清）
     // ── persistence 侧（onProjectGone 子步）──

@@ -79,6 +79,10 @@ export interface CollabPersistenceHost {
    *  @hocuspocus 依赖红线保持）。null=未持有（任何捕获值比对必不等⇒fenced）。消费=flushDocument
    *  提交前校验；捕获点=调用方 claim/会话开始时读同一缝。 */
   currentLeaseEpoch(): bigint | null;
+  /** Y1c T12（偏离 27/E23 内部寻址连带）：世代 canonical wire 名解析缝（gateway 实现=DR.liveDocName
+   *  转发——#g 换代通道下活 doc 寻址单源）。可选：极简直构测试缺省=折 projectDocName(pid)〔gen0
+   *  canonical 等价——存量装置零触碰〕。 */
+  docNameOf?(projectId: string): string;
 }
 
 /** X7：op 套 deadline——超时返回 fallback（op 自身继续跑，结果被弃）。B1 形态自裁=export 单源
@@ -148,7 +152,8 @@ export class CollabPersistenceService {
    *  （esm:1540-1549 "Document stays in memory"），reaper 见标记走强制淘汰路径（spool 交接+清会话
    *  条目+unloadDocument 直调）。add=append 失败点单点；delete=store 成功落定+真卸载终态两点。公有=gateway 委托 getter 消费面。 */
   readonly storeFailedDocs = new Set<string>();
-  /** 批3-4 persist-status：unhealthy 电平（documentName 键）。公有=gateway authenticateInner 补推判定消费。 */
+  /** 批3-4 persist-status：unhealthy 电平（**归一 bare 键**=projectDocName(pid)——Y1c T12：#g wire
+   *  名与裸名解析同 pid，读写两侧归一防键漂移；write=setPersistStatus/pushPersistStatus 入口单点）。公有=gateway authenticateInner 补推判定消费。 */
   readonly persistUnhealthy = new Set<string>();
   /** 批3-4 persist-status：有界退避台账（documentName → rung+timer） */
   private readonly persistRetry = new Map<string, { rung: number; timer: ReturnType<typeof setTimeout> | null }>();
@@ -186,6 +191,18 @@ export class CollabPersistenceService {
   /** host 后置绑定（setLeaseOwner/registerResidentSessionReleaser 同形先例）——业务方法消费前必 bind。 */
   bindHost(host: CollabPersistenceHost): void {
     this.host = host;
+  }
+
+  /** Y1c T12：活 doc canonical 名解析（host.docNameOf 缝——gateway 转发 DR.liveDocName；缺省折
+   *  裸名=gen0 canonical 等价）。本文件四 flush/直灌寻址点（ensurePersistedOutcome/maintenance/
+   *  soft/drainAll）+retryPersist 消费——#g 换代通道下活 doc 恒命中（E23 内部寻址连带）。 */
+  private liveName(projectId: string): string {
+    return this.host.docNameOf?.(projectId) ?? projectDocName(projectId);
+  }
+
+  /** Y1c T12：persist 台账归一 bare 键（#g/裸名同 pid 折 projectDocName——读写两侧键漂移防线）。 */
+  private persistKey(documentName: string): string {
+    return projectDocName(parseDocName(documentName)?.projectId ?? '');
   }
 
   /** Y11：队列 get-or-create+update 监听注册（B1 自 loadDocument 内联块提取——set 替换=静默丢批〔V4〕；
@@ -441,7 +458,7 @@ export class CollabPersistenceService {
     }
     // ② 项目消失终态集（事件路径登记 or store/梯 FK 发现点登记）——不触 store 不重试。
     if (this.deletedProjects.has(projectId)) return outcome({ kind: 'terminal', reason: 'fk' });
-    const documentName = `project:${projectId}`;
+    const documentName = this.liveName(projectId);   // Y1c T12：canonical wire 名（#g 换代通道）
     const queueEmpty = !this.hasPendingWrites(projectId);
     // ③ noop 分支显式：无未落库变更（pending 空∧spool 空）∧isPersistedComplete→persisted 等价
     //    （交付判定语义——零 store 触达）；!complete（在飞 store 未落定）不短路——落到⑤（saveMutex
@@ -518,7 +535,7 @@ export class CollabPersistenceService {
       this.maintenanceFlushTimers.delete(projectId);
       const q = this.pendingQueues.get(projectId);
       if (!q || q.length === 0) return;
-      const documentName = projectDocName(projectId);
+      const documentName = this.liveName(projectId);   // Y1c T12：canonical wire 名（#g 换代通道）
       const document = this.host.getDocument(documentName);
       if (!document) return;   // doc 不活——detached 通道（retryPersist）承接
       void this.storeDocumentSerialized({ document, documentName }, 'maintenance').catch(() => {});
@@ -546,7 +563,7 @@ export class CollabPersistenceService {
       this.flushScheduled.delete(projectId);
       const q = this.pendingQueues.get(projectId);
       if (!q || q.length === 0) return;
-      const documentName = `project:${projectId}`;
+      const documentName = this.liveName(projectId);   // Y1c T12：canonical wire 名（#g 换代通道）
       const document = this.host.getDocument(documentName);
       if (!document) return;
       void this.storeDocumentSerialized({ document, documentName }, 'soft');   // Y0c T0：软阈提前归因
@@ -689,11 +706,12 @@ export class CollabPersistenceService {
   /** 批3-4 persist-status：成功/失败转折点广播（只在电平翻转时发——重试期重复失败不刷屏；
    *  客户端只驱动横幅/诊断，不进 hasUnsavedWork——拦截⇒不断开⇒废掉断开 flush 兜底）。 */
   private setPersistStatus(documentName: string, healthy: boolean) {
+    const key = this.persistKey(documentName);   // Y1c T12：归一 bare 键（#g/裸名同 pid）
     if (healthy) {
-      if (!this.persistUnhealthy.delete(documentName)) return;   // 无转折不广播
+      if (!this.persistUnhealthy.delete(key)) return;   // 无转折不广播
     } else {
-      if (this.persistUnhealthy.has(documentName)) return;   // 已 unhealthy：重复失败非转折
-      this.persistUnhealthy.add(documentName);
+      if (this.persistUnhealthy.has(key)) return;   // 已 unhealthy：重复失败非转折
+      this.persistUnhealthy.add(key);
     }
     const document = this.host.getDocument(documentName);
     if (!document) return;   // doc 已卸载：无观察者，只维护电平（重连后补推/下次转折覆盖）
@@ -707,8 +725,8 @@ export class CollabPersistenceService {
 
   /** 批3-4：unhealthy 电平期新连接补推（authenticate 后延迟半秒——连接注册完成的保守窗口）。 */
   pushPersistStatus(documentName: string) {
-    if (!this.persistUnhealthy.has(documentName)) return;
-    const document = this.host.getDocument(documentName);
+    if (!this.persistUnhealthy.has(this.persistKey(documentName))) return;
+    const document = this.host.getDocument(this.liveName(parseDocName(documentName)?.projectId ?? ''));   // Y1c T12：归一键+canonical 解析
     if (!document) return;
     const payload = JSON.stringify({ type: 'persist-status', healthy: false });
     for (const connection of [...document.connections.keys()]) {
@@ -755,7 +773,7 @@ export class CollabPersistenceService {
     const entry = this.persistRetry.get(documentName);
     if (!entry) return;
     const projectId = parseDocName(documentName)?.projectId ?? '';
-    const document = this.host.getDocument(documentName);
+    const document = this.host.getDocument(this.liveName(projectId));   // Y1c T12：canonical 解析（键=调用方原值不动）
     try {
       if (document && (this.pendingQueues.get(this.docProject.get(document) ?? '')?.length ?? 0) > 0) {
         this.retryingPersistDocs.add(documentName);   // 审查 I-2：per-doc 在飞标志（旧单布尔跨项目误罩）
@@ -958,7 +976,7 @@ export class CollabPersistenceService {
         const frames = await raceDeadline(this.peekSpoolFrames(projectId), 500, []);   // 磁盘挂起防护
         if (q.length === 0 && frames.length === 0) continue;
         enteredDocs += 1;
-        const name = `project:${projectId}`;
+        const name = this.liveName(projectId);   // Y1c T12：canonical wire 名（#g 换代通道）
         const document = this.host.getDocument(name);
         if (!document) {
           await this.drainDetachedProject(projectId, hardDeadline);
@@ -1054,7 +1072,7 @@ export class CollabPersistenceService {
   /** 卸载钩子 finally 的 persistence 子步（④清理残留 M1——连接寿命/awareness 归属清理留 gateway）。 */
   onDocumentUnload(projectId: string, documentName: string): void {
     this.lastCompactAt.delete(projectId);
-    this.persistUnhealthy.delete(documentName);
+    this.persistUnhealthy.delete(this.persistKey(documentName));
     this.cancelMaintenanceFlush(projectId);   // Y1c T9：维护短窗随 doc 卸载撤（doc 不活=窗口空转）
   }
 

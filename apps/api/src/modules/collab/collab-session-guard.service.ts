@@ -29,7 +29,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { CollabDocRegistryService } from './collab-doc-registry.service';
-import { parseDocName, isValidDocName } from './doc-name.util';
+import { parseDocName, isValidDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
 import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
@@ -625,6 +625,22 @@ export class CollabSessionGuardService {
         throw e;   // 其余进 catch 分型（DB_UNAVAILABLE 等）
       }
       if (!resolved.role) throw deny(CollabAuthReason.FORBIDDEN, '无项目访问权限');
+      // Y1c T12（偏离 27/E23「onAuthenticate∧onLoadDocument 双校验+独立 reason」①auth 面）：docName
+      // 世代准入——陈旧世代名（真空换代后旧 #g/裸名≡旧代）在装载/SS1/上行**之前**拒绝（S2 复活链
+      // 关闭——形态②〔全 clock<pre〕唯一可达面=裸名@gen>0 在此拦截）。CanvasDoc.generation PG 列
+      // 真值（契约 1 单源=repository.readGeneration 经 DR.generationInDb 转发；行缺失=null⇒0
+      // 〔懒建档——canonical=裸名〕，与 DR.loadDocument 装载读同真源）；拒因=GENERATION_STALE
+      // （终态档——同名盲目重连无限循环；恢复=携 #g<目标代> 重连，客户端链 T25）。
+      {
+        const dbGeneration = await this.withAuthDeadline(this.docRegistry.generationInDb(projectId));
+        const admission = admitDocNameForGeneration(documentName, dbGeneration ?? 0);
+        if (!admission.ok) {
+          throw deny(
+            CollabAuthReason.GENERATION_STALE,
+            `doc generation stale（docName=${documentName} 世代段≠DB generation=${admission.generation}——携 #g${admission.generation} 重连）`,
+          );
+        }
+      }
       const readOnly = resolved.role === 'PROJECT_VIEWER';
       // Y0b-5 T16：viewer 只读改走 auth 期意图+connected 登记（freezeIntent 先例——writeFreeze 单源
       // 施加，connectionConfig.readOnly 直写退役=census ⑪ 3→2；spool 降级/quotaFrozen 两档保留直写）。
@@ -634,8 +650,9 @@ export class CollabSessionGuardService {
       const quotaFrozen = this.docRegistry.quotaFrozenDocs.has(parseDocName(documentName)?.projectId ?? '');   // W3a：冻结注册表读面随域迁 DR（RC4：connected/authenticateInner 的 SG→DR 直引位）
       if (quotaFrozen) connectionConfig.readOnly = true;
       // 批3-4：unhealthy 电平期的新连接补推 persist-status（payload 无 connection——v4 形状，
-      // 延迟到本 tick 后连接已注册进 document.connections；B1 电平/补推随域迁 service）
-      if (this.persistence.persistUnhealthy.has(documentName)) {
+      // 延迟到本 tick 后连接已注册进 document.connections；B1 电平/补推随域迁 service）。
+      // Y1c T12：台账归一 bare 键（#g/裸名同 pid——与 persistence.persistKey 同口径）
+      if (this.persistence.persistUnhealthy.has(projectDocName(projectId))) {
         const t = setTimeout(() => this.persistence.pushPersistStatus(documentName), 500);
         t.unref?.();
       }
@@ -661,7 +678,7 @@ export class CollabSessionGuardService {
    *  B1 归属注记：通告载体=document.connections 广播面（SessionGuard/协议适配域），非 persist 台账——W3b 随域迁 SG。 */
   private broadcastSpoolDegraded(documentName: string): void {
     const t = setTimeout(() => {
-      const document = this.host.allDocuments().get(documentName);
+      const document = this.host.allDocuments().get(this.docRegistry.liveDocName(parseDocName(documentName)?.projectId ?? ''));   // Y1c T12：canonical wire 名解析（#g 换代通道）
       if (!document) return;
       try {
         document.broadcastStateless(JSON.stringify({ type: 'persist-status', healthy: false, reason: 'spool-unwritable' }));
@@ -688,7 +705,15 @@ export class CollabSessionGuardService {
       // 形态裁定：plan 原文"auth 503"——但 WS 层无 HTTP 503（auth 期 throw 被库折 close 4403
       // 非 503）；落地=4410 terminal close（resolveCloseAction(4410)→terminal——语义=稍后重连
       // 成功，T11 终态档 reload 通道）；REST withDoc 面用真 503（COLLAB_NOT_SERVING 族）。
+      // Y1c T12：4410 close 载荷先行（stateless {code,reason,generation,discardLocalCache:true}——
+      // beginVacuumEra 同款；客户端 export-draft-then-clear+携新世代重连链（T25 消费））。
       if (this.docRegistry.isVacuuming(pid)) {   // W3a：serving 门读面随域迁 DR（RC4：SG→DR 直引 3 位之一）
+        try {
+          c.sendStateless?.(JSON.stringify({
+            code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON,
+            generation: this.docRegistry.vacuumTargetGeneration(pid), discardLocalCache: true,
+          }));
+        } catch { /* 已断——载荷尽力，close 权威投递仍在 */ }
         this.hardClose(c, CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);
         return Promise.resolve();
       }
@@ -1240,7 +1265,7 @@ export class CollabSessionGuardService {
 
   closeTeamDocuments(projectIds: string[]) {
     for (const projectId of projectIds) {
-      const name = `project:${projectId}`;
+      const name = this.docRegistry.liveDocName(projectId);   // Y1c T12：canonical wire 名（#g 换代通道——E23 closeTeamDocuments 连带）
       // 批3-4：先复制后关——库 closeConnections 走 Connection.close→removeConnection（活 Map 删键，
       // 不先复制则后续遍历漏连接）；且协议级 CLOSE 依赖客户端配合断开（不配合=connected 僵尸），
       // 逐连接补 webSocket.close 硬关兜底（单个失败各自吞——F11）

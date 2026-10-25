@@ -56,7 +56,7 @@ describe('Y1c T10 save barrier 服务端接线（onStateless handler——actor 
       documents: () => documents,
       hardClose: () => {},
       isQuotaFrozen: () => false,
-      generationOf: () => 1,
+      generationOf: () => 0,   // Y1c T12：canonical 名=裸名（gen0——原缺省 1 使 processBatch //g1 寻址 miss）
       noteReadOnlyDrop: () => false,
       onFencedByWrite: async () => {},
       ...(over.maintenance ? { isMaintenanceBlocked: () => true } : {}),
@@ -122,7 +122,7 @@ describe('Y1c T10 save barrier 服务端接线（onStateless handler——actor 
     const actor = new SlowApplyActor(spool, createMockRepo() as never);
     actor.bindHost({
       logger: loggerStub, documents: () => documents, hardClose: () => {},
-      isQuotaFrozen: () => false, generationOf: () => 1, noteReadOnlyDrop: () => false, onFencedByWrite: async () => {},
+      isQuotaFrozen: () => false, generationOf: () => 0, noteReadOnlyDrop: () => false, onFencedByWrite: async () => {},   // Y1c T12：generationOf 1→0（canonical 名=裸名 gen0）
     });
     let release!: () => void;
     const gated = new Promise<void>((res) => { release = res; });
@@ -178,7 +178,7 @@ describe('Y1c T10 doc 卸载纪律（drain applied→PG 或拒绝卸载）', () 
     const actor = new CollabProjectActorService(spool, repo as never);
     actor.bindHost({
       logger: loggerStub, documents: () => documents, hardClose: () => {},
-      isQuotaFrozen: () => false, generationOf: () => 1, noteReadOnlyDrop: () => false, onFencedByWrite: async () => {},
+      isQuotaFrozen: () => false, generationOf: () => 0, noteReadOnlyDrop: () => false, onFencedByWrite: async () => {},   // Y1c T12：generationOf 1→0（canonical 名=裸名 gen0）
     });
     return actor;
   };

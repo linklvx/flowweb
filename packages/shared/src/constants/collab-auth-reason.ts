@@ -27,6 +27,7 @@ export const CollabAuthReason = {
   RATE_LIMITED: 'rate-limited',
   SERVER_OUTDATED: 'server-outdated', // v2 M-4：csv>current（客户端新于服务端）——瞬态档（服务端待更新提示，reload 无效不自动刷）
   INVALID_DOC_NAME: 'invalid-doc-name',
+  GENERATION_STALE: 'generation-stale',   // Y1c T12（偏离 27/E23「独立 reason」）：docName 世代段≠DB 列（真空换代后旧 #g/裸名≡旧代重连）——终态档（同名盲目重连无限循环；恢复=携目标世代重连，客户端链 T25）
 } as const;
 /** 值序冻结（线上协议串只增不改）——测试 toEqual 锚此数组 */
 export const COLLAB_AUTH_REASONS: readonly CollabAuthReasonCode[] = Object.values(CollabAuthReason);
@@ -34,8 +35,9 @@ export const COLLAB_AUTH_REASONS: readonly CollabAuthReasonCode[] = Object.value
 export type CollabAuthReasonCode = (typeof CollabAuthReason)[keyof typeof CollabAuthReason];
 
 /** 契约锁㉙：终态白名单——版本族三档加入后共七档 true（客户端引导重登/跳转/reload 档 UX）；
- *  Y0b-5 T16 起八档（+invalid-doc-name——docName 永不可合法=重连无意义）；SERVER_OVERLOADED/
- *  RATE_LIMITED/SERVER_OUTDATED 瞬态档严禁入终态（spec §3.2/§5.2——误入=
+ *  Y0b-5 T16 起八档（+invalid-doc-name——docName 永不可合法=重连无意义）；Y1c T12 起九档
+ *  （+generation-stale——docName 世代段对当前 DB 列确定性陈旧，同名盲目重连无限循环）；
+ *  SERVER_OVERLOADED/RATE_LIMITED/SERVER_OUTDATED 瞬态档严禁入终态（spec §3.2/§5.2——误入=
  *  一次内存尖峰/一次拥塞/一次部署滞后把全部客户端钉死且不自愈）；db-unavailable、
  *  裸 permission-denied、undefined 及一切未打标值一律瞬态桶（横幅重试）。
  *  放 shared 使 web 批 2 与 api 同源判定。 */
@@ -48,6 +50,7 @@ const TERMINAL_AUTH_REASONS: ReadonlySet<string> = new Set<string>([
   CollabAuthReason.CLIENT_VERSION_MISSING,
   CollabAuthReason.CLIENT_VERSION_INVALID,
   CollabAuthReason.INVALID_DOC_NAME,
+  CollabAuthReason.GENERATION_STALE,
 ]);
 
 export function isTerminalReason(reason: unknown): boolean {

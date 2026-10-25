@@ -1330,33 +1330,53 @@ export class CollabSpoolService {
     return { truncatedSegments };
   }
 
-  /** 换代切段（ADR-01 §6/契约 §5 注记）：旧段整段隔离（sidecar 持久——跨重启禁重放）
-   *  +namespace 切代（后续 append 落 g<generation> 新段）+水位与去重索引重置（计数器自 1 起）。
-   *  Q-I2（T11 双评审）事实钉锚：本方法**零生产调用方**（vacuum 换代走 repo.vacuumReplace——新代
-   *  快照基线=旧代 maxSeq，即现行语义=**跨代连续 seq**；本方法「计数器重置自 1」与连续语义
-   *  相悖且与 C1① PG 播种互相打架〔装载缝会把计数器抬回 pgSeq+1〕）。T12 接线前**硬输入**：
-   *  ①新代快照基线归零或换代重定基（否则新代帧落旧基线之下=装载尾跳过——复刻 C1
-   *  重置链）；②C1① 播种面（seedWalSeqFromPg/boot+loadDocument 两缝）复核——pgSeq 不分代，
-   *  「换代自 1 起」与「播种 pgSeq+1」必须二选一对齐。 */
+  /** 换代切段（ADR-01 §6/契约 §5 注记）——**Y1c T12 落定形态=跨代连续 seq**（I2/Q-I2 三对齐）：
+   *  · namespace 切代：后续 append 落 g<generation> 新段（generation 权威翻新——本方法唯一写点
+   *    与 boot/装载播种〔setProjectGeneration〕同 Map 单源）；
+   *  · 旧代段：全提交段（帧 walSeq≤pgSeq——内容已折叠进新代快照〔vacuumReplace 同事务整删旧代
+   *    行+新代快照装载基线=旧代 maxSeq——repository 侧口径〕）**换代即删**（文件+sidecar 同卸
+   *    ——清理滞留面收口：谁删=本方法；何时=换代调用点〔vacuum ⑥ 事务提交后由 shrink 经
+   *    gateway.switchWalGeneration〕）；
+   *    含未提交帧段（∃walSeq>pgSeq——从未承诺 Durable）sidecar 'generation-switch' 持久隔离
+   *    （证据保全——跨重启禁重放，人工处置面同 quarantine 纪律）；
+   *  · **计数器/水位保留不重置**（连续 seq：与 vacuumReplace 新代快照基线=旧代 maxSeq、C1①
+   *    seedWalSeqFromPg〔pgSeq+1 不分代——boot+装载两缝〕三方单源对齐；「计数器重置自 1」旧形态
+   *    〔零生产调用方〕废止——并存=新代帧落已发布基线之下→readConsistent 尾谓词跳过=C1 重置链
+   *    复刻。水位重置/spoolHeadSeq 归零=T27 维护状态机 SWITCHING 事务单入口语义，非本方法）；
+   *  · 去重索引清族：旧代 payload 重发必须按新帧处理（新 walSeq+新代 PG 行——命中旧条目返回旧
+   *    walSeq≤新代快照基线=appendBatch C1② tripwire/装载不可见）。
+   *  消费方=vacuum ⑥ 后置（gateway.switchWalGeneration——事务提交后；事务内禁切：提交前切段=新代
+   *  帧落隔离旧段语义颠倒）；T27 换代状态机接管后=SWITCHING 事务后同点调用。 */
   async switchGeneration(projectId: string, generation: number): Promise<void> {
     this.projectGeneration.set(projectId, generation);
     const segs = this.index.get(projectId);
+    const pgSeq = this.watermarks.get(projectId)?.pgSeq ?? 0n;
     if (segs) {
-      for (const [, m] of [...segs.entries()]) {
+      for (const [segKey, m] of [...segs.entries()]) {
         const name = segFileNameOf(projectId, m.generation, m.seq);
+        const maxSeq = m.seqs.reduce((mx, sq) => (sq > mx ? sq : mx), 0n);
         if (m.segQuarantined == null) {
           await writeWholeSegmentSidecar(m.dir, name, 'generation-switch');
           walSegmentQuarantinedTotal.inc({ reason: 'generation-switch' });
-          // M3（Q-M8）：按段实际 headerSize 计（legacy 平铺段无 164B 段头）+下界 0——<164B 段不为负。
-          const headerBytes = m.generation == null ? 0 : WAL_SEGMENT_HEADER_SIZE;
-          m.quarantinedBytes = Math.max(0, m.bytes - headerBytes);
         }
+        if (maxSeq > 0n && maxSeq <= pgSeq) {
+          // 全提交旧段：清理义务即时履行（内容已进新代快照——段文件+sidecar 同卸；unlink 失败=段
+          // 滞留为隔离证据形态，scan/recoverScan 幂等重裁定〔sidecar 在=整段隔离〕，无正确性影响）
+          await unlink(join(m.dir, name)).catch(() => {});
+          await unlink(join(m.dir, `${name}.quarantine`)).catch(() => {});
+          if (m.dir !== this.dir) await rmdir(m.dir).catch(() => {});
+          segs.delete(segKey);
+          continue;
+        }
+        // 含未提交帧段（或空段）：sidecar 持久隔离（证据保全——M3 同款 headerBytes 计账+下界 0）
+        const headerBytes = m.generation == null ? 0 : WAL_SEGMENT_HEADER_SIZE;
+        m.quarantinedBytes = Math.max(0, m.bytes - headerBytes);
         m.segQuarantined = m.segQuarantined ?? 'generation-switch';
         m.sealed = true;
       }
+      if (segs.size === 0) this.index.delete(projectId);
     }
-    this.walSeqCounters.set(projectId, 1n);                    // 计数器重置（Q-I2 钉锚：本形态零生产调用方——现行=跨代连续 seq；T12 接线硬输入见方法头注）
-    this.watermarks.set(projectId, ZERO_WATERMARK);
+    // 连续 seq：计数器/水位保留（不重置——头注三对齐；C1① 播种 max 语义天然兼容）
     this.dedupClearProject(projectId);
   }
 

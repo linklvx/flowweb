@@ -864,13 +864,13 @@ model CanvasDoc {
   projectId     String        @id
   project       CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // ── 旧平面（Y0a-3/Y0b-4 形态）——Y1c T7 勘误（方案 B）：state/stateSeq 已随 T11（compact 重写+
-  // 快照权威切换=CanvasDocSnapshot+currentSnapshotRev 指针）退役删除；preVacuumSv→T12（门退役）、
+  // 快照权威切换=CanvasDocSnapshot+currentSnapshotRev 指针）退役删除；preVacuumSv 已随 T12（SV 代际
+  // 门退役——世代执法改道 docName 段 auth/load 双校验，迁移 20261024160000）退役删除；
   // schemaVersion @default(3) 默认移除→T9/T10 旧列拆除切片。
-  // Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换——generation=真空代数（装载播种 docGeneration
-  // Map→doc-status 顶层 generation 产生；vacuum ⑥ 单事务 n+1）；preVacuumSv=真空前 doc 的
-  // stateVector（beforeSync SyncStep1 SV 重叠检测代际门的 DB 权威源——重启不失效）。
+  // Y0b-4 T9a（Q-U v6）/Y1c T12：vacuum 文档代际替换——generation=真空代数（真值链：装载/boot 恒
+  // 播种当代真值→docGeneration/doc-status 顶层 generation/canonical wire 名 #g 段三消费面；
+  // vacuum ⑥ 单事务 n+1——新 docName(#g) 换代通道）。
   generation    Int           @default(0)
-  preVacuumSv   Bytes?
   // Y1b T2（Z9''-v14）：doc schema 版本移 PG 列承载（meta.schemaVersion 删除——客户端无从篡改）；
   // 裁定2：@default(3)=Y1c 本批固定值（存量建行走默认——docShape v3 即当前代）
   schemaVersion Int           @default(3)

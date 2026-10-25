@@ -55,6 +55,8 @@ async function freezeDoc(gw: CollabGateway, pid: string): Promise<void> {
 }
 
 const serverDoc = (gw: any, pid: string) => gw.server.hocuspocus.documents.get(`project:${pid}`);
+/** Y1c T12：canonical wire 名取服务端 doc（gen>0 段名——documents Map 键） */
+const serverDocNamed = (gw: any, name: string) => gw.server.hocuspocus.documents.get(name);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // 裸 ws 帧构造=frame-encoder 单源（T6 外审 M1——varuint/frame 两拷贝收口，本 spec 仅 Sync/Auth 帧形）
@@ -495,44 +497,44 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
     } finally { await kit.dispose(); }
   }, 30_000);
 
-  it('SV 代际门三向：①带旧 doc 重连（SV 覆盖 preVacuumSv 区间）⇒ 4410 doc-generation-stale（裸 ws）；②新页面空 SV ⇒ 放行；③新 clientID 不在 preVacuumSv ⇒ 放行——reload 不循环', async () => {
+  it('世代准入三向（Y1c T12 偏离 27——docName 世代段 auth/load 双校验取代 SV 代际门）：①陈旧世代名（gen=1 下裸名≡旧代）⇒ authenticationFailed generation-stale（不装载不 SS1 不上行）；②canonical #g1 名 ⇒ 放行且全量同步；③新 clientID 新编辑 ⇒ 放行——reload 不循环', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
       const g = kit.gateway as any;
-      // ① vacuum 前在线客户端产生历史（clientID+clock）→白盒播种 preVacuumSvCache（=vacuum ⑥ 落列后的装载播种形态）
+      // ① vacuum 前在线客户端产生历史（旧代 gen0 内容）——历史面与旧测试同源（SV clock 形态不再是判据）
       const A = kit.connect('project:gen1');
       await A.synced;
       A.ydoc.getMap('nodes').set('old-a', 'x'.repeat(50));
       await pollUntil(() => serverDoc(g, 'gen1').getMap('nodes').has('old-a'), 3_000);
-      // 模拟 vacuum ⑥ 落库后的新代快照+preVacuumSv/generation 两列（装载播种路径真实化——
-      // 白盒直写 preVacuumSvCache 会被卸载清理〔afterUnloadDocument 清代际族〕，装载才是生产播种源）
       const vacuumedState = Buffer.from(Y.encodeStateAsUpdate(serverDoc(g, 'gen1')));
-      const preVacuumSv = Buffer.from(Y.encodeStateVector(A.ydoc));   // 真空前 SV（含 A 的 clientID+clock）
-      kit.repo.hydrateWithRecovery.mockResolvedValue({ state: vacuumedState, updates: [] as Buffer[], stateSeq: 0n, preVacuumSv, generation: 1 });
+      // 模拟 vacuum ⑥ 落库后新代（generation=1；preVacuumSv 列已随 SV 代际门退役删除——迁移 20261024160000）
+      kit.repo.hydrateWithRecovery.mockResolvedValue({ state: vacuumedState, updates: [] as Buffer[], stateSeq: 0n, generation: 1 });
+      kit.repo.readGeneration.mockResolvedValue(1);   // auth 面世代准入真值（E23 双校验①——repository.readGeneration 单源）
       await A.provider.destroy(); kit.forget(A.provider);
       await pollUntil(() => serverDoc(g, 'gen1') === undefined, 6_000);   // 真卸载（unloadImmediately）
-      // 带同 ydoc（旧历史）重连——SyncStep1 payload=客户端 SV（T0 探针④），含 (staleClient, clock≥1) ⇒ 拦
-      let staleClose: { code: number; reason: string } | null = null;
+      // 带同 ydoc（旧历史）以旧世代名（裸名≡g0）重连——auth 面准入拒（admitDocNameForGeneration：
+      // 不装载/不 SS1/不上行旧 structs——S2 复活链关闭）；客户端观测=authenticationFailed{reason}
+      let authFail: { reason: string } | null = null;
       const staleProvider = new HocuspocusProvider({
         url: `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
         name: 'project:gen1',
         document: A.ydoc,                                        // 带 vacuum 前历史的 doc
-        WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' },
-          (ws) => ws.once('close', (code: number, reason: Buffer) => { if (!staleClose) staleClose = { code, reason: reason.toString() }; })),
+        WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }, () => {}),
       } as any);
-      await pollUntil(() => staleClose !== null, 5_000);
-      expect(staleClose).toEqual({ code: 4410, reason: 'doc-generation-stale' });
+      staleProvider.on('authenticationFailed', (e: { reason: string }) => { if (!authFail) authFail = { reason: e.reason }; });
+      await pollUntil(() => authFail !== null, 5_000);
+      expect(authFail).toEqual({ reason: 'generation-stale' });
       await staleProvider.destroy();
       await pollUntil(() => serverDoc(g, 'gen1') === undefined, 6_000);
 
-      // ② 新页面（全新空 doc——encodeStateVector 空 SV）⇒ 放行且全量同步
-      const B = kit.connect('project:gen1');
+      // ② canonical #g1 名（全新空 doc）⇒ 放行且全量同步（canonical wire 名=库 documents Map 键）
+      const B = kit.connect('project:gen1#g1');
       await B.synced;                                            // 无 close（放行）
-      expect(serverDoc(g, 'gen1').getMap('nodes').has('old-a')).toBe(true);   // 全量同步（新代装载含内容）
-      // ③ vacuum 后 reload 新建编辑（新 clientID 不在 preVacuumSv）⇒ 放行——reload 不循环
+      expect(serverDocNamed(g, 'project:gen1#g1').getMap('nodes').has('old-a')).toBe(true);   // 全量同步（新代装载含内容——canonical Map 键）
+      // ③ vacuum 后 reload 新建编辑（新 clientID——世代准入与 clientID 无关）⇒ 放行——reload 不循环
       B.ydoc.getMap('nodes').set('post-vac', 'y');
-      await pollUntil(() => serverDoc(g, 'gen1').getMap('nodes').has('post-vac'), 3_000);
-      expect(serverDoc(g, 'gen1').connections.size).toBe(1);     // B 连接存活（未被代际门误杀）
+      await pollUntil(() => serverDocNamed(g, 'project:gen1#g1').getMap('nodes').has('post-vac'), 3_000);
+      expect(serverDocNamed(g, 'project:gen1#g1').connections.size).toBe(1);     // B 连接存活（未被世代准入误杀）
     } finally { await kit.dispose(); }
   }, 45_000);
 });

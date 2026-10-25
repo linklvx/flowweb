@@ -281,7 +281,7 @@ describe('Y0b-5 T10：heap 倍率（装载/卸载边界——合成值待标定�
 describe('Y0b-5 T10：withDoc 耗时直方图', () => {
   it('yjs_withdoc_duration_seconds：withDoc 完成路径（含 disconnect）计时一次', async () => {
     const { gateway } = buildGateway();
-    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn() } as any);
+    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark canonical 名读面（null=gen0 裸名）
     const doc = stampedDoc();
     const fakeConn = { document: doc, transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };   // Y0c T10：withDoc 直开 document 事务——mock 对齐真实 DirectConnection 形状
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockResolvedValue(fakeConn as any);
@@ -335,7 +335,7 @@ describe('Y0b-5 T10：snapshot-doc-cache 容量上界+entries gauge', () => {
 
   it('yjs_snapshot_cache_entries：service 构造注册 reader（collect 现算 cache.size）', async () => {
     const { gateway } = buildGateway();
-    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn() } as any);
+    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark canonical 名读面（null=gen0 裸名）
     const cache = (service as any).snapshotCache as SnapshotDocCache;
     expect(await gaugeValue('yjs_snapshot_cache_entries')).toBe(cache.size);
     await cache.get('p1', async () => ({ nodes: [], edges: [] }));

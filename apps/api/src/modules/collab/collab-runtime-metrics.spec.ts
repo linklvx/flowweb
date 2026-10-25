@@ -181,7 +181,7 @@ describe('Y0c T0：load/store trigger 归因', () => {
 describe('Y0c T0：withDoc 计时点前移（Z3——装载慢 vs 落库慢分辨面）', () => {
   it('open 段独立直方图 observe（含 mock 装载延迟）；全路径 withdoc 直方图 sum ≥ open 段 sum（起点已含 open）', async () => {
     const { gateway } = buildGateway();
-    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn() } as any);
+    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark canonical 名读面（null=gen0 裸名）
     const doc = stampedDoc();
     const fakeConn = { document: doc, transact: async (fn: (d: Y.Doc) => unknown) => fn(doc), disconnect: async () => {} };   // Y0c T10：withDoc 直开 document 事务——mock 对齐真实 DirectConnection 形状
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockImplementation(
@@ -197,7 +197,7 @@ describe('Y0c T0：withDoc 计时点前移（Z3——装载慢 vs 落库慢分�
 
   it('open 拒绝路径：直方图仍 observe（时长面非成功面——装载失败是最该被看见的慢尾）；withdoc 全路径零计', async () => {
     const { gateway } = buildGateway();
-    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn() } as any);
+    const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark canonical 名读面（null=gen0 裸名）
     vi.spyOn(gateway.server.hocuspocus, 'openDirectConnection').mockRejectedValue(new Error('db unavailable'));
     const dOpen = await histogramDelta('yjs_withdoc_open_duration_seconds', () =>
       service.readCanvas('p1').catch(() => {}));

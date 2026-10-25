@@ -116,10 +116,12 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
     // PG 腿失败（帧留 spool 未 confirm——段名可观测；connection 帧已 resolve 不受影响）
     repo.appendBatch.mockImplementation(async () => { throw new Error('pg down'); });
     const doc2 = new Y.Doc();
-    (doc2 as unknown as { name: string }).name = 'project:p5';
-    await gw2.hooks.onLoadDocument({ document: doc2, documentName: 'project:p5', socketId: 's0' } as never);
+    // Y1c T12：gen=7 的 canonical wire 名=#g7（裸名装载被世代准入拒——admitDocNameForGeneration）
+    const canonicalName = 'project:p5#g7';
+    (doc2 as unknown as { name: string }).name = canonicalName;
+    await gw2.hooks.onLoadDocument({ document: doc2, documentName: canonicalName, socketId: 's0' } as never);
     expect(spool.currentGeneration('p5'), '装载播种经 onGenerationSeeded 缝直达 spool（gateway 1 行转发接线面）').toBe(7);
-    (gw2.server.hocuspocus.documents as Map<string, Y.Doc>).set('project:p5', doc2);
+    (gw2.server.hocuspocus.documents as Map<string, Y.Doc>).set(canonicalName, doc2);
     const conn = { socketId: 's5', readOnly: false, sendStateless: vi.fn() };
     const f = makeFrame('project:p5', 'gen1', 1);
     await gw2.hooks.beforeSync({ type: f.type, payload: f.payload, document: doc2, connection: conn } as never);

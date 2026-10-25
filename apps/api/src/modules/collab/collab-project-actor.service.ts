@@ -69,7 +69,7 @@ import {
 } from '@flowweb/shared';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
-import { projectDocName, parseDocName } from './doc-name.util';
+import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, inboundQueueOverLimitTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
@@ -662,7 +662,8 @@ export class CollabProjectActorService {
   }
 
   private async processBatch(pid: string, st: ProjectActorState, batch: QueueItem[]): Promise<void> {
-    const document = this.host.documents().get(projectDocName(pid));
+    // Y1c T12：canonical wire 名（#g 换代通道——E23 内部寻址连带；generationOf 装载播种真值源）
+    const document = this.host.documents().get(canvasDocName(pid, this.host.generationOf(pid) ?? 0));
     const authGen = this.host.generationOf(pid);
     const admitted: QueueItem[] = [];
     // 批内覆盖演进基准（document SV 快照——准入循环单点演进）

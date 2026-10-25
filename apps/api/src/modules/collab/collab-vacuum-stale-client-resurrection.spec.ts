@@ -184,6 +184,31 @@ describe('Y1c T0-S2 vacuum 离线重连——纯 Yjs 机制实验', () => {
     c.server.destroy(); c.staleViewer.destroy(); c.cleanViewer.destroy(); c.dirtyAuthor.destroy();
   });
 
+  it('Phase F（Y1c T12 目标链落地）：真空换代 gen=1 后三形态旧世代名一律 auth 拒——admitDocNameForGeneration 层零装载零 SS2 零上行（形态② SS2 旧 structs 不再可达新 doc）', async () => {
+    const c = buildCorpus();
+    const { admitDocNameForGeneration } = await import('./doc-name.util');
+    // 真空换代后服务端 DB generation=1（vacuumReplace ⑥——snapshot 权威=新代快照）
+    const dbGen = 1;
+    // 三形态重连名（客户端缓存键五元含 generation——换代前已知 gen=0，故重连名携旧世代段/裸名≡0）：
+    expect(admitDocNameForGeneration('project:p1', dbGen)).toEqual({ ok: false, generation: 1 });          // 裸名≡g0（形态② 无世代声明唯一可达面——改前现状=装载+SS2 复活）
+    expect(admitDocNameForGeneration('project:p1#g0', dbGen)).toEqual({ ok: false, generation: 1 });       // 形态① 旧缓存显式段
+    expect(admitDocNameForGeneration('project:p1#g0', dbGen)).toEqual({ ok: false, generation: 1 });       // 形态③ dirty（世代声明同为旧代——DraftEnvelope 导出走本拒因出口）
+    expect(admitDocNameForGeneration('project:p1#g1', dbGen)).toEqual({ ok: true });                       // 新名收（导出→清缓存→新 name 重连导入链路）
+    // 拒绝先于装载/SS1/上行 ⇒ Phase A/B 复活链结构性不可达：真空 doc 零注入（对照断言——
+    // 同批旧 structs 直连 apply 仍复活=机制事实不变，防线在准入层非 CRDT 层）。
+    const vacuumed = vacuumRegistry().rebuildVacuumDoc(c.server)!;
+    const before = Y.encodeStateAsUpdate(vacuumed).byteLength;
+    const admission = admitDocNameForGeneration('project:p1', dbGen);
+    if (!admission.ok) {
+      // 模拟「装载被拒」：staleViewer SS2 永不发出——doc 字节不变
+      expect(Y.encodeStateAsUpdate(vacuumed).byteLength).toBe(before);
+      expect(vacuumed.getMap('nodes').has('n2')).toBe(false);   // 已删内容零复活（Phase A 反例在此形态不可达）
+    } else {
+      throw new Error('admission 应拒绝（红组②核心断言）');
+    }
+    vacuumed.destroy(); c.server.destroy(); c.staleViewer.destroy(); c.cleanViewer.destroy(); c.dirtyAuthor.destroy();
+  });
+
   it('Phase E【v4 前瞻探针】：rebuildVacuumDoc×嵌套 Y.Text——Y1c T4 改道 doc-codec 后=平面化解码（别名亡、类型保真重建归 T15+ 写点迁移随卡）', () => {
     const v4 = new Y.Doc();
     fillDoc(toDocLike(v4), [{ id: 'x1', type: 'textInput', data: {} }], []);

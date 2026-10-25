@@ -20,6 +20,7 @@ import { CollabReadController } from './collab-read.controller';
 import { CollabWriteController } from './collab-write.controller';
 import { CollabMediaController } from './collab-media.controller';   // Y1a T11：replaceMedia/clearMedia 命令（用户写 fileId 必经命令——PG NodeArtifact CAS）
 import { CollabShrinkService } from './collab-shrink.service';
+import { CollabCompactPoller } from './collab-compact.poller';   // Y1c T12：dev role=all compact 轮询面装配（硬输入 #4）
 import { TelemetryController } from './telemetry.controller';
 import { TelemetryService } from './telemetry.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -65,6 +66,11 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
       lazyConnect: true, connectTimeout: 500, maxRetriesPerRequest: 1,
       retryStrategy: () => null, enableOfflineQueue: false,   // B11/Z10③：探针参数收紧
     }) },
+    // Y1c T12（T11 硬输入 #4）：dev 单进程 role=all 补装配 compact 轮询面——worker 进程挂
+    // worker.module（自有装配），role=api 不装配（生产双进程形态），role=all（本地开发单进程）
+    // 原缺失=启动续跑 resumePurges/周期扫描在该形态无人执行（ExecutionDaemonModule.register 的
+    // api|all 装配/worker 空同款门控；Z48 安全方向：漏设/异常值永不静默装配）。
+    ...(process.env.COLLAB_ROLE === 'all' ? [CollabCompactPoller] : []),
   ],
   // Y0c T13b：exports += CollabWritePort（写端口面）。CollabDocumentService 既有 exports 原样保留——
   // Y0c T25 实况（偏离 21 处置）：跨模块 4 直注文件仍在（video-work.service〔readCanvasSnapshotCached

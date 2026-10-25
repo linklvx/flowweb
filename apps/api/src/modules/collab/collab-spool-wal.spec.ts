@@ -340,14 +340,17 @@ describe('Y1c T8 红组 E：帧协议本体——SHA-256 去重+per-project walS
     expect(s3.peekNextWalSeq('p2'), 'max 语义：scan 重建值（3）> pgSeq+1（2）').toBe(3n);
   });
 
-  it('换代切段：switchGeneration→旧段禁重放（跨重启）+新段 namespace g2+水位与去重重置', async () => {
+  it('换代切段（Y1c T12 落定=跨代连续 seq——I2/Q-I2 三对齐）：switchGeneration→旧段禁重放（含未提交帧段 sidecar 保全）+新段 namespace g2+计数器/水位保留+去重索引清族', async () => {
     const s1 = svc();
     const p = new Uint8Array([7, 7]);
     await s1.append('p1', p);
     await s1.switchGeneration('p1', 2);
     expect(await s1.peek('p1'), '切代后旧段零重放').toHaveLength(0);
-    expect(s1.peekNextWalSeq('p1'), 'Q-I2 钉锚：隔离方法形态=计数器重置自 1（零生产调用方——现行生产语义=跨代连续 seq；T12 接线硬输入=换代重定基+C1① 播种面对齐，见 switchGeneration 头注）').toBe(1n);
-    await s1.append('p1', new Uint8Array(p));                             // 同 payload 但新代——去重索引已清
+    // 连续 seq：计数器不重置（与 vacuumReplace 新代快照基线=旧代 maxSeq、C1① seedWalSeqFromPg〔pgSeq+1
+    // 不分代〕三方单源——旧「重置自 1」形态废止：并存=新代帧落已发布基线之下=装载尾跳过〔C1 重置链〕）
+    expect(s1.peekNextWalSeq('p1'), 'T12 连续 seq：计数器承接（帧 1 已分配——下一代帧自 2）').toBe(2n);
+    expect(s1.watermark('p1')?.spoolHeadSeq, '水位保留（不归零——换代重置归 T27 SWITCHING 事务单入口）').toBe(1n);
+    await s1.append('p1', new Uint8Array(p));                             // 同 payload 但新代——去重索引已清（新 walSeq 新帧）
     const files = (await readdir(join(dir, OWNER))).filter((f) => f.endsWith('.spool')).sort();
     expect(files.some((f) => f === walSegmentFileName('p1', 2, 0)), '新段 namespace g2').toBe(true);
     const s2 = svc();
@@ -355,6 +358,7 @@ describe('Y1c T8 红组 E：帧协议本体——SHA-256 去重+per-project walS
     const frames = await s2.peek('p1');
     expect(frames, '跨重启：g1 段 sidecar 禁重放+g2 段帧可回灌').toHaveLength(1);
     expect(frames[0].payload).toEqual(new Uint8Array(p));
+    expect(frames[0].walSeq, '连续 seq：新代帧承接旧代计数器（=2 非 1）').toBe(2n);
     const w = s2.watermark('p1');
     expect(w, '水位三元在位').toBeDefined();
   });

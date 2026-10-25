@@ -70,6 +70,13 @@ export const EXEMPTIONS = {
       since: '2026-10-24',
     },
   },
+  '20261024160000_y1c_t12_prevacuum_retirement': {
+    CanvasDoc: {
+      reason: 'Y1c T12 SV 代际门退役（偏离 27）——preVacuumSv 列 DROP：世代执法改道 docName 世代段 auth/load 双校验（T11 迁移既定「列退役归 T12」；dev 无存量数据/reset runbook 全表部署）',
+      owner: 'Y1c T12 controller',
+      since: '2026-10-24',
+    },
+  },
 };
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；

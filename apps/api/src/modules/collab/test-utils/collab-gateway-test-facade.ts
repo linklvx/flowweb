@@ -105,7 +105,7 @@ interface DocRegistryInternals {
   docStatusState: CollabDocRegistryService['docStatusState'];
   docGeneration: CollabDocRegistryService['docGeneration'];
   docResidue: CollabDocRegistryService['docResidue'];
-  preVacuumSvCache: CollabDocRegistryService['preVacuumSvCache'];
+  // Y1c T12：preVacuumSvCache 随 SV 代际门退役删除（偏离 27——迁移 20261024160000）
   docEpoch: CollabDocRegistryService['docEpoch'];
   freezePendingTimers: CollabDocRegistryService['freezePendingTimers'];
   autoVacuumLastAt: CollabDocRegistryService['autoVacuumLastAt'];
@@ -159,7 +159,6 @@ type PermCacheEntry = NonNullable<ReturnType<SessionGuardInternals['permCache'][
 type SocketIdentityEntry = NonNullable<ReturnType<SessionGuardInternals['socketIdentity']['get']>>;
 type AuthAttemptEntry = NonNullable<ReturnType<SessionGuardInternals['authAttemptBuckets']['get']>>;
 type OverPushEntry = NonNullable<ReturnType<DocRegistryInternals['overPush']['get']>>;   // W3a：overPush 台账随域迁 DR（RC2）——entry 型派生单源随迁
-type PreVacuumSv = NonNullable<ReturnType<DocRegistryInternals['preVacuumSvCache']['get']>>;   // W3a：SV 代际门缓存随域迁 DR
 
 /** writeFreeze conn 键形态受控 cast 单点（seedWriteFreeze/hasWriteFreezeReason 既有内联形态的
  *  波 2 收敛镜像——M-4：新扩方法禁新增内联 cast） */
@@ -579,11 +578,6 @@ export class GatewayTestFacade {
     docRegistryOf(this.gw).docResidue.set(name, bytes);
   }
 
-  /** 替代 `(gw as any).preVacuumSvCache.set(name, sv)` */
-  seedPreVacuumSv(name: string, sv: PreVacuumSv): void {
-    docRegistryOf(this.gw).preVacuumSvCache.set(name, sv);
-  }
-
   // ── Persistence 族扩（compact 时间门/pendingSince/退避梯枚举/终态集/在飞集/repo） ──
 
   /** 替代 `(gw as any).lastCompactAt.delete(name)`（绕 compact 时间门装置） */
@@ -854,11 +848,6 @@ export class GatewayTestFacade {
 
   // ══ T41 W2 扩面（B2 前置穷举单测——collab-doc-lifecycle 清理点普查读面/播种面+⑦代际读面
   //    +常驻探针读面；操作化归并同款（Of/Has/seed 族——1:1 成员暴露禁项不破） ══
-
-  /** 替代 `(gw as any).preVacuumSvCache.get(pid)`（SV 代际门缓存读——⑦代际装载播种断言面） */
-  preVacuumSvOf(pid: string): ReturnType<DocRegistryInternals['preVacuumSvCache']['get']> {
-    return docRegistryOf(this.gw).preVacuumSvCache.get(pid);
-  }
 
   /** 替代 `(gw as any).docGeneration.get(pid)`（⑦代际 doc-status generation 产生源读面） */
   docGenerationOf(pid: string): ReturnType<DocRegistryInternals['docGeneration']['get']> {

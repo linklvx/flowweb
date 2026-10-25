@@ -34,7 +34,7 @@ export { COMPACT_INTERVAL_MS, persistRetryDelayMs } from './collab-persistence.s
 /** Y0c T40（B1/§0.6 偏离 67）：doc-name 纯函数族迁 doc-name.util（service 消费 parseDocName 的
  *  gateway↔service 运行时循环消解）——再导出保全部既有 import 面（collab-doc-name.spec/
  *  collab-document.service/collab-residency.service 及全部消费方零触碰）。 */
-export { parseDocName, isValidDocName, isGenerationMismatch, type ParsedDocName } from './doc-name.util';
+export { parseDocName, isValidDocName, isGenerationMismatch, canvasDocName, admitDocNameForGeneration, type ParsedDocName } from './doc-name.util';
 
 /** Y0c T41（W3a/B2）：DocRegistry 域常量/类型/纯函数随域迁 collab-doc-registry.service——再导出
  *  保既有 import 面（B1 COMPACT_INTERVAL_MS 先例同款；spec 实测导入面 §8.4：TRUTH_COOLDOWN_MS×2/
@@ -171,8 +171,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  消费=①reaper 终态投影分治（intent-reconcile projectReaped deferred 门——无人看=deferred，用户回来
    *  alignExecFromIntents 既有机制对齐）②（T13 probeArtifacts 退役——该归因计数面随之退役，指标保留历史读数）装载归因（yjs_doc_loaded_by_
    *  reconciler_total——reconcile 装载=ephemeral 即用即释非常驻，T20 同批）。 */
+  /** Y1c T12（I2 三对齐接线）：WAL 段 namespace 切代——vacuum ⑥ vacuumReplace 事务**提交后**由
+   *  shrink 调用（事务内禁切——提交前切段=新代帧落隔离旧段语义颠倒）。spool.switchGeneration 连续
+   *  seq 形态（计数器/水位保留——与 vacuumReplace 新代快照基线=旧代 maxSeq、C1① seedWalSeqFromPg
+   *  pgSeq+1 不分代三方单源一致）；旧代段清理滞留面同点收口（全提交段即删/含未提交帧段 sidecar 保全）。
+   *  T27 换代状态机（SWITCHING 事务后 close+切 namespace）接管本缝后 vacuum 委托单入口。 */
+  switchWalGeneration(projectId: string, generation: number): Promise<void> {
+    return this.spool.switchGeneration(projectId, generation);
+  }
+
   isDocResident(projectId: string): boolean {
-    return (this.server.hocuspocus.documents.get(`project:${projectId}`)?.connections.size ?? 0) > 0;
+    return (this.server.hocuspocus.documents.get(this.docRegistry.liveDocName(projectId))?.connections.size ?? 0) > 0;   // Y1c T12：canonical wire 名（#g 换代通道）
   }
   /** Y0c T17（Z129）：常驻会话统一释放回调公有注册点（CollabResidencyService 构造期注册——
    *  setVacuumRunner 同款反向注入形态：residency→gateway 单向依赖）。W3a RC1=B 组合持有：字段+
@@ -319,6 +328,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.persistence.bindHost({
       logger: this.logger,
       getDocument: (name) => this.server.hocuspocus.documents.get(name) as PersistenceDocument | undefined,
+      docNameOf: (pid) => this.docRegistry.liveDocName(pid),   // Y1c T12：canonical wire 名解析缝（#g 换代通道——E23 persistence 寻址连带）
       docStats: () => {
         // Y0c T20（Z47）：directConns=Σ directConnectionsCount（graceDirectConnections count() 同款求和）
         let directConns = 0;
@@ -856,6 +866,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         // 重启项目计数器自 1 重起——新帧将落已发布快照基线之下不可见；幸存段承载未落 PG 帧时 scan
         // 重建值更高，PG 值只抬底不压顶；先播无害——replayAll catch-up 推 pgSeq 后计数器=scan 值恒≥）。
         // 与 loadDocument 缝（onGenerationSeeded/onWalSeqFloorSeeded）同方法单源。
+        // Y1c T12：schemaVersion⇒generation 启动断言（spec §2 v5-5——违反拒启）。deploy 纪律=
+        // schema 硬切换（CANVAS_DOC_SCHEMA_VERSION bump）必伴随换代（generation++——docName/缓存键
+        // 失效链）或行清理（reset-collab）；违例行（schemaVersion≠current ∧ generation=0——未按纪律
+        // 收口的旧 schema 残行 / schemaVersion>current——代码 downgrade 于数据）→ throw=start-failed
+        // 有界重试（同 requireSystemHistory fail-closed 形态，不自动修复）。
+        await this.repo.assertSchemaGenerationDiscipline();
         const floors = await this.repo.pgSeqFloors();
         for (const p of floors) {
           this.spool.setProjectGeneration(p.projectId, p.generation);
