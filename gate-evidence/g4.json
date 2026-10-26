@@ -1,0 +1,133 @@
+{
+  "gate": "G4",
+  "commit": "a829c672",
+  "env": {
+    "date": "2026-10-26",
+    "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；迁移二=20261025120000_y1c_t21_execution_business（prisma migrate deploy 已 apply——DB≡schema diff 空）",
+    "suite": "T21 面=apps/api src/modules/execution/execution-request.t21-g4.int.spec（真 PG 7：红①②③④⑤⑦⑧〔⑧=sweeper 资金续章〕）+src/modules/collab/collab-project-actor.t21-freeze.spec（⑥ 临界区 3：竞态实锤/读后无新 apply/PG 追平冻结成功）+apps/web src/stores/canvasCollabRuntime.t21-barrier.spec（barrier 客户端 4：双入口同汇/错误档不推进/陈旧 nonce/单调）+apps/api canvas-doc-update.repository.spec（R2 双 preimage 退役——Commit A 面）",
+    "scope": "spec §9.1 G4 行：受理输入与文档前缀一致；重放不改已冻结输入；受理后改 prompt/拓扑/model/上游/删节点不影响计划（plan v1.7 Task 21）",
+    "redEvidence": "七红先跑红（TDD 红→绿留证）：int 套件首跑=模块缺失红〔Failed to load url ./execution-request.service〕；实现落地后迭代红依次=EMPTY_SCOPE〔slice envelope 读法〕/MODEL_NOT_AVAILABLE〔executable 模型滤〕/LEDGER_DOMAIN〔execreq 域未扩〕/TRUTH_TABLE〔release reversesId 缺〕各真红后转绿；⑥=withFrozenPrefix 实现前 tsc 红+首跑 gate-timeout≠flush-timeout 断言红（batchInFlight 等待面根修）；web barrier=实现后首跑 2 红〔seam 复位缺 savedSeq——测试隔离面〕后绿（此面 TDD 序倒置=诚实登记）"
+  },
+  "cases": [
+    {
+      "id": "G4-C1-frozen-plan-immutable",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红①'",
+      "status": "pass",
+      "expect": "受理后 prompt 改写+节点删除（两帧前缀推进 pgSeq=2 实测）→loadForExecution 冻结计划仍两行+受理时刻 prompt（≠MUTATED）+frozenDocSeq=0（受理时刻前缀）",
+      "detail": "重放用例=执行读=子行+ExecutionInput（worker 零 doc 读）；真库侧证 pgSeq=2（变更真实发生非未写入）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C2-hash-replay-consistency",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红②'",
+      "status": "pass",
+      "expect": "同前缀同 nodeIds 两受理 planHash/inputHash 相等（canonical 确定性）；prompt 变更后 planHash 漂移（paramsHash 盖 prompt——敏感性非摆设）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C3-concurrent-no-crosstalk",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红③'",
+      "status": "pass",
+      "expect": "A scope=n1/B scope=n2 并发受理（Promise.all）→计划/输入严格分区不交叉（plans/输入 nodes 各只含己方 nodeId+prompt 各归位）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C4-prefix-fail-zero-half-rows",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红④'",
+      "status": "pass",
+      "expect": "nodeId 不在冻结前缀→400 UNKNOWN_NODE_IDS 且 request/plan/input/audit 四面零行+资金零动（插入前一次性——受理事务零半行）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C5-idempotent-retry",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红⑤'",
+      "status": "pass",
+      "expect": "同 requestId 断线重试→replayed=true+原 frozenDocSeq/planHash+零二次执行行+零二次预留；同键异 body（nodeIds 变化）→409 IDEMPOTENCY_CONFLICT",
+      "detail": "幂等身份面=客户端可控 nodeIds 集（重算哈希会因受理后前缀推进误伤合法重试——语义注记在 admit 注释）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C6-frozenDocSeq-critical-section",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-project-actor.t21-freeze.spec.ts",
+      "status": "pass",
+      "expect": "⑥-a PG 落库滞后窗（applied>pgSeq）冻结读拒绝（flush-timeout——doc 已含未持久帧实锤但不冻结）；⑥-b freeze 在持=新 submit 帧不 apply（读后无新 apply；release 后落定）；⑥-c PG 追平后冻结成功 pgSeq==appliedSeq",
+      "detail": "withFrozenPrefix=per-project mutex 非布尔 flag（drain 每批前让位+batchInFlight 等待面——PG 挂起不阻塞 gate 而 flush-timeout 拒绝）；gate 500ms 回退 PG 前缀重建/flush 2s 503 不落行（budget 注释=EXEC_FREEZE_BUDGET_MS/EXEC_ADMISSION_TIMEOUT_MS 单源）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C7-input-limit-413-zero-rows",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红⑦'",
+      "status": "pass",
+      "expect": "prompt>256KiB（Y.Text 灌 262145B）→413 PROMPT_TOO_LARGE 不截断不分片+四面零行+资金零动",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C8-sweeper-per-item-void",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红⑧'",
+      "status": "pass",
+      "expect": "per-item 预留实扣（balance=before-reservedCredit）→过期 sweepExpired→逐 item void（plan.reservedCredit 全 0+父行 VOIDED）+余额还原（release 台账 reversesId 配对）",
+      "detail": "⑧=资金预留续章（spec §6.1 sweeper 逐 item void——七红例外的冻结面资金闭环证）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C9-web-barrier-client",
+      "command": "cd apps/web && npx vitest run src/stores/canvasCollabRuntime.t21-barrier.spec.ts",
+      "status": "pass",
+      "expect": "回执双入口同汇 advanceSavedSeq（savedSeq 单调）/错误档不产生 Durable/陈旧 nonce 整体忽略",
+      "detail": "触发四数字=800ms idle/5s 上限/pagehide/执行前 ensureDurable（代码面）；provider synced 恒不推进（偏离 36 既有用例不破——web 全池 4083/4083）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C10-nodeexecution-cas-guard",
+      "command": "cd apps/api && npx tsc --noEmit && npx vitest run src/modules/collab/collab-project-actor.t21-freeze.spec.ts",
+      "status": "pass",
+      "expect": "NodeExecution CAS=shared nodeExecutionUpdateAllowed 单源→PG WHERE generation=? AND execSeq<?（execution.service upsertNodeExecutionGuarded；④根修后比较经 compareExecSeq）",
+      "detail": "守护纯函数真值表=shared execution-chain.spec（严格单调+2^53 边界+compareExecSeq 路由）；CAS SQL 消费点 tsc+冻结路径用例覆盖",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C11-r2-single-preimage",
+      "command": "cd apps/api && npx vitest run src/modules/collab/canvas-doc-update.repository.spec.ts -t 'T21 R2'",
+      "status": "pass",
+      "expect": "batchUpdateHash(bytes)≡sha256hex(canonicalUpdateHashPayload(hex 列表))——双入口同输入同哈希+顺序敏感（raw-bytes concat 旧 preimage 退役）",
+      "artifacts": []
+    }
+  ],
+  "invariants": [
+    {
+      "id": "G4-INV-1-no-half-rows",
+      "sql": "SELECT count(*) FROM ExecutionRequest r WHERE r.id NOT IN (SELECT requestId FROM ExecutionNodePlan) OR r.id NOT IN (SELECT requestId FROM ExecutionInput)",
+      "expect": 0
+    },
+    {
+      "id": "G4-INV-2-reserve-void-balance",
+      "sql": "SELECT count(*) FROM ExecutionRequest WHERE state='VOIDED' AND reservedCredit<>0",
+      "expect": 0
+    },
+    {
+      "id": "G4-INV-3-frozendocseq-ge-docseq",
+      "sql": "SELECT count(*) FROM ExecutionRequest WHERE frozenDocSeq < docSeq",
+      "expect": 0
+    },
+    {
+      "id": "G4-INV-4-nodeexecution-guard-monotonic",
+      "sql": "SELECT count(*) FROM NodeExecution a JOIN NodeExecution b ON a.projectId=b.projectId AND a.nodeId=b.nodeId AND a.execSeq>=b.execSeq AND a.updatedAt>b.updatedAt",
+      "expect": 0
+    }
+  ],
+  "negativeControls": [
+    {
+      "id": "G4-NEG-1-unfrozen-read-poison",
+      "evidence": "collab-project-actor.t21-freeze.spec 红⑥-a：PG 滞后窗 doc 已含未持久帧（expect(doc.get('n1')).toBe('applied-not-persisted') 实锤）——无 freeze 的裸读会把未持久帧冻进受理输入；withFrozenPrefix 返回 flush-timeout 拒绝（负控=故意破坏不变量必红）",
+      "status": "red-then-green"
+    },
+    {
+      "id": "G4-NEG-2-census-unregistered-violation",
+      "evidence": "check-plan-census ④：删登记条目后未修代码跑=FAIL（execution-chain.ts:33 裸比实红）；根修后 8/8 PASS 零登记零违例",
+      "status": "red-then-green"
+    }
+  ],
+  "skipped": 0,
+  "notes": "PITR/historyId 409 REQUEST_STALE 代码面已落（admit ②段）；真 PITR 演练归 T31 故障矩阵（spec §9.2 同款登记）。maintenance 503 行级关闸受理读=代码面（docHead.maintenanceId）——T27 状态机联测归 T27。⑧资金 sweeper 常驻调度挂 T29 清理 worker 契约（本卡 sweepExpired 方法面）。frozen 执行路径 video durationId 平面缺失（ExecutionNodePlan 无 durationId 列——T5b 冻结 DDL 如此；paramsHash/args 已盖 duration 身份）登记移交 T23。",
+  "verdict": "go"
+}
