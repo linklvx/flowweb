@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
-import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, canonicalUpdateHashPayload } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { projectDocName } from './doc-name.util';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -63,9 +63,19 @@ export class CanvasDocUpdateRepository {
   }
 
   /** T9：批 updateHash 单源（=有序 frameHash 列表 SHA-256——非 merged update 字节；重试/重组批幂等键）。
-   *  actor drain 批/维护单帧/回灌行共用（禁第二份实现）。frameHash=SHA-256(payload) 32B 原始字节。 */
+   *  actor drain 批/维护单帧/回灌行共用（禁第二份实现）。
+   *  **T21 R2 双 preimage 退役（T12 评审移交「T21 审计/T32 核验」）**：本方法=唯一哈希入口，
+   *  canonical 形态**委托 shared canonicalUpdateHashPayload**（system-history.ts T5b 冻结——
+   *  JSON.stringify(有序 hex 列表)）→sha256hex。取舍论证：①JSON canonical 形态=T5b 冻结契约文本
+   *  原意（「sha256hex 调用点归 api 侧消费」即本委托形态），payload 可打印可审计（排障直读批内帧序）；
+   *  ②raw bytes 传递链（frameHash 在 api 侧是 Uint8Array）在**唯一入口处**一次 hex 化（≤512 帧×64
+   *  字符——微不足道）；③开发期无兼容包袱：DB 既有 dev 行 hash 值随之更换（旧 raw-concat 值作废，
+   *  不留兼容层）。raw-bytes concat 旧 preimage 就地退役（禁复活——canvas-doc-update.repository.spec
+   *  T21 R2 用例锁「同输入同哈希≡shared canonical」）。 */
   static batchUpdateHash(frameHashes: ReadonlyArray<Uint8Array>): string {
-    return createHash('sha256').update(Buffer.concat(frameHashes.map((h) => Buffer.from(h)))).digest('hex');
+    return createHash('sha256')
+      .update(canonicalUpdateHashPayload(frameHashes.map((h) => Buffer.from(h).toString('hex'))))
+      .digest('hex');
   }
 
   /** T9：单帧行构造便捷面（frameHash 由调用方算好——spool/actor 共用 walSeq 口径）。 */

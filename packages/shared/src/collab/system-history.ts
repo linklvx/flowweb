@@ -1,8 +1,9 @@
 // packages/shared/src/collab/system-history.ts
 // Y1c T5b（plan v1.7 Task 5 业务 DDL 段——spec v5.4 §4.4/§6：SystemHistory 全局单行唯一权威+
 // CanvasDocUpdate.actorRanges Json 单表示+updateHash canonical+DocAuditEvent）。
-// **CONTRACT-FREEZE**——类型+常量+纯函数；消费方=T7（DDL/genesis）/T10（批装配 actorRanges/updateHash）/
-// T21（审计落库）。契约测试=system-history.spec.ts（TDD 红先行）。
+// **CONTRACT-FREEZE**（T21 解冻窗口已消费——头注改记消费落地）：类型+常量+纯函数；
+// 消费方=T7（DDL/genesis）/**已落地**/T10（批装配 actorRanges/updateHash——api batchUpdateHash
+// 经 §3 canonical 委托单一化）/T21（**已落地**：R2 双 preimage 退役+审计落库）。契约测试=system-history.spec.ts（TDD 红先行）。
 
 // ═══ §1 SystemHistory 全局单行唯一权威（v5.4⑦——删 CanvasDoc.historyId 列）══════════════════
 
@@ -92,7 +93,9 @@ export function validateActorRanges(
 // ═══ §3 updateHash=有序 frameHash 列表 SHA-256（v1.7）════════════════════════════════════════
 
 /** updateHash canonical payload（纯函数——**不含 sha256**：shared 无 crypto 先例且需 web 同构，
- *  sha256hex 调用点归 api 侧消费卡 T10/T21；不引第三方库）：
+ *  sha256hex 调用点=api 侧唯一委托 **CanvasDocUpdateRepository.batchUpdateHash**〔T21 R2 单一化
+ *  ——T12 评审移交双 preimage 退役：raw-bytes concat 旧形态作废，本函数为唯一 canonical 真源〕；
+ *  不引第三方库）：
  *  =JSON.stringify(有序 frameHash 列表)——frameHash=帧记录 64hex（WAL_FRAME_LAYOUT.frameHash 列的
  *  hex 串，doc-protocol.ts 同源）、序=批内 walSeq 升序。**非 merged update 字节**——重试/重组批幂等
  *  （同帧集任意重组 canonical 相同；`@@unique([projectId,generation,updateHash])` 判重锚）。 */

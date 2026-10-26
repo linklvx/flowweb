@@ -29,19 +29,14 @@ export function findKeySetLiteralRedeclaration(rawLines) {
 
 /** ④execSeq 裸比较检测：`execSeq <`/`>`（含 <=/>=）＝string 字典序/跨型裸比——代际判定必走
  *  compareExecSeq（数值比较+BigInt 精度）。`=>` 箭头天然不命中（= 先于 > 且 \s* 后直接比较符
- *  才匹配）；===/!== 相等比较不在此面（等值无字典序陷阱）。stripped 面。 */
+ *  才匹配）；===/!== 相等比较不在此面（等值无字典序陷阱）。stripped 面。
+ *  登记红机制（until=T21）已随 T21 解冻窗口根修归零撤销（a15f798e 登记的 execution-chain.ts:33
+ *  bigint 裸比已改道 compareExecSeq 单源）——本断言回到「未登记红且零违例=PASS」原始形态；
+ *  新违例照红（登记面不复活——再需登记走 census ㉝ until=N 先例另立）。 */
 export function findBareExecSeqComparison(strippedLines) {
   const RE = /\bexecSeq\s*(?:<=|>=|<|>)/;
   return strippedLines.flatMap((l, i) => (RE.test(l) ? [i + 1] : []));
 }
-
-/** ④登记红（census ㉝ 同款 until=N 强制归零形态）：已知存量违例唯一登记面——执法不变，
- *  未登记新违例照红；登记项在到期卡根修后**删本条目**（T34 前全归零）。当前登记：
- *  · execution-chain.ts:33（since T5b 488160c0）=CONTRACT-FREEZE 冻结面 bigint 裸比——语义
- *    无害（bigint 关系运算无数典序陷阱）但违反 compareExecSeq 单源纪律；冻结文件禁改
- *    （T15-T19 连注释漂移均让位解冻窗口先例）→until=T21 解冻窗口随 UNDO_TRACKED_ORIGINS
- *    同步批一并根修（改道 compareExecSeq）。 */
-const EXECSEQ_REGISTERED_REDS = new Set(['packages/shared/src/collab/execution-chain.ts:33']);
 
 /** ③DocNodeRecord 残留检测：T1 已改名 StoredNodeRecord——旧词面回潮即红（防漂移，\b 边界不误伤
  *  StoredNodeRecord）。stripped 面（注释提及不拦）。 */
@@ -152,18 +147,12 @@ if (isMain()) {
   // ④execSeq 裸比较禁令（lint 轻形态=check 脚本 grep gate——仓内无自定义 eslint 规则先例）
   {
     const details = [];
-    const registered = [];
     for (const f of byFile) {
       for (const line of findBareExecSeqComparison(f.stripped.split('\n'))) {
-        const key = `${f.rel}:${line}`;
-        if (EXECSEQ_REGISTERED_REDS.has(key)) {
-          registered.push(`${key} execSeq 裸比较——登记红（until=T21 解冻窗口根修：CONTRACT-FREEZE 冻结面 bigint 裸比 since T5b；冻结纪律禁现改）`);
-        } else {
-          details.push(`${key} execSeq 裸比较（string 字典序陷阱）——改 compareExecSeq（media-fact.ts 单源）`);
-        }
+        details.push(`${f.rel}:${line} execSeq 裸比较（string 字典序陷阱）——改 compareExecSeq（media-fact.ts 单源）`);
       }
     }
-    report('④', `execSeq 裸比较清零（</>/<=/>= 禁入——数值比较必走 compareExecSeq；登记红 until=T21 ×${registered.length}）`, details.length === 0, [...details, ...registered]);
+    report('④', 'execSeq 裸比较清零（</>/<=/>= 禁入——数值比较必走 compareExecSeq）', details.length === 0, details);
   }
 
   // ⑤compareExecSeq 定义唯一（防第二实现）

@@ -28,4 +28,8 @@ describe('Y1c T5b 契约冻结：Undo 策略（D6 维持）', () => {
     expect([...UNDO_STACK_BASE]).toEqual(['nodes', 'edges']);
     expect([...UNDO_TRACKED_ORIGINS]).toEqual(['local-user']);
   });
+  it('Y1c T21 解冻同步：T18 增补项=ySyncPluginKey（构造面一次到位——初始集非终集纪律的登记真值锚）', async () => {
+    const { UNDO_TRACKED_ORIGINS_T18_ADDENDUM } = await import('./undo-policy');
+    expect(UNDO_TRACKED_ORIGINS_T18_ADDENDUM).toBe('ySyncPluginKey');   // T18 落地真值：new Set([Origin.LocalUser, ySyncPluginKey])
+  });
 });

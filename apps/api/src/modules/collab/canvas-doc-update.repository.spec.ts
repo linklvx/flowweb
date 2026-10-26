@@ -662,3 +662,25 @@ describe('M4 懒建档 INSERT schemaVersion 绑定常量（appendBatch cas-miss�
     expect(insertCall.slice(1)[2]).toBe(CANVAS_DOC_SCHEMA_VERSION);                 // 绑定值=常量（改值场景随行——红：旧无此绑定）
   });
 });
+
+// ══ Y1c T21（T12 评审移交 R2）：batchUpdateHash 双 preimage 退役——单一实现、双调用方委托 ══
+//  两入口（actor drain 批装配/单帧行构造 singleFrameRow）共用 batchUpdateHash 唯一哈希入口；
+//  本组断言=该入口对 shared canonicalUpdateHashPayload（system-history.ts T5b 冻结 canonical 形态）
+//  的委托关系：sha256hex(canonicalUpdateHashPayload(hex 列表))——红=旧 raw-bytes concat preimage。
+describe('T21 R2：batchUpdateHash=sha256(shared canonicalUpdateHashPayload) 单一 preimage（禁双形态）', () => {
+  it('同输入同哈希：batchUpdateHash(bytes)≡sha256hex(canonicalUpdateHashPayload(hex 列表))——JSON canonical 单源', async () => {
+    const { createHash } = await import('node:crypto');
+    const { canonicalUpdateHashPayload } = await import('@flowweb/shared');
+    const h1 = createHash('sha256').update('frame-1').digest();   // 32B 原始字节（actor frameHash 传递链形态）
+    const h2 = createHash('sha256').update('frame-2').digest();
+    const expected = createHash('sha256')
+      .update(canonicalUpdateHashPayload([h1.toString('hex'), h2.toString('hex')]))
+      .digest('hex');
+    // 红（根修前）：raw concat preimage=sha256(h1||h2) ≠ JSON canonical——两 preimage 并存即违例
+    expect(CanvasDocUpdateRepository.batchUpdateHash([h1, h2])).toBe(expected);
+    expect(CanvasDocUpdateRepository.batchUpdateHash([h2, h1])).not.toBe(expected);   // 顺序敏感（canonical 序=walSeq 升序）
+    expect(CanvasDocUpdateRepository.batchUpdateHash([h1])).toBe(
+      createHash('sha256').update(canonicalUpdateHashPayload([h1.toString('hex')])).digest('hex'),
+    );
+  });
+});
