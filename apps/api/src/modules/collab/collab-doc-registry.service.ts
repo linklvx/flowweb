@@ -134,6 +134,9 @@ export interface CollabDocRegistryHost {
    *  新会话一切帧通道（actor/维护——observeDocument 在首 await 前已建队列面）的必经前置，此缝使
    *  新帧恒 walSeq>pgSeq（readConsistent 尾可见）。 */
   onWalSeqFloorSeeded?(projectId: string, pgSeq: bigint): void;
+  /** Y1c T26 三轮 F-1：doc 装载前缀报告缝（装载时已应用的 PG 前缀=hydration 行 pgSeq——actor
+   *  presence 可信门槛 loadPgSeq 腿的真值源；onWalSeqFloorSeeded 先例形〔:453 同点〕）。 */
+  noteDocLoadedPrefix?(projectId: string, document: Document, pgSeq: bigint): void;
   /** WS connectionId 读面（loadDocument :1117 装载失败 Sentry 样本 consumption——台账 SG 域
    *  （connectionIds socketId 键），W3b 改接 sg 读面）。 */
   connectionIdOf(socketId: string): string | undefined;
@@ -451,6 +454,9 @@ export class CollabDocRegistryService {
       // scan 重建值更高不回拨）。行缺失（懒建档）pgSeq=null 缝自 no-op。红链与双保险全貌见
       // canvas-doc-walseq-seeding.int.spec 头注。
       if (pgSeq != null) this.host.onWalSeqFloorSeeded?.(projectId, pgSeq);
+      // Y1c T26 三轮 F-1：装载前缀报告（apply 前——doc 即将获得的 PG 前缀=此行值；行缺失 null 折 0
+      // 最保守——懒建档首 store 前无 PG 前缀可越）
+      this.host.noteDocLoadedPrefix?.(projectId, document, pgSeq ?? 0n);
       if (state) applyReplayed(new Uint8Array(state));
       for (const u of updates) applyReplayed(new Uint8Array(u));
       // Y0a-2：stash=spool 帧（peek→apply；帧不删——confirm 恒在 append 成功后，契约 12）。

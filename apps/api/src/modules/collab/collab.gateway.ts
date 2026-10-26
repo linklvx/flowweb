@@ -324,6 +324,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       connectionIdOf: (socketId) => this.sessionGuard.connectionIdOf(socketId),
       onGenerationSeeded: (pid, generation) => this.spool.setProjectGeneration(pid, generation),   // T8 接线：世代权威播种（帧内一律携带 generation 的 WAL 段单源）
       onWalSeqFloorSeeded: (pid, pgSeq) => this.spool.seedWalSeqFromPg(pid, pgSeq),   // C1①（T11 双评审）：装载缝 PG 播种——段全回收项目计数器自 PG 真值重建（红链见 canvas-doc-walseq-seeding.int.spec）
+      noteDocLoadedPrefix: (pid, document, pgSeq) => this.projectActor.noteDocLoadedPrefix(document as unknown as import('yjs').Doc, pgSeq),   // Y1c T26 三轮 F-1：装载前缀报告——actor presence 可信门槛 loadPgSeq 腿真值源（懒求值：load 后于 actor 构造）
     });
     this.persistence.bindHost({
       logger: this.logger,

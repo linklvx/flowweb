@@ -29,10 +29,14 @@ let repo: CanvasDocUpdateRepository;
 let spoolDir: { dir: string; cleanup: () => Promise<void> };
 let spool: CollabSpoolService;
 
-/** 直构 actor（documents Map 注入真 Y.Doc——gen0 canonical 裸名+观察器尾参接线）。 */
-function buildActor(doc: Y.Doc, pid: string): CollabProjectActorService {
+/** 直构 actor（documents Map 注入真 Y.Doc——gen0 canonical 裸名+观察器尾参接线；loadPgSeq=装载缝
+ *  模拟——DR loadDocument 的 noteDocLoadedPrefix 前缀报告〔doc 所代表的 PG 前缀真值〕，缺省不报=0 最保守）。 */
+function buildActor(doc: Y.Doc, pid: string, loadPgSeq?: bigint): CollabProjectActorService {
   const documents = new Map([[`project:${pid}`, doc]]);
   const actor = new CollabProjectActorService(spool, repo, undefined, new CollabLifecycleObserverService(prisma as never));
+  if (loadPgSeq !== undefined) {
+    (actor as unknown as { noteDocLoadedPrefix?(d: Y.Doc, s: bigint): void }).noteDocLoadedPrefix?.(doc, loadPgSeq);
+  }
   actor.bindHost({
     logger: { log: vi.fn(), warn: (m: string) => console.warn("[warn]", m), error: (m: string) => console.error("[error]", m), debug: vi.fn(), verbose: vi.fn(), fatal: vi.fn() } as unknown as Logger,
     documents: () => documents,
@@ -82,6 +86,12 @@ async function submitAndFlush(actor: CollabProjectActorService, pid: string, fra
   const w = await actor.flushThrough(pid, r.walSeq, { maxWaitMs: 5_000 });
   expect(w.targetReached).toBe(true);
   return r.walSeq;
+}
+
+/** 装载缝模拟真值：当前 CanvasDoc.pgSeq（doc=PG 前缀投影形态——genesis/重对齐用例）。 */
+async function currentPgSeq(pid: string): Promise<bigint> {
+  const head = await prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { pgSeq: true } });
+  return head?.pgSeq ?? 0n;
 }
 
 async function seedDocRow(pid: string): Promise<void> {
@@ -257,10 +267,11 @@ maybe('Y1c T26 生命周期义务观察器（真 PG）', () => {
 
   it('genesis 播种（T7/T21 未 seed——本卡补）：重启形态（doc 预载节点+观察器首批前播种）→ 在册节点删除发义务', async () => {
     const doc = new Y.Doc();
-    // 预载节点（装载路径——不经帧注册；观察器经 actor 首批 seedPresence 按 presence 补在册）
+    // 预载节点（装载路径——不经帧注册；观察器经 actor 首批 seedPresence 按 presence 补在册；
+    // 装载缝模拟：doc=当前 PG 前缀投影〔F-1 门槛 loadPgSeq 腿真值〕）
     doc.getMap('nodes').set('nSeed', new Y.Map([['type', 'textInput']]));
     doc.getMap('nodes').set('nSeed2', new Y.Map([['type', 'textInput']]));
-    const actor = buildActor(doc, PID_A);
+    const actor = buildActor(doc, PID_A, await currentPgSeq(PID_A));
     const f = makeFrames();
     // 首帧（任意——触发首批播种；帧工厂源 doc 无 nSeed 故 create nX 为全新节点）
     await submitAndFlush(actor, PID_A, f.create('nX'));
@@ -322,9 +333,10 @@ describe('Y1c T26 收口批（真 PG）', () => {
     const mid = await observer.deliveryFenceCheck(PID_A, 'nF');
     expect(mid).toMatchObject({ allow: false, reason: 'fence-stale' });   // fail-closed 窗
     // 重启形态：新 doc 实例含 nF（presence）+首批帧 → seed（inTx）重对齐 fence
+    //（装载缝模拟：doc2=当前 PG 前缀投影〔nF 在册与 PG 行一致〕——F-1 门槛真值报告）
     const doc2 = new Y.Doc();
     doc2.getMap('nodes').set('nF', new Y.Map([['type', 'textInput']]));
-    const actor2 = buildActor(doc2, PID_A);
+    const actor2 = buildActor(doc2, PID_A, await currentPgSeq(PID_A));
     const f2 = makeFrames();
     await submitAndFlush(actor2, PID_A, f2.create('nOther'));
     fence = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: PID_A, nodeId: 'nF' } } });
@@ -339,7 +351,7 @@ describe('Y1c T26 收口批（真 PG）', () => {
     const doc = new Y.Doc();
     doc.getMap('nodes').set('nBogus', new Y.Map([['type', 'not-a-real-type']]));   // 词表外
     doc.getMap('nodes').set('nOk', new Y.Map([['type', 'textInput']]));
-    const actor = buildActor(doc, PID_B);
+    const actor = buildActor(doc, PID_B, await currentPgSeq(PID_B));
     const f = makeFrames();
     await submitAndFlush(actor, PID_B, f.create('nTrigger'));
     const bogus = await prisma.nodeLifecycle.findMany({ where: { projectId: PID_B, nodeId: 'nBogus' } });
@@ -426,4 +438,54 @@ describe('Y1c T26 收口批（真 PG）', () => {
     expect(obVictim.map((o) => o.kind).sort()).toEqual(['EXEC_FINALIZE', 'FEED_TOMBSTONE', 'NODE_DELETED']);   // appliedQueue 重试衍生（红=现码义务永不发射）
   }, 30_000);
 
+  it('红（F-1 三轮）：adopt/doc-lag 形态（前进程滞留帧——boot 预算耗尽→30s reconciler 回灌窗）守卫禁 presence 捕获至重载——现码红=水位自洽谓词放行重对齐复活逃逸', async () => {
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const doc = new Y.Doc();
+    const actor = buildActor(doc, PID_A);   // 装载缝不报=0 最保守（doc 空——装载前缀真值 0）
+    const f = makeFrames();
+    await submitAndFlush(actor, PID_A, f.create('nLagH'));   // 健康节点（本实例 own-applied）
+    await submitAndFlush(actor, PID_A, f.create('nLagD'));   // 待删节点
+    // 前进程滞留删除帧形态：帧在 spool 在档+水位自洽（noteApplied 对齐=boot scan 重建形态——
+    // spoolHeadSeq==appliedSeq ⇒ 旧谓词恒过=F-1 错配面）+未 confirm+**未 apply 入本 doc**
+    const f2 = makeFrames();
+    f2.syncFrom(doc);
+    const delFrame = f2.del('nLagD');
+    const appended = await spool.appendBatch(PID_A, [delFrame]);
+    await spool.noteApplied(PID_A, appended[0].walSeq);
+    // reconciler 回灌（30s tick 直调）：PG 前进+项目级 stale（doc 滞后——nLagD 仍在册 presence 面）
+    const persistence = new CollabPersistenceService(repo as never, spool as never);
+    persistence.bindHost({
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), verbose: vi.fn(), fatal: vi.fn() } as unknown as Logger,
+      getDocument: () => undefined,
+      docStats: () => ({ loadedDocs: 0, connections: 0, directConns: 0 }),
+      onUpdateDelta: () => {},
+      onFencedByWrite: async () => {},
+      calibrateTruth: () => undefined,
+      observeDocBytes: () => {},
+      isIsolated: () => false,
+      isServingState: () => true,
+      isShuttingDownFlag: () => false,
+      onSpoolRecoveredFlip: () => {},
+      currentLeaseEpoch: () => null,
+    } as never);
+    persistence.setLifecycleObserver(actor.lifecycleObserverFace);
+    await (persistence as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+    expect(await observer.deliveryFenceCheck(PID_A, 'nLagD')).toMatchObject({ allow: false, reason: 'fence-stale' });
+    // 下一帧批（同实例，fresh 工厂无 DS 重携）：修后=守卫禁捕获（PG 越过 doc 已应用前缀）→
+    // fence 维持 fence-stale 拒（红=现码水位自洽谓词放行→presence 含 nLagD〔doc 滞后〕→重对齐复活 allow:true 逃逸）
+    const f3 = makeFrames();
+    await submitAndFlush(actor, PID_A, f3.create('nLagN'));
+    expect(await observer.deliveryFenceCheck(PID_A, 'nLagD')).toMatchObject({ allow: false, reason: 'fence-stale' });
+    expect(await observer.deliveryFenceCheck(PID_A, 'nLagH')).toMatchObject({ allow: false, reason: 'fence-stale' });   // 同批禁捕获：健康节点同拒（fail-closed 至重载）
+    // doc 重载后恢复：doc2=PG 真值投影（健康在册/已删不在）+装载缝报告当前 pgSeq→重对齐复活健康节点
+    const doc2 = new Y.Doc();
+    doc2.getMap('nodes').set('nLagH', new Y.Map([['type', 'textInput']]));
+    const head = await prisma.canvasDoc.findUnique({ where: { projectId: PID_A }, select: { pgSeq: true } });
+    const actor2 = buildActor(doc2, PID_A, head!.pgSeq);
+    const f4 = makeFrames();
+    await submitAndFlush(actor2, PID_A, f4.create('nLagN2'));
+    expect(await observer.deliveryFenceCheck(PID_A, 'nLagH')).toMatchObject({ allow: true });   // 重载后重对齐复活
+    const lagVerdict = await observer.deliveryFenceCheck(PID_A, 'nLagD');
+    expect(lagVerdict.allow).toBe(false);   // 已删节点恒拒（absent 不复活——PG 真值面）
+  }, 30_000);
 });

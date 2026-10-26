@@ -445,6 +445,9 @@ export class CollabProjectActorService {
   private readonly collectorsByDoc = new WeakMap<Y.Doc, FrameEffectsCollector>();   // per-doc（多项目 drain 并发不混 buffer）
   /** Y1c T26：genesis 播种标记（每 doc 实例一次——观察器按需注册在册 presence；WeakSet 随 doc 消亡） */
   private readonly lifecycleSeededDocs = new WeakSet<Y.Doc>();
+  /** Y1c T26 三轮 F-1：per-doc-instance 装载前缀（DR loadDocument 装载缝报告——onWalSeqFloorSeeded
+   *  先例形；doc 已应用的 PG 前缀真值。presence 可信门槛腿一；WeakMap 随 doc 消亡）。 */
+  private readonly docLoadPrefix = new WeakMap<Y.Doc, bigint>();
   private readonly states = new Map<string, ProjectActorState>();
   /** SHA-256 去重 promise map（键 `${pid}\u0000${hashHex}`——inflight=await 原帧；settled-applied=no-op；
    *  原帧失败重复帧同错（promise 链自然传播）。有界：TTL 24h/100k（与 WAL 去重索引同界——偏离 38④）。 */
@@ -483,6 +486,12 @@ export class CollabProjectActorService {
    *  结构类型 { staleProjectFencesInTx } 即 replay 回灌窗 stale 面；observer 未接线=undefined）。 */
   get lifecycleObserverFace(): { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | undefined {
     return this.lifecycleObserver;
+  }
+
+  /** Y1c T26 三轮 F-1：装载缝前缀报告（DR loadDocument→gateway 转发——doc 装载时已应用的 PG 前缀；
+   *  同 doc 实例重装覆写。测试直构缺报=无键〔门槛视 0 最保守〕）。 */
+  noteDocLoadedPrefix(document: Y.Doc, loadPgSeq: bigint): void {
+    this.docLoadPrefix.set(document, loadPgSeq);
   }
 
   /** Q-I1：doc 卸载/项目消失的 per-project actor 状态清理（BEFORE_UNLOAD_DRAIN_CONTRACT.cleanupKey
@@ -820,7 +829,8 @@ export class CollabProjectActorService {
         return;
       }
       // 维护帧 appliedSeq 推进（detached 形态同正常路径：payload 已生效——confirm 推 pgSeq 的不变量前提）
-      for (let k = 0; k < maintOnly.length; k++) this.spool.noteApplied(pid, maintAppended[k].walSeq);
+      // Y1c T26 三轮 F-1：actor own-applied 高水位随推（同正常路径维护帧分支注记）
+      for (let k = 0; k < maintOnly.length; k++) { this.spool.noteApplied(pid, maintAppended[k].walSeq); st.appliedSeq = maintAppended[k].walSeq; }
       // Y1c T10（applied-driven）：detached 维护帧入 applied 队列——resolve 延后至 PG 批落定（Q-M5）。
       for (let k = 0; k < maintOnly.length; k++) this.pushApplied(pid, maintOnly[k], maintAppended[k].frameId, maintAppended[k].walSeq, []);
       void this.flushApplied(pid).catch(() => {});
@@ -834,8 +844,20 @@ export class CollabProjectActorService {
     // 下一帧批即重对齐——同实例无需重载；重对齐按 doc presence 真值，deleted 节点 absent 恒 stale）。
     // 可信守卫：spoolHeadSeq≤appliedSeq（spool 水位自洽）——adopt 外来帧未 apply 入本 doc 时 presence
     // 滞后于 PG 真值（删除已落行而 doc 仍在册），据此重对齐会复活已删节点=逃逸——禁之，fail-closed。
+    // Y1c T26 三轮 F-1（谓词错配根修）：presence 可信门槛=**PG 前缀不越 doc 已应用前缀**——
+    // `wm.pgSeq ≤ max(loadPgSeq, st.appliedSeq)` 双腿各有职责：loadPgSeq 腿=装载缝前缀（doc 装载时
+    // 已应用的 PG 前缀——DR noteDocLoadedPrefix 报告）；own-applied 腿=本实例 apply 过的帧（含
+    // applied-未-confirm：reconciler 回灌自有帧时 pgSeq 追平本腿=可信）。PG 越过 max ⇒ 存在本 doc
+    // 未见帧（前进程滞留/adopt 外来——boot replayAll 预算耗尽→30s reconciler 回灌窗）⇒ presence 滞后
+    // PG 真值，据此重对齐=复活已删节点逃逸 ⇒ 禁捕获 fail-closed 至 doc 重载。
+    // **禁单用 `st.appliedSeq≥pgSeq` 谓词**（会把 legacy doc 首批播种误伤延迟一批⇒首批删除漏发义务）；
+    // 旧「spoolHeadSeq≤appliedSeq 水位自洽」谓词废止为主门槛——spool 水位只追本进程自有帧（boot 重建
+    // appliedSeq=spoolHeadSeq=head 含全部 WAL；runtime adopt 只抬 walSeqCounters 不动水位；replayAll/
+    // confirm 只推 pgSeq），adopt/doc-lag 形态恒不触发（其真实生效面仅 own 毒帧/截断窗——附注留档）。
     const wmT26 = this.spool.watermark(pid);
-    const presenceTrustworthy = wmT26 == null || wmT26.spoolHeadSeq <= wmT26.appliedSeq;   // spool 水位自洽=无未入本 doc 的滞留帧（adopt 外来帧形态——presence 不可信禁播种/重对齐，fail-closed 至 doc 重载）
+    const loadPrefixF1 = this.docLoadPrefix.get(document) ?? 0n;
+    const appliedCapF1 = loadPrefixF1 > st.appliedSeq ? loadPrefixF1 : st.appliedSeq;
+    const presenceTrustworthy = wmT26 == null || wmT26.pgSeq <= appliedCapF1;
     if (this.lifecycleObserver && presenceTrustworthy && st.lifecycleSeedPresence === undefined
       && (!this.lifecycleSeededDocs.has(document) || this.lifecycleObserver.hasStaleFences(pid))) {
       const presence = new Map<string, string>();
@@ -884,7 +906,10 @@ export class CollabProjectActorService {
         const item = admitted[k];
         const walSeq = appended[k].walSeq;
         if (item.kind === 'maintenance') {
-          // 维护帧：payload 已生效不 apply——applied 条目即建（resolve 延后至 PG 批落定——Q-M5）
+          // 维护帧：payload 已生效不 apply——applied 条目即建（resolve 延后至 PG 批落定——Q-M5）。
+          // Y1c T26 三轮 F-1：own-applied 高水位随推（本实例自有帧——presence 门槛 own 腿覆盖维护通道，
+          // 防 doc-writer 直写〔pre-T22〕致 pgSeq 前进恒越 cap=播种/重对齐永久禁用）
+          st.appliedSeq = walSeq;
           entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, []);
           continue;
         }
