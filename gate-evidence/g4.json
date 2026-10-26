@@ -1,12 +1,12 @@
 {
   "gate": "G4",
-  "commit": "a7f79271",
+  "commit": "49b6d722",
   "env": {
-    "date": "2026-10-26（收口批重认证——0da44e4d 作废）",
+    "date": "2026-10-26（二轮收口重认证——a7f79271/d9aad7ab 作废链）",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；迁移二=20261025120000_y1c_t21_execution_business（prisma migrate deploy 已 apply——DB≡schema diff 空）",
     "suite": "T21 面=execution-request.t21-g4.int.spec（真 PG 7）+execution-frozen.t21-c1.int.spec（真 PG 12：C1 三态/I2 settle 失败不吞/I1 交错 ab/I-3 配额/幂等域+P2002/requestId 界/M-4 SKIPPED/M-3 dedup/I4 SQL≡纯函数真值表）+collab-project-actor.t21-freeze.spec（⑥ 3+I-1 换代作废 1）+web canvasCollabRuntime.t21-barrier.spec（9：回执四则+四触发+Durable 判据/旧回执负控）+canvas-doc-update.repository.spec（R2）",
     "scope": "spec §9.1 G4 行：受理输入与文档前缀一致；重放不改已冻结输入；受理后改 prompt/拓扑/model/上游/删节点不影响计划（plan v1.7 Task 21）",
-    "redEvidence": "首轮七红留证（g4 主体批）+收口批红：C1 付费态=FundsInvariantError 全回滚红（settleInTx settled:false+凭据不成立）/I2=资金悬挂红（settle 吞错 498≠496）/I1(b)=void 无 CAS 抢占红（EXECUTING 资金被释放）/幂等序=集合比对忽略序红（异序 200 非 409）/P2002=500 ADMIPTION_FAILED 红/requestId 界缺失红/SKIPPED=remaining 卡 EXECUTING 红/dedup=正文 N 份红——逐项转绿；诚实登记：I-1 换代检查为实现先行（其测试红=竞态窗未覆盖形态非实现缺失红）；web 四触发为绿证补齐（红性不可补——收口批前实现已在）"
+    "redEvidence": "首轮七红留证（g4 主体批）+收口批红：C1 付费态=FundsInvariantError 全回滚红（settleInTx settled:false+凭据不成立）/I2=资金悬挂红（settle 吞错 498≠496）/I1(b)=void 无 CAS 抢占红（EXECUTING 资金被释放）/幂等序=集合比对忽略序红（异序 200 非 409）/P2002=500 ADMIPTION_FAILED 红/requestId 界缺失红/SKIPPED=remaining 卡 EXECUTING 红/dedup=正文 N 份红——逐项转绿；诚实登记：I-1 换代检查为实现先行（其测试红=竞态窗未覆盖形态非实现缺失红）；web 四触发为绿证补齐（红性不可补——收口批前实现已在）；二轮收口红：幂等域①序≠拓扑序重放恒 409（有序比对证伪）+边信封 Y.Map 暗坑（拓扑退化请求序）+R-M-1 计数死分支（413 不触发）+R1 stale 重装双扣+R3 COMPLETED 复烧外呼/FAILED 落穿——逐项转绿"
   },
   "cases": [
     {
@@ -42,8 +42,8 @@
       "id": "G4-C5-idempotent-retry",
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts -t '红⑤'",
       "status": "pass",
-      "expect": "同 requestId 断线重试→replayed=true+原 frozenDocSeq/planHash+零二次执行行+零二次预留；同键异 body（nodeIds 变化）→409 IDEMPOTENCY_CONFLICT",
-      "detail": "幂等身份面=客户端可控 nodeIds 集（重算哈希会因受理后前缀推进误伤合法重试——语义注记在 admit 注释）",
+      "expect": "同 requestId 断线重试=幂等返回原 frozenDocSeq（零二次执行行+零二次预留）；幂等域终裁（R-I-1 二轮）=nodeIds 集比对+docSeq 出域——序≠拓扑序首受理后字节级重放=replay/同集异序=replay/同键异集=409/新 docSeq 仍 replay",
+      "detail": "requestId=意图身份；数组序=服务端 Kahn 派生非客户端语义；docSeq=咨询性；@frozenDocSeq 前缀重建比对留档不实现（用例=execution-frozen.t21-c1.int.spec 幂等域终裁四态）",
       "artifacts": []
     },
     {
@@ -103,7 +103,7 @@
       "id": "G4-C13-race-quota-idempotency-closeout",
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-frozen.t21-c1.int.spec.ts",
       "status": "pass",
-      "expect": "I1 交错 ab（void 后迟到 execute 409 零外呼/claim 抢先 sweeper 让位）+I2 settle 失败不悬挂+I-3 配额 429+I3 P2002 replay+幂等序 409+requestId 界+M-4 SKIPPED+M-3 dedup",
+      "expect": "I1 交错 ab+I2 settle 失败不悬挂+I-3 配额 429+I3 P2002 replay（集比对域）+requestId 界+M-4 SKIPPED+M-3 dedup+R1 settle 金额守卫（anti-join 空零 decrement 不负扣）+R3 终态门（COMPLETED 回显零外呼/FAILED 409）+R-M-1 引用图计数真源（prompt referencedImageIds+imageUrls 并计 413）",
       "artifacts": []
     },
     {
@@ -149,6 +149,6 @@
     }
   ],
   "skipped": 0,
-  "notes": "收口批（a7f79271）：C1 settlement mode/I-1 八阶段/I1 三面竞态 CAS+anti-join FOR UPDATE/幂等域 (docSeq+有序 nodeIds)/P2002 replay/配额计入/dedup+referencedImageIds/SKIPPED/M-8 fail-closed/M-6 四触发绿证。INV-4=M4 处置换可实证不变量（终态请求 items 全终态）。登记不修码：#4 残留两处冻结注释（runtime-projection.ts:14 T22 窗口收口+doc-protocol.ts:541 无在册窗口）+客户端受理接线（T22 派发词定）——已入 plan T22 卡。PITR 演练归 T31/maintenance 联测归 T27/sweeper 常驻归 T29/video durationId 平面归 T23 维持前批登记。",
+  "notes": "二轮收口（最新 commit）：幂等域终裁 R-I-1（集比对+docSeq 出域）+边信封 Y.Map 读键暗坑根修（拓扑退化）+R-M-1/R2 引用图计数真源+R1 settle 金额守卫（守卫优于改判 void——注记在码）+R3 终态重执行门+装饰项（unused import 删/registered-flakes 端口竞态登记/plan T22 幂等语义更新）。登记不修码维持：#4 残留两处冻结注释（T22 窗口）+客户端受理接线（T22 派发——幂等语义已按 R-I-1 更新入 plan）；PITR→T31/maintenance→T27/sweeper 常驻→T29/video durationId→T23。",
   "verdict": "go"
 }
