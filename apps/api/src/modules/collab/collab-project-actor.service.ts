@@ -76,7 +76,7 @@ import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-li
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, inboundQueueOverLimitTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
+import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
 import type { CollabConnection } from './collab.gateway';
 
 /** 帧受理结果（resolve 形态——ACK 档位前置面：walSeq=帧序号；noop=true=零 WAL 零 apply 放行
@@ -401,6 +401,9 @@ interface ProjectActorState {
   appliedQueue: AppliedEntry[];
   appliedBytes: number;
   flushing: boolean;
+  /** Y1c T26（M-1 收口）：首批 genesis 播种 presence 快照（id→type——观察器 inTx 词表门消费；
+   *  落定 flush 成功才清〔undefined〕——失败重试复用，seed 幂等）。 */
+  lifecycleSeedPresence: ReadonlyMap<string, string> | undefined;
   /** Y1c T21：frozenDocSeq 受理临界区 gate（v5.4⑪——**per-project mutex 非布尔 flag**）：
    *  freeze 在持=drain 循环每批前让位（已过检查的 beforeSync 帧不得在读后 apply——提交中的帧
    *  排队待 release 后处理；fn 读到的 doc 恒=applied 前缀态）。同一时刻至多一个 freeze 在持
@@ -476,6 +479,12 @@ export class CollabProjectActorService {
   /** ProjectDocIndex 读面（T24/T26 复用同实例——修正 #1：由 T9 建）。 */
   docIndexOf(pid: string): ProjectDocIndex { return this.stateOf(pid).docIndex; }
 
+  /** Y1c T26 I-1 收口：观察器结构面透出（gateway boot replayAll 接线——spool 不 import service，
+   *  结构类型 { staleProjectFencesInTx } 即 replay 回灌窗 stale 面；observer 未接线=undefined）。 */
+  get lifecycleObserverFace(): { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | undefined {
+    return this.lifecycleObserver;
+  }
+
   /** Q-I1：doc 卸载/项目消失的 per-project actor 状态清理（BEFORE_UNLOAD_DRAIN_CONTRACT.cleanupKey
    *  '(projectId,generation)' 契约兑现——gateway afterUnloadDocument/handleProjectsGone 链接线；
    *  无此钩=per-project ProjectDocIndex/states 无界驻留）。守卫：仅在队列空且 drain 静止时删除
@@ -499,7 +508,7 @@ export class CollabProjectActorService {
   private stateOf(pid: string): ProjectActorState {
     let st = this.states.get(pid);
     if (!st) {
-      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], appliedBytes: 0, flushing: false, lastFlushKickAt: 0, freeze: null, batchInFlight: false };
+      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], appliedBytes: 0, flushing: false, lastFlushKickAt: 0, freeze: null, batchInFlight: false, lifecycleSeedPresence: undefined };
       this.states.set(pid, st);
     }
     return st;
@@ -819,22 +828,18 @@ export class CollabProjectActorService {
       return;
     }
     // —— ④ WAL 批量追加+fsync（单 fsync；per-frame SHA-256 去重已在 submit 层）——
-    // Y1c T26：genesis 播种（每 doc 实例一次——先于本批任何帧 effect 派生：删除义务真值以
-    // 在册 presence 为基线；失败=fail-closed 拒全批〔帧未入 WAL，clean reject 交重发自愈〕）。
-    if (this.lifecycleObserver && !this.lifecycleSeededDocs.has(document)) {
-      try {
-        await this.lifecycleObserver.seedPresence(pid, document);
-        this.lifecycleSeededDocs.add(document);
-      } catch (err) {
-        for (const item of admitted) {
-          this.rejectItem(item, new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'lifecycle-seed-failed'));
-          this.clearDedup(pid, item.hashHex);
-        }
-        actorDrainBatchTotal.inc({ result: 'lifecycle-seed-failed' });
-        captureCollabException(err, { docName: projectDocName(pid), reason: 'lifecycle-seed-failed', connectionId: '-' });
-        this.host.logger.error(`lifecycle seed failed for ${pid}: ${(err as Error).message}——批全拒绝（fail-closed：义务真值以 PG 在册态为基线）`);
-        return;
+    // Y1c T26（M-1 收口）：genesis presence 快照（每 doc 实例一次、批前捕获——先于本批任何帧
+    // effect 派生；播种=flush inTx 同事务派生〔单写者临界区统一〕，失败随 flush 回滚重试，不另设
+    // 独立事务/拒绝面）。
+    if (this.lifecycleObserver && !this.lifecycleSeededDocs.has(document) && st.lifecycleSeedPresence === undefined) {
+      const presence = new Map<string, string>();
+      for (const [id, v] of document.getMap('nodes').entries()) {
+        if (!v || typeof v !== 'object') continue;
+        const t = (v as { get?: (k: string) => unknown }).get?.('type');
+        if (typeof t === 'string') presence.set(id, t);   // 词表门在观察器 deriveSeedWrites（M-4）
       }
+      st.lifecycleSeedPresence = presence;
+      this.lifecycleSeededDocs.add(document);
     }
     let appended: Awaited<ReturnType<CollabSpoolService['appendBatch']>>;
     try {
@@ -1042,7 +1047,7 @@ export class CollabProjectActorService {
    *  appendBatch 幂等〔updateHash/seq 复用〕；返回 landed=true=PG 落定〔维护帧 resolve 判据〕+
    *  errorKind=失败档（Q-I2 元组——单批单源）。breaker 样本：repo throw=recordFailure〔连接族推闸〕；
    *  ok=recordSuccess。 */
-  private async flushPrefixToPg(pid: string, prefix: AppliedEntry[]): Promise<PgFlushOutcome> {
+  private async flushPrefixToPg(pid: string, st: ProjectActorState, prefix: AppliedEntry[]): Promise<PgFlushOutcome> {
     // 熔断面②（T16 承继）：open 期 PG 腿首行短路（零 PG 等待——省 5s 事务上界）——帧已 WAL 安全
     // 未 confirm，false 交维护方退避梯（half-open 放行=本次即探测）
     if (this.pgBreaker?.isOpen()) return { landed: false, errorKind: null };
@@ -1079,15 +1084,28 @@ export class CollabProjectActorService {
       const w = this.spool.watermark(pid);
       const lastWalSeq = prefix[prefix.length - 1].walSeq;
       // Y1c T26：帧前缀义务 payload（AppliedEntry.effects per-walSeq buffer）与帧行同事务落库
-      //（帧↔义务原子——inTx 闭包在 appendBatch 事务内消费）
+      //（帧↔义务原子——inTx 闭包在 appendBatch 事务内消费；M-1：首批 genesis presence 同事务播种；
+      // 计数经闭包回传，落定后 observe〔M-3〕——失败回滚不计数）
       const frames: LifecycleFrame[] | undefined = this.lifecycleObserver
         ? prefix.map((e) => ({ walSeq: e.walSeq, effects: e.effects }))
         : undefined;
+      const seedPresence = st.lifecycleSeedPresence;
+      let lifecycleCounts: Awaited<ReturnType<CollabLifecycleObserverService['persistFramesInTx']>> | undefined;
       const r = await this.repo.appendBatch(pid, rows, {
         expectedPgSeq: w?.pgSeq ?? 0n,
         newPgSeq: lastWalSeq,
         walCheckpointSeq: w?.spoolHeadSeq ?? lastWalSeq,
-      }, frames ? async (tx) => { await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames); } : undefined);
+      }, frames ? async (tx) => {
+        lifecycleCounts = await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames, seedPresence ? { seedPresence } : undefined);
+      } : undefined);
+      if (r.ok && st.lifecycleSeedPresence !== undefined) st.lifecycleSeedPresence = undefined;   // 落定才消费（失败重试复用——seed 幂等）
+      if (r.ok && lifecycleCounts) {
+        if (lifecycleCounts.writes > 0) lifecycleRowsCreatedTotal.inc({ surface: 'frame' }, lifecycleCounts.writes);
+        if (lifecycleCounts.seeded > 0) lifecycleRowsCreatedTotal.inc({ surface: 'seed' }, lifecycleCounts.seeded);
+        for (const [kind, n] of Object.entries(lifecycleCounts.obligationsByKind)) {
+          if (n) lifecycleObligationsCreatedTotal.inc({ kind }, n);
+        }
+      }
       if (!r.ok) {
         this.host.logger.error(`actor PG append fenced for ${pid}——帧留 spool（磁盘安全），回灌由恢复链承接`);
         try {
@@ -1137,7 +1155,7 @@ export class CollabProjectActorService {
         const prefix = queue.slice(0, n);
         let outcome: PgFlushOutcome;
         try {
-          outcome = await this.flushPrefixToPg(pid, prefix);
+          outcome = await this.flushPrefixToPg(pid, st, prefix);
         } catch (err) {
           if ((err as { fk?: boolean })?.fk || (err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)) {
             // FK=项目已删写路径发现点：条目终态弃置+维护帧 fk 拒绝（persistence 帧通道 confirm+收割）

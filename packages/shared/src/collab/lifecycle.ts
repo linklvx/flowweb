@@ -3,6 +3,10 @@
 // NodeLifecycle+DeliveryFence+义务 closed enum 契约冻结。**CONTRACT-FREEZE**——类型+常量+纯函数；
 // 消费方=T26（义务观察器——先于/同切片 T22 落地，偏离 38⑳）/T22（deliverArtifact 权威切换）。
 // genesis 行=T7/T21 建。契约测试=lifecycle.spec.ts（TDD 红先行）。
+// 【T26 落地批注（2026-10-26）】本契约已被 T26 消费落地：apps/api collab-lifecycle-observer.service.ts
+// （生成面/播种面/fence 权威面——帧↔义务同事务原子）。lifecycleSeq 分配=应用层 per-project MAX+1
+// （单写者=actor flush 临界区——分配序≡提交序；无 DB sequence，本文件下方原「DB sequence」表述系
+// 设计期预设已按 M-5 勘正）。
 
 // ═══ §1 义务 closed enum（census⑪ 定员——docs/superpowers/census/y1c-t0-census.json item11）══════
 
@@ -40,7 +44,8 @@ export const NODE_LIFECYCLE_STATES = ['ACTIVE', 'DELETED'] as const;
 export type NodeLifecycleState = typeof NODE_LIFECYCLE_STATES[number];
 
 /** NodeLifecycle 行（spec §6.5——服务端只读观察已受理帧的 nodes/edges 事务产物；incarnation=PG lifecycleSeq）：
- *  - lifecycleSeq=per-project 单调数值序（DB sequence——BigInt wire string 化）
+ *  - lifecycleSeq=per-project 单调数值序（分配=应用层 per-project MAX+1〔单写者 actor flush
+ *    临界区——分配序≡提交序；无 DB sequence〕——BigInt wire string 化；T26 落地形态勘正 M-5）
  *  - **当前行 partial unique**：UNIQUE(projectId,nodeId) WHERE is_current——历史行保留
  *    （义务可从帧前缀确定性重建）；两项目同 nodeId 不互串（键含 projectId） */
 export interface NodeLifecycleRow {

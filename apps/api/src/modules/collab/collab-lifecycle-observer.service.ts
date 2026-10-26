@@ -24,6 +24,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type * as Y from 'yjs';
 import {
+  isFrameNodeTypeName,
   obligationsForFrameEffect,
   shouldEmitDeleteObligation,
   type FrameEffect,
@@ -31,6 +32,7 @@ import {
   type ObligationKind,
 } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { lifecycleFencesStaledTotal } from './store.metrics';
 
 /** per-walSeq 义务 buffer 形态（AppliedEntry.effects 的帧前缀投影——T9 收集器单源，无第二套解析器）。 */
 export interface LifecycleFrame {
@@ -141,56 +143,99 @@ export class CollabLifecycleObserverService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /** lifecycleSeq 分配读基线：per-project MAX+1（单写者=actor flush 临界区——分配序≡提交序，
-   *  迁移二未建 DB sequence（T21 表形无序列对象），MAX+1 事务内读满足「per-project 单调数值序」。 */
+   *  迁移二未建 DB sequence（T21 表形无序列对象），MAX+1 事务内读满足「per-project 单调数值序」）。 */
   private async nextSeqBase(tx: Prisma.TransactionClient, projectId: string): Promise<bigint> {
     const r = await tx.$queryRaw<{ max: bigint | null }[]>`
       SELECT MAX("lifecycleSeq") AS max FROM "NodeLifecycle" WHERE "projectId" = ${projectId}::text`;
     return (r[0]?.max ?? 0n) + 1n;
   }
 
-  /**
-   * genesis 播种（每项目/节点按需——T7/T21 未 seed 本卡补）：按 doc 在册 presence 注册 ACTIVE
-   * 当前行（幂等：已注册节点跳过；两项目同 nodeId 不互串=键含 projectId）。walSeq=0=genesis 锚
-   * （非帧触发——帧事件的 seen 键域 walSeq≥1 恒不冲突）。消费点=actor processBatch 首批前
-   * （先于任何帧 effect 派生——删除真值以在册 presence 为基线）。
-   */
-  async seedPresence(projectId: string, doc: Y.Doc): Promise<number> {
-    const nodeIds = [...doc.getMap('nodes').keys()].filter((id) => typeof id === 'string' && id !== '');
-    if (nodeIds.length === 0) return 0;
-    return this.prisma.$transaction(
-      async (tx) => {
-        const registered = await tx.nodeLifecycle.findMany({
-          where: { projectId, nodeId: { in: nodeIds }, isCurrent: true },
-          select: { nodeId: true },
-        });
-        const have = new Set(registered.map((r) => r.nodeId));
-        const missing = nodeIds.filter((id) => !have.has(id));
-        if (missing.length === 0) return 0;
-        let nextSeq = await this.nextSeqBase(tx, projectId);
-        const rows = missing.map((nodeId) => ({ projectId, nodeId, lifecycleSeq: nextSeq++, isCurrent: true, state: 'ACTIVE' as NodeLifecycleState, walSeq: 0n }));
-        await tx.nodeLifecycle.createMany({ data: rows, skipDuplicates: true });
-        await tx.deliveryFence.createMany({
-          data: rows.map((r) => ({ projectId: r.projectId, nodeId: r.nodeId, fenceSeq: r.lifecycleSeq, state: 'ACTIVE' })),
-          skipDuplicates: true,
-        });
-        return rows.length;
-      },
-      { timeout: 5_000, maxWait: 1_000 },
-    );
+  /** fence 批量 upsert（I-2：单条 INSERT..ON CONFLICT DO UPDATE 多值——unnest 三数组；按 nodeId 去重
+   *  防同批同行二次影响〔ON CONFLICT DO UPDATE 不允许同行两次〕，后值胜=末事件语义）。 */
+  private async upsertFencesInTx(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+    vals: ReadonlyArray<{ nodeId: string; fenceSeq: bigint; state: NodeLifecycleState }>,
+  ): Promise<void> {
+    if (vals.length === 0) return;
+    const byNode = new Map<string, { nodeId: string; fenceSeq: bigint; state: NodeLifecycleState }>();
+    for (const v of vals) byNode.set(v.nodeId, v);
+    const rows = [...byNode.values()];
+    await tx.$executeRaw`
+      INSERT INTO "DeliveryFence" ("projectId", "nodeId", "fenceSeq", "state", "updatedAt")
+      SELECT ${projectId}::text, n, s, st, now()
+      FROM unnest(${rows.map((r) => r.nodeId)}::text[], ${rows.map((r) => r.fenceSeq)}::bigint[], ${rows.map((r) => r.state)}::text[]) AS t(n, s, st)
+      ON CONFLICT ("projectId", "nodeId") DO UPDATE SET "fenceSeq" = EXCLUDED."fenceSeq", "state" = EXCLUDED."state", "updatedAt" = now()`;
   }
 
   /**
-   * 帧前缀义务落库（帧↔义务原子——经 appendBatch inTx 钩在帧行+水位 CAS 同事务内执行）：
-   * DB 读基线（isCurrent 投影+批 walSeq 区间已落事件）→ deriveLifecycleWrites 确定性派生 →
-   * 写 NodeLifecycle（翻转旧行+新行）/DeliveryFence upsert/LifecycleObligation（PENDING，
-   * unique(projectId,nodeId,kind,walSeq) 幂等）。失败=整事务回滚（帧行同回滚——原子性双向）。
+   * genesis 播种派生（纯函数——M-4 词表门：isFrameNodeTypeName 与 collector NODE_CREATED/RESTORED
+   * 门同滤〔词表外 type 节点零播种——「存活期无行/重载后播种/删除时反发义务」漂移消除〕）。
+   * presence=doc 在册节点 id→type 快照（actor 首批前捕获）；registered=DB isCurrent 行投影；
+   * 已注册节点产 fence 重对齐值（I-1 恢复回路：fenceSeq==当前行 lifecycleSeq 不变量重建——
+   * replayAll stale 后 presence 观测即复活），未注册节点产 genesis 行（walSeq=0 锚）。
+   */
+  static deriveSeedWrites(
+    presence: ReadonlyMap<string, string>,
+    registered: ReadonlyMap<string, NodeCurrentState>,
+    nextSeq: bigint,
+  ): { rows: Array<{ nodeId: string; lifecycleSeq: bigint }>; fences: Array<{ nodeId: string; fenceSeq: bigint; state: NodeLifecycleState }>; nextSeq: bigint } {
+    const rows: Array<{ nodeId: string; lifecycleSeq: bigint }> = [];
+    const fences: Array<{ nodeId: string; fenceSeq: bigint; state: NodeLifecycleState }> = [];
+    let seq = nextSeq;
+    for (const [id, type] of presence) {
+      if (!isFrameNodeTypeName(type)) continue;                       // M-4：词表门（collector 对齐）
+      const cur = registered.get(id);
+      if (cur) {
+        fences.push({ nodeId: id, fenceSeq: cur.lifecycleSeq, state: cur.state });   // 重对齐（不写 lifecycle 行）
+      } else {
+        const lifecycleSeq = seq++;
+        rows.push({ nodeId: id, lifecycleSeq });
+        fences.push({ nodeId: id, fenceSeq: lifecycleSeq, state: 'ACTIVE' });
+      }
+    }
+    return { rows, fences, nextSeq: seq };
+  }
+
+  /**
+   * 帧前缀义务落库（帧↔义务原子——经 appendBatch inTx 钩在帧行+水位 CAS 同事务内执行；I-2 批量化：
+   * 事务内 round trip O(事件数)→O(1)——翻转合一 updateMany/新行一次 createMany/fence 单条 raw 多值/
+   * 义务一次 createMany）。失败=整事务回滚（帧行同回滚——原子性双向）。幂等：seen 键跳过重derive+
+   * 义务 unique(projectId,nodeId,kind,walSeq)——flush 重试/ambiguous commit 安全。
+   * M-1：opts.seedPresence=首批 genesis 播种（presence 与帧派生同事务=单写者临界区统一——选型论证：
+   * 独立事务形态=第二写者〔与 flush 临界区的 MAX+1 分配无序〕，同事务收编后 seed/派生/帧行/水位四者
+   * 原子且分配单点；skipDuplicates 静默跳行结构性不可达〔同事务 findMany 先见已注册集〕，实插计数经
+   * createMany 返回值显式可观测）。
    */
   async persistFramesInTx(
     tx: Prisma.TransactionClient,
     projectId: string,
     frames: readonly LifecycleFrame[],
-  ): Promise<number> {
-    // 生命周期 relevant 帧（NODE_* 族）+受影响节点集
+    opts?: { seedPresence?: ReadonlyMap<string, string> },
+  ): Promise<{ writes: number; seeded: number; obligations: number; obligationsByKind: Partial<Record<ObligationKind, number>> }> {
+    const counts = { writes: 0, seeded: 0, obligations: 0, obligationsByKind: {} as Partial<Record<ObligationKind, number>> };
+    let baseSeq = 0n;
+    // —— ① genesis 播种（M-1：先于帧派生——删除真值以在册 presence 为基线）——
+    if (opts?.seedPresence && opts.seedPresence.size > 0) {
+      const regRows = await tx.nodeLifecycle.findMany({
+        where: { projectId, nodeId: { in: [...opts.seedPresence.keys()] }, isCurrent: true },
+        select: { nodeId: true, lifecycleSeq: true, state: true },
+      });
+      const registered = new Map<string, NodeCurrentState>();
+      for (const r of regRows) registered.set(r.nodeId, { lifecycleSeq: r.lifecycleSeq, state: r.state as NodeLifecycleState });
+      baseSeq = await this.nextSeqBase(tx, projectId);
+      const seed = CollabLifecycleObserverService.deriveSeedWrites(opts.seedPresence, registered, baseSeq);
+      if (seed.rows.length > 0) {
+        const ins = await tx.nodeLifecycle.createMany({
+          data: seed.rows.map((r) => ({ projectId, nodeId: r.nodeId, lifecycleSeq: r.lifecycleSeq, isCurrent: true, state: 'ACTIVE' as NodeLifecycleState, walSeq: 0n })),
+          skipDuplicates: true,
+        });
+        counts.seeded = ins.count;   // 显式实插计数（M-1：静默跳行不可达——同事务先读已注册集）
+      }
+      await this.upsertFencesInTx(tx, projectId, seed.fences);
+      baseSeq = seed.nextSeq;
+    }
+    // —— ② 帧事件派生（I-2 批量化）——
     const nodeIds = new Set<string>();
     let minW: bigint | null = null;
     let maxW: bigint | null = null;
@@ -204,8 +249,7 @@ export class CollabLifecycleObserverService {
         }
       }
     }
-    if (nodeIds.size === 0) return 0;
-    // DB 基线读：当前行（isCurrent）+批 walSeq 区间已落事件（幂等重derive 跳过面）
+    if (nodeIds.size === 0) return counts;
     const ids = [...nodeIds];
     const currentRows = await tx.nodeLifecycle.findMany({
       where: { projectId, nodeId: { in: ids }, isCurrent: true },
@@ -219,36 +263,76 @@ export class CollabLifecycleObserverService {
     const seen = new Set<string>();
     for (const r of currentRows) current.set(r.nodeId, { lifecycleSeq: r.lifecycleSeq, state: r.state as NodeLifecycleState });
     for (const r of seenRows) seen.add(lifecycleSeenKey(r.nodeId, r.walSeq, r.state as NodeLifecycleState));
-    const { writes } = deriveLifecycleWrites(frames, { current, seen, nextSeq: await this.nextSeqBase(tx, projectId) });
-    for (const w of writes) {
-      if (w.flipPrev) {
-        await tx.nodeLifecycle.updateMany({
-          where: { projectId, nodeId: w.nodeId, isCurrent: true },
-          data: { isCurrent: false },
-        });
-      }
-      await tx.nodeLifecycle.createMany({
-        data: [{ projectId, nodeId: w.nodeId, lifecycleSeq: w.newSeq, isCurrent: true, state: w.state, walSeq: w.walSeq }],
-        skipDuplicates: true,
+    const { writes } = deriveLifecycleWrites(frames, { current, seen, nextSeq: baseSeq > 0n ? baseSeq : await this.nextSeqBase(tx, projectId) });
+    if (writes.length === 0) return counts;
+    // 翻转合一：节点首事件 flipPrev=true ⇒ DB 存在旧当前行（批内后续事件的翻转目标=批内前行——直插 isCurrent=false）
+    const firstIdxByNode = new Map<string, number>();
+    for (let i = 0; i < writes.length; i++) if (!firstIdxByNode.has(writes[i].nodeId)) firstIdxByNode.set(writes[i].nodeId, i);
+    const flipNodes = [...new Set(writes.filter((w, i) => w.flipPrev && firstIdxByNode.get(w.nodeId) === i).map((w) => w.nodeId))];
+    if (flipNodes.length > 0) {
+      await tx.nodeLifecycle.updateMany({
+        where: { projectId, nodeId: { in: flipNodes }, isCurrent: true },
+        data: { isCurrent: false },
       });
-      await tx.deliveryFence.upsert({
-        where: { projectId_nodeId: { projectId, nodeId: w.nodeId } },
-        create: { projectId, nodeId: w.nodeId, fenceSeq: w.newSeq, state: w.state },
-        update: { fenceSeq: w.newSeq, state: w.state },
-      });
-      if (w.obligations.length > 0) {
-        await tx.lifecycleObligation.createMany({
-          data: w.obligations.map((kind) => ({ projectId, nodeId: w.nodeId, kind, walSeq: w.walSeq })),
-          skipDuplicates: true,   // unique(projectId,nodeId,kind,walSeq)——flush 重试幂等
-        });
-      }
     }
-    return writes.length;
+    // 每节点末事件=当前行（同帧 delete+restore 两行次序可分辨：中间行 isCurrent=false）
+    const lastByNode = new Map<string, LifecycleEventWrite>();
+    for (const w of writes) lastByNode.set(w.nodeId, w);
+    await tx.nodeLifecycle.createMany({
+      data: writes.map((w) => ({
+        projectId, nodeId: w.nodeId, lifecycleSeq: w.newSeq,
+        isCurrent: lastByNode.get(w.nodeId) === w,
+        state: w.state, walSeq: w.walSeq,
+      })),
+      skipDuplicates: true,
+    });
+    // fence=每节点末事件行（批量单条 raw——中间事件行不投影 fence）
+    await this.upsertFencesInTx(tx, projectId, [...lastByNode.values()].map((w) => ({ nodeId: w.nodeId, fenceSeq: w.newSeq, state: w.state })));
+    const obligations = writes.flatMap((w) => w.obligations.map((kind) => ({ projectId, nodeId: w.nodeId, kind, walSeq: w.walSeq })));
+    if (obligations.length > 0) {
+      await tx.lifecycleObligation.createMany({ data: obligations, skipDuplicates: true });
+      counts.obligations = obligations.length;
+      for (const o of obligations) counts.obligationsByKind[o.kind] = (counts.obligationsByKind[o.kind] ?? 0) + 1;
+    }
+    counts.writes = writes.length;
+    return counts;
   }
 
   /**
-   * 交付 fence 权威判定（T22 deliverArtifact 消费面——node-deleted 权威自 T22 起从 doc
-   * data.written:false 切换为本表）：fence 与当前 lifecycle 行两读对拍 evaluateDeliveryFence。
+   * 项目级 fence stale（I-1 收口：replayAll 回灌窗——replay 机械落帧行不派生 effects，生命周期表
+   * 维持 stale-ACTIVE 且 fenceSeq==lifecycleSeq 双陈旧匹配=交付逃逸洞）。fenceSeq 置 0 制造不匹配
+   * →fence-stale fail-closed（交付拒）直至下一生命周期事件/presence 播种重对齐；与回灌帧行同事务
+   * （appendBatch inTx——原子：行在 ⇒ fence 已 stale）。语义终态（帧前缀重 derive）归 T27 恢复链。
+   */
+  async staleProjectFencesInTx(tx: Prisma.TransactionClient, projectId: string): Promise<number> {
+    const n = await tx.$executeRaw`
+      UPDATE "DeliveryFence" SET "fenceSeq" = 0, "updatedAt" = now()
+      WHERE "projectId" = ${projectId}::text AND "fenceSeq" <> 0`;
+    lifecycleFencesStaledTotal.inc(n);
+    return n;
+  }
+
+  /**
+   * 交付 fence 权威判定（M-2：tx 版=T22 deliverArtifact 交付事务内消费面——DeliveryFence 行
+   * FOR UPDATE 锁读串行化：判定与后续 artifact 写同事务不可插队）。判定单源=evaluateDeliveryFence。
+   */
+  async deliveryFenceCheckInTx(tx: Prisma.TransactionClient, projectId: string, nodeId: string): Promise<DeliveryFenceVerdict> {
+    const fenceRows = await tx.$queryRaw<{ fenceSeq: bigint; state: string }[]>`
+      SELECT "fenceSeq", state FROM "DeliveryFence"
+      WHERE "projectId" = ${projectId}::text AND "nodeId" = ${nodeId}::text FOR UPDATE`;
+    const currentRow = await tx.nodeLifecycle.findFirst({
+      where: { projectId, nodeId, isCurrent: true },
+      select: { lifecycleSeq: true, state: true },
+    });
+    return evaluateDeliveryFence(
+      fenceRows[0] ? { fenceSeq: fenceRows[0].fenceSeq, state: fenceRows[0].state } : null,
+      currentRow ? { lifecycleSeq: currentRow.lifecycleSeq, state: currentRow.state as NodeLifecycleState } : undefined,
+    );
+  }
+
+  /**
+   * 交付 fence 权威判定（非事务版——**advisory-only**：无行锁，交付事务外预检/观测面；权威消费
+   * 必须用 deliveryFenceCheckInTx〔M-2〕——判定与 artifact 写之间存在 TOCTOU 窗）。
    */
   async deliveryFenceCheck(projectId: string, nodeId: string): Promise<DeliveryFenceVerdict> {
     const fence = await this.prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId, nodeId } } });
@@ -262,3 +346,6 @@ export class CollabLifecycleObserverService {
     );
   }
 }
+
+/** genesis 播种派生（模块级导出=静态方法别名——deriveSeedWrites 单源；词表门 M-4）。 */
+export const deriveSeedWrites = CollabLifecycleObserverService.deriveSeedWrites;

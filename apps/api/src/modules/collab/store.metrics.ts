@@ -1322,3 +1322,22 @@ export const docUnloadBlockedTotal = new Counter({
   help: 'beforeUnloadDocument 拒绝卸载次数（applied 前缀未能 drain 至 PG——doc 常驻 fail-closed；PG 不可用/隔离/fenced 档）',
   registers: [register],
 });
+
+// ═══ Y1c T26（双评审收口 M-3）：生命周期义务生成面遥测 ═════════════════════════════════════
+export const lifecycleRowsCreatedTotal = new Counter({
+  name: 'collab_lifecycle_rows_created_total',
+  help: 'NodeLifecycle 行生成计数（surface=seed 播种〔presence/重对齐〕|frame 帧派生——M-1 同事务单写者面）',
+  labelNames: ['surface'],
+  registers: [register],
+});
+export const lifecycleObligationsCreatedTotal = new Counter({
+  name: 'collab_lifecycle_obligations_created_total',
+  help: 'LifecycleObligation 生成计数（kind=closed enum 单源 lifecycle.ts OBLIGATION_KINDS——#11 生成面；消费面=T22+/sweeper）',
+  labelNames: ['kind'],
+  registers: [register],
+});
+export const lifecycleFencesStaledTotal = new Counter({
+  name: 'collab_lifecycle_fences_staled_total',
+  help: 'replayAll 回灌窗 fence stale 打点计数（I-1 收口：stale-ACTIVE 交付逃逸 fail-closed 面——行数非调用数）',
+  registers: [register],
+});

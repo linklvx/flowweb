@@ -1725,20 +1725,32 @@ export class CollabSpoolService {
     }
   }
 
-  /** V16+X8：启动回灌——总墙钟预算+固定退避+每帧有界重试环+合并上界（语义不变，WAL 协议无涉）。 */
+  /** V16+X8：启动回灌——总墙钟预算+固定退避+每帧有界重试环+合并上界（语义不变，WAL 协议无涉）。
+   *  Y1c T26 I-1 收口：opts.lifecycleObserver 在场时回灌帙与「项目级 fence stale」同事务落定
+   *  （appendBatch inTx）——replay 机械落帙行不派生 effects，生命周期表维持 stale-ACTIVE 且
+   *  fenceSeq==lifecycleSeq 双陈旧匹配=交付逃逸洞；fenceSeq=0 制造不匹配→fence-stale fail-closed
+   *  直至下一生命周期事件/presence 播种重对齐（语义终态=帧前缀重 derive，T27 恢复链——plan 锚）。 */
   async replayAll(
     repo: Pick<CanvasDocUpdateRepository, 'appendBatch'>,
-    opts?: { budgetMs?: number; retryDelayMs?: number; maxAttempts?: number; projectIds?: string[] },
+    opts?: {
+      budgetMs?: number; retryDelayMs?: number; maxAttempts?: number; projectIds?: string[];
+      /** 结构面（spool 不 import service）：stale 与回灌帙同事务。 */
+      lifecycleObserver?: { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> };
+    },
   ): Promise<{ replayed: number; failed: number; discarded: number }> {
     const deadline = Date.now() + (opts?.budgetMs ?? CollabSpoolService.REPLAY_BUDGET_MS);
     const retryDelay = opts?.retryDelayMs ?? CollabSpoolService.REPLAY_RETRY_MS;
     const maxAttempts = opts?.maxAttempts ?? CollabSpoolService.REPLAY_MAX_ATTEMPTS;
     let replayed = 0, failed = 0, discarded = 0;
-    // T9 新表形态：回灌行=per-frame 单帧行（walSeq 随帧透出——行 seq=原帧 walSeq，「WAL 损坏只允许丢
+    // T9 新表形态：回灌行=per-frame 单帙行（walSeq 随帧透出——行 seq=原帧 walSeq，「WAL 损坏只允许丢
     // walSeq>pgSeq 的帧」的 PG 前缀可证性由此保持；X8 合并上界仍管每轮 IO 形状——合批进同事务多行）。
     const genOf = (projectId: string) => this.currentGeneration(projectId);
     for (const projectId of opts?.projectIds ?? this.keys()) {
       if (Date.now() > deadline) return { replayed, failed, discarded };   // I2：项目间守预算
+      // Y1c T26 I-1：stale inTx（与回灌帙同事务——幂等：每轮重复打点=行值恒 0 no-op）
+      const staleInTx = opts?.lifecycleObserver
+        ? async (tx: import('@prisma/client').Prisma.TransactionClient) => { await opts!.lifecycleObserver!.staleProjectFencesInTx(tx, projectId); }
+        : undefined;
       for (;;) {                                                 // X8：分轮
         const frames = (await this.peek(projectId)).slice(0, CollabSpoolService.REPLAY_MERGE_MAX_FRAMES);
         if (frames.length === 0) break;
@@ -1752,7 +1764,7 @@ export class CollabSpoolService {
           //（恢复=从 pgSeq 重放——T13 编排，本处机械推进）。
           const r = await repo.appendBatch(projectId, frames.map((f) => CanvasDocUpdateRepository.singleFrameRow({
             generation: genOf(projectId), walSeq: f.walSeq, frameHash: frameHashOf(f.payload), update: f.payload,
-          })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq });
+          })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq }, staleInTx);
           if (!r.ok) throw new Error(`appendBatch fenced (${r.reason})`);
           await this.confirm(projectId, frames.map((f) => f.frameId));
           replayed += frames.length;
@@ -1770,7 +1782,7 @@ export class CollabSpoolService {
               try {
                 const r2 = await repo.appendBatch(projectId, [CanvasDocUpdateRepository.singleFrameRow({
                   generation: genOf(projectId), walSeq: frame.walSeq, frameHash: frameHashOf(frame.payload), update: frame.payload,
-                })], { expectedPgSeq: null, newPgSeq: frame.walSeq, walCheckpointSeq: frame.walSeq });
+                })], { expectedPgSeq: null, newPgSeq: frame.walSeq, walCheckpointSeq: frame.walSeq }, staleInTx);
                 if (!r2.ok) throw new Error(`appendBatch fenced (${r2.reason})`, { cause: e });
                 await this.confirm(projectId, [frame.frameId]);
                 replayed += 1;

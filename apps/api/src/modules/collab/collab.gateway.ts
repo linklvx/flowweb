@@ -911,7 +911,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           this.spool.setProjectGeneration(p.projectId, p.generation);
           this.spool.seedWalSeqFromPg(p.projectId, p.pgSeq);
         }
-        const replay = await this.spool.replayAll(this.repo);
+        // Y1c T26 I-1 收口：回灌帙与项目级 fence stale 同事务（observer 经 actor 结构面透出——
+        // DI 单例接线；直构自建路径无 observer=不 stale〔恢复窗交付面由 T22 权威切换前置确认辖〕）。
+        const replay = await this.spool.replayAll(this.repo, { lifecycleObserver: this.projectActor.lifecycleObserverFace });
         if (replay.failed > 0) {
           this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded }));
         }

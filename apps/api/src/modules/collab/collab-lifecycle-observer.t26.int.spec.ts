@@ -33,7 +33,7 @@ function buildActor(doc: Y.Doc, pid: string): CollabProjectActorService {
   const documents = new Map([[`project:${pid}`, doc]]);
   const actor = new CollabProjectActorService(spool, repo, undefined, new CollabLifecycleObserverService(prisma as never));
   actor.bindHost({
-    logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), verbose: vi.fn(), fatal: vi.fn() } as unknown as Logger,
+    logger: { log: vi.fn(), warn: (m: string) => console.warn("[warn]", m), error: (m: string) => console.error("[error]", m), debug: vi.fn(), verbose: vi.fn(), fatal: vi.fn() } as unknown as Logger,
     documents: () => documents,
     hardClose: () => {},
     isQuotaFrozen: () => false,
@@ -277,4 +277,105 @@ maybe('Y1c T26 生命周期义务观察器（真 PG）', () => {
     const obSeed = await prisma.lifecycleObligation.findMany({ where: { projectId: PID_A, nodeId: 'nSeed' } });
     expect(obSeed.map((o) => o.kind).sort()).toEqual(['EXEC_FINALIZE', 'FEED_TOMBSTONE', 'NODE_DELETED']);
   }, 30_000);
+
+// ═══ Y1c T26 双评审收口批（I-1 stale-ACTIVE 逃逸+M-4 播种词表+I-2 大帧绿证）═══════════════
+describe('Y1c T26 收口批（真 PG）', () => {
+  it('红（I-1）：replayAll 回灌窗 stale-ACTIVE 交付逃逸——双陈旧匹配态修前放行/修后 fence-stale 拒（inTx 同事务锚）', async () => {
+    // 布景：nE 经帧注册（NodeLifecycle ACTIVE+fence 对齐）——构造「生命周期表滞后于 doc」的崩溃前形态
+    const doc = new Y.Doc();
+    const actor = buildActor(doc, PID_A);
+    const f = makeFrames();
+    await submitAndFlush(actor, PID_A, f.create('nE'));
+    const fence0 = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: PID_A, nodeId: 'nE' } } });
+    expect(fence0?.state).toBe('ACTIVE');
+    // 删除帧只落 spool（WAL fsync 成功+PG flush 未发生=崩溃窗——actor 侧 flush 缺席）
+    const delFrame = f.del('nE');
+    await spool.appendBatch(PID_A, [delFrame]);
+    // boot 恢复路径：replayAll 机械回灌帧行（观察器在场——红=现行 opts 被忽略→三表不动）
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const r = await spool.replayAll(repo, { projectIds: [PID_A], lifecycleObserver: observer });
+    expect(r.replayed).toBe(1);
+    // 逃逸断言（红=修前 evaluateDeliveryFence 走「ACTIVE 匹配放行」档——对已删节点放行交付）
+    const verdict = await observer.deliveryFenceCheck(PID_A, 'nE');
+    expect(verdict).toMatchObject({ allow: false, reason: 'fence-stale' });
+    // 修后语义：NodeLifecycle 仍 ACTIVE（replay 不派生 effects——重 derive 终态归 T27 恢复链）；fenceSeq=0≠当前行
+    const row = await prisma.nodeLifecycle.findFirst({ where: { projectId: PID_A, nodeId: 'nE', isCurrent: true } });
+    expect(row?.state).toBe('ACTIVE');
+    const fence1 = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: PID_A, nodeId: 'nE' } } });
+    expect(fence1?.fenceSeq).toBe(0n);
+    // 同事务锚：stale 与回灌帧行同事务（fence 已 stale ⇒ replay 行已在——walSeq 推进证据）
+    const head = await prisma.canvasDoc.findUnique({ where: { projectId: PID_A }, select: { pgSeq: true } });
+    expect(head && head.pgSeq > fence0!.fenceSeq).toBe(true);   // pgSeq 已越过注册帧（replay 帧落定）
+  }, 30_000);
+
+  it('（I-1 恢复回路）stale 后 presence 播种重对齐：在册 present 节点 fenceSeq==当前 lifecycleSeq 不变量重建→放行', async () => {
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const doc = new Y.Doc();
+    const actor = buildActor(doc, PID_A);
+    const f = makeFrames();
+    await submitAndFlush(actor, PID_A, f.create('nF'));           // 注册+对齐
+    let fence = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: PID_A, nodeId: 'nF' } } });
+    expect(fence?.state).toBe('ACTIVE');
+    // replay 窗形态：项目级 stale（replayAll inTx 同款直调）
+    await prisma.$transaction(async (tx) => { await observer.staleProjectFencesInTx(tx as never, PID_A); });
+    const mid = await observer.deliveryFenceCheck(PID_A, 'nF');
+    expect(mid).toMatchObject({ allow: false, reason: 'fence-stale' });   // fail-closed 窗
+    // 重启形态：新 doc 实例含 nF（presence）+首批帧 → seed（inTx）重对齐 fence
+    const doc2 = new Y.Doc();
+    doc2.getMap('nodes').set('nF', new Y.Map([['type', 'textInput']]));
+    const actor2 = buildActor(doc2, PID_A);
+    const f2 = makeFrames();
+    await submitAndFlush(actor2, PID_A, f2.create('nOther'));
+    fence = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: PID_A, nodeId: 'nF' } } });
+    const cur = await prisma.nodeLifecycle.findFirst({ where: { projectId: PID_A, nodeId: 'nF', isCurrent: true } });
+    expect(fence?.state).toBe('ACTIVE');
+    expect(fence?.fenceSeq).toBe(cur?.lifecycleSeq);               // 不变量重建
+    const verdict = await observer.deliveryFenceCheck(PID_A, 'nF');
+    expect(verdict).toMatchObject({ allow: true });
+  }, 30_000);
+
+  it('红（M-4）：播种词表门——无效 type 节点不播种（isFrameNodeTypeName 与 collector NODE_* 门对齐）', async () => {
+    const doc = new Y.Doc();
+    doc.getMap('nodes').set('nBogus', new Y.Map([['type', 'not-a-real-type']]));   // 词表外
+    doc.getMap('nodes').set('nOk', new Y.Map([['type', 'textInput']]));
+    const actor = buildActor(doc, PID_B);
+    const f = makeFrames();
+    await submitAndFlush(actor, PID_B, f.create('nTrigger'));
+    const bogus = await prisma.nodeLifecycle.findMany({ where: { projectId: PID_B, nodeId: 'nBogus' } });
+    expect(bogus).toHaveLength(0);                                 // 红=现行 seedPresence 无词表门（注册 bogus）
+    const ok = await prisma.nodeLifecycle.findMany({ where: { projectId: PID_B, nodeId: 'nOk' } });
+    expect(ok).toHaveLength(1);                                    // 词表内正常播种
+  }, 30_000);
+
+  it('（I-2 绿证）大帧批落：单帧 300 节点创建+单帧 300 节点删除——600 行+900 义务全落+耗时记录', async () => {
+    const { lifecycleObligationsCreatedTotal } = await import('./store.metrics');
+    const oblBefore = (await lifecycleObligationsCreatedTotal.get()).values.reduce((s, v) => s + v.value, 0);
+    const doc = new Y.Doc();
+    const actor = buildActor(doc, PID_A);
+    // 单帧 300 创建（源 doc 单事务 300 set → 一 diff 帧 → 300 NODE_CREATED effects 一批派生）
+    const src = new Y.Doc();
+    let sv = Y.encodeStateVector(src);
+    src.transact(() => {
+      for (let i = 0; i < 300; i++) src.getMap('nodes').set(`nBulk${i}`, new Y.Map([['type', 'textInput']]));
+    });
+    const createFrame = Y.encodeStateAsUpdate(src, sv);
+    sv = Y.encodeStateVector(src);
+    src.transact(() => {
+      for (let i = 0; i < 300; i++) src.getMap('nodes').delete(`nBulk${i}`);
+    });
+    const deleteFrame = Y.encodeStateAsUpdate(src, sv);
+    const t0 = Date.now();
+    await submitAndFlush(actor, PID_A, createFrame);
+    await submitAndFlush(actor, PID_A, deleteFrame);
+    const dtMs = Date.now() - t0;
+    const rows = await prisma.nodeLifecycle.count({ where: { projectId: PID_A, nodeId: { startsWith: 'nBulk' } } });
+    expect(rows).toBe(600);                                        // 300 ACTIVE+300 DELETED（翻转+新行批量化）
+    const obligations = await prisma.lifecycleObligation.count({ where: { projectId: PID_A, nodeId: { startsWith: 'nBulk' } } });
+    expect(obligations).toBe(900);                                 // 300×三义务
+    const oblAfter =  (await lifecycleObligationsCreatedTotal.get()).values.reduce((s, v) => s + v.value, 0);
+    expect(oblAfter - oblBefore).toBeGreaterThanOrEqual(900);      // M-3 遥测：生成面计数
+    console.log(`[t26-i2-bulk] 300+300 事件单批管线（创建帧+删除帧 flush）耗时 ${dtMs}ms`);
+    expect(dtMs).toBeLessThan(60_000);                             // 松上界（正确性为主——耗时记录供观测）
+  }, 120_000);
+});
 });
