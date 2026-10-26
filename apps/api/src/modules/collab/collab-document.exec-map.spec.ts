@@ -2,15 +2,28 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 import { CollabDocumentService, applyWriteExecStatusToDoc } from './collab-document.service';
-import { execProjectionDroppedTotal, execOrphanBlockedTotal, execSeqStaleRejected } from '../execution/exec.metrics';
+import { execOrphanBlockedTotal } from '../execution/exec.metrics';
 
-/** B2/F2 批0.5-5：exec map 服务端唯一写者。真 Y.Doc 直驱——
- *  mock withSession 直接执行回调传 doc（gateway 直连细节与本任务无关；Y0c T15 写路径改道 seam 同步）。 */
-function buildService(doc: Y.Doc): CollabDocumentService {
-  // Y0a-2 X9 写意图受理门 + Y0a-3 T8 构造两参（gateway, repo）——stub 恒 ok/serving（本 spec 焦点在写路径语义）
+/** B2/F2 批0.5-5→Y1c T22（G5 同切片——doc.exec 停写）：writeExecStatus=RuntimeEvent exec.status
+ *  PG 写（Z99/Z111 代次守卫随 doc 写面退役——客户端 reducer nodeVersion 大者胜承担旧事件丢弃）。
+ *  本 spec 焦点：方法面事件发射契约（payload 形状/attempts 兜底）+零 doc 写（不变量⑦）+
+ *  applyWriteExecStatusToDoc 原语域（writeBatch 词汇表——T32 删码清单前的在役面）。 */
+import { vi } from 'vitest';
+
+function buildService(doc: Y.Doc, feedEvents: Array<Record<string, unknown>> = []): CollabDocumentService {
+  const fakeFeed = {
+    appendEvent: vi.fn(async (_pid: string, kind: string, factory: (seq: bigint) => Record<string, unknown>) => {
+      const payload = factory(1n);
+      feedEvents.push({ kind, ...payload });
+      return { feedSeq: 1n, generation: 0, docSeq: 0n };
+    }),
+    notifyProject: vi.fn(),
+  };
   const service = new CollabDocumentService(
     { isWritableOrDegraded: () => 'ok', isLeaseServing: () => true } as any,
     { readSnapshotOnly: async () => ({ state: null, updates: [], stateSeq: 0n }) } as any,
+    undefined,
+    fakeFeed as never,
   );
   (service as any).withSession = (_projectId: string, fn: (doc: Y.Doc) => unknown, _opts?: unknown) => fn(doc);
   return service;
@@ -29,137 +42,40 @@ const execEntry = (doc: Y.Doc, nodeId: string): Record<string, unknown> | undefi
 
 const totalOf = (m: any): number => Object.values(m.hashMap ?? {}).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
 
-describe('CollabDocumentService.writeExecStatus（exec map 服务端唯一写者）', () => {
-  it('写 doc.getMap("exec") 的 nodeId 条目（status/jobId/intentId/attempts——Z111 attempts 必填）', async () => {
+describe('Y1c T22：writeExecStatus 改 PG 写（RuntimeEvent exec.status——doc.exec 停写）', () => {
+  it('发射 exec.status 事件（nodeId/status/attempts——缺 attempts 兜 0）+零 doc 写（不变量⑦）+提交后 notify', async () => {
     const doc = new Y.Doc();
     seedNode(doc);
-    const service = buildService(doc);
-
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j1', intentId: 'i1', attempts: 0 });
-
-    expect(execEntry(doc, 'n1')).toEqual({ status: 'loading', jobId: 'j1', intentId: 'i1', attempts: 0 });
+    const events: Array<Record<string, unknown>> = [];
+    const svc = buildService(doc, events);
+    await svc.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 1, jobId: 'j1', intentId: 'i1' });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'exec.status', nodeId: 'n1', status: 'loading', attempts: 1 });
+    expect(doc.getMap('exec').size).toBe(0);   // 零 doc 写
+    expect((svc as any).feed.notifyProject).toHaveBeenCalledWith('p1');   // 事务提交后通知
   });
-
-  it('终态防倒退：已 done 再写 loading（同代次）→ 仍 done', async () => {
+  it('attempts/execSeq/errorCode 透传（payload 键集=EXEC_STATUS_KEYS 域）', async () => {
     const doc = new Y.Doc();
     seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'done', fileId: 'f1', attempts: 1 });
-
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2', attempts: 1 });
-
-    expect(execEntry(doc, 'n1')).toEqual({ status: 'done', fileId: 'f1', attempts: 1 }); // 迟到 loading 零覆盖
+    const events: Array<Record<string, unknown>> = [];
+    await buildService(doc, events).writeExecStatus('p1', 'n1', { status: 'error', attempts: 2, errorCode: 'E_X', execSeq: '7' });
+    expect(events[0]).toMatchObject({ nodeId: 'n1', status: 'error', attempts: 2, errorCode: 'E_X', execSeq: '7' });
   });
-
-  it('error 终态同样防倒退（同代次）', async () => {
+  it('受理门先行：lease 未持 → 503（事件零发射——与旧写面同门）', async () => {
+    const doc = new Y.Doc();
+    const service = new CollabDocumentService(
+      { isWritableOrDegraded: () => 'ok', isLeaseServing: () => false } as any,
+      { readSnapshotOnly: async () => ({ state: null, updates: [], stateSeq: 0n }) } as any,
+    );
+    await expect(service.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 1 })).rejects.toThrow(/503|ServiceUnavailable|collab/);
+  });
+  it('Z99/Z111 代次守卫随 doc 写面退役：迟到旧事件照发（客户端 reducer nodeVersion 大者胜丢弃——T22 语义迁移注记）', async () => {
     const doc = new Y.Doc();
     seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'error', error: 'boom', attempts: 1 });
-
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2', attempts: 1 });
-
-    expect(execEntry(doc, 'n1')).toEqual({ status: 'error', error: 'boom', attempts: 1 });
-  });
-
-  it('节点不存在不建条目（Y0c T11 Z4 存在性守卫——原「异步落地竞态 best-effort 建条目」语义翻转，规格行为变化非测试放松）', async () => {
-    const doc = new Y.Doc(); // nodes map 空——无 node 条目
-    const service = buildService(doc);
-
-    await service.writeExecStatus('p1', 'ghost', { status: 'loading', jobId: 'j1', attempts: 0 });
-
-    expect(execEntry(doc, 'ghost')).toBeUndefined(); // 不建孤儿条目（改前红=建条目；存量归 sweepOrphanExec 消化）
-  });
-
-  it('patch 语义：同 nodeId 第二次写补键不覆盖已有键，undefined 值跳过', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j1', attempts: 0 });
-
-    await service.writeExecStatus('p1', 'n1', { status: 'done', error: undefined, fileId: 'f9', attempts: 0 });
-
-    expect(execEntry(doc, 'n1')).toEqual({ status: 'done', jobId: 'j1', fileId: 'f9', attempts: 0 }); // jobId 保留、error 键未写入
-  });
-
-  it('skipped 非终态（Z88/Z99）：skipped 后同代次 done 可写', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'skipped', reason: 'NODE_BUSY', attempts: 1 });
-
-    await service.writeExecStatus('p1', 'n1', { status: 'done', fileId: 'f1', attempts: 1 });
-
-    expect(execEntry(doc, 'n1')!.status).toBe('done'); // skipped 不锁死——在飞 worker 的 done 照常落地
-  });
-});
-
-describe('Y0b-2 T5：writeExecStatus 守卫代次化 fail-closed（Z99/Z111）', () => {
-  it('Z111 缺 attempts 的迟到投影被拦 + exec_projection_dropped_total 计数（改前红=照写）', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'done', fileId: 'f1', attempts: 1 });
-    const before = totalOf(execProjectionDroppedTotal);
-
-    // 违约 patch：无 attempts（运行时构造——类型已必填，防御旧调用方/跨端直构）
-    await (service as any).writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2' });
-
-    expect(execEntry(doc, 'n1')!.status).toBe('done'); // fail-closed：缺字段即拦
-    expect(totalOf(execProjectionDroppedTotal)).toBeGreaterThan(before);
-  });
-
-  it('Z99 投影代次化：error(attempt1) → rearm 后 loading/done(attempt2) 可写（改前红=终态一刀切整体吞）', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'error', errorCode: 'X', error: 'boom', attempts: 1 });
-
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2', attempts: 2 });
-    expect(execEntry(doc, 'n1')!.status).toBe('loading'); // 新代次可写
-
-    await service.writeExecStatus('p1', 'n1', { status: 'done', fileId: 'f2', attempts: 2 });
-    expect(execEntry(doc, 'n1')!.status).toBe('done');
-  });
-
-  it('Z111 严格更老一律丢（不看终态）：stored loading(attempts2) 不被老代 error(attempts1) 覆盖 + dropped 计数', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2', attempts: 2 });
-    const before = totalOf(execProjectionDroppedTotal);
-
-    await service.writeExecStatus('p1', 'n1', { status: 'error', error: 'stale worker', attempts: 1 });
-
-    expect(execEntry(doc, 'n1')!.status).toBe('loading'); // 老代投影（非终态目标也）不倒退新代
-    expect(totalOf(execProjectionDroppedTotal)).toBeGreaterThan(before);
-  });
-
-  it('T19（v11.2 ③）旧代拒写专项计数：older-attempts 拒点 ⇒ exec_seq_stale_rejected +1（takeover 后旧 worker 迟到写的直接观测面）', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const service = buildService(doc);
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', jobId: 'j2', attempts: 2 });
-    const before = (execSeqStaleRejected as any).hashMap ? Object.values((execSeqStaleRejected as any).hashMap).reduce((s: number, v: any) => s + (v.value ?? 0), 0) : 0;
-
-    await service.writeExecStatus('p1', 'n1', { status: 'error', error: 'stale', attempts: 1 });
-
-    const after = Object.values((execSeqStaleRejected as any).hashMap).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
-    expect(after).toBe(before + 1);   // 改前红=计数器存在但不接线（值不增）
-  });
-
-  it('遗留 doc 条目兜底：stored 无 attempts（改动前条目）视作 0 代——请求级 attempts:0 同代不倒退终态、attempts:1 可写', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    // 直构遗留条目（服务端旧版本写入形态——无 attempts 键）
-    doc.getMap('exec').set('n1', new Y.Map(Object.entries({ status: 'done', fileId: 'f0' })));
-    const service = buildService(doc);
-
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 0 });
-    expect(execEntry(doc, 'n1')!.status).toBe('done'); // 0 代不得覆盖任何 ≥1 代；遗留视作 0 ⇒ 同代=终态保持
-
-    await service.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 1 });
-    expect(execEntry(doc, 'n1')!.status).toBe('loading'); // 新代可写
+    const events: Array<Record<string, unknown>> = [];
+    await buildService(doc, events).writeExecStatus('p1', 'n1', { status: 'error', attempts: 1 });
+    await buildService(doc, events).writeExecStatus('p1', 'n1', { status: 'loading', attempts: 2 });
+    expect(events).toHaveLength(2);   // 守卫不拦（旧 dropped 计数面退役——服务端不再持 exec 条目状态）
   });
 });
 
@@ -181,16 +97,13 @@ describe('Y0c T11（Z4/Z69 减法）：writeExecStatus 存在性守卫——节�
     expect(outcome).toEqual({ written: false, reason: 'node-deleted' }); // 钉设计决定：存在性守卫先于代次校验
   });
 
-  it('单写面计数：守卫触发 ⇒ exec_orphan_blocked_total +1（并列投影丢弃全集观测 cause=node-deleted）', async () => {
+  it('T22：单写面计数随 doc 写面退役——ghost 节点事件照发（孤儿观察归客户端墓碑；计数面退役注记锚）', async () => {
     const doc = new Y.Doc();
-    const service = buildService(doc);
+    const events: Array<Record<string, unknown>> = [];
     const before = totalOf(execOrphanBlockedTotal);
-    const droppedBefore = totalOf(execProjectionDroppedTotal);
-
-    await service.writeExecStatus('p1', 'ghost', { status: 'done', attempts: 1 });
-
-    expect(totalOf(execOrphanBlockedTotal)).toBe(before + 1);              // Z4 专项信号（改前红=指标不存在）
-    expect(totalOf(execProjectionDroppedTotal)).toBe(droppedBefore + 1);   // node-deleted 同时进投影丢弃全集（现有条件自然覆盖）
+    await buildService(doc, events).writeExecStatus('p1', 'ghost', { status: 'done', attempts: 1 });
+    expect(events).toHaveLength(1);   // 事件照发（节点已删则客户端按墓碑忽略——spec §7 docSeq 应用规则）
+    expect(totalOf(execOrphanBlockedTotal)).toBe(before);                 // 计数面退役（doc 无 exec 条目即无孤儿面）
     expect(execEntry(doc, 'ghost')).toBeUndefined();
   });
 });

@@ -64,12 +64,11 @@ let watchInFlight = false;
 /** 会话纪元：resetMediaFacts 自增——watcher 在飞轮次按 seq 判废（项目切换/teardown 丢弃旧响应，裁定原文）。 */
 let sessionSeq = 0;
 // F4c 降尺度告知态（会话生命周期——与 pendingFacts/lazyQueue 同层，resetMediaFacts 清空）：
-// downscaledNotified=已告知 mediaId 集（每会话恰一次）；pendingDownscaledDims=暂存路径的原尺寸
+// notifiedFactVersion=已告知 (mediaId,factVersion) 集（T22 键升级）；pendingDownscaledDims=暂存路径的原尺寸
 // 记录（pending 条目不携 payload 面——consume 时按 mediaId 回查告知）。驻留上界=pendingFacts
 // 60s TTL 窗（P2-1 收口）：消费窗顺带 prune「不在 pendingFacts 中的 id」——记录不越过其暂存
 // 条目存活（TTL 丢弃后下次重连全量拉/lazy 补拉重 ingest 会重记录，自愈非缓存承诺）。
-let downscaledNotified = new Set<string>();
-let pendingDownscaledDims = new Map<string, { width: number; height: number }>();
+let pendingDownscaledDims = new Map<string, { width: number; height: number; factVersion: string }>();
 
 function teamIdOf(): string | undefined {
   return useTeamStore.getState().currentTeamId ?? undefined;
@@ -166,24 +165,31 @@ async function onProcessingWatchTick(): Promise<void> {
 
 /** 响应行内 natural fact 的 downscaledFrom 结构校验（wire payload 无 schema——防坏数据炸渲染，
  *  与 parseFactRow 同哲学：非法形态视同未降尺度）。 */
-function downscaledFromOf(row: MediaFactsResponseRow): { width: number; height: number } | null {
+function downscaledFromOf(row: MediaFactsResponseRow): { width: number; height: number; factVersion: string } | null {
   for (const f of row.facts) {
     if (f.factType !== 'natural') continue;
     const d = (f.payload as Partial<MediaNaturalFactPayload>).downscaledFrom;
     if (typeof d?.width === 'number' && typeof d?.height === 'number'
       && Number.isFinite(d.width) && Number.isFinite(d.height) && d.width > 0 && d.height > 0) {
-      return { width: d.width, height: d.height };
+      return { width: d.width, height: d.height, factVersion: latestFactVersionOf(row) };
     }
   }
   return null;
 }
 
-/** 告知恰一次（每 mediaId 每会话——Set 去重；antd 现有形态同 canvasCollabRuntime message 用法）。
- *  文案不携「40MP」字面（P2-4）——与 api MAX_IMAGE_PIXELS 解耦，免双源漂移。 */
-function notifyDownscaled(mediaId: string, dims: { width: number; height: number }): void {
-  if (downscaledNotified.has(mediaId)) return;
-  downscaledNotified.add(mediaId);
+/** 告知恰一次（T22 键升级=(mediaId,factVersion)——shouldNotifyDownscaled 单源；antd 现有形态
+ *  同 canvasCollabRuntime message 用法）。文案不携「40MP」字面（P2-4）——与 api MAX_IMAGE_PIXELS
+ *  解耦，免双源漂移。 */
+function notifyDownscaled(mediaId: string, factVersion: string, dims: { width: number; height: number }): void {
+  if (!shouldNotifyDownscaled(mediaId, factVersion)) return;
   message.info(`图片超过尺寸上限，已自动缩小至支持尺寸（原 ${dims.width}×${dims.height}）`);
+}
+
+/** 行内最新 natural factVersion（downscaledFrom 告知版本键——取该 mediaId 事实行最大版本）。 */
+function latestFactVersionOf(row: MediaFactsResponseRow): string {
+  let max = '0';
+  for (const f of row.facts) if (BigInt(f.factVersion) > BigInt(max)) max = f.factVersion;
+  return max;
 }
 
 /** 暂存路径消费点收口（consumePendingFacts 调用后）：被消费 mediaId 有原尺寸记录即告知+移除；
@@ -197,7 +203,7 @@ function settlePendingDownscaled(
     const dims = pendingDownscaledDims.get(id);
     if (dims) {
       pendingDownscaledDims.delete(id);
-      notifyDownscaled(id, dims);
+      notifyDownscaled(id, dims.factVersion, dims);
     }
   }
   if (pendingDownscaledDims.size > 0) {
@@ -217,14 +223,14 @@ function ingestRows(rows: readonly MediaFactsResponseRow[], getDocIds: () => Rea
       direct.push(row);
       // F4c：doc 已引用即到即告知（与 store 条目正交——纯 natural 行不建条目仍告知）。
       const dims = downscaledFromOf(row);
-      if (dims) notifyDownscaled(row.mediaId, dims);
+      if (dims) notifyDownscaled(row.mediaId, latestFactVersionOf(row), dims);
     } else {
       // fact 先于 fileId 到达——暂存短 TTL Map（fileId 到达即消费；TTL 过期丢到下次重连全量拉）。
       // T17 登记收口：state/natural 两类行 union 暂存（stagePendingFactRows——容量帽在其内）。
       pendingFacts = stagePendingFactRows(pendingFacts, row.mediaId, row.facts, Date.now());
       // F4c：暂存路径不即时告知（画布未引用防噪音）——记录原尺寸，fileId 到达消费窗告知。
       const dims = downscaledFromOf(row);
-      if (dims && !downscaledNotified.has(row.mediaId)) pendingDownscaledDims.set(row.mediaId, dims);
+      if (dims) pendingDownscaledDims.set(row.mediaId, dims);
     }
   }
   if (direct.length > 0) {
@@ -258,8 +264,9 @@ export function resetMediaFacts(): void {
   pendingFacts = new Map();
   lazyQueue = new Set();
   knownMediaIds = new Set();
-  downscaledNotified = new Set();          // F4c：告知集清空（新会话同 mediaId 再到再告知）
+  notifiedFactVersion = new Set();          // T22：(mediaId,factVersion) 告知集清空（新会话再告知）
   pendingDownscaledDims = new Map();
+  runtimeArtifactSink = null;               // T22：feed artifact sink 解绑（新会话重注入）
   if (lazyTimer) { clearTimeout(lazyTimer); lazyTimer = null; }
   useNodeStore.setState({ mediaFacts: new Map() });
 }
@@ -331,19 +338,33 @@ export function onDocRefsChanged(doc: Y.Doc): void {
   }, LAZY_PULL_DEBOUNCE_MS);
 }
 
-// ═══ F4c P0（用户裁定④双评审收口）：上传 confirm 后延时定向补拉——上传者会话告知链锚 ═══
+// ═══ Y1c T22：尺寸回写链删除（feed 事件只带 {nodeId,mediaId}→客户端查既有 media-facts 通道；
+//  Y1b 上传点 12s/30s 定向补拉定时器同卡删——spec §6.7 删除清单）═════════════════════════
+// 产物 media 的 facts 拉取触发面=runtime feed exec.artifact 事件（runtimeStore artifactSink 注入
+// ——deliverArtifact 后 feed-hint 追平即拉，无需上传点延时定时器兜底）；上传未引用媒体的 natural
+// fact（downscaledFrom 告知）随引用到达（②lazy/重连全量拉）或 feed 事件触发，重连自愈非缓存承诺。
+// downscaledFrom 告知恰一次键升级=(mediaId,factVersion)（本地 notifiedFactVersion——同 media 新
+// fact 版本再降尺度再告知；会话生命周期与投影同步清）。
 
-/** 上传延时补拉双档：12s=probe 轮询间隔 10s+处理余量（首档对齐 probe 首轮 done 的典型时点）；
- *  30s=兜底二次（probe 退避/批内串行排队窗）。 */
-export const UPLOAD_FACT_PULL_FIRST_MS = 12_000;
-export const UPLOAD_FACT_PULL_SECOND_MS = 30_000;
+/** F4c→T22 键升级：已告知 (mediaId,factVersion) 集（spec §6.7「downscaledFrom 按
+ *  (mediaId,factVersion) 恰一次=本地 notifiedFactVersion」——旧 per-mediaId Set 作废）。 */
+let notifiedFactVersion = new Set<string>();
 
-/** 上传 confirm 成功后的延时定向补拉（F4c P0 根修）：上传者本人会话的告知链锚——本地 origin
- *  引用写（updateConfig referenceImage）被 onRemote LOCAL_ORIGINS 过滤→②lazy 不触发；上传图无
- *  state fact→④watcher（拉取集=引用中∩processing）结构性不适用——confirm 成功时刻是上传者侧
- *  唯一确定 fileId 的点，双档延时后定向拉取 natural fact（携 downscaledFrom 即告知）。组件卸载
- *  即失效可接受——重连全量拉自愈；每 mediaId 每会话告知恰一次（Set 去重）。 */
-export function scheduleUploadFactPull(fileId: string): void {
-  setTimeout(() => { pullMediaFactsForIds([fileId]); }, UPLOAD_FACT_PULL_FIRST_MS);
-  setTimeout(() => { pullMediaFactsForIds([fileId]); }, UPLOAD_FACT_PULL_SECOND_MS);
+/** 告知判据+登记（true=本次应告知——恰一次键登记）。 */
+export function shouldNotifyDownscaled(mediaId: string, factVersion: string): boolean {
+  const key = `${mediaId}:${factVersion}`;
+  if (notifiedFactVersion.has(key)) return false;
+  notifiedFactVersion.add(key);
+  return true;
+}
+
+/** runtime feed artifact sink 注册面（runtimeStore 投影变更时回调——产物 mediaId 定向拉 facts；
+ *  canvasCollabRuntime 会话接线注入，resetMediaFacts 清）。 */
+let runtimeArtifactSink: ((mediaIds: readonly string[]) => void) | null = null;
+export function setRuntimeArtifactSink(fn: ((mediaIds: readonly string[]) => void) | null): void {
+  runtimeArtifactSink = fn;
+}
+/** runtimeStore 内部消费缝（勿直接调用——经 setRuntimeArtifactSink 注入的生产路径）。 */
+export function dispatchRuntimeArtifacts(mediaIds: readonly string[]): void {
+  runtimeArtifactSink?.(mediaIds);
 }

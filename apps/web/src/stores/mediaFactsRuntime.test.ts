@@ -27,7 +27,7 @@ vi.mock('@hocuspocus/provider', async () => {
 });
 
 import { useNodeStore } from './nodeStore';
-import { resetMediaFacts, onDocRefsChanged, pullMediaFactsFull, pullMediaFactsForIds, scheduleUploadFactPull } from './mediaFactsRuntime';
+import { resetMediaFacts, onDocRefsChanged, pullMediaFactsFull, pullMediaFactsForIds } from './mediaFactsRuntime';
 import { destroyCollab } from './canvasCollabRuntime';
 import { fetchMediaFacts } from '@/api/mediaApi';
 import { PENDING_FACTS_TTL_MS } from './mediaFacts';
@@ -445,21 +445,7 @@ describe('F4c 超限降尺度用户告知（natural fact 携 downscaledFrom → 
     expect(infoSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('P0：上传 confirm 后延时定向补拉（上传者会话告知链锚）：12s 首轮携 fileId+direct ingest natural 携 downscaledFrom → info 恰一次；30s 兜底二次 → Set 去重', async () => {
-    fetchMock.mockResolvedValue([naturalDsRow('m-up', '1', false)]);   // 上传图典型形态：纯 natural 行
-    scheduleUploadFactPull('m-up');
-    await vi.advanceTimersByTimeAsync(11_900);                  // 12s 档未到（due-100）
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(infoSpy).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(200);                     // t=12100：首轮到点
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(['m-up'], 't1');
-    expect(infoSpy).toHaveBeenCalledTimes(1);                   // 默认 resolver=定向拉取视为已引用——direct ingest 即告知
-    await vi.advanceTimersByTimeAsync(20_000);                  // 30s 兜底二次（probe 慢/退避窗）
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(infoSpy).toHaveBeenCalledTimes(1);                   // Set 去重恰一次
-  });
-
+  
   it('P2-1：pendingDownscaledDims 消费窗顺带 prune（与 pendingFacts 60s TTL 对齐）——TTL 清扫后记录同步移除，暂存重建（无 ds 面）消费零 toast', async () => {
     fetchMock.mockResolvedValue([naturalDsRow('m-pr', '1', true)]);
     pullMediaFactsForIds(['m-pr'], () => new Set());            // 未引用——暂存+dims 记录（不告知）

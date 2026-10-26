@@ -54,6 +54,8 @@ import { CLIENT_PROTOCOL_VERSION, scanOrderPathology, compareWithinLayer, derive
 import { CollabGateway } from '../collab.gateway';
 import { CollabResidencyService } from '../collab-residency.service';
 import { CollabDocumentService } from '../collab-document.service';
+import { RuntimeFeedService } from '../runtime-feed.service';
+import { CollabLifecycleObserverService } from '../collab-lifecycle-observer.service';
 import { CollabLeaseService } from '../collab-lease.service';
 import { CollabSpoolService } from '../collab-spool.service';
 import { CanvasDocUpdateRepository } from '../canvas-doc-update.repository';
@@ -61,7 +63,6 @@ import { ProjectPermissionService } from '../../team/project-permission.service'
 import { SessionService } from '../../../auth/session.service';
 import { ProjectionOutboxPoller } from '../../media-delivery/projection-outbox.poller';
 import { BindingReconcileService } from '../../media-delivery/binding-reconcile.service';
-import { execSeqStaleRejected } from '../../execution/exec.metrics';
 import { memberRevokedConns } from '../store.metrics';
 import { mediaAclDenied } from '../../team/team.metrics';
 import { assertTeamMember } from '../../team/team.util';
@@ -107,6 +108,11 @@ async function seedProject(pid: string): Promise<void> {
   await prisma.artifactProjection.deleteMany({ where: { projectId: pid } });
   await prisma.nodeArtifact.deleteMany({ where: { projectId: pid } });
   await prisma.mediaBinding.deleteMany({ where: { projectId: pid } });
+  // Y1c T22：feed/lifecycle 域随清（交付=RuntimeEvent——同 PID 跨 run 残留会污染事件序断言）
+  await prisma.nodeLifecycle.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.deliveryFence.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: pid } }).catch(() => {});
 }
 
 async function seedNode(pid: string, nodeId: string, data: Record<string, unknown> = { content: 'seed' }): Promise<void> {
@@ -115,6 +121,9 @@ async function seedNode(pid: string, nodeId: string, data: Record<string, unknow
     n.set('data', new Y.Map(Object.entries(data)));
     doc.getMap('nodes').set(nodeId, n);
   }, { mode: 'write' });
+  // Y1c T22：ACTIVE fence 播种（deliverArtifact 交付放行前提——T26 观察器同构行）
+  await prisma.nodeLifecycle.create({ data: { projectId: pid, nodeId, lifecycleSeq: 1n, isCurrent: true, state: 'ACTIVE', walSeq: 0n } }).catch(() => {});
+  await prisma.deliveryFence.create({ data: { projectId: pid, nodeId, fenceSeq: 1n, state: 'ACTIVE' } }).catch(() => {});
 }
 
 interface SeedArtifactOpts {
@@ -150,6 +159,10 @@ async function teardownProject(pid: string): Promise<void> {
   await prisma.artifactProjection.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.nodeArtifact.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.nodeLifecycle.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.deliveryFence.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await cleanupProjectFixture(prisma, pid);
 }
 
@@ -191,7 +204,9 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await gateway.onModuleInit();
     expect(lease.isServing()).toBe(true);
     residency = new CollabResidencyService(gateway);
-    docSvc = new CollabDocumentService(gateway, repo, residency);
+    // Y1c T22（G5 切交付）：deliverArtifact 改 PG 写——真 feed+真 lifecycle observer（fence 权威）
+    docSvc = new CollabDocumentService(gateway, repo, residency,
+      new RuntimeFeedService(prisma as any), new CollabLifecycleObserverService(prisma as any));
     reconciler = new BindingReconcileService(prisma as any, docSvc);
   }, 60_000);
 
@@ -221,13 +236,15 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await seedNode(PID, NODE);
     poller = makePoller();
 
-    // 代际串联段：新代 attempts=2 在 doc（takeover 后新 worker 投影）→旧 worker 迟到 error(attempts=1) 拒
+    // 代际串联段（Y1c T22 改写——doc.exec 停写）：新旧两写=两 exec.status 事件（Z99/Z111 服务端
+    // 代次守卫随 doc 写面退役——迟到旧事件的丢弃归客户端 reducer nodeVersion 大者胜；服务端不再
+    // 持 exec 条目=零孤儿面，exec_seq_stale_rejected 计数面退役）。
     await docSvc.writeExecStatus(PID, NODE, { status: 'loading', jobId: 'j-new', attempts: 2 });
-    const staleBefore = counterOf(execSeqStaleRejected);
     await docSvc.writeExecStatus(PID, NODE, { status: 'error', error: 'stale worker', attempts: 1 });
-    expect(counterOf(execSeqStaleRejected)).toBe(staleBefore + 1);   // 旧代拒写专项计数（takeover 串联观测面）
-    const execMap = await residency.withSession(PID, (doc) => (doc.getMap('exec').get(NODE) as Y.Map<unknown>).toJSON(), { mode: 'read' });
-    expect(execMap.status).toBe('loading');   // 新代不被旧代倒退
+    const statusEvents = await prisma.runtimeEvent.findMany({ where: { projectId: PID, kind: 'exec.status' }, orderBy: { feedSeq: 'asc' } });
+    expect(statusEvents.map((e) => (e.payload as { status: string }).status)).toEqual(['loading', 'error']);   // 两事件在档（新旧次序=feedSeq 单调）
+    const execSize = await residency.withSession(PID, (doc) => doc.getMap('exec').size, { mode: 'read' });
+    expect(execSize).toBe(0);   // doc.exec 恒空（停写——不变量⑦）
 
     // 投影段：replace 形态——同槽位 rev 前进+旧/新投影行同时 pending
     const { artifactId } = await seedArtifact(PID, NODE, { rev: 1 });
@@ -242,9 +259,11 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const rows = await prisma.artifactProjection.findMany({ where: { projectId: PID }, select: { artifactRev: true, state: true } });
     expect(rows.find((r) => r.artifactRev === 1)?.state).toBe('superseded');   // 旧代 superseded
     expect(rows.find((r) => r.artifactRev === 2)?.state).not.toBe('pending');  // 新代收敛（projected/fast-path）
-    // doc 交付面=新代值（rev recheck 保护）
-    const fileId = await residency.withSession(PID, (doc) => ((doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>).get('fileId'), { mode: 'read' });
-    expect(fileId).toBe('media-new-gen');
+    // Y1c T22（切交付）：交付面=RuntimeEvent（feed 新权威——rev recheck 保护下新代恰一事件）；
+    // doc 零写（data.fileId 不落——不变量⑦）。
+    const deliveredNew = await prisma.runtimeEvent.findMany({ where: { projectId: PID, kind: 'exec.artifact' } });
+    expect(deliveredNew.length).toBe(1);
+    expect((deliveredNew[0]!.payload as { mediaId?: string }).mediaId).toBe('media-new-gen');
     await teardownProject(PID);
   }, 30_000);
 
@@ -302,11 +321,11 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await poller.tick();
     expect((await prisma.artifactProjection.findUnique({ where: { id: projectionId } }))?.state).not.toBe('pending');
 
-    // 重启模拟：释放常驻会话→PG 重放（装载路径）→交付值仍在（projected 的持久语义）
+    // 重启模拟：释放常驻会话→PG 重放（装载路径）。T22（切交付）：交付值=RuntimeEvent（feed 持久
+    // 语义——projected 行+exec.artifact 事件双在档）；doc 零写（data.fileId 不落）。
     await residency.releaseSessionFor(PID);
-    const revived = await reviveFromPg(PID);
-    const revivedFileId = ((revived.getMap('nodes').get(NODE) as Y.Map<any>)?.get('data') as Y.Map<any>)?.get('fileId');
-    expect(revivedFileId).toBe('media-c');
+    const delivered = await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } });
+    expect((delivered?.payload as { mediaId?: string })?.mediaId).toBe('media-c');
 
     // facts outbox 重复投递幂等（实况=重复插入同四元组行——at-least-once 重放形态；乱序容忍面=
     // 客户端单调合并 mediaFacts.test〔factVersion 旧忽略/批内乱序末者胜〕+DB 四元组唯一约束双面，

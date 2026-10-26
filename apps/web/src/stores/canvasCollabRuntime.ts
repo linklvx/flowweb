@@ -35,7 +35,9 @@ import { fetchNodeIntents } from '@/api/executionApi';
 import type { ExecStatusEntry } from './execStatusView';
 // Y1b T16：mediaFacts 拉取/暂存/消费会话编排（nodeStore.mediaFacts 唯一写者——三挂点：
 // 重连全量拉/fileId 到达判定/切项目清空；本模块零事实逻辑，全在 mediaFactsRuntime）
-import { pullMediaFactsFull, onDocRefsChanged, resetMediaFacts } from './mediaFactsRuntime';
+import { pullMediaFactsFull, onDocRefsChanged, resetMediaFacts, pullMediaFactsForIds } from './mediaFactsRuntime';
+import { setRuntimeArtifactSinkDirect, setRuntimeIdbEnabled } from './runtimeStore';
+import { initRuntimeFeed, resetRuntimeFeed, handleFeedHint, projectRuntimeExecToNodeStore } from './runtimeStore';
 // 批1-0 transport 薄层（门 B 裁决）——Y0b-5 T3b 起改形为 socket 单实例注册表（needKick 语义废弃）：
 // 注入类唯一构造点保留，恢复所有权归 connection-supervisor
 import { createReconnectingWebSocket } from '@/collab/reconnectTransport';
@@ -937,29 +939,6 @@ function updateConnectionUi(ui: MachineOutput['ui']) {
   if (clamped !== s.connUi) useCanvasStore.setState({ connUi: clamped });
 }
 
-/** 批1-6（B2/F2）：doc exec map → nodeStore.execStatus 展示投影（exec map 服务端唯一写者——本端零写）。
- *  浅 Map 重建（节点量级 ~百，简单够用）：条目删除（GC）随重建自然回落 data.status；
- *  observeDeep 覆盖条目内层键变更；会话清理无需 unobserve——doc.destroy 连带。 */
-function projectExecToStore(d: Y.Doc): void {
-  const m = new Map<string, ExecStatusEntry>();
-  for (const [id, v] of d.getMap('exec').entries()) {
-    if (!(v instanceof Y.Map)) continue;
-    const status = v.get('status');
-    // Y0b-2 T5（Z99）：白名单补 'skipped'（NodeBusy/重复外呼降级投影——非终态）
-    if (status !== 'loading' && status !== 'done' && status !== 'error' && status !== 'skipped') continue;
-    const str = (k: string) => (typeof v.get(k) === 'string' ? (v.get(k) as string) : undefined);
-    // Y0b-2 T5（Z95/Z111）：抄键补 errorCode/rearmable/attempts/reason（error/skipped 投影契约跨端）
-    m.set(id, {
-      status, jobId: str('jobId'), intentId: str('intentId'), error: str('error'), fileId: str('fileId'),
-      errorCode: str('errorCode'),
-      rearmable: typeof v.get('rearmable') === 'boolean' ? (v.get('rearmable') as boolean) : undefined,
-      attempts: typeof v.get('attempts') === 'number' ? (v.get('attempts') as number) : undefined,
-      reason: str('reason'),
-    });
-  }
-  useNodeStore.setState({ execStatus: m });
-}
-
 /** 批1-6（B2 ③）：断连/刷新后执行态恢复对齐——只读对齐（不写回 doc exec map，F2 客户端零 exec 写）。
  *  候选= data.status==='loading' 且 exec 投影无条目（服务端已写 exec=已接管该节点状态，不重复对齐；
  *  投影仅收录合法 status 值——非法值条目不在 Map，归入"无条目"）。
@@ -1671,6 +1650,12 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   // （per-doc 幂等快照——rev 单调守卫后覆盖，电平非事件）。write-frozen 通告已退役（服务端并入
   // doc-status 的 writeFrozen 维度）；stateless 通用通告通道的其余消息（persist-status 等）静默透传。
   p.on('stateless', ({ payload }: any) => {
+    // Y1c T22（spec §7 唯一交付=HTTP 游标）：feed-hint 通知（不带事件体只带 latestFeedSeq——
+    // stateless 通知与心跳同形）→ handleFeedHint 拉取追平（h≤cursor 忽略）。
+    try {
+      const parsed = JSON.parse(payload as string) as { type?: string; latestFeedSeq?: string };
+      if (parsed?.type === 'feed-hint' && typeof parsed.latestFeedSeq === 'string') handleFeedHint(parsed.latestFeedSeq);
+    } catch { /* 非 JSON 载荷静默透传（既有 stateless 通用通告通道语义不变） */ }
     try {
       const msg = JSON.parse(payload);
       if (isCollabConnStatusPayload(msg)) {
@@ -2254,10 +2239,17 @@ function armSession(epoch: number): void {
   };
   doc!.getMap('nodes').observeDeep(onRemote as any);
   doc!.getMap('edges').observeDeep(onRemote as any);
-  // 批1-6（B2）：exec map 展示投影——初始一次（覆盖 synced 前已抵达的条目）+ observeDeep 监听。
-  // getMap 门（批0e-4）runtime 在白名单；本端对 exec map 只读（写侧零命中=静态锚，execView.spec）
-  projectExecToStore(doc!);
-  doc!.getMap('exec').observeDeep(() => projectExecToStore(doc!));
+  // Y1c T22（G5 同切片——红③收口）：doc.exec 停读——nodeStore.execStatus 数据源切 Runtime Store
+  // 投影（projectRuntimeExecToNodeStore——runtimeStore 状态变更驱动；服务端 T22 起零 doc.exec 写
+  // =旧 observeDeep 源恒 stale）。exec map 零接触（getMap 门白名单项随 T32 删码清单退役）。
+  projectRuntimeExecToNodeStore();
+  // T22：feed 会话起点（IDB 离线兜底载入+首连全量快照——统一 cursor 真值）；失败静默（下个 hint/心跳重试）。
+  // 产物事件 sink：exec.artifact 携 mediaId→media-facts 定向拉取（尺寸回写链删除后的 facts 触发面）。
+  setRuntimeArtifactSinkDirect((mediaIds) => { pullMediaFactsForIds(mediaIds); });
+  setRuntimeIdbEnabled(!session?.cacheDisabled);   // T8 fail-closed 对齐：cacheDisabled 会话零 IDB 交互
+  if (session?.pid) void initRuntimeFeed(session.pid).catch(() => undefined);
+  // T22 feed 通道：provider stateless feed-hint（{type:'feed-hint',latestFeedSeq}——不带事件体）
+  // → handleFeedHint 拉取追平（心跳同形载荷同路——两通道都只触发 HTTP 游标拉取）。
 
   awarenessBridge = new AwarenessBridge(provider!); // 非空：水合成功/自愈路径 provider 均为本会话活实例
 }
@@ -2283,6 +2275,7 @@ async function teardownSession(): Promise<void> {
   if (syncLagTimer) { clearInterval(syncLagTimer); syncLagTimer = null; } // Y0b-5 T7：60s 窗检查（会话清理链）
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
   resetMediaFacts();   // F3 P1：media-facts 会话态全清（watcher 自续排定时器+lazy+pending+纪元++弃在飞
+  resetRuntimeFeed();   // Y1c T22：runtime feed 会话态清（IDB 保留——下次会话离线兜底展示）
                        // 响应）——离开画布后停后台补拉；lastDoc 释已 destroy doc 引用（会话清理链）
   // Y0b-5 T8：本地缓存会话清理（hide 监听装卸+adapter teardown 清 timer+关连接——diverged
   // 放弃/deleteOwnRecord 走显式路径不在此；置 null 先于 teardown 防 teardown 途中排程新写）

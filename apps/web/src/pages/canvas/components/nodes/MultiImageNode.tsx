@@ -4,7 +4,6 @@ import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { useNodeStore } from '@/stores/nodeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
-import { scheduleUploadFactPull } from '@/stores/mediaFactsRuntime';
 import { canvasProjectId } from '@/utils/uploadContext';
 import { getMediaUrl } from '@/api/mediaApi';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
@@ -169,9 +168,7 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
 
         await confirmUpload({ fileId, key, fileSize: file.size });
 
-        // F4c P0：上传者会话告知链锚（逐 fileId）——同 ImageGenNode handleUploadFile 注释
-        scheduleUploadFactPull(fileId);
-
+        // Y1c T22：12s/30s 延时补拉定时器随尺寸回写链删除退役（同 ImageGenNode 注释）
         const { url: realUrl } = await getMediaUrl(fileId);
 
         newImages.push({ id: fileId, url: realUrl, name: file.name, status: 'success' as const });

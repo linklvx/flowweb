@@ -1485,9 +1485,10 @@ if (isMain()) {
   //  经 writeExecStatus/deliverArtifact/writeBatch 服务原语不直触 map 故不计）。冻结值=2026-10-24
   //  实测；T22/T32 删除 doc.exec 读写链时本组白名单清零同步。
   const EXEC_MAP_WHITELIST = {
-    'apps/api/src/modules/collab/collab-document.service.ts': 2,   // applyWriteExecStatusToDoc:312+applyDeleteExecOrphansToDoc:381（写原语直触）
+    'apps/api/src/modules/collab/collab-document.service.ts': 2,   // applyWriteExecStatusToDoc:312+applyDeleteExecOrphansToDoc:381（写原语直触——T32 删码清单项）
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 2, // vacuum 等价校验 :662 同行两次（新旧 doc keys 比对）
-    'apps/web/src/stores/canvasCollabRuntime.ts': 2,               // projectExecToStore:728+observeDeep:1996（web 投影单通道）
+    // Y1c T22（G5 同切片）：web 面清零——projectExecToStore/observeDeep 读源退役（doc.exec 停读，
+    // 数据源=runtimeStore 投影——execView 静态锚锁零接触）；web 条目移出白名单。
   };
   {
     const occurrences = {};
@@ -1496,7 +1497,7 @@ if (isMain()) {
       if (lines.length) occurrences[relOf(p)] = lines;
     }
     const details = reconcileCountWhitelist(occurrences, EXEC_MAP_WHITELIST, 'doc.exec 触碰');
-    report('㉛', `doc.exec 触碰面零增长（getMap('exec') ${Object.values(EXEC_MAP_WHITELIST).reduce((a, b) => a + b, 0)} 处/3 文件冻结——census ⑤ 词面投影；T22/T32 删除时同步清零；违规明细 file:line）`, details.length === 0, details);
+    report('㉛', `doc.exec 触碰面零增长（getMap('exec') ${Object.values(EXEC_MAP_WHITELIST).reduce((a, b) => a + b, 0)} 处/2 文件冻结（T22 web 面清零）——census ⑤ 词面投影；T22/T32 删除时同步清零；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉜Y.applyUpdate 消费面白名单（census ⑨ 现状调用点为基线；目标态=gate/load/import 三处——

@@ -23,6 +23,8 @@ import { join } from 'node:path';
 import { CollabGateway } from '../collab/collab.gateway';
 import { CollabResidencyService } from '../collab/collab-residency.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { RuntimeFeedService } from '../collab/runtime-feed.service';
+import { CollabLifecycleObserverService } from '../collab/collab-lifecycle-observer.service';
 import { CollabLeaseService } from '../collab/collab-lease.service';
 import { CollabSpoolService } from '../collab/collab-spool.service';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
@@ -77,6 +79,9 @@ async function seedNode(pid: string, nodeId: string, data: Record<string, unknow
     n.set('data', new Y.Map(Object.entries(data)));
     doc.getMap('nodes').set(nodeId, n);
   }, { mode: 'write' });
+  // Y1c T22：ACTIVE fence 播种（deliverArtifact 交付放行前提——T26 观察器同构行；无行=unregistered 拒档）
+  await prisma.nodeLifecycle.create({ data: { projectId: pid, nodeId, lifecycleSeq: 1n, isCurrent: true, state: 'ACTIVE', walSeq: 0n } }).catch(() => {});
+  await prisma.deliveryFence.create({ data: { projectId: pid, nodeId, fenceSeq: 1n, state: 'ACTIVE' } }).catch(() => {});
 }
 
 interface SeedOpts {
@@ -117,6 +122,10 @@ const projectionRow = (id: string) => prisma.artifactProjection.findUnique({ whe
 async function teardownProject(pid: string): Promise<void> {
   await prisma.artifactProjection.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.nodeArtifact.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.nodeLifecycle.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.deliveryFence.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await cleanupProjectFixture(prisma, pid);
 }
 
@@ -143,7 +152,11 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await gateway.onModuleInit();   // 真 CAS 获取→serving（listenCollab 真起）
     expect(lease.isServing()).toBe(true);
     residency = new CollabResidencyService(gateway);
-    docSvc = new CollabDocumentService(gateway, repo, residency);
+    // Y1c T22（G5 切交付）：deliverArtifact 改 PG 写——真 RuntimeFeedService+真 lifecycle observer
+    // （fence 权威=deliveryFenceCheckInTx；node 无 fence 行=unregistered fail-closed 拒档=orphaned 流）
+    const feed = new RuntimeFeedService(prisma as any);
+    const observer = new CollabLifecycleObserverService(prisma as any);
+    docSvc = new CollabDocumentService(gateway, repo, residency, feed, observer);
   }, 60_000);
 
   afterAll(async () => {
@@ -190,10 +203,15 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect(row?.state).toBe('projected');
     expect(row?.projectedAt).not.toBeNull();
     expect(row?.attempts).toBe(0);
-    // doc 终态（PG canonical——投影 poller 是 fileId 唯一交付写者）
+    // Y1c T22（切交付）：交付=RuntimeEvent（exec.artifact 携 mediaId+exec.status done——feed 新权威）；
+    // doc 零写（不变量⑦——data.fileId 不落+exec map 恒空）
+    const events = await prisma.runtimeEvent.findMany({ where: { projectId: PID }, orderBy: { feedSeq: 'asc' } });
+    expect(events.map((e) => e.kind)).toEqual(['exec.artifact', 'exec.status']);
+    expect((events[0].payload as any).mediaId).toBe('m-happy');
+    expect((events[1].payload as any).status).toBe('done');
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-happy');
-    expect((revived.getMap('exec').get('n1') as Y.Map<any>).toJSON().status).toBe('done');
+    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBeUndefined();
+    expect(revived.getMap('exec').get('n1')).toBeUndefined();
     expect(await outcomeOf('projected')).toBe(projectedBefore + 1);
     // 复 tick 幂等：projected 终态不再 claim
     const again = await poller.tick();
@@ -262,7 +280,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const summary = await poller.tick();
     expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n-undo') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-reopen');
+    expect((await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } }))?.payload).toMatchObject({ nodeId: 'n-undo', mediaId: 'm-reopen' });   // T22：交付=feed 事件
     await teardownProject(PID);
   }, 60_000);
 
@@ -355,8 +373,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
       await poller.tick();
       return (await projectionRow(projectionId))?.state === 'projected';
     }, 15_000, 500);
-    const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-fence2');
+    expect((await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } }))?.payload).toMatchObject({ nodeId: 'n1', mediaId: 'm-fence2' });   // T22：交付=feed 事件
     await teardownProject(PID);
   }, 60_000);
 
@@ -377,7 +394,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
       return s.claimed > 0 && (await projectionRow(projectionId))?.state === 'projected';
     }, 15_000, 500);
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-spool');
+    expect((await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } }))?.payload).toMatchObject({ nodeId: 'n1', mediaId: 'm-spool' });   // T22：交付=feed 事件
     await teardownProject(PID);
   }, 60_000);
 
@@ -397,7 +414,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect((await projectionRow(projectionId))?.state).toBe('superseded');   // rev 又进——一致才 projected 的反例
     // 用户值不被投影覆盖：doc 仍无 m-recheck（m-user-replaced 属新代投影行——不在本测试面）
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-recheck');   // 本代 apply 已落（写在前）——mark 按 recheck 判 superseded
+    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBeUndefined();   // T22：apply=feed 事件零 doc 写——mark 按 recheck 判 superseded（事件已落）
     await teardownProject(PID);
   }, 60_000);
 
@@ -413,9 +430,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect(summary.claimed).toBe(2);
     expect(summary.outcomes.projected ?? 0).toBeGreaterThanOrEqual(2);
     expect(await flushOutcomeOf('persisted')).toBe(persistedBefore + 1);   // 批按 project 分组——恰一次 flush
-    const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-b1');
-    expect((revived.getMap('nodes').get('n2') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-b2');
+    expect(await prisma.runtimeEvent.count({ where: { projectId: PID, kind: 'exec.artifact' } })).toBe(2);   // T22：交付=feed 事件（两节点两事件）
     await teardownProject(PID);
   }, 60_000);
 
@@ -430,8 +445,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const [a, b] = await Promise.all([poller.tick(), pollerB.tick()]);
     expect(a.claimed + b.claimed).toBe(1);   // SKIP LOCKED——并发双 claim 恰一
     expect((await projectionRow(projectionId))?.state).toBe('projected');
-    const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-dual');   // 恰一次交付
+    expect(await prisma.runtimeEvent.count({ where: { projectId: PID, kind: 'exec.artifact' } })).toBe(1);   // T22：恰一次交付=恰一事件（幂等前置吸收复投）
     await teardownProject(PID);
   }, 60_000);
 
@@ -447,9 +461,9 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
     expect(summary.outcomes['fast-path'] ?? 0).toBeGreaterThan(0);   // n-clear2：null===null 等值——跳 apply
     expect((await projectionRow(a.projectionId))?.state).toBe('projected');
-    const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n-clear1') as Y.Map<any>).get('data').toJSON().fileId).toBe(null);   // null 写（非删键）
-    expect((revived.getMap('nodes').get('n-clear2') as Y.Map<any>).get('data').toJSON().fileId).toBe(null);
+    const revivedClear = await reviveFromPg(PID);
+    expect((revivedClear.getMap('nodes').get('n-clear1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-old');   // T22：doc 零写——clear 语义=feed 事件（无 mediaId 键）非 data 落 null（P2-⑥ 钉 null 写随 doc 写面退役）
+    expect((await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } }))?.payload).not.toHaveProperty('mediaId');
     expect(await outcomeOf('fast-path')).toBe(fastBefore + 1);
     await teardownProject(PID);
   }, 60_000);
@@ -463,8 +477,10 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
     expect((await projectionRow(projectionId))?.state).toBe('projected');
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n-text') as Y.Map<any>).get('data').toJSON().result).toBe('生成文本产物');
-    expect((revived.getMap('exec').get('n-text') as Y.Map<any>).toJSON().status).toBe('done');
+    expect((revived.getMap('nodes').get('n-text') as Y.Map<any>).get('data').toJSON().result).toBeUndefined();   // T22：doc 零写
+    const textEvents = await prisma.runtimeEvent.findMany({ where: { projectId: PID }, orderBy: { feedSeq: 'asc' } });
+    expect((textEvents[0]?.payload as any).resultRef).toBe('生成文本产物');   // result 域=resultRef 引用（事件面）
+    expect((textEvents[1]?.payload as any).status).toBe('done');
     await teardownProject(PID);
   }, 60_000);
 });

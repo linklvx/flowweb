@@ -38,17 +38,19 @@ export interface RuntimeProjectionArtifactFact {
 }
 
 /** 删除墓碑（node.deleted=FEED_TOMBSTONE——lifecycleSeq 与 NodeLifecycle 同源〔lifecycle.ts〕；
- *  node.restored 事件以更高 nodeVersion 字段复活——deletedAt 保留历史但不再是 active）。 */
+ *  node.restored 事件以 restored 槽复活——版本 ≥deletedAt 时墓碑失活〔undo 重建节点回渲染面〕）。 */
 export interface RuntimeProjectionTombstone {
   lifecycleSeq: string;
   nodeVersion: string;
 }
 
-/** 单节点投影（三槽可选——execStatus/artifact/deletedAt；#3 分槽形态）。 */
+/** 单节点投影（四槽可选——execStatus/artifact/deletedAt/restored；#3 分槽+T22 restored 槽）。 */
 export interface RuntimeNodeProjectionEntry {
   execStatus?: RuntimeProjectionExecStatusFact;
   artifact?: RuntimeProjectionArtifactFact;
   deletedAt?: RuntimeProjectionTombstone;
+  /** 复活槽（node.restored——版本 ≥deletedAt ⇒ 墓碑失活；lifecycleSeq=复活行）。 */
+  restored?: RuntimeProjectionTombstone;
 }
 
 /** RuntimeProjection（spec §6.4 v5.4⑬ 冻结形状+修正批 #3）：IDB 持久化
@@ -96,9 +98,12 @@ function mergeSlot<T extends { nodeVersion: string }>(current: T | undefined, in
 }
 
 /** 墓碑是否 active（deletedAt 版本**严格大于**该节点全部在位字段版本——§6.4「deletedAt 版本大于
- *  任何字段版本则清空」；等值不清〔undo 重建同帧形态〕；无字段时 active）。 */
+ *  任何字段版本则清空」；等值不清〔undo 重建同帧形态〕；无字段时 active）。
+ *  T22 restored 槽：restored.nodeVersion ≥ deletedAt.nodeVersion ⇒ 失活（node.restored 复活——
+ *  undo 重建节点回渲染面；严格小于=墓碑更新仍 active）。 */
 export function isActiveTombstone(entry: RuntimeNodeProjectionEntry): boolean {
   if (entry.deletedAt === undefined) return false;
+  if (entry.restored !== undefined && seq(entry.restored.nodeVersion) >= seq(entry.deletedAt.nodeVersion)) return false;
   const t = seq(entry.deletedAt.nodeVersion);
   const execV = entry.execStatus !== undefined ? seq(entry.execStatus.nodeVersion) : -1n;
   const artV = entry.artifact !== undefined ? seq(entry.artifact.nodeVersion) : -1n;
@@ -130,6 +135,7 @@ export function mergeRuntimeProjection(current: RuntimeProjection, incoming: Run
       execStatus: mergeSlot(cur.execStatus, incEntry.execStatus),
       artifact: mergeSlot(cur.artifact, incEntry.artifact),
       deletedAt: mergeSlot(cur.deletedAt, incEntry.deletedAt),
+      restored: mergeSlot(cur.restored, incEntry.restored),
     };
     if (isActiveTombstone(merged)) {
       merged = { deletedAt: merged.deletedAt };   // 清空该节点字段（墓碑胜）

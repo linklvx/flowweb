@@ -57,7 +57,7 @@ const resetStores = () => {
   useNodeStore.setState({ nodes: {}, execStatus: new Map(), execAligned: new Map() });
 };
 
-describe('批1-6：exec 监听投影（真 Y.Doc 直驱——exec map 服务端唯一写者的展示投影）', () => {
+describe('Y1c T22 G5（红③收口）：exec 监听投影退役——doc.exec 停读（数据源=Runtime Store 投影）', () => {
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
     resetStores();
@@ -66,7 +66,7 @@ describe('批1-6：exec 监听投影（真 Y.Doc 直驱——exec map 服务端�
     await runtime.destroyCollab();
   });
 
-  it('initCollab 后写 exec 条目 → useNodeStore.execStatus 收到 {status,jobId,intentId}', async () => {
+  it('initCollab 后写 doc exec 条目 → nodeStore.execStatus 零变化（doc.exec 停读——旧源恒 stale 已退役）', async () => {
     await driveToSynced('p1');
     const d = runtime.getDoc()!;
     const m = new Y.Map();
@@ -74,10 +74,10 @@ describe('批1-6：exec 监听投影（真 Y.Doc 直驱——exec map 服务端�
     m.set('jobId', 'j1');
     m.set('intentId', 'i1');
     d.getMap('exec').set('n1', m);
-    expect(useNodeStore.getState().execStatus.get('n1')).toEqual({ status: 'loading', jobId: 'j1', intentId: 'i1' });
+    expect(useNodeStore.getState().execStatus.get('n1')).toBeUndefined();   // T22：doc exec 写不进投影（服务端已停写——遗留写仅历史残留）
   });
 
-  it('初始投影：synced 前已存在的 exec 条目在 initCollab 完成时已投影（非仅增量监听）', async () => {
+  it('初始投影退役：synced 前已存在的 exec 条目不再投影（armSession 只做 runtime 投影复位）', async () => {
     const { done, p } = await beginCollab('p1');
     const d = runtime.getDoc()!;
     const m = new Y.Map();
@@ -91,30 +91,25 @@ describe('批1-6：exec 监听投影（真 Y.Doc 直驱——exec map 服务端�
     p.isSynced = true;
     p.emit('synced', {});
     await done;
-    expect(useNodeStore.getState().execStatus.get('n1')).toEqual({ status: 'done', fileId: 'f1' });
+    expect(useNodeStore.getState().execStatus.get('n1')).toBeUndefined();   // T22：零 doc exec 读
   });
 
-  it('条目内层键变更（observeDeep 覆盖）→ 投影更新', async () => {
+  it('条目内层键变更零投影（observeDeep 源已拆——exec map 零接触）', async () => {
     await driveToSynced('p1');
     const d = runtime.getDoc()!;
     const m = new Y.Map();
     m.set('status', 'loading');
     d.getMap('exec').set('n1', m);
-    m.set('status', 'done'); // 内层键写——非顶层 set/delete
-    expect(useNodeStore.getState().execStatus.get('n1')?.status).toBe('done');
+    m.set('status', 'done');
+    expect(useNodeStore.getState().execStatus.get('n1')).toBeUndefined();
   });
 
-  it('exec 条目删除（GC）→ 投影移除 → 回落 data.status', async () => {
+  it('投影移除回落语义保持：runtime 投影清空 → 回落 data.status（execStatusOf 合并视图不变）', async () => {
     await driveToSynced('p1');
-    // hydration 后落位（applyDocToStore 会整替 nodeStore.nodes——装置须在其后写）
     useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    const d = runtime.getDoc()!;
-    const m = new Y.Map();
-    m.set('status', 'done');
-    d.getMap('exec').set('n1', m);
+    useNodeStore.setState({ execStatus: new Map([['n1', { status: 'done' }]]) });
     expect(execStatusOf('n1')).toBe('done');
-    d.getMap('exec').delete('n1');
-    expect(useNodeStore.getState().execStatus.has('n1')).toBe(false);
+    useNodeStore.setState({ execStatus: new Map() });   // 投影清（如 feed 换代全量重建前窗）
     expect(execStatusOf('n1')).toBe('loading'); // 回落 data.status
   });
 });
@@ -215,14 +210,11 @@ describe('批1-6：恢复对齐 alignExecFromIntents（connect 边沿 + visibili
     expect(execStatusOf('n1')).toBe('loading');
   });
 
-  it('exec 投影已有条目（服务端已接管）→ 不查表不重复对齐', async () => {
+  it('exec 投影已有条目（服务端已接管——T22 源=Runtime Store）→ 不查表不重复对齐', async () => {
     const p = await driveToSynced('p1');
-    const d = runtime.getDoc()!;
-    const m = new Y.Map();
-    m.set('status', 'loading');
-    m.set('jobId', 'j1');
-    d.getMap('exec').set('n1', m);
+    // T22：doc.exec 停读——「服务端已接管」判据=runtime 投影条目（nodeStore.execStatus 由其投影）
     useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
+    useNodeStore.setState({ execStatus: new Map([['n1', { status: 'loading', jobId: 'j1' }]]) });
     p.emit('status', { status: 'disconnected' });
     p.emit('status', { status: 'connected' });
     await tick();
@@ -291,8 +283,8 @@ describe('批1-6：恢复对齐 alignExecFromIntents（connect 边沿 + visibili
   });
 });
 
-describe('批1-6：客户端零 exec 写（静态锚）', () => {
-  it("getMap('exec') 生产代码仅 canvasCollabRuntime（读投影/监听），写侧零命中", async () => {
+describe('批1-6+Y1c T22：客户端零 exec 接触（静态锚——doc.exec 停读后读监听面随 D9 退役）', () => {
+  it("getMap('exec') 生产代码零命中（T22：读投影/监听源已切 Runtime Store——canvasCollabRuntime 零接触）", async () => {
     const { readdirSync, readFileSync } = await import('node:fs');
     const { dirname, join, relative } = await import('node:path');
     const { fileURLToPath } = await import('node:url');
@@ -311,7 +303,7 @@ describe('批1-6：客户端零 exec 写（静态锚）', () => {
       if (src.includes("getMap('exec')")) hits.push(rel);
       if (/getMap\(['"]exec['"]\)\s*\.\s*set\s*\(/.test(src)) writeHits.push(rel);
     }
-    expect(hits).toEqual(['stores/canvasCollabRuntime.ts']); // 读监听仅 runtime 一处文件
-    expect(writeHits).toEqual([]);                            // 写侧零命中（F2）
+    expect(hits).toEqual([]);   // T22：doc.exec 读监听面退役（数据源=runtimeStore 投影）
+    expect(writeHits).toEqual([]);                            // 写侧零命中（F2 维持）
   });
 });

@@ -6,6 +6,9 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { CollabSessionGuardService } from './collab-session-guard.service';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';   // Y1c T26：生命周期义务观察器
+import { RuntimeFeedService } from './runtime-feed.service';   // Y1c T22（G5）：RuntimeEvent feed 写面+游标读面+保留期 worker
+import { RuntimeFeedController } from './runtime-feed.controller';   // Y1c T22：feed HTTP 游标端点（唯一交付通道）
+import { LifecycleObligationSweeper } from './lifecycle-obligation.sweeper';   // Y1c T22：义务消费面（FEED_TOMBSTONE/NODE_DELETED——SKIP LOCKED 租约）
 import { CollabFrameGateService } from './collab-frame-gate.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabDocWriterService } from './collab-doc-writer.service';
@@ -34,7 +37,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
 
 @Module({
   imports: [TeamModule, CanvasModule, WorkerPresenceModule, ArtifactCoreModule],
-  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController],   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
+  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController, RuntimeFeedController],   // Y1c T22：runtime-feed 游标端点（GET snapshot/events——HTTP 唯一交付）   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
   providers: [
     // T34（Z45③）：三 token useValue→useFactory——useValue 实参在模块加载期求值（dotenv→validateEnv
     // 写回之前=Z79 违规面），useFactory 在 DI 解析期（NestFactory.create，恒在 main.ts validateEnv 后）
@@ -59,6 +62,8 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabSessionGuardService,
     CollabProjectActorService,   // Y1c T9（偏离 38③）：spool-first 写管线核心（gateway 尾参 @Optional 注入+bindHost 后置绑定；单例=与 gateway 自建路径同一 spool/repo 实例面）
     CollabLifecycleObserverService,   // Y1c T26：生命周期义务观察器（帧↔义务同事务+genesis 播种+DeliveryFence 权威——actor 尾参注入）
+    RuntimeFeedService,   // Y1c T22（G5）：RuntimeEvent 写入（feedSeq upsert 行锁）+游标/快照读面+保留期 worker（CollabDocumentService writeExecStatus/deliverArtifact 消费）
+    LifecycleObligationSweeper,   // Y1c T22：义务队列消费（FEED_TOMBSTONE→node.deleted 事件投递+NODE_DELETED 三清扫——#11 SKIP LOCKED 租约）
     CollabFrameGateService,   // Y1c T9（偏离 38①③）：guardSyncFrame 收编重写（DI 注入=gateway 尾参同款；gate 消费 DR/actor 直引）   // Y0c T41（W3b/B2）：SessionGuard 域 service（连接鉴权/限流/awareness 判定单一所有者——限流四桶/认证防线三层/连接寿命标识台账/awareness 归属双索引/writeFreeze 冻结层单源/heap 采样闸〔RC3〕/sweep 复验；gateway 尾参 @Optional 注入+bindHost 后置绑定，B1/W3a 同款；SG→DR 构造直引〔RC4 connected/RC2 老化清理〕，DR→SG 能力经 DR host 缝 gateway 侧转发 sg.*〔DR 文件两波零改动〕；单例=与 gateway 自建路径同一 sessionSvc/perm/pgBreaker/persistence/docRegistry 实例面）
     CollabReadyService,   // Y0a-3 T7：/api/ready 组装（G-4 九档+1s 单飞）
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）

@@ -5,10 +5,9 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 
 // F4c P0：上传 confirm 后延时定向补拉钩子捕获（partial mock——行为归 mediaFactsRuntime.test.ts）
-const { mockScheduleUploadFactPull } = vi.hoisted(() => ({ mockScheduleUploadFactPull: vi.fn() }));
 vi.mock('@/stores/mediaFactsRuntime', async (importOriginal) => {
   const actual = await importOriginal<any>();
-  return { ...actual, scheduleUploadFactPull: mockScheduleUploadFactPull };
+  return { ...actual };
 });
 
 const { getMockNodeData, setMockNodeData, getStoreUpdateMultiImageImages, getStoreSetMainImageIndex, getStoreToggleExpanded, getStoreUpdateMultiImageNodeStatus } = vi.hoisted(() => {
@@ -268,21 +267,6 @@ describe('MultiImageNode', () => {
     renderNode(false);
     expect(screen.queryByText('上传')).not.toBeInTheDocument();
   });
-
-  it('F4c P0：上传 confirm 成功后挂延时定向补拉（逐 fileId——上传者会话告知链锚）', async () => {
-    setMockNodeData({ images: [makeImage('a')], mainImageIndex: 0, expanded: false, nodeStatus: 'done' });
-    const { container } = renderNode(true);
-    vi.mocked(presignUpload).mockResolvedValue({
-      fileId: 'multi-up-1', uploadUrl: 'http://upload.url', key: 'k', fields: {},
-    } as any);
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [new File(['x'], 'b.png', { type: 'image/png' })] } });
-    await waitFor(() => {
-      expect(confirmUpload).toHaveBeenCalledWith({ fileId: 'multi-up-1', key: 'k', fileSize: 1 });
-    });
-    expect(mockScheduleUploadFactPull).toHaveBeenCalledWith('multi-up-1');   // 改前红（挂点缺失）
-  });
-
   // ---- Multi-selection: hide single-node toolbar (Bug A) ----
 
   it('多选（选中数≥2）时不渲染悬浮上传按钮', () => {

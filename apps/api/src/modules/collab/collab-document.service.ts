@@ -11,6 +11,8 @@ import type { FlushOutcome } from './collab-persistence.service';
 import { yjsSnapshotFallbackTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal, execOrphanBlockedTotal, execSeqStaleRejected } from '../execution/exec.metrics';
 import { SnapshotDocCache } from './snapshot-doc-cache';
+import { RuntimeFeedService } from './runtime-feed.service';
+import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
 
 /** Z111：exec 投影 patch 类型——attempts 必填（编译级；请求级投影传 0 代："0 代不得覆盖任何 ≥1 代"）。 */
 export interface ExecStatusPatch {
@@ -38,10 +40,14 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  （gateway pgBreaker/sessionSvc 兜底自建同惯例）。生产恒走 DI 单例（会话表全局唯一）。 */
   private readonly residency: CollabResidencyService;
 
+  /** Y1c T22（G5 同切片切交付）：RuntimeEvent feed 写面+T26 fence 权威——@Optional 供直构测试
+   *  （缺省时 writeExecStatus/deliverArtifact fail-closed throw 非静默回落 doc 写——不变量⑦）。 */
   constructor(
     @Inject(CollabGateway) private readonly gateway: CollabGateway,
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
     @Optional() residency?: CollabResidencyService,
+    @Optional() private readonly feed: RuntimeFeedService | null = null,
+    @Optional() private readonly lifecycle: CollabLifecycleObserverService | null = null,
   ) {
     this.residency = residency ?? new CollabResidencyService(gateway);
     registerSnapshotCacheEntriesReader(() => this.snapshotCache.size);
@@ -229,36 +235,27 @@ export class CollabDocumentService implements OnApplicationShutdown {
     this.residency.assertWriteAdmitted();
   }
 
-  /** B2/F2：exec map 服务端唯一写者（客户端零 exec 写——批0.5 起静态断言）。
-   *  Y0b-2 T5（Z99/Z111）守卫代次化 fail-closed 两子句：
-   *   ① typeof patch.attempts !== 'number' ⇒ drop（缺字段即拦——JS 语义 undefined<=5 为 false，
-   *     单子句判据 fail-open；计数 exec_projection_dropped_total{cause='missing-attempts'}）；
-   *   ② patch.attempts < stored.attempts ⇒ drop（严格更老一律丢**不看终态**——老代 error(1)
-   *     不得覆盖新代 loading(2)——用户在 attempt2 在飞时看到 error 去点重试；cause='older-attempts'）；
-   *   ③ equal ∧ stored 终态（done/error）⇒ drop（原意图——同代次迟到 loading 不倒退终态；
-   *     skipped 非终态〔Z88〕——在飞 worker 的 done 照常落地）。
-   *  stored.attempts ?? 0 兜改动前遗留 doc 条目（无 attempts 键视作 0 代）。
-   *  Y0c T11（Z4/Z69 减法）：存在性守卫在原语层（单写面+批面双面生效）——节点不存在⇒不建条目
-   *  （新孤儿结构性不可产生）+计数 exec_orphan_blocked_total（并列投影丢弃全集观测
-   *  cause='node-deleted'——专项信号与全集观测并存）；签名不改（Promise<void>）。
-   *  patch 语义：逐键补写不整块替换，v undefined 跳过。写核心=applyWriteExecStatusToDoc 原语
-   *  （Y0c T8 起 writeBatch 同事务逐 op 复用同一函数——两路径禁漂移；T11 守卫已落原语层）。
-   *  投影写失败 ⇒ 服务端有界退避重试（F2——批3 persist-status 同款机制落地前先 log，机制位留好）。 */
+  /** Y1c T22（G5 同切片——D9 切交付）：**doc.exec 停写**——writeExecStatus 改 RuntimeEvent
+   *  exec.status PG 写（feed 事件与业务事务原子；零 doc 写——不变量⑦服务端派生字段永不进 doc）。
+   *  签名/守卫入口不变（写意图受理门+租约档语义原样——调用方 execution.service/worker 通道零改）；
+   *  代次守卫（Z99/Z111 attempts/终态不倒退）随 doc 写面退役——feed 端 nodeVersion 单调由客户端
+   *  reducer 大者胜承担（迟到旧事件按 nodeVersion 丢弃），服务端不再建 exec 条目（无孤儿面）。
+   *  @Optional feed 缺席=fail-closed throw（直构测试面——禁静默回落 doc 写）。 */
   async writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
-    // X9 写意图受理门 + Y0a-3 T8 租约档（同 writeNodeData——R4）；Y0c T9 收编单点 assertWriteAdmitted；
-    // Y0c T15 改道 withSession(write)——受理门/degraded 档由会话内部强制（判据零变化）。
-    await this.withSession(projectId, (doc) => {
-      const outcome = applyWriteExecStatusToDoc(doc, nodeId, patch);
-      if (!outcome.written && outcome.reason === 'node-deleted') {
-        execOrphanBlockedTotal.inc();   // Y0c T11 Z4 专项信号
-      }
-      if (!outcome.written && outcome.reason !== 'terminal-superseded') {
-        execProjectionDroppedTotal.inc({ cause: outcome.reason });   // 计数语义与提取前逐点一致（终态倒退静默不计数）
-        if (outcome.reason === 'older-attempts') {
-          execSeqStaleRejected.inc();   // T19（v11.2 ③）：旧代拒写专项命名信号（与全集计数同事件并列）
-        }
-      }
-    }, { mode: 'write' });
+    // X9 写意图受理门 + Y0a-3 T8 租约档（R4）；Y0c T9 收编单点 assertWriteAdmitted（语义零变化）
+    this.residency.assertWriteAdmitted();
+    if (!this.feed) throw new Error('RUNTIME_FEED_NOT_CONFIGURED: writeExecStatus 需 RuntimeFeedService（T22 doc.exec 停写——禁回落 doc 写）');
+    const { attempts, status } = patch;
+    const r = await this.feed.appendEvent(projectId, 'exec.status', () => ({
+      nodeId,
+      status: String(status),
+      attempts: typeof attempts === 'number' ? attempts : 0,
+      ...(typeof patch.execSeq === 'string' ? { execSeq: patch.execSeq } : {}),
+      ...(typeof patch.errorCode === 'string' ? { errorCode: patch.errorCode } : {}),
+      ...(typeof patch.artifactRev === 'number' ? { artifactRev: patch.artifactRev } : {}),
+    }));
+    this.feed.notifyProject(projectId);   // 事务提交后通知（节流 ≤1/s——feed-hint 不带事件体）
+    void r;
   }
 
   /** T14（plan v11.2 片 S4）透传面：flushDocument 交付判定窄接口（投影 poller 批尾一次 flush 的
@@ -268,32 +265,65 @@ export class CollabDocumentService implements OnApplicationShutdown {
     return this.residency.flushDocument(projectId, capturedEpoch);
   }
 
-  /** Y1b T15（spec Z18''④/:91）：deliverArtifact 复合 op——投影 poller 交付原语。同 withSession(write)
-   *  单事务写 data.{fileId|result}（applyWriteNodeDataToDoc 原语——Z44 交付判据）+exec done
-   *  （applyWriteExecStatusToDoc 原语——exec 降 cache〔spec Z18''⑤ done=投影 poller 专写〕；
-   *  exec patch 键集必须 ⊆ EXEC_STATUS_KEYS——红线，调用方=ProjectionOutboxPoller.execDonePatch）。
-   *  data written:false **按 reason 分档**（Y1c T15 收口 B②〔Q-M-3〕）：node-deleted/no-node-map=
-   *  「谁观察 node 删除」的权威观察点——调用方按 orphaned 终态收敛+幂等退款；no-data-map/
-   *  text-domain-protected 等**活节点结构缺/域键拒**≠node-deleted——调用方走 retry/failed 档
-   *  （耗 attempts）不 orphaned 不退款（见 projection-outbox.poller 分档）。此档不建 exec 条目
-   *  （Z4 存在性守卫同源——E22 读侧两形态等价）。
-   *  execWritten=false（代次守卫拦截等）=UI cache 面降级，非交付判据（资金/交付判定读 PG）。 */
+  /** Y1c T22（G5 同切片——D9 切交付，不变量⑦首达）：deliverArtifact **改 PG 写**——零 doc 写
+   *  （data.{fileId|result} 服务端写面退役——服务端派生字段永不进 doc），交付=RuntimeEvent
+   *  exec.artifact+exec.status(done) 两事件（与 fence 判定同事务原子提交）。
+   *  **node-deleted 权威=deliveryFenceCheckInTx（T26 先行）**——deliverArtifact 弃用 doc
+   *  data.written:false 观察：fence 拒档（node-deleted/fence-stale/unregistered）⇒ written:false
+   *  reason='node-deleted'（调用方 poller 既有 orphaned+幂等退款流照常——「丢弃不退款」指 fence
+   *  判定自身零资金动作，资金收敛归 poller orphaned/R3 窗⑥既有链）。
+   *  T26 裁定（unregistered 档三场景=legacy 无行/replayAll 崩溃窗 stale 档/doc-lag 收养整体
+   *  stale）：**维持 fail-closed 拒档**——开发期无存量兼容（seedPresence 播种面=T26 已落，
+   *  词表内节点恒有行；拒档语义=宁拒勿复活 stale-ACTIVE 逃逸）。
+   *  幂等：同 (nodeId, artifactRev) exec.artifact 事件已存在 ⇒ no-op written:true（poller 重投/
+   *  ambiguous commit 安全——事件唯一性按业务键非 feedSeq）。 */
   async deliverArtifact(projectId: string, params: {
     nodeId: string;
     targetField: 'fileId' | 'result';
-    /** 交付值（mediaId/resultText）。**null=clearMedia 语义（P2-⑥ 裁定：钉 null 写而非删键）**
-     *  ——web 消费面 null≡缺失等值实证（useMediaUrl !fileId 短路/ImageGenNode·VideoGenNode
-     *  fileId||reference 回退/零处 null-vs-missing 分辨形态）；旧链 deleteNodeDataKeys 删键 op
-     *  随 T15 直写收口退役（op 本体仍在 writeBatch 词汇表——客户端本地语义对应物）。 */
     value: string | null;
     exec: ExecStatusPatch;
   }): Promise<{ data: WriteNodeDataResult; execWritten: boolean }> {
-    return this.withSession(projectId, (doc) => {
-      const data = applyWriteNodeDataToDoc(doc, params.nodeId, { [params.targetField]: params.value });
-      if (!data.written) return { data, execWritten: false };   // 节点删——data/exec 同拦（不建孤儿 exec 条目）
-      const exec = applyWriteExecStatusToDoc(doc, params.nodeId, params.exec);
-      return { data, execWritten: exec.written };
-    }, { mode: 'write' });
+    this.residency.assertWriteAdmitted();   // 写意图受理门（R4——与旧写面同门先行）
+    if (!this.feed || !this.lifecycle) {
+      throw new Error('RUNTIME_FEED_NOT_CONFIGURED: deliverArtifact 需 RuntimeFeedService+LifecycleObserver（T22 切交付——禁回落 doc 写）');
+    }
+    const feed = this.feed;
+    const lifecycle = this.lifecycle;
+    const { nodeId, exec, value } = params;
+    // 幂等前置：同 (nodeId, artifactRev) 事件在档 ⇒ no-op（poller 重投/ambiguous commit 安全）
+    const artifactRev = typeof exec.artifactRev === 'number' ? exec.artifactRev : 0;
+    if (await feed.hasArtifactEvent(projectId, nodeId, artifactRev)) {
+      return { data: { written: true }, execWritten: true };
+    }
+    const outcome = await feed.appendEventTransaction(projectId, async (tx, append) => {
+      // ① fence 权威（FOR UPDATE 行锁——判定与事件写同事务不可插队）
+      const verdict = await lifecycle.deliveryFenceCheckInTx(tx, projectId, nodeId);
+      if (!verdict.allow) {
+        return { rejected: true as const, reason: verdict.reason };
+      }
+      // ② exec.artifact（mediaId/resultRef 引用——尺寸事实走 media-facts 通道不进事件）
+      await append('exec.artifact', () => ({
+        nodeId,
+        ...(params.targetField === 'fileId' && typeof value === 'string' ? { mediaId: value } : {}),
+        ...(params.targetField === 'result' && typeof value === 'string' ? { resultRef: value } : {}),
+        artifactRev,
+      }));
+      // ③ exec.status done（attempt/errorCode 随 exec patch——键集同 EXEC_STATUS_KEYS 域）
+      await append('exec.status', () => ({
+        nodeId,
+        status: String(exec.status ?? 'done'),
+        attempts: typeof exec.attempts === 'number' ? exec.attempts : 0,
+        ...(typeof exec.errorCode === 'string' ? { errorCode: exec.errorCode } : {}),
+      }));
+      return { rejected: false as const };
+    });
+    if (outcome.rejected) {
+      // T26 裁定三场景（unregistered/stale/node-deleted）一律拒档——reason 归并 'node-deleted'
+      //（poller 既有 orphaned+退款流语义不变——交付判据类型化面维持）
+      return { data: { written: false, reason: 'node-deleted' }, execWritten: false };
+    }
+    feed.notifyProject(projectId);   // 事务提交后通知（feed-hint 不带事件体——客户端拉取追平）
+    return { data: { written: true }, execWritten: true };
   }
 }
 

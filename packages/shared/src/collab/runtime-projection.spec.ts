@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { CanvasReadModel } from '../canvas/doc-codec';
 import {
   RuntimeProjection, RuntimeNodeProjectionEntry, RuntimeProjectionUpdate, mergeRuntimeProjection,
-  composeRenderModel,
+  composeRenderModel, isActiveTombstone,
   formatPublicSnapshotCacheKey, BindMediaCommand, CloneBindingCommand, FOUR_READ_PATHS,
   COPY_PASTE_COMMAND_CONTRACT,
   RUNTIME_STORE_TTL_DAYS, RUNTIME_STORE_TTL_MS, RuntimeStoreFreshness,
@@ -101,6 +101,19 @@ describe('Y1c T5c 契约冻结：mergeRuntimeProjection（shared 唯一 merge �
     const eqFields = proj({ nodes: { n1: entry({ execStatus: { status: 'done', nodeVersion: '7' } }) } });
     const merged3 = mergeRuntimeProjection(eqFields, delta(tombstone));
     expect(merged3.nodes.n1!.execStatus).toBeDefined();
+  });
+  it('T22 restored 槽：node.restored 版本 ≥deletedAt ⇒ 墓碑失活（undo 重建节点回渲染面）；旧 restored 不解除新墓碑', () => {
+    // 活墓碑（deletedAt=7 无字段）
+    const tombstoned = proj({ nodes: { n1: entry({ deletedAt: { lifecycleSeq: '1', nodeVersion: '7' } }) } });
+    expect(isActiveTombstone(tombstoned.nodes.n1!)).toBe(true);
+    // node.restored（feedSeq 8 ≥ 7）→ 失活（compose 回渲染面）
+    const restored = proj({ nodes: { n1: entry({ restored: { lifecycleSeq: '2', nodeVersion: '8' } }) } });
+    const merged = mergeRuntimeProjection(tombstoned, delta(restored));
+    expect(isActiveTombstone(merged.nodes.n1!)).toBe(false);
+    // 后到的新墓碑（deletedAt=10 > restored=8）→ 重新 active
+    const reDeleted = proj({ nodes: { n1: entry({ deletedAt: { lifecycleSeq: '3', nodeVersion: '10' } }) } });
+    const merged2 = mergeRuntimeProjection(merged, delta(reDeleted));
+    expect(isActiveTombstone(merged2.nodes.n1!)).toBe(true);
   });
   it('#10 换代必须全量 snapshot：fullSnapshot=false ∧ generation≠ → 整体忽略（新代增量禁并入——须走快照）；fullSnapshot=true → 全量替换', () => {
     const g3 = proj({ generation: 3, feedSeq: '50', nodes: { n1: entry({ execStatus: { status: 'a', nodeVersion: '1' } }) } });

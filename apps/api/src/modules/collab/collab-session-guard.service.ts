@@ -290,6 +290,12 @@ export class CollabSessionGuardService {
   /** R6'：保活心跳（B15 缓解——10s stateless sweep；键=connectedPayload.socketId）——start/stop 随域定时器族 */
   private readonly heartbeat = new CollabHeartbeat();
 
+  /** Y1c T22（spec §7 心跳携 latestFeedSeq）：心跳载荷增补注入缝（RuntimeFeedService 构造期接线——
+   *  feed 进程内 lastKnown 快照同步读；未注入=纯 heartbeat 形态不变）。 */
+  setHeartbeatEnricher(fn: (conn: CollabConnection) => Record<string, unknown> | null): void {
+    this.heartbeat.setEnricher(fn);
+  }
+
   // ── writeFreeze 冻结层单源（Q-A v5）+背压 wrap 台账+heap 采样闸（RC3） ──
   /** Y0b-4 T4（Q-A v5/Q-C）：writeFreeze 冻结层单源——conn→{pid, 原因集}（readOnly=原因集非空）。
    *  唯一出口=applyWriteFreeze（生产直写 conn.readOnly 仅 connectionConfig 构造期一处——库首帧拦截）。

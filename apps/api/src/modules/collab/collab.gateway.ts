@@ -183,6 +183,17 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   isDocResident(projectId: string): boolean {
     return (this.server.hocuspocus.documents.get(this.docRegistry.liveDocName(projectId))?.connections.size ?? 0) > 0;   // Y1c T12：canonical wire 名（#g 换代通道）
   }
+
+  /** Y1c T22（spec §7 通知通道）：per-project stateless 广播（feed-hint——不带事件体只带
+   *  latestFeedSeq；RuntimeFeedService.notifyProject 节流后经此扇出到 canonical doc 全连接）。
+   *  sendStateless throw=连接已断（heartbeat sweep 摘除兜底）——吞错继续扇出余连接。 */
+  broadcastStatelessToProject(projectId: string, payload: string): void {
+    const doc = this.server.hocuspocus.documents.get(this.docRegistry.liveDocName(projectId));
+    if (!doc) return;
+    for (const conn of doc.connections.values()) {
+      try { (conn as { sendStateless?: (p: string) => void }).sendStateless?.(payload); } catch { /* 已断——心跳 sweep 摘除兜底 */ }
+    }
+  }
   /** Y0c T17（Z129）：常驻会话统一释放回调公有注册点（CollabResidencyService 构造期注册——
    *  setVacuumRunner 同款反向注入形态：residency→gateway 单向依赖）。W3a RC1=B 组合持有：字段+
    *  释放入口所有权迁 DR（attach 缝后置绑定），本注册点=1 行转发——residency 构造器注册缝
