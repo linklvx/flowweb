@@ -22,7 +22,6 @@
 // 不匹配=丢弃不退款；doc data.written:false 观察自 T22 起弃用）。
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type * as Y from 'yjs';
 import {
   isFrameNodeTypeName,
   obligationsForFrameEffect,
@@ -32,7 +31,6 @@ import {
   type ObligationKind,
 } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { lifecycleFencesStaledTotal } from './store.metrics';
 
 /** per-walSeq 义务 buffer 形态（AppliedEntry.effects 的帧前缀投影——T9 收集器单源，无第二套解析器）。 */
 export interface LifecycleFrame {
@@ -140,7 +138,17 @@ export function evaluateDeliveryFence(
 
 @Injectable()
 export class CollabLifecycleObserverService {
+  /** R-1② form a：stale 标记 projectId 集（进程内——observer 单例；staleProjectFencesInTx 落点登记，
+   *  actor 下一帧批见标记则本批同事务跑 presence 重对齐后清除。进程内丢失（重启）无害：重启=doc
+   *  重载→首批播种天然重对齐。事务回滚残留标记无害：presence 重对齐按 doc 真值幂等正确）。 */
+  private readonly staleFenceProjects = new Set<string>();
+
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  /** R-1②：项目存在 stale fence 标记（actor 播种触发器——同实例无需重载）。 */
+  hasStaleFences(projectId: string): boolean { return this.staleFenceProjects.has(projectId); }
+  /** R-1②：stale 标记清除（seed-bearing flush 落定后由 actor 调——重对齐已完成）。 */
+  clearStaleFenceMark(projectId: string): void { this.staleFenceProjects.delete(projectId); }
 
   /** lifecycleSeq 分配读基线：per-project MAX+1（单写者=actor flush 临界区——分配序≡提交序，
    *  迁移二未建 DB sequence（T21 表形无序列对象），MAX+1 事务内读满足「per-project 单调数值序」）。 */
@@ -308,8 +316,8 @@ export class CollabLifecycleObserverService {
     const n = await tx.$executeRaw`
       UPDATE "DeliveryFence" SET "fenceSeq" = 0, "updatedAt" = now()
       WHERE "projectId" = ${projectId}::text AND "fenceSeq" <> 0`;
-    lifecycleFencesStaledTotal.inc(n);
-    return n;
+    this.staleFenceProjects.add(projectId);   // R-1② form a：stale 标记（进程内——回滚残留无害，见字段注记）
+    return n;   // M-7：计数归调用点（落定后 observe——本方法在 tx 内，回滚不计数由调用点 r.ok 门保证）
   }
 
   /**

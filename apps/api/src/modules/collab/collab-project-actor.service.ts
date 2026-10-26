@@ -828,10 +828,16 @@ export class CollabProjectActorService {
       return;
     }
     // —— ④ WAL 批量追加+fsync（单 fsync；per-frame SHA-256 去重已在 submit 层）——
-    // Y1c T26（M-1 收口）：genesis presence 快照（每 doc 实例一次、批前捕获——先于本批任何帧
-    // effect 派生；播种=flush inTx 同事务派生〔单写者临界区统一〕，失败随 flush 回滚重试，不另设
-    // 独立事务/拒绝面）。
-    if (this.lifecycleObserver && !this.lifecycleSeededDocs.has(document) && st.lifecycleSeedPresence === undefined) {
+    // Y1c T26（M-1 收口）：genesis presence 快照（批前捕获——先于本批任何帧 effect 派生；播种=flush
+    // inTx 同事务派生〔单写者临界区统一〕，失败随 flush 回滚重试，不另设独立事务/拒绝面）。二轮 R-1②
+    // 解耦：触发=每 doc 实例首批 ∨ observer stale 标记在位（运行期 stale 打到已装载已播种 doc 后任意
+    // 下一帧批即重对齐——同实例无需重载；重对齐按 doc presence 真值，deleted 节点 absent 恒 stale）。
+    // 可信守卫：spoolHeadSeq≤appliedSeq（spool 水位自洽）——adopt 外来帧未 apply 入本 doc 时 presence
+    // 滞后于 PG 真值（删除已落行而 doc 仍在册），据此重对齐会复活已删节点=逃逸——禁之，fail-closed。
+    const wmT26 = this.spool.watermark(pid);
+    const presenceTrustworthy = wmT26 == null || wmT26.spoolHeadSeq <= wmT26.appliedSeq;   // spool 水位自洽=无未入本 doc 的滞留帧（adopt 外来帧形态——presence 不可信禁播种/重对齐，fail-closed 至 doc 重载）
+    if (this.lifecycleObserver && presenceTrustworthy && st.lifecycleSeedPresence === undefined
+      && (!this.lifecycleSeededDocs.has(document) || this.lifecycleObserver.hasStaleFences(pid))) {
       const presence = new Map<string, string>();
       for (const [id, v] of document.getMap('nodes').entries()) {
         if (!v || typeof v !== 'object') continue;
@@ -1098,7 +1104,10 @@ export class CollabProjectActorService {
       }, frames ? async (tx) => {
         lifecycleCounts = await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames, seedPresence ? { seedPresence } : undefined);
       } : undefined);
-      if (r.ok && st.lifecycleSeedPresence !== undefined) st.lifecycleSeedPresence = undefined;   // 落定才消费（失败重试复用——seed 幂等）
+      if (r.ok && st.lifecycleSeedPresence !== undefined) {
+        st.lifecycleSeedPresence = undefined;   // 落定才消费（失败重试复用——seed 幂等）
+        this.lifecycleObserver?.clearStaleFenceMark(pid);   // R-1②：stale 标记随重对齐落定清除
+      }
       if (r.ok && lifecycleCounts) {
         if (lifecycleCounts.writes > 0) lifecycleRowsCreatedTotal.inc({ surface: 'frame' }, lifecycleCounts.writes);
         if (lifecycleCounts.seeded > 0) lifecycleRowsCreatedTotal.inc({ surface: 'seed' }, lifecycleCounts.seeded);

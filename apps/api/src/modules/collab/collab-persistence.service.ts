@@ -493,6 +493,14 @@ export class CollabPersistenceService {
     this.maintenanceSink = fn;
   }
 
+  /** Y1c T26 二轮 R-1①：生命周期观察器 face 注入（gateway 经 setter 传 projectActor.lifecycleObserverFace
+   *  ——setMaintenanceSink 先例）——reconcileSpool 的 replayAll 入口（:879 生产在役）两档（adopt 外来段
+   *  形/ownPending 裸形）均带 stale 面（stale-ACTIVE 交付逃逸窗收口）；未注入（直构/测试）=null 不带。 */
+  private lifecycleObserverFace: { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | null = null;
+  setLifecycleObserver(face: { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | null | undefined): void {
+    this.lifecycleObserverFace = face ?? null;
+  }
+
   /** 维护通道统一出口：sink 接线（gateway 生产形态）=actor.submitMaintenance 单写者串行段；未接线
    *  （直构/actor 缺席面）=内置回退——spool.appendTracked（WAL fsync+walSeq）→repo.appendBatch 单帧行
    *  →confirm（与 actor 同序同语义；仅存在于 sink 缺席时，不与 actor 并存=无第二写者面）。 */
@@ -876,7 +884,13 @@ export class CollabPersistenceService {
     if (adopted.length === 0 && !ownPending) return;
     const byProject = [...new Set(adopted.map((s) => s.projectId))];
     for (const p of byProject) await this.spool.quarantineTruncatedFrames(p).catch(() => 0);   // 注记②：坏尾先隔离（adopt 重建的 meta 无 quarantinedRange——不补则段永不回收）
-    await this.spool.replayAll(this.repo, byProject.length ? { projectIds: byProject } : undefined);
+    // Y1c T26 二轮 R-1①：两档（adopt 点名形/ownPending 裸形）均带 lifecycleObserver——回灌帙与
+    // 项目级 fence stale 同事务（stale-ACTIVE 交付逃逸窗收口：PG 瞬断 flush 失败→含删帧滞留→
+    // 30s 机械重插无 stale 无义务→空闲项目窗持续）。
+    await this.spool.replayAll(this.repo, {
+      ...(byProject.length ? { projectIds: byProject } : {}),
+      ...(this.lifecycleObserverFace ? { lifecycleObserver: this.lifecycleObserverFace } : {}),
+    });
     if (ownPending) this.rearmQueues();   // own 段的驱动=退避梯（replayAll 不点名全量——幂等回灌无害）
     this.host.logger.warn(JSON.stringify({ event: 'spool_reconcile_adopted', projects: byProject, segments: adopted.length, ownPending }));
   }

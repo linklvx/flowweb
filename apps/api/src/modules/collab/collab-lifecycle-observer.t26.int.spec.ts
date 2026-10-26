@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { CollabPersistenceService } from './collab-persistence.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -378,4 +379,51 @@ describe('Y1c T26 收口批（真 PG）', () => {
     expect(dtMs).toBeLessThan(60_000);                             // 松上界（正确性为主——耗时记录供观测）
   }, 120_000);
 });
+
+  it('红（R-1 二轮）：生产 reconciler 路径（persistence :879——ownPending 裸形/adopt 两档）带 stale+运行期 stale 后同实例下一帧批重对齐（现码红=①无 stale 放行逃逸②需重载才复活）', async () => {
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const doc = new Y.Doc();
+    const actor = buildActor(doc, PID_A);
+    const f = makeFrames();
+    await submitAndFlush(actor, PID_A, f.create('nHealthy'));    // 健康节点（恒 present——重对齐复活对象）
+    await submitAndFlush(actor, PID_A, f.create('nVictim'));     // 待删节点
+    expect((await observer.deliveryFenceCheck(PID_A, 'nHealthy')).allow).toBe(true);
+    // PG 瞬断：删除帧走 actor 全管线（apply+WAL fsync+ACK）但 flush 一次失败——帧滞留
+    // appliedQueue+spool 未 confirm（生产逃逸窗形态；帧工厂后续 create 用 fresh 客户端防 DS 重携）
+    const appendSpy = vi.spyOn(repo, 'appendBatch').mockRejectedValueOnce(new Error('pg blip'));
+    await actor.submit(PID_A, f.del('nVictim'), makeConn(), 'update');
+    await vi.waitFor(() => expect(actor.appliedQueueDepth(PID_A)).toBeGreaterThan(0), { timeout: 3_000 });
+    appendSpy.mockRestore();
+    // 生产 reconciler 入口（30s tick 直调——ownPending 裸形；observer face 经 setter 注入）
+    const persistence = new CollabPersistenceService(repo as never, spool as never);
+    persistence.bindHost({
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), verbose: vi.fn(), fatal: vi.fn() } as unknown as Logger,
+      getDocument: () => undefined,
+      docStats: () => ({ loadedDocs: 0, connections: 0, directConns: 0 }),
+      onUpdateDelta: () => {},
+      onFencedByWrite: async () => {},
+      calibrateTruth: () => undefined,
+      observeDocBytes: () => {},
+      isIsolated: () => false,
+      isServingState: () => true,
+      isShuttingDownFlag: () => false,
+      onSpoolRecoveredFlip: () => {},
+      currentLeaseEpoch: () => null,
+    } as never);
+    persistence.setLifecycleObserver(actor.lifecycleObserverFace);   // ①接线（红=不传 observer）
+    await (persistence as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+    // ①stale 落定：健康节点与待删节点双双 fence-stale（项目级 stale=fail-closed 窗——红①=修前 ACTIVE 匹配放行逃逸）
+    expect(await observer.deliveryFenceCheck(PID_A, 'nHealthy')).toMatchObject({ allow: false, reason: 'fence-stale' });
+    expect(await observer.deliveryFenceCheck(PID_A, 'nVictim')).toMatchObject({ allow: false, reason: 'fence-stale' });
+    // ②同实例重对齐：已装载已播种 doc 无需重载——任意下一帧批（fresh 工厂无 DS 重携）：健康节点复活；
+    //   待删节点的滞留删除帧随 appliedQueue 重试同批落定（NODE_DELETED 衍生+三义务——PG 瞬断自愈）
+    const f3 = makeFrames();
+    await submitAndFlush(actor, PID_A, f3.create('nHeal'));
+    expect(await observer.deliveryFenceCheck(PID_A, 'nHealthy')).toMatchObject({ allow: true });   // 红②=现码需重载才复活
+    const victim = await observer.deliveryFenceCheck(PID_A, 'nVictim');
+    expect(victim.allow).toBe(false);                                // 删除真值恢复（fence-stale 或 node-deleted 均拒）
+    const obVictim = await prisma.lifecycleObligation.findMany({ where: { projectId: PID_A, nodeId: 'nVictim' } });
+    expect(obVictim.map((o) => o.kind).sort()).toEqual(['EXEC_FINALIZE', 'FEED_TOMBSTONE', 'NODE_DELETED']);   // appliedQueue 重试衍生（红=现码义务永不发射）
+  }, 30_000);
+
 });

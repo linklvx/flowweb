@@ -57,6 +57,7 @@ import {
   walRecoverySuspectTotal,
   walFsyncLatency,
   docPrefixGapTotal,
+  lifecycleFencesStaledTotal,
 } from './store.metrics';
 import { isFkGone } from './pg-error.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -1747,9 +1748,11 @@ export class CollabSpoolService {
     const genOf = (projectId: string) => this.currentGeneration(projectId);
     for (const projectId of opts?.projectIds ?? this.keys()) {
       if (Date.now() > deadline) return { replayed, failed, discarded };   // I2：项目间守预算
-      // Y1c T26 I-1：stale inTx（与回灌帙同事务——幂等：每轮重复打点=行值恒 0 no-op）
+      // Y1c T26 I-1：stale inTx（与回灌帙同事务——幂等：每轮重复打点=行值恒 0 no-op）。M-7：计数
+      // 落定后 observe（闭包回传本事务 stale 行数，r.ok 后 inc——回滚不计数）。
+      let staledThisTx = 0;
       const staleInTx = opts?.lifecycleObserver
-        ? async (tx: import('@prisma/client').Prisma.TransactionClient) => { await opts!.lifecycleObserver!.staleProjectFencesInTx(tx, projectId); }
+        ? async (tx: import('@prisma/client').Prisma.TransactionClient) => { staledThisTx = await opts!.lifecycleObserver!.staleProjectFencesInTx(tx, projectId); }
         : undefined;
       for (;;) {                                                 // X8：分轮
         const frames = (await this.peek(projectId)).slice(0, CollabSpoolService.REPLAY_MERGE_MAX_FRAMES);
@@ -1767,6 +1770,7 @@ export class CollabSpoolService {
           })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq }, staleInTx);
           if (!r.ok) throw new Error(`appendBatch fenced (${r.reason})`);
           await this.confirm(projectId, frames.map((f) => f.frameId));
+          if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);
           replayed += frames.length;
           roundAppended = true;
         } catch (e) {
@@ -1785,6 +1789,7 @@ export class CollabSpoolService {
                 })], { expectedPgSeq: null, newPgSeq: frame.walSeq, walCheckpointSeq: frame.walSeq }, staleInTx);
                 if (!r2.ok) throw new Error(`appendBatch fenced (${r2.reason})`, { cause: e });
                 await this.confirm(projectId, [frame.frameId]);
+                if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);
                 replayed += 1;
                 break;
               } catch (e2) {

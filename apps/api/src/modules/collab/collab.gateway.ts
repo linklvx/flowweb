@@ -382,6 +382,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       consumeBytesBucket: (socketId, bytes) => this.sessionGuard.consumeBytesBucket(socketId, bytes),
     });
     this.persistence.setMaintenanceSink((pid, payload) => this.projectActor.submitMaintenance(pid, payload));
+    // Y1c T26 二轮 R-1①：观察器 face 注入 persistence（reconcileSpool 的 replayAll 入口带 stale 面）
+    this.persistence.setLifecycleObserver(this.projectActor.lifecycleObserverFace);
     this.hooks = {
       // W3b（RC4=A）：connected 钩子体即迁 SG.onConnected（消费面 8 成员 5 SG 所有+isVacuuming/
       // quotaFrozenDocs/buildDocStatus SG→DR 直引 3 位）——GW 接线改 1 行（寿命台账播种/wrapBackpressure/
