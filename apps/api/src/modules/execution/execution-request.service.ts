@@ -199,8 +199,10 @@ export class ExecutionRequestService {
     const edgesMap = doc.getMap('edges') as Y.Map<unknown>;
     const edges: Array<{ id: string; source: string; target: string }> = [];
     for (const [id, raw] of edgesMap.entries()) {
-      const e = raw as { source?: unknown; target?: unknown };
-      if (typeof e?.source === 'string' && typeof e?.target === 'string') edges.push({ id, source: e.source, target: e.target });
+      // 边信封=Y.Map（fillDoc 形态）——.get 读键（属性访问恒 undefined=拓扑退化为请求序的暗坑，二轮收口根修）
+      const src = raw instanceof Y.Map ? raw.get('source') : (raw as { source?: unknown })?.source;
+      const tgt = raw instanceof Y.Map ? raw.get('target') : (raw as { target?: unknown })?.target;
+      if (typeof src === 'string' && typeof tgt === 'string') edges.push({ id, source: src, target: tgt });
     }
     const scope = new Set(nodeIds);
     const parentIds = new Set<string>();
@@ -298,16 +300,18 @@ export class ExecutionRequestService {
       if (history && existing.historyId !== history.historyId) {
         return { ok: false, status: 409, code: 'REQUEST_STALE', detail: 'PITR/恢复后同 requestId 重试（historyId 不匹配）——请求已过期' };
       }
-      // 幂等身份域（M2+M-5 裁定）：比对 (docSeq, 有序 nodeIds) 等值——与 planHash 决定域一致
-      // （order 敏感：拓扑序变=计划变）；不重算哈希（受理后前缀推进不误伤合法重试）。
+      // 幂等身份域终裁（R-I-1 二轮）：**nodeIds 集比对，docSeq 出域**——requestId=意图身份（客户端
+      // 逐意图铸造）；数组序=服务端 Kahn 拓扑派生非客户端语义（同集同 doc 确定性同序——请求序≠拓扑序
+      // 的合法重放不得 409）；docSeq=咨询性（重试携带新 docSeq 恒重放原冻结计划）。意图变更（改集/改
+      // model/prompt 后重发同 requestId）=客户端误用 requestId：集不同→409。更强 @frozenDocSeq 前缀
+      // 重建比对（哈希级）留档不实现（重算会因受理后前缀推进误伤合法重试——收益/代价不成比）。
       const existingPlans = await this.prisma.executionNodePlan.findMany({
-        where: { requestId: existing.id }, orderBy: { order: 'asc' }, select: { nodeId: true },
+        where: { requestId: existing.id }, select: { nodeId: true },
       });
-      const sameOrderedIds = existingPlans.length === cmd.nodeIds.length
-        && existingPlans.every((p, i) => p.nodeId === cmd.nodeIds[i]);
-      const sameDocSeq = existing.docSeq === cmd.docSeq;
-      if (!sameOrderedIds || !sameDocSeq) {
-        return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（docSeq 或有序 nodeIds 不匹配）' };
+      const sameSet = existingPlans.length === cmd.nodeIds.length
+        && cmd.nodeIds.every((id) => existingPlans.some((p) => p.nodeId === id));
+      if (!sameSet) {
+        return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（nodeIds 集不匹配——意图变更须换新 requestId）' };
       }
       return {
         ok: true, id: existing.id, requestId, frozenDocSeq: existing.frozenDocSeq,
@@ -364,15 +368,16 @@ export class ExecutionRequestService {
     //    插入前判定=零半行，不截断不分片——brotli〔node:zlib〕）
     const promptBytes = Math.max(...ordered.map((n) => Buffer.byteLength(entries[n.id]!.promptText, 'utf8')));
     const upstreamMediaCount = new Set(Object.values(entries).map((e) => e.upstreamImageMediaId).filter(Boolean)).size;
-    // M-3：引用图计数读 prompt RichTextValue.referencedImageIds（XmlFragment 域内嵌引用——旧读
-    //  data.imageUrls 恒漏 prompt 内嵌引用）；手工 imageUrls 数组兜底并计。
-    const referencedImageCount = ordered.reduce((s, n) => {
-      const promptVal = entries[n.id]?.args.prompt as unknown;
+    // M-3/R-M-1/R2（二轮真修）：引用图计数读 n.data.prompt（slice plainOf 产物——XmlFragment 域
+    // 解码为 RichTextValue{...,referencedImageIds}）内嵌引用；手工 data.imageUrls 数组兜底并计。
+    // （上轮读 args.prompt 恒 string=死分支——本轮改读真源。）
+    const referencedImageCount = ordered.reduce((acc, n) => {
+      const promptVal = n.data.prompt as unknown;
       const fromPrompt = (promptVal && typeof promptVal === 'object' && Array.isArray((promptVal as { referencedImageIds?: unknown[] }).referencedImageIds))
         ? (promptVal as { referencedImageIds: unknown[] }).referencedImageIds.length
         : 0;
       const fromData = Array.isArray(n.data.imageUrls) ? (n.data.imageUrls as unknown[]).length : 0;
-      return s + fromPrompt + fromData;
+      return acc + fromPrompt + fromData;
     }, 0);
     const raw = Buffer.from(serializeFrozenInput(entries), 'utf8');
     const compressed = brotliCompressSync(raw);
@@ -442,11 +447,14 @@ export class ExecutionRequestService {
       if ((err as { code?: string }).code === 'P2002') {
         const winner = await this.prisma.executionRequest.findUnique({ where: { projectId_requestId: { projectId, requestId } } });
         if (winner) {
-          const winnerPlans = await this.prisma.executionNodePlan.findMany({ where: { requestId: winner.id }, orderBy: { order: 'asc' }, select: { nodeId: true } });
-          if (winnerPlans.length === cmd.nodeIds.length && winnerPlans.every((p, i) => p.nodeId === cmd.nodeIds[i]) && winner.docSeq === cmd.docSeq) {
+          // 集比对域（R-I-1 终裁同款——P2002 复读与前置检查同域）
+          const winnerPlans = await this.prisma.executionNodePlan.findMany({ where: { requestId: winner.id }, select: { nodeId: true } });
+          const sameSet = winnerPlans.length === cmd.nodeIds.length
+            && cmd.nodeIds.every((id) => winnerPlans.some((p) => p.nodeId === id));
+          if (sameSet) {
             return { ok: true, id: winner.id, requestId, frozenDocSeq: winner.frozenDocSeq, planHash: winner.planHash, inputHash: winner.inputHash, reservedCredit: winner.reservedCredit, totalCredit: winner.totalCredit, replayed: true };
           }
-          return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（docSeq 或有序 nodeIds 不匹配）' };
+          return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（nodeIds 集不匹配——意图变更须换新 requestId）' };
         }
       }
       const reason = (err as { reason?: string }).reason;

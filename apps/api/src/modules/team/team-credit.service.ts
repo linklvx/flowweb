@@ -300,6 +300,16 @@ export class TeamCreditService {
       if (!item || item.reservedCredit <= 0) return { success: true, settled: false, amount: 0 };
       await this.ledger.lockBalance(ltx, input.teamId);
       const reserveRows = await this.execreqReserveRowsForUpdate(ltx, input.teamId, `execreq:${input.executionRequestId}#${input.nodeId}`);
+      // R1（二轮·金额守卫）：anti-join 空=该 item 的 reserve 行全已冲销（裸重放/stale 读源）——不改判
+      // SETTLED、零 ledger 动作、**零 request decrement**（取舍注记：守卫优于改判 void——裸重放非失败
+      // 语义，void 会把已核销面错标 VOIDED；item 留原状交 sweeper/对账）。item CAS 命中后才 decrement
+      // （防 stale plan 重放减负）。
+      if (reserveRows.length === 0) return { success: true, settled: false, amount: 0 };
+      const claimed = await ltx.executionNodePlan.updateMany({
+        where: { requestId: input.executionRequestId, nodeId: input.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
+        data: { reservedCredit: 0, status: 'SETTLED' },
+      });
+      if (claimed.count === 0) return { success: true, settled: false, amount: 0 };   // 他者已收口（CAS miss）——零 decrement
       let settledAmount = 0;
       for (const r of reserveRows) {
         settledAmount += r.amount;
@@ -311,13 +321,9 @@ export class TeamCreditService {
           idempotencyKey: `execreq-settle:${input.executionRequestId}#${input.nodeId}:${r.id}`,
         });
       }
-      await ltx.executionNodePlan.updateMany({
-        where: { requestId: input.executionRequestId, nodeId: input.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
-        data: { reservedCredit: 0, status: 'SETTLED' },
-      });
       await ltx.executionRequest.updateMany({
         where: { id: input.executionRequestId },
-        data: { reservedCredit: { decrement: item.reservedCredit } },
+        data: { reservedCredit: { decrement: item.reservedCredit } },   // 仅 item CAS 命中后（R1）
       });
       return { success: true, settled: true, amount: settledAmount };
     };

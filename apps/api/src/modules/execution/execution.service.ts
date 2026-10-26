@@ -13,7 +13,7 @@ import { UpstreamMediaService } from './upstream-media.service';
 import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
-import { resolvePromptText, nodeExecutionUpdateAllowed } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源；T21：NodeExecution 更新守卫单源
+import { resolvePromptText } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源（nodeExecutionUpdateAllowed 真值表等价断言住 execution-frozen.t21-c1.int.spec——本文件仅 SQL 注释锚）
 import { ExecutionRequestService, type LoadedExecution } from './execution-request.service';   // Y1c T21：受理冻结请求消费
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { intentDuplicateAttemptTotal } from './intent-reconcile.metrics';   // T12：settleFailureTotal 消费点随 video 旧链退役（settle 归 finalize 事务内——失败面回滚非计数照发）
@@ -657,6 +657,14 @@ export class ExecutionService {
     const frozen = await this.executionRequests.loadForExecution(projectId, requestId);
     if (!frozen) throw new BusinessException('EXEC_REQUEST_NOT_FOUND', `执行请求不存在：${requestId}`, HttpStatus.BAD_REQUEST);
     if (frozen.request.state === 'VOIDED') throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
+    // R3（二轮）：终态重执行门——COMPLETED=幂等回显 200 零外呼（重试安全）；FAILED=409 REQUEST_STALE
+    // （防重试死循环烧外呼——失败终态的重试须换新 requestId 重新受理）。
+    if (frozen.request.state === 'COMPLETED') {
+      return { success: true, errors: [], results: [], totalCost: 0 };
+    }
+    if (frozen.request.state === 'FAILED') {
+      throw new BusinessException('REQUEST_STALE', '执行请求已失败终态（重新发起须换新 requestId）', HttpStatus.CONFLICT);
+    }
     if (!this.collabDoc.isLeaseServing()) throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
     // I1（T21 收口）：ADMITTED→EXECUTING CAS 抢占——0 行=并发让位者（sweeper void 抢先/已 EXECUTING），
     // 复读态分流：VOIDED=拒绝执行（交错(a)：过期 void 后迟到 execute）；EXECUTING=幂等续跑放行。

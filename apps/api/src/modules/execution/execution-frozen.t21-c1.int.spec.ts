@@ -311,21 +311,95 @@ async function balanceCredits(): Promise<number> {
     }
   });
 
-  it('I3+M2/M-5 幂等身份域：同键异序 nodeIds→409 IDEMPOTENCY_CONFLICT；P2002 复读→replay 幂等+detail 固定不泄漏', async () => {
-    const a = await admit('idem', ['n1', 'n2']);
-    expect(a.ok).toBe(true);
+  it('幂等域终裁（R-I-1）：nodeIds 集比对+docSeq 出域——①序≠拓扑序首受理后字节级重放=replay（红锚：上轮有序比对恒 409）②同键异集=409 ③同集异序=replay（上轮 409 反转）④docSeq 咨询性（重试携新 docSeq 仍 replay 原冻结计划）', async () => {
+    // ① 边 n1→n2（拓扑序 [n1,n2]）——首次受理下发序 ['n2','n1']（≠拓扑序）
+    const a = await admit('idem2', ['n2', 'n1']);
+    expect(a.ok, j(a)).toBe(true);
     if (!a.ok) return;
-    // 同键异序（有序比对=order 敏感——与 planHash 决定域一致）
-    const reordered = await admit('idem', ['n2', 'n1']);
-    expect(reordered.ok).toBe(false);
-    if (!reordered.ok) {
-      expect(reordered.status).toBe(409);
-      expect(reordered.code).toBe('IDEMPOTENCY_CONFLICT');
+    const planOrder = await prisma.executionNodePlan.findMany({ where: { requestId: a.id }, orderBy: { order: 'asc' }, select: { nodeId: true } });
+    expect(planOrder.map((p) => p.nodeId)).toEqual(['n1', 'n2']);   // plan.order=Kahn 拓扑序（服务端派生）
+    // 字节级重放（原始数组序 ['n2','n1']）——必须 replay 非 409（红：现码持久化序对拍原始序→恒 409）
+    const replayRawOrder = await admit('idem2', ['n2', 'n1']);
+    expect(replayRawOrder.ok, j(replayRawOrder)).toBe(true);
+    if (replayRawOrder.ok) {
+      expect(replayRawOrder.replayed).toBe(true);
+      expect(replayRawOrder.frozenDocSeq).toBe(a.frozenDocSeq);   // 原冻结计划
+      expect(replayRawOrder.planHash).toBe(a.planHash);
     }
-    // 同键同序同 docSeq→replay
-    const replay = await admit('idem', ['n1', 'n2']);
-    expect(replay.ok && replay.replayed).toBe(true);
-    // P2002：插入竞窗（existing 检查后 create 撞唯一）→复读 replay 幂等+固定 detail
+    // ② 同键异集→409（意图变更=客户端误用 requestId——集不同拒）
+    const diffSet = await admit('idem2', ['n1']);
+    expect(diffSet.ok).toBe(false);
+    if (!diffSet.ok) {
+      expect(diffSet.status).toBe(409);
+      expect(diffSet.code).toBe('IDEMPOTENCY_CONFLICT');
+    }
+    // ③ 同集异序→replay（数组序=服务端 Kahn 派生非客户端语义）
+    const reorder = await admit('idem2', ['n1', 'n2']);
+    expect(reorder.ok, j(reorder)).toBe(true);
+    if (reorder.ok) expect(reorder.replayed).toBe(true);
+    // ④ docSeq 咨询性：重试携带新 docSeq 恒重放原冻结计划（出域）
+    const newDocSeq = await execRequests.admit({ projectId: PID, requestId: REQ('idem2'), nodeIds: ['n2', 'n1'], docSeq: 99n, userId: UID });
+    expect(newDocSeq.ok, j(newDocSeq)).toBe(true);
+    if (newDocSeq.ok) {
+      expect(newDocSeq.replayed).toBe(true);
+      expect(newDocSeq.frozenDocSeq).toBe(a.frozenDocSeq);   // 原 frozenDocSeq（新 docSeq 不改判）
+    }
+  });
+
+  it('R-M-1/R2：referencedImageCount 真读 data.prompt RichTextValue.referencedImageIds（旧读 args.prompt 恒 string=死分支）', async () => {
+    // 构造：imageGen 形节点（prompt 域 plain RichTextValue 形态——plainOf 直读）内嵌 48 引用图+data.imageUrls 3 张
+    const refIds = Array.from({ length: 48 }, (_, i) => `ref-img-${i}`);
+    fillDoc(toDocLike(serverDoc), [{ id: 'n-refimg', type: 'imageGen', data: { ...ND, prompt: { text: 'p', referencedImageIds: refIds }, imageUrls: ['u1', 'u2', 'u3'] } }], []);
+    const upd = Buffer.from(Y.encodeStateAsUpdate(serverDoc));
+    const head = await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { pgSeq: true } });
+    const seq = (head?.pgSeq ?? 0n) + 1n;
+    await prisma.canvasDocUpdate.create({ data: { projectId: PID, generation: 0, seq, firstWalSeq: seq, frameCount: 1, updateHash: randomUUID().replace(/-/g, ''), update: upd } });
+    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { pgSeq: seq, walCheckpointSeq: seq } });
+    // 48+3=51>50→413（红：现码 fromPrompt=0 恒漏→计数 3 放行）
+    const over = await admit('refimg-over', ['n-refimg']);
+    expect(over.ok).toBe(false);
+    if (!over.ok) {
+      expect(over.status).toBe(413);
+      expect(over.code).toBe('REFERENCED_IMAGES_TOO_MANY');
+    }
+  });
+
+  it('R1：settle 金额守卫——anti-join 空（reserve 行全已冲销=裸重放/stale）不改判不 decrement（request.reservedCredit 不双扣）', async () => {
+    await uniquePrompt('n1', 'r1guard');
+    const a = await admit('r1guard', ['n1']);
+    expect(a.ok, j(a)).toBe(true);
+    if (!a.ok) return;
+    fakeApiCaller.callTextGen.mockResolvedValueOnce({ content: 'r1-ok' });
+    const r = await execService.execute(PID, undefined, UID, undefined, undefined, undefined, undefined, undefined, REQ('r1guard'));
+    expect(r.errors).toEqual([]);
+    const reqAfter = await prisma.executionRequest.findUnique({ where: { id: a.id }, select: { reservedCredit: true } });
+    expect(reqAfter?.reservedCredit).toBe(0);
+    // stale 重放面：手工重装 item.reservedCredit（模拟陈旧读源）——reserve 行已全冲销（anti-join 空）
+    await prisma.executionNodePlan.update({ where: { requestId_nodeId: { requestId: a.id, nodeId: 'n1' } }, data: { reservedCredit: 2, status: 'EXECUTING' } });
+    const stale = await teamCredit.settleForExecutionRequestItem(UID, { executionRequestId: a.id, nodeId: 'n1', teamId: TID });
+    // R1（红：现码 item CAS 命中〔重装值〕+无条件 decrement→request 负扣）：
+    expect(stale.settled).toBe(false);   // 金额守卫：无未冲销 reserve 行=裸重放不改判
+    const reqFinal = await prisma.executionRequest.findUnique({ where: { id: a.id }, select: { reservedCredit: true } });
+    expect(reqFinal?.reservedCredit).toBeGreaterThanOrEqual(0);   // 不负扣/不双扣
+    const planFinal = await prisma.executionNodePlan.findUnique({ where: { requestId_nodeId: { requestId: a.id, nodeId: 'n1' } }, select: { reservedCredit: true, status: true } });
+    expect(planFinal?.status).not.toBe('SETTLED');   // 守卫不改判 SETTLED（裸重放非核销）
+  });
+
+  it('R3：终态重执行门——COMPLETED=幂等回显 200 零外呼；FAILED=409 REQUEST_STALE（防重试死循环烧外呼）', async () => {
+    // paid 请求已 COMPLETED（首用例）——重执行=幂等回显
+    const callsBefore = fakeApiCaller.callTextGen.mock.calls.length;
+    const echo = await execService.execute(PID, undefined, UID, undefined, undefined, undefined, undefined, undefined, REQ('paid'));
+    expect(echo.success).toBe(true);   // R3（红：现码 COMPLETED 落穿→再次执行烧外呼）
+    expect(fakeApiCaller.callTextGen.mock.calls.length).toBe(callsBefore);   // 零外呼
+    // partial 请求已 FAILED——重执行=409 REQUEST_STALE
+    await expect(execService.execute(PID, undefined, UID, undefined, undefined, undefined, undefined, undefined, REQ('partial')))
+      .rejects.toThrow(/失败终态|requestId/);   // BusinessException message（code=REQUEST_STALE）
+  });
+
+  it('I3+P2002：并发同 requestId 撞唯一→复读 replay 幂等（集比对域）+detail 固定不泄漏', async () => {
+    const a = await admit('p2002', ['n1', 'n2']);
+    expect(a.ok, j(a)).toBe(true);
+    if (!a.ok) return;
     const proxied = new Proxy(execRequests as unknown as Record<string, unknown>, {
       get(t, k) {
         if (k === 'prisma') {
@@ -337,8 +411,8 @@ async function balanceCredits(): Promise<number> {
                 return new Proxy(er, {
                   get(e2, k3) {
                     if (k3 === 'create') {
-                      return async (args: unknown) => {
-                        throw Object.assign(new Error('Unique constraint failed on the fields: (`projectId`,`requestId`) SECRET-DETAILS'), { code: 'P2002' });
+                      return async () => {
+                        throw Object.assign(new Error('Unique constraint failed SECRET-DETAILS'), { code: 'P2002' });
                       };
                     }
                     return Reflect.get(e2, k3);
@@ -352,11 +426,10 @@ async function balanceCredits(): Promise<number> {
         return Reflect.get(t, k);
       },
     });
-    const svc2 = proxied as unknown as ExecutionRequestService;
-    const r = await svc2.admit({ projectId: PID, requestId: REQ('idem'), nodeIds: ['n1', 'n2'], docSeq: 0n, userId: UID });
+    const r = await (proxied as unknown as ExecutionRequestService).admit({ projectId: PID, requestId: REQ('p2002'), nodeIds: ['n2', 'n1'], docSeq: 0n, userId: UID });
     expect(r.ok).toBe(true);              // 红（收口前）：500 ADMISSION_FAILED
     if (r.ok) expect(r.replayed).toBe(true);
-    if (!r.ok) expect(r.detail).not.toContain('SECRET-DETAILS');   // detail 固定禁泄漏 (err).message
+    if (!r.ok) expect(r.detail).not.toContain('SECRET-DETAILS');
   });
 
   it('I3-requestId 界：requestId 超长/过短→400（长度界守卫）', async () => {
