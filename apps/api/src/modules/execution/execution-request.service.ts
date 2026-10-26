@@ -16,6 +16,7 @@ import {
   EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS,
   EXEC_REQUEST_EXPIRES_AT_MS,
   canonicalPlanHashPayload,
+  referencedMediaIdsOf,
   resolvePromptText,
   richTextOfFragment,
   validateExecutionInputLimits,
@@ -368,16 +369,21 @@ export class ExecutionRequestService {
     //    插入前判定=零半行，不截断不分片——brotli〔node:zlib〕）
     const promptBytes = Math.max(...ordered.map((n) => Buffer.byteLength(entries[n.id]!.promptText, 'utf8')));
     const upstreamMediaCount = new Set(Object.values(entries).map((e) => e.upstreamImageMediaId).filter(Boolean)).size;
-    // M-3/R-M-1/R2（二轮真修）：引用图计数读 n.data.prompt（slice plainOf 产物——XmlFragment 域
-    // 解码为 RichTextValue{...,referencedImageIds}）内嵌引用；手工 data.imageUrls 数组兜底并计。
-    // （上轮读 args.prompt 恒 string=死分支——本轮改读真源。）
+    // T22 前修正批①R2'：引用图计数读**生产嵌套位**——plainOf(XmlFragment)=RichTextValue{text,html,json}，
+    // referencedImageIds 派生自 json 的 PM 节点锚（image.src=mediaId/mention.id——referencedMediaIdsOf
+    // 单源，与 web PromptValue 三出口同源）。上轮读 data.prompt.referencedImageIds **兄弟键**=fixture
+    // 形态非生产解码位（真解码恒 miss）。prompt/content 两 RichTextValue 位都读（xml 域全集）；
+    // 手工 data.imageUrls 数组兜底并计。
+    const richRefIdsOf = (v: unknown): string[] => (
+      v !== null && typeof v === 'object' && Array.isArray((v as { json?: unknown }).json)
+        ? referencedMediaIdsOf((v as { json: ReadonlyArray<{ type: string; attrs?: Record<string, unknown>; content?: unknown[] }> }).json)
+        : []
+    );
     const referencedImageCount = ordered.reduce((acc, n) => {
-      const promptVal = n.data.prompt as unknown;
-      const fromPrompt = (promptVal && typeof promptVal === 'object' && Array.isArray((promptVal as { referencedImageIds?: unknown[] }).referencedImageIds))
-        ? (promptVal as { referencedImageIds: unknown[] }).referencedImageIds.length
-        : 0;
+      const fromPrompt = richRefIdsOf(n.data.prompt);
+      const fromContent = richRefIdsOf(n.data.content);
       const fromData = Array.isArray(n.data.imageUrls) ? (n.data.imageUrls as unknown[]).length : 0;
-      return acc + fromPrompt + fromData;
+      return acc + fromPrompt.length + fromContent.length + fromData;
     }, 0);
     const raw = Buffer.from(serializeFrozenInput(entries), 'utf8');
     const compressed = brotliCompressSync(raw);

@@ -538,7 +538,7 @@ export const VERSION_DIMENSIONS = {
   pgSeq: '最后 PG 提交的 walSeq（CanvasDoc 持久列）——对外唯一「已保存」水位',
   walCheckpointSeq: '批提交时刻 spoolHeadSeq 采样（持久列——随 PG 批更新；恢复以 WAL 扫描为准）',
   docSeq: '受理冻结的 pgSeq（ExecutionRequest 一致前缀读）',
-  execSeq: '节点执行序（PG lifecycleSeq 数值 BigInt）',
+  execSeq: '节点执行代际序（执行代际族：GenerationIntent 代际/NodeExecution 更新守卫——比较单源 compareExecSeq；与 lifecycleSeq/fenceSeq〔生命周期族：NodeLifecycle/DeliveryFence〕全文分离、两族序永不互换互指〔确认点①裁定 #4——T22 窗口收口：本行旧注「PG lifecycleSeq 数值」系命名混用勘正〕）',
   nodeVersion: '节点末次变更 feedSeq（节点状态截至 feedSeq 水位——单名单义，废止名单见 DEPRECATED_VERSION_DIMENSION_KEYS）',
   artifactRev: '产物槽位版本',
   feedSeq: 'RuntimeEvent per-project 序——跨代不重置',

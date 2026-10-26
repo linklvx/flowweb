@@ -294,6 +294,68 @@ const admit = (s: string, nodeIds: string[], docSeq = 0n) =>
     expect(plans.every((p) => p.reservedCredit === 0)).toBe(true);   // 逐 item void
     expect(await balanceCredits()).toBe(before);   // 余额还原（release 台账）
   });
+
+  it("⑤'（T22 前修正批③/M-A）：冻结路径 CYCLE admission——A→B→A 边受理 400 CYCLE 零半行", async () => {
+    await restoreBaseline();
+    const bal = await balanceCredits();
+    // 追加反向边 n2→n1（与基线 n1→n2 成环 A→B→A）
+    await appendPrefixFrame(serverDoc, (d) => {
+      const edges = d.getMap('edges') as Y.Map<unknown>;
+      const e = new Y.Map();
+      e.set('source', 'n2');
+      e.set('target', 'n1');
+      edges.set('e-cycle', e);
+    });
+    const r = await admit('macycle', ['n1', 'n2']);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.status).toBe(400);
+    expect(r.code).toBe('CYCLE');
+    await expectNoRows(REQ('macycle'));
+    expect(await balanceCredits()).toBe(bal);   // 零资金动作
+    await appendPrefixFrame(serverDoc, (d) => { (d.getMap('edges') as Y.Map<unknown>).delete('e-cycle'); });   // 清环复位
+  });
+
+  it('M-B（T22 前修正批④）：上游共享文本 ≥64B dedup——sharedTexts 单份引用+loadForExecution 往返正文完整', async () => {
+    await restoreBaseline();
+    // n1/n2 双消费者共享同一上游（新 textInput n0 content ≥64B；边 n0→n1/n0→n2）
+    const sharedText = `共享上游正文-${'-长文本'.repeat(24)}`;   // >64 bytes（dedup 阈值上）
+    await appendPrefixFrame(serverDoc, (d) => {
+      fillDoc(toDocLike(d), [
+        { id: 'n0', type: 'textInput', data: { ...ND, content: sharedText, prompt: { text: 'p-n0' } } },
+      ], []);
+      const edges = d.getMap('edges') as Y.Map<unknown>;
+      for (const [id, src, tgt] of [['e-mb-1', 'n0', 'n1'], ['e-mb-2', 'n0', 'n2']] as const) {
+        const e = new Y.Map();
+        e.set('source', src);
+        e.set('target', tgt);
+        edges.set(id, e);
+      }
+    });
+    const a = await admit('mbdedup', ['n1', 'n2']);
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    // 序列化面：sharedTexts 单份（同文本 sha256 复用——两节点 promptTextRef 同键）
+    const input = await prisma.executionInput.findUnique({ where: { requestId: a.id } });
+    expect(input).not.toBeNull();
+    const { brotliDecompressSync } = await import('node:zlib');
+    const parsed = JSON.parse(brotliDecompressSync(input!.content).toString('utf8')) as {
+      sharedTexts?: Record<string, string>;
+      nodes: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(parsed.sharedTexts ?? {})).toHaveLength(1);   // 单份（红锚：无 dedup=两份）
+    const refs = Object.values(parsed.nodes).map((n) => n.promptTextRef).filter((v) => typeof v === 'string');
+    expect(refs.length).toBe(2);
+    expect(new Set(refs).size).toBe(1);   // 同 sha 引用
+    const stored = Object.values(parsed.sharedTexts!)[0]!;
+    expect(stored.length).toBe(sharedText.length);   // 存储正文非截断
+    // 往返面：loadForExecution 解引用回填——两节点 promptText 完整（ref 往返零丢失）
+    const loaded = await svc.loadForExecution(PID, REQ('mbdedup'));
+    expect(loaded).not.toBeNull();
+    expect(loaded!.input.nodes.n1!.promptText).toBe(sharedText);
+    expect(loaded!.input.nodes.n2!.promptText).toBe(sharedText);
+    expect(loaded!.input.nodes.n1!.upstreamTexts).toEqual([sharedText]);
+  });
 });
 
 // Prisma 命名空间引用（防 tree-shake 误报——afterAll 清理用）

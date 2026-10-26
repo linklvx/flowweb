@@ -34,7 +34,12 @@ export class VideoWorkService {
   /** O0b-0（自 O0c-1 提前）：键拼 schema 常量——翻转批后 300s 窗口内 /process 不得命中
    *  v1 旧空间（rel）载荷（公开页鬼影）。
    *  Y1c T19（plan v1.7 卡）：+缓存键轨 (pid,g,snapshotRev)（spec §5.3 公开快照三元——generation/
-   *  snapshotRev 入键；换代/compact 发版即天然隔离旧键，TTL 300s 只兜事件失效窗）。 */
+   *  snapshotRev 入键；换代/compact 发版即天然隔离旧键，TTL 300s 只兜事件失效窗）。
+   *  T19 双评审 spec-M-2 移交（fc6a4d68 登记不修→并入 T22 派发词）：本键 workId↔pid **字面偏离**
+   *  spec §5.3——键首段=作品 id（workId；Redis 键空间按作品隔离+delProcessCacheFamily 精确删族的
+   *  既有语义），pid 维经 w.canvasProjectId 映射进 g/r 段（doc 水位同源）；T22 四读径①公开快照
+   *  projection join 落地时第四维 projectionSeq（feedSeq 水位——shared formatPublicSnapshotCacheKey
+   *  单源）沿本键轨追加，workId 首段形态维持（作品级隔离语义优先于 spec 字面键序——键轨等价注记）。 */
   private static readonly PROCESS_CACHE = (id: string, generation: number, snapshotRev: string) =>
     `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}:g${generation}:r${snapshotRev}`;
 

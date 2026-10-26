@@ -701,9 +701,17 @@ export class ExecutionService {
         if (!created) {
           // SUCCEEDED 幂等重放（同内容 idemKey 命中——intent 已成功）：本请求 item 预留随重放收口
           // （T21 收口 I2 续面：重放=执行已成功语义——per-item 结算免悬挂；settle 自身幂等〔anti-join+idemKey〕）。
+          // T22 前修正批②⑥'：**冻结重放跨路径双扣守卫**——intent.creditsConsumed>0 ⇒ 旧路（intent 模式
+          // 结算）已付费，本请求 per-item 预留改 void 释放（release 配对 exact reserve 行）非 settle
+          //（无条件 settle=旧路+新预留双份核销=双扣）。
           if (plan.reservedCredit > 0) {
-            await this.teamCredit.settleForExecutionRequestItem(userId, { executionRequestId: frozen.request.id, nodeId: plan.nodeId, teamId: frozen.request.teamId })
-              .catch((e) => this.logger.warn(`[frozen-replay] item settle ${plan.nodeId}: ${e}`));
+            if (Number(intent.creditsConsumed) > 0) {
+              await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId })
+                .catch((e) => this.logger.warn(`[frozen-replay] item void(旧路已付双扣守卫) ${plan.nodeId}: ${e}`));
+            } else {
+              await this.teamCredit.settleForExecutionRequestItem(userId, { executionRequestId: frozen.request.id, nodeId: plan.nodeId, teamId: frozen.request.teamId })
+                .catch((e) => this.logger.warn(`[frozen-replay] item settle ${plan.nodeId}: ${e}`));
+            }
           }
           this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
           continue;

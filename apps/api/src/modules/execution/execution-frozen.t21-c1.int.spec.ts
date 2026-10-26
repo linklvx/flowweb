@@ -29,7 +29,7 @@ import { ArtifactCommitService } from '../artifact-core/artifact-commit.service'
 import { UpstreamMediaService } from './upstream-media.service';
 import { ApiCallerService } from './api-caller.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
+import { ledgerWipe, deleteTeamsWithPass, createIntentFixture } from '../../test-utils/intent-fixture';
 
 const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
@@ -122,6 +122,13 @@ async function balanceCredits(): Promise<number> {
 
   afterAll(async () => {
     await prisma.executionRequest.deleteMany({ where: { projectId: PID } });
+    // T22 前修正批（intent-reconcile-r3 两例红核实定性=环境漂移根因）：NodeArtifact 锚行随清——
+    // 漏删的悬空锚（sourceIntentRowId 指向已删 intent 行+无投影行）每 run 残留 2 行，累积 52 行
+    // 占满 sweepProjectionBackfill 的 LIMIT 50 有界批（ORDER BY updatedAt 升序——陈旧行恒先入），
+    // 他人他卡的 r3 窗③/龄守卫用例 fresh 锚永不入批=两例环境性红（T26 质检裁定「dev 库环境态」的
+    // 漏源=本行缺失——共享 dev 库零残留纪律补口）。
+    await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
+    await prisma.artifactProjection.deleteMany({ where: { projectId: PID } });
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
     await prisma.nodeExecution.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
@@ -346,22 +353,62 @@ async function balanceCredits(): Promise<number> {
     }
   });
 
-  it('R-M-1/R2：referencedImageCount 真读 data.prompt RichTextValue.referencedImageIds（旧读 args.prompt 恒 string=死分支）', async () => {
-    // 构造：imageGen 形节点（prompt 域 plain RichTextValue 形态——plainOf 直读）内嵌 48 引用图+data.imageUrls 3 张
+  it('R2\'（T22 前修正批①）：referencedImageCount 读生产嵌套位 RichTextValue.json 锚（真 XmlFragment fixture——旧读兄弟键 referencedImageIds=fixture 形态恒 miss）', async () => {
+    // 构造：imageGen 节点 prompt=真 Y.XmlFragment（48 个 image PM 锚——image.src=mediaId，与
+    // T16 PromptEditor 生产写入同构）+data.imageUrls 3 张。plainOf 解码=RichTextValue{text,html,json}
+    // ——referencedImageIds 派生自 json 节点锚（referencedMediaIdsOf 单源）非兄弟键。
     const refIds = Array.from({ length: 48 }, (_, i) => `ref-img-${i}`);
-    fillDoc(toDocLike(serverDoc), [{ id: 'n-refimg', type: 'imageGen', data: { ...ND, prompt: { text: 'p', referencedImageIds: refIds }, imageUrls: ['u1', 'u2', 'u3'] } }], []);
+    fillDoc(toDocLike(serverDoc), [{ id: 'n-refimg', type: 'imageGen', data: { ...ND, imageUrls: ['u1', 'u2', 'u3'] } }], []);
+    const frag = new Y.XmlFragment();
+    refIds.forEach((id, i) => {
+      const img = new Y.XmlElement('image');
+      img.setAttribute('src', id);
+      frag.insert(i, [img]);
+    });
+    const nodeEntry = serverDoc.getMap('nodes').get('n-refimg') as Y.Map<unknown>;
+    const dataMap = nodeEntry.get('data') as Y.Map<unknown>;
+    dataMap.set('prompt', frag);
     const upd = Buffer.from(Y.encodeStateAsUpdate(serverDoc));
     const head = await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { pgSeq: true } });
     const seq = (head?.pgSeq ?? 0n) + 1n;
     await prisma.canvasDocUpdate.create({ data: { projectId: PID, generation: 0, seq, firstWalSeq: seq, frameCount: 1, updateHash: randomUUID().replace(/-/g, ''), update: upd } });
     await prisma.canvasDoc.update({ where: { projectId: PID }, data: { pgSeq: seq, walCheckpointSeq: seq } });
-    // 48+3=51>50→413（红：现码 fromPrompt=0 恒漏→计数 3 放行）
+    // 48+3=51>50→413（红：现码读兄弟键 data.prompt.referencedImageIds 恒 miss→计数 3 放行）
     const over = await admit('refimg-over', ['n-refimg']);
     expect(over.ok).toBe(false);
     if (!over.ok) {
       expect(over.status).toBe(413);
       expect(over.code).toBe('REFERENCED_IMAGES_TOO_MANY');
     }
+  });
+
+  it("⑥'（T22 前修正批②）：冻结重放跨路径双扣守卫——重放命中旧路已付 intent（creditsConsumed>0）⇒ item 改 void 非 settle（红：现码无条件 settle=双扣）", async () => {
+    await uniquePrompt('n1', 'replay-deduct');
+    const balancePreAdmit = await balanceCredits();   // 预留前基准（释放后应回到此值——零净扣）
+    const a = await admit('replay6', ['n1']);
+    expect(a.ok, j(a)).toBe(true);
+    if (!a.ok) return;
+    const plan = await prisma.executionNodePlan.findUnique({ where: { requestId_nodeId: { requestId: a.id, nodeId: 'n1' } } });
+    expect(plan!.reservedCredit).toBeGreaterThan(0);
+    // 旧路已付形态：同 (projectId,nodeId,kind,paramsHash) SUCCEEDED intent——intent 模式结算在档
+    //（creditsConsumed>0；claim ②回放路径按四元命中——非 idemKey 直查）
+    await createIntentFixture(prisma as unknown as PrismaService, {
+      projectId: PID, teamId: TID, nodeId: 'n1', userId: UID,
+      intentId: `replay6-${Date.now()}`, kind: 'text', paramsHash: plan!.paramsHash,
+      status: 'SUCCEEDED', creditCost: plan!.creditCost, reservedCredits: 0, creditsConsumed: plan!.creditCost,
+      completedAt: new Date(),
+    });
+    const r = await execService.execute(PID, undefined, UID, undefined, undefined, undefined, undefined, undefined, REQ('replay6'));
+    expect(r.errors).toEqual([]);   // 重放=执行已成功语义（零外呼）
+    // 守卫断言：零 settle（双扣禁）+release 释放预留+余额零净变动（旧路已付）
+    const settles = await prisma.teamCreditTransaction.findMany({ where: { teamId: TID, referenceId: `execreq:${a.id}#n1`, type: 'settle' } });
+    expect(settles).toHaveLength(0);   // 红：现码 settleForExecutionRequestItem（旧路已付+新预留再核销=双扣）
+    const releases = await prisma.teamCreditTransaction.findMany({ where: { teamId: TID, referenceId: `execreq:${a.id}#n1`, type: 'release' } });
+    expect(releases.length).toBeGreaterThan(0);
+    expect(await balanceCredits()).toBe(balancePreAdmit);   // 预留全释放零净扣（回到预留前基准）
+    const planFinal = await prisma.executionNodePlan.findUnique({ where: { requestId_nodeId: { requestId: a.id, nodeId: 'n1' } }, select: { status: true, reservedCredit: true } });
+    expect(planFinal?.status).toBe('VOIDED');   // item 收口（remaining 可达 0）
+    expect(planFinal?.reservedCredit).toBe(0);
   });
 
   it('R1：settle 金额守卫——anti-join 空（reserve 行全已冲销=裸重放/stale）不改判不 decrement（request.reservedCredit 不双扣）', async () => {

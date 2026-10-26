@@ -2,60 +2,58 @@
 // Y1c T5c（plan v1.7 Task 5 客户端/恢复段——spec v5.4 §6.4/§7，偏离 38⑭）：RuntimeProjection 契约
 // +mergeRuntimeProjection（**shared 唯一 merge 函数——真实现**）+composeRenderModel 合成+四读径契约
 // +Runtime Store 离线语义。**CONTRACT-FREEZE**（merge/compose 为真纯函数实现非仅类型）；消费方=
-// T22 feed 投递/T10 web Runtime Store/公开快照与导出面。复用纪律：媒体事实字段与 T5b
-// RuntimeEventPayload media.fact 同域（naturalWidth/naturalHeight/downscaledFrom/factVersion——
-// 键名漂移=执行卡死）；wire 纪律=BigInt 一律 string（§5.2——T5b 行面 bigint/wire string 双口径先例，
-// merge 进程内用 bigint 比较）。契约测试=runtime-projection.spec.ts（TDD 红先行）。
+// T22 feed 投递/T10 web Runtime Store/公开快照与导出面。复用纪律：媒体事实**不进投影**（修正批 #3）
+// ——natural 尺寸/downscaledFrom 走既有 media-facts 通道（feed 事件只带 mediaId 引用）；
+// wire 纪律=BigInt 一律 string（§5.2——行面 bigint/wire string 双口径先例，merge 进程内用 bigint
+// 比较）。契约测试=runtime-projection.spec.ts（TDD 红先行）。
+// **T22 前修正批（#3/#10/#4）**：#3=删 mediaFacts 表+exec 槽分槽（execStatus/artifact 各自
+// nodeVersion 版本化）+node.restored 复活语义；#10=换代必须全量 snapshot（mergeRuntimeProjection
+// 收 RuntimeProjectionUpdate{projection,fullSnapshot}——跨代增量禁并入）；#4=execSeq 注释族分离
+// 收口（执行代际族 GenerationIntent/NodeExecution——非 lifecycleSeq〔生命周期族〕）。
 import type { CanvasReadModel, CanvasReadModelNode, CanvasReadModelEdge } from '../canvas/doc-codec';
 
-// ═══ §1 RuntimeProjection 契约类型（§6.4 v5.4⑬——wire/IDB 持久化面）════════════════════════════
+// ═══ §1 RuntimeProjection 契约类型（§6.4 v5.4⑬——wire/IDB 持久化面；修正批 #3 分槽）══════════
 
-/** 节点执行态投影（exec.status/exec.artifact 事件族——status 与 T5b EVENT_KINDS payload 同域）。
- *  execSeq=PG lifecycleSeq 数值（wire=string）；nodeVersion=该节点末次变更 feedSeq（单名单义 §5.2）。 */
-export interface RuntimeProjectionExecFact {
+/** 节点执行状态投影（exec.status 事件族）。execSeq=执行代际族（GenerationIntent/NodeExecution
+ *  更新守卫——比较单源 compareExecSeq；**#4：与 lifecycleSeq/fenceSeq〔生命周期族——NodeLifecycle/
+ *  DeliveryFence〕全文分离、两族序永不互换互指**）；nodeVersion=该节点末次变更 feedSeq（单名单义 §5.2）。 */
+export interface RuntimeProjectionExecStatusFact {
   status: string;
   errorCode?: string;
+  attempts?: number;
   artifactRev?: number;
+  /** 执行代际（GenerationIntent 代际——wire=string；#4 族分离） */
   execSeq?: string;
   /** 该字段版本的比较基准（同字段 nodeVersion 大者胜） */
   nodeVersion: string;
 }
 
-/** 节点媒体事实投影（media.fact 事件族——natural 尺寸/downscaledFrom 与 T5b payload 同域）。 */
-export interface RuntimeProjectionMediaFact {
-  naturalWidth: number;
-  naturalHeight: number;
-  downscaledFrom?: { width: number; height: number };
-  factVersion: number;
+/** 节点产物槽投影（exec.artifact 事件族——#3 新分槽：与 execStatus 独立版本化。
+ *  mediaId=媒体身份引用——natural 尺寸/downscaledFrom 不进投影（media-facts 通道按 mediaId 查）。 */
+export interface RuntimeProjectionArtifactFact {
+  mediaId?: string;
+  resultRef?: string;
+  artifactRev: number;
   nodeVersion: string;
 }
 
-/** 删除墓碑（node.deleted=FEED_TOMBSTONE——lifecycleSeq 与 NodeLifecycle 同源〔T5b lifecycle.ts〕）。 */
+/** 删除墓碑（node.deleted=FEED_TOMBSTONE——lifecycleSeq 与 NodeLifecycle 同源〔lifecycle.ts〕；
+ *  node.restored 事件以更高 nodeVersion 字段复活——deletedAt 保留历史但不再是 active）。 */
 export interface RuntimeProjectionTombstone {
   lifecycleSeq: string;
   nodeVersion: string;
 }
 
-/** 单节点投影（三槽可选——exec/media/deletedAt）。 */
+/** 单节点投影（三槽可选——execStatus/artifact/deletedAt；#3 分槽形态）。 */
 export interface RuntimeNodeProjectionEntry {
-  exec?: RuntimeProjectionExecFact;
-  media?: RuntimeProjectionMediaFact;
+  execStatus?: RuntimeProjectionExecStatusFact;
+  artifact?: RuntimeProjectionArtifactFact;
   deletedAt?: RuntimeProjectionTombstone;
 }
 
-/** mediaFacts 表值（per-mediaId 全局事实——{...factVersion, feedSeq}；与节点槽的 media 同源事件
- *  的 mediaId 维度投影：同一 media 被多节点引用时按 mediaId 单份存储）。 */
-export interface RuntimeMediaFactProjection {
-  naturalWidth: number;
-  naturalHeight: number;
-  downscaledFrom?: { width: number; height: number };
-  factVersion: number;
-  /** 该事实事件的 feedSeq（wire=string） */
-  feedSeq: string;
-}
-
-/** RuntimeProjection（spec §6.4 v5.4⑬ 冻结形状）：IDB 持久化 {projectId,generation,feedSeq,pgSeq,
- *  projection,fetchedAt} 的 projection 域本体。 */
+/** RuntimeProjection（spec §6.4 v5.4⑬ 冻结形状+修正批 #3）：IDB 持久化
+ *  {projectId,generation,feedSeq,pgSeq,projection,fetchedAt} 的 projection 域本体。
+ *  mediaFacts 表已废止（#3）——媒体事实走既有 media-facts 通道，投影只持节点域引用。 */
 export interface RuntimeProjection {
   projectId: string;
   generation: number;
@@ -64,7 +62,6 @@ export interface RuntimeProjection {
   /** 对外唯一「已保存」水位（§5.1）；wire=string */
   pgSeq: string;
   nodes: Record<string, RuntimeNodeProjectionEntry>;
-  mediaFacts: Record<string, RuntimeMediaFactProjection>;
 }
 
 /** BigInt wire=string 纪律字段清单（§5.2——census/bigint-json gate 消费锚）。 */
@@ -72,7 +69,16 @@ export const RUNTIME_PROJECTION_WIRE_STRING_FIELDS = [
   'feedSeq', 'pgSeq', 'nodeVersion', 'execSeq', 'lifecycleSeq',
 ] as const;
 
-// ═══ §2 mergeRuntimeProjection（shared 唯一 merge 函数——真实现）══════════════════════════════
+// ═══ §2 mergeRuntimeProjection（shared 唯一 merge 函数——真实现；#10 全量 snapshot 门）════════
+
+/** merge 入参形态（修正批 #10：换代必须全量 snapshot）：
+ *  - projection=本次合入的投影（增量=单事件派生单节点槽；快照=服务端全量折叠态）；
+ *  - fullSnapshot=true ⇒ 全量替换（首连快照/换代/游标失效三形态唯一入口——清投影重建+统一 cursor）；
+ *    fullSnapshot=false ∧ generation≠current ⇒ 整体忽略（跨代增量禁并入——调用方必须拉全量快照）。 */
+export interface RuntimeProjectionUpdate {
+  projection: RuntimeProjection;
+  fullSnapshot: boolean;
+}
 
 /** 十进制 string→bigint（fail-fast：非十进制形态=数据损坏即刻暴露——compareExecSeq 同款纪律）。 */
 const seq = (s: string): bigint => {
@@ -94,32 +100,35 @@ function mergeSlot<T extends { nodeVersion: string }>(current: T | undefined, in
 export function isActiveTombstone(entry: RuntimeNodeProjectionEntry): boolean {
   if (entry.deletedAt === undefined) return false;
   const t = seq(entry.deletedAt.nodeVersion);
-  const execV = entry.exec !== undefined ? seq(entry.exec.nodeVersion) : -1n;
-  const mediaV = entry.media !== undefined ? seq(entry.media.nodeVersion) : -1n;
-  return t > execV && t > mediaV;
+  const execV = entry.execStatus !== undefined ? seq(entry.execStatus.nodeVersion) : -1n;
+  const artV = entry.artifact !== undefined ? seq(entry.artifact.nodeVersion) : -1n;
+  return t > execV && t > artV;
 }
 
-/** **shared 唯一 merge 函数**（§6.4 merge 规则——进程内 bigint 比较，出口 wire=string）：
- *  1. generation 不匹配整族清：incoming 新代→整体替换（旧族不并入）；incoming 旧代→整体忽略
- *     （旧 generation 隔离〔§7 docSeq 应用规则〕）；
- *  2. 同代逐节点逐槽 nodeVersion **大者胜**（exec/media 独立比较——media.fact 与 exec.status
- *     各自版本化）；等值保持当前；
- *  3. deletedAt 墓碑：合并后 active 墓碑（版本严格大于全部字段版本）→清空该节点 exec/media；
- *  4. feedSeq/pgSeq 水位取大（不倒退）；mediaFacts per-mediaId factVersion 大者胜。 */
-export function mergeRuntimeProjection(current: RuntimeProjection, incoming: RuntimeProjection): RuntimeProjection {
-  if (incoming.generation !== current.generation) {
-    return incoming.generation > current.generation ? incoming : current;
-  }
+/** **shared 唯一 merge 函数**（§6.4 merge 规则+修正批 #3/#10——进程内 bigint 比较，出口 wire=string）：
+ *  1. fullSnapshot=true ⇒ **全量替换**（清投影重建——snapshot=全量替换+统一 cursor，仅接受
+ *     nodeVersion>cursor 的后续增量）；
+ *  2. #10 换代门：fullSnapshot=false ∧ generation≠current ⇒ 整体忽略（新代/旧代增量都不并入——
+ *     换代必须走全量快照〔doc.vacuumed 事件/游标失效两档触发〕；旧 generation 隔离〔§7〕）；
+ *  3. 同代逐节点逐槽 nodeVersion **大者胜**（execStatus/artifact 独立比较——分槽各自版本化）；
+ *     等值保持当前；
+ *  4. deletedAt 墓碑：合并后 active 墓碑（版本严格大于全部字段版本）→清空该节点 execStatus/artifact
+ *     （node.restored 以更高版本字段复活——墓碑行保留但非 active）；
+ *  5. feedSeq/pgSeq 水位取大（不倒退——同代增量合并面）。 */
+export function mergeRuntimeProjection(current: RuntimeProjection, incoming: RuntimeProjectionUpdate): RuntimeProjection {
+  const inc = incoming.projection;
+  if (incoming.fullSnapshot) return inc;   // 全量替换（清投影重建——统一 cursor 随快照体）
+  if (inc.generation !== current.generation) return current;   // #10：跨代增量禁并入（新旧两向都拒）
   const nodes: Record<string, RuntimeNodeProjectionEntry> = { ...current.nodes };
-  for (const [nodeId, incEntry] of Object.entries(incoming.nodes)) {
+  for (const [nodeId, incEntry] of Object.entries(inc.nodes)) {
     const cur = nodes[nodeId];
     if (cur === undefined) {
       nodes[nodeId] = incEntry;
       continue;
     }
     let merged: RuntimeNodeProjectionEntry = {
-      exec: mergeSlot(cur.exec, incEntry.exec),
-      media: mergeSlot(cur.media, incEntry.media),
+      execStatus: mergeSlot(cur.execStatus, incEntry.execStatus),
+      artifact: mergeSlot(cur.artifact, incEntry.artifact),
       deletedAt: mergeSlot(cur.deletedAt, incEntry.deletedAt),
     };
     if (isActiveTombstone(merged)) {
@@ -127,29 +136,24 @@ export function mergeRuntimeProjection(current: RuntimeProjection, incoming: Run
     }
     nodes[nodeId] = merged;
   }
-  const mediaFacts: Record<string, RuntimeMediaFactProjection> = { ...current.mediaFacts };
-  for (const [mediaId, inc] of Object.entries(incoming.mediaFacts)) {
-    const cur = mediaFacts[mediaId];
-    if (cur === undefined || inc.factVersion > cur.factVersion) mediaFacts[mediaId] = inc;
-  }
   return {
     projectId: current.projectId,
     generation: current.generation,
-    feedSeq: maxSeq(current.feedSeq, incoming.feedSeq),
-    pgSeq: maxSeq(current.pgSeq, incoming.pgSeq),
+    feedSeq: maxSeq(current.feedSeq, inc.feedSeq),
+    pgSeq: maxSeq(current.pgSeq, inc.pgSeq),
     nodes,
-    mediaFacts,
   };
 }
 
 // ═══ §3 composeRenderModel（read model ⊕ projection——渲染层合成）══════════════════════════════
 
 /** 渲染面节点（read model 原字段+runtime overlay——**服务端派生字段永不进 doc**：overlay 只存在于
- *  渲染合成面，doc/data 写面零接触）。 */
+ *  渲染合成面，doc/data 写面零接触）。runtime 三面：execStatus（状态族）/artifact（产物媒体引用族）/
+ *  无（零投影透传）。 */
 export interface CanvasRenderNode extends CanvasReadModelNode {
   runtime?: {
-    exec?: RuntimeProjectionExecFact;
-    media?: RuntimeProjectionMediaFact;
+    execStatus?: RuntimeProjectionExecStatusFact;
+    artifact?: RuntimeProjectionArtifactFact;
   };
 }
 
@@ -160,23 +164,23 @@ export interface CanvasRenderModel {
 
 /** 合成纯函数（§6.4：`CanvasRenderModel=CanvasReadModel⊕RuntimeProjection`）：
  *  - active 墓碑节点从渲染面剔除（FEED_TOMBSTONE——客户端清投影）；旧墓碑+新字段=复活形态保留；
- *  - 有投影节点挂 runtime overlay（exec/media）；无投影节点零 runtime 键透传（unknown≠idle——
- *    UI 面按 unknown 渲染：生成按钮禁用不显示 idle〔§7〕）；
+ *  - 有投影节点挂 runtime overlay（execStatus/artifact）；无投影节点零 runtime 键透传
+ *    （unknown≠idle——UI 面按 unknown 渲染：生成按钮禁用不显示 idle〔§7〕）；
  *  - edges 原样透传（overlay 语义——边结构过滤归渲染面 deriveRenderCanvas 既有域）。 */
 export function composeRenderModel(readModel: CanvasReadModel, projection: RuntimeProjection): CanvasRenderModel {
   const nodes: CanvasRenderNode[] = [];
   for (const node of readModel.nodes) {
     const entry = projection.nodes[node.id];
     if (entry !== undefined && isActiveTombstone(entry)) continue;   // 墓碑剔除
-    const runtime = entry !== undefined && (entry.exec !== undefined || entry.media !== undefined)
-      ? { exec: entry.exec, media: entry.media }
+    const runtime = entry !== undefined && (entry.execStatus !== undefined || entry.artifact !== undefined)
+      ? { execStatus: entry.execStatus, artifact: entry.artifact }
       : undefined;
     nodes.push(runtime === undefined ? { ...node } : { ...node, runtime });
   }
   return { nodes, edges: readModel.edges.map((e) => ({ ...e })) };
 }
 
-// ═══ §4 四读径契约（§6.4——doc 无服务端字段后的完整读者面）════════════════════════════════════
+// ═══ §4 四读径契约（§6.4——doc 无服务端字段后的完整读者面）══════════════════════════════════
 
 /** 四读径契约注记（冻结——T10/T22/T25 消费）。 */
 export const FOUR_READ_PATHS = {

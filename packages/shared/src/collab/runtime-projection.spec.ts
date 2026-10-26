@@ -2,10 +2,15 @@
 // Y1c T5c（plan v1.7 Task 5 客户端/恢复段；spec v5.4 §6.4/§7——偏离 38⑭）：RuntimeProjection 契约+
 // mergeRuntimeProjection 唯一 merge 纯函数+composeRenderModel 合成+四读径+Runtime Store 离线语义
 // 的契约测试。先红→绿。
+// **T22 前修正批（确认点①附带裁定 #3/#10/#4）**：#3=删 mediaFacts 表+exec 槽分槽（execStatus/
+// artifact 各自 nodeVersion 版本化）+node.restored 复活语义；#10=换代必须全量 snapshot（跨代增量
+// 禁并入——mergeRuntimeProjection 收 RuntimeProjectionUpdate{projection,fullSnapshot}）；
+// #4=execSeq 注释族分离收口（执行代际族 GenerationIntent/NodeExecution——非 lifecycleSeq）。
 import { describe, expect, it } from 'vitest';
 import type { CanvasReadModel } from '../canvas/doc-codec';
 import {
-  RuntimeProjection, RuntimeNodeProjectionEntry, mergeRuntimeProjection, composeRenderModel,
+  RuntimeProjection, RuntimeNodeProjectionEntry, RuntimeProjectionUpdate, mergeRuntimeProjection,
+  composeRenderModel,
   formatPublicSnapshotCacheKey, BindMediaCommand, CloneBindingCommand, FOUR_READ_PATHS,
   COPY_PASTE_COMMAND_CONTRACT,
   RUNTIME_STORE_TTL_DAYS, RUNTIME_STORE_TTL_MS, RuntimeStoreFreshness,
@@ -15,130 +20,137 @@ import {
 
 const proj = (over: Partial<RuntimeProjection> = {}): RuntimeProjection => ({
   projectId: 'p1', generation: 3, feedSeq: '10', pgSeq: '100',
-  nodes: {}, mediaFacts: {}, ...over,
+  nodes: {}, ...over,
 });
+
+const delta = (p: RuntimeProjection, fullSnapshot = false): RuntimeProjectionUpdate => ({ projection: p, fullSnapshot });
 
 const entry = (over: Partial<RuntimeNodeProjectionEntry> = {}): RuntimeNodeProjectionEntry => ({ ...over });
 
-describe('Y1c T5c 契约冻结：RuntimeProjection 契约类型（§6.4 v5.4⑬——wire=string 纪律）', () => {
-  it('形状冻结：{projectId,generation,feedSeq,pgSeq,nodes{exec?,media?,deletedAt?},mediaFacts{...factVersion,feedSeq}}', () => {
+describe('Y1c T5c 契约冻结：RuntimeProjection 契约类型（§6.4 v5.4⑬——wire=string 纪律；修正批 #3 分槽）', () => {
+  it('形状冻结：{projectId,generation,feedSeq,pgSeq,nodes{execStatus?,artifact?,deletedAt?}}——mediaFacts 废止（#3：事实走既有 media-facts 通道）', () => {
     const p = proj({
       nodes: {
         n1: entry({
-          exec: { status: 'done', artifactRev: 2, execSeq: '7', nodeVersion: '10' },
-          media: { naturalWidth: 1920, naturalHeight: 1080, factVersion: 3, nodeVersion: '9' },
+          execStatus: { status: 'done', artifactRev: 2, execSeq: '7', nodeVersion: '10' },
+          artifact: { mediaId: 'm1', artifactRev: 2, nodeVersion: '10' },
         }),
         n2: entry({ deletedAt: { lifecycleSeq: '15', nodeVersion: '12' } }),
       },
-      mediaFacts: { m1: { naturalWidth: 800, naturalHeight: 600, factVersion: 3, feedSeq: '9' } },
     });
-    expect(Object.keys(p).sort()).toEqual(['feedSeq', 'generation', 'mediaFacts', 'nodes', 'pgSeq', 'projectId']);
-    expect(Object.keys(p.nodes.n1!).sort()).toEqual(['exec', 'media']);
+    expect(Object.keys(p).sort()).toEqual(['feedSeq', 'generation', 'nodes', 'pgSeq', 'projectId']);
+    expect(Object.keys(p.nodes.n1!).sort()).toEqual(['artifact', 'execStatus']);
     expect(Object.keys(p.nodes.n2!).sort()).toEqual(['deletedAt']);
-    expect(Object.keys(p.mediaFacts.m1!).sort()).toEqual(['factVersion', 'feedSeq', 'naturalHeight', 'naturalWidth']);
+    expect(Object.keys(p.nodes.n1!.execStatus!).sort()).toEqual(['artifactRev', 'execSeq', 'nodeVersion', 'status']);
+    expect(Object.keys(p.nodes.n1!.artifact!).sort()).toEqual(['artifactRev', 'mediaId', 'nodeVersion']);
     // BigInt wire=string 纪律（§5.2——feedSeq/pgSeq/nodeVersion/execSeq/lifecycleSeq 全 string 面）
     expect(typeof p.feedSeq).toBe('string');
     expect(typeof p.pgSeq).toBe('string');
-    expect(typeof p.nodes.n1!.exec!.nodeVersion).toBe('string');
-    expect(typeof p.nodes.n1!.exec!.execSeq).toBe('string');
+    expect(typeof p.nodes.n1!.execStatus!.nodeVersion).toBe('string');
+    expect(typeof p.nodes.n1!.execStatus!.execSeq).toBe('string');
     expect(typeof p.nodes.n2!.deletedAt!.lifecycleSeq).toBe('string');
     expect(RUNTIME_PROJECTION_WIRE_STRING_FIELDS).toContain('feedSeq');
     expect(RUNTIME_PROJECTION_WIRE_STRING_FIELDS).toContain('pgSeq');
     expect(RUNTIME_PROJECTION_WIRE_STRING_FIELDS).toContain('nodeVersion');
     expect(RUNTIME_PROJECTION_WIRE_STRING_FIELDS).toContain('execSeq');
+    // #3 负控：mediaFacts 键不得再存在于投影形状（类型级+运行级双锚——运行级=构造面零该键）
+    expect('mediaFacts' in p).toBe(false);
   });
 });
 
-describe('Y1c T5c 契约冻结：mergeRuntimeProjection（shared 唯一 merge 函数——全规则）', () => {
-  it('同字段 nodeVersion 大者胜（bigint 数值比较非字典序）；等值保持当前（幂等重放稳定）', () => {
+describe('Y1c T5c 契约冻结：mergeRuntimeProjection（shared 唯一 merge 函数——全规则；#10 全量 snapshot 门）', () => {
+  it('同字段 nodeVersion 大者胜（bigint 数值比较非字典序）；execStatus/artifact 分槽独立版本化（#3）', () => {
     const current = proj({
-      nodes: { n1: entry({ exec: { status: 'running', nodeVersion: '9' } }) },
+      nodes: { n1: entry({ execStatus: { status: 'running', nodeVersion: '9' }, artifact: { mediaId: 'm0', artifactRev: 1, nodeVersion: '8' } }) },
     });
-    const higher = proj({
-      nodes: { n1: entry({ exec: { status: 'done', nodeVersion: '10' } }) },
+    const higherStatus = proj({
+      nodes: { n1: entry({ execStatus: { status: 'done', nodeVersion: '10' } }) },
     });
-    const lower = proj({
-      nodes: { n1: entry({ exec: { status: 'failed', nodeVersion: '8' } }) },
-    });
-    expect(mergeRuntimeProjection(current, higher).nodes.n1!.exec!.status).toBe('done');
-    expect(mergeRuntimeProjection(current, lower).nodes.n1!.exec!.status).toBe('running');
+    const merged = mergeRuntimeProjection(current, delta(higherStatus));
+    expect(merged.nodes.n1!.execStatus!.status).toBe('done');
+    expect(merged.nodes.n1!.artifact).toEqual({ mediaId: 'm0', artifactRev: 1, nodeVersion: '8' });   // 分槽独立——status 前进不动 artifact
+    const lower = proj({ nodes: { n1: entry({ execStatus: { status: 'failed', nodeVersion: '8' } }) } });
+    expect(mergeRuntimeProjection(current, delta(lower)).nodes.n1!.execStatus!.status).toBe('running');
     // 字典序陷阱："9">"10" 字典序为真——数值比较必须走 bigint（10 进制 string 纪律）
-    const cur10 = proj({ nodes: { n1: entry({ exec: { status: 'v10', nodeVersion: '10' } }) } });
-    const inc9 = proj({ nodes: { n1: entry({ exec: { status: 'v9', nodeVersion: '9' } }) } });
-    expect(mergeRuntimeProjection(cur10, inc9).nodes.n1!.exec!.status).toBe('v10');
+    const cur10 = proj({ nodes: { n1: entry({ execStatus: { status: 'v10', nodeVersion: '10' } }) } });
+    const inc9 = proj({ nodes: { n1: entry({ execStatus: { status: 'v9', nodeVersion: '9' } }) } });
+    expect(mergeRuntimeProjection(cur10, delta(inc9)).nodes.n1!.execStatus!.status).toBe('v10');
     // 等值：保持当前（同一事件幂等重放不抖动）
-    const same = proj({ nodes: { n1: entry({ exec: { status: 'done', nodeVersion: '10' } }) } });
-    const replay = proj({ nodes: { n1: entry({ exec: { status: 'done', nodeVersion: '10' } }) } });
-    expect(mergeRuntimeProjection(same, replay).nodes.n1!.exec!.status).toBe('done');
+    const same = proj({ nodes: { n1: entry({ execStatus: { status: 'done', nodeVersion: '10' } }) } });
+    const replay = proj({ nodes: { n1: entry({ execStatus: { status: 'done', nodeVersion: '10' } }) } });
+    expect(mergeRuntimeProjection(same, delta(replay)).nodes.n1!.execStatus!.status).toBe('done');
   });
-  it('deletedAt 墓碑：版本大于任何字段版本则清空该节点字段；字段版本更高则幸存（undo 重建形态）', () => {
+  it('deletedAt 墓碑：版本大于任何字段版本则清空该节点字段；字段版本更高则幸存（node.restored 复活形态）', () => {
     // 墓碑新于一切字段 → 字段清空（FEED_TOMBSTONE 语义——客户端清投影）
     const withFields = proj({
-      nodes: { n1: entry({ exec: { status: 'done', nodeVersion: '5' }, media: { naturalWidth: 1, naturalHeight: 1, factVersion: 1, nodeVersion: '6' } }) },
+      nodes: { n1: entry({ execStatus: { status: 'done', nodeVersion: '5' }, artifact: { mediaId: 'm1', artifactRev: 1, nodeVersion: '6' } }) },
     });
     const tombstone = proj({ nodes: { n1: entry({ deletedAt: { lifecycleSeq: '1', nodeVersion: '7' } }) } });
-    const merged = mergeRuntimeProjection(withFields, tombstone);
-    expect(merged.nodes.n1!.exec).toBeUndefined();
-    expect(merged.nodes.n1!.media).toBeUndefined();
+    const merged = mergeRuntimeProjection(withFields, delta(tombstone));
+    expect(merged.nodes.n1!.execStatus).toBeUndefined();
+    expect(merged.nodes.n1!.artifact).toBeUndefined();
     expect(merged.nodes.n1!.deletedAt).toEqual({ lifecycleSeq: '1', nodeVersion: '7' });
-    // 字段新于墓碑（restore 后新事件）→ 字段幸存
+    // 字段新于墓碑（node.restored 后新事件）→ 字段幸存
     const resurrect = proj({
-      nodes: { n1: entry({ exec: { status: 'running', nodeVersion: '9' } }) },
+      nodes: { n1: entry({ execStatus: { status: 'running', nodeVersion: '9' } }) },
     });
-    const merged2 = mergeRuntimeProjection(merged, resurrect);
-    expect(merged2.nodes.n1!.exec!.status).toBe('running');
+    const merged2 = mergeRuntimeProjection(merged, delta(resurrect));
+    expect(merged2.nodes.n1!.execStatus!.status).toBe('running');
     expect(merged2.nodes.n1!.deletedAt).toBeDefined();   // 墓碑保留（历史版本）——activeTombstone 判定在 compose
     // 边界：deletedAt 版本==字段版本（非严格大于）→ 字段不清
-    const eqFields = proj({ nodes: { n1: entry({ exec: { status: 'done', nodeVersion: '7' } }) } });
-    const merged3 = mergeRuntimeProjection(eqFields, tombstone);
-    expect(merged3.nodes.n1!.exec).toBeDefined();
+    const eqFields = proj({ nodes: { n1: entry({ execStatus: { status: 'done', nodeVersion: '7' } }) } });
+    const merged3 = mergeRuntimeProjection(eqFields, delta(tombstone));
+    expect(merged3.nodes.n1!.execStatus).toBeDefined();
   });
-  it('generation 不匹配整族清：新代整体替换（旧族不并入）；旧代事件整体忽略（隔离）', () => {
-    const g3 = proj({ generation: 3, nodes: { n1: entry({ exec: { status: 'a', nodeVersion: '1' } }) } });
-    const g4 = proj({ generation: 4, nodes: { n2: entry({ exec: { status: 'b', nodeVersion: '1' } }) } });
-    const toNew = mergeRuntimeProjection(g3, g4);
-    expect(toNew.generation).toBe(4);
-    expect(toNew.nodes.n1).toBeUndefined();        // 旧族清
-    expect(toNew.nodes.n2!.exec!.status).toBe('b');
-    const staleIncoming = mergeRuntimeProjection(g4, g3);
+  it('#10 换代必须全量 snapshot：fullSnapshot=false ∧ generation≠ → 整体忽略（新代增量禁并入——须走快照）；fullSnapshot=true → 全量替换', () => {
+    const g3 = proj({ generation: 3, feedSeq: '50', nodes: { n1: entry({ execStatus: { status: 'a', nodeVersion: '1' } }) } });
+    const g4delta = proj({ generation: 4, nodes: { n2: entry({ execStatus: { status: 'b', nodeVersion: '1' } }) } });
+    // 新代增量（非快照）→ 拒并入：保持当前整族（调用方必须拉全量快照——换代清投影重建）
+    const refused = mergeRuntimeProjection(g3, delta(g4delta, false));
+    expect(refused.generation).toBe(3);
+    expect(refused.feedSeq).toBe('50');
+    expect(refused.nodes.n2).toBeUndefined();
+    // 旧代事件（非快照）→ 整体忽略（隔离）
+    const g4 = proj({ generation: 4, feedSeq: '10', nodes: { n2: entry({ execStatus: { status: 'b', nodeVersion: '1' } }) } });
+    const staleIncoming = mergeRuntimeProjection(g4, delta(g3, false));
     expect(staleIncoming.generation).toBe(4);
-    expect(staleIncoming.nodes.n1).toBeUndefined(); // 旧代事件不进新代投影
+    expect(staleIncoming.nodes.n1).toBeUndefined();
+    // 全量快照（fullSnapshot=true——首连/换代/游标失效三形态唯一入口）→ 整体替换（清投影重建）
+    const snapG4 = proj({ generation: 4, feedSeq: '60', nodes: { n9: entry({ execStatus: { status: 'snap', nodeVersion: '60' } }) } });
+    const replaced = mergeRuntimeProjection(g3, delta(snapG4, true));
+    expect(replaced.generation).toBe(4);
+    expect(replaced.feedSeq).toBe('60');
+    expect(replaced.nodes.n1).toBeUndefined();       // 旧族清
+    expect(replaced.nodes.n9!.execStatus!.status).toBe('snap');
+    // 同代 fullSnapshot=true 也走全量替换（snapshot=全量替换+统一 cursor——非逐槽合并）
+    const sameGenSnap = proj({ generation: 3, feedSeq: '70', nodes: { n5: entry({ execStatus: { status: 's', nodeVersion: '70' } }) } });
+    const sameGenReplaced = mergeRuntimeProjection(g3, delta(sameGenSnap, true));
+    expect(sameGenReplaced.nodes.n1).toBeUndefined();
+    expect(sameGenReplaced.nodes.n5!.execStatus!.status).toBe('s');
   });
-  it('feedSeq/pgSeq 水位取大（bigint 数值比较）；mediaFacts per-mediaId factVersion 大者胜', () => {
-    const current = proj({
-      feedSeq: '100', pgSeq: '500',
-      mediaFacts: { m1: { naturalWidth: 1, naturalHeight: 1, factVersion: 3, feedSeq: '99' } },
-    });
-    const incoming = proj({
-      feedSeq: '99', pgSeq: '600',
-      mediaFacts: { m1: { naturalWidth: 2, naturalHeight: 2, factVersion: 5, feedSeq: '98' } },
-    });
-    const merged = mergeRuntimeProjection(current, incoming);
+  it('feedSeq/pgSeq 水位取大（bigint 数值比较——同代增量合并面）', () => {
+    const current = proj({ feedSeq: '100', pgSeq: '500' });
+    const incoming = proj({ feedSeq: '99', pgSeq: '600' });
+    const merged = mergeRuntimeProjection(current, delta(incoming));
     expect(merged.feedSeq).toBe('100');   // 水位不倒退（100>99）
     expect(merged.pgSeq).toBe('600');
-    expect(merged.mediaFacts.m1!.factVersion).toBe(5);
-    expect(merged.mediaFacts.m1!.naturalWidth).toBe(2);
-    const older = proj({
-      mediaFacts: { m1: { naturalWidth: 9, naturalHeight: 9, factVersion: 2, feedSeq: '1' } },
-    });
-    expect(mergeRuntimeProjection(current, older).mediaFacts.m1!.factVersion).toBe(3);
   });
   it('未知节点并集合入（增量事件只带单节点——其余节点保留）', () => {
-    const current = proj({ nodes: { n1: entry({ exec: { status: 'a', nodeVersion: '1' } }) } });
-    const incoming = proj({ nodes: { n2: entry({ exec: { status: 'b', nodeVersion: '1' } }) } });
-    const merged = mergeRuntimeProjection(current, incoming);
+    const current = proj({ nodes: { n1: entry({ execStatus: { status: 'a', nodeVersion: '1' } }) } });
+    const incoming = proj({ nodes: { n2: entry({ execStatus: { status: 'b', nodeVersion: '1' } }) } });
+    const merged = mergeRuntimeProjection(current, delta(incoming));
     expect(Object.keys(merged.nodes).sort()).toEqual(['n1', 'n2']);
   });
   it('seq() fail-fast：非十进制形态（1e3/空串/负号/0x10）→RUNTIME_PROJECTION_SEQ_INVALID（wire 纪律破坏即刻暴露）', () => {
     const cur = proj({ feedSeq: '10', pgSeq: '100' });
-    const curWithNode = proj({ nodes: { n1: entry({ exec: { status: 'cur', nodeVersion: '1' } }) } });
+    const curWithNode = proj({ nodes: { n1: entry({ execStatus: { status: 'cur', nodeVersion: '1' } }) } });
     for (const bad of ['1e3', '', '-1', '0x10']) {
       // 水位面（maxSeq→seq）与节点槽面（mergeSlot→seq）双路径均 fail-fast
-      expect(() => mergeRuntimeProjection(cur, proj({ feedSeq: bad })), `feedSeq='${bad}' 必须红`)
+      expect(() => mergeRuntimeProjection(cur, delta(proj({ feedSeq: bad }))), `feedSeq='${bad}' 必须红`)
         .toThrow(/RUNTIME_PROJECTION_SEQ_INVALID/);
       expect(() => mergeRuntimeProjection(
         curWithNode,
-        proj({ nodes: { n1: entry({ exec: { status: 'inc', nodeVersion: bad } }) } }),
+        delta(proj({ nodes: { n1: entry({ execStatus: { status: 'inc', nodeVersion: bad } }) } })),
       ), `nodeVersion='${bad}' 必须红`).toThrow(/RUNTIME_PROJECTION_SEQ_INVALID/);
     }
   });
@@ -153,20 +165,20 @@ describe('Y1c T5c 契约冻结：composeRenderModel（read model ⊕ projection�
     ],
     edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
   };
-  it('exec/media overlay 到 read model 节点（by nodeId）；无投影节点零 runtime 键透传', () => {
+  it('execStatus/artifact overlay 到 read model 节点（by nodeId）；无投影节点零 runtime 键透传', () => {
     const projection = proj({
       nodes: {
         n1: entry({
-          exec: { status: 'done', artifactRev: 1, nodeVersion: '5' },
-          media: { naturalWidth: 640, naturalHeight: 480, factVersion: 1, nodeVersion: '4' },
+          execStatus: { status: 'done', artifactRev: 1, nodeVersion: '5' },
+          artifact: { mediaId: 'm9', artifactRev: 1, nodeVersion: '5' },
         }),
       },
     });
     const rm = composeRenderModel(readModel, projection);
     expect(rm.nodes.length).toBe(3);
     expect(rm.nodes.find((n) => n.id === 'n1')!.runtime).toEqual({
-      exec: { status: 'done', artifactRev: 1, nodeVersion: '5' },
-      media: { naturalWidth: 640, naturalHeight: 480, factVersion: 1, nodeVersion: '4' },
+      execStatus: { status: 'done', artifactRev: 1, nodeVersion: '5' },
+      artifact: { mediaId: 'm9', artifactRev: 1, nodeVersion: '5' },
     });
     expect(rm.nodes.find((n) => n.id === 'n2')!.runtime).toBeUndefined();
     expect(rm.nodes.find((n) => n.id === 'n2')!.data).toEqual({ content: 'c' });   // 读模型原样
@@ -176,12 +188,12 @@ describe('Y1c T5c 契约冻结：composeRenderModel（read model ⊕ projection�
     const projection = proj({
       nodes: {
         n3: entry({ deletedAt: { lifecycleSeq: '2', nodeVersion: '9' } }),                     // active：剔除
-        n1: entry({ deletedAt: { lifecycleSeq: '1', nodeVersion: '2' }, exec: { status: 'running', nodeVersion: '8' } }),  // 复活：保留
+        n1: entry({ deletedAt: { lifecycleSeq: '1', nodeVersion: '2' }, execStatus: { status: 'running', nodeVersion: '8' } }),  // 复活：保留
       },
     });
     const rm = composeRenderModel(readModel, projection);
     expect(rm.nodes.map((n) => n.id).sort()).toEqual(['n1', 'n2']);
-    expect(rm.nodes.find((n) => n.id === 'n1')!.runtime!.exec!.status).toBe('running');
+    expect(rm.nodes.find((n) => n.id === 'n1')!.runtime!.execStatus!.status).toBe('running');
   });
 });
 

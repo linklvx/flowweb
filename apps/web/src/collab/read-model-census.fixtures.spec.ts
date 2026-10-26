@@ -53,16 +53,16 @@ describe('Y1c T19：web 读单源=CanvasReadModel（编译期差异表）', () =
     expect(true).toBe(true);
   });
 
-  it('渲染层专用 CanvasRenderModel=merge(CanvasReadModel, RuntimeProjection)（T5c compose 消费面——服务端字段读者 T22 切投影）', () => {
+  it('渲染层专用 CanvasRenderModel=merge(CanvasReadModel, RuntimeProjection)（T5c compose 消费面——服务端字段读者 T22 切投影；T22 前修正批 #3 分槽形态）', () => {
     const readModel = readCanvasFromDoc(docOf());
     const projection: RuntimeProjection = {
       projectId: 'p1', generation: 0, feedSeq: '3', pgSeq: '3',
-      nodes: { w2: { exec: { status: 'done', nodeVersion: '3' } } },
-      mediaFacts: {},
+      nodes: { w2: { execStatus: { status: 'done', nodeVersion: '3' }, artifact: { mediaId: 'm1', artifactRev: 1, nodeVersion: '3' } } },
     };
     const render: CanvasRenderModel = composeRenderModel(readModel, projection);
     const w2 = render.nodes.find((n) => n.id === 'w2')!;
-    expect(w2.runtime?.exec?.status).toBe('done');         // overlay 只在渲染合成面——doc/data 写面零接触
+    expect(w2.runtime?.execStatus?.status).toBe('done');   // overlay 只在渲染合成面——doc/data 写面零接触
+    expect(w2.runtime?.artifact?.mediaId).toBe('m1');
     expect((readModel.nodes.find((n) => n.id === 'w2') as unknown as Record<string, unknown>).runtime).toBeUndefined();   // 读模型永不携带 runtime（类型面无该键——渲染层专用键不进共享读类型）
     const w1 = render.nodes.find((n) => n.id === 'w1')!;
     expect(w1.runtime).toBeUndefined();                    // 无投影节点零 runtime 键透传（unknown≠idle）

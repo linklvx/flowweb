@@ -4,23 +4,31 @@
 // 消费方=T22（feed 投递/taxonomy 落地）/T26（义务观察器同事务写事件）/T31（故障演练）。
 // RuntimeProjection 类型本身+客户端 merge/cursor 半链归 T5c。DDL 迁移归 T7/T21。
 // 契约测试=runtime-event.spec.ts（TDD 红先行）。
+// **T22 前修正批（确认点①附带裁定 #3/#10）**：#3=删 media.fact 事件（媒体事实走既有 media-facts
+// HTTP 通道——feed 事件只带 {nodeId,mediaId} 引用）+加 node.restored（undo 重建复活事件）；
+// #10=feed 读 CanvasDoc 用 plain SELECT 禁 FOR SHARE（锁序简化「业务行→counter」收死）。
 
-// ═══ §1 EVENT_KINDS registry+payload envelope（v5.4⑭——exact taxonomy）══════════════════════
+// ═══ §1 EVENT_KINDS registry+payload envelope（v5.4⑭——exact taxonomy；修正批 #3 形态）═══════
 
 /** 事件种类 registry（closed——**exact taxonomy** 五值；服务端维护常量+upcaster，客户端未知 kind
- *  忽略+`unknown_event_total` 不崩；新增种类=spec 修订非随手加 string） */
-export const EVENT_KINDS = ['exec.status', 'exec.artifact', 'media.fact', 'node.deleted', 'doc.vacuumed'] as const;
+ *  忽略+`unknown_event_total` 不崩；新增种类=spec 修订非随手加 string。
+ *  修正批 #3：media.fact 废止——natural 尺寸/downscaledFrom 走既有 media-facts 通道（MediaFactOutbox
+ *  POST batch），feed 只携 mediaId 引用（exec.artifact{mediaId}）；node.restored 新增——undo 重建
+ *  复活（客户端投影墓碑让位）与 node.deleted 对偶。） */
+export const EVENT_KINDS = ['exec.status', 'exec.artifact', 'node.deleted', 'node.restored', 'doc.vacuumed'] as const;
 export type RuntimeEventKind = typeof EVENT_KINDS[number];
 
 /** payload envelope 版本（v5.4⑭——payload 带 `v:1`；升版=新 kind of 契约修订走 upcaster） */
 export const RUNTIME_EVENT_PAYLOAD_VERSION = 1 as const;
 export type RuntimeEventPayloadVersion = typeof RUNTIME_EVENT_PAYLOAD_VERSION;
 
-/** payload 判别 union（spec §7 v5.4⑭ 逐 kind 键集——exact）：
+/** payload 判别 union（spec §7 v5.4⑭ 逐 kind 键集——exact；修正批 #3 形态）：
  *  - nodeVersion=该节点最后一次变更事件的 feedSeq（**单名单义**——§5.2；wire/JSON 一律 string）
- *  - node.deleted=FEED_TOMBSTONE（lifecycleSeq 与 NodeLifecycle 同源）
- *  - media.fact 带服务端 natural 尺寸+downscaledFrom（媒体事实通道键 (mediaId,factVersion)——事件只带引用）
- *  - doc.vacuumed 只带 generation（换代通知——客户端清投影整族） */
+ *  - node.deleted=FEED_TOMBSTONE（lifecycleSeq 与 NodeLifecycle 同源——#4：lifecycleSeq=生命周期族）
+ *  - node.restored=undo 重建复活（lifecycleSeq 同源——新行 ACTIVE；与墓碑对偶）
+ *  - exec.artifact 携 mediaId/resultRef 引用——natural 尺寸/downscaledFrom **不进事件**（#3：
+ *    客户端查既有 media-facts 通道按 mediaId 取）
+ *  - doc.vacuumed 只带 generation（换代通知——客户端清投影整族+全量快照） */
 export type RuntimeEventPayload =
   | {
       v: RuntimeEventPayloadVersion;
@@ -43,17 +51,14 @@ export type RuntimeEventPayload =
     }
   | {
       v: RuntimeEventPayloadVersion;
-      kind: 'media.fact';
-      mediaId: string;
-      naturalWidth: number;
-      naturalHeight: number;
-      downscaledFrom?: { width: number; height: number };
-      factVersion: number;
+      kind: 'node.deleted';
+      nodeId: string;
+      lifecycleSeq: string;
       nodeVersion: string;
     }
   | {
       v: RuntimeEventPayloadVersion;
-      kind: 'node.deleted';
+      kind: 'node.restored';
       nodeId: string;
       lifecycleSeq: string;
       nodeVersion: string;
@@ -115,12 +120,18 @@ export const RUNTIME_FEED_CURSOR_UPSERT_SQL =
   + 'ON CONFLICT ("projectId") DO UPDATE SET "lastSeq" = "RuntimeFeedCursor"."lastSeq" + 1 '
   + 'RETURNING "lastSeq"';
 
-/** 锁序冻结（v5.4⑮——spec §7「锁序简化」）：feed 事务只锁**业务行→counter**（counter 恒最后拿）；
- *  CanvasDoc 用普通 SELECT/FOR SHARE 读 generation/docSeq——**不与维护/快照互斥**。
+/** 锁序冻结（v5.4⑮——spec §7「锁序简化」+修正批 #10 收死）：feed 事务只锁**业务行→counter**
+ *  （counter 恒最后拿）；CanvasDoc 读=**plain SELECT（禁 FOR SHARE——#10：不与维护/快照互斥，
+ *  锁序面收死单形态）**。
  *  负控=静态锁序 lint+正常序压力（N 次无 40P01）+「去 counter」负控（期望重复/缺口）；
  *  受控死锁用例（反向锁序）标 heavy 不进 PR——见 testing/y1c-feed-fault-corpus。 */
 export const RUNTIME_FEED_LOCK_ORDER = ['business-rows', 'runtime-feed-cursor'] as const;
 export type RuntimeFeedLockOrderStep = typeof RUNTIME_FEED_LOCK_ORDER[number];
+
+/** #10 文字面契约（锁序简化收死——lint/census 消费锚）：CanvasDoc 读=plain SELECT，
+ *  FOR SHARE 禁用（「业务行→counter」单形态——FOR SHARE 会与维护/快照互斥复活锁序面）。 */
+export const RUNTIME_FEED_LOCK_ORDER_DOC =
+  'feed 事务锁序=业务行→counter（counter 恒最后拿）；CanvasDoc 读=plain SELECT（禁 FOR SHARE）——generation/docSeq 快照读非锁读' as const;
 
 /** 事件保留期（spec §7——7 天或 100k 条/项目**先到为准**；清理 worker 更新 minRetainedSeq+
  *  `runtime_feed_bytes` 指标；游标<minRetainedSeq 或保留期已过→客户端全量快照） */

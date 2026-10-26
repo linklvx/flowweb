@@ -8,33 +8,32 @@ import { describe, expect, it } from 'vitest';
 import {
   EVENT_KINDS, RuntimeEventKind, RuntimeEventPayload, RuntimeEventRow,
   RUNTIME_EVENT_PAYLOAD_MAX_BYTES, RUNTIME_EVENT_PAYLOAD_VERSION, runtimeEventPayloadPiiViolations,
-  RUNTIME_FEED_CURSOR_UPSERT_SQL, RUNTIME_FEED_LOCK_ORDER, RuntimeFeedCursorRow,
+  RUNTIME_FEED_CURSOR_UPSERT_SQL, RUNTIME_FEED_LOCK_ORDER, RUNTIME_FEED_LOCK_ORDER_DOC, RuntimeFeedCursorRow,
   RUNTIME_EVENT_RETENTION_DAYS, RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT, RUNTIME_FEED_DELIVERY_CONTRACT,
 } from './runtime-event';
 import { buildFeedFaultCorpus, FeedFaultCase } from '../testing/y1c-feed-fault-corpus';
 
-describe('Y1c T5b 契约冻结：RuntimeEvent taxonomy（spec §7 v5.4⑭——exact）', () => {
-  it('EVENT_KINDS 五值精确冻结：exec.status/exec.artifact/media.fact/node.deleted/doc.vacuumed', () => {
-    expect([...EVENT_KINDS]).toEqual(['exec.status', 'exec.artifact', 'media.fact', 'node.deleted', 'doc.vacuumed']);
+describe('Y1c T5b 契约冻结：RuntimeEvent taxonomy（spec §7 v5.4⑭——exact；T22 前修正批 #3：删 media.fact+加 node.restored）', () => {
+  it('EVENT_KINDS 五值精确冻结：exec.status/exec.artifact/node.deleted/node.restored/doc.vacuumed（media.fact 废止——事实走既有 media-facts 通道）', () => {
+    expect([...EVENT_KINDS]).toEqual(['exec.status', 'exec.artifact', 'node.deleted', 'node.restored', 'doc.vacuumed']);
     expect(new Set(EVENT_KINDS).size).toBe(5);
   });
-  it('payload envelope v:1——各 kind 键清单精确冻结（nodeVersion/lifecycleSeq=BigInt String 化；media.fact 带 natural 尺寸）', () => {
+  it('payload envelope v:1——各 kind 键清单精确冻结（nodeVersion/lifecycleSeq=BigInt String 化；node.restored=undo 重建复活事件）', () => {
     const payloads: RuntimeEventPayload[] = [
       { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'RUNNING', attempts: 1, nodeVersion: '7' },
       { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'FAILED', attempts: 2, errorCode: 'E_PROV', artifactRev: 3, nodeVersion: '9' },
       { v: 1, kind: 'exec.artifact', nodeId: 'n1', mediaId: 'm1', resultRef: 'ref-1', artifactRev: 3, nodeVersion: '9' },
-      { v: 1, kind: 'media.fact', mediaId: 'm1', naturalWidth: 1920, naturalHeight: 1080, factVersion: 2, nodeVersion: '11' },
-      { v: 1, kind: 'media.fact', mediaId: 'm1', naturalWidth: 800, naturalHeight: 600, downscaledFrom: { width: 1600, height: 1200 }, factVersion: 3, nodeVersion: '12' },
       { v: 1, kind: 'node.deleted', nodeId: 'n1', lifecycleSeq: '15', nodeVersion: '15' },
+      { v: 1, kind: 'node.restored', nodeId: 'n1', lifecycleSeq: '16', nodeVersion: '16' },
       { v: 1, kind: 'doc.vacuumed', generation: 4 },
     ];
     for (const p of payloads) expect(p.v).toBe(RUNTIME_EVENT_PAYLOAD_VERSION);
     expect(Object.keys(payloads[0]).sort()).toEqual(['attempts', 'kind', 'nodeId', 'nodeVersion', 'status', 'v']);
     expect(Object.keys(payloads[1]).sort()).toEqual(['artifactRev', 'attempts', 'errorCode', 'kind', 'nodeId', 'nodeVersion', 'status', 'v']);
     expect(Object.keys(payloads[2]).sort()).toEqual(['artifactRev', 'kind', 'mediaId', 'nodeId', 'nodeVersion', 'resultRef', 'v']);
-    expect(Object.keys(payloads[3]).sort()).toEqual(['factVersion', 'kind', 'mediaId', 'naturalHeight', 'naturalWidth', 'nodeVersion', 'v']);
-    expect(Object.keys(payloads[5]).sort()).toEqual(['kind', 'lifecycleSeq', 'nodeId', 'nodeVersion', 'v']);
-    expect(Object.keys(payloads[6]).sort()).toEqual(['generation', 'kind', 'v']);
+    expect(Object.keys(payloads[3]).sort()).toEqual(['kind', 'lifecycleSeq', 'nodeId', 'nodeVersion', 'v']);
+    expect(Object.keys(payloads[4]).sort()).toEqual(['kind', 'lifecycleSeq', 'nodeId', 'nodeVersion', 'v']);
+    expect(Object.keys(payloads[5]).sort()).toEqual(['generation', 'kind', 'v']);
   });
   it('RuntimeEventRow 列集冻结：@@unique([projectId,feedSeq])+@@index([projectId,generation,feedSeq])+docSeq? 下界列', () => {
     const row: RuntimeEventRow = {
@@ -56,8 +55,8 @@ describe('Y1c T5b 契约冻结：PII 扫描纯函数（事件写入前——禁 
     const legal: RuntimeEventPayload[] = [
       { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'RUNNING', attempts: 1, nodeVersion: '7' },
       { v: 1, kind: 'exec.artifact', nodeId: 'n1', artifactRev: 1, nodeVersion: '7' },
-      { v: 1, kind: 'media.fact', mediaId: 'm1', naturalWidth: 1, naturalHeight: 1, factVersion: 1, nodeVersion: '7' },
       { v: 1, kind: 'node.deleted', nodeId: 'n1', lifecycleSeq: '1', nodeVersion: '7' },
+      { v: 1, kind: 'node.restored', nodeId: 'n1', lifecycleSeq: '2', nodeVersion: '8' },
       { v: 1, kind: 'doc.vacuumed', generation: 4 },
     ];
     for (const p of legal) expect(runtimeEventPayloadPiiViolations(p)).toEqual([]);
@@ -79,8 +78,12 @@ describe('Y1c T5b 契约冻结：RuntimeFeedCursor+锁序（spec §7 v5.4⑫⑮�
     expect(RUNTIME_FEED_CURSOR_UPSERT_SQL).toContain('RETURNING "lastSeq"');
     expect(RUNTIME_FEED_CURSOR_UPSERT_SQL).toMatch(/^INSERT INTO "RuntimeFeedCursor"/);
   });
-  it('锁序冻结：业务行→counter（CanvasDoc 普通 SELECT/FOR SHARE——不与维护/快照互斥）；counter 恒最后拿', () => {
+  it('锁序冻结：业务行→counter（CanvasDoc **plain SELECT——禁 FOR SHARE**〔修正批 #10〕——不与维护/快照互斥）；counter 恒最后拿', () => {
     expect([...RUNTIME_FEED_LOCK_ORDER]).toEqual(['business-rows', 'runtime-feed-cursor']);
+    // #10 文字面锁定：契约注记收死单形态=plain SELECT+显式禁 FOR SHARE（不得回退「SELECT/FOR SHARE」双选项措辞）
+    expect(RUNTIME_FEED_LOCK_ORDER_DOC).toContain('plain SELECT');
+    expect(RUNTIME_FEED_LOCK_ORDER_DOC).toContain('禁 FOR SHARE');
+    expect(RUNTIME_FEED_LOCK_ORDER_DOC).not.toContain('SELECT/FOR SHARE');
   });
   it('保留期冻结：7 天或 100k 条/项目（先到为准）——清理 worker 更新 minRetainedSeq+runtime_feed_bytes 指标；feedSeq 跨代不重置', () => {
     expect(RUNTIME_EVENT_RETENTION_DAYS).toBe(7);
