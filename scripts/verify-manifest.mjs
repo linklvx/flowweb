@@ -55,7 +55,10 @@ export const VERIFY_STEPS = [
   // execSeq 裸比较禁令/compareExecSeq 定义唯一；依赖 shared dist——shared-build 步在前恒新）=30 步。
   { id: 'check-plan-census', cmd: 'node scripts/check-plan-census.mjs', db: false },
   { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-spec-consistency.test.mjs scripts/collab-renumber-layer.test.mjs scripts/deploy-sh-pgrestore.test.mjs scripts/dev-reset-canvas.test.mjs scripts/deploy-guard.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
-  { id: 'api-eslint', cmd: 'pnpm --filter @flowweb/api exec eslint "{src,test}/**/*.ts"', db: false },
+  // Y1c T20 出口前置根修：glob 对齐实际布局 "{src,test}/**/*.ts"→"src/**/*.ts"——apps/api 无 test/
+  // 目录（api 测试=src/**/*.spec.ts 同仓共置），原 glob 模式不匹配即步红（ESLint fatal——任何环境
+  // 必红=门自身预置缺陷，非代码回归）。同批同修 apps/api package.json lint 脚本同款 glob。
+  { id: 'api-eslint', cmd: 'pnpm --filter @flowweb/api exec eslint "src/**/*.ts"', db: false },
 ];
 
 export const FAST_PREFIX_LEN = 16;

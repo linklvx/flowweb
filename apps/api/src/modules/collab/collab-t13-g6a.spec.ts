@@ -143,7 +143,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
       const segPath = join(dir, 'k3-owner', seg!);
       const buf = await readFile(segPath);
       // 帧布局：164B 段头+帧1（52+payloadLen）+帧2；定位帧 2 起点=段头+帧 1 长度
-      let off = 164;
+      const off = 164;
       const len1 = buf.readUInt32LE(off);
       const frame2 = off + 52 + len1;
       buf.writeBigUInt64LE(4n, frame2 + 8);   // walSeq 2→4（gap）

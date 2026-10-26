@@ -95,7 +95,7 @@ describe('VideoWorkController（公开）', () => {
     expect(out).toEqual({});   // 控制器返回空体形状（304 剥体归 Express/Supertest 层——本桩钉返回值契约）
   });
 
-  it('Q-M-2③ If-None-Match 弱标签 W/"g1:p9" → 304（W\// 前缀归一——客户端代理改写容错）', async () => {
+  it('Q-M-2③ If-None-Match 弱标签 W/"g1:p9" → 304（W/ 前缀归一——客户端代理改写容错）', async () => {
     service.getProcessSnapshot = vi.fn().mockResolvedValue({ workId: 'w1', nodes: [], edges: [], etag: 'g1:p9' });
     const { res, status } = etagRes();
     await controller.getProcess('w1', { headers: { 'if-none-match': 'W/"g1:p9"' } } as any, res);

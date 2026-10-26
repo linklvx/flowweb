@@ -84,7 +84,7 @@ async function metricValue(result: string): Promise<number> {
 }
 
 describe('Y1c T11 CollabCompactPoller（真 PG——启动续跑 kill 窗）', () => {
-  const maybeDb = !!process.env.DATABASE_URL ? describe : describe.skip;
+  const maybeDb = process.env.DATABASE_URL ? describe : describe.skip;
   maybeDb('resumePendingPurges 接线', () => {
     it('启动续跑=repo.resumePurges 单点（红组②poller 侧——kill 在指针后/分批删前不丢清理义务）', async () => {
       const repo = { resumePurges: vi.fn(async () => 1), compact: vi.fn(), assertSchemaGenerationDiscipline: vi.fn(async () => undefined) };

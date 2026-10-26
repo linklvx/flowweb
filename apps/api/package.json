@@ -11,7 +11,7 @@
     "test:heavy": "vitest run -c vitest.heavy.config.ts",
     "test:int:ci": "vitest run -c vitest.int.config.ts --reporter=default --reporter=json --outputFile=int.json",
     "verify:indexes": "node ../../scripts/verify-indexes.mjs",
-    "lint": "eslint \"{src,test}/**/*.ts\""
+    "lint": "eslint \"src/**/*.ts\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1049.0",
