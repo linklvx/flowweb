@@ -1,12 +1,12 @@
 {
   "gate": "G5",
-  "commit": "73c87a6a",
+  "commit": "f3abe9a7",
   "env": {
-    "date": "2026-10-27（T22 主体批——Commit A=70b1b73b 前置修正批先行）",
-    "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；迁移二=20261025120000（RuntimeEvent/RuntimeFeedCursor 表 T7/T21 已建——本卡零新迁移）",
-    "suite": "T22 面=runtime-feed.t22-g5.int.spec（真 PG 13：genesis 首事件/并发 8 交错连续/CanvasDoc 行锁非阻塞/去 counter 负控/outbox churn 零洞/readAfter 升序/快照信封折叠/feed-hint 载荷/保留期+minRetainedSeq/PII+64KB+kind 三拒写/六语料服务端锚+restored 复活/FEED_TOMBSTONE 投递幂等/NODE_DELETED 三清扫+EXEC_FINALIZE 留 T23）+runtime-feed.t22-static.spec（锁序静态 lint 1）+collab-t22-delivery-switch.int.spec（真 PG 5：红①④不变量+T26 裁定 unregistered/stale 两档+交付幂等）+web runtimeStore.t22.spec（12：reducer 六语料/源切换/overlay/新鲜度/feed-hint/产物 sink/IDB 往返+TTL）+随契约更新组（poller int 15/harness 6/exec-map 7/execView 18——doc 写断言→feed 事件断言）",
-    "scope": "spec §9.1 G5 行：feed 可靠（六语料+提交顺序交错）+同切片切交付（doc.exec 停写停读+尺寸回写链删除）+四读径 overlay 合成+锁序负控；前置=T26 义务观察器（plan v1.7 P3 重排）",
-    "redEvidence": "红①③④=delivery-switch int 五例 stash 对照红（旧 withSession 写面在最小 harness 下 5/5 红——TypeError isVacuuming 路径崩溃+行为面 data.fileId 落 doc）；红⑤=锁序行为例（FOR SHARE 形态在 CanvasDoc 行锁持锁窗下将阻塞超时——plain SELECT 实测 821ms 完成）+静态 lint（SQL 段锁读字样零容忍）；红②=runtimeStore.t22.spec 模块缺失导入红（git stash -u 对照留证）；红③=execView 旧契约 6 例红（doc exec observeDead 源——随源切换改写为新契约锁）。"
+    "date": "2026-10-27（T22 双评审收口批——Commit A=70b1b73b 前置修正批/主体=73c87a6a/g5 首证=00a7900a 之后收口重认证）",
+    "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；零新迁移",
+    "suite": "T22 收口面=runtime-feed.t22-g5.int（16：主体 13+收口 C-3 快照竞态〔RR+先 cursor 后 events+≤lastSeq 过滤〕/I-5 租约重派崩溃窗/I-9 跨项目同 nodeId 串扰）+runtime-feed.t22-closeout.spec（M-15 lastKnown 提交后写+M-16 after 畸形 400）+collab-t22-delivery-switch.int（7：主体 5+M-10 并发幂等〔fence 锁外持确定性 TOCTOU〕+I-8 payload 契约键）+web runtimeFeedWiring.spec（2：C-1 生产接线+心跳同形）+web runtimeArtifactOverlay.spec（2：C-2 overlay 红→绿+legacy 兜底序）+runtimeStore.t22.spec（15：主体 12+I-7 gap 两档+M-2 historyId）+主体批全部既有面（poller int 15/harness 6/exec-map 7/execView 21）",
+    "scope": "spec §9.1 G5 行+双评审收口定性「同切片切交付只完成了删除半边」——客户端半链生产接线（C-1）/产物渲染 overlay（C-2）/snapshotEnvelope 竞态（C-3）+I-4..I-9+M-2/3/5/10/11/13..18",
+    "redEvidence": "收口批十例确定性红（stash 对照——git stash push 16 实现文件保留新测试）：C-1=runtimeFeedWiring.spec 模块缺失红×2（wireRuntimeFeedProductionFetchers/parseFeedHintPayload is not a function）+I-7=gap 两档 snapshotFn 零调用红×2+C-2=runtimeArtifactOverlay.spec useMediaUrlArgs=[undefined,undefined] 不含 m-overlay 红+M-15=append 闭包内 lastKnown 已写红+M-16=after 畸形无 400 红+M-10=外持 DeliveryFence 行锁下并发双投 delta=4 红（TOCTOU 实锤）+I-5=CLAIMED∧过期行 claimed=0 事件零投递永久卡死红+I-9=错开 createdAt 15ms 后反查恒取最新行⇒单项目零墓碑事件红+I-8=payload diff 实锤（-intentId/-rearmable 缺键）。C-3 红=quality 真 PG probe 既有实证（cursorLastSeq=2 > maxFoldedEventSeq=1——修前 RC 先 events 后 cursor 读窗；probe 形态转 8 轮迭代用例，绿侧 RR 恒成立无 flakes）。I-6=测试诚实性重构（原 await lockHolder 完整结束后 append=零重叠，FOR SHARE 形态也照样过；新例 fire-and-forget+lockTaken 落位确认+holderDone=false 重叠断言——FOR SHARE 下 elapsed≥2000 必红）。"
   },
   "cases": [
     {
@@ -14,23 +14,23 @@
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t22-delivery-switch.int.spec.ts",
       "status": "pass",
       "expect": "deliverArtifact 后 doc 零派生字段（data.fileId 不变+exec map 恒空）+RuntimeEvent exec.artifact/exec.status 两事件在档（nodeVersion=自身 feedSeq）",
-      "detail": "红①④不变量⑦；writeExecStatus 同卡（doc exec 零条目+loading 事件在档）",
+      "detail": "红①④不变量⑦；writeExecStatus 同卡（doc exec 零条目+loading 事件在档）；收口批 M-10/I-8 两例并入本文件",
       "artifacts": []
     },
     {
       "id": "G5-C2-t26-fence-verdicts",
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t22-delivery-switch.int.spec.ts -t 'T26 裁定面'",
       "status": "pass",
-      "expect": "unregistered（legacy 无行）与 fence-stale（fenceSeq=0——replayAll 崩溃窗/doc-lag 收养整体 stale）均拒档 written:false node-deleted（fail-closed）+零事件",
-      "detail": "T26 裁定三场景=一律 fail-closed 拒档（开发期无存量兼容——宁拒勿复活 stale-ACTIVE 逃逸）；ACTIVE 放行档在 C1 覆盖",
+      "expect": "unregistered（legacy 无行）与 fence-stale（fenceSeq=0）均拒档 written:false node-deleted（fail-closed）+零事件",
+      "detail": "T26 裁定三场景=一律 fail-closed 拒档；ACTIVE 放行档在 C1 覆盖",
       "artifacts": []
     },
     {
       "id": "G5-C3-delivery-idempotent",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t22-delivery-switch.int.spec.ts -t '幂等'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t22-delivery-switch.int.spec.ts -t 'M-10'",
       "status": "pass",
-      "expect": "同 (nodeId,artifactRev) 二次投递 no-op（事件计数不变——poller 重投/ambiguous commit 安全）",
-      "detail": "hasArtifactEvent 前置（业务键非 feedSeq）",
+      "expect": "同 (nodeId,artifactRev) 二次投递 no-op+并发双投递（外持 DeliveryFence 行锁=确定性 TOCTOU 构造）恰一事件对 delta=2——幂等前置迁事务内 fence 行锁后（M-10：原事务外先检双过检双写=4 红）",
+      "detail": "幂等键 (nodeId,artifactRev) 业务键非 feedSeq；序选=fence FOR UPDATE 串行化锚→检→写",
       "artifacts": []
     },
     {
@@ -38,22 +38,22 @@
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '并发交错'",
       "status": "pass",
       "expect": "空项目首事件 feedSeq=1（cursor upsert genesis）+并发 8 Promise.all 分配 2..9 连续无洞无重（upsert 行锁=分配序≡提交序）",
-      "detail": "docSeq=CanvasDoc.pgSeq 下界随行；feedSeq 提交顺序交错负向形态由行锁结构性排除（S5 实验锚+T0 feedseq-commit-order.int.spec 既有）",
+      "detail": "docSeq=CanvasDoc.pgSeq 下界随行",
       "artifacts": []
     },
     {
       "id": "G5-C5-lock-order",
       "command": "cd apps/api && npx vitest run src/modules/collab/runtime-feed.t22-static.spec.ts && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '锁序'",
       "status": "pass",
-      "expect": "CanvasDoc 行被他事务 FOR UPDATE 锁持 800ms——append 照常完成 <5s（plain SELECT 非阻塞）；静态 lint：SQL 模板段零 FOR SHARE/FOR UPDATE+appendEventInTx 内 CanvasDoc 读行号<counter upsert 行号（业务行→counter）",
-      "detail": "修正批 #10 收死单形态；受控反向死锁用例标 heavy 不进 PR（spec §7——语料 y1c-feed-fault-corpus 反向锁序负控 heavy 档既有）",
+      "expect": "CanvasDoc 行被他事务 FOR UPDATE 持锁中（fire-and-forget+lockTaken 落位确认——I-6 真并发重叠）append <2000ms 完成且 holderDone=false（持锁窗内完成=重叠证据；FOR SHARE 形态下排队≥2000ms 必红）；静态 lint：SQL 模板段零 FOR SHARE/FOR UPDATE+appendEventInTx 内 CanvasDoc 读行号<counter upsert 行号",
+      "detail": "修正批 #10 单形态；I-6 收口=原 await lockHolder 零重叠假绿根除",
       "artifacts": []
     },
     {
       "id": "G5-C6-counter-negative-control",
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '去 counter'",
       "status": "pass",
-      "expect": "绕过 upsert 裸 INSERT 同 feedSeq=@@unique([projectId,feedSeq]) 唯一冲突拒（期望报错——证 counter 为唯一取号路径；「去 counter」负控=期望重复/缺口被约束拒绝）",
+      "expect": "绕过 upsert 裸 INSERT 同 feedSeq=@@unique([projectId,feedSeq]) 唯一冲突拒（期望报错——证 counter 为唯一取号路径）",
       "detail": "非制造死锁形态（spec §7 负控字面）",
       "artifacts": []
     },
@@ -61,16 +61,16 @@
       "id": "G5-C7-outbox-no-hole",
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t 'outbox'",
       "status": "pass",
-      "expect": "outbox 行 claim+delete 后 feed 事件流连续（feed=RuntimeEvent 非 outbox——可变工作队列零影响）",
+      "expect": "outbox 行 claim+delete 后 feed 事件流连续（feed=RuntimeEvent 非 outbox）",
       "detail": "ExecutionOutbox=工作队列维持禁作 feed 日志",
       "artifacts": []
     },
     {
       "id": "G5-C8-snapshot-envelope",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '快照'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '快照|C-3'",
       "status": "pass",
-      "expect": "首连快照 {snapshot,cursor 三元,minRetainedSeq,historyId}——折叠投影槽位正确（execStatus/artifact/deletedAt/restored）+SystemHistory 缺席 fail-closed",
-      "detail": "换代必须全量 snapshot 服务端半链（#10）；historyId 不匹配→客户端清投影重建（runtimeStore fetchRuntimeSnapshot 路径）",
+      "expect": "首连快照 {snapshot,cursor 三元,minRetainedSeq,historyId} 折叠槽位正确+C-3 竞态不变量：读窗内并发提交（8 轮迭代）凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤——修前 probe 实证 cursor 领先折叠事件=客户端永久漏事件）",
+      "detail": "换代必须全量 snapshot 服务端半链（#10）；historyId 不匹配→客户端清投影重建",
       "artifacts": []
     },
     {
@@ -83,34 +83,34 @@
     },
     {
       "id": "G5-C10-payload-guards",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t 'PII'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t 'PII' && cd ../../packages/shared && npx vitest run src/collab/runtime-event.spec.ts",
       "status": "pass",
-      "expect": "PII 键命中拒写+payload>64KB 拒写+EVENT_KINDS 外 kind 拒写（closed registry——三拒写全红锚）",
-      "detail": "拒写=业务 bug 非截断（spec §7 v5.4⑭）",
+      "expect": "PII 键命中拒写+payload>64KB 拒写+EVENT_KINDS 外 kind 拒写+shared 键锁：exec.status 扩键 intentId/rearmable 后合法键集冻结（I-8——PII 扫描面零误伤）",
+      "detail": "拒写=业务 bug 非截断（spec §7 v5.4⑭+修订行 39）",
       "artifacts": []
     },
     {
       "id": "G5-C11-client-reducer-corpus",
       "command": "cd apps/web && npx vitest run src/stores/runtimeStore.t22.spec.ts",
       "status": "pass",
-      "expect": "六语料：乱序+重复升序去重/缺口 gap 信号/旧代隔离不崩/doc.vacuumed→needsSnapshot（#10）/unknown kind 忽略计数/墓碑→restored 复活（槽位级）",
-      "detail": "断线/漏通知形态=hint/心跳两通道同形（runtimeFreshness+handleFeedHint h≤cursor 忽略例）——唯一交付=HTTP 游标（cursor 有序）",
+      "expect": "六语料+I-7 收口：gap×caughtUp/gap×未追平 两档均不推进 cursor 直接全量快照（原越洞应用=洞内事件永久丢）+M-2 historyId 不匹配→快照+清投影",
+      "detail": "唯一交付=HTTP 游标（cursor 有序）；I-7 红证据=stash 对照 snapshotFn 零调用×2",
       "artifacts": []
     },
     {
       "id": "G5-C12-exec-source-switch",
       "command": "cd apps/web && npx vitest run src/stores/canvasCollabRuntime.execView.spec.ts src/stores/runtimeStore.t22.spec.ts -t '数据源切换'",
       "status": "pass",
-      "expect": "nodeStore.execStatus ← runtime 投影（doc exec 写零投影——旧源恒 stale 退役）+fileId=artifact 槽 mediaId+census ㉛ web 条目清零",
-      "detail": "红③同切片纪律：客户端 Runtime Store 与服务端停写同卡落地",
+      "expect": "nodeStore.execStatus ← runtime 投影+fileId=artifact 槽 mediaId+I-8 收口：intentId/rearmable 随投影落 entry（面板 EXHAUSTED 判据可达——投影器条件键转发）",
+      "detail": "execView.spec collabApi 模块界 stub=C-1 生产接线后 fetch 计数面隔离（wiring 断言独立锁 C15）",
       "artifacts": []
     },
     {
       "id": "G5-C13-obligation-consumers",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '义务'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目'",
       "status": "pass",
-      "expect": "FEED_TOMBSTONE→node.deleted 事件（lifecycleSeq 自触发 walSeq 行）+义务 DONE 幂等（复扫零重复）；NODE_DELETED 三清扫（VideoProject 级联删+ArtifactProjection 在飞行 orphaned）；EXEC_FINALIZE 不被 claim（PENDING 维持——退款主体归 T23）",
-      "detail": "#11 队列转移单源=nextObligationQueueState；SKIP LOCKED 租约",
+      "expect": "四例全选中（M-14 命令修正——原 -t '义务' 只中 1）：FEED_TOMBSTONE→node.deleted 幂等 DONE；NODE_DELETED 三清扫（VideoProject 级联〔workflowId 项目域过滤〕+ArtifactProjection orphaned+MediaBinding reconcile 注桩断言〔M-3〕）+EXEC_FINALIZE 不被 claim；I-5 租约重派（CLAIMED∧过期重 claim+attempts 按 lease-expired 计+DONE）；I-9 跨项目同 nodeId（claim 行 projectId 直用——墓碑事件/清扫各归各项目）",
+      "detail": "#11 队列转移单源=nextObligationQueueState；SKIP LOCKED 租约；红证据=I-5 卡死+I-9 单项目零事件（stash 对照）",
       "artifacts": []
     },
     {
@@ -118,7 +118,31 @@
       "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/media-delivery/projection-outbox.poller.int.spec.ts src/modules/collab/collab-harness/provider-convergence.e2e-spec.ts",
       "status": "pass",
       "expect": "交付链全组随契约切换全绿（15+6 例）：六终态/fencing/fast path/spool/批 flush/双 poller 恰一——交付=feed 事件+doc 零写断言",
-      "detail": "D9 切换的回归面（旧行为断言已随契约更新——poller 孤儿流/fence 权威归并）",
+      "detail": "D9 切换的回归面（M-10 幂等序改动对 poller 重投面=行为兼容）",
+      "artifacts": []
+    },
+    {
+      "id": "G5-C15-client-production-wiring",
+      "command": "cd apps/web && npx vitest run src/stores/runtimeFeedWiring.spec.ts",
+      "status": "pass",
+      "expect": "C-1 生产接线：wireRuntimeFeedProductionFetchers 注入前 fetchers 恒 null（红基线实录）→注入后 snapshot/events 两生产 fetcher 在位（armSession 会话起点调用）；parseFeedHintPayload feed-hint/heartbeat 两形同路+纯心跳/通用通告/坏 JSON null 透传",
+      "detail": "红=模块缺失×2（wireRuntimeFeedProductionFetchers/parseFeedHintPayload is not a function——spec 注入缝掩盖生产断链根修）",
+      "artifacts": []
+    },
+    {
+      "id": "G5-C16-artifact-overlay",
+      "command": "cd apps/web && npx vitest run src/pages/canvas/components/nodes/runtimeArtifactOverlay.spec.tsx",
+      "status": "pass",
+      "expect": "C-2 组件级红→绿：runtime 投影 artifact.mediaId（feed exec.artifact）→useMediaUrl 载荷=overlay 值→媒体 src 渲染（AudioGenNode=四节点族代表——同型读点 ImageGen/VideoGen/MultiImage）；legacy 兜底序=无投影时 doc 残留 fileId 照读",
+      "detail": "data.fileId 服务端停写后刷新/新协作者/错过广播会话产物唯一在档源=runtime 投影",
+      "artifacts": []
+    },
+    {
+      "id": "G5-C17-feed-unit-closeout",
+      "command": "cd apps/api && npx vitest run src/modules/collab/runtime-feed.t22-closeout.spec.ts",
+      "status": "pass",
+      "expect": "M-15 appendEventTransaction lastKnown 提交后写（$transaction resolve 前采样 null——修前 append 闭包内已写红）；M-16 after 畸形（'12x'/'-1'/''）=400 BadRequestException+合法值原样传 service",
+      "detail": "心跳快照不抢跑未提交序（幽灵水位根修）；游标损坏 fail-fast 以 snapshot 自愈",
       "artifacts": []
     }
   ],
@@ -142,26 +166,41 @@
       "id": "G5-INV-4-obligation-terminal-consistency",
       "sql": "SELECT count(*) FROM \"LifecycleObligation\" WHERE kind='FEED_TOMBSTONE' AND state='DONE' AND NOT EXISTS (SELECT 1 FROM \"RuntimeEvent\" e WHERE e.\"projectId\"=\"LifecycleObligation\".\"projectId\" AND e.kind='node.deleted' AND e.payload->>'nodeId'=\"LifecycleObligation\".\"nodeId\")",
       "expect": 0
+    },
+    {
+      "id": "G5-INV-5-snapshot-cursor-covers-folded",
+      "sql": "snapshotEnvelope 信封自洽（C-3 用例不变量）：凡 feedSeq≤cursor.feedSeq 的 exec.status 事件其节点槽必在折叠投影（RR+先 cursor 后 events+≤lastSeq 过滤——8 轮并发提交迭代）",
+      "expect": 0
+    },
+    {
+      "id": "G5-INV-6-delivery-concurrent-idempotent",
+      "sql": "并发同 (nodeId,artifactRev) 双投递后 exec.artifact 事件计数（M-10 用例：外持 fence 锁确定性 TOCTOU 构造——恰一对）",
+      "expect": "1 对/2 事件"
     }
   ],
   "negativeControls": [
     {
       "id": "G5-NEG-1-old-delivery-doc-write",
-      "evidence": "collab-t22-delivery-switch.int 五例 stash 对照红：旧 withSession 写面（deliverArtifact data.fileId+exec done）在最小 harness 下 5/5 红——行为面=派生字段落 doc+事件缺失双违（负控=故意保留旧实现必红）",
+      "evidence": "collab-t22-delivery-switch.int stash 对照红：旧 withSession 写面 5/5 红（主体批留证）+收口批 M-10 TOCTOU 红（事务外幂等前置+外持 fence 锁并发双投=4 事件双写）+I-8 payload 丢键 diff 红（-intentId/-rearmable）",
       "status": "red-then-green"
     },
     {
       "id": "G5-NEG-2-lock-order-static-lint",
-      "evidence": "runtime-feed.t22-static.spec：SQL 模板段 FOR SHARE/FOR UPDATE 零容忍+counter 恒最后段结构断言（appendEventInTx 内 CanvasDoc 读先于 cursor upsert）——反向锁序〔持 counter 后锁 CanvasDoc〕恒死锁面由静态门+行为例（FOR UPDATE 持锁窗非阻塞完成）替代（受控死锁 heavy 不进 PR——spec §7 字面）",
+      "evidence": "runtime-feed.t22-static.spec：SQL 模板段 FOR SHARE/FOR UPDATE 零容忍+counter 恒最后段结构断言；行为例（I-6 收口）：fire-and-forget 持锁+lockTaken 落位确认+holderDone=false 重叠断言——FOR SHARE 形态下 append 排队≥2000ms 双断言必红（原 await lockHolder 零重叠=FOR SHARE 也照样过的假绿根除）",
       "status": "red-then-green"
     },
     {
       "id": "G5-NEG-3-without-counter",
       "evidence": "「去 counter」负控：绕过 upsert 裸 INSERT 同 feedSeq=唯一约束拒（期望报错非静默重复/缺口——证 counter 行锁为唯一取号路径）",
       "status": "pass"
+    },
+    {
+      "id": "G5-NEG-4-production-wiring-null",
+      "evidence": "C-1 断链负控：wireRuntimeFeedProductionFetchers 缺席（stash 对照）=runtimeFeedFetchers.snapshot/events 恒 null——「spec 注入缝掩盖生产断链」形态本身即负控（模块缺失红×2+恒 null 红基线实录）",
+      "status": "red-then-green"
     }
   ],
   "skipped": 0,
-  "notes": "T22 落地面：deliverArtifact/writeExecStatus 改 PG 事件（doc.exec 停写停读）+RuntimeFeedService/controller/sweeper 三新件+web runtimeStore/execStatusView 切换/尺寸回写链删除（Y1b 12s/30s 上传定时器删+downscaledFrom 告知键升级 (mediaId,factVersion)）。T26 裁定登记：unregistered/stale 三场景=fail-closed 拒档（开发期无存量兼容——注释+测试双留档）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim）。部分面移交：①公开快照 projection join 的 projectionSeq 第四维=契约键已单源（formatPublicSnapshotCacheKey）+video-work 键轨注记落位——发布时 join 全面接线归 T25/T32 面后续卡（video-work /process 现 render 合成入口在）；②BindMedia/CloneBinding 命令端点=typed 契约冻结（T22/T25 实装注记维持——T25 recovery import REST 同域）；③④watcher processing 补拉（4s→30s）与 feed 产物事件拉取并存为兜底（完整退役随 T32 pendingFacts 路径删码——spec §6.7 该项 T32 收口面）；④心跳 latestFeedSeq=进程内 lastKnown 快照（本进程未写过=纯 heartbeat 形态——客户端周期拉取兜底，spec「仅辅助」语义内）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。census ㉛ web 条目清零同步（execView 静态锚锁 getMap('exec') 生产代码零命中）。",
+  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30 步（本 manifest 落盘后整跑）。",
   "verdict": "go"
 }
