@@ -42,20 +42,40 @@ const TOTAL_BUDGET_CHECK_MIN_MS = 60_000;
 
 /** per-tab 身份（spec §3.4：每标签独立记录）：sessionStorage 作用域=tab 级（跨 reload 稳定、
  *  天然隔 tab）——同 tab 重进覆盖/删除自己的旧记录，异 tab 键结构性隔离。
- *  crypto.randomUUID 缺失环境回落 Math.random+时间戳（身份只需唯一性非不可预测性）。 */
+ *  crypto.randomUUID 缺失环境回落 Math.random+时间戳（身份只需唯一性非不可预测性）。
+ *  Q-M-3：不可持久化路径模块级 memo——sessionStorage 抛出/缺席环境（隐私模式/配额禁写/SSR）
+ *  下不记忆则每次调用新随机键=孤儿记录累积；内存 memo 保同一 fallback id 会话内稳定。
+ *  Q-M-4 登记形态：duplicate-tab（浏览器「复制标签页」）拷贝 sessionStorage→两活体同键 LWW
+ *  ——与裁定 25⑹ 两 dirty LWW 同级可接受（两侧皆收敛中 CRDT 态，boot 并集内无损；非复制
+ *  形态键隔离结构性成立）。 */
 const TAB_ID_STORAGE_KEY = 'flowweb:collab-tab-id';
+/** Q-M-3：不可持久化路径（sessionStorage 缺席/访问抛出）的模块级 memo——无 memo 则每次调用
+ *  新随机键（适配器每构造取默认 tabId=会话内多孤儿键累积；reload 间无任何持久面本就换代）。 */
+let fallbackTabIdMemo: string | null = null;
+function fallbackTabId(): string {
+  if (fallbackTabIdMemo === null) {
+    fallbackTabIdMemo = `tab-fallback-${Math.random().toString(36).slice(2, 12)}`;
+  }
+  return fallbackTabIdMemo;
+}
 export function getCollabTabId(): string {
+  let ss: Storage | undefined;
   try {
-    const ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
-    const existing = ss?.getItem(TAB_ID_STORAGE_KEY);
+    ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
+  } catch {
+    return fallbackTabId();   // 取值即抛（极端环境）——禁抛（缓存禁阻断协作）
+  }
+  if (ss == null) return fallbackTabId();   // storage 缺席（SSR/测试桩）——同 memo（会话内稳定）
+  try {
+    const existing = ss.getItem(TAB_ID_STORAGE_KEY);
     if (existing) return existing;
     const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    ss?.setItem(TAB_ID_STORAGE_KEY, id);
+    ss.setItem(TAB_ID_STORAGE_KEY, id);
     return id;
   } catch {
-    return `tab-fallback-${Math.random().toString(36).slice(2, 12)}`;   // SSR/隐私模式禁写——会话内每次同值不可得，退唯一随机（禁抛——缓存禁阻断协作）
+    return fallbackTabId();   // 读/写抛出（隐私模式配额禁写）——memo 保会话内同一 id
   }
 }
 
@@ -102,7 +122,9 @@ export class LocalCollabCache {
   disableReason: LocalCacheDegradeReason | null = null;
   /** 最近一次成功快照字节（尺寸闸周期复检+docBytes 遥测数据源——零新增 encode） */
   lastSnapshotBytes = 0;
-  /** 本 tab 记录键（=tabId；per-tab 写/删己的键面） */
+  /** 本 tab 记录键（=tabId；per-tab 写/删己的键面）。
+   *  Q-M-4 登记形态：duplicate-tab（浏览器复制标签页）随 sessionStorage 拷贝 tabId→两活体同键
+   *  LWW——裁定 25⑹ 同级可接受（boot 并集面内无损；非复制形态键隔离结构性成立——见 getCollabTabId 注）。 */
   readonly recordKey: string;
 
   constructor(

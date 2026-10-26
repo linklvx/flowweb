@@ -57,16 +57,16 @@ describe('Y0b-5 T8 适配器：尺寸闸常量同源', () => {
 });
 
 describe('T18 per-tab 身份：getCollabTabId', () => {
-  it('sessionStorage 作用域=tab 级稳定（重复调用同值+落 storage）；storage 缺失回落唯一随机不抛（缓存禁阻断协作）', () => {
+  it('sessionStorage 作用域=tab 级稳定（重复调用同值+落 storage）；storage 缺失回落模块级 memo 同值（Q-M-3——防孤儿键累积），禁抛（缓存禁阻断协作）', () => {
     const a = getCollabTabId();
     expect(a).toBe(getCollabTabId());   // 稳定（storage 记忆）
     expect(typeof sessionStorage.getItem('flowweb:collab-tab-id')).toBe('string');
     const ss = sessionStorage;
     vi.stubGlobal('sessionStorage', undefined);
     try {
-      const fb = getCollabTabId();   // 禁写环境：唯一随机回落（无记忆——每次新值），禁抛
+      const fb = getCollabTabId();   // 禁写环境：模块级 memo 回落
       expect(typeof fb).toBe('string');
-      expect(fb.length).toBeGreaterThan(0);
+      expect(fb).toBe(getCollabTabId());   // Q-M-3：同值跨调用稳定（无 memo=每次新随机键→孤儿记录累积）
     } finally {
       vi.stubGlobal('sessionStorage', ss);
     }

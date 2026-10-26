@@ -8,7 +8,7 @@
 // origin（连接对象）不入栈——语义不变。
 import * as Y from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
-import { SERVER_TRANSACT_ORIGIN, UNDO_CAPTURE_TIMEOUT_MS, UNDO_STACK_LIMIT, undoOverflowAction } from '@flowweb/shared';
+import { SERVER_TRANSACT_ORIGIN, UNDO_CAPTURE_TIMEOUT_MS, undoOverflowAction } from '@flowweb/shared';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 
 /** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */

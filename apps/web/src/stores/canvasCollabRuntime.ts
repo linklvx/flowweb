@@ -159,9 +159,10 @@ const unsyncedPendingBytes = new WeakMap<Y.Doc, number>();
 /** 本地缓存适配器（会话单例——initCollab 建/teardownSession 拆；cacheDisabled 会话恒 null） */
 let localCache: LocalCollabCache | null = null;
 // ── Y1c T18（spec §3.4/偏离 36）：savedSeq 单源——只由服务端持久化回执（save barrier 的
-// pgSeq——durable watermark 广播 {type:'durable',pgSeq} 现役载体；T21 barrier 客户端回执同
-// 推进本源）——provider synced/SyncStatus/连接态**恒不推进**（「不因 provider 显示同步完成即
-// 认定已保存」）。会话复位（initCollab 起点）；值随 per-tab 缓存记录落盘（savedSeq 字段）。──
+// pgSeq）推进：watermark 广播 {type:'durable',pgSeq} 消费+T21 barrier 客户端回执=预留双入口
+// 同汇 advanceSavedSeq（**当前服务端无发射源——savedSeq 恒 0=诚实失败安全**）——provider
+// synced/SyncStatus/连接态**恒不推进**（「不因 provider 显示同步完成即认定已保存」）。会话复位
+// （initCollab 起点）；值随 per-tab 缓存记录落盘（savedSeq 字段）。──
 let savedSeq = 0;
 /** 测试缝/T21 消费：当前持久化水位（0=尚无任何服务端持久化回执）。 */
 export function getSavedSeq(): number {
@@ -172,6 +173,24 @@ export function getSavedSeq(): number {
 function advanceSavedSeq(pgSeq: string | number): void {
   const n = typeof pgSeq === 'number' ? pgSeq : Number(pgSeq);
   if (Number.isFinite(n) && n > savedSeq) savedSeq = n;
+}
+
+/** T18 双评审 Q-I-1：坏记录逐条隔离合并——盘上单条坏 snapshot（位翻转/篡改——应用写入不可达，
+ *  但 T18 读面扩到全库全 tab+legacy）只丢弃自身+ring 遥测留痕，好记录照常 CRDT 并集
+ *  （fail-soft 契约：单条坏记录禁毒化整个项目 boot/禁一票否决全族导出）。增量两两合并
+ *  （记录数=tab 数级——O(n²) 解析在 n≤个位数实际代价可忽略；坏记录归因=恰在该条合并时抛）。 */
+function mergeUpdatesIsolated(snapshots: Uint8Array[]): { merged: Uint8Array | null; dropped: number } {
+  let acc: Uint8Array | null = null;
+  let dropped = 0;
+  for (const s of snapshots) {
+    try {
+      acc = acc === null ? Y.mergeUpdates([s]) : Y.mergeUpdates([acc, s]);
+    } catch {
+      dropped++;
+    }
+  }
+  if (dropped > 0) recordRingOnlyCollabDiag('ws_status', { reason: 'local-cache-bad-record', dropped });
+  return { merged: acc, dropped };
 }
 /** diverged boot 写抑制窗口：盘上 diverged 唯一副本未回放进 doc，本会话任何缓存写都会用
  *  「doc 现态（无 diverged 内容）」覆盖它=数据丢失——结构性禁写（导出/放弃是唯一出口，出口⑳） */
@@ -669,13 +688,18 @@ export function safeReload(
     if (reason === 'generation' && key) {
       // Y1c T18（spec §3.4 换代禁静默丢）：清整族（purgeForeignCaches 删同 uid:pid 异代库）**前**
       // 先保全族内全部 dirty/diverged 草稿（他 tab 离线编辑的唯一副本在盘上——本 tab doc 导出
-      // 覆盖不到）——mergeUpdates 并集导出单 .yjs（可回灌=importLocalBackup 同格式）。fail-soft：
-      // 收集/导出失败不阻断 purge/reload（世代隔离正确性主锚；本 tab 内容已由 exportLocalBackup 兜底）。
+      // 覆盖不到）——mergeUpdates 并集导出单 .yjs（可回灌=importLocalBackup 同格式）。
+      // Q-I-1：逐记录隔离——单条坏记录丢弃+遥测留痕，不一票否决全族导出。
+      // fail-soft：收集/导出失败不阻断 purge/reload（世代隔离正确性主锚；本 tab 内容已由
+      // exportLocalBackup 兜底）。
       try {
         const dirty = await collectFamilyDirtyRecords(key);
-        if (dirty.length > 0) {
+        const familyMerged = dirty.length > 0
+          ? mergeUpdatesIsolated(dirty.map(({ record }) => record.snapshot)).merged
+          : null;
+        if (familyMerged !== null && familyMerged.byteLength > 0) {
           const tag = opts?.generationTag ?? 0;
-          exportRawYjsBackup(Y.mergeUpdates(dirty.map(({ record }) => record.snapshot)), { tag: tag > 0 ? `oldgen${tag}-family` : 'oldgen-family' });
+          exportRawYjsBackup(familyMerged, { tag: tag > 0 ? `oldgen${tag}-family` : 'oldgen-family' });
         }
       } catch { /* fail-soft——禁静默丢是尽力义务，非阻断闸 */ }
       await purgeForeignCaches(key);
@@ -1511,8 +1535,10 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         return;
       }
       // Y1c T18（偏离 36）：durable watermark（服务端 PG 批提交后 broadcastStateless {type:'durable',
-      // pgSeq}——§4.4 辅助显示/观测通道）=savedSeq 唯一在役推进载体（T21 barrier 回执同源接入
-      // advanceSavedSeq）。★provider synced/SyncStatus/连接态不触此处——「已保存」只认持久化回执。
+      // pgSeq}——§4.4 辅助显示/观测通道）消费=advanceSavedSeq **预留单源入口**（T21 barrier 回执
+      // 落地接线——双入口同汇；当前服务端无 {type:'durable',pgSeq} 发射源，savedSeq 恒 0=诚实
+      // 失败安全——「已保存」永不因同步显示虚报）。
+      // ★provider synced/SyncStatus/连接态不触此处——「已保存」只认持久化回执。
       if ((msg as { type?: string }).type === 'durable'
         && typeof (msg as { pgSeq?: unknown }).pgSeq === 'string') {
         advanceSavedSeq((msg as { pgSeq: string }).pgSeq);
@@ -1795,7 +1821,12 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     localCache = new LocalCollabCache(session.cacheKey, localCacheHooks);
     bootRecords = await localCache.loadAll();   // fail-soft []（onDegrade 已在降级边沿发）
     const divergedRecords = bootRecords.filter((r) => r.diverged);
-    if (divergedRecords.length > 0) {
+    // Q-I-1：diverged 族逐记录隔离——坏 diverged 记录丢弃（遥测留痕）；全部坏（merged=null）
+    // 时无 diverged 内容可保护=不进 boot-diverged 模式（正常 boot，服务端水合主链不受影响）。
+    const divergedMerged = divergedRecords.length > 0
+      ? mergeUpdatesIsolated(divergedRecords.map((r) => r.snapshot)).merged
+      : null;
+    if (divergedRecords.length > 0 && divergedMerged !== null) {
       // 裁定 23⑨ diverged 持久化载体：不自动回放（回放+上行=已拒内容复活→重发散→闩锁不可退出）
       //——保守武装单源+置 session diverged → SyncBanner 二选一（导出/放弃；放弃清 diverged 记录见
       // discardLocalDiverged）。suppressCacheWrites：doc 无 diverged 内容，本会话任何缓存写
@@ -1805,7 +1836,7 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
       // 服务端版本/空）。
       suppressCacheWrites = true;
       bootDiverged = true;
-      bootDivergedSnapshot = Y.mergeUpdates(divergedRecords.map((r) => r.snapshot));
+      bootDivergedSnapshot = divergedMerged;
       // 保守武装 beforeunload：内存 doc 无未上行编辑（diverged 唯一副本在盘上,关页不丢）——宁可多一次警告,保守侧安全
       markDocUnsyncedDirty(doc, { skipCacheFlush: true });
       useCanvasStore.setState({ canvasDiverged: true });
@@ -1823,13 +1854,22 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // ——A 删 B 改同节点等语义冲突由 CRDT 收敛规则裁定，DraftEnvelope 场景 A 同款）。
   const replayRecords = bootRecords.filter((r) => !r.diverged);
   if (replayRecords.length > 0 && provider) {
-    const bootSnapshot = Y.mergeUpdates(replayRecords.map((r) => r.snapshot));
-    Y.applyUpdate(doc!, bootSnapshot, provider);
-    getUndoManager()?.clear();   // 装载非用户编辑（consumeGenerationJump 同款先例——撤销栈不含缓存装载）
-    localSnapshotApplied = true;
-    if (replayRecords.some((r) => r.unsyncedDirty)) markDocUnsyncedDirty(doc!, { skipCacheFlush: true });   // 保留 dirty 态（重连 forceSync 上行——SS2 差分）
-    if (bootSnapshot.byteLength <= LOCAL_CACHE_MAX_DOC_BYTES) {
-      useCanvasStore.setState({ localCacheReady: true });   // 能力位=whenSynced(本地库加载)真值+尺寸闸通过
+    // Q-I-1：逐记录隔离合并——坏记录丢弃（遥测留痕）+好记录并集；merged=null（全部坏）跳过回放。
+    const bootSnapshot = mergeUpdatesIsolated(replayRecords.map((r) => r.snapshot)).merged;
+    if (bootSnapshot !== null) {
+      try {
+        Y.applyUpdate(doc!, bootSnapshot, provider);
+      } catch {
+        // Q-I-1 二层兜底：并集过了解码（merge）但在 integrate 期抛（罕见残余面）——丢弃整个本地
+        // 副本回放（本地副本=加速层非权威），boot 继续（服务端水合主链零影响）+降级遥测留痕。
+        recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });
+      }
+      getUndoManager()?.clear();   // 装载非用户编辑（consumeGenerationJump 同款先例——撤销栈不含缓存装载）
+      localSnapshotApplied = true;
+      if (replayRecords.some((r) => r.unsyncedDirty)) markDocUnsyncedDirty(doc!, { skipCacheFlush: true });   // 保留 dirty 态（重连 forceSync 上行——SS2 差分）
+      if (bootSnapshot.byteLength <= LOCAL_CACHE_MAX_DOC_BYTES) {
+        useCanvasStore.setState({ localCacheReady: true });   // 能力位=whenSynced(本地库加载)真值+尺寸闸通过
+      }
     }
   }
 

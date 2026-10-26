@@ -16,6 +16,7 @@ import { buildLocalCacheKey } from '@/collab/local-cache-key';
 import { getCollabTabId, type LocalCacheRecord } from '@/collab/local-collab-cache';
 import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
+import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
 vi.mock('@hocuspocus/provider', async () => {
   const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
@@ -76,6 +77,16 @@ const REC = (over: Partial<LocalCacheRecord> = {}): LocalCacheRecord => ({
   unsyncedDirty: false, diverged: false, at: 1_000, ...over,
 });
 
+/** jsdom 无 URL.createObjectURL——静态方法注入（t8.spec 同款；测后删除还原） */
+function stubBlobUrls(): void {
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:mock' });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
+}
+function restoreBlobUrls(): void {
+  delete (URL as any).createObjectURL;
+  delete (URL as any).revokeObjectURL;
+}
+
 async function driveToSynced(pid = 'p1', meta: runtime.CollabSessionMeta = META) {
   const done = runtime.initCollab(pid, meta);
   await vi.advanceTimersByTimeAsync(0);
@@ -99,6 +110,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   (HocuspocusProvider as any).instances.length = 0;
   _resetUnloadGuardForTest();
+  _resetCollabDiagForTest();
   resetStore();
   reloadSpy.mockClear();
   familyExportLog.length = 0;
@@ -144,6 +156,44 @@ describe('T18 per-tab：boot mergeUpdates 并集', () => {
     expect(nodes.get('node-legacy')).toBeTruthy();
     expect(nodes.get('node-new')).toBeTruthy();
   });
+
+  // ★双评审 Q-I-1（先红）：坏记录逐条隔离——T18 读面扩到全库全 tab+legacy 后，单条盘上坏记录
+  // （位翻转/篡改——应用写入不可达）不得毒化整个项目 boot。现状：mergeUpdates 整体无隔离
+  // →抛出→initCollab reject→hydration idle+loadError unavailable=红。
+  it('★Q-I-1 盘上单条坏 snapshot 记录→boot 不抛+好记录并集保留+坏记录丢弃遥测（现状整体抛=毒化全项目 boot）', async () => {
+    const goodSnapshot = snapshotOf((d) => { d.getMap('nodes').set('node-good', seedNode('g')); });
+    const badSnapshot = goodSnapshot.slice(0, 12);   // 截断形态（probe 实证 mergeUpdates 抛 Invalid typed array length）
+    kit.data.set(KEY, new Map<string, LocalCacheRecord>([
+      ['tab-good', REC({ tabId: 'tab-good', snapshot: goodSnapshot, unsyncedDirty: true })],
+      ['tab-bad', REC({ tabId: 'tab-bad', snapshot: badSnapshot, unsyncedDirty: true })],
+    ]));
+    await driveToSynced();   // 现状红：mergeUpdates 抛→initCollab reject（本行 throw）
+    expect(useCanvasStore.getState().hydration).toBe('ready');   // boot 完成（服务端水合主链不受坏记录影响）
+    expect(runtime.getDoc()!.getMap('nodes').get('node-good')).toBeTruthy();   // 好记录并集保留
+    const bad = getRecentCollabDiag().find((e) => (e.detail as any)?.reason === 'local-cache-bad-record');
+    expect(bad).toBeTruthy();   // 丢弃留痕（ring-only——计数不入服务端 sanitize 面）
+    expect((bad!.detail as any).dropped).toBe(1);
+  });
+
+  it('★Q-I-1 diverged 族同款隔离：坏 diverged 记录丢弃+好 diverged 记录照常闩锁（boot-diverged 模式不因单条坏记录失守/误入）', async () => {
+    const goodDiverged = snapshotOf((d) => { d.getMap('nodes').set('div-good', seedNode('dg')); });
+    const badDiverged = goodDiverged.slice(0, 8);
+    kit.data.set(KEY, new Map<string, LocalCacheRecord>([
+      ['tab-div-good', REC({ tabId: 'tab-div-good', snapshot: goodDiverged, unsyncedDirty: true, diverged: true })],
+      ['tab-div-bad', REC({ tabId: 'tab-div-bad', snapshot: badDiverged, unsyncedDirty: true, diverged: true })],
+    ]));
+    await driveToSynced();
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);   // 闩锁照常（好 diverged 记录在）
+    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).not.toContain('div-good');   // 不回放语义不变
+    // 导出面：盘上族并集=仅好记录（坏记录不进 exportDivergedContent 的 tmp 回放）
+    stubBlobUrls();
+    try {
+      const artifact = runtime.exportDivergedContent();
+      expect(artifact?.nodeCount).toBe(1);   // div-good 单节点（坏记录被隔离丢弃）
+    } finally {
+      restoreBlobUrls();
+    }
+  });
 });
 
 // ══════════ ②同步成功删己（3s tick 单源清零同点） ══════════
@@ -170,7 +220,7 @@ describe('T18 per-tab：同步成功删己', () => {
 
 // ══════════ ③savedSeq 口径（偏离 36） ══════════
 describe('T18 savedSeq：只由服务端持久化回执推进（偏离 36——provider synced 恒不推进）', () => {
-  it('★driveToSynced（provider synced/authenticated 全真）后 savedSeq=0——同步显示不推进；durable watermark（pgSeq 回执）推进+单调；坏载荷静默忽略', async () => {
+  it('★driveToSynced（provider synced/authenticated 全真）后 savedSeq=0——同步显示不推进；durable watermark（pgSeq 回执）推进+单调；watermark 载荷形状非法（非 string pgSeq）/坏 JSON 静默忽略（记录级坏 snapshot 载荷隔离=Q-I-1 用例，非本用例面）', async () => {
     const p = await driveToSynced();
     expect(runtime.getSavedSeq()).toBe(0);   // synced/连接/认证全真仍 0——「已保存」只认持久化回执
     p.emit('stateless', { payload: JSON.stringify({ type: 'durable', pgSeq: '42' }) });
@@ -201,17 +251,20 @@ describe('T18 换代清整族：先保存可恢复脏草稿再清（禁静默丢
   it('★generation 跳变→族 dirty 记录（异代库——boot 不读面）并集导出 exportRawYjsBackup（可回灌内容+oldgen-family 标注）→purgeForeignCaches→reload', async () => {
     // 族语料（全在异代库——当前会话 boot 不读=保持干净可 reload；当前代他 tab 离线草稿走
     // boot 并集+escape 导出路径——本用例锚定清族前的盘上草稿保全）：
-    //   旧代库 g1：dirty（per-tab 键）+dirty（legacy 键）+clean（不导出）
+    //   旧代库 g1：dirty（per-tab 键）+dirty（legacy 键）+clean（不导出）+坏记录（Q-I-1 隔离——不毒化族导出）
+    const goodOldGen = snapshotOf((d) => { d.getMap('nodes').set('fam-old', seedNode('o')); });
     kit.data.set(OLD_GEN_KEY, new Map<string, LocalCacheRecord>([
-      ['tab-old', REC({ tabId: 'tab-old', snapshot: snapshotOf((d) => { d.getMap('nodes').set('fam-old', seedNode('o')); }), unsyncedDirty: true })],
+      ['tab-old', REC({ tabId: 'tab-old', snapshot: goodOldGen, unsyncedDirty: true })],
       ['snapshot', REC({ snapshot: snapshotOf((d) => { d.getMap('nodes').set('fam-legacy', seedNode('lg')); }), diverged: true })],
       ['tab-old-clean', REC({ tabId: 'tab-old-clean', snapshot: snapshotOf((d) => { d.getMap('nodes').set('fam-clean', seedNode('c')); }) })],
+      ['tab-old-bad', REC({ tabId: 'tab-old-bad', snapshot: goodOldGen.slice(0, 10), unsyncedDirty: true })],
     ]));
     const p = await driveToSynced();
     p.emit('stateless', { payload: docStatus(1, 5) });   // 基线建立
     p.emit('stateless', { payload: docStatus(2, 9) });   // 真跳变→consumeGenerationJump→safeReload('generation')
     await vi.advanceTimersByTimeAsync(1_500);
-    // 族 dirty/diverged 并集导出（他 tab 草稿保全——禁静默丢）：可回灌字节含两 dirty 记录节点、不含 clean 记录专属节点
+    // 族 dirty/diverged 并集导出（他 tab 草稿保全——禁静默丢；坏记录逐条隔离不一票否决全族）：
+    // 可回灌字节含两好 dirty 记录节点、不含 clean 记录专属节点/坏记录内容
     expect(familyExportLog.length).toBe(1);
     expect(familyExportLog[0]!.tag).toContain('oldgen');   // oldgen-family 标注（世代被超的编辑）
     const tmp = new Y.Doc();
