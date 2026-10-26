@@ -364,7 +364,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // Y1c T9：actor+gate 构造与接线（顺序 SG→actor→gate——gate 消费 DR/actor；actor host=文档读面/
     // SG 能力三位经 1 行转发+DR 判定三位直引；persistence 维护写独立 append 通道 sink=actor
     // submitMaintenance——偏离 38①：connection 帧=actor 管线唯一写者，旧 store 链降级 telemetry）。
-    this.projectActor = projectActor ?? new CollabProjectActorService(this.spool, this.repo, this.pgBreaker);
+    this.projectActor = projectActor ?? new CollabProjectActorService(this.spool, this.repo, this.pgBreaker);   // 观察器经 Nest DI 面（module provider）注入——直构自建路径（测试形态）不接：零 observer=零生命周期写（T26）
     this.projectActor.bindHost({
       logger: this.logger,
       documents: () => this.server.hocuspocus.documents,

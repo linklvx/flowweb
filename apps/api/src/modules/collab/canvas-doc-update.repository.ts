@@ -1,5 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION, canonicalUpdateHashPayload } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
@@ -141,7 +142,7 @@ export class CanvasDocUpdateRepository {
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
-  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' }> {
+  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }, inTx?: (tx: Prisma.TransactionClient) => Promise<void>): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' }> {
     const owner = this.leaseOwner;
     if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
     if (rows.length === 0) return { ok: true, rows: 0 };
@@ -189,6 +190,9 @@ export class CanvasDocUpdateRepository {
           RETURNING seq`;
           n += res.length;
         }
+        // Y1c T26：帧前缀同事务钩（帧↔义务原子——inTx 写失败=整事务回滚，帧行/水位/义务三方同生共死；
+        // 调用方=actor flushPrefixToPg 闭包注入 CollabLifecycleObserverService.persistFramesInTx）
+        if (inTx) await inTx(tx);
         if (!wm) return { inserted: n, watermark: 'skipped' as const };
         // —— 水位推进（与行插入同事务——崩溃恢复=从 pgSeq 重放 WAL，不依赖进程内状态）——
         // C1（T10 收口）：两条 UPDATE 的 WHERE 各带 lease fence（与 INSERT fence 同 owner 语义）——

@@ -72,6 +72,7 @@ import {
 } from '@flowweb/shared';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
+import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-lifecycle-observer.service';
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { captureCollabException } from '../../utils/sentry-scrub';
@@ -439,6 +440,8 @@ const BARRIER_NONCE_TTL_MS = 5 * 60_000;
 export class CollabProjectActorService {
   private host!: CollabProjectActorHost;
   private readonly collectorsByDoc = new WeakMap<Y.Doc, FrameEffectsCollector>();   // per-doc（多项目 drain 并发不混 buffer）
+  /** Y1c T26：genesis 播种标记（每 doc 实例一次——观察器按需注册在册 presence；WeakSet 随 doc 消亡） */
+  private readonly lifecycleSeededDocs = new WeakSet<Y.Doc>();
   private readonly states = new Map<string, ProjectActorState>();
   /** SHA-256 去重 promise map（键 `${pid}\u0000${hashHex}`——inflight=await 原帧；settled-applied=no-op；
    *  原帧失败重复帧同错（promise 链自然传播）。有界：TTL 24h/100k（与 WAL 去重索引同界——偏离 38④）。 */
@@ -456,6 +459,8 @@ export class CollabProjectActorService {
     @Inject(CollabSpoolService) private readonly spool: CollabSpoolService,
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
     @Optional() @Inject(CollabPgBreakerService) private readonly pgBreaker?: CollabPgBreakerService,
+    // Y1c T26：生命周期义务观察器（帧↔义务同事务挂点+genesis 播种——缺省 undefined=单元直构零接线）
+    @Optional() @Inject(CollabLifecycleObserverService) private readonly lifecycleObserver?: CollabLifecycleObserverService,
   ) {}
 
   bindHost(host: CollabProjectActorHost): void { this.host = host; }
@@ -814,6 +819,23 @@ export class CollabProjectActorService {
       return;
     }
     // —— ④ WAL 批量追加+fsync（单 fsync；per-frame SHA-256 去重已在 submit 层）——
+    // Y1c T26：genesis 播种（每 doc 实例一次——先于本批任何帧 effect 派生：删除义务真值以
+    // 在册 presence 为基线；失败=fail-closed 拒全批〔帧未入 WAL，clean reject 交重发自愈〕）。
+    if (this.lifecycleObserver && !this.lifecycleSeededDocs.has(document)) {
+      try {
+        await this.lifecycleObserver.seedPresence(pid, document);
+        this.lifecycleSeededDocs.add(document);
+      } catch (err) {
+        for (const item of admitted) {
+          this.rejectItem(item, new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'lifecycle-seed-failed'));
+          this.clearDedup(pid, item.hashHex);
+        }
+        actorDrainBatchTotal.inc({ result: 'lifecycle-seed-failed' });
+        captureCollabException(err, { docName: projectDocName(pid), reason: 'lifecycle-seed-failed', connectionId: '-' });
+        this.host.logger.error(`lifecycle seed failed for ${pid}: ${(err as Error).message}——批全拒绝（fail-closed：义务真值以 PG 在册态为基线）`);
+        return;
+      }
+    }
     let appended: Awaited<ReturnType<CollabSpoolService['appendBatch']>>;
     try {
       appended = await this.spool.appendBatch(pid, admitted.map((i) => i.payload));
@@ -1056,11 +1078,16 @@ export class CollabProjectActorService {
       // walCheckpointSeq=提交时刻 spoolHeadSeq 采样（永不写 appliedSeq 口径）；newPgSeq=批 lastWalSeq。
       const w = this.spool.watermark(pid);
       const lastWalSeq = prefix[prefix.length - 1].walSeq;
+      // Y1c T26：帧前缀义务 payload（AppliedEntry.effects per-walSeq buffer）与帧行同事务落库
+      //（帧↔义务原子——inTx 闭包在 appendBatch 事务内消费）
+      const frames: LifecycleFrame[] | undefined = this.lifecycleObserver
+        ? prefix.map((e) => ({ walSeq: e.walSeq, effects: e.effects }))
+        : undefined;
       const r = await this.repo.appendBatch(pid, rows, {
         expectedPgSeq: w?.pgSeq ?? 0n,
         newPgSeq: lastWalSeq,
         walCheckpointSeq: w?.spoolHeadSeq ?? lastWalSeq,
-      });
+      }, frames ? async (tx) => { await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames); } : undefined);
       if (!r.ok) {
         this.host.logger.error(`actor PG append fenced for ${pid}——帧留 spool（磁盘安全），回灌由恢复链承接`);
         try {
