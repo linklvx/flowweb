@@ -134,7 +134,7 @@ const admit = (s: string, nodeIds: string[], docSeq = 0n) =>
     // 定价键取 executable 模型规则（validation MODEL_NOT_AVAILABLE 谓词=provider 适配器在册——
     // 最廉价规则可能是无适配器种子模型，须滤 model.active+apiModelName）
     const rule = await prisma.pricingRule.findFirst({
-      where: { active: true, model: { active: true, apiModelName: { not: null } } },
+      where: { active: true, creditCost: { gt: 0 }, model: { active: true, apiModelName: { not: null } } },   // creditCost>0 防全局 0 成本测试规则污染夹具
       orderBy: { creditCost: 'asc' },
     });
     if (!rule) throw new Error('真库无 active PricingRule（executable 模型）');

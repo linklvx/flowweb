@@ -75,6 +75,8 @@ export interface CommitImageParams {
   artifactIndex?: number;
   /** 产物原始名基座（默认 ai-${nodeId}；edit/lighting 传各自前缀）——扩展名由 sniff 终判 MIME 分档。 */
   originalNameBase?: string;
+  /** T21（C1）：结算档（缺省='intent' 旧链——全部既有调用方零变化） */
+  settlement?: FinalizeSettlement;
 }
 
 export interface FinalizeTextParams {
@@ -86,6 +88,8 @@ export interface FinalizeTextParams {
   execSeq: bigint;
   expectedRev: number;
   resultText: string;
+  /** T21（C1）：结算档（缺省='intent' 旧链——全部既有调用方零变化） */
+  settlement?: FinalizeSettlement;
 }
 
 /** T12 video kind 分支入参（finalize-first——spec 裁决①/⑮：provider 成功即 settle+finalize，
@@ -104,7 +108,17 @@ export interface FinalizeVideoParams {
   sourceMimeType?: string | null;
   sourceUrlExpiresAt?: Date;
   artifactIndex?: number;
+  /** T21（C1）：结算档（缺省='intent' 旧链——全部既有调用方零变化） */
+  settlement?: FinalizeSettlement;
 }
+
+/** T21（C1 收口）结算档参数化：'intent'=旧链（intent reserve→settleInTx——逐字节不动）；
+ *  'execreq'=ExecutionRequest per-item 档（冻结路径——受理预留的 item 行同事务核销，F1 语义等价
+ *  迁移：settled:false 或金额≠creditCost=同等硬度回滚——资金核销唯一走 per-item，禁 intent 镜像
+ *  预留双账本）。 */
+export type FinalizeSettlement =
+  | { mode: 'intent' }
+  | { mode: 'execreq'; executionRequestId: string; nodeId: string };
 
 /** finalize 三态出口（调用方据此分派 doc 交付：superseded=不覆盖用户值；intent-stale=零交付）。
  *  不变量（质评收口 Important#1——消费方 mediaId!/key! 断言的依据，幂等路径回填保成立）：
@@ -168,6 +182,8 @@ interface FinalizeParams {
   video?: { sourceUrl: string; sourceMimeType?: string | null; sourceUrlExpiresAt?: Date };
   resultText?: string;
   artifactIndex: number;
+  /** T21（C1）：结算档（缺省='intent'） */
+  settlement?: FinalizeSettlement;
 }
 
 /** finalize 事务内 intent CAS 失败信号——throw 即整体回滚（NodeArtifact/binding/投影/Media 提升全撤），
@@ -230,6 +246,7 @@ export class ArtifactCommitService {
       projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId, userId: params.userId,
       intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
       kind: 'image', resultRef: stage.mediaId, artifactIndex,
+      settlement: params.settlement,
       media: {
         mediaId: stage.mediaId, projectId: params.projectId, key, sha256,
         mimeType, sniffedMimeType: sniffed, size: fetched.buffer.length,
@@ -287,6 +304,7 @@ export class ArtifactCommitService {
       projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId, userId: params.userId,
       intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
       kind: 'text', resultRef: `text:${params.resultText.slice(0, 100)}`,   // 既有占位语义（观测用）
+      settlement: params.settlement,
       resultText: params.resultText, artifactIndex: 0,
     });
   }
@@ -304,6 +322,7 @@ export class ArtifactCommitService {
       projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId, userId: params.userId,
       intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
       kind: 'video', resultRef: '',   // 实参=事务内 videoMedia.id（行在 finalize 事务内建——见 finalizeInTx）
+      settlement: params.settlement,
       video: {
         sourceUrl: params.sourceUrl,
         sourceMimeType: params.sourceMimeType ?? 'video/mp4',
@@ -622,6 +641,25 @@ export class ArtifactCommitService {
     //    （intent 终态/NodeArtifact/投影/Media/binding，superseded 分支同门：资金独立判的前提是
     //    核销凭据成立），行留 RUNNING 交对账第四分支裁决。零额档 creditCost=0 无 reserve 属正常
     //    settled:false，不进门。 ──
+    // ── T21（C1 收口）结算档分支：execreq=per-item 同事务核销（冻结路径——资金核销唯一走 per-item，
+    //    禁 intent 镜像预留双账本）；intent=旧链逐字节不动（全部既有调用方缺省档）。 ──
+    if (params.settlement?.mode === 'execreq') {
+      const itemSettle = await this.teamCredit.settleForExecutionRequestItem(params.userId, {
+        executionRequestId: params.settlement.executionRequestId, nodeId: params.settlement.nodeId, teamId: params.teamId,
+      }, tx);
+      // F1 语义等价迁移：付费档 settled:false 或核销金额≠creditCost=同等硬度回滚（整体撤——
+      // intent 留 RUNNING+item 预留原样，调用方 catch 面 per-item void 收口——资金不悬挂）。
+      if (rows[0].creditCost > 0 && (!itemSettle.settled || itemSettle.amount !== rows[0].creditCost)) {
+        this.logger.error(
+          `[finalize:execreq] 意图 ${params.intentRowId} per-item 结算未达核销（settled=${itemSettle.settled} amount=${itemSettle.amount}≠creditCost=${rows[0].creditCost}——finalize 整体回滚交对账）`,
+        );
+        throw new FundsInvariantError({
+          intentRowId: params.intentRowId, execSeq: params.execSeq, creditCost: rows[0].creditCost,
+          reservedCredits: itemSettle.settled ? 0 : rows[0].creditCost, creditsConsumed: itemSettle.settled ? rows[0].creditCost : 0,
+          reservedExecSeq: params.execSeq,
+        });
+      }
+    } else {
     const settled = await this.teamCredit.settleInTx(tx, { intentRowId: params.intentRowId, execSeq: params.execSeq });
     if (!settled.settled && rows[0].creditCost > 0) {
       const re = await tx.$queryRaw<
@@ -644,6 +682,7 @@ export class ArtifactCommitService {
         });
       }
       this.logger.warn(`[finalize] 意图 ${params.intentRowId} settle settled:false 但核销凭据成立（锚已清空=此前 settle 已完成——代际前置守卫 0 命中幂等）——放行`);
+    }
     }
 
     return {

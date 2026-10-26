@@ -194,11 +194,19 @@ const BARRIER_IDLE_MS = 800;
 const BARRIER_MAX_SINCE_EDIT_MS = 5_000;
 let firstDirtyAtForBarrier = 0;
 
+/** barrier 发送通道（生产=provider.sendStateless〔initCollab 绑定〕；测试缝可覆写——M-6 触发面）。 */
+let barrierSendChannel: ((payload: string) => void) | null = null;
+function sendBarrierPayload(payload: string): void {
+  if (barrierSendChannel) { barrierSendChannel(payload); return; }
+  const p = provider as unknown as { sendStateless?: (payload: string) => void } | null;
+  p?.sendStateless?.(payload);
+}
+
 /** 发送 barrier（T5a 冻结 wire 形态 {nonce,clientSeq,sessionEpoch}——服务端 handler 首语句同步
  *  捕获 target=appliedSeq；回执 {nonce,clientSeq,committedSeq} 双入口同汇 advanceSavedSeq）。 */
 function sendSaveBarrier(): void {
   const p = provider;
-  if (!p) return;
+  if (!p && !barrierSendChannel) return;
   const nonce = `bar-${++barrierNonceSeq}-${Date.now()}`;
   const clientSeq = lastLocalEditSeq;
   const ep = sessionEpoch;
@@ -207,10 +215,9 @@ function sendSaveBarrier(): void {
     pendingBarriers.set(nonce, { resolve: (r) => { settled = true; resolve(r); }, at: Date.now() });
   });
   void promise;   // 悬念消费归 ensureDurable/receipt 路径（fire-and-forget 触发面不 await）
+  void p;
   try {
-    (p as unknown as { sendStateless: (payload: string) => void }).sendStateless(
-      JSON.stringify({ nonce, clientSeq, sessionEpoch: ep }),
-    );
+    sendBarrierPayload(JSON.stringify({ nonce, clientSeq, sessionEpoch: ep }));
   } catch {
     pendingBarriers.delete(nonce);
     return;
@@ -248,8 +255,7 @@ function scheduleSaveBarrier(): void {
  *  （Durable 判据=回执 clientSeq>=lastLocalEditSeq 且 committedSeq 在场）；超时/失败=fail-closed
  *  返回当前 savedSeq（诚实下界——禁虚报 Durable）。 */
 export async function ensureDurableBeforeExecution(timeoutMs = 3_000): Promise<string> {
-  if (lastLocalEditSeq > lastReceiptClientSeq && provider) {
-    const p = provider as unknown as { sendStateless: (payload: string) => void };
+  if (lastLocalEditSeq > lastReceiptClientSeq && (provider || barrierSendChannel)) {
     const nonce = `pre-${++barrierNonceSeq}-${Date.now()}`;
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -258,7 +264,7 @@ export async function ensureDurableBeforeExecution(timeoutMs = 3_000): Promise<s
         at: Date.now(),
       });
       try {
-        p.sendStateless(JSON.stringify({ nonce, clientSeq: lastLocalEditSeq, sessionEpoch }));
+        sendBarrierPayload(JSON.stringify({ nonce, clientSeq: lastLocalEditSeq, sessionEpoch }));
       } catch { resolve(); }
       setTimeout(() => { if (!settled) resolve(); }, timeoutMs);
     });
@@ -266,12 +272,19 @@ export async function ensureDurableBeforeExecution(timeoutMs = 3_000): Promise<s
   return String(savedSeq);
 }
 
-/** 测试缝（T21 barrier 客户端单测面——生产禁调）：回执消费+编辑计数复位。 */
+/** 测试缝（T21 barrier 客户端单测面——生产禁调）：回执消费+编辑计数复位+触发面四数字
+ *  （M-6）+Durable 判据读面。 */
 export function __t21BarrierTestSeam(): {
   consumeBarrierReceipt: (msg: Record<string, unknown>) => boolean;
   armPending: (nonce: string) => void;
   localEdits: () => number;
   reset: () => void;
+  simulateLocalEdit: () => void;                 // 本地编辑（clientSeq 自增+调度——不建真 doc）
+  firePageHide: () => void;                      // pagehide 触发
+  setSendChannel: (ch: ((payload: string) => void) | null) => void;
+  barrierIdleFired: () => boolean;               // 800ms idle 触发观测（timer 已排=未发/已发判据）
+  durableCovered: () => boolean;                 // Durable 判据=回执 clientSeq>=lastLocalEditSeq
+  savedSeqValue: () => number;
 } {
   return {
     consumeBarrierReceipt,
@@ -279,7 +292,13 @@ export function __t21BarrierTestSeam(): {
       pendingBarriers.set(nonce, { resolve: () => {}, at: Date.now() });
     },
     localEdits: () => lastLocalEditSeq,
-    reset: () => { lastLocalEditSeq = 0; lastReceiptClientSeq = -1; pendingBarriers.clear(); savedSeq = 0; },   // savedSeq 复位=测试缝特权（生产恒单调——advanceSavedSeq 唯一推进口）
+    reset: () => { lastLocalEditSeq = 0; lastReceiptClientSeq = -1; pendingBarriers.clear(); savedSeq = 0; barrierIdleTimer !== null && clearTimeout(barrierIdleTimer); barrierIdleTimer = null; barrierMaxTimer !== null && clearTimeout(barrierMaxTimer); barrierMaxTimer = null; },   // savedSeq 复位=测试缝特权（生产恒单调——advanceSavedSeq 唯一推进口）
+    simulateLocalEdit: () => { lastLocalEditSeq += 1; scheduleSaveBarrier(); },
+    firePageHide: () => { onPageHideSendBarrier(); },
+    setSendChannel: (ch) => { barrierSendChannel = ch; },
+    barrierIdleFired: () => barrierIdleTimer === null,
+    durableCovered: () => lastReceiptClientSeq >= lastLocalEditSeq,
+    savedSeqValue: () => savedSeq,
   };
 }
 

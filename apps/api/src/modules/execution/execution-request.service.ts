@@ -49,12 +49,14 @@ export type AdmitOutcome =
     }
   | { ok: false; status: number; code: string; detail: string };
 
-/** 冻结输入条目（ExecutionInput JSON 解压后形态——per-node；worker 读面） */
+/** 冻结输入条目（ExecutionInput JSON 解压后形态——per-node；worker 读面。M-3 dedup 后 wire 形态：
+ *  重复文本（共享上游 join 出的 promptText/上游正文）以 sha256 引用单份存——载入时解引用还原）。 */
 export interface FrozenNodeInput {
   kind: string;
-  /** 冻结 prompt（上游正文优先 join——B21 同构；无上游回落本节点 resolvePromptText） */
+  /** 冻结 prompt（上游正文优先 join——B21 同构；无上游回落本节点 resolvePromptText；
+   *  序列化面长文本可折为 promptTextRef（sha256→sharedTexts），loadForExecution 解引用回填） */
   promptText: string;
-  /** 直接父节点冻结正文（上游注入留档——重放对账面） */
+  /** 直接父节点冻结正文（上游注入留档——重放对账面；序列化面折为 upstreamTextRefs） */
   upstreamTexts: string[];
   /** 直接父产物媒体身份（NodeArtifact PG——非 doc） */
   upstreamImageMediaId?: string;
@@ -65,6 +67,9 @@ export interface FrozenNodeInput {
 export interface FrozenExecutionInput {
   schemaVersion: number;
   nodes: Record<string, FrozenNodeInput>;
+  /** M-3 共享文本单份存（sha256hex→正文——N 节点共享上游不虚涨 raw；spec §6.1「共享上游按
+   *  sha256 去重只存一份」）：序列化时写入，loadForExecution 解引用后本键剥离（worker 零感知）。 */
+  sharedTexts?: Record<string, string>;
 }
 
 export interface LoadedExecutionPlan {
@@ -84,6 +89,63 @@ export interface LoadedExecution {
 }
 
 const sha256hex = (u: Uint8Array | string) => createHash('sha256').update(u).digest('hex');
+
+/** M-3 共享文本去重阈值（超此长度的重复文本折 sha256 引用——短文本引用反而膨胀，直存） */
+const FROZEN_TEXT_DEDUP_MIN_BYTES = 64;
+
+/** M-3 序列化：重复文本（promptText/upstreamTexts，>阈值）以 sha256 引用单份存 sharedTexts
+ *  ——N 节点共享同一上游不虚涨 raw（spec §6.1「共享上游按 sha256 去重只存一份」）。 */
+function serializeFrozenInput(entries: Record<string, FrozenNodeInput>): string {
+  const sharedTexts: Record<string, string> = {};
+  const seen = new Map<string, string>();   // 正文→sha256（重复文本复用同引用）
+  const refOf = (text: string): { text?: string; ref?: string } => {
+    if (Buffer.byteLength(text, 'utf8') < FROZEN_TEXT_DEDUP_MIN_BYTES) return { text };
+    const hit = seen.get(text);
+    if (hit) return { ref: hit };
+    const sha = sha256hex(text);
+    seen.set(text, sha);
+    sharedTexts[sha] = text;
+    return { ref: sha };
+  };
+  const nodes: Record<string, unknown> = {};
+  for (const [id, e] of Object.entries(entries)) {
+    const p = refOf(e.promptText);
+    const upstreamTexts = e.upstreamTexts.length === 1 ? [refOf(e.upstreamTexts[0]!)] : e.upstreamTexts.map((t) => refOf(t));
+    nodes[id] = {
+      kind: e.kind,
+      ...(p.ref ? { promptTextRef: p.ref } : { promptText: p.text }),
+      ...(e.upstreamTexts.length > 0 ? { upstreamTextRefs: upstreamTexts } : {}),
+      ...(e.upstreamImageMediaId ? { upstreamImageMediaId: e.upstreamImageMediaId } : {}),
+      args: e.args,
+    };
+  }
+  return JSON.stringify({ schemaVersion: CANVAS_DOC_SCHEMA_VERSION, nodes, ...(Object.keys(sharedTexts).length > 0 ? { sharedTexts } : {}) });
+}
+
+/** M-3 载入：解引用还原 worker 读面（promptText/upstreamTexts 回填+sharedTexts 剥离——零感知）。 */
+function deserializeFrozenInput(parsed: FrozenExecutionInput & {
+  nodes?: Record<string, Record<string, unknown>>;
+  sharedTexts?: Record<string, string>;
+}): FrozenExecutionInput {
+  const shared = parsed.sharedTexts ?? {};
+  const nodes: Record<string, FrozenNodeInput> = {};
+  for (const [id, rawNode] of Object.entries(parsed.nodes ?? {})) {
+    const resolve = (v: unknown, fallback: string): string => {
+      if (typeof v === 'string') return v;
+      if (v && typeof v === 'object' && typeof (v as { ref?: unknown }).ref === 'string') return shared[(v as { ref: string }).ref] ?? fallback;
+      return fallback;
+    };
+    const upstreamRefs = rawNode.upstreamTextRefs as Array<unknown> | undefined;
+    nodes[id] = {
+      kind: String(rawNode.kind),
+      promptText: resolve(rawNode.promptTextRef !== undefined ? { ref: rawNode.promptTextRef } : rawNode.promptText, ''),
+      upstreamTexts: (upstreamRefs ?? []).map((r) => resolve(r, '')),
+      ...(typeof rawNode.upstreamImageMediaId === 'string' ? { upstreamImageMediaId: rawNode.upstreamImageMediaId } : {}),
+      args: (rawNode.args ?? {}) as Record<string, unknown>,
+    };
+  }
+  return { schemaVersion: parsed.schemaVersion, nodes };
+}
 
 /** slice 读值解码（Y 容器→plain：Y.Text→string/Y.Map→对象/Y.Array→数组/XmlFragment→RichTextValue
  *  ——doc-codec decodeYValue 同构窄面：doc-codec 内部函数不导出，本处受理 slice 专用）。 */
@@ -216,23 +278,36 @@ export class ExecutionRequestService {
 
   async admit(cmd: AdmitExecutionCommand): Promise<AdmitOutcome> {
     const { projectId, requestId, userId } = cmd;
-    // ①纯数组面校验（shared 单源——非空/去重/≤EXEC_MAX_NODES）
+    // ①纯数组面校验（shared 单源——非空/去重/≤EXEC_MAX_NODES）+requestId 长度界（I3/M3：
+    //  客户端幂等键 8-128——防无界键进 PG 唯一索引/日志面）
+    if (cmd.requestId.length < 8 || cmd.requestId.length > 128) {
+      return { ok: false, status: 400, code: 'REQUEST_ID_INVALID', detail: `requestId 长度 ${cmd.requestId.length} 越界（8-128）` };
+    }
     const scopeCheck = validateExecutionScopeNodeIds(cmd.nodeIds);
     if (!scopeCheck.ok) return { ok: false, status: 400, code: scopeCheck.code, detail: scopeCheck.detail };
+    // M-8：SystemHistory 行缺席=fail-closed（historyId 权威缺失——受理拒绝 500，非静默 'unknown'
+    //  落行：REQUEST_STALE 判定不可凭空值进行）
+    const history = await this.prisma.systemHistory.findUnique({ where: { id: 1 }, select: { historyId: true } });
+    if (!history) {
+      return { ok: false, status: 500, code: 'SYSTEM_HISTORY_MISSING', detail: 'SystemHistory 权威行缺失（fail-closed——受理拒绝；恢复链归 T13/T29）' };
+    }
 
     // ②幂等前置：同 (projectId,requestId) 在档 → 三档（REQUEST_STALE/IDEMPOTENCY_CONFLICT/幂等返回原值）
-    const history = await this.prisma.systemHistory.findUnique({ where: { id: 1 }, select: { historyId: true } });
     const existing = await this.prisma.executionRequest.findUnique({ where: { projectId_requestId: { projectId, requestId } } });
     if (existing) {
       if (history && existing.historyId !== history.historyId) {
         return { ok: false, status: 409, code: 'REQUEST_STALE', detail: 'PITR/恢复后同 requestId 重试（historyId 不匹配）——请求已过期' };
       }
-      // 同键不同 body：客户端幂等键下的 body 身份=nodeIds 集（客户端可控面；重算哈希会因受理后
-      // 前缀推进误伤合法重试——planHash 比对语义落两受理同前缀时的结构性等价）
-      const existingPlans = await this.prisma.executionNodePlan.findMany({ where: { requestId: existing.id }, select: { nodeId: true } });
-      const sameSet = existingPlans.length === cmd.nodeIds.length && cmd.nodeIds.every((id) => existingPlans.some((p) => p.nodeId === id));
-      if (!sameSet) {
-        return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（nodeIds/plan 集不匹配）' };
+      // 幂等身份域（M2+M-5 裁定）：比对 (docSeq, 有序 nodeIds) 等值——与 planHash 决定域一致
+      // （order 敏感：拓扑序变=计划变）；不重算哈希（受理后前缀推进不误伤合法重试）。
+      const existingPlans = await this.prisma.executionNodePlan.findMany({
+        where: { requestId: existing.id }, orderBy: { order: 'asc' }, select: { nodeId: true },
+      });
+      const sameOrderedIds = existingPlans.length === cmd.nodeIds.length
+        && existingPlans.every((p, i) => p.nodeId === cmd.nodeIds[i]);
+      const sameDocSeq = existing.docSeq === cmd.docSeq;
+      if (!sameOrderedIds || !sameDocSeq) {
+        return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（docSeq 或有序 nodeIds 不匹配）' };
       }
       return {
         ok: true, id: existing.id, requestId, frozenDocSeq: existing.frozenDocSeq,
@@ -289,8 +364,17 @@ export class ExecutionRequestService {
     //    插入前判定=零半行，不截断不分片——brotli〔node:zlib〕）
     const promptBytes = Math.max(...ordered.map((n) => Buffer.byteLength(entries[n.id]!.promptText, 'utf8')));
     const upstreamMediaCount = new Set(Object.values(entries).map((e) => e.upstreamImageMediaId).filter(Boolean)).size;
-    const referencedImageCount = ordered.reduce((s, n) => s + (Array.isArray(n.data.imageUrls) ? (n.data.imageUrls as unknown[]).length : 0), 0);
-    const raw = Buffer.from(JSON.stringify({ schemaVersion: CANVAS_DOC_SCHEMA_VERSION, nodes: entries } satisfies FrozenExecutionInput), 'utf8');
+    // M-3：引用图计数读 prompt RichTextValue.referencedImageIds（XmlFragment 域内嵌引用——旧读
+    //  data.imageUrls 恒漏 prompt 内嵌引用）；手工 imageUrls 数组兜底并计。
+    const referencedImageCount = ordered.reduce((s, n) => {
+      const promptVal = entries[n.id]?.args.prompt as unknown;
+      const fromPrompt = (promptVal && typeof promptVal === 'object' && Array.isArray((promptVal as { referencedImageIds?: unknown[] }).referencedImageIds))
+        ? (promptVal as { referencedImageIds: unknown[] }).referencedImageIds.length
+        : 0;
+      const fromData = Array.isArray(n.data.imageUrls) ? (n.data.imageUrls as unknown[]).length : 0;
+      return s + fromPrompt + fromData;
+    }, 0);
+    const raw = Buffer.from(serializeFrozenInput(entries), 'utf8');
     const compressed = brotliCompressSync(raw);
     const limits = validateExecutionInputLimits({
       rawBytes: raw.byteLength, storedBytes: compressed.byteLength,
@@ -312,7 +396,10 @@ export class ExecutionRequestService {
         creditCost: plan?.creditCost ?? 0,
         reservedCredit: plan?.creditCost ?? 0,
         paramsHash: sha256hex(JSON.stringify([entries[n.id]!.kind, entries[n.id]!.args])),
-        status: 'PENDING',
+        // M-4：非 executable（EXECUTABLE_TYPES 外——group/剪辑产物等）受理即 SKIPPED——
+        // remaining 收口（PENDING/EXECUTING 计数）可达终态；值域注记：PENDING/EXECUTING/SETTLED/
+        // VOIDED/SKIPPED 五值（SKIPPED=T21 收口新增——零成本零执行分支语义）。
+        status: isExecutableNode(n) ? 'PENDING' : 'SKIPPED',
       };
     });
     const planHash = sha256hex(canonicalPlanHashPayload(planRows as never[]));
@@ -324,7 +411,7 @@ export class ExecutionRequestService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.executionRequest.create({ data: {
-          id, requestId, projectId, generation, historyId: history?.historyId ?? 'unknown',
+          id, requestId, projectId, generation, historyId: history.historyId,
           docSeq: cmd.docSeq, frozenDocSeq, userId, teamId, kind, state: 'ADMITTED',
           reservedCredit: totalCredit, totalCredit, planHash, inputHash: contentHash,
           expiresAt: new Date(Date.now() + EXEC_REQUEST_EXPIRES_AT_MS),
@@ -350,8 +437,21 @@ export class ExecutionRequestService {
         }
       }, { timeout: 15_000, maxWait: 5_000 });
     } catch (err) {
+      // I3：并发同 requestId 撞 @@unique(projectId,requestId)（检查后-插入前竞窗）→ 复读在档行
+      // 走 replay 幂等路径（同请求净效果恰一次）；detail 固定文案禁泄漏 (err).message。
+      if ((err as { code?: string }).code === 'P2002') {
+        const winner = await this.prisma.executionRequest.findUnique({ where: { projectId_requestId: { projectId, requestId } } });
+        if (winner) {
+          const winnerPlans = await this.prisma.executionNodePlan.findMany({ where: { requestId: winner.id }, orderBy: { order: 'asc' }, select: { nodeId: true } });
+          if (winnerPlans.length === cmd.nodeIds.length && winnerPlans.every((p, i) => p.nodeId === cmd.nodeIds[i]) && winner.docSeq === cmd.docSeq) {
+            return { ok: true, id: winner.id, requestId, frozenDocSeq: winner.frozenDocSeq, planHash: winner.planHash, inputHash: winner.inputHash, reservedCredit: winner.reservedCredit, totalCredit: winner.totalCredit, replayed: true };
+          }
+          return { ok: false, status: 409, code: 'IDEMPOTENCY_CONFLICT', detail: '同 requestId 不同 body（docSeq 或有序 nodeIds 不匹配）' };
+        }
+      }
       const reason = (err as { reason?: string }).reason;
-      return { ok: false, status: reason === 'CREDIT_INSUFFICIENT' ? 402 : 500, code: reason ?? 'ADMISSION_FAILED', detail: (err as Error).message };
+      if (reason === 'QUOTA_EXCEEDED') return { ok: false, status: 429, code: 'QUOTA_EXCEEDED', detail: '月度配额超限（execreq 在飞预留计入——稍后重试或缩减范围）' };
+      return { ok: false, status: reason === 'CREDIT_INSUFFICIENT' ? 402 : 500, code: reason ?? 'ADMISSION_FAILED', detail: '受理事务失败（幂等键同键重试安全——CREDIT_INSUFFICIENT 余额不足外均为瞬态）' };
     }
     return { ok: true, id, requestId, frozenDocSeq, planHash, inputHash: contentHash, reservedCredit: totalCredit, totalCredit, replayed: false };
   }
@@ -383,7 +483,7 @@ export class ExecutionRequestService {
     if (!inputRow) return null;
     const buf = Buffer.from(inputRow.content);
     const raw = inputRow.encoding === 'json+gzip' ? gunzipSync(buf) : brotliDecompressSync(buf);
-    const input = JSON.parse(raw.toString('utf8')) as FrozenExecutionInput;
+    const input = deserializeFrozenInput(JSON.parse(raw.toString('utf8')));
     return {
       request: {
         id: request.id, requestId: request.requestId, projectId: request.projectId, generation: request.generation,

@@ -65,11 +65,18 @@ export class ExecutionController {
     @Req() req: Request,
   ) {
     await this.perm.assertEditor(body.projectId, (req as any).user?.id);
+    // I3/M3（收口）：docSeq wire 守卫——非十进制整数形态 400（BigInt throw 禁裸透 500）
+    let docSeq: bigint;
+    try {
+      docSeq = BigInt(body.docSeq ?? '0');
+    } catch {
+      throw new BusinessException('DOCSEQ_INVALID', `docSeq 形态非法：${String(body.docSeq).slice(0, 40)}`, 400);
+    }
     const r = await this.executionRequests.admit({
       projectId: body.projectId,
       requestId: body.requestId,
       nodeIds: body.nodeIds,
-      docSeq: BigInt(body.docSeq ?? '0'),
+      docSeq,
       userId: (req as any).user?.id,
     });
     if (!r.ok) {

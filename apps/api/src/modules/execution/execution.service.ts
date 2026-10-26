@@ -628,9 +628,10 @@ export class ExecutionService {
 
   // ═══ Y1c T21（G4 门）：冻结请求执行路径——worker 零 doc 读（spec §6.1/§6.2）════════════════
 
-  /** NodeExecution 当前行 CAS upsert（更新守卫单源=shared nodeExecutionUpdateAllowed→PG
-   *  `WHERE generation=EXCLUDED.generation AND execSeq<EXCLUDED.execSeq`——旧 worker 迟到更新拒绝；
-   *  0 行=fenced（换代/旧代票——观测面，不中止本代流程）。 */
+  /** NodeExecution 当前行 CAS upsert——SQL 谓词 `WHERE generation=EXCLUDED.generation AND
+   *  execSeq<EXCLUDED.execSeq` 与 shared nodeExecutionUpdateAllowed（compareExecSeq 单源）真值表
+   *  **等价**（等价性断言=execution-frozen.t21-c1.int.spec I4 用例：旧代拒/同 execSeq 拒/单调过/
+   *  换代全拒四态对拍纯函数）；0 行=fenced（旧 worker 迟到更新拒绝——观测面，不中止本代流程）。 */
   private async upsertNodeExecutionGuarded(input: {
     projectId: string; nodeId: string; generation: number; execSeq: bigint; status: string;
   }): Promise<boolean> {
@@ -657,7 +658,15 @@ export class ExecutionService {
     if (!frozen) throw new BusinessException('EXEC_REQUEST_NOT_FOUND', `执行请求不存在：${requestId}`, HttpStatus.BAD_REQUEST);
     if (frozen.request.state === 'VOIDED') throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
     if (!this.collabDoc.isLeaseServing()) throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
-    await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id, state: 'ADMITTED' }, data: { state: 'EXECUTING' } });
+    // I1（T21 收口）：ADMITTED→EXECUTING CAS 抢占——0 行=并发让位者（sweeper void 抢先/已 EXECUTING），
+    // 复读态分流：VOIDED=拒绝执行（交错(a)：过期 void 后迟到 execute）；EXECUTING=幂等续跑放行。
+    // 【M5 登记红直写例外】本路径 writeExecStatus=doc.exec 写（census ⑤ 登记族——until=T22 切 PG
+    // 权威）；deliverArtifact doc 写面 until=T32——两例外非本卡收口面。
+    const claimedReq = await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id, state: 'ADMITTED' }, data: { state: 'EXECUTING' } });
+    if (claimedReq.count === 0) {
+      const re = await this.prisma.executionRequest.findUnique({ where: { id: frozen.request.id }, select: { state: true } });
+      if (re?.state === 'VOIDED') throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
+    }
 
     const results: ExecutionResult['results'] = [];
     const errors: ExecutionErrorEntry[] = [];
@@ -669,17 +678,25 @@ export class ExecutionService {
       this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'loading' });
       let claimed: any = null;
       try {
-        const { intent, created, result: claimResult, artifactRev } = await this.claimForNode(
-          projectId, { id: plan.nodeId }, userId, gestureToken, entry.kind,
-          entry.args as Record<string, unknown>,
-          { pricingRuleId: plan.pricingRuleId ?? '', modelId: plan.model, resolutionId: plan.resolution, durationId: null, creditCost: plan.creditCost },
-          frozen.request.teamId, jobId, traceId,
-        );
+        // M2/M-5（幂等域收口）：paramsHash 直读 plan.paramsHash（受理时铸造一次——「只读不重算」
+        // 逐字达成；双哈希域收口：claim 零 normalizeIntentParams 重算）。
+        const { intent, created, result: claimResult, artifactRev } = await this.intentService.claim({
+          projectId, nodeId: plan.nodeId, userId, gestureToken: gestureToken ?? undefined,
+          kind: entry.kind, paramsHash: plan.paramsHash,
+          pricing: { pricingRuleId: plan.pricingRuleId ?? '', modelId: plan.model, resolutionId: plan.resolution, durationId: null, creditCost: plan.creditCost },
+          teamId: frozen.request.teamId, jobId, traceId,
+        });
         if (claimResult === 'same-job-alive') {
           errors.push({ nodeId: plan.nodeId, status: 'skipped', error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' });
           continue;
         }
         if (!created) {
+          // SUCCEEDED 幂等重放（同内容 idemKey 命中——intent 已成功）：本请求 item 预留随重放收口
+          // （T21 收口 I2 续面：重放=执行已成功语义——per-item 结算免悬挂；settle 自身幂等〔anti-join+idemKey〕）。
+          if (plan.reservedCredit > 0) {
+            await this.teamCredit.settleForExecutionRequestItem(userId, { executionRequestId: frozen.request.id, nodeId: plan.nodeId, teamId: frozen.request.teamId })
+              .catch((e) => this.logger.warn(`[frozen-replay] item settle ${plan.nodeId}: ${e}`));
+          }
           this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
           continue;
         }
@@ -704,20 +721,28 @@ export class ExecutionService {
         let idempotencyKey: string | null = null;
         if (entry.kind !== 'text') idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
         const outcome = await this.frozenCall(entry, { onTick: this.intentOnTick(intent.id, intent.execSeq), resumeTaskId: intent.providerTaskId ?? null, idempotencyKey, onProviderTaskId: (taskId) => this.intentService.recordProviderTaskId(intent.id, intent.execSeq, taskId) });
+        // C1（收口）：settlement mode='execreq'——finalize 事务内 per-item 结算（F1 语义等价迁移：
+        // settled:false/金额≠creditCost=同等硬度整体回滚；失败进 catch→void per-item——资金不悬挂〔I2〕）。
+        const settlement = { mode: 'execreq' as const, executionRequestId: frozen.request.id, nodeId: plan.nodeId };
         const committed = entry.kind === 'text'
-          ? await this.artifactCommit.finalizeText({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, resultText: outcome.resultText! })
+          ? await this.artifactCommit.finalizeText({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, resultText: outcome.resultText!, settlement })
           : entry.kind === 'video'
-            ? await this.artifactCommit.finalizeVideo({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, sourceMimeType: 'video/mp4' })
-            : await this.artifactCommit.commitImage({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, originalNameBase: `ai-generated-${plan.nodeId}` });
+            ? await this.artifactCommit.finalizeVideo({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, sourceMimeType: 'video/mp4', settlement })
+            : await this.artifactCommit.commitImage({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, originalNameBase: `ai-generated-${plan.nodeId}`, settlement });
         if (committed.outcome === 'intent-stale') {
           await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId }).catch(() => {});
           errors.push({ nodeId: plan.nodeId, status: 'error', error: '生成已被系统回收（超时）——产物未投递', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
           continue;
         }
-        // per-item 结算（成功面——冻结转实扣；reversesId 配对 exact reserve 行）
+        // per-item 结算已随 finalize 事务原子完成（C1 settlement='execreq'）——此处只记账审计口径；
+        // 零成本 item（无预留→settle settled:false 不落状态）统一推 SETTLED（remaining 收口可达终态）。
         if (plan.reservedCredit > 0) {
-          await this.teamCredit.settleForExecutionRequestItem(userId, { executionRequestId: frozen.request.id, nodeId: plan.nodeId, teamId: frozen.request.teamId }).catch((e) => this.logger.warn(`settle item ${plan.nodeId}: ${e}`));
           totalDeducted += plan.creditCost;
+        } else {
+          await this.prisma.executionNodePlan.updateMany({
+            where: { requestId: frozen.request.id, nodeId: plan.nodeId, status: 'EXECUTING' },
+            data: { status: 'SETTLED' },
+          });
         }
         if (outcome.resultRow) results.push(outcome.resultRow);
         this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: committed.mediaId });

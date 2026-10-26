@@ -97,6 +97,30 @@ describe('Y1c T21 G4-⑥：frozenDocSeq 临界区（withFrozenPrefix——红前
     expect(doc.getMap('nodes').get('n2')).toBe('during-freeze');
   });
 
+  it('I-1（收口）：flush 等待窗内换代（generationOf 漂移）→冻结读作废 gate-timeout（回退 PG 重建档）——八阶段 verify-generation-unchanged', async () => {
+    const spool = makeSpool();
+    const { repo, release } = deferredRepo();   // PG 挂起——flushThrough 轮询窗内注入换代
+    const doc = new Y.Doc();
+    let genNow = 0;
+    const documents = new Map<string, Y.Doc>([['project:p1', doc]]);
+    const actor = new CollabProjectActorService(spool, repo as never);
+    (actor as unknown as { bindHost(h: unknown): void }).bindHost({
+      logger: { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, verbose: () => {}, fatal: () => {} } as unknown as Logger,
+      documents: () => documents,
+      hardClose: () => {},
+      isQuotaFrozen: () => false,
+      generationOf: () => genNow,   // 换代注入缝：flush 轮询窗内 0→1（vacuum SWITCHING 窗）
+      noteReadOnlyDrop: () => false,
+      onFencedByWrite: async () => {},
+    });
+    await actor.submit('p1', frameSetting('n0', 'persisted'), makeConn(), 'update');
+    await new Promise((res) => setTimeout(res, 20));   // apply 落定（PG 批挂起中——flush 窗开着）
+    setTimeout(() => { genNow = 1; }, 30);             // flushThrough 10ms 轮询窗内换代
+    setTimeout(() => { release(); }, 80);              // 随后 PG 追平——flush 成功但 generation 已漂移
+    const r = await actor.withFrozenPrefix('p1', async () => 'must-not-run', { gateBudgetMs: 1_000, flushBudgetMs: 3_000 });
+    expect(r).toEqual({ ok: false, reason: 'gate-timeout' });   // 换代=冻结读作废（调用方回退 PG 前缀重建档）
+  });
+
   it('⑥-c：PG 追平后冻结成功：pgSeq==appliedSeq 且 fn 读到前缀态 doc', async () => {
     const spool = makeSpool();
     const repo = createMockRepo();

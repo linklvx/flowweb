@@ -1188,6 +1188,11 @@ export class CollabProjectActorService {
       const flushDeadline = t0 + totalBudget;
       const r = await this.flushThrough(pid, applied, { maxWaitMs: Math.max(1, flushDeadline - Date.now()) });
       if (!r.targetReached || r.pgSeq !== applied) return { ok: false, reason: 'flush-timeout' };
+      // I-1（T21 收口）：verify-generation-unchanged——flush 等待窗内换代（vacuum/维护 SWITCHING）⇒
+      // 冻结读作废（reason='gate-timeout'——调用方自然回退 PG 前缀重建档；
+      // FROZEN_DOC_SEQ_CRITICAL_SECTION_STAGES 八阶段齐：acquire→wait-apply→flush→assert-pgSeq→
+      // verify-generation→read-scope→set-frozenDocSeq→release）。
+      if (this.host.generationOf(pid) !== generation) return { ok: false, reason: 'gate-timeout' };
       const value = await fn({ doc: document, appliedSeq: applied, pgSeq: r.pgSeq, generation });
       return { ok: true, value, appliedSeq: applied, pgSeq: r.pgSeq, generation };
     } finally {

@@ -161,6 +161,17 @@ export class TeamCreditService {
       const total = req.items.reduce((s, i) => s + i.amount, 0);
       if (total === 0) return { success: true };
       if (balance.credits + balance.subscriptionCredits < total) return { success: false, reason: 'CREDIT_INSUFFICIENT' };
+      // I-3（T21 收口）：月度配额——execreq 在飞预留计入月度用量（同 reserve() 配额段形态）；
+      // 在飞面=ExecutionRequest.reservedCredit（ADMITTED/EXECUTING——TTL≤15min 近月度窗口语义）
+      const used = await this.derivedMonthlyUsed(ltx, req.teamId, userId);
+      const inflightAgg = await ltx.executionRequest.aggregate({
+        _sum: { reservedCredit: true },
+        where: { teamId: req.teamId, userId, reservedCredit: { gt: 0 }, state: { in: ['ADMITTED', 'EXECUTING'] } },
+      });
+      const execreqInFlight = inflightAgg._sum.reservedCredit ?? 0;
+      if (member.monthlyQuota > 0 && used + execreqInFlight + total > member.monthlyQuota) {
+        return { success: false, reason: 'QUOTA_EXCEEDED' };
+      }
       let subLeft = balance.subscriptionCredits;
       for (const item of req.items) {
         if (item.amount <= 0) continue;
@@ -187,45 +198,55 @@ export class TeamCreditService {
     return tx ? run(tx) : this.prisma.$transaction((raw) => run(raw), { timeout: 15_000, maxWait: 5_000 });
   }
 
+  /** execreq 域 reserve 行 anti-join 锁内读取（I1：NOT EXISTS reversesId 在场=已逆转行不二动
+   *  +FOR UPDATE 行锁——settleInTx patchRows 先例同构，idempotencyKey 幂等之外的结构面双保险）。 */
+  private async execreqReserveRowsForUpdate(
+    ltx: Prisma.TransactionClient,
+    teamId: string,
+    referenceId: string,
+  ): Promise<Array<{ id: string; creditType: 'subscription' | 'regular'; amount: number }>> {
+    const rows = await ltx.$queryRaw<Array<{ id: string; creditType: string; balanceDelta: number }>>`
+      SELECT r."id" AS id, r."creditType" AS "creditType", r."balanceDelta" AS "balanceDelta"
+      FROM "TeamCreditTransaction" r
+      WHERE r."teamId" = ${teamId}::text AND r."referenceId" = ${referenceId}::text AND r."type" = 'reserve'
+        AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r."id")
+      FOR UPDATE OF r`;
+    return rows.map((r) => ({ id: r.id, creditType: r.creditType as 'subscription' | 'regular', amount: Math.abs(r.balanceDelta) }));
+  }
+
   /** 逐 item void（sweeper 过期/受理失败回滚/执行失败）：release(+c,-c) 逆转 reserve；幂等
    *  （reservedCredit=0 的 item 不再逆转）；全部 item 清零后父行 state=VOIDED。 */
   async voidForExecutionRequest(executionRequestId: string, reason: string): Promise<boolean> {
     return this.prisma.$transaction(async (raw) => {
       const ltx = await this.ledger.ledgerTx(raw);
-      const req = await ltx.executionRequest.findUnique({ where: { id: executionRequestId } });
-      if (!req || req.state === 'VOIDED') return false;
+      // I1（T21 收口）：CAS 抢占——只对 ADMITTED 行生效；0 行=claim 抢先（EXECUTING）或已终态
+      // →让位 return false（不释放执行中资金——交错(b)：sweeper 选中后 claim 抢先=void 让位）。
+      const claimed = await ltx.executionRequest.updateMany({
+        where: { id: executionRequestId, state: 'ADMITTED' },
+        data: { state: 'VOIDED', reservedCredit: 0 },
+      });
+      if (claimed.count === 0) return false;
+      const req = await ltx.executionRequest.findUniqueOrThrow({ where: { id: executionRequestId } });
+      await this.ledger.lockBalance(ltx, req.teamId);   // 锁序①：先于 items 复读（I1 锁内复读）
       const items = await ltx.executionNodePlan.findMany({ where: { requestId: executionRequestId } });
-      await this.ledger.lockBalance(ltx, req.teamId);
-      let voidedTotal = 0;
+      void reason;   // 失败原因归调用方审计/日志面（本表无 error 列）
       for (const item of items) {
         if (item.reservedCredit <= 0) continue;
-        // 两池还原：按 reserve 台账行逐池逆转（anti-join 形态——reserve 行存在即逆转）
-        const reserveRows = await ltx.teamCreditTransaction.findMany({
-          where: { teamId: req.teamId, referenceId: `execreq:${executionRequestId}#${item.nodeId}`, type: 'reserve' },
-          select: { id: true, creditType: true, balanceDelta: true },
-        });
+        const reserveRows = await this.execreqReserveRowsForUpdate(ltx, req.teamId, `execreq:${executionRequestId}#${item.nodeId}`);
         for (const r of reserveRows) {
-          const amount = Math.abs(r.balanceDelta);
-          if (amount <= 0) continue;
-          voidedTotal += amount;
           await this.ledger.mutate(ltx, {
             teamId: req.teamId, operatorUserId: req.userId, type: 'release', creditType: r.creditType,
-            balanceDelta: amount, frozenDelta: -amount,
+            balanceDelta: r.amount, frozenDelta: -r.amount,
             referenceId: `execreq:${executionRequestId}#${item.nodeId}`,
             reversesId: r.id,   // release 真值表：(+c,−c) 且 reversesId 指向 exact reserve 行（Z6 配对）
             idempotencyKey: `execreq-release:${executionRequestId}#${item.nodeId}:${r.id}`,
           });
         }
-        await ltx.executionNodePlan.update({
-          where: { requestId_nodeId: { requestId: executionRequestId, nodeId: item.nodeId } },
+        await ltx.executionNodePlan.updateMany({
+          where: { requestId: executionRequestId, nodeId: item.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
           data: { reservedCredit: 0, status: 'VOIDED' },
         });
       }
-      await ltx.executionRequest.update({
-        where: { id: executionRequestId },
-        data: { reservedCredit: 0, state: 'VOIDED' },
-      });
-      void voidedTotal;
       return true;
     }, { timeout: 15_000, maxWait: 5_000 });
   }
@@ -242,23 +263,18 @@ export class TeamCreditService {
       const req = await ltx.executionRequest.findUnique({ where: { id: input.executionRequestId }, select: { teamId: true, userId: true } });
       if (!req) return false;
       await this.ledger.lockBalance(ltx, req.teamId);
-      const reserveRows = await ltx.teamCreditTransaction.findMany({
-        where: { teamId: req.teamId, referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`, type: 'reserve' },
-        select: { id: true, creditType: true, balanceDelta: true },
-      });
+      const reserveRows = await this.execreqReserveRowsForUpdate(ltx, req.teamId, `execreq:${input.executionRequestId}#${input.nodeId}`);
       for (const r of reserveRows) {
-        const amount = Math.abs(r.balanceDelta);
-        if (amount <= 0) continue;
         await this.ledger.mutate(ltx, {
           teamId: req.teamId, operatorUserId: req.userId, type: 'release', creditType: r.creditType,
-          balanceDelta: amount, frozenDelta: -amount,
+          balanceDelta: r.amount, frozenDelta: -r.amount,
           referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`,
           reversesId: r.id,
           idempotencyKey: `execreq-release:${input.executionRequestId}#${input.nodeId}:${r.id}`,
         });
       }
-      await ltx.executionNodePlan.update({
-        where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
+      await ltx.executionNodePlan.updateMany({
+        where: { requestId: input.executionRequestId, nodeId: input.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
         data: { reservedCredit: 0, status: 'VOIDED' },
       });
       await ltx.executionRequest.updateMany({
@@ -275,38 +291,35 @@ export class TeamCreditService {
     userId: string,
     input: { executionRequestId: string; nodeId: string; teamId: string },
     tx?: Prisma.TransactionClient,
-  ): Promise<{ success: boolean; settled: boolean }> {
+  ): Promise<{ success: boolean; settled: boolean; amount: number }> {
     const run = async (raw: Prisma.TransactionClient) => {
       const ltx = await this.ledger.ledgerTx(raw);
       const item = await ltx.executionNodePlan.findUnique({
         where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
       });
-      if (!item || item.reservedCredit <= 0) return { success: true, settled: false };
+      if (!item || item.reservedCredit <= 0) return { success: true, settled: false, amount: 0 };
       await this.ledger.lockBalance(ltx, input.teamId);
-      const reserveRows = await ltx.teamCreditTransaction.findMany({
-        where: { teamId: input.teamId, referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`, type: 'reserve' },
-        select: { id: true, creditType: true, balanceDelta: true },
-      });
+      const reserveRows = await this.execreqReserveRowsForUpdate(ltx, input.teamId, `execreq:${input.executionRequestId}#${input.nodeId}`);
+      let settledAmount = 0;
       for (const r of reserveRows) {
-        const amount = Math.abs(r.balanceDelta);
-        if (amount <= 0) continue;
+        settledAmount += r.amount;
         await this.ledger.mutate(ltx, {
           teamId: input.teamId, operatorUserId: userId, type: 'settle', creditType: r.creditType,
-          balanceDelta: 0, frozenDelta: -amount,
+          balanceDelta: 0, frozenDelta: -r.amount,
           referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`,
           reversesId: r.id,
           idempotencyKey: `execreq-settle:${input.executionRequestId}#${input.nodeId}:${r.id}`,
         });
       }
-      await ltx.executionNodePlan.update({
-        where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
+      await ltx.executionNodePlan.updateMany({
+        where: { requestId: input.executionRequestId, nodeId: input.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
         data: { reservedCredit: 0, status: 'SETTLED' },
       });
       await ltx.executionRequest.updateMany({
         where: { id: input.executionRequestId },
         data: { reservedCredit: { decrement: item.reservedCredit } },
       });
-      return { success: true, settled: true };
+      return { success: true, settled: true, amount: settledAmount };
     };
     return tx ? run(tx) : this.prisma.$transaction((raw) => run(raw), { timeout: 15_000, maxWait: 5_000 });
   }

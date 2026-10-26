@@ -42,7 +42,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
       name: EXECUTION_QUEUE_NAME,
       configKey: EXECUTION_CONNECTION_NAME,
       defaultJobOptions: { ...EXECUTION_JOB_OPTIONS },
-}),
+    }),
     // Y0c T23（Z98）：IntentReconcileService+其专用的 ai-image-edit 队列注册迁 ExecutionDaemonModule
     // （仅 role=api|all 装配）——本模块 processor/服务面不注入该队列。
     // T12：ai-result-download registerQueue 退役（video=finalize-first——MaterializeJob DB poller
@@ -50,7 +50,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     BullModule.registerQueue({
       name: VIDEO_TRIM_QUEUE,
       configKey: VIDEO_TRIM_CONNECTION,
-}),
+    }),
     BullModule.registerQueue({
       name: VIDEO_SEPARATE_QUEUE,
       configKey: 'default',
@@ -60,7 +60,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
         removeOnComplete: { age: 3600, count: 100 },
         removeOnFail: { age: 86400 * 7 },
       },
-}),
+    }),
   ],
   providers: [
     ExecutionService,
