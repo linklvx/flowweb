@@ -1,6 +1,6 @@
 {
   "gate": "G5",
-  "commit": "f3abe9a7",
+  "commit": "3a0a61f9",
   "env": {
     "date": "2026-10-27（T22 双评审收口批——Commit A=70b1b73b 前置修正批/主体=73c87a6a/g5 首证=00a7900a 之后收口重认证）",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；零新迁移",
@@ -201,6 +201,6 @@
     }
   ],
   "skipped": 0,
-  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30 步（本 manifest 落盘后整跑）。",
+  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30/30 PASS（日志行 verify-chain: PASS〔30 步，tier=full〕）。commit 链：主体收口=f3abe9a7（本 manifest 全部认证面的行为代码）+三扫尾=d8620d8f（spec §10 metric-names 补登记 collab_lifecycle 三计数——T26 漏册）/4e3b2112（module-size 锚表五文件补账——T26/T22 批漏登锚）/3a0a61f9（t21-c1 spec 两机械 lint 违例——均门禁台账/机械面零行为变化，认证 commit 取最终代码态）。",
   "verdict": "go"
 }
