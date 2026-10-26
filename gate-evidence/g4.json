@@ -1,12 +1,12 @@
 {
   "gate": "G4",
-  "commit": "a829c672",
+  "commit": "a7f79271",
   "env": {
-    "date": "2026-10-26",
+    "date": "2026-10-26（收口批重认证——0da44e4d 作废）",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；迁移二=20261025120000_y1c_t21_execution_business（prisma migrate deploy 已 apply——DB≡schema diff 空）",
-    "suite": "T21 面=apps/api src/modules/execution/execution-request.t21-g4.int.spec（真 PG 7：红①②③④⑤⑦⑧〔⑧=sweeper 资金续章〕）+src/modules/collab/collab-project-actor.t21-freeze.spec（⑥ 临界区 3：竞态实锤/读后无新 apply/PG 追平冻结成功）+apps/web src/stores/canvasCollabRuntime.t21-barrier.spec（barrier 客户端 4：双入口同汇/错误档不推进/陈旧 nonce/单调）+apps/api canvas-doc-update.repository.spec（R2 双 preimage 退役——Commit A 面）",
+    "suite": "T21 面=execution-request.t21-g4.int.spec（真 PG 7）+execution-frozen.t21-c1.int.spec（真 PG 12：C1 三态/I2 settle 失败不吞/I1 交错 ab/I-3 配额/幂等域+P2002/requestId 界/M-4 SKIPPED/M-3 dedup/I4 SQL≡纯函数真值表）+collab-project-actor.t21-freeze.spec（⑥ 3+I-1 换代作废 1）+web canvasCollabRuntime.t21-barrier.spec（9：回执四则+四触发+Durable 判据/旧回执负控）+canvas-doc-update.repository.spec（R2）",
     "scope": "spec §9.1 G4 行：受理输入与文档前缀一致；重放不改已冻结输入；受理后改 prompt/拓扑/model/上游/删节点不影响计划（plan v1.7 Task 21）",
-    "redEvidence": "七红先跑红（TDD 红→绿留证）：int 套件首跑=模块缺失红〔Failed to load url ./execution-request.service〕；实现落地后迭代红依次=EMPTY_SCOPE〔slice envelope 读法〕/MODEL_NOT_AVAILABLE〔executable 模型滤〕/LEDGER_DOMAIN〔execreq 域未扩〕/TRUTH_TABLE〔release reversesId 缺〕各真红后转绿；⑥=withFrozenPrefix 实现前 tsc 红+首跑 gate-timeout≠flush-timeout 断言红（batchInFlight 等待面根修）；web barrier=实现后首跑 2 红〔seam 复位缺 savedSeq——测试隔离面〕后绿（此面 TDD 序倒置=诚实登记）"
+    "redEvidence": "首轮七红留证（g4 主体批）+收口批红：C1 付费态=FundsInvariantError 全回滚红（settleInTx settled:false+凭据不成立）/I2=资金悬挂红（settle 吞错 498≠496）/I1(b)=void 无 CAS 抢占红（EXECUTING 资金被释放）/幂等序=集合比对忽略序红（异序 200 非 409）/P2002=500 ADMIPTION_FAILED 红/requestId 界缺失红/SKIPPED=remaining 卡 EXECUTING 红/dedup=正文 N 份红——逐项转绿；诚实登记：I-1 换代检查为实现先行（其测试红=竞态窗未覆盖形态非实现缺失红）；web 四触发为绿证补齐（红性不可补——收口批前实现已在）"
   },
   "cases": [
     {
@@ -79,10 +79,10 @@
     },
     {
       "id": "G4-C10-nodeexecution-cas-guard",
-      "command": "cd apps/api && npx tsc --noEmit && npx vitest run src/modules/collab/collab-project-actor.t21-freeze.spec.ts",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-frozen.t21-c1.int.spec.ts -t 'I4'",
       "status": "pass",
-      "expect": "NodeExecution CAS=shared nodeExecutionUpdateAllowed 单源→PG WHERE generation=? AND execSeq<?（execution.service upsertNodeExecutionGuarded；④根修后比较经 compareExecSeq）",
-      "detail": "守护纯函数真值表=shared execution-chain.spec（严格单调+2^53 边界+compareExecSeq 路由）；CAS SQL 消费点 tsc+冻结路径用例覆盖",
+      "expect": "upsertNodeExecutionGuarded 真库 SQL 谓词≡nodeExecutionUpdateAllowed 纯函数真值表四态对拍（单调过 101/同 execSeq 拒/回退拒/换代拒）——行值只随首次单调写前进",
+      "detail": "I4 用例：DB 基线行 (gen0,execSeq100)→101 写成功→同值/回退/换代三代全拒；纯函数四态同判（compareExecSeq 单源——④根修后比较经其 string 域）",
       "artifacts": []
     },
     {
@@ -90,6 +90,27 @@
       "command": "cd apps/api && npx vitest run src/modules/collab/canvas-doc-update.repository.spec.ts -t 'T21 R2'",
       "status": "pass",
       "expect": "batchUpdateHash(bytes)≡sha256hex(canonicalUpdateHashPayload(hex 列表))——双入口同输入同哈希+顺序敏感（raw-bytes concat 旧 preimage 退役）",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C12-c1-settlement-modes",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-frozen.t21-c1.int.spec.ts -t 'C1'",
+      "status": "pass",
+      "expect": "付费/免费/部分失败三态：finalize settlement='execreq' per-item 同事务核销；付费 settled:false∨金额≠creditCost=FundsInvariantError 同等回滚；免费零额档合法；部分失败首 settle 次 void+FAILED 资金不悬挂",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C13-race-quota-idempotency-closeout",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/execution/execution-frozen.t21-c1.int.spec.ts",
+      "status": "pass",
+      "expect": "I1 交错 ab（void 后迟到 execute 409 零外呼/claim 抢先 sweeper 让位）+I2 settle 失败不悬挂+I-3 配额 429+I3 P2002 replay+幂等序 409+requestId 界+M-4 SKIPPED+M-3 dedup",
+      "artifacts": []
+    },
+    {
+      "id": "G4-C14-web-barrier-triggers",
+      "command": "cd apps/web && npx vitest run src/stores/canvasCollabRuntime.t21-barrier.spec.ts",
+      "status": "pass",
+      "expect": "四触发（800ms idle 去抖合并/5s 上限连发不饿死/pagehide/ensureDurable）+Durable 判据（clientSeq>=lastLocalEditSeq∧committedSeq）+旧回执负控",
       "artifacts": []
     }
   ],
@@ -110,8 +131,8 @@
       "expect": 0
     },
     {
-      "id": "G4-INV-4-nodeexecution-guard-monotonic",
-      "sql": "SELECT count(*) FROM NodeExecution a JOIN NodeExecution b ON a.projectId=b.projectId AND a.nodeId=b.nodeId AND a.execSeq>=b.execSeq AND a.updatedAt>b.updatedAt",
+      "id": "G4-INV-4-terminal-items-terminal",
+      "sql": "SELECT count(*) FROM \"ExecutionRequest\" r JOIN \"ExecutionNodePlan\" p ON p.\"requestId\" = r.id WHERE r.state IN ('COMPLETED','FAILED','VOIDED') AND p.status IN ('PENDING','EXECUTING')",
       "expect": 0
     }
   ],
@@ -128,6 +149,6 @@
     }
   ],
   "skipped": 0,
-  "notes": "PITR/historyId 409 REQUEST_STALE 代码面已落（admit ②段）；真 PITR 演练归 T31 故障矩阵（spec §9.2 同款登记）。maintenance 503 行级关闸受理读=代码面（docHead.maintenanceId）——T27 状态机联测归 T27。⑧资金 sweeper 常驻调度挂 T29 清理 worker 契约（本卡 sweepExpired 方法面）。frozen 执行路径 video durationId 平面缺失（ExecutionNodePlan 无 durationId 列——T5b 冻结 DDL 如此；paramsHash/args 已盖 duration 身份）登记移交 T23。",
+  "notes": "收口批（a7f79271）：C1 settlement mode/I-1 八阶段/I1 三面竞态 CAS+anti-join FOR UPDATE/幂等域 (docSeq+有序 nodeIds)/P2002 replay/配额计入/dedup+referencedImageIds/SKIPPED/M-8 fail-closed/M-6 四触发绿证。INV-4=M4 处置换可实证不变量（终态请求 items 全终态）。登记不修码：#4 残留两处冻结注释（runtime-projection.ts:14 T22 窗口收口+doc-protocol.ts:541 无在册窗口）+客户端受理接线（T22 派发词定）——已入 plan T22 卡。PITR 演练归 T31/maintenance 联测归 T27/sweeper 常驻归 T29/video durationId 平面归 T23 维持前批登记。",
   "verdict": "go"
 }
