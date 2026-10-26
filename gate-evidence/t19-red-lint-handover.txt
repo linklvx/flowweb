@@ -5,7 +5,7 @@ Y1c T19 先红——T18 移交 web lint-gate 5 存量违例（处置前实况，
 静态断言违例 src/stores/canvasIntents.t17-array-domains.spec.ts:457  [flowweb/no-test-geometry-setstate]  useCanvasStore.setState((s) => ({
 静态断言违例 src/stores/canvasIntents.t17-array-domains.spec.ts:477  [flowweb/no-test-geometry-setstate]  useCanvasStore.setState((s) => ({
 collab 静态断言: 5 违例（白名单外直判）→ FAIL
-（静态断言早退遮蔽的棘轮破线：test/spec 面 setState 报数 317/59 > 有效基线 311/55——T15-T18 四 spec 装置漏登记）
+（静态断言早退遮蔽的棘轮破线：test/spec 面 setState 报数 317/59 > 有效基线 311/55——T15-T18 四 spec 装置漏登记。口径注记〔T19 双评审 spec-M-1〕：317=本文件 setState×4 收口 appendCanvasNode 后的中间态报数；处置前全量实数=321/59——lint-gate 基线补登按收口后真值 317/59 绑定）
 处置：yXmlFragmentBinding=T16 绑定层豁免归类（GETMAP_FILES+新 H 门白名单——live Y 实例解析，read model 纯 JSON 不适用绑定面）；
 setState×4=棘轮辖域内→收口 appendCanvasNode 夹具（src/test/fixtures/canvas.ts 'fixture' 写者上下文）；
 棘轮补登：四 spec 装置面（非几何键）入 GEOMETRY_SETSTATE_TEST_ALLOWLIST+基线 311→317/55→59（先例=T18 补登 canvasG34）。

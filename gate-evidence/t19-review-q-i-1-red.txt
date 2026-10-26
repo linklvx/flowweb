@@ -1,0 +1,4 @@
+Y1c T19 双评审 Q-I-1 红（read-canvas-routing.spec「fallback 活读水位先行采样」处置前实况）：
+FAIL ... Q-I-1 红：fallback 活读水位先行采样（T_wm ≤ T_model——Promise.all 无序采样在「模型采样后/水位采样前」帧落库时 ETag 超前内容，§8.1 要防形态）
+AssertionError: expected true to be false（modelSampledBeforeWatermark=true——模型采样先于水位完成=ETag 超前内容风险窗实存）
+根修=顺序采样：readWatermark 先行 await → readCanvas（doc 单调增长 ⇒ 内容 ⊇ pgSeq 帧 ⇒ ETag ≤ 内容水位构造性成立）。

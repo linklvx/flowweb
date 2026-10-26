@@ -71,6 +71,53 @@ describe('VideoWorkController（公开）', () => {
     expect(cloneSvc.clone).toHaveBeenCalledWith('w1', 'u1');
   });
 
+  // ── Y1c T19 双评审 Q-M-2：ETag/If-None-Match 304 面（原零覆盖——`return {} as never` 依赖
+  //    Express 304 剥 body 行为，此处以 res 桩钉死契约：ETag 头恒设+命中档 status(304)+空体形状）。──
+  const etagRes = () => {
+    const setHeader = vi.fn();
+    const status = vi.fn();
+    return { res: { setHeader, status } as never, setHeader, status };
+  };
+
+  it('Q-M-2① GET :id/process 无 If-None-Match → 200 全量+ETag 头（弱引号包裹）', async () => {
+    service.getProcessSnapshot = vi.fn().mockResolvedValue({ workId: 'w1', nodes: [], edges: [], etag: 'g1:p9' });
+    const { res, setHeader } = etagRes();
+    const out = await controller.getProcess('w1', { headers: {} } as any, res);
+    expect(setHeader).toHaveBeenCalledWith('ETag', '"g1:p9"');
+    expect(out).toMatchObject({ workId: 'w1', etag: 'g1:p9' });
+  });
+
+  it('Q-M-2② If-None-Match 强引号精确命中 → 304（status(304)+空体——Express 层对 304 剥 body）', async () => {
+    service.getProcessSnapshot = vi.fn().mockResolvedValue({ workId: 'w1', nodes: [], edges: [], etag: 'g1:p9' });
+    const { res, status } = etagRes();
+    const out = await controller.getProcess('w1', { headers: { 'if-none-match': '"g1:p9"' } } as any, res);
+    expect(status).toHaveBeenCalledWith(304);
+    expect(out).toEqual({});   // 控制器返回空体形状（304 剥体归 Express/Supertest 层——本桩钉返回值契约）
+  });
+
+  it('Q-M-2③ If-None-Match 弱标签 W/"g1:p9" → 304（W\// 前缀归一——客户端代理改写容错）', async () => {
+    service.getProcessSnapshot = vi.fn().mockResolvedValue({ workId: 'w1', nodes: [], edges: [], etag: 'g1:p9' });
+    const { res, status } = etagRes();
+    await controller.getProcess('w1', { headers: { 'if-none-match': 'W/"g1:p9"' } } as any, res);
+    expect(status).toHaveBeenCalledWith(304);
+  });
+
+  it('Q-M-2④ If-None-Match: * → 保守 200（通配不按「已持有最新」判定——服务端不承诺任意表示等价）', async () => {
+    service.getProcessSnapshot = vi.fn().mockResolvedValue({ workId: 'w1', nodes: [], edges: [], etag: 'g1:p9' });
+    const { res, status } = etagRes();
+    const out = await controller.getProcess('w1', { headers: { 'if-none-match': '*' } } as any, res);
+    expect(status).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ workId: 'w1', etag: 'g1:p9' });
+  });
+
+  it('Q-M-2⑤ If-None-Match 异值（g1:p8 旧水位）→ 200 新体（水位推进即换 tag）', async () => {
+    service.getProcessSnapshot = vi.fn().mockResolvedValue({ workId: 'w1', nodes: [], edges: [], etag: 'g1:p9' });
+    const { res, status } = etagRes();
+    const out = await controller.getProcess('w1', { headers: { 'if-none-match': '"g1:p8"' } } as any, res);
+    expect(status).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ etag: 'g1:p9' });
+  });
+
   // Y0b-2 T8（E71）：process 端点限流 30/min——源文本锚（storyboard.pipe.spec.ts:82 先例形态：
   // 装饰器元数据断言无既有约定，读源码文本钉住档位防回归）
   it('E71：GET :id/process 有 @Throttle({default:{limit:30,ttl:60_000}})', () => {

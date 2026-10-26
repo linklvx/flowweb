@@ -535,6 +535,14 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect(setKeys).toContain(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:meta`);   // meta 指针键
   });
 
+  it('Y1c T19 双评审 Q-M-5：meta 指针损坏值 → 视 miss 重建（/process 不 500——守卫 catch+TTL 兜底）', async () => {
+    setup();
+    (service as any).redis.get = vi.fn(async (k: string) => k.endsWith(':meta') ? '{corrupted' : null);   // meta 损坏+无体键
+    const out = await service.getProcessSnapshot('w1');
+    expect(out.workId).toBe('w1');   // 不抛——损坏 meta 视 miss 走活读重建
+    expect((service as any).collabDoc.readCanvasSnapshotCached).toHaveBeenCalledTimes(1);
+  });
+
   it('Y1c T19：ETag=read model 新鲜度=pgSeq（formatCanvasReadETag——g{generation}:p{pgSeq} 随缓存体原子配对）', async () => {
     setup();
     const out = await service.getProcessSnapshot('w1');

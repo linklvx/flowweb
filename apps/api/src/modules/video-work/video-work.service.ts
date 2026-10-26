@@ -359,9 +359,15 @@ export class VideoWorkService {
     const metaKey = VideoWorkService.PROCESS_META(id);
     const metaRaw = await this.redis.get(metaKey);
     if (metaRaw) {
-      const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string };
-      const body = await this.redis.get(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev));
-      if (body) return JSON.parse(body);
+      // T19 双评审 Q-M-5：meta 损坏值守卫（读路径无 try/catch ⇒ 损坏即 /process 500 直至 TTL——
+      // 视为 miss 即愈走重建；delProcessCacheFamily 同款容错语义）。
+      try {
+        const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string };
+        const body = await this.redis.get(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev));
+        if (body) return JSON.parse(body);
+      } catch (e) {
+        console.error('[video-work] process 缓存 meta 损坏（视 miss 重建——TTL/失效事件兜底）', { id, error: e });
+      }
     }
     const snap = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000);
     const etag = formatCanvasReadETag(snap);   // ETag=read model 新鲜度=pgSeq（与缓存体同生同灭——命中档整包返回）

@@ -136,6 +136,31 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
     expect((await fallbackCount()) - before).toBe(1); // 计数观测（Z108 接线点）
   });
 
+  it('Y1c T19 双评审 Q-I-1 红：fallback 活读水位先行采样（T_wm ≤ T_model——Promise.all 无序采样在「模型采样后/水位采样前」帧落库时 ETag 超前内容，§8.1 要防形态）', async () => {
+    const gateway = { isPersistedComplete: vi.fn(() => false) };
+    let watermarkSampled = false;              // 模拟「帧 F 已落库」时刻——水位读到即含 F（pgSeq=5）
+    let modelSampledBeforeWatermark: boolean | null = null;   // 模型采样时是否已见过水位（含 F）
+    const repo = {
+      readSnapshotOnly: vi.fn(),
+      readWatermark: vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 5));   // PG 往返窗——窗内 F 落库（watermark=5 含 F）
+        watermarkSampled = true;
+        return { pgSeq: 5n, walCheckpointSeq: 5n, generation: 1, currentSnapshotRev: 0n };
+      }),
+    };
+    const service = new CollabDocumentService(gateway as any, repo as any);
+    const liveSpy = vi.spyOn(service, 'readCanvas').mockImplementation(async () => {
+      modelSampledBeforeWatermark = !watermarkSampled;   // 采样时序记录（true=模型先于水位=ETag 超前内容风险窗）
+      return { nodes: [], edges: [] };
+    });
+
+    const out = await service.readCanvasSnapshotCached('p1');
+
+    expect(liveSpy).toHaveBeenCalled();
+    expect(modelSampledBeforeWatermark).toBe(false);   // 红轴：水位先行（T_wm ≤ T_model ⇒ 内容 ⊇ pgSeq 帧 ⇒ ETag ≤ 内容水位构造性成立）
+    expect(out).toMatchObject({ generation: 1, snapshotRev: '0', pgSeq: '5' });
+  });
+
   it('谓词满足 → 走快照缓存出口（两次读恰一次解码）', async () => {
     const state = stampedState();
     const repo = { readSnapshotOnly: vi.fn(async () => ({ state, updates: [], stateSeq: 1n })) };

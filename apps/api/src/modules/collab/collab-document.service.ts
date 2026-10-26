@@ -182,10 +182,13 @@ export class CollabDocumentService implements OnApplicationShutdown {
   async readCanvasSnapshotCached(projectId: string): Promise<CanvasReadSnapshot> {
     if (!this.gateway.isPersistedComplete(projectId)) {
       yjsSnapshotFallbackTotal.inc();
-      const [model, wm] = await Promise.all([
-        this.readCanvas(projectId),
-        this.repo.readWatermark(projectId),
-      ]);
+      // T19 双评审 Q-I-1 根修：**顺序采样——水位先行**（T_wm ≤ T_model：doc 单调增长 ⇒ 内容 ⊇ pgSeq
+      // 帧 ⇒ ETag ≤ 内容水位构造性成立）。原 Promise.all 无序采样在「模型采样后/水位采样前」帧落库时
+      // pgSeq 含 F 而模型缺 F ⇒ ETag 声明内容不具备的新鲜度 ⇒ 同 ETag 异内容 304 永久持旧（§8.1 要防
+      // 形态）；与 decodeSnapshot/withDoc/residency 先读水位再触 doc 先例同构。内容领先 pgSeq 方向
+      //（活读含未持久帧）本就安全（ETag=pgSeq 不超前持久水位——§5.1/G1）。
+      const wm = await this.repo.readWatermark(projectId);
+      const model = await this.readCanvas(projectId);
       return {
         model,
         generation: wm?.generation ?? 0,
