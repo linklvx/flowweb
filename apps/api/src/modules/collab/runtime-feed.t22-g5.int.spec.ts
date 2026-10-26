@@ -6,8 +6,10 @@
 // 不出洞+首连快照信封（cursor 三元+minRetainedSeq+historyId）+保留期清理（minRetainedSeq 推进）
 // +FEED_TOMBSTONE 义务消费→node.deleted 事件+NODE_DELETED 三清扫（VideoProject 级联/投影拦截/
 // MediaBinding reconcile 入队 M-3 注桩）。
-// T22 收口批新增：C-3 快照竞态（RR+先 cursor 后 events+≤lastSeq 过滤——probe 转用例）+I-5 租约
+// T22 收口批新增：C-3 快照竞态（RR+先 cursor 后 events+≤lastSeq 过滤）+I-5 租约
 // 重派崩溃窗+I-9 跨项目同 nodeId 串扰（claim 行 projectId 直用）。
+// G5 末轮小收口：C-3 命中窗确定性化（racer 事务持 RuntimeFeedCursor 表 ACCESS EXCLUSIVE 锁+pg_sleep——
+// 读面 cursor 读排队至 racer 提交：现码恒绿/父版本 RC 先 events 后 cursor 必红，替换原 8 轮概率迭代）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -216,20 +218,46 @@ let TID = '';
     expect(nodeDeleted?.state).toBe('DONE');
   });
 
-  it('C-3 快照竞态（quality probe 转用例）：snapshotEnvelope 读窗内并发提交——凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤；原 RC 先 events 后 cursor=信封 cursor 领先折叠事件⇒客户端永久漏事件）', async () => {
-    for (let round = 0; round < 8; round += 1) {
-      const racer = feed.appendEvent(PID, 'exec.status', () => ({ nodeId: 'n-race', status: 'done', attempts: 1 }));
-      const env = await feed.snapshotEnvelope(PID);   // 与 racer 并发（读窗交错——迭代提升修前命中窗概率）
-      await racer;
-      // 不变量：信封自洽——cursor 覆盖的每个 exec.status 事件其节点槽必在折叠投影（修前 probe
-      // 实证 cursorLastSeq=2 > maxFoldedEventSeq=1：客户端 seq≤cursorSeq 去重=h 后事件永久不可见）
-      const covered = await prisma.runtimeEvent.findMany({ where: { projectId: PID, feedSeq: { lte: BigInt(env.cursor.feedSeq) } }, orderBy: { feedSeq: 'asc' } });
-      expect(covered.length).toBeGreaterThan(0);
-      for (const e of covered) {
-        const p = e.payload as { kind: string; nodeId?: string };
-        if (p.kind !== 'exec.status') continue;
-        expect(env.snapshot.nodes[p.nodeId!]?.execStatus, `round=${round} feedSeq=${e.feedSeq} ≤ cursor=${env.cursor.feedSeq} 未折叠（cursor 领先折叠事件）`).toBeDefined();
-      }
+  it('C-3 快照竞态（确定性命中窗——外持 RuntimeFeedCursor 表锁+pg_sleep 注入）：racer 卡在「cursor 已 bump、事件已插、未提交」窗——凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤；父版本 RC 先 events 后 cursor=读窗跨 racer 提交⇒cursor 领先折叠事件必红）', async () => {
+    // 自播种基线（独立执行不依赖兄弟用例——C2/C3/C13 先例）
+    await feed.appendEvent(PID, 'exec.status', () => ({ nodeId: 'n-race-base', status: 'done', attempts: 1 }));
+    // 确定性构造（M-10 外持 DeliveryFence 锁先例）：racer 事务持 RuntimeFeedCursor ACCESS EXCLUSIVE 表锁
+    // ⇒ 读面的 cursor 读必排队至 racer 提交。本机实证的快照时序非对称=确定性判别源：
+    //   现码（RR+先 cursor 后 events）：cursor 读排队但 RR 事务快照先于锁等待锚定（提交前态）⇒ cursor=N-1
+    //     +events≤N-1 同一事务快照（提交前态）⇒ 恒绿——且 RR 单快照下「cursor 见 N 而 events 不见其事件」
+    //     结构性不可达（red 形态对现码=不可能事件）；racer 事件 >cursor 属未覆盖水位，客户端 after=cursor 追平零丢失；
+    //   父版本（RC+先 events 后 cursor）：events 读不阻塞窗内先行（RC 语句级快照=提交前⇒错过 racer 事件）
+    //     ⇒ cursor 读排队至提交后（RC 语句级快照在锁等待后取=提交后态⇒见 N）⇒ 信封 cursor=N 领先折叠事件
+    //     ⇒ 必红（客户端 seq≤cursorSeq 去重+h≤cursor 忽略=事件永久不可见——原 probe cursorLastSeq=2>maxFoldedEventSeq=1 同形态）。
+    let lockTaken = false;
+    const racer = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`LOCK TABLE "RuntimeFeedCursor" IN ACCESS EXCLUSIVE MODE`;
+      lockTaken = true;
+      const cursorRows = await tx.$queryRaw<{ lastSeq: bigint }[]>`
+        INSERT INTO "RuntimeFeedCursor" ("projectId", "lastSeq", "minRetainedSeq") VALUES (${PID}::text, 1, 0)
+        ON CONFLICT ("projectId") DO UPDATE SET "lastSeq" = "RuntimeFeedCursor"."lastSeq" + 1
+        RETURNING "lastSeq"`;
+      const seq = cursorRows[0]!.lastSeq;
+      await tx.runtimeEvent.create({ data: { projectId: PID, generation: 0, feedSeq: seq, kind: 'exec.status',
+        payload: { v: 1, kind: 'exec.status', nodeId: 'n-race2', status: 'done', attempts: 1, nodeVersion: String(seq) } as unknown as Prisma.InputJsonValue } });
+      await tx.$executeRaw`SELECT pg_sleep(1.5)`;   // 卡在「cursor 已 bump、事件已插、未提交」窗（读面在窗内发起）
+      return seq;
+    }, { timeout: 10_000, maxWait: 5_000 });
+    for (let i = 0; i < 300 && !lockTaken; i += 1) await new Promise((r) => setTimeout(r, 10));   // 锁落位确认（读面必在窗内到达）
+    expect(lockTaken).toBe(true);
+    const env = await feed.snapshotEnvelope(PID);   // 与 racer 真并发（读面两语句相对提交时点=竞态窗本体）
+    const seq = await racer;
+    // 不变量（信封自洽）：凡 feedSeq≤cursor 的 exec.status 事件其节点槽必在折叠投影
+    const covered = await prisma.runtimeEvent.findMany({ where: { projectId: PID, feedSeq: { lte: BigInt(env.cursor.feedSeq) } }, orderBy: { feedSeq: 'asc' } });
+    expect(covered.length).toBeGreaterThan(0);
+    for (const e of covered) {
+      const p = e.payload as { kind: string; nodeId?: string };
+      if (p.kind !== 'exec.status') continue;
+      expect(env.snapshot.nodes[p.nodeId!]?.execStatus, `feedSeq=${e.feedSeq} ≤ cursor=${env.cursor.feedSeq} 未折叠（cursor 领先折叠事件）`).toBeDefined();
+    }
+    // 确定性收口：racer 事件一旦落入 cursor 水位内（父版本=events 先读错过+cursor 后读见 N）必须被折叠
+    if (BigInt(env.cursor.feedSeq) >= seq) {
+      expect(env.snapshot.nodes['n-race2']?.execStatus, `cursor=${env.cursor.feedSeq} ≥ racer seq=${seq} 但事件未折叠（读窗跨提交——父版本必红形态）`).toBeDefined();
     }
   }, 20_000);
 

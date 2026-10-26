@@ -1535,18 +1535,18 @@ if (isMain()) {
   // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：
   //  口径=「serving 期业务写=0」——openDirectConnection 调用点=census ⑫ openSites 恰 2 处冻结
   //  （withDoc 直连读路径 readCanvas/shrink/export 在役 allowlist；residency withSession 常驻通道）；
-  //  任何新增调用点即红。该通道当前承载业务 doc 写两点（writeExecStatus/writeBatch——经
-  //  withSession(write)）=登记红 until=T32（删除达成须移除登记否则 stale 红）。
+  //  任何新增调用点即红。T22 主体批后该通道在役业务 doc 写仅 writeBatch 一点（经 withSession(write)）
+  //  =登记红 until=T32（删除达成须移除登记否则 stale 红）；writeExecStatus 已切 PG 事件写面（doc.exec
+  //  零写）——方法本体仍在册仅因 T32 删码清单（非 doc 写承载），登记保留 until=T32 删码核销。
   //  T22 收口批 M-13 核销：deliverArtifact 登记行移除——T22 主体批已切 RuntimeEvent PG 事件写面
-  //  （零 doc 写），不再是 DirectConnection 通道业务写；writeExecStatus/writeBatch 保留 until=T32
-  //  复核（writeExecStatus=T32 删码清单在册；writeBatch 随 T32 doc 写链终点收口）。
+  //  （零 doc 写），不再是 DirectConnection 通道业务写。
   const DIRECT_CONNECTION_WHITELIST = {
     'apps/api/src/modules/collab/collab-document.service.ts': 1,   // withDoc 直连（:78——读+维护写 shrink 族）
     'apps/api/src/modules/collab/collab-residency.service.ts': 1,  // withSession 常驻会话 acquire（:445）
   };
   const DIRECT_CONNECTION_BUSINESS_WRITE_REGISTERED_RED = {
-    writeExecStatus: { file: 'apps/api/src/modules/collab/collab-document.service.ts', until: 'T32' },
-    writeBatch: { file: 'apps/api/src/modules/collab/collab-doc-writer.service.ts', until: 'T32' },
+    writeExecStatus: { file: 'apps/api/src/modules/collab/collab-document.service.ts', until: 'T32', note: 'T22 主体批已切 PG 事件写面（doc.exec 零写）——方法本体在册待 T32 删码核销（非 doc 写承载）' },
+    writeBatch: { file: 'apps/api/src/modules/collab/collab-doc-writer.service.ts', until: 'T32', note: 'serving 期业务 doc 写经 withSession 直连通道（T32 doc 写链终点收口）' },
   };
   {
     const occurrences = {};
@@ -1559,10 +1559,10 @@ if (isMain()) {
     for (const [method, reg] of Object.entries(DIRECT_CONNECTION_BUSINESS_WRITE_REGISTERED_RED)) {
       const target = files.find((p) => relOf(p) === reg.file);
       const present = target !== undefined && new RegExp(`\\b${method}\\s*\\(`).test(byFile.get(target).stripped);
-      if (present) registered.push(`登记红（until=${reg.until}）${reg.file} ${method}——serving 期业务 doc 写经 withSession 直连通道（T22/T32 删除项）`);
+      if (present) registered.push(`登记红（until=${reg.until}）${reg.file} ${method}——${reg.note}`);
       else details.push(`业务写登记项已消失——转绿达成请移除登记 ${reg.file} ${method}（until=${reg.until}）`);
     }
-    report('㉝', 'DirectConnection 检查（openDirectConnection 恰 2 调用点=census ⑫ openSites；serving 期业务写=0 目标态——现役业务写登记红 until=T32〔deliverArtifact 已切 PG 事件写面=T22 收口批核销〕）',
+    report('㉝', 'DirectConnection 检查（openDirectConnection 恰 2 调用点=census ⑫ openSites；serving 期业务写=0 目标态——现役业务写登记红 until=T32〔deliverArtifact=T22 收口批核销；writeExecStatus=T22 主体批已切 PG 事件零 doc 写（登记留 T32 删码核销）；现役 doc 写仅 writeBatch〕）',
       details.length === 0, [...details, ...registered]);
   }
 

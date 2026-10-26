@@ -1,0 +1,47 @@
+Y1c T22 G5 末轮小收口——C-3 红对照实证（确定性命中窗）
+======================================================
+日期：2026-10-26（G5 末轮小收口批）
+环境：windows 10.0.26300（Git Bash）+ Node vitest 2.1.9 + 真 PostgreSQL（localhost:5432/flowweb）
+对象：apps/api/src/modules/collab/runtime-feed.t22-g5.int.spec.ts「C-3 快照竞态（确定性命中窗——外持
+      RuntimeFeedCursor 表锁+pg_sleep 注入）」用例
+方法：临时还原 service 至父版本（git show 73c87a6a:apps/api/src/modules/collab/runtime-feed.service.ts
+      > 同路径——ReadCommitted+先读 events 后读 cursor+无 ≤lastSeq 过滤）→ 实跑该用例 → git checkout --
+      还原（跑后 git status 干净，仅留本批意图内变更）。
+
+确定性构造（M-10 外持 DeliveryFence 锁先例——racer 事务持 RuntimeFeedCursor ACCESS EXCLUSIVE 表锁+
+pg_sleep(1.5)：卡在「cursor 已 bump、事件已插、未提交」窗；lockTaken 落位确认后读面窗内发起）：
+  - 现码（RR+先 cursor 后 events）：cursor 读排队但 RR 事务快照先于锁等待锚定（提交前态）⇒ cursor=N-1+
+    events≤N-1 同一事务快照 ⇒ 恒绿（RR 单快照下「cursor 见 N 而 events 不见其事件」结构性不可达）；
+  - 父版本（RC+先 events 后 cursor）：events 读不阻塞窗内先行（RC 语句级快照=提交前 ⇒ 错过 racer 事件）
+    ⇒ cursor 读排队至提交后（RC 语句级快照在锁等待后取=提交后态 ⇒ 见 N）⇒ 信封 cursor=N 领先折叠事件 ⇒ 必红。
+
+═══ 红证据（父版本 73c87a6a service，3/3 次复现同形）═══
+命令：cd apps/api && DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb \
+      npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t 'C-3'
+
+ FAIL  src/modules/collab/runtime-feed.t22-g5.int.spec.ts > Y1c T22 G5：RuntimeFeedService（真 PG） > C-3 快照竞态（确定性命中窗——外持 RuntimeFeedCursor 表锁+pg_sleep 注入）：racer 卡在「cursor 已 bump、事件已插、未提交」窗——凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤；父版本 RC 先 events 后 cursor=读窗跨 racer 提交⇒cursor 领先折叠事件必红）
+AssertionError: feedSeq=2 ≤ cursor=2 未折叠（cursor 领先折叠事件）: expected undefined to be defined
+ ❯ src/modules/collab/runtime-feed.t22-g5.int.spec.ts:256:131
+    254|       const p = e.payload as { kind: string; nodeId?: string };
+    255|       if (p.kind !== 'exec.status') continue;
+    256|       expect(env.snapshot.nodes[p.nodeId!]?.execStatus, `feedSeq=${e.f…
+       |                                                                                                   ^
+    257|     }
+    258|     // 确定性收口：racer 事件一旦落入 cursor 水位内（父版本=events 先…
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 skipped (16)
+
+第 2/3 次复现（同形）：AssertionError: feedSeq=2 ≤ cursor=2 未折叠（cursor 领先折叠事件）: expected undefined to be defined —— Tests  1 failed | 15 skipped (16)
+第 3/3 次复现（同形）：AssertionError: feedSeq=2 ≤ cursor=2 未折叠（cursor 领先折叠事件）: expected undefined to be defined —— Tests  1 failed | 15 skipped (16)
+
+红形态=quality 真 PG probe 原实证同形（修前 cursorLastSeq=2 > maxFoldedEventSeq=1——信封 cursor 覆盖
+racer 事件 feedSeq=2 但折叠投影无其节点槽 ⇒ 客户端 seq≤cursorSeq 去重+h≤cursor 忽略=事件永久不可见）。
+
+═══ 绿对照（还原至现 HEAD cbec3fc5 态 service，4/4 次复现绿）═══
+命令：同上（service 已 git checkout -- 还原）
+      Tests  1 passed | 15 skipped (16)   ×4（独立 -t 'C-3' 执行 4 次全绿；全文件 16/16 绿见 g5.json 五命令实跑）
+
+结论：C-3 用例对父版本坏代码（ReadCommitted+先 events 后 cursor）必红、对现码（RR+先 cursor 后
+events+≤lastSeq 过滤）恒绿——原「八轮迭代对已知坏代码不红」（spec 复核 M-A）收口：命中窗由概率迭代
+升级为确定性构造（外持表锁钉住读面 cursor 读的解锁时点=racer 提交时点）。
