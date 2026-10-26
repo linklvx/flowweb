@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ARRAY_DOMAINS, deriveArrayDomains, isMediaListDomainKey, isYArrayLike,
   isMediaListValue, computeArraySplice, writeArrayDomainValue,
-  materializeArrayDomainValue, ensureArrayDomainDefaults,
+  materializeArrayDomainValue, ensureArrayDomainDefaults, MEDIA_LIST_MAX_ITEMS,
   type YArrayLike,
 } from './array-domains';
 import { DOC_SCHEMA_V4 } from './doc-schema-v4';
@@ -191,6 +191,48 @@ describe('Y1c T17 writeArrayDomainValue：写 seam 三档拒绝+结构操作落�
     expect(writeArrayDomainValue(data, 'allImages', [item('X'), item('R')])).toEqual({ ok: true, changed: true });
     expect(c.items[0]).toBe(m);                 // 同 id 同内容 ⇒ 原实例原位（零 op）
     expect(c.items[1]).toEqual(item('R'));      // 新项 plain 落位
+  });
+
+  it('双评审收口 spec-M-2：插入侧 item 浅拷——容器项与 next 数组引用隔离（防 ns 侧原地 mutate 静默改 doc）', () => {
+    const data = new FakeMap();
+    const c = new FakeArray();
+    c.insert(0, [item('X')]);
+    data.set('allImages', c);
+    const next = [item('X'), item('R')];
+    expect(writeArrayDomainValue(data, 'allImages', next)).toEqual({ ok: true, changed: true });
+    expect(c.items[1]).toEqual(item('R'));
+    expect(c.items[1]).not.toBe(next[1]);       // 新插入项=浅拷副本（materialize 同款纪律）
+    // 调用方原地 mutate 不波及 doc 容器
+    (next[1] as Record<string, unknown>).url = '/mutated';
+    expect((c.items[1] as Record<string, unknown>).url).toBe('/u/R');
+    // 替换半边（delete+insert）同款：同 id 内容变更项的插入侧也是副本
+    const next2 = [item('X'), item('R', { progress: 100 })];
+    expect(writeArrayDomainValue(data, 'allImages', next2)).toEqual({ ok: true, changed: true });
+    expect(c.items[1]).not.toBe(next2[1]);
+    expect(c.items[1]).toEqual(item('R', { progress: 100 }));
+  });
+
+  it('双评审收口 spec-M-1：规模护栏——next/容器任一侧超 MEDIA_LIST_MAX_ITEMS ⇒ value-form-mismatch fail-closed（diff 不展开）', () => {
+    expect(MEDIA_LIST_MAX_ITEMS).toBe(100);
+    const data = new FakeMap();
+    const c = new FakeArray();
+    data.set('allImages', c);
+    // next 超限（101 项——面板自然上界 9 之外=对抗/病态）
+    const oversized = Array.from({ length: MEDIA_LIST_MAX_ITEMS + 1 }, (_, i) => item(`o${i}`));
+    expect(writeArrayDomainValue(data, 'allImages', oversized)).toEqual({ ok: false, reason: 'value-form-mismatch' });
+    expect(c.items).toEqual([]);   // 容器零落（diff 未展开）
+    // 容器超限（人为构造——对抗帧直写容器后经 seam 写必拒）
+    const big = new FakeArray();
+    big.items = Array.from({ length: MEDIA_LIST_MAX_ITEMS + 1 }, (_, i) => item(`b${i}`));
+    data.set('allImages', big);
+    expect(writeArrayDomainValue(data, 'allImages', [item('X')])).toEqual({ ok: false, reason: 'value-form-mismatch' });
+    expect(big.items).toHaveLength(MEDIA_LIST_MAX_ITEMS + 1);   // 原样保持（拒写不收敛病态容器）
+    // 边界内（恰 100）=合法放行
+    const edge = new FakeArray();
+    data.set('allImages', edge);
+    const full = Array.from({ length: MEDIA_LIST_MAX_ITEMS }, (_, i) => item(`e${i}`));
+    expect(writeArrayDomainValue(data, 'allImages', full)).toEqual({ ok: true, changed: true });
+    expect(edge.items).toEqual(full);
   });
 });
 

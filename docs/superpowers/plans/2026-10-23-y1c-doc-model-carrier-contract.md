@@ -346,7 +346,8 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 
 | # | 偏离 | 卡 | 依据 |
 |---|---|---|---|
-| （执行期填写） | | | |
+| D-1 | **媒体列表并发 replace 瞬态重复 id=known limit（不修）**：A 端 replace X‖B 端 replace 同 id 异内容 ⇒ 合并态可暂现同 id 两项（[X:v2, X:v1, K] 双端收敛）；下一全量 patch（面板写=全量 ImageItem[] 形态）经稳定 id diff 自愈；item 身份在 CRDT 结构外（item=plain JSON，非 Y 子结构）=设计已知限——item 级 Y.Map 容器为后续形态演进（非本批） | T17 双评审 Q-M-1 | 评审裁定：自愈面在+身份单源在 ns/doc 读侧（首见即用）；CRDT 内 item 身份=结构性新形态超本批 |
+| D-2 | **pre-T17 plain-array 存量 doc 首次媒体写必触 container-type-mismatch（结构错误暴露不掩盖政策维持——非 bug）**：装载旧载体 doc 后首次 updatePromptImages/updateMultiImageImages 被 seam 拒（面板显示旧值不丢）；**批量迁移杠杆=vacuum 重建（toReadModel→fillDoc 物化 Y.Array）+T30/T34 硬切**——部署期若见 write_reject{reason:container-type-mismatch, via:array-domain} 集中爆量=存量面非回归，防误报回归判定 | T17 双评审 Q-M-4 | spec v5-13 硬重置（零迁移面）；fail-closed 拒优于静默双载体 |
 
 **门禁总览（v1.7：manifest+负控机器判定——spec §9.1）**：工程门 G1=T7｜G2=T10（+barrier 接线+所有权切换验收）｜**G6a=T13（doc 平面）**｜G3=T16-T20（**含 XML L1**）｜G4=T21｜**G5=T22（=Feed/G6b，含 feedSeq 交错+空项目首事件+historyId cursor；前置=T26 义务观察器）**——gate-evidence manifest 机器判定+每门负控，不过=先改再写码。**用户确认点①=T5（T5a/b/c 三段）｜②=T14｜③=T20｜④=T28｜⑤=T34；执行门=T27 世代切换首跑+T30b 切换演练（维持）**。继承验收锚：genesis 双路=T7｜前缀/装载守卫=T10/T11｜富文本并发+XML L1=T16｜undo 栈上限=T18｜broken reader 零+census.json=T19｜受理冻结/frozenDocSeq 临界区/幂等受理/资金预留=T21｜义务先行=T26｜feed 可靠+提交顺序+四读径=T22｜退款/交付 fencing/text 链锚=T23｜准入 DENY/NORMALIZE/XML L2/版本门/clientID 单活跃=T24｜拒帧恢复用户裁定三场景=T25｜维护演练/行级关闸/事务后 close=T27｜切换演练一次性硬切=T30b｜发布门 manifest=T34。
 

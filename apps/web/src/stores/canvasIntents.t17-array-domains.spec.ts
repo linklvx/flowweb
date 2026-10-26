@@ -405,3 +405,84 @@ describe('Y1c T17 读侧收敛：Y.Array 载体 → 读出口恒 plain array（i
     expect(rmNode?.data.allImages).toEqual([img('X'), img('R')]);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// Y1c T17 双评审收口 Q-I-1（root fix）：域专属写路径消费 outcome——T15 收口 A 在
+// applyNodeDataPatch 根修的「doc 拒 ⇒ ns 拒」半落在本卡 updatePromptImages/
+// updateMultiImageImages 两条写路径复裂（dispatch 后无条件 set 写 ns——命中三档拒任一
+// 时 doc 拒、ns 落=「面板显示新值/reload 静默消失」）。现状红：legacy plain-array 容器
+// （container-type-mismatch）→ updatePromptImages → ns 仍落新值。
+// ══════════════════════════════════════════════════════════════════════════
+describe('Y1c T17 双评审收口 Q-I-1：域专属写路径消费 outcome（doc 拒 ⇒ ns 拒——半落复裂根修）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    openRwWindow();
+  });
+
+  /** 构造 legacy plain-array 容器（container-type-mismatch 形状——pre-T17 存量 doc 首次媒体写的触达档）。 */
+  function corruptToPlainArray(nodeId: string, key: string, items: unknown[]): void {
+    const data = (doc.getMap('nodes').get(nodeId) as Y.Map<unknown>).get('data') as Y.Map<unknown>;
+    data.set(key, items);
+  }
+
+  it('红轴：updatePromptImages 命中 container-type-mismatch → ns 不落新值（doc 拒 ⇒ ns 拒）', () => {
+    seedNode(doc, 'q1', 'imageGen', { allImages: [img('X')] });
+    corruptToPlainArray('q1', 'allImages', [img('X')]);
+    useNodeStore.setState({
+      nodes: { q1: { id: 'q1', type: 'imageGen', data: { allImages: [img('X')], model: 'm1' } as any } },
+    });
+    useNodeStore.getState().updatePromptImages('q1', [img('X'), img('NEW')] as any);
+    const nsData = useNodeStore.getState().nodes['q1']?.data as unknown as Record<string, unknown>;
+    // doc 拒（seam container-type-mismatch）⇒ ns 同拒：不显示 doc 未收的 NEW（现状红：无条件 set 落 NEW）
+    expect((nsData.allImages as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['X']);
+  });
+
+  it('绿相：容器在位（无结构错误）→ updatePromptImages ns 落新值（直写与投影同值）', () => {
+    seedNode(doc, 'q2', 'imageGen', { allImages: [img('X')] });
+    useNodeStore.setState({
+      nodes: { q2: { id: 'q2', type: 'imageGen', data: { allImages: [img('X')] } as any } },
+    });
+    useNodeStore.getState().updatePromptImages('q2', [img('X'), img('R')] as any);
+    const nsData = useNodeStore.getState().nodes['q2']?.data as unknown as Record<string, unknown>;
+    expect((nsData.allImages as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['X', 'R']);
+  });
+
+  it('红轴：updateMultiImageImages 命中 mismatch → images 不落 ns/cs 桥；伴随键逐键照落（doc ≡ store 同尺）', () => {
+    seedNode(doc, 'q3', 'multiImageGen', { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' });
+    corruptToPlainArray('q3', 'images', [img('I1')]);
+    useNodeStore.setState({
+      nodes: { q3: { id: 'q3', type: 'multiImageGen', data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } as any } },
+    });
+    useCanvasStore.setState((s) => ({
+      nodes: [...s.nodes, { id: 'q3', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } } as any],
+    }));
+    // 清空语义：patch={images:[], mainImageIndex:-1, nodeStatus:'idle'}——images 被拒、伴随键非域键照落
+    useNodeStore.getState().updateMultiImageImages('q3', [] as any);
+    const nsData = useNodeStore.getState().nodes['q3']?.data as unknown as Record<string, unknown>;
+    expect((nsData.images as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['I1']);   // ns 不落（现状红：落 []）
+    expect(nsData.mainImageIndex).toBe(-1);    // 伴随键逐键语义照旧
+    expect(nsData.nodeStatus).toBe('idle');
+    // cs 桥同门：images 被拒不桥（现状红：桥写 []）
+    const csNode = useCanvasStore.getState().nodes.find((n) => n.id === 'q3');
+    const csData = csNode?.data as unknown as Record<string, unknown>;
+    expect((csData.images as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['I1']);
+  });
+
+  it('绿相：updateMultiImageImages 容器在位 → ns/cs 同落新值+伴随键条件语义保持', () => {
+    seedNode(doc, 'q4', 'multiImageGen', { images: [img('I1'), img('I2')], mainImageIndex: 3, nodeStatus: 'done' });
+    useNodeStore.setState({
+      nodes: { q4: { id: 'q4', type: 'multiImageGen', data: { images: [img('I1'), img('I2')], mainImageIndex: 3, nodeStatus: 'done' } as any } },
+    });
+    useCanvasStore.setState((s) => ({
+      nodes: [...s.nodes, { id: 'q4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: {} } as any],
+    }));
+    // 越界回正：mainImageIndex(3) >= images.length(1) → 伴随回正 0
+    useNodeStore.getState().updateMultiImageImages('q4', [img('I2')] as any);
+    const nsData = useNodeStore.getState().nodes['q4']?.data as unknown as Record<string, unknown>;
+    expect((nsData.images as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['I2']);
+    expect(nsData.mainImageIndex).toBe(0);
+    const csNode = useCanvasStore.getState().nodes.find((n) => n.id === 'q4');
+    expect(((csNode?.data as unknown as Record<string, unknown>).images as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['I2']);
+  });
+});

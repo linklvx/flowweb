@@ -4,7 +4,7 @@ import { CANVAS_BRIDGE_KEYS, EMPTY_XML_VALUE, referencedMediaIdsOf, isXmlDomainK
 import { useCanvasStore } from './canvasStore';
 import { canEdit } from './syncStatus';
 // 批4b-1 换芯：协作语义经意图漏斗 doc 直写（循环依赖裁定：顶层仅 import 声明，action 体运行时才调）
-import { dispatchCanvasIntent, stripRejectedPatchKeys } from './canvasIntents';
+import { dispatchCanvasIntent, stripRejectedPatchKeys, type IntentApplyOutcome } from './canvasIntents';
 // Y1c T16 收口 C-1：config 携带域键单次留痕（write_reject via=xml-domain）
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import { Origin } from './canvasUndo';
@@ -759,14 +759,22 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     // 误走 allImages 写路径）
     // Y1c T17：allImages=Y.Array 域——dispatch 过 updateNodeData 数组域 seam（稳定 id 结构
     // 操作：并发 add/remove/reorder 由 Y.Array CRDT 合并不丢一方；禁整串 data.set 覆盖）。
+    // **Y1c T17 双评审收口 Q-I-1（root fix）**：直写体消费 dispatch outcome——被拒域键同剥
+    //（doc 拒 ⇒ ns 拒；T15 收口 A 在 applyNodeDataPatch 根修的半落「面板显示新值/reload
+    // 静默消失」在本路径复裂——三档拒任一（如 pre-T17 plain-array 存量 doc 首次媒体写触
+    // container-type-mismatch）不再落 ns）。viewer 档 dispatch 早退=[]（outcome 缺席）=
+    // 本地瞬态回弹语义保留（addNode append 分支同族）。
     const node = get().nodes[nodeId];
+    let outcome: IntentApplyOutcome | undefined;
     if (node && node.type !== NODE_TYPES.TEXT) {
-      dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { allImages } }, Origin.LocalUser);
+      [outcome] = dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { allImages } }, Origin.LocalUser);
     }
+    const effective = stripRejectedPatchKeys({ allImages }, outcome);
     set((state) => {
       const n = state.nodes[nodeId];
       // text nodes have no prompt — noop. image/video nodes share prompt shape.
       if (!n || n.type === NODE_TYPES.TEXT) return state;
+      if (!('allImages' in effective)) return state;   // 域键被拒=ns 同拒（零写——不静默显示 doc 未收值）
       return {
         nodes: {
           ...state.nodes,
@@ -774,7 +782,7 @@ export const useNodeStore = create<NodeState>((set, get) => ({
             ...n,
             data: {
               ...n.data,
-              allImages,  // ★ root-level shared field, no longer nested in prompt
+              allImages: effective.allImages as ImageItem[],  // ★ root-level shared field, no longer nested in prompt
             },
           },
         },
@@ -788,12 +796,15 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     // 批4b-2 换芯：增量 patch 与下方 set 同值（含清空/越界回正条件键）
     // Y1c T17：images=Y.Array 域——dispatch 过数组域 seam（稳定 id 结构操作；伴随键
     // mainImageIndex/nodeStatus 仍普通 LWW 写）
+    // **Y1c T17 双评审收口 Q-I-1（root fix）**：直写体消费 outcome 同 updatePromptImages——
+    // images 被拒 ⇒ ns/cs 桥同拒（doc ≡ store）；伴随键非域键未被拒=逐键语义照旧落。
     const patch: Record<string, unknown> = { images };
     if (images.length === 0) { patch.mainImageIndex = -1; patch.nodeStatus = 'idle'; }
     else if ('mainImageIndex' in existing.data && (existing.data as any).mainImageIndex >= images.length) {
       patch.mainImageIndex = 0;
     }
-    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
+    const [outcome] = dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
+    const effective = stripRejectedPatchKeys(patch, outcome);
     set((s) => ({
       nodes: {
         ...s.nodes,
@@ -801,14 +812,12 @@ export const useNodeStore = create<NodeState>((set, get) => ({
           ...existing,
           data: {
             ...existing.data,
-            images,
-            ...(images.length === 0 ? { mainImageIndex: -1, nodeStatus: 'idle' as const } : {}),
-            ...(images.length > 0 && 'mainImageIndex' in existing.data && (existing.data as any).mainImageIndex >= images.length ? { mainImageIndex: 0 } : {}),
+            ...effective,
           },
         },
       },
     }));
-    bridgeToCanvasStore(nodeId, { images });
+    if ('images' in effective) bridgeToCanvasStore(nodeId, { images: effective.images });
   },
 
   setMainImageIndex: (nodeId, index) => {

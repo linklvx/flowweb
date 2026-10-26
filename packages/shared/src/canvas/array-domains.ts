@@ -39,6 +39,12 @@ export interface YArrayLike {
 /** item 稳定身份键（ImageItem.id / media-refs targetItemId 同键）。 */
 export const MEDIA_LIST_ITEM_ID_KEY = 'id' as const;
 
+/** 媒体列表规模护栏（Y1c T17 双评审收口 spec-M-1）：computeArraySplice=O(m×k) LCS diff——
+ *  面板自然上界=单节点个位数（multiImage 上传 maxCount=9 实证），100=10× 余量护栏；超限
+ *  （diff 输入双侧：容器项数或 next 项数）=对抗/病态语料，diff 不展开按 value-form-mismatch
+ *  fail-closed 拒（与「结构错误暴露不掩盖」同政策——规模病态也是结构错误面）。 */
+export const MEDIA_LIST_MAX_ITEMS = 100;
+
 /** 媒体列表域词表（nodeType → dataKey 集）——DOC_SCHEMA_V4 yType==='array' 派生，禁手抄：
  *  imageGen/imageExtGen/videoGen{allImages}；multiImageGen{images}。 */
 export function deriveArrayDomains(
@@ -139,6 +145,12 @@ export interface ArraySplicePlan {
  * - next 新项/内容变更项 ⇒ insert（add/replace/reorder 的插入半边）。
  * LCS 保证保留项相对序与 next 一致——删后插后容器恒等于 next（含未识别 id 的容器项：
  * 不参与匹配，全部删除——确定性收敛不抛）。
+ *
+ * **前置条件（Y1c T17 双评审收口 Q-M-3）**：`next` 的 item id 唯一（isMediaListValue 执法面
+ * ——writeArrayDomainValue 单点保证后调用）。直接调用方须自守：next 含重复 id 时本函数不抛，
+ * 但保留/删除判定在重复项上退化为首个匹配（keptUnchanged 单值集）——产物仍确定性、非崩溃，
+ * 然语义上「同 id 两项并存」非本域合法形态，写 seam 恒拒之于前。
+ * 规模前置：m/k ≤ MEDIA_LIST_MAX_ITEMS（同上单点保证——超限 diff 不展开）。
  */
 export function computeArraySplice(cur: readonly unknown[], next: readonly unknown[]): ArraySplicePlan {
   // LCS（id 序列——容器项无 id 记 null，null 恒不匹配）
@@ -181,24 +193,31 @@ export function computeArraySplice(cur: readonly unknown[], next: readonly unkno
   return { deletes: deletes.reverse(), inserts };   // deletes 降序应用（高位先删——低位索引不漂移）
 }
 
-/** 应用计划到容器（单一应用体——deletes 降序已完成，inserts 升序直放）。 */
+/** item 插入侧浅拷（Y1c T17 双评审收口 spec-M-2——与 materializeArrayDomainValue 同款纪律：
+ *  调用方数组与 doc 容器引用隔离，防 ns 侧未来原地 mutate 经共享引用静默改 doc；
+ *  DocMap/数组/标量原样——仅 plain 对象拷贝）。 */
+const copyInsertedItem = (item: unknown): unknown =>
+  item !== null && typeof item === 'object' && !Array.isArray(item) && !isDocMap(item) ? { ...item } : item;
+
+/** 应用计划到容器（单一应用体——deletes 降序已完成，inserts 升序直放；插入侧浅拷）。 */
 function applyArraySplice(container: YArrayLike, plan: ArraySplicePlan): void {
   for (const d of plan.deletes) container.delete(d.index, d.len);
-  for (const ins of plan.inserts) container.insert(ins.index, ins.items);
+  for (const ins of plan.inserts) container.insert(ins.index, ins.items.map(copyInsertedItem));
 }
 
 /** 写 seam 拒绝词表（closed enum——canvasIntents diag reason + 观测面同词；text-domains 同族）。 */
 export type ArrayDomainRejectReason =
   | 'container-missing'        // 域键无容器（结构创建缺位）——拒绝不懒建（§3.5）
   | 'container-type-mismatch'  // 容器形状错（如 legacy plain array 覆在 Y.Array 位）——结构错误不掩盖
-  | 'value-form-mismatch';     // patch 值非法定形态（非数组/item 缺稳定 id/next 内 id 重复）
+  | 'value-form-mismatch';     // patch 值非法定形态（非数组/item 缺稳定 id/next 内 id 重复/超 MEDIA_LIST_MAX_ITEMS 规模护栏〔spec-M-1〕）
 
 export type ArrayDomainWriteResult = { ok: true; changed: boolean } | { ok: false; reason: ArrayDomainRejectReason };
 
 /**
  * 写 seam（updateNodeData 域键共口）：媒体列表值写=容器内最小结构操作（稳定 id diff——
- * 并发 add/remove/reorder 由 Y.Array CRDT 合并不丢一方）。拒绝三档见 ArrayDomainRejectReason；
- * 命中域键**永不** data.set（整串覆盖=容器替换结构性禁止）。
+ * 并发 add/remove/reorder 由 Y.Array CRDT 合并不丢一方）。拒绝三档见 ArrayDomainRejectReason
+ *（value-form-mismatch 含 spec-M-1 规模护栏档）；命中域键**永不** data.set（整串覆盖=容器
+ * 替换结构性禁止）。插入侧 item 浅拷（spec-M-2——调用方数组与容器引用隔离）。
  * 返回 changed（同值 no-op=零 op——防 doc 膨胀，与 data.set 逐键 diff 守卫同纪律）。
  */
 export function writeArrayDomainValue(data: DocMapLike, key: string, value: unknown): ArrayDomainWriteResult {
@@ -206,6 +225,11 @@ export function writeArrayDomainValue(data: DocMapLike, key: string, value: unkn
   if (container === undefined) return { ok: false, reason: 'container-missing' };
   if (!isYArrayLike(container)) return { ok: false, reason: 'container-type-mismatch' };
   if (!isMediaListValue(value)) return { ok: false, reason: 'value-form-mismatch' };
+  // Y1c T17 双评审收口 spec-M-1：规模护栏（diff 输入双侧超限=对抗/病态——O(m×k) 不展开，
+  // fail-closed 拒；面板自然上界 9 → 100=10× 余量）
+  if (value.length > MEDIA_LIST_MAX_ITEMS || container.length > MEDIA_LIST_MAX_ITEMS) {
+    return { ok: false, reason: 'value-form-mismatch' };
+  }
   const plan = computeArraySplice(mediaListItemsOf(container), value);
   if (plan.deletes.length === 0 && plan.inserts.length === 0) return { ok: true, changed: false };
   applyArraySplice(container, plan);
