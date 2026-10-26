@@ -1,12 +1,12 @@
 {
   "gate": "G5",
-  "commit": "3a0a61f9",
+  "commit": "c29ff6c3",
   "env": {
-    "date": "2026-10-27（T22 双评审收口批——Commit A=70b1b73b 前置修正批/主体=73c87a6a/g5 首证=00a7900a 之后收口重认证）",
+    "date": "2026-10-26（T22 G5 末轮小收口批——①五条认证命令可复现性根修〔-t 定向改全文件调用〕+②C-3 命中窗确定性化〔外持 RuntimeFeedCursor 表锁+pg_sleep——红对照 gate-evidence/t22-c3-red-deterministic.txt〕；前序链=双评审收口批 f3abe9a7+三扫尾 d8620d8f/4e3b2112/3a0a61f9 至 cbec3fc5）",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；零新迁移",
-    "suite": "T22 收口面=runtime-feed.t22-g5.int（16：主体 13+收口 C-3 快照竞态〔RR+先 cursor 后 events+≤lastSeq 过滤〕/I-5 租约重派崩溃窗/I-9 跨项目同 nodeId 串扰）+runtime-feed.t22-closeout.spec（M-15 lastKnown 提交后写+M-16 after 畸形 400）+collab-t22-delivery-switch.int（7：主体 5+M-10 并发幂等〔fence 锁外持确定性 TOCTOU〕+I-8 payload 契约键）+web runtimeFeedWiring.spec（2：C-1 生产接线+心跳同形）+web runtimeArtifactOverlay.spec（2：C-2 overlay 红→绿+legacy 兜底序）+runtimeStore.t22.spec（15：主体 12+I-7 gap 两档+M-2 historyId）+主体批全部既有面（poller int 15/harness 6/exec-map 7/execView 21）",
+    "suite": "T22 收口面=runtime-feed.t22-g5.int（16：主体 13+收口 C-3 快照竞态〔RR+先 cursor 后 events+≤lastSeq 过滤——末轮确定性命中窗=外持 RuntimeFeedCursor 表锁+pg_sleep〕/I-5 租约重派崩溃窗/I-9 跨项目同 nodeId 串扰）+runtime-feed.t22-closeout.spec（M-15 lastKnown 提交后写+M-16 after 畸形 400）+collab-t22-delivery-switch.int（7：主体 5+M-10 并发幂等〔fence 锁外持确定性 TOCTOU〕+I-8 payload 契约键）+web runtimeFeedWiring.spec（2：C-1 生产接线+心跳同形）+web runtimeArtifactOverlay.spec（2：C-2 overlay 红→绿+legacy 兜底序）+runtimeStore.t22.spec（15：主体 12+I-7 gap 两档+M-2 historyId）+主体批全部既有面（poller int 15/harness 6/exec-map 7/execView 21）",
     "scope": "spec §9.1 G5 行+双评审收口定性「同切片切交付只完成了删除半边」——客户端半链生产接线（C-1）/产物渲染 overlay（C-2）/snapshotEnvelope 竞态（C-3）+I-4..I-9+M-2/3/5/10/11/13..18",
-    "redEvidence": "收口批十例确定性红（stash 对照——git stash push 16 实现文件保留新测试）：C-1=runtimeFeedWiring.spec 模块缺失红×2（wireRuntimeFeedProductionFetchers/parseFeedHintPayload is not a function）+I-7=gap 两档 snapshotFn 零调用红×2+C-2=runtimeArtifactOverlay.spec useMediaUrlArgs=[undefined,undefined] 不含 m-overlay 红+M-15=append 闭包内 lastKnown 已写红+M-16=after 畸形无 400 红+M-10=外持 DeliveryFence 行锁下并发双投 delta=4 红（TOCTOU 实锤）+I-5=CLAIMED∧过期行 claimed=0 事件零投递永久卡死红+I-9=错开 createdAt 15ms 后反查恒取最新行⇒单项目零墓碑事件红+I-8=payload diff 实锤（-intentId/-rearmable 缺键）。C-3 红=quality 真 PG probe 既有实证（cursorLastSeq=2 > maxFoldedEventSeq=1——修前 RC 先 events 后 cursor 读窗；probe 形态转 8 轮迭代用例，绿侧 RR 恒成立无 flakes）。I-6=测试诚实性重构（原 await lockHolder 完整结束后 append=零重叠，FOR SHARE 形态也照样过；新例 fire-and-forget+lockTaken 落位确认+holderDone=false 重叠断言——FOR SHARE 下 elapsed≥2000 必红）。"
+    "redEvidence": "收口批十例确定性红（stash 对照——git stash push 16 实现文件保留新测试）：C-1=runtimeFeedWiring.spec 模块缺失红×2（wireRuntimeFeedProductionFetchers/parseFeedHintPayload is not a function）+I-7=gap 两档 snapshotFn 零调用红×2+C-2=runtimeArtifactOverlay.spec useMediaUrlArgs=[undefined,undefined] 不含 m-overlay 红+M-15=append 闭包内 lastKnown 已写红+M-16=after 畸形无 400 红+M-10=外持 DeliveryFence 行锁下并发双投 delta=4 红（TOCTOU 实锤）+I-5=CLAIMED∧过期行 claimed=0 事件零投递永久卡死红+I-9=错开 createdAt 15ms 后反查恒取最新行⇒单项目零墓碑事件红+I-8=payload diff 实锤（-intentId/-rearmable 缺键）。C-3 红=确定性命中窗（末轮小收口——racer 事务持 RuntimeFeedCursor ACCESS EXCLUSIVE 表锁+pg_sleep(1.5) 卡「cursor 已 bump、事件已插、未提交」窗；红对照=临时还原 service 至父版本 73c87a6a 实跑 3/3 必红〔AssertionError feedSeq=2 ≤ cursor=2 未折叠——原 RC 先 events 后 cursor 读窗跨提交=信封 cursor 领先折叠事件，quality probe cursorLastSeq=2>maxFoldedEventSeq=1 同形态〕+现码 4/4 恒绿〔RR 事务快照先于锁等待锚定——单快照下 red 形态结构性不可达〕，留档 gate-evidence/t22-c3-red-deterministic.txt）。I-6=测试诚实性重构（原 await lockHolder 完整结束后 append=零重叠，FOR SHARE 形态也照样过；新例 fire-and-forget+lockTaken 落位确认+holderDone=false 重叠断言——FOR SHARE 下 elapsed≥2000 必红）。"
   },
   "cases": [
     {
@@ -35,26 +35,26 @@
     },
     {
       "id": "G5-C4-feedseq-allocation",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '并发交错'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts",
       "status": "pass",
       "expect": "空项目首事件 feedSeq=1（cursor upsert genesis）+并发 8 Promise.all 分配 2..9 连续无洞无重（upsert 行锁=分配序≡提交序）",
-      "detail": "docSeq=CanvasDoc.pgSeq 下界随行",
+      "detail": "docSeq=CanvasDoc.pgSeq 下界随行；末轮改全文件调用（原 -t '并发交错' 跳过同文件 genesis 播种用例=独立执行结构性假红）",
       "artifacts": []
     },
     {
       "id": "G5-C5-lock-order",
-      "command": "cd apps/api && npx vitest run src/modules/collab/runtime-feed.t22-static.spec.ts && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '锁序'",
+      "command": "cd apps/api && npx vitest run src/modules/collab/runtime-feed.t22-static.spec.ts && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts",
       "status": "pass",
       "expect": "CanvasDoc 行被他事务 FOR UPDATE 持锁中（fire-and-forget+lockTaken 落位确认——I-6 真并发重叠）append <2000ms 完成且 holderDone=false（持锁窗内完成=重叠证据；FOR SHARE 形态下排队≥2000ms 必红）；静态 lint：SQL 模板段零 FOR SHARE/FOR UPDATE+appendEventInTx 内 CanvasDoc 读行号<counter upsert 行号",
-      "detail": "修正批 #10 单形态；I-6 收口=原 await lockHolder 零重叠假绿根除",
+      "detail": "修正批 #10 单形态；I-6 收口=原 await lockHolder 零重叠假绿根除；末轮改全文件调用（原 -t '锁序' 依赖兄弟用例先建 ≥9 事件=独立执行结构性假红）",
       "artifacts": []
     },
     {
       "id": "G5-C6-counter-negative-control",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '去 counter'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts",
       "status": "pass",
       "expect": "绕过 upsert 裸 INSERT 同 feedSeq=@@unique([projectId,feedSeq]) 唯一冲突拒（期望报错——证 counter 为唯一取号路径）",
-      "detail": "非制造死锁形态（spec §7 负控字面）",
+      "detail": "非制造死锁形态（spec §7 负控字面）；末轮改全文件调用（原 -t '去 counter' 依赖兄弟用例先建 cursor 行=独立执行结构性假红）",
       "artifacts": []
     },
     {
@@ -67,18 +67,18 @@
     },
     {
       "id": "G5-C8-snapshot-envelope",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '快照|C-3'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts",
       "status": "pass",
-      "expect": "首连快照 {snapshot,cursor 三元,minRetainedSeq,historyId} 折叠槽位正确+C-3 竞态不变量：读窗内并发提交（8 轮迭代）凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤——修前 probe 实证 cursor 领先折叠事件=客户端永久漏事件）",
-      "detail": "换代必须全量 snapshot 服务端半链（#10）；historyId 不匹配→客户端清投影重建",
-      "artifacts": []
+      "expect": "首连快照 {snapshot,cursor 三元,minRetainedSeq,historyId} 折叠槽位正确+C-3 竞态不变量（确定性命中窗——racer 事务持 RuntimeFeedCursor 表 ACCESS EXCLUSIVE 锁+pg_sleep 卡「cursor 已 bump、事件已插、未提交」窗）：凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤——父版本 RC 先 events 后 cursor 读窗跨提交=cursor 领先折叠事件必红，红对照 3/3 复现留档 artifacts）",
+      "detail": "换代必须全量 snapshot 服务端半链（#10）；historyId 不匹配→客户端清投影重建；末轮改全文件调用（原 -t '快照|C-3' 依赖兄弟用例播种 n1/n-lock/n-ob 事件=独立执行结构性假红；C-3 例末轮已自播种基线可独立跑）",
+      "artifacts": ["gate-evidence/t22-c3-red-deterministic.txt"]
     },
     {
       "id": "G5-C9-retention",
-      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts -t '保留期'",
+      "command": "cd apps/api && DATABASE_URL=<pg> npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts",
       "status": "pass",
       "expect": "7d 外事件删+minRetainedSeq 推进到现存最小 feedSeq-1+runtime_feed_bytes gauge 刷新",
-      "detail": "100k 上界分支实现于 sweepRetention（本例覆盖 7d 档）",
+      "detail": "100k 上界分支实现于 sweepRetention（本例覆盖 7d 档）；末轮改全文件调用（原 -t '保留期' 依赖兄弟用例余留事件=独立执行 minRow 空断言结构性假红）",
       "artifacts": []
     },
     {
@@ -169,7 +169,7 @@
     },
     {
       "id": "G5-INV-5-snapshot-cursor-covers-folded",
-      "sql": "snapshotEnvelope 信封自洽（C-3 用例不变量）：凡 feedSeq≤cursor.feedSeq 的 exec.status 事件其节点槽必在折叠投影（RR+先 cursor 后 events+≤lastSeq 过滤——8 轮并发提交迭代）",
+      "sql": "snapshotEnvelope 信封自洽（C-3 用例不变量）：凡 feedSeq≤cursor.feedSeq 的 exec.status 事件其节点槽必在折叠投影（RR+先 cursor 后 events+≤lastSeq 过滤——末轮确定性命中窗=外持 RuntimeFeedCursor 表锁+pg_sleep，读面 cursor 读排队至 racer 提交）",
       "expect": 0
     },
     {
@@ -201,6 +201,6 @@
     }
   ],
   "skipped": 0,
-  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30/30 PASS（日志行 verify-chain: PASS〔30 步，tier=full〕）。commit 链：主体收口=f3abe9a7（本 manifest 全部认证面的行为代码）+三扫尾=d8620d8f（spec §10 metric-names 补登记 collab_lifecycle 三计数——T26 漏册）/4e3b2112（module-size 锚表五文件补账——T26/T22 批漏登锚）/3a0a61f9（t21-c1 spec 两机械 lint 违例——均门禁台账/机械面零行为变化，认证 commit 取最终代码态）。",
+  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30/30 PASS（日志行 verify-chain: PASS〔30 步，tier=full〕）。commit 链：主体收口=f3abe9a7（本 manifest 全部认证面的行为代码）+三扫尾=d8620d8f（spec §10 metric-names 补登记 collab_lifecycle 三计数——T26 漏册）/4e3b2112（module-size 锚表五文件补账——T26/T22 批漏登锚）/3a0a61f9（t21-c1 spec 两机械 lint 违例——均门禁台账/机械面零行为变化，认证 commit 取最终代码态）。末轮小收口（2026-10-26，认证 commit 追 c29ff6c3）：①五条认证命令可复现性根修=选型 a 全文件调用（quality 复核唯一 I 级「照抄即红」收口——C4/C5/C6/C8/C9 原 -t 定向跳过同文件播种用例〔feedSeq=1 genesis/cursor 行/n1·n-lock·n-ob 事件由兄弟用例播种；beforeAll 每次建新 PID 无跨 run 残留〕=独立执行结构性假红；改全文件后五命令逐条实跑全绿〔C5=static 1/1+int 16/16；C4/C6/C8/C9 各 16/16〕；未选 b 五用例自播种=期望值〔[1..9]/>9n/minRow 基线等〕编码文件时序叙事、逐例改写=大面测试变更且弱化叙事设计，C-3 例本批已顺带自播种基线可独立跑）；②C-3 命中窗确定性化（spec 复核 M-A「八轮迭代对已知坏代码不红」根修——外持 RuntimeFeedCursor 表锁+pg_sleep；红对照=父版本 73c87a6a service 3/3 必红+现码 4/4 恒绿，留档 gate-evidence/t22-c3-red-deterministic.txt；测试变更⇒本 manifest 重认证 commit 追新终态 c29ff6c3——两段式纪律维持）；③plan 登记：MultiImageNode overlay 反应性→T32 前置登记行（selector 集缺投影订阅——定价启用前需补；选型落 T32 非 T23 注明）+T22 观察级 snapshotEnvelope currentHistoryId 事务外读（跨 vacuum 窗混纪元信封；自愈面=客户端 historyId 不匹配→快照+4410 兜底）；census ㉝ writeExecStatus 登记注释勘正（T22 主体批已切 PG 事件零 doc 写——until=T32 维持、措辞改实，33/33 PASS）；④registered-flakes 补两行（web 池 stale-transform-cache/soak heavy echo p95 环境敏感——A/B 判定 9d3ada45 同机同败=环境态非回归）。验证基线：pre-commit verify:fast skip-db 12 步 PASS+check-collab-census 33/33+check-plan-census 8/8+verify:fast 16 步（见收尾日志）。",
   "verdict": "go"
 }
