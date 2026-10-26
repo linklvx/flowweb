@@ -1,13 +1,14 @@
 // apps/web/src/stores/canvasUndo.ts
-// Y.UndoManager 集成（spec 4.2/4.4）：trackedOrigins 仅 local-user，快捷键入口。
-// Y1c T16（S3 spike 结论③）：ySyncPlugin 本地键入的 Yjs 事务 origin=ySyncPluginKey
-//（PluginKey 实例）≠LocalUser——attach 时 addTrackedOrigin（T18 单 manager 构造面
-// trackedOrigins:[LocalUser,ySyncPluginKey] 一次到位前的 T16 接线；单副本 y-prosemirror
-// exact pin 1.3.7 ⇒ PluginKey 单例身份成立）。远端变更=网络 applyUpdate origin（连接对象）
-// 不入栈——语义不变。
+// Y.UndoManager 集成（spec 4.2/4.4 + Y1c §3.3 单 manager 收口）：trackedOrigins=[LocalUser,
+// ySyncPluginKey]（S3 spike 结论③——T16 addTrackedOrigin 后置接线已撤，构造面一次到位=T18）；
+// 栈上限/捕获窗/溢出策略引 shared undo-policy 冻结契约单源（UNDO_STACK_LIMIT=100/
+// UNDO_CAPTURE_TIMEOUT_MS=500/UNDO_OVERFLOW_ACTION='clear-whole-stack'——偏离 31：
+// 溢出=整栈 clear()=唯一公开 keep 释放口；无 keepItem 精确释放、无「shift 后字节回落」验收；
+// shift 丢最旧项使 redo 链对不上前序状态=旧 bug，clear 收口）。远端变更=网络 applyUpdate
+// origin（连接对象）不入栈——语义不变。
 import * as Y from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
-import { SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
+import { SERVER_TRANSACT_ORIGIN, UNDO_CAPTURE_TIMEOUT_MS, UNDO_STACK_LIMIT, undoOverflowAction } from '@flowweb/shared';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 
 /** spec 全局约定 Origin 常量——trackedOrigins 唯一入栈者 */
@@ -15,8 +16,6 @@ import { recordCollabDiag } from '@/utils/collabDiagnostics';
 // origin，gateway docDelta 按此分流不计客户端配额口径）；AutoEdge 为自动边专用 origin——刻意不加入 trackedOrigins（画布撤销栈不收自动边，spec 验收 20/26）；
 // Geometry 为几何修复回写专用 origin（S1：applyDocToStore 收尾 refit 差异回写）——同款刻意不入 trackedOrigins（撤销的是修复不是用户编辑，防啃 STACK_LIMIT）
 export const Origin = { LocalUser: 'local-user', Server: SERVER_TRANSACT_ORIGIN, AutoEdge: 'auto-edge', Geometry: 'geometry-repair' } as const;
-
-const STACK_LIMIT = 100;
 
 let undoManager: Y.UndoManager | null = null;
 
@@ -32,27 +31,32 @@ export function attachUndoManager(doc: Y.Doc): Y.UndoManager {
   undoManager?.destroy();
   itemNeedingBytes = null;
   const um = new Y.UndoManager([doc.getMap('nodes'), doc.getMap('edges')], {
-    trackedOrigins: new Set([Origin.LocalUser]),
-    captureTimeout: 500,
+    // Y1c T18（S3 ③/T16 登记移交）：构造面一次到位——ySyncPlugin 本地键入事务 origin=
+    // ySyncPluginKey（PluginKey 单例——exact pin 1.3.7）与 LocalUser 双 tracked；不 addToScope
+    //（scope 父链已覆盖嵌套子类型——S3 实证七用例零例外）；不挂 yUndoPlugin（单 manager）。
+    trackedOrigins: new Set([Origin.LocalUser, ySyncPluginKey]),
+    captureTimeout: UNDO_CAPTURE_TIMEOUT_MS,
   });
-  // Y1c T16（S3）：ySyncPlugin 事务 origin 入栈（addToScope 不需要——scope 父链实证 S3 §1；
-  // attach 时点=initCollab 会话起点，editor 挂载晚于 doc ⇒ 首次事务前注册成立）
-  um.addTrackedOrigin(ySyncPluginKey);
-  // T10：同事务 update 回填（origin=UndoManager 的 undo/redo 事务不计——回放≠新写）
+  // T10：同事务 update 回填（origin=UndoManager 的 undo/redo 事务不计——回放≠新写）。
+  // T18：trackedOrigins 构造面双 origin ⇒ 回填同覆盖 ySyncPluginKey 事务（编辑器键入帧——
+  // 漏计会使 redoCanvas 预检查 redoBytes 低估）。
   doc.on('update', (u: Uint8Array, origin: unknown) => {
-    if (origin !== Origin.LocalUser || itemNeedingBytes == null) return;
+    if ((origin !== Origin.LocalUser && origin !== ySyncPluginKey) || itemNeedingBytes == null) return;
     stackItemBytes.set(itemNeedingBytes, (stackItemBytes.get(itemNeedingBytes) ?? 0) + u.byteLength);
     itemNeedingBytes = null;
   });
   um.on('stack-item-added', ({ stackItem, origin, type }) => {
     // yjs 事件 payload 为 { stackItem, origin, type }，type: 'undo' | 'redo'（无 stack 字段）
-    if (origin === Origin.LocalUser) itemNeedingBytes = stackItem;
-    if (type === 'undo' && um.undoStack.length > STACK_LIMIT) {
-      um.undoStack.shift(); // 手动截断（Y.UndoManager 无内建上限）
+    if (origin === Origin.LocalUser || origin === ySyncPluginKey) itemNeedingBytes = stackItem;
+    // Y1c T18（偏离 31）：栈上限>100=**整栈 clear()**——undoOverflowAction 判定引 shared 冻结契约
+    //（clear-whole-stack=诚实语义：撤销项成对可逆，shift 丢最旧=redo 链断裂+被弃项 keep 泄漏）。
+    // clear()=唯一公开 keep 释放口（yjs keepItem 模块私有）；「shift 后字节回落」验收已废——禁复活。
+    if (type === 'undo' && undoOverflowAction(um.undoStack.length) === 'clear-whole-stack') {
+      um.clear();
     }
   });
   um.on('stack-item-updated', ({ stackItem, origin }) => {
-    if (origin === Origin.LocalUser) itemNeedingBytes = stackItem;   // captureTimeout 窗内追加合并事务
+    if (origin === Origin.LocalUser || origin === ySyncPluginKey) itemNeedingBytes = stackItem;   // captureTimeout 窗内追加合并事务（T18 双 origin 同覆盖）
   });
   undoManager = um;
   return um;

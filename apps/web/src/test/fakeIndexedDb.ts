@@ -23,6 +23,9 @@ export interface FakeTransaction {
   objectStore: (name: string) => {
     get: (key: string) => { result?: unknown; onsuccess?: () => void; onerror?: () => void };
     put: (value: unknown, key: string) => unknown;
+    delete: (key: string) => unknown;
+    getAll: () => { result?: unknown[]; onsuccess?: () => void; onerror?: () => void };
+    getAllKeys: () => { result?: string[]; onsuccess?: () => void; onerror?: () => void };
   };
   oncomplete: (() => void) | null;
   onerror: (() => void) | null;
@@ -113,6 +116,21 @@ export function createFakeIndexedDb(): FakeIndexedDbFactory {
         put: (value: unknown, key: string) => {
           queueMicrotask(() => { if (!aborted) store.set(key, value); });
           return {};
+        },
+        // T18 per-tab 记录面（loadAll/deleteOwnRecord/deleteDivergedRecords/族扫描消费）
+        delete: (key: string) => {
+          queueMicrotask(() => { if (!aborted) store.delete(key); });
+          return {};
+        },
+        getAll: () => {
+          const req: { result?: unknown[]; onsuccess?: () => void; onerror?: () => void } = {};
+          queueMicrotask(() => { req.result = [...store.values()]; req.onsuccess?.(); });
+          return req;
+        },
+        getAllKeys: () => {
+          const req: { result?: string[]; onsuccess?: () => void; onerror?: () => void } = {};
+          queueMicrotask(() => { req.result = [...store.keys()]; req.onsuccess?.(); });
+          return req;
         },
       }),
     };

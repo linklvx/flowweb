@@ -11,7 +11,7 @@ import { canEdit } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
 import { getUndoManager, Origin } from './canvasUndo';
 import { buildLocalCacheKey } from '@/collab/local-cache-key';
-import { LOCAL_CACHE_MAX_DOC_BYTES, type LocalCacheRecord } from '@/collab/local-collab-cache';
+import { LOCAL_CACHE_MAX_DOC_BYTES, getCollabTabId, type LocalCacheRecord } from '@/collab/local-collab-cache';
 import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
@@ -82,7 +82,8 @@ const seedNode = (dataEntries: Array<[string, unknown]> = []): Y.Map<any> => new
   ['data', new Y.Map(dataEntries)],
 ]);
 const REC = (over: Partial<LocalCacheRecord> = {}): LocalCacheRecord => ({
-  snapshot: snapshotOf((d) => { d.getMap('nodes').set('seed-a', seedNode()); }),
+  tabId: 'seed', snapshot: snapshotOf((d) => { d.getMap('nodes').set('seed-a', seedNode()); }),
+  stateVector: new Uint8Array([1]), savedSeq: 0,
   unsyncedDirty: false, diverged: false, at: 1_000, ...over,
 });
 const localEdit = (d: Y.Doc, key = 'n-t8', payload: unknown = 1): void => {
@@ -126,7 +127,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const flushedRecord = () => kit.data.get(KEY)?.get('snapshot') as LocalCacheRecord | undefined;
+/** T18 per-tab：runtime 写本 tab 键（tabId=getCollabTabId——sessionStorage 稳定）；legacy 'snapshot' 键=播种专用 */
+const flushedRecord = () => kit.data.get(KEY)?.get(getCollabTabId()) as LocalCacheRecord | undefined;
 
 // ══════════ boot 回放+能力位（裁定 24⑦/裁定 21） ══════════
 describe('T8 boot 回放与能力位', () => {
@@ -245,14 +247,18 @@ describe('T8 diverged 持久化闩锁', () => {
     expect(kit.data.get(KEY)!.get('snapshot')).toEqual(onDisk);   // 原样保留（非空快照覆盖）
   });
 
-  it('★发散闩锁回归【出口⑳】：放弃→清持久条目+reload（恢复自动缓存；顺序锚=discard 完成才 reload）', async () => {
+  it('★发散闩锁回归【出口⑳+T18 收窄】：放弃→清 diverged 记录（per-tab 形态：diverged 记录删除、库与非 diverged 记录保留）+reload（恢复自动缓存；顺序锚=discard 完成才 reload）', async () => {
     const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
+    kit.data.set(KEY, new Map([
+      ['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })],
+      ['tab-other', REC({ tabId: 'tab-other', unsyncedDirty: true })],   // 他 tab 非 diverged 离线记录
+    ]));
     await driveToSynced();
     runtime.discardLocalDiverged();
     await vi.advanceTimersByTimeAsync(0);
-    expect(kit.data.has(KEY)).toBe(false);      // 条目清空——刷新后不再 diverged
-    expect(reloadSpy).toHaveBeenCalledTimes(1); // purge 完成→reload（闩锁可退出）
+    expect(kit.data.get(KEY)!.has('snapshot')).toBe(false);   // diverged 记录清——刷新后不再 diverged
+    expect(kit.data.get(KEY)!.has('tab-other')).toBe(true);   // 他 tab 离线记录存活（整库删=静默丢防线）
+    expect(reloadSpy).toHaveBeenCalledTimes(1);                // 清理完成→reload（闩锁可退出）
   });
 
   it('readOnly 期本地编辑→落盘标注 diverged（T6 判据同源——canvasDiverged 电平随快照存）', async () => {
@@ -357,25 +363,24 @@ describe('T8 flush 触发与遥测', () => {
   it('yjs_client_doc_bytes：doc 字节随 ws_status 批量上送（E33 指定的 E26 重建触发源——最近快照尺寸，字节面变化才发）', async () => {
     await driveToSynced();
     localEdit(runtime.getDoc()!);
-    await vi.advanceTimersByTimeAsync(1_000);   // flush 落盘
+    await vi.advanceTimersByTimeAsync(1_000);   // flush 落盘（T18：3s tick 同步成功删己——断言不读盘上记录）
     await vi.advanceTimersByTimeAsync(5_000);   // 5s 节律上送
     const events = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && typeof (e.detail as any)?.docBytes === 'number');
     expect(events.length).toBeGreaterThanOrEqual(1);
-    expect((events.at(-1)!.detail as any).docBytes).toBe(flushedRecord()!.snapshot.byteLength);
+    expect((events.at(-1)!.detail as any).docBytes).toBe(Y.encodeStateAsUpdate(runtime.getDoc()!).byteLength);   // 编辑后无再写——快照字节=现 doc 编码
   });
 
-  it('★dirty 守卫遥测（出口㉖多标签）：他标签 pagehide 落盘 dirty 快照→本会话干净态 pagehide flush 被 skip 不覆盖（遥测在案+A 的未上行编辑仍在）', async () => {
+  it('★dirty 守卫遥测（出口㉖多标签——T18 收窄到本键）：本键持有 dirty 记录时干净态 pagehide flush 被 skip 不覆盖（遥测在案+dirty 内容仍在；跨 tab 由键结构性隔离——adapter 测试锚）', async () => {
     await driveToSynced();   // 本会话干净 boot（无盘上记录——缓存装载体=pagehide 强制档）
-    // 模拟标签 A pagehide 落盘 dirty 快照（绕本会话——直写底层数据；写入既有 Map——
-    // 连接闭包捕获 open 时的 Map 引用，整体替换=写进旧引用不可见的平行宇宙）
+    // 模拟本键持有 dirty 记录（直写底层数据——连接闭包捕获 open 时的 Map 引用，整体替换不可见）
     const dirtySnapshot = snapshotOf((d) => { d.getMap('nodes').set('foreign', seedNode()); });
     const onDisk = REC({ snapshot: dirtySnapshot, unsyncedDirty: true });
-    kit.data.get(KEY)!.set('snapshot', onDisk);
-    // 标签 B 干净态 pagehide → flushNow 写 clean 快照 → 守卫拦
+    kit.data.get(KEY)!.set(getCollabTabId(), onDisk);
+    // 干净态 pagehide → flushNow 写 clean 快照 → 守卫拦（本键 dirty 不被本 tab 干净态覆盖）
     window.dispatchEvent(new Event('pagehide'));
     await vi.advanceTimersByTimeAsync(0);
     expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-preserved-foreign-dirty')).toBe(true);
-    expect(kit.data.get(KEY)!.get('snapshot')).toEqual(onDisk);   // A 的未上行编辑仍在
+    expect(kit.data.get(KEY)!.get(getCollabTabId())).toEqual(onDisk);   // dirty 内容仍在
   });
 
   it('★visibilitychange 可见向不 flush【spec 修复 2】：切回标签页（hidden=false）零 flushNow——防冗余全量 encode+虚假 foreign-dirty 遥测（现状红：双向都 flushNow）', async () => {

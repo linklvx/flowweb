@@ -75,6 +75,44 @@ describe('Y.UndoManager 集成（spec 4.2/4.4）', () => {
     expect(um.undoStack.length).toBeLessThanOrEqual(100);
   });
 
+  // ★T18 先红①（偏离 31）：栈上限>100=**整栈 clear()**——撤销依赖栈内项成对可逆性，丢最旧项
+  // 使 redo 链对不上前序状态（shared undo-policy.ts UNDO_OVERFLOW_ACTION 冻结契约）。
+  // 注：卡文「200 次编辑后 undoStack>100」字面在 yjs 13.6.32 实测不可构造（shift 与 clear 均把
+  // 数组压在 ≤100——probe 实证：200 次分离编辑后现状 len=100）；「栈内积压」的真实缺陷=现状
+  // shift 逐个丢最旧项（积压 100 项残栈+被 shift 项 keep 永不释放=泄漏）而非整栈复位。红锚=
+  // stack-cleared 事件+整栈清零断言（现状 shift：永不 clear）。
+  it('★T18 栈上限溢出=整栈 clear()：第 101 项触发 stack-cleared+两栈清零（现状 shift 仅截数组=红）', () => {
+    const doc = new Y.Doc();
+    const um = attachUndoManager(doc);
+    const nodes = doc.getMap('nodes');
+    let cleared = 0;
+    um.on('stack-cleared', () => { cleared++; });
+    for (let i = 0; i < 101; i++) {
+      stopCapturing();
+      doc.transact(() => nodes.set(`n${i}`, i), Origin.LocalUser);
+    }
+    expect(um.undoStack.length).toBe(0);   // 整栈复位（现状=100 积压——shift 丢最旧后残栈）
+    expect(um.redoStack.length).toBe(0);   // clear() 两栈同清（redo 配对链整体作废=诚实语义）
+    expect(cleared).toBe(1);               // 唯一释放口=clear()（现状 shift：零 clear 事件）
+  });
+
+  it('★T18 200 次编辑后栈恒 ≤100 且溢出档=整栈 clear 语义（101 清零后 99 项新栈——非逐项截断）', () => {
+    const doc = new Y.Doc();
+    const um = attachUndoManager(doc);
+    const nodes = doc.getMap('nodes');
+    let maxLen = 0;
+    let cleared = 0;
+    um.on('stack-cleared', () => { cleared++; });
+    for (let i = 0; i < 200; i++) {
+      stopCapturing();
+      doc.transact(() => nodes.set(`n${i}`, i), Origin.LocalUser);
+      maxLen = Math.max(maxLen, um.undoStack.length);
+    }
+    expect(maxLen).toBeLessThanOrEqual(100);   // 溢出在 stack-item-added 处理器内即时 clear——外部可见长度恒 ≤UNDO_STACK_LIMIT
+    expect(um.undoStack.length).toBe(99);      // 200-101=99（101 清零+99 新项）——shift 形态终值=100（红锚）
+    expect(cleared).toBe(1);
+  });
+
   it('undo 使 doc 中节点消失时取消其进程（S-1，store 投影未到也必须触发）', async () => {
     const doc = new Y.Doc();
     attachUndoManager(doc);

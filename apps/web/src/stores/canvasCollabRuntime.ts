@@ -61,10 +61,11 @@ import {
 import { createSupervisor, type CollabConnectionSupervisor } from '@/collab/connection-supervisor';
 // Y0b-5 T5：世代可见通道四维缓存键+purge（纯函数/幂等 fail-soft 模块——T8 IDB 适配器消费同一单源）
 import { buildLocalCacheKey, purgeForeignCaches, purgePidCaches } from '@/collab/local-cache-key';
-// Y0b-5 T8：本地持久化最小内核——自研 IDB 适配器（单快照覆盖形态；零业务逻辑——编排归本模块）
-import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, type LocalCacheRecord } from '@/collab/local-collab-cache';
+// Y0b-5 T8：本地持久化最小内核——自研 IDB 适配器（per-tab 记录形态——Y1c T18；零业务逻辑——编排归本模块）
+import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, collectFamilyDirtyRecords, type LocalCacheRecord } from '@/collab/local-collab-cache';
 // Y0b-5 T6：导出双产物+导入核（纯模块——doc/provider 注入，无会话态依赖）；卸载警告 reason 集合
-import { exportLocalBackup, applyLocalBackup, type LocalBackupArtifact } from '@/collab/canvas-local-backup';
+// Y1c T18：exportRawYjsBackup——换代清族前他 tab 脏草稿保全（单 .yjs 可回灌）
+import { exportLocalBackup, exportRawYjsBackup, applyLocalBackup, type LocalBackupArtifact } from '@/collab/canvas-local-backup';
 import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 
 function collabUrl(): string {
@@ -157,6 +158,21 @@ const UNSYNCED_MAX_BYTES = 1_048_576;
 const unsyncedPendingBytes = new WeakMap<Y.Doc, number>();
 /** 本地缓存适配器（会话单例——initCollab 建/teardownSession 拆；cacheDisabled 会话恒 null） */
 let localCache: LocalCollabCache | null = null;
+// ── Y1c T18（spec §3.4/偏离 36）：savedSeq 单源——只由服务端持久化回执（save barrier 的
+// pgSeq——durable watermark 广播 {type:'durable',pgSeq} 现役载体；T21 barrier 客户端回执同
+// 推进本源）——provider synced/SyncStatus/连接态**恒不推进**（「不因 provider 显示同步完成即
+// 认定已保存」）。会话复位（initCollab 起点）；值随 per-tab 缓存记录落盘（savedSeq 字段）。──
+let savedSeq = 0;
+/** 测试缝/T21 消费：当前持久化水位（0=尚无任何服务端持久化回执）。 */
+export function getSavedSeq(): number {
+  return savedSeq;
+}
+/** 持久化回执唯一推进口（单调——只前进；wire pgSeq 为 BigInt 显式 String，Number 收敛——
+ *  doc 水位为有界整数，安全域内）。 */
+function advanceSavedSeq(pgSeq: string | number): void {
+  const n = typeof pgSeq === 'number' ? pgSeq : Number(pgSeq);
+  if (Number.isFinite(n) && n > savedSeq) savedSeq = n;
+}
 /** diverged boot 写抑制窗口：盘上 diverged 唯一副本未回放进 doc，本会话任何缓存写都会用
  *  「doc 现态（无 diverged 内容）」覆盖它=数据丢失——结构性禁写（导出/放弃是唯一出口，出口⑳） */
 let suppressCacheWrites = false;
@@ -174,11 +190,17 @@ let lastReportedDocBytes = 0;
 /** pagehide/visibilitychange hidden 强制 flush 监听（会话边界装卸——与 T2 遥测的模块级挂载并存） */
 let cacheHideListener: ((ev: Event) => void) | null = null;
 
-/** 缓存记录构造（put 载体——encode 在去抖/到期/强制的宏任务里执行，禁占交互帧） */
+/** 缓存记录构造（put 载体——encode 在去抖/到期/强制的宏任务里执行，禁占交互帧）。
+ *  Y1c T18（spec §3.4 记录七要素）：tabId=适配器 recordKey 同源、stateVector 同点快照、
+ *  savedSeq=持久化回执单源（偏离 36——provider synced 不推进）。 */
 function buildCacheRecord(): LocalCacheRecord {
   const d = doc;
+  const cache = localCache;
   return {
-    snapshot: Y.encodeStateAsUpdate(d!),
+    tabId: cache?.recordKey ?? 'detached',
+    snapshot: d !== null ? Y.encodeStateAsUpdate(d) : new Uint8Array(0),
+    stateVector: d !== null ? Y.encodeStateVector(d) : new Uint8Array(0),
+    savedSeq,
     unsyncedDirty: d !== null && unsyncedDirtyDocs.has(d),
     diverged: useCanvasStore.getState().canvasDiverged,
     at: Date.now(),
@@ -260,13 +282,17 @@ function markDocUnsyncedDirty(d: Y.Doc, opts?: { skipCacheFlush?: boolean }): vo
 
 /** 单源清零（3s tick/discard 放弃出边/teardown 消亡）+beforeunload reason 解除。
  *  T6 质量修复 C1：dirty 清零=escape 分叉的阻断条件消亡——collabEscapePending 同点复位
- *  （escape 横幅消失,用户可再触发 reload）。T8：Σpending 累计器随单源同亡（确认=已上行）。 */
+ *  （escape 横幅消失,用户可再触发 reload）。T8：Σpending 累计器随单源同亡（确认=已上行）。
+ *  Y1c T18（spec §3.4 同步成功删己）：本 tab 记录内容已被服务端确认——删己防跨会话陈旧副本
+ *  回流（boot 并集幂等无害但积灰；他 tab 记录不碰）。discard 路径先到此处后走
+ *  deleteDivergedRecords/discard 族清理——删己先行无害（同一确认语义）。 */
 function clearDocUnsyncedDirty(d: Y.Doc): void {
   if (!unsyncedDirtyDocs.delete(d)) return;
   unsyncedDirtySince.delete(d);            // T7：起点时刻随单源消亡
   unsyncedPendingBytes.delete(d);          // T8：未上行增量随确认归零
   disarmUnloadWarning('unsynced');
   useCanvasStore.setState({ collabEscapePending: false });
+  void localCache?.deleteOwnRecord();      // T18：删己（fire-and-forget——适配器 fail-soft 永不抛）
 }
 
 /** 批0d beforeunload 谓词半边；批1-3 并入 rebuildPending（终态重建窗口旧实例不可读——标记武装）；
@@ -640,7 +666,20 @@ export function safeReload(
   }
   void (async () => {
     const key = opts?.generationCacheKey;
-    if (reason === 'generation' && key) await purgeForeignCaches(key);
+    if (reason === 'generation' && key) {
+      // Y1c T18（spec §3.4 换代禁静默丢）：清整族（purgeForeignCaches 删同 uid:pid 异代库）**前**
+      // 先保全族内全部 dirty/diverged 草稿（他 tab 离线编辑的唯一副本在盘上——本 tab doc 导出
+      // 覆盖不到）——mergeUpdates 并集导出单 .yjs（可回灌=importLocalBackup 同格式）。fail-soft：
+      // 收集/导出失败不阻断 purge/reload（世代隔离正确性主锚；本 tab 内容已由 exportLocalBackup 兜底）。
+      try {
+        const dirty = await collectFamilyDirtyRecords(key);
+        if (dirty.length > 0) {
+          const tag = opts?.generationTag ?? 0;
+          exportRawYjsBackup(Y.mergeUpdates(dirty.map(({ record }) => record.snapshot)), { tag: tag > 0 ? `oldgen${tag}-family` : 'oldgen-family' });
+        }
+      } catch { /* fail-soft——禁静默丢是尽力义务，非阻断闸 */ }
+      await purgeForeignCaches(key);
+    }
     // T8 beforeReload（discard 清持久 diverged 条目——顺序锚=purge 完成才 reload）；无钩子时
     // 保持原同步 reload 语义（不引入多余微任务间隙——t6 同步断言锚）。
     if (opts?.beforeReload) { try { await opts.beforeReload(); } catch { /* fail-soft——不阻断 reload 主链 */ } }
@@ -665,13 +704,13 @@ export function escapeWithLocalExport(): void {
 /** Y0b-5 T6：diverged 放弃出边（裁定 23⑨三出边之二）——同时清 diverged+unsyncedDirty 解除闩锁
  *  （否则 beforeunload 永久确认框），随后 reload 恢复服务端版本（此时未同步守卫已清——用户显式
  *  放弃，safeReload 直通；readOnly 期编辑随重水合丢弃=「放弃本地副本」语义完整）。
- *  Y0b-5 T8：放弃=清持久 diverged 条目（不清=刷新后 diverged 再现——闩锁不可退出的盘上形态，
- *  出口⑳「放弃后清标记恢复自动缓存」）；顺序锚=discardEntry 完成→reload（safeReload beforeReload）。 */
+ *  Y0b-5 T8→Y1c T18 收窄：放弃=清**diverged 记录**（per-tab 形态下不再整库 deleteDatabase——
+ *  整库会连带他 tab 非 diverged 离线记录=静默丢）；顺序锚=清理完成→reload（safeReload beforeReload）。 */
 export function discardLocalDiverged(): void {
   const d = doc;
   if (d) clearDocUnsyncedDirty(d);
   useCanvasStore.setState({ canvasDiverged: false });
-  safeReload('generic', { beforeReload: () => localCache?.discardEntry() });
+  safeReload('generic', { beforeReload: () => localCache?.deleteDivergedRecords() });
 }
 
 /** Y0b-5 T8 spec 修复 1b：diverged 档导出（diverged 内容唯一保全出口）。两形态单源分派：
@@ -1471,6 +1510,14 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         useCanvasStore.setState({ persistUnhealthy: !(msg as { healthy: boolean }).healthy });
         return;
       }
+      // Y1c T18（偏离 36）：durable watermark（服务端 PG 批提交后 broadcastStateless {type:'durable',
+      // pgSeq}——§4.4 辅助显示/观测通道）=savedSeq 唯一在役推进载体（T21 barrier 回执同源接入
+      // advanceSavedSeq）。★provider synced/SyncStatus/连接态不触此处——「已保存」只认持久化回执。
+      if ((msg as { type?: string }).type === 'durable'
+        && typeof (msg as { pgSeq?: unknown }).pgSeq === 'string') {
+        advanceSavedSeq((msg as { pgSeq: string }).pgSeq);
+        return;
+      }
       if (!isCollabDocStatusPayload(msg)) return;
       const st = useCanvasStore.getState();
       if (msg.rev <= st.lastDocStatusRev) return;   // rev 单调守卫——乱序/重复/迟到旧快照全免疫
@@ -1725,6 +1772,7 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   bootDivergedSnapshot = null;
   localSnapshotApplied = false;
   lastReportedDocBytes = 0;
+  savedSeq = 0;   // Y1c T18：持久化水位随会话复位（新代 doc 水位语义独立——旧代 pgSeq 不携带）
   // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带
   lastInboundAt = Date.now();
   unhealthySince = Date.now(); // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
@@ -1740,20 +1788,24 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
 
   // ── Y0b-5 T8：本地持久化绑定（cacheDisabled fail-closed 会话恒 null——T5 语义）──
   // 读盘先行（boot 读取）；回放须在 createProvider 之后（origin=provider 抑制 Update 帧回发）。
-  let bootRecord: LocalCacheRecord | null = null;
+  // Y1c T18（spec §3.4）：boot 读同库**全部**记录（per-tab+legacy 迁移读）——diverged 族并集留存
+  // （exportDivergedContent 消费）、非 diverged 族 mergeUpdates 并集回放。
+  let bootRecords: LocalCacheRecord[] = [];
   if (!session.cacheDisabled && session.cacheKey) {
     localCache = new LocalCollabCache(session.cacheKey, localCacheHooks);
-    bootRecord = await localCache.load();   // fail-soft null（onDegrade 已在降级边沿发）
-    if (bootRecord?.diverged) {
+    bootRecords = await localCache.loadAll();   // fail-soft []（onDegrade 已在降级边沿发）
+    const divergedRecords = bootRecords.filter((r) => r.diverged);
+    if (divergedRecords.length > 0) {
       // 裁定 23⑨ diverged 持久化载体：不自动回放（回放+上行=已拒内容复活→重发散→闩锁不可退出）
-      //——保守武装单源+置 session diverged → SyncBanner 二选一（导出/放弃；放弃清条目见
+      //——保守武装单源+置 session diverged → SyncBanner 二选一（导出/放弃；放弃清 diverged 记录见
       // discardLocalDiverged）。suppressCacheWrites：doc 无 diverged 内容，本会话任何缓存写
       // 都会以「现态」覆盖盘上唯一副本=数据丢失——结构性禁写。
-      // spec 修复 1a/1b：置 boot-diverged 会话标记（3s tick 闩锁短路）+盘上快照留存
-      //（diverged 档导出唯一内容源——内存 doc 是服务端版本/空）。
+      // spec 修复 1a/1b+T18：置 boot-diverged 会话标记（3s tick 闩锁短路）+盘上 diverged 族并集
+      // 留存（多 tab diverged 记录 mergeUpdates 并集——diverged 档导出唯一内容源，内存 doc 是
+      // 服务端版本/空）。
       suppressCacheWrites = true;
       bootDiverged = true;
-      bootDivergedSnapshot = bootRecord.snapshot;
+      bootDivergedSnapshot = Y.mergeUpdates(divergedRecords.map((r) => r.snapshot));
       // 保守武装 beforeunload：内存 doc 无未上行编辑（diverged 唯一副本在盘上,关页不丢）——宁可多一次警告,保守侧安全
       markDocUnsyncedDirty(doc, { skipCacheFlush: true });
       useCanvasStore.setState({ canvasDiverged: true });
@@ -1766,12 +1818,17 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // 本地副本回放（provider 之后——origin=provider 抑制 Update 帧回发：8MB 全量一条 Update 帧会被
   // 2×maxTxBytes 闸拒；上行改走 SS2 差分=importLocalBackup 同款形态）。在 hydration 判定前就位
   // 但不抬渲染门（渲染门仍=服务端 synced——E5 授权语义）。
-  if (bootRecord && !bootRecord.diverged && provider) {
-    Y.applyUpdate(doc!, bootRecord.snapshot, provider);
+  // Y1c T18（spec §3.4 v5-11 场景 A）：双 tab 离线草稿 boot mergeUpdates **CRDT 并集**——两 tab
+  // 独立 clientID，raw merge 安全（pre-tab 记录缺 clientID 交集=无并发冲突面；并集≠用户语义无冲突
+  // ——A 删 B 改同节点等语义冲突由 CRDT 收敛规则裁定，DraftEnvelope 场景 A 同款）。
+  const replayRecords = bootRecords.filter((r) => !r.diverged);
+  if (replayRecords.length > 0 && provider) {
+    const bootSnapshot = Y.mergeUpdates(replayRecords.map((r) => r.snapshot));
+    Y.applyUpdate(doc!, bootSnapshot, provider);
     getUndoManager()?.clear();   // 装载非用户编辑（consumeGenerationJump 同款先例——撤销栈不含缓存装载）
     localSnapshotApplied = true;
-    if (bootRecord.unsyncedDirty) markDocUnsyncedDirty(doc!, { skipCacheFlush: true });   // 保留 dirty 态（重连 forceSync 上行——SS2 差分）
-    if (bootRecord.snapshot.byteLength <= LOCAL_CACHE_MAX_DOC_BYTES) {
+    if (replayRecords.some((r) => r.unsyncedDirty)) markDocUnsyncedDirty(doc!, { skipCacheFlush: true });   // 保留 dirty 态（重连 forceSync 上行——SS2 差分）
+    if (bootSnapshot.byteLength <= LOCAL_CACHE_MAX_DOC_BYTES) {
       useCanvasStore.setState({ localCacheReady: true });   // 能力位=whenSynced(本地库加载)真值+尺寸闸通过
     }
   }
@@ -2020,8 +2077,8 @@ async function teardownSession(): Promise<void> {
   if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
   resetMediaFacts();   // F3 P1：media-facts 会话态全清（watcher 自续排定时器+lazy+pending+纪元++弃在飞
                        // 响应）——离开画布后停后台补拉；lastDoc 释已 destroy doc 引用（会话清理链）
-  // Y0b-5 T8：本地缓存会话清理（hide 监听装卸+adapter teardown 清 timer+关连接——discardEntry
-  // 走显式路径不在此；置 null 先于 teardown 防 teardown 途中排程新写）
+  // Y0b-5 T8：本地缓存会话清理（hide 监听装卸+adapter teardown 清 timer+关连接——diverged
+  // 放弃/deleteOwnRecord 走显式路径不在此；置 null 先于 teardown 防 teardown 途中排程新写）
   if (cacheHideListener) {
     window.removeEventListener('pagehide', cacheHideListener);
     document.removeEventListener('visibilitychange', cacheHideListener);

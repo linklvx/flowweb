@@ -50,6 +50,16 @@ export function exportLocalBackup(d: Y.Doc | null, opts?: LocalBackupOptions): L
   return { yjsBytes: payload.yjs.byteLength, jsonBytes: payload.json.length, nodeCount: payload.nodeCount };
 }
 
+/** Y1c T18（spec §3.4 换代禁静默丢）：原始 CRDT 字节导出——单 .yjs 产物（可回灌=importLocalBackup
+ *  消费同格式）。消费面=换代清族前的他 tab 脏草稿保全（mergeUpdates 并集字节——离线 tab 的
+ *  唯一副本在盘上，无内存 doc 可反投影 ⇒ 不产 .json；不建 temp doc=零新增 applyUpdate 消费面）。 */
+export function exportRawYjsBackup(yjs: Uint8Array, opts?: LocalBackupOptions): number | null {
+  if (yjs.byteLength === 0) return null;
+  const base = `canvas-local-backup${opts?.tag ? `-${opts.tag}` : ''}-${Date.now()}`;
+  downloadBlob(new Blob([yjs], { type: 'application/octet-stream' }), `${base}.yjs`);
+  return yjs.byteLength;
+}
+
 export interface ImportLocalBackupDeps {
   doc: Y.Doc;
   /** 缝：只需 forceSync（HocuspocusProvider 结构子集——origin 判定按引用相等） */

@@ -44,16 +44,31 @@ export function resolveGroupShortcut(e: {
   return null;
 }
 
+/** Y1c T18（spec §3.3 薄 keymap 焦点路由）：Tiptap 编辑器（ySyncPlugin 面——T16 起自带 history
+ *  禁用：textExtensions/prompt-input extensions 均 history:false）内 Ctrl+Z/Y 路由到**统一
+ *  UndoManager**（undoCanvas/redoCanvas——文本+画布同一撤销栈，跨编辑器顺序非全局=产品语义）。
+ *  其余编辑上下文（INPUT/TEXTAREA 原生 undo/AntD 弹层/参考选择模式/视频编辑器）不入本路由——
+ *  编辑器面以 DOM 锚（.ProseMirror/.tiptap——Tiptap 根元素类）判定，非 store 态。 */
+export function isUnifiedUndoEditorSurface(target: HTMLElement | null | undefined): boolean {
+  if (useNodeStore.getState().referenceSelect) return false;   // spec §3.1：参考选择模式期 Ctrl+Z 不生效
+  if (useVideoEditorStore.getState().open) return false;      // 视频编辑器自有 undo（useEditorKeyboard）
+  if (!target || typeof target.closest !== 'function') return false;
+  return !!target.closest('.ProseMirror, .tiptap');
+}
+
 export function useGroupKeyboard() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const s = useCanvasStore.getState();
       // 批2-1 四态化：会话未就绪（idle/pending/failed）禁分组/撤销快捷键
       if (s.hydration !== 'ready') return;
-      if (isGroupEditContext(e.target as HTMLElement)) return;
-
       const action = resolveGroupShortcut(e);
       if (!action) return;
+      // T18 薄 keymap：编辑器面 undo/redo 穿透 isGroupEditContext 早退（history:false——统一 manager
+      // 是编辑器撤销唯一入口）；其余编辑上下文照旧早退（原生 undo 归浏览器/弹层归自身）
+      const unifiedUndoSurface = (action === 'undo' || action === 'redo')
+        && isUnifiedUndoEditorSurface(e.target as HTMLElement | null);
+      if (isGroupEditContext(e.target as HTMLElement) && !unifiedUndoSurface) return;
 
       const selected = s.nodes.filter((n) => n.selected);
       try {

@@ -207,8 +207,8 @@ describe('geometryTrap 锚③：静态棘轮报数 ≤ 有效基线（216 处/39
   //   ss2 档对照注入，存量 allow-list 文件，store 注入是用例存在目的，同 T9/T4/T11 例外）。
   const SRC_ROOT = join(process.cwd(), 'src');
   // T17：G34 只读命令门造案 +1/1（canvasG34.readonlyCommands.test.ts——viewer 零写矩阵）
-  const BASELINE_COUNT = 318;   // T17 评审收口 +1（cellOps P1-1）；Y1c T15 +1（text-domains 造案 openRwWindow）；Y1c T16 +1（t16-xml-domains 造案 openRwWindow）；Y1c T17 +3（t17-array-domains 造案 openRwWindow+C-1 两用例 ns stale 注入）；Y1c T17 双评审收口 +2（Q-I-1 红绿用例 cs 桥断言装置注入）
-  const BASELINE_FILES = 58;    // Y1c T15 +1（canvasIntents.t15-text-domains.spec.ts）；Y1c T16 +1（canvasIntents.t16-xml-domains.spec.ts——XmlFragment 域红绿造案）；Y1c T17 +1（canvasIntents.t17-array-domains.spec.ts——媒体列表 Y.Array 域红绿造案）
+  const BASELINE_COUNT = 321;   // T17 评审收口 +1（cellOps P1-1）；Y1c T15 +1（text-domains 造案 openRwWindow）；Y1c T16 +1（t16-xml-domains 造案 openRwWindow）；Y1c T17 +3（t17-array-domains 造案 openRwWindow+C-1 两用例 ns stale 注入）；Y1c T17 双评审收口 +2（Q-I-1 红绿用例 cs 桥断言装置注入）；Y1c T17 复核残留 +2（1460f4d6 nodeStore 造案两用例注入——当时只跑 nodeStore 套件未随记本锚，T18 按真值补登）；Y1c T18 +1（canvasCollabRuntime.t18.spec resetStore 造案——per-tab/savedSeq/换代族保全接线用例）
+  const BASELINE_FILES = 59;    // Y1c T15 +1（canvasIntents.t15-text-domains.spec.ts）；Y1c T16 +1（canvasIntents.t16-xml-domains.spec.ts——XmlFragment 域红绿造案）；Y1c T17 +1（canvasIntents.t17-array-domains.spec.ts——媒体列表 Y.Array 域红绿造案）；Y1c T18 +1（canvasCollabRuntime.t18.spec.ts——单 UndoManager 收口+per-tab 缓存接线用例）
 
   function* walkTestFiles(dir: string): Generator<string> {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
