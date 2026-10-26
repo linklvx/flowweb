@@ -700,8 +700,13 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       },
     }));
 
-    // 桥接白名单字段到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应）
-    const bridged = Object.entries(config).filter(([k]) => CANVAS_BRIDGE_KEYS.has(k));
+    // 桥接白名单字段到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应）。
+    // T17 复核残留（半落第三入口）：桥源=实际落 ns 的 effective 且限本次 config 键——config
+    // 显式携带域键（C-1 对抗形态：doc/ns 均剔）与结构缺全键拒档（rejectAllKeys）下，被拒键
+    // 不再落 cs 镜像（原从原始 config 桥=doc/ns 拒而 cs 落）。
+    const bridged = Object.entries(effective as unknown as Record<string, unknown>).filter(
+      ([k]) => CANVAS_BRIDGE_KEYS.has(k) && k in config,
+    );
     if (bridged.length > 0) {
       bridgeToCanvasStore(id, Object.fromEntries(bridged));
     }

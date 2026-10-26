@@ -225,6 +225,42 @@ describe('nodeStore (AppNode nested structure)', () => {
     }
   });
 
+  // ── T17 复核残留（quality Minor：半落第三入口）：updateConfig 尾桥原从原始 config 桥——
+  //    config 携 images（C-1 对抗形态：doc/ns 均剔）时 cs 镜像仍落被拒值；rejectAllKeys 结构
+  //    缺档非域桥键同形泛化。修=桥源改 effective（实际落 ns 终态）且限本次 config 键。
+  it('T17 复核残留：updateConfig 桥同门——config 携 images 被拒不落 cs 镜像（现状红）', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const data = new Y.Map();
+      data.set('images', new Y.Array());   // multiImageGen images=Y.Array 域容器在位
+      const n = new Y.Map();
+      n.set('type', 'multiImageGen');
+      n.set('data', data);
+      doc.getMap('nodes').set('mi1', n);
+    });
+    _setIntentDocForTest(doc);
+    try {
+      useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+      useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'mi1', type: 'multiImageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+      // updateConfig 域键判定源=ns existing.type——nodeStore 侧须真实在案（mi1 multiImageGen）
+      useNodeStore.setState((s: any) => ({ nodes: { ...s.nodes, mi1: { id: 'mi1', type: 'multiImageGen', data: {} } } }));
+      useNodeStore.getState().updateConfig('mi1', {
+        images: [{ id: 'rejected-item', url: 'blob:x', name: 'x.png', status: 'success' }],
+        status: 'done',
+      });
+      // ns：images 剔（config 域键不落——C-1 形态）+status 照落
+      const nsData = useNodeStore.getState().nodes['mi1'].data as any;
+      expect(nsData.images).toBeUndefined();
+      expect(nsData.status).toBe('done');
+      // cs 镜像：status 桥（值=effective）+images 不桥（被拒键半落第三入口闭合）
+      const csNode = useCanvasStore.getState().nodes.find((n: any) => n.id === 'mi1')!;
+      expect((csNode.data as any).status).toBe('done');
+      expect((csNode.data as any).images).toBeUndefined();
+    } finally {
+      _setIntentDocForTest(null);
+    }
+  });
+
   // ── Y1c T16 双评审收口 C-1（quality 探针实证——评审员真 store 复现）：updateConfig 全量终态
   //    摊开 ns 投影域键 → seam 无条件拒 → outcome 剥除后整体替换 ns → prompt 键消失（生成判据
   //    !nodeData?.prompt?.text 永久失效）。红测=探针复现：非域键写后域键保留+零 write_reject。
