@@ -4,6 +4,8 @@
 // 错误面透传 body，此处解包为 {stillOver:true,bytes,limit} 不上抛；其余错误（503 SHRINK_BUSY
 // 等）照 throw（调用方 message.error 兜底）。
 import { apiFetch } from './client';
+import type { RuntimeProjection } from '@flowweb/shared';
+import type { RuntimeEventWireRow } from '@/stores/runtimeFeedTypes';
 
 /** T8 body：deleteNodeIds/keepNodeIds 二选一（都传服务端 400）；空体或 recalibrate:true=纯校准 */
 export interface ShrinkBody {
@@ -152,4 +154,35 @@ export function replaceNodeMedia(projectId: string, nodeId: string, mediaId: str
  * null≡缺失等值；旧链 deleteNodeDataKeys 删键随直写收口退役〕）。 */
 export function clearNodeMedia(projectId: string, nodeId: string, opts?: MediaCommandOpts): Promise<MediaCommandResult> {
   return runMediaCommand(projectId, nodeId, (expectedRev) => ({ action: 'clear', expectedRev }), opts);
+}
+
+// ════ Y1c T22 收口批（C-1 客户端半链生产接线）：RuntimeFeed HTTP 游标读面 ════
+// GET /collab/runtime-feed/:projectId/{snapshot,events}（apiFetch 惯例——envelope 解包+401 电平+
+// 错误分型透传）；消费面=runtimeStore.runtimeFeedFetchers 生产注入（armSession 接线——修前
+// 恒 null=「唯一交付=HTTP 游标」客户端零通道，spec 注入缝掩盖生产断链）。
+
+/** snapshot 信封（服务端 RuntimeFeedSnapshotEnvelope 同构——cursor 三元 wire string）。 */
+export interface RuntimeFeedSnapshotEnvelope {
+  snapshot: RuntimeProjection;
+  cursor: { historyId: string; generation: number; feedSeq: string };
+  minRetainedSeq: string;
+  historyId: string;
+}
+
+/** events 信封（升序 ≤200；latestFeedSeq/minRetainedSeq/historyId 随行——缺口/换代判定归客户端）。 */
+export interface RuntimeFeedEventsEnvelope {
+  events: RuntimeEventWireRow[];
+  latestFeedSeq: string;
+  minRetainedSeq: string;
+  historyId: string;
+}
+
+/** 首连/换代/游标失效快照（RR 读——C-3 修复后 cursor 恒 ≥ 折叠尾）。 */
+export function fetchRuntimeFeedSnapshot(projectId: string): Promise<RuntimeFeedSnapshotEnvelope> {
+  return apiFetch<RuntimeFeedSnapshotEnvelope>(`/collab/runtime-feed/${projectId}/snapshot`);
+}
+
+/** 增量续传（GET after=<cursor>&limit≤200——升序；畸形 after 由服务端 400 fail-fast）。 */
+export function fetchRuntimeFeedEvents(projectId: string, after: string, limit: number): Promise<RuntimeFeedEventsEnvelope> {
+  return apiFetch<RuntimeFeedEventsEnvelope>(`/collab/runtime-feed/${projectId}/events?after=${encodeURIComponent(after)}&limit=${limit}`);
 }

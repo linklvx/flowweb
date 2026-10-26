@@ -78,6 +78,7 @@ const STORE_SETSTATE_FILES = [
   'src/stores/canvasIntents.ts',         // 批4b-1 意图漏斗 store 投影回填（projectIntentToStore）
   'src/stores/canvasHistory.ts',         // 0.5 接线前瞻项（现状无直调）
   'src/stores/mediaFactsRuntime.ts',     // T16 pendingFacts 消费生命周期（mediaFacts 缓存 merge/consume/reset 四写点——b7d11a41 落地漏白名单登记，T18 verify 全量暴露补录）
+  'src/stores/runtimeStore.ts',          // Y1c T22 收口批（I-4）：projectRuntimeExecToNodeStore=runtime 投影→nodeStore.execStatus 唯一合法写者（doc.exec 停读后数据源单点——mediaFactsRuntime 同族先例：store 投影回填类）
   'src/pages/canvas/page.tsx',           // 生命周期豁免：resetSession（:85-86 清 store）/openSession（:113 装载 projectId）
   'src/hooks/useTrackCanvasPointerShift.ts',    // UI 交互态（shift 键跟踪），非协作数据
   'src/hooks/useMarqueeSelectionGuard.ts',      // UI 交互态（框选 guard），非协作数据

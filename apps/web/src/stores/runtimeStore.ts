@@ -4,13 +4,14 @@
 // 合成=read model ⊕ projection——composeRenderModel shared 单源）。
 //
 // 单 reducer（spec §7）：hint>cursor→GET after=cursor limit≤200 升序应用+(projectId,feedSeq) 去重
-// +缺口重取（返回不连续=从 cursor 重取）+cursor<minRetainedSeq→全量快照+historyId 不匹配→全量
-// 快照+清投影；unknown kind 忽略计数；docSeq 应用规则（事件 docSeq≤客户端已同步 pgSeq 才应用否则
-// buffer——feed 与 doc 双通道独立推进，事件先到 doc 未达=buffer 窗归 fetch 循环下轮）。
+// +缺口重取（I-7 收口：缺口→全量快照——越洞应用=永久丢事件）+cursor<minRetainedSeq→全量
+// 快照+historyId 不匹配→全量快照；unknown kind 忽略计数；docSeq 应用规则=未实现真 buffer
+// （M-11 勘正——见 ApplyEventsOutcome.buffered 注；docSeq 咨询性）。
 // IDB 持久化 {projectId,generation,feedSeq,pgSeq,projection,fetchedAt}——TTL 7 天+换代清整族；
 // 离线=上次已知+stale 角标+执行禁用 fail-closed（resolveRuntimeStoreFreshness shared 单源）。
-// 通知通道：provider stateless {type:'feed-hint',latestFeedSeq}（不带事件体）+心跳同形——
-// 两通道都只触发拉取（「到达序」无关紧要，cursor 有序）。
+// 通知通道：provider stateless {type:'feed-hint',latestFeedSeq}（不带事件体）+心跳同形
+// （C-1 收口：心跳增补档同路追平——parseFeedHintPayload 两形）——两通道都只触发拉取
+// （「到达序」无关紧要，cursor 有序）。
 import { create } from 'zustand';
 import {
   composeRenderModel, mergeRuntimeProjection, resolveRuntimeStoreFreshness,
@@ -36,9 +37,14 @@ export function projectRuntimeExecToNodeStore(): void {
       if (st !== 'loading' && st !== 'done' && st !== 'error' && st !== 'skipped') continue;
       m.set(id, {
         status: st,
-        ...(entry.execStatus?.execSeq !== undefined ? { intentId: entry.execStatus.execSeq } : {}),
+        // T22 收口批 I-8：intentId 真键随 payload 落投影（execSeq=执行代际族——旧 fallback 兜底保留）
+        ...(entry.execStatus?.intentId !== undefined ? { intentId: entry.execStatus.intentId }
+          : entry.execStatus?.execSeq !== undefined ? { intentId: entry.execStatus.execSeq } : {}),
         ...(entry.execStatus?.errorCode !== undefined ? { errorCode: entry.execStatus.errorCode } : {}),
         ...(entry.execStatus?.attempts !== undefined ? { attempts: entry.execStatus.attempts } : {}),
+        // T22 收口批 I-8：rearmable=EXHAUSTED 判据（ImageConfigPanel/VideoConfigPanel
+        // entry.rearmable===false 轮换档——修前 payload 丢键致该档结构性不可达）
+        ...(entry.execStatus?.rearmable !== undefined ? { rearmable: entry.execStatus.rearmable } : {}),
         ...(entry.artifact?.mediaId !== undefined ? { fileId: entry.artifact.mediaId } : {}),
       });
     }
@@ -108,7 +114,12 @@ export interface ApplyEventsOutcome {
   appliedSeq: string;
   /** 检出缺口（首事件 feedSeq>cursor+1——调用方从 cursor 重取或全量） */
   gap: boolean;
-  /** docSeq 应用门 buffer 数（事件先到 doc 未达——下轮再试；本实现非阻塞登记） */
+  /** docSeq 应用门 buffer 数（事件先到 doc 未达——下轮再试）。
+   *  T22 收口批 M-11 勘正：docSeq 应用门**未实现真 buffer**（本计数恒 0——非阻塞登记）。
+   *  卡面规则「事件 docSeq≤客户端已同步 pgSeq 才应用否则 buffer」需接 doc 通道 pgSeq 单源
+   *  （advanceSavedSeq/durable 水位），与 feed 通道独立推进的联动力=fetch 循环下轮重试——
+   *  现实现=事件全应用（快照/增量面 docSeq 咨询性），越洞风险由 C-3 服务端 cursor 一致性+
+   *  客户端 gap→全量快照收口；真 buffer 接线登记 plan T22 收口批（不静默冒充已实现）。 */
   buffered: number;
   /** unknown kind 忽略数 */
   unknown: number;
@@ -168,6 +179,9 @@ function slotOfEventWire(e: RuntimeEventWireRow): [string, Record<string, unknow
       ...(p.errorCode !== undefined ? { errorCode: String(p.errorCode) } : {}),
       ...(p.artifactRev !== undefined ? { artifactRev: Number(p.artifactRev) } : {}),
       ...(p.execSeq !== undefined ? { execSeq: String(p.execSeq) } : {}),
+      // T22 收口批 I-8：intentId/rearmable（词表扩键——EXHAUSTED 判据客户端可达）
+      ...(p.intentId !== undefined ? { intentId: String(p.intentId) } : {}),
+      ...(p.rearmable !== undefined ? { rearmable: p.rearmable === true } : {}),
       nodeVersion,
     } }];
   }
@@ -190,7 +204,7 @@ function slotOfEventWire(e: RuntimeEventWireRow): [string, Record<string, unknow
 // ── selectors（消费面）────────────────────────────────────────────────────────────────
 
 /** 节点运行时投影槽（无投影=null——unknown≠idle）。 */
-export function selectRuntimeEntry(nodeId: string): { execStatus?: { status: string; errorCode?: string; attempts?: number; execSeq?: string }; artifact?: { mediaId?: string; resultRef?: string; artifactRev: number }; deletedAt?: unknown } | null {
+export function selectRuntimeEntry(nodeId: string): { execStatus?: { status: string; errorCode?: string; attempts?: number; execSeq?: string; intentId?: string; rearmable?: boolean }; artifact?: { mediaId?: string; resultRef?: string; artifactRev: number }; deletedAt?: unknown } | null {
   const s = useRuntimeFeedStore.getState();
   return s.projection?.nodes[nodeId] ?? null;
 }
@@ -289,9 +303,11 @@ export async function clearProjectionInIdb(projectId: string): Promise<void> {
 
 // ── 会话编排（fetch 循环+feed-hint 处理）──────────────────────────────────────────────
 
-/** 产物事件 sink 缝（mediaFactsRuntime dispatchRuntimeArtifacts 注入——exec.artifact 携 mediaId
- *  →定向拉 facts：尺寸回写链删除后的 facts 触发面，spec §6.7「feed 事件只带 {nodeId,mediaId}
- *  →客户端查既有 media-facts 通道」）。 */
+/** 产物事件 sink 缝（canvasCollabRuntime armSession 注入 pullMediaFactsForIds——exec.artifact
+ *  携 mediaId →定向拉 facts：尺寸回写链删除后的 facts 触发面，spec §6.7「feed 事件只带
+ *  {nodeId,mediaId}→客户端查既有 media-facts 通道」）。
+ *  T22 收口批 M-18 勘正：本缝即唯一 sink 面（mediaFactsRuntime 侧同名 setRuntimeArtifactSink/
+ *  dispatchRuntimeArtifacts 死码已删——commit message 曾误述注入路径）。 */
 let artifactSink: ((mediaIds: readonly string[]) => void) | null = null;
 export function setRuntimeArtifactSinkDirect(fn: ((mediaIds: readonly string[]) => void) | null): void { artifactSink = fn; }
 
@@ -331,7 +347,8 @@ export async function fetchRuntimeSnapshot(projectId: string): Promise<void> {
   });
 }
 
-/** 增量追平循环（单飞；缺口→从 cursor 重取一轮；cursor<minRetained 或 historyId 不匹配→全量快照）。 */
+/** 增量追平循环（单飞；I-7：缺口→全量快照（不推进 cursor）；cursor<minRetained 或 historyId
+ *  不匹配→全量快照；连续未追平→下轮续拉 ≤200×10）。 */
 export async function syncRuntimeFeed(): Promise<void> {
   const s0 = useRuntimeFeedStore.getState();
   if (s0.syncing || !s0.projectId || !runtimeFeedFetchers.events) return;
@@ -353,6 +370,10 @@ export async function syncRuntimeFeed(): Promise<void> {
       const r = applyEventsToProjection(current, s.cursor, env.events);
       dispatchNewArtifacts(env.events);   // 产物事件 → media-facts 定向拉取（尺寸回写链删除后的触发面）
       if (r.needsSnapshot) { await fetchRuntimeSnapshot(s.projectId); return; }   // doc.vacuumed——换代全量
+      // T22 收口批 I-7：缺口=不推进 cursor 直接全量快照（原「越洞应用+appliedSeq 推到末位+gap∧
+      // caughtUp 直接 return」=洞内事件永久丢——retention 清扫窗形态可达：cursor 落在已回收区间时
+      // 首批必 gap 且 caughtUp，旧径直接 return=漏事件；快照档服务端折叠全量=最重但必正确）
+      if (r.gap) { await fetchRuntimeSnapshot(s.projectId); return; }
       const caughtUp = BigInt(env.latestFeedSeq) <= BigInt(r.appliedSeq);
       useRuntimeFeedStore.setState({
         projection: r.projection,
@@ -361,7 +382,6 @@ export async function syncRuntimeFeed(): Promise<void> {
         ...(caughtUp ? { fetchedAtMs: Date.now() } : {}),
       });
       projectRuntimeExecToNodeStore();
-      if (r.gap && !caughtUp) continue;   // 缺口——从 cursor（已推进位）重取一轮
       if (caughtUp) {
         const snap = useRuntimeFeedStore.getState().projection;
         if (snap) {

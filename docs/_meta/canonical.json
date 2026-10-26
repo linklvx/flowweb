@@ -133,7 +133,7 @@
         },
         {
           "src": "apps/web/scripts/eslint-rules/collab-static-asserts.js",
-          "line": 211,
+          "line": 212,
           "text": "'（spec 2026-09-30-collab-recovery-master-plan 批5）。';"
         }
       ]

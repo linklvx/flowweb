@@ -22,6 +22,9 @@ describe('Y1c T5b 契约冻结：RuntimeEvent taxonomy（spec §7 v5.4⑭——e
     const payloads: RuntimeEventPayload[] = [
       { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'RUNNING', attempts: 1, nodeVersion: '7' },
       { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'FAILED', attempts: 2, errorCode: 'E_PROV', artifactRev: 3, nodeVersion: '9' },
+      // T22 收口批 I-8（Controller 裁定扩词表根修）：intentId/rearmable 两可选键入 taxonomy
+      //（EXHAUSTED 判据客户端可达——非静默改冻结词表，spec §7 v5.4⑭ 同步修订）
+      { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'error', attempts: 3, errorCode: 'INTENT_EXHAUSTED', intentId: 'tok-1', rearmable: false, nodeVersion: '10' },
       { v: 1, kind: 'exec.artifact', nodeId: 'n1', mediaId: 'm1', resultRef: 'ref-1', artifactRev: 3, nodeVersion: '9' },
       { v: 1, kind: 'node.deleted', nodeId: 'n1', lifecycleSeq: '15', nodeVersion: '15' },
       { v: 1, kind: 'node.restored', nodeId: 'n1', lifecycleSeq: '16', nodeVersion: '16' },
@@ -30,10 +33,11 @@ describe('Y1c T5b 契约冻结：RuntimeEvent taxonomy（spec §7 v5.4⑭——e
     for (const p of payloads) expect(p.v).toBe(RUNTIME_EVENT_PAYLOAD_VERSION);
     expect(Object.keys(payloads[0]).sort()).toEqual(['attempts', 'kind', 'nodeId', 'nodeVersion', 'status', 'v']);
     expect(Object.keys(payloads[1]).sort()).toEqual(['artifactRev', 'attempts', 'errorCode', 'kind', 'nodeId', 'nodeVersion', 'status', 'v']);
-    expect(Object.keys(payloads[2]).sort()).toEqual(['artifactRev', 'kind', 'mediaId', 'nodeId', 'nodeVersion', 'resultRef', 'v']);
-    expect(Object.keys(payloads[3]).sort()).toEqual(['kind', 'lifecycleSeq', 'nodeId', 'nodeVersion', 'v']);
+    expect(Object.keys(payloads[2]).sort()).toEqual(['attempts', 'errorCode', 'intentId', 'kind', 'nodeId', 'nodeVersion', 'rearmable', 'status', 'v']);
+    expect(Object.keys(payloads[3]).sort()).toEqual(['artifactRev', 'kind', 'mediaId', 'nodeId', 'nodeVersion', 'resultRef', 'v']);
     expect(Object.keys(payloads[4]).sort()).toEqual(['kind', 'lifecycleSeq', 'nodeId', 'nodeVersion', 'v']);
-    expect(Object.keys(payloads[5]).sort()).toEqual(['generation', 'kind', 'v']);
+    expect(Object.keys(payloads[5]).sort()).toEqual(['kind', 'lifecycleSeq', 'nodeId', 'nodeVersion', 'v']);
+    expect(Object.keys(payloads[6]).sort()).toEqual(['generation', 'kind', 'v']);
   });
   it('RuntimeEventRow 列集冻结：@@unique([projectId,feedSeq])+@@index([projectId,generation,feedSeq])+docSeq? 下界列', () => {
     const row: RuntimeEventRow = {
@@ -51,15 +55,16 @@ describe('Y1c T5b 契约冻结：RuntimeEvent taxonomy（spec §7 v5.4⑭——e
 });
 
 describe('Y1c T5b 契约冻结：PII 扫描纯函数（事件写入前——禁 prompt/正文/URL 原文）', () => {
-  it('全部五 kind 合法 payload 零违例（冻结 taxonomy 不误伤）', () => {
+  it('全部五 kind 合法 payload 零违例（冻结 taxonomy 不误伤——I-8 扩键 intentId/rearmable 同面）', () => {
     const legal: RuntimeEventPayload[] = [
       { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'RUNNING', attempts: 1, nodeVersion: '7' },
+      { v: 1, kind: 'exec.status', nodeId: 'n1', status: 'error', attempts: 3, errorCode: 'INTENT_EXHAUSTED', intentId: 'tok-1', rearmable: false, nodeVersion: '10' },
       { v: 1, kind: 'exec.artifact', nodeId: 'n1', artifactRev: 1, nodeVersion: '7' },
       { v: 1, kind: 'node.deleted', nodeId: 'n1', lifecycleSeq: '1', nodeVersion: '7' },
       { v: 1, kind: 'node.restored', nodeId: 'n1', lifecycleSeq: '2', nodeVersion: '8' },
       { v: 1, kind: 'doc.vacuumed', generation: 4 },
     ];
-    for (const p of legal) expect(runtimeEventPayloadPiiViolations(p)).toEqual([]);
+    for (const p of legal) expect(runtimeEventPayloadPiiViolations(p)).toEqual([]);   // PII 扫描面对扩键零误伤
   });
   it('业务 bug 形态拦截：prompt/正文/URL/HTML 键命中即报（返回违例键清单）', () => {
     expect(runtimeEventPayloadPiiViolations({ v: 1, kind: 'exec.status', nodeId: 'n1', status: 'RUNNING', attempts: 1, nodeVersion: '7', promptText: '画一只猫' })).toContain('promptText');

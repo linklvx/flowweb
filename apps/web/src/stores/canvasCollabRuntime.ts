@@ -36,8 +36,10 @@ import type { ExecStatusEntry } from './execStatusView';
 // Y1b T16：mediaFacts 拉取/暂存/消费会话编排（nodeStore.mediaFacts 唯一写者——三挂点：
 // 重连全量拉/fileId 到达判定/切项目清空；本模块零事实逻辑，全在 mediaFactsRuntime）
 import { pullMediaFactsFull, onDocRefsChanged, resetMediaFacts, pullMediaFactsForIds } from './mediaFactsRuntime';
-import { setRuntimeArtifactSinkDirect, setRuntimeIdbEnabled } from './runtimeStore';
+import { setRuntimeArtifactSinkDirect, setRuntimeIdbEnabled, runtimeFeedFetchers } from './runtimeStore';
 import { initRuntimeFeed, resetRuntimeFeed, handleFeedHint, projectRuntimeExecToNodeStore } from './runtimeStore';
+// Y1c T22 收口批（C-1）：runtime feed HTTP 游标客户端（生产 fetcher 注入源——armSession 接线）
+import { fetchRuntimeFeedSnapshot, fetchRuntimeFeedEvents } from '@/api/collabApi';
 // 批1-0 transport 薄层（门 B 裁决）——Y0b-5 T3b 起改形为 socket 单实例注册表（needKick 语义废弃）：
 // 注入类唯一构造点保留，恢复所有权归 connection-supervisor
 import { createReconnectingWebSocket } from '@/collab/reconnectTransport';
@@ -1652,10 +1654,10 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   p.on('stateless', ({ payload }: any) => {
     // Y1c T22（spec §7 唯一交付=HTTP 游标）：feed-hint 通知（不带事件体只带 latestFeedSeq——
     // stateless 通知与心跳同形）→ handleFeedHint 拉取追平（h≤cursor 忽略）。
-    try {
-      const parsed = JSON.parse(payload as string) as { type?: string; latestFeedSeq?: string };
-      if (parsed?.type === 'feed-hint' && typeof parsed.latestFeedSeq === 'string') handleFeedHint(parsed.latestFeedSeq);
-    } catch { /* 非 JSON 载荷静默透传（既有 stateless 通用通告通道语义不变） */ }
+    // T22 收口批 C-1：心跳同形载荷放宽——{type:'heartbeat',latestFeedSeq}（SG enricher 增补档）
+    // 与 feed-hint 同路追平（修前只认 feed-hint=心跳载荷被静默丢弃，「漏通知仅心跳追平」语料断裂）。
+    const feedHint = parseFeedHintPayload(payload as string);
+    if (feedHint !== null) handleFeedHint(feedHint);
     try {
       const msg = JSON.parse(payload);
       if (isCollabConnStatusPayload(msg)) {
@@ -2153,6 +2155,28 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   armSession(epoch);
 }
 
+/** Y1c T22 收口批（C-1）：stateless feed-hint/心跳增补载荷解析（两通道同形——
+ *  {type:'feed-hint'|'heartbeat',latestFeedSeq} 只带水位不带事件体，唯一交付=HTTP 游标）。
+ *  非 JSON/非两形/缺水位=null（既有 stateless 通用通告通道静默透传语义不变）。
+ *  独立导出纯函数=可测面（修前心跳形态在本 handler 被静默丢弃——「漏通知仅心跳追平」语料断裂）。 */
+export function parseFeedHintPayload(raw: string): string | null {
+  try {
+    const parsed = JSON.parse(raw) as { type?: string; latestFeedSeq?: string };
+    if ((parsed?.type === 'feed-hint' || parsed?.type === 'heartbeat') && typeof parsed.latestFeedSeq === 'string') {
+      return parsed.latestFeedSeq;
+    }
+  } catch { /* 非 JSON 载荷——非本协议通告 */ }
+  return null;
+}
+
+/** Y1c T22 收口批（C-1）：runtime feed 生产 fetcher 接线（snapshot/events 两函数——collabApi
+ *  apiFetch 惯例）。修前 runtimeFeedFetchers 生产恒 null（全仓零赋值——spec 注入缝掩盖生产断链：
+ *  服务端旧通道已拆、新通道客户端零消费者）。armSession 会话起点调用；幂等纯赋值。 */
+export function wireRuntimeFeedProductionFetchers(): void {
+  runtimeFeedFetchers.snapshot = (projectId) => fetchRuntimeFeedSnapshot(projectId);
+  runtimeFeedFetchers.events = (projectId, after, limit) => fetchRuntimeFeedEvents(projectId, after, limit);
+}
+
 /** Y0b-5 T4（裁定 23⑦）：armSession——水合成功会话武装（水合成功路径与 completeHydration 自愈
  *  路径共用同一函数；从 initCollab 超时 return 后原被跳过的整段抽取）：viewport 恢复/
  *  recomputeConnStatus/applyDocToStore+hydration ready 写点（ready 唯一写点随本函数单点化）/
@@ -2245,6 +2269,7 @@ function armSession(epoch: number): void {
   projectRuntimeExecToNodeStore();
   // T22：feed 会话起点（IDB 离线兜底载入+首连全量快照——统一 cursor 真值）；失败静默（下个 hint/心跳重试）。
   // 产物事件 sink：exec.artifact 携 mediaId→media-facts 定向拉取（尺寸回写链删除后的 facts 触发面）。
+  wireRuntimeFeedProductionFetchers();   // T22 收口批 C-1：生产 fetcher 注入（修前恒 null——断链根修）
   setRuntimeArtifactSinkDirect((mediaIds) => { pullMediaFactsForIds(mediaIds); });
   setRuntimeIdbEnabled(!session?.cacheDisabled);   // T8 fail-closed 对齐：cacheDisabled 会话零 IDB 交互
   if (session?.pid) void initRuntimeFeed(session.pid).catch(() => undefined);

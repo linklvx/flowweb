@@ -8,7 +8,7 @@
 //   reducer，响应恒携 latestFeedSeq/minRetainedSeq/historyId）。
 // 鉴权=全局 AuthGuard（JWT——非 public 前缀路径默认会话面）+ProjectPermissionService.assertEditor
 // （项目成员读门——feed 事件虽经 PII 扫描，成员门维持与 readCanvas 同尺）。
-import { Controller, Get, Param, Query, ParseIntPipe, DefaultValuePipe, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Query, ParseIntPipe, DefaultValuePipe, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { RuntimeFeedService } from './runtime-feed.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
@@ -36,7 +36,12 @@ export class RuntimeFeedController {
     @Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number,
   ) {
     await this.perm.assertEditor(projectId, (req as { user?: { id?: string } }).user?.id ?? '');
-    const afterSeq = BigInt(/^\d+$/.test(after ?? '') ? after : '0');
+    // T22 收口批 M-16：after 畸形=400（原静默折 0——客户端游标损坏被掩盖为全量重放流量；
+    // fail-fast 让调用方以 snapshot 自愈）
+    if (!/^\d+$/.test(after ?? '')) {
+      throw new BadRequestException(`after 必须为非负十进制串（got: ${JSON.stringify(after)}）`);
+    }
+    const afterSeq = BigInt(after);
     const events = await this.feed.readAfter(projectId, afterSeq, limit);
     const [latestFeedSeq, minRetainedSeq, historyId] = await Promise.all([
       this.feed.latestFeedSeq(projectId),

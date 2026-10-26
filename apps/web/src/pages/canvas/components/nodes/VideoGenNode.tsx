@@ -33,6 +33,8 @@ import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBound
 // B6-1（Spec B）：handle 可用性单源谓词——videoGen 现状保留（无 editMode 门、双侧常开=谓词默认分支）
 import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
+// Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径（ImageGenNode 同型四节点族）
+import { runtimeMediaIdOf } from '@/stores/runtimeStore';
 import axios from 'axios';
 import { toFlowaiUrl } from '@/api/mediaApi';
 
@@ -53,7 +55,8 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;
   // R2b-5：onError 自愈直通 <video>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
+  // T22 C-2：读径=runtime 投影 artifact.mediaId（exec.artifact overlay）→ doc 残留 fileId（legacy 兜底）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(runtimeMediaIdOf(id) ?? fileId);
   const { url: refVideoUrl, onError: onRefVideoError } = useMediaUrl(referenceVideo);
   // Y1b T16：媒体事实消费（materialize processing/failed——fileId 已交付而字节在途/终态失败的真实通道）
   const mediaFact = useMediaFact(fileId);

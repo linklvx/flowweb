@@ -142,4 +142,36 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
     const after = await prisma.runtimeEvent.count({ where: { projectId: PID } });
     expect(after).toBe(before);   // 零新事件（幂等前置命中）
   });
+
+  it('T22 收口批 M-10：并发同 (nodeId,artifactRev) 双投递=恰一事件对（幂等前置迁事务内 fence 锁后——原事务外先检=TOCTOU 双写红）', async () => {
+    await seedActiveFence('n-race-m10');
+    // 确定性 TOCTOU 构造：外持 DeliveryFence 行锁——两投递的幂等前置（修前=事务外）先各自完成
+    // （双过检：彼时零事件），事务体在 fence FOR UPDATE 上排队；锁释放后串行执行：
+    // 修前第二事务无复检=双写 4 事件（红）；修后第二事务 fence 锁后见首事务已提交事件=no-op（恰 2）
+    let fenceTaken = false;
+    const holder = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "projectId" FROM "DeliveryFence" WHERE "projectId" = ${PID}::text AND "nodeId" = 'n-race-m10' FOR UPDATE`;
+      fenceTaken = true;
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    for (let i = 0; i < 100 && !fenceTaken; i += 1) await new Promise((r) => setTimeout(r, 10));
+    expect(fenceTaken).toBe(true);
+    const before = await prisma.runtimeEvent.count({ where: { projectId: PID } });
+    const both = await Promise.all([
+      docs.deliverArtifact(PID, { nodeId: 'n-race-m10', targetField: 'fileId', value: 'm-race', exec: { ...execDonePatch, artifactRev: 7 } }),
+      docs.deliverArtifact(PID, { nodeId: 'n-race-m10', targetField: 'fileId', value: 'm-race', exec: { ...execDonePatch, artifactRev: 7 } }),
+    ]);
+    await holder;
+    expect(both.every((r) => r.data.written === true)).toBe(true);   // 第二投递=幂等 no-op written:true
+    const delta = (await prisma.runtimeEvent.count({ where: { projectId: PID } })) - before;
+    expect(delta).toBe(2);   // 恰 exec.artifact+exec.status 一对——修前双过检双写=4
+  }, 20_000);
+
+  it('T22 收口批 I-8：writeExecStatus {intentId,rearmable} 随 exec.status payload 落 feed（面板 EXHAUSTED 判据可达——修前 payload 丢键红）', async () => {
+    await docs.writeExecStatus(PID, 'n1', { status: 'error', errorCode: 'INTENT_EXHAUSTED', attempts: 3, rearmable: false, intentId: 'tok-i8' });
+    const evs = await prisma.runtimeEvent.findMany({ where: { projectId: PID, kind: 'exec.status' }, orderBy: { feedSeq: 'desc' } });
+    const ev = evs.find((e) => (e.payload as { errorCode?: string }).errorCode === 'INTENT_EXHAUSTED');
+    expect(ev).toBeDefined();
+    expect(ev!.payload).toMatchObject({ nodeId: 'n1', status: 'error', attempts: 3, intentId: 'tok-i8', rearmable: false });   // 词表扩键（spec §7 v5.4⑭ 同批修订）
+  });
 });

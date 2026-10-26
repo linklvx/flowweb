@@ -54,7 +54,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [generateCount, setGenerateCount] = useState(1);
 
   // Y0b-2 T6（Z95 轮换）：投影 done（下一击=新"重新生成"）或 error∧rearmable:false（EXHAUSTED 不自锁）
-  // ⇒ 丢弃持有——判据单源=doc 投影（服务端权威跨刷新存活，非组件 ref 记忆）
+  // ⇒ 丢弃持有——判据单源=投影 entry（T22 收口批 I-8 同步选型：nodeStore.execStatus ← runtime
+  // 投影〔projectRuntimeExecToNodeStore〕，intentId/rearmable 随 exec.status 事件 payload 落键
+  // ——修前 payload 丢键致本判据 rearmable===false 档结构性不可达；词表扩键=spec §7 v5.4⑭ 同批）
   useEffect(() => {
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
       const pid = useCanvasStore.getState().projectId;

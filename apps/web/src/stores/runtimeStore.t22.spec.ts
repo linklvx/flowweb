@@ -10,7 +10,7 @@ import {
   applyEventsToProjection, useRuntimeFeedStore, projectRuntimeExecToNodeStore,
   runtimeMediaIdOf, runtimeFreshness, handleFeedHint, setRuntimeArtifactSinkDirect,
   persistProjectionToIdb, loadProjectionFromIdb, clearProjectionInIdb,
-  runtimeFeedFetchers, resetRuntimeFeed,
+  runtimeFeedFetchers, resetRuntimeFeed, syncRuntimeFeed,
 } from './runtimeStore';
 import type { RuntimeEventWireRow } from './runtimeFeedTypes';
 import { useNodeStore } from './nodeStore';
@@ -157,6 +157,71 @@ describe('Y1c T22 G5：新鲜度/feed-hint/产物 sink', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(sink).toHaveBeenCalledWith(['m-art']);
     runtimeFeedFetchers.events = null;
+  });
+});
+
+describe('Y1c T22 收口批：syncRuntimeFeed 追平循环分支（I-7 缺口→全量快照+M-2 historyId 不匹配）', () => {
+  beforeEach(() => { resetRuntimeFeed(); setRuntimeArtifactSinkDirect(null); runtimeFeedFetchers.snapshot = null; runtimeFeedFetchers.events = null; });
+  const ev = (feedSeq: string, payload: Record<string, unknown>, kind: string): RuntimeEventWireRow =>
+    ({ id: `e${feedSeq}`, feedSeq, generation: 0, kind, payload: { v: 1, ...payload }, docSeq: null, createdAtMs: 0 });
+
+  it('I-7 gap×caughtUp：检出缺口且已追平 → 不推进 cursor 直接全量快照（原「越洞应用+appliedSeq 推末位+caughtUp return」=洞内事件永久丢）', async () => {
+    const snapshotFn = vi.fn(async () => ({
+      snapshot: { projectId: 'p1', generation: 0, feedSeq: '9', pgSeq: '1', nodes: { n5: { execStatus: { status: 'done', nodeVersion: '9' } } } },
+      cursor: { historyId: 'h', generation: 0, feedSeq: '9' }, minRetainedSeq: '0', historyId: 'h',
+    }));
+    runtimeFeedFetchers.snapshot = snapshotFn as never;
+    runtimeFeedFetchers.events = (async () => ({
+      events: [ev('5', { kind: 'exec.status', nodeId: 'n5', status: 'done', attempts: 1, nodeVersion: '5' }, 'exec.status')],   // 缺 4（cursor=3 起 gap）
+      latestFeedSeq: '5', minRetainedSeq: '0', historyId: 'h',   // latest=5 ≤ applied=5 ⇒ caughtUp
+    })) as never;
+    useRuntimeFeedStore.setState({
+      projectId: 'p1', cursor: { historyId: 'h', generation: 0, feedSeq: '3' },
+      projection: proj({ feedSeq: '3' }), fetchedAtMs: Date.now(), syncing: false,
+    });
+    await syncRuntimeFeed();
+    expect(snapshotFn).toHaveBeenCalledWith('p1');   // 红：修前 gap∧caughtUp 直接 return（零快照）
+    expect(useRuntimeFeedStore.getState().cursor?.feedSeq).toBe('9');   // 快照统一 cursor（非越洞 appliedSeq）
+    runtimeFeedFetchers.snapshot = null; runtimeFeedFetchers.events = null;
+  });
+
+  it('I-7 gap×未追平：同样直接全量快照（原「continue 从已推进 cursor 重取」=洞内事件跳过后不可见）', async () => {
+    const snapshotFn = vi.fn(async () => ({
+      snapshot: { projectId: 'p1', generation: 0, feedSeq: '9', pgSeq: '0', nodes: {} },
+      cursor: { historyId: 'h', generation: 0, feedSeq: '9' }, minRetainedSeq: '0', historyId: 'h',
+    }));
+    runtimeFeedFetchers.snapshot = snapshotFn as never;
+    runtimeFeedFetchers.events = (async () => ({
+      events: [ev('5', { kind: 'exec.status', nodeId: 'n5', status: 'done', attempts: 1, nodeVersion: '5' }, 'exec.status')],
+      latestFeedSeq: '8', minRetainedSeq: '0', historyId: 'h',   // latest=8 > applied=5 ⇒ 未追平
+    })) as never;
+    useRuntimeFeedStore.setState({
+      projectId: 'p1', cursor: { historyId: 'h', generation: 0, feedSeq: '3' },
+      projection: proj({ feedSeq: '3' }), fetchedAtMs: Date.now(), syncing: false,
+    });
+    await syncRuntimeFeed();
+    expect(snapshotFn).toHaveBeenCalledWith('p1');   // gap 任何档=快照（I-7 修）
+    runtimeFeedFetchers.snapshot = null; runtimeFeedFetchers.events = null;
+  });
+
+  it('M-2 historyId 不匹配分支：events 信封 historyId≠cursor → 全量快照+清投影（PITR/换代）', async () => {
+    const snapshotFn = vi.fn(async () => ({
+      snapshot: { projectId: 'p1', generation: 1, feedSeq: '0', pgSeq: '0', nodes: {} },
+      cursor: { historyId: 'h-new', generation: 1, feedSeq: '0' }, minRetainedSeq: '0', historyId: 'h-new',
+    }));
+    runtimeFeedFetchers.snapshot = snapshotFn as never;
+    runtimeFeedFetchers.events = (async () => ({ events: [], latestFeedSeq: '0', minRetainedSeq: '0', historyId: 'h-new' })) as never;
+    useRuntimeFeedStore.setState({
+      projectId: 'p1', cursor: { historyId: 'h-old', generation: 0, feedSeq: '2' },   // 游标旧纪元
+      projection: proj({ feedSeq: '2', nodes: { stale: { execStatus: { status: 'done', nodeVersion: '2' } } } }),
+      fetchedAtMs: Date.now(), syncing: false,
+    });
+    await syncRuntimeFeed();
+    expect(snapshotFn).toHaveBeenCalledWith('p1');
+    const s = useRuntimeFeedStore.getState();
+    expect(s.cursor?.historyId).toBe('h-new');
+    expect(s.projection?.nodes.stale).toBeUndefined();   // 旧投影随快照全量替换
+    runtimeFeedFetchers.snapshot = null; runtimeFeedFetchers.events = null;
   });
 });
 

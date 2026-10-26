@@ -38,6 +38,11 @@ export type RuntimeEventPayload =
       attempts: number;
       errorCode?: string;
       artifactRev?: number;
+      /** T22 收口批 I-8（Controller 裁定扩词表根修）：intentId=手势 token/意图身份（errorPatch 既有
+       *  传递面——客户端 ExecStatusEntry.intentId 轮换判据）；rearmable=EXHAUSTED 判据
+       *  （ImageConfigPanel/VideoConfigPanel entry.rearmable===false 档——修前永不可达）。 */
+      intentId?: string;
+      rearmable?: boolean;
       nodeVersion: string;
     }
   | {

@@ -19,6 +19,21 @@ vi.mock('@hocuspocus/provider', async () => {
   return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
+// Y1c T22 收口批（C-1）：生产接线后 armSession 会拉 feed 首连快照（真 apiFetch→global fetch）——
+// 本 spec 的 fetch spy 计数面（alignExecFromIntents 查表断言）须与 feed 通道隔离：collabApi 模块界
+// stub（生产接线本身不掩盖——wiring 断言独立锁在 runtimeFeedWiring.spec）。
+vi.mock('@/api/collabApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/collabApi')>();
+  return {
+    ...actual,
+    fetchRuntimeFeedSnapshot: async () => ({
+      snapshot: { projectId: 'p1', generation: 0, feedSeq: '0', pgSeq: '0', nodes: {} },
+      cursor: { historyId: 'h', generation: 0, feedSeq: '0' }, minRetainedSeq: '0', historyId: 'h',
+    }),
+    fetchRuntimeFeedEvents: async () => ({ events: [], latestFeedSeq: '0', minRetainedSeq: '0', historyId: 'h' }),
+  };
+});
+
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 

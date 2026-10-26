@@ -11,6 +11,9 @@ import { MultiImageConfigPanel } from './MultiImageConfigPanel';
 // O0b-2 组件显式上报（终裁 83③/91——四类触发点共用 shared 纯函数公式单源+约束尺寸单源）
 import { calcConstrainedSize, multiImageSize, multiImageGridCols, MULTI_IMAGE_GAP, type SizeBounds } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
+// Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径（四节点族同型——选型：MultiImage
+// 产物位=stacked 主图；expanded 网格=用户上传 images 数组〔doc 态〕不参与 overlay）
+import { runtimeMediaIdOf } from '@/stores/runtimeStore';
 import axios from 'axios';
 import { toFlowaiUrl } from '@/api/mediaApi';
 
@@ -379,12 +382,12 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                   boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
                 }}
               >
-                <MediaImage
-                  fileId={images[mainImageIndex]?.id}
-                  alt={images[mainImageIndex]?.name || ''}
-                  className="w-full h-full object-cover"
-                  onImageLoad={handleMainImageLoad}
-                />
+              <MediaImage
+                fileId={runtimeMediaIdOf(id) ?? images[mainImageIndex]?.id}
+                alt={images[mainImageIndex]?.name || ''}
+                className="w-full h-full object-cover"
+                onImageLoad={handleMainImageLoad}
+              />
               </div>
               {imageCount > 1 && (
                 <button

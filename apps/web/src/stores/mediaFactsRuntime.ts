@@ -266,7 +266,9 @@ export function resetMediaFacts(): void {
   knownMediaIds = new Set();
   notifiedFactVersion = new Set();          // T22：(mediaId,factVersion) 告知集清空（新会话再告知）
   pendingDownscaledDims = new Map();
-  runtimeArtifactSink = null;               // T22：feed artifact sink 解绑（新会话重注入）
+  // T22 收口批 M-18：feed artifact sink 解绑行随 mediaFactsRuntime 侧死码删除（唯一 sink 面=
+  // runtimeStore.artifactSink——armSession 每会话重注入，闭包消费 pullMediaFactsForIds 本身
+  // 受 sessionSeq 纪元守卫，跨会话驻留无害）
   if (lazyTimer) { clearTimeout(lazyTimer); lazyTimer = null; }
   useNodeStore.setState({ mediaFacts: new Map() });
 }
@@ -358,13 +360,7 @@ export function shouldNotifyDownscaled(mediaId: string, factVersion: string): bo
   return true;
 }
 
-/** runtime feed artifact sink 注册面（runtimeStore 投影变更时回调——产物 mediaId 定向拉 facts；
- *  canvasCollabRuntime 会话接线注入，resetMediaFacts 清）。 */
-let runtimeArtifactSink: ((mediaIds: readonly string[]) => void) | null = null;
-export function setRuntimeArtifactSink(fn: ((mediaIds: readonly string[]) => void) | null): void {
-  runtimeArtifactSink = fn;
-}
-/** runtimeStore 内部消费缝（勿直接调用——经 setRuntimeArtifactSink 注入的生产路径）。 */
-export function dispatchRuntimeArtifacts(mediaIds: readonly string[]): void {
-  runtimeArtifactSink?.(mediaIds);
-}
+// T22 收口批 M-18：本处曾有 setRuntimeArtifactSink/dispatchRuntimeArtifacts sink 注册面（死码——
+// 零生产调用方；主体批 commit message 误述「mediaFactsRuntime dispatchRuntimeArtifacts 注入」，
+// 实际注入径=runtimeStore.setRuntimeArtifactSinkDirect ← canvasCollabRuntime armSession
+// →pullMediaFactsForIds）。死码删除勘正——唯一 sink 面在 runtimeStore。

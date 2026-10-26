@@ -86,38 +86,71 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
     }
   }
 
-  /** SKIP LOCKED 租约 claim（PENDING∧租约过期/NULL——MaterializeJob/投影 poller 同族纪律）。 */
+  /** SKIP LOCKED 租约 claim（PENDING∨〔CLAIMED∧租约过期〕——MaterializeJob/投影 poller 同族纪律）。
+   *  T22 收口批 I-5：原谓词只 state='PENDING'（PENDING 行 claimUntilMs 恒 NULL——租约形同虚设；
+   *  CLAIMED∧租约过期行崩溃后永久卡死）。修=谓词扩 lease-expired 档+重派按 shared
+   *  nextObligationQueueState lease-expired 分支计 attempts（CLAIMED 过期=attempts+1；
+   *  ≥maxAttempts=DEAD fail-closed 不再重派）。 */
   private async claim() {
     const owner = `obligation-${randomUUID().slice(0, 8)}`;
     const untilMs = BigInt(Date.now() + OBLIGATION_LEASE_MS);
     return this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<{ id: string; kind: string; nodeId: string; walSeq: bigint }[]>`
-        SELECT "id", "kind", "nodeId", "walSeq" FROM "LifecycleObligation"
-        WHERE "state" = 'PENDING' AND "kind" IN ('FEED_TOMBSTONE', 'NODE_DELETED')
-          AND ("claimUntilMs" IS NULL OR "claimUntilMs" < ${Date.now()}::bigint)
+      const rows = await tx.$queryRaw<
+        { id: string; kind: string; projectId: string; nodeId: string; walSeq: bigint; state: string; attempts: number }[]
+      >`
+        SELECT "id", "kind", "projectId", "nodeId", "walSeq", "state", "attempts" FROM "LifecycleObligation"
+        WHERE ("state" = 'PENDING' OR ("state" = 'CLAIMED' AND "claimUntilMs" IS NOT NULL AND "claimUntilMs" < ${Date.now()}::bigint))
+          AND "kind" IN ('FEED_TOMBSTONE', 'NODE_DELETED')
         ORDER BY "createdAt"
         LIMIT ${OBLIGATION_BATCH}
         FOR UPDATE SKIP LOCKED`;
-      if (rows.length === 0) return [] as Array<{ id: string; kind: string; nodeId: string; walSeq: bigint; claimOwner: string }>;
+      if (rows.length === 0) return [] as Array<{ id: string; kind: string; projectId: string; nodeId: string; walSeq: bigint; claimOwner: string }>;
+      // I-5：lease-expired 重派结算（shared 单源语义——CLAIMED 过期=attempts+1；≥max → DEAD）
+      const expired = rows.filter((r) => r.state === 'CLAIMED');
+      const maxAttempts = LIFECYCLE_OBLIGATION_LEASE.maxAttempts;
+      const dead = expired.filter((r) => r.attempts + 1 >= maxAttempts);
+      const rearm = expired.filter((r) => r.attempts + 1 < maxAttempts);
+      const fresh = rows.filter((r) => r.state === 'PENDING');
+      if (dead.length > 0) {
+        await tx.lifecycleObligation.updateMany({
+          where: { id: { in: dead.map((r) => r.id) } },
+          data: { state: 'DEAD', attempts: { increment: 1 }, claimOwner: null, claimUntilMs: null },
+        });
+        for (const r of dead) this.logger.error(`[obligation] 租约过期且 attempts 达上限 DEAD（人工面）id=${r.id} node=${r.nodeId}`);
+      }
+      const claimable = [...fresh, ...rearm];
       await tx.lifecycleObligation.updateMany({
-        where: { id: { in: rows.map((r) => r.id) } },
-        data: { state: 'CLAIMED', claimOwner: owner, claimUntilMs: untilMs },
+        where: { id: { in: claimable.map((r) => r.id) } },
+        data: {
+          state: 'CLAIMED',
+          claimOwner: owner,
+          claimUntilMs: untilMs,
+        },
       });
-      return rows.map((r) => ({ ...r, claimOwner: owner }));
+      // 重派行 attempts+1（lease-expired 计一次尝试——与 fresh 行分语句：PENDING claim 不加 attempts）
+      if (rearm.length > 0) {
+        await tx.lifecycleObligation.updateMany({
+          where: { id: { in: rearm.map((r) => r.id) } },
+          data: { attempts: { increment: 1 } },
+        });
+      }
+      return claimable.map((r) => ({ id: r.id, kind: r.kind, projectId: r.projectId, nodeId: r.nodeId, walSeq: r.walSeq, claimOwner: owner }));
     });
   }
 
-  /** 执行器（kind 分派——异常=fail 档交 transition 计 attempts）。 */
-  private async execute(row: { id: string; kind: string; nodeId: string; walSeq: bigint }): Promise<boolean> {
-    if (row.kind === 'FEED_TOMBSTONE') return this.executeFeedTombstone(row.nodeId, row.walSeq);
-    if (row.kind === 'NODE_DELETED') return this.executeNodeDeletedCleanup(row.nodeId);
+  /** 执行器（kind 分派——异常=fail 档交 transition 计 attempts）。projectId 自 claim 行值直用
+   *  （I-9：原按 nodeId 全库 findFirst 反查——两项目同 nodeId 时作用于错误项目）。 */
+  private async execute(row: { id: string; kind: string; projectId: string; nodeId: string; walSeq: bigint }): Promise<boolean> {
+    if (row.kind === 'FEED_TOMBSTONE') return this.executeFeedTombstone(row.projectId, row.nodeId, row.walSeq);
+    if (row.kind === 'NODE_DELETED') return this.executeNodeDeletedCleanup(row.projectId, row.nodeId);
     return false;   // 结构性不可达（claim 已滤 kind）
   }
 
   /** FEED_TOMBSTONE：node.deleted 事件投递（幂等：同 (nodeId,walSeq) 已在档=直达 true）。 */
-  private async executeFeedTombstone(nodeId: string, walSeq: bigint): Promise<boolean> {
-    const pid = await this.projectIdOfObligation(nodeId);
-    if (!pid) return true;   // 项目已删——义务随项目域消亡（DONE 免重试风暴）
+  private async executeFeedTombstone(pid: string, nodeId: string, walSeq: bigint): Promise<boolean> {
+    // 项目已删判定：义务自身行在=项目域存在（claim 行值直用——I-9 删全库反查）；项目真删时
+    // 义务行随项目级联清除，此处行恒有项目——保留原「无项目=DONE 免重试风暴」防御形态经行值判空
+    if (!pid) return true;
     const dup = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "RuntimeEvent"
       WHERE "projectId" = ${pid}::text AND "kind" = 'node.deleted'
@@ -136,8 +169,7 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
   }
 
   /** NODE_DELETED 三清扫：MediaBinding 惰性 reconcile 入队+ArtifactProjection 在飞行收尾+VideoProject 级联。 */
-  private async executeNodeDeletedCleanup(nodeId: string): Promise<boolean> {
-    const pid = await this.projectIdOfObligation(nodeId);
+  private async executeNodeDeletedCleanup(pid: string, nodeId: string): Promise<boolean> {
     if (!pid) return true;
     // ②ArtifactProjection 在飞拦截：pending/projecting 行置 orphaned（投递主拦截=fence；退款归
     // poller orphaned 路径/R3 窗⑥——本处只收尾行态，零资金动作）
@@ -145,18 +177,12 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
       where: { projectId: pid, nodeId, state: { in: ['pending', 'projecting'] } },
       data: { state: 'orphaned', lastError: 'node-deleted:obligation-sweep' },
     });
-    // ③VideoProject 级联（sourceNodeId 唯一行——服务端权威收编 web fire-and-forget cascade）
-    await this.prisma.videoProject.deleteMany({ where: { sourceNodeId: nodeId } });
+    // ③VideoProject 级联（sourceNodeId 唯一行——服务端权威收编 web fire-and-forget cascade；
+    // I-9：workflowId=pid 过滤——两项目同 nodeId 时不得误删他项目行）
+    await this.prisma.videoProject.deleteMany({ where: { workflowId: pid, sourceNodeId: nodeId } });
     // ①MediaBinding 帧级 effects 清扫=BindingReconcile 惰性入队（fire-and-forget——drain 周期收敛）
     this.reconciler?.requestReconcile(pid);
     return true;
-  }
-
-  private async projectIdOfObligation(nodeId: string): Promise<string | null> {
-    const row = await this.prisma.lifecycleObligation.findFirst({
-      where: { nodeId }, orderBy: { createdAt: 'desc' }, select: { projectId: true },
-    });
-    return row?.projectId ?? null;
   }
 
   /** 状态转移（nextObligationQueueState 单源——CLAIMED 行 claimOwner CAS）。 */

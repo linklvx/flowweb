@@ -8,6 +8,8 @@ import { selectExecStatus } from '@/stores/execStatusView';
 import { AudioConfigPanel } from './AudioConfigPanel';
 import { AudioWaveform } from './AudioWaveform';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
+// Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径（ImageGenNode 同型四节点族）
+import { runtimeMediaIdOf } from '@/stores/runtimeStore';
 import { presignUpload, confirmUpload } from '@/api/storageApi';
 import { canvasProjectId } from '@/utils/uploadContext';
 import axios from 'axios';
@@ -25,7 +27,8 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const fileId = nodeData?.fileId;
   const referenceAudio = nodeData?.referenceAudio;
   // R2b-5：onError 自愈直通 <audio> 兜底元素（AudioWaveform 失败先走 useFallback，兜底 <audio> 再失败=URL 死亡）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(fileId);
+  // T22 C-2：读径=runtime 投影 artifact.mediaId（exec.artifact overlay）→ doc 残留 fileId（legacy 兜底）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(runtimeMediaIdOf(id) ?? fileId);
   const { url: refAudioUrl, onError: onRefAudioError } = useMediaUrl(referenceAudio);
 
   const displayUrl = resultUrl || refAudioUrl;

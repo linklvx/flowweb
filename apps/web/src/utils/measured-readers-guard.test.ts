@@ -71,9 +71,9 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/ImageNodeToolbar.tsx': [363, 364],
     'pages/canvas/components/nodes/TextNodeToolbar.tsx': [166, 171],
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
-    'pages/canvas/components/nodes/ImageGenNode.tsx': [204, 205], // Y1c T22：scheduleUploadFactPull import 删 -1（尺寸回写链删除）——205,206→204,205； Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166；Y1a T11：nodeStore 具名 import+collabApi import +2——→167,168；F2（裁定②③）：pending 预览层/op token 声明+confirmMediaOverwrite 模块函数 +31——→197,198；F2 评审 P1-1/P1-2：pendingRef/naturalSizeRef 声明+fit 单源抽取 +7——→204,205（集合不变）；F4c P0：scheduleUploadFactPull import +1——→205,206（集合不变）
+    'pages/canvas/components/nodes/ImageGenNode.tsx': [209, 210], // Y1c T22：scheduleUploadFactPull import 删 -1（尺寸回写链删除）——205,206→204,205； Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166；Y1a T11：nodeStore 具名 import+collabApi import +2——→167,168；F2（裁定②③）：pending 预览层/op token 声明+confirmMediaOverwrite 模块函数 +31——→197,198；F2 评审 P1-1/P1-2：pendingRef/naturalSizeRef 声明+fit 单源抽取 +7——→204,205（集合不变）；F4c P0：scheduleUploadFactPull import +1——→205,206（集合不变）；T22 收口批 C-2：runtimeMediaIdOf import+读径注释 +5——→209,210（集合不变）
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
-    'pages/canvas/components/nodes/VideoGenNode.tsx': [433],   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403；T19 登记收口：applyIntrinsicFit 换芯+facts natural 决策 effect +30——403→433（集合不变）
+    'pages/canvas/components/nodes/VideoGenNode.tsx': [436],   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403；T19 登记收口：applyIntrinsicFit 换芯+facts natural 决策 effect +30——403→433（集合不变）；T22 收口批 C-2：runtimeMediaIdOf import+注释 +3——→436（集合不变）
     'pages/canvas/components/nodes/TextInputNode.tsx': [34, 35],   // Y1c T16：XmlFragment 绑定接线 +3 漂移（集合不变）
     'pages/canvas/components/groups/addOutput.ts': [80, 81, 138, 139, 199, 200],  // Y1c T1：import 插入 +1 漂移
     'pages/canvas/components/RemoteCursors.tsx': [26, 27],   // Y0b-4 T12 E38：selection 高亮层（overlay 屏幕空间）

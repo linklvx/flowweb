@@ -45,6 +45,9 @@ import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBound
 // B6-1（Spec B）：handle 可用性单源谓词——编辑中（editMode 或 transformMode）双侧无（删 !editMode 直判防双轨）
 import { getAvailableHandles } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
+// Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径——data.fileId 服务端停写后产物身份
+// 读点=useMediaUrl(pendingPreview?.mediaId ?? runtimeMediaIdOf(id) ?? fileId)（四节点同型）
+import { runtimeMediaIdOf } from '@/stores/runtimeStore';
 import { toFlowaiUrl } from '@/api/mediaApi';
 
 const MAX_WIDTH = 548;
@@ -107,7 +110,9 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const mediaOpSeqRef = useRef(0);
   const activeMediaOpRef = useRef<number | null>(null);
   // R2b-5：onError 自愈直通 <img>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(pendingPreview?.mediaId ?? fileId);
+  // T22 C-2：读径=本地 pending 预览 → runtime 投影 artifact.mediaId（exec.artifact overlay——
+  // 刷新/新协作者/错过广播会话的产物唯一在档源）→ doc 残留 fileId（legacy 兜底）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(pendingPreview?.mediaId ?? runtimeMediaIdOf(id) ?? fileId);
   const { url: refPreviewUrl, onError: onRefPreviewError } = useMediaUrl(referenceImage);
 
   const displayUrl = resultUrl || refPreviewUrl;
@@ -423,7 +428,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
       // Y1c T22：尺寸回写链删除——Y1b 12s/30s 上传点延时补拉定时器随卡退役（spec §6.7 删除清单）：
       // natural fact（携 downscaledFrom 告知）到达面=引用写后 ②lazy/重连全量拉/runtime feed 产物
-      // 事件触发（mediaFactsRuntime dispatchRuntimeArtifacts），重连自愈非缓存承诺。
+      // 事件触发（runtimeStore artifactSink——M-18 勘正：注入径=armSession setRuntimeArtifactSinkDirect），
+      // 重连自愈非缓存承诺。
       updateConfig(id, { referenceImage: fileId });
     } catch (err: any) {
       console.error('[ImageGenNode] upload error:', err.message);

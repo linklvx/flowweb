@@ -24,6 +24,10 @@ export interface RuntimeProjectionExecStatusFact {
   artifactRev?: number;
   /** 执行代际（GenerationIntent 代际——wire=string；#4 族分离） */
   execSeq?: string;
+  /** T22 收口批 I-8（词表扩键同步）：intentId=手势 token 身份；rearmable=EXHAUSTED 判据
+   *  （客户端面板轮换档——payload 键与 exec.status taxonomy 同批扩） */
+  intentId?: string;
+  rearmable?: boolean;
   /** 该字段版本的比较基准（同字段 nodeVersion 大者胜） */
   nodeVersion: string;
 }

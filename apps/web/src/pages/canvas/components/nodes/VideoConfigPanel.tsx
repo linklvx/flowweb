@@ -73,7 +73,9 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const voiceBaseRef = useRef('');
   const selectedModel = models.find((m) => m.id === model);
 
-  // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
+  // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=投影 entry；
+  // T22 收口批 I-8 同步选型：rearmable/intentId 随 exec.status feed 事件 payload 落 runtime 投影
+  // →nodeStore.execStatus——修前丢键致本档不可达；ImageConfigPanel 同批）
   useEffect(() => {
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
       const pid = useCanvasStore.getState().projectId;

@@ -1,10 +1,13 @@
 // apps/api/src/modules/collab/runtime-feed.t22-g5.int.spec.ts
 // Y1c T22 G5 feed 主体（真 PG）：feedSeq 分配（upsert 行锁——分配序≡提交序：并发交错无洞无重）
 // +空项目首事件（genesis upsert）+锁序负控（CanvasDoc 行锁下 append 照常完成=plain SELECT 非阻塞
-// 〔修正批 #10〕——反向锁序〔持 counter 后再锁 CanvasDoc〕恒死锁面由静态 lint+正常序压力替代）
-// +「去 counter」负控（裸裸 INSERT 不走 upsert=期望重号冲突）+outbox claim/delete 不出洞+首连
-// 快照信封（cursor 三元+minRetainedSeq+historyId）+保留期清理（minRetainedSeq 推进）+
-// FEED_TOMBSTONE 义务消费→node.deleted 事件+NODE_DELETED 三清扫（VideoProject 级联/投影拦截）。
+// 〔修正批 #10〕——T22 收口批 I-6：fire-and-forget 持锁真并发重叠；反向锁序恒死锁面由静态 lint+
+// 正常序压力替代）+「去 counter」负控（裸裸 INSERT 不走 upsert=期望重号冲突）+outbox claim/delete
+// 不出洞+首连快照信封（cursor 三元+minRetainedSeq+historyId）+保留期清理（minRetainedSeq 推进）
+// +FEED_TOMBSTONE 义务消费→node.deleted 事件+NODE_DELETED 三清扫（VideoProject 级联/投影拦截/
+// MediaBinding reconcile 入队 M-3 注桩）。
+// T22 收口批新增：C-3 快照竞态（RR+先 cursor 后 events+≤lastSeq 过滤——probe 转用例）+I-5 租约
+// 重派崩溃窗+I-9 跨项目同 nodeId 串扰（claim 行 projectId 直用）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -31,16 +34,19 @@ let TID = '';
   }, 20_000);
 
   afterAll(async () => {
-    await prisma.runtimeEvent.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.nodeLifecycle.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.deliveryFence.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.lifecycleObligation.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.executionOutbox.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.videoProject.deleteMany({ where: { workflowId: PID } }).catch(() => undefined);
-    await prisma.artifactProjection.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
-    await prisma.canvasProject.deleteMany({ where: { id: PID } }).catch(() => undefined);
+    const PID2 = `${PID}-b`;   // I-9 跨项目用例第二项目（同 TID/team 域）
+    for (const pid of [PID, PID2]) {
+      await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.nodeLifecycle.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.deliveryFence.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.lifecycleObligation.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.executionOutbox.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.videoProject.deleteMany({ where: { workflowId: pid } }).catch(() => undefined);
+      await prisma.artifactProjection.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasProject.deleteMany({ where: { id: pid } }).catch(() => undefined);
+    }
     if (TID) await prisma.team.deleteMany({ where: { id: TID } }).catch(() => undefined);
     await prisma.user.deleteMany({ where: { id: SEED_UID } }).catch(() => undefined);
     await prisma.$disconnect();
@@ -60,16 +66,23 @@ let TID = '';
     expect(seqs).toEqual([1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n]);
   });
 
-  it('锁序（修正批 #10）：CanvasDoc 行被他事务 FOR UPDATE 锁持——append 照常完成（plain SELECT 非阻塞非锁读）', async () => {
-    const lockHolder = await prisma.$transaction(async (tx) => {
+  it('锁序（修正批 #10）：CanvasDoc 行被他事务 FOR UPDATE 持锁中——append 照常完成（plain SELECT 非阻塞非锁读）。T22 收口批 I-6：fire-and-forget 持锁=真并发重叠（原 await lockHolder 完整结束后才 append=零重叠假绿——FOR SHARE 也照样过）', async () => {
+    let lockTaken = false;
+    let holderDone = false;
+    const holder = prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "projectId" FROM "CanvasDoc" WHERE "projectId" = ${PID}::text FOR UPDATE`;
-      await new Promise((r) => setTimeout(r, 800));   // 持锁窗
+      lockTaken = true;
+      await new Promise((r) => setTimeout(r, 2_000));   // 持锁窗（append 必须在窗内并发到达——重叠证据）
       return true;
-    });
-    void lockHolder;
+    }).then((v) => { holderDone = true; return v; });
+    for (let i = 0; i < 200 && !lockTaken; i += 1) await new Promise((r) => setTimeout(r, 10));   // 锁落位确认（确定性重叠）
+    expect(lockTaken).toBe(true);
     const t0 = Date.now();
     const r = await feed.appendEvent(PID, 'exec.status', () => ({ nodeId: 'n-lock', status: 'done', attempts: 1 }));
-    expect(Date.now() - t0).toBeLessThan(5_000);   // 非阻塞（MVCC 快照读——FOR SHARE 则排队超时）
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeLessThan(2_000);   // 非阻塞（MVCC 快照读——FOR SHARE 则排队等持锁窗结束）
+    expect(holderDone).toBe(false);        // append 完成时持锁事务仍在窗内=真并发重叠（I-6 行为证据）
+    await holder;
     expect(r.feedSeq).toBeGreaterThan(9n);
   }, 20_000);
 
@@ -183,17 +196,87 @@ let TID = '';
     expect(await prisma.runtimeEvent.count({ where: { projectId: PID, kind: 'node.deleted' } })).toBe(1);
   });
 
-  it('NODE_DELETED 三清扫：VideoProject 级联删+ArtifactProjection 在飞行置 orphaned（EXEC_FINALIZE 不被 claim——留 T23）', async () => {
+  it('NODE_DELETED 三清扫：VideoProject 级联删+ArtifactProjection 在飞行置 orphaned+MediaBinding reconcile 入队（M-3 注桩断言）+EXEC_FINALIZE 不被 claim（留 T23）', async () => {
     await prisma.videoProject.create({ data: { teamId: TID, userId: SEED_UID, workflowId: PID, sourceNodeId: 'n-del', title: 'x', data: {} } });
     await prisma.artifactProjection.create({ data: { artifactId: 'art-pending', artifactRev: 1, projectId: PID, nodeId: 'n-del', targetField: 'fileId', targetItemId: '', mediaId: 'm-p', state: 'pending' } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'NODE_DELETED', walSeq: 42n } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'EXEC_FINALIZE', walSeq: 42n } });
-    await sweeper.tick();
-    expect(await prisma.videoProject.count({ where: { sourceNodeId: 'n-del' } })).toBe(0);   // ③级联
+    // T22 收口批 M-3：reconcile 腿注桩断言（①清扫面 @Optional 注入——修前零断言）
+    const reconcileCalls: string[] = [];
+    const sweeperWithReconciler = new LifecycleObligationSweeper(prisma as unknown as PrismaService, feed, {
+      requestReconcile: (pid: string) => { reconcileCalls.push(pid); },
+    } as never);
+    await sweeperWithReconciler.tick();
+    expect(reconcileCalls).toContain(PID);   // ①MediaBinding 惰性入队腿（fence 权威之外的第二清扫面）
+    expect(await prisma.videoProject.count({ where: { workflowId: PID, sourceNodeId: 'n-del' } })).toBe(0);   // ③级联（I-9：项目域过滤后）
     expect((await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: 'n-del' } }))?.state).toBe('orphaned');   // ②拦截
     const execFinalize = await prisma.lifecycleObligation.findFirst({ where: { projectId: PID, kind: 'EXEC_FINALIZE' } });
     expect(execFinalize?.state).toBe('PENDING');   // 退款主体归 T23——本卡不 claim
     const nodeDeleted = await prisma.lifecycleObligation.findFirst({ where: { projectId: PID, kind: 'NODE_DELETED' } });
     expect(nodeDeleted?.state).toBe('DONE');
   });
+
+  it('C-3 快照竞态（quality probe 转用例）：snapshotEnvelope 读窗内并发提交——凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤；原 RC 先 events 后 cursor=信封 cursor 领先折叠事件⇒客户端永久漏事件）', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const racer = feed.appendEvent(PID, 'exec.status', () => ({ nodeId: 'n-race', status: 'done', attempts: 1 }));
+      const env = await feed.snapshotEnvelope(PID);   // 与 racer 并发（读窗交错——迭代提升修前命中窗概率）
+      await racer;
+      // 不变量：信封自洽——cursor 覆盖的每个 exec.status 事件其节点槽必在折叠投影（修前 probe
+      // 实证 cursorLastSeq=2 > maxFoldedEventSeq=1：客户端 seq≤cursorSeq 去重=h 后事件永久不可见）
+      const covered = await prisma.runtimeEvent.findMany({ where: { projectId: PID, feedSeq: { lte: BigInt(env.cursor.feedSeq) } }, orderBy: { feedSeq: 'asc' } });
+      expect(covered.length).toBeGreaterThan(0);
+      for (const e of covered) {
+        const p = e.payload as { kind: string; nodeId?: string };
+        if (p.kind !== 'exec.status') continue;
+        expect(env.snapshot.nodes[p.nodeId!]?.execStatus, `round=${round} feedSeq=${e.feedSeq} ≤ cursor=${env.cursor.feedSeq} 未折叠（cursor 领先折叠事件）`).toBeDefined();
+      }
+    }
+  }, 20_000);
+
+  it('I-5 租约重派崩溃窗：CLAIMED∧租约过期行被重 claim 执行+attempts 按 lease-expired 计一次（原谓词只 PENDING=崩溃后永久卡死红）', async () => {
+    await prisma.nodeLifecycle.create({ data: { projectId: PID, nodeId: 'n-lease', lifecycleSeq: 9n, isCurrent: true, state: 'DELETED', walSeq: 50n } });
+    await prisma.lifecycleObligation.create({
+      data: { projectId: PID, nodeId: 'n-lease', kind: 'FEED_TOMBSTONE', walSeq: 50n, state: 'CLAIMED', claimOwner: 'obligation-crashed', claimUntilMs: BigInt(Date.now() - 60_000), attempts: 0 },
+    });
+    const summary = await sweeper.tick();   // 红：修前 PENDING-only 谓词跳过 CLAIMED 过期行=claimed 0/事件不投/行卡死
+    expect(summary.claimed).toBeGreaterThanOrEqual(1);
+    const tombstones = (await prisma.runtimeEvent.findMany({ where: { projectId: PID, kind: 'node.deleted' } }))
+      .filter((e) => (e.payload as { nodeId?: string }).nodeId === 'n-lease');
+    expect(tombstones).toHaveLength(1);   // node.deleted 事件投递（崩溃窗恢复）
+    const row = await prisma.lifecycleObligation.findFirst({ where: { projectId: PID, nodeId: 'n-lease' } });
+    expect(row?.state).toBe('DONE');
+    expect(row?.attempts).toBe(1);   // lease-expired 重派计一次尝试（shared nextObligationQueueState 单源语义）
+  }, 20_000);
+
+  it('I-9 跨项目同 nodeId 串扰：claim 行 projectId 直用（删全库反查）——清扫/投递各归各项目（原 findFirst desc 反查=两项目都作用于最新行项目）', async () => {
+    const PID2 = `${PID}-b`;
+    await prisma.canvasProject.create({ data: { id: PID2, name: PID2, teamId: TID, userId: SEED_UID } });
+    const SHARED = 'n-shared';
+    await prisma.nodeLifecycle.createMany({ data: [
+      { projectId: PID, nodeId: SHARED, lifecycleSeq: 1n, isCurrent: true, state: 'DELETED', walSeq: 60n },
+      { projectId: PID2, nodeId: SHARED, lifecycleSeq: 1n, isCurrent: true, state: 'DELETED', walSeq: 60n },
+    ] });
+    await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: SHARED, kind: 'FEED_TOMBSTONE', walSeq: 60n } });
+    await new Promise((r) => setTimeout(r, 15));   // 错开 createdAt——修前 findFirst desc 反查恒取最新行（PID2）：双执行都作用于 PID2 ⇒ PID 零事件（红确定性）
+    await prisma.lifecycleObligation.create({ data: { projectId: PID2, nodeId: SHARED, kind: 'FEED_TOMBSTONE', walSeq: 60n } });
+    await prisma.artifactProjection.createMany({ data: [
+      { artifactId: 'art-x-a', artifactRev: 1, projectId: PID, nodeId: SHARED, targetField: 'fileId', targetItemId: '', mediaId: 'm-a', state: 'pending' },
+      { artifactId: 'art-x-b', artifactRev: 1, projectId: PID2, nodeId: SHARED, targetField: 'fileId', targetItemId: '', mediaId: 'm-b', state: 'pending' },
+    ] });
+    const summary = await sweeper.tick();
+    expect(summary.claimed).toBeGreaterThanOrEqual(2);   // 两行都 claim（含跨项目同 nodeId）
+    // FEED_TOMBSTONE：node.deleted 事件各投各项目（修前反查=两事件同落一个项目、另一项目零事件）
+    for (const pid of [PID, PID2]) {
+      const evs = (await prisma.runtimeEvent.findMany({ where: { projectId: pid, kind: 'node.deleted' } }))
+        .filter((e) => (e.payload as { nodeId?: string }).nodeId === SHARED);
+      expect(evs, `projectId=${pid} 应恰一条 ${SHARED} 墓碑事件`).toHaveLength(1);
+    }
+    // NODE_DELETED 清扫面：ArtifactProjection 各项目各自置 orphaned（修前只作用于反查命中项目）
+    await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: SHARED, kind: 'NODE_DELETED', walSeq: 61n } });
+    await new Promise((r) => setTimeout(r, 15));   // 同上：反查恒取 PID2 行（红确定性）
+    await prisma.lifecycleObligation.create({ data: { projectId: PID2, nodeId: SHARED, kind: 'NODE_DELETED', walSeq: 61n } });
+    await sweeper.tick();
+    expect((await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: SHARED } }))?.state).toBe('orphaned');
+    expect((await prisma.artifactProjection.findFirst({ where: { projectId: PID2, nodeId: SHARED } }))?.state).toBe('orphaned');
+  }, 20_000);
 });

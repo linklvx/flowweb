@@ -166,6 +166,9 @@ export class RuntimeFeedService {
    * 业务事务包装（T22 deliverArtifact 消费面）：调用方在 body 内先做业务判定（fence 等——
    * 业务行锁序在前），再经 append 闭包写事件（counter 恒最后拿）。返回 body 的返回值；
    * 通知（notifyProject）由调用方在返回后触发（事务提交后——spec §7）。
+   *  T22 收口批 M-15：lastKnown **提交后写**（原在 append 闭包内事务提交前即写——心跳 enricher
+   *  同步读会广播未提交 feedSeq，客户端 h>cursor 拉取却查不到该事件=幽灵水位；现收集至
+   *  $transaction resolve 后落值，与 appendEvent「提交后值」同语义）。
    */
   async appendEventTransaction<T>(
     projectId: string,
@@ -174,19 +177,25 @@ export class RuntimeFeedService {
       append: (kind: RuntimeEventKind, payloadFactory: (feedSeq: bigint) => Record<string, unknown>) => Promise<void>,
     ) => Promise<T>,
   ): Promise<T> {
+    let latest: bigint | null = null;
     const r = await this.prisma.$transaction(async (tx) => {
       const append = async (kind: RuntimeEventKind, payloadFactory: (feedSeq: bigint) => Record<string, unknown>) => {
-        await this.appendEventInTx(tx, projectId, kind, payloadFactory).then((e) => { this.lastKnown.set(projectId, e.feedSeq); });
+        const e = await this.appendEventInTx(tx, projectId, kind, payloadFactory);
+        latest = e.feedSeq;
       };
       return body(tx, append);
     }, { timeout: 10_000, maxWait: 5_000 });
+    if (latest !== null) this.lastKnown.set(projectId, latest);   // 提交后写（M-15）
     return r;
   }
 
   /** 交付幂等前置（deliverArtifact）：同 (nodeId, artifactRev) exec.artifact 事件在档 ⇒ true
-   *  （poller 重投/ambiguous commit 安全——事件唯一性按业务键非 feedSeq）。 */
-  async hasArtifactEvent(projectId: string, nodeId: string, artifactRev: number): Promise<boolean> {
-    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+   *  （poller 重投/ambiguous commit 安全——事件唯一性按业务键非 feedSeq）。
+   *  T22 收口批 M-10：tx 可选参——调用方在交付事务**首步**内检（原实现事务外先检=TOCTOU 窗：
+   *  并发重投双过检双写事件；迁事务内后第二事务见首事务已提交事件即 no-op）。 */
+  async hasArtifactEvent(projectId: string, nodeId: string, artifactRev: number, tx?: Prisma.TransactionClient): Promise<boolean> {
+    const db = tx ?? this.prisma;
+    const rows = await db.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "RuntimeEvent"
       WHERE "projectId" = ${projectId}::text AND "kind" = 'exec.artifact'
         AND payload->>'nodeId' = ${nodeId}::text
@@ -242,17 +251,25 @@ export class RuntimeFeedService {
    * 首连 RR 快照（spec §7：{snapshot,cursor,minRetainedSeq,historyId}——snapshot=全量替换+统一
    * cursor：保留事件全折叠成 RuntimeProjection；#10 换代必须全量 snapshot 的服务端半链）。
    * 折叠纯函数=foldEventsToProjection（shared merge 单源消费——本服务不持第二套 merge）。
+   * T22 收口批 C-3（quality 真 PG probe 实证 cursorLastSeq=2 > maxFoldedEventSeq=1）：原
+   * ReadCommitted+先读 events 后读 cursor——两语句间并发提交 ⇒ 信封 cursor 领先折叠事件 ⇒
+   * 客户端 `seq<=cursorSeq` 去重+`h<=cursor` 忽略=永久漏事件。修=RepeatableRead（语句单快照）
+   * +语句序先 cursor 后 events（cursor 读锚定快照——events 只见 ≤快照态）+过滤 feedSeq≤lastSeq
+   * （belt-and-braces：即便时点差也被谓词收死——cursor 恒 ≥ 折叠尾）。
    */
   async snapshotEnvelope(projectId: string): Promise<RuntimeFeedSnapshotEnvelope> {
     const historyId = await this.currentHistoryId();
     return this.prisma.$transaction(async (tx) => {
-      const events = await tx.runtimeEvent.findMany({ where: { projectId }, orderBy: { feedSeq: 'asc' } });
-      const cursorRow = await tx.runtimeFeedCursor.findUnique({ where: { projectId } });
+      const cursorRow = await tx.runtimeFeedCursor.findUnique({ where: { projectId } });   // ①先 cursor（RR 快照锚）
+      const lastSeq = cursorRow?.lastSeq ?? 0n;
+      const events = await tx.runtimeEvent.findMany({   // ②后 events+≤lastSeq 过滤（C-3）
+        where: { projectId, feedSeq: { lte: lastSeq } },
+        orderBy: { feedSeq: 'asc' },
+      });
       const docRows = await tx.$queryRaw<{ generation: number; pgSeq: bigint }[]>`
         SELECT "generation", "pgSeq" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text`;
       const generation = docRows[0]?.generation ?? 0;
       const pgSeq = docRows[0]?.pgSeq ?? 0n;
-      const lastSeq = cursorRow?.lastSeq ?? 0n;
       const projection = foldEventsToSnapshot(projectId, generation, events.map(toWire), pgSeq, lastSeq);
       return {
         snapshot: projection,
@@ -260,7 +277,7 @@ export class RuntimeFeedService {
         minRetainedSeq: (cursorRow?.minRetainedSeq ?? 0n).toString(),
         historyId,
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   // ═══ 保留期清理 worker（7d/100k 先到为准+minRetainedSeq+runtime_feed_bytes）════════════
@@ -360,7 +377,7 @@ function mergeDelta(current: RuntimeProjection, nodes: Record<string, RuntimeNod
 export function slotOfEvent(p: RuntimeEventPayload): [string, RuntimeNodeProjectionEntry] | null {
   if (p.kind === 'exec.status') {
     return [p.nodeId, {
-      execStatus: { status: p.status, errorCode: p.errorCode, attempts: p.attempts, artifactRev: p.artifactRev, nodeVersion: p.nodeVersion },
+      execStatus: { status: p.status, errorCode: p.errorCode, attempts: p.attempts, artifactRev: p.artifactRev, intentId: p.intentId, rearmable: p.rearmable, nodeVersion: p.nodeVersion },
     }];
   }
   if (p.kind === 'exec.artifact') {

@@ -253,6 +253,11 @@ export class CollabDocumentService implements OnApplicationShutdown {
       ...(typeof patch.execSeq === 'string' ? { execSeq: patch.execSeq } : {}),
       ...(typeof patch.errorCode === 'string' ? { errorCode: patch.errorCode } : {}),
       ...(typeof patch.artifactRev === 'number' ? { artifactRev: patch.artifactRev } : {}),
+      // T22 收口批 I-8（Controller 裁定扩词表根修）：intentId/rearmable 随事件投影落 feed
+      //（errorPatch 调用面既有传递——修前 payload 丢弃致 ImageConfigPanel/VideoConfigPanel
+      // entry.rearmable===false〔EXHAUSTED 判据〕结构性不可达；taxonomy 同批扩键 spec §7 v5.4⑭）
+      ...(typeof patch.intentId === 'string' ? { intentId: patch.intentId } : {}),
+      ...(typeof patch.rearmable === 'boolean' ? { rearmable: patch.rearmable } : {}),
     }));
     this.feed.notifyProject(projectId);   // 事务提交后通知（节流 ≤1/s——feed-hint 不带事件体）
     void r;
@@ -290,25 +295,28 @@ export class CollabDocumentService implements OnApplicationShutdown {
     const feed = this.feed;
     const lifecycle = this.lifecycle;
     const { nodeId, exec, value } = params;
-    // 幂等前置：同 (nodeId, artifactRev) 事件在档 ⇒ no-op（poller 重投/ambiguous commit 安全）
     const artifactRev = typeof exec.artifactRev === 'number' ? exec.artifactRev : 0;
-    if (await feed.hasArtifactEvent(projectId, nodeId, artifactRev)) {
-      return { data: { written: true }, execWritten: true };
-    }
+    // T22 收口批 M-10：幂等前置迁 appendEventTransaction 事务内（原事务外先检=TOCTOU 窗——
+    // 并发重投双过检双写事件对）。序选=①fence FOR UPDATE（同节点交付串行化锚）→②幂等检：
+    // 重投在 fence 锁后已串行，第二事务见首事务已提交事件即 no-op——「迁入首步」的锁序落位。
     const outcome = await feed.appendEventTransaction(projectId, async (tx, append) => {
       // ① fence 权威（FOR UPDATE 行锁——判定与事件写同事务不可插队）
       const verdict = await lifecycle.deliveryFenceCheckInTx(tx, projectId, nodeId);
       if (!verdict.allow) {
         return { rejected: true as const, reason: verdict.reason };
       }
-      // ② exec.artifact（mediaId/resultRef 引用——尺寸事实走 media-facts 通道不进事件）
+      // ② 幂等前置（M-10：fence 锁后——并发双过检窗关死）
+      if (await feed.hasArtifactEvent(projectId, nodeId, artifactRev, tx)) {
+        return { duplicate: true as const };
+      }
+      // ③ exec.artifact（mediaId/resultRef 引用——尺寸事实走 media-facts 通道不进事件）
       await append('exec.artifact', () => ({
         nodeId,
         ...(params.targetField === 'fileId' && typeof value === 'string' ? { mediaId: value } : {}),
         ...(params.targetField === 'result' && typeof value === 'string' ? { resultRef: value } : {}),
         artifactRev,
       }));
-      // ③ exec.status done（attempt/errorCode 随 exec patch——键集同 EXEC_STATUS_KEYS 域）
+      // ④ exec.status done（attempt/errorCode 随 exec patch——键集同 EXEC_STATUS_KEYS 域）
       await append('exec.status', () => ({
         nodeId,
         status: String(exec.status ?? 'done'),
@@ -317,6 +325,9 @@ export class CollabDocumentService implements OnApplicationShutdown {
       }));
       return { rejected: false as const };
     });
+    if ('duplicate' in outcome) {
+      return { data: { written: true }, execWritten: true };   // 幂等 no-op（poller 重投/ambiguous commit 安全）
+    }
     if (outcome.rejected) {
       // T26 裁定三场景（unregistered/stale/node-deleted）一律拒档——reason 归并 'node-deleted'
       //（poller 既有 orphaned+退款流语义不变——交付判据类型化面维持）
