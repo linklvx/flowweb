@@ -82,10 +82,19 @@ export class CreditLedgerService {
     }
     await this.lockBalance(tx, input.teamId);
     if (!opts?.skipIntentCheck && (INTENT_FUND_TYPES as readonly string[]).includes(input.type)) {
-      const intentRowId = input.referenceId?.startsWith('intent:') ? input.referenceId.slice(7) : null;
-      if (!intentRowId) throw new LedgerRuleError('LEDGER_DOMAIN', `intent 域 type=${input.type} referenceId 必须 intent:<intentRowId>`);
-      const intent = await tx.generationIntent.findUnique({ where: { id: intentRowId }, select: { teamId: true } });
-      if (!intent || intent.teamId !== input.teamId) throw new LedgerRuleError('LEDGER_DOMAIN', `intent 行不存在或 teamId 不匹配（${intentRowId}）`);
+      const ref = input.referenceId ?? '';
+      if (ref.startsWith('execreq:')) {
+        // Y1c T21（G4 门）：ExecutionRequest per-item 域（execreq:<executionRequestId>#<nodeId>——
+        // 受理预留/逐 item void/逐 item 结算；行在场+teamId 匹配同 intent 域纪律）。
+        const reqId = ref.slice('execreq:'.length).split('#')[0]!;
+        const req = await tx.executionRequest.findUnique({ where: { id: reqId }, select: { teamId: true } });
+        if (!req || req.teamId !== input.teamId) throw new LedgerRuleError('LEDGER_DOMAIN', `execreq 域行不存在或 teamId 不匹配（${reqId}）`);
+      } else {
+        const intentRowId = ref.startsWith('intent:') ? ref.slice(7) : null;
+        if (!intentRowId) throw new LedgerRuleError('LEDGER_DOMAIN', `intent 域 type=${input.type} referenceId 必须 intent:<intentRowId>`);
+        const intent = await tx.generationIntent.findUnique({ where: { id: intentRowId }, select: { teamId: true } });
+        if (!intent || intent.teamId !== input.teamId) throw new LedgerRuleError('LEDGER_DOMAIN', `intent 行不存在或 teamId 不匹配（${intentRowId}）`);
+      }
     }
     const balance = await tx.teamBalance.findUniqueOrThrow({ where: { teamId: input.teamId } });
     const pool = input.creditType === 'subscription' ? 'subscriptionCredits' : 'credits';

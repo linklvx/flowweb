@@ -139,6 +139,178 @@ export class TeamCreditService {
     }, { timeout: 15_000, maxWait: 5_000 });
   }
 
+  // ═══ Y1c T21（G4 门）：ExecutionRequest per-item 资金面（受理预留/逐 item void/逐 item 结算）═══
+  // 纪律承袭：写路径全经 CreditLedgerService（Z12 品牌 tx+Z13 锁序①lockBalance 先行+§1.4bis 真值表
+  // reserve(-c,+c)/release(+c,-c)/settle(0,-c)）；受理事务一体化（tx 注入——任一失败整体回滚零半行）；
+  // requestId 幂等重试不重复预留（受理幂等前置在 ExecutionRequestService——本层无重复进入面）。
+
+  /** 受理预留：per-item 冻结（ExecutionNodePlan.reservedCredit 载体；台账 referenceId=
+   *  `execreq:<id>#<nodeId>`——资金审计 join 键）。余额不足=失败（受理整体回滚）。 */
+  async reserveForExecutionRequest(
+    userId: string,
+    req: { executionRequestId: string; teamId: string; items: Array<{ nodeId: string; amount: number }> },
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ success: boolean; reason?: string }> {
+    const run = async (raw: Prisma.TransactionClient) => {
+      const ltx = await this.ledger.ledgerTx(raw);
+      await this.ledger.lockBalance(ltx, req.teamId);   // 锁序①（契约 20）
+      const balance = await ltx.teamBalance.findUnique({ where: { teamId: req.teamId } });
+      if (!balance) return { success: false, reason: 'TEAM_BALANCE_MISSING' };
+      const member = await ltx.teamMember.findUnique({ where: { teamId_userId: { teamId: req.teamId, userId } } });
+      if (!member) return { success: false, reason: 'NOT_MEMBER' };
+      const total = req.items.reduce((s, i) => s + i.amount, 0);
+      if (total === 0) return { success: true };
+      if (balance.credits + balance.subscriptionCredits < total) return { success: false, reason: 'CREDIT_INSUFFICIENT' };
+      let subLeft = balance.subscriptionCredits;
+      for (const item of req.items) {
+        if (item.amount <= 0) continue;
+        const sub = Math.min(subLeft, item.amount);
+        subLeft -= sub;
+        const reg = item.amount - sub;
+        if (sub > 0) await this.ledger.mutate(ltx, {
+          teamId: req.teamId, operatorUserId: userId, type: 'reserve', creditType: 'subscription',
+          balanceDelta: -sub, frozenDelta: sub, referenceId: `execreq:${req.executionRequestId}#${item.nodeId}`,
+          idempotencyKey: `execreq-reserve:${req.executionRequestId}#${item.nodeId}`,
+        });
+        if (reg > 0) await this.ledger.mutate(ltx, {
+          teamId: req.teamId, operatorUserId: userId, type: 'reserve', creditType: 'regular',
+          balanceDelta: -reg, frozenDelta: reg, referenceId: `execreq:${req.executionRequestId}#${item.nodeId}`,
+          idempotencyKey: `execreq-reserve:${req.executionRequestId}#${item.nodeId}:reg`,
+        });
+        await ltx.executionNodePlan.updateMany({
+          where: { requestId: req.executionRequestId, nodeId: item.nodeId },
+          data: { reservedCredit: item.amount },
+        });
+      }
+      return { success: true };
+    };
+    return tx ? run(tx) : this.prisma.$transaction((raw) => run(raw), { timeout: 15_000, maxWait: 5_000 });
+  }
+
+  /** 逐 item void（sweeper 过期/受理失败回滚/执行失败）：release(+c,-c) 逆转 reserve；幂等
+   *  （reservedCredit=0 的 item 不再逆转）；全部 item 清零后父行 state=VOIDED。 */
+  async voidForExecutionRequest(executionRequestId: string, reason: string): Promise<boolean> {
+    return this.prisma.$transaction(async (raw) => {
+      const ltx = await this.ledger.ledgerTx(raw);
+      const req = await ltx.executionRequest.findUnique({ where: { id: executionRequestId } });
+      if (!req || req.state === 'VOIDED') return false;
+      const items = await ltx.executionNodePlan.findMany({ where: { requestId: executionRequestId } });
+      await this.ledger.lockBalance(ltx, req.teamId);
+      let voidedTotal = 0;
+      for (const item of items) {
+        if (item.reservedCredit <= 0) continue;
+        // 两池还原：按 reserve 台账行逐池逆转（anti-join 形态——reserve 行存在即逆转）
+        const reserveRows = await ltx.teamCreditTransaction.findMany({
+          where: { teamId: req.teamId, referenceId: `execreq:${executionRequestId}#${item.nodeId}`, type: 'reserve' },
+          select: { id: true, creditType: true, balanceDelta: true },
+        });
+        for (const r of reserveRows) {
+          const amount = Math.abs(r.balanceDelta);
+          if (amount <= 0) continue;
+          voidedTotal += amount;
+          await this.ledger.mutate(ltx, {
+            teamId: req.teamId, operatorUserId: req.userId, type: 'release', creditType: r.creditType,
+            balanceDelta: amount, frozenDelta: -amount,
+            referenceId: `execreq:${executionRequestId}#${item.nodeId}`,
+            reversesId: r.id,   // release 真值表：(+c,−c) 且 reversesId 指向 exact reserve 行（Z6 配对）
+            idempotencyKey: `execreq-release:${executionRequestId}#${item.nodeId}:${r.id}`,
+          });
+        }
+        await ltx.executionNodePlan.update({
+          where: { requestId_nodeId: { requestId: executionRequestId, nodeId: item.nodeId } },
+          data: { reservedCredit: 0, status: 'VOIDED' },
+        });
+      }
+      await ltx.executionRequest.update({
+        where: { id: executionRequestId },
+        data: { reservedCredit: 0, state: 'VOIDED' },
+      });
+      void voidedTotal;
+      return true;
+    }, { timeout: 15_000, maxWait: 5_000 });
+  }
+
+  /** 逐 item void（执行失败单节点）：release 逆转该 item 的 reserve 行（幂等——reservedCredit=0
+   *  不再逆转）；父行 reservedCredit 同步递减。 */
+  async voidForExecutionRequestItem(input: { executionRequestId: string; nodeId: string }): Promise<boolean> {
+    return this.prisma.$transaction(async (raw) => {
+      const ltx = await this.ledger.ledgerTx(raw);
+      const item = await ltx.executionNodePlan.findUnique({
+        where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
+      });
+      if (!item || item.reservedCredit <= 0) return false;
+      const req = await ltx.executionRequest.findUnique({ where: { id: input.executionRequestId }, select: { teamId: true, userId: true } });
+      if (!req) return false;
+      await this.ledger.lockBalance(ltx, req.teamId);
+      const reserveRows = await ltx.teamCreditTransaction.findMany({
+        where: { teamId: req.teamId, referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`, type: 'reserve' },
+        select: { id: true, creditType: true, balanceDelta: true },
+      });
+      for (const r of reserveRows) {
+        const amount = Math.abs(r.balanceDelta);
+        if (amount <= 0) continue;
+        await this.ledger.mutate(ltx, {
+          teamId: req.teamId, operatorUserId: req.userId, type: 'release', creditType: r.creditType,
+          balanceDelta: amount, frozenDelta: -amount,
+          referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`,
+          reversesId: r.id,
+          idempotencyKey: `execreq-release:${input.executionRequestId}#${input.nodeId}:${r.id}`,
+        });
+      }
+      await ltx.executionNodePlan.update({
+        where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
+        data: { reservedCredit: 0, status: 'VOIDED' },
+      });
+      await ltx.executionRequest.updateMany({
+        where: { id: input.executionRequestId },
+        data: { reservedCredit: { decrement: item.reservedCredit } },
+      });
+      return true;
+    }, { timeout: 15_000, maxWait: 5_000 });
+  }
+
+  /** 逐 item 结算（执行成功）：settle(0,-c) 冻结转实扣——reversesId 指向该 item 的 reserve 台账行
+   *  （exact settle row 配对）；幂等（reservedCredit=0 不再结算）。 */
+  async settleForExecutionRequestItem(
+    userId: string,
+    input: { executionRequestId: string; nodeId: string; teamId: string },
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ success: boolean; settled: boolean }> {
+    const run = async (raw: Prisma.TransactionClient) => {
+      const ltx = await this.ledger.ledgerTx(raw);
+      const item = await ltx.executionNodePlan.findUnique({
+        where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
+      });
+      if (!item || item.reservedCredit <= 0) return { success: true, settled: false };
+      await this.ledger.lockBalance(ltx, input.teamId);
+      const reserveRows = await ltx.teamCreditTransaction.findMany({
+        where: { teamId: input.teamId, referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`, type: 'reserve' },
+        select: { id: true, creditType: true, balanceDelta: true },
+      });
+      for (const r of reserveRows) {
+        const amount = Math.abs(r.balanceDelta);
+        if (amount <= 0) continue;
+        await this.ledger.mutate(ltx, {
+          teamId: input.teamId, operatorUserId: userId, type: 'settle', creditType: r.creditType,
+          balanceDelta: 0, frozenDelta: -amount,
+          referenceId: `execreq:${input.executionRequestId}#${input.nodeId}`,
+          reversesId: r.id,
+          idempotencyKey: `execreq-settle:${input.executionRequestId}#${input.nodeId}:${r.id}`,
+        });
+      }
+      await ltx.executionNodePlan.update({
+        where: { requestId_nodeId: { requestId: input.executionRequestId, nodeId: input.nodeId } },
+        data: { reservedCredit: 0, status: 'SETTLED' },
+      });
+      await ltx.executionRequest.updateMany({
+        where: { id: input.executionRequestId },
+        data: { reservedCredit: { decrement: item.reservedCredit } },
+      });
+      return { success: true, settled: true };
+    };
+    return tx ? run(tx) : this.prisma.$transaction((raw) => run(raw), { timeout: 15_000, maxWait: 5_000 });
+  }
+
   /** settle：外呼成功后核销——冻结转实扣（reservedCredits 清零+creditsConsumed 置位+settle 记账行）。
    *  台账锚（F1）+anti-join（Z6）+锁序①（lockBalance 先于 intent CAS）+reversesId 配对。
    *  CAS 后崩溃修补（报2 P1-1）：reservedCredits 已归零但 settle 行未写——anti-join 补写（reversesId 唯一=幂等安全）。

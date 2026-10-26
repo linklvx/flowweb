@@ -445,7 +445,7 @@ describe('Y0b-2 T6 controller 意图接线（Z91/Z103）', () => {
   it('execute 读 body.regenToken 透传 service 第5参（T7：SV 门用 body.stateVector——service 零 SV 实参）。Y0b-5 T13：第6/7参 jobId/traceId——ALS 外 traceId=undefined', async () => {
     const { ctrl, service } = makeController();
     await ctrl.execute({ projectId: 'p1', nodeId: 'n1', regenToken: 'hdr-intent', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
-    expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'hdr-intent', undefined, undefined);
+    expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'hdr-intent', undefined, undefined, undefined, undefined);
   });
 
   it('enqueue body.regenToken 入 job.data；缺省 null（Z91：enqueue 管道与 execute 直达同 claim 语义）。Y0b-5 T13：job.data.traceId——ALS 外=null（跨 Redis 经 job.data 显式携带）', async () => {

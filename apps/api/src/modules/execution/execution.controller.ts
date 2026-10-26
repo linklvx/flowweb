@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
+import { ExecutionRequestService } from './execution-request.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -27,6 +28,7 @@ export class ExecutionController {
     // 消费面⇒registered 恒≥1、门不可实际触发——T30 补 processor 注册门后自动生效，见
     // worker-presence.service.ts 裁决①注释；语义两种拓扑下均真实）
     @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
+    @Inject(ExecutionRequestService) private readonly executionRequests: ExecutionRequestService,   // Y1c T21：受理冻结（G4 门）
   ) {}
 
   /** Y0b-2 T6（Z103）：意图 id 请求头已删（无消费者）——token 走 body.regenToken（与 enqueue 单管道对齐）。
@@ -34,7 +36,7 @@ export class ExecutionController {
   @Post('execute')
   @Throttle({ default: { limit: 20, ttl: 60000 } }) // 批0c-8：付费任务端点收紧（全局 300/min 见 app.module）
   async execute(
-    @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string },
+    @Body() body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string; requestId?: string; docSeq?: string },
     @Req() req: Request,
   ) {
     // 权限恒先于 SV 门（T7 质量审 I-2——与 enqueue/image-edit/lighting 三端点同型；0c-6 存在性 oracle：
@@ -49,7 +51,34 @@ export class ExecutionController {
     await assertSyncAdmitted(this.collabDoc, body.projectId, body.stateVector);
     // regenToken=客户端手势 token（Z79/Z109）——无 token 普通执行=undefined（内容键路径）
     // Y0b-5 T13：traceId 自 ALS 读出显式传参（HTTP 直达路径——ALS 在请求上下文内；enqueue 管道走 job.data）
-    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken, undefined, requestTraceStorage.getStore()?.traceId);
+    // Y1c T21（G4 门）：requestId 在场=冻结请求执行（docSeq=save barrier 回执 committedSeq——客户端
+    // 已确认下界；请求不携带提示词参数——prompt 权威=doc 单源，服务端从 PG 一致前缀冻结）。
+    return this.service.execute(body.projectId, body.nodeId, (req as any).user?.id, body.nodeIds, body.regenToken, undefined, requestTraceStorage.getStore()?.traceId, undefined, body.requestId);
+  }
+
+  /** Y1c T21（G4 门）：执行受理——冻结计划/输入/前缀（幂等键 requestId 项目内唯一；4xx 零半行；
+   *  409 REQUEST_STALE/IDEMPOTENCY_CONFLICT；413 输入预算；503 maintenance/临界区超时）。 */
+  @Post('requests')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async admitRequest(
+    @Body() body: { projectId: string; requestId: string; nodeIds: string[]; docSeq?: string },
+    @Req() req: Request,
+  ) {
+    await this.perm.assertEditor(body.projectId, (req as any).user?.id);
+    const r = await this.executionRequests.admit({
+      projectId: body.projectId,
+      requestId: body.requestId,
+      nodeIds: body.nodeIds,
+      docSeq: BigInt(body.docSeq ?? '0'),
+      userId: (req as any).user?.id,
+    });
+    if (!r.ok) {
+      throw new BusinessException(r.code, r.detail, r.status as never);
+    }
+    return {
+      requestId: r.requestId, frozenDocSeq: r.frozenDocSeq.toString(), planHash: r.planHash,
+      inputHash: r.inputHash, reservedCredit: r.reservedCredit, totalCredit: r.totalCredit, replayed: r.replayed,
+    };
   }
 
   @Post('enqueue')

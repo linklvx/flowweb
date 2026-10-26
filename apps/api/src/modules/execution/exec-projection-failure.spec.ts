@@ -45,7 +45,8 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       { emitNodeStatus } as any,                                                                                      // gateway
       { void_ } as any,                                                                                               // intentService
       {} as any,                                                                                                      // upstreamMedia（Y1a T8——onReserveFail 不触）
-      {} as any,                                                                                                      // T10 artifactCommit（onReserveFail 不触）
+      {} as any,                                                                                                      // T10 artifactCommit（onReserveFail 不触）,
+    undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
     );
     const d = await causeDelta('not-serving', () =>
       (svc as any).onReserveFail('p1', { id: 'n1' }, { attempts: 1, intentId: 'i1' }, 'boom', 'SOME_CODE'));

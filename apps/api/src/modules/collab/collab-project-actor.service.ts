@@ -51,6 +51,8 @@ import {
   WAL_DEDUP_INDEX_TTL_MS,
   WAL_DEDUP_INDEX_MAX_ENTRIES,
   SAVE_BARRIER_FLUSH_THROTTLE_MS,
+  EXEC_FREEZE_BUDGET_MS,
+  EXEC_ADMISSION_TIMEOUT_MS,
   CollabCloseCode,
   DOC_OVER_QUOTA_TERMINAL_REASON,
   DOC_GENERATION_STALE_TERMINAL_REASON,
@@ -398,6 +400,14 @@ interface ProjectActorState {
   appliedQueue: AppliedEntry[];
   appliedBytes: number;
   flushing: boolean;
+  /** Y1c T21：frozenDocSeq 受理临界区 gate（v5.4⑪——**per-project mutex 非布尔 flag**）：
+   *  freeze 在持=drain 循环每批前让位（已过检查的 beforeSync 帧不得在读后 apply——提交中的帧
+   *  排队待 release 后处理；fn 读到的 doc 恒=applied 前缀态）。同一时刻至多一个 freeze 在持
+   *  （freezeWaiters 链串行化）。 */
+  freeze: { active: boolean; released: Promise<void>; release: () => void } | null;
+  /** T21：批处理在飞标志（freeze 等待面=apply 批非 PG flush——PG 挂起窗冻结读仍可进入
+   *  并以 flush-timeout 拒绝，不被 drain 整体占位阻塞）。 */
+  batchInFlight: boolean;
   lastFlushKickAt: number;
 }
 
@@ -484,7 +494,7 @@ export class CollabProjectActorService {
   private stateOf(pid: string): ProjectActorState {
     let st = this.states.get(pid);
     if (!st) {
-      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], appliedBytes: 0, flushing: false, lastFlushKickAt: 0 };
+      st = { queue: [], draining: false, appliedSeq: 0n, docIndex: new ProjectDocIndexImpl(), appliedQueue: [], appliedBytes: 0, flushing: false, lastFlushKickAt: 0, freeze: null, batchInFlight: false };
       this.states.set(pid, st);
     }
     return st;
@@ -642,9 +652,17 @@ export class CollabProjectActorService {
         // 禁 setTimeout 空闲窗〔含 1ms〕：fake-timer 宿主下永不触发=drain 悬挂，且跨 tick 帧本就
         // 允许成第二批〔批窗由最老帧龄/字节界约束〕）
         await Promise.resolve();
+        // Y1c T21 frozenDocSeq 临界区 gate：freeze 在持=drain 让位（新帧排队待 release——
+        // 冻结读后不得有新 apply，v5.4⑪「已过 flag 检查的 beforeSync 不得在读后 apply」）。
+        while (st.freeze?.active) await st.freeze.released;
         const batch = this.collectBatch(st);
         if (batch.length === 0) break;
-        await this.processBatch(pid, st, batch);
+        st.batchInFlight = true;
+        try {
+          await this.processBatch(pid, st, batch);
+        } finally {
+          st.batchInFlight = false;
+        }
       }
     } finally {
       st.draining = false;
@@ -1125,6 +1143,58 @@ export class CollabProjectActorService {
     }
     // flush 期间新帧入队（drain 并行推进）→ 尾轮再跑（st.flushing 已复位=新单 flusher）
     if (st.appliedQueue.length > 0) void this.flushApplied(pid).catch(() => {});
+  }
+
+  // ═══════════════════ Y1c T21：frozenDocSeq 受理临界区（v5.4⑪——G4 门）═══════════════════
+
+  /** **frozenDocSeq 正确临界区**（spec §6.1 v5.4⑪——次序冻结=FROZEN_DOC_SEQ_CRITICAL_SECTION_STAGES）：
+   *  freeze=**先拿 gate per-project mutex**（非布尔 flag——drain 循环每批前让位，已过准入检查的
+   *  beforeSync 帧不得在冻结读后 apply，提交中的帧排队待 release）→等当前 drain 批完成→
+   *  flushThrough(appliedSeq)→断言 pgSeq==appliedSeq→校验 generation→fn 只读（调用方自限 scope
+   *  节点+直接父节点——禁全量 readCanvas）→释放。
+   *  预算：gate+drain 等待 ≤EXEC_FREEZE_BUDGET_MS（500ms）超时→`gate-timeout`（调用方回退 PG 前缀
+   *  重建候选 doc——MVCC 一致前缀，不阻塞项目 actor）；flush 等待 ≤EXEC_ADMISSION_TIMEOUT_MS（2s）
+   *  总预算超时→`flush-timeout`（调用方 503 不落行）。doc 未装载（无在内存 doc）→`no-doc`（调用方走
+   *  PG 重建）。freeze 串行化：在持 freeze 期间新 freeze 等待 released（同项目受理互斥）。 */
+  async withFrozenPrefix<T>(
+    pid: string,
+    fn: (ctx: { doc: Y.Doc; appliedSeq: bigint; pgSeq: bigint; generation: number | undefined }) => Promise<T>,
+    opts?: { gateBudgetMs?: number; flushBudgetMs?: number },
+  ): Promise<{ ok: true; value: T; appliedSeq: bigint; pgSeq: bigint; generation: number | undefined } | { ok: false; reason: 'gate-timeout' | 'flush-timeout' | 'no-doc' }> {
+    const st = this.stateOf(pid);
+    const t0 = Date.now();
+    const gateBudget = opts?.gateBudgetMs ?? EXEC_FREEZE_BUDGET_MS;
+    const totalBudget = opts?.flushBudgetMs ?? EXEC_ADMISSION_TIMEOUT_MS;
+    // serialize freezers：在持 freeze 期间等待（gate 预算内让位）
+    while (st.freeze?.active) {
+      if (Date.now() - t0 >= gateBudget) return { ok: false, reason: 'gate-timeout' };
+      await Promise.race([st.freeze.released, new Promise((r) => setTimeout(r, 5))]);
+    }
+    // 拿 mutex（drain 每批前让位——此后新 submit 帧只入队不 apply）
+    let release!: () => void;
+    const released = new Promise<void>((r) => { release = r; });
+    st.freeze = { active: true, released, release };
+    try {
+      // 等当前 apply 批完成（batchInFlight=false=无在飞 apply；queue 中帧=未 apply，freeze 期间
+      // 不再处理——PG flush 挂起不阻塞本等待：flushThrough 随后以 flush-timeout 拒绝该窗）
+      while (st.batchInFlight) {
+        if (Date.now() - t0 >= gateBudget) return { ok: false, reason: 'gate-timeout' };
+        await new Promise((r) => setTimeout(r, 2));
+      }
+      const generation = this.host.generationOf(pid);
+      const document = this.host.documents().get(canvasDocName(pid, generation ?? 0));
+      if (!document) return { ok: false, reason: 'no-doc' };
+      const applied = st.appliedSeq;
+      const flushDeadline = t0 + totalBudget;
+      const r = await this.flushThrough(pid, applied, { maxWaitMs: Math.max(1, flushDeadline - Date.now()) });
+      if (!r.targetReached || r.pgSeq !== applied) return { ok: false, reason: 'flush-timeout' };
+      const value = await fn({ doc: document, appliedSeq: applied, pgSeq: r.pgSeq, generation });
+      return { ok: true, value, appliedSeq: applied, pgSeq: r.pgSeq, generation };
+    } finally {
+      const cur = st.freeze;
+      st.freeze = null;
+      cur?.release();
+    }
   }
 
   /** **flushThrough 契约（§4.2 v5.4——T10 实现）**：幂等（同 target 重复调用同结果）/有界等待（≤250ms

@@ -1002,6 +1002,212 @@ enum MaintenanceStage {
 }
 
 
+// ══════ Y1c T21（迁移二——20261025120000）：P3 业务族 DDL（spec §6.1/§6.2/§6.5/§7 v5.4）══════
+// 冻结契约单源=packages/shared/src/collab/{execution-request,execution-chain,runtime-event,lifecycle}.ts
+// （T5b 冻结 exact DDL——本块=Prisma 落地形态）。RuntimeFeedCursor=T7 已建（复用勿重建）。
+// 纪律：BigInt 默认 @default(0)；JSON/wire 面 BigInt 恒十进制字符串（system-history.ts 契约）；
+// 无 FK relation（DocAuditEvent/MaintenanceOperation 先例——业务平面纯列，项目删除清理归 T29）。
+// #4 族分离：execSeq=执行代际族（NodeExecution 更新守卫/GenerationIntent/RefundObligation）；
+// lifecycleSeq/fenceSeq=生命周期族（NodeLifecycle/DeliveryFence）——两族序永不互换互指。
+
+/// ExecutionRequest 父行（每请求一行——spec §6.1）。id=内部主键 cuid（客户端字符串禁作全局 PK）；
+/// requestId=客户端幂等键（项目内唯一）；historyId=PITR 后同 requestId 重试不匹配→409 REQUEST_STALE；
+/// docSeq=客户端下界（save barrier 回执 committedSeq）；frozenDocSeq=服务端实际冻结值（>=docSeq）；
+/// state 值域（T21）=ADMITTED/EXECUTING/COMPLETED/FAILED/VOIDED（终态扫描+sweeper 消费）。
+model ExecutionRequest {
+  id             String   @id @default(cuid())
+  requestId      String
+  projectId      String
+  generation     Int
+  historyId      String
+  docSeq         BigInt
+  frozenDocSeq   BigInt
+  userId         String
+  teamId         String
+  kind           String
+  state          String   @default("ADMITTED")
+  reservedCredit Int      @default(0)
+  totalCredit    Int      @default(0)
+  planHash       String   @db.Char(64)
+  inputHash      String   @db.Char(64)
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([projectId, requestId])
+  @@index([projectId, state, expiresAt])
+}
+
+/// ExecutionNodePlan 子行（每节点一行——claim/retry/退款/artifact 关系性载体）。
+/// requestId 列=父行 ExecutionRequest.id（内部主键 join 键——T5b 缩写「requestId」落地澄清：
+/// 客户端幂等键住父行 requestId 列）。scopeNodeIds 不落列——从本表派生；planHash 只盖不可变
+/// 字段（PLAN_HASH_IMMUTABLE_FIELDS——status/execSeq/generationIntentId 不进）。
+model ExecutionNodePlan {
+  requestId          String
+  nodeId             String
+  order              Int
+  type               String
+  model              String?
+  resolution         String?
+  styleId            String?
+  pricingRuleId      String?
+  creditCost         Int      @default(0)
+  reservedCredit     Int      @default(0)
+  paramsHash         String   @db.Char(64)
+  status             String   @default("PENDING")
+  generationIntentId String?
+  execSeq            BigInt?
+
+  @@id([requestId, nodeId])
+  @@index([requestId, order])
+}
+
+/// ExecutionInput 冻结输入（PG Bytes/TOAST——不引对象存储依赖）。encoding=json+gzip|json+brotli
+/// （node:zlib——禁 zstd）；content=压缩字节（stored≤2MiB ∧ raw≤8MiB 任一超限 413 不截断）；
+/// contentHash=SHA-256(content) hex64（inputHash=contentHash 单源）；expiresAt 必填（终态 30d 清理）。
+model ExecutionInput {
+  requestId     String   @id
+  encoding      String
+  content       Bytes
+  contentHash   String   @db.Char(64)
+  rawBytes      Int
+  storedBytes   Int
+  schemaVersion Int
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+}
+
+/// RuntimeEvent（spec §7——per-project feedSeq 连续跨代不重置；@@unique([projectId,feedSeq])）。
+/// kind 词表单源=shared EVENT_KINDS（runtime-event.ts）；payload v:1+≤64KB+PII 扫描（写入方=T22/T26）。
+/// feedSeq 分配=RuntimeFeedCursor upsert 行锁（RUNTIME_FEED_CURSOR_UPSERT_SQL 单源——T22 消费）。
+model RuntimeEvent {
+  id         String   @id @default(cuid())
+  projectId  String
+  generation Int
+  feedSeq    BigInt
+  kind       String
+  payload    Json
+  docSeq     BigInt?
+  createdAt  DateTime @default(now())
+
+  @@unique([projectId, feedSeq])
+  @@index([projectId, generation, feedSeq])
+}
+
+/// NodeExecution 当前行表（spec §6.2——PK(projectId,nodeId)；历史留 GenerationIntent）。
+/// 更新守卫=generation 匹配且 execSeq 严格单调（shared nodeExecutionUpdateAllowed 单源→PG CAS
+/// WHERE generation=? AND execSeq<?——旧 worker 迟到更新拒绝）；nodeVersion=该节点末次事件 feedSeq。
+/// #4：execSeq=执行代际族（≠lifecycleSeq 生命周期族——lifecycle.ts）。
+model NodeExecution {
+  projectId   String
+  nodeId      String
+  generation  Int
+  execSeq     BigInt
+  nodeVersion BigInt   @default(0)
+  status      String
+  attempts    Int      @default(1)
+  errorCode   String?
+  artifactRev Int?
+  updatedAt   DateTime @updatedAt
+
+  @@id([projectId, nodeId])
+}
+
+/// ExecutionOutbox 工作队列（spec §6.2——**禁作 feed 日志**：可 claim/可更新/可删会使 feed 游标出洞；
+/// feed=RuntimeEvent）。唯一键含 generation+业务幂等键 businessKey；SKIP LOCKED 租约 claim。
+model ExecutionOutbox {
+  id           String   @id @default(cuid())
+  projectId    String
+  generation   Int
+  businessKey  String
+  kind         String
+  payload      Json?
+  state        String   @default("PENDING")
+  claimOwner   String?
+  claimUntilMs BigInt?
+  attempts     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectId, generation, businessKey])
+  @@index([projectId, state, claimUntilMs])
+}
+
+/// MaterializeRun（spec §6.3——materializeRunId+expectedExecSeq 双锚 fencing；state 值域 T23 消费定形）。
+model MaterializeRun {
+  id              String   @id @default(cuid())
+  projectId       String
+  nodeId          String
+  expectedExecSeq BigInt
+  state           String
+  createdAt       DateTime @default(now())
+
+  @@index([projectId, state])
+}
+
+/// RefundObligation（spec §6.3——unique(intentRowId,execSeq)+reversesId 幂等：exact settle row 逆转；
+/// 不依据客户端 doc 字段或过期 worker 状态）。#11 退款路径：EXEC_FINALIZE 义务收口链消费（T26）。
+model RefundObligation {
+  id           String   @id @default(cuid())
+  intentRowId  String
+  execSeq      BigInt
+  reversesId   String
+  creditAmount Int
+  state        String   @default("PENDING")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([intentRowId, execSeq])
+}
+
+/// NodeLifecycle（spec §6.5——服务端只读观察产物；lifecycleSeq=per-project 单调数值序；
+/// 当前行 partial unique=迁移 raw SQL UNIQUE(projectId,nodeId) WHERE is_current——历史行保留）。
+/// #4：lifecycleSeq=生命周期族（≠execSeq 执行代际族）。义务可从帧前缀确定性重建（T26）。
+model NodeLifecycle {
+  projectId    String
+  nodeId       String
+  lifecycleSeq BigInt
+  isCurrent    Boolean  @default(true)
+  state        String
+  walSeq       BigInt
+  createdAt    DateTime @default(now())
+
+  @@id([projectId, nodeId, lifecycleSeq])
+  @@index([projectId, nodeId, isCurrent])
+}
+
+/// DeliveryFence（spec §6.5——交付事务写 artifact 前的 fence 校验载体：fenceSeq==当前 lifecycleSeq
+/// 且 state=ACTIVE——不匹配=丢弃不退款；T26 观察器维护 delete/restore+当前态）。
+model DeliveryFence {
+  projectId String
+  nodeId    String
+  fenceSeq  BigInt
+  state     String
+  updatedAt DateTime @updatedAt
+
+  @@id([projectId, nodeId])
+}
+
+/// LifecycleObligation 义务队列（#11——T21 定队列落地：state/attempts/lease 执行面+lifecycle.ts
+/// 生成面同表承载；kind 词表单源=OBLIGATION_KINDS〔FEED_TOMBSTONE/NODE_DELETED/EXEC_FINALIZE〕；
+/// 队列转移单源=shared nextObligationQueueState；SKIP LOCKED 租约+attempts 上限 5→DEAD fail-closed）。
+model LifecycleObligation {
+  id           String   @id @default(cuid())
+  projectId    String
+  nodeId       String
+  kind         String
+  walSeq       BigInt
+  state        String   @default("PENDING")
+  attempts     Int      @default(0)
+  claimOwner   String?
+  claimUntilMs BigInt?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectId, nodeId, kind, walSeq])
+  @@index([projectId, state, claimUntilMs])
+}
+
 model ProjectMember {
   id        String        @id @default(cuid())
   projectId String
@@ -1217,6 +1423,9 @@ model GenerationIntent {
   // rev 前进 ⇒ 持久值失配 ⇒ superseded 不覆盖用户值——T10「生成在飞 replace→superseded」不变量的 R3 面）。
   claimArtifactRev     Int?
   providerRequestId    String? // v13b write-ahead：submit 前落库（Idempotency-Key——消灭 submit→DB 崩溃窗）
+  // Y1c T21（迁移二）：claim 创建关联 requestId——paramsHash/pricing 只读 ExecutionNodePlan 不重算
+  // （spec §6.1「GenerationIntent=claim 创建关联 requestId」；worker 零 doc 读）
+  executionRequestId   String?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   completedAt          DateTime?
@@ -1232,6 +1441,7 @@ model GenerationIntent {
   @@index([status, completedAt]) // 保留策略清理扫描用（终态 N 天清理——F1）
   @@index([status, execProjectedExecSeq]) // Y1b T2：exec error reconcile 判据
   @@index([providerTaskId]) // Y1b T2：query-first 键序 requestId→taskId 重呼
+  @@index([executionRequestId]) // Y1c T21：请求→意图族审计读面
 }
 
 enum IntentStatus {

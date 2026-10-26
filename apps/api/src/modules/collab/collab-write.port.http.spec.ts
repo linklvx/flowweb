@@ -223,7 +223,8 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       emitPort as any,                                                                                    // emit 端口
       intentSvc as any,                                                                                   // intentService
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）
-      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }) } as any,   // T10/T12 artifactCommit（本用例焦点=503 全程投影面——stub 直通）
+      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }) } as any,   // T10/T12 artifactCommit（本用例焦点=503 全程投影面——stub 直通）,
+    undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
     );
     const errors: unknown[] = [];
     const results: unknown[] = [];

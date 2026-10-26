@@ -79,6 +79,6 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
   // 后移除本行），shrink 模块内直注不受 exports 影响。
   // T15：exports += CollabLeaseService（投影 poller claim 时捕获 epoch 的单源读——CollabLeaseService
   // .currentEpoch；模块外消费面唯一=ProjectionOutboxPoller）。
-  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService, CollabLeaseService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）
+  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
 })
 export class CollabModule {}

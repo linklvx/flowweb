@@ -92,7 +92,8 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     { emitNodeStatus: vi.fn() } as any,
     intentSvc,
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
-    makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）
+    makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
+  undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
   );
   return { svc, collabDoc, writeExecCalls, writeNodeCalls, apiCaller };
 }

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as Y from 'yjs';
 import { ExecutionController } from './execution.controller';
+import { ExecutionRequestService } from './execution-request.service';
 import { ExecutionService } from './execution.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
@@ -59,6 +60,7 @@ describe('ExecutionController', () => {
         // Y0b-2 T7：SV 支配门依赖（readServerSV）
         { provide: CollabDocumentService, useValue: collabSvc },
         { provide: WorkerPresenceService, useValue: presence },
+        { provide: ExecutionRequestService, useValue: { admit: vi.fn() } },   // Y1c T21：受理冻结（controller spec 最小装置）
       ],
     }).compile();
 
@@ -71,7 +73,7 @@ describe('ExecutionController', () => {
       const body = { projectId: 'p1', nodeId: 'n1', stateVector: SV_OK };
       const result = await controller.execute(body, req);
       // 第6参 jobId（HTTP 直达恒 undefined）+第7参 traceId（Y0b-5 T13——ALS 外=undefined；ALS 内用例见下）
-      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined, undefined, undefined, undefined);
       expect(result).toEqual({ success: true, errors: [] });
     });
 
@@ -79,7 +81,7 @@ describe('ExecutionController', () => {
       const req = { user: { id: 'u-auth' } } as any;
       const body = { projectId: 'p1', userId: 'forged', stateVector: SV_OK };
       await controller.execute(body, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined, undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', undefined, undefined, undefined, undefined, undefined, undefined);
     });
 
     it('T7：缺 stateVector → 400 SYNC_STATE_VECTOR_REQUIRED（fail-closed——缺省静默放行是垫片）', async () => {
@@ -103,7 +105,7 @@ describe('ExecutionController', () => {
     it('T7：body.stateVector 走 SV 门（SV 请求头退役）——支配成立放行', async () => {
       const req = { user: { id: 'u-auth' } } as any;
       await controller.execute({ projectId: 'p1', nodeIds: ['n1', 'n2'], stateVector: SV_OK } as any, req);
-      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', ['n1', 'n2'], undefined, undefined, undefined);
+      expect(service.execute).toHaveBeenCalledWith('p1', undefined, 'u-auth', ['n1', 'n2'], undefined, undefined, undefined, undefined, undefined);
     });
 
     // Y0b-5 T13：ALS 消费面——HTTP 直达路径 traceId 自 requestTraceStorage 读出传 service.execute
@@ -113,7 +115,7 @@ describe('ExecutionController', () => {
       await requestTraceStorage.run({ traceId: trace }, async () => {
         await controller.execute({ projectId: 'p1', nodeId: 'n1', stateVector: SV_OK } as any, req);
       });
-      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined, trace);
+      expect(service.execute).toHaveBeenCalledWith('p1', 'n1', 'u-auth', undefined, undefined, undefined, trace, undefined, undefined);
     });
 
     // Y0b-2 T8（Z90/Z117）：EXEC_MAX_NODES 硬闸——21 字面量=default 20+1（env 未设档；设 EXEC_MAX_NODES 的测试环境需自调）

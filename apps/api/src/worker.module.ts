@@ -34,6 +34,7 @@ import { QUEUE_NAMES } from './config/queue.constants';
 import { TeamRechargeService } from './modules/team/team-recharge.service';
 // ── execution 链（Core 平铺——模块本体闭包脏不可导入，偏离 30） ──
 import { ExecutionService } from './modules/execution/execution.service';
+import { ExecutionRequestService } from './modules/execution/execution-request.service';   // Y1c T21：冻结请求执行路径（worker 零 doc 读）
 import { GenerationIntentService } from './modules/execution/generation-intent.service';
 import { NodeArtifactService } from './modules/artifact-core/node-artifact.service';
 import { MediaRegistrationService } from './modules/artifact-core/media-registration.service';
@@ -154,6 +155,7 @@ const env = validateEnv();
     TeamCloseExpiredProcessor,
     // ── execution 链服务（processor 传递依赖平铺） ──
     ExecutionService,
+    ExecutionRequestService,   // Y1c T21（G4 门）
     SafeRemoteFetchService,   // T6：ai-image-edit/lighting/materialize 下载原语（SSRF 四门+限长）
     MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
     MaterializeJob,           // T12：video materialize DB poller（SKIP LOCKED claim/lease 退避+终态失败幂等补偿退款）

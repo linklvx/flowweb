@@ -896,6 +896,11 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-project-actor.service.ts': {
       applyUpdate: { n: 1, until: '片D' },               // actor pre-apply（准入链 ⑤——apply 归属换代的唯一显式调用）
     },
+    // Y1c T21（G4 门）：ExecutionService 冻结路径引入闭包——applyUpdate=PG 前缀重建候选 doc 装载
+    // （load 档语义同 repository compact scratch；㉜ 同批登记）。
+    'apps/api/src/modules/execution/execution-request.service.ts': {
+      applyUpdate: { n: 2, until: '片D' },
+    },
     'apps/api/src/modules/collab/collab-frame-gate.service.ts': {
       'hocuspocus-server-import': { n: 1, until: '片D' },   // beforeSyncPayload type-only import（零运行时边）
     },
@@ -1502,6 +1507,7 @@ if (isMain()) {
     // load 档（装载/boot 回放）
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,     // loadDocument spool 帧重放
     'apps/api/src/modules/collab/collab-persistence.service.ts': 1,     // withReplaySuppressed 重放抑制窗
+    'apps/api/src/modules/execution/execution-request.service.ts': 2,   // Y1c T21：PG 前缀重建候选 doc（freeze 回退档——snapshot+updates 装载重放，load 档语义；G4 受理冻结读面）
     'apps/web/src/stores/canvasCollabRuntime.ts': 2,                    // boot 缓存回放:1770+tmp 导出:689（离线 tmp——load 档邻位）
     // import 档（备份导入）
     'apps/web/src/collab/canvas-local-backup.ts': 1,                     // applyLocalBackup（origin=provider 抑制回发；:64 注释提及不计——census⑨ 同注）
@@ -1522,7 +1528,7 @@ if (isMain()) {
     }
     const details = reconcileCountWhitelist(occurrences, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
     const nWl = Object.values(APPLY_UPDATE_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/9 文件冻结〔T9 gate 档已登记〕；违规明细 file:line）`, details.length === 0, details);
+    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/10 文件冻结〔T9 gate 档+T21 PG 前缀重建档已登记〕；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：

@@ -13,7 +13,8 @@ import { UpstreamMediaService } from './upstream-media.service';
 import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
-import { resolvePromptText } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源
+import { resolvePromptText, nodeExecutionUpdateAllowed } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源；T21：NodeExecution 更新守卫单源
+import { ExecutionRequestService, type LoadedExecution } from './execution-request.service';   // Y1c T21：受理冻结请求消费
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { intentDuplicateAttemptTotal } from './intent-reconcile.metrics';   // T12：settleFailureTotal 消费点随 video 旧链退役（settle 归 finalize 事务内——失败面回滚非计数照发）
 import { artifactDiscardedTotal, countExecProjectionFailure } from './exec.metrics';
@@ -81,6 +82,7 @@ export class ExecutionService {
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(UpstreamMediaService) private readonly upstreamMedia: UpstreamMediaService,   // Y1a T8：上游身份读源/URL 解析
     @Inject(ArtifactCommitService) private readonly artifactCommit: ArtifactCommitService,   // Y1a T10：image/text 腿 finalize 单事务（NodeArtifact CAS+intent CAS+settle+投影）
+    @Inject(ExecutionRequestService) private readonly executionRequests: ExecutionRequestService,   // Y1c T21：冻结请求执行路径（零 doc 读）
   ) {}
 
   /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
@@ -154,9 +156,13 @@ export class ExecutionService {
   async execute(
     projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], intentId?: string, jobId?: string,
     traceId?: string | null, onClaimed?: (ticket: ExecutionClaimTicket) => void,
+    requestId?: string,   // Y1c T21：冻结请求执行路径（受理在档——worker 零 doc 读）
   ): Promise<ExecutionResult> {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
+    // Y1c T21（G4 门）：requestId 在场=冻结请求执行（计划/输入/定价全自受理冻结面——paramsHash/
+    // pricing 只读 request 不重算；readCanvas 恒不触达=worker 零 doc 读）。
+    if (requestId) return this.executeFrozenRequest(projectId, requestId, userId, intentId, jobId, traceId, onClaimed);
 
     // 1. Load project
     const project = await this.prisma.canvasProject.findUnique({
@@ -618,5 +624,155 @@ export class ExecutionService {
       };
     }
     throw new BusinessException('UNSUPPORTED_NODE_TYPE', `节点 ${node.id} 类型 ${node.type} 无执行分支`, HttpStatus.BAD_REQUEST);
+  }
+
+  // ═══ Y1c T21（G4 门）：冻结请求执行路径——worker 零 doc 读（spec §6.1/§6.2）════════════════
+
+  /** NodeExecution 当前行 CAS upsert（更新守卫单源=shared nodeExecutionUpdateAllowed→PG
+   *  `WHERE generation=EXCLUDED.generation AND execSeq<EXCLUDED.execSeq`——旧 worker 迟到更新拒绝；
+   *  0 行=fenced（换代/旧代票——观测面，不中止本代流程）。 */
+  private async upsertNodeExecutionGuarded(input: {
+    projectId: string; nodeId: string; generation: number; execSeq: bigint; status: string;
+  }): Promise<boolean> {
+    const r = await this.prisma.$queryRaw<{ nodeId: string }[]>`
+      INSERT INTO "NodeExecution" ("projectId", "nodeId", "generation", "execSeq", "nodeVersion", "status", "attempts", "updatedAt")
+      VALUES (${input.projectId}::text, ${input.nodeId}::text, ${input.generation}::int, ${input.execSeq}::bigint, 0, ${input.status}::text, 1, now())
+      ON CONFLICT ("projectId", "nodeId") DO UPDATE SET
+        "generation" = EXCLUDED."generation", "execSeq" = EXCLUDED."execSeq", "status" = EXCLUDED."status",
+        "attempts" = "NodeExecution"."attempts" + 1, "updatedAt" = now()
+      WHERE "NodeExecution"."generation" = EXCLUDED."generation" AND "NodeExecution"."execSeq" < EXCLUDED."execSeq"
+      RETURNING "nodeId"`;
+    return r.length > 0;
+  }
+
+  /** 冻结请求执行：scope/planMap/upstream 全自受理冻结面（ExecutionNodePlan+ExecutionInput）；
+   *  claim 用 plan.paramsHash（零重算）；资金=per-item（预留已在受理事务——本路径跳过 intent reserve，
+   *  成功 settleForExecutionRequestItem/失败 voidForExecutionRequestItem）。 */
+  private async executeFrozenRequest(
+    projectId: string, requestId: string, userId: string,
+    gestureToken: string | undefined, jobId?: string, traceId?: string | null,
+    onClaimed?: (ticket: ExecutionClaimTicket) => void,
+  ): Promise<ExecutionResult> {
+    const frozen = await this.executionRequests.loadForExecution(projectId, requestId);
+    if (!frozen) throw new BusinessException('EXEC_REQUEST_NOT_FOUND', `执行请求不存在：${requestId}`, HttpStatus.BAD_REQUEST);
+    if (frozen.request.state === 'VOIDED') throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
+    if (!this.collabDoc.isLeaseServing()) throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
+    await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id, state: 'ADMITTED' }, data: { state: 'EXECUTING' } });
+
+    const results: ExecutionResult['results'] = [];
+    const errors: ExecutionErrorEntry[] = [];
+    let totalDeducted = 0;
+    for (const plan of frozen.plans) {
+      if (!isExecutableNode({ type: plan.type })) continue;
+      const entry = frozen.input.nodes[plan.nodeId];
+      if (!entry) { errors.push({ nodeId: plan.nodeId, status: 'error', error: 'PLAN_MISSING（冻结输入缺节点）', errorCode: 'PLAN_MISSING' }); continue; }
+      this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'loading' });
+      let claimed: any = null;
+      try {
+        const { intent, created, result: claimResult, artifactRev } = await this.claimForNode(
+          projectId, { id: plan.nodeId }, userId, gestureToken, entry.kind,
+          entry.args as Record<string, unknown>,
+          { pricingRuleId: plan.pricingRuleId ?? '', modelId: plan.model, resolutionId: plan.resolution, durationId: null, creditCost: plan.creditCost },
+          frozen.request.teamId, jobId, traceId,
+        );
+        if (claimResult === 'same-job-alive') {
+          errors.push({ nodeId: plan.nodeId, status: 'skipped', error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' });
+          continue;
+        }
+        if (!created) {
+          this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+          continue;
+        }
+        claimed = intent;
+        // T21：claim 创建关联 requestId（GenerationIntent.executionRequestId——审计读面）+plan 行回写
+        // +NodeExecution 当前行 CAS（更新守卫单源消费点）
+        await this.prisma.generationIntent.update({ where: { id: intent.id }, data: { executionRequestId: frozen.request.id } }).catch(() => {});
+        await this.prisma.executionNodePlan.updateMany({
+          where: { requestId: frozen.request.id, nodeId: plan.nodeId },
+          data: { status: 'EXECUTING', generationIntentId: intent.id, execSeq: intent.execSeq },
+        });
+        await this.upsertNodeExecutionGuarded({
+          projectId, nodeId: plan.nodeId, generation: frozen.request.generation, execSeq: intent.execSeq, status: 'RUNNING',
+        });
+        onClaimed?.({ nodeId: plan.nodeId, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
+        const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
+        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }, this.wscope(intent)).catch(countExecProjectionFailure);
+
+        // 资金：受理 per-item 预留在档——本路径跳过 intent reserve（双冻结防护）
+        const reanchored = await this.intentService.reanchorDeadline(intent.id, entry.kind, intent.execSeq);
+        if (reanchored === 0) continue;
+        let idempotencyKey: string | null = null;
+        if (entry.kind !== 'text') idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
+        const outcome = await this.frozenCall(entry, { onTick: this.intentOnTick(intent.id, intent.execSeq), resumeTaskId: intent.providerTaskId ?? null, idempotencyKey, onProviderTaskId: (taskId) => this.intentService.recordProviderTaskId(intent.id, intent.execSeq, taskId) });
+        const committed = entry.kind === 'text'
+          ? await this.artifactCommit.finalizeText({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, resultText: outcome.resultText! })
+          : entry.kind === 'video'
+            ? await this.artifactCommit.finalizeVideo({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, sourceMimeType: 'video/mp4' })
+            : await this.artifactCommit.commitImage({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, originalNameBase: `ai-generated-${plan.nodeId}` });
+        if (committed.outcome === 'intent-stale') {
+          await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId }).catch(() => {});
+          errors.push({ nodeId: plan.nodeId, status: 'error', error: '生成已被系统回收（超时）——产物未投递', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
+          continue;
+        }
+        // per-item 结算（成功面——冻结转实扣；reversesId 配对 exact reserve 行）
+        if (plan.reservedCredit > 0) {
+          await this.teamCredit.settleForExecutionRequestItem(userId, { executionRequestId: frozen.request.id, nodeId: plan.nodeId, teamId: frozen.request.teamId }).catch((e) => this.logger.warn(`settle item ${plan.nodeId}: ${e}`));
+          totalDeducted += plan.creditCost;
+        }
+        if (outcome.resultRow) results.push(outcome.resultRow);
+        this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: committed.mediaId });
+      } catch (err: any) {
+        if (plan.reservedCredit > 0) {
+          await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId }).catch(() => {});
+        }
+        if (claimed) {
+          await this.teamCredit.void_({ intentRowId: claimed.id, execSeq: claimed.execSeq }).catch(() => {});
+          await this.intentService.fail(claimed.id, String(err), undefined, claimed.execSeq);
+        }
+        const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
+        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, this.errorPatch(errorCode, err?.message ?? err, 0, false, claimed?.intentId), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure);
+        this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: err?.message ?? String(err) });
+        errors.push({ nodeId: plan.nodeId, status: 'error', error: String(err?.message ?? err), errorCode });
+      }
+    }
+    const remaining = await this.prisma.executionNodePlan.count({ where: { requestId: frozen.request.id, status: { in: ['PENDING', 'EXECUTING'] } } });
+    if (remaining === 0) {
+      await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id }, data: { state: errors.length === 0 ? 'COMPLETED' : 'FAILED' } });
+    }
+    return { success: errors.length === 0, errors, results, totalCost: totalDeducted };
+  }
+
+  /** 冻结 claim 腿（三 kind——外呼实参自冻结 args；text=同步单次/image、video=submit-poll 同构）。 */
+  private async frozenCall(entry: { kind: string; promptText: string; args: Record<string, unknown>; upstreamImageMediaId?: string }, provider: {
+    onTick: () => Promise<'abort' | void>; resumeTaskId: string | null; idempotencyKey: string | null;
+    onProviderTaskId: (taskId: string) => Promise<void> | void;
+  }): Promise<{ resultRef: string; resultText?: string; resultRow?: ExecutionResult['results'][number] }> {
+    if (entry.kind === 'text') {
+      const textResult = await this.apiCaller.callTextGen({
+        prompt: String(entry.args.prompt ?? entry.promptText ?? 'Hello'),
+        model: String(entry.args.model ?? ''),
+        apiUrl: '',
+      });
+      return { resultRef: `text:${String(textResult.content).slice(0, 100)}`, resultText: textResult.content, resultRow: { nodeId: '', type: 'text', content: textResult.content } };
+    }
+    if (entry.kind === 'video') {
+      const result = await this.apiCaller.callVideoGen({
+        prompt: String(entry.args.prompt ?? ''), model: entry.args.model as string | undefined,
+        mode: (entry.args.mode as string) || 'text-to-video',
+        imageUrl: entry.upstreamImageMediaId ? await this.upstreamMedia.resolveCallUrl(entry.upstreamImageMediaId) : undefined,
+        onTick: provider.onTick, resumeTaskId: provider.resumeTaskId, idempotencyKey: provider.idempotencyKey, onProviderTaskId: provider.onProviderTaskId,
+      } as never);
+      return { resultRef: result.url, resultRow: { nodeId: '', type: 'video', resultUrl: result.url } };
+    }
+    const result = await this.apiCaller.callImageGen({
+      prompt: String(entry.args.prompt ?? ''),
+      extraPrompt: entry.args.extraPrompt as string | undefined,
+      style: entry.args.style as string | undefined,
+      model: entry.args.model as string | undefined,
+      resolution: entry.args.resolution as string | undefined,
+      imageUrl: entry.upstreamImageMediaId ? await this.upstreamMedia.resolveCallUrl(entry.upstreamImageMediaId) : undefined,
+      onTick: provider.onTick, resumeTaskId: provider.resumeTaskId, idempotencyKey: provider.idempotencyKey, onProviderTaskId: provider.onProviderTaskId,
+    } as never);
+    return { resultRef: result.url, resultRow: { nodeId: '', type: 'image', resultUrl: result.url } };
   }
 }

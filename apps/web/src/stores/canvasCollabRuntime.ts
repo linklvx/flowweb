@@ -67,6 +67,9 @@ import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, collectFamilyDirtyRecords,
 // Y1c T18：exportRawYjsBackup——换代清族前他 tab 脏草稿保全（单 .yjs 可回灌）
 import { exportLocalBackup, exportRawYjsBackup, applyLocalBackup, type LocalBackupArtifact } from '@/collab/canvas-local-backup';
 import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
+// Y1c T21：barrier/ensureDurable 注入缝接线（循环依赖裁定同 supervisor——顶层仅函数声明，
+// initCollab 运行时注册；executionApi 对本模块的 getStateVector import 不受影响）
+import { registerEnsureDurableHook, registerSavedSeqReader } from '@/api/executionApi';
 
 function collabUrl(): string {
   // 开发环境直连 collab 端口（vite ws proxy 对 hocuspocus 消息路由不透明）；
@@ -173,6 +176,135 @@ export function getSavedSeq(): number {
 function advanceSavedSeq(pgSeq: string | number): void {
   const n = typeof pgSeq === 'number' ? pgSeq : Number(pgSeq);
   if (Number.isFinite(n) && n > savedSeq) savedSeq = n;
+}
+
+// ── Y1c T21（spec §4.2/偏离 36+38⑳——本卡客户端）：save barrier 客户端（第二入口——与 durable
+//    watermark 广播双入口同汇 advanceSavedSeq；provider synced/SyncStatus 恒不推进，既有用例不破）──
+/** 本 tab 本地编辑计数（clientSeq——每本地 update 自增；reload 后重置配 sessionEpoch 比较）。 */
+let lastLocalEditSeq = 0;
+/** 最近一次成功回执覆盖的 clientSeq（Durable 判据=回执 clientSeq>=lastLocalEditSeq）。 */
+let lastReceiptClientSeq = -1;
+/** 在飞 barrier（nonce→resolver）；nonce 单调（断线新 nonce——旧回执迟到整体忽略）。 */
+const pendingBarriers = new Map<string, { resolve: (r: { ok: boolean; committedSeq?: string }) => void; at: number }>();
+let barrierNonceSeq = 0;
+let barrierIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let barrierMaxTimer: ReturnType<typeof setTimeout> | null = null;
+/** 触发数字（spec §4.2）：800ms idle 去抖+5s 上限（编辑连发不饿死）+pagehide+执行前 ensureDurable。 */
+const BARRIER_IDLE_MS = 800;
+const BARRIER_MAX_SINCE_EDIT_MS = 5_000;
+let firstDirtyAtForBarrier = 0;
+
+/** 发送 barrier（T5a 冻结 wire 形态 {nonce,clientSeq,sessionEpoch}——服务端 handler 首语句同步
+ *  捕获 target=appliedSeq；回执 {nonce,clientSeq,committedSeq} 双入口同汇 advanceSavedSeq）。 */
+function sendSaveBarrier(): void {
+  const p = provider;
+  if (!p) return;
+  const nonce = `bar-${++barrierNonceSeq}-${Date.now()}`;
+  const clientSeq = lastLocalEditSeq;
+  const ep = sessionEpoch;
+  let settled = false;
+  const promise = new Promise<{ ok: boolean; committedSeq?: string }>((resolve) => {
+    pendingBarriers.set(nonce, { resolve: (r) => { settled = true; resolve(r); }, at: Date.now() });
+  });
+  void promise;   // 悬念消费归 ensureDurable/receipt 路径（fire-and-forget 触发面不 await）
+  try {
+    (p as unknown as { sendStateless: (payload: string) => void }).sendStateless(
+      JSON.stringify({ nonce, clientSeq, sessionEpoch: ep }),
+    );
+  } catch {
+    pendingBarriers.delete(nonce);
+    return;
+  }
+  // 有界回收（无回执 5s——断线/维护档兜底；永不 throw）
+  setTimeout(() => {
+    if (!settled) {
+      const entry = pendingBarriers.get(nonce);
+      if (entry) { entry.resolve({ ok: false }); pendingBarriers.delete(nonce); }
+    }
+  }, 5_000);
+}
+
+/** 编辑后调度（800ms idle/5s 上限双触发——T10 服务端 flush 节流 ≤250ms 合并等待）。 */
+function scheduleSaveBarrier(): void {
+  if (firstDirtyAtForBarrier === 0) firstDirtyAtForBarrier = Date.now();
+  if (barrierIdleTimer !== null) clearTimeout(barrierIdleTimer);
+  barrierIdleTimer = setTimeout(() => {
+    barrierIdleTimer = null;
+    firstDirtyAtForBarrier = 0;
+    if (barrierMaxTimer !== null) { clearTimeout(barrierMaxTimer); barrierMaxTimer = null; }
+    sendSaveBarrier();
+  }, BARRIER_IDLE_MS);
+  if (barrierMaxTimer === null) {
+    barrierMaxTimer = setTimeout(() => {
+      barrierMaxTimer = null;
+      if (barrierIdleTimer !== null) { clearTimeout(barrierIdleTimer); barrierIdleTimer = null; }
+      firstDirtyAtForBarrier = 0;
+      sendSaveBarrier();
+    }, BARRIER_MAX_SINCE_EDIT_MS);
+  }
+}
+
+/** 执行前 ensureDurable（触发=执行前——无未覆盖本地编辑=直接返回；否则发 barrier 等回执覆盖
+ *  （Durable 判据=回执 clientSeq>=lastLocalEditSeq 且 committedSeq 在场）；超时/失败=fail-closed
+ *  返回当前 savedSeq（诚实下界——禁虚报 Durable）。 */
+export async function ensureDurableBeforeExecution(timeoutMs = 3_000): Promise<string> {
+  if (lastLocalEditSeq > lastReceiptClientSeq && provider) {
+    const p = provider as unknown as { sendStateless: (payload: string) => void };
+    const nonce = `pre-${++barrierNonceSeq}-${Date.now()}`;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      pendingBarriers.set(nonce, {
+        resolve: () => { settled = true; resolve(); },
+        at: Date.now(),
+      });
+      try {
+        p.sendStateless(JSON.stringify({ nonce, clientSeq: lastLocalEditSeq, sessionEpoch }));
+      } catch { resolve(); }
+      setTimeout(() => { if (!settled) resolve(); }, timeoutMs);
+    });
+  }
+  return String(savedSeq);
+}
+
+/** 测试缝（T21 barrier 客户端单测面——生产禁调）：回执消费+编辑计数复位。 */
+export function __t21BarrierTestSeam(): {
+  consumeBarrierReceipt: (msg: Record<string, unknown>) => boolean;
+  armPending: (nonce: string) => void;
+  localEdits: () => number;
+  reset: () => void;
+} {
+  return {
+    consumeBarrierReceipt,
+    armPending: (nonce: string) => {
+      pendingBarriers.set(nonce, { resolve: () => {}, at: Date.now() });
+    },
+    localEdits: () => lastLocalEditSeq,
+    reset: () => { lastLocalEditSeq = 0; lastReceiptClientSeq = -1; pendingBarriers.clear(); savedSeq = 0; },   // savedSeq 复位=测试缝特权（生产恒单调——advanceSavedSeq 唯一推进口）
+  };
+}
+
+/** barrier 回执消费（stateless 双型外的第三型——T5a 冻结回执形态；成功档 advanceSavedSeq
+ *  （双入口同汇）+lastReceiptClientSeq 推进；错误档（BARRIER_FAILED/maintenance）永不产生 Durable。 */
+function consumeBarrierReceipt(msg: Record<string, unknown>): boolean {
+  if (typeof msg.nonce !== 'string') return false;
+  const entry = pendingBarriers.get(msg.nonce);
+  if (!entry) return false;   // 陈旧/未知 nonce——整体忽略（断线新 nonce 后旧回执迟到）
+  pendingBarriers.delete(msg.nonce);
+  const clientSeq = typeof msg.clientSeq === 'number' ? msg.clientSeq : undefined;
+  const committedSeq = typeof msg.committedSeq === 'string' ? msg.committedSeq : undefined;
+  if (clientSeq !== undefined && committedSeq !== undefined) {
+    if (clientSeq > lastReceiptClientSeq) lastReceiptClientSeq = clientSeq;
+    advanceSavedSeq(committedSeq);
+    entry.resolve({ ok: true, committedSeq });
+  } else {
+    entry.resolve({ ok: false });   // 错误回执（error 键在场）——不推进 savedSeq
+  }
+  return true;
+}
+
+/** pagehide 触发（spec §4.2——关页前尽力一发；fire-and-forget 不阻导航）。 */
+function onPageHideSendBarrier(): void {
+  if (lastLocalEditSeq > lastReceiptClientSeq) sendSaveBarrier();
 }
 
 /** T18 双评审 Q-I-1：坏记录逐条隔离合并——盘上单条坏 snapshot（位翻转/篡改——应用写入不可达，
@@ -328,6 +460,9 @@ function mountUnsyncedDirtyTracker(d: Y.Doc): void {
     if (origin === provider) return;     // 远端 apply/导入（suppress-origin）——非本地编辑
     unsyncedPendingBytes.set(d, (unsyncedPendingBytes.get(d) ?? 0) + u.byteLength);   // T8 Σpending（先于置位早退——逐 update 累计）
     markDocUnsyncedDirty(d);
+    // Y1c T21：clientSeq 自增+barrier 调度（本地编辑单源——每次本地 update 计数；800ms idle/5s 上限）
+    lastLocalEditSeq += 1;
+    scheduleSaveBarrier();
     // diverged 标记（裁定 23⑨）：客户端已知 readOnly（collabReadOnly=connReadOnly∨quotaOver∨
     // writeFrozen 单源合成字段）∧本地新 update——不引 wire 层 SyncStatus(false) 解析
     //（报告2 sync-ack 方案登记升级路径）。T8 起缓存条目同款标记消费。
@@ -1544,6 +1679,9 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         advanceSavedSeq((msg as { pgSeq: string }).pgSeq);
         return;
       }
+      // Y1c T21：save barrier 回执（第三型——{nonce,clientSeq?,committedSeq?}；成功=双入口同汇
+      // advanceSavedSeq，错误=BARRIER_FAILED/maintenance 不产生 Durable）
+      if (consumeBarrierReceipt(msg as Record<string, unknown>)) return;
       if (!isCollabDocStatusPayload(msg)) return;
       const st = useCanvasStore.getState();
       if (msg.rev <= st.lastDocStatusRev) return;   // rev 单调守卫——乱序/重复/迟到旧快照全免疫
@@ -1733,6 +1871,14 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   await teardownSession();
   // 批1-5 会话对象（epoch 判活——I-1）：sessionEpoch 单调递增不随 session 置空回卷
   const epoch = ++sessionEpoch;
+  // Y1c T21：注入缝注册（每会话重注册幂等——ensureDurable=barrier 回执覆盖判据+savedSeq 读面）
+  registerEnsureDurableHook(ensureDurableBeforeExecution);
+  registerSavedSeqReader(() => String(savedSeq));
+  // Y1c T21：barrier 客户端会话复位（clientSeq reload 重置——回执按同 session 比较的载体）
+  lastLocalEditSeq = 0;
+  lastReceiptClientSeq = -1;
+  if (barrierIdleTimer !== null) { clearTimeout(barrierIdleTimer); barrierIdleTimer = null; }
+  if (barrierMaxTimer !== null) { clearTimeout(barrierMaxTimer); barrierMaxTimer = null; }
   // Y0b-5 T5：世代通道三元完整性判据（fail-closed）——任一缺失（fetchProjectMeta 失败/超时/
   // 字段缺失/旧后端）⇒本会话禁本地缓存（走服务端水合——undefined 键=F2 原样复发）+
   // ws_status detail.reason="local-cache-degraded" 遥测（"缓存从不生效"可观测非静默）。
@@ -1886,6 +2032,8 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     window.addEventListener('pagehide', cacheHideListener);
     document.addEventListener('visibilitychange', cacheHideListener);
   }
+  // Y1c T21：barrier pagehide 触发（spec §4.2 触发数字第三项——关页前尽力一发 fire-and-forget）
+  window.addEventListener('pagehide', onPageHideSendBarrier);
 
   // 批1-1 watchdog 心跳（3s）——Y0b-5 T3b 降级纯观测（裁定 23⑴）：UI 分级电平照旧；
   // 恢复动作面全删（action/kick/cooldown 退役——恢复权唯一归 supervisor）。
@@ -2122,6 +2270,7 @@ async function teardownSession(): Promise<void> {
   if (cacheHideListener) {
     window.removeEventListener('pagehide', cacheHideListener);
     document.removeEventListener('visibilitychange', cacheHideListener);
+    window.removeEventListener('pagehide', onPageHideSendBarrier);
     cacheHideListener = null;
   }
   const cache = localCache;

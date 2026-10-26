@@ -6,6 +6,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ExecutionService } from './execution.service';
+import { ExecutionRequestService } from './execution-request.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';
 import { TopologyService } from './topology.service';
@@ -41,7 +42,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
       name: EXECUTION_QUEUE_NAME,
       configKey: EXECUTION_CONNECTION_NAME,
       defaultJobOptions: { ...EXECUTION_JOB_OPTIONS },
-    }),
+}),
     // Y0c T23（Z98）：IntentReconcileService+其专用的 ai-image-edit 队列注册迁 ExecutionDaemonModule
     // （仅 role=api|all 装配）——本模块 processor/服务面不注入该队列。
     // T12：ai-result-download registerQueue 退役（video=finalize-first——MaterializeJob DB poller
@@ -49,7 +50,7 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
     BullModule.registerQueue({
       name: VIDEO_TRIM_QUEUE,
       configKey: VIDEO_TRIM_CONNECTION,
-    }),
+}),
     BullModule.registerQueue({
       name: VIDEO_SEPARATE_QUEUE,
       configKey: 'default',
@@ -59,10 +60,11 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
         removeOnComplete: { age: 3600, count: 100 },
         removeOnFail: { age: 86400 * 7 },
       },
-    }),
+}),
   ],
   providers: [
     ExecutionService,
+    ExecutionRequestService,   // Y1c T21（G4 门）：受理冻结服务（CollabModule 的 actor/repo 经 imports 注入）
     GenerationIntentService,
     TopologyService,
     UpstreamMediaService,   // Y1a T8：上游媒体解析（NodeArtifact 读源/身份 canonicalize/外呼 URL 解析——MinIO/Prisma 均 @Global 直注）
@@ -91,6 +93,6 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
   // Y0c T25：拆分后 exports 扩三——VideoTrimService/VideoSeparateService（ExecutionHttpModule 的两
   // controller 消费）+ BullModule（队列 token 再导出——ExecutionController @InjectQueue(EXECUTION_QUEUE)
   // 解析面，ai-download.module exports:[BullModule] 同款先例）。
-  exports: [ExecutionService, ExecutionGateway, EmitPort, ApiCallerService, PricingResolverService, GenerationIntentService, VideoTrimService, VideoSeparateService, BullModule],
+  exports: [ExecutionService, ExecutionRequestService, ExecutionGateway, EmitPort, ApiCallerService, PricingResolverService, GenerationIntentService, VideoTrimService, VideoSeparateService, BullModule],   // Y1c T21：+ExecutionRequestService（Http 半 controller 注入面）
 })
 export class ExecutionCoreModule {}

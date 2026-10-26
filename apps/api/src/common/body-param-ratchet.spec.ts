@@ -85,7 +85,9 @@ const INLINE_BASELINE = new Set<string>([
   'modules/collab/collab-media.controller.ts|body: { action?: unknown; mediaId?: unknown; expectedRev?: unknown }',
   /* Y1b T16：media-facts 批拉端点（body 数组进门自持校验≤200——collab-media 同惯例：非对象数组形态 class-validator 表达力弱，校验进门自持+棘轮登记） */
   'modules/media/media-facts.controller.ts|body: { mediaIds?: unknown }',
-  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string }',
+  'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; nodeIds?: string[]; regenToken?: string; stateVector: string; requestId?: string; docSeq?: string }',
+  /* Y1c T21（G4 门）：execute 增 requestId/docSeq（冻结请求执行+save barrier 下界——内容标识更新）+ /requests 受理端点新条目 */
+  'modules/execution/execution.controller.ts|body: { projectId: string; requestId: string; nodeIds: string[]; docSeq?: string }',
   'modules/execution/execution.controller.ts|body: { projectId: string; nodeId?: string; regenToken?: string; stateVector: string }',
   'modules/execution/video-separate.controller.ts|dto: { fileId: string; nodeId: string; mode: string }',
   'modules/execution/video-trim.controller.ts|body: { fileId: string; startTime: number; endTime: number; nodeId: string }',

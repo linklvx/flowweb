@@ -12,6 +12,18 @@ function svBody(): Record<string, string> {
   return sv ? { stateVector: sv } : {};
 }
 
+// ── Y1c T21（G4 门客户端）：execute 带 docSeq（save barrier 回执 committedSeq——客户端已确认
+//    下界；请求不携带提示词参数——prompt 权威=doc 单源）+执行前 ensureDurable 触发（spec §4.2
+//    第四触发数字——注入缝防 api↔stores 循环 import，canvasCollabRuntime initCollab 注册）。──
+let ensureDurableHook: (() => Promise<string>) | null = null;
+export function registerEnsureDurableHook(fn: (() => Promise<string>) | null): void {
+  ensureDurableHook = fn;
+}
+let docSeqOf: () => string = () => '0';
+export function registerSavedSeqReader(fn: () => string): void {
+  docSeqOf = fn;
+}
+
 /** Z56 修订（T7）：反应式重发——先发→409 SYNC_PENDING 才 forceSyncAndWaitUnsynced→重发恰一次；
  *  再拒=服务端停滞信号（观测经诊断 ring），抛出不循环。非 SYNC_PENDING 直接抛零 forceSync。
  *  Y0b-2 T8（Z90）：**只重 SYNC_PENDING 不重 5xx/超时**——504=回执丢失语义（服务端继续跑、产物经 doc
@@ -53,10 +65,11 @@ export interface ExecutionErrorEntry {
 
 export async function executeGroupNodes(projectId: string, nodeIds: string[], opts?: { regenToken?: string }): Promise<{ success: boolean; errors: ExecutionErrorEntry[]; results?: { nodeId: string; type: string; resultUrl?: string }[]; totalCost?: number }> {
   // Y0b-2 T7：SV 门受理端点化——body.stateVector+SYNC_PENDING 反应式重发（withSyncRetry 单源）
-  return withSyncRetry(() => apiFetch('/execution/execute', {
+  if (ensureDurableHook) { try { await ensureDurableHook(); } catch { /* fail-open：ensure 失败不禁执行（docSeq=诚实下界） */ } }
+    return withSyncRetry(() => apiFetch('/execution/execute', {
     method: 'POST',
     // Y0b-2 T6（Z79）：regenToken=手势 token（与 enqueue 管道双管道对齐；组工具条普通执行不传=内容键路径）
-    body: JSON.stringify({ projectId, nodeIds, ...svBody(), ...(opts?.regenToken ? { regenToken: opts.regenToken } : {}) }),
+    body: JSON.stringify({ projectId, nodeIds, ...svBody(), docSeq: docSeqOf(), ...(opts?.regenToken ? { regenToken: opts.regenToken } : {}) }),
   }));
 }
 
@@ -70,7 +83,7 @@ export async function enqueueWorkflow(params: {
   // Y0b-2 T7：SV 门受理端点化——body.stateVector+SYNC_PENDING 反应式重发
   return withSyncRetry(() => apiFetch('/execution/enqueue', {
     method: 'POST',
-    body: JSON.stringify({ ...params, ...svBody() }),
+    body: JSON.stringify({ ...params, ...svBody(), docSeq: docSeqOf() }),
   }));
 }
 

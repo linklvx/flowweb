@@ -37,5 +37,17 @@
   },
   "20261024130000_y1c_t9_canvas_doc_update_v17": {
     "migration.sql": "b7f0296102397d1cfcd5b8f2ed3b0cb45fbf06857cdc8229736dc8f1ca77366a"
+  },
+  "20261024140000_y1c_t10_drop_canvas_doc_update_seq": {
+    "migration.sql": "0c80f9da5c8783be39db03ee6611e7f564311c8bd4fd0d4ea64d3e5dfd0b6d39"
+  },
+  "20261024150000_y1c_t11_snapshot_authority": {
+    "migration.sql": "cc5b2b65252d1fb14bc92fdd81d9300381e0ad502acb35417a76ce493e58c962"
+  },
+  "20261024160000_y1c_t12_prevacuum_retirement": {
+    "migration.sql": "92b89cf142e2bfcfe43bb17ec5b440924f3d9b910d21fae07c8d040dff365915"
+  },
+  "20261025120000_y1c_t21_execution_business": {
+    "migration.sql": "b0eaeca591cfb41ec898c6e0f3ae8c09564c4e85c7ec90398d292dcac8c6c722"
   }
 }

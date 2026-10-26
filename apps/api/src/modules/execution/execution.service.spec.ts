@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionService } from './execution.service';
+import { ExecutionRequestService } from './execution-request.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
 import { UpstreamMediaService } from './upstream-media.service';
@@ -103,6 +104,7 @@ describe('ExecutionService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExecutionService,
+        { provide: ExecutionRequestService, useValue: { loadForExecution: vi.fn(), admit: vi.fn(), sweepExpired: vi.fn() } },   // Y1c T21（冻结路径 spec 最小装置）
         { provide: PrismaService, useValue: prisma },
         { provide: TopologyService, useValue: topology },
         { provide: ValidationService, useValue: validation },
